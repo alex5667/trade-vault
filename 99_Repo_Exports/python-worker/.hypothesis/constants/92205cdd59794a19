@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/of_gate_metrics_contract.py
+# hypothesis_version: 6.148.10
+
+[0.7, 1.0, '1', '[]', '[^a-zA-Z0-9_]+', '_', 'bad_ok', 'bad_ok_soft', 'bad_scenario_v4', 'bad_symbol', 'bad_ts_ms', 'book_bad', 'book_health_ok', 'data_health', 'data_health_bad', 'dn_veto', 'meta_veto', 'missing_', 'missing_legs', 'of_gate_metrics', 'ok', 'ok_soft', 'reason_code', 'rule_veto', 'scenario_v4', 'schema_name', 'schema_version', 'soft_ok', 'src_inconsistent', 'symbol', 'ts_ms', 'unknown']

@@ -1,0 +1,52 @@
+groups:
+- name: atr_drift_governance_alerts
+  rules:
+  - alert: ATRCriticalDriftOpen
+    expr: atr_drift_governance_total{status="open", severity="critical"} > 0
+    for: 1m
+    labels:
+      severity: page
+      team: trade-ops
+    annotations:
+      summary: "Critical Drift Governance Event Open"
+      description: "Critical drift family {{ $labels.drift_family }} is open on scope {{ $labels.scope_value }}. Releases are blocked."
+
+  - alert: ATRDatasetExpiringSoon
+    expr: atr_dataset_baseline_validity_status{status="valid"} == 1 and (atr_dataset_baseline_validity_until - time()) < (86400 * 3)
+    for: 5m
+    labels:
+      severity: warn
+      team: trade-ops
+    annotations:
+      summary: "ATR Golden Dataset Expiry Warning"
+      description: "Dataset {{ $labels.dataset_id }} class {{ $labels.dataset_class }} will expire in less than 3 days. Prepare refresh."
+
+  - alert: ATRDatasetExpired
+    expr: atr_dataset_baseline_validity_status{status="expired"} == 1
+    for: 1m
+    labels:
+      severity: error
+      team: trade-ops
+    annotations:
+      summary: "ATR Golden Dataset Expired"
+      description: "Dataset {{ $labels.dataset_id }} class {{ $labels.dataset_class }} has expired. Releases for this class are blocked."
+
+  - alert: ATRRefreshRequestStuck
+    expr: atr_dataset_refresh_requests_total{status="requested"} > 0 and (time() - atr_dataset_refresh_request_created_at) > (86400 * 1)
+    for: 1h
+    labels:
+      severity: warn
+      team: trade-ops
+    annotations:
+      summary: "ATR Dataset Refresh Request Stuck"
+      description: "Refresh request for class {{ $labels.dataset_class }} has been in 'requested' state for more than 24h."
+
+  - alert: ATRForbiddenWaiverAttempt
+    expr: atr_release_window_blocked_total{reason_code=~".*forbidden_waiver.*"} > 0
+    for: 0m
+    labels:
+      severity: page
+      team: trade-ops
+    annotations:
+      summary: "Forbidden Waiver Attempt Detected"
+      description: "Operator tried to waive a critical drift block that is marked as non-waivable."

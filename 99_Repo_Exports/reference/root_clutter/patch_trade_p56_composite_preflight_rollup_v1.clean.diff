@@ -1,0 +1,1616 @@
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' orig/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example repo/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
+--- orig/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example	2026-03-08 09:24:43.000000000 +0000
++++ repo/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example	2026-03-08 18:49:17.256540058 +0000
+@@ -29,3 +29,16 @@
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_ENABLE=1
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_STREAM=notify:telegram
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_REMINDER_S=21600
++
++ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_ROLLUP=1
++ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_TEXTFILE_EXPORTER=1
++ORCHESTRATION_COMPOSITE_PREFLIGHT_STREAM=ops:orchestration:preflight:v1
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_CURSOR_KEY=metrics:orchestration:preflight:history_rollup:last_id
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_STATE_KEY=metrics:orchestration:preflight:history_rollup:last
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_HOURLY_PREFIX=metrics:orchestration:preflight:history:h
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_DAILY_PREFIX=metrics:orchestration:preflight:history:d
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_BATCH_SIZE=500
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_HOURLY_RETENTION_HOURS=1080
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_DAILY_RETENTION_DAYS=120
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_BOOTSTRAP_SKIP_EXISTING=1
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORT_PATH=/var/lib/node_exporter/textfile_collector/orchestration_composite_preflight_history_rollup.prom
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' orig/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example repo/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
+--- orig/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example	2026-03-08 09:24:43.000000000 +0000
++++ repo/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example	2026-03-08 18:49:17.256220256 +0000
+@@ -29,3 +29,16 @@
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_ENABLE=1
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_STREAM=notify:telegram
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_REMINDER_S=21600
++
++ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_ROLLUP=1
++ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_TEXTFILE_EXPORTER=1
++ORCHESTRATION_COMPOSITE_PREFLIGHT_STREAM=ops:orchestration:preflight:v1
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_CURSOR_KEY=metrics:orchestration:preflight:history_rollup:last_id
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_STATE_KEY=metrics:orchestration:preflight:history_rollup:last
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_HOURLY_PREFIX=metrics:orchestration:preflight:history:h
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_DAILY_PREFIX=metrics:orchestration:preflight:history:d
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_BATCH_SIZE=500
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_HOURLY_RETENTION_HOURS=1080
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_DAILY_RETENTION_DAYS=120
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_BOOTSTRAP_SKIP_EXISTING=1
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORT_PATH=/var/lib/node_exporter/textfile_collector/orchestration_composite_preflight_history_rollup.prom
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' orig/orderflow_services/orchestration_composite_preflight_history_rollup_v1.py repo/orderflow_services/orchestration_composite_preflight_history_rollup_v1.py
+--- orig/orderflow_services/orchestration_composite_preflight_history_rollup_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo/orderflow_services/orchestration_composite_preflight_history_rollup_v1.py	2026-03-08 18:52:16.853379106 +0000
+@@ -0,0 +1,280 @@
++from __future__ import annotations
++
++"""Incremental Redis-side rollup for orchestration composite preflight events.
++
++Design intent:
++- stop re-scanning the full Redis Stream window for every exporter run
++- maintain bounded hourly/daily bucket counters in Redis
++- keep dimensions low-cardinality and deterministic for SLO/weekly trend metrics
++
++The module reads incremental events from the ops stream, updates Redis hash buckets,
++and persists a cursor. Buckets are safe to read cheaply later by a textfile exporter.
++"""
++
++import json
++import os
++import re
++import time
++from typing import Any, Iterable, Mapping, Tuple
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++
++STREAM_KEY_DEFAULT = "ops:orchestration:preflight:v1"
++CURSOR_KEY_DEFAULT = "metrics:orchestration:preflight:history_rollup:last_id"
++STATE_KEY_DEFAULT = "metrics:orchestration:preflight:history_rollup:last"
++HOURLY_PREFIX_DEFAULT = "metrics:orchestration:preflight:history:h"
++DAILY_PREFIX_DEFAULT = "metrics:orchestration:preflight:history:d"
++
++ALLOWED_SOURCES = {"deploy_lint", "latency_contract", "research_guard", "unknown"}
++ALLOWED_STATUSES = {"ok", "invalid", "block", "unknown"}
++
++
++def _get_redis() -> Any:
++    if redis is None:
++        return None
++    url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
++    try:
++        return redis.Redis.from_url(url, decode_responses=True)
++    except Exception:
++        return None
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _safe_text(value: Any, default: str = "") -> str:
++    return str(value or default).strip()
++
++
++def normalize_source(value: Any) -> str:
++    raw = _safe_text(value, "unknown").lower().replace("-", "_").replace(" ", "_")
++    if raw in ALLOWED_SOURCES:
++        return raw
++    if raw.startswith("deploy"):
++        return "deploy_lint"
++    if raw.startswith("latency"):
++        return "latency_contract"
++    if raw.startswith("research"):
++        return "research_guard"
++    return "unknown"
++
++
++def normalize_status(value: Any) -> str:
++    raw = _safe_text(value, "unknown").lower().replace("-", "_")
++    if raw in ALLOWED_STATUSES:
++        return raw
++    if raw.startswith("block"):
++        return "block"
++    if raw.startswith("invalid"):
++        return "invalid"
++    if raw.startswith("ok"):
++        return "ok"
++    return "unknown"
++
++
++def normalize_reason_code(value: Any, source: str) -> str:
++    raw = _safe_text(value, "").lower()
++    raw = re.sub(r"[^a-z0-9:_-]+", "_", raw).strip("_:")
++    if not raw:
++        return f"{source}:none"
++    if raw.startswith(("deploy_lint:", "latency_contract:", "research_guard:")):
++        prefix, rest = raw.split(":", 1)
++        source = normalize_source(prefix)
++        raw = rest
++
++    source = normalize_source(source)
++
++    def _family(candidates: Iterable[str], fallback: str = "other") -> str:
++        for item in candidates:
++            if item and item in raw:
++                return item
++        return fallback
++
++    if source == "deploy_lint":
++        fam = _family(("missing_env", "compose", "wrapper", "unit", "env_file", "stale", "invalid", "block"))
++    elif source == "latency_contract":
++        fam = _family(("slo", "lag", "timeout", "stale", "missing_state", "invalid", "block"))
++    elif source == "research_guard":
++        fam = _family(("pbo_high", "psr_low", "dsr_low", "report_stale", "missing_state", "invalid", "block"))
++    else:
++        fam = _family(("stale", "invalid", "block"))
++    return f"{source}:{fam}"
++
++
++def _extract_event_ts_ms(stream_id: str, payload: Mapping[str, Any]) -> int:
++    raw = _safe_text(payload.get("ts_ms"))
++    if raw.isdigit():
++        return int(raw)
++    try:
++        return int(str(stream_id).split("-", 1)[0])
++    except Exception:
++        return _now_ms()
++
++
++def _hour_bucket_start_ms(ts_ms: int) -> int:
++    return (int(ts_ms) // 3_600_000) * 3_600_000
++
++
++def _day_bucket_start_ms(ts_ms: int) -> int:
++    return (int(ts_ms) // 86_400_000) * 86_400_000
++
++
++def _bucket_key(prefix: str, bucket_start_ms: int) -> str:
++    return f"{prefix}:{int(bucket_start_ms)}"
++
++
++def encode_field(*, purpose: str, selected_source: str, decision_status: str, selected_reason_code: str) -> str:
++    return json.dumps(
++        [purpose, selected_source, decision_status, selected_reason_code],
++        ensure_ascii=False,
++        separators=(",", ":"),
++    )
++
++
++def decode_field(value: str) -> Tuple[str, str, str, str]:
++    arr = json.loads(value)
++    if not isinstance(arr, list) or len(arr) != 4:
++        raise ValueError("invalid field")
++    return (str(arr[0]), str(arr[1]), str(arr[2]), str(arr[3]))
++
++
++def _event_dims(payload: Mapping[str, Any]) -> Tuple[str, str, str, str]:
++    source = normalize_source(payload.get("selected_source") or payload.get("source"))
++    status = normalize_status(payload.get("decision_status") or payload.get("status"))
++    purpose = _safe_text(payload.get("purpose"), "unknown") or "unknown"
++    reason = normalize_reason_code(payload.get("selected_reason_code") or payload.get("reason_code") or payload.get("selected_reason"), source)
++    return purpose, source, status, reason
++
++
++def _bootstrap_cursor(r: Any, stream_key: str, cursor_key: str, state_key: str, skip_existing: bool) -> str:
++    existing = _safe_text(r.get(cursor_key))
++    if existing:
++        return existing
++
++    cursor = "0-0"
++    skipped = 0
++    if skip_existing:
++        latest = r.xrevrange(stream_key, max="+", min="-", count=1)
++        if latest:
++            cursor = str(latest[0][0])
++        skipped = 1
++    r.set(cursor_key, cursor)
++    try:
++        r.hset(
++            state_key,
++            mapping={
++                "last_stream_id": cursor,
++                "bootstrap_skipped_existing": str(skipped),
++                "last_rollup_ts_ms": str(_now_ms()),
++            },
++        )
++    except Exception:
++        pass
++    return cursor
++
++
++def rollup_incremental(
++    r: Any,
++    *,
++    stream_key: str,
++    cursor_key: str,
++    state_key: str,
++    hourly_prefix: str,
++    daily_prefix: str,
++    batch_size: int = 500,
++    hourly_ttl_hours: int = 24 * 45,
++    daily_ttl_days: int = 120,
++    bootstrap_skip_existing: bool = True,
++) -> dict[str, int]:
++    cursor = _bootstrap_cursor(r, stream_key, cursor_key, state_key, bootstrap_skip_existing)
++    processed_total = 0
++    batches = 0
++    last_stream_id = cursor
++    last_event_ts_ms = 0
++    hourly_ttl_s = max(1, int(hourly_ttl_hours) * 3600)
++    daily_ttl_s = max(1, int(daily_ttl_days) * 86400)
++    prev_processed_total = int(float(_safe_text(r.hget(state_key, "processed_events_total"), "0") or "0"))
++
++    while True:
++        rows = r.xread({stream_key: last_stream_id}, count=max(1, int(batch_size)), block=1)
++        if not rows:
++            break
++        stream_rows = rows[0][1] if rows and rows[0] else []
++        if not stream_rows:
++            break
++        batches += 1
++        batch_processed = 0
++        pipe = r.pipeline(transaction=False)
++        for stream_id, payload in stream_rows:
++            payload = payload or {}
++            ts_ms = _extract_event_ts_ms(str(stream_id), payload)
++            purpose, source, status, reason = _event_dims(payload)
++            field = encode_field(
++                purpose=purpose,
++                selected_source=source,
++                decision_status=status,
++                selected_reason_code=reason,
++            )
++            hour_key = _bucket_key(hourly_prefix, _hour_bucket_start_ms(ts_ms))
++            day_key = _bucket_key(daily_prefix, _day_bucket_start_ms(ts_ms))
++            pipe.hincrby(hour_key, field, 1)
++            pipe.hincrby(day_key, field, 1)
++            pipe.expire(hour_key, hourly_ttl_s)
++            pipe.expire(day_key, daily_ttl_s)
++            last_stream_id = str(stream_id)
++            last_event_ts_ms = ts_ms
++            processed_total += 1
++            batch_processed += 1
++
++        pipe.set(cursor_key, last_stream_id)
++        pipe.hset(
++            state_key,
++            mapping={
++                "last_stream_id": last_stream_id,
++                "last_rollup_ts_ms": str(_now_ms()),
++                "last_event_ts_ms": str(last_event_ts_ms),
++                "processed_events_total": str(prev_processed_total + processed_total),
++                "processed_events_last_run": str(batch_processed),
++                "batches_last_run": str(batches),
++                "bootstrap_skipped_existing": _safe_text(r.hget(state_key, "bootstrap_skipped_existing"), "0"),
++            },
++        )
++        pipe.execute()
++        if len(stream_rows) < int(batch_size):
++            break
++
++    return {
++        "processed": processed_total,
++        "batches": batches,
++        "last_stream_id": int(last_stream_id.split("-", 1)[0]) if last_stream_id and last_stream_id != "0-0" else 0,
++        "last_event_ts_ms": last_event_ts_ms,
++    }
++
++
++def main() -> int:
++    r = _get_redis()
++    if r is None:
++        return 1
++    res = rollup_incremental(
++        r,
++        stream_key=os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_STREAM", STREAM_KEY_DEFAULT),
++        cursor_key=os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_CURSOR_KEY", CURSOR_KEY_DEFAULT),
++        state_key=os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_STATE_KEY", STATE_KEY_DEFAULT),
++        hourly_prefix=os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_HOURLY_PREFIX", HOURLY_PREFIX_DEFAULT),
++        daily_prefix=os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_DAILY_PREFIX", DAILY_PREFIX_DEFAULT),
++        batch_size=int(os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_BATCH_SIZE", "500")),
++        hourly_ttl_hours=int(os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_HOURLY_RETENTION_HOURS", str(24 * 45))),
++        daily_ttl_days=int(os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_DAILY_RETENTION_DAYS", "120")),
++        bootstrap_skip_existing=os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_BOOTSTRAP_SKIP_EXISTING", "1").lower() in ("1", "true", "yes", "on"),
++    )
++    print(json.dumps(res, ensure_ascii=False, separators=(",", ":")))
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' orig/orderflow_services/orchestration_composite_preflight_history_textfile_exporter_v1.py repo/orderflow_services/orchestration_composite_preflight_history_textfile_exporter_v1.py
+--- orig/orderflow_services/orchestration_composite_preflight_history_textfile_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo/orderflow_services/orchestration_composite_preflight_history_textfile_exporter_v1.py	2026-03-08 18:52:16.893066653 +0000
+@@ -0,0 +1,202 @@
++from __future__ import annotations
++
++"""Textfile exporter for orchestration composite preflight rollup buckets.
++
++Reads incremental Redis hourly/daily bucket hashes produced by
++orchestration_composite_preflight_history_rollup_v1 and writes bounded
++Prometheus metrics for 24h / 7d / 30d windows.
++"""
++
++import os
++import time
++from pathlib import Path
++from typing import Any, Dict, Iterable, List, Mapping, Tuple
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++from orderflow_services.orchestration_composite_preflight_history_rollup_v1 import (
++    CURSOR_KEY_DEFAULT,
++    DAILY_PREFIX_DEFAULT,
++    HOURLY_PREFIX_DEFAULT,
++    STATE_KEY_DEFAULT,
++    decode_field,
++)
++
++
++def _get_redis() -> Any:
++    if redis is None:
++        return None
++    url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
++    try:
++        return redis.Redis.from_url(url, decode_responses=True)
++    except Exception:
++        return None
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _metric_line(name: str, labels: Mapping[str, str], value: float) -> str:
++    if labels:
++        lab = ",".join(f'{k}="{str(v)}"' for k, v in sorted(labels.items()))
++        return f"{name}{{{lab}}} {value}\n"
++    return f"{name} {value}\n"
++
++
++def _bucket_key(prefix: str, bucket_start_ms: int) -> str:
++    return f"{prefix}:{int(bucket_start_ms)}"
++
++
++def _hour_buckets(now_ms: int, hours: int) -> List[int]:
++    base = (now_ms // 3_600_000) * 3_600_000
++    return [base - i * 3_600_000 for i in range(max(0, int(hours)))]
++
++
++def _day_buckets(now_ms: int, days: int) -> List[int]:
++    base = (now_ms // 86_400_000) * 86_400_000
++    return [base - i * 86_400_000 for i in range(max(0, int(days)))]
++
++
++def _read_bucket_hashes(r: Any, prefix: str, bucket_starts_ms: Iterable[int]) -> List[Mapping[str, str]]:
++    pipe = r.pipeline(transaction=False)
++    for bucket_start in bucket_starts_ms:
++        pipe.hgetall(_bucket_key(prefix, bucket_start))
++    rows = pipe.execute()
++    return list(rows or [])
++
++
++def aggregate_windows(r: Any, *, now_ms: int, hourly_prefix: str, daily_prefix: str) -> Dict[Tuple[str, str, str, str, str], int]:
++    result: Dict[Tuple[str, str, str, str, str], int] = {}
++    window_specs = {
++        "24h": (hourly_prefix, _hour_buckets(now_ms, 24)),
++        "7d": (daily_prefix, _day_buckets(now_ms, 7)),
++        "30d": (daily_prefix, _day_buckets(now_ms, 30)),
++    }
++    for window, (prefix, buckets) in window_specs.items():
++        for row in _read_bucket_hashes(r, prefix, buckets):
++            for field, raw_value in (row or {}).items():
++                try:
++                    purpose, source, status, reason = decode_field(field)
++                    value = int(float(str(raw_value or "0")))
++                except Exception:
++                    continue
++                key = (window, purpose, source, status, reason)
++                result[key] = result.get(key, 0) + value
++    return result
++
++
++def render_text(r: Any, *, now_ms: int | None = None) -> str:
++    now_ms = int(now_ms or _now_ms())
++    hourly_prefix = os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_HOURLY_PREFIX", HOURLY_PREFIX_DEFAULT)
++    daily_prefix = os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_DAILY_PREFIX", DAILY_PREFIX_DEFAULT)
++    state_key = os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_STATE_KEY", STATE_KEY_DEFAULT)
++    cursor_key = os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_CURSOR_KEY", CURSOR_KEY_DEFAULT)
++
++    agg = aggregate_windows(r, now_ms=now_ms, hourly_prefix=hourly_prefix, daily_prefix=daily_prefix)
++    lines: List[str] = []
++    lines.append("# HELP orchestration_composite_preflight_rollup_events_total Incremental orchestration preflight events aggregated from Redis buckets\n")
++    lines.append("# TYPE orchestration_composite_preflight_rollup_events_total gauge\n")
++    for (window, purpose, source, status, reason), value in sorted(agg.items()):
++        lines.append(
++            _metric_line(
++                "orchestration_composite_preflight_rollup_events_total",
++                {
++                    "window": window,
++                    "purpose": purpose,
++                    "selected_source": source,
++                    "decision_status": status,
++                    "selected_reason_code": reason,
++                },
++                float(value),
++            )
++        )
++
++    totals: Dict[Tuple[str, str], int] = {}
++    blocks: Dict[Tuple[str, str], int] = {}
++    invalids: Dict[Tuple[str, str], int] = {}
++    for (window, purpose, _source, status, _reason), value in agg.items():
++        key = (window, purpose)
++        totals[key] = totals.get(key, 0) + value
++        if status == "block":
++            blocks[key] = blocks.get(key, 0) + value
++        if status == "invalid":
++            invalids[key] = invalids.get(key, 0) + value
++
++    lines.append("# HELP orchestration_composite_preflight_rollup_total Total aggregated orchestration preflight events by window and purpose\n")
++    lines.append("# TYPE orchestration_composite_preflight_rollup_total gauge\n")
++    for (window, purpose), value in sorted(totals.items()):
++        lines.append(_metric_line("orchestration_composite_preflight_rollup_total", {"window": window, "purpose": purpose}, float(value)))
++
++    lines.append("# HELP orchestration_composite_preflight_rollup_block_ratio Block ratio by purpose over window\n")
++    lines.append("# TYPE orchestration_composite_preflight_rollup_block_ratio gauge\n")
++    lines.append("# HELP orchestration_composite_preflight_rollup_invalid_ratio Invalid ratio by purpose over window\n")
++    lines.append("# TYPE orchestration_composite_preflight_rollup_invalid_ratio gauge\n")
++    for (window, purpose), total in sorted(totals.items()):
++        if total <= 0:
++            continue
++        lines.append(
++            _metric_line(
++                "orchestration_composite_preflight_rollup_block_ratio",
++                {"window": window, "purpose": purpose},
++                float(blocks.get((window, purpose), 0)) / float(total),
++            )
++        )
++        lines.append(
++            _metric_line(
++                "orchestration_composite_preflight_rollup_invalid_ratio",
++                {"window": window, "purpose": purpose},
++                float(invalids.get((window, purpose), 0)) / float(total),
++            )
++        )
++
++    state = r.hgetall(state_key) or {}
++    cursor = str(r.get(cursor_key) or "")
++    last_rollup_ts_ms = int(float(str(state.get("last_rollup_ts_ms") or "0") or "0"))
++    last_event_ts_ms = int(float(str(state.get("last_event_ts_ms") or "0") or "0"))
++    lag_s = max(0.0, (float(now_ms) - float(last_rollup_ts_ms)) / 1000.0) if last_rollup_ts_ms else 0.0
++
++    lines.append("# HELP orchestration_composite_preflight_rollup_state_present 1 if rollup state exists\n")
++    lines.append("# TYPE orchestration_composite_preflight_rollup_state_present gauge\n")
++    lines.append(_metric_line("orchestration_composite_preflight_rollup_state_present", {}, 1.0 if state else 0.0))
++    lines.append("# HELP orchestration_composite_preflight_rollup_cursor_present 1 if stream cursor exists\n")
++    lines.append("# TYPE orchestration_composite_preflight_rollup_cursor_present gauge\n")
++    lines.append(_metric_line("orchestration_composite_preflight_rollup_cursor_present", {}, 1.0 if cursor else 0.0))
++    lines.append("# HELP orchestration_composite_preflight_rollup_lag_seconds Age of the latest incremental rollup run\n")
++    lines.append("# TYPE orchestration_composite_preflight_rollup_lag_seconds gauge\n")
++    lines.append(_metric_line("orchestration_composite_preflight_rollup_lag_seconds", {}, lag_s))
++    lines.append("# HELP orchestration_composite_preflight_rollup_last_rollup_unixtime Unix time of last incremental rollup\n")
++    lines.append("# TYPE orchestration_composite_preflight_rollup_last_rollup_unixtime gauge\n")
++    lines.append(_metric_line("orchestration_composite_preflight_rollup_last_rollup_unixtime", {}, float(last_rollup_ts_ms / 1000.0 if last_rollup_ts_ms else 0.0)))
++    lines.append("# HELP orchestration_composite_preflight_rollup_last_event_unixtime Unix time of last rolled-up event\n")
++    lines.append("# TYPE orchestration_composite_preflight_rollup_last_event_unixtime gauge\n")
++    lines.append(_metric_line("orchestration_composite_preflight_rollup_last_event_unixtime", {}, float(last_event_ts_ms / 1000.0 if last_event_ts_ms else 0.0)))
++    lines.append("# HELP orchestration_composite_preflight_rollup_last_export_unixtime Unix time of last textfile export\n")
++    lines.append("# TYPE orchestration_composite_preflight_rollup_last_export_unixtime gauge\n")
++    lines.append(_metric_line("orchestration_composite_preflight_rollup_last_export_unixtime", {}, float(now_ms / 1000.0)))
++    return "".join(lines)
++
++
++def main() -> int:
++    r = _get_redis()
++    if r is None:
++        return 1
++    out_path = Path(
++        os.getenv(
++            "ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORT_PATH",
++            "/var/lib/node_exporter/textfile_collector/orchestration_composite_preflight_history_rollup.prom",
++        )
++    ).expanduser().resolve()
++    text = render_text(r)
++    out_path.parent.mkdir(parents=True, exist_ok=True)
++    tmp = out_path.with_suffix(out_path.suffix + ".tmp")
++    tmp.write_text(text, encoding="utf-8")
++    tmp.replace(out_path)
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' orig/orderflow_services/prometheus_alerts_orchestration_composite_preflight_rollup_p56.yml repo/orderflow_services/prometheus_alerts_orchestration_composite_preflight_rollup_p56.yml
+--- orig/orderflow_services/prometheus_alerts_orchestration_composite_preflight_rollup_p56.yml	1970-01-01 00:00:00.000000000 +0000
++++ repo/orderflow_services/prometheus_alerts_orchestration_composite_preflight_rollup_p56.yml	2026-03-08 18:49:17.255464275 +0000
+@@ -0,0 +1,29 @@
++groups:
++  - name: trade_orchestration_composite_preflight_rollup_p56
++    rules:
++      - alert: TradeOrchestrationCompositePreflightRollupStaleWarn
++        expr: orchestration_composite_preflight_rollup_lag_seconds > 1800
++        for: 20m
++        labels:
++          severity: warning
++        annotations:
++          summary: Orchestration composite preflight rollup is stale
++          description: Incremental rollup has not advanced for more than 30 minutes.
++
++      - alert: TradeOrchestrationCompositePreflightBlockRatioHigh30dWarn
++        expr: max by (purpose) (orchestration_composite_preflight_rollup_block_ratio{window="30d"}) > 0.05
++        for: 30m
++        labels:
++          severity: warning
++        annotations:
++          summary: High 30d orchestration block ratio
++          description: Composite preflight block ratio exceeded 5% over 30d for a purpose.
++
++      - alert: TradeOrchestrationCompositePreflightInvalidRatioHigh7dWarn
++        expr: max by (purpose) (orchestration_composite_preflight_rollup_invalid_ratio{window="7d"}) > 0.03
++        for: 30m
++        labels:
++          severity: warning
++        annotations:
++          summary: High 7d orchestration invalid ratio
++          description: Composite preflight invalid ratio exceeded 3% over 7d for a purpose.
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' orig/orderflow_services/tests/test_orchestration_composite_preflight_history_p56_assets_v1.py repo/orderflow_services/tests/test_orchestration_composite_preflight_history_p56_assets_v1.py
+--- orig/orderflow_services/tests/test_orchestration_composite_preflight_history_p56_assets_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo/orderflow_services/tests/test_orchestration_composite_preflight_history_p56_assets_v1.py	2026-03-08 18:49:17.255970112 +0000
+@@ -0,0 +1,33 @@
++
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[2]
++
++
++def test_alert_files_exist() -> None:
++    for rel in [
++        'orderflow_services/prometheus_alerts_orchestration_composite_preflight_rollup_p56.yml',
++        'tick_flow_full/orderflow_services/prometheus_alerts_orchestration_composite_preflight_rollup_p56.yml',
++    ]:
++        assert (ROOT / rel).exists(), rel
++
++
++def test_env_examples_include_p56_vars() -> None:
++    for rel in [
++        'orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example',
++        'orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example',
++    ]:
++        txt = (ROOT / rel).read_text(encoding='utf-8')
++        assert 'ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_ROLLUP=' in txt
++        assert 'ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORT_PATH=' in txt
++        assert 'ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_CURSOR_KEY=' in txt
++
++
++def test_timer_worker_wiring_present() -> None:
++    for rel in [
++        'services/of_timers_worker.py',
++        'tick_flow_full/services/of_timers_worker.py',
++    ]:
++        txt = (ROOT / rel).read_text(encoding='utf-8')
++        assert 'run_orchestration_composite_preflight_history_rollup' in txt
++        assert 'run_orchestration_composite_preflight_history_textfile_exporter' in txt
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' orig/orderflow_services/tests/test_orchestration_composite_preflight_history_rollup_v1.py repo/orderflow_services/tests/test_orchestration_composite_preflight_history_rollup_v1.py
+--- orig/orderflow_services/tests/test_orchestration_composite_preflight_history_rollup_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo/orderflow_services/tests/test_orchestration_composite_preflight_history_rollup_v1.py	2026-03-08 18:49:17.255711398 +0000
+@@ -0,0 +1,133 @@
++
++from orderflow_services import orchestration_composite_preflight_history_rollup_v1 as mod
++
++class FakePipeline:
++    def __init__(self, r):
++        self.r = r
++        self.ops = []
++    def hincrby(self, key, field, amount):
++        self.ops.append(("hincrby", key, field, amount))
++        return self
++    def expire(self, key, ttl):
++        self.ops.append(("expire", key, ttl))
++        return self
++    def set(self, key, value):
++        self.ops.append(("set", key, value))
++        return self
++    def hset(self, key, mapping=None, **kwargs):
++        self.ops.append(("hset", key, dict(mapping or {})))
++        return self
++    def hgetall(self, key):
++        self.ops.append(("hgetall", key))
++        return self
++    def execute(self):
++        out = []
++        for op in self.ops:
++            kind = op[0]
++            if kind == "hincrby":
++                _, key, field, amount = op
++                self.r.hashes.setdefault(key, {})[field] = int(self.r.hashes.setdefault(key, {}).get(field, 0)) + int(amount)
++                out.append(self.r.hashes[key][field])
++            elif kind == "expire":
++                _, key, ttl = op
++                self.r.expiry[key] = int(ttl)
++                out.append(True)
++            elif kind == "set":
++                _, key, value = op
++                self.r.kv[key] = str(value)
++                out.append(True)
++            elif kind == "hset":
++                _, key, mapping = op
++                self.r.hashes.setdefault(key, {}).update({str(k): str(v) for k, v in mapping.items()})
++                out.append(True)
++            elif kind == "hgetall":
++                _, key = op
++                out.append(dict(self.r.hashes.get(key, {})))
++        self.ops = []
++        return out
++
++
++class FakeRedis:
++    def __init__(self):
++        self.kv = {}
++        self.hashes = {}
++        self.expiry = {}
++        self.streams = {}
++    def get(self, key):
++        return self.kv.get(key)
++    def set(self, key, value):
++        self.kv[key] = str(value)
++        return True
++    def hget(self, key, field):
++        return self.hashes.get(key, {}).get(field)
++    def hset(self, key, mapping=None, **kwargs):
++        self.hashes.setdefault(key, {}).update({str(k): str(v) for k, v in dict(mapping or {}).items()})
++        return True
++    def hgetall(self, key):
++        return dict(self.hashes.get(key, {}))
++    def hincrby(self, key, field, amount):
++        self.hashes.setdefault(key, {})[field] = int(self.hashes.setdefault(key, {}).get(field, 0)) + int(amount)
++        return self.hashes[key][field]
++    def expire(self, key, ttl):
++        self.expiry[key] = int(ttl)
++        return True
++    def pipeline(self, transaction=False):
++        return FakePipeline(self)
++    def xrevrange(self, key, max='+', min='-', count=1):
++        items = list(self.streams.get(key, []))
++        items.sort(key=lambda x: x[0], reverse=True)
++        return items[:count]
++    def xread(self, streams, count=1, block=1):
++        key, last_id = next(iter(streams.items()))
++        items = list(self.streams.get(key, []))
++        picked = [item for item in items if item[0] > last_id][:count]
++        if not picked:
++            return []
++        return [(key, picked)]
++
++
++
++def test_rollup_increments_hour_and_day_buckets() -> None:
++    r = FakeRedis()
++    stream = 'ops:orchestration:preflight:v1'
++    r.streams[stream] = [
++        ('1700000000000-0', {'purpose': 'promote', 'selected_source': 'deploy_lint', 'decision_status': 'block', 'selected_reason_code': 'deploy_lint:missing_env', 'ts_ms': '1700000000000'}),
++        ('1700000300000-0', {'purpose': 'promote', 'selected_source': 'research_guard', 'decision_status': 'invalid', 'selected_reason_code': 'research_guard:pbo_high', 'ts_ms': '1700000300000'}),
++    ]
++    res = mod.rollup_incremental(
++        r,
++        stream_key=stream,
++        cursor_key='cursor',
++        state_key='state',
++        hourly_prefix='hist:h',
++        daily_prefix='hist:d',
++        batch_size=10,
++        bootstrap_skip_existing=False,
++    )
++    assert res['processed'] == 2
++    hour_key = 'hist:h:1699999200000'
++    day_key = 'hist:d:1699920000000'
++    assert sum(int(v) for v in r.hashes[hour_key].values()) == 2
++    assert sum(int(v) for v in r.hashes[day_key].values()) == 2
++    assert r.kv['cursor'] == '1700000300000-0'
++
++
++def test_bootstrap_skip_existing_sets_cursor_without_backfill() -> None:
++    r = FakeRedis()
++    stream = 'ops:orchestration:preflight:v1'
++    r.streams[stream] = [
++        ('1700000000000-0', {'purpose': 'apply'}),
++    ]
++    res = mod.rollup_incremental(
++        r,
++        stream_key=stream,
++        cursor_key='cursor',
++        state_key='state',
++        hourly_prefix='hist:h',
++        daily_prefix='hist:d',
++        batch_size=10,
++        bootstrap_skip_existing=True,
++    )
++    assert res['processed'] == 0
++    assert r.kv['cursor'] == '1700000000000-0'
++    assert 'hist:h:1699999200000' not in r.hashes
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' orig/orderflow_services/tests/test_orchestration_composite_preflight_history_textfile_exporter_v1.py repo/orderflow_services/tests/test_orchestration_composite_preflight_history_textfile_exporter_v1.py
+--- orig/orderflow_services/tests/test_orchestration_composite_preflight_history_textfile_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo/orderflow_services/tests/test_orchestration_composite_preflight_history_textfile_exporter_v1.py	2026-03-08 18:53:15.545261079 +0000
+@@ -0,0 +1,106 @@
++
++from orderflow_services import orchestration_composite_preflight_history_textfile_exporter_v1 as mod
++from orderflow_services.orchestration_composite_preflight_history_rollup_v1 import encode_field
++
++class FakePipeline:
++    def __init__(self, r):
++        self.r = r
++        self.ops = []
++    def hincrby(self, key, field, amount):
++        self.ops.append(("hincrby", key, field, amount))
++        return self
++    def expire(self, key, ttl):
++        self.ops.append(("expire", key, ttl))
++        return self
++    def set(self, key, value):
++        self.ops.append(("set", key, value))
++        return self
++    def hset(self, key, mapping=None, **kwargs):
++        self.ops.append(("hset", key, dict(mapping or {})))
++        return self
++    def hgetall(self, key):
++        self.ops.append(("hgetall", key))
++        return self
++    def execute(self):
++        out = []
++        for op in self.ops:
++            kind = op[0]
++            if kind == "hincrby":
++                _, key, field, amount = op
++                self.r.hashes.setdefault(key, {})[field] = int(self.r.hashes.setdefault(key, {}).get(field, 0)) + int(amount)
++                out.append(self.r.hashes[key][field])
++            elif kind == "expire":
++                _, key, ttl = op
++                self.r.expiry[key] = int(ttl)
++                out.append(True)
++            elif kind == "set":
++                _, key, value = op
++                self.r.kv[key] = str(value)
++                out.append(True)
++            elif kind == "hset":
++                _, key, mapping = op
++                self.r.hashes.setdefault(key, {}).update({str(k): str(v) for k, v in mapping.items()})
++                out.append(True)
++            elif kind == "hgetall":
++                _, key = op
++                out.append(dict(self.r.hashes.get(key, {})))
++        self.ops = []
++        return out
++
++
++class FakeRedis:
++    def __init__(self):
++        self.kv = {}
++        self.hashes = {}
++        self.expiry = {}
++        self.streams = {}
++    def get(self, key):
++        return self.kv.get(key)
++    def set(self, key, value):
++        self.kv[key] = str(value)
++        return True
++    def hget(self, key, field):
++        return self.hashes.get(key, {}).get(field)
++    def hset(self, key, mapping=None, **kwargs):
++        self.hashes.setdefault(key, {}).update({str(k): str(v) for k, v in dict(mapping or {}).items()})
++        return True
++    def hgetall(self, key):
++        return dict(self.hashes.get(key, {}))
++    def hincrby(self, key, field, amount):
++        self.hashes.setdefault(key, {})[field] = int(self.hashes.setdefault(key, {}).get(field, 0)) + int(amount)
++        return self.hashes[key][field]
++    def expire(self, key, ttl):
++        self.expiry[key] = int(ttl)
++        return True
++    def pipeline(self, transaction=False):
++        return FakePipeline(self)
++    def xrevrange(self, key, max='+', min='-', count=1):
++        items = list(self.streams.get(key, []))
++        items.sort(key=lambda x: x[0], reverse=True)
++        return items[:count]
++    def xread(self, streams, count=1, block=1):
++        key, last_id = next(iter(streams.items()))
++        items = list(self.streams.get(key, []))
++        picked = [item for item in items if item[0] > last_id][:count]
++        if not picked:
++            return []
++        return [(key, picked)]
++
++
++
++def test_exporter_aggregates_windows_from_bucket_hashes() -> None:
++    r = FakeRedis()
++    now_ms = 1700003600000
++    hour_key = 'metrics:orchestration:preflight:history:h:1700002800000'
++    day_key = 'metrics:orchestration:preflight:history:d:1699920000000'
++    field1 = encode_field(purpose='promote', selected_source='deploy_lint', decision_status='block', selected_reason_code='deploy_lint:missing_env')
++    field2 = encode_field(purpose='promote', selected_source='research_guard', decision_status='invalid', selected_reason_code='research_guard:pbo_high')
++    r.hashes[hour_key] = {field1: '3', field2: '1'}
++    r.hashes[day_key] = {field1: '10', field2: '2'}
++    r.hashes['metrics:orchestration:preflight:history_rollup:last'] = {'last_rollup_ts_ms': str(now_ms - 60000), 'last_event_ts_ms': str(now_ms - 120000)}
++    r.kv['metrics:orchestration:preflight:history_rollup:last_id'] = '1700003000000-0'
++    text = mod.render_text(r, now_ms=now_ms)
++    assert 'orchestration_composite_preflight_rollup_events_total' in text
++    assert 'window="24h"' in text and 'purpose="promote"' in text
++    assert 'window="30d"' in text and 'purpose="promote"' in text
++    assert 'orchestration_composite_preflight_rollup_block_ratio{purpose="promote",window="24h"} 0.75' in text or 'orchestration_composite_preflight_rollup_block_ratio{window="24h",purpose="promote"} 0.75' in text
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' orig/services/of_timers_worker.py repo/services/of_timers_worker.py
+--- orig/services/of_timers_worker.py	2026-03-04 18:20:29.000000000 +0000
++++ repo/services/of_timers_worker.py	2026-03-08 18:52:31.102495275 +0000
+@@ -1293,6 +1293,98 @@
+         return False
+ 
+ 
++def run_orchestration_composite_preflight_history_rollup() -> bool:
++    """P5.6: Incremental Redis-side rollup for orchestration composite preflight history.
++
++    This job advances a Redis Stream cursor and updates bounded hourly/daily bucket
++    counters in Redis, so later exporters can build 24h/7d/30d SLO views without
++    rescanning the full stream window.
++    """
++    enabled = os.getenv("ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_ROLLUP", "0")
++    if str(enabled).lower() not in ("1", "true", "yes", "on"):
++        return True
++
++    module = os.getenv(
++        "ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_ROLLUP_MODULE",
++        "orderflow_services.orchestration_composite_preflight_history_rollup_v1",
++    )
++    timeout_s = int(os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_ROLLUP_TIMEOUT_S", "45"))
++    env = os.environ.copy()
++    try:
++        result = subprocess.run(
++            [sys.executable, "-m", module],
++            cwd="/app",
++            capture_output=True,
++            text=True,
++            timeout=timeout_s,
++            env=env,
++        )
++    except subprocess.TimeoutExpired:
++        logger.warning(f"orchestration_preflight_history_rollup: timeout after {timeout_s}s")
++        return False
++    except Exception as e:
++        logger.warning(f"orchestration_preflight_history_rollup: error launching subprocess: {e}")
++        return False
++
++    if int(result.returncode) == 0:
++        if result.stdout:
++            logger.info(f"orchestration_preflight_history_rollup: {result.stdout.strip()[:800]}")
++        return True
++
++    logger.warning(
++        "orchestration_preflight_history_rollup rc=%s stdout=%s stderr=%s",
++        result.returncode,
++        (result.stdout or "").strip()[:300],
++        (result.stderr or "").strip()[:300],
++    )
++    return False
++
++
++def run_orchestration_composite_preflight_history_textfile_exporter() -> bool:
++    """P5.6: Textfile exporter for pre-aggregated orchestration preflight history buckets."""
++    enabled = os.getenv("ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_TEXTFILE_EXPORTER", "0")
++    if str(enabled).lower() not in ("1", "true", "yes", "on"):
++        return True
++
++    module = os.getenv(
++        "ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_TEXTFILE_EXPORTER_MODULE",
++        "orderflow_services.orchestration_composite_preflight_history_textfile_exporter_v1",
++    )
++    timeout_s = int(os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_TEXTFILE_EXPORTER_TIMEOUT_S", "45"))
++    env = os.environ.copy()
++    env.setdefault(
++        "ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORT_PATH",
++        "/var/lib/node_exporter/textfile_collector/orchestration_composite_preflight_history_rollup.prom",
++    )
++    try:
++        result = subprocess.run(
++            [sys.executable, "-m", module],
++            cwd="/app",
++            capture_output=True,
++            text=True,
++            timeout=timeout_s,
++            env=env,
++        )
++    except subprocess.TimeoutExpired:
++        logger.warning(f"orchestration_preflight_history_textfile_exporter: timeout after {timeout_s}s")
++        return False
++    except Exception as e:
++        logger.warning(f"orchestration_preflight_history_textfile_exporter: error launching subprocess: {e}")
++        return False
++
++    if int(result.returncode) == 0:
++        logger.info("orchestration_preflight_history_textfile_exporter: OK")
++        return True
++
++    logger.warning(
++        "orchestration_preflight_history_textfile_exporter rc=%s stdout=%s stderr=%s",
++        result.returncode,
++        (result.stdout or "").strip()[:300],
++        (result.stderr or "").strip()[:300],
++    )
++    return False
++
++
+ def run_feature_denylist_proposal_exporter() -> bool:
+     """P104: Hourly exporter for feature-denylist proposals → node_exporter textfile collector.
+ 
+@@ -3045,6 +3137,20 @@
+                     run_of_gate_dlq_auto_replay()
+                     last_run["of_gate_dlq_auto_replay"] = now.timestamp()
+ 
++            # P5.6: Incremental orchestration composite preflight rollup every 5 minutes.
++            if minute % 5 == 1:
++                last = last_run.get("orchestration_preflight_history_rollup", 0)
++                if now.timestamp() - last > 240:
++                    run_orchestration_composite_preflight_history_rollup()
++                    last_run["orchestration_preflight_history_rollup"] = now.timestamp()
++
++            # P5.6: Hourly textfile export from Redis-side buckets for node_exporter.
++            if minute >= 49 and minute < 50:
++                last = last_run.get("orchestration_preflight_history_textfile_exporter", 0)
++                if now.timestamp() - last > 3500:
++                    run_orchestration_composite_preflight_history_textfile_exporter()
++                    last_run["orchestration_preflight_history_textfile_exporter"] = now.timestamp()
++
+             # P99: Hourly:46 OFInputs DLQ DB drilldown (reads of_inputs_dlq_events)
+             # Guarded by ENABLE_OF_INPUTS_DLQ_DB_DRILLDOWN=1 + TRADES_DB_DSN
+             # P104: Feature denylist proposal exporter (textfile collector for node_exporter)
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' orig/tick_flow_full/orderflow_services/orchestration_composite_preflight_history_rollup_v1.py repo/tick_flow_full/orderflow_services/orchestration_composite_preflight_history_rollup_v1.py
+--- orig/tick_flow_full/orderflow_services/orchestration_composite_preflight_history_rollup_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo/tick_flow_full/orderflow_services/orchestration_composite_preflight_history_rollup_v1.py	2026-03-08 18:52:16.865630859 +0000
+@@ -0,0 +1,280 @@
++from __future__ import annotations
++
++"""Incremental Redis-side rollup for orchestration composite preflight events.
++
++Design intent:
++- stop re-scanning the full Redis Stream window for every exporter run
++- maintain bounded hourly/daily bucket counters in Redis
++- keep dimensions low-cardinality and deterministic for SLO/weekly trend metrics
++
++The module reads incremental events from the ops stream, updates Redis hash buckets,
++and persists a cursor. Buckets are safe to read cheaply later by a textfile exporter.
++"""
++
++import json
++import os
++import re
++import time
++from typing import Any, Iterable, Mapping, Tuple
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++
++STREAM_KEY_DEFAULT = "ops:orchestration:preflight:v1"
++CURSOR_KEY_DEFAULT = "metrics:orchestration:preflight:history_rollup:last_id"
++STATE_KEY_DEFAULT = "metrics:orchestration:preflight:history_rollup:last"
++HOURLY_PREFIX_DEFAULT = "metrics:orchestration:preflight:history:h"
++DAILY_PREFIX_DEFAULT = "metrics:orchestration:preflight:history:d"
++
++ALLOWED_SOURCES = {"deploy_lint", "latency_contract", "research_guard", "unknown"}
++ALLOWED_STATUSES = {"ok", "invalid", "block", "unknown"}
++
++
++def _get_redis() -> Any:
++    if redis is None:
++        return None
++    url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
++    try:
++        return redis.Redis.from_url(url, decode_responses=True)
++    except Exception:
++        return None
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _safe_text(value: Any, default: str = "") -> str:
++    return str(value or default).strip()
++
++
++def normalize_source(value: Any) -> str:
++    raw = _safe_text(value, "unknown").lower().replace("-", "_").replace(" ", "_")
++    if raw in ALLOWED_SOURCES:
++        return raw
++    if raw.startswith("deploy"):
++        return "deploy_lint"
++    if raw.startswith("latency"):
++        return "latency_contract"
++    if raw.startswith("research"):
++        return "research_guard"
++    return "unknown"
++
++
++def normalize_status(value: Any) -> str:
++    raw = _safe_text(value, "unknown").lower().replace("-", "_")
++    if raw in ALLOWED_STATUSES:
++        return raw
++    if raw.startswith("block"):
++        return "block"
++    if raw.startswith("invalid"):
++        return "invalid"
++    if raw.startswith("ok"):
++        return "ok"
++    return "unknown"
++
++
++def normalize_reason_code(value: Any, source: str) -> str:
++    raw = _safe_text(value, "").lower()
++    raw = re.sub(r"[^a-z0-9:_-]+", "_", raw).strip("_:")
++    if not raw:
++        return f"{source}:none"
++    if raw.startswith(("deploy_lint:", "latency_contract:", "research_guard:")):
++        prefix, rest = raw.split(":", 1)
++        source = normalize_source(prefix)
++        raw = rest
++
++    source = normalize_source(source)
++
++    def _family(candidates: Iterable[str], fallback: str = "other") -> str:
++        for item in candidates:
++            if item and item in raw:
++                return item
++        return fallback
++
++    if source == "deploy_lint":
++        fam = _family(("missing_env", "compose", "wrapper", "unit", "env_file", "stale", "invalid", "block"))
++    elif source == "latency_contract":
++        fam = _family(("slo", "lag", "timeout", "stale", "missing_state", "invalid", "block"))
++    elif source == "research_guard":
++        fam = _family(("pbo_high", "psr_low", "dsr_low", "report_stale", "missing_state", "invalid", "block"))
++    else:
++        fam = _family(("stale", "invalid", "block"))
++    return f"{source}:{fam}"
++
++
++def _extract_event_ts_ms(stream_id: str, payload: Mapping[str, Any]) -> int:
++    raw = _safe_text(payload.get("ts_ms"))
++    if raw.isdigit():
++        return int(raw)
++    try:
++        return int(str(stream_id).split("-", 1)[0])
++    except Exception:
++        return _now_ms()
++
++
++def _hour_bucket_start_ms(ts_ms: int) -> int:
++    return (int(ts_ms) // 3_600_000) * 3_600_000
++
++
++def _day_bucket_start_ms(ts_ms: int) -> int:
++    return (int(ts_ms) // 86_400_000) * 86_400_000
++
++
++def _bucket_key(prefix: str, bucket_start_ms: int) -> str:
++    return f"{prefix}:{int(bucket_start_ms)}"
++
++
++def encode_field(*, purpose: str, selected_source: str, decision_status: str, selected_reason_code: str) -> str:
++    return json.dumps(
++        [purpose, selected_source, decision_status, selected_reason_code],
++        ensure_ascii=False,
++        separators=(",", ":"),
++    )
++
++
++def decode_field(value: str) -> Tuple[str, str, str, str]:
++    arr = json.loads(value)
++    if not isinstance(arr, list) or len(arr) != 4:
++        raise ValueError("invalid field")
++    return (str(arr[0]), str(arr[1]), str(arr[2]), str(arr[3]))
++
++
++def _event_dims(payload: Mapping[str, Any]) -> Tuple[str, str, str, str]:
++    source = normalize_source(payload.get("selected_source") or payload.get("source"))
++    status = normalize_status(payload.get("decision_status") or payload.get("status"))
++    purpose = _safe_text(payload.get("purpose"), "unknown") or "unknown"
++    reason = normalize_reason_code(payload.get("selected_reason_code") or payload.get("reason_code") or payload.get("selected_reason"), source)
++    return purpose, source, status, reason
++
++
++def _bootstrap_cursor(r: Any, stream_key: str, cursor_key: str, state_key: str, skip_existing: bool) -> str:
++    existing = _safe_text(r.get(cursor_key))
++    if existing:
++        return existing
++
++    cursor = "0-0"
++    skipped = 0
++    if skip_existing:
++        latest = r.xrevrange(stream_key, max="+", min="-", count=1)
++        if latest:
++            cursor = str(latest[0][0])
++        skipped = 1
++    r.set(cursor_key, cursor)
++    try:
++        r.hset(
++            state_key,
++            mapping={
++                "last_stream_id": cursor,
++                "bootstrap_skipped_existing": str(skipped),
++                "last_rollup_ts_ms": str(_now_ms()),
++            },
++        )
++    except Exception:
++        pass
++    return cursor
++
++
++def rollup_incremental(
++    r: Any,
++    *,
++    stream_key: str,
++    cursor_key: str,
++    state_key: str,
++    hourly_prefix: str,
++    daily_prefix: str,
++    batch_size: int = 500,
++    hourly_ttl_hours: int = 24 * 45,
++    daily_ttl_days: int = 120,
++    bootstrap_skip_existing: bool = True,
++) -> dict[str, int]:
++    cursor = _bootstrap_cursor(r, stream_key, cursor_key, state_key, bootstrap_skip_existing)
++    processed_total = 0
++    batches = 0
++    last_stream_id = cursor
++    last_event_ts_ms = 0
++    hourly_ttl_s = max(1, int(hourly_ttl_hours) * 3600)
++    daily_ttl_s = max(1, int(daily_ttl_days) * 86400)
++    prev_processed_total = int(float(_safe_text(r.hget(state_key, "processed_events_total"), "0") or "0"))
++
++    while True:
++        rows = r.xread({stream_key: last_stream_id}, count=max(1, int(batch_size)), block=1)
++        if not rows:
++            break
++        stream_rows = rows[0][1] if rows and rows[0] else []
++        if not stream_rows:
++            break
++        batches += 1
++        batch_processed = 0
++        pipe = r.pipeline(transaction=False)
++        for stream_id, payload in stream_rows:
++            payload = payload or {}
++            ts_ms = _extract_event_ts_ms(str(stream_id), payload)
++            purpose, source, status, reason = _event_dims(payload)
++            field = encode_field(
++                purpose=purpose,
++                selected_source=source,
++                decision_status=status,
++                selected_reason_code=reason,
++            )
++            hour_key = _bucket_key(hourly_prefix, _hour_bucket_start_ms(ts_ms))
++            day_key = _bucket_key(daily_prefix, _day_bucket_start_ms(ts_ms))
++            pipe.hincrby(hour_key, field, 1)
++            pipe.hincrby(day_key, field, 1)
++            pipe.expire(hour_key, hourly_ttl_s)
++            pipe.expire(day_key, daily_ttl_s)
++            last_stream_id = str(stream_id)
++            last_event_ts_ms = ts_ms
++            processed_total += 1
++            batch_processed += 1
++
++        pipe.set(cursor_key, last_stream_id)
++        pipe.hset(
++            state_key,
++            mapping={
++                "last_stream_id": last_stream_id,
++                "last_rollup_ts_ms": str(_now_ms()),
++                "last_event_ts_ms": str(last_event_ts_ms),
++                "processed_events_total": str(prev_processed_total + processed_total),
++                "processed_events_last_run": str(batch_processed),
++                "batches_last_run": str(batches),
++                "bootstrap_skipped_existing": _safe_text(r.hget(state_key, "bootstrap_skipped_existing"), "0"),
++            },
++        )
++        pipe.execute()
++        if len(stream_rows) < int(batch_size):
++            break
++
++    return {
++        "processed": processed_total,
++        "batches": batches,
++        "last_stream_id": int(last_stream_id.split("-", 1)[0]) if last_stream_id and last_stream_id != "0-0" else 0,
++        "last_event_ts_ms": last_event_ts_ms,
++    }
++
++
++def main() -> int:
++    r = _get_redis()
++    if r is None:
++        return 1
++    res = rollup_incremental(
++        r,
++        stream_key=os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_STREAM", STREAM_KEY_DEFAULT),
++        cursor_key=os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_CURSOR_KEY", CURSOR_KEY_DEFAULT),
++        state_key=os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_STATE_KEY", STATE_KEY_DEFAULT),
++        hourly_prefix=os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_HOURLY_PREFIX", HOURLY_PREFIX_DEFAULT),
++        daily_prefix=os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_DAILY_PREFIX", DAILY_PREFIX_DEFAULT),
++        batch_size=int(os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_BATCH_SIZE", "500")),
++        hourly_ttl_hours=int(os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_HOURLY_RETENTION_HOURS", str(24 * 45))),
++        daily_ttl_days=int(os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_DAILY_RETENTION_DAYS", "120")),
++        bootstrap_skip_existing=os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_BOOTSTRAP_SKIP_EXISTING", "1").lower() in ("1", "true", "yes", "on"),
++    )
++    print(json.dumps(res, ensure_ascii=False, separators=(",", ":")))
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' orig/tick_flow_full/orderflow_services/orchestration_composite_preflight_history_textfile_exporter_v1.py repo/tick_flow_full/orderflow_services/orchestration_composite_preflight_history_textfile_exporter_v1.py
+--- orig/tick_flow_full/orderflow_services/orchestration_composite_preflight_history_textfile_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo/tick_flow_full/orderflow_services/orchestration_composite_preflight_history_textfile_exporter_v1.py	2026-03-08 18:52:16.902670898 +0000
+@@ -0,0 +1,202 @@
++from __future__ import annotations
++
++"""Textfile exporter for orchestration composite preflight rollup buckets.
++
++Reads incremental Redis hourly/daily bucket hashes produced by
++orchestration_composite_preflight_history_rollup_v1 and writes bounded
++Prometheus metrics for 24h / 7d / 30d windows.
++"""
++
++import os
++import time
++from pathlib import Path
++from typing import Any, Dict, Iterable, List, Mapping, Tuple
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++from orderflow_services.orchestration_composite_preflight_history_rollup_v1 import (
++    CURSOR_KEY_DEFAULT,
++    DAILY_PREFIX_DEFAULT,
++    HOURLY_PREFIX_DEFAULT,
++    STATE_KEY_DEFAULT,
++    decode_field,
++)
++
++
++def _get_redis() -> Any:
++    if redis is None:
++        return None
++    url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
++    try:
++        return redis.Redis.from_url(url, decode_responses=True)
++    except Exception:
++        return None
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _metric_line(name: str, labels: Mapping[str, str], value: float) -> str:
++    if labels:
++        lab = ",".join(f'{k}="{str(v)}"' for k, v in sorted(labels.items()))
++        return f"{name}{{{lab}}} {value}\n"
++    return f"{name} {value}\n"
++
++
++def _bucket_key(prefix: str, bucket_start_ms: int) -> str:
++    return f"{prefix}:{int(bucket_start_ms)}"
++
++
++def _hour_buckets(now_ms: int, hours: int) -> List[int]:
++    base = (now_ms // 3_600_000) * 3_600_000
++    return [base - i * 3_600_000 for i in range(max(0, int(hours)))]
++
++
++def _day_buckets(now_ms: int, days: int) -> List[int]:
++    base = (now_ms // 86_400_000) * 86_400_000
++    return [base - i * 86_400_000 for i in range(max(0, int(days)))]
++
++
++def _read_bucket_hashes(r: Any, prefix: str, bucket_starts_ms: Iterable[int]) -> List[Mapping[str, str]]:
++    pipe = r.pipeline(transaction=False)
++    for bucket_start in bucket_starts_ms:
++        pipe.hgetall(_bucket_key(prefix, bucket_start))
++    rows = pipe.execute()
++    return list(rows or [])
++
++
++def aggregate_windows(r: Any, *, now_ms: int, hourly_prefix: str, daily_prefix: str) -> Dict[Tuple[str, str, str, str, str], int]:
++    result: Dict[Tuple[str, str, str, str, str], int] = {}
++    window_specs = {
++        "24h": (hourly_prefix, _hour_buckets(now_ms, 24)),
++        "7d": (daily_prefix, _day_buckets(now_ms, 7)),
++        "30d": (daily_prefix, _day_buckets(now_ms, 30)),
++    }
++    for window, (prefix, buckets) in window_specs.items():
++        for row in _read_bucket_hashes(r, prefix, buckets):
++            for field, raw_value in (row or {}).items():
++                try:
++                    purpose, source, status, reason = decode_field(field)
++                    value = int(float(str(raw_value or "0")))
++                except Exception:
++                    continue
++                key = (window, purpose, source, status, reason)
++                result[key] = result.get(key, 0) + value
++    return result
++
++
++def render_text(r: Any, *, now_ms: int | None = None) -> str:
++    now_ms = int(now_ms or _now_ms())
++    hourly_prefix = os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_HOURLY_PREFIX", HOURLY_PREFIX_DEFAULT)
++    daily_prefix = os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_DAILY_PREFIX", DAILY_PREFIX_DEFAULT)
++    state_key = os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_STATE_KEY", STATE_KEY_DEFAULT)
++    cursor_key = os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_CURSOR_KEY", CURSOR_KEY_DEFAULT)
++
++    agg = aggregate_windows(r, now_ms=now_ms, hourly_prefix=hourly_prefix, daily_prefix=daily_prefix)
++    lines: List[str] = []
++    lines.append("# HELP orchestration_composite_preflight_rollup_events_total Incremental orchestration preflight events aggregated from Redis buckets\n")
++    lines.append("# TYPE orchestration_composite_preflight_rollup_events_total gauge\n")
++    for (window, purpose, source, status, reason), value in sorted(agg.items()):
++        lines.append(
++            _metric_line(
++                "orchestration_composite_preflight_rollup_events_total",
++                {
++                    "window": window,
++                    "purpose": purpose,
++                    "selected_source": source,
++                    "decision_status": status,
++                    "selected_reason_code": reason,
++                },
++                float(value),
++            )
++        )
++
++    totals: Dict[Tuple[str, str], int] = {}
++    blocks: Dict[Tuple[str, str], int] = {}
++    invalids: Dict[Tuple[str, str], int] = {}
++    for (window, purpose, _source, status, _reason), value in agg.items():
++        key = (window, purpose)
++        totals[key] = totals.get(key, 0) + value
++        if status == "block":
++            blocks[key] = blocks.get(key, 0) + value
++        if status == "invalid":
++            invalids[key] = invalids.get(key, 0) + value
++
++    lines.append("# HELP orchestration_composite_preflight_rollup_total Total aggregated orchestration preflight events by window and purpose\n")
++    lines.append("# TYPE orchestration_composite_preflight_rollup_total gauge\n")
++    for (window, purpose), value in sorted(totals.items()):
++        lines.append(_metric_line("orchestration_composite_preflight_rollup_total", {"window": window, "purpose": purpose}, float(value)))
++
++    lines.append("# HELP orchestration_composite_preflight_rollup_block_ratio Block ratio by purpose over window\n")
++    lines.append("# TYPE orchestration_composite_preflight_rollup_block_ratio gauge\n")
++    lines.append("# HELP orchestration_composite_preflight_rollup_invalid_ratio Invalid ratio by purpose over window\n")
++    lines.append("# TYPE orchestration_composite_preflight_rollup_invalid_ratio gauge\n")
++    for (window, purpose), total in sorted(totals.items()):
++        if total <= 0:
++            continue
++        lines.append(
++            _metric_line(
++                "orchestration_composite_preflight_rollup_block_ratio",
++                {"window": window, "purpose": purpose},
++                float(blocks.get((window, purpose), 0)) / float(total),
++            )
++        )
++        lines.append(
++            _metric_line(
++                "orchestration_composite_preflight_rollup_invalid_ratio",
++                {"window": window, "purpose": purpose},
++                float(invalids.get((window, purpose), 0)) / float(total),
++            )
++        )
++
++    state = r.hgetall(state_key) or {}
++    cursor = str(r.get(cursor_key) or "")
++    last_rollup_ts_ms = int(float(str(state.get("last_rollup_ts_ms") or "0") or "0"))
++    last_event_ts_ms = int(float(str(state.get("last_event_ts_ms") or "0") or "0"))
++    lag_s = max(0.0, (float(now_ms) - float(last_rollup_ts_ms)) / 1000.0) if last_rollup_ts_ms else 0.0
++
++    lines.append("# HELP orchestration_composite_preflight_rollup_state_present 1 if rollup state exists\n")
++    lines.append("# TYPE orchestration_composite_preflight_rollup_state_present gauge\n")
++    lines.append(_metric_line("orchestration_composite_preflight_rollup_state_present", {}, 1.0 if state else 0.0))
++    lines.append("# HELP orchestration_composite_preflight_rollup_cursor_present 1 if stream cursor exists\n")
++    lines.append("# TYPE orchestration_composite_preflight_rollup_cursor_present gauge\n")
++    lines.append(_metric_line("orchestration_composite_preflight_rollup_cursor_present", {}, 1.0 if cursor else 0.0))
++    lines.append("# HELP orchestration_composite_preflight_rollup_lag_seconds Age of the latest incremental rollup run\n")
++    lines.append("# TYPE orchestration_composite_preflight_rollup_lag_seconds gauge\n")
++    lines.append(_metric_line("orchestration_composite_preflight_rollup_lag_seconds", {}, lag_s))
++    lines.append("# HELP orchestration_composite_preflight_rollup_last_rollup_unixtime Unix time of last incremental rollup\n")
++    lines.append("# TYPE orchestration_composite_preflight_rollup_last_rollup_unixtime gauge\n")
++    lines.append(_metric_line("orchestration_composite_preflight_rollup_last_rollup_unixtime", {}, float(last_rollup_ts_ms / 1000.0 if last_rollup_ts_ms else 0.0)))
++    lines.append("# HELP orchestration_composite_preflight_rollup_last_event_unixtime Unix time of last rolled-up event\n")
++    lines.append("# TYPE orchestration_composite_preflight_rollup_last_event_unixtime gauge\n")
++    lines.append(_metric_line("orchestration_composite_preflight_rollup_last_event_unixtime", {}, float(last_event_ts_ms / 1000.0 if last_event_ts_ms else 0.0)))
++    lines.append("# HELP orchestration_composite_preflight_rollup_last_export_unixtime Unix time of last textfile export\n")
++    lines.append("# TYPE orchestration_composite_preflight_rollup_last_export_unixtime gauge\n")
++    lines.append(_metric_line("orchestration_composite_preflight_rollup_last_export_unixtime", {}, float(now_ms / 1000.0)))
++    return "".join(lines)
++
++
++def main() -> int:
++    r = _get_redis()
++    if r is None:
++        return 1
++    out_path = Path(
++        os.getenv(
++            "ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORT_PATH",
++            "/var/lib/node_exporter/textfile_collector/orchestration_composite_preflight_history_rollup.prom",
++        )
++    ).expanduser().resolve()
++    text = render_text(r)
++    out_path.parent.mkdir(parents=True, exist_ok=True)
++    tmp = out_path.with_suffix(out_path.suffix + ".tmp")
++    tmp.write_text(text, encoding="utf-8")
++    tmp.replace(out_path)
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' orig/tick_flow_full/orderflow_services/prometheus_alerts_orchestration_composite_preflight_rollup_p56.yml repo/tick_flow_full/orderflow_services/prometheus_alerts_orchestration_composite_preflight_rollup_p56.yml
+--- orig/tick_flow_full/orderflow_services/prometheus_alerts_orchestration_composite_preflight_rollup_p56.yml	1970-01-01 00:00:00.000000000 +0000
++++ repo/tick_flow_full/orderflow_services/prometheus_alerts_orchestration_composite_preflight_rollup_p56.yml	2026-03-08 18:49:17.255522762 +0000
+@@ -0,0 +1,29 @@
++groups:
++  - name: trade_orchestration_composite_preflight_rollup_p56
++    rules:
++      - alert: TradeOrchestrationCompositePreflightRollupStaleWarn
++        expr: orchestration_composite_preflight_rollup_lag_seconds > 1800
++        for: 20m
++        labels:
++          severity: warning
++        annotations:
++          summary: Orchestration composite preflight rollup is stale
++          description: Incremental rollup has not advanced for more than 30 minutes.
++
++      - alert: TradeOrchestrationCompositePreflightBlockRatioHigh30dWarn
++        expr: max by (purpose) (orchestration_composite_preflight_rollup_block_ratio{window="30d"}) > 0.05
++        for: 30m
++        labels:
++          severity: warning
++        annotations:
++          summary: High 30d orchestration block ratio
++          description: Composite preflight block ratio exceeded 5% over 30d for a purpose.
++
++      - alert: TradeOrchestrationCompositePreflightInvalidRatioHigh7dWarn
++        expr: max by (purpose) (orchestration_composite_preflight_rollup_invalid_ratio{window="7d"}) > 0.03
++        for: 30m
++        labels:
++          severity: warning
++        annotations:
++          summary: High 7d orchestration invalid ratio
++          description: Composite preflight invalid ratio exceeded 3% over 7d for a purpose.
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' orig/tick_flow_full/services/of_timers_worker.py repo/tick_flow_full/services/of_timers_worker.py
+--- orig/tick_flow_full/services/of_timers_worker.py	2026-03-04 18:20:29.000000000 +0000
++++ repo/tick_flow_full/services/of_timers_worker.py	2026-03-08 18:52:31.102495275 +0000
+@@ -1293,6 +1293,98 @@
+         return False
+ 
+ 
++def run_orchestration_composite_preflight_history_rollup() -> bool:
++    """P5.6: Incremental Redis-side rollup for orchestration composite preflight history.
++
++    This job advances a Redis Stream cursor and updates bounded hourly/daily bucket
++    counters in Redis, so later exporters can build 24h/7d/30d SLO views without
++    rescanning the full stream window.
++    """
++    enabled = os.getenv("ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_ROLLUP", "0")
++    if str(enabled).lower() not in ("1", "true", "yes", "on"):
++        return True
++
++    module = os.getenv(
++        "ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_ROLLUP_MODULE",
++        "orderflow_services.orchestration_composite_preflight_history_rollup_v1",
++    )
++    timeout_s = int(os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_ROLLUP_TIMEOUT_S", "45"))
++    env = os.environ.copy()
++    try:
++        result = subprocess.run(
++            [sys.executable, "-m", module],
++            cwd="/app",
++            capture_output=True,
++            text=True,
++            timeout=timeout_s,
++            env=env,
++        )
++    except subprocess.TimeoutExpired:
++        logger.warning(f"orchestration_preflight_history_rollup: timeout after {timeout_s}s")
++        return False
++    except Exception as e:
++        logger.warning(f"orchestration_preflight_history_rollup: error launching subprocess: {e}")
++        return False
++
++    if int(result.returncode) == 0:
++        if result.stdout:
++            logger.info(f"orchestration_preflight_history_rollup: {result.stdout.strip()[:800]}")
++        return True
++
++    logger.warning(
++        "orchestration_preflight_history_rollup rc=%s stdout=%s stderr=%s",
++        result.returncode,
++        (result.stdout or "").strip()[:300],
++        (result.stderr or "").strip()[:300],
++    )
++    return False
++
++
++def run_orchestration_composite_preflight_history_textfile_exporter() -> bool:
++    """P5.6: Textfile exporter for pre-aggregated orchestration preflight history buckets."""
++    enabled = os.getenv("ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_TEXTFILE_EXPORTER", "0")
++    if str(enabled).lower() not in ("1", "true", "yes", "on"):
++        return True
++
++    module = os.getenv(
++        "ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_TEXTFILE_EXPORTER_MODULE",
++        "orderflow_services.orchestration_composite_preflight_history_textfile_exporter_v1",
++    )
++    timeout_s = int(os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_TEXTFILE_EXPORTER_TIMEOUT_S", "45"))
++    env = os.environ.copy()
++    env.setdefault(
++        "ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORT_PATH",
++        "/var/lib/node_exporter/textfile_collector/orchestration_composite_preflight_history_rollup.prom",
++    )
++    try:
++        result = subprocess.run(
++            [sys.executable, "-m", module],
++            cwd="/app",
++            capture_output=True,
++            text=True,
++            timeout=timeout_s,
++            env=env,
++        )
++    except subprocess.TimeoutExpired:
++        logger.warning(f"orchestration_preflight_history_textfile_exporter: timeout after {timeout_s}s")
++        return False
++    except Exception as e:
++        logger.warning(f"orchestration_preflight_history_textfile_exporter: error launching subprocess: {e}")
++        return False
++
++    if int(result.returncode) == 0:
++        logger.info("orchestration_preflight_history_textfile_exporter: OK")
++        return True
++
++    logger.warning(
++        "orchestration_preflight_history_textfile_exporter rc=%s stdout=%s stderr=%s",
++        result.returncode,
++        (result.stdout or "").strip()[:300],
++        (result.stderr or "").strip()[:300],
++    )
++    return False
++
++
+ def run_feature_denylist_proposal_exporter() -> bool:
+     """P104: Hourly exporter for feature-denylist proposals → node_exporter textfile collector.
+ 
+@@ -3045,6 +3137,20 @@
+                     run_of_gate_dlq_auto_replay()
+                     last_run["of_gate_dlq_auto_replay"] = now.timestamp()
+ 
++            # P5.6: Incremental orchestration composite preflight rollup every 5 minutes.
++            if minute % 5 == 1:
++                last = last_run.get("orchestration_preflight_history_rollup", 0)
++                if now.timestamp() - last > 240:
++                    run_orchestration_composite_preflight_history_rollup()
++                    last_run["orchestration_preflight_history_rollup"] = now.timestamp()
++
++            # P5.6: Hourly textfile export from Redis-side buckets for node_exporter.
++            if minute >= 49 and minute < 50:
++                last = last_run.get("orchestration_preflight_history_textfile_exporter", 0)
++                if now.timestamp() - last > 3500:
++                    run_orchestration_composite_preflight_history_textfile_exporter()
++                    last_run["orchestration_preflight_history_textfile_exporter"] = now.timestamp()
++
+             # P99: Hourly:46 OFInputs DLQ DB drilldown (reads of_inputs_dlq_events)
+             # Guarded by ENABLE_OF_INPUTS_DLQ_DB_DRILLDOWN=1 + TRADES_DB_DSN
+             # P104: Feature denylist proposal exporter (textfile collector for node_exporter)

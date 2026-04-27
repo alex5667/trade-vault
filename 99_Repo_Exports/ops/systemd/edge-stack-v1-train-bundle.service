@@ -1,0 +1,19 @@
+[Unit]
+Description=Edge Stack v1 nightly training bundle
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/app
+Environment=PYTHONUNBUFFERED=1
+# Provide REDIS_URL and any build limits via /etc/default/trade-edge-stack
+EnvironmentFile=-/etc/default/trade-edge-stack
+ExecStart=/usr/bin/python -m tools.nightly_edge_stack_v1_train_bundle
+User=trade
+Group=trade
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target

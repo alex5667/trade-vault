@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/metrics2.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-06, 0.01, 0.3, 0.5, 0.95, 0.99, 1.0, 1000.0, 200, 250, 500, 1000, 2048, 10000000, 1000000000000, '+00:00', 'Z', 'future_tick', 'gauge', 'ms', 'past_tick', 'tick_lag_ms_p50', 'tick_lag_ms_p95', 'tick_lag_ms_p99', 'ts', 'ts_ms', 'ts_utc', 'updatedAt', 'updated_at', 'updated_ms', 'updated_ts']

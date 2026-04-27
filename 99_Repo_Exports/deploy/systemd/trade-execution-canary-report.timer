@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic trade execution canary report
+
+[Timer]
+OnBootSec=4m
+OnUnitActiveSec=15m
+Unit=trade-execution-canary-report.service
+
+[Install]
+WantedBy=timers.target

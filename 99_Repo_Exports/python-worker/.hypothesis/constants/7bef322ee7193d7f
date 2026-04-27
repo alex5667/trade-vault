@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/news_gate.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.2, 0.3, 0.6, 0.9, 1.0, 1000.0, 10000.0, 1000000000.0, 300, 1000, 2500, 3500, 5000, 10000, 60000, 'active', 'cal_key', 'calendar:agg', 'calendar:agg:', 'calendar_hi_impact', 'crypto', 'event_grade_id', 'event_id', 'event_title', 'event_tminus_sec', 'event_ts_ms', 'forex', 'fx', 'grade', 'hard', 'manual', 'manual_hi_impact', 'news:hi:active', 'news_reco_hard', 'news_reco_profile', 'next_ts_ms', 'no_ts', 'ok', 'reason', 'soft', 'soft_calendar_bps', 'soft_news_bps', 'soft_news_impact', 'src', 'suggest_profile', 'symbols', 'tighten', 'title', 'tminus_sec', 'until_ts_ms']

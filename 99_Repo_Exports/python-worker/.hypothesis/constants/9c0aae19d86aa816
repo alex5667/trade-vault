@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/sparse/linalg/_eigen/lobpcg/lobpcg.py
+# hypothesis_version: 6.148.10
+
+[0.0, ' preconditioning\n\n', '%d constraint\n\n', '%d constraints\n\n', 'CARRAY', 'Cholesky has failed.', 'No constraints\n\n', 'Solving ', 'block size %d\n\n', 'float32', 'generalized', 'gramA', 'gramB', 'lobpcg', 'matrix size %d\n', 'out', 'standard']

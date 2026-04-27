@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/strings/object_array.py
+# hypothesis_version: 6.148.10
+
+['Invalid side', 'bool', 'both', 'find', 'int64', 'left', 'object', 'rfind', 'right', 'strict', 'width', '|']

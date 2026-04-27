@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/taker_flow_gate_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.25, 2.5, 'HIGH_VOL_LOW_LIQ', 'LONG', 'NORMAL', 'SHORT', 'contra', 'enforce', 'exec_regime_bucket', 'low_rate', 'ok', 'shadow', 'taker_buy_rate_ema', 'taker_flow_gate_mode', 'taker_flow_imb', 'taker_flow_imb_z', 'taker_sell_rate_ema']

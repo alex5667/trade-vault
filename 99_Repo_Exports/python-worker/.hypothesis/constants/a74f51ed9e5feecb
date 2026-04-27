@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/tick_gate_daily_report.py
+# hypothesis_version: 6.148.10
+
+[1000, 3600, '+', ', ', '-', '--format', '--hours', '--limit', '--redis-url', '--stream', '20000', '24', 'Counts: ', 'ERROR', 'FAIL', 'FAILED', 'FAILURE', 'INSUFFICIENT', 'INSUFFICIENTDATA', 'INSUFFICIENT_DATA', 'NO_DATA', 'OK', 'PASS', 'PASSING', 'REDIS_URL', 'SUCCESS', 'Top FAIL reasons:', 'Top symbols by FAIL:', 'UNKNOWN', '[', ']', '__main__', 'code', 'count', 'counts', 'failed', 'failures', 'gate', 'json', 'latest_ts_ms', 'message', 'metric', 'msg', 'name', 'payload', 'reason', 'reasons', 'replace', 'report', 'result', 'return_code', 'state', 'status', 'stream', 'sym', 'symbol', 'text', 'time_ms', 'timestamp_ms', 'top_fail_metrics', 'top_symbols', 'ts_ms', 'unknown', 'utf-8', 'value', 'violations', 'window_hours', '{', '}']

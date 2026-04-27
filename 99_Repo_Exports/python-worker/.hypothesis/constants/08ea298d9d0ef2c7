@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signal_quality/online_job.py
+# hypothesis_version: 6.148.10
+
+[-0.3, 0.0, 0.05, 100, 200, 'R_main', '__main__', 'degraded', 'disabled', 'ok', 'pnl_r', 'side', 'signal_type', 'symbol']

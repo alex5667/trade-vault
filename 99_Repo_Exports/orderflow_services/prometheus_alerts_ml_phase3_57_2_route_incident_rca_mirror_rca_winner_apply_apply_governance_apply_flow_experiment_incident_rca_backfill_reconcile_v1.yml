@@ -1,0 +1,20 @@
+groups:
+  - name: ml_phase3_57_2_incident_rca_apply_backfill_reconcile
+    rules:
+      - alert: MLIncidentRCAApplyReconcileAuditorStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_reconcile_auditor_v3_57_2_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "Incident RCA apply reconcile auditor stale" }
+
+      - alert: MLIncidentRCAApplyReconcileGapPresent
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_reconcile_auditor_v3_57_2_gap_n > 0
+        for: 15m
+        labels: { severity: critical }
+        annotations: { summary: "Incident RCA apply Redis↔Timescale count gap detected" }
+
+      - alert: MLIncidentRCAApplyReconcileMissingSample
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_reconcile_auditor_v3_57_2_missing_sample_n > 0
+        for: 15m
+        labels: { severity: critical }
+        annotations: { summary: "Incident RCA apply Redis↔Timescale missing sample rows detected" }

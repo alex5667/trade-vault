@@ -1,0 +1,13 @@
+[Unit]
+Description=Trade OF nightly meta unfreeze proposal (7d good stats)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/trade/of_reports.env
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+ExecStart=/usr/bin/python3 -m tools.nightly_meta_unfreeze_cells_bundle
+StandardOutput=journal
+StandardError=journal
+

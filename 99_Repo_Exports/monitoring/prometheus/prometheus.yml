@@ -1,0 +1,600 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # Bybit DQ alerts
+  - /etc/prometheus/rules/bybit_dq/*.yml
+  # P99 OFInputs DLQ DB rollup alerts (DB exporter: of_inputs_dlq_db_* gauges)
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_of_inputs_dlq_db_p99.yml
+  # P2/F Strict DQ stream health v1 (latency & continuity)
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_strict_dq_stream_health_v1.yml
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_ml_control_plane_phase0_2_v1.yml
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_ml_phase1_v1.yml
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_ml_phase1_1_v1.yml
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_ml_phase1_2_v1.yml
+  - /etc/prometheus/rules/prometheus_alerts_*.yml
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - trade-alertmanager:9093
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - localhost:9090
+
+  - job_name: blackbox_http
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://trade-grafana:3000/api/health
+          - http://trade-runbooks-web:8082/healthz
+          - http://trade-alertmanager:9093/-/ready
+          - http://trade-prometheus:9090/-/ready
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: trade-blackbox-exporter:9115
+
+  - job_name: blackbox_public
+    metrics_path: /probe
+    params:
+      module: [http_2xx_insecure]
+    static_configs:
+      - targets:
+          - ${PUBLIC_BASE_URL}/grafana/api/health
+          - ${PUBLIC_BASE_URL}/runbooks/healthz
+          - ${PUBLIC_BASE_URL}/alertmanager/-/ready
+          - ${PUBLIC_BASE_URL}/prometheus/-/ready
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: trade-blackbox-exporter:9115
+
+  # Go Workers метрики - 10 воркеров для всех таймфреймов
+  - job_name: 'go-workers'
+    static_configs:
+      - targets:
+          - 'go-worker-1m:2112'
+          - 'go-worker-5m:2113'
+          - 'go-worker-15m:2114'
+          - 'go-worker-1h:2115'
+          - 'go-worker-4h:2116'
+          - 'go-worker-1d:2117'
+          - 'go-worker-1w:2118'
+          - 'go-worker-1month:2119'
+          - 'go-worker-3month:2120'
+          - 'go-worker-1y:2121'
+        labels:
+          service: 'go-worker'
+    scrape_interval: 10s
+    metrics_path: '/metrics'
+
+  # Redis метрики — по одному экспортеру на каждый redis-worker
+  - job_name: 'redis-workers'
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['redis-exporter-main:9121']
+        labels:
+          instance: 'redis'
+      - targets: ['redis-exporter-worker-1:9121']
+        labels:
+          instance: 'redis-worker-1'
+      - targets: ['redis-exporter-worker-2:9121']
+        labels:
+          instance: 'redis-worker-2'
+      - targets: ['redis-exporter-worker-1b:9121']
+        labels:
+          instance: 'redis-worker-1b'
+      - targets: ['redis-exporter-worker-2b:9121']
+        labels:
+          instance: 'redis-worker-2b'
+      - targets: ['redis-exporter-ticks:9121']
+        labels:
+          instance: 'redis-ticks'
+
+
+  # Python Worker метрики (Шардированные)
+  - job_name: 'python-worker'
+    static_configs:
+      - targets:
+          - 'python-worker:8000'
+          - 'python-worker-shard-1b:8000'
+          - 'python-worker-shard-2:8000'
+          - 'python-worker-2:8000'
+    scrape_interval: 15s
+
+  # Regime Quantiles Job метрики
+  - job_name: 'regime-quantiles'
+    static_configs:
+      - targets: ['regime-quantiles-job:8001']
+    scrape_interval: 30s
+
+  # Metrics Exporter (Redis-based) метрики
+  - job_name: 'metrics-exporter-redis'
+    static_configs:
+      - targets: ['scanner-metrics-server-timer:9109']
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+
+  # OF Confirm Service метрики
+  - job_name: 'of-confirm-service'
+    static_configs:
+      - targets: ['of-confirm-service:8003']
+    scrape_interval: 15s
+
+  # Execution Gate Service метрики
+  - job_name: 'execution-gate-service'
+    static_configs:
+      - targets: ['execution-gate-service:8004']
+    scrape_interval: 15s
+
+  # ML Confirm SRE Poller метрики
+  - job_name: 'ml-confirm-sre-poller'
+    static_configs:
+      - targets: ['ml-confirm-sre-poller:8005']
+    scrape_interval: 15s
+
+  # P76 — OF gate contract smoke-check exporter (port 9148)
+  - job_name: 'of-gate-contract-smoke'
+    static_configs:
+      - targets: ['of-gate-contract-smoke-exporter:9148']
+    scrape_interval: 30s
+
+  # P59 — Edge Stack v1 nightly train metrics exporter (port 9813)
+  - job_name: edge_stack_train_p59
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - edge-stack-train-exporter-p59:9813
+
+  # P60 — Edge Stack v1 shadow eval status exporter (port 8012)
+  - job_name: edge_stack_shadow_p60
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          - edge-stack-shadow-exporter-p60:8012
+
+  # P77 — Enforce bucket state exporter (port 9142)
+  - job_name: enforce_bucket_state_p77
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - scanner-enforce-bucket-state-exporter:9142
+
+  # Go Gateway (Exposes gateway_up and others)
+  - job_name: go_gateway
+    scrape_interval: 5s
+    static_configs:
+      - targets:
+          - scanner-go-gateway:8090
+
+  # P94 — Feature Registry contract exporter (port 9817)
+  - job_name: feature_registry_contract_p94
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - feature-registry-contract-exporter:9822
+
+  # AIOps Agent v15.0 targets — AB Apply Runner (port 9109 in scanner-network)
+  - job_name: ab_apply_runner
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - ab-winner-apply-runner:9109
+
+  # AIOps Agent v15.0 targets — Exec Health Freeze Control (port 9827 in scanner-network)
+  - job_name: exec_health_freeze_control
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - scanner-exec-health-freeze-control-exporter:9827
+
+  # AIOps Agent v15.0 targets — Exec Health Freeze Integrity (port 9828)
+  - job_name: exec_health_freeze_integrity
+    scrape_interval: 10s
+    static_configs:
+      - targets:
+          - scanner-exec-health-freeze-integrity-exporter:9828
+
+  # AIOps Agent v15.0 targets — Exec Health SLO Checkers (ports 9824, 9825)
+  - job_name: exec_health_slo
+    scrape_interval: 10s
+    static_configs:
+      - targets:
+          - scanner-exec-health-slo-exporter:9824
+          - scanner-exec-health-slo-autoguard-exporter:9839
+
+  # AIOps Agent v15.0 targets — Exec Health Freeze Dual-Control (port 9829)
+  - job_name: exec_health_freeze_dual_control
+    scrape_interval: 10s
+    static_configs:
+      - targets:
+          - scanner-exec-health-freeze-dual-control-exporter:9829
+
+  # AIOps Agent v15.0 targets — Exec Health Tamper Guard & ACL Audit (ports 9830, 9831, 9842)
+  - job_name: exec_health_tamper_acl
+    scrape_interval: 10s
+    static_configs:
+      - targets:
+          - scanner-exec-health-freeze-tamper-guard:9830
+          - scanner-exec-health-freeze-acl-audit-exporter:9831
+          - scanner-exec-health-freeze-acl-drift-exporter:9842
+
+  - job_name: chatops_metrics
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - chatops-metrics-exporter:9817
+
+  - job_name: monitoring_smoke
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          - monitoring-smoke-exporter:9814
+
+  # Trade Monitor Liveness exporter (port 9844)
+  - job_name: 'trade_monitor_liveness'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['scanner-trade-monitor:9844', 'scanner-trade-monitor-2:9845']
+
+  # Phase 0 ML Control Plane Exporters
+  - job_name: 'ml_control_plane_phase0'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-inventory-exporter-v1:9852'
+          - 'scanner-ml-health-rollup-v1:9853'
+
+  # Phase 0.1 ML Control Plane Exporters
+  - job_name: 'ml_control_plane_phase0_1'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-training-runs-writer-v1:9854'
+          - 'scanner-ml-health-enricher-v1:9855'
+
+  # Phase 0.2 ML Control Plane Exporters
+  - job_name: 'ml_control_plane_phase0_2'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-model-snapshot-compactor-v1:9856'
+
+  # Phase 1.0 ML Control Plane Exporters
+  - job_name: 'ml_control_plane_phase1_0'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-analysis-pack-builder-v1:9857'
+          - 'scanner-ml-vertex-triage-v1:9858'
+
+  # Phase 1.1 ML Control Plane Exporters
+  - job_name: 'ml_control_plane_phase1_1'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-context-pack-compactor-v1:9859'
+          - 'scanner-ml-vertex-triage-v1-1:9860'
+
+  # Phase 1.2 ML Control Plane Exporters
+  - job_name: 'ml_control_plane_phase1_2'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-batch-review-scheduler-v1:9861'
+          - 'scanner-ml-context-cache-manager-v1:9862'
+          - 'scanner-ml-vertex-batch-review-v1:9863'
+          - 'scanner-ml-recommendation-feedback-v1:9864'
+
+  # Phase 1.3 ML Control Plane Exporters
+  - job_name: 'ml_control_plane_phase1_3'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-recommendation-review-bus-v1:9865'
+          - 'scanner-ml-recommendation-apply-gate-v1:9868'
+
+  # Phase 1.4 ML Control Plane Exporters
+  - job_name: 'ml_control_plane_phase1_4'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-recommendation-executor-v1:9869'
+
+
+  # Phase 1.5 ML Control Plane Exporters (Commit Policy)
+  - job_name: 'ml_control_plane_phase1_5'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-commit-policy-controller-v1:9870'
+          - 'scanner-ml-recommendation-commit-executor-v1:9871'
+
+  # Phase 1.6 ML Control Plane Exporters (Verification & Rollback)
+  - job_name: 'ml_control_plane_phase1_6'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-post-commit-verifier-v1:9872'
+          - 'scanner-ml-auto-rollback-trigger-v1:9873'
+
+  # Phase 1.7 ML Control Plane Exporters (Rollback Loop & State Machine)
+  - job_name: 'ml_control_plane_phase1_7'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-rollback-verifier-v1:9874'
+          - 'scanner-ml-rollback-state-machine-v1:9875'
+
+  # Phase 1.8 ML Control Plane Exporters (SLO, Retry & Escalation)
+  - job_name: 'ml_control_plane_phase1_8'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-rollback-slo-analytics-v1:9876'
+          - 'scanner-rollback-retry-controller-v1:9877'
+          - 'scanner-rollback-auto-escalation-v1:9878'
+
+  # Phase 1.9 ML Control Plane Exporters (Incident Bundle Builder)
+  - job_name: 'ml_control_plane_phase1_9'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-incident-bundle-builder-v1:9867'
+
+  # Phase 2.0 ML Control Plane Exporters (Operator RCA Bridge)
+  - job_name: 'ml_control_plane_phase2_0'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-incident-bundle-to-vertex-bridge-v1:9868'
+          - 'scanner-ml-operator-rca-v2-0:9869'
+
+  # Phase 2.1 ML Control Plane Exporters (RCA Persister, Quality, Feedback)
+  - job_name: 'ml_control_plane_phase2_1'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-operator-rca-results-persist-v2-1:9870'
+          - 'scanner-ml-operator-rca-quality-v2-1:9871'
+          - 'scanner-ml-operator-rca-feedback-v2-1:9872'
+
+  # Phase 2.2 ML Control Plane Exporters (RCA Usefulness Governor)
+  - job_name: 'ml_control_plane_phase2_2'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-operator-rca-usefulness-governor-v2-2:9873'
+
+  # Phase 2.3 ML Control Plane Exporters (RCA Routing Controller)
+  - job_name: 'ml_control_plane_phase2_3'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-operator-rca-routing-v2-3:9874'
+
+  # Phase 2.4 ML Control Plane Exporters (RCA Experiment Harness)
+  - job_name: 'ml_control_plane_phase2_4_router'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-operator-rca-experiment-router-v2-4:9875'
+
+  - job_name: 'ml_control_plane_phase2_4_winner'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-operator-rca-experiment-winner-v2-4:9876'
+
+  # Phase 2.5 ML Control Plane Exporters (RCA Routing Apply Controller)
+  - job_name: 'ml_control_plane_phase2_5'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-operator-rca-routing-apply-v2-5:9877'
+
+  # Phase 2.6 ML Control Plane Exporters (RCA Routing Post-Apply Verification)
+  - job_name: 'ml_control_plane_phase2_6_verify'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-operator-rca-routing-post-apply-verifier-v2-6:9878'
+
+  - job_name: 'ml_control_plane_phase2_6_rollback'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-operator-rca-routing-rollback-executor-v2-6:9879'
+
+  # Phase 2.7 ML Control Plane Exporters (RCA Routing SLO, Retry, Escalation)
+  - job_name: 'ml_control_plane_phase2_7_slo'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-operator-rca-routing-slo-v2-7:9880'
+
+  - job_name: 'ml_control_plane_phase2_7_retry'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-operator-rca-routing-retry-v2-7:9881'
+
+  - job_name: 'ml_control_plane_phase2_7_escalation'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-ml-operator-rca-routing-escalation-v2-7:9882'
+
+  # Phase 2.8 ML Control Plane Exporters (RCA Routing Incident Bundle Builder)
+  - job_name: 'ml_control_plane_phase2_8_incident_bundle'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-operator-rca-routing-incident-bundle-builder-v2-8:9883'
+
+  # Phase 2.9 ML Control Plane Exporters (Routing Incident Vertex Bridge)
+  - job_name: 'ml_control_plane_phase2_9_vertex_bridge'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-operator-rca-routing-incident-to-vertex-bridge-v2-9:9884'
+
+  - job_name: 'ml_control_plane_phase2_9_vertex_orchestrator'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-operator-rca-routing-incident-rca-orchestrator-v2-9:9885'
+
+  # Phase 2.10 ML Control Plane Exporters (Routing Incident RCA Governance)
+  - job_name: 'ml_control_plane_phase2_10_results_persister'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-operator-routing-incident-rca-results-persister-v2-10:9886'
+
+  - job_name: 'ml_control_plane_phase2_10_quality_scorer'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-operator-routing-incident-rca-quality-scorer-v2-10:9887'
+
+  - job_name: 'ml_control_plane_phase2_10_feedback_loop'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-operator-routing-incident-rca-feedback-loop-v2-10:9888'
+
+  - job_name: 'ml_control_plane_phase2_11_governor'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-operator-routing-incident-rca-usefulness-governor-v2-11:9889'
+
+  - job_name: 'ml_control_plane_phase2_12_routing'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-operator-routing-incident-rca-routing-v2-12:9890'
+
+  - job_name: 'ml_control_plane_phase2_13_experiment'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-operator-routing-incident-rca-experiment-router-v2-13:9891'
+          - 'scanner-operator-routing-incident-rca-experiment-winner-selector-v2-13:9892'
+
+  - job_name: 'ml_control_plane_phase2_14_winner_routing_apply'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-operator-routing-incident-rca-winner-routing-apply-controller-v2-14:9893'
+
+  - job_name: 'ml_control_plane_phase2_15_route_safety_loop'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-operator-routing-incident-rca-routing-post-apply-verifier-v2-15:9894'
+          - 'scanner-operator-routing-incident-rca-routing-rollback-executor-v2-15:9895'
+
+  - job_name: 'ml_control_plane_phase2_16_route_governance'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-operator-routing-incident-rca-route-slo-analytics-v2-16:9896'
+          - 'scanner-operator-routing-incident-rca-route-retry-controller-v2-16:9897'
+          - 'scanner-operator-routing-incident-rca-route-auto-escalation-summarizer-v2-16:9898'
+
+  - job_name: 'ml_control_plane_phase2_17_route_incident_bundle'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-operator-routing-incident-rca-route-incident-bundle-builder-v2-17:9899'
+
+  - job_name: 'ml_control_plane_phase2_18_route_incident_vertex_bridge'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-operator-routing-incident-rca-route-incident-to-vertex-bridge-v2-18:9900'
+          - 'ml-operator-routing-incident-route-rca-orchestrator-v2-18:9901'
+
+  - job_name: 'ml_control_plane_phase2_19_route_incident_governance'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-operator-routing-incident-route-rca-results-v2-19:9902'
+          - 'scanner-operator-routing-incident-route-rca-quality-scorer-v2-19:9903'
+          - 'scanner-operator-routing-incident-route-rca-feedback-loop-v2-19:9904'
+
+  - job_name: 'ml_control_plane_phase2_20_route_incident_usefulness_governor'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-operator-routing-incident-route-rca-usefulness-governor-v2-20:9905'
+
+  - job_name: 'ml_control_plane_phase2_21_route_rca_routing'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-operator-routing-incident-route-rca-routing-controller-v2-21:9906'
+
+  - job_name: 'ml_control_plane_phase2_22_route_rca_experiment'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-operator-routing-incident-route-rca-experiment-router-v2-22:9907'
+          - 'scanner-operator-routing-incident-route-rca-experiment-winner-selector-v2-22:9908'
+
+  - job_name: 'ml_control_plane_phase2_23_winner_routing_apply'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-operator-routing-incident-route-rca-winner-routing-apply-controller-v2-23:9909'
+
+  - job_name: 'ml_control_plane_phase2_24_route_safety'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-operator-routing-incident-route-rca-routing-post-apply-verifier-v2-24:9910'
+          - 'scanner-operator-routing-incident-route-rca-routing-rollback-executor-v2-24:9911'
+
+  - job_name: 'ml_control_plane_phase2_25_route_governance'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-operator-routing-incident-route-rca-route-slo-analytics-v2-25:9912'
+          - 'scanner-operator-routing-incident-route-rca-route-retry-controller-v2-25:9913'
+          - 'scanner-operator-routing-incident-route-rca-route-auto-escalation-summarizer-v2-25:9914'
+
+  - job_name: 'ml_control_plane_phase2_integration_freeze'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-phase2-integration-freeze-auditor-v2-if1:9915'
+
+  - job_name: 'ml_phase3_local_fallback_plane'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-local-fallback-plane-v3-0:9916'
+
+  - job_name: 'ml_phase3_v1_vertex_local_handoff'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'scanner-vertex-local-fallback-handoff-v3-1:9917'

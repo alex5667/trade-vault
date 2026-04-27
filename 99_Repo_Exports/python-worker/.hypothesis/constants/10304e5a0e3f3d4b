@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/json_contract.py
+# hypothesis_version: 6.148.10
+
+[128, 256, 512, '$', '$payload', '$payload_meta', '0', '1', 'ASSERT_JSON_SAFE', '_keys', 'ignore', 'meta_truncated', 'meta_truncated_hard', 'parts', 'parts_full', 'parts_full_keys', 'parts_full_truncated', 'parts_truncated', 'reasons', 'reasons_truncated', 'true', 'utf-8', 'yes']

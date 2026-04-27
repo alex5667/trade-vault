@@ -1,0 +1,51 @@
+groups:
+  - name: trade-execution-audit-chain-p56
+    interval: 30s
+    rules:
+      # Report freshness gate — fires if checker has not refreshed textfile within 15 min (stale=1)
+      - alert: TradeExecutionAuditChainReportStale
+        expr: trade_execution_audit_chain_report_stale > 0
+        for: 10m
+        labels:
+          severity: warning
+          domain: execution-audit
+        annotations:
+          summary: Execution audit-chain report is stale
+          description: >-
+            check_execution_audit_chain.py has not refreshed its textfile report within the expected freshness window.
+
+      # Signal / plan linkage broken — execution_order references a non-existent signal or plan
+      - alert: TradeExecutionAuditChainBrokenSignalPlan
+        expr: sum(trade_execution_audit_chain_broken_total{kind=~"broken_signal_link|broken_signal_plan|broken_entry_policy_link"}) > 0
+        for: 15m
+        labels:
+          severity: warning
+          domain: execution-audit
+        annotations:
+          summary: Broken signal/plan execution audit chain detected
+          description: >-
+            One or more execution rows lost linkage to signals, signal_execution_plan, or entry_policy_audit.
+
+      # Trade / position linkage broken — critical, means closed-trade data is orphaned
+      - alert: TradeExecutionAuditChainBrokenTradeLink
+        expr: sum(trade_execution_audit_chain_broken_total{kind=~"broken_trade_link|broken_position_event_link"}) > 0
+        for: 15m
+        labels:
+          severity: critical
+          domain: execution-audit
+        annotations:
+          summary: Broken closed-trade execution audit chain detected
+          description: >-
+            One or more execution rows lost linkage to trades_closed or position_events.
+
+      # Analytics / snapshot linkage broken — decision_snapshot missing for executed order
+      - alert: TradeExecutionAuditChainBrokenAnalyticsLink
+        expr: sum(trade_execution_audit_chain_broken_total{kind="broken_analytics_link"}) > 0
+        for: 15m
+        labels:
+          severity: warning
+          domain: execution-audit
+        annotations:
+          summary: Broken analytics execution audit chain detected
+          description: >-
+            One or more execution rows are missing downstream decision_snapshot linkage.

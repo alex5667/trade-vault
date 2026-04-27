@@ -1,0 +1,122 @@
+groups:
+- name: policy-calibration-suggester-p74
+  rules:
+  - alert: PolicyCalibrationSuggestionStale
+    expr: policy_calibration_suggest_staleness_sec > 7200
+    for: 30m
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "policy calibration suggestion is stale"
+      description: "No fresh P74 suggestion in cfg2 for >2h. The worker may be stopped,
+        crashing, or P71/P72 inputs are missing."
+      runbook: "orderflow_services/runbook_policy_calibration_suggester_p74.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: PolicyCalibrationSuggestionInputsStale
+    expr: policy_calibration_suggest_inputs_stale == 1
+    for: 30m
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "P71/P72 inputs are stale for P74 suggestion"
+      description: "P74 is running but the underlying P71/P72 snapshots are older
+        than the configured max. Restart/enable the report workers or investigate
+        their stream reads."
+      runbook: "orderflow_services/runbook_policy_calibration_suggester_p74.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: PolicyCalibrationSuggestionUnknownShareHigh
+    expr: policy_calibration_suggest_unknown_share_24h > 0.02 and 
+      signal_quality_n_24h > 200
+    for: 1h
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "high share of trades with policy mode=unknown"
+      description: "More than 2% of trades in last 24h are missing/unknown policy_effective_mode.
+        This breaks calibration and makes P74 suggestions unreliable."
+      runbook: "orderflow_services/runbook_policy_calibration_suggester_p74.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: PolicyCalibrationSuggestTightenWarn
+    expr: policy_calibration_suggest_warn_action_code == 1 and 
+      policy_calibration_suggest_warn_severity > 1.0 and 
+      policy_calibration_suggest_warn_share_24h > 0.05 and 
+      policy_calibration_suggest_ok_baseline_present == 1 and 
+      signal_quality_n_24h_by_policy_mode{mode="warn"} >= 30
+    for: 2h
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "P74 suggests tightening WARN threshold"
+      description: "WARN has non-trivial share and high negative impact (severity>1).
+        Review P71/P72 deltas and consider tightening WARN threshold or widening quarantine
+        / data-quality guardrails."
+      runbook: "orderflow_services/runbook_policy_calibration_suggester_p74.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: PolicyCalibrationSuggestTightenBlock
+    expr: policy_calibration_suggest_block_action_code == 1 and 
+      policy_calibration_suggest_block_severity > 1.0 and 
+      policy_calibration_suggest_block_share_24h > 0.01 and 
+      policy_calibration_suggest_ok_baseline_present == 1 and 
+      signal_quality_n_24h_by_policy_mode{mode="block"} >= 10
+    for: 2h
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "P74 suggests tightening BLOCK threshold"
+      description: "BLOCK has non-trivial share and high negative impact (severity>1).
+        Review worst-regime cells (P72) and consider tightening BLOCK threshold or
+        adjusting dq/drift detectors."
+      runbook: "orderflow_services/runbook_policy_calibration_suggester_p74.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: PolicyCalibrationSuggestLoosenWarn
+    expr: policy_calibration_suggest_warn_action_code == -1 and 
+      policy_calibration_suggest_warn_severity < 0.5 and 
+      policy_calibration_suggest_warn_share_24h > 0.30 and 
+      policy_calibration_suggest_ok_baseline_present == 1 and 
+      signal_quality_n_24h_by_policy_mode{mode="warn"} >= 50
+    for: 6h
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "P74 suggests loosening WARN threshold"
+      description: "WARN share is high but impact is low (severity<0.5). This can
+        indicate overly sensitive guardrails. Consider loosening WARN threshold or
+        narrowing the WARN conditions after verifying P71/P72 remain stable."
+      runbook: "orderflow_services/runbook_policy_calibration_suggester_p74.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: PolicyCalibrationSuggestLoosenBlock
+    expr: policy_calibration_suggest_block_action_code == -1 and 
+      policy_calibration_suggest_block_severity < 0.5 and 
+      policy_calibration_suggest_block_share_24h > 0.05 and 
+      policy_calibration_suggest_ok_baseline_present == 1 and 
+      signal_quality_n_24h_by_policy_mode{mode="block"} >= 20
+    for: 6h
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "P74 suggests loosening BLOCK threshold"
+      description: "BLOCK share is high but impact is low (severity<0.5). This can
+        indicate overly strict block threshold or miscalibration of dq/drift. Consider
+        loosening BLOCK threshold after confirming safety and P72 worst-regime deltas."
+      runbook: "orderflow_services/runbook_policy_calibration_suggester_p74.md"
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/smt_entry_abc_config.py
+# hypothesis_version: 6.148.10
+
+[1.0, 1.5, 10.0, 25.0, 1000, 2000, 'A', 'B', 'C', 'ENTRY_POLICY_SHADOW', 'SMT_AWAY_BP', 'SMT_RETEST_BP', 'SMT_TOUCH_BP', 'b', 'c', 'default', 'enabled', 'overrides', 'poll_ms', 'salt', 'smt-entry-v1', 'splits', 'thin', 'version']

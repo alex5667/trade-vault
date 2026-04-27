@@ -1,0 +1,567 @@
+# ═══════════════════════════════════════════════════════════════
+# 🚀 Docker Compose v2 + Scanner Infrastructure Management
+# ═══════════════════════════════════════════════════════════════
+SHELL := /bin/bash
+.PHONY: help up up-bg up-daemon down rebuild logs status health volumes backup-volumes restore-volumes verify-volumes cleanup-containers clean scale-signal scale-worker scale-all restart-redis restart-signal restart-hub restart-gateway restart-telegram restart-all redis-logs signal-logs hub-logs gateway-logs telegram-logs worker-logs all-logs redis-shell gateway-shell worker-shell network-inspect image-prune container-prune volume-prune system-prune full-cleanup health-check service-logs service-restart ps top stats events inspect-redis inspect-signal inspect-hub inspect-gateway tracker-status tracker-logs tracker-restart send-report-now check-xauusd-services check-telegram check-redis-streams
+
+# По умолчанию используем docker-compose.yml
+COMPOSE_FILE ?= docker-compose.yml
+DC := docker-compose -f $(COMPOSE_FILE)
+
+help:
+	@echo "╔═══════════════════════════════════════════════════════════════╗"
+	@echo "║    🐳 Docker Compose v2 + Scanner Infrastructure 🐳         ║"
+	@echo "╚═══════════════════════════════════════════════════════════════╝"
+	@echo ""
+	@echo "📦 Основные команды:"
+	@echo "  make up             - Запуск всех сервисов с логами (up --build)"
+	@echo "  make up-bg          - Запуск всех сервисов в фоне"
+	@echo "  make up-daemon      - Запуск всех сервисов в фоне (daemon mode)"
+	@echo "  make down           - Остановка контейнеров (💾 volumes сохраняются)"
+	@echo "  make rebuild        - Полная пересборка и перезапуск"
+	@echo "  make cleanup-containers - 🧹 Удалить остановленные контейнеры scanner"
+	@echo "  make clean          - ⚠️  ПОЛНАЯ очистка (контейнеры + volumes)"
+	@echo "  make status         - Статус всех контейнеров"
+	@echo "  make health         - Проверка health всех сервисов"
+	@echo "  make ps             - docker-compose ps (детальный статус)"
+	@echo "  make top            - Процессы в контейнерах"
+	@echo "  make stats          - Статистика использования ресурсов"
+	@echo "  make events         - События Docker Compose"
+	@echo ""
+	@echo "🔄 Перезапуск сервисов:"
+	@echo "  make restart-all    - Перезапуск всех сервисов"
+	@echo "  make restart-redis  - Перезапуск Redis сервисов"
+	@echo "  make restart-signal - Перезапуск signal-generator"
+	@echo "  make restart-hub    - Перезапуск signal-hub и aggregated-hub"
+	@echo "  make restart-gateway - Перезапуск go-gateway"
+	@echo "  make restart-telegram - Перезапуск telegram-worker"
+	@echo ""
+	@echo "📊 Масштабирование:"
+	@echo "  make scale-signal   - Масштабировать signal сервисы (INSTANCES=N)"
+	@echo "  make scale-worker   - Масштабировать workers (INSTANCES=N)"
+	@echo "  make scale-all      - Масштабировать все сервисы"
+	@echo ""
+	@echo "📋 Логи:"
+	@echo "  make logs           - Все логи в реальном времени"
+	@echo "  make all-logs       - Все логи с timestamp"
+	@echo "  make redis-logs     - Логи Redis сервисов"
+	@echo "  make signal-logs    - Логи signal-generator"
+	@echo "  make hub-logs       - Логи signal-hub"
+	@echo "  make gateway-logs   - Логи go-gateway"
+	@echo "  make telegram-logs  - Логи telegram-worker"
+	@echo "  make worker-logs    - Логи всех workers"
+	@echo "  make service-logs SERVICE=<name> - Логи конкретного сервиса"
+	@echo ""
+	@echo "🔧 Shell доступ:"
+	@echo "  make redis-shell    - Shell в Redis контейнер"
+	@echo "  make gateway-shell  - Shell в gateway контейнер"
+	@echo "  make worker-shell   - Shell в worker контейнер"
+	@echo ""
+	@echo "💾 Volumes и backup:"
+	@echo "  make volumes        - Список всех volumes"
+	@echo "  make verify-volumes - Проверка целостности volumes"
+	@echo "  make backup-volumes - Backup всех volumes"
+	@echo "  make restore-volumes - Восстановление volumes из backup"
+	@echo ""
+	@echo "🔍 Инспекция:"
+	@echo "  make inspect-redis  - Детальная информация о Redis"
+	@echo "  make inspect-signal - Детальная информация о signal-generator"
+	@echo "  make inspect-hub    - Детальная информация о signal-hub"
+	@echo "  make inspect-gateway - Детальная информация о gateway"
+	@echo "  make network-inspect - Информация о Docker сети"
+	@echo ""
+	@echo "🧹 Очистка:"
+	@echo "  make image-prune    - Удалить неиспользуемые образы"
+	@echo "  make container-prune - Удалить остановленные контейнеры"
+	@echo "  make volume-prune   - Удалить неиспользуемые volumes"
+	@echo "  make system-prune   - Полная очистка системы Docker"
+	@echo "  make full-cleanup   - ⚠️  Удалить ВСЁ (требует подтверждение)"
+	@echo ""
+	@echo "🏥 Проверки здоровья:"
+	@echo "  make health-check   - Проверка health всех сервисов"
+	@echo ""
+	@echo "📊 Signal Tracker и отчеты:"
+	@echo "  make tracker-status        - Статус Signal Performance Tracker"
+	@echo "  make tracker-logs          - Логи трекера сигналов"
+	@echo "  make tracker-restart       - Перезапуск трекера"
+	@echo "  make send-report-now       - 📤 Отправить отчет в Telegram СЕЙЧАС"
+	@echo "  make check-xauusd-services - Проверка 3 сервисов XAUUSD"
+	@echo "  make check-telegram        - Проверка Telegram интеграции"
+	@echo "  make check-redis-streams   - Проверка Redis Streams"
+	@echo ""
+	@echo "🎯 Примеры:"
+	@echo "  make up                                    # Запуск"
+	@echo "  make verify-volumes                        # Проверка volumes"
+	@echo "  make backup-volumes                        # Backup перед изменениями"
+	@echo "  make signal-logs                           # Логи signal-generator"
+	@echo "  make restart-signal                        # Перезапуск signal-generator"
+	@echo "  make scale-signal INSTANCES=3              # Масштабировать до 3 инстансов"
+	@echo "  COMPOSE_FILE=docker-compose.optimized.yml make up  # Оптимизированная версия"
+	@echo ""
+
+# ═══════════════════════════════════════════════════════════════
+# Основные команды
+# ═══════════════════════════════════════════════════════════════
+
+cleanup-containers:
+	@echo "🧹 Очистка старых контейнеров scanner..."
+	@echo ""
+	@OLD_CONTAINERS=$$(docker ps -a --filter "name=scanner" --filter "status=exited" --format "{{.Names}}" 2>/dev/null || true); \
+	if [ -n "$$OLD_CONTAINERS" ]; then \
+		echo "Найдены остановленные контейнеры:"; \
+		echo "$$OLD_CONTAINERS" | sed 's/^/  - /'; \
+		echo ""; \
+		docker ps -a --filter "name=scanner" --filter "status=exited" --format "{{.Names}}" | xargs -r docker rm 2>/dev/null || true; \
+		echo "✅ Старые контейнеры удалены"; \
+	else \
+		echo "ℹ️  Нет остановленных контейнеров scanner"; \
+	fi
+
+up: cleanup-containers
+	@echo "🔍 Проверка существующих контейнеров..."
+	@EXISTING=$$(docker ps -a --filter "name=scanner-" --format "{{.Names}}" 2>/dev/null | wc -l); \
+	if [ $$EXISTING -gt 0 ]; then \
+		echo "⚠️  Найдено $$EXISTING существующих контейнеров scanner-*"; \
+		echo "🛑 Остановка и удаление существующих контейнеров..."; \
+		docker ps -a --filter "name=scanner-" --format "{{.Names}}\t{{.Status}}" | sed 's/^/  - /'; \
+		echo ""; \
+		echo "Остановка через docker-compose..."; \
+		$(DC) down --remove-orphans 2>/dev/null || true; \
+		echo "Прямое удаление всех scanner-* контейнеров..."; \
+		docker ps -a --filter "name=scanner-" --format "{{.Names}}" | xargs -r docker rm -f 2>/dev/null || true; \
+		docker ps -a --filter "name=go-gateway" --format "{{.Names}}" | xargs -r docker rm -f 2>/dev/null || true; \
+		echo "✅ Контейнеры остановлены и удалены"; \
+		sleep 2; \
+	else \
+		echo "✅ Нет существующих контейнеров"; \
+	fi
+	@echo ""
+	@echo "🚀 Запуск сервисов ($(COMPOSE_FILE))..."
+	$(DC) up --build
+	@echo "✅ Сервисы запущены"
+	@echo ""
+	@echo "Проверьте статус: make status"
+
+up-bg: cleanup-containers
+	@echo "🔍 Проверка существующих контейнеров..."
+	@EXISTING=$$(docker ps -a --filter "name=scanner-" --format "{{.Names}}" 2>/dev/null | wc -l); \
+	if [ $$EXISTING -gt 0 ]; then \
+		echo "⚠️  Найдено $$EXISTING существующих контейнеров scanner-*"; \
+		echo "🛑 Остановка и удаление существующих контейнеров..."; \
+		docker ps -a --filter "name=scanner-" --format "{{.Names}}\t{{.Status}}" | sed 's/^/  - /'; \
+		echo ""; \
+		echo "Остановка через docker-compose..."; \
+		$(DC) down --remove-orphans 2>/dev/null || true; \
+		echo "Прямое удаление всех scanner-* контейнеров..."; \
+		docker ps -a --filter "name=scanner-" --format "{{.Names}}" | xargs -r docker rm -f 2>/dev/null || true; \
+		docker ps -a --filter "name=go-gateway" --format "{{.Names}}" | xargs -r docker rm -f 2>/dev/null || true; \
+		echo "✅ Контейнеры остановлены и удалены"; \
+		sleep 2; \
+	else \
+		echo "✅ Нет существующих контейнеров"; \
+	fi
+	@echo ""
+	@echo "🚀 Запуск сервисов в фоне ($(COMPOSE_FILE))..."
+	$(DC) up -d --build
+	@echo "✅ Сервисы запущены в фоне"
+	@echo ""
+	@echo "Проверьте статус: make status"
+
+up-daemon: cleanup-containers
+	@echo "🔍 Проверка существующих контейнеров..."
+	@EXISTING=$$(docker ps -a --filter "name=scanner-" --format "{{.Names}}" 2>/dev/null | wc -l); \
+	if [ $$EXISTING -gt 0 ]; then \
+		echo "⚠️  Найдено $$EXISTING существующих контейнеров scanner-*"; \
+		echo "🛑 Остановка и удаление существующих контейнеров..."; \
+		docker ps -a --filter "name=scanner-" --format "{{.Names}}\t{{.Status}}" | sed 's/^/  - /'; \
+		echo ""; \
+		echo "Остановка через docker-compose..."; \
+		$(DC) down --remove-orphans 2>/dev/null || true; \
+		echo "Прямое удаление всех scanner-* контейнеров..."; \
+		docker ps -a --filter "name=scanner-" --format "{{.Names}}" | xargs -r docker rm -f 2>/dev/null || true; \
+		docker ps -a --filter "name=go-gateway" --format "{{.Names}}" | xargs -r docker rm -f 2>/dev/null || true; \
+		echo "✅ Контейнеры остановлены и удалены"; \
+		sleep 2; \
+	else \
+		echo "✅ Нет существующих контейнеров"; \
+	fi
+	@echo ""
+	@echo "🚀 Запуск сервисов в фоне (daemon mode) ($(COMPOSE_FILE))..."
+	$(DC) up -d --build
+	@echo "✅ Сервисы запущены в фоне (daemon mode)"
+	@echo ""
+	@echo "Проверьте статус: make status"
+
+down:
+	@echo "🛑 Остановка сервисов..."
+	@echo ""
+	@echo "⚠️⚠️⚠️  ВАЖНАЯ ИНФОРМАЦИЯ ⚠️⚠️⚠️"
+	@echo "Эта команда НЕ удаляет volumes (данные сохраняются)"
+	@echo "Для удаления volumes используйте: make clean"
+	@echo ""
+	@echo "📊 Текущие volumes Redis:"
+	@docker volume ls --filter "name=scanner_infra" --format "  - {{.Name}}" 2>/dev/null || true
+	@echo ""
+	@echo "Остановка контейнеров (volumes сохраняются)..."
+	$(DC) down --remove-orphans
+	@echo ""
+	@echo "✅ Сервисы остановлены"
+	@echo "💾 Volumes сохранены (данные Redis не удалены)"
+	@echo ""
+	@echo "⚠️  НЕ ИСПОЛЬЗУЙТЕ: docker-compose down -v (флаг -v удалит данные!)"
+	@echo "⚠️  Для удаления данных: make clean (требует подтверждение)"
+
+rebuild:
+	@echo "🔨 Полная пересборка..."
+	$(DC) down --remove-orphans
+	$(DC) up -d --build --force-recreate
+	@echo "✅ Пересборка завершена"
+
+clean:
+	@echo "⚠️⚠️⚠️  ОПАСНАЯ ОПЕРАЦИЯ ⚠️⚠️⚠️"
+	@echo "🗑️  Полная очистка (containers + volumes + ВСЕ ДАННЫЕ)"
+	@echo ""
+	@echo "Это удалит:"
+	@echo "  - Все контейнеры scanner"
+	@echo "  - ВСЕ volumes включая Redis данные"
+	@echo "  - ВСЕ данные будут БЕЗВОЗВРАТНО ПОТЕРЯНЫ"
+	@echo ""
+	@docker volume ls --filter "name=scanner_infra" --format "  - {{.Name}}" 2>/dev/null || true
+	@echo ""
+	@read -p "Вы ДЕЙСТВИТЕЛЬНО уверены? Введите 'DELETE' для подтверждения: " confirm && \
+	if [ "$$confirm" = "DELETE" ]; then \
+		echo "🗑️  Удаление всех данных..."; \
+		$(DC) down -v --remove-orphans; \
+		echo "✅ Очистка завершена"; \
+	else \
+		echo "❌ Отменено (требуется ввести DELETE)"; \
+	fi
+
+# ═══════════════════════════════════════════════════════════════
+# Статус и мониторинг
+# ═══════════════════════════════════════════════════════════════
+
+status:
+	@echo "📊 Статус контейнеров:"
+	@$(DC) ps
+
+ps:
+	@echo "📊 Детальный статус (docker-compose ps):"
+	@$(DC) ps -a
+
+health:
+	@echo "🏥 Проверка health всех сервисов:"
+	@docker ps --format "table {{.Names}}\t{{.Status}}" | grep -E "(scanner-|redis|gateway)"
+
+health-check:
+	@echo "🏥 Полная проверка здоровья сервисов:"
+	@echo ""
+	@SERVICES="redis redis-worker-1 redis-worker-2 signal-generator signal-hub aggregated-hub go-gateway telegram-worker python-worker"; \
+	for svc in $$SERVICES; do \
+		CONTAINER="scanner-$$svc"; \
+		if docker ps --format "{{.Names}}" | grep -q "$$CONTAINER"; then \
+			echo "✅ $$CONTAINER - Running"; \
+		else \
+			echo "❌ $$CONTAINER - Not found or stopped"; \
+		fi; \
+	done
+
+top:
+	@echo "📊 Процессы в контейнерах:"
+	@$(DC) top
+
+stats:
+	@echo "📊 Статистика использования ресурсов:"
+	@docker stats --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}" | grep scanner || echo "Нет активных scanner контейнеров"
+
+events:
+	@echo "📋 События Docker Compose:"
+	@$(DC) events
+
+# ═══════════════════════════════════════════════════════════════
+# Перезапуск сервисов
+# ═══════════════════════════════════════════════════════════════
+
+restart-all:
+	@echo "🔄 Перезапуск всех сервисов..."
+	$(DC) restart
+	@echo "✅ Все сервисы перезапущены"
+
+restart-redis:
+	@echo "🔄 Перезапуск Redis сервисов..."
+	@docker restart scanner-redis scanner-redis-worker-1 scanner-redis-worker-2 2>/dev/null || echo "⚠️ Некоторые Redis сервисы не найдены"
+	@echo "✅ Redis сервисы перезапущены"
+
+restart-signal:
+	@echo "🔄 Перезапуск signal-generator..."
+	@docker restart scanner-signal-generator 2>/dev/null || echo "❌ signal-generator не найден"
+	@echo "✅ signal-generator перезапущен"
+
+restart-hub:
+	@echo "🔄 Перезапуск hub сервисов..."
+	@docker restart scanner-signal-hub scanner-aggregated-hub 2>/dev/null || echo "⚠️ Некоторые hub сервисы не найдены"
+	@echo "✅ Hub сервисы перезапущены"
+
+restart-gateway:
+	@echo "🔄 Перезапуск go-gateway..."
+	@docker restart go-gateway 2>/dev/null || echo "❌ go-gateway не найден"
+	@echo "✅ go-gateway перезапущен"
+
+restart-telegram:
+	@echo "🔄 Перезапуск telegram-worker..."
+	@docker restart scanner-telegram-worker 2>/dev/null || echo "❌ telegram-worker не найден"
+	@echo "✅ telegram-worker перезапущен"
+
+service-restart:
+	@if [ -z "$(SERVICE)" ]; then \
+		echo "❌ Укажите SERVICE=<имя_сервиса>"; \
+		exit 1; \
+	fi
+	@echo "🔄 Перезапуск сервиса $(SERVICE)..."
+	@docker restart $(SERVICE) 2>/dev/null || echo "❌ Сервис $(SERVICE) не найден"
+
+# ═══════════════════════════════════════════════════════════════
+# Масштабирование
+# ═══════════════════════════════════════════════════════════════
+
+scale-signal:
+	@INSTANCES=$${INSTANCES:-2}; \
+	echo "🚀 Масштабирование signal-generator до $$INSTANCES инстансов..."; \
+	$(DC) up -d --scale signal-generator=$$INSTANCES --no-recreate
+	@echo "✅ signal-generator масштабирован"
+
+scale-worker:
+	@INSTANCES=$${INSTANCES:-3}; \
+	echo "🚀 Масштабирование python-worker до $$INSTANCES инстансов..."; \
+	$(DC) up -d --scale python-worker=$$INSTANCES --no-recreate
+	@echo "✅ python-worker масштабирован"
+
+scale-all:
+	@echo "🚀 Масштабирование всех сервисов..."
+	@$(DC) up -d --scale signal-generator=2 --scale python-worker=3 --no-recreate
+	@echo "✅ Все сервисы масштабированы"
+
+# ═══════════════════════════════════════════════════════════════
+# Логи
+# ═══════════════════════════════════════════════════════════════
+
+logs:
+	@echo "📋 Все логи в реальном времени..."
+	$(DC) logs -f
+
+all-logs:
+	@echo "📋 Все логи с timestamp..."
+	$(DC) logs -f -t
+
+redis-logs:
+	@echo "📋 Логи Redis сервисов..."
+	@docker logs -f scanner-redis 2>&1 &
+	@docker logs -f scanner-redis-worker-1 2>&1 &
+	@docker logs -f scanner-redis-worker-2 2>&1 || true
+
+signal-logs:
+	@echo "📋 Логи signal-generator..."
+	@docker logs -f scanner-signal-generator 2>&1 || echo "❌ scanner-signal-generator не найден"
+
+hub-logs:
+	@echo "📋 Логи hub сервисов..."
+	@docker logs -f scanner-signal-hub 2>&1 &
+	@docker logs -f scanner-aggregated-hub 2>&1 || true
+
+gateway-logs:
+	@echo "📋 Логи go-gateway..."
+	@docker logs -f go-gateway 2>&1 || echo "❌ go-gateway не найден"
+
+telegram-logs:
+	@echo "📋 Логи telegram-worker..."
+	@docker logs -f scanner-telegram-worker 2>&1 || echo "❌ telegram-worker не найден"
+
+worker-logs:
+	@echo "📋 Логи всех workers..."
+	@docker logs -f scanner-python-worker 2>&1 || echo "❌ python-worker не найден"
+
+service-logs:
+	@if [ -z "$(SERVICE)" ]; then \
+		echo "❌ Укажите SERVICE=<имя_сервиса>"; \
+		exit 1; \
+	fi
+	@echo "📋 Логи сервиса $(SERVICE)..."
+	@docker logs -f $(SERVICE) 2>&1 || echo "❌ Сервис $(SERVICE) не найден"
+
+# ═══════════════════════════════════════════════════════════════
+# Shell доступ
+# ═══════════════════════════════════════════════════════════════
+
+redis-shell:
+	@echo "🔧 Shell в Redis контейнер..."
+	@docker exec -it scanner-redis redis-cli || echo "❌ scanner-redis не найден"
+
+gateway-shell:
+	@echo "🔧 Shell в gateway контейнер..."
+	@docker exec -it go-gateway /bin/sh || echo "❌ go-gateway не найден"
+
+worker-shell:
+	@echo "🔧 Shell в worker контейнер..."
+	@docker exec -it scanner-python-worker /bin/bash || echo "❌ python-worker не найден"
+
+# ═══════════════════════════════════════════════════════════════
+# Volumes и backup
+# ═══════════════════════════════════════════════════════════════
+
+volumes:
+	@echo "💾 Список volumes проекта:"
+	@echo ""
+	@docker volume ls --filter "name=scanner_infra" --format "table {{.Name}}\t{{.Driver}}\t{{.Mountpoint}}" 2>/dev/null || docker volume ls | grep scanner
+	@echo ""
+	@echo "Для детальной информации: docker volume inspect scanner_infra_redis-data"
+
+verify-volumes:
+	@echo "🔍 Проверка критичных volumes..."
+	@echo ""
+	@for vol in scanner-redis-data scanner-redis-worker-1-data scanner-redis-worker-2-data; do \
+		if docker volume inspect scanner_infra_$$vol >/dev/null 2>&1; then \
+			echo "✅ Volume scanner_infra_$$vol существует"; \
+		else \
+			echo "❌ Volume scanner_infra_$$vol НЕ НАЙДЕН!"; \
+		fi; \
+	done
+	@echo ""
+	@if docker ps --format "{{.Names}}" | grep -q "scanner-redis"; then \
+		echo "✅ Redis контейнер работает"; \
+		docker exec scanner-redis redis-cli PING 2>/dev/null && echo "✅ Redis отвечает" || echo "❌ Redis не отвечает"; \
+	else \
+		echo "⚠️  Redis контейнер НЕ запущен"; \
+	fi
+
+backup-volumes:
+	@echo "💾 Создание backup volumes..."
+	@mkdir -p ./backups/volumes
+	@BACKUP_FILE="./backups/volumes/volumes_backup_$$(date +%Y%m%d_%H%M%S).tar.gz"; \
+	echo "Создание backup: $$BACKUP_FILE"; \
+	docker run --rm -v scanner_infra_scanner-redis-data:/data -v $$(pwd)/backups/volumes:/backup alpine tar czf /backup/$$(basename $$BACKUP_FILE) -C /data . && \
+	echo "✅ Backup создан: $$BACKUP_FILE" || echo "❌ Ошибка создания backup"
+
+restore-volumes:
+	@echo "📥 Восстановление volumes из backup..."
+	@ls -lht ./backups/volumes/*.tar.gz 2>/dev/null | head -5 || echo "❌ Backup файлы не найдены"
+	@echo ""
+	@read -p "Введите имя файла для восстановления: " backup_file && \
+	if [ -f "$$backup_file" ]; then \
+		docker run --rm -v scanner_infra_scanner-redis-data:/data -v $$(pwd)/backups/volumes:/backup alpine sh -c "cd /data && tar xzf /backup/$$(basename $$backup_file)" && \
+		echo "✅ Данные восстановлены из $$backup_file"; \
+	else \
+		echo "❌ Файл не найден: $$backup_file"; \
+		exit 1; \
+	fi
+
+# ═══════════════════════════════════════════════════════════════
+# Инспекция
+# ═══════════════════════════════════════════════════════════════
+
+inspect-redis:
+	@echo "🔍 Детальная информация о Redis:"
+	@docker inspect scanner-redis 2>/dev/null || echo "❌ scanner-redis не найден"
+
+inspect-signal:
+	@echo "🔍 Детальная информация о signal-generator:"
+	@docker inspect scanner-signal-generator 2>/dev/null || echo "❌ scanner-signal-generator не найден"
+
+inspect-hub:
+	@echo "🔍 Детальная информация о signal-hub:"
+	@docker inspect scanner-signal-hub 2>/dev/null || echo "❌ scanner-signal-hub не найден"
+
+inspect-gateway:
+	@echo "🔍 Детальная информация о gateway:"
+	@docker inspect go-gateway 2>/dev/null || echo "❌ go-gateway не найден"
+
+network-inspect:
+	@echo "🌐 Информация о Docker сети:"
+	@docker network inspect scanner_infra_scanner-network 2>/dev/null || echo "❌ Сеть не найдена"
+
+# ═══════════════════════════════════════════════════════════════
+# Очистка
+# ═══════════════════════════════════════════════════════════════
+
+image-prune:
+	@echo "🧹 Удаление неиспользуемых образов..."
+	@docker image prune -f
+	@echo "✅ Неиспользуемые образы удалены"
+
+container-prune:
+	@echo "🧹 Удаление остановленных контейнеров..."
+	@docker container prune -f
+	@echo "✅ Остановленные контейнеры удалены"
+
+volume-prune:
+	@echo "⚠️⚠️⚠️  ВНИМАНИЕ ⚠️⚠️⚠️"
+	@echo "Удаление неиспользуемых volumes (может удалить данные!)"
+	@echo ""
+	@read -p "Продолжить? (y/N): " confirm && \
+	if [ "$$confirm" = "y" ]; then \
+		docker volume prune -f; \
+		echo "✅ Неиспользуемые volumes удалены"; \
+	else \
+		echo "❌ Отменено"; \
+	fi
+
+system-prune:
+	@echo "🧹 Полная очистка системы Docker..."
+	@docker system prune -f
+	@echo "✅ Система очищена"
+
+full-cleanup:
+	@echo "⚠️⚠️⚠️  ОПАСНАЯ ОПЕРАЦИЯ ⚠️⚠️⚠️"
+	@echo "Полное удаление: контейнеры + образы + volumes + сети"
+	@echo ""
+	@read -p "Введите 'DESTROY' для подтверждения: " confirm && \
+	if [ "$$confirm" = "DESTROY" ]; then \
+		echo "🗑️  Удаление..."; \
+		$(DC) down -v --remove-orphans; \
+		docker system prune -af; \
+		echo "✅ Всё удалено"; \
+	else \
+		echo "❌ Отменено"; \
+	fi
+
+# ═══════════════════════════════════════════════════════════════
+# Signal Tracker и отчеты
+# ═══════════════════════════════════════════════════════════════
+
+tracker-status:
+	@echo "📊 Статус Signal Performance Tracker:"
+	@docker ps --format "table {{.Names}}\t{{.Status}}" | grep "signal-tracker" || echo "❌ Не запущен"
+	@echo ""
+	@docker logs --tail=30 scanner-signal-tracker 2>&1 || echo "❌ Логи недоступны"
+
+tracker-logs:
+	@echo "📋 Логи Signal Performance Tracker (следим в реальном времени):"
+	@docker logs -f scanner-signal-tracker
+
+tracker-restart:
+	@echo "🔄 Перезапуск Signal Performance Tracker..."
+	@$(DC) restart signal-performance-tracker
+	@echo "✅ Signal Performance Tracker перезапущен"
+
+send-report-now:
+	@echo "📊 Формирование и отправка отчета по сигналам СЕЙЧАС..."
+	@python3 scripts/send_report_now.py
+
+check-xauusd-services:
+	@echo "🔍 Проверка всех 3 сервисов обработки XAUUSD..."
+	@bash scripts/check_xauusd_services.sh
+
+check-telegram:
+	@echo "🔍 Проверка Telegram интеграции во всех сервисах..."
+	@bash scripts/check_telegram_integration.sh
+
+check-redis-streams:
+	@echo "🔍 Проверка всех Redis Streams..."
+	@bash scripts/check_redis_streams.sh
+
+# ═══════════════════════════════════════════════════════════════
+# Интеграция с основным Makefile
+# ═══════════════════════════════════════════════════════════════
+
+# Команды из основного Makefile доступны через основной Makefile
+# Используйте: make -f Makefile.compose <команда>
+

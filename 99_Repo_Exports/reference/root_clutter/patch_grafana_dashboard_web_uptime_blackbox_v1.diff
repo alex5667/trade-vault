@@ -1,0 +1,166 @@
+diff --git a/monitoring/grafana/dashboards/web_uptime.json b/monitoring/grafana/dashboards/web_uptime.json
+new file mode 100644
+index 0000000..4ccf8da
+--- /dev/null
++++ b/monitoring/grafana/dashboards/web_uptime.json
+@@ -0,0 +1,336 @@
++{
++  "uid": "web_uptime",
++  "title": "Web Uptime (Blackbox)",
++  "timezone": "browser",
++  "schemaVersion": 39,
++  "version": 1,
++  "editable": true,
++  "refresh": "30s",
++  "time": { "from": "now-24h", "to": "now" },
++  "tags": ["trade", "monitoring", "blackbox", "uptime"],
++  "panels": [
++    {
++      "id": 1,
++      "type": "stat",
++      "title": "Public: any DOWN (min probe_success)",
++      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 6 },
++      "targets": [
++        { "expr": "min(probe_success{job=\"blackbox_public\"})", "refId": "A" }
++      ],
++      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "none",
++          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
++        },
++        "overrides": []
++      }
++    },
++    {
++      "id": 2,
++      "type": "stat",
++      "title": "Internal: any DOWN (min probe_success)",
++      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 6 },
++      "targets": [
++        { "expr": "min(probe_success{job=\"blackbox_http\"})", "refId": "A" }
++      ],
++      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "none",
++          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
++        },
++        "overrides": []
++      }
++    },
++    {
++      "id": 3,
++      "type": "stat",
++      "title": "TLS expiry min (days)",
++      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 6 },
++      "targets": [
++        { "expr": "min((probe_ssl_earliest_cert_expiry{job=\"blackbox_public\"} - time()) / 86400)", "refId": "A" }
++      ],
++      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "d",
++          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "orange", "value": 14 }, { "color": "green", "value": 30 }] }
++        },
++        "overrides": []
++      }
++    },
++    {
++      "id": 4,
++      "type": "table",
++      "title": "Public: probe_success by instance",
++      "gridPos": { "x": 0, "y": 6, "w": 12, "h": 8 },
++      "targets": [
++        { "expr": "probe_success{job=\"blackbox_public\"}", "refId": "A" }
++      ],
++      "options": { "showHeader": true }
++    },
++    {
++      "id": 5,
++      "type": "table",
++      "title": "Internal: probe_success by instance",
++      "gridPos": { "x": 12, "y": 6, "w": 12, "h": 8 },
++      "targets": [
++        { "expr": "probe_success{job=\"blackbox_http\"}", "refId": "A" }
++      ],
++      "options": { "showHeader": true }
++    },
++    {
++      "id": 6,
++      "type": "timeseries",
++      "title": "Public: probe_duration_seconds",
++      "gridPos": { "x": 0, "y": 14, "w": 12, "h": 10 },
++      "targets": [
++        { "expr": "probe_duration_seconds{job=\"blackbox_public\"}", "legendFormat": "{{instance}}", "refId": "A" }
++      ],
++      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
++      "options": { "legend": { "displayMode": "table", "placement": "bottom" } }
++    },
++    {
++      "id": 7,
++      "type": "timeseries",
++      "title": "Internal: probe_duration_seconds",
++      "gridPos": { "x": 12, "y": 14, "w": 12, "h": 10 },
++      "targets": [
++        { "expr": "probe_duration_seconds{job=\"blackbox_http\"}", "legendFormat": "{{instance}}", "refId": "A" }
++      ],
++      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
++      "options": { "legend": { "displayMode": "table", "placement": "bottom" } }
++    },
++    {
++      "id": 8,
++      "type": "timeseries",
++      "title": "Public: HTTP status codes",
++      "gridPos": { "x": 0, "y": 24, "w": 24, "h": 9 },
++      "targets": [
++        { "expr": "probe_http_status_code{job=\"blackbox_public\"}", "legendFormat": "{{instance}}", "refId": "A" }
++      ],
++      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
++      "options": { "legend": { "displayMode": "table", "placement": "bottom" } }
++    }
++  ]
++}
+diff --git a/ok_rate_logic/prometheus_alerts_web_uptime_v1.yml b/ok_rate_logic/prometheus_alerts_web_uptime_v1.yml
+index fb4a0d8..4314f69 100644
+--- a/ok_rate_logic/prometheus_alerts_web_uptime_v1.yml
++++ b/ok_rate_logic/prometheus_alerts_web_uptime_v1.yml
+@@ -18,7 +18,7 @@ groups:
+         annotations:
+           summary: "Web service DOWN (internal)"
+           description: "Blackbox probe failed for {{ $labels.instance }}. Check service/container health and networking."
+           runbook_path: "/web_uptime.md"
+-          dashboard_path: "/d/edge_stack_overview/edge-stack-overview?orgId=1"
++          dashboard_path: "/d/web_uptime/web-uptime-blackbox?orgId=1"
+
+       - alert: WebServiceDownWarningPublic
+         expr: probe_success{job="blackbox_public"} == 0
+@@ -32,7 +32,7 @@ groups:
+         annotations:
+           summary: "Web service DOWN (public routing/TLS)"
+           description: "Public URL probe failed for {{ $labels.instance }}. Check public-proxy, DNS, TLS, and route-prefix settings."
+           runbook_path: "/web_uptime.md"
+-          dashboard_path: "/d/edge_stack_overview/edge-stack-overview?orgId=1"
++          dashboard_path: "/d/web_uptime/web-uptime-blackbox?orgId=1"
+diff --git a/monitoring/runbooks/web_uptime.md b/monitoring/runbooks/web_uptime.md
+index 5f0c0e2..f1696ac 100644
+--- a/monitoring/runbooks/web_uptime.md
++++ b/monitoring/runbooks/web_uptime.md
+@@ -7,6 +7,10 @@
+ - team: **trade**
+ - component: **monitoring**
+
++## Dashboard
++- `/d/web_uptime/web-uptime-blackbox?orgId=1`
++
+ ## Symptoms
+ - Alert: `WebServiceDownCritical` (internal)
+ - Alert: `WebServiceDownWarningPublic` (public routing/TLS)
+@@ -14,6 +18,8 @@
+ ## Immediate checks (internal)
+ 1) Prometheus Targets:
+    - `trade-blackbox-exporter` is UP
++   - jobs: `blackbox_http` and `blackbox_public`
+ 2) Identify failing instance from alert label `instance`:
+    - `http://trade-grafana:3000/api/health`
+    - `http://trade-runbooks-web:8082/healthz`

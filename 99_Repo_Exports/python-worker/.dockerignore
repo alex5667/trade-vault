@@ -1,0 +1,12 @@
+venv
+__pycache__
+.git
+.pytest_cache
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+logs
+of_reports_out
+of_reports_baselines
+tmp

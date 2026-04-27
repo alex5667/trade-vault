@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic trade risk mismatch archive consistency check (P5X operator hardening)
+
+[Timer]
+OnBootSec=5m
+OnUnitActiveSec=30m
+Unit=trade-risk-mismatch-archive-consistency.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,23 @@
+groups:
+  - name: ml_phase3_3_offline_debug_handoff_rewire_v1
+    rules:
+      - alert: MLOfflineDebugHandoffRewireStale
+        expr: time() - ml_offline_debug_handoff_rewire_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "offline debug handoff rewire adapter is stale"
+
+      - alert: MLOfflineDebugHandoffRewireErrors
+        expr: increase(ml_offline_debug_handoff_rewire_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "offline debug handoff rewire adapter has errors"
+
+      - alert: MLOfflineDebugHandoffRewireRejects
+        expr: increase(ml_offline_debug_handoff_rewire_routed_total{decision="REJECT"}[30m]) > 10
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "offline debug handoff rewire is rejecting requests"

@@ -1,0 +1,71 @@
+# Конфигурация Redis для scanner-infra с внешними подключениями
+
+# Сетевые настройки
+port 6379
+bind 0.0.0.0
+timeout 0
+tcp-keepalive 60
+tcp-backlog 511
+
+# Клиенты
+maxclients 10000
+
+# Память
+maxmemory 2gb
+maxmemory-policy allkeys-lru
+maxmemory-samples 10
+
+# Persistence
+save ""
+appendonly yes
+appendfilename "appendonly.aof"
+appendfsync everysec
+
+# Логирование
+loglevel notice
+logfile ""
+
+# Безопасность
+# Отключаем protected-mode для внешних подключений
+protected-mode no
+
+# Отключаем команды, которые могут быть опасными
+rename-command FLUSHDB ""
+rename-command FLUSHALL ""
+rename-command KEYS ""
+# rename-command CONFIG ""  # Временно отключаем для настройки
+
+# Производительность
+hz 10
+dynamic-hz yes
+
+# Настройки для внешних подключений
+# Разрешаем подключения с любого IP
+# Отключаем проверку пароля для локальных подключений
+# Увеличиваем лимиты для внешних подключений
+
+# ========================================
+# НАСТРОЙКИ САМООЧИЩЕНИЯ И TTL
+# ========================================
+
+# Автоматическая очистка ключей с TTL
+# Проверка каждые 10 секунд (уже настроено выше)
+
+# Автоматическая очистка устаревших ключей
+# Удаление ключей с истекшим TTL
+active-expire-effort 10
+
+# Автоматическая очистка памяти
+# Удаление неиспользуемых страниц памяти
+activedefrag yes
+active-defrag-ignore-bytes 100mb
+
+# Настройки для внешних подключений
+# Увеличиваем лимиты для внешних подключений
+client-output-buffer-limit normal 0 0 0
+client-output-buffer-limit replica 256mb 64mb 60
+client-output-buffer-limit pubsub 32mb 8mb 60
+
+# Настройки для стабильности внешних подключений
+tcp-keepalive 60
+timeout 0

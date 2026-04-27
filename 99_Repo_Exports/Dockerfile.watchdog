@@ -1,0 +1,17 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install docker client library
+RUN pip install --no-cache-dir docker redis
+
+# Copy python-worker for core module dependency
+COPY python-worker /python-worker
+
+# Copy watchdog script
+COPY ops/docker_watchdog.py /app/docker_watchdog.py
+
+# Make executable
+RUN chmod +x /app/docker_watchdog.py
+
+CMD ["python3", "/app/docker_watchdog.py"]

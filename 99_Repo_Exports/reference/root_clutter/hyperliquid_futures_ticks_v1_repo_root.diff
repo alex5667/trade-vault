@@ -1,0 +1,1515 @@
+diff --git a/.env.example b/.env.example
+index e0f1128..b8d792b 100644
+--- a/.env.example
++++ b/.env.example
+@@ -2,6 +2,41 @@
+ # FUTURES_WS_ENABLED=true
+ # FUTURES_SYMBOLS=BTCUSDT,ETHUSDT
+ 
++# --- Hyperliquid WS (ticks + L2 book) ---
++# Включение:
++# HYPERLIQUID_WS_ENABLED=true
++#
++# Список монет Hyperliquid (coin) — например BTC, ETH, SOL.
++# Если пусто, автоматически берется из FUTURES_SYMBOLS (BTCUSDT -> BTC).
++# HYPERLIQUID_COINS=BTC,ETH,SOL
++#
++# Redis set (dynamic add/remove) для монет:
++# HYPERLIQUID_COINS_REDIS_KEY=hyperliquid:perps:coins
++#
++# WS endpoint:
++# HYPERLIQUID_WS_URL=wss://api.hyperliquid.xyz/ws
++#
++# Keepalive (по docs сервер закроет соединение если не отправил ни одного сообщения за 60s):
++# HYPERLIQUID_WS_PING_PERIOD=20s
++# HYPERLIQUID_WS_READ_TIMEOUT=90s
++#
++# Какие фиды включать:
++# HYPERLIQUID_TRADES_ENABLED=true
++# HYPERLIQUID_L2BOOK_ENABLED=true
++#
++# Нормализация символов под Binance-style (для Python worker):
++# - По умолчанию coin -> coin + USDT (BTC -> BTCUSDT)
++# - Можно переопределить маппингом или выключить suffix.
++# HYPERLIQUID_SYMBOL_SUFFIX=USDT
++# HYPERLIQUID_KEEP_COIN_SYMBOL=false
++# HYPERLIQUID_SYMBOL_MAP=BTC:BTCUSDT,ETH:ETHUSDT
++#
++# Ограничение уровней книги при публикации (для снижения payload):
++# HYPERLIQUID_BOOK_MAX_LEVELS=20
++#
++# Лимит подписок (каждая монета = trades + l2Book):
++# HYPERLIQUID_MAX_SUBSCRIPTIONS=900
++
+ # --- A1: Liquidations (SAFE defaults) ---
+ # Enable ingestion:
+ # LIQ_WS_ENABLED=true
+
+diff --git a/cmd/worker/main.go b/cmd/worker/main.go
+index 1e5ca11..2ebe857 100644
+--- a/cmd/worker/main.go
++++ b/cmd/worker/main.go
+@@ -17,6 +17,7 @@ import (
+ 	"go-worker/internal/app"
+ 	internalbinance "go-worker/internal/binance"
+ 	"go-worker/internal/connections"
++	internalhyperliquid "go-worker/internal/hyperliquid"
+ 	"go-worker/internal/liquidation"
+ 	"go-worker/internal/logging"
+ 	"go-worker/internal/metrics"
+@@ -136,6 +137,21 @@ func parseFuturesEnabled(raw string) bool {
+ 	}
+ }
+ 
++// parseOptInEnabled — opt-in флаг: пустое значение = false.
++// Использовать для новых источников данных, чтобы не включать их случайно.
++func parseOptInEnabled(raw string) bool {
++	raw = strings.ToLower(strings.TrimSpace(raw))
++	if raw == "" {
++		return false
++	}
++	switch raw {
++	case "1", "true", "on", "yes":
++		return true
++	default:
++		return false
++	}
++}
++
+ func main() {
+ 	// Инициализируем файловое логирование
+ 	// Логи записываются в /app/logs (монтируется в ./logs на хосте)
+@@ -221,6 +237,14 @@ func main() {
+ 	futuresSymbols := parseFuturesSymbols(os.Getenv("FUTURES_SYMBOLS"))
+ 	isFuturesEnabled := parseFuturesEnabled(os.Getenv("FUTURES_WS_ENABLED"))
+ 
++	// Hyperliquid ingestion (opt-in): trades + l2Book snapshots
++	isHyperliquidEnabled := parseOptInEnabled(os.Getenv("HYPERLIQUID_WS_ENABLED"))
++	hyperCoins := internalhyperliquid.LoadBaseCoins(futuresSymbols)
++	hyperCoinsKey := strings.TrimSpace(os.Getenv("HYPERLIQUID_COINS_REDIS_KEY"))
++	if hyperCoinsKey == "" {
++		hyperCoinsKey = "hyperliquid:perps:coins"
++	}
++
+ 	// --- A1: Liquidation WS ingestion (forceOrder / allLiquidation) ---
+ 	//
+ 	// Поток ликвидаций включается отдельно от тик/книги, чтобы можно было безопасно
+@@ -239,23 +263,27 @@ func main() {
+ 	liqController.Start(ctx)
+ 
+ 	var futuresController *internalbinance.FuturesStreamController
++	var hyperController *internalhyperliquid.FuturesStreamController
+ 	var batchPublisher *redis.BatchTickPublisher
+ 
++	// BatchTickPublisher shared between all high-frequency WS ingestions that publish into redis-ticks.
++	// Create it once if any such ingestion is enabled.
++	if isFuturesEnabled || isHyperliquidEnabled {
++		batchPublisher = redis.NewBatchTickPublisher(redisclient.ClientTicks, 100, 10*time.Millisecond)
++		batchPublisher.Start(ctx)
++	}
++
++	// Configure staleness thresholds (shared)
++	stalenessConfig := orderflow.StalenessConfig{
++		MaxAgeTickMs: 150,  // 150ms for signal gating (relative to tick)
++		MaxAgeNowMs:  1000, // 1sec for SRE alerts (relative to now)
++	}
++
+ 	if isFuturesEnabled {
+ 		log.Printf("✅ Binance Futures WS включён для символов: %v", futuresSymbols)
+ 
+ 		futuresLogger := log.New(os.Stdout, "[futures] ", log.LstdFlags|log.Lmicroseconds)
+ 
+-		// Priority 2: Используем BatchTickPublisher для мультиплексных Futures (высокая нагрузка)
+-		batchPublisher = redis.NewBatchTickPublisher(redisclient.ClientTicks, 100, 10*time.Millisecond)
+-		batchPublisher.Start(ctx)
+-
+-		// Configure staleness thresholds
+-		stalenessConfig := orderflow.StalenessConfig{
+-			MaxAgeTickMs: 150,  // 150ms for signal gating (relative to tick)
+-			MaxAgeNowMs:  1000, // 1sec for SRE alerts (relative to now)
+-		}
+-
+ 		futuresController = internalbinance.NewFuturesStreamController(
+ 			redisclient.Client,
+ 			batchPublisher, // Подходит под интерфейс Publisher
+@@ -271,6 +299,24 @@ func main() {
+ 		log.Printf("⚠️ Binance Futures WS отключён (FUTURES_WS_ENABLED=false)")
+ 	}
+ 
++	if isHyperliquidEnabled {
++		log.Printf("✅ Hyperliquid WS включён для coins: %v", hyperCoins)
++
++		hlLogger := log.New(os.Stdout, "[hl] ", log.LstdFlags|log.Lmicroseconds)
++		hyperController = internalhyperliquid.NewFuturesStreamController(
++			redisclient.Client,
++			batchPublisher, // общий Publisher для stream:tick_*/stream:book_*
++			hlLogger,
++			hyperCoinsKey,
++			30*time.Second,
++			healthMetrics,
++			stalenessConfig,
++		)
++		go hyperController.Run(ctx, hyperCoins)
++	} else {
++		log.Printf("⚠️ Hyperliquid WS отключён (HYPERLIQUID_WS_ENABLED!=true)")
++	}
++
+ 	// Используем уникальные имена для общих стримов (volatility и т.д.),
+ 	// чтобы каждый воркер (1m, 5m...) получал свою копию сообщения.
+ 	hostname, _ := os.Hostname()
+@@ -329,6 +375,10 @@ func main() {
+ 		futuresController.Stop()
+ 	}
+ 
++	if hyperController != nil {
++		hyperController.Stop()
++	}
++
+ 	// Stop liquidation ingestion (best-effort flush)
+ 	if liqController != nil {
+ 		liqController.Stop(2 * time.Second)
+
+diff --git a/internal/hyperliquid/utils.go b/internal/hyperliquid/utils.go
+new file mode 100644
+index 0000000..16be28f
+--- /dev/null
++++ b/internal/hyperliquid/utils.go
+@@ -0,0 +1,93 @@
++package hyperliquid
++
++import (
++	"log"
++	"os"
++	"strconv"
++	"strings"
++	"time"
++)
++
++// getEnv возвращает значение переменной окружения или defaultValue.
++func getEnv(key, defaultValue string) string {
++	v := os.Getenv(key)
++	if v == "" {
++		return defaultValue
++	}
++	return v
++}
++
++// getEnvDuration читает time.Duration из env (например "250ms", "2s").
++// При ошибке — возвращает defaultValue.
++func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
++	v := os.Getenv(key)
++	if v == "" {
++		return defaultValue
++	}
++	d, err := time.ParseDuration(v)
++	if err != nil {
++		log.Printf("⚠️ invalid %s=%q, using default %v", key, v, defaultValue)
++		return defaultValue
++	}
++	return d
++}
++
++func getEnvInt(key string, defaultValue int) int {
++	v := os.Getenv(key)
++	if v == "" {
++		return defaultValue
++	}
++	n, err := strconv.Atoi(strings.TrimSpace(v))
++	if err != nil {
++		return defaultValue
++	}
++	return n
++}
++
++func getEnvBool(key string, defaultValue bool) bool {
++	v := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
++	if v == "" {
++		return defaultValue
++	}
++	switch v {
++	case "1", "true", "yes", "on":
++		return true
++	case "0", "false", "no", "off":
++		return false
++	default:
++		return defaultValue
++	}
++}
++
++// parseSymbolMap парсит маппинг монет Hyperliquid в ваш внутренний Symbol.
++// Формат: "BTC:BTCUSDT,ETH:ETHUSDT,1000PEPE:1000PEPEUSDT".
++//
++// ВАЖНО:
++//   - Hyperliquid в WS использует поле coin (например "BTC", "ETH").
++//   - Внутри проекта trade символы обычно в формате Binance (например "BTCUSDT").
++//     Чтобы Python worker мог использовать единый пайплайн, мы нормализуем coin -> symbol.
++func parseSymbolMap(raw string) map[string]string {
++	m := map[string]string{}
++	raw = strings.TrimSpace(raw)
++	if raw == "" {
++		return m
++	}
++	parts := strings.Split(raw, ",")
++	for _, part := range parts {
++		part = strings.TrimSpace(part)
++		if part == "" {
++			continue
++		}
++		kv := strings.SplitN(part, ":", 2)
++		if len(kv) != 2 {
++			continue
++		}
++		k := strings.ToUpper(strings.TrimSpace(kv[0]))
++		v := strings.ToUpper(strings.TrimSpace(kv[1]))
++		if k == "" || v == "" {
++			continue
++		}
++		m[k] = v
++	}
++	return m
++}
+
+diff --git a/internal/hyperliquid/futures_normalizer.go b/internal/hyperliquid/futures_normalizer.go
+new file mode 100644
+index 0000000..75172fe
+--- /dev/null
++++ b/internal/hyperliquid/futures_normalizer.go
+@@ -0,0 +1,291 @@
++package hyperliquid
++
++import (
++	"bytes"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"strings"
++
++	"go-worker/pkg/timeutil"
++)
++
++// --- Hyperliquid WS message formats (official docs) ---
++// See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions
++//
++// Key specificity vs Binance/Bybit:
++// - trades feed sends WsTrade[] with fields: coin, side, px, sz, hash, time, tid
++// - l2Book feed is SNAPSHOT feed (levels full aggregated), pushed each block (not diff)
++// - keepalive requires client to send {"method":"ping"} if no messages in 60s
++
++type hyperliquidEnvelope struct {
++	Channel    string          `json:"channel"`
++	Data       json.RawMessage `json:"data"`
++	IsSnapshot *bool           `json:"isSnapshot,omitempty"`
++}
++
++// WsTrade — формат из docs.
++type WsTrade struct {
++	Coin  string   `json:"coin"`
++	Side  string   `json:"side"`
++	Px    string   `json:"px"`
++	Sz    string   `json:"sz"`
++	Hash  string   `json:"hash"`
++	Time  int64    `json:"time"`
++	TID   int64    `json:"tid"`
++	Users []string `json:"users"`
++}
++
++type WsLevel struct {
++	Px string `json:"px"`
++	Sz string `json:"sz"`
++	N  int    `json:"n"`
++}
++
++// WsBook — snapshot feed.
++type WsBook struct {
++	Coin   string      `json:"coin"`
++	Levels [][]WsLevel `json:"levels"` // [bids, asks]
++	Time   int64       `json:"time"`
++}
++
++// NormalizedTick — совместимый с Python/Redis tick-схемой.
++// Ключевые поля соответствуют internal/binance.NormalizedTick.
++// Доп.поля добавлены без нарушения обратной совместимости (Python может игнорировать).
++type NormalizedTick struct {
++	Symbol   string `json:"symbol"`
++	Ts       int64  `json:"ts"`
++	Price    string `json:"price"`
++	Qty      string `json:"qty"`
++	Side     string `json:"side"` // BUY/SELL
++	Source   string `json:"source"`
++	Market   string `json:"market"`
++	TradeID  int64  `json:"trade_id"`
++	Coin     string `json:"coin"`      // raw HL coin
++	TxHash   string `json:"tx_hash"`   // L1 tx hash (field hash)
++	TradeUID string `json:"trade_uid"` // (time, coin, tid) — globally unique per docs
++}
++
++func (t NormalizedTick) RedisValues() map[string]any {
++	vals := map[string]any{
++		"symbol":     strings.ToUpper(t.Symbol),
++		"ts":         t.Ts,
++		"price":      t.Price,
++		"qty":        t.Qty,
++		"side":       t.Side,
++		"source":     t.Source,
++		"market":     t.Market,
++		"trade_id":   t.TradeID,
++		"written_at": timeutil.GetCurrentTimestampMs(),
++		// extras (non-breaking)
++		"coin":      strings.ToUpper(t.Coin),
++		"tx_hash":   t.TxHash,
++		"trade_uid": t.TradeUID,
++	}
++	return vals
++}
++
++// NormalizedDepth — совместимый с Python/Redis book-схемой.
++// Для Hyperliquid: это snapshot aggregated L2 book (levels full state).
++type NormalizedDepth struct {
++	Symbol    string     `json:"symbol"`
++	Ts        int64      `json:"ts"`
++	FirstID   int64      `json:"first_id"`
++	FinalID   int64      `json:"final_id"`
++	PrevFinal int64      `json:"prev_final"`
++	Bids      [][]string `json:"bids"`
++	Asks      [][]string `json:"asks"`
++	Source    string     `json:"source"`
++	Market    string     `json:"market"`
++	Coin      string     `json:"coin"`
++}
++
++func (d NormalizedDepth) RedisValues() map[string]any {
++	bidsJSON, err := json.Marshal(d.Bids)
++	if err != nil {
++		bidsJSON = []byte("[]")
++	}
++	asksJSON, err := json.Marshal(d.Asks)
++	if err != nil {
++		asksJSON = []byte("[]")
++	}
++	return map[string]any{
++		"symbol":     strings.ToUpper(d.Symbol),
++		"ts":         d.Ts,
++		"first_id":   d.FirstID,
++		"final_id":   d.FinalID,
++		"prev_final": d.PrevFinal,
++		"bids":       string(bidsJSON),
++		"asks":       string(asksJSON),
++		"source":     d.Source,
++		"market":     d.Market,
++		"written_at": timeutil.GetCurrentTimestampMs(),
++		// extras
++		"coin": strings.ToUpper(d.Coin),
++	}
++}
++
++var errEmptyPayload = errors.New("empty hyperliquid payload")
++
++// normalizeEpochMs tries to detect seconds vs millis.
++// Hyperliquid docs use "time: number" and examples in ecosystem are ms.
++// To be robust, if value looks like seconds, convert to ms.
++func normalizeEpochMs(v int64) int64 {
++	// 1e12 ms is ~2001-09-09. Anything below that is suspicious for modern data.
++	if v > 0 && v < 1_000_000_000_000 {
++		return v * 1000
++	}
++	return v
++}
++
++func normalizeSide(raw string) string {
++	s := strings.ToUpper(strings.TrimSpace(raw))
++	// Common HL encodings observed in SDKs / examples: "B" (buy) and "A" (sell).
++	switch s {
++	case "B", "BUY":
++		return "BUY"
++	case "A", "SELL":
++		return "SELL"
++	default:
++		// keep as-is but never empty
++		if s == "" {
++			return "UNKNOWN"
++		}
++		return s
++	}
++}
++
++// normalizeSymbol maps HL coin -> internal symbol.
++//
++// Policy:
++// - If explicit map has coin, use it.
++// - Else append suffix (default "USDT") to match existing Binance-style symbol keys.
++// - Can be disabled by setting suffix="" (keep coin as symbol).
++func normalizeSymbol(coin string, symbolMap map[string]string, suffix string) string {
++	c := strings.ToUpper(strings.TrimSpace(coin))
++	if c == "" {
++		return ""
++	}
++	if v, ok := symbolMap[c]; ok {
++		return strings.ToUpper(v)
++	}
++	if suffix == "" {
++		return c
++	}
++	return c + strings.ToUpper(suffix)
++}
++
++// NormalizeFuturesMessage converts Hyperliquid WS message into normalized ticks/books.
++// It is designed to be drop-in compatible with internal/binance.NormalizeFuturesMessage
++// consumer loop (publish tick -> stream:tick_SYMBOL, publish book -> stream:book_SYMBOL).
++func NormalizeFuturesMessage(raw []byte, symbolMap map[string]string, suffix string, maxBookLevels int) (ticks []NormalizedTick, books []NormalizedDepth, err error) {
++	if len(raw) == 0 {
++		return nil, nil, errEmptyPayload
++	}
++
++	// Hyperliquid sends either {channel,data} or other objects (e.g. pong).
++	// Use Decoder.UseNumber? Here fields are mostly strings and int64.
++	var env hyperliquidEnvelope
++	dec := json.NewDecoder(bytes.NewReader(raw))
++	dec.UseNumber()
++	if err := dec.Decode(&env); err != nil {
++		return nil, nil, fmt.Errorf("decode envelope: %w", err)
++	}
++
++	switch env.Channel {
++	case "trades":
++		var wsTrades []WsTrade
++		if err := json.Unmarshal(env.Data, &wsTrades); err != nil {
++			return nil, nil, fmt.Errorf("decode trades: %w", err)
++		}
++		for _, tr := range wsTrades {
++			sym := normalizeSymbol(tr.Coin, symbolMap, suffix)
++			if sym == "" {
++				continue
++			}
++			ts := normalizeEpochMs(tr.Time)
++			tid := tr.TID
++			// Per docs: for globally unique id use (block_time, coin, tid)
++			tradeUID := fmt.Sprintf("%d:%s:%d", ts, strings.ToUpper(strings.TrimSpace(tr.Coin)), tid)
++
++			ticks = append(ticks, NormalizedTick{
++				Symbol:   sym,
++				Ts:       ts,
++				Price:    tr.Px,
++				Qty:      tr.Sz,
++				Side:     normalizeSide(tr.Side),
++				Source:   "hyperliquid",
++				Market:   "USDC-PERP",
++				TradeID:  tid,
++				Coin:     tr.Coin,
++				TxHash:   tr.Hash,
++				TradeUID: tradeUID,
++			})
++		}
++		return ticks, nil, nil
++
++	case "l2Book":
++		var book WsBook
++		if err := json.Unmarshal(env.Data, &book); err != nil {
++			return nil, nil, fmt.Errorf("decode l2Book: %w", err)
++		}
++		sym := normalizeSymbol(book.Coin, symbolMap, suffix)
++		if sym == "" {
++			return nil, nil, nil
++		}
++
++		ts := normalizeEpochMs(book.Time)
++		bids, asks := levelsToString2(book.Levels, maxBookLevels)
++
++		// Hyperliquid book is snapshot per block.
++		// We don't have update IDs like Binance. Keep 0 for ids for compatibility.
++		books = append(books, NormalizedDepth{
++			Symbol:    sym,
++			Ts:        ts,
++			FirstID:   0,
++			FinalID:   0,
++			PrevFinal: 0,
++			Bids:      bids,
++			Asks:      asks,
++			Source:    "hyperliquid",
++			Market:    "USDC-PERP",
++			Coin:      book.Coin,
++		})
++		return nil, books, nil
++
++	case "pong", "subscriptionResponse":
++		// keepalive and ack — no market data.
++		return nil, nil, nil
++
++	default:
++		// Ignore other channels (notification, user feeds, errors) in this module.
++		return nil, nil, nil
++	}
++}
++
++func levelsToString2(levels [][]WsLevel, maxN int) (bids [][]string, asks [][]string) {
++	if len(levels) >= 1 {
++		bids = make([][]string, 0, len(levels[0]))
++		for i, lv := range levels[0] {
++			if maxN > 0 && i >= maxN {
++				break
++			}
++			bids = append(bids, []string{lv.Px, lv.Sz})
++		}
++	} else {
++		bids = [][]string{}
++	}
++
++	if len(levels) >= 2 {
++		asks = make([][]string, 0, len(levels[1]))
++		for i, lv := range levels[1] {
++			if maxN > 0 && i >= maxN {
++				break
++			}
++			asks = append(asks, []string{lv.Px, lv.Sz})
++		}
++	} else {
++		asks = [][]string{}
++	}
++	return bids, asks
++}
+
+diff --git a/internal/hyperliquid/futures_streams.go b/internal/hyperliquid/futures_streams.go
+new file mode 100644
+index 0000000..ed7d409
+--- /dev/null
++++ b/internal/hyperliquid/futures_streams.go
+@@ -0,0 +1,704 @@
++package hyperliquid
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"log"
++	"net"
++	"os"
++	"sort"
++	"strings"
++	"sync"
++	"sync/atomic"
++	"time"
++
++	"go-worker/internal/metrics"
++	"go-worker/internal/monitoring"
++	"go-worker/internal/orderflow"
++	internalredis "go-worker/internal/redis"
++	"go-worker/internal/wsconn"
++
++	"github.com/go-redis/redis/v8"
++	"github.com/gorilla/websocket"
++)
++
++// HyperliquidFuturesManager manages a single WS connection to Hyperliquid.
++// One connection can hold many subscriptions (limit ~1000 per IP per docs).
++//
++// Key differences vs Binance:
++//   - Subscriptions are sent as JSON messages (subscribe/unsubscribe) after connect.
++//   - Server expects client heartbeats if it didn't send any message for 60s.
++//     Heartbeat format: {"method":"ping"} and server responds {"channel":"pong"}.
++//     (See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/timeouts-and-heartbeats)
++type HyperliquidFuturesManager struct {
++	coins []string
++	conn  *websocket.Conn
++	log   *log.Logger
++
++	mu      sync.Mutex
++	writeMu sync.Mutex
++
++	tradesEnabled bool
++	bookEnabled   bool
++}
++
++type subscription struct {
++	Type string `json:"type"`
++	Coin string `json:"coin"`
++	// Optional params exist (nSigFigs/mantissa for l2Book) but we omit them;
++	// we cap levels client-side before publishing to Redis.
++}
++
++type wsCommand struct {
++	Method       string        `json:"method"`
++	Subscription *subscription `json:"subscription,omitempty"`
++}
++
++func NewHyperliquidFuturesManager(coins []string, logger *log.Logger) *HyperliquidFuturesManager {
++	return &HyperliquidFuturesManager{
++		coins:         coins,
++		log:           logger,
++		tradesEnabled: getEnvBool("HYPERLIQUID_TRADES_ENABLED", true),
++		bookEnabled:   getEnvBool("HYPERLIQUID_L2BOOK_ENABLED", true),
++	}
++}
++
++func (m *HyperliquidFuturesManager) Connect(ctx context.Context) error {
++	m.mu.Lock()
++	defer m.mu.Unlock()
++
++	if m.conn != nil {
++		_ = m.conn.Close()
++		m.conn = nil
++	}
++
++	wsURL := getEnv("HYPERLIQUID_WS_URL", "wss://api.hyperliquid.xyz/ws")
++
++	cfg := wsconn.DefaultConfig()
++	cfg.HandshakeTimeout = getEnvDuration("HYPERLIQUID_WS_HANDSHAKE_TIMEOUT", cfg.HandshakeTimeout)
++	cfg.DialTimeout = getEnvDuration("HYPERLIQUID_WS_DIAL_TIMEOUT", cfg.DialTimeout)
++	cfg.TCPKeepAlive = getEnvDuration("HYPERLIQUID_WS_TCP_KEEPALIVE", cfg.TCPKeepAlive)
++	cfg.ReadTimeout = getEnvDuration("HYPERLIQUID_WS_READ_TIMEOUT", 90*time.Second)
++	cfg.PingPeriod = getEnvDuration("HYPERLIQUID_WS_PING_PERIOD", 20*time.Second)
++	cfg.WriteWait = getEnvDuration("HYPERLIQUID_WS_WRITE_WAIT", cfg.WriteWait)
++	cfg.MsgChanCapacity = getEnvInt("HYPERLIQUID_WS_MSG_CHAN", cfg.MsgChanCapacity)
++
++	conn, err := wsconn.Dial(ctx, wsURL, cfg)
++	if err != nil {
++		return err
++	}
++
++	// Setup WS control ping/pong for transport-level health.
++	// Hyperliquid keepalive is application-level ping message; we do both.
++	wsconn.SetupPingPong(conn, cfg.ReadTimeout, cfg.WriteWait, func(msg []byte) error {
++		m.writeMu.Lock()
++		defer m.writeMu.Unlock()
++		return conn.WriteControl(websocket.PongMessage, msg, time.Now().Add(cfg.WriteWait))
++	})
++
++	m.conn = conn
++
++	// Subscribe to initial coins.
++	if err := m.subscribeCoinsLocked(m.coins); err != nil {
++		_ = conn.Close()
++		m.conn = nil
++		return err
++	}
++	return nil
++}
++
++func (m *HyperliquidFuturesManager) ReadLoop(ctx context.Context, handler func(msg []byte)) error {
++	m.mu.Lock()
++	conn := m.conn
++	m.mu.Unlock()
++	if conn == nil {
++		return errors.New("websocket connection is nil")
++	}
++
++	readTimeout := getEnvDuration("HYPERLIQUID_WS_READ_TIMEOUT", 90*time.Second)
++	_ = conn.SetReadDeadline(time.Now().Add(readTimeout))
++
++	lastMessageTime := time.Now()
++	msgChanCap := getEnvInt("HYPERLIQUID_WS_MSG_CHAN", wsconn.DefaultConfig().MsgChanCapacity)
++	msgChan := make(chan []byte, msgChanCap)
++
++	handlerDone := make(chan struct{})
++	go func() {
++		defer close(handlerDone)
++		for msg := range msgChan {
++			handler(msg)
++		}
++	}()
++
++	pingCtx, cancel := context.WithCancel(ctx)
++	defer cancel()
++
++	errCh := make(chan error, 1)
++	go func() {
++		// Hyperliquid requires client to send {method:ping} if server hasn't sent any message for 60s.
++		// We send it periodically regardless — cheap and robust.
++		ticker := time.NewTicker(getEnvDuration("HYPERLIQUID_WS_PING_PERIOD", 20*time.Second))
++		defer ticker.Stop()
++		for {
++			select {
++			case <-pingCtx.Done():
++				return
++			case <-ticker.C:
++				if err := m.sendAppPing(); err != nil {
++					errCh <- err
++					return
++				}
++				_ = conn.SetReadDeadline(time.Now().Add(readTimeout))
++			}
++		}
++	}()
++
++	defer func() {
++		close(msgChan)
++		<-handlerDone
++	}()
++
++	for {
++		select {
++		case err := <-errCh:
++			return err
++		case <-ctx.Done():
++			return ctx.Err()
++		default:
++		}
++
++		_, msg, err := conn.ReadMessage()
++		if err != nil {
++			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
++				if time.Since(lastMessageTime) > readTimeout {
++					return fmt.Errorf("read timeout: %w", err)
++				}
++				continue
++			}
++			return fmt.Errorf("read error: %w", err)
++		}
++
++		lastMessageTime = time.Now()
++		select {
++		case msgChan <- msg:
++		default:
++			// load-shed (do not reconnect). Same logic as Binance futures.
++			monitoring.RecordFuturesMessageDropped("HYPERLIQUID")
++		}
++	}
++}
++
++func (m *HyperliquidFuturesManager) sendAppPing() error {
++	m.mu.Lock()
++	conn := m.conn
++	m.mu.Unlock()
++	if conn == nil {
++		return nil
++	}
++	m.writeMu.Lock()
++	defer m.writeMu.Unlock()
++	return conn.WriteJSON(wsCommand{Method: "ping"})
++}
++
++// UpdateSubscriptions updates active subscriptions without reconnect.
++// Hyperliquid requires a separate subscribe/unsubscribe per (type, coin).
++func (m *HyperliquidFuturesManager) UpdateSubscriptions(addCoins, removeCoins []string) error {
++	m.mu.Lock()
++	conn := m.conn
++	m.mu.Unlock()
++	if conn == nil {
++		return errors.New("no active connection")
++	}
++
++	m.writeMu.Lock()
++	defer m.writeMu.Unlock()
++
++	if len(removeCoins) > 0 {
++		for _, coin := range removeCoins {
++			coin = strings.ToUpper(strings.TrimSpace(coin))
++			if coin == "" {
++				continue
++			}
++			if m.tradesEnabled {
++				if err := conn.WriteJSON(wsCommand{Method: "unsubscribe", Subscription: &subscription{Type: "trades", Coin: coin}}); err != nil {
++					return fmt.Errorf("unsubscribe trades(%s): %w", coin, err)
++				}
++			}
++			if m.bookEnabled {
++				if err := conn.WriteJSON(wsCommand{Method: "unsubscribe", Subscription: &subscription{Type: "l2Book", Coin: coin}}); err != nil {
++					return fmt.Errorf("unsubscribe l2Book(%s): %w", coin, err)
++				}
++			}
++		}
++		monitoring.RecordHyperliquidLiveSubscription("UNSUBSCRIBE")
++	}
++
++	if len(addCoins) > 0 {
++		for _, coin := range addCoins {
++			coin = strings.ToUpper(strings.TrimSpace(coin))
++			if coin == "" {
++				continue
++			}
++			if m.tradesEnabled {
++				if err := conn.WriteJSON(wsCommand{Method: "subscribe", Subscription: &subscription{Type: "trades", Coin: coin}}); err != nil {
++					return fmt.Errorf("subscribe trades(%s): %w", coin, err)
++				}
++			}
++			if m.bookEnabled {
++				if err := conn.WriteJSON(wsCommand{Method: "subscribe", Subscription: &subscription{Type: "l2Book", Coin: coin}}); err != nil {
++					return fmt.Errorf("subscribe l2Book(%s): %w", coin, err)
++				}
++			}
++		}
++		monitoring.RecordHyperliquidLiveSubscription("SUBSCRIBE")
++	}
++
++	// Update internal list.
++	m.mu.Lock()
++	defer m.mu.Unlock()
++	if len(addCoins) > 0 {
++		m.coins = append(m.coins, addCoins...)
++	}
++	if len(removeCoins) > 0 {
++		removeSet := map[string]struct{}{}
++		for _, c := range removeCoins {
++			removeSet[strings.ToUpper(c)] = struct{}{}
++		}
++		out := make([]string, 0, len(m.coins))
++		for _, c := range m.coins {
++			if _, ok := removeSet[strings.ToUpper(c)]; !ok {
++				out = append(out, c)
++			}
++		}
++		m.coins = out
++	}
++	return nil
++}
++
++func (m *HyperliquidFuturesManager) subscribeCoinsLocked(coins []string) error {
++	conn := m.conn
++	if conn == nil {
++		return errors.New("no active connection")
++	}
++	// Sort for determinism (helps logs and tests).
++	out := make([]string, 0, len(coins))
++	seen := map[string]struct{}{}
++	for _, c := range coins {
++		c = strings.ToUpper(strings.TrimSpace(c))
++		if c == "" {
++			continue
++		}
++		if _, ok := seen[c]; ok {
++			continue
++		}
++		seen[c] = struct{}{}
++		out = append(out, c)
++	}
++	sort.Strings(out)
++
++	// Subscription limits: 1000 per IP per docs; each coin uses up to 2 subscriptions.
++	maxSubs := getEnvInt("HYPERLIQUID_MAX_SUBSCRIPTIONS", 900)
++	needed := 0
++	if m.tradesEnabled {
++		needed += len(out)
++	}
++	if m.bookEnabled {
++		needed += len(out)
++	}
++	if needed > maxSubs {
++		return fmt.Errorf("hyperliquid subscriptions requested=%d exceeds limit=%d (reduce HYPERLIQUID_COINS)", needed, maxSubs)
++	}
++
++	m.writeMu.Lock()
++	defer m.writeMu.Unlock()
++
++	for _, coin := range out {
++		if m.tradesEnabled {
++			if err := conn.WriteJSON(wsCommand{Method: "subscribe", Subscription: &subscription{Type: "trades", Coin: coin}}); err != nil {
++				return fmt.Errorf("subscribe trades(%s): %w", coin, err)
++			}
++		}
++		if m.bookEnabled {
++			if err := conn.WriteJSON(wsCommand{Method: "subscribe", Subscription: &subscription{Type: "l2Book", Coin: coin}}); err != nil {
++				return fmt.Errorf("subscribe l2Book(%s): %w", coin, err)
++			}
++		}
++	}
++	monitoring.RecordHyperliquidLiveSubscription("SUBSCRIBE")
++	return nil
++}
++
++func (m *HyperliquidFuturesManager) Close() {
++	m.mu.Lock()
++	defer m.mu.Unlock()
++	if m.conn != nil {
++		_ = m.conn.Close()
++		m.conn = nil
++	}
++}
++
++// --- Controller (similar to Binance FuturesStreamController) ---
++
++type FuturesStreamController struct {
++	client          *redis.Client
++	publisher       internalredis.Publisher
++	logger          *log.Logger
++	coinsKey        string
++	refreshInterval time.Duration
++	healthMetrics   *metrics.HealthMetrics
++	stalenessConfig orderflow.StalenessConfig
++
++	symbolMap     map[string]string
++	symbolSuffix  string
++	maxBookLevels int
++
++	mu                  sync.Mutex
++	currentCoins        []string
++	activeManagerCancel context.CancelFunc
++	activeManager       *HyperliquidFuturesManager
++	errorCount          int64
++}
++
++func NewFuturesStreamController(
++	client *redis.Client,
++	publisher internalredis.Publisher,
++	logger *log.Logger,
++	coinsKey string,
++	refreshInterval time.Duration,
++	healthMetrics *metrics.HealthMetrics,
++	stalenessConfig orderflow.StalenessConfig,
++) *FuturesStreamController {
++	// Mapping policy (coin -> symbol) to keep compatibility with Binance-based pipelines.
++	// By default, we append "USDT" (so BTC -> BTCUSDT). Can be overridden.
++	suffix := getEnv("HYPERLIQUID_SYMBOL_SUFFIX", "USDT")
++	if getEnvBool("HYPERLIQUID_KEEP_COIN_SYMBOL", false) {
++		suffix = ""
++	}
++	return &FuturesStreamController{
++		client:          client,
++		publisher:       publisher,
++		logger:          logger,
++		coinsKey:        coinsKey,
++		refreshInterval: refreshInterval,
++		healthMetrics:   healthMetrics,
++		stalenessConfig: stalenessConfig,
++		symbolMap:       parseSymbolMap(getEnv("HYPERLIQUID_SYMBOL_MAP", "")),
++		symbolSuffix:    suffix,
++		maxBookLevels:   getEnvInt("HYPERLIQUID_BOOK_MAX_LEVELS", 20),
++	}
++}
++
++func (c *FuturesStreamController) Run(ctx context.Context, baseCoins []string) {
++	c.logger.Printf("Hyperliquid futures controller стартует. Redis key: %s", c.coinsKey)
++
++	desired := c.loadCoins(ctx, baseCoins)
++	c.reconcile(ctx, desired)
++
++	ticker := time.NewTicker(c.refreshInterval)
++	defer ticker.Stop()
++
++	for {
++		select {
++		case <-ctx.Done():
++			c.logger.Println("Hyperliquid futures controller остановка по контексту")
++			c.Stop()
++			return
++		case <-ticker.C:
++			desired = c.loadCoins(ctx, baseCoins)
++			c.reconcile(ctx, desired)
++		}
++	}
++}
++
++func (c *FuturesStreamController) Stop() {
++	c.mu.Lock()
++	defer c.mu.Unlock()
++	if c.activeManagerCancel != nil {
++		c.activeManagerCancel()
++		c.activeManagerCancel = nil
++	}
++}
++
++func (c *FuturesStreamController) loadCoins(ctx context.Context, base []string) []string {
++	set := make(map[string]struct{}, len(base))
++	for _, s := range base {
++		s = strings.ToUpper(strings.TrimSpace(s))
++		if s == "" {
++			continue
++		}
++		set[s] = struct{}{}
++	}
++	if c.client != nil && c.coinsKey != "" {
++		coins, err := c.client.SMembers(ctx, c.coinsKey).Result()
++		if err != nil && err != redis.Nil {
++			c.logger.Printf("Ошибка чтения Redis ключа %s: %v", c.coinsKey, err)
++		} else {
++			for _, s := range coins {
++				s = strings.ToUpper(strings.TrimSpace(s))
++				if s == "" {
++					continue
++				}
++				set[s] = struct{}{}
++			}
++		}
++	}
++	out := make([]string, 0, len(set))
++	for s := range set {
++		out = append(out, s)
++	}
++	sort.Strings(out)
++	return out
++}
++
++func (c *FuturesStreamController) reconcile(ctx context.Context, coins []string) {
++	c.mu.Lock()
++	defer c.mu.Unlock()
++
++	// no-op if equal sets
++	if len(coins) == len(c.currentCoins) {
++		currSet := map[string]struct{}{}
++		for _, s := range c.currentCoins {
++			currSet[strings.ToUpper(s)] = struct{}{}
++		}
++		match := true
++		for _, s := range coins {
++			if _, ok := currSet[strings.ToUpper(s)]; !ok {
++				match = false
++				break
++			}
++		}
++		if match {
++			return
++		}
++	}
++
++	// diff
++	currSet := map[string]struct{}{}
++	for _, s := range c.currentCoins {
++		currSet[strings.ToUpper(s)] = struct{}{}
++	}
++	newSet := map[string]struct{}{}
++	for _, s := range coins {
++		newSet[strings.ToUpper(s)] = struct{}{}
++	}
++	var toAdd, toRemove []string
++	for s := range newSet {
++		if _, ok := currSet[s]; !ok {
++			toAdd = append(toAdd, s)
++		}
++	}
++	for s := range currSet {
++		if _, ok := newSet[s]; !ok {
++			toRemove = append(toRemove, s)
++		}
++	}
++	sort.Strings(toAdd)
++	sort.Strings(toRemove)
++
++	// Try live update.
++	if c.activeManager != nil {
++		c.logger.Printf("Hyperliquid Live Update: Add %d, Remove %d coins", len(toAdd), len(toRemove))
++		if err := c.activeManager.UpdateSubscriptions(toAdd, toRemove); err == nil {
++			c.currentCoins = append([]string{}, coins...)
++			return
++		} else {
++			c.logger.Printf("⚠️ Hyperliquid live update failed, falling back to reconnect: %v", err)
++		}
++	}
++
++	c.logger.Printf("Hyperliquid: coins changed (%d -> %d), reconnect", len(c.currentCoins), len(coins))
++	if c.activeManagerCancel != nil {
++		c.activeManagerCancel()
++	}
++	c.currentCoins = append([]string{}, coins...)
++
++	runCtx, cancel := context.WithCancel(ctx)
++	c.activeManagerCancel = cancel
++	go c.runMultiplexed(runCtx, c.currentCoins)
++}
++
++func (c *FuturesStreamController) runMultiplexed(ctx context.Context, coins []string) {
++	if len(coins) == 0 {
++		return
++	}
++	backoff := wsconn.DefaultReconnectBackoff
++	for {
++		if ctx.Err() != nil {
++			return
++		}
++
++		manager := NewHyperliquidFuturesManager(coins, c.logger)
++		c.mu.Lock()
++		c.activeManager = manager
++		c.mu.Unlock()
++
++		if err := manager.Connect(ctx); err != nil {
++			c.logger.Printf("Ошибка Hyperliquid WS подключения: %v", err)
++			monitoring.RecordHyperliquidReconnect("connect_error")
++			select {
++			case <-ctx.Done():
++				return
++			case <-time.After(backoff):
++			}
++			backoff = wsconn.NextBackoff(backoff)
++			continue
++		}
++
++		backoff = wsconn.DefaultReconnectBackoff
++		c.logger.Printf("✅ Hyperliquid WS соединение установлено для %d coins", len(coins))
++
++		err := manager.ReadLoop(ctx, func(msg []byte) {
++			c.processMessage(ctx, msg)
++		})
++
++		if err != nil {
++			if err == context.Canceled {
++				return
++			}
++
++			currentErrorCount := atomic.AddInt64(&c.errorCount, 1)
++			isConnReset := wsconn.IsConnectionReset(err)
++			isTimeout := wsconn.IsTimeout(err)
++			isCtx := wsconn.IsContextError(err)
++
++			monitoring.RecordHyperliquidReconnect("read_error")
++			if isCtx {
++				return
++			}
++			if isConnReset || isTimeout {
++				if currentErrorCount <= 5 || currentErrorCount%1000 == 0 {
++					reason := "connection reset"
++					if isTimeout {
++						reason = "timeout"
++					}
++					c.logger.Printf("⚠️ Hyperliquid WS %s (count=%d): %v", reason, currentErrorCount, err)
++				}
++			} else {
++				if currentErrorCount <= 5 || currentErrorCount%100 == 0 {
++					c.logger.Printf("❌ Hyperliquid WS error (count=%d): %v", currentErrorCount, err)
++				}
++			}
++		}
++
++		// sleep before reconnect
++		select {
++		case <-ctx.Done():
++			return
++		case <-time.After(backoff):
++		}
++		backoff = wsconn.NextBackoff(backoff)
++	}
++}
++
++func (c *FuturesStreamController) processMessage(ctx context.Context, payload []byte) {
++	ticks, books, err := NormalizeFuturesMessage(payload, c.symbolMap, c.symbolSuffix, c.maxBookLevels)
++	if err != nil {
++		// parsing error — don't crash connection; count as soft.
++		monitoring.RecordHyperliquidParseError()
++		return
++	}
++	nowMs := time.Now().UnixMilli()
++
++	for _, tick := range ticks {
++		monitoring.RecordHyperliquidMessage(tick.Symbol, "trades")
++		if c.healthMetrics != nil {
++			orderflowCtx := orderflow.NewOrderflowCtx(tick.Symbol, tick.Ts, nowMs)
++			orderflowCtx.ComputeStaleness(c.stalenessConfig)
++			c.healthMetrics.OnTick(metrics.TickMetricsInput{
++				Symbol:       tick.Symbol,
++				L2AgeMs:      orderflowCtx.L2AgeMsNow,
++				L2AgeMsTick:  orderflowCtx.L2AgeMsTick,
++				L2IsStale:    orderflowCtx.L2IsStale,
++				L2IsStaleNow: orderflowCtx.L2IsStaleNow,
++				EtaFillMs:    nil,
++				BurstRatio:   nil,
++				ImbalanceMin: nil,
++			})
++		}
++
++		if err := c.publisher.PublishTick(ctx, tick.Symbol, tick.RedisValues()); err != nil {
++			if err == context.Canceled {
++				return
++			}
++			c.logger.Printf("Hyperliquid publish tick error: %v", err)
++		}
++	}
++
++	for _, book := range books {
++		monitoring.RecordHyperliquidMessage(book.Symbol, "l2Book")
++		if c.healthMetrics != nil {
++			orderflowCtx := orderflow.NewOrderflowCtx(book.Symbol, nowMs, book.Ts)
++			orderflowCtx.ComputeStaleness(c.stalenessConfig)
++			c.healthMetrics.OnTick(metrics.TickMetricsInput{
++				Symbol:       book.Symbol,
++				L2AgeMs:      orderflowCtx.L2AgeMsNow,
++				L2AgeMsTick:  orderflowCtx.L2AgeMsTick,
++				L2IsStale:    orderflowCtx.L2IsStale,
++				L2IsStaleNow: orderflowCtx.L2IsStaleNow,
++				EtaFillMs:    nil,
++				BurstRatio:   nil,
++				ImbalanceMin: nil,
++			})
++		}
++		if err := c.publisher.PublishBook(ctx, book.Symbol, book.RedisValues()); err != nil {
++			if err == context.Canceled {
++				return
++			}
++			c.logger.Printf("Hyperliquid publish book error: %v", err)
++		}
++	}
++}
++
++// parseCoinsFromSymbols converts Binance-style symbols to Hyperliquid coins.
++// Examples: BTCUSDT -> BTC, 1000PEPEUSDT -> 1000PEPE.
++func parseCoinsFromSymbols(symbols []string) []string {
++	out := make([]string, 0, len(symbols))
++	for _, s := range symbols {
++		s = strings.ToUpper(strings.TrimSpace(s))
++		if s == "" {
++			continue
++		}
++		// Most of your pipeline uses USDT quote. Hyperliquid coins are base tickers.
++		s = strings.TrimSuffix(s, "USDT")
++		s = strings.TrimSuffix(s, "USDC")
++		if s != "" {
++			out = append(out, s)
++		}
++	}
++	if len(out) == 0 {
++		return []string{"BTC", "ETH"}
++	}
++	// Dedup
++	seen := map[string]struct{}{}
++	uniq := make([]string, 0, len(out))
++	for _, c := range out {
++		if _, ok := seen[c]; ok {
++			continue
++		}
++		seen[c] = struct{}{}
++		uniq = append(uniq, c)
++	}
++	sort.Strings(uniq)
++	return uniq
++}
++
++// LoadBaseCoins reads HYPERLIQUID_COINS or derives coins from FUTURES_SYMBOLS.
++func LoadBaseCoins(futuresSymbols []string) []string {
++	raw := strings.TrimSpace(os.Getenv("HYPERLIQUID_COINS"))
++	if raw != "" {
++		parts := strings.Split(raw, ",")
++		out := make([]string, 0, len(parts))
++		for _, p := range parts {
++			c := strings.ToUpper(strings.TrimSpace(p))
++			if c != "" {
++				out = append(out, c)
++			}
++		}
++		if len(out) > 0 {
++			sort.Strings(out)
++			return out
++		}
++	}
++	return parseCoinsFromSymbols(futuresSymbols)
++}
+
+diff --git a/internal/hyperliquid/futures_normalizer_test.go b/internal/hyperliquid/futures_normalizer_test.go
+new file mode 100644
+index 0000000..2423bb6
+--- /dev/null
++++ b/internal/hyperliquid/futures_normalizer_test.go
+@@ -0,0 +1,58 @@
++package hyperliquid
++
++import (
++	"testing"
++
++	"github.com/stretchr/testify/require"
++)
++
++func TestNormalizeFuturesMessage_Trades(t *testing.T) {
++	raw := []byte(`{"channel":"trades","data":[{"coin":"BTC","side":"B","px":"65000","sz":"0.01","hash":"0xabc","time":1700000000123,"tid":12345,"users":["0x1","0x2"]}]}`)
++
++	ticks, books, err := NormalizeFuturesMessage(raw, map[string]string{}, "USDT", 20)
++	require.NoError(t, err)
++	require.Len(t, ticks, 1)
++	require.Len(t, books, 0)
++
++	tk := ticks[0]
++	require.Equal(t, "BTCUSDT", tk.Symbol)
++	require.Equal(t, int64(1700000000123), tk.Ts)
++	require.Equal(t, "BUY", tk.Side)
++	require.Equal(t, int64(12345), tk.TradeID)
++	require.Equal(t, "hyperliquid", tk.Source)
++}
++
++func TestNormalizeFuturesMessage_L2Book(t *testing.T) {
++	raw := []byte(`{"channel":"l2Book","data":{"coin":"ETH","levels":[[{"px":"3500.0","sz":"1.2","n":2}],[{"px":"3500.5","sz":"0.8","n":1}]],"time":1700000000456}}`)
++
++	ticks, books, err := NormalizeFuturesMessage(raw, map[string]string{}, "USDT", 20)
++	require.NoError(t, err)
++	require.Len(t, ticks, 0)
++	require.Len(t, books, 1)
++
++	bk := books[0]
++	require.Equal(t, "ETHUSDT", bk.Symbol)
++	require.Equal(t, int64(1700000000456), bk.Ts)
++	require.Len(t, bk.Bids, 1)
++	require.Equal(t, "3500.0", bk.Bids[0][0])
++	require.Equal(t, "1.2", bk.Bids[0][1])
++	require.Len(t, bk.Asks, 1)
++}
++
++func TestNormalizeEpochMs_SecondsInput(t *testing.T) {
++	// 1700000000 looks like seconds, should become ms.
++	raw := []byte(`{"channel":"trades","data":[{"coin":"BTC","side":"A","px":"1","sz":"1","hash":"h","time":1700000000,"tid":1,"users":["a","b"]}]}`)
++	ticks, _, err := NormalizeFuturesMessage(raw, map[string]string{}, "USDT", 20)
++	require.NoError(t, err)
++	require.Len(t, ticks, 1)
++	require.Equal(t, int64(1700000000*1000), ticks[0].Ts)
++	require.Equal(t, "SELL", ticks[0].Side)
++}
++
++func TestNormalizeSymbol_MapOverride(t *testing.T) {
++	raw := []byte(`{"channel":"trades","data":[{"coin":"BTC","side":"B","px":"1","sz":"1","hash":"h","time":1700000000123,"tid":1,"users":["a","b"]}]}`)
++	m := map[string]string{"BTC": "XBTUSD"}
++	ticks, _, err := NormalizeFuturesMessage(raw, m, "USDT", 20)
++	require.NoError(t, err)
++	require.Equal(t, "XBTUSD", ticks[0].Symbol)
++}
+
+diff --git a/internal/hyperliquid/futures_streams_test.go b/internal/hyperliquid/futures_streams_test.go
+new file mode 100644
+index 0000000..683aa20
+--- /dev/null
++++ b/internal/hyperliquid/futures_streams_test.go
+@@ -0,0 +1,90 @@
++package hyperliquid
++
++import (
++	"context"
++	"log"
++	"os"
++	"sort"
++	"testing"
++
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++)
++
++// noopPublisher satisfies internalredis.Publisher interface for testing.
++type noopPublisher struct {
++	ticks []string
++	books []string
++}
++
++func (p *noopPublisher) PublishTick(_ context.Context, symbol string, _ map[string]any) error {
++	p.ticks = append(p.ticks, symbol)
++	return nil
++}
++
++func (p *noopPublisher) PublishBook(_ context.Context, symbol string, _ map[string]any) error {
++	p.books = append(p.books, symbol)
++	return nil
++}
++
++func newTestController() *FuturesStreamController {
++	logger := log.New(os.Stdout, "[test-hl] ", 0)
++	return &FuturesStreamController{
++		publisher: &noopPublisher{},
++		logger:    logger,
++		symbolMap: map[string]string{},
++		// default suffix (not relevant for reconcile tests)
++		symbolSuffix:  "USDT",
++		maxBookLevels: 20,
++	}
++}
++
++func sortedStrings(ss []string) []string {
++	out := make([]string, len(ss))
++	copy(out, ss)
++	sort.Strings(out)
++	return out
++}
++
++func TestReconcile_NoOpOnSameCoins(t *testing.T) {
++	c := newTestController()
++	c.currentCoins = []string{"BTC", "ETH"}
++
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++
++	c.reconcile(ctx, []string{"BTC", "ETH"})
++	assert.Nil(t, c.activeManager, "no manager should be created for no-op reconcile")
++}
++
++func TestReconcile_NewCoinsTriggersReconnect(t *testing.T) {
++	c := newTestController()
++	c.currentCoins = []string{}
++
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++
++	coins := []string{"BTC", "ETH", "SOL"}
++	c.reconcile(ctx, coins)
++	require.Equal(t, 3, len(c.currentCoins))
++
++	got := sortedStrings(c.currentCoins)
++	want := []string{"BTC", "ETH", "SOL"}
++	for i := range want {
++		assert.Equal(t, want[i], got[i])
++	}
++
++	cancel()
++}
++
++func TestUpdateSubscriptions_NoConn(t *testing.T) {
++	m := NewHyperliquidFuturesManager([]string{"BTC"}, log.New(os.Stdout, "", 0))
++	err := m.UpdateSubscriptions([]string{"ETH"}, nil)
++	assert.Error(t, err)
++	assert.Contains(t, err.Error(), "no active connection")
++}
++
++func TestLoadBaseCoins_FromSymbols(t *testing.T) {
++	coins := LoadBaseCoins([]string{"BTCUSDT", "ETHUSDT", "1000PEPEUSDT"})
++	require.Equal(t, []string{"1000PEPE", "BTC", "ETH"}, coins)
++}
+
+diff --git a/internal/monitoring/hyperliquid_metrics.go b/internal/monitoring/hyperliquid_metrics.go
+new file mode 100644
+index 0000000..09c9f93
+--- /dev/null
++++ b/internal/monitoring/hyperliquid_metrics.go
+@@ -0,0 +1,66 @@
++package monitoring
++
++import (
++	"strings"
++
++	"github.com/prometheus/client_golang/prometheus"
++	"github.com/prometheus/client_golang/prometheus/promauto"
++)
++
++var (
++	hyperliquidMessagesTotal = promauto.NewCounterVec(
++		prometheus.CounterOpts{
++			Name: "hyperliquid_messages_total",
++			Help: "Количество обработанных сообщений Hyperliquid WS по типам",
++		},
++		[]string{"symbol", "type"},
++	)
++
++	hyperliquidReconnectsTotal = promauto.NewCounterVec(
++		prometheus.CounterOpts{
++			Name: "hyperliquid_reconnects_total",
++			Help: "Количество переподключений Hyperliquid WS по причинам",
++		},
++		[]string{"reason"},
++	)
++
++	hyperliquidLiveSubscriptionsTotal = promauto.NewCounterVec(
++		prometheus.CounterOpts{
++			Name: "hyperliquid_ws_live_subscriptions_total",
++			Help: "Количество успешно отправленных subscribe/unsubscribe команд Hyperliquid",
++		},
++		[]string{"method"},
++	)
++
++	hyperliquidParseErrorsTotal = promauto.NewCounter(
++		prometheus.CounterOpts{
++			Name: "hyperliquid_parse_errors_total",
++			Help: "Количество ошибок парсинга сообщений Hyperliquid",
++		},
++	)
++)
++
++func RecordHyperliquidMessage(symbol, msgType string) {
++	if symbol == "" || msgType == "" {
++		return
++	}
++	hyperliquidMessagesTotal.WithLabelValues(strings.ToUpper(symbol), msgType).Inc()
++}
++
++func RecordHyperliquidReconnect(reason string) {
++	if reason == "" {
++		reason = "unknown"
++	}
++	hyperliquidReconnectsTotal.WithLabelValues(reason).Inc()
++}
++
++func RecordHyperliquidLiveSubscription(method string) {
++	if method == "" {
++		method = "unknown"
++	}
++	hyperliquidLiveSubscriptionsTotal.WithLabelValues(strings.ToUpper(method)).Inc()
++}
++
++func RecordHyperliquidParseError() {
++	hyperliquidParseErrorsTotal.Inc()
++}
+

@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/indexes/timedeltas.py
+# hypothesis_version: 6.148.10
+
+['D', 'M', 'Y', '__abs__', '__neg__', '__pos__', '_format_native_types', 'ceil', 'components', 'floor', 'm', 'median', 'ns', 'round', 'std', 'sum', 'timedelta64', 'timedeltaindex', 'to_pytimedelta', 'total_seconds', 'y']

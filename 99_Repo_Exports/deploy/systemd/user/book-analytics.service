@@ -1,0 +1,24 @@
+[Unit]
+Description=Book Analytics Service (Advanced OBI metrics)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=%h/front/trade/scanner_infra/python-worker
+ExecStart=/usr/bin/python3 -m services.book_analytics_service
+
+Restart=always
+RestartSec=3
+
+# Configuration
+Environment=OBI_WINDOW_LEVELS=5
+Environment=OBI_THRESHOLD=0.25
+Environment=OBI_RING_SECONDS=600
+Environment=BOOK_ANALYTICS_PORT=8090
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
+

@@ -1,0 +1,10 @@
+services:
+  trade-runbook-server:
+    environment:
+      RUNBOOK_REPORT_DIR: /var/lib/trade-runbook/reports
+      EXECUTION_HEALTH_REPORT_PATH: /var/lib/trade-runbook/reports/latest_execution_health.json
+      CANARY_REPORT_PATH: /var/lib/trade-runbook/reports/latest_canary_scoring.json
+    volumes:
+      - ./var/runbook-reports:/var/lib/trade-runbook/reports
+      - ./runbooks:/opt/trade/runbooks:ro
+      - ./monitoring/grafana/dashboards:/opt/trade/monitoring/grafana/dashboards:ro

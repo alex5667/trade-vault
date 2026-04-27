@@ -1,0 +1,2350 @@
+diff --git a/liquidation_map/README_LIQUIDATION_MAP.md b/liquidation_map/README_LIQUIDATION_MAP.md
+index 51679de..047de49 100644
+--- a/liquidation_map/README_LIQUIDATION_MAP.md
++++ b/liquidation_map/README_LIQUIDATION_MAP.md
+@@ -2,7 +2,7 @@
+ 
+ ## What it does
+ 
+-Consumes normalized liquidation events from Redis Streams (`stream:liq_evt`) and maintains rolling *price-bucket* aggregates for multiple time windows (default: `1h / 4h / 24h`).
++Consumes normalized liquidation events from Redis Streams (`stream:liq_evt`) and maintains rolling *price-bucket* aggregates for multiple time windows (default: `5m / 1h / 4h / 24h`).
+ 
+ Publishes snapshots to Redis keys for low-latency UI/API usage:
+ 
+diff --git a/liquidation_map/tick_flow_full/README_LIQUIDATION_MAP.md b/liquidation_map/tick_flow_full/README_LIQUIDATION_MAP.md
+index 7221eca..047de49 100644
+--- a/liquidation_map/tick_flow_full/README_LIQUIDATION_MAP.md
++++ b/liquidation_map/tick_flow_full/README_LIQUIDATION_MAP.md
+@@ -2,7 +2,7 @@
+ 
+ ## What it does
+ 
+-Consumes normalized liquidation events from Redis Streams (`stream:liq_evt`) and maintains rolling *price-bucket* aggregates for multiple time windows (default: `1h / 4h / 24h`).
++Consumes normalized liquidation events from Redis Streams (`stream:liq_evt`) and maintains rolling *price-bucket* aggregates for multiple time windows (default: `5m / 1h / 4h / 24h`).
+ 
+ Publishes snapshots to Redis keys for low-latency UI/API usage:
+ 
+@@ -50,7 +50,7 @@ Bad/poison messages are sent to DLQ:
+ 
+ ### Windows / publish
+ 
+-- `LIQMAP_WINDOWS=1h,4h,24h`
++- `LIQMAP_WINDOWS=5m,1h,4h,24h`
+ - `LIQMAP_PUBLISH_INTERVAL_MS=1000`
+ 
+ ### Buckets
+diff --git a/ml_analysis/tests/test_train_meta_model_lr_v1_smoke.py b/ml_analysis/tests/test_train_meta_model_lr_v1_smoke.py
+index 41ea1ad..00a15a8 100644
+--- a/ml_analysis/tests/test_train_meta_model_lr_v1_smoke.py
++++ b/ml_analysis/tests/test_train_meta_model_lr_v1_smoke.py
+@@ -15,7 +15,8 @@ def _ensure_repo_root_first() -> None:
+         sys.path.insert(0, rp)
+ 
+ 
+-def test_train_meta_model_lr_from_df_smoke(tmp_path: Path):
++@pytest.mark.parametrize("schema_name", ["meta_feat_v8", "meta_feat_v9"])
++def test_train_meta_model_lr_from_df_smoke(tmp_path: Path, schema_name: str):
+     _ensure_repo_root_first()
+ 
+     from ml_analysis.tools.train_meta_model_lr_v1 import train_meta_model_lr_from_df
+@@ -42,7 +43,7 @@ def test_train_meta_model_lr_from_df_smoke(tmp_path: Path):
+ 
+     model, summary = train_meta_model_lr_from_df(
+         df,
+-        schema_name="meta_feat_v8",
++        schema_name=schema_name,
+         y_col="y_util_pos_60000",
+         n_splits=4,
+         purge_ms=10_000,
+diff --git a/ml_analysis/tools/train_meta_model_lr_v1.py b/ml_analysis/tools/train_meta_model_lr_v1.py
+index 2551f65..e8db52c 100644
+--- a/ml_analysis/tools/train_meta_model_lr_v1.py
++++ b/ml_analysis/tools/train_meta_model_lr_v1.py
+@@ -85,6 +85,10 @@ def _get_meta_builder(schema_name: str):
+         from core.meta_features_v8 import build_meta_features_v8, META_FEAT_V8_COLS, META_FEAT_V8_TRANSFORMS
+ 
+         return build_meta_features_v8, list(META_FEAT_V8_COLS), dict(META_FEAT_V8_TRANSFORMS)
++    if s == "meta_feat_v9":
++        from core.meta_features_v9 import build_meta_features_v9, META_FEAT_V9_COLS, META_FEAT_V9_TRANSFORMS
++
++        return build_meta_features_v9, list(META_FEAT_V9_COLS), dict(META_FEAT_V9_TRANSFORMS)
+     if s == "meta_feat_v7":
+         from core.meta_features_v7 import build_meta_features_v7, META_FEAT_V7_COLS, META_FEAT_V7_TRANSFORMS
+ 
+diff --git a/services/orderflow/decision_record_v1.py b/services/orderflow/decision_record_v1.py
+index ce21438..adbea43 100644
+--- a/services/orderflow/decision_record_v1.py
++++ b/services/orderflow/decision_record_v1.py
+@@ -254,6 +254,59 @@ def build_decision_record_v1(
+             "expected_slippage_bps": float(indicators.get("expected_slippage_bps", 0.0) or 0.0),
+             "liq_score": float(indicators.get("liq_score", 0.0) or 0.0),
+         },
++        "conf_cal": {
++            "ab_mode": str(indicators.get("confidence_cal_ab_mode", "") or ""),
++            "p_challenger": float(indicators.get("confidence_cal_p_challenger", 0.0) or 0.0),
++            "arm_assigned": str(indicators.get("confidence_cal_arm_assigned", "") or ""),
++            "arm_taken": str(indicators.get("confidence_cal_arm_taken", "") or ""),
++            "bucket": int(indicators.get("confidence_cal_bucket", -1) or -1),
++            "sticky_key": str(indicators.get("confidence_cal_sticky_key", "") or "")[:120],
++            "q_champion": float(indicators.get("confidence_cal_champion", indicators.get("confidence_v1", 0.0)) or 0.0),
++            "q_challenger": float(indicators.get("confidence_cal_challenger", 0.0) or 0.0),
++            "q_final": float(indicators.get("confidence_cal", 0.0) or 0.0),
++            "method": str(indicators.get("confidence_cal_method", "") or ""),
++            "bucket_by": str(indicators.get("confidence_cal_bucket_by", "") or ""),
++            "bucket_level": str(indicators.get("confidence_cal_bucket_level", "") or ""),
++            "schema_version": int(indicators.get("confidence_cal_schema_version", 0) or 0),
++            "fallback_to_champion": int(indicators.get("confidence_cal_fallback_to_champion", 0) or 0),
++            "shadow_delta": float(indicators.get("confidence_cal_shadow_delta", 0.0) or 0.0),
++            "shadow_delta_abs": float(indicators.get("confidence_cal_shadow_delta_abs", 0.0) or 0.0),
++            "low_conf_would_veto": int(indicators.get("low_conf_would_veto", 0) or 0),
++            "low_conf_virtual_pass": int(indicators.get("low_conf_virtual_pass", 0) or 0),
++            "is_virtual": int(signal.get("is_virtual", indicators.get("is_virtual", 0)) or 0),
++            "virtual_reason": str(indicators.get("virtual_reason", "") or signal.get("virtual_reason", "") or "")[:48],
++        },
++        "liqmap": {
++            "gate": {
++                "mode": str(indicators.get("liqmap_gate_mode", "") or ""),
++                "window": str(indicators.get("liqmap_gate_window", "") or ""),
++                "veto": int(indicators.get("liqmap_gate_veto", 0) or 0),
++                "shadow_veto": int(indicators.get("liqmap_gate_shadow_veto", 0) or 0),
++                "reason": str(indicators.get("liqmap_gate_veto_reason", "") or ""),
++                "rr": float(indicators.get("liqmap_gate_rr", 0.0) or 0.0),
++                "risk_bps": float(indicators.get("liqmap_gate_risk_bps", 0.0) or 0.0),
++                "reward_bps": float(indicators.get("liqmap_gate_reward_bps", 0.0) or 0.0),
++            },
++            "w5m": {
++                "age_ms": float(indicators.get("liqmap_5m_age_ms", 0.0) or 0.0),
++                "near_total_usd": float(indicators.get("liqmap_5m_near_total_usd", 0.0) or 0.0),
++                "near_imb": float(indicators.get("liqmap_5m_near_imb", 0.0) or 0.0),
++                "dist_up_bps": float(indicators.get("liqmap_5m_dist_up_bps", 0.0) or 0.0),
++                "dist_dn_bps": float(indicators.get("liqmap_5m_dist_dn_bps", 0.0) or 0.0),
++                "peak_up1_usd": float(indicators.get("liqmap_5m_peak_up1_usd", 0.0) or 0.0),
++                "peak_dn1_usd": float(indicators.get("liqmap_5m_peak_dn1_usd", 0.0) or 0.0),
++            },
++            "w1h": {
++                "age_ms": float(indicators.get("liqmap_1h_age_ms", 0.0) or 0.0),
++                "near_total_usd": float(indicators.get("liqmap_1h_near_total_usd", 0.0) or 0.0),
++                "near_imb": float(indicators.get("liqmap_1h_near_imb", 0.0) or 0.0),
++                "dist_up_bps": float(indicators.get("liqmap_1h_dist_up_bps", 0.0) or 0.0),
++                "dist_dn_bps": float(indicators.get("liqmap_1h_dist_dn_bps", 0.0) or 0.0),
++                "peak_up1_usd": float(indicators.get("liqmap_1h_peak_up1_usd", 0.0) or 0.0),
++                "peak_dn1_usd": float(indicators.get("liqmap_1h_peak_dn1_usd", 0.0) or 0.0),
++            },
++        },
++
+         "meta": {
+             "meta_enforce_applied": int(ev.get("meta_enforce_applied", 0) or 0),
+             "meta_enforce_share": float(ev.get("meta_enforce_share", 1.0) or 1.0),
+diff --git a/services/orderflow/metrics.py b/services/orderflow/metrics.py
+index 3d9875d..7b9f0cb 100644
+--- a/services/orderflow/metrics.py
++++ b/services/orderflow/metrics.py
+@@ -251,6 +251,135 @@ signals_total = _get_or_create_prom_counter(
+     'Total number of signals processed by the worker',
+     ['symbol', 'handler']
+ )
++
++# --- Gate accounting & Slippage (P70+) ---
++trade_gate_eligible_total = _get_or_create_prom_counter(
++    "trade_gate_eligible_total", 
++    "Total signals eligible for gate evaluation", 
++    ["gate", "sym", "bucket", "mode"]
++)
++trade_gate_ok_total = _get_or_create_prom_counter(
++    "trade_gate_ok_total", 
++    "Total signals passing the gate", 
++    ["gate", "sym", "bucket", "mode", "status"]
++)
++trade_gate_veto_total = _get_or_create_prom_counter(
++    "trade_gate_veto_total", 
++    "Total signals vetoed by the gate", 
++    ["gate", "sym", "bucket", "mode", "reason"]
++)
++trade_gate_shadow_veto_total = _get_or_create_prom_counter(
++    "trade_gate_shadow_veto_total", 
++    "Total signals that would be vetoed in shadow mode", 
++    ["gate", "sym", "bucket", "reason"]
++)
++
++# Taker flow metrics
++trade_taker_flow_imb_z = _get_or_create_prom_histogram(
++    "trade_taker_flow_imb_z", 
++    "Taker flow imbalance z-score distribution", 
++    ["sym", "bucket"],
++    buckets=[-5.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 5.0]
++)
++trade_taker_flow_imb = _get_or_create_prom_histogram(
++    "trade_taker_flow_imb", 
++    "Taker flow imbalance distribution", 
++    ["sym", "bucket"],
++    buckets=[-1.0, -0.75, -0.5, -0.25, 0.0, 0.25, 0.5, 0.75, 1.0]
++)
++
++# Slippage metrics
++trade_expected_slippage_bps = _get_or_create_prom_histogram(
++    "trade_expected_slippage_bps", 
++    "Expected slippage (bps)", 
++    ["sym", "bucket", "model"],
++    buckets=[1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 250.0]
++)
++trade_expected_slippage_ratio = _get_or_create_prom_histogram(
++    "trade_expected_slippage_ratio", 
++    "Expected slippage ratio (expected / max_eff)", 
++    ["sym", "bucket"],
++    buckets=[0.1, 0.5, 0.8, 0.9, 0.95, 1.0, 1.05, 1.1, 1.5, 2.0]
++)
++
++# Bid/ask spread at decision-time snapshot (P95/P99-ready, low-cardinality: sym × bucket)
++trade_spread_bps = _get_or_create_prom_histogram(
++    "trade_spread_bps",
++    "Bid/ask spread (bps) at decision time",
++    ["sym", "bucket"],
++    buckets=[0.05, 0.1, 0.2, 0.3, 0.5, 0.8, 1, 1.5, 2, 3, 5, 8, 13, 21, 34]
++)
++
++# --- Execution-risk histograms (P95/P99-ready; low-cardinality: sym × bucket) ---
++trade_exec_risk_ref_bps = _get_or_create_prom_histogram(
++    "trade_exec_risk_ref_bps",
++    "Execution-risk reference (bps) used for normalization",
++    ["sym", "bucket"],
++    buckets=[0.5, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377]
++)
++
++trade_exec_risk_bps = _get_or_create_prom_histogram(
++    "trade_exec_risk_bps",
++    "Execution-risk (bps) implied by expected slippage / liquidity state",
++    ["sym", "bucket"],
++    buckets=[0.5, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377]
++)
++
++trade_exec_risk_norm = _get_or_create_prom_histogram(
++    "trade_exec_risk_norm",
++    "Execution-risk normalized to [0..1] (soft-capped)",
++    ["sym", "bucket"],
++    buckets=[0.0, 0.02, 0.05, 0.08, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50, 0.60, 0.80, 1.0, 1.2]
++)
++
++trade_exec_pen = _get_or_create_prom_histogram(
++    "trade_exec_pen",
++    "Execution penalty used by gate (combines risk + fill)",
++    ["sym", "bucket"],
++    buckets=[0.0, 0.02, 0.05, 0.08, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50, 0.60, 0.80, 1.0, 1.2]
++)
++
++# --- Taker-flow contra gate (P9c) ---
++trade_taker_flow_gate_shadow_veto_total = _get_or_create_prom_counter(
++    "trade_taker_flow_gate_shadow_veto_total",
++    "Count of taker-flow contra gate shadow veto (would-have-veto, shadow mode)",
++    ["sym", "bucket", "reason"],
++)
++
++trade_taker_flow_gate_veto_total = _get_or_create_prom_counter(
++    "trade_taker_flow_gate_veto_total",
++    "Count of taker-flow contra gate enforced veto (enforce mode)",
++    ["sym", "bucket", "reason"],
++)
++
++trade_expected_slippage_limit_exceed_total = _get_or_create_prom_counter(
++    "trade_expected_slippage_limit_exceed_total", 
++    "Total exceedances of expected slippage limit (ratio > 1)", 
++    ["sym", "bucket"]
++)
++trade_slippage_residual_bps = _get_or_create_prom_histogram(
++    "trade_slippage_residual_bps", 
++    "Slippage residual (realized_worse - expected) (bps)", 
++    ["sym", "bucket"],
++    buckets=[-100.0, -50.0, -20.0, -10.0, -5.0, 0.0, 5.0, 10.0, 20.0, 50.0, 100.0]
++)
++trade_edge_minus_expected_bps = _get_or_create_prom_histogram(
++    "trade_edge_minus_expected_bps", 
++    "Edge minus expected slippage (bps)", 
++    ["sym", "bucket"],
++    buckets=[-50.0, -20.0, -10.0, -5.0, 0.0, 5.0, 10.0, 20.0, 50.0, 100.0]
++)
++trade_edge_negative_total = _get_or_create_prom_counter(
++    "trade_edge_negative_total", 
++    "Total cases where edge minus expected slippage is < 0", 
++    ["sym", "bucket"]
++)
++trade_max_expected_slippage_bps_eff = _get_or_create_prom_gauge(
++    "trade_max_expected_slippage_bps_eff", 
++    "Effective max expected slippage limit (bps)", 
++    ["sym", "bucket"]
++)
++
+ fp_imb_confirm_total = _get_or_create_prom_counter(
+     'fp_imb_confirm_total',
+     'Total footprint imbalance confirmations',
+@@ -365,6 +494,61 @@ burst_flush_total = _get_or_create_prom_counter('burst_flush_total', 'Total burs
+ signals_emitted_total = _get_or_create_prom_counter('signals_emitted_total', 'Total signals actually emitted', ['symbol'])
+ burst_window_ms_gauge = _get_or_create_prom_gauge('burst_window_ms', 'Current burst window (ms)', ['symbol'])
+ tick_gap_p50_ms_gauge = _get_or_create_prom_gauge('tick_gap_p50_ms', 'Tick gap p50 (ms)', ['symbol'])
++tick_gap_p95_ms_gauge = _get_or_create_prom_gauge(
++    "tick_gap_p95_ms", "Tick gap p95 (ms)", ["symbol"]
++)
++
++# P2/F: missing-seq EMA signals (0..1) and raw gap events count.
++book_missing_seq_ema_gauge = _get_or_create_prom_gauge(
++    "book_missing_seq_ema", "EMA of book missing-seq events (0..1)", ["symbol"]
++)
++tick_missing_seq_ema_gauge = _get_or_create_prom_gauge(
++    "tick_missing_seq_ema", "EMA of tick missing-seq events (0..1)", ["symbol"]
++)
++
++book_missing_seq_events_total = _get_or_create_prom_counter(
++    "book_missing_seq_events_total", "Count of detected book sequence gaps", ["symbol"]
++)
++tick_missing_seq_events_total = _get_or_create_prom_counter(
++    "tick_missing_seq_events_total", "Count of detected tick sequence gaps", ["symbol"]
++)
++
++
++# --- LiqMap (liquidation map) metrics ---
++# Snapshot age is computed as: now_ms - snapshot.ts_ms (from redis payload).
++# Special values: -1 = missing snapshot, -2 = parse error.
++liqmap_snapshot_age_ms_gauge = _get_or_create_prom_gauge(
++    "liqmap_snapshot_age_ms",
++    "Age of liqmap snapshot (ms). -1 missing, -2 parse error.",
++    ["symbol", "window"],
++)
++liqmap_snapshot_parse_errors_total = _get_or_create_prom_counter(
++    "liqmap_snapshot_parse_errors_total",
++    "Total liqmap snapshot parse errors.",
++    ["symbol"],
++)
++liqmap_gate_shadow_hit_total = _get_or_create_prom_counter(
++    "liqmap_gate_shadow_hit_total",
++    "Total liqmap gate shadow hits (would veto).",
++    ["symbol", "dir", "window"],
++)
++liqmap_gate_veto_total = _get_or_create_prom_counter(
++    "liqmap_gate_veto_total",
++    "Total liqmap gate enforced vetoes.",
++    ["symbol", "dir", "reason"],
++)
++
++# P2/F: trade_id ordering issue breakdown (diagnostic; GAP is already covered by tick_missing_seq_events_total).
++tick_id_gap_events_total = _get_or_create_prom_counter(
++    "tick_id_gap_events_total", "Count of tick trade_id gaps (tid > last_tid+1)", ["symbol"]
++)
++tick_id_dup_events_total = _get_or_create_prom_counter(
++    "tick_id_dup_events_total", "Count of duplicate tick trade_id events (tid == last_tid)", ["symbol"]
++)
++tick_id_reorder_events_total = _get_or_create_prom_counter(
++    "tick_id_reorder_events_total", "Count of out-of-order tick trade_id events (tid < last_tid)", ["symbol"]
++)
++
+ 
+ # --- Drain Mode Metrics ---
+ drain_forced_cancel_total = _get_or_create_prom_counter(
+@@ -674,6 +858,81 @@ obi_stability_score_gauge = _get_or_create_prom_gauge(
+     ['symbol']
+ )
+ 
++# --- LOB pressure metrics (P91) ---
++# Queue imbalance per LOB level {symbol, level=L1..L5}
++of_lob_queue_imbalance_gauge = _get_or_create_prom_gauge(
++    "of_lob_queue_imbalance",
++    "Queue imbalance per LOB level (bid_qty-ask_qty)/(bid_qty+ask_qty)",
++    ["symbol", "level"],
++)
++# Aggregates (mean/max_abs/slope) across L1..L5
++of_lob_queue_imbalance_mean_gauge = _get_or_create_prom_gauge(
++    "of_lob_queue_imbalance_mean",
++    "Mean queue imbalance over L1..L5 (signed)",
++    ["symbol"],
++)
++of_lob_queue_imbalance_max_abs_gauge = _get_or_create_prom_gauge(
++    "of_lob_queue_imbalance_max_abs",
++    "Max absolute queue imbalance over L1..L5",
++    ["symbol"],
++)
++of_lob_queue_imbalance_slope_gauge = _get_or_create_prom_gauge(
++    "of_lob_queue_imbalance_slope",
++    "Slope of queue imbalance over depth levels (least squares, signed)",
++    ["symbol"],
++)
++
++# Microprice vs mid divergence and shift (bps scale)
++of_lob_micro_mid_div_bps_gauge = _get_or_create_prom_gauge(
++    "of_lob_micro_mid_div_bps",
++    "Microprice divergence vs mid (bps)",
++    ["symbol"],
++)
++of_lob_micro_shift_bps_gauge = _get_or_create_prom_gauge(
++    "of_lob_micro_shift_bps",
++    "Microprice shift vs previous snapshot (bps)",
++    ["symbol"],
++)
++
++# Depth curve slope and convexity by side {symbol, side=bid/ask/imb}
++of_lob_depth_slope_gauge = _get_or_create_prom_gauge(
++    "of_lob_depth_slope",
++    "Depth curve slope by side (cumulative qty, per level)",
++    ["symbol", "side"],
++)
++of_lob_depth_convexity_gauge = _get_or_create_prom_gauge(
++    "of_lob_depth_convexity",
++    "Depth curve convexity by side (second-diff of cumulative qty, normalized)",
++    ["symbol", "side"],
++)
++
++# Depth-weighted OBI and derived stability metrics
++of_lob_dw_obi_gauge = _get_or_create_prom_gauge(
++    "of_lob_dw_obi",
++    "Depth-weighted OBI (weights 1/level)",
++    ["symbol"],
++)
++of_lob_dw_obi_z_gauge = _get_or_create_prom_gauge(
++    "of_lob_dw_obi_z",
++    "Z-score of depth-weighted OBI (robust rolling)",
++    ["symbol"],
++)
++of_lob_dw_obi_stability_score_gauge = _get_or_create_prom_gauge(
++    "of_lob_dw_obi_stability_score",
++    "Stability score [0..1] for depth-weighted OBI",
++    ["symbol"],
++)
++of_lob_dw_obi_stable_secs_gauge = _get_or_create_prom_gauge(
++    "of_lob_dw_obi_stable_secs",
++    "Continuous stable seconds for depth-weighted OBI direction",
++    ["symbol"],
++)
++of_lob_dw_obi_stable_gauge = _get_or_create_prom_gauge(
++    "of_lob_dw_obi_stable",
++    "Flag: depth-weighted OBI is stable enough (1/0)",
++    ["symbol"],
++)
++
+ # --- OF Inputs Version & Missing Fields Metrics ---
+ of_inputs_version_total = _get_or_create_prom_counter(
+     'of_inputs_version_total',
+@@ -699,6 +958,65 @@ of_inputs_bad_time_total = _get_or_create_prom_counter(
+     ['symbol']
+ )
+ 
++# --- OF Inputs V3 downgrade / quarantine / DLQ observability (P96) ---
++of_inputs_missing_lob_total = _get_or_create_prom_counter(
++    'of_inputs_missing_lob_total',
++    'Total OF inputs where v3 was requested but LOB fields were missing/degraded (downgraded to v2)',
++    ['symbol', 'reason']
++)
++
++of_inputs_downgrade_total = _get_or_create_prom_counter(
++    'of_inputs_downgrade_total',
++    'Total OF inputs automatic version downgrades (e.g., v3->v2) with reason',
++    ['symbol', 'from_version', 'to_version', 'reason']
++)
++
++of_inputs_quarantined_total = _get_or_create_prom_counter(
++    'of_inputs_quarantined_total',
++    'Total OF inputs written to quarantine stream for triage (low-cardinality reasons)',
++    ['symbol', 'reason', 'attempt_version', 'published_version']
++)
++
++of_inputs_publish_error_total = _get_or_create_prom_counter(
++    'of_inputs_publish_error_total',
++    'Total OF inputs publish errors (DLQ writes) by stage',
++    ['symbol', 'stage']
++)
++
++
++# --- OF Inputs V3 circuit breaker (P100) ---
++of_inputs_v3_forced_v2_total = _get_or_create_prom_counter(
++    "of_inputs_v3_forced_v2_total",
++    "Total times V3 was requested but V2 was published (forced downgrade), by reason",
++    ["symbol", "reason"],
++)
++
++of_inputs_v3_circuit_trip_total = _get_or_create_prom_counter(
++    "of_inputs_v3_circuit_trip_total",
++    "Total times OFInputs V3 circuit breaker tripped (set cfg disable), by downgrade reason",
++    ["symbol", "reason"],
++)
++
++of_inputs_v3_circuit_disabled = _get_or_create_prom_gauge(
++    "of_inputs_v3_circuit_disabled",
++    "Gauge: OFInputs V3 is currently disabled by circuit breaker (1/0)",
++    ["symbol"],
++)
++
++of_inputs_v3_circuit_disabled_until_ms = _get_or_create_prom_gauge(
++    "of_inputs_v3_circuit_disabled_until_ms",
++    "If disabled, wall-clock epoch ms until which V3 remains disabled (best-effort)",
++    ["symbol"],
++)
++
++
++
++of_inputs_v3_circuit_hard_disabled_until_ms = _get_or_create_prom_gauge(
++    "of_inputs_v3_circuit_hard_disabled_until_ms",
++    "If disabled, epoch ms until which HARD-disable phase ends (before cooldown) (best-effort)",
++    ["symbol"],
++)
++
+ # --- Pre-publish gates (data quality / regime-session) ---
+ pre_publish_gate_veto_total = _get_or_create_prom_counter(
+     'pre_publish_gate_veto_total',
+@@ -1020,3 +1338,375 @@ ok_metrics_error_total = _get_or_create_prom_counter(
+     ["src", "where"],
+ )
+ 
++
++# --- of-gate SLI counters (eligible / ok_hard / ok_soft / quarantined) ---
++# These are derived from the sampled metrics:of_gate stream and are safe for ratio SLIs.
++# Note: ok_rate ratios are sampling-invariant if sampling is independent of ok/ok_soft.
++of_gate_eligible_total = _get_or_create_prom_counter(
++    "of_gate_eligible_total",
++    "Total eligible of-gate metric rows (post-validation) emitted",
++    ["symbol", "scenario_v4"],
++)
++of_gate_ok_hard_total = _get_or_create_prom_counter(
++    "of_gate_ok_hard_total",
++    "Total of-gate hard-ok rows (ok==1) emitted",
++    ["symbol", "scenario_v4"],
++)
++of_gate_ok_soft_total = _get_or_create_prom_counter(
++    "of_gate_ok_soft_total",
++    "Total of-gate soft-ok rows (ok_soft==1) emitted",
++    ["symbol", "scenario_v4"],
++)
++of_gate_quarantined_total = _get_or_create_prom_counter(
++    "of_gate_quarantined_total",
++    "Total of-gate rows quarantined by DQ validation",
++    ["symbol", "why"],
++)
++
++# --- World-practice tracker snapshots (low-cardinality gauges) ---
++# Labels: sym, bucket (bucket is exec_regime_bucket: NORMAL|LOW_LIQ|HIGH_VOL|HIGH_VOL_LOW_LIQ)
++trade_vol_fast_bps = _get_or_create_prom_gauge(
++    "trade_vol_fast_bps",
++    "Fast EWMA realized vol (bps)",
++    ["sym", "bucket"],
++)
++
++trade_vol_slow_bps = _get_or_create_prom_gauge(
++    "trade_vol_slow_bps",
++    "Slow EWMA realized vol (bps)",
++    ["sym", "bucket"],
++)
++
++trade_vol_ratio = _get_or_create_prom_gauge(
++    "trade_vol_ratio",
++    "Volatility ratio: fast/slow",
++    ["sym", "bucket"],
++)
++
++trade_vol_ratio_z = _get_or_create_prom_gauge(
++    "trade_vol_ratio_z",
++    "Robust z-score of vol_ratio",
++    ["sym", "bucket"],
++)
++
++trade_res_recovered = _get_or_create_prom_gauge(
++    "trade_res_recovered",
++    "Book resilience recovered flag (0/1)",
++    ["sym", "bucket"],
++)
++
++trade_res_recovery_ms = _get_or_create_prom_gauge(
++    "trade_res_recovery_ms",
++    "Book resilience recovery time (ms)",
++    ["sym", "bucket"],
++)
++
++trade_res_speed_per_s = _get_or_create_prom_gauge(
++    "trade_res_speed_per_s",
++    "Book resilience replenishment speed proxy (per second)",
++    ["sym", "bucket"],
++)
++
++trade_fill_prob = _get_or_create_prom_gauge(
++    "trade_fill_prob",
++    "Passive fill probability proxy (0..1)",
++    ["sym", "bucket"],
++)
++
++trade_eta_fill_sec = _get_or_create_prom_gauge(
++    "trade_eta_fill_sec",
++    "ETA-to-fill proxy for passive execution (seconds)",
++    ["sym", "bucket"],
++)
++
++trade_exec_fill_pen = _get_or_create_prom_gauge(
++    "trade_exec_fill_pen",
++    "Execution penalty component derived from fill_prob (0..1)",
++    ["sym", "bucket"],
++)
++
++
++# ---------------------------------------------------------------------------
++# World-practice flow / L3-lite pressure (v1)
++# Low-cardinality gauges (sym × exec_regime_bucket)
++# ---------------------------------------------------------------------------
++
++trade_taker_buy_rate_ema = _get_or_create_prom_gauge(
++    "trade_taker_buy_rate_ema",
++    "Taker buy rate EMA (qty/sec) from L3-lite",
++    ["sym", "bucket"],
++)
++
++trade_taker_sell_rate_ema = _get_or_create_prom_gauge(
++    "trade_taker_sell_rate_ema",
++    "Taker sell rate EMA (qty/sec) from L3-lite",
++    ["sym", "bucket"],
++)
++
++trade_cancel_bid_rate_ema = _get_or_create_prom_gauge(
++    "trade_cancel_bid_rate_ema",
++    "Bid cancel rate EMA (qty/sec) from L3-lite",
++    ["sym", "bucket"],
++)
++
++trade_cancel_ask_rate_ema = _get_or_create_prom_gauge(
++    "trade_cancel_ask_rate_ema",
++    "Ask cancel rate EMA (qty/sec) from L3-lite",
++    ["sym", "bucket"],
++)
++
++trade_cancel_to_trade_bid = _get_or_create_prom_gauge(
++    "trade_cancel_to_trade_bid",
++    "Cancel-to-trade ratio (bid) from L3-lite",
++    ["sym", "bucket"],
++)
++
++trade_cancel_to_trade_ask = _get_or_create_prom_gauge(
++    "trade_cancel_to_trade_ask",
++    "Cancel-to-trade ratio (ask) from L3-lite",
++    ["sym", "bucket"],
++)
++
++trade_taker_flow_imb_z = _get_or_create_prom_gauge(
++    "trade_taker_flow_imb_z",
++    "Signed taker flow imbalance robust z-score (L3-lite)",
++    ["sym", "bucket"],
++)
++
++trade_book_churn_score = _get_or_create_prom_gauge(
++    "trade_book_churn_score",
++    "Book churn score (0..1) — quote update intensity proxy",
++    ["sym", "bucket"],
++)
++
++trade_book_churn_hi = _get_or_create_prom_gauge(
++    "trade_book_churn_hi",
++    "Book churn high flag (0/1)",
++    ["sym", "bucket"],
++)
++
++trade_max_expected_slippage_bps_eff = _get_or_create_prom_gauge(
++    "trade_max_expected_slippage_bps_eff",
++    "Effective max expected slippage cap after regime tightening (bps)",
++    ["sym", "bucket"],
++)
++
++
++
++# ---------------------------------------------------------------------------
++# A8 — Observability for additional microstructure features (v1)
++# Low-cardinality gauges (sym × exec_regime_bucket, plus small flag enum)
++#
++# These gauges mirror the new derived features injected into `indicators`:
++#   - depth_total_10, gini_depth_10
++#   - vwap_roll_diff_bps, price_momentum_bps, realized_vol_bps
++#   - liquidity_pressure, info_flow, pressure_per_min
++#   - boolean flags flag_* (0/1)
++#
++# Motivation:
++#   - Make the wiring visible in Grafana immediately (no waiting for offline rollups)
++#   - Enable quick smoke-checks to detect “feature stuck” and NaN explosions
++# ---------------------------------------------------------------------------
++
++trade_depth_total_10 = _get_or_create_prom_gauge(
++    "trade_depth_total_10",
++    "Total top-10 depth (bid+ask) in native qty units",
++    ["sym", "bucket"],
++)
++
++trade_gini_depth_10 = _get_or_create_prom_gauge(
++    "trade_gini_depth_10",
++    "Gini coefficient of top-10 depth distribution (0..1), higher = more concentrated liquidity",
++    ["sym", "bucket"],
++)
++
++trade_vwap_roll_diff_bps = _get_or_create_prom_gauge(
++    "trade_vwap_roll_diff_bps",
++    "Rolling VWAP vs mid divergence (bps)",
++    ["sym", "bucket"],
++)
++
++trade_price_momentum_bps = _get_or_create_prom_gauge(
++    "trade_price_momentum_bps",
++    "Rolling price momentum (bps) — last_px vs rolling median/close proxy",
++    ["sym", "bucket"],
++)
++
++trade_realized_vol_bps = _get_or_create_prom_gauge(
++    "trade_realized_vol_bps",
++    "Realized volatility estimate over rolling micro-bars (bps)",
++    ["sym", "bucket"],
++)
++
++trade_pressure_per_min = _get_or_create_prom_gauge(
++    "trade_pressure_per_min",
++    "System pressure proxy (cooldown hits per minute) from rolling trackers",
++    ["sym", "bucket"],
++)
++
++trade_liquidity_pressure = _get_or_create_prom_gauge(
++    "trade_liquidity_pressure",
++    "Liquidity pressure proxy (dimensionless) — signed flow vs available depth",
++    ["sym", "bucket"],
++)
++
++trade_info_flow = _get_or_create_prom_gauge(
++    "trade_info_flow",
++    "Information flow / toxicity proxy (dimensionless), higher = more toxic flow",
++    ["sym", "bucket"],
++)
++
++trade_flag_state = _get_or_create_prom_gauge(
++    "trade_flag_state",
++    "Binary microstructure flags (0/1); label 'flag' enumerates the flag name",
++    ["sym", "bucket", "flag"],
++)
++# ---------------------------------------------------------------------------
++# World-practice LOB pressure snapshots v1 (microprice + depth shape + DW OBI)
++# Low-cardinality: sym × exec_regime_bucket
++# ---------------------------------------------------------------------------
++
++trade_qi_mean = _get_or_create_prom_gauge(
++    "trade_qi_mean",
++    "Queue imbalance mean across L1..L5 (LOB pressure)",
++    ["sym", "bucket"],
++)
++
++trade_qi_max_abs = _get_or_create_prom_gauge(
++    "trade_qi_max_abs",
++    "Queue imbalance max |qi| across L1..L5 (LOB pressure)",
++    ["sym", "bucket"],
++)
++
++trade_qi_slope = _get_or_create_prom_gauge(
++    "trade_qi_slope",
++    "Queue imbalance slope across depth levels (positive = bid pressure builds deeper)",
++    ["sym", "bucket"],
++)
++
++trade_micro_mid_div_bps = _get_or_create_prom_gauge(
++    "trade_micro_mid_div_bps",
++    "Microprice divergence vs mid (bps); +ve = hidden bid pressure",
++    ["sym", "bucket"],
++)
++
++trade_micro_shift_bps = _get_or_create_prom_gauge(
++    "trade_micro_shift_bps",
++    "Microprice shift vs previous snapshot (bps)",
++    ["sym", "bucket"],
++)
++
++trade_depth_slope_bid = _get_or_create_prom_gauge(
++    "trade_depth_slope_bid",
++    "Cumulative depth slope (bid) across L1..L5 (units=qty)",
++    ["sym", "bucket"],
++)
++
++trade_depth_slope_ask = _get_or_create_prom_gauge(
++    "trade_depth_slope_ask",
++    "Cumulative depth slope (ask) across L1..L5 (units=qty)",
++    ["sym", "bucket"],
++)
++
++trade_depth_slope_imb = _get_or_create_prom_gauge(
++    "trade_depth_slope_imb",
++    "Depth slope imbalance (bid - ask) (units=qty)",
++    ["sym", "bucket"],
++)
++
++trade_depth_slope_imb_norm = _get_or_create_prom_gauge(
++    "trade_depth_slope_imb_norm",
++    "Depth slope imbalance normalized by |bid|+|ask| (dimensionless)",
++    ["sym", "bucket"],
++)
++
++trade_depth_convexity_bid = _get_or_create_prom_gauge(
++    "trade_depth_convexity_bid",
++    "Depth curve convexity (bid), normalized by total depth (dimensionless)",
++    ["sym", "bucket"],
++)
++
++trade_depth_convexity_ask = _get_or_create_prom_gauge(
++    "trade_depth_convexity_ask",
++    "Depth curve convexity (ask), normalized by total depth (dimensionless)",
++    ["sym", "bucket"],
++)
++
++trade_depth_convexity_imb = _get_or_create_prom_gauge(
++    "trade_depth_convexity_imb",
++    "Depth curve convexity imbalance (bid - ask) (dimensionless)",
++    ["sym", "bucket"],
++)
++
++trade_dw_obi = _get_or_create_prom_gauge(
++    "trade_dw_obi",
++    "Depth-weighted order-book imbalance (weights=1/level), [-1..+1]",
++    ["sym", "bucket"],
++)
++
++trade_dw_obi_z = _get_or_create_prom_gauge(
++    "trade_dw_obi_z",
++    "Depth-weighted OBI robust z-score (symbol-local)",
++    ["sym", "bucket"],
++)
++
++trade_dw_obi_stability_score = _get_or_create_prom_gauge(
++    "trade_dw_obi_stability_score",
++    "DW OBI stability score (0..1) — higher = more persistent pressure",
++    ["sym", "bucket"],
++)
++
++trade_dw_obi_stable_secs = _get_or_create_prom_gauge(
++    "trade_dw_obi_stable_secs",
++    "Seconds DW OBI stayed stable (monotone segments)",
++    ["sym", "bucket"],
++)
++
++trade_dw_obi_stable = _get_or_create_prom_gauge(
++    "trade_dw_obi_stable",
++    "DW OBI stable flag (0/1)",
++    ["sym", "bucket"],
++)
++
++
++
++# ----------------------------
++# World-practice: adverse selection (realized drift) v1
++# ----------------------------
++
++adverse_rd_eval_total = Counter(
++    "adverse_rd_eval_total",
++    "Number of realized-drift horizon evaluations processed (world-practice adverse selection tracker).",
++    ["sym", "bucket"],
++)
++
++trade_adverse_rd_mean_bps = Gauge(
++    "trade_adverse_rd_mean_bps",
++    "EWMA mean realized drift in bps (positive=favorable, negative=adverse) over horizon.",
++    ["sym", "bucket"],
++)
++trade_adverse_rd_sigma_bps = Gauge(
++    "trade_adverse_rd_sigma_bps",
++    "EWMA sigma of realized drift in bps over horizon.",
++    ["sym", "bucket"],
++)
++trade_adverse_rd_z = Gauge(
++    "trade_adverse_rd_z",
++    "Realized drift z-score (mean/sigma) over horizon.",
++    ["sym", "bucket"],
++)
++trade_adverse_rd_bad_share = Gauge(
++    "trade_adverse_rd_bad_share",
++    "EWMA share of adverse outcomes (realized drift < 0) over horizon.",
++    ["sym", "bucket"],
++)
++trade_adverse_rd_n = Gauge(
++    "trade_adverse_rd_n",
++    "Number of realized drift samples processed (not EWMA).",
++    ["sym", "bucket"],
++)
++trade_adverse_rd_veto = Gauge(
++    "trade_adverse_rd_veto",
++    "Adverse selection veto bit computed from realized drift stats (0/1).",
++    ["sym", "bucket"],
++)
+diff --git a/tick_flow_full/core/feature_engineering.py b/tick_flow_full/core/feature_engineering.py
+index 04631c9..3dee14b 100644
+--- a/tick_flow_full/core/feature_engineering.py
++++ b/tick_flow_full/core/feature_engineering.py
+@@ -92,12 +92,21 @@ def apply_transform(x: float, spec: Any) -> float:
+     return x
+ 
+ 
+-def apply_robust_scale(x: float, *, center: float, scale: float, eps: float = 1e-9) -> float:
+-    """Robust scaling: (x-center)/scale, where scale is typically MAD*1.4826 or IQR/1.349."""
++def apply_robust_scale(x: Any, *, center: float, scale: float, eps: float = 1e-9):
++    """Robust scaling helper.
++
++    Supports both scalar floats and numpy vectors (for batch transforms).
++    """
+     sc = float(scale)
+     if not math.isfinite(sc) or abs(sc) < eps:
+         sc = 1.0
+-    return (float(x) - float(center)) / sc
++    c = float(center)
++    if np is not None and hasattr(x, "__array__"):
++        return (np.asarray(x, dtype=float) - c) / sc
++    try:
++        return (float(x) - c) / sc
++    except Exception:
++        return 0.0
+ 
+ 
+ @dataclass
+diff --git a/tick_flow_full/core/liqmap_features_v1.py b/tick_flow_full/core/liqmap_features_v1.py
+new file mode 100644
+index 0000000..b83da1a
+--- /dev/null
++++ b/tick_flow_full/core/liqmap_features_v1.py
+@@ -0,0 +1,345 @@
++"""Liquidation Map (liqmap) -> compact feature layer.
++
++This module converts a liqmap snapshot (stored in Redis under keys:
++  liqmap:snapshot:<SYMBOL>:<WINDOW>
++as JSON) into a small, flat set of scalar features suitable for:
++  - online indicators dict (runtime)
++  - meta-features schema (train==serve parity)
++
++Design goals:
++  - deterministic: same snapshot + same price -> same feature dict
++  - fail-open: parsing errors should not break pipeline; caller decides metrics/quarantine
++  - compact: avoid high cardinality / avoid per-level vectors
++
++Train==serve contract (important):
++  - output keys MUST be stable and depend on the *requested* window (routing key)
++    rather than trusting snapshot payload fields.
++
++Snapshot schema (produced by services/liquidation_map_service.py):
++  {
++    "ts_ms": <int>,
++    "symbol": "BTCUSDT",
++    "window": "5m",
++    "levels": [
++      {"price": "12345.6", "long_usd": "1000", "short_usd": "800", "total_usd": "1800"},
++      ...
++    ]
++  }
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Any, Dict, Iterable, List, Optional, Tuple
++
++import json
++import math
++
++
++EPS = 1e-12
++
++
++@dataclass(frozen=True)
++class LiqMapLevel:
++    price: float
++    long_usd: float
++    short_usd: float
++    total_usd: float
++
++
++@dataclass(frozen=True)
++class LiqMapSnapshot:
++    ts_ms: int
++    symbol: str
++    window: str
++    levels: Tuple[LiqMapLevel, ...]
++
++
++def _f(x: Any, default: float = 0.0) -> float:
++    try:
++        v = float(x)
++        if math.isnan(v) or math.isinf(v):
++            return float(default)
++        return v
++    except Exception:
++        return float(default)
++
++
++def _i(x: Any, default: int = 0) -> int:
++    try:
++        return int(x)
++    except Exception:
++        try:
++            return int(float(x))
++        except Exception:
++            return int(default)
++
++
++def _parse_levels(levels_raw: Any) -> Tuple[LiqMapLevel, ...]:
++    if not isinstance(levels_raw, list):
++        return tuple()
++
++    levels: List[LiqMapLevel] = []
++    for it in levels_raw:
++        if not isinstance(it, dict):
++            continue
++        price = _f(it.get("price") or it.get("p"), 0.0)
++        if price <= 0:
++            continue
++
++        long_usd = _f(it.get("long_usd") or it.get("long") or it.get("l"), 0.0)
++        short_usd = _f(it.get("short_usd") or it.get("short") or it.get("s"), 0.0)
++        total_usd = _f(it.get("total_usd") or it.get("total") or it.get("t"), long_usd + short_usd)
++
++        # sanitize negatives
++        if long_usd < 0:
++            long_usd = 0.0
++        if short_usd < 0:
++            short_usd = 0.0
++        if total_usd < 0:
++            total_usd = 0.0
++
++        # prefer consistent total
++        if total_usd <= 0 and (long_usd > 0 or short_usd > 0):
++            total_usd = long_usd + short_usd
++
++        levels.append(LiqMapLevel(price=price, long_usd=long_usd, short_usd=short_usd, total_usd=total_usd))
++
++    # sort by price asc for deterministic search
++    levels.sort(key=lambda x: x.price)
++    return tuple(levels)
++
++
++def parse_liqmap_snapshot(raw_json: str) -> LiqMapSnapshot:
++    """Strict parser.
++
++    Raises:
++        ValueError: on invalid JSON or invalid required fields.
++
++    For runtime usage prefer parse_liqmap_snapshot_v1(... expected_symbol/window ...) which
++    tolerates missing/inconsistent payload fields.
++    """
++    try:
++        obj = json.loads(raw_json)
++    except Exception as e:
++        raise ValueError(f"liqmap: invalid json: {e}")
++
++    if not isinstance(obj, dict):
++        raise ValueError("liqmap: snapshot root is not dict")
++
++    ts_ms = _i(obj.get("ts_ms"), -1)
++    symbol = str(obj.get("symbol", "") or "").strip().upper()
++    window = str(obj.get("window", "") or "").strip()
++    if ts_ms <= 0:
++        raise ValueError("liqmap: missing/invalid ts_ms")
++    if not symbol:
++        raise ValueError("liqmap: missing symbol")
++    if not window:
++        raise ValueError("liqmap: missing window")
++
++    levels = _parse_levels(obj.get("levels", []))
++    return LiqMapSnapshot(ts_ms=ts_ms, symbol=symbol, window=window, levels=levels)
++
++
++def parse_liqmap_snapshot_v1(
++    raw_json: str,
++    *,
++    expected_symbol: str = "",
++    expected_window: str = "",
++) -> LiqMapSnapshot:
++    """Runtime-friendly parser.
++
++    - Tolerates missing or inconsistent symbol/window inside snapshot payload.
++    - Forces the output to expected values (stable key contract).
++
++    Raises:
++        ValueError: on invalid JSON or if ts_ms is missing/invalid.
++    """
++    try:
++        obj = json.loads(raw_json)
++    except Exception as e:
++        raise ValueError(f"liqmap: invalid json: {e}")
++
++    if not isinstance(obj, dict):
++        raise ValueError("liqmap: snapshot root is not dict")
++
++    ts_ms = _i(obj.get("ts_ms"), -1)
++    if ts_ms <= 0:
++        raise ValueError("liqmap: missing/invalid ts_ms")
++
++    sym = str(obj.get("symbol", "") or "").strip().upper()
++    wnd = str(obj.get("window", "") or "").strip()
++
++    exp_sym = str(expected_symbol or "").strip().upper()
++    exp_wnd = str(expected_window or "").strip()
++
++    if not sym and exp_sym:
++        sym = exp_sym
++    if not wnd and exp_wnd:
++        wnd = exp_wnd
++
++    # Force stable routing identity
++    if exp_sym and sym != exp_sym:
++        sym = exp_sym
++    if exp_wnd and wnd != exp_wnd:
++        wnd = exp_wnd
++
++    if not sym or not wnd:
++        raise ValueError("liqmap: missing symbol/window")
++
++    levels = _parse_levels(obj.get("levels", []))
++    return LiqMapSnapshot(ts_ms=ts_ms, symbol=sym, window=wnd, levels=levels)
++
++
++def liqmap_feature_keys(window: str) -> List[str]:
++    w = str(window)
++    p = f"liqmap_{w}_"
++    return [
++        f"{p}age_ms",
++        f"{p}levels_n",
++        f"{p}total_usd",
++        f"{p}near_total_usd",
++        f"{p}near_long_usd",
++        f"{p}near_short_usd",
++        f"{p}near_imb",
++        f"{p}dist_up_bps",
++        f"{p}dist_dn_bps",
++        f"{p}peak_up1_usd",
++        f"{p}peak_dn1_usd",
++        f"{p}peak_up1_share",
++        f"{p}peak_dn1_share",
++        f"{p}peaks_up",
++        f"{p}peaks_dn",
++    ]
++
++
++def make_liqmap_default_features(windows: Iterable[str]) -> Dict[str, float]:
++    out: Dict[str, float] = {}
++    for w in windows:
++        for k in liqmap_feature_keys(w):
++            out.setdefault(k, 0.0)
++    return out
++
++
++def _compute_liqmap_features_one(
++    snapshot: LiqMapSnapshot,
++    *,
++    now_ms: int,
++    price: float,
++    near_band_bps: float = 20.0,
++    peak_min_share: float = 0.05,
++    require_peak_usd_min: float = 0.0,
++) -> Dict[str, float]:
++    """Compute compact features for one window."""
++
++    w = snapshot.window
++    pref = f"liqmap_{w}_"
++
++    out: Dict[str, float] = {k: 0.0 for k in liqmap_feature_keys(w)}
++
++    age_ms = max(0, int(now_ms) - int(snapshot.ts_ms))
++    out[f"{pref}age_ms"] = float(age_ms)
++    out[f"{pref}levels_n"] = float(len(snapshot.levels))
++
++    if price <= 0.0:
++        return out
++
++    # total
++    total_usd = 0.0
++    for lvl in snapshot.levels:
++        total_usd += float(lvl.total_usd)
++    out[f"{pref}total_usd"] = float(total_usd)
++
++    # --- Near band sums ---
++    band = abs(float(price)) * float(near_band_bps) / 10000.0
++    near_long = 0.0
++    near_short = 0.0
++    for lvl in snapshot.levels:
++        if abs(float(lvl.price) - float(price)) <= band:
++            near_long += float(lvl.long_usd)
++            near_short += float(lvl.short_usd)
++
++    near_total = near_long + near_short
++    out[f"{pref}near_total_usd"] = float(near_total)
++    out[f"{pref}near_long_usd"] = float(near_long)
++    out[f"{pref}near_short_usd"] = float(near_short)
++    out[f"{pref}near_imb"] = float((near_long - near_short) / max(near_total, EPS))
++
++    # --- Peak selection (closest peaks up/down that pass threshold) ---
++    share_thr = float(peak_min_share) * float(total_usd)
++    peak_thr = max(float(require_peak_usd_min), float(share_thr))
++
++    up_best: Optional[LiqMapLevel] = None
++    dn_best: Optional[LiqMapLevel] = None
++    peaks_up = 0
++    peaks_dn = 0
++
++    for lvl in snapshot.levels:
++        if float(lvl.total_usd) < peak_thr:
++            continue
++        if float(lvl.price) > float(price):
++            peaks_up += 1
++            if up_best is None or float(lvl.price) < float(up_best.price):
++                up_best = lvl
++        elif float(lvl.price) < float(price):
++            peaks_dn += 1
++            if dn_best is None or float(lvl.price) > float(dn_best.price):
++                dn_best = lvl
++
++    out[f"{pref}peaks_up"] = float(peaks_up)
++    out[f"{pref}peaks_dn"] = float(peaks_dn)
++
++    if up_best is not None:
++        dist_up_bps = (float(up_best.price) - float(price)) / float(price) * 10000.0
++        out[f"{pref}dist_up_bps"] = float(max(0.0, dist_up_bps))
++        out[f"{pref}peak_up1_usd"] = float(up_best.total_usd)
++        out[f"{pref}peak_up1_share"] = float(float(up_best.total_usd) / max(total_usd, EPS))
++
++    if dn_best is not None:
++        dist_dn_bps = (float(price) - float(dn_best.price)) / float(price) * 10000.0
++        out[f"{pref}dist_dn_bps"] = float(max(0.0, dist_dn_bps))
++        out[f"{pref}peak_dn1_usd"] = float(dn_best.total_usd)
++        out[f"{pref}peak_dn1_share"] = float(float(dn_best.total_usd) / max(total_usd, EPS))
++
++    return out
++
++
++def compute_liqmap_features(
++    snapshot: LiqMapSnapshot,
++    *,
++    price: float,
++    windows: Iterable[str],
++    near_band_bps: float = 20.0,
++    peak_min_share: float = 0.05,
++    now_ms: int,
++    require_peak_usd_min: float = 0.0,
++) -> Dict[str, float]:
++    """Compute liqmap features with a stable multi-window contract.
++
++    Runtime usually calls this once per window, but we return defaults for *all*
++    requested windows to keep the indicators dict stable.
++
++    Contract:
++      - output keys are forced to the requested window(s), not snapshot.window
++    """
++    wlist = [str(w).strip() for w in (windows or []) if str(w).strip()]
++    if not wlist:
++        wlist = [str(getattr(snapshot, "window", "") or "").strip()]
++    out = make_liqmap_default_features(wlist)
++
++    # Use first requested window for actual computation.
++    w_req = wlist[0]
++    if str(getattr(snapshot, "window", "") or "").strip() != w_req:
++        snapshot = LiqMapSnapshot(ts_ms=int(snapshot.ts_ms), symbol=str(snapshot.symbol), window=str(w_req), levels=tuple(snapshot.levels))
++
++    out.update(
++        _compute_liqmap_features_one(
++            snapshot,
++            now_ms=int(now_ms),
++            price=float(price),
++            near_band_bps=float(near_band_bps),
++            peak_min_share=float(peak_min_share),
++            require_peak_usd_min=float(require_peak_usd_min),
++        )
++    )
++    return out
+diff --git a/tick_flow_full/core/liqmap_gate_v1.py b/tick_flow_full/core/liqmap_gate_v1.py
+new file mode 100644
+index 0000000..968da9a
+--- /dev/null
++++ b/tick_flow_full/core/liqmap_gate_v1.py
+@@ -0,0 +1,155 @@
++"""LiqMap hard-risk gate.
++
++Philosophy:
++  - never widen SL to "fit" structure
++  - if liquidation clusters imply stop would sit inside a dense adverse zone -> veto
++  - gate supports SHADOW (observe only) and ENFORCE (hard veto)
++
++The gate consumes already-computed liqmap_* features (see liqmap_features_v1).
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Any, Dict
++
++
++def _f(x: Any, default: float = 0.0) -> float:
++    try:
++        v = float(x)
++        if v != v or v == float("inf") or v == float("-inf"):
++            return float(default)
++        return v
++    except Exception:
++        return float(default)
++
++
++def _i(x: Any, default: int = 0) -> int:
++    try:
++        return int(x)
++    except Exception:
++        try:
++            return int(float(x))
++        except Exception:
++            return int(default)
++
++
++@dataclass(frozen=True)
++class LiqMapGateDecision:
++    mode: str
++    window: str
++    shadow_veto: int
++    veto: int
++    reason: str
++    risk_bps: float
++    reward_bps: float
++    rr: float
++    adverse_peak_usd: float
++    favorable_peak_usd: float
++
++
++def evaluate_liqmap_gate_v1(
++    *,
++    direction: str,
++    indicators: Dict[str, Any],
++    cfg2: Dict[str, Any],
++) -> LiqMapGateDecision:
++    """Evaluate liqmap hard-risk gate.
++
++    Required inputs:
++      - indicators should include atr_bps_exec or atr_bps (bps units)
++      - indicators must include liqmap_<window>_dist_up_bps / dist_dn_bps / peak_up1_usd / peak_dn1_usd
++
++    Config keys (cfg2):
++      - liqmap_gate_enable (0/1)
++      - liqmap_gate_mode: OFF/SHADOW/ENFORCE
++      - liqmap_gate_window: e.g. '5m'
++      - liqmap_gate_sl_atr_mult: use stop_atr_mult if absent
++      - liqmap_gate_sl_band_mult: multiply SL band for "adverse inside stop" check
++      - liqmap_gate_min_peak_usd: ignore peaks smaller than this
++      - liqmap_gate_min_rr: veto if rr < this (optional)
++      - liqmap_gate_require_reward: if 1, missing favorable peak => veto
++    """
++    mode = str(cfg2.get("liqmap_gate_mode", "OFF") or "OFF").upper()
++    enable = bool(_i(cfg2.get("liqmap_gate_enable", 0), 0))
++    window = str(cfg2.get("liqmap_gate_window", "5m") or "5m")
++
++    if not enable or mode == "OFF":
++        return LiqMapGateDecision(
++            mode="OFF",
++            window=window,
++            shadow_veto=0,
++            veto=0,
++            reason="off",
++            risk_bps=0.0,
++            reward_bps=0.0,
++            rr=0.0,
++            adverse_peak_usd=0.0,
++            favorable_peak_usd=0.0,
++        )
++
++    d = str(direction or "").upper()
++    if d not in ("LONG", "SHORT"):
++        d = "LONG"
++
++    atr_bps = _f(indicators.get("atr_bps_exec", indicators.get("atr_bps", 0.0)), 0.0)
++    stop_atr_mult = _f(cfg2.get("liqmap_gate_sl_atr_mult", cfg2.get("stop_atr_mult", 0.6)), 0.6)
++    sl_band_mult = _f(cfg2.get("liqmap_gate_sl_band_mult", 1.0), 1.0)
++    sl_band_bps = max(0.0, atr_bps * stop_atr_mult * sl_band_mult)
++
++    dist_up = _f(indicators.get(f"liqmap_{window}_dist_up_bps", 0.0), 0.0)
++    dist_dn = _f(indicators.get(f"liqmap_{window}_dist_dn_bps", 0.0), 0.0)
++    peak_up_usd = _f(indicators.get(f"liqmap_{window}_peak_up1_usd", 0.0), 0.0)
++    peak_dn_usd = _f(indicators.get(f"liqmap_{window}_peak_dn1_usd", 0.0), 0.0)
++
++    if d == "LONG":
++        risk_bps = float(dist_dn)
++        reward_bps = float(dist_up)
++        adverse_usd = float(peak_dn_usd)
++        favorable_usd = float(peak_up_usd)
++    else:
++        risk_bps = float(dist_up)
++        reward_bps = float(dist_dn)
++        adverse_usd = float(peak_up_usd)
++        favorable_usd = float(peak_dn_usd)
++
++    min_peak_usd = _f(cfg2.get("liqmap_gate_min_peak_usd", 0.0), 0.0)
++    min_rr = _f(cfg2.get("liqmap_gate_min_rr", 0.0), 0.0)
++    require_reward = bool(_i(cfg2.get("liqmap_gate_require_reward", 0), 0))
++
++    rr = 0.0
++    if risk_bps > 0.0:
++        rr = float(reward_bps / max(risk_bps, 1e-9))
++    elif reward_bps > 0.0:
++        rr = 999.0
++
++    reason = "ok"
++    would_veto = False
++
++    if sl_band_bps > 0.0 and risk_bps > 0.0 and risk_bps <= sl_band_bps and adverse_usd >= min_peak_usd:
++        would_veto = True
++        reason = "adverse_peak_in_sl"
++
++    if (not would_veto) and min_rr > 0.0:
++        if require_reward and reward_bps <= 0.0:
++            would_veto = True
++            reason = "missing_reward_peak"
++        elif risk_bps > 0.0 and rr < min_rr:
++            would_veto = True
++            reason = "rr_low"
++
++    shadow_veto = 1 if would_veto else 0
++    veto = 1 if (would_veto and mode == "ENFORCE") else 0
++
++    return LiqMapGateDecision(
++        mode=mode,
++        window=window,
++        shadow_veto=int(shadow_veto),
++        veto=int(veto),
++        reason=str(reason),
++        risk_bps=float(risk_bps),
++        reward_bps=float(reward_bps),
++        rr=float(rr),
++        adverse_peak_usd=float(adverse_usd),
++        favorable_peak_usd=float(favorable_usd),
++    )
+diff --git a/tick_flow_full/core/meta_features_v9.py b/tick_flow_full/core/meta_features_v9.py
+new file mode 100644
+index 0000000..fd6fc93
+--- /dev/null
++++ b/tick_flow_full/core/meta_features_v9.py
+@@ -0,0 +1,181 @@
++"""Meta-features schema v9.
++
++v9 = v8 + liquidation-map (liqmap) compact scalars + liqmap gate scalars.
++
++Intent:
++  - keep v8 stable as champion
++  - v9 is additive challenger for training/inference
++
++Notes:
++  - liqmap features are injected into indicators by TickProcessor before OFConfirmEngine.build()
++  - liqmap gate scalars are computed inside OFConfirmEngine and exported
++"""
++
++from __future__ import annotations
++
++from typing import Any, Dict, List, Tuple
++
++import hashlib
++
++from core.meta_features_v8 import (
++    META_FEAT_V8_COLS,
++    META_FEAT_V8_TRANSFORMS,
++    _try_get_float,
++    build_meta_features_v8,
++)
++
++
++LIQMAP_WINDOWS_V9 = ("5m", "1h")
++
++META_FEAT_V9_NAME = "meta_feat_v9"
++META_FEAT_V9_VERSION = 9
++
++
++def _liq_cols(window: str) -> List[str]:
++    w = str(window)
++    p = f"liqmap_{w}_"
++    return [
++        f"{p}age_ms",
++        f"{p}levels_n",
++        f"{p}total_usd",
++        f"{p}near_total_usd",
++        f"{p}near_long_usd",
++        f"{p}near_short_usd",
++        f"{p}near_imb",
++        f"{p}dist_up_bps",
++        f"{p}dist_dn_bps",
++        f"{p}peak_up1_usd",
++        f"{p}peak_dn1_usd",
++        f"{p}peak_up1_share",
++        f"{p}peak_dn1_share",
++        f"{p}peaks_up",
++        f"{p}peaks_dn",
++    ]
++
++
++META_FEAT_V9_NEW_COLS: List[str] = []
++for _w in LIQMAP_WINDOWS_V9:
++    META_FEAT_V9_NEW_COLS.extend(_liq_cols(_w))
++
++META_FEAT_V9_NEW_COLS.extend(
++    [
++        "liqmap_gate_shadow_veto",
++        "liqmap_gate_veto",
++        "liqmap_gate_rr",
++        "liqmap_gate_risk_bps",
++        "liqmap_gate_reward_bps",
++        "liqmap_gate_adverse_peak_usd",
++        "liqmap_gate_favorable_peak_usd",
++    ]
++)
++
++META_FEAT_V9_COLS: List[str] = list(META_FEAT_V8_COLS) + list(META_FEAT_V9_NEW_COLS)
++META_FEAT_V9_HASH: str = hashlib.sha1(",".join(META_FEAT_V9_COLS).encode("utf-8")).hexdigest()
++
++
++META_FEAT_V9_TRANSFORMS: Dict[str, str] = dict(META_FEAT_V8_TRANSFORMS)
++META_FEAT_V9_DESCRIPTIONS: Dict[str, str] = {}
++
++for _w in LIQMAP_WINDOWS_V9:
++    p = f"liqmap_{_w}_"
++    META_FEAT_V9_TRANSFORMS.update(
++        {
++            f"{p}age_ms": "log1p",
++            f"{p}levels_n": "log1p",
++            f"{p}total_usd": "log1p",
++            f"{p}near_total_usd": "log1p",
++            f"{p}near_long_usd": "log1p",
++            f"{p}near_short_usd": "log1p",
++            f"{p}near_imb": "clip(-1,1)",
++            f"{p}dist_up_bps": "log1p",
++            f"{p}dist_dn_bps": "log1p",
++            f"{p}peak_up1_usd": "log1p",
++            f"{p}peak_dn1_usd": "log1p",
++            f"{p}peak_up1_share": "clip(0,1)",
++            f"{p}peak_dn1_share": "clip(0,1)",
++            f"{p}peaks_up": "log1p",
++            f"{p}peaks_dn": "log1p",
++        }
++    )
++    META_FEAT_V9_DESCRIPTIONS.update(
++        {
++            f"{p}age_ms": f"LiqMap snapshot age (ms) for window={_w}",
++            f"{p}levels_n": f"Number of liqmap levels for window={_w}",
++            f"{p}total_usd": f"Total liquidation USD mass in snapshot for window={_w}",
++            f"{p}near_total_usd": f"Near-band liquidation USD around price for window={_w}",
++            f"{p}near_long_usd": f"Near-band long liquidation USD for window={_w}",
++            f"{p}near_short_usd": f"Near-band short liquidation USD for window={_w}",
++            f"{p}near_imb": f"Near-band imbalance (long-short)/total for window={_w}",
++            f"{p}dist_up_bps": f"Distance to nearest peak above price (bps) for window={_w}",
++            f"{p}dist_dn_bps": f"Distance to nearest peak below price (bps) for window={_w}",
++            f"{p}peak_up1_usd": f"USD size of nearest above-price peak for window={_w}",
++            f"{p}peak_dn1_usd": f"USD size of nearest below-price peak for window={_w}",
++            f"{p}peak_up1_share": f"Share of total mass for nearest above peak for window={_w}",
++            f"{p}peak_dn1_share": f"Share of total mass for nearest below peak for window={_w}",
++            f"{p}peaks_up": f"Count of peaks above price for window={_w}",
++            f"{p}peaks_dn": f"Count of peaks below price for window={_w}",
++        }
++    )
++
++META_FEAT_V9_TRANSFORMS.update(
++    {
++        "liqmap_gate_shadow_veto": "identity",
++        "liqmap_gate_veto": "identity",
++        "liqmap_gate_rr": "log1p",
++        "liqmap_gate_risk_bps": "log1p",
++        "liqmap_gate_reward_bps": "log1p",
++        "liqmap_gate_adverse_peak_usd": "log1p",
++        "liqmap_gate_favorable_peak_usd": "log1p",
++    }
++)
++META_FEAT_V9_DESCRIPTIONS.update(
++    {
++        "liqmap_gate_shadow_veto": "LiqMap gate would veto (shadow mode)",
++        "liqmap_gate_veto": "LiqMap gate hard veto (enforce mode)",
++        "liqmap_gate_rr": "Reward/Risk ratio computed from nearest peaks (gate window)",
++        "liqmap_gate_risk_bps": "Risk distance to nearest adverse peak (bps)",
++        "liqmap_gate_reward_bps": "Reward distance to nearest favorable peak (bps)",
++        "liqmap_gate_adverse_peak_usd": "USD size of nearest adverse peak used for gate",
++        "liqmap_gate_favorable_peak_usd": "USD size of nearest favorable peak used for gate",
++    }
++)
++
++
++def build_meta_features_v9(
++    evidence: Dict[str, Any],
++    indicators: Dict[str, Any],
++    **kwargs,
++) -> Tuple[Dict[str, float], List[str]]:
++    """Build meta_feat_v9 (v8 base + liqmap scalars + liqmap gate scalars)."""
++
++    feat, missing = build_meta_features_v8(evidence=evidence, indicators=indicators, **kwargs)
++
++    nested_ind = evidence.get("indicators") if isinstance(evidence, dict) else None
++    if not isinstance(nested_ind, dict):
++        nested_ind = {}
++
++    for k in META_FEAT_V9_NEW_COLS:
++        v = None
++        if isinstance(evidence, dict) and k in evidence:
++            v = _try_get_float(evidence.get(k))
++        elif isinstance(indicators, dict) and k in indicators:
++            v = _try_get_float(indicators.get(k))
++        elif k in nested_ind:
++            v = _try_get_float(nested_ind.get(k))
++
++        if v is None:
++            feat[k] = 0.0
++            if k not in missing:
++                missing.append(k)
++        else:
++            feat[k] = float(v)
++            while k in missing:
++                missing.remove(k)
++
++    for k in META_FEAT_V9_COLS:
++        if k not in feat:
++            feat[k] = 0.0
++            if k not in missing:
++                missing.append(k)
++
++    return feat, missing
+diff --git a/tick_flow_full/core/meta_schema_registry.py b/tick_flow_full/core/meta_schema_registry.py
+index c64ca9c..a943513 100644
+--- a/tick_flow_full/core/meta_schema_registry.py
++++ b/tick_flow_full/core/meta_schema_registry.py
+@@ -50,6 +50,12 @@ from core.meta_features_v8 import (
+     META_FEAT_V8_COLS,
+     META_FEAT_V8_HASH,
+ )
++from core.meta_features_v9 import (
++    META_FEAT_V9_NAME,
++    META_FEAT_V9_VERSION,
++    META_FEAT_V9_COLS,
++    META_FEAT_V9_HASH,
++)
+ 
+ # Registry: name -> (version, cols, hash)
+ META_SCHEMA_REGISTRY: Dict[str, Tuple[int, List[str], str]] = {
+@@ -61,6 +67,7 @@ META_SCHEMA_REGISTRY: Dict[str, Tuple[int, List[str], str]] = {
+     META_FEAT_V6_NAME: (META_FEAT_V6_VERSION, META_FEAT_V6_COLS, META_FEAT_V6_HASH),
+     META_FEAT_V7_NAME: (META_FEAT_V7_VERSION, META_FEAT_V7_COLS, META_FEAT_V7_HASH),
+     META_FEAT_V8_NAME: (META_FEAT_V8_VERSION, META_FEAT_V8_COLS, META_FEAT_V8_HASH),
++    META_FEAT_V9_NAME: (META_FEAT_V9_VERSION, META_FEAT_V9_COLS, META_FEAT_V9_HASH),
+ }
+ 
+ def get_schema_info(name: str) -> Tuple[int, List[str], str]:
+diff --git a/tick_flow_full/core/of_confirm_engine.py b/tick_flow_full/core/of_confirm_engine.py
+index 7ba3e39..0f757f3 100644
+--- a/tick_flow_full/core/of_confirm_engine.py
++++ b/tick_flow_full/core/of_confirm_engine.py
+@@ -94,6 +94,15 @@ from core.meta_features_v8 import (
+     build_meta_features_v8,
+ )
+ 
++from core.meta_features_v9 import (
++    META_FEAT_V9_NAME,
++    META_FEAT_V9_VERSION,
++    META_FEAT_V9_HASH,
++    META_FEAT_V9_COLS,
++    META_FEAT_V9_TRANSFORMS,
++    build_meta_features_v9,
++)
++
+ # Optional gates (may live in the full repo). Keep engine importable even in
+ # partial archives; engine remains functional with graceful degradation.
+ try:
+@@ -110,6 +119,12 @@ try:
+ except Exception:
+     eval_dq_gate = None
+ 
++
++try:
++    from core.liqmap_gate_v1 import evaluate_liqmap_gate_v1
++except Exception:
++    evaluate_liqmap_gate_v1 = None
++
+ # ---- Meta feature schema registry (code-side) ----
+ # Used by OFConfirmEngine to keep Train==Serve consistency and to guard ENFORCE mode
+ # against schema mismatch. Hash is enforced only if it exists on both model and code.
+@@ -122,9 +137,10 @@ META_SCHEMA_REGISTRY: Dict[str, Tuple[int, str]] = {
+     META_FEAT_V6_NAME: (META_FEAT_V6_VERSION, META_FEAT_V6_HASH),
+     META_FEAT_V7_NAME: (META_FEAT_V7_VERSION, META_FEAT_V7_HASH),
+     META_FEAT_V8_NAME: (META_FEAT_V8_VERSION, META_FEAT_V8_HASH),
++    META_FEAT_V9_NAME: (META_FEAT_V9_VERSION, META_FEAT_V9_HASH),
+ }
+ 
+-META_SCHEMA_V2P = (META_FEAT_V2_NAME, META_FEAT_V3_NAME, META_FEAT_V4_NAME, META_FEAT_V5_NAME, META_FEAT_V6_NAME, META_FEAT_V7_NAME, META_FEAT_V8_NAME)
++META_SCHEMA_V2P = (META_FEAT_V2_NAME, META_FEAT_V3_NAME, META_FEAT_V4_NAME, META_FEAT_V5_NAME, META_FEAT_V6_NAME, META_FEAT_V7_NAME, META_FEAT_V8_NAME, META_FEAT_V9_NAME)
+ 
+ def _get_attr_or_key(obj: Any, name: str, default: Any = None) -> Any:
+     if obj is None:
+@@ -229,6 +245,7 @@ class OFConfirmEngine:
+     GATE_BIT_CANCEL_SPIKE = 1 << 28
+     GATE_BIT_META_VETO = 1 << 27
+     GATE_BIT_TAKER_FLOW = 1 << 26
++    GATE_BIT_LIQMAP = 1 << 25
+ 
+     # --- Golden replay: runtime snapshot (minimal set of fields engine reads) ---
+     RUNTIME_SNAPSHOT_VERSION: int = 1
+@@ -1272,7 +1289,59 @@ class OFConfirmEngine:
+         dq_bucket = str(dq_meta.get("dq_reason_bucket", "ok"))
+         dq_level = int(dq_meta.get("dq_level", 0) or 0)
+         dq_reasons = list(dq_meta.get("dq_reasons", []) or [])
+-        
++
++        # --- P15: LiqMap Gate (Liquidation Map) ---
++        # Hard-risk philosophy:
++        #   - SHADOW: never veto, but record shadow_veto=1 for calibration
++        #   - ENFORCE: hard veto if adverse liquidation peak lies inside the SL band
++        # IMPORTANT: this gate must NEVER widen SL. If structure requires more risk -> reject trade.
++        liqmap_shadow_veto = 0
++        liqmap_veto = 0
++        liqmap_soft = 0
++        liqmap_reason = "na"
++        liqmap_rr = 0.0
++        liqmap_risk_bps = 0.0
++        liqmap_reward_bps = 0.0
++        liqmap_adverse_peak_usd = 0.0
++        liqmap_favorable_peak_usd = 0.0
++        liqmap_window_used = str(cfg2.get("liqmap_gate_window", "5m") or "5m")
++        liqmap_mode = "OFF"
++        try:
++            if evaluate_liqmap_gate_v1 is not None and int(cfg2.get("liqmap_gate_enable", 0) or 0) == 1:
++                lm = evaluate_liqmap_gate_v1(direction=str(direction), indicators=indicators, cfg2=cfg2)
++                liqmap_shadow_veto = int(getattr(lm, "shadow_veto", 0) or 0)
++                liqmap_veto = int(getattr(lm, "veto", 0) or 0)
++                liqmap_soft = int(getattr(lm, "soft", 0) or 0)
++                liqmap_reason = str(getattr(lm, "reason", "ok") or "ok")
++                liqmap_rr = float(getattr(lm, "rr", 0.0) or 0.0)
++                liqmap_risk_bps = float(getattr(lm, "risk_bps", 0.0) or 0.0)
++                liqmap_reward_bps = float(getattr(lm, "reward_bps", 0.0) or 0.0)
++                liqmap_adverse_peak_usd = float(getattr(lm, "adverse_peak_usd", 0.0) or 0.0)
++                liqmap_favorable_peak_usd = float(getattr(lm, "favorable_peak_usd", 0.0) or 0.0)
++                liqmap_window_used = str(getattr(lm, "window", liqmap_window_used) or liqmap_window_used)
++                liqmap_mode = str(getattr(lm, "mode", liqmap_mode) or liqmap_mode)
++                if liqmap_shadow_veto == 1 or liqmap_veto == 1 or liqmap_soft == 1:
++                    setattr(dec, "gate_bits", int(getattr(dec, "gate_bits", 0)) | self.GATE_BIT_LIQMAP)
++        except Exception:
++            pass
++
++        # Export gate outputs into indicators (used by meta_feat_v9 + metrics + DecisionRecord)
++        try:
++            indicators["liqmap_gate_shadow_veto"] = int(liqmap_shadow_veto)
++            indicators["liqmap_gate_veto"] = int(liqmap_veto)
++            indicators["liqmap_gate_soft"] = int(liqmap_soft)
++            indicators["liqmap_gate_veto_reason"] = str(liqmap_reason)
++            indicators["liqmap_gate_reason"] = str(liqmap_reason)  # backwards-compat
++            indicators["liqmap_gate_rr"] = float(liqmap_rr)
++            indicators["liqmap_gate_risk_bps"] = float(liqmap_risk_bps)
++            indicators["liqmap_gate_reward_bps"] = float(liqmap_reward_bps)
++            indicators["liqmap_gate_adverse_peak_usd"] = float(liqmap_adverse_peak_usd)
++            indicators["liqmap_gate_favorable_peak_usd"] = float(liqmap_favorable_peak_usd)
++            indicators["liqmap_gate_window"] = str(liqmap_window_used)
++            indicators["liqmap_gate_mode"] = str(liqmap_mode)
++        except Exception:
++            pass
++
+         # 5. Apply to Score
+         # User spec: "final_score_raw = base - exec_pen - burst_pen + liq_boost - liq_pen"
+         
+@@ -1369,6 +1438,23 @@ class OFConfirmEngine:
+             except Exception:
+                 pass
+ 
++        # P15: LiqMap Gate Veto
++        # Mode semantics:
++        #   shadow: record shadow_veto only
++        #   enforce: hard veto
++        #   both: treat shadow_veto as enforce (for staged rollouts)
++        _lm_mode = str(cfg2.get("liqmap_gate_mode", "shadow") or "shadow").lower()
++        _lm_shadow = int(indicators.get("liqmap_gate_shadow_veto", 0) or 0)
++        _lm_veto = int(indicators.get("liqmap_gate_veto", 0) or 0)
++        if (_lm_veto == 1 and _lm_mode in ("enforce", "both", "veto", "hard")) or (_lm_shadow == 1 and _lm_mode in ("both",)):
++            try:
++                ok = 0
++                _r = str(indicators.get("liqmap_gate_veto_reason", indicators.get("liqmap_gate_reason", "veto")) or "veto")
++                hard_veto = f"liqmap_{_r}"
++                veto_total(self, reason_code=f"liqmap_{_r}")
++            except Exception:
++                pass
++
+         try:
+             if scenario_v4 == "vol_shock_news_proxy":
+                 if int(cfg.get("vol_shock_fail_closed", 0) or 0) == 1:
+@@ -2173,6 +2259,7 @@ class OFConfirmEngine:
+                         META_FEAT_V6_NAME: dict(name=META_FEAT_V6_NAME, version=META_FEAT_V6_VERSION, hash=META_FEAT_V6_HASH, builder=build_meta_features_v6),
+                         META_FEAT_V7_NAME: dict(name=META_FEAT_V7_NAME, version=META_FEAT_V7_VERSION, hash=META_FEAT_V7_HASH, builder=build_meta_features_v7),
+                         META_FEAT_V8_NAME: dict(name=META_FEAT_V8_NAME, version=META_FEAT_V8_VERSION, hash=META_FEAT_V8_HASH, builder=build_meta_features_v8),
++                        META_FEAT_V9_NAME: dict(name=META_FEAT_V9_NAME, version=META_FEAT_V9_VERSION, hash=META_FEAT_V9_HASH, builder=build_meta_features_v9),
+                     }
+ 
+                     schema_cfg = SCHEMAS.get(model_schema_name)
+diff --git a/tick_flow_full/services/README_LIQUIDATION_MAP.md b/tick_flow_full/services/README_LIQUIDATION_MAP.md
+index 7221eca..047de49 100644
+--- a/tick_flow_full/services/README_LIQUIDATION_MAP.md
++++ b/tick_flow_full/services/README_LIQUIDATION_MAP.md
+@@ -2,7 +2,7 @@
+ 
+ ## What it does
+ 
+-Consumes normalized liquidation events from Redis Streams (`stream:liq_evt`) and maintains rolling *price-bucket* aggregates for multiple time windows (default: `1h / 4h / 24h`).
++Consumes normalized liquidation events from Redis Streams (`stream:liq_evt`) and maintains rolling *price-bucket* aggregates for multiple time windows (default: `5m / 1h / 4h / 24h`).
+ 
+ Publishes snapshots to Redis keys for low-latency UI/API usage:
+ 
+@@ -50,7 +50,7 @@ Bad/poison messages are sent to DLQ:
+ 
+ ### Windows / publish
+ 
+-- `LIQMAP_WINDOWS=1h,4h,24h`
++- `LIQMAP_WINDOWS=5m,1h,4h,24h`
+ - `LIQMAP_PUBLISH_INTERVAL_MS=1000`
+ 
+ ### Buckets
+diff --git a/tick_flow_full/services/orderflow/components/tick_processor.py b/tick_flow_full/services/orderflow/components/tick_processor.py
+index e7d2d0c..c71be11 100644
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -69,6 +69,8 @@ from services.orderflow.metrics import (
+     tick_ts_future_total, tick_age_ms_hist, tick_reorder_back_ms_hist, tick_time_action_total,
+     tick_time_decision_total,
+     burst_active_gauge, burst_flush_total, signals_emitted_total, feature_missing_total, burst_window_ms_gauge, tick_gap_p50_ms_gauge, tick_gap_p95_ms_gauge,
++    liqmap_snapshot_age_ms_gauge, liqmap_snapshot_parse_errors_total,
++    liqmap_gate_shadow_hit_total, liqmap_gate_veto_total,
+     book_missing_seq_ema_gauge, tick_missing_seq_ema_gauge, tick_missing_seq_events_total,
+     tick_id_gap_events_total, tick_id_dup_events_total, tick_id_reorder_events_total,
+     ticks_out_of_order_total, ticks_side_unknown_total, bars_closed_total, divergence_detected_total,
+@@ -143,6 +145,12 @@ from core.exec_regime_bucket_v1 import compute_exec_regime_bucket
+ from core.fill_prob_proxy import compute_fill_prob_proxy
+ from core.bucket2_v1 import derive_bucket2_label
+ from core.calendar_flags import calendar_flags_utc
++from core.liqmap_features_v1 import (
++    compute_liqmap_features,
++    make_liqmap_default_features,
++    parse_liqmap_snapshot_v1,
++)
++
+ 
+ from services.orderflow.log_sampler import sampled_info, sampled_warning, sampled_debug, LogSamplerFactory
+ 
+@@ -267,6 +275,24 @@ class TickProcessor:
+         self._capture_queue: Optional[asyncio.Queue] = None
+         self._ofc_capture_enabled = os.getenv("OFC_CAPTURE", "0") == "1"
+ 
++        # LiqMap (liquidation map) feature injection (runtime)
++        # Default OFF to keep existing behavior; enable explicitly via env.
++        self.liqmap_features_enable = os.getenv("LIQMAP_FEATURES_ENABLE", "0").strip().lower() in ("1", "true", "yes", "on")
++        self.liqmap_features_windows = [
++            w.strip() for w in (os.getenv("LIQMAP_FEATURES_WINDOWS", "5m,1h") or "5m,1h").split(",") if w.strip()
++        ]
++        self.liqmap_features_fetch_interval_ms = int(os.getenv("LIQMAP_FEATURES_FETCH_INTERVAL_MS", "500") or 500)
++        self.liqmap_snapshot_key_prefix = os.getenv("LIQMAP_SNAPSHOT_KEY_PREFIX", "liqmap:snapshot") or "liqmap:snapshot"
++        self.liqmap_near_band_bps = float(os.getenv("LIQMAP_NEAR_BAND_BPS", "20") or 20.0)
++        self.liqmap_peak_min_share = float(os.getenv("LIQMAP_PEAK_MIN_SHARE", "0.05") or 0.05)
++        # Optional: force trailing to start only after TP1-magnet is reached (world-practice).
++        # Default OFF. When enabled and TP1 is anchored by LiqMap, we set payload["trail_after_tp1"]=1.
++        self.liqmap_trail_after_tp1_enable = os.getenv("LIQMAP_TRAIL_AFTER_TP1_ENABLE", "0").strip().lower() in ("1", "true", "yes", "on")
++
++        # Cache: (symbol, window) -> {"fetch_ms": int, "feats": dict}
++        self._liqmap_cache: Dict[tuple, Dict[str, Any]] = {}
++
++
+         # P69: Circuit Breaker State (Hysteresis)
+         self.cb_state = CircuitBreakerState(
+             redis=self.redis,
+@@ -439,6 +465,108 @@ class TickProcessor:
+             pass
+ 
+ 
++    async def _inject_liqmap_features(
++        self,
++        *,
++        runtime: "SymbolRuntime",
++        now_ms: int,
++        price: float,
++        indicators: Dict[str, Any],
++    ) -> None:
++        """Inject LiqMap-derived scalar features into `indicators` (best-effort).
++
++        Reads Redis snapshots (JSON) from keys:
++          {LIQMAP_SNAPSHOT_KEY_PREFIX}:{SYMBOL}:{WINDOW}
++
++        Writes flattened scalars with prefix `liqmap_<window>_...` into `indicators`.
++
++        Fail-open: never raises in the hot path.
++        """
++        if not getattr(self, "liqmap_features_enable", False):
++            return
++
++        sym = str(getattr(runtime, "symbol", "unknown") or "unknown")
++        windows = list(getattr(self, "liqmap_features_windows", []) or [])
++        if not windows:
++            return
++
++        interval_ms = int(getattr(self, "liqmap_features_fetch_interval_ms", 500) or 500)
++        prefix = str(getattr(self, "liqmap_snapshot_key_prefix", "liqmap:snapshot") or "liqmap:snapshot")
++        near_band_bps = float(getattr(self, "liqmap_near_band_bps", 20.0) or 20.0)
++        peak_min_share = float(getattr(self, "liqmap_peak_min_share", 0.05) or 0.05)
++
++        for w in windows:
++            try:
++                cache_key = (sym, str(w))
++                cached = self._liqmap_cache.get(cache_key)
++                if cached is not None:
++                    last_fetch = int(cached.get("fetch_ms", 0) or 0)
++                    if interval_ms > 0 and (now_ms - last_fetch) < interval_ms:
++                        feats = cached.get("feats") or {}
++                        if isinstance(feats, dict) and feats:
++                            indicators.update(feats)
++                        continue
++
++                redis_key = f"{prefix}:{sym}:{w}"
++                raw = await self.redis.get(redis_key)
++
++                if raw is None:
++                    feats = make_liqmap_default_features([str(w)])
++                    # For Prom: mark missing snapshot explicitly
++                    try:
++                        liqmap_snapshot_age_ms_gauge.labels(symbol=sym, window=str(w)).set(-1.0)
++                    except Exception:
++                        pass
++
++                    self._liqmap_cache[cache_key] = {"fetch_ms": int(now_ms), "feats": feats}
++                    indicators.update(feats)
++                    continue
++
++                if isinstance(raw, (bytes, bytearray)):
++                    raw_s = raw.decode("utf-8", errors="ignore")
++                else:
++                    raw_s = str(raw)
++
++                try:
++                    snap = parse_liqmap_snapshot_v1(raw_s, expected_symbol=str(sym), expected_window=str(w))
++                    feats = compute_liqmap_features(
++                        snap,
++                        price=float(price),
++                        windows=(str(w),),
++                        near_band_bps=float(near_band_bps),
++                        peak_min_share=float(peak_min_share),
++                        now_ms=int(now_ms),
++                    )
++                    self._liqmap_cache[cache_key] = {"fetch_ms": int(now_ms), "feats": feats}
++                    indicators.update(feats)
++
++                    try:
++                        age = float(feats.get(f"liqmap_{w}_age_ms", 0.0) or 0.0)
++                        liqmap_snapshot_age_ms_gauge.labels(symbol=sym, window=str(w)).set(age)
++                    except Exception:
++                        pass
++
++                except Exception:
++                    # Parse error / incompatible schema: fail-open with zero features.
++                    feats = make_liqmap_default_features([str(w)])
++                    self._liqmap_cache[cache_key] = {"fetch_ms": int(now_ms), "feats": feats}
++                    indicators.update(feats)
++
++                    try:
++                        liqmap_snapshot_parse_errors_total.labels(symbol=sym).inc()
++                    except Exception:
++                        pass
++                    try:
++                        liqmap_snapshot_age_ms_gauge.labels(symbol=sym, window=str(w)).set(-2.0)
++                    except Exception:
++                        pass
++
++            except Exception:
++                # Hard fail-open
++                pass
++
++
++
+     async def _emit_early_veto_decision_record(
+         self,
+         *,
+@@ -906,6 +1034,18 @@ class TickProcessor:
+         except Exception:
+             pass
+ 
++        # LiqMap feature injection (best-effort)
++        # Inserted after strict DQ trackers and before delta detector / of_engine.build().
++        try:
++            await self._inject_liqmap_features(
++                runtime=runtime,
++                now_ms=int(time.time() * 1000),
++                price=float(price),
++                indicators=indicators,
++            )
++        except Exception:
++            pass
++
+         # --- Delta Detection ---
+         delta_event = {}
+         try:
+@@ -2187,6 +2327,21 @@ class TickProcessor:
+              ev = ofc.evidence
+              indicators["of_confirm"] = ofc.to_dict()
+              indicators["of_confirm_ok"] = int(ofc.ok)
++
++             # Emit liqmap gate Prom counters (fail-open, low-cardinality).
++             try:
++                 _sym = str(runtime.symbol)
++                 _dir = str(getattr(ofc, "direction", indicators.get("direction", "na")) or "na")
++                 _wnd = str(indicators.get("liqmap_gate_window", "na") or "na")
++                 if int(indicators.get("liqmap_gate_shadow_veto", 0) or 0) == 1:
++                     liqmap_gate_shadow_hit_total.labels(symbol=_sym, dir=_dir, window=_wnd).inc()
++                 if int(indicators.get("liqmap_gate_veto", 0) or 0) == 1:
++                     _rsn = str(indicators.get("liqmap_gate_veto_reason") or indicators.get("hard_veto") or "liqmap_veto")
++                     _rsn = (_rsn or "liqmap_veto")[:60]
++                     liqmap_gate_veto_total.labels(symbol=_sym, dir=_dir, reason=_rsn).inc()
++             except Exception:
++                 pass
++
+              
+              # SRE metrics helper
+              self._emit_gate_metrics(runtime, ofc, indicators, ev, tick_ts)
+@@ -3079,6 +3234,88 @@ class TickProcessor:
+         return await self._emit_payload(runtime, payload, int(tick_ts))
+ 
+ 
++    def _maybe_anchor_tp1_by_liqmap(
++        self,
++        *,
++        entry: float,
++        side: str,
++        indicators: Dict[str, Any],
++        tps: List[float],
++    ) -> List[float]:
++        """Optionally anchor TP1 to the nearest LiqMap "magnet" cluster.
++
++        Safety:
++          - Default OFF (LIQMAP_TP_ANCHOR_ENABLE=0).
++          - Never expands SL (risk). If LiqMap implies adverse cluster inside SL band,
++            the liqmap gate is expected to veto earlier (ENFORCE mode).
++
++        Behavior:
++          - LONG: use liqmap_<w>_dist_up_bps + liqmap_<w>_peak_up1_usd
++          - SHORT: use liqmap_<w>_dist_dn_bps + liqmap_<w>_peak_dn1_usd
++          - If dist is within [min_bps, max_bps] and peak_usd >= min_peak_usd,
++            set TP1 near that level (with optional front-run).
++        """
++        try:
++            if str(os.getenv("LIQMAP_TP_ANCHOR_ENABLE", "0") or "0").strip().lower() not in ("1", "true", "yes", "on"):
++                return tps
++
++            w = str(os.getenv("LIQMAP_TP_ANCHOR_WINDOW", "5m") or "5m").strip()
++            max_bps = float(os.getenv("LIQMAP_TP_ANCHOR_MAX_BPS", "250") or 250.0)
++            min_bps = float(os.getenv("LIQMAP_TP_ANCHOR_MIN_BPS", "5") or 5.0)
++            min_peak_usd = float(os.getenv("LIQMAP_TP_ANCHOR_MIN_PEAK_USD", "0") or 0.0)
++            front_run_bps = float(os.getenv("LIQMAP_TP_ANCHOR_FRONT_RUN_BPS", "2") or 2.0)
++
++            if not tps:
++                return tps
++            if entry <= 0:
++                return tps
++
++            side_u = str(side or "").upper()
++            if side_u not in ("LONG", "SHORT"):
++                return tps
++
++            if side_u == "LONG":
++                dist_bps = float(indicators.get(f"liqmap_{w}_dist_up_bps", 0.0) or 0.0)
++                peak_usd = float(indicators.get(f"liqmap_{w}_peak_up1_usd", 0.0) or 0.0)
++                sgn = +1.0
++            else:
++                dist_bps = float(indicators.get(f"liqmap_{w}_dist_dn_bps", 0.0) or 0.0)
++                peak_usd = float(indicators.get(f"liqmap_{w}_peak_dn1_usd", 0.0) or 0.0)
++                sgn = -1.0
++
++            if dist_bps <= 0:
++                return tps
++            if dist_bps < min_bps:
++                return tps
++            if max_bps > 0 and dist_bps > max_bps:
++                return tps
++            if peak_usd < min_peak_usd:
++                return tps
++
++            eff_bps = max(dist_bps - max(front_run_bps, 0.0), 0.0)
++            if eff_bps <= 0:
++                return tps
++
++            tp1 = float(entry) * (1.0 + sgn * eff_bps / 10000.0)
++            if tp1 <= 0:
++                return tps
++
++            tps2 = list(tps)
++            tps2[0] = float(tp1)
++
++            # Evidence for decision record / debug
++            indicators["tp1_anchored"] = 1
++            indicators["tp1_anchor_src"] = "liqmap"
++            indicators["tp1_anchor_window"] = w
++            indicators["tp1_anchor_dist_bps"] = float(eff_bps)
++            indicators["tp1_anchor_peak_usd"] = float(peak_usd)
++
++            return tps2
++        except Exception:
++            return tps
++
++
++
+     def _get_rocket_multiplier(self, symbol: str) -> float:
+         """
+         Возвращает множитель для TP1 в профиле rocket_v1.
+@@ -3255,6 +3492,8 @@ class TickProcessor:
+                 tp3 = entry + tp3_dist
+                 
+                 tps = [tp1, tp2, tp3]
++
++
+             else:
+                 # Standard RR logic
+                 tps = [entry + stop_dist * rr for rr in rr_levels(cfg.get("tp_rr", "1.3,2.0,2.7"))]
+@@ -3284,6 +3523,10 @@ class TickProcessor:
+                 # Standard RR logic
+                 tps = [entry - stop_dist * rr for rr in rr_levels(cfg.get("tp_rr", "1.3,2.0,2.7"))]
+         
++        # Optional: anchor TP1 to LiqMap magnet (reward cluster)
++        # Runs after base TP computation (RR / rocket) and before final ordering.
++        tps = self._maybe_anchor_tp1_by_liqmap(entry=float(entry), side=str(side), indicators=indicators, tps=tps)
++
+         # FINAL SAFETY: Sort TPs by distance from entry to guarantee order 1 < 2 < 3
+         # abs(tp - entry) makes it direction-agnostic
+         tps.sort(key=lambda x: abs(x - entry))
+@@ -3311,6 +3554,13 @@ class TickProcessor:
+         payload["atr"] = float(atr)
+         payload["trail_profile"] = trail_profile
+         payload["trail_after_tp1"] = self._normalize_trailing_flag(payload.get("trail_after_tp1"), runtime.symbol)
++        # LiqMap world-practice: if TP1 is anchored to a liquidation magnet,
++        # enable trailing-after-TP1 (do NOT change SL; only trailing behavior).
++        try:
++            if getattr(self, "liqmap_trail_after_tp1_enable", False) and int(indicators.get("tp1_anchored", 0) or 0) == 1:
++                payload["trail_after_tp1"] = 1
++        except Exception:
++            pass
+ 
+         # 1. Enrich with server timestamp
+         payload["server_ts_ms"] = int(time.time() * 1000)
+diff --git a/tick_flow_full/services/orderflow/decision_record_v1.py b/tick_flow_full/services/orderflow/decision_record_v1.py
+index 6c56b90..adbea43 100644
+--- a/tick_flow_full/services/orderflow/decision_record_v1.py
++++ b/tick_flow_full/services/orderflow/decision_record_v1.py
+@@ -276,6 +276,37 @@ def build_decision_record_v1(
+             "is_virtual": int(signal.get("is_virtual", indicators.get("is_virtual", 0)) or 0),
+             "virtual_reason": str(indicators.get("virtual_reason", "") or signal.get("virtual_reason", "") or "")[:48],
+         },
++        "liqmap": {
++            "gate": {
++                "mode": str(indicators.get("liqmap_gate_mode", "") or ""),
++                "window": str(indicators.get("liqmap_gate_window", "") or ""),
++                "veto": int(indicators.get("liqmap_gate_veto", 0) or 0),
++                "shadow_veto": int(indicators.get("liqmap_gate_shadow_veto", 0) or 0),
++                "reason": str(indicators.get("liqmap_gate_veto_reason", "") or ""),
++                "rr": float(indicators.get("liqmap_gate_rr", 0.0) or 0.0),
++                "risk_bps": float(indicators.get("liqmap_gate_risk_bps", 0.0) or 0.0),
++                "reward_bps": float(indicators.get("liqmap_gate_reward_bps", 0.0) or 0.0),
++            },
++            "w5m": {
++                "age_ms": float(indicators.get("liqmap_5m_age_ms", 0.0) or 0.0),
++                "near_total_usd": float(indicators.get("liqmap_5m_near_total_usd", 0.0) or 0.0),
++                "near_imb": float(indicators.get("liqmap_5m_near_imb", 0.0) or 0.0),
++                "dist_up_bps": float(indicators.get("liqmap_5m_dist_up_bps", 0.0) or 0.0),
++                "dist_dn_bps": float(indicators.get("liqmap_5m_dist_dn_bps", 0.0) or 0.0),
++                "peak_up1_usd": float(indicators.get("liqmap_5m_peak_up1_usd", 0.0) or 0.0),
++                "peak_dn1_usd": float(indicators.get("liqmap_5m_peak_dn1_usd", 0.0) or 0.0),
++            },
++            "w1h": {
++                "age_ms": float(indicators.get("liqmap_1h_age_ms", 0.0) or 0.0),
++                "near_total_usd": float(indicators.get("liqmap_1h_near_total_usd", 0.0) or 0.0),
++                "near_imb": float(indicators.get("liqmap_1h_near_imb", 0.0) or 0.0),
++                "dist_up_bps": float(indicators.get("liqmap_1h_dist_up_bps", 0.0) or 0.0),
++                "dist_dn_bps": float(indicators.get("liqmap_1h_dist_dn_bps", 0.0) or 0.0),
++                "peak_up1_usd": float(indicators.get("liqmap_1h_peak_up1_usd", 0.0) or 0.0),
++                "peak_dn1_usd": float(indicators.get("liqmap_1h_peak_dn1_usd", 0.0) or 0.0),
++            },
++        },
++
+         "meta": {
+             "meta_enforce_applied": int(ev.get("meta_enforce_applied", 0) or 0),
+             "meta_enforce_share": float(ev.get("meta_enforce_share", 1.0) or 1.0),
+diff --git a/tick_flow_full/services/orderflow/metrics.py b/tick_flow_full/services/orderflow/metrics.py
+index fd1d8fe..7b9f0cb 100644
+--- a/tick_flow_full/services/orderflow/metrics.py
++++ b/tick_flow_full/services/orderflow/metrics.py
+@@ -513,6 +513,31 @@ tick_missing_seq_events_total = _get_or_create_prom_counter(
+     "tick_missing_seq_events_total", "Count of detected tick sequence gaps", ["symbol"]
+ )
+ 
++
++# --- LiqMap (liquidation map) metrics ---
++# Snapshot age is computed as: now_ms - snapshot.ts_ms (from redis payload).
++# Special values: -1 = missing snapshot, -2 = parse error.
++liqmap_snapshot_age_ms_gauge = _get_or_create_prom_gauge(
++    "liqmap_snapshot_age_ms",
++    "Age of liqmap snapshot (ms). -1 missing, -2 parse error.",
++    ["symbol", "window"],
++)
++liqmap_snapshot_parse_errors_total = _get_or_create_prom_counter(
++    "liqmap_snapshot_parse_errors_total",
++    "Total liqmap snapshot parse errors.",
++    ["symbol"],
++)
++liqmap_gate_shadow_hit_total = _get_or_create_prom_counter(
++    "liqmap_gate_shadow_hit_total",
++    "Total liqmap gate shadow hits (would veto).",
++    ["symbol", "dir", "window"],
++)
++liqmap_gate_veto_total = _get_or_create_prom_counter(
++    "liqmap_gate_veto_total",
++    "Total liqmap gate enforced vetoes.",
++    ["symbol", "dir", "reason"],
++)
++
+ # P2/F: trade_id ordering issue breakdown (diagnostic; GAP is already covered by tick_missing_seq_events_total).
+ tick_id_gap_events_total = _get_or_create_prom_counter(
+     "tick_id_gap_events_total", "Count of tick trade_id gaps (tid > last_tid+1)", ["symbol"]
+diff --git a/tick_flow_full/services/orderflow/prometheus_alerts_signal_quality_v1.yml b/tick_flow_full/services/orderflow/prometheus_alerts_signal_quality_v1.yml
+index 26b2e04..c308335 100644
+--- a/tick_flow_full/services/orderflow/prometheus_alerts_signal_quality_v1.yml
++++ b/tick_flow_full/services/orderflow/prometheus_alerts_signal_quality_v1.yml
+@@ -55,3 +55,28 @@ groups:
+         missing strict iceberg confirmation. Check signal consistency."
+       runbook_path: /runbooks/tbd.md
+       dashboard_path: /d/tbd
++
++- name: LiqMapSnapshot
++  rules:
++  - alert: LiqMapSnapshotStale
++    expr: max_over_time(liqmap_snapshot_age_ms{window=~"5m|1h"}[5m]) > 60000
++    for: 5m
++    labels:
++      severity: warning
++      team: orderflow
++    annotations:
++      summary: "LiqMap snapshot is stale"
++      description: "Symbol {{ $labels.symbol }} window={{ $labels.window }} liqmap snapshot age exceeded 60s for 5m (likely liqmap builder stalled or Redis key missing updates)."
++      runbook_path: /runbooks/tbd.md
++      dashboard_path: /d/tbd
++  - alert: LiqMapSnapshotMissing
++    expr: max_over_time(liqmap_snapshot_age_ms{window=~"5m|1h"}[5m]) < 0
++    for: 5m
++    labels:
++      severity: warning
++      team: orderflow
++    annotations:
++      summary: "LiqMap snapshot missing"
++      description: "Symbol {{ $labels.symbol }} window={{ $labels.window }} liqmap snapshot appears missing/invalid for 5m (age metric stays negative)."
++      runbook_path: /runbooks/tbd.md
++      dashboard_path: /d/tbd
+diff --git a/tick_flow_full/tests/core/test_liqmap_features_v1.py b/tick_flow_full/tests/core/test_liqmap_features_v1.py
+new file mode 100644
+index 0000000..1588cd3
+--- /dev/null
++++ b/tick_flow_full/tests/core/test_liqmap_features_v1.py
+@@ -0,0 +1,53 @@
++import json
++
++import pytest
++
++from core.liqmap_features_v1 import (
++    compute_liqmap_features,
++    make_liqmap_default_features,
++    parse_liqmap_snapshot_v1,
++)
++
++
++def test_liqmap_parse_and_compute_basic():
++    # Snapshot intentionally misses `window` in payload; runtime supplies expected window.
++    raw = json.dumps(
++        {
++            "ts_ms": 1000,
++            "symbol": "btcusdt",
++            "levels": [
++                {"price": 99.0, "long_usd": 100.0, "short_usd": 400.0},
++                {"price": 100.0, "long_usd": 120.0, "short_usd": 80.0},
++                {"price": 101.0, "long_usd": 900.0, "short_usd": 100.0},
++            ],
++        }
++    )
++
++    snap = parse_liqmap_snapshot_v1(raw, expected_symbol="BTCUSDT", expected_window="5m")
++    assert snap.symbol == "BTCUSDT"
++    assert snap.window == "5m"
++
++    feats = compute_liqmap_features(
++        snap,
++        price=100.0,
++        windows=("5m",),
++        near_band_bps=20.0,  # +/-0.2
++        peak_min_share=0.05,
++        now_ms=2000,
++    )
++
++    # Stable key set
++    defaults = make_liqmap_default_features(["5m"])
++    assert set(defaults.keys()) <= set(feats.keys())
++
++    assert feats["liqmap_5m_age_ms"] == 1000.0
++    assert feats["liqmap_5m_levels_n"] == 3.0
++
++    # Near band contains only price==100.0 level in this synthetic snapshot
++    assert feats["liqmap_5m_near_total_usd"] == pytest.approx(200.0)
++
++    # Closest peaks above/below (threshold is small here; both sides qualify)
++    assert feats["liqmap_5m_dist_up_bps"] == pytest.approx(100.0)
++    assert feats["liqmap_5m_dist_dn_bps"] == pytest.approx(100.0)
++    assert feats["liqmap_5m_peak_up1_usd"] == pytest.approx(1000.0)
++    assert feats["liqmap_5m_peak_dn1_usd"] == pytest.approx(500.0)
+diff --git a/tick_flow_full/tests/core/test_liqmap_gate_v1.py b/tick_flow_full/tests/core/test_liqmap_gate_v1.py
+new file mode 100644
+index 0000000..5b1e9eb
+--- /dev/null
++++ b/tick_flow_full/tests/core/test_liqmap_gate_v1.py
+@@ -0,0 +1,52 @@
++import pytest
++
++from core.liqmap_gate_v1 import evaluate_liqmap_gate_v1
++
++
++def _base_indicators():
++    # Minimal keys used by evaluate_liqmap_gate_v1
++    return {
++        "atr_bps_exec": 50.0,
++        # adverse: for LONG it's dist_dn/peak_dn; for SHORT it's dist_up/peak_up
++        "liqmap_5m_dist_dn_bps": 20.0,
++        "liqmap_5m_peak_dn1_usd": 5000.0,
++        # favorable
++        "liqmap_5m_dist_up_bps": 200.0,
++        "liqmap_5m_peak_up1_usd": 7000.0,
++    }
++
++
++def _base_cfg(mode: str):
++    return {
++        "liqmap_gate_enable": 1,
++        "liqmap_gate_mode": mode,
++        "liqmap_gate_window": "5m",
++        "liqmap_gate_stop_atr_mult": 1.0,
++        "liqmap_gate_sl_band_mult": 1.0,
++        "liqmap_gate_near_band_bps": 20.0,
++        "liqmap_gate_peak_min_share": 0.05,
++        "liqmap_gate_min_adverse_peak_usd": 1000.0,
++        "liqmap_gate_min_favorable_peak_usd": 1000.0,
++        "liqmap_gate_min_rr": 1.5,
++    }
++
++
++def test_liqmap_gate_shadow_sets_shadow_veto_only():
++    ind = _base_indicators()
++    cfg2 = _base_cfg("shadow")
++
++    res = evaluate_liqmap_gate_v1(indicators=ind, direction="LONG", cfg2=cfg2)
++    assert res.mode == "SHADOW"
++    assert res.shadow_veto == 1
++    assert res.veto == 0
++    assert res.reason in ("adverse_peak_in_sl", "adverse_too_close", "rr_low")
++
++
++def test_liqmap_gate_enforce_veto():
++    ind = _base_indicators()
++    cfg2 = _base_cfg("enforce")
++
++    res = evaluate_liqmap_gate_v1(indicators=ind, direction="LONG", cfg2=cfg2)
++    assert res.mode == "ENFORCE"
++    assert res.shadow_veto == 1
++    assert res.veto == 1
+diff --git a/tick_flow_full/tests/core/test_meta_features_v9_contract.py b/tick_flow_full/tests/core/test_meta_features_v9_contract.py
+new file mode 100644
+index 0000000..fcbefe4
+--- /dev/null
++++ b/tick_flow_full/tests/core/test_meta_features_v9_contract.py
+@@ -0,0 +1,8 @@
++from core.meta_features_v9 import META_FEAT_V9_COLS, build_meta_features_v9
++
++
++def test_meta_features_v9_has_stable_keyset():
++    feats, missing = build_meta_features_v9({}, {})
++    assert set(feats.keys()) == set(META_FEAT_V9_COLS)
++    # Missing can be non-empty; this test only enforces stable schema.
++    assert isinstance(missing, list)

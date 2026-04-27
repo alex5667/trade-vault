@@ -1,0 +1,24 @@
+groups:
+  - name: exec-health-freeze-tamper-guard-v1
+    rules:
+      - alert: OF_ExecHealth_FreezeTamperDetected_Crit
+        expr: exec_health_freeze_tamper_guard_tamper_active > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: ExecHealth freeze tamper detected and re-freeze required
+      - alert: OF_ExecHealth_FreezeTamperRefreezePerformed_Warn
+        expr: increase(exec_health_freeze_tamper_guard_refreeze_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: ExecHealth tamper guard performed an automatic re-freeze
+      - alert: OF_ExecHealth_FreezeTamperGuard_ExporterStale_Warn
+        expr: exec_health_freeze_tamper_guard_up == 0 or exec_health_freeze_tamper_guard_state_age_seconds > 120
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: ExecHealth tamper guard exporter is stale or unhealthy

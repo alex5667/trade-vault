@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/numpy/fft/helper.py
+# hypothesis_version: 6.148.10
+
+[1.0, 'fftfreq', 'fftshift', 'ifftshift', 'numpy.fft', 'rfftfreq']

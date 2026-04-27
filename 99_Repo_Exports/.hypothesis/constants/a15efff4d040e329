@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/signal_execution_service.py
+# hypothesis_version: 6.148.10
+
+[0.0, '_execution_planner', '_performance_tracker', '_signal_bus', '_signal_repo', 'executed_signals', 'msg_id', 'success_rate', 'total_signals']

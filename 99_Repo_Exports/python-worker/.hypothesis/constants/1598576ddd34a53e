@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/golden_replay.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.0001, 100.0, 1000, '1m', 'LONG', 'OF_INPUTS_V1', 'TEST', 'absorption', 'book_churn_hi', 'case_id', 'cfg', 'cont_ctx_ts_ms', 'delta_z', 'direction', 'dynamic_cfg', 'error', 'expect', 'have', 'id', 'indicators', 'indicators_update', 'inputs', 'inputs_summary', 'is_pressure_hi', 'kind', 'last_bar', 'last_div', 'last_fp_edge', 'last_iceberg_event', 'last_obi_event', 'last_ofi_event', 'last_reclaim', 'last_regime', 'last_sweep', 'last_wp', 'mismatch', 'na', 'need', 'no_inputs', 'ok', 'pass', 'pressure_state', 'price', 'r', 'reason', 'result', 'runtime_snapshot', 'scenario', 'score', 'symbol', 'tf', 'tick_ts_ms', 'utf-8', 'weak_any']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/outbox_envelope.py
+# hypothesis_version: 6.148.10
+
+[',', ':', 'confidence_pct', 'final_score', 'kind', 'payload_json', 'raw_score', 'schema', 'side', 'signal_id', 'symbol', 'ts_ms']

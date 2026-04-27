@@ -1,0 +1,23 @@
+groups:
+  - name: ml_phase3_5_route_incident_rca_shadow_handoff_v1
+    rules:
+      - alert: MLRouteIncidentRCAShadowHandoffStale
+        expr: time() - ml_route_incident_rca_shadow_handoff_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA shadow handoff adapter is stale"
+
+      - alert: MLRouteIncidentRCAShadowHandoffErrors
+        expr: increase(ml_route_incident_rca_shadow_handoff_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA shadow handoff adapter has errors"
+
+      - alert: MLRouteIncidentRCAShadowHandoffRejects
+        expr: increase(ml_route_incident_rca_shadow_handoff_routed_total{decision="REJECT"}[30m]) > 10
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA shadow handoff is rejecting requests"

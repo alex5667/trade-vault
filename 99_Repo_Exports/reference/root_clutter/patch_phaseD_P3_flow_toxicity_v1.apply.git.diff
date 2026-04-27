@@ -1,0 +1,772 @@
+diff --git a/new/services/orderflow/flow_toxicity.py b/new/services/orderflow/flow_toxicity.py
+new file mode 100644
+index 0000000..1fa7f3d
+--- /dev/null
++++ b/new/services/orderflow/flow_toxicity.py
+@@ -0,0 +1,179 @@
++# -*- coding: utf-8 -*-
++"""Flow toxicity metrics and enforcement helpers (Phase D / P3).
++
++We want to detect situations when order-flow signals look strong (OFI/OBI),
++*but execution is likely toxic* (adverse selection / price impact).
++
++This module provides:
++- `compute_ofi_norm_notional`: normalize best-level OFI by near-touch depth (USD) so the
++  scale is comparable across symbols and regimes.
++- `normal_cdf`: optional VPIN thresholding via CDF.
++- `evaluate_flow_toxicity`: a deterministic policy function used by:
++    - services.orderflow.signal_pipeline (LiquidityGate-like enforcement)
++    - services.smt_entry_policy_service (EntryPolicy overlay)
++
++Design principles (production):
++- Fail-open by default. If inputs are missing, do not veto.
++- Deterministic: no wall-clock usage inside evaluation.
++- Low latency: pure math only, no Redis/DB calls.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Any, List
++import math
++
++
++def _f(x: Any, d: float = 0.0) -> float:
++    try:
++        v = float(x)
++        return v if math.isfinite(v) else d
++    except Exception:
++        return d
++
++
++def normal_cdf(z: float) -> float:
++    """Standard normal CDF using erf (no scipy dependency)."""
++    try:
++        zf = float(z)
++        if not math.isfinite(zf):
++            return 0.5
++        return 0.5 * (1.0 + math.erf(zf / math.sqrt(2.0)))
++    except Exception:
++        return 0.5
++
++
++def compute_ofi_norm_notional(*, ofi_best_qty: float, mid: float, depth_usd_near: float) -> float:
++    """Compute notional-normalized OFI.
++
++    Inputs:
++      ofi_best_qty: best-level OFI in *quantity units* (from book deltas).
++      mid: mid price.
++      depth_usd_near: near-touch depth in USD (e.g., bid+ask notional within 1bp).
++
++    Output:
++      ofi_norm: dimensionless fraction-like proxy (how large the incremental flow is
++      relative to near depth).
++
++    Notes:
++      - We convert qty->USD via `ofi_best_qty * mid`.
++      - Depth must be USD to make the ratio scale-invariant across symbols.
++    """
++    oq = _f(ofi_best_qty, 0.0)
++    m = _f(mid, 0.0)
++    d = _f(depth_usd_near, 0.0)
++    if m <= 0.0 or d <= 0.0:
++        return 0.0
++    ofi_usd = oq * m
++    # Bound extreme values to avoid destabilizing downstream gates.
++    # In practice, ofi_norm above ~10 is already "very toxic".
++    out = ofi_usd / max(d, 1e-9)
++    if not math.isfinite(out):
++        return 0.0
++    return float(max(-50.0, min(50.0, out)))
++
++
++@dataclass
++class FlowToxicityDecision:
++    hit: bool
++    mode: str  # monitor|tighten|veto
++    flags: List[str]
++    tighten_add_bps: float = 0.0
++    veto: bool = False
++    veto_reason: str = ""
++
++
++def _map_profile_to_mode(profile: str) -> str:
++    p = (profile or "").strip().lower()
++    if p in {"default", "soft", "monitor"}:
++        return "monitor"
++    if p in {"strict", "tighten"}:
++        return "tighten"
++    if p in {"hard", "veto"}:
++        return "veto"
++    return "monitor"
++
++
++def evaluate_flow_toxicity(
++    *,
++    profile: str,
++    ofi_norm_z: float,
++    thr_ofi_norm_z: float,
++    vpin_cdf: float,
++    thr_vpin_cdf: float,
++    # Optional: combine with TCA (hard-veto only when both flow toxic + exec unhealthy)
++    tca_is_p95_bps: float,
++    tca_perm_impact_p95_bps: float,
++    thr_is_p95_bps: float,
++    thr_perm_impact_p95_bps: float,
++    tighten_mult: float,
++    tighten_cap_bps: float,
++    veto_without_tca: bool = False,
++) -> FlowToxicityDecision:
++    """Pure policy: decide monitor/tighten/veto from flow-toxicity inputs.
++
++    Rules:
++      - flow_bad := (ofi_norm_z > thr) OR (vpin_cdf > thr)
++      - default/soft: annotate only
++      - strict: tighten execution cost proxy (expected_slippage_bps)
++      - hard: veto ONLY when flow_bad AND (tca_bad OR veto_without_tca)
++
++    Tighten add (bps): proportional to *excess toxicity* beyond threshold(s), bounded.
++    """
++
++    mode = _map_profile_to_mode(profile)
++    z = _f(ofi_norm_z, 0.0)
++    thrz = _f(thr_ofi_norm_z, 0.0)
++    vc = _f(vpin_cdf, 0.0)
++    thrv = _f(thr_vpin_cdf, 0.0)
++
++    flags: List[str] = []
++    ofi_bad = bool(thrz > 0.0 and z > thrz)
++    vpin_bad = bool(thrv > 0.0 and vc > thrv)
++    flow_bad = bool(ofi_bad or vpin_bad)
++
++    if ofi_bad:
++        flags.append("ofi_norm_z")
++    if vpin_bad:
++        flags.append("vpin_cdf")
++
++    is_p95 = _f(tca_is_p95_bps, 0.0)
++    imp_p95 = _f(tca_perm_impact_p95_bps, 0.0)
++    thr_is = _f(thr_is_p95_bps, 0.0)
++    thr_imp = _f(thr_perm_impact_p95_bps, 0.0)
++
++    tca_bad = bool((thr_is > 0.0 and is_p95 > thr_is) or (thr_imp > 0.0 and imp_p95 > thr_imp))
++    if tca_bad:
++        flags.append("tca_bad")
++
++    # annotate-only if nothing is bad
++    if not flow_bad:
++        return FlowToxicityDecision(hit=False, mode=mode, flags=[])
++
++    tighten_add = 0.0
++    if mode in {"tighten", "veto"}:
++        # excess from OFI z: linear beyond threshold
++        ex = 0.0
++        if ofi_bad and thrz > 0.0:
++            ex += max(0.0, z - thrz)
++        # VPIN is [0..1]; convert excess CDF into a similar scale.
++        if vpin_bad and thrv > 0.0:
++            ex += max(0.0, vc - thrv) * 5.0
++        tighten_add = float(min(max(0.0, _f(tighten_cap_bps, 0.0)), max(0.0, _f(tighten_mult, 1.0)) * ex))
++
++    veto = False
++    veto_reason = ""
++    if mode == "veto":
++        if (tca_bad or veto_without_tca):
++            veto = True
++            veto_reason = "flow_toxic"
++
++    return FlowToxicityDecision(
++        hit=True,
++        mode=mode,
++        flags=flags,
++        tighten_add_bps=float(tighten_add),
++        veto=bool(veto),
++        veto_reason=str(veto_reason),
++    )
+diff --git a/orig/services/orderflow/metrics.py b/new/services/orderflow/metrics.py
+index f62862b..11fd84f 100644
+--- a/orig/services/orderflow/metrics.py
++++ b/new/services/orderflow/metrics.py
+@@ -1879,5 +1879,42 @@ liq_geom_recovery_time_ms = _get_or_create_prom_histogram(
+     buckets=[0.0, 50, 100, 200, 500, 1_000, 2_000, 5_000, 10_000, 20_000, 60_000, 120_000],
+ )
+ 
++# ---------------------------------------------------------------------------
++# Phase D (P3): Flow toxicity (OFI normalized by depth + optional VPIN)
++# ---------------------------------------------------------------------------
++# Same cardinality policy as liq_geom: per-symbol only for allowlist, else symbol="__all__".
++
++flow_toxic_monitor_hit_total = _get_or_create_prom_counter(
++    "flow_toxic_monitor_hit_total",
++    "Total monitor hits for flow toxicity (ofi_norm_z / vpin_cdf)",
++    ["symbol", "profile"],
++)
++
++flow_toxic_tighten_total = _get_or_create_prom_counter(
++    "flow_toxic_tighten_total",
++    "Total tighten actions due to flow toxicity (expected_slippage add)",
++    ["symbol", "profile"],
++)
++
++flow_toxic_veto_total = _get_or_create_prom_counter(
++    "flow_toxic_veto_total",
++    "Total vetos due to flow toxicity in hard profile",
++    ["symbol", "reason"],
++)
++
++flow_toxic_ofi_norm_z = _get_or_create_prom_histogram(
++    "flow_toxic_ofi_norm_z",
++    "Robust z-score of notional-normalized OFI (higher => more toxic)",
++    ["symbol"],
++    buckets=[-10, -6, -4, -3, -2, -1, -0.5, 0, 0.5, 1, 2, 3, 4, 6, 10, 20],
++)
++
++flow_toxic_vpin_cdf = _get_or_create_prom_histogram(
++    "flow_toxic_vpin_cdf",
++    "VPIN toxicity proxy (CDF in [0..1])",
++    ["symbol"],
++    buckets=[0.0, 0.01, 0.05, 0.10, 0.20, 0.35, 0.50, 0.65, 0.80, 0.90, 0.95, 0.99, 1.0],
++)
++
+ # pre_publish_veto_total → pre_publish_gate_veto_total
+ pre_publish_veto_total = pre_publish_gate_veto_total  # noqa: F811
+diff --git a/orig/services/orderflow/runtime.py b/new/services/orderflow/runtime.py
+index 3339f4c..d03215d 100644
+--- a/orig/services/orderflow/runtime.py
++++ b/new/services/orderflow/runtime.py
+@@ -378,6 +378,11 @@ class SymbolRuntime:
+     ofi_tracker: OFIStabilityTracker = field(init=False)
+     last_ofi_event: Optional[Dict[str, Any]] = None
+ 
++    # Phase D (P3): Flow toxicity (OFI normalized by near depth; robust z)
++    # Used to compute `ofi_norm_z` in hot-path (strategy.py) and enforce FlowToxicityGate.
++    ofi_norm_stats: RollingRobustZ = field(init=False)
++    ofi_norm_z: float = 0.0
++
+     # Liquidity regime (risk overlay)
+     liq_service: LiquidityRegimeService = field(init=False)
+     last_liq: Optional[Dict[str, Any]] = None
+@@ -899,6 +904,15 @@ class SymbolRuntime:
+             z_window=int(self.config.get("ofi_z_window", 256)),
+         )
+ 
++        # Phase D (P3): Flow toxicity tracker (robust z-score of notional-normalized OFI)
++        # Window controls smoothness and false positives. Keep bounded for hot path.
++        try:
++            w = int(os.getenv("FLOW_OFI_NORM_Z_WINDOW", str(self.config.get("flow_ofi_norm_z_window", 256))) or 256)
++        except Exception:
++            w = 256
++        self.ofi_norm_stats = RollingRobustZ(window=max(32, int(w)))
++        self.ofi_norm_z = 0.0
++
+         # --------------------------------------
+         # Liquidity regime service (risk overlay) -> Initialized at top
+         # --------------------------------------
+diff --git a/orig/services/orderflow/signal_pipeline.py b/new/services/orderflow/signal_pipeline.py
+index 95a24d2..6e8ee11 100644
+--- a/orig/services/orderflow/signal_pipeline.py
++++ b/new/services/orderflow/signal_pipeline.py
+@@ -27,6 +27,8 @@ from services.orderflow.metrics import (
+     signals_total, strong_gate_veto_total, pre_publish_veto_total, of_session_outcome_total
+     , liq_geom_monitor_hit_total, liq_geom_tighten_total, liq_geom_veto_total
+     , liq_geom_dws_bps, liq_geom_book_slope_min_usd_per_bps, liq_geom_recovery_time_ms
++    , flow_toxic_monitor_hit_total, flow_toxic_tighten_total, flow_toxic_veto_total
++    , flow_toxic_ofi_norm_z, flow_toxic_vpin_cdf
+ )
+ from services.orderflow.utils import session_utc
+ from handlers.crypto_orderflow.utils.log_sampler import LogSamplerFactory, sampled_info
+@@ -95,6 +97,9 @@ class SignalPipeline:
+         raw_syms = str(os.getenv("LIQ_GEOM_METRICS_SYMBOLS", "") or "").strip()
+         self._liq_geom_syms_allow = {s.strip().upper() for s in raw_syms.split(",") if s.strip()} if raw_syms else set()
+ 
++        raw_syms2 = str(os.getenv("FLOW_TOX_METRICS_SYMBOLS", os.getenv("LIQ_GEOM_METRICS_SYMBOLS", "")) or "").strip()
++        self._flow_tox_syms_allow = {s.strip().upper() for s in raw_syms2.split(",") if s.strip()} if raw_syms2 else set()
++
+         # TB Labeler Feed (P45 fix): explicitly feed signals:of:inputs
+         self.publish_of_inputs = os.getenv("PUBLISH_OF_INPUTS", "1").lower() in {"1", "true", "yes", "on"}
+         self.of_inputs_stream = os.getenv("OF_INPUTS_STREAM", "signals:of:inputs")
+@@ -589,6 +594,120 @@ class SignalPipeline:
+             reason = f"LIQ_GEOM_VETO: {geom_reason}"
+             return
+ 
++        # ------------------------------------------------------------------
++        # Phase D (P3): Flow toxicity gate (OFI normalized by depth + optional VPIN)
++        # ------------------------------------------------------------------
++        # Inputs (computed in strategy.py, fail-open):
++        #   - ofi_norm_z : robust z-score of (ofi_best_qty*mid)/(notional_1bp_bid+ask)
++        #   - vpin_cdf   : optional VPIN-like toxicity proxy in [0..1]
++        #
++        # Profiles:
++        #   - default/soft: annotate only
++        #   - strict: tighten expected_slippage_bps
++        #   - hard: veto ONLY when flow_toxic AND (TCA-bad OR FLOW_TOX_VETO_WITHOUT_TCA=1)
++        #
++        # Thresholds:
++        #   - FLOW_OFI_NORM_Z_MAX (0 disables)
++        #   - FLOW_VPIN_CDF_MAX   (0 disables)
++        try:
++            from services.orderflow.flow_toxicity import evaluate_flow_toxicity
++
++            flow_profile = str(os.getenv("FLOW_GATE_PROFILE", os.getenv("GATE_PROFILE", "default")) or "default").strip().lower()
++            # Allow explicit mode override
++            mode_override = str(os.getenv("FLOW_TOXIC_MODE", os.getenv("FLOW_TOX_MODE", "")) or "").strip().lower()
++            if mode_override in {"monitor", "tighten", "veto"}:
++                flow_profile = mode_override
++            if flow_profile not in {"default", "soft", "strict", "hard", "monitor", "tighten", "veto"}:
++                flow_profile = "default"
++
++            thr_z = float(os.getenv("FLOW_OFI_NORM_Z_MAX", "0") or 0.0)
++            thr_vpin = float(os.getenv("FLOW_VPIN_CDF_MAX", "0") or 0.0)
++
++            cap = float(os.getenv("FLOW_TOX_TIGHTEN_ADD_CAP_BPS", "6.0") or 6.0)
++            mult = float(os.getenv("FLOW_TOX_TIGHTEN_ADD_MULT", "1.0") or 1.0)
++            veto_wo_tca = bool(int(os.getenv("FLOW_TOX_VETO_WITHOUT_TCA", "0") or 0))
++
++            ofi_z = float(indicators.get("ofi_norm_z", 0.0) or 0.0)
++            vpin_cdf = float(indicators.get("vpin_cdf", 0.0) or 0.0)
++
++            # Optional: TCA health inputs (if Phase B is enabled). If missing -> 0.
++            tca_is = float(indicators.get("tca_is_p95_bps", indicators.get("is_p95_bps", 0.0)) or 0.0)
++            tca_imp = float(indicators.get("tca_perm_impact_p95_bps", indicators.get("perm_impact_p95_bps", 0.0)) or 0.0)
++            thr_is = float(os.getenv("EXEC_MAX_IS_P95_BPS", "0") or 0.0)
++            thr_imp = float(os.getenv("EXEC_MAX_PERM_IMPACT_P95_BPS", "0") or 0.0)
++
++            decf = evaluate_flow_toxicity(
++                profile=flow_profile,
++                ofi_norm_z=ofi_z,
++                thr_ofi_norm_z=thr_z,
++                vpin_cdf=vpin_cdf,
++                thr_vpin_cdf=thr_vpin,
++                tca_is_p95_bps=tca_is,
++                tca_perm_impact_p95_bps=tca_imp,
++                thr_is_p95_bps=thr_is,
++                thr_perm_impact_p95_bps=thr_imp,
++                tighten_mult=mult,
++                tighten_cap_bps=cap,
++                veto_without_tca=veto_wo_tca,
++            )
++
++            # annotate always
++            indicators["flow_toxic_profile"] = str(flow_profile)
++            indicators["flow_toxic_flags"] = ",".join(decf.flags) if decf.flags else ""
++            indicators["flow_toxic_hit"] = 1 if decf.hit else 0
++
++            # Optional Prometheus telemetry (bounded symbol cardinality)
++            try:
++                sym_label = str(symbol).upper()
++                if self._flow_tox_syms_allow and sym_label not in self._flow_tox_syms_allow:
++                    sym_label = "__all__"
++                flow_toxic_ofi_norm_z.labels(symbol=sym_label).observe(float(ofi_z))
++                flow_toxic_vpin_cdf.labels(symbol=sym_label).observe(float(vpin_cdf))
++                if decf.hit:
++                    flow_toxic_monitor_hit_total.labels(symbol=sym_label, profile=str(flow_profile)).inc()
++            except Exception:
++                pass
++
++            if decf.tighten_add_bps > 0.0:
++                exp0 = float(indicators.get("expected_slippage_bps", 0.0) or 0.0)
++                indicators["flow_toxic_tighten_add_bps"] = float(decf.tighten_add_bps)
++                indicators["expected_slippage_bps"] = float(exp0 + float(decf.tighten_add_bps))
++                try:
++                    sym_label2 = str(symbol).upper()
++                    if self._flow_tox_syms_allow and sym_label2 not in self._flow_tox_syms_allow:
++                        sym_label2 = "__all__"
++                    flow_toxic_tighten_total.labels(symbol=sym_label2, profile=str(flow_profile)).inc()
++                except Exception:
++                    pass
++
++            if decf.veto:
++                try:
++                    sym_label3 = str(symbol).upper()
++                    if self._flow_tox_syms_allow and sym_label3 not in self._flow_tox_syms_allow:
++                        sym_label3 = "__all__"
++                    flow_toxic_veto_total.labels(symbol=sym_label3, reason=str(decf.veto_reason or "flow_toxic")).inc()
++                except Exception:
++                    pass
++                logger.info(
++                    "🛡️ [GATE] FlowToxicity VETO (%s): flags=%s ofi_z=%.2f thr=%.2f vpin_cdf=%.3f thr=%.3f tca_is_p95=%.2f thr=%.2f tca_imp_p95=%.2f thr=%.2f",
++                    symbol,
++                    indicators.get("flow_toxic_flags", ""),
++                    ofi_z,
++                    thr_z,
++                    vpin_cdf,
++                    thr_vpin,
++                    tca_is,
++                    thr_is,
++                    tca_imp,
++                    thr_imp,
++                )
++                strong_gate_veto_total.labels(symbol=symbol, scenario="flow_toxic", reason="VETO_FLOW_TOXIC", mode="ENFORCE").inc()
++                passed = False
++                reason = "VETO_FLOW_TOXIC"
++                return
++        except Exception:
++            pass
++
+         spread_veto = False
+         spread_reason = ""
+ 
+diff --git a/orig/services/orderflow/strategy.py b/new/services/orderflow/strategy.py
+index afddabc..ee8c740 100644
+--- a/orig/services/orderflow/strategy.py
++++ b/new/services/orderflow/strategy.py
+@@ -2577,6 +2577,51 @@ class OrderFlowStrategy:
+                     indicators["liq_geom_flags"] = ",".join(flags)
+                 else:
+                     indicators.setdefault("liq_geom_monitor_hit", 0)
++
++
++                # ------------------------------------------------------------
++                # Phase D (P3): Flow toxicity features (OFI normalized by depth)
++                # ------------------------------------------------------------
++                # We compute a scale-invariant OFI proxy:
++                #   ofi_norm = (ofi_best_qty * mid) / (bid_notional_1bp + ask_notional_1bp)
++                # and a robust z-score using a bounded RollingRobustZ tracker (runtime.ofi_norm_stats).
++                #
++                # Why here (not earlier): we already computed near-touch depth notional (nb1/na1).
++                # This keeps the metric stable across symbols and market regimes.
++                try:
++                    from services.orderflow.flow_toxicity import compute_ofi_norm_notional, normal_cdf
++                    ofi_qty = float(indicators.get("ofi_best_qty", 0.0) or 0.0)
++                    depth1 = float(nb1 + na1)
++                    if depth1 <= 0.0:
++                        depth1 = float(min(nb5, na5))
++                    if ofi_qty != 0.0 and float(mid2) > 0.0 and depth1 > 0.0:
++                        ofi_norm = compute_ofi_norm_notional(ofi_best_qty=ofi_qty, mid=float(mid2), depth_usd_near=float(depth1))
++                        indicators["ofi_norm"] = float(ofi_norm)
++                        indicators["ofi_norm_depth_usd_1bp"] = float(depth1)
++                        try:
++                            runtime.ofi_norm_stats.update(float(ofi_norm))
++                            z = float(runtime.ofi_norm_stats.z(float(ofi_norm)))
++                            runtime.ofi_norm_z = float(z)
++                            indicators["ofi_norm_z"] = float(z)
++                        except Exception:
++                            indicators.setdefault("ofi_norm_z", float(getattr(runtime, "ofi_norm_z", 0.0) or 0.0))
++                    else:
++                        indicators.setdefault("ofi_norm", 0.0)
++                        indicators.setdefault("ofi_norm_z", float(getattr(runtime, "ofi_norm_z", 0.0) or 0.0))
++
++                    # Optional VPIN-like toxicity proxy from L3-lite tracker (if enabled)
++                    # Stored as z-score + CDF in [0..1] for easy thresholding.
++                    vz = 0.0
++                    try:
++                        l3s = getattr(runtime, "l3_stats", None)
++                        if l3s is not None:
++                            vz = float(getattr(l3s, "vpin_tox_z", 0.0) or 0.0)
++                    except Exception:
++                        vz = 0.0
++                    indicators["vpin_tox_z"] = float(vz)
++                    indicators["vpin_cdf"] = float(normal_cdf(float(vz)))
++                except Exception:
++                    pass
+             except Exception:
+                 pass
+         except Exception:
+@@ -4535,6 +4580,30 @@ class OrderFlowStrategy:
+                 key = f"smt:snap:{runtime.symbol}"
+                 # БАТЧ: Используем MetricsBatcher для снимков SMT (без аллокаций тасок)
+                 self._mbatch.put("set", key, snap.to_json(), ex=ttl_sec)
++
++                # Phase D (P3): store extra snapshot fields WITHOUT changing SymbolSnapshot schema.
++                # Rationale: `core.smt_symbol_snapshot.SymbolSnapshot` has a fixed schema.
++                # We keep additional (evolving) fields in a sidecar key and merge in EntryPolicy.
++                try:
++                    from services.orderflow.flow_toxicity import normal_cdf
++                    ofi_z = float(getattr(runtime, "ofi_norm_z", 0.0) or 0.0)
++                    vz = 0.0
++                    try:
++                        l3s = getattr(runtime, "l3_stats", None)
++                        if l3s is not None:
++                            vz = float(getattr(l3s, "vpin_tox_z", 0.0) or 0.0)
++                    except Exception:
++                        vz = 0.0
++                    extra = {
++                        "ofi_norm_z": float(ofi_z),
++                        "vpin_tox_z": float(vz),
++                        "vpin_cdf": float(normal_cdf(float(vz))),
++                        "flow_tox_ts_ms": int(now_ts),
++                    }
++                    ex_key = f"smt:snap_extra:{runtime.symbol}"
++                    self._mbatch.put("set", ex_key, json.dumps(extra, separators=(",", ":")), ex=ttl_sec)
++                except Exception:
++                    pass
+         except Exception:
+             pass
+ 
+diff --git a/new/services/orderflow/tests/test_flow_toxicity_policy_v1.py b/new/services/orderflow/tests/test_flow_toxicity_policy_v1.py
+new file mode 100644
+index 0000000..ebafe69
+--- /dev/null
++++ b/new/services/orderflow/tests/test_flow_toxicity_policy_v1.py
+@@ -0,0 +1,108 @@
++# -*- coding: utf-8 -*-
++"""Unit tests for FlowToxicity policy decisions (Phase D / P3)."""
++
++from __future__ import annotations
++
++import sys
++from pathlib import Path
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
++
++from services.orderflow.flow_toxicity import evaluate_flow_toxicity
++
++
++def test_default_profile_is_annotate_only():
++    dec = evaluate_flow_toxicity(
++        profile="default",
++        ofi_norm_z=4.0,
++        thr_ofi_norm_z=3.0,
++        vpin_cdf=0.0,
++        thr_vpin_cdf=0.0,
++        tca_is_p95_bps=0.0,
++        tca_perm_impact_p95_bps=0.0,
++        thr_is_p95_bps=0.0,
++        thr_perm_impact_p95_bps=0.0,
++        tighten_mult=1.0,
++        tighten_cap_bps=10.0,
++    )
++    assert dec.hit is True
++    assert dec.mode == "monitor"
++    assert dec.tighten_add_bps == 0.0
++    assert dec.veto is False
++
++
++def test_strict_profile_tightens_but_does_not_veto():
++    dec = evaluate_flow_toxicity(
++        profile="strict",
++        ofi_norm_z=5.0,
++        thr_ofi_norm_z=3.0,
++        vpin_cdf=0.0,
++        thr_vpin_cdf=0.0,
++        tca_is_p95_bps=0.0,
++        tca_perm_impact_p95_bps=0.0,
++        thr_is_p95_bps=0.0,
++        thr_perm_impact_p95_bps=0.0,
++        tighten_mult=2.0,
++        tighten_cap_bps=10.0,
++    )
++    assert dec.hit is True
++    assert dec.mode == "tighten"
++    assert dec.tighten_add_bps > 0.0
++    assert dec.veto is False
++
++
++def test_hard_profile_veto_requires_tca_by_default():
++    # toxic flow but TCA thresholds disabled => no veto
++    dec1 = evaluate_flow_toxicity(
++        profile="hard",
++        ofi_norm_z=5.0,
++        thr_ofi_norm_z=3.0,
++        vpin_cdf=0.0,
++        thr_vpin_cdf=0.0,
++        tca_is_p95_bps=10.0,
++        tca_perm_impact_p95_bps=10.0,
++        thr_is_p95_bps=0.0,
++        thr_perm_impact_p95_bps=0.0,
++        tighten_mult=1.0,
++        tighten_cap_bps=10.0,
++        veto_without_tca=False,
++    )
++    assert dec1.hit is True
++    assert dec1.mode == "veto"
++    assert dec1.veto is False
++
++    # enable TCA threshold and make it bad => veto
++    dec2 = evaluate_flow_toxicity(
++        profile="hard",
++        ofi_norm_z=5.0,
++        thr_ofi_norm_z=3.0,
++        vpin_cdf=0.0,
++        thr_vpin_cdf=0.0,
++        tca_is_p95_bps=12.0,
++        tca_perm_impact_p95_bps=0.0,
++        thr_is_p95_bps=5.0,
++        thr_perm_impact_p95_bps=0.0,
++        tighten_mult=1.0,
++        tighten_cap_bps=10.0,
++        veto_without_tca=False,
++    )
++    assert dec2.hit is True
++    assert dec2.veto is True
++
++
++def test_vpin_path_triggers_hit_and_tighten():
++    dec = evaluate_flow_toxicity(
++        profile="strict",
++        ofi_norm_z=0.0,
++        thr_ofi_norm_z=0.0,
++        vpin_cdf=0.99,
++        thr_vpin_cdf=0.95,
++        tca_is_p95_bps=0.0,
++        tca_perm_impact_p95_bps=0.0,
++        thr_is_p95_bps=0.0,
++        thr_perm_impact_p95_bps=0.0,
++        tighten_mult=10.0,
++        tighten_cap_bps=10.0,
++    )
++    assert dec.hit is True
++    assert dec.tighten_add_bps > 0.0
+diff --git a/new/services/orderflow/tests/test_flow_toxicity_v1.py b/new/services/orderflow/tests/test_flow_toxicity_v1.py
+new file mode 100644
+index 0000000..2f86f8b
+--- /dev/null
++++ b/new/services/orderflow/tests/test_flow_toxicity_v1.py
+@@ -0,0 +1,30 @@
++# -*- coding: utf-8 -*-
++"""Unit tests for Phase D (P3) flow toxicity helpers."""
++
++from __future__ import annotations
++
++import sys
++from pathlib import Path
++
++# Ensure SoT packages are importable: core.*, services.*
++sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
++
++from services.orderflow.flow_toxicity import compute_ofi_norm_notional, normal_cdf
++
++
++def test_compute_ofi_norm_notional_basic_ratio():
++    # ofi_best_qty=10, mid=100 => ofi_usd=1000
++    # depth_usd_near=10000 => ratio=0.1
++    out = compute_ofi_norm_notional(ofi_best_qty=10.0, mid=100.0, depth_usd_near=10_000.0)
++    assert abs(out - 0.1) < 1e-12
++
++
++def test_compute_ofi_norm_notional_fail_open_on_missing_depth_or_mid():
++    assert compute_ofi_norm_notional(ofi_best_qty=10.0, mid=0.0, depth_usd_near=1000.0) == 0.0
++    assert compute_ofi_norm_notional(ofi_best_qty=10.0, mid=100.0, depth_usd_near=0.0) == 0.0
++
++
++def test_normal_cdf_sanity():
++    assert abs(normal_cdf(0.0) - 0.5) < 1e-12
++    assert normal_cdf(3.0) > 0.99
++    assert normal_cdf(-3.0) < 0.01
+diff --git a/orig/services/smt_entry_policy_service.py b/new/services/smt_entry_policy_service.py
+index 22877b7..abdeecc 100644
+--- a/orig/services/smt_entry_policy_service.py
++++ b/new/services/smt_entry_policy_service.py
+@@ -193,8 +193,27 @@ class EntryPolicyService:
+         return snap, bundle
+ 
+     async def _get_snap(self, sym: str) -> Dict[str, Any]:
+-        raw = await self.r.get(f"{self.cfg.snap_prefix}{sym.upper()}")
+-        return json.loads(raw) if raw else {}
++        # Merge base SMT snapshot + optional sidecar fields.
++        # Sidecar is used for evolving metrics without breaking SymbolSnapshot schema.
++        base_key = f"{self.cfg.snap_prefix}{sym.upper()}"
++        extra_prefix = os.getenv("SMT_SNAP_EXTRA_PREFIX", "smt:snap_extra:")
++        extra_key = f"{extra_prefix}{sym.upper()}"
++        raw = None
++        rawx = None
++        try:
++            raw, rawx = await self.r.mget(base_key, extra_key)
++        except Exception:
++            raw = await self.r.get(base_key)
++            rawx = await self.r.get(extra_key)
++        snap = json.loads(raw) if raw else {}
++        if rawx:
++            try:
++                extra = json.loads(rawx)
++                if isinstance(extra, dict):
++                    snap.update(extra)
++            except Exception:
++                pass
++        return snap
+ 
+     async def _get_bundle(self, bid: str) -> Dict[str, Any]:
+         d = await self.r.hgetall(f"{self.cfg.bundle_prefix}{bid}")
+@@ -288,6 +307,13 @@ class EntryPolicyService:
+                         "recovery_time_ms": int(snap.get("liq_geom_recovery_time_ms", 0) or 0),
+                         "tighten_add_bps": float(snap.get("liq_geom_tighten_add_bps", 0.0) or 0.0),
+                     },
++                    "flow_toxic": {
++                        "profile": str(snap.get("flow_toxic_profile", "")),
++                        "flags": str(snap.get("flow_toxic_flags", "")),
++                        "ofi_norm_z": float(snap.get("ofi_norm_z", snap.get("flow_toxic_ofi_norm_z", 0.0)) or 0.0),
++                        "vpin_cdf": float(snap.get("vpin_cdf", snap.get("flow_toxic_vpin_cdf", 0.0)) or 0.0),
++                        "tighten_add_bps": float(snap.get("flow_toxic_tighten_add_bps", 0.0) or 0.0),
++                    },
+                 },
+                 "snap": {k: snap.get(k) for k in ("close_px", "spread_bp", "pressure_sps", "cooldown_sps", "obi_age_ms", "regime")},
+             }
+@@ -364,6 +390,78 @@ class EntryPolicyService:
+         except Exception:
+             return True, "", ""
+ 
++    def _apply_flow_toxicity_policy(self, *, cand: Dict[str, Any], snap: Dict[str, Any]) -> Tuple[bool, str, str]:
++        """Phase D (P3): Flow toxicity overlay for EntryPolicy.
++
++        Inputs (expected in `snap`, possibly via sidecar `smt:snap_extra:*`):
++          - ofi_norm_z: robust z-score of OFI normalized by near depth
++          - vpin_cdf: optional, derived from L3-lite tracker
++
++        Profiles:
++          - default/soft: annotate only
++          - strict: tighten expected_slippage_bps
++          - hard: tighten + veto (by default requires TCA-bad, unless FLOW_TOX_VETO_WITHOUT_TCA=1)
++
++        Fail-open: missing metrics => allow.
++        """
++        try:
++            from services.orderflow.flow_toxicity import evaluate_flow_toxicity
++
++            profile = str(os.getenv("ENTRY_POLICY_PROFILE", os.getenv("GATE_PROFILE", "default")) or "default").strip().lower()
++            if profile not in {"default", "soft", "strict", "hard"}:
++                profile = "default"
++
++            thr_z = float(os.getenv("FLOW_OFI_NORM_Z_MAX", "0") or 0.0)
++            thr_vpin = float(os.getenv("FLOW_VPIN_CDF_MAX", "0") or 0.0)
++
++            cap = float(os.getenv("ENTRY_FLOW_TOX_TIGHTEN_ADD_CAP_BPS", os.getenv("FLOW_TOX_TIGHTEN_ADD_CAP_BPS", "6.0")) or 6.0)
++            mult = float(os.getenv("ENTRY_FLOW_TOX_TIGHTEN_ADD_MULT", os.getenv("FLOW_TOX_TIGHTEN_ADD_MULT", "1.0")) or 1.0)
++
++            veto_wo_tca = bool(int(os.getenv("FLOW_TOX_VETO_WITHOUT_TCA", "0") or 0))
++            thr_is = float(os.getenv("ENTRY_POLICY_MAX_IS_P95_BPS", os.getenv("EXEC_MAX_IS_P95_BPS", "0")) or 0.0)
++            thr_imp = float(os.getenv("ENTRY_POLICY_MAX_PERM_IMPACT_P95_BPS", os.getenv("EXEC_MAX_PERM_IMPACT_P95_BPS", "0")) or 0.0)
++
++            ofi_z = float(snap.get("ofi_norm_z", 0.0) or 0.0)
++            vpin_cdf = float(snap.get("vpin_cdf", 0.0) or 0.0)
++
++            tca_is = float(snap.get("tca_is_p95_bps", snap.get("is_p95_bps", 0.0)) or 0.0)
++            tca_imp = float(snap.get("tca_perm_impact_p95_bps", snap.get("perm_impact_p95_bps", 0.0)) or 0.0)
++
++            dec = evaluate_flow_toxicity(
++                profile=profile,
++                ofi_norm_z=ofi_z,
++                thr_ofi_norm_z=thr_z,
++                vpin_cdf=vpin_cdf,
++                thr_vpin_cdf=thr_vpin,
++                tca_is_p95_bps=tca_is,
++                tca_perm_impact_p95_bps=tca_imp,
++                thr_is_p95_bps=thr_is,
++                thr_perm_impact_p95_bps=thr_imp,
++                tighten_mult=mult,
++                tighten_cap_bps=cap,
++                veto_without_tca=veto_wo_tca,
++            )
++
++            snap["flow_toxic_profile"] = profile
++            snap["flow_toxic_flags"] = ",".join(dec.flags) if dec.flags else ""
++            snap["flow_toxic_ofi_norm_z"] = float(ofi_z)
++            snap["flow_toxic_vpin_cdf"] = float(vpin_cdf)
++
++            if dec.tighten_add_bps > 0.0:
++                exp0 = _f(snap.get("expected_slippage_bps", snap.get("expected_slippage", 0.0)), 0.0)
++                exp1 = float(exp0 + float(dec.tighten_add_bps))
++                snap["expected_slippage_bps"] = exp1
++                snap["flow_toxic_tighten_add_bps"] = float(dec.tighten_add_bps)
++
++            if dec.veto:
++                notes = f"flags={snap.get('flow_toxic_flags','')} ofi_z={ofi_z:.2f} thr={thr_z:.2f} vpin_cdf={vpin_cdf:.3f} thr={thr_vpin:.3f} tca_is_p95={tca_is:.2f} thr={thr_is:.2f} tca_imp_p95={tca_imp:.2f} thr={thr_imp:.2f}"
++                return False, "VETO_FLOW_TOXIC", notes
++
++            notes = "" if not dec.hit else f"flags={snap.get('flow_toxic_flags','')}"
++            return True, "", notes
++        except Exception:
++            return True, "", ""
++
+     async def _emit_entry(self, *, now_ms: int, cand: Dict[str, Any], snap: Dict[str, Any], bundle: Dict[str, Any]) -> None:
+         try:
+             eid = _entry_id(cand, snap, bundle)

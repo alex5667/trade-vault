@@ -1,0 +1,755 @@
+--- orderflow_services/orchestration_composite_preflight_exporter_v1.py
++++ orderflow_services/orchestration_composite_preflight_exporter_v1.py
+@@ -1,14 +1,15 @@
+ from __future__ import annotations
+ 
+-"""Prometheus exporter for composite orchestration preflight state (P5.4).
++"""Prometheus exporter for composite orchestration preflight state (P5.4 / P6.4).
+ 
+-The composite preflight already persists one compact Redis hash per rollout-sensitive
+-purpose. This exporter turns that control-plane state into low-cardinality metrics so
++The composite preflight persists one compact Redis hash per rollout-sensitive purpose.
++This exporter turns that control-plane state into low-cardinality metrics so
+ Prometheus/Grafana can answer:
+   - which purpose is blocked / invalid right now
+   - which source currently dominates the orchestration decision
+   - which normalized reason-code family is active
+-  - whether the persisted decision is stale
++  - which *strategy_research_stats* criterion is currently contributing to the
++    rollout decision path
+ 
+ The exporter intentionally keeps labels bounded. Raw reason strings from Redis are
+ normalized into a finite reason-code family set; unknown values collapse into
+@@ -38,8 +39,19 @@
+     'meta_cov_rollout_controller',
+     'conf_score_guardrails_autopromo_controller',
+ )
+-KNOWN_STATUSES = ('ok', 'block', 'invalid')
+-KNOWN_SOURCES = ('none', 'deploy_lint', 'latency_contract', 'research_guard')
++KNOWN_STATUSES = ('ok', 'block', 'invalid', 'soft')
++KNOWN_SOURCES = ('none', 'deploy_lint', 'latency_contract', 'strategy_research_stats', 'research_guard')
++STRATEGY_RESEARCH_STATS_REASON_FAMILIES = (
++    'ok',
++    'psr_low',
++    'dsr_low',
++    'pbo_high',
++    'metric_low',
++    'report_stale',
++    'state_missing',
++    'invalid',
++    'other',
++)
+ KNOWN_REASON_CODES = (
+     'ok',
+     'deploy_lint:persistent_config_drift',
+@@ -52,6 +64,17 @@
+     'latency_contract:redis_unavailable',
+     'latency_contract:redis_connect_failed',
+     'latency_contract:other',
++    'strategy_research_stats:psr_low',
++    'strategy_research_stats:dsr_low',
++    'strategy_research_stats:pbo_high',
++    'strategy_research_stats:metric_low',
++    'strategy_research_stats:report_stale',
++    'strategy_research_stats:state_missing',
++    'strategy_research_stats:invalid',
++    'strategy_research_stats:redis_unavailable',
++    'strategy_research_stats:redis_connect_failed',
++    'strategy_research_stats:stage_allowed',
++    'strategy_research_stats:other',
+     'research_guard:report_stale',
+     'research_guard:state_missing',
+     'research_guard:report_only',
+@@ -110,13 +133,27 @@
+     return f'{prefix.rstrip(":")}:{purpose}'
+ 
+ 
++def research_stats_reason_family(raw_reason: str) -> str:
++    raw = (raw_reason or '').strip().lower()
++    if ':' in raw:
++        _, raw = raw.split(':', 1)
++    raw = raw.strip()
++    if not raw or raw == 'ok':
++        return 'ok'
++    for family in STRATEGY_RESEARCH_STATS_REASON_FAMILIES:
++        if family in ('ok', 'other'):
++            continue
++        if family in raw:
++            return family
++    return 'other'
++
++
+ def normalize_reason_code(source: str, reason_code: str) -> str:
+     src = (source or 'none').strip() or 'none'
+     raw = (reason_code or '').strip()
+     if not raw:
+         return 'none:ok' if src == 'none' else f'{src}:other'
+ 
+-    # Composite state sometimes stores the full source-prefixed code already.
+     if ':' in raw:
+         prefix, suffix = raw.split(':', 1)
+         if prefix:
+@@ -127,6 +164,7 @@
+     known_for_source = {
+         'deploy_lint': {'persistent_config_drift', 'state_missing', 'redis_unavailable', 'redis_connect_failed'},
+         'latency_contract': {'external_missing', 'state_missing', 'redis_unavailable', 'redis_connect_failed'},
++        'strategy_research_stats': {'psr_low', 'dsr_low', 'pbo_high', 'metric_low', 'report_stale', 'state_missing', 'invalid', 'redis_unavailable', 'redis_connect_failed', 'stage_allowed'},
+         'research_guard': {'report_stale', 'state_missing', 'report_only', 'redis_unavailable', 'redis_connect_failed'},
+         'none': {'ok'},
+     }
+@@ -146,20 +184,17 @@
+     decision_status: str = 'invalid'
+     selected_source: str = 'none'
+     selected_reason_code: str = 'none:ok'
++    deploy_lint_status: str = 'unknown'
++    latency_contract_status: str = 'unknown'
++    strategy_research_stats_status: str = 'unknown'
++    strategy_research_stats_reason_family: str = 'ok'
++    research_guard_status: str = 'unknown'
+ 
+ 
+ def compute_purpose_state(purpose: str, raw: Mapping[str, str], now_ms: int | None = None) -> PurposeState:
+     now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
+     if not raw:
+-        return PurposeState(
+-            purpose=purpose,
+-            present=0.0,
+-            age_seconds=0.0,
+-            selected_priority_rank=999.0,
+-            decision_status='invalid',
+-            selected_source='none',
+-            selected_reason_code='none:ok',
+-        )
++        return PurposeState(purpose=purpose)
+ 
+     updated_ts_ms = _f(raw.get('updated_ts_ms') or 0.0)
+     age_seconds = 0.0
+@@ -173,6 +208,12 @@
+     if source not in KNOWN_SOURCES:
+         source = 'none'
+ 
++    strategy_reason_raw = str(
++        raw.get('strategy_research_stats_reason')
++        or raw.get('research_stats_reason')
++        or ''
++    )
++
+     return PurposeState(
+         purpose=purpose,
+         present=1.0,
+@@ -181,6 +222,11 @@
+         decision_status=status,
+         selected_source=source,
+         selected_reason_code=normalize_reason_code(source, str(raw.get('selected_reason_code') or raw.get('selected_reason') or '')),
++        deploy_lint_status=str(raw.get('deploy_lint_status') or 'unknown'),
++        latency_contract_status=str(raw.get('latency_contract_status') or 'unknown'),
++        strategy_research_stats_status=str(raw.get('strategy_research_stats_status') or raw.get('research_stats_status') or 'unknown'),
++        strategy_research_stats_reason_family=research_stats_reason_family(strategy_reason_raw),
++        research_guard_status=str(raw.get('research_guard_status') or 'unknown'),
+     )
+ 
+ 
+@@ -191,6 +237,7 @@
+     block_total: float
+     invalid_total: float
+     ok_total: float
++    soft_total: float
+ 
+ 
+ def summarize(states: Iterable[PurposeState]) -> SummaryState:
+@@ -201,6 +248,7 @@
+         block_total=float(sum(1 for s in values if s.decision_status == 'block')),
+         invalid_total=float(sum(1 for s in values if s.decision_status == 'invalid')),
+         ok_total=float(sum(1 for s in values if s.decision_status == 'ok')),
++        soft_total=float(sum(1 for s in values if s.decision_status == 'soft')),
+     )
+ 
+ 
+@@ -212,11 +260,23 @@
+ DECISION_STATUS = Gauge('orchestration_composite_preflight_decision_status', 'One-hot composite decision status', ['purpose', 'status'])
+ SELECTED_SOURCE = Gauge('orchestration_composite_preflight_selected_source', 'One-hot selected source dominating the composite decision', ['purpose', 'source'])
+ SELECTED_REASON_CODE = Gauge('orchestration_composite_preflight_selected_reason_code', 'One-hot normalized selected reason code', ['purpose', 'reason_code'])
++SOURCE_STATUS = Gauge('orchestration_composite_preflight_source_status', 'Per-source orchestration preflight status', ['purpose', 'source', 'status'])
++RESEARCH_STATS_REASON_FAMILY = Gauge(
++    'orchestration_composite_preflight_strategy_research_stats_reason_family',
++    'Current strategy_research_stats reason family per purpose (one-hot from per-source state)',
++    ['purpose', 'family'],
++)
++RESEARCH_STATS_REASON_FAMILY_TOTAL = Gauge(
++    'orchestration_composite_preflight_strategy_research_stats_reason_family_total',
++    'Number of purposes currently showing each strategy_research_stats reason family',
++    ['family'],
++)
+ SUMMARY_PURPOSES = Gauge('orchestration_composite_preflight_purposes_total', 'Configured orchestration purposes covered by exporter')
+ SUMMARY_PRESENT = Gauge('orchestration_composite_preflight_present_total', 'Number of purposes with persisted state')
+ SUMMARY_BLOCK = Gauge('orchestration_composite_preflight_block_total', 'Number of purposes currently blocked')
+ SUMMARY_INVALID = Gauge('orchestration_composite_preflight_invalid_total', 'Number of purposes currently invalid')
+ SUMMARY_OK = Gauge('orchestration_composite_preflight_ok_total', 'Number of purposes currently OK')
++SUMMARY_SOFT = Gauge('orchestration_composite_preflight_soft_total', 'Number of purposes currently soft-blocked')
+ 
+ 
+ def export_states(states: list[PurposeState]) -> None:
+@@ -226,7 +286,9 @@
+     SUMMARY_BLOCK.set(summary.block_total)
+     SUMMARY_INVALID.set(summary.invalid_total)
+     SUMMARY_OK.set(summary.ok_total)
++    SUMMARY_SOFT.set(summary.soft_total)
+ 
++    family_totals = {family: 0.0 for family in STRATEGY_RESEARCH_STATS_REASON_FAMILIES}
+     active_reason_codes = {state.purpose: state.selected_reason_code for state in states}
+     for state in states:
+         PURPOSE_PRESENT.labels(purpose=state.purpose).set(state.present)
+@@ -236,8 +298,25 @@
+             DECISION_STATUS.labels(purpose=state.purpose, status=status).set(1.0 if status == state.decision_status else 0.0)
+         for source in KNOWN_SOURCES:
+             SELECTED_SOURCE.labels(purpose=state.purpose, source=source).set(1.0 if source == state.selected_source else 0.0)
++        source_statuses = {
++            'deploy_lint': state.deploy_lint_status,
++            'latency_contract': state.latency_contract_status,
++            'strategy_research_stats': state.strategy_research_stats_status,
++            'research_guard': state.research_guard_status,
++        }
++        for source in KNOWN_SOURCES:
++            if source == 'none':
++                continue
++            for status in KNOWN_STATUSES:
++                SOURCE_STATUS.labels(purpose=state.purpose, source=source, status=status).set(1.0 if source_statuses.get(source) == status else 0.0)
+         for reason_code in KNOWN_REASON_CODES:
+             SELECTED_REASON_CODE.labels(purpose=state.purpose, reason_code=reason_code).set(1.0 if reason_code == active_reason_codes[state.purpose] else 0.0)
++        if state.strategy_research_stats_status in ('block', 'invalid', 'soft'):
++            family_totals[state.strategy_research_stats_reason_family] += 1.0
++        for family in STRATEGY_RESEARCH_STATS_REASON_FAMILIES:
++            RESEARCH_STATS_REASON_FAMILY.labels(purpose=state.purpose, family=family).set(1.0 if family == state.strategy_research_stats_reason_family else 0.0)
++    for family in STRATEGY_RESEARCH_STATS_REASON_FAMILIES:
++        RESEARCH_STATS_REASON_FAMILY_TOTAL.labels(family=family).set(family_totals[family])
+ 
+ 
+ def main() -> None:
+--- tick_flow_full/orderflow_services/orchestration_composite_preflight_exporter_v1.py
++++ tick_flow_full/orderflow_services/orchestration_composite_preflight_exporter_v1.py
+@@ -1,14 +1,15 @@
+ from __future__ import annotations
+ 
+-"""Prometheus exporter for composite orchestration preflight state (P5.4).
++"""Prometheus exporter for composite orchestration preflight state (P5.4 / P6.4).
+ 
+-The composite preflight already persists one compact Redis hash per rollout-sensitive
+-purpose. This exporter turns that control-plane state into low-cardinality metrics so
++The composite preflight persists one compact Redis hash per rollout-sensitive purpose.
++This exporter turns that control-plane state into low-cardinality metrics so
+ Prometheus/Grafana can answer:
+   - which purpose is blocked / invalid right now
+   - which source currently dominates the orchestration decision
+   - which normalized reason-code family is active
+-  - whether the persisted decision is stale
++  - which *strategy_research_stats* criterion is currently contributing to the
++    rollout decision path
+ 
+ The exporter intentionally keeps labels bounded. Raw reason strings from Redis are
+ normalized into a finite reason-code family set; unknown values collapse into
+@@ -38,8 +39,19 @@
+     'meta_cov_rollout_controller',
+     'conf_score_guardrails_autopromo_controller',
+ )
+-KNOWN_STATUSES = ('ok', 'block', 'invalid')
+-KNOWN_SOURCES = ('none', 'deploy_lint', 'latency_contract', 'research_guard')
++KNOWN_STATUSES = ('ok', 'block', 'invalid', 'soft')
++KNOWN_SOURCES = ('none', 'deploy_lint', 'latency_contract', 'strategy_research_stats', 'research_guard')
++STRATEGY_RESEARCH_STATS_REASON_FAMILIES = (
++    'ok',
++    'psr_low',
++    'dsr_low',
++    'pbo_high',
++    'metric_low',
++    'report_stale',
++    'state_missing',
++    'invalid',
++    'other',
++)
+ KNOWN_REASON_CODES = (
+     'ok',
+     'deploy_lint:persistent_config_drift',
+@@ -52,6 +64,17 @@
+     'latency_contract:redis_unavailable',
+     'latency_contract:redis_connect_failed',
+     'latency_contract:other',
++    'strategy_research_stats:psr_low',
++    'strategy_research_stats:dsr_low',
++    'strategy_research_stats:pbo_high',
++    'strategy_research_stats:metric_low',
++    'strategy_research_stats:report_stale',
++    'strategy_research_stats:state_missing',
++    'strategy_research_stats:invalid',
++    'strategy_research_stats:redis_unavailable',
++    'strategy_research_stats:redis_connect_failed',
++    'strategy_research_stats:stage_allowed',
++    'strategy_research_stats:other',
+     'research_guard:report_stale',
+     'research_guard:state_missing',
+     'research_guard:report_only',
+@@ -110,13 +133,27 @@
+     return f'{prefix.rstrip(":")}:{purpose}'
+ 
+ 
++def research_stats_reason_family(raw_reason: str) -> str:
++    raw = (raw_reason or '').strip().lower()
++    if ':' in raw:
++        _, raw = raw.split(':', 1)
++    raw = raw.strip()
++    if not raw or raw == 'ok':
++        return 'ok'
++    for family in STRATEGY_RESEARCH_STATS_REASON_FAMILIES:
++        if family in ('ok', 'other'):
++            continue
++        if family in raw:
++            return family
++    return 'other'
++
++
+ def normalize_reason_code(source: str, reason_code: str) -> str:
+     src = (source or 'none').strip() or 'none'
+     raw = (reason_code or '').strip()
+     if not raw:
+         return 'none:ok' if src == 'none' else f'{src}:other'
+ 
+-    # Composite state sometimes stores the full source-prefixed code already.
+     if ':' in raw:
+         prefix, suffix = raw.split(':', 1)
+         if prefix:
+@@ -127,6 +164,7 @@
+     known_for_source = {
+         'deploy_lint': {'persistent_config_drift', 'state_missing', 'redis_unavailable', 'redis_connect_failed'},
+         'latency_contract': {'external_missing', 'state_missing', 'redis_unavailable', 'redis_connect_failed'},
++        'strategy_research_stats': {'psr_low', 'dsr_low', 'pbo_high', 'metric_low', 'report_stale', 'state_missing', 'invalid', 'redis_unavailable', 'redis_connect_failed', 'stage_allowed'},
+         'research_guard': {'report_stale', 'state_missing', 'report_only', 'redis_unavailable', 'redis_connect_failed'},
+         'none': {'ok'},
+     }
+@@ -146,20 +184,17 @@
+     decision_status: str = 'invalid'
+     selected_source: str = 'none'
+     selected_reason_code: str = 'none:ok'
++    deploy_lint_status: str = 'unknown'
++    latency_contract_status: str = 'unknown'
++    strategy_research_stats_status: str = 'unknown'
++    strategy_research_stats_reason_family: str = 'ok'
++    research_guard_status: str = 'unknown'
+ 
+ 
+ def compute_purpose_state(purpose: str, raw: Mapping[str, str], now_ms: int | None = None) -> PurposeState:
+     now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
+     if not raw:
+-        return PurposeState(
+-            purpose=purpose,
+-            present=0.0,
+-            age_seconds=0.0,
+-            selected_priority_rank=999.0,
+-            decision_status='invalid',
+-            selected_source='none',
+-            selected_reason_code='none:ok',
+-        )
++        return PurposeState(purpose=purpose)
+ 
+     updated_ts_ms = _f(raw.get('updated_ts_ms') or 0.0)
+     age_seconds = 0.0
+@@ -173,6 +208,12 @@
+     if source not in KNOWN_SOURCES:
+         source = 'none'
+ 
++    strategy_reason_raw = str(
++        raw.get('strategy_research_stats_reason')
++        or raw.get('research_stats_reason')
++        or ''
++    )
++
+     return PurposeState(
+         purpose=purpose,
+         present=1.0,
+@@ -181,6 +222,11 @@
+         decision_status=status,
+         selected_source=source,
+         selected_reason_code=normalize_reason_code(source, str(raw.get('selected_reason_code') or raw.get('selected_reason') or '')),
++        deploy_lint_status=str(raw.get('deploy_lint_status') or 'unknown'),
++        latency_contract_status=str(raw.get('latency_contract_status') or 'unknown'),
++        strategy_research_stats_status=str(raw.get('strategy_research_stats_status') or raw.get('research_stats_status') or 'unknown'),
++        strategy_research_stats_reason_family=research_stats_reason_family(strategy_reason_raw),
++        research_guard_status=str(raw.get('research_guard_status') or 'unknown'),
+     )
+ 
+ 
+@@ -191,6 +237,7 @@
+     block_total: float
+     invalid_total: float
+     ok_total: float
++    soft_total: float
+ 
+ 
+ def summarize(states: Iterable[PurposeState]) -> SummaryState:
+@@ -201,6 +248,7 @@
+         block_total=float(sum(1 for s in values if s.decision_status == 'block')),
+         invalid_total=float(sum(1 for s in values if s.decision_status == 'invalid')),
+         ok_total=float(sum(1 for s in values if s.decision_status == 'ok')),
++        soft_total=float(sum(1 for s in values if s.decision_status == 'soft')),
+     )
+ 
+ 
+@@ -212,11 +260,23 @@
+ DECISION_STATUS = Gauge('orchestration_composite_preflight_decision_status', 'One-hot composite decision status', ['purpose', 'status'])
+ SELECTED_SOURCE = Gauge('orchestration_composite_preflight_selected_source', 'One-hot selected source dominating the composite decision', ['purpose', 'source'])
+ SELECTED_REASON_CODE = Gauge('orchestration_composite_preflight_selected_reason_code', 'One-hot normalized selected reason code', ['purpose', 'reason_code'])
++SOURCE_STATUS = Gauge('orchestration_composite_preflight_source_status', 'Per-source orchestration preflight status', ['purpose', 'source', 'status'])
++RESEARCH_STATS_REASON_FAMILY = Gauge(
++    'orchestration_composite_preflight_strategy_research_stats_reason_family',
++    'Current strategy_research_stats reason family per purpose (one-hot from per-source state)',
++    ['purpose', 'family'],
++)
++RESEARCH_STATS_REASON_FAMILY_TOTAL = Gauge(
++    'orchestration_composite_preflight_strategy_research_stats_reason_family_total',
++    'Number of purposes currently showing each strategy_research_stats reason family',
++    ['family'],
++)
+ SUMMARY_PURPOSES = Gauge('orchestration_composite_preflight_purposes_total', 'Configured orchestration purposes covered by exporter')
+ SUMMARY_PRESENT = Gauge('orchestration_composite_preflight_present_total', 'Number of purposes with persisted state')
+ SUMMARY_BLOCK = Gauge('orchestration_composite_preflight_block_total', 'Number of purposes currently blocked')
+ SUMMARY_INVALID = Gauge('orchestration_composite_preflight_invalid_total', 'Number of purposes currently invalid')
+ SUMMARY_OK = Gauge('orchestration_composite_preflight_ok_total', 'Number of purposes currently OK')
++SUMMARY_SOFT = Gauge('orchestration_composite_preflight_soft_total', 'Number of purposes currently soft-blocked')
+ 
+ 
+ def export_states(states: list[PurposeState]) -> None:
+@@ -226,7 +286,9 @@
+     SUMMARY_BLOCK.set(summary.block_total)
+     SUMMARY_INVALID.set(summary.invalid_total)
+     SUMMARY_OK.set(summary.ok_total)
++    SUMMARY_SOFT.set(summary.soft_total)
+ 
++    family_totals = {family: 0.0 for family in STRATEGY_RESEARCH_STATS_REASON_FAMILIES}
+     active_reason_codes = {state.purpose: state.selected_reason_code for state in states}
+     for state in states:
+         PURPOSE_PRESENT.labels(purpose=state.purpose).set(state.present)
+@@ -236,8 +298,25 @@
+             DECISION_STATUS.labels(purpose=state.purpose, status=status).set(1.0 if status == state.decision_status else 0.0)
+         for source in KNOWN_SOURCES:
+             SELECTED_SOURCE.labels(purpose=state.purpose, source=source).set(1.0 if source == state.selected_source else 0.0)
++        source_statuses = {
++            'deploy_lint': state.deploy_lint_status,
++            'latency_contract': state.latency_contract_status,
++            'strategy_research_stats': state.strategy_research_stats_status,
++            'research_guard': state.research_guard_status,
++        }
++        for source in KNOWN_SOURCES:
++            if source == 'none':
++                continue
++            for status in KNOWN_STATUSES:
++                SOURCE_STATUS.labels(purpose=state.purpose, source=source, status=status).set(1.0 if source_statuses.get(source) == status else 0.0)
+         for reason_code in KNOWN_REASON_CODES:
+             SELECTED_REASON_CODE.labels(purpose=state.purpose, reason_code=reason_code).set(1.0 if reason_code == active_reason_codes[state.purpose] else 0.0)
++        if state.strategy_research_stats_status in ('block', 'invalid', 'soft'):
++            family_totals[state.strategy_research_stats_reason_family] += 1.0
++        for family in STRATEGY_RESEARCH_STATS_REASON_FAMILIES:
++            RESEARCH_STATS_REASON_FAMILY.labels(purpose=state.purpose, family=family).set(1.0 if family == state.strategy_research_stats_reason_family else 0.0)
++    for family in STRATEGY_RESEARCH_STATS_REASON_FAMILIES:
++        RESEARCH_STATS_REASON_FAMILY_TOTAL.labels(family=family).set(family_totals[family])
+ 
+ 
+ def main() -> None:
+--- orderflow_services/orchestration_composite_preflight_history_exporter_v1.py
++++ orderflow_services/orchestration_composite_preflight_history_exporter_v1.py
+@@ -1,26 +1,19 @@
+ from __future__ import annotations
+ 
+-"""Node-exporter textfile exporter for orchestration composite preflight history (P5.5).
++"""Node-exporter textfile exporter for orchestration composite preflight history (P5.5 / P6.4).
+ 
+ Reads the unified orchestration preflight audit stream and rolls it into bounded
+ history metrics for the last 24h / 7d. The goal is to make *frequency* of
+-block/invalid decisions observable, not only the current point-in-time state.
++block/invalid/soft decisions observable, not only the current point-in-time state.
+ 
+-Design notes
+-------------
+-- The exporter uses the existing audit stream emitted by
+-  ``orchestration_composite_preflight_v1``.
+-- Labels remain bounded via the same reason normalization logic used by the
+-  live exporter from P5.4.
+-- Output is written atomically to a node_exporter textfile collector path.
+-- Window completeness is exposed explicitly so 7d SLO views do not silently use
+-  partial history if the Redis stream retention is shorter than the requested
+-  window.
++P6.4 adds dedicated drilldown metrics for ``strategy_research_stats`` reason
++families so Grafana can answer which research-stat criterion most often stops
++rollout: ``psr_low``, ``dsr_low``, ``pbo_high``, ``metric_low`` or ``report_stale``.
+ """
+ 
+ import os
+ import time
+-from collections import Counter, defaultdict
++from collections import Counter
+ from dataclasses import dataclass
+ from pathlib import Path
+ from typing import Any, Dict, Iterable, Iterator, List, Mapping, Tuple
+@@ -30,7 +23,9 @@
+     KNOWN_REASON_CODES,
+     KNOWN_SOURCES,
+     KNOWN_STATUSES,
++    STRATEGY_RESEARCH_STATS_REASON_FAMILIES,
+     normalize_reason_code,
++    research_stats_reason_family,
+ )
+ 
+ try:
+@@ -270,6 +265,37 @@
+             lines.append(_metric('orchestration_composite_preflight_history_block_ratio', {'window': window, 'purpose': purpose}, block_ratio))
+             lines.append(_metric('orchestration_composite_preflight_history_invalid_ratio', {'window': window, 'purpose': purpose}, invalid_ratio))
+ 
++    lines.append('# HELP orchestration_composite_preflight_history_strategy_research_stats_reason_family_total Selected strategy_research_stats reason-family totals per purpose and window\n')
++    lines.append('# TYPE orchestration_composite_preflight_history_strategy_research_stats_reason_family_total gauge\n')
++    lines.append('# HELP orchestration_composite_preflight_history_strategy_research_stats_reason_family_summary Total selected strategy_research_stats reason-family counts aggregated across purposes\n')
++    lines.append('# TYPE orchestration_composite_preflight_history_strategy_research_stats_reason_family_summary gauge\n')
++    for window in windows:
++        family_summary: Dict[tuple[str, str], float] = Counter()
++        for purpose in purposes:
++            for status in KNOWN_STATUSES:
++                family_totals: Dict[str, float] = Counter()
++                for reason_code in KNOWN_REASON_CODES:
++                    if not reason_code.startswith('strategy_research_stats:'):
++                        continue
++                    value = float(counts.get((window, purpose, 'strategy_research_stats', status, reason_code), 0))
++                    if value <= 0.0:
++                        continue
++                    family = research_stats_reason_family(reason_code)
++                    family_totals[family] += value
++                    family_summary[(status, family)] += value
++                for family, value in family_totals.items():
++                    lines.append(_metric(
++                        'orchestration_composite_preflight_history_strategy_research_stats_reason_family_total',
++                        {'window': window, 'purpose': purpose, 'decision_status': status, 'family': family},
++                        value,
++                    ))
++        for (status, family), value in family_summary.items():
++            lines.append(_metric(
++                'orchestration_composite_preflight_history_strategy_research_stats_reason_family_summary',
++                {'window': window, 'decision_status': status, 'family': family},
++                value,
++            ))
++
+     lines.append('# HELP orchestration_composite_preflight_history_window_complete 1 when Redis stream retention fully covers the requested history window\n')
+     lines.append('# TYPE orchestration_composite_preflight_history_window_complete gauge\n')
+     lines.append('# HELP orchestration_composite_preflight_history_stream_oldest_age_seconds Age of oldest available stream event\n')
+--- tick_flow_full/orderflow_services/orchestration_composite_preflight_history_exporter_v1.py
++++ tick_flow_full/orderflow_services/orchestration_composite_preflight_history_exporter_v1.py
+@@ -1,26 +1,19 @@
+ from __future__ import annotations
+ 
+-"""Node-exporter textfile exporter for orchestration composite preflight history (P5.5).
++"""Node-exporter textfile exporter for orchestration composite preflight history (P5.5 / P6.4).
+ 
+ Reads the unified orchestration preflight audit stream and rolls it into bounded
+ history metrics for the last 24h / 7d. The goal is to make *frequency* of
+-block/invalid decisions observable, not only the current point-in-time state.
++block/invalid/soft decisions observable, not only the current point-in-time state.
+ 
+-Design notes
+-------------
+-- The exporter uses the existing audit stream emitted by
+-  ``orchestration_composite_preflight_v1``.
+-- Labels remain bounded via the same reason normalization logic used by the
+-  live exporter from P5.4.
+-- Output is written atomically to a node_exporter textfile collector path.
+-- Window completeness is exposed explicitly so 7d SLO views do not silently use
+-  partial history if the Redis stream retention is shorter than the requested
+-  window.
++P6.4 adds dedicated drilldown metrics for ``strategy_research_stats`` reason
++families so Grafana can answer which research-stat criterion most often stops
++rollout: ``psr_low``, ``dsr_low``, ``pbo_high``, ``metric_low`` or ``report_stale``.
+ """
+ 
+ import os
+ import time
+-from collections import Counter, defaultdict
++from collections import Counter
+ from dataclasses import dataclass
+ from pathlib import Path
+ from typing import Any, Dict, Iterable, Iterator, List, Mapping, Tuple
+@@ -30,7 +23,9 @@
+     KNOWN_REASON_CODES,
+     KNOWN_SOURCES,
+     KNOWN_STATUSES,
++    STRATEGY_RESEARCH_STATS_REASON_FAMILIES,
+     normalize_reason_code,
++    research_stats_reason_family,
+ )
+ 
+ try:
+@@ -270,6 +265,37 @@
+             lines.append(_metric('orchestration_composite_preflight_history_block_ratio', {'window': window, 'purpose': purpose}, block_ratio))
+             lines.append(_metric('orchestration_composite_preflight_history_invalid_ratio', {'window': window, 'purpose': purpose}, invalid_ratio))
+ 
++    lines.append('# HELP orchestration_composite_preflight_history_strategy_research_stats_reason_family_total Selected strategy_research_stats reason-family totals per purpose and window\n')
++    lines.append('# TYPE orchestration_composite_preflight_history_strategy_research_stats_reason_family_total gauge\n')
++    lines.append('# HELP orchestration_composite_preflight_history_strategy_research_stats_reason_family_summary Total selected strategy_research_stats reason-family counts aggregated across purposes\n')
++    lines.append('# TYPE orchestration_composite_preflight_history_strategy_research_stats_reason_family_summary gauge\n')
++    for window in windows:
++        family_summary: Dict[tuple[str, str], float] = Counter()
++        for purpose in purposes:
++            for status in KNOWN_STATUSES:
++                family_totals: Dict[str, float] = Counter()
++                for reason_code in KNOWN_REASON_CODES:
++                    if not reason_code.startswith('strategy_research_stats:'):
++                        continue
++                    value = float(counts.get((window, purpose, 'strategy_research_stats', status, reason_code), 0))
++                    if value <= 0.0:
++                        continue
++                    family = research_stats_reason_family(reason_code)
++                    family_totals[family] += value
++                    family_summary[(status, family)] += value
++                for family, value in family_totals.items():
++                    lines.append(_metric(
++                        'orchestration_composite_preflight_history_strategy_research_stats_reason_family_total',
++                        {'window': window, 'purpose': purpose, 'decision_status': status, 'family': family},
++                        value,
++                    ))
++        for (status, family), value in family_summary.items():
++            lines.append(_metric(
++                'orchestration_composite_preflight_history_strategy_research_stats_reason_family_summary',
++                {'window': window, 'decision_status': status, 'family': family},
++                value,
++            ))
++
+     lines.append('# HELP orchestration_composite_preflight_history_window_complete 1 when Redis stream retention fully covers the requested history window\n')
+     lines.append('# TYPE orchestration_composite_preflight_history_window_complete gauge\n')
+     lines.append('# HELP orchestration_composite_preflight_history_stream_oldest_age_seconds Age of oldest available stream event\n')
+--- orderflow_services/tests/test_orchestration_composite_preflight_p64_v1.py
++++ orderflow_services/tests/test_orchestration_composite_preflight_p64_v1.py
+@@ -0,0 +1,59 @@
++from __future__ import annotations
++
++from orderflow_services.orchestration_composite_preflight_exporter_v1 import (
++    compute_purpose_state,
++    normalize_reason_code,
++    research_stats_reason_family,
++)
++from orderflow_services.orchestration_composite_preflight_history_exporter_v1 import (
++    HistoryEvent,
++    aggregate_events,
++    render_metrics,
++)
++
++
++def test_normalize_reason_code_supports_strategy_research_stats() -> None:
++    assert normalize_reason_code('strategy_research_stats', 'strategy_research_stats:psr_low') == 'strategy_research_stats:psr_low'
++    assert normalize_reason_code('strategy_research_stats', 'weird_runtime_failure') == 'strategy_research_stats:other'
++
++
++def test_compute_purpose_state_extracts_strategy_research_stats_family() -> None:
++    raw = {
++        'updated_ts_ms': '1000',
++        'status': 'block',
++        'selected_source': 'strategy_research_stats',
++        'selected_reason_code': 'strategy_research_stats:pbo_high',
++        'strategy_research_stats_status': 'block',
++        'strategy_research_stats_reason': 'pbo_high',
++    }
++    state = compute_purpose_state('conf_score_guardrails_promote', raw, now_ms=31_000)
++    assert state.selected_reason_code == 'strategy_research_stats:pbo_high'
++    assert state.strategy_research_stats_reason_family == 'pbo_high'
++
++
++def test_research_stats_reason_family_bounds_unknown_values() -> None:
++    assert research_stats_reason_family('strategy_research_stats:psr_low') == 'psr_low'
++    assert research_stats_reason_family('report_stale') == 'report_stale'
++    assert research_stats_reason_family('something_new') == 'other'
++
++
++def test_history_render_emits_strategy_research_stats_family_metrics() -> None:
++    now_ms = 8 * 24 * 60 * 60 * 1000
++    events = [
++        HistoryEvent('conf_score_guardrails_promote', 'block', 'strategy_research_stats', 'strategy_research_stats:psr_low', now_ms - 1000),
++        HistoryEvent('conf_score_guardrails_promote', 'block', 'strategy_research_stats', 'strategy_research_stats:psr_low', now_ms - 2000),
++        HistoryEvent('conf_score_guardrails_promote', 'invalid', 'strategy_research_stats', 'strategy_research_stats:report_stale', now_ms - 3000),
++    ]
++    counts, totals, scanned = aggregate_events(events, now_ms=now_ms)
++    body = render_metrics(
++        counts,
++        totals,
++        {
++            '24h': type('S', (), {'complete': 1.0, 'oldest_age_seconds': 1.0, 'scanned_events': float(scanned['24h']), 'total_events': float(scanned['24h'])})(),
++            '7d': type('S', (), {'complete': 1.0, 'oldest_age_seconds': 1.0, 'scanned_events': float(scanned['7d']), 'total_events': float(scanned['7d'])})(),
++        },
++        purposes=['conf_score_guardrails_promote'],
++        scan_truncated=0.0,
++    )
++    assert 'orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window="24h",purpose="conf_score_guardrails_promote",decision_status="block",family="psr_low"} 2.0' in body
++    assert 'orchestration_composite_preflight_history_strategy_research_stats_reason_family_summary{window="24h",decision_status="invalid",family="report_stale"} 1.0' in body
+--- orderflow_services/tests/test_orchestration_composite_preflight_p64_assets_v1.py
++++ orderflow_services/tests/test_orchestration_composite_preflight_p64_assets_v1.py
+@@ -0,0 +1,10 @@
++from __future__ import annotations
++
++from pathlib import Path
++
++
++def test_p64_dashboard_exists_and_references_strategy_research_stats_drilldown() -> None:
++    body = Path('orderflow_services/grafana/orchestration_composite_preflight_strategy_research_stats_p64.json').read_text(encoding='utf-8')
++    assert 'orchestration_composite_preflight_strategy_research_stats_reason_family' in body
++    assert 'orchestration_composite_preflight_history_strategy_research_stats_reason_family_total' in body
++    assert 'orchestration_composite_preflight_source_status' in body
+--- orderflow_services/grafana/orchestration_composite_preflight_strategy_research_stats_p64.json
++++ orderflow_services/grafana/orchestration_composite_preflight_strategy_research_stats_p64.json
+@@ -0,0 +1,57 @@
++{
++  "title": "Orchestration Composite Preflight — Strategy Research Stats Drilldown (P6.4)",
++  "schemaVersion": 39,
++  "version": 1,
++  "panels": [
++    {
++      "title": "Current strategy_research_stats reason family by purpose",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "orchestration_composite_preflight_strategy_research_stats_reason_family{family!~\"ok|other\"}",
++          "legendFormat": "{{purpose}} · {{family}}"
++        }
++      ]
++    },
++    {
++      "title": "Current source status for strategy_research_stats",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "orchestration_composite_preflight_source_status{source=\"strategy_research_stats\"}",
++          "legendFormat": "{{purpose}} · {{status}}"
++        }
++      ]
++    },
++    {
++      "title": "24h selected strategy_research_stats stop families",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "orchestration_composite_preflight_history_strategy_research_stats_reason_family_summary{window=\"24h\",decision_status=~\"block|invalid\",family!~\"ok|other\"}",
++          "legendFormat": "24h · {{family}} · {{decision_status}}"
++        }
++      ]
++    },
++    {
++      "title": "7d selected strategy_research_stats stop families by purpose",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window=\"7d\",decision_status=~\"block|invalid\",family!~\"ok|other\"}",
++          "legendFormat": "{{purpose}} · {{family}} · {{decision_status}}"
++        }
++      ]
++    },
++    {
++      "title": "Selected composite reason code (reference)",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "orchestration_composite_preflight_selected_reason_code{reason_code=~\"strategy_research_stats:.*\"}",
++          "legendFormat": "{{purpose}} · {{reason_code}}"
++        }
++      ]
++    }
++  ]
++}

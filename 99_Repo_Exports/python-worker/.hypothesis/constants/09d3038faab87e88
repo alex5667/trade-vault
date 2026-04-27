@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/book_resilience.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 1e-06, 0.85, 1.0, 1.5, 1000.0, 250, 15000, 'res_active', 'res_baseline_min_usd', 'res_curr_ratio', 'res_last_min_usd', 'res_min_min_usd', 'res_min_ratio', 'res_recovered', 'res_recovery_ms', 'res_speed_per_s', 'res_sweep_ts_ms']

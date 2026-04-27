@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/triple_barrier.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 10000.0, 'LONG', 'NO_TICKS', 'SL_HIT', 'TIMEOUT', 'TP_HIT']

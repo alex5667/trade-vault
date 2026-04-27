@@ -1,0 +1,34 @@
+groups:
+  - name: ml_phase1_7_rollback_loop
+    rules:
+      - alert: MLRollbackVerifierStale
+        expr: time() - ml_rollback_verifier_last_run_ts_seconds > 900
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Rollback verifier is stale"
+
+      - alert: MLRollbackStateMachineStale
+        expr: time() - ml_rollback_state_machine_last_run_ts_seconds > 900
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Rollback state machine worker is stale"
+
+      - alert: MLRollbackVerificationFailures
+        expr: increase(ml_rollback_verifier_events_total{status="FAIL"}[30m]) > 3
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Repeated rollback verification failures detected"
+
+      - alert: MLRollbackStateInvalidTransitions
+        expr: increase(ml_rollback_state_machine_invalid_total[30m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Invalid rollback state transitions detected"

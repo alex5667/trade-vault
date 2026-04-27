@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/exec_health_freeze_hook.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 1000.0, 100, 1000, '1', '1000', 'control_source', 'freeze_active', 'freeze_reason', 'freeze_until_ts_ms', 'hgetall', 'invalid_control_seal', 'invalid_state_seal', 'manual_ack_ts_ms', 'on', 'raw_payload', 'read_autoguard_state', 'read_control', 'read_key', 'reason', 'schema_version', 'scope', 'source_ts_ms', 'thaw', 'true', 'ts_ms', 'unknown', 'updated_ts_ms', 'where', 'yes']

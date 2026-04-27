@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/rolling_momentum_tracker.py
+# hypothesis_version: 6.148.10
+
+[-50000.0, 0.0, 1.0, 1000.0, 10000.0, 50000.0, 512, 60000, 'bad_time_total', 'price_momentum_bps']

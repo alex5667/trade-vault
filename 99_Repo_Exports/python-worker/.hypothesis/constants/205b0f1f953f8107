@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/candidate_pipeline.py
+# hypothesis_version: 6.148.10
+
+['CTX_BUILD_FAILED', 'ContextEnricher', 'GATE_VETO', 'OutboxWriter', 'PayloadBuilder', 'ScoringRunner', 'ctx_build_failed', 'err', 'keys', 'not_sent']

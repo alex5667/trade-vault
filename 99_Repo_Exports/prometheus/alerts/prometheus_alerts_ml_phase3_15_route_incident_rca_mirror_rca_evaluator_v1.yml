@@ -1,0 +1,30 @@
+groups:
+  - name: ml_phase3_15_route_incident_rca_mirror_rca_evaluator_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAEvaluatorStale
+        expr: time() - ml_route_incident_rca_mirror_rca_evaluator_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror RCA evaluator is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAEvaluatorErrors
+        expr: rate(ml_route_incident_rca_mirror_rca_evaluator_runs_total{status="error"}[5m]) > 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "route incident RCA mirror RCA evaluator has errors"
+
+      - alert: MLRouteIncidentRCAMirrorRCAEvaluatorVertexRecommended
+        expr: label_replace(ml_route_incident_rca_mirror_rca_evaluator_arm_score{arm="vertex_candidate"}, "", "", "", "") > 0.8
+        for: 1h
+        labels: { severity: info }
+        annotations:
+          summary: "vertex_candidate arm is scoring high, consider promotion"
+
+      - alert: MLRouteIncidentRCAMirrorRCAEvaluatorLocalRecommended
+        expr: label_replace(ml_route_incident_rca_mirror_rca_evaluator_arm_score{arm="local_fallback_candidate"}, "", "", "", "") > 0.8
+        for: 1h
+        labels: { severity: info }
+        annotations:
+          summary: "local_fallback_candidate arm is scoring high, consider promotion"

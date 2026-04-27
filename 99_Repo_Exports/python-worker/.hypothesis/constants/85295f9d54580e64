@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/_lib/doccer.py
+# hypothesis_version: 6.148.10
+
+['        Examples\n', '        References\n', 'doc_replace', 'docformat', 'filldoc', 'indentcount_lines', 'unindent_dict', 'unindent_string']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/components/gates.py
+# hypothesis_version: 6.148.10
+
+[',', '-1', '0', '1', 'BUY', 'DOWN', 'Dec', 'ERROR', 'LONG', 'NA', 'OK', 'QA', 'QD', 'REGIME_GATE_STRICT', 'SELL', 'SHORT', 'SMT', 'SMT_DISABLED', 'UP', 'apply', 'breakout', 'consistency_error', 'custom', 'ev_gate_error', 'evaluate', 'extreme', 'fail_open', 'flags', 'kind', 'market_regime', 'no_gate', 'notes', 'on', 'reason', 'reason_code', 'regime', 'symbol', 'true', 'veto', 'yes']

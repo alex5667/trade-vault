@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/ticker_handler_impl.py
+# hypothesis_version: 6.148.10
+
+[1000, 3600, 'DOWN', 'UP', 'USDT', 'binance:ticker24h:*', 'lastPrice', 'symbol', 'tickers', 'volume']

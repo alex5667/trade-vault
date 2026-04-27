@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/observability/latency_contract.py
+# hypothesis_version: 6.148.10
+
+[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0, 3000, 172800, '172800', '3000', ':', '_collector_to_names', 'collapse', 'error', 'event_ts_ms', 'ingest_ts_ms', 'ok', 'python_runtime', 'reason', 'result', 'service', 'stage', 'symbol', 'ts_event_ms', 'ts_ms', 'ts_redis_read_ms']

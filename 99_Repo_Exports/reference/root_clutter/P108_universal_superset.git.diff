@@ -1,0 +1,1130 @@
+diff -ruN --no-dereference a/orderflow_services/prometheus_alerts_ml_confirm_denylist_p108.yml b/orderflow_services/prometheus_alerts_ml_confirm_denylist_p108.yml
+--- a/orderflow_services/prometheus_alerts_ml_confirm_denylist_p108.yml	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/prometheus_alerts_ml_confirm_denylist_p108.yml	2026-02-26 09:39:21.068894336 +0000
+@@ -0,0 +1,23 @@
++groups:
++  - name: ml_confirm_denylist_p108
++    rules:
++      - alert: MLConfirmDenylistHashMismatchEnforce
++        expr: |
++          sum by (kind) (
++            rate(ml_confirm_denylist_pinning_total{mode="ENFORCE", status="mismatch"}[5m])
++          ) > 0
++        for: 10m
++        labels:
++          severity: warning
++          component: ml_confirm
++          tier: P108
++        annotations:
++          summary: "ML confirm denylist hash mismatch in ENFORCE"
++          description: |
++            Detected denylist hash mismatches while ML confirm gate is in ENFORCE mode.
++            This indicates train/serve skew for the feature denylist.
++
++            Checks:
++              - runtime ENV ML_FEATURE_DENYLIST_PATH points to the intended denylist file
++              - model pack contains denylist_hash16 matching runtime denylist
++              - ensure the same denylist is used for training and serving
+diff -ruN --no-dereference a/orderflow_services/tests/test_p108_denylist_pinning_v1.py b/orderflow_services/tests/test_p108_denylist_pinning_v1.py
+--- a/orderflow_services/tests/test_p108_denylist_pinning_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/tests/test_p108_denylist_pinning_v1.py	2026-02-26 09:39:08.089415970 +0000
+@@ -0,0 +1,54 @@
++import json
++
++from services.ml_confirm.denylist_pinning import (
++    check_denylist_pinning,
++    compute_denylist_hash16,
++)
++
++
++def _write_denylist(path, deny_num=None, deny_bool=None):
++    doc = {
++        "deny_num": deny_num or [],
++        "deny_bool": deny_bool or [],
++    }
++    path.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
++
++
++def test_denylist_pinning_ok(monkeypatch, tmp_path):
++    p = tmp_path / "deny.json"
++    _write_denylist(p, deny_num=["n:obi_z"], deny_bool=["b:flag_x"])
++
++    h, err = compute_denylist_hash16(str(p))
++    assert err is None
++    assert h and len(h) == 16
++
++    monkeypatch.setenv("ML_FEATURE_DENYLIST_PATH", str(p))
++    res = check_denylist_pinning(model_pack={"denylist_hash16": h})
++    assert res.status == "ok"
++    assert res.runtime_hash16 == h
++    assert res.model_hash16 == h
++
++
++def test_denylist_pinning_mismatch(monkeypatch, tmp_path):
++    p = tmp_path / "deny.json"
++    _write_denylist(p, deny_num=["n:obi_z"], deny_bool=[])
++
++    h, err = compute_denylist_hash16(str(p))
++    assert err is None
++
++    monkeypatch.setenv("ML_FEATURE_DENYLIST_PATH", str(p))
++    res = check_denylist_pinning(model_pack={"denylist_hash16": "deadbeefdeadbeef"})
++    assert res.status == "mismatch"
++    assert res.runtime_hash16 == h
++    assert res.model_hash16 == "deadbeefdeadbeef"
++
++
++def test_denylist_pinning_missing_model_hash(monkeypatch, tmp_path):
++    p = tmp_path / "deny.json"
++    _write_denylist(p, deny_num=[], deny_bool=["b:flag_y"])
++
++    monkeypatch.setenv("ML_FEATURE_DENYLIST_PATH", str(p))
++    res = check_denylist_pinning(model_pack={})
++    assert res.status == "missing_model_hash"
++    assert res.runtime_hash16 != "na"
++    assert res.model_hash16 == "na"
+Binary files a/services/__pycache__/ml_confirm_gate.cpython-311.pyc and b/services/__pycache__/ml_confirm_gate.cpython-311.pyc differ
+Binary files a/services/ml_confirm/__pycache__/denylist_pinning.cpython-311.pyc and b/services/ml_confirm/__pycache__/denylist_pinning.cpython-311.pyc differ
+diff -ruN --no-dereference a/services/ml_confirm/denylist_pinning.py b/services/ml_confirm/denylist_pinning.py
+--- a/services/ml_confirm/denylist_pinning.py	1970-01-01 00:00:00.000000000 +0000
++++ b/services/ml_confirm/denylist_pinning.py	2026-02-26 09:35:09.665432790 +0000
+@@ -0,0 +1,211 @@
++from __future__ import annotations
++
++import hashlib
++import json
++import os
++import threading
++from dataclasses import dataclass
++from typing import Any, Dict, Optional, Tuple
++
++_DEFAULT_REL_PATH = "core/feature_denylist_v1.json"
++
++_cache_lock = threading.Lock()
++# path -> ((mtime, size), hash16, err)
++_cache: Dict[str, Tuple[Tuple[float, int], Optional[str], Optional[str]]] = {}
++
++
++def resolve_denylist_path(explicit_path: Optional[str] = None) -> str:
++    """Single source of truth for runtime denylist path.
++
++    Order:
++      1) explicit_path
++      2) ENV ML_FEATURE_DENYLIST_PATH
++      3) repo default (core/feature_denylist_v1.json)
++    """
++    if explicit_path:
++        return str(explicit_path)
++    env = os.getenv("ML_FEATURE_DENYLIST_PATH", "")
++    if str(env).strip():
++        return str(env).strip()
++    return _DEFAULT_REL_PATH
++
++
++def _normalize_list(v: Any) -> list[str]:
++    if not isinstance(v, list):
++        return []
++    out: list[str] = []
++    for x in v:
++        s = str(x).strip()
++        if s:
++            out.append(s)
++    # stable order
++    return sorted(set(out))
++
++
++def _canonical_denylist(doc: Any) -> Dict[str, Any]:
++    # tolerate future keys / slightly different schema
++    if not isinstance(doc, dict):
++        doc = {}
++    deny_num = doc.get("deny_num")
++    if deny_num is None:
++        deny_num = doc.get("deny_numeric")
++    deny_bool = doc.get("deny_bool")
++    if deny_bool is None:
++        deny_bool = doc.get("deny_boolean")
++
++    return {
++        "deny_num": _normalize_list(deny_num),
++        "deny_bool": _normalize_list(deny_bool),
++    }
++
++
++def _hash16_from_canon(canon: Dict[str, Any]) -> str:
++    b = json.dumps(canon, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
++    return hashlib.sha256(b).hexdigest()[:16]
++
++
++def compute_denylist_hash16(path: str) -> Tuple[Optional[str], Optional[str]]:
++    """Return (hash16, err). Uses (mtime,size) cache."""
++    p = str(path)
++    try:
++        st = os.stat(p)
++    except FileNotFoundError:
++        return None, "file_not_found"
++    except Exception as e:
++        return None, f"stat_error:{type(e).__name__}"[:120]
++
++    key = (float(st.st_mtime), int(st.st_size))
++    with _cache_lock:
++        hit = _cache.get(p)
++        if hit and hit[0] == key:
++            return hit[1], hit[2]
++
++    try:
++        with open(p, "rb") as f:
++            raw = f.read()
++        doc = json.loads(raw.decode("utf-8"))
++        canon = _canonical_denylist(doc)
++        h16 = _hash16_from_canon(canon)
++        err = None
++    except Exception as e:
++        h16 = None
++        err = f"load_error:{type(e).__name__}"[:120]
++
++    with _cache_lock:
++        _cache[p] = (key, h16, err)
++    return h16, err
++
++
++def extract_model_denylist_hash16(model_pack: Any) -> Optional[str]:
++    """Best-effort extraction of denylist_hash16 from model pack."""
++    if not isinstance(model_pack, dict):
++        return None
++
++    # common locations
++    for k in (
++        "denylist_hash16",
++        "denylist_hash",
++        "__denylist_hash16",
++        "feature_denylist_hash16",
++    ):
++        v = model_pack.get(k)
++        if isinstance(v, str) and v.strip():
++            return v.strip()
++
++    meta = model_pack.get("meta")
++    if isinstance(meta, dict):
++        v = meta.get("denylist_hash16")
++        if isinstance(v, str) and v.strip():
++            return v.strip()
++
++    schema = model_pack.get("schema")
++    if isinstance(schema, dict):
++        v = schema.get("denylist_hash16")
++        if isinstance(v, str) and v.strip():
++            return v.strip()
++
++    return None
++
++
++@dataclass(frozen=True)
++class DenylistPinningResult:
++    enabled: bool
++    denylist_path: str
++    runtime_hash16: str
++    model_hash16: str
++    status: str  # ok|mismatch|missing_model_hash|missing_runtime|load_error|disabled
++    err: str
++
++
++def check_denylist_pinning(
++    *,
++    model_pack: Any,
++    denylist_path: Optional[str] = None,
++    enabled: Optional[bool] = None,
++) -> DenylistPinningResult:
++    """Compare runtime denylist hash with model-embedded hash.
++
++    Policy:
++      - If model hash missing -> status=missing_model_hash (legacy allowed).
++      - If runtime denylist missing/unreadable -> status=missing_runtime/load_error.
++      - If both exist and differ -> status=mismatch.
++      - If equal -> ok.
++    """
++    if enabled is None:
++        enabled = int(os.getenv("ML_FEATURE_DENYLIST_PINNING", "1") or 1) == 1
++
++    p = resolve_denylist_path(denylist_path)
++
++    if not bool(enabled):
++        return DenylistPinningResult(
++            enabled=False,
++            denylist_path=p,
++            runtime_hash16="na",
++            model_hash16=str(extract_model_denylist_hash16(model_pack) or "na"),
++            status="disabled",
++            err="",
++        )
++
++    model_h = extract_model_denylist_hash16(model_pack)
++    model_hs = str(model_h or "na")
++
++    runtime_h, runtime_err = compute_denylist_hash16(p)
++    if runtime_h is None:
++        status = "missing_runtime" if runtime_err == "file_not_found" else "load_error"
++        return DenylistPinningResult(
++            enabled=True,
++            denylist_path=p,
++            runtime_hash16="na",
++            model_hash16=model_hs,
++            status=status,
++            err=str(runtime_err or "")
++        )
++
++    if not model_h or str(model_h).strip().lower() in ("na", "none", "null"):
++        return DenylistPinningResult(
++            enabled=True,
++            denylist_path=p,
++            runtime_hash16=str(runtime_h),
++            model_hash16="na",
++            status="missing_model_hash",
++            err="",
++        )
++
++    if str(runtime_h) != str(model_h).strip():
++        return DenylistPinningResult(
++            enabled=True,
++            denylist_path=p,
++            runtime_hash16=str(runtime_h),
++            model_hash16=str(model_h).strip(),
++            status="mismatch",
++            err="",
++        )
++
++    return DenylistPinningResult(
++        enabled=True,
++        denylist_path=p,
++        runtime_hash16=str(runtime_h),
++        model_hash16=str(model_h).strip(),
++        status="ok",
++        err="",
++    )
+diff -ruN --no-dereference a/services/ml_confirm_gate.py b/services/ml_confirm_gate.py
+--- a/services/ml_confirm_gate.py	2026-02-22 14:17:55.000000000 +0000
++++ b/services/ml_confirm_gate.py	2026-02-26 09:41:05.896547088 +0000
+@@ -49,6 +49,7 @@
+         ml_confirm_model_load_seconds,
+         ml_confirm_latency_seconds,
+         ml_missing_critical_total,
++        ml_confirm_denylist_pinning_total,
+     )
+     METRICS_REGISTRY_AVAILABLE = True
+ except Exception:
+@@ -65,7 +66,7 @@
+             pass
+     ml_confirm_events_total = ml_confirm_errors_total = ml_confirm_cfg_present = \
+     ml_confirm_cfg_valid = ml_confirm_enforce_share = ml_confirm_model_loaded = \
+-    ml_confirm_model_load_seconds = ml_confirm_latency_seconds = ml_missing_critical_total = \
++    ml_confirm_model_load_seconds = ml_confirm_latency_seconds = ml_missing_critical_total = ml_confirm_denylist_pinning_total = \
+     lambda *args, **kwargs: _MockMetric()
+ 
+ try:
+@@ -74,6 +75,10 @@
+     joblib = None  # type: ignore
+ 
+ 
++# Denylist pinning helper (train==serve guard)
++from services.ml_confirm.denylist_pinning import check_denylist_pinning
++
++
+ def _now_ms() -> int:
+     return int(time.time() * 1000)
+ 
+@@ -99,16 +104,13 @@
+ 
+ def _load_model_cached(model_path: str, kind: str, logger: Any = None) -> Optional[Any]:
+     """Load model from disk or return from process-level cache if unchanged."""
+-    print(f"DEBUG: _load_model_cached called for {model_path} (kind={kind})", flush=True)
+     if not model_path or not os.path.exists(model_path):
+-        print(f"DEBUG: Model path does not exist: {model_path}", flush=True)
+         return None
+         
+     try:
+         mtime = os.path.getmtime(model_path)
+         size = os.path.getsize(model_path)
+     except Exception as e:
+-        print(f"DEBUG: Failed to get stats for {model_path}: {e}", flush=True)
+         return None
+         
+     stats = (mtime, size)
+@@ -155,21 +157,28 @@
+                     if logger:
+                         logger.error(f"ML gate: Model at {model_path} is not a valid edge_stack_v1 pack")
+                     return None
+-                required_keys = ["schema_version", "kind", "lr", "gbdt", "meta", "feature_cols"]
++                required_keys = ["lr", "gbdt", "meta", "feature_cols"]
+                 if any(k not in model for k in required_keys):
+                     if logger:
+                         logger.error(f"ML gate: edge_stack_v1 model at {model_path} missing keys: {[k for k in required_keys if k not in model]}")
+                     return None
+ 
+-                # Stronger contract checks (fail-fast)
+-                try:
+-                    sv = int(model.get("schema_version", 0))
+-                except Exception:
+-                    sv = 0
+-                if sv < 1:
++
++                # Stronger contract checks (fail-fast but backwards compatible)
++                sv_raw = model.get("schema_version", None)
++                if sv_raw is not None:
++                    try:
++                        sv = int(sv_raw)
++                    except Exception:
++                        sv = 0
++                    if sv < 1:
++                        if logger:
++                            logger.error(f"ML gate: edge_stack_v1 model at {model_path} has invalid schema_version={model.get('schema_version')}")
++                        return None
++                else:
+                     if logger:
+-                        logger.error(f"ML gate: edge_stack_v1 model at {model_path} has invalid schema_version={model.get('schema_version')}")
+-                    return None
++                        logger.warning(f"ML gate: edge_stack_v1 model at {model_path} missing schema_version (legacy pack)")
++
+                 fcols = model.get("feature_cols")
+                 if not isinstance(fcols, list) or len(fcols) < 8:
+                     if logger:
+@@ -178,13 +187,25 @@
+                         )
+                     return None
+ 
++                # Commit 12 (serve-side): EDGE_STACK_STRICT_FEATURE_COLS=1 rejects models with
++                # scenario_v4_* one-hots to guarantee low-cardinality feature encoding.
++                _strict_env = str(os.environ.get("EDGE_STACK_STRICT_FEATURE_COLS", "0") or "0").strip().lower()
++                if _strict_env in ("1", "true", "yes"):
++                    _fcols = list(model.get("feature_cols", []) or [])
++                    _bad = [c for c in _fcols if str(c).startswith("scenario_v4_")]
++                    if _bad:
++                        if logger:
++                            logger.error(
++                                f"ML gate: strict feature_cols rejects scenario_v4_* columns "
++                                f"(found={_bad[:5]}); set EDGE_STACK_STRICT_FEATURE_COLS=0 to disable"
++                            )
++                        return None
++
+             _SHARED_MODELS[model_path] = model
+             _SHARED_MODEL_STATS[model_path] = stats
+             if logger:
+                 logger.info(f"ML gate: Successfully loaded and cached model from {model_path} (type={type(model).__name__})")
+-            print(f"DEBUG: Successfully loaded model from {model_path}", flush=True)
+     except Exception as e:
+-        print(f"DEBUG: Failed to load model from {model_path}: {e}", flush=True)
+         import traceback
+         traceback.print_exc()
+         if logger:
+@@ -407,6 +428,27 @@
+     return "other"
+ 
+ 
++def _find_forbidden_feature_cols(
++    feature_cols: List[str],
++    *,
++    forbid_scenario_v4_onehot: bool,
++) -> List[str]:
++    """Return list of forbidden feature columns under strict schema rules.
++
++    Purpose:
++      - Guard serve path against scenario_v4_* one-hots that cause unbounded
++        cardinality and train/serve skew.
++      - Called after loading feature_cols from the model pack before inference.
++    """
++    bad: List[str] = []
++    if bool(forbid_scenario_v4_onehot):
++        for c in feature_cols:
++            cs = str(c)
++            if cs.startswith("scenario_v4_"):
++                bad.append(cs)
++    return bad
++
++
+ def _canon_sid(symbol: str, ts_ms: int, raw_sid: str = "") -> str:
+     """Canonical sid for cross-stream joins: crypto-of:{SYMBOL}:{TS_MS} (no direction)."""
+     sym = str(symbol or "").upper() or "NA"
+@@ -637,6 +679,13 @@
+     cfg_raw_len: int = 0
+     cfg_parse_err: str = ""
+ 
++    # denylist pinning (train==serve)
++    denylist_path: str = ""
++    denylist_hash16_runtime: str = ""
++    denylist_hash16_model: str = ""
++    denylist_pinning_status: str = ""
++    denylist_pinning_err: str = ""
++
+     def to_dict(self) -> Dict[str, Any]:
+         return {
+             "mode": self.mode,
+@@ -668,6 +717,12 @@
+             "cfg_raw_len": int(self.cfg_raw_len),
+             "cfg_parse_err": str(self.cfg_parse_err or ""),
+ 
++            "denylist_path": str(self.denylist_path or ""),
++            "denylist_hash16_runtime": str(self.denylist_hash16_runtime or ""),
++            "denylist_hash16_model": str(self.denylist_hash16_model or ""),
++            "denylist_pinning_status": str(self.denylist_pinning_status or ""),
++            "denylist_pinning_err": str(self.denylist_pinning_err or ""),
++
+             # P74+
+             "exec_risk_ref_bps": float(self.exec_risk_ref_bps),
+             "exec_risk_bps": float(self.exec_risk_bps),
+@@ -694,6 +749,10 @@
+       ML_MODEL_CACHE_TTL_MS=60000
+       EXEC_RISK_REF_BPS=10   (fallback ref if exec_risk_norm missing)
+ 
++      # feature denylist (train==serve guard)
++      ML_FEATURE_DENYLIST_PATH=core/feature_denylist_v1.json
++      ML_FEATURE_DENYLIST_PINNING=1
++
+       # metrics
+       ML_CONFIRM_METRICS_STREAM=metrics:ml_confirm
+       ML_CONFIRM_METRICS_ENABLE=1
+@@ -781,6 +840,21 @@
+         self._calibrate_enabled = int(os.getenv("ML_CALIBRATION_ENABLE", "1") or 1) == 1
+         self._calib_type = "none"
+ 
++        # strict feature schema (guards against unbounded feature cardinality at serve time)
++        self._strict_feature_cols = (
++            int(os.getenv("ML_STRICT_FEATURE_COLS", os.getenv("STRICT_FEATURE_COLS", "0")) or 0) == 1
++        )
++        _env_forbid = os.getenv("ML_FORBID_SCENARIO_V4_ONEHOT", os.getenv("FORBID_SCENARIO_V4_ONEHOT"))
++        if _env_forbid is None:
++            # strict mode implies this guard unless explicitly overridden
++            self._forbid_scenario_v4_onehot = bool(self._strict_feature_cols)
++        else:
++            self._forbid_scenario_v4_onehot = int(_env_forbid or "0") == 1
++
++        # denylist pinning (train==serve); single source of truth: ML_FEATURE_DENYLIST_PATH
++        self._denylist_path = os.getenv("ML_FEATURE_DENYLIST_PATH", "core/feature_denylist_v1.json")
++        self._denylist_pinning_enable = int(os.getenv("ML_FEATURE_DENYLIST_PINNING", "1") or 1) == 1
++
+         # Use centralized metrics from registry (fail-open if not available)
+         # Note: metrics_registry defines metrics with same names, so we can use them directly
+         # We keep local references for backward compatibility and to handle mock metrics
+@@ -892,7 +966,6 @@
+         self._cfg_parse_err = ""
+         self._model_load_error = ""
+ 
+-        print("DEBUG: _load_cfg_and_model called", flush=True)
+ 
+         raw_payload = None
+         
+@@ -950,7 +1023,6 @@
+         return self._parse_and_load_from_payload(raw_payload, id(self.r), logger)
+ 
+     def _parse_and_load_from_payload(self, raw_payload: Any, cache_key_id: int, logger: Any) -> Tuple[Dict[str, Any], Any]:
+-        print(f"DEBUG: _parse_and_load_from_payload called. len={len(raw_payload) if raw_payload else 0}", flush=True)
+         self._cfg_raw_len = len(raw_payload)
+ 
+         # Step 2: Check process-level cache for JSON payloads (Isolated by Redis instance ID)
+@@ -1075,10 +1147,7 @@
+ 
+         if not raw_payload:
+             self._model_load_error = "no_cfg"
+-            # Explicitly clear existing config if Redis key is properly queried but empty
+-            self._cfg = {}
+-            self._model = None
+-            self._cache_loaded_ms = now
++            # Do not clear existing config on momentary Redis failure, just return
+             return
+             
+         # 2. Parse & Load (Run in thread to avoid blocking loop depending on model size)
+@@ -1306,6 +1375,12 @@
+         liq_label = derive_regime_label(indicators.get("liq_regime"), fallback_score=_f(indicators.get("liq_score", None), None), cfg=liq_cfg)
+         vol_label = derive_regime_label(indicators.get("vol_regime"), fallback_score=_f(indicators.get("vol_score", None), None), cfg=liq_cfg)
+ 
++        # UTC hour/day-of-week and scenario bucket (Commit 8)
++        tm = time.gmtime(float(int(ts_ms or 0)) / 1000.0)
++        utc_hour = int(getattr(tm, "tm_hour", 0))
++        utc_dow = int(getattr(tm, "tm_wday", 0))
++        bucket = _bucket_from_scenario(s) or "other"
++
+         cache: Dict[str, float] = {}
+ 
+         def num(name: str) -> float:
+@@ -1338,8 +1413,29 @@
+                 val = col[len("direction_"):].upper()
+                 row.append(1.0 if val == d else 0.0)
+             elif col.startswith("scenario_v4_"):
++                if bool(getattr(self, "_forbid_scenario_v4_onehot", False)):
++                    # Strict mode: scenario_v4_* must not appear in feature_cols at serve time.
++                    # Mark as missing so the caller can detect and reject; fill 0.0 to keep shape.
++                    missing.append("__forbidden_feature_cols")
++                    row.append(0.0)
++                    continue
+                 val = col[len("scenario_v4_"):].lower()
+                 row.append(1.0 if val == s else 0.0)
++            elif col.startswith("bucket:"):
++                val = col[len("bucket:"):].lower()
++                row.append(1.0 if val == str(bucket).lower() else 0.0)
++            elif col.startswith("hour:"):
++                try:
++                    hh = int(col[len("hour:"):])
++                except Exception:
++                    hh = -1
++                row.append(1.0 if hh == int(utc_hour) else 0.0)
++            elif col.startswith("dow:"):
++                try:
++                    dd = int(col[len("dow:"):])
++                except Exception:
++                    dd = -1
++                row.append(1.0 if dd == int(utc_dow) else 0.0)
+             elif col.startswith("session_"):
+                 val = col[len("session_"):].lower()
+                 row.append(1.0 if val == str(session_label) else 0.0)
+@@ -2048,6 +2144,67 @@
+         
+         # Build features via a dict-pack view so optional transforms/scaler/buckets apply.
+         view = _DictPackModelView(model)
++
++        # Denylist pinning: compare runtime denylist hash vs model-embedded hash.
++        pin = check_denylist_pinning(
++            model_pack=model,
++            denylist_path=str(getattr(self, '_denylist_path', '') or ''),
++            enabled=bool(getattr(self, '_denylist_pinning_enable', True)),
++        )
++        dec.denylist_path = str(pin.denylist_path or '')
++        dec.denylist_hash16_runtime = str(pin.runtime_hash16 or '')
++        dec.denylist_hash16_model = str(pin.model_hash16 or '')
++        dec.denylist_pinning_status = str(pin.status or '')
++        dec.denylist_pinning_err = str(pin.err or '')
++        try:
++            self._metrics_denylist_pinning_total.labels(kind='edge_stack_v1', mode=str(mode), status=str(pin.status)).inc()
++        except Exception:
++            pass
++
++        if str(pin.status) in ('mismatch', 'missing_runtime', 'load_error') and str(mode) == 'ENFORCE' and str(self.fail_policy) == 'CLOSED':
++            dec.mode = 'ERR'
++            dec.allow = False
++            dec.error = f'denylist_pinning_{pin.status}'
++            dec.reason = f'denylist_pinning_{pin.status}(path={pin.denylist_path},runtime={pin.runtime_hash16},model={pin.model_hash16})'
++            dec.status = 'ERR_DENYLIST_PINNING'
++            dec.p_edge = 0.0
++            dec.p_min = 0.0
++            dec.p_margin = 0.0
++            dec.conf = 0.0
++            dec.missing = []
++            try:
++                self._metrics_errors_total.labels(kind='edge_stack_v1', reason='denylist_pinning_'+str(pin.status)).inc()
++            except Exception:
++                pass
++            return dec
++
++        # Strict schema guard: fail before inference if model contains forbidden feature_cols.
++        # This prevents unbounded cardinality (scenario_v4_*) from silently corrupting predictions.
++        if bool(getattr(self, "_forbid_scenario_v4_onehot", False)):
++            bad_cols = _find_forbidden_feature_cols(
++                feature_cols, forbid_scenario_v4_onehot=True
++            )
++            if bad_cols:
++                dec.mode = "ERR"
++                dec.allow = self._fail_allow()
++                dec.error = "forbidden_feature_cols"
++                dec.reason = (
++                    f"forbidden_feature_cols(scenario_v4_onehot,"
++                    f"n={len(bad_cols)},ex={bad_cols[0]})"
++                )
++                dec.status = "ERR_FORBIDDEN_FEATURE_COLS"
++                dec.p_edge = 0.0
++                dec.p_min = 0.0
++                dec.p_margin = 0.0
++                dec.conf = 0.0
++                dec.missing = ["__forbidden_feature_cols"]
++                try:
++                    self._metrics_errors_total.labels(
++                        kind="edge_stack_v1", reason="forbidden_feature_cols"
++                    ).inc()
++                except Exception:
++                    pass
++                return dec
+         x_row, missing = self._build_feature_row(
+             model=view,
+             indicators=indicators,
+@@ -2202,6 +2359,8 @@
+         dec.allow = bool(dec.p_edge >= dec.p_min)
+         dec.status = "ALLOW" if dec.allow else "BLOCK"
+         dec.reason = f"edge_stack_v1(p_edge={dec.p_edge:.4f},p_min={dec.p_min:.4f},bucket={bucket})"
++        if getattr(dec, "denylist_pinning_status", "") and str(dec.denylist_pinning_status) != "ok":
++            dec.reason += f",denylist_pin={dec.denylist_pinning_status}"
+         
+         return dec
+ 
+@@ -2598,7 +2757,8 @@
+     ) -> MLConfirmDecision:
+         self._check_call_count += 1
+         if self._check_call_count % 10_000 == 1:
+-            print(f"DEBUG: check called for {symbol} {ts_ms} (call #{self._check_call_count})", flush=True)
++            # debug hook removed (was print)
++            pass
+         t0_ns = time.perf_counter_ns()
+         t0_sec = time.time()
+         # Ensure we do NOT load synchronously. refresh_async will load in background on startup.
+Binary files a/services/observability/__pycache__/metrics_registry.cpython-311.pyc and b/services/observability/__pycache__/metrics_registry.cpython-311.pyc differ
+diff -ruN --no-dereference a/services/observability/metrics_registry.py b/services/observability/metrics_registry.py
+--- a/services/observability/metrics_registry.py	2026-02-24 04:53:10.000000000 +0000
++++ b/services/observability/metrics_registry.py	2026-02-26 09:35:30.869714542 +0000
+@@ -124,6 +124,14 @@
+     buckets=(0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.25, 0.5, 1),
+ )
+ 
++# Denylist pinning (train==serve guard; low-cardinality)
++ml_confirm_denylist_pinning_total = Counter(
++    "ml_confirm_denylist_pinning_total",
++    "Denylist pinning outcomes for ML confirm gating",
++    ["kind", "mode", "status"],
++)
++
++
+ # labels:tb health (export in SRE poller)
+ tb_labels_xlen = Gauge(
+     "tb_labels_xlen",
+Binary files a/tick_flow_full/services/__pycache__/ml_confirm_gate.cpython-311.pyc and b/tick_flow_full/services/__pycache__/ml_confirm_gate.cpython-311.pyc differ
+Binary files a/tick_flow_full/services/ml_confirm/__pycache__/denylist_pinning.cpython-311.pyc and b/tick_flow_full/services/ml_confirm/__pycache__/denylist_pinning.cpython-311.pyc differ
+diff -ruN --no-dereference a/tick_flow_full/services/ml_confirm/denylist_pinning.py b/tick_flow_full/services/ml_confirm/denylist_pinning.py
+--- a/tick_flow_full/services/ml_confirm/denylist_pinning.py	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/services/ml_confirm/denylist_pinning.py	2026-02-26 09:35:09.677536301 +0000
+@@ -0,0 +1,211 @@
++from __future__ import annotations
++
++import hashlib
++import json
++import os
++import threading
++from dataclasses import dataclass
++from typing import Any, Dict, Optional, Tuple
++
++_DEFAULT_REL_PATH = "core/feature_denylist_v1.json"
++
++_cache_lock = threading.Lock()
++# path -> ((mtime, size), hash16, err)
++_cache: Dict[str, Tuple[Tuple[float, int], Optional[str], Optional[str]]] = {}
++
++
++def resolve_denylist_path(explicit_path: Optional[str] = None) -> str:
++    """Single source of truth for runtime denylist path.
++
++    Order:
++      1) explicit_path
++      2) ENV ML_FEATURE_DENYLIST_PATH
++      3) repo default (core/feature_denylist_v1.json)
++    """
++    if explicit_path:
++        return str(explicit_path)
++    env = os.getenv("ML_FEATURE_DENYLIST_PATH", "")
++    if str(env).strip():
++        return str(env).strip()
++    return _DEFAULT_REL_PATH
++
++
++def _normalize_list(v: Any) -> list[str]:
++    if not isinstance(v, list):
++        return []
++    out: list[str] = []
++    for x in v:
++        s = str(x).strip()
++        if s:
++            out.append(s)
++    # stable order
++    return sorted(set(out))
++
++
++def _canonical_denylist(doc: Any) -> Dict[str, Any]:
++    # tolerate future keys / slightly different schema
++    if not isinstance(doc, dict):
++        doc = {}
++    deny_num = doc.get("deny_num")
++    if deny_num is None:
++        deny_num = doc.get("deny_numeric")
++    deny_bool = doc.get("deny_bool")
++    if deny_bool is None:
++        deny_bool = doc.get("deny_boolean")
++
++    return {
++        "deny_num": _normalize_list(deny_num),
++        "deny_bool": _normalize_list(deny_bool),
++    }
++
++
++def _hash16_from_canon(canon: Dict[str, Any]) -> str:
++    b = json.dumps(canon, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
++    return hashlib.sha256(b).hexdigest()[:16]
++
++
++def compute_denylist_hash16(path: str) -> Tuple[Optional[str], Optional[str]]:
++    """Return (hash16, err). Uses (mtime,size) cache."""
++    p = str(path)
++    try:
++        st = os.stat(p)
++    except FileNotFoundError:
++        return None, "file_not_found"
++    except Exception as e:
++        return None, f"stat_error:{type(e).__name__}"[:120]
++
++    key = (float(st.st_mtime), int(st.st_size))
++    with _cache_lock:
++        hit = _cache.get(p)
++        if hit and hit[0] == key:
++            return hit[1], hit[2]
++
++    try:
++        with open(p, "rb") as f:
++            raw = f.read()
++        doc = json.loads(raw.decode("utf-8"))
++        canon = _canonical_denylist(doc)
++        h16 = _hash16_from_canon(canon)
++        err = None
++    except Exception as e:
++        h16 = None
++        err = f"load_error:{type(e).__name__}"[:120]
++
++    with _cache_lock:
++        _cache[p] = (key, h16, err)
++    return h16, err
++
++
++def extract_model_denylist_hash16(model_pack: Any) -> Optional[str]:
++    """Best-effort extraction of denylist_hash16 from model pack."""
++    if not isinstance(model_pack, dict):
++        return None
++
++    # common locations
++    for k in (
++        "denylist_hash16",
++        "denylist_hash",
++        "__denylist_hash16",
++        "feature_denylist_hash16",
++    ):
++        v = model_pack.get(k)
++        if isinstance(v, str) and v.strip():
++            return v.strip()
++
++    meta = model_pack.get("meta")
++    if isinstance(meta, dict):
++        v = meta.get("denylist_hash16")
++        if isinstance(v, str) and v.strip():
++            return v.strip()
++
++    schema = model_pack.get("schema")
++    if isinstance(schema, dict):
++        v = schema.get("denylist_hash16")
++        if isinstance(v, str) and v.strip():
++            return v.strip()
++
++    return None
++
++
++@dataclass(frozen=True)
++class DenylistPinningResult:
++    enabled: bool
++    denylist_path: str
++    runtime_hash16: str
++    model_hash16: str
++    status: str  # ok|mismatch|missing_model_hash|missing_runtime|load_error|disabled
++    err: str
++
++
++def check_denylist_pinning(
++    *,
++    model_pack: Any,
++    denylist_path: Optional[str] = None,
++    enabled: Optional[bool] = None,
++) -> DenylistPinningResult:
++    """Compare runtime denylist hash with model-embedded hash.
++
++    Policy:
++      - If model hash missing -> status=missing_model_hash (legacy allowed).
++      - If runtime denylist missing/unreadable -> status=missing_runtime/load_error.
++      - If both exist and differ -> status=mismatch.
++      - If equal -> ok.
++    """
++    if enabled is None:
++        enabled = int(os.getenv("ML_FEATURE_DENYLIST_PINNING", "1") or 1) == 1
++
++    p = resolve_denylist_path(denylist_path)
++
++    if not bool(enabled):
++        return DenylistPinningResult(
++            enabled=False,
++            denylist_path=p,
++            runtime_hash16="na",
++            model_hash16=str(extract_model_denylist_hash16(model_pack) or "na"),
++            status="disabled",
++            err="",
++        )
++
++    model_h = extract_model_denylist_hash16(model_pack)
++    model_hs = str(model_h or "na")
++
++    runtime_h, runtime_err = compute_denylist_hash16(p)
++    if runtime_h is None:
++        status = "missing_runtime" if runtime_err == "file_not_found" else "load_error"
++        return DenylistPinningResult(
++            enabled=True,
++            denylist_path=p,
++            runtime_hash16="na",
++            model_hash16=model_hs,
++            status=status,
++            err=str(runtime_err or "")
++        )
++
++    if not model_h or str(model_h).strip().lower() in ("na", "none", "null"):
++        return DenylistPinningResult(
++            enabled=True,
++            denylist_path=p,
++            runtime_hash16=str(runtime_h),
++            model_hash16="na",
++            status="missing_model_hash",
++            err="",
++        )
++
++    if str(runtime_h) != str(model_h).strip():
++        return DenylistPinningResult(
++            enabled=True,
++            denylist_path=p,
++            runtime_hash16=str(runtime_h),
++            model_hash16=str(model_h).strip(),
++            status="mismatch",
++            err="",
++        )
++
++    return DenylistPinningResult(
++        enabled=True,
++        denylist_path=p,
++        runtime_hash16=str(runtime_h),
++        model_hash16=str(model_h).strip(),
++        status="ok",
++        err="",
++    )
+diff -ruN --no-dereference a/tick_flow_full/services/ml_confirm_gate.py b/tick_flow_full/services/ml_confirm_gate.py
+--- a/tick_flow_full/services/ml_confirm_gate.py	2026-02-23 13:12:46.000000000 +0000
++++ b/tick_flow_full/services/ml_confirm_gate.py	2026-02-26 09:41:05.897283137 +0000
+@@ -49,6 +49,7 @@
+         ml_confirm_model_load_seconds,
+         ml_confirm_latency_seconds,
+         ml_missing_critical_total,
++        ml_confirm_denylist_pinning_total,
+     )
+     METRICS_REGISTRY_AVAILABLE = True
+ except Exception:
+@@ -65,7 +66,7 @@
+             pass
+     ml_confirm_events_total = ml_confirm_errors_total = ml_confirm_cfg_present = \
+     ml_confirm_cfg_valid = ml_confirm_enforce_share = ml_confirm_model_loaded = \
+-    ml_confirm_model_load_seconds = ml_confirm_latency_seconds = ml_missing_critical_total = \
++    ml_confirm_model_load_seconds = ml_confirm_latency_seconds = ml_missing_critical_total = ml_confirm_denylist_pinning_total = \
+     lambda *args, **kwargs: _MockMetric()
+ 
+ try:
+@@ -74,6 +75,10 @@
+     joblib = None  # type: ignore
+ 
+ 
++# Denylist pinning helper (train==serve guard)
++from services.ml_confirm.denylist_pinning import check_denylist_pinning
++
++
+ def _now_ms() -> int:
+     return int(time.time() * 1000)
+ 
+@@ -99,16 +104,13 @@
+ 
+ def _load_model_cached(model_path: str, kind: str, logger: Any = None) -> Optional[Any]:
+     """Load model from disk or return from process-level cache if unchanged."""
+-    print(f"DEBUG: _load_model_cached called for {model_path} (kind={kind})", flush=True)
+     if not model_path or not os.path.exists(model_path):
+-        print(f"DEBUG: Model path does not exist: {model_path}", flush=True)
+         return None
+         
+     try:
+         mtime = os.path.getmtime(model_path)
+         size = os.path.getsize(model_path)
+     except Exception as e:
+-        print(f"DEBUG: Failed to get stats for {model_path}: {e}", flush=True)
+         return None
+         
+     stats = (mtime, size)
+@@ -161,6 +163,30 @@
+                         logger.error(f"ML gate: edge_stack_v1 model at {model_path} missing keys: {[k for k in required_keys if k not in model]}")
+                     return None
+ 
++
++                # Stronger contract checks (fail-fast but backwards compatible)
++                sv_raw = model.get("schema_version", None)
++                if sv_raw is not None:
++                    try:
++                        sv = int(sv_raw)
++                    except Exception:
++                        sv = 0
++                    if sv < 1:
++                        if logger:
++                            logger.error(f"ML gate: edge_stack_v1 model at {model_path} has invalid schema_version={model.get('schema_version')}")
++                        return None
++                else:
++                    if logger:
++                        logger.warning(f"ML gate: edge_stack_v1 model at {model_path} missing schema_version (legacy pack)")
++
++                fcols = model.get("feature_cols")
++                if not isinstance(fcols, list) or len(fcols) < 8:
++                    if logger:
++                        logger.error(
++                            f"ML gate: edge_stack_v1 model at {model_path} has invalid feature_cols (len={len(fcols) if isinstance(fcols, list) else 'na'})"
++                        )
++                    return None
++
+                 # Commit 12 (serve-side): EDGE_STACK_STRICT_FEATURE_COLS=1 rejects models with
+                 # scenario_v4_* one-hots to guarantee low-cardinality feature encoding.
+                 _strict_env = str(os.environ.get("EDGE_STACK_STRICT_FEATURE_COLS", "0") or "0").strip().lower()
+@@ -179,9 +205,7 @@
+             _SHARED_MODEL_STATS[model_path] = stats
+             if logger:
+                 logger.info(f"ML gate: Successfully loaded and cached model from {model_path} (type={type(model).__name__})")
+-            print(f"DEBUG: Successfully loaded model from {model_path}", flush=True)
+     except Exception as e:
+-        print(f"DEBUG: Failed to load model from {model_path}: {e}", flush=True)
+         import traceback
+         traceback.print_exc()
+         if logger:
+@@ -655,6 +679,13 @@
+     cfg_raw_len: int = 0
+     cfg_parse_err: str = ""
+ 
++    # denylist pinning (train==serve)
++    denylist_path: str = ""
++    denylist_hash16_runtime: str = ""
++    denylist_hash16_model: str = ""
++    denylist_pinning_status: str = ""
++    denylist_pinning_err: str = ""
++
+     def to_dict(self) -> Dict[str, Any]:
+         return {
+             "mode": self.mode,
+@@ -686,6 +717,12 @@
+             "cfg_raw_len": int(self.cfg_raw_len),
+             "cfg_parse_err": str(self.cfg_parse_err or ""),
+ 
++            "denylist_path": str(self.denylist_path or ""),
++            "denylist_hash16_runtime": str(self.denylist_hash16_runtime or ""),
++            "denylist_hash16_model": str(self.denylist_hash16_model or ""),
++            "denylist_pinning_status": str(self.denylist_pinning_status or ""),
++            "denylist_pinning_err": str(self.denylist_pinning_err or ""),
++
+             # P74+
+             "exec_risk_ref_bps": float(self.exec_risk_ref_bps),
+             "exec_risk_bps": float(self.exec_risk_bps),
+@@ -712,6 +749,10 @@
+       ML_MODEL_CACHE_TTL_MS=60000
+       EXEC_RISK_REF_BPS=10   (fallback ref if exec_risk_norm missing)
+ 
++      # feature denylist (train==serve guard)
++      ML_FEATURE_DENYLIST_PATH=core/feature_denylist_v1.json
++      ML_FEATURE_DENYLIST_PINNING=1
++
+       # metrics
+       ML_CONFIRM_METRICS_STREAM=metrics:ml_confirm
+       ML_CONFIRM_METRICS_ENABLE=1
+@@ -810,6 +851,10 @@
+         else:
+             self._forbid_scenario_v4_onehot = int(_env_forbid or "0") == 1
+ 
++        # denylist pinning (train==serve); single source of truth: ML_FEATURE_DENYLIST_PATH
++        self._denylist_path = os.getenv("ML_FEATURE_DENYLIST_PATH", "core/feature_denylist_v1.json")
++        self._denylist_pinning_enable = int(os.getenv("ML_FEATURE_DENYLIST_PINNING", "1") or 1) == 1
++
+         # Use centralized metrics from registry (fail-open if not available)
+         # Note: metrics_registry defines metrics with same names, so we can use them directly
+         # We keep local references for backward compatibility and to handle mock metrics
+@@ -921,7 +966,6 @@
+         self._cfg_parse_err = ""
+         self._model_load_error = ""
+ 
+-        print("DEBUG: _load_cfg_and_model called", flush=True)
+ 
+         raw_payload = None
+         
+@@ -979,7 +1023,6 @@
+         return self._parse_and_load_from_payload(raw_payload, id(self.r), logger)
+ 
+     def _parse_and_load_from_payload(self, raw_payload: Any, cache_key_id: int, logger: Any) -> Tuple[Dict[str, Any], Any]:
+-        print(f"DEBUG: _parse_and_load_from_payload called. len={len(raw_payload) if raw_payload else 0}", flush=True)
+         self._cfg_raw_len = len(raw_payload)
+ 
+         # Step 2: Check process-level cache for JSON payloads (Isolated by Redis instance ID)
+@@ -2102,6 +2145,39 @@
+         # Build features via a dict-pack view so optional transforms/scaler/buckets apply.
+         view = _DictPackModelView(model)
+ 
++        # Denylist pinning: compare runtime denylist hash vs model-embedded hash.
++        pin = check_denylist_pinning(
++            model_pack=model,
++            denylist_path=str(getattr(self, '_denylist_path', '') or ''),
++            enabled=bool(getattr(self, '_denylist_pinning_enable', True)),
++        )
++        dec.denylist_path = str(pin.denylist_path or '')
++        dec.denylist_hash16_runtime = str(pin.runtime_hash16 or '')
++        dec.denylist_hash16_model = str(pin.model_hash16 or '')
++        dec.denylist_pinning_status = str(pin.status or '')
++        dec.denylist_pinning_err = str(pin.err or '')
++        try:
++            self._metrics_denylist_pinning_total.labels(kind='edge_stack_v1', mode=str(mode), status=str(pin.status)).inc()
++        except Exception:
++            pass
++
++        if str(pin.status) in ('mismatch', 'missing_runtime', 'load_error') and str(mode) == 'ENFORCE' and str(self.fail_policy) == 'CLOSED':
++            dec.mode = 'ERR'
++            dec.allow = False
++            dec.error = f'denylist_pinning_{pin.status}'
++            dec.reason = f'denylist_pinning_{pin.status}(path={pin.denylist_path},runtime={pin.runtime_hash16},model={pin.model_hash16})'
++            dec.status = 'ERR_DENYLIST_PINNING'
++            dec.p_edge = 0.0
++            dec.p_min = 0.0
++            dec.p_margin = 0.0
++            dec.conf = 0.0
++            dec.missing = []
++            try:
++                self._metrics_errors_total.labels(kind='edge_stack_v1', reason='denylist_pinning_'+str(pin.status)).inc()
++            except Exception:
++                pass
++            return dec
++
+         # Strict schema guard: fail before inference if model contains forbidden feature_cols.
+         # This prevents unbounded cardinality (scenario_v4_*) from silently corrupting predictions.
+         if bool(getattr(self, "_forbid_scenario_v4_onehot", False)):
+@@ -2283,6 +2359,8 @@
+         dec.allow = bool(dec.p_edge >= dec.p_min)
+         dec.status = "ALLOW" if dec.allow else "BLOCK"
+         dec.reason = f"edge_stack_v1(p_edge={dec.p_edge:.4f},p_min={dec.p_min:.4f},bucket={bucket})"
++        if getattr(dec, "denylist_pinning_status", "") and str(dec.denylist_pinning_status) != "ok":
++            dec.reason += f",denylist_pin={dec.denylist_pinning_status}"
+         
+         return dec
+ 
+@@ -2679,7 +2757,8 @@
+     ) -> MLConfirmDecision:
+         self._check_call_count += 1
+         if self._check_call_count % 10_000 == 1:
+-            print(f"DEBUG: check called for {symbol} {ts_ms} (call #{self._check_call_count})", flush=True)
++            # debug hook removed (was print)
++            pass
+         t0_ns = time.perf_counter_ns()
+         t0_sec = time.time()
+         # Ensure we do NOT load synchronously. refresh_async will load in background on startup.
+Binary files a/tick_flow_full/services/observability/__pycache__/metrics_registry.cpython-311.pyc and b/tick_flow_full/services/observability/__pycache__/metrics_registry.cpython-311.pyc differ
+diff -ruN --no-dereference a/tick_flow_full/services/observability/metrics_registry.py b/tick_flow_full/services/observability/metrics_registry.py
+--- a/tick_flow_full/services/observability/metrics_registry.py	2026-02-19 20:18:57.000000000 +0000
++++ b/tick_flow_full/services/observability/metrics_registry.py	2026-02-26 09:35:30.869958192 +0000
+@@ -124,6 +124,14 @@
+     buckets=(0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.25, 0.5, 1),
+ )
+ 
++# Denylist pinning (train==serve guard; low-cardinality)
++ml_confirm_denylist_pinning_total = Counter(
++    "ml_confirm_denylist_pinning_total",
++    "Denylist pinning outcomes for ML confirm gating",
++    ["kind", "mode", "status"],
++)
++
++
+ # labels:tb health (export in SRE poller)
+ tb_labels_xlen = Gauge(
+     "tb_labels_xlen",

@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/indexes/accessors.py
+# hypothesis_version: 6.148.10
+
+['M', 'as_unit', 'day', 'int64', 'm', 'method', 'name', 'orig', 'property', 'unit', 'week', 'year']

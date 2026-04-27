@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/domain/models.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 'A', 'CLOSED', 'LONG', 'PENDING', 'SHORT', 'default', 'na', 'tp_sl', 'unknown']

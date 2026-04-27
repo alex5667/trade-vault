@@ -1,0 +1,49 @@
+# P81: Alerts for exec_slip_stats refresher + auto-apply blocks + slo freezer
+
+groups:
+  - name: of_enforce_bucket_p81
+    rules:
+      - alert: ExecSlipStatsRefresherStale
+        expr: of_exec_slip_stats_refresh_last_ok_age_sec > 7200
+        for: 30m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Exec slip stats MV refresh is stale"
+          description: "No successful refresh in >2h. Check orderflow_services/refresh_exec_slip_stats_p80.py and DB connectivity."
+
+      - alert: EnforceAutoApplyBlocked
+        expr: of_auto_apply_block_active{source="enforce_bucket_promoter"} > 0
+        for: 10m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Auto-apply is blocked for enforce bucket promoter"
+          description: "Auto-apply is blocked. Check meta key cfg:suggestions:entry_policy:auto_apply_block:enforce_bucket_promoter:meta and runbook."
+
+      - alert: EnforceAutoApplyBlockedLong
+        expr: of_auto_apply_block_active{source="enforce_bucket_promoter"} > 0
+        for: 2h
+        labels:
+          severity: page
+        annotations:
+          summary: "Auto-apply blocked >2h for enforce bucket promoter"
+          description: "Long block indicates persistent degradation or stuck rollback. Investigate SLO and view v_exec_slippage_eval."
+
+      - alert: PromRulesBundleAutoApplyBlocked
+        expr: of_auto_apply_block_active{source="prom_rules_bundle_smoke"} > 0
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "Auto-apply blocked due to Prometheus rules bundle smoke-check"
+          description: "Fail-closed: rules bundle validation/promtool failed. Fix prometheus_alerts_*.yml bundle and confirm state:prom_rules_bundle:last_ok=1. See runbook."
+
+      - alert: EnforceSloFreezerActive
+        expr: sum by (sym) (of_enforce_freezer_block_active) > 0
+        for: 20m
+        labels:
+          severity: page
+        annotations:
+          summary: "SLO freezer triggered (auto-apply blocked)"
+          description: "SLO freezer blocked auto-apply for one or more symbols. Check enforce_bucket_slo_freezer_p80 status and residual/edge_neg_share."

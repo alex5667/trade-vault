@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/linalg/_matfuncs_sqrtm.py
+# hypothesis_version: 6.148.10
+
+['C', 'complex', 'complex256', 'fro', 'sqrtm']

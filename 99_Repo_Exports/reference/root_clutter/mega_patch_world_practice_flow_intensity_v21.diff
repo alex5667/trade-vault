@@ -1,0 +1,865 @@
+diff --git a/orderflow_services/grafana/README_world_practice_flow_v1.md b/orderflow_services/grafana/README_world_practice_flow_v1.md
+new file mode 100644
+index 0000000..0c3d952
+--- /dev/null
++++ b/orderflow_services/grafana/README_world_practice_flow_v1.md
+@@ -0,0 +1,15 @@
++# World-practice flow v1 (Grafana)
++
++Dashboard JSON: `orderflow_services/grafana/world_practice_flow_v1.json`
++
++Variables:
++- `sym`: symbol filter
++- `bucket`: exec_regime_bucket filter
++
++Panels:
++- taker & cancel rates (EMA)
++- cancel-to-trade ratio
++- taker_flow_imb_z
++- churn score / churn_hi
++
++Runbook: `/runbooks/world_practice_flow_v1.md`
+diff --git a/orderflow_services/grafana/world_practice_flow_v1.json b/orderflow_services/grafana/world_practice_flow_v1.json
+new file mode 100644
+index 0000000..927873d
+--- /dev/null
++++ b/orderflow_services/grafana/world_practice_flow_v1.json
+@@ -0,0 +1,267 @@
++{
++  "annotations": {
++    "list": [
++      {
++        "builtIn": 1,
++        "datasource": {
++          "type": "grafana",
++          "uid": "-- Grafana --"
++        },
++        "enable": true,
++        "hide": true,
++        "iconColor": "rgba(0, 211, 255, 1)",
++        "name": "Annotations & Alerts",
++        "type": "dashboard"
++      }
++    ]
++  },
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "id": null,
++  "links": [],
++  "liveNow": false,
++  "panels": [
++    {
++      "collapsed": false,
++      "gridPos": {
++        "h": 1,
++        "w": 24,
++        "x": 0,
++        "y": 0
++      },
++      "id": 1,
++      "panels": [],
++      "title": "World-practice flow v1 (L3-lite takers/cancels/churn)",
++      "type": "row"
++    },
++    {
++      "type": "timeseries",
++      "title": "taker rates (qty/sec) + cancel rates (qty/sec)",
++      "id": 2,
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 1
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {}
++        },
++        "overrides": []
++      },
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom"
++        }
++      },
++      "targets": [
++        {
++          "expr": "trade_taker_buy_rate_ema{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}} {{bucket}}",
++          "refId": "A"
++        },
++        {
++          "expr": "trade_taker_sell_rate_ema{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}} {{bucket}}",
++          "refId": "B"
++        },
++        {
++          "expr": "trade_cancel_bid_rate_ema{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}} {{bucket}}",
++          "refId": "C"
++        },
++        {
++          "expr": "trade_cancel_ask_rate_ema{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}} {{bucket}}",
++          "refId": "D"
++        }
++      ],
++      "datasource": {
++        "type": "prometheus",
++        "uid": "$DS_PROMETHEUS"
++      }
++    },
++    {
++      "type": "timeseries",
++      "title": "cancel-to-trade ratio (bid/ask)",
++      "id": 3,
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 9
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {}
++        },
++        "overrides": []
++      },
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom"
++        }
++      },
++      "targets": [
++        {
++          "expr": "trade_cancel_to_trade_bid{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}} {{bucket}}",
++          "refId": "A"
++        },
++        {
++          "expr": "trade_cancel_to_trade_ask{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}} {{bucket}}",
++          "refId": "B"
++        }
++      ],
++      "datasource": {
++        "type": "prometheus",
++        "uid": "$DS_PROMETHEUS"
++      }
++    },
++    {
++      "type": "timeseries",
++      "title": "taker_flow_imb_z (signed)",
++      "id": 4,
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 17
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {}
++        },
++        "overrides": []
++      },
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom"
++        }
++      },
++      "targets": [
++        {
++          "expr": "trade_taker_flow_imb_z{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}} {{bucket}}",
++          "refId": "A"
++        }
++      ],
++      "datasource": {
++        "type": "prometheus",
++        "uid": "$DS_PROMETHEUS"
++      }
++    },
++    {
++      "type": "timeseries",
++      "title": "book churn (score + hi flag)",
++      "id": 5,
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 25
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {}
++        },
++        "overrides": []
++      },
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom"
++        }
++      },
++      "targets": [
++        {
++          "expr": "trade_book_churn_score{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}} {{bucket}}",
++          "refId": "A"
++        },
++        {
++          "expr": "trade_book_churn_hi{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}} {{bucket}}",
++          "refId": "B"
++        }
++      ],
++      "datasource": {
++        "type": "prometheus",
++        "uid": "$DS_PROMETHEUS"
++      }
++    }
++  ],
++  "refresh": "30s",
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": [
++    "flow",
++    "orderflow",
++    "world_practice"
++  ],
++  "templating": {
++    "list": [
++      {
++        "name": "DS_PROMETHEUS",
++        "type": "datasource",
++        "query": "prometheus",
++        "current": {
++          "selected": false,
++          "text": "Prometheus",
++          "value": "Prometheus"
++        }
++      },
++      {
++        "name": "sym",
++        "type": "query",
++        "datasource": {
++          "type": "prometheus",
++          "uid": "${DS_PROMETHEUS}"
++        },
++        "definition": "label_values(trade_vol_ratio_z, sym)",
++        "query": {
++          "query": "label_values(trade_vol_ratio_z, sym)",
++          "refId": "PromSym"
++        },
++        "current": {
++          "selected": false,
++          "text": ".*",
++          "value": ".*"
++        }
++      },
++      {
++        "name": "bucket",
++        "type": "query",
++        "datasource": {
++          "type": "prometheus",
++          "uid": "${DS_PROMETHEUS}"
++        },
++        "definition": "label_values(trade_vol_ratio_z, bucket)",
++        "query": {
++          "query": "label_values(trade_vol_ratio_z, bucket)",
++          "refId": "PromBucket"
++        },
++        "current": {
++          "selected": false,
++          "text": ".*",
++          "value": ".*"
++        }
++      }
++    ]
++  },
++  "time": {
++    "from": "now-6h",
++    "to": "now"
++  },
++  "timepicker": {},
++  "timezone": "utc",
++  "title": "World-practice flow v1",
++  "uid": "world_practice_flow_v1",
++  "version": 1
++}
+\ No newline at end of file
+diff --git a/orderflow_services/prometheus_alerts_world_practice_flow_v1.yml b/orderflow_services/prometheus_alerts_world_practice_flow_v1.yml
+new file mode 100644
+index 0000000..b1f31c4
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_world_practice_flow_v1.yml
+@@ -0,0 +1,129 @@
++groups:
++  # ─────────────────────────────────────────────────────────────────────────────
++  # World-practice flow v1 – L3-lite / churn / cancel-pressure gauges
++  # ─────────────────────────────────────────────────────────────────────────────
++
++- name: of_world_practice_flow_v1
++  interval: 60s
++  rules:
++
++  # ── Warn: cancel-to-trade ratio high while system is active ──────────────────
++  - alert: OF_WP_CancelToTradeHigh_Warn
++    expr: |
++      (
++        (trade_cancel_to_trade_bid > 4) or (trade_cancel_to_trade_ask > 4)
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 15m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): cancel-to-trade high ({{ $value | printf \"%.2f\" }})"
++      description: |
++        Cancel-to-trade ratio is high while allow decisions are being produced.
++        Typical causes: quote stuffing / spoof-like churn, microstructure stress, or bad L3-lite wiring.
++      runbook_path: /runbooks/world_practice_flow_v1.md
++      dashboard_path: /d/world_practice_flow_v1
++
++  # ── Crit: cancel-to-trade ratio extreme while system is active ───────────────
++  - alert: OF_WP_CancelToTradeExtreme_Crit
++    expr: |
++      (
++        (trade_cancel_to_trade_bid > 8) or (trade_cancel_to_trade_ask > 8)
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 10m
++    labels:
++      severity: critical
++    annotations:
++      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): cancel-to-trade EXTREME ({{ $value | printf \"%.2f\" }})"
++      description: |
++        Cancel-to-trade ratio is extreme while the strategy is active.
++        Risk: passive executability degrades, expected slippage underestimation, adverse selection.
++      runbook_path: /runbooks/world_practice_flow_v1.md
++      dashboard_path: /d/world_practice_flow_v1
++
++  # ── Warn: taker flow imbalance Z is high while active ───────────────────────
++  - alert: OF_WP_TakerFlowImbZHigh_Warn
++    expr: |
++      (
++        abs(trade_taker_flow_imb_z) > 3
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 10m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): taker_flow_imb_z high ({{ $value | printf \"%.2f\" }})"
++      description: |
++        One-sided aggressive flow dominates (robust-z). Useful as a regime indicator.
++        If this is stuck at 0 while other rates move, suspect L3-lite wiring.
++      runbook_path: /runbooks/world_practice_flow_v1.md
++      dashboard_path: /d/world_practice_flow_v1
++
++  # ── Warn: churn_hi flag persistent while active ─────────────────────────────
++  - alert: OF_WP_BookChurnHiPersistent_Warn
++    expr: |
++      (
++        avg_over_time(trade_book_churn_hi[10m]) >= 0.9
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 10m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): churn_hi persistent"
++      description: |
++        Book churn high flag stayed on for most of the last 10 minutes while active.
++        Expect higher slippage variance and worse passive fills.
++      runbook_path: /runbooks/world_practice_flow_v1.md
++      dashboard_path: /d/world_practice_flow_v1
++
++  # ── Crit: L3-lite flow snapshots likely broken (rates stuck at 0) while active ─
++  - alert: OF_WP_FlowSnapshotsStuckZero_Crit
++    expr: |
++      (
++        max_over_time(trade_taker_buy_rate_ema[20m]) == 0
++        and max_over_time(trade_taker_sell_rate_ema[20m]) == 0
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.05
++      )
++    for: 20m
++    labels:
++      severity: critical
++    annotations:
++      summary: "{{ $labels.sym }}: L3-lite flow snapshots stuck at 0 while active"
++      description: |
++        Taker buy/sell rates were 0 for 20 minutes while allow decisions exist.
++        This typically indicates a broken L3-lite path (l3 tracker not fed, runtime not updated, or gauge wiring).
++      runbook_path: /runbooks/world_practice_flow_v1.md
++      dashboard_path: /d/world_practice_flow_v1
+diff --git a/runbooks/world_practice_flow_v1.md b/runbooks/world_practice_flow_v1.md
+new file mode 100644
+index 0000000..3f686fc
+--- /dev/null
++++ b/runbooks/world_practice_flow_v1.md
+@@ -0,0 +1,54 @@
++# World-practice flow v1 – runbook
++
++## What these signals mean
++
++This bundle exposes **L3-lite / microstructure flow** snapshots as low-cardinality Prometheus gauges (labels: `sym`, `bucket`).
++
++Key metrics:
++- `trade_taker_buy_rate_ema`, `trade_taker_sell_rate_ema` (qty/sec): smoothed aggressive flow.
++- `trade_cancel_bid_rate_ema`, `trade_cancel_ask_rate_ema` (qty/sec): smoothed cancellation flow.
++- `trade_cancel_to_trade_bid`, `trade_cancel_to_trade_ask`: cancellation pressure relative to taker activity.
++- `trade_taker_flow_imb_z`: signed robust-z of taker flow imbalance.
++- `trade_book_churn_score` (0..1) and `trade_book_churn_hi` (0/1): quote-update intensity proxy.
++
++## Alert triage checklist
++
++### 1) OF_WP_FlowSnapshotsStuckZero_Crit
++Meaning: strategy is active (`allow` decisions exist), but L3-lite rates stayed at 0.
++
++Actions:
++1. Confirm L3-lite tracker is enabled and fed.
++2. Validate `runtime.l3_stats` updates (log sample / debug) and that your stream includes L3 events.
++3. Scrape `/metrics` and verify the gauges are present.
++
++### 2) OF_WP_CancelToTradeHigh_Warn / Extreme_Crit
++Meaning: cancels dominate relative to taker flow.
++
++Typical causes:
++- quote stuffing / spoof-like behavior → passive fills degrade.
++- book thinning (depth retreats) → cancels spike.
++- connectivity / stream gaps causing partial L3 events.
++
++Actions:
++1. Compare cancel rates vs taker rates.
++2. Cross-check with trackers dashboard:
++   - `trade_fill_prob`, `trade_eta_fill_sec`, `trade_vol_ratio_z`.
++3. If persistent, tighten allowed buckets or increase execution penalties for this regime.
++
++### 3) OF_WP_TakerFlowImbZHigh_Warn
++Meaning: one-sided aggressive flow dominates.
++
++Actions:
++1. Cross-check with `trade_taker_flow_imb_z_abs` histogram and any taker-flow contra gate.
++2. If stuck at 0 while other rates move, treat as wiring issue.
++
++### 4) OF_WP_BookChurnHiPersistent_Warn
++Meaning: high quote-update intensity for most of the last window.
++
++Actions:
++1. Expect higher slippage variance; validate `v_exec_slippage_eval` quantiles.
++2. Consider raising `max_expected_slippage_bps_eff` or adding vetoes for this bucket.
++
++## Dashboards
++- `/d/world_practice_flow_v1` – flow/churn snapshots
++- `/d/world_practice_trackers_v1` – vol/regime + resilience + fill
+diff --git a/runbooks/world_practice_trackers_v1.md b/runbooks/world_practice_trackers_v1.md
+new file mode 100644
+index 0000000..8e98cc6
+--- /dev/null
++++ b/runbooks/world_practice_trackers_v1.md
+@@ -0,0 +1,17 @@
++# Grafana: World-practice trackers v1
++
++Files:
++- Dashboard: `world_practice_trackers_v1.json`
++- Prometheus rules: `../prometheus_alerts_world_practice_trackers_v1.yml`
++- Runbook: `../runbook_world_practice_trackers_v1.md`
++
++Variables:
++- `$sym` (regex, default `.*`)
++- `$bucket` (regex, default `.*`)
++
++Key PromQL:
++- `trade_vol_ratio_z{sym=~"$sym",bucket=~"$bucket"}`
++- `trade_fill_prob{sym=~"$sym",bucket=~"$bucket"}`
++- `trade_eta_fill_sec{sym=~"$sym",bucket=~"$bucket"}`
++- `trade_res_recovery_ms{sym=~"$sym",bucket=~"$bucket"}`
++- `trade_res_recovered{sym=~"$sym",bucket=~"$bucket"}`
+diff --git a/services/orderflow/components/tick_processor.py b/services/orderflow/components/tick_processor.py
+index dbe55ba..f1c1f73 100644
+--- a/services/orderflow/components/tick_processor.py
++++ b/services/orderflow/components/tick_processor.py
+@@ -51,7 +51,15 @@ from services.orderflow.metrics import (
+     impact_proxy_hist, expected_slippage_decomp_bps_hist, of_gate_veto_top1_total,
+     trade_impact_proxy, trade_taker_flow_imb_z_abs, trade_slippage_decomp_coeff_bps,
+     trade_expected_slippage_bps as _m_slip_bps,
+-    trade_expected_slippage_limit_exceed_total,
++    trade_expected_slippage_limit_exceed_total,    trade_vol_fast_bps, trade_vol_slow_bps, trade_vol_ratio, trade_vol_ratio_z,
++    trade_res_recovered, trade_res_recovery_ms, trade_res_speed_per_s,
++    trade_fill_prob, trade_eta_fill_sec, trade_exec_fill_pen,
++    trade_max_expected_slippage_bps_eff,
++    trade_taker_buy_rate_ema, trade_taker_sell_rate_ema,
++    trade_cancel_bid_rate_ema, trade_cancel_ask_rate_ema,
++    trade_cancel_to_trade_bid, trade_cancel_to_trade_ask,
++    trade_taker_flow_imb_z, trade_book_churn_score, trade_book_churn_hi,
++
+ )
+ from services.orderflow.side_policy import is_unknown_side_tick
+ from common.tick_time import TickTimeGuard, TickTimePolicy
+@@ -1392,6 +1400,17 @@ class TickProcessor:
+                 _eta = (eb + ea) / 2.0 if (eb > 0 or ea > 0) else 0.0
+             trade_eta_fill_sec.labels(sym=_sym, bucket=_bk).set(_eta)
+             trade_exec_fill_pen.labels(sym=_sym, bucket=_bk).set(float(indicators.get("exec_fill_pen", 0.0) or 0.0))
++
++            # Flow / churn snapshots (L3-lite)
++            trade_taker_buy_rate_ema.labels(sym=_sym, bucket=_bk).set(float(indicators.get("taker_buy_rate_ema", 0.0) or 0.0))
++            trade_taker_sell_rate_ema.labels(sym=_sym, bucket=_bk).set(float(indicators.get("taker_sell_rate_ema", 0.0) or 0.0))
++            trade_cancel_bid_rate_ema.labels(sym=_sym, bucket=_bk).set(float(indicators.get("cancel_bid_rate_ema", 0.0) or 0.0))
++            trade_cancel_ask_rate_ema.labels(sym=_sym, bucket=_bk).set(float(indicators.get("cancel_ask_rate_ema", 0.0) or 0.0))
++            trade_cancel_to_trade_bid.labels(sym=_sym, bucket=_bk).set(float(indicators.get("cancel_to_trade_bid", 0.0) or 0.0))
++            trade_cancel_to_trade_ask.labels(sym=_sym, bucket=_bk).set(float(indicators.get("cancel_to_trade_ask", 0.0) or 0.0))
++            trade_taker_flow_imb_z.labels(sym=_sym, bucket=_bk).set(float(indicators.get("taker_flow_imb_z", 0.0) or 0.0))
++            trade_book_churn_score.labels(sym=_sym, bucket=_bk).set(float(indicators.get("churn_score", 0.0) or 0.0))
++            trade_book_churn_hi.labels(sym=_sym, bucket=_bk).set(float(indicators.get("churn_hi", 0) or 0))
+             if "max_expected_slippage_bps_eff" in indicators:
+                 trade_max_expected_slippage_bps_eff.labels(sym=_sym, bucket=_bk).set(
+                     float(indicators.get("max_expected_slippage_bps_eff", 0.0) or 0.0)
+diff --git a/services/orderflow/metrics.py b/services/orderflow/metrics.py
+index 540006c..9d0a759 100644
+--- a/services/orderflow/metrics.py
++++ b/services/orderflow/metrics.py
+@@ -1443,6 +1443,66 @@ trade_exec_fill_pen = _get_or_create_prom_gauge(
+     ["sym", "bucket"],
+ )
+ 
++
++# ---------------------------------------------------------------------------
++# World-practice flow / L3-lite pressure (v1)
++# Low-cardinality gauges (sym × exec_regime_bucket)
++# ---------------------------------------------------------------------------
++
++trade_taker_buy_rate_ema = _get_or_create_prom_gauge(
++    "trade_taker_buy_rate_ema",
++    "Taker buy rate EMA (qty/sec) from L3-lite",
++    ["sym", "bucket"],
++)
++
++trade_taker_sell_rate_ema = _get_or_create_prom_gauge(
++    "trade_taker_sell_rate_ema",
++    "Taker sell rate EMA (qty/sec) from L3-lite",
++    ["sym", "bucket"],
++)
++
++trade_cancel_bid_rate_ema = _get_or_create_prom_gauge(
++    "trade_cancel_bid_rate_ema",
++    "Bid cancel rate EMA (qty/sec) from L3-lite",
++    ["sym", "bucket"],
++)
++
++trade_cancel_ask_rate_ema = _get_or_create_prom_gauge(
++    "trade_cancel_ask_rate_ema",
++    "Ask cancel rate EMA (qty/sec) from L3-lite",
++    ["sym", "bucket"],
++)
++
++trade_cancel_to_trade_bid = _get_or_create_prom_gauge(
++    "trade_cancel_to_trade_bid",
++    "Cancel-to-trade ratio (bid) from L3-lite",
++    ["sym", "bucket"],
++)
++
++trade_cancel_to_trade_ask = _get_or_create_prom_gauge(
++    "trade_cancel_to_trade_ask",
++    "Cancel-to-trade ratio (ask) from L3-lite",
++    ["sym", "bucket"],
++)
++
++trade_taker_flow_imb_z = _get_or_create_prom_gauge(
++    "trade_taker_flow_imb_z",
++    "Signed taker flow imbalance robust z-score (L3-lite)",
++    ["sym", "bucket"],
++)
++
++trade_book_churn_score = _get_or_create_prom_gauge(
++    "trade_book_churn_score",
++    "Book churn score (0..1) — quote update intensity proxy",
++    ["sym", "bucket"],
++)
++
++trade_book_churn_hi = _get_or_create_prom_gauge(
++    "trade_book_churn_hi",
++    "Book churn high flag (0/1)",
++    ["sym", "bucket"],
++)
++
+ trade_max_expected_slippage_bps_eff = _get_or_create_prom_gauge(
+     "trade_max_expected_slippage_bps_eff",
+     "Effective max expected slippage cap after regime tightening (bps)",
+diff --git a/tick_flow_full/orderflow_services/prometheus_alerts_world_practice_flow_v1.yml b/tick_flow_full/orderflow_services/prometheus_alerts_world_practice_flow_v1.yml
+new file mode 100644
+index 0000000..b1f31c4
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_world_practice_flow_v1.yml
+@@ -0,0 +1,129 @@
++groups:
++  # ─────────────────────────────────────────────────────────────────────────────
++  # World-practice flow v1 – L3-lite / churn / cancel-pressure gauges
++  # ─────────────────────────────────────────────────────────────────────────────
++
++- name: of_world_practice_flow_v1
++  interval: 60s
++  rules:
++
++  # ── Warn: cancel-to-trade ratio high while system is active ──────────────────
++  - alert: OF_WP_CancelToTradeHigh_Warn
++    expr: |
++      (
++        (trade_cancel_to_trade_bid > 4) or (trade_cancel_to_trade_ask > 4)
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 15m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): cancel-to-trade high ({{ $value | printf \"%.2f\" }})"
++      description: |
++        Cancel-to-trade ratio is high while allow decisions are being produced.
++        Typical causes: quote stuffing / spoof-like churn, microstructure stress, or bad L3-lite wiring.
++      runbook_path: /runbooks/world_practice_flow_v1.md
++      dashboard_path: /d/world_practice_flow_v1
++
++  # ── Crit: cancel-to-trade ratio extreme while system is active ───────────────
++  - alert: OF_WP_CancelToTradeExtreme_Crit
++    expr: |
++      (
++        (trade_cancel_to_trade_bid > 8) or (trade_cancel_to_trade_ask > 8)
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 10m
++    labels:
++      severity: critical
++    annotations:
++      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): cancel-to-trade EXTREME ({{ $value | printf \"%.2f\" }})"
++      description: |
++        Cancel-to-trade ratio is extreme while the strategy is active.
++        Risk: passive executability degrades, expected slippage underestimation, adverse selection.
++      runbook_path: /runbooks/world_practice_flow_v1.md
++      dashboard_path: /d/world_practice_flow_v1
++
++  # ── Warn: taker flow imbalance Z is high while active ───────────────────────
++  - alert: OF_WP_TakerFlowImbZHigh_Warn
++    expr: |
++      (
++        abs(trade_taker_flow_imb_z) > 3
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 10m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): taker_flow_imb_z high ({{ $value | printf \"%.2f\" }})"
++      description: |
++        One-sided aggressive flow dominates (robust-z). Useful as a regime indicator.
++        If this is stuck at 0 while other rates move, suspect L3-lite wiring.
++      runbook_path: /runbooks/world_practice_flow_v1.md
++      dashboard_path: /d/world_practice_flow_v1
++
++  # ── Warn: churn_hi flag persistent while active ─────────────────────────────
++  - alert: OF_WP_BookChurnHiPersistent_Warn
++    expr: |
++      (
++        avg_over_time(trade_book_churn_hi[10m]) >= 0.9
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 10m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): churn_hi persistent"
++      description: |
++        Book churn high flag stayed on for most of the last 10 minutes while active.
++        Expect higher slippage variance and worse passive fills.
++      runbook_path: /runbooks/world_practice_flow_v1.md
++      dashboard_path: /d/world_practice_flow_v1
++
++  # ── Crit: L3-lite flow snapshots likely broken (rates stuck at 0) while active ─
++  - alert: OF_WP_FlowSnapshotsStuckZero_Crit
++    expr: |
++      (
++        max_over_time(trade_taker_buy_rate_ema[20m]) == 0
++        and max_over_time(trade_taker_sell_rate_ema[20m]) == 0
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.05
++      )
++    for: 20m
++    labels:
++      severity: critical
++    annotations:
++      summary: "{{ $labels.sym }}: L3-lite flow snapshots stuck at 0 while active"
++      description: |
++        Taker buy/sell rates were 0 for 20 minutes while allow decisions exist.
++        This typically indicates a broken L3-lite path (l3 tracker not fed, runtime not updated, or gauge wiring).
++      runbook_path: /runbooks/world_practice_flow_v1.md
++      dashboard_path: /d/world_practice_flow_v1
+diff --git a/tick_flow_full/services/orderflow/components/tick_processor.py b/tick_flow_full/services/orderflow/components/tick_processor.py
+index 55166f5..76eb3ae 100644
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -50,7 +50,12 @@ from services.orderflow.metrics import (
+     trade_vol_fast_bps, trade_vol_slow_bps, trade_vol_ratio, trade_vol_ratio_z,
+     trade_res_recovered, trade_res_recovery_ms, trade_res_speed_per_s,
+     trade_fill_prob, trade_eta_fill_sec, trade_exec_fill_pen,
+-    trade_max_expected_slippage_bps_eff
++    trade_max_expected_slippage_bps_eff,
++    trade_taker_buy_rate_ema, trade_taker_sell_rate_ema,
++    trade_cancel_bid_rate_ema, trade_cancel_ask_rate_ema,
++    trade_cancel_to_trade_bid, trade_cancel_to_trade_ask,
++    trade_taker_flow_imb_z, trade_book_churn_score, trade_book_churn_hi,
++
+ )
+ 
+ from services.orderflow.side_policy import is_unknown_side_tick
+@@ -1528,6 +1533,17 @@ class TickProcessor:
+                 _eta = (eb + ea) / 2.0 if (eb > 0 or ea > 0) else 0.0
+             trade_eta_fill_sec.labels(sym=_sym, bucket=_bk).set(_eta)
+             trade_exec_fill_pen.labels(sym=_sym, bucket=_bk).set(float(indicators.get("exec_fill_pen", 0.0) or 0.0))
++
++            # Flow / churn snapshots (L3-lite)
++            trade_taker_buy_rate_ema.labels(sym=_sym, bucket=_bk).set(float(indicators.get("taker_buy_rate_ema", 0.0) or 0.0))
++            trade_taker_sell_rate_ema.labels(sym=_sym, bucket=_bk).set(float(indicators.get("taker_sell_rate_ema", 0.0) or 0.0))
++            trade_cancel_bid_rate_ema.labels(sym=_sym, bucket=_bk).set(float(indicators.get("cancel_bid_rate_ema", 0.0) or 0.0))
++            trade_cancel_ask_rate_ema.labels(sym=_sym, bucket=_bk).set(float(indicators.get("cancel_ask_rate_ema", 0.0) or 0.0))
++            trade_cancel_to_trade_bid.labels(sym=_sym, bucket=_bk).set(float(indicators.get("cancel_to_trade_bid", 0.0) or 0.0))
++            trade_cancel_to_trade_ask.labels(sym=_sym, bucket=_bk).set(float(indicators.get("cancel_to_trade_ask", 0.0) or 0.0))
++            trade_taker_flow_imb_z.labels(sym=_sym, bucket=_bk).set(float(indicators.get("taker_flow_imb_z", 0.0) or 0.0))
++            trade_book_churn_score.labels(sym=_sym, bucket=_bk).set(float(indicators.get("churn_score", 0.0) or 0.0))
++            trade_book_churn_hi.labels(sym=_sym, bucket=_bk).set(float(indicators.get("churn_hi", 0) or 0))
+             if "max_expected_slippage_bps_eff" in indicators:
+                 trade_max_expected_slippage_bps_eff.labels(sym=_sym, bucket=_bk).set(
+                     float(indicators.get("max_expected_slippage_bps_eff", 0.0) or 0.0)
+diff --git a/tick_flow_full/services/orderflow/metrics.py b/tick_flow_full/services/orderflow/metrics.py
+index 2806d57..fddcc57 100644
+--- a/tick_flow_full/services/orderflow/metrics.py
++++ b/tick_flow_full/services/orderflow/metrics.py
+@@ -1274,6 +1274,66 @@ trade_exec_fill_pen = _get_or_create_prom_gauge(
+     ["sym", "bucket"],
+ )
+ 
++
++# ---------------------------------------------------------------------------
++# World-practice flow / L3-lite pressure (v1)
++# Low-cardinality gauges (sym × exec_regime_bucket)
++# ---------------------------------------------------------------------------
++
++trade_taker_buy_rate_ema = _get_or_create_prom_gauge(
++    "trade_taker_buy_rate_ema",
++    "Taker buy rate EMA (qty/sec) from L3-lite",
++    ["sym", "bucket"],
++)
++
++trade_taker_sell_rate_ema = _get_or_create_prom_gauge(
++    "trade_taker_sell_rate_ema",
++    "Taker sell rate EMA (qty/sec) from L3-lite",
++    ["sym", "bucket"],
++)
++
++trade_cancel_bid_rate_ema = _get_or_create_prom_gauge(
++    "trade_cancel_bid_rate_ema",
++    "Bid cancel rate EMA (qty/sec) from L3-lite",
++    ["sym", "bucket"],
++)
++
++trade_cancel_ask_rate_ema = _get_or_create_prom_gauge(
++    "trade_cancel_ask_rate_ema",
++    "Ask cancel rate EMA (qty/sec) from L3-lite",
++    ["sym", "bucket"],
++)
++
++trade_cancel_to_trade_bid = _get_or_create_prom_gauge(
++    "trade_cancel_to_trade_bid",
++    "Cancel-to-trade ratio (bid) from L3-lite",
++    ["sym", "bucket"],
++)
++
++trade_cancel_to_trade_ask = _get_or_create_prom_gauge(
++    "trade_cancel_to_trade_ask",
++    "Cancel-to-trade ratio (ask) from L3-lite",
++    ["sym", "bucket"],
++)
++
++trade_taker_flow_imb_z = _get_or_create_prom_gauge(
++    "trade_taker_flow_imb_z",
++    "Signed taker flow imbalance robust z-score (L3-lite)",
++    ["sym", "bucket"],
++)
++
++trade_book_churn_score = _get_or_create_prom_gauge(
++    "trade_book_churn_score",
++    "Book churn score (0..1) — quote update intensity proxy",
++    ["sym", "bucket"],
++)
++
++trade_book_churn_hi = _get_or_create_prom_gauge(
++    "trade_book_churn_hi",
++    "Book churn high flag (0/1)",
++    ["sym", "bucket"],
++)
++
+ trade_max_expected_slippage_bps_eff = _get_or_create_prom_gauge(
+     "trade_max_expected_slippage_bps_eff",
+     "Effective max expected slippage cap after regime tightening (bps)",

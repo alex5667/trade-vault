@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/normalize_ml_cfg_keys.py
+# hypothesis_version: 6.148.10
+
+[',', '--challenger-key', '--challenger-only', '--champion-key', '--champion-only', '--dry-run', '--redis-url', ':', '=', 'ML_CFG_CHAMPION_KEY', 'REDIS_URL', '__main__', 'store_true', '{']

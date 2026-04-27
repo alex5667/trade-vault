@@ -1,0 +1,1329 @@
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' /mnt/data/p2work/p2/audit_code/crypto_orderflow_service.py /mnt/data/p34work/audit_code/crypto_orderflow_service.py
+--- /mnt/data/p2work/p2/audit_code/crypto_orderflow_service.py	2026-03-06 18:04:03.393618100 +0000
++++ /mnt/data/p34work/audit_code/crypto_orderflow_service.py	2026-03-06 18:37:45.131984201 +0000
+@@ -77,6 +77,30 @@
+ from redis.exceptions import ResponseError, RedisError, ConnectionError
+ import redis.asyncio as aioredis
+ 
++try:
++    from services.redis_dq_policy import RedisDQSnapshot, RedisDQThresholds, evaluate_redis_dq
++except Exception:
++    try:
++        from redis_dq_policy import RedisDQSnapshot, RedisDQThresholds, evaluate_redis_dq
++    except Exception:  # pragma: no cover
++        RedisDQSnapshot = RedisDQThresholds = evaluate_redis_dq = None  # type: ignore
++
++try:
++    from services.risk.portfolio_risk_engine import (
++        PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk,
++        RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
++    )
++except Exception:
++    try:
++        from risk.portfolio_risk_engine import (
++            PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk,
++            RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
++        )
++    except Exception:  # pragma: no cover
++        PortfolioPosition = PortfolioRiskInput = PortfolioRiskLimits = evaluate_portfolio_risk = None  # type: ignore
++        RISK_DENY_HARD = "DENY_HARD"
++        RISK_DENY_SOFT = "DENY_SOFT"
++        RISK_FORCE_FLATTEN = "FORCE_FLATTEN"
+ 
+ 
+ # ──────────────────────────────────────────────────────────────────────────────
+@@ -238,6 +262,11 @@
+ 
+         self.health_metrics = HealthMetrics(redis_url=self.redis_dsn, window_sec=5)
+ 
++        # Production safety overlays (P3/P4): Redis DQ veto + portfolio-aware risk.
++        self.redis_dq_thresholds = RedisDQThresholds.from_env() if RedisDQThresholds else None
++        self.portfolio_risk_limits = PortfolioRiskLimits.from_env() if PortfolioRiskLimits else None
++        self.portfolio_risk_hard_veto = str(os.getenv("PORTFOLIO_RISK_HARD_VETO", "1")).strip().lower() in {"1", "true", "yes", "on"}
++
+         # --- Local caches for snapshot publisher (avoid Redis GET per tick) ---
+         # regime:q:{symbol}:1m is slow-changing -> cache 60s
+         self._rq_cache: Dict[str, Tuple[int, Dict[str, Any]]] = {}
+@@ -949,7 +978,7 @@
+                 except Exception:
+                     pass
+ 
+-                if self.strategy:
++                if self.strategy and self._pre_publish_allows_signal(runtime, out):
+                     await self.strategy.publish_signal(runtime, out)
+                     if signals_published_total:
+                         signals_published_total.labels(symbol=runtime.symbol).inc()
+@@ -957,6 +986,100 @@
+             return out
+         return None
+ 
++    def _build_redis_dq_snapshot(self, runtime: Any, *, now_ms: int) -> Optional["RedisDQSnapshot"]:
++        if RedisDQSnapshot is None:
++            return None
++        last_tick_ms = int(getattr(runtime, "last_tick_ts", 0) or 0)
++        last_book_ms = int(getattr(runtime, "last_book_ts", 0) or 0)
++        queue_lag_ms = max(0, now_ms - last_tick_ms) if last_tick_ms > 0 else 0
++        tick_staleness_ms = max(0, now_ms - last_tick_ms) if last_tick_ms > 0 else 0
++        book_staleness_ms = max(0, now_ms - last_book_ms) if last_book_ms > 0 else 0
++        outbox_backlog = 0
++        try:
++            pending = getattr(self.publisher, "_q", None)
++            if pending is not None and hasattr(pending, "qsize"):
++                outbox_backlog = int(pending.qsize())
++        except Exception:
++            outbox_backlog = 0
++        return RedisDQSnapshot(
++            symbol=str(getattr(runtime, "symbol", "") or "UNKNOWN"),
++            queue_lag_ms=queue_lag_ms,
++            tick_staleness_ms=tick_staleness_ms,
++            book_staleness_ms=book_staleness_ms,
++            redis_timeout_events=int(getattr(runtime, "redis_timeout_events", 0) or 0),
++            negative_age_events=int(getattr(runtime, "negative_age_events", 0) or 0),
++            xack_fail_events=int(getattr(runtime, "xack_fail_events", 0) or 0),
++            outbox_backlog=outbox_backlog,
++            stream_timeout_burst=int(getattr(runtime, "stream_timeout_burst", 0) or 0),
++            force_hard_veto=bool(getattr(runtime, "force_hard_veto", False)),
++        )
++
++    def _build_portfolio_risk_input(self, runtime: Any, signal: Dict[str, Any]) -> Optional["PortfolioRiskInput"]:
++        if PortfolioRiskInput is None:
++            return None
++        positions_raw = signal.get("portfolio_positions") or []
++        positions = []
++        for p in positions_raw:
++            if not isinstance(p, dict):
++                continue
++            try:
++                positions.append(PortfolioPosition(
++                    symbol=str(p.get("symbol") or ""),
++                    notional_usd=float(p.get("notional_usd") or 0.0),
++                    side=str(p.get("side") or "LONG"),
++                    cluster=str(p.get("cluster") or "default"),
++                    tier=str(p.get("tier") or "B"),
++                ))
++            except Exception:
++                continue
++        requested_notional = float(signal.get("planned_notional_usd") or signal.get("notional_usd") or 0.0)
++        return PortfolioRiskInput(
++            symbol=str(signal.get("symbol") or getattr(runtime, "symbol", "") or ""),
++            cluster=str(signal.get("risk_cluster") or signal.get("cluster") or signal.get("symbol") or getattr(runtime, "symbol", "")),
++            tier=str(signal.get("symbol_tier") or signal.get("tier") or "B"),
++            requested_notional_usd=requested_notional,
++            current_positions=positions,
++            equity_usd=float(signal.get("account_equity_usd") or os.getenv("ACCOUNT_DEPOSIT_USD", "0") or 0.0),
++            daily_pnl_pct=float(signal.get("daily_pnl_pct") or 0.0),
++            spread_bps=float(signal.get("spread_bps") or 0.0),
++            slippage_bps=float(signal.get("expected_slippage_bps") or signal.get("slippage_bps") or 0.0),
++            infra_degraded=bool(signal.get("infra_degraded") or signal.get("dq_hard_veto")),
++            high_vol=bool(signal.get("high_vol") or signal.get("regime_high_vol")),
++        )
++
++    def _pre_publish_allows_signal(self, runtime: Any, signal: Dict[str, Any]) -> bool:
++        now_ms = _utc_epoch_ms()
++        dq_decision = None
++        if self.redis_dq_thresholds and evaluate_redis_dq is not None:
++            snap = self._build_redis_dq_snapshot(runtime, now_ms=now_ms)
++            if snap is not None:
++                dq_decision = evaluate_redis_dq(snap, self.redis_dq_thresholds)
++                signal["dq_snapshot"] = dq_decision.to_dict()
++                signal["dq_level"] = int(dq_decision.level)
++                signal["dq_hard_veto"] = not bool(dq_decision.allow_trade_publish)
++                if not dq_decision.allow_trade_publish:
++                    logger.warning(
++                        "🚫 (%s) Hard DQ veto before publish: reasons=%s snapshot=%s",
++                        getattr(runtime, "symbol", "?"), dq_decision.reasons, dq_decision.snapshot,
++                    )
++                    return False
++        if self.portfolio_risk_limits and evaluate_portfolio_risk is not None:
++            risk_input = self._build_portfolio_risk_input(runtime, signal)
++            if risk_input is not None:
++                risk_decision = evaluate_portfolio_risk(risk_input, self.portfolio_risk_limits)
++                signal["risk_snapshot"] = risk_decision.to_dict()
++                signal["risk_level"] = str(risk_decision.level)
++                signal["risk_leverage_cap"] = float(risk_decision.leverage_cap)
++                if risk_decision.level in {RISK_DENY_SOFT, RISK_DENY_HARD, RISK_FORCE_FLATTEN} and self.portfolio_risk_hard_veto:
++                    logger.warning(
++                        "🚫 (%s) Portfolio risk veto before publish: level=%s reasons=%s",
++                        getattr(runtime, "symbol", "?"), risk_decision.level, risk_decision.reasons,
++                    )
++                    return False
++                if risk_decision.allow_trade_publish and risk_decision.adjusted_notional_usd > 0:
++                    signal["planned_notional_usd"] = float(risk_decision.adjusted_notional_usd)
++        return True
++
+     async def _get_adx_cached(self, *, symbol: str, now_ms: int) -> float:
+         """
+         Read ADX14 from Redis:
+@@ -1434,7 +1557,7 @@
+                                 )
+                             except Exception:
+                                 pass
+-                            if self.strategy:
++                            if self.strategy and self._pre_publish_allows_signal(runtime, signal):
+                                 await self.strategy.publish_signal(runtime, signal)
+                                 signals_published_total.labels(symbol=symbol).inc()
+                         processed_ok = True
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' /mnt/data/p2work/p2/audit_code/redis_dq_policy.py /mnt/data/p34work/audit_code/redis_dq_policy.py
+--- /mnt/data/p2work/p2/audit_code/redis_dq_policy.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p34work/audit_code/redis_dq_policy.py	2026-03-06 18:42:43.040417712 +0000
+@@ -0,0 +1,217 @@
++from __future__ import annotations
++
++"""Deterministic Redis/data-quality veto policy for pre-trade publishing."""
++
++from dataclasses import asdict, dataclass
++from typing import Any, Dict, List, Optional
++import os
++
++try:
++    from prometheus_client import Counter, Gauge, REGISTRY
++except Exception:  # pragma: no cover
++    Counter = Gauge = None  # type: ignore
++    REGISTRY = None  # type: ignore
++
++
++def _metric(factory, name: str, *args, **kwargs):
++    if factory is None:
++        return None
++    try:
++        return factory(name, *args, **kwargs)
++    except ValueError:
++        return getattr(REGISTRY, "_names_to_collectors", {}).get(name) if REGISTRY is not None else None
++
++
++TRADE_DQ_LEVEL = _metric(
++    Gauge,
++    "trade_dq_level",
++    "Current hard/soft data-quality level for trade publication (0=OK,1=soft,2=hard).",
++    ["symbol"],
++)
++TRADE_DQ_HARD_VETO_TOTAL = _metric(
++    Counter,
++    "trade_dq_hard_veto_total",
++    "Number of times trade publication was blocked by Redis/data-quality hard veto.",
++    ["symbol", "reason"],
++)
++TRADE_DQ_SOFT_VETO_TOTAL = _metric(
++    Counter,
++    "trade_dq_soft_veto_total",
++    "Number of times trade publication entered soft-veto/tightened mode due to data quality.",
++    ["symbol", "reason"],
++)
++
++
++@dataclass(frozen=True)
++class RedisDQThresholds:
++    queue_lag_soft_ms: int = 2_000
++    queue_lag_hard_ms: int = 10_000
++    tick_staleness_soft_ms: int = 1_500
++    tick_staleness_hard_ms: int = 5_000
++    book_staleness_soft_ms: int = 1_500
++    book_staleness_hard_ms: int = 5_000
++    redis_timeout_soft_events: int = 2
++    redis_timeout_hard_events: int = 5
++    negative_age_hard_events: int = 1
++    xack_fail_soft_events: int = 2
++    xack_fail_hard_events: int = 5
++    outbox_backlog_soft: int = 100
++    outbox_backlog_hard: int = 500
++    stream_timeout_burst_soft: int = 2
++    stream_timeout_burst_hard: int = 5
++
++    @classmethod
++    def from_env(cls) -> "RedisDQThresholds":
++        def _i(name: str, default: int) -> int:
++            try:
++                return int(os.getenv(name, str(default)))
++            except Exception:
++                return int(default)
++        return cls(
++            queue_lag_soft_ms=_i("DQ_QUEUE_LAG_SOFT_MS", cls.queue_lag_soft_ms),
++            queue_lag_hard_ms=_i("DQ_QUEUE_LAG_HARD_MS", cls.queue_lag_hard_ms),
++            tick_staleness_soft_ms=_i("DQ_TICK_STALENESS_SOFT_MS", cls.tick_staleness_soft_ms),
++            tick_staleness_hard_ms=_i("DQ_TICK_STALENESS_HARD_MS", cls.tick_staleness_hard_ms),
++            book_staleness_soft_ms=_i("DQ_BOOK_STALENESS_SOFT_MS", cls.book_staleness_soft_ms),
++            book_staleness_hard_ms=_i("DQ_BOOK_STALENESS_HARD_MS", cls.book_staleness_hard_ms),
++            redis_timeout_soft_events=_i("DQ_REDIS_TIMEOUT_SOFT_EVENTS", cls.redis_timeout_soft_events),
++            redis_timeout_hard_events=_i("DQ_REDIS_TIMEOUT_HARD_EVENTS", cls.redis_timeout_hard_events),
++            negative_age_hard_events=_i("DQ_NEGATIVE_AGE_HARD_EVENTS", cls.negative_age_hard_events),
++            xack_fail_soft_events=_i("DQ_XACK_FAIL_SOFT_EVENTS", cls.xack_fail_soft_events),
++            xack_fail_hard_events=_i("DQ_XACK_FAIL_HARD_EVENTS", cls.xack_fail_hard_events),
++            outbox_backlog_soft=_i("DQ_OUTBOX_BACKLOG_SOFT", cls.outbox_backlog_soft),
++            outbox_backlog_hard=_i("DQ_OUTBOX_BACKLOG_HARD", cls.outbox_backlog_hard),
++            stream_timeout_burst_soft=_i("DQ_STREAM_TIMEOUT_BURST_SOFT", cls.stream_timeout_burst_soft),
++            stream_timeout_burst_hard=_i("DQ_STREAM_TIMEOUT_BURST_HARD", cls.stream_timeout_burst_hard),
++        )
++
++
++@dataclass(frozen=True)
++class RedisDQSnapshot:
++    symbol: str
++    queue_lag_ms: int = 0
++    tick_staleness_ms: int = 0
++    book_staleness_ms: int = 0
++    redis_timeout_events: int = 0
++    negative_age_events: int = 0
++    xack_fail_events: int = 0
++    outbox_backlog: int = 0
++    stream_timeout_burst: int = 0
++    force_hard_veto: bool = False
++
++
++@dataclass(frozen=True)
++class RedisDQDecision:
++    level: int
++    allow_trade_publish: bool
++    reasons: List[str]
++    tightened_mode: bool
++    snapshot: Dict[str, Any]
++
++    def to_dict(self) -> Dict[str, Any]:
++        return {
++            "level": int(self.level),
++            "allow_trade_publish": bool(self.allow_trade_publish),
++            "reasons": list(self.reasons),
++            "tightened_mode": bool(self.tightened_mode),
++            "snapshot": dict(self.snapshot),
++        }
++
++
++def _positive_int(v: Any) -> int:
++    try:
++        return max(0, int(v))
++    except Exception:
++        return 0
++
++
++def evaluate_redis_dq(snapshot: RedisDQSnapshot, thresholds: Optional[RedisDQThresholds] = None) -> RedisDQDecision:
++    t = thresholds or RedisDQThresholds()
++    s = RedisDQSnapshot(
++        symbol=str(snapshot.symbol or ""),
++        queue_lag_ms=_positive_int(snapshot.queue_lag_ms),
++        tick_staleness_ms=_positive_int(snapshot.tick_staleness_ms),
++        book_staleness_ms=_positive_int(snapshot.book_staleness_ms),
++        redis_timeout_events=_positive_int(snapshot.redis_timeout_events),
++        negative_age_events=_positive_int(snapshot.negative_age_events),
++        xack_fail_events=_positive_int(snapshot.xack_fail_events),
++        outbox_backlog=_positive_int(snapshot.outbox_backlog),
++        stream_timeout_burst=_positive_int(snapshot.stream_timeout_burst),
++        force_hard_veto=bool(snapshot.force_hard_veto),
++    )
++
++    hard: List[str] = []
++    soft: List[str] = []
++
++    if s.force_hard_veto:
++        hard.append("force_hard_veto")
++    if s.queue_lag_ms >= t.queue_lag_hard_ms:
++        hard.append("queue_lag")
++    elif s.queue_lag_ms >= t.queue_lag_soft_ms:
++        soft.append("queue_lag")
++
++    if s.tick_staleness_ms >= t.tick_staleness_hard_ms:
++        hard.append("tick_staleness")
++    elif s.tick_staleness_ms >= t.tick_staleness_soft_ms:
++        soft.append("tick_staleness")
++
++    if s.book_staleness_ms >= t.book_staleness_hard_ms:
++        hard.append("book_staleness")
++    elif s.book_staleness_ms >= t.book_staleness_soft_ms:
++        soft.append("book_staleness")
++
++    if s.redis_timeout_events >= t.redis_timeout_hard_events:
++        hard.append("redis_timeout_events")
++    elif s.redis_timeout_events >= t.redis_timeout_soft_events:
++        soft.append("redis_timeout_events")
++
++    if s.negative_age_events >= t.negative_age_hard_events:
++        hard.append("negative_age_events")
++
++    if s.xack_fail_events >= t.xack_fail_hard_events:
++        hard.append("xack_fail_events")
++    elif s.xack_fail_events >= t.xack_fail_soft_events:
++        soft.append("xack_fail_events")
++
++    if s.outbox_backlog >= t.outbox_backlog_hard:
++        hard.append("outbox_backlog")
++    elif s.outbox_backlog >= t.outbox_backlog_soft:
++        soft.append("outbox_backlog")
++
++    if s.stream_timeout_burst >= t.stream_timeout_burst_hard:
++        hard.append("stream_timeout_burst")
++    elif s.stream_timeout_burst >= t.stream_timeout_burst_soft:
++        soft.append("stream_timeout_burst")
++
++    if hard:
++        level = 2
++        allow = False
++        tightened = False
++        reasons = sorted(set(hard))
++    elif soft:
++        level = 1
++        allow = True
++        tightened = True
++        reasons = sorted(set(soft))
++    else:
++        level = 0
++        allow = True
++        tightened = False
++        reasons = []
++
++    if TRADE_DQ_LEVEL:
++        TRADE_DQ_LEVEL.labels(symbol=s.symbol or "UNKNOWN").set(level)
++    if hard and TRADE_DQ_HARD_VETO_TOTAL:
++        for reason in sorted(set(hard)):
++            TRADE_DQ_HARD_VETO_TOTAL.labels(symbol=s.symbol or "UNKNOWN", reason=reason).inc()
++    if soft and TRADE_DQ_SOFT_VETO_TOTAL:
++        for reason in sorted(set(soft)):
++            TRADE_DQ_SOFT_VETO_TOTAL.labels(symbol=s.symbol or "UNKNOWN", reason=reason).inc()
++
++    return RedisDQDecision(
++        level=level,
++        allow_trade_publish=allow,
++        reasons=reasons,
++        tightened_mode=tightened,
++        snapshot=asdict(s),
++    )
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' /mnt/data/p2work/p2/audit_code/risk/portfolio_risk_engine.py /mnt/data/p34work/audit_code/risk/portfolio_risk_engine.py
+--- /mnt/data/p2work/p2/audit_code/risk/portfolio_risk_engine.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p34work/audit_code/risk/portfolio_risk_engine.py	2026-03-06 18:42:43.095701862 +0000
+@@ -0,0 +1,290 @@
++from __future__ import annotations
++
++"""Portfolio-aware risk policy used before a signal is published for execution."""
++
++from dataclasses import dataclass, field
++from typing import Any, Dict, List, Optional
++import os
++
++try:
++    from prometheus_client import Counter, Gauge, REGISTRY
++except Exception:  # pragma: no cover
++    Counter = Gauge = None  # type: ignore
++    REGISTRY = None  # type: ignore
++
++
++def _metric(factory, name: str, *args, **kwargs):
++    if factory is None:
++        return None
++    try:
++        return factory(name, *args, **kwargs)
++    except ValueError:
++        return getattr(REGISTRY, "_names_to_collectors", {}).get(name) if REGISTRY is not None else None
++
++
++TRADE_RISK_LEVEL = _metric(
++    Gauge,
++    "trade_risk_level",
++    "Risk-engine decision level for the next trade (0=ALLOW,1=TIGHTENED,2=DENY_SOFT,3=DENY_HARD,4=FORCE_FLATTEN).",
++    ["symbol"],
++)
++TRADE_RISK_DENY_TOTAL = _metric(
++    Counter,
++    "trade_risk_deny_total",
++    "Number of risk-engine denials for pre-trade publication.",
++    ["symbol", "reason", "level"],
++)
++TRADE_RISK_FORCE_FLATTEN_TOTAL = _metric(
++    Counter,
++    "trade_risk_force_flatten_total",
++    "Number of times the risk engine requested forced flatten instead of new risk.",
++    ["symbol", "reason"],
++)
++TRADE_PORTFOLIO_TOTAL_EXPOSURE_RATIO = _metric(
++    Gauge,
++    "trade_portfolio_total_exposure_ratio",
++    "Current total notional exposure divided by equity, before applying the next trade.",
++)
++TRADE_PORTFOLIO_SYMBOL_EXPOSURE_RATIO = _metric(
++    Gauge,
++    "trade_portfolio_symbol_exposure_ratio",
++    "Current symbol notional exposure divided by equity, before applying the next trade.",
++    ["symbol"],
++)
++TRADE_PORTFOLIO_CLUSTER_EXPOSURE_RATIO = _metric(
++    Gauge,
++    "trade_portfolio_cluster_exposure_ratio",
++    "Current cluster notional exposure divided by equity, before applying the next trade.",
++    ["cluster"],
++)
++
++RISK_ALLOW = "ALLOW"
++RISK_ALLOW_TIGHTENED = "ALLOW_TIGHTENED"
++RISK_DENY_SOFT = "DENY_SOFT"
++RISK_DENY_HARD = "DENY_HARD"
++RISK_FORCE_FLATTEN = "FORCE_FLATTEN"
++
++
++@dataclass(frozen=True)
++class PortfolioRiskLimits:
++    max_daily_loss_pct: float = 2.0
++    max_total_exposure_ratio: float = 2.5
++    max_symbol_exposure_ratio: float = 0.75
++    max_cluster_exposure_ratio: float = 1.25
++    tier_a_max_leverage: float = 10.0
++    tier_b_max_leverage: float = 5.0
++    tier_c_max_leverage: float = 3.0
++    tier_c_block_when_infra_degraded: bool = True
++    soft_spread_bps_cap: float = 12.0
++    hard_spread_bps_cap: float = 30.0
++    soft_slippage_bps_cap: float = 20.0
++    hard_slippage_bps_cap: float = 60.0
++
++    @classmethod
++    def from_env(cls) -> "PortfolioRiskLimits":
++        def _f(name: str, default: float) -> float:
++            try:
++                return float(os.getenv(name, str(default)))
++            except Exception:
++                return float(default)
++        def _b(name: str, default: bool) -> bool:
++            v = os.getenv(name)
++            if v is None:
++                return default
++            return str(v).strip().lower() in {"1", "true", "yes", "on"}
++        return cls(
++            max_daily_loss_pct=_f("RISK_MAX_DAILY_LOSS_PCT", cls.max_daily_loss_pct),
++            max_total_exposure_ratio=_f("RISK_MAX_TOTAL_EXPOSURE_RATIO", cls.max_total_exposure_ratio),
++            max_symbol_exposure_ratio=_f("RISK_MAX_SYMBOL_EXPOSURE_RATIO", cls.max_symbol_exposure_ratio),
++            max_cluster_exposure_ratio=_f("RISK_MAX_CLUSTER_EXPOSURE_RATIO", cls.max_cluster_exposure_ratio),
++            tier_a_max_leverage=_f("RISK_TIER_A_MAX_LEVERAGE", cls.tier_a_max_leverage),
++            tier_b_max_leverage=_f("RISK_TIER_B_MAX_LEVERAGE", cls.tier_b_max_leverage),
++            tier_c_max_leverage=_f("RISK_TIER_C_MAX_LEVERAGE", cls.tier_c_max_leverage),
++            tier_c_block_when_infra_degraded=_b("RISK_TIER_C_BLOCK_WHEN_INFRA_DEGRADED", cls.tier_c_block_when_infra_degraded),
++            soft_spread_bps_cap=_f("RISK_SOFT_SPREAD_BPS_CAP", cls.soft_spread_bps_cap),
++            hard_spread_bps_cap=_f("RISK_HARD_SPREAD_BPS_CAP", cls.hard_spread_bps_cap),
++            soft_slippage_bps_cap=_f("RISK_SOFT_SLIPPAGE_BPS_CAP", cls.soft_slippage_bps_cap),
++            hard_slippage_bps_cap=_f("RISK_HARD_SLIPPAGE_BPS_CAP", cls.hard_slippage_bps_cap),
++        )
++
++
++@dataclass(frozen=True)
++class PortfolioPosition:
++    symbol: str
++    notional_usd: float
++    side: str = "LONG"
++    cluster: str = "default"
++    tier: str = "B"
++
++
++@dataclass(frozen=True)
++class PortfolioRiskInput:
++    symbol: str
++    cluster: str
++    tier: str
++    requested_notional_usd: float
++    current_positions: List[PortfolioPosition] = field(default_factory=list)
++    equity_usd: float = 0.0
++    daily_pnl_pct: float = 0.0
++    spread_bps: float = 0.0
++    slippage_bps: float = 0.0
++    infra_degraded: bool = False
++    high_vol: bool = False
++
++
++@dataclass(frozen=True)
++class PortfolioRiskDecision:
++    level: str
++    allow_trade_publish: bool
++    adjusted_notional_usd: float
++    leverage_cap: float
++    risk_multiplier: float
++    reasons: List[str]
++    snapshot: Dict[str, Any]
++
++    def to_dict(self) -> Dict[str, Any]:
++        return {
++            "level": self.level,
++            "allow_trade_publish": bool(self.allow_trade_publish),
++            "adjusted_notional_usd": float(self.adjusted_notional_usd),
++            "leverage_cap": float(self.leverage_cap),
++            "risk_multiplier": float(self.risk_multiplier),
++            "reasons": list(self.reasons),
++            "snapshot": dict(self.snapshot),
++        }
++
++
++def _f(v: Any, default: float = 0.0) -> float:
++    try:
++        return float(v)
++    except Exception:
++        return float(default)
++
++
++def _tier(v: Any) -> str:
++    s = str(v or "B").strip().upper()
++    return s if s in {"A", "B", "C"} else "B"
++
++
++def _level_num(level: str) -> int:
++    return {
++        RISK_ALLOW: 0,
++        RISK_ALLOW_TIGHTENED: 1,
++        RISK_DENY_SOFT: 2,
++        RISK_DENY_HARD: 3,
++        RISK_FORCE_FLATTEN: 4,
++    }.get(level, 3)
++
++
++def evaluate_portfolio_risk(inp: PortfolioRiskInput, limits: Optional[PortfolioRiskLimits] = None) -> PortfolioRiskDecision:
++    lim = limits or PortfolioRiskLimits()
++    symbol = str(inp.symbol or "UNKNOWN").upper()
++    tier = _tier(inp.tier)
++    cluster = str(inp.cluster or symbol)
++    equity = max(0.0, _f(inp.equity_usd))
++    req = max(0.0, _f(inp.requested_notional_usd))
++    positions = list(inp.current_positions or [])
++
++    total_exposure = sum(abs(_f(p.notional_usd)) for p in positions)
++    symbol_exposure = sum(abs(_f(p.notional_usd)) for p in positions if str(p.symbol).upper() == symbol)
++    cluster_exposure = sum(abs(_f(p.notional_usd)) for p in positions if str(p.cluster or "") == cluster)
++
++    total_ratio = (total_exposure / equity) if equity > 0 else 0.0
++    symbol_ratio = (symbol_exposure / equity) if equity > 0 else 0.0
++    cluster_ratio = (cluster_exposure / equity) if equity > 0 else 0.0
++
++    if TRADE_PORTFOLIO_TOTAL_EXPOSURE_RATIO:
++        TRADE_PORTFOLIO_TOTAL_EXPOSURE_RATIO.set(total_ratio)
++    if TRADE_PORTFOLIO_SYMBOL_EXPOSURE_RATIO:
++        TRADE_PORTFOLIO_SYMBOL_EXPOSURE_RATIO.labels(symbol=symbol).set(symbol_ratio)
++    if TRADE_PORTFOLIO_CLUSTER_EXPOSURE_RATIO:
++        TRADE_PORTFOLIO_CLUSTER_EXPOSURE_RATIO.labels(cluster=cluster).set(cluster_ratio)
++
++    leverage_cap = {"A": lim.tier_a_max_leverage, "B": lim.tier_b_max_leverage, "C": lim.tier_c_max_leverage}[tier]
++
++    reasons: List[str] = []
++    level = RISK_ALLOW
++    allow = True
++    risk_multiplier = 1.0
++
++    if _f(inp.daily_pnl_pct) <= -abs(lim.max_daily_loss_pct):
++        level = RISK_FORCE_FLATTEN
++        allow = False
++        reasons.append("daily_loss_limit")
++    elif tier == "C" and inp.infra_degraded and lim.tier_c_block_when_infra_degraded:
++        level = RISK_DENY_HARD
++        allow = False
++        reasons.append("tier_c_infra_degraded")
++    elif equity <= 0 or req <= 0:
++        level = RISK_ALLOW_TIGHTENED
++        reasons.append("insufficient_risk_context")
++        risk_multiplier = 0.5
++    else:
++        projected_total_ratio = (total_exposure + req) / equity
++        projected_symbol_ratio = (symbol_exposure + req) / equity
++        projected_cluster_ratio = (cluster_exposure + req) / equity
++
++        if projected_total_ratio > lim.max_total_exposure_ratio:
++            level = RISK_DENY_HARD
++            allow = False
++            reasons.append("total_exposure_cap")
++        if projected_symbol_ratio > lim.max_symbol_exposure_ratio:
++            level = RISK_DENY_HARD
++            allow = False
++            reasons.append("symbol_exposure_cap")
++        if projected_cluster_ratio > lim.max_cluster_exposure_ratio:
++            level = RISK_DENY_HARD
++            allow = False
++            reasons.append("cluster_exposure_cap")
++
++        spread_bps = _f(inp.spread_bps)
++        slippage_bps = _f(inp.slippage_bps)
++        if allow and (spread_bps > lim.hard_spread_bps_cap or slippage_bps > lim.hard_slippage_bps_cap):
++            level = RISK_DENY_SOFT
++            allow = False
++            reasons.append("market_cost_hard_cap")
++        elif allow and (spread_bps > lim.soft_spread_bps_cap or slippage_bps > lim.soft_slippage_bps_cap or inp.high_vol):
++            level = RISK_ALLOW_TIGHTENED
++            allow = True
++            risk_multiplier = 0.5 if tier != "A" else 0.65
++            reasons.append("market_cost_or_regime_soft_cap")
++
++    adjusted = req * risk_multiplier if allow else 0.0
++
++    if TRADE_RISK_LEVEL:
++        TRADE_RISK_LEVEL.labels(symbol=symbol).set(_level_num(level))
++    if level in {RISK_DENY_SOFT, RISK_DENY_HARD} and TRADE_RISK_DENY_TOTAL:
++        for reason in sorted(set(reasons)):
++            TRADE_RISK_DENY_TOTAL.labels(symbol=symbol, reason=reason, level=level).inc()
++    if level == RISK_FORCE_FLATTEN and TRADE_RISK_FORCE_FLATTEN_TOTAL:
++        for reason in sorted(set(reasons)):
++            TRADE_RISK_FORCE_FLATTEN_TOTAL.labels(symbol=symbol, reason=reason).inc()
++
++    snapshot = {
++        "symbol": symbol,
++        "cluster": cluster,
++        "tier": tier,
++        "equity_usd": equity,
++        "requested_notional_usd": req,
++        "total_exposure_usd": total_exposure,
++        "symbol_exposure_usd": symbol_exposure,
++        "cluster_exposure_usd": cluster_exposure,
++        "total_exposure_ratio": total_ratio,
++        "symbol_exposure_ratio": symbol_ratio,
++        "cluster_exposure_ratio": cluster_ratio,
++        "daily_pnl_pct": _f(inp.daily_pnl_pct),
++        "spread_bps": _f(inp.spread_bps),
++        "slippage_bps": _f(inp.slippage_bps),
++        "infra_degraded": bool(inp.infra_degraded),
++        "high_vol": bool(inp.high_vol),
++    }
++
++    return PortfolioRiskDecision(
++        level=level,
++        allow_trade_publish=allow,
++        adjusted_notional_usd=adjusted,
++        leverage_cap=leverage_cap,
++        risk_multiplier=risk_multiplier,
++        reasons=sorted(set(reasons)),
++        snapshot=snapshot,
++    )
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' /mnt/data/p2work/p2/audit_code/risk/test_portfolio_risk_engine_v1.py /mnt/data/p34work/audit_code/risk/test_portfolio_risk_engine_v1.py
+--- /mnt/data/p2work/p2/audit_code/risk/test_portfolio_risk_engine_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p34work/audit_code/risk/test_portfolio_risk_engine_v1.py	2026-03-06 18:39:15.123124906 +0000
+@@ -0,0 +1,44 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++mod_path = Path(__file__).with_name("portfolio_risk_engine.py")
++spec = importlib.util.spec_from_file_location("portfolio_risk_engine", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++def test_force_flatten_on_daily_loss_limit():
++    inp = mod.PortfolioRiskInput(
++        symbol="BTCUSDT",
++        cluster="majors",
++        tier="A",
++        requested_notional_usd=10_000,
++        equity_usd=5_000,
++        daily_pnl_pct=-3.0,
++    )
++    decision = mod.evaluate_portfolio_risk(inp)
++    assert decision.level == mod.RISK_FORCE_FLATTEN
++    assert decision.allow_trade_publish is False
++    assert "daily_loss_limit" in decision.reasons
++
++
++def test_cluster_exposure_hard_deny():
++    positions = [
++        mod.PortfolioPosition(symbol="BTCUSDT", notional_usd=4_000, cluster="majors"),
++        mod.PortfolioPosition(symbol="ETHUSDT", notional_usd=3_000, cluster="majors"),
++    ]
++    inp = mod.PortfolioRiskInput(
++        symbol="SOLUSDT",
++        cluster="majors",
++        tier="B",
++        requested_notional_usd=2_000,
++        current_positions=positions,
++        equity_usd=5_000,
++    )
++    decision = mod.evaluate_portfolio_risk(inp)
++    assert decision.level == mod.RISK_DENY_HARD
++    assert decision.allow_trade_publish is False
++    assert "cluster_exposure_cap" in decision.reasons
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' /mnt/data/p2work/p2/audit_code/test_redis_dq_policy_v1.py /mnt/data/p34work/audit_code/test_redis_dq_policy_v1.py
+--- /mnt/data/p2work/p2/audit_code/test_redis_dq_policy_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p34work/audit_code/test_redis_dq_policy_v1.py	2026-03-06 18:39:15.111277008 +0000
+@@ -0,0 +1,35 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++mod_path = Path(__file__).with_name("redis_dq_policy.py")
++spec = importlib.util.spec_from_file_location("redis_dq_policy", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++def test_hard_veto_on_tick_and_timeouts():
++    snap = mod.RedisDQSnapshot(
++        symbol="BTCUSDT",
++        tick_staleness_ms=9_000,
++        redis_timeout_events=7,
++    )
++    decision = mod.evaluate_redis_dq(snap)
++    assert decision.level == 2
++    assert decision.allow_trade_publish is False
++    assert "tick_staleness" in decision.reasons
++    assert "redis_timeout_events" in decision.reasons
++
++
++def test_soft_veto_tightens_without_blocking():
++    snap = mod.RedisDQSnapshot(
++        symbol="ETHUSDT",
++        queue_lag_ms=2_500,
++        outbox_backlog=120,
++    )
++    decision = mod.evaluate_redis_dq(snap)
++    assert decision.level == 1
++    assert decision.allow_trade_publish is True
++    assert decision.tightened_mode is True
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' /mnt/data/p2work/p2/binance_execution/binance_executor.py /mnt/data/p34work/binance_execution/binance_executor.py
+--- /mnt/data/p2work/p2/binance_execution/binance_executor.py	2026-03-06 18:02:02.112046948 +0000
++++ /mnt/data/p34work/binance_execution/binance_executor.py	2026-03-06 18:40:38.648648201 +0000
+@@ -83,6 +83,7 @@
+         ExecutionPolicyDecision,
+         resolve_execution_policy,
+     )
++    from services.execution_journal import ExecutionJournalSink
+ except Exception:  # pragma: no cover - standalone bundle / local tests
+     from binance_futures_client import BinanceAPIError, BinanceFuturesClient
+     from execution_intent_validator import validate_exit_intent
+@@ -92,6 +93,7 @@
+         ExecutionPolicyDecision,
+         resolve_execution_policy,
+     )
++    from execution_journal import ExecutionJournalSink
+ 
+ try:
+     from services.telegram.telegram_client import TelegramClient
+@@ -104,6 +106,37 @@
+         def send_text(self, text: str) -> None:
+             return None
+ 
++try:
++    from prometheus_client import Counter, REGISTRY
++except Exception:  # pragma: no cover
++    Counter = None  # type: ignore
++    REGISTRY = None  # type: ignore
++
++
++def _metric(factory, name: str, *args, **kwargs):
++    if factory is None:
++        return None
++    try:
++        return factory(name, *args, **kwargs)
++    except ValueError:
++        collector = getattr(REGISTRY, "_names_to_collectors", {}).get(name) if REGISTRY is not None else None
++        return collector
++
++EXECUTION_RECONCILE_PENDING_TOTAL = _metric(Counter,
++    "execution_reconcile_pending_total",
++    "Number of executor transitions into PENDING_RECONCILE.",
++    ["action", "symbol"],
++)
++EXECUTION_EMERGENCY_FLATTEN_TOTAL = _metric(Counter,
++    "execution_emergency_flatten_total",
++    "Number of emergency flatten operations executed by the Binance executor.",
++    ["symbol", "reason"],
++)
++EXECUTION_STATE_TRANSITION_TOTAL = _metric(Counter,
++    "execution_state_transition_total",
++    "Number of executor finite-state-machine transitions.",
++    ["action", "symbol", "next_state"],
++)
+ 
+ # ---------------------------------------------------------------------------
+ # Helpers
+@@ -622,6 +655,10 @@
+         self.max_clock_drift_ms = int(os.getenv("MAX_CLOCK_DRIFT_MS", "250"))
+         self._next_time_sync_due_ms = 0
+ 
++        # Best-effort durable SQL mirror for incident analysis. Redis stream
++        # remains the online source of truth; Postgres journal is auxiliary.
++        self.execution_journal = ExecutionJournalSink()
++
+     def _resolve_client(
+         self, payload: Dict[str, Any]
+     ) -> Tuple["BinanceFuturesClient", "FiltersCache"]:
+@@ -667,6 +704,12 @@
+             self.r.xadd(self.exec_stream, {k: str(v) for k, v in fields.items() if v is not None})
+         except Exception:
+             pass
++        try:
++            sink = getattr(self, "execution_journal", None)
++            if sink is not None:
++                sink.record_event(fields)
++        except Exception:
++            pass
+ 
+     def _dlq(self, raw: str, reason: str) -> None:
+         """Push unprocessable message to DLQ list (fail-open)."""
+@@ -722,6 +765,13 @@
+                 json.dumps(doc, ensure_ascii=False, default=str),
+                 ex=self.state_ttl if self.state_ttl > 0 else None,
+             )
++            try:
++                sink = getattr(self, "execution_journal", None)
++                if sink is not None:
++                    sink.upsert_order_snapshot(doc)
++                    sink.upsert_protection_refs(doc)
++            except Exception:
++                pass
+         except Exception:
+             pass  # fail-open: state is best-effort; exec stream is authoritative
+ 
+@@ -765,6 +815,8 @@
+         doc["fsm_ts_ms"] = _ms_now()
+         doc["fsm_mono_ms"] = _mono_ms()
+         self._save_order_state(sid, doc)
++        if EXECUTION_STATE_TRANSITION_TOTAL:
++            EXECUTION_STATE_TRANSITION_TOTAL.labels(action=action, symbol=symbol, next_state=next_state).inc()
+         self._exec_event({
+             "sid": sid,
+             "symbol": symbol,
+@@ -777,6 +829,8 @@
+         return doc
+ 
+     def _mark_pending_reconcile(self, sid: str, *, symbol: str, action: str, reason: str) -> None:
++        if EXECUTION_RECONCILE_PENDING_TOTAL:
++            EXECUTION_RECONCILE_PENDING_TOTAL.labels(action=action, symbol=symbol).inc()
+         self._transition_state(
+             sid,
+             symbol=symbol,
+@@ -1170,6 +1224,8 @@
+             client=client,
+             filters=filters,
+         )
++        if EXECUTION_EMERGENCY_FLATTEN_TOTAL:
++            EXECUTION_EMERGENCY_FLATTEN_TOTAL.labels(symbol=symbol, reason="emerg").inc()
+         self._transition_state(sid, symbol=symbol, action="emergency_flatten", next_state=FSM_EMERGENCY_FLATTENED, details=close)
+         return {
+             "emergency_order_id": close.get("close_order_id"),
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' /mnt/data/p2work/p2/binance_execution/execution_journal.py /mnt/data/p34work/binance_execution/execution_journal.py
+--- /mnt/data/p2work/p2/binance_execution/execution_journal.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p34work/binance_execution/execution_journal.py	2026-03-06 18:42:43.107758824 +0000
+@@ -0,0 +1,162 @@
++from __future__ import annotations
++
++"""Best-effort execution journal sink for Postgres."""
++
++from dataclasses import dataclass
++from typing import Any, Dict
++import json
++import os
++import time
++
++try:
++    from prometheus_client import Counter, REGISTRY
++except Exception:  # pragma: no cover
++    Counter = None  # type: ignore
++    REGISTRY = None  # type: ignore
++
++
++def _metric(factory, name: str, *args, **kwargs):
++    if factory is None:
++        return None
++    try:
++        return factory(name, *args, **kwargs)
++    except ValueError:
++        return getattr(REGISTRY, "_names_to_collectors", {}).get(name) if REGISTRY is not None else None
++
++
++TRADE_EXECUTION_JOURNAL_WRITE_FAIL_TOTAL = _metric(
++    Counter,
++    'trade_execution_journal_write_fail_total',
++    'Number of execution journal DB write failures.',
++    ['kind'],
++)
++
++try:  # pragma: no cover
++    import psycopg  # type: ignore
++except Exception:  # pragma: no cover
++    psycopg = None
++    try:
++        import psycopg2 as psycopg  # type: ignore
++    except Exception:  # pragma: no cover
++        psycopg = None
++
++
++@dataclass
++class ExecutionJournalSink:
++    dsn: str = ''
++    connect_factory: Any = None
++
++    def __post_init__(self) -> None:
++        self.dsn = self.dsn or os.getenv('EXECUTION_JOURNAL_DSN', '')
++        if self.connect_factory is None and self.dsn and psycopg is not None:
++            self.connect_factory = psycopg.connect
++
++    @property
++    def enabled(self) -> bool:
++        return bool(self.dsn and self.connect_factory)
++
++    def _connect(self):
++        if not self.enabled:
++            return None
++        return self.connect_factory(self.dsn)
++
++    def record_event(self, event: Dict[str, Any]) -> bool:
++        if not self.enabled:
++            return False
++        sql = (
++            "INSERT INTO execution_order_events (sid, symbol, event_type, event_ts_ms, payload_jsonb) "
++            "VALUES (%s, %s, %s, %s, %s::jsonb)"
++        )
++        payload = dict(event or {})
++        try:
++            conn = self._connect()
++            with conn:
++                with conn.cursor() as cur:
++                    cur.execute(sql, (
++                        str(payload.get('sid') or ''),
++                        str(payload.get('symbol') or ''),
++                        str(payload.get('event_type') or payload.get('action') or 'event'),
++                        int(payload.get('ts_ms') or int(time.time() * 1000)),
++                        json.dumps(payload, ensure_ascii=False, default=str),
++                    ))
++            return True
++        except Exception:
++            if TRADE_EXECUTION_JOURNAL_WRITE_FAIL_TOTAL:
++                TRADE_EXECUTION_JOURNAL_WRITE_FAIL_TOTAL.labels(kind='event').inc()
++            return False
++
++    def upsert_order_snapshot(self, state: Dict[str, Any]) -> bool:
++        if not self.enabled:
++            return False
++        sql = (
++            "INSERT INTO execution_orders (sid, symbol, action, status, fsm_state, execution_policy, venue, "
++            "position_mode, position_side, working_type_policy, state_jsonb, created_at_ms, updated_at_ms) "
++            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s) "
++            "ON CONFLICT (sid) DO UPDATE SET "
++            "symbol = EXCLUDED.symbol, action = EXCLUDED.action, status = EXCLUDED.status, fsm_state = EXCLUDED.fsm_state, "
++            "execution_policy = EXCLUDED.execution_policy, venue = EXCLUDED.venue, position_mode = EXCLUDED.position_mode, "
++            "position_side = EXCLUDED.position_side, working_type_policy = EXCLUDED.working_type_policy, "
++            "state_jsonb = EXCLUDED.state_jsonb, updated_at_ms = EXCLUDED.updated_at_ms"
++        )
++        doc = dict(state or {})
++        now_ms = int(doc.get('ts_ms') or int(time.time() * 1000))
++        try:
++            conn = self._connect()
++            with conn:
++                with conn.cursor() as cur:
++                    cur.execute(sql, (
++                        str(doc.get('sid') or ''),
++                        str(doc.get('symbol') or ''),
++                        str(doc.get('action') or ''),
++                        str(doc.get('status') or ''),
++                        str(doc.get('fsm_state') or ''),
++                        str(doc.get('execution_policy') or ''),
++                        str(doc.get('venue') or 'binance'),
++                        str(doc.get('position_mode') or ''),
++                        str(doc.get('position_side') or ''),
++                        str(doc.get('working_type_policy') or ''),
++                        json.dumps(doc, ensure_ascii=False, default=str),
++                        int(doc.get('created_at_ms') or now_ms),
++                        int(doc.get('updated_at_ms') or now_ms),
++                    ))
++            return True
++        except Exception:
++            if TRADE_EXECUTION_JOURNAL_WRITE_FAIL_TOTAL:
++                TRADE_EXECUTION_JOURNAL_WRITE_FAIL_TOTAL.labels(kind='order_snapshot').inc()
++            return False
++
++    def upsert_protection_refs(self, state: Dict[str, Any]) -> bool:
++        if not self.enabled:
++            return False
++        sid = str((state or {}).get('sid') or '')
++        if not sid:
++            return False
++        sql = (
++            "INSERT INTO execution_protection_refs (sid, symbol, sl_algo_id, sl_client_algo_id, tp1_algo_id, tp2_algo_id, tp3_algo_id, trail_algo_id, trail_client_algo_id, updated_at_ms) "
++            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
++            "ON CONFLICT (sid) DO UPDATE SET symbol = EXCLUDED.symbol, sl_algo_id = EXCLUDED.sl_algo_id, sl_client_algo_id = EXCLUDED.sl_client_algo_id, "
++            "tp1_algo_id = EXCLUDED.tp1_algo_id, tp2_algo_id = EXCLUDED.tp2_algo_id, tp3_algo_id = EXCLUDED.tp3_algo_id, "
++            "trail_algo_id = EXCLUDED.trail_algo_id, trail_client_algo_id = EXCLUDED.trail_client_algo_id, updated_at_ms = EXCLUDED.updated_at_ms"
++        )
++        s = state or {}
++        try:
++            conn = self._connect()
++            with conn:
++                with conn.cursor() as cur:
++                    cur.execute(sql, (
++                        sid,
++                        str(s.get('symbol') or ''),
++                        s.get('sl_algo_id'),
++                        s.get('sl_client_algo_id'),
++                        s.get('tp1_algo_id'),
++                        s.get('tp2_algo_id'),
++                        s.get('tp3_algo_id'),
++                        s.get('trail_algo_id'),
++                        s.get('trail_client_algo_id'),
++                        int(s.get('updated_at_ms') or int(time.time() * 1000)),
++                    ))
++            return True
++        except Exception:
++            if TRADE_EXECUTION_JOURNAL_WRITE_FAIL_TOTAL:
++                TRADE_EXECUTION_JOURNAL_WRITE_FAIL_TOTAL.labels(kind='protection_refs').inc()
++            return False
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' /mnt/data/p2work/p2/binance_execution/test_binance_executor_p34_journal_v1.py /mnt/data/p34work/binance_execution/test_binance_executor_p34_journal_v1.py
+--- /mnt/data/p2work/p2/binance_execution/test_binance_executor_p34_journal_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p34work/binance_execution/test_binance_executor_p34_journal_v1.py	2026-03-06 18:39:15.184248893 +0000
+@@ -0,0 +1,73 @@
++from pathlib import Path
++import importlib.util
++import sys
++import json
++
++mod_path = Path(__file__).with_name("binance_executor.py")
++spec = importlib.util.spec_from_file_location("binance_executor", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++class DummyRedis:
++    def __init__(self):
++        self.kv = {}
++        self.stream = []
++
++    def get(self, key):
++        return self.kv.get(key)
++
++    def set(self, key, value, ex=None):
++        self.kv[key] = value
++        return True
++
++    def xadd(self, key, fields):
++        self.stream.append((key, dict(fields)))
++        return "1-0"
++
++
++class DummySink:
++    def __init__(self):
++        self.events = []
++        self.snapshots = []
++        self.refs = []
++
++    def record_event(self, event):
++        self.events.append(dict(event))
++        return True
++
++    def upsert_order_snapshot(self, state):
++        self.snapshots.append(dict(state))
++        return True
++
++    def upsert_protection_refs(self, state):
++        self.refs.append(dict(state))
++        return True
++
++
++def _make_exec():
++    ex = mod.BinanceExecutor.__new__(mod.BinanceExecutor)
++    ex.r = DummyRedis()
++    ex.exec_stream = "orders:exec"
++    ex.state_key_prefix = "orders:state:"
++    ex.state_ttl = 60
++    ex.user_stream_cache_prefix = "orders:user_stream:"
++    ex.reconcile_enable = True
++    ex._next_time_sync_due_ms = 0
++    ex.binance_time_sync_interval_ms = 30000
++    ex.max_clock_drift_ms = 250
++    ex.execution_journal = DummySink()
++    return ex
++
++
++def test_exec_event_and_state_are_mirrored_to_journal():
++    ex = _make_exec()
++    ex._exec_event({"sid": "sid-1", "symbol": "BTCUSDT", "event_type": "custom"})
++    ex._save_order_state("sid-1", {"sid": "sid-1", "symbol": "BTCUSDT", "fsm_state": mod.FSM_PROTECTED, "sl_algo_id": 11})
++    assert len(ex.execution_journal.events) == 1
++    assert len(ex.execution_journal.snapshots) == 1
++    assert len(ex.execution_journal.refs) == 1
++    state = json.loads(ex.r.kv["orders:state:sid-1"])
++    assert state["fsm_state"] == mod.FSM_PROTECTED
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' /mnt/data/p2work/p2/binance_execution/test_execution_journal_v1.py /mnt/data/p34work/binance_execution/test_execution_journal_v1.py
+--- /mnt/data/p2work/p2/binance_execution/test_execution_journal_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p34work/binance_execution/test_execution_journal_v1.py	2026-03-06 18:39:15.133746622 +0000
+@@ -0,0 +1,52 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++mod_path = Path(__file__).with_name("execution_journal.py")
++spec = importlib.util.spec_from_file_location("execution_journal", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++class FakeCursor:
++    def __init__(self, log):
++        self.log = log
++
++    def __enter__(self):
++        return self
++
++    def __exit__(self, exc_type, exc, tb):
++        return False
++
++    def execute(self, sql, params):
++        self.log.append((sql, params))
++
++
++class FakeConn:
++    def __init__(self, log):
++        self.log = log
++
++    def __enter__(self):
++        return self
++
++    def __exit__(self, exc_type, exc, tb):
++        return False
++
++    def cursor(self):
++        return FakeCursor(self.log)
++
++
++def _factory(log):
++    return lambda dsn: FakeConn(log)
++
++
++def test_record_event_and_snapshot_use_sql_sink():
++    log = []
++    sink = mod.ExecutionJournalSink(dsn="postgres://unit-test", connect_factory=_factory(log))
++    assert sink.record_event({"sid": "sid-1", "symbol": "BTCUSDT", "event_type": "state_transition", "ts_ms": 1}) is True
++    assert sink.upsert_order_snapshot({"sid": "sid-1", "symbol": "BTCUSDT", "fsm_state": "PROTECTED", "ts_ms": 2}) is True
++    assert len(log) == 2
++    assert "execution_order_events" in log[0][0]
++    assert "execution_orders" in log[1][0]
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' /mnt/data/p2work/p2/db/migrations/20260306_01_execution_journal.sql /mnt/data/p34work/db/migrations/20260306_01_execution_journal.sql
+--- /mnt/data/p2work/p2/db/migrations/20260306_01_execution_journal.sql	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p34work/db/migrations/20260306_01_execution_journal.sql	2026-03-06 18:35:43.929287451 +0000
+@@ -0,0 +1,40 @@
++-- Execution journal for Binance/venue execution facts.
++-- Redis stream remains the online SoT; these tables provide durable audit and incident history.
++
++CREATE TABLE IF NOT EXISTS execution_orders (
++    sid TEXT PRIMARY KEY,
++    symbol TEXT NOT NULL,
++    action TEXT NOT NULL DEFAULT '',
++    status TEXT NOT NULL DEFAULT '',
++    fsm_state TEXT NOT NULL DEFAULT '',
++    execution_policy TEXT NOT NULL DEFAULT '',
++    venue TEXT NOT NULL DEFAULT 'binance',
++    position_mode TEXT NOT NULL DEFAULT '',
++    position_side TEXT NOT NULL DEFAULT '',
++    working_type_policy TEXT NOT NULL DEFAULT '',
++    state_jsonb JSONB NOT NULL,
++    created_at_ms BIGINT NOT NULL,
++    updated_at_ms BIGINT NOT NULL
++);
++
++CREATE TABLE IF NOT EXISTS execution_order_events (
++    id BIGSERIAL PRIMARY KEY,
++    sid TEXT NOT NULL,
++    symbol TEXT NOT NULL DEFAULT '',
++    event_type TEXT NOT NULL,
++    event_ts_ms BIGINT NOT NULL,
++    payload_jsonb JSONB NOT NULL
++);
++
++CREATE TABLE IF NOT EXISTS execution_protection_refs (
++    sid TEXT PRIMARY KEY,
++    symbol TEXT NOT NULL,
++    sl_algo_id BIGINT,
++    sl_client_algo_id TEXT,
++    tp1_algo_id BIGINT,
++    tp2_algo_id BIGINT,
++    tp3_algo_id BIGINT,
++    trail_algo_id BIGINT,
++    trail_client_algo_id TEXT,
++    updated_at_ms BIGINT NOT NULL
++);
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' /mnt/data/p2work/p2/db/migrations/20260306_02_execution_journal_indexes.sql /mnt/data/p34work/db/migrations/20260306_02_execution_journal_indexes.sql
+--- /mnt/data/p2work/p2/db/migrations/20260306_02_execution_journal_indexes.sql	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p34work/db/migrations/20260306_02_execution_journal_indexes.sql	2026-03-06 18:35:43.983531324 +0000
+@@ -0,0 +1,11 @@
++CREATE INDEX IF NOT EXISTS idx_execution_orders_symbol_state
++    ON execution_orders(symbol, fsm_state, updated_at_ms DESC);
++
++CREATE INDEX IF NOT EXISTS idx_execution_events_sid_ts
++    ON execution_order_events(sid, event_ts_ms DESC);
++
++CREATE INDEX IF NOT EXISTS idx_execution_events_symbol_type_ts
++    ON execution_order_events(symbol, event_type, event_ts_ms DESC);
++
++CREATE INDEX IF NOT EXISTS idx_execution_events_payload_gin
++    ON execution_order_events USING GIN (payload_jsonb);
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' /mnt/data/p2work/p2/monitoring/prometheus_rules_execution_p34.yml /mnt/data/p34work/monitoring/prometheus_rules_execution_p34.yml
+--- /mnt/data/p2work/p2/monitoring/prometheus_rules_execution_p34.yml	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p34work/monitoring/prometheus_rules_execution_p34.yml	2026-03-06 18:35:43.999141675 +0000
+@@ -0,0 +1,78 @@
++groups:
++  - name: trade-execution-safety
++    rules:
++      - alert: TradeExecutionEmergencyFlatten
++        expr: increase(execution_emergency_flatten_total[5m]) > 0
++        for: 0m
++        labels:
++          severity: crit
++        annotations:
++          summary: "Emergency flatten executed"
++          description: "The executor performed an emergency flatten in the last 5 minutes. Inspect execution_order_events and Redis orders:exec."
++
++      - alert: TradeExecutionReconcileBacklog
++        expr: sum(increase(execution_reconcile_pending_total[10m])) > 10
++        for: 5m
++        labels:
++          severity: warn
++        annotations:
++          summary: "Ambiguous execution backlog growing"
++          description: "The executor entered PENDING_RECONCILE too often in the last 10 minutes. Verify WebSocket user stream and REST reconciliation."
++
++      - alert: TradeExecutionJournalWriteFailures
++        expr: increase(trade_execution_journal_write_fail_total[10m]) > 0
++        for: 0m
++        labels:
++          severity: warn
++        annotations:
++          summary: "Execution journal DB writes are failing"
++          description: "Redis stream continues to work fail-open, but durable SQL audit history is being lost."
++
++  - name: trade-data-quality
++    rules:
++      - alert: TradeDQHardVeto
++        expr: max by (symbol) (trade_dq_level) >= 2
++        for: 2m
++        labels:
++          severity: crit
++        annotations:
++          summary: "Hard DQ veto active"
++          description: "Trade publication is blocked by Redis/data-quality hard veto for {{ $labels.symbol }}."
++
++      - alert: TradeDQSoftVetoBurst
++        expr: increase(trade_dq_soft_veto_total[15m]) > 20
++        for: 5m
++        labels:
++          severity: warn
++        annotations:
++          summary: "Soft DQ veto burst"
++          description: "The service is frequently tightening risk because of degraded Redis freshness or queue lag."
++
++  - name: trade-portfolio-risk
++    rules:
++      - alert: TradePortfolioForceFlatten
++        expr: increase(trade_risk_force_flatten_total[5m]) > 0
++        for: 0m
++        labels:
++          severity: crit
++        annotations:
++          summary: "Portfolio risk engine requested force flatten"
++          description: "Daily loss or another hard portfolio rule breached. No new risk should be opened."
++
++      - alert: TradePortfolioExposureHigh
++        expr: trade_portfolio_total_exposure_ratio > 2.0
++        for: 10m
++        labels:
++          severity: warn
++        annotations:
++          summary: "Portfolio total exposure elevated"
++          description: "Total portfolio notional exposure is above the warning threshold."
++
++      - alert: TradePortfolioClusterExposureHigh
++        expr: max by (cluster) (trade_portfolio_cluster_exposure_ratio) > 1.0
++        for: 10m
++        labels:
++          severity: warn
++        annotations:
++          summary: "Cluster exposure elevated"
++          description: "A symbol cluster concentration exceeded the warning threshold."

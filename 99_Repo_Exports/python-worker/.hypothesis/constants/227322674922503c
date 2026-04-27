@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/special/specfun.py
+# hypothesis_version: 6.148.10
+
+['airyzo', 'bernob', 'cerzo', 'clpmn', 'clpn', 'clqmn', 'clqn', 'cpbdn', 'cyzo', 'eulerb', 'fcoef', 'fcszo', 'jdzo', 'jyzo', 'klvnzo', 'lamn', 'lamv', 'lpmn', 'lpn', 'lqmn', 'lqnb', 'pbdv', 'rctj', 'rcty', 'segv']

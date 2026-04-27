@@ -1,0 +1,324 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "panels": [],
+      "title": "OF-gate DLQ events in DB (P84)",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "${DS_POSTGRES}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 1
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawQuery": true,
+          "refId": "A",
+          "sql": "SELECT\n  $__timeGroup(ts, '5m') AS time,\n  stream AS metric,\n  count(*)::double precision AS value\nFROM of_gate_dlq_events\nWHERE $__timeFilter(ts)\n  AND ( '${stream:raw}' = 'All' OR stream = ANY(string_to_array('${stream:csv}', ',')) )\nGROUP BY 1,2\nORDER BY 1"
+        }
+      ],
+      "title": "DLQ events count (5m) by stream",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "${DS_POSTGRES}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 9
+      },
+      "id": 3,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawQuery": true,
+          "refId": "A",
+          "sql": "SELECT\n  stream,\n  round(extract(epoch from (now() - max(ts)))::numeric, 0) AS age_sec\nFROM of_gate_dlq_events\nWHERE $__timeFilter(ts)\n  AND ( '${stream:raw}' = 'All' OR stream = ANY(string_to_array('${stream:csv}', ',')) )\nGROUP BY 1\nORDER BY age_sec DESC"
+        }
+      ],
+      "title": "DLQ max age (sec) by stream",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "${DS_POSTGRES}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 9
+      },
+      "id": 4,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawQuery": true,
+          "refId": "A",
+          "sql": "SELECT\n  coalesce(dq_code, 'null') AS dq_code,\n  count(*) AS cnt\nFROM of_gate_dlq_events\nWHERE $__timeFilter(ts)\n  AND ( '${stream:raw}' = 'All' OR stream = ANY(string_to_array('${stream:csv}', ',')) )\nGROUP BY 1\nORDER BY cnt DESC\nLIMIT 12"
+        }
+      ],
+      "title": "Top dq_code (time range)",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "${DS_POSTGRES}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 9
+      },
+      "id": 5,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawQuery": true,
+          "refId": "A",
+          "sql": "SELECT\n  coalesce(reason_code, 'null') AS reason_code,\n  count(*) AS cnt\nFROM of_gate_dlq_events\nWHERE $__timeFilter(ts)\n  AND ( '${stream:raw}' = 'All' OR stream = ANY(string_to_array('${stream:csv}', ',')) )\nGROUP BY 1\nORDER BY cnt DESC\nLIMIT 12"
+        }
+      ],
+      "title": "Top reason_code (time range)",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "${DS_POSTGRES}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 15
+      },
+      "id": 6,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawQuery": true,
+          "refId": "A",
+          "sql": "SELECT\n  coalesce(schema_version::text, 'null') AS schema_version,\n  count(*) AS cnt\nFROM of_gate_dlq_events\nWHERE $__timeFilter(ts)\n  AND ( '${stream:raw}' = 'All' OR stream = ANY(string_to_array('${stream:csv}', ',')) )\nGROUP BY 1\nORDER BY cnt DESC"
+        }
+      ],
+      "title": "Schema version mix",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "${DS_POSTGRES}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 15
+      },
+      "id": 7,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawQuery": true,
+          "refId": "A",
+          "sql": "SELECT\n  split_part(coalesce(err, ''), ' ', 1) AS err_prefix,\n  count(*) AS cnt\nFROM of_gate_dlq_events\nWHERE $__timeFilter(ts)\n  AND ( '${stream:raw}' = 'All' OR stream = ANY(string_to_array('${stream:csv}', ',')) )\nGROUP BY 1\nORDER BY cnt DESC\nLIMIT 20"
+        }
+      ],
+      "title": "Top err_prefix",
+      "type": "table"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": [
+    "of-gate",
+    "dlq",
+    "p84"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "hide": 0,
+        "label": "Postgres",
+        "name": "DS_POSTGRES",
+        "options": [],
+        "query": "postgres",
+        "refresh": 1,
+        "type": "datasource"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "All"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "${DS_POSTGRES}"
+        },
+        "definition": "SELECT DISTINCT stream FROM of_gate_dlq_events ORDER BY 1",
+        "hide": 0,
+        "includeAll": true,
+        "multi": true,
+        "name": "stream",
+        "options": [],
+        "query": {
+          "queryText": "SELECT DISTINCT stream FROM of_gate_dlq_events ORDER BY 1",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "OF-gate DLQ events (DB) P84",
+  "uid": "of_gate_dlq_db_p84",
+  "version": 1
+}
+

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/of_replay_from_inputs.py
+# hypothesis_version: 6.148.10
+
+[0.0, 160, '--inputs', '--max-rows', '--out', '500000', 'NONE', 'OF_REPLAY_MAX_ROWS', '__main__', 'a', 'abs_lvl_ok', 'b', 'c', 'cfg', 'cont_ctx_recent', 'continuation', 'delta_z', 'direction', 'fp_eff_quote', 'fp_move_bp', 'fp_quote_delta', 'gate_bits', 'have', 'hidden_ctx_recent', 'iceberg_strict', 'k', 'legs', 'na', 'need', 'none', 'obi_stable', 'ok', 'out', 'payload', 'r', 'reason', 'reclaim_recent', 'reversal', 'scenario', 'scenario_na', 'sweep_recent', 'symbol', 'trend_dir', 'ts_ms', 'utf-8', 'v', 'w', 'weak_progress', 'wrote']

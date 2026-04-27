@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/detector/rules/breakout.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, '0.10', '2.2', 'DET_MIN_RAW_SCORE', 'DET_Z_BREAKOUT', 'breakout', 'breakout_level', 'level_key', 'level_price', 'pdh', 'pdl', 'price', 'z', 'z_delta', 'z_delta_breakout']

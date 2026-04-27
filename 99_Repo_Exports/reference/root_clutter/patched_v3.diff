@@ -1,0 +1,768 @@
+diff --git a/monitoring/grafana/dashboards/policy_effectiveness_p71.json b/monitoring/grafana/dashboards/policy_effectiveness_p71.json
+new file mode 100644
+index 0000000..f3a6986
+--- /dev/null
++++ b/monitoring/grafana/dashboards/policy_effectiveness_p71.json
+@@ -0,0 +1,204 @@
++{
++  "annotations": {
++    "list": [
++      {
++        "builtIn": 1,
++        "datasource": "-- Grafana --",
++        "enable": true,
++        "hide": true,
++        "iconColor": "rgba(0, 211, 255, 1)",
++        "name": "Annotations & Alerts",
++        "type": "dashboard"
++      }
++    ]
++  },
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "id": null,
++  "links": [],
++  "panels": [
++    {
++      "datasource": "Prometheus",
++      "fieldConfig": {
++        "defaults": {
++          "mappings": [],
++          "thresholds": {
++            "mode": "absolute",
++            "steps": [
++              { "color": "green", "value": null },
++              { "color": "yellow", "value": 1800 },
++              { "color": "red", "value": 3600 }
++            ]
++          },
++          "unit": "s"
++        },
++        "overrides": []
++      },
++      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
++      "id": 1,
++      "options": {
++        "colorMode": "value",
++        "graphMode": "none",
++        "justifyMode": "auto",
++        "orientation": "auto",
++        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
++        "textMode": "auto"
++      },
++      "targets": [
++        {
++          "expr": "policy_effectiveness_last_age_seconds{instance=~\"$instance\"}",
++          "legendFormat": "{{instance}}",
++          "refId": "A"
++        }
++      ],
++      "title": "Policy effectiveness report age",
++      "type": "stat"
++    },
++    {
++      "datasource": "Prometheus",
++      "fieldConfig": {
++        "defaults": {
++          "mappings": [],
++          "thresholds": {
++            "mode": "absolute",
++            "steps": [
++              { "color": "red", "value": null },
++              { "color": "yellow", "value": 200 },
++              { "color": "green", "value": 500 }
++            ]
++          },
++          "unit": "none"
++        },
++        "overrides": []
++      },
++      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
++      "id": 2,
++      "options": {
++        "colorMode": "value",
++        "graphMode": "none",
++        "justifyMode": "auto",
++        "orientation": "auto",
++        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
++        "textMode": "auto"
++      },
++      "targets": [
++        {
++          "expr": "policy_effectiveness_total_n_24h{instance=~\"$instance\"}",
++          "legendFormat": "{{instance}}",
++          "refId": "A"
++        }
++      ],
++      "title": "Total N (24h)",
++      "type": "stat"
++    },
++    {
++      "datasource": "Prometheus",
++      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
++      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 6 },
++      "id": 3,
++      "options": {
++        "legend": { "calcs": [], "displayMode": "list", "placement": "right" },
++        "tooltip": { "mode": "single" }
++      },
++      "targets": [
++        {
++          "expr": "policy_effectiveness_share_24h{instance=~\"$instance\"}",
++          "legendFormat": "{{mode}}",
++          "refId": "A"
++        }
++      ],
++      "title": "Share by effective mode (24h)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": "Prometheus",
++      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
++      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 6 },
++      "id": 4,
++      "options": {
++        "legend": { "calcs": [], "displayMode": "list", "placement": "right" },
++        "tooltip": { "mode": "single" }
++      },
++      "targets": [
++        {
++          "expr": "policy_effectiveness_expectancy_r_delta_24h{instance=~\"$instance\",mode!=\"ok\"}",
++          "legendFormat": "{{mode}}",
++          "refId": "A"
++        }
++      ],
++      "title": "Expectancy delta vs OK (R)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": "Prometheus",
++      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
++      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 16 },
++      "id": 5,
++      "options": {
++        "legend": { "calcs": [], "displayMode": "list", "placement": "right" },
++        "tooltip": { "mode": "single" }
++      },
++      "targets": [
++        {
++          "expr": "policy_effectiveness_precision_top5p_delta_24h{instance=~\"$instance\",mode!=\"ok\"}",
++          "legendFormat": "{{mode}}",
++          "refId": "A"
++        }
++      ],
++      "title": "Precision@top5% delta vs OK",
++      "type": "timeseries"
++    },
++    {
++      "datasource": "Prometheus",
++      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
++      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 16 },
++      "id": 6,
++      "options": {
++        "legend": { "calcs": [], "displayMode": "list", "placement": "right" },
++        "tooltip": { "mode": "single" }
++      },
++      "targets": [
++        {
++          "expr": "policy_effectiveness_ece_delta_24h{instance=~\"$instance\",mode!=\"ok\"}",
++          "legendFormat": "{{mode}}",
++          "refId": "A"
++        }
++      ],
++      "title": "ECE delta vs OK (positive = worse)",
++      "type": "timeseries"
++    }
++  ],
++  "refresh": "30s",
++  "schemaVersion": 38,
++  "style": "dark",
++  "tags": ["tradeoff", "policy", "p71"],
++  "templating": {
++    "list": [
++      {
++        "current": { "selected": true, "text": "All", "value": "$__all" },
++        "datasource": "Prometheus",
++        "definition": "label_values(up, instance)",
++        "hide": 0,
++        "includeAll": true,
++        "label": "instance",
++        "multi": true,
++        "name": "instance",
++        "options": [],
++        "query": { "query": "label_values(up, instance)", "refId": "StandardVariableQuery" },
++        "refresh": 1,
++        "regex": "",
++        "skipUrlSync": false,
++        "sort": 0,
++        "type": "query"
++      }
++    ]
++  },
++  "time": { "from": "now-24h", "to": "now" },
++  "timepicker": {},
++  "timezone": "browser",
++  "title": "Policy effectiveness (P71)",
++  "uid": "policy_eff_p71",
++  "version": 1,
++  "weekStart": ""
++}
+diff --git a/monitoring/runbooks/policy_effectiveness_p71.md b/monitoring/runbooks/policy_effectiveness_p71.md
+new file mode 100644
+index 0000000..be3d7df
+--- /dev/null
++++ b/monitoring/runbooks/policy_effectiveness_p71.md
+@@ -0,0 +1,72 @@
++# Runbook: Policy effectiveness report (P71)
++
++## What it is
++
++The **policy effectiveness report** compares downstream quality proxies across `policy_effective_mode` buckets (OK / WARN / BLOCK / UNKNOWN) over a rolling **24h** window.
++
++Outputs are written into Redis `settings:dynamic_cfg` by:
++
++- `orderflow_services/policy_effectiveness_report_worker_v1.py`
++
++The Prometheus exporter (`ok_rate_logic/signal_quality_exporter_v3.py`) reads those keys and exposes metrics.
++
++## Primary metrics (Prometheus)
++
++- `policy_effectiveness_last_age_seconds` — staleness of the report.
++- `policy_effectiveness_total_n_24h` — total decisions used (must be high enough).
++- `policy_effectiveness_share_24h{mode=...}` — traffic split across modes.
++- `policy_effectiveness_expectancy_r_delta_24h{mode=...}` — delta vs OK baseline (R units).
++- `policy_effectiveness_precision_top5p_delta_24h{mode=...}` — delta vs OK baseline.
++- `policy_effectiveness_ece_delta_24h{mode=...}` — calibration delta vs OK baseline (positive = worse).
++
++## Alerts
++
++- `PolicyEffectivenessReportStale`
++- `PolicyEffectivenessBaselineMissing`
++- `PolicyEffectivenessBlockShareHigh`
++- `PolicyEffectivenessWarnExpectancyDrop`
++- `PolicyEffectivenessWarnCalibrationWorse`
++
++## Triage checklist
++
++### 1) Report is stale
++
++1. Check Redis key freshness:
++
++```bash
++redis-cli -u "$REDIS_URL" HGET settings:dynamic_cfg policy_effectiveness_last_ts_ms
++redis-cli -u "$REDIS_URL" HGET settings:dynamic_cfg policy_effectiveness_input_last_ts_ms
++```
++
++2. Run the worker manually (from a container that has the code + REDIS_URL env):
++
++```bash
++docker compose -f ok_rate_logic/docker-compose-crypto-orderflow.yml exec -T python-worker \
++  python -m orderflow_services.policy_effectiveness_report_worker_v1
++```
++
++3. Inspect logs around the worker execution window.
++
++### 2) Baseline OK missing
++
++The report uses `policy_effective_mode=ok` as baseline. If there are no OK decisions in 24h:
++
++- Verify `policy_effective_mode` is being set and propagated to downstream streams.
++- Check `signal_quality_n_24h_policy_ok` / `signal_quality_policy_mode_last_ts_ms` (inputs consumed by the report worker).
++- If the policy is in **freeze** / **fail-closed** state, OK can drop to zero by design.
++
++### 3) Block share is high
++
++- Confirm this matches the intended policy posture for the current regime.
++- Check upstream data-quality alerts (bad-time, gaps, WS reconnect storms) — they can inflate block decisions.
++- Validate that `policy_mode_effective` is not stuck due to stale config.
++
++### 4) WARN quality drops vs OK
++
++- Check if WARN is acting as a “quarantine” bucket (selection bias): it may capture degraded conditions.
++- If the goal is *WARN improving* over OK, re-check routing logic and gate thresholds.
++- Verify calibration health and drift metrics; consider per-regime recalibration.
++
++## Dashboard
++
++Grafana: `/grafana/d/policy_eff_p71/policy-effectiveness-p71?orgId=1`
+diff --git a/ok_rate_logic/__pycache__/signal_quality_exporter_v3.cpython-311.pyc b/ok_rate_logic/__pycache__/signal_quality_exporter_v3.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..ea64ecf71af966bce4057f5f330cb2b8e2ea4c4a
+GIT binary patch
+literal 14983
+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
+Ipw)i;zt4=Z?*IS*
+
+literal 0
+HcmV?d00001
+
+diff --git a/python-worker/orderflow_services/prometheus_alerts_policy_effectiveness_p71.yml b/python-worker/orderflow_services/prometheus_alerts_policy_effectiveness_p71.yml
+index 6fbe68f..0752636 100644
+--- a/python-worker/orderflow_services/prometheus_alerts_policy_effectiveness_p71.yml
++++ b/python-worker/orderflow_services/prometheus_alerts_policy_effectiveness_p71.yml
+@@ -1,35 +1,71 @@
++# Alerts for Policy effectiveness report (P71)
++# Source metrics: ok_rate_logic/signal_quality_exporter_v3.py (reads settings:dynamic_cfg)
++
+ groups:
+-  - name: policy-effectiveness-p71
++  - name: policy_effectiveness_p71
+     rules:
++
+       - alert: PolicyEffectivenessReportStale
+-        expr: policy_effectiveness_staleness_sec > 7200
++        expr: policy_effectiveness_last_age_seconds > 1800
+         for: 30m
+         labels:
+-          severity: warn
+-          component: trade
++          severity: warning
++          component: policy_effectiveness
++          policy: p71
+         annotations:
+-          summary: "policy effectiveness report is stale"
+-          description: "No fresh policy effectiveness snapshot in cfg2 for >2h. The worker may be stopped, crashing, or Redis stream reads may be failing."
+-          runbook: "orderflow_services/runbook_policy_effectiveness_p71.md"
++          summary: "Policy effectiveness report is stale"
++          description: "policy_effectiveness_last_age_seconds={{ $value }}s. Check policy_effectiveness_report_worker_v1 and Redis dyn cfg keys."
++          runbook_path: "/runbooks/policy_effectiveness_p71.md"
++          dashboard_path: "/grafana/d/policy_eff_p71/policy-effectiveness-p71?orgId=1"
+ 
+-      - alert: PolicyEffectivenessUnknownShareHigh
+-        expr: policy_effectiveness_share_24h{mode="unknown"} > 0.02 and signal_quality_n_24h > 200
++      - alert: PolicyEffectivenessBaselineMissing
++        expr: (policy_effectiveness_baseline_ok_present < 0.5) and on(instance) (policy_effectiveness_total_n_24h > 200)
+         for: 1h
+         labels:
+-          severity: warn
+-          component: trade
++          severity: warning
++          component: policy_effectiveness
++          policy: p71
++        annotations:
++          summary: "Policy effectiveness baseline (OK) missing"
++          description: "No OK baseline in last 24h (baseline_ok_present={{ $value }}). Report deltas are not meaningful."
++          runbook_path: "/runbooks/policy_effectiveness_p71.md"
++          dashboard_path: "/grafana/d/policy_eff_p71/policy-effectiveness-p71?orgId=1"
++
++      - alert: PolicyEffectivenessBlockShareHigh
++        expr: (policy_effectiveness_share_24h{mode="block"} > 0.20) and on(instance) (policy_effectiveness_total_n_24h > 200)
++        for: 30m
++        labels:
++          severity: warning
++          component: policy_effectiveness
++          policy: p71
+         annotations:
+-          summary: "high share of trades with policy mode=unknown"
+-          description: "More than 2% of trades in last 24h are missing/unknown policy_effective_mode. This breaks calibration of policy thresholds."
+-          runbook: "orderflow_services/runbook_policy_effectiveness_p71.md"
++          summary: "Policy effectiveness: block share is high"
++          description: "block share={{ $value }} (24h). Validate policy thresholds vs regime; check upstream data-quality (bad-time / OF gaps)."
++          runbook_path: "/runbooks/policy_effectiveness_p71.md"
++          dashboard_path: "/grafana/d/policy_eff_p71/policy-effectiveness-p71?orgId=1"
+ 
+-      - alert: PolicyEffectivenessWarnMuchWorseThanOk
+-        expr: policy_effectiveness_baseline_ok_present == 1 and signal_quality_n_24h_by_policy_mode{mode="ok"} >= 50 and signal_quality_n_24h_by_policy_mode{mode="warn"} >= 30 and policy_effectiveness_expectancy_r_delta_24h{mode="warn"} < -0.25
+-        for: 2h
++      - alert: PolicyEffectivenessWarnExpectancyDrop
++        expr: (policy_effectiveness_expectancy_r_delta_24h{mode="warn"} < -0.20) and on(instance) (policy_effectiveness_total_n_24h > 200) and on(instance) (policy_effectiveness_share_24h{mode="warn"} > 0.05)
++        for: 1h
++        labels:
++          severity: warning
++          component: policy_effectiveness
++          policy: p71
++        annotations:
++          summary: "Policy effectiveness: WARN expectancy is worse than OK"
++          description: "warn expectancy delta vs OK={{ $value }}R (24h). Check selection bias, calibration drift, and policy routing."
++          runbook_path: "/runbooks/policy_effectiveness_p71.md"
++          dashboard_path: "/grafana/d/policy_eff_p71/policy-effectiveness-p71?orgId=1"
++
++      - alert: PolicyEffectivenessWarnCalibrationWorse
++        expr: (policy_effectiveness_ece_delta_24h{mode="warn"} > 0.03) and on(instance) (policy_effectiveness_total_n_24h > 200) and on(instance) (policy_effectiveness_share_24h{mode="warn"} > 0.05)
++        for: 1h
+         labels:
+-          severity: warn
+-          component: trade
++          severity: warning
++          component: policy_effectiveness
++          policy: p71
+         annotations:
+-          summary: "warn-mode expectancy much worse than ok"
+-          description: "Expected return under policy_effective_mode=warn is materially worse than ok (delta < -0.25R). Consider adjusting warn threshold, quarantine behavior, or data-quality gate sensitivity."
+-          runbook: "orderflow_services/runbook_policy_effectiveness_p71.md"
++          summary: "Policy effectiveness: WARN calibration (ECE) is worse than OK"
++          description: "warn ECE delta vs OK={{ $value }} (24h). Consider re-calibration / thresholds per regime and verify feature drift."
++          runbook_path: "/runbooks/policy_effectiveness_p71.md"
++          dashboard_path: "/grafana/d/policy_eff_p71/policy-effectiveness-p71?orgId=1"
+diff --git a/python-worker/services/orderflow/tools/signal_quality_exporter_v3.py b/python-worker/services/orderflow/tools/signal_quality_exporter_v3.py
+index 7935409..dd2d580 100644
+--- a/python-worker/services/orderflow/tools/signal_quality_exporter_v3.py
++++ b/python-worker/services/orderflow/tools/signal_quality_exporter_v3.py
+@@ -66,6 +66,19 @@ gb_prec   = Gauge("signal_quality_precision_top5p_24h_by_bucket", "Precision@top
+ gb_ece    = Gauge("signal_quality_ece_24h_by_bucket", "ECE by cov_bucket,applied", ["cov_bucket","applied"])
+ gb_n      = Gauge("signal_quality_n_24h_by_bucket", "N by cov_bucket,applied", ["cov_bucket","applied"])
+ 
++# Policy effectiveness (P71): computed by orderflow_services/policy_effectiveness_report_worker_v1.py
++# and stored in settings:dynamic_cfg (dyn_cfg_key).
++g_pe_last_ts_ms = Gauge("policy_effectiveness_last_ts_ms", "Last policy effectiveness report timestamp (epoch ms)")
++g_pe_last_age_seconds = Gauge("policy_effectiveness_last_age_seconds", "Age of policy effectiveness report (seconds)")
++g_pe_input_last_ts_ms = Gauge("policy_effectiveness_input_last_ts_ms", "Last input timestamp used by report (epoch ms)")
++g_pe_input_age_seconds = Gauge("policy_effectiveness_input_age_seconds", "Age of last input timestamp used by report (seconds)")
++g_pe_total_n_24h = Gauge("policy_effectiveness_total_n_24h", "Total decisions in last 24h used for policy effectiveness report")
++g_pe_baseline_ok_present = Gauge("policy_effectiveness_baseline_ok_present", "Whether OK baseline was present (1/0)")
++g_pe_share_24h = Gauge("policy_effectiveness_share_24h", "Share of effective_mode in last 24h", ["mode"])
++g_pe_expectancy_r_delta_24h = Gauge("policy_effectiveness_expectancy_r_delta_24h", "Expectancy(R) delta vs OK baseline in last 24h", ["mode"])
++g_pe_precision_top5p_delta_24h = Gauge("policy_effectiveness_precision_top5p_delta_24h", "Precision@top5% delta vs OK baseline in last 24h", ["mode"])
++g_pe_ece_delta_24h = Gauge("policy_effectiveness_ece_delta_24h", "ECE delta vs OK baseline in last 24h (positive = worse calibration)", ["mode"])
++
+ def _parse_kv(key: str) -> Dict[str,str]:
+     out: Dict[str,str] = {}
+     for part in (key or "").split("|"):
+@@ -144,6 +157,31 @@ def main() -> None:
+                 if obj.get("ece") is not None:
+                     gb_ece.labels(b,a).set(float(obj["ece"]))
+ 
++            # --- Policy effectiveness (P71) ---
++            pe_last = int(float(cfg.get("policy_effectiveness_last_ts_ms") or 0))
++            g_pe_last_ts_ms.set(pe_last)
++            if pe_last > 0:
++                g_pe_last_age_seconds.set(max(0.0, (now_ms - pe_last) / 1000.0))
++            else:
++                g_pe_last_age_seconds.set(0.0)
++
++            pe_in_last = int(float(cfg.get("policy_effectiveness_input_last_ts_ms") or 0))
++            g_pe_input_last_ts_ms.set(pe_in_last)
++            if pe_in_last > 0:
++                g_pe_input_age_seconds.set(max(0.0, (now_ms - pe_in_last) / 1000.0))
++            else:
++                g_pe_input_age_seconds.set(0.0)
++
++            g_pe_total_n_24h.set(int(float(cfg.get("policy_effectiveness_total_n_24h") or 0)))
++            ok_present = str(cfg.get("policy_effectiveness_baseline_ok_present") or "0").lower().strip()
++            g_pe_baseline_ok_present.set(1.0 if ok_present in ("1", "true", "yes", "y") else 0.0)
++
++            for mode in ("ok", "warn", "block", "unknown"):
++                g_pe_share_24h.labels(mode=mode).set(float(cfg.get(f"policy_effectiveness_share_24h_{mode}") or 0.0))
++                g_pe_expectancy_r_delta_24h.labels(mode=mode).set(float(cfg.get(f"policy_effectiveness_expectancy_r_delta_24h_{mode}") or 0.0))
++                g_pe_precision_top5p_delta_24h.labels(mode=mode).set(float(cfg.get(f"policy_effectiveness_precision_top5p_delta_24h_{mode}") or 0.0))
++                g_pe_ece_delta_24h.labels(mode=mode).set(float(cfg.get(f"policy_effectiveness_ece_delta_24h_{mode}") or 0.0))
++
+         except Exception:
+             pass
+         time.sleep(interval_s)
+diff --git a/ok_rate_logic/tools/__pycache__/signal_quality_exporter_v3.cpython-311.pyc b/ok_rate_logic/tools/__pycache__/signal_quality_exporter_v3.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..6e47d611e6581b2693ad52a499ec6f6e643c34d6
+GIT binary patch
+literal 14989
+zcmd5jZEPFYk-H@IMXjwRxspYFuJujHmMlxMV#}5->&udCecO(eI1H_&Bw7?H@2)Ic
+zp>j&EcSq-Z2(3#XHJ3DO&?HWip#ISwgaC(L4=7;taOhiM0TBxj2yk%k`cFl#K$>4S
+zZ%K*V6=f%BuDB&RZ+B+in|br*y?r0Uj}9C#6L9_V!4EwfWd!k`_+jTtkKK@es5cVC
+z8o?101V?fPFF9wJFp&7(=rv9l)zma$Qq#1FG)PU}^tp_QjJeE-%(<+ItT?ZE!VI)D
+zZ}uEDLCqbQH~{z|&isAT#6fPDqae-UMmQQ$nj7V8kXj6co8lNQ_d^3gd;-7NHDOip
+zdE6l#-lpR7IlB(esQ3b|P>0V|@kLy*4xgvuOSn=U{*a1ixx-u;S3Yg{5bW{^{Nh^W
+ztJDgvG9}fnQmeS?l+*&1TEjU~QVUgTEmy}K;g0T+TclF!xrUU~VwHM~YfMQkQK`qd
+zrj*oDmD<d;=<L9%_!C^K4u4q1KgXTa;mcI~DXvY2FIVxWxidO^g^F+I&g$@$D*hbT
+z!JVHbb=I#^X`NhG3R<;F>*jh=&}vj#FLxmY&B2Xv1K@|X+&Fg$(mMAMZg5uhL!N?s
+zbss|0f3o8M1o*RYO#L}7yBLxn%wwKupUcaREV#TL@h;naXWq|?Zl0~V-Q+NvV~@fq
+zGs_-jd%gY}z&bG8C$Lkze~z7;nm*3f2yRjI_@;$Z++Ck*&NJx*v_s8so_D)uIsc-M
+zy>XYV;dsxK=$!L&pyDm3Ai6}iBUa9gOPEQKVa_eOoNnKgpPzI)C;hjbHx?#m-Qp2e
+zLvYQ{dp&M0xhQj&-z~6%L*uMltqu!%2!7CFS0B;O4nqyx;*5JiU~48_Jm&#3fCU`&
+z=HFp+IY=ej<@5PLO^@Fv3_6U8vBP&)F?D$+MI~)~VczR@7?iYL*TS@0u|Rcr(K#cE
+z^G?Cd-*)qg35?-ZjDpB38Jv5{wcr(%blxp4@V?32aRLP4-U&bQ4=Zr9Mu^ZTJJ-$K
+z`vCDF+<&tByle;<UaJ<<b~p(lV9;`ecYA$;haj}xz>%{m7Z0WR$N)J;I1Gad;V>x%
+zzo4W~yG6I}Hjjs2B@OD~nRgiZEO_FxF^aq`;M^?Be%0uob@I@jPOpF3Gua^e{a&F#
+zP(90eE9P0wSW~!p=k2EYd9Wk2>}{Tb0`lM|v;bHkqM7FVS)q!1Irno`IwBTpsQ81X
+z@U0)6`0<I4PQQQpN9{jue>A#T-ipdwgN?z)jcH`+{sUwr6r;x{YOIRi460QFaI;2a
+zY3wQ{*(N{)NNpe1+Hs61Cqxq#61yr0-b!jpgZ!GdnKWD@#)w7Yj`13?NPbL$>+raa
+zYGswI?mLt2dF)dTL&BH>_6U~cZICFL*fdV45nlk0_$OQhutIDbjA=#D9P3-n>!$T-
+z$yO!Xs-&E1Ij0(BR(~1IX0{13ttbJ2HPm`9a6f=D3uE7HBQSjV<(C2l1%9unlz7kH
+zX8fFNGxAnI@VK5z+LYJt5+`?k4R9E*TC)po^w!k-rfRVy4+o2xNa7m2jT2S@Kl?8z
+zO1;1ig>b{$0XRri5djO2TO-Tq5}c|^d<n+FPiO`ZGlwmj!-Pie-MN1!n6qO68@50U
+zL~^V_At>N#+jgsc&_X;gml}UamKqgO`060;(Jz31A7P<`Ur$}}4Uo7-1PH<4fyPbl
+zqya)qs;t(Ppko0yIA2mny}9drdc!S~nsUjfmP`6btO+=0Ca4y_z|?6Z;UTmx$mavu
+zk*1hEg2x8~m2c9mm^eI)nQp?csH8!Ab3)Ai2EG)S6_V3<WIA+g%u)@sD)<Qt09J@d
+zHib=XjpSH@S<wtj=<r+PQbvKCQGn5wNDdv$+%}lftWk=--ygbl@6!ECK{Cpetl#>e
+zLSm|ArW)lm1aAdzJsd@u4Lj{;RSQj&9Lx%4;TE*w7PNrmcaL<KiC>zj4!iM}`6NK4
+zbnjr}p2Ri1>*Srsn`f4C;Y}9Du%oOW251)0N|`R-Jnx<aEBSp+(LdiZuV&33-a($j
+z$jU_SJY8-#yr-}*s=Kp0!Nusfe6dmo*-5WoaC5B4yEu4V?doLL@q1l@=oAI#oUl}S
+z5$<F8SW#dXaCVO`_C~Im6C6sBE-$pU*X?r)0=$(bmky2XJhJ|&crL&@lxkfz7^^kr
+zbKbbCzPOjlHD-jjdWx62Voo5H%$--gQmd1Z!qmHBs`Mt`M^cHd%y<LrmQ#QmVxPQv
+zQ>o3en=^lKzkCk8%oMhYO;nc3^wvt6#Kfm9iaCK(GIo$hbTam_Ra{JE3Tq`wJ+f0M
+zt1C3gSn-1FadV}}the;8wc=S1srE{dv2@<=^*}dtPfdYKd2YwNG0CS}RG*G<u^KLz
+zw&BSrD|+VK;K+0HYz-hLXISj%mHU_Lns#G%_xm_u=}5=48$0{c%7+=O%Di8p9^d?e
+z=uA?%UR7B|Cn=})MsT*c)=9cnrPMW6Y_hV=ab>Y6=+_|iDaG$99j}|t!XnIEz0TNJ
+zb8Z|zuv~m>6Y!X!%7DQtHi*C+`)MXpYEstVhD&gJJwCS+rhnj~g4-u9RbHLJvud6l
+z8en(m?4nCx;|y#~W5Y3rQj)SjVaCPBhS2gce2ZId*Co^uC|PyIgclP^UCN>~Lm21w
+z!cqbc&Gm^cSu^SYlK_FeEoih&vW`-pvT%KWOq732-xr@Lp)92Y+&L4acH)lttddx0
+zB*BBb7<-0Y^z(w7orERL4VakY*`{Kgb>B^%?7)miJK4dL6m^#OYq(j1X~Z%aAm&Mq
+z48!x@i_@(*x`^u+mJOUSV7N{2=L3fD-YkIOjGRe3NqP~cPs_$-Q@|8Xo^$Tz)~;Cs
+zWWe}!_)bIq`+e$~CT);E2v1*;fv?Cjzr!-{!cBl>qsZgwgd>gbhD0&?7hp;>4+}Yk
+zoQ=&xu}NTovokZ#aspLwJ7;h6LqHjYpD+yorb70@mClHT3E9^TTlC>g`f#{hqN`-O
+zYMU^oRjVLqiew)QRRr6DZ4qnUTJ37>`dHW^S<7W>`Mu6yN6-~1E_v_j+gE>Z?VW4E
+z&Jeklv6}H9>&>itgI_|<m3}@KWGSXWzt24hce@u}lc^0i1M3Iv5)!tv3|ez9Yi6%|
+zn?pMb<<huxU4BFIES1aPGIexg^74wy;><d_Nkh-(C>=dbLqEVB)X~$Emt%?9bl9|O
+zkEELb!R35P>q^KF@d7q}1x(uI8wvCEEFzE*#!JXOmwvIgoGIocm_+PO@$2U9yj<(R
+zoMj2TN-J|YOH&G71;(#HW?0?++<D$fIjgn==%zL;M*FmE{>Bm*Z3)kmkS!kC(GIpF
+z_R~98TdMYHnfh8~<Y{whpOz2oEBla+^I+iMYdIQ;2elkNlFMJt5%KydeuWS0+$E<0
+zvo;@W5ELco`{c>qlLxPF<JW$9INPl1=X{=cc!w7T)%-wKAbSZsg|jb#Z)^P>*FrBV
+zU=F0u;?a%ZhsCl)N&Cp9^!de#XXZJe&jZ#j5b^Rce(fVGXHUNU`l9Xyv`h!+Fy2wx
+zb7^~E7ZD<_|GWCyu`FA~x&(W`qLsaD3)uGQe|xs-mzjNei}c(2%emswB&oW-yquTZ
+zR|9$bXi%)xb#MQK7FLDu<o&y1eL`M1$)6M0029z1Vx(@L??yMR?j*5qElaeVuXTvW
+z6FUEyHAx<4^SBbc0TsKnGPO@n(X~{|3A*Bqs`&Mt>RS3|>&ouY^~8>*1o55f%6?s4
+zL*)Jc*!R6_)atu@C~)X6*4N=MO*^74=kMFs%lGiw|Kff9xo5Uyen58s`Tw-9pZd;f
+z@_*mg@romU?bCn0uGO`={$KR<_8m?4?d#u8*KgF<liws_a-H{^J634NfW2=#Eq%E_
+zJeO3@)HAmNZ5|li3wGyN4dVG{<=-<4E7)%qrkCR@cy{S~=WXBEW|dmG&$L;g*!8SB
+z2MV=ig3St(Y}WIv{CjLx_zi6K%+gcX?7}lON?yZ#9Z#&%THsk$)pEn?U?8E<zN?jL
+zZ7z^eqs4@i=F*Asv~%4sKC;<!X?d25#Nh->>Ni24h;zWUj)AL9wVL4S)H(Iga<Pc_
+zMB>*zqhRr;M|AZ_*)zY^h;TGe{7=NYx^)0pO1Iw8$^-k4@94Pi`1f6ES^q7yyz&>-
+zvf*25`TSp0%VXb8OPE`Z_-HsSok(a4r=>=GFzqw#9M)_0Z+2Hqfi%7UgtG2i9gTxZ
+z)@XNE-<b3A=*6Xc-pzT0Qw<GXKkT~B_yzIQiKf<*4ab!1u4{wN&YoW9K=-vJCRMbI
+zQaIMvJJ@m2IdZw<V&C{R=lN^SOG91V&I=u57naH(OojJM3a7N^H>Y4b`&9f~PAT47
+z!1>Fa1Ks1XA}XF<MC=SlDbf|v{rvFI=y><26DNx4WMfl{QnnvY-ym>afjW#ShQ^jX
+z3hkD4sc+CZs2G}#jYEVD4M!5Nh3|y3gLw$DaSNXRhJ8#PugH0PsLmh3paug62DKOz
+z1HhZE1aa<-b9@J+O2&e3)(3G$ih;YOkUoV<-u+i{bldfc5q8&=^mwfeJ{OOdK0Kal
+z@^})*<Jl2^7Jxz?gJ2l4Q89`90tEBibqfl4Hzu6eKC1@G%qpfu7Z0cCH=yNb`RkAk
+zq8L=QQlEY89&$L9BdPcPlTQ?P4*{G?LrQL4<r1d`PNh6$2F=le)6t;DrKq7MN}B4#
+zO4=y)WhD~_c{vw&FORn}m5dn(2y%J7YA_2}1Wx7DzzxL+cr`Wy?wmddd2&Of)3kbE
+zresXxNG~tgZq9W_$(+VvKyVI-=~!_k4KUCcX&%u%C#ak1YLJ0qnx2EA(!H)5Zm*zZ
+z!BaeA2HdJS(=iT5GECn9&Mbht95;4200$g7APYj1c8}4O+yo-&_$`jspY|zvD)*k#
+zI)zs8N#|_wNGY#>(aoy|3rfDqvU3cUbWElkR4KczpcJal$!?oyNToz2?%U9cHI_N~
+z$ViRmfI|+i+dc0nQL@yA#cio%Lzo^8(R0FakdhrAK-7l=@DS@1>Z1uCzCzH555fU&
+z!&#!Bq|JGJxPd3V9spC*N;-5ph)dv|s(-{Stfa>q!h|*EZ(v#)cDmb&VP=jWglF||
+zMKR0*hMVJG!W>5bjhjHfp^)%(DH-t=Q_OG!QgPXeIdRUYb}#{Nn5xG!`+`_Rm1)l9
+z@$sJlHy-|l_raeb*o<aEFQBs15`9Ld&#d%Ct$CqkRCQXio{_C*RtBC}^U$GYbYeoX
+zz93s)SQ&^i`N;kpI`y)|xMaq)a_LF74Kc?b^+?%ma(3HFSJYxh1?~T8k}Tb_rF*46
+zN--$6`4J~kZ8Fui(*4AobH8rOT(W5{S--o{jLapH`J8M%x6&Ck<%T%PR4AJYk*RRo
+zG)AVCZW~6(EK9_iyH>Yaw>~RbYh`O~urr#Q|1R^6{Rf5b6o$toyF<#Ym2+!@Jx^%c
+zTixsB?^VBDjmn;r3Qo!eCqbKy5s5h~GiN3GoJ^k!c0}{+?^cG5A7#9sfoeJ>wo7Ka
+z5Zm{dlnVOgf_^D)K+YQo_C|9{)`j;L-(E!37o^fYxwKEp?U!@=gFR7O(fSxZr9zc`
+zQgOdr+%MS%WZOWn3#(eaT8#>hOV%dY+7#@JR5`-_xBAv69}K=Z7#iGY3U)uCa^C2D
+zy*Jcxum6635KLr!qyP2((4s_@%2X+$N~4tRje*w(HWnXSK7VE7m3NKno#Cp7tx_2_
+z^x;!dew&=%hTuCqCQ;)uHIAt9FLLNm_v=f+r6`@hMy*ooS0uVZrYjI#5vB9i%&X@0
+zW{GBHnng4lvE_x%Mj88B-)i5wTVg6?rUEe)+vx=8U$|Ph{(@w2$QDQNd?df%z09{W
+ze_(#cyiFW9aE|=F3Llt4WT+8a=+=W5-+VD-h~yqxyRv#^y(fH9$~`LQ9!;RS!geXQ
+zPR^|h8KQYb>mv_5Z+b$;D5xN;Ev_!E3l9Qs2GF6J@GZ&akZq2K-J7;XWNVBtMc|)n
+z*{j*>=hu0OE|cl9ExKxxuKGZD*!0uZpR_(|`uOyxr%~PMjYg^Zj9h(2qT6M<9ntMj
+z!L`=a*7bJDRx8_Tk?lm3Dc)i#Hkpd>=tG0V)X7ZU7SpiFH2gg6(d0(Ge4<Y})-NCH
+zmzV*W89>ZHya-fyM6w-~ZAX#qWRxjf8(bX>9}nM<7>CR_wwR-v%+b%>k2=wFeR6ZZ
+zR6iis4@k^KnYoCVi#uAhJZOKj9oddXnS!-TtCzxM;ZcdHk(rt;=Ex><<g?3<njS6u
+z?38r0T|U|#^Hs#0{Zpbju1l6W*;2QsIofe+wC`;UCU320wP*dga92#v5E+T1PC|!a
+zYGtN2M1I@G=va5f9BGTL*rY2y7<*{@>7kz-dSv^!=+h$PIJIGsD%<4BHi<qh)29)A
+zddCc@8e;@nU1!RTgK~4PRDVIPzaTMvGSi2czNa)sV;H(Oj-%UR>Nc6W&$=I#qZ7UI
+z@e9(CKKV$W#PrKdKVtfKw9q%k;c$n<RLM-$7E`;))PC0T$oA;+&kCfv({kNui8&)P
+zXApDdPk&4&4izMZjXsI(m)U;A4n1~B1;cW|u#`6<=Z(OyK^1OMrJGb~I76apWU2;H
+zHIbaWb<69o1Ye2Lm0Pr9lXiSo{&4b9&&E}$x$AMd)HEp74#~Ac5<M)_!$|!;*<pPM
+zr|9)EU61JcC-$OuFNd2xYJI;I)s0H!V{-WzDt{hbeO@ZQCKq3m>=Uwm0uL#Nx2VcZ
+zsxo|2q8eqY5mAki9Q%65>#qi1jnY+HbnPZx`&rXN;n9_in^Mb#$30T>s8ly5*NsW^
+zxJ-{D_4{Op^<k4lH^_7Yq8px2MOzfRNwFW;KDZp~hp6eYRCh(LyMpRoKoc)Wl`qPb
+zFG`26%ZIN^)Jrn;5~5y;+IPpyA*py+E*?h3SJC)Y$^N`-e}2pU(x&|-$^Noze|gJ3
+zwP~M{>@%``23MtGi>leAY95(U`&D!de;?W&+R*ivCCVjJE=0M$$Un7Bm=3%OgA;}!
+zQ<N^*qANG)%7@K}u9WCwGJR}|Zr-Gue|~wR=@+e^x1!Ej<o00LIV-h!<u)&B6VSXM
+zwTN<yDA5Zty@2S2C|$QjAK#>pZ<r8$JocL0qB}O}j$c(iHvT5#*BRRcF+%njAUS8~
+z!b$uIC%-3%KC;*FKd}U8edHi!888fDS|>S#X*hu=%P@Wb2n+zDbp00HvPrkVOOkGh
+zy}GvOu1&h@SC=0*{igNTt-v=<Uc~G@hJKvHpKt=@T_i8z0&xPgi{v;?MhxSa)<a&#
+zG@M|`S5(PYFaz92@i2>h^r47oheS8abn_Pd+$R0pzvONRzgYZy5%mga?iPl<f^=4t
+z&x+{mE9lNE(#e2)G9b~*GQEuGWw_bS!VU7}A1Q*iLo{oaB>^H79qfXb)+`Iev_8qC
+z?wdoWq|6dIvjk<9{C?Vi-~R&Mi2Aqk$=a!d#BUFprwWa~Eg%6xe7F<OXPiz)dMtt*
+zM+m4f`RWXm$Fbe&-P7oKz~nF`!oFj<a3D5daSX5;3?9R>F)R*}Ns@qf;vjZgl{Sp;
+zk182XC+DAZIu*0iIkf<Pb#ObKJgn#l9v>I;c$baGp~FhLcy}KDGZK@5kD>W=3~phX
+zWq$Xc8BUmKLQol>fr)q#l31&#3l4Ryzy~m48G~0bSj6Bi21^)x4}-tP;QJV?VDPsX
+z{2c~C4E_d#dl<Zq!QW$WAA^6u;0+8y7(BpW6@!1oU<d;|sl+XU|Lx&)eoUw_I_j+R
+ztIX37pSIw2xAQ*-CLDJp{4*E>nw=!K4OygVo4_ECAj=U^mi+yK$X-!D5h80v{X`NN
+zVBYup1wpN-p9paRrTT803}g?vP3(c0CKCQRpaqnPgfMz7pt4Aa&(?x`g0ci#kmWdP
+z9+0vx%GnoJG9%`kU?rkq{yZ$1M`ZKJN_res^RQkrpOnofSJL8`DpYe`GIz@6&J|-E
+zRfmoaO6DQiJhYpy9v$nG%>A;te<cHE2M4UdZe(pkXKo<(EyM>9w=7Yw%G9eXSrJeN
+zXzl3S44Pepj(wNx#Ql4g?806CKsWC409P{NoS^tH8grtTZ=%sziSo*n7sSR&Ifjm3
+zd>lY8PNBhRiJFnAnHAHn_%rD2B%0!p5I}Cd_;cvI2YK&++@+X!?|$OJNF!+cW#qbv
+z#`NMrwM%IDMRa`%4JG7f61MzMCCWdE+IYz-$W~z`Cz4;ho`y=gQSXA3e_PJKjfmU?
+zZc)m=Bj?}2ID5%@E-LLseSZbUDCoe(0EmdZ2o&0a>|j$&VN?o0M9`5!cD)519zd5w
+zsc=CqTtGyA#F7`vMTc6^$(N988ofLtSv<1EvvM#}Qoim+6(dmdai}sRy#{q0?uiZk
+zrRvBJ5D|ru!&Tv2RDBhgCSv3Hkl`}UGHAGh+p6p;Ru3Q|N+P)hq06Z7EKtwGn+1}7
+zgZjqkGmK!~yiv>x5E0gGQ#zTmO=tn_BFWNiVh`*w5+*9Rv}v>>qdj8ET<LnP=leY?
+O>Sr5h1%Ouj_5T9Ns<c%A
+
+literal 0
+HcmV?d00001
+
+diff --git a/python-worker/tick_flow_full/services/orderflow/tools/signal_quality_exporter_v3.py b/python-worker/tick_flow_full/services/orderflow/tools/signal_quality_exporter_v3.py
+index 7935409..dd2d580 100644
+--- a/python-worker/tick_flow_full/services/orderflow/tools/signal_quality_exporter_v3.py
++++ b/python-worker/tick_flow_full/services/orderflow/tools/signal_quality_exporter_v3.py
+@@ -66,6 +66,19 @@ gb_prec   = Gauge("signal_quality_precision_top5p_24h_by_bucket", "Precision@top
+ gb_ece    = Gauge("signal_quality_ece_24h_by_bucket", "ECE by cov_bucket,applied", ["cov_bucket","applied"])
+ gb_n      = Gauge("signal_quality_n_24h_by_bucket", "N by cov_bucket,applied", ["cov_bucket","applied"])
+ 
++# Policy effectiveness (P71): computed by orderflow_services/policy_effectiveness_report_worker_v1.py
++# and stored in settings:dynamic_cfg (dyn_cfg_key).
++g_pe_last_ts_ms = Gauge("policy_effectiveness_last_ts_ms", "Last policy effectiveness report timestamp (epoch ms)")
++g_pe_last_age_seconds = Gauge("policy_effectiveness_last_age_seconds", "Age of policy effectiveness report (seconds)")
++g_pe_input_last_ts_ms = Gauge("policy_effectiveness_input_last_ts_ms", "Last input timestamp used by report (epoch ms)")
++g_pe_input_age_seconds = Gauge("policy_effectiveness_input_age_seconds", "Age of last input timestamp used by report (seconds)")
++g_pe_total_n_24h = Gauge("policy_effectiveness_total_n_24h", "Total decisions in last 24h used for policy effectiveness report")
++g_pe_baseline_ok_present = Gauge("policy_effectiveness_baseline_ok_present", "Whether OK baseline was present (1/0)")
++g_pe_share_24h = Gauge("policy_effectiveness_share_24h", "Share of effective_mode in last 24h", ["mode"])
++g_pe_expectancy_r_delta_24h = Gauge("policy_effectiveness_expectancy_r_delta_24h", "Expectancy(R) delta vs OK baseline in last 24h", ["mode"])
++g_pe_precision_top5p_delta_24h = Gauge("policy_effectiveness_precision_top5p_delta_24h", "Precision@top5% delta vs OK baseline in last 24h", ["mode"])
++g_pe_ece_delta_24h = Gauge("policy_effectiveness_ece_delta_24h", "ECE delta vs OK baseline in last 24h (positive = worse calibration)", ["mode"])
++
+ def _parse_kv(key: str) -> Dict[str,str]:
+     out: Dict[str,str] = {}
+     for part in (key or "").split("|"):
+@@ -144,6 +157,31 @@ def main() -> None:
+                 if obj.get("ece") is not None:
+                     gb_ece.labels(b,a).set(float(obj["ece"]))
+ 
++            # --- Policy effectiveness (P71) ---
++            pe_last = int(float(cfg.get("policy_effectiveness_last_ts_ms") or 0))
++            g_pe_last_ts_ms.set(pe_last)
++            if pe_last > 0:
++                g_pe_last_age_seconds.set(max(0.0, (now_ms - pe_last) / 1000.0))
++            else:
++                g_pe_last_age_seconds.set(0.0)
++
++            pe_in_last = int(float(cfg.get("policy_effectiveness_input_last_ts_ms") or 0))
++            g_pe_input_last_ts_ms.set(pe_in_last)
++            if pe_in_last > 0:
++                g_pe_input_age_seconds.set(max(0.0, (now_ms - pe_in_last) / 1000.0))
++            else:
++                g_pe_input_age_seconds.set(0.0)
++
++            g_pe_total_n_24h.set(int(float(cfg.get("policy_effectiveness_total_n_24h") or 0)))
++            ok_present = str(cfg.get("policy_effectiveness_baseline_ok_present") or "0").lower().strip()
++            g_pe_baseline_ok_present.set(1.0 if ok_present in ("1", "true", "yes", "y") else 0.0)
++
++            for mode in ("ok", "warn", "block", "unknown"):
++                g_pe_share_24h.labels(mode=mode).set(float(cfg.get(f"policy_effectiveness_share_24h_{mode}") or 0.0))
++                g_pe_expectancy_r_delta_24h.labels(mode=mode).set(float(cfg.get(f"policy_effectiveness_expectancy_r_delta_24h_{mode}") or 0.0))
++                g_pe_precision_top5p_delta_24h.labels(mode=mode).set(float(cfg.get(f"policy_effectiveness_precision_top5p_delta_24h_{mode}") or 0.0))
++                g_pe_ece_delta_24h.labels(mode=mode).set(float(cfg.get(f"policy_effectiveness_ece_delta_24h_{mode}") or 0.0))
++
+         except Exception:
+             pass
+         time.sleep(interval_s)

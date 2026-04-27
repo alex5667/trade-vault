@@ -1,0 +1,763 @@
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=20260224_of_gate_dlq_events_indexes_p84.sql' '--exclude=20260224_of_gate_dlq_events_p83.sql' '--exclude=20260224_of_gate_metrics_rollups_p78.sql' '--exclude=20260225_of_inputs_dlq_events_p98.sql' trade_p9_base/services/active_symbol_guard_cli.py trade_p9/services/active_symbol_guard_cli.py
+--- trade_p9_base/services/active_symbol_guard_cli.py	1970-01-01 00:00:00.000000000 +0000
++++ trade_p9/services/active_symbol_guard_cli.py	2026-03-16 17:38:37.551142205 +0000
+@@ -0,0 +1,59 @@
++from __future__ import annotations
++
++import argparse
++import json
++import os
++
++try:  # pragma: no cover
++    from services.active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics
++    from services.binance_futures_client import BinanceFuturesClient
++    from services.execution_projection_worker import _redis_from_env
++except Exception:  # pragma: no cover
++    from active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics  # type: ignore
++    from binance_futures_client import BinanceFuturesClient  # type: ignore
++    from execution_projection_worker import _redis_from_env  # type: ignore
++
++
++def _client_from_env():  # pragma: no cover
++    try:
++        return BinanceFuturesClient.from_env()
++    except Exception:
++        return None
++
++
++def _build_arg_parser() -> argparse.ArgumentParser:
++    p = argparse.ArgumentParser(description='Active-symbol guard diagnostics CLI')
++    group = p.add_mutually_exclusive_group(required=True)
++    group.add_argument('--symbol', help='Exchange symbol, e.g. BTCUSDT')
++    group.add_argument('--sid', help='Execution sid')
++    group.add_argument('--snapshot', action='store_true', help='Print full guard snapshot')
++    p.add_argument('--exchange', action='store_true', help='Include live Binance truth if client is configured')
++    p.add_argument('--pretty', action='store_true', help='Pretty-print JSON')
++    return p
++
++
++def main(argv=None) -> int:  # pragma: no cover
++    args = _build_arg_parser().parse_args(argv)
++    r = _redis_from_env()
++    diag = ActiveSymbolGuardDiagnostics(
++        r,
++        client=_client_from_env() if args.exchange else None,
++        active_symbol_key_prefix=os.getenv('ORDERS_ACTIVE_SYMBOL_KEY_PREFIX', 'orders:active_symbol_sid:'),
++        state_key_prefix=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'),
++        state_ttl_sec=int(os.getenv('ORDERS_STATE_TTL_SEC', '86400')),
++        tombstone_ttl_sec=int(os.getenv('ACTIVE_SYMBOL_GUARD_TOMBSTONE_TTL_SEC', '120')),
++        stale_tombstone_ms=int(os.getenv('ACTIVE_SYMBOL_GUARD_STALE_TOMBSTONE_MS', '600000')),
++        hot_symbol_limit=int(os.getenv('ACTIVE_SYMBOL_GUARD_EXPORTER_HOT_LIMIT', '10')),
++    )
++    if args.snapshot:
++        payload = diag.snapshot()
++    elif args.symbol:
++        payload = diag.debug_symbol(args.symbol, include_exchange=bool(args.exchange))
++    else:
++        payload = diag.debug_sid(args.sid, include_exchange=bool(args.exchange))
++    print(json.dumps(payload, ensure_ascii=False, indent=2 if args.pretty else None, sort_keys=bool(args.pretty)))
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=20260224_of_gate_dlq_events_indexes_p84.sql' '--exclude=20260224_of_gate_dlq_events_p83.sql' '--exclude=20260224_of_gate_metrics_rollups_p78.sql' '--exclude=20260225_of_inputs_dlq_events_p98.sql' trade_p9_base/services/active_symbol_guard_diagnostics.py trade_p9/services/active_symbol_guard_diagnostics.py
+--- trade_p9_base/services/active_symbol_guard_diagnostics.py	1970-01-01 00:00:00.000000000 +0000
++++ trade_p9/services/active_symbol_guard_diagnostics.py	2026-03-16 17:39:15.288118751 +0000
+@@ -0,0 +1,242 @@
++from __future__ import annotations
++
++import math
++import os
++import time
++from typing import Any, Dict, List, Optional
++
++try:
++    from services.active_symbol_guard_semantics import guard_view
++    from services.active_symbol_guard_store import ActiveSymbolGuardStore
++    from services.execution_metrics import (
++        EXECUTION_ACTIVE_SYMBOL_GUARD_SNAPSHOT_TOTAL,
++    )
++except Exception:  # pragma: no cover
++    from active_symbol_guard_semantics import guard_view  # type: ignore
++    from active_symbol_guard_store import ActiveSymbolGuardStore  # type: ignore
++    from execution_metrics import (  # type: ignore
++        EXECUTION_ACTIVE_SYMBOL_GUARD_SNAPSHOT_TOTAL,
++    )
++
++
++def _ms_now() -> int:
++    return int(time.time() * 1000)
++
++
++def _f(v: Any, default: float = 0.0) -> float:
++    try:
++        return float(v)
++    except Exception:
++        return float(default)
++
++
++class ActiveSymbolGuardDiagnostics:
++    """Health-report and incident-debug helper for active-symbol guards.
++
++    This is the shared read-only contract for exporter endpoints, CLI tools and
++    future runbooks. All readers should go through this helper instead of
++    ad-hoc Redis GET + manual field interpretation.
++    """
++
++    def __init__(
++        self,
++        redis_client: Any,
++        *,
++        client: Any | None = None,
++        active_symbol_key_prefix: str = 'orders:active_symbol_sid:',
++        state_key_prefix: str = 'orders:state:',
++        state_ttl_sec: int = 86400,
++        tombstone_ttl_sec: int = 120,
++        stale_tombstone_ms: int | None = None,
++        hot_symbol_limit: int = 10,
++    ) -> None:
++        self.r = redis_client
++        self.client = client
++        self.active_symbol_key_prefix = str(active_symbol_key_prefix or 'orders:active_symbol_sid:').rstrip(':') + ':'
++        self.state_key_prefix = str(state_key_prefix or 'orders:state:')
++        self.state_ttl_sec = max(int(state_ttl_sec or 86400), 1)
++        self.tombstone_ttl_sec = max(int(tombstone_ttl_sec or 120), 1)
++        self.stale_tombstone_ms = max(int(stale_tombstone_ms or os.getenv('ACTIVE_SYMBOL_GUARD_STALE_TOMBSTONE_MS', '600000')), 1)
++        self.hot_symbol_limit = max(int(hot_symbol_limit or 10), 1)
++        self.store = ActiveSymbolGuardStore(
++            self.r,
++            key_prefix=self.active_symbol_key_prefix,
++            active_ttl_sec=self.state_ttl_sec,
++            tombstone_ttl_sec=self.tombstone_ttl_sec,
++        )
++
++    def _load_json(self, key: str) -> Dict[str, Any]:
++        try:
++            raw = self.r.get(key)
++            import json
++            doc = json.loads(raw) if raw else {}
++            return doc if isinstance(doc, dict) else {}
++        except Exception:
++            return {}
++
++    def _iter_symbols(self) -> List[str]:
++        return sorted(self.store.list_symbols())
++
++    def _classify(self, view: Dict[str, Any]) -> str:
++        if view.get('is_released'):
++            if int(view.get('tombstone_age_ms') or 0) >= int(self.stale_tombstone_ms):
++                return 'stale_tombstone'
++            return 'released_tombstone'
++        if bool(view.get('guard_release_pending')):
++            return 'pending_release'
++        if bool(view.get('is_active')):
++            return 'active'
++        return 'unknown'
++
++    def _compact_doc(self, raw: Dict[str, Any], view: Dict[str, Any]) -> Dict[str, Any]:
++        return {
++            'symbol': str(view.get('symbol') or ''),
++            'sid': str(view.get('sid') or ''),
++            'classification': self._classify(view),
++            'status': str(view.get('status') or ''),
++            'is_blocking': bool(view.get('is_blocking')),
++            'guard_release_pending': bool(view.get('guard_release_pending')),
++            'state_terminalish': bool(view.get('state_terminalish')),
++            'guard_version': int(view.get('guard_version') or 0),
++            'guard_writer': str(view.get('guard_writer') or ''),
++            'guard_release_reason': str(view.get('guard_release_reason') or ''),
++            'exchange_guard_reason': str(raw.get('exchange_guard_reason') or ''),
++            'updated_at_ms': int(view.get('updated_at_ms') or 0),
++            'released_at_ms': int(view.get('released_at_ms') or 0),
++            'tombstone_age_ms': int(view.get('tombstone_age_ms') or 0),
++        }
++
++    def _read_exchange_truth(self, symbol: str) -> Dict[str, Any]:
++        symbol = str(symbol or '').strip().upper()
++        out: Dict[str, Any] = {
++            'symbol': symbol,
++            'checked_at_ms': _ms_now(),
++            'position_amt': 0.0,
++            'has_live_position': False,
++            'open_plain_orders': 0,
++            'open_algo_orders': 0,
++            'has_open_orders': False,
++            'errors': [],
++            'is_reliable': False,
++        }
++        client = self.client
++        if client is None:
++            out['errors'] = ['client_unavailable']
++            return out
++        errors: List[str] = []
++        try:
++            for pos in client.get_position_risk() or []:
++                if str((pos or {}).get('symbol') or '').upper() != symbol:
++                    continue
++                amt = _f((pos or {}).get('positionAmt'), 0.0)
++                out['position_amt'] = amt
++                out['has_live_position'] = not math.isclose(float(amt), 0.0, abs_tol=1e-12)
++                break
++        except Exception as exc:
++            errors.append(f'position_risk:{exc.__class__.__name__}')
++        try:
++            out['open_plain_orders'] = len(list(client.get_open_orders(symbol) or []))
++        except Exception as exc:
++            errors.append(f'open_orders:{exc.__class__.__name__}')
++        try:
++            out['open_algo_orders'] = len(list(client.get_open_algo_orders(symbol) or []))
++        except Exception as exc:
++            errors.append(f'open_algo_orders:{exc.__class__.__name__}')
++        out['has_open_orders'] = int(out['open_plain_orders']) > 0 or int(out['open_algo_orders']) > 0
++        out['errors'] = errors
++        out['is_reliable'] = not errors
++        out['is_flat'] = bool(out['is_reliable'] and not out['has_live_position'] and not out['has_open_orders'])
++        return out
++
++    def snapshot(self) -> Dict[str, Any]:
++        now_ms = _ms_now()
++        docs: List[Dict[str, Any]] = []
++        breakdown = {
++            'active': 0,
++            'pending_release': 0,
++            'released_tombstone': 0,
++            'stale_tombstone': 0,
++            'unknown': 0,
++        }
++        ok = True
++        errors: List[str] = []
++        try:
++            symbols = self._iter_symbols()
++        except Exception as exc:
++            symbols = []
++            ok = False
++            errors.append(f'list_symbols:{exc.__class__.__name__}')
++        for symbol in symbols:
++            raw = self.store.load_raw(symbol)
++            view = guard_view(raw, now_ms=now_ms)
++            cls = self._classify(view)
++            breakdown[cls] = int(breakdown.get(cls) or 0) + 1
++            docs.append(self._compact_doc(raw, view))
++        hot_conflicts = self.store.top_conflict_symbols(limit=self.hot_symbol_limit)
++        hot_resurrections = self.store.top_resurrection_symbols(limit=self.hot_symbol_limit)
++        try:
++            if EXECUTION_ACTIVE_SYMBOL_GUARD_SNAPSHOT_TOTAL is not None:
++                for status, count in breakdown.items():
++                    EXECUTION_ACTIVE_SYMBOL_GUARD_SNAPSHOT_TOTAL.labels(status=status).set(int(count))
++        except Exception:
++            pass
++        return {
++            'ok': ok,
++            'ready': ok,
++            'degraded': bool(int(breakdown.get('stale_tombstone') or 0) > 0),
++            'errors': errors,
++            'generated_at_ms': now_ms,
++            'stale_tombstone_threshold_ms': int(self.stale_tombstone_ms),
++            'total_keys': len(docs),
++            'breakdown': breakdown,
++            'cas_conflict_hot_symbols': hot_conflicts,
++            'resurrection_hot_symbols': hot_resurrections,
++            'guards': docs,
++        }
++
++    def debug_symbol(self, symbol: str, *, include_exchange: bool = False) -> Dict[str, Any]:
++        symbol = str(symbol or '').strip().upper()
++        raw = self.store.load_raw(symbol)
++        view = guard_view(raw)
++        sid = str(view.get('sid') or raw.get('sid') or '').strip()
++        state = self._load_json(f'{self.state_key_prefix}{sid}') if sid else {}
++        payload: Dict[str, Any] = {
++            'symbol': symbol,
++            'guard_raw': raw,
++            'guard_view': view,
++            'state': state,
++            'classification': self._classify(view),
++            'cas_conflict_count': int(self.store.get_conflict_counts().get(symbol) or 0),
++            'resurrection_attempt_count': int(self.store.get_resurrection_counts().get(symbol) or 0),
++            'latest_conflict': self.store.get_latest_conflict_meta(symbol),
++            'latest_resurrection_attempt': self.store.get_latest_resurrection_meta(symbol),
++        }
++        if include_exchange:
++            payload['exchange_truth'] = self._read_exchange_truth(symbol)
++        return payload
++
++    def debug_sid(self, sid: str, *, include_exchange: bool = False) -> Dict[str, Any]:
++        sid = str(sid or '').strip()
++        state = self._load_json(f'{self.state_key_prefix}{sid}') if sid else {}
++        symbol = str(state.get('symbol') or '').strip().upper()
++        guard_raw: Dict[str, Any] = {}
++        if not symbol:
++            for sym in self._iter_symbols():
++                raw = self.store.load_raw(sym)
++                if str(raw.get('sid') or '').strip() == sid:
++                    symbol = sym
++                    guard_raw = raw
++                    break
++        if symbol and not guard_raw:
++            guard_raw = self.store.load_raw(symbol)
++        payload = {
++            'sid': sid,
++            'state': state,
++            'symbol': symbol,
++            'guard_raw': guard_raw,
++            'guard_view': guard_view(guard_raw),
++            'classification': self._classify(guard_view(guard_raw)),
++        }
++        if include_exchange and symbol:
++            payload['exchange_truth'] = self._read_exchange_truth(symbol)
++        return payload
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=20260224_of_gate_dlq_events_indexes_p84.sql' '--exclude=20260224_of_gate_dlq_events_p83.sql' '--exclude=20260224_of_gate_metrics_rollups_p78.sql' '--exclude=20260225_of_inputs_dlq_events_p98.sql' trade_p9_base/services/active_symbol_guard_exporter.py trade_p9/services/active_symbol_guard_exporter.py
+--- trade_p9_base/services/active_symbol_guard_exporter.py	1970-01-01 00:00:00.000000000 +0000
++++ trade_p9/services/active_symbol_guard_exporter.py	2026-03-16 17:38:37.538294938 +0000
+@@ -0,0 +1,81 @@
++from __future__ import annotations
++
++import json
++import os
++from http.server import BaseHTTPRequestHandler, HTTPServer
++from urllib.parse import urlparse
++
++try:  # pragma: no cover
++    from services.active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics
++    from services.binance_futures_client import BinanceFuturesClient
++    from services.execution_projection_worker import _redis_from_env
++except Exception:  # pragma: no cover
++    from active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics  # type: ignore
++    from binance_futures_client import BinanceFuturesClient  # type: ignore
++    from execution_projection_worker import _redis_from_env  # type: ignore
++
++
++class _Handler(BaseHTTPRequestHandler):  # pragma: no cover
++    def _diag(self) -> ActiveSymbolGuardDiagnostics:
++        return self.server.diagnostics  # type: ignore[attr-defined]
++
++    def do_GET(self):
++        parsed = urlparse(self.path)
++        path = parsed.path
++        diag = self._diag()
++        if path in ('/healthz', '/readyz', '/api/active-symbol-guard/health'):
++            snap = diag.snapshot()
++            status = 200 if snap.get('ok') else 503
++            body = json.dumps(snap, ensure_ascii=False).encode('utf-8')
++        elif path.startswith('/api/active-symbol-guard/symbol/'):
++            symbol = path.rsplit('/', 1)[-1].strip().upper()
++            body = json.dumps(diag.debug_symbol(symbol, include_exchange=True), ensure_ascii=False).encode('utf-8')
++            status = 200
++        elif path.startswith('/api/active-symbol-guard/sid/'):
++            sid = path.rsplit('/', 1)[-1].strip()
++            body = json.dumps(diag.debug_sid(sid, include_exchange=True), ensure_ascii=False).encode('utf-8')
++            status = 200
++        else:
++            self.send_response(404)
++            self.end_headers()
++            return
++        self.send_response(status)
++        self.send_header('Content-Type', 'application/json; charset=utf-8')
++        self.send_header('Content-Length', str(len(body)))
++        self.end_headers()
++        self.wfile.write(body)
++
++    def log_message(self, fmt, *args):
++        return
++
++
++def _client_from_env():  # pragma: no cover
++    try:
++        return BinanceFuturesClient.from_env()
++    except Exception:
++        return None
++
++
++def main() -> int:  # pragma: no cover
++    r = _redis_from_env()
++    diag = ActiveSymbolGuardDiagnostics(
++        r,
++        client=_client_from_env(),
++        active_symbol_key_prefix=os.getenv('ORDERS_ACTIVE_SYMBOL_KEY_PREFIX', 'orders:active_symbol_sid:'),
++        state_key_prefix=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'),
++        state_ttl_sec=int(os.getenv('ORDERS_STATE_TTL_SEC', '86400')),
++        tombstone_ttl_sec=int(os.getenv('ACTIVE_SYMBOL_GUARD_TOMBSTONE_TTL_SEC', '120')),
++        stale_tombstone_ms=int(os.getenv('ACTIVE_SYMBOL_GUARD_STALE_TOMBSTONE_MS', '600000')),
++        hot_symbol_limit=int(os.getenv('ACTIVE_SYMBOL_GUARD_EXPORTER_HOT_LIMIT', '10')),
++    )
++    host = os.getenv('ACTIVE_SYMBOL_GUARD_EXPORTER_HOST', '0.0.0.0')
++    port = int(os.getenv('ACTIVE_SYMBOL_GUARD_EXPORTER_PORT', '8788'))
++    server = HTTPServer((host, port), _Handler)
++    server.diagnostics = diag  # type: ignore[attr-defined]
++    print(f'active-symbol-guard-exporter listening on {host}:{port}')
++    server.serve_forever()
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=20260224_of_gate_dlq_events_indexes_p84.sql' '--exclude=20260224_of_gate_dlq_events_p83.sql' '--exclude=20260224_of_gate_metrics_rollups_p78.sql' '--exclude=20260225_of_inputs_dlq_events_p98.sql' trade_p9_base/services/active_symbol_guard_store.py trade_p9/services/active_symbol_guard_store.py
+--- trade_p9_base/services/active_symbol_guard_store.py	2026-03-16 17:40:28.228746830 +0000
++++ trade_p9/services/active_symbol_guard_store.py	2026-03-16 17:37:44.166501738 +0000
+@@ -3,7 +3,7 @@
+ import json
+ import time
+ import uuid
+-from typing import Any, Dict, Optional
++from typing import Any, Dict, List, Optional
+ 
+ try:
+     from services.active_symbol_guard_semantics import active_guard_doc, guard_view
+@@ -95,6 +95,7 @@
+         self.key_prefix = str(key_prefix or 'orders:active_symbol_sid:').rstrip(':') + ':'
+         self.active_ttl_sec = max(int(active_ttl_sec or 0), 1)
+         self.tombstone_ttl_sec = max(int(tombstone_ttl_sec or 0), 1)
++        self.diag_prefix = 'orders:active_symbol_guard:diag:'
+ 
+     def key(self, symbol: str) -> str:
+         return f"{self.key_prefix}{str(symbol or '').strip().upper()}"
+@@ -113,7 +114,116 @@
+     def load_active(self, symbol: str) -> Dict[str, Any]:
+         return active_guard_doc(self.load_raw(symbol))
+ 
+-    def _record_conflict(self, *, writer: str, operation: str, reason: str) -> None:
++    def _hash_getall(self, key: str) -> Dict[str, Any]:
++        try:
++            if hasattr(self.r, 'hgetall'):
++                raw = self.r.hgetall(key) or {}
++                if isinstance(raw, dict):
++                    out: Dict[str, Any] = {}
++                    for k, v in raw.items():
++                        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++                        out[kk] = v.decode() if isinstance(v, (bytes, bytearray)) else v
++                    return out
++            raw_json = self.r.get(key)
++            doc = json.loads(raw_json) if raw_json else {}
++            return doc if isinstance(doc, dict) else {}
++        except Exception:
++            return {}
++
++    def _hash_set(self, key: str, field: str, value: Any) -> None:
++        try:
++            if hasattr(self.r, 'hset'):
++                self.r.hset(key, str(field), value)
++                return
++            doc = self._hash_getall(key)
++            doc[str(field)] = value
++            self.r.set(key, json.dumps(doc, ensure_ascii=False, default=str))
++        except Exception:
++            pass
++
++    def _hash_incr(self, key: str, field: str, delta: int = 1) -> int:
++        try:
++            if hasattr(self.r, 'hincrby'):
++                return int(self.r.hincrby(key, str(field), int(delta)))
++            doc = self._hash_getall(key)
++            cur = _i(doc.get(str(field)), 0) + int(delta)
++            doc[str(field)] = cur
++            self.r.set(key, json.dumps(doc, ensure_ascii=False, default=str))
++            return cur
++        except Exception:
++            return 0
++
++    def _conflict_count_key(self) -> str:
++        return f'{self.diag_prefix}cas_conflict_count'
++
++    def _conflict_meta_key(self) -> str:
++        return f'{self.diag_prefix}cas_conflict_last'
++
++    def _resurrection_count_key(self) -> str:
++        return f'{self.diag_prefix}resurrection_count'
++
++    def _resurrection_meta_key(self) -> str:
++        return f'{self.diag_prefix}resurrection_last'
++
++    def get_conflict_counts(self) -> Dict[str, int]:
++        return {str(k).strip().upper(): _i(v, 0) for k, v in self._hash_getall(self._conflict_count_key()).items()}
++
++    def get_resurrection_counts(self) -> Dict[str, int]:
++        return {str(k).strip().upper(): _i(v, 0) for k, v in self._hash_getall(self._resurrection_count_key()).items()}
++
++    def get_latest_conflict_meta(self, symbol: str) -> Dict[str, Any]:
++        raw = self._hash_getall(self._conflict_meta_key()).get(str(symbol or '').strip().upper())
++        try:
++            doc = json.loads(raw) if raw else {}
++            return doc if isinstance(doc, dict) else {}
++        except Exception:
++            return {}
++
++    def get_latest_resurrection_meta(self, symbol: str) -> Dict[str, Any]:
++        raw = self._hash_getall(self._resurrection_meta_key()).get(str(symbol or '').strip().upper())
++        try:
++            doc = json.loads(raw) if raw else {}
++            return doc if isinstance(doc, dict) else {}
++        except Exception:
++            return {}
++
++    def top_conflict_symbols(self, *, limit: int = 10) -> List[Dict[str, Any]]:
++        counts = self.get_conflict_counts()
++        out: List[Dict[str, Any]] = []
++        for sym, count in sorted(counts.items(), key=lambda kv: (-int(kv[1]), kv[0]))[:max(int(limit or 10), 1)]:
++            out.append({
++                'symbol': sym,
++                'count': int(count),
++                'latest': self.get_latest_conflict_meta(sym),
++            })
++        return out
++
++    def top_resurrection_symbols(self, *, limit: int = 10) -> List[Dict[str, Any]]:
++        counts = self.get_resurrection_counts()
++        out: List[Dict[str, Any]] = []
++        for sym, count in sorted(counts.items(), key=lambda kv: (-int(kv[1]), kv[0]))[:max(int(limit or 10), 1)]:
++            out.append({
++                'symbol': sym,
++                'count': int(count),
++                'latest': self.get_latest_resurrection_meta(sym),
++            })
++        return out
++
++    def list_symbols(self) -> List[str]:
++        out = []
++        prefix = f'{self.key_prefix}*'
++        try:
++            for key in self.r.scan_iter(match=prefix):
++                k = key.decode() if isinstance(key, (bytes, bytearray)) else str(key)
++                symbol = str(k).replace(self.key_prefix, '', 1).strip().upper()
++                if symbol:
++                    out.append(symbol)
++        except Exception:
++            pass
++        return sorted(set(out))
++
++    def _record_conflict(self, *, symbol: str, writer: str, operation: str, reason: str) -> None:
++        symbol = str(symbol or '').strip().upper()
+         try:
+             if EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_CONFLICT_TOTAL is not None:
+                 EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_CONFLICT_TOTAL.labels(
+@@ -123,8 +233,17 @@
+                 ).inc()
+         except Exception:
+             pass
++        self._hash_incr(self._conflict_count_key(), symbol, 1)
++        self._hash_set(self._conflict_meta_key(), symbol, json.dumps({
++            'symbol': symbol,
++            'writer': str(writer or ''),
++            'operation': str(operation or ''),
++            'reason': str(reason or ''),
++            'at_ms': _ms_now(),
++        }, ensure_ascii=False, default=str))
+ 
+-    def _record_resurrection_attempt(self, *, writer: str, reason: str) -> None:
++    def _record_resurrection_attempt(self, *, symbol: str, writer: str, reason: str) -> None:
++        symbol = str(symbol or '').strip().upper()
+         try:
+             if EXECUTION_ACTIVE_SYMBOL_GUARD_RESURRECTION_ATTEMPT_TOTAL is not None:
+                 EXECUTION_ACTIVE_SYMBOL_GUARD_RESURRECTION_ATTEMPT_TOTAL.labels(
+@@ -133,6 +252,13 @@
+                 ).inc()
+         except Exception:
+             pass
++        self._hash_incr(self._resurrection_count_key(), symbol, 1)
++        self._hash_set(self._resurrection_meta_key(), symbol, json.dumps({
++            'symbol': symbol,
++            'writer': str(writer or ''),
++            'reason': str(reason or ''),
++            'at_ms': _ms_now(),
++        }, ensure_ascii=False, default=str))
+ 
+ 
+     def _fallback_cas_set(
+@@ -229,14 +355,14 @@
+         if current:
+             if current_status == 'released':
+                 if current_sid and current_sid == sid:
+-                    self._record_conflict(writer=writer, operation='acquire_or_refresh', reason='released_tombstone_same_sid')
+-                    self._record_resurrection_attempt(writer=writer, reason='released_tombstone_same_sid')
++                    self._record_conflict(symbol=symbol, writer=writer, operation='acquire_or_refresh', reason='released_tombstone_same_sid')
++                    self._record_resurrection_attempt(symbol=symbol, writer=writer, reason='released_tombstone_same_sid')
+                     return {'applied': False, 'reason': 'released_tombstone_same_sid', 'doc': current}
+                 expected_sid = ''
+             elif current_sid == sid:
+                 expected_sid = sid
+             else:
+-                self._record_conflict(writer=writer, operation='acquire_or_refresh', reason='held_by_other_sid')
++                self._record_conflict(symbol=symbol, writer=writer, operation='acquire_or_refresh', reason='held_by_other_sid')
+                 return {'applied': False, 'reason': 'held_by_other_sid', 'doc': current}
+         lease_token = f"{writer}:{now_ms}:{uuid.uuid4().hex[:8]}"
+         new_doc = dict(current if current_sid == sid and current_status != 'released' else {})
+@@ -261,7 +387,7 @@
+             ttl_sec=ttl,
+         )
+         if not result.get('applied'):
+-            self._record_conflict(writer=writer, operation='acquire_or_refresh', reason=str(result.get('reason') or 'cas_rejected'))
++            self._record_conflict(symbol=symbol, writer=writer, operation='acquire_or_refresh', reason=str(result.get('reason') or 'cas_rejected'))
+         if (not result.get('applied')) and retry_once and str(result.get('reason') or '').startswith('version_mismatch'):
+             return self.acquire_or_refresh(symbol=symbol, sid=sid, payload_patch=payload_patch, writer=writer, ttl_sec=ttl, retry_once=False)
+         return result
+@@ -283,7 +409,7 @@
+             return {'applied': False, 'reason': 'absent', 'doc': {}}
+         current_sid = str(current.get('sid') or '').strip()
+         if expected_sid and current_sid != str(expected_sid or '').strip():
+-            self._record_conflict(writer=writer, operation='mark_released', reason='sid_mismatch')
++            self._record_conflict(symbol=symbol, writer=writer, operation='mark_released', reason='sid_mismatch')
+             return {'applied': False, 'reason': 'sid_mismatch', 'doc': current}
+         expected_version = _i(current.get('guard_version'), 0)
+         expected_lease = str(current.get('guard_lease_token') or '').strip()
+@@ -314,7 +440,7 @@
+             ttl_sec=ttl,
+         )
+         if not result.get('applied'):
+-            self._record_conflict(writer=writer, operation='mark_released', reason=str(result.get('reason') or 'cas_rejected'))
++            self._record_conflict(symbol=symbol, writer=writer, operation='mark_released', reason=str(result.get('reason') or 'cas_rejected'))
+         if (not result.get('applied')) and retry_once and str(result.get('reason') or '').startswith('version_mismatch'):
+             return self.mark_released(symbol=symbol, expected_sid=expected_sid, release_reason=release_reason, writer=writer, tombstone_ttl_sec=ttl, extra_patch=extra_patch, retry_once=False)
+         return result
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=20260224_of_gate_dlq_events_indexes_p84.sql' '--exclude=20260224_of_gate_dlq_events_p83.sql' '--exclude=20260224_of_gate_metrics_rollups_p78.sql' '--exclude=20260225_of_inputs_dlq_events_p98.sql' trade_p9_base/services/execution_metrics.py trade_p9/services/execution_metrics.py
+--- trade_p9_base/services/execution_metrics.py	2026-03-16 17:40:28.230999462 +0000
++++ trade_p9/services/execution_metrics.py	2026-03-16 17:37:57.918318694 +0000
+@@ -133,6 +133,15 @@
+     ["writer", "reason"],
+ )
+ 
++
++EXECUTION_ACTIVE_SYMBOL_GUARD_SNAPSHOT_TOTAL = _metric(
++    Gauge,
++    "execution_active_symbol_guard_snapshot_total",
++    "Current active-symbol guard snapshot totals by semantic status.",
++    ["status"],
++)
++
++
+ MARK_CONTRACT_SPREAD_BPS = _metric(
+     Gauge,
+     "mark_contract_spread_bps",
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=20260224_of_gate_dlq_events_indexes_p84.sql' '--exclude=20260224_of_gate_dlq_events_p83.sql' '--exclude=20260224_of_gate_metrics_rollups_p78.sql' '--exclude=20260225_of_inputs_dlq_events_p98.sql' trade_p9_base/services/prometheus_alerts_active_symbol_guard_p9.yml trade_p9/services/prometheus_alerts_active_symbol_guard_p9.yml
+--- trade_p9_base/services/prometheus_alerts_active_symbol_guard_p9.yml	1970-01-01 00:00:00.000000000 +0000
++++ trade_p9/services/prometheus_alerts_active_symbol_guard_p9.yml	2026-03-16 17:39:25.274870728 +0000
+@@ -0,0 +1,12 @@
++groups:
++  - name: active_symbol_guard_p9
++    rules:
++      - alert: ActiveSymbolGuardStaleTombstonesPresent
++        expr: execution_active_symbol_guard_snapshot_total{status="stale_tombstone"} > 0
++        for: 10m
++        labels:
++          severity: warning
++          service: execution
++        annotations:
++          summary: "Active-symbol guard stale tombstones present"
++          description: "Snapshot exporter reports one or more stale released tombstones. Check /api/active-symbol-guard/health and the diagnostic CLI for the affected symbols."
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=20260224_of_gate_dlq_events_indexes_p84.sql' '--exclude=20260224_of_gate_dlq_events_p83.sql' '--exclude=20260224_of_gate_metrics_rollups_p78.sql' '--exclude=20260225_of_inputs_dlq_events_p98.sql' trade_p9_base/services/tests/test_active_symbol_guard_cli_assets_p9_v1.py trade_p9/services/tests/test_active_symbol_guard_cli_assets_p9_v1.py
+--- trade_p9_base/services/tests/test_active_symbol_guard_cli_assets_p9_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ trade_p9/services/tests/test_active_symbol_guard_cli_assets_p9_v1.py	2026-03-16 17:39:59.969779140 +0000
+@@ -0,0 +1,9 @@
++from pathlib import Path
++
++
++def test_p9_assets_present():
++    assert Path('services/active_symbol_guard_exporter.py').exists()
++    assert Path('services/active_symbol_guard_cli.py').exists()
++    text = Path('services/prometheus_alerts_active_symbol_guard_p9.yml').read_text()
++    assert 'execution_active_symbol_guard_snapshot_total' in text
++    assert 'ActiveSymbolGuardStaleTombstonesPresent' in text
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=20260224_of_gate_dlq_events_indexes_p84.sql' '--exclude=20260224_of_gate_dlq_events_p83.sql' '--exclude=20260224_of_gate_metrics_rollups_p78.sql' '--exclude=20260225_of_inputs_dlq_events_p98.sql' trade_p9_base/services/tests/test_active_symbol_guard_diagnostics_p9_v1.py trade_p9/services/tests/test_active_symbol_guard_diagnostics_p9_v1.py
+--- trade_p9_base/services/tests/test_active_symbol_guard_diagnostics_p9_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ trade_p9/services/tests/test_active_symbol_guard_diagnostics_p9_v1.py	2026-03-16 17:39:59.955646799 +0000
+@@ -0,0 +1,101 @@
++from pathlib import Path
++import importlib
++import json
++import sys
++import time
++
++root = Path(__file__).resolve().parents[2]
++if str(root) not in sys.path:
++    sys.path.insert(0, str(root))
++
++mod = importlib.import_module('services.active_symbol_guard_diagnostics')
++store_mod = importlib.import_module('services.active_symbol_guard_store')
++
++
++class FakeRedis:
++    def __init__(self):
++        self.kv = {}
++        self.hashes = {}
++
++    def get(self, key):
++        return self.kv.get(key)
++
++    def set(self, key, value, ex=None):
++        self.kv[key] = value
++        return True
++
++    def scan_iter(self, match=None):
++        prefix = str(match or '').rstrip('*')
++        for key in list(self.kv.keys()):
++            if key.startswith(prefix):
++                yield key
++
++    def hgetall(self, key):
++        return dict(self.hashes.get(key, {}))
++
++    def hset(self, key, field, value):
++        self.hashes.setdefault(key, {})[str(field)] = value
++        return 1
++
++    def hincrby(self, key, field, amount=1):
++        bucket = self.hashes.setdefault(key, {})
++        bucket[str(field)] = int(bucket.get(str(field), 0)) + int(amount)
++        return bucket[str(field)]
++
++
++class DummyClient:
++    def get_position_risk(self):
++        return [{'symbol': 'BTCUSDT', 'positionAmt': '0.50'}]
++
++    def get_open_orders(self, symbol):
++        return [{'symbol': symbol}] if symbol == 'BTCUSDT' else []
++
++    def get_open_algo_orders(self, symbol):
++        return []
++
++
++def test_snapshot_breakdown_and_hot_symbols():
++    r = FakeRedis()
++    store = store_mod.ActiveSymbolGuardStore(r)
++    now_ms = int(time.time() * 1000)
++
++    store.acquire_or_refresh(symbol='BTCUSDT', sid='sid-a', payload_patch={'guard_release_pending': False}, writer='executor')
++    store.acquire_or_refresh(symbol='ETHUSDT', sid='sid-b', payload_patch={'guard_release_pending': True, 'state_terminalish': True}, writer='projection')
++    r.set('orders:active_symbol_sid:SOLUSDT', json.dumps({
++        'symbol': 'SOLUSDT', 'sid': 'sid-c', 'guard_status': 'released', 'released_at_ms': now_ms - 30_000, 'guard_version': 2,
++    }))
++    r.set('orders:active_symbol_sid:XRPUSDT', json.dumps({
++        'symbol': 'XRPUSDT', 'sid': 'sid-d', 'guard_status': 'released', 'released_at_ms': now_ms - 700_000, 'guard_version': 4,
++    }))
++    store._record_conflict(symbol='ETHUSDT', writer='projection', operation='acquire_or_refresh', reason='held_by_other_sid')
++    store._record_conflict(symbol='ETHUSDT', writer='projection', operation='acquire_or_refresh', reason='held_by_other_sid')
++    store._record_conflict(symbol='BTCUSDT', writer='executor', operation='mark_released', reason='version_mismatch')
++
++    diag = mod.ActiveSymbolGuardDiagnostics(r, stale_tombstone_ms=600_000, hot_symbol_limit=5)
++    snap = diag.snapshot()
++    assert snap['ok'] is True
++    assert snap['breakdown']['active'] == 1
++    assert snap['breakdown']['pending_release'] == 1
++    assert snap['breakdown']['released_tombstone'] == 1
++    assert snap['breakdown']['stale_tombstone'] == 1
++    assert snap['degraded'] is True
++    assert snap['cas_conflict_hot_symbols'][0]['symbol'] == 'ETHUSDT'
++    assert snap['cas_conflict_hot_symbols'][0]['count'] == 2
++
++
++def test_debug_symbol_and_sid_include_state_and_exchange_truth():
++    r = FakeRedis()
++    store = store_mod.ActiveSymbolGuardStore(r)
++    store.acquire_or_refresh(symbol='BTCUSDT', sid='sid-1', payload_patch={'fsm_state': 'OPEN'}, writer='executor')
++    r.set('orders:state:sid-1', json.dumps({'sid': 'sid-1', 'symbol': 'BTCUSDT', 'fsm_state': 'OPEN'}))
++    diag = mod.ActiveSymbolGuardDiagnostics(r, client=DummyClient())
++
++    by_symbol = diag.debug_symbol('BTCUSDT', include_exchange=True)
++    assert by_symbol['guard_view']['sid'] == 'sid-1'
++    assert by_symbol['state']['fsm_state'] == 'OPEN'
++    assert by_symbol['exchange_truth']['has_live_position'] is True
++
++    by_sid = diag.debug_sid('sid-1', include_exchange=True)
++    assert by_sid['symbol'] == 'BTCUSDT'
++    assert by_sid['guard_view']['is_active'] is True
++    assert by_sid['exchange_truth']['open_plain_orders'] == 1

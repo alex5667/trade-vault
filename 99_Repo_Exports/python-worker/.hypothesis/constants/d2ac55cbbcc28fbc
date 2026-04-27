@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/reliability_calibrator.py
+# hypothesis_version: 6.148.10
+
+[0.0, 100.0, 100, 1000, ',', '0', '1', '5', ':', 'REL_CAL_ENABLED', 'REL_CAL_OUTCOMES', 'REL_CAL_PREFIX', 'REL_CAL_TTL_SEC', 'REL_CAL_USE_KIND_DIM', 'REL_CAL_USE_TF_DIM', 'RelCalConfig', 'SL', 'close_reason', 'confidence', 'confidence_pct', 'entry_regime', 'entry_ts_ms', 'exchange', 'exit_ts_ms', 'hits_total', 'last_ts_ms', 'na', 'name', 'nan', 'no_sl_after_tp1', 'nosl_after_tp1', 'nosl_after_tp1_t', 'on', 'pnl_net', 'regime', 'relcal', 'samples_total', 'session', 'signal_payload', 'strategy', 'symbol', 'tf', 'tp1', 'tp1_hit', 'tp1_hit_ts_ms', 'tp1_not_sl', 'tp2', 'tp2,nosl_after_tp1', 'tp2_hit', 'true', 'value', 'venue', 'venue_id', 'win', 'yes']

@@ -1,0 +1,105 @@
+# Redis конфигурация для СВЕРХ БОЛЬШИХ НАГРУЗОК
+# Оптимизировано для максимальной производительности и стабильности
+
+# Основные настройки
+port 6379
+bind 0.0.0.0
+protected-mode no
+tcp-keepalive 60
+timeout 0
+
+# Память - МАКСИМАЛЬНАЯ ПРОИЗВОДИТЕЛЬНОСТЬ
+maxmemory 12gb
+maxmemory-policy allkeys-lru
+maxmemory-samples 5
+
+# Persistence - ОПТИМИЗИРОВАНО ДЛЯ СКОРОСТИ
+save 900 1
+save 300 10
+save 60 10000
+stop-writes-on-bgsave-error no
+rdbcompression yes
+rdbchecksum yes
+dbfilename dump.rdb
+
+# AOF - БЫСТРАЯ ЗАПИСЬ
+appendonly yes
+appendfilename "appendonly.aof"
+appendfsync everysec
+no-appendfsync-on-rewrite yes
+auto-aof-rewrite-percentage 100
+auto-aof-rewrite-min-size 64mb
+aof-load-truncated yes
+aof-use-rdb-preamble yes
+
+# Logging - МИНИМАЛЬНОЕ ЛОГИРОВАНИЕ
+loglevel warning
+logfile ""
+syslog-enabled no
+
+# Client настройки - МАКСИМАЛЬНАЯ ПРОИЗВОДИТЕЛЬНОСТЬ
+tcp-backlog 65535
+databases 16
+
+# Slow log - ОТКЛЮЧЕН ДЛЯ ПРОИЗВОДИТЕЛЬНОСТИ
+slowlog-log-slower-than -1
+slowlog-max-len 0
+
+# Latency мониторинг - ОТКЛЮЧЕН
+latency-monitor-threshold 0
+
+# Сетевые настройки - МАКСИМАЛЬНАЯ ПРОИЗВОДИТЕЛЬНОСТЬ
+tcp-keepalive 300
+
+# Память - АГРЕССИВНАЯ ОПТИМИЗАЦИЯ
+hash-max-ziplist-entries 512
+hash-max-ziplist-value 64
+list-max-ziplist-size -2
+list-compress-depth 0
+set-max-intset-entries 512
+zset-max-ziplist-entries 128
+zset-max-ziplist-value 64
+hll-sparse-max-bytes 3000
+
+# Streams - ОПТИМИЗАЦИЯ ДЛЯ СТРИМОВ
+stream-node-max-bytes 4096
+stream-node-max-entries 100
+
+# Replication - ОТКЛЮЧЕНО ДЛЯ ПРОИЗВОДИТЕЛЬНОСТИ
+replica-serve-stale-data yes
+replica-read-only yes
+repl-diskless-sync no
+repl-diskless-sync-delay 5
+repl-ping-replica-period 10
+repl-timeout 60
+repl-disable-tcp-nodelay no
+repl-backlog-size 1mb
+repl-backlog-ttl 3600
+
+# Security - ОТКЛЮЧЕНО ДЛЯ ПРОИЗВОДИТЕЛЬНОСТИ
+# requirepass ""
+
+# Клиентские настройки - МАКСИМАЛЬНАЯ ПРОИЗВОДИТЕЛЬНОСТЬ
+client-output-buffer-limit normal 0 0 0
+client-output-buffer-limit replica 256mb 64mb 60
+client-output-buffer-limit pubsub 32mb 8mb 60
+
+# Память - ДОПОЛНИТЕЛЬНАЯ ОПТИМИЗАЦИЯ
+activerehashing yes
+hz 10
+dynamic-hz yes
+
+# RDB - ОПТИМИЗАЦИЯ
+rdb-save-incremental-fsync yes
+
+# AOF - ДОПОЛНИТЕЛЬНАЯ ОПТИМИЗАЦИЯ
+aof-rewrite-incremental-fsync yes
+
+# Lua - ОПТИМИЗАЦИЯ
+lua-time-limit 5000
+
+# Клиентские соединения - МАКСИМАЛЬНЫЕ ЛИМИТЫ
+maxclients 10000
+
+# Память - ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ
+jemalloc-bg-thread yes

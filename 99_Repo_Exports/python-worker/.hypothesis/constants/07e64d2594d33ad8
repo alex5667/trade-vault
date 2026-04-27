@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signal_scoring/engine.py
+# hypothesis_version: 6.148.10
+
+[-0.2, 0.0, 0.05, 0.15, 0.2, 0.5, 1.0, 20.0, 30.0, 50.0, 100.0, 100, '0.05', '0.15', '30.0', 'XAU', 'absorption', 'adjusted_score_0_1', 'allow_conf', 'allow_quality', 'allow_score', 'atr_quantile', 'base_confidence', 'base_score', 'break', 'delta_spike_z', 'disabled', 'force_reject', 'generic', 'liquidity_component', 'liquidity_context', 'min_confidence', 'no_liquidity_context', 'no_quality_estimator', 'none', 'obi', 'pattern', 'quantile', 'unknown']

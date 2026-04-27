@@ -1,0 +1,46 @@
+groups:
+  - name: feature_selection_loop_p101
+    rules:
+      - alert: FeatureSelectionLoopExporterDown
+        expr: absent(feature_selection_loop_exporter_up) OR (feature_selection_loop_exporter_up == 0)
+        for: 5m
+        labels:
+          severity: page
+          tier: P101
+          owner: SRE
+        annotations:
+          summary: "Feature selection loop exporter is down"
+          description: "Prometheus cannot scrape feature selection loop metrics (feature_selection_loop_exporter_up)."
+
+      - alert: FeatureSelectionLoopStale
+        expr: feature_selection_loop_age_seconds > 129600
+        for: 30m
+        labels:
+          severity: page
+          tier: P101
+          owner: ML
+        annotations:
+          summary: "Feature selection loop report is stale"
+          description: "No successful feature selection loop update for >36h. Check of_timers_worker and bundle logs."
+
+      - alert: FeatureSelectionLoopFailed
+        expr: (feature_selection_loop_last_success == 0) AND (feature_selection_loop_age_seconds < 21600)
+        for: 15m
+        labels:
+          severity: page
+          tier: P101
+          owner: ML
+        annotations:
+          summary: "Feature selection loop failed"
+          description: "Nightly feature selection bundle failed recently. Inspect metrics:feature_selection_loop:last and run_dir."
+
+      - alert: FeatureSelectionLoopNoiseHigh
+        expr: (feature_selection_loop_noise_share > 0.60) AND (feature_selection_loop_features >= 10)
+        for: 2h
+        labels:
+          severity: warn
+          tier: P101
+          owner: ML
+        annotations:
+          summary: "High share of noisy features in selection loop"
+          description: "A large fraction of features are flagged as low-importance or unstable across regimes/hours. Review report.md and consider pruning or re-defining features."

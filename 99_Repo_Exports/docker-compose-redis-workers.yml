@@ -1,0 +1,51 @@
+version: '3.8'
+services:
+  redis-worker-1:
+    image: redis:7-alpine
+    container_name: redis-worker-1
+    ports:
+    - 6380:6379
+    volumes:
+    - scanner_infra_redis-worker-1-data:/data
+    - ./redis-worker-stable.conf:/usr/local/etc/redis/redis.conf
+    - ./redis-worker-1-acl.conf:/data/redis-worker-1-acl.conf
+    command: redis-server /usr/local/etc/redis/redis.conf --aclfile /data/redis-worker-1-acl.conf
+    healthcheck:
+      test:
+      - CMD
+      - redis-cli
+      - ping
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+    - scanner-network
+    environment:
+    - TZ=UTC
+  redis-worker-2:
+    image: redis:7-alpine
+    container_name: redis-worker-2
+    ports:
+    - 6381:6379
+    volumes:
+    - scanner_infra_redis-worker-2-data:/data
+    - ./redis-worker-stable.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    healthcheck:
+      test:
+      - CMD
+      - redis-cli
+      - ping
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    environment:
+    - TZ=UTC
+networks:
+  scanner-network:
+    external: true
+volumes:
+  scanner_infra_redis-worker-1-data:
+    external: true
+  scanner_infra_redis-worker-2-data:
+    external: true

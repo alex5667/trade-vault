@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/orderflow_services/of_gate_contract_smoke_exporter_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, '+', '-', '15', '9148', 'REDIS_URL', '[]', '__main__', 'bad_share', 'bad_total', 'dq_code', 'n_total', 'reason_code', 'schema_missing_share', 'schema_version_mode', 'top_dq_json', 'top_reason_code_json', 'ts_ms']

@@ -1,0 +1,1985 @@
+diff -ruN --no-dereference /mnt/data/p96_before/orderflow_services/grafana/of_inputs_dlq_p96.json /mnt/data/p96_after/orderflow_services/grafana/of_inputs_dlq_p96.json
+--- /mnt/data/p96_before/orderflow_services/grafana/of_inputs_dlq_p96.json	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p96_after/orderflow_services/grafana/of_inputs_dlq_p96.json	2026-02-25 05:30:20.693087167 +0000
+@@ -0,0 +1,242 @@
++{
++  "annotations": {
++    "list": [
++      {
++        "builtIn": 1,
++        "datasource": {
++          "type": "grafana",
++          "uid": "-- Grafana --"
++        },
++        "enable": true,
++        "hide": true,
++        "iconColor": "rgba(0, 211, 255, 1)",
++        "name": "Annotations & Alerts",
++        "type": "dashboard"
++      }
++    ]
++  },
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "id": null,
++  "links": [],
++  "liveNow": false,
++  "panels": [
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "axisBorderShow": false,
++            "axisCenteredZero": false,
++            "axisColorMode": "text",
++            "axisLabel": "",
++            "axisPlacement": "auto",
++            "barAlignment": 0,
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "gradientMode": "none",
++            "hideFrom": {
++              "legend": false,
++              "tooltip": false,
++              "viz": false
++            },
++            "insertNulls": false,
++            "lineInterpolation": "linear",
++            "lineWidth": 1,
++            "pointSize": 5,
++            "scaleDistribution": {
++              "type": "linear"
++            },
++            "showPoints": "never",
++            "spanNulls": true,
++            "stacking": {
++              "group": "A",
++              "mode": "none"
++            },
++            "thresholdsStyle": {
++              "mode": "off"
++            }
++          },
++          "mappings": [],
++          "thresholds": {
++            "mode": "absolute",
++            "steps": [
++              {
++                "color": "green",
++                "value": null
++              },
++              {
++                "color": "red",
++                "value": 1
++              }
++            ]
++          }
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 0
++      },
++      "id": 1,
++      "options": {
++        "legend": {
++          "calcs": [
++            "lastNotNull",
++            "max"
++          ],
++          "displayMode": "table",
++          "placement": "right",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "editorMode": "code",
++          "expr": "of_inputs_dlq_len",
++          "legendFormat": "{{stream}}",
++          "range": true,
++          "refId": "A"
++        }
++      ],
++      "title": "OFInputs DLQ / Quarantine stream length",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "axisBorderShow": false,
++            "axisCenteredZero": false,
++            "axisColorMode": "text",
++            "axisLabel": "",
++            "axisPlacement": "auto",
++            "barAlignment": 0,
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "gradientMode": "none",
++            "hideFrom": {
++              "legend": false,
++              "tooltip": false,
++              "viz": false
++            },
++            "insertNulls": false,
++            "lineInterpolation": "linear",
++            "lineWidth": 1,
++            "pointSize": 5,
++            "scaleDistribution": {
++              "type": "linear"
++            },
++            "showPoints": "never",
++            "spanNulls": true,
++            "stacking": {
++              "group": "A",
++              "mode": "none"
++            },
++            "thresholdsStyle": {
++              "mode": "off"
++            }
++          },
++          "mappings": [],
++          "unit": "s"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 8
++      },
++      "id": 2,
++      "options": {
++        "legend": {
++          "calcs": [
++            "lastNotNull",
++            "max"
++          ],
++          "displayMode": "table",
++          "placement": "right",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "editorMode": "code",
++          "expr": "of_inputs_dlq_age_sec",
++          "legendFormat": "{{stream}}",
++          "range": true,
++          "refId": "A"
++        }
++      ],
++      "title": "OFInputs DLQ / Quarantine age (sec)",
++      "type": "timeseries"
++    }
++  ],
++  "refresh": "10s",
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": [
++    "orderflow",
++    "dlq",
++    "of_inputs"
++  ],
++  "templating": {
++    "list": [
++      {
++        "current": {
++          "selected": false,
++          "text": "Prometheus",
++          "value": "Prometheus"
++        },
++        "hide": 0,
++        "includeAll": false,
++        "label": "Datasource",
++        "multi": false,
++        "name": "DS_PROMETHEUS",
++        "options": [],
++        "query": "prometheus",
++        "refresh": 1,
++        "regex": "",
++        "skipUrlSync": false,
++        "type": "datasource"
++      }
++    ]
++  },
++  "time": {
++    "from": "now-6h",
++    "to": "now"
++  },
++  "timepicker": {},
++  "timezone": "browser",
++  "title": "OFInputs DLQ / Quarantine (P96)",
++  "uid": "of_inputs_dlq_p96",
++  "version": 1,
++  "weekStart": ""
++}
+diff -ruN --no-dereference /mnt/data/p96_before/orderflow_services/of_inputs_dlq_drilldown_p96.py /mnt/data/p96_after/orderflow_services/of_inputs_dlq_drilldown_p96.py
+--- /mnt/data/p96_before/orderflow_services/of_inputs_dlq_drilldown_p96.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p96_after/orderflow_services/of_inputs_dlq_drilldown_p96.py	2026-02-25 05:28:31.738670237 +0000
+@@ -0,0 +1,108 @@
++"""OF Inputs DLQ/Quarantine drilldown (P96).
++
++Prints quick triage info (top dq_code / err_prefix, sample payloads).
++
++Env:
++- REDIS_URL (required)
++- OF_INPUTS_DLQ_STREAM (default: stream:dlq:of_inputs)
++- OF_INPUTS_QUARANTINE_STREAM (default: quarantine:signals:of:inputs)
++
++Usage:
++  python -m orderflow_services.of_inputs_dlq_drilldown_p96 --dlq 200 --quarantine 200 --samples 3
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import os
++from collections import Counter
++from typing import Any, Dict, List, Tuple
++
++import redis.asyncio as aioredis
++
++
++def _json_loads(s: str) -> Dict[str, Any]:
++    try:
++        return json.loads(s)
++    except Exception:
++        return {"_raw": s}
++
++
++async def _read_tail(r: aioredis.Redis, stream: str, count: int) -> List[Tuple[str, Dict[str, str]]]:
++    try:
++        items = await r.xrevrange(stream, max='+', min='-', count=count)
++        # items: List[(id, {field:value})]
++        return [(str(iid), {str(k): str(v) for k, v in fields.items()}) for iid, fields in items]
++    except Exception:
++        return []
++
++
++def _extract_ctx(fields: Dict[str, str]) -> Dict[str, Any]:
++    payload = fields.get('payload') or ''
++    ctx = _json_loads(payload)
++    return ctx
++
++
++async def main() -> None:
++    ap = argparse.ArgumentParser()
++    ap.add_argument('--dlq', type=int, default=200)
++    ap.add_argument('--quarantine', type=int, default=200)
++    ap.add_argument('--samples', type=int, default=3)
++    args = ap.parse_args()
++
++    redis_url = os.environ.get('REDIS_URL')
++    if not redis_url:
++        raise SystemExit('REDIS_URL is required')
++
++    dlq_stream = os.environ.get('OF_INPUTS_DLQ_STREAM', 'stream:dlq:of_inputs')
++    q_stream = os.environ.get('OF_INPUTS_QUARANTINE_STREAM', 'quarantine:signals:of:inputs')
++
++    r = aioredis.from_url(redis_url, decode_responses=True)
++
++    dlq_items = await _read_tail(r, dlq_stream, args.dlq)
++    q_items = await _read_tail(r, q_stream, args.quarantine)
++
++    print(f'DLQ stream: {dlq_stream}  (tail={len(dlq_items)})')
++    dlq_prefix = Counter()
++    dlq_dq = Counter()
++    for _id, fields in dlq_items:
++        ctx = _extract_ctx(fields)
++        dlq_prefix[str(ctx.get('err_prefix', 'na'))] += 1
++        dq = str(ctx.get('dq_code', '') or 'na')
++        dlq_dq[dq] += 1
++
++    print('Top err_prefix:', dlq_prefix.most_common(10))
++    print('Top dq_code:', dlq_dq.most_common(10))
++
++    if args.samples > 0 and dlq_items:
++        print('\nDLQ samples:')
++        for _id, fields in dlq_items[: args.samples]:
++            ctx = _extract_ctx(fields)
++            print(f'- id={_id} symbol={ctx.get("symbol")} dq={ctx.get("dq_code")} err_prefix={ctx.get("err_prefix")}')
++            payload = ctx.get('payload')
++            if isinstance(payload, str) and len(payload) > 500:
++                payload = payload[:500] + '...'
++            print('  payload:', payload)
++
++    print(f'\nQuarantine stream: {q_stream}  (tail={len(q_items)})')
++    q_dq = Counter()
++    for _id, fields in q_items:
++        ctx = _extract_ctx(fields)
++        q_dq[str(ctx.get('dq_code', 'na'))] += 1
++
++    print('Top dq_code:', q_dq.most_common(10))
++
++    if args.samples > 0 and q_items:
++        print('\nQuarantine samples:')
++        for _id, fields in q_items[: args.samples]:
++            ctx = _extract_ctx(fields)
++            print(f'- id={_id} symbol={ctx.get("symbol")} dq={ctx.get("dq_code")} attempt={ctx.get("attempt_version")} published={ctx.get("published_version")}')
++            print('  missing_fields:', ctx.get('missing_fields'))
++            print('  book_age_ms:', ctx.get('book_age_ms'))
++
++
++if __name__ == '__main__':
++    import asyncio
++
++    asyncio.run(main())
+diff -ruN --no-dereference /mnt/data/p96_before/orderflow_services/of_inputs_dlq_exporter_v1.py /mnt/data/p96_after/orderflow_services/of_inputs_dlq_exporter_v1.py
+--- /mnt/data/p96_before/orderflow_services/of_inputs_dlq_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p96_after/orderflow_services/of_inputs_dlq_exporter_v1.py	2026-02-25 05:28:04.471459310 +0000
+@@ -0,0 +1,92 @@
++"""OF Inputs DLQ/Quarantine exporter (P96).
++
++Purpose:
++- Expose basic Redis Streams health for OFInputs DLQ + quarantine streams:
++  len, age (sec), last_id_ts_ms.
++
++Notes:
++- Keep label cardinality low (only `stream`).
++- Tolerates missing streams.
++
++Env:
++- REDIS_URL (required)
++- OF_INPUTS_DLQ_EXPORTER_PORT (default: 9158)
++- OF_INPUTS_DLQ_EXPORTER_REFRESH_SEC (default: 10)
++- OF_INPUTS_DLQ_STREAMS (default: "stream:dlq:of_inputs,quarantine:signals:of:inputs")
++
++Run:
++  python -m orderflow_services.of_inputs_dlq_exporter_v1
++"""
++
++from __future__ import annotations
++
++import asyncio
++import os
++import time
++from typing import Dict, List, Tuple
++
++import redis.asyncio as aioredis
++from prometheus_client import Gauge, start_http_server
++
++
++G_UP = Gauge('of_inputs_dlq_exporter_up', '1 if exporter loop is running')
++G_POLL_TS_MS = Gauge('of_inputs_dlq_exporter_poll_ts_ms', 'Last poll timestamp (ms)')
++G_LEN = Gauge('of_inputs_dlq_len', 'Redis stream length', ['stream'])
++G_LAST_ID_TS_MS = Gauge('of_inputs_dlq_last_id_ts_ms', 'Last entry timestamp derived from stream id', ['stream'])
++G_AGE_SEC = Gauge('of_inputs_dlq_age_sec', 'Age in seconds: now - last_id_ts_ms/1000', ['stream'])
++
++
++def _parse_stream_id_ts_ms(stream_id: str) -> int:
++    # Redis stream id is "<ms>-<seq>"
++    try:
++        return int(stream_id.split('-', 1)[0])
++    except Exception:
++        return 0
++
++
++async def _xinfo_len_last_id(r: aioredis.Redis, stream: str) -> Tuple[int, str]:
++    try:
++        info = await r.xinfo_stream(stream)
++        length = int(info.get('length', 0) or 0)
++        last = info.get('last-generated-id') or '0-0'
++        return length, str(last)
++    except Exception:
++        # stream might not exist yet
++        return 0, '0-0'
++
++
++async def main() -> None:
++    redis_url = os.environ.get('REDIS_URL')
++    if not redis_url:
++        raise SystemExit('REDIS_URL is required')
++
++    port = int(os.environ.get('OF_INPUTS_DLQ_EXPORTER_PORT', '9158'))
++    refresh = float(os.environ.get('OF_INPUTS_DLQ_EXPORTER_REFRESH_SEC', '10'))
++    streams_raw = os.environ.get('OF_INPUTS_DLQ_STREAMS', 'stream:dlq:of_inputs,quarantine:signals:of:inputs')
++    streams: List[str] = [s.strip() for s in streams_raw.split(',') if s.strip()]
++
++    start_http_server(port)
++
++    r = aioredis.from_url(redis_url, decode_responses=True)
++
++    while True:
++        G_UP.set(1)
++        now_ms = int(time.time() * 1000)
++        G_POLL_TS_MS.set(now_ms)
++
++        for stream in streams:
++            length, last_id = await _xinfo_len_last_id(r, stream)
++            last_ts_ms = _parse_stream_id_ts_ms(last_id)
++            age_sec = 0.0
++            if last_ts_ms > 0:
++                age_sec = max(0.0, (now_ms - last_ts_ms) / 1000.0)
++
++            G_LEN.labels(stream=stream).set(length)
++            G_LAST_ID_TS_MS.labels(stream=stream).set(last_ts_ms)
++            G_AGE_SEC.labels(stream=stream).set(age_sec)
++
++        await asyncio.sleep(refresh)
++
++
++if __name__ == '__main__':
++    asyncio.run(main())
+diff -ruN --no-dereference /mnt/data/p96_before/orderflow_services/prometheus_alerts_of_inputs_dlq_p96.yml /mnt/data/p96_after/orderflow_services/prometheus_alerts_of_inputs_dlq_p96.yml
+--- /mnt/data/p96_before/orderflow_services/prometheus_alerts_of_inputs_dlq_p96.yml	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p96_after/orderflow_services/prometheus_alerts_of_inputs_dlq_p96.yml	2026-02-25 05:29:26.090615313 +0000
+@@ -0,0 +1,43 @@
++groups:
++  - name: of_inputs_dlq_p96
++    rules:
++      - alert: OFInputsDLQNonZero
++        expr: of_inputs_dlq_len{stream="stream:dlq:of_inputs"} > 0
++        for: 10m
++        labels:
++          severity: warning
++          component: of_inputs
++        annotations:
++          summary: "OFInputs DLQ is non-empty"
++          description: "stream:dlq:of_inputs length={{ $value }}. Use drilldown script to inspect payloads and root-cause publish errors."
++
++      - alert: OFInputsQuarantineNonZero
++        expr: of_inputs_dlq_len{stream="quarantine:signals:of:inputs"} > 0
++        for: 30m
++        labels:
++          severity: info
++          component: of_inputs
++        annotations:
++          summary: "OFInputs quarantine contains entries"
++          description: "Quarantine length={{ $value }} (downgrades/missing LOB fields). Investigate dq_code and book_state quality."
++
++      - alert: OFInputsPublisherErrors
++        expr: increase(of_inputs_publish_error_total[5m]) > 0
++        for: 2m
++        labels:
++          severity: critical
++          component: of_inputs
++        annotations:
++          summary: "OFInputs publish errors detected"
++          description: "increase(of_inputs_publish_error_total[5m])={{ $value }}. DLQ likely growing; check Redis health and payload serialization."
++
++      - alert: OFInputsV3DowngradeRateHigh
++        # Tune this threshold per symbol count / tick rate.
++        expr: increase(of_inputs_downgrade_total{from_version="3",to_version="2"}[15m]) > 100
++        for: 10m
++        labels:
++          severity: warning
++          component: of_inputs
++        annotations:
++          summary: "High OFInputs V3→V2 downgrade rate"
++          description: "increase(of_inputs_downgrade_total{from_version=3,to_version=2}[15m])={{ $value }}. Likely book lag or missing LOB fields."
+diff -ruN --no-dereference /mnt/data/p96_before/orderflow_services/runbook_of_inputs_dlq_p96.md /mnt/data/p96_after/orderflow_services/runbook_of_inputs_dlq_p96.md
+--- /mnt/data/p96_before/orderflow_services/runbook_of_inputs_dlq_p96.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p96_after/orderflow_services/runbook_of_inputs_dlq_p96.md	2026-02-25 05:29:03.071423523 +0000
+@@ -0,0 +1,97 @@
++# Runbook: OFInputs DLQ / Quarantine (P96)
++
++## Streams
++
++- Main stream (default): `signals:of:inputs`
++- Quarantine stream (default): `quarantine:signals:of:inputs`
++- DLQ stream (default): `stream:dlq:of_inputs`
++
++All stream names are configurable via `runtime.config`:
++- `of_inputs_stream`
++- `of_inputs_quarantine_stream`
++- `of_inputs_dlq_stream`
++
++## What is considered "bad" for OFInputs V3
++
++V3 is only emitted when **book_state is healthy enough** and required LOB-derived fields are present.
++
++If degraded, the system does:
++
++1) **Deterministic downgrade** V3 → V2
++2) **Quarantine (dedup)** a triage event with:
++   - `dq_code`
++   - `missing_fields`
++   - `book_age_ms`
++3) Still publishes a **valid V2** payload to the main stream
++
++## dq_code meanings (low cardinality)
++
++- `v3_class_missing`: contract not deployed (safe fallback to V2)
++- `book_age_missing`: cannot compute book age (missing timestamps)
++- `book_stale`: `book_age_ms > of_inputs_v3_max_book_age_ms` (default 1500ms)
++- `missing_lob_fields`: required LOB features are absent in `indicators`
++
++## Metrics
++
++Emitted by the tick-processor process:
++
++- `of_inputs_downgrade_total{symbol,from_version,to_version,reason}`
++- `of_inputs_missing_lob_total{symbol,reason}`
++- `of_inputs_quarantined_total{symbol,reason,attempt_version,published_version}`
++- `of_inputs_publish_error_total{symbol,stage}`
++
++Exporter (separate process):
++
++- `of_inputs_dlq_len{stream}`
++- `of_inputs_dlq_age_sec{stream}`
++
++## Quick triage
++
++1) Check if DLQ/quarantine is growing:
++
++- `of_inputs_dlq_len{stream="stream:dlq:of_inputs"}`
++- `of_inputs_dlq_len{stream="quarantine:signals:of:inputs"}`
++
++2) Drilldown (tail samples):
++
++```bash
++export REDIS_URL=redis://localhost:6379/0
++python -m orderflow_services.of_inputs_dlq_drilldown_p96 --dlq 200 --quarantine 200 --samples 5
++```
++
++## Remediation playbook
++
++### A) `missing_lob_fields`
++
++Cause: LOB feature pipeline not producing required keys (`qimb_wmean`, `mp_mid_bps`, `obi_dw`, `ofi_ml_norm`).
++
++Actions:
++- Verify book ingestion is running and indicators are updated.
++- Check if the symbol has a live book stream.
++- Inspect book_state health metrics (book age / reconnects) and WS stability.
++
++### B) `book_stale`
++
++Cause: book snapshot age too old vs tick time.
++
++Actions:
++- Investigate WS book lag / reconnect storms.
++- Reduce compute pressure if event loop is blocked.
++- Consider increasing `of_inputs_v3_max_book_age_ms` only if your latency budget allows.
++
++### C) DLQ is non-empty (`of_inputs_publish_error_total` increases)
++
++Cause: Redis errors / serialization failures.
++
++Actions:
++- Check Redis health, memory pressure, maxmemory policy.
++- Validate stream maxlen settings.
++- Inspect DLQ samples for `err_prefix`.
++
++## Recommended config knobs
++
++- `of_inputs_emit_v3` (0/1)
++- `of_inputs_v3_max_book_age_ms` (default 1500)
++- `of_inputs_quarantine_cooldown_ms` (default 6h)
++- `of_inputs_stream_maxlen` (default 50k)
++- `of_inputs_dlq_maxlen` (default 200k)
+diff -ruN --no-dereference /mnt/data/p96_before/services/orderflow/components/tick_processor.py /mnt/data/p96_after/services/orderflow/components/tick_processor.py
+--- /mnt/data/p96_before/services/orderflow/components/tick_processor.py	2026-02-24 05:36:03.000000000 +0000
++++ /mnt/data/p96_after/services/orderflow/components/tick_processor.py	2026-02-25 05:25:43.233690724 +0000
+@@ -46,6 +46,7 @@
+     cvd_reclaim_ratio_gauge, cvd_reclaim_age_ms_gauge, cvd_reclaim_window_ms_gauge,
+     cvd_reclaim_ratio_gauge, cvd_reclaim_age_ms_gauge, cvd_reclaim_window_ms_gauge,
+     of_inputs_version_total, of_inputs_missing_ofi_total, of_inputs_missing_fp_total,
++    of_inputs_missing_lob_total, of_inputs_downgrade_total, of_inputs_quarantined_total, of_inputs_publish_error_total,
+     track_confirmations, evidence_used_total_session, record_confirmation_seen, record_evidence_used,
+     # Execution-risk observability (P71 slippage decomp layer)
+     impact_proxy_hist, expected_slippage_decomp_bps_hist, of_gate_veto_top1_total,
+@@ -1798,8 +1799,33 @@
+                         pass
+                     
+                     emit_v2_cfg = runtime.config.get("of_inputs_emit_v2", 1)
++                    emit_v3_cfg = runtime.config.get("of_inputs_emit_v3", 0)
++
+                     emit_v2 = bool(_i(emit_v2_cfg, 1))
++                    emit_v3 = bool(_i(emit_v3_cfg, 0))
++                    # If V3 requested, we always allow deterministic downgrade to V2.
++                    if emit_v3:
++                        emit_v2 = True
++
++                    stream_inputs = str(runtime.config.get("of_inputs_stream", "signals:of:inputs"))
++                    maxlen_inputs = int(runtime.config.get("of_inputs_stream_maxlen", 50000))
++                    quarantine_stream = str(runtime.config.get("of_inputs_quarantine_stream", "quarantine:signals:of:inputs"))
++                    quarantine_maxlen = int(runtime.config.get("of_inputs_quarantine_maxlen", 50000))
++                    dlq_stream = str(runtime.config.get("of_inputs_dlq_stream", "stream:dlq:of_inputs"))
++                    dlq_maxlen = int(runtime.config.get("of_inputs_dlq_maxlen", 200000))
++                    quarantine_cooldown_ms = int(runtime.config.get("of_inputs_quarantine_cooldown_ms", 6 * 3600 * 1000))
++                    v3_max_book_age_ms = int(runtime.config.get("of_inputs_v3_max_book_age_ms", 1500))
++
++                    # Optional: V3 contract may not exist in older deployments.
++                    OFInputsV3 = None
++                    if emit_v3:
++                        try:
++                            from core.of_inputs_contract import OFInputsV3 as _OFInputsV3  # type: ignore
++                            OFInputsV3 = _OFInputsV3
++                        except Exception:
++                            OFInputsV3 = None
+ 
++                    # Base contract (V1/V2)
+                     ofi_kwargs = {
+                         "v": 2 if emit_v2 else 1,
+                         "symbol": _s(runtime.symbol),
+@@ -1821,7 +1847,7 @@
+                         "fp_eff_quote": _f(getattr(runtime.last_bar, "fp_eff_quote", 0.0) if runtime.last_bar else 0.0, 0.0),
+                         "fp_quote_delta": _f(getattr(runtime.last_bar, "fp_quote_delta", 0.0) if runtime.last_bar else 0.0, 0.0),
+                     }
+-                    
++
+                     if emit_v2:
+                         ofi_kwargs["ofi"] = _f(indicators.get("ofi", 0.0), 0.0)
+                         ofi_kwargs["ofi_z"] = _f(indicators.get("ofi_z", 0.0), 0.0)
+@@ -1829,17 +1855,192 @@
+                         ofi_kwargs["ofi_dir_ok"] = _i(indicators.get("ofi_dir_ok", 0), 0)
+                         ofi_kwargs["ofi_stable_secs"] = _f(indicators.get("ofi_stable_secs", 0.0), 0.0)
+ 
+-                    inputs_obj = OFInputsV2(**ofi_kwargs) if emit_v2 else OFInputsV1(**ofi_kwargs)
+-                    
+-                    stream_inputs = str(runtime.config.get("of_inputs_stream", "metrics:ml_inputs"))
+-                    maxlen_inputs = int(runtime.config.get("of_inputs_stream_maxlen", 50000))
+-                    
+-                    asyncio.create_task(self.redis.xadd(
+-                        stream_inputs,
+-                        fields={"payload": inputs_obj.to_json()},
+-                        maxlen=maxlen_inputs,
+-                        approximate=True
+-                    ))
++                    # --- V3 attempt (LOB pressure) ---
++                    attempt_v = 3 if emit_v3 else (2 if emit_v2 else 1)
++                    published_v = attempt_v
++                    downgrade_reason = ""
++                    missing_fields = []
++
++                    if emit_v3:
++                        # best-effort book_age_ms (prefer indicators if present)
++                        book_age_ms = _i(indicators.get("book_age_ms", -1), -1)
++                        if book_age_ms < 0:
++                            try:
++                                bs = getattr(runtime, "book_state", None)
++                                bts = int(getattr(bs, "ts_ms", 0) or 0) if bs is not None else 0
++                                if bts > 0:
++                                    book_age_ms = int(tick_ts_ms - bts)
++                            except Exception:
++                                book_age_ms = -1
++
++                        # Required presence check (presence, not value): missing means feature pipeline degraded.
++                        required_presence = ("qimb_wmean", "mp_mid_bps", "obi_dw", "ofi_ml_norm")
++                        for k in required_presence:
++                            if k not in indicators:
++                                missing_fields.append(k)
++
++                        if OFInputsV3 is None:
++                            downgrade_reason = "v3_class_missing"
++                        elif book_age_ms < 0:
++                            downgrade_reason = "book_age_missing"
++                        elif book_age_ms > v3_max_book_age_ms:
++                            downgrade_reason = "book_stale"
++                        elif missing_fields:
++                            downgrade_reason = "missing_lob_fields"
++
++                        if downgrade_reason:
++                            # Deterministic downgrade to V2
++                            published_v = 2
++                            try:
++                                of_inputs_missing_lob_total.labels(symbol=str(runtime.symbol), reason=downgrade_reason).inc()
++                            except Exception:
++                                pass
++                            try:
++                                of_inputs_downgrade_total.labels(
++                                    symbol=str(runtime.symbol),
++                                    from_version="3",
++                                    to_version="2",
++                                    reason=downgrade_reason,
++                                ).inc()
++                            except Exception:
++                                pass
++
++                            # Quarantine (dedup) for triage
++                            try:
++                                last_map = getattr(runtime, "_of_inputs_quarantine_last", None)
++                                if not isinstance(last_map, dict):
++                                    last_map = {}
++                                    setattr(runtime, "_of_inputs_quarantine_last", last_map)
++                                last_ts = int(last_map.get(downgrade_reason, 0) or 0)
++                                if tick_ts_ms - last_ts >= quarantine_cooldown_ms:
++                                    last_map[downgrade_reason] = tick_ts_ms
++                                    q = {
++                                        "ts_ms": int(tick_ts_ms),
++                                        "symbol": str(runtime.symbol),
++                                        "dq_code": downgrade_reason,
++                                        "attempt_version": int(attempt_v),
++                                        "published_version": int(published_v),
++                                        "missing_fields": list(missing_fields),
++                                        "book_age_ms": int(book_age_ms),
++                                        "stream": stream_inputs,
++                                    }
++                                    try:
++                                        of_inputs_quarantined_total.labels(
++                                            symbol=str(runtime.symbol),
++                                            reason=downgrade_reason,
++                                            attempt_version=str(attempt_v),
++                                            published_version=str(published_v),
++                                        ).inc()
++                                    except Exception:
++                                        pass
++
++                                    import json as _json
++                                    def _json_safe(obj):
++                                        try:
++                                            return _json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
++                                        except Exception:
++                                            return '{"error":"json"}'
++
++                                    async def _xadd_quarantine() -> None:
++                                        try:
++                                            await self.redis.xadd(
++                                                quarantine_stream,
++                                                fields={"payload": _json_safe(q)},
++                                                maxlen=quarantine_maxlen,
++                                                approximate=True,
++                                            )
++                                        except Exception:
++                                            pass
++
++                                    asyncio.create_task(_xadd_quarantine())
++                            except Exception:
++                                pass
++
++                        # If not downgraded, attach V3 fields
++                        if not downgrade_reason:
++                            ofi_kwargs.update({
++                                "v": 3,
++                                "qimb_l1": _f(indicators.get("qimb_l1", 0.0), 0.0),
++                                "qimb_l2": _f(indicators.get("qimb_l2", 0.0), 0.0),
++                                "qimb_l3": _f(indicators.get("qimb_l3", 0.0), 0.0),
++                                "qimb_l4": _f(indicators.get("qimb_l4", 0.0), 0.0),
++                                "qimb_l5": _f(indicators.get("qimb_l5", 0.0), 0.0),
++                                "qimb_wmean": _f(indicators.get("qimb_wmean", 0.0), 0.0),
++                                "mp_mid_bps": _f(indicators.get("mp_mid_bps", 0.0), 0.0),
++                                "mp_shift_bps": _f(indicators.get("mp_shift_bps", 0.0), 0.0),
++                                "depth_bid_5": _f(indicators.get("depth_bid_5", 0.0), 0.0),
++                                "depth_ask_5": _f(indicators.get("depth_ask_5", 0.0), 0.0),
++                                "book_slope_bid": _f(indicators.get("book_slope_bid", 0.0), 0.0),
++                                "book_slope_ask": _f(indicators.get("book_slope_ask", 0.0), 0.0),
++                                "book_convex_bid": _f(indicators.get("book_convex_bid", 0.0), 0.0),
++                                "book_convex_ask": _f(indicators.get("book_convex_ask", 0.0), 0.0),
++                                "obi_dw": _f(indicators.get("obi_dw", 0.0), 0.0),
++                                "ofi_ml_norm": _f(indicators.get("ofi_ml_norm", 0.0), 0.0),
++                                "book_age_ms": _i(indicators.get("book_age_ms", book_age_ms), book_age_ms),
++                            })
++
++                    # Construct contract object (V1/V2/V3)
++                    if published_v == 3 and OFInputsV3 is not None:
++                        inputs_obj = OFInputsV3(**ofi_kwargs)
++                    else:
++                        # ensure v matches published version
++                        ofi_kwargs["v"] = 2 if emit_v2 else 1
++                        inputs_obj = OFInputsV2(**ofi_kwargs) if emit_v2 else OFInputsV1(**ofi_kwargs)
++
++                    # Payload (never raises)
++                    try:
++                        payload_inputs = inputs_obj.to_json()  # type: ignore
++                    except Exception:
++                        import json as _json
++                        try:
++                            payload_inputs = _json.dumps(inputs_obj.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
++                        except Exception:
++                            payload_inputs = '{"error":"to_json_failed"}'
++
++                    try:
++                        of_inputs_version_total.labels(symbol=str(runtime.symbol), version=str(published_v)).inc()
++                    except Exception:
++                        pass
++
++                    # Safe publish + DLQ
++                    async def _xadd_safe(stream: str, payload_str: str, stage: str) -> None:
++                        try:
++                            await self.redis.xadd(
++                                stream,
++                                fields={"payload": payload_str},
++                                maxlen=maxlen_inputs,
++                                approximate=True,
++                            )
++                        except Exception as e:
++                            try:
++                                of_inputs_publish_error_total.labels(symbol=str(runtime.symbol), stage=str(stage)).inc()
++                            except Exception:
++                                pass
++                            # best-effort DLQ write (never raises)
++                            try:
++                                import json as _json
++                                ctx = {
++                                    "ts_ms": int(tick_ts_ms),
++                                    "symbol": str(runtime.symbol),
++                                    "stream": str(stream),
++                                    "attempt_version": int(attempt_v),
++                                    "published_version": int(published_v),
++                                    "dq_code": str(downgrade_reason or ""),
++                                    "err_prefix": str(type(e).__name__),
++                                    "err": str(e)[:512],
++                                    "payload": payload_str,
++                                }
++                                await self.redis.xadd(
++                                    dlq_stream,
++                                    fields={"payload": _json.dumps(ctx, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)},
++                                    maxlen=dlq_maxlen,
++                                    approximate=True,
++                                )
++                            except Exception:
++                                pass
++
++                    asyncio.create_task(_xadd_safe(stream_inputs, payload_inputs, stage="inputs"))
++
+         except Exception:
+             pass
+ 
+diff -ruN --no-dereference /mnt/data/p96_before/services/orderflow/metrics.py /mnt/data/p96_after/services/orderflow/metrics.py
+--- /mnt/data/p96_before/services/orderflow/metrics.py	2026-02-24 04:53:12.000000000 +0000
++++ /mnt/data/p96_after/services/orderflow/metrics.py	2026-02-25 05:21:54.251286140 +0000
+@@ -828,6 +828,31 @@
+     ['symbol']
+ )
+ 
++# --- OF Inputs V3 downgrade / quarantine / DLQ observability (P96) ---
++of_inputs_missing_lob_total = _get_or_create_prom_counter(
++    'of_inputs_missing_lob_total',
++    'Total OF inputs where v3 was requested but LOB fields were missing/degraded (downgraded to v2)',
++    ['symbol', 'reason']
++)
++
++of_inputs_downgrade_total = _get_or_create_prom_counter(
++    'of_inputs_downgrade_total',
++    'Total OF inputs automatic version downgrades (e.g., v3->v2) with reason',
++    ['symbol', 'from_version', 'to_version', 'reason']
++)
++
++of_inputs_quarantined_total = _get_or_create_prom_counter(
++    'of_inputs_quarantined_total',
++    'Total OF inputs written to quarantine stream for triage (low-cardinality reasons)',
++    ['symbol', 'reason', 'attempt_version', 'published_version']
++)
++
++of_inputs_publish_error_total = _get_or_create_prom_counter(
++    'of_inputs_publish_error_total',
++    'Total OF inputs publish errors (DLQ writes) by stage',
++    ['symbol', 'stage']
++)
++
+ # --- Pre-publish gates (data quality / regime-session) ---
+ pre_publish_gate_veto_total = _get_or_create_prom_counter(
+     'pre_publish_gate_veto_total',
+diff -ruN --no-dereference /mnt/data/p96_before/tick_flow_full/.pytest_cache/.gitignore /mnt/data/p96_after/tick_flow_full/.pytest_cache/.gitignore
+--- /mnt/data/p96_before/tick_flow_full/.pytest_cache/.gitignore	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p96_after/tick_flow_full/.pytest_cache/.gitignore	2026-02-25 05:31:34.628347868 +0000
+@@ -0,0 +1,2 @@
++# Created by pytest automatically.
++*
+diff -ruN --no-dereference /mnt/data/p96_before/tick_flow_full/.pytest_cache/CACHEDIR.TAG /mnt/data/p96_after/tick_flow_full/.pytest_cache/CACHEDIR.TAG
+--- /mnt/data/p96_before/tick_flow_full/.pytest_cache/CACHEDIR.TAG	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p96_after/tick_flow_full/.pytest_cache/CACHEDIR.TAG	2026-02-25 05:31:34.628389285 +0000
+@@ -0,0 +1,4 @@
++Signature: 8a477f597d28d172789f06886806bc55
++# This file is a cache directory tag created by pytest.
++# For information about cache directory tags, see:
++#	https://bford.info/cachedir/spec.html
+diff -ruN --no-dereference /mnt/data/p96_before/tick_flow_full/.pytest_cache/README.md /mnt/data/p96_after/tick_flow_full/.pytest_cache/README.md
+--- /mnt/data/p96_before/tick_flow_full/.pytest_cache/README.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p96_after/tick_flow_full/.pytest_cache/README.md	2026-02-25 05:31:34.628236524 +0000
+@@ -0,0 +1,8 @@
++# pytest cache directory #
++
++This directory contains data from the pytest's cache plugin,
++which provides the `--lf` and `--ff` options, as well as the `cache` fixture.
++
++**Do not** commit this to version control.
++
++See [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.
+diff -ruN --no-dereference /mnt/data/p96_before/tick_flow_full/.pytest_cache/v/cache/nodeids /mnt/data/p96_after/tick_flow_full/.pytest_cache/v/cache/nodeids
+--- /mnt/data/p96_before/tick_flow_full/.pytest_cache/v/cache/nodeids	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p96_after/tick_flow_full/.pytest_cache/v/cache/nodeids	2026-02-25 05:31:34.628758368 +0000
+@@ -0,0 +1,4 @@
++[
++  "tests/core/test_of_inputs_contract_v3.py::test_of_inputs_to_json_is_deterministic",
++  "tests/core/test_of_inputs_contract_v3.py::test_of_inputs_v3_to_dict_has_v3_fields"
++]
+\ No newline at end of file
+diff -ruN --no-dereference /mnt/data/p96_before/tick_flow_full/.pytest_cache/v/cache/stepwise /mnt/data/p96_after/tick_flow_full/.pytest_cache/v/cache/stepwise
+--- /mnt/data/p96_before/tick_flow_full/.pytest_cache/v/cache/stepwise	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p96_after/tick_flow_full/.pytest_cache/v/cache/stepwise	2026-02-25 05:31:34.629114806 +0000
+@@ -0,0 +1 @@
++[]
+\ No newline at end of file
+diff -ruN --no-dereference /mnt/data/p96_before/tick_flow_full/core/of_inputs_contract.py /mnt/data/p96_after/tick_flow_full/core/of_inputs_contract.py
+--- /mnt/data/p96_before/tick_flow_full/core/of_inputs_contract.py	2026-02-20 17:33:12.000000000 +0000
++++ /mnt/data/p96_after/tick_flow_full/core/of_inputs_contract.py	2026-02-25 05:27:35.024100406 +0000
+@@ -3,6 +3,8 @@
+ from dataclasses import dataclass, asdict
+ from typing import Any, Dict
+ 
++import json
++
+ 
+ @dataclass
+ class OFInputsV1:
+@@ -51,6 +53,10 @@
+     def to_dict(self) -> Dict[str, Any]:
+         return asdict(self)
+ 
++    def to_json(self) -> str:
++        """Deterministic JSON (stable keys) for replay / training."""
++        return json.dumps(self.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
+ 
+ @dataclass
+ class OFInputsV2(OFInputsV1):
+@@ -90,3 +96,45 @@
+ 
+     def to_dict(self) -> Dict[str, Any]:
+         return asdict(self)
++
++
++@dataclass
++class OFInputsV3(OFInputsV2):
++    """
++    V3 extends V2 with LOB pressure features (Queue imbalance, Microprice, Slope/Convexity, Depth-weighted OBI)
++    for execution-aware scoring and ML training.
++    """
++
++    # Queue imbalance per level (L1..L5) and weighted mean
++    qimb_l1: float = 0.0
++    qimb_l2: float = 0.0
++    qimb_l3: float = 0.0
++    qimb_l4: float = 0.0
++    qimb_l5: float = 0.0
++    qimb_wmean: float = 0.0
++
++    # Microprice / microprice shift vs mid (bps)
++    mp_mid_bps: float = 0.0
++    mp_shift_bps: float = 0.0
++
++    # Depth (sum qty) to L5
++    depth_bid_5: float = 0.0
++    depth_ask_5: float = 0.0
++
++    # Book slope/convexity (per side)
++    book_slope_bid: float = 0.0
++    book_slope_ask: float = 0.0
++    book_convex_bid: float = 0.0
++    book_convex_ask: float = 0.0
++
++    # Depth-weighted OBI and OFI proxy for ML (normalized)
++    obi_dw: float = 0.0
++    ofi_ml_norm: float = 0.0
++
++    # Book snapshot age (ms) relative to tick_ts_ms
++    book_age_ms: int = 0
++
++    def to_dict(self) -> Dict[str, Any]:
++        d = asdict(self)
++        d["v"] = 3
++        return d
+diff -ruN --no-dereference /mnt/data/p96_before/tick_flow_full/orderflow_services/grafana/of_inputs_dlq_p96.json /mnt/data/p96_after/tick_flow_full/orderflow_services/grafana/of_inputs_dlq_p96.json
+--- /mnt/data/p96_before/tick_flow_full/orderflow_services/grafana/of_inputs_dlq_p96.json	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p96_after/tick_flow_full/orderflow_services/grafana/of_inputs_dlq_p96.json	2026-02-25 05:30:20.693087167 +0000
+@@ -0,0 +1,242 @@
++{
++  "annotations": {
++    "list": [
++      {
++        "builtIn": 1,
++        "datasource": {
++          "type": "grafana",
++          "uid": "-- Grafana --"
++        },
++        "enable": true,
++        "hide": true,
++        "iconColor": "rgba(0, 211, 255, 1)",
++        "name": "Annotations & Alerts",
++        "type": "dashboard"
++      }
++    ]
++  },
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "id": null,
++  "links": [],
++  "liveNow": false,
++  "panels": [
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "axisBorderShow": false,
++            "axisCenteredZero": false,
++            "axisColorMode": "text",
++            "axisLabel": "",
++            "axisPlacement": "auto",
++            "barAlignment": 0,
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "gradientMode": "none",
++            "hideFrom": {
++              "legend": false,
++              "tooltip": false,
++              "viz": false
++            },
++            "insertNulls": false,
++            "lineInterpolation": "linear",
++            "lineWidth": 1,
++            "pointSize": 5,
++            "scaleDistribution": {
++              "type": "linear"
++            },
++            "showPoints": "never",
++            "spanNulls": true,
++            "stacking": {
++              "group": "A",
++              "mode": "none"
++            },
++            "thresholdsStyle": {
++              "mode": "off"
++            }
++          },
++          "mappings": [],
++          "thresholds": {
++            "mode": "absolute",
++            "steps": [
++              {
++                "color": "green",
++                "value": null
++              },
++              {
++                "color": "red",
++                "value": 1
++              }
++            ]
++          }
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 0
++      },
++      "id": 1,
++      "options": {
++        "legend": {
++          "calcs": [
++            "lastNotNull",
++            "max"
++          ],
++          "displayMode": "table",
++          "placement": "right",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "editorMode": "code",
++          "expr": "of_inputs_dlq_len",
++          "legendFormat": "{{stream}}",
++          "range": true,
++          "refId": "A"
++        }
++      ],
++      "title": "OFInputs DLQ / Quarantine stream length",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "axisBorderShow": false,
++            "axisCenteredZero": false,
++            "axisColorMode": "text",
++            "axisLabel": "",
++            "axisPlacement": "auto",
++            "barAlignment": 0,
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "gradientMode": "none",
++            "hideFrom": {
++              "legend": false,
++              "tooltip": false,
++              "viz": false
++            },
++            "insertNulls": false,
++            "lineInterpolation": "linear",
++            "lineWidth": 1,
++            "pointSize": 5,
++            "scaleDistribution": {
++              "type": "linear"
++            },
++            "showPoints": "never",
++            "spanNulls": true,
++            "stacking": {
++              "group": "A",
++              "mode": "none"
++            },
++            "thresholdsStyle": {
++              "mode": "off"
++            }
++          },
++          "mappings": [],
++          "unit": "s"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 8
++      },
++      "id": 2,
++      "options": {
++        "legend": {
++          "calcs": [
++            "lastNotNull",
++            "max"
++          ],
++          "displayMode": "table",
++          "placement": "right",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "editorMode": "code",
++          "expr": "of_inputs_dlq_age_sec",
++          "legendFormat": "{{stream}}",
++          "range": true,
++          "refId": "A"
++        }
++      ],
++      "title": "OFInputs DLQ / Quarantine age (sec)",
++      "type": "timeseries"
++    }
++  ],
++  "refresh": "10s",
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": [
++    "orderflow",
++    "dlq",
++    "of_inputs"
++  ],
++  "templating": {
++    "list": [
++      {
++        "current": {
++          "selected": false,
++          "text": "Prometheus",
++          "value": "Prometheus"
++        },
++        "hide": 0,
++        "includeAll": false,
++        "label": "Datasource",
++        "multi": false,
++        "name": "DS_PROMETHEUS",
++        "options": [],
++        "query": "prometheus",
++        "refresh": 1,
++        "regex": "",
++        "skipUrlSync": false,
++        "type": "datasource"
++      }
++    ]
++  },
++  "time": {
++    "from": "now-6h",
++    "to": "now"
++  },
++  "timepicker": {},
++  "timezone": "browser",
++  "title": "OFInputs DLQ / Quarantine (P96)",
++  "uid": "of_inputs_dlq_p96",
++  "version": 1,
++  "weekStart": ""
++}
+diff -ruN --no-dereference /mnt/data/p96_before/tick_flow_full/orderflow_services/of_inputs_dlq_drilldown_p96.py /mnt/data/p96_after/tick_flow_full/orderflow_services/of_inputs_dlq_drilldown_p96.py
+--- /mnt/data/p96_before/tick_flow_full/orderflow_services/of_inputs_dlq_drilldown_p96.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p96_after/tick_flow_full/orderflow_services/of_inputs_dlq_drilldown_p96.py	2026-02-25 05:28:31.738670237 +0000
+@@ -0,0 +1,108 @@
++"""OF Inputs DLQ/Quarantine drilldown (P96).
++
++Prints quick triage info (top dq_code / err_prefix, sample payloads).
++
++Env:
++- REDIS_URL (required)
++- OF_INPUTS_DLQ_STREAM (default: stream:dlq:of_inputs)
++- OF_INPUTS_QUARANTINE_STREAM (default: quarantine:signals:of:inputs)
++
++Usage:
++  python -m orderflow_services.of_inputs_dlq_drilldown_p96 --dlq 200 --quarantine 200 --samples 3
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import os
++from collections import Counter
++from typing import Any, Dict, List, Tuple
++
++import redis.asyncio as aioredis
++
++
++def _json_loads(s: str) -> Dict[str, Any]:
++    try:
++        return json.loads(s)
++    except Exception:
++        return {"_raw": s}
++
++
++async def _read_tail(r: aioredis.Redis, stream: str, count: int) -> List[Tuple[str, Dict[str, str]]]:
++    try:
++        items = await r.xrevrange(stream, max='+', min='-', count=count)
++        # items: List[(id, {field:value})]
++        return [(str(iid), {str(k): str(v) for k, v in fields.items()}) for iid, fields in items]
++    except Exception:
++        return []
++
++
++def _extract_ctx(fields: Dict[str, str]) -> Dict[str, Any]:
++    payload = fields.get('payload') or ''
++    ctx = _json_loads(payload)
++    return ctx
++
++
++async def main() -> None:
++    ap = argparse.ArgumentParser()
++    ap.add_argument('--dlq', type=int, default=200)
++    ap.add_argument('--quarantine', type=int, default=200)
++    ap.add_argument('--samples', type=int, default=3)
++    args = ap.parse_args()
++
++    redis_url = os.environ.get('REDIS_URL')
++    if not redis_url:
++        raise SystemExit('REDIS_URL is required')
++
++    dlq_stream = os.environ.get('OF_INPUTS_DLQ_STREAM', 'stream:dlq:of_inputs')
++    q_stream = os.environ.get('OF_INPUTS_QUARANTINE_STREAM', 'quarantine:signals:of:inputs')
++
++    r = aioredis.from_url(redis_url, decode_responses=True)
++
++    dlq_items = await _read_tail(r, dlq_stream, args.dlq)
++    q_items = await _read_tail(r, q_stream, args.quarantine)
++
++    print(f'DLQ stream: {dlq_stream}  (tail={len(dlq_items)})')
++    dlq_prefix = Counter()
++    dlq_dq = Counter()
++    for _id, fields in dlq_items:
++        ctx = _extract_ctx(fields)
++        dlq_prefix[str(ctx.get('err_prefix', 'na'))] += 1
++        dq = str(ctx.get('dq_code', '') or 'na')
++        dlq_dq[dq] += 1
++
++    print('Top err_prefix:', dlq_prefix.most_common(10))
++    print('Top dq_code:', dlq_dq.most_common(10))
++
++    if args.samples > 0 and dlq_items:
++        print('\nDLQ samples:')
++        for _id, fields in dlq_items[: args.samples]:
++            ctx = _extract_ctx(fields)
++            print(f'- id={_id} symbol={ctx.get("symbol")} dq={ctx.get("dq_code")} err_prefix={ctx.get("err_prefix")}')
++            payload = ctx.get('payload')
++            if isinstance(payload, str) and len(payload) > 500:
++                payload = payload[:500] + '...'
++            print('  payload:', payload)
++
++    print(f'\nQuarantine stream: {q_stream}  (tail={len(q_items)})')
++    q_dq = Counter()
++    for _id, fields in q_items:
++        ctx = _extract_ctx(fields)
++        q_dq[str(ctx.get('dq_code', 'na'))] += 1
++
++    print('Top dq_code:', q_dq.most_common(10))
++
++    if args.samples > 0 and q_items:
++        print('\nQuarantine samples:')
++        for _id, fields in q_items[: args.samples]:
++            ctx = _extract_ctx(fields)
++            print(f'- id={_id} symbol={ctx.get("symbol")} dq={ctx.get("dq_code")} attempt={ctx.get("attempt_version")} published={ctx.get("published_version")}')
++            print('  missing_fields:', ctx.get('missing_fields'))
++            print('  book_age_ms:', ctx.get('book_age_ms'))
++
++
++if __name__ == '__main__':
++    import asyncio
++
++    asyncio.run(main())
+diff -ruN --no-dereference /mnt/data/p96_before/tick_flow_full/orderflow_services/of_inputs_dlq_exporter_v1.py /mnt/data/p96_after/tick_flow_full/orderflow_services/of_inputs_dlq_exporter_v1.py
+--- /mnt/data/p96_before/tick_flow_full/orderflow_services/of_inputs_dlq_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p96_after/tick_flow_full/orderflow_services/of_inputs_dlq_exporter_v1.py	2026-02-25 05:28:04.471459310 +0000
+@@ -0,0 +1,92 @@
++"""OF Inputs DLQ/Quarantine exporter (P96).
++
++Purpose:
++- Expose basic Redis Streams health for OFInputs DLQ + quarantine streams:
++  len, age (sec), last_id_ts_ms.
++
++Notes:
++- Keep label cardinality low (only `stream`).
++- Tolerates missing streams.
++
++Env:
++- REDIS_URL (required)
++- OF_INPUTS_DLQ_EXPORTER_PORT (default: 9158)
++- OF_INPUTS_DLQ_EXPORTER_REFRESH_SEC (default: 10)
++- OF_INPUTS_DLQ_STREAMS (default: "stream:dlq:of_inputs,quarantine:signals:of:inputs")
++
++Run:
++  python -m orderflow_services.of_inputs_dlq_exporter_v1
++"""
++
++from __future__ import annotations
++
++import asyncio
++import os
++import time
++from typing import Dict, List, Tuple
++
++import redis.asyncio as aioredis
++from prometheus_client import Gauge, start_http_server
++
++
++G_UP = Gauge('of_inputs_dlq_exporter_up', '1 if exporter loop is running')
++G_POLL_TS_MS = Gauge('of_inputs_dlq_exporter_poll_ts_ms', 'Last poll timestamp (ms)')
++G_LEN = Gauge('of_inputs_dlq_len', 'Redis stream length', ['stream'])
++G_LAST_ID_TS_MS = Gauge('of_inputs_dlq_last_id_ts_ms', 'Last entry timestamp derived from stream id', ['stream'])
++G_AGE_SEC = Gauge('of_inputs_dlq_age_sec', 'Age in seconds: now - last_id_ts_ms/1000', ['stream'])
++
++
++def _parse_stream_id_ts_ms(stream_id: str) -> int:
++    # Redis stream id is "<ms>-<seq>"
++    try:
++        return int(stream_id.split('-', 1)[0])
++    except Exception:
++        return 0
++
++
++async def _xinfo_len_last_id(r: aioredis.Redis, stream: str) -> Tuple[int, str]:
++    try:
++        info = await r.xinfo_stream(stream)
++        length = int(info.get('length', 0) or 0)
++        last = info.get('last-generated-id') or '0-0'
++        return length, str(last)
++    except Exception:
++        # stream might not exist yet
++        return 0, '0-0'
++
++
++async def main() -> None:
++    redis_url = os.environ.get('REDIS_URL')
++    if not redis_url:
++        raise SystemExit('REDIS_URL is required')
++
++    port = int(os.environ.get('OF_INPUTS_DLQ_EXPORTER_PORT', '9158'))
++    refresh = float(os.environ.get('OF_INPUTS_DLQ_EXPORTER_REFRESH_SEC', '10'))
++    streams_raw = os.environ.get('OF_INPUTS_DLQ_STREAMS', 'stream:dlq:of_inputs,quarantine:signals:of:inputs')
++    streams: List[str] = [s.strip() for s in streams_raw.split(',') if s.strip()]
++
++    start_http_server(port)
++
++    r = aioredis.from_url(redis_url, decode_responses=True)
++
++    while True:
++        G_UP.set(1)
++        now_ms = int(time.time() * 1000)
++        G_POLL_TS_MS.set(now_ms)
++
++        for stream in streams:
++            length, last_id = await _xinfo_len_last_id(r, stream)
++            last_ts_ms = _parse_stream_id_ts_ms(last_id)
++            age_sec = 0.0
++            if last_ts_ms > 0:
++                age_sec = max(0.0, (now_ms - last_ts_ms) / 1000.0)
++
++            G_LEN.labels(stream=stream).set(length)
++            G_LAST_ID_TS_MS.labels(stream=stream).set(last_ts_ms)
++            G_AGE_SEC.labels(stream=stream).set(age_sec)
++
++        await asyncio.sleep(refresh)
++
++
++if __name__ == '__main__':
++    asyncio.run(main())
+diff -ruN --no-dereference /mnt/data/p96_before/tick_flow_full/orderflow_services/prometheus_alerts_of_inputs_dlq_p96.yml /mnt/data/p96_after/tick_flow_full/orderflow_services/prometheus_alerts_of_inputs_dlq_p96.yml
+--- /mnt/data/p96_before/tick_flow_full/orderflow_services/prometheus_alerts_of_inputs_dlq_p96.yml	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p96_after/tick_flow_full/orderflow_services/prometheus_alerts_of_inputs_dlq_p96.yml	2026-02-25 05:29:26.090615313 +0000
+@@ -0,0 +1,43 @@
++groups:
++  - name: of_inputs_dlq_p96
++    rules:
++      - alert: OFInputsDLQNonZero
++        expr: of_inputs_dlq_len{stream="stream:dlq:of_inputs"} > 0
++        for: 10m
++        labels:
++          severity: warning
++          component: of_inputs
++        annotations:
++          summary: "OFInputs DLQ is non-empty"
++          description: "stream:dlq:of_inputs length={{ $value }}. Use drilldown script to inspect payloads and root-cause publish errors."
++
++      - alert: OFInputsQuarantineNonZero
++        expr: of_inputs_dlq_len{stream="quarantine:signals:of:inputs"} > 0
++        for: 30m
++        labels:
++          severity: info
++          component: of_inputs
++        annotations:
++          summary: "OFInputs quarantine contains entries"
++          description: "Quarantine length={{ $value }} (downgrades/missing LOB fields). Investigate dq_code and book_state quality."
++
++      - alert: OFInputsPublisherErrors
++        expr: increase(of_inputs_publish_error_total[5m]) > 0
++        for: 2m
++        labels:
++          severity: critical
++          component: of_inputs
++        annotations:
++          summary: "OFInputs publish errors detected"
++          description: "increase(of_inputs_publish_error_total[5m])={{ $value }}. DLQ likely growing; check Redis health and payload serialization."
++
++      - alert: OFInputsV3DowngradeRateHigh
++        # Tune this threshold per symbol count / tick rate.
++        expr: increase(of_inputs_downgrade_total{from_version="3",to_version="2"}[15m]) > 100
++        for: 10m
++        labels:
++          severity: warning
++          component: of_inputs
++        annotations:
++          summary: "High OFInputs V3→V2 downgrade rate"
++          description: "increase(of_inputs_downgrade_total{from_version=3,to_version=2}[15m])={{ $value }}. Likely book lag or missing LOB fields."
+diff -ruN --no-dereference /mnt/data/p96_before/tick_flow_full/orderflow_services/runbook_of_inputs_dlq_p96.md /mnt/data/p96_after/tick_flow_full/orderflow_services/runbook_of_inputs_dlq_p96.md
+--- /mnt/data/p96_before/tick_flow_full/orderflow_services/runbook_of_inputs_dlq_p96.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p96_after/tick_flow_full/orderflow_services/runbook_of_inputs_dlq_p96.md	2026-02-25 05:29:03.071423523 +0000
+@@ -0,0 +1,97 @@
++# Runbook: OFInputs DLQ / Quarantine (P96)
++
++## Streams
++
++- Main stream (default): `signals:of:inputs`
++- Quarantine stream (default): `quarantine:signals:of:inputs`
++- DLQ stream (default): `stream:dlq:of_inputs`
++
++All stream names are configurable via `runtime.config`:
++- `of_inputs_stream`
++- `of_inputs_quarantine_stream`
++- `of_inputs_dlq_stream`
++
++## What is considered "bad" for OFInputs V3
++
++V3 is only emitted when **book_state is healthy enough** and required LOB-derived fields are present.
++
++If degraded, the system does:
++
++1) **Deterministic downgrade** V3 → V2
++2) **Quarantine (dedup)** a triage event with:
++   - `dq_code`
++   - `missing_fields`
++   - `book_age_ms`
++3) Still publishes a **valid V2** payload to the main stream
++
++## dq_code meanings (low cardinality)
++
++- `v3_class_missing`: contract not deployed (safe fallback to V2)
++- `book_age_missing`: cannot compute book age (missing timestamps)
++- `book_stale`: `book_age_ms > of_inputs_v3_max_book_age_ms` (default 1500ms)
++- `missing_lob_fields`: required LOB features are absent in `indicators`
++
++## Metrics
++
++Emitted by the tick-processor process:
++
++- `of_inputs_downgrade_total{symbol,from_version,to_version,reason}`
++- `of_inputs_missing_lob_total{symbol,reason}`
++- `of_inputs_quarantined_total{symbol,reason,attempt_version,published_version}`
++- `of_inputs_publish_error_total{symbol,stage}`
++
++Exporter (separate process):
++
++- `of_inputs_dlq_len{stream}`
++- `of_inputs_dlq_age_sec{stream}`
++
++## Quick triage
++
++1) Check if DLQ/quarantine is growing:
++
++- `of_inputs_dlq_len{stream="stream:dlq:of_inputs"}`
++- `of_inputs_dlq_len{stream="quarantine:signals:of:inputs"}`
++
++2) Drilldown (tail samples):
++
++```bash
++export REDIS_URL=redis://localhost:6379/0
++python -m orderflow_services.of_inputs_dlq_drilldown_p96 --dlq 200 --quarantine 200 --samples 5
++```
++
++## Remediation playbook
++
++### A) `missing_lob_fields`
++
++Cause: LOB feature pipeline not producing required keys (`qimb_wmean`, `mp_mid_bps`, `obi_dw`, `ofi_ml_norm`).
++
++Actions:
++- Verify book ingestion is running and indicators are updated.
++- Check if the symbol has a live book stream.
++- Inspect book_state health metrics (book age / reconnects) and WS stability.
++
++### B) `book_stale`
++
++Cause: book snapshot age too old vs tick time.
++
++Actions:
++- Investigate WS book lag / reconnect storms.
++- Reduce compute pressure if event loop is blocked.
++- Consider increasing `of_inputs_v3_max_book_age_ms` only if your latency budget allows.
++
++### C) DLQ is non-empty (`of_inputs_publish_error_total` increases)
++
++Cause: Redis errors / serialization failures.
++
++Actions:
++- Check Redis health, memory pressure, maxmemory policy.
++- Validate stream maxlen settings.
++- Inspect DLQ samples for `err_prefix`.
++
++## Recommended config knobs
++
++- `of_inputs_emit_v3` (0/1)
++- `of_inputs_v3_max_book_age_ms` (default 1500)
++- `of_inputs_quarantine_cooldown_ms` (default 6h)
++- `of_inputs_stream_maxlen` (default 50k)
++- `of_inputs_dlq_maxlen` (default 200k)
+diff -ruN --no-dereference /mnt/data/p96_before/tick_flow_full/services/orderflow/components/tick_processor.py /mnt/data/p96_after/tick_flow_full/services/orderflow/components/tick_processor.py
+--- /mnt/data/p96_before/tick_flow_full/services/orderflow/components/tick_processor.py	2026-02-24 05:36:14.000000000 +0000
++++ /mnt/data/p96_after/tick_flow_full/services/orderflow/components/tick_processor.py	2026-02-25 05:26:31.267204494 +0000
+@@ -46,6 +46,7 @@
+     cvd_reclaim_ratio_gauge, cvd_reclaim_age_ms_gauge, cvd_reclaim_window_ms_gauge,
+     cvd_reclaim_ratio_gauge, cvd_reclaim_age_ms_gauge, cvd_reclaim_window_ms_gauge,
+     of_inputs_version_total, of_inputs_missing_ofi_total, of_inputs_missing_fp_total,
++    of_inputs_missing_lob_total, of_inputs_downgrade_total, of_inputs_quarantined_total, of_inputs_publish_error_total,
+     track_confirmations, evidence_used_total_session, record_confirmation_seen, record_evidence_used
+ )
+ from services.orderflow.side_policy import is_unknown_side_tick
+@@ -1968,8 +1969,33 @@
+                         pass
+                     
+                     emit_v2_cfg = runtime.config.get("of_inputs_emit_v2", 1)
++                    emit_v3_cfg = runtime.config.get("of_inputs_emit_v3", 0)
++
+                     emit_v2 = bool(_i(emit_v2_cfg, 1))
++                    emit_v3 = bool(_i(emit_v3_cfg, 0))
++                    # If V3 requested, we always allow deterministic downgrade to V2.
++                    if emit_v3:
++                        emit_v2 = True
++
++                    stream_inputs = str(runtime.config.get("of_inputs_stream", "signals:of:inputs"))
++                    maxlen_inputs = int(runtime.config.get("of_inputs_stream_maxlen", 50000))
++                    quarantine_stream = str(runtime.config.get("of_inputs_quarantine_stream", "quarantine:signals:of:inputs"))
++                    quarantine_maxlen = int(runtime.config.get("of_inputs_quarantine_maxlen", 50000))
++                    dlq_stream = str(runtime.config.get("of_inputs_dlq_stream", "stream:dlq:of_inputs"))
++                    dlq_maxlen = int(runtime.config.get("of_inputs_dlq_maxlen", 200000))
++                    quarantine_cooldown_ms = int(runtime.config.get("of_inputs_quarantine_cooldown_ms", 6 * 3600 * 1000))
++                    v3_max_book_age_ms = int(runtime.config.get("of_inputs_v3_max_book_age_ms", 1500))
++
++                    # Optional: V3 contract may not exist in older deployments.
++                    OFInputsV3 = None
++                    if emit_v3:
++                        try:
++                            from core.of_inputs_contract import OFInputsV3 as _OFInputsV3  # type: ignore
++                            OFInputsV3 = _OFInputsV3
++                        except Exception:
++                            OFInputsV3 = None
+ 
++                    # Base contract (V1/V2)
+                     ofi_kwargs = {
+                         "v": 2 if emit_v2 else 1,
+                         "symbol": _s(runtime.symbol),
+@@ -1991,7 +2017,7 @@
+                         "fp_eff_quote": _f(getattr(runtime.last_bar, "fp_eff_quote", 0.0) if runtime.last_bar else 0.0, 0.0),
+                         "fp_quote_delta": _f(getattr(runtime.last_bar, "fp_quote_delta", 0.0) if runtime.last_bar else 0.0, 0.0),
+                     }
+-                    
++
+                     if emit_v2:
+                         ofi_kwargs["ofi"] = _f(indicators.get("ofi", 0.0), 0.0)
+                         ofi_kwargs["ofi_z"] = _f(indicators.get("ofi_z", 0.0), 0.0)
+@@ -1999,17 +2025,192 @@
+                         ofi_kwargs["ofi_dir_ok"] = _i(indicators.get("ofi_dir_ok", 0), 0)
+                         ofi_kwargs["ofi_stable_secs"] = _f(indicators.get("ofi_stable_secs", 0.0), 0.0)
+ 
+-                    inputs_obj = OFInputsV2(**ofi_kwargs) if emit_v2 else OFInputsV1(**ofi_kwargs)
+-                    
+-                    stream_inputs = str(runtime.config.get("of_inputs_stream", "metrics:ml_inputs"))
+-                    maxlen_inputs = int(runtime.config.get("of_inputs_stream_maxlen", 50000))
+-                    
+-                    asyncio.create_task(self.redis.xadd(
+-                        stream_inputs,
+-                        fields={"payload": inputs_obj.to_json()},
+-                        maxlen=maxlen_inputs,
+-                        approximate=True
+-                    ))
++                    # --- V3 attempt (LOB pressure) ---
++                    attempt_v = 3 if emit_v3 else (2 if emit_v2 else 1)
++                    published_v = attempt_v
++                    downgrade_reason = ""
++                    missing_fields = []
++
++                    if emit_v3:
++                        # best-effort book_age_ms (prefer indicators if present)
++                        book_age_ms = _i(indicators.get("book_age_ms", -1), -1)
++                        if book_age_ms < 0:
++                            try:
++                                bs = getattr(runtime, "book_state", None)
++                                bts = int(getattr(bs, "ts_ms", 0) or 0) if bs is not None else 0
++                                if bts > 0:
++                                    book_age_ms = int(tick_ts_ms - bts)
++                            except Exception:
++                                book_age_ms = -1
++
++                        # Required presence check (presence, not value): missing means feature pipeline degraded.
++                        required_presence = ("qimb_wmean", "mp_mid_bps", "obi_dw", "ofi_ml_norm")
++                        for k in required_presence:
++                            if k not in indicators:
++                                missing_fields.append(k)
++
++                        if OFInputsV3 is None:
++                            downgrade_reason = "v3_class_missing"
++                        elif book_age_ms < 0:
++                            downgrade_reason = "book_age_missing"
++                        elif book_age_ms > v3_max_book_age_ms:
++                            downgrade_reason = "book_stale"
++                        elif missing_fields:
++                            downgrade_reason = "missing_lob_fields"
++
++                        if downgrade_reason:
++                            # Deterministic downgrade to V2
++                            published_v = 2
++                            try:
++                                of_inputs_missing_lob_total.labels(symbol=str(runtime.symbol), reason=downgrade_reason).inc()
++                            except Exception:
++                                pass
++                            try:
++                                of_inputs_downgrade_total.labels(
++                                    symbol=str(runtime.symbol),
++                                    from_version="3",
++                                    to_version="2",
++                                    reason=downgrade_reason,
++                                ).inc()
++                            except Exception:
++                                pass
++
++                            # Quarantine (dedup) for triage
++                            try:
++                                last_map = getattr(runtime, "_of_inputs_quarantine_last", None)
++                                if not isinstance(last_map, dict):
++                                    last_map = {}
++                                    setattr(runtime, "_of_inputs_quarantine_last", last_map)
++                                last_ts = int(last_map.get(downgrade_reason, 0) or 0)
++                                if tick_ts_ms - last_ts >= quarantine_cooldown_ms:
++                                    last_map[downgrade_reason] = tick_ts_ms
++                                    q = {
++                                        "ts_ms": int(tick_ts_ms),
++                                        "symbol": str(runtime.symbol),
++                                        "dq_code": downgrade_reason,
++                                        "attempt_version": int(attempt_v),
++                                        "published_version": int(published_v),
++                                        "missing_fields": list(missing_fields),
++                                        "book_age_ms": int(book_age_ms),
++                                        "stream": stream_inputs,
++                                    }
++                                    try:
++                                        of_inputs_quarantined_total.labels(
++                                            symbol=str(runtime.symbol),
++                                            reason=downgrade_reason,
++                                            attempt_version=str(attempt_v),
++                                            published_version=str(published_v),
++                                        ).inc()
++                                    except Exception:
++                                        pass
++
++                                    import json as _json
++                                    def _json_safe(obj):
++                                        try:
++                                            return _json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
++                                        except Exception:
++                                            return '{"error":"json"}'
++
++                                    async def _xadd_quarantine() -> None:
++                                        try:
++                                            await self.redis.xadd(
++                                                quarantine_stream,
++                                                fields={"payload": _json_safe(q)},
++                                                maxlen=quarantine_maxlen,
++                                                approximate=True,
++                                            )
++                                        except Exception:
++                                            pass
++
++                                    asyncio.create_task(_xadd_quarantine())
++                            except Exception:
++                                pass
++
++                        # If not downgraded, attach V3 fields
++                        if not downgrade_reason:
++                            ofi_kwargs.update({
++                                "v": 3,
++                                "qimb_l1": _f(indicators.get("qimb_l1", 0.0), 0.0),
++                                "qimb_l2": _f(indicators.get("qimb_l2", 0.0), 0.0),
++                                "qimb_l3": _f(indicators.get("qimb_l3", 0.0), 0.0),
++                                "qimb_l4": _f(indicators.get("qimb_l4", 0.0), 0.0),
++                                "qimb_l5": _f(indicators.get("qimb_l5", 0.0), 0.0),
++                                "qimb_wmean": _f(indicators.get("qimb_wmean", 0.0), 0.0),
++                                "mp_mid_bps": _f(indicators.get("mp_mid_bps", 0.0), 0.0),
++                                "mp_shift_bps": _f(indicators.get("mp_shift_bps", 0.0), 0.0),
++                                "depth_bid_5": _f(indicators.get("depth_bid_5", 0.0), 0.0),
++                                "depth_ask_5": _f(indicators.get("depth_ask_5", 0.0), 0.0),
++                                "book_slope_bid": _f(indicators.get("book_slope_bid", 0.0), 0.0),
++                                "book_slope_ask": _f(indicators.get("book_slope_ask", 0.0), 0.0),
++                                "book_convex_bid": _f(indicators.get("book_convex_bid", 0.0), 0.0),
++                                "book_convex_ask": _f(indicators.get("book_convex_ask", 0.0), 0.0),
++                                "obi_dw": _f(indicators.get("obi_dw", 0.0), 0.0),
++                                "ofi_ml_norm": _f(indicators.get("ofi_ml_norm", 0.0), 0.0),
++                                "book_age_ms": _i(indicators.get("book_age_ms", book_age_ms), book_age_ms),
++                            })
++
++                    # Construct contract object (V1/V2/V3)
++                    if published_v == 3 and OFInputsV3 is not None:
++                        inputs_obj = OFInputsV3(**ofi_kwargs)
++                    else:
++                        # ensure v matches published version
++                        ofi_kwargs["v"] = 2 if emit_v2 else 1
++                        inputs_obj = OFInputsV2(**ofi_kwargs) if emit_v2 else OFInputsV1(**ofi_kwargs)
++
++                    # Payload (never raises)
++                    try:
++                        payload_inputs = inputs_obj.to_json()  # type: ignore
++                    except Exception:
++                        import json as _json
++                        try:
++                            payload_inputs = _json.dumps(inputs_obj.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
++                        except Exception:
++                            payload_inputs = '{"error":"to_json_failed"}'
++
++                    try:
++                        of_inputs_version_total.labels(symbol=str(runtime.symbol), version=str(published_v)).inc()
++                    except Exception:
++                        pass
++
++                    # Safe publish + DLQ
++                    async def _xadd_safe(stream: str, payload_str: str, stage: str) -> None:
++                        try:
++                            await self.redis.xadd(
++                                stream,
++                                fields={"payload": payload_str},
++                                maxlen=maxlen_inputs,
++                                approximate=True,
++                            )
++                        except Exception as e:
++                            try:
++                                of_inputs_publish_error_total.labels(symbol=str(runtime.symbol), stage=str(stage)).inc()
++                            except Exception:
++                                pass
++                            # best-effort DLQ write (never raises)
++                            try:
++                                import json as _json
++                                ctx = {
++                                    "ts_ms": int(tick_ts_ms),
++                                    "symbol": str(runtime.symbol),
++                                    "stream": str(stream),
++                                    "attempt_version": int(attempt_v),
++                                    "published_version": int(published_v),
++                                    "dq_code": str(downgrade_reason or ""),
++                                    "err_prefix": str(type(e).__name__),
++                                    "err": str(e)[:512],
++                                    "payload": payload_str,
++                                }
++                                await self.redis.xadd(
++                                    dlq_stream,
++                                    fields={"payload": _json.dumps(ctx, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)},
++                                    maxlen=dlq_maxlen,
++                                    approximate=True,
++                                )
++                            except Exception:
++                                pass
++
++                    asyncio.create_task(_xadd_safe(stream_inputs, payload_inputs, stage="inputs"))
++
+         except Exception:
+             pass
+ 
+diff -ruN --no-dereference /mnt/data/p96_before/tick_flow_full/services/orderflow/metrics.py /mnt/data/p96_after/tick_flow_full/services/orderflow/metrics.py
+--- /mnt/data/p96_before/tick_flow_full/services/orderflow/metrics.py	2026-02-24 04:53:41.000000000 +0000
++++ /mnt/data/p96_after/tick_flow_full/services/orderflow/metrics.py	2026-02-25 05:22:04.144436186 +0000
+@@ -791,6 +791,31 @@
+     ['symbol']
+ )
+ 
++# --- OF Inputs V3 downgrade / quarantine / DLQ observability (P96) ---
++of_inputs_missing_lob_total = _get_or_create_prom_counter(
++    'of_inputs_missing_lob_total',
++    'Total OF inputs where v3 was requested but LOB fields were missing/degraded (downgraded to v2)',
++    ['symbol', 'reason']
++)
++
++of_inputs_downgrade_total = _get_or_create_prom_counter(
++    'of_inputs_downgrade_total',
++    'Total OF inputs automatic version downgrades (e.g., v3->v2) with reason',
++    ['symbol', 'from_version', 'to_version', 'reason']
++)
++
++of_inputs_quarantined_total = _get_or_create_prom_counter(
++    'of_inputs_quarantined_total',
++    'Total OF inputs written to quarantine stream for triage (low-cardinality reasons)',
++    ['symbol', 'reason', 'attempt_version', 'published_version']
++)
++
++of_inputs_publish_error_total = _get_or_create_prom_counter(
++    'of_inputs_publish_error_total',
++    'Total OF inputs publish errors (DLQ writes) by stage',
++    ['symbol', 'stage']
++)
++
+ # --- Pre-publish gates (data quality / regime-session) ---
+ pre_publish_gate_veto_total = _get_or_create_prom_counter(
+     'pre_publish_gate_veto_total',
+diff -ruN --no-dereference /mnt/data/p96_before/tick_flow_full/tests/core/test_of_inputs_contract_v3.py /mnt/data/p96_after/tick_flow_full/tests/core/test_of_inputs_contract_v3.py
+--- /mnt/data/p96_before/tick_flow_full/tests/core/test_of_inputs_contract_v3.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p96_after/tick_flow_full/tests/core/test_of_inputs_contract_v3.py	2026-02-25 05:31:20.243262361 +0000
+@@ -0,0 +1,81 @@
++import json
++
++from core.of_inputs_contract import OFInputsV1, OFInputsV2, OFInputsV3
++
++
++def test_of_inputs_to_json_is_deterministic() -> None:
++    x = OFInputsV1(
++        v=1,
++        symbol="BTCUSDT",
++        ts_ms=1700000000000,
++        regime="na",
++        direction="LONG",
++        scenario="na",
++        delta_z=1.23,
++        weak_progress=0,
++        sweep_recent=0,
++        reclaim_recent=0,
++        obi_stable=0,
++        iceberg_strict=0,
++        abs_lvl_ok=0,
++        trend_dir="NONE",
++        hidden_ctx_recent=0,
++        cont_ctx_recent=0,
++        cfg={"b": 2, "a": 1},
++        fp_eff_quote=0.0,
++        fp_quote_delta=0.0,
++    )
++
++    s1 = x.to_json()
++    s2 = x.to_json()
++    assert s1 == s2
++
++    d = json.loads(s1)
++    assert d["symbol"] == "BTCUSDT"
++    # cfg must be normalized and stable
++    assert d["cfg"] == {"a": 1, "b": 2}
++
++
++def test_of_inputs_v3_to_dict_has_v3_fields() -> None:
++    x = OFInputsV3(
++        v=3,
++        symbol="BTCUSDT",
++        ts_ms=1700000000000,
++        regime="na",
++        direction="LONG",
++        scenario="na",
++        delta_z=1.23,
++        weak_progress=0,
++        sweep_recent=0,
++        reclaim_recent=0,
++        obi_stable=0,
++        iceberg_strict=0,
++        abs_lvl_ok=0,
++        trend_dir="NONE",
++        hidden_ctx_recent=0,
++        cont_ctx_recent=0,
++        cfg={"a": 1},
++        fp_eff_quote=0.0,
++        fp_quote_delta=0.0,
++        ofi=0.0,
++        ofi_z=0.0,
++        ofi_stable=0,
++        ofi_dir_ok=0,
++        ofi_stable_secs=0.0,
++        qimb_wmean=0.5,
++        mp_mid_bps=1.0,
++        obi_dw=0.1,
++        ofi_ml_norm=0.2,
++        book_age_ms=123,
++    )
++
++    d = x.to_dict()
++    assert d["v"] == 3
++    assert "qimb_wmean" in d
++    assert "mp_mid_bps" in d
++    assert "obi_dw" in d
++    assert "ofi_ml_norm" in d
++    assert d["book_age_ms"] == 123
++
++    # to_json should remain deterministic
++    assert x.to_json() == x.to_json()

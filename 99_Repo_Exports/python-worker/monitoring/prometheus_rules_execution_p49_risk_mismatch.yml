@@ -1,0 +1,30 @@
+groups:
+  - name: trade-risk-mismatch-summary
+    rules:
+      - alert: TradeRiskMismatchSummaryStale
+        expr: trade_risk_mismatch_summary_stale > 0
+        for: 15m
+        labels:
+          severity: warning
+          domain: risk-drift
+        annotations:
+          summary: Risk mismatch materialized summary is stale.
+          description: risk_mismatch_summary_mv refresh report has exceeded freshness threshold.
+      - alert: TradeRiskMismatchRateHigh24h
+        expr: max by (tier) (trade_risk_mismatch_summary_avg_rate{window_name="24h"}) > 0.10
+        for: 20m
+        labels:
+          severity: warning
+          domain: risk-drift
+        annotations:
+          summary: Risk mismatch rate is high over 24h.
+          description: Materialized mismatch summary shows sustained elevated avg mismatch rate.
+      - alert: TradeRiskMismatchQuarantineSpike24h
+        expr: sum(trade_risk_mismatch_summary_quarantine_count{window_name="24h"}) > 5
+        for: 10m
+        labels:
+          severity: critical
+          domain: risk-drift
+        annotations:
+          summary: Risk mismatch quarantine spike detected.
+          description: Materialized mismatch summary reports too many quarantined sid in the last 24h.

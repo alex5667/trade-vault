@@ -1,0 +1,29 @@
+groups:
+  - name: tick-gate-reaper
+    rules:
+      - alert: TickGateReaperDown
+        expr: up{job="tick-gate-reaper"} == 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "tick-gate-reaper is down"
+          description: "Prometheus cannot scrape tick-gate-reaper for 5m."
+
+      - alert: TickGateReaperErrorsHigh
+        expr: rate(tick_gate_reaper_errors_total[10m]) > 0.05
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "tick-gate-reaper error rate high"
+          description: "tick_gate_reaper_errors_total rate > 0.05/s for 10m."
+
+      - alert: TickGateReaperPendingStuck
+        expr: tick_gate_reaper_pending > 1000 and tick_gate_reaper_last_success_age_s > 300
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "tick-gate PEL pending is stuck"
+          description: "Pending >1000 and last successful reaper run older than 5m."

@@ -1,0 +1,29 @@
+[Unit]
+Description=Notify Bridge (OBI Events → Telegram) for %i
+After=network-online.target book-analytics.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/home/%i/front/trade/scanner_infra/python-worker
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/home/%i/front/trade/scanner_infra/python-worker
+
+# Required: Set your bot credentials
+Environment=BOT_TOKEN=YOUR_BOT_TOKEN_HERE
+Environment=CHAT_ID=YOUR_CHAT_ID_HERE
+
+# Optional
+Environment=TITLE_PREFIX=[XAUUSD]
+Environment=OBI_HOST=http://127.0.0.1:8090
+Environment=NOTIFY_BRIDGE_PORT=8089
+
+ExecStart=/home/%i/front/trade/scanner_infra/python-worker/venv/bin/python -m services.notify_bridge
+
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+

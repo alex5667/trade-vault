@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/internals/managers.py
+# hypothesis_version: 6.148.10
+
+[100, '0.14.1', 'all', 'astype', 'axes', 'blocks', 'convert', 'copy', 'diff', 'dtype', 'f', 'fancy', 'filter', 'i', 'linear', 'mM', 'mgr_locs', 'object', 'raise', 'setitem', 'slice', 'to_native_types', 'values']

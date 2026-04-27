@@ -1,0 +1,15 @@
+[Unit]
+Description=Auto-apply Tick Gate Exporter (Prometheus)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/default/auto-apply-tick-gate-exporter
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+ExecStart=/usr/bin/python3 -m tools.auto_apply_tick_gate_exporter
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

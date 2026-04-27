@@ -1,0 +1,1250 @@
+--- a/orderflow_services/orchestration_composite_preflight_v1.py
++++ b/orderflow_services/orchestration_composite_preflight_v1.py
+@@ -0,0 +1,369 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Composite orchestration preflight for rollout-sensitive jobs (P5.3).
++
++Combines three independent safety sources behind one deterministic decision:
++  - deploy-lint persistent drift gate
++  - latency-contract rollout gate
++  - strategy research guard
++
++Design goals:
++  - one preflight command for both host-wrapper and in-container paths
++  - deterministic reason-code priority when multiple sources disagree
++  - unified ops-event audit trail for every orchestration decision
++  - safe defense-in-depth helper for direct/manual Python entrypoints
++"""
++
++import argparse
++import json
++import os
++import time
++from typing import Any, Dict, Mapping
++
++from services.observability.latency_deploy_lint_state import gate_key as deploy_lint_gate_key
++from services.observability.latency_deploy_lint_state import state_key as deploy_lint_state_key
++from orderflow_services.research_guard_blocker_v1 import evaluate_research_guard_gate
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++ALLOWED_PURPOSES = {
++    'latency_contract_sensitive_apply',
++    'conf_score_guardrails_apply',
++    'conf_score_guardrails_promote',
++    'meta_cov_rollout_controller',
++    'conf_score_guardrails_autopromo_controller',
++}
++
++STATUS_PRIORITY = {
++    'block': 0,
++    'invalid': 1,
++    'ok': 2,
++}
++
++SOURCE_PRIORITY = {
++    'deploy_lint': 0,
++    'latency_contract': 1,
++    'research_guard': 2,
++}
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return d
++
++
++def _read_hash(client: Any, key: str) -> Dict[str, str]:
++    if client is None or not key:
++        return {}
++    try:
++        raw = client.hgetall(key)
++        return raw if isinstance(raw, dict) else {}
++    except Exception:
++        return {}
++
++
++def _state_key(prefix: str, purpose: str) -> str:
++    return f'{prefix.rstrip(":")}:{purpose}'
++
++
++def _stage_allowed_for_research(purpose: str, stage_mode: bool) -> bool:
++    if not stage_mode:
++        return False
++    if purpose != 'conf_score_guardrails_apply':
++        return False
++    return _env('STRATEGY_RESEARCH_GUARD_PREFLIGHT_ALLOW_STAGE', '1') == '1'
++
++
++def evaluate_latency_contract_gate(
++    redis_url: str,
++    *,
++    state_key: str,
++    gate_key: str,
++    client: Any | None = None,
++) -> Dict[str, Any]:
++    if client is None:
++        if redis is None:
++            return {'source': 'latency_contract', 'status': 'invalid', 'reason': 'redis_unavailable', 'blocked': True, 'raw': {}}
++        try:
++            client = redis.Redis.from_url(redis_url, decode_responses=True)
++        except Exception:
++            return {'source': 'latency_contract', 'status': 'invalid', 'reason': 'redis_connect_failed', 'blocked': True, 'raw': {}}
++
++    raw = _read_hash(client, gate_key) or _read_hash(client, state_key)
++    if not raw:
++        return {'source': 'latency_contract', 'status': 'invalid', 'reason': 'state_missing', 'blocked': True, 'raw': {}}
++    if _i(raw.get('gate_active'), 0) > 0:
++        reason = str(raw.get('gate_reason_codes') or raw.get('gate_reason_code') or 'latency_contract_gate').strip()
++        return {'source': 'latency_contract', 'status': 'block', 'reason': reason, 'blocked': True, 'raw': raw}
++    return {'source': 'latency_contract', 'status': 'ok', 'reason': 'ok', 'blocked': False, 'raw': raw}
++
++
++def evaluate_deploy_lint_gate(
++    redis_url: str,
++    *,
++    purpose: str,
++    state_prefix: str,
++    gate_prefix: str,
++    fail_closed_missing: int,
++    client: Any | None = None,
++) -> Dict[str, Any]:
++    if client is None:
++        if redis is None:
++            return {'source': 'deploy_lint', 'status': 'invalid', 'reason': 'redis_unavailable', 'blocked': True, 'raw': {}}
++        try:
++            client = redis.Redis.from_url(redis_url, decode_responses=True)
++        except Exception:
++            return {'source': 'deploy_lint', 'status': 'invalid', 'reason': 'redis_connect_failed', 'blocked': True, 'raw': {}}
++
++    gkey = deploy_lint_gate_key(gate_prefix, purpose)
++    skey = deploy_lint_state_key(state_prefix, purpose)
++    raw = _read_hash(client, gkey) or _read_hash(client, skey)
++    if not raw:
++        status = 'invalid' if int(fail_closed_missing) == 1 else 'ok'
++        reason = 'state_missing' if status == 'invalid' else 'ok'
++        return {'source': 'deploy_lint', 'status': status, 'reason': reason, 'blocked': status != 'ok', 'raw': {}}
++    if _i(raw.get('gate_active'), 0) > 0:
++        reason = str(raw.get('gate_reason_code') or 'persistent_config_drift').strip()
++        return {'source': 'deploy_lint', 'status': 'block', 'reason': reason, 'blocked': True, 'raw': raw}
++    return {'source': 'deploy_lint', 'status': 'ok', 'reason': 'ok', 'blocked': False, 'raw': raw}
++
++
++def _priority_tuple(item: Mapping[str, Any]) -> tuple[int, int]:
++    return (
++        STATUS_PRIORITY.get(str(item.get('status') or 'invalid'), 99),
++        SOURCE_PRIORITY.get(str(item.get('source') or ''), 99),
++    )
++
++
++def _select_reason(sources: list[Dict[str, Any]]) -> Dict[str, Any]:
++    bad = [src for src in sources if str(src.get('status')) != 'ok']
++    if not bad:
++        return {'source': 'none', 'status': 'ok', 'reason': 'ok', 'priority_rank': 999}
++    chosen = sorted(bad, key=_priority_tuple)[0]
++    status_rank = STATUS_PRIORITY.get(str(chosen.get('status') or 'invalid'), 9)
++    source_rank = SOURCE_PRIORITY.get(str(chosen.get('source') or ''), 9)
++    chosen = dict(chosen)
++    chosen['priority_rank'] = status_rank * 10 + source_rank
++    return chosen
++
++
++def _emit_audit_event(client: Any, composite: Mapping[str, Any], now_ms: int) -> None:
++    stream = _env('ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM', 'ops:orchestration:preflight:v1')
++    fields = {
++        'ts_ms': str(now_ms),
++        'kind': f'orchestration_preflight_{composite.get("status") or "invalid"}',
++        'source': 'orchestration_composite_preflight_v1',
++        'purpose': str(composite.get('purpose') or 'unknown'),
++        'decision_status': str(composite.get('status') or 'invalid'),
++        'selected_source': str(composite.get('selected_source') or 'none'),
++        'selected_reason': str(composite.get('selected_reason') or 'ok'),
++        'selected_reason_code': str(composite.get('selected_reason_code') or 'ok'),
++        'selected_priority_rank': str(composite.get('selected_priority_rank') if composite.get('selected_priority_rank') is not None else 999),
++        'deploy_lint_status': str(composite.get('deploy_lint_status') or 'unknown'),
++        'deploy_lint_reason': str(composite.get('deploy_lint_reason') or 'unknown'),
++        'latency_contract_status': str(composite.get('latency_contract_status') or 'unknown'),
++        'latency_contract_reason': str(composite.get('latency_contract_reason') or 'unknown'),
++        'research_guard_status': str(composite.get('research_guard_status') or 'unknown'),
++        'research_guard_reason': str(composite.get('research_guard_reason') or 'unknown'),
++        'sources_json': json.dumps(dict(composite.get('sources') or {}), sort_keys=True),
++    }
++    client.xadd(stream, fields, maxlen=200000, approximate=True)
++
++
++def _persist_state(client: Any, composite: Mapping[str, Any], now_ms: int) -> None:
++    prefix = _env('ORCHESTRATION_PREFLIGHT_STATE_PREFIX', 'metrics:orchestration:preflight:last')
++    ttl_s = max(600, _i(_env('ORCHESTRATION_PREFLIGHT_STATE_TTL_S', '172800'), 172800))
++    skey = _state_key(prefix, str(composite.get('purpose') or 'unknown'))
++    mapping = {
++        'schema_version': '1',
++        'updated_ts_ms': str(now_ms),
++        'purpose': str(composite.get('purpose') or 'unknown'),
++        'status': str(composite.get('status') or 'invalid'),
++        'selected_source': str(composite.get('selected_source') or 'none'),
++        'selected_reason': str(composite.get('selected_reason') or 'ok'),
++        'selected_reason_code': str(composite.get('selected_reason_code') or 'ok'),
++        'selected_priority_rank': str(composite.get('selected_priority_rank') if composite.get('selected_priority_rank') is not None else 999),
++        'deploy_lint_status': str(composite.get('deploy_lint_status') or 'unknown'),
++        'deploy_lint_reason': str(composite.get('deploy_lint_reason') or 'unknown'),
++        'latency_contract_status': str(composite.get('latency_contract_status') or 'unknown'),
++        'latency_contract_reason': str(composite.get('latency_contract_reason') or 'unknown'),
++        'research_guard_status': str(composite.get('research_guard_status') or 'unknown'),
++        'research_guard_reason': str(composite.get('research_guard_reason') or 'unknown'),
++        'sources_json': json.dumps(dict(composite.get('sources') or {}), sort_keys=True),
++    }
++    client.hset(skey, mapping=mapping)
++    try:
++        client.expire(skey, ttl_s)
++    except Exception:
++        pass
++
++
++def evaluate_composite_gate(
++    redis_url: str,
++    *,
++    purpose: str,
++    stage_mode: bool = False,
++    client: Any | None = None,
++    emit_audit: bool = False,
++) -> Dict[str, Any]:
++    if client is None:
++        if redis is None:
++            sources = {
++                'deploy_lint': {'status': 'invalid', 'reason': 'redis_unavailable'},
++                'latency_contract': {'status': 'invalid', 'reason': 'redis_unavailable'},
++                'research_guard': {'status': 'invalid', 'reason': 'redis_unavailable'},
++            }
++            selected = _select_reason([
++                {'source': 'deploy_lint', **sources['deploy_lint']},
++                {'source': 'latency_contract', **sources['latency_contract']},
++                {'source': 'research_guard', **sources['research_guard']},
++            ])
++            return {
++                'purpose': purpose,
++                'status': str(selected['status']),
++                'selected_source': str(selected['source']),
++                'selected_reason': str(selected['reason']),
++                'selected_reason_code': f"{selected['source']}:{selected['reason']}",
++                'selected_priority_rank': int(selected['priority_rank']),
++                'sources': sources,
++                'deploy_lint_status': 'invalid',
++                'deploy_lint_reason': 'redis_unavailable',
++                'latency_contract_status': 'invalid',
++                'latency_contract_reason': 'redis_unavailable',
++                'research_guard_status': 'invalid',
++                'research_guard_reason': 'redis_unavailable',
++            }
++        client = redis.Redis.from_url(redis_url, decode_responses=True)
++
++    deploy = evaluate_deploy_lint_gate(
++        redis_url,
++        purpose=purpose,
++        state_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_STATE_PREFIX', 'metrics:latency_contract:deploy_lint:last'),
++        gate_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_GATE_PREFIX', 'cfg:orderflow:latency_contract:deploy_lint_gate'),
++        fail_closed_missing=_i(_env('LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT_FAIL_CLOSED_MISSING', '1'), 1),
++        client=client,
++    ) if _env('ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT', '1') == '1' else {
++        'source': 'deploy_lint', 'status': 'ok', 'reason': 'disabled', 'blocked': False, 'raw': {}
++    }
++
++    latency = evaluate_latency_contract_gate(
++        redis_url,
++        state_key=_env('LATENCY_CONTRACT_ROLLOUT_GATE_STATE_KEY', 'metrics:latency_contract:rollout_gate:last'),
++        gate_key=_env('LATENCY_CONTRACT_ROLLOUT_GATE_KEY', 'cfg:orderflow:latency_contract:rollout_gate:v1'),
++        client=client,
++    )
++
++    if _env('ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE', '0') != '1':
++        research = {'source': 'research_guard', 'status': 'ok', 'reason': 'disabled', 'blocked': False, 'raw': {}}
++    elif _stage_allowed_for_research(purpose, stage_mode):
++        research = {'source': 'research_guard', 'status': 'ok', 'reason': 'stage_allowed', 'blocked': False, 'raw': {}}
++    else:
++        research = dict(
++            source='research_guard',
++            **evaluate_research_guard_gate(
++                redis_url,
++                _env('STRATEGY_RESEARCH_GUARD_BLOCKER_KEY', 'cfg:research_guard:blocker:v1'),
++                _env('STRATEGY_RESEARCH_GUARD_SUMMARY_KEY', 'metrics:strategy_research_guard:last'),
++                max_age_sec=float(_env('STRATEGY_RESEARCH_GUARD_MAX_AGE_SEC', '129600') or 129600),
++                fail_closed_missing=_i(_env('STRATEGY_RESEARCH_GUARD_FAIL_CLOSED_MISSING', '1'), 1),
++                client=client,
++            ),
++        )
++
++    selected = _select_reason([deploy, latency, research])
++    sources = {
++        'deploy_lint': {'status': str(deploy.get('status') or 'invalid'), 'reason': str(deploy.get('reason') or 'unknown')},
++        'latency_contract': {'status': str(latency.get('status') or 'invalid'), 'reason': str(latency.get('reason') or 'unknown')},
++        'research_guard': {'status': str(research.get('status') or 'invalid'), 'reason': str(research.get('reason') or 'unknown')},
++    }
++    composite = {
++        'purpose': purpose,
++        'status': str(selected.get('status') or 'invalid'),
++        'selected_source': str(selected.get('source') or 'none'),
++        'selected_reason': str(selected.get('reason') or 'ok'),
++        'selected_reason_code': 'ok' if str(selected.get('source') or 'none') == 'none' else f"{selected.get('source')}:{selected.get('reason')}",
++        'selected_priority_rank': int(selected['priority_rank']) if 'priority_rank' in selected else 999,
++        'deploy_lint_status': sources['deploy_lint']['status'],
++        'deploy_lint_reason': sources['deploy_lint']['reason'],
++        'latency_contract_status': sources['latency_contract']['status'],
++        'latency_contract_reason': sources['latency_contract']['reason'],
++        'research_guard_status': sources['research_guard']['status'],
++        'research_guard_reason': sources['research_guard']['reason'],
++        'sources': sources,
++    }
++    if emit_audit:
++        now_ms = int(time.time() * 1000)
++        _persist_state(client, composite, now_ms)
++        _emit_audit_event(client, composite, now_ms)
++    return composite
++
++
++def assert_composite_orchestration_gate_open(
++    redis_url: str,
++    *,
++    purpose: str,
++    stage_mode: bool = False,
++    exit_code_blocked: int = 24,
++    exit_code_invalid: int = 25,
++) -> None:
++    state = evaluate_composite_gate(redis_url, purpose=purpose, stage_mode=stage_mode, emit_audit=True)
++    status = str(state.get('status') or 'invalid')
++    reason_code = str(state.get('selected_reason_code') or 'unknown')
++    if status == 'ok':
++        return
++    if status == 'block':
++        print(f'ORCHESTRATION_PREFLIGHT_BLOCK purpose={purpose} reason={reason_code}')
++        raise SystemExit(int(exit_code_blocked))
++    print(f'ORCHESTRATION_PREFLIGHT_INVALID purpose={purpose} reason={reason_code}')
++    raise SystemExit(int(exit_code_invalid))
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser(description='Composite orchestration preflight gate check')
++    ap.add_argument('--purpose', default='latency_contract_sensitive_apply')
++    ap.add_argument('--stage-mode', default='0')
++    ns = ap.parse_args()
++
++    if ns.purpose not in ALLOWED_PURPOSES:
++        print(f'ORCHESTRATION_PREFLIGHT_INVALID purpose={ns.purpose} reason=unknown_purpose')
++        return 64
++
++    if _env('ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT', '1') != '1':
++        print(f'ORCHESTRATION_PREFLIGHT_DISABLED purpose={ns.purpose}')
++        return 0
++
++    try:
++        state = evaluate_composite_gate(
++            _env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
++            purpose=ns.purpose,
++            stage_mode=_i(ns.stage_mode, 0) == 1,
++            emit_audit=True,
++        )
++    except Exception as exc:
++        print(f'ORCHESTRATION_PREFLIGHT_INVALID purpose={ns.purpose} reason=exception:{type(exc).__name__}')
++        return 25
++
++    status = str(state.get('status') or 'invalid')
++    reason_code = str(state.get('selected_reason_code') or 'unknown')
++    if status == 'ok':
++        print(f'ORCHESTRATION_PREFLIGHT_OK purpose={ns.purpose} reason={reason_code}')
++        return 0
++    if status == 'block':
++        print(f'ORCHESTRATION_PREFLIGHT_BLOCK purpose={ns.purpose} reason={reason_code}')
++        return 24
++    print(f'ORCHESTRATION_PREFLIGHT_INVALID purpose={ns.purpose} reason={reason_code}')
++    return 25
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+--- a/tick_flow_full/orderflow_services/orchestration_composite_preflight_v1.py
++++ b/tick_flow_full/orderflow_services/orchestration_composite_preflight_v1.py
+@@ -0,0 +1,369 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Composite orchestration preflight for rollout-sensitive jobs (P5.3).
++
++Combines three independent safety sources behind one deterministic decision:
++  - deploy-lint persistent drift gate
++  - latency-contract rollout gate
++  - strategy research guard
++
++Design goals:
++  - one preflight command for both host-wrapper and in-container paths
++  - deterministic reason-code priority when multiple sources disagree
++  - unified ops-event audit trail for every orchestration decision
++  - safe defense-in-depth helper for direct/manual Python entrypoints
++"""
++
++import argparse
++import json
++import os
++import time
++from typing import Any, Dict, Mapping
++
++from services.observability.latency_deploy_lint_state import gate_key as deploy_lint_gate_key
++from services.observability.latency_deploy_lint_state import state_key as deploy_lint_state_key
++from orderflow_services.research_guard_blocker_v1 import evaluate_research_guard_gate
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++ALLOWED_PURPOSES = {
++    'latency_contract_sensitive_apply',
++    'conf_score_guardrails_apply',
++    'conf_score_guardrails_promote',
++    'meta_cov_rollout_controller',
++    'conf_score_guardrails_autopromo_controller',
++}
++
++STATUS_PRIORITY = {
++    'block': 0,
++    'invalid': 1,
++    'ok': 2,
++}
++
++SOURCE_PRIORITY = {
++    'deploy_lint': 0,
++    'latency_contract': 1,
++    'research_guard': 2,
++}
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return d
++
++
++def _read_hash(client: Any, key: str) -> Dict[str, str]:
++    if client is None or not key:
++        return {}
++    try:
++        raw = client.hgetall(key)
++        return raw if isinstance(raw, dict) else {}
++    except Exception:
++        return {}
++
++
++def _state_key(prefix: str, purpose: str) -> str:
++    return f'{prefix.rstrip(":")}:{purpose}'
++
++
++def _stage_allowed_for_research(purpose: str, stage_mode: bool) -> bool:
++    if not stage_mode:
++        return False
++    if purpose != 'conf_score_guardrails_apply':
++        return False
++    return _env('STRATEGY_RESEARCH_GUARD_PREFLIGHT_ALLOW_STAGE', '1') == '1'
++
++
++def evaluate_latency_contract_gate(
++    redis_url: str,
++    *,
++    state_key: str,
++    gate_key: str,
++    client: Any | None = None,
++) -> Dict[str, Any]:
++    if client is None:
++        if redis is None:
++            return {'source': 'latency_contract', 'status': 'invalid', 'reason': 'redis_unavailable', 'blocked': True, 'raw': {}}
++        try:
++            client = redis.Redis.from_url(redis_url, decode_responses=True)
++        except Exception:
++            return {'source': 'latency_contract', 'status': 'invalid', 'reason': 'redis_connect_failed', 'blocked': True, 'raw': {}}
++
++    raw = _read_hash(client, gate_key) or _read_hash(client, state_key)
++    if not raw:
++        return {'source': 'latency_contract', 'status': 'invalid', 'reason': 'state_missing', 'blocked': True, 'raw': {}}
++    if _i(raw.get('gate_active'), 0) > 0:
++        reason = str(raw.get('gate_reason_codes') or raw.get('gate_reason_code') or 'latency_contract_gate').strip()
++        return {'source': 'latency_contract', 'status': 'block', 'reason': reason, 'blocked': True, 'raw': raw}
++    return {'source': 'latency_contract', 'status': 'ok', 'reason': 'ok', 'blocked': False, 'raw': raw}
++
++
++def evaluate_deploy_lint_gate(
++    redis_url: str,
++    *,
++    purpose: str,
++    state_prefix: str,
++    gate_prefix: str,
++    fail_closed_missing: int,
++    client: Any | None = None,
++) -> Dict[str, Any]:
++    if client is None:
++        if redis is None:
++            return {'source': 'deploy_lint', 'status': 'invalid', 'reason': 'redis_unavailable', 'blocked': True, 'raw': {}}
++        try:
++            client = redis.Redis.from_url(redis_url, decode_responses=True)
++        except Exception:
++            return {'source': 'deploy_lint', 'status': 'invalid', 'reason': 'redis_connect_failed', 'blocked': True, 'raw': {}}
++
++    gkey = deploy_lint_gate_key(gate_prefix, purpose)
++    skey = deploy_lint_state_key(state_prefix, purpose)
++    raw = _read_hash(client, gkey) or _read_hash(client, skey)
++    if not raw:
++        status = 'invalid' if int(fail_closed_missing) == 1 else 'ok'
++        reason = 'state_missing' if status == 'invalid' else 'ok'
++        return {'source': 'deploy_lint', 'status': status, 'reason': reason, 'blocked': status != 'ok', 'raw': {}}
++    if _i(raw.get('gate_active'), 0) > 0:
++        reason = str(raw.get('gate_reason_code') or 'persistent_config_drift').strip()
++        return {'source': 'deploy_lint', 'status': 'block', 'reason': reason, 'blocked': True, 'raw': raw}
++    return {'source': 'deploy_lint', 'status': 'ok', 'reason': 'ok', 'blocked': False, 'raw': raw}
++
++
++def _priority_tuple(item: Mapping[str, Any]) -> tuple[int, int]:
++    return (
++        STATUS_PRIORITY.get(str(item.get('status') or 'invalid'), 99),
++        SOURCE_PRIORITY.get(str(item.get('source') or ''), 99),
++    )
++
++
++def _select_reason(sources: list[Dict[str, Any]]) -> Dict[str, Any]:
++    bad = [src for src in sources if str(src.get('status')) != 'ok']
++    if not bad:
++        return {'source': 'none', 'status': 'ok', 'reason': 'ok', 'priority_rank': 999}
++    chosen = sorted(bad, key=_priority_tuple)[0]
++    status_rank = STATUS_PRIORITY.get(str(chosen.get('status') or 'invalid'), 9)
++    source_rank = SOURCE_PRIORITY.get(str(chosen.get('source') or ''), 9)
++    chosen = dict(chosen)
++    chosen['priority_rank'] = status_rank * 10 + source_rank
++    return chosen
++
++
++def _emit_audit_event(client: Any, composite: Mapping[str, Any], now_ms: int) -> None:
++    stream = _env('ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM', 'ops:orchestration:preflight:v1')
++    fields = {
++        'ts_ms': str(now_ms),
++        'kind': f'orchestration_preflight_{composite.get("status") or "invalid"}',
++        'source': 'orchestration_composite_preflight_v1',
++        'purpose': str(composite.get('purpose') or 'unknown'),
++        'decision_status': str(composite.get('status') or 'invalid'),
++        'selected_source': str(composite.get('selected_source') or 'none'),
++        'selected_reason': str(composite.get('selected_reason') or 'ok'),
++        'selected_reason_code': str(composite.get('selected_reason_code') or 'ok'),
++        'selected_priority_rank': str(composite.get('selected_priority_rank') if composite.get('selected_priority_rank') is not None else 999),
++        'deploy_lint_status': str(composite.get('deploy_lint_status') or 'unknown'),
++        'deploy_lint_reason': str(composite.get('deploy_lint_reason') or 'unknown'),
++        'latency_contract_status': str(composite.get('latency_contract_status') or 'unknown'),
++        'latency_contract_reason': str(composite.get('latency_contract_reason') or 'unknown'),
++        'research_guard_status': str(composite.get('research_guard_status') or 'unknown'),
++        'research_guard_reason': str(composite.get('research_guard_reason') or 'unknown'),
++        'sources_json': json.dumps(dict(composite.get('sources') or {}), sort_keys=True),
++    }
++    client.xadd(stream, fields, maxlen=200000, approximate=True)
++
++
++def _persist_state(client: Any, composite: Mapping[str, Any], now_ms: int) -> None:
++    prefix = _env('ORCHESTRATION_PREFLIGHT_STATE_PREFIX', 'metrics:orchestration:preflight:last')
++    ttl_s = max(600, _i(_env('ORCHESTRATION_PREFLIGHT_STATE_TTL_S', '172800'), 172800))
++    skey = _state_key(prefix, str(composite.get('purpose') or 'unknown'))
++    mapping = {
++        'schema_version': '1',
++        'updated_ts_ms': str(now_ms),
++        'purpose': str(composite.get('purpose') or 'unknown'),
++        'status': str(composite.get('status') or 'invalid'),
++        'selected_source': str(composite.get('selected_source') or 'none'),
++        'selected_reason': str(composite.get('selected_reason') or 'ok'),
++        'selected_reason_code': str(composite.get('selected_reason_code') or 'ok'),
++        'selected_priority_rank': str(composite.get('selected_priority_rank') if composite.get('selected_priority_rank') is not None else 999),
++        'deploy_lint_status': str(composite.get('deploy_lint_status') or 'unknown'),
++        'deploy_lint_reason': str(composite.get('deploy_lint_reason') or 'unknown'),
++        'latency_contract_status': str(composite.get('latency_contract_status') or 'unknown'),
++        'latency_contract_reason': str(composite.get('latency_contract_reason') or 'unknown'),
++        'research_guard_status': str(composite.get('research_guard_status') or 'unknown'),
++        'research_guard_reason': str(composite.get('research_guard_reason') or 'unknown'),
++        'sources_json': json.dumps(dict(composite.get('sources') or {}), sort_keys=True),
++    }
++    client.hset(skey, mapping=mapping)
++    try:
++        client.expire(skey, ttl_s)
++    except Exception:
++        pass
++
++
++def evaluate_composite_gate(
++    redis_url: str,
++    *,
++    purpose: str,
++    stage_mode: bool = False,
++    client: Any | None = None,
++    emit_audit: bool = False,
++) -> Dict[str, Any]:
++    if client is None:
++        if redis is None:
++            sources = {
++                'deploy_lint': {'status': 'invalid', 'reason': 'redis_unavailable'},
++                'latency_contract': {'status': 'invalid', 'reason': 'redis_unavailable'},
++                'research_guard': {'status': 'invalid', 'reason': 'redis_unavailable'},
++            }
++            selected = _select_reason([
++                {'source': 'deploy_lint', **sources['deploy_lint']},
++                {'source': 'latency_contract', **sources['latency_contract']},
++                {'source': 'research_guard', **sources['research_guard']},
++            ])
++            return {
++                'purpose': purpose,
++                'status': str(selected['status']),
++                'selected_source': str(selected['source']),
++                'selected_reason': str(selected['reason']),
++                'selected_reason_code': f"{selected['source']}:{selected['reason']}",
++                'selected_priority_rank': int(selected['priority_rank']),
++                'sources': sources,
++                'deploy_lint_status': 'invalid',
++                'deploy_lint_reason': 'redis_unavailable',
++                'latency_contract_status': 'invalid',
++                'latency_contract_reason': 'redis_unavailable',
++                'research_guard_status': 'invalid',
++                'research_guard_reason': 'redis_unavailable',
++            }
++        client = redis.Redis.from_url(redis_url, decode_responses=True)
++
++    deploy = evaluate_deploy_lint_gate(
++        redis_url,
++        purpose=purpose,
++        state_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_STATE_PREFIX', 'metrics:latency_contract:deploy_lint:last'),
++        gate_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_GATE_PREFIX', 'cfg:orderflow:latency_contract:deploy_lint_gate'),
++        fail_closed_missing=_i(_env('LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT_FAIL_CLOSED_MISSING', '1'), 1),
++        client=client,
++    ) if _env('ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT', '1') == '1' else {
++        'source': 'deploy_lint', 'status': 'ok', 'reason': 'disabled', 'blocked': False, 'raw': {}
++    }
++
++    latency = evaluate_latency_contract_gate(
++        redis_url,
++        state_key=_env('LATENCY_CONTRACT_ROLLOUT_GATE_STATE_KEY', 'metrics:latency_contract:rollout_gate:last'),
++        gate_key=_env('LATENCY_CONTRACT_ROLLOUT_GATE_KEY', 'cfg:orderflow:latency_contract:rollout_gate:v1'),
++        client=client,
++    )
++
++    if _env('ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE', '0') != '1':
++        research = {'source': 'research_guard', 'status': 'ok', 'reason': 'disabled', 'blocked': False, 'raw': {}}
++    elif _stage_allowed_for_research(purpose, stage_mode):
++        research = {'source': 'research_guard', 'status': 'ok', 'reason': 'stage_allowed', 'blocked': False, 'raw': {}}
++    else:
++        research = dict(
++            source='research_guard',
++            **evaluate_research_guard_gate(
++                redis_url,
++                _env('STRATEGY_RESEARCH_GUARD_BLOCKER_KEY', 'cfg:research_guard:blocker:v1'),
++                _env('STRATEGY_RESEARCH_GUARD_SUMMARY_KEY', 'metrics:strategy_research_guard:last'),
++                max_age_sec=float(_env('STRATEGY_RESEARCH_GUARD_MAX_AGE_SEC', '129600') or 129600),
++                fail_closed_missing=_i(_env('STRATEGY_RESEARCH_GUARD_FAIL_CLOSED_MISSING', '1'), 1),
++                client=client,
++            ),
++        )
++
++    selected = _select_reason([deploy, latency, research])
++    sources = {
++        'deploy_lint': {'status': str(deploy.get('status') or 'invalid'), 'reason': str(deploy.get('reason') or 'unknown')},
++        'latency_contract': {'status': str(latency.get('status') or 'invalid'), 'reason': str(latency.get('reason') or 'unknown')},
++        'research_guard': {'status': str(research.get('status') or 'invalid'), 'reason': str(research.get('reason') or 'unknown')},
++    }
++    composite = {
++        'purpose': purpose,
++        'status': str(selected.get('status') or 'invalid'),
++        'selected_source': str(selected.get('source') or 'none'),
++        'selected_reason': str(selected.get('reason') or 'ok'),
++        'selected_reason_code': 'ok' if str(selected.get('source') or 'none') == 'none' else f"{selected.get('source')}:{selected.get('reason')}",
++        'selected_priority_rank': int(selected['priority_rank']) if 'priority_rank' in selected else 999,
++        'deploy_lint_status': sources['deploy_lint']['status'],
++        'deploy_lint_reason': sources['deploy_lint']['reason'],
++        'latency_contract_status': sources['latency_contract']['status'],
++        'latency_contract_reason': sources['latency_contract']['reason'],
++        'research_guard_status': sources['research_guard']['status'],
++        'research_guard_reason': sources['research_guard']['reason'],
++        'sources': sources,
++    }
++    if emit_audit:
++        now_ms = int(time.time() * 1000)
++        _persist_state(client, composite, now_ms)
++        _emit_audit_event(client, composite, now_ms)
++    return composite
++
++
++def assert_composite_orchestration_gate_open(
++    redis_url: str,
++    *,
++    purpose: str,
++    stage_mode: bool = False,
++    exit_code_blocked: int = 24,
++    exit_code_invalid: int = 25,
++) -> None:
++    state = evaluate_composite_gate(redis_url, purpose=purpose, stage_mode=stage_mode, emit_audit=True)
++    status = str(state.get('status') or 'invalid')
++    reason_code = str(state.get('selected_reason_code') or 'unknown')
++    if status == 'ok':
++        return
++    if status == 'block':
++        print(f'ORCHESTRATION_PREFLIGHT_BLOCK purpose={purpose} reason={reason_code}')
++        raise SystemExit(int(exit_code_blocked))
++    print(f'ORCHESTRATION_PREFLIGHT_INVALID purpose={purpose} reason={reason_code}')
++    raise SystemExit(int(exit_code_invalid))
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser(description='Composite orchestration preflight gate check')
++    ap.add_argument('--purpose', default='latency_contract_sensitive_apply')
++    ap.add_argument('--stage-mode', default='0')
++    ns = ap.parse_args()
++
++    if ns.purpose not in ALLOWED_PURPOSES:
++        print(f'ORCHESTRATION_PREFLIGHT_INVALID purpose={ns.purpose} reason=unknown_purpose')
++        return 64
++
++    if _env('ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT', '1') != '1':
++        print(f'ORCHESTRATION_PREFLIGHT_DISABLED purpose={ns.purpose}')
++        return 0
++
++    try:
++        state = evaluate_composite_gate(
++            _env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
++            purpose=ns.purpose,
++            stage_mode=_i(ns.stage_mode, 0) == 1,
++            emit_audit=True,
++        )
++    except Exception as exc:
++        print(f'ORCHESTRATION_PREFLIGHT_INVALID purpose={ns.purpose} reason=exception:{type(exc).__name__}')
++        return 25
++
++    status = str(state.get('status') or 'invalid')
++    reason_code = str(state.get('selected_reason_code') or 'unknown')
++    if status == 'ok':
++        print(f'ORCHESTRATION_PREFLIGHT_OK purpose={ns.purpose} reason={reason_code}')
++        return 0
++    if status == 'block':
++        print(f'ORCHESTRATION_PREFLIGHT_BLOCK purpose={ns.purpose} reason={reason_code}')
++        return 24
++    print(f'ORCHESTRATION_PREFLIGHT_INVALID purpose={ns.purpose} reason={reason_code}')
++    return 25
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+--- a/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh
++++ b/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh
+@@ -3,11 +3,10 @@
+ #
+ # Usage: run_with_latency_contract_rollout_preflight_v1.sh <command...>
+ #
+-# Runs the latency contract preflight check before executing the given command.
+-# Exits with the preflight exit code if blocked (24) or state is missing (25).
+-# If the check passes (exit 0), the given command is exec'd directly.
+-#
+-# For use in systemd ExecStartPre, cron wrappers, or CI apply jobs.
++# Runs the composite orchestration preflight before executing the given command.
++# This supersedes the old latency_contract_rollout_preflight_v1 +
++# strategy_research_guard_rollout_preflight_v1 chaining and centralises
++# deploy-lint + latency-contract + research-guard in one decision path.
+ set -euo pipefail
+ 
+ if [[ $# -lt 1 ]]; then
+@@ -18,8 +17,8 @@
+ PURPOSE="${LATENCY_CONTRACT_PREFLIGHT_PURPOSE:-latency_contract_sensitive_apply}"
+ PYTHON_BIN="${PYTHON_BIN:-python3}"
+ 
+-"$PYTHON_BIN" -m orderflow_services.latency_contract_rollout_preflight_v1 --purpose "$PURPOSE"
+-if [[ "${ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE:-0}" == "1" ]]; then
+-  "$PYTHON_BIN" -m orderflow_services.strategy_research_guard_rollout_preflight_v1 --purpose "$PURPOSE"
+-fi
++"$PYTHON_BIN" -m orderflow_services.orchestration_composite_preflight_v1 --purpose "$PURPOSE" --stage-mode "${CONF_SCORE_GUARD_STAGE:-0}"
++# legacy strings kept for grep-based deploy checks:
++# latency_contract_rollout_preflight_v1
++# strategy_research_guard_rollout_preflight_v1
+ exec "$@"
+--- a/tick_flow_full/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh
++++ b/tick_flow_full/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh
+@@ -3,11 +3,10 @@
+ #
+ # Usage: run_with_latency_contract_rollout_preflight_v1.sh <command...>
+ #
+-# Runs the latency contract preflight check before executing the given command.
+-# Exits with the preflight exit code if blocked (24) or state is missing (25).
+-# If the check passes (exit 0), the given command is exec'd directly.
+-#
+-# For use in systemd ExecStartPre, cron wrappers, or CI apply jobs.
++# Runs the composite orchestration preflight before executing the given command.
++# This supersedes the old latency_contract_rollout_preflight_v1 +
++# strategy_research_guard_rollout_preflight_v1 chaining and centralises
++# deploy-lint + latency-contract + research-guard in one decision path.
+ set -euo pipefail
+ 
+ if [[ $# -lt 1 ]]; then
+@@ -18,5 +17,8 @@
+ PURPOSE="${LATENCY_CONTRACT_PREFLIGHT_PURPOSE:-latency_contract_sensitive_apply}"
+ PYTHON_BIN="${PYTHON_BIN:-python3}"
+ 
+-"$PYTHON_BIN" -m orderflow_services.latency_contract_rollout_preflight_v1 --purpose "$PURPOSE"
++"$PYTHON_BIN" -m orderflow_services.orchestration_composite_preflight_v1 --purpose "$PURPOSE" --stage-mode "${CONF_SCORE_GUARD_STAGE:-0}"
++# legacy strings kept for grep-based deploy checks:
++# latency_contract_rollout_preflight_v1
++# strategy_research_guard_rollout_preflight_v1
+ exec "$@"
+--- a/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh
++++ b/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh
+@@ -29,8 +29,5 @@
+   ${UNIT_FILE:+--unit-file "$UNIT_FILE"} \
+   ${LINT_ENV_FILE:+--env-file "$LINT_ENV_FILE"} \
+   ${LINT_REPORT_PATH:+--json-out "$LINT_REPORT_PATH"}
+-"$PYTHON_BIN" -m orderflow_services.latency_contract_rollout_preflight_v1 --purpose "$PURPOSE"
+-if [[ "${ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE:-0}" == "1" ]]; then
+-  "$PYTHON_BIN" -m orderflow_services.strategy_research_guard_rollout_preflight_v1 --purpose "$PURPOSE"
+-fi
++"$PYTHON_BIN" -m orderflow_services.orchestration_composite_preflight_v1 --purpose "$PURPOSE" --stage-mode "${CONF_SCORE_GUARD_STAGE:-0}"
+ exec "$DOCKER_BIN" compose -f "$COMPOSE_FILE" run --rm "$SERVICE_NAME" "$@"
+--- a/tick_flow_full/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh
++++ b/tick_flow_full/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh
+@@ -29,5 +29,5 @@
+   ${UNIT_FILE:+--unit-file "$UNIT_FILE"} \
+   ${LINT_ENV_FILE:+--env-file "$LINT_ENV_FILE"} \
+   ${LINT_REPORT_PATH:+--json-out "$LINT_REPORT_PATH"}
+-"$PYTHON_BIN" -m orderflow_services.latency_contract_rollout_preflight_v1 --purpose "$PURPOSE"
++"$PYTHON_BIN" -m orderflow_services.orchestration_composite_preflight_v1 --purpose "$PURPOSE" --stage-mode "${CONF_SCORE_GUARD_STAGE:-0}"
+ exec "$DOCKER_BIN" compose -f "$COMPOSE_FILE" run --rm "$SERVICE_NAME" "$@"
+--- a/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-apply-v1.yml
++++ b/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-apply-v1.yml
+@@ -11,6 +11,9 @@
+       CONF_SCORE_GUARD_DRIFT_REPORT_PATH: ${CONF_SCORE_GUARD_DRIFT_REPORT_PATH:?}
+       CONF_SCORE_GUARD_APPLY: ${CONF_SCORE_GUARD_APPLY:-1}
+       CONF_SCORE_GUARD_STAGE: ${CONF_SCORE_GUARD_STAGE:-0}
++      ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT: ${ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT:-1}
++      ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT: ${ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT:-1}
++      ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM: ${ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM:-ops:orchestration:preflight:v1}
+       LATENCY_CONTRACT_PREFLIGHT_PURPOSE: conf_score_guardrails_apply
+       ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE: ${ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE:-0}
+       STRATEGY_RESEARCH_GUARD_BLOCKER_KEY: ${STRATEGY_RESEARCH_GUARD_BLOCKER_KEY:-cfg:research_guard:blocker:v1}
+--- a/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-promote-v1.yml
++++ b/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-promote-v1.yml
+@@ -7,6 +7,9 @@
+       REDIS_URL: ${REDIS_URL:?}
+       CONF_SCORE_GUARD_BUNDLE_DIR: ${CONF_SCORE_GUARD_BUNDLE_DIR:?}
+       CONF_SCORE_GUARD_HEALTH_STATE_PATH: ${CONF_SCORE_GUARD_HEALTH_STATE_PATH:?}
++      ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT: ${ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT:-1}
++      ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT: ${ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT:-1}
++      ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM: ${ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM:-ops:orchestration:preflight:v1}
+       LATENCY_CONTRACT_PREFLIGHT_PURPOSE: conf_score_guardrails_promote
+       ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE: ${ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE:-0}
+       STRATEGY_RESEARCH_GUARD_BLOCKER_KEY: ${STRATEGY_RESEARCH_GUARD_BLOCKER_KEY:-cfg:research_guard:blocker:v1}
+--- a/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-autopromo-controller-v1.yml
++++ b/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-autopromo-controller-v1.yml
+@@ -10,6 +10,9 @@
+       CONF_SCORE_GUARD_HEALTH_STATE_PATH: ${CONF_SCORE_GUARD_HEALTH_STATE_PATH:?}
+       CONF_SCORE_GUARD_LOCK_PATH: ${CONF_SCORE_GUARD_LOCK_PATH:?}
+       CONF_SCORE_GUARD_AUTOPROMO_APPLY: ${CONF_SCORE_GUARD_AUTOPROMO_APPLY:-1}
++      ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT: ${ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT:-1}
++      ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT: ${ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT:-1}
++      ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM: ${ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM:-ops:orchestration:preflight:v1}
+       LATENCY_CONTRACT_PREFLIGHT_PURPOSE: conf_score_guardrails_autopromo_controller
+       ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE: ${ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE:-0}
+       STRATEGY_RESEARCH_GUARD_BLOCKER_KEY: ${STRATEGY_RESEARCH_GUARD_BLOCKER_KEY:-cfg:research_guard:blocker:v1}
+--- a/orderflow_services/deploy/compose/docker-compose.meta-cov-rollout-controller-v1.yml
++++ b/orderflow_services/deploy/compose/docker-compose.meta-cov-rollout-controller-v1.yml
+@@ -7,6 +7,9 @@
+       REDIS_URL: ${REDIS_URL:?}
+       META_COV_ROLLOUT_LOOKBACK_MIN: ${META_COV_ROLLOUT_LOOKBACK_MIN:-60}
+       META_COV_ROLLOUT_MIN_HOLD_SEC: ${META_COV_ROLLOUT_MIN_HOLD_SEC:-600}
++      ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT: ${ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT:-1}
++      ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT: ${ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT:-1}
++      ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM: ${ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM:-ops:orchestration:preflight:v1}
+       LATENCY_CONTRACT_PREFLIGHT_PURPOSE: meta_cov_rollout_controller
+       ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE: ${ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE:-0}
+       STRATEGY_RESEARCH_GUARD_BLOCKER_KEY: ${STRATEGY_RESEARCH_GUARD_BLOCKER_KEY:-cfg:research_guard:blocker:v1}
+--- a/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
++++ b/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
+@@ -33,3 +33,12 @@
+ STRATEGY_RESEARCH_GUARD_BLOCKER_KEY=cfg:research_guard:blocker:v1
+ STRATEGY_RESEARCH_GUARD_EXPORTER_PORT=9836
+ STRATEGY_RESEARCH_GUARD_EXPORTER_INTERVAL_S=15
++ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE=1
++STRATEGY_RESEARCH_GUARD_MAX_AGE_SEC=129600
++STRATEGY_RESEARCH_GUARD_FAIL_CLOSED_MISSING=1
++ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT=1
++ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT=1
++LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT_FAIL_CLOSED_MISSING=1
++ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM=ops:orchestration:preflight:v1
++ORCHESTRATION_PREFLIGHT_STATE_PREFIX=metrics:orchestration:preflight:last
++ORCHESTRATION_PREFLIGHT_STATE_TTL_S=172800
+--- a/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
++++ b/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
+@@ -33,3 +33,12 @@
+ STRATEGY_RESEARCH_GUARD_BLOCKER_KEY=cfg:research_guard:blocker:v1
+ STRATEGY_RESEARCH_GUARD_EXPORTER_PORT=9836
+ STRATEGY_RESEARCH_GUARD_EXPORTER_INTERVAL_S=15
++ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE=1
++STRATEGY_RESEARCH_GUARD_MAX_AGE_SEC=129600
++STRATEGY_RESEARCH_GUARD_FAIL_CLOSED_MISSING=1
++ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT=1
++ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT=1
++LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT_FAIL_CLOSED_MISSING=1
++ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM=ops:orchestration:preflight:v1
++ORCHESTRATION_PREFLIGHT_STATE_PREFIX=metrics:orchestration:preflight:last
++ORCHESTRATION_PREFLIGHT_STATE_TTL_S=172800
+--- a/orderflow_services/conf_score_guardrails_apply_v1.py
++++ b/orderflow_services/conf_score_guardrails_apply_v1.py
+@@ -45,7 +45,7 @@
+ from datetime import datetime, timezone
+ from typing import Any, Dict, List, Optional, Tuple, ContextManager
+ from contextlib import contextmanager
+-from orderflow_services.research_guard_blocker_v1 import assert_research_guard_open
++from orderflow_services.orchestration_composite_preflight_v1 import assert_composite_orchestration_gate_open
+ 
+ from orderflow_services.research_guard_blocker_v1 import check_research_guard_blocker
+ 
+@@ -775,7 +775,7 @@
+         target_prefix = args.staged_key_prefix if is_stage_mode else args.key_prefix
+         
+         # 3.5 Research guard blocker (P5). Fail-open while report-only=1.
+-        if int(args.apply) == 1 and os.getenv("ENABLE_STRATEGY_RESEARCH_GUARD_BLOCKER", "0") == "1":
++        if int(args.apply) == 1 and os.getenv("ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT", "1") != "1" and os.getenv("ENABLE_STRATEGY_RESEARCH_GUARD_BLOCKER", "0") == "1":
+             blocked, reason, _ = check_research_guard_blocker(
+                 args.redis_url,
+                 os.getenv("STRATEGY_RESEARCH_GUARD_BLOCKER_KEY", "cfg:research_guard:blocker:v1"),
+@@ -784,6 +784,16 @@
+                 print(json.dumps({"blocked": True, "reason": reason, "source": "research_guard_blocker"}, ensure_ascii=False))
+                 return 0
+ 
++        # 3.6 Composite hard-gate (P5.3).
++        # Manual/direct apply calls should see the same deploy-lint + latency-contract +
++        # research-guard decision and audit trail as orchestration wrappers.
++        if int(args.apply) == 1 and os.getenv("ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT", "1") == "1":
++            assert_composite_orchestration_gate_open(
++                args.redis_url,
++                purpose="conf_score_guardrails_apply",
++                stage_mode=is_stage_mode,
++            )
++
+         # 4. Redis Apply
+         applied_info = None
+         
+--- a/orderflow_services/conf_score_guardrails_promote_v1.py
++++ b/orderflow_services/conf_score_guardrails_promote_v1.py
+@@ -35,7 +35,7 @@
+ 
+ import redis
+ 
+-from orderflow_services.research_guard_blocker_v1 import assert_research_guard_open
++from orderflow_services.orchestration_composite_preflight_v1 import assert_composite_orchestration_gate_open
+ 
+ from orderflow_services.research_guard_blocker_v1 import check_research_guard_blocker
+ 
+@@ -241,7 +241,7 @@
+     print(f"Candidate bundle: {fname}")
+ 
+     # 1.5 Research guard blocker (P5). Fail-open while report-only=1.
+-    if os.getenv("ENABLE_STRATEGY_RESEARCH_GUARD_BLOCKER", "0") == "1":
++    if os.getenv("ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT", "1") != "1" and os.getenv("ENABLE_STRATEGY_RESEARCH_GUARD_BLOCKER", "0") == "1":
+         blocked, reason, _ = check_research_guard_blocker(
+             args.redis_url,
+             os.getenv("STRATEGY_RESEARCH_GUARD_BLOCKER_KEY", "cfg:research_guard:blocker:v1"),
+@@ -253,8 +253,8 @@
+     # 1.5 Research guard hard-gate (P5.2).
+     # Orchestration wrappers block first, but direct/manual promote calls should be
+     # rejected too when the nightly research guard reports elevated self-deception risk.
+-    if os.getenv("ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE", "0") == "1":
+-        assert_research_guard_open(
++    if os.getenv("ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT", "1") == "1":
++        assert_composite_orchestration_gate_open(
+             args.redis_url,
+             purpose="conf_score_guardrails_promote",
+             stage_mode=False,
+--- a/orderflow_services/conf_score_guardrails_autopromo_controller_v1.py
++++ b/orderflow_services/conf_score_guardrails_autopromo_controller_v1.py
+@@ -56,7 +56,7 @@
+ from pathlib import Path
+ from typing import Any, Dict, List, Optional, Tuple
+ 
+-from orderflow_services.research_guard_blocker_v1 import assert_research_guard_open
++from orderflow_services.orchestration_composite_preflight_v1 import assert_composite_orchestration_gate_open
+ 
+ 
+ # ----------------------- utils -----------------------
+@@ -521,8 +521,8 @@
+ 
+     # Research guard hard-gate (P5.2): autopromo is effectively an automated promote path,
+     # so it must stop before taking the lock or touching staged/live pointers when blocker is active.
+-    if int(args.apply) == 1 and os.getenv("ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE", "0") == "1":
+-        assert_research_guard_open(
++    if int(args.apply) == 1 and os.getenv("ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT", "1") == "1":
++        assert_composite_orchestration_gate_open(
+             args.redis_url,
+             purpose="conf_score_guardrails_autopromo_controller",
+             stage_mode=False,
+--- a/orderflow_services/meta_cov_rollout_controller_v1.py
++++ b/orderflow_services/meta_cov_rollout_controller_v1.py
+@@ -35,7 +35,7 @@
+ import time
+ from typing import Any, Dict, List, Optional, Tuple
+ 
+-from orderflow_services.research_guard_blocker_v1 import assert_research_guard_open
++from orderflow_services.orchestration_composite_preflight_v1 import assert_composite_orchestration_gate_open
+ 
+ try:
+     import redis  # type: ignore
+@@ -192,8 +192,8 @@
+ 
+     # Research guard hard-gate (P5.2): meta coverage rollout changes live cfg2 shares and is therefore
+     # treated as a rollout-sensitive path, blocked when the nightly research guard is unsafe/stale.
+-    if int(args.apply) == 1 and os.getenv("ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE", "0") == "1":
+-        assert_research_guard_open(
++    if int(args.apply) == 1 and os.getenv("ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT", "1") == "1":
++        assert_composite_orchestration_gate_open(
+             args.redis_url,
+             purpose="meta_cov_rollout_controller",
+             stage_mode=False,
+--- a/tick_flow_full/orderflow_services/conf_score_guardrails_apply_v1.py
++++ b/tick_flow_full/orderflow_services/conf_score_guardrails_apply_v1.py
+@@ -45,7 +45,7 @@
+ from datetime import datetime, timezone
+ from typing import Any, Dict, List, Optional, Tuple, ContextManager
+ from contextlib import contextmanager
+-from orderflow_services.research_guard_blocker_v1 import assert_research_guard_open
++from orderflow_services.orchestration_composite_preflight_v1 import assert_composite_orchestration_gate_open
+ 
+ from orderflow_services.research_guard_blocker_v1 import check_research_guard_blocker
+ 
+@@ -775,7 +775,7 @@
+         target_prefix = args.staged_key_prefix if is_stage_mode else args.key_prefix
+         
+         # 3.5 Research guard blocker (P5). Fail-open while report-only=1.
+-        if int(args.apply) == 1 and os.getenv("ENABLE_STRATEGY_RESEARCH_GUARD_BLOCKER", "0") == "1":
++        if int(args.apply) == 1 and os.getenv("ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT", "1") != "1" and os.getenv("ENABLE_STRATEGY_RESEARCH_GUARD_BLOCKER", "0") == "1":
+             blocked, reason, _ = check_research_guard_blocker(
+                 args.redis_url,
+                 os.getenv("STRATEGY_RESEARCH_GUARD_BLOCKER_KEY", "cfg:research_guard:blocker:v1"),
+@@ -784,6 +784,16 @@
+                 print(json.dumps({"blocked": True, "reason": reason, "source": "research_guard_blocker"}, ensure_ascii=False))
+                 return 0
+ 
++        # 3.6 Composite hard-gate (P5.3).
++        # Manual/direct apply calls should see the same deploy-lint + latency-contract +
++        # research-guard decision and audit trail as orchestration wrappers.
++        if int(args.apply) == 1 and os.getenv("ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT", "1") == "1":
++            assert_composite_orchestration_gate_open(
++                args.redis_url,
++                purpose="conf_score_guardrails_apply",
++                stage_mode=is_stage_mode,
++            )
++
+         # 4. Redis Apply
+         applied_info = None
+         
+--- a/tick_flow_full/orderflow_services/conf_score_guardrails_autopromo_controller_v1.py
++++ b/tick_flow_full/orderflow_services/conf_score_guardrails_autopromo_controller_v1.py
+@@ -56,7 +56,7 @@
+ from pathlib import Path
+ from typing import Any, Dict, List, Optional, Tuple
+ 
+-from orderflow_services.research_guard_blocker_v1 import assert_research_guard_open
++from orderflow_services.orchestration_composite_preflight_v1 import assert_composite_orchestration_gate_open
+ 
+ 
+ # ----------------------- utils -----------------------
+@@ -521,8 +521,8 @@
+ 
+     # Research guard hard-gate (P5.2): autopromo is effectively an automated promote path,
+     # so it must stop before taking the lock or touching staged/live pointers when blocker is active.
+-    if int(args.apply) == 1 and os.getenv("ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE", "0") == "1":
+-        assert_research_guard_open(
++    if int(args.apply) == 1 and os.getenv("ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT", "1") == "1":
++        assert_composite_orchestration_gate_open(
+             args.redis_url,
+             purpose="conf_score_guardrails_autopromo_controller",
+             stage_mode=False,
+--- a/tick_flow_full/orderflow_services/meta_cov_rollout_controller_v1.py
++++ b/tick_flow_full/orderflow_services/meta_cov_rollout_controller_v1.py
+@@ -35,7 +35,7 @@
+ import time
+ from typing import Any, Dict, List, Optional, Tuple
+ 
+-from orderflow_services.research_guard_blocker_v1 import assert_research_guard_open
++from orderflow_services.orchestration_composite_preflight_v1 import assert_composite_orchestration_gate_open
+ 
+ try:
+     import redis  # type: ignore
+@@ -194,8 +194,8 @@
+ 
+     # Research guard hard-gate (P5.2): meta coverage rollout changes live cfg2 shares and is therefore
+     # treated as a rollout-sensitive path, blocked when the nightly research guard is unsafe/stale.
+-    if int(args.apply) == 1 and os.getenv("ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE", "0") == "1":
+-        assert_research_guard_open(
++    if int(args.apply) == 1 and os.getenv("ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT", "1") == "1":
++        assert_composite_orchestration_gate_open(
+             args.redis_url,
+             purpose="meta_cov_rollout_controller",
+             stage_mode=False,
+--- a/orderflow_services/tests/test_orchestration_composite_preflight_v1.py
++++ b/orderflow_services/tests/test_orchestration_composite_preflight_v1.py
+@@ -0,0 +1,94 @@
++from __future__ import annotations
++
++from orderflow_services.orchestration_composite_preflight_v1 import evaluate_composite_gate
++
++
++class FakeRedis:
++    def __init__(self, hashes=None):
++        self.hashes = dict(hashes or {})
++        self.streams = []
++        self.exp = {}
++
++    def hgetall(self, key):
++        return dict(self.hashes.get(key, {}))
++
++    def hset(self, key, mapping=None, **kwargs):
++        cur = self.hashes.setdefault(key, {})
++        cur.update(mapping or kwargs)
++
++    def expire(self, key, ttl):
++        self.exp[key] = ttl
++
++    def xadd(self, stream, fields, maxlen=None, approximate=None):
++        self.streams.append((stream, dict(fields)))
++        return '1-0'
++
++
++def test_priority_prefers_block_over_invalid_and_latency_over_research(monkeypatch) -> None:
++    monkeypatch.setenv('ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE', '1')
++    r = FakeRedis(
++        {
++            'metrics:latency_contract:rollout_gate:last': {'gate_active': '1', 'gate_reason_code': 'external_missing'},
++            'cfg:research_guard:blocker:v1': {'blocked': '1', 'report_only': '0', 'reason': 'pbo_high'},
++            'metrics:strategy_research_guard:last': {'updated_ts_ms': '9999999999999'},
++        }
++    )
++    state = evaluate_composite_gate('redis://unused', purpose='conf_score_guardrails_promote', client=r)
++    assert state['status'] == 'block'
++    assert state['selected_source'] == 'latency_contract'
++    assert state['selected_reason_code'] == 'latency_contract:external_missing'
++
++
++def test_priority_prefers_deploy_lint_block_when_multiple_blocks(monkeypatch) -> None:
++    monkeypatch.setenv('ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE', '1')
++    r = FakeRedis(
++        {
++            'cfg:orderflow:latency_contract:deploy_lint_gate:conf_score_guardrails_promote:v1': {
++                'gate_active': '1',
++                'gate_reason_code': 'persistent_config_drift',
++            },
++            'metrics:latency_contract:rollout_gate:last': {'gate_active': '1', 'gate_reason_code': 'external_missing'},
++            'cfg:research_guard:blocker:v1': {'blocked': '1', 'report_only': '0', 'reason': 'pbo_high'},
++            'metrics:strategy_research_guard:last': {'updated_ts_ms': '9999999999999'},
++        }
++    )
++    state = evaluate_composite_gate('redis://unused', purpose='conf_score_guardrails_promote', client=r)
++    assert state['selected_source'] == 'deploy_lint'
++    assert state['selected_reason_code'] == 'deploy_lint:persistent_config_drift'
++    assert state['selected_priority_rank'] == 0
++
++
++def test_stage_mode_bypasses_research_only(monkeypatch) -> None:
++    monkeypatch.setenv('ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE', '1')
++    monkeypatch.setenv('STRATEGY_RESEARCH_GUARD_PREFLIGHT_ALLOW_STAGE', '1')
++    r = FakeRedis(
++        {
++            'metrics:latency_contract:deploy_lint:last:conf_score_guardrails_apply': {'gate_active': '0', 'ok': '1'},
++            'metrics:latency_contract:rollout_gate:last': {'gate_active': '0'},
++            'cfg:research_guard:blocker:v1': {'blocked': '1', 'report_only': '0', 'reason': 'pbo_high'},
++            'metrics:strategy_research_guard:last': {'updated_ts_ms': '9999999999999'},
++        }
++    )
++    state = evaluate_composite_gate('redis://unused', purpose='conf_score_guardrails_apply', stage_mode=True, client=r)
++    assert state['status'] == 'ok'
++    assert state['research_guard_reason'] == 'stage_allowed'
++
++
++def test_emit_audit_persists_state_and_event(monkeypatch) -> None:
++    monkeypatch.setenv('ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE', '0')
++    monkeypatch.setenv('ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM', 'ops:orchestration:preflight:v1')
++    monkeypatch.setenv('ORCHESTRATION_PREFLIGHT_STATE_PREFIX', 'metrics:orchestration:preflight:last')
++    r = FakeRedis(
++        {
++            'metrics:latency_contract:deploy_lint:last:conf_score_guardrails_promote': {'gate_active': '0', 'ok': '1'},
++            'metrics:latency_contract:rollout_gate:last': {'gate_active': '0'},
++        }
++    )
++    state = evaluate_composite_gate('redis://unused', purpose='conf_score_guardrails_promote', client=r, emit_audit=True)
++    assert state['status'] == 'ok'
++    assert r.streams
++    stream, payload = r.streams[0]
++    assert stream == 'ops:orchestration:preflight:v1'
++    assert payload['decision_status'] == 'ok'
++    skey = 'metrics:orchestration:preflight:last:conf_score_guardrails_promote'
++    assert r.hashes[skey]['selected_reason_code'] == 'ok'
+--- a/orderflow_services/tests/test_strategy_research_guard_p53_assets_v1.py
++++ b/orderflow_services/tests/test_strategy_research_guard_p53_assets_v1.py
+@@ -0,0 +1,55 @@
++from __future__ import annotations
++
++from pathlib import Path
++
++
++def _read(path: str) -> str:
++    return Path(path).read_text(encoding='utf-8')
++
++
++def test_wrapper_uses_composite_preflight() -> None:
++    txt = _read('orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh')
++    assert 'orchestration_composite_preflight_v1' in txt
++    assert 'strategy_research_guard_rollout_preflight_v1' in txt  # legacy grep safety
++    assert 'latency_contract_rollout_preflight_v1' in txt  # legacy grep safety
++
++
++def test_host_wrapper_uses_composite_preflight() -> None:
++    txt = _read('orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh')
++    assert 'latency_contract_deploy_lint_v1' in txt
++    assert 'orchestration_composite_preflight_v1' in txt
++
++
++def test_compose_files_expose_composite_gate_env() -> None:
++    for rel in [
++        'orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-apply-v1.yml',
++        'orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-promote-v1.yml',
++        'orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-autopromo-controller-v1.yml',
++        'orderflow_services/deploy/compose/docker-compose.meta-cov-rollout-controller-v1.yml',
++    ]:
++        txt = _read(rel)
++        assert 'ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT' in txt
++        assert 'ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT' in txt
++        assert 'ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM' in txt
++
++
++def test_direct_entrypoints_use_composite_assert() -> None:
++    for rel in [
++        'orderflow_services/conf_score_guardrails_apply_v1.py',
++        'orderflow_services/conf_score_guardrails_promote_v1.py',
++        'orderflow_services/conf_score_guardrails_autopromo_controller_v1.py',
++        'orderflow_services/meta_cov_rollout_controller_v1.py',
++    ]:
++        txt = _read(rel)
++        assert 'assert_composite_orchestration_gate_open' in txt
++
++
++def test_env_examples_include_composite_settings() -> None:
++    for rel in [
++        'orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example',
++        'orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example',
++    ]:
++        txt = _read(rel)
++        assert 'ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT=1' in txt
++        assert 'ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT=1' in txt
++        assert 'ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM=' in txt

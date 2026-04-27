@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/matplotlib/scale.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-300, 1e-07, 1.0, -1000, 256, 512, 1000, 1024, ', ', '3.5', '\\frac{1}{2}', 'asinh', 'auto', 'clip', 'function', 'functionlog', 'ignore', 'linear', 'log', 'logit', 'mask', 'names', 'symlog', 'x', 'xtick.minor.visible', 'y', 'ytick.minor.visible', '{%s}', '{x:.3g}', '{}(base={})', '{}({!r})']

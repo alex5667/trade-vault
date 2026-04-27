@@ -1,0 +1,20 @@
+[Unit]
+Description=Entry Policy Rollback Guard (AB closed-loop)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+Environment=PYTHONPATH=.:..
+Environment=REDIS_URL=redis://redis-worker-1:6379/0
+Environment=TRADE_EVENTS_STREAM=events:trades
+Environment=AB_ROLLBACK_MODE=shadow
+Environment=AB_ROLLBACK_MIN_TRADES=20
+Environment=AB_ROLLBACK_WINDOW_N=40
+Environment=AB_ROLLBACK_COOLDOWN_SEC=7200
+ExecStart=/usr/bin/python -m services.entry_policy_rollback_guard_v1
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

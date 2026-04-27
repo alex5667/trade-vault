@@ -1,0 +1,617 @@
+diff -ruN p8bundle/.pytest_cache/.gitignore p33/.pytest_cache/.gitignore
+--- p8bundle/.pytest_cache/.gitignore	1970-01-01 00:00:00.000000000 +0000
++++ p33/.pytest_cache/.gitignore	2026-03-07 05:59:56.128244872 +0000
+@@ -0,0 +1,2 @@
++# Created by pytest automatically.
++*
+diff -ruN p8bundle/.pytest_cache/CACHEDIR.TAG p33/.pytest_cache/CACHEDIR.TAG
+--- p8bundle/.pytest_cache/CACHEDIR.TAG	1970-01-01 00:00:00.000000000 +0000
++++ p33/.pytest_cache/CACHEDIR.TAG	2026-03-07 05:59:56.128300144 +0000
+@@ -0,0 +1,4 @@
++Signature: 8a477f597d28d172789f06886806bc55
++# This file is a cache directory tag created by pytest.
++# For information about cache directory tags, see:
++#	https://bford.info/cachedir/spec.html
+diff -ruN p8bundle/.pytest_cache/README.md p33/.pytest_cache/README.md
+--- p8bundle/.pytest_cache/README.md	1970-01-01 00:00:00.000000000 +0000
++++ p33/.pytest_cache/README.md	2026-03-07 05:59:56.128042293 +0000
+@@ -0,0 +1,8 @@
++# pytest cache directory #
++
++This directory contains data from the pytest's cache plugin,
++which provides the `--lf` and `--ff` options, as well as the `cache` fixture.
++
++**Do not** commit this to version control.
++
++See [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.
+diff -ruN p8bundle/.pytest_cache/v/cache/nodeids p33/.pytest_cache/v/cache/nodeids
+--- p8bundle/.pytest_cache/v/cache/nodeids	1970-01-01 00:00:00.000000000 +0000
++++ p33/.pytest_cache/v/cache/nodeids	2026-03-07 05:59:56.128973779 +0000
+@@ -0,0 +1,7 @@
++[
++  "binance_execution/test_binance_executor_p33_rehydrate_v1.py::test_load_order_state_rehydrates_from_exec_stream_when_state_missing",
++  "binance_execution/test_binance_executor_p33_rehydrate_v1.py::test_resume_open_from_rehydrated_state_returns_snapshot",
++  "binance_execution/test_execution_replay_consistency_v1.py::test_rebuild_state_from_stream_and_persist",
++  "binance_execution/test_execution_state_replay_v1.py::test_compare_replayed_state_detects_mismatch",
++  "binance_execution/test_execution_state_replay_v1.py::test_replay_sid_state_builds_materialized_snapshot"
++]
+\ No newline at end of file
+Binary files p8bundle/binance_execution/__pycache__/binance_executor.cpython-313.pyc and p33/binance_execution/__pycache__/binance_executor.cpython-313.pyc differ
+Binary files p8bundle/binance_execution/__pycache__/binance_futures_client.cpython-313.pyc and p33/binance_execution/__pycache__/binance_futures_client.cpython-313.pyc differ
+Binary files p8bundle/binance_execution/__pycache__/execution_intent_validator.cpython-313.pyc and p33/binance_execution/__pycache__/execution_intent_validator.cpython-313.pyc differ
+Binary files p8bundle/binance_execution/__pycache__/execution_journal.cpython-313.pyc and p33/binance_execution/__pycache__/execution_journal.cpython-313.pyc differ
+Binary files p8bundle/binance_execution/__pycache__/execution_policy.cpython-313.pyc and p33/binance_execution/__pycache__/execution_policy.cpython-313.pyc differ
+Binary files p8bundle/binance_execution/__pycache__/execution_state_replay.cpython-313.pyc and p33/binance_execution/__pycache__/execution_state_replay.cpython-313.pyc differ
+Binary files p8bundle/binance_execution/__pycache__/rollout_flags.cpython-313.pyc and p33/binance_execution/__pycache__/rollout_flags.cpython-313.pyc differ
+Binary files p8bundle/binance_execution/__pycache__/test_binance_executor_p33_rehydrate_v1.cpython-313-pytest-9.0.2.pyc and p33/binance_execution/__pycache__/test_binance_executor_p33_rehydrate_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p8bundle/binance_execution/__pycache__/test_execution_replay_consistency_v1.cpython-313-pytest-9.0.2.pyc and p33/binance_execution/__pycache__/test_execution_replay_consistency_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p8bundle/binance_execution/__pycache__/test_execution_state_replay_v1.cpython-313-pytest-9.0.2.pyc and p33/binance_execution/__pycache__/test_execution_state_replay_v1.cpython-313-pytest-9.0.2.pyc differ
+diff -ruN p8bundle/binance_execution/binance_executor.py p33/binance_execution/binance_executor.py
+--- p8bundle/binance_execution/binance_executor.py	2026-03-06 19:54:12.000000000 +0000
++++ p33/binance_execution/binance_executor.py	2026-03-07 05:59:11.266509444 +0000
+@@ -84,6 +84,7 @@
+         resolve_execution_policy,
+     )
+     from services.execution_journal import ExecutionJournalSink
++    from services.execution_state_replay import rebuild_state_from_stream, persist_state_snapshot
+     from services.rollout_flags import RolloutFlags
+ except Exception:  # pragma: no cover - standalone bundle / local tests
+     from binance_futures_client import BinanceAPIError, BinanceFuturesClient
+@@ -95,6 +96,7 @@
+         resolve_execution_policy,
+     )
+     from execution_journal import ExecutionJournalSink
++    from execution_state_replay import rebuild_state_from_stream, persist_state_snapshot
+     from rollout_flags import RolloutFlags
+ 
+ try:
+@@ -650,6 +652,8 @@
+         # --- orders:state:{sid} — fast lookup of Binance IDs by signal ID ---
+         self.state_key_prefix = (os.getenv("ORDERS_STATE_KEY_PREFIX") or "orders:state:").rstrip(":") + ":"
+         self.state_ttl = int(os.getenv("ORDERS_STATE_TTL_SEC", "86400"))  # default 24h
++        self.exec_replay_scan_count = int(os.getenv("EXEC_REPLAY_SCAN_COUNT", "20000"))
++        self.exec_rehydrate_on_state_miss = _bool_env("EXEC_REHYDRATE_ON_STATE_MISS", True)
+ 
+         # Reconcile + user-stream integration. The worker stores the latest
+         # normalized ORDER_TRADE_UPDATE / ALGO_UPDATE payloads in Redis so the
+@@ -782,21 +786,58 @@
+         except Exception:
+             pass  # fail-open: state is best-effort; exec stream is authoritative
+ 
++    def _recover_state_from_exec_stream(self, sid: str) -> Dict[str, Any]:
++        """Best-effort rehydrate of ``orders:state:{sid}`` from ``orders:exec``.
++
++        Redis state keys are a materialized view; the stream remains the
++        authoritative fact log. When a worker restarts after losing the hot
++        state key, we replay the most recent execution facts for that ``sid``
++        and persist the rebuilt snapshot back into Redis.
++        """
++        if not self.exec_rehydrate_on_state_miss:
++            return {}
++        try:
++            state_doc = rebuild_state_from_stream(
++                self.r, exec_stream=self.exec_stream, sid=sid, scan_count=self.exec_replay_scan_count
++            )
++            if not state_doc:
++                return {}
++            persist_state_snapshot(
++                self.r,
++                state_key=f"{self.state_key_prefix}{sid}",
++                state_doc=state_doc,
++                ttl_sec=self.state_ttl if self.state_ttl > 0 else 0,
++            )
++            self._exec_event({
++                "sid": sid,
++                "action": "rehydrate",
++                "event_type": "state_rehydrated_from_stream",
++                "fsm_state": state_doc.get("fsm_state"),
++                "stream_last_id": state_doc.get("stream_last_id"),
++                "stream_replayed_events": state_doc.get("stream_replayed_events"),
++            })
++            return state_doc
++        except Exception:
++            return {}
++
+     def _load_order_state(self, sid: str) -> Dict[str, Any]:
+         """Load persisted orders:state:{sid} document.
+ 
+         The executor treats this key as a fast materialized view. It is used to
+         recover a previously-submitted order path after a worker restart and to
+-        enforce idempotent state transitions for the same signal id.
++        enforce idempotent state transitions for the same signal id. If the hot
++        state key is missing, the worker replays ``orders:exec`` to rehydrate the
++        snapshot before continuing.
+         """
+         try:
+             raw = self.r.get(f"{self.state_key_prefix}{sid}")
+-            if not raw:
+-                return {}
+-            doc = json.loads(raw)
+-            return doc if isinstance(doc, dict) else {}
++            if raw:
++                doc = json.loads(raw)
++                if isinstance(doc, dict):
++                    return doc
++            return self._recover_state_from_exec_stream(sid)
+         except Exception:
+-            return {}
++            return self._recover_state_from_exec_stream(sid)
+ 
+     def _transition_state(
+         self,
+@@ -920,6 +961,11 @@
+             return None
+         fsm_state = str(state.get("fsm_state") or "")
+         if fsm_state in {FSM_PROTECTED, FSM_TP_POLICY_ARMED, FSM_TRAIL_ARMED, FSM_EXIT_FILLED, FSM_EMERGENCY_FLATTENED}:
++            self._exec_event({
++                "sid": sid, "symbol": symbol, "action": "resume",
++                "event_type": "resume_from_materialized_state",
++                "fsm_state": fsm_state,
++            })
+             return dict(state, recovered_from_state=True)
+         order_id = _i(state.get("binance_order_id"), 0)
+         client_order_id = str(state.get("entry_client_order_id") or "").strip() or None
+diff -ruN p8bundle/binance_execution/execution_state_replay.py p33/binance_execution/execution_state_replay.py
+--- p8bundle/binance_execution/execution_state_replay.py	1970-01-01 00:00:00.000000000 +0000
++++ p33/binance_execution/execution_state_replay.py	2026-03-07 05:59:11.264290089 +0000
+@@ -0,0 +1,178 @@
++from __future__ import annotations
++
++"""Replay Redis ``orders:exec`` facts into a materialized ``orders:state:{sid}`` snapshot.
++
++This module closes the P3.3 gap where Redis state keys are treated as a fast cache
++while the execution stream is the authoritative source of facts. The replay logic
++is intentionally deterministic and side-effect free so it can be reused by the
++executor on restart, by maintenance scripts, and by unit tests.
++"""
++
++import json
++import time
++from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
++
++
++def _s(v: Any) -> str:
++    return '' if v is None else str(v)
++
++
++def _i(v: Any, default: int = 0) -> int:
++    try:
++        if v is None:
++            return default
++        return int(float(v))
++    except Exception:
++        return default
++
++
++def _loads(value: Any) -> Dict[str, Any]:
++    if value is None:
++        return {}
++    if isinstance(value, dict):
++        return dict(value)
++    if isinstance(value, bytes):
++        value = value.decode('utf-8', 'replace')
++    try:
++        obj = json.loads(value)
++        return obj if isinstance(obj, dict) else {}
++    except Exception:
++        return {}
++
++
++# Keys that should never be copied into the materialized state document.
++TRANSIENT_FIELDS = {
++    'stream_id',
++    'event_type',
++    'severity',
++    'error_class',
++    'msg',
++    'reason',
++}
++
++
++STATE_PRIORITY_FIELDS = {
++    'sid', 'symbol', 'action', 'status', 'venue', 'execution_policy',
++    'fsm_state', 'fsm_prev_state', 'entry_client_order_id', 'binance_order_id',
++    'filled_qty', 'avg_price', 'entry_status', 'side', 'qty', 'exec_price',
++    'sl_algo_id', 'tp1_algo_id', 'tp2_algo_id', 'tp3_algo_id', 'trail_algo_id',
++    'tp1_state', 'tp2_state', 'tp3_state',
++}
++
++
++def normalize_stream_rows(rows: Sequence[Tuple[Any, Mapping[str, Any]]]) -> List[Dict[str, Any]]:
++    """Normalize XRANGE/XREVRANGE rows into plain dictionaries.
++
++    Each output item contains the original ``stream_id`` plus decoded field/value
++    pairs. The function accepts either bytes or strings and preserves ordering
++    from the input sequence.
++    """
++    out: List[Dict[str, Any]] = []
++    for stream_id, fields in rows:
++        doc: Dict[str, Any] = {'stream_id': _s(stream_id)}
++        for k, v in dict(fields or {}).items():
++            key = _s(k)
++            if isinstance(v, bytes):
++                v = v.decode('utf-8', 'replace')
++            doc[key] = v
++        out.append(doc)
++    return out
++
++
++def extract_sid_events(rows: Sequence[Tuple[Any, Mapping[str, Any]]], sid: str) -> List[Dict[str, Any]]:
++    sid = _s(sid)
++    events = [doc for doc in normalize_stream_rows(rows) if _s(doc.get('sid')) == sid]
++    # XRANGE returns oldest-first; XREVRANGE newest-first. Sort by stream id to
++    # guarantee deterministic oldest->newest replay regardless of caller.
++    events.sort(key=lambda d: _stream_sort_key(_s(d.get('stream_id'))))
++    return events
++
++
++def _stream_sort_key(stream_id: str) -> Tuple[int, int]:
++    try:
++        left, right = stream_id.split('-', 1)
++        return int(left), int(right)
++    except Exception:
++        return (0, 0)
++
++
++def replay_sid_state(events: Sequence[Mapping[str, Any]], *, base_state: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
++    """Replay one SID's event list into a materialized state snapshot.
++
++    Replay strategy:
++    - process events oldest->newest
++    - copy stable fields into the state document
++    - keep the latest non-empty value for the important execution fields
++    - track replay metadata so operators can see when the state was rebuilt from
++      the stream rather than directly loaded from Redis.
++    """
++    state: Dict[str, Any] = dict(base_state or {})
++    replay_count = 0
++    last_stream_id = ''
++    for ev in events:
++        replay_count += 1
++        last_stream_id = _s(ev.get('stream_id'))
++        for key, value in ev.items():
++            if key in TRANSIENT_FIELDS:
++                continue
++            if value in (None, ''):
++                continue
++            if key in STATE_PRIORITY_FIELDS or key.startswith('tp') or key.startswith('trail_') or key.startswith('fsm_'):
++                state[key] = value
++        # Preserve action/status even when only emitted in generic fact events.
++        if _s(ev.get('action')):
++            state['action'] = _s(ev.get('action'))
++        if _s(ev.get('status')):
++            state['status'] = _s(ev.get('status'))
++        if _s(ev.get('symbol')):
++            state['symbol'] = _s(ev.get('symbol'))
++        if _s(ev.get('sid')):
++            state['sid'] = _s(ev.get('sid'))
++        # A state_transition event is authoritative for fsm_state.
++        if _s(ev.get('event_type')) == 'state_transition' and _s(ev.get('fsm_state')):
++            state['fsm_state'] = _s(ev.get('fsm_state'))
++            state['fsm_prev_state'] = _s(ev.get('prev_state') or ev.get('fsm_prev_state'))
++        if _s(ev.get('ts_ms')):
++            state['ts_ms'] = _i(ev.get('ts_ms'))
++        if _s(ev.get('mono_ms')):
++            state['last_event_mono_ms'] = _i(ev.get('mono_ms'))
++    if replay_count:
++        state['rehydrated_from_stream'] = True
++        state['stream_replayed_events'] = replay_count
++        state['stream_last_id'] = last_stream_id
++        state['state_source_stream'] = 'orders:exec'
++        state['rehydrated_ts_ms'] = int(time.time() * 1000)
++    return state
++
++
++def rebuild_state_from_stream(redis_client: Any, *, exec_stream: str, sid: str, scan_count: int = 20000) -> Dict[str, Any]:
++    """Load latest rows from the execution stream and rebuild one ``sid`` state."""
++    rows = redis_client.xrevrange(exec_stream, '+', '-', count=int(scan_count))
++    events = extract_sid_events(rows, sid)
++    return replay_sid_state(events)
++
++
++def persist_state_snapshot(redis_client: Any, *, state_key: str, state_doc: Mapping[str, Any], ttl_sec: int = 0) -> bool:
++    if not state_doc:
++        return False
++    payload = json.dumps(dict(state_doc), ensure_ascii=False, default=str)
++    if int(ttl_sec) > 0:
++        redis_client.set(state_key, payload, ex=int(ttl_sec))
++    else:
++        redis_client.set(state_key, payload)
++    return True
++
++
++def compare_replayed_state(redis_state: Mapping[str, Any], replayed_state: Mapping[str, Any]) -> Dict[str, Any]:
++    """Return a compact mismatch report for operator/runbook use."""
++    mismatches: Dict[str, Any] = {}
++    fields = [
++        'symbol', 'status', 'fsm_state', 'execution_policy', 'binance_order_id',
++        'sl_algo_id', 'tp1_algo_id', 'tp2_algo_id', 'tp3_algo_id', 'trail_algo_id'
++    ]
++    for field in fields:
++        left = _s(redis_state.get(field))
++        right = _s(replayed_state.get(field))
++        if left != right:
++            mismatches[field] = {'redis_state': left, 'replayed_state': right}
++    return mismatches
+diff -ruN p8bundle/binance_execution/test_binance_executor_p33_rehydrate_v1.py p33/binance_execution/test_binance_executor_p33_rehydrate_v1.py
+--- p8bundle/binance_execution/test_binance_executor_p33_rehydrate_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p33/binance_execution/test_binance_executor_p33_rehydrate_v1.py	2026-03-07 05:59:47.066324846 +0000
+@@ -0,0 +1,72 @@
++from pathlib import Path
++import importlib.util
++import sys
++import json
++
++mod_path = Path(__file__).with_name("binance_executor.py")
++spec = importlib.util.spec_from_file_location("binance_executor", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++class DummyRedis:
++    def __init__(self):
++        self.kv = {}
++        self.stream = []
++
++    def get(self, key):
++        return self.kv.get(key)
++
++    def set(self, key, value, ex=None):
++        self.kv[key] = value
++        return True
++
++    def xadd(self, key, fields):
++        self.stream.append((str(len(self.stream)+1) + '-0', dict(fields)))
++        return self.stream[-1][0]
++
++    def xrevrange(self, key, start, end, count=100):
++        rows = [(sid, fields) for sid, fields in self.stream if key == 'orders:exec']
++        return list(reversed(rows))[:count]
++
++
++class DummyClient:
++    def query_plain_order(self, symbol, order_id=None, client_order_id=None):
++        return {"symbol": symbol, "orderId": order_id, "clientOrderId": client_order_id, "status": "FILLED"}
++
++
++def _make_exec():
++    ex = mod.BinanceExecutor.__new__(mod.BinanceExecutor)
++    ex.r = DummyRedis()
++    ex.exec_stream = 'orders:exec'
++    ex.state_key_prefix = 'orders:state:'
++    ex.state_ttl = 60
++    ex.user_stream_cache_prefix = 'orders:user_stream:'
++    ex.reconcile_enable = True
++    ex._next_time_sync_due_ms = 0
++    ex.binance_time_sync_interval_ms = 30000
++    ex.max_clock_drift_ms = 250
++    ex.exec_replay_scan_count = 20000
++    ex.exec_rehydrate_on_state_miss = True
++    ex.execution_journal = None
++    return ex
++
++
++def test_load_order_state_rehydrates_from_exec_stream_when_state_missing():
++    ex = _make_exec()
++    ex._exec_event({'sid': 'sid-1', 'symbol': 'BTCUSDT', 'action': 'open', 'event_type': 'state_transition', 'fsm_state': mod.FSM_ENTRY_ACKED, 'binance_order_id': 111})
++    ex._exec_event({'sid': 'sid-1', 'symbol': 'BTCUSDT', 'action': 'open', 'event_type': 'state_transition', 'fsm_state': mod.FSM_PROTECTED, 'sl_algo_id': 222, 'tp1_algo_id': 333})
++    state = ex._load_order_state('sid-1')
++    assert state['fsm_state'] == mod.FSM_PROTECTED
++    assert str(state['sl_algo_id']) == '222'
++    assert 'orders:state:sid-1' in ex.r.kv
++
++
++def test_resume_open_from_rehydrated_state_returns_snapshot():
++    ex = _make_exec()
++    ex._exec_event({'sid': 'sid-2', 'symbol': 'ETHUSDT', 'action': 'open', 'event_type': 'state_transition', 'fsm_state': mod.FSM_PROTECTED, 'binance_order_id': 44})
++    out = ex._resume_open_from_state('sid-2', symbol='ETHUSDT', client=DummyClient())
++    assert out['recovered_from_state'] is True
++    assert out['fsm_state'] == mod.FSM_PROTECTED
+diff -ruN p8bundle/binance_execution/test_execution_replay_consistency_v1.py p33/binance_execution/test_execution_replay_consistency_v1.py
+--- p8bundle/binance_execution/test_execution_replay_consistency_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p33/binance_execution/test_execution_replay_consistency_v1.py	2026-03-07 05:59:47.066381680 +0000
+@@ -0,0 +1,39 @@
++from pathlib import Path
++import importlib.util
++import sys
++import json
++
++mod_path = Path(__file__).with_name("execution_state_replay.py")
++spec = importlib.util.spec_from_file_location("execution_state_replay", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++class DummyRedis:
++    def __init__(self):
++        self.kv = {}
++        self.stream = []
++
++    def set(self, key, value, ex=None):
++        self.kv[key] = value
++
++    def get(self, key):
++        return self.kv.get(key)
++
++    def xrevrange(self, key, start, end, count=100):
++        return list(reversed(self.stream))[:count]
++
++
++def test_rebuild_state_from_stream_and_persist():
++    r = DummyRedis()
++    r.stream = [
++        ('1-0', {'sid': 'sid-1', 'symbol': 'BTCUSDT', 'event_type': 'state_transition', 'fsm_state': 'ENTRY_ACKED', 'binance_order_id': '12'}),
++        ('2-0', {'sid': 'sid-1', 'symbol': 'BTCUSDT', 'event_type': 'state_transition', 'fsm_state': 'PROTECTED', 'sl_algo_id': '88'}),
++    ]
++    state = mod.rebuild_state_from_stream(r, exec_stream='orders:exec', sid='sid-1', scan_count=100)
++    assert state['fsm_state'] == 'PROTECTED'
++    mod.persist_state_snapshot(r, state_key='orders:state:sid-1', state_doc=state, ttl_sec=60)
++    saved = json.loads(r.get('orders:state:sid-1'))
++    assert saved['rehydrated_from_stream'] is True
+diff -ruN p8bundle/binance_execution/test_execution_state_replay_v1.py p33/binance_execution/test_execution_state_replay_v1.py
+--- p8bundle/binance_execution/test_execution_state_replay_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p33/binance_execution/test_execution_state_replay_v1.py	2026-03-07 05:59:47.066133954 +0000
+@@ -0,0 +1,32 @@
++from pathlib import Path
++import importlib.util
++import sys
++import json
++
++mod_path = Path(__file__).with_name("execution_state_replay.py")
++spec = importlib.util.spec_from_file_location("execution_state_replay", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++def test_replay_sid_state_builds_materialized_snapshot():
++    rows = [
++        ('1-0', {'sid': 'sid-1', 'symbol': 'BTCUSDT', 'action': 'open', 'event_type': 'state_transition', 'fsm_state': 'ENTRY_SUBMITTED', 'ts_ms': '100'}),
++        ('2-0', {'sid': 'sid-1', 'symbol': 'BTCUSDT', 'action': 'open', 'event_type': 'state_transition', 'fsm_state': 'ENTRY_ACKED', 'binance_order_id': '123', 'ts_ms': '110'}),
++        ('3-0', {'sid': 'sid-1', 'symbol': 'BTCUSDT', 'action': 'open', 'event_type': 'state_transition', 'fsm_state': 'PROTECTED', 'sl_algo_id': '456', 'tp1_algo_id': '457', 'execution_policy': 'SAFETY_FIRST', 'status': 'filled', 'ts_ms': '120'}),
++    ]
++    events = mod.extract_sid_events(rows, 'sid-1')
++    state = mod.replay_sid_state(events)
++    assert state['sid'] == 'sid-1'
++    assert state['fsm_state'] == 'PROTECTED'
++    assert str(state['binance_order_id']) == '123'
++    assert str(state['sl_algo_id']) == '456'
++    assert state['execution_policy'] == 'SAFETY_FIRST'
++    assert state['stream_replayed_events'] == 3
++
++
++def test_compare_replayed_state_detects_mismatch():
++    diff = mod.compare_replayed_state({'fsm_state': 'ENTRY_ACKED'}, {'fsm_state': 'PROTECTED'})
++    assert 'fsm_state' in diff
+diff -ruN p8bundle/scripts/check_execution_replay_consistency.py p33/scripts/check_execution_replay_consistency.py
+--- p8bundle/scripts/check_execution_replay_consistency.py	1970-01-01 00:00:00.000000000 +0000
++++ p33/scripts/check_execution_replay_consistency.py	2026-03-07 05:59:11.266886511 +0000
+@@ -0,0 +1,60 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++from typing import Any, Dict, List
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++try:
++    from services.execution_state_replay import rebuild_state_from_stream, compare_replayed_state
++except Exception:  # pragma: no cover
++    from binance_execution.execution_state_replay import rebuild_state_from_stream, compare_replayed_state
++
++
++def _loads(value: Any) -> Dict[str, Any]:
++    if value is None:
++        return {}
++    if isinstance(value, bytes):
++        value = value.decode('utf-8', 'replace')
++    try:
++        obj = json.loads(value)
++        return obj if isinstance(obj, dict) else {}
++    except Exception:
++        return {}
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description='Compare Redis materialized state keys against state replayed from orders:exec.')
++    parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
++    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', 'orders:exec'))
++    parser.add_argument('--state-prefix', default=(os.getenv('ORDERS_STATE_KEY_PREFIX') or 'orders:state:'))
++    parser.add_argument('--scan-count', type=int, default=int(os.getenv('EXEC_REPLAY_SCAN_COUNT', '20000')))
++    parser.add_argument('--critical-threshold', type=int, default=int(os.getenv('EXEC_REPLAY_CRITICAL_THRESHOLD', '1')))
++    args = parser.parse_args()
++    if redis is None:
++        raise RuntimeError('redis package required')
++    r = redis.from_url(args.redis_url, decode_responses=True)
++    prefix = args.state_prefix.rstrip(':') + ':'
++    mismatches: List[Dict[str, Any]] = []
++    count = 0
++    for key in r.scan_iter(match=f'{prefix}*'):
++        count += 1
++        sid = str(key).split(prefix, 1)[-1]
++        redis_state = _loads(r.get(key))
++        replayed = rebuild_state_from_stream(r, exec_stream=args.exec_stream, sid=sid, scan_count=args.scan_count)
++        diff = compare_replayed_state(redis_state, replayed)
++        if diff:
++            mismatches.append({'sid': sid, 'mismatches': diff, 'fsm_state': replayed.get('fsm_state')})
++    out = {'checked_state_keys': count, 'mismatches_total': len(mismatches), 'critical_threshold': args.critical_threshold, 'items': mismatches}
++    print(json.dumps(out, ensure_ascii=False, indent=2))
++    return 2 if len(mismatches) >= args.critical_threshold else 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+diff -ruN p8bundle/scripts/rebuild_orders_state_from_exec.py p33/scripts/rebuild_orders_state_from_exec.py
+--- p8bundle/scripts/rebuild_orders_state_from_exec.py	1970-01-01 00:00:00.000000000 +0000
++++ p33/scripts/rebuild_orders_state_from_exec.py	2026-03-07 05:59:11.266772549 +0000
+@@ -0,0 +1,59 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++from typing import Any, Dict, List
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++try:
++    from services.execution_state_replay import rebuild_state_from_stream, persist_state_snapshot
++except Exception:  # pragma: no cover
++    from binance_execution.execution_state_replay import rebuild_state_from_stream, persist_state_snapshot
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description='Rebuild orders:state:* materialized views from orders:exec stream.')
++    parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
++    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', 'orders:exec'))
++    parser.add_argument('--state-prefix', default=(os.getenv('ORDERS_STATE_KEY_PREFIX') or 'orders:state:'))
++    parser.add_argument('--scan-count', type=int, default=int(os.getenv('EXEC_REPLAY_SCAN_COUNT', '20000')))
++    parser.add_argument('--sid', action='append', default=[])
++    parser.add_argument('--ttl-sec', type=int, default=int(os.getenv('ORDERS_STATE_TTL_SEC', '86400')))
++    parser.add_argument('--dry-run', action='store_true')
++    args = parser.parse_args()
++    if redis is None:
++        raise RuntimeError('redis package required')
++    r = redis.from_url(args.redis_url, decode_responses=True)
++    state_prefix = args.state_prefix.rstrip(':') + ':'
++    sids: List[str] = list(args.sid or [])
++    if not sids:
++        rows = r.xrevrange(args.exec_stream, '+', '-', count=int(args.scan_count))
++        seen = []
++        seen_set = set()
++        for _stream_id, fields in rows:
++            sid = str(dict(fields or {}).get('sid') or '').strip()
++            if sid and sid not in seen_set:
++                seen.append(sid)
++                seen_set.add(sid)
++        sids = seen
++    rebuilt: List[Dict[str, Any]] = []
++    for sid in sids:
++        state = rebuild_state_from_stream(r, exec_stream=args.exec_stream, sid=sid, scan_count=args.scan_count)
++        if not state:
++            rebuilt.append({'sid': sid, 'rebuilt': False, 'reason': 'stream_events_not_found'})
++            continue
++        if not args.dry_run:
++            persist_state_snapshot(r, state_key=f'{state_prefix}{sid}', state_doc=state, ttl_sec=args.ttl_sec)
++        rebuilt.append({'sid': sid, 'rebuilt': True, 'fsm_state': state.get('fsm_state'), 'stream_last_id': state.get('stream_last_id'), 'events': state.get('stream_replayed_events', 0)})
++    print(json.dumps({'count': len(rebuilt), 'items': rebuilt}, ensure_ascii=False, indent=2))
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())

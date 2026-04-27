@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/confirmations/l2_confirm_absorption.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.05, 0.1, 0.15, 0.25, 0.5, 0.6, 0.7, 1.0, 1.5, 10000.0, 30000.0, 1500, 'OK', 'VETO_L2_STALE', 'VETO_TAKER_RATE_LOW', 'asks', 'bad_level', 'bids', 'book', 'buy', 'l2', 'l2_is_stale', 'l2_missing', 'l2_snapshot', 'l2_stale', 'l2_stale_ms', 'l2_ts_ms', 'legacy_missing_src_a', 'legacy_missing_src_b', 'long', 'micro_proxy', 'mp_contra', 'notional', 'price', 'refill_ratio', 'size', 'src_a_wall_or_refill', 'src_b_mp_or_proxy', 'taker_rate', 'taker_rate_ema', 'ts_ms', 'up', 'wall_here']

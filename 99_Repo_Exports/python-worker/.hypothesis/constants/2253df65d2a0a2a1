@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/slq_risk_adjust.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.5, 3.0, 1000.0, 1000, '-1', '0', '0.0', '0.25', '0.40', '0.50', '0.55', '0.7', '0.78', '1', '1.50', '200', '3600', 'ATR', 'LONG', 'NA', 'ROCKET_TP1_ATR_MULT', 'SHORT', 'SLQ_BUMP_ATR_CAP', 'SLQ_ENABLE', 'SLQ_K', 'SLQ_MAX_AGE_SEC', 'SLQ_MIN_N', 'SLQ_POSTSL_TP1_MIN', 'SLQ_STOP_ATR_MAX', 'SLQ_STOP_ATR_MIN', 'SLQ_TP1_PROB_MIN', 'STOP_ATR_MULT', 'STOP_ATR_MULT_BASE', 'STOP_MODE', 'USD', 'atr', 'atr-mult', 'atr_mult', 'buy', 'catr_bucket', 'long', 'na', 'on', 'regime', 'sell', 'short', 'slq_bump_atr', 'slq_key', 'slq_n', 'slq_original_mult', 'slq_postsl_tp1', 'slq_q90', 'slq_tp1_mult', 'slq_tp1_prob', 'slq_tp1_ratio', 'slq_used', 'stop_atr_mult', 'stop_atr_mult_base', 'stop_mode', 'tp1_hit_prob', 'true', 'yes']

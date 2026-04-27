@@ -1,0 +1,41 @@
+groups:
+  - name: exec_health_freeze_client_name_v1
+    rules:
+      - alert: OF_ExecHealth_FreezeClientNameAudit_ExporterStale_Warn
+        expr: time() - (exec_health_freeze_client_name_policy_last_check_ts_ms / 1000) > 120
+        for: 5m
+        labels:
+          severity: warn
+        annotations:
+          summary: ExecHealth client-name audit exporter stale
+
+      - alert: OF_ExecHealth_FreezeClientNameAudit_UnnamedClient_Crit
+        expr: exec_health_freeze_client_name_violation{kind="service_started_unnamed_client"} > 0
+        for: 2m
+        labels:
+          severity: crit
+        annotations:
+          summary: Trusted ExecHealth Redis client started without CLIENT SETNAME
+
+      - alert: OF_ExecHealth_FreezeClientNameAudit_WrongLibNameAfterReconnect_Crit
+        expr: exec_health_freeze_client_name_violation{kind="wrong_lib_name_after_reconnect"} > 0
+        for: 2m
+        labels:
+          severity: crit
+        annotations:
+          summary: ExecHealth trusted Redis client has wrong lib-name after reconnect
+
+      - alert: OF_ExecHealth_FreezeClientNameAudit_DuplicateTrustedName_Crit
+        expr: exec_health_freeze_client_name_violation{kind="duplicate_trusted_client_name"} > 0
+        for: 2m
+        labels:
+          severity: crit
+        annotations:
+          summary: Duplicate trusted ExecHealth Redis client name across hosts or deploys
+      - alert: OF_ExecHealth_FreezeClientNameAudit_SelfHealingFailed_Crit
+        expr: exec_health_freeze_client_name_repair_failed_total > 0
+        for: 2m
+        labels:
+          severity: crit
+        annotations:
+          summary: ExecHealth Redis client-name self-healing attempted but failed

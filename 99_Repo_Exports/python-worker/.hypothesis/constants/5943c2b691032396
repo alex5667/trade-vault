@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/book_sanity.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 2.0, 10000.0, 'asks', 'bad_depth', 'bad_mid', 'best_ask', 'best_ask_px', 'best_bid', 'best_bid_px', 'bids', 'crossed_bbo', 'missing_bbo', 'nan_depth', 'nan_px', 'neg_qty', 'top5_asks', 'top5_bids']

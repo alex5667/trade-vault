@@ -1,0 +1,145 @@
+groups:
+- name: conf-cal-live-exporter-v1
+  rules:
+  - alert: ConfCalLiveStatusStale
+    expr: conf_cal_live_status_age_sec > 7200
+    for: 30m
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "confidence calibration live status is stale"
+      description: "Status JSON not updated for >2h (or exporter cannot read it).
+        Live health loop may be stopped or failing."
+      runbook: "orderflow_services/runbook_conf_cal_live_exporter_v1.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: ConfCalLiveExporterReadFailing
+    expr: conf_cal_live_exporter_read_ok == 0
+    for: 10m
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "confidence cal live exporter cannot read status file"
+      description: "Exporter is running but cannot parse/read the live status JSON.
+        Check path/permissions and health loop output."
+      runbook: "orderflow_services/runbook_conf_cal_live_exporter_v1.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: ConfCalLiveDegradeActive
+    expr: conf_cal_live_degrade == 1
+    for: 30m
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "calibrated confidence degrades live ECE/Brier vs raw"
+      description: "Live guard indicates degradation (ECE/Brier worse). If this persists,
+        rollback will be triggered by the live loop (bad_streak)."
+      runbook: "orderflow_services/runbook_conf_cal_live_exporter_v1.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: ConfCalLiveBadStreakHigh
+    expr: bad_streak >= 3
+    for: 10m
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "calibration bad_streak is high"
+      description: "bad_streak reached threshold; rollback is imminent or cooldown
+        is blocking it."
+      runbook: "orderflow_services/runbook_conf_cal_live_exporter_v1.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: ConfCalLiveRollbackDetected
+    expr: increase(conf_cal_live_rollback_events_total[10m]) > 0
+    for: 0m
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "confidence calibrator rollback happened"
+      description: "Live health loop triggered a rollback of conf_cal_latest.json.
+        Investigate calibrator training outputs and drift."
+      runbook: "orderflow_services/runbook_conf_cal_live_exporter_v1.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: SweepContractBreak
+    expr: (increase(sweep_detected_total[1h]) > 10) and 
+      (increase(evidence_used_total{key=~"sweep.*"}[1h]) == 0)
+    for: 15m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Sweep detected but no sweep evidence used"
+      description: "sweep_detected_total rises while evidence_used_total for sweep*
+        is zero (contract break)."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: TradeCloseJoinerProbMissingWarning
+    expr: >
+      (sum by (symbol, where) (rate(trade_close_joiner_prob_missing_total[10m])) /
+      clamp_min(sum by (symbol, where) (rate(trade_close_joiner_join_ok_total[10m])),
+      1e-9)) > 0.005 and sum(rate(trade_close_joiner_join_ok_total[10m])) > 0
+    for: 15m
+    labels:
+      severity: warn
+    annotations:
+      summary: "Missing probability (p=None) is > 0.5%"
+      description: "Over 0.5% of successfully joined trade close events lack a valid
+        probability inside decision['ml']."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: TradeCloseJoinerProbMissingCritical
+    expr: >
+      (sum by (symbol, where) (rate(trade_close_joiner_prob_missing_total[10m])) /
+      clamp_min(sum by (symbol, where) (rate(trade_close_joiner_join_ok_total[10m])),
+      1e-9)) > 0.02 and sum(rate(trade_close_joiner_join_ok_total[10m])) > 0
+    for: 10m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Missing probability (p=None) is > 2%"
+      description: "Over 2% of successfully joined trade close events lack a valid
+        probability inside decision['ml']."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: TradeCloseJoinerProbSourceScoreWarning
+    expr: >
+      (sum by (symbol) (rate(trade_close_joiner_prob_source_total{source="score"}[30m]))
+      / clamp_min(sum by (symbol) (rate(trade_close_joiner_prob_source_total[30m])),
+      1e-9)) > 0.20
+    for: 30m
+    labels:
+      severity: warn
+    annotations:
+      summary: "Legacy score used as probability source > 20%"
+      description: "More than 20% of joined events rely on legacy score because p_edge/p
+        are missing."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: TradeCloseJoinerProbSourceScoreCritical
+    expr: >
+      (sum by (symbol) (rate(trade_close_joiner_prob_source_total{source="score"}[30m]))
+      / clamp_min(sum by (symbol) (rate(trade_close_joiner_prob_source_total[30m])),
+      1e-9)) > 0.50
+    for: 20m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Legacy score used as probability source > 50%"
+      description: "More than 50% of joined events rely on legacy score because p_edge/p
+        are missing."
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd

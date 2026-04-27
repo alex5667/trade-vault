@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/ingestor_service.py
+# hypothesis_version: 6.148.10
+
+[10.0, 1000, ',', '1', 'currency', 'event_id', 'grade_id', 'news-ingestor', 'payload', 'poll error: %s', 'published_ms', 'published_sec', 'region', 'source', 'symbols', 'title', 'ts_ms', 'uid', 'unknown', 'url']

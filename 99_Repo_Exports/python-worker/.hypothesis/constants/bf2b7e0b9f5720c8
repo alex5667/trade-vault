@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/tools/signal_quality_kpi_worker_v3.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 1000, 3600, '+', ',', '-', '--once', '0', '0.0', '0.05', '1', '10', '2', '200', '200000', '24', '3', '30', '900', 'DYN_CFG_KEY', 'KPI v3 runs', 'REDIS_URL', 'SIGNAL_QUALITY_MIN_N', 'SIGNAL_QUALITY_TOP_P', 'TRADES_CLOSED_STREAM', '__main__', 'block', 'blocked', 'close_ts_ms', 'closed_ts_ms', 'dq_state', 'drift_mode', 'ece', 'err', 'expectancy_r', 'last_ts', 'last_ts_ms', 'meta_enforce_applied', 'ml_p_cal,ml_p,p', 'n', 'na', 'ok', 'payload', 'precision_top5p', 'probs', 'r', 'r_mult', 'result', 'rs', 'scores', 'settings:dynamic_cfg', 'signal_quality_n_24h', 'skip_n', 'trades:closed', 'ts_ms', 'unknown', 'warn', 'warning', 'ys']

@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/reshape/melt.py
+# hypothesis_version: 6.148.10
+
+['DataFrame.melt', 'F', '\\d+', 'caller', 'ignore', 'melt', 'other', 'outer', 'pd.melt(df, ', 'value', 'variable']

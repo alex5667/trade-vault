@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/mixins/crypto_orderflow_geometry.py
+# hypothesis_version: 6.148.10
+
+[-1.0, 0.0, 0.25, 0.75, 1.0, 50.0, 10000.0, 1000000000.0, 'atr', 'data_quality_flags', 'dist_bps', 'dist_rel_atr', 'geo_zone_hit', 'geo_zone_hits', 'geometry', 'geometry_score', 'hits', 'level_price', 'missing_htf', 'price', 'score01', 'strength', 'type', 'zone_strength', 'zone_type', 'zones']

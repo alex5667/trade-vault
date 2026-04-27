@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/tick_gate_metrics_aggregator_v2.py
+# hypothesis_version: 6.148.10
+
+[b'/metrics /health\n', 0.0, 1.0, 200, 1000, 2000, 9112, ',', '-', '/', '/health', '0-0', '0.0.0.0', '200 OK', ':', '>', 'Content-Length', 'Content-Type', 'PATH_INFO', 'REDIS_URL', 'TICK_GATE_BLOCK_MS', 'TICK_GATE_COUNT', '__main__', '__other__', 'agg_1', 'allow', 'collapse', 'fail', 'fail_reason', 'idle', 'name', 'ok\n', 'op', 'pending', 'reason', 'redis.Redis', 'skip', 'status', 'text/plain', 'tick-gate-consumer', 'tick_gate_agg', 'tick_gate_health_ok', 'unhealthy\n', 'unknown', 'utf-8', 'xinfo_consumers', 'xpending', 'xreadgroup']

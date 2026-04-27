@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/market_mode.py
+# hypothesis_version: 6.148.10
+
+['REGIME_MIXED', 'REGIME_RANGE', 'REGIME_TREND', 'REGIME_UNKNOWN', 'breakout', 'chop', 'expansion_bear', 'expansion_bull', 'is_range_regime', 'is_trend_regime', 'mean_reversion', 'meanrev', 'mixed', 'momentum', 'mr', 'na', 'none', 'normalize_regime', 'range', 'range_bearish', 'range_bound', 'range_bullish', 'ranging', 'sideways', 'squeeze', 'trend', 'trending', 'trending_bear', 'trending_bull', 'unknown']

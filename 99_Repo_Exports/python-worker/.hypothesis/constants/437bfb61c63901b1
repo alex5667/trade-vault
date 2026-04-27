@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/exec_health_slo_contract.py
+# hypothesis_version: 6.148.10
+
+[-999.0, 0.0, 120, 500, 5000, ',', '1', '120', '5000', 'DEPLOY_ID', 'GIT_SHA', 'HOSTNAME', 'RELEASE_VERSION', 'SERVICE_NAME', 'UNKNOWN', 'apply_n', 'default', 'deploy_id', 'edge', 'entry_policy', 'instance_id', 'last_event_ts_ms', 'last_flags_csv', 'last_flush_ts_ms', 'last_mode', 'last_profile', 'last_reason_code', 'last_symbol', 'monitor', 'pass_n', 'pipeline', 'process_pid', 'reader_error_n', 'schema_name', 'schema_version', 'scope', 'service_name', 'started_ts_ms', 'threshold_is_p95_bps', 'total_n', 'unknown', 'unknown-deploy', 'unknown-instance', 'updated_ts_ms', 'veto_n']

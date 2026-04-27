@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/cvd_reclaim_detector.py
+# hypothesis_version: 6.148.10
+
+[-1.0, 0.0, 1e-09, 0.5, 1.0, 1.2, 120, 128, 7200, 'LONG', 'SHORT']

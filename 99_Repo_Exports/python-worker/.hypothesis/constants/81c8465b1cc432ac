@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/archive_decisions_final_v1.py
+# hypothesis_version: 6.148.10
+
+[1000.0, 1000, 5000, '%Y-%m-%d', '%Y-%m-%d %H:%M:%S', '-', '0-0', 'No new entries.', 'REDIS_URL', '__main__', '_stream_id', 'a', 'decisions:final', 'id', 'payload', 'redis://redis:6379/0', 'ts', 'utf-8']

@@ -1,0 +1,921 @@
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p34/audit_code/crypto_orderflow_service.py p5/audit_code/crypto_orderflow_service.py
+--- p34/audit_code/crypto_orderflow_service.py	2026-03-06 18:37:44.000000000 +0000
++++ p5/audit_code/crypto_orderflow_service.py	2026-03-06 19:54:40.529474455 +0000
+@@ -263,8 +263,13 @@
+         self.health_metrics = HealthMetrics(redis_url=self.redis_dsn, window_sec=5)
+ 
+         # Production safety overlays (P3/P4): Redis DQ veto + portfolio-aware risk.
+-        self.redis_dq_thresholds = RedisDQThresholds.from_env() if RedisDQThresholds else None
+-        self.portfolio_risk_limits = PortfolioRiskLimits.from_env() if PortfolioRiskLimits else None
++        # Rollout flags for P3/P4 gates. These allow operators to disable the
++        # newer veto layers quickly without editing code during incident
++        # mitigation or staged rollout.
++        self.trade_dq_hard_veto_enable = str(os.getenv("TRADE_DQ_HARD_VETO_ENABLE", "1")).strip().lower() in {"1", "true", "yes", "on"}
++        self.trade_risk_engine_v2_enable = str(os.getenv("TRADE_RISK_ENGINE_V2_ENABLE", "1")).strip().lower() in {"1", "true", "yes", "on"}
++        self.redis_dq_thresholds = RedisDQThresholds.from_env() if (RedisDQThresholds and self.trade_dq_hard_veto_enable) else None
++        self.portfolio_risk_limits = PortfolioRiskLimits.from_env() if (PortfolioRiskLimits and self.trade_risk_engine_v2_enable) else None
+         self.portfolio_risk_hard_veto = str(os.getenv("PORTFOLIO_RISK_HARD_VETO", "1")).strip().lower() in {"1", "true", "yes", "on"}
+ 
+         # --- Local caches for snapshot publisher (avoid Redis GET per tick) ---
+@@ -1050,7 +1055,7 @@
+     def _pre_publish_allows_signal(self, runtime: Any, signal: Dict[str, Any]) -> bool:
+         now_ms = _utc_epoch_ms()
+         dq_decision = None
+-        if self.redis_dq_thresholds and evaluate_redis_dq is not None:
++        if self.trade_dq_hard_veto_enable and self.redis_dq_thresholds and evaluate_redis_dq is not None:
+             snap = self._build_redis_dq_snapshot(runtime, now_ms=now_ms)
+             if snap is not None:
+                 dq_decision = evaluate_redis_dq(snap, self.redis_dq_thresholds)
+@@ -1063,7 +1068,7 @@
+                         getattr(runtime, "symbol", "?"), dq_decision.reasons, dq_decision.snapshot,
+                     )
+                     return False
+-        if self.portfolio_risk_limits and evaluate_portfolio_risk is not None:
++        if self.trade_risk_engine_v2_enable and self.portfolio_risk_limits and evaluate_portfolio_risk is not None:
+             risk_input = self._build_portfolio_risk_input(runtime, signal)
+             if risk_input is not None:
+                 risk_decision = evaluate_portfolio_risk(risk_input, self.portfolio_risk_limits)
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p34/binance_execution/binance_executor.py p5/binance_execution/binance_executor.py
+--- p34/binance_execution/binance_executor.py	2026-03-06 18:40:38.000000000 +0000
++++ p5/binance_execution/binance_executor.py	2026-03-06 19:54:12.209876447 +0000
+@@ -84,6 +84,7 @@
+         resolve_execution_policy,
+     )
+     from services.execution_journal import ExecutionJournalSink
++    from services.rollout_flags import RolloutFlags
+ except Exception:  # pragma: no cover - standalone bundle / local tests
+     from binance_futures_client import BinanceAPIError, BinanceFuturesClient
+     from execution_intent_validator import validate_exit_intent
+@@ -94,6 +95,7 @@
+         resolve_execution_policy,
+     )
+     from execution_journal import ExecutionJournalSink
++    from rollout_flags import RolloutFlags
+ 
+ try:
+     from services.telegram.telegram_client import TelegramClient
+@@ -613,12 +615,17 @@
+         self.tp_limit_trigger_working_type = (os.getenv("TP_LIMIT_TRIGGER_WORKING_TYPE") or "MARK_PRICE").strip().upper()
+         self.trail_working_type = (os.getenv("TRAIL_WORKING_TYPE") or "MARK_PRICE").strip().upper()
+ 
++        # Rollout flags centralise which hardened features are enabled in the
++        # current deployment. This makes rollback a simple env override rather
++        # than a code change.
++        self.rollout_flags = RolloutFlags.from_env()
++
+         # Official execution policies
+         self.exec_policy_default = (os.getenv("EXEC_POLICY_DEFAULT") or SAFETY_FIRST).strip().replace("-", "_").replace(" ", "_").upper()
+         maker_allow = (os.getenv("EXEC_POLICY_MAKER_ALLOWED_SYMBOLS") or "BTCUSDT,ETHUSDT").strip()
+         self.exec_policy_maker_allowed_symbols = {s.strip().upper() for s in maker_allow.split(",") if s.strip()}
+         self.tp_limit_time_in_force = (os.getenv("TP_LIMIT_TIME_IN_FORCE") or "GTX").strip().upper()
+-        self.tp_limit_watchdog_enable = _bool_env("TP_LIMIT_WATCHDOG_ENABLE", True)
++        self.tp_limit_watchdog_enable = self.rollout_flags.exec_maker_tp_enable and _bool_env("TP_LIMIT_WATCHDOG_ENABLE", True)
+         self.tp_limit_watchdog_timeout_ms = int(os.getenv("TP_LIMIT_WATCHDOG_TIMEOUT_MS", "4000"))
+         self.tp_trigger_monitor_timeout_s = float(os.getenv("TP_TRIGGER_MONITOR_TIMEOUT_S", "7200"))
+         self.tp_limit_price_offset_bps = float(os.getenv("TP_LIMIT_PRICE_OFFSET_BPS", "0.0"))
+@@ -647,7 +654,7 @@
+         # Reconcile + user-stream integration. The worker stores the latest
+         # normalized ORDER_TRADE_UPDATE / ALGO_UPDATE payloads in Redis so the
+         # executor can verify ambiguous submissions before attempting a retry.
+-        self.reconcile_enable = _bool_env("EXEC_RECONCILE_ENABLE", True)
++        self.reconcile_enable = bool(self.rollout_flags.exec_reconcile_enable and _bool_env("EXEC_RECONCILE_ENABLE", True))
+         self.user_stream_cache_prefix = (os.getenv("USER_STREAM_CACHE_PREFIX") or "orders:user_stream:").rstrip(":") + ":"
+         self.user_stream_stream = os.getenv("USER_STREAM_STREAM", "orders:user_stream")
+         self.binance_recv_window_ms = int(os.getenv("BINANCE_RECV_WINDOW_MS", os.getenv("BINANCE_RECV_WINDOW", "5000")))
+@@ -657,7 +664,7 @@
+ 
+         # Best-effort durable SQL mirror for incident analysis. Redis stream
+         # remains the online source of truth; Postgres journal is auxiliary.
+-        self.execution_journal = ExecutionJournalSink()
++        self.execution_journal = ExecutionJournalSink() if self.rollout_flags.exec_journal_sql_enable else ExecutionJournalSink(dsn="")
+ 
+     def _resolve_client(
+         self, payload: Dict[str, Any]
+@@ -1075,11 +1082,18 @@
+             raise ValueError(f"invalid_exit_contract:{result.reason}")
+ 
+     def _resolve_execution_policy(self, payload: Dict[str, Any], symbol: str) -> ExecutionPolicyDecision:
++        infra_degraded = _truthy(payload.get("infra_degraded")) or _truthy(payload.get("degraded_mode"))
++        default_policy = self.exec_policy_default
++        maker_allowed_symbols = set(self.exec_policy_maker_allowed_symbols)
++        if self.rollout_flags.safety_forced(infra_degraded=infra_degraded):
++            default_policy = SAFETY_FIRST
++        if not self.rollout_flags.maker_allowed(infra_degraded=infra_degraded):
++            maker_allowed_symbols = set()
+         return resolve_execution_policy(
+             payload=payload,
+             symbol=symbol,
+-            default_policy=self.exec_policy_default,
+-            maker_allowed_symbols=self.exec_policy_maker_allowed_symbols,
++            default_policy=default_policy,
++            maker_allowed_symbols=maker_allowed_symbols,
+             tp_market_working_type=self.tp_market_working_type,
+             tp_limit_trigger_working_type=self.tp_limit_trigger_working_type,
+             tp_limit_time_in_force=self.tp_limit_time_in_force,
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p34/binance_execution/rollout_flags.py p5/binance_execution/rollout_flags.py
+--- p34/binance_execution/rollout_flags.py	1970-01-01 00:00:00.000000000 +0000
++++ p5/binance_execution/rollout_flags.py	2026-03-06 19:53:40.813664171 +0000
+@@ -0,0 +1,89 @@
++from __future__ import annotations
++
++"""Central rollout/feature-flag contract for execution hardening phases.
++
++The project now has multiple progressively enabled layers:
++  * P0/P1 execution safety + maker ladder
++  * P2 reconcile + user stream
++  * P3/P4 DQ hard veto + portfolio risk + SQL journal
++
++Operationally these must be rolled out independently and quickly rolled back
++without editing Python code or re-building images. This module centralises the
++flag names and default semantics so executor / signal publisher / compose
++files all speak the same language.
++"""
++
++from dataclasses import dataclass
++import os
++from typing import Dict, Any
++
++
++def _b(name: str, default: bool) -> bool:
++    v = os.getenv(name)
++    if v is None or str(v).strip() == "":
++        return bool(default)
++    return str(v).strip().lower() in {"1", "true", "yes", "on"}
++
++
++@dataclass(frozen=True)
++class RolloutFlags:
++    exec_algo_canonical_v2: bool = True
++    exec_reconcile_enable: bool = True
++    exec_user_stream_enable: bool = True
++    exec_maker_tp_enable: bool = True
++    exec_journal_sql_enable: bool = True
++    trade_dq_hard_veto_enable: bool = True
++    trade_risk_engine_v2_enable: bool = True
++    exec_force_safety_first: bool = False
++    exec_degraded_mode_force_safety_first: bool = True
++    exec_degraded_mode_disable_maker: bool = True
++
++    @classmethod
++    def from_env(cls) -> "RolloutFlags":
++        """Build rollout flags from environment.
++
++        Names are intentionally explicit so operators can grep configs and
++        overrides quickly during incidents.
++        """
++        return cls(
++            exec_algo_canonical_v2=_b("EXEC_ALGO_CANONICAL_V2", True),
++            exec_reconcile_enable=_b("EXEC_RECONCILE_ENABLE", True),
++            exec_user_stream_enable=_b("EXEC_USER_STREAM_ENABLE", True),
++            exec_maker_tp_enable=_b("EXEC_MAKER_TP_ENABLE", True),
++            exec_journal_sql_enable=_b("EXEC_JOURNAL_SQL_ENABLE", True),
++            trade_dq_hard_veto_enable=_b("TRADE_DQ_HARD_VETO_ENABLE", True),
++            trade_risk_engine_v2_enable=_b("TRADE_RISK_ENGINE_V2_ENABLE", True),
++            exec_force_safety_first=_b("EXEC_FORCE_SAFETY_FIRST", False),
++            exec_degraded_mode_force_safety_first=_b("EXEC_DEGRADED_MODE_FORCE_SAFETY_FIRST", True),
++            exec_degraded_mode_disable_maker=_b("EXEC_DEGRADED_MODE_DISABLE_MAKER", True),
++        )
++
++    def as_dict(self) -> Dict[str, Any]:
++        return {
++            "exec_algo_canonical_v2": self.exec_algo_canonical_v2,
++            "exec_reconcile_enable": self.exec_reconcile_enable,
++            "exec_user_stream_enable": self.exec_user_stream_enable,
++            "exec_maker_tp_enable": self.exec_maker_tp_enable,
++            "exec_journal_sql_enable": self.exec_journal_sql_enable,
++            "trade_dq_hard_veto_enable": self.trade_dq_hard_veto_enable,
++            "trade_risk_engine_v2_enable": self.trade_risk_engine_v2_enable,
++            "exec_force_safety_first": self.exec_force_safety_first,
++            "exec_degraded_mode_force_safety_first": self.exec_degraded_mode_force_safety_first,
++            "exec_degraded_mode_disable_maker": self.exec_degraded_mode_disable_maker,
++        }
++
++    def maker_allowed(self, *, infra_degraded: bool = False) -> bool:
++        if self.exec_force_safety_first:
++            return False
++        if not self.exec_maker_tp_enable:
++            return False
++        if infra_degraded and self.exec_degraded_mode_disable_maker:
++            return False
++        return True
++
++    def safety_forced(self, *, infra_degraded: bool = False) -> bool:
++        if self.exec_force_safety_first:
++            return True
++        if infra_degraded and self.exec_degraded_mode_force_safety_first:
++            return True
++        return False
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p34/binance_execution/test_backfill_execution_journal_v1.py p5/binance_execution/test_backfill_execution_journal_v1.py
+--- p34/binance_execution/test_backfill_execution_journal_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p5/binance_execution/test_backfill_execution_journal_v1.py	2026-03-06 19:58:46.072017145 +0000
+@@ -0,0 +1,34 @@
++from __future__ import annotations
++
++import importlib.util
++from pathlib import Path
++import json
++
++SCRIPT = Path(__file__).resolve().parent.parent / 'scripts' / 'backfill_execution_journal_from_orders_exec.py'
++SPEC = importlib.util.spec_from_file_location('backfill_execution_journal_from_orders_exec', SCRIPT)
++import sys
++mod = importlib.util.module_from_spec(SPEC)
++assert SPEC and SPEC.loader
++sys.modules[SPEC.name] = mod
++SPEC.loader.exec_module(mod)
++
++
++def test_parse_exec_stream_entry_uses_action_as_default_event_type():
++    row = mod.parse_exec_stream_entry('1-0', {'sid': 's1', 'symbol': 'BTCUSDT', 'action': 'open', 'ts_ms': '1000'})
++    assert row.sid == 's1'
++    assert row.event_type == 'open'
++    assert row.event_ts_ms == 1000
++
++
++def test_derive_snapshot_rows_merges_latest_by_sid():
++    events = [
++        mod.ExecEventRow('1-0', 's1', 'BTCUSDT', 'open', 1000, json.dumps({'sid': 's1', 'symbol': 'BTCUSDT', 'action': 'open', 'status': 'submitted', 'fsm_state': 'ENTRY_SUBMITTED'})),
++        mod.ExecEventRow('2-0', 's1', 'BTCUSDT', 'protect', 2000, json.dumps({'sid': 's1', 'symbol': 'BTCUSDT', 'sl_algo_id': 11, 'tp1_algo_id': 12, 'fsm_state': 'PROTECTED'})),
++    ]
++    snapshots, refs = mod.derive_snapshot_rows(events)
++    assert len(snapshots) == 1
++    assert snapshots[0].sid == 's1'
++    assert snapshots[0].fsm_state == 'PROTECTED'
++    assert len(refs) == 1
++    assert refs[0].sl_algo_id == 11
++    assert refs[0].tp1_algo_id == 12
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p34/binance_execution/test_rollout_flags_v1.py p5/binance_execution/test_rollout_flags_v1.py
+--- p34/binance_execution/test_rollout_flags_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p5/binance_execution/test_rollout_flags_v1.py	2026-03-06 19:53:40.824648778 +0000
+@@ -0,0 +1,33 @@
++from __future__ import annotations
++
++import os
++import sys
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parent
++if str(ROOT) not in sys.path:
++    sys.path.insert(0, str(ROOT))
++
++from rollout_flags import RolloutFlags
++
++
++def test_rollout_flags_defaults(monkeypatch):
++    monkeypatch.delenv("EXEC_MAKER_TP_ENABLE", raising=False)
++    flags = RolloutFlags.from_env()
++    assert flags.exec_reconcile_enable is True
++    assert flags.exec_user_stream_enable is True
++    assert flags.maker_allowed(infra_degraded=False) is True
++
++
++def test_rollout_flags_degraded_mode_disables_maker(monkeypatch):
++    monkeypatch.setenv("EXEC_DEGRADED_MODE_DISABLE_MAKER", "1")
++    flags = RolloutFlags.from_env()
++    assert flags.maker_allowed(infra_degraded=True) is False
++    assert flags.maker_allowed(infra_degraded=False) is True
++
++
++def test_rollout_flags_force_safety(monkeypatch):
++    monkeypatch.setenv("EXEC_FORCE_SAFETY_FIRST", "true")
++    flags = RolloutFlags.from_env()
++    assert flags.safety_forced(infra_degraded=False) is True
++    assert flags.maker_allowed(infra_degraded=False) is False
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p34/config/docker-compose.execution-p5.override.yml p5/config/docker-compose.execution-p5.override.yml
+--- p34/config/docker-compose.execution-p5.override.yml	1970-01-01 00:00:00.000000000 +0000
++++ p5/config/docker-compose.execution-p5.override.yml	2026-03-06 19:55:26.257630593 +0000
+@@ -0,0 +1,94 @@
++version: '3.9'
++
++# P5 rollout overlay for execution hardening.
++# Apply on top of the project's existing compose files, for example:
++#   docker compose \
++#     -f config/docker-compose-binance.yml \
++#     -f config/docker-compose-crypto-orderflow.yml \
++#     -f config/docker-compose-monitoring.yml \
++#     -f config/docker-compose.execution-p5.override.yml up -d
++#
++# Design goals:
++#   * enable/disable P1-P4 layers with env flags only
++#   * add mandatory user-stream worker for reconcile-first mode
++#   * mount Grafana dashboard/provisioning artefacts without modifying the base stack
++#   * keep rollback trivial: remove this overlay or flip the flags in env.execution-p5.example
++
++services:
++  binance-executor:
++    environment:
++      - EXEC_ALGO_CANONICAL_V2=${EXEC_ALGO_CANONICAL_V2:-1}
++      - EXEC_RECONCILE_ENABLE=${EXEC_RECONCILE_ENABLE:-1}
++      - EXEC_USER_STREAM_ENABLE=${EXEC_USER_STREAM_ENABLE:-1}
++      - EXEC_MAKER_TP_ENABLE=${EXEC_MAKER_TP_ENABLE:-1}
++      - EXEC_JOURNAL_SQL_ENABLE=${EXEC_JOURNAL_SQL_ENABLE:-1}
++      - EXEC_FORCE_SAFETY_FIRST=${EXEC_FORCE_SAFETY_FIRST:-0}
++      - EXEC_DEGRADED_MODE_FORCE_SAFETY_FIRST=${EXEC_DEGRADED_MODE_FORCE_SAFETY_FIRST:-1}
++      - EXEC_DEGRADED_MODE_DISABLE_MAKER=${EXEC_DEGRADED_MODE_DISABLE_MAKER:-1}
++      - USER_STREAM_STREAM=${USER_STREAM_STREAM:-orders:user_stream}
++      - USER_STREAM_CACHE_PREFIX=${USER_STREAM_CACHE_PREFIX:-orders:user_stream:}
++      - EXECUTION_JOURNAL_DSN=${EXECUTION_JOURNAL_DSN:-}
++      - BINANCE_RECV_WINDOW_MS=${BINANCE_RECV_WINDOW_MS:-3000}
++      - BINANCE_TIME_SYNC_INTERVAL_MS=${BINANCE_TIME_SYNC_INTERVAL_MS:-30000}
++      - MAX_CLOCK_DRIFT_MS=${MAX_CLOCK_DRIFT_MS:-250}
++      - TP_LIMIT_WATCHDOG_ENABLE=${TP_LIMIT_WATCHDOG_ENABLE:-1}
++      - TP_LIMIT_WATCHDOG_TIMEOUT_MS=${TP_LIMIT_WATCHDOG_TIMEOUT_MS:-4000}
++      - PROTECTION_ARM_TIMEOUT_MS=${PROTECTION_ARM_TIMEOUT_MS:-2500}
++
++  # Dedicated worker keeps listenKey alive, consumes ORDER_TRADE_UPDATE/ALGO_UPDATE,
++  # and stores normalized events in Redis so executor reconcile can prefer event-driven
++  # verification before REST polling.
++  binance-user-stream-worker:
++    build:
++      context: .
++      dockerfile: python-worker/Dockerfile
++    image: scanner-python-worker:latest
++    container_name: scanner-binance-user-stream-worker
++    restart: on-failure:5
++    environment:
++      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
++      - BINANCE_API_KEY=${BINANCE_API_KEY:-}
++      - BINANCE_API_SECRET=${BINANCE_API_SECRET:-}
++      - BINANCE_FUTURES_BASE_URL=${BINANCE_FUTURES_BASE_URL:-https://fapi.binance.com}
++      - BINANCE_HTTP_TIMEOUT_S=${BINANCE_HTTP_TIMEOUT_S:-8.0}
++      - BINANCE_RECV_WINDOW_MS=${BINANCE_RECV_WINDOW_MS:-3000}
++      - BINANCE_TIME_SYNC_INTERVAL_MS=${BINANCE_TIME_SYNC_INTERVAL_MS:-30000}
++      - USER_STREAM_STREAM=${USER_STREAM_STREAM:-orders:user_stream}
++      - USER_STREAM_CACHE_PREFIX=${USER_STREAM_CACHE_PREFIX:-orders:user_stream:}
++      - USER_STREAM_CACHE_TTL_SEC=${USER_STREAM_CACHE_TTL_SEC:-900}
++      - EXEC_USER_STREAM_ENABLE=${EXEC_USER_STREAM_ENABLE:-1}
++      - LOG_LEVEL=${LOG_LEVEL:-INFO}
++    depends_on:
++      redis-worker-1:
++        condition: service_healthy
++    networks:
++      - scanner-network
++    volumes:
++      - ./python-worker:/app
++    command:
++      - python
++      - -m
++      - services.binance_user_stream_worker
++
++  crypto-orderflow-service:
++    environment:
++      - TRADE_DQ_HARD_VETO_ENABLE=${TRADE_DQ_HARD_VETO_ENABLE:-1}
++      - TRADE_RISK_ENGINE_V2_ENABLE=${TRADE_RISK_ENGINE_V2_ENABLE:-1}
++      - PORTFOLIO_RISK_HARD_VETO=${PORTFOLIO_RISK_HARD_VETO:-1}
++      - RISK_MAX_DAILY_LOSS_PCT=${RISK_MAX_DAILY_LOSS_PCT:-2.0}
++      - RISK_MAX_TOTAL_EXPOSURE_RATIO=${RISK_MAX_TOTAL_EXPOSURE_RATIO:-2.5}
++      - RISK_MAX_SYMBOL_EXPOSURE_RATIO=${RISK_MAX_SYMBOL_EXPOSURE_RATIO:-0.75}
++      - RISK_MAX_CLUSTER_EXPOSURE_RATIO=${RISK_MAX_CLUSTER_EXPOSURE_RATIO:-1.25}
++      - RISK_TIER_A_MAX_LEVERAGE=${RISK_TIER_A_MAX_LEVERAGE:-10}
++      - RISK_TIER_B_MAX_LEVERAGE=${RISK_TIER_B_MAX_LEVERAGE:-5}
++      - RISK_TIER_C_MAX_LEVERAGE=${RISK_TIER_C_MAX_LEVERAGE:-3}
++      - REDIS_DQ_QUEUE_LAG_HARD_MS=${REDIS_DQ_QUEUE_LAG_HARD_MS:-2500}
++      - REDIS_DQ_TICK_STALE_HARD_MS=${REDIS_DQ_TICK_STALE_HARD_MS:-2500}
++      - REDIS_DQ_BOOK_STALE_HARD_MS=${REDIS_DQ_BOOK_STALE_HARD_MS:-2500}
++      - REDIS_DQ_TIMEOUT_EVENTS_HARD=${REDIS_DQ_TIMEOUT_EVENTS_HARD:-5}
++      - REDIS_DQ_XACK_FAIL_HARD=${REDIS_DQ_XACK_FAIL_HARD:-2}
++
++  grafana:
++    volumes:
++      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards-json:ro
++      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p34/config/env.execution-p5.example p5/config/env.execution-p5.example
+--- p34/config/env.execution-p5.example	1970-01-01 00:00:00.000000000 +0000
++++ p5/config/env.execution-p5.example	2026-03-06 19:55:26.271875571 +0000
+@@ -0,0 +1,46 @@
++# Execution rollout flags
++EXEC_ALGO_CANONICAL_V2=1
++EXEC_RECONCILE_ENABLE=1
++EXEC_USER_STREAM_ENABLE=1
++EXEC_MAKER_TP_ENABLE=1
++EXEC_JOURNAL_SQL_ENABLE=1
++EXEC_FORCE_SAFETY_FIRST=0
++EXEC_DEGRADED_MODE_FORCE_SAFETY_FIRST=1
++EXEC_DEGRADED_MODE_DISABLE_MAKER=1
++
++# User stream / reconcile
++USER_STREAM_STREAM=orders:user_stream
++USER_STREAM_CACHE_PREFIX=orders:user_stream:
++USER_STREAM_CACHE_TTL_SEC=900
++BINANCE_RECV_WINDOW_MS=3000
++BINANCE_TIME_SYNC_INTERVAL_MS=30000
++MAX_CLOCK_DRIFT_MS=250
++
++# Protection / watchdog
++PROTECTION_ARM_TIMEOUT_MS=2500
++TP_LIMIT_WATCHDOG_ENABLE=1
++TP_LIMIT_WATCHDOG_TIMEOUT_MS=4000
++
++# SQL execution journal
++EXECUTION_JOURNAL_DSN=postgresql://postgres:postgres@postgres:5432/trade
++
++# Pre-publish DQ / risk rollout
++TRADE_DQ_HARD_VETO_ENABLE=1
++TRADE_RISK_ENGINE_V2_ENABLE=1
++PORTFOLIO_RISK_HARD_VETO=1
++
++# Portfolio risk limits
++RISK_MAX_DAILY_LOSS_PCT=2.0
++RISK_MAX_TOTAL_EXPOSURE_RATIO=2.5
++RISK_MAX_SYMBOL_EXPOSURE_RATIO=0.75
++RISK_MAX_CLUSTER_EXPOSURE_RATIO=1.25
++RISK_TIER_A_MAX_LEVERAGE=10
++RISK_TIER_B_MAX_LEVERAGE=5
++RISK_TIER_C_MAX_LEVERAGE=3
++
++# Redis DQ thresholds
++REDIS_DQ_QUEUE_LAG_HARD_MS=2500
++REDIS_DQ_TICK_STALE_HARD_MS=2500
++REDIS_DQ_BOOK_STALE_HARD_MS=2500
++REDIS_DQ_TIMEOUT_EVENTS_HARD=5
++REDIS_DQ_XACK_FAIL_HARD=2
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p34/monitoring/grafana/dashboards/trade_execution_p5.json p5/monitoring/grafana/dashboards/trade_execution_p5.json
+--- p34/monitoring/grafana/dashboards/trade_execution_p5.json	1970-01-01 00:00:00.000000000 +0000
++++ p5/monitoring/grafana/dashboards/trade_execution_p5.json	2026-03-06 19:55:52.025598865 +0000
+@@ -0,0 +1,78 @@
++{
++  "annotations": {"list": []},
++  "editable": true,
++  "graphTooltip": 0,
++  "panels": [
++    {
++      "type": "timeseries",
++      "title": "Execution emergency flatten total",
++      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
++      "targets": [{"expr": "sum by (symbol,reason) (increase(execution_emergency_flatten_total[15m]))", "refId": "A"}],
++      "fieldConfig": {"defaults": {}, "overrides": []},
++      "options": {"legend": {"displayMode": "table", "placement": "bottom"}}
++    },
++    {
++      "type": "timeseries",
++      "title": "Execution reconcile pending",
++      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
++      "targets": [{"expr": "sum by (action,symbol) (increase(execution_reconcile_pending_total[15m]))", "refId": "A"}],
++      "fieldConfig": {"defaults": {}, "overrides": []},
++      "options": {"legend": {"displayMode": "table", "placement": "bottom"}}
++    },
++    {
++      "type": "timeseries",
++      "title": "Hard DQ veto rate",
++      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
++      "targets": [{"expr": "sum by (symbol) (increase(trade_dq_hard_veto_total[15m]))", "refId": "A"}],
++      "fieldConfig": {"defaults": {}, "overrides": []},
++      "options": {"legend": {"displayMode": "table", "placement": "bottom"}}
++    },
++    {
++      "type": "timeseries",
++      "title": "Portfolio risk force flatten",
++      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
++      "targets": [{"expr": "sum by (symbol,reason) (increase(trade_risk_force_flatten_total[15m]))", "refId": "A"}],
++      "fieldConfig": {"defaults": {}, "overrides": []},
++      "options": {"legend": {"displayMode": "table", "placement": "bottom"}}
++    },
++    {
++      "type": "timeseries",
++      "title": "Portfolio exposure ratios",
++      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 16},
++      "targets": [
++        {"expr": "trade_portfolio_total_exposure_ratio", "refId": "A", "legendFormat": "total"},
++        {"expr": "max by (symbol) (trade_portfolio_symbol_exposure_ratio)", "refId": "B", "legendFormat": "symbol {{symbol}}"},
++        {"expr": "max by (cluster) (trade_portfolio_cluster_exposure_ratio)", "refId": "C", "legendFormat": "cluster {{cluster}}"}
++      ],
++      "fieldConfig": {"defaults": {"unit": "percentunit"}, "overrides": []},
++      "options": {"legend": {"displayMode": "table", "placement": "bottom"}}
++    },
++    {
++      "type": "timeseries",
++      "title": "Execution journal write failures",
++      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 16},
++      "targets": [{"expr": "sum by (kind) (increase(trade_execution_journal_write_fail_total[15m]))", "refId": "A"}],
++      "fieldConfig": {"defaults": {}, "overrides": []},
++      "options": {"legend": {"displayMode": "table", "placement": "bottom"}}
++    },
++    {
++      "type": "timeseries",
++      "title": "Maker TP watchdog fallback",
++      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 25},
++      "targets": [{"expr": "sum by (symbol) (increase(execution_state_transition_total{next_state=~\"TP[123]_WATCHDOG_MARKET_FALLBACK\"}[15m]))", "refId": "A"}],
++      "fieldConfig": {"defaults": {}, "overrides": []},
++      "options": {"legend": {"displayMode": "table", "placement": "bottom"}}
++    }
++  ],
++  "refresh": "30s",
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": ["trade", "execution", "p5"],
++  "templating": {"list": []},
++  "time": {"from": "now-6h", "to": "now"},
++  "timepicker": {},
++  "timezone": "utc",
++  "title": "Trade Execution P5",
++  "uid": "trade-execution-p5",
++  "version": 1
++}
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p34/monitoring/grafana/provisioning/dashboards/trade_execution_p5.yml p5/monitoring/grafana/provisioning/dashboards/trade_execution_p5.yml
+--- p34/monitoring/grafana/provisioning/dashboards/trade_execution_p5.yml	1970-01-01 00:00:00.000000000 +0000
++++ p5/monitoring/grafana/provisioning/dashboards/trade_execution_p5.yml	2026-03-06 19:55:26.283103638 +0000
+@@ -0,0 +1,12 @@
++apiVersion: 1
++
++providers:
++  - name: trade-execution-p5
++    orgId: 1
++    folder: Trade Execution
++    type: file
++    disableDeletion: false
++    editable: true
++    updateIntervalSeconds: 30
++    options:
++      path: /etc/grafana/provisioning/dashboards-json
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p34/runbooks/DEGRADED_MODE.md p5/runbooks/DEGRADED_MODE.md
+--- p34/runbooks/DEGRADED_MODE.md	1970-01-01 00:00:00.000000000 +0000
++++ p5/runbooks/DEGRADED_MODE.md	2026-03-06 19:58:08.695042607 +0000
+@@ -0,0 +1,38 @@
++# Runbook — Degraded Mode
++
++## Что такое degraded mode
++Режим, в котором система продолжает работать, но приоритет меняется:
++- safety > maker fee optimization
++- deterministic close > aggressive entry rate
++- less new risk > more throughput
++
++## Когда включать
++- Redis stream timeout burst
++- negative age / clock drift incidents
++- Binance 503 unknown spike
++- user stream reconnect churn
++- queue lag / book staleness / tick staleness breaches
++
++## Флаги degraded mode
++```env
++EXEC_DEGRADED_MODE_FORCE_SAFETY_FIRST=1
++EXEC_DEGRADED_MODE_DISABLE_MAKER=1
++TRADE_DQ_HARD_VETO_ENABLE=1
++TRADE_RISK_ENGINE_V2_ENABLE=1
++```
++
++## Operational effect
++- new maker ladder exits are disabled
++- resolver forces `SAFETY_FIRST`
++- pre-publish DQ/risk veto stays active
++- journal + metrics stay on for incident visibility
++
++## Recommended actions
++1. Проверить Grafana dashboard `Trade Execution P5`.
++2. Проверить, не растёт ли:
++   - `execution_reconcile_pending_total`
++   - `trade_dq_hard_veto_total`
++   - `trade_execution_journal_write_fail_total`
++3. Если degraded mode не stabilizes system:
++   - включить `EXEC_FORCE_SAFETY_FIRST=1`
++   - при необходимости сделать P5 rollback.
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p34/runbooks/EMERGENCY_FLATTEN.md p5/runbooks/EMERGENCY_FLATTEN.md
+--- p34/runbooks/EMERGENCY_FLATTEN.md	1970-01-01 00:00:00.000000000 +0000
++++ p5/runbooks/EMERGENCY_FLATTEN.md	2026-03-06 19:58:08.683700222 +0000
+@@ -0,0 +1,37 @@
++# Runbook — Emergency Flatten
++
++## Когда применять
++- protection not confirmed after `ENTRY_FILLED`
++- reconcile не может доказать фактический статус exit order
++- position state в Redis расходится с exchange state
++- high-severity incident с потерей determinism
++
++## Цель
++Снизить экспозицию как можно быстрее. Приоритет — закрыть риск, а не сохранить maker-fee экономию.
++
++## Алгоритм
++1. Отключить новые maker exits:
++   ```env
++   EXEC_MAKER_TP_ENABLE=0
++   EXEC_FORCE_SAFETY_FIRST=1
++   ```
++2. Убедиться, что executor работает с plain high-priority reduce path.
++3. Для affected `sid` / `symbol`:
++   - query current position
++   - query open plain orders
++   - query open algo orders
++   - отменить orphan algo/plain exits
++   - отправить market reduce-exposure close
++4. Записать факт в `orders:exec` и SQL journal.
++
++## Redis quick checks
++```bash
++redis-cli XREVRANGE orders:exec + - COUNT 20
++redis-cli GET orders:state:<SID>
++redis-cli KEYS 'orders:user_stream:*'
++```
++
++## Post-check
++- positionAmt == 0
++- open algo orders for symbol == 0
++- state in Redis updated to `EMERGENCY_FLATTENED` or `EXIT_FILLED`
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p34/runbooks/ROLLBACK_EXECUTION_P5.md p5/runbooks/ROLLBACK_EXECUTION_P5.md
+--- p34/runbooks/ROLLBACK_EXECUTION_P5.md	1970-01-01 00:00:00.000000000 +0000
++++ p5/runbooks/ROLLBACK_EXECUTION_P5.md	2026-03-06 19:58:08.668204751 +0000
+@@ -0,0 +1,52 @@
++# Rollback Runbook — Execution P5
++
++## Цель
++Быстро откатить P5-слой без остановки всего стека и без ручного патча кода.
++
++## Симптомы, когда нужен rollback
++- всплеск `execution_emergency_flatten_total`
++- рост `execution_reconcile_pending_total`
++- частые `trade_execution_journal_write_fail_total`
++- аномальный рост `trade_dq_hard_veto_total`
++- рост `trade_risk_force_flatten_total`
++- maker watchdog fallback происходит чаще ожидаемого baseline
++
++## Быстрый rollback (предпочтительно)
++В `.env.execution-p5.example` / prod env переключить:
++
++```env
++EXEC_MAKER_TP_ENABLE=0
++EXEC_USER_STREAM_ENABLE=0
++EXEC_RECONCILE_ENABLE=0
++EXEC_JOURNAL_SQL_ENABLE=0
++TRADE_DQ_HARD_VETO_ENABLE=0
++TRADE_RISK_ENGINE_V2_ENABLE=0
++EXEC_FORCE_SAFETY_FIRST=1
++```
++
++Затем перезапустить только affected services:
++
++```bash
++docker compose \
++  -f config/docker-compose-binance.yml \
++  -f config/docker-compose-crypto-orderflow.yml \
++  -f config/docker-compose.execution-p5.override.yml \
++  up -d --force-recreate binance-executor crypto-orderflow-service
++```
++
++## Жёсткий rollback overlay
++Если rollback должен быть максимально простым, убрать P5 overlay:
++
++```bash
++docker compose \
++  -f config/docker-compose-binance.yml \
++  -f config/docker-compose-crypto-orderflow.yml \
++  up -d --force-recreate
++```
++
++## После rollback
++Проверить:
++- `EXEC_FORCE_SAFETY_FIRST=1`
++- нет новых `TP*_WATCHDOG_MARKET_FALLBACK`
++- `execution_reconcile_pending_total` перестал расти
++- `orders:user_stream` можно оставить отключённым до разбора
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p34/scripts/backfill_execution_journal_from_orders_exec.py p5/scripts/backfill_execution_journal_from_orders_exec.py
+--- p34/scripts/backfill_execution_journal_from_orders_exec.py	1970-01-01 00:00:00.000000000 +0000
++++ p5/scripts/backfill_execution_journal_from_orders_exec.py	2026-03-06 19:57:28.213169479 +0000
+@@ -0,0 +1,250 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Backfill execution journal tables from Redis `orders:exec` stream.
++
++Purpose
++-------
++When P5 is rolled out after Redis stream facts have already been produced, the
++SQL execution journal must be backfilled so incident analysis and Grafana/BI
++queries can span pre- and post-cutover periods.
++
++Design notes
++------------
++* Redis stream remains the primary online source of truth.
++* Backfill is intentionally append-friendly and idempotent on the SQL side via
++  `ON CONFLICT DO NOTHING` / `UPSERT` patterns.
++* Snapshot rows are derived from the latest seen event per `sid` while preserving
++  raw JSON payloads for forensic review.
++* The script does not assume every stream message has identical fields.
++"""
++
++import argparse
++import json
++import os
++from dataclasses import dataclass
++from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
++
++
++@dataclass(frozen=True)
++class ExecEventRow:
++    stream_id: str
++    sid: str
++    symbol: str
++    event_type: str
++    event_ts_ms: int
++    payload_jsonb: str
++
++
++@dataclass(frozen=True)
++class ExecSnapshotRow:
++    sid: str
++    symbol: str
++    action: str
++    status: str
++    fsm_state: str
++    execution_policy: str
++    venue: str
++    position_mode: str
++    position_side: str
++    working_type_policy: str
++    state_jsonb: str
++    created_at_ms: int
++    updated_at_ms: int
++
++
++@dataclass(frozen=True)
++class ProtectionRefsRow:
++    sid: str
++    symbol: str
++    sl_algo_id: Optional[int]
++    sl_client_algo_id: str
++    tp1_algo_id: Optional[int]
++    tp2_algo_id: Optional[int]
++    tp3_algo_id: Optional[int]
++    trail_algo_id: Optional[int]
++    trail_client_algo_id: str
++    updated_at_ms: int
++
++
++def _i(v: Any, default: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return int(default)
++
++
++def parse_exec_stream_entry(stream_id: str, fields: Dict[str, Any]) -> ExecEventRow:
++    payload = {str(k): v for k, v in dict(fields or {}).items()}
++    return ExecEventRow(
++        stream_id=str(stream_id),
++        sid=str(payload.get("sid") or ""),
++        symbol=str(payload.get("symbol") or ""),
++        event_type=str(payload.get("event_type") or payload.get("action") or "event"),
++        event_ts_ms=_i(payload.get("ts_ms") or 0),
++        payload_jsonb=json.dumps(payload, ensure_ascii=False, default=str),
++    )
++
++
++def derive_snapshot_rows(events: Iterable[ExecEventRow]) -> Tuple[List[ExecSnapshotRow], List[ProtectionRefsRow]]:
++    latest_by_sid: Dict[str, Dict[str, Any]] = {}
++    for ev in events:
++        try:
++            payload = json.loads(ev.payload_jsonb)
++        except Exception:
++            payload = {}
++        sid = str(payload.get("sid") or ev.sid or "")
++        if not sid:
++            continue
++        doc = latest_by_sid.get(sid, {})
++        if not doc:
++            created_at_ms = ev.event_ts_ms or _i(payload.get("created_at_ms"), 0)
++        else:
++            created_at_ms = int(doc.get("created_at_ms") or ev.event_ts_ms or 0)
++        merged = dict(doc)
++        merged.update(payload)
++        merged.setdefault("sid", sid)
++        merged.setdefault("symbol", ev.symbol)
++        merged["created_at_ms"] = created_at_ms
++        merged["updated_at_ms"] = max(int(merged.get("updated_at_ms") or 0), int(ev.event_ts_ms or 0))
++        latest_by_sid[sid] = merged
++
++    snapshots: List[ExecSnapshotRow] = []
++    refs: List[ProtectionRefsRow] = []
++    for sid, doc in latest_by_sid.items():
++        snapshots.append(
++            ExecSnapshotRow(
++                sid=sid,
++                symbol=str(doc.get("symbol") or ""),
++                action=str(doc.get("action") or ""),
++                status=str(doc.get("status") or ""),
++                fsm_state=str(doc.get("fsm_state") or ""),
++                execution_policy=str(doc.get("execution_policy") or ""),
++                venue=str(doc.get("venue") or "binance"),
++                position_mode=str(doc.get("position_mode") or ""),
++                position_side=str(doc.get("position_side") or ""),
++                working_type_policy=str(doc.get("working_type_policy") or ""),
++                state_jsonb=json.dumps(doc, ensure_ascii=False, default=str),
++                created_at_ms=_i(doc.get("created_at_ms") or doc.get("ts_ms") or 0),
++                updated_at_ms=_i(doc.get("updated_at_ms") or doc.get("ts_ms") or 0),
++            )
++        )
++        refs.append(
++            ProtectionRefsRow(
++                sid=sid,
++                symbol=str(doc.get("symbol") or ""),
++                sl_algo_id=_i(doc.get("sl_algo_id"), 0) or None,
++                sl_client_algo_id=str(doc.get("sl_client_algo_id") or ""),
++                tp1_algo_id=_i(doc.get("tp1_algo_id"), 0) or None,
++                tp2_algo_id=_i(doc.get("tp2_algo_id"), 0) or None,
++                tp3_algo_id=_i(doc.get("tp3_algo_id"), 0) or None,
++                trail_algo_id=_i(doc.get("trail_algo_id"), 0) or None,
++                trail_client_algo_id=str(doc.get("trail_client_algo_id") or ""),
++                updated_at_ms=_i(doc.get("updated_at_ms") or doc.get("ts_ms") or 0),
++            )
++        )
++    return snapshots, refs
++
++
++def _iter_stream(redis_client: Any, stream: str, count: int = 1000) -> Iterator[ExecEventRow]:
++    cursor = "-"
++    while True:
++        rows = redis_client.xrange(stream, min=cursor, max="+", count=count)
++        if not rows:
++            break
++        for stream_id, fields in rows:
++            yield parse_exec_stream_entry(stream_id, fields)
++            cursor = stream_id
++        # advance after the last emitted id to avoid endless repetition
++        major, _, minor = str(cursor).partition("-")
++        cursor = f"{major}-{int(minor or 0) + 1}"
++
++
++def _connect_redis():
++    import redis  # type: ignore
++    return redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True)
++
++
++def _connect_pg(dsn: str):
++    try:
++        import psycopg  # type: ignore
++        return psycopg.connect(dsn)
++    except Exception:  # pragma: no cover
++        import psycopg2  # type: ignore
++        return psycopg2.connect(dsn)
++
++
++def _write_pg(conn: Any, events: Iterable[ExecEventRow], snapshots: Iterable[ExecSnapshotRow], refs: Iterable[ProtectionRefsRow]) -> None:
++    with conn:
++        with conn.cursor() as cur:
++            for ev in events:
++                cur.execute(
++                    "INSERT INTO execution_order_events (sid, symbol, event_type, event_ts_ms, payload_jsonb) VALUES (%s,%s,%s,%s,%s::jsonb) ON CONFLICT DO NOTHING",
++                    (ev.sid, ev.symbol, ev.event_type, ev.event_ts_ms, ev.payload_jsonb),
++                )
++            for row in snapshots:
++                cur.execute(
++                    """
++                    INSERT INTO execution_orders (sid, symbol, action, status, fsm_state, execution_policy, venue, position_mode, position_side, working_type_policy, state_jsonb, created_at_ms, updated_at_ms)
++                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
++                    ON CONFLICT (sid) DO UPDATE SET
++                      symbol = EXCLUDED.symbol,
++                      action = EXCLUDED.action,
++                      status = EXCLUDED.status,
++                      fsm_state = EXCLUDED.fsm_state,
++                      execution_policy = EXCLUDED.execution_policy,
++                      venue = EXCLUDED.venue,
++                      position_mode = EXCLUDED.position_mode,
++                      position_side = EXCLUDED.position_side,
++                      working_type_policy = EXCLUDED.working_type_policy,
++                      state_jsonb = EXCLUDED.state_jsonb,
++                      updated_at_ms = GREATEST(execution_orders.updated_at_ms, EXCLUDED.updated_at_ms)
++                    """,
++                    (row.sid, row.symbol, row.action, row.status, row.fsm_state, row.execution_policy, row.venue, row.position_mode, row.position_side, row.working_type_policy, row.state_jsonb, row.created_at_ms, row.updated_at_ms),
++                )
++            for row in refs:
++                cur.execute(
++                    """
++                    INSERT INTO execution_protection_refs (sid, symbol, sl_algo_id, sl_client_algo_id, tp1_algo_id, tp2_algo_id, tp3_algo_id, trail_algo_id, trail_client_algo_id, updated_at_ms)
++                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
++                    ON CONFLICT (sid) DO UPDATE SET
++                      symbol = EXCLUDED.symbol,
++                      sl_algo_id = COALESCE(EXCLUDED.sl_algo_id, execution_protection_refs.sl_algo_id),
++                      sl_client_algo_id = COALESCE(NULLIF(EXCLUDED.sl_client_algo_id, ''), execution_protection_refs.sl_client_algo_id),
++                      tp1_algo_id = COALESCE(EXCLUDED.tp1_algo_id, execution_protection_refs.tp1_algo_id),
++                      tp2_algo_id = COALESCE(EXCLUDED.tp2_algo_id, execution_protection_refs.tp2_algo_id),
++                      tp3_algo_id = COALESCE(EXCLUDED.tp3_algo_id, execution_protection_refs.tp3_algo_id),
++                      trail_algo_id = COALESCE(EXCLUDED.trail_algo_id, execution_protection_refs.trail_algo_id),
++                      trail_client_algo_id = COALESCE(NULLIF(EXCLUDED.trail_client_algo_id, ''), execution_protection_refs.trail_client_algo_id),
++                      updated_at_ms = GREATEST(execution_protection_refs.updated_at_ms, EXCLUDED.updated_at_ms)
++                    """,
++                    (row.sid, row.symbol, row.sl_algo_id, row.sl_client_algo_id, row.tp1_algo_id, row.tp2_algo_id, row.tp3_algo_id, row.trail_algo_id, row.trail_client_algo_id, row.updated_at_ms),
++                )
++
++
++def main(argv: Optional[List[str]] = None) -> int:
++    parser = argparse.ArgumentParser(description="Backfill execution journal SQL tables from Redis orders:exec stream.")
++    parser.add_argument("--stream", default=os.getenv("EXEC_STREAM", "orders:exec"))
++    parser.add_argument("--journal-dsn", default=os.getenv("EXECUTION_JOURNAL_DSN", ""))
++    parser.add_argument("--dry-run", action="store_true")
++    args = parser.parse_args(argv)
++
++    if not args.journal_dsn and not args.dry_run:
++        raise SystemExit("EXECUTION_JOURNAL_DSN/--journal-dsn is required unless --dry-run is used")
++
++    r = _connect_redis()
++    events = list(_iter_stream(r, args.stream))
++    snapshots, refs = derive_snapshot_rows(events)
++    print(f"loaded events={len(events)} snapshots={len(snapshots)} refs={len(refs)} from stream={args.stream}")
++
++    if args.dry_run:
++        return 0
++
++    conn = _connect_pg(args.journal_dsn)
++    _write_pg(conn, events, snapshots, refs)
++    print("backfill completed")
++    return 0
++
++
++if __name__ == "__main__":  # pragma: no cover
++    raise SystemExit(main())

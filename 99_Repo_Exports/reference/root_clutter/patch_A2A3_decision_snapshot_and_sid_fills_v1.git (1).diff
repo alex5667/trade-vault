@@ -1,0 +1,746 @@
+diff -ruN python-worker/services/orderflow/decision_ctx_fields.py python-worker/services/orderflow/decision_ctx_fields.py
+--- python-worker/services/orderflow/decision_ctx_fields.py	1970-01-01 00:00:00.000000000 +0000
++++ python-worker/services/orderflow/decision_ctx_fields.py	2026-03-06 20:09:34.791905950 +0000
+@@ -0,0 +1,235 @@
++
++from __future__ import annotations
++
++"""Decision-context enrichment for post-trade analysis (A1).
++
++This module freezes a minimal "decision snapshot" into the in-flight ctx right before EMIT.
++It is intentionally **fail-open** and must never block signal publishing.
++
++Why:
++- TCA requires a stable join key (sid) and decision/arrival price/time.
++- In event-time systems we must separate:
++    ts_event_ms  (exchange time) vs ts_emit_ms (decision time) vs ts_fill_ms (execution).
++
++Design constraints:
++- Deterministic timestamps: prefer values already present in ctx (tick_ts/ts_ms/ts_emit_ms).
++- Low overhead: only cheap computations (bbo, simple depth/slope proxies).
++"""
++
++from typing import Any, Dict, Optional
++import math
++
++
++def _safe_float(v: Any) -> Optional[float]:
++    try:
++        f = float(v)
++    except Exception:
++        return None
++    if not math.isfinite(f):
++        return None
++    return float(f)
++
++
++def _bbo_from_runtime(runtime: Any) -> tuple[Optional[float], Optional[float]]:
++    """Best-effort read of best bid/ask from runtime.last_book."""
++    try:
++        book = getattr(runtime, 'last_book', None)
++        if not isinstance(book, dict):
++            return None, None
++        bids = book.get('bids') or []
++        asks = book.get('asks') or []
++        bid = _safe_float(bids[0][0]) if bids else None
++        ask = _safe_float(asks[0][0]) if asks else None
++        return bid, ask
++    except Exception:
++        return None, None
++
++
++def _depth_notional(book_side: list, n: int) -> Optional[float]:
++    """Sum price*qty for top-N levels (notional)."""
++    try:
++        if not book_side:
++            return None
++        s = 0.0
++        k = 0
++        for lvl in book_side[:n]:
++            if not isinstance(lvl, (list, tuple)) or len(lvl) < 2:
++                continue
++            p = _safe_float(lvl[0])
++            q = _safe_float(lvl[1])
++            if p is None or q is None:
++                continue
++            s += p * q
++            k += 1
++        return float(s) if k > 0 else None
++    except Exception:
++        return None
++
++
++def _book_slope(book_side: list, mid: float, is_bid: bool, n: int = 10) -> Optional[float]:
++    """A cheap liquidity gradient proxy: sum(notional_i / dist_bps_i).
++
++    - For bids: dist_bps = (mid - price)/mid*1e4
++    - For asks: dist_bps = (price - mid)/mid*1e4
++
++    We cap dist_bps at >= 0.1 to avoid blow-ups.
++    """
++    try:
++        if not book_side or mid <= 0:
++            return None
++        acc = 0.0
++        used = 0
++        for lvl in book_side[:n]:
++            if not isinstance(lvl, (list, tuple)) or len(lvl) < 2:
++                continue
++            p = _safe_float(lvl[0])
++            q = _safe_float(lvl[1])
++            if p is None or q is None:
++                continue
++            dist_bps = ((mid - p) / mid * 10000.0) if is_bid else ((p - mid) / mid * 10000.0)
++            if dist_bps <= 0:
++                continue
++            dist_bps = max(dist_bps, 0.1)
++            acc += (p * q) / dist_bps
++            used += 1
++        return float(acc) if used > 0 else None
++    except Exception:
++        return None
++
++
++def _dws_bps(book: dict, mid: float, n: int = 5) -> Optional[float]:
++    """Depth-weighted spread proxy via VWAP(topN asks) - VWAP(topN bids), in bps."""
++    try:
++        if not book or mid <= 0:
++            return None
++        bids = book.get('bids') or []
++        asks = book.get('asks') or []
++        def vwap(side):
++            num = den = 0.0
++            for lvl in side[:n]:
++                if not isinstance(lvl, (list, tuple)) or len(lvl) < 2:
++                    continue
++                p = _safe_float(lvl[0]); q = _safe_float(lvl[1])
++                if p is None or q is None or q <= 0:
++                    continue
++                num += p*q
++                den += q
++            return (num/den) if den > 0 else None
++        vbid = vwap(bids)
++        vask = vwap(asks)
++        if vbid is None or vask is None:
++            return None
++        return float((vask - vbid) / mid * 10000.0)
++    except Exception:
++        return None
++
++
++def ensure_decision_ctx_fields(
++    ctx: Dict[str, Any],
++    *,
++    indicators: Optional[Dict[str, Any]] = None,
++    runtime: Any = None,
++    now_ms: Optional[int] = None,
++) -> Dict[str, Any]:
++    """Enrich ctx with decision_* fields.
++
++    This function mutates ctx in-place and returns it for convenience.
++    """
++    indicators = indicators or {}
++
++    # decision timestamp
++    ts_emit = ctx.get('ts_emit_ms')
++    if ts_emit is None:
++        # prefer deterministic sources
++        ts_emit = ctx.get('tick_ts') or ctx.get('ts_ms') or ctx.get('ts') or now_ms
++        if ts_emit is not None:
++            ctx['ts_emit_ms'] = int(ts_emit)
++    decision_ts_ms = int(ctx.get('decision_ts_ms') or ctx.get('ts_emit_ms') or 0)
++    if decision_ts_ms > 0:
++        ctx['decision_ts_ms'] = decision_ts_ms
++
++    # resolve bid/ask
++    bid = _safe_float(ctx.get('decision_bid'))
++    ask = _safe_float(ctx.get('decision_ask'))
++    if bid is None:
++        bid = _safe_float(ctx.get('best_bid') or ctx.get('bid') or (ctx.get('micro') or {}).get('best_bid'))
++    if ask is None:
++        ask = _safe_float(ctx.get('best_ask') or ctx.get('ask') or (ctx.get('micro') or {}).get('best_ask'))
++    if runtime is not None and (bid is None or ask is None):
++        rb, ra = _bbo_from_runtime(runtime)
++        bid = bid if bid is not None else rb
++        ask = ask if ask is not None else ra
++
++    flags: list[str] = []
++    if bid is None or ask is None:
++        flags.append('missing_bbo')
++
++    mid = _safe_float(ctx.get('decision_mid'))
++    if mid is None and bid is not None and ask is not None:
++        mid = (bid + ask) / 2.0
++
++    if mid is None or mid <= 0:
++        flags.append('bad_mid')
++
++    # crossed book
++    if bid is not None and ask is not None and bid >= ask:
++        flags.append('crossed_bbo')
++
++    spread_bps = _safe_float(ctx.get('decision_spread_bps'))
++    if spread_bps is None and mid and mid > 0 and bid is not None and ask is not None:
++        spread_bps = (ask - bid) / mid * 10000.0
++
++    if spread_bps is not None and spread_bps < 0:
++        flags.append('bad_spread')
++    if spread_bps is not None and spread_bps > 5000:
++        flags.append('spread_insane')
++
++    # depth/slope/dws best-effort
++    book = getattr(runtime, 'last_book', None) if runtime is not None else None
++    if isinstance(book, dict):
++        db5 = _depth_notional(book.get('bids') or [], 5)
++        da5 = _depth_notional(book.get('asks') or [], 5)
++        db20 = _depth_notional(book.get('bids') or [], 20)
++        da20 = _depth_notional(book.get('asks') or [], 20)
++        if db5 is not None: ctx.setdefault('decision_depth_bid_5', float(db5))
++        if da5 is not None: ctx.setdefault('decision_depth_ask_5', float(da5))
++        if db20 is not None: ctx.setdefault('decision_depth_bid_20', float(db20))
++        if da20 is not None: ctx.setdefault('decision_depth_ask_20', float(da20))
++        if mid is not None and mid > 0:
++            sb = _book_slope(book.get('bids') or [], mid, True)
++            sa = _book_slope(book.get('asks') or [], mid, False)
++            if sb is not None: ctx.setdefault('decision_book_slope_bid', float(sb))
++            if sa is not None: ctx.setdefault('decision_book_slope_ask', float(sa))
++            dws = _dws_bps(book, mid)
++            if dws is not None: ctx.setdefault('decision_dws_bps', float(dws))
++
++    # override from indicators if present
++    for k_src, k_dst in [
++        ('book_slope_bid', 'decision_book_slope_bid'),
++        ('book_slope_ask', 'decision_book_slope_ask'),
++        ('dws_bps', 'decision_dws_bps'),
++        ('ofi_norm', 'decision_ofi_norm'),
++        ('expected_slippage_bps', 'decision_expected_slippage_bps'),
++        ('exec_risk_norm', 'decision_exec_risk_norm'),
++    ]:
++        v = _safe_float(indicators.get(k_src))
++        if v is not None:
++            ctx[k_dst] = float(v)
++
++    # set canonical decision_* primitives
++    if bid is not None: ctx['decision_bid'] = float(bid)
++    if ask is not None: ctx['decision_ask'] = float(ask)
++    if mid is not None: ctx['decision_mid'] = float(mid)
++    if spread_bps is not None: ctx['decision_spread_bps'] = float(spread_bps)
++
++    # decision_price: start with mid
++    if mid is not None:
++        ctx.setdefault('decision_price', float(mid))
++
++    # audit fields
++    ctx['book_sanity_flags'] = flags
++    sid = ctx.get('sid') or ctx.get('signal_id')
++    tca_ready = bool(sid) and (decision_ts_ms > 0) and (mid is not None and mid > 0) and ('missing_bbo' not in flags) and ('crossed_bbo' not in flags)
++    ctx['tca_ready'] = bool(tca_ready)
++
++    return ctx
+diff -ruN python-worker/services/orderflow/decision_snapshot.py python-worker/services/orderflow/decision_snapshot.py
+--- python-worker/services/orderflow/decision_snapshot.py	1970-01-01 00:00:00.000000000 +0000
++++ python-worker/services/orderflow/decision_snapshot.py	2026-03-06 20:09:34.792477825 +0000
+@@ -0,0 +1,107 @@
++
++from __future__ import annotations
++
++"""Decision snapshot builder + publisher (A2).
++
++This event is the warm-path input for post-trade TCA (effective/realized spreads, IS, impact).
++It must be compact, joinable and idempotent-friendly.
++
++Stream contract:
++- Redis Stream: events:decision_snapshot
++- Field: payload (JSON)
++- Required keys:
++    schema_version, producer, sid, symbol, decision_ts_ms,
++    decision_mid (and decision_bid/decision_ask), direction
++
++Fail-open: publishing errors must never block signal emission.
++"""
++
++import os
++from typing import Any, Dict, Optional
++
++from services.async_signal_publisher import AsyncSignalPublisher, StreamSink
++
++
++def _pick(d: Dict[str, Any], *keys: str) -> Any:
++    for k in keys:
++        if k in d and d.get(k) is not None:
++            return d.get(k)
++    return None
++
++
++def build_decision_snapshot(
++    ctx: Dict[str, Any],
++    *,
++    runtime: Any = None,
++    indicators: Optional[Dict[str, Any]] = None,
++    schema_version: int = 1,
++) -> Dict[str, Any]:
++    indicators = indicators or {}
++
++    sid = str(_pick(ctx, 'sid', 'signal_id') or '')
++    symbol = str(_pick(ctx, 'symbol') or getattr(runtime, 'symbol', '') or '')
++    direction = str(_pick(ctx, 'direction') or '').upper()
++
++    # decision time
++    decision_ts_ms = int(_pick(ctx, 'decision_ts_ms', 'ts_emit_ms', 'tick_ts', 'ts_ms', 'ts') or 0)
++
++    # venue/session/tf/kind are best-effort (do not block)
++    venue = str(_pick(ctx, 'venue') or getattr(getattr(runtime, 'config', None), 'get', lambda *_: None)('venue') if runtime is not None else None or os.getenv('VENUE', 'binance'))
++    session = str(_pick(ctx, 'session') or indicators.get('session') or '')
++    tf = str(_pick(ctx, 'tf') or indicators.get('tf') or '')
++    kind = str(_pick(ctx, 'kind') or indicators.get('kind') or '')
++
++    snap: Dict[str, Any] = {
++        'schema_version': int(schema_version),
++        'producer': str(os.getenv('SERVICE_NAME', 'python-worker')),
++        'sid': sid,
++        'signal_id': str(_pick(ctx, 'signal_id') or sid),
++        'symbol': symbol,
++        'venue': venue,
++        'session': session,
++        'tf': tf,
++        'kind': kind,
++        'direction': direction,
++        'side': 'LONG' if direction == 'LONG' else ('SHORT' if direction == 'SHORT' else ''),
++        'decision_ts_ms': int(decision_ts_ms),
++        # core prices
++        'decision_bid': _pick(ctx, 'decision_bid'),
++        'decision_ask': _pick(ctx, 'decision_ask'),
++        'decision_mid': _pick(ctx, 'decision_mid'),
++        'decision_spread_bps': _pick(ctx, 'decision_spread_bps'),
++        'decision_price': _pick(ctx, 'decision_price', 'decision_mid'),
++        # liquidity geometry (best-effort)
++        'decision_depth_bid_5': _pick(ctx, 'decision_depth_bid_5'),
++        'decision_depth_ask_5': _pick(ctx, 'decision_depth_ask_5'),
++        'decision_depth_bid_20': _pick(ctx, 'decision_depth_bid_20'),
++        'decision_depth_ask_20': _pick(ctx, 'decision_depth_ask_20'),
++        'decision_book_slope_bid': _pick(ctx, 'decision_book_slope_bid'),
++        'decision_book_slope_ask': _pick(ctx, 'decision_book_slope_ask'),
++        'decision_dws_bps': _pick(ctx, 'decision_dws_bps'),
++        # flow toxicity (best-effort)
++        'decision_ofi_norm': _pick(ctx, 'decision_ofi_norm'),
++        # exec model inputs (best-effort)
++        'decision_expected_slippage_bps': _pick(ctx, 'decision_expected_slippage_bps'),
++        'decision_exec_risk_norm': _pick(ctx, 'decision_exec_risk_norm'),
++        # audit
++        'tca_ready': bool(ctx.get('tca_ready')),
++        'book_sanity_flags': list(ctx.get('book_sanity_flags') or []),
++    }
++
++    return snap
++
++
++async def publish_decision_snapshot(
++    *,
++    publisher: AsyncSignalPublisher,
++    snapshot: Dict[str, Any],
++    stream: str,
++    maxlen: int,
++    symbol: str,
++) -> None:
++    # Best-effort; let exceptions bubble to caller for logging (caller must fail-open).
++    await publisher.xadd_json(
++        sink=StreamSink(name=str(stream), field='payload', maxlen=int(maxlen)),
++        payload=snapshot,
++        symbol=str(symbol),
++    )
+diff -ruN python-worker/services/orderflow/signal_pipeline.py python-worker/services/orderflow/signal_pipeline.py
+--- python-worker/services/orderflow/signal_pipeline.py	2026-03-06 20:09:32.233040521 +0000
++++ python-worker/services/orderflow/signal_pipeline.py	2026-03-06 20:11:14.890850633 +0000
+@@ -71,6 +71,21 @@
+         self._rs_gate = RegimeSessionGate.from_env()
+         self._rejected_signal_stream = os.getenv("CRYPTO_REJECTED_SIGNAL_STREAM", "signals:crypto:rejected")
+ 
++
++        # ------------------------------------------------------------------
++        # Decision Snapshot (A2)
++        # ------------------------------------------------------------------
++        # Purpose: store a compact, joinable decision snapshot for post-trade TCA.
++        # - This is NOT a trading signal stream. It is a warm-path input.
++        # - Must be fail-open: never block main signal publishing.
++        #
++        # Contract: Redis Stream `events:decision_snapshot` with field `payload` (JSON).
++        # Keys must include: sid, symbol, venue, decision_ts_ms, decision_mid (+ bid/ask).
++        self.decision_snapshot_publish_enabled = bool(int(os.getenv("DECISION_SNAPSHOT_PUBLISH_ENABLED", "1") or 1))
++        self.decision_snapshot_stream = os.getenv("DECISION_SNAPSHOT_STREAM", "events:decision_snapshot")
++        self.decision_snapshot_stream_maxlen = int(os.getenv("DECISION_SNAPSHOT_STREAM_MAXLEN", "200000") or 200000)
++        self.decision_snapshot_schema_version = int(os.getenv("DECISION_SNAPSHOT_SCHEMA_VERSION", "1") or 1)
++
+         # TB Labeler Feed (P45 fix): explicitly feed signals:of:inputs
+         self.publish_of_inputs = os.getenv("PUBLISH_OF_INPUTS", "1").lower() in {"1", "true", "yes", "on"}
+         self.of_inputs_stream = os.getenv("OF_INPUTS_STREAM", "signals:of:inputs")
+@@ -381,14 +396,45 @@
+         signal.setdefault("delta", delta)
+         signal.setdefault("delta_z", delta_z)
+         indicators.setdefault("tick_qty", signal.get("tick_qty"))
+-        
+-        # A1 Decision Context Enrichment
++        # A1 Decision Context Enrichment (hot-path, fail-open)
++        #
++        # We freeze a minimal "decision snapshot" inside ctx at publish time.
++        # This is required for later post-trade TCA joins:
++        #   decision_snapshot (sid, decision_ts_ms, decision_mid/bid/ask, ...)  +  fills
++        #
++        # Important invariants:
++        # - decision_ts_ms MUST be epoch-ms and should be deterministic (prefer tick_ts/ts_emit_ms).
++        # - Never use time.time() inside the enrichment unless there is no other choice.
+         try:
+             from services.orderflow.decision_ctx_fields import ensure_decision_ctx_fields
+-            ensure_decision_ctx_fields(signal, indicators=indicators, now_ms=None)
++            ensure_decision_ctx_fields(signal, indicators=indicators, runtime=runtime, now_ms=int(sig_ts))
+         except Exception as e:
+             logger.warning("⚠️ (%s) Failed to enrich A1 decision ctx fields: %s", symbol, e)
+-        
++
++        # A2 Decision Snapshot publication (warm-path input, fail-open)
++        #
++        # This stream is consumed by post-trade jobs (Timescale writer, TCA worker, etc.).
++        # It MUST contain joinable keys and be stable across retries.
++        if self.decision_snapshot_publish_enabled:
++            try:
++                from services.orderflow.decision_snapshot import build_decision_snapshot, publish_decision_snapshot
++                snap = build_decision_snapshot(
++                    signal,
++                    runtime=runtime,
++                    indicators=indicators,
++                    schema_version=int(self.decision_snapshot_schema_version),
++                )
++                await publish_decision_snapshot(
++                    publisher=self.publisher,
++                    snapshot=snap,
++                    stream=self.decision_snapshot_stream,
++                    maxlen=int(self.decision_snapshot_stream_maxlen),
++                    symbol=str(symbol),
++                )
++            except Exception as e:
++                # Never block signal publishing.
++                logger.warning("⚠️ (%s) decision_snapshot publish failed: %s", symbol, e)
++
+         # --- SHADOW REQUIRE_STRONG_CONFIRMATION (SignalPipeline) ---
+         # Note: Enforcement is handled in strategy.py early gate.
+         if runtime.config.get("require_strong_confirmation"):
+@@ -405,6 +451,7 @@
+                 strong_gate_veto_total.labels(symbol=runtime.symbol, scenario="unknown", reason="require_strong", mode="SHADOW").inc()
+                 # DO NOT return here - bookkeeping and publishing continue (handled by strategy ENFORCE)
+ 
++
+         # ------------------------------------------------------------------
+         # 🧩 SPREAD / ILLIQUIDITY GATE (P0)
+         # ------------------------------------------------------------------
+diff -ruN python-worker/services/orderflow/strategy.py python-worker/services/orderflow/strategy.py
+--- python-worker/services/orderflow/strategy.py	2026-03-06 20:09:32.305876765 +0000
++++ python-worker/services/orderflow/strategy.py	2026-03-06 20:11:50.417691016 +0000
+@@ -2649,6 +2649,8 @@
+             "confirmations": list(confirmations),
+             "confidence": float(confidence),
+             "signal_id": str(signal_id),
++            "sid": str(signal_id),  # join-key for post-trade (fills/TCA)
++            "ts_emit_ms": int(tick_ts),  # decision time (epoch ms)
+             "entry_tag": str(primary_reason),
+             "is_virtual": bool(int(indicators.get("is_virtual", 0) or 0)),
+         }
+@@ -2919,6 +2921,7 @@
+         Delegates signal publishing to SignalPipeline.
+         """
+         await self.signal_pipeline.publish_signal(runtime, signal)
++
+     async def _publish_orders_queue(self, runtime: SymbolRuntime, signal: Dict[str, Any]) -> None:
+         """
+         Публикует команду в orders:queue по схеме order_creation.md (минимально необходимый payload).
+@@ -2934,16 +2937,33 @@
+ 
+         reason = signal.get("reason") or "delta_spike"
+ 
++
++        # Build a deterministic, joinable order command.
++        #
++        # IMPORTANT:
++        # - `sid` MUST match `signal_id` produced by the strategy and propagated through all components.
++        #   This is the join key for: decision_snapshot <-> fills <-> closed positions.
++        # - `ts_emit_ms` is the decision/arrival timestamp (epoch ms) used for TCA.
++        # - Executor MUST echo: sid, ts_fill_ms, px, qty, fee_bps, venue, symbol, side in fill events.
++        sid = str(signal.get("sid") or signal.get("signal_id") or f"signal-{symbol}-{ts_value}")
++        ts_emit_ms = int(signal.get("ts_emit_ms") or signal.get("tick_ts") or signal.get("ts_ms") or 0)
++
+         order_cmd = {
+-            "id": f"order-{symbol}-{ts_value}",
+-            "sid": f"signal-{symbol}-{ts_value}",
++            "id": f"order-{sid}",
++            "sid": sid,
++            "signal_id": str(signal.get("signal_id") or sid),
+             "symbol": symbol,
+             "type": "market",
+             "direction": direction,
+-            "source": "CryptoOrderFlow",  # ✅ FIX: Use canonical source name for proper mapping
++            "source": "CryptoOrderFlow",  # canonical source name for mapping
+             "reason": reason,
++            "ts_emit_ms": int(ts_emit_ms),
++            "ts_event_ms": int(signal.get("tick_ts") or signal.get("ts_ms") or ts_emit_ms or 0),
++            "venue": str(signal.get("venue") or runtime.config.get("venue") or os.getenv("VENUE", "binance")),
++            "side": "LONG" if direction == "buy" else "SHORT",
+         }
+ 
++
+         try:
+             await self.redis.lpush(self.orders_queue, json.dumps(order_cmd))
+         except RedisError as exc:
+diff -ruN python-worker/services/posttrade/fill_event_contract.py python-worker/services/posttrade/fill_event_contract.py
+--- python-worker/services/posttrade/fill_event_contract.py	1970-01-01 00:00:00.000000000 +0000
++++ python-worker/services/posttrade/fill_event_contract.py	2026-03-06 20:13:02.217989328 +0000
+@@ -0,0 +1,119 @@
++
++from __future__ import annotations
++
++"""Fill / trade-close event contract (A3).
++
++Goal:
++- Guarantee that post-trade events are joinable with decision_snapshot via `sid`.
++- Standardize time semantics: ts_fill_ms must be epoch-ms.
++
++This module does NOT perform IO. It is used by executors/archivers/writers to:
++- normalize heterogeneous payloads into a canonical shape
++- validate that required fields are present
++
++Required fields (minimum):
++- sid
++- order_id
++- ts_fill_ms
++- px
++- qty
++- fee_bps
++- venue
++- symbol
++- side (LONG|SHORT)
++
++Optional (high value):
++- bid_at_fill
++- ask_at_fill
++- mid_at_fill
++"""
++
++from typing import Any, Dict, List, Tuple, Optional
++import math
++
++
++def _safe_float(v: Any) -> Optional[float]:
++    try:
++        f = float(v)
++    except Exception:
++        return None
++    if not math.isfinite(f):
++        return None
++    return float(f)
++
++
++def _safe_int(v: Any) -> Optional[int]:
++    try:
++        i = int(float(v))
++    except Exception:
++        return None
++    return int(i)
++
++
++def normalize_fill_event(evt: Dict[str, Any]) -> Dict[str, Any]:
++    """Return canonical dict with best-effort key mapping."""
++    out: Dict[str, Any] = {}
++
++    # join key
++    sid = evt.get('sid') or evt.get('signal_id') or evt.get('client_order_id')
++    out['sid'] = str(sid) if sid is not None else None
++
++    # order id
++    out['order_id'] = str(evt.get('order_id') or evt.get('oid') or evt.get('id') or '') or None
++
++    # timestamps
++    out['ts_fill_ms'] = _safe_int(evt.get('ts_fill_ms') or evt.get('fill_ts_ms') or evt.get('ts_ms') or evt.get('ts'))
++
++    # prices/qty/fees
++    out['px'] = _safe_float(evt.get('px') or evt.get('price') or evt.get('fill_px'))
++    out['qty'] = _safe_float(evt.get('qty') or evt.get('q') or evt.get('fill_qty') or evt.get('size'))
++    out['fee_bps'] = _safe_float(evt.get('fee_bps') or evt.get('fees_bps') or evt.get('fee'))
++
++    # venue/symbol/side
++    out['venue'] = str(evt.get('venue') or evt.get('exchange') or '') or None
++    out['symbol'] = str(evt.get('symbol') or evt.get('sym') or '') or None
++
++    side = evt.get('side') or evt.get('position_side') or evt.get('direction')
++    if isinstance(side, str):
++        s = side.upper()
++        if s in {'LONG', 'SHORT'}:
++            out['side'] = s
++        elif s in {'BUY'}:
++            out['side'] = 'LONG'
++        elif s in {'SELL'}:
++            out['side'] = 'SHORT'
++        else:
++            out['side'] = s
++    else:
++        out['side'] = None
++
++    # optional bbo at fill
++    out['bid_at_fill'] = _safe_float(evt.get('bid_at_fill') or evt.get('bid'))
++    out['ask_at_fill'] = _safe_float(evt.get('ask_at_fill') or evt.get('ask'))
++    out['mid_at_fill'] = _safe_float(evt.get('mid_at_fill') or evt.get('mid'))
++
++    return out
++
++
++def validate_fill_event(evt: Dict[str, Any]) -> Tuple[bool, List[str]]:
++    """Validate required fields after normalization."""
++    missing: List[str] = []
++
++    sid = evt.get('sid')
++    if not sid:
++        missing.append('sid')
++
++    for k in ('order_id', 'venue', 'symbol', 'side'):
++        if not evt.get(k):
++            missing.append(k)
++
++    ts = evt.get('ts_fill_ms')
++    if ts is None or int(ts) <= 0:
++        missing.append('ts_fill_ms')
++
++    for k in ('px', 'qty', 'fee_bps'):
++        v = evt.get(k)
++        if v is None or not isinstance(v, (int, float)):
++            missing.append(k)
++
++    return (len(missing) == 0), missing
+diff -ruN python-worker/tests/test_decision_ctx_fields.py python-worker/tests/test_decision_ctx_fields.py
+--- python-worker/tests/test_decision_ctx_fields.py	1970-01-01 00:00:00.000000000 +0000
++++ python-worker/tests/test_decision_ctx_fields.py	2026-03-06 20:09:34.792924451 +0000
+@@ -0,0 +1,31 @@
++
++import unittest
++from types import SimpleNamespace
++
++
++class TestDecisionCtxFields(unittest.TestCase):
++    def test_mid_spread_flags(self):
++        from services.orderflow.decision_ctx_fields import ensure_decision_ctx_fields
++
++        runtime = SimpleNamespace(symbol='BTCUSDT', last_book={'bids': [[100.0, 1.0]], 'asks': [[101.0, 1.0]]})
++        ctx = {'symbol': 'BTCUSDT', 'signal_id': 'sid1', 'tick_ts': 1700000000000}
++        ensure_decision_ctx_fields(ctx, indicators={}, runtime=runtime, now_ms=1700000000000)
++
++        self.assertAlmostEqual(ctx['decision_mid'], 100.5)
++        self.assertTrue(ctx['decision_spread_bps'] > 0)
++        self.assertTrue(ctx['tca_ready'])
++        self.assertEqual(ctx.get('book_sanity_flags'), [])
++
++    def test_crossed_book(self):
++        from services.orderflow.decision_ctx_fields import ensure_decision_ctx_fields
++
++        runtime = SimpleNamespace(symbol='BTCUSDT', last_book={'bids': [[101.0, 1.0]], 'asks': [[101.0, 1.0]]})
++        ctx = {'symbol': 'BTCUSDT', 'signal_id': 'sid1', 'tick_ts': 1700000000000}
++        ensure_decision_ctx_fields(ctx, indicators={}, runtime=runtime, now_ms=1700000000000)
++
++        self.assertIn('crossed_bbo', ctx.get('book_sanity_flags'))
++        self.assertFalse(ctx['tca_ready'])
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff -ruN python-worker/tests/test_decision_snapshot.py python-worker/tests/test_decision_snapshot.py
+--- python-worker/tests/test_decision_snapshot.py	1970-01-01 00:00:00.000000000 +0000
++++ python-worker/tests/test_decision_snapshot.py	2026-03-06 20:09:34.793248373 +0000
+@@ -0,0 +1,45 @@
++
++import unittest
++from types import SimpleNamespace
++
++
++class DummyPublisher:
++    def __init__(self):
++        self.calls = []
++
++    async def xadd_json(self, sink, payload, symbol):
++        self.calls.append((sink.name, payload, symbol))
++
++
++class TestDecisionSnapshot(unittest.IsolatedAsyncioTestCase):
++    async def test_build_and_publish(self):
++        from services.orderflow.decision_snapshot import build_decision_snapshot, publish_decision_snapshot
++
++        runtime = SimpleNamespace(symbol='BTCUSDT', config={'venue': 'binance'})
++        ctx = {
++            'symbol': 'BTCUSDT',
++            'signal_id': 'sid1',
++            'sid': 'sid1',
++            'direction': 'LONG',
++            'decision_ts_ms': 1700000000000,
++            'decision_bid': 100.0,
++            'decision_ask': 101.0,
++            'decision_mid': 100.5,
++            'decision_spread_bps': 99.5,
++            'tca_ready': True,
++            'book_sanity_flags': [],
++        }
++
++        snap = build_decision_snapshot(ctx, runtime=runtime, indicators={}, schema_version=1)
++        self.assertEqual(snap['sid'], 'sid1')
++        self.assertEqual(snap['symbol'], 'BTCUSDT')
++        self.assertEqual(snap['decision_ts_ms'], 1700000000000)
++        self.assertTrue(snap['tca_ready'])
++
++        pub = DummyPublisher()
++        await publish_decision_snapshot(publisher=pub, snapshot=snap, stream='events:decision_snapshot', maxlen=1000, symbol='BTCUSDT')
++        self.assertEqual(pub.calls[0][0], 'events:decision_snapshot')
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff -ruN python-worker/tests/test_fill_event_contract.py python-worker/tests/test_fill_event_contract.py
+--- python-worker/tests/test_fill_event_contract.py	1970-01-01 00:00:00.000000000 +0000
++++ python-worker/tests/test_fill_event_contract.py	2026-03-06 20:13:02.218281647 +0000
+@@ -0,0 +1,45 @@
++
++import unittest
++
++
++class TestFillEventContract(unittest.TestCase):
++    def test_normalize_and_validate_ok(self):
++        from services.posttrade.fill_event_contract import normalize_fill_event, validate_fill_event
++
++        raw = {
++            'sid': 'crypto-of:BTCUSDT:1700',
++            'order_id': '123',
++            'ts_fill_ms': 1700000000123,
++            'px': 100.0,
++            'qty': 0.01,
++            'fee_bps': 4.0,
++            'venue': 'binance',
++            'symbol': 'BTCUSDT',
++            'side': 'LONG',
++        }
++        evt = normalize_fill_event(raw)
++        ok, missing = validate_fill_event(evt)
++        self.assertTrue(ok)
++        self.assertEqual(missing, [])
++
++    def test_missing_sid(self):
++        from services.posttrade.fill_event_contract import normalize_fill_event, validate_fill_event
++
++        raw = {
++            'order_id': '123',
++            'ts_fill_ms': 1700000000123,
++            'px': 100.0,
++            'qty': 0.01,
++            'fee_bps': 4.0,
++            'venue': 'binance',
++            'symbol': 'BTCUSDT',
++            'side': 'LONG',
++        }
++        evt = normalize_fill_event(raw)
++        ok, missing = validate_fill_event(evt)
++        self.assertFalse(ok)
++        self.assertIn('sid', missing)
++
++
++if __name__ == '__main__':
++    unittest.main()

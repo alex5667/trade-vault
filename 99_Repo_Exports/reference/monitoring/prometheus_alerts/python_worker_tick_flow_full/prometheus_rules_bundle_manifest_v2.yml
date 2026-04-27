@@ -1,0 +1,15 @@
+# Prometheus rules bundle manifest (v2) — mirror for tick_flow_full subtree
+#
+# See: ../../orderflow_services/prometheus_rules_bundle_manifest_v2.yml
+
+version: 2
+bundle: orderflow_rules_bundle
+
+rule_files:
+  - orderflow_services/prometheus_alerts_*.yml
+  - orderflow_services/prometheus_rules_*.yml
+  - tick_flow_full/orderflow_services/prometheus_alerts_*.yml
+  - tick_flow_full/orderflow_services/prometheus_rules_*.yml
+  - ok_rate_logic/prometheus_alerts_*.yml
+  - services/orderflow/prometheus_alerts_*.yml
+  - tick_flow_full/services/orderflow/prometheus_alerts_*.yml

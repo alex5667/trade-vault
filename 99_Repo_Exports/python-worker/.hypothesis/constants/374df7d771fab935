@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/spatial/ckdtree.py
+# hypothesis_version: 6.148.10
+
+['cKDTree', 'cKDTreeNode', 'coo_entries', 'operator', 'ordered_pairs', 'os', 'scipy', 'threading']

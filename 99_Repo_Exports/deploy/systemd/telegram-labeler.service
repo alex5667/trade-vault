@@ -1,0 +1,27 @@
+[Unit]
+Description=XAUUSD Telegram Callback Labeler
+Documentation=https://github.com/your-org/scanner_infra
+After=redis.target docker.service
+Wants=redis.target
+
+[Service]
+Type=simple
+User=scanner
+WorkingDirectory=/opt/scanner/python-worker
+Environment="PYTHONUNBUFFERED=1"
+Environment="REDIS_URL=redis://scanner-redis:6379/0"
+Environment="CALLBACKS_STREAM=bot:callbacks"
+Environment="LABELS_STREAM=labels:trades"
+Environment="LABELS_GROUP=labels-group"
+Environment="LABELS_CONSUMER=labels-consumer-1"
+
+ExecStart=/usr/bin/python3 /opt/scanner/python-worker/services/telegram_labeler.py
+
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+

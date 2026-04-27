@@ -1,0 +1,3709 @@
+x-default-python-worker:
+  build: &id001
+    context: .
+    dockerfile: python-worker/Dockerfile
+  restart: on-failure:5
+  healthcheck:
+    test:
+    - CMD-SHELL
+    - python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz',
+      timeout=2).read()" >/dev/null 2>&1 || exit 1
+    interval: 30s
+    timeout: 10s
+    start_period: 45s
+    retries: 5
+  networks: &id002
+  - scanner-core
+  - scanner-infra
+services:
+  python-worker:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    image: scanner-python-worker:latest
+    container_name: scanner-python-worker
+    runtime: nvidia
+    profiles:
+    - default
+    ports:
+    - 8000:8000
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz',
+        timeout=2).read()" >/dev/null 2>&1 || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    environment:
+    - liqmap_gate_mode=${LIQMAP_GATE_MODE:-shadow}
+    - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
+    - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
+    - REDIS_HOST=redis-worker-1
+    - REDIS_PORT=6379
+    - REDIS_DB=0
+    - REDIS_URL=${REDIS_URL}
+    - REDIS_TICKS_URL=redis://redis-ticks:6379/0
+    - REDIS_TICKS_HOST=redis-ticks
+    - REDIS_TICKS_PORT=6379
+    - REDIS_SOCKET_TIMEOUT=30
+    - REDIS_SOCKET_CONNECT_TIMEOUT=10
+    - REDIS_MAX_CONNECTIONS=256
+    - REDIS_MAIN_MAX_CONNECTIONS=128
+    - REDIS_TICKS_MAX_CONNECTIONS=512
+    - REDIS_RETRY_ON_TIMEOUT=true
+    - REDIS_HEALTH_CHECK_INTERVAL=30
+    - NEWS_REDIS_SOCKET_TIMEOUT_SEC=0.05
+    - NEWS_REDIS_CONNECT_TIMEOUT_SEC=0.2
+    - NEWS_REDIS_MAX_CONNECTIONS=30
+    - TRADE_NEWS_RECO_READER_ENABLE=1
+    - TRADE_NEWS_RECO_REDIS_URL=${REDIS_URL:-${REDIS_URL}}
+    - TRADE_NEWS_RECO_MAP_KEY=trade:cache:news_reco_map
+    - TRADE_NEWS_RECO_POLL_MS=250
+    - TRADE_NEWS_RECO_POLL_JITTER_MS=50
+    - TRADE_NEWS_RECO_STALE_FAIL_OPEN_MS=5000
+    - TRADE_NEWS_RECO_MAX_SYMBOLS=2000
+    - TM_ORPHAN_TIMEOUT_ENABLED=${TM_ORPHAN_TIMEOUT_ENABLED}
+    - NEWS_LOG_MINI_SAMPLE_PCT=1
+    - NEWS_DEBUG_FULL=false
+    - NEWS_DEBUG_FULL_SAMPLE_PCT=1
+    - NEWS_DEBUG_FULL_MAX_JSON_BYTES=409
+    - REDIS_SIGNALS_HOST=redis-worker-1
+    - REDIS_SIGNALS_PORT=6379
+    - REDIS_SIGNALS_HOST_2=redis-worker-2
+    - REDIS_SIGNALS_PORT_2=6379
+    - L2_NEGATIVE_SKEW_STALE_MS=5000
+    - MANUAL_AUDIT_LEVEL=compact
+    - MANUAL_AUDIT_MAX_BYTES=12000
+    - MANUAL_AUDIT_ROUND=4
+    - CONF_BREAKDOWN_MAX_KEYS=8
+    - CONF_BREAKDOWN_ROUND=4
+    - METRICS_EVERY_MS=15000
+    - MODE_MOMO_EMA_ALPHA=0.02
+    - XAU_HANDLER_ENABLED=true
+    - XAU_SYMBOL=XAUUSD
+    - XAU_TICK_STREAM=stream:tick_XAUUSDT
+    - XAU_TICK_STREAM_MAXLEN=50000
+    - XAU_TICK_POLL_INTERVAL=0.2
+    - XAU_TICK_FETCH_COUNT=500
+    - XAU_TICK_LOOKBACK_SEC=5.0
+    - XAU_GROUP=xauusd-signal-group
+    - XAU_CONSUMER=xau-handler
+    - XAU_DELTA_WINDOW=120
+    - XAU_DELTA_Z_THRESHOLD=3.0
+    - XAU_WEAK_PROGRESS_ATR=0.10
+    - XAU_OBI_THRESHOLD=0.5
+    - XAU_OBI_MIN_DURATION=2.0
+    - XAU_ICEBERG_REFRESH=2
+    - XAU_ICEBERG_DURATION=1.5
+    - XAU_ICEBERG_REFRESH_MIN_ABS=1.0
+    - XAU_DIST_ATR_THRESHOLD=0.5
+    - XAU_MIN_SIGNAL_INTERVAL=60
+    - XAU_READ_COUNT=100
+    - XAU_READ_BLOCK_MS=1000
+    - XAU_OHLC_GROUP=xauusd-ohlc-group
+    - SESSION_CLOSE_TZ=UTC
+    - SESSION_CLOSE_HOUR=0
+    - SESSION_CLOSE_MIN=0
+    - ATR_SOURCE=ticks
+    - ATR_TF=${ATR_TF:-5m}
+    - ATR_TF_SELECTOR_MODE=${ATR_TF_SELECTOR_MODE:-enforce}
+    - ATR_TF_CALIB_ENABLE=${ATR_TF_CALIB_ENABLE:-1}
+    - ATR_HORIZON_MODE=off
+    - ATR_HORIZON_CONTRACT_VER=2
+    - ATR_HORIZON_EMIT_PAYLOAD_META=1
+    - ATR_HORIZON_DEFAULT_TF_MS=60000
+    - ATR_HORIZON_DEFAULT_BUCKET=unknown
+    - ATR_HORIZON_DEFAULT_PROFILE_SOURCE=static_bootstrap
+    - ATR_HORIZON_SELECTOR_ENABLED=1
+    - ATR_HORIZON_USE_FOR_GATES=0
+    - ATR_HORIZON_WINDOW_N=14
+    - ATR_HORIZON_ALLOWED_TFS_MS=15000,30000,60000,180000,300000,900000
+    - ATR_HORIZON_CANDIDATE_MAX_AGE_MS=300000
+    - ATR_HORIZON_CANDIDATE_REDIS_ENABLE=1
+    - ATR_HORIZON_CANDIDATE_MGET_ENABLE=1
+    - ATR_HORIZON_CANDIDATE_TTL_SEC=86400
+    - ATR_HORIZON_EMIT_CANDIDATES=1
+    - ATR_HORIZON_CANDIDATE_WRITER_ENABLE=1
+    - ATR_HORIZON_DQ_SHADOW_ENABLE=1
+    - ATR_HORIZON_SHADOW_RISK_SURFACE_ENABLE=1
+    - ATR_HORIZON_USE_FOR_EXECUTION=0
+    - ATR_HORIZON_USE_FOR_TRAILING=0
+    - ATR_HORIZON_DQ_ATR_AGE_CAP_MS=300000
+    - ATR_HORIZON_DQ_BOOK_AGE_CAP_MS=60000
+    - ATR_HORIZON_DQ_SIGNAL_AGE_CAP_MS=300000
+    - ATR_HORIZON_SHADOW_SL_ATR_MULT=1.5
+    - ATR_HORIZON_SHADOW_TP1_ATR_MULT=2.0
+    - AUTO_CALIBRATION_THRESHOLD=100
+    - AUTO_CALIBRATION_SYMBOLS=${CRYPTO_SYMBOLS}
+    - AUTO_CALIBRATION_SOURCE=CryptoOrderFlow
+    - USE_TELEGRAM_BUTTONS=0
+    - ACCOUNT_DEPOSIT_USD=${ACCOUNT_DEPOSIT_USD:-1000}
+    - ACCOUNT_LEVERAGE=${ACCOUNT_LEVERAGE:-10}
+    - RISK_PERCENT=${RISK_PERCENT:-5.0}
+    - CRYPTO_COMMISSION_RATE=0.0005
+    - CRYPTO_SIGNAL_MIN_CONF=${CRYPTO_SIGNAL_MIN_CONF}
+    - SIGNAL_CONF_DEFAULT=0
+    - FEES_BPS_RT=${FEES_BPS_RT:-4}
+    - TP_BPS_BUFFER=${TP_BPS_BUFFER:-6}
+    - ROCKET_TP1_ATR_MULT=2.0
+    - XAU_CONTRACT_SIZE=100
+    - XAU_LOT_STEP=0.01
+    - STOP_MODE=ATR
+    - SLQ_ENABLE=1
+    - SLQ_K=0.7
+    - SLQ_MIN_N=200
+    - SLQ_TP1_PROB_MIN=0.55
+    - SLQ_POSTSL_TP1_MIN=0.25
+    - SLQ_BUMP_ATR_CAP=0.40
+    - SLQ_STOP_ATR_MIN=0.50
+    - SLQ_STOP_ATR_MAX=1.50
+    - SLQ_MAX_AGE_SEC=3600
+    - EFF_CALIB_MIN_SAMPLES=300
+    - CALIB_PERSIST_ENABLE=1
+    - CALIB_AUDIT_ENABLE=1
+    - CALIB_AUDIT_STREAM=signals:calib:effq
+    - CALIB_AUDIT_STREAM_MAXLEN=200000
+    - SG_CALIB_ENABLE=1
+    - SG_CALIB_WINDOW_HOURS=24
+    - SG_CALIB_MIN_PRECISION=0.55
+    - SG_CALIB_MIN_LIFT=0.10
+    - SG_CALIB_MIN_N_VETOED=10
+    - SG_CALIB_MIN_N_TOTAL=30
+    - SG_CALIB_PROOF_STREAK_REQUIRED=3
+    - SG_CALIB_ROLLBACK_PRECISION=0.40
+    - SG_CALIB_ROLLBACK_STREAK=2
+    - SG_CALIB_TELEGRAM=1
+    - SG_CALIB_TELEGRAM_INTERVAL_SEC=3600
+    - ADV_CALIB_ENABLE=1
+    - ADV_CALIB_WINDOW_HOURS=24
+    - ADV_CALIB_MIN_PRECISION=0.55
+    - ADV_CALIB_MIN_LIFT=0.08
+    - ADV_CALIB_MIN_N_REVERSALS=5
+    - ADV_CALIB_MIN_N_TOTAL=15
+    - ADV_CALIB_PROOF_STREAK_REQUIRED=3
+    - ADV_CALIB_ROLLBACK_PRECISION=0.35
+    - ADV_CALIB_ROLLBACK_STREAK=2
+    - ADV_CALIB_TELEGRAM=1
+    - ADV_CALIB_TELEGRAM_INTERVAL_SEC=3600
+    - RG_CALIB_ENABLE=1
+    - RG_CALIB_PSR_MIN=0.95
+    - RG_CALIB_DSR_MIN=0.90
+    - RG_CALIB_PBO_MAX=0.10
+    - RG_CALIB_MAX_REPORT_AGE_SEC=129600
+    - RG_CALIB_PROOF_STREAK_REQUIRED=7
+    - RG_CALIB_ROLLBACK_STREAK=2
+    - RG_CALIB_TELEGRAM=1
+    - RG_CALIB_TELEGRAM_INTERVAL_SEC=3600
+    - RG_CALIB_REMINDER_SEC=1800
+    - RG_CALIB_REMINDER_MAX=48
+    - STRATEGY_RESEARCH_GUARD_BLOCKER_KEY=cfg:research_guard:blocker:v1
+    - STRATEGY_RESEARCH_GUARD_SUMMARY_KEY=metrics:strategy_research_guard:last
+    - STRATEGY_RESEARCH_GUARD_MAX_AGE_SEC=129600
+    - STRATEGY_RESEARCH_GUARD_FAIL_CLOSED_MISSING=1
+    - PUBLISH_OF_INPUTS=1
+    - PUBLISH_OF_CONFIRM=1
+    - OF_GATE_METRICS_STREAM=metrics:of_gate
+    - OF_GATE_METRICS_ENABLE=1
+    - OF_GATE_METRICS_SAMPLE=0.05
+    - OF_GATE_METRICS_MAXLEN=200000
+    - OF_GATE_METRICS_SAMPLE_SALT=prod_v1
+    - OF_SOFT_SCORE_MIN=0.60
+    - OF_SOFT_EXEC_RISK_NORM_MAX=0.65
+    - STOP_ATR_MULT=${STOP_ATR_MULT:-1.5}
+    - RISK_USD_PER_TRADE=0
+    - RISK_MAX_QTY=0.5
+    - RISK_MIN_NOTIONAL_USD=5
+    - TP_MODE_BTCUSDT=RR
+    - TP_MODE_ETHUSDT=RR
+    - TP_RR=0.7,1.3,2.0
+    - STOP_PCT=0.2
+    - STOP_POINTS=1.0
+    - TP_MODE=RR
+    - TP_ATR_MULTS=0.6,1.0,1.5
+    - NOTIFY_STREAM=notify:telegram
+    - TRADES_CLOSED_ZSET_INDEX=1
+    - ENABLE_CLOSED_ZSET_INDEX=1
+    - PERIODIC_REPORT_WINDOW_SECONDS=3600
+    - REPORT_TRIGGER_COUNT=1000000
+    - PERIODIC_REPORT_CHECK_INTERVAL_SEC=0
+    - DISABLE_SCHEDULED_REPORTS=true
+    - PERIODIC_REPORT_TRIM_RATIO=0.10
+    - PERIODIC_REPORT_ES_ALPHA=0.05
+    - PERIODIC_REPORT_MIN_TRADES_FOR_ES=30
+    - PERIODIC_REPORT_FEES_RATIO_THRESHOLD=0.01
+    - TOUCH_WINDOW_MS=500
+    - TOUCH_TAU_REFILL_MS=250
+    - TOUCH_RECOVER_FRAC=0.90
+    - TOUCH_RHO_REFILL_MIN=1.7
+    - TOUCH_RHO_DEPLETION_MAX=1.5
+    - TOUCH_MAX_TOUCH_TICKS=1
+    - TOUCH_BOOK_FRESH_MS=250
+    - TOUCH_FILTER_ENABLED=true
+    - TOUCH_FILTER_KINDS=breakout,extreme
+    - ORDERFLOW_SIGNAL_STREAM=signals:orderflow:XAUUSD
+    - CRYPTO_NOTIFY_SIGNAL_EVERY_N=${CRYPTO_NOTIFY_SIGNAL_EVERY_N:-100}
+    - SIGNAL_OUTBOX_CLAIM_MIN_IDLE_MS=30000
+    - SIGNAL_OUTBOX_CLAIM_COUNT=200
+    - SIGNAL_OUTBOX_MSG_LEASE_TTL_MS=90000
+    - SIGNAL_TARGET_CB_FAIL_THRESHOLD=5
+    - SIGNAL_TARGET_CB_OPEN_SEC=15
+    - SIGNAL_OUTBOX_RETRY_SLEEP_SEC=0.25
+    - SIGNAL_OUTBOX_RETRY_SLEEP_MAX_SEC=2.0
+    - SIGNAL_OUTBOX_CLEANUP_DEAD_CONSUMERS=0
+    - SIGNAL_OUTBOX_DEAD_CONSUMER_IDLE_MS=600000
+    - SIGNAL_OUTBOX_DONE_PREFIX=outbox:done:v1
+    - SIGNAL_OUTBOX_SID_LEASE_PREFIX=outbox:sid_lease:v1
+    - SIGNAL_OUTBOX_SID_LEASE_TTL_MS=120000
+    - OF_INPUTS_STREAM=signals:of:inputs
+    - OF_CONFIRM_STREAM=signals:of:confirm
+    - SIGNAL_OUTBOX_CLAIM_EVERY_MS=5000
+    - SIGNAL_OUTBOX_ACK_RETRY_TTL_S=600
+    - SIGNAL_OUTBOX_ACK_RETRY_MAX=20000
+    - SIGNAL_OUTBOX_METRICS_EVERY_SEC=10
+    - SIGNAL_OUTBOX_CLAIM_BUDGET_PER_TICK=400
+    - SIGNAL_OUTBOX_SID_LEASE_EXTEND_EVERY_MS=30000
+    - SIGNAL_MARKER_REPAIR_EVERY_SEC=300
+    - SIGNAL_MARKER_REPAIR_BATCH=200
+    - SIGNAL_BRIDGE_NOTIFY_STREAM=stream:signals:bridge:notify
+    - SIGNAL_BRIDGE_MANUAL_STREAM=stream:signals:bridge:manual
+    - SIGNAL_BRIDGE_MAXLEN=5000
+    - SIGNAL_BRIDGE_READ_COUNT=200
+    - SIGNAL_BRIDGE_READ_BLOCK_MS=1000
+    - SIGNAL_BRIDGE_TARGET_MAXLEN=5000
+    - SIGNAL_BRIDGE_CLAIM_MIN_IDLE_MS=60000
+    - SIGNAL_BRIDGE_CLAIM_COUNT=200
+    - SIGNAL_BRIDGE_CLAIM_EVERY_MS=5000
+    - SIGNAL_OUTBOX_ACK_RETRY_TTL_SEC=600
+    - SIGNAL_MAINTENANCE_EVERY_MS=60000
+    - SIGNAL_MAINTENANCE_SCAN_COUNT=400
+    - SIGNAL_DIAG_EVERY_MS=30000
+    - DECISION_TRACE_ENABLE=1
+    - DECISION_TRACE_MAX_EVENTS=200
+    - DECISION_TRACE_DIAG_STREAM=stream:signals:diagnostics
+    - SIGNAL_DIAGNOSTICS_STREAM=stream:signals:diagnostics
+    - DECISION_TRACE_SIDECAR_UPDATE_ON_SUCCESS=0
+    - DECISION_TRACE_LOG_SAMPLE_RATE=0.02
+    - DECISION_TRACE_SUMMARY_MAXLEN=240
+    - DECISION_TRACE_SIDECAR_MAX_BYTES=120000
+    - RUNTIME_SNAPSHOT_REFRESH_SEC=5
+    - RUNTIME_REFRESH_EVERY_SEC=10
+    - SIGNAL_RETRY_ZSET=zset:signals:retry
+    - SIGNAL_RETRY_DEDUP_PREFIX=retry:scheduled
+    - SIGNAL_RETRY_POP_LIMIT=50
+    - SIGNAL_RETRY_BASE_MS=250
+    - SIGNAL_RETRY_MAX_MS=15000
+    - SIGNAL_RETRY_JITTER_MS=250
+    - SIGNAL_RETRY_DRAIN_EVERY_MS=200
+    - SIGNAL_DLQ_NOTIFY_STREAM=stream:signals:dlq:notify
+    - SIGNAL_DLQ_SIGNAL_STREAM_STREAM=stream:signals:dlq:signal_stream
+    - SIGNAL_DLQ_AUDIT_STREAM=stream:signals:dlq:audit
+    - SIGNAL_DLQ_MANUAL_STREAM=stream:signals:dlq:manual
+    - SIGNAL_DLQ_SNAPSHOT_STREAM=stream:signals:dlq:snapshot
+    - SIGNAL_OUTBOX_ATTEMPT_TTL_SEC=86400
+    - SIGNAL_OUTBOX_LAST_ERROR_TTL_SEC=86400
+    - SIGNAL_DELIVERY_TTL_SEC=86400
+    - SIGNAL_DELIVERY_INFLIGHT_TTL_MS=60000
+    - SIGNAL_DELIVERY_MARKER_PREFIX=signals:deliver
+    - SIGNAL_ENV_DONE_PREFIX=signals:env_done
+    - SIGNAL_DELIVERY_INDEX_KEY=signals:idx:deliver
+    - SIGNAL_ENV_DONE_INDEX_KEY=signals:idx:env_done
+    - SIGNAL_MARKER_JANITOR_EVERY_SEC=10
+    - SIGNAL_MARKER_INDEX_BATCH=1000
+    - SIGNAL_MARKER_INDEX_MAX=500000
+    - SIGNAL_OUTBOX_PENDING_DETAIL_EVERY_SEC=10
+    - SIGNAL_OUTBOX_PENDING_TOPN_PER_CONSUMER=5
+    - SIGNAL_MARKER_CLEANUP_EVERY_SEC=60
+    - SIGNAL_MARKER_CLEANUP_BATCH=2000
+    - SIGNAL_MARKER_CLEANUP_BUFFER_SEC=60
+    - SIGNAL_DISPATCHER_DIAG_EVERY_SEC=10
+    - SIGNAL_DISPATCHER_REAP_IDLE_CONSUMERS=1
+    - SIGNAL_DISPATCHER_REAP_IDLE_MS=900000
+    - SIGNAL_DISPATCHER_REAP_EVERY_SEC=60
+    - SIGNAL_DISPATCHER_PENDING_SAMPLE_EVERY_SEC=30
+    - SIGNAL_DISPATCHER_PENDING_SAMPLE_COUNT=20
+    - SIGNAL_DISPATCHER_PENDING_STUCK_IDLE_MS=300000
+    - SIGNAL_DISPATCHER_CLEAN_DEAD_CONSUMERS=1
+    - SIGNAL_DISPATCHER_DEAD_CONSUMER_IDLE_MS=900000
+    - SIGNAL_SID_LEASE_TTL_MS=15000
+    - SIGNAL_ENV_DONE_TTL_SEC=86400
+    - NOTIFY_GATE_MODE=hash
+    - DOM_VENDOR=BINANCE
+    - DOM_DEPTH=15
+    - MOCK_MID_PRICE=3955.0
+    - MOCK_TICK_SIZE=0.1
+    - BOOK_STREAM=stream:book_XAUUSD
+    - BOOK_LAST_KEY=book:levels:XAUUSD
+    - LOCAL_CALIBRATION_FILE=/app/data/local_calibration.json
+    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/trade
+    - DATABASE_URL=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/trade
+    - CALIB_LOOKBACK_DAYS=365
+    - CALIB_MIN_TRADES_CLUSTER=300
+    - CALIB_MIN_TRADES_BUCKET=100
+    - CALIB_MIN_MEAN_PNL_R=0.0
+    - CONF_CAL_MODE=isotonic
+    - CONF_CAL_PATH=/app/calibration/confidence_calibration.json
+    - CONF_CAL_MIN_SAMPLES=300
+    - CONF_CAL_RELOAD_SEC=30
+    - CONF_CAL_MIN_NEW_SAMPLES=300
+    - CONF_CAL_HISTORY_DIR=/app/calibration/history
+    - CONF_CAL_HISTORY_KEEP=50
+    - CONF_CAL_GATE_GROUP_TOPM_ENABLE=1
+    - CONF_CAL_GATE_GROUP_TOPM=3
+    - CONF_CAL_GATE_GROUP_TOPM_SCALE=0.6
+    - CONF_CAL_KIND_STRIP_VERSION=1
+    - CONF_CAL_KIND_MAP_JSON='{"absorption_v2":"absorption"}'
+    - GPU_ENABLED=true
+    - NVIDIA_VISIBLE_DEVICES=all
+    - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    - CUPY_CACHE_DIR=/tmp/cupy_cache
+    - CUPY_CACHE_SAVE_CUDA_SOURCE=0
+    - NUMBA_CACHE_DIR=/tmp/numba_cache
+    - USE_FILE_LOGGING=true
+    - LOG_DIR=/app/logs
+    - LOG_LEVEL=INFO
+    - DQ_DEBUG_INTERVAL_SEC=60
+    - BAD_TIME_RECOVERY_OK_STREAK=5
+    - BAD_TIME_RECOVERY_MAX_MS=8000
+    - BAD_TIME_RECOVERY_FAIL_QUARANTINE_MS=20000
+    - BAD_TIME_RECOVERY_FAIL_STATE_FREEZE_MS=5000
+    - EMP_TIME_SNAPSHOTS_READ=1
+    - CRYPTO_OF_STRONG_GATE_SHADOW=${CRYPTO_OF_STRONG_GATE_SHADOW}
+    - EMP_TIME_SNAPSHOT_BUF_MAX=300
+    - EMP_TIME_SNAPSHOT_BUF_TTL_SEC=0
+    - EMP_TTD_FAST_IF_REGIME=1
+    - EMP_TTD_FAST_REGIME_KEYWORDS="trend,expansion"
+    - EMP_SURVIVE_MIN=0.55
+    - EMP_LEVELS_BUF_MAX=300
+    - EMP_LEVELS_BUF_TTL_SEC=604800
+    - EMP_TP1_BPS_MIN=8
+    - EMP_TP1_BPS_MAX=600
+    - EMP_SL_BPS_MIN=10
+    - EMP_SL_BPS_MAX=800
+    - EV_TP1_STATS_ENABLED=1
+    - EV_TP1_EMA_ALPHA=0.05
+    - EV_TP1_STATS_TTL_SEC=2592000
+    - TRAIL_FORCE_ALWAYS_AFTER_TP1=0
+    - TRAIL_COND_ENABLED=1
+    - EXEC_COST_EMA_ENABLED=1
+    - EXEC_COST_EMA_ALPHA=0.05
+    - EXEC_COST_EMA_MIN_SAMPLES=20
+    - EXEC_COST_EMA_TTL_SEC=2592000
+    - EXEC_COST_EMA_DIM_TF=1
+    - EXEC_COST_EMA_DIM_KIND=1
+    - EXEC_COST_EMA_WRITE_LEGACY=1
+    - EXEC_COST_EMA_READ_LEGACY_FALLBACK=1
+    - EXEC_COST_EMA_KEY_PREFIX=slipema
+    - REL_CAL_ENABLED=1
+    - REL_CAL_OUTCOMES=tp2,nosl_after_tp1
+    - REL_CAL_BUCKET_STEP_PCT=5
+    - REL_CAL_TTL_SEC=2592000
+    - REL_CAL_USE_KIND_DIM=1
+    - REL_CAL_USE_REGIME_DIM=1
+    - REL_CAL_USE_VENUE_DIM=1
+    - REL_CAL_USE_SESSION_DIM=1
+    - REL_CAL_USE_TF_DIM=1
+    - NOSL_AFTER_TP1_BUCKETS_MS="500,2000"
+    - NOSL_AFTER_TP1_STOP_REASONS="SL,TRAILING_STOP"
+    - SLIPPAGE_EMA_MIN_SAMPLES=20
+    - EDGE_TS_BAD_POLICY=veto
+    - EDGE_TS_SECONDS_POLICY=normalize
+    - EDGE_TS_MAX_SKEW_MS=21600000
+    - EDGE_SLIP_EMA_MIN_SAMPLES=${EDGE_SLIP_EMA_MIN_SAMPLES:-20}
+    - EDGE_TS_BAD_FLOOR_BPS=${EDGE_TS_BAD_FLOOR_BPS:-50}
+    - EDGE_TS_BAD_VETO_BPS=1000000
+    - GATE_PROFILE=hard
+    - FEATURE_DRIFT_ENABLED=1
+    - FEATURE_DRIFT_BASE_ALPHA=0.01
+    - FEATURE_DRIFT_FAST_ALPHA=0.10
+    - FEATURE_DRIFT_MIN_SAMPLES=200
+    - FEATURE_DRIFT_Z_THRESHOLD=4.0
+    - FEATURE_DRIFT_FACTOR_SLOPE=0.15
+    - FEATURE_DRIFT_FACTOR_MAX=1.60
+    - FEATURE_DRIFT_TTL_S=300
+    - FEATURE_DRIFT_UPDATE_EVERY_MS=250
+    - FEATURE_DRIFT_ALERT_STREAM=stream:alerts:feature_drift
+    - FEATURE_DRIFT_ALERT_COOLDOWN_MS=30000
+    - FEATURE_DRIFT_INCLUDE_KIND=0
+    - FEATURE_DRIFT_NOTE=1
+    - VOL_REGIME_FAST_ALPHA=0.25
+    - VOL_REGIME_SLOW_ALPHA=0.03
+    - VOL_REGIME_Z_WINDOW=240
+    - BOOK_RESILIENCE_RECOVERY_RATIO=0.85
+    - BOOK_RESILIENCE_MAX_WINDOW_MS=15000
+    - ENTRY_POLICY_ENABLED=1
+    - ENTRY_POLICY_DIAG_STREAM=entry_policy_diag
+    - ATR_POLICY_EXEC_BUDGET_ADVISORY_ONLY=1
+    - SMT_LEADER_MODE=observe
+    - FEATURE_DRIFT_Z=6.0
+    - FEATURE_DRIFT_ALPHA=0.02
+    - SLIPPAGE_EMA_ALPHA=0.05
+    - RELIABILITY_TARGETS=tp2
+    - RELIABILITY_BUCKET_STEP=5
+    - RELIABILITY_SMT_COH_THR=0.65
+    - RELIABILITY_WRITE_LEGACY=1
+    - RELIABILITY_ADJUST_ENABLED=1
+    - RELIABILITY_ADJUST_TARGET=tp2
+    - RELIABILITY_ADJ_PROFILE=hardest
+    - RELIABILITY_ADJ_ALPHA=0.5
+    - RELIABILITY_ADJ_MIN_BUCKET_SAMPLES=100
+    - RELIABILITY_ADJ_MIN_SAMPLES_GLOBAL=1000
+    - RELIABILITY_ADJ_MIN_SAMPLES_CTX=500
+    - RELIABILITY_ADJ_MIN_DELTA=0.04
+    - RELIABILITY_ADJ_MIN_Z=2.58
+    - RELIABILITY_ADJ_PRIOR_N=150
+    - RELIABILITY_ADJ_MAX_ABS=0.10
+    - ENTRY_SPREAD_BPS_MAX=25.0
+    - ENTRY_RECHECK_BUCKETS=2
+    - ENTRY_RECHECK_BUCKET_MS=60000
+    - RUNTIME_RELOAD_KEY=runtime:reload
+    - ML_CONFIRM_MODEL_PATH=/var/lib/trade/of_reports/models/model.joblib
+    - ML_CONFIRM_MODE=SHADOW
+    - ML_CONFIRM_FAIL_POLICY=OPEN
+    - ML_REDIS_URL=${REDIS_URL}
+    - ML_CONFIRM_METRICS_STREAM=metrics:ml_confirm
+    - ML_CONFIRM_P_MIN=0.55
+    - OF_CONFIRM_VERSION=3
+    - OF_TREND_DIR_FALLBACK_TO_DIRECTION=1
+    - ML_CONFIRM_METRICS_ENABLE=${ML_CONFIRM_METRICS_ENABLE:-1}
+    - ML_CONFIRM_METRICS_SAMPLE=${ML_CONFIRM_METRICS_SAMPLE:-1.0}
+    - ML_CONFIRM_ABSTAIN_BAND=${ML_CONFIRM_ABSTAIN_BAND:-0.02}
+    - ML_CONFIRM_CONF_MIN=${ML_CONFIRM_CONF_MIN:-0.0}
+    - ML_CONFIRM_ABSTAIN_ON_MISSING=${ML_CONFIRM_ABSTAIN_ON_MISSING:-0}
+    - ML_CONFIRM_P_MIN_HARD_FLOOR=${ML_CONFIRM_P_MIN_HARD_FLOOR:-0.0}
+    - ML_CONFIRM_ENFORCE_SHARE=${ML_CONFIRM_ENFORCE_SHARE:-0.0}
+    - LATENCY_BUDGET_REDIS_TO_FEATURE_MS=50
+    - LATENCY_BUDGET_FEATURE_TO_EMIT_MS=100
+    - LATENCY_BUDGET_END_TO_END_EVENT_MS=200
+    - LATENCY_CONTRACT_SYMBOL_ALLOWLIST=BTCUSDT,ETHUSDT,XAUUSDT,ARBUSDT
+    - LATENCY_CONTRACT_EXPORTER_PORT=9830
+    - LATENCY_CONTRACT_STATE_MIN_UPDATE_MS=3000
+    - CRYPTO_SYMBOLS_OVERRIDE=${CRYPTO_SYMBOLS_SHARD_1},${CRYPTO_SYMBOLS_SHARD_2}
+    - PGCONNECT_TIMEOUT=${PGCONNECT_TIMEOUT:-15}
+    - PGOPTIONS=${PGOPTIONS:-"-c statement_timeout=30000"}
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - SCANNER_CONSUMER_NAME=scanner-python-worker
+    - CRYPTO_OF_READ_BLOCK_MS=20
+    - TZ=UTC
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+      go-worker-1m:
+        condition: service_healthy
+      go-worker-5m:
+        condition: service_healthy
+      go-worker-15m:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
+          memory: 512M
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    command:
+    - sh
+    - -c
+    - sleep 30 && python main.py
+    volumes:
+    - ./python-worker:/app
+    - ./logs:/app/logs
+    - /var/lib/trade:/var/lib/trade
+    - ./calibration:/app/calibration
+  python-worker-btceth:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    image: scanner-python-worker:latest
+    container_name: scanner-python-worker-btceth
+    runtime: nvidia
+    profiles:
+    - default
+    ports:
+    - 8002:8002
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python -c "import urllib.request; urllib.request.urlopen('http://localhost:8002/healthz',
+        timeout=2).read()" >/dev/null 2>&1 || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    environment:
+    - liqmap_gate_mode=${LIQMAP_GATE_MODE:-shadow}
+    - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
+    - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
+    - REDIS_HOST=redis-worker-1
+    - REDIS_PORT=6379
+    - REDIS_DB=0
+    - REDIS_URL=${REDIS_URL}
+    - REDIS_TICKS_URL=redis://redis-ticks:6379/0
+    - REDIS_TICKS_HOST=redis-ticks
+    - REDIS_TICKS_PORT=6379
+    - REDIS_SOCKET_TIMEOUT=30
+    - REDIS_SOCKET_CONNECT_TIMEOUT=10
+    - REDIS_MAX_CONNECTIONS=256
+    - REDIS_MAIN_MAX_CONNECTIONS=128
+    - REDIS_TICKS_MAX_CONNECTIONS=256
+    - REDIS_RETRY_ON_TIMEOUT=true
+    - REDIS_HEALTH_CHECK_INTERVAL=30
+    - REDIS_SIGNALS_HOST=redis-worker-1
+    - REDIS_SIGNALS_PORT=6379
+    - REDIS_SIGNALS_HOST_2=redis-worker-2
+    - REDIS_SIGNALS_PORT_2=6379
+    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/trade
+    - DATABASE_URL=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/trade
+    - PGCONNECT_TIMEOUT=${PGCONNECT_TIMEOUT:-15}
+    - PGOPTIONS=${PGOPTIONS:-"-c statement_timeout=30000"}
+    - NOTIFY_STREAM=notify:telegram
+    - LOG_LEVEL=INFO
+    - USE_FILE_LOGGING=true
+    - LOG_DIR=/app/logs
+    - GPU_ENABLED=true
+    - NVIDIA_VISIBLE_DEVICES=all
+    - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    - CUPY_CACHE_DIR=/tmp/cupy_cache
+    - CUPY_CACHE_SAVE_CUDA_SOURCE=0
+    - NUMBA_CACHE_DIR=/tmp/numba_cache
+    - TZ=UTC
+    - ATR_SOURCE=ticks
+    - ATR_TF=${ATR_TF:-5m}
+    - ATR_TF_SELECTOR_MODE=${ATR_TF_SELECTOR_MODE:-enforce}
+    - ATR_TF_CALIB_ENABLE=${ATR_TF_CALIB_ENABLE:-1}
+    - CRYPTO_SIGNAL_MIN_CONF=${CRYPTO_SIGNAL_MIN_CONF}
+    - CRYPTO_NOTIFY_SIGNAL_EVERY_N=${CRYPTO_NOTIFY_SIGNAL_EVERY_N:-100}
+    - ACCOUNT_DEPOSIT_USD=${ACCOUNT_DEPOSIT_USD:-1000}
+    - ACCOUNT_LEVERAGE=${ACCOUNT_LEVERAGE:-10}
+    - RISK_PERCENT=${RISK_PERCENT:-5.0}
+    - RISK_MAX_QTY=0.5
+    - RISK_MIN_NOTIONAL_USD=5
+    - CRYPTO_COMMISSION_RATE=0.0005
+    - FEES_BPS_RT=${FEES_BPS_RT:-4}
+    - TP_MODE=RR
+    - TP_RR=0.7,1.3,2.0
+    - TP_MODE_BTCUSDT=RR
+    - TP_MODE_ETHUSDT=RR
+    - STOP_MODE=ATR
+    - STOP_ATR_MULT=${STOP_ATR_MULT:-1.5}
+    - BTC_STOP_ATR_MULT=${BTC_STOP_ATR_MULT:-0.8}
+    - ETH_STOP_ATR_MULT=${ETH_STOP_ATR_MULT:-0.7}
+    - ML_CONFIRM_MODEL_PATH=/var/lib/trade/of_reports/models/model.joblib
+    - ML_CONFIRM_MODE=SHADOW
+    - ML_CONFIRM_FAIL_POLICY=OPEN
+    - ML_REDIS_URL=${REDIS_URL}
+    - ML_CONFIRM_P_MIN=0.55
+    - OF_CONFIRM_VERSION=3
+    - GATE_PROFILE=hard
+    - ML_CONFIRM_METRICS_ENABLE=${ML_CONFIRM_METRICS_ENABLE:-1}
+    - PUBLISH_OF_CONFIRM=1
+    - ENTRY_POLICY_ENABLED=1
+    - CRYPTO_OF_STRONG_GATE_SHADOW=${CRYPTO_OF_STRONG_GATE_SHADOW}
+    - CRYPTO_OF_DROP_ON_LAG=${CRYPTO_OF_DROP_ON_LAG:-true}
+    - CRYPTO_OF_MAX_TS_SKEW_MS=${CRYPTO_OF_MAX_TS_SKEW_MS:-5000}
+    - FEATURE_DRIFT_ENABLED=1
+    - AUTO_CALIBRATION_THRESHOLD=100
+    - AUTO_CALIBRATION_SYMBOLS=${CRYPTO_SYMBOLS}
+    - AUTO_CALIBRATION_SOURCE=CryptoOrderFlow
+    - STRATEGY_RESEARCH_GUARD_BLOCKER_KEY=cfg:research_guard:blocker:v1
+    - STRATEGY_RESEARCH_GUARD_FAIL_CLOSED_MISSING=1
+    - CALIB_PERSIST_ENABLE=1
+    - CALIB_AUDIT_ENABLE=1
+    - LATENCY_BUDGET_REDIS_TO_FEATURE_MS=50
+    - LATENCY_BUDGET_FEATURE_TO_EMIT_MS=100
+    - LATENCY_BUDGET_END_TO_END_EVENT_MS=200
+    - LATENCY_CONTRACT_SYMBOL_ALLOWLIST=BTCUSDT,ETHUSDT
+    - LATENCY_CONTRACT_EXPORTER_PORT=9835
+    - LATENCY_CONTRACT_STATE_MIN_UPDATE_MS=3000
+    - TM_ORPHAN_TIMEOUT_ENABLED=${TM_ORPHAN_TIMEOUT_ENABLED}
+    - CRYPTO_SYMBOLS_OVERRIDE=${CRYPTO_SYMBOLS_SHARD_BTCETH}
+    - PROMETHEUS_PORT=8002
+    - SCANNER_CONSUMER_NAME=scanner-python-worker-btceth
+    - CRYPTO_OF_READ_BLOCK_MS=5
+    - REDIS_IDLE_SLEEP_SEC=0
+    - DISABLE_SCHEDULED_REPORTS=true
+    - REPORT_TRIGGER_COUNT=1000000
+    - PERIODIC_REPORT_CHECK_INTERVAL_SEC=0
+    - USE_SIGNAL_OUTBOX=false
+    - OUTBOX_CONTRACT_MODE=warn
+    - PUBLISH_OF_INPUTS=1
+    - OF_INPUTS_STREAM=signals:of:inputs
+    - OF_INPUTS_STREAM_MAXLEN=5000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+      go-worker-1m:
+        condition: service_healthy
+      go-worker-5m:
+        condition: service_healthy
+      go-worker-15m:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.5'
+        reservations:
+          memory: 512M
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    command:
+    - sh
+    - -c
+    - sleep 30 && python main.py
+    volumes:
+    - ./python-worker:/app
+    - ./logs:/app/logs
+    - /var/lib/trade:/var/lib/trade
+    - ./calibration:/app/calibration
+  candles-archiver:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-candles-archiver
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - ANALYTICS_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+    - ARCHIVE_BATCH_SIZE=1000
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name candles_archiver
+      -- python -m services.candles_archiver
+    restart: unless-stopped
+    networks:
+    - scanner-core
+    - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.2'
+        reservations:
+          memory: 512M
+  ohlc-aggregator:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-ohlc-aggregator
+    environment:
+    - REDIS_URL=redis://redis-ticks:6379/0
+    - REDIS_USER=
+    - REDIS_PASS=
+    - GO_WORKER_REDIS_PASS=
+    - XAU_TICK_STREAM=stream:tick_XAUUSDT
+    - XAU_OHLC_GROUP=xauusd-ohlc-group
+    - XAU_OHLC_CONSUMER=ohlc-aggregator-docker
+    - SESSION_CLOSE_TZ=UTC
+    - SESSION_CLOSE_HOUR=0
+    - SESSION_CLOSE_MIN=0
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+    command:
+    - sh
+    - -c
+    - sleep 35 && python services/ohlc_aggregator.py
+  crypto-htf-aggregator:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-crypto-htf-aggregator
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - CANDLES_STREAM=candles:data
+    - HTF_GROUP=crypto-htf-aggregator-group
+    - HTF_CONSUMER=crypto-htf-aggregator-docker
+    - SYMBOLS=${CRYPTO_SYMBOLS}
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+    command:
+    - python
+    - services/crypto_htf_aggregator.py
+  htf-zones-publisher:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-htf-zones-publisher
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - SYMBOLS=${CRYPTO_SYMBOLS}
+    - HTF_ZONES_PUB_INTERVAL_SEC=10
+    - HTF_ZONES_TTL_SEC=120
+    - 'HTF_ZONES_KEY_PREFIX=zones:htf:v1:'
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.4'
+        reservations:
+          memory: 512M
+    command:
+    - python
+    - geometry/htf_zones_publisher.py
+  post-sl-analyzer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-post-sl-analyzer
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - TRADES_CLOSED_STREAM=trades:closed
+    - CANDLES_STREAM=candles:data
+    - POST_SL_STREAM=trades:post_sl
+    - POST_SL_TRADES_GROUP=post-sl-trades-group
+    - POST_SL_TRADES_CONSUMER=post-sl-worker-1
+    - POST_SL_CANDLES_GROUP=post-sl-candles-group
+    - POST_SL_CANDLES_CONSUMER=post-sl-worker-1
+    - POST_SL_TRACK_ENABLE=1
+    - POST_SL_MAX_BARS=120
+    - POST_SL_ATR_CAP=2.0
+    - POST_SL_TP1_EPS_BPS=2.0
+    - CRYPTO_COMMISSION_RATE=0.0005
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+    command:
+    - sh
+    - -c
+    - sleep 40 && python services/post_sl_analyzer.py
+  sl-quantile-aggregator:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-sl-quantile-aggregator
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - POST_SL_STREAM=trades:post_sl
+    - SLQ_GROUP=slq-aggregator-group
+    - SLQ_CONSUMER=slq-worker-1
+    - SLQ_WRITE_EVERY_SEC=10
+    - SLQ_MAX_SAMPLES=1000
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.2'
+        reservations:
+          memory: 512M
+    command:
+    - sh
+    - -c
+    - sleep 45 && python services/sl_quantile_aggregator.py
+  smt-entry-candidate-service:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-smt-entry-candidate-service
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - SMT_SETUP_STREAM=stream:smt:setup
+    - SMT_ENTRY_STREAM=stream:trade:entry_candidate
+    - SMT_ENTRY_GROUP=smt-entry
+    - SMT_ENTRY_CONSUMER=smt-entry-docker
+    - 'SMT_SNAP_PREFIX=smt:snap:'
+    - SMT_SETUP_TTL_MS=120000
+    - SMT_ENTRY_POLL_MS=250
+    - SMT_COH_THRESHOLD=0.65
+    - SMT_LEADER_CONF_MIN_SCORE=0.65
+    - SMT_BASKET_K=2
+    - SMT_RANK_MODE=ts
+    - SMT_RANK_TS_WINDOW=240
+    - SMT_ZONE_MAX_BP=15
+    - SMT_QUAL_Z_MIN=2.0
+    - NEWS_ASSET_CLASS=crypto
+    - NEWS_GATE_WINDOW_SEC=300
+    - NEWS_GATE_GRADE_MIN=4
+    - NEWS_GATE_MANUAL_KEY=news:hi:active
+    - 'NEWS_GATE_CAL_AGG_PREFIX=calendar:agg:'
+    - SMT_PUBLISH_LEGACY_SIGNALS=0
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.2'
+        reservations:
+          memory: 512M
+    command:
+    - sh
+    - -c
+    - sleep 45 && python services/smt_entry_candidate_service.py
+  smt-entry-policy-service:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-smt-entry-policy-service
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - SMT_ENTRY_STREAM=stream:trade:entry_candidate
+    - TRADE_ENTRY_STREAM=stream:trade:entry
+    - TRADE_ENTRY_AUDIT_STREAM=stream:trade:entry_audit
+    - ENTRY_POLICY_GROUP=entry-policy
+    - ENTRY_POLICY_CONSUMER=policy-docker
+    - 'SMT_SNAP_PREFIX=smt:snap:'
+    - 'SMT_BUNDLE_PREFIX=smt:bundle:v1:'
+    - SMT_COH_THRESHOLD=0.65
+    - SMT_LEADER_CONF_MIN_SCORE=0.65
+    - SMT_ENTRY_MIN_OF_SCORE=1.0
+    - SMT_ENTRY_MAX_ZONE_BP=15.0
+    - SMT_ENTRY_MAX_ZONE_BP_THIN=10.0
+    - SMT_ENTRY_OBI_MIN_SEC=1.5
+    - ENTRY_POLICY_SHADOW=1
+    - ENTRY_POLICY_USE_EVENT_TS=1
+    - SMT_ENTRY_DEDUP_MS=60000
+    - ENTRY_POLICY_POLL_MS=100
+    - TRADE_ENTRY_AUDIT_MAXLEN=200000
+    - TRADE_ENTRY_MAXLEN=20000
+    - ENTRY_POLICY_MAX_CANDIDATE_AGE_MS=120000
+    - ENTRY_POLICY_ALLOW_ZONE_CHANGE_IF_NEAR=0
+    - GATE_PROFILE=hard
+    - ENTRY_POLICY_PROFILE=default
+    - EXEC_HEALTH_MODE=monitor
+    - ENTRY_EXEC_HEALTH_MODE=monitor
+    - EXEC_HEALTH_ENTRY_POLICY_ENABLED=1
+    - EXEC_HEALTH_VENUE=binance
+    - EXEC_HEALTH_TF=all
+    - EXEC_MAX_IS_P95_BPS=0
+    - EXEC_MAX_PERM_IMPACT_P95_BPS=0
+    - EXEC_MIN_REALIZED_SPREAD_P50_BPS=-999
+    - EXEC_TCA_DELTA_SEC_LIST=1,5
+    - EXEC_TIGHTEN_ADD_MULT=1.0
+    - EXEC_TIGHTEN_ADD_CAP_BPS=8.0
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    command:
+    - sh
+    - -c
+    - sleep 30 && python services/smt_entry_policy_service.py
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+  smt-bundle-aggregator:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-smt-bundle-aggregator
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - SMT_BUNDLE_1=btc_eth_sol:BTCUSDT,ETHUSDT,SOLUSDT
+    - SMT_COH_WINDOW_N=180
+    - SMT_COH_MAX_LAG=5
+    - SMT_LEADER_CONFIRM_MIN_BPS=12.0
+    - SMT_LEADER_DIR_WINDOW=6
+    - SMT_COH_MIN_CORR=0.55
+    - SMT_PRICE_STALE_MS=7000
+    - SMT_COH_W_DIR=0.5
+    - SMT_COH_W_TIME=0.2
+    - SMT_COH_W_QUAL=0.3
+    - SMT_COH_THR=0.65
+    - SMT_LEADER_CONF_MIN_SCORE=0.65
+    - SMT_BASKET_K=2
+    - SMT_RANK_MODE=ts
+    - SMT_RANK_TS_WINDOW=240
+    - SMT_ZONE_MAX_BP=15
+    - SMT_QUAL_Z_MIN=2.0
+    - NEWS_ASSET_CLASS=crypto
+    - NEWS_GATE_WINDOW_SEC=300
+    - NEWS_GATE_GRADE_MIN=4
+    - NEWS_GATE_MANUAL_KEY=news:hi:active
+    - 'NEWS_GATE_CAL_AGG_PREFIX=calendar:agg:'
+    - PRICE_LATEST_ENABLED=1
+    - SMT_SETUP_STREAM=stream:smt:setup
+    - SMT_AGG_INTERVAL_MS=1000
+    - LOG_LEVEL=INFO
+    - USE_FILE_LOGGING=false
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.2'
+        reservations:
+          memory: 512M
+    command:
+    - sh
+    - -c
+    - sleep 20 && python runners/smt_bundle_aggregator_runner.py
+  entry-policy-lcb-guard-service:
+    build: *id001
+    restart: on-failure:5
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pgrep -f entry_policy_lcb_guard || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks: *id002
+    container_name: scanner-entry-policy-lcb-guard
+    command: python3 services/entry_policy_lcb_guard_service.py
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - LCB_GUARD_IN_STREAM=events:trades
+    - LCB_GUARD_GROUP=lcb-guard
+    - LCB_GUARD_CONSUMER=c1
+    - LCB_GUARD_MIN_SAMPLES=20
+    - LCB_GUARD_Z=1.96
+    - LCB_GUARD_THRESHOLD=0.0
+    - LCB_GUARD_STREAK=2
+    - LCB_GUARD_MIN_FREEZE_MS=300000
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+  scanner-autopilot-guardrail:
+    image: scanner-python-worker:latest
+    container_name: scanner-autopilot-guardrail
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - TRADE_EVENTS_STREAM=events:trades
+    - TRADE_EVENTS_DLQ_STREAM=events:trades:dlq
+    - TRADE_EVENTS_DLQ_MAXLEN=200000
+    - TRADE_EVENTS_BAD_IDEMPO_TTL_SEC=86400
+    - GUARDRAIL_INTERVAL_SEC=900
+    - GUARDRAIL_MIN_N=40
+    - GUARDRAIL_LCB_Z=1.64
+    - GUARDRAIL_ROLLBACK_FLOOR_R=-0.15
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - SCANNER_CONSUMER_NAME=scanner-autopilot-guardrail
+    - TZ=UTC
+    command:
+    - python
+    - -m
+    - services.autopilot_guardrail_service
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+  scanner-autopilot-tm:
+    image: scanner-python-worker:latest
+    container_name: scanner-autopilot-tm
+    command:
+    - python
+    - -m
+    - services.autopilot_tm_reports_service
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - TRADE_EVENTS_STREAM=events:trades
+    - NOTIFY_STREAM=${NOTIFY_STREAM:-notify:telegram}
+    - AUTOPILOT_DAILY_HHMM=07:05
+    - AUTOPILOT_WEEKLY_DOW=sun
+    - AUTOPILOT_WEEKLY_HHMM=07:20
+    - AUTOPILOT_PROPOSE_WEEKLY=1
+    - AUTOPILOT_PROPOSE_DAILY=0
+    - AUTOPILOT_MIN_N_WEEKLY=40
+    - AUTOPILOT_MIN_N_DAILY=20
+    - TM_GROUP_MODE=regime_group
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - SCANNER_CONSUMER_NAME=scanner-autopilot-tm
+    - TZ=UTC
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+  scanner-autopilot:
+    image: scanner-python-worker:latest
+    container_name: scanner-autopilot
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - NOTIFY_STREAM=${NOTIFY_STREAM:-notify:telegram}
+    - AUTOPILOT_INTERVAL_SEC=3600
+    - AUTOPILOT_WINDOW_DAYS=7
+    - AUTOPILOT_REPORT_HOUR_LOCAL=8
+    - AUTOPILOT_REPORT_MIN_LOCAL=10
+    - AUTOPILOT_WRITE_PROPOSAL=1
+    - APPROVALS_REQUIRED=2
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - SCANNER_CONSUMER_NAME=scanner-autopilot
+    - TZ=UTC
+    command:
+    - python
+    - -m
+    - services.autopilot_policy_loop_service
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+  scanner-entry-policy-autopilot:
+    image: scanner-python-worker:latest
+    container_name: scanner-entry-policy-autopilot
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - TRADE_EVENTS_STREAM=events:trades
+    - NOTIFY_STREAM=${NOTIFY_STREAM:-notify:telegram}
+    - AUTOPILOT_SINCE_HOURS=168
+    - AUTOPILOT_REPORT_TOP=25
+    - AUTOPILOT_SUGGEST_ONLY_NON_A=1
+    - AUTOPILOT_EMIT_OVERRIDES_V1=1
+    - AUTOPILOT_LOCK_KEY=lock:autopilot:entry_policy
+    - AUTOPILOT_LOCK_TTL_SEC=3300
+    - AUTOPILOT_APPROVERS=auto
+    - AUTOPILOT_LCB_ALPHA=0.05
+    - AUTOPILOT_MIN_N_TREND=80
+    - AUTOPILOT_MIN_LCB_R_TREND=0.05
+    - AUTOPILOT_MIN_N_RANGE=120
+    - AUTOPILOT_MIN_LCB_R_RANGE=0.10
+    - AUTOPILOT_MIN_N_THIN=200
+    - AUTOPILOT_MIN_LCB_R_THIN=0.15
+    - AUTOPILOT_MIN_EDGE_LCB_R=0.05
+    - OVERRIDES_HOLD_DOWN_MS=60000
+    - OVERRIDES_HYSTERESIS_MS=300000
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - SCANNER_CONSUMER_NAME=scanner-entry-policy-autopilot
+    - TZ=UTC
+    command:
+    - python
+    - -m
+    - services.autopilot_scheduler_service
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+  scanner-entry-policy-safety-guard:
+    image: scanner-python-worker:latest
+    container_name: scanner-entry-policy-safety-guard
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=${ENTRY_POLICY_SAFETY_REDIS_URL}
+    - TRADE_EVENTS_STREAM=events:trades
+    - SAFETY_GUARD_GROUP=entry-policy-safety
+    - ENTRY_POLICY_ACTIVE_PREFIX=cfg:entry_policy:active_arm
+    - POLICY_LEDGER_STREAM=stream:policy:events
+    - NOTIFY_STREAM=${NOTIFY_STREAM:-notify:telegram}
+    - SAFETY_STATS_TTL_SEC=21600
+    - SAFETY_EVAL_EVERY_SEC=60
+    - SAFETY_MIN_N=30
+    - SAFETY_LCB_ALPHA=0.05
+    - SAFETY_MIN_EDGE_LCB_R=0.05
+    - SAFETY_FREEZE_ENABLE=1
+    - SAFETY_FREEZE_SEC=3600
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - SCANNER_CONSUMER_NAME=scanner-entry-policy-safety-guard
+    - TZ=UTC
+    command:
+    - python
+    - -m
+    - services.policy_safety_guard_service
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+  smt-entry-policy-regression-service:
+    build: *id001
+    restart: on-failure:5
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pgrep -f entry_policy_regression || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+    - scanner-core
+    - scanner-infra
+    command: python -u services/entry_policy_regression_service.py
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - EP_CAPTURE_DURATION_SEC=900
+    - EP_CAPTURE_START_ID=
+    - EP_CAPTURE_BLOCK_MS=1000
+    - EP_CAPTURE_COUNT=200
+    - EP_REPORT_DIR=/var/log/trade
+    - EP_REPORT_KEEP_DAYS=14
+    - EP_ALERT_MIN_TOTAL=5
+    - EP_ALERT_MIN_ALLOW_RATE=0.3
+    - EP_ALERT_MAX_ALLOW_RATE=50.0
+    - EP_ALERT_MAX_DELTA_ALLOW_PP=7.0
+    - EP_ALERTS_STREAM=stream:trade:alerts
+    - EP_RUN_AT_HOUR=3
+    - EP_RUN_AT_MINUTE=10
+    - SMT_COH_THRESHOLD=0.65
+    - SMT_LEADER_CONF_MIN_SCORE=0.65
+    - SMT_ENTRY_MIN_OF_SCORE=1.0
+    - SMT_ENTRY_MAX_ZONE_BP=15.0
+    - SMT_ENTRY_MAX_ZONE_BP_THIN=10.0
+    - SMT_ENTRY_OBI_MIN_SEC=1.5
+    - SMT_ENTRY_DEDUP_MS=60000
+    - EP_ENABLE_DIRECT_NOTIFY=0
+    - ENTRY_POLICY_ALLOW_ZONE_CHANGE_IF_NEAR=0
+    - EP_TUNER_ENABLE=1
+    - EP_TUNER_TIGHTEN_ONLY=1
+    - EP_TUNER_MIN_TOTAL=50
+    - EP_TUNER_MIN_ALLOW=10
+    - EP_TUNER_PUBLISH=1
+    - EP_TUNER_STEP_ZONE_BP=3.0
+    - EP_TUNER_STEP_ZONE_BP_THIN=3.0
+    - EP_TUNER_STEP_COH=0.03
+    - EP_TUNER_STEP_LEADER_CONF=0.03
+    - EP_TUNER_STEP_OBI=0.30
+    - EP_SUGGESTIONS_STORE_REDIS=1
+    - EP_SUGGESTIONS_REDIS_KEY=cfg:suggestions:entry_policy:latest
+    - EP_SUGGESTIONS_TTL_SEC=604800
+    - CFG_ENTRY_POLICY_OVERRIDES_KEY=cfg:entry_policy:overrides
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    volumes:
+    - ./python-worker:/app
+    - /var/log/trade:/var/log/trade
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.2'
+        reservations:
+          memory: 512M
+  binance-iceberg-detector:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-binance-iceberg-detector
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - REDIS_TICKS_URL=redis://redis-ticks:6379/0
+    - ORDERFLOW_SYMBOLS=${CRYPTO_SYMBOLS}
+    - ICEBERG_MIN_DURATION=1.5
+    - ICEBERG_MIN_REFRESH=2
+    - ICEBERG_MIN_EXECUTED=20.0
+    - ICEBERG_MAX_DIST_ATR=0.5
+    - ICEBERG_MAX_DIST_REL=0.0025
+    - ICEBERG_SHADOW_OUTBOX=0
+    - ICEBERG_USE_OUTBOX_DISPATCHER=1
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.4'
+        reservations:
+          memory: 512M
+    command:
+    - sh
+    - -c
+    - sleep 45 && python services/binance_iceberg_detector.py
+  multi-symbol-orderflow:
+    profiles:
+    - disabled
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - driver: nvidia
+            count: all
+            capabilities:
+            - gpu
+          memory: 512M
+        limits:
+          memory: 2G
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - VETO_TOPN_WINDOW_MS=300000
+    - VETO_TOPN_N=5
+    - VETO_TOPN_MIN_TOTAL=30
+    - VETO_TOPN_ALERT_SHARE=0.50
+    - VETO_TOPN_ALERT_COUNT=50
+    - VETO_TOPN_COOLDOWN_MS=600000
+    - VETO_TOPN_CHANGE_MIN_SHARE=0.35
+    - VETO_TOPN_CHANGE_COOLDOWN_MS=900000
+    - VETO_TOPN_FAMILY_CHANGE_MIN_SHARE=0.45
+    - VETO_TOPN_FAMILY_CHANGE_MIN_DELTA=0.20
+    - VETO_TOPN_FAMILY_CHANGE_MIN_TOTAL_DELTA=7
+    - VETO_TOPN_FAMILY_CHANGE_MIN_TOTAL_RATIO=1.10
+    - VETO_TOPN_FAMILY_CHANGE_COOLDOWN_MS=900000
+    - REASON_MISMATCH_WINDOW_MS=60000
+    - REASON_MISMATCH_MIN_EVENTS=50
+    - REASON_MISMATCH_RATIO_WARN=0.02
+    - REASON_MISMATCH_RATIO_ERROR=0.005
+    - REASON_MISMATCH_ALERT_COOLDOWN_MS=30000
+    - REASON_LEGACY_ALERT_WINDOW_S=300
+    - REASON_LEGACY_ALERT_MIN_EVENTS=50
+    - REASON_LEGACY_ALERT_COOLDOWN_S=900
+    - REDIS_HOST=redis-worker-1
+    - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
+    - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
+    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/trade
+    - REDIS_SOCKET_TIMEOUT=30
+    - REDIS_SOCKET_CONNECT_TIMEOUT=10
+    - REDIS_MAX_CONNECTIONS=100
+    - REDIS_RETRY_ON_TIMEOUT=true
+    - REDIS_HEALTH_CHECK_INTERVAL=30
+    - EDGE_COST_K=4.0
+    - EDGE_COST_GATE_ENABLED=1
+    - EDGE_EXPECTED_MOVE_MODE=ev
+    - EDGE_TS_BAD_POLICY=correct_skip_ema
+    - EDGE_COST_K_BTCUSDT=3.0
+    - EDGE_COST_K_ETHUSDT=3.0
+    - EDGE_COST_K_SOLUSDT=3.5
+    - EDGE_COST_K_BNBUSDT=3.5
+    - EDGE_COST_K_XRPUSDT=3.5
+    - EDGE_COST_K_DOGEUSDT=3.8
+    - EDGE_COST_K_SUIUSDT=4.2
+    - EDGE_COST_K_APTUSDT=4.2
+    - EDGE_COST_K_ARBUSDT=4.2
+    - EDGE_COST_K_WIFUSDT=4.5
+    - EDGE_COST_K_1000PEPEUSDT=5.0
+    - EDGE_COST_K_1000SHIBUSDT=5.0
+    - EDGE_COST_K_FLOKIUSDT=5.5
+    - EDGE_COST_K_BONKUSDT=5.5
+    - CRYPTO_COMMISSION_RATE=0.0005
+    - INLINE_EXEC_HEALTH_ENABLE=${INLINE_EXEC_HEALTH_ENABLE:-0}
+    - INLINE_EXEC_HEALTH_MODE=${INLINE_EXEC_HEALTH_MODE:-auto}
+    - INLINE_EXEC_HEALTH_WARN_P95_BPS=${INLINE_EXEC_HEALTH_WARN_P95_BPS:-5.0}
+    - INLINE_EXEC_HEALTH_CRIT_P95_BPS=${INLINE_EXEC_HEALTH_CRIT_P95_BPS:-10.0}
+    - INLINE_EXEC_HEALTH_MAX_PERM_IMPACT_P95_BPS=${INLINE_EXEC_HEALTH_MAX_PERM_IMPACT_P95_BPS:-6.0}
+    - INLINE_EXEC_HEALTH_MIN_COUNT=${INLINE_EXEC_HEALTH_MIN_COUNT:-3}
+    - INLINE_EXEC_HEALTH_TIGHTEN_ADD_CAP_BPS=${INLINE_EXEC_HEALTH_TIGHTEN_ADD_CAP_BPS:-8.0}
+    - INLINE_EXEC_HEALTH_TIGHTEN_ADD_MULT=${INLINE_EXEC_HEALTH_TIGHTEN_ADD_MULT:-1.0}
+    - INLINE_EXEC_HEALTH_REDIS_TTL_SEC=${INLINE_EXEC_HEALTH_REDIS_TTL_SEC:-21600}
+    - INLINE_EXEC_HEALTH_MAX_SAMPLES=${INLINE_EXEC_HEALTH_MAX_SAMPLES:-128}
+    - INLINE_EXEC_HEALTH_EMA_ALPHA=${INLINE_EXEC_HEALTH_EMA_ALPHA:-0.2}
+    - INLINE_EXEC_HEALTH_TCA_DELTA_SEC=${INLINE_EXEC_HEALTH_TCA_DELTA_SEC:-1}
+    - NEWS_REDIS_SOCKET_TIMEOUT_SEC=0.05
+    - NEWS_REDIS_CONNECT_TIMEOUT_SEC=0.2
+    - NEWS_REDIS_MAX_CONNECTIONS=30
+    - NEWS_LOG_MINI_SAMPLE_PCT=1
+    - NEWS_DEBUG_FULL=false
+    - NEWS_DEBUG_FULL_SAMPLE_PCT=1
+    - NEWS_DEBUG_FULL_MAX_JSON_BYTES=409
+    - SLQ_ENABLE=1
+    - SLQ_K=0.7
+    - SLQ_MIN_N=200
+    - SLQ_TP1_PROB_MIN=0.55
+    - SLQ_POSTSL_TP1_MIN=0.25
+    - SLQ_BUMP_ATR_CAP=0.40
+    - SLQ_STOP_ATR_MIN=0.50
+    - SLQ_STOP_ATR_MAX=1.50
+    - SLQ_MAX_AGE_SEC=3600
+    - RISK_USD_PER_TRADE=0
+    - RISK_MAX_QTY=0.5
+    - ACCOUNT_DEPOSIT_USD=${ACCOUNT_DEPOSIT_USD:-100}
+    - ACCOUNT_LEVERAGE=${ACCOUNT_LEVERAGE:-100}
+    - RISK_PERCENT=${RISK_PERCENT:-5.0}
+    - NOTIONAL_LEVERAGE_CAP=100
+    - RISK_MIN_NOTIONAL_USD=5
+    - RISK_MAX_NOTIONAL_USD=500
+    - TP_MODE_BTCUSDT=RR
+    - TP_MODE_ETHUSDT=RR
+    - TP_RR=0.7,1.3,2.0
+    - RANGE_TP_RR=1.0,1.5
+    - FORCE_TRAIL_AFTER_TP1=0
+    - TRAILING_AFTER_TP1_SOURCES=
+    - TRAILING_AFTER_TP1_CRYPTOORDERFLOW=false
+    - TRAILING_AFTER_TP1_ETHUSDT=false
+    - TRAILING_AFTER_TP1_BTCUSDT=false
+    - TRAIL_COND_ENABLED=1
+    - TRAIL_FORCE_ALWAYS_AFTER_TP1=0
+    - TRAIL_COND_Z_THR=2.0
+    - TRAIL_COND_OBI_THR=0.10
+    - TRAIL_COND_REQUIRE_ALIGNMENT=1
+    - TRAIL_GIVEBACK_EMA_ENABLED=1
+    - TRAIL_GIVEBACK_EMA_ALPHA=0.05
+    - TRAIL_COND_USE_GIVEBACK_EMA=1
+    - TRAIL_COND_GIVEBACK_BPS_MIN=20
+    - TRAIL_COND_GIVEBACK_MIN_SAMPLES=30
+    - TRAIL_COND_EVAL_ENABLED=1
+    - TRAIL_USE_GIVEBACK_STATS=1
+    - TRAIL_VETO_IF_NO_STATS=1
+    - TRAIL_Z_MIN=1.2
+    - TRAIL_OBI_MIN=0.0
+    - TRAIL_REQUIRE_OBI_SUST=0
+    - TRAIL_GIVEBACK_R_MIN=0.35
+    - TRAIL_STATS_ENABLED=1
+    - TRAIL_STATS_EMA_ALPHA=0.08
+    - TRAIL_STATS_USE_REGIME_DIM=1
+    - TRAIL_STATS_TTL_SEC=5184000
+    - TRAIL_CLEAR_FUTURE_TPS_ON_START=1
+    - REDIS_SIGNALS_PORT=6379
+    - REDIS_SIGNALS_HOST_2=redis-worker-2
+    - REDIS_SIGNALS_PORT_2=6379
+    - SYMBOLS=${CRYPTO_SYMBOLS}
+    - STRATEGIES=orderflow,ta,aggregated,cryptoorderflow
+    - DYNAMIC_SYMBOLS=true
+    - XAU_DELTA_WINDOW=120
+    - XAU_DELTA_Z_THRESHOLD=3.0
+    - XAU_WEAK_PROGRESS_ATR=0.10
+    - XAU_OBI_THRESHOLD=0.5
+    - XAU_OBI_MIN_DURATION=2.0
+    - XAU_ICEBERG_REFRESH=2
+    - XAU_ICEBERG_DURATION=1.5
+    - XAU_ICEBERG_REFRESH_MIN_ABS=1.0
+    - XAU_DIST_ATR_THRESHOLD=0.5
+    - XAU_MIN_SIGNAL_INTERVAL=60
+    - XAU_READ_COUNT=100
+    - XAU_READ_BLOCK_MS=1000
+    - BTCUSD_TICK_STREAM=stream:tick_BTCUSD
+    - BTCUSD_BOOK_STREAM=stream:book_BTCUSD
+    - BTCUSDT_TICK_STREAM=stream:tick_BTCUSDT
+    - BTCUSDT_BOOK_STREAM=stream:book_BTCUSDT
+    - ETHUSDT_TICK_STREAM=stream:tick_ETHUSDT
+    - ETHUSDT_BOOK_STREAM=stream:book_ETHUSDT
+    - BTC_DELTA_WINDOW=120
+    - BTC_DELTA_Z_THRESHOLD=2.7
+    - BTC_WEAK_PROGRESS_ATR=0.15
+    - BTC_OBI_THRESHOLD=0.35
+    - BTC_OBI_MIN_DURATION=1.5
+    - BTC_ICEBERG_REFRESH=3
+    - BTC_ICEBERG_DURATION=1.0
+    - BTC_DIST_ATR_THRESHOLD=0.4
+    - BTC_MIN_SIGNAL_INTERVAL=20
+    - BTC_READ_COUNT=100
+    - BTC_READ_BLOCK_MS=1000
+    - BTC_STOP_MODE=ATR
+    - BTC_STOP_ATR_MULT=${BTC_STOP_ATR_MULT:-1.8}
+    - BTC_TP_RR=1,1.5,2.5
+    - ETHUSD_TICK_STREAM=stream:tick_ETHUSD
+    - ETHUSD_BOOK_STREAM=stream:book_ETHUSD
+    - 1000PEPEUSDT_TICK_STREAM=stream:tick_1000PEPEUSDT
+    - 1000PEPEUSDT_BOOK_STREAM=stream:book_1000PEPEUSDT
+    - DOGEUSDT_TICK_STREAM=stream:tick_DOGEUSDT
+    - DOGEUSDT_BOOK_STREAM=stream:book_DOGEUSDT
+    - 1000SHIBUSDT_TICK_STREAM=stream:tick_1000SHIBUSDT
+    - 1000SHIBUSDT_BOOK_STREAM=stream:book_1000SHIBUSDT
+    - 1000FLOKIUSDT_TICK_STREAM=stream:tick_1000FLOKIUSDT
+    - 1000FLOKIUSDT_BOOK_STREAM=stream:book_1000FLOKIUSDT
+    - 1000BONKUSDT_TICK_STREAM=stream:tick_1000BONKUSDT
+    - 1000BONKUSDT_BOOK_STREAM=stream:book_1000BONKUSDT
+    - WIFUSDT_TICK_STREAM=stream:tick_WIFUSDT
+    - WIFUSDT_BOOK_STREAM=stream:book_WIFUSDT
+    - SUIUSDT_TICK_STREAM=stream:tick_SUIUSDT
+    - SUIUSDT_BOOK_STREAM=stream:book_SUIUSDT
+    - APTUSDT_TICK_STREAM=stream:tick_APTUSDT
+    - APTUSDT_BOOK_STREAM=stream:book_APTUSDT
+    - ARBUSDT_TICK_STREAM=stream:tick_ARBUSDT
+    - ARBUSDT_BOOK_STREAM=stream:book_ARBUSDT
+    - XAUUSDT_TICK_STREAM=stream:tick_XAUUSDTT
+    - XAUUSDT_BOOK_STREAM=stream:book_XAUUSDT
+    - SOLUSDT_L3_STREAM=
+    - XRPUSDT_L3_STREAM=
+    - BNBUSDT_L3_STREAM=
+    - 1000PEPEUSDT_L3_STREAM=
+    - DOGEUSDT_L3_STREAM=
+    - 1000SHIBUSDT_L3_STREAM=
+    - 1000FLOKIUSDT_L3_STREAM=
+    - 1000BONKUSDT_L3_STREAM=
+    - WIFUSDT_L3_STREAM=
+    - SUIUSDT_L3_STREAM=
+    - APTUSDT_L3_STREAM=
+    - ARBUSDT_L3_STREAM=
+    - BTCUSDT_L3_STREAM=
+    - ETHUSDT_L3_STREAM=
+    - XAUUSDT_L3_STREAM=
+    - ETH_DELTA_WINDOW=120
+    - ETH_DELTA_Z_THRESHOLD=2.7
+    - ETH_WEAK_PROGRESS_ATR=0.15
+    - ETH_OBI_THRESHOLD=0.4
+    - ETH_OBI_MIN_DURATION=1.5
+    - ETH_ICEBERG_REFRESH=3
+    - ETH_ICEBERG_DURATION=1.0
+    - ETH_DIST_ATR_THRESHOLD=0.4
+    - ETH_MIN_SIGNAL_INTERVAL=30
+    - ETH_READ_COUNT=100
+    - ETH_READ_BLOCK_MS=1000
+    - ATR_SOURCE=redis
+    - ATR_TF=${ATR_TF:-5m}
+    - STOP_MODE=ATR
+    - STOP_ATR_MULT=${STOP_ATR_MULT:-1.5}
+    - STOP_PCT=0.2
+    - STOP_POINTS=1.0
+    - TP_MODE=RR
+    - TP_ATR_MULTS=0.6,1.0,1.5
+    - STREAM_MSG_MAX_RETRIES=3
+    - STREAM_CLAIM_INTERVAL_MS=5000
+    - STREAM_CLAIM_MIN_IDLE_MS=15000
+    - STREAM_CLAIM_COUNT=50
+    - ORDERFLOW_DLQ_STREAM=stream:dlq:orderflow
+    - GOLDEN_CONFIDENCE_DEFAULT=20
+    - GOLDEN_WEIGHT_DEFAULT=1.0
+    - GOLDEN_CONF_BREAKOUT_R1=93
+    - GOLDEN_CONF_FADE_PDH=88
+    - GOLDEN_CONF_FADE_HTF_OB=92
+    - GOLDEN_WEIGHT_BREAKOUT_R1=1.5
+    - GOLDEN_WEIGHT_FADE_PDH=0.8
+    - GOLDEN_WEIGHT_FADE_HTF_OB=1.2
+    - CONFIDENCE_SCALE=0.01
+    - GOLDEN_SCORE_MULTIPLIER=1.3
+    - FINAL_SCORE_MAX=5.0
+    - MIN_FINAL_SCORE=0.6
+    - REDIS_BACKOFF_BASE=0.25
+    - REDIS_BACKOFF_FACTOR=2.0
+    - REDIS_BACKOFF_CAP=5.0
+    - REDIS_BACKOFF_JITTER=0.15
+    - REDIS_IDLE_SLEEP_SEC=0.05
+    - DLQ_MAX_FIELD_BYTES=16384
+    - DLQ_MAX_TOTAL_BYTES=65536
+    - DLQ_HASH_TRUNCATED=1
+    - L2_MAX_AGE_MS=60000
+    - L2_NEGATIVE_SKEW_STALE_MS=5000
+    - MANUAL_AUDIT_LEVEL=compact
+    - MANUAL_AUDIT_MAX_BYTES=12000
+    - MANUAL_AUDIT_ROUND=4
+    - CONF_BREAKDOWN_MAX_KEYS=8
+    - CONF_BREAKDOWN_ROUND=4
+    - METRICS_EVERY_MS=15000
+    - MODE_MOMO_EMA_ALPHA=0.02
+    - DELTA_BUCKET_MS=1000
+    - OBI_MAX_STALE_MS=2500
+    - TRAIL_Z_THRESHOLD=4.5
+    - BREAKOUT_REQUIRE_OBI=true
+    - LEVEL_SIGNAL_COOLDOWN_MS=15000
+    - BREAKOUT_MIN_DIST_ATR=0.0
+    - TP1_SHIFT_MULT=1.4
+    - NOTIFY_STREAM=notify:telegram
+    - USE_TELEGRAM_BUTTONS=0
+    - SNAP_PREFIX=signal:snap
+    - SNAP_TTL=21600
+    - GPU_MIN_N=2048
+    - ROBUST_Z_BACKEND=auto
+    - ROBUST_Z_GPU_MIN_N=2048
+    - DELTA_BUCKET_MAX_ZERO_FILL=3
+    - L2_K_SMALL=5
+    - L2_K_LARGE=20
+    - L2_WALL_MULT=3.0
+    - L2_WALL_MAX_DIST_BPS=15.0
+    - L2_BATCH_SIZE=10
+    - L2_BATCH_TIMEOUT_MS=100
+    - L2_BATCH_MIN=3
+    - L2_WARN_EVERY_MS=15000
+    - L2_STALE_MS=1500
+    - L2_MAX_STALE_MS=1500
+    - TICK_LAG_WARN_MS=5000
+    - TOUCH_WINDOW_MS=500
+    - TOUCH_TAU_REFILL_MS=250
+    - TOUCH_RECOVER_FRAC=0.90
+    - TOUCH_RHO_REFILL_MIN=1.5
+    - TOUCH_RHO_DEPLETION_MAX=1.5
+    - TOUCH_MAX_TOUCH_TICKS=1
+    - TOUCH_BOOK_FRESH_MS=250
+    - L3_LITE_ENABLED=true
+    - L3_LITE_EMA_ALPHA=0.08
+    - L3_LITE_MIN_DT_MS=80
+    - L3_TAKER_RATE_EMA_ALPHA=0.12
+    - L3_EPS=1e-9
+    - BURST_HALF_LIFE_SHORT_MS=250
+    - BURST_HALF_LIFE_LONG_MS=2000
+    - BURST_FANO_WINDOW_BUCKETS=60
+    - BURST_DT_ALPHA=0.05
+    - MIN_TRADES_BREAKOUT=20
+    - BURST_RATIO_MIN=1.6
+    - FANO_MIN=1.5
+    - FLIP_RATIO_MAX=0.70
+    - IMBALANCE_MIN=0.20
+    - EXEC_FILTERS_ENABLED=true
+    - ETA_MAX_SEC=2.5
+    - ORDERFLOW_SIGNAL_STREAM=signals:orderflow
+    - NOTIFY_SIGNAL_COUNTER_KEY=notify:telegram:signal_counter
+    - CRYPTO_NOTIFY_SIGNAL_EVERY_N=${CRYPTO_NOTIFY_SIGNAL_EVERY_N:-100}
+    - SIGNAL_DEDUP_TTL_MS=15000
+    - SIGNAL_AUDIT_STREAM=signals:audit
+    - BREAKOUT_Z_THRESHOLD=3.0
+    - ABSORPTION_Z_THRESHOLD=3.0
+    - EXTREME_Z_MULT=1.6
+    - EXTREME_Z_THRESHOLD=4.8
+    - MAIN_Z_THRESHOLD=3.0
+    - OBI_SUSTAINED_MIN_SAMPLES=3
+    - OBI_SUSTAINED_MIN_FRACTION=0.6
+    - OBI_SUSTAINED_USE_FRACTION=true
+    - ABSORPTION_REQUIRE_WEAK_PROGRESS=true
+    - REGIME_LOOKBACK_MINUTES=60
+    - ATR_REDIS_STALENESS_MULT=3
+    - TP2_SHIFT_MULT=1.0
+    - TP3_SHIFT_MULT=1.0
+    - CRYPTO_SIGNAL_MIN_CONF=${CRYPTO_SIGNAL_MIN_CONF}
+    - DISABLE_CONFIDENCE_FILTER=false
+    - ACCOUNT_EQUITY_USD=10000
+    - ACCOUNT_OPEN_RISK_USD=0
+    - ACCOUNT_MAX_RISK_PER_TRADE_PCT=0.5
+    - ACCOUNT_MAX_PORTFOLIO_RISK_PCT=5.0
+    - MAX_TICK_LAG_MS=5000
+    - SIGNAL_OUTBOX_STREAM=stream:signals:outbox
+    - OUTBOX_LABELS_STREAM=stream:signals:labels
+    - SIGNAL_OUTBOX_MAXLEN=200000
+    - SIGNAL_DEDUP_GRANULARITY=minute
+    - OUTBOX_GROUP=signals-outbox-group
+    - OUTBOX_CONSUMER=none
+    - OUTBOX_MAX_RETRIES=5
+    - OUTBOX_DLQ_STREAM=stream:dlq:signal_outbox
+    - OUTBOX_CLAIM_INTERVAL_MS=5000
+    - OUTBOX_CLAIM_MIN_IDLE_MS=15000
+    - OUTBOX_CLAIM_COUNT=100
+    - OUTBOX_SENT_TTL_SEC=172800
+    - OUTBOX_SEM_DEDUP=1
+    - OUTBOX_SEM_DEDUP_BUCKET_MS=1000
+    - OUTBOX_SEM_DEDUP_LEVEL_DECIMALS=2
+    - OUTBOX_SEM_DEDUP_TTL_MS=15000
+    - SEM_DEDUP_REPORT_WINDOW_SEC=300
+    - SEM_DEDUP_REPORT_MIN_EVENTS=30
+    - SEM_DEDUP_OVER_RATIO=0.60
+    - SEM_DEDUP_UNDER_RATIO=0.05
+    - SEM_DEDUP_HITS_SPIKE_PER_MIN=200
+    - SEM_DEDUP_REPORT_TOP_N=6
+    - CRYPTO_DEFAULT_DAILY_RANGE_PCT=0.04
+    - CRYPTO_OBI_SPIKE_THR=0.7
+    - ABSORPTION_USE_MICRO_PROXY=true
+    - ABSORPTION_MICRO_ADVERSE_MIN=0.62
+    - ABSORPTION_MICRO_REALIZED_EMA_MAX=-0.40
+    - REALIZED_HORIZON_MS=2000
+    - REALIZED_EMA_ALPHA=0.08
+    - SPREAD_MAX_BPS=10
+    - ENABLE_L3_PROXY=true
+    - L3_CANCEL_RATE_EMA_ALPHA=0.15
+    - BREAKOUT_REQUIRE_OBI20=true
+    - BREAKOUT_MIN_MICROPRICE_SHIFT_BPS=0.2
+    - BREAKOUT_WALL_MAX_DIST_BPS=10.0
+    - BREAKOUT_MIN_DEPLETION_SCORE=0.05
+    - BREAKOUT_MAX_REFILL_SCORE=0.05
+    - BREAKOUT_MAX_IMPACT_PROXY=0.35
+    - BREAKOUT_USE_L3_FILTERS=true
+    - BREAKOUT_L3_MAX_CANCEL_TO_TRADE=3.0
+    - BREAKOUT_L3_MIN_TAKER_RATE=0.0
+    - BREAKOUT_L3_MAX_ETA_SEC=0.0
+    - ABSORPTION_MIN_REFILL_SCORE=0.05
+    - ABSORPTION_WALL_MAX_DIST_BPS=12.0
+    - ABSORPTION_USE_L3_FILTERS=true
+    - ABSORPTION_L3_MIN_TAKER_RATE=0.0
+    - EXTREME_USE_L3_FILTERS=true
+    - EXTREME_L3_MAX_CANCEL_TO_TRADE=6.0
+    - EXTREME_L3_MIN_TAKER_RATE=0.0
+    - HEALTH_CHECK_INTERVAL=60
+    - CANDLE_BATCH_SIZE=5
+    - CANDLE_BATCH_INTERVAL_SEC=2.0
+    - GPU_ENABLED=true
+    - NVIDIA_VISIBLE_DEVICES=all
+    - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    - CUPY_CACHE_DIR=/tmp/cupy_cache
+    - CUPY_CACHE_SAVE_CUDA_SOURCE=0
+    - NUMBA_CACHE_DIR=/tmp/numba_cache
+    - LOCAL_CALIBRATION_FILE=/app/data/local_calibration.json
+    - CALIB_LOOKBACK_DAYS=365
+    - CALIB_MIN_TRADES_CLUSTER=300
+    - CALIB_MIN_TRADES_BUCKET=100
+    - CALIB_MIN_MEAN_PNL_R=0.0
+    - SMT_GATE_ENABLED=1
+    - SMT_COH_BUNDLE=btc_eth_sol
+    - SMT_LEADER_MODE=observe
+    - SMT_COH_MIN=0.65
+    - SMT_STATE_STALE_MS=5000
+    - SMT_DIAG_ENABLED=0
+    - SMT_DIAG_STREAM=stream:smt_diag
+    - SMT_COH_ENABLED=1
+    - SMT_COH_MAX_AGE_MS=30000
+    - SMT_COH_MODE=observe
+    - SMT_COH_VETO_AGAINST_CONFIRMED=1
+    - PRICE_LATEST_ENABLED=1
+    - PRICE_LATEST_STORE_RAW=1
+    - PRICE_LATEST_TTL_MS=0
+    - DUAL_SIGNAL_OUTBOX_STREAM=stream:signals:dual-outbox
+    - DUAL_SIGNAL_OUTBOX_GROUP=signals-dual-outbox-group
+    - DUAL_SIGNAL_OUTBOX_CONSUMER=dual-deliverer-main
+    - DUAL_SIGNAL_OUTBOX_READ_COUNT=200
+    - DUAL_SIGNAL_OUTBOX_READ_BLOCK_MS=1000
+    - DUAL_SIGNAL_OUTBOX_CLAIM_MIN_IDLE_MS=60000
+    - DUAL_SIGNAL_OUTBOX_CLAIM_COUNT=200
+    - DUAL_SIGNAL_OUTBOX_CLAIM_EVERY_SEC=2.0
+    - DUAL_SIGNAL_OUTBOX_ACK_RETRY_TTL_SEC=600
+    - DUAL_SIGNAL_OUTBOX_MAXLEN=200000
+    - DUAL_SIGNAL_OUTBOX_DEDUP_TTL_MS=86400000
+    - DUAL_SIGNAL_OUTBOX_SOURCE=main-dispatcher
+    - ALLOW_DUAL_FALLBACK=0
+    - SIGNAL_OUTBOX_TRIM_ENABLED=1
+    - SIGNAL_OUTBOX_TRIM_EVERY_SEC=5.0
+    - SIGNAL_OUTBOX_TRIM_LIMIT=10000
+    - SIGNAL_OUTBOX_TRIM_KEEP_N=20000
+    - DUAL_SIGNAL_OUTBOX_TRIM_ENABLED=1
+    - CRYPTO_PAPER_SHADOW_ENABLED=${CRYPTO_PAPER_SHADOW_ENABLED:-1}
+    - BINANCE_VIRTUAL_ORDERS_ENABLED=0
+    - BINANCE_VIRTUAL_MIRROR_ALL=1
+    - ORDERS_QUEUE_BINANCE=${ORDERS_QUEUE_BINANCE:-orders:queue:binance}
+    - PAPER_ORDERS_STREAM=${PAPER_ORDERS_STREAM:-paper:orders}
+    - DUAL_SIGNAL_OUTBOX_TRIM_EVERY_SEC=5.0
+    - DUAL_SIGNAL_OUTBOX_TRIM_LIMIT=10000
+    - DUAL_SIGNAL_OUTBOX_TRIM_KEEP_N=200000
+    - PGCONNECT_TIMEOUT=${PGCONNECT_TIMEOUT:-15}
+    - PGOPTIONS=${PGOPTIONS:-"-c statement_timeout=30000"}
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - CRYPTO_OF_DROP_ON_LAG=true
+    - CRYPTO_OF_MAX_LAG_MS=2000
+    - CRYPTO_OF_MAX_TS_SKEW_MS=30000
+    - TZ=UTC
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 4096
+        hard: 4096
+    healthcheck:
+      test:
+      - CMD
+      - pgrep
+      - -f
+      - main_multi_symbol.py
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    command:
+    - sh
+    - -c
+    - sleep 15 && if [ "$$DYNAMIC_SYMBOLS" = "true" ]; then python main_multi_symbol_dynamic.py;
+      else python main_multi_symbol.py; fi
+  py-obi-service:
+    build:
+      context: ./py-obi
+      dockerfile: Dockerfile.gpu
+    container_name: scanner-py-obi
+    runtime: nvidia
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PORT=8088
+    - OBI_WINDOW_LEVELS=5
+    - OBI_THRESHOLD=0.25
+    - OBI_SUSTAIN_MS=1200
+    - RING_SECONDS=600
+    - NOTIFY_URL=http://scanner-go-gateway:8090/notify
+    - REDIS_HOST=redis-ticks
+    - REDIS_PORT=6379
+    - REDIS_URL=redis://redis-ticks:6379/0
+    - GPU_ENABLED=true
+    - NVIDIA_VISIBLE_DEVICES=all
+    - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    - CUPY_CACHE_DIR=/tmp/cupy_cache
+    - CUPY_CACHE_SAVE_CUDA_SOURCE=0
+    - NUMBA_CACHE_DIR=/tmp/numba_cache
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    ports:
+    - 8088:8088
+    command:
+    - sh
+    - -c
+    - "echo \"\u23F3 \u041E\u0436\u0438\u0434\u0430\u043D\u0438\u0435 \u043F\u043E\
+      \u043B\u043D\u043E\u0439 \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0438 Redis...\"\
+      \nsleep 30\necho \"\U0001F680 \u0417\u0430\u043F\u0443\u0441\u043A py-obi \u0441\
+      \u0435\u0440\u0432\u0438\u0441\u0430...\"\npython3 book_obi_service.py\n"
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8088/healthz',
+        timeout=2).read()" >/dev/null 2>&1 || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+  signal-outbox-router:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-signal-outbox-router
+    runtime: nvidia
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - SIGNAL_OUTBOX_STREAM=stream:signals:outbox
+    - SIGNAL_DLQ_STREAM=stream:signals:dlq
+    - SIGNAL_OUTBOX_GROUP=signals-outbox-group
+    - SIGNAL_OUTBOX_CONSUMER=signal-outbox-router
+    - SIGNAL_OUTBOX_READ_COUNT=200
+    - SIGNAL_OUTBOX_READ_BLOCK_MS=1000
+    - SIGNAL_TASK_KEY_PREFIX=signal:task
+    - SIGNAL_DUE_ZSET_PREFIX=zset:signals:due
+    - SIGNAL_DELIVERY_TTL_SEC=86400
+    - SIGNAL_OUTBOX_CLAIM_MIN_IDLE_MS=60000
+    - SIGNAL_OUTBOX_CLAIM_COUNT=200
+    - GO_WORKER_REDIS_USER=${GO_WORKER_REDIS_USER:-go_worker}
+    - GO_WORKER_REDIS_PASS=${GO_WORKER_REDIS_PASS}
+    - REDIS_SIGNALS_HOST=redis-worker-1
+    - REDIS_SIGNALS_HOST_2=redis-worker-2
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          devices:
+          - driver: nvidia
+            count: all
+            capabilities:
+            - gpu
+          memory: 512M
+    volumes:
+    - ./logs:/app/logs
+    - ./python-worker/services:/app/services
+    - ./python-worker/core:/app/core
+    - ./python-worker/common:/app/common
+    command:
+    - sh
+    - -c
+    - sleep 5 && python -m services.signal_outbox_router
+  signal-target-worker-notify:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-signal-target-worker-notify
+    runtime: nvidia
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - SIGNAL_TARGET=notify
+    - SIGNAL_DUE_BATCH=200
+    - SIGNAL_RETRY_BASE_MS=250
+    - SIGNAL_TARGET_VISIBILITY_MS=60000
+    - SIGNAL_INFLIGHT_ZSET_PREFIX=zset:signals:inflight
+    - SIGNAL_REQUEUE_EVERY_MS=1000
+    - SIGNAL_REQUEUE_SCAN_LIMIT=200
+    - SIGNAL_REQUEUE_MIN_DELAY_MS=250
+    - NOTIFY_STREAM=stream:notify:telegram
+    - NOTIFY_SIGNAL_COUNTER_KEY=notify:telegram:signal_counter
+    - CRYPTO_NOTIFY_SIGNAL_EVERY_N=${CRYPTO_NOTIFY_SIGNAL_EVERY_N:-100}
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - SCANNER_CONSUMER_NAME=scanner-signal-target-worker-notify
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.3'
+        reservations:
+          memory: 512M
+    command:
+    - sh
+    - -c
+    - sleep 5 && python -m services.signal_target_worker
+  signal-target-worker-signal-stream:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-signal-target-worker-signal-stream
+    runtime: nvidia
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - SIGNAL_TARGET=signal_stream
+    - SIGNAL_DUE_BATCH=200
+    - SIGNAL_RETRY_BASE_MS=250
+    - SIGNAL_TARGET_VISIBILITY_MS=60000
+    - SIGNAL_INFLIGHT_ZSET_PREFIX=zset:signals:inflight
+    - SIGNAL_REQUEUE_EVERY_MS=1000
+    - SIGNAL_REQUEUE_SCAN_LIMIT=200
+    - SIGNAL_REQUEUE_MIN_DELAY_MS=250
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - SCANNER_CONSUMER_NAME=scanner-signal-target-worker-signal-stream
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.3'
+        reservations:
+          memory: 512M
+    command:
+    - sh
+    - -c
+    - sleep 5 && python -m services.signal_target_worker
+  signal-target-worker-audit:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-signal-target-worker-audit
+    runtime: nvidia
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - SIGNAL_TARGET=audit
+    - SIGNAL_DUE_BATCH=200
+    - SIGNAL_RETRY_BASE_MS=250
+    - SIGNAL_TARGET_VISIBILITY_MS=60000
+    - SIGNAL_INFLIGHT_ZSET_PREFIX=zset:signals:inflight
+    - SIGNAL_REQUEUE_EVERY_MS=1000
+    - SIGNAL_REQUEUE_SCAN_LIMIT=200
+    - SIGNAL_REQUEUE_MIN_DELAY_MS=250
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - SCANNER_CONSUMER_NAME=scanner-signal-target-worker-audit
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.3'
+        reservations:
+          memory: 512M
+    command:
+    - sh
+    - -c
+    - sleep 5 && python -m services.signal_target_worker
+  signal-target-worker-manual:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-signal-target-worker-manual
+    runtime: nvidia
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - SIGNAL_TARGET=manual
+    - SIGNAL_DUE_BATCH=200
+    - SIGNAL_RETRY_BASE_MS=250
+    - SIGNAL_TARGET_VISIBILITY_MS=60000
+    - SIGNAL_INFLIGHT_ZSET_PREFIX=zset:signals:inflight
+    - SIGNAL_REQUEUE_EVERY_MS=1000
+    - SIGNAL_REQUEUE_SCAN_LIMIT=200
+    - SIGNAL_REQUEUE_MIN_DELAY_MS=250
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - SCANNER_CONSUMER_NAME=scanner-signal-target-worker-manual
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.3'
+        reservations:
+          memory: 512M
+    command:
+    - sh
+    - -c
+    - sleep 5 && python -m services.signal_target_worker
+  signal-target-worker-snapshot:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-signal-target-worker-snapshot
+    runtime: nvidia
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.3'
+        reservations:
+          memory: 512M
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - SIGNAL_TARGET=snapshot
+    - SIGNAL_DUE_BATCH=200
+    - SIGNAL_RETRY_BASE_MS=250
+    - SIGNAL_TARGET_VISIBILITY_MS=60000
+    - SIGNAL_INFLIGHT_ZSET_PREFIX=zset:signals:inflight
+    - SIGNAL_REQUEUE_EVERY_MS=1000
+    - SIGNAL_REQUEUE_SCAN_LIMIT=200
+    - SIGNAL_REQUEUE_MIN_DELAY_MS=250
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - SCANNER_CONSUMER_NAME=scanner-signal-target-worker-snapshot
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command:
+    - sh
+    - -c
+    - sleep 5 && python -m services.signal_target_worker
+  scanner-smt-aggregator:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-smt-aggregator
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - SMT_AGG_INTERVAL_MS=1000
+    - SMT_BUNDLE_1=btc_eth_sol:BTCUSDT,ETHUSDT,SOLUSDT
+    - PYTHONPATH=/app
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - SCANNER_CONSUMER_NAME=scanner-smt-aggregator
+    - TZ=UTC
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command:
+    - python
+    - runners/smt_bundle_aggregator_runner.py
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+  edge-gate-ingestor:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-edge-gate-ingestor
+    environment:
+    - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
+    - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
+    - EDGE_GATE_EVENTS_STREAM=stream:diag:edge_gate_events
+    - EDGE_GATE_CONSUMER_GROUP=edge_gate_pg
+    - REDIS_HOST=redis-worker-1
+    - REDIS_PORT=6379
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - PYTHONPATH=/app
+    - PGCONNECT_TIMEOUT=${PGCONNECT_TIMEOUT:-15}
+    - PGOPTIONS=${PGOPTIONS:-"-c statement_timeout=30000"}
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command:
+    - python
+    - -u
+    - /app/edge_gate_ingestor.py
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.3'
+        reservations:
+          memory: 512M
+  ab-winner-evaluator-v2-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-ab-winner-evaluator-v2-timer
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=/app
+    - REDIS_URL=${REDIS_URL}
+    - AB_EVAL_INTERVAL_SEC=3600
+    - AB_EVAL_LOCK_KEY=lock:ab_winner_evaluator:v2
+    - AB_EVAL_LOCK_TTL_SEC=3300
+    - AB_EVENTS_STREAM=events:trades
+    - AB_WINNER_GROUP=ab-winner-v2-timer
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command:
+    - python
+    - -u
+    - -m
+    - tools.ab_winner_evaluator_runner
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.3'
+        reservations:
+          memory: 512M
+  ab-winner-suggester-v3:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-ab-winner-suggester-v3
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=/app
+    - REDIS_URL=${REDIS_URL}
+    - AB_EVENTS_STREAM=events:trades
+    - AB_EVENTS_GROUP=ab_evaluator_group
+    - AB_EVENTS_CONSUMER=ab_evaluator_v3
+    - AB_STATS_PREFIX=ab_stats:v3
+    - AB_LCB_Z_TREND=1.96
+    - AB_LCB_Z_CHOP=1.28
+    - AB_LCB_Z_THIN=1.65
+    - AB_LCB_Z_DEFAULT=1.65
+    - AB_MIN_N_TREND=50
+    - AB_MIN_N_CHOP=40
+    - AB_MIN_N_THIN=30
+    - AB_MIN_N_DEFAULT=30
+    - AB_MIN_LCB_IMPR_TREND=0.10
+    - AB_MIN_LCB_IMPR_CHOP=0.08
+    - AB_MIN_LCB_IMPR_THIN=0.05
+    - AB_MIN_LCB_IMPR_DEFAULT=0.05
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command:
+    - sh
+    - -c
+    - sleep 60 && python -u services/ab_winner_suggester_service_v3.py
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+  entry-policy-threshold-suggester-v1:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-entry-policy-threshold-suggester-v1
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=/app
+    - REDIS_URL=${REDIS_URL}
+    - AB_EVENTS_STREAM=events:trades
+    - THRESH_EVENTS_GROUP=entry_thresh_v1
+    - THRESH_EVENTS_CONSUMER=c1
+    - THRESH_LCB_Z_TREND=1.28
+    - THRESH_LCB_Z_RANGE=1.64
+    - THRESH_LCB_Z_THIN=2.33
+    - THRESH_MIN_N_TREND=35
+    - THRESH_MIN_N_RANGE=50
+    - THRESH_MIN_N_THIN=80
+    - THRESH_HOLD_DOWN_MS=21600000
+    - THRESH_HOLD_DOWN_MS_THIN=43200000
+    - THRESH_HYST_IMPR=0.04
+    - THRESH_HYST_IMPR_THIN=0.06
+    - THRESH_MIN_LCB_IMPR=0.04
+    - THRESH_SWITCH_MAX_PER_DAY=2
+    - THRESH_SWITCH_MAX_PER_DAY_THIN=1
+    - THRESH_SWITCH_MIN_GAP_MS=2700000
+    - THRESH_SWITCH_MIN_GAP_MS_THIN=5400000
+    - THRESH_KEEP_CLOSED=2000
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command:
+    - sh
+    - -c
+    - sleep 60 && python -u services/entry_policy_threshold_suggester_v1.py
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+  entry-policy-circuit-breaker-v1:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-entry-policy-circuit-breaker-v1
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=/app
+    - REDIS_URL=${REDIS_URL}
+    - CB_AUDIT_STREAM=stream:trade:entry_audit
+    - CB_GROUP=entry-cb
+    - CB_CONSUMER=cb-1
+    - CB_BLOCK_MS=1000
+    - CB_READ_COUNT=200
+    - CB_MIN_SAMPLES=60
+    - CB_FREEZE_MS=7200000
+    - CB_FREEZE_MS_THIN=10800000
+    - CB_MIN_GAP_BETWEEN_FREEZES_MS=1800000
+    - CB_SPREAD_Z_P95_MAX=3.0
+    - CB_OBI_AGE_P95_MAX_MS=1500
+    - CB_PRESSURE_P95_MAX=1.4
+    - CB_OF_SCORE_EMA_MIN=0.55
+    - CB_OF_SCORE_EMA_ALPHA=0.06
+    - CB_FREEZE_MIN_HOLD_MS=720000
+    - CB_RECOVER_STREAK=40
+    - CB_RECOVER_HYST=0.80
+    - CB_RECOVER_OF_BONUS=0.05
+    - CB_HARD_BAD_CNT=3
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command:
+    - sh
+    - -c
+    - sleep 60 && python -u services/entry_policy_circuit_breaker_service.py
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+  tm-reporter-bot:
+    build: *id001
+    restart: on-failure:5
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pgrep -f tm_reporter_bot || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks: *id002
+    container_name: scanner-tm-reporter-bot
+    command: python -u tools/tm_reporter_bot.py --daemon
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    - TELEGRAM_REPORTER_CHAT_ID=${TELEGRAM_REPORTER_CHAT_ID:-}
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.2'
+        reservations:
+          memory: 512M
+  scanner-autopilot-reporter:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    image: scanner-python-worker:latest
+    container_name: scanner-autopilot-reporter
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=${REDIS_URL:-${REDIS_URL}}
+    - TRADE_EVENTS_STREAM=${TRADE_EVENTS_STREAM:-events:trades}
+    - NOTIFY_TELEGRAM_STREAM=${NOTIFY_TELEGRAM_STREAM:-notify:telegram}
+    - PYWORKER_ROOT=/app/python-worker
+    - AUTOPILOT_DAILY_UTC=09:10
+    - AUTOPILOT_WEEKLY_DOW=0
+    - AUTOPILOT_WEEKLY_UTC=09:20
+    - AUTOPILOT_SINCE_HOURS_DAILY=168
+    - AUTOPILOT_SINCE_HOURS_WEEKLY=720
+    - AUTOPILOT_MIN_SAMPLES=30
+    - AUTOPILOT_LCB_ALPHA=0.05
+    - AUTOPILOT_LOCK_TTL_MS=3000000
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - SCANNER_CONSUMER_NAME=scanner-autopilot-reporter
+    - TZ=UTC
+    volumes:
+    - ./python-worker:/app
+    command:
+    - bash
+    - -lc
+    - PYTHONPATH='.:..' /opt/venv/bin/python -m services.autopilot_reporter_service
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+  trade-monitor:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    image: scanner-python-worker:latest
+    container_name: scanner-trade-monitor
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=${REDIS_URL:-${REDIS_URL}}
+    - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
+    - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
+    - REDIS_TICKS_URL=redis://redis-ticks:6379/0
+    - TM_GROUP=trade-monitor
+    - TM_RESCAN_EVERY_SEC=15
+    - TM_CLAIM_EVERY_SEC=10
+    - TM_BLOCK_MS=200
+    - TM_DB_WORKERS=8
+    - TM_RG_DB_MAX_WORKERS=4
+    - PYTHONPATH=/app/python-worker:/app
+    - AUTO_CALIBRATION_THRESHOLD=100
+    - AUTO_CALIBRATION_SYMBOLS=${CRYPTO_SYMBOLS}
+    - CRYPTO_SIGNAL_MIN_CONF=${CRYPTO_SIGNAL_MIN_CONF}
+    - TM_NAMESPACE=trade-monitor
+    - TM_ORPHAN_TIMEOUT_ENABLED=${TM_ORPHAN_TIMEOUT_ENABLED}
+    - EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL=${EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL:-0}
+    - EXEC_SINGLE_ACTIVE_POSITION_STALE_TIMEOUT_MS=${EXEC_SINGLE_ACTIVE_POSITION_STALE_TIMEOUT_MS:-900000}
+    - ORDERS_ACTIVE_SYMBOL_KEY_PREFIX=${ORDERS_ACTIVE_SYMBOL_KEY_PREFIX:-orders:active_symbol_sid:}
+    - TM_SIMULATED_SLIPPAGE_BPS=${TM_SIMULATED_SLIPPAGE_BPS:-0}
+    - TM_TRAILING_AUDIT_STREAM=${TM_TRAILING_AUDIT_STREAM:-stream:trailing:audit}
+    - TM_TRAILING_AUDIT_MAXLEN=${TM_TRAILING_AUDIT_MAXLEN:-50000}
+    - TM_PAPER_VS_DEMO_REPORT_EVERY_N=${TM_PAPER_VS_DEMO_REPORT_EVERY_N:-10}
+    - EXEC_STREAM=${EXEC_STREAM:-orders:exec}
+    - NOTIFY_TELEGRAM_STREAM=${NOTIFY_TELEGRAM_STREAM:-notify:telegram}
+    - ACCOUNT_LEVERAGE=${ACCOUNT_LEVERAGE:-10}
+    - BINANCE_DEMO_DEFAULT_LEVERAGE=${BINANCE_DEMO_DEFAULT_LEVERAGE:-5}
+    - TM_MAX_OPEN_POSITIONS=${TM_MAX_OPEN_POSITIONS:-500}
+    - TM_MAX_SIGNAL_AGE_MS=${TM_MAX_SIGNAL_AGE_MS:-300000}
+    - TM_SIGNAL_TIMEOUT_SEC=${TM_SIGNAL_TIMEOUT_SEC:-10}
+    - TM_HEARTBEAT_EVERY_SEC=${TM_HEARTBEAT_EVERY_SEC:-30}
+    - PGCONNECT_TIMEOUT=${PGCONNECT_TIMEOUT:-15}
+    - PGOPTIONS=${PGOPTIONS:-"-c statement_timeout=30000"}
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - ATR_GRAPH_PROTECTIVE_ENABLE=${ATR_GRAPH_PROTECTIVE_ENABLE}
+    - ATR_GRAPH_PROTECTIVE_SYMBOLS=${ATR_GRAPH_PROTECTIVE_SYMBOLS}
+    - ATR_GRAPH_PROTECTIVE_MODE=${ATR_GRAPH_PROTECTIVE_MODE}
+    - TZ=UTC
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '2.5'
+        reservations:
+          memory: 768M
+    volumes:
+    - ./python-worker:/app
+    command:
+    - bash
+    - -c
+    - PYTHONPATH=/app python /app/runners/trade_monitor_runner.py
+  trade-monitor-2:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    image: scanner-python-worker:latest
+    container_name: scanner-trade-monitor-2
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=${REDIS_URL:-${REDIS_URL}}
+    - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
+    - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
+    - REDIS_TICKS_URL=redis://redis-ticks:6379/0
+    - TM_GROUP=trade-monitor-2
+    - TM_CONSUMER=tm2-1
+    - TM_NAMESPACE=trade-monitor-2
+    - TM_RESCAN_EVERY_SEC=15
+    - TM_CLAIM_EVERY_SEC=10
+    - TM_BLOCK_MS=200
+    - TM_DB_WORKERS=8
+    - TM_RG_DB_MAX_WORKERS=4
+    - PYTHONPATH=/app/python-worker:/app
+    - AUTO_CALIBRATION_THRESHOLD=100
+    - AUTO_CALIBRATION_SYMBOLS=${CRYPTO_SYMBOLS}
+    - CRYPTO_SIGNAL_MIN_CONF=${CRYPTO_SIGNAL_MIN_CONF}
+    - TM_ORPHAN_TIMEOUT_ENABLED=${TM_ORPHAN_TIMEOUT_ENABLED}
+    - EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL=${EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL:-0}
+    - EXEC_SINGLE_ACTIVE_POSITION_STALE_TIMEOUT_MS=${EXEC_SINGLE_ACTIVE_POSITION_STALE_TIMEOUT_MS:-900000}
+    - ORDERS_ACTIVE_SYMBOL_KEY_PREFIX=${ORDERS_ACTIVE_SYMBOL_KEY_PREFIX:-orders:active_symbol_sid:}
+    - TM_SIMULATED_SLIPPAGE_BPS=${TM_SIMULATED_SLIPPAGE_BPS:-0}
+    - TM_TRAILING_AUDIT_STREAM=${TM_TRAILING_AUDIT_STREAM:-stream:trailing:audit:tm2}
+    - TM_TRAILING_AUDIT_MAXLEN=${TM_TRAILING_AUDIT_MAXLEN:-50000}
+    - TM_PAPER_VS_DEMO_REPORT_EVERY_N=${TM_PAPER_VS_DEMO_REPORT_EVERY_N:-10}
+    - EXEC_STREAM=${EXEC_STREAM:-orders:exec}
+    - NOTIFY_TELEGRAM_STREAM=${NOTIFY_TELEGRAM_STREAM:-notify:telegram}
+    - ACCOUNT_LEVERAGE=${ACCOUNT_LEVERAGE:-10}
+    - BINANCE_DEMO_DEFAULT_LEVERAGE=${BINANCE_DEMO_DEFAULT_LEVERAGE:-5}
+    - TM_MAX_OPEN_POSITIONS=${TM_MAX_OPEN_POSITIONS:-500}
+    - TM_MAX_SIGNAL_AGE_MS=${TM_MAX_SIGNAL_AGE_MS:-300000}
+    - TM_SIGNAL_TIMEOUT_SEC=${TM_SIGNAL_TIMEOUT_SEC:-10}
+    - TM_HEARTBEAT_EVERY_SEC=${TM_HEARTBEAT_EVERY_SEC:-30}
+    - TM_PROMETHEUS_PORT=9845
+    - TRADES_CLOSED_STREAM_NAME=trades:closed:tm2
+    - PGCONNECT_TIMEOUT=${PGCONNECT_TIMEOUT:-15}
+    - PGOPTIONS=${PGOPTIONS:-"-c statement_timeout=30000"}
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - ATR_GRAPH_PROTECTIVE_ENABLE=${ATR_GRAPH_PROTECTIVE_ENABLE}
+    - ATR_GRAPH_PROTECTIVE_SYMBOLS=${ATR_GRAPH_PROTECTIVE_SYMBOLS}
+    - ATR_GRAPH_PROTECTIVE_MODE=${ATR_GRAPH_PROTECTIVE_MODE}
+    - TZ=UTC
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '2.5'
+        reservations:
+          memory: 768M
+    volumes:
+    - ./python-worker:/app
+    command:
+    - bash
+    - -c
+    - PYTHONPATH=/app python /app/runners/trade_monitor_runner.py
+  entry-audit-archiver:
+    build: *id001
+    restart: unless-stopped
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pgrep -f stream_archiver || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+    - scanner-core
+    - scanner-infra
+    container_name: scanner-entry-audit-archiver
+    command:
+    - sh
+    - -c
+    - sleep 30 && python -u services/archivers/stream_archiver.py
+    environment:
+    - REDIS_URL=${REDIS_URL:-${REDIS_URL}}
+    - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
+    - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
+    - DATABASE_URL=${DATABASE_URL:-postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics}
+    - PG_DSN=${PG_DSN:-postgresql://trading:${TRADING_PASSWORD}@postgres:5432/trade}
+    - TRADE_ENTRY_AUDIT_STREAM=${TRADE_ENTRY_AUDIT_STREAM:-stream:trade:entry_audit}
+    - TRADE_EVENTS_STREAM=${TRADE_EVENTS_STREAM:-events:trades}
+    - ENTRY_AUDIT_ARCHIVE_ENABLED=${ENTRY_AUDIT_ARCHIVE_ENABLED:-1}
+    - ENTRY_AUDIT_CG=${ENTRY_AUDIT_CG:-entry_audit_archiver}
+    - ENTRY_AUDIT_CONSUMER=${ENTRY_AUDIT_CONSUMER:-archiver_1}
+    - ENTRY_AUDIT_BATCH=${ENTRY_AUDIT_BATCH:-500}
+    - ENTRY_AUDIT_BLOCK_MS=${ENTRY_AUDIT_BLOCK_MS:-2000}
+    - ENTRY_AUDIT_MIN_IDLE_MS=${ENTRY_AUDIT_MIN_IDLE_MS:-60000}
+    - ENTRY_AUDIT_DLQ_STREAM=${ENTRY_AUDIT_DLQ_STREAM:-stream:dlq:entry_audit}
+    - POSITION_EVENTS_ARCHIVE_ENABLED=${POSITION_EVENTS_ARCHIVE_ENABLED:-1}
+    - POSITION_EVENTS_CG=${POSITION_EVENTS_CG:-position_events_archiver}
+    - POSITION_EVENTS_CONSUMER=${POSITION_EVENTS_CONSUMER:-archiver_1}
+    - POSITION_EVENTS_BATCH=${POSITION_EVENTS_BATCH:-500}
+    - POSITION_EVENTS_BLOCK_MS=${POSITION_EVENTS_BLOCK_MS:-2000}
+    - POSITION_EVENTS_MIN_IDLE_MS=${POSITION_EVENTS_MIN_IDLE_MS:-60000}
+    - POSITION_EVENTS_DLQ_STREAM=${POSITION_EVENTS_DLQ_STREAM:-stream:dlq:position_events}
+    - POSITION_EVENTS_TYPES=${POSITION_EVENTS_TYPES:-TP_HIT,TP1_HIT,TP2_HIT,TP3_HIT,TRAILING_MOVE,TRAILING_STARTED,SL_HIT,SL_ADJUST,POSITION_OPENED,POSITION_CLOSED}
+    - PGCONNECT_TIMEOUT=${PGCONNECT_TIMEOUT:-15}
+    - PGOPTIONS=${PGOPTIONS:-"-c statement_timeout=30000"}
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+  stream-exporter:
+    build: *id001
+    restart: unless-stopped
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pgrep -f stream_exporter || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+    - scanner-core
+    - scanner-infra
+    container_name: scanner-stream-exporter
+    command:
+    - sh
+    - -c
+    - sleep 10 && python -u tools/stream_exporter.py
+    environment:
+    - REDIS_URL=${REDIS_URL:-${REDIS_URL}}
+    - TRADE_ENTRY_AUDIT_STREAM=${TRADE_ENTRY_AUDIT_STREAM:-stream:trade:entry_audit}
+    - TRADE_EVENTS_STREAM=${TRADE_EVENTS_STREAM:-events:trades}
+    - STREAM_EXPORT_ENABLED=${STREAM_EXPORT_ENABLED:-1}
+    - STREAM_EXPORT_DIR=${STREAM_EXPORT_DIR:-/var/log/trade/exports}
+    - STREAM_EXPORT_KEEP_DAYS=${STREAM_EXPORT_KEEP_DAYS:-90}
+    - STREAM_EXPORT_INTERVAL_SEC=${STREAM_EXPORT_INTERVAL_SEC:-300}
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    volumes:
+    - ${STREAM_EXPORT_HOST_DIR:-./exports}:/var/log/trade/exports
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.2'
+        reservations:
+          memory: 512M
+  policy-effectiveness-report:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-policy-effectiveness-report
+    profiles:
+    - default
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - TRADES_CLOSED_STREAM=trades:closed
+    - POLICY_EFF_LOOKBACK_H=24
+    - POLICY_EFF_MAX_SCAN=200000
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+    command:
+    - sh
+    - -c
+    - while true; do python orderflow_services/policy_effectiveness_report_worker_v1.py
+      --once; sleep 300; done
+  decision-snapshot-writer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-decision-snapshot-writer
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=.:/app
+    - REDIS_URL=${REDIS_URL:-${REDIS_URL}}
+    - DECISION_SNAPSHOT_STREAM=${DECISION_SNAPSHOT_STREAM:-events:decision_snapshot}
+    - DECISION_SNAPSHOT_CG=${DECISION_SNAPSHOT_CG:-decision_snapshot_writer}
+    - DECISION_SNAPSHOT_BATCH_SIZE=${DECISION_SNAPSHOT_BATCH_SIZE:-200}
+    - DECISION_SNAPSHOT_XREAD_BLOCK_MS=${DECISION_SNAPSHOT_XREAD_BLOCK_MS:-2000}
+    - DECISION_SNAPSHOT_DB_TYPE=postgres
+    - TIMESCALE_DSN=${TIMESCALE_DSN:-postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics}
+    - DECISION_SNAPSHOT_DB_ENSURE_SCHEMA=${DECISION_SNAPSHOT_DB_ENSURE_SCHEMA:-0}
+    - DECISION_SNAPSHOT_DLQ_ENABLE=${DECISION_SNAPSHOT_DLQ_ENABLE:-1}
+    - DECISION_SNAPSHOT_DLQ_STREAM=${DECISION_SNAPSHOT_DLQ_STREAM:-stream:decision_snapshot:dlq}
+    - DECISION_SNAPSHOT_DLQ_MAXLEN=${DECISION_SNAPSHOT_DLQ_MAXLEN:-200000}
+    - DECISION_SNAPSHOT_PEL_ENABLE=${DECISION_SNAPSHOT_PEL_ENABLE:-1}
+    - DECISION_SNAPSHOT_PEL_RECOVERY_EVERY_SEC=${DECISION_SNAPSHOT_PEL_RECOVERY_EVERY_SEC:-30}
+    - DECISION_SNAPSHOT_PEL_MIN_IDLE_MS=${DECISION_SNAPSHOT_PEL_MIN_IDLE_MS:-15000}
+    - DECISION_SNAPSHOT_PEL_CLAIM_COUNT=${DECISION_SNAPSHOT_PEL_CLAIM_COUNT:-100}
+    - DECISION_SNAPSHOT_PEL_CLAIM_MAX_ITERS=${DECISION_SNAPSHOT_PEL_CLAIM_MAX_ITERS:-2}
+    - DECISION_SNAPSHOT_WRITER_METRICS_ENABLE=1
+    - DECISION_SNAPSHOT_WRITER_METRICS_PORT=9825
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    volumes:
+    - ./python-worker:/app
+    command:
+    - python
+    - -m
+    - services.posttrade.decision_snapshot_writer
+    expose:
+    - '9825'
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python -c "import urllib.request; urllib.request.urlopen('http://localhost:9825/metrics',
+        timeout=2).read()" >/dev/null 2>&1
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+  latency-contract-exporter:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: latency-contract-exporter
+    restart: on-failure:5
+    command:
+    - sh
+    - -c
+    - sleep 20 && python orderflow_services/latency_contract_exporter_v1.py
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - LATENCY_CONTRACT_KEY_PREFIX=metrics:latency_contract:last
+    - LATENCY_CONTRACT_EXPORTER_PORT=9830
+    - LATENCY_CONTRACT_EXPORTER_INTERVAL_S=5
+    - LATENCY_CONTRACT_EXPORTER_STALE_S=60
+    - LATENCY_BUDGET_REDIS_TO_FEATURE_MS=50
+    - LATENCY_BUDGET_FEATURE_TO_EMIT_MS=100
+    - LATENCY_BUDGET_END_TO_END_EVENT_MS=200
+    - LATENCY_CONTRACT_SLO_SUMMARY_KEY=metrics:latency_contract:slo:last
+    - LATENCY_CONTRACT_ROLLOUT_GATE_STATE_KEY=metrics:latency_contract:rollout_gate:last
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    ports:
+    - 9830:9830
+    expose:
+    - '9830'
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python -c "import urllib.request; urllib.request.urlopen('http://localhost:9830/metrics',
+        timeout=2).read()" >/dev/null 2>&1
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+  latency-contract-slo-gate:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: latency-contract-slo-gate
+    restart: on-failure:5
+    working_dir: /app
+    command:
+    - sh
+    - -c
+    - sleep 25 && python -m orderflow_services.latency_contract_slo_gate_v1
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - PYTHONPATH=/app
+    - GO_WORKER_REDIS_USER=${GO_WORKER_REDIS_USER:-go_worker}
+    - GO_WORKER_REDIS_PASS=${GO_WORKER_REDIS_PASS}
+    - LATENCY_CONTRACT_KEY_PREFIX=metrics:latency_contract:last
+    - LATENCY_CONTRACT_SLO_SUMMARY_KEY=metrics:latency_contract:slo:last
+    - LATENCY_CONTRACT_SLO_GATE_INTERVAL_S=10
+    - LATENCY_CONTRACT_SLO_STAGE_STALE_S=180
+    - LATENCY_CONTRACT_SYMBOL_ALLOWLIST=BTCUSDT,ETHUSDT,XAUUSDT,ARBUSDT
+    - LATENCY_BUDGET_INGEST_TO_REDIS_MS=30
+    - LATENCY_BUDGET_REDIS_TO_FEATURE_MS=50
+    - LATENCY_BUDGET_FEATURE_TO_EMIT_MS=100
+    - LATENCY_BUDGET_EMIT_TO_WS_MS=100
+    - LATENCY_BUDGET_END_TO_END_EVENT_MS=200
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pgrep -f latency_contract_slo_gate || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.05'
+        reservations:
+          memory: 512M
+  latency-contract-rollout-gate:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: latency-contract-rollout-gate
+    restart: on-failure:5
+    working_dir: /app
+    command:
+    - sh
+    - -c
+    - sleep 30 && python -m orderflow_services.latency_contract_rollout_gate_v1
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - PYTHONPATH=/app
+    - GO_WORKER_REDIS_USER=${GO_WORKER_REDIS_USER:-go_worker}
+    - GO_WORKER_REDIS_PASS=${GO_WORKER_REDIS_PASS}
+    - LATENCY_CONTRACT_SLO_SUMMARY_KEY=metrics:latency_contract:slo:last
+    - LATENCY_CONTRACT_ROLLOUT_GATE_STATE_KEY=metrics:latency_contract:rollout_gate:last
+    - LATENCY_CONTRACT_ROLLOUT_GATE_KEY=cfg:orderflow:latency_contract:rollout_gate:v1
+    - LATENCY_CONTRACT_ROLLOUT_GATE_INTERVAL_S=10
+    - LATENCY_CONTRACT_ROLLOUT_GATE_BUDGET_HOLD_S=300
+    - LATENCY_CONTRACT_ROLLOUT_GATE_TTL_S=900
+    - OUTBOX_CONTRACT_MODE=warn
+    - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
+    - USE_SIGNAL_OUTBOX=true
+    - TZ=UTC
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pgrep -f latency_contract_rollout_gate || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.05'
+        reservations:
+          memory: 512M
+  dlq-consumer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-dlq-consumer
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - DLQ_METRICS_PORT=9850
+    - TZ=UTC
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.2'
+        reservations:
+          memory: 512M
+    command:
+    - python
+    - services/dlq_consumer.py
+  ml-rca-notification-bridge:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-ml-rca-notification-bridge
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - ML_ANALYSIS_RESULTS_STREAM=stream:ml:analysis_results
+    - ML_RCA_NOTIFY_STREAM=notify:telegram
+    - TZ=UTC
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.2'
+        reservations:
+          memory: 512M
+    command:
+    - python
+    - reference/ml_analysis_llm_vertex/scripts/orderflow_services/ml_rca_notification_bridge_v1.py
+    volumes:
+    - ./reference:/app/reference
+  incident-rca-gate-persister:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: incident-rca-gate-persister
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+    - .:/app
+    environment:
+    - PYTHONPATH=/app
+    - REDIS_URL=${REDIS_URL}
+    - TIMESCALE_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/trade
+    - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    - ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_GATE_PERSISTER_PORT=${ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_GATE_PERSISTER_PORT:-10002}
+    - TZ=UTC
+    ports:
+    - 10002:10002
+    networks:
+    - scanner-core
+    - scanner-infra
+    command:
+    - sh
+    - -c
+    - sleep 25 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_replay_gate_decisions_persister_v3_57_4_1
+  incident-rca-dashboard-snapshot:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: incident-rca-dashboard-snapshot
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+    - .:/app
+    environment:
+    - PYTHONPATH=/app
+    - REDIS_URL=${REDIS_URL}
+    - TIMESCALE_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/trade
+    - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    - ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_DASHBOARD_PORT=${ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_DASHBOARD_PORT:-10003}
+    - ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_DASHBOARD_POLL_SEC=${ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_DASHBOARD_POLL_SEC:-60}
+    - ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_DASHBOARD_LOOKBACK_MIN=${ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_DASHBOARD_LOOKBACK_MIN:-1440}
+    - ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_DASHBOARD_REQUIRED_ALIASES=${ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_DASHBOARD_REQUIRED_ALIASES:-slo,retry,escalation}
+    - TZ=UTC
+    ports:
+    - 10003:10003
+    networks:
+    - scanner-core
+    - scanner-infra
+    command:
+    - sh
+    - -c
+    - sleep 25 && python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_replay_dashboard_snapshot_v3_57_4_1
+  atr-policy-telegram-callback:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-atr-policy-telegram-callback
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/trade
+    - ANALYTICS_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/scanner_analytics
+    - ATR_POLICY_TELEGRAM_CALLBACK_STREAM=bot:callbacks
+    - ATR_POLICY_TELEGRAM_CALLBACK_GROUP=atr_policy_ops
+    - ATR_POLICY_TELEGRAM_CALLBACK_BLOCK_MS=5000
+    - ATR_POLICY_TELEGRAM_NOTIFY_MAXLEN=10000
+    - ATR_POLICY_ACTION_COOLDOWN_SEC=${ATR_POLICY_ACTION_COOLDOWN_SEC:-1800}
+    - ATR_POLICY_SOFT_MIN_N=${ATR_POLICY_SOFT_MIN_N:-50}
+    - ATR_POLICY_HARD_MIN_N=${ATR_POLICY_HARD_MIN_N:-20}
+    - ATR_POLICY_MARGIN_PNL_BPS=${ATR_POLICY_MARGIN_PNL_BPS:-0.5}
+    - ATR_POLICY_MAX_FLIPS_PER_DAY=${ATR_POLICY_MAX_FLIPS_PER_DAY:-3}
+    - ATR_POLICY_CONFIRM_TTL_SEC=${ATR_POLICY_CONFIRM_TTL_SEC:-180}
+    - ATR_POLICY_VERIFY_ENABLE=${ATR_POLICY_VERIFY_ENABLE:-1}
+    - ATR_POLICY_MIRROR_ENABLE=${ATR_POLICY_MIRROR_ENABLE:-1}
+    - ATR_POLICY_MIRROR_ADVISORY_ONLY=${ATR_POLICY_MIRROR_ADVISORY_ONLY:-1}
+    - ATR_POLICY_ROLLBACK_ENABLE=${ATR_POLICY_ROLLBACK_ENABLE:-1}
+    - ATR_POLICY_ROLLBACK_ADVISORY_ONLY=${ATR_POLICY_ROLLBACK_ADVISORY_ONLY:-1}
+    - ATR_POLICY_CALLBACK_WATCHDOG_ENABLE=${ATR_POLICY_CALLBACK_WATCHDOG_ENABLE:-1}
+    - ATR_POLICY_CALLBACK_WARN_SEC=${ATR_POLICY_CALLBACK_WARN_SEC:-1800}
+    - ATR_POLICY_CALLBACK_CRITICAL_SEC=${ATR_POLICY_CALLBACK_CRITICAL_SEC:-7200}
+    - ATR_POLICY_CALLBACK_WATCHDOG_INTERVAL_SEC=${ATR_POLICY_CALLBACK_WATCHDOG_INTERVAL_SEC:-60}
+    - ATR_POLICY_FLIP_STORM_GUARD_ENABLE=${ATR_POLICY_FLIP_STORM_GUARD_ENABLE:-1}
+    - ATR_POLICY_FLIP_STORM_THRESHOLD=${ATR_POLICY_FLIP_STORM_THRESHOLD:-3}
+    - ATR_POLICY_FLIP_STORM_ADVISORY_ONLY=${ATR_POLICY_FLIP_STORM_ADVISORY_ONLY:-1}
+    - ATR_POLICY_CHAOS_ENABLE=${ATR_POLICY_CHAOS_ENABLE:-0}
+    - ATR_POLICY_CHAOS_MODE=${ATR_POLICY_CHAOS_MODE:-DRY_RUN}
+    - ATR_POLICY_CHAOS_SCENARIO=${ATR_POLICY_CHAOS_SCENARIO:-}
+    - ATR_POLICY_CHAOS_TARGET_JSON=${ATR_POLICY_CHAOS_TARGET_JSON:-}
+    - ATR_POLICY_DISASTER_SLO_PORT=${ATR_POLICY_DISASTER_SLO_PORT:-9138}
+    - ATR_POLICY_DISASTER_SLO_INTERVAL_SEC=${ATR_POLICY_DISASTER_SLO_INTERVAL_SEC:-30}
+    - ATR_POLICY_DISASTER_SUMMARIZER_LOOKBACK_SEC=${ATR_POLICY_DISASTER_SUMMARIZER_LOOKBACK_SEC:-86400}
+    - ATR_POLICY_DISASTER_SUMMARIZER_MAX_EVENTS=${ATR_POLICY_DISASTER_SUMMARIZER_MAX_EVENTS:-50}
+    - ATR_POLICY_RESOLVER_ENABLE=${ATR_POLICY_RESOLVER_ENABLE:-1}
+    - ATR_POLICY_RESOLVER_CACHE_TTL_MS=${ATR_POLICY_RESOLVER_CACHE_TTL_MS:-5000}
+    - TZ=UTC
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+      migration-runner-trade:
+        condition: service_completed_successfully
+    networks:
+    - scanner-core
+    - scanner-infra
+    links:
+    - redis-worker-1
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.2'
+        reservations:
+          memory: 512M
+    command: python -m services.atr_policy_telegram_callback_worker
+  atr-policy-analytics-exporter:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: atr-policy-analytics-exporter
+    environment:
+    - ANALYTICS_DB_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+    - TRADES_DB_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+    - ATR_POLICY_ANALYTICS_METRICS_PORT=9139
+    - ATR_POLICY_ANALYTICS_EXPORT_SEC=60
+    - TZ=UTC
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    ports:
+    - 9139:9139
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 128M
+    command: python -m services.atr_policy_analytics_exporter
+  atr-policy-analytics-daily-worker:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-atr-policy-analytics-daily-worker
+    environment:
+    - ANALYTICS_DB_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+    - TRADES_DB_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+    - TZ=UTC
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 128M
+    command: sh -c "while true; do python -m services.atr_policy_analytics_daily_service;
+      sleep 300; done"
+    volumes:
+    - ./python-worker:/app
+    - ./logs:/app/logs
+    - /var/lib/trade:/var/lib/trade
+    - ./calibration:/app/calibration
+  atr-change-control-exporter:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: atr-change-control-exporter
+    environment:
+    - ANALYTICS_DB_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+    - TRADES_DB_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+    - REDIS_URL=${REDIS_URL}
+    - ATR_CHANGE_METRICS_PORT=9140
+    - ATR_CHANGE_EXPORT_SEC=30
+    - TZ=UTC
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    ports:
+    - 9140:9140
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 128M
+    command: python -m services.atr_change_control_exporter
+  atr-policy-promotion-v2:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: atr-policy-promotion-v2
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - ATR_POLICY_TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    - ANALYTICS_DB_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+    - TRADES_DB_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+    - ATR_POLICY_PROMOTION_V2_METRICS_PORT=9145
+    - ATR_POLICY_PROMOTION_V2_INTERVAL_SEC=3600
+    - TZ=UTC
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    ports:
+    - 9145:9145
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 128M
+    command: python -m services.atr_policy_promotion_v2_service
+  atr-policy-rollout-controller:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-atr-policy-rollout-controller
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - ANALYTICS_DB_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+    - TRADES_DB_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+    - ATR_GRAPH_RELEASE_GATE_ENABLE=1
+    - ATR_GRAPH_RELEASE_GATE_MODE=shadow_compare
+    - TZ=UTC
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command: sh -c "while true; do python -m services.atr_policy_rollout_controller;
+      sleep 60; done"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 128M
+  atr-policy-rollout-telegram:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-atr-policy-rollout-telegram
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - ANALYTICS_DB_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+    - TRADES_DB_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+    - ATR_POLICY_TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    - TZ=UTC
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command: sh -c "while true; do python -m services.atr_policy_rollout_telegram_digest;
+      sleep 3600; done"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 128M
+  atr-policy-budget-controller:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-atr-policy-budget-controller
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/trade
+    - ATR_BUDGET_SYNC_INTERVAL=60
+    - TZ=UTC
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      migration-runner-trade:
+        condition: service_completed_successfully
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command: python -m services.atr_policy_execution_budget_controller
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 128M
+  atr-policy-budget-monitor:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-atr-policy-budget-monitor
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/trade
+    - ATR_BUDGET_MONITOR_INTERVAL_SEC=15
+    - TZ=UTC
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      migration-runner-trade:
+        condition: service_completed_successfully
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command: python -m services.atr_policy_budget_monitor
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.4'
+        reservations:
+          memory: 128M
+  atr-policy-budget-telegram-digest:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-atr-policy-budget-telegram-digest
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/trade
+    - ATR_BUDGET_DIGEST_INTERVAL_SEC=3600
+    - ATR_POLICY_EXEC_BUDGET_FAIL_POLICY=${ATR_POLICY_EXEC_BUDGET_FAIL_POLICY:-CLOSED}
+    - TZ=UTC
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      migration-runner-trade:
+        condition: service_completed_successfully
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command: python -m services.atr_policy_budget_telegram_digest
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.1'
+        reservations:
+          memory: 128M
+  atr-auditor-api:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-atr-auditor-api
+    environment:
+    - POSTGRES_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+    - ATR_AUDITOR_API_PORT=8093
+    - ATR_AUDITOR_API_HOST=0.0.0.0
+    - ATR_GRAPH_RELEASE_GATE_ENABLE=1
+    - ATR_GRAPH_RELEASE_GATE_MODE=shadow_compare
+    - TZ=UTC
+    ports:
+    - 8093:8093
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command: python -m services.atr_auditor_api
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+  atr-auditor-snapshot-service:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-atr-auditor-snapshot-service
+    environment:
+    - POSTGRES_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+    - ATR_AUDITOR_SNAPSHOT_INTERVAL=3600
+    - TZ=UTC
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command: python -m services.atr_auditor_snapshot_service
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 128M
+  atr-invariant-violation-writer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-atr-invariant-violation-writer
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - TRADES_DB_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/trade
+    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/trade
+    - TZ=UTC
+    command: python -m services.atr_invariant_violation_writer
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.2'
+        reservations:
+          memory: 256M
+  scanner-ml-rca-telegram-summary:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-ml-rca-telegram-summary
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_CONTROLLER_DECISIONS_STREAM=stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_controller_decisions
+    - ML_RCA_TG_SUMMARY_INTERVAL_SEC=3600
+    - TZ=UTC
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+    command: python -u services/ml_rca_telegram_summary_service_v1.py
+  atr-steady-state-ops-service:
+    build: *id001
+    container_name: scanner-atr-steady-state-ops
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - TRADES_DB_DSN=${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD:-}@postgres:5432/scanner_analytics}
+    - PG_DSN=${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD:-}@postgres:5432/scanner_analytics}
+    - LOG_LEVEL=INFO
+    - ATR_STEADY_STATE_OPS_ENABLE=1
+    - ATR_STEADY_STATE_DAILY_SCORECARD_ENABLE=1
+    - ATR_STEADY_STATE_WEEKLY_SCORECARD_ENABLE=1
+    - ATR_STEADY_STATE_MONTHLY_DR_ENABLE=1
+    - ATR_STEADY_STATE_ENFORCE_RELEASE_WINDOWS=1
+    - ATR_STEADY_STATE_INTERVAL_SEC=3600
+    - TZ=UTC
+    command: python /app/services/atr_steady_state_ops_service.py
+    volumes:
+    - ./python-worker:/app
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+  atr-disaster-recovery:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-atr-disaster-recovery
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
+    - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
+    - ATR_DR_POLICY_ENABLE=1
+    - ATR_DR_POLICY_ENFORCE=0
+    - TZ=UTC
+    command: python -m services.runners.atr_dr
+    volumes:
+    - ./python-worker:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+  atr-post-release:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-atr-post-release
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
+    - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
+    - ENFORCE=0
+    - TZ=UTC
+    command: python -m services.runners.atr_post_release
+    volumes:
+    - ./python-worker:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+  atr-archive:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-atr-archive
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
+    - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
+    - ENFORCE=0
+    - TZ=UTC
+    command: python -m services.runners.atr_archive
+    volumes:
+    - ./python-worker:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+  atr-go-live-readiness:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-atr-go-live-readiness
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
+    - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
+    - ATR_GO_LIVE_READINESS_ENABLE=1
+    - ATR_GO_LIVE_READINESS_ENFORCE=0
+    - ATR_GO_LIVE_READINESS_PROM_PORT=9848
+    - TZ=UTC
+    command: python /app/services/atr_go_live_readiness_service.py
+    volumes:
+    - ./python-worker:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: on-failure:5
+networks:
+  scanner-core:
+    external: true
+  scanner-infra:
+    external: true

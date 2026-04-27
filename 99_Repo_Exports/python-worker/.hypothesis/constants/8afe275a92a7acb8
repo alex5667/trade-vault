@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/stats/_entropy.py
+# hypothesis_version: 6.148.10
+
+[0.5, 1.0, 1000, 'auto', 'correa', 'differential_entropy', 'ebrahimi', 'entropy', 'van es', 'vasicek']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/metrics/features.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.3, 1.5, 2.0, 60000, 'BUY', 'SELL', 'bucket', 'close', 'delta', 'high', 'low', 'open', 'price', 'qty', 'range', 'side', 't_close', 't_open', 'taker_buy', 'taker_sell', 'ts_ms']

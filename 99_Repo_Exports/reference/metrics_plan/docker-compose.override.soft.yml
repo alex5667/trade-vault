@@ -1,0 +1,33 @@
+services:
+  multi-symbol-orderflow:
+    volumes:
+      - ./python-worker:/app
+    environment:
+      GATE_PROFILE: "default"
+      EDGE_TS_BAD_POLICY: "correct_skip_ema"
+      EDGE_TS_MAX_SKEW_MS: "21600000"
+      EDGE_DISABLE_EMA: "0"
+      EDGE_GATE_EVENTS_MODE: "stream"
+      EDGE_GATE_SAMPLE_PASS: "0.02"
+      EDGE_GATE_SAMPLE_VETO: "1.0"
+
+
+  crypto-orderflow-service:
+    volumes:
+      - ./python-worker:/app
+    environment:
+      EDGE_GATE_EVENTS_MODE: "stream"
+      EDGE_GATE_SAMPLE_PASS: "0.02"
+      EDGE_GATE_SAMPLE_VETO: "1.0"
+
+  periodic-reporter:
+    environment:
+      TRADES_DB_DSN: "postgresql://trading:trading_password@postgres:5432/scanner_analytics"
+      EDGE_GATE_REPORT_INTERVAL_SEC: "3600"
+
+
+      PERIODIC_REPORT_CHECK_INTERVAL_SEC: "60"
+
+  python-worker:
+    volumes:
+      - ./python-worker:/app

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/book_evidence.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.5, 0.6, 1.5, 10.0, 10000.0, 15000, 'LONG', 'SHORT', 'ask', 'bid', 'concentration', 'direction', 'duration', 'iceberg_age_ms', 'iceberg_dist_bp', 'iceberg_duration', 'iceberg_event_ttl_ms', 'iceberg_price', 'iceberg_refresh', 'iceberg_strict', 'obi', 'obi_age_ms', 'obi_concentration', 'obi_event_ttl_ms', 'obi_stable_min_secs', 'obi_stable_secs', 'obi_stacking', 'obi_z', 'ofi', 'ofi_age_ms', 'ofi_dir_ok', 'ofi_event_ttl_ms', 'ofi_stability_score', 'ofi_stable', 'ofi_stable_min_secs', 'ofi_stable_secs', 'ofi_z', 'price', 'refresh', 'side', 'stability_score', 'stable', 'stable_secs', 'stacking', 'ts_ms']

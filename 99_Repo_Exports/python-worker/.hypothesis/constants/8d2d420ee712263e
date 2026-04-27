@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/microstructure/realized_spread_tracker.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.05, 1.0, 2.0, 10000.0, 10000, 20000, '0.80', '0.90', 'gauge', 'inc']

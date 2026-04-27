@@ -1,0 +1,23 @@
+groups:
+  - name: ml_phase3_35_route_incident_rca_mirror_rca_winner_apply_apply_governance_incident_bundles_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceIncidentBundlesStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_incident_bundles_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance incident bundle builder is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceIncidentBundlesErrors
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_incident_bundles_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance incident bundle builder has errors"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceCriticalBundleBuilt
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_incident_bundles_total{severity="critical"}[30m]) > 0
+        for: 1m
+        labels: { severity: info }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance critical incident bundle was built"

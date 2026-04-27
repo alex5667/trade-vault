@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/calibration_service.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.15, 0.8, 0.9, 1.0, 2.0, 3.0, 5.0, 1000, 60000, ',', '300000', '86400000', ':', ';', 'CoreSignalContext', 'abs', 'absorption_score', 'atr_quantile', 'calibrated', 'cdf_points', 'compare', 'deltaSpike_z', 'eval_local_quantile', 'flag', 'gt', 'is_extreme', 'liquidity_score', 'lt', 'metrics', 'mixed', 'mode', 'obi', 'q90', 'q95', 'q98', 'quantile', 'regime_label', 'replace', 'rr_levels', 'session', 'stop_atr_mult', 'symbol', 'threshold', 'trailing', 'ts_ms', 'updated_at_ms', 'updated_ts_ms', 'utf-8', 'value', 'weak_progress', '|']

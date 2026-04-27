@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/meta_features_v8.py
+# hypothesis_version: 6.148.10
+
+[-8.0, -5.0, 0.0, 1.0, 5.0, 8.0, ',', 'abs_lvl_eff', 'abs_lvl_ladder', 'abs_lvl_poc_edge', 'abs_lvl_score', 'absorption_volume', 'book_churn_hi', 'book_missing_seq_ema', 'clip', 'hi', 'iceberg_dist_bp', 'iceberg_duration', 'iceberg_refresh', 'indicators', 'lo', 'log1p', 'meta_feat_v8', 'obi', 'obi_concentration', 'obi_stable_secs', 'obi_stacking', 'obi_z', 'ofi', 'ofi_stability_score', 'ofi_stable_secs', 'ofi_z', 'tick_gap_p95_ms', 'tick_missing_seq_ema', 'type', 'utf-8']

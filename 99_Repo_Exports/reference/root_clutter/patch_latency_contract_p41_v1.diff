@@ -1,0 +1,1128 @@
+--- orderflow_services/grafana/latency_contract_p41_v1.json	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/grafana/latency_contract_p41_v1.json	2026-03-08 07:49:56.599509660 +0000
+@@ -0,0 +1,52 @@
++{
++  "title": "Latency Contract P4.1 Coverage",
++  "schemaVersion": 39,
++  "version": 1,
++  "panels": [
++    {
++      "type": "stat",
++      "title": "SLO Gate OK",
++      "targets": [
++        {
++          "expr": "latency_contract_slo_gate_ok"
++        }
++      ]
++    },
++    {
++      "type": "stat",
++      "title": "Missing Required",
++      "targets": [
++        {
++          "expr": "latency_contract_slo_missing_total"
++        }
++      ]
++    },
++    {
++      "type": "stat",
++      "title": "Stale Required",
++      "targets": [
++        {
++          "expr": "latency_contract_slo_stale_total"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Required Stage Presence",
++      "targets": [
++        {
++          "expr": "latency_contract_required_stage_present"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Required Stage Age",
++      "targets": [
++        {
++          "expr": "latency_contract_required_stage_age_seconds"
++        }
++      ]
++    }
++  ]
++}
+\ No newline at end of file
+--- orderflow_services/integrations/README_latency_contract_p41.md	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/integrations/README_latency_contract_p41.md	2026-03-08 07:49:56.599182331 +0000
+@@ -0,0 +1,15 @@
++# P4.1 external latency-contract adapters
++
++Reference snippets for services that are **outside this archive**:
++- Go ingest writer for `go_ingest / ingest_to_redis`
++- NestJS WS gateway writer for `nest_gateway / emit_to_ws` and `nest_gateway / end_to_end_event`
++
++Both examples must write Redis hashes under:
++`metrics:latency_contract:last:<service>:<stage>:<symbol>`
++
++Required stage-owner matrix consumed by SLO gate/exporter:
++- `go_ingest / ingest_to_redis`
++- `python_worker / redis_to_feature`
++- `python_worker / feature_to_emit`
++- `nest_gateway / emit_to_ws`
++- `nest_gateway / end_to_end_event`
+--- orderflow_services/integrations/go_ingest_latency_writer_v1.go	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/integrations/go_ingest_latency_writer_v1.go	2026-03-08 07:49:56.598975438 +0000
+@@ -0,0 +1,80 @@
++// Reference-only P4.1 adapter for external Go ingest service.
++// Writes unified latency contract hashes for service=go_ingest stage=ingest_to_redis.
++package main
++
++import (
++    "context"
++    "fmt"
++    "os"
++    "strconv"
++    "strings"
++    "time"
++
++    "github.com/redis/go-redis/v9"
++)
++
++type LatencyPayload struct {
++    Symbol           string
++    TsEventMs        int64
++    TsIngestSourceMs int64
++    TsRedisXaddMs    int64
++    InstanceID       string
++    Source           string
++}
++
++func writeIngestToRedis(ctx context.Context, rdb *redis.Client, keyPrefix string, ttl time.Duration, p LatencyPayload) error {
++    symbol := strings.ToUpper(strings.TrimSpace(p.Symbol))
++    if symbol == "" {
++        return nil
++    }
++    durationMs := p.TsRedisXaddMs - p.TsIngestSourceMs
++    if durationMs < 0 {
++        durationMs = 0
++    }
++    nowMs := time.Now().UnixMilli()
++    key := fmt.Sprintf("%s:go_ingest:ingest_to_redis:%s", keyPrefix, symbol)
++    mapping := map[string]any{
++        "schema_version":     "1",
++        "service":            "go_ingest",
++        "stage":              "ingest_to_redis",
++        "symbol":             symbol,
++        "last_duration_ms":   durationMs,
++        "last_ts_ms":         nowMs,
++        "ts_event_ms":        p.TsEventMs,
++        "ts_ingest_source_ms": p.TsIngestSourceMs,
++        "ts_redis_xadd_ms":   p.TsRedisXaddMs,
++        "instance_id":        p.InstanceID,
++        "source":             p.Source,
++    }
++    if err := rdb.HSet(ctx, key, mapping).Err(); err != nil {
++        return err
++    }
++    if ttl > 0 {
++        return rdb.Expire(ctx, key, ttl).Err()
++    }
++    return nil
++}
++
++func main() {
++    redisURL := os.Getenv("REDIS_URL")
++    if redisURL == "" {
++        return
++    }
++    opts, err := redis.ParseURL(redisURL)
++    if err != nil {
++        panic(err)
++    }
++    rdb := redis.NewClient(opts)
++    ttlS, _ := strconv.Atoi(strings.TrimSpace(os.Getenv("LATENCY_CONTRACT_TTL_S")))
++    if ttlS <= 0 {
++        ttlS = 172800
++    }
++    _ = writeIngestToRedis(context.Background(), rdb, "metrics:latency_contract:last", time.Duration(ttlS)*time.Second, LatencyPayload{
++        Symbol:           "BTCUSDT",
++        TsEventMs:        time.Now().Add(-250 * time.Millisecond).UnixMilli(),
++        TsIngestSourceMs: time.Now().Add(-100 * time.Millisecond).UnixMilli(),
++        TsRedisXaddMs:    time.Now().UnixMilli(),
++        InstanceID:       os.Getenv("HOSTNAME"),
++        Source:           "go_ingest_example",
++    })
++}
+--- orderflow_services/integrations/nest_ws_latency_writer_v1.ts	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/integrations/nest_ws_latency_writer_v1.ts	2026-03-08 07:49:56.599100292 +0000
+@@ -0,0 +1,45 @@
++/**
++ * Reference-only P4.1 adapter for external NestJS WS gateway.
++ * Writes unified latency contract hashes for service=nest_gateway stages:
++ *  - emit_to_ws
++ *  - end_to_end_event
++ */
++import Redis from 'ioredis';
++
++export type LatencyWsPayload = {
++  symbol: string;
++  ts_event_ms: number;
++  ts_emit_ms: number;
++  ts_ws_emit_ms: number;
++  instance_id?: string;
++  source?: string;
++};
++
++function upperSymbol(symbol: string): string {
++  return String(symbol || '').trim().toUpperCase();
++}
++
++export async function writeNestGatewayLatency(redis: Redis, keyPrefix: string, ttlSec: number, payload: LatencyWsPayload): Promise<void> {
++  const symbol = upperSymbol(payload.symbol);
++  if (!symbol) return;
++  const nowMs = Date.now();
++  const emitToWs = Math.max(0, Number(payload.ts_ws_emit_ms) - Number(payload.ts_emit_ms));
++  const endToEnd = Math.max(0, Number(payload.ts_ws_emit_ms) - Number(payload.ts_event_ms));
++  const common: Record<string, string> = {
++    schema_version: '1',
++    service: 'nest_gateway',
++    symbol,
++    last_ts_ms: String(nowMs),
++    ts_event_ms: String(payload.ts_event_ms || 0),
++    ts_emit_ms: String(payload.ts_emit_ms || 0),
++    ts_ws_emit_ms: String(payload.ts_ws_emit_ms || 0),
++    instance_id: String(payload.instance_id || ''),
++    source: String(payload.source || 'nest_gateway_example'),
++  };
++  const emitKey = `${keyPrefix}:nest_gateway:emit_to_ws:${symbol}`;
++  const endKey = `${keyPrefix}:nest_gateway:end_to_end_event:${symbol}`;
++  await redis.hset(emitKey, { ...common, stage: 'emit_to_ws', last_duration_ms: String(emitToWs) });
++  await redis.expire(emitKey, ttlSec);
++  await redis.hset(endKey, { ...common, stage: 'end_to_end_event', last_duration_ms: String(endToEnd) });
++  await redis.expire(endKey, ttlSec);
++}
+--- orderflow_services/latency_contract_exporter_v1.py	2026-03-08 07:34:51.397083007 +0000
++++ orderflow_services/latency_contract_exporter_v1.py	2026-03-08 07:49:56.598495092 +0000
+@@ -13,6 +13,8 @@
+ from dataclasses import dataclass
+ from typing import Any, Dict
+ 
++from services.observability.latency_semconv import required_stage_owners, default_symbol_allowlist
++
+ from prometheus_client import Gauge, start_http_server
+ 
+ 
+@@ -44,6 +46,12 @@
+ G_STAGE_BUDGET = Gauge('latency_contract_stage_budget_ms', 'Configured SLO budget (ms) per stage', ['stage'])
+ G_EXPORTER_KEYS = Gauge('latency_contract_exporter_keys', 'Number of latency contract keys seen in Redis')
+ G_EXPORTER_READ_OK = Gauge('latency_contract_exporter_read_ok', 'Exporter Redis read status')
++G_REQUIRED_PRESENT = Gauge('latency_contract_required_stage_present', 'Required service-stage-symbol contract presence', ['service', 'stage', 'symbol'])
++G_REQUIRED_AGE = Gauge('latency_contract_required_stage_age_seconds', 'Required service-stage-symbol age', ['service', 'stage', 'symbol'])
++G_SLO_GATE_OK = Gauge('latency_contract_slo_gate_ok', 'Latency contract SLO gate ok')
++G_SLO_MISSING = Gauge('latency_contract_slo_missing_total', 'Latency contract missing required stages total')
++G_SLO_STALE = Gauge('latency_contract_slo_stale_total', 'Latency contract stale required stages total')
++G_SLO_BUDGET = Gauge('latency_contract_slo_budget_breach_total', 'Latency contract budget breach total')
+ 
+ 
+ @dataclass
+@@ -53,6 +61,7 @@
+     interval_s: float
+     key_prefix: str
+     stale_s: int
++    slo_summary_key: str
+ 
+ 
+ def load_cfg() -> Cfg:
+@@ -62,6 +71,7 @@
+         interval_s=float(_env('LATENCY_CONTRACT_EXPORTER_INTERVAL_S', '10') or 10),
+         key_prefix=_env('LATENCY_CONTRACT_KEY_PREFIX', 'metrics:latency_contract:last'),
+         stale_s=_i(_env('LATENCY_CONTRACT_EXPORTER_STALE_S', '300'), 300),
++        slo_summary_key=_env('LATENCY_CONTRACT_SLO_SUMMARY_KEY', 'metrics:latency_contract:slo:last'),
+     )
+ 
+ 
+@@ -101,6 +111,7 @@
+ 
+     r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
+     start_http_server(cfg.port)
++    symbols = tuple(sorted(default_symbol_allowlist()))
+     for st in ('ingest_to_redis', 'redis_to_feature', 'feature_to_emit', 'emit_to_ws', 'end_to_end_event'):
+         G_STAGE_BUDGET.labels(stage=st).set(_budget(st))
+     while True:
+@@ -119,6 +130,22 @@
+                 G_STAGE_COUNT.labels(service=service, stage=stage, symbol=symbol).set(1.0)
+                 n += 1
+             G_EXPORTER_KEYS.set(float(n))
++
++            # Required stage coverage matrix.
++            for service, stage in required_stage_owners():
++                for symbol in symbols:
++                    raw = r.hgetall(f"{cfg.key_prefix}:{service}:{stage}:{symbol}") or {}
++                    present = 1.0 if raw else 0.0
++                    last_ts_ms = _i(raw.get('last_ts_ms'), 0)
++                    age_s = max(0.0, now - (float(last_ts_ms) / 1000.0)) if last_ts_ms > 0 else float(cfg.stale_s)
++                    G_REQUIRED_PRESENT.labels(service=service, stage=stage, symbol=symbol).set(present)
++                    G_REQUIRED_AGE.labels(service=service, stage=stage, symbol=symbol).set(age_s)
++
++            summary = r.hgetall(cfg.slo_summary_key) or {}
++            G_SLO_GATE_OK.set(_f(summary.get('gate_ok'), 0.0))
++            G_SLO_MISSING.set(_f(summary.get('missing_total'), 0.0))
++            G_SLO_STALE.set(_f(summary.get('stale_total'), 0.0))
++            G_SLO_BUDGET.set(_f(summary.get('budget_breach_total'), 0.0))
+             G_EXPORTER_READ_OK.set(1.0)
+         except Exception:
+             G_EXPORTER_READ_OK.set(0.0)
+--- orderflow_services/latency_contract_slo_gate_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/latency_contract_slo_gate_v1.py	2026-03-08 07:49:56.589637456 +0000
+@@ -0,0 +1,137 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Cross-service latency contract SLO gate.
++
++Reads latency contract Redis hashes from Python + external writers (Go/NestJS),
++checks required stage ownership coverage, freshness and budget compliance, and
++writes a compact summary hash consumed by the exporter / alert rules.
++"""
++
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, Iterable, Tuple
++
++from services.observability.latency_semconv import required_stage_owners, default_symbol_allowlist
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return d
++
++
++def _f(v: Any, d: float = 0.0) -> float:
++    try:
++        return float(v)
++    except Exception:
++        try:
++            return float(str(v).strip())
++        except Exception:
++            return d
++
++
++@dataclass
++class Cfg:
++    redis_url: str
++    key_prefix: str
++    summary_key: str
++    interval_s: float
++    stale_s: int
++    symbols: tuple[str, ...]
++
++
++def load_cfg() -> Cfg:
++    syms = tuple(sorted(default_symbol_allowlist()))
++    return Cfg(
++        redis_url=_env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
++        key_prefix=_env('LATENCY_CONTRACT_KEY_PREFIX', 'metrics:latency_contract:last'),
++        summary_key=_env('LATENCY_CONTRACT_SLO_SUMMARY_KEY', 'metrics:latency_contract:slo:last'),
++        interval_s=float(_env('LATENCY_CONTRACT_SLO_GATE_INTERVAL_S', '10') or 10),
++        stale_s=_i(_env('LATENCY_CONTRACT_SLO_STAGE_STALE_S', '180'), 180),
++        symbols=syms,
++    )
++
++
++def _budget(stage: str) -> float:
++    env_map = {
++        'ingest_to_redis': 'LATENCY_BUDGET_INGEST_TO_REDIS_MS',
++        'redis_to_feature': 'LATENCY_BUDGET_REDIS_TO_FEATURE_MS',
++        'feature_to_emit': 'LATENCY_BUDGET_FEATURE_TO_EMIT_MS',
++        'emit_to_ws': 'LATENCY_BUDGET_EMIT_TO_WS_MS',
++        'end_to_end_event': 'LATENCY_BUDGET_END_TO_END_EVENT_MS',
++    }
++    return _f(os.getenv(env_map.get(stage, ''), '0') or '0', 0.0)
++
++
++def _state_key(prefix: str, service: str, stage: str, symbol: str) -> str:
++    return f"{prefix}:{service}:{stage}:{symbol}"
++
++
++def evaluate_once(r: Any, cfg: Cfg) -> Dict[str, str]:
++    now = time.time()
++    missing_total = 0
++    stale_total = 0
++    budget_breach_total = 0
++    present_total = 0
++    required_total = 0
++    per_stage = {}
++    for service, stage in required_stage_owners():
++        for symbol in cfg.symbols:
++            required_total += 1
++            key = _state_key(cfg.key_prefix, service, stage, symbol)
++            raw = r.hgetall(key) or {}
++            last_ts_ms = _i(raw.get('last_ts_ms'), 0)
++            last_duration_ms = _f(raw.get('last_duration_ms'), 0.0)
++            present = 1 if raw else 0
++            stale = 0
++            budget_breach = 0
++            if not present:
++                missing_total += 1
++            else:
++                present_total += 1
++                age_s = max(0.0, now - (last_ts_ms / 1000.0)) if last_ts_ms > 0 else float(cfg.stale_s)
++                if age_s > float(cfg.stale_s):
++                    stale_total += 1
++                    stale = 1
++                budget = _budget(stage)
++                if budget > 0 and last_duration_ms > budget:
++                    budget_breach_total += 1
++                    budget_breach = 1
++            per_stage[f"{service}|{stage}|{symbol}"] = f"{present}:{stale}:{budget_breach}:{last_duration_ms:.3f}"
++    gate_ok = 1 if (missing_total == 0 and stale_total == 0) else 0
++    mapping = {
++        'schema_version': '1',
++        'last_ts_ms': str(int(now * 1000)),
++        'required_total': str(required_total),
++        'present_total': str(present_total),
++        'missing_total': str(missing_total),
++        'stale_total': str(stale_total),
++        'budget_breach_total': str(budget_breach_total),
++        'gate_ok': str(gate_ok),
++    }
++    mapping.update(per_stage)
++    return mapping
++
++
++def main() -> int:
++    cfg = load_cfg()
++    import redis  # type: ignore
++    r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
++    while True:
++        try:
++            mapping = evaluate_once(r, cfg)
++            r.hset(cfg.summary_key, mapping=mapping)
++        except Exception:
++            pass
++        time.sleep(cfg.interval_s)
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+--- orderflow_services/prometheus_alerts_latency_contract_p41_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/prometheus_alerts_latency_contract_p41_v1.yml	2026-03-08 07:49:56.599270182 +0000
+@@ -0,0 +1,31 @@
++groups:
++  - name: latency-contract-p41-v1
++    rules:
++      - alert: OF_LatencyContract_MissingExternalStage_Crit
++        expr: latency_contract_slo_missing_total > 0
++        for: 3m
++        labels:
++          severity: critical
++        annotations:
++          summary: "Latency contract has missing required stages"
++      - alert: OF_LatencyContract_StaleExternalStage_Warn
++        expr: latency_contract_slo_stale_total > 0
++        for: 5m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Latency contract has stale required stages"
++      - alert: OF_LatencyContract_BudgetBreach_Warn
++        expr: latency_contract_slo_budget_breach_total > 0
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Latency contract budget breached on at least one required stage"
++      - alert: OF_LatencyContract_SLOGateOpen_Crit
++        expr: latency_contract_slo_gate_ok == 0
++        for: 3m
++        labels:
++          severity: critical
++        annotations:
++          summary: "Latency contract SLO gate is open"
+--- orderflow_services/runbook_latency_contract_p41_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/runbook_latency_contract_p41_v1.md	2026-03-08 07:49:56.599606285 +0000
+@@ -0,0 +1,26 @@
++# P4.1 Latency Contract External Coverage
++
++## Goal
++Close latency-contract gaps for services not present in this archive:
++- Go ingest writer for `ingest_to_redis`
++- NestJS WS gateway writer for `emit_to_ws` and final `end_to_end_event`
++
++## Required owner-stage matrix
++- `go_ingest / ingest_to_redis`
++- `python_worker / redis_to_feature`
++- `python_worker / feature_to_emit`
++- `nest_gateway / emit_to_ws`
++- `nest_gateway / end_to_end_event`
++
++## Redis keys
++`metrics:latency_contract:last:<service>:<stage>:<symbol>`
++
++## SLO gate summary
++`metrics:latency_contract:slo:last`
++
++## Rollout
++1. Deploy Python P4 + P4.1 exporter/gate.
++2. Integrate Go writer from `integrations/go_ingest_latency_writer_v1.go`.
++3. Integrate Nest writer from `integrations/nest_ws_latency_writer_v1.ts`.
++4. Start `latency_contract_slo_gate_v1.py`.
++5. Alert on missing/stale coverage.
+--- orderflow_services/tests/test_latency_contract_external_examples_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/tests/test_latency_contract_external_examples_v1.py	2026-03-08 07:49:56.601564534 +0000
+@@ -0,0 +1,11 @@
++import os
++
++
++def test_external_examples_exist():
++    base = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'integrations'))
++    with open(os.path.join(base, 'go_ingest_latency_writer_v1.go'), 'r', encoding='utf-8') as f:
++        go = f.read()
++    with open(os.path.join(base, 'nest_ws_latency_writer_v1.ts'), 'r', encoding='utf-8') as f:
++        ts = f.read()
++    assert 'go_ingest' in go and 'ingest_to_redis' in go
++    assert 'nest_gateway' in ts and 'emit_to_ws' in ts and 'end_to_end_event' in ts
+--- orderflow_services/tests/test_latency_contract_p41_dashboard_json_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/tests/test_latency_contract_p41_dashboard_json_v1.py	2026-03-08 07:49:56.601470858 +0000
+@@ -0,0 +1,10 @@
++import json
++import os
++
++
++def test_dashboard_json_valid():
++    path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'grafana', 'latency_contract_p41_v1.json'))
++    with open(path, 'r', encoding='utf-8') as f:
++        data = json.load(f)
++    assert data['title']
++    assert data['panels']
+--- orderflow_services/tests/test_latency_contract_p41_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/tests/test_latency_contract_p41_exporter_v1.py	2026-03-08 07:49:56.601352163 +0000
+@@ -0,0 +1,17 @@
++import os
++import yaml
++from orderflow_services.latency_contract_exporter_v1 import _parse_key
++
++
++def test_parse_key_still_roundtrips():
++    service, stage, symbol = _parse_key('metrics:latency_contract:last:nest_gateway:end_to_end_event:BTCUSDT', 'metrics:latency_contract:last')
++    assert service == 'nest_gateway'
++    assert stage == 'end_to_end_event'
++    assert symbol == 'BTCUSDT'
++
++
++def test_p41_alerts_yaml_valid():
++    path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'prometheus_alerts_latency_contract_p41_v1.yml'))
++    with open(path, 'r', encoding='utf-8') as f:
++        data = yaml.safe_load(f)
++    assert 'groups' in data and data['groups']
+--- orderflow_services/tests/test_latency_contract_slo_gate_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/tests/test_latency_contract_slo_gate_v1.py	2026-03-08 07:49:56.601175273 +0000
+@@ -0,0 +1,36 @@
++from orderflow_services.latency_contract_slo_gate_v1 import evaluate_once, Cfg
++
++
++class FakeRedis:
++    def __init__(self, data):
++        self.data = data
++
++    def hgetall(self, key):
++        return dict(self.data.get(key, {}))
++
++
++def test_slo_gate_detects_missing_external_stage():
++    data = {
++        'metrics:latency_contract:last:python_worker:redis_to_feature:BTCUSDT': {'last_ts_ms': '1000', 'last_duration_ms': '10'},
++        'metrics:latency_contract:last:python_worker:feature_to_emit:BTCUSDT': {'last_ts_ms': '1000', 'last_duration_ms': '10'},
++    }
++    cfg = Cfg(redis_url='redis://x', key_prefix='metrics:latency_contract:last', summary_key='metrics:latency_contract:slo:last', interval_s=10.0, stale_s=999999999, symbols=('BTCUSDT',))
++    m = evaluate_once(FakeRedis(data), cfg)
++    assert int(m['missing_total']) >= 2
++    assert int(m['gate_ok']) == 0
++
++
++def test_slo_gate_ok_when_all_required_present():
++    data = {}
++    for service, stage in (
++        ('go_ingest', 'ingest_to_redis'),
++        ('python_worker', 'redis_to_feature'),
++        ('python_worker', 'feature_to_emit'),
++        ('nest_gateway', 'emit_to_ws'),
++        ('nest_gateway', 'end_to_end_event'),
++    ):
++        data[f'metrics:latency_contract:last:{service}:{stage}:BTCUSDT'] = {'last_ts_ms': '9999999999999', 'last_duration_ms': '10'}
++    cfg = Cfg(redis_url='redis://x', key_prefix='metrics:latency_contract:last', summary_key='metrics:latency_contract:slo:last', interval_s=10.0, stale_s=999999999, symbols=('BTCUSDT',))
++    m = evaluate_once(FakeRedis(data), cfg)
++    assert int(m['missing_total']) == 0
++    assert int(m['gate_ok']) == 1
+--- services/observability/latency_contract.py	2026-03-08 07:32:47.701108090 +0000
++++ services/observability/latency_contract.py	2026-03-08 07:49:56.589425127 +0000
+@@ -24,12 +24,16 @@
+     FIELD_TS_EVENT_MS,
+     FIELD_TS_FEATURE_MS,
+     FIELD_TS_REDIS_READ_MS,
++    FIELD_TS_WS_EMIT_MS,
++    FIELD_TS_INGEST_SOURCE_MS,
++    FIELD_TS_REDIS_XADD_MS,
+     SERVICE_PYTHON_WORKER,
+     compute_contract_deltas,
+     default_symbol_allowlist,
+     ensure_epoch_ms_fields,
+     label_symbol,
+     now_wall_ms,
++    build_external_state_mapping,
+ )
+ 
+ 
+@@ -105,6 +109,20 @@
+         return int(default)
+ 
+ 
++def build_state_mapping(*, service: str, stage: str, symbol: Any, duration_ms: int, payload: Dict[str, Any], now_ms: Optional[int] = None, instance_id: str = '', source: str = '') -> Dict[str, str]:
++    sym = str(symbol or '').upper()
++    return build_external_state_mapping(
++        service=service,
++        stage=stage,
++        symbol=sym,
++        duration_ms=int(max(0, duration_ms)),
++        payload=payload,
++        instance_id=instance_id,
++        source=source,
++        now_ms=now_ms,
++    )
++
++
+ @dataclass
+ class LatencyStateWriter:
+     service: str = SERVICE_PYTHON_WORKER
+@@ -135,18 +153,15 @@
+         if prev > 0 and (now_ms - prev) < int(self.min_update_ms):
+             return
+         self._last_write_ms[key] = int(now_ms)
+-        mapping = {
+-            'schema_version': '1',
+-            'service': str(self.service),
+-            'stage': str(stage),
+-            'symbol': key.rsplit(':', 1)[-1],
+-            'last_duration_ms': str(int(max(0, duration_ms))),
+-            'last_ts_ms': str(int(now_ms)),
+-            'ts_event_ms': str(_safe_int(payload.get(FIELD_TS_EVENT_MS), 0)),
+-            'ts_redis_read_ms': str(_safe_int(payload.get(FIELD_TS_REDIS_READ_MS), 0)),
+-            'ts_feature_ms': str(_safe_int(payload.get(FIELD_TS_FEATURE_MS), 0)),
+-            'ts_emit_ms': str(_safe_int(payload.get(FIELD_TS_EMIT_MS), 0)),
+-        }
++        mapping = build_state_mapping(
++            service=self.service,
++            stage=stage,
++            symbol=key.rsplit(':', 1)[-1],
++            duration_ms=duration_ms,
++            payload=payload,
++            now_ms=now_ms,
++            source='python_runtime',
++        )
+         try:
+             await redis_client.hset(key, mapping=mapping)
+             if int(self.ttl_s) > 0:
+--- services/observability/latency_semconv.py	2026-03-08 07:32:47.700858057 +0000
++++ services/observability/latency_semconv.py	2026-03-08 07:49:56.588864149 +0000
+@@ -22,6 +22,8 @@
+ FIELD_TS_FEATURE_MS = "ts_feature_ms"
+ FIELD_TS_EMIT_MS = "ts_emit_ms"
+ FIELD_TS_WS_EMIT_MS = "ts_ws_emit_ms"
++FIELD_TS_INGEST_SOURCE_MS = "ts_ingest_source_ms"
++FIELD_TS_REDIS_XADD_MS = "ts_redis_xadd_ms"
+ 
+ SERVICE_GO_INGEST = "go_ingest"
+ SERVICE_PYTHON_WORKER = "python_worker"
+@@ -101,11 +103,54 @@
+         STAGE_END_TO_END_EVENT: non_negative_delta_ms(payload.get(FIELD_TS_EVENT_MS), payload.get(FIELD_TS_EMIT_MS)),
+     }
+     # External stages may be stamped by Go / NestJS in the same contract later.
+-    out[STAGE_INGEST_TO_REDIS] = non_negative_delta_ms(payload.get('ts_ingest_source_ms'), payload.get('ts_redis_xadd_ms'))
++    out[STAGE_INGEST_TO_REDIS] = non_negative_delta_ms(payload.get(FIELD_TS_INGEST_SOURCE_MS), payload.get(FIELD_TS_REDIS_XADD_MS))
+     out[STAGE_EMIT_TO_WS] = non_negative_delta_ms(payload.get(FIELD_TS_EMIT_MS), payload.get(FIELD_TS_WS_EMIT_MS))
+     return out
+ 
+ 
++
++REQUIRED_STAGE_OWNERS = (
++    (SERVICE_GO_INGEST, STAGE_INGEST_TO_REDIS),
++    (SERVICE_PYTHON_WORKER, STAGE_REDIS_TO_FEATURE),
++    (SERVICE_PYTHON_WORKER, STAGE_FEATURE_TO_EMIT),
++    (SERVICE_NEST_GATEWAY, STAGE_EMIT_TO_WS),
++    (SERVICE_NEST_GATEWAY, STAGE_END_TO_END_EVENT),
++)
++
++
++def required_stage_owners() -> tuple[tuple[str, str], ...]:
++    """Canonical service->stage ownership for cross-service SLO coverage.
++
++    Python may still emit a provisional end_to_end_event at publish time, but the
++    required owner for user-visible end-to-end latency is the Nest gateway because
++    only it sees ts_ws_emit_ms.
++    """
++    return REQUIRED_STAGE_OWNERS
++
++
++def build_external_state_mapping(*, service: str, stage: str, symbol: str, duration_ms: int, payload: dict[str, Any], instance_id: str = '', source: str = '', now_ms: Optional[int] = None) -> dict[str, str]:
++    """Reference Redis-hash payload for non-Python writers (Go/NestJS)."""
++    payload = ensure_epoch_ms_fields(dict(payload or {}))
++    ts_now = int(now_ms or now_wall_ms())
++    mapping = {
++        'schema_version': str(SCHEMA_VERSION),
++        'service': str(service),
++        'stage': str(stage),
++        'symbol': str(symbol or '').upper(),
++        'last_duration_ms': str(int(max(0, duration_ms))),
++        'last_ts_ms': str(ts_now),
++        FIELD_TS_EVENT_MS: str(as_int_ms(payload.get(FIELD_TS_EVENT_MS), 0)),
++        FIELD_TS_REDIS_READ_MS: str(as_int_ms(payload.get(FIELD_TS_REDIS_READ_MS), 0)),
++        FIELD_TS_FEATURE_MS: str(as_int_ms(payload.get(FIELD_TS_FEATURE_MS), 0)),
++        FIELD_TS_EMIT_MS: str(as_int_ms(payload.get(FIELD_TS_EMIT_MS), 0)),
++        FIELD_TS_WS_EMIT_MS: str(as_int_ms(payload.get(FIELD_TS_WS_EMIT_MS), 0)),
++        FIELD_TS_INGEST_SOURCE_MS: str(as_int_ms(payload.get(FIELD_TS_INGEST_SOURCE_MS), 0)),
++        FIELD_TS_REDIS_XADD_MS: str(as_int_ms(payload.get(FIELD_TS_REDIS_XADD_MS), 0)),
++        'instance_id': str(instance_id or ''),
++        'source': str(source or ''),
++    }
++    return mapping
++
+ def parse_allowlist(raw: Optional[str]) -> Set[str]:
+     if not raw:
+         return set()
+--- services/tests/test_latency_semconv_p41_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ services/tests/test_latency_semconv_p41_v1.py	2026-03-08 07:49:56.601043582 +0000
+@@ -0,0 +1,17 @@
++from services.observability.latency_semconv import required_stage_owners, build_external_state_mapping
++
++
++def test_required_stage_owner_matrix_contains_external_services():
++    pairs = set(required_stage_owners())
++    assert ('go_ingest', 'ingest_to_redis') in pairs
++    assert ('nest_gateway', 'emit_to_ws') in pairs
++    assert ('nest_gateway', 'end_to_end_event') in pairs
++
++
++def test_build_external_state_mapping_includes_external_ts_fields():
++    payload = {'ts_event_ms': 1000, 'ts_ingest_source_ms': 1100, 'ts_redis_xadd_ms': 1200, 'ts_emit_ms': 1300, 'ts_ws_emit_ms': 1500}
++    m = build_external_state_mapping(service='nest_gateway', stage='end_to_end_event', symbol='BTCUSDT', duration_ms=500, payload=payload, instance_id='n1', source='test')
++    assert m['service'] == 'nest_gateway'
++    assert m['stage'] == 'end_to_end_event'
++    assert m['ts_ws_emit_ms'] == '1500'
++    assert m['instance_id'] == 'n1'
+--- tick_flow_full/orderflow_services/grafana/latency_contract_p41_v1.json	1970-01-01 00:00:00.000000000 +0000
++++ tick_flow_full/orderflow_services/grafana/latency_contract_p41_v1.json	2026-03-08 07:49:56.600288770 +0000
+@@ -0,0 +1,52 @@
++{
++  "title": "Latency Contract P4.1 Coverage",
++  "schemaVersion": 39,
++  "version": 1,
++  "panels": [
++    {
++      "type": "stat",
++      "title": "SLO Gate OK",
++      "targets": [
++        {
++          "expr": "latency_contract_slo_gate_ok"
++        }
++      ]
++    },
++    {
++      "type": "stat",
++      "title": "Missing Required",
++      "targets": [
++        {
++          "expr": "latency_contract_slo_missing_total"
++        }
++      ]
++    },
++    {
++      "type": "stat",
++      "title": "Stale Required",
++      "targets": [
++        {
++          "expr": "latency_contract_slo_stale_total"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Required Stage Presence",
++      "targets": [
++        {
++          "expr": "latency_contract_required_stage_present"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Required Stage Age",
++      "targets": [
++        {
++          "expr": "latency_contract_required_stage_age_seconds"
++        }
++      ]
++    }
++  ]
++}
+\ No newline at end of file
+--- tick_flow_full/orderflow_services/integrations/README_latency_contract_p41.md	1970-01-01 00:00:00.000000000 +0000
++++ tick_flow_full/orderflow_services/integrations/README_latency_contract_p41.md	2026-03-08 07:49:56.600921371 +0000
+@@ -0,0 +1,15 @@
++# P4.1 external latency-contract adapters
++
++Reference snippets for services that are **outside this archive**:
++- Go ingest writer for `go_ingest / ingest_to_redis`
++- NestJS WS gateway writer for `nest_gateway / emit_to_ws` and `nest_gateway / end_to_end_event`
++
++Both examples must write Redis hashes under:
++`metrics:latency_contract:last:<service>:<stage>:<symbol>`
++
++Required stage-owner matrix consumed by SLO gate/exporter:
++- `go_ingest / ingest_to_redis`
++- `python_worker / redis_to_feature`
++- `python_worker / feature_to_emit`
++- `nest_gateway / emit_to_ws`
++- `nest_gateway / end_to_end_event`
+--- tick_flow_full/orderflow_services/integrations/go_ingest_latency_writer_v1.go	1970-01-01 00:00:00.000000000 +0000
++++ tick_flow_full/orderflow_services/integrations/go_ingest_latency_writer_v1.go	2026-03-08 07:49:56.600600218 +0000
+@@ -0,0 +1,80 @@
++// Reference-only P4.1 adapter for external Go ingest service.
++// Writes unified latency contract hashes for service=go_ingest stage=ingest_to_redis.
++package main
++
++import (
++    "context"
++    "fmt"
++    "os"
++    "strconv"
++    "strings"
++    "time"
++
++    "github.com/redis/go-redis/v9"
++)
++
++type LatencyPayload struct {
++    Symbol           string
++    TsEventMs        int64
++    TsIngestSourceMs int64
++    TsRedisXaddMs    int64
++    InstanceID       string
++    Source           string
++}
++
++func writeIngestToRedis(ctx context.Context, rdb *redis.Client, keyPrefix string, ttl time.Duration, p LatencyPayload) error {
++    symbol := strings.ToUpper(strings.TrimSpace(p.Symbol))
++    if symbol == "" {
++        return nil
++    }
++    durationMs := p.TsRedisXaddMs - p.TsIngestSourceMs
++    if durationMs < 0 {
++        durationMs = 0
++    }
++    nowMs := time.Now().UnixMilli()
++    key := fmt.Sprintf("%s:go_ingest:ingest_to_redis:%s", keyPrefix, symbol)
++    mapping := map[string]any{
++        "schema_version":     "1",
++        "service":            "go_ingest",
++        "stage":              "ingest_to_redis",
++        "symbol":             symbol,
++        "last_duration_ms":   durationMs,
++        "last_ts_ms":         nowMs,
++        "ts_event_ms":        p.TsEventMs,
++        "ts_ingest_source_ms": p.TsIngestSourceMs,
++        "ts_redis_xadd_ms":   p.TsRedisXaddMs,
++        "instance_id":        p.InstanceID,
++        "source":             p.Source,
++    }
++    if err := rdb.HSet(ctx, key, mapping).Err(); err != nil {
++        return err
++    }
++    if ttl > 0 {
++        return rdb.Expire(ctx, key, ttl).Err()
++    }
++    return nil
++}
++
++func main() {
++    redisURL := os.Getenv("REDIS_URL")
++    if redisURL == "" {
++        return
++    }
++    opts, err := redis.ParseURL(redisURL)
++    if err != nil {
++        panic(err)
++    }
++    rdb := redis.NewClient(opts)
++    ttlS, _ := strconv.Atoi(strings.TrimSpace(os.Getenv("LATENCY_CONTRACT_TTL_S")))
++    if ttlS <= 0 {
++        ttlS = 172800
++    }
++    _ = writeIngestToRedis(context.Background(), rdb, "metrics:latency_contract:last", time.Duration(ttlS)*time.Second, LatencyPayload{
++        Symbol:           "BTCUSDT",
++        TsEventMs:        time.Now().Add(-250 * time.Millisecond).UnixMilli(),
++        TsIngestSourceMs: time.Now().Add(-100 * time.Millisecond).UnixMilli(),
++        TsRedisXaddMs:    time.Now().UnixMilli(),
++        InstanceID:       os.Getenv("HOSTNAME"),
++        Source:           "go_ingest_example",
++    })
++}
+--- tick_flow_full/orderflow_services/integrations/nest_ws_latency_writer_v1.ts	1970-01-01 00:00:00.000000000 +0000
++++ tick_flow_full/orderflow_services/integrations/nest_ws_latency_writer_v1.ts	2026-03-08 07:49:56.600740877 +0000
+@@ -0,0 +1,45 @@
++/**
++ * Reference-only P4.1 adapter for external NestJS WS gateway.
++ * Writes unified latency contract hashes for service=nest_gateway stages:
++ *  - emit_to_ws
++ *  - end_to_end_event
++ */
++import Redis from 'ioredis';
++
++export type LatencyWsPayload = {
++  symbol: string;
++  ts_event_ms: number;
++  ts_emit_ms: number;
++  ts_ws_emit_ms: number;
++  instance_id?: string;
++  source?: string;
++};
++
++function upperSymbol(symbol: string): string {
++  return String(symbol || '').trim().toUpperCase();
++}
++
++export async function writeNestGatewayLatency(redis: Redis, keyPrefix: string, ttlSec: number, payload: LatencyWsPayload): Promise<void> {
++  const symbol = upperSymbol(payload.symbol);
++  if (!symbol) return;
++  const nowMs = Date.now();
++  const emitToWs = Math.max(0, Number(payload.ts_ws_emit_ms) - Number(payload.ts_emit_ms));
++  const endToEnd = Math.max(0, Number(payload.ts_ws_emit_ms) - Number(payload.ts_event_ms));
++  const common: Record<string, string> = {
++    schema_version: '1',
++    service: 'nest_gateway',
++    symbol,
++    last_ts_ms: String(nowMs),
++    ts_event_ms: String(payload.ts_event_ms || 0),
++    ts_emit_ms: String(payload.ts_emit_ms || 0),
++    ts_ws_emit_ms: String(payload.ts_ws_emit_ms || 0),
++    instance_id: String(payload.instance_id || ''),
++    source: String(payload.source || 'nest_gateway_example'),
++  };
++  const emitKey = `${keyPrefix}:nest_gateway:emit_to_ws:${symbol}`;
++  const endKey = `${keyPrefix}:nest_gateway:end_to_end_event:${symbol}`;
++  await redis.hset(emitKey, { ...common, stage: 'emit_to_ws', last_duration_ms: String(emitToWs) });
++  await redis.expire(emitKey, ttlSec);
++  await redis.hset(endKey, { ...common, stage: 'end_to_end_event', last_duration_ms: String(endToEnd) });
++  await redis.expire(endKey, ttlSec);
++}
+--- tick_flow_full/orderflow_services/latency_contract_slo_gate_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ tick_flow_full/orderflow_services/latency_contract_slo_gate_v1.py	2026-03-08 07:49:56.599942250 +0000
+@@ -0,0 +1,137 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Cross-service latency contract SLO gate.
++
++Reads latency contract Redis hashes from Python + external writers (Go/NestJS),
++checks required stage ownership coverage, freshness and budget compliance, and
++writes a compact summary hash consumed by the exporter / alert rules.
++"""
++
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, Iterable, Tuple
++
++from services.observability.latency_semconv import required_stage_owners, default_symbol_allowlist
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return d
++
++
++def _f(v: Any, d: float = 0.0) -> float:
++    try:
++        return float(v)
++    except Exception:
++        try:
++            return float(str(v).strip())
++        except Exception:
++            return d
++
++
++@dataclass
++class Cfg:
++    redis_url: str
++    key_prefix: str
++    summary_key: str
++    interval_s: float
++    stale_s: int
++    symbols: tuple[str, ...]
++
++
++def load_cfg() -> Cfg:
++    syms = tuple(sorted(default_symbol_allowlist()))
++    return Cfg(
++        redis_url=_env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
++        key_prefix=_env('LATENCY_CONTRACT_KEY_PREFIX', 'metrics:latency_contract:last'),
++        summary_key=_env('LATENCY_CONTRACT_SLO_SUMMARY_KEY', 'metrics:latency_contract:slo:last'),
++        interval_s=float(_env('LATENCY_CONTRACT_SLO_GATE_INTERVAL_S', '10') or 10),
++        stale_s=_i(_env('LATENCY_CONTRACT_SLO_STAGE_STALE_S', '180'), 180),
++        symbols=syms,
++    )
++
++
++def _budget(stage: str) -> float:
++    env_map = {
++        'ingest_to_redis': 'LATENCY_BUDGET_INGEST_TO_REDIS_MS',
++        'redis_to_feature': 'LATENCY_BUDGET_REDIS_TO_FEATURE_MS',
++        'feature_to_emit': 'LATENCY_BUDGET_FEATURE_TO_EMIT_MS',
++        'emit_to_ws': 'LATENCY_BUDGET_EMIT_TO_WS_MS',
++        'end_to_end_event': 'LATENCY_BUDGET_END_TO_END_EVENT_MS',
++    }
++    return _f(os.getenv(env_map.get(stage, ''), '0') or '0', 0.0)
++
++
++def _state_key(prefix: str, service: str, stage: str, symbol: str) -> str:
++    return f"{prefix}:{service}:{stage}:{symbol}"
++
++
++def evaluate_once(r: Any, cfg: Cfg) -> Dict[str, str]:
++    now = time.time()
++    missing_total = 0
++    stale_total = 0
++    budget_breach_total = 0
++    present_total = 0
++    required_total = 0
++    per_stage = {}
++    for service, stage in required_stage_owners():
++        for symbol in cfg.symbols:
++            required_total += 1
++            key = _state_key(cfg.key_prefix, service, stage, symbol)
++            raw = r.hgetall(key) or {}
++            last_ts_ms = _i(raw.get('last_ts_ms'), 0)
++            last_duration_ms = _f(raw.get('last_duration_ms'), 0.0)
++            present = 1 if raw else 0
++            stale = 0
++            budget_breach = 0
++            if not present:
++                missing_total += 1
++            else:
++                present_total += 1
++                age_s = max(0.0, now - (last_ts_ms / 1000.0)) if last_ts_ms > 0 else float(cfg.stale_s)
++                if age_s > float(cfg.stale_s):
++                    stale_total += 1
++                    stale = 1
++                budget = _budget(stage)
++                if budget > 0 and last_duration_ms > budget:
++                    budget_breach_total += 1
++                    budget_breach = 1
++            per_stage[f"{service}|{stage}|{symbol}"] = f"{present}:{stale}:{budget_breach}:{last_duration_ms:.3f}"
++    gate_ok = 1 if (missing_total == 0 and stale_total == 0) else 0
++    mapping = {
++        'schema_version': '1',
++        'last_ts_ms': str(int(now * 1000)),
++        'required_total': str(required_total),
++        'present_total': str(present_total),
++        'missing_total': str(missing_total),
++        'stale_total': str(stale_total),
++        'budget_breach_total': str(budget_breach_total),
++        'gate_ok': str(gate_ok),
++    }
++    mapping.update(per_stage)
++    return mapping
++
++
++def main() -> int:
++    cfg = load_cfg()
++    import redis  # type: ignore
++    r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
++    while True:
++        try:
++            mapping = evaluate_once(r, cfg)
++            r.hset(cfg.summary_key, mapping=mapping)
++        except Exception:
++            pass
++        time.sleep(cfg.interval_s)
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+--- tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_p41_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_p41_v1.yml	2026-03-08 07:49:56.600139306 +0000
+@@ -0,0 +1,31 @@
++groups:
++  - name: latency-contract-p41-v1
++    rules:
++      - alert: OF_LatencyContract_MissingExternalStage_Crit
++        expr: latency_contract_slo_missing_total > 0
++        for: 3m
++        labels:
++          severity: critical
++        annotations:
++          summary: "Latency contract has missing required stages"
++      - alert: OF_LatencyContract_StaleExternalStage_Warn
++        expr: latency_contract_slo_stale_total > 0
++        for: 5m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Latency contract has stale required stages"
++      - alert: OF_LatencyContract_BudgetBreach_Warn
++        expr: latency_contract_slo_budget_breach_total > 0
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Latency contract budget breached on at least one required stage"
++      - alert: OF_LatencyContract_SLOGateOpen_Crit
++        expr: latency_contract_slo_gate_ok == 0
++        for: 3m
++        labels:
++          severity: critical
++        annotations:
++          summary: "Latency contract SLO gate is open"
+--- tick_flow_full/orderflow_services/runbook_latency_contract_p41_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ tick_flow_full/orderflow_services/runbook_latency_contract_p41_v1.md	2026-03-08 07:49:56.600435762 +0000
+@@ -0,0 +1,26 @@
++# P4.1 Latency Contract External Coverage
++
++## Goal
++Close latency-contract gaps for services not present in this archive:
++- Go ingest writer for `ingest_to_redis`
++- NestJS WS gateway writer for `emit_to_ws` and final `end_to_end_event`
++
++## Required owner-stage matrix
++- `go_ingest / ingest_to_redis`
++- `python_worker / redis_to_feature`
++- `python_worker / feature_to_emit`
++- `nest_gateway / emit_to_ws`
++- `nest_gateway / end_to_end_event`
++
++## Redis keys
++`metrics:latency_contract:last:<service>:<stage>:<symbol>`
++
++## SLO gate summary
++`metrics:latency_contract:slo:last`
++
++## Rollout
++1. Deploy Python P4 + P4.1 exporter/gate.
++2. Integrate Go writer from `integrations/go_ingest_latency_writer_v1.go`.
++3. Integrate Nest writer from `integrations/nest_ws_latency_writer_v1.ts`.
++4. Start `latency_contract_slo_gate_v1.py`.
++5. Alert on missing/stale coverage.

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/check_ml_confirm_metrics.py
+# hypothesis_version: 6.148.10
+
+['\n📊 Model Run IDs:', '\n📊 Ошибки (err):', '\n📊 Статусы:', '   - kind=util_mh_v1', '  -- extras --', '  keys:', '  ✅ Нет ошибок', ', ', '-', '--count', '--redis-url', '--stream', 'ERR_NO_CFG', 'REDIS_URL', '__main__', 'book_stale_p99_ms', 'bucket', 'conf', 'direction', 'dq_flag_rate', 'enforce', 'err', 'exec_pen', 'exec_risk_bps', 'exec_risk_norm', 'exec_risk_ref_bps', 'kind', 'lat_ms', 'latency_us', 'metrics:ml_confirm', 'missing', 'missing_n', 'mode', 'model_run_id', 'model_sig', 'model_ver', 'ok_rule', 'p_edge', 'p_min', 'reason', 'scenario_v4', 'schema_hash', 'schema_name', 'schema_version', 'share_used', 'sid', 'spread_bps', 'status', 'symbol', 'tick_time_age_p99_ms', 'ts_ms', 'util_mh_v1', 'ИТОГОВАЯ ОЦЕНКА', 'СВОДКА', '⚠️', '✅', '❌']

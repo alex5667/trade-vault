@@ -1,0 +1,132 @@
+groups:
+  - name: redis_alerts
+    rules:
+      # Алерт: Вытеснение ключей (Evictions)
+      - alert: RedisEvictions
+        expr: increase(redis_evicted_keys_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          team: ops
+          component: redis
+        annotations:
+          summary: "⚠️ Redis начал вытеснять ключи: {{ $labels.instance }}"
+          description: "Зафиксировано вытеснение (evictions) ключей из-за нехватки памяти."
+          runbook: "1. Проверить метрику memory_used.\n2. Возможно, нужно увеличить maxmemory или проверить TTL ключей."
+
+      # Алерт: Использование памяти redis-ticks выше 85%
+      - alert: RedisTicksMemoryPressure
+        expr: |
+          (
+            redis_memory_used_bytes{instance=~"redis-ticks.*"} / redis_config_maxmemory{instance=~"redis-ticks.*"}
+          ) > 0.85
+          and
+          redis_config_maxmemory{instance=~"redis-ticks.*"} > 0
+        for: 3m
+        labels:
+          severity: critical
+          team: ops
+          component: redis
+        annotations:
+          summary: "🚨 Критическая нехватка памяти redis-ticks: {{ $labels.instance }}"
+          description: "Redis-ticks использует >85% памяти. Опасность эвикции (allkeys-lru) безвозвратно удалит важные данные."
+          runbook: "Добавить RAM или проверить TTL тиков."
+
+      # Алерт: Использование памяти выше 90%
+      # GUARD: redis_config_maxmemory > 0 предотвращает деление на 0 → +Inf
+      # при maxmemory=0 (не задан лимит). Без этого алерт ВСЕГДА firing.
+      - alert: RedisMemoryHigh
+        expr: |
+          (
+            redis_memory_used_bytes / redis_config_maxmemory
+          ) * 100 > 90
+          and
+          redis_config_maxmemory > 0
+        for: 3m
+        labels:
+          severity: critical
+          team: ops
+          component: redis
+        annotations:
+          summary: "🚨 Критическая нехватка памяти Redis: {{ $labels.instance }}"
+          description: "Redis использует {{ $value | humanize }}% от разрешенной maxmemory."
+          runbook: "1. Проверить тяжелые ключи (redis-cli --bigkeys).\n2. Добавить RAM или скейлить воркеры."
+
+      # Алерт: maxmemory не задан (потенциально опасно)
+      - alert: RedisMaxmemoryNotSet
+        expr: redis_config_maxmemory == 0
+        for: 10m
+        labels:
+          severity: warning
+          team: ops
+          component: redis
+        annotations:
+          summary: "⚠️ Redis maxmemory не задан: {{ $labels.instance }}"
+          description: |
+            maxmemory=0 означает, что Redis может потребить всю RAM хоста.
+            Установите maxmemory через CONFIG SET maxmemory <bytes> или redis.conf.
+
+      # Алерт: Падение количества клиентов (аномалия)
+      - alert: RedisClientDrop
+        expr: |
+          delta(redis_connected_clients[5m]) < -50
+          and
+          redis_connected_clients < 30
+        for: 2m
+        labels:
+          severity: warning
+          team: ops
+          component: redis
+        annotations:
+          summary: "⚠️ Массовое отключение клиентов Redis: {{ $labels.instance }}"
+          description: "Количество подключений резко упало (delta: {{ $value }}). Возможно, упали воркеры."
+          runbook: "Проверить логи Python-воркеров и статус Edge Stack."
+
+      # ─── P1-4: Signal Outbox Consumer Lag ────────────────────────────────────
+      # Метрика: redis_stream_length{stream="signals:outbox"} — длина потока в pending messages.
+      # Альтернатива при наличии redis-exporter с group-lag:
+      #   redis_xpending_count{stream="signals:outbox", group="signals-outbox-group"} > 10000
+      - alert: SignalOutboxConsumerLagHigh
+        expr: |
+          redis_stream_length{stream=~".*signals:outbox.*|.*stream:signals:outbox.*"} > 10000
+        for: 2m
+        labels:
+          severity: critical
+          team: ops
+          component: signal_outbox
+        annotations:
+          summary: "🚨 Signal Outbox consumer lag too high: {{ $labels.stream }}"
+          description: |
+            Поток {{ $labels.stream }} содержит > 10 000 непрочитанных сообщений.
+            Потребительская группа signals-outbox-group застряла или упала.
+            Действия:
+              1. Проверить логи signal_outbox_dispatcher.
+              2. Проверить XPENDING: XPENDING stream:signals:outbox signals-outbox-group - + 10.
+              3. При подтверждении зависания — рестарт outbox-dispatcher контейнера.
+          runbook: "docker-compose restart scanner-signal-outbox-dispatcher"
+
+      # ─── Replication Lag Monitoring ──────────────────────────────────────────
+      # Метрика: redis_connected_slave_lag_seconds или статус линка
+      - alert: RedisReplicationLinkDown
+        expr: redis_master_link_status == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: ops
+          component: redis
+        annotations:
+          summary: "🚨 Сбой репликации Redis: {{ $labels.instance }}"
+          description: "Связь реплики {{ $labels.instance }} с мастером разорвана (redis_master_link_status == 0)."
+          runbook: "1. Проверить доступность master узла.\n2. Смотреть логи реплики: docker logs {{ $labels.instance }}."
+
+      - alert: RedisReplicationLagHigh
+        expr: redis_connected_slave_lag_seconds > 10
+        for: 2m
+        labels:
+          severity: warning
+          team: ops
+          component: redis
+        annotations:
+          summary: "⚠️ Высокий лаг репликации Redis: {{ $labels.instance }}"
+          description: "Slave lag превышает 10 секунд (сейчас {{ $value }}s) для {{ $labels.instance }}."
+          runbook: "Проверить сетевые задержки или вычислительную загрузку мастера и реплики."

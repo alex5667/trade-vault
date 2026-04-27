@@ -1,0 +1,140 @@
+{
+  "uid": "exec-health-obs-v1",
+  "title": "ExecHealth Observability v1",
+  "description": "Single-source-of-truth ExecHealth metrics for EdgeCostGate/EntryPolicy/SignalPipeline",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "tags": ["exec_health", "observability", "tca"],
+  "templating": {
+    "list": [
+      {
+        "name": "scope",
+        "type": "custom",
+        "query": "edge,entry_policy,pipeline",
+        "current": {"value": "all", "text": "All"},
+        "includeAll": true,
+        "allValue": ".*"
+      },
+      {
+        "name": "symbol",
+        "type": "query",
+        "datasource": {"type": "prometheus"},
+        "query": "label_values(exec_health_last_event_ts_ms, symbol)",
+        "current": {"value": "$__all"},
+        "includeAll": true
+      }
+    ]
+  },
+  "time": {"from": "now-3h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "title": "Decisions by Outcome",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "sum by (scope, outcome) (increase(exec_health_decision_total{scope=~\"$scope\", symbol=~\"$symbol\"}[5m]))",
+          "legendFormat": "{{scope}} / {{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Reader Errors Rate",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "sum by (scope, where) (increase(exec_health_reader_errors_total{scope=~\"$scope\"}[5m]))",
+          "legendFormat": "{{scope}} / {{where}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Veto Rate 15m",
+      "type": "stat",
+      "gridPos": {"x": 0, "y": 8, "w": 8, "h": 4},
+      "targets": [
+        {
+          "expr": "sum by (scope) (increase(exec_health_decision_total{scope=~\"$scope\", symbol=~\"$symbol\", outcome=\"veto\"}[15m]))",
+          "legendFormat": "{{scope}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Rollup Presence (is_p95_bps)",
+      "type": "stat",
+      "gridPos": {"x": 8, "y": 8, "w": 8, "h": 4},
+      "targets": [
+        {
+          "expr": "max by (scope, symbol) (exec_health_rollup_present{scope=~\"$scope\", symbol=~\"$symbol\", metric=\"is_p95_bps\"})",
+          "legendFormat": "{{scope}}/{{symbol}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Rollup Values (bps)",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "exec_health_rollup_value_bps{scope=~\"$scope\", symbol=~\"$symbol\"}",
+          "legendFormat": "{{scope}}/{{symbol}}/{{metric}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Policy Mode (current)",
+      "type": "stat",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "exec_health_policy_mode{scope=~\"$scope\"}",
+          "legendFormat": "{{scope}}/{{mode}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Policy Thresholds (bps)",
+      "type": "table",
+      "gridPos": {"x": 0, "y": 20, "w": 12, "h": 6},
+      "targets": [
+        {
+          "expr": "exec_health_policy_threshold_bps{scope=~\"$scope\"}",
+          "legendFormat": "{{scope}}/{{metric}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Tighten Add Bps (distribution)",
+      "type": "histogram",
+      "gridPos": {"x": 12, "y": 20, "w": 12, "h": 6},
+      "targets": [
+        {
+          "expr": "rate(exec_health_tighten_add_bps_scoped_bucket{scope=~\"$scope\", symbol=~\"$symbol\"}[5m])",
+          "legendFormat": "{{scope}}/{{symbol}}/{{le}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Flags Hit",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 26, "w": 24, "h": 6},
+      "targets": [
+        {
+          "expr": "sum by (scope, symbol, flag) (increase(exec_health_flag_total{scope=~\"$scope\", symbol=~\"$symbol\"}[15m]))",
+          "legendFormat": "{{scope}}/{{symbol}}/{{flag}}"
+        }
+      ]
+    }
+  ]
+}

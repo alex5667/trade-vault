@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/io/json/__init__.py
+# hypothesis_version: 6.148.10
+
+['build_table_schema', 'dumps', 'loads', 'read_json', 'to_json']

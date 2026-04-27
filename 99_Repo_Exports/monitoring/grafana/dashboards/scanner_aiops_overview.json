@@ -1,0 +1,310 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "🔍 AIOps Overview",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+    {
+      "title": "Prom Bundle OK",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 0, "y": 1 },
+      "targets": [{ "expr": "of_prom_rules_bundle_last_ok", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          },
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "INVALID", "color": "red" }, "1": { "text": "OK", "color": "green" } } }
+          ]
+        }
+      }
+    },
+    {
+      "title": "Decision Lag (ms)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 3, "y": 1 },
+      "targets": [{ "expr": "time() * 1000 - decision_last_ts_ms", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 60000 },
+              { "color": "red", "value": 300000 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "OF Gate OK %",
+      "type": "gauge",
+      "gridPos": { "h": 4, "w": 3, "x": 6, "y": 1 },
+      "targets": [{ "expr": "(sum(rate(of_gate_ok_hard_total[5m])) / clamp_min(sum(rate(of_gate_eligible_total[5m])), 1)) * 100", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0, "max": 100,
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 50 },
+              { "color": "green", "value": 80 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "E2E Lag (ms)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 9, "y": 1 },
+      "targets": [{ "expr": "max(tick_ingest_e2e_delay_ms)", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 500 },
+              { "color": "red", "value": 2000 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Registry Contract",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 12, "y": 1 },
+      "targets": [{ "expr": "feature_registry_contract_last_success", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          },
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "FAIL", "color": "red" }, "1": { "text": "OK", "color": "green" } } }
+          ]
+        }
+      }
+    },
+    {
+      "title": "PSI Drift 24h",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 15, "y": 1 },
+      "targets": [{ "expr": "psi_max_24h", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 3,
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.1 },
+              { "color": "red", "value": 0.25 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "DQ Flag Rate",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 18, "y": 1 },
+      "targets": [{ "expr": "dq_flag_rate", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.05 },
+              { "color": "red", "value": 0.15 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Circuit Trips",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 21, "y": 1 },
+      "targets": [{ "expr": "sum(of_inputs_v3_circuit_cfg_disabled)", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "📈 Feature Drift & Data Quality",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "collapsed": false
+    },
+    {
+      "title": "PSI Max 24h",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 6 },
+      "targets": [{ "expr": "psi_max_24h", "legendFormat": "PSI" }],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 10 } } }
+    },
+    {
+      "title": "Feature Drift Max Z 24h",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 6 },
+      "targets": [{ "expr": "feature_drift_max_z_24h", "legendFormat": "Z-score" }]
+    },
+    {
+      "title": "DQ Flag Rate & DQ Level",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 6 },
+      "targets": [
+        { "expr": "dq_flag_rate", "legendFormat": "DQ Flag Rate" },
+        { "expr": "avg_over_time((dq_level == bool 2)[1h:15s])", "legendFormat": "DQ Level 2" }
+      ]
+    },
+    {
+      "title": "🏗️ Signal Quality & Calibration",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "collapsed": false
+    },
+    {
+      "title": "Signal Expectancy (OK regime)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 15 },
+      "targets": [{ "expr": "signal_quality_expectancy_24h{regime=\"ok\"}", "legendFormat": "Expectancy" }]
+    },
+    {
+      "title": "Signal ECE (Warn regime)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 15 },
+      "targets": [{ "expr": "signal_quality_ece_24h{regime=\"warn\"}", "legendFormat": "ECE" }]
+    },
+    {
+      "title": "Calibration Staleness (s)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 15 },
+      "targets": [
+        { "expr": "policy_calibration_suggest_staleness_sec", "legendFormat": "Staleness" },
+        { "expr": "of_slippage_calib_last_ok_age_sec", "legendFormat": "Slippage Age" }
+      ]
+    },
+    {
+      "title": "📊 Market Microstructure",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+      "collapsed": false
+    },
+    {
+      "title": "Adverse RD / Cancel-to-Trade / Taker Imbalance",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        { "expr": "max(trade_adverse_rd_bad_share)", "legendFormat": "Adverse RD Bad" },
+        { "expr": "max(trade_cancel_to_trade_bid)", "legendFormat": "Cancel:Trade" },
+        { "expr": "abs(max(trade_taker_flow_imb_z))", "legendFormat": "|Taker Imb Z|" }
+      ]
+    },
+    {
+      "title": "Spread P95 / Exec Cost P95 (bps)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(trade_spread_bps_bucket[10m])) by (le))", "legendFormat": "Spread P95" },
+        { "expr": "histogram_quantile(0.95, sum(rate(trade_exec_pen_bucket[10m])) by (le))", "legendFormat": "Exec Cost P95" }
+      ]
+    },
+    {
+      "title": "🎯 Decision & Policy Health",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 },
+      "collapsed": false
+    },
+    {
+      "title": "Decisions 24h / Policy Block % / Regime Unknown %",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 33 },
+      "targets": [
+        { "expr": "decision_n_24h", "legendFormat": "Decisions 24h" },
+        { "expr": "decision_policy_mode_share_24h{mode=\"block\"} * 100", "legendFormat": "Block %" },
+        { "expr": "decision_regime_share_24h{regime=\"unknown\"} * 100", "legendFormat": "Unknown %" }
+      ]
+    },
+    {
+      "title": "Replay Age / Replay Archiver / TSDB Missing",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 33 },
+      "targets": [
+        { "expr": "(time()*1000 - replay_inputs_archiver_last_run_ts_ms) / 1000", "legendFormat": "Replay Age (s)" },
+        { "expr": "of_gate_timescale_policies_missing", "legendFormat": "TS Missing" }
+      ]
+    },
+    {
+      "title": "🖥️ System & Infrastructure",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 41 },
+      "collapsed": false
+    },
+    {
+      "title": "E2E Lag / Venue Gap",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 42 },
+      "targets": [
+        { "expr": "max(tick_ingest_e2e_delay_ms)", "legendFormat": "E2E Lag (ms)" },
+        { "expr": "max(tick_gap_p95_ms{venue=\"bybit\"})", "legendFormat": "Venue Gap P95 (ms)" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" } }
+    },
+    {
+      "title": "Redis RSS (GB)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 42 },
+      "targets": [{ "expr": "max(process_resident_memory_bytes{job=\"redis-workers\"}) / 1024 / 1024 / 1024", "legendFormat": "Redis RSS (GB)" }],
+      "fieldConfig": { "defaults": { "unit": "decgbytes" } }
+    },
+    {
+      "title": "Scrape Targets Up/Down",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 42 },
+      "targets": [
+        { "expr": "count(up == 1)", "legendFormat": "Up" },
+        { "expr": "count(up == 0)", "legendFormat": "Down" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 20 } } }
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["aiops", "scanner", "overview"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Scanner AIOps Overview",
+  "uid": "scanner-aiops-overview",
+  "version": 1
+}

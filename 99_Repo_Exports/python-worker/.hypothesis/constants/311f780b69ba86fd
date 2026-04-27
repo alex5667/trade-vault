@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/active_arm_stabilizer.py
+# hypothesis_version: 6.148.10
+
+[60000, 'cand', 'cand_ts', 'eff', 'eff_ts', 'hold_down_ms', 'min_switch_gap_ms']

@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/_lib/_docscrape.py
+# hypothesis_version: 6.148.10
+
+['   :{}: {}', ' : ', '(', '(?P<allfuncs>', '(?P<trailing>[,\\.])?', ')', ')*)', '*', ',', ', ', '-', '.', '..', '.. index::', '.. index:: %s', '.. {}:: {}\n    \n\n', ':', ':(?P<role>\\w+):', '::', '=', 'Attributes', 'Examples', 'Extended Summary', 'Methods', 'Notes', 'Other Parameters', 'Parameter', 'Parameters', 'Raises', 'Receives', 'References', 'Returns', 'See Also', 'Signature', 'Summary', 'Unknown section %s', 'Warnings', 'Warns', 'Yields', '\\*', '\\s*', '^\\s*', '_', '__call__', '__name__', '_obj', '`%s`_', 'allfuncs', 'default', 'desc', 'docstring', 'exclude-members', 'func', 'function', 'index', 'members', 'meth', 'method', 'name', 'name2', 'namenext', 'role', 'rolenext', 'show_class_members', 'sphinx', 'trailing', 'type', '|']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/handler_factory.py
+# hypothesis_version: 6.148.10
+
+['ADA', 'ADAUSD', 'ADAUSDT', 'APTUSDT', 'ARBUSDT', 'BNB', 'BNBUSD', 'BNBUSDT', 'BONKUSDT', 'BTC', 'BTCUSD', 'BTCUSDT', 'CRYPTO', 'CUSTOM', 'DOGEUSDT', 'ETH', 'ETHUSD', 'ETHUSDT', 'FLOKIUSDT', 'FOREX', 'PEPEUSDT', 'SHIBUSDT', 'SOL', 'SOLUSD', 'SOLUSDT', 'SUIUSDT', 'UNKNOWN', 'USD', 'USDT', 'WIFUSDT', 'XA', 'XAGUSD', 'XAUUSD', 'XAUUSDT', 'XRP', 'XRPUSD', 'XRPUSDT', '__main__', '═']

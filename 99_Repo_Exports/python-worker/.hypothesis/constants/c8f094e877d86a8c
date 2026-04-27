@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/optimize/_slsqp_py.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-06, 100, '    (Exit mode ', '%5s %5s %16s %16s', ')', ', ', '2-point', '3-point', 'FC', 'GNORM', 'NIT', 'OBJFUN', 'approx_jacobian', 'args', 'callback', 'cs', 'disp', 'eps', 'eq', 'fmin_slsqp', 'ftol', 'fun', 'ignore', 'ineq', 'iprint', 'jac', 'maxiter', 'message', 'nit', 'restructuredtext en', 'status', 'type', 'x']

@@ -1,0 +1,8 @@
+{
+  "generated_at_ms": 1776522306710,
+  "should_silence": false,
+  "quarantine_count_24h": 0,
+  "max_avg_mismatch_rate_24h": 0.0,
+  "reason": "below_threshold",
+  "dry_run": true
+}

@@ -1,0 +1,210 @@
+--- services/trade_monitor.py.orig	2026-04-04 18:26:57.505188049 +0000
++++ services/trade_monitor.py	2026-04-04 18:28:04.125828997 +0000
+@@ -2297,6 +2297,23 @@
+                 rr = payload.get("trail_after_tp1_reason", "")
+                 if rr:
+                     pos.trail_after_tp1_reason = str(rr)[:256]
++
++                # --- Calibrator / shadow-paper metadata (must survive into POSITION_CLOSED) ---
++                # These fields are intentionally flat and JSON-safe so downstream joiners/exporters
++                # can read them without depending on nested contracts.
++                for k in (
++                    "paper_only", "shadow_only", "calib", "calib_kind", "calib_run_id",
++                    "candidate_window_ms", "baseline_window_ms", "cont_ctx_age_ms",
++                    "entry_reason", "parent_signal_id",
++                ):
++                    if k in payload and payload.get(k) is not None:
++                        sp[k] = payload.get(k)
++
++                # Preserve explicit virtual flag for paper/shadow trades.
++                try:
++                    sp["is_virtual"] = int(1 if (is_v or bool(payload.get("paper_only") or payload.get("shadow_only"))) else 0)
++                except Exception:
++                    sp["is_virtual"] = 1 if (is_v or bool(payload.get("paper_only") or payload.get("shadow_only"))) else 0
+             except Exception:
+                 pass
+ 
+@@ -4358,6 +4375,18 @@
+                         "entry_abs_th_unstable": int(ctx.get("abs_th_unstable", 0) or 0),
+                         "entry_news_blocked": int(ctx.get("news_blocked", 0) or 0),
+                         "risk_usd": r_usd,
++                        # Calibrator / paper shadow metadata for downstream trades:closed consumers.
++                        "paper_only": int(sp.get("paper_only", 0) or 0),
++                        "shadow_only": int(sp.get("shadow_only", 0) or 0),
++                        "is_virtual": int(sp.get("is_virtual", 0) or 0),
++                        "calib": int(sp.get("calib", 0) or 0),
++                        "calib_kind": str(sp.get("calib_kind", "") or ""),
++                        "calib_run_id": str(sp.get("calib_run_id", "") or ""),
++                        "candidate_window_ms": int(sp.get("candidate_window_ms", 0) or 0),
++                        "baseline_window_ms": int(sp.get("baseline_window_ms", 0) or 0),
++                        "cont_ctx_age_ms": int(sp.get("cont_ctx_age_ms", 0) or 0),
++                        "entry_reason": str(sp.get("entry_reason", "") or ""),
++                        "parent_signal_id": str(sp.get("parent_signal_id", "") or ""),
+                         # CRITICAL: Pass full signal_payload for PeriodicReporter metrics (of_confirm, ml, etc.)
+                         "signal_payload": sp,
+                     })
+--- services/orderflow/tools/trade_close_joiner_worker_v5.py.orig	2026-04-04 18:26:57.526709659 +0000
++++ services/orderflow/tools/trade_close_joiner_worker_v5.py	2026-04-04 18:28:04.127264557 +0000
+@@ -112,6 +112,65 @@
+             return d[k]
+     return None
+ 
++def _signal_payload_dict(d: Dict[str, Any]) -> Dict[str, Any]:
++    sp = d.get("signal_payload")
++    if isinstance(sp, dict):
++        return sp
++    if isinstance(sp, str) and sp:
++        obj = _loads_json(sp)
++        return obj if isinstance(obj, dict) else {}
++    return {}
++
++
++def _copy_if_present(dst: Dict[str, Any], src: Dict[str, Any], key: str, *alt_keys: str) -> None:
++    v = _pick(src, key, *alt_keys)
++    if v is not None:
++        dst[key] = v
++
++
++def _enrich_calib_fields(out: Dict[str, Any], close_payload: Dict[str, Any], decision: Dict[str, Any]) -> None:
++    """Propagate shadow/paper calibrator fields into trades:closed.
++
++    Priority: close payload -> signal_payload -> decision.
++    This keeps the stream contract flat for calibrators/exporters while staying fail-open.
++    """
++    sp = _signal_payload_dict(close_payload)
++
++    def pickv(key: str, *alts: str):
++        v = _pick(close_payload, key, *alts)
++        if v is not None:
++            return v
++        v = _pick(sp, key, *alts)
++        if v is not None:
++            return v
++        return _pick(decision, key, *alts)
++
++    for key, alts in (
++        ("paper_only", tuple()),
++        ("shadow_only", tuple()),
++        ("is_virtual", tuple()),
++        ("calib", tuple()),
++        ("calib_kind", tuple()),
++        ("calib_run_id", tuple()),
++        ("candidate_window_ms", tuple()),
++        ("baseline_window_ms", tuple()),
++        ("cont_ctx_age_ms", tuple()),
++        ("entry_reason", tuple()),
++        ("parent_signal_id", tuple()),
++    ):
++        v = pickv(key, *alts)
++        if v is not None:
++            out[key] = v
++
++    # Normalize flags to 0/1 where possible.
++    for key in ("paper_only", "shadow_only", "is_virtual", "calib"):
++        if key in out:
++            try:
++                out[key] = int(out[key] or 0)
++            except Exception:
++                out[key] = 1 if bool(out[key]) else 0
++
++
+ async def _setnx_dedup(r: aioredis.Redis, key: str, ttl_sec: int) -> bool:
+     try:
+         ok = await r.set(key, "1", nx=True, ex=ttl_sec)
+@@ -257,6 +316,12 @@
+     out["actual_action"] = actual_action
+     out["actual_reason_code"] = actual_reason
+ 
++    # Shadow / paper calibrator metadata must survive into trades:closed for post-analysis.
++    try:
++        _enrich_calib_fields(out, close_payload, decision)
++    except Exception:
++        pass
++
+     await _write_trades_closed(r, trades_closed_stream, out, trades_closed_maxlen)
+     _trades_closed_written_total.labels(result="ok").inc()
+ 
+--- /dev/null	2026-04-04 18:22:42.860951992 +0000
++++ orderflow_services/tests/test_trade_close_joiner_calib_fields_v1.py	2026-04-04 18:28:59.858948643 +0000
+@@ -0,0 +1,81 @@
++import sys
++import types
++
++# Minimal stubs so we can import the module without optional runtime deps.
++redis_mod = types.ModuleType("redis")
++redis_asyncio_mod = types.ModuleType("redis.asyncio")
++setattr(redis_mod, "asyncio", redis_asyncio_mod)
++sys.modules.setdefault("redis", redis_mod)
++sys.modules.setdefault("redis.asyncio", redis_asyncio_mod)
++
++prom_mod = types.ModuleType("prometheus_client")
++class _DummyMetric:
++    def __init__(self, *a, **k):
++        pass
++    def labels(self, *a, **k):
++        return self
++    def inc(self, *a, **k):
++        return None
++    def set(self, *a, **k):
++        return None
++prom_mod.Counter = _DummyMetric
++prom_mod.Gauge = _DummyMetric
++prom_mod.start_http_server = lambda *a, **k: None
++sys.modules.setdefault("prometheus_client", prom_mod)
++
++core_mod = types.ModuleType("core")
++core_rsc = types.ModuleType("core.redis_stream_consumer")
++class _DummyHelper:
++    def __init__(self, *a, **k):
++        pass
++core_rsc.AsyncRedisStreamHelper = _DummyHelper
++sys.modules.setdefault("core", core_mod)
++sys.modules.setdefault("core.redis_stream_consumer", core_rsc)
++
++from services.orderflow.tools.trade_close_joiner_worker_v5 import _enrich_calib_fields
++
++
++def test_enrich_calib_fields_prefers_close_payload_then_signal_payload_then_decision():
++    out = {}
++    close_payload = {
++        "paper_only": 1,
++        "signal_payload": {
++            "calib": 1,
++            "calib_kind": "cont_ctx_window",
++            "candidate_window_ms": 180000,
++            "baseline_window_ms": 120000,
++            "entry_reason": "rescued_cont_ctx_window",
++        },
++    }
++    decision = {
++        "parent_signal_id": "sig-parent",
++        "cont_ctx_age_ms": 111000,
++    }
++
++    _enrich_calib_fields(out, close_payload, decision)
++
++    assert out["paper_only"] == 1
++    assert out["calib"] == 1
++    assert out["calib_kind"] == "cont_ctx_window"
++    assert out["candidate_window_ms"] == 180000
++    assert out["baseline_window_ms"] == 120000
++    assert out["entry_reason"] == "rescued_cont_ctx_window"
++    assert out["parent_signal_id"] == "sig-parent"
++    assert out["cont_ctx_age_ms"] == 111000
++
++
++def test_enrich_calib_fields_close_payload_overrides_signal_payload():
++    out = {}
++    close_payload = {
++        "candidate_window_ms": 150000,
++        "signal_payload": {
++            "candidate_window_ms": 180000,
++            "calib": 1,
++        },
++    }
++    decision = {"candidate_window_ms": 210000}
++
++    _enrich_calib_fields(out, close_payload, decision)
++
++    assert out["candidate_window_ms"] == 150000
++    assert out["calib"] == 1

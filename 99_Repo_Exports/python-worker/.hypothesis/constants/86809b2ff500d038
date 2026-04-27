@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/logging/logging_utils.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1000, ',', ':', 'cancel_to_trade', 'conf_factor', 'conf_factor01', 'confidence', 'dq', 'emit', 'emitted', 'event', 'final_score', 'geometry_score', 'hlc_fallback', 'kind', 'l2_is_stale', 'level_key', 'level_price', 'market_regime_score', 'meta', 'microprice_shift', 'microprice_shift_bps', 'missing_htf', 'missing_l3', 'obi_avg', 'parts', 'qf', 'qf16', 'raw_score', 'reason_code', 'reason_u16', 'reasons', 'regime_score', 'regime_trend_score', 'side', 'signal', 'signal_id', 'signal_veto', 'soft16', 'soft_codes', 'soft_u16', 'spread_bps', 'symbol', 'taker_rate', 'taker_rate_ema', 'ts', 'ts_log_ms', 'ts_ms', 'used_fallback_hlc', 'veto', 'veto_reason_code', 'veto_reason_u16']

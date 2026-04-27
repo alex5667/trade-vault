@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/domain/normalizers.py
+# hypothesis_version: 6.148.10
+
+['15m', '15min', '1d', '1h', '1m', '1min', '1mo', '1month', '1w', '300s', '4h', '5m', '5min', '60s', '900s', 'ADL', 'AFTER', 'AggregatedHub-V2', 'CryptoOrderFlow', 'ERROR', 'EXPIRED', 'EXPIRED_NO_ENTRY', 'EXPIRED_NO_TARGET', 'FORCE_CLOSE', 'INITIAL_SL', 'LIQUIDATION', 'LOCK', 'MANUAL', 'MANUAL_TP', 'MOVED_SL', 'ORPHAN', 'ORPHAN_TIMEOUT', 'OrderFlow', 'SL', 'SL_', 'SL_AFTER', 'SL_AFTER_', 'SL_AFTER_TP1', 'SL_AFTER_TP2', 'SL_AFTER_TP3', 'SL_HIT', 'STOP', 'STOP_LOSS', 'TAKE_PROFIT', 'TIMEOUT', 'TIME_EXIT', 'TP', 'TP1', 'TP2', 'TP3', 'TRAIL', 'TRAILING', 'TRAILING_PROFIT', 'TRAILING_STOP', 'TRAILING_STOP_HIT', 'TRAIL_SL', 'TechnicalAnalysis', 'UNKNOWN', 'Unknown', '_', 'aggregated', 'aggregatedhub-v2', 'crypto-orderflow', 'cryptoorderflow', 'd1', 'h1', 'h4', 'm1', 'm15', 'm5', 'mo', 'month', 'orderflow', 'ta', 'technicalanalysis', 'tick', 'unknown', 'w1']

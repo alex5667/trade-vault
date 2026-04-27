@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/api/types/__init__.py
+# hypothesis_version: 6.148.10
+
+['CategoricalDtype', 'DatetimeTZDtype', 'IntervalDtype', 'PeriodDtype', 'infer_dtype', 'union_categoricals']

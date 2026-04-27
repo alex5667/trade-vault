@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/trade_closed_hydrator.py
+# hypothesis_version: 6.148.10
+
+['1', 'close_reason', 'closed', 'exit_ts_ms', 'hash', 'id', 'on', 'order_id', 'pnl_net', 'status', 'stream', 'trail_profile', 'trailing_profile', 'true', 'yes']

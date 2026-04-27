@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/fast_linear_util_mh.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 'center', 'coef', 'feature_cols', 'feature_transforms', 'horizons_ms', 'intercept', 'liq_cfg', 'robust_scaler', 'scale', 'session_cfg', 'spread_bucket_edges', 'unc', 'utf-8', 'weights']

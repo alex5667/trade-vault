@@ -1,0 +1,17 @@
+groups:
+  - name: latency-contract-p47
+    rules:
+      - alert: OF_LatencyDeployLint_PersistentDriftUnsilenced_Crit
+        expr: latency_contract_deploy_lint_summary_unsilenced_gate_active_total > 0 and latency_contract_deploy_lint_notifier_active > 0
+        for: 5m
+        labels: {severity: crit}
+        annotations:
+          summary: "Latency deploy-lint persistent drift active and unsilenced"
+          description: "One or more deploy-lint persistent drift gates are still active and not currently silenced at the notifier layer."
+      - alert: OF_LatencyDeployLint_PersistentDriftSilenced_Warn
+        expr: latency_contract_deploy_lint_summary_silenced_gate_active_total > 0
+        for: 24h
+        labels: {severity: warn}
+        annotations:
+          summary: "Latency deploy-lint drift is silenced on notifier"
+          description: "A deploy-lint persistent drift gate has remained silenced for over 24h. Gate enforcement still applies; review ticket/operator context and unsilence or fix the drift."

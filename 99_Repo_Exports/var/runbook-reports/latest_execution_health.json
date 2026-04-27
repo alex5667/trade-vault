@@ -1,0 +1,28 @@
+{
+  "autonomy_recommendations": {
+    "reasons": [
+      "overall_not_ok"
+    ],
+    "trigger_checkpoint_scrubber": true,
+    "trigger_retention_guard_quarantine": false
+  },
+  "checked_at_ms": 1776517697267,
+  "consistency": null,
+  "consistency_error": "could not translate host name \"scanner-pgbouncer\" to address: Name or service not known\n",
+  "overall_status": "warning",
+  "retention_guard": {
+    "breached_checkpoints": 0,
+    "breached_examples": [],
+    "checked_checkpoint_keys": 7,
+    "checkpoint_prefix": "orders:exec:replay:cursor:",
+    "exec_stream": "orders:exec",
+    "oldest_stream_id": "1775776743507-0",
+    "status": "ok"
+  },
+  "user_stream": {
+    "age_ms": 1000000000000,
+    "is_stale": true,
+    "keys_checked": 1,
+    "newest_event_time_ms": 0
+  }
+}

@@ -1,0 +1,58 @@
+
+services:
+  tb-labeler-worker-v10-1:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-tb-labeler-worker-v10-1
+    restart: unless-stopped
+    environment:
+      # Redis connections
+      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+      - TICKS_REDIS_URL=${TICKS_REDIS_URL:-redis://redis-ticks:6379/0}
+
+      # Streams and Keys
+      - OF_INPUTS_STREAM=${OF_INPUTS_STREAM:-signals:of:inputs}
+      - OF_INPUTS_FIELD=${OF_INPUTS_FIELD:-payload}
+      - TB_LABELS_STREAM=${TB_LABELS_STREAM:-labels:tb}
+      - TB_TICK_STREAM_PREFIX=${TB_TICK_STREAM_PREFIX:-stream:tick_}
+
+      # Horizons and Barriers
+      - TB_HORIZONS_MS=${TB_HORIZONS_MS:-60000,180000,300000}
+      - TB_PRIMARY_H_MS=${TB_PRIMARY_H_MS:-180000}
+      - TB_SLACK_MS=${TB_SLACK_MS:-15000}
+      - TB_TP_K_ATR=${TB_TP_K_ATR:-1.0}
+      - TB_SL_K_ATR=${TB_SL_K_ATR:-1.0}
+      - TB_FALLBACK_TP_BPS=${TB_FALLBACK_TP_BPS:-30}
+      - TB_FALLBACK_SL_BPS=${TB_FALLBACK_SL_BPS:-30}
+      - TB_ADV_MAX=${TB_ADV_MAX:-1.2}
+
+      # Tick sampling
+      - TB_STORE_TICKS=${TB_STORE_TICKS:-1}
+      - TB_TICKS_SAMPLE_EVERY=${TB_TICKS_SAMPLE_EVERY:-10}
+      - TB_TICKS_MAX=${TB_TICKS_MAX:-2000}
+
+      # Python environment
+      - TB_METRICS_ENABLE=${TB_METRICS_ENABLE:-1}
+      - TB_METRICS_PORT=${TB_METRICS_PORT:-9114}
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    ports:
+      - "9111:9114"
+    volumes:
+      - ./logs:/app/logs
+    command: ["python", "-m", "services.tb_labeler_worker_v10_1"]
+    networks:
+      - scanner-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+networks:
+  scanner-network:
+    external: true

@@ -1,0 +1,49 @@
+diff --git a/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py b/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py
+index d79c3d2..a1cc1b8 100644
+--- a/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py
++++ b/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py
+@@ -55,7 +55,10 @@ def _smoke_contract_targets(public_base: str) -> Tuple[List[str], List[str]]:
+     """Return (runbooks_urls, dashboards_urls) for contract checks."""
+     # Defaults cover the monitoring contract pieces:
+     # - runbooks must serve markdown files
+     # - grafana must route dashboards (redirect to login is ok because we follow redirects; final is 200)
+     runbooks = _split_csv(_env("SMOKE_RUNBOOK_PATHS", "/runbooks/web_uptime.md,/runbooks/promote_freeze.md,/runbooks/chatops_security.md"))
+-    dashboards = _split_csv(_env("SMOKE_DASHBOARD_PATHS", "/grafana/d/edge_stack_overview/edge-stack-overview?orgId=1,/grafana/d/chatops_security/chatops-security?orgId=1"))
++    # IMPORTANT: include dashboards referenced by alert annotations (dashboard_path) to avoid false "green" smoke.
++    dashboards = _split_csv(
++        _env(
++            "SMOKE_DASHBOARD_PATHS",
++            "/grafana/d/edge_stack_overview/edge-stack-overview?orgId=1,"
++            "/grafana/d/chatops_security/chatops-security?orgId=1,"
++            "/grafana/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1",
++        )
++    )
+     runbook_urls = [_mk_url(public_base, p) for p in runbooks]
+     dash_urls = [_mk_url(public_base, p) for p in dashboards]
+     return runbook_urls, dash_urls
+diff --git a/monitoring/README_smoke_tests.md b/monitoring/README_smoke_tests.md
+index 0d1e93f..f5e8730 100644
+--- a/monitoring/README_smoke_tests.md
++++ b/monitoring/README_smoke_tests.md
+@@ -13,12 +13,13 @@
+ - runbooks markdown:
+   - `/runbooks/web_uptime.md`
+   - `/runbooks/promote_freeze.md`
+   - `/runbooks/chatops_security.md`
+ - grafana dashboards routes (final status should be 200; redirects to login are OK):
+   - `/grafana/d/edge_stack_overview/...`
+   - `/grafana/d/chatops_security/...`
++  - `/grafana/d/monitoring_smoke/...`
+
+ 2) Telegram webhook link building (dry_run per-request):
+ - ensures returned links start with RUNBOOKS_BASE_URL and GRAFANA_BASE_URL.
+
+@@ -33,8 +34,8 @@
+ ## Override targets
+ ```bash
+ export SMOKE_RUNBOOK_PATHS="/runbooks/web_uptime.md,/runbooks/promote_freeze.md"
+-export SMOKE_DASHBOARD_PATHS="/grafana/d/chatops_security/chatops-security?orgId=1"
++export SMOKE_DASHBOARD_PATHS="/grafana/d/chatops_security/chatops-security?orgId=1,/grafana/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1"
+ ```
+
+ ## Exporter

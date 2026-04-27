@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/news_logging.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.5, 1.0, 256, 1000, 4096, 65536, ',', '0', '1', ':', 'NEWS_DEBUG_FULL', 'NEWS_DEBUG_MAX_BYTES', 'asof_ts_ms', 'confidence', 'err', 'event_tminus_sec', 'false', 'fetched_ts_ms', 'horizon_sec', 'json', 'json_len', 'key', 'kind', 'miss', 'news', 'news-full-debug', 'news:analysis:', 'news_asof_ts_ms', 'news_confidence', 'news_full', 'news_full_debug', 'news_grade_id', 'news_horizon_sec', 'news_primary_tag_id', 'news_ref', 'news_risk', 'news_tags_mask', 'news_tminus_sec', 'no', 'off', 'ok', 'on', 'primary_tag_id', 'ref', 'symbol', 'tags_mask', 'true', 'ts_ms', 'yes']

@@ -1,0 +1,307 @@
+diff --git a/tick_flow_full/services/orderflow/components/tick_processor.py b/tick_flow_full/services/orderflow/components/tick_processor.py
+index e7d2d0c..a542ddb 100644
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -120,6 +120,12 @@ from services.orderflow.metrics import (
+     trade_adverse_rd_veto,
+ )
+ 
++# D2: LiqMap TP/SL anchoring overlay helper (feature-flagged, fail-open).
++try:
++    from services.orderflow.liqmap_features import apply_liqmap_tp_sl_adjustment
++except Exception:  # pragma: no cover
++    apply_liqmap_tp_sl_adjustment = None  # type: ignore
++
+ from services.orderflow.world_practice.realized_drift_tracker_v1 import RealizedDriftTrackerV1
+ 
+ from services.orderflow.side_policy import is_unknown_side_tick
+@@ -267,6 +273,16 @@ class TickProcessor:
+         self._capture_queue: Optional[asyncio.Queue] = None
+         self._ofc_capture_enabled = os.getenv("OFC_CAPTURE", "0") == "1"
+ 
++        # LiqMap levels overlay (TP/SL anchoring) (D2).
++        # Default OFF to keep existing behavior. Start by enabling TP1 only.
++        self.liqmap_levels_enable = os.getenv("LIQMAP_LEVELS_ENABLE", "0").strip().lower() in ("1", "true", "yes", "on")
++        self.liqmap_levels_window = os.getenv("LIQMAP_LEVELS_WINDOW", "1h") or "1h"
++        self.liqmap_levels_min_usd = float(os.getenv("LIQMAP_LEVELS_MIN_USD", "250000") or 250000)
++        self.liqmap_levels_buffer_bps = float(os.getenv("LIQMAP_LEVELS_BUFFER_BPS", "5") or 5.0)
++        self.liqmap_levels_max_sl_widen_bps = float(os.getenv("LIQMAP_LEVELS_MAX_SL_WIDEN_BPS", "30") or 30.0)
++        self.liqmap_levels_enable_tp1 = os.getenv("LIQMAP_LEVELS_ENABLE_TP1", "1").strip().lower() in ("1", "true", "yes", "on")
++        self.liqmap_levels_enable_sl = os.getenv("LIQMAP_LEVELS_ENABLE_SL", "0").strip().lower() in ("1", "true", "yes", "on")
++
+         # P69: Circuit Breaker State (Hysteresis)
+         self.cb_state = CircuitBreakerState(
+             redis=self.redis,
+@@ -3284,6 +3300,58 @@ class TickProcessor:
+                 # Standard RR logic
+                 tps = [entry - stop_dist * rr for rr in rr_levels(cfg.get("tp_rr", "1.3,2.0,2.7"))]
+         
++
++        # BEGIN D2_LIQMAP_LEVELS_OVERLAY
++        # Optional TP/SL anchoring by nearby LiqMap peaks.
++        # Feature-flagged, fail-open: must never raise on hot path.
++        try:
++            if (
++                getattr(self, "liqmap_levels_enable", False)
++                and isinstance(indicators, dict)
++                and isinstance(tps, list)
++                and len(tps) >= 1
++                and float(entry or 0.0) > 0
++            ):
++                if apply_liqmap_tp_sl_adjustment is None:
++                    # Misconfiguration / missing patch: surface it in indicators (only when explicitly enabled).
++                    indicators.setdefault("liqmap_levels_applied", 0)
++                    indicators.setdefault("liqmap_levels_reason", "missing_apply_fn")
++                    pass
++
++                base_tp1 = float(tps[0])
++                new_sl, new_tp1, patch = apply_liqmap_tp_sl_adjustment(
++                    entry=float(entry),
++                    side=str(side).upper(),
++                    base_sl=float(sl),
++                    base_tp1=float(base_tp1),
++                    indicators=indicators,
++                    window=str(getattr(self, "liqmap_levels_window", "1h") or "1h"),
++                    min_usd=float(getattr(self, "liqmap_levels_min_usd", 0.0) or 0.0),
++                    buffer_bps=float(getattr(self, "liqmap_levels_buffer_bps", 0.0) or 0.0),
++                    max_sl_widen_bps=float(getattr(self, "liqmap_levels_max_sl_widen_bps", 0.0) or 0.0),
++                    enable_tp1=bool(getattr(self, "liqmap_levels_enable_tp1", True)),
++                    enable_sl=bool(getattr(self, "liqmap_levels_enable_sl", False)),
++                )
++
++                if isinstance(patch, dict):
++                    indicators.update(patch)
++
++                s = str(side).upper()
++                # Apply only if sane and on the correct side of entry.
++                if s == "LONG":
++                    if isinstance(new_tp1, (int, float)) and float(new_tp1) > float(entry):
++                        tps[0] = float(new_tp1)
++                    if isinstance(new_sl, (int, float)) and float(new_sl) < float(entry):
++                        sl = float(new_sl)
++                else:  # SHORT
++                    if isinstance(new_tp1, (int, float)) and float(new_tp1) < float(entry):
++                        tps[0] = float(new_tp1)
++                    if isinstance(new_sl, (int, float)) and float(new_sl) > float(entry):
++                        sl = float(new_sl)
++        except Exception:
++            # Fail-open: never block signal building due to overlay issues.
++            pass
++        # END D2_LIQMAP_LEVELS_OVERLAY
+         # FINAL SAFETY: Sort TPs by distance from entry to guarantee order 1 < 2 < 3
+         # abs(tp - entry) makes it direction-agnostic
+         tps.sort(key=lambda x: abs(x - entry))
+diff --git a/services/orderflow/components/tick_processor.py b/services/orderflow/components/tick_processor.py
+index f0e98bb..0c8e80d 100644
+--- a/services/orderflow/components/tick_processor.py
++++ b/services/orderflow/components/tick_processor.py
+@@ -122,6 +122,12 @@ from services.orderflow.metrics import (
+     trade_adverse_rd_veto,
+ )
+ 
++# D2: LiqMap TP/SL anchoring overlay helper (feature-flagged, fail-open).
++try:
++    from services.orderflow.liqmap_features import apply_liqmap_tp_sl_adjustment
++except Exception:  # pragma: no cover
++    apply_liqmap_tp_sl_adjustment = None  # type: ignore
++
+ from services.orderflow.world_practice.realized_drift_tracker_v1 import RealizedDriftTrackerV1
+ 
+ from services.orderflow.side_policy import is_unknown_side_tick
+@@ -275,6 +281,16 @@ class TickProcessor:
+         self._capture_queue: Optional[asyncio.Queue] = None
+         self._ofc_capture_enabled = os.getenv("OFC_CAPTURE", "0") == "1"
+ 
++        # LiqMap levels overlay (TP/SL anchoring) (D2).
++        # Default OFF to keep existing behavior. Start by enabling TP1 only.
++        self.liqmap_levels_enable = os.getenv("LIQMAP_LEVELS_ENABLE", "0").strip().lower() in ("1", "true", "yes", "on")
++        self.liqmap_levels_window = os.getenv("LIQMAP_LEVELS_WINDOW", "1h") or "1h"
++        self.liqmap_levels_min_usd = float(os.getenv("LIQMAP_LEVELS_MIN_USD", "250000") or 250000)
++        self.liqmap_levels_buffer_bps = float(os.getenv("LIQMAP_LEVELS_BUFFER_BPS", "5") or 5.0)
++        self.liqmap_levels_max_sl_widen_bps = float(os.getenv("LIQMAP_LEVELS_MAX_SL_WIDEN_BPS", "30") or 30.0)
++        self.liqmap_levels_enable_tp1 = os.getenv("LIQMAP_LEVELS_ENABLE_TP1", "1").strip().lower() in ("1", "true", "yes", "on")
++        self.liqmap_levels_enable_sl = os.getenv("LIQMAP_LEVELS_ENABLE_SL", "0").strip().lower() in ("1", "true", "yes", "on")
++
+         # LiqMap (liquidation map) feature injection (runtime)
+         # Default OFF to keep existing behavior; enable explicitly via env.
+         self.liqmap_features_enable = os.getenv("LIQMAP_FEATURES_ENABLE", "0").strip().lower() in ("1", "true", "yes", "on")
+@@ -3422,6 +3438,58 @@ class TickProcessor:
+                 # Standard RR logic
+                 tps = [entry - stop_dist * rr for rr in rr_levels(cfg.get("tp_rr", "1.3,2.0,2.7"))]
+         
++
++        # BEGIN D2_LIQMAP_LEVELS_OVERLAY
++        # Optional TP/SL anchoring by nearby LiqMap peaks.
++        # Feature-flagged, fail-open: must never raise on hot path.
++        try:
++            if (
++                getattr(self, "liqmap_levels_enable", False)
++                and isinstance(indicators, dict)
++                and isinstance(tps, list)
++                and len(tps) >= 1
++                and float(entry or 0.0) > 0
++            ):
++                if apply_liqmap_tp_sl_adjustment is None:
++                    # Misconfiguration / missing patch: surface it in indicators (only when explicitly enabled).
++                    indicators.setdefault("liqmap_levels_applied", 0)
++                    indicators.setdefault("liqmap_levels_reason", "missing_apply_fn")
++                    pass
++
++                base_tp1 = float(tps[0])
++                new_sl, new_tp1, patch = apply_liqmap_tp_sl_adjustment(
++                    entry=float(entry),
++                    side=str(side).upper(),
++                    base_sl=float(sl),
++                    base_tp1=float(base_tp1),
++                    indicators=indicators,
++                    window=str(getattr(self, "liqmap_levels_window", "1h") or "1h"),
++                    min_usd=float(getattr(self, "liqmap_levels_min_usd", 0.0) or 0.0),
++                    buffer_bps=float(getattr(self, "liqmap_levels_buffer_bps", 0.0) or 0.0),
++                    max_sl_widen_bps=float(getattr(self, "liqmap_levels_max_sl_widen_bps", 0.0) or 0.0),
++                    enable_tp1=bool(getattr(self, "liqmap_levels_enable_tp1", True)),
++                    enable_sl=bool(getattr(self, "liqmap_levels_enable_sl", False)),
++                )
++
++                if isinstance(patch, dict):
++                    indicators.update(patch)
++
++                s = str(side).upper()
++                # Apply only if sane and on the correct side of entry.
++                if s == "LONG":
++                    if isinstance(new_tp1, (int, float)) and float(new_tp1) > float(entry):
++                        tps[0] = float(new_tp1)
++                    if isinstance(new_sl, (int, float)) and float(new_sl) < float(entry):
++                        sl = float(new_sl)
++                else:  # SHORT
++                    if isinstance(new_tp1, (int, float)) and float(new_tp1) < float(entry):
++                        tps[0] = float(new_tp1)
++                    if isinstance(new_sl, (int, float)) and float(new_sl) > float(entry):
++                        sl = float(new_sl)
++        except Exception:
++            # Fail-open: never block signal building due to overlay issues.
++            pass
++        # END D2_LIQMAP_LEVELS_OVERLAY
+         # FINAL SAFETY: Sort TPs by distance from entry to guarantee order 1 < 2 < 3
+         # abs(tp - entry) makes it direction-agnostic
+         tps.sort(key=lambda x: abs(x - entry))
+diff --git a/tick_flow_full/services/orderflow/tests/test_tick_processor_liqmap_levels_overlay_d2.py b/tick_flow_full/services/orderflow/tests/test_tick_processor_liqmap_levels_overlay_d2.py
+new file mode 100644
+index 0000000..089ae6d
+--- /dev/null
++++ b/tick_flow_full/services/orderflow/tests/test_tick_processor_liqmap_levels_overlay_d2.py
+@@ -0,0 +1,87 @@
++import os
++
++import pytest
++
++from services.orderflow.components.tick_processor import TickProcessor
++
++
++class DummyRuntime:
++    def __init__(self):
++        self.symbol = "BTCUSDT"
++        self.config = {
++            # keep it minimal and deterministic
++            "stop_mode": "ATR",
++            "stop_atr_mult": 1.0,
++            "tp_rr": "1.3,2.0,2.7",
++            "min_lot": 0.01,
++            "max_lot": 0.01,
++        }
++        self.dynamic_cfg = {}
++        self.calibrated_specs = {}
++
++    def get_atr_tf_selected(self):
++        return "1m"
++
++
++def _mk_tp(overlay_enable: bool):
++    os.environ["LIQMAP_LEVELS_ENABLE"] = "1" if overlay_enable else "0"
++    os.environ["LIQMAP_LEVELS_WINDOW"] = "1h"
++    os.environ["LIQMAP_LEVELS_MIN_USD"] = "250000"
++    os.environ["LIQMAP_LEVELS_BUFFER_BPS"] = "5"
++    os.environ["LIQMAP_LEVELS_MAX_SL_WIDEN_BPS"] = "30"
++    os.environ["LIQMAP_LEVELS_ENABLE_TP1"] = "1"
++    os.environ["LIQMAP_LEVELS_ENABLE_SL"] = "0"
++    return TickProcessor(
++        redis=None,
++        ticks=None,
++        publisher=None,
++        of_engine=None,
++        calib_svc=None,
++        atr_cache=None,
++        atr_sanity=None,
++        conf_scorer=None,
++    )
++
++
++def test_liqmap_levels_overlay_tp1_adjusts_when_enabled():
++    # Hard dependency: D1 must provide this helper.
++    from services.orderflow.liqmap_features import apply_liqmap_tp_sl_adjustment
++
++    assert callable(apply_liqmap_tp_sl_adjustment)
++
++    tp = _mk_tp(overlay_enable=True)
++    rt = DummyRuntime()
++
++    entry = 100.0
++    indicators = {
++        "atr": 1.0,
++        # Derived peak_up_price = entry * (1 + 100bps) = 101.0,
++        # which sits between entry and base_tp1 (~101.3) → should anchor TP1 before peak.
++        "liqmap_1h_dist_up_bps": 100.0,
++        "liqmap_1h_peak_up1_usd": 500000.0,
++    }
++
++    sl, tps, lot, atr = tp._calculate_levels(rt, entry, "LONG", indicators, trail_profile="classic")
++
++    assert tps[0] > entry  # TP must remain on correct side
++    assert tps[0] < 101.3  # anchored before peak vs base_tp1
++    assert abs(float(indicators.get("liqmap_levels_applied", 0)) - 1.0) < 1e-9
++    # SL overlay is disabled by default (enable_sl=0)
++    assert sl < entry
++
++
++def test_liqmap_levels_overlay_disabled_is_noop():
++    tp = _mk_tp(overlay_enable=False)
++    rt = DummyRuntime()
++
++    entry = 100.0
++    indicators = {
++        "atr": 1.0,
++        "liqmap_1h_dist_up_bps": 100.0,
++        "liqmap_1h_peak_up1_usd": 500000.0,
++    }
++
++    sl, tps, lot, atr = tp._calculate_levels(rt, entry, "LONG", indicators, trail_profile="classic")
++
++    assert abs(tps[0] - 101.3) < 1e-6
++    assert "liqmap_levels_applied" not in indicators
+diff --git a/services/orderflow/tests/test_tick_processor_liqmap_levels_overlay_sync_d2.py b/services/orderflow/tests/test_tick_processor_liqmap_levels_overlay_sync_d2.py
+new file mode 100644
+index 0000000..c5c527f
+--- /dev/null
++++ b/services/orderflow/tests/test_tick_processor_liqmap_levels_overlay_sync_d2.py
+@@ -0,0 +1,22 @@
++from pathlib import Path
++
++
++def _extract_block(text: str) -> str:
++    begin = "# BEGIN D2_LIQMAP_LEVELS_OVERLAY"
++    end = "# END D2_LIQMAP_LEVELS_OVERLAY"
++    b = text.find(begin)
++    e = text.find(end)
++    assert b >= 0, "missing D2 overlay begin marker"
++    assert e > b, "missing D2 overlay end marker"
++    return text[b : e + len(end)]
++
++
++def test_tick_processor_liqmap_levels_overlay_block_is_identical_sot_vs_mirror():
++    root = Path(__file__).resolve().parents[3]  # repo root
++    sot = root / "tick_flow_full" / "services" / "orderflow" / "components" / "tick_processor.py"
++    mir = root / "services" / "orderflow" / "components" / "tick_processor.py"
++
++    sot_txt = sot.read_text("utf-8", errors="ignore")
++    mir_txt = mir.read_text("utf-8", errors="ignore")
++
++    assert _extract_block(sot_txt) == _extract_block(mir_txt)

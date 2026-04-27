@@ -1,0 +1,10 @@
+[Unit]
+Description=Run ML threshold proposer v2 daily
+
+[Timer]
+OnCalendar=*-*-* 06:55:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+

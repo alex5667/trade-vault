@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/pipeline_adapter.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.0001, 0.001, 0.5, 2.0, 10.0, 'BarSample', 'bar_high', 'bar_low', 'buy', 'confidence', 'direction', 'orderflow', 'price', 'sell', 'source', 'symbol', 'ts', 'unified_pipeline', 'unknown']

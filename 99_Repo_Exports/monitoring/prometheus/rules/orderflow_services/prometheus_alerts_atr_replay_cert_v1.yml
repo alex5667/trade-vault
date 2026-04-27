@@ -1,0 +1,81 @@
+groups:
+  - name: atr_replay_certification_alerts
+    rules:
+      # WARN: Active golden dataset review overdue
+      - alert: ATRGoldenDatasetReviewOverdue
+        expr: |
+          (time() - max by (dataset_class) (atr_golden_datasets_activated_at_seconds{status="ACTIVE"})) > 30 * 24 * 3600
+        for: 12h
+        labels:
+          severity: warn
+          domain: trade_governance
+          escalation: sre_rollout
+        annotations:
+          summary: "Golden dataset review overdue for {{ $labels.dataset_class }}"
+          description: >
+            The active golden dataset for {{ $labels.dataset_class }} has not been refreshed
+            or reviewed in over 30 days. It may no longer reflect production runtime realities.
+
+      # WARN: Too many PASS_WITH_WARNINGS in replay certs
+      - alert: ATRReplayCertTooManyWarnings
+        expr: |
+          sum(rate(atr_replay_cert_runs_total{status="passed_with_warnings"}[24h])) 
+          / 
+          sum(rate(atr_replay_cert_runs_total[24h])) > 0.4
+        for: 4h
+        labels:
+          severity: warn
+          domain: trade_governance
+          escalation: quality_gatekeeper
+        annotations:
+          summary: "High rate of PASS_WITH_WARNINGS in Replay Certifications"
+          description: >
+            Over 40% of recent replay certification runs passed with warnings.
+            We are accepting too much technical debt or non-critical semantic drift.
+
+      # PAGE: Replay cert failed for high/critical change
+      - alert: ATRReplayCertFailedCriticalChange
+        expr: |
+          increase(atr_replay_cert_runs_total{status="failed", change_class=~"HIGH_GOVERNANCE|CRITICAL_RUNTIME_GATING|CRITICAL_EXECUTION_TOUCHING|PROTECTIVE_PATH_TOUCHING"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: page
+          domain: trade_governance
+          escalation: trade_lead
+        annotations:
+          summary: "Replay Certification FAILED for a critical change class"
+          description: >
+            A critical change ({{ $labels.change_class }}) failed replay certification. 
+            This strictly blocks rollout. Check artifact stability and mismatch logs.
+
+      # PAGE: Active dataset missing for a required change class
+      - alert: ATRGoldenDatasetMissing
+        expr: |
+          count by (dataset_class) (atr_golden_datasets_total{status="ACTIVE"}) == 0
+        for: 15m
+        labels:
+          severity: page
+          domain: trade_governance
+          escalation: sre_rollout
+        annotations:
+          summary: "Missing ACTIVE golden dataset for {{ $labels.dataset_class }}"
+          description: >
+            No active golden dataset exists for {{ $labels.dataset_class }}. 
+            Changes requiring this dataset cannot be certified and are blocked from release windows.
+
+      # PAGE: Forbidden waiver attempt (Waived failed on critical check)
+      - alert: ATRReplayCertForbiddenWaiver
+        expr: |
+          increase(atr_replay_cert_checks_total{status="failed", severity="critical"}[1h]) > 0
+          and
+          increase(atr_replay_cert_runs_total{status="waived_fail"}[1h]) > 0
+        for: 1m
+        labels:
+          severity: page
+          domain: trade_governance
+          escalation: trade_lead
+        annotations:
+          summary: "Forbidden Waiver applied to Critical Replay Failure"
+          description: >
+            A replay certification run with a CRITICAL failure was marked as 'waived_fail'.
+            This violates the strict non-waivable policy for runtime/protective paths.

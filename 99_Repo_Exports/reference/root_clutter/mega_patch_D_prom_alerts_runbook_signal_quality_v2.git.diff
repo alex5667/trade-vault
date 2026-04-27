@@ -1,0 +1,1043 @@
+diff --git a/orderflow_services/prometheus_alerts_signal_quality_v2.yml b/orderflow_services/prometheus_alerts_signal_quality_v2.yml
+new file mode 100644
+index 0000000..98f755c
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_signal_quality_v2.yml
+@@ -0,0 +1,141 @@
++groups:
++  - name: orderflow_signal_quality_v2
++    # IMPORTANT
++    #   These alerts assume scrape_interval ~= 15s.
++    #   We set the rule evaluation interval to 15s so that the 10s 'extreme'
++    #   guard is meaningful (otherwise it becomes effectively a 30s+ guard).
++    interval: 15s
++    rules:
++      # -------------------------------------------------------------------
++      # Signal quality (stream-level) — gap/seq + DQ hard-level share
++      #
++      # Design constraints
++      #   - Per-symbol only (low cardinality).
++      #   - Gate tick_gap_p95 by tick_gap_n >= min_samples.
++      #   - Keep thresholds stable and actionable (no flapping).
++      #
++      # Notes
++      #   - If your runtime exports dq_level as 'dq_level' (legacy) OR
++      #     'dq_level_gauge' (newer), we support both via 'or'.
++      #   - Same approach for book_missing_seq_ema (legacy vs gauge).
++      # -------------------------------------------------------------------
++
++      # ── Tick gap p95 (warn/crit/extreme) ─────────────────────────────────
++      - alert: OF_SQ_TickGapP95High_Warn
++        expr: tick_gap_p95_ms > 3000 and on(symbol) tick_gap_n >= 50
++        for: 2m
++        labels:
++          severity: warning
++          component: orderflow
++          scope: signal_quality
++          playbook: orderflow_services/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick gap p95 high (warn)"
++          description: |
++            Tick stream latency is degraded: tick_gap_p95_ms > 3000ms for 2m (n>=50).
++            Typical causes: WS/network jitter, upstream throttling, local CPU stalls.
++
++      - alert: OF_SQ_TickGapP95High_Crit
++        expr: tick_gap_p95_ms > 4500 and on(symbol) tick_gap_n >= 50
++        for: 30s
++        labels:
++          severity: critical
++          component: orderflow
++          scope: signal_quality
++          playbook: orderflow_services/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick gap p95 high (crit)"
++          description: |
++            Tick stream latency is severely degraded: tick_gap_p95_ms > 4500ms for 30s (n>=50).
++            Expect dq_level to escalate and potential hard-veto depending on DQ mode.
++
++      - alert: OF_SQ_TickGapP95Extreme_Crit
++        expr: tick_gap_p95_ms > 9000 and on(symbol) tick_gap_n >= 50
++        for: 10s
++        labels:
++          severity: critical
++          component: orderflow
++          scope: signal_quality
++          playbook: orderflow_services/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick gap p95 extreme"
++          description: |
++            Extreme tick stream latency spike: tick_gap_p95_ms > 9000ms for 10s (n>=50).
++            Usually correlates with transient WS disconnect/reconnect, host stalls, or network drops.
++
++      # ── Tick missing seq EMA (warn/crit) ────────────────────────────────
++      - alert: OF_SQ_TickMissingSeqEmaHigh_Warn
++        expr: tick_missing_seq_ema > 0.05
++        for: 2m
++        labels:
++          severity: warning
++          component: orderflow
++          scope: signal_quality
++          playbook: orderflow_services/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick missing-seq EMA high (warn)"
++          description: |
++            Tick continuity degradation: tick_missing_seq_ema > 0.05 for 2m.
++            Indicates true gaps in trade_id continuity. Investigate WS drops/reconnects.
++
++      - alert: OF_SQ_TickMissingSeqEmaHigh_Crit
++        expr: tick_missing_seq_ema > 0.15
++        for: 30s
++        labels:
++          severity: critical
++          component: orderflow
++          scope: signal_quality
++          playbook: orderflow_services/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick missing-seq EMA high (crit)"
++          description: |
++            Tick continuity broken: tick_missing_seq_ema > 0.15 for 30s.
++            Strong indicator of persistent WS gaps or a parsing/sequence bug.
++
++      # ── Book missing seq EMA (ticket by default) ────────────────────────
++      # In observe-only phase, we want visibility without paging.
++      # If you later export a gauge like dq_policy_book_veto_enabled_gauge==1,
++      # you can add a page-grade alert that is gated by that metric.
++      - alert: OF_SQ_BookMissingSeqEmaHigh_Ticket
++        expr: ((book_missing_seq_ema_gauge) or (book_missing_seq_ema)) > 0.10
++        for: 30s
++        labels:
++          severity: ticket
++          component: orderflow
++          scope: signal_quality
++          playbook: orderflow_services/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: book missing-seq EMA high (ticket)"
++          description: |
++            Book continuity broken: book_missing_seq_ema > 0.10 for 30s.
++            In observe-only phase this should create a ticket, not a page.
++            If/when BOOK_VETO_ENABLED is turned on, promote this to critical paging.
++
++      # ── DQ hard-level share (10% warn / 20% crit) ───────────────────────
++      - alert: OF_SQ_DQHardShareHigh_Warn
++        expr: avg_over_time((((dq_level_gauge) or (dq_level)) == bool 2)[1h:15s]) > 0.10
++        for: 5m
++        labels:
++          severity: warning
++          component: orderflow
++          scope: signal_quality
++          playbook: orderflow_services/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: dq_level==2 share high (warn)"
++          description: |
++            DQ hard-level is frequent: dq_level==2 for >10% of scrapes in the last 1h.
++            This is a sustained integrity issue — investigate gap/seq sources.
++
++      - alert: OF_SQ_DQHardShareHigh_Crit
++        expr: avg_over_time((((dq_level_gauge) or (dq_level)) == bool 2)[1h:15s]) > 0.20
++        for: 5m
++        labels:
++          severity: critical
++          component: orderflow
++          scope: signal_quality
++          playbook: orderflow_services/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: dq_level==2 share high (crit)"
++          description: |
++            DQ hard-level is dominant: dq_level==2 for >20% of scrapes in the last 1h.
++            Expect material decision quality degradation and frequent vetos (depending on mode).
+diff --git a/orderflow_services/runbook_signal_quality_v2.md b/orderflow_services/runbook_signal_quality_v2.md
+new file mode 100644
+index 0000000..5a46717
+--- /dev/null
++++ b/orderflow_services/runbook_signal_quality_v2.md
+@@ -0,0 +1,92 @@
++# Runbook: Signal quality (gap/seq + DQ hard share) v2
++
++This runbook is designed to answer **"what do I do in 5 minutes"** when
++`OF_SQ_*` alerts fire.
++
++## 0) Immediate triage (60–90s)
++
++1. Identify `symbol` from alert.
++2. Check which family fired:
++   - **Tick gap p95** (`tick_gap_p95_ms`, `tick_gap_n`) — latency/jitter.
++   - **Tick missing seq EMA** (`tick_missing_seq_ema`) — continuity gaps.
++   - **Book missing seq EMA** (`book_missing_seq_ema*`, `book_seq_last_gap_gauge`) — diff-depth chain broken.
++   - **DQ hard share** (`dq_level==2 share`) — long-horizon integrity degradation.
++3. If multiple symbols fire at once → suspect host/network-wide issue.
++
++## 1) Diagnostics checklist
++
++### A) Tick gap p95
++
++Look at:
++- `tick_gap_p95_ms{symbol=...}` and `tick_gap_n{symbol=...}`
++- Host-level CPU throttling, GC pauses, container restarts.
++- WS reconnect rate and network errors.
++
++Interpretation:
++- High `tick_gap_p95_ms` with healthy `tick_missing_seq_ema` often means *latency/jitter*, not lost data.
++
++### B) Tick missing seq EMA
++
++Look at:
++- `tick_missing_seq_ema{symbol=...}`
++- Reconnect/subscribe loops, dropped messages, parse errors.
++
++Interpretation:
++- Sustained EMA increase means real continuity gaps in tick stream.
++
++### C) Book missing seq EMA (observe-only vs paging)
++
++Look at:
++- `book_missing_seq_ema_gauge{symbol=...}` (or legacy `book_missing_seq_ema`)
++- `book_seq_last_gap_gauge{symbol=...}` (last detected `u/pu` discontinuity)
++- Decision record fields (or logs):
++  - `book_seq_last_reason`
++  - `book_missing_seq_last_gap`
++
++Then verify expected diff-depth frequency:
++- ~10Hz (100ms) vs 4Hz (250ms) vs 2Hz (500ms)
++- Ensure `dq_book_seq_ema_alpha` matches stream cadence.
++
++**Observe-only window / gating**
++- Verify `dq_book_veto_enabled` and `dq_observe_only_sec`.
++- If you are within the first 24–48h after deploy/restart, `dq_level` may be 2 but `dq_veto` should be 0.
++
++## 2) Actions
++
++### A) SAFE mode (reduce blast radius)
++
++If strict thresholds cause too many criticals (especially during warmup):
++- Switch DQ mode to SAFE (your rollout policy).
++- Keep capture/metrics enabled so you can see the problem clearly.
++
++### B) Temporary threshold adjustments
++
++If the stream is healthy but thresholds are mismatched to cadence:
++- Increase `book_hard` and/or `gap_*` temporarily.
++- Adjust `dq_book_seq_ema_alpha` to match real diff-depth frequency.
++
++### C) Resync book stream
++
++Book missing seq typically requires resync of snapshot:
++- Trigger resync endpoint/command if available.
++- Otherwise restart the book ingestion component (forces snapshot refresh).
++
++### D) Host/network remediation
++
++If multiple symbols fire simultaneously:
++- Check host CPU steal/throttling, memory pressure, Docker health.
++- Check network drops, DNS/resolution, upstream reachability.
++
++## 3) Rollback
++
++If paging on book seq is too aggressive or causing false positives:
++- Disable `BOOK_VETO_ENABLED` (or `dq_book_veto_enabled=false`).
++- Restore the previous Prometheus rules bundle (keep the new file for ticket-level visibility).
++
++## 4) Notes for follow-up ticket
++
++Include in the ticket:
++- Time range, symbols affected
++- `tick_gap_p95_ms`, `tick_missing_seq_ema`, `book_missing_seq_ema*`
++- `book_seq_last_reason`, `book_missing_seq_last_gap`
++- Effective DQ mode (SAFE/STRICT), `dq_book_veto_enabled`, and observe-only uptime
+diff --git a/services/orderflow/prometheus_alerts_signal_quality_v2.yml b/services/orderflow/prometheus_alerts_signal_quality_v2.yml
+new file mode 100644
+index 0000000..1f63972
+--- /dev/null
++++ b/services/orderflow/prometheus_alerts_signal_quality_v2.yml
+@@ -0,0 +1,138 @@
++groups:
++  - name: orderflow_signal_quality_v2
++    # IMPORTANT
++    #   These alerts assume scrape_interval ~= 15s.
++    #   We set the rule evaluation interval to 15s so that the 10s 'extreme'
++    #   guard is meaningful (otherwise it becomes effectively a 30s+ guard).
++    interval: 15s
++    rules:
++      # -------------------------------------------------------------------
++      # Signal quality (stream-level) — gap/seq + DQ hard-level share
++      #
++      # Design constraints
++      #   - Per-symbol only (low cardinality).
++      #   - Gate tick_gap_p95 by tick_gap_n >= min_samples.
++      #   - Keep thresholds stable and actionable (no flapping).
++      #
++      # Notes
++      #   - If your runtime exports dq_level as 'dq_level' (legacy) OR
++      #     'dq_level_gauge' (newer), we support both via 'or'.
++      #   - Same approach for book_missing_seq_ema (legacy vs gauge).
++      # -------------------------------------------------------------------
++
++      # ── Tick gap p95 (warn/crit/extreme) ─────────────────────────────────
++      - alert: OF_SQ_TickGapP95High_Warn
++        expr: tick_gap_p95_ms > 3000 and on(symbol) tick_gap_n >= 50
++        for: 2m
++        labels:
++          severity: warning
++          component: orderflow
++          scope: signal_quality
++          playbook: services/orderflow/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick gap p95 high (warn)"
++          description: |
++            Tick stream latency is degraded: tick_gap_p95_ms > 3000ms for 2m (n>=50).
++            Typical causes: WS/network jitter, upstream throttling, local CPU stalls.
++
++      - alert: OF_SQ_TickGapP95High_Crit
++        expr: tick_gap_p95_ms > 4500 and on(symbol) tick_gap_n >= 50
++        for: 30s
++        labels:
++          severity: critical
++          component: orderflow
++          scope: signal_quality
++          playbook: services/orderflow/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick gap p95 high (crit)"
++          description: |
++            Tick stream latency is severely degraded: tick_gap_p95_ms > 4500ms for 30s (n>=50).
++            Expect dq_level to escalate and potential hard-veto depending on DQ mode.
++
++      - alert: OF_SQ_TickGapP95Extreme_Crit
++        expr: tick_gap_p95_ms > 9000 and on(symbol) tick_gap_n >= 50
++        for: 10s
++        labels:
++          severity: critical
++          component: orderflow
++          scope: signal_quality
++          playbook: services/orderflow/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick gap p95 extreme"
++          description: |
++            Extreme tick stream latency spike: tick_gap_p95_ms > 9000ms for 10s (n>=50).
++            Usually correlates with transient WS disconnect/reconnect, host stalls, or network drops.
++
++      # ── Tick missing seq EMA (warn/crit) ────────────────────────────────
++      - alert: OF_SQ_TickMissingSeqEmaHigh_Warn
++        expr: tick_missing_seq_ema > 0.05
++        for: 2m
++        labels:
++          severity: warning
++          component: orderflow
++          scope: signal_quality
++          playbook: services/orderflow/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick missing-seq EMA high (warn)"
++          description: |
++            Tick continuity degradation: tick_missing_seq_ema > 0.05 for 2m.
++            Indicates true gaps in trade_id continuity. Investigate WS drops/reconnects.
++
++      - alert: OF_SQ_TickMissingSeqEmaHigh_Crit
++        expr: tick_missing_seq_ema > 0.15
++        for: 30s
++        labels:
++          severity: critical
++          component: orderflow
++          scope: signal_quality
++          playbook: services/orderflow/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick missing-seq EMA high (crit)"
++          description: |
++            Tick continuity broken: tick_missing_seq_ema > 0.15 for 30s.
++            Strong indicator of persistent WS gaps or a parsing/sequence bug.
++
++      # ── Book missing seq EMA (ticket by default) ────────────────────────
++      - alert: OF_SQ_BookMissingSeqEmaHigh_Ticket
++        expr: ((book_missing_seq_ema_gauge) or (book_missing_seq_ema)) > 0.10
++        for: 30s
++        labels:
++          severity: ticket
++          component: orderflow
++          scope: signal_quality
++          playbook: services/orderflow/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: book missing-seq EMA high (ticket)"
++          description: |
++            Book continuity broken: book_missing_seq_ema > 0.10 for 30s.
++            In observe-only phase this should create a ticket, not a page.
++            If/when BOOK_VETO_ENABLED is turned on, promote this to critical paging.
++
++      # ── DQ hard-level share (10% warn / 20% crit) ───────────────────────
++      - alert: OF_SQ_DQHardShareHigh_Warn
++        expr: avg_over_time((((dq_level_gauge) or (dq_level)) == bool 2)[1h:15s]) > 0.10
++        for: 5m
++        labels:
++          severity: warning
++          component: orderflow
++          scope: signal_quality
++          playbook: services/orderflow/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: dq_level==2 share high (warn)"
++          description: |
++            DQ hard-level is frequent: dq_level==2 for >10% of scrapes in the last 1h.
++            This is a sustained integrity issue — investigate gap/seq sources.
++
++      - alert: OF_SQ_DQHardShareHigh_Crit
++        expr: avg_over_time((((dq_level_gauge) or (dq_level)) == bool 2)[1h:15s]) > 0.20
++        for: 5m
++        labels:
++          severity: critical
++          component: orderflow
++          scope: signal_quality
++          playbook: services/orderflow/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: dq_level==2 share high (crit)"
++          description: |
++            DQ hard-level is dominant: dq_level==2 for >20% of scrapes in the last 1h.
++            Expect material decision quality degradation and frequent vetos (depending on mode).
+diff --git a/services/orderflow/runbook_signal_quality_v2.md b/services/orderflow/runbook_signal_quality_v2.md
+new file mode 100644
+index 0000000..5a46717
+--- /dev/null
++++ b/services/orderflow/runbook_signal_quality_v2.md
+@@ -0,0 +1,92 @@
++# Runbook: Signal quality (gap/seq + DQ hard share) v2
++
++This runbook is designed to answer **"what do I do in 5 minutes"** when
++`OF_SQ_*` alerts fire.
++
++## 0) Immediate triage (60–90s)
++
++1. Identify `symbol` from alert.
++2. Check which family fired:
++   - **Tick gap p95** (`tick_gap_p95_ms`, `tick_gap_n`) — latency/jitter.
++   - **Tick missing seq EMA** (`tick_missing_seq_ema`) — continuity gaps.
++   - **Book missing seq EMA** (`book_missing_seq_ema*`, `book_seq_last_gap_gauge`) — diff-depth chain broken.
++   - **DQ hard share** (`dq_level==2 share`) — long-horizon integrity degradation.
++3. If multiple symbols fire at once → suspect host/network-wide issue.
++
++## 1) Diagnostics checklist
++
++### A) Tick gap p95
++
++Look at:
++- `tick_gap_p95_ms{symbol=...}` and `tick_gap_n{symbol=...}`
++- Host-level CPU throttling, GC pauses, container restarts.
++- WS reconnect rate and network errors.
++
++Interpretation:
++- High `tick_gap_p95_ms` with healthy `tick_missing_seq_ema` often means *latency/jitter*, not lost data.
++
++### B) Tick missing seq EMA
++
++Look at:
++- `tick_missing_seq_ema{symbol=...}`
++- Reconnect/subscribe loops, dropped messages, parse errors.
++
++Interpretation:
++- Sustained EMA increase means real continuity gaps in tick stream.
++
++### C) Book missing seq EMA (observe-only vs paging)
++
++Look at:
++- `book_missing_seq_ema_gauge{symbol=...}` (or legacy `book_missing_seq_ema`)
++- `book_seq_last_gap_gauge{symbol=...}` (last detected `u/pu` discontinuity)
++- Decision record fields (or logs):
++  - `book_seq_last_reason`
++  - `book_missing_seq_last_gap`
++
++Then verify expected diff-depth frequency:
++- ~10Hz (100ms) vs 4Hz (250ms) vs 2Hz (500ms)
++- Ensure `dq_book_seq_ema_alpha` matches stream cadence.
++
++**Observe-only window / gating**
++- Verify `dq_book_veto_enabled` and `dq_observe_only_sec`.
++- If you are within the first 24–48h after deploy/restart, `dq_level` may be 2 but `dq_veto` should be 0.
++
++## 2) Actions
++
++### A) SAFE mode (reduce blast radius)
++
++If strict thresholds cause too many criticals (especially during warmup):
++- Switch DQ mode to SAFE (your rollout policy).
++- Keep capture/metrics enabled so you can see the problem clearly.
++
++### B) Temporary threshold adjustments
++
++If the stream is healthy but thresholds are mismatched to cadence:
++- Increase `book_hard` and/or `gap_*` temporarily.
++- Adjust `dq_book_seq_ema_alpha` to match real diff-depth frequency.
++
++### C) Resync book stream
++
++Book missing seq typically requires resync of snapshot:
++- Trigger resync endpoint/command if available.
++- Otherwise restart the book ingestion component (forces snapshot refresh).
++
++### D) Host/network remediation
++
++If multiple symbols fire simultaneously:
++- Check host CPU steal/throttling, memory pressure, Docker health.
++- Check network drops, DNS/resolution, upstream reachability.
++
++## 3) Rollback
++
++If paging on book seq is too aggressive or causing false positives:
++- Disable `BOOK_VETO_ENABLED` (or `dq_book_veto_enabled=false`).
++- Restore the previous Prometheus rules bundle (keep the new file for ticket-level visibility).
++
++## 4) Notes for follow-up ticket
++
++Include in the ticket:
++- Time range, symbols affected
++- `tick_gap_p95_ms`, `tick_missing_seq_ema`, `book_missing_seq_ema*`
++- `book_seq_last_reason`, `book_missing_seq_last_gap`
++- Effective DQ mode (SAFE/STRICT), `dq_book_veto_enabled`, and observe-only uptime
+diff --git a/tick_flow_full/orderflow_services/prometheus_alerts_signal_quality_v2.yml b/tick_flow_full/orderflow_services/prometheus_alerts_signal_quality_v2.yml
+new file mode 100644
+index 0000000..98f755c
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_signal_quality_v2.yml
+@@ -0,0 +1,141 @@
++groups:
++  - name: orderflow_signal_quality_v2
++    # IMPORTANT
++    #   These alerts assume scrape_interval ~= 15s.
++    #   We set the rule evaluation interval to 15s so that the 10s 'extreme'
++    #   guard is meaningful (otherwise it becomes effectively a 30s+ guard).
++    interval: 15s
++    rules:
++      # -------------------------------------------------------------------
++      # Signal quality (stream-level) — gap/seq + DQ hard-level share
++      #
++      # Design constraints
++      #   - Per-symbol only (low cardinality).
++      #   - Gate tick_gap_p95 by tick_gap_n >= min_samples.
++      #   - Keep thresholds stable and actionable (no flapping).
++      #
++      # Notes
++      #   - If your runtime exports dq_level as 'dq_level' (legacy) OR
++      #     'dq_level_gauge' (newer), we support both via 'or'.
++      #   - Same approach for book_missing_seq_ema (legacy vs gauge).
++      # -------------------------------------------------------------------
++
++      # ── Tick gap p95 (warn/crit/extreme) ─────────────────────────────────
++      - alert: OF_SQ_TickGapP95High_Warn
++        expr: tick_gap_p95_ms > 3000 and on(symbol) tick_gap_n >= 50
++        for: 2m
++        labels:
++          severity: warning
++          component: orderflow
++          scope: signal_quality
++          playbook: orderflow_services/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick gap p95 high (warn)"
++          description: |
++            Tick stream latency is degraded: tick_gap_p95_ms > 3000ms for 2m (n>=50).
++            Typical causes: WS/network jitter, upstream throttling, local CPU stalls.
++
++      - alert: OF_SQ_TickGapP95High_Crit
++        expr: tick_gap_p95_ms > 4500 and on(symbol) tick_gap_n >= 50
++        for: 30s
++        labels:
++          severity: critical
++          component: orderflow
++          scope: signal_quality
++          playbook: orderflow_services/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick gap p95 high (crit)"
++          description: |
++            Tick stream latency is severely degraded: tick_gap_p95_ms > 4500ms for 30s (n>=50).
++            Expect dq_level to escalate and potential hard-veto depending on DQ mode.
++
++      - alert: OF_SQ_TickGapP95Extreme_Crit
++        expr: tick_gap_p95_ms > 9000 and on(symbol) tick_gap_n >= 50
++        for: 10s
++        labels:
++          severity: critical
++          component: orderflow
++          scope: signal_quality
++          playbook: orderflow_services/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick gap p95 extreme"
++          description: |
++            Extreme tick stream latency spike: tick_gap_p95_ms > 9000ms for 10s (n>=50).
++            Usually correlates with transient WS disconnect/reconnect, host stalls, or network drops.
++
++      # ── Tick missing seq EMA (warn/crit) ────────────────────────────────
++      - alert: OF_SQ_TickMissingSeqEmaHigh_Warn
++        expr: tick_missing_seq_ema > 0.05
++        for: 2m
++        labels:
++          severity: warning
++          component: orderflow
++          scope: signal_quality
++          playbook: orderflow_services/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick missing-seq EMA high (warn)"
++          description: |
++            Tick continuity degradation: tick_missing_seq_ema > 0.05 for 2m.
++            Indicates true gaps in trade_id continuity. Investigate WS drops/reconnects.
++
++      - alert: OF_SQ_TickMissingSeqEmaHigh_Crit
++        expr: tick_missing_seq_ema > 0.15
++        for: 30s
++        labels:
++          severity: critical
++          component: orderflow
++          scope: signal_quality
++          playbook: orderflow_services/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick missing-seq EMA high (crit)"
++          description: |
++            Tick continuity broken: tick_missing_seq_ema > 0.15 for 30s.
++            Strong indicator of persistent WS gaps or a parsing/sequence bug.
++
++      # ── Book missing seq EMA (ticket by default) ────────────────────────
++      # In observe-only phase, we want visibility without paging.
++      # If you later export a gauge like dq_policy_book_veto_enabled_gauge==1,
++      # you can add a page-grade alert that is gated by that metric.
++      - alert: OF_SQ_BookMissingSeqEmaHigh_Ticket
++        expr: ((book_missing_seq_ema_gauge) or (book_missing_seq_ema)) > 0.10
++        for: 30s
++        labels:
++          severity: ticket
++          component: orderflow
++          scope: signal_quality
++          playbook: orderflow_services/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: book missing-seq EMA high (ticket)"
++          description: |
++            Book continuity broken: book_missing_seq_ema > 0.10 for 30s.
++            In observe-only phase this should create a ticket, not a page.
++            If/when BOOK_VETO_ENABLED is turned on, promote this to critical paging.
++
++      # ── DQ hard-level share (10% warn / 20% crit) ───────────────────────
++      - alert: OF_SQ_DQHardShareHigh_Warn
++        expr: avg_over_time((((dq_level_gauge) or (dq_level)) == bool 2)[1h:15s]) > 0.10
++        for: 5m
++        labels:
++          severity: warning
++          component: orderflow
++          scope: signal_quality
++          playbook: orderflow_services/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: dq_level==2 share high (warn)"
++          description: |
++            DQ hard-level is frequent: dq_level==2 for >10% of scrapes in the last 1h.
++            This is a sustained integrity issue — investigate gap/seq sources.
++
++      - alert: OF_SQ_DQHardShareHigh_Crit
++        expr: avg_over_time((((dq_level_gauge) or (dq_level)) == bool 2)[1h:15s]) > 0.20
++        for: 5m
++        labels:
++          severity: critical
++          component: orderflow
++          scope: signal_quality
++          playbook: orderflow_services/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: dq_level==2 share high (crit)"
++          description: |
++            DQ hard-level is dominant: dq_level==2 for >20% of scrapes in the last 1h.
++            Expect material decision quality degradation and frequent vetos (depending on mode).
+diff --git a/tick_flow_full/orderflow_services/runbook_signal_quality_v2.md b/tick_flow_full/orderflow_services/runbook_signal_quality_v2.md
+new file mode 100644
+index 0000000..5a46717
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/runbook_signal_quality_v2.md
+@@ -0,0 +1,92 @@
++# Runbook: Signal quality (gap/seq + DQ hard share) v2
++
++This runbook is designed to answer **"what do I do in 5 minutes"** when
++`OF_SQ_*` alerts fire.
++
++## 0) Immediate triage (60–90s)
++
++1. Identify `symbol` from alert.
++2. Check which family fired:
++   - **Tick gap p95** (`tick_gap_p95_ms`, `tick_gap_n`) — latency/jitter.
++   - **Tick missing seq EMA** (`tick_missing_seq_ema`) — continuity gaps.
++   - **Book missing seq EMA** (`book_missing_seq_ema*`, `book_seq_last_gap_gauge`) — diff-depth chain broken.
++   - **DQ hard share** (`dq_level==2 share`) — long-horizon integrity degradation.
++3. If multiple symbols fire at once → suspect host/network-wide issue.
++
++## 1) Diagnostics checklist
++
++### A) Tick gap p95
++
++Look at:
++- `tick_gap_p95_ms{symbol=...}` and `tick_gap_n{symbol=...}`
++- Host-level CPU throttling, GC pauses, container restarts.
++- WS reconnect rate and network errors.
++
++Interpretation:
++- High `tick_gap_p95_ms` with healthy `tick_missing_seq_ema` often means *latency/jitter*, not lost data.
++
++### B) Tick missing seq EMA
++
++Look at:
++- `tick_missing_seq_ema{symbol=...}`
++- Reconnect/subscribe loops, dropped messages, parse errors.
++
++Interpretation:
++- Sustained EMA increase means real continuity gaps in tick stream.
++
++### C) Book missing seq EMA (observe-only vs paging)
++
++Look at:
++- `book_missing_seq_ema_gauge{symbol=...}` (or legacy `book_missing_seq_ema`)
++- `book_seq_last_gap_gauge{symbol=...}` (last detected `u/pu` discontinuity)
++- Decision record fields (or logs):
++  - `book_seq_last_reason`
++  - `book_missing_seq_last_gap`
++
++Then verify expected diff-depth frequency:
++- ~10Hz (100ms) vs 4Hz (250ms) vs 2Hz (500ms)
++- Ensure `dq_book_seq_ema_alpha` matches stream cadence.
++
++**Observe-only window / gating**
++- Verify `dq_book_veto_enabled` and `dq_observe_only_sec`.
++- If you are within the first 24–48h after deploy/restart, `dq_level` may be 2 but `dq_veto` should be 0.
++
++## 2) Actions
++
++### A) SAFE mode (reduce blast radius)
++
++If strict thresholds cause too many criticals (especially during warmup):
++- Switch DQ mode to SAFE (your rollout policy).
++- Keep capture/metrics enabled so you can see the problem clearly.
++
++### B) Temporary threshold adjustments
++
++If the stream is healthy but thresholds are mismatched to cadence:
++- Increase `book_hard` and/or `gap_*` temporarily.
++- Adjust `dq_book_seq_ema_alpha` to match real diff-depth frequency.
++
++### C) Resync book stream
++
++Book missing seq typically requires resync of snapshot:
++- Trigger resync endpoint/command if available.
++- Otherwise restart the book ingestion component (forces snapshot refresh).
++
++### D) Host/network remediation
++
++If multiple symbols fire simultaneously:
++- Check host CPU steal/throttling, memory pressure, Docker health.
++- Check network drops, DNS/resolution, upstream reachability.
++
++## 3) Rollback
++
++If paging on book seq is too aggressive or causing false positives:
++- Disable `BOOK_VETO_ENABLED` (or `dq_book_veto_enabled=false`).
++- Restore the previous Prometheus rules bundle (keep the new file for ticket-level visibility).
++
++## 4) Notes for follow-up ticket
++
++Include in the ticket:
++- Time range, symbols affected
++- `tick_gap_p95_ms`, `tick_missing_seq_ema`, `book_missing_seq_ema*`
++- `book_seq_last_reason`, `book_missing_seq_last_gap`
++- Effective DQ mode (SAFE/STRICT), `dq_book_veto_enabled`, and observe-only uptime
+diff --git a/tick_flow_full/orderflow_services/tests/test_signal_quality_alerts_yaml_v2.py b/tick_flow_full/orderflow_services/tests/test_signal_quality_alerts_yaml_v2.py
+new file mode 100644
+index 0000000..bfa6065
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/tests/test_signal_quality_alerts_yaml_v2.py
+@@ -0,0 +1,63 @@
++import os
++import yaml
++
++
++EXPECTED_ALERTS = {
++    "OF_SQ_TickGapP95High_Warn",
++    "OF_SQ_TickGapP95High_Crit",
++    "OF_SQ_TickGapP95Extreme_Crit",
++    "OF_SQ_TickMissingSeqEmaHigh_Warn",
++    "OF_SQ_TickMissingSeqEmaHigh_Crit",
++    "OF_SQ_BookMissingSeqEmaHigh_Ticket",
++    "OF_SQ_DQHardShareHigh_Warn",
++    "OF_SQ_DQHardShareHigh_Crit",
++}
++
++
++def _repo_root() -> str:
++    # tests/ -> orderflow_services/ -> tick_flow_full/ -> repo root
++    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
++
++
++def _load_yaml(path: str):
++    assert os.path.exists(path), f"Rules file not found at {path}"
++    with open(path, "r") as f:
++        return yaml.safe_load(f)
++
++
++def _collect_alert_names(data) -> set:
++    assert isinstance(data, dict), "YAML must parse into a dict"
++    assert "groups" in data, "No groups found in yaml"
++    names = set()
++    for group in data.get("groups", []):
++        for rule in group.get("rules", []):
++            if "alert" in rule:
++                names.add(rule["alert"])
++    return names
++
++
++def test_signal_quality_alerts_yaml_v2_present_and_valid():
++    repo = _repo_root()
++
++    # SoT
++    sot = os.path.join(repo, "orderflow_services", "prometheus_alerts_signal_quality_v2.yml")
++    # Mirror (tick_flow_full)
++    mirror = os.path.join(repo, "tick_flow_full", "orderflow_services", "prometheus_alerts_signal_quality_v2.yml")
++    # Optional legacy locations used by some deployments
++    services_sot = os.path.join(repo, "services", "orderflow", "prometheus_alerts_signal_quality_v2.yml")
++    services_mirror = os.path.join(repo, "tick_flow_full", "services", "orderflow", "prometheus_alerts_signal_quality_v2.yml")
++
++    for p in (sot, mirror, services_sot, services_mirror):
++        data = _load_yaml(p)
++        alerts = _collect_alert_names(data)
++        missing = EXPECTED_ALERTS.difference(alerts)
++        assert not missing, f"{p}: missing alerts: {sorted(missing)}"
++
++
++def test_signal_quality_alerts_yaml_v2_has_15s_interval():
++    repo = _repo_root()
++    p = os.path.join(repo, "orderflow_services", "prometheus_alerts_signal_quality_v2.yml")
++    data = _load_yaml(p)
++    groups = data.get("groups", [])
++    assert groups, "No groups in rules file"
++    assert groups[0].get("interval") == "15s"
+diff --git a/tick_flow_full/services/orderflow/prometheus_alerts_signal_quality_v2.yml b/tick_flow_full/services/orderflow/prometheus_alerts_signal_quality_v2.yml
+new file mode 100644
+index 0000000..a0e549e
+--- /dev/null
++++ b/tick_flow_full/services/orderflow/prometheus_alerts_signal_quality_v2.yml
+@@ -0,0 +1,138 @@
++groups:
++  - name: orderflow_signal_quality_v2
++    # IMPORTANT
++    #   These alerts assume scrape_interval ~= 15s.
++    #   We set the rule evaluation interval to 15s so that the 10s 'extreme'
++    #   guard is meaningful (otherwise it becomes effectively a 30s+ guard).
++    interval: 15s
++    rules:
++      # -------------------------------------------------------------------
++      # Signal quality (stream-level) — gap/seq + DQ hard-level share
++      #
++      # Design constraints
++      #   - Per-symbol only (low cardinality).
++      #   - Gate tick_gap_p95 by tick_gap_n >= min_samples.
++      #   - Keep thresholds stable and actionable (no flapping).
++      #
++      # Notes
++      #   - If your runtime exports dq_level as 'dq_level' (legacy) OR
++      #     'dq_level_gauge' (newer), we support both via 'or'.
++      #   - Same approach for book_missing_seq_ema (legacy vs gauge).
++      # -------------------------------------------------------------------
++
++      # ── Tick gap p95 (warn/crit/extreme) ─────────────────────────────────
++      - alert: OF_SQ_TickGapP95High_Warn
++        expr: tick_gap_p95_ms > 3000 and on(symbol) tick_gap_n >= 50
++        for: 2m
++        labels:
++          severity: warning
++          component: orderflow
++          scope: signal_quality
++          playbook: tick_flow_full/services/orderflow/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick gap p95 high (warn)"
++          description: |
++            Tick stream latency is degraded: tick_gap_p95_ms > 3000ms for 2m (n>=50).
++            Typical causes: WS/network jitter, upstream throttling, local CPU stalls.
++
++      - alert: OF_SQ_TickGapP95High_Crit
++        expr: tick_gap_p95_ms > 4500 and on(symbol) tick_gap_n >= 50
++        for: 30s
++        labels:
++          severity: critical
++          component: orderflow
++          scope: signal_quality
++          playbook: tick_flow_full/services/orderflow/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick gap p95 high (crit)"
++          description: |
++            Tick stream latency is severely degraded: tick_gap_p95_ms > 4500ms for 30s (n>=50).
++            Expect dq_level to escalate and potential hard-veto depending on DQ mode.
++
++      - alert: OF_SQ_TickGapP95Extreme_Crit
++        expr: tick_gap_p95_ms > 9000 and on(symbol) tick_gap_n >= 50
++        for: 10s
++        labels:
++          severity: critical
++          component: orderflow
++          scope: signal_quality
++          playbook: tick_flow_full/services/orderflow/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick gap p95 extreme"
++          description: |
++            Extreme tick stream latency spike: tick_gap_p95_ms > 9000ms for 10s (n>=50).
++            Usually correlates with transient WS disconnect/reconnect, host stalls, or network drops.
++
++      # ── Tick missing seq EMA (warn/crit) ────────────────────────────────
++      - alert: OF_SQ_TickMissingSeqEmaHigh_Warn
++        expr: tick_missing_seq_ema > 0.05
++        for: 2m
++        labels:
++          severity: warning
++          component: orderflow
++          scope: signal_quality
++          playbook: tick_flow_full/services/orderflow/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick missing-seq EMA high (warn)"
++          description: |
++            Tick continuity degradation: tick_missing_seq_ema > 0.05 for 2m.
++            Indicates true gaps in trade_id continuity. Investigate WS drops/reconnects.
++
++      - alert: OF_SQ_TickMissingSeqEmaHigh_Crit
++        expr: tick_missing_seq_ema > 0.15
++        for: 30s
++        labels:
++          severity: critical
++          component: orderflow
++          scope: signal_quality
++          playbook: tick_flow_full/services/orderflow/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick missing-seq EMA high (crit)"
++          description: |
++            Tick continuity broken: tick_missing_seq_ema > 0.15 for 30s.
++            Strong indicator of persistent WS gaps or a parsing/sequence bug.
++
++      # ── Book missing seq EMA (ticket by default) ────────────────────────
++      - alert: OF_SQ_BookMissingSeqEmaHigh_Ticket
++        expr: ((book_missing_seq_ema_gauge) or (book_missing_seq_ema)) > 0.10
++        for: 30s
++        labels:
++          severity: ticket
++          component: orderflow
++          scope: signal_quality
++          playbook: tick_flow_full/services/orderflow/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: book missing-seq EMA high (ticket)"
++          description: |
++            Book continuity broken: book_missing_seq_ema > 0.10 for 30s.
++            In observe-only phase this should create a ticket, not a page.
++            If/when BOOK_VETO_ENABLED is turned on, promote this to critical paging.
++
++      # ── DQ hard-level share (10% warn / 20% crit) ───────────────────────
++      - alert: OF_SQ_DQHardShareHigh_Warn
++        expr: avg_over_time((((dq_level_gauge) or (dq_level)) == bool 2)[1h:15s]) > 0.10
++        for: 5m
++        labels:
++          severity: warning
++          component: orderflow
++          scope: signal_quality
++          playbook: tick_flow_full/services/orderflow/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: dq_level==2 share high (warn)"
++          description: |
++            DQ hard-level is frequent: dq_level==2 for >10% of scrapes in the last 1h.
++            This is a sustained integrity issue — investigate gap/seq sources.
++
++      - alert: OF_SQ_DQHardShareHigh_Crit
++        expr: avg_over_time((((dq_level_gauge) or (dq_level)) == bool 2)[1h:15s]) > 0.20
++        for: 5m
++        labels:
++          severity: critical
++          component: orderflow
++          scope: signal_quality
++          playbook: tick_flow_full/services/orderflow/runbook_signal_quality_v2.md
++        annotations:
++          summary: "{{ $labels.symbol }}: dq_level==2 share high (crit)"
++          description: |
++            DQ hard-level is dominant: dq_level==2 for >20% of scrapes in the last 1h.
++            Expect material decision quality degradation and frequent vetos (depending on mode).
+diff --git a/tick_flow_full/services/orderflow/runbook_signal_quality_v2.md b/tick_flow_full/services/orderflow/runbook_signal_quality_v2.md
+new file mode 100644
+index 0000000..5a46717
+--- /dev/null
++++ b/tick_flow_full/services/orderflow/runbook_signal_quality_v2.md
+@@ -0,0 +1,92 @@
++# Runbook: Signal quality (gap/seq + DQ hard share) v2
++
++This runbook is designed to answer **"what do I do in 5 minutes"** when
++`OF_SQ_*` alerts fire.
++
++## 0) Immediate triage (60–90s)
++
++1. Identify `symbol` from alert.
++2. Check which family fired:
++   - **Tick gap p95** (`tick_gap_p95_ms`, `tick_gap_n`) — latency/jitter.
++   - **Tick missing seq EMA** (`tick_missing_seq_ema`) — continuity gaps.
++   - **Book missing seq EMA** (`book_missing_seq_ema*`, `book_seq_last_gap_gauge`) — diff-depth chain broken.
++   - **DQ hard share** (`dq_level==2 share`) — long-horizon integrity degradation.
++3. If multiple symbols fire at once → suspect host/network-wide issue.
++
++## 1) Diagnostics checklist
++
++### A) Tick gap p95
++
++Look at:
++- `tick_gap_p95_ms{symbol=...}` and `tick_gap_n{symbol=...}`
++- Host-level CPU throttling, GC pauses, container restarts.
++- WS reconnect rate and network errors.
++
++Interpretation:
++- High `tick_gap_p95_ms` with healthy `tick_missing_seq_ema` often means *latency/jitter*, not lost data.
++
++### B) Tick missing seq EMA
++
++Look at:
++- `tick_missing_seq_ema{symbol=...}`
++- Reconnect/subscribe loops, dropped messages, parse errors.
++
++Interpretation:
++- Sustained EMA increase means real continuity gaps in tick stream.
++
++### C) Book missing seq EMA (observe-only vs paging)
++
++Look at:
++- `book_missing_seq_ema_gauge{symbol=...}` (or legacy `book_missing_seq_ema`)
++- `book_seq_last_gap_gauge{symbol=...}` (last detected `u/pu` discontinuity)
++- Decision record fields (or logs):
++  - `book_seq_last_reason`
++  - `book_missing_seq_last_gap`
++
++Then verify expected diff-depth frequency:
++- ~10Hz (100ms) vs 4Hz (250ms) vs 2Hz (500ms)
++- Ensure `dq_book_seq_ema_alpha` matches stream cadence.
++
++**Observe-only window / gating**
++- Verify `dq_book_veto_enabled` and `dq_observe_only_sec`.
++- If you are within the first 24–48h after deploy/restart, `dq_level` may be 2 but `dq_veto` should be 0.
++
++## 2) Actions
++
++### A) SAFE mode (reduce blast radius)
++
++If strict thresholds cause too many criticals (especially during warmup):
++- Switch DQ mode to SAFE (your rollout policy).
++- Keep capture/metrics enabled so you can see the problem clearly.
++
++### B) Temporary threshold adjustments
++
++If the stream is healthy but thresholds are mismatched to cadence:
++- Increase `book_hard` and/or `gap_*` temporarily.
++- Adjust `dq_book_seq_ema_alpha` to match real diff-depth frequency.
++
++### C) Resync book stream
++
++Book missing seq typically requires resync of snapshot:
++- Trigger resync endpoint/command if available.
++- Otherwise restart the book ingestion component (forces snapshot refresh).
++
++### D) Host/network remediation
++
++If multiple symbols fire simultaneously:
++- Check host CPU steal/throttling, memory pressure, Docker health.
++- Check network drops, DNS/resolution, upstream reachability.
++
++## 3) Rollback
++
++If paging on book seq is too aggressive or causing false positives:
++- Disable `BOOK_VETO_ENABLED` (or `dq_book_veto_enabled=false`).
++- Restore the previous Prometheus rules bundle (keep the new file for ticket-level visibility).
++
++## 4) Notes for follow-up ticket
++
++Include in the ticket:
++- Time range, symbols affected
++- `tick_gap_p95_ms`, `tick_missing_seq_ema`, `book_missing_seq_ema*`
++- `book_seq_last_reason`, `book_missing_seq_last_gap`
++- Effective DQ mode (SAFE/STRICT), `dq_book_veto_enabled`, and observe-only uptime

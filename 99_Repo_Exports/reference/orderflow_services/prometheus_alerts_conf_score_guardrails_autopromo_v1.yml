@@ -1,0 +1,74 @@
+groups:
+- name: conf_score_guardrails_autopromo
+  rules:
+  - alert: ConfScoreAutopromoBlocked
+    expr: conf_score_guard_autopromo_blocked == 1
+    for: 5m
+    labels:
+      severity: page
+    annotations:
+      summary: "Autopromo blocked"
+      description: "Autopromo controller entered blocked state (manual intervention
+        required)."
+
+  - alert: ConfScoreAutopromoStateStale
+    expr: conf_score_guard_autopromo_state_age_sec > 900
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Autopromo state stale"
+      description: "Autopromo state file not updated recently (timer down or stuck)."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: ConfScoreAutopromoObserveTooLong
+    expr: conf_score_guard_autopromo_observing_remaining_sec > 3600
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Autopromo stuck in observing"
+      description: "Observe window remaining is unexpectedly high (state reset loop
+        or clock issues)."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: ConfScoreAutopromoPairedRegression
+    expr: (conf_score_guard_autopromo_arm_delta_ece_cal > 0.010) or 
+      (conf_score_guard_autopromo_arm_delta_brier_cal > 0.010)
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Paired regression (challenger vs champion)"
+      description: "Paired deltas indicate challenger calibration got worse vs champion.
+        Check cohort metrics and consider rollback."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: ConfScoreAutopromoCohortRegressionWorst
+    expr: (conf_score_guard_autopromo_cohort_delta_ece_cal_max > 0.020) or 
+      (conf_score_guard_autopromo_cohort_delta_brier_cal_max > 0.020)
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Worst-cohort regression"
+      description: "A specific cohort (symbol×session×regime) regressed materially
+        in paired evaluation."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: ConfScoreAutopromoCohortRegressionAvg
+    expr: (conf_score_guard_autopromo_cohort_delta_ece_cal_wmean > 0.010) or 
+      (conf_score_guard_autopromo_cohort_delta_brier_cal_wmean > 0.010)
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Average cohort regression"
+      description: "Weighted mean cohort deltas indicate broad regression across cohorts
+        (matched evaluation)."
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd

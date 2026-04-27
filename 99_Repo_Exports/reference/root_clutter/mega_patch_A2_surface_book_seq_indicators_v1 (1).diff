@@ -1,0 +1,101 @@
+diff --git a/services/orderflow/components/tick_processor.py b/services/orderflow/components/tick_processor.py
+index 1111111..2222222 100644
+--- a/services/orderflow/components/tick_processor.py
++++ b/services/orderflow/components/tick_processor.py
+@@ -439,9 +439,25 @@
+-        indicators["tick_seq_last_reason"] = runtime.tick_seq_last_reason
+-        indicators["tick_missing_seq_ema"] = runtime.tick_missing_seq_ema
+-        indicators["book_missing_seq_ema"] = runtime.book_missing_seq_ema
++        indicators["tick_seq_last_reason"] = runtime.tick_seq_last_reason
++        indicators["tick_missing_seq_ema"] = runtime.tick_missing_seq_ema
++
++        # ---------------------------------------------------------------------
++        # Strict-DQ: book-side missing-seq tracker surfacing
++        #
++        # DQ-gate reads only `indicators` (not `runtime`), поэтому оба ключа должны
++        # присутствовать в каждом decision record / indicators.
++        #
++        # Fail-open: rollout A1 (BookProcessor tracker) может прийти отдельно;
++        # getattr() держит сервис стартуемым, при этом контракт по ключам выполняется.
++        # ---------------------------------------------------------------------
++        indicators["book_missing_seq_ema"] = float(getattr(runtime, "book_missing_seq_ema", 0.0) or 0.0)
++        indicators["book_seq_last_reason"] = str(getattr(runtime, "book_seq_last_reason", "") or "unknown")
+ 
+         # ... other indicators ...
+ 
+         features = of_engine.build(
+             indicators=indicators,
+             runtime=runtime,
+             now_ms=now_ms,
+             price=price,
+         )
+
+diff --git a/tick_flow_full/services/orderflow/components/tick_processor.py b/tick_flow_full/services/orderflow/components/tick_processor.py
+index 1111111..2222222 100644
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -439,9 +439,25 @@
+-        indicators["tick_seq_last_reason"] = runtime.tick_seq_last_reason
+-        indicators["tick_missing_seq_ema"] = runtime.tick_missing_seq_ema
+-        indicators["book_missing_seq_ema"] = runtime.book_missing_seq_ema
++        indicators["tick_seq_last_reason"] = runtime.tick_seq_last_reason
++        indicators["tick_missing_seq_ema"] = runtime.tick_missing_seq_ema
++
++        # ---------------------------------------------------------------------
++        # Strict-DQ: book-side missing-seq tracker surfacing
++        #
++        # DQ-gate reads only `indicators` (not `runtime`), поэтому оба ключа должны
++        # присутствовать в каждом decision record / indicators.
++        #
++        # Fail-open: rollout A1 (BookProcessor tracker) может прийти отдельно;
++        # getattr() держит сервис стартуемым, при этом контракт по ключам выполняется.
++        # ---------------------------------------------------------------------
++        indicators["book_missing_seq_ema"] = float(getattr(runtime, "book_missing_seq_ema", 0.0) or 0.0)
++        indicators["book_seq_last_reason"] = str(getattr(runtime, "book_seq_last_reason", "") or "unknown")
+ 
+         # ... other indicators ...
+ 
+         features = of_engine.build(
+             indicators=indicators,
+             runtime=runtime,
+             now_ms=now_ms,
+             price=price,
+         )
+
+diff --git a/orderflow_services/tests/test_a2_surface_book_seq_indicators_v1.py b/orderflow_services/tests/test_a2_surface_book_seq_indicators_v1.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/tests/test_a2_surface_book_seq_indicators_v1.py
+@@ -0,0 +1,56 @@
++from pathlib import Path
++
++
++def _read(rel: str) -> str:
++    # Repo root: orderflow_services/tests/ -> parents[2]
++    root = Path(__file__).resolve().parents[2]
++    return (root / rel).read_text(encoding="utf-8")
++
++
++def _assert_present_before_build(txt: str, *, rel: str) -> None:
++    # Contract: both keys exist in indicators BEFORE the first of_engine.build call.
++    # Cheap guardrail against refactors that move/forget the surfacing.
++    p_reason = txt.find('"book_seq_last_reason"')
++    p_ema = txt.find('"book_missing_seq_ema"')
++    p_build = txt.find("of_engine.build")
++
++    assert p_ema != -1, f"{rel}: missing book_missing_seq_ema surfacing"
++    assert p_reason != -1, f"{rel}: missing book_seq_last_reason surfacing"
++    assert p_build != -1, f"{rel}: cannot locate of_engine.build for ordering check"
++    assert p_reason < p_build, f"{rel}: book_seq_last_reason must be set before of_engine.build"
++    assert p_ema < p_build, f"{rel}: book_missing_seq_ema must be set before of_engine.build"
++
++
++def test_a2_surface_book_seq_indicators_sot_and_mirror_v1() -> None:
++    for rel in (
++        "services/orderflow/components/tick_processor.py",
++        "tick_flow_full/services/orderflow/components/tick_processor.py",
++    ):
++        txt = _read(rel)
++        _assert_present_before_build(txt, rel=rel)
++

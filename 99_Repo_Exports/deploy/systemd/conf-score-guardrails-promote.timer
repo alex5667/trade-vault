@@ -1,0 +1,12 @@
+[Unit]
+Description=Timer for Confidence Score Guardrails (Promote)
+
+[Timer]
+# Run frequently to checking health and promoting
+OnBootSec=5min
+OnUnitActiveSec=10min
+Persistent=false
+Unit=conf-score-guardrails-promote.service
+
+[Install]
+WantedBy=timers.target

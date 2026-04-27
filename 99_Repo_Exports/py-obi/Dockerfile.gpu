@@ -1,0 +1,59 @@
+# GPU-enabled Dockerfile for OBI service (CUDA + cuDF/cuPy)
+FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
+
+# System deps
+# ✅ Fix: заменяем HTTP на HTTPS в apt sources для надежности
+RUN sed -i 's|http://archive.ubuntu.com|https://archive.ubuntu.com|g' /etc/apt/sources.list && \
+    sed -i 's|http://security.ubuntu.com|https://security.ubuntu.com|g' /etc/apt/sources.list && \
+    sed -i 's|http://ports.ubuntu.com|https://ports.ubuntu.com|g' /etc/apt/sources.list.d/*.list 2>/dev/null || true && \
+    apt-get update --allow-releaseinfo-change || \
+    (sleep 5 && apt-get update --allow-releaseinfo-change) || \
+    (sleep 10 && apt-get update --allow-releaseinfo-change) && \
+    apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    python3-venv \
+    curl \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Create non-root user
+RUN useradd -m -u 1000 scanner && chown -R scanner:scanner /app
+
+# Copy requirements
+COPY requirements.txt ./
+
+# Install Python deps with CUDA wheels
+RUN python3 -m pip install --no-cache-dir --upgrade pip && \
+    python3 -m pip install --no-cache-dir \
+      fastapi==0.109.0 \
+      uvicorn==0.27.0 \
+      pydantic==2.5.3 \
+      numpy==1.26.3 \
+      matplotlib==3.8.2 \
+      requests==2.31.0 \
+      redis==5.0.1 \
+      cupy-cuda12x==12.3.0 \
+      --extra-index-url=https://pypi.nvidia.com && \
+    python3 -m pip install --no-cache-dir \
+      cudf-cu12==24.2.0 \
+      --extra-index-url=https://pypi.nvidia.com
+
+# Copy service code
+COPY book_obi_service.py ./
+
+# Ownership
+RUN chown -R scanner:scanner /app
+USER scanner
+
+ENV PYTHONUNBUFFERED=1
+EXPOSE 8088
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8088/healthz || exit 1
+
+CMD ["python3", "book_obi_service.py"]
+

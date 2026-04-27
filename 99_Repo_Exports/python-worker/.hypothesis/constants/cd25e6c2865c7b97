@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signals/publisher.py
+# hypothesis_version: 6.148.10
+
+['0', '1', 'confidence', 'false', 'final_score', 'kind', 'labels', 'level_key', 'level_price', 'no', 'parts', 'price', 'raw_score', 'reasons', 'side', 'signal_id', 'symbol', 'ts']

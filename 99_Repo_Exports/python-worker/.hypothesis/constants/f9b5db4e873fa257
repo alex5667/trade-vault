@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/utils/log_throttler.py
+# hypothesis_version: 6.148.10
+
+[10000]

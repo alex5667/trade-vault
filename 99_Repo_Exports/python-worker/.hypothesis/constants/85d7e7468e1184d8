@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/computation/expressions.py
+# hypothesis_version: 6.148.10
+
+[1000000, '!=', '&', '*', '**', '+', '-', '/', '<', '<=', '==', '>', '>=', '^', '_', 'a_value', 'b_value', 'bool', 'compute.use_numexpr', 'cond_value', 'dtype', 'evaluate', 'float32', 'float64', 'int32', 'int64', 'r', 'safe', 'where', '|']

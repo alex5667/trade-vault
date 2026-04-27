@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signal_scoring/kind_rules.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.16, 0.18, 0.22, 0.5, 0.55, 0.6, 0.65, 0.7, 0.8, 0.85, 1.0, 2.6, 3.2, 6.0, 'absorb', 'absorption', 'absorption_l2', 'book_quality', 'book_quality_ok', 'breakout', 'breakout_down', 'breakout_level', 'breakout_up', 'cancel_to_trade', 'extreme', 'extreme_move', 'extreme_reversal', 'horizon_s', 'l3_cancel_to_trade', 'level_price', 'micro_proxy', 'micro_quality', 'micro_quality_ok', 'microprice_shift', 'microprice_shift_bps', 'mp_contra', 'obi', 'obi_l3_c2t_high_soft', 'obi_not_sustained', 'obi_spike', 'obi_spike_down', 'obi_spike_up', 'obi_sustained', 'refill', 'spread', 'spread_bps', 'spread_scale', 'taker_rate_ema', 'veto_book_quality', 'veto_low_taker_rate', 'veto_micro_quality', 'veto_obi_spoof', 'veto_quality', 'veto_spoof_like', 'wall_here']

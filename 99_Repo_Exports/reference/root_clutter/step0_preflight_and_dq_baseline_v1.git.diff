@@ -1,0 +1,1254 @@
+diff --git a/trade_proj_orig/services/orderflow/components/book_processor.py b/trade_proj/services/orderflow/components/book_processor.py
+index a027258..8606eb7 100644
+--- a/trade_proj_orig/services/orderflow/components/book_processor.py
++++ b/trade_proj/services/orderflow/components/book_processor.py
+@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
+ from services.orderflow.runtime import SymbolRuntime, BookSnapshot, BookState
+ from services.orderflow.configuration import _safe_int, _safe_float
+ from services.orderflow.metrics import (
+-    log_silent_error, book_rate_ema_gauge, book_rate_z_gauge,
++    log_silent_error, book_missing_seq_events_total, book_rate_ema_gauge, book_rate_z_gauge,
+     of_lob_queue_imbalance_gauge, of_lob_queue_imbalance_mean_gauge,
+     of_lob_queue_imbalance_max_abs_gauge, of_lob_queue_imbalance_slope_gauge,
+     of_lob_micro_mid_div_bps_gauge, of_lob_micro_shift_bps_gauge,
+@@ -48,6 +48,91 @@ class BookProcessor:
+         self.book_churn_z_full = book_churn_z_full
+         self.book_churn_z_hi = book_churn_z_hi
+ 
++    @staticmethod
++    def _ema_update(prev: float, x: float, alpha: float) -> float:
++        """Deterministic EMA update with safe alpha clamping."""
++        try:
++            a = float(alpha)
++        except Exception:
++            a = 0.1
++        if not (0.0 < a <= 1.0):
++            a = 0.1
++        try:
++            p = float(prev)
++        except Exception:
++            p = 0.0
++        try:
++            v = float(x)
++        except Exception:
++            v = 0.0
++        return a * v + (1.0 - a) * p
++
++    def _update_book_missing_seq(self, runtime: SymbolRuntime, book_raw: Dict[str, Any]) -> None:
++        """Update runtime.book_missing_seq_ema using Binance depthUpdate continuity.
++
++        Binance depthUpdate events contain:
++          - U: firstUpdateId for this event
++          - u: lastUpdateId for this event
++
++        If the previous event ended at prev_u, then the next event is continuous iff:
++          U == prev_u + 1
++
++        We model missing updates as a Bernoulli event (gap? 1 : 0) and track its EMA.
++        This keeps the signal bounded [0..1] and stable across symbols.
++
++        Notes:
++        - Partial depth snapshots (@depth5/@depth10/@depth20) usually do not include U/u.
++          In that case we keep book_missing_seq_ema unchanged and set reason=no_seq_fields.
++        - Duplicates / reorder / resets do not count as missing updates.
++        """
++        try:
++            cur_u = int(book_raw.get("u") or 0)
++            cur_U = int(book_raw.get("U") or 0)
++        except Exception:
++            cur_u, cur_U = 0, 0
++
++        prev_u = int(getattr(runtime, "book_seq_last_u", 0) or 0)
++        prev_ema = float(getattr(runtime, "book_missing_seq_ema", 0.0) or 0.0)
++        alpha = float(runtime.config.get("book_missing_seq_ema_alpha", 0.1) or 0.1)
++
++        miss_event = 0.0
++        reason = "init"
++
++        if cur_u <= 0:
++            reason = "no_u"
++        elif cur_U <= 0 or prev_u <= 0:
++            # Can't do continuity check (missing U or first event).
++            reason = "no_seq_fields" if cur_U <= 0 else "init"
++        else:
++            # Continuity check: U should be prev_u + 1.
++            expected_U = prev_u + 1
++            if cur_U == expected_U:
++                reason = "ok"
++            elif cur_U > expected_U:
++                # Gap: missing updates between prev_u and cur_U.
++                miss_event = 1.0
++                reason = "gap"
++                try:
++                    book_missing_seq_events_total.labels(symbol=str(runtime.symbol)).inc()
++                except Exception:
++                    pass
++            else:
++                # cur_U < expected_U -> duplicate / reorder / reset.
++                reason = "reorder_or_reset"
++
++        # Update EMA only if we are able to evaluate (or already have a running EMA).
++        # For no_seq_fields we keep EMA as-is to avoid false positives.
++        if reason in ("ok", "gap", "reorder_or_reset") or prev_ema > 0.0 or prev_u > 0:
++            runtime.book_missing_seq_ema = float(self._ema_update(prev_ema, miss_event, alpha))
++        else:
++            runtime.book_missing_seq_ema = float(prev_ema)
++
++        runtime.book_seq_last_reason = str(reason)
++
++        # Advance last_u only when monotonic; this is robust against duplicates / reorders.
++        if cur_u > prev_u:
++            runtime.book_seq_last_u = int(cur_u)
++
+     def process_book(self, runtime: SymbolRuntime, payload: Dict[str, Any], ingest_ts_ms: int) -> bool:
+         """
+         Processes a raw book payload from Redis stream.
+@@ -68,6 +153,13 @@ class BookProcessor:
+             # Basic timestamps
+             book_ts_ms = _safe_int(book_raw.get("ts_ms") or book_raw.get("ts") or book_raw.get("timestamp") or 0)
+ 
++            # Strict DQ: book missing-seq continuity (Binance depthUpdate U/u)
++            # Fail-open: never break book processing on DQ telemetry.
++            try:
++                self._update_book_missing_seq(runtime, book_raw)
++            except Exception:
++                pass
++
+             # Atomic Snapshot
+             try:
+                 runtime.book_state = BookState(
+diff --git a/trade_proj_orig/services/orderflow/components/tick_processor.py b/trade_proj/services/orderflow/components/tick_processor.py
+index f0e98bb..1ba2b43 100644
+--- a/trade_proj_orig/services/orderflow/components/tick_processor.py
++++ b/trade_proj/services/orderflow/components/tick_processor.py
+@@ -68,7 +68,7 @@ from services.orderflow.metrics import (
+     tick_ts_missing_total, tick_ts_backwards_total, tick_ts_clamped_total, tick_ts_quarantined_total,
+     tick_ts_future_total, tick_age_ms_hist, tick_reorder_back_ms_hist, tick_time_action_total,
+     tick_time_decision_total,
+-    burst_active_gauge, burst_flush_total, signals_emitted_total, feature_missing_total, burst_window_ms_gauge, tick_gap_p50_ms_gauge, tick_gap_p95_ms_gauge,
++    burst_active_gauge, burst_flush_total, signals_emitted_total, feature_missing_total, burst_window_ms_gauge, tick_gap_p50_ms_gauge, tick_gap_p95_ms_gauge, dq_veto_total, dq_level_gauge, tick_gap_n_gauge,
+     liqmap_snapshot_age_ms_gauge, liqmap_snapshot_parse_errors_total,
+     liqmap_gate_shadow_hit_total, liqmap_gate_veto_total,
+     book_missing_seq_ema_gauge, tick_missing_seq_ema_gauge, tick_missing_seq_events_total,
+@@ -347,6 +347,7 @@ class TickProcessor:
+                     try:
+                         tick_gap_p50_ms_gauge.labels(symbol=str(runtime.symbol)).set(runtime.tick_gap_p50_ms)
+                         tick_gap_p95_ms_gauge.labels(symbol=str(runtime.symbol)).set(runtime.tick_gap_p95_ms)
++                        tick_gap_n_gauge.labels(symbol=str(runtime.symbol)).set(float(tick_gap_n))
+                     except Exception:
+                         pass
+             except Exception:
+@@ -443,6 +444,7 @@ class TickProcessor:
+                 indicators["tick_id_dup"] = int(bool(is_dup))
+                 indicators["tick_id_reorder"] = int(bool(is_reorder))
+                 indicators["tick_seq_last_reason"] = str(getattr(runtime, "tick_seq_last_reason", ""))
++                "book_seq_last_reason": str(getattr(runtime, "book_seq_last_reason", "init")),
+ 
+         except Exception:
+             pass
+@@ -2174,6 +2176,23 @@ class TickProcessor:
+         )
+         t_build_us = int((time.perf_counter_ns() - t_build_ns0) / 1000)
+         indicators["of_build_us"] = int(t_build_us)
++        # ---------------------------------------------------------------
++        # DQ policy v2 telemetry (core/dq_gate_v1.py)
++        # ---------------------------------------------------------------
++        try:
++            dq_level = int(indicators.get("dq_level", 0) or 0)
++            dq_veto = int(indicators.get("dq_veto", 0) or 0)
++            dq_bucket = str(indicators.get("dq_reason_bucket", "na") or "na")
++            dq_level_gauge.labels(symbol=str(runtime.symbol)).set(float(dq_level))
++            # Edge-triggered counter: increment only when we ENTER dq_veto=1.
++            if dq_veto and int(getattr(runtime, "dq_veto_last", 0) or 0) == 0:
++                dq_veto_total.labels(symbol=str(runtime.symbol), bucket=dq_bucket).inc()
++            runtime.dq_level_last = dq_level
++            runtime.dq_veto_last = dq_veto
++        except Exception:
++            # fail-open: DQ telemetry must never break tick path
++            pass
++
+ 
+         # Fill-prob / exec_fill_pen fallback (smoke-check: detect broken wiring)
+         # If OFConfirmEngine already computed these fields, we do NOT override them.
+diff --git a/trade_proj_orig/services/orderflow/configuration.py b/trade_proj/services/orderflow/configuration.py
+index 1aff024..9549287 100644
+--- a/trade_proj_orig/services/orderflow/configuration.py
++++ b/trade_proj/services/orderflow/configuration.py
+@@ -91,6 +91,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
+     "tick_buffer": 500,
+     "tick_gap_snapshot_every_n": 500,
+ 
++    # Book missing-seq EMA alpha (Binance depthUpdate continuity by U/u). Default 0.1 ~ 10 updates memory.
++    "book_missing_seq_ema_alpha": _safe_float(os.getenv("BOOK_MISSING_SEQ_EMA_ALPHA", "0.1"), 0.1),
++
++
+     # --- P2/F: Data Quality Gate (DQ) -----------------------------------
+     # Rollout recommendation:
+     #   1) DQ_GATE_ENABLE=1, DQ_GATE_MODE=penalty, DQ_MODE=safe
+@@ -109,6 +113,13 @@ DEFAULT_CONFIG: Dict[str, Any] = {
+     "dq_tick_gap_p95_ms_extreme": _safe_float(os.getenv("DQ_TICK_GAP_P95_MS_EXTREME", "0"), 0.0) or None,
+     "dq_tick_gap_requires_seq": _safe_int(os.getenv("DQ_TICK_GAP_REQUIRES_SEQ", "1"), 1),
+ 
++    # Observe-only rollout: allow disabling HARD veto based on book_missing_seq_ema for first 24–48h.
++    # Even if DQ_GATE_MODE=enforce, book veto will be ignored while dq_book_veto_enabled=0
++    # (or while engine uptime < dq_book_veto_warmup_s, if warmup is set).
++    "dq_book_veto_enabled": _safe_int(os.getenv("DQ_BOOK_VETO_ENABLED", "0"), 0),
++    "dq_book_veto_warmup_s": _safe_int(os.getenv("DQ_BOOK_VETO_WARMUP_S", "0"), 0),
++
++
+     "dq_tick_missing_seq_ema_soft": _safe_float(os.getenv("DQ_TICK_MISSING_SEQ_EMA_SOFT", "0"), 0.0) or None,
+     "dq_tick_missing_seq_ema_hard": _safe_float(os.getenv("DQ_TICK_MISSING_SEQ_EMA_HARD", "0"), 0.0) or None,
+     "dq_book_missing_seq_ema_soft": _safe_float(os.getenv("DQ_BOOK_MISSING_SEQ_EMA_SOFT", "0"), 0.0) or None,
+diff --git a/trade_proj_orig/services/orderflow/metrics.py b/trade_proj/services/orderflow/metrics.py
+index a588af4..28c5d15 100644
+--- a/trade_proj_orig/services/orderflow/metrics.py
++++ b/trade_proj/services/orderflow/metrics.py
+@@ -510,6 +510,13 @@ tick_gap_p95_ms_gauge = _get_or_create_prom_gauge(
+     "tick_gap_p95_ms", "Tick gap p95 (ms)", ["symbol"]
+ )
+ 
++tick_gap_n_gauge = _get_or_create_prom_gauge(
++    "tick_gap_n",
++    "Number of samples currently in TickGapTracker window (used for tick_gap_pXX snapshots)",
++    ["symbol"],
++)
++
++
+ # P2/F: missing-seq EMA signals (0..1) and raw gap events count.
+ book_missing_seq_ema_gauge = _get_or_create_prom_gauge(
+     "book_missing_seq_ema", "EMA of book missing-seq events (0..1)", ["symbol"]
+@@ -525,6 +532,18 @@ tick_missing_seq_events_total = _get_or_create_prom_counter(
+     "tick_missing_seq_events_total", "Count of detected tick sequence gaps", ["symbol"]
+ )
+ 
++dq_level_gauge = _get_or_create_prom_gauge(
++    "dq_level",
++    "Data quality level: 0=OK, 1=SOFT degrade (penalty), 2=HARD degrade (veto-capable)",
++    ["symbol"],
++)
++
++dq_veto_total = _get_or_create_prom_counter(
++    "dq_veto_total",
++    "Number of times DQ entered veto-capable state (edge-triggered per symbol)",
++    ["symbol", "bucket"],
++)
++
+ 
+ # --- LiqMap (liquidation map) metrics ---
+ # Snapshot age is computed as: now_ms - snapshot.ts_ms (from redis payload).
+diff --git a/trade_proj_orig/services/orderflow/runtime.py b/trade_proj/services/orderflow/runtime.py
+index f6fa329..af9e268 100644
+--- a/trade_proj_orig/services/orderflow/runtime.py
++++ b/trade_proj/services/orderflow/runtime.py
+@@ -374,6 +374,13 @@ class SymbolRuntime:
+     last_book_health: str = "OK"
+     last_book_age_ms: int = 0
+ 
++    # Book missing-seq continuity (Binance depthUpdate: U/u).
++    # Updated by BookProcessor.process_book().
++    book_seq_last_u: int = 0
++    book_seq_last_reason: str = "init"
++    book_missing_seq_ema: float = 0.0
++
++
+     # OFInputs V3 circuit breaker cache (P100)
+     of_inputs_v3_disabled_until_ms: int = 0
+     of_inputs_v3_disabled_hard_until_ms: int = 0
+@@ -529,6 +536,11 @@ class SymbolRuntime:
+     # простая телеметрия
+     tick_count: int = 0
+     heartbeat_counter: int = 0
++
++    # Latest DQ gate state (for edge-triggered metrics).
++    dq_level_last: int = 0
++    dq_veto_last: int = 0
++
+     delta_triggers: int = 0
+     signal_count: int = 0
+     
+diff --git a/trade_proj/services/orderflow/tools/preflight_baseline_v1.py b/trade_proj/services/orderflow/tools/preflight_baseline_v1.py
+new file mode 100755
+index 0000000..d8fa212
+--- /dev/null
++++ b/trade_proj/services/orderflow/tools/preflight_baseline_v1.py
+@@ -0,0 +1,217 @@
++#!/usr/bin/env python3
++"""Preflight / baseline snapshot (Step 0).
++
++Goals:
++- фиксируем текущие /metrics (какие метрики отдаются)
++- фиксируем алерты, которые реально грузятся Prometheus (/api/v1/rules)
++- вытаскиваем текущий book-stream path/параметры из docker-compose (best-effort)
++
++This tool is intentionally fail-open: it never raises on network/YAML errors.
++It prints a single JSON document to stdout.
++
++Usage examples:
++  python tick_flow_full/tools/preflight_baseline_v1.py \
++    --metrics-url http://localhost:9100/metrics \
++    --prom-url http://localhost:9090 \
++    --compose ./docker-compose-crypto-orderflow.yml --service binance-worker
++
++Notes:
++- Provide multiple --metrics-url to snapshot several exporters.
++- Compose parsing is heuristic: we look for env keys containing DEPTH/BOOK/STREAM.
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import re
++import sys
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional, Tuple
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++_METRIC_LINE_RE = re.compile(r"^([a-zA-Z_:][a-zA-Z0-9_:]*)")
++
++
++def parse_prometheus_text(text: str) -> Dict[str, int]:
++    """Parse Prometheus text exposition, returning sample-count per metric name.
++
++    We count each sample line (excluding comments and HELP/TYPE lines) as 1.
++    """
++    counts: Dict[str, int] = {}
++    for raw in (text or "").splitlines():
++        if not raw or raw.startswith("#"):
++            continue
++        m = _METRIC_LINE_RE.match(raw)
++        if not m:
++            continue
++        name = m.group(1)
++        counts[name] = counts.get(name, 0) + 1
++    return counts
++
++
++def parse_prom_rules_json(payload: Dict[str, Any]) -> Dict[str, Any]:
++    """Extract loaded rule groups and alert rules from /api/v1/rules JSON."""
++    out: Dict[str, Any] = {"groups": [], "alerts": []}
++    try:
++        data = (payload or {}).get("data") or {}
++        groups = data.get("groups") or []
++        for g in groups:
++            out["groups"].append(
++                {
++                    "name": g.get("name"),
++                    "file": g.get("file"),
++                    "interval": g.get("interval"),
++                    "rules": len(g.get("rules") or []),
++                }
++            )
++            for r in g.get("rules") or []:
++                if r.get("type") != "alerting":
++                    continue
++                out["alerts"].append(
++                    {
++                        "group": g.get("name"),
++                        "name": r.get("name"),
++                        "state": r.get("state"),
++                        "health": r.get("health"),
++                        "duration": r.get("duration"),
++                        "labels": r.get("labels") or {},
++                        "annotations": r.get("annotations") or {},
++                    }
++                )
++    except Exception:
++        return out
++    return out
++
++
++def _http_get(url: str, timeout_s: float = 3.0) -> Tuple[int, str]:
++    """Tiny HTTP GET without external deps."""
++    try:
++        import urllib.request
++
++        req = urllib.request.Request(url, headers={"User-Agent": "trade-preflight/1"})
++        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
++            body = resp.read().decode("utf-8", errors="replace")
++            return int(getattr(resp, "status", 200)), body
++    except Exception as e:
++        return 0, f"{type(e).__name__}: {e}"
++
++
++def _http_get_json(url: str, timeout_s: float = 3.0) -> Tuple[int, Dict[str, Any]]:
++    code, body = _http_get(url, timeout_s=timeout_s)
++    if code == 0:
++        return 0, {"error": body}
++    try:
++        return code, json.loads(body)
++    except Exception as e:
++        return code, {"error": f"json_decode_failed: {type(e).__name__}: {e}", "raw": body[:1000]}
++
++
++def _extract_book_stream_from_compose(compose_path: str, service: Optional[str]) -> Dict[str, Any]:
++    """Best-effort extraction of book/depth stream config from docker-compose."""
++    out: Dict[str, Any] = {"compose_path": compose_path, "service": service, "matches": []}
++    try:
++        import yaml
++
++        data = yaml.safe_load(open(compose_path, "r", encoding="utf-8")) or {}
++        services = (data.get("services") or {})
++        if not services:
++            out["error"] = "no_services"
++            return out
++
++        target_names: List[str] = []
++        if service:
++            if service in services:
++                target_names = [service]
++            else:
++                # allow partial match
++                target_names = [k for k in services.keys() if service in k]
++        else:
++            target_names = list(services.keys())
++
++        def norm_env(env: Any) -> Dict[str, str]:
++            if isinstance(env, dict):
++                return {str(k): str(v) for k, v in env.items()}
++            if isinstance(env, list):
++                outd: Dict[str, str] = {}
++                for item in env:
++                    if not isinstance(item, str) or "=" not in item:
++                        continue
++                    k, v = item.split("=", 1)
++                    outd[str(k)] = str(v)
++                return outd
++            return {}
++
++        keys_hint = ("DEPTH", "BOOK", "STREAM", "WS", "BINANCE")
++        for name in target_names:
++            svc = services.get(name) or {}
++            env = norm_env(svc.get("environment"))
++            matches = []
++            for k, v in env.items():
++                if any(h in k.upper() for h in keys_hint) or any(h in str(v).upper() for h in keys_hint):
++                    matches.append({"key": k, "value": v})
++            if matches:
++                out["matches"].append({"service": name, "env": matches})
++    except Exception as e:
++        out["error"] = f"{type(e).__name__}: {e}"
++    return out
++
++
++def main(argv: Optional[List[str]] = None) -> int:
++    ap = argparse.ArgumentParser(description="trade Step0 preflight baseline snapshot")
++    ap.add_argument("--metrics-url", action="append", default=[], help="Exporter /metrics URL (repeatable)")
++    ap.add_argument("--prom-url", default="", help="Prometheus base URL (e.g. http://localhost:9090)")
++    ap.add_argument("--compose", default="", help="docker-compose.yml path (optional)")
++    ap.add_argument("--service", default="", help="service name in compose (optional)")
++    ap.add_argument("--timeout", type=float, default=3.0, help="HTTP timeout seconds")
++    args = ap.parse_args(argv)
++
++    out: Dict[str, Any] = {
++        "ts_ms": _now_ms(),
++        "metrics": [],
++        "prom_rules": None,
++        "book_stream": None,
++    }
++
++    # 0.1 metrics snapshot
++    for url in args.metrics_url:
++        code, body = _http_get(url, timeout_s=float(args.timeout))
++        if code == 0:
++            out["metrics"].append({"url": url, "ok": False, "error": body})
++            continue
++        counts = parse_prometheus_text(body)
++        out["metrics"].append(
++            {
++                "url": url,
++                "ok": True,
++                "http_status": code,
++                "metric_names": sorted(counts.keys()),
++                "sample_counts": counts,
++                "total_samples": int(sum(counts.values())),
++            }
++        )
++
++    # 0.1 rules snapshot
++    if args.prom_url:
++        base = args.prom_url.rstrip("/")
++        code, payload = _http_get_json(base + "/api/v1/rules", timeout_s=float(args.timeout))
++        if code == 0:
++            out["prom_rules"] = {"ok": False, "error": payload.get("error")}
++        else:
++            out["prom_rules"] = {"ok": True, "http_status": code, **parse_prom_rules_json(payload)}
++
++    # 0.1 book stream config (best-effort)
++    if args.compose:
++        out["book_stream"] = _extract_book_stream_from_compose(args.compose, args.service or None)
++
++    sys.stdout.write(json.dumps(out, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/trade_proj_orig/services/orderflow/utils.py b/trade_proj/services/orderflow/utils.py
+index 0b9d4d0..6e413b5 100644
+--- a/trade_proj_orig/services/orderflow/utils.py
++++ b/trade_proj/services/orderflow/utils.py
+@@ -489,7 +489,12 @@ def _parse_book_payload(payload: Dict[str, Any], symbol: str) -> Dict[str, Any]:
+     return {
+         "symbol": symbol,
+         "ts_ms": ts_ms,
+-        "u": _safe_int(merged.get("u") or merged.get("lastUpdateId")), # Binance specific
++        # Binance: depthUpdate has both firstUpdateId ("U") and lastUpdateId ("u").
++        # Spot depthUpdate: {"U": firstUpdateId, "u": lastUpdateId, ...}
++        # Futures depthUpdate: same keys.
++        # partial depth snapshots (@depth5/@depth10/@depth20) typically do NOT have U/u.
++        "U": _safe_int(merged.get("U") or merged.get("firstUpdateId")),
++        "u": _safe_int(merged.get("u") or merged.get("lastUpdateId")),  # Binance specific
+         "bids": bids,
+         "asks": asks,
+         "written_at": _safe_int(merged.get("written_at")),
+diff --git a/trade_proj/tick_flow_full/__init__.py b/trade_proj/tick_flow_full/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/trade_proj_orig/tick_flow_full/core/of_confirm_engine.py b/trade_proj/tick_flow_full/core/of_confirm_engine.py
+index 7ba3e39..8677438 100644
+--- a/trade_proj_orig/tick_flow_full/core/of_confirm_engine.py
++++ b/trade_proj/tick_flow_full/core/of_confirm_engine.py
+@@ -284,6 +284,8 @@ class OFConfirmEngine:
+         # Replay determinism support
+         self._replay_mode: bool = False
+         self._replay_now_ms: Optional[int] = None
++        # Process uptime reference for rollout gates (ms).
++        self._start_ms: int = int(time.time() * 1000)
+ 
+     @property
+     def ml_gate(self) -> Optional[Any]:
+@@ -580,6 +582,38 @@ class OFConfirmEngine:
+         """Backward-compatible champion loader."""
+         return self._load_meta_model_slot("champion", path, now_ms, reload_sec)
+ 
++    def _should_apply_dq_veto(self, cfg2: dict, dq_meta: dict, now_ms: int) -> bool:
++        """Whether to enforce dq_veto as hard veto.
++
++        Supports observe-only rollout for book_missing_seq_hard:
++          - DQ_BOOK_VETO_ENABLED=0 disables enforcement even if DQ_GATE_MODE=enforce
++          - DQ_BOOK_VETO_WARMUP_S>0 suppresses book veto during initial uptime window
++        """
++        try:
++            dq_components = (dq_meta or {}).get("dq_components") or {}
++            veto_reason = str(dq_components.get("veto_reason") or "")
++        except Exception:
++            veto_reason = ""
++
++        if veto_reason.startswith("book_missing_seq_hard"):
++            try:
++                enabled = int(cfg2.get("dq_book_veto_enabled", 0) or 0) == 1
++            except Exception:
++                enabled = False
++            try:
++                warmup_s = int(cfg2.get("dq_book_veto_warmup_s", 0) or 0)
++            except Exception:
++                warmup_s = 0
++            if warmup_s > 0:
++                start_ms = int(getattr(self, "_start_ms", now_ms) or now_ms)
++                uptime_s = max(0.0, (float(now_ms) - float(start_ms)) / 1000.0)
++                if uptime_s < float(warmup_s):
++                    return False
++            return bool(enabled)
++
++        return True
++
++
+     def build(
+         self,
+         *,
+@@ -1363,9 +1397,11 @@ class OFConfirmEngine:
+         # P14: DQ Gate Veto
+         if dq_veto and str(cfg2.get("dq_gate_mode", "off")).lower() in ("enforce", "both", "veto", "hard"):
+             try:
+-                ok = 0
+-                hard_veto = "dq_gate"
+-                veto_total(self, reason_code=f"dq_{dq_bucket}")
++                # Optional observe-only rollout for book_missing_seq_hard.
++                if self._should_apply_dq_veto(cfg2=cfg2, dq_meta=dq_meta, now_ms=int(now_ms)):
++                    ok = 0
++                    hard_veto = "dq_gate"
++                    veto_total(self, reason_code=f"dq_{dq_bucket}")
+             except Exception:
+                 pass
+ 
+diff --git a/trade_proj_orig/tick_flow_full/services/orderflow/components/book_processor.py b/trade_proj/tick_flow_full/services/orderflow/components/book_processor.py
+index a027258..8606eb7 100644
+--- a/trade_proj_orig/tick_flow_full/services/orderflow/components/book_processor.py
++++ b/trade_proj/tick_flow_full/services/orderflow/components/book_processor.py
+@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
+ from services.orderflow.runtime import SymbolRuntime, BookSnapshot, BookState
+ from services.orderflow.configuration import _safe_int, _safe_float
+ from services.orderflow.metrics import (
+-    log_silent_error, book_rate_ema_gauge, book_rate_z_gauge,
++    log_silent_error, book_missing_seq_events_total, book_rate_ema_gauge, book_rate_z_gauge,
+     of_lob_queue_imbalance_gauge, of_lob_queue_imbalance_mean_gauge,
+     of_lob_queue_imbalance_max_abs_gauge, of_lob_queue_imbalance_slope_gauge,
+     of_lob_micro_mid_div_bps_gauge, of_lob_micro_shift_bps_gauge,
+@@ -48,6 +48,91 @@ class BookProcessor:
+         self.book_churn_z_full = book_churn_z_full
+         self.book_churn_z_hi = book_churn_z_hi
+ 
++    @staticmethod
++    def _ema_update(prev: float, x: float, alpha: float) -> float:
++        """Deterministic EMA update with safe alpha clamping."""
++        try:
++            a = float(alpha)
++        except Exception:
++            a = 0.1
++        if not (0.0 < a <= 1.0):
++            a = 0.1
++        try:
++            p = float(prev)
++        except Exception:
++            p = 0.0
++        try:
++            v = float(x)
++        except Exception:
++            v = 0.0
++        return a * v + (1.0 - a) * p
++
++    def _update_book_missing_seq(self, runtime: SymbolRuntime, book_raw: Dict[str, Any]) -> None:
++        """Update runtime.book_missing_seq_ema using Binance depthUpdate continuity.
++
++        Binance depthUpdate events contain:
++          - U: firstUpdateId for this event
++          - u: lastUpdateId for this event
++
++        If the previous event ended at prev_u, then the next event is continuous iff:
++          U == prev_u + 1
++
++        We model missing updates as a Bernoulli event (gap? 1 : 0) and track its EMA.
++        This keeps the signal bounded [0..1] and stable across symbols.
++
++        Notes:
++        - Partial depth snapshots (@depth5/@depth10/@depth20) usually do not include U/u.
++          In that case we keep book_missing_seq_ema unchanged and set reason=no_seq_fields.
++        - Duplicates / reorder / resets do not count as missing updates.
++        """
++        try:
++            cur_u = int(book_raw.get("u") or 0)
++            cur_U = int(book_raw.get("U") or 0)
++        except Exception:
++            cur_u, cur_U = 0, 0
++
++        prev_u = int(getattr(runtime, "book_seq_last_u", 0) or 0)
++        prev_ema = float(getattr(runtime, "book_missing_seq_ema", 0.0) or 0.0)
++        alpha = float(runtime.config.get("book_missing_seq_ema_alpha", 0.1) or 0.1)
++
++        miss_event = 0.0
++        reason = "init"
++
++        if cur_u <= 0:
++            reason = "no_u"
++        elif cur_U <= 0 or prev_u <= 0:
++            # Can't do continuity check (missing U or first event).
++            reason = "no_seq_fields" if cur_U <= 0 else "init"
++        else:
++            # Continuity check: U should be prev_u + 1.
++            expected_U = prev_u + 1
++            if cur_U == expected_U:
++                reason = "ok"
++            elif cur_U > expected_U:
++                # Gap: missing updates between prev_u and cur_U.
++                miss_event = 1.0
++                reason = "gap"
++                try:
++                    book_missing_seq_events_total.labels(symbol=str(runtime.symbol)).inc()
++                except Exception:
++                    pass
++            else:
++                # cur_U < expected_U -> duplicate / reorder / reset.
++                reason = "reorder_or_reset"
++
++        # Update EMA only if we are able to evaluate (or already have a running EMA).
++        # For no_seq_fields we keep EMA as-is to avoid false positives.
++        if reason in ("ok", "gap", "reorder_or_reset") or prev_ema > 0.0 or prev_u > 0:
++            runtime.book_missing_seq_ema = float(self._ema_update(prev_ema, miss_event, alpha))
++        else:
++            runtime.book_missing_seq_ema = float(prev_ema)
++
++        runtime.book_seq_last_reason = str(reason)
++
++        # Advance last_u only when monotonic; this is robust against duplicates / reorders.
++        if cur_u > prev_u:
++            runtime.book_seq_last_u = int(cur_u)
++
+     def process_book(self, runtime: SymbolRuntime, payload: Dict[str, Any], ingest_ts_ms: int) -> bool:
+         """
+         Processes a raw book payload from Redis stream.
+@@ -68,6 +153,13 @@ class BookProcessor:
+             # Basic timestamps
+             book_ts_ms = _safe_int(book_raw.get("ts_ms") or book_raw.get("ts") or book_raw.get("timestamp") or 0)
+ 
++            # Strict DQ: book missing-seq continuity (Binance depthUpdate U/u)
++            # Fail-open: never break book processing on DQ telemetry.
++            try:
++                self._update_book_missing_seq(runtime, book_raw)
++            except Exception:
++                pass
++
+             # Atomic Snapshot
+             try:
+                 runtime.book_state = BookState(
+diff --git a/trade_proj_orig/tick_flow_full/services/orderflow/components/tick_processor.py b/trade_proj/tick_flow_full/services/orderflow/components/tick_processor.py
+index e7d2d0c..a3ebd47 100644
+--- a/trade_proj_orig/tick_flow_full/services/orderflow/components/tick_processor.py
++++ b/trade_proj/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -68,7 +68,7 @@ from services.orderflow.metrics import (
+     tick_ts_missing_total, tick_ts_backwards_total, tick_ts_clamped_total, tick_ts_quarantined_total,
+     tick_ts_future_total, tick_age_ms_hist, tick_reorder_back_ms_hist, tick_time_action_total,
+     tick_time_decision_total,
+-    burst_active_gauge, burst_flush_total, signals_emitted_total, feature_missing_total, burst_window_ms_gauge, tick_gap_p50_ms_gauge, tick_gap_p95_ms_gauge,
++    burst_active_gauge, burst_flush_total, signals_emitted_total, feature_missing_total, burst_window_ms_gauge, tick_gap_p50_ms_gauge, tick_gap_p95_ms_gauge, dq_veto_total, dq_level_gauge, tick_gap_n_gauge,
+     book_missing_seq_ema_gauge, tick_missing_seq_ema_gauge, tick_missing_seq_events_total,
+     tick_id_gap_events_total, tick_id_dup_events_total, tick_id_reorder_events_total,
+     ticks_out_of_order_total, ticks_side_unknown_total, bars_closed_total, divergence_detected_total,
+@@ -322,6 +322,7 @@ class TickProcessor:
+                     try:
+                         tick_gap_p50_ms_gauge.labels(symbol=str(runtime.symbol)).set(runtime.tick_gap_p50_ms)
+                         tick_gap_p95_ms_gauge.labels(symbol=str(runtime.symbol)).set(runtime.tick_gap_p95_ms)
++                        tick_gap_n_gauge.labels(symbol=str(runtime.symbol)).set(float(tick_gap_n))
+                     except Exception:
+                         pass
+             except Exception:
+@@ -418,6 +419,7 @@ class TickProcessor:
+                 indicators["tick_id_dup"] = int(bool(is_dup))
+                 indicators["tick_id_reorder"] = int(bool(is_reorder))
+                 indicators["tick_seq_last_reason"] = str(getattr(runtime, "tick_seq_last_reason", ""))
++                "book_seq_last_reason": str(getattr(runtime, "book_seq_last_reason", "init")),
+ 
+         except Exception:
+             pass
+@@ -2036,6 +2038,23 @@ class TickProcessor:
+         )
+         t_build_us = int((time.perf_counter_ns() - t_build_ns0) / 1000)
+         indicators["of_build_us"] = int(t_build_us)
++        # ---------------------------------------------------------------
++        # DQ policy v2 telemetry (core/dq_gate_v1.py)
++        # ---------------------------------------------------------------
++        try:
++            dq_level = int(indicators.get("dq_level", 0) or 0)
++            dq_veto = int(indicators.get("dq_veto", 0) or 0)
++            dq_bucket = str(indicators.get("dq_reason_bucket", "na") or "na")
++            dq_level_gauge.labels(symbol=str(runtime.symbol)).set(float(dq_level))
++            # Edge-triggered counter: increment only when we ENTER dq_veto=1.
++            if dq_veto and int(getattr(runtime, "dq_veto_last", 0) or 0) == 0:
++                dq_veto_total.labels(symbol=str(runtime.symbol), bucket=dq_bucket).inc()
++            runtime.dq_level_last = dq_level
++            runtime.dq_veto_last = dq_veto
++        except Exception:
++            # fail-open: DQ telemetry must never break tick path
++            pass
++
+ 
+         # Fill-prob / exec_fill_pen fallback (smoke-check: detect broken wiring)
+         # If OFConfirmEngine already computed these fields, we do NOT override them.
+diff --git a/trade_proj_orig/tick_flow_full/services/orderflow/configuration.py b/trade_proj/tick_flow_full/services/orderflow/configuration.py
+index 1aff024..9549287 100644
+--- a/trade_proj_orig/tick_flow_full/services/orderflow/configuration.py
++++ b/trade_proj/tick_flow_full/services/orderflow/configuration.py
+@@ -91,6 +91,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
+     "tick_buffer": 500,
+     "tick_gap_snapshot_every_n": 500,
+ 
++    # Book missing-seq EMA alpha (Binance depthUpdate continuity by U/u). Default 0.1 ~ 10 updates memory.
++    "book_missing_seq_ema_alpha": _safe_float(os.getenv("BOOK_MISSING_SEQ_EMA_ALPHA", "0.1"), 0.1),
++
++
+     # --- P2/F: Data Quality Gate (DQ) -----------------------------------
+     # Rollout recommendation:
+     #   1) DQ_GATE_ENABLE=1, DQ_GATE_MODE=penalty, DQ_MODE=safe
+@@ -109,6 +113,13 @@ DEFAULT_CONFIG: Dict[str, Any] = {
+     "dq_tick_gap_p95_ms_extreme": _safe_float(os.getenv("DQ_TICK_GAP_P95_MS_EXTREME", "0"), 0.0) or None,
+     "dq_tick_gap_requires_seq": _safe_int(os.getenv("DQ_TICK_GAP_REQUIRES_SEQ", "1"), 1),
+ 
++    # Observe-only rollout: allow disabling HARD veto based on book_missing_seq_ema for first 24–48h.
++    # Even if DQ_GATE_MODE=enforce, book veto will be ignored while dq_book_veto_enabled=0
++    # (or while engine uptime < dq_book_veto_warmup_s, if warmup is set).
++    "dq_book_veto_enabled": _safe_int(os.getenv("DQ_BOOK_VETO_ENABLED", "0"), 0),
++    "dq_book_veto_warmup_s": _safe_int(os.getenv("DQ_BOOK_VETO_WARMUP_S", "0"), 0),
++
++
+     "dq_tick_missing_seq_ema_soft": _safe_float(os.getenv("DQ_TICK_MISSING_SEQ_EMA_SOFT", "0"), 0.0) or None,
+     "dq_tick_missing_seq_ema_hard": _safe_float(os.getenv("DQ_TICK_MISSING_SEQ_EMA_HARD", "0"), 0.0) or None,
+     "dq_book_missing_seq_ema_soft": _safe_float(os.getenv("DQ_BOOK_MISSING_SEQ_EMA_SOFT", "0"), 0.0) or None,
+diff --git a/trade_proj_orig/tick_flow_full/services/orderflow/metrics.py b/trade_proj/tick_flow_full/services/orderflow/metrics.py
+index fd1d8fe..050cc99 100644
+--- a/trade_proj_orig/tick_flow_full/services/orderflow/metrics.py
++++ b/trade_proj/tick_flow_full/services/orderflow/metrics.py
+@@ -498,6 +498,13 @@ tick_gap_p95_ms_gauge = _get_or_create_prom_gauge(
+     "tick_gap_p95_ms", "Tick gap p95 (ms)", ["symbol"]
+ )
+ 
++tick_gap_n_gauge = _get_or_create_prom_gauge(
++    "tick_gap_n",
++    "Number of samples currently in TickGapTracker window (used for tick_gap_pXX snapshots)",
++    ["symbol"],
++)
++
++
+ # P2/F: missing-seq EMA signals (0..1) and raw gap events count.
+ book_missing_seq_ema_gauge = _get_or_create_prom_gauge(
+     "book_missing_seq_ema", "EMA of book missing-seq events (0..1)", ["symbol"]
+@@ -513,6 +520,18 @@ tick_missing_seq_events_total = _get_or_create_prom_counter(
+     "tick_missing_seq_events_total", "Count of detected tick sequence gaps", ["symbol"]
+ )
+ 
++dq_level_gauge = _get_or_create_prom_gauge(
++    "dq_level",
++    "Data quality level: 0=OK, 1=SOFT degrade (penalty), 2=HARD degrade (veto-capable)",
++    ["symbol"],
++)
++
++dq_veto_total = _get_or_create_prom_counter(
++    "dq_veto_total",
++    "Number of times DQ entered veto-capable state (edge-triggered per symbol)",
++    ["symbol", "bucket"],
++)
++
+ # P2/F: trade_id ordering issue breakdown (diagnostic; GAP is already covered by tick_missing_seq_events_total).
+ tick_id_gap_events_total = _get_or_create_prom_counter(
+     "tick_id_gap_events_total", "Count of tick trade_id gaps (tid > last_tid+1)", ["symbol"]
+diff --git a/trade_proj_orig/tick_flow_full/services/orderflow/runtime.py b/trade_proj/tick_flow_full/services/orderflow/runtime.py
+index f6fa329..af9e268 100644
+--- a/trade_proj_orig/tick_flow_full/services/orderflow/runtime.py
++++ b/trade_proj/tick_flow_full/services/orderflow/runtime.py
+@@ -374,6 +374,13 @@ class SymbolRuntime:
+     last_book_health: str = "OK"
+     last_book_age_ms: int = 0
+ 
++    # Book missing-seq continuity (Binance depthUpdate: U/u).
++    # Updated by BookProcessor.process_book().
++    book_seq_last_u: int = 0
++    book_seq_last_reason: str = "init"
++    book_missing_seq_ema: float = 0.0
++
++
+     # OFInputs V3 circuit breaker cache (P100)
+     of_inputs_v3_disabled_until_ms: int = 0
+     of_inputs_v3_disabled_hard_until_ms: int = 0
+@@ -529,6 +536,11 @@ class SymbolRuntime:
+     # простая телеметрия
+     tick_count: int = 0
+     heartbeat_counter: int = 0
++
++    # Latest DQ gate state (for edge-triggered metrics).
++    dq_level_last: int = 0
++    dq_veto_last: int = 0
++
+     delta_triggers: int = 0
+     signal_count: int = 0
+     
+diff --git a/trade_proj_orig/tick_flow_full/services/orderflow/utils.py b/trade_proj/tick_flow_full/services/orderflow/utils.py
+index dd9ff3d..cf3211b 100644
+--- a/trade_proj_orig/tick_flow_full/services/orderflow/utils.py
++++ b/trade_proj/tick_flow_full/services/orderflow/utils.py
+@@ -557,7 +557,12 @@ def _parse_book_payload(payload: Dict[str, Any], symbol: str) -> Dict[str, Any]:
+         "symbol": symbol,
+         "ts_ms": ts_ms,
+         "event_ts_ms": ts_ms,
+-        "u": _safe_int(merged.get("u") or merged.get("lastUpdateId")), # Binance specific
++        # Binance: depthUpdate has both firstUpdateId ("U") and lastUpdateId ("u").
++        # Spot depthUpdate: {"U": firstUpdateId, "u": lastUpdateId, ...}
++        # Futures depthUpdate: same keys.
++        # partial depth snapshots (@depth5/@depth10/@depth20) typically do NOT have U/u.
++        "U": _safe_int(merged.get("U") or merged.get("firstUpdateId")),
++        "u": _safe_int(merged.get("u") or merged.get("lastUpdateId")),  # Binance specific
+         "bids": bids,
+         "asks": asks,
+         "written_at": _safe_int(merged.get("written_at")),
+diff --git a/trade_proj/tick_flow_full/tests/core/test_of_confirm_engine_book_veto_rollout_v1.py b/trade_proj/tick_flow_full/tests/core/test_of_confirm_engine_book_veto_rollout_v1.py
+new file mode 100644
+index 0000000..f3f1449
+--- /dev/null
++++ b/trade_proj/tick_flow_full/tests/core/test_of_confirm_engine_book_veto_rollout_v1.py
+@@ -0,0 +1,32 @@
++import pytest
++
++
++try:
++    from tick_flow_full.core.of_confirm_engine import OFConfirmEngine
++except Exception as e:  # pragma: no cover
++    pytest.skip(
++        f"OFConfirmEngine unit test skipped (import failed): {type(e).__name__}: {e}",
++        allow_module_level=True,
++    )
++
++
++def test_book_missing_seq_hard_veto_suppressed_when_disabled():
++    eng = OFConfirmEngine()
++    cfg2 = {"dq_book_veto_enabled": 0, "dq_book_veto_warmup_s": 0}
++    dq_meta = {"dq_components": {"veto_reason": "book_missing_seq_hard"}}
++    assert eng._should_apply_dq_veto(cfg2=cfg2, dq_meta=dq_meta, now_ms=eng._start_ms + 10_000) is False
++
++
++def test_book_missing_seq_hard_veto_allowed_when_enabled_and_warmup_passed():
++    eng = OFConfirmEngine()
++    cfg2 = {"dq_book_veto_enabled": 1, "dq_book_veto_warmup_s": 0}
++    dq_meta = {"dq_components": {"veto_reason": "book_missing_seq_hard"}}
++    assert eng._should_apply_dq_veto(cfg2=cfg2, dq_meta=dq_meta, now_ms=eng._start_ms + 1_000) is True
++
++
++def test_book_missing_seq_hard_veto_suppressed_during_warmup():
++    eng = OFConfirmEngine()
++    eng._start_ms = 1_000_000
++    cfg2 = {"dq_book_veto_enabled": 1, "dq_book_veto_warmup_s": 3600}
++    dq_meta = {"dq_components": {"veto_reason": "book_missing_seq_hard"}}
++    assert eng._should_apply_dq_veto(cfg2=cfg2, dq_meta=dq_meta, now_ms=1_000_000 + 1_000) is False
+diff --git a/trade_proj/tick_flow_full/tests/services/orderflow/test_book_missing_seq_v1.py b/trade_proj/tick_flow_full/tests/services/orderflow/test_book_missing_seq_v1.py
+new file mode 100644
+index 0000000..1e47fda
+--- /dev/null
++++ b/trade_proj/tick_flow_full/tests/services/orderflow/test_book_missing_seq_v1.py
+@@ -0,0 +1,62 @@
++import pytest
++
++try:
++    # Repo uses mixed absolute imports inside mirrors; some optional deps may be absent
++    # in minimal CI environments. Skip if import graph isn't available.
++    from tick_flow_full.services.orderflow.components.book_processor import BookProcessor
++    from tick_flow_full.services.orderflow.runtime import SymbolRuntime
++except Exception as e:  # pragma: no cover
++    pytest.skip(
++        f"book_missing_seq unit test skipped (import failed): {type(e).__name__}: {e}",
++        allow_module_level=True,
++    )
++
++
++def _mk_bp():
++    return BookProcessor(
++        base_threshold_bps=20.0,
++        wall_normalize_bps=50.0,
++        churn_fast=0.2,
++        churn_slow=0.05,
++        churn_slow_threshold=0.1,
++        book_churn_z_lo=-2.0,
++        book_churn_z_hi=2.0,
++    )
++
++
++def test_book_missing_seq_ema_gap_detected_and_ema_updates():
++    bp = _mk_bp()
++    rt = SymbolRuntime(symbol="BTCUSDT", config={"book_missing_seq_ema_alpha": 0.1})
++
++    # First event: no prev_u => init
++    bp._update_book_missing_seq(rt, {"U": 100, "u": 110})
++    assert rt.book_seq_last_u == 110
++    assert rt.book_missing_seq_ema == 0.0
++
++    # Continuous event: U == prev_u + 1
++    bp._update_book_missing_seq(rt, {"U": 111, "u": 120})
++    assert rt.book_seq_last_reason == "ok"
++    assert rt.book_missing_seq_ema == 0.0
++
++    # Gap event: U jumps
++    bp._update_book_missing_seq(rt, {"U": 130, "u": 140})
++    assert rt.book_seq_last_reason == "gap"
++    assert abs(rt.book_missing_seq_ema - 0.1) < 1e-9
++
++    # Next continuous: EMA decays
++    bp._update_book_missing_seq(rt, {"U": 141, "u": 150})
++    assert rt.book_seq_last_reason == "ok"
++    assert abs(rt.book_missing_seq_ema - 0.09) < 1e-9
++
++
++def test_book_missing_seq_reorder_does_not_advance_last_u():
++    bp = _mk_bp()
++    rt = SymbolRuntime(symbol="BTCUSDT", config={"book_missing_seq_ema_alpha": 0.5})
++
++    bp._update_book_missing_seq(rt, {"U": 100, "u": 110})
++    assert rt.book_seq_last_u == 110
++
++    # Out-of-order / duplicate: u does not advance.
++    bp._update_book_missing_seq(rt, {"U": 90, "u": 95})
++    assert rt.book_seq_last_reason in ("reorder_or_reset", "no_seq_fields", "init")
++    assert rt.book_seq_last_u == 110
+diff --git a/trade_proj/tick_flow_full/tests/tools/test_preflight_baseline_v1.py b/trade_proj/tick_flow_full/tests/tools/test_preflight_baseline_v1.py
+new file mode 100644
+index 0000000..6c85a31
+--- /dev/null
++++ b/trade_proj/tick_flow_full/tests/tools/test_preflight_baseline_v1.py
+@@ -0,0 +1,51 @@
++import json
++
++from tick_flow_full.tools.preflight_baseline_v1 import parse_prometheus_text, parse_prom_rules_json
++
++
++def test_parse_prometheus_text_counts_samples():
++    sample = """
++# HELP foo_bar Some help
++# TYPE foo_bar counter
++foo_bar{a=\"1\"} 10
++foo_bar{a=\"2\"} 11
++# TYPE baz gauge
++baz 1
++baz{label=\"x\"} 2
++"""
++    counts = parse_prometheus_text(sample)
++    assert counts["foo_bar"] == 2
++    assert counts["baz"] == 2
++
++
++def test_parse_prom_rules_json_extracts_alert_rules():
++    payload = {
++        "status": "success",
++        "data": {
++            "groups": [
++                {
++                    "name": "g1",
++                    "file": "/etc/prom/rules.yml",
++                    "interval": 15,
++                    "rules": [
++                        {
++                            "name": "A1",
++                            "type": "alerting",
++                            "state": "inactive",
++                            "health": "ok",
++                            "duration": 0,
++                            "labels": {"severity": "warn"},
++                            "annotations": {"summary": "x"},
++                        },
++                        {"name": "R1", "type": "recording"},
++                    ],
++                }
++            ]
++        },
++    }
++    out = parse_prom_rules_json(payload)
++    assert len(out["groups"]) == 1
++    assert out["groups"][0]["name"] == "g1"
++    assert len(out["alerts"]) == 1
++    assert out["alerts"][0]["name"] == "A1"
++    assert out["alerts"][0]["labels"]["severity"] == "warn"
+diff --git a/trade_proj/tick_flow_full/tools/__init__.py b/trade_proj/tick_flow_full/tools/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/trade_proj/tick_flow_full/tools/preflight_baseline_v1.py b/trade_proj/tick_flow_full/tools/preflight_baseline_v1.py
+new file mode 100755
+index 0000000..d8fa212
+--- /dev/null
++++ b/trade_proj/tick_flow_full/tools/preflight_baseline_v1.py
+@@ -0,0 +1,217 @@
++#!/usr/bin/env python3
++"""Preflight / baseline snapshot (Step 0).
++
++Goals:
++- фиксируем текущие /metrics (какие метрики отдаются)
++- фиксируем алерты, которые реально грузятся Prometheus (/api/v1/rules)
++- вытаскиваем текущий book-stream path/параметры из docker-compose (best-effort)
++
++This tool is intentionally fail-open: it never raises on network/YAML errors.
++It prints a single JSON document to stdout.
++
++Usage examples:
++  python tick_flow_full/tools/preflight_baseline_v1.py \
++    --metrics-url http://localhost:9100/metrics \
++    --prom-url http://localhost:9090 \
++    --compose ./docker-compose-crypto-orderflow.yml --service binance-worker
++
++Notes:
++- Provide multiple --metrics-url to snapshot several exporters.
++- Compose parsing is heuristic: we look for env keys containing DEPTH/BOOK/STREAM.
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import re
++import sys
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional, Tuple
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++_METRIC_LINE_RE = re.compile(r"^([a-zA-Z_:][a-zA-Z0-9_:]*)")
++
++
++def parse_prometheus_text(text: str) -> Dict[str, int]:
++    """Parse Prometheus text exposition, returning sample-count per metric name.
++
++    We count each sample line (excluding comments and HELP/TYPE lines) as 1.
++    """
++    counts: Dict[str, int] = {}
++    for raw in (text or "").splitlines():
++        if not raw or raw.startswith("#"):
++            continue
++        m = _METRIC_LINE_RE.match(raw)
++        if not m:
++            continue
++        name = m.group(1)
++        counts[name] = counts.get(name, 0) + 1
++    return counts
++
++
++def parse_prom_rules_json(payload: Dict[str, Any]) -> Dict[str, Any]:
++    """Extract loaded rule groups and alert rules from /api/v1/rules JSON."""
++    out: Dict[str, Any] = {"groups": [], "alerts": []}
++    try:
++        data = (payload or {}).get("data") or {}
++        groups = data.get("groups") or []
++        for g in groups:
++            out["groups"].append(
++                {
++                    "name": g.get("name"),
++                    "file": g.get("file"),
++                    "interval": g.get("interval"),
++                    "rules": len(g.get("rules") or []),
++                }
++            )
++            for r in g.get("rules") or []:
++                if r.get("type") != "alerting":
++                    continue
++                out["alerts"].append(
++                    {
++                        "group": g.get("name"),
++                        "name": r.get("name"),
++                        "state": r.get("state"),
++                        "health": r.get("health"),
++                        "duration": r.get("duration"),
++                        "labels": r.get("labels") or {},
++                        "annotations": r.get("annotations") or {},
++                    }
++                )
++    except Exception:
++        return out
++    return out
++
++
++def _http_get(url: str, timeout_s: float = 3.0) -> Tuple[int, str]:
++    """Tiny HTTP GET without external deps."""
++    try:
++        import urllib.request
++
++        req = urllib.request.Request(url, headers={"User-Agent": "trade-preflight/1"})
++        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
++            body = resp.read().decode("utf-8", errors="replace")
++            return int(getattr(resp, "status", 200)), body
++    except Exception as e:
++        return 0, f"{type(e).__name__}: {e}"
++
++
++def _http_get_json(url: str, timeout_s: float = 3.0) -> Tuple[int, Dict[str, Any]]:
++    code, body = _http_get(url, timeout_s=timeout_s)
++    if code == 0:
++        return 0, {"error": body}
++    try:
++        return code, json.loads(body)
++    except Exception as e:
++        return code, {"error": f"json_decode_failed: {type(e).__name__}: {e}", "raw": body[:1000]}
++
++
++def _extract_book_stream_from_compose(compose_path: str, service: Optional[str]) -> Dict[str, Any]:
++    """Best-effort extraction of book/depth stream config from docker-compose."""
++    out: Dict[str, Any] = {"compose_path": compose_path, "service": service, "matches": []}
++    try:
++        import yaml
++
++        data = yaml.safe_load(open(compose_path, "r", encoding="utf-8")) or {}
++        services = (data.get("services") or {})
++        if not services:
++            out["error"] = "no_services"
++            return out
++
++        target_names: List[str] = []
++        if service:
++            if service in services:
++                target_names = [service]
++            else:
++                # allow partial match
++                target_names = [k for k in services.keys() if service in k]
++        else:
++            target_names = list(services.keys())
++
++        def norm_env(env: Any) -> Dict[str, str]:
++            if isinstance(env, dict):
++                return {str(k): str(v) for k, v in env.items()}
++            if isinstance(env, list):
++                outd: Dict[str, str] = {}
++                for item in env:
++                    if not isinstance(item, str) or "=" not in item:
++                        continue
++                    k, v = item.split("=", 1)
++                    outd[str(k)] = str(v)
++                return outd
++            return {}
++
++        keys_hint = ("DEPTH", "BOOK", "STREAM", "WS", "BINANCE")
++        for name in target_names:
++            svc = services.get(name) or {}
++            env = norm_env(svc.get("environment"))
++            matches = []
++            for k, v in env.items():
++                if any(h in k.upper() for h in keys_hint) or any(h in str(v).upper() for h in keys_hint):
++                    matches.append({"key": k, "value": v})
++            if matches:
++                out["matches"].append({"service": name, "env": matches})
++    except Exception as e:
++        out["error"] = f"{type(e).__name__}: {e}"
++    return out
++
++
++def main(argv: Optional[List[str]] = None) -> int:
++    ap = argparse.ArgumentParser(description="trade Step0 preflight baseline snapshot")
++    ap.add_argument("--metrics-url", action="append", default=[], help="Exporter /metrics URL (repeatable)")
++    ap.add_argument("--prom-url", default="", help="Prometheus base URL (e.g. http://localhost:9090)")
++    ap.add_argument("--compose", default="", help="docker-compose.yml path (optional)")
++    ap.add_argument("--service", default="", help="service name in compose (optional)")
++    ap.add_argument("--timeout", type=float, default=3.0, help="HTTP timeout seconds")
++    args = ap.parse_args(argv)
++
++    out: Dict[str, Any] = {
++        "ts_ms": _now_ms(),
++        "metrics": [],
++        "prom_rules": None,
++        "book_stream": None,
++    }
++
++    # 0.1 metrics snapshot
++    for url in args.metrics_url:
++        code, body = _http_get(url, timeout_s=float(args.timeout))
++        if code == 0:
++            out["metrics"].append({"url": url, "ok": False, "error": body})
++            continue
++        counts = parse_prometheus_text(body)
++        out["metrics"].append(
++            {
++                "url": url,
++                "ok": True,
++                "http_status": code,
++                "metric_names": sorted(counts.keys()),
++                "sample_counts": counts,
++                "total_samples": int(sum(counts.values())),
++            }
++        )
++
++    # 0.1 rules snapshot
++    if args.prom_url:
++        base = args.prom_url.rstrip("/")
++        code, payload = _http_get_json(base + "/api/v1/rules", timeout_s=float(args.timeout))
++        if code == 0:
++            out["prom_rules"] = {"ok": False, "error": payload.get("error")}
++        else:
++            out["prom_rules"] = {"ok": True, "http_status": code, **parse_prom_rules_json(payload)}
++
++    # 0.1 book stream config (best-effort)
++    if args.compose:
++        out["book_stream"] = _extract_book_stream_from_compose(args.compose, args.service or None)
++
++    sys.stdout.write(json.dumps(out, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())

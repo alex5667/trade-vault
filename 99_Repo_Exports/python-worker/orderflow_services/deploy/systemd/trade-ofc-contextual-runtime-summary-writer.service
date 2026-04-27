@@ -1,0 +1,14 @@
+[Unit]
+Description=OFC contextual runtime summary writer v1
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/ofc-contextual-runtime-summary-writer-v1
+WorkingDirectory=${TRADE_REPO_ROOT}
+ExecStart=/usr/bin/env python3 -m orderflow_services.ofc_contextual_runtime_summary_writer_v1
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

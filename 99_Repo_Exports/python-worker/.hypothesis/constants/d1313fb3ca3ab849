@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/analyze_trade_closed_ndjson.py
+# hypothesis_version: 6.148.10
+
+[-1.0, 0.1, 0.9, 1.0, 2.0, '--in', '--out', '__main__', 'frac_R_ge_1', 'frac_R_ge_2', 'frac_R_le_neg1', 'indicators', 'input_file', 'mean_r', 'median_r', 'n', 'of_confirm_ok', 'of_confirm_v3', 'ok', 'output_file', 'p10_r', 'p90_r', 'r', 'r_mult', 'scenario', 'stats', 'strong_gate_scn', 'unknown', 'utf-8', 'w', 'winrate']

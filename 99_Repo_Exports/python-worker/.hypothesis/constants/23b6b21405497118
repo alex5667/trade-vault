@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/smoke_tick_side_quality.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.5, 0.95, 0.99, 1.0, 1000.0, 3600.0, 20000, 60000, '+', '-', '--hours', '--limit', '--max-ts-skew-ms', '--output', '--quarantine-stream', '--redis-url', '--ticks-stream', '60000', 'E', 'Output format', 'REDIS_URL', 'Skew threshold', 'TICKS_STREAM', 'Ticks stream name', '__main__', 'abs_now_event_lag', 'by_side', 'by_side_conf', 'by_symbol_top', 'by_ts_source', 'count', 'event_ts_ms', 'hours', 'json', 'max_ms', 'min_ms', 'missing', 'missing_event_ts', 'n', 'now_ms', 'p50_ms', 'p95_ms', 'p99_ms', 'pretty', 'quarantine_by_reason', 'quarantine_count', 'quarantine_error', 'quarantine_stream', 'reason', 'replace', 's', 'side', 'side_conf', 'stream_ms', 'symbol', 'threshold_ms', 'ticks', 'ticks_stream', 'ts_ms', 'ts_source', 'utf-8', 'window']

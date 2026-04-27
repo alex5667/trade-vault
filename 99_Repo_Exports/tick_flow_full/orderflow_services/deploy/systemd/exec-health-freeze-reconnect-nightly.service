@@ -1,0 +1,17 @@
+[Unit]
+Description=ExecHealth nightly reconnect chaos smoke
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/exec-health-freeze-reconnect-nightly
+WorkingDirectory=/opt/scanner_infra
+ExecStart=/opt/scanner_infra/orderflow_services/deploy/systemd/run-exec-health-freeze-reconnect-nightly-v1.sh
+Nice=10
+IOSchedulingClass=best-effort
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=multi-user.target

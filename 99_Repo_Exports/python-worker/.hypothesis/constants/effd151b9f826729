@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/check_ml_confirm_stream_health.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.2, 0.3, 0.95, 1000, '+', '-', '--count', '--json', '--max_stale_ms', '--redis_url', '--stream', '120000', '500', ';', 'REDIS_URL', 'TB_REDIS_URL', '[', ']', '__main__', 'abstain', 'abstain_rate', 'allow', 'allow_rate', 'conf', 'confidence', 'empty_stream', 'err', 'err_rate', 'err_rate>0.20', 'error', 'fail', 'json', 'lat_ms', 'latency', 'latency_ms', 'metrics:ml_confirm', 'missing_n', 'n', 'nan', 'ok', 'p', 'p_edge', 'p_edge_zero_rate', 'payload', 'reason', 'replace', 'st', 'stale_ms', 'status', 'status_counts', 'store_true', 't_ms', 'ts', 'ts_ms', 'ts_s', 'unknown', 'utf-8', '{', '}']

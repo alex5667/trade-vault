@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic trade execution auto-unquarantine
+
+[Timer]
+OnBootSec=3m
+OnUnitActiveSec=10m
+Unit=trade-execution-auto-unquarantine.service
+
+[Install]
+WantedBy=timers.target

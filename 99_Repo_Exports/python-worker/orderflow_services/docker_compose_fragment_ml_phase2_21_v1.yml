@@ -1,0 +1,31 @@
+services:
+  scanner-operator-routing-incident-route-rca-routing-controller-v2-21:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    command: ["python", "-m", "orderflow_services.operator_routing_incident_route_rca_routing_controller_v2_21"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_PORT:-9906}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_MODE: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_MODE:-DRY_RUN}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_PROVIDER: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_PROVIDER:-vertex}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_MODEL: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_MODEL:-gemini-2.5-flash-lite}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_PROMPT_VERSION: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_PROMPT_VERSION:-routing_incident_route_rca_v1}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_POLICY_VERSION: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_POLICY_VERSION:-policy_v1}
+    ports:
+      - "${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_PORT:-9906}:9906"
+    networks:
+      - scanner-network
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9906/metrics >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 384M

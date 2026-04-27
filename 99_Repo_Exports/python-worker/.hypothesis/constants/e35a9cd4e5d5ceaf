@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/matplotlib/_constrained_layout.py
+# hypothesis_version: 6.148.10
+
+['_autopos', '_parent', '_subplot_spec', 'anchor', 'aspect', 'auto', 'bottom', 'bottomcb', 'figlb', 'fraction', 'get_subplotspec', 'gridspec', 'hasgrids', 'hspace', 'left', 'leftcb', 'location', 'pad', 'panellb', 'parents', 'right', 'rightcb', 'shrink', 'top', 'topcb']

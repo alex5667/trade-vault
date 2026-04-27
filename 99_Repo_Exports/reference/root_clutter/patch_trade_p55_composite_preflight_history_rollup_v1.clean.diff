@@ -1,0 +1,1104 @@
+--- a/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
++++ b/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
+@@ -36,3 +36,18 @@
+ STRATEGY_RESEARCH_GUARD_MAX_AGE_SEC=129600
+ STRATEGY_RESEARCH_GUARD_FAIL_CLOSED_MISSING=1
+ STRATEGY_RESEARCH_GUARD_PREFLIGHT_ALLOW_STAGE=1
++
++ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT=1
++ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT=1
++LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT_FAIL_CLOSED_MISSING=1
++ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM=ops:orchestration:preflight:v1
++ORCHESTRATION_PREFLIGHT_STATE_PREFIX=metrics:orchestration:preflight:last
++ORCHESTRATION_PREFLIGHT_STATE_TTL_S=172800
++ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PORT=9837
++ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_INTERVAL_S=15
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORT_PATH=/var/lib/node_exporter/textfile_collector/orchestration_composite_preflight_history.prom
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_PURPOSES=latency_contract_sensitive_apply,conf_score_guardrails_apply,conf_score_guardrails_promote,meta_cov_rollout_controller,conf_score_guardrails_autopromo_controller
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_MAX_SCAN=200000
++ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORTER=1
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_TIMEOUT_S=90
++
+--- a/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
++++ b/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
+@@ -36,3 +36,18 @@
+ STRATEGY_RESEARCH_GUARD_MAX_AGE_SEC=129600
+ STRATEGY_RESEARCH_GUARD_FAIL_CLOSED_MISSING=1
+ STRATEGY_RESEARCH_GUARD_PREFLIGHT_ALLOW_STAGE=1
++
++ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT=1
++ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT=1
++LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT_FAIL_CLOSED_MISSING=1
++ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM=ops:orchestration:preflight:v1
++ORCHESTRATION_PREFLIGHT_STATE_PREFIX=metrics:orchestration:preflight:last
++ORCHESTRATION_PREFLIGHT_STATE_TTL_S=172800
++ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PORT=9837
++ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_INTERVAL_S=15
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORT_PATH=/var/lib/node_exporter/textfile_collector/orchestration_composite_preflight_history.prom
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_PURPOSES=latency_contract_sensitive_apply,conf_score_guardrails_apply,conf_score_guardrails_promote,meta_cov_rollout_controller,conf_score_guardrails_autopromo_controller
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_MAX_SCAN=200000
++ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORTER=1
++ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_TIMEOUT_S=90
++
+--- a/services/of_timers_worker.py
++++ b/services/of_timers_worker.py
+@@ -21,6 +21,7 @@
+   - Archive retention+manifest: daily at 03:40
+   - Edge-stack dataset build: daily at 03:50
+   - Feature selection loop (importance+stability): daily at 04:02
++  - Composite preflight history rollup export: hourly at :49
+   - Strategy research guard (PSR/DSR/PBO/CSCV): daily at 04:35
+   - Confidence cal live health: hourly at :45 minutes
+   - P99 OFInputs DLQ DB drilldown: hourly at :46 minutes
+@@ -1850,6 +1851,66 @@
+         "ml_analysis.tools.nightly_strategy_research_guard_bundle_v1",
+         timeout=int(os.getenv("STRATEGY_RESEARCH_GUARD_TIMEOUT_S", "1800")),
+     )
++
++
++def run_orchestration_composite_preflight_history_exporter() -> bool:
++    """P5.5: Export composite preflight 24h/7d history rollups to textfile collector.
++
++    This is intentionally a textfile collector job instead of another HTTP exporter:
++      - history windows are naturally periodic, not high-frequency point-in-time state
++      - node_exporter can scrape the last successful rollup atomically
++      - bounded labels allow safe SLO views by purpose/source/reason_code
++
++    Guards:
++      - ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORTER=1
++      - module may be overridden through ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORTER_MODULE
++    """
++    enabled = os.getenv("ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORTER", "0")
++    if str(enabled).lower() not in ("1", "true", "yes", "on"):
++        return True
++
++    module = os.getenv(
++        "ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORTER_MODULE",
++        "orderflow_services.orchestration_composite_preflight_history_exporter_v1",
++    )
++    timeout_s = int(os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_TIMEOUT_S", "90"))
++
++    env = os.environ.copy()
++    env.setdefault(
++        "ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORT_PATH",
++        "/var/lib/node_exporter/textfile_collector/orchestration_composite_preflight_history.prom",
++    )
++
++    try:
++        cmd = [sys.executable, "-m", module]
++        result = subprocess.run(
++            cmd,
++            cwd="/app",
++            capture_output=True,
++            text=True,
++            timeout=timeout_s,
++            env=env,
++        )
++        if result.returncode != 0:
++            logger.error(
++                "orchestration_composite_preflight_history_exporter failed rc=%s stdout=%s stderr=%s",
++                result.returncode,
++                (result.stdout or "")[:2000],
++                (result.stderr or "")[:2000],
++            )
++            return False
++        if result.stdout:
++            logger.info("orchestration_composite_preflight_history_exporter: %s", result.stdout.strip())
++        return True
++    except (ImportError, ModuleNotFoundError):
++        logger.warning("orchestration_composite_preflight_history_exporter module missing; skip phased rollout")
++        return True
++    except subprocess.TimeoutExpired:
++        logger.error("orchestration_composite_preflight_history_exporter timeout after %ss", timeout_s)
++        return False
++    except Exception as exc:
++        logger.error("orchestration_composite_preflight_history_exporter error: %s", exc)
++        return False
+ 
+ 
+ def run_edge_stack_shadow_eval() -> bool:
+@@ -3076,6 +3137,15 @@
+                     run_feature_denylist_proposal_exporter()
+                     last_run["feature_denylist_exporter"] = now.timestamp()
+ 
++            # P5.5: Hourly:49 orchestration composite preflight history exporter
++            # Writes node_exporter textfile rollup for 24h/7d block/invalid frequency by
++            # purpose/source/reason_code. Guarded by ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORTER=1.
++            if minute >= 49 and minute < 50:
++                last = last_run.get("orchestration_composite_preflight_history_exporter", 0)
++                if now.timestamp() - last > 3500:
++                    run_orchestration_composite_preflight_history_exporter()
++                    last_run["orchestration_composite_preflight_history_exporter"] = now.timestamp()
++
+             # P98: Hourly:57 OFInputs DLQ+quarantine → Postgres/Timescale archiver
+             # Guarded by ENABLE_OF_INPUTS_DLQ_DB_ARCHIVE_P98=1
+             if minute >= 57 and minute < 58:
+--- a/orderflow_services/grafana/orchestration_composite_preflight_history_p55.json
++++ b/orderflow_services/grafana/orchestration_composite_preflight_history_p55.json
+@@ -0,0 +1,73 @@
++{
++  "annotations": {"list": []},
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "id": null,
++  "links": [],
++  "panels": [
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {}, "overrides": []},
++      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
++      "id": 1,
++      "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "single"}},
++      "targets": [
++        {"expr": "orchestration_composite_preflight_history_block_ratio{window=\"24h\"}", "legendFormat": "{{purpose}} block_ratio 24h", "refId": "A"},
++        {"expr": "orchestration_composite_preflight_history_invalid_ratio{window=\"24h\"}", "legendFormat": "{{purpose}} invalid_ratio 24h", "refId": "B"}
++      ],
++      "title": "24h block/invalid ratio by purpose",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {}, "overrides": []},
++      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
++      "id": 2,
++      "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "single"}},
++      "targets": [
++        {"expr": "sum by (purpose, selected_reason_code) (orchestration_composite_preflight_history_events_total{window=\"24h\", decision_status=~\"block|invalid\"})", "legendFormat": "{{purpose}} {{selected_reason_code}}", "refId": "A"}
++      ],
++      "title": "24h block/invalid frequency by reason",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {}, "overrides": []},
++      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
++      "id": 3,
++      "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "single"}},
++      "targets": [
++        {"expr": "orchestration_composite_preflight_history_total{window=\"24h\"}", "legendFormat": "{{purpose}} total 24h", "refId": "A"},
++        {"expr": "orchestration_composite_preflight_history_total{window=\"7d\"}", "legendFormat": "{{purpose}} total 7d", "refId": "B"}
++      ],
++      "title": "Decision volume by purpose",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {}, "overrides": []},
++      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
++      "id": 4,
++      "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "single"}},
++      "targets": [
++        {"expr": "orchestration_composite_preflight_history_window_complete", "legendFormat": "{{window}} complete", "refId": "A"},
++        {"expr": "orchestration_composite_preflight_history_stream_oldest_age_seconds", "legendFormat": "{{window}} oldest_age_s", "refId": "B"}
++      ],
++      "title": "History coverage / retention health",
++      "type": "timeseries"
++    }
++  ],
++  "refresh": "30s",
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": ["trade", "orchestration", "preflight", "history", "p55"],
++  "templating": {"list": []},
++  "time": {"from": "now-7d", "to": "now"},
++  "timepicker": {},
++  "timezone": "browser",
++  "title": "Orchestration Composite Preflight History P55",
++  "uid": "orchestration-composite-preflight-history-p55",
++  "version": 1,
++  "weekStart": ""
++}
+--- a/orderflow_services/orchestration_composite_preflight_history_exporter_v1.py
++++ b/orderflow_services/orchestration_composite_preflight_history_exporter_v1.py
+@@ -0,0 +1,329 @@
++from __future__ import annotations
++
++"""Node-exporter textfile exporter for orchestration composite preflight history (P5.5).
++
++Reads the unified orchestration preflight audit stream and rolls it into bounded
++history metrics for the last 24h / 7d. The goal is to make *frequency* of
++block/invalid decisions observable, not only the current point-in-time state.
++
++Design notes
++------------
++- The exporter uses the existing audit stream emitted by
++  ``orchestration_composite_preflight_v1``.
++- Labels remain bounded via the same reason normalization logic used by the
++  live exporter from P5.4.
++- Output is written atomically to a node_exporter textfile collector path.
++- Window completeness is exposed explicitly so 7d SLO views do not silently use
++  partial history if the Redis stream retention is shorter than the requested
++  window.
++"""
++
++import os
++import time
++from collections import Counter, defaultdict
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any, Dict, Iterable, Iterator, List, Mapping, Tuple
++
++from orderflow_services.orchestration_composite_preflight_exporter_v1 import (
++    ALLOWED_PURPOSES,
++    KNOWN_REASON_CODES,
++    KNOWN_SOURCES,
++    KNOWN_STATUSES,
++    normalize_reason_code,
++)
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++
++WINDOWS_SECONDS: Dict[str, int] = {
++    '24h': 24 * 60 * 60,
++    '7d': 7 * 24 * 60 * 60,
++}
++
++
++@dataclass(frozen=True)
++class HistoryEvent:
++    purpose: str
++    status: str
++    source: str
++    reason_code: str
++    ts_ms: int
++
++
++@dataclass(frozen=True)
++class WindowSummary:
++    window: str
++    complete: float
++    oldest_age_seconds: float
++    scanned_events: float
++    total_events: float
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _i(value: Any, default: int = 0) -> int:
++    try:
++        return int(float(value))
++    except Exception:
++        return int(default)
++
++
++def _parse_csv(raw: str, fallback: Iterable[str]) -> List[str]:
++    values = [v.strip() for v in str(raw or '').split(',') if v.strip()]
++    if not values:
++        return list(fallback)
++    out: List[str] = []
++    seen: set[str] = set()
++    for value in values:
++        if value in seen:
++            continue
++        seen.add(value)
++        out.append(value)
++    return out
++
++
++def _redis_client():
++    if redis is None:
++        return None
++    try:
++        return redis.Redis.from_url(_env('REDIS_URL', 'redis://redis-worker-1:6379/0'), decode_responses=True)
++    except Exception:
++        return None
++
++
++def _iter_stream_range(client: Any, stream_key: str, min_id: str, *, max_count: int) -> Iterator[Tuple[str, Mapping[str, str]]]:
++    remaining = max(0, int(max_count))
++    cursor = min_id
++    while remaining > 0:
++        batch_n = min(1000, remaining)
++        try:
++            chunk = client.xrange(stream_key, min=cursor, max='+', count=batch_n)
++        except Exception:
++            return
++        if not chunk:
++            return
++        for entry_id, payload in chunk:
++            yield str(entry_id), payload if isinstance(payload, Mapping) else {}
++            remaining -= 1
++            if remaining <= 0:
++                return
++            cursor = f'({entry_id}'
++
++
++def _stream_oldest_ts_ms(client: Any, stream_key: str) -> int:
++    try:
++        chunk = client.xrange(stream_key, min='-', max='+', count=1)
++    except Exception:
++        return 0
++    if not chunk:
++        return 0
++    entry_id, payload = chunk[0]
++    try:
++        return int(str(payload.get('ts_ms') or str(entry_id).split('-', 1)[0]))
++    except Exception:
++        return 0
++
++
++def parse_event(payload: Mapping[str, str], *, entry_id: str) -> HistoryEvent | None:
++    purpose = str(payload.get('purpose') or '').strip()
++    if purpose not in ALLOWED_PURPOSES:
++        return None
++
++    status = str(payload.get('decision_status') or '').strip() or 'invalid'
++    if status not in KNOWN_STATUSES:
++        status = 'invalid'
++
++    source = str(payload.get('selected_source') or '').strip() or 'none'
++    if source not in KNOWN_SOURCES:
++        source = 'none'
++
++    reason_code = normalize_reason_code(source, str(payload.get('selected_reason_code') or payload.get('selected_reason') or ''))
++    if reason_code not in KNOWN_REASON_CODES:
++        reason_code = f'{source}:other' if source != 'none' else 'none:ok'
++
++    try:
++        ts_ms = int(str(payload.get('ts_ms') or str(entry_id).split('-', 1)[0]))
++    except Exception:
++        return None
++
++    return HistoryEvent(
++        purpose=purpose,
++        status=status,
++        source=source,
++        reason_code=reason_code,
++        ts_ms=ts_ms,
++    )
++
++
++def aggregate_events(
++    events: Iterable[HistoryEvent],
++    *,
++    now_ms: int,
++    windows: Mapping[str, int] = WINDOWS_SECONDS,
++) -> tuple[Dict[tuple[str, str, str, str, str], int], Dict[tuple[str, str], int], Dict[str, int]]:
++    counts: Dict[tuple[str, str, str, str, str], int] = Counter()
++    totals: Dict[tuple[str, str], int] = Counter()
++    scanned: Dict[str, int] = Counter()
++
++    for event in events:
++        age_s = max(0.0, (now_ms - event.ts_ms) / 1000.0)
++        for window, seconds in windows.items():
++            if age_s <= float(seconds):
++                counts[(window, event.purpose, event.source, event.status, event.reason_code)] += 1
++                totals[(window, event.purpose)] += 1
++                scanned[window] += 1
++    return counts, totals, scanned
++
++
++def compute_window_summaries(client: Any, stream_key: str, *, now_ms: int, scanned: Mapping[str, int], windows: Mapping[str, int] = WINDOWS_SECONDS) -> Dict[str, WindowSummary]:
++    oldest_ts_ms = _stream_oldest_ts_ms(client, stream_key)
++    oldest_age_seconds = 0.0
++    if oldest_ts_ms > 0:
++        oldest_age_seconds = max(0.0, (now_ms - oldest_ts_ms) / 1000.0)
++
++    out: Dict[str, WindowSummary] = {}
++    for window, seconds in windows.items():
++        complete = 1.0 if oldest_ts_ms > 0 and oldest_ts_ms <= (now_ms - seconds * 1000) else 0.0
++        if oldest_ts_ms == 0:
++            complete = 0.0
++        out[window] = WindowSummary(
++            window=window,
++            complete=complete,
++            oldest_age_seconds=oldest_age_seconds,
++            scanned_events=float(scanned.get(window, 0)),
++            total_events=float(scanned.get(window, 0)),
++        )
++    return out
++
++
++def _metric(name: str, labels: Mapping[str, str] | None, value: float) -> str:
++    if labels:
++        joined = ','.join(f'{k}="{v}"' for k, v in labels.items())
++        return f'{name}{{{joined}}} {value}\n'
++    return f'{name} {value}\n'
++
++
++def render_metrics(
++    counts: Mapping[tuple[str, str, str, str, str], int],
++    totals: Mapping[tuple[str, str], int],
++    window_summaries: Mapping[str, WindowSummary],
++    *,
++    purposes: Iterable[str],
++    scan_truncated: float = 0.0,
++    windows: Mapping[str, int] = WINDOWS_SECONDS,
++) -> str:
++    purposes = list(purposes)
++    lines: List[str] = []
++    lines.append('# HELP orchestration_composite_preflight_history_events_total Composite preflight events in the requested history window\n')
++    lines.append('# TYPE orchestration_composite_preflight_history_events_total gauge\n')
++    for window in windows:
++        for purpose in purposes:
++            for source in KNOWN_SOURCES:
++                for status in KNOWN_STATUSES:
++                    for reason_code in KNOWN_REASON_CODES:
++                        value = float(counts.get((window, purpose, source, status, reason_code), 0))
++                        if value <= 0.0:
++                            continue
++                        lines.append(_metric(
++                            'orchestration_composite_preflight_history_events_total',
++                            {
++                                'window': window,
++                                'purpose': purpose,
++                                'selected_source': source,
++                                'decision_status': status,
++                                'selected_reason_code': reason_code,
++                            },
++                            value,
++                        ))
++
++    lines.append('# HELP orchestration_composite_preflight_history_total Total composite preflight decisions in the requested history window\n')
++    lines.append('# TYPE orchestration_composite_preflight_history_total gauge\n')
++    for window in windows:
++        for purpose in purposes:
++            lines.append(_metric(
++                'orchestration_composite_preflight_history_total',
++                {'window': window, 'purpose': purpose},
++                float(totals.get((window, purpose), 0)),
++            ))
++
++    lines.append('# HELP orchestration_composite_preflight_history_block_ratio Share of decisions ending in block within the requested history window\n')
++    lines.append('# TYPE orchestration_composite_preflight_history_block_ratio gauge\n')
++    lines.append('# HELP orchestration_composite_preflight_history_invalid_ratio Share of decisions ending in invalid within the requested history window\n')
++    lines.append('# TYPE orchestration_composite_preflight_history_invalid_ratio gauge\n')
++    for window in windows:
++        for purpose in purposes:
++            total = float(totals.get((window, purpose), 0))
++            block_n = 0.0
++            invalid_n = 0.0
++            for source in KNOWN_SOURCES:
++                for reason_code in KNOWN_REASON_CODES:
++                    block_n += float(counts.get((window, purpose, source, 'block', reason_code), 0))
++                    invalid_n += float(counts.get((window, purpose, source, 'invalid', reason_code), 0))
++            block_ratio = (block_n / total) if total > 0 else 0.0
++            invalid_ratio = (invalid_n / total) if total > 0 else 0.0
++            lines.append(_metric('orchestration_composite_preflight_history_block_ratio', {'window': window, 'purpose': purpose}, block_ratio))
++            lines.append(_metric('orchestration_composite_preflight_history_invalid_ratio', {'window': window, 'purpose': purpose}, invalid_ratio))
++
++    lines.append('# HELP orchestration_composite_preflight_history_window_complete 1 when Redis stream retention fully covers the requested history window\n')
++    lines.append('# TYPE orchestration_composite_preflight_history_window_complete gauge\n')
++    lines.append('# HELP orchestration_composite_preflight_history_stream_oldest_age_seconds Age of oldest available stream event\n')
++    lines.append('# TYPE orchestration_composite_preflight_history_stream_oldest_age_seconds gauge\n')
++    lines.append('# HELP orchestration_composite_preflight_history_scanned_events Number of stream events that landed inside the requested window during the latest export run\n')
++    lines.append('# TYPE orchestration_composite_preflight_history_scanned_events gauge\n')
++    lines.append('# HELP orchestration_composite_preflight_history_scan_truncated 1 when exporter hit MAX_SCAN and history may be partial even if stream retention is long enough\n')
++    lines.append('# TYPE orchestration_composite_preflight_history_scan_truncated gauge\n')
++    for window, summary in window_summaries.items():
++        lines.append(_metric('orchestration_composite_preflight_history_window_complete', {'window': window}, summary.complete))
++        lines.append(_metric('orchestration_composite_preflight_history_stream_oldest_age_seconds', {'window': window}, summary.oldest_age_seconds))
++        lines.append(_metric('orchestration_composite_preflight_history_scanned_events', {'window': window}, summary.scanned_events))
++        lines.append(_metric('orchestration_composite_preflight_history_scan_truncated', {'window': window}, scan_truncated))
++
++    generated_ts = float(int(time.time()))
++    lines.append('# HELP orchestration_composite_preflight_history_last_export_unixtime Last successful history export time\n')
++    lines.append('# TYPE orchestration_composite_preflight_history_last_export_unixtime gauge\n')
++    lines.append(_metric('orchestration_composite_preflight_history_last_export_unixtime', None, generated_ts))
++
++    return ''.join(lines)
++
++
++def export_history_textfile() -> int:
++    stream_key = _env('ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM', 'ops:orchestration:preflight:v1')
++    export_path = Path(_env('ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORT_PATH', '/var/lib/node_exporter/textfile_collector/orchestration_composite_preflight_history.prom')).expanduser().resolve()
++    purposes = _parse_csv(_env('ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_PURPOSES', ','.join(ALLOWED_PURPOSES)), ALLOWED_PURPOSES)
++    max_scan = max(1000, _i(_env('ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_MAX_SCAN', '200000'), 200000))
++
++    client = _redis_client()
++    if client is None:
++        raise SystemExit('redis_unavailable')
++
++    now_ms = int(time.time() * 1000)
++    earliest_cutoff_ms = now_ms - (max(WINDOWS_SECONDS.values()) * 1000)
++    events: List[HistoryEvent] = []
++    for entry_id, payload in _iter_stream_range(client, stream_key, f'{earliest_cutoff_ms}-0', max_count=max_scan):
++        event = parse_event(payload, entry_id=entry_id)
++        if event is None:
++            continue
++        if event.purpose not in purposes:
++            continue
++        events.append(event)
++
++    counts, totals, scanned = aggregate_events(events, now_ms=now_ms)
++    window_summaries = compute_window_summaries(client, stream_key, now_ms=now_ms, scanned=scanned)
++    scan_truncated = 1.0 if len(events) >= max_scan else 0.0
++    body = render_metrics(counts, totals, window_summaries, purposes=purposes, scan_truncated=scan_truncated)
++
++    export_path.parent.mkdir(parents=True, exist_ok=True)
++    tmp_path = export_path.with_suffix(export_path.suffix + '.tmp')
++    tmp_path.write_text(body, encoding='utf-8')
++    tmp_path.replace(export_path)
++    return 0
++
++
++if __name__ == '__main__':
++    raise SystemExit(export_history_textfile())
+--- a/orderflow_services/prometheus_alerts_orchestration_composite_preflight_history_p55.yml
++++ b/orderflow_services/prometheus_alerts_orchestration_composite_preflight_history_p55.yml
+@@ -0,0 +1,42 @@
++groups:
++  - name: trade-orchestration-composite-preflight-history-p55
++    rules:
++      - alert: TradeOrchestrationCompositePreflightHistoryWindowIncomplete7dWarn
++        expr: orchestration_composite_preflight_history_window_complete{window="7d"} < 1
++        for: 30m
++        labels:
++          severity: warning
++          component: orchestration-composite-preflight-history
++        annotations:
++          summary: "Composite preflight history 7d window incomplete"
++          description: "Redis stream retention does not fully cover the requested 7d orchestration preflight history window. SLO views may be partial."
++
++      - alert: TradeOrchestrationCompositePreflightBlockRatioHigh24h
++        expr: orchestration_composite_preflight_history_block_ratio{window="24h"} > 0.10 and orchestration_composite_preflight_history_total{window="24h"} >= 20
++        for: 20m
++        labels:
++          severity: warning
++          component: orchestration-composite-preflight-history
++        annotations:
++          summary: "Composite preflight block ratio high over 24h"
++          description: "Purpose {{ $labels.purpose }} has block_ratio > 10% over the last 24h with at least 20 orchestration decisions."
++
++      - alert: TradeOrchestrationCompositePreflightInvalidRatioHigh24h
++        expr: orchestration_composite_preflight_history_invalid_ratio{window="24h"} > 0.03 and orchestration_composite_preflight_history_total{window="24h"} >= 20
++        for: 20m
++        labels:
++          severity: critical
++          component: orchestration-composite-preflight-history
++        annotations:
++          summary: "Composite preflight invalid ratio high over 24h"
++          description: "Purpose {{ $labels.purpose }} has invalid_ratio > 3% over the last 24h with at least 20 orchestration decisions."
++      - alert: TradeOrchestrationCompositePreflightHistoryScanTruncatedWarn
++        expr: orchestration_composite_preflight_history_scan_truncated > 0
++        for: 15m
++        labels:
++          severity: warning
++          component: orchestration-composite-preflight-history
++        annotations:
++          summary: "Composite preflight history scan hit MAX_SCAN"
++          description: "History exporter reached ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_MAX_SCAN. Rollup windows may be partial even if stream retention is long enough."
++
+--- a/orderflow_services/tests/test_orchestration_composite_preflight_history_exporter_compile_v1.py
++++ b/orderflow_services/tests/test_orchestration_composite_preflight_history_exporter_compile_v1.py
+@@ -0,0 +1,8 @@
++from __future__ import annotations
++
++import py_compile
++
++
++def test_compile_history_exporters() -> None:
++    py_compile.compile('orderflow_services/orchestration_composite_preflight_history_exporter_v1.py', doraise=True)
++    py_compile.compile('tick_flow_full/orderflow_services/orchestration_composite_preflight_history_exporter_v1.py', doraise=True)
+--- a/orderflow_services/tests/test_orchestration_composite_preflight_history_exporter_v1.py
++++ b/orderflow_services/tests/test_orchestration_composite_preflight_history_exporter_v1.py
+@@ -0,0 +1,106 @@
++from __future__ import annotations
++
++from pathlib import Path
++
++from orderflow_services.orchestration_composite_preflight_history_exporter_v1 import (
++    HistoryEvent,
++    WINDOWS_SECONDS,
++    aggregate_events,
++    compute_window_summaries,
++    export_history_textfile,
++    parse_event,
++    render_metrics,
++)
++
++
++class FakeRedis:
++    def __init__(self, events):
++        self._events = events
++
++    def xrange(self, stream_key, min='-', max='+', count=None):
++        items = self._events
++        if min not in ('-', None):
++            exclusive = str(min).startswith('(')
++            token = str(min)[1:] if exclusive else str(min)
++            items = [item for item in items if (item[0] > token if exclusive else item[0] >= token)]
++        if max not in ('+', None):
++            items = [item for item in items if item[0] <= str(max)]
++        if count is not None:
++            items = items[: int(count)]
++        return items
++
++
++def test_parse_event_normalizes_reason_code() -> None:
++    event = parse_event(
++        {
++            'purpose': 'conf_score_guardrails_promote',
++            'decision_status': 'block',
++            'selected_source': 'research_guard',
++            'selected_reason_code': 'strange_runtime_problem',
++            'ts_ms': '1000',
++        },
++        entry_id='1000-0',
++    )
++    assert event is not None
++    assert event.reason_code == 'research_guard:other'
++
++
++def test_aggregate_events_counts_24h_and_7d() -> None:
++    now_ms = 8 * 24 * 60 * 60 * 1000
++    events = [
++        HistoryEvent('conf_score_guardrails_promote', 'block', 'deploy_lint', 'deploy_lint:persistent_config_drift', now_ms - 2 * 60 * 60 * 1000),
++        HistoryEvent('conf_score_guardrails_promote', 'invalid', 'research_guard', 'research_guard:report_stale', now_ms - 2 * 24 * 60 * 60 * 1000),
++    ]
++    counts, totals, scanned = aggregate_events(events, now_ms=now_ms)
++    assert counts[('24h', 'conf_score_guardrails_promote', 'deploy_lint', 'block', 'deploy_lint:persistent_config_drift')] == 1
++    assert ('24h', 'conf_score_guardrails_promote', 'research_guard', 'invalid', 'research_guard:report_stale') not in counts
++    assert counts[('7d', 'conf_score_guardrails_promote', 'research_guard', 'invalid', 'research_guard:report_stale')] == 1
++    assert totals[('24h', 'conf_score_guardrails_promote')] == 1
++    assert totals[('7d', 'conf_score_guardrails_promote')] == 2
++    assert scanned['24h'] == 1
++    assert scanned['7d'] == 2
++
++
++def test_compute_window_summaries_reports_incomplete_history() -> None:
++    now_ms = 10 * 24 * 60 * 60 * 1000
++    fake = FakeRedis([
++        ('518400000-0', {'ts_ms': str(6 * 24 * 60 * 60 * 1000)}),
++    ])
++    summaries = compute_window_summaries(fake, 'ops:orchestration:preflight:v1', now_ms=now_ms, scanned={'24h': 1, '7d': 2})
++    assert summaries['24h'].complete == 1.0
++    assert summaries['7d'].complete == 0.0
++
++
++def test_export_history_textfile_writes_metrics(monkeypatch, tmp_path: Path) -> None:
++    now_ms = 9 * 24 * 60 * 60 * 1000
++    events = [
++        ('777599000-0', {
++            'ts_ms': str(now_ms - 1000),
++            'purpose': 'conf_score_guardrails_promote',
++            'decision_status': 'block',
++            'selected_source': 'deploy_lint',
++            'selected_reason_code': 'deploy_lint:persistent_config_drift',
++        }),
++        ('86400000-0', {
++            'ts_ms': str(now_ms - 8 * 24 * 60 * 60 * 1000),
++            'purpose': 'conf_score_guardrails_promote',
++            'decision_status': 'block',
++            'selected_source': 'deploy_lint',
++            'selected_reason_code': 'deploy_lint:persistent_config_drift',
++        }),
++    ]
++    fake = FakeRedis(events)
++    out = tmp_path / 'orchestration_composite_preflight_history.prom'
++
++    monkeypatch.setenv('ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORT_PATH', str(out))
++    monkeypatch.setenv('ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_PURPOSES', 'conf_score_guardrails_promote')
++    monkeypatch.setenv('ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_MAX_SCAN', '100')
++    monkeypatch.setattr('orderflow_services.orchestration_composite_preflight_history_exporter_v1._redis_client', lambda: fake)
++    monkeypatch.setattr('time.time', lambda: now_ms / 1000.0)
++
++    assert export_history_textfile() == 0
++    body = out.read_text()
++    assert 'orchestration_composite_preflight_history_events_total{window="24h",purpose="conf_score_guardrails_promote",selected_source="deploy_lint",decision_status="block",selected_reason_code="deploy_lint:persistent_config_drift"} 1.0' in body
++    assert 'orchestration_composite_preflight_history_total{window="7d",purpose="conf_score_guardrails_promote"} 1.0' in body
++    assert 'orchestration_composite_preflight_history_scan_truncated{window="24h"} 0.0' in body
++    assert 'orchestration_composite_preflight_history_window_complete{window="7d"} 1.0' in body or 'orchestration_composite_preflight_history_window_complete{window="7d"} 0.0' in body
+--- a/orderflow_services/tests/test_orchestration_composite_preflight_history_p55_assets_v1.py
++++ b/orderflow_services/tests/test_orchestration_composite_preflight_history_p55_assets_v1.py
+@@ -0,0 +1,16 @@
++from __future__ import annotations
++
++from pathlib import Path
++
++
++def test_p55_assets_exist() -> None:
++    root = Path('orderflow_services')
++    assert (root / 'prometheus_alerts_orchestration_composite_preflight_history_p55.yml').exists()
++    assert (root / 'grafana' / 'orchestration_composite_preflight_history_p55.json').exists()
++    assert (root / 'orchestration_composite_preflight_history_exporter_v1.py').exists()
++
++
++def test_p55_timer_integration_present() -> None:
++    body = Path('services/of_timers_worker.py').read_text(encoding='utf-8')
++    assert 'run_orchestration_composite_preflight_history_exporter' in body
++    assert 'ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORTER' in body
+--- a/tick_flow_full/orderflow_services/orchestration_composite_preflight_history_exporter_v1.py
++++ b/tick_flow_full/orderflow_services/orchestration_composite_preflight_history_exporter_v1.py
+@@ -0,0 +1,329 @@
++from __future__ import annotations
++
++"""Node-exporter textfile exporter for orchestration composite preflight history (P5.5).
++
++Reads the unified orchestration preflight audit stream and rolls it into bounded
++history metrics for the last 24h / 7d. The goal is to make *frequency* of
++block/invalid decisions observable, not only the current point-in-time state.
++
++Design notes
++------------
++- The exporter uses the existing audit stream emitted by
++  ``orchestration_composite_preflight_v1``.
++- Labels remain bounded via the same reason normalization logic used by the
++  live exporter from P5.4.
++- Output is written atomically to a node_exporter textfile collector path.
++- Window completeness is exposed explicitly so 7d SLO views do not silently use
++  partial history if the Redis stream retention is shorter than the requested
++  window.
++"""
++
++import os
++import time
++from collections import Counter, defaultdict
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any, Dict, Iterable, Iterator, List, Mapping, Tuple
++
++from orderflow_services.orchestration_composite_preflight_exporter_v1 import (
++    ALLOWED_PURPOSES,
++    KNOWN_REASON_CODES,
++    KNOWN_SOURCES,
++    KNOWN_STATUSES,
++    normalize_reason_code,
++)
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++
++WINDOWS_SECONDS: Dict[str, int] = {
++    '24h': 24 * 60 * 60,
++    '7d': 7 * 24 * 60 * 60,
++}
++
++
++@dataclass(frozen=True)
++class HistoryEvent:
++    purpose: str
++    status: str
++    source: str
++    reason_code: str
++    ts_ms: int
++
++
++@dataclass(frozen=True)
++class WindowSummary:
++    window: str
++    complete: float
++    oldest_age_seconds: float
++    scanned_events: float
++    total_events: float
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _i(value: Any, default: int = 0) -> int:
++    try:
++        return int(float(value))
++    except Exception:
++        return int(default)
++
++
++def _parse_csv(raw: str, fallback: Iterable[str]) -> List[str]:
++    values = [v.strip() for v in str(raw or '').split(',') if v.strip()]
++    if not values:
++        return list(fallback)
++    out: List[str] = []
++    seen: set[str] = set()
++    for value in values:
++        if value in seen:
++            continue
++        seen.add(value)
++        out.append(value)
++    return out
++
++
++def _redis_client():
++    if redis is None:
++        return None
++    try:
++        return redis.Redis.from_url(_env('REDIS_URL', 'redis://redis-worker-1:6379/0'), decode_responses=True)
++    except Exception:
++        return None
++
++
++def _iter_stream_range(client: Any, stream_key: str, min_id: str, *, max_count: int) -> Iterator[Tuple[str, Mapping[str, str]]]:
++    remaining = max(0, int(max_count))
++    cursor = min_id
++    while remaining > 0:
++        batch_n = min(1000, remaining)
++        try:
++            chunk = client.xrange(stream_key, min=cursor, max='+', count=batch_n)
++        except Exception:
++            return
++        if not chunk:
++            return
++        for entry_id, payload in chunk:
++            yield str(entry_id), payload if isinstance(payload, Mapping) else {}
++            remaining -= 1
++            if remaining <= 0:
++                return
++            cursor = f'({entry_id}'
++
++
++def _stream_oldest_ts_ms(client: Any, stream_key: str) -> int:
++    try:
++        chunk = client.xrange(stream_key, min='-', max='+', count=1)
++    except Exception:
++        return 0
++    if not chunk:
++        return 0
++    entry_id, payload = chunk[0]
++    try:
++        return int(str(payload.get('ts_ms') or str(entry_id).split('-', 1)[0]))
++    except Exception:
++        return 0
++
++
++def parse_event(payload: Mapping[str, str], *, entry_id: str) -> HistoryEvent | None:
++    purpose = str(payload.get('purpose') or '').strip()
++    if purpose not in ALLOWED_PURPOSES:
++        return None
++
++    status = str(payload.get('decision_status') or '').strip() or 'invalid'
++    if status not in KNOWN_STATUSES:
++        status = 'invalid'
++
++    source = str(payload.get('selected_source') or '').strip() or 'none'
++    if source not in KNOWN_SOURCES:
++        source = 'none'
++
++    reason_code = normalize_reason_code(source, str(payload.get('selected_reason_code') or payload.get('selected_reason') or ''))
++    if reason_code not in KNOWN_REASON_CODES:
++        reason_code = f'{source}:other' if source != 'none' else 'none:ok'
++
++    try:
++        ts_ms = int(str(payload.get('ts_ms') or str(entry_id).split('-', 1)[0]))
++    except Exception:
++        return None
++
++    return HistoryEvent(
++        purpose=purpose,
++        status=status,
++        source=source,
++        reason_code=reason_code,
++        ts_ms=ts_ms,
++    )
++
++
++def aggregate_events(
++    events: Iterable[HistoryEvent],
++    *,
++    now_ms: int,
++    windows: Mapping[str, int] = WINDOWS_SECONDS,
++) -> tuple[Dict[tuple[str, str, str, str, str], int], Dict[tuple[str, str], int], Dict[str, int]]:
++    counts: Dict[tuple[str, str, str, str, str], int] = Counter()
++    totals: Dict[tuple[str, str], int] = Counter()
++    scanned: Dict[str, int] = Counter()
++
++    for event in events:
++        age_s = max(0.0, (now_ms - event.ts_ms) / 1000.0)
++        for window, seconds in windows.items():
++            if age_s <= float(seconds):
++                counts[(window, event.purpose, event.source, event.status, event.reason_code)] += 1
++                totals[(window, event.purpose)] += 1
++                scanned[window] += 1
++    return counts, totals, scanned
++
++
++def compute_window_summaries(client: Any, stream_key: str, *, now_ms: int, scanned: Mapping[str, int], windows: Mapping[str, int] = WINDOWS_SECONDS) -> Dict[str, WindowSummary]:
++    oldest_ts_ms = _stream_oldest_ts_ms(client, stream_key)
++    oldest_age_seconds = 0.0
++    if oldest_ts_ms > 0:
++        oldest_age_seconds = max(0.0, (now_ms - oldest_ts_ms) / 1000.0)
++
++    out: Dict[str, WindowSummary] = {}
++    for window, seconds in windows.items():
++        complete = 1.0 if oldest_ts_ms > 0 and oldest_ts_ms <= (now_ms - seconds * 1000) else 0.0
++        if oldest_ts_ms == 0:
++            complete = 0.0
++        out[window] = WindowSummary(
++            window=window,
++            complete=complete,
++            oldest_age_seconds=oldest_age_seconds,
++            scanned_events=float(scanned.get(window, 0)),
++            total_events=float(scanned.get(window, 0)),
++        )
++    return out
++
++
++def _metric(name: str, labels: Mapping[str, str] | None, value: float) -> str:
++    if labels:
++        joined = ','.join(f'{k}="{v}"' for k, v in labels.items())
++        return f'{name}{{{joined}}} {value}\n'
++    return f'{name} {value}\n'
++
++
++def render_metrics(
++    counts: Mapping[tuple[str, str, str, str, str], int],
++    totals: Mapping[tuple[str, str], int],
++    window_summaries: Mapping[str, WindowSummary],
++    *,
++    purposes: Iterable[str],
++    scan_truncated: float = 0.0,
++    windows: Mapping[str, int] = WINDOWS_SECONDS,
++) -> str:
++    purposes = list(purposes)
++    lines: List[str] = []
++    lines.append('# HELP orchestration_composite_preflight_history_events_total Composite preflight events in the requested history window\n')
++    lines.append('# TYPE orchestration_composite_preflight_history_events_total gauge\n')
++    for window in windows:
++        for purpose in purposes:
++            for source in KNOWN_SOURCES:
++                for status in KNOWN_STATUSES:
++                    for reason_code in KNOWN_REASON_CODES:
++                        value = float(counts.get((window, purpose, source, status, reason_code), 0))
++                        if value <= 0.0:
++                            continue
++                        lines.append(_metric(
++                            'orchestration_composite_preflight_history_events_total',
++                            {
++                                'window': window,
++                                'purpose': purpose,
++                                'selected_source': source,
++                                'decision_status': status,
++                                'selected_reason_code': reason_code,
++                            },
++                            value,
++                        ))
++
++    lines.append('# HELP orchestration_composite_preflight_history_total Total composite preflight decisions in the requested history window\n')
++    lines.append('# TYPE orchestration_composite_preflight_history_total gauge\n')
++    for window in windows:
++        for purpose in purposes:
++            lines.append(_metric(
++                'orchestration_composite_preflight_history_total',
++                {'window': window, 'purpose': purpose},
++                float(totals.get((window, purpose), 0)),
++            ))
++
++    lines.append('# HELP orchestration_composite_preflight_history_block_ratio Share of decisions ending in block within the requested history window\n')
++    lines.append('# TYPE orchestration_composite_preflight_history_block_ratio gauge\n')
++    lines.append('# HELP orchestration_composite_preflight_history_invalid_ratio Share of decisions ending in invalid within the requested history window\n')
++    lines.append('# TYPE orchestration_composite_preflight_history_invalid_ratio gauge\n')
++    for window in windows:
++        for purpose in purposes:
++            total = float(totals.get((window, purpose), 0))
++            block_n = 0.0
++            invalid_n = 0.0
++            for source in KNOWN_SOURCES:
++                for reason_code in KNOWN_REASON_CODES:
++                    block_n += float(counts.get((window, purpose, source, 'block', reason_code), 0))
++                    invalid_n += float(counts.get((window, purpose, source, 'invalid', reason_code), 0))
++            block_ratio = (block_n / total) if total > 0 else 0.0
++            invalid_ratio = (invalid_n / total) if total > 0 else 0.0
++            lines.append(_metric('orchestration_composite_preflight_history_block_ratio', {'window': window, 'purpose': purpose}, block_ratio))
++            lines.append(_metric('orchestration_composite_preflight_history_invalid_ratio', {'window': window, 'purpose': purpose}, invalid_ratio))
++
++    lines.append('# HELP orchestration_composite_preflight_history_window_complete 1 when Redis stream retention fully covers the requested history window\n')
++    lines.append('# TYPE orchestration_composite_preflight_history_window_complete gauge\n')
++    lines.append('# HELP orchestration_composite_preflight_history_stream_oldest_age_seconds Age of oldest available stream event\n')
++    lines.append('# TYPE orchestration_composite_preflight_history_stream_oldest_age_seconds gauge\n')
++    lines.append('# HELP orchestration_composite_preflight_history_scanned_events Number of stream events that landed inside the requested window during the latest export run\n')
++    lines.append('# TYPE orchestration_composite_preflight_history_scanned_events gauge\n')
++    lines.append('# HELP orchestration_composite_preflight_history_scan_truncated 1 when exporter hit MAX_SCAN and history may be partial even if stream retention is long enough\n')
++    lines.append('# TYPE orchestration_composite_preflight_history_scan_truncated gauge\n')
++    for window, summary in window_summaries.items():
++        lines.append(_metric('orchestration_composite_preflight_history_window_complete', {'window': window}, summary.complete))
++        lines.append(_metric('orchestration_composite_preflight_history_stream_oldest_age_seconds', {'window': window}, summary.oldest_age_seconds))
++        lines.append(_metric('orchestration_composite_preflight_history_scanned_events', {'window': window}, summary.scanned_events))
++        lines.append(_metric('orchestration_composite_preflight_history_scan_truncated', {'window': window}, scan_truncated))
++
++    generated_ts = float(int(time.time()))
++    lines.append('# HELP orchestration_composite_preflight_history_last_export_unixtime Last successful history export time\n')
++    lines.append('# TYPE orchestration_composite_preflight_history_last_export_unixtime gauge\n')
++    lines.append(_metric('orchestration_composite_preflight_history_last_export_unixtime', None, generated_ts))
++
++    return ''.join(lines)
++
++
++def export_history_textfile() -> int:
++    stream_key = _env('ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM', 'ops:orchestration:preflight:v1')
++    export_path = Path(_env('ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORT_PATH', '/var/lib/node_exporter/textfile_collector/orchestration_composite_preflight_history.prom')).expanduser().resolve()
++    purposes = _parse_csv(_env('ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_PURPOSES', ','.join(ALLOWED_PURPOSES)), ALLOWED_PURPOSES)
++    max_scan = max(1000, _i(_env('ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_MAX_SCAN', '200000'), 200000))
++
++    client = _redis_client()
++    if client is None:
++        raise SystemExit('redis_unavailable')
++
++    now_ms = int(time.time() * 1000)
++    earliest_cutoff_ms = now_ms - (max(WINDOWS_SECONDS.values()) * 1000)
++    events: List[HistoryEvent] = []
++    for entry_id, payload in _iter_stream_range(client, stream_key, f'{earliest_cutoff_ms}-0', max_count=max_scan):
++        event = parse_event(payload, entry_id=entry_id)
++        if event is None:
++            continue
++        if event.purpose not in purposes:
++            continue
++        events.append(event)
++
++    counts, totals, scanned = aggregate_events(events, now_ms=now_ms)
++    window_summaries = compute_window_summaries(client, stream_key, now_ms=now_ms, scanned=scanned)
++    scan_truncated = 1.0 if len(events) >= max_scan else 0.0
++    body = render_metrics(counts, totals, window_summaries, purposes=purposes, scan_truncated=scan_truncated)
++
++    export_path.parent.mkdir(parents=True, exist_ok=True)
++    tmp_path = export_path.with_suffix(export_path.suffix + '.tmp')
++    tmp_path.write_text(body, encoding='utf-8')
++    tmp_path.replace(export_path)
++    return 0
++
++
++if __name__ == '__main__':
++    raise SystemExit(export_history_textfile())
+--- a/tick_flow_full/orderflow_services/prometheus_alerts_orchestration_composite_preflight_history_p55.yml
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_orchestration_composite_preflight_history_p55.yml
+@@ -0,0 +1,42 @@
++groups:
++  - name: trade-orchestration-composite-preflight-history-p55
++    rules:
++      - alert: TradeOrchestrationCompositePreflightHistoryWindowIncomplete7dWarn
++        expr: orchestration_composite_preflight_history_window_complete{window="7d"} < 1
++        for: 30m
++        labels:
++          severity: warning
++          component: orchestration-composite-preflight-history
++        annotations:
++          summary: "Composite preflight history 7d window incomplete"
++          description: "Redis stream retention does not fully cover the requested 7d orchestration preflight history window. SLO views may be partial."
++
++      - alert: TradeOrchestrationCompositePreflightBlockRatioHigh24h
++        expr: orchestration_composite_preflight_history_block_ratio{window="24h"} > 0.10 and orchestration_composite_preflight_history_total{window="24h"} >= 20
++        for: 20m
++        labels:
++          severity: warning
++          component: orchestration-composite-preflight-history
++        annotations:
++          summary: "Composite preflight block ratio high over 24h"
++          description: "Purpose {{ $labels.purpose }} has block_ratio > 10% over the last 24h with at least 20 orchestration decisions."
++
++      - alert: TradeOrchestrationCompositePreflightInvalidRatioHigh24h
++        expr: orchestration_composite_preflight_history_invalid_ratio{window="24h"} > 0.03 and orchestration_composite_preflight_history_total{window="24h"} >= 20
++        for: 20m
++        labels:
++          severity: critical
++          component: orchestration-composite-preflight-history
++        annotations:
++          summary: "Composite preflight invalid ratio high over 24h"
++          description: "Purpose {{ $labels.purpose }} has invalid_ratio > 3% over the last 24h with at least 20 orchestration decisions."
++      - alert: TradeOrchestrationCompositePreflightHistoryScanTruncatedWarn
++        expr: orchestration_composite_preflight_history_scan_truncated > 0
++        for: 15m
++        labels:
++          severity: warning
++          component: orchestration-composite-preflight-history
++        annotations:
++          summary: "Composite preflight history scan hit MAX_SCAN"
++          description: "History exporter reached ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_MAX_SCAN. Rollup windows may be partial even if stream retention is long enough."
++

@@ -1,0 +1,11 @@
+groups:
+  - name: trade_monitor_orphan_alerts
+    rules:
+      - alert: TradeMonitorOrphansForceClosed
+        expr: increase(orphans_force_closed_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Orphaned positions force closed by Trade Monitor"
+          description: "Trade Monitor force closed {{ $value }} orphaned positions in the last 5 minutes. This could mean the execution bridge or MT5 is crashing and leaving positions hanging."

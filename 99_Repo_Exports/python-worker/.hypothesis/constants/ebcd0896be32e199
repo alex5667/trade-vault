@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/matplotlib/stackplot.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.5, 1.0, 'stackplot', 'sym', 'weighted_wiggle', 'wiggle', 'zero']

@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/matplotlib/offsetbox.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.4, 0.5, 1.0, 4.0, '3.6', 'C', 'E', 'N', 'NE', 'NW', 'S', 'SE', 'SW', 'TeX', 'W', 'baseline', 'bottom', 'button_release_event', 'center', 'center left', 'center right', 'data', 'draw_frame', 'equal', 'expand', 'fixed', 'k', 'left', 'legend.fontsize', 'lower center', 'lower left', 'lower right', 'lp', 'motion_notify_event', 'mutation_scale', 'pad', 'patchA', 'pick_event', 'relpos', 'right', 'size', 'square', 'square,pad=0', 'textprops', 'top', 'upper center', 'upper left', 'upper right', 'va', 'verticalalignment', 'w', 'xycoords', 'zoom']

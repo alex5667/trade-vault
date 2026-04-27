@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/computation/scope.py
+# hypothesis_version: 6.148.10
+
+['@P', 'False', 'Inf', 'Timestamp', 'True', '_KT', '_VT', 'datetime', 'inf', 'level', 'list', 'locals', 'resolvers', 'scope', 'target', 'temps', 'tuple']

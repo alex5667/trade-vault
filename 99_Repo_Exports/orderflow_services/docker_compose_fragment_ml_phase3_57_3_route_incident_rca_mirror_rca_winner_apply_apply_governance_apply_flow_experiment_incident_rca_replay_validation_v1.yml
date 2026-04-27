@@ -1,0 +1,16 @@
+services:
+  ml-route-incident-rca-apply-replay-validator-v3-57-3:
+    build: .
+    command: python -m orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_replay_validator_runner_v3_57_3
+    restart: "no"
+    environment:
+      REDIS_URL: ${REDIS_URL}
+      TIMESCALE_DSN: ${TIMESCALE_DSN}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_VALIDATOR_PORT: ${ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_VALIDATOR_PORT:-10000}
+      ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_ALIASES: ${ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_ALIASES:-slo,retry,escalation}
+      ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_RUNNER_WINDOW_MIN: ${ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_RUNNER_WINDOW_MIN:-60}
+      ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_RUNNER_WINDOW_END_TS_MS: ${ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_RUNNER_WINDOW_END_TS_MS:-0}
+      ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_MAX_ROWS: ${ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_MAX_ROWS:-5000}
+    ports:
+      - "10000:10000"

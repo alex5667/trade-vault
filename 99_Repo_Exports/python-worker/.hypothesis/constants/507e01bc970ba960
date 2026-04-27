@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/book_microstructure_v4.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.5, 1.0, 2.0, 4.0, 10000.0, 'ask', 'asks', 'bid', 'bids', 'book_convex_ask', 'book_convex_bid', 'book_slope_ask', 'book_slope_bid', 'depth_ask_5', 'depth_bid_5', 'mp_mid_bps', 'mp_shift_bps', 'obi_dw', 'price', 'px', 'q', 'qty', 'size']

@@ -1,0 +1,30 @@
+groups:
+  - name: ml_phase3_10_route_incident_rca_mirror_governance_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorSLOStale
+        expr: time() - ml_route_incident_rca_mirror_slo_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror SLO analytics is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRetryStale
+        expr: time() - ml_route_incident_rca_mirror_retry_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror retry controller is stale"
+
+      - alert: MLRouteIncidentRCAMirrorEscalationsStale
+        expr: time() - ml_route_incident_rca_mirror_escalations_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror escalation summarizer is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRollbackMTTRHigh
+        expr: ml_route_incident_rca_mirror_rollback_mttr_p95_seconds > 120
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror rollback MTTR p95 is high"

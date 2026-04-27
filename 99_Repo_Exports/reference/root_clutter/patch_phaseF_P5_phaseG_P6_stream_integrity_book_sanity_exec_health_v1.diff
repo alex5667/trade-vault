@@ -1,0 +1,1831 @@
+diff -ruN python-worker/services/entry_policy_core.py python-worker/services/entry_policy_core.py
+--- python-worker/services/entry_policy_core.py	2026-03-04 18:20:29.000000000 +0000
++++ python-worker/services/entry_policy_core.py	2026-03-07 08:34:31.555900374 +0000
+@@ -172,6 +172,15 @@
+     except Exception:
+         pass
+ 
++    # --- Execution health veto (P6) ---
++    # This is fed by SMT EntryPolicyService via Redis TCA rollups.
++    # If missing, it's fail-open.
++    try:
++        if int(snap.get("exec_health_veto", 0) or 0) == 1:
++            return EntryPolicyDecision(ok=False, emit=False, reason_code="DENY_EXEC_HEALTH", notes=str(snap.get("exec_health_flags", "")))
++    except Exception:
++        pass
++
+     # shadow-only hint: do not emit entry even if ok
+     try:
+         if int(snap.get("data_health_shadow_only", 0) or 0) == 1 or int(snap.get("slippage_shadow_only", 0) or 0) == 1:
+diff -ruN python-worker/services/orderflow/book_sanity.py python-worker/services/orderflow/book_sanity.py
+--- python-worker/services/orderflow/book_sanity.py	1970-01-01 00:00:00.000000000 +0000
++++ python-worker/services/orderflow/book_sanity.py	2026-03-07 08:26:24.447916842 +0000
+@@ -0,0 +1,154 @@
++from __future__ import annotations
++
++"""Book sanity & tick-to-book consistency (P5).
++
++This module provides deterministic checks that *describe* market-data sanity.
++It is intentionally split from time-based DataQualityGate to keep policies clean:
++- time integrity: epoch ms, lag, quarantine
++- book integrity: crossed book, NaNs, negative depth, trade outside BBO
++
++The outputs are:
++- flags (finite set of strings)
++- numeric counters for monitoring
++
++Important: By default this is MONITOR-ONLY.
++A separate BookSanityGate decides whether to veto.
++"""
++
++import math
++from dataclasses import dataclass
++from typing import Any, Dict, Iterable, List, Optional, Tuple
++
++
++def _f(x: Any, d: float = 0.0) -> float:
++    try:
++        v = float(x)
++    except Exception:
++        return float(d)
++    if not math.isfinite(v):
++        return float(d)
++    return float(v)
++
++
++def _finite(x: Any) -> bool:
++    try:
++        v = float(x)
++    except Exception:
++        return False
++    return bool(math.isfinite(v))
++
++
++@dataclass
++class BookSanityResult:
++    ok: bool
++    flags: List[str]
++    best_bid: float = 0.0
++    best_ask: float = 0.0
++    mid: float = 0.0
++
++
++_ALLOWED_FLAGS = {
++    "missing_bbo",
++    "crossed_bbo",
++    "bad_mid",
++    "bad_depth",
++    "nan_depth",
++    "nan_px",
++    "neg_qty",
++}
++
++
++def check_book_sanity(*, book: Any) -> BookSanityResult:
++    """Check BBO and top-level depth sanity.
++
++    Accepts either a typed BookSnapshot (preferred) or a dict-like raw book.
++    """
++    flags: List[str] = []
++    bb = 0.0
++    ba = 0.0
++
++    try:
++        if isinstance(book, dict):
++            bb = _f(book.get("best_bid_px") or book.get("best_bid") or 0.0)
++            ba = _f(book.get("best_ask_px") or book.get("best_ask") or 0.0)
++        else:
++            bb = _f(getattr(book, "best_bid_px", 0.0) or getattr(book, "best_bid", 0.0) or 0.0)
++            ba = _f(getattr(book, "best_ask_px", 0.0) or getattr(book, "best_ask", 0.0) or 0.0)
++    except Exception:
++        bb, ba = 0.0, 0.0
++
++    if bb <= 0 or ba <= 0:
++        flags.append("missing_bbo")
++        mid = 0.0
++    else:
++        if bb >= ba:
++            flags.append("crossed_bbo")
++        mid = (bb + ba) / 2.0
++        if mid <= 0 or (not math.isfinite(mid)):
++            flags.append("bad_mid")
++
++    # Depth checks (top5) — only when book provides them.
++    try:
++        if isinstance(book, dict):
++            bids = book.get("top5_bids") or book.get("bids") or []
++            asks = book.get("top5_asks") or book.get("asks") or []
++        else:
++            bids = getattr(book, "top5_bids", None) or []
++            asks = getattr(book, "top5_asks", None) or []
++
++        # Each level is (px, qty) list/tuple.
++        for side in (bids, asks):
++            for lv in list(side)[:10]:
++                try:
++                    px = lv[0]
++                    qty = lv[1]
++                except Exception:
++                    continue
++                if not _finite(px):
++                    flags.append("nan_px")
++                    break
++                if not _finite(qty):
++                    flags.append("nan_depth")
++                    break
++                if float(qty) < 0:
++                    flags.append("neg_qty")
++                    break
++    except Exception:
++        pass
++
++    # Sanitize flags to finite set.
++    flags = [f for f in flags if f in _ALLOWED_FLAGS]
++    ok = len(flags) == 0
++
++    return BookSanityResult(ok=ok, flags=flags, best_bid=float(bb), best_ask=float(ba), mid=float(mid))
++
++
++def trade_outside_bbo(*, trade_px: float, best_bid: float, best_ask: float, eps_bps: float = 1.0) -> Tuple[bool, float]:
++    """Detect stale-book symptom: trade price outside current BBO.
++
++    eps_bps provides tolerance for small timing jitter.
++
++    Returns: (is_outside, distance_bps)
++    """
++    px = _f(trade_px, 0.0)
++    bb = _f(best_bid, 0.0)
++    ba = _f(best_ask, 0.0)
++
++    if px <= 0 or bb <= 0 or ba <= 0:
++        return False, 0.0
++
++    mid = (bb + ba) / 2.0
++    if mid <= 0:
++        return False, 0.0
++
++    tol = (float(eps_bps) / 10_000.0) * mid
++
++    if px > (ba + tol):
++        dist = (px - ba) / mid * 10_000.0
++        return True, float(dist)
++
++    if px < (bb - tol):
++        dist = (bb - px) / mid * 10_000.0
++        return True, float(dist)
++
++    return False, 0.0
+diff -ruN python-worker/services/orderflow/book_sanity_gate.py python-worker/services/orderflow/book_sanity_gate.py
+--- python-worker/services/orderflow/book_sanity_gate.py	1970-01-01 00:00:00.000000000 +0000
++++ python-worker/services/orderflow/book_sanity_gate.py	2026-03-07 08:26:44.559535798 +0000
+@@ -0,0 +1,124 @@
++from __future__ import annotations
++
++"""BookSanityGate (P5).
++
++A separate gate from DataQualityGate:
++- DataQualityGate focuses on time (epoch ms, lag, out-of-order) and upstream
++  quarantine semantics.
++- BookSanityGate focuses on market microstructure sanity (crossed BBO, NaNs,
++  negative depth) and tick-to-book symptoms.
++
++Policy:
++- default/soft: annotate only (never veto)
++- strict: tighten (optional; here we only annotate to keep P5 minimal)
++- hard: veto on a finite set of flags
++
++The gate is designed to be fail-open and should never throw.
++"""
++
++import os
++from dataclasses import dataclass
++from typing import Any, Dict, List, Tuple
++
++
++@dataclass
++class BookSanityDecision:
++    apply: bool
++    veto: bool
++    gate: str
++    reason_code: str
++    flags: List[str]
++    notes: str = ""
++
++
++def _profile() -> str:
++    return str(os.getenv("GATE_PROFILE", os.getenv("BOOK_SANITY_PROFILE", "default")) or "default").strip().lower()
++
++
++class BookSanityGate:
++    def __init__(
++        self,
++        *,
++        enabled: bool,
++        mode: str,
++    ) -> None:
++        self.enabled = bool(enabled)
++        self.mode = str(mode or "auto").strip().lower()
++
++    @staticmethod
++    def from_env() -> "BookSanityGate":
++        enabled = bool(int(os.getenv("BOOK_SANITY_GATE_ENABLED", "1") or 1))
++        mode = os.getenv("BOOK_SANITY_MODE", "auto")
++        return BookSanityGate(enabled=enabled, mode=str(mode))
++
++    def _effective_mode(self) -> str:
++        if self.mode in ("monitor", "tighten", "veto"):
++            return self.mode
++        # auto
++        p = _profile()
++        if p in ("hard", "strict"):
++            return "veto" if p == "hard" else "monitor"
++        return "monitor"
++
++    def evaluate(self, *, indicators: Dict[str, Any], symbol: str) -> BookSanityDecision:
++        if not self.enabled:
++            return BookSanityDecision(apply=False, veto=False, gate="BookSanityGate", reason_code="", flags=[])
++
++        flags = []
++        try:
++            raw = indicators.get("book_sanity_flags")
++            if isinstance(raw, list):
++                flags = [str(x) for x in raw if x]
++            elif isinstance(raw, str):
++                # may arrive as CSV
++                flags = [s.strip() for s in raw.split(",") if s.strip()]
++        except Exception:
++            flags = []
++
++        mode = self._effective_mode()
++
++        # default behavior: annotate only if any flags exist
++        if not flags:
++            return BookSanityDecision(apply=False, veto=False, gate="BookSanityGate", reason_code="", flags=[])
++
++        # Veto conditions (finite set)
++        veto_flags = {"crossed_bbo", "nan_px", "nan_depth", "neg_qty"}
++        do_veto = any(f in veto_flags for f in flags)
++
++        if mode != "veto":
++            return BookSanityDecision(
++                apply=True,
++                veto=False,
++                gate="BookSanityGate",
++                reason_code="BOOK_SANITY_FLAGS",
++                flags=flags,
++                notes=f"mode={mode}",
++            )
++
++        if do_veto:
++            # Deterministic reason (first match)
++            reason = "VETO_BOOK_SANITY"
++            if "crossed_bbo" in flags:
++                reason = "VETO_BOOK_CROSS"
++            elif "nan_depth" in flags or "nan_px" in flags:
++                reason = "VETO_BOOK_NAN"
++            elif "neg_qty" in flags:
++                reason = "VETO_BOOK_NEG_QTY"
++
++            return BookSanityDecision(
++                apply=True,
++                veto=True,
++                gate="BookSanityGate",
++                reason_code=str(reason),
++                flags=flags,
++                notes=f"symbol={symbol}",
++            )
++
++        return BookSanityDecision(
++            apply=True,
++            veto=False,
++            gate="BookSanityGate",
++            reason_code="BOOK_SANITY_FLAGS",
++            flags=flags,
++            notes=f"mode={mode}",
++        )
+diff -ruN python-worker/services/orderflow/components/book_processor.py python-worker/services/orderflow/components/book_processor.py
+--- python-worker/services/orderflow/components/book_processor.py	2026-03-04 18:25:37.000000000 +0000
++++ python-worker/services/orderflow/components/book_processor.py	2026-03-07 08:31:44.381635270 +0000
+@@ -30,6 +30,11 @@
+ )
+ from services.orderflow.utils import _fields_to_dict
+ from services.orderflow.components.parsing import OrderFlowParsing
++
++# P5: book sanity + stream integrity
++from services.orderflow.book_sanity import check_book_sanity
++from services.orderflow.metrics_stream_integrity_p5 import emit_integrity_metrics
++from services.orderflow.metrics_book_sanity_p5 import book_crossed_total, book_sanity_flags_total
+ from core.book_churn import compute_churn_from_z
+ from core.lob_pressure import compute_lob_pressure  # LOB pressure features (P91)
+ from core.ofi_tracker import OFIEvent
+@@ -220,6 +225,46 @@
+             # Basic timestamps
+             book_ts_ms = _safe_int(book_raw.get("ts_ms") or book_raw.get("ts") or book_raw.get("timestamp") or 0)
+ 
++            # -------------------------------------------------------------
++            # P5: Stream integrity + schema drift (book stream)
++            #
++            # We treat `u` (final update id) as the sequence when present.
++            # This is a *telemetry* layer and must be fail-open.
++            # -------------------------------------------------------------
++            try:
++                seq = _safe_int(book_raw.get("u") or book_raw.get("final_id") or 0)
++                # schema hash drift: hash only top-level keys of book_raw
++                runtime.book_integrity.update_schema(book_raw.keys())
++                if seq > 0 and book_ts_ms > 0:
++                    snap_i = runtime.book_integrity.update_seq(seq=seq, ts_ms=int(book_ts_ms))
++                    emit_integrity_metrics(symbol=str(runtime.symbol), stream="book", snap=snap_i)
++            except Exception:
++                pass
++
++            # -------------------------------------------------------------
++            # P5: Book sanity (crossed BBO / NaNs / negative qty)
++            # The gate decision is taken later (BookSanityGate), here we only
++            # annotate runtime and emit metrics.
++            # -------------------------------------------------------------
++            try:
++                bs = check_book_sanity(book=snap)
++                runtime.book_sanity_ok = int(1 if bs.ok else 0)
++                runtime.book_sanity_flags = ",".join(bs.flags)
++                if not bs.ok:
++                    try:
++                        if book_sanity_flags_total is not None:
++                            book_sanity_flags_total.labels(symbol=str(runtime.symbol)).inc()
++                    except Exception:
++                        pass
++                if "crossed_bbo" in bs.flags:
++                    try:
++                        if book_crossed_total is not None:
++                            book_crossed_total.labels(symbol=str(runtime.symbol)).inc()
++                    except Exception:
++                        pass
++            except Exception:
++                pass
++
+             # Strict DQ: book missing-seq continuity (Binance depthUpdate U/u)
+             # Fail-open: never break book processing on DQ telemetry.
+             try:
+diff -ruN python-worker/services/orderflow/components/tick_processor.py python-worker/services/orderflow/components/tick_processor.py
+--- python-worker/services/orderflow/components/tick_processor.py	2026-03-04 18:20:29.000000000 +0000
++++ python-worker/services/orderflow/components/tick_processor.py	2026-03-07 08:37:05.548704558 +0000
+@@ -110,6 +110,19 @@
+ 
+ from services.orderflow.world_practice.realized_drift_tracker_v1 import RealizedDriftTrackerV1
+ 
++# P5: stream integrity + tick-to-book consistency
++from services.orderflow.metrics_stream_integrity_p5 import emit_integrity_metrics
++from services.orderflow.book_sanity import trade_outside_bbo
++from services.orderflow.metrics_book_sanity_p5 import trade_outside_bbo_total, trade_outside_bbo_dist_bps
++
++# P6: execution health (TCA rollups) for inputs + tighten overlay
++from services.orderflow.execution_health_gate import (
++    ExecHealthThresholds,
++    read_exec_rollups,
++    decide_execution_health,
++    apply_exec_health_to_indicators,
++)
++
+ from common.tick_time import TickTimeGuard, TickTimePolicy
+ from services.orderflow.tick_time_quarantine_integration import TickTimeQuarantineIntegration
+ 
+@@ -214,6 +227,11 @@
+         self.slippage_bps_missing_default = float(os.getenv("SLIPPAGE_BPS_MISSING_DEFAULT", "4.0"))
+         self.data_health_on_spread_missing = float(os.getenv("DATA_HEALTH_ON_SPREAD_MISSING", "0.60"))
+ 
++        # P6: execution health (TCA rollups) thresholds. Used to annotate inputs
++        # and to tighten expected_slippage_bps in strict/hard profiles.
++        self._exec_thr = ExecHealthThresholds.from_env(prefix="EXEC_")
++        self._exec_rollups_enable = os.getenv("EXEC_HEALTH_ENABLE_IN_TICK_PROCESSOR", "1").strip().lower() in ("1", "true", "yes", "on")
++
+         # Confidence explainability (world practice): optionally attach scorer decomposition and evidence flags
+         self.confidence_parts_enable = os.getenv("CONFIDENCE_PARTS_ENABLE", "0").strip().lower() in ("1", "true", "yes", "on")
+         self.confidence_evidence_enable = os.getenv("CONFIDENCE_EVIDENCE_ENABLE", "0").strip().lower() in ("1", "true", "yes", "on")
+@@ -516,6 +534,30 @@
+                 if tid > last_tid:
+                     runtime.last_trade_id = int(tid)
+ 
++                # ---------------------------------------------------------
++                # P5: Stream integrity (tick seq + schema drift)
++                #
++                # This is *telemetry* only. It never vetoes directly.
++                # It provides stable rates + robust z for burst diagnostics.
++                # ---------------------------------------------------------
++                try:
++                    # Record last gap magnitude for runbooks
++                    if is_gap:
++                        setattr(runtime, "tick_missing_seq_last_gap", int(max(0, tid - last_tid - 1)))
++                    # schema hash drift: hash only top-level keys (producer contract)
++                    runtime.tick_integrity.update_schema(tick.keys())
++                    snap_i = runtime.tick_integrity.update_seq(seq=int(tid), ts_ms=int(ts_for_seq))
++                    emit_integrity_metrics(symbol=str(runtime.symbol), stream="tick", snap=snap_i)
++                    # Surface into indicators for downstream gates/ML
++                    indicators["tick_seq_gap_rate_ema"] = float(snap_i.gap_rate_ema)
++                    indicators["tick_seq_dup_rate_ema"] = float(snap_i.dup_rate_ema)
++                    indicators["tick_seq_max_gap_window"] = int(snap_i.gap_max_window)
++                    indicators["tick_dup_burst_z"] = float(snap_i.dup_burst_z)
++                    indicators["tick_schema_hash"] = str(snap_i.schema_hash)
++                    indicators["tick_schema_changed"] = int(snap_i.schema_changed)
++                except Exception:
++                    pass
++
+                 # Expose counters/flags into indicators (reset on bar close).
+                 indicators["tick_gap_count"] = int(getattr(runtime, "tick_id_gap_count", 0) or 0)
+                 indicators["tick_dup_count"] = int(getattr(runtime, "tick_id_dup_count", 0) or 0)
+@@ -537,6 +579,24 @@
+             indicators["tick_missing_seq_ema"] = float(getattr(runtime, "tick_missing_seq_ema", 0.0) or 0.0)
+             indicators["book_missing_seq_ema"] = float(getattr(runtime, "book_missing_seq_ema", 0.0) or 0.0)
+ 
++            # P5: book stream integrity (gaps/dups/schema)
++            try:
++                bi = getattr(runtime, "book_integrity", None)
++                if bi is not None:
++                    indicators["book_seq_gap_rate_ema"] = float(getattr(bi.gap_ema, "ema", 0.0) or 0.0)
++                    indicators["book_seq_dup_rate_ema"] = float(getattr(bi.dup_ema, "ema", 0.0) or 0.0)
++                    indicators["book_seq_max_gap_window"] = int(getattr(bi, "gap_max_window", 0) or 0)
++                    indicators["book_dup_burst_z"] = float(getattr(bi, "dup_burst_z", 0.0) or 0.0)
++                    indicators["book_schema_hash"] = str(getattr(bi, "schema_hash_last", "") or "")
++            except Exception:
++                pass
++
++            # P5: book sanity flags (populated by BookProcessor)
++            indicators["book_sanity_ok"] = int(getattr(runtime, "book_sanity_ok", 1) or 0)
++            # keep as list for downstream JSON friendliness
++            bs_flags = str(getattr(runtime, "book_sanity_flags", "") or "")
++            indicators["book_sanity_flags"] = [s for s in bs_flags.split(",") if s] if bs_flags else []
++
+             # book_missing_seq is primarily updated in orderbook path; still surface gauge for visibility.
+             try:
+                 book_missing_seq_ema_gauge.labels(symbol=str(runtime.symbol)).set(indicators["book_missing_seq_ema"])
+@@ -2135,6 +2195,37 @@
+             pass
+ 
+         # ---------------------------------------------------------------
++        # P5: Tick-to-book consistency
++        #
++        # A classic symptom of stale books / race conditions is when trades
++        # print *outside* the currently observed BBO.
++        # This should not be treated as a hard failure by default; we only
++        # measure it to justify quarantine/strict policies later.
++        # ---------------------------------------------------------------
++        try:
++            eps_bps = float(os.getenv("BOOK_TRADE_OUTSIDE_BBO_EPS_BPS", "1.0") or 1.0)
++            book = getattr(runtime, "last_book", None)
++            if book is not None:
++                bb = float(getattr(book, "best_bid_px", 0.0) or 0.0)
++                ba = float(getattr(book, "best_ask_px", 0.0) or 0.0)
++                outside, dist_bps = trade_outside_bbo(trade_px=float(price), best_bid=bb, best_ask=ba, eps_bps=eps_bps)
++                indicators["trade_outside_bbo"] = int(1 if outside else 0)
++                indicators["trade_outside_bbo_dist_bps"] = float(dist_bps)
++                if outside:
++                    try:
++                        if trade_outside_bbo_total is not None:
++                            trade_outside_bbo_total.labels(symbol=str(runtime.symbol)).inc()
++                        if trade_outside_bbo_dist_bps is not None:
++                            trade_outside_bbo_dist_bps.labels(symbol=str(runtime.symbol)).observe(float(dist_bps))
++                    except Exception:
++                        pass
++            else:
++                indicators.setdefault("trade_outside_bbo", 0)
++                indicators.setdefault("trade_outside_bbo_dist_bps", 0.0)
++        except Exception:
++            pass
++
++        # ---------------------------------------------------------------
+         # Execution-risk layer: impact_proxy + slippage decomposition (P9x)
+         # Fail-open: never raises; all indicators default to 0.0 on error.
+         # ---------------------------------------------------------------
+@@ -3168,6 +3259,43 @@
+                 
+                 if should_pub:
+ 
++                    # -----------------------------------------------------
++                    # P6: Execution health rollups (TCA) — attach to inputs
++                    #
++                    # We keep this inside the *publish* branch to avoid adding
++                    # Redis IO to every tick. It runs only when inputs are
++                    # about to be published (candidate path).
++                    # -----------------------------------------------------
++                    try:
++                        thr = getattr(self, "_exec_thr", None)
++                        if self._exec_rollups_enable and thr is not None and (
++                            float(thr.max_is_p95_bps) > 0 or float(thr.max_perm_impact_p95_bps) > 0 or float(thr.min_realized_spread_p50_bps) > -900
++                        ):
++                            sess = session_utc(int(tick_ts_ms))
++                            venue = str(runtime.config.get("venue", runtime.config.get("source", "binance")) or "binance").lower()
++                            tf = str(indicators.get("atr_tf") or runtime.config.get("atr_tf", "all") or "all").lower()
++                            kind0 = str(indicators.get("kind") or indicators.get("scenario") or runtime.dynamic_cfg.get("kind", "all") or "all").lower()
++                            side0 = str(direction).upper()
++                            roll = await read_exec_rollups(
++                                redis=self.redis,
++                                sym=str(runtime.symbol),
++                                venue=venue,
++                                session=str(sess),
++                                tf=tf,
++                                kind=kind0,
++                                side=side0,
++                                delta_sec=1,
++                            )
++                            if roll:
++                                indicators["tca_is_p95_bps"] = float(roll.get("is_p95_bps", 0.0) or 0.0)
++                                indicators["tca_perm_impact_p95_bps_1"] = float(roll.get("perm_impact_p95_bps_1", 0.0) or 0.0)
++                                indicators["tca_realized_spread_p50_bps_1"] = float(roll.get("realized_spread_p50_bps_1", 0.0) or 0.0)
++
++                                dec_e = decide_execution_health(rollups=roll, thr=thr)
++                                apply_exec_health_to_indicators(indicators=indicators, dec=dec_e)
++                    except Exception:
++                        pass
++
+ 
+                     trend_dir = "NONE"
+                     hidden_ctx_recent = 0
+@@ -3236,6 +3364,24 @@
+                                 cfg_safe[_k] = runtime.config.get(_k)
+                     except Exception:
+                         pass
++
++                    # P6: attach low-cardinality execution health / TCA rollups into cfg.
++                    # Keeping them under cfg avoids breaking OFInputs contracts while still
++                    # allowing downstream consumers (ML joiners) to extract them.
++                    try:
++                        for _k in (
++                            "tca_is_p95_bps",
++                            "tca_perm_impact_p95_bps_1",
++                            "tca_realized_spread_p50_bps_1",
++                            "exec_health_apply",
++                            "exec_health_veto",
++                            "exec_health_tighten_add_bps",
++                            "exec_health_reason",
++                        ):
++                            if _k in indicators:
++                                cfg_safe[_k] = indicators.get(_k)
++                    except Exception:
++                        pass
+                     
+                     emit_v2_cfg = runtime.config.get("of_inputs_emit_v2", 1)
+                     emit_v3_cfg = runtime.config.get("of_inputs_emit_v3", 0)
+diff -ruN python-worker/services/orderflow/execution_health_gate.py python-worker/services/orderflow/execution_health_gate.py
+--- python-worker/services/orderflow/execution_health_gate.py	1970-01-01 00:00:00.000000000 +0000
++++ python-worker/services/orderflow/execution_health_gate.py	2026-03-07 08:27:30.918101129 +0000
+@@ -0,0 +1,273 @@
++from __future__ import annotations
++
++"""ExecutionHealthGate (P6).
++
++Purpose
++-------
++Use *post-trade* execution quality rollups (TCA) to prevent or tighten trades
++in regimes where paper-edge gets eaten by execution.
++
++Inputs
++------
++Redis rollups produced by TCA worker (Phase B):
++  - is_p95_bps
++  - perm_impact_p95_bps (delta=1s/5s)
++  - realized_spread_p50_bps (delta=1s/5s) for adverse selection
++
++Actions
++-------
++- default/soft: annotate only
++- strict: tighten (increase expected_slippage_bps and optionally EDGE_COST_K)
++- hard: veto when (IS_p95 AND perm_impact_p95) exceed thresholds simultaneously
++
++This module is fail-open: if Redis keys are missing, no veto.
++
++Notes on dimensions
++-------------------
++The TCA rollup keys are dimensioned by:
++  (sym, venue, session, tf, kind, side)
++In practice we need robust fallbacks because upstream may not always provide
++all dims consistently. Therefore we attempt keys in this order:
++  1) exact
++  2) tf=all
++  3) kind=all
++  4) session=all
++  5) tf=all+kind=all+session=all
++
++The last fallback is what EntryPolicy should rely on.
++"""
++
++import math
++import os
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional, Sequence, Tuple
++
++
++def _f(x: Any, d: float = 0.0) -> float:
++    try:
++        v = float(x)
++    except Exception:
++        return float(d)
++    if not math.isfinite(v):
++        return float(d)
++    return float(v)
++
++
++def _profile() -> str:
++    return str(os.getenv("GATE_PROFILE", os.getenv("EXEC_HEALTH_PROFILE", "default")) or "default").strip().lower()
++
++
++def _mode() -> str:
++    # explicit override for this gate
++    m = str(os.getenv("EXEC_HEALTH_MODE", "auto") or "auto").strip().lower()
++    if m in ("monitor", "tighten", "veto"):
++        return m
++    p = _profile()
++    if p == "hard":
++        return "veto"
++    if p == "strict":
++        return "tighten"
++    return "monitor"
++
++
++@dataclass
++class ExecHealthThresholds:
++    max_is_p95_bps: float = 0.0
++    max_perm_impact_p95_bps: float = 0.0
++    min_realized_spread_p50_bps: float = -999.0
++    tighten_add_mult: float = 1.0
++    tighten_add_cap_bps: float = 8.0
++
++    @staticmethod
++    def from_env(prefix: str = "EXEC_") -> "ExecHealthThresholds":
++        return ExecHealthThresholds(
++            max_is_p95_bps=_f(os.getenv(f"{prefix}MAX_IS_P95_BPS", "0"), 0.0),
++            max_perm_impact_p95_bps=_f(os.getenv(f"{prefix}MAX_PERM_IMPACT_P95_BPS", "0"), 0.0),
++            min_realized_spread_p50_bps=_f(os.getenv(f"{prefix}MIN_REALIZED_SPREAD_P50_BPS", "-999"), -999.0),
++            tighten_add_mult=_f(os.getenv(f"{prefix}TIGHTEN_ADD_MULT", "1.0"), 1.0),
++            tighten_add_cap_bps=_f(os.getenv(f"{prefix}TIGHTEN_ADD_CAP_BPS", "8.0"), 8.0),
++        )
++
++
++@dataclass
++class ExecHealthDecision:
++    apply: bool
++    veto: bool
++    flags: List[str]
++    reason_code: str = ""
++    tighten_add_bps: float = 0.0
++
++
++def build_rollup_keys(
++    *,
++    metric: str,
++    sym: str,
++    venue: str,
++    session: str,
++    tf: str,
++    kind: str,
++    side: str,
++) -> List[str]:
++    """Return fallback key list for one metric."""
++    sym = (sym or "").upper()
++    venue = (venue or "na").lower()
++    session = (session or "na").lower()
++    tf = (tf or "all").lower()
++    kind = (kind or "all").lower()
++    side = (side or "na").upper()
++
++    def k(_sess: str, _tf: str, _kind: str) -> str:
++        return f"tca:{metric}:{sym}:{venue}:{_sess}:{_tf}:{_kind}:{side}"
++
++    keys = [
++        k(session, tf, kind),
++        k(session, "all", kind),
++        k(session, tf, "all"),
++        k("all", tf, kind),
++        k("all", "all", "all"),
++    ]
++    # Deduplicate while preserving order
++    out = []
++    seen = set()
++    for x in keys:
++        if x not in seen:
++            seen.add(x)
++            out.append(x)
++    return out
++
++
++async def redis_mget_first(redis, keys: Sequence[str]) -> Optional[float]:
++    """Return first found numeric value across fallback keys."""
++    try:
++        vals = await redis.mget(list(keys))
++    except Exception:
++        # fallback to sequential GET
++        for k in keys:
++            try:
++                v = await redis.get(k)
++            except Exception:
++                v = None
++            fv = _f(v, float("nan"))
++            if math.isfinite(fv):
++                return float(fv)
++        return None
++
++    for v in vals or []:
++        fv = _f(v, float("nan"))
++        if math.isfinite(fv):
++            return float(fv)
++    return None
++
++
++async def read_exec_rollups(
++    *,
++    redis,
++    sym: str,
++    venue: str,
++    session: str,
++    tf: str,
++    kind: str,
++    side: str,
++    delta_sec: int = 1,
++) -> Dict[str, float]:
++    """Read the minimal set of rollups needed for P6.
++
++    Returns empty dict if data is missing.
++    """
++    # NOTE: metric naming is fixed in Phase B rollups.
++    # We keep it strict and provide fallback keys.
++    out: Dict[str, float] = {}
++    try:
++        is_k = build_rollup_keys(metric="is_p95_bps", sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side)
++        pi_k = build_rollup_keys(metric=f"perm_impact_p95_bps:{int(delta_sec)}", sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side)
++        rs_k = build_rollup_keys(metric=f"realized_spread_p50_bps:{int(delta_sec)}", sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side)
++
++        v_is = await redis_mget_first(redis, is_k)
++        v_pi = await redis_mget_first(redis, pi_k)
++        v_rs = await redis_mget_first(redis, rs_k)
++
++        if v_is is not None:
++            out["is_p95_bps"] = float(v_is)
++        if v_pi is not None:
++            out[f"perm_impact_p95_bps_{int(delta_sec)}"] = float(v_pi)
++        if v_rs is not None:
++            out[f"realized_spread_p50_bps_{int(delta_sec)}"] = float(v_rs)
++    except Exception:
++        return {}
++
++    return out
++
++
++def decide_execution_health(
++    *,
++    rollups: Dict[str, float],
++    thr: ExecHealthThresholds,
++) -> ExecHealthDecision:
++    """Pure policy decision for execution-health gate."""
++    flags: List[str] = []
++
++    v_is = _f(rollups.get("is_p95_bps"), float("nan"))
++    v_pi = _f(rollups.get("perm_impact_p95_bps_1"), float("nan"))
++    v_rs = _f(rollups.get("realized_spread_p50_bps_1"), float("nan"))
++
++    if math.isfinite(v_is) and thr.max_is_p95_bps > 0 and v_is >= thr.max_is_p95_bps:
++        flags.append("is_p95_high")
++    if math.isfinite(v_pi) and thr.max_perm_impact_p95_bps > 0 and v_pi >= thr.max_perm_impact_p95_bps:
++        flags.append("perm_impact_p95_high")
++    if math.isfinite(v_rs) and thr.min_realized_spread_p50_bps > -900 and v_rs <= thr.min_realized_spread_p50_bps:
++        flags.append("adverse_realized")
++
++    mode = _mode()
++    if not flags:
++        return ExecHealthDecision(apply=False, veto=False, flags=[])
++
++    if mode == "monitor":
++        return ExecHealthDecision(apply=True, veto=False, flags=flags, reason_code="EXEC_HEALTH_MONITOR")
++
++    # tighten: add slippage proportional to severity (bounded)
++    tighten_add = 0.0
++    if mode in ("tighten", "veto"):
++        # simple heuristic: max of offending metrics / thresholds
++        sev = 0.0
++        if "is_p95_high" in flags and thr.max_is_p95_bps > 0 and math.isfinite(v_is):
++            sev = max(sev, v_is / thr.max_is_p95_bps)
++        if "perm_impact_p95_high" in flags and thr.max_perm_impact_p95_bps > 0 and math.isfinite(v_pi):
++            sev = max(sev, v_pi / thr.max_perm_impact_p95_bps)
++        if "adverse_realized" in flags and thr.min_realized_spread_p50_bps > -900 and math.isfinite(v_rs):
++            # adverse selection: treat as severity 1.0
++            sev = max(sev, 1.0)
++
++        tighten_add = min(float(thr.tighten_add_cap_bps), float(thr.tighten_add_mult) * max(0.0, sev - 1.0) * 5.0)
++
++    if mode == "tighten":
++        return ExecHealthDecision(apply=True, veto=False, flags=flags, reason_code="EXEC_HEALTH_TIGHTEN", tighten_add_bps=float(tighten_add))
++
++    # Veto policy (hard): require both IS_p95 and perm_impact_p95 to be bad.
++    do_veto = ("is_p95_high" in flags) and ("perm_impact_p95_high" in flags)
++    if do_veto:
++        return ExecHealthDecision(
++            apply=True,
++            veto=True,
++            flags=flags,
++            reason_code="VETO_IMPL_SHORTFALL_P95" if "is_p95_high" in flags else "VETO_EXEC_HEALTH",
++            tighten_add_bps=float(tighten_add),
++        )
++
++    # Otherwise still tighten (but do not veto)
++    return ExecHealthDecision(apply=True, veto=False, flags=flags, reason_code="EXEC_HEALTH_TIGHTEN", tighten_add_bps=float(tighten_add))
++
++
++def apply_exec_health_to_indicators(*, indicators: Dict[str, Any], dec: ExecHealthDecision) -> None:
++    """Mutate indicators (fail-open)."""
++    try:
++        indicators["exec_health_apply"] = int(1 if dec.apply else 0)
++        indicators["exec_health_veto"] = int(1 if dec.veto else 0)
++        indicators["exec_health_flags"] = ",".join(dec.flags)
++        indicators["exec_health_reason"] = str(dec.reason_code or "")
++        indicators["exec_health_tighten_add_bps"] = float(dec.tighten_add_bps or 0.0)
++
++        if dec.tighten_add_bps and float(dec.tighten_add_bps) > 0:
++            cur = _f(indicators.get("expected_slippage_bps"), 0.0)
++            indicators["expected_slippage_bps"] = float(cur + float(dec.tighten_add_bps))
++    except Exception:
++        pass
+diff -ruN python-worker/services/orderflow/metrics_book_sanity_p5.py python-worker/services/orderflow/metrics_book_sanity_p5.py
+--- python-worker/services/orderflow/metrics_book_sanity_p5.py	1970-01-01 00:00:00.000000000 +0000
++++ python-worker/services/orderflow/metrics_book_sanity_p5.py	2026-03-07 08:28:02.166156122 +0000
+@@ -0,0 +1,72 @@
++"""Prometheus metrics for P5 book sanity.
++
++Cardinality policy:
++- Only {symbol}.
++- No per-price/flag labels.
++"""
++
++from __future__ import annotations
++
++import logging
++from typing import Sequence, Type, TypeVar
++
++try:
++    from prometheus_client import Counter, Gauge, Histogram, REGISTRY  # type: ignore
++    from prometheus_client.registry import Collector  # type: ignore
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = object  # type: ignore
++    REGISTRY = None  # type: ignore
++    Collector = object  # type: ignore
++
++logger = logging.getLogger("orderflow_metrics_book_sanity")
++
++TCollector = TypeVar("TCollector", bound="Collector")
++
++
++def _get_or_create(
++    name: str,
++    ctor: Type[TCollector],
++    documentation: str,
++    labelnames: Sequence[str] = (),
++    **kwargs,
++):
++    if REGISTRY is None:  # pragma: no cover
++        return None
++    existing = getattr(REGISTRY, "_names_to_collectors", {}).get(name)
++    if existing is not None:
++        return existing
++    try:
++        return ctor(name, documentation, labelnames=tuple(labelnames), **kwargs)
++    except Exception as exc:  # pragma: no cover
++        logger.exception("Failed to create metric %s: %s", name, exc)
++        return None
++
++
++book_crossed_total = _get_or_create(
++    "book_crossed_total",
++    Counter,
++    "Count of crossed BBO detections (best_bid >= best_ask)",
++    labelnames=("symbol",),
++)
++
++book_sanity_flags_total = _get_or_create(
++    "book_sanity_flags_total",
++    Counter,
++    "Count of any book_sanity_flags set (monitor signal)",
++    labelnames=("symbol",),
++)
++
++trade_outside_bbo_total = _get_or_create(
++    "trade_outside_bbo_total",
++    Counter,
++    "Count of trades that printed outside current BBO (stale book symptom)",
++    labelnames=("symbol",),
++)
++
++trade_outside_bbo_dist_bps = _get_or_create(
++    "trade_outside_bbo_dist_bps",
++    Histogram,
++    "Distance (bps) of trade price outside BBO",
++    labelnames=("symbol",),
++    buckets=(0.5, 1, 2, 5, 10, 20, 50, 100),
++)
+diff -ruN python-worker/services/orderflow/metrics_exec_health_p6.py python-worker/services/orderflow/metrics_exec_health_p6.py
+--- python-worker/services/orderflow/metrics_exec_health_p6.py	1970-01-01 00:00:00.000000000 +0000
++++ python-worker/services/orderflow/metrics_exec_health_p6.py	2026-03-07 08:28:12.933735325 +0000
+@@ -0,0 +1,65 @@
++"""Prometheus metrics for P6 ExecutionHealthGate.
++
++Cardinality policy:
++- Prefer {symbol} only.
++- Reason label is a finite set.
++"""
++
++from __future__ import annotations
++
++import logging
++from typing import Sequence, Type, TypeVar
++
++try:
++    from prometheus_client import Counter, Gauge, Histogram, REGISTRY  # type: ignore
++    from prometheus_client.registry import Collector  # type: ignore
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = object  # type: ignore
++    REGISTRY = None  # type: ignore
++    Collector = object  # type: ignore
++
++logger = logging.getLogger("orderflow_metrics_exec_health")
++
++TCollector = TypeVar("TCollector", bound="Collector")
++
++
++def _get_or_create(
++    name: str,
++    ctor: Type[TCollector],
++    documentation: str,
++    labelnames: Sequence[str] = (),
++    **kwargs,
++):
++    if REGISTRY is None:  # pragma: no cover
++        return None
++    existing = getattr(REGISTRY, "_names_to_collectors", {}).get(name)
++    if existing is not None:
++        return existing
++    try:
++        return ctor(name, documentation, labelnames=tuple(labelnames), **kwargs)
++    except Exception as exc:  # pragma: no cover
++        logger.exception("Failed to create metric %s: %s", name, exc)
++        return None
++
++
++exec_health_apply_total = _get_or_create(
++    "exec_health_apply_total",
++    Counter,
++    "ExecutionHealthGate applied (monitor/tighten/veto)",
++    labelnames=("symbol", "mode"),
++)
++
++exec_health_veto_total = _get_or_create(
++    "exec_health_veto_total",
++    Counter,
++    "ExecutionHealthGate veto count",
++    labelnames=("symbol", "reason"),
++)
++
++exec_health_tighten_add_bps = _get_or_create(
++    "exec_health_tighten_add_bps",
++    Histogram,
++    "Added slippage (bps) due to execution health tighten",
++    labelnames=("symbol",),
++    buckets=(0.5, 1, 2, 3, 4, 6, 8, 10, 15),
++)
+diff -ruN python-worker/services/orderflow/metrics_stream_integrity_p5.py python-worker/services/orderflow/metrics_stream_integrity_p5.py
+--- python-worker/services/orderflow/metrics_stream_integrity_p5.py	1970-01-01 00:00:00.000000000 +0000
++++ python-worker/services/orderflow/metrics_stream_integrity_p5.py	2026-03-07 08:27:48.293900029 +0000
+@@ -0,0 +1,118 @@
++"""Prometheus metrics for P5 stream integrity.
++
++We keep metrics definitions in a dedicated module to avoid duplicate
++registration across SoT/mirror import paths.
++
++Cardinality policy:
++- By default only {symbol,stream} labels.
++- No per-seq labels.
++"""
++
++from __future__ import annotations
++
++import logging
++from typing import Sequence, Type, TypeVar
++
++try:
++    from prometheus_client import Counter, Gauge, Histogram, REGISTRY  # type: ignore
++    from prometheus_client.registry import Collector  # type: ignore
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = object  # type: ignore
++    REGISTRY = None  # type: ignore
++    Collector = object  # type: ignore
++
++logger = logging.getLogger("orderflow_metrics_stream_integrity")
++
++TCollector = TypeVar("TCollector", bound="Collector")
++
++
++def _get_or_create(
++    name: str,
++    ctor: Type[TCollector],
++    documentation: str,
++    labelnames: Sequence[str] = (),
++    **kwargs,
++):
++    if REGISTRY is None:  # pragma: no cover
++        return None
++    existing = getattr(REGISTRY, "_names_to_collectors", {}).get(name)
++    if existing is not None:
++        return existing
++    try:
++        return ctor(name, documentation, labelnames=tuple(labelnames), **kwargs)
++    except Exception as exc:  # pragma: no cover
++        logger.exception("Failed to create metric %s: %s", name, exc)
++        return None
++
++
++stream_seq_gap_rate_ema = _get_or_create(
++    "stream_seq_gap_rate_ema",
++    Gauge,
++    "EMA gap-rate for monotone sequences (0..1)",
++    labelnames=("symbol", "stream"),
++)
++
++stream_seq_dup_rate_ema = _get_or_create(
++    "stream_seq_dup_rate_ema",
++    Gauge,
++    "EMA duplicate-rate for monotone sequences (0..1)",
++    labelnames=("symbol", "stream"),
++)
++
++stream_seq_max_gap_window = _get_or_create(
++    "stream_seq_max_gap_window",
++    Gauge,
++    "Max seq gap magnitude observed in the current window",
++    labelnames=("symbol", "stream"),
++)
++
++stream_dup_burst_z = _get_or_create(
++    "stream_dup_burst_z",
++    Gauge,
++    "Robust z-score of per-second duplicate ratio",
++    labelnames=("symbol", "stream"),
++)
++
++stream_schema_changed_total = _get_or_create(
++    "stream_schema_changed_total",
++    Counter,
++    "Count of detected schema-hash changes (keys-set changed)",
++    labelnames=("symbol", "stream"),
++)
++
++stream_schema_hash = _get_or_create(
++    "stream_schema_hash",
++    Gauge,
++    "Last seen schema hash as an integer (base16 truncated)",
++    labelnames=("symbol", "stream"),
++)
++
++
++def _hash_to_int(h: str) -> float:
++    try:
++        return float(int(str(h or "0"), 16))
++    except Exception:
++        return 0.0
++
++
++def emit_integrity_metrics(*, symbol: str, stream: str, snap) -> None:
++    """Best-effort emission."""
++    sym = str(symbol)
++    st = str(stream)
++    try:
++        if stream_seq_gap_rate_ema is not None:
++            stream_seq_gap_rate_ema.labels(symbol=sym, stream=st).set(float(getattr(snap, "gap_rate_ema", 0.0) or 0.0))
++        if stream_seq_dup_rate_ema is not None:
++            stream_seq_dup_rate_ema.labels(symbol=sym, stream=st).set(float(getattr(snap, "dup_rate_ema", 0.0) or 0.0))
++        if stream_seq_max_gap_window is not None:
++            stream_seq_max_gap_window.labels(symbol=sym, stream=st).set(float(getattr(snap, "gap_max_window", 0) or 0))
++        if stream_dup_burst_z is not None:
++            stream_dup_burst_z.labels(symbol=sym, stream=st).set(float(getattr(snap, "dup_burst_z", 0.0) or 0.0))
++
++        if getattr(snap, "schema_changed", 0) == 1:
++            if stream_schema_changed_total is not None:
++                stream_schema_changed_total.labels(symbol=sym, stream=st).inc()
++        if stream_schema_hash is not None:
++            stream_schema_hash.labels(symbol=sym, stream=st).set(_hash_to_int(getattr(snap, "schema_hash", "") or ""))
++    except Exception:
++        pass
+diff -ruN python-worker/services/orderflow/runtime.py python-worker/services/orderflow/runtime.py
+--- python-worker/services/orderflow/runtime.py	2026-03-04 18:25:37.000000000 +0000
++++ python-worker/services/orderflow/runtime.py	2026-03-07 08:29:59.861246756 +0000
+@@ -176,6 +176,9 @@
+ 
+ from core.tick_gap_tracker import TickGapTracker
+ from core.seq_gap_tracker_v1 import GapEmaTracker
++
++# P5 stream integrity (seq gaps/dups + schema drift)
++from services.orderflow.stream_integrity import StreamIntegrityTracker
+ from core.burst_calibrator import BurstCalibrator
+ 
+ 
+@@ -411,6 +414,10 @@
+     prev_book: Optional[BookSnapshot] = None
+     # Atomic snapshot (preferred by tick path)
+     book_state: Optional[BookState] = None
++    # P5: book sanity (crossed BBO, NaNs, neg qty). Populated by BookProcessor.
++    # Stored as simple fields to keep Redis snapshots small.
++    book_sanity_ok: int = 1
++    book_sanity_flags: str = ""  # CSV
+     last_book_ts_ms: int = 0
+     prev_book_ts_ms: int = 0
+     book_rate_ema: float = 0.0
+@@ -471,6 +478,10 @@
+ 
+     burst: BurstCandidateSelector = field(init=False)
+     tick_gaps: TickGapTracker = field(init=False)
++    # P5: Stream integrity telemetry (seq gaps/dups + schema hash).
++    # These trackers do not veto by themselves; gates consume their outputs.
++    tick_integrity: StreamIntegrityTracker = field(init=False)
++    book_integrity: StreamIntegrityTracker = field(init=False)
+     # NEW: lock for burst/flush race protection
+     burst_mu: asyncio.Lock = field(default_factory=asyncio.Lock)
+     # NEW: monotonic tick time tracking
+@@ -717,6 +728,12 @@
+         tau_ms = int(self.config.get("dq_seq_tau_ms", tau_default) or tau_default)
+         self.tick_seq_gap = GapEmaTracker(tau_ms=tau_ms)
+         self.book_seq_gap = GapEmaTracker(tau_ms=tau_ms)
++
++        # P5 stream integrity trackers (gaps/dups/schema drift). These are hot-path safe.
++        z_window = int(self.config.get("dq_seq_z_window", 120) or 120)
++        maxgap_win_ms = int(self.config.get("dq_seq_maxgap_window_ms", 60_000) or 60_000)
++        self.tick_integrity = StreamIntegrityTracker(tau_ms=tau_ms, z_window=z_window, max_gap_window_ms=maxgap_win_ms)
++        self.book_integrity = StreamIntegrityTracker(tau_ms=tau_ms, z_window=z_window, max_gap_window_ms=maxgap_win_ms)
+         self.burst_cal = BurstCalibrator(
+             base_window_ms=int(self.config.get("burst_window_ms", 2500)),
+             min_window_ms=int(self.config.get("burst_window_min_ms", 300)),
+diff -ruN python-worker/services/orderflow/signal_pipeline.py python-worker/services/orderflow/signal_pipeline.py
+--- python-worker/services/orderflow/signal_pipeline.py	2026-03-06 20:24:42.000000000 +0000
++++ python-worker/services/orderflow/signal_pipeline.py	2026-03-07 08:35:24.749917872 +0000
+@@ -30,6 +30,21 @@
+ from handlers.crypto_orderflow.utils.log_sampler import LogSamplerFactory, sampled_info
+ from handlers.crypto_orderflow.utils.pre_publish_gates import HardDataQualityGate, RegimeSessionGate
+ 
++# P5/P6: microstructure sanity + execution health gates
++from services.orderflow.book_sanity_gate import BookSanityGate
++from services.orderflow.stream_integrity_gate import StreamIntegrityGate
++from services.orderflow.execution_health_gate import (
++    ExecHealthThresholds,
++    read_exec_rollups,
++    decide_execution_health,
++    apply_exec_health_to_indicators,
++)
++from services.orderflow.metrics_exec_health_p6 import (
++    exec_health_apply_total,
++    exec_health_veto_total,
++    exec_health_tighten_add_bps,
++)
++
+ logger = logging.getLogger("of_signal_pipeline")
+ 
+ class SignalPipeline:
+@@ -71,6 +86,15 @@
+         self._rs_gate = RegimeSessionGate.from_env()
+         self._rejected_signal_stream = os.getenv("CRYPTO_REJECTED_SIGNAL_STREAM", "signals:crypto:rejected")
+ 
++        # P5: Book sanity gate (crossed BBO, NaNs, negative depth)
++        self._book_sanity_gate = BookSanityGate.from_env()
++
++        # P5: Stream integrity gate (seq gaps/dups/schema drift)
++        self._stream_integrity_gate = StreamIntegrityGate.from_env()
++
++        # P6: Execution health thresholds (TCA rollups)
++        self._exec_thr = ExecHealthThresholds.from_env(prefix="EXEC_")
++
+         # ------------------------------------------------------------------
+         # Decision Snapshot (A2)
+         # ------------------------------------------------------------------
+@@ -895,6 +919,77 @@
+                 if getattr(dec, "apply", False) and getattr(dec, "veto", False):
+                     veto_dec = dec
+                     break
++
++            # -------------------------------------------------------------
++            # P5: BookSanityGate (separate from time-based DQ).
++            # -------------------------------------------------------------
++            if veto_dec is None and self._book_sanity_gate is not None:
++                try:
++                    bs_dec = self._book_sanity_gate.evaluate(indicators=indicators, symbol=str(symbol))
++                    if getattr(bs_dec, "apply", False):
++                        enriched_signal["book_sanity_flags"] = bs_dec.flags
++                        enriched_signal["book_sanity_reason"] = str(bs_dec.reason_code or "")
++                    if getattr(bs_dec, "veto", False):
++                        veto_dec = SimpleNamespace(gate="BookSanityGate", reason_code=str(bs_dec.reason_code), notes=str(bs_dec.notes or ""))
++                except Exception:
++                    pass
++
++            # -------------------------------------------------------------
++            # P5: StreamIntegrityGate (seq gaps/dups/schema drift)
++            # -------------------------------------------------------------
++            if veto_dec is None and self._stream_integrity_gate is not None:
++                try:
++                    si_dec = self._stream_integrity_gate.evaluate(indicators=indicators, symbol=str(symbol))
++                    if getattr(si_dec, "apply", False):
++                        enriched_signal["stream_integrity_flags"] = list(si_dec.flags)
++                    if getattr(si_dec, "veto", False):
++                        veto_dec = SimpleNamespace(gate="StreamIntegrityGate", reason_code=str(si_dec.reason_code), notes=str(si_dec.notes or ""))
++                except Exception:
++                    pass
++
++            # -------------------------------------------------------------
++            # P6: ExecutionHealthGate (TCA rollups -> tighten/veto)
++            #
++            # NOTE: this is a warm-path read (only on candidate publish), so
++            # Redis fetch is acceptable.
++            # -------------------------------------------------------------
++            if veto_dec is None and self.publisher is not None and getattr(self.publisher, "r", None) is not None:
++                try:
++                    # If thresholds are not set, keep it monitor-only.
++                    thr = self._exec_thr
++                    if float(thr.max_is_p95_bps) > 0 or float(thr.max_perm_impact_p95_bps) > 0 or float(thr.min_realized_spread_p50_bps) > -900:
++                        sess = session_utc(int(enriched_signal.get("ts_ms") or 0))
++                        venue = str(enriched_signal.get("source") or "binance").lower()
++                        tf = str(indicators.get("atr_tf") or "1m")
++                        side = str(direction).upper()
++                        roll = await read_exec_rollups(
++                            redis=self.publisher.r,
++                            sym=str(symbol),
++                            venue=venue,
++                            session=str(sess),
++                            tf=tf,
++                            kind=str(kind or "all"),
++                            side=side,
++                            delta_sec=1,
++                        )
++                        if roll:
++                            dec_e = decide_execution_health(rollups=roll, thr=thr)
++                            apply_exec_health_to_indicators(indicators=indicators, dec=dec_e)
++                            enriched_signal["tca_rollups"] = roll
++                            # Prom metrics (fail-open)
++                            try:
++                                if exec_health_apply_total is not None:
++                                    exec_health_apply_total.labels(symbol=str(symbol), mode=str(os.getenv("EXEC_HEALTH_MODE", "auto") or "auto")).inc()
++                                if dec_e.tighten_add_bps and exec_health_tighten_add_bps is not None:
++                                    exec_health_tighten_add_bps.labels(symbol=str(symbol)).observe(float(dec_e.tighten_add_bps))
++                                if dec_e.veto and exec_health_veto_total is not None:
++                                    exec_health_veto_total.labels(symbol=str(symbol), reason=str(dec_e.reason_code or "VETO")).inc()
++                            except Exception:
++                                pass
++                            if dec_e.veto:
++                                veto_dec = SimpleNamespace(gate="ExecutionHealthGate", reason_code=str(dec_e.reason_code or "VETO_EXEC_HEALTH"), notes=str(dec_e.flags))
++                except Exception:
++                    pass
+         except Exception:
+             veto_dec = None
+ 
+diff -ruN python-worker/services/orderflow/stream_integrity.py python-worker/services/orderflow/stream_integrity.py
+--- python-worker/services/orderflow/stream_integrity.py	1970-01-01 00:00:00.000000000 +0000
++++ python-worker/services/orderflow/stream_integrity.py	2026-03-07 08:26:03.950297965 +0000
+@@ -0,0 +1,198 @@
++from __future__ import annotations
++
++"""Stream integrity telemetry (P5).
++
++This module provides *measurable*, non-binary signals about stream health:
++  - sequence gaps (missing messages)
++  - duplicates / out-of-order delivery
++  - schema drift (unexpected field-set change)
++
++Why a dedicated module?
++----------------------
++The codebase already has several continuity checks (tick_id gaps, book U/u, etc.).
++However, those checks were historically used as ad-hoc flags/counters.
++For SRE-grade observability and for deterministic gating we need:
++  - stable rates (EMA)
++  - bounded burst indicators (robust z)
++  - explicit max-gap magnitude
++  - schema-hash monitoring to detect silent producer changes.
++
++Design constraints
++------------------
++* Hot-path safe: O(1) per message, no allocations proportional to payload size.
++* Fail-open: never raises, callers can ignore results.
++* Deterministic: all state evolves only from (seq, ts_ms) observed.
++
++NOTE:
++- This tracker is **not** a validator. It does not veto.
++- Veto logic should be applied by a separate gate using these metrics.
++"""
++
++import hashlib
++import math
++from dataclasses import dataclass
++from typing import Any, Iterable, Tuple
++
++from core.seq_gap_tracker_v1 import GapEmaTracker
++from core.robust_stats import RollingRobustZ
++
++
++def _finite_f(x: Any, d: float = 0.0) -> float:
++    try:
++        v = float(x)
++    except Exception:
++        return float(d)
++    if not math.isfinite(v):
++        return float(d)
++    return float(v)
++
++
++def schema_hash(keys: Iterable[str]) -> str:
++    """Stable short hash for a set of keys (schema drift detector)."""
++    try:
++        s = ",".join(sorted(str(k) for k in keys))
++    except Exception:
++        s = ""
++    h = hashlib.sha1(s.encode("utf-8", errors="ignore")).hexdigest()
++    return h[:10]
++
++
++@dataclass
++class IntegritySnapshot:
++    last_seq: int = 0
++    gap_last: int = 0
++    gap_max_window: int = 0
++    gap_rate_ema: float = 0.0
++    dup_rate_ema: float = 0.0
++    dup_burst_z: float = 0.0
++    schema_hash: str = ""
++    schema_changed: int = 0
++
++
++class StreamIntegrityTracker:
++    """Bounded integrity tracker for a single logical stream."""
++
++    def __init__(
++        self,
++        *,
++        tau_ms: int = 10_000,
++        z_window: int = 120,
++        max_gap_window_ms: int = 60_000,
++    ) -> None:
++        self.gap_ema = GapEmaTracker(tau_ms=int(max(500, tau_ms)))
++        # Reuse GapEmaTracker for dup-rate EMA (same math: event {0,1}).
++        self.dup_ema = GapEmaTracker(tau_ms=int(max(500, tau_ms)))
++        self.dup_rate_stats = RollingRobustZ(window=int(max(32, z_window)))
++
++        self.max_gap_window_ms = int(max(5_000, max_gap_window_ms))
++
++        self.last_seq: int = 0
++        self.last_ts_ms: int = 0
++
++        # Gap magnitudes
++        self.gap_last: int = 0
++        self.gap_max_window: int = 0
++        self._gap_window_start_ms: int = 0
++
++        # Duplicate burst aggregation (per-second bucket)
++        self._bucket_sec: int = 0
++        self._bucket_total: int = 0
++        self._bucket_dup: int = 0
++        self.dup_burst_z: float = 0.0
++
++        # Schema drift
++        self.schema_hash_last: str = ""
++        self.schema_changed_last: int = 0
++
++    def update_schema(self, keys: Iterable[str]) -> Tuple[str, int]:
++        """Update schema hash. Returns (hash, changed_flag)."""
++        h = schema_hash(keys)
++        changed = 0
++        if self.schema_hash_last and h and h != self.schema_hash_last:
++            changed = 1
++        if h:
++            self.schema_hash_last = h
++        self.schema_changed_last = int(changed)
++        return self.schema_hash_last, int(changed)
++
++    def update_seq(self, *, seq: int, ts_ms: int) -> IntegritySnapshot:
++        """Update with a new observed sequence number."""
++        try:
++            seq_i = int(seq)
++            ts_i = int(ts_ms)
++        except Exception:
++            return IntegritySnapshot(
++                last_seq=int(self.last_seq),
++                gap_last=int(self.gap_last),
++                gap_max_window=int(self.gap_max_window),
++                gap_rate_ema=float(_finite_f(getattr(self.gap_ema, "ema", 0.0))),
++                dup_rate_ema=float(_finite_f(getattr(self.dup_ema, "ema", 0.0))),
++                dup_burst_z=float(self.dup_burst_z),
++                schema_hash=str(self.schema_hash_last),
++                schema_changed=int(self.schema_changed_last),
++            )
++
++        # Enforce monotone time inside the tracker to keep EMA stable.
++        if ts_i <= int(self.last_ts_ms or 0):
++            ts_i = int(self.last_ts_ms or 0) + 1
++        self.last_ts_ms = int(ts_i)
++
++        # Window reset for max-gap
++        if self._gap_window_start_ms <= 0:
++            self._gap_window_start_ms = int(ts_i)
++        if (ts_i - self._gap_window_start_ms) >= self.max_gap_window_ms:
++            self._gap_window_start_ms = int(ts_i)
++            self.gap_max_window = 0
++
++        gap = 0
++        is_gap = False
++        is_dup = False
++
++        if self.last_seq > 0:
++            delta = int(seq_i - self.last_seq)
++            if delta > 1:
++                gap = int(delta - 1)
++                is_gap = True
++            elif delta == 0:
++                is_dup = True
++            else:
++                # reorder/reset: do not count as gap/dup, but do not regress last_seq
++                pass
++
++        self.gap_last = int(gap)
++        if gap > self.gap_max_window:
++            self.gap_max_window = int(gap)
++
++        # EMA updates
++        gap_rate = float(self.gap_ema.update(is_gap=bool(is_gap), ts_ms=int(ts_i)))
++        dup_rate = float(self.dup_ema.update(is_gap=bool(is_dup), ts_ms=int(ts_i)))
++
++        # Duplicate burst z (per-second dup ratio)
++        sec = int(ts_i // 1000)
++        if self._bucket_sec == 0:
++            self._bucket_sec = sec
++        if sec != self._bucket_sec:
++            r = float(self._bucket_dup) / float(max(1, self._bucket_total))
++            self.dup_burst_z = float(self.dup_rate_stats.update(r))
++            self._bucket_sec = sec
++            self._bucket_total = 0
++            self._bucket_dup = 0
++
++        self._bucket_total += 1
++        if is_dup:
++            self._bucket_dup += 1
++
++        # Advance last_seq only on monotone progression.
++        if seq_i > self.last_seq:
++            self.last_seq = int(seq_i)
++
++        return IntegritySnapshot(
++            last_seq=int(self.last_seq),
++            gap_last=int(self.gap_last),
++            gap_max_window=int(self.gap_max_window),
++            gap_rate_ema=float(gap_rate),
++            dup_rate_ema=float(dup_rate),
++            dup_burst_z=float(self.dup_burst_z),
++            schema_hash=str(self.schema_hash_last),
++            schema_changed=int(self.schema_changed_last),
++        )
+diff -ruN python-worker/services/orderflow/stream_integrity_gate.py python-worker/services/orderflow/stream_integrity_gate.py
+--- python-worker/services/orderflow/stream_integrity_gate.py	1970-01-01 00:00:00.000000000 +0000
++++ python-worker/services/orderflow/stream_integrity_gate.py	2026-03-07 08:34:56.401530118 +0000
+@@ -0,0 +1,127 @@
++from __future__ import annotations
++
++"""StreamIntegrityGate (P5).
++
++A light-weight gate that consumes P5 integrity telemetry and optionally vetoes.
++
++Default policy:
++- default/soft: annotate only
++- strict: tighten/annotate only (no veto)
++- hard: veto on severe sequence gaps or schema drift
++
++This gate intentionally does *not* duplicate tick/book continuity logic.
++It only uses already computed indicators:
++  - tick_seq_gap_rate_ema / tick_seq_max_gap_window / tick_schema_changed
++  - book_seq_gap_rate_ema / book_seq_max_gap_window / book_schema_hash
++
++Thresholds are opt-in; if env is 0, gate is effectively monitor-only.
++"""
++
++import os
++from dataclasses import dataclass
++from typing import Any, Dict, List
++
++
++def _f(x: Any, d: float = 0.0) -> float:
++    try:
++        return float(x)
++    except Exception:
++        return float(d)
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(x)
++    except Exception:
++        return int(d)
++
++
++def _profile() -> str:
++    return str(os.getenv("GATE_PROFILE", os.getenv("STREAM_INTEGRITY_PROFILE", "default")) or "default").strip().lower()
++
++
++@dataclass
++class StreamIntegrityDecision:
++    apply: bool
++    veto: bool
++    gate: str
++    reason_code: str
++    flags: List[str]
++    notes: str = ""
++
++
++class StreamIntegrityGate:
++    def __init__(
++        self,
++        *,
++        enabled: bool,
++        mode: str,
++        max_gap_rate_ema: float,
++        max_gap_window: int,
++        veto_on_schema_change: bool,
++    ) -> None:
++        self.enabled = bool(enabled)
++        self.mode = str(mode or "auto").strip().lower()
++        self.max_gap_rate_ema = float(max_gap_rate_ema)
++        self.max_gap_window = int(max_gap_window)
++        self.veto_on_schema_change = bool(veto_on_schema_change)
++
++    @staticmethod
++    def from_env() -> "StreamIntegrityGate":
++        enabled = bool(int(os.getenv("STREAM_INTEGRITY_GATE_ENABLED", "1") or 1))
++        mode = os.getenv("STREAM_INTEGRITY_MODE", "auto")
++        return StreamIntegrityGate(
++            enabled=enabled,
++            mode=str(mode),
++            max_gap_rate_ema=_f(os.getenv("DATA_MAX_SEQ_GAP_RATE_EMA", "0"), 0.0),
++            max_gap_window=_i(os.getenv("DATA_MAX_SEQ_GAP_WINDOW", "0"), 0),
++            veto_on_schema_change=bool(int(os.getenv("DATA_VETO_ON_SCHEMA_CHANGE", "0") or 0)),
++        )
++
++    def _effective_mode(self) -> str:
++        if self.mode in ("monitor", "tighten", "veto"):
++            return self.mode
++        p = _profile()
++        if p == "hard":
++            return "veto"
++        if p == "strict":
++            return "tighten"
++        return "monitor"
++
++    def evaluate(self, *, indicators: Dict[str, Any], symbol: str) -> StreamIntegrityDecision:
++        if not self.enabled:
++            return StreamIntegrityDecision(apply=False, veto=False, gate="StreamIntegrityGate", reason_code="", flags=[])
++
++        mode = self._effective_mode()
++        flags: List[str] = []
++
++        # Inputs
++        tg = _f(indicators.get("tick_seq_gap_rate_ema", 0.0), 0.0)
++        bg = _f(indicators.get("book_seq_gap_rate_ema", 0.0), 0.0)
++        tmax = _i(indicators.get("tick_seq_max_gap_window", 0), 0)
++        bmax = _i(indicators.get("book_seq_max_gap_window", 0), 0)
++        schema_tick = _i(indicators.get("tick_schema_changed", 0), 0)
++
++        if self.max_gap_rate_ema > 0 and max(tg, bg) >= self.max_gap_rate_ema:
++            flags.append("gap_rate_ema_high")
++        if self.max_gap_window > 0 and max(tmax, bmax) >= self.max_gap_window:
++            flags.append("gap_window_high")
++        if self.veto_on_schema_change and schema_tick == 1:
++            flags.append("schema_changed")
++
++        if not flags:
++            return StreamIntegrityDecision(apply=False, veto=False, gate="StreamIntegrityGate", reason_code="", flags=[])
++
++        if mode != "veto":
++            return StreamIntegrityDecision(apply=True, veto=False, gate="StreamIntegrityGate", reason_code="STREAM_INTEGRITY", flags=flags, notes=f"mode={mode}")
++
++        # hard veto
++        reason = "VETO_STREAM_INTEGRITY"
++        if "schema_changed" in flags:
++            reason = "VETO_SCHEMA_DRIFT"
++        elif "gap_window_high" in flags:
++            reason = "VETO_SEQ_GAP_WINDOW"
++        elif "gap_rate_ema_high" in flags:
++            reason = "VETO_SEQ_GAP_RATE"
++
++        return StreamIntegrityDecision(apply=True, veto=True, gate="StreamIntegrityGate", reason_code=reason, flags=flags, notes=f"symbol={symbol}")
+diff -ruN python-worker/services/orderflow/tests/test_book_sanity_p5_v1.py python-worker/services/orderflow/tests/test_book_sanity_p5_v1.py
+--- python-worker/services/orderflow/tests/test_book_sanity_p5_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ python-worker/services/orderflow/tests/test_book_sanity_p5_v1.py	2026-03-07 08:37:48.047469770 +0000
+@@ -0,0 +1,40 @@
++import unittest
++
++from services.orderflow.book_sanity import check_book_sanity, trade_outside_bbo
++
++
++class TestBookSanityP5(unittest.TestCase):
++    def test_ok_book(self):
++        book = {
++            "best_bid_px": 100.0,
++            "best_ask_px": 101.0,
++            "bids": [[100.0, 1.0], [99.5, 2.0]],
++            "asks": [[101.0, 1.5], [101.5, 3.0]],
++        }
++        res = check_book_sanity(book=book)
++        self.assertTrue(res.ok)
++        self.assertEqual(res.flags, [])
++
++    def test_crossed_book(self):
++        book = {
++            "best_bid_px": 101.0,
++            "best_ask_px": 101.0,
++            "bids": [[101.0, 1.0]],
++            "asks": [[101.0, 1.0]],
++        }
++        res = check_book_sanity(book=book)
++        self.assertFalse(res.ok)
++        self.assertIn("crossed_bbo", res.flags)
++
++    def test_trade_outside_bbo(self):
++        outside, dist = trade_outside_bbo(trade_px=103.0, best_bid=100.0, best_ask=101.0, eps_bps=1.0)
++        self.assertTrue(outside)
++        self.assertGreater(dist, 0.0)
++
++        outside2, dist2 = trade_outside_bbo(trade_px=101.0, best_bid=100.0, best_ask=101.0, eps_bps=1.0)
++        self.assertFalse(outside2)
++        self.assertEqual(dist2, 0.0)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff -ruN python-worker/services/orderflow/tests/test_execution_health_gate_p6_v1.py python-worker/services/orderflow/tests/test_execution_health_gate_p6_v1.py
+--- python-worker/services/orderflow/tests/test_execution_health_gate_p6_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ python-worker/services/orderflow/tests/test_execution_health_gate_p6_v1.py	2026-03-07 08:38:01.072226481 +0000
+@@ -0,0 +1,35 @@
++import unittest
++
++from services.orderflow.execution_health_gate import (
++    ExecHealthThresholds,
++    decide_execution_health,
++    apply_exec_health_to_indicators,
++)
++
++
++class TestExecutionHealthGateP6(unittest.TestCase):
++    def test_monitor_mode_flags(self):
++        thr = ExecHealthThresholds(max_is_p95_bps=5.0, max_perm_impact_p95_bps=3.0, min_realized_spread_p50_bps=-1.0)
++        roll = {"is_p95_bps": 6.0, "perm_impact_p95_bps_1": 4.0, "realized_spread_p50_bps_1": -2.0}
++
++        # Force monitor via env by not touching env; decision uses _mode() which defaults to auto.
++        # We only assert flags are present and decision is applied.
++        dec = decide_execution_health(rollups=roll, thr=thr)
++        self.assertTrue(dec.apply)
++        self.assertTrue(len(dec.flags) >= 1)
++
++    def test_apply_tighten_adds_slippage(self):
++        thr = ExecHealthThresholds(max_is_p95_bps=5.0, max_perm_impact_p95_bps=3.0)
++        roll = {"is_p95_bps": 10.0, "perm_impact_p95_bps_1": 6.0}
++        dec = decide_execution_health(rollups=roll, thr=thr)
++
++        ind = {"expected_slippage_bps": 2.0}
++        apply_exec_health_to_indicators(indicators=ind, dec=dec)
++        self.assertIn("exec_health_apply", ind)
++        self.assertIn("exec_health_veto", ind)
++        self.assertIn("exec_health_flags", ind)
++        self.assertGreaterEqual(ind.get("expected_slippage_bps", 0.0), 2.0)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff -ruN python-worker/services/orderflow/tests/test_stream_integrity_p5_v1.py python-worker/services/orderflow/tests/test_stream_integrity_p5_v1.py
+--- python-worker/services/orderflow/tests/test_stream_integrity_p5_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ python-worker/services/orderflow/tests/test_stream_integrity_p5_v1.py	2026-03-07 08:37:40.106461872 +0000
+@@ -0,0 +1,41 @@
++import unittest
++
++from services.orderflow.stream_integrity import StreamIntegrityTracker
++
++
++class TestStreamIntegrityP5(unittest.TestCase):
++    def test_gap_and_dup_detection(self):
++        tr = StreamIntegrityTracker(tau_ms=2000, z_window=64, max_gap_window_ms=60000)
++
++        # Warmup
++        s1 = tr.update_seq(seq=1, ts_ms=1000)
++        self.assertEqual(s1.gap_last, 0)
++        self.assertEqual(s1.gap_max_window, 0)
++
++        # No gaps
++        for i in range(2, 6):
++            s = tr.update_seq(seq=i, ts_ms=1000 + i)
++            self.assertEqual(s.gap_last, 0)
++
++        # Gap
++        s_gap = tr.update_seq(seq=10, ts_ms=2000)
++        self.assertEqual(s_gap.gap_last, 10 - 5 - 1)
++        self.assertGreaterEqual(s_gap.gap_max_window, 4)
++        self.assertTrue(0.0 <= s_gap.gap_rate_ema <= 1.0)
++
++        # Duplicate
++        s_dup = tr.update_seq(seq=10, ts_ms=3000)
++        self.assertTrue(0.0 <= s_dup.dup_rate_ema <= 1.0)
++
++    def test_schema_hash_change(self):
++        tr = StreamIntegrityTracker(tau_ms=2000)
++        h1, c1 = tr.update_schema(["a", "b", "c"])
++        self.assertTrue(h1)
++        self.assertEqual(c1, 0)
++        h2, c2 = tr.update_schema(["a", "b", "c", "d"])
++        self.assertNotEqual(h1, h2)
++        self.assertEqual(c2, 1)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff -ruN python-worker/services/smt_entry_policy_service.py python-worker/services/smt_entry_policy_service.py
+--- python-worker/services/smt_entry_policy_service.py	2026-02-19 20:18:57.000000000 +0000
++++ python-worker/services/smt_entry_policy_service.py	2026-03-07 08:34:20.763576733 +0000
+@@ -13,6 +13,10 @@
+ from core.entry_policy_overrides_v1 import EntryPolicyOverridesV1
+ from core.active_arm_stabilizer import ActiveArmStabilizer
+ 
++# P6: execution health (TCA rollups) for entry policy
++from services.orderflow.utils import session_utc
++from services.orderflow.execution_health_gate import ExecHealthThresholds, read_exec_rollups, decide_execution_health
++
+ def _now_ms() -> int:
+     return int(time.time() * 1000)
+ 
+@@ -134,6 +138,12 @@
+             allow_zone_id_change_if_near=self.cfg.allow_zone_id_change_if_near,
+         )
+ 
++        # P6: execution health thresholds (TCA rollups)
++        self._exec_thr = ExecHealthThresholds.from_env(prefix="EXEC_")
++        self._exec_entry_policy_enable = bool(int(os.getenv("EXEC_HEALTH_ENTRY_POLICY_ENABLED", "1") or 1))
++        self._exec_venue = str(os.getenv("EXEC_HEALTH_VENUE", "binance") or "binance").lower()
++        self._exec_tf = str(os.getenv("EXEC_HEALTH_TF", "all") or "all").lower()
++
+     async def _get_active_arm(self, *, symbol: str, regime: str, group: str, scenario: str, raw_only: bool = False) -> str:
+         sym, rg, g, scn = symbol.upper(), regime.lower(), group.lower(), (scenario or "").lower()
+         now = _now_ms()
+@@ -193,6 +203,53 @@
+         d = await self.r.hgetall(f"{self.cfg.bundle_prefix}{bid}")
+         return d or {}
+ 
++    async def _maybe_attach_exec_health(self, *, now_ms: int, cand: Dict[str, Any], snap: Dict[str, Any], bundle: Dict[str, Any]) -> None:
++        """Attach execution-health rollups to snap (fail-open).
++
++        This allows EntryPolicyCore to deny or shadow entries when execution
++        quality is degraded, without relying on hardcoded assumptions.
++        """
++        if not self._exec_entry_policy_enable:
++            return
++
++        thr = self._exec_thr
++        # If thresholds are not set, keep disabled to avoid surprise behavior.
++        if float(thr.max_is_p95_bps) <= 0 and float(thr.max_perm_impact_p95_bps) <= 0 and float(thr.min_realized_spread_p50_bps) <= -900:
++            return
++
++        try:
++            sym = str(cand.get("symbol") or "").upper()
++            side = str(cand.get("side") or "NA").upper()
++            kind = str(bundle.get("decision") or "all").lower()
++            sess = str(session_utc(int(now_ms)))
++
++            roll = await read_exec_rollups(
++                redis=self.r,
++                sym=sym,
++                venue=self._exec_venue,
++                session=sess,
++                tf=self._exec_tf,
++                kind=kind,
++                side=side,
++                delta_sec=1,
++            )
++            if not roll:
++                return
++
++            # expose into snap for audit/decisions
++            snap["tca_is_p95_bps"] = float(roll.get("is_p95_bps", 0.0) or 0.0)
++            snap["tca_perm_impact_p95_bps_1"] = float(roll.get("perm_impact_p95_bps_1", 0.0) or 0.0)
++            snap["tca_realized_spread_p50_bps_1"] = float(roll.get("realized_spread_p50_bps_1", 0.0) or 0.0)
++
++            dec = decide_execution_health(rollups=roll, thr=thr)
++            snap["exec_health_apply"] = int(1 if dec.apply else 0)
++            snap["exec_health_veto"] = int(1 if dec.veto else 0)
++            snap["exec_health_flags"] = ",".join(dec.flags)
++            snap["exec_health_reason"] = str(dec.reason_code or "")
++            snap["exec_health_tighten_add_bps"] = float(dec.tighten_add_bps or 0.0)
++        except Exception:
++            return
++
+     async def _maybe_poll_overrides(self, now_ms: int, *, cand: Dict[str, Any], snap: Dict[str, Any], bundle: Dict[str, Any]) -> None:
+         """
+         Poll overrides using strict schema + hold-down + hysteresis.
+@@ -480,6 +537,12 @@
+                 await self._audit(now_ms=_now_ms(), cand=cand, ok=True, reason_code="ALLOW_SHADOW_FROZEN_NONA", notes=frz_reason, snap=snap, bundle=bundle, ovr=ovr)
+                 return
+ 
++        # P6: attach execution health rollups (TCA) to snap for core decision
++        try:
++            await self._maybe_attach_exec_health(now_ms=now, cand=cand, snap=snap, bundle=bundle)
++        except Exception:
++            pass
++
+         from services.entry_policy_core import evaluate_entry_policy
+         dec = evaluate_entry_policy(now_ms=_now_ms(), cand=cand, snap=snap, bundle=bundle, cfg=self.core_cfg, dedup_state=self._dedup)
+         

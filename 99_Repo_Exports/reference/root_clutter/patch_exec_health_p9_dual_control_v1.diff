@@ -1,0 +1,2082 @@
+--- a/services/orderflow/exec_health_freeze_control.py
++++ b/services/orderflow/exec_health_freeze_control.py
+@@ -1,18 +1,17 @@
+ from __future__ import annotations
+ 
+-"""Latched control state for ExecHealth auto-freeze / manual thaw.
++"""Latched control state for ExecHealth auto-freeze / operator thaw.
+ 
+-P7/P8 purpose
+--------------
+-P5/P6 introduced a raw auto-freeze key that hard-blocks publish/entry paths.
+-That key alone is operationally weak because deleting it can thaw the system
+-without any audit trail. P7 added a *latched* control/state layer. P8 hardens
+-that flow further:
+-
+-- every autoguard trigger creates a pending ack nonce
+-- operator thaw must provide the exact pending nonce (compare-and-set)
+-- thaw writes a signed ack into control/state and into an audit event stream
+-- control/state deletion without a valid ack-event can be detected separately
++P7/P8 introduced a latched control layer with signed operator ack. P9 upgrades
++that thaw path to a strict two-phase / dual-control workflow:
++
++1. prepare thaw request (request_id + nonce CAS)
++2. second operator approves it
++3. approved operator emits final signed commit event
++
++The runtime hook only accepts thaw when the dual-control commit signature is
++valid. Legacy single-operator thaw can be disabled globally and is disabled by
++default in P9.
+ """
+ 
+ import hashlib
+@@ -59,6 +58,13 @@
+     return str(sec or "")
+ 
+ 
++def _require_dual_control(explicit: bool | None = None) -> bool:
++    if explicit is not None:
++        return bool(explicit)
++    raw = str(os.getenv("EXEC_HEALTH_REQUIRE_DUAL_CONTROL_ACK", "1") or "1").strip().lower()
++    return raw not in {"0", "false", "off", "no"}
++
++
+ @dataclass(frozen=True)
+ class ExecHealthFreezeControlState:
+     effective_freeze_active: bool
+@@ -82,6 +88,19 @@
+     manual_ack_sig: str
+     manual_ack_event_id: str
+     last_trigger_event_id: str
++    active_thaw_request_id: str
++    thaw_request_status: str
++    thaw_request_nonce: str
++    thaw_prepare_ts_ms: int
++    thaw_prepared_by: str
++    thaw_request_reason: str
++    thaw_request_ticket: str
++    thaw_approve_ts_ms: int
++    thaw_approved_by: str
++    manual_commit_request_id: str
++    manual_commit_by: str
++    manual_commit_ts_ms: int
++    manual_commit_sig: str
+     raw_payload: Dict[str, Any]
+ 
+ 
+@@ -161,6 +180,124 @@
+     return hmac.compare_digest(sig, exp)
+ 
+ 
++def build_dual_control_commit_signing_message(
++    *,
++    request_id: str,
++    ack_nonce: str,
++    prepared_by: str,
++    approved_by: str,
++    commit_by: str,
++    reason: str,
++    ticket: str,
++    trigger_ts_ms: int,
++    prepared_ts_ms: int,
++    approved_ts_ms: int,
++    commit_ts_ms: int,
++) -> str:
++    parts = [
++        "exec_health_dual_control_commit_v1",
++        str(request_id or ""),
++        str(ack_nonce or ""),
++        str(prepared_by or ""),
++        str(approved_by or ""),
++        str(commit_by or ""),
++        str(reason or ""),
++        str(ticket or ""),
++        str(int(trigger_ts_ms or 0)),
++        str(int(prepared_ts_ms or 0)),
++        str(int(approved_ts_ms or 0)),
++        str(int(commit_ts_ms or 0)),
++    ]
++    return "|".join(parts)
++
++
++def sign_dual_control_commit(
++    *,
++    secret: str | None = None,
++    request_id: str,
++    ack_nonce: str,
++    prepared_by: str,
++    approved_by: str,
++    commit_by: str,
++    reason: str,
++    ticket: str,
++    trigger_ts_ms: int,
++    prepared_ts_ms: int,
++    approved_ts_ms: int,
++    commit_ts_ms: int,
++) -> str:
++    sec = _secret(secret)
++    if not sec:
++        return ""
++    msg = build_dual_control_commit_signing_message(
++        request_id=request_id,
++        ack_nonce=ack_nonce,
++        prepared_by=prepared_by,
++        approved_by=approved_by,
++        commit_by=commit_by,
++        reason=reason,
++        ticket=ticket,
++        trigger_ts_ms=trigger_ts_ms,
++        prepared_ts_ms=prepared_ts_ms,
++        approved_ts_ms=approved_ts_ms,
++        commit_ts_ms=commit_ts_ms,
++    ).encode("utf-8")
++    return hmac.new(sec.encode("utf-8"), msg, hashlib.sha256).hexdigest()
++
++
++def verify_dual_control_commit_signature(raw: Mapping[str, Any] | None, *, secret: str | None = None) -> bool:
++    obj = dict(raw or {})
++    request_id = _s(obj.get("manual_commit_request_id"), "") or _s(obj.get("active_thaw_request_id"), "")
++    ack_nonce = _s(obj.get("manual_ack_nonce"), "") or _s(obj.get("thaw_request_nonce"), "") or _s(obj.get("expected_ack_nonce"), "")
++    prepared_by = _s(obj.get("thaw_prepared_by"), "")
++    approved_by = _s(obj.get("thaw_approved_by"), "")
++    commit_by = _s(obj.get("manual_commit_by"), "") or _s(obj.get("manual_ack_operator"), "")
++    reason = _s(obj.get("thaw_request_reason"), "") or _s(obj.get("manual_ack_reason"), "")
++    ticket = _s(obj.get("thaw_request_ticket"), "") or _s(obj.get("manual_ack_ticket"), "")
++    trigger_ts_ms = _i(obj.get("last_trigger_ts_ms"), 0)
++    prepared_ts_ms = _i(obj.get("thaw_prepare_ts_ms"), 0)
++    approved_ts_ms = _i(obj.get("thaw_approve_ts_ms"), 0)
++    commit_ts_ms = _i(obj.get("manual_commit_ts_ms"), 0) or _i(obj.get("manual_ack_ts_ms"), 0)
++    sig = _s(obj.get("manual_commit_sig"), "") or _s(obj.get("manual_ack_sig"), "")
++    if not request_id or not ack_nonce or not prepared_by or not approved_by or not commit_by or not sig:
++        return False
++    if prepared_by == approved_by:
++        return False
++    if approved_ts_ms <= 0 or prepared_ts_ms <= 0 or commit_ts_ms <= 0:
++        return False
++    exp = sign_dual_control_commit(
++        secret=secret,
++        request_id=request_id,
++        ack_nonce=ack_nonce,
++        prepared_by=prepared_by,
++        approved_by=approved_by,
++        commit_by=commit_by,
++        reason=reason,
++        ticket=ticket,
++        trigger_ts_ms=trigger_ts_ms,
++        prepared_ts_ms=prepared_ts_ms,
++        approved_ts_ms=approved_ts_ms,
++        commit_ts_ms=commit_ts_ms,
++    )
++    if not exp:
++        return False
++    return hmac.compare_digest(sig, exp)
++
++
++def verify_thaw_release_signature(
++    raw: Mapping[str, Any] | None,
++    *,
++    secret: str | None = None,
++    require_dual_control: bool | None = None,
++) -> bool:
++    obj = dict(raw or {})
++    request_id = _s(obj.get("manual_commit_request_id"), "") or _s(obj.get("active_thaw_request_id"), "")
++    dual_required = _require_dual_control(require_dual_control) or bool(request_id)
++    if dual_required:
++        return verify_dual_control_commit_signature(obj, secret=secret)
++    return verify_manual_ack_signature(obj, secret=secret)
++
++
+ def parse_exec_health_freeze_control(raw: Any, *, now_ms: int | None = None) -> ExecHealthFreezeControlState:
+     now = int(now_ms or _now_ms())
+     obj: Dict[str, Any] = {}
+@@ -195,6 +332,19 @@
+     manual_ack_sig = _s(obj.get("manual_ack_sig"), "")
+     manual_ack_event_id = _s(obj.get("manual_ack_event_id"), "")
+     last_trigger_event_id = _s(obj.get("last_trigger_event_id"), "")
++    active_thaw_request_id = _s(obj.get("active_thaw_request_id"), "")
++    thaw_request_status = _s(obj.get("thaw_request_status"), "")
++    thaw_request_nonce = _s(obj.get("thaw_request_nonce"), "") or expected_ack_nonce
++    thaw_prepare_ts_ms = _i(obj.get("thaw_prepare_ts_ms"), 0)
++    thaw_prepared_by = _s(obj.get("thaw_prepared_by"), "")
++    thaw_request_reason = _s(obj.get("thaw_request_reason"), "")
++    thaw_request_ticket = _s(obj.get("thaw_request_ticket"), "")
++    thaw_approve_ts_ms = _i(obj.get("thaw_approve_ts_ms"), 0)
++    thaw_approved_by = _s(obj.get("thaw_approved_by"), "")
++    manual_commit_request_id = _s(obj.get("manual_commit_request_id"), "")
++    manual_commit_by = _s(obj.get("manual_commit_by"), "")
++    manual_commit_ts_ms = _i(obj.get("manual_commit_ts_ms"), 0)
++    manual_commit_sig = _s(obj.get("manual_commit_sig"), "")
+ 
+     effective = _b(obj.get("effective_freeze_active"))
+ 
+@@ -203,9 +353,13 @@
+             effective = True
+             source = source or "manual_override_freeze"
+     elif manual_override_active and manual_override_action == "thaw" and manual_ack_ts_ms > 0:
+-        if manual_override_until_ts_ms <= 0 or manual_override_until_ts_ms > now:
+-            effective = False
+-            source = source or "manual_override_thaw"
++        if verify_thaw_release_signature(obj):
++            if manual_override_until_ts_ms <= 0 or manual_override_until_ts_ms > now:
++                effective = False
++                source = source or "manual_override_thaw"
++        elif _i(obj.get("last_trigger_ts_ms"), 0) > 0 or manual_ack_required or freeze_until_ts_ms > now:
++            effective = True
++            source = source or "autoguard"
+     elif manual_ack_required and _i(obj.get("last_trigger_ts_ms"), 0) > 0:
+         effective = True
+         source = source or "autoguard"
+@@ -232,6 +386,19 @@
+         manual_ack_sig=manual_ack_sig,
+         manual_ack_event_id=manual_ack_event_id,
+         last_trigger_event_id=last_trigger_event_id,
++        active_thaw_request_id=active_thaw_request_id,
++        thaw_request_status=thaw_request_status,
++        thaw_request_nonce=thaw_request_nonce,
++        thaw_prepare_ts_ms=thaw_prepare_ts_ms,
++        thaw_prepared_by=thaw_prepared_by,
++        thaw_request_reason=thaw_request_reason,
++        thaw_request_ticket=thaw_request_ticket,
++        thaw_approve_ts_ms=thaw_approve_ts_ms,
++        thaw_approved_by=thaw_approved_by,
++        manual_commit_request_id=manual_commit_request_id,
++        manual_commit_by=manual_commit_by,
++        manual_commit_ts_ms=manual_commit_ts_ms,
++        manual_commit_sig=manual_commit_sig,
+         raw_payload=obj,
+     )
+ 
+@@ -249,7 +416,7 @@
+     nonce = str(ack_nonce or p.get("expected_ack_nonce") or f"ack-{int(now_ms)}")
+     return {
+         "schema_name": "exec_health_freeze_control",
+-        "schema_version": 2,
++        "schema_version": 3,
+         "updated_ts_ms": int(now_ms),
+         "effective_freeze_active": 1,
+         "control_source": "autoguard",
+@@ -277,6 +444,19 @@
+         "trigger_total": _i(p.get("trigger_total"), 0) + 1,
+         "thaw_total": _i(p.get("thaw_total"), 0),
+         "manual_freeze_total": _i(p.get("manual_freeze_total"), 0),
++        "active_thaw_request_id": "",
++        "thaw_request_status": "",
++        "thaw_request_nonce": nonce,
++        "thaw_prepare_ts_ms": 0,
++        "thaw_prepared_by": "",
++        "thaw_request_reason": "",
++        "thaw_request_ticket": "",
++        "thaw_approve_ts_ms": 0,
++        "thaw_approved_by": "",
++        "manual_commit_request_id": "",
++        "manual_commit_by": "",
++        "manual_commit_ts_ms": 0,
++        "manual_commit_sig": "",
+     }
+ 
+ 
+@@ -296,7 +476,7 @@
+     nonce = str(provided_ack_nonce or expected or f"ack-{int(now_ms)}")
+     return {
+         "schema_name": "exec_health_freeze_control",
+-        "schema_version": 2,
++        "schema_version": 3,
+         "updated_ts_ms": int(now_ms),
+         "effective_freeze_active": 0,
+         "control_source": "manual_override_thaw",
+@@ -322,6 +502,133 @@
+         "thaw_total": _i(p.get("thaw_total"), 0) + 1,
+         "trigger_total": _i(p.get("trigger_total"), 0),
+         "manual_freeze_total": _i(p.get("manual_freeze_total"), 0),
++        "active_thaw_request_id": "",
++        "thaw_request_status": "legacy_committed",
++        "thaw_request_nonce": nonce,
++        "thaw_prepare_ts_ms": int(now_ms),
++        "thaw_prepared_by": str(operator),
++        "thaw_request_reason": str(reason),
++        "thaw_request_ticket": str(ticket),
++        "thaw_approve_ts_ms": int(now_ms),
++        "thaw_approved_by": str(operator),
++        "manual_commit_request_id": "legacy-single-operator",
++        "manual_commit_by": str(operator),
++        "manual_commit_ts_ms": int(now_ms),
++        "manual_commit_sig": str(manual_ack_sig),
++    }
++
++
++def build_thaw_prepare_update(
++    *,
++    prev: Mapping[str, Any] | None,
++    now_ms: int,
++    request_id: str,
++    operator: str,
++    reason: str,
++    ticket: str,
++    provided_ack_nonce: str,
++) -> Dict[str, Any]:
++    p = dict(prev or {})
++    expected = _s(p.get("expected_ack_nonce"), "")
++    nonce = str(provided_ack_nonce or expected or f"ack-{int(now_ms)}")
++    return {
++        **{k: v for k, v in p.items() if k not in {"updated_ts_ms", "control_source", "active_thaw_request_id", "thaw_request_status", "thaw_request_nonce", "thaw_prepare_ts_ms", "thaw_prepared_by", "thaw_request_reason", "thaw_request_ticket", "thaw_approve_ts_ms", "thaw_approved_by", "manual_commit_request_id", "manual_commit_by", "manual_commit_ts_ms", "manual_commit_sig"}},
++        "schema_name": "exec_health_freeze_control",
++        "schema_version": 3,
++        "updated_ts_ms": int(now_ms),
++        "control_source": "manual_thaw_prepare",
++        "effective_freeze_active": 1,
++        "manual_ack_required": 1,
++        "manual_override_active": 0,
++        "manual_override_action": "",
++        "manual_override_until_ts_ms": 0,
++        "manual_ack_ts_ms": 0,
++        "manual_ack_operator": "",
++        "manual_ack_reason": "",
++        "manual_ack_ticket": "",
++        "manual_ack_nonce": "",
++        "manual_ack_sig": "",
++        "manual_ack_event_id": "",
++        "expected_ack_nonce": expected or nonce,
++        "thaw_request_nonce": nonce,
++        "active_thaw_request_id": str(request_id),
++        "thaw_request_status": "prepared",
++        "thaw_prepare_ts_ms": int(now_ms),
++        "thaw_prepared_by": str(operator),
++        "thaw_request_reason": str(reason),
++        "thaw_request_ticket": str(ticket),
++        "thaw_approve_ts_ms": 0,
++        "thaw_approved_by": "",
++        "manual_commit_request_id": "",
++        "manual_commit_by": "",
++        "manual_commit_ts_ms": 0,
++        "manual_commit_sig": "",
++        "last_operator_action": "manual_ack_thaw_prepare",
++    }
++
++
++def build_thaw_approve_update(
++    *,
++    prev: Mapping[str, Any] | None,
++    now_ms: int,
++    request_id: str,
++    approver: str,
++) -> Dict[str, Any]:
++    p = dict(prev or {})
++    return {
++        **p,
++        "schema_name": "exec_health_freeze_control",
++        "schema_version": 3,
++        "updated_ts_ms": int(now_ms),
++        "control_source": "manual_thaw_approve",
++        "effective_freeze_active": 1,
++        "manual_ack_required": 1,
++        "active_thaw_request_id": str(request_id),
++        "thaw_request_status": "approved",
++        "thaw_approve_ts_ms": int(now_ms),
++        "thaw_approved_by": str(approver),
++        "last_operator_action": "manual_ack_thaw_approve",
++    }
++
++
++def build_dual_control_commit_thaw_update(
++    *,
++    prev: Mapping[str, Any] | None,
++    now_ms: int,
++    request_id: str,
++    commit_by: str,
++    commit_sig: str,
++    commit_event_id: str,
++) -> Dict[str, Any]:
++    p = dict(prev or {})
++    return {
++        **p,
++        "schema_name": "exec_health_freeze_control",
++        "schema_version": 3,
++        "updated_ts_ms": int(now_ms),
++        "effective_freeze_active": 0,
++        "control_source": "manual_override_thaw",
++        "freeze_until_ts_ms": 0,
++        "source_ts_ms": int(now_ms),
++        "manual_ack_required": 0,
++        "manual_ack_ts_ms": int(now_ms),
++        "manual_ack_operator": str(commit_by),
++        "manual_ack_reason": _s(p.get("thaw_request_reason"), ""),
++        "manual_ack_ticket": _s(p.get("thaw_request_ticket"), ""),
++        "manual_ack_nonce": _s(p.get("thaw_request_nonce"), _s(p.get("expected_ack_nonce"), "")),
++        "manual_ack_sig": str(commit_sig),
++        "manual_ack_event_id": str(commit_event_id or ""),
++        "manual_override_active": 1,
++        "manual_override_action": "thaw",
++        "manual_override_until_ts_ms": 0,
++        "active_thaw_request_id": str(request_id),
++        "thaw_request_status": "committed",
++        "manual_commit_request_id": str(request_id),
++        "manual_commit_by": str(commit_by),
++        "manual_commit_ts_ms": int(now_ms),
++        "manual_commit_sig": str(commit_sig),
++        "last_operator_action": "manual_ack_thaw_commit",
++        "thaw_total": _i(p.get("thaw_total"), 0) + 1,
+     }
+ 
+ 
+@@ -337,7 +644,7 @@
+     p = dict(prev or {})
+     return {
+         "schema_name": "exec_health_freeze_control",
+-        "schema_version": 2,
++        "schema_version": 3,
+         "updated_ts_ms": int(now_ms),
+         "effective_freeze_active": 1,
+         "control_source": "manual_override_freeze",
+@@ -366,6 +673,19 @@
+         "manual_freeze_total": _i(p.get("manual_freeze_total"), 0) + 1,
+         "trigger_total": _i(p.get("trigger_total"), 0),
+         "thaw_total": _i(p.get("thaw_total"), 0),
++        "active_thaw_request_id": "",
++        "thaw_request_status": "",
++        "thaw_request_nonce": _s(p.get("thaw_request_nonce"), ""),
++        "thaw_prepare_ts_ms": 0,
++        "thaw_prepared_by": "",
++        "thaw_request_reason": "",
++        "thaw_request_ticket": "",
++        "thaw_approve_ts_ms": 0,
++        "thaw_approved_by": "",
++        "manual_commit_request_id": "",
++        "manual_commit_by": "",
++        "manual_commit_ts_ms": 0,
++        "manual_commit_sig": "",
+     }
+ 
+ 
+
+--- a/services/orderflow/exec_health_freeze_hook.py
++++ b/services/orderflow/exec_health_freeze_hook.py
+@@ -23,7 +23,7 @@
+ from dataclasses import dataclass
+ from typing import Any, Dict, Optional, Tuple
+ 
+-from services.orderflow.exec_health_freeze_control import parse_exec_health_freeze_control, verify_manual_ack_signature
++from services.orderflow.exec_health_freeze_control import parse_exec_health_freeze_control, verify_thaw_release_signature
+ from services.orderflow.metrics_exec_health_p6 import (
+     exec_health_freeze_hook_active,
+     exec_health_freeze_hook_block_total,
+@@ -197,7 +197,7 @@
+         if getattr(ctl, "raw_payload", None):
+             raw_payload = dict(getattr(ctl, "raw_payload", {}) or {})
+             if getattr(ctl, "manual_override_action", "") == "thaw" and getattr(ctl, "manual_override_active", False):
+-                if verify_manual_ack_signature(raw_payload):
++                if verify_thaw_release_signature(raw_payload):
+                     state = _state_from_control(str(scope), ctl)
+                     _ASYNC_CACHE[cache_key] = (now + max(100, cache_ms), state)
+                     record_exec_health_freeze_state(scope=str(scope), state=state, blocked=bool(state.active), now_ms=now)
+@@ -219,7 +219,7 @@
+         if getattr(ctl, "raw_payload", None):
+             raw_payload = dict(getattr(ctl, "raw_payload", {}) or {})
+             if getattr(ctl, "manual_override_action", "") == "thaw" and getattr(ctl, "manual_override_active", False):
+-                if verify_manual_ack_signature(raw_payload):
++                if verify_thaw_release_signature(raw_payload):
+                     state = _state_from_control(str(scope), ctl)
+                     _ASYNC_CACHE[cache_key] = (now + max(100, cache_ms), state)
+                     record_exec_health_freeze_state(scope=str(scope), state=state, blocked=bool(state.active), now_ms=now)
+
+--- a/services/orderflow/exec_health_freeze_integrity.py
++++ b/services/orderflow/exec_health_freeze_integrity.py
+@@ -1,11 +1,10 @@
+ from __future__ import annotations
+ 
+-import json
+ import time
+ from dataclasses import dataclass
+-from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
++from typing import Any, Dict, List, Mapping, Sequence, Tuple
+ 
+-from services.orderflow.exec_health_freeze_control import parse_exec_health_freeze_control, verify_manual_ack_signature
++from services.orderflow.exec_health_freeze_control import parse_exec_health_freeze_control, verify_manual_ack_signature, verify_thaw_release_signature
+ 
+ 
+ VIOLATION_KINDS = [
+@@ -57,7 +56,6 @@
+     violation_kinds: List[str]
+ 
+ 
+-
+ def find_latest_trigger_event(events: Sequence[Any]) -> Tuple[str, Dict[str, Any]]:
+     for rec in events:
+         eid, payload = _event_payload(rec)
+@@ -66,17 +64,50 @@
+     return "", {}
+ 
+ 
++def _event_to_control_like(payload: Mapping[str, Any]) -> Dict[str, Any]:
++    kind = _s(payload.get('kind'), '')
++    if kind == 'manual_ack_thaw_commit':
++        return {
++            'manual_override_action': 'thaw',
++            'manual_override_active': 1,
++            'active_thaw_request_id': _s(payload.get('request_id')),
++            'manual_commit_request_id': _s(payload.get('request_id')),
++            'thaw_request_nonce': _s(payload.get('ack_nonce')),
++            'manual_ack_nonce': _s(payload.get('ack_nonce')),
++            'thaw_prepared_by': _s(payload.get('prepared_by')),
++            'thaw_approved_by': _s(payload.get('approved_by')),
++            'manual_commit_by': _s(payload.get('operator')),
++            'thaw_request_reason': _s(payload.get('reason')),
++            'thaw_request_ticket': _s(payload.get('ticket')),
++            'last_trigger_ts_ms': _i(payload.get('trigger_ts_ms'), 0),
++            'thaw_prepare_ts_ms': _i(payload.get('prepared_ts_ms'), 0),
++            'thaw_approve_ts_ms': _i(payload.get('approved_ts_ms'), 0),
++            'manual_commit_ts_ms': _i(payload.get('ts_ms'), 0),
++            'manual_ack_ts_ms': _i(payload.get('ts_ms'), 0),
++            'manual_commit_sig': _s(payload.get('commit_sig')),
++            'manual_ack_sig': _s(payload.get('commit_sig')),
++        }
++    return {
++        'manual_override_action': 'thaw',
++        'manual_ack_sig': _s(payload.get('ack_sig'), ''),
++        'manual_ack_nonce': _s(payload.get('ack_nonce'), ''),
++        'manual_ack_operator': _s(payload.get('operator'), ''),
++        'manual_ack_reason': _s(payload.get('reason'), ''),
++        'manual_ack_ticket': _s(payload.get('ticket'), ''),
++        'manual_ack_ts_ms': _i(payload.get('ts_ms'), 0),
++        'last_trigger_ts_ms': _i(payload.get('trigger_ts_ms'), 0),
++    }
++
+ 
+ def find_ack_events_for_nonce(events: Sequence[Any], nonce: str) -> List[Tuple[str, Dict[str, Any]]]:
+     out: List[Tuple[str, Dict[str, Any]]] = []
+     for rec in events:
+         eid, payload = _event_payload(rec)
+-        if _s(payload.get("kind")) == "manual_ack_thaw" and _s(payload.get("ack_nonce")) == str(nonce):
++        if _s(payload.get("ack_nonce")) == str(nonce) and _s(payload.get('kind')) in {'manual_ack_thaw', 'manual_ack_thaw_commit'}:
+             out.append((eid, payload))
+     return out
+ 
+ 
+-
+ def evaluate_freeze_integrity(
+     *,
+     control_raw: Mapping[str, Any] | None,
+@@ -89,68 +120,64 @@
+     state = parse_exec_health_freeze_control(state_raw or {})
+     evs = list(events or [])
+ 
+-    control_present = bool(getattr(control, "raw_payload", None))
+-    state_present = bool(getattr(state, "raw_payload", None))
++    control_present = bool(getattr(control, 'raw_payload', None))
++    state_present = bool(getattr(state, 'raw_payload', None))
+ 
+     pending_ack_nonce = control.expected_ack_nonce or state.expected_ack_nonce
+-    pending_trigger_ts_ms = _i(control.raw_payload.get("last_trigger_ts_ms"), 0) or _i(state.raw_payload.get("last_trigger_ts_ms"), 0)
++    pending_trigger_ts_ms = _i(control.raw_payload.get('last_trigger_ts_ms'), 0) or _i(state.raw_payload.get('last_trigger_ts_ms'), 0)
+ 
+     latest_trigger_event_id, latest_trigger_event = find_latest_trigger_event(evs)
+-    latest_trigger_nonce = _s(latest_trigger_event.get("ack_nonce"), "")
++    latest_trigger_nonce = _s(latest_trigger_event.get('ack_nonce'), '')
+     if not pending_ack_nonce:
+         pending_ack_nonce = latest_trigger_nonce
+     if pending_trigger_ts_ms <= 0:
+-        pending_trigger_ts_ms = _i(latest_trigger_event.get("trigger_ts_ms"), 0)
++        pending_trigger_ts_ms = _i(latest_trigger_event.get('trigger_ts_ms'), 0)
+ 
+     valid_ack_event_present = False
+-    valid_ack_event_id = ""
++    valid_ack_event_id = ''
+     invalid_ack_event_present = False
+     if pending_ack_nonce:
+         for eid, payload in find_ack_events_for_nonce(evs, pending_ack_nonce):
+-            p = dict(payload)
+-            p["manual_override_action"] = "thaw"
+-            p["manual_ack_sig"] = _s(payload.get("ack_sig"), "")
+-            p["manual_ack_nonce"] = _s(payload.get("ack_nonce"), "")
+-            p["manual_ack_operator"] = _s(payload.get("operator"), "")
+-            p["manual_ack_reason"] = _s(payload.get("reason"), "")
+-            p["manual_ack_ticket"] = _s(payload.get("ticket"), "")
+-            p["manual_ack_ts_ms"] = _i(payload.get("ts_ms"), 0)
+-            p["last_trigger_ts_ms"] = _i(payload.get("trigger_ts_ms"), pending_trigger_ts_ms)
+-            if verify_manual_ack_signature(p):
++            event_like = _event_to_control_like(payload)
++            if _s(payload.get('kind')) == 'manual_ack_thaw_commit':
++                ok = verify_thaw_release_signature(event_like)
++            else:
++                ok = verify_manual_ack_signature(event_like)
++            if ok:
+                 valid_ack_event_present = True
+                 valid_ack_event_id = eid
+                 break
+             invalid_ack_event_present = True
+ 
+     violations: List[str] = []
+-    if control_present and control.manual_override_action == "thaw" and control.manual_override_active:
+-        if not verify_manual_ack_signature(control.raw_payload):
+-            violations.append("invalid_control_ack_signature")
++    if control_present and control.manual_override_action == 'thaw' and control.manual_override_active:
++        if not verify_thaw_release_signature(control.raw_payload):
++            violations.append('invalid_control_ack_signature')
+         elif pending_ack_nonce and not valid_ack_event_present:
+-            violations.append("thaw_without_valid_ack_event")
++            violations.append('thaw_without_valid_ack_event')
+ 
+     pending_ack = bool((control.manual_ack_required or state.manual_ack_required or pending_ack_nonce) and not valid_ack_event_present)
+     if pending_ack and not control_present and state_present:
+-        violations.append("control_missing_pending_ack")
++        violations.append('control_missing_pending_ack')
+     if pending_ack and control_present and not state_present:
+-        violations.append("state_missing_pending_ack")
++        violations.append('state_missing_pending_ack')
+     if pending_ack and not control_present and not state_present and latest_trigger_nonce:
+-        violations.append("control_state_missing_without_valid_ack")
++        violations.append('control_state_missing_without_valid_ack')
+     if invalid_ack_event_present and not valid_ack_event_present:
+-        violations.append("invalid_ack_event_signature")
++        violations.append('invalid_ack_event_signature')
+ 
+     if not violations:
+-        violations = ["none"]
++        violations = ['none']
+ 
+     return FreezeIntegrityResult(
+         control_present=control_present,
+         state_present=state_present,
+-        pending_ack_nonce=str(pending_ack_nonce or ""),
++        pending_ack_nonce=str(pending_ack_nonce or ''),
+         pending_trigger_ts_ms=int(pending_trigger_ts_ms or 0),
+         valid_ack_event_present=bool(valid_ack_event_present),
+-        valid_ack_event_id=str(valid_ack_event_id or ""),
+-        latest_trigger_event_id=str(latest_trigger_event_id or ""),
+-        latest_trigger_nonce=str(latest_trigger_nonce or ""),
++        valid_ack_event_id=str(valid_ack_event_id or ''),
++        latest_trigger_event_id=str(latest_trigger_event_id or ''),
++        latest_trigger_nonce=str(latest_trigger_nonce or ''),
+         invalid_ack_event_present=bool(invalid_ack_event_present),
+         violation_kinds=violations,
+     )
+
+
+--- a/services/orderflow/tests/test_exec_health_freeze_control_v1.py
++++ b/services/orderflow/tests/test_exec_health_freeze_control_v1.py
+@@ -1,9 +1,14 @@
+ from __future__ import annotations
+ 
++import os
++
+ from services.orderflow.exec_health_freeze_control import (
+     build_autoguard_latch_update,
+-    build_manual_ack_thaw_update,
++    build_dual_control_commit_thaw_update,
++    build_thaw_approve_update,
++    build_thaw_prepare_update,
+     parse_exec_health_freeze_control,
++    sign_dual_control_commit,
+ )
+ 
+ 
+@@ -16,11 +21,26 @@
+     assert st.expected_ack_nonce == "n1"
+ 
+ 
+-def test_parse_control_manual_thaw_override_clears_freeze() -> None:
+-    raw = build_manual_ack_thaw_update(prev={"expected_ack_nonce": "n1", "last_trigger_ts_ms": 12000}, now_ms=20_000, operator="alex", reason="checked", ticket="INC-1", provided_ack_nonce="n1")
+-    st = parse_exec_health_freeze_control(raw, now_ms=25_000)
++def test_parse_control_dual_control_commit_clears_freeze() -> None:
++    os.environ['EXEC_HEALTH_ACK_SIGNING_SECRET'] = 'test-secret'
++    base = build_autoguard_latch_update(prev={}, now_ms=12_000, reasons=['drift'], freeze_until_ts_ms=40_000, ack_nonce='n1')
++    prep = build_thaw_prepare_update(prev=base, now_ms=13_000, request_id='r1', operator='alice', reason='checked', ticket='INC-1', provided_ack_nonce='n1')
++    appr = build_thaw_approve_update(prev=prep, now_ms=14_000, request_id='r1', approver='bob')
++    sig = sign_dual_control_commit(secret='test-secret', request_id='r1', ack_nonce='n1', prepared_by='alice', approved_by='bob', commit_by='bob', reason='checked', ticket='INC-1', trigger_ts_ms=12_000, prepared_ts_ms=13_000, approved_ts_ms=14_000, commit_ts_ms=15_000)
++    raw = build_dual_control_commit_thaw_update(prev=appr, now_ms=15_000, request_id='r1', commit_by='bob', commit_sig=sig, commit_event_id='5-0')
++    st = parse_exec_health_freeze_control(raw, now_ms=16_000)
+     assert st.effective_freeze_active is False
+-    assert st.manual_ack_required is False
+-    assert st.manual_override_action == "thaw"
+-    assert st.manual_ack_operator == "alex"
+-    assert st.manual_ack_nonce == "n1"
++    assert st.manual_override_action == 'thaw'
++    assert st.active_thaw_request_id == 'r1'
++    assert st.thaw_approved_by == 'bob'
++
++
++def test_same_operator_dual_control_commit_is_rejected_by_parser() -> None:
++    os.environ['EXEC_HEALTH_ACK_SIGNING_SECRET'] = 'test-secret'
++    base = build_autoguard_latch_update(prev={}, now_ms=12_000, reasons=['drift'], freeze_until_ts_ms=40_000, ack_nonce='n1')
++    prep = build_thaw_prepare_update(prev=base, now_ms=13_000, request_id='r1', operator='alice', reason='checked', ticket='INC-1', provided_ack_nonce='n1')
++    appr = build_thaw_approve_update(prev=prep, now_ms=14_000, request_id='r1', approver='alice')
++    sig = sign_dual_control_commit(secret='test-secret', request_id='r1', ack_nonce='n1', prepared_by='alice', approved_by='alice', commit_by='alice', reason='checked', ticket='INC-1', trigger_ts_ms=12_000, prepared_ts_ms=13_000, approved_ts_ms=14_000, commit_ts_ms=15_000)
++    raw = build_dual_control_commit_thaw_update(prev=appr, now_ms=15_000, request_id='r1', commit_by='alice', commit_sig=sig, commit_event_id='5-0')
++    st = parse_exec_health_freeze_control(raw, now_ms=16_000)
++    assert st.effective_freeze_active is True
+
+--- a/services/orderflow/tests/test_exec_health_freeze_integrity_v1.py
++++ b/services/orderflow/tests/test_exec_health_freeze_integrity_v1.py
+@@ -1,6 +1,8 @@
+ from __future__ import annotations
+ 
+-from services.orderflow.exec_health_freeze_control import sign_manual_ack
++import os
++
++from services.orderflow.exec_health_freeze_control import sign_dual_control_commit
+ from services.orderflow.exec_health_freeze_integrity import evaluate_freeze_integrity
+ 
+ 
+@@ -12,38 +14,34 @@
+     assert 'control_state_missing_without_valid_ack' in res.violation_kinds
+ 
+ 
+-def test_valid_signed_ack_event_clears_pending_violation() -> None:
+-    sig = sign_manual_ack(
+-        secret='test-secret',
+-        action='thaw',
+-        operator='alex',
+-        reason='validated',
+-        ticket='INC-1',
+-        ack_nonce='n1',
+-        trigger_ts_ms=10000,
+-        ack_ts_ms=11000,
+-    )
++def test_valid_signed_commit_event_clears_pending_violation() -> None:
++    os.environ['EXEC_HEALTH_ACK_SIGNING_SECRET'] = 'test-secret'
++    sig = sign_dual_control_commit(secret='test-secret', request_id='r1', ack_nonce='n1', prepared_by='alice', approved_by='bob', commit_by='bob', reason='validated', ticket='INC-1', trigger_ts_ms=10000, prepared_ts_ms=10500, approved_ts_ms=10800, commit_ts_ms=11000)
+     events = [
+-        ('3-0', {'kind': 'manual_ack_thaw', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000', 'ts_ms': '11000', 'operator': 'alex', 'reason': 'validated', 'ticket': 'INC-1', 'ack_sig': sig}),
++        ('4-0', {'kind': 'manual_ack_thaw_commit', 'request_id': 'r1', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000', 'prepared_ts_ms': '10500', 'approved_ts_ms': '10800', 'ts_ms': '11000', 'operator': 'bob', 'prepared_by': 'alice', 'approved_by': 'bob', 'reason': 'validated', 'ticket': 'INC-1', 'commit_sig': sig}),
+         ('2-0', {'kind': 'autoguard_freeze_latch', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000'}),
+     ]
+-    import os
+-    os.environ['EXEC_HEALTH_ACK_SIGNING_SECRET'] = 'test-secret'
+-    res = evaluate_freeze_integrity(control_raw={}, state_raw={}, events=events)
++    res = evaluate_freeze_integrity(control_raw={'expected_ack_nonce': 'n1'}, state_raw={}, events=events)
+     assert res.valid_ack_event_present is True
+     assert res.violation_kinds == ['none']
+ 
+ 
+-def test_detects_thaw_without_valid_ack_event() -> None:
++def test_detects_invalid_control_commit_signature() -> None:
+     control = {
+         'manual_override_active': '1',
+         'manual_override_action': 'thaw',
+         'manual_ack_ts_ms': '11000',
+-        'manual_ack_operator': 'alex',
+-        'manual_ack_reason': 'validated',
+-        'manual_ack_ticket': 'INC-1',
+         'manual_ack_nonce': 'n1',
+         'manual_ack_sig': 'bad',
++        'manual_commit_request_id': 'r1',
++        'thaw_prepared_by': 'alice',
++        'thaw_approved_by': 'bob',
++        'manual_commit_by': 'bob',
++        'thaw_request_reason': 'validated',
++        'thaw_request_ticket': 'INC-1',
++        'thaw_prepare_ts_ms': '10500',
++        'thaw_approve_ts_ms': '10800',
++        'manual_commit_ts_ms': '11000',
+         'expected_ack_nonce': 'n1',
+         'last_trigger_ts_ms': '10000',
+     }
+
+--- a/services/orderflow/tests/test_exec_health_freeze_hook_control_v1.py
++++ b/services/orderflow/tests/test_exec_health_freeze_hook_control_v1.py
+@@ -4,7 +4,7 @@
+ import json
+ import os
+ 
+-from services.orderflow.exec_health_freeze_control import sign_manual_ack
++from services.orderflow.exec_health_freeze_control import sign_dual_control_commit
+ from services.orderflow.exec_health_freeze_hook import aread_exec_health_auto_freeze
+ 
+ 
+@@ -35,7 +35,7 @@
+         'last_trigger_ts_ms': '10000',
+         'updated_ts_ms': '10000',
+         'freeze_reason': 'cross_scope_mode_mismatch',
+-        'schema_version': '2',
++        'schema_version': '3',
+         'expected_ack_nonce': 'n1',
+     }
+     r = FakeRedis(control=control, raw=None)
+@@ -49,33 +49,33 @@
+     assert r.get_calls == 0
+ 
+ 
+-def test_manual_thaw_override_wins_over_raw_freeze_key_only_with_valid_signature() -> None:
++def test_dual_control_commit_wins_over_raw_freeze_key_only_with_valid_signature() -> None:
+     os.environ['EXEC_HEALTH_ACK_SIGNING_SECRET'] = 'test-secret'
+-    sig = sign_manual_ack(
+-        secret='test-secret',
+-        action='thaw',
+-        operator='alex',
+-        reason='validated',
+-        ticket='INC-1',
+-        ack_nonce='n1',
+-        trigger_ts_ms=12000,
+-        ack_ts_ms=15000,
+-    )
++    sig = sign_dual_control_commit(secret='test-secret', request_id='r1', ack_nonce='n1', prepared_by='alice', approved_by='bob', commit_by='bob', reason='validated', ticket='INC-1', trigger_ts_ms=12000, prepared_ts_ms=13000, approved_ts_ms=14000, commit_ts_ms=15000)
+     control = {
+         'effective_freeze_active': '0',
+         'control_source': 'manual_override_thaw',
+         'manual_ack_required': '0',
+         'manual_ack_ts_ms': '15000',
+-        'manual_ack_operator': 'alex',
+-        'manual_ack_reason': 'validated',
+-        'manual_ack_ticket': 'INC-1',
+         'manual_ack_nonce': 'n1',
+-        'manual_ack_sig': sig,
+         'manual_override_active': '1',
+         'manual_override_action': 'thaw',
+         'last_trigger_ts_ms': '12000',
+         'updated_ts_ms': '15000',
+-        'schema_version': '2',
++        'schema_version': '3',
++        'active_thaw_request_id': 'r1',
++        'thaw_request_status': 'committed',
++        'thaw_request_nonce': 'n1',
++        'thaw_prepared_by': 'alice',
++        'thaw_approved_by': 'bob',
++        'thaw_request_reason': 'validated',
++        'thaw_request_ticket': 'INC-1',
++        'thaw_prepare_ts_ms': '13000',
++        'thaw_approve_ts_ms': '14000',
++        'manual_commit_request_id': 'r1',
++        'manual_commit_by': 'bob',
++        'manual_commit_ts_ms': '15000',
++        'manual_commit_sig': sig,
+     }
+     raw = json.dumps({'freeze_active': 1, 'freeze_reason': 'drift', 'freeze_until_ts_ms': 60_000, 'ts_ms': 12_000})
+     r = FakeRedis(control=control, raw=raw)
+@@ -88,23 +88,29 @@
+     assert r.get_calls == 0
+ 
+ 
+-def test_invalid_manual_thaw_signature_falls_back_to_raw_freeze() -> None:
+-    os.environ['EXEC_HEALTH_ACK_SIGNING_SECRET'] = 'test-secret'
++def test_invalid_dual_control_commit_falls_back_to_raw_freeze() -> None:
+     control = {
+         'effective_freeze_active': '0',
+         'control_source': 'manual_override_thaw',
+         'manual_ack_required': '0',
+         'manual_ack_ts_ms': '15000',
+-        'manual_ack_operator': 'alex',
+-        'manual_ack_reason': 'validated',
+-        'manual_ack_ticket': 'INC-1',
+         'manual_ack_nonce': 'n1',
+-        'manual_ack_sig': 'bad',
+         'manual_override_active': '1',
+         'manual_override_action': 'thaw',
+         'last_trigger_ts_ms': '12000',
+         'updated_ts_ms': '15000',
+-        'schema_version': '2',
++        'schema_version': '3',
++        'active_thaw_request_id': 'r1',
++        'thaw_request_status': 'committed',
++        'thaw_request_nonce': 'n1',
++        'thaw_prepared_by': 'alice',
++        'thaw_approved_by': 'alice',
++        'thaw_prepare_ts_ms': '13000',
++        'thaw_approve_ts_ms': '14000',
++        'manual_commit_request_id': 'r1',
++        'manual_commit_by': 'alice',
++        'manual_commit_ts_ms': '15000',
++        'manual_commit_sig': 'bad',
+     }
+     raw = json.dumps({'freeze_active': 1, 'freeze_reason': 'drift', 'freeze_until_ts_ms': 60_000, 'ts_ms': 12_000})
+     r = FakeRedis(control=control, raw=raw)
+
+
+--- a/orderflow_services/exec_health_freeze_override_v1.py
++++ b/orderflow_services/exec_health_freeze_override_v1.py
+@@ -4,6 +4,7 @@
+ import argparse
+ import json
+ import os
++import secrets
+ import sys
+ import time
+ from typing import Any, Dict
+@@ -15,10 +16,12 @@
+ 
+ from services.orderflow.exec_health_freeze_control import (
+     ACK_SIGNING_SECRET_ENV,
+-    build_manual_ack_thaw_update,
++    build_dual_control_commit_thaw_update,
+     build_manual_freeze_update,
++    build_thaw_approve_update,
++    build_thaw_prepare_update,
+     parse_exec_health_freeze_control,
+-    sign_manual_ack,
++    sign_dual_control_commit,
+     stringify_mapping,
+ )
+ 
+@@ -60,6 +63,8 @@
+             "state_key": self.state_key,
+             "freeze_key": self.freeze_key,
+             "pending_ack_nonce": ctl.expected_ack_nonce or st.expected_ack_nonce,
++            "active_thaw_request_id": ctl.active_thaw_request_id or st.active_thaw_request_id,
++            "thaw_request_status": ctl.thaw_request_status or st.thaw_request_status,
+             "last_trigger_ts_ms": int(ctl.raw_payload.get("last_trigger_ts_ms") or st.raw_payload.get("last_trigger_ts_ms") or 0),
+             "control": dict(getattr(ctl, "raw_payload", {}) or {}),
+             "state_fallback": dict(getattr(st, "raw_payload", {}) or {}),
+@@ -76,75 +81,154 @@
+         except Exception:
+             return ""
+ 
+-    def thaw(self, *, operator: str, reason: str, ticket: str, nonce: str) -> Dict[str, Any]:
+-        now = _now_ms()
+-        if not operator.strip() or not reason.strip() or not nonce.strip():
+-            raise ValueError("operator, reason and nonce are required")
+-        secret = os.getenv(ACK_SIGNING_SECRET_ENV, "")
+-        if not secret:
+-            raise ValueError(f"{ACK_SIGNING_SECRET_ENV} is required for signed manual thaw")
+-
++    def _load_pair(self):
+         prev_ctl = self._read_hash(self.control_key)
+         prev_state = self._read_hash(self.state_key)
+         ctl = parse_exec_health_freeze_control(prev_ctl)
+         st = parse_exec_health_freeze_control(prev_state)
++        return prev_ctl, prev_state, ctl, st
++
++    def prepare_thaw(self, *, operator: str, reason: str, ticket: str, nonce: str) -> Dict[str, Any]:
++        now = _now_ms()
++        if not operator.strip() or not reason.strip() or not nonce.strip():
++            raise ValueError("operator, reason and nonce are required")
++        prev_ctl, prev_state, ctl, st = self._load_pair()
+         expected_nonce = ctl.expected_ack_nonce or st.expected_ack_nonce
+         trigger_ts_ms = int(prev_ctl.get("last_trigger_ts_ms") or prev_state.get("last_trigger_ts_ms") or 0)
+         if not expected_nonce:
+             raise ValueError("no pending ack nonce found in control/state")
+         if str(nonce) != str(expected_nonce):
+             raise ValueError("ack nonce mismatch (CAS failed)")
+-        if not (ctl.manual_ack_required or st.manual_ack_required or ctl.effective_freeze_active or st.effective_freeze_active):
+-            raise ValueError("freeze is not awaiting manual ack")
+-
+-        sig = sign_manual_ack(
+-            secret=secret,
+-            action="thaw",
+-            operator=operator,
+-            reason=reason,
+-            ticket=ticket,
+-            ack_nonce=str(nonce),
+-            trigger_ts_ms=trigger_ts_ms,
+-            ack_ts_ms=now,
+-        )
++        if ctl.active_thaw_request_id and ctl.thaw_request_status in {"prepared", "approved"}:
++            raise ValueError(f"active thaw request already exists: {ctl.active_thaw_request_id}")
++        request_id = f"thr-{now}-{secrets.token_hex(4)}"
+         event_payload = {
+             "ts_ms": now,
+-            "kind": "manual_ack_thaw",
++            "kind": "manual_ack_thaw_prepare",
++            "request_id": request_id,
+             "operator": operator,
+             "reason": reason,
+             "ticket": ticket,
+             "ack_nonce": str(nonce),
+-            "trigger_ts_ms": int(trigger_ts_ms),
+-            "ack_sig": sig,
++            "trigger_ts_ms": trigger_ts_ms,
+             "source": "exec_health_freeze_override_v1",
+             "control_key": self.control_key,
+         }
+         event_id = self._emit_event(event_payload)
+-
+-        upd = build_manual_ack_thaw_update(
++        upd = build_thaw_prepare_update(
+             prev=prev_ctl,
+             now_ms=now,
++            request_id=request_id,
+             operator=operator,
+             reason=reason,
+             ticket=ticket,
+             provided_ack_nonce=str(nonce),
+-            manual_ack_sig=sig,
+-            manual_ack_event_id=event_id,
+         )
++        upd["thaw_prepare_event_id"] = str(event_id or "")
+         self._write_hash(self.control_key, upd)
++        state_upd = dict(prev_state)
++        state_upd.update(upd)
++        state_upd["state_thaw_prepare_written_ts_ms"] = int(now)
++        self._write_hash(self.state_key, state_upd)
++        return {"ok": True, "action": "prepare-thaw", **event_payload, "event_id": event_id, "effective_freeze_active": 1}
+ 
++    def approve_thaw(self, *, operator: str, request_id: str) -> Dict[str, Any]:
++        now = _now_ms()
++        if not operator.strip() or not request_id.strip():
++            raise ValueError("operator and request_id are required")
++        prev_ctl, prev_state, ctl, st = self._load_pair()
++        rid = ctl.active_thaw_request_id or st.active_thaw_request_id
++        if str(request_id) != str(rid):
++            raise ValueError("request_id mismatch")
++        if ctl.thaw_request_status != 'prepared':
++            raise ValueError(f"request is not in prepared state: {ctl.thaw_request_status}")
++        if operator == ctl.thaw_prepared_by:
++            raise ValueError("second approver must be different from preparer")
++        event_payload = {
++            "ts_ms": now,
++            "kind": "manual_ack_thaw_approve",
++            "request_id": str(request_id),
++            "operator": operator,
++            "prepared_by": ctl.thaw_prepared_by,
++            "ack_nonce": ctl.thaw_request_nonce or ctl.expected_ack_nonce,
++            "trigger_ts_ms": int(prev_ctl.get("last_trigger_ts_ms") or prev_state.get("last_trigger_ts_ms") or 0),
++            "source": "exec_health_freeze_override_v1",
++            "control_key": self.control_key,
++        }
++        event_id = self._emit_event(event_payload)
++        upd = build_thaw_approve_update(prev=prev_ctl, now_ms=now, request_id=str(request_id), approver=operator)
++        upd["thaw_approve_event_id"] = str(event_id or "")
++        self._write_hash(self.control_key, upd)
+         state_upd = dict(prev_state)
+         state_upd.update(upd)
+-        state_upd["state_manual_ack_written_ts_ms"] = int(now)
++        state_upd["state_thaw_approve_written_ts_ms"] = int(now)
+         self._write_hash(self.state_key, state_upd)
++        return {"ok": True, "action": "approve-thaw", **event_payload, "event_id": event_id, "effective_freeze_active": 1}
+ 
+-        return {
+-            "ok": True,
+-            "action": "thaw",
+-            **event_payload,
+-            "event_id": event_id,
+-            "effective_freeze_active": 0,
++    def commit_thaw(self, *, operator: str, request_id: str) -> Dict[str, Any]:
++        now = _now_ms()
++        if not operator.strip() or not request_id.strip():
++            raise ValueError("operator and request_id are required")
++        secret = os.getenv(ACK_SIGNING_SECRET_ENV, "")
++        if not secret:
++            raise ValueError(f"{ACK_SIGNING_SECRET_ENV} is required for signed commit thaw")
++        prev_ctl, prev_state, ctl, st = self._load_pair()
++        rid = ctl.active_thaw_request_id or st.active_thaw_request_id
++        if str(request_id) != str(rid):
++            raise ValueError("request_id mismatch")
++        if ctl.thaw_request_status != 'approved':
++            raise ValueError(f"request is not approved: {ctl.thaw_request_status}")
++        if not ctl.thaw_approved_by or ctl.thaw_prepared_by == ctl.thaw_approved_by:
++            raise ValueError("dual-control approval is invalid or missing")
++        if operator != ctl.thaw_approved_by:
++            raise ValueError("commit must be executed by the approved second operator")
++        trigger_ts_ms = int(prev_ctl.get("last_trigger_ts_ms") or prev_state.get("last_trigger_ts_ms") or 0)
++        sig = sign_dual_control_commit(
++            secret=secret,
++            request_id=str(request_id),
++            ack_nonce=ctl.thaw_request_nonce or ctl.expected_ack_nonce,
++            prepared_by=ctl.thaw_prepared_by,
++            approved_by=ctl.thaw_approved_by,
++            commit_by=operator,
++            reason=ctl.thaw_request_reason,
++            ticket=ctl.thaw_request_ticket,
++            trigger_ts_ms=trigger_ts_ms,
++            prepared_ts_ms=ctl.thaw_prepare_ts_ms,
++            approved_ts_ms=ctl.thaw_approve_ts_ms,
++            commit_ts_ms=now,
++        )
++        event_payload = {
++            "ts_ms": now,
++            "kind": "manual_ack_thaw_commit",
++            "request_id": str(request_id),
++            "operator": operator,
++            "prepared_by": ctl.thaw_prepared_by,
++            "approved_by": ctl.thaw_approved_by,
++            "reason": ctl.thaw_request_reason,
++            "ticket": ctl.thaw_request_ticket,
++            "ack_nonce": ctl.thaw_request_nonce or ctl.expected_ack_nonce,
++            "trigger_ts_ms": int(trigger_ts_ms),
++            "prepared_ts_ms": int(ctl.thaw_prepare_ts_ms),
++            "approved_ts_ms": int(ctl.thaw_approve_ts_ms),
++            "commit_sig": sig,
++            "source": "exec_health_freeze_override_v1",
++            "control_key": self.control_key,
+         }
++        event_id = self._emit_event(event_payload)
++        upd = build_dual_control_commit_thaw_update(
++            prev=prev_ctl,
++            now_ms=now,
++            request_id=str(request_id),
++            commit_by=operator,
++            commit_sig=sig,
++            commit_event_id=event_id,
++        )
++        self._write_hash(self.control_key, upd)
++        state_upd = dict(prev_state)
++        state_upd.update(upd)
++        state_upd["state_thaw_commit_written_ts_ms"] = int(now)
++        self._write_hash(self.state_key, state_upd)
++        return {"ok": True, "action": "commit-thaw", **event_payload, "event_id": event_id, "effective_freeze_active": 0}
+ 
+     def freeze(self, *, operator: str, reason: str, ticket: str, minutes: int) -> Dict[str, Any]:
+         now = _now_ms()
+@@ -188,12 +272,13 @@
+ 
+ 
+ def build_arg_parser() -> argparse.ArgumentParser:
+-    ap = argparse.ArgumentParser(description="ExecHealth unified operator override / thaw workflow")
+-    ap.add_argument("command", choices=["status", "thaw", "freeze"])
++    ap = argparse.ArgumentParser(description="ExecHealth dual-control operator override / thaw workflow")
++    ap.add_argument("command", choices=["status", "prepare-thaw", "approve-thaw", "commit-thaw", "freeze"])
+     ap.add_argument("--operator", default=os.getenv("OPERATOR", ""))
+     ap.add_argument("--reason", default=os.getenv("REASON", ""))
+     ap.add_argument("--ticket", default=os.getenv("TICKET", ""))
+     ap.add_argument("--nonce", default=os.getenv("ACK_NONCE", ""))
++    ap.add_argument("--request-id", default=os.getenv("REQUEST_ID", ""))
+     ap.add_argument("--minutes", type=int, default=int(os.getenv("EXEC_HEALTH_MANUAL_FREEZE_MINUTES", "30") or 30))
+     return ap
+ 
+@@ -204,8 +289,14 @@
+     if args.command == "status":
+         _jprint(ctl.status())
+         return 0
+-    if args.command == "thaw":
+-        _jprint(ctl.thaw(operator=args.operator, reason=args.reason, ticket=args.ticket, nonce=args.nonce))
++    if args.command == "prepare-thaw":
++        _jprint(ctl.prepare_thaw(operator=args.operator, reason=args.reason, ticket=args.ticket, nonce=args.nonce))
++        return 0
++    if args.command == "approve-thaw":
++        _jprint(ctl.approve_thaw(operator=args.operator, request_id=args.request_id))
++        return 0
++    if args.command == "commit-thaw":
++        _jprint(ctl.commit_thaw(operator=args.operator, request_id=args.request_id))
+         return 0
+     if args.command == "freeze":
+         _jprint(ctl.freeze(operator=args.operator, reason=args.reason, ticket=args.ticket, minutes=args.minutes))
+
+
+
+
+
+--- a/orderflow_services/tests/test_exec_health_freeze_override_v1.py
++++ b/orderflow_services/tests/test_exec_health_freeze_override_v1.py
+@@ -2,7 +2,7 @@
+ 
+ import os
+ 
+-from services.orderflow.exec_health_freeze_control import parse_exec_health_freeze_control, verify_manual_ack_signature
++from services.orderflow.exec_health_freeze_control import parse_exec_health_freeze_control, verify_dual_control_commit_signature
+ from orderflow_services.exec_health_freeze_override_v1 import OverrideController
+ 
+ 
+@@ -15,6 +15,7 @@
+                 'manual_ack_required': '1',
+                 'expected_ack_nonce': 'n1',
+                 'last_trigger_nonce': 'n1',
++                'thaw_request_nonce': 'n1',
+                 'last_trigger_ts_ms': '10000',
+                 'updated_ts_ms': '10000',
+             },
+@@ -43,39 +44,54 @@
+ 
+     def xadd(self, key: str, mapping, maxlen=0):
+         self.stream.append((key, dict(mapping)))
+-        return '1-0'
++        return f'{len(self.stream)}-0'
+ 
+ 
+-def test_manual_thaw_requires_nonce_and_persists_signed_ack_fields() -> None:
+-    os.environ['EXEC_HEALTH_ACK_SIGNING_SECRET'] = 'test-secret'
++def _ctl():
+     c = OverrideController.__new__(OverrideController)
+     c.control_key = 'cfg:orderflow:exec_health:freeze_control:v1'
+     c.state_key = 'metrics:exec_health:slo:autoguard:state'
+     c.freeze_key = 'cfg:orderflow:exec_health:auto_freeze:v1'
+     c.event_stream = 'ops:exec_health:freeze_events:v1'
+     c.r = FakeRedis()
+-    out = c.thaw(operator='alex', reason='validated rollback', ticket='INC-42', nonce='n1')
++    return c
++
++
++def test_prepare_approve_commit_thaw_persists_dual_control_fields() -> None:
++    os.environ['EXEC_HEALTH_ACK_SIGNING_SECRET'] = 'test-secret'
++    c = _ctl()
++    prep = c.prepare_thaw(operator='alice', reason='validated rollback', ticket='INC-42', nonce='n1')
++    rid = prep['request_id']
++    appr = c.approve_thaw(operator='bob', request_id=rid)
++    out = c.commit_thaw(operator='bob', request_id=rid)
+     assert out['ok'] is True
+     st = parse_exec_health_freeze_control(c.r.hashes[c.control_key])
+     assert st.effective_freeze_active is False
+-    assert st.manual_ack_operator == 'alex'
+-    assert st.manual_ack_reason == 'validated rollback'
+-    assert st.manual_ack_nonce == 'n1'
+-    assert verify_manual_ack_signature(c.r.hashes[c.control_key], secret='test-secret') is True
+-    assert c.r.stream[-1][1]['ack_nonce'] == 'n1'
++    assert st.active_thaw_request_id == rid
++    assert st.thaw_prepared_by == 'alice'
++    assert st.thaw_approved_by == 'bob'
++    assert verify_dual_control_commit_signature(c.r.hashes[c.control_key], secret='test-secret') is True
++    assert c.r.stream[-1][1]['kind'] == 'manual_ack_thaw_commit'
+ 
+ 
+-def test_manual_thaw_cas_fails_on_wrong_nonce() -> None:
++def test_approve_requires_distinct_second_operator() -> None:
++    c = _ctl()
++    prep = c.prepare_thaw(operator='alice', reason='validated rollback', ticket='INC-42', nonce='n1')
++    try:
++        c.approve_thaw(operator='alice', request_id=prep['request_id'])
++    except ValueError as e:
++        assert 'different from preparer' in str(e)
++    else:
++        raise AssertionError('expected dual-control failure')
++
++
++def test_commit_requires_approved_request() -> None:
+     os.environ['EXEC_HEALTH_ACK_SIGNING_SECRET'] = 'test-secret'
+-    c = OverrideController.__new__(OverrideController)
+-    c.control_key = 'cfg:orderflow:exec_health:freeze_control:v1'
+-    c.state_key = 'metrics:exec_health:slo:autoguard:state'
+-    c.freeze_key = 'cfg:orderflow:exec_health:auto_freeze:v1'
+-    c.event_stream = 'ops:exec_health:freeze_events:v1'
+-    c.r = FakeRedis()
++    c = _ctl()
++    prep = c.prepare_thaw(operator='alice', reason='validated rollback', ticket='INC-42', nonce='n1')
+     try:
+-        c.thaw(operator='alex', reason='validated rollback', ticket='INC-42', nonce='wrong')
++        c.commit_thaw(operator='bob', request_id=prep['request_id'])
+     except ValueError as e:
+-        assert 'CAS failed' in str(e)
++        assert 'not approved' in str(e)
+     else:
+-        raise AssertionError('expected CAS failure')
++        raise AssertionError('expected approval gate failure')
+
+--- a/orderflow_services/tests/test_exec_health_freeze_integrity_exporter_v1.py
++++ b/orderflow_services/tests/test_exec_health_freeze_integrity_exporter_v1.py
+@@ -1,27 +1,19 @@
+ from __future__ import annotations
+ 
+-from services.orderflow.exec_health_freeze_control import sign_manual_ack
++import os
++
++from services.orderflow.exec_health_freeze_control import sign_dual_control_commit
+ from services.orderflow.exec_health_freeze_integrity import evaluate_freeze_integrity
+ 
+ 
+-def test_integrity_evaluator_sees_valid_ack_event() -> None:
+-    import os
++def test_integrity_evaluator_sees_valid_dual_control_commit_event() -> None:
+     os.environ['EXEC_HEALTH_ACK_SIGNING_SECRET'] = 'test-secret'
+-    sig = sign_manual_ack(
+-        secret='test-secret',
+-        action='thaw',
+-        operator='alex',
+-        reason='validated',
+-        ticket='INC-1',
+-        ack_nonce='n1',
+-        trigger_ts_ms=10000,
+-        ack_ts_ms=11000,
+-    )
++    sig = sign_dual_control_commit(secret='test-secret', request_id='r1', ack_nonce='n1', prepared_by='alice', approved_by='bob', commit_by='bob', reason='validated', ticket='INC-1', trigger_ts_ms=10000, prepared_ts_ms=10500, approved_ts_ms=10800, commit_ts_ms=11000)
+     res = evaluate_freeze_integrity(
+         control_raw={'expected_ack_nonce': 'n1'},
+         state_raw={},
+         events=[
+-            ('3-0', {'kind': 'manual_ack_thaw', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000', 'ts_ms': '11000', 'operator': 'alex', 'reason': 'validated', 'ticket': 'INC-1', 'ack_sig': sig}),
++            ('4-0', {'kind': 'manual_ack_thaw_commit', 'request_id': 'r1', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000', 'prepared_ts_ms': '10500', 'approved_ts_ms': '10800', 'ts_ms': '11000', 'operator': 'bob', 'prepared_by': 'alice', 'approved_by': 'bob', 'reason': 'validated', 'ticket': 'INC-1', 'commit_sig': sig}),
+             ('2-0', {'kind': 'autoguard_freeze_latch', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000'}),
+         ],
+     )
+
+
+
+
+--- a/tick_flow_full/orderflow_services/exec_health_freeze_override_v1.py
++++ b/tick_flow_full/orderflow_services/exec_health_freeze_override_v1.py
+@@ -4,6 +4,7 @@
+ import argparse
+ import json
+ import os
++import secrets
+ import sys
+ import time
+ from typing import Any, Dict
+@@ -15,10 +16,12 @@
+ 
+ from services.orderflow.exec_health_freeze_control import (
+     ACK_SIGNING_SECRET_ENV,
+-    build_manual_ack_thaw_update,
++    build_dual_control_commit_thaw_update,
+     build_manual_freeze_update,
++    build_thaw_approve_update,
++    build_thaw_prepare_update,
+     parse_exec_health_freeze_control,
+-    sign_manual_ack,
++    sign_dual_control_commit,
+     stringify_mapping,
+ )
+ 
+@@ -60,6 +63,8 @@
+             "state_key": self.state_key,
+             "freeze_key": self.freeze_key,
+             "pending_ack_nonce": ctl.expected_ack_nonce or st.expected_ack_nonce,
++            "active_thaw_request_id": ctl.active_thaw_request_id or st.active_thaw_request_id,
++            "thaw_request_status": ctl.thaw_request_status or st.thaw_request_status,
+             "last_trigger_ts_ms": int(ctl.raw_payload.get("last_trigger_ts_ms") or st.raw_payload.get("last_trigger_ts_ms") or 0),
+             "control": dict(getattr(ctl, "raw_payload", {}) or {}),
+             "state_fallback": dict(getattr(st, "raw_payload", {}) or {}),
+@@ -76,75 +81,154 @@
+         except Exception:
+             return ""
+ 
+-    def thaw(self, *, operator: str, reason: str, ticket: str, nonce: str) -> Dict[str, Any]:
+-        now = _now_ms()
+-        if not operator.strip() or not reason.strip() or not nonce.strip():
+-            raise ValueError("operator, reason and nonce are required")
+-        secret = os.getenv(ACK_SIGNING_SECRET_ENV, "")
+-        if not secret:
+-            raise ValueError(f"{ACK_SIGNING_SECRET_ENV} is required for signed manual thaw")
+-
++    def _load_pair(self):
+         prev_ctl = self._read_hash(self.control_key)
+         prev_state = self._read_hash(self.state_key)
+         ctl = parse_exec_health_freeze_control(prev_ctl)
+         st = parse_exec_health_freeze_control(prev_state)
++        return prev_ctl, prev_state, ctl, st
++
++    def prepare_thaw(self, *, operator: str, reason: str, ticket: str, nonce: str) -> Dict[str, Any]:
++        now = _now_ms()
++        if not operator.strip() or not reason.strip() or not nonce.strip():
++            raise ValueError("operator, reason and nonce are required")
++        prev_ctl, prev_state, ctl, st = self._load_pair()
+         expected_nonce = ctl.expected_ack_nonce or st.expected_ack_nonce
+         trigger_ts_ms = int(prev_ctl.get("last_trigger_ts_ms") or prev_state.get("last_trigger_ts_ms") or 0)
+         if not expected_nonce:
+             raise ValueError("no pending ack nonce found in control/state")
+         if str(nonce) != str(expected_nonce):
+             raise ValueError("ack nonce mismatch (CAS failed)")
+-        if not (ctl.manual_ack_required or st.manual_ack_required or ctl.effective_freeze_active or st.effective_freeze_active):
+-            raise ValueError("freeze is not awaiting manual ack")
+-
+-        sig = sign_manual_ack(
+-            secret=secret,
+-            action="thaw",
+-            operator=operator,
+-            reason=reason,
+-            ticket=ticket,
+-            ack_nonce=str(nonce),
+-            trigger_ts_ms=trigger_ts_ms,
+-            ack_ts_ms=now,
+-        )
++        if ctl.active_thaw_request_id and ctl.thaw_request_status in {"prepared", "approved"}:
++            raise ValueError(f"active thaw request already exists: {ctl.active_thaw_request_id}")
++        request_id = f"thr-{now}-{secrets.token_hex(4)}"
+         event_payload = {
+             "ts_ms": now,
+-            "kind": "manual_ack_thaw",
++            "kind": "manual_ack_thaw_prepare",
++            "request_id": request_id,
+             "operator": operator,
+             "reason": reason,
+             "ticket": ticket,
+             "ack_nonce": str(nonce),
+-            "trigger_ts_ms": int(trigger_ts_ms),
+-            "ack_sig": sig,
++            "trigger_ts_ms": trigger_ts_ms,
+             "source": "exec_health_freeze_override_v1",
+             "control_key": self.control_key,
+         }
+         event_id = self._emit_event(event_payload)
+-
+-        upd = build_manual_ack_thaw_update(
++        upd = build_thaw_prepare_update(
+             prev=prev_ctl,
+             now_ms=now,
++            request_id=request_id,
+             operator=operator,
+             reason=reason,
+             ticket=ticket,
+             provided_ack_nonce=str(nonce),
+-            manual_ack_sig=sig,
+-            manual_ack_event_id=event_id,
+         )
++        upd["thaw_prepare_event_id"] = str(event_id or "")
+         self._write_hash(self.control_key, upd)
++        state_upd = dict(prev_state)
++        state_upd.update(upd)
++        state_upd["state_thaw_prepare_written_ts_ms"] = int(now)
++        self._write_hash(self.state_key, state_upd)
++        return {"ok": True, "action": "prepare-thaw", **event_payload, "event_id": event_id, "effective_freeze_active": 1}
+ 
++    def approve_thaw(self, *, operator: str, request_id: str) -> Dict[str, Any]:
++        now = _now_ms()
++        if not operator.strip() or not request_id.strip():
++            raise ValueError("operator and request_id are required")
++        prev_ctl, prev_state, ctl, st = self._load_pair()
++        rid = ctl.active_thaw_request_id or st.active_thaw_request_id
++        if str(request_id) != str(rid):
++            raise ValueError("request_id mismatch")
++        if ctl.thaw_request_status != 'prepared':
++            raise ValueError(f"request is not in prepared state: {ctl.thaw_request_status}")
++        if operator == ctl.thaw_prepared_by:
++            raise ValueError("second approver must be different from preparer")
++        event_payload = {
++            "ts_ms": now,
++            "kind": "manual_ack_thaw_approve",
++            "request_id": str(request_id),
++            "operator": operator,
++            "prepared_by": ctl.thaw_prepared_by,
++            "ack_nonce": ctl.thaw_request_nonce or ctl.expected_ack_nonce,
++            "trigger_ts_ms": int(prev_ctl.get("last_trigger_ts_ms") or prev_state.get("last_trigger_ts_ms") or 0),
++            "source": "exec_health_freeze_override_v1",
++            "control_key": self.control_key,
++        }
++        event_id = self._emit_event(event_payload)
++        upd = build_thaw_approve_update(prev=prev_ctl, now_ms=now, request_id=str(request_id), approver=operator)
++        upd["thaw_approve_event_id"] = str(event_id or "")
++        self._write_hash(self.control_key, upd)
+         state_upd = dict(prev_state)
+         state_upd.update(upd)
+-        state_upd["state_manual_ack_written_ts_ms"] = int(now)
++        state_upd["state_thaw_approve_written_ts_ms"] = int(now)
+         self._write_hash(self.state_key, state_upd)
++        return {"ok": True, "action": "approve-thaw", **event_payload, "event_id": event_id, "effective_freeze_active": 1}
+ 
+-        return {
+-            "ok": True,
+-            "action": "thaw",
+-            **event_payload,
+-            "event_id": event_id,
+-            "effective_freeze_active": 0,
++    def commit_thaw(self, *, operator: str, request_id: str) -> Dict[str, Any]:
++        now = _now_ms()
++        if not operator.strip() or not request_id.strip():
++            raise ValueError("operator and request_id are required")
++        secret = os.getenv(ACK_SIGNING_SECRET_ENV, "")
++        if not secret:
++            raise ValueError(f"{ACK_SIGNING_SECRET_ENV} is required for signed commit thaw")
++        prev_ctl, prev_state, ctl, st = self._load_pair()
++        rid = ctl.active_thaw_request_id or st.active_thaw_request_id
++        if str(request_id) != str(rid):
++            raise ValueError("request_id mismatch")
++        if ctl.thaw_request_status != 'approved':
++            raise ValueError(f"request is not approved: {ctl.thaw_request_status}")
++        if not ctl.thaw_approved_by or ctl.thaw_prepared_by == ctl.thaw_approved_by:
++            raise ValueError("dual-control approval is invalid or missing")
++        if operator != ctl.thaw_approved_by:
++            raise ValueError("commit must be executed by the approved second operator")
++        trigger_ts_ms = int(prev_ctl.get("last_trigger_ts_ms") or prev_state.get("last_trigger_ts_ms") or 0)
++        sig = sign_dual_control_commit(
++            secret=secret,
++            request_id=str(request_id),
++            ack_nonce=ctl.thaw_request_nonce or ctl.expected_ack_nonce,
++            prepared_by=ctl.thaw_prepared_by,
++            approved_by=ctl.thaw_approved_by,
++            commit_by=operator,
++            reason=ctl.thaw_request_reason,
++            ticket=ctl.thaw_request_ticket,
++            trigger_ts_ms=trigger_ts_ms,
++            prepared_ts_ms=ctl.thaw_prepare_ts_ms,
++            approved_ts_ms=ctl.thaw_approve_ts_ms,
++            commit_ts_ms=now,
++        )
++        event_payload = {
++            "ts_ms": now,
++            "kind": "manual_ack_thaw_commit",
++            "request_id": str(request_id),
++            "operator": operator,
++            "prepared_by": ctl.thaw_prepared_by,
++            "approved_by": ctl.thaw_approved_by,
++            "reason": ctl.thaw_request_reason,
++            "ticket": ctl.thaw_request_ticket,
++            "ack_nonce": ctl.thaw_request_nonce or ctl.expected_ack_nonce,
++            "trigger_ts_ms": int(trigger_ts_ms),
++            "prepared_ts_ms": int(ctl.thaw_prepare_ts_ms),
++            "approved_ts_ms": int(ctl.thaw_approve_ts_ms),
++            "commit_sig": sig,
++            "source": "exec_health_freeze_override_v1",
++            "control_key": self.control_key,
+         }
++        event_id = self._emit_event(event_payload)
++        upd = build_dual_control_commit_thaw_update(
++            prev=prev_ctl,
++            now_ms=now,
++            request_id=str(request_id),
++            commit_by=operator,
++            commit_sig=sig,
++            commit_event_id=event_id,
++        )
++        self._write_hash(self.control_key, upd)
++        state_upd = dict(prev_state)
++        state_upd.update(upd)
++        state_upd["state_thaw_commit_written_ts_ms"] = int(now)
++        self._write_hash(self.state_key, state_upd)
++        return {"ok": True, "action": "commit-thaw", **event_payload, "event_id": event_id, "effective_freeze_active": 0}
+ 
+     def freeze(self, *, operator: str, reason: str, ticket: str, minutes: int) -> Dict[str, Any]:
+         now = _now_ms()
+@@ -188,12 +272,13 @@
+ 
+ 
+ def build_arg_parser() -> argparse.ArgumentParser:
+-    ap = argparse.ArgumentParser(description="ExecHealth unified operator override / thaw workflow")
+-    ap.add_argument("command", choices=["status", "thaw", "freeze"])
++    ap = argparse.ArgumentParser(description="ExecHealth dual-control operator override / thaw workflow")
++    ap.add_argument("command", choices=["status", "prepare-thaw", "approve-thaw", "commit-thaw", "freeze"])
+     ap.add_argument("--operator", default=os.getenv("OPERATOR", ""))
+     ap.add_argument("--reason", default=os.getenv("REASON", ""))
+     ap.add_argument("--ticket", default=os.getenv("TICKET", ""))
+     ap.add_argument("--nonce", default=os.getenv("ACK_NONCE", ""))
++    ap.add_argument("--request-id", default=os.getenv("REQUEST_ID", ""))
+     ap.add_argument("--minutes", type=int, default=int(os.getenv("EXEC_HEALTH_MANUAL_FREEZE_MINUTES", "30") or 30))
+     return ap
+ 
+@@ -204,8 +289,14 @@
+     if args.command == "status":
+         _jprint(ctl.status())
+         return 0
+-    if args.command == "thaw":
+-        _jprint(ctl.thaw(operator=args.operator, reason=args.reason, ticket=args.ticket, nonce=args.nonce))
++    if args.command == "prepare-thaw":
++        _jprint(ctl.prepare_thaw(operator=args.operator, reason=args.reason, ticket=args.ticket, nonce=args.nonce))
++        return 0
++    if args.command == "approve-thaw":
++        _jprint(ctl.approve_thaw(operator=args.operator, request_id=args.request_id))
++        return 0
++    if args.command == "commit-thaw":
++        _jprint(ctl.commit_thaw(operator=args.operator, request_id=args.request_id))
+         return 0
+     if args.command == "freeze":
+         _jprint(ctl.freeze(operator=args.operator, reason=args.reason, ticket=args.ticket, minutes=args.minutes))
+
+
+
+
+
+--- a/services/orderflow/exec_health_freeze_dual_control.py
++++ b/services/orderflow/exec_health_freeze_dual_control.py
+@@ -0,0 +1,170 @@
++from __future__ import annotations
++
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Mapping, Sequence, Tuple
++
++from services.orderflow.exec_health_freeze_control import parse_exec_health_freeze_control, verify_dual_control_commit_signature
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _s(x: Any, d: str = "") -> str:
++    try:
++        return str(x) if x is not None else str(d)
++    except Exception:
++        return str(d)
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++DUAL_CONTROL_VIOLATION_KINDS = [
++    'none',
++    'prepare_missing',
++    'approval_missing',
++    'commit_missing',
++    'same_operator_dual_control_violation',
++    'commit_without_prepare',
++    'commit_without_approval',
++    'invalid_commit_signature',
++    'invalid_control_commit_signature',
++]
++
++
++@dataclass(frozen=True)
++class FreezeDualControlResult:
++    request_id: str
++    request_status: str
++    request_nonce: str
++    pending_request: bool
++    dual_control_ready: bool
++    prepare_event_present: bool
++    approve_event_present: bool
++    commit_event_present: bool
++    valid_commit_event_present: bool
++    prepared_by: str
++    approved_by: str
++    commit_by: str
++    same_operator_violation: bool
++    violation_kinds: List[str]
++
++
++def _event_payload(rec: Any) -> Tuple[str, Dict[str, Any]]:
++    if isinstance(rec, (list, tuple)) and len(rec) >= 2:
++        return str(rec[0]), dict(rec[1] or {})
++    return '', {}
++
++
++def _find_latest(events: Sequence[Any], *, kind: str, request_id: str) -> Tuple[str, Dict[str, Any]]:
++    for rec in events:
++        eid, payload = _event_payload(rec)
++        if _s(payload.get('kind')) == kind and _s(payload.get('request_id')) == str(request_id):
++            return eid, payload
++    return '', {}
++
++
++def _commit_event_to_control_like(payload: Mapping[str, Any]) -> Dict[str, Any]:
++    return {
++        'manual_override_action': 'thaw',
++        'active_thaw_request_id': _s(payload.get('request_id')),
++        'manual_commit_request_id': _s(payload.get('request_id')),
++        'thaw_request_nonce': _s(payload.get('ack_nonce')),
++        'manual_ack_nonce': _s(payload.get('ack_nonce')),
++        'thaw_prepared_by': _s(payload.get('prepared_by')),
++        'thaw_approved_by': _s(payload.get('approved_by')),
++        'manual_commit_by': _s(payload.get('operator')),
++        'thaw_request_reason': _s(payload.get('reason')),
++        'thaw_request_ticket': _s(payload.get('ticket')),
++        'last_trigger_ts_ms': _i(payload.get('trigger_ts_ms'), 0),
++        'thaw_prepare_ts_ms': _i(payload.get('prepared_ts_ms'), 0),
++        'thaw_approve_ts_ms': _i(payload.get('approved_ts_ms'), 0),
++        'manual_commit_ts_ms': _i(payload.get('ts_ms'), 0),
++        'manual_ack_ts_ms': _i(payload.get('ts_ms'), 0),
++        'manual_commit_sig': _s(payload.get('commit_sig')),
++        'manual_ack_sig': _s(payload.get('commit_sig')),
++    }
++
++
++def evaluate_freeze_dual_control(
++    *,
++    control_raw: Mapping[str, Any] | None,
++    state_raw: Mapping[str, Any] | None,
++    events: Sequence[Any] | None,
++    now_ms: int | None = None,
++) -> FreezeDualControlResult:
++    _ = int(now_ms or _now_ms())
++    control = parse_exec_health_freeze_control(control_raw or {})
++    state = parse_exec_health_freeze_control(state_raw or {})
++    evs = list(events or [])
++
++    request_id = control.active_thaw_request_id or state.active_thaw_request_id
++    request_status = control.thaw_request_status or state.thaw_request_status
++    request_nonce = control.thaw_request_nonce or state.thaw_request_nonce or control.expected_ack_nonce or state.expected_ack_nonce
++    prepared_by = control.thaw_prepared_by or state.thaw_prepared_by
++    approved_by = control.thaw_approved_by or state.thaw_approved_by
++    commit_by = control.manual_commit_by or state.manual_commit_by or control.manual_ack_operator or state.manual_ack_operator
++
++    prepare_eid, prepare_ev = _find_latest(evs, kind='manual_ack_thaw_prepare', request_id=request_id)
++    approve_eid, approve_ev = _find_latest(evs, kind='manual_ack_thaw_approve', request_id=request_id)
++    commit_eid, commit_ev = _find_latest(evs, kind='manual_ack_thaw_commit', request_id=request_id)
++
++    prepare_present = bool(prepare_eid or request_status in {'prepared', 'approved', 'committed'})
++    approve_present = bool(approve_eid or request_status in {'approved', 'committed'} and approved_by)
++    commit_present = bool(commit_eid or request_status == 'committed' or control.manual_override_action == 'thaw')
++    same_operator = bool(prepared_by and approved_by and prepared_by == approved_by)
++
++    valid_commit_event_present = False
++    if commit_present:
++        if commit_ev:
++            valid_commit_event_present = verify_dual_control_commit_signature(_commit_event_to_control_like(commit_ev))
++        elif control.manual_override_action == 'thaw':
++            valid_commit_event_present = verify_dual_control_commit_signature(control.raw_payload)
++
++    pending_request = bool(request_id and request_status in {'prepared', 'approved'})
++    dual_control_ready = bool(request_id and prepare_present and approve_present and not same_operator)
++
++    violations: List[str] = []
++    if request_id:
++        if request_status in {'prepared', 'approved', 'committed'} and not prepare_present:
++            violations.append('prepare_missing')
++        if request_status in {'approved', 'committed'} and not approve_present:
++            violations.append('approval_missing')
++        if request_status == 'approved' and not commit_present:
++            violations.append('commit_missing')
++    if commit_present and not prepare_present:
++        violations.append('commit_without_prepare')
++    if commit_present and not approve_present:
++        violations.append('commit_without_approval')
++    if same_operator:
++        violations.append('same_operator_dual_control_violation')
++    if commit_present and not valid_commit_event_present:
++        violations.append('invalid_commit_signature')
++    if control.manual_override_action == 'thaw' and control.manual_override_active and not verify_dual_control_commit_signature(control.raw_payload):
++        violations.append('invalid_control_commit_signature')
++
++    if not violations:
++        violations = ['none']
++
++    return FreezeDualControlResult(
++        request_id=str(request_id or ''),
++        request_status=str(request_status or ''),
++        request_nonce=str(request_nonce or ''),
++        pending_request=bool(pending_request),
++        dual_control_ready=bool(dual_control_ready),
++        prepare_event_present=bool(prepare_present),
++        approve_event_present=bool(approve_present),
++        commit_event_present=bool(commit_present),
++        valid_commit_event_present=bool(valid_commit_event_present),
++        prepared_by=str(prepared_by or ''),
++        approved_by=str(approved_by or ''),
++        commit_by=str(commit_by or ''),
++        same_operator_violation=bool(same_operator),
++        violation_kinds=violations,
++    )
+
+--- a/services/orderflow/tests/test_exec_health_freeze_dual_control_v1.py
++++ b/services/orderflow/tests/test_exec_health_freeze_dual_control_v1.py
+@@ -0,0 +1,47 @@
++from __future__ import annotations
++
++import os
++
++from services.orderflow.exec_health_freeze_control import sign_dual_control_commit
++from services.orderflow.exec_health_freeze_dual_control import evaluate_freeze_dual_control
++
++
++def test_dual_control_evaluator_accepts_prepare_approve_commit_chain() -> None:
++    os.environ['EXEC_HEALTH_ACK_SIGNING_SECRET'] = 'test-secret'
++    control = {
++        'active_thaw_request_id': 'r1',
++        'thaw_request_status': 'committed',
++        'thaw_request_nonce': 'n1',
++        'thaw_prepared_by': 'alice',
++        'thaw_approved_by': 'bob',
++        'thaw_request_reason': 'validated',
++        'thaw_request_ticket': 'INC-1',
++        'thaw_prepare_ts_ms': '10500',
++        'thaw_approve_ts_ms': '10800',
++        'manual_override_action': 'thaw',
++        'manual_override_active': '1',
++        'manual_commit_request_id': 'r1',
++        'manual_commit_by': 'bob',
++        'manual_commit_ts_ms': '11000',
++        'manual_commit_sig': sign_dual_control_commit(secret='test-secret', request_id='r1', ack_nonce='n1', prepared_by='alice', approved_by='bob', commit_by='bob', reason='validated', ticket='INC-1', trigger_ts_ms=10000, prepared_ts_ms=10500, approved_ts_ms=10800, commit_ts_ms=11000),
++        'manual_ack_ts_ms': '11000',
++        'manual_ack_nonce': 'n1',
++        'last_trigger_ts_ms': '10000',
++    }
++    events = [
++        ('5-0', {'kind': 'manual_ack_thaw_commit', 'request_id': 'r1', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000', 'prepared_ts_ms': '10500', 'approved_ts_ms': '10800', 'ts_ms': '11000', 'operator': 'bob', 'prepared_by': 'alice', 'approved_by': 'bob', 'reason': 'validated', 'ticket': 'INC-1', 'commit_sig': control['manual_commit_sig']}),
++        ('4-0', {'kind': 'manual_ack_thaw_approve', 'request_id': 'r1', 'ack_nonce': 'n1', 'operator': 'bob'}),
++        ('3-0', {'kind': 'manual_ack_thaw_prepare', 'request_id': 'r1', 'ack_nonce': 'n1', 'operator': 'alice'}),
++    ]
++    res = evaluate_freeze_dual_control(control_raw=control, state_raw={}, events=events)
++    assert res.valid_commit_event_present is True
++    assert res.violation_kinds == ['none']
++
++
++def test_dual_control_evaluator_detects_same_operator_violation() -> None:
++    res = evaluate_freeze_dual_control(
++        control_raw={'active_thaw_request_id': 'r1', 'thaw_request_status': 'approved', 'thaw_prepared_by': 'alice', 'thaw_approved_by': 'alice'},
++        state_raw={},
++        events=[('4-0', {'kind': 'manual_ack_thaw_approve', 'request_id': 'r1', 'operator': 'alice'}), ('3-0', {'kind': 'manual_ack_thaw_prepare', 'request_id': 'r1', 'operator': 'alice'})],
++    )
++    assert 'same_operator_dual_control_violation' in res.violation_kinds
+
+--- a/orderflow_services/exec_health_freeze_dual_control_exporter_v1.py
++++ b/orderflow_services/exec_health_freeze_dual_control_exporter_v1.py
+@@ -0,0 +1,74 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import os
++import time
++from typing import Any, Dict, List, Tuple
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++from prometheus_client import Gauge, start_http_server
++
++from services.orderflow.exec_health_freeze_dual_control import DUAL_CONTROL_VIOLATION_KINDS, evaluate_freeze_dual_control
++
++
++def _read_events(r: Any, key: str, count: int) -> List[Tuple[str, Dict[str, Any]]]:
++    try:
++        rows = r.xrevrange(key, count=max(1, int(count))) or []
++        return [(str(eid), dict(payload or {})) for eid, payload in rows]
++    except Exception:
++        return []
++
++
++UP = Gauge('exec_health_freeze_dual_control_exporter_up', '1 if exporter can read dual-control state')
++PENDING = Gauge('exec_health_freeze_dual_control_pending_request', '1 if thaw request is pending')
++READY = Gauge('exec_health_freeze_dual_control_ready', '1 if request has valid prepare+approve by distinct operators')
++VALID_COMMIT = Gauge('exec_health_freeze_dual_control_valid_commit_event_present', '1 if a valid signed commit event exists')
++SAME_OPERATOR = Gauge('exec_health_freeze_dual_control_same_operator_violation', '1 if preparer and approver are identical')
++STATUS = Gauge('exec_health_freeze_dual_control_status', 'One-hot dual-control request status', ['status'])
++VIOLATION = Gauge('exec_health_freeze_dual_control_violation', 'One-hot dual-control violations', ['kind'])
++REQUEST_AGE = Gauge('exec_health_freeze_dual_control_request_age_seconds', 'Age of current thaw request in seconds')
++
++
++def main() -> None:
++    redis_url = os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0')
++    control_key = os.getenv('EXEC_HEALTH_FREEZE_CONTROL_KEY', 'cfg:orderflow:exec_health:freeze_control:v1')
++    state_key = os.getenv('EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY', 'metrics:exec_health:slo:autoguard:state')
++    event_stream = os.getenv('EXEC_HEALTH_FREEZE_EVENT_STREAM', 'ops:exec_health:freeze_events:v1')
++    port = int(os.getenv('EXEC_HEALTH_FREEZE_DUAL_CONTROL_EXPORTER_PORT', '9829'))
++    interval_s = float(os.getenv('EXEC_HEALTH_FREEZE_DUAL_CONTROL_EXPORTER_INTERVAL_S', '10') or 10)
++    event_count = int(os.getenv('EXEC_HEALTH_FREEZE_DUAL_CONTROL_EVENT_COUNT', '100') or 100)
++    if redis is None:
++        raise RuntimeError('redis dependency missing')
++    r = redis.Redis.from_url(redis_url, decode_responses=True)
++    start_http_server(port)
++    while True:
++        try:
++            control = r.hgetall(control_key) or {}
++            state = r.hgetall(state_key) or {}
++            events = _read_events(r, event_stream, event_count)
++            res = evaluate_freeze_dual_control(control_raw=control, state_raw=state, events=events)
++            UP.set(1.0)
++            PENDING.set(1.0 if res.pending_request else 0.0)
++            READY.set(1.0 if res.dual_control_ready else 0.0)
++            VALID_COMMIT.set(1.0 if res.valid_commit_event_present else 0.0)
++            SAME_OPERATOR.set(1.0 if res.same_operator_violation else 0.0)
++            for status in ['none', 'prepared', 'approved', 'committed', 'legacy_committed']:
++                STATUS.labels(status=status).set(1.0 if (res.request_status or 'none') == status else 0.0)
++            active = set(res.violation_kinds)
++            for kind in DUAL_CONTROL_VIOLATION_KINDS:
++                VIOLATION.labels(kind=kind).set(1.0 if kind in active else 0.0)
++            age_s = 0.0
++            for raw in (control, state):
++                if raw and raw.get('thaw_prepare_ts_ms'):
++                    age_s = max(age_s, max(0.0, (time.time()*1000 - float(raw.get('thaw_prepare_ts_ms', 0)))/1000.0))
++            REQUEST_AGE.set(age_s)
++        except Exception:
++            UP.set(0.0)
++        time.sleep(interval_s)
++
++
++if __name__ == '__main__':
++    main()
+
+--- a/orderflow_services/prometheus_alerts_exec_health_freeze_dual_control_v1.yml
++++ b/orderflow_services/prometheus_alerts_exec_health_freeze_dual_control_v1.yml
+@@ -0,0 +1,24 @@
++groups:
++  - name: exec-health-freeze-dual-control-v1
++    rules:
++      - alert: OF_ExecHealth_FreezeDualControl_SameOperator_Crit
++        expr: exec_health_freeze_dual_control_same_operator_violation > 0
++        for: 1m
++        labels:
++          severity: critical
++        annotations:
++          summary: ExecHealth freeze thaw dual-control violated by same operator
++      - alert: OF_ExecHealth_FreezeDualControl_CommitMissing_Warn
++        expr: exec_health_freeze_dual_control_status{status="approved"} > 0 and exec_health_freeze_dual_control_valid_commit_event_present == 0
++        for: 5m
++        labels:
++          severity: warning
++        annotations:
++          summary: ExecHealth thaw request approved but final signed commit missing
++      - alert: OF_ExecHealth_FreezeDualControl_InvalidCommit_Crit
++        expr: exec_health_freeze_dual_control_violation{kind=~"invalid_commit_signature|invalid_control_commit_signature|commit_without_approval|commit_without_prepare"} > 0
++        for: 1m
++        labels:
++          severity: critical
++        annotations:
++          summary: ExecHealth thaw dual-control integrity violation detected
+
+--- a/orderflow_services/grafana/exec_health_freeze_dual_control_v1.json
++++ b/orderflow_services/grafana/exec_health_freeze_dual_control_v1.json
+@@ -0,0 +1,9 @@
++{
++  "title": "ExecHealth Freeze Dual Control (v1)",
++  "panels": [
++    {"title": "Pending Request", "targets": [{"expr": "exec_health_freeze_dual_control_pending_request"}]},
++    {"title": "Ready / Valid Commit", "targets": [{"expr": "exec_health_freeze_dual_control_ready"}, {"expr": "exec_health_freeze_dual_control_valid_commit_event_present"}]},
++    {"title": "Violations", "targets": [{"expr": "exec_health_freeze_dual_control_violation"}]},
++    {"title": "Status", "targets": [{"expr": "exec_health_freeze_dual_control_status"}]}
++  ]
++}
+
+--- a/orderflow_services/runbook_exec_health_freeze_dual_control_v1.md
++++ b/orderflow_services/runbook_exec_health_freeze_dual_control_v1.md
+@@ -0,0 +1,9 @@
++# ExecHealth Freeze Dual Control (v1)
++
++Thaw workflow:
++1. `prepare-thaw` by operator A with current ack nonce.
++2. `approve-thaw` by operator B (`B != A`).
++3. `commit-thaw` by the approved operator B.
++
++A thaw is valid only when a signed `manual_ack_thaw_commit` event exists for the same `request_id` and nonce.
++Simple deletion of control/state keys is not a valid thaw path.
+
+--- a/orderflow_services/tests/test_exec_health_freeze_dual_control_exporter_v1.py
++++ b/orderflow_services/tests/test_exec_health_freeze_dual_control_exporter_v1.py
+@@ -0,0 +1,18 @@
++from __future__ import annotations
++
++import os
++
++from services.orderflow.exec_health_freeze_control import sign_dual_control_commit
++from services.orderflow.exec_health_freeze_dual_control import evaluate_freeze_dual_control
++
++
++def test_dual_control_exporter_evaluator_ready_and_valid_commit() -> None:
++    os.environ['EXEC_HEALTH_ACK_SIGNING_SECRET'] = 'test-secret'
++    sig = sign_dual_control_commit(secret='test-secret', request_id='r1', ack_nonce='n1', prepared_by='alice', approved_by='bob', commit_by='bob', reason='validated', ticket='INC-1', trigger_ts_ms=10000, prepared_ts_ms=10500, approved_ts_ms=10800, commit_ts_ms=11000)
++    res = evaluate_freeze_dual_control(
++        control_raw={'active_thaw_request_id': 'r1', 'thaw_request_status': 'committed', 'thaw_request_nonce': 'n1', 'thaw_prepared_by': 'alice', 'thaw_approved_by': 'bob', 'thaw_request_reason': 'validated', 'thaw_request_ticket': 'INC-1', 'thaw_prepare_ts_ms': '10500', 'thaw_approve_ts_ms': '10800', 'manual_override_action': 'thaw', 'manual_override_active': '1', 'manual_commit_request_id': 'r1', 'manual_commit_by': 'bob', 'manual_commit_ts_ms': '11000', 'manual_commit_sig': sig, 'manual_ack_ts_ms': '11000', 'manual_ack_nonce': 'n1', 'last_trigger_ts_ms': '10000'},
++        state_raw={},
++        events=[('5-0', {'kind': 'manual_ack_thaw_commit', 'request_id': 'r1', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000', 'prepared_ts_ms': '10500', 'approved_ts_ms': '10800', 'ts_ms': '11000', 'operator': 'bob', 'prepared_by': 'alice', 'approved_by': 'bob', 'reason': 'validated', 'ticket': 'INC-1', 'commit_sig': sig})],
++    )
++    assert res.valid_commit_event_present is True
++    assert res.dual_control_ready is True
+
+--- a/orderflow_services/tests/test_exec_health_freeze_dual_control_alerts_yaml_v1.py
++++ b/orderflow_services/tests/test_exec_health_freeze_dual_control_alerts_yaml_v1.py
+@@ -0,0 +1,11 @@
++from __future__ import annotations
++
++from pathlib import Path
++import yaml
++
++
++def test_exec_health_freeze_dual_control_alerts_yaml_has_expected_alerts() -> None:
++    obj = yaml.safe_load(Path('orderflow_services/prometheus_alerts_exec_health_freeze_dual_control_v1.yml').read_text())
++    alerts = [r.get('alert') for g in obj.get('groups', []) for r in g.get('rules', [])]
++    assert 'OF_ExecHealth_FreezeDualControl_SameOperator_Crit' in alerts
++    assert 'OF_ExecHealth_FreezeDualControl_InvalidCommit_Crit' in alerts
+
+--- a/orderflow_services/tests/test_exec_health_freeze_dual_control_dashboard_json_v1.py
++++ b/orderflow_services/tests/test_exec_health_freeze_dual_control_dashboard_json_v1.py
+@@ -0,0 +1,12 @@
++from __future__ import annotations
++
++import json
++from pathlib import Path
++
++
++def test_exec_health_freeze_dual_control_dashboard_json_title_and_queries() -> None:
++    obj = json.loads(Path('orderflow_services/grafana/exec_health_freeze_dual_control_v1.json').read_text())
++    assert obj['title'] == 'ExecHealth Freeze Dual Control (v1)'
++    q = json.dumps(obj)
++    assert 'exec_health_freeze_dual_control_violation' in q
++    assert 'exec_health_freeze_dual_control_valid_commit_event_present' in q
+
+--- a/tick_flow_full/orderflow_services/exec_health_freeze_dual_control_exporter_v1.py
++++ b/tick_flow_full/orderflow_services/exec_health_freeze_dual_control_exporter_v1.py
+@@ -0,0 +1,74 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import os
++import time
++from typing import Any, Dict, List, Tuple
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++from prometheus_client import Gauge, start_http_server
++
++from services.orderflow.exec_health_freeze_dual_control import DUAL_CONTROL_VIOLATION_KINDS, evaluate_freeze_dual_control
++
++
++def _read_events(r: Any, key: str, count: int) -> List[Tuple[str, Dict[str, Any]]]:
++    try:
++        rows = r.xrevrange(key, count=max(1, int(count))) or []
++        return [(str(eid), dict(payload or {})) for eid, payload in rows]
++    except Exception:
++        return []
++
++
++UP = Gauge('exec_health_freeze_dual_control_exporter_up', '1 if exporter can read dual-control state')
++PENDING = Gauge('exec_health_freeze_dual_control_pending_request', '1 if thaw request is pending')
++READY = Gauge('exec_health_freeze_dual_control_ready', '1 if request has valid prepare+approve by distinct operators')
++VALID_COMMIT = Gauge('exec_health_freeze_dual_control_valid_commit_event_present', '1 if a valid signed commit event exists')
++SAME_OPERATOR = Gauge('exec_health_freeze_dual_control_same_operator_violation', '1 if preparer and approver are identical')
++STATUS = Gauge('exec_health_freeze_dual_control_status', 'One-hot dual-control request status', ['status'])
++VIOLATION = Gauge('exec_health_freeze_dual_control_violation', 'One-hot dual-control violations', ['kind'])
++REQUEST_AGE = Gauge('exec_health_freeze_dual_control_request_age_seconds', 'Age of current thaw request in seconds')
++
++
++def main() -> None:
++    redis_url = os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0')
++    control_key = os.getenv('EXEC_HEALTH_FREEZE_CONTROL_KEY', 'cfg:orderflow:exec_health:freeze_control:v1')
++    state_key = os.getenv('EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY', 'metrics:exec_health:slo:autoguard:state')
++    event_stream = os.getenv('EXEC_HEALTH_FREEZE_EVENT_STREAM', 'ops:exec_health:freeze_events:v1')
++    port = int(os.getenv('EXEC_HEALTH_FREEZE_DUAL_CONTROL_EXPORTER_PORT', '9829'))
++    interval_s = float(os.getenv('EXEC_HEALTH_FREEZE_DUAL_CONTROL_EXPORTER_INTERVAL_S', '10') or 10)
++    event_count = int(os.getenv('EXEC_HEALTH_FREEZE_DUAL_CONTROL_EVENT_COUNT', '100') or 100)
++    if redis is None:
++        raise RuntimeError('redis dependency missing')
++    r = redis.Redis.from_url(redis_url, decode_responses=True)
++    start_http_server(port)
++    while True:
++        try:
++            control = r.hgetall(control_key) or {}
++            state = r.hgetall(state_key) or {}
++            events = _read_events(r, event_stream, event_count)
++            res = evaluate_freeze_dual_control(control_raw=control, state_raw=state, events=events)
++            UP.set(1.0)
++            PENDING.set(1.0 if res.pending_request else 0.0)
++            READY.set(1.0 if res.dual_control_ready else 0.0)
++            VALID_COMMIT.set(1.0 if res.valid_commit_event_present else 0.0)
++            SAME_OPERATOR.set(1.0 if res.same_operator_violation else 0.0)
++            for status in ['none', 'prepared', 'approved', 'committed', 'legacy_committed']:
++                STATUS.labels(status=status).set(1.0 if (res.request_status or 'none') == status else 0.0)
++            active = set(res.violation_kinds)
++            for kind in DUAL_CONTROL_VIOLATION_KINDS:
++                VIOLATION.labels(kind=kind).set(1.0 if kind in active else 0.0)
++            age_s = 0.0
++            for raw in (control, state):
++                if raw and raw.get('thaw_prepare_ts_ms'):
++                    age_s = max(age_s, max(0.0, (time.time()*1000 - float(raw.get('thaw_prepare_ts_ms', 0)))/1000.0))
++            REQUEST_AGE.set(age_s)
++        except Exception:
++            UP.set(0.0)
++        time.sleep(interval_s)
++
++
++if __name__ == '__main__':
++    main()
+
+--- a/tick_flow_full/orderflow_services/prometheus_alerts_exec_health_freeze_dual_control_v1.yml
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_exec_health_freeze_dual_control_v1.yml
+@@ -0,0 +1,24 @@
++groups:
++  - name: exec-health-freeze-dual-control-v1
++    rules:
++      - alert: OF_ExecHealth_FreezeDualControl_SameOperator_Crit
++        expr: exec_health_freeze_dual_control_same_operator_violation > 0
++        for: 1m
++        labels:
++          severity: critical
++        annotations:
++          summary: ExecHealth freeze thaw dual-control violated by same operator
++      - alert: OF_ExecHealth_FreezeDualControl_CommitMissing_Warn
++        expr: exec_health_freeze_dual_control_status{status="approved"} > 0 and exec_health_freeze_dual_control_valid_commit_event_present == 0
++        for: 5m
++        labels:
++          severity: warning
++        annotations:
++          summary: ExecHealth thaw request approved but final signed commit missing
++      - alert: OF_ExecHealth_FreezeDualControl_InvalidCommit_Crit
++        expr: exec_health_freeze_dual_control_violation{kind=~"invalid_commit_signature|invalid_control_commit_signature|commit_without_approval|commit_without_prepare"} > 0
++        for: 1m
++        labels:
++          severity: critical
++        annotations:
++          summary: ExecHealth thaw dual-control integrity violation detected
+
+--- a/tick_flow_full/orderflow_services/grafana/exec_health_freeze_dual_control_v1.json
++++ b/tick_flow_full/orderflow_services/grafana/exec_health_freeze_dual_control_v1.json
+@@ -0,0 +1,9 @@
++{
++  "title": "ExecHealth Freeze Dual Control (v1)",
++  "panels": [
++    {"title": "Pending Request", "targets": [{"expr": "exec_health_freeze_dual_control_pending_request"}]},
++    {"title": "Ready / Valid Commit", "targets": [{"expr": "exec_health_freeze_dual_control_ready"}, {"expr": "exec_health_freeze_dual_control_valid_commit_event_present"}]},
++    {"title": "Violations", "targets": [{"expr": "exec_health_freeze_dual_control_violation"}]},
++    {"title": "Status", "targets": [{"expr": "exec_health_freeze_dual_control_status"}]}
++  ]
++}
+
+--- a/tick_flow_full/orderflow_services/runbook_exec_health_freeze_dual_control_v1.md
++++ b/tick_flow_full/orderflow_services/runbook_exec_health_freeze_dual_control_v1.md
+@@ -0,0 +1,9 @@
++# ExecHealth Freeze Dual Control (v1)
++
++Thaw workflow:
++1. `prepare-thaw` by operator A with current ack nonce.
++2. `approve-thaw` by operator B (`B != A`).
++3. `commit-thaw` by the approved operator B.
++
++A thaw is valid only when a signed `manual_ack_thaw_commit` event exists for the same `request_id` and nonce.
++Simple deletion of control/state keys is not a valid thaw path.
+

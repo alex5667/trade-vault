@@ -1,0 +1,87 @@
+groups:
+- name: enforce_bucket_promoter_v1
+  rules:
+  - alert: OF_EnforceBucketPromoterReportStale_Warn
+    expr: of_enforce_promoter_report_age_sec > 30*3600
+    for: 30m
+    labels:
+      severity: warning
+    annotations:
+      summary: 'Enforce bucket promoter report stale'
+      description: 'Promoter report age is >30h. Check timers/DB connectivity and
+        ml_analysis/tools/nightly_enforce_bucket_promoter_v1.py.'
+
+      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
+      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json
+  - alert: OF_EnforceBucketPromoterReportStale_Crit
+    expr: of_enforce_promoter_report_age_sec > 48*3600
+    for: 20m
+    labels:
+      severity: critical
+    annotations:
+      summary: 'CRIT: enforce bucket promoter report very stale'
+      description: 'Promoter report age is >48h. Promotion guardrails are not running;
+        enforcement may be stale.'
+
+      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
+      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json
+  - alert: OF_EnforcedBucketResidualHigh_Warn
+    expr: >
+      (of_enforce_promoter_bucket_resid_p95_bps > 5)
+      * on(bucket) group_left()
+      (of_enforce_bucket_flag{component="slippage", sym="global"} == 1)
+    for: 30m
+    labels:
+      severity: warning
+    annotations:
+      summary: 'Residual p95 high while slippage enforcement enabled (bucket={{ $labels.bucket
+        }})'
+      description: 'Residual p95 >5 bps in an enforced bucket. Consider narrowing
+        slippage_decomp_enforce_buckets / rollback decomp_enforce_max.'
+
+      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
+      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json
+  - alert: OF_EnforcedBucketResidualHigh_Crit
+    expr: >
+      (of_enforce_promoter_bucket_resid_p95_bps > 8)
+      * on(bucket) group_left()
+      (of_enforce_bucket_flag{component="slippage", sym="global"} == 1)
+    for: 20m
+    labels:
+      severity: critical
+    annotations:
+      summary: 'CRIT: Residual p95 very high while slippage enforcement enabled (bucket={{
+        $labels.bucket }})'
+      description: 'Residual p95 >8 bps in enforced bucket. Roll back enforcement
+        and re-calibrate impact coeffs.'
+      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
+      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json
+
+  # P89: edge_neg_share alerts — fire when edge_minus_expected_bps < 0 too often in enforced bucket
+  - alert: OF_EnforcedBucketEdgeNegShareHigh_Warn
+    expr: >
+      (of_enforce_promoter_bucket_edge_neg_share > 0.40)
+      * on(bucket) group_left()
+      (of_enforce_bucket_flag{component="slippage", sym="global"} == 1)
+    for: 30m
+    labels:
+      severity: warning
+    annotations:
+      summary: 'Edge-neg share high while slippage enforcement enabled (bucket={{ $labels.bucket }})'
+      description: 'edge_minus_expected_bps < 0 share >40% in an enforced bucket. Indicates expected slippage too optimistic or regime mismatch; consider narrowing enforcement and re-calibrating.'
+      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
+      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json
+
+  - alert: OF_EnforcedBucketEdgeNegShareHigh_Crit
+    expr: >
+      (of_enforce_promoter_bucket_edge_neg_share > 0.55)
+      * on(bucket) group_left()
+      (of_enforce_bucket_flag{component="slippage", sym="global"} == 1)
+    for: 20m
+    labels:
+      severity: critical
+    annotations:
+      summary: 'CRIT: Edge-neg share very high while slippage enforcement enabled (bucket={{ $labels.bucket }})'
+      description: 'edge_minus_expected_bps < 0 share >55% in an enforced bucket. Roll back enforcement and re-check slippage decomposition / impact coeffs.'
+      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
+      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json

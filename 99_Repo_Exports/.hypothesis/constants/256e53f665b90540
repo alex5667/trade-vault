@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signals/risk_levels.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-12, 1e-09, 1e-06, 0.2, 0.6, 0.78, 1.0, 1.1, 1.5, 2.0, 3.0, 100.0, 100, '+', ',', '-', '0', '0.6,1.0,1.5', '1', '1,2,3', 'ATR', 'ATR_LEGACY', 'LEVELS_DEBUG', 'LONG', 'PCT', 'ROCKET_TP1_ATR_MULT', 'RR', 'RR_STRICT', 'SLQ_USED', 'STOP_ATR_MULT', 'STOP_ATR_MULT_BASE', 'STOP_MODE', 'STOP_PCT', 'STOP_POINTS', 'TP_ATR_MULTS', 'TP_MODE', 'TP_RR', 'TRAIL_PROFILE', 'mode', 'rocket_tp1_atr_mult', 'rocket_v1', 'rr', 'sl', 'slq_used', 'stop', 'stop_atr_mult', 'stop_atr_mult_base', 'stop_dist', 'stop_mode', 'stop_pct', 'stop_points', 'tp', 'tp_atr_mults', 'tp_levels', 'tp_mode', 'tp_mode_used', 'tp_rr', 'tp_rr_levels', 'trail_profile']

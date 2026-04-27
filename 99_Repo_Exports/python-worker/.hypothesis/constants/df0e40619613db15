@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/tick_gate_metrics_aggregator.py
+# hypothesis_version: 6.148.10
+
+[b'last-entry', 1000.0, 100, 1000, 5000, '$', ',', '-', '--block-ms', '--consumer', '--count', '--group', '--metrics-port', '--redis-url', '--start-id', '--stream', '9112', '>', 'ERR', 'ERROR', 'FAIL', 'FAILED', 'FAILURE', 'HALTRAMP', 'HALT_RAMP', 'INSUFFICIENT', 'INSUFFICIENTDATA', 'INSUFFICIENT_DATA', 'NO_DATA', 'OK', 'PASS', 'PASSING', 'REDIS_URL', 'SUCCESS', 'TICK_GATE_AGG_GROUP', 'UNKNOWN', '[', ']', '__main__', '__other__', '_value', 'busygroup', 'collapse', 'e2e_p99', 'error', 'exists', 'fail', 'failure', 'gate', 'insufficient', 'json', 'last-entry', 'metric', 'pass', 'payload', 'process_p99', 'reason', 'replace', 'report', 'result', 'skew', 'skip', 'state', 'status', 'sym', 'symbol', 'tick_gate_agg', 'time_ms', 'timestamp_ms', 'ts_ms', 'ts_now', 'ts_stream', 'unknown_side', 'utf-8', '{', '|', '}']

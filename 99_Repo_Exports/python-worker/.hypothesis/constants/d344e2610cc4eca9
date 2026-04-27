@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/domain/time_utils.py
+# hypothesis_version: 6.148.10
+
+[1000.0, 365, 1000, 3600, 1000000000000, '1000000000', 'America/New_York', 'Asia/Tokyo', 'Europe/London', 'STRICT_EPOCH_SEC_MIN', 'asian', 'european', 'na', 'overnight', 'timestamp', 'ts', 'ts_ms', 'us_main']

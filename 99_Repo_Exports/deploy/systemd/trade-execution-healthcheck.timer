@@ -1,0 +1,14 @@
+[Unit]
+Description=Periodic trade execution healthcheck
+
+[Timer]
+# Wait 2 minutes after boot to allow services to come up, then run every minute
+OnBootSec=2m
+OnUnitActiveSec=1m
+AccuracySec=15s
+# Re-run missed invocations after system restart
+Persistent=true
+Unit=trade-execution-healthcheck.service
+
+[Install]
+WantedBy=timers.target

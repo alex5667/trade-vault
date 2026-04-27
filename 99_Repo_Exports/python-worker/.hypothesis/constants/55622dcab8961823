@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/pipeline/pipeline.py
+# hypothesis_version: 6.148.10
+
+['OK', 'VETO', 'breakout', 'confirmations_engine', 'gates', 'l2', 'l3', 'parts', 'reason_code', 'score_model', 'scoring', 'symbol', 'ts', 'utf-8']

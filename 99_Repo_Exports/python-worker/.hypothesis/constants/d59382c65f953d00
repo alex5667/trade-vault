@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/geometry/geometry_quality.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.1, 0.15, 0.85, 0.9, 1.0, 150.0, 10000.0, '0.1', 'GEO_MISSING_SCORE01', 'data_quality_flags', 'dist_bps', 'dist_rel_atr', 'geo_bad_hit', 'geo_no_hit', 'geo_no_hit_neutral', 'geo_ok_ctx', 'geo_ok_hit', 'geo_zone_hit', 'geo_zone_hits', 'geometry', 'geometry_score', 'htf_missing', 'htf_missing_neutral', 'unknown', 'zone_strength', 'zone_type']

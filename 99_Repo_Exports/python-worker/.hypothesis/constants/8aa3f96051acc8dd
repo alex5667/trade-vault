@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/orderflow_services/of_gate_archiver_exporter_v1.py
+# hypothesis_version: 6.148.10
+
+[1000.0, 9152, '-', '1h', '5m', '9152', 'REDIS_URL', '__main__', 'age_1h_s', 'age_5m_s', 'bucket_1h_ts_ms', 'bucket_5m_ts_ms', 'disabled_count', 'error_total', 'expect_timescale', 'inserted_total', 'kind', 'last_run_ts_ms', 'last_stream_id', 'metrics', 'missing_count', 'ok', 'policy', 'policy present (1/0)', 'quarantine', 'replace', 'rollups_freshness', 'rollups_refresh', 'timescale_present', 'utf-8', 'view']

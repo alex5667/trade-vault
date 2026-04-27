@@ -1,0 +1,30 @@
+
+groups:
+  - name: ml_phase1_3_review_apply_bus
+    rules:
+      - alert: MLRecommendationReviewBusStale
+        expr: time() - ml_recommendation_review_bus_last_run_ts_seconds > 900
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ML recommendation review bus is stale"
+          description: "scanner_infra review bus has not updated its last-run timestamp in 15 minutes."
+
+      - alert: MLRecommendationApplyGateStale
+        expr: time() - ml_recommendation_apply_last_run_ts_seconds > 900
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ML recommendation apply gate is stale"
+          description: "scanner_infra apply gate has not updated its last-run timestamp in 15 minutes."
+
+      - alert: MLRecommendationApplyBlockedSpike
+        expr: sum(increase(ml_recommendation_apply_decision_total{decision="BLOCK"}[30m])) > 25
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "ML recommendation apply gate is blocking many requests"
+          description: "A spike in blocked apply decisions may indicate replay, approval, or policy issues."

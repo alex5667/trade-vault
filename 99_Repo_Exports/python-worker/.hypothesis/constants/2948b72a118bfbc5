@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signals/empirical_levels_dyn.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.05, 0.5, 0.6, 0.8, 0.95, 1.0, 5.0, 10.0, 2500.0, 10000.0, 1000, 2000, ',', '-', '/', '0', '0.6,1.0,1.5', '1', '1,2,3', 'ATR', 'BUY', 'EMP_LEVELS_CACHE_MS', 'EMP_LEVELS_ENABLED', 'EMP_LEVELS_MAX_BPS', 'EMP_LEVELS_MIN_BPS', 'EMP_LEVELS_MIN_N', 'EMP_LEVELS_SL_Q', 'EMP_LEVELS_TP1_Q', 'EMP_LEVELS_TTD_Q', 'LONG', 'NA', 'RR', 'TP_ATR_MULTS', 'TP_MODE', 'TP_RR', 'emp_levels_used', 'emp_n_mae', 'emp_n_mfe', 'emp_n_ttd', 'emp_regime_used', 'emp_sl_bps', 'emp_tp1_bps', 'emp_ttd_ms', 'entry', 'entry_price', 'mae_bps', 'mfe_bps', 'na', 'nan', 'on', 'sl', 'sl_price', 'stop_dist', 'tp1', 'tp1_price', 'tp_levels', 'true', 'ttd_ms', 'utf-8', 'yes']

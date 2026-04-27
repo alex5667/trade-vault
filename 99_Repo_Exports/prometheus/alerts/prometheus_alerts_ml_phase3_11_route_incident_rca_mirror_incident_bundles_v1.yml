@@ -1,0 +1,23 @@
+groups:
+  - name: ml_phase3_11_route_incident_rca_mirror_incident_bundles_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorIncidentBundlesStale
+        expr: time() - ml_route_incident_rca_mirror_incident_bundles_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror incident bundles builder is stale"
+
+      - alert: MLRouteIncidentRCAMirrorIncidentBundlesErrors
+        expr: rate(ml_route_incident_rca_mirror_incident_bundles_runs_total{status="error"}[5m]) > 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "route incident RCA mirror incident bundles builder has errors"
+
+      - alert: MLRouteIncidentRCAMirrorIncidentBundlesBuilt
+        expr: increase(ml_route_incident_rca_mirror_incident_bundles_total[1h]) > 0
+        for: 1m
+        labels: { severity: info }
+        annotations:
+          summary: "route incident RCA mirror incident bundle generated"

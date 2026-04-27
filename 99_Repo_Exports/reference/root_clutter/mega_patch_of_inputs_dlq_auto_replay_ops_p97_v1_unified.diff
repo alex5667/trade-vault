@@ -1,0 +1,1870 @@
+Binary files /mnt/data/p97_before/orderflow_services/__pycache__/of_inputs_dlq_fixed_replay_p97.cpython-311.pyc and /mnt/data/p97_after/orderflow_services/__pycache__/of_inputs_dlq_fixed_replay_p97.cpython-311.pyc differ
+diff -ruN --no-dereference /mnt/data/p97_before/orderflow_services/grafana/of_inputs_ops_p97.json /mnt/data/p97_after/orderflow_services/grafana/of_inputs_ops_p97.json
+--- /mnt/data/p97_before/orderflow_services/grafana/of_inputs_ops_p97.json	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p97_after/orderflow_services/grafana/of_inputs_ops_p97.json	2026-02-25 06:00:51.221333590 +0000
+@@ -0,0 +1,272 @@
++{
++  "annotations": {
++    "list": [
++      {
++        "builtIn": 1,
++        "datasource": {
++          "type": "grafana",
++          "uid": "-- Grafana --"
++        },
++        "enable": true,
++        "hide": true,
++        "iconColor": "rgba(0, 211, 255, 1)",
++        "name": "Annotations & Alerts",
++        "type": "dashboard"
++      }
++    ]
++  },
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "id": null,
++  "links": [],
++  "liveNow": false,
++  "panels": [
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "lineWidth": 1,
++            "showPoints": "never",
++            "spanNulls": true
++          }
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 0
++      },
++      "id": 1,
++      "options": {
++        "legend": {
++          "calcs": [
++            "lastNotNull",
++            "max"
++          ],
++          "displayMode": "table",
++          "placement": "right",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "editorMode": "code",
++          "expr": "of_inputs_dlq_len",
++          "legendFormat": "{{stream}}",
++          "range": true,
++          "refId": "A"
++        }
++      ],
++      "title": "OFInputs DLQ / Quarantine length",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "lineWidth": 1,
++            "showPoints": "never",
++            "spanNulls": true
++          },
++          "unit": "s"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 8
++      },
++      "id": 2,
++      "options": {
++        "legend": {
++          "calcs": [
++            "lastNotNull",
++            "max"
++          ],
++          "displayMode": "table",
++          "placement": "right",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "editorMode": "code",
++          "expr": "of_inputs_dlq_age_sec",
++          "legendFormat": "{{stream}}",
++          "range": true,
++          "refId": "A"
++        }
++      ],
++      "title": "OFInputs DLQ / Quarantine age (sec)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "lineWidth": 1,
++            "showPoints": "never",
++            "spanNulls": true
++          }
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 16
++      },
++      "id": 3,
++      "options": {
++        "legend": {
++          "calcs": [
++            "lastNotNull",
++            "max"
++          ],
++          "displayMode": "table",
++          "placement": "right",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "editorMode": "code",
++          "expr": "increase(of_inputs_downgrade_total{from_version=\"3\",to_version=\"2\"}[15m])",
++          "legendFormat": "downgrade_15m",
++          "range": true,
++          "refId": "A"
++        },
++        {
++          "editorMode": "code",
++          "expr": "increase(of_inputs_quarantined_total[15m])",
++          "legendFormat": "quarantine_15m",
++          "range": true,
++          "refId": "B"
++        }
++      ],
++      "title": "OFInputs downgrade/quarantine (15m increase)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "lineWidth": 1,
++            "showPoints": "never",
++            "spanNulls": true
++          },
++          "unit": "s"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 24
++      },
++      "id": 4,
++      "options": {
++        "legend": {
++          "calcs": [
++            "lastNotNull",
++            "max"
++          ],
++          "displayMode": "table",
++          "placement": "right",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "editorMode": "code",
++          "expr": "of_inputs_dlq_replay_last_run_age_sec",
++          "legendFormat": "replay_last_run_age_sec",
++          "range": true,
++          "refId": "A"
++        },
++        {
++          "editorMode": "code",
++          "expr": "of_inputs_dlq_replay_last_run_ok",
++          "legendFormat": "replay_last_run_ok",
++          "range": true,
++          "refId": "B"
++        },
++        {
++          "editorMode": "code",
++          "expr": "of_inputs_dlq_replay_last_failed",
++          "legendFormat": "replay_last_failed",
++          "range": true,
++          "refId": "C"
++        }
++      ],
++      "title": "OFInputs DLQ replay health",
++      "type": "timeseries"
++    }
++  ],
++  "refresh": "10s",
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": [
++    "of_inputs",
++    "p97"
++  ],
++  "templating": {
++    "list": []
++  },
++  "time": {
++    "from": "now-6h",
++    "to": "now"
++  },
++  "timepicker": {},
++  "timezone": "browser",
++  "title": "OFInputs Ops (DLQ + Downgrade) P97",
++  "version": 1,
++  "weekStart": ""
++}
+diff -ruN --no-dereference /mnt/data/p97_before/orderflow_services/of_inputs_dlq_exporter_v1.py /mnt/data/p97_after/orderflow_services/of_inputs_dlq_exporter_v1.py
+--- /mnt/data/p97_before/orderflow_services/of_inputs_dlq_exporter_v1.py	2026-02-25 05:28:04.471459310 +0000
++++ /mnt/data/p97_after/orderflow_services/of_inputs_dlq_exporter_v1.py	2026-02-25 06:00:17.456693302 +0000
+@@ -36,6 +36,21 @@
+ G_AGE_SEC = Gauge('of_inputs_dlq_age_sec', 'Age in seconds: now - last_id_ts_ms/1000', ['stream'])
+ 
+ 
++# Replay state (written by of_inputs_dlq_fixed_replay_p97)
++G_REPLAY_LAST_OK = Gauge('of_inputs_dlq_replay_last_ok', '1 if last replay run succeeded')
++G_REPLAY_LAST_OK_TS_MS = Gauge('of_inputs_dlq_replay_last_ok_ts_ms', 'Timestamp of last successful replay run (ms)')
++G_REPLAY_LAST_OK_AGE_SEC = Gauge('of_inputs_dlq_replay_last_ok_age_sec', 'Age since last successful replay run (sec)')
++G_REPLAY_LAST_DUR_MS = Gauge('of_inputs_dlq_replay_last_dur_ms', 'Duration of last replay run (ms)')
++G_REPLAY_LAST_REPLAYED = Gauge('of_inputs_dlq_replay_last_replayed', 'How many messages were replayed in last run')
++G_REPLAY_LAST_SKIPPED = Gauge('of_inputs_dlq_replay_last_skipped', 'How many messages were skipped in last run')
++G_REPLAY_LAST_FAILED = Gauge('of_inputs_dlq_replay_last_failed', 'How many messages failed in last run')
++G_REPLAY_LAST_RUN_OK = Gauge('of_inputs_dlq_replay_last_run_ok', '1 if last replay run succeeded (regardless of previous success)')
++G_REPLAY_LAST_RUN_TS_MS = Gauge('of_inputs_dlq_replay_last_run_ts_ms', 'Timestamp of last replay run (ms)')
++G_REPLAY_LAST_RUN_AGE_SEC = Gauge('of_inputs_dlq_replay_last_run_age_sec', 'Age since last replay run (sec)')
++
++STATE_KEY = 'state:of_inputs_dlq_replay:last'
++
++
+ def _parse_stream_id_ts_ms(stream_id: str) -> int:
+     # Redis stream id is "<ms>-<seq>"
+     try:
+@@ -54,6 +69,15 @@
+         # stream might not exist yet
+         return 0, '0-0'
+ 
++async def _read_state(r: aioredis.Redis) -> dict:
++    try:
++        d = await r.hgetall(STATE_KEY)
++        # decode_responses=True, so values are already str
++        return d or {}
++    except Exception:
++        return {}
++
++
+ 
+ async def main() -> None:
+     redis_url = os.environ.get('REDIS_URL')
+@@ -85,6 +109,63 @@
+             G_LAST_ID_TS_MS.labels(stream=stream).set(last_ts_ms)
+             G_AGE_SEC.labels(stream=stream).set(age_sec)
+ 
++
++        # Replay state
++        st = await _read_state(r)
++        try:
++            last_ok = int(st.get('last_ok', '0') or 0)
++        except Exception:
++            last_ok = 0
++        try:
++            last_ok_ts = int(st.get('last_ok_ts_ms', '0') or 0)
++        except Exception:
++            last_ok_ts = 0
++        try:
++            last_dur = int(st.get('last_dur_ms', '0') or 0)
++        except Exception:
++            last_dur = 0
++        try:
++            last_replayed = int(st.get('replayed', '0') or 0)
++        except Exception:
++            last_replayed = 0
++        try:
++            last_skipped = int(st.get('skipped', '0') or 0)
++        except Exception:
++            last_skipped = 0
++        try:
++            last_failed = int(st.get('failed', '0') or 0)
++        except Exception:
++            last_failed = 0
++
++        age_ok_sec = 0.0
++        if last_ok_ts > 0:
++            age_ok_sec = max(0.0, (now_ms - last_ok_ts) / 1000.0)
++
++        G_REPLAY_LAST_OK.set(last_ok)
++        G_REPLAY_LAST_OK_TS_MS.set(last_ok_ts)
++        G_REPLAY_LAST_OK_AGE_SEC.set(age_ok_sec)
++        G_REPLAY_LAST_DUR_MS.set(last_dur)
++        G_REPLAY_LAST_REPLAYED.set(last_replayed)
++        G_REPLAY_LAST_SKIPPED.set(last_skipped)
++        G_REPLAY_LAST_FAILED.set(last_failed)
++
++        try:
++            last_run_ok = int(st.get('last_run_ok', '0') or 0)
++        except Exception:
++            last_run_ok = 0
++        try:
++            last_run_ts = int(st.get('last_run_ts_ms', '0') or 0)
++        except Exception:
++            last_run_ts = 0
++
++        age_run_sec = 0.0
++        if last_run_ts > 0:
++            age_run_sec = max(0.0, (now_ms - last_run_ts) / 1000.0)
++
++        G_REPLAY_LAST_RUN_OK.set(last_run_ok)
++        G_REPLAY_LAST_RUN_TS_MS.set(last_run_ts)
++        G_REPLAY_LAST_RUN_AGE_SEC.set(age_run_sec)
++
+         await asyncio.sleep(refresh)
+ 
+ 
+diff -ruN --no-dereference /mnt/data/p97_before/orderflow_services/of_inputs_dlq_fixed_replay_p97.py /mnt/data/p97_after/orderflow_services/of_inputs_dlq_fixed_replay_p97.py
+--- /mnt/data/p97_before/orderflow_services/of_inputs_dlq_fixed_replay_p97.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p97_after/orderflow_services/of_inputs_dlq_fixed_replay_p97.py	2026-02-25 06:05:20.721579930 +0000
+@@ -0,0 +1,341 @@
++"""OFInputs DLQ fixed replay (P97).
++
++Goal:
++- Provide a safe, deterministic replay path for OFInputs publish-failure DLQ.
++- This is *separate* from of_gate DLQ logic.
++
++DLQ format (produced by tick_processor P96):
++- DLQ stream field: {"payload": "{...json...}"}
++- Inside JSON: {ts_ms, symbol, stream, attempt_version, published_version, dq_code, err_prefix, err, payload}
++  where `payload` is the original OFInputs JSON string.
++
++Safety rules:
++- Replay only if the nested `payload` is valid JSON and contains minimal keys.
++- Replay writes to target stream (ctx.stream by default, override via env).
++- Optional dry-run mode.
++
++State:
++- Writes hash `state:of_inputs_dlq_replay:last` with last status for exporter/alerts.
++
++Env:
++- REDIS_URL (required)
++- OF_INPUTS_DLQ_STREAM (default: stream:dlq:of_inputs)
++- OF_INPUTS_DLQ_GROUP (default: of_inputs_dlq_replay)
++- OF_INPUTS_DLQ_CONSUMER (default: host:pid)
++- OF_INPUTS_DLQ_COUNT (default: 200)
++- OF_INPUTS_DLQ_MAX_REPLAY (default: 5000)
++- OF_INPUTS_DLQ_COMMIT (default: 0)  # 1 to actually XADD
++- OF_INPUTS_DLQ_DELETE_AFTER (default: 0)  # 1 to XDEL after successful replay
++- OF_INPUTS_DLQ_TARGET_STREAM (optional)  # overrides ctx.stream
++- OF_INPUTS_DLQ_TARGET_MAXLEN (default: 50000)
++- OF_INPUTS_DLQ_EXIT2_ON_FAIL (default: 1)
++
++Usage:
++  python -m orderflow_services.of_inputs_dlq_fixed_replay_p97
++"""
++
++from __future__ import annotations
++
++import json
++import os
++import socket
++import sys
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional, Tuple
++
++import redis
++
++
++STATE_KEY = "state:of_inputs_dlq_replay:last"
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _consumer_name() -> str:
++    host = socket.gethostname() or "host"
++    return f"{host}:{os.getpid()}"
++
++
++def _safe_json_load(s: str) -> Optional[Dict[str, Any]]:
++    if not s:
++        return None
++    try:
++        d = json.loads(s)
++        return d if isinstance(d, dict) else None
++    except Exception:
++        return None
++
++
++def _payload_min_ok(payload_obj: Dict[str, Any]) -> bool:
++    # Minimal keys to ensure it looks like OFInputs
++    # We avoid strict schema validation here to keep replay resilient.
++    for k in ("v", "symbol", "ts_ms"):
++        if k not in payload_obj:
++            return False
++    return True
++
++
++@dataclass
++class ReplayResult:
++    replayed: int = 0
++    skipped: int = 0
++    failed: int = 0
++    last_err: str = ""
++
++
++def _write_state(r: redis.Redis, ok: bool, dur_ms: int, res: ReplayResult) -> None:
++    try:
++        now_ms = _now_ms()
++        mapping = {
++            "last_run_ok": "1" if ok else "0",
++            "last_run_ts_ms": str(now_ms),
++            "last_dur_ms": str(int(dur_ms)),
++            "replayed": str(int(res.replayed)),
++            "skipped": str(int(res.skipped)),
++            "failed": str(int(res.failed)),
++            "last_err": (res.last_err or "")[:512],
++        }
++        # Preserve last successful timestamp across failing runs.
++        if ok:
++            mapping["last_ok"] = "1"
++            mapping["last_ok_ts_ms"] = str(now_ms)
++        else:
++            mapping["last_ok"] = "0"
++        r.hset(STATE_KEY, mapping=mapping)
++        r.expire(STATE_KEY, 7 * 24 * 3600)
++    except Exception:
++        pass
++
++
++def _ensure_group(r: redis.Redis, stream: str, group: str) -> None:
++    try:
++        r.xgroup_create(name=stream, groupname=group, id="0-0", mkstream=True)
++    except Exception as e:
++        # BUSYGROUP is ok
++        if "BUSYGROUP" in str(e):
++            return
++        raise
++
++
++def _claim_pending(
++    r: redis.Redis,
++    stream: str,
++    group: str,
++    consumer: str,
++    min_idle_ms: int,
++    count: int,
++) -> List[Tuple[str, Dict[str, str]]]:
++    # Use XAUTOCLAIM when available.
++    try:
++        resp = r.execute_command("XAUTOCLAIM", stream, group, consumer, str(min_idle_ms), "0-0", "COUNT", str(count))
++        # resp: [next_start, [ [id, {fields}], ... ], deleted]
++        msgs = resp[1] if isinstance(resp, (list, tuple)) and len(resp) > 1 else []
++        out: List[Tuple[str, Dict[str, str]]] = []
++        for m in msgs or []:
++            try:
++                mid = m[0]
++                fields = m[1]
++                if isinstance(mid, bytes):
++                    mid = mid.decode()
++                if isinstance(fields, dict):
++                    dec = {}
++                    for k, v in fields.items():
++                        if isinstance(k, bytes):
++                            k = k.decode()
++                        if isinstance(v, bytes):
++                            v = v.decode()
++                        dec[str(k)] = str(v)
++                    out.append((str(mid), dec))
++            except Exception:
++                continue
++        return out
++    except Exception:
++        return []
++
++
++def _read_new(
++    r: redis.Redis,
++    stream: str,
++    group: str,
++    consumer: str,
++    count: int,
++    block_ms: int,
++) -> List[Tuple[str, Dict[str, str]]]:
++    try:
++        resp = r.xreadgroup(groupname=group, consumername=consumer, streams={stream: ">"}, count=count, block=block_ms)
++        out: List[Tuple[str, Dict[str, str]]] = []
++        for _s, msgs in resp or []:
++            for mid, fields in msgs or []:
++                dec: Dict[str, str] = {}
++                for k, v in (fields or {}).items():
++                    if isinstance(k, bytes):
++                        k = k.decode()
++                    if isinstance(v, bytes):
++                        v = v.decode()
++                    dec[str(k)] = str(v)
++                if isinstance(mid, bytes):
++                    mid = mid.decode()
++                out.append((str(mid), dec))
++        return out
++    except Exception:
++        return []
++
++
++def main() -> int:
++    t0 = _now_ms()
++
++    redis_url = os.environ.get("REDIS_URL")
++    if not redis_url:
++        print("REDIS_URL is required", file=sys.stderr)
++        return 2
++
++    dlq_stream = os.environ.get("OF_INPUTS_DLQ_STREAM", "stream:dlq:of_inputs")
++    group = os.environ.get("OF_INPUTS_DLQ_GROUP", "of_inputs_dlq_replay")
++    consumer = os.environ.get("OF_INPUTS_DLQ_CONSUMER", "") or _consumer_name()
++
++    count = int(os.environ.get("OF_INPUTS_DLQ_COUNT", "200"))
++    max_replay = int(os.environ.get("OF_INPUTS_DLQ_MAX_REPLAY", "5000"))
++
++    commit = os.environ.get("OF_INPUTS_DLQ_COMMIT", "0") in ("1", "true", "yes", "on")
++    delete_after = os.environ.get("OF_INPUTS_DLQ_DELETE_AFTER", "0") in ("1", "true", "yes", "on")
++
++    target_stream_override = os.environ.get("OF_INPUTS_DLQ_TARGET_STREAM")
++    target_maxlen = int(os.environ.get("OF_INPUTS_DLQ_TARGET_MAXLEN", "50000"))
++
++    exit2_on_fail = os.environ.get("OF_INPUTS_DLQ_EXIT2_ON_FAIL", "1") in ("1", "true", "yes", "on")
++
++    # Optional: also claim pending messages (stuck)
++    claim_min_idle_ms = int(os.environ.get("OF_INPUTS_DLQ_CLAIM_MIN_IDLE_MS", str(10 * 60 * 1000)))
++
++    r = redis.Redis.from_url(redis_url, decode_responses=False)
++
++    res = ReplayResult()
++    ok = True
++
++    try:
++        _ensure_group(r, dlq_stream, group)
++
++        processed = 0
++        while processed < max_replay:
++            # First, try to reclaim pending (stuck) messages
++            msgs = _claim_pending(r, dlq_stream, group, consumer, min_idle_ms=claim_min_idle_ms, count=min(count, max_replay - processed))
++            if not msgs:
++                msgs = _read_new(r, dlq_stream, group, consumer, count=min(count, max_replay - processed), block_ms=200)
++
++            if not msgs:
++                break
++
++            for mid, fields in msgs:
++                processed += 1
++
++                raw = fields.get("payload")
++                if raw is None:
++                    res.skipped += 1
++                    try:
++                        r.xack(dlq_stream, group, mid)
++                    except Exception:
++                        pass
++                    continue
++
++                if isinstance(raw, bytes):
++                    raw_s = raw.decode("utf-8", errors="replace")
++                else:
++                    raw_s = str(raw)
++
++                ctx = _safe_json_load(raw_s)
++                if not ctx:
++                    res.skipped += 1
++                    try:
++                        r.xack(dlq_stream, group, mid)
++                    except Exception:
++                        pass
++                    continue
++
++                payload_str = ctx.get("payload")
++                if not isinstance(payload_str, str) or not payload_str:
++                    res.skipped += 1
++                    try:
++                        r.xack(dlq_stream, group, mid)
++                    except Exception:
++                        pass
++                    continue
++
++                pobj = _safe_json_load(payload_str)
++                if not pobj or not _payload_min_ok(pobj):
++                    # Keep it in DLQ for manual triage
++                    res.skipped += 1
++                    try:
++                        r.xack(dlq_stream, group, mid)
++                    except Exception:
++                        pass
++                    continue
++
++                target_stream = str(target_stream_override or ctx.get("stream") or "signals:of:inputs")
++
++                if not commit:
++                    res.replayed += 1
++                    try:
++                        r.xack(dlq_stream, group, mid)
++                    except Exception:
++                        pass
++                    continue
++
++                try:
++                    r.xadd(
++                        target_stream,
++                        fields={"payload": payload_str, "replay": "1", "dlq_id": mid},
++                        maxlen=target_maxlen,
++                        approximate=True,
++                    )
++                    res.replayed += 1
++                    try:
++                        r.xack(dlq_stream, group, mid)
++                    except Exception:
++                        pass
++                    if delete_after:
++                        try:
++                            r.xdel(dlq_stream, mid)
++                        except Exception:
++                            pass
++                except Exception as e:
++                    ok = False
++                    res.failed += 1
++                    res.last_err = f"{type(e).__name__}: {e}"
++                    # Do not ack on failure, so it stays pending for future auto-claim.
++
++            if processed >= max_replay:
++                break
++
++    except Exception as e:
++        ok = False
++        res.last_err = f"{type(e).__name__}: {e}"
++
++    dur_ms = _now_ms() - t0
++    try:
++        _write_state(r, ok=ok, dur_ms=dur_ms, res=res)
++    except Exception:
++        pass
++
++    summary = {
++        "ok": ok,
++        "commit": commit,
++        "dlq_stream": dlq_stream,
++        "target_stream": target_stream_override or "<ctx.stream>",
++        "replayed": res.replayed,
++        "skipped": res.skipped,
++        "failed": res.failed,
++        "dur_ms": dur_ms,
++        "last_err": res.last_err,
++    }
++    print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
++
++    if not ok and exit2_on_fail:
++        return 2
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff -ruN --no-dereference /mnt/data/p97_before/orderflow_services/prometheus_alerts_of_inputs_dlq_p96.yml /mnt/data/p97_after/orderflow_services/prometheus_alerts_of_inputs_dlq_p96.yml
+--- /mnt/data/p97_before/orderflow_services/prometheus_alerts_of_inputs_dlq_p96.yml	2026-02-25 05:29:26.090615313 +0000
++++ /mnt/data/p97_after/orderflow_services/prometheus_alerts_of_inputs_dlq_p96.yml	2026-02-25 06:01:19.230348826 +0000
+@@ -41,3 +41,24 @@
+         annotations:
+           summary: "High OFInputs V3→V2 downgrade rate"
+           description: "increase(of_inputs_downgrade_total{from_version=3,to_version=2}[15m])={{ $value }}. Likely book lag or missing LOB fields."
++
++      - alert: OFInputsDLQReplayNotRunning
++        expr: max(of_inputs_dlq_len{stream="stream:dlq:of_inputs"}) > 0 and (of_inputs_dlq_replay_last_run_ts_ms == 0 or of_inputs_dlq_replay_last_run_age_sec > 7200)
++        for: 15m
++        labels:
++          severity: warning
++          component: of_inputs
++        annotations:
++          summary: "OFInputs DLQ replay is not running"
++          description: "DLQ is non-empty, but replay job has not run recently (or never). Check of_timers_worker ENABLE_OF_INPUTS_DLQ_AUTO_REPLAY and logs."
++
++      - alert: OFInputsDLQReplayFailing
++        expr: max(of_inputs_dlq_len{stream="stream:dlq:of_inputs"}) > 0 and of_inputs_dlq_replay_last_run_ts_ms > 0 and of_inputs_dlq_replay_last_run_ok == 0
++        for: 10m
++        labels:
++          severity: warning
++          component: of_inputs
++        annotations:
++          summary: "OFInputs DLQ replay failing"
++          description: "DLQ is non-empty and last replay run was not OK. Investigate Redis health and publish path."
++
+diff -ruN --no-dereference /mnt/data/p97_before/orderflow_services/runbook_of_inputs_dlq_p96.md /mnt/data/p97_after/orderflow_services/runbook_of_inputs_dlq_p96.md
+--- /mnt/data/p97_before/orderflow_services/runbook_of_inputs_dlq_p96.md	2026-02-25 05:29:03.071423523 +0000
++++ /mnt/data/p97_after/orderflow_services/runbook_of_inputs_dlq_p96.md	2026-02-25 05:59:21.135001213 +0000
+@@ -95,3 +95,28 @@
+ - `of_inputs_quarantine_cooldown_ms` (default 6h)
+ - `of_inputs_stream_maxlen` (default 50k)
+ - `of_inputs_dlq_maxlen` (default 200k)
++
++
++## Auto replay (P97)
++
++When DLQ growth is caused by transient Redis issues, you can replay the stored payloads back into the main stream.
++
++Tool:
++
++```bash
++export REDIS_URL=redis://localhost:6379/0
++# Dry-run (counts only)
++python -m orderflow_services.of_inputs_dlq_fixed_replay_p97
++
++# Commit mode (replays + ACKs)
++OF_INPUTS_DLQ_COMMIT=1 python -m orderflow_services.of_inputs_dlq_fixed_replay_p97
++```
++
++State (exported via `of_inputs_dlq_exporter_v1`):
++- `of_inputs_dlq_replay_last_ok`
++- `of_inputs_dlq_replay_last_ok_age_sec`
++- `of_inputs_dlq_replay_last_replayed` / `..._skipped` / `..._failed`
++
++Notes:
++- Replay only ACKs DLQ entries when nested `payload` parses as JSON and has minimal keys (`v,symbol,ts_ms`).
++- On publish failure it leaves the message pending (will be auto-claimed later).
+Binary files /mnt/data/p97_before/orderflow_services/tests/__pycache__/test_p97_of_inputs_dlq_replay_compile_v1.cpython-311.pyc and /mnt/data/p97_after/orderflow_services/tests/__pycache__/test_p97_of_inputs_dlq_replay_compile_v1.cpython-311.pyc differ
+diff -ruN --no-dereference /mnt/data/p97_before/orderflow_services/tests/test_p97_of_inputs_dlq_replay_compile_v1.py /mnt/data/p97_after/orderflow_services/tests/test_p97_of_inputs_dlq_replay_compile_v1.py
+--- /mnt/data/p97_before/orderflow_services/tests/test_p97_of_inputs_dlq_replay_compile_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p97_after/orderflow_services/tests/test_p97_of_inputs_dlq_replay_compile_v1.py	2026-02-25 06:04:45.890327068 +0000
+@@ -0,0 +1,6 @@
++import py_compile
++
++
++def test_tools_compile_p97_of_inputs_dlq_replay():
++    py_compile.compile('orderflow_services/of_inputs_dlq_fixed_replay_p97.py', doraise=True)
++    py_compile.compile('orderflow_services/of_inputs_dlq_exporter_v1.py', doraise=True)
+diff -ruN --no-dereference /mnt/data/p97_before/services/of_timers_worker.py /mnt/data/p97_after/services/of_timers_worker.py
+--- /mnt/data/p97_before/services/of_timers_worker.py	2026-02-24 11:41:34.000000000 +0000
++++ /mnt/data/p97_after/services/of_timers_worker.py	2026-02-25 06:03:03.358016135 +0000
+@@ -98,7 +98,7 @@
+         return True
+ 
+ 
+-def _notify_stream(text: str, severity: str = "crit", sid: str = None) -> None:
++def _notify_stream(text: str, severity: str = "crit", sid: str = None, source: str = "of_timers_worker") -> None:
+     """Best-effort notification to Redis Stream (handled by telegram notifier worker)."""
+     stream = (
+         os.getenv("TELEGRAM_NOTIFY_STREAM")
+@@ -113,7 +113,7 @@
+ 
+     payload = {
+         "message": text,
+-        "source": "of_gate_contract_smoke",
++        "source": source,
+         "ts_ms": str(int(time.time() * 1000)),
+         "severity": severity,
+     }
+@@ -264,6 +264,93 @@
+     return False
+ 
+ 
++def run_of_inputs_dlq_auto_replay() -> bool:
++    """Run OFInputs DLQ auto replay (P97).
++
++    Behavior:
++      - exit=0 -> ok
++      - exit=2 -> alert (replay failed)
++      - other  -> error
++
++    Guarded by ENABLE_OF_INPUTS_DLQ_AUTO_REPLAY=1.
++    """
++    enabled = os.getenv("ENABLE_OF_INPUTS_DLQ_AUTO_REPLAY", "0")
++    if str(enabled).lower() not in ("1", "true", "yes", "on"):
++        return True
++
++    timeout_s = int(os.getenv("OF_INPUTS_DLQ_AUTO_REPLAY_TIMEOUT_S", "120"))
++    cooldown_s = int(os.getenv("OF_INPUTS_DLQ_AUTO_REPLAY_COOLDOWN_S", str(6 * 3600)))
++    dedup_enable = os.getenv("OF_INPUTS_DLQ_AUTO_REPLAY_DEDUP_ENABLE", "1") in ("1", "true", "yes", "on")
++    prefix = os.getenv("OF_INPUTS_DLQ_AUTO_REPLAY_DEDUP_PREFIX", "dedup:alert:of_inputs_dlq_replay:")
++
++    # Commit by default when enabled.
++    env = os.environ.copy()
++    if "OF_INPUTS_DLQ_COMMIT" not in env:
++        env["OF_INPUTS_DLQ_COMMIT"] = os.getenv("OF_INPUTS_DLQ_AUTO_REPLAY_COMMIT", "1")
++
++    # Script/module discovery
++    script = os.getenv("OF_INPUTS_DLQ_AUTO_REPLAY_SCRIPT")
++    if not script:
++        candidates = [
++            "/app/orderflow_services/of_inputs_dlq_fixed_replay_p97.py",
++            "/app/tick_flow_full/orderflow_services/of_inputs_dlq_fixed_replay_p97.py",
++        ]
++        for c in candidates:
++            if os.path.exists(c):
++                script = c
++                break
++
++    module = os.getenv("OF_INPUTS_DLQ_AUTO_REPLAY_MODULE", "orderflow_services.of_inputs_dlq_fixed_replay_p97")
++
++    try:
++        if script:
++            cmd = [sys.executable, script]
++        else:
++            cmd = [sys.executable, "-m", module]
++        result = subprocess.run(
++            cmd,
++            cwd="/app",
++            capture_output=True,
++            text=True,
++            timeout=timeout_s,
++            env=env,
++        )
++    except subprocess.TimeoutExpired:
++        text = f"OF_INPUTS_DLQ_REPLAY timeout after {timeout_s}s"
++        _notify_stream(text, severity="crit", sid="of_inputs_dlq_replay:timeout", source="of_inputs_dlq_replay")
++        return False
++    except Exception as e:
++        text = f"OF_INPUTS_DLQ_REPLAY error: {e}"
++        _notify_stream(text, severity="crit", sid="of_inputs_dlq_replay:exception", source="of_inputs_dlq_replay")
++        return False
++
++    rc = int(result.returncode)
++    stdout = result.stdout or ""
++    stderr = result.stderr or ""
++
++    if rc == 0:
++        logger.info("OFInputs DLQ replay: OK")
++        return True
++
++    parsed = _parse_smoke_output(stdout, stderr)
++    ok = parsed.get("ok")
++    failed = parsed.get("failed")
++    replayed = parsed.get("replayed")
++    last_err = str(parsed.get("last_err") or "")[:128]
++
++    signature = f"rc={rc}|ok={ok}|failed={failed}|replayed={replayed}|err={last_err}"
++    if dedup_enable and not _dedup_allow(signature, cooldown_s=cooldown_s, prefix=prefix):
++        logger.warning(f"OFInputs DLQ replay: suppressed duplicate alert (cooldown {cooldown_s}s). sig={signature}")
++        return False
++
++    head = (parsed.get("raw") or "").strip().replace("\n", " | ")
++    head = head[:700]
++    text = f"OF_INPUTS_DLQ_REPLAY rc={rc} ok={ok} replayed={replayed} failed={failed} err={last_err} :: {head}"
++    sid = "of_inputs_dlq_replay:" + hashlib.sha1(signature.encode("utf-8")).hexdigest()[:16]
++    _notify_stream(text, severity="warning", sid=sid, source="of_inputs_dlq_replay")
++    return False
++
++
+ def run_tool(module: str = None, args: List[str] = None, timeout: int = 3600, env_override: dict = None, **kwargs) -> bool:
+     """Run python module in a subprocess.
+ 
+@@ -1430,6 +1517,7 @@
+     logger.info("Monitors: Config drift (hourly :15)")
+     logger.info("Monitors: OF Gate contract smoke-check (hourly :08)")
+     logger.info("Monitors: Confidence cal live health (hourly :45)")
++    logger.info("Monitors: OFInputs DLQ auto replay (hourly :52) [ENABLE_OF_INPUTS_DLQ_AUTO_REPLAY=1]")
+     logger.info("Weekly: Latency bench (Sun 06:40)")
+     logger.info("Nightly:")
+     logger.info("  01:30 - Meta AB-winner V2 Job")
+@@ -1507,6 +1595,13 @@
+                     run_confidence_cal_live_health()
+                     last_run["conf_cal_live_health"] = now.timestamp()
+ 
++            # Hourly:52 OFInputs DLQ auto replay (P97)
++            if minute >= 52 and minute < 53:
++                last = last_run.get("of_inputs_dlq_replay", 0)
++                if now.timestamp() - last > 3500:
++                    run_of_inputs_dlq_auto_replay()
++                    last_run["of_inputs_dlq_replay"] = now.timestamp()
++
+             # Hourly:00 OFC Bench + Replay
+             if minute >= 0 and minute < 1:
+                 last = last_run.get("ofc_hourly", 0)
+Binary files /mnt/data/p97_before/tick_flow_full/orderflow_services/__pycache__/of_inputs_dlq_fixed_replay_p97.cpython-311.pyc and /mnt/data/p97_after/tick_flow_full/orderflow_services/__pycache__/of_inputs_dlq_fixed_replay_p97.cpython-311.pyc differ
+diff -ruN --no-dereference /mnt/data/p97_before/tick_flow_full/orderflow_services/grafana/of_inputs_ops_p97.json /mnt/data/p97_after/tick_flow_full/orderflow_services/grafana/of_inputs_ops_p97.json
+--- /mnt/data/p97_before/tick_flow_full/orderflow_services/grafana/of_inputs_ops_p97.json	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p97_after/tick_flow_full/orderflow_services/grafana/of_inputs_ops_p97.json	2026-02-25 06:00:51.221333590 +0000
+@@ -0,0 +1,272 @@
++{
++  "annotations": {
++    "list": [
++      {
++        "builtIn": 1,
++        "datasource": {
++          "type": "grafana",
++          "uid": "-- Grafana --"
++        },
++        "enable": true,
++        "hide": true,
++        "iconColor": "rgba(0, 211, 255, 1)",
++        "name": "Annotations & Alerts",
++        "type": "dashboard"
++      }
++    ]
++  },
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "id": null,
++  "links": [],
++  "liveNow": false,
++  "panels": [
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "lineWidth": 1,
++            "showPoints": "never",
++            "spanNulls": true
++          }
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 0
++      },
++      "id": 1,
++      "options": {
++        "legend": {
++          "calcs": [
++            "lastNotNull",
++            "max"
++          ],
++          "displayMode": "table",
++          "placement": "right",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "editorMode": "code",
++          "expr": "of_inputs_dlq_len",
++          "legendFormat": "{{stream}}",
++          "range": true,
++          "refId": "A"
++        }
++      ],
++      "title": "OFInputs DLQ / Quarantine length",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "lineWidth": 1,
++            "showPoints": "never",
++            "spanNulls": true
++          },
++          "unit": "s"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 8
++      },
++      "id": 2,
++      "options": {
++        "legend": {
++          "calcs": [
++            "lastNotNull",
++            "max"
++          ],
++          "displayMode": "table",
++          "placement": "right",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "editorMode": "code",
++          "expr": "of_inputs_dlq_age_sec",
++          "legendFormat": "{{stream}}",
++          "range": true,
++          "refId": "A"
++        }
++      ],
++      "title": "OFInputs DLQ / Quarantine age (sec)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "lineWidth": 1,
++            "showPoints": "never",
++            "spanNulls": true
++          }
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 16
++      },
++      "id": 3,
++      "options": {
++        "legend": {
++          "calcs": [
++            "lastNotNull",
++            "max"
++          ],
++          "displayMode": "table",
++          "placement": "right",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "editorMode": "code",
++          "expr": "increase(of_inputs_downgrade_total{from_version=\"3\",to_version=\"2\"}[15m])",
++          "legendFormat": "downgrade_15m",
++          "range": true,
++          "refId": "A"
++        },
++        {
++          "editorMode": "code",
++          "expr": "increase(of_inputs_quarantined_total[15m])",
++          "legendFormat": "quarantine_15m",
++          "range": true,
++          "refId": "B"
++        }
++      ],
++      "title": "OFInputs downgrade/quarantine (15m increase)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "lineWidth": 1,
++            "showPoints": "never",
++            "spanNulls": true
++          },
++          "unit": "s"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 24
++      },
++      "id": 4,
++      "options": {
++        "legend": {
++          "calcs": [
++            "lastNotNull",
++            "max"
++          ],
++          "displayMode": "table",
++          "placement": "right",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "editorMode": "code",
++          "expr": "of_inputs_dlq_replay_last_run_age_sec",
++          "legendFormat": "replay_last_run_age_sec",
++          "range": true,
++          "refId": "A"
++        },
++        {
++          "editorMode": "code",
++          "expr": "of_inputs_dlq_replay_last_run_ok",
++          "legendFormat": "replay_last_run_ok",
++          "range": true,
++          "refId": "B"
++        },
++        {
++          "editorMode": "code",
++          "expr": "of_inputs_dlq_replay_last_failed",
++          "legendFormat": "replay_last_failed",
++          "range": true,
++          "refId": "C"
++        }
++      ],
++      "title": "OFInputs DLQ replay health",
++      "type": "timeseries"
++    }
++  ],
++  "refresh": "10s",
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": [
++    "of_inputs",
++    "p97"
++  ],
++  "templating": {
++    "list": []
++  },
++  "time": {
++    "from": "now-6h",
++    "to": "now"
++  },
++  "timepicker": {},
++  "timezone": "browser",
++  "title": "OFInputs Ops (DLQ + Downgrade) P97",
++  "version": 1,
++  "weekStart": ""
++}
+diff -ruN --no-dereference /mnt/data/p97_before/tick_flow_full/orderflow_services/of_inputs_dlq_exporter_v1.py /mnt/data/p97_after/tick_flow_full/orderflow_services/of_inputs_dlq_exporter_v1.py
+--- /mnt/data/p97_before/tick_flow_full/orderflow_services/of_inputs_dlq_exporter_v1.py	2026-02-25 05:28:04.471459310 +0000
++++ /mnt/data/p97_after/tick_flow_full/orderflow_services/of_inputs_dlq_exporter_v1.py	2026-02-25 06:00:17.457396146 +0000
+@@ -36,6 +36,21 @@
+ G_AGE_SEC = Gauge('of_inputs_dlq_age_sec', 'Age in seconds: now - last_id_ts_ms/1000', ['stream'])
+ 
+ 
++# Replay state (written by of_inputs_dlq_fixed_replay_p97)
++G_REPLAY_LAST_OK = Gauge('of_inputs_dlq_replay_last_ok', '1 if last replay run succeeded')
++G_REPLAY_LAST_OK_TS_MS = Gauge('of_inputs_dlq_replay_last_ok_ts_ms', 'Timestamp of last successful replay run (ms)')
++G_REPLAY_LAST_OK_AGE_SEC = Gauge('of_inputs_dlq_replay_last_ok_age_sec', 'Age since last successful replay run (sec)')
++G_REPLAY_LAST_DUR_MS = Gauge('of_inputs_dlq_replay_last_dur_ms', 'Duration of last replay run (ms)')
++G_REPLAY_LAST_REPLAYED = Gauge('of_inputs_dlq_replay_last_replayed', 'How many messages were replayed in last run')
++G_REPLAY_LAST_SKIPPED = Gauge('of_inputs_dlq_replay_last_skipped', 'How many messages were skipped in last run')
++G_REPLAY_LAST_FAILED = Gauge('of_inputs_dlq_replay_last_failed', 'How many messages failed in last run')
++G_REPLAY_LAST_RUN_OK = Gauge('of_inputs_dlq_replay_last_run_ok', '1 if last replay run succeeded (regardless of previous success)')
++G_REPLAY_LAST_RUN_TS_MS = Gauge('of_inputs_dlq_replay_last_run_ts_ms', 'Timestamp of last replay run (ms)')
++G_REPLAY_LAST_RUN_AGE_SEC = Gauge('of_inputs_dlq_replay_last_run_age_sec', 'Age since last replay run (sec)')
++
++STATE_KEY = 'state:of_inputs_dlq_replay:last'
++
++
+ def _parse_stream_id_ts_ms(stream_id: str) -> int:
+     # Redis stream id is "<ms>-<seq>"
+     try:
+@@ -54,6 +69,15 @@
+         # stream might not exist yet
+         return 0, '0-0'
+ 
++async def _read_state(r: aioredis.Redis) -> dict:
++    try:
++        d = await r.hgetall(STATE_KEY)
++        # decode_responses=True, so values are already str
++        return d or {}
++    except Exception:
++        return {}
++
++
+ 
+ async def main() -> None:
+     redis_url = os.environ.get('REDIS_URL')
+@@ -85,6 +109,63 @@
+             G_LAST_ID_TS_MS.labels(stream=stream).set(last_ts_ms)
+             G_AGE_SEC.labels(stream=stream).set(age_sec)
+ 
++
++        # Replay state
++        st = await _read_state(r)
++        try:
++            last_ok = int(st.get('last_ok', '0') or 0)
++        except Exception:
++            last_ok = 0
++        try:
++            last_ok_ts = int(st.get('last_ok_ts_ms', '0') or 0)
++        except Exception:
++            last_ok_ts = 0
++        try:
++            last_dur = int(st.get('last_dur_ms', '0') or 0)
++        except Exception:
++            last_dur = 0
++        try:
++            last_replayed = int(st.get('replayed', '0') or 0)
++        except Exception:
++            last_replayed = 0
++        try:
++            last_skipped = int(st.get('skipped', '0') or 0)
++        except Exception:
++            last_skipped = 0
++        try:
++            last_failed = int(st.get('failed', '0') or 0)
++        except Exception:
++            last_failed = 0
++
++        age_ok_sec = 0.0
++        if last_ok_ts > 0:
++            age_ok_sec = max(0.0, (now_ms - last_ok_ts) / 1000.0)
++
++        G_REPLAY_LAST_OK.set(last_ok)
++        G_REPLAY_LAST_OK_TS_MS.set(last_ok_ts)
++        G_REPLAY_LAST_OK_AGE_SEC.set(age_ok_sec)
++        G_REPLAY_LAST_DUR_MS.set(last_dur)
++        G_REPLAY_LAST_REPLAYED.set(last_replayed)
++        G_REPLAY_LAST_SKIPPED.set(last_skipped)
++        G_REPLAY_LAST_FAILED.set(last_failed)
++
++        try:
++            last_run_ok = int(st.get('last_run_ok', '0') or 0)
++        except Exception:
++            last_run_ok = 0
++        try:
++            last_run_ts = int(st.get('last_run_ts_ms', '0') or 0)
++        except Exception:
++            last_run_ts = 0
++
++        age_run_sec = 0.0
++        if last_run_ts > 0:
++            age_run_sec = max(0.0, (now_ms - last_run_ts) / 1000.0)
++
++        G_REPLAY_LAST_RUN_OK.set(last_run_ok)
++        G_REPLAY_LAST_RUN_TS_MS.set(last_run_ts)
++        G_REPLAY_LAST_RUN_AGE_SEC.set(age_run_sec)
++
+         await asyncio.sleep(refresh)
+ 
+ 
+diff -ruN --no-dereference /mnt/data/p97_before/tick_flow_full/orderflow_services/of_inputs_dlq_fixed_replay_p97.py /mnt/data/p97_after/tick_flow_full/orderflow_services/of_inputs_dlq_fixed_replay_p97.py
+--- /mnt/data/p97_before/tick_flow_full/orderflow_services/of_inputs_dlq_fixed_replay_p97.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p97_after/tick_flow_full/orderflow_services/of_inputs_dlq_fixed_replay_p97.py	2026-02-25 06:05:20.721992719 +0000
+@@ -0,0 +1,341 @@
++"""OFInputs DLQ fixed replay (P97).
++
++Goal:
++- Provide a safe, deterministic replay path for OFInputs publish-failure DLQ.
++- This is *separate* from of_gate DLQ logic.
++
++DLQ format (produced by tick_processor P96):
++- DLQ stream field: {"payload": "{...json...}"}
++- Inside JSON: {ts_ms, symbol, stream, attempt_version, published_version, dq_code, err_prefix, err, payload}
++  where `payload` is the original OFInputs JSON string.
++
++Safety rules:
++- Replay only if the nested `payload` is valid JSON and contains minimal keys.
++- Replay writes to target stream (ctx.stream by default, override via env).
++- Optional dry-run mode.
++
++State:
++- Writes hash `state:of_inputs_dlq_replay:last` with last status for exporter/alerts.
++
++Env:
++- REDIS_URL (required)
++- OF_INPUTS_DLQ_STREAM (default: stream:dlq:of_inputs)
++- OF_INPUTS_DLQ_GROUP (default: of_inputs_dlq_replay)
++- OF_INPUTS_DLQ_CONSUMER (default: host:pid)
++- OF_INPUTS_DLQ_COUNT (default: 200)
++- OF_INPUTS_DLQ_MAX_REPLAY (default: 5000)
++- OF_INPUTS_DLQ_COMMIT (default: 0)  # 1 to actually XADD
++- OF_INPUTS_DLQ_DELETE_AFTER (default: 0)  # 1 to XDEL after successful replay
++- OF_INPUTS_DLQ_TARGET_STREAM (optional)  # overrides ctx.stream
++- OF_INPUTS_DLQ_TARGET_MAXLEN (default: 50000)
++- OF_INPUTS_DLQ_EXIT2_ON_FAIL (default: 1)
++
++Usage:
++  python -m orderflow_services.of_inputs_dlq_fixed_replay_p97
++"""
++
++from __future__ import annotations
++
++import json
++import os
++import socket
++import sys
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional, Tuple
++
++import redis
++
++
++STATE_KEY = "state:of_inputs_dlq_replay:last"
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _consumer_name() -> str:
++    host = socket.gethostname() or "host"
++    return f"{host}:{os.getpid()}"
++
++
++def _safe_json_load(s: str) -> Optional[Dict[str, Any]]:
++    if not s:
++        return None
++    try:
++        d = json.loads(s)
++        return d if isinstance(d, dict) else None
++    except Exception:
++        return None
++
++
++def _payload_min_ok(payload_obj: Dict[str, Any]) -> bool:
++    # Minimal keys to ensure it looks like OFInputs
++    # We avoid strict schema validation here to keep replay resilient.
++    for k in ("v", "symbol", "ts_ms"):
++        if k not in payload_obj:
++            return False
++    return True
++
++
++@dataclass
++class ReplayResult:
++    replayed: int = 0
++    skipped: int = 0
++    failed: int = 0
++    last_err: str = ""
++
++
++def _write_state(r: redis.Redis, ok: bool, dur_ms: int, res: ReplayResult) -> None:
++    try:
++        now_ms = _now_ms()
++        mapping = {
++            "last_run_ok": "1" if ok else "0",
++            "last_run_ts_ms": str(now_ms),
++            "last_dur_ms": str(int(dur_ms)),
++            "replayed": str(int(res.replayed)),
++            "skipped": str(int(res.skipped)),
++            "failed": str(int(res.failed)),
++            "last_err": (res.last_err or "")[:512],
++        }
++        # Preserve last successful timestamp across failing runs.
++        if ok:
++            mapping["last_ok"] = "1"
++            mapping["last_ok_ts_ms"] = str(now_ms)
++        else:
++            mapping["last_ok"] = "0"
++        r.hset(STATE_KEY, mapping=mapping)
++        r.expire(STATE_KEY, 7 * 24 * 3600)
++    except Exception:
++        pass
++
++
++def _ensure_group(r: redis.Redis, stream: str, group: str) -> None:
++    try:
++        r.xgroup_create(name=stream, groupname=group, id="0-0", mkstream=True)
++    except Exception as e:
++        # BUSYGROUP is ok
++        if "BUSYGROUP" in str(e):
++            return
++        raise
++
++
++def _claim_pending(
++    r: redis.Redis,
++    stream: str,
++    group: str,
++    consumer: str,
++    min_idle_ms: int,
++    count: int,
++) -> List[Tuple[str, Dict[str, str]]]:
++    # Use XAUTOCLAIM when available.
++    try:
++        resp = r.execute_command("XAUTOCLAIM", stream, group, consumer, str(min_idle_ms), "0-0", "COUNT", str(count))
++        # resp: [next_start, [ [id, {fields}], ... ], deleted]
++        msgs = resp[1] if isinstance(resp, (list, tuple)) and len(resp) > 1 else []
++        out: List[Tuple[str, Dict[str, str]]] = []
++        for m in msgs or []:
++            try:
++                mid = m[0]
++                fields = m[1]
++                if isinstance(mid, bytes):
++                    mid = mid.decode()
++                if isinstance(fields, dict):
++                    dec = {}
++                    for k, v in fields.items():
++                        if isinstance(k, bytes):
++                            k = k.decode()
++                        if isinstance(v, bytes):
++                            v = v.decode()
++                        dec[str(k)] = str(v)
++                    out.append((str(mid), dec))
++            except Exception:
++                continue
++        return out
++    except Exception:
++        return []
++
++
++def _read_new(
++    r: redis.Redis,
++    stream: str,
++    group: str,
++    consumer: str,
++    count: int,
++    block_ms: int,
++) -> List[Tuple[str, Dict[str, str]]]:
++    try:
++        resp = r.xreadgroup(groupname=group, consumername=consumer, streams={stream: ">"}, count=count, block=block_ms)
++        out: List[Tuple[str, Dict[str, str]]] = []
++        for _s, msgs in resp or []:
++            for mid, fields in msgs or []:
++                dec: Dict[str, str] = {}
++                for k, v in (fields or {}).items():
++                    if isinstance(k, bytes):
++                        k = k.decode()
++                    if isinstance(v, bytes):
++                        v = v.decode()
++                    dec[str(k)] = str(v)
++                if isinstance(mid, bytes):
++                    mid = mid.decode()
++                out.append((str(mid), dec))
++        return out
++    except Exception:
++        return []
++
++
++def main() -> int:
++    t0 = _now_ms()
++
++    redis_url = os.environ.get("REDIS_URL")
++    if not redis_url:
++        print("REDIS_URL is required", file=sys.stderr)
++        return 2
++
++    dlq_stream = os.environ.get("OF_INPUTS_DLQ_STREAM", "stream:dlq:of_inputs")
++    group = os.environ.get("OF_INPUTS_DLQ_GROUP", "of_inputs_dlq_replay")
++    consumer = os.environ.get("OF_INPUTS_DLQ_CONSUMER", "") or _consumer_name()
++
++    count = int(os.environ.get("OF_INPUTS_DLQ_COUNT", "200"))
++    max_replay = int(os.environ.get("OF_INPUTS_DLQ_MAX_REPLAY", "5000"))
++
++    commit = os.environ.get("OF_INPUTS_DLQ_COMMIT", "0") in ("1", "true", "yes", "on")
++    delete_after = os.environ.get("OF_INPUTS_DLQ_DELETE_AFTER", "0") in ("1", "true", "yes", "on")
++
++    target_stream_override = os.environ.get("OF_INPUTS_DLQ_TARGET_STREAM")
++    target_maxlen = int(os.environ.get("OF_INPUTS_DLQ_TARGET_MAXLEN", "50000"))
++
++    exit2_on_fail = os.environ.get("OF_INPUTS_DLQ_EXIT2_ON_FAIL", "1") in ("1", "true", "yes", "on")
++
++    # Optional: also claim pending messages (stuck)
++    claim_min_idle_ms = int(os.environ.get("OF_INPUTS_DLQ_CLAIM_MIN_IDLE_MS", str(10 * 60 * 1000)))
++
++    r = redis.Redis.from_url(redis_url, decode_responses=False)
++
++    res = ReplayResult()
++    ok = True
++
++    try:
++        _ensure_group(r, dlq_stream, group)
++
++        processed = 0
++        while processed < max_replay:
++            # First, try to reclaim pending (stuck) messages
++            msgs = _claim_pending(r, dlq_stream, group, consumer, min_idle_ms=claim_min_idle_ms, count=min(count, max_replay - processed))
++            if not msgs:
++                msgs = _read_new(r, dlq_stream, group, consumer, count=min(count, max_replay - processed), block_ms=200)
++
++            if not msgs:
++                break
++
++            for mid, fields in msgs:
++                processed += 1
++
++                raw = fields.get("payload")
++                if raw is None:
++                    res.skipped += 1
++                    try:
++                        r.xack(dlq_stream, group, mid)
++                    except Exception:
++                        pass
++                    continue
++
++                if isinstance(raw, bytes):
++                    raw_s = raw.decode("utf-8", errors="replace")
++                else:
++                    raw_s = str(raw)
++
++                ctx = _safe_json_load(raw_s)
++                if not ctx:
++                    res.skipped += 1
++                    try:
++                        r.xack(dlq_stream, group, mid)
++                    except Exception:
++                        pass
++                    continue
++
++                payload_str = ctx.get("payload")
++                if not isinstance(payload_str, str) or not payload_str:
++                    res.skipped += 1
++                    try:
++                        r.xack(dlq_stream, group, mid)
++                    except Exception:
++                        pass
++                    continue
++
++                pobj = _safe_json_load(payload_str)
++                if not pobj or not _payload_min_ok(pobj):
++                    # Keep it in DLQ for manual triage
++                    res.skipped += 1
++                    try:
++                        r.xack(dlq_stream, group, mid)
++                    except Exception:
++                        pass
++                    continue
++
++                target_stream = str(target_stream_override or ctx.get("stream") or "signals:of:inputs")
++
++                if not commit:
++                    res.replayed += 1
++                    try:
++                        r.xack(dlq_stream, group, mid)
++                    except Exception:
++                        pass
++                    continue
++
++                try:
++                    r.xadd(
++                        target_stream,
++                        fields={"payload": payload_str, "replay": "1", "dlq_id": mid},
++                        maxlen=target_maxlen,
++                        approximate=True,
++                    )
++                    res.replayed += 1
++                    try:
++                        r.xack(dlq_stream, group, mid)
++                    except Exception:
++                        pass
++                    if delete_after:
++                        try:
++                            r.xdel(dlq_stream, mid)
++                        except Exception:
++                            pass
++                except Exception as e:
++                    ok = False
++                    res.failed += 1
++                    res.last_err = f"{type(e).__name__}: {e}"
++                    # Do not ack on failure, so it stays pending for future auto-claim.
++
++            if processed >= max_replay:
++                break
++
++    except Exception as e:
++        ok = False
++        res.last_err = f"{type(e).__name__}: {e}"
++
++    dur_ms = _now_ms() - t0
++    try:
++        _write_state(r, ok=ok, dur_ms=dur_ms, res=res)
++    except Exception:
++        pass
++
++    summary = {
++        "ok": ok,
++        "commit": commit,
++        "dlq_stream": dlq_stream,
++        "target_stream": target_stream_override or "<ctx.stream>",
++        "replayed": res.replayed,
++        "skipped": res.skipped,
++        "failed": res.failed,
++        "dur_ms": dur_ms,
++        "last_err": res.last_err,
++    }
++    print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
++
++    if not ok and exit2_on_fail:
++        return 2
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff -ruN --no-dereference /mnt/data/p97_before/tick_flow_full/orderflow_services/prometheus_alerts_of_inputs_dlq_p96.yml /mnt/data/p97_after/tick_flow_full/orderflow_services/prometheus_alerts_of_inputs_dlq_p96.yml
+--- /mnt/data/p97_before/tick_flow_full/orderflow_services/prometheus_alerts_of_inputs_dlq_p96.yml	2026-02-25 05:29:26.090615313 +0000
++++ /mnt/data/p97_after/tick_flow_full/orderflow_services/prometheus_alerts_of_inputs_dlq_p96.yml	2026-02-25 06:01:19.230696101 +0000
+@@ -41,3 +41,24 @@
+         annotations:
+           summary: "High OFInputs V3→V2 downgrade rate"
+           description: "increase(of_inputs_downgrade_total{from_version=3,to_version=2}[15m])={{ $value }}. Likely book lag or missing LOB fields."
++
++      - alert: OFInputsDLQReplayNotRunning
++        expr: max(of_inputs_dlq_len{stream="stream:dlq:of_inputs"}) > 0 and (of_inputs_dlq_replay_last_run_ts_ms == 0 or of_inputs_dlq_replay_last_run_age_sec > 7200)
++        for: 15m
++        labels:
++          severity: warning
++          component: of_inputs
++        annotations:
++          summary: "OFInputs DLQ replay is not running"
++          description: "DLQ is non-empty, but replay job has not run recently (or never). Check of_timers_worker ENABLE_OF_INPUTS_DLQ_AUTO_REPLAY and logs."
++
++      - alert: OFInputsDLQReplayFailing
++        expr: max(of_inputs_dlq_len{stream="stream:dlq:of_inputs"}) > 0 and of_inputs_dlq_replay_last_run_ts_ms > 0 and of_inputs_dlq_replay_last_run_ok == 0
++        for: 10m
++        labels:
++          severity: warning
++          component: of_inputs
++        annotations:
++          summary: "OFInputs DLQ replay failing"
++          description: "DLQ is non-empty and last replay run was not OK. Investigate Redis health and publish path."
++
+diff -ruN --no-dereference /mnt/data/p97_before/tick_flow_full/orderflow_services/runbook_of_inputs_dlq_p96.md /mnt/data/p97_after/tick_flow_full/orderflow_services/runbook_of_inputs_dlq_p96.md
+--- /mnt/data/p97_before/tick_flow_full/orderflow_services/runbook_of_inputs_dlq_p96.md	2026-02-25 05:29:03.071423523 +0000
++++ /mnt/data/p97_after/tick_flow_full/orderflow_services/runbook_of_inputs_dlq_p96.md	2026-02-25 05:59:21.135404572 +0000
+@@ -95,3 +95,28 @@
+ - `of_inputs_quarantine_cooldown_ms` (default 6h)
+ - `of_inputs_stream_maxlen` (default 50k)
+ - `of_inputs_dlq_maxlen` (default 200k)
++
++
++## Auto replay (P97)
++
++When DLQ growth is caused by transient Redis issues, you can replay the stored payloads back into the main stream.
++
++Tool:
++
++```bash
++export REDIS_URL=redis://localhost:6379/0
++# Dry-run (counts only)
++python -m orderflow_services.of_inputs_dlq_fixed_replay_p97
++
++# Commit mode (replays + ACKs)
++OF_INPUTS_DLQ_COMMIT=1 python -m orderflow_services.of_inputs_dlq_fixed_replay_p97
++```
++
++State (exported via `of_inputs_dlq_exporter_v1`):
++- `of_inputs_dlq_replay_last_ok`
++- `of_inputs_dlq_replay_last_ok_age_sec`
++- `of_inputs_dlq_replay_last_replayed` / `..._skipped` / `..._failed`
++
++Notes:
++- Replay only ACKs DLQ entries when nested `payload` parses as JSON and has minimal keys (`v,symbol,ts_ms`).
++- On publish failure it leaves the message pending (will be auto-claimed later).
+Binary files /mnt/data/p97_before/tick_flow_full/orderflow_services/tests/__pycache__/test_p97_of_inputs_dlq_replay_compile_v1.cpython-311.pyc and /mnt/data/p97_after/tick_flow_full/orderflow_services/tests/__pycache__/test_p97_of_inputs_dlq_replay_compile_v1.cpython-311.pyc differ
+diff -ruN --no-dereference /mnt/data/p97_before/tick_flow_full/orderflow_services/tests/test_p97_of_inputs_dlq_replay_compile_v1.py /mnt/data/p97_after/tick_flow_full/orderflow_services/tests/test_p97_of_inputs_dlq_replay_compile_v1.py
+--- /mnt/data/p97_before/tick_flow_full/orderflow_services/tests/test_p97_of_inputs_dlq_replay_compile_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/p97_after/tick_flow_full/orderflow_services/tests/test_p97_of_inputs_dlq_replay_compile_v1.py	2026-02-25 06:04:45.901364708 +0000
+@@ -0,0 +1,6 @@
++import py_compile
++
++
++def test_tools_compile_p97_of_inputs_dlq_replay_tick_flow_full():
++    py_compile.compile('tick_flow_full/orderflow_services/of_inputs_dlq_fixed_replay_p97.py', doraise=True)
++    py_compile.compile('tick_flow_full/orderflow_services/of_inputs_dlq_exporter_v1.py', doraise=True)
+diff -ruN --no-dereference /mnt/data/p97_before/tick_flow_full/services/of_timers_worker.py /mnt/data/p97_after/tick_flow_full/services/of_timers_worker.py
+--- /mnt/data/p97_before/tick_flow_full/services/of_timers_worker.py	2026-02-24 09:13:12.000000000 +0000
++++ /mnt/data/p97_after/tick_flow_full/services/of_timers_worker.py	2026-02-25 06:03:03.359130523 +0000
+@@ -98,7 +98,7 @@
+         return True
+ 
+ 
+-def _notify_stream(text: str, severity: str = "crit", sid: str = None) -> None:
++def _notify_stream(text: str, severity: str = "crit", sid: str = None, source: str = "of_timers_worker") -> None:
+     """Best-effort notification to Redis Stream (handled by telegram notifier worker)."""
+     stream = (
+         os.getenv("TELEGRAM_NOTIFY_STREAM")
+@@ -113,7 +113,7 @@
+ 
+     payload = {
+         "message": text,
+-        "source": "of_gate_contract_smoke",
++        "source": source,
+         "ts_ms": str(int(time.time() * 1000)),
+         "severity": severity,
+     }
+@@ -264,6 +264,93 @@
+     return False
+ 
+ 
++def run_of_inputs_dlq_auto_replay() -> bool:
++    """Run OFInputs DLQ auto replay (P97).
++
++    Behavior:
++      - exit=0 -> ok
++      - exit=2 -> alert (replay failed)
++      - other  -> error
++
++    Guarded by ENABLE_OF_INPUTS_DLQ_AUTO_REPLAY=1.
++    """
++    enabled = os.getenv("ENABLE_OF_INPUTS_DLQ_AUTO_REPLAY", "0")
++    if str(enabled).lower() not in ("1", "true", "yes", "on"):
++        return True
++
++    timeout_s = int(os.getenv("OF_INPUTS_DLQ_AUTO_REPLAY_TIMEOUT_S", "120"))
++    cooldown_s = int(os.getenv("OF_INPUTS_DLQ_AUTO_REPLAY_COOLDOWN_S", str(6 * 3600)))
++    dedup_enable = os.getenv("OF_INPUTS_DLQ_AUTO_REPLAY_DEDUP_ENABLE", "1") in ("1", "true", "yes", "on")
++    prefix = os.getenv("OF_INPUTS_DLQ_AUTO_REPLAY_DEDUP_PREFIX", "dedup:alert:of_inputs_dlq_replay:")
++
++    # Commit by default when enabled.
++    env = os.environ.copy()
++    if "OF_INPUTS_DLQ_COMMIT" not in env:
++        env["OF_INPUTS_DLQ_COMMIT"] = os.getenv("OF_INPUTS_DLQ_AUTO_REPLAY_COMMIT", "1")
++
++    # Script/module discovery
++    script = os.getenv("OF_INPUTS_DLQ_AUTO_REPLAY_SCRIPT")
++    if not script:
++        candidates = [
++            "/app/orderflow_services/of_inputs_dlq_fixed_replay_p97.py",
++            "/app/tick_flow_full/orderflow_services/of_inputs_dlq_fixed_replay_p97.py",
++        ]
++        for c in candidates:
++            if os.path.exists(c):
++                script = c
++                break
++
++    module = os.getenv("OF_INPUTS_DLQ_AUTO_REPLAY_MODULE", "orderflow_services.of_inputs_dlq_fixed_replay_p97")
++
++    try:
++        if script:
++            cmd = [sys.executable, script]
++        else:
++            cmd = [sys.executable, "-m", module]
++        result = subprocess.run(
++            cmd,
++            cwd="/app",
++            capture_output=True,
++            text=True,
++            timeout=timeout_s,
++            env=env,
++        )
++    except subprocess.TimeoutExpired:
++        text = f"OF_INPUTS_DLQ_REPLAY timeout after {timeout_s}s"
++        _notify_stream(text, severity="crit", sid="of_inputs_dlq_replay:timeout", source="of_inputs_dlq_replay")
++        return False
++    except Exception as e:
++        text = f"OF_INPUTS_DLQ_REPLAY error: {e}"
++        _notify_stream(text, severity="crit", sid="of_inputs_dlq_replay:exception", source="of_inputs_dlq_replay")
++        return False
++
++    rc = int(result.returncode)
++    stdout = result.stdout or ""
++    stderr = result.stderr or ""
++
++    if rc == 0:
++        logger.info("OFInputs DLQ replay: OK")
++        return True
++
++    parsed = _parse_smoke_output(stdout, stderr)
++    ok = parsed.get("ok")
++    failed = parsed.get("failed")
++    replayed = parsed.get("replayed")
++    last_err = str(parsed.get("last_err") or "")[:128]
++
++    signature = f"rc={rc}|ok={ok}|failed={failed}|replayed={replayed}|err={last_err}"
++    if dedup_enable and not _dedup_allow(signature, cooldown_s=cooldown_s, prefix=prefix):
++        logger.warning(f"OFInputs DLQ replay: suppressed duplicate alert (cooldown {cooldown_s}s). sig={signature}")
++        return False
++
++    head = (parsed.get("raw") or "").strip().replace("\n", " | ")
++    head = head[:700]
++    text = f"OF_INPUTS_DLQ_REPLAY rc={rc} ok={ok} replayed={replayed} failed={failed} err={last_err} :: {head}"
++    sid = "of_inputs_dlq_replay:" + hashlib.sha1(signature.encode("utf-8")).hexdigest()[:16]
++    _notify_stream(text, severity="warning", sid=sid, source="of_inputs_dlq_replay")
++    return False
++
++
+ def run_tool(module: str = None, args: List[str] = None, timeout: int = 3600, env_override: dict = None, **kwargs) -> bool:
+     """Run python module in a subprocess.
+ 
+@@ -1374,6 +1461,7 @@
+     logger.info("Monitors: Config drift (hourly :15)")
+     logger.info("Monitors: OF Gate contract smoke-check (hourly :08)")
+     logger.info("Monitors: Confidence cal live health (hourly :45)")
++    logger.info("Monitors: OFInputs DLQ auto replay (hourly :52) [ENABLE_OF_INPUTS_DLQ_AUTO_REPLAY=1]")
+     logger.info("Weekly: Latency bench (Sun 06:40)")
+     logger.info("Nightly:")
+     logger.info("  01:30 - Meta AB-winner V2 Job")
+@@ -1450,6 +1538,13 @@
+                     run_confidence_cal_live_health()
+                     last_run["conf_cal_live_health"] = now.timestamp()
+ 
++            # Hourly:52 OFInputs DLQ auto replay (P97)
++            if minute >= 52 and minute < 53:
++                last = last_run.get("of_inputs_dlq_replay", 0)
++                if now.timestamp() - last > 3500:
++                    run_of_inputs_dlq_auto_replay()
++                    last_run["of_inputs_dlq_replay"] = now.timestamp()
++
+             # Hourly:00 OFC Bench + Replay
+             if minute >= 0 and minute < 1:
+                 last = last_run.get("ofc_hourly", 0)

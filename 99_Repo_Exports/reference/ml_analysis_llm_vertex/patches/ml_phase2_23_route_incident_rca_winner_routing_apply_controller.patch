@@ -1,0 +1,587 @@
+diff --git a/orderflow_services/operator_routing_incident_route_rca_winner_routing_apply_controller_v2_23.py b/orderflow_services/operator_routing_incident_route_rca_winner_routing_apply_controller_v2_23.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/operator_routing_incident_route_rca_winner_routing_apply_controller_v2_23.py
+@@ -0,0 +1,436 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from typing import Any, Dict, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    import psycopg
++except Exception:  # pragma: no cover
++    psycopg = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++
++APP_NAME = "operator_routing_incident_route_rca_winner_routing_apply_controller_v2_23"
++INPUT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_WINNER_DECISIONS_STREAM",
++    "stream:ml:operator_routing_incident_route_rca_experiment_winner_decisions",
++)
++RESULTS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_RESULTS_STREAM",
++    "stream:ml:operator_routing_incident_route_rca_routing_apply_results",
++)
++AUDIT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_AUDIT_STREAM",
++    "stream:ml:operator_routing_incident_route_rca_routing_apply_audit",
++)
++STATE_KEY = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_DEFAULT_KEY",
++    "cfg:ml:operator_routing_incident_route_rca_routing:default",
++)
++GLOBAL_POLICY_KEY = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_GLOBAL_KEY",
++    "cfg:ml:operator_routing_incident_route_rca_routing_apply:global",
++)
++LAST_HASH = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_LAST_HASH",
++    "metrics:ml:operator_routing_incident_route_rca_routing_apply:last",
++)
++GROUP = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_GROUP", APP_NAME)
++CONSUMER = os.getenv("HOSTNAME", APP_NAME)
++PORT = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_PORT", "9909"))
++MAXLEN = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_MAXLEN", "20000"))
++
++ADVISORY_ONLY = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_ADVISORY_ONLY", "1"))
++MIN_SAMPLE = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_MIN_SAMPLE", "8"))
++MIN_UPLIFT = float(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_MIN_UPLIFT", "0.05"))
++COOLDOWN_SEC = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_COOLDOWN_SEC", "21600"))
++DEFAULT_EXECUTOR_MODE = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_EXECUTOR_MODE", "DRY_RUN").upper()
++DEFAULT_PROVIDER = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_PROVIDER", "vertex")
++DEFAULT_MODEL = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_MODEL", "gemini-2.5-flash-lite")
++DEFAULT_PROMPT_VERSION = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_PROMPT_VERSION", "routing_incident_route_rca_v1")
++DEFAULT_POLICY_VERSION = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_POLICY_VERSION", "policy_v1")
++
++CONTROL_PROVIDER = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_CONTROL_PROVIDER", "vertex")
++CONTROL_MODEL = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_CONTROL_MODEL", "gemini-2.5-flash-lite")
++CONTROL_PROMPT_VERSION = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_CONTROL_PROMPT_VERSION", "routing_incident_route_rca_v1")
++CONTROL_POLICY_VERSION = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_CONTROL_POLICY_VERSION", "policy_v1")
++CHALLENGER_PROVIDER = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_CHALLENGER_PROVIDER", "vertex")
++CHALLENGER_MODEL = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_CHALLENGER_MODEL", "gemini-2.5-flash")
++CHALLENGER_PROMPT_VERSION = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_CHALLENGER_PROMPT_VERSION", "routing_incident_route_rca_v2")
++CHALLENGER_POLICY_VERSION = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_CHALLENGER_POLICY_VERSION", "policy_v1")
++
++ALLOWED_PROVIDERS = {
++    x.strip() for x in os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_ALLOWED_PROVIDERS", "vertex").split(",") if x.strip()
++}
++ALLOWED_MODELS = {
++    x.strip()
++    for x in os.getenv(
++        "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_ALLOWED_MODELS",
++        "gemini-2.5-flash-lite,gemini-2.5-flash",
++    ).split(",")
++    if x.strip()
++}
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter(
++    "ml_operator_routing_incident_route_rca_winner_routing_apply_runs_total",
++    "Route-incident RCA winner routing apply runs",
++    ("status", "decision"),
++)
++LAT = _hist(
++    "ml_operator_routing_incident_route_rca_winner_routing_apply_latency_seconds",
++    "Route-incident RCA winner routing apply latency seconds",
++)
++UP = _gauge(
++    "ml_operator_routing_incident_route_rca_winner_routing_apply_up",
++    "Route-incident RCA winner routing apply controller up",
++)
++LAST_RUN_TS = _gauge(
++    "ml_operator_routing_incident_route_rca_winner_routing_apply_last_run_ts_seconds",
++    "Route-incident RCA winner routing apply controller last run timestamp",
++)
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        if isinstance(v, (bytes, bytearray)):
++            try:
++                out[kk] = v.decode()
++            except Exception:
++                out[kk] = v.hex()
++        else:
++            out[kk] = v
++    return out
++
++
++def stable_json(obj: Any) -> str:
++    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++def maybe_json(value: Any, default: Any = None) -> Any:
++    if value is None:
++        return default
++    if isinstance(value, (dict, list)):
++        return value
++    try:
++        return json.loads(value)
++    except Exception:
++        return default
++
++
++def route_for_winner(winner: str) -> Dict[str, str]:
++    if winner == "challenger":
++        return {
++            "provider": CHALLENGER_PROVIDER,
++            "model_name": CHALLENGER_MODEL,
++            "prompt_version": CHALLENGER_PROMPT_VERSION,
++            "policy_version": CHALLENGER_POLICY_VERSION,
++        }
++    return {
++        "provider": CONTROL_PROVIDER,
++        "model_name": CONTROL_MODEL,
++        "prompt_version": CONTROL_PROMPT_VERSION,
++        "policy_version": CONTROL_POLICY_VERSION,
++    }
++
++
++def bounded_float(value: Any, default: float = 0.0) -> float:
++    try:
++        return float(value)
++    except Exception:
++        return default
++
++
++def bounded_int(value: Any, default: int = 0) -> int:
++    try:
++        return int(float(value))
++    except Exception:
++        return default
++
++
++def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
++    return {
++        "kill_switch": bounded_int(raw.get("kill_switch"), 0),
++        "commit_enabled": bounded_int(raw.get("commit_enabled"), 1),
++        "executor_mode": str(raw.get("executor_mode") or DEFAULT_EXECUTOR_MODE).upper(),
++        "cooldown_sec": bounded_int(raw.get("cooldown_sec"), COOLDOWN_SEC),
++        "min_sample": bounded_int(raw.get("min_sample"), MIN_SAMPLE),
++        "min_uplift": bounded_float(raw.get("min_uplift"), MIN_UPLIFT),
++    }
++
++
++async def ensure_group(client: Any, stream_key: str, group: str) -> None:
++    try:
++        await client.xgroup_create(stream_key, group, id="$", mkstream=True)
++    except Exception:
++        return
++
++
++async def read_global_policy(r: Any) -> Dict[str, Any]:
++    raw = await r.hgetall(GLOBAL_POLICY_KEY)
++    raw = as_dict(raw)
++    return policy_from_hash(raw)
++
++
++def evaluate_apply(
++    winner_row: Dict[str, Any],
++    current_route: Dict[str, Any],
++    policy: Dict[str, Any],
++    advisory_only: int,
++    now_ms_value: int,
++) -> Dict[str, Any]:
++    decision = str(winner_row.get("decision", "HOLD"))
++    winner = str(winner_row.get("winner", "none"))
++    uplift = bounded_float(winner_row.get("uplift"), 0.0)
++    control = maybe_json(winner_row.get("control_json"), {}) or {}
++    challenger = maybe_json(winner_row.get("challenger_json"), {}) or {}
++    control_sample = bounded_int(control.get("sample_n"), 0)
++    challenger_sample = bounded_int(challenger.get("sample_n"), 0)
++
++    out = {
++        "status": "HOLD",
++        "reason_code": "NO_CHANGE",
++        "winner": winner,
++        "uplift": uplift,
++        "executor_mode": policy["executor_mode"],
++        "route_json": stable_json(current_route),
++        "baseline_route_json": stable_json(current_route),
++    }
++
++    if policy["kill_switch"] == 1:
++        out["reason_code"] = "KILL_SWITCH"
++        return out
++    if decision not in {"PROMOTE_CHALLENGER", "KEEP_CONTROL"}:
++        out["reason_code"] = "WINNER_DECISION_HOLD"
++        return out
++    if min(control_sample, challenger_sample) < policy["min_sample"]:
++        out["reason_code"] = "MIN_SAMPLE_NOT_MET"
++        return out
++    if abs(uplift) < policy["min_uplift"]:
++        out["reason_code"] = "UPLIFT_TOO_SMALL"
++        return out
++
++    desired = route_for_winner("challenger" if decision == "PROMOTE_CHALLENGER" else "control")
++    if desired["provider"] not in ALLOWED_PROVIDERS:
++        out["reason_code"] = "PROVIDER_NOT_ALLOWED"
++        return out
++    if desired["model_name"] not in ALLOWED_MODELS:
++        out["reason_code"] = "MODEL_NOT_ALLOWED"
++        return out
++
++    last_apply_ts = bounded_int(current_route.get("last_applied_ts_ms"), 0)
++    if last_apply_ts > 0 and now_ms_value - last_apply_ts < policy["cooldown_sec"] * 1000:
++        out["reason_code"] = "COOLDOWN_ACTIVE"
++        return out
++
++    out["status"] = "APPLY_CANDIDATE"
++    out["reason_code"] = "READY"
++    out["route_json"] = stable_json({
++        **desired,
++        "last_applied_ts_ms": now_ms_value,
++        "source": "winner_routing_apply_controller_v2_23",
++    })
++    if advisory_only == 1 or policy["commit_enabled"] != 1 or policy["executor_mode"] != "COMMIT":
++        out["executor_mode"] = "DRY_RUN"
++    return out
++
++
++async def persist_if_configured(db_url: str, experiment_id: str, winner_row: Dict[str, Any], eval_row: Dict[str, Any]) -> None:
++    if not db_url or psycopg is None:
++        return
++    with psycopg.connect(db_url) as conn:  # pragma: no cover
++        with conn.cursor() as cur:
++            cur.execute(
++                """
++                INSERT INTO llm_operator_routing_incident_route_rca_routing_apply_results (
++                    experiment_id,
++                    ts_ms,
++                    decision,
++                    winner,
++                    uplift,
++                    status,
++                    reason_code,
++                    executor_mode,
++                    baseline_route_json,
++                    target_route_json
++                ) VALUES (
++                    %(experiment_id)s,
++                    %(ts_ms)s,
++                    %(decision)s,
++                    %(winner)s,
++                    %(uplift)s,
++                    %(status)s,
++                    %(reason_code)s,
++                    %(executor_mode)s,
++                    %(baseline_route_json)s,
++                    %(target_route_json)s
++                )
++                """,
++                {
++                    "experiment_id": experiment_id,
++                    "ts_ms": now_ms(),
++                    "decision": winner_row.get("decision", ""),
++                    "winner": winner_row.get("winner", ""),
++                    "uplift": bounded_float(winner_row.get("uplift"), 0.0),
++                    "status": eval_row["status"],
++                    "reason_code": eval_row["reason_code"],
++                    "executor_mode": eval_row["executor_mode"],
++                    "baseline_route_json": eval_row["baseline_route_json"],
++                    "target_route_json": eval_row["route_json"],
++                },
++            )
++            conn.commit()
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    await ensure_group(r, INPUT_STREAM, GROUP)
++    db_url = os.getenv("DATABASE_URL", "")
++
++    while True:
++        rows = await r.xreadgroup(GROUP, CONSUMER, {INPUT_STREAM: ">"}, count=32, block=5000)
++        if not rows:
++            continue
++        for _stream, messages in rows:
++            for msg_id, payload in messages:
++                started = time.perf_counter()
++                status = "ok"
++                decision_label = "HOLD"
++                try:
++                    row = as_dict(payload)
++                    policy = await read_global_policy(r)
++                    current_route_raw = await r.hgetall(STATE_KEY)
++                    current_route = as_dict(current_route_raw)
++                    if not current_route:
++                        current_route = {
++                            "provider": DEFAULT_PROVIDER,
++                            "model_name": DEFAULT_MODEL,
++                            "prompt_version": DEFAULT_PROMPT_VERSION,
++                            "policy_version": DEFAULT_POLICY_VERSION,
++                            "last_applied_ts_ms": "0",
++                        }
++                    evaluation = evaluate_apply(row, current_route, policy, ADVISORY_ONLY, now_ms())
++                    decision_label = evaluation["status"]
++                    out = {
++                        "schema_version": 1,
++                        "experiment_id": row.get("experiment_id", ""),
++                        "decision": row.get("decision", ""),
++                        "winner": row.get("winner", ""),
++                        "uplift": row.get("uplift", "0"),
++                        "status": evaluation["status"],
++                        "reason_code": evaluation["reason_code"],
++                        "executor_mode": evaluation["executor_mode"],
++                        "baseline_route_json": evaluation["baseline_route_json"],
++                        "target_route_json": evaluation["route_json"],
++                        "ts_ms": str(now_ms()),
++                    }
++                    if evaluation["status"] == "APPLY_CANDIDATE" and evaluation["executor_mode"] == "COMMIT":
++                        await r.hset(STATE_KEY, mapping=maybe_json(evaluation["route_json"], {}))
++                    await persist_if_configured(db_url, row.get("experiment_id", ""), row, evaluation)
++                    await r.xadd(RESULTS_STREAM, out, maxlen=MAXLEN, approximate=True)
++                    await r.xadd(
++                        AUDIT_STREAM,
++                        {
++                            "event_type": "ROUTE_INCIDENT_RCA_WINNER_ROUTING_APPLY_EVALUATED",
++                            "experiment_id": row.get("experiment_id", ""),
++                            "decision": row.get("decision", ""),
++                            "winner": row.get("winner", ""),
++                            "status": evaluation["status"],
++                            "reason_code": evaluation["reason_code"],
++                            "executor_mode": evaluation["executor_mode"],
++                            "ts_ms": str(now_ms()),
++                        },
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.hset(
++                        LAST_HASH,
++                        mapping={
++                            "experiment_id": row.get("experiment_id", ""),
++                            "status": evaluation["status"],
++                            "reason_code": evaluation["reason_code"],
++                            "executor_mode": evaluation["executor_mode"],
++                            "ts_ms": str(now_ms()),
++                        },
++                    )
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                    if LAST_RUN_TS:
++                        LAST_RUN_TS.set(time.time())
++                except Exception as exc:
++                    status = "error"
++                    await r.xadd(
++                        AUDIT_STREAM,
++                        {
++                            "event_type": "ROUTE_INCIDENT_RCA_WINNER_ROUTING_APPLY_FAILED",
++                            "error": str(exc),
++                            "ts_ms": str(now_ms()),
++                        },
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                finally:
++                    if RUNS:
++                        RUNS.labels(status=status, decision=decision_label).inc()
++                    if LAT:
++                        LAT.observe(max(time.perf_counter() - started, 0.0))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    import asyncio
++    asyncio.run(main())
+diff --git a/orderflow_services/sql/ml_phase2_23_v1.sql b/orderflow_services/sql/ml_phase2_23_v1.sql
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/orderflow_services/sql/ml_phase2_23_v1.sql
+@@ -0,0 +1,26 @@
++BEGIN;
++
++CREATE TABLE IF NOT EXISTS llm_operator_routing_incident_route_rca_routing_apply_results (
++    id                   bigserial PRIMARY KEY,
++    experiment_id        text NOT NULL,
++    ts_ms                bigint NOT NULL,
++    decision             text NOT NULL,
++    winner               text NOT NULL,
++    uplift               double precision NOT NULL,
++    status               text NOT NULL,
++    reason_code          text NOT NULL,
++    executor_mode        text NOT NULL,
++    baseline_route_json  jsonb NOT NULL,
++    target_route_json    jsonb NOT NULL
++);
++
++CREATE INDEX IF NOT EXISTS idx_llm_operator_routing_incident_route_rca_routing_apply_results_exp_ts
++    ON llm_operator_routing_incident_route_rca_routing_apply_results(experiment_id, ts_ms DESC);
++
++COMMIT;
+diff --git a/orderflow_services/docker_compose_fragment_ml_phase2_23_v1.yml b/orderflow_services/docker_compose_fragment_ml_phase2_23_v1.yml
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/orderflow_services/docker_compose_fragment_ml_phase2_23_v1.yml
+@@ -0,0 +1,20 @@
++services:
++  scanner-operator-routing-incident-route-rca-winner-routing-apply-controller-v2-23:
++    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
++    command: ["python", "-m", "orderflow_services.operator_routing_incident_route_rca_winner_routing_apply_controller_v2_23"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_PORT:-9909}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_ADVISORY_ONLY: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_ADVISORY_ONLY:-1}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_EXECUTOR_MODE: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_EXECUTOR_MODE:-DRY_RUN}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_MIN_SAMPLE: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_MIN_SAMPLE:-8}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_MIN_UPLIFT: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_MIN_UPLIFT:-0.05}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_COOLDOWN_SEC: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_COOLDOWN_SEC:-21600}
++    ports: ["${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_PORT:-9909}:9909"]
++    depends_on: [redis-worker-1]
+diff --git a/orderflow_services/prometheus_alerts_ml_phase2_23_v1.yml b/orderflow_services/prometheus_alerts_ml_phase2_23_v1.yml
+new file mode 100644
+index 0000000..3333334
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_ml_phase2_23_v1.yml
+@@ -0,0 +1,23 @@
++groups:
++  - name: ml_phase2_23_operator_routing_incident_route_rca_winner_routing_apply_v1
++    rules:
++      - alert: MLOperatorRoutingIncidentRouteRCAWinnerRoutingApplyStale
++        expr: time() - ml_operator_routing_incident_route_rca_winner_routing_apply_last_run_ts_seconds > 1800
++        for: 10m
++        labels: { severity: warning }
++        annotations:
++          summary: "route incident RCA winner routing apply controller is stale"
++
++      - alert: MLOperatorRoutingIncidentRouteRCAWinnerRoutingApplyErrors
++        expr: increase(ml_operator_routing_incident_route_rca_winner_routing_apply_runs_total{status="error"}[30m]) > 0
++        for: 5m
++        labels: { severity: warning }
++        annotations:
++          summary: "route incident RCA winner routing apply controller has errors"
+diff --git a/orderflow_services/runbook_ml_phase2_23_v1.md b/orderflow_services/runbook_ml_phase2_23_v1.md
+new file mode 100644
+index 0000000..4444444
+--- /dev/null
++++ b/orderflow_services/runbook_ml_phase2_23_v1.md
+@@ -0,0 +1,46 @@
++# Phase 2.23 — Winner-Aware Routing Apply Controller for Route Incident RCA
++
++## Цель
++Использовать experiment winner decisions для безопасного обновления default routing policy нового `route incident RCA` контура.
++
++## Потоки
++- input: `stream:ml:operator_routing_incident_route_rca_experiment_winner_decisions`
++- results: `stream:ml:operator_routing_incident_route_rca_routing_apply_results`
++- audit: `stream:ml:operator_routing_incident_route_rca_routing_apply_audit`
++- state: `cfg:ml:operator_routing_incident_route_rca_routing:default`
++
++## Safe start
++```bash
++export ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_ADVISORY_ONLY=1
++export ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_EXECUTOR_MODE=DRY_RUN
++export ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_MIN_SAMPLE=8
++export ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_MIN_UPLIFT=0.05
++export ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_COOLDOWN_SEC=21600
++```
++
++## Smoke checks
++```bash
++redis-cli XREVRANGE stream:ml:operator_routing_incident_route_rca_experiment_winner_decisions + - COUNT 5
++redis-cli XREVRANGE stream:ml:operator_routing_incident_route_rca_routing_apply_results + - COUNT 5
++redis-cli XREVRANGE stream:ml:operator_routing_incident_route_rca_routing_apply_audit + - COUNT 10
++redis-cli HGETALL cfg:ml:operator_routing_incident_route_rca_routing:default
++curl -s localhost:9909/metrics | grep '^ml_operator_routing_incident_route_rca_winner_routing_apply_'
++```
++
++## Notes
++- scope только `scanner_infra`
++- hot path не затронут
++- default mode = `DRY_RUN`
++- commit возможен только после bounded checks
+diff --git a/orderflow_services/tests/test_operator_routing_incident_route_rca_winner_routing_apply_controller_v2_23.py b/orderflow_services/tests/test_operator_routing_incident_route_rca_winner_routing_apply_controller_v2_23.py
+new file mode 100644
+index 0000000..5555555
+--- /dev/null
++++ b/orderflow_services/tests/test_operator_routing_incident_route_rca_winner_routing_apply_controller_v2_23.py
+@@ -0,0 +1,58 @@
++from orderflow_services.operator_routing_incident_route_rca_winner_routing_apply_controller_v2_23 import (
++    evaluate_apply,
++)
++
++
++def test_evaluate_apply_blocks_on_min_sample():
++    winner_row = {
++        "decision": "PROMOTE_CHALLENGER",
++        "winner": "challenger",
++        "uplift": "0.10",
++        "control_json": '{"sample_n": 4}',
++        "challenger_json": '{"sample_n": 4}',
++    }
++    current_route = {"last_applied_ts_ms": "0"}
++    policy = {
++        "kill_switch": 0,
++        "commit_enabled": 1,
++        "executor_mode": "DRY_RUN",
++        "cooldown_sec": 100,
++        "min_sample": 8,
++        "min_uplift": 0.05,
++    }
++    out = evaluate_apply(winner_row, current_route, policy, 1, 100000)
++    assert out["status"] == "HOLD"
++    assert out["reason_code"] == "MIN_SAMPLE_NOT_MET"
++
++
++def test_evaluate_apply_ready_in_dry_run():
++    winner_row = {
++        "decision": "PROMOTE_CHALLENGER",
++        "winner": "challenger",
++        "uplift": "0.10",
++        "control_json": '{"sample_n": 10}',
++        "challenger_json": '{"sample_n": 10}',
++    }
++    current_route = {"last_applied_ts_ms": "0"}
++    policy = {
++        "kill_switch": 0,
++        "commit_enabled": 1,
++        "executor_mode": "COMMIT",
++        "cooldown_sec": 100,
++        "min_sample": 8,
++        "min_uplift": 0.05,
++    }
++    out = evaluate_apply(winner_row, current_route, policy, 1, 100000)
++    assert out["status"] == "APPLY_CANDIDATE"
++    assert out["executor_mode"] == "DRY_RUN"
++    assert "gemini-2.5-flash" in out["route_json"]

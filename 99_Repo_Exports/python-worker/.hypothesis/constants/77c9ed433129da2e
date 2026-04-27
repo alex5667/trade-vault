@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/replay/replay_runner.py
+# hypothesis_version: 6.148.10
+
+['ctx', 'outbox', 'payload', 'process_tick', 'tick', 'type']

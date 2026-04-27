@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/analytics/parquet_sink.py
+# hypothesis_version: 6.148.10
+
+[1000, 1024, '*.parquet', '/data/tiles', 'INFO', 'PARQUET_BASE_DIR', 'ParquetSink', 'base_dir', 'engine', 'fastparquet', 'files', 'kinds', 'pyarrow', 'size_mb', 'ts']

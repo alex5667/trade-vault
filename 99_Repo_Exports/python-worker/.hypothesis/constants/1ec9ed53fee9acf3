@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/meta_ab_v2_report_exporter_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 9634, 'META_AB_V2_OUT_JSON', '__main__', 'action', 'challenger', 'champion', 'config', 'counts', 'dataset rows total', 'decrease_share', 'delta', 'eligible rows', 'exp_r_per_candidate', 'hold', 'increase_share', 'meta_ab_v2_action', 'meta_ab_v2_n_total', 'meta_ab_v2_p_min', 'meta_ab_v2_winner', 'n_eligible', 'n_total', 'one-hot action', 'one-hot winner', 'p_min', 'p_min threshold', 'r', 'ramp', 'report reloaded', 'report ts_ms', 'seconds', 'share_current', 'share_next', 'tie', 'ts_ms', 'utf-8', 'winner']

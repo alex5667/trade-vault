@@ -1,0 +1,216 @@
+diff --git a/orderflow_services/enforce_bucket_state_exporter_v1.py b/orderflow_services/enforce_bucket_state_exporter_v1.py
+index 6b9d91a..7afad3a 100644
+--- a/orderflow_services/enforce_bucket_state_exporter_v1.py
++++ b/orderflow_services/enforce_bucket_state_exporter_v1.py
+@@ -161,6 +161,16 @@ def _norm_cause(x: str) -> str:
+ # Gauges — low cardinality by design
+ of_enforce_state_exporter_up = Gauge("of_enforce_state_exporter_up", "exporter loop running (1/0)")
+ 
++# Exporter self-health
++of_enforce_state_exporter_poll_ts_ms = Gauge(
++    "of_enforce_state_exporter_poll_ts_ms",
++    "timestamp (ms) of last exporter loop tick",
++)
++of_enforce_state_exporter_errors_total = Gauge(
++    "of_enforce_state_exporter_errors_total",
++    "cumulative exporter loop errors (monotonic-ish)",
++)
++
+ of_enforce_bucket_flag = Gauge(
+     "of_enforce_bucket_flag",
+     "enforce bucket allowlist flag (1/0)",
+@@ -499,13 +509,18 @@ def main() -> None:
+     ex = Exporter()
+ 
+     of_enforce_state_exporter_up.set(1.0)
++    err_total = 0
+     while ex.running:
+         try:
+             ex.tick()
+             of_enforce_state_exporter_up.set(1.0)
+         except Exception:
+             # fail-open, exporter keeps running
++            err_total += 1
+             of_enforce_state_exporter_up.set(0.0)
++        # loop liveness (even if internal tick failed)
++        of_enforce_state_exporter_poll_ts_ms.set(float(_now_ms()))
++        of_enforce_state_exporter_errors_total.set(float(err_total))
+         time.sleep(max(1, refresh))
+ 
+ 
+diff --git a/orderflow_services/prometheus_alerts_enforce_bucket_promoter_rollback_v1.yml b/orderflow_services/prometheus_alerts_enforce_bucket_promoter_rollback_v1.yml
+index 4b0da59..0df064b 100644
+--- a/orderflow_services/prometheus_alerts_enforce_bucket_promoter_rollback_v1.yml
++++ b/orderflow_services/prometheus_alerts_enforce_bucket_promoter_rollback_v1.yml
+@@ -11,8 +11,8 @@ groups:
+       description: "Rollback controller reverted enforced buckets due to slippage
+         QA regression. Check events:enforce_bucket_promoter and promoter status report."
+ 
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
++      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
++      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json
+   - alert: EnforceBucketRollbackControllerMissing
+     expr: (of_enforce_promoter_last_apply_ts_ms > 0) and 
+       (of_enforce_promoter_last_apply_age_sec > 7200) and 
+@@ -24,5 +24,5 @@ groups:
+       summary: "Rollback controller may be disabled"
+       description: "There was an apply >2h ago, but no rollback state changes recorded.
+         Ensure ENABLE_ENFORCE_BUCKET_ROLLBACK=1 and exporter is running."
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
++      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
++      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json
+diff --git a/orderflow_services/prometheus_alerts_enforce_bucket_promoter_v1.yml b/orderflow_services/prometheus_alerts_enforce_bucket_promoter_v1.yml
+index d0f8044..4e73c13 100644
+--- a/orderflow_services/prometheus_alerts_enforce_bucket_promoter_v1.yml
++++ b/orderflow_services/prometheus_alerts_enforce_bucket_promoter_v1.yml
+@@ -11,8 +11,8 @@ groups:
+       description: 'Promoter report age is >30h. Check timers/DB connectivity and
+         ml_analysis/tools/nightly_enforce_bucket_promoter_v1.py.'
+ 
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
++      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
++      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json
+   - alert: OF_EnforceBucketPromoterReportStale_Crit
+     expr: of_enforce_promoter_report_age_sec > 48*3600
+     for: 20m
+@@ -23,8 +23,8 @@ groups:
+       description: 'Promoter report age is >48h. Promotion guardrails are not running;
+         enforcement may be stale.'
+ 
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
++      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
++      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json
+   - alert: OF_EnforcedBucketResidualHigh_Warn
+     expr: >
+       (of_enforce_promoter_bucket_resid_p95_bps > 5)
+@@ -39,8 +39,8 @@ groups:
+       description: 'Residual p95 >5 bps in an enforced bucket. Consider narrowing
+         slippage_decomp_enforce_buckets / rollback decomp_enforce_max.'
+ 
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
++      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
++      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json
+   - alert: OF_EnforcedBucketResidualHigh_Crit
+     expr: >
+       (of_enforce_promoter_bucket_resid_p95_bps > 8)
+@@ -54,5 +54,5 @@ groups:
+         $labels.bucket }})'
+       description: 'Residual p95 >8 bps in enforced bucket. Roll back enforcement
+         and re-calibrate impact coeffs.'
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
++      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
++      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json
+diff --git a/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py b/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py
+index 6b9d91a..7afad3a 100644
+--- a/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py
++++ b/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py
+@@ -161,6 +161,16 @@ def _norm_cause(x: str) -> str:
+ # Gauges — low cardinality by design
+ of_enforce_state_exporter_up = Gauge("of_enforce_state_exporter_up", "exporter loop running (1/0)")
+ 
++# Exporter self-health
++of_enforce_state_exporter_poll_ts_ms = Gauge(
++    "of_enforce_state_exporter_poll_ts_ms",
++    "timestamp (ms) of last exporter loop tick",
++)
++of_enforce_state_exporter_errors_total = Gauge(
++    "of_enforce_state_exporter_errors_total",
++    "cumulative exporter loop errors (monotonic-ish)",
++)
++
+ of_enforce_bucket_flag = Gauge(
+     "of_enforce_bucket_flag",
+     "enforce bucket allowlist flag (1/0)",
+@@ -499,13 +509,18 @@ def main() -> None:
+     ex = Exporter()
+ 
+     of_enforce_state_exporter_up.set(1.0)
++    err_total = 0
+     while ex.running:
+         try:
+             ex.tick()
+             of_enforce_state_exporter_up.set(1.0)
+         except Exception:
+             # fail-open, exporter keeps running
++            err_total += 1
+             of_enforce_state_exporter_up.set(0.0)
++        # loop liveness (even if internal tick failed)
++        of_enforce_state_exporter_poll_ts_ms.set(float(_now_ms()))
++        of_enforce_state_exporter_errors_total.set(float(err_total))
+         time.sleep(max(1, refresh))
+ 
+ 
+diff --git a/tick_flow_full/orderflow_services/prometheus_alerts_enforce_bucket_promoter_rollback_v1.yml b/tick_flow_full/orderflow_services/prometheus_alerts_enforce_bucket_promoter_rollback_v1.yml
+index 4b0da59..0df064b 100644
+--- a/tick_flow_full/orderflow_services/prometheus_alerts_enforce_bucket_promoter_rollback_v1.yml
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_enforce_bucket_promoter_rollback_v1.yml
+@@ -11,8 +11,8 @@ groups:
+       description: "Rollback controller reverted enforced buckets due to slippage
+         QA regression. Check events:enforce_bucket_promoter and promoter status report."
+ 
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
++      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
++      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json
+   - alert: EnforceBucketRollbackControllerMissing
+     expr: (of_enforce_promoter_last_apply_ts_ms > 0) and 
+       (of_enforce_promoter_last_apply_age_sec > 7200) and 
+@@ -24,5 +24,5 @@ groups:
+       summary: "Rollback controller may be disabled"
+       description: "There was an apply >2h ago, but no rollback state changes recorded.
+         Ensure ENABLE_ENFORCE_BUCKET_ROLLBACK=1 and exporter is running."
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
++      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
++      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json
+diff --git a/tick_flow_full/orderflow_services/prometheus_alerts_enforce_bucket_promoter_v1.yml b/tick_flow_full/orderflow_services/prometheus_alerts_enforce_bucket_promoter_v1.yml
+index d0f8044..4e73c13 100644
+--- a/tick_flow_full/orderflow_services/prometheus_alerts_enforce_bucket_promoter_v1.yml
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_enforce_bucket_promoter_v1.yml
+@@ -11,8 +11,8 @@ groups:
+       description: 'Promoter report age is >30h. Check timers/DB connectivity and
+         ml_analysis/tools/nightly_enforce_bucket_promoter_v1.py.'
+ 
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
++      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
++      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json
+   - alert: OF_EnforceBucketPromoterReportStale_Crit
+     expr: of_enforce_promoter_report_age_sec > 48*3600
+     for: 20m
+@@ -23,8 +23,8 @@ groups:
+       description: 'Promoter report age is >48h. Promotion guardrails are not running;
+         enforcement may be stale.'
+ 
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
++      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
++      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json
+   - alert: OF_EnforcedBucketResidualHigh_Warn
+     expr: >
+       (of_enforce_promoter_bucket_resid_p95_bps > 5)
+@@ -39,8 +39,8 @@ groups:
+       description: 'Residual p95 >5 bps in an enforced bucket. Consider narrowing
+         slippage_decomp_enforce_buckets / rollback decomp_enforce_max.'
+ 
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
++      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
++      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json
+   - alert: OF_EnforcedBucketResidualHigh_Crit
+     expr: >
+       (of_enforce_promoter_bucket_resid_p95_bps > 8)
+@@ -54,5 +54,5 @@ groups:
+         $labels.bucket }})'
+       description: 'Residual p95 >8 bps in enforced bucket. Roll back enforcement
+         and re-calibrate impact coeffs.'
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
++      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
++      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json

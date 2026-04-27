@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/decision_record.py
+# hypothesis_version: 6.148.10
+
+[0.0, '0', '1', 'DecisionRecord', 'None', 'dq_state', 'drift_state', 'false', 'features', 'final_permit', 'ml_abstain', 'ml_allow', 'ml_calibrated_prob', 'ml_deny', 'ml_prob', 'rule_ok', 'rule_reasons', 'rule_score', 'rule_soft', 'true', 'ts']

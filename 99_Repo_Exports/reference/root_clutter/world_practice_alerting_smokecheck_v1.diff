@@ -1,0 +1,826 @@
+diff -ruN a/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml b/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml
+--- a/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml	2026-02-24 19:10:19.056348417 +0000
+@@ -0,0 +1,94 @@
++groups:
++  # ─────────────────────────────────────────────────────────────────────────────
++  # World-practice trackers v1 – low-cardinality gauges (sym × bucket)
++  # ─────────────────────────────────────────────────────────────────────────────
++
++- name: of_world_practice_trackers_v1
++  interval: 60s
++  rules:
++
++  # ── Warn: vol_ratio_z high but exec_regime_bucket still NORMAL (bucket wiring/regime label bug) ──
++  - alert: OF_WP_VolRatioZHighInNormalBucket_Warn
++    expr: trade_vol_ratio_z{bucket="NORMAL"} > 3
++    for: 10m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }}: vol_ratio_z high but bucket=NORMAL ({{ $value | printf \"%.2f\" }})"
++      description: |
++        Symbol {{ $labels.sym }}: trade_vol_ratio_z is high while exec_regime_bucket remains NORMAL.
++        Typical causes: vol_regime_label stuck at "na" or bucket classifier mismatch.
++      runbook_path: /runbooks/world_practice_trackers_v1.md
++      dashboard_path: /d/tbd
++
++  # ── Warn: very low fill-prob in HIGH_VOL_LOW_LIQ when system is active ─────────
++  - alert: OF_WP_FillProbLowHVLL_Warn
++    expr: |
++      (
++        trade_fill_prob{bucket="HIGH_VOL_LOW_LIQ"} < 0.15
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 15m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }}: fill_prob low in HIGH_VOL_LOW_LIQ ({{ $value | printf \"%.2f\" }})"
++      description: |
++        Symbol {{ $labels.sym }}: trade_fill_prob is low in HIGH_VOL_LOW_LIQ while allow decisions are being produced.
++        This may indicate degraded passive executability (thin book / churn) or wiring issues if stuck at 0.0.
++      runbook_path: /runbooks/world_practice_trackers_v1.md
++      dashboard_path: /d/tbd
++
++  # ── Warn: eta_fill too high in HIGH_VOL_LOW_LIQ when system is active ──────────
++  - alert: OF_WP_EtaFillHighHVLL_Warn
++    expr: |
++      (
++        trade_eta_fill_sec{bucket="HIGH_VOL_LOW_LIQ"} > 8
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 15m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }}: eta_fill high in HIGH_VOL_LOW_LIQ ({{ $value | printf \"%.1f\" }}s)"
++      description: |
++        Symbol {{ $labels.sym }}: trade_eta_fill_sec is high in HIGH_VOL_LOW_LIQ while allow decisions are being produced.
++        Check depth_near, taker_rate_ema and churn.
++      runbook_path: /runbooks/world_practice_trackers_v1.md
++      dashboard_path: /d/tbd
++
++  # ── Crit: vol trackers likely broken (ratio stuck at 0) while system is active ─
++  - alert: OF_WP_VolTrackersStuckZero_Crit
++    expr: |
++      (
++        max_over_time(trade_vol_ratio[20m]) == 0
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.05
++      )
++    for: 20m
++    labels:
++      severity: critical
++    annotations:
++      summary: "{{ $labels.sym }}: vol trackers stuck at 0 while active"
++      description: |
++        Symbol {{ $labels.sym }}: trade_vol_ratio has been 0 for 20m while allow decisions exist.
++        This typically indicates broken snapshot wiring (bar_processor -> runtime -> indicators -> gauges).
++      runbook_path: /runbooks/world_practice_trackers_v1.md
++      dashboard_path: /d/tbd
+diff -ruN a/orderflow_services/tests/test_world_practice_smoke_check_compile_v1.py b/orderflow_services/tests/test_world_practice_smoke_check_compile_v1.py
+--- a/orderflow_services/tests/test_world_practice_smoke_check_compile_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/tests/test_world_practice_smoke_check_compile_v1.py	2026-02-24 19:11:51.371372497 +0000
+@@ -0,0 +1,9 @@
++from __future__ import annotations
++
++import py_compile
++from pathlib import Path
++
++
++def test_world_practice_smoke_check_compiles() -> None:
++    p = Path(__file__).resolve().parents[1] / "world_practice_gauges_smoke_check_v1.py"
++    py_compile.compile(str(p), doraise=True)
+diff -ruN a/orderflow_services/world_practice_gauges_smoke_check_v1.py b/orderflow_services/world_practice_gauges_smoke_check_v1.py
+--- a/orderflow_services/world_practice_gauges_smoke_check_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/world_practice_gauges_smoke_check_v1.py	2026-02-24 19:09:47.035271952 +0000
+@@ -0,0 +1,294 @@
++# -*- coding: utf-8 -*-
++"""World-practice trackers smoke-check (v1)
++
++Goal
++----
++Ensure that the new low-cardinality gauges / regime trackers are not silently
++broken ("stuck" in 0/na) by validating the *producer stream* tail.
++
++Source of truth: Redis Stream `metrics:of_gate`.
++We validate that fields exist and are sane for a recent tail window.
++
++Exit codes:
++  0 OK
++  2 ALERT (missing/invalid/stuck beyond thresholds)
++  1 ERROR
++
++Designed for periodic execution (hourly) by `services/of_timers_worker.py`.
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import logging
++import math
++import os
++import sys
++import time
++from collections import Counter
++from typing import Any, Dict, List, Tuple
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++logger = logging.getLogger("world_practice_smoke")
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _safe_int(v: Any, default: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return default
++
++
++def _safe_float(v: Any, default: float = 0.0) -> float:
++    try:
++        x = float(v)
++        if not math.isfinite(x):
++            return default
++        return x
++    except Exception:
++        return default
++
++
++def _is_missing_label(v: Any) -> bool:
++    s = str(v or "").strip().lower()
++    return (not s) or s == "na"
++
++
++def _bucket_ok(v: Any) -> bool:
++    s = str(v or "").strip().upper()
++    return s in ("NORMAL", "LOW_LIQ", "HIGH_VOL", "HIGH_VOL_LOW_LIQ")
++
++
++def _top(counter: Counter, k: int = 10) -> List[Tuple[str, int]]:
++    return [(str(a), int(b)) for a, b in counter.most_common(k)]
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser(description="World-practice trackers smoke-check (v1)")
++    ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
++    ap.add_argument("--stream", default=os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate"))
++    ap.add_argument("--limit", type=int, default=int(os.getenv("WP_SMOKE_LIMIT", "3000")))
++
++    ap.add_argument("--max-age-ms", type=int, default=int(os.getenv("WP_SMOKE_MAX_AGE_MS", "900000")))  # 15m
++    ap.add_argument("--min-recent", type=int, default=int(os.getenv("WP_SMOKE_MIN_RECENT", "200")))
++
++    # thresholds
++    ap.add_argument("--bucket-invalid-max", type=float, default=float(os.getenv("WP_SMOKE_BUCKET_INVALID_MAX", "0.05")))
++    ap.add_argument("--vol-label-na-max", type=float, default=float(os.getenv("WP_SMOKE_VOL_LABEL_NA_MAX", "0.50")))
++    ap.add_argument("--missing-max", type=float, default=float(os.getenv("WP_SMOKE_MISSING_MAX", "0.50")))
++
++    ap.add_argument("--out-stream", default=os.getenv("WP_SMOKE_OUT_STREAM", "sre:world_practice_smoke"))
++
++    args = ap.parse_args()
++
++    if redis is None:
++        logger.error("redis dependency is missing")
++        return 1
++
++    r = redis.from_url(args.redis_url, decode_responses=True)
++
++    try:
++        rows = r.xrevrange(args.stream, max="+", min="-", count=max(0, int(args.limit)))
++    except Exception as e:
++        logger.error(f"xrevrange failed: {e}")
++        return 1
++
++    now_ms = _now_ms()
++
++    # Filter by recent window (ts_ms is required by contract)
++    recent: List[Dict[str, Any]] = []
++    max_ts = 0
++    for _id, fields in rows:
++        if not isinstance(fields, dict):
++            continue
++        ts = _safe_int(fields.get("ts_ms"), 0)
++        if ts > max_ts:
++            max_ts = ts
++        if ts <= 0:
++            continue
++        if now_ms - ts <= int(args.max_age_ms):
++            recent.append(fields)
++
++    n_total = len(rows)
++    n_recent = len(recent)
++    no_data = 1 if n_recent == 0 else 0
++
++    # counters
++    bucket_invalid = 0
++    vol_label_na = 0
++
++    missing: Counter = Counter()
++    bucket_dist: Counter = Counter()
++    vol_dist: Counter = Counter()
++    liq_dist: Counter = Counter()
++
++    # numeric trackers for "stuck" heuristics
++    max_abs_vol_ratio_z = 0.0
++    max_vol_fast = 0.0
++    max_vol_slow = 0.0
++    max_eta_fill = 0.0
++    max_fill_prob = 0.0
++
++    # What we expect to be present when pipeline is wired end-to-end
++    key_fields = [
++        "exec_regime_bucket",
++        "vol_regime_label",
++        "liq_regime_label",
++        "vol_fast_bps",
++        "vol_slow_bps",
++        "vol_ratio",
++        "vol_ratio_z",
++        "res_recovered",
++        "res_recovery_ms",
++        "fill_prob_proxy",
++        "eta_fill_sec",
++        "exec_fill_pen",
++    ]
++
++    for f in recent:
++        b = str(f.get("exec_regime_bucket") or "").upper()
++        bucket_dist[b or "na"] += 1
++        if not _bucket_ok(b):
++            bucket_invalid += 1
++
++        vrl = str(f.get("vol_regime_label") or "").strip().lower()
++        vol_dist[vrl or "na"] += 1
++        if _is_missing_label(vrl):
++            vol_label_na += 1
++
++        lrl = str(f.get("liq_regime_label") or "").strip().lower()
++        liq_dist[lrl or "na"] += 1
++
++        # missing accounting
++        for k in key_fields:
++            if k not in f:
++                missing[k] += 1
++                continue
++            vv = f.get(k)
++            if k in ("vol_regime_label", "liq_regime_label"):
++                if _is_missing_label(vv):
++                    missing[k] += 1
++            elif k == "exec_regime_bucket":
++                if not _bucket_ok(vv):
++                    missing[k] += 1
++            else:
++                # numeric
++                s = str(vv or "").strip()
++                if s == "":
++                    missing[k] += 1
++                else:
++                    x = _safe_float(vv, default=float("nan"))
++                    if not math.isfinite(x):
++                        missing[k] += 1
++
++        # stuck heuristics
++        vz = abs(_safe_float(f.get("vol_ratio_z"), 0.0))
++        if vz > max_abs_vol_ratio_z:
++            max_abs_vol_ratio_z = vz
++        vf = _safe_float(f.get("vol_fast_bps"), 0.0)
++        if vf > max_vol_fast:
++            max_vol_fast = vf
++        vs = _safe_float(f.get("vol_slow_bps"), 0.0)
++        if vs > max_vol_slow:
++            max_vol_slow = vs
++
++        eta = _safe_float(f.get("eta_fill_sec"), 0.0)
++        if eta > max_eta_fill:
++            max_eta_fill = eta
++        fp = _safe_float(f.get("fill_prob_proxy"), 0.0)
++        if fp > max_fill_prob:
++            max_fill_prob = fp
++
++    def _share(x: int, n: int) -> float:
++        return (float(x) / float(n)) if n > 0 else 0.0
++
++    bucket_invalid_share = _share(bucket_invalid, n_recent)
++    vol_label_na_share = _share(vol_label_na, n_recent)
++
++    missing_share = {k: _share(int(missing.get(k, 0)), n_recent) for k in key_fields}
++
++    # "stuck" heuristics: require enough recent points to avoid startup false positives
++    stuck_vol = 0
++    stuck_fill = 0
++    if n_recent >= int(args.min_recent):
++        if max_vol_fast <= 0.0 and max_vol_slow <= 0.0 and max_abs_vol_ratio_z <= 0.01:
++            stuck_vol = 1
++        # fill: eta indicates L3-lite is producing, but fill_prob never moves from 0
++        if max_eta_fill > 0.0 and max_fill_prob <= 0.001:
++            stuck_fill = 1
++
++    alert = 0
++    issues: List[str] = []
++
++    if no_data:
++        # no recent rows -> do not alert; report as no_data
++        alert = 0
++    else:
++        if bucket_invalid_share > float(args.bucket_invalid_max):
++            issues.append(f"bucket_invalid_share>{args.bucket_invalid_max}")
++        if vol_label_na_share > float(args.vol_label_na_max):
++            issues.append(f"vol_label_na_share>{args.vol_label_na_max}")
++
++        # any key field missing too often
++        for k, sh in missing_share.items():
++            if sh > float(args.missing_max):
++                issues.append(f"missing_{k}")
++
++        if stuck_vol == 1:
++            issues.append("stuck_vol_all_zero")
++        if stuck_fill == 1:
++            issues.append("stuck_fill_prob_zero")
++
++        if issues:
++            alert = 1
++
++    out = {
++        "ts_ms": str(now_ms),
++        "stream": str(args.stream),
++        "limit": str(int(args.limit)),
++        "n_total": str(int(n_total)),
++        "n_recent": str(int(n_recent)),
++        "max_ts_ms": str(int(max_ts)),
++        "age_ms": str(int(now_ms - max_ts)) if max_ts > 0 else "-1",
++        "no_data": str(int(no_data)),
++        "alert": str(int(alert)),
++        "issues": ",".join(issues)[:400],
++        "bucket_invalid_share": f"{bucket_invalid_share:.6f}",
++        "vol_label_na_share": f"{vol_label_na_share:.6f}",
++        "missing_share_json": json.dumps({k: float(f"{v:.6f}") for k, v in missing_share.items()}, ensure_ascii=False),
++        "bucket_dist_json": json.dumps(_top(bucket_dist, 8), ensure_ascii=False),
++        "vol_dist_json": json.dumps(_top(vol_dist, 8), ensure_ascii=False),
++        "liq_dist_json": json.dumps(_top(liq_dist, 8), ensure_ascii=False),
++        "stuck_vol": str(int(stuck_vol)),
++        "stuck_fill": str(int(stuck_fill)),
++        "max_abs_vol_ratio_z": f"{max_abs_vol_ratio_z:.4f}",
++        "max_vol_fast_bps": f"{max_vol_fast:.4f}",
++        "max_vol_slow_bps": f"{max_vol_slow:.4f}",
++        "max_eta_fill_sec": f"{max_eta_fill:.4f}",
++        "max_fill_prob": f"{max_fill_prob:.4f}",
++    }
++
++    # write to out stream (best-effort)
++    try:
++        r.xadd(args.out_stream, out, maxlen=2000, approximate=True)
++    except Exception:
++        pass
++
++    print(json.dumps(out, ensure_ascii=False))
++
++    if alert == 1:
++        return 2
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff -ruN a/services/of_timers_worker.py b/services/of_timers_worker.py
+--- a/services/of_timers_worker.py	2026-02-24 11:41:34.000000000 +0000
++++ b/services/of_timers_worker.py	2026-02-24 19:11:20.879977902 +0000
+@@ -264,6 +264,103 @@
+     return False
+ 
+ 
++
++
++def _parse_world_practice_smoke_output(stdout: str, stderr: str) -> dict:
++    """Extract JSON payload from smoke-check output (best-effort)."""
++    out = (stdout or "").strip()
++    err = (stderr or "").strip()
++    blob = "
++".join([out, err]).strip()
++
++    for line in reversed(blob.splitlines()):
++        line = line.strip()
++        if not line:
++            continue
++        if line.startswith("{") and line.endswith("}"):
++            try:
++                d = json.loads(line)
++                if isinstance(d, dict):
++                    return d
++            except Exception:
++                pass
++    return {"raw": blob[:2000]}
++
++
++def run_world_practice_smoke_check() -> bool:
++    """Run world-practice trackers smoke-check (bucket/vol/res/fill not stuck).
++
++    Exit codes:
++      - 0 -> OK (or no_data)
++      - 2 -> ALERT (missing/invalid/stuck above thresholds)
++      - other -> ERROR
++
++    Dedup/cooldown by signature (issues + key shares).
++    """
++    enabled = os.getenv("ENABLE_WORLD_PRACTICE_SMOKE")
++    if enabled is None:
++        enabled = "1" if os.getenv("OF_GATE_METRICS_ENABLE", "1") == "1" else "0"
++    if str(enabled).lower() not in ("1", "true", "yes", "on"):
++        return True
++
++    module = os.getenv(
++        "WORLD_PRACTICE_SMOKE_MODULE",
++        "orderflow_services.world_practice_gauges_smoke_check_v1",
++    )
++    timeout_s = int(os.getenv("WORLD_PRACTICE_SMOKE_TIMEOUT_S", "120"))
++
++    rc, stdout, stderr = run_tool_rc(module=module, args=[], timeout=timeout_s)
++
++    if rc == 0:
++        logger.info("World-practice smoke-check: OK")
++        return True
++
++    parsed = _parse_world_practice_smoke_output(stdout, stderr)
++    issues = str(parsed.get("issues") or "")[:300]
++    n_recent = parsed.get("n_recent")
++    bucket_invalid_share = parsed.get("bucket_invalid_share")
++    vol_label_na_share = parsed.get("vol_label_na_share")
++    stuck_vol = parsed.get("stuck_vol")
++    stuck_fill = parsed.get("stuck_fill")
++    no_data = parsed.get("no_data")
++
++    # Bucket shares to avoid alert spam
++    def _bucketize(x, step=0.01):
++        try:
++            v = float(x)
++            if step <= 0:
++                return v
++            return round(v / step) * step
++        except Exception:
++            return None
++
++    signature = (
++        f"rc={rc}|no_data={no_data}|n={n_recent}|"
++        f"badv={_bucketize(bucket_invalid_share)}|vna={_bucketize(vol_label_na_share)}|"
++        f"sv={stuck_vol}|sf={stuck_fill}|issues={issues}"
++    )
++
++    cooldown_s = int(os.getenv("WORLD_PRACTICE_SMOKE_COOLDOWN_S", str(6 * 3600)))
++    prefix = os.getenv("WORLD_PRACTICE_SMOKE_DEDUP_PREFIX", "dedup:alert:world_practice_smoke:")
++
++    if not _dedup_allow(signature, cooldown_s=cooldown_s, prefix=prefix):
++        logger.warning(f"World-practice smoke-check: suppressed duplicate alert (cooldown {cooldown_s}s). sig={signature}")
++        return False
++
++    head = (parsed.get("raw") or "").strip().replace("
++", " | ")
++    head = head[:700] if head else ""
++
++    text = (
++        f"WORLD_PRACTICE_SMOKE rc={rc} no_data={no_data} n_recent={n_recent} "
++        f"bucket_invalid_share={bucket_invalid_share} vol_label_na_share={vol_label_na_share} "
++        f"stuck_vol={stuck_vol} stuck_fill={stuck_fill} issues={issues} :: {head}"
++    )
++
++    sid = "world_practice_smoke:" + hashlib.sha1(signature.encode("utf-8")).hexdigest()[:16]
++    sev = "crit" if rc == 2 else "page"
++    _notify_stream(text, severity=sev, sid=sid)
++    return False
+ def run_tool(module: str = None, args: List[str] = None, timeout: int = 3600, env_override: dict = None, **kwargs) -> bool:
+     """Run python module in a subprocess.
+ 
+@@ -1429,6 +1526,7 @@
+     logger.info("OF Timers Worker starting...")
+     logger.info("Monitors: Config drift (hourly :15)")
+     logger.info("Monitors: OF Gate contract smoke-check (hourly :08)")
++    logger.info("Monitors: World practice smoke-check (hourly :11)")
+     logger.info("Monitors: Confidence cal live health (hourly :45)")
+     logger.info("Weekly: Latency bench (Sun 06:40)")
+     logger.info("Nightly:")
+@@ -1494,6 +1592,13 @@
+                     run_of_gate_contract_smoke_check()
+                     last_run["of_gate_contract_smoke"] = now.timestamp()
+ 
++            # Hourly:11 World-practice trackers smoke-check (bucket/vol/res/fill)
++            if minute >= 11 and minute < 12:
++                last = last_run.get("world_practice_smoke", 0)
++                if now.timestamp() - last > 3500:
++                    run_world_practice_smoke_check()
++                    last_run["world_practice_smoke"] = now.timestamp()
++
+             if minute >= 15 and minute < 16:
+                 last = last_run.get("config_drift", 0)
+                 if now.timestamp() - last > 3500:
+diff -ruN a/services/orderflow/components/tick_processor.py b/services/orderflow/components/tick_processor.py
+--- a/services/orderflow/components/tick_processor.py	2026-02-24 05:36:03.000000000 +0000
++++ b/services/orderflow/components/tick_processor.py	2026-02-24 19:11:40.005624456 +0000
+@@ -2205,6 +2205,18 @@
+                 "missing_legs": json.dumps(missing_legs, separators=(",", ":")),
+                 "scenario_v4": scenario_v4,
+                 "exec_regime_bucket": str(indicators.get("exec_regime_bucket", "NORMAL") or "NORMAL"),
++                "vol_regime_label": str(indicators.get("vol_regime_label", "na") or "na"),
++                "liq_regime_label": str(indicators.get("liq_regime_label", "na") or "na"),
++                "vol_fast_bps": str(float(indicators.get("vol_fast_bps", 0.0) or 0.0)),
++                "vol_slow_bps": str(float(indicators.get("vol_slow_bps", 0.0) or 0.0)),
++                "vol_ratio": str(float(indicators.get("vol_ratio", 0.0) or 0.0)),
++                "vol_ratio_z": str(float(indicators.get("vol_ratio_z", 0.0) or 0.0)),
++                "res_recovered": str(int(indicators.get("res_recovered", 0) or 0)),
++                "res_recovery_ms": str(int(indicators.get("res_recovery_ms", 0) or 0)),
++                "fill_prob_proxy": str(float(indicators.get("fill_prob_proxy", 0.0) or 0.0)),
++                "eta_fill_sec": str(float(indicators.get("eta_fill_sec", 0.0) or 0.0)),
++                "exec_fill_pen": str(float(indicators.get("exec_fill_pen", 0.0) or 0.0)),
++                "max_expected_slippage_bps_eff": str(float(indicators.get("max_expected_slippage_bps_eff", 0.0) or 0.0)),
+                 "reason_code_top1": str(reason_top1),  # sanitized by enrich_schema_fields
+                 "meta_feature_coverage": str(float(meta_cov)),
+                 "meta_enforce_mode": meta_enforce,
+diff -ruN a/tick_flow_full/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml b/tick_flow_full/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml
+--- a/tick_flow_full/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml	2026-02-24 19:10:19.056348417 +0000
+@@ -0,0 +1,94 @@
++groups:
++  # ─────────────────────────────────────────────────────────────────────────────
++  # World-practice trackers v1 – low-cardinality gauges (sym × bucket)
++  # ─────────────────────────────────────────────────────────────────────────────
++
++- name: of_world_practice_trackers_v1
++  interval: 60s
++  rules:
++
++  # ── Warn: vol_ratio_z high but exec_regime_bucket still NORMAL (bucket wiring/regime label bug) ──
++  - alert: OF_WP_VolRatioZHighInNormalBucket_Warn
++    expr: trade_vol_ratio_z{bucket="NORMAL"} > 3
++    for: 10m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }}: vol_ratio_z high but bucket=NORMAL ({{ $value | printf \"%.2f\" }})"
++      description: |
++        Symbol {{ $labels.sym }}: trade_vol_ratio_z is high while exec_regime_bucket remains NORMAL.
++        Typical causes: vol_regime_label stuck at "na" or bucket classifier mismatch.
++      runbook_path: /runbooks/world_practice_trackers_v1.md
++      dashboard_path: /d/tbd
++
++  # ── Warn: very low fill-prob in HIGH_VOL_LOW_LIQ when system is active ─────────
++  - alert: OF_WP_FillProbLowHVLL_Warn
++    expr: |
++      (
++        trade_fill_prob{bucket="HIGH_VOL_LOW_LIQ"} < 0.15
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 15m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }}: fill_prob low in HIGH_VOL_LOW_LIQ ({{ $value | printf \"%.2f\" }})"
++      description: |
++        Symbol {{ $labels.sym }}: trade_fill_prob is low in HIGH_VOL_LOW_LIQ while allow decisions are being produced.
++        This may indicate degraded passive executability (thin book / churn) or wiring issues if stuck at 0.0.
++      runbook_path: /runbooks/world_practice_trackers_v1.md
++      dashboard_path: /d/tbd
++
++  # ── Warn: eta_fill too high in HIGH_VOL_LOW_LIQ when system is active ──────────
++  - alert: OF_WP_EtaFillHighHVLL_Warn
++    expr: |
++      (
++        trade_eta_fill_sec{bucket="HIGH_VOL_LOW_LIQ"} > 8
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 15m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }}: eta_fill high in HIGH_VOL_LOW_LIQ ({{ $value | printf \"%.1f\" }}s)"
++      description: |
++        Symbol {{ $labels.sym }}: trade_eta_fill_sec is high in HIGH_VOL_LOW_LIQ while allow decisions are being produced.
++        Check depth_near, taker_rate_ema and churn.
++      runbook_path: /runbooks/world_practice_trackers_v1.md
++      dashboard_path: /d/tbd
++
++  # ── Crit: vol trackers likely broken (ratio stuck at 0) while system is active ─
++  - alert: OF_WP_VolTrackersStuckZero_Crit
++    expr: |
++      (
++        max_over_time(trade_vol_ratio[20m]) == 0
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.05
++      )
++    for: 20m
++    labels:
++      severity: critical
++    annotations:
++      summary: "{{ $labels.sym }}: vol trackers stuck at 0 while active"
++      description: |
++        Symbol {{ $labels.sym }}: trade_vol_ratio has been 0 for 20m while allow decisions exist.
++        This typically indicates broken snapshot wiring (bar_processor -> runtime -> indicators -> gauges).
++      runbook_path: /runbooks/world_practice_trackers_v1.md
++      dashboard_path: /d/tbd
+diff -ruN a/tick_flow_full/orderflow_services/world_practice_gauges_smoke_check_v1.py b/tick_flow_full/orderflow_services/world_practice_gauges_smoke_check_v1.py
+--- a/tick_flow_full/orderflow_services/world_practice_gauges_smoke_check_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/orderflow_services/world_practice_gauges_smoke_check_v1.py	2026-02-24 19:09:56.543618660 +0000
+@@ -0,0 +1,13 @@
++# -*- coding: utf-8 -*-
++"""Compat wrapper for world-practice smoke-check.
++
++Kept under tick_flow_full/ for deployments that reference this subtree.
++"""
++
++from __future__ import annotations
++
++from orderflow_services.world_practice_gauges_smoke_check_v1 import main
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff -ruN a/tick_flow_full/services/of_timers_worker.py b/tick_flow_full/services/of_timers_worker.py
+--- a/tick_flow_full/services/of_timers_worker.py	2026-02-24 09:13:12.000000000 +0000
++++ b/tick_flow_full/services/of_timers_worker.py	2026-02-24 19:11:20.888854010 +0000
+@@ -264,6 +264,103 @@
+     return False
+ 
+ 
++
++
++def _parse_world_practice_smoke_output(stdout: str, stderr: str) -> dict:
++    """Extract JSON payload from smoke-check output (best-effort)."""
++    out = (stdout or "").strip()
++    err = (stderr or "").strip()
++    blob = "
++".join([out, err]).strip()
++
++    for line in reversed(blob.splitlines()):
++        line = line.strip()
++        if not line:
++            continue
++        if line.startswith("{") and line.endswith("}"):
++            try:
++                d = json.loads(line)
++                if isinstance(d, dict):
++                    return d
++            except Exception:
++                pass
++    return {"raw": blob[:2000]}
++
++
++def run_world_practice_smoke_check() -> bool:
++    """Run world-practice trackers smoke-check (bucket/vol/res/fill not stuck).
++
++    Exit codes:
++      - 0 -> OK (or no_data)
++      - 2 -> ALERT (missing/invalid/stuck above thresholds)
++      - other -> ERROR
++
++    Dedup/cooldown by signature (issues + key shares).
++    """
++    enabled = os.getenv("ENABLE_WORLD_PRACTICE_SMOKE")
++    if enabled is None:
++        enabled = "1" if os.getenv("OF_GATE_METRICS_ENABLE", "1") == "1" else "0"
++    if str(enabled).lower() not in ("1", "true", "yes", "on"):
++        return True
++
++    module = os.getenv(
++        "WORLD_PRACTICE_SMOKE_MODULE",
++        "orderflow_services.world_practice_gauges_smoke_check_v1",
++    )
++    timeout_s = int(os.getenv("WORLD_PRACTICE_SMOKE_TIMEOUT_S", "120"))
++
++    rc, stdout, stderr = run_tool_rc(module=module, args=[], timeout=timeout_s)
++
++    if rc == 0:
++        logger.info("World-practice smoke-check: OK")
++        return True
++
++    parsed = _parse_world_practice_smoke_output(stdout, stderr)
++    issues = str(parsed.get("issues") or "")[:300]
++    n_recent = parsed.get("n_recent")
++    bucket_invalid_share = parsed.get("bucket_invalid_share")
++    vol_label_na_share = parsed.get("vol_label_na_share")
++    stuck_vol = parsed.get("stuck_vol")
++    stuck_fill = parsed.get("stuck_fill")
++    no_data = parsed.get("no_data")
++
++    # Bucket shares to avoid alert spam
++    def _bucketize(x, step=0.01):
++        try:
++            v = float(x)
++            if step <= 0:
++                return v
++            return round(v / step) * step
++        except Exception:
++            return None
++
++    signature = (
++        f"rc={rc}|no_data={no_data}|n={n_recent}|"
++        f"badv={_bucketize(bucket_invalid_share)}|vna={_bucketize(vol_label_na_share)}|"
++        f"sv={stuck_vol}|sf={stuck_fill}|issues={issues}"
++    )
++
++    cooldown_s = int(os.getenv("WORLD_PRACTICE_SMOKE_COOLDOWN_S", str(6 * 3600)))
++    prefix = os.getenv("WORLD_PRACTICE_SMOKE_DEDUP_PREFIX", "dedup:alert:world_practice_smoke:")
++
++    if not _dedup_allow(signature, cooldown_s=cooldown_s, prefix=prefix):
++        logger.warning(f"World-practice smoke-check: suppressed duplicate alert (cooldown {cooldown_s}s). sig={signature}")
++        return False
++
++    head = (parsed.get("raw") or "").strip().replace("
++", " | ")
++    head = head[:700] if head else ""
++
++    text = (
++        f"WORLD_PRACTICE_SMOKE rc={rc} no_data={no_data} n_recent={n_recent} "
++        f"bucket_invalid_share={bucket_invalid_share} vol_label_na_share={vol_label_na_share} "
++        f"stuck_vol={stuck_vol} stuck_fill={stuck_fill} issues={issues} :: {head}"
++    )
++
++    sid = "world_practice_smoke:" + hashlib.sha1(signature.encode("utf-8")).hexdigest()[:16]
++    sev = "crit" if rc == 2 else "page"
++    _notify_stream(text, severity=sev, sid=sid)
++    return False
+ def run_tool(module: str = None, args: List[str] = None, timeout: int = 3600, env_override: dict = None, **kwargs) -> bool:
+     """Run python module in a subprocess.
+ 
+@@ -1373,6 +1470,7 @@
+     logger.info("OF Timers Worker starting...")
+     logger.info("Monitors: Config drift (hourly :15)")
+     logger.info("Monitors: OF Gate contract smoke-check (hourly :08)")
++    logger.info("Monitors: World practice smoke-check (hourly :11)")
+     logger.info("Monitors: Confidence cal live health (hourly :45)")
+     logger.info("Weekly: Latency bench (Sun 06:40)")
+     logger.info("Nightly:")
+@@ -1437,6 +1535,13 @@
+                     run_of_gate_contract_smoke_check()
+                     last_run["of_gate_contract_smoke"] = now.timestamp()
+ 
++            # Hourly:11 World-practice trackers smoke-check (bucket/vol/res/fill)
++            if minute >= 11 and minute < 12:
++                last = last_run.get("world_practice_smoke", 0)
++                if now.timestamp() - last > 3500:
++                    run_world_practice_smoke_check()
++                    last_run["world_practice_smoke"] = now.timestamp()
++
+             if minute >= 15 and minute < 16:
+                 last = last_run.get("config_drift", 0)
+                 if now.timestamp() - last > 3500:
+diff -ruN a/tick_flow_full/services/orderflow/components/tick_processor.py b/tick_flow_full/services/orderflow/components/tick_processor.py
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py	2026-02-24 05:36:14.000000000 +0000
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py	2026-02-24 19:11:40.007760477 +0000
+@@ -2375,6 +2375,18 @@
+                 "missing_legs": json.dumps(missing_legs, separators=(",", ":")),
+                 "scenario_v4": scenario_v4,
+                 "exec_regime_bucket": str(indicators.get("exec_regime_bucket", "NORMAL") or "NORMAL"),
++                "vol_regime_label": str(indicators.get("vol_regime_label", "na") or "na"),
++                "liq_regime_label": str(indicators.get("liq_regime_label", "na") or "na"),
++                "vol_fast_bps": str(float(indicators.get("vol_fast_bps", 0.0) or 0.0)),
++                "vol_slow_bps": str(float(indicators.get("vol_slow_bps", 0.0) or 0.0)),
++                "vol_ratio": str(float(indicators.get("vol_ratio", 0.0) or 0.0)),
++                "vol_ratio_z": str(float(indicators.get("vol_ratio_z", 0.0) or 0.0)),
++                "res_recovered": str(int(indicators.get("res_recovered", 0) or 0)),
++                "res_recovery_ms": str(int(indicators.get("res_recovery_ms", 0) or 0)),
++                "fill_prob_proxy": str(float(indicators.get("fill_prob_proxy", 0.0) or 0.0)),
++                "eta_fill_sec": str(float(indicators.get("eta_fill_sec", 0.0) or 0.0)),
++                "exec_fill_pen": str(float(indicators.get("exec_fill_pen", 0.0) or 0.0)),
++                "max_expected_slippage_bps_eff": str(float(indicators.get("max_expected_slippage_bps_eff", 0.0) or 0.0)),
+                 "reason_code_top1": str(reason_top1),  # sanitized by enrich_schema_fields
+                 "meta_feature_coverage": str(float(meta_cov)),
+                 "meta_enforce_mode": meta_enforce,

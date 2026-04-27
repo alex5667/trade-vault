@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/signal_log_one_json.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 1500.0, 'cancel_to_trade', 'conf_factor01', 'data_quality_flags', 'emit_ok', 'final_score', 'geometry', 'geometry_score', 'hlc_fallback', 'kind', 'l2_is_stale', 'l2_stale', 'l2_ts_ms', 'level_key', 'market_regime_score', 'microprice_shift', 'microprice_shift_bps', 'missing_htf', 'missing_l3', 'obi_avg', 'raw_score', 'regime_range_score', 'regime_score', 'regime_trend_score', 'score01', 'side', 'signal_id', 'signal_sent', 'signal_veto', 'spread_bps', 'symbol', 'taker_rate', 'taker_rate_ema', 'ts', 'ts_ms', 'type', 'used_fallback_hlc', 'veto_reason_code', 'veto_reason_u16']

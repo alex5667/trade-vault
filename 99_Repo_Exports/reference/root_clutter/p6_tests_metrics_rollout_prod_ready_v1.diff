@@ -1,0 +1,916 @@
+diff --git a/.env.example b/.env.example
+index ee88971..0c28e90 100644
+--- a/.env.example
++++ b/.env.example
+@@ -99,6 +99,8 @@ NEWS_SUPERVISOR_COOLDOWN_SEC=60
+ # === LLM Router (P2) ===
+ NEWS_PROVIDER_ORDER=gemini,qwen,kimi
+ NEWS_PROVIDER_TIMEOUT_MS=5000
++# End-to-end max latency for a single doc across all providers + repair.
++NEWS_LLM_MAX_LATENCY_MS=15000
+ NEWS_LLM_MODEL_GEMINI=gemini/gemini-1.5-flash
+ NEWS_LLM_MODEL_QWEN=qwen/qwen-turbo
+ NEWS_LLM_MODEL_KIMI=openai/moonshot-v1-8k
+@@ -110,7 +112,13 @@ KIMI_API_KEY=changeme
+ # === Hard caps ===
+ NEWS_LLM_MAX_CALLS_PER_DAY=2500
+ NEWS_LLM_BUDGET_DAILY_USD=10.0
++# Strict reserve-based USD budgeting: per-call upper bound.
++NEWS_LLM_MAX_COST_PER_CALL_USD=0.02
+ 
+ # === Publish thresholds ===
+ NEWS_MIN_IMPACT_PUBLISH=0.40
+ NEWS_PRIOR_TTL_MS=900000
++
++# Optional: consumer-group lag monitoring in timers.
++# Format: "<stream>=<group1>,<group2>;<stream2>=<group>"
++NEWS_STREAM_GROUPS=stream:news_raw=news_raw_g;stream:news_norm=news_norm_g
+diff --git a/infra/RUNBOOK_news_agent.md b/infra/RUNBOOK_news_agent.md
+index 10c8fdb..0a6d0ea 100644
+--- a/infra/RUNBOOK_news_agent.md
++++ b/infra/RUNBOOK_news_agent.md
+@@ -28,3 +28,74 @@
+ - Verify consumer groups:
+   - `XINFO GROUPS stream:news_raw`
+   - `XINFO GROUPS stream:news_norm`
++
++
++## Rollout plan (safe, staged)
++
++### Stage 0 — Ingest + DB only (no LLM)
++Goal: quantify volume/noise and verify dedup/normalization.
++
++1) Run `news_ingest` + `news_norm` + Postgres.
++2) Keep `news_reasoner` stopped.
++3) Monitor:
++   - `news_norm_processed_total{status="ok"}`
++   - `news_norm_quarantine_total{reason=...}`
++   - `news_stream_lag_ms{stream="stream:news_raw"}`
++
++Rollback: stop `news_norm` (ingest may continue spooling into stream:news_raw).
++
++### Stage 1 — Enable LLM events (still no impact on trade)
++Goal: verify contract events and budgets.
++
++1) Start `news_reasoner`.
++2) Verify:
++   - `XLEN stream:news_events` grows
++   - `news_llm_overbudget_total` stays near 0
++   - `news_budget_usd_used / news_budget_usd_limit` < 0.9
++3) UI feed can subscribe to `stream:news_events` (contract schema v1).
++
++Rollback: stop `news_reasoner` (ingest+norm continue).
++
++### Stage 2 — Publish priors, trade ignores (shadow)
++Goal: validate prior cadence and staleness without affecting execution.
++
++1) Keep priors publishing ON in reasoner (default).
++2) Trade core must treat news priors as shadow (ignore) or soft flags only.
++3) Monitor:
++   - `news_prior_published_total`
++   - Redis keys `news:prior:<SYMBOL>` TTL
++
++Rollback: disable prior consumption in trade core (`NEWS_PRIOR_ENABLE=0`) or
++stop only the consumer that reads priors.
++
++### Stage 3 — Enable NewsPriorGate soft/tighten
++Goal: allow *only risk tightening* (no direction changes).
++
++1) Trade core: enable gate in `soft` profile (flags only).
++2) Canary: switch small % to `tighten`.
++3) Observe execution KPIs: fill-rate, slippage, veto rate, PnL distribution.
++
++Rollback: set profile back to `soft` (or disable gate).
++
++### Stage 4 — Optional narrow hard profile
++Goal: veto only in narrow, well-defined conditions.
++
++Enable only after you have statistics on:
++- false positives for `pump_pattern` and `leaders_conflict`
++- correlation with adverse selection.
++
++Rollback: hard → tighten → soft.
++
++
++## Rollback quick switches
++
++- Stop reasoner without stopping ingest:
++  - `docker compose stop news_reasoner`
++
++- Disable trade-side usage:
++  - `NEWS_PRIOR_ENABLE=0` (trade core)
++
++- Tight budget protection:
++  - lower `NEWS_MAX_DOC_CHARS`
++  - raise `NEWS_MIN_IMPACT_PUBLISH`
++
+diff --git a/infra/prometheus_rules_news_agent.yml b/infra/prometheus_rules_news_agent.yml
+index a247528..b0aabb4 100644
+--- a/infra/prometheus_rules_news_agent.yml
++++ b/infra/prometheus_rules_news_agent.yml
+@@ -19,8 +19,19 @@ groups:
+           summary: "news_agent validation errors spike"
+           description: "LLM JSON/schema validation started failing. Provider/model may have changed. Consider pinning model version or updating prompt/schema."
+ 
++      - alert: NewsJSONRepairLowSuccess
++        expr: |
++          (sum(increase(news_json_repair_success_total[15m])) / clamp_min(sum(increase(news_llm_repair_attempts_total[15m])), 1)) < 0.5
++          and sum(increase(news_llm_repair_attempts_total[15m])) >= 20
++        for: 5m
++        labels:
++          severity: warn
++        annotations:
++          summary: "news_agent JSON repair success ratio < 50%"
++          description: "Repair prompts fail frequently. Likely provider output drift or schema mismatch; pin provider/model or tighten prompts."
++
+       - alert: NewsBudgetOverLimit
+-        expr: news_budget_calls_used > 0 and news_budget_calls_used >= on() vector(2500)
++        expr: news_budget_calls_used > 0 and news_budget_calls_used >= news_budget_calls_limit
+         for: 1m
+         labels:
+           severity: warn
+@@ -28,6 +39,44 @@ groups:
+           summary: "news_agent daily LLM call budget exhausted"
+           description: "Reasoner will DLQ new items as overbudget. Tighten prefilter/dedup or increase budget."
+ 
++      - alert: NewsBudgetUSDWarn90
++        expr: news_budget_usd_limit > 0 and (news_budget_usd_used / news_budget_usd_limit) > 0.9
++        for: 5m
++        labels:
++          severity: warn
++        annotations:
++          summary: "news_agent USD budget > 90%"
++          description: "LLM USD budget is almost exhausted. Expect increasing overbudget DLQ."
++
++      - alert: NewsBudgetUSDExhausted
++        expr: news_budget_usd_limit > 0 and news_budget_usd_used >= news_budget_usd_limit
++        for: 1m
++        labels:
++          severity: crit
++        annotations:
++          summary: "news_agent USD budget exhausted"
++          description: "Reasoner rejects LLM calls (overbudget). Reduce traffic or increase NEWS_LLM_BUDGET_DAILY_USD."
++
++      - alert: NewsDLQSpike
++        expr: sum(rate(news_dlq_total[5m])) > 5
++        for: 5m
++        labels:
++          severity: warn
++        annotations:
++          summary: "news_agent DLQ spike"
++          description: "DLQ rate > 5/s. Inspect reasons (news_dlq_total{reason}) and stream:news_dlq."
++
++      - alert: NewsNormBacklogGrowing
++        expr: |
++          max_over_time(news_stream_pending_n{stream="stream:news_norm",group="news_norm_g"}[10m]) > 1000
++          or max_over_time(news_stream_lag_ms{stream="stream:news_norm",group="news_norm_g"}[10m]) > 60000
++        for: 10m
++        labels:
++          severity: warn
++        annotations:
++          summary: "news_norm consumer backlog growing"
++          description: "Pending or lag is high. Check reasoner throughput, Redis latency, or LLM slowdowns."
++
+       - alert: NewsPriorPublishedDrop
+         expr: rate(news_prior_published_total[15m]) < 0.001
+         for: 30m
+diff --git a/pkg/common/db.py b/pkg/common/db.py
+index 24e4f0a..eb77f3f 100644
+--- a/pkg/common/db.py
++++ b/pkg/common/db.py
+@@ -1,13 +1,22 @@
+ from __future__ import annotations
+-import asyncpg
+-from typing import Optional
++
++# asyncpg is required in production; tests can run without it.
++try:  # pragma: no cover
++    import asyncpg  # type: ignore
++except Exception:  # pragma: no cover
++    asyncpg = None
++
++from typing import Optional, Any
+ 
+ class Db:
+     def __init__(self, dsn: str):
+         self.dsn = dsn
+-        self.pool: Optional[asyncpg.Pool] = None
++        # In production: asyncpg.Pool. In unit tests without asyncpg: Any.
++        self.pool: Optional[Any] = None
+ 
+     async def connect(self) -> None:
++        if asyncpg is None:  # pragma: no cover
++            raise RuntimeError("asyncpg is not installed")
+         self.pool = await asyncpg.create_pool(dsn=self.dsn, min_size=1, max_size=5)
+ 
+     async def close(self) -> None:
+diff --git a/pkg/common/dto.py b/pkg/common/dto.py
+index b7f9623..737b781 100644
+--- a/pkg/common/dto.py
++++ b/pkg/common/dto.py
+@@ -2,6 +2,7 @@ from __future__ import annotations
+ 
+ import hashlib
+ import re
++import uuid
+ from typing import Any, Dict, List, Optional
+ 
+ from pydantic import BaseModel, ConfigDict, Field, model_validator
+@@ -25,6 +26,28 @@ def stable_doc_id(source_id: str, url: Optional[str], content_hash: str) -> str:
+     return hashlib.sha256(base.encode("utf-8")).hexdigest()[:32]
+ 
+ 
++# Fixed namespace UUID for deterministic event IDs.
++# This makes replay tests and idempotency trivial while remaining a valid UUID type
++# for Postgres schemas that declare event_id UUID.
++_NEWS_EVENT_NAMESPACE = uuid.UUID("2b8fd6d1-25ae-4a04-8ed1-2e3b1d1b0b8a")
++
++
++def stable_event_uuid(doc_id: str, prompt_ver: str, model_id: str) -> str:
++    """Deterministic UUID for an extracted event.
++
++    Key design points:
++    - Deterministic by (doc_id, prompt_ver, model_id) → no duplicates on replay.
++    - Does NOT include provider: provider may change on fallback/repair, but
++      semantically it's the same extraction for the same prompt/model.
++
++    Why UUIDv5:
++    - Valid UUID type for Postgres schemas.
++    - Deterministic (unlike uuid4).
++    """
++    name = f"{doc_id}|{prompt_ver}|{model_id}"
++    return str(uuid.uuid5(_NEWS_EVENT_NAMESPACE, name))
++
++
+ class RawDocDTO(_BaseDTO):
+     schema_ver: str = "v1"
+     source_id: str
+@@ -119,6 +142,36 @@ class NewsEventDTO(_BaseDTO):
+         return self
+ 
+ 
++class NewsEventContractDTO(_BaseDTO):
++    """Public contract for stream:news_events (strict, minimal).
++
++    This is the payload that downstream systems (trade, UI) should depend on.
++    We intentionally exclude:
++      - created_ts_ms (ingestion plumbing)
++      - rationale (free-text, non-contract)
++
++    Contract reference: P5.1.
++    """
++
++    # Strict: reject any accidental extra fields.
++    model_config = ConfigDict(protected_namespaces=(), extra="forbid")
++
++    schema_ver: str = "v1"
++    prompt_ver: str
++    provider: str
++    model_id: str
++    doc_id: str
++
++    event_type: str
++    symbols: List[str]
++    impact: float = Field(ge=0.0, le=1.0)
++    bias: LLMBiasDTO
++    confidence: float = Field(ge=0.0, le=1.0)
++    credibility_hint: float = Field(ge=0.0, le=1.0, default=0.5)
++    citations: List[CitationDTO] = Field(default_factory=list)
++    event_ts_ms: int
++
++
+ class NewsPriorDTO(_BaseDTO):
+     schema_ver: str = "v1"
+     event_id: str
+diff --git a/pkg/common/metrics.py b/pkg/common/metrics.py
+index 3d94616..e31b652 100644
+--- a/pkg/common/metrics.py
++++ b/pkg/common/metrics.py
+@@ -40,10 +40,21 @@ news_llm_validation_errors_total = Counter(
+ news_llm_repair_attempts_total = Counter(
+     "news_llm_repair_attempts_total", "LLM repair attempts", ["provider", "model"]
+ )
++news_json_repair_success_total = Counter(
++    "news_json_repair_success_total",
++    "JSON repair successes (initial invalid → repair valid)",
++    ["provider", "model"],
++)
+ news_llm_cost_usd_total = Counter(
+     "news_llm_cost_usd_total", "Estimated LLM cost in USD", ["provider", "model"]
+ )
+ 
++news_llm_overbudget_total = Counter(
++    "news_llm_overbudget_total",
++    "LLM calls rejected due to budgets",
++    ["kind"],  # kind ∈ {"calls","usd"}
++)
++
+ news_prior_published_total = Counter(
+     "news_prior_published_total", "Prior signals published", ["event_type"]
+ )
+@@ -52,10 +63,35 @@ news_stream_lag_ms = Gauge(
+     "news_stream_lag_ms", "Approx stream lag (ms)", ["stream", "group"]
+ )
+ 
++news_stream_pending_n = Gauge(
++    "news_stream_pending_n",
++    "Pending entries in consumer group (XINFO GROUPS pending)",
++    ["stream", "group"],
++)
++
+ news_budget_calls_used = Gauge(
+     "news_budget_calls_used", "LLM calls used today", []
+ )
+ 
++news_budget_calls_limit = Gauge(
++    "news_budget_calls_limit", "LLM calls/day limit", []
++)
++
++news_budget_usd_used = Gauge(
++    "news_budget_usd_used", "LLM USD used today (reserve-adjusted)", []
++)
++
++news_budget_usd_limit = Gauge(
++    "news_budget_usd_limit", "LLM USD/day limit", []
++)
++
++
++news_dlq_total = Counter(
++    "news_dlq_total",
++    "DLQ messages written by reason",
++    ["reason"],
++)
++
+ 
+ # Global near-dup (Redis LSH) — P1
+ # Tracks how many LSH candidate docs were evaluated and how many hits were detected.
+diff --git a/pkg/common/redis_streams.py b/pkg/common/redis_streams.py
+index d862ac6..165f414 100644
+--- a/pkg/common/redis_streams.py
++++ b/pkg/common/redis_streams.py
+@@ -1,6 +1,10 @@
+ from __future__ import annotations
+-from redis.asyncio import Redis
+-from redis.exceptions import ResponseError
++try:  # pragma: no cover
++    from redis.asyncio import Redis  # type: ignore
++    from redis.exceptions import ResponseError  # type: ignore
++except Exception:  # pragma: no cover
++    Redis = object  # type: ignore
++    ResponseError = Exception  # type: ignore
+ from typing import Dict, Any, List, Tuple, Optional
+ 
+ class AsyncRedisStreamHelper:
+diff --git a/pkg/common/settings.py b/pkg/common/settings.py
+index 6affcac..3998beb 100644
+--- a/pkg/common/settings.py
++++ b/pkg/common/settings.py
+@@ -93,12 +93,18 @@ class Settings(BaseSettings):
+     # Reasoner (LLM) config — used in P2 but harmless in P1.
+     provider_order: str = Field(default="gemini,qwen,kimi", alias="NEWS_PROVIDER_ORDER")
+     provider_timeout_ms: int = Field(default=5000, alias="NEWS_PROVIDER_TIMEOUT_MS")
++    # End-to-end wall-clock limit for a single extraction across all providers + repair.
++    # If exceeded, reasoner fails the doc (DLQ) without blocking the pipeline.
++    llm_max_latency_ms: int = Field(default=15_000, alias="NEWS_LLM_MAX_LATENCY_MS")
+     llm_model_gemini: str = Field(default="gemini/gemini-1.5-flash", alias="NEWS_LLM_MODEL_GEMINI")
+     llm_model_qwen: str = Field(default="qwen/qwen-turbo", alias="NEWS_LLM_MODEL_QWEN")
+     llm_model_kimi: str = Field(default="openai/moonshot-v1-8k", alias="NEWS_LLM_MODEL_KIMI")
+ 
+     llm_max_calls_per_day: int = Field(default=2500, alias="NEWS_LLM_MAX_CALLS_PER_DAY")
+     llm_budget_daily_usd: float = Field(default=10.0, alias="NEWS_LLM_BUDGET_DAILY_USD")
++    # Strict USD-budget enforcement is reserve-based. This is the per-call upper bound.
++    # If too high, you may reject too early; if too low, you may exceed budget.
++    llm_max_cost_per_call_usd: float = Field(default=0.02, alias="NEWS_LLM_MAX_COST_PER_CALL_USD")
+ 
+     min_impact_publish: float = Field(default=0.40, alias="NEWS_MIN_IMPACT_PUBLISH")
+     prior_ttl_ms: int = Field(default=900000, alias="NEWS_PRIOR_TTL_MS")
+diff --git a/services/news_agent_timers/timer.py b/services/news_agent_timers/timer.py
+index 3d94617..e1352c2 100644
+--- a/services/news_agent_timers/timer.py
++++ b/services/news_agent_timers/timer.py
+@@ -78,6 +78,32 @@ STREAMS: List[str] = [
+     _env("NEWS_STREAM_SIGNALS", "stream:signals_news"),
+     _env("NEWS_STREAM_DLQ",     "stream:news_dlq"),
+ ]
++
++# Optional consumer-group lag monitoring.
++# Format: "<stream>=<group1>,<group2>;<stream2>=<group>".
++# Example:
++#   NEWS_STREAM_GROUPS="stream:news_raw=news_raw_g;stream:news_norm=news_norm_g"
++STREAM_GROUPS_RAW = _env(
++    "NEWS_STREAM_GROUPS",
++    "stream:news_raw=news_raw_g;stream:news_norm=news_norm_g",
++)
++
++
++def _parse_stream_groups(spec: str) -> dict[str, list[str]]:
++    out: dict[str, list[str]] = {}
++    for part in (spec or "").split(";"):
++        part = part.strip()
++        if not part or "=" not in part:
++            continue
++        stream, groups = part.split("=", 1)
++        stream = stream.strip()
++        gl = [g.strip() for g in groups.split(",") if g.strip()]
++        if stream and gl:
++            out[stream] = gl
++    return out
++
++
++STREAM_GROUPS = _parse_stream_groups(STREAM_GROUPS_RAW)
+ # Services to heartbeat-monitor (must be running in the same compose stack)
+ SERVICES: List[str] = ["news_ingest", "news_norm", "news_reasoner", "news_feedback_batch"]
+ 
+@@ -97,6 +123,12 @@ stream_lag_ms = Gauge(
+     "Approximate stream lag (ms): last-entry-ms minus now",
+     ["stream", "group"],
+ )
++
++stream_pending_n = Gauge(
++    "news_stream_pending_n",
++    "Pending entries per stream consumer group (XINFO GROUPS pending)",
++    ["stream", "group"],
++)
+ stream_lag_errors_total = Counter(
+     "news_timer_stream_lag_errors_total",
+     "Errors reading stream lag",
+@@ -146,6 +178,25 @@ async def _stream_lag_loop(r: aioredis.Redis) -> None:
+                 lag = max(0.0, float(now_ms - ms_part))
+                 # label group="" — we report per-stream lag without group here
+                 stream_lag_ms.labels(stream=stream, group="").set(lag)
++
++                # Per-consumer-group lag/pending (for backlog detection).
++                groups = STREAM_GROUPS.get(stream) or []
++                if groups:
++                    ginfo = await r.xinfo_groups(stream)
++                    for gi in ginfo:
++                        name = gi.get("name") or gi.get(b"name")
++                        if isinstance(name, bytes):
++                            name = name.decode()
++                        if name not in groups:
++                            continue
++                        last_delivered = gi.get("last-delivered-id") or gi.get(b"last-delivered-id") or "0-0"
++                        if isinstance(last_delivered, bytes):
++                            last_delivered = last_delivered.decode()
++                        ms2 = int(str(last_delivered).split("-")[0])
++                        lag2 = max(0.0, float(now_ms - ms2))
++                        pend = gi.get("pending") or gi.get(b"pending") or 0
++                        stream_lag_ms.labels(stream=stream, group=str(name)).set(lag2)
++                        stream_pending_n.labels(stream=stream, group=str(name)).set(float(pend))
+             except Exception as exc:
+                 stream_lag_errors_total.labels(stream=stream).inc()
+                 log.debug("stream lag error %s: %s", stream, exc)
+@@ -166,34 +217,38 @@ async def _budget_cleanup_loop(r: aioredis.Redis) -> None:
+             today_epoch = time.time()
+             cursor = 0
+             deleted = 0
+-            while True:
+-                cursor, keys = await r.scan(
+-                    cursor=cursor,
+-                    match="news:budget:calls:*",
+-                    count=100,
+-                )
+-                for key in keys:
+-                    if isinstance(key, bytes):
+-                        key = key.decode()
+-                    # Extract date part: news:budget:calls:YYYYMMDD
+-                    parts = key.split(":")
+-                    if len(parts) < 4:
+-                        continue
+-                    date_str = parts[-1]
+-                    if len(date_str) != 8 or not date_str.isdigit():
+-                        continue
+-                    try:
+-                        import datetime
+-                        key_date = datetime.datetime.strptime(date_str, "%Y%m%d")
+-                        key_epoch = key_date.timestamp()
+-                        if today_epoch - key_epoch > cutoff_days * 86400:
+-                            await r.delete(key)
+-                            deleted += 1
+-                            budget_keys_deleted.inc()
+-                    except Exception:
+-                        pass
+-                if cursor == 0:
+-                    break
++            patterns = ["news:budget:calls:*", "news:budget:usd:*"]
++            for pat in patterns:
++                cursor = 0
++                while True:
++                    cursor, keys = await r.scan(
++                        cursor=cursor,
++                        match=pat,
++                        count=100,
++                    )
++                    for key in keys:
++                        if isinstance(key, bytes):
++                            key = key.decode()
++                        # Extract date part: news:budget:*:YYYYMMDD
++                        parts = key.split(":")
++                        if len(parts) < 4:
++                            continue
++                        date_str = parts[-1]
++                        if len(date_str) != 8 or not date_str.isdigit():
++                            continue
++                        try:
++                            import datetime
++
++                            key_date = datetime.datetime.strptime(date_str, "%Y%m%d")
++                            key_epoch = key_date.timestamp()
++                            if today_epoch - key_epoch > cutoff_days * 86400:
++                                await r.delete(key)
++                                deleted += 1
++                                budget_keys_deleted.inc()
++                        except Exception:
++                            pass
++                    if cursor == 0:
++                        break
+             if deleted:
+                 log.info("budget cleanup: deleted %d old keys", deleted)
+         except Exception as exc:
+diff --git a/services/news_norm/worker.py b/services/news_norm/worker.py
+index 62cdceb..46042af 100644
+--- a/services/news_norm/worker.py
++++ b/services/news_norm/worker.py
+@@ -52,7 +52,10 @@ except Exception:  # pragma: no cover
+     def detect(_: str) -> str:  # type: ignore[misc]
+         return "unknown"
+ 
+-from redis.asyncio import Redis
++try:  # pragma: no cover
++    from redis.asyncio import Redis  # type: ignore
++except Exception:  # pragma: no cover
++    Redis = object  # type: ignore
+ from prometheus_client import start_http_server
+ 
+ from pkg.common.settings import Settings
+@@ -76,6 +79,7 @@ from pkg.common.metrics import (
+     news_norm_quarantine_total,
+     news_worker_restarts_total,
+     news_worker_restart_storm_total,
++    news_dlq_total,
+ )
+ 
+ 
+@@ -152,6 +156,7 @@ async def _dlq(
+         d.update(extra)
+     await r.xadd(s.stream_dlq, d, maxlen=200000, approximate=True)
+     news_norm_quarantine_total.labels(reason=reason).inc()
++    news_dlq_total.labels(reason=reason).inc()
+ 
+ 
+ # ── Core processing ───────────────────────────────────────────────────────────
+diff --git a/services/news_reasoner/worker.py b/services/news_reasoner/worker.py
+index 021a092..ebac2d8 100644
+--- a/services/news_reasoner/worker.py
++++ b/services/news_reasoner/worker.py
+@@ -2,11 +2,19 @@ import asyncio
+ import json
+ import os
+ import time
+-import uuid
+ from typing import Any, Dict, Tuple
+ 
+-from redis.asyncio import Redis
+-import litellm
++try:  # pragma: no cover
++    from redis.asyncio import Redis  # type: ignore
++except Exception:  # pragma: no cover
++    Redis = object  # type: ignore
++
++# litellm is required in production, but optional for unit tests.
++try:  # pragma: no cover
++    import litellm  # type: ignore
++except Exception:  # pragma: no cover
++    litellm = None
++
+ from pydantic import ValidationError
+ from prometheus_client import start_http_server
+ 
+@@ -14,20 +22,30 @@ from pkg.common.settings import Settings
+ from pkg.common.dto import (
+     NormDocDTO,
+     NewsEventDTO,
++    NewsEventContractDTO,
+     NewsEventLLMOutDTO,
+     NewsPriorDTO,
+     citations_are_substrings,
++    stable_event_uuid,
+ )
+ from pkg.common.redis_streams import AsyncRedisStreamHelper
+ from pkg.common.db import Db
++from pkg.common.budget import reserve_usd
+ from pkg.common.metrics import (
+     news_llm_requests_total,
+     news_llm_fail_total,
+     news_llm_latency_ms,
+     news_llm_validation_errors_total,
+     news_llm_repair_attempts_total,
++    news_json_repair_success_total,
+     news_prior_published_total,
+     news_budget_calls_used,
++    news_budget_calls_limit,
++    news_budget_usd_used,
++    news_budget_usd_limit,
++    news_llm_cost_usd_total,
++    news_llm_overbudget_total,
++    news_dlq_total,
+ )
+ 
+ PROMPT_VER = os.getenv("NEWS_PROMPT_VER", "p2026-03-04b")
+@@ -53,6 +71,14 @@ SCHEMA_EXAMPLE = {
+ }
+ 
+ 
++class _OverBudget(Exception):
++    """Raised when a strict budget check rejects an LLM call."""
++
++    def __init__(self, kind: str):
++        super().__init__(kind)
++        self.kind = kind  # "calls" | "usd"
++
++
+ def _provider_models(s: Settings) -> list[tuple[str, str]]:
+     order = [x.strip().lower() for x in s.provider_order.split(",") if x.strip()]
+     mapping = {
+@@ -76,10 +102,21 @@ async def _budget_try_consume(r: Redis, s: Settings, calls: int = 1) -> bool:
+     if used == calls:
+         await r.expire(key, 3 * 86400)
+     news_budget_calls_used.set(float(used))
+-    return int(used) <= int(s.llm_max_calls_per_day)
++    news_budget_calls_limit.set(float(s.llm_max_calls_per_day))
++    if int(used) <= int(s.llm_max_calls_per_day):
++        return True
++    # rollback (best-effort) so we don't poison the counter on rejected calls
++    try:
++        used2 = await r.decrby(key, int(calls))
++        news_budget_calls_used.set(float(used2))
++    except Exception:
++        pass
++    return False
+ 
+ 
+ async def _llm_call(model: str, text: str, timeout_s: float) -> str:
++    if litellm is None:  # pragma: no cover
++        raise RuntimeError("litellm is not installed")
+     prompt = (
+         f"{SYSTEM_RULES}\n\n"
+         f"JSON schema example:\n{json.dumps(SCHEMA_EXAMPLE, ensure_ascii=False)}\n\n"
+@@ -94,6 +131,12 @@ async def _llm_call(model: str, text: str, timeout_s: float) -> str:
+     return resp.choices[0].message.content
+ 
+ 
++## Note
++# In this repo we keep cost accounting conservative (reserve-based).
++# If you confirm a stable litellm completion_cost() API for your provider set,
++# add a best-effort finalize step here.
++
++
+ async def _extract_llm_out(
+     *,
+     s: Settings,
+@@ -104,26 +147,62 @@ async def _extract_llm_out(
+ ) -> NewsEventLLMOutDTO | None:
+     t0 = time.time()
+     news_llm_requests_total.labels(provider=provider, model=model, task="extract").inc()
++    # Strict reserve-based USD budgeting. If the reserve fails → DO NOT call LLM.
++    reserve_amt = float(s.llm_max_cost_per_call_usd)
++    usd_reserved = False
+     try:
+         if not await _budget_try_consume(r, s, calls=1):
+-            return None
++            news_llm_overbudget_total.labels(kind="calls").inc()
++            raise _OverBudget("calls")
++
++        b = await reserve_usd(
++            r,
++            daily_limit_usd=float(s.llm_budget_daily_usd),
++            reserve_usd=reserve_amt,
++        )
++        news_budget_usd_limit.set(float(b.limit))
++        news_budget_usd_used.set(float(b.used))
++        if not b.ok:
++            news_llm_overbudget_total.labels(kind="usd").inc()
++            raise _OverBudget("usd")
++        usd_reserved = True
++
++        # Cost accounting (conservative): count the reserved upper bound.
++        news_llm_cost_usd_total.labels(provider=provider, model=model).inc(reserve_amt)
+ 
+         content = await _llm_call(model, text, timeout_s=s.provider_timeout_ms / 1000.0)
+ 
+         try:
+             out = NewsEventLLMOutDTO.model_validate_json(content)
+-        except ValidationError:
++        except ValidationError as ve:
+             # Repair pass: consume another call (cost is real)
+             news_llm_repair_attempts_total.labels(provider=provider, model=model).inc()
+             news_llm_validation_errors_total.labels(stage="initial").inc()
+ 
+             if not await _budget_try_consume(r, s, calls=1):
+-                return None
++                news_llm_overbudget_total.labels(kind="calls").inc()
++                raise _OverBudget("calls")
++
++            b2 = await reserve_usd(
++                r,
++                daily_limit_usd=float(s.llm_budget_daily_usd),
++                reserve_usd=reserve_amt,
++            )
++            news_budget_usd_limit.set(float(b2.limit))
++            news_budget_usd_used.set(float(b2.used))
++            if not b2.ok:
++                news_llm_overbudget_total.labels(kind="usd").inc()
++                raise _OverBudget("usd")
++
++            news_llm_cost_usd_total.labels(provider=provider, model=model).inc(reserve_amt)
+ 
+             fix_prompt = (
+                 "Fix the JSON to match the schema exactly. Return ONLY JSON.\n"
++                "VALIDATOR_ERRORS:\n" + ve.json() + "\n"
+                 "BAD_JSON:\n" + content
+             )
++            if litellm is None:  # pragma: no cover
++                raise RuntimeError("litellm is not installed")
+             resp2 = await litellm.acompletion(
+                 model=model,
+                 messages=[{"role": "user", "content": fix_prompt}],
+@@ -132,8 +211,18 @@ async def _extract_llm_out(
+             )
+             content2 = resp2.choices[0].message.content
+             out = NewsEventLLMOutDTO.model_validate_json(content2)
++            news_json_repair_success_total.labels(provider=provider, model=model).inc()
+ 
++            # We intentionally keep reserve-based accounting for strictness.
++            # best-effort finalize is optional and can be added if you confirm
++            # a stable litellm completion_cost() API for your providers.
++
++        # cost accounting (best-effort)
++        # Note: _llm_call currently returns content only; we do not have the full response
++        # object here. Keep conservative accounting at reserve-level via reserve_usd().
+         return out
++    except _OverBudget:
++        raise
+     except Exception as e:
+         news_llm_fail_total.labels(provider=provider, model=model, reason=type(e).__name__).inc()
+         return None
+@@ -183,20 +272,57 @@ async def _process_one(
+         llm_out: NewsEventLLMOutDTO | None = None
+         chosen_provider = ""
+         chosen_model = ""
++        t_deadline = time.time() + (float(s.llm_max_latency_ms) / 1000.0)
++        llm_budget_kind: str | None = None
+         for provider, model in models:
+-            llm_out = await _extract_llm_out(s=s, r=r, provider=provider, model=model, text=text)
++            # Enforce end-to-end deadline across provider fallbacks.
++            remaining_s = max(0.0, t_deadline - time.time())
++            if remaining_s <= 0:
++                break
++            # Clamp per-provider timeout to remaining budget.
++            # We temporarily override provider_timeout_ms by using asyncio.wait_for.
++            try:
++                llm_out = await asyncio.wait_for(
++                    _extract_llm_out(s=s, r=r, provider=provider, model=model, text=text),
++                    timeout=remaining_s,
++                )
++            except _OverBudget as ob:
++                llm_budget_kind = ob.kind
++                llm_out = None
++                break
++            except asyncio.TimeoutError:
++                llm_out = None
+             if llm_out is not None:
+                 chosen_provider = provider
+                 chosen_model = model
+                 break
+ 
+         if llm_out is None:
+-            await r.xadd(
+-                s.stream_dlq,
+-                {"reason": "llm_invalid_or_overbudget", "doc_id": norm.doc_id, "payload": payload},
+-                maxlen=200000,
+-                approximate=True,
+-            )
++            if llm_budget_kind is not None:
++                await r.xadd(
++                    s.stream_dlq,
++                    {
++                        "reason": "overbudget",
++                        "kind": llm_budget_kind,
++                        "doc_id": norm.doc_id,
++                        "payload": payload,
++                    },
++                    maxlen=200000,
++                    approximate=True,
++                )
++                news_dlq_total.labels(reason=f"overbudget_{llm_budget_kind}").inc()
++            else:
++                await r.xadd(
++                    s.stream_dlq,
++                    {
++                        "reason": "llm_invalid",
++                        "doc_id": norm.doc_id,
++                        "payload": payload,
++                    },
++                    maxlen=200000,
++                    approximate=True,
++                )
++                news_dlq_total.labels(reason="llm_invalid").inc()
+             return
+ 
+         # Anti-hallucination: citations must be substrings of the input
+@@ -208,10 +334,11 @@ async def _process_one(
+                 maxlen=200000,
+                 approximate=True,
+             )
++            news_dlq_total.labels(reason="citations_not_substrings").inc()
+             return
+ 
+         # Enrich to stored DTO
+-        event_ts_ms = int(llm_out.event_ts_ms or now_ms)
++        event_ts_ms = int(llm_out.event_ts_ms or norm.published_ts_ms or now_ms)
+         evt = NewsEventDTO(
+             prompt_ver=PROMPT_VER,
+             provider=chosen_provider,
+@@ -229,20 +356,41 @@ async def _process_one(
+             created_ts_ms=now_ms,
+         )
+ 
++        # Public stream contract (strict schema) — downstream depends on this.
++        evt_contract = NewsEventContractDTO(
++            schema_ver=evt.schema_ver,
++            prompt_ver=evt.prompt_ver,
++            provider=evt.provider,
++            model_id=evt.model_id,
++            doc_id=evt.doc_id,
++            event_type=evt.event_type,
++            symbols=evt.symbols,
++            impact=float(evt.impact),
++            bias=evt.bias,
++            confidence=float(evt.confidence),
++            credibility_hint=float(evt.credibility_hint),
++            citations=evt.citations,
++            event_ts_ms=int(evt.event_ts_ms),
++        )
++
+         # Credibility from DB (cached)
+         cred = await cred_cache.get(db, norm.source_id)
+ 
+         # DB insert: idempotent by unique key (doc_id, prompt_ver, model_id)
+-        event_id = str(uuid.uuid4())
++        # We also use a deterministic UUID so replay is stable and cross-worker duplicates
++        # collapse naturally.
++        event_id = stable_event_uuid(norm.doc_id, evt.prompt_ver, evt.model_id)
+         async with db.pool.acquire() as conn:
+-            await conn.execute(
++            row = await conn.fetchrow(
+                 """INSERT INTO news_events
+                        (event_id, doc_id, event_type, symbols, impact_score, bias_up, bias_down,
+                         confidence, credibility, rationale, evidence_json, model_id, prompt_ver, provider,
+                         event_ts_ms, created_ts_ms)
+                      VALUES
+                        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+-                     ON CONFLICT (doc_id, prompt_ver, model_id) DO NOTHING""",
++                     ON CONFLICT (doc_id, prompt_ver, model_id)
++                     DO UPDATE SET event_ts_ms = news_events.event_ts_ms
++                     RETURNING event_id, (xmax = 0) AS inserted""",
+                 event_id,
+                 norm.doc_id,
+                 evt.event_type,
+@@ -260,6 +408,12 @@ async def _process_one(
+                 int(evt.event_ts_ms),
+                 int(evt.created_ts_ms),
+             )
++            inserted = bool(row["inserted"]) if row and ("inserted" in row) else False
++
++        # Idempotency: if this doc/prompt/model was processed already, do NOT emit
++        # duplicate events/priors into Redis streams.
++        if not inserted:
++            return
+ 
+         # Publish priors only if meaningful
+         if evt.event_type != "none" and float(evt.impact) >= s.min_impact_publish and evt.symbols:
+@@ -284,13 +438,14 @@ async def _process_one(
+                 approximate=True,
+             )
+             for sym in prior.symbols:
+-                await r.set(f"news:prior:{sym}", prior.model_dump_json(), px=s.prior_ttl_ms)
++                ttl_ms = max(1, int(prior.expires_ms) - int(time.time() * 1000))
++                await r.set(f"news:prior:{sym}", prior.model_dump_json(), px=ttl_ms)
+             news_prior_published_total.labels(event_type=evt.event_type).inc()
+ 
+         # Stream for audit (events)
+         await r.xadd(
+             s.stream_events,
+-            {"payload": evt.model_dump_json()},
++            {"payload": evt_contract.model_dump_json()},
+             maxlen=200000,
+             approximate=True,
+         )
+@@ -307,6 +462,7 @@ async def _process_one(
+             maxlen=200000,
+             approximate=True,
+         )
++        news_dlq_total.labels(reason="reasoner_error").inc()
+     finally:
+         await helper.ack(s.stream_norm, msg_id)
+ 

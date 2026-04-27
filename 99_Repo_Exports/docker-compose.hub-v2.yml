@@ -1,0 +1,117 @@
+services:
+  aggregated-hub-v2:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-aggregated-hub-v2
+    restart: unless-stopped
+    environment:
+    - SYMBOL=XAUUSD
+    - REDIS_URL=redis://scanner-redis-worker-1:6379/0
+    - TICK_STREAM=ticks:XAUUSD
+    - PRINTS_STREAM=prints:XAUUSD
+    - HUB_CONFIDENCE_THR=0.70
+    - HUB_MIN_SIG_INT_SEC=180
+    - HUB_SIDE_LOCK_SEC=20
+    - W_DELTA_PRO=0.50
+    - W_SPEED=0.15
+    - W_CLUSTER=0.25
+    - W_LEGACY=0.10
+    - MIN_CONF=60.0
+    - HUB_COOLDOWN=300
+    - RISK_PCT=1.0
+    - SL_MULT=1.5
+    - TP_MULTS=2.0,3.0,4.0
+    - ORDER_PUSH_URL=http://go-gateway:8080/orders/push
+    - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+    - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+    - ENSEMBLE_MODE=shadow
+    - ENSEMBLE_THRESHOLD=0.35
+    - ENSEMBLE_CONSENSUS_RATIO=1.5
+    - ENSEMBLE_CALIB_MODE=shadow
+    - ENSEMBLE_CALIBRATION_SYMBOLS=BTCUSDT,ETHUSDT
+    - ENSEMBLE_LOOKBACK_DAYS=30
+    - ENSEMBLE_CALIB_TELEGRAM=1
+    - ENSEMBLE_CALIB_TELEGRAM_INTERVAL_SEC=3600
+    - PARQUET_LABELS_DIR=/data/labels
+    - LOG_LEVEL=INFO
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    command: "sh -c \"cd python-worker && \n       python3 aggregated_signal_hub_v2.py\
+      \ --mode=live --symbol=XAUUSD\"\n"
+    volumes:
+    - ./python-worker:/app/python-worker:ro
+    - ./common:/app/common:ro
+    - ./core:/app/core:ro
+    - ./data/labels:/data/labels
+    depends_on:
+    - redis-worker-1
+    networks:
+    - scanner-core
+    - scanner-infra
+    healthcheck:
+      test:
+      - CMD
+      - pgrep
+      - -f
+      - aggregated_signal_hub_v2
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    deploy:
+      resources:
+        reservations:
+          memory: 24M
+  aggregated-hub-v2-replay:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-aggregated-hub-v2-replay
+    restart: 'no'
+    profiles:
+    - replay
+    environment:
+    - SYMBOL=XAUUSD
+    - REDIS_URL=redis://scanner-redis-worker-1:6379/0
+    - HUB_CONFIDENCE_THR=0.62
+    - HUB_MIN_SIG_INT_SEC=180
+    - W_DELTA_PRO=0.50
+    - W_SPEED=0.15
+    - W_CLUSTER=0.25
+    - W_LEGACY=0.10
+    - MIN_CONF=60.0
+    - LOG_LEVEL=INFO
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    command: "sh -c \"cd python-worker && \n       python3 aggregated_signal_hub_v2.py\
+      \ \n         --mode=replay \n         --replay-csv=/data/replay/trades_xauusd.csv\
+      \ \n         --replay-speed=1.0 \n         --max-rows=10000\"\n"
+    volumes:
+    - ./python-worker:/app/python-worker:ro
+    - ./common:/app/common:ro
+    - ./core:/app/core:ro
+    - ./data/replay:/data/replay:ro
+    - ./data/labels:/data/labels
+    networks:
+    - scanner-core
+    - scanner-infra
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    deploy:
+      resources:
+        reservations:
+          memory: 24M
+networks:
+  scanner-core:
+    external: true
+  scanner-infra:
+    external: true

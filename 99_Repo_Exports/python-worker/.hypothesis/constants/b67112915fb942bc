@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signal_exec/bus.py
+# hypothesis_version: 6.148.10
+
+['created_at', 'ctx', 'entry_zone_high', 'entry_zone_low', 'event_type', 'expiry_bars', 'extra', 'meta', 'partials', 'payload', 'plan', 'pos_risk_R', 'position_size', 'price', 'price_at_signal', 'risk_usd', 'setup_type', 'side', 'signal_id', 'stop_price', 'stream:signals:plans', 'symbol', 'tp_levels', 'ts', 'ts_signal']

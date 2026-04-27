@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/abc_router.py
+# hypothesis_version: 6.148.10
+
+[100, 2000, 'A', 'ABCConfig', 'B', 'C', 'b', 'c', 'default', 'enabled', 'ignore', 'illiquid', 'na', 'news', 'overrides', 'poll_ms', 'salt', 'smt-entry-v1', 'splits', 'thin', 'utf-8', 'version']

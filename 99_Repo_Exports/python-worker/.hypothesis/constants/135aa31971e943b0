@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/redis_client.py
+# hypothesis_version: 6.148.10
+
+[0.005, 0.01, 0.1, 1.2, 1.5, 2.0, 5.0, 10.0, 30.0, 1000.0, 120, 200, '1000', '20', '200', '5', '50', '6379', 'GO_WORKER_REDIS_PASS', 'REDIS_HOST', 'REDIS_PASS', 'REDIS_PORT', 'REDIS_URL', 'REDIS_USER', 'recursion', 'redis-worker-1', 'redis://']

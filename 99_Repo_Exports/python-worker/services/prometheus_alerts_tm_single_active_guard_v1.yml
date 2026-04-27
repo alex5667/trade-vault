@@ -1,0 +1,35 @@
+groups:
+  - name: trade-monitor-single-active-guard
+    rules:
+      # ── Sustained high block rate: guard may be stuck ──────────────────────
+      - alert: TmSignalBlockedSingleActiveHigh5m
+        expr: |
+          sum by (symbol) (
+            rate(tm_signal_blocked_single_active_position_total[5m])
+          ) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          component: trade_monitor
+        annotations:
+          summary: "trade_monitor: high signal block rate for {{ $labels.symbol }}"
+          description: >-
+            More than 0.1 signals/sec blocked by single_active_position guard
+            for {{ $labels.symbol }} over the last 10 minutes.
+            Possible stuck guard — check orders:active_symbol_sid:{{ $labels.symbol }}.
+
+      # ── Any blocks at all: informational ───────────────────────────────────
+      - alert: TmSignalBlockedSingleActivePresent
+        expr: |
+          sum by (symbol) (
+            increase(tm_signal_blocked_single_active_position_total[30m])
+          ) > 5
+        for: 5m
+        labels:
+          severity: info
+          component: trade_monitor
+        annotations:
+          summary: "trade_monitor: signals blocked for {{ $labels.symbol }}"
+          description: >-
+            {{ $value | printf "%.0f" }} signals blocked by single_active_position
+            guard for {{ $labels.symbol }} in the last 30 minutes.

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/strong_need_policy.py
+# hypothesis_version: 6.148.10
+
+['BASE', 'ESCALATED', 'EXTREME', 'continuation', 'illiquid', 'na', 'news', 'reversal', 'strong_need_extreme', 'strong_need_reversal', 'thin']

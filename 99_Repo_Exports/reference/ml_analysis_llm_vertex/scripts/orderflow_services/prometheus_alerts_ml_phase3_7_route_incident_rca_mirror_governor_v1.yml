@@ -1,0 +1,30 @@
+groups:
+  - name: ml_phase3_7_route_incident_rca_mirror_governor_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorGovernorStale
+        expr: time() - ml_route_incident_rca_mirror_governor_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror governor is stale"
+
+      - alert: MLRouteIncidentRCAMirrorGovernorErrors
+        expr: increase(ml_route_incident_rca_mirror_governor_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror governor has errors"
+
+      - alert: MLRouteIncidentRCAMirrorGovernorMismatchRateHigh
+        expr: ml_route_incident_rca_mirror_governor_mismatch_rate > 0
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror governor sees non-zero mismatch rate"
+
+      - alert: MLRouteIncidentRCAMirrorGovernorPendingHigh
+        expr: ml_route_incident_rca_mirror_governor_pending_total > 10
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror governor sees elevated pending comparator rows"

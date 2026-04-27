@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signal_scoring/score_model.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.1, 0.2, 0.25, 0.75, 1.0, 35.0, 100.0, 'CONFIDENCE_K', 'CONF_L2_FAIL_FACTOR', 'CONF_L2_OK_FACTOR', 'CONF_L2_STALE_FACTOR', 'CONF_RANGE_FACTOR', 'book_quality', 'calib', 'calib_error', 'conf', 'conf_factor', 'confidence_pct', 'fallback_k', 'final_score', 'geometry', 'geometry_score', 'is_range', 'kind', 'l2_ok', 'l2_reason', 'l3', 'l3_quality', 'market_regime', 'market_regime_score', 'micro_quality', 'pct', 'range_gate', 'raw_score', 'stale_l2', 'symbol', 'veto', 'veto_reason']

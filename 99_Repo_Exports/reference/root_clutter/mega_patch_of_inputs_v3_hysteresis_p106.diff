@@ -1,0 +1,488 @@
+--- /mnt/data/proj_p105/services/orderflow/of_inputs_v3_circuit.py	2026-02-25 17:56:22.006744405 +0000
++++ /mnt/data/proj_p106/services/orderflow/of_inputs_v3_circuit.py	2026-02-25 20:36:12.623707224 +0000
+@@ -129,6 +129,7 @@
+         raw, pttl = await pipe.execute()
+ 
+         until_ms = 0
++        hard_until_ms = 0
+         rsn = ""
+ 
+         if raw is not None:
+@@ -137,6 +138,10 @@
+                 until_ms = int(meta.get("until_ms") or 0)
+             except Exception:
+                 until_ms = 0
++            try:
++                hard_until_ms = int(meta.get("hard_until_ms") or 0)
++            except Exception:
++                hard_until_ms = 0
+             rsn = str(meta.get("reason") or meta.get("dq_code") or "cfg")
+ 
+             # If no until_ms in value, derive from TTL.
+@@ -158,7 +163,10 @@
+             until_ms = 0
+             rsn = ""
+ 
++        if int(hard_until_ms or 0) <= 0:
++            hard_until_ms = int(until_ms)
+         setattr(runtime, "of_inputs_v3_disabled_until_ms", int(until_ms))
++        setattr(runtime, "of_inputs_v3_hard_disabled_until_ms", int(hard_until_ms))
+         setattr(runtime, "of_inputs_v3_disabled_reason", str(rsn or ""))
+         return (int(until_ms) > now_ms, int(until_ms), str(rsn or ""))
+ 
+@@ -174,6 +182,7 @@
+     window_ms: int,
+     max_downgrades_in_window: int,
+     disable_ms: int,
++    cooldown_ms: int,
+     block_auto_apply: bool,
+     auto_apply_reason: str = "of_inputs_v3",
+ ) -> Dict[str, Any]:
+@@ -214,10 +223,14 @@
+             return {"tripped": 0, "count": c, "disabled_until_ms": 0}
+ 
+         # Trip
+-        until_ms = int(now_ms) + int(disable_ms)
++        hard_until_ms = int(now_ms) + int(disable_ms)
++        cd_ms = int(cooldown_ms) if int(cooldown_ms) > 0 else 0
++        until_ms = int(hard_until_ms) + int(cd_ms)
+         disable_key = _cfg_disabled_key(sym_s)
+         payload = {
+             "until_ms": int(until_ms),
++            "hard_until_ms": int(hard_until_ms),
++            "cooldown_ms": int(cd_ms),
+             "reason": str(rsn),
+             "trip_ts_ms": int(now_ms),
+             "count": int(c),
+@@ -225,16 +238,17 @@
+         }
+ 
+         pipe2 = redis.pipeline(transaction=False)
+-        pipe2.set(disable_key, _json_dumps(payload), px=int(disable_ms))
++        ttl_ms = max(1, int(until_ms) - int(now_ms))
++        pipe2.set(disable_key, _json_dumps(payload), px=int(ttl_ms))
+ 
+         if bool(block_auto_apply):
+             gk = _auto_apply_global_key(auto_apply_reason)
+             sk = _auto_apply_sym_key(sym_s, auto_apply_reason)
+-            pipe2.set(gk, _json_dumps({"ts_ms": int(now_ms), "reason": str(auto_apply_reason), "src": "of_inputs_v3_circuit"}), px=int(disable_ms))
+-            pipe2.set(sk, _json_dumps({"ts_ms": int(now_ms), "symbol": sym_s, "reason": str(auto_apply_reason), "src": "of_inputs_v3_circuit"}), px=int(disable_ms))
++            pipe2.set(gk, _json_dumps({"ts_ms": int(now_ms), "reason": str(auto_apply_reason), "src": "of_inputs_v3_circuit"}), px=int(ttl_ms))
++            pipe2.set(sk, _json_dumps({"ts_ms": int(now_ms), "symbol": sym_s, "reason": str(auto_apply_reason), "src": "of_inputs_v3_circuit"}), px=int(ttl_ms))
+ 
+         await pipe2.execute()
+-        return {"tripped": 1, "count": c, "disabled_until_ms": int(until_ms)}
++        return {"tripped": 1, "count": c, "disabled_until_ms": int(until_ms), "hard_disabled_until_ms": int(hard_until_ms)}
+ 
+     except Exception:
+         return {"tripped": 0, "count": 0, "disabled_until_ms": 0}
+
+--- /mnt/data/proj_p105/tick_flow_full/services/orderflow/of_inputs_v3_circuit.py	2026-02-25 17:56:22.009020582 +0000
++++ /mnt/data/proj_p106/tick_flow_full/services/orderflow/of_inputs_v3_circuit.py	2026-02-25 20:36:12.624453099 +0000
+@@ -129,6 +129,7 @@
+         raw, pttl = await pipe.execute()
+ 
+         until_ms = 0
++        hard_until_ms = 0
+         rsn = ""
+ 
+         if raw is not None:
+@@ -137,6 +138,10 @@
+                 until_ms = int(meta.get("until_ms") or 0)
+             except Exception:
+                 until_ms = 0
++            try:
++                hard_until_ms = int(meta.get("hard_until_ms") or 0)
++            except Exception:
++                hard_until_ms = 0
+             rsn = str(meta.get("reason") or meta.get("dq_code") or "cfg")
+ 
+             # If no until_ms in value, derive from TTL.
+@@ -158,7 +163,10 @@
+             until_ms = 0
+             rsn = ""
+ 
++        if int(hard_until_ms or 0) <= 0:
++            hard_until_ms = int(until_ms)
+         setattr(runtime, "of_inputs_v3_disabled_until_ms", int(until_ms))
++        setattr(runtime, "of_inputs_v3_hard_disabled_until_ms", int(hard_until_ms))
+         setattr(runtime, "of_inputs_v3_disabled_reason", str(rsn or ""))
+         return (int(until_ms) > now_ms, int(until_ms), str(rsn or ""))
+ 
+@@ -174,6 +182,7 @@
+     window_ms: int,
+     max_downgrades_in_window: int,
+     disable_ms: int,
++    cooldown_ms: int,
+     block_auto_apply: bool,
+     auto_apply_reason: str = "of_inputs_v3",
+ ) -> Dict[str, Any]:
+@@ -214,10 +223,14 @@
+             return {"tripped": 0, "count": c, "disabled_until_ms": 0}
+ 
+         # Trip
+-        until_ms = int(now_ms) + int(disable_ms)
++        hard_until_ms = int(now_ms) + int(disable_ms)
++        cd_ms = int(cooldown_ms) if int(cooldown_ms) > 0 else 0
++        until_ms = int(hard_until_ms) + int(cd_ms)
+         disable_key = _cfg_disabled_key(sym_s)
+         payload = {
+             "until_ms": int(until_ms),
++            "hard_until_ms": int(hard_until_ms),
++            "cooldown_ms": int(cd_ms),
+             "reason": str(rsn),
+             "trip_ts_ms": int(now_ms),
+             "count": int(c),
+@@ -225,16 +238,17 @@
+         }
+ 
+         pipe2 = redis.pipeline(transaction=False)
+-        pipe2.set(disable_key, _json_dumps(payload), px=int(disable_ms))
++        ttl_ms = max(1, int(until_ms) - int(now_ms))
++        pipe2.set(disable_key, _json_dumps(payload), px=int(ttl_ms))
+ 
+         if bool(block_auto_apply):
+             gk = _auto_apply_global_key(auto_apply_reason)
+             sk = _auto_apply_sym_key(sym_s, auto_apply_reason)
+-            pipe2.set(gk, _json_dumps({"ts_ms": int(now_ms), "reason": str(auto_apply_reason), "src": "of_inputs_v3_circuit"}), px=int(disable_ms))
+-            pipe2.set(sk, _json_dumps({"ts_ms": int(now_ms), "symbol": sym_s, "reason": str(auto_apply_reason), "src": "of_inputs_v3_circuit"}), px=int(disable_ms))
++            pipe2.set(gk, _json_dumps({"ts_ms": int(now_ms), "reason": str(auto_apply_reason), "src": "of_inputs_v3_circuit"}), px=int(ttl_ms))
++            pipe2.set(sk, _json_dumps({"ts_ms": int(now_ms), "symbol": sym_s, "reason": str(auto_apply_reason), "src": "of_inputs_v3_circuit"}), px=int(ttl_ms))
+ 
+         await pipe2.execute()
+-        return {"tripped": 1, "count": c, "disabled_until_ms": int(until_ms)}
++        return {"tripped": 1, "count": c, "disabled_until_ms": int(until_ms), "hard_disabled_until_ms": int(hard_until_ms)}
+ 
+     except Exception:
+         return {"tripped": 0, "count": 0, "disabled_until_ms": 0}
+
+--- /mnt/data/proj_p105/services/orderflow/runtime.py	2026-02-25 17:56:22.007056746 +0000
++++ /mnt/data/proj_p106/services/orderflow/runtime.py	2026-02-25 20:36:24.019660517 +0000
+@@ -326,6 +326,7 @@
+ 
+     # OFInputs V3 circuit breaker cache (P100)
+     of_inputs_v3_disabled_until_ms: int = 0
++    of_inputs_v3_hard_disabled_until_ms: int = 0
+     of_inputs_v3_disabled_reason: str = ""
+     of_inputs_v3_cb_last_refresh_ts_ms: int = 0
+ 
+
+--- /mnt/data/proj_p105/tick_flow_full/services/orderflow/runtime.py	2026-02-25 17:56:22.009328578 +0000
++++ /mnt/data/proj_p106/tick_flow_full/services/orderflow/runtime.py	2026-02-25 20:36:24.020407293 +0000
+@@ -357,6 +357,7 @@
+ 
+     # OFInputs V3 circuit breaker cache (P100)
+     of_inputs_v3_disabled_until_ms: int = 0
++    of_inputs_v3_hard_disabled_until_ms: int = 0
+     of_inputs_v3_disabled_reason: str = ""
+     of_inputs_v3_cb_last_refresh_ts_ms: int = 0
+ 
+
+--- /mnt/data/proj_p105/services/orderflow/metrics.py	2026-02-25 17:56:22.006458864 +0000
++++ /mnt/data/proj_p106/services/orderflow/metrics.py	2026-02-25 20:36:36.030975048 +0000
+@@ -992,6 +992,13 @@
+ )
+ 
+ 
++
++of_inputs_v3_circuit_hard_disabled_until_ms = _get_or_create_prom_gauge(
++    "of_inputs_v3_circuit_hard_disabled_until_ms",
++    "If disabled, epoch ms until which HARD-disable phase ends (before cooldown) (best-effort)",
++    ["symbol"],
++)
++
+ # --- Pre-publish gates (data quality / regime-session) ---
+ pre_publish_gate_veto_total = _get_or_create_prom_counter(
+     'pre_publish_gate_veto_total',
+
+--- /mnt/data/proj_p105/tick_flow_full/services/orderflow/metrics.py	2026-02-25 17:56:22.008761878 +0000
++++ /mnt/data/proj_p106/tick_flow_full/services/orderflow/metrics.py	2026-02-25 20:36:36.031621335 +0000
+@@ -955,6 +955,13 @@
+ )
+ 
+ 
++
++of_inputs_v3_circuit_hard_disabled_until_ms = _get_or_create_prom_gauge(
++    "of_inputs_v3_circuit_hard_disabled_until_ms",
++    "If disabled, epoch ms until which HARD-disable phase ends (before cooldown) (best-effort)",
++    ["symbol"],
++)
++
+ # --- Pre-publish gates (data quality / regime-session) ---
+ pre_publish_gate_veto_total = _get_or_create_prom_counter(
+     'pre_publish_gate_veto_total',
+
+--- /mnt/data/proj_p105/services/orderflow/components/tick_processor.py	2026-02-25 17:56:22.005959977 +0000
++++ /mnt/data/proj_p106/services/orderflow/components/tick_processor.py	2026-02-25 20:37:01.335137681 +0000
+@@ -50,7 +50,7 @@
+     cvd_reclaim_ratio_gauge, cvd_reclaim_age_ms_gauge, cvd_reclaim_window_ms_gauge,
+     of_inputs_version_total, of_inputs_missing_ofi_total, of_inputs_missing_fp_total,
+     of_inputs_missing_lob_total, of_inputs_downgrade_total, of_inputs_quarantined_total, of_inputs_publish_error_total,
+-    of_inputs_v3_forced_v2_total, of_inputs_v3_circuit_trip_total, of_inputs_v3_circuit_disabled, of_inputs_v3_circuit_disabled_until_ms,
++    of_inputs_v3_forced_v2_total, of_inputs_v3_circuit_trip_total, of_inputs_v3_circuit_disabled, of_inputs_v3_circuit_disabled_until_ms, of_inputs_v3_circuit_hard_disabled_until_ms,
+     track_confirmations, evidence_used_total_session, record_confirmation_seen, record_evidence_used,
+     # Execution-risk observability (P71 slippage decomp layer)
+     impact_proxy_hist, expected_slippage_decomp_bps_hist, of_gate_veto_top1_total,
+@@ -2069,6 +2069,7 @@
+                         cb_window_ms = int(runtime.config.get("of_inputs_v3_circuit_window_ms", 60_000))
+                         cb_max_downgrades = int(runtime.config.get("of_inputs_v3_circuit_max_downgrades_in_window", 3))
+                         cb_disable_ms = int(runtime.config.get("of_inputs_v3_circuit_disable_ms", 300_000))
++                        cb_cooldown_ms = int(runtime.config.get("of_inputs_v3_circuit_cooldown_ms", 60_000))
+                         cb_block_auto_apply = bool(_i(runtime.config.get("of_inputs_v3_circuit_block_auto_apply", 1), 1))
+                         cb_auto_apply_reason = str(runtime.config.get("of_inputs_v3_auto_apply_reason", "of_inputs_v3") or "of_inputs_v3")
+ 
+@@ -2149,6 +2150,7 @@
+                                             window_ms=int(cb_window_ms),
+                                             max_downgrades_in_window=int(cb_max_downgrades),
+                                             disable_ms=int(cb_disable_ms),
++                                            cooldown_ms=int(cb_cooldown_ms),
+                                             block_auto_apply=bool(cb_block_auto_apply),
+                                             auto_apply_reason=str(cb_auto_apply_reason),
+                                         ),
+@@ -2165,12 +2167,17 @@
+ 
+                                         try:
+                                             until_ms = int(res2.get("disabled_until_ms") or 0)
++                                            hard_until_ms = int(res2.get("hard_disabled_until_ms") or 0)
+                                             if until_ms > 0:
+                                                 setattr(runtime, "of_inputs_v3_disabled_until_ms", int(until_ms))
++                                                if hard_until_ms > 0:
++                                                    setattr(runtime, "of_inputs_v3_hard_disabled_until_ms", int(hard_until_ms))
+                                                 setattr(runtime, "of_inputs_v3_disabled_reason", str(downgrade_reason))
+                                                 try:
+                                                     of_inputs_v3_circuit_disabled.labels(symbol=str(runtime.symbol)).set(1)
+                                                     of_inputs_v3_circuit_disabled_until_ms.labels(symbol=str(runtime.symbol)).set(float(until_ms))
++                                                    if hard_until_ms > 0:
++                                                        of_inputs_v3_circuit_hard_disabled_until_ms.labels(symbol=str(runtime.symbol)).set(float(hard_until_ms))
+                                                 except Exception:
+                                                     pass
+                                         except Exception:
+
+--- /mnt/data/proj_p105/tick_flow_full/services/orderflow/components/tick_processor.py	2026-02-25 17:56:22.008336434 +0000
++++ /mnt/data/proj_p106/tick_flow_full/services/orderflow/components/tick_processor.py	2026-02-25 20:37:01.336787377 +0000
+@@ -50,7 +50,7 @@
+     cvd_reclaim_ratio_gauge, cvd_reclaim_age_ms_gauge, cvd_reclaim_window_ms_gauge,
+     of_inputs_version_total, of_inputs_missing_ofi_total, of_inputs_missing_fp_total,
+     of_inputs_missing_lob_total, of_inputs_downgrade_total, of_inputs_quarantined_total, of_inputs_publish_error_total,
+-    of_inputs_v3_forced_v2_total, of_inputs_v3_circuit_trip_total, of_inputs_v3_circuit_disabled, of_inputs_v3_circuit_disabled_until_ms,
++    of_inputs_v3_forced_v2_total, of_inputs_v3_circuit_trip_total, of_inputs_v3_circuit_disabled, of_inputs_v3_circuit_disabled_until_ms, of_inputs_v3_circuit_hard_disabled_until_ms,
+     track_confirmations, evidence_used_total_session, record_confirmation_seen, record_evidence_used,
+     trade_vol_fast_bps, trade_vol_slow_bps, trade_vol_ratio, trade_vol_ratio_z,
+     trade_res_recovered, trade_res_recovery_ms, trade_res_speed_per_s,
+@@ -2162,6 +2162,7 @@
+                         cb_window_ms = int(runtime.config.get("of_inputs_v3_circuit_window_ms", 60_000))
+                         cb_max_downgrades = int(runtime.config.get("of_inputs_v3_circuit_max_downgrades_in_window", 3))
+                         cb_disable_ms = int(runtime.config.get("of_inputs_v3_circuit_disable_ms", 300_000))
++                        cb_cooldown_ms = int(runtime.config.get("of_inputs_v3_circuit_cooldown_ms", 60_000))
+                         cb_block_auto_apply = bool(_i(runtime.config.get("of_inputs_v3_circuit_block_auto_apply", 1), 1))
+                         cb_auto_apply_reason = str(runtime.config.get("of_inputs_v3_auto_apply_reason", "of_inputs_v3") or "of_inputs_v3")
+ 
+@@ -2242,6 +2243,7 @@
+                                             window_ms=int(cb_window_ms),
+                                             max_downgrades_in_window=int(cb_max_downgrades),
+                                             disable_ms=int(cb_disable_ms),
++                                            cooldown_ms=int(cb_cooldown_ms),
+                                             block_auto_apply=bool(cb_block_auto_apply),
+                                             auto_apply_reason=str(cb_auto_apply_reason),
+                                         ),
+@@ -2258,12 +2260,17 @@
+ 
+                                         try:
+                                             until_ms = int(res2.get("disabled_until_ms") or 0)
++                                            hard_until_ms = int(res2.get("hard_disabled_until_ms") or 0)
+                                             if until_ms > 0:
+                                                 setattr(runtime, "of_inputs_v3_disabled_until_ms", int(until_ms))
++                                                if hard_until_ms > 0:
++                                                    setattr(runtime, "of_inputs_v3_hard_disabled_until_ms", int(hard_until_ms))
+                                                 setattr(runtime, "of_inputs_v3_disabled_reason", str(downgrade_reason))
+                                                 try:
+                                                     of_inputs_v3_circuit_disabled.labels(symbol=str(runtime.symbol)).set(1)
+                                                     of_inputs_v3_circuit_disabled_until_ms.labels(symbol=str(runtime.symbol)).set(float(until_ms))
++                                                    if hard_until_ms > 0:
++                                                        of_inputs_v3_circuit_hard_disabled_until_ms.labels(symbol=str(runtime.symbol)).set(float(hard_until_ms))
+                                                 except Exception:
+                                                     pass
+                                         except Exception:
+
+--- /mnt/data/proj_p105/orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py	2026-02-25 18:04:38.744857182 +0000
++++ /mnt/data/proj_p106/orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py	2026-02-25 20:37:55.495728618 +0000
+@@ -17,6 +17,7 @@
+ 
+ - of_inputs_v3_circuit_cfg_disabled{symbol,reason} = 1
+ - of_inputs_v3_circuit_cfg_disabled_until_ms{symbol,reason}
++- of_inputs_v3_circuit_cfg_hard_disabled_until_ms{symbol,reason}
+ - of_inputs_v3_circuit_cfg_disabled_ttl_ms{symbol,reason}
+ - of_inputs_v3_circuit_disabled_symbols
+ - of_inputs_v3_circuit_disabled_symbols_by_reason{reason}
+@@ -146,6 +147,12 @@
+     "Disable until timestamp (ms) derived from cfg disable key",
+     ["symbol", "reason"],
+ )
++
++G_DISABLED_HARD_UNTIL_MS = Gauge(
++    "of_inputs_v3_circuit_cfg_hard_disabled_until_ms",
++    "Hard-disable until timestamp (ms) (before cooldown), derived from cfg disable key",
++    ["symbol", "reason"],
++)
+ G_DISABLED_TTL_MS = Gauge(
+     "of_inputs_v3_circuit_cfg_disabled_ttl_ms",
+     "Redis PTTL for cfg disable key (ms)",
+@@ -258,6 +265,11 @@
+ 
+     return int(until_ms), str(reason or "cfg")
+ 
++def _derive_hard_until_ms(meta: Dict[str, Any], until_ms: int) -> int:
++    hard = _as_int(meta.get("hard_until_ms"), 0)
++    return int(hard) if int(hard) > 0 else int(until_ms)
++
++
+ 
+ def main() -> None:
+     port = int(os.environ.get("OF_INPUTS_V3_CIRCUIT_EXPORTER_PORT", "9164"))
+@@ -274,6 +286,7 @@
+ 
+     prev_disabled: Set[Tuple[str, ...]] = set()
+     prev_until: Set[Tuple[str, ...]] = set()
++    prev_hard_until: Set[Tuple[str, ...]] = set()
+     prev_ttl: Set[Tuple[str, ...]] = set()
+     prev_dg: Set[Tuple[str, ...]] = set()
+     prev_ap_glob: Set[Tuple[str, ...]] = set()
+@@ -288,6 +301,7 @@
+ 
+         cur_disabled: Set[Tuple[str, ...]] = set()
+         cur_until: Set[Tuple[str, ...]] = set()
++        cur_hard_until: Set[Tuple[str, ...]] = set()
+         cur_ttl: Set[Tuple[str, ...]] = set()
+         cur_dg: Set[Tuple[str, ...]] = set()
+         cur_ap_glob: Set[Tuple[str, ...]] = set()
+
+--- /mnt/data/proj_p105/tick_flow_full/orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py	2026-02-25 18:04:38.744857182 +0000
++++ /mnt/data/proj_p106/tick_flow_full/orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py	2026-02-25 20:37:55.496367498 +0000
+@@ -17,6 +17,7 @@
+ 
+ - of_inputs_v3_circuit_cfg_disabled{symbol,reason} = 1
+ - of_inputs_v3_circuit_cfg_disabled_until_ms{symbol,reason}
++- of_inputs_v3_circuit_cfg_hard_disabled_until_ms{symbol,reason}
+ - of_inputs_v3_circuit_cfg_disabled_ttl_ms{symbol,reason}
+ - of_inputs_v3_circuit_disabled_symbols
+ - of_inputs_v3_circuit_disabled_symbols_by_reason{reason}
+@@ -146,6 +147,12 @@
+     "Disable until timestamp (ms) derived from cfg disable key",
+     ["symbol", "reason"],
+ )
++
++G_DISABLED_HARD_UNTIL_MS = Gauge(
++    "of_inputs_v3_circuit_cfg_hard_disabled_until_ms",
++    "Hard-disable until timestamp (ms) (before cooldown), derived from cfg disable key",
++    ["symbol", "reason"],
++)
+ G_DISABLED_TTL_MS = Gauge(
+     "of_inputs_v3_circuit_cfg_disabled_ttl_ms",
+     "Redis PTTL for cfg disable key (ms)",
+@@ -258,6 +265,11 @@
+ 
+     return int(until_ms), str(reason or "cfg")
+ 
++def _derive_hard_until_ms(meta: Dict[str, Any], until_ms: int) -> int:
++    hard = _as_int(meta.get("hard_until_ms"), 0)
++    return int(hard) if int(hard) > 0 else int(until_ms)
++
++
+ 
+ def main() -> None:
+     port = int(os.environ.get("OF_INPUTS_V3_CIRCUIT_EXPORTER_PORT", "9164"))
+@@ -274,6 +286,7 @@
+ 
+     prev_disabled: Set[Tuple[str, ...]] = set()
+     prev_until: Set[Tuple[str, ...]] = set()
++    prev_hard_until: Set[Tuple[str, ...]] = set()
+     prev_ttl: Set[Tuple[str, ...]] = set()
+     prev_dg: Set[Tuple[str, ...]] = set()
+     prev_ap_glob: Set[Tuple[str, ...]] = set()
+@@ -288,6 +301,7 @@
+ 
+         cur_disabled: Set[Tuple[str, ...]] = set()
+         cur_until: Set[Tuple[str, ...]] = set()
++        cur_hard_until: Set[Tuple[str, ...]] = set()
+         cur_ttl: Set[Tuple[str, ...]] = set()
+         cur_dg: Set[Tuple[str, ...]] = set()
+         cur_ap_glob: Set[Tuple[str, ...]] = set()
+
+--- /mnt/data/proj_p105/orderflow_services/tests/test_of_inputs_v3_circuit_state_exporter_p100.py	2026-02-25 18:07:48.681842279 +0000
++++ /mnt/data/proj_p106/orderflow_services/tests/test_of_inputs_v3_circuit_state_exporter_p100.py	2026-02-25 20:38:08.832994760 +0000
+@@ -23,6 +23,12 @@
+     assert until == now + 5000
+     assert reason == "seq_gap"
+ 
++    hard = m._derive_hard_until_ms({"until_ms": now + 5000, "hard_until_ms": now + 2000}, until_ms=until)
++    assert hard == now + 2000
++
++    hard2 = m._derive_hard_until_ms({"until_ms": now + 5000}, until_ms=until)
++    assert hard2 == until
++
+     # until_ms missing => derive from pttl
+     until2, reason2 = m._derive_until_ms({"reason": "missing_lob_fields"}, now_ms=now, pttl_ms=10_000)
+     assert until2 == now + 10_000
+
+--- /mnt/data/proj_p105/orderflow_services/runbook_of_inputs_v3_circuit_p100.md	2026-02-25 19:58:42.127005289 +0000
++++ /mnt/data/proj_p106/orderflow_services/runbook_of_inputs_v3_circuit_p100.md	2026-02-25 20:38:49.914998977 +0000
+@@ -25,7 +25,7 @@
+ Ожидаемый JSON (пример):
+ 
+ ```json
+-{"until_ms":1700000000000,"reason":"seq_gap","trip_ts_ms":1699999999000,"count":3,"window_ms":60000}
++{"until_ms":1700000000000,"hard_until_ms":1699999999500,"cooldown_ms":60000,"reason":"seq_gap","trip_ts_ms":1699999999000,"count":3,"window_ms":60000}
+ ```
+ 
+ ### 2.3 Проверить счётчики даунгрейдов по причинам
+@@ -63,7 +63,7 @@
+ 
+ ### 4.1 Если это кратковременный спайк
+ 
+-Ничего не делать: ключ `cfg:of_inputs:v3_disabled:{sym}` истечёт сам (TTL по `disable_ms`, default 5 минут).
++Ничего не делать: ключ `cfg:of_inputs:v3_disabled:{sym}` истечёт сам (TTL по `disable_ms + cooldown_ms`, default 5+1 минут).
+ 
+ ### 4.2 Если нужно досрочно включить V3 (осознанно)
+ 
+
+--- /mnt/data/proj_p105/tick_flow_full/orderflow_services/runbook_of_inputs_v3_circuit_p100.md	2026-02-25 18:05:58.609784788 +0000
++++ /mnt/data/proj_p106/tick_flow_full/orderflow_services/runbook_of_inputs_v3_circuit_p100.md	2026-02-25 20:38:49.915447372 +0000
+@@ -25,7 +25,7 @@
+ Ожидаемый JSON (пример):
+ 
+ ```json
+-{"until_ms":1700000000000,"reason":"seq_gap","trip_ts_ms":1699999999000,"count":3,"window_ms":60000}
++{"until_ms":1700000000000,"hard_until_ms":1699999999500,"cooldown_ms":60000,"reason":"seq_gap","trip_ts_ms":1699999999000,"count":3,"window_ms":60000}
+ ```
+ 
+ ### 2.3 Проверить счётчики даунгрейдов по причинам
+@@ -63,7 +63,7 @@
+ 
+ ### 4.1 Если это кратковременный спайк
+ 
+-Ничего не делать: ключ `cfg:of_inputs:v3_disabled:{sym}` истечёт сам (TTL по `disable_ms`, default 5 минут).
++Ничего не делать: ключ `cfg:of_inputs:v3_disabled:{sym}` истечёт сам (TTL по `disable_ms + cooldown_ms`, default 5+1 минут).
+ 
+ ### 4.2 Если нужно досрочно включить V3 (осознанно)
+ 
+
+--- /mnt/data/proj_p105/orderflow_services/grafana/README_p100_of_inputs_v3_circuit.md	2026-02-25 18:07:28.063498459 +0000
++++ /mnt/data/proj_p106/orderflow_services/grafana/README_p100_of_inputs_v3_circuit.md	2026-02-25 20:39:18.076265424 +0000
+@@ -12,3 +12,6 @@
+ 
+ Рекомендация:
+ - В Prometheus лучше скрапить exporter отдельным job'ом (например job="of_inputs_v3_circuit").
++
++Доп. метрика для hysteresis:
++- `of_inputs_v3_circuit_cfg_hard_disabled_until_ms{symbol,reason}` — конец hard-disable фазы (до cooldown).
+
+--- /mnt/data/proj_p105/tick_flow_full/orderflow_services/grafana/README_p100_of_inputs_v3_circuit.md	2026-02-25 18:07:28.063498459 +0000
++++ /mnt/data/proj_p106/tick_flow_full/orderflow_services/grafana/README_p100_of_inputs_v3_circuit.md	2026-02-25 20:39:18.076813718 +0000
+@@ -12,3 +12,6 @@
+ 
+ Рекомендация:
+ - В Prometheus лучше скрапить exporter отдельным job'ом (например job="of_inputs_v3_circuit").
++
++Доп. метрика для hysteresis:
++- `of_inputs_v3_circuit_cfg_hard_disabled_until_ms{symbol,reason}` — конец hard-disable фазы (до cooldown).
+

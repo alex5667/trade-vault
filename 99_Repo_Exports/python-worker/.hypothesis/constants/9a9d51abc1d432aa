@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signal_execution/signal_performance.py
+# hypothesis_version: 6.148.10
+
+[1.0, 60.0, 'closed', 'expired', 'open', 'realized', 'stopped', 'unknown']

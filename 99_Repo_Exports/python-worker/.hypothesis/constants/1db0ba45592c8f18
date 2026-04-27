@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/detector/rules/absorption.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, '0.10', '0.35', 'DET_MIN_RAW_SCORE', 'absorption', 'absorption_level', 'level_key', 'level_price', 'micro_proxy', 'mp_contra', 'price', 'refill', 'wall_here', 'weak_progress', 'weak_progress_ratio']

@@ -1,0 +1,28 @@
+groups:
+- name: enforce_bucket_promoter_rollback_v1
+  rules:
+  - alert: EnforceBucketRollbackTriggered
+    expr: of_enforce_promoter_last_rollback_age_sec < 3600
+    for: 2m
+    labels:
+      severity: crit
+    annotations:
+      summary: "Bucket enforcement rollback triggered (last hour)"
+      description: "Rollback controller reverted enforced buckets due to slippage
+        QA regression. Check events:enforce_bucket_promoter and promoter status report."
+
+      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
+      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json
+  - alert: EnforceBucketRollbackControllerMissing
+    expr: (of_enforce_promoter_last_apply_ts_ms > 0) and 
+      (of_enforce_promoter_last_apply_age_sec > 7200) and 
+      (of_enforce_promoter_last_rollback_ts_ms == 0)
+    for: 10m
+    labels:
+      severity: warn
+    annotations:
+      summary: "Rollback controller may be disabled"
+      description: "There was an apply >2h ago, but no rollback state changes recorded.
+        Ensure ENABLE_ENFORCE_BUCKET_ROLLBACK=1 and exporter is running."
+      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
+      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json

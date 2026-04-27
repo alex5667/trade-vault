@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/spatial/_geometric_slerp.py
+# hypothesis_version: 6.148.10
+
+[1e-09, 1e-07, 1.0, 2.0, 'geometric_slerp', 'tol must be a float']

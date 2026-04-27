@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/interpolate/rbf.py
+# hypothesis_version: 6.148.10
+
+['Rbf', 'cdist', 'linalg', 'pdist', 'squareform', 'xlogy']

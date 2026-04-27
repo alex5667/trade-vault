@@ -1,0 +1,55 @@
+{
+  "title": "Trade Risk Drift / Mismatch P4.7",
+  "schemaVersion": 38,
+  "version": 1,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Risk Summary Freshness (s)",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "trade_risk_summary_freshness_seconds"}]
+    },
+    {
+      "type": "stat",
+      "title": "Risk Summary Stale",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "trade_risk_summary_stale"}]
+    },
+    {
+      "type": "stat",
+      "title": "Mismatch Rate (24h)",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "targets": [{"rawSql": "with base as (select count(*) as total from risk_decisions where created_ts_ms > (extract(epoch from now() - interval '24 hours')*1000)), mm as (select count(*) as mismatch from risk_decisions a join risk_snapshot s using(decision_id) where a.created_ts_ms > (extract(epoch from now() - interval '24 hours')*1000) and (coalesce(a.effective_execution_policy,'') <> coalesce(s.effective_execution_policy,'') or abs(coalesce(a.adjusted_notional_usd,0)-coalesce(s.adjusted_notional_usd,0)) > 0.000001 or abs(coalesce(a.leverage_cap,0)-coalesce(s.leverage_cap,0)) > 0.000001 or abs(coalesce(a.clamp_ratio,0)-coalesce(s.clamp_ratio,0)) > 0.000001)) select now() as time, case when base.total > 0 then (mm.mismatch::double precision / base.total::double precision) else 0 end as value from base, mm"}]
+    },
+    {
+      "type": "stat",
+      "title": "Repeated Mismatch SID (24h)",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "targets": [{"rawSql": "with mism as (select a.sid from risk_decisions a join risk_snapshot s using(decision_id) where a.sid is not null and a.created_ts_ms > (extract(epoch from now() - interval '24 hours')*1000) and (coalesce(a.effective_execution_policy,'') <> coalesce(s.effective_execution_policy,'') or abs(coalesce(a.adjusted_notional_usd,0)-coalesce(s.adjusted_notional_usd,0)) > 0.000001 or abs(coalesce(a.leverage_cap,0)-coalesce(s.leverage_cap,0)) > 0.000001 or abs(coalesce(a.clamp_ratio,0)-coalesce(s.clamp_ratio,0)) > 0.000001)), agg as (select sid, count(*) as c from mism group by sid) select now() as time, count(*)::double precision as value from agg where c >= 3"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Deny/Clamp by Tier (24h summary)",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "targets": [{"rawSql": "select now() as time, tier || '_deny' as metric, sum(deny_count)::double precision as value from risk_decision_summary_1h where window_name='24h' group by tier union all select now() as time, tier || '_clamp' as metric, sum(clamp_count)::double precision as value from risk_decision_summary_1h where window_name='24h' group by tier"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Risk Decision Latency avg by Tier (24h summary)",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "targets": [{"rawSql": "select now() as time, tier as metric, avg(decision_latency_avg_ms)::double precision as value from risk_decision_summary_1h where window_name='24h' group by tier"}]
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "name": "Risk mismatch / quarantine annotations",
+        "datasource": "${DS_RISK_AUDIT_SQL}",
+        "enable": true,
+        "iconColor": "rgba(255, 96, 96, 1)",
+        "rawSql": "select to_timestamp(created_at_ms/1000.0) as time, sid || ' ' || action as text, severity as tags from execution_quarantine_ledger where reason in ('repeated_risk_consistency_mismatch','risk_consistency_mismatch') and created_at_ms > (extract(epoch from now() - interval '24 hours')*1000) order by created_at_ms desc limit 500",
+        "type": "dashboard"
+      }
+    ]
+  }
+}

@@ -1,0 +1,341 @@
+diff -ruN -x __pycache__ -x '*.pyc' -x '*.pyo' -x .pytest_cache -x '*.orig' -x '*.rej' /mnt/data/proj17_mod/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml /mnt/data/proj17_mod2/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml
+--- /mnt/data/proj17_mod/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj17_mod2/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml	2026-02-24 15:19:04.877273778 +0000
+@@ -0,0 +1,85 @@
++groups:
++  # ─────────────────────────────────────────────────────────────────────────────
++  # World-Practice Trackers v1  (vol/regime, resilience, fill-prob)
++  # Low cardinality: sym × exec_regime_bucket
++  # ─────────────────────────────────────────────────────────────────────────────
++
++- name: of_world_practice_trackers_v1
++  interval: 60s
++  rules:
++
++  # ── Critical: vol shock (z) detected but bucket still NORMAL (classification bug) ──
++  - alert: OF_VolShockButBucketNormal_Crit
++    expr: |
++      max_over_time(trade_vol_ratio_z{bucket="NORMAL"}[10m]) > 3.5
++    for: 10m
++    labels:
++      severity: critical
++    annotations:
++      summary: "{{ $labels.sym }}: vol shock but exec_regime_bucket=NORMAL"
++      description: |
++        Symbol {{ $labels.sym }}: trade_vol_ratio_z stayed > 3.5 while bucket="NORMAL" for 10m.
++        This usually indicates mis-wiring of vol_regime_label / exec_regime_bucket.
++        Check tick_processor vol snapshot attachment + bucket classifier.
++
++      runbook_path: /runbooks/tbd.md
++      dashboard_path: /d/tbd
++
++  # ── Warning: fill-prob proxy is very low in HIGH_VOL_LOW_LIQ bucket ────────────
++  - alert: OF_FillProbLow_HighVolLowLiq_Warn
++    expr: |
++      (
++        min_over_time(trade_fill_prob{bucket="HIGH_VOL_LOW_LIQ"}[10m]) < 0.15
++      )
++      and on(sym)
++      (
++        sum by (sym) (
++          label_replace(
++            rate(of_gate_eligible_total{scenario_v4="na"}[10m]),
++            "sym", "$1", "symbol", "(.*)"
++          )
++        ) > 0.02
++      )
++    for: 10m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }}: fill-prob proxy low in HIGH_VOL_LOW_LIQ"
++      description: |
++        Symbol {{ $labels.sym }}: trade_fill_prob < 0.15 (min over 10m) while bot is active.
++        Indicates poor passive fill conditions / heavy cancel pressure / slow eta_fill.
++        Review cancel_to_trade, eta_fill_sec, exec_fill_pen and consider tightening
++        bucket allowlists / max_expected_slippage_bps_eff for this regime.
++
++      runbook_path: /runbooks/tbd.md
++      dashboard_path: /d/tbd
++
++  # ── Warning: slow resilience recovery after sweeps in HIGH_VOL_LOW_LIQ ─────────
++  - alert: OF_ResilienceSlowAfterSweep_Warn
++    expr: |
++      (
++        max_over_time(trade_res_recovery_ms{bucket="HIGH_VOL_LOW_LIQ"}[10m]) > 4000
++        and
++        min_over_time(trade_res_recovered{bucket="HIGH_VOL_LOW_LIQ"}[10m]) == 0
++      )
++      and on(sym)
++      (
++        sum by (sym) (
++          label_replace(
++            rate(sweep_detected_total[10m]),
++            "sym", "$1", "symbol", "(.*)"
++          )
++        ) > 0.005
++      )
++    for: 10m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }}: resilience recovery slow after sweeps"
++      description: |
++        Symbol {{ $labels.sym }}: res_recovery_ms > 4000ms and not recovered for 10m,
++        with sweeps present. Indicates fragile liquidity / slow replenishment.
++        Consider stricter execution (bucket guards) or higher exec_pen in this regime.
++
++      runbook_path: /runbooks/tbd.md
++      dashboard_path: /d/tbd
+diff -ruN -x __pycache__ -x '*.pyc' -x '*.pyo' -x .pytest_cache -x '*.orig' -x '*.rej' /mnt/data/proj17_mod/services/orderflow/components/tick_processor.py /mnt/data/proj17_mod2/services/orderflow/components/tick_processor.py
+--- /mnt/data/proj17_mod/services/orderflow/components/tick_processor.py	2026-02-24 14:56:15.539902372 +0000
++++ /mnt/data/proj17_mod2/services/orderflow/components/tick_processor.py	2026-02-24 15:16:15.904388588 +0000
+@@ -88,6 +88,7 @@
+ from core.instrument_config import get_default_delta_tiers
+ from core.exec_regime_bucket_v1 import compute_exec_regime_bucket
+ 
++from core.world_practice_snapshot_v1 import extract_world_practice_indicators
+ from handlers.crypto_orderflow.utils.log_sampler import sampled_info, sampled_warning, sampled_debug, LogSamplerFactory
+ 
+ import redis.asyncio as aioredis
+@@ -1131,6 +1132,35 @@
+         except Exception:
+             pass
+ 
++
++        # Attach L3-lite stats snapshot (taker/cancel/eta-fill) to indicators.
++        # Needed for fill_prob_proxy / eta_fill in of_confirm_engine.
++        try:
++            if getattr(runtime, "l3_stats", None) is not None:
++                s = runtime.l3_stats
++                indicators.setdefault("taker_buy_rate_ema", float(getattr(s, "taker_buy_rate_ema", 0.0) or 0.0))
++                indicators.setdefault("taker_sell_rate_ema", float(getattr(s, "taker_sell_rate_ema", 0.0) or 0.0))
++                indicators.setdefault("cancel_bid_rate_ema", float(getattr(s, "cancel_bid_rate_ema", 0.0) or 0.0))
++                indicators.setdefault("cancel_ask_rate_ema", float(getattr(s, "cancel_ask_rate_ema", 0.0) or 0.0))
++                indicators.setdefault("cancel_to_trade_bid", float(getattr(s, "cancel_to_trade_bid", 0.0) or 0.0))
++                indicators.setdefault("cancel_to_trade_ask", float(getattr(s, "cancel_to_trade_ask", 0.0) or 0.0))
++                indicators.setdefault("eta_fill_bid_sec", float(getattr(s, "eta_fill_bid_sec", 0.0) or 0.0))
++                indicators.setdefault("eta_fill_ask_sec", float(getattr(s, "eta_fill_ask_sec", 0.0) or 0.0))
++        except Exception:
++            pass
++
++        # Attach world-practice tracker snapshots from runtime.dynamic_cfg (fail-open).
++        # Producers:
++        #   - bar_processor -> vol_* + vol_regime_label
++        #   - book_processor -> res_* (book resilience)
++        try:
++            wp = extract_world_practice_indicators(getattr(runtime, "dynamic_cfg", {}) or {})
++            if isinstance(wp, dict):
++                for _k, _v in wp.items():
++                    indicators.setdefault(_k, _v)
++        except Exception:
++            pass
++
+         # Impact proxy: abs(dn_usd) / depth_min_5_usd
+         # Uses book microstructure v4 fields (depth_bid_5 / depth_ask_5) already
+         # computed and stored in indicators by compute_microstructure_v4 above.
+diff -ruN -x __pycache__ -x '*.pyc' -x '*.pyo' -x .pytest_cache -x '*.orig' -x '*.rej' /mnt/data/proj17_mod/tick_flow_full/core/world_practice_snapshot_v1.py /mnt/data/proj17_mod2/tick_flow_full/core/world_practice_snapshot_v1.py
+--- /mnt/data/proj17_mod/tick_flow_full/core/world_practice_snapshot_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj17_mod2/tick_flow_full/core/world_practice_snapshot_v1.py	2026-02-24 15:15:15.041635708 +0000
+@@ -0,0 +1,73 @@
++from __future__ import annotations
++
++"""World-practice tracker snapshots -> stable indicator dict (v1).
++
++Why
++----
++Different hot-path components attach tracker outputs in slightly different ways:
++- bar_processor writes volatility regime snapshot into runtime.dynamic_cfg
++- book_processor writes book_resilience snapshot into runtime.dynamic_cfg
++- tick_processor needs a deterministic, fail-open extraction layer so that:
++    * gates can rely on stable keys
++    * Prometheus gauges see non-zero values
++    * ML dataset builders can keep schema stable
++
++This module is intentionally tiny and dependency-free (no Redis/DB).
++"""
++
++from typing import Any, Dict
++import math
++
++
++def _f(x: Any, d: float = 0.0) -> float:
++    try:
++        v = float(x)
++        return v if math.isfinite(v) else float(d)
++    except Exception:
++        return float(d)
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(x)
++    except Exception:
++        return int(d)
++
++
++def _s(x: Any, d: str = "na") -> str:
++    try:
++        s = str(x or "").strip()
++        return s if s else d
++    except Exception:
++        return d
++
++
++def extract_world_practice_indicators(dynamic_cfg: Dict[str, Any]) -> Dict[str, Any]:
++    """Extract stable indicator keys from runtime.dynamic_cfg (fail-open).
++
++    Output keys (subset):
++      - vol_fast_bps, vol_slow_bps, vol_ratio, vol_ratio_z, vol_regime_label
++      - res_active, res_recovered, res_recovery_ms, res_speed_per_s, res_min_ratio, res_curr_ratio
++
++    All numeric outputs are finite (NaN/Inf -> default).
++    """
++    dc = dynamic_cfg or {}
++
++    out: Dict[str, Any] = {}
++
++    # Vol regime
++    out["vol_fast_bps"] = _f(dc.get("vol_fast_bps", 0.0), 0.0)
++    out["vol_slow_bps"] = _f(dc.get("vol_slow_bps", 0.0), 0.0)
++    out["vol_ratio"] = _f(dc.get("vol_ratio", 0.0), 0.0)
++    out["vol_ratio_z"] = _f(dc.get("vol_ratio_z", 0.0), 0.0)
++    out["vol_regime_label"] = _s(dc.get("vol_regime_label", "na"), "na")
++
++    # Book resilience
++    out["res_active"] = _i(dc.get("res_active", dc.get("active", 0)), 0)
++    out["res_recovered"] = _i(dc.get("res_recovered", dc.get("recovered", 0)), 0)
++    out["res_recovery_ms"] = _i(dc.get("res_recovery_ms", dc.get("t_recover_ms", 0)), 0)
++    out["res_speed_per_s"] = _f(dc.get("res_speed_per_s", dc.get("speed", 0.0)), 0.0)
++    out["res_min_ratio"] = _f(dc.get("res_min_ratio", 0.0), 0.0)
++    out["res_curr_ratio"] = _f(dc.get("res_curr_ratio", 0.0), 0.0)
++
++    return out
+diff -ruN -x __pycache__ -x '*.pyc' -x '*.pyo' -x .pytest_cache -x '*.orig' -x '*.rej' /mnt/data/proj17_mod/tick_flow_full/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml /mnt/data/proj17_mod2/tick_flow_full/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml
+--- /mnt/data/proj17_mod/tick_flow_full/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj17_mod2/tick_flow_full/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml	2026-02-24 15:19:04.877273778 +0000
+@@ -0,0 +1,85 @@
++groups:
++  # ─────────────────────────────────────────────────────────────────────────────
++  # World-Practice Trackers v1  (vol/regime, resilience, fill-prob)
++  # Low cardinality: sym × exec_regime_bucket
++  # ─────────────────────────────────────────────────────────────────────────────
++
++- name: of_world_practice_trackers_v1
++  interval: 60s
++  rules:
++
++  # ── Critical: vol shock (z) detected but bucket still NORMAL (classification bug) ──
++  - alert: OF_VolShockButBucketNormal_Crit
++    expr: |
++      max_over_time(trade_vol_ratio_z{bucket="NORMAL"}[10m]) > 3.5
++    for: 10m
++    labels:
++      severity: critical
++    annotations:
++      summary: "{{ $labels.sym }}: vol shock but exec_regime_bucket=NORMAL"
++      description: |
++        Symbol {{ $labels.sym }}: trade_vol_ratio_z stayed > 3.5 while bucket="NORMAL" for 10m.
++        This usually indicates mis-wiring of vol_regime_label / exec_regime_bucket.
++        Check tick_processor vol snapshot attachment + bucket classifier.
++
++      runbook_path: /runbooks/tbd.md
++      dashboard_path: /d/tbd
++
++  # ── Warning: fill-prob proxy is very low in HIGH_VOL_LOW_LIQ bucket ────────────
++  - alert: OF_FillProbLow_HighVolLowLiq_Warn
++    expr: |
++      (
++        min_over_time(trade_fill_prob{bucket="HIGH_VOL_LOW_LIQ"}[10m]) < 0.15
++      )
++      and on(sym)
++      (
++        sum by (sym) (
++          label_replace(
++            rate(of_gate_eligible_total{scenario_v4="na"}[10m]),
++            "sym", "$1", "symbol", "(.*)"
++          )
++        ) > 0.02
++      )
++    for: 10m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }}: fill-prob proxy low in HIGH_VOL_LOW_LIQ"
++      description: |
++        Symbol {{ $labels.sym }}: trade_fill_prob < 0.15 (min over 10m) while bot is active.
++        Indicates poor passive fill conditions / heavy cancel pressure / slow eta_fill.
++        Review cancel_to_trade, eta_fill_sec, exec_fill_pen and consider tightening
++        bucket allowlists / max_expected_slippage_bps_eff for this regime.
++
++      runbook_path: /runbooks/tbd.md
++      dashboard_path: /d/tbd
++
++  # ── Warning: slow resilience recovery after sweeps in HIGH_VOL_LOW_LIQ ─────────
++  - alert: OF_ResilienceSlowAfterSweep_Warn
++    expr: |
++      (
++        max_over_time(trade_res_recovery_ms{bucket="HIGH_VOL_LOW_LIQ"}[10m]) > 4000
++        and
++        min_over_time(trade_res_recovered{bucket="HIGH_VOL_LOW_LIQ"}[10m]) == 0
++      )
++      and on(sym)
++      (
++        sum by (sym) (
++          label_replace(
++            rate(sweep_detected_total[10m]),
++            "sym", "$1", "symbol", "(.*)"
++          )
++        ) > 0.005
++      )
++    for: 10m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }}: resilience recovery slow after sweeps"
++      description: |
++        Symbol {{ $labels.sym }}: res_recovery_ms > 4000ms and not recovered for 10m,
++        with sweeps present. Indicates fragile liquidity / slow replenishment.
++        Consider stricter execution (bucket guards) or higher exec_pen in this regime.
++
++      runbook_path: /runbooks/tbd.md
++      dashboard_path: /d/tbd
+diff -ruN -x __pycache__ -x '*.pyc' -x '*.pyo' -x .pytest_cache -x '*.orig' -x '*.rej' /mnt/data/proj17_mod/tick_flow_full/tests/core/test_world_practice_snapshot_v1.py /mnt/data/proj17_mod2/tick_flow_full/tests/core/test_world_practice_snapshot_v1.py
+--- /mnt/data/proj17_mod/tick_flow_full/tests/core/test_world_practice_snapshot_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj17_mod2/tick_flow_full/tests/core/test_world_practice_snapshot_v1.py	2026-02-24 15:15:29.117206336 +0000
+@@ -0,0 +1,35 @@
++from __future__ import annotations
++
++import math
++
++from core.world_practice_snapshot_v1 import extract_world_practice_indicators
++
++
++def test_extract_world_practice_indicators_defaults() -> None:
++    out = extract_world_practice_indicators({})
++    assert out["vol_regime_label"] == "na"
++    assert out["vol_fast_bps"] == 0.0
++    assert out["res_recovered"] == 0
++    assert out["res_recovery_ms"] == 0
++
++
++def test_extract_world_practice_indicators_sanitizes_non_finite() -> None:
++    dc = {
++        "vol_fast_bps": float("nan"),
++        "vol_slow_bps": float("inf"),
++        "vol_ratio": -1.23,  # allowed
++        "vol_ratio_z": float("-inf"),
++        "vol_regime_label": "shock",
++        "res_recovery_ms": "1500",
++        "res_speed_per_s": float("nan"),
++        "res_recovered": 1,
++    }
++    out = extract_world_practice_indicators(dc)
++    assert out["vol_fast_bps"] == 0.0
++    assert out["vol_slow_bps"] == 0.0
++    assert out["vol_ratio"] == -1.23
++    assert out["vol_ratio_z"] == 0.0
++    assert out["vol_regime_label"] == "shock"
++    assert out["res_recovery_ms"] == 1500
++    assert out["res_speed_per_s"] == 0.0
++    assert out["res_recovered"] == 1

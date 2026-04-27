@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/stream_statistics.py
+# hypothesis_version: 6.148.10
+
+[0.0, 100, 3600, '%H:%M:%S UTC', 'errors', 'last_message_time', 'messages_by_stream', 'messages_per_second', 'start_time', 'streams_count', 'total_messages', 'uptime']

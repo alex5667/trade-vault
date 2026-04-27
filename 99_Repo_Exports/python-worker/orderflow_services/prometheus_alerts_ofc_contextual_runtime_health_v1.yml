@@ -1,0 +1,46 @@
+groups:
+  - name: ofc-contextual-runtime-health-v1
+    rules:
+      - alert: OFCContextualRuntimeReloaderStateStale
+        expr: ofc_ctx_runtime_reloader_state_present == 0 or ofc_ctx_runtime_reloader_state_age_seconds > 90
+        for: 5m
+        labels:
+          severity: warning
+          service: trade
+          component: ofc_contextual_runtime_reloader
+        annotations:
+          summary: "OFC contextual runtime reloader state is missing or stale"
+          description: "Runtime reloader health exporter cannot see fresh state for >90s."
+
+      - alert: OFCContextualRuntimeReloaderOverlayDirtyTooLong
+        expr: ofc_ctx_runtime_reloader_overlay_dirty == 1
+        for: 15m
+        labels:
+          severity: warning
+          service: trade
+          component: ofc_contextual_runtime_reloader
+        annotations:
+          summary: "OFC contextual runtime overlay remains dirty"
+          description: "Desired overlay differs from active child overlay for >15m."
+
+      - alert: OFCContextualRuntimeReloaderDeferStuck
+        expr: ofc_ctx_runtime_reloader_defer_active == 1 and ofc_ctx_runtime_reloader_cooldown_remaining_seconds <= 0
+        for: 5m
+        labels:
+          severity: critical
+          service: trade
+          component: ofc_contextual_runtime_reloader
+        annotations:
+          summary: "OFC contextual runtime defer state is stuck"
+          description: "Reloader is still deferred although cooldown remaining is already zero."
+
+      - alert: OFCContextualRuntimeReloaderRestartStorm
+        expr: changes(ofc_ctx_runtime_reloader_restart_count[15m]) > 3
+        for: 5m
+        labels:
+          severity: critical
+          service: trade
+          component: ofc_contextual_runtime_reloader
+        annotations:
+          summary: "OFC contextual runtime reloader restart storm"
+          description: "Runtime child was restarted more than 3 times in 15 minutes."

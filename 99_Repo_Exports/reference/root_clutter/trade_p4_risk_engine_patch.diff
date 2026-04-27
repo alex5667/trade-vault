@@ -1,0 +1,1178 @@
+diff -ruN p33aut/.pytest_cache/.gitignore p4work/.pytest_cache/.gitignore
+--- p33aut/.pytest_cache/.gitignore	1970-01-01 00:00:00.000000000 +0000
++++ p4work/.pytest_cache/.gitignore	2026-03-07 06:55:06.719021120 +0000
+@@ -0,0 +1,2 @@
++# Created by pytest automatically.
++*
+diff -ruN p33aut/.pytest_cache/CACHEDIR.TAG p4work/.pytest_cache/CACHEDIR.TAG
+--- p33aut/.pytest_cache/CACHEDIR.TAG	1970-01-01 00:00:00.000000000 +0000
++++ p4work/.pytest_cache/CACHEDIR.TAG	2026-03-07 06:55:06.719080356 +0000
+@@ -0,0 +1,4 @@
++Signature: 8a477f597d28d172789f06886806bc55
++# This file is a cache directory tag created by pytest.
++# For information about cache directory tags, see:
++#	https://bford.info/cachedir/spec.html
+diff -ruN p33aut/.pytest_cache/README.md p4work/.pytest_cache/README.md
+--- p33aut/.pytest_cache/README.md	1970-01-01 00:00:00.000000000 +0000
++++ p4work/.pytest_cache/README.md	2026-03-07 06:55:06.718910218 +0000
+@@ -0,0 +1,8 @@
++# pytest cache directory #
++
++This directory contains data from the pytest's cache plugin,
++which provides the `--lf` and `--ff` options, as well as the `cache` fixture.
++
++**Do not** commit this to version control.
++
++See [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.
+diff -ruN p33aut/.pytest_cache/v/cache/lastfailed p4work/.pytest_cache/v/cache/lastfailed
+--- p33aut/.pytest_cache/v/cache/lastfailed	1970-01-01 00:00:00.000000000 +0000
++++ p4work/.pytest_cache/v/cache/lastfailed	2026-03-07 06:57:02.026344456 +0000
+@@ -0,0 +1 @@
++{}
+\ No newline at end of file
+diff -ruN p33aut/.pytest_cache/v/cache/nodeids p4work/.pytest_cache/v/cache/nodeids
+--- p33aut/.pytest_cache/v/cache/nodeids	1970-01-01 00:00:00.000000000 +0000
++++ p4work/.pytest_cache/v/cache/nodeids	2026-03-07 06:57:19.701373137 +0000
+@@ -0,0 +1,11 @@
++[
++  "audit_code/risk/test_portfolio_risk_engine_v1.py::test_cluster_exposure_hard_deny",
++  "audit_code/risk/test_portfolio_risk_engine_v1.py::test_force_flatten_on_daily_loss_limit",
++  "audit_code/risk/test_risk_policy_engine_v1.py::test_confidence_below_floor_denies_soft",
++  "audit_code/risk/test_risk_policy_engine_v1.py::test_daily_loss_forces_flatten",
++  "audit_code/risk/test_risk_policy_engine_v1.py::test_infer_symbol_tier_defaults",
++  "audit_code/risk/test_risk_policy_engine_v1.py::test_risk_sizing_uses_stop_distance_and_caps",
++  "audit_code/risk/test_risk_policy_engine_v1.py::test_tier_c_maker_is_disabled_and_tightened",
++  "audit_code/test_crypto_orderflow_service_p4_contract_v1.py::test_crypto_orderflow_service_uses_new_risk_engine_contract",
++  "audit_code/test_p4_risk_assets_v1.py::test_p4_assets_exist"
++]
+\ No newline at end of file
+Binary files p33aut/audit_code/__pycache__/test_crypto_orderflow_service_p4_contract_v1.cpython-313-pytest-9.0.2.pyc and p4work/audit_code/__pycache__/test_crypto_orderflow_service_p4_contract_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p33aut/audit_code/__pycache__/test_p4_risk_assets_v1.cpython-313-pytest-9.0.2.pyc and p4work/audit_code/__pycache__/test_p4_risk_assets_v1.cpython-313-pytest-9.0.2.pyc differ
+diff -ruN p33aut/audit_code/crypto_orderflow_service.py p4work/audit_code/crypto_orderflow_service.py
+--- p33aut/audit_code/crypto_orderflow_service.py	2026-03-06 21:04:16.000000000 +0000
++++ p4work/audit_code/crypto_orderflow_service.py	2026-03-07 06:54:57.438500804 +0000
+@@ -86,21 +86,35 @@
+         RedisDQSnapshot = RedisDQThresholds = evaluate_redis_dq = None  # type: ignore
+ 
+ try:
+-    from services.risk.portfolio_risk_engine import (
++    from services.risk.risk_policy_engine import (
+         PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk,
+-        RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
++        infer_symbol_tier, RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
+     )
+ except Exception:
+     try:
+-        from risk.portfolio_risk_engine import (
++        from risk.risk_policy_engine import (
+             PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk,
+-            RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
++            infer_symbol_tier, RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
+         )
+-    except Exception:  # pragma: no cover
+-        PortfolioPosition = PortfolioRiskInput = PortfolioRiskLimits = evaluate_portfolio_risk = None  # type: ignore
+-        RISK_DENY_HARD = "DENY_HARD"
+-        RISK_DENY_SOFT = "DENY_SOFT"
+-        RISK_FORCE_FLATTEN = "FORCE_FLATTEN"
++    except Exception:
++        try:
++            from services.risk.portfolio_risk_engine import (
++                PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk,
++                RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
++            )
++            infer_symbol_tier = None  # type: ignore
++        except Exception:
++            try:
++                from risk.portfolio_risk_engine import (
++                    PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk,
++                    RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
++                )
++                infer_symbol_tier = None  # type: ignore
++            except Exception:  # pragma: no cover
++                PortfolioPosition = PortfolioRiskInput = PortfolioRiskLimits = evaluate_portfolio_risk = infer_symbol_tier = None  # type: ignore
++                RISK_DENY_HARD = "DENY_HARD"
++                RISK_DENY_SOFT = "DENY_SOFT"
++                RISK_FORCE_FLATTEN = "FORCE_FLATTEN"
+ 
+ try:
+     from services.quarantine_denylist import check_signal_against_quarantine_cache
+@@ -1050,19 +1064,47 @@
+                 ))
+             except Exception:
+                 continue
++        symbol = str(signal.get("symbol") or getattr(runtime, "symbol", "") or "")
+         requested_notional = float(signal.get("planned_notional_usd") or signal.get("notional_usd") or 0.0)
++        tier = str(signal.get("symbol_tier") or signal.get("tier") or "").strip().upper()
++        if (not tier or tier not in {"A", "B", "C"}) and infer_symbol_tier is not None:
++            tier = infer_symbol_tier(symbol, self.portfolio_risk_limits)
++        stop_distance_bps = float(
++            signal.get("stop_distance_bps")
++            or signal.get("planned_stop_distance_bps")
++            or signal.get("sl_bps")
++            or signal.get("stop_bps")
++            or 0.0
++        )
++        volatility_bps = float(
++            signal.get("volatility_bps")
++            or signal.get("atr_bps")
++            or signal.get("realized_vol_bps")
++            or 0.0
++        )
++        confidence = float(signal.get("confidence") or signal.get("signal_confidence") or 0.0)
++        maker_requested = bool(
++            signal.get("maker_policy_requested")
++            or signal.get("prefer_maker")
++            or str(signal.get("execution_policy") or "").strip().upper() == "MAKER_FIRST"
++        )
+         return PortfolioRiskInput(
+-            symbol=str(signal.get("symbol") or getattr(runtime, "symbol", "") or ""),
++            symbol=symbol,
+             cluster=str(signal.get("risk_cluster") or signal.get("cluster") or signal.get("symbol") or getattr(runtime, "symbol", "")),
+-            tier=str(signal.get("symbol_tier") or signal.get("tier") or "B"),
++            tier=tier or "B",
+             requested_notional_usd=requested_notional,
+             current_positions=positions,
+             equity_usd=float(signal.get("account_equity_usd") or os.getenv("ACCOUNT_DEPOSIT_USD", "0") or 0.0),
+             daily_pnl_pct=float(signal.get("daily_pnl_pct") or 0.0),
++            stop_distance_bps=stop_distance_bps,
++            volatility_bps=volatility_bps,
+             spread_bps=float(signal.get("spread_bps") or 0.0),
+-            slippage_bps=float(signal.get("expected_slippage_bps") or signal.get("slippage_bps") or 0.0),
++            expected_slippage_bps=float(signal.get("expected_slippage_bps") or signal.get("slippage_bps") or 0.0),
++            confidence=confidence,
++            maker_policy_requested=maker_requested,
+             infra_degraded=bool(signal.get("infra_degraded") or signal.get("dq_hard_veto")),
+             high_vol=bool(signal.get("high_vol") or signal.get("regime_high_vol")),
++            kill_switch=bool(signal.get("risk_kill_switch") or signal.get("kill_switch")),
+         )
+ 
+ 
+@@ -1113,10 +1155,16 @@
+                 signal["risk_snapshot"] = risk_decision.to_dict()
+                 signal["risk_level"] = str(risk_decision.level)
+                 signal["risk_leverage_cap"] = float(risk_decision.leverage_cap)
++                signal["risk_tier"] = str(risk_decision.tier_policy.name)
++                signal["risk_min_confidence_required"] = float(risk_decision.min_confidence_required)
++                signal["risk_watchdog_timeout_ms"] = int(risk_decision.watchdog_timeout_ms)
++                signal["risk_maker_policy_allowed"] = bool(risk_decision.maker_policy_allowed)
++                signal["symbol_tier"] = str(risk_decision.tier_policy.name)
++                signal["execution_policy"] = str(risk_decision.effective_execution_policy)
+                 if risk_decision.level in {RISK_DENY_SOFT, RISK_DENY_HARD, RISK_FORCE_FLATTEN} and self.portfolio_risk_hard_veto:
+                     logger.warning(
+-                        "🚫 (%s) Portfolio risk veto before publish: level=%s reasons=%s",
+-                        getattr(runtime, "symbol", "?"), risk_decision.level, risk_decision.reasons,
++                        "🚫 (%s) Portfolio risk veto before publish: level=%s reasons=%s snapshot=%s",
++                        getattr(runtime, "symbol", "?"), risk_decision.level, risk_decision.reasons, risk_decision.snapshot,
+                     )
+                     return False
+                 if risk_decision.allow_trade_publish and risk_decision.adjusted_notional_usd > 0:
+Binary files p33aut/audit_code/risk/__pycache__/portfolio_risk_engine.cpython-313.pyc and p4work/audit_code/risk/__pycache__/portfolio_risk_engine.cpython-313.pyc differ
+Binary files p33aut/audit_code/risk/__pycache__/risk_policy_engine.cpython-313.pyc and p4work/audit_code/risk/__pycache__/risk_policy_engine.cpython-313.pyc differ
+Binary files p33aut/audit_code/risk/__pycache__/test_portfolio_risk_engine_v1.cpython-313-pytest-9.0.2.pyc and p4work/audit_code/risk/__pycache__/test_portfolio_risk_engine_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p33aut/audit_code/risk/__pycache__/test_risk_policy_engine_v1.cpython-313-pytest-9.0.2.pyc and p4work/audit_code/risk/__pycache__/test_risk_policy_engine_v1.cpython-313-pytest-9.0.2.pyc differ
+diff -ruN p33aut/audit_code/risk/portfolio_risk_engine.py p4work/audit_code/risk/portfolio_risk_engine.py
+--- p33aut/audit_code/risk/portfolio_risk_engine.py	2026-03-06 18:42:42.000000000 +0000
++++ p4work/audit_code/risk/portfolio_risk_engine.py	2026-03-07 06:56:25.608561035 +0000
+@@ -1,290 +1,25 @@
+ from __future__ import annotations
+ 
+-"""Portfolio-aware risk policy used before a signal is published for execution."""
++"""Backward-compatible wrapper for the unified risk policy engine.
+ 
+-from dataclasses import dataclass, field
+-from typing import Any, Dict, List, Optional
+-import os
++Existing code paths historically imported portfolio_risk_engine. The new source of
++truth is risk_policy_engine.py; this wrapper re-exports the updated API and also
++works when loaded as a standalone file in bundle-style tests.
++"""
+ 
+ try:
+-    from prometheus_client import Counter, Gauge, REGISTRY
++    from .risk_policy_engine import *  # type: ignore # noqa: F401,F403
+ except Exception:  # pragma: no cover
+-    Counter = Gauge = None  # type: ignore
+-    REGISTRY = None  # type: ignore
+-
+-
+-def _metric(factory, name: str, *args, **kwargs):
+-    if factory is None:
+-        return None
+-    try:
+-        return factory(name, *args, **kwargs)
+-    except ValueError:
+-        return getattr(REGISTRY, "_names_to_collectors", {}).get(name) if REGISTRY is not None else None
+-
+-
+-TRADE_RISK_LEVEL = _metric(
+-    Gauge,
+-    "trade_risk_level",
+-    "Risk-engine decision level for the next trade (0=ALLOW,1=TIGHTENED,2=DENY_SOFT,3=DENY_HARD,4=FORCE_FLATTEN).",
+-    ["symbol"],
+-)
+-TRADE_RISK_DENY_TOTAL = _metric(
+-    Counter,
+-    "trade_risk_deny_total",
+-    "Number of risk-engine denials for pre-trade publication.",
+-    ["symbol", "reason", "level"],
+-)
+-TRADE_RISK_FORCE_FLATTEN_TOTAL = _metric(
+-    Counter,
+-    "trade_risk_force_flatten_total",
+-    "Number of times the risk engine requested forced flatten instead of new risk.",
+-    ["symbol", "reason"],
+-)
+-TRADE_PORTFOLIO_TOTAL_EXPOSURE_RATIO = _metric(
+-    Gauge,
+-    "trade_portfolio_total_exposure_ratio",
+-    "Current total notional exposure divided by equity, before applying the next trade.",
+-)
+-TRADE_PORTFOLIO_SYMBOL_EXPOSURE_RATIO = _metric(
+-    Gauge,
+-    "trade_portfolio_symbol_exposure_ratio",
+-    "Current symbol notional exposure divided by equity, before applying the next trade.",
+-    ["symbol"],
+-)
+-TRADE_PORTFOLIO_CLUSTER_EXPOSURE_RATIO = _metric(
+-    Gauge,
+-    "trade_portfolio_cluster_exposure_ratio",
+-    "Current cluster notional exposure divided by equity, before applying the next trade.",
+-    ["cluster"],
+-)
+-
+-RISK_ALLOW = "ALLOW"
+-RISK_ALLOW_TIGHTENED = "ALLOW_TIGHTENED"
+-RISK_DENY_SOFT = "DENY_SOFT"
+-RISK_DENY_HARD = "DENY_HARD"
+-RISK_FORCE_FLATTEN = "FORCE_FLATTEN"
+-
+-
+-@dataclass(frozen=True)
+-class PortfolioRiskLimits:
+-    max_daily_loss_pct: float = 2.0
+-    max_total_exposure_ratio: float = 2.5
+-    max_symbol_exposure_ratio: float = 0.75
+-    max_cluster_exposure_ratio: float = 1.25
+-    tier_a_max_leverage: float = 10.0
+-    tier_b_max_leverage: float = 5.0
+-    tier_c_max_leverage: float = 3.0
+-    tier_c_block_when_infra_degraded: bool = True
+-    soft_spread_bps_cap: float = 12.0
+-    hard_spread_bps_cap: float = 30.0
+-    soft_slippage_bps_cap: float = 20.0
+-    hard_slippage_bps_cap: float = 60.0
+-
+-    @classmethod
+-    def from_env(cls) -> "PortfolioRiskLimits":
+-        def _f(name: str, default: float) -> float:
+-            try:
+-                return float(os.getenv(name, str(default)))
+-            except Exception:
+-                return float(default)
+-        def _b(name: str, default: bool) -> bool:
+-            v = os.getenv(name)
+-            if v is None:
+-                return default
+-            return str(v).strip().lower() in {"1", "true", "yes", "on"}
+-        return cls(
+-            max_daily_loss_pct=_f("RISK_MAX_DAILY_LOSS_PCT", cls.max_daily_loss_pct),
+-            max_total_exposure_ratio=_f("RISK_MAX_TOTAL_EXPOSURE_RATIO", cls.max_total_exposure_ratio),
+-            max_symbol_exposure_ratio=_f("RISK_MAX_SYMBOL_EXPOSURE_RATIO", cls.max_symbol_exposure_ratio),
+-            max_cluster_exposure_ratio=_f("RISK_MAX_CLUSTER_EXPOSURE_RATIO", cls.max_cluster_exposure_ratio),
+-            tier_a_max_leverage=_f("RISK_TIER_A_MAX_LEVERAGE", cls.tier_a_max_leverage),
+-            tier_b_max_leverage=_f("RISK_TIER_B_MAX_LEVERAGE", cls.tier_b_max_leverage),
+-            tier_c_max_leverage=_f("RISK_TIER_C_MAX_LEVERAGE", cls.tier_c_max_leverage),
+-            tier_c_block_when_infra_degraded=_b("RISK_TIER_C_BLOCK_WHEN_INFRA_DEGRADED", cls.tier_c_block_when_infra_degraded),
+-            soft_spread_bps_cap=_f("RISK_SOFT_SPREAD_BPS_CAP", cls.soft_spread_bps_cap),
+-            hard_spread_bps_cap=_f("RISK_HARD_SPREAD_BPS_CAP", cls.hard_spread_bps_cap),
+-            soft_slippage_bps_cap=_f("RISK_SOFT_SLIPPAGE_BPS_CAP", cls.soft_slippage_bps_cap),
+-            hard_slippage_bps_cap=_f("RISK_HARD_SLIPPAGE_BPS_CAP", cls.hard_slippage_bps_cap),
+-        )
+-
+-
+-@dataclass(frozen=True)
+-class PortfolioPosition:
+-    symbol: str
+-    notional_usd: float
+-    side: str = "LONG"
+-    cluster: str = "default"
+-    tier: str = "B"
+-
+-
+-@dataclass(frozen=True)
+-class PortfolioRiskInput:
+-    symbol: str
+-    cluster: str
+-    tier: str
+-    requested_notional_usd: float
+-    current_positions: List[PortfolioPosition] = field(default_factory=list)
+-    equity_usd: float = 0.0
+-    daily_pnl_pct: float = 0.0
+-    spread_bps: float = 0.0
+-    slippage_bps: float = 0.0
+-    infra_degraded: bool = False
+-    high_vol: bool = False
+-
+-
+-@dataclass(frozen=True)
+-class PortfolioRiskDecision:
+-    level: str
+-    allow_trade_publish: bool
+-    adjusted_notional_usd: float
+-    leverage_cap: float
+-    risk_multiplier: float
+-    reasons: List[str]
+-    snapshot: Dict[str, Any]
+-
+-    def to_dict(self) -> Dict[str, Any]:
+-        return {
+-            "level": self.level,
+-            "allow_trade_publish": bool(self.allow_trade_publish),
+-            "adjusted_notional_usd": float(self.adjusted_notional_usd),
+-            "leverage_cap": float(self.leverage_cap),
+-            "risk_multiplier": float(self.risk_multiplier),
+-            "reasons": list(self.reasons),
+-            "snapshot": dict(self.snapshot),
+-        }
+-
+-
+-def _f(v: Any, default: float = 0.0) -> float:
+-    try:
+-        return float(v)
+-    except Exception:
+-        return float(default)
+-
+-
+-def _tier(v: Any) -> str:
+-    s = str(v or "B").strip().upper()
+-    return s if s in {"A", "B", "C"} else "B"
+-
+-
+-def _level_num(level: str) -> int:
+-    return {
+-        RISK_ALLOW: 0,
+-        RISK_ALLOW_TIGHTENED: 1,
+-        RISK_DENY_SOFT: 2,
+-        RISK_DENY_HARD: 3,
+-        RISK_FORCE_FLATTEN: 4,
+-    }.get(level, 3)
+-
+-
+-def evaluate_portfolio_risk(inp: PortfolioRiskInput, limits: Optional[PortfolioRiskLimits] = None) -> PortfolioRiskDecision:
+-    lim = limits or PortfolioRiskLimits()
+-    symbol = str(inp.symbol or "UNKNOWN").upper()
+-    tier = _tier(inp.tier)
+-    cluster = str(inp.cluster or symbol)
+-    equity = max(0.0, _f(inp.equity_usd))
+-    req = max(0.0, _f(inp.requested_notional_usd))
+-    positions = list(inp.current_positions or [])
+-
+-    total_exposure = sum(abs(_f(p.notional_usd)) for p in positions)
+-    symbol_exposure = sum(abs(_f(p.notional_usd)) for p in positions if str(p.symbol).upper() == symbol)
+-    cluster_exposure = sum(abs(_f(p.notional_usd)) for p in positions if str(p.cluster or "") == cluster)
+-
+-    total_ratio = (total_exposure / equity) if equity > 0 else 0.0
+-    symbol_ratio = (symbol_exposure / equity) if equity > 0 else 0.0
+-    cluster_ratio = (cluster_exposure / equity) if equity > 0 else 0.0
+-
+-    if TRADE_PORTFOLIO_TOTAL_EXPOSURE_RATIO:
+-        TRADE_PORTFOLIO_TOTAL_EXPOSURE_RATIO.set(total_ratio)
+-    if TRADE_PORTFOLIO_SYMBOL_EXPOSURE_RATIO:
+-        TRADE_PORTFOLIO_SYMBOL_EXPOSURE_RATIO.labels(symbol=symbol).set(symbol_ratio)
+-    if TRADE_PORTFOLIO_CLUSTER_EXPOSURE_RATIO:
+-        TRADE_PORTFOLIO_CLUSTER_EXPOSURE_RATIO.labels(cluster=cluster).set(cluster_ratio)
+-
+-    leverage_cap = {"A": lim.tier_a_max_leverage, "B": lim.tier_b_max_leverage, "C": lim.tier_c_max_leverage}[tier]
+-
+-    reasons: List[str] = []
+-    level = RISK_ALLOW
+-    allow = True
+-    risk_multiplier = 1.0
+-
+-    if _f(inp.daily_pnl_pct) <= -abs(lim.max_daily_loss_pct):
+-        level = RISK_FORCE_FLATTEN
+-        allow = False
+-        reasons.append("daily_loss_limit")
+-    elif tier == "C" and inp.infra_degraded and lim.tier_c_block_when_infra_degraded:
+-        level = RISK_DENY_HARD
+-        allow = False
+-        reasons.append("tier_c_infra_degraded")
+-    elif equity <= 0 or req <= 0:
+-        level = RISK_ALLOW_TIGHTENED
+-        reasons.append("insufficient_risk_context")
+-        risk_multiplier = 0.5
+-    else:
+-        projected_total_ratio = (total_exposure + req) / equity
+-        projected_symbol_ratio = (symbol_exposure + req) / equity
+-        projected_cluster_ratio = (cluster_exposure + req) / equity
+-
+-        if projected_total_ratio > lim.max_total_exposure_ratio:
+-            level = RISK_DENY_HARD
+-            allow = False
+-            reasons.append("total_exposure_cap")
+-        if projected_symbol_ratio > lim.max_symbol_exposure_ratio:
+-            level = RISK_DENY_HARD
+-            allow = False
+-            reasons.append("symbol_exposure_cap")
+-        if projected_cluster_ratio > lim.max_cluster_exposure_ratio:
+-            level = RISK_DENY_HARD
+-            allow = False
+-            reasons.append("cluster_exposure_cap")
+-
+-        spread_bps = _f(inp.spread_bps)
+-        slippage_bps = _f(inp.slippage_bps)
+-        if allow and (spread_bps > lim.hard_spread_bps_cap or slippage_bps > lim.hard_slippage_bps_cap):
+-            level = RISK_DENY_SOFT
+-            allow = False
+-            reasons.append("market_cost_hard_cap")
+-        elif allow and (spread_bps > lim.soft_spread_bps_cap or slippage_bps > lim.soft_slippage_bps_cap or inp.high_vol):
+-            level = RISK_ALLOW_TIGHTENED
+-            allow = True
+-            risk_multiplier = 0.5 if tier != "A" else 0.65
+-            reasons.append("market_cost_or_regime_soft_cap")
+-
+-    adjusted = req * risk_multiplier if allow else 0.0
+-
+-    if TRADE_RISK_LEVEL:
+-        TRADE_RISK_LEVEL.labels(symbol=symbol).set(_level_num(level))
+-    if level in {RISK_DENY_SOFT, RISK_DENY_HARD} and TRADE_RISK_DENY_TOTAL:
+-        for reason in sorted(set(reasons)):
+-            TRADE_RISK_DENY_TOTAL.labels(symbol=symbol, reason=reason, level=level).inc()
+-    if level == RISK_FORCE_FLATTEN and TRADE_RISK_FORCE_FLATTEN_TOTAL:
+-        for reason in sorted(set(reasons)):
+-            TRADE_RISK_FORCE_FLATTEN_TOTAL.labels(symbol=symbol, reason=reason).inc()
+-
+-    snapshot = {
+-        "symbol": symbol,
+-        "cluster": cluster,
+-        "tier": tier,
+-        "equity_usd": equity,
+-        "requested_notional_usd": req,
+-        "total_exposure_usd": total_exposure,
+-        "symbol_exposure_usd": symbol_exposure,
+-        "cluster_exposure_usd": cluster_exposure,
+-        "total_exposure_ratio": total_ratio,
+-        "symbol_exposure_ratio": symbol_ratio,
+-        "cluster_exposure_ratio": cluster_ratio,
+-        "daily_pnl_pct": _f(inp.daily_pnl_pct),
+-        "spread_bps": _f(inp.spread_bps),
+-        "slippage_bps": _f(inp.slippage_bps),
+-        "infra_degraded": bool(inp.infra_degraded),
+-        "high_vol": bool(inp.high_vol),
+-    }
+-
+-    return PortfolioRiskDecision(
+-        level=level,
+-        allow_trade_publish=allow,
+-        adjusted_notional_usd=adjusted,
+-        leverage_cap=leverage_cap,
+-        risk_multiplier=risk_multiplier,
+-        reasons=sorted(set(reasons)),
+-        snapshot=snapshot,
+-    )
++    import importlib.util
++    import sys
++    from pathlib import Path
++
++    _path = Path(__file__).resolve().with_name('risk_policy_engine.py')
++    _spec = importlib.util.spec_from_file_location('risk_policy_engine', _path)
++    _mod = importlib.util.module_from_spec(_spec)
++    sys.modules[_spec.name] = _mod
++    assert _spec.loader is not None
++    _spec.loader.exec_module(_mod)
++    for _name in dir(_mod):
++        if not _name.startswith('_'):
++            globals()[_name] = getattr(_mod, _name)
+diff -ruN p33aut/audit_code/risk/risk_policy_engine.py p4work/audit_code/risk/risk_policy_engine.py
+--- p33aut/audit_code/risk/risk_policy_engine.py	1970-01-01 00:00:00.000000000 +0000
++++ p4work/audit_code/risk/risk_policy_engine.py	2026-03-07 06:56:58.016866654 +0000
+@@ -0,0 +1,537 @@
++from __future__ import annotations
++
++"""Unified risk policy engine used before a signal is published for execution.
++
++Design goals
++------------
++1. Deterministic: same inputs must produce the same decision.
++2. Explainable: the engine always returns structured reasons and a full snapshot.
++3. Safe by default: baseline leverage / risk budget defaults are intentionally conservative.
++4. Backward compatible: aliases at the bottom preserve the previous portfolio-risk API.
++
++The engine combines three layers:
++- portfolio caps (daily loss, total exposure, symbol exposure, cluster exposure)
++- tier policy (A/B/C with maker allowance, leverage, confidence floor, watchdog timeout)
++- per-trade sizing (equity, stop distance, volatility, spread and expected slippage)
++"""
++
++from dataclasses import dataclass, field
++from typing import Any, Dict, Iterable, List, Mapping, Optional
++import os
++
++try:
++    from prometheus_client import Counter, Gauge, REGISTRY
++except Exception:  # pragma: no cover
++    Counter = Gauge = None  # type: ignore
++    REGISTRY = None  # type: ignore
++
++
++def _metric(factory, name: str, *args, **kwargs):
++    if factory is None:
++        return None
++    try:
++        return factory(name, *args, **kwargs)
++    except ValueError:
++        return getattr(REGISTRY, "_names_to_collectors", {}).get(name) if REGISTRY is not None else None
++
++
++TRADE_RISK_LEVEL = _metric(
++    Gauge,
++    "trade_risk_level",
++    "Risk-engine decision level for the next trade (0=ALLOW,1=TIGHTENED,2=DENY_SOFT,3=DENY_HARD,4=FORCE_FLATTEN).",
++    ["symbol"],
++)
++TRADE_RISK_DENY_TOTAL = _metric(
++    Counter,
++    "trade_risk_deny_total",
++    "Number of risk-engine denials for pre-trade publication.",
++    ["symbol", "reason", "level"],
++)
++TRADE_RISK_FORCE_FLATTEN_TOTAL = _metric(
++    Counter,
++    "trade_risk_force_flatten_total",
++    "Number of times the risk engine requested forced flatten instead of new risk.",
++    ["symbol", "reason"],
++)
++TRADE_PORTFOLIO_TOTAL_EXPOSURE_RATIO = _metric(
++    Gauge,
++    "trade_portfolio_total_exposure_ratio",
++    "Current total notional exposure divided by equity, before applying the next trade.",
++)
++TRADE_PORTFOLIO_SYMBOL_EXPOSURE_RATIO = _metric(
++    Gauge,
++    "trade_portfolio_symbol_exposure_ratio",
++    "Current symbol notional exposure divided by equity, before applying the next trade.",
++    ["symbol"],
++)
++TRADE_PORTFOLIO_CLUSTER_EXPOSURE_RATIO = _metric(
++    Gauge,
++    "trade_portfolio_cluster_exposure_ratio",
++    "Current cluster notional exposure divided by equity, before applying the next trade.",
++    ["cluster"],
++)
++TRADE_RISK_RECOMMENDED_NOTIONAL_USD = _metric(
++    Gauge,
++    "trade_risk_recommended_notional_usd",
++    "Recommended notional after the risk engine applies budget and cap logic.",
++    ["symbol"],
++)
++TRADE_RISK_LEVERAGE_CAP = _metric(
++    Gauge,
++    "trade_risk_leverage_cap",
++    "Leverage cap selected by the risk engine for the next trade.",
++    ["symbol", "tier"],
++)
++TRADE_RISK_MIN_CONFIDENCE_REQUIRED = _metric(
++    Gauge,
++    "trade_risk_min_confidence_required",
++    "Minimum confidence required by the tier policy for the next trade.",
++    ["symbol", "tier"],
++)
++TRADE_RISK_MAKER_ALLOWED = _metric(
++    Gauge,
++    "trade_risk_maker_allowed",
++    "Whether maker policy is allowed by the current tier / regime / infra state.",
++    ["symbol", "tier"],
++)
++
++RISK_ALLOW = "ALLOW"
++RISK_ALLOW_TIGHTENED = "ALLOW_TIGHTENED"
++RISK_DENY_SOFT = "DENY_SOFT"
++RISK_DENY_HARD = "DENY_HARD"
++RISK_FORCE_FLATTEN = "FORCE_FLATTEN"
++
++
++@dataclass(frozen=True)
++class TierPolicy:
++    name: str
++    leverage_cap: float
++    min_confidence: float
++    maker_allowed: bool
++    slippage_bps_cap: float
++    watchdog_timeout_ms: int
++    max_symbol_exposure_ratio: float
++    max_concurrent_positions: int
++    base_risk_pct: float
++
++    def to_dict(self) -> Dict[str, Any]:
++        return {
++            "name": self.name,
++            "leverage_cap": float(self.leverage_cap),
++            "min_confidence": float(self.min_confidence),
++            "maker_allowed": bool(self.maker_allowed),
++            "slippage_bps_cap": float(self.slippage_bps_cap),
++            "watchdog_timeout_ms": int(self.watchdog_timeout_ms),
++            "max_symbol_exposure_ratio": float(self.max_symbol_exposure_ratio),
++            "max_concurrent_positions": int(self.max_concurrent_positions),
++            "base_risk_pct": float(self.base_risk_pct),
++        }
++
++
++@dataclass(frozen=True)
++class RiskPolicyLimits:
++    max_daily_loss_pct: float = 2.0
++    max_total_exposure_ratio: float = 2.25
++    max_cluster_exposure_ratio: float = 1.15
++    infra_degraded_risk_multiplier: float = 0.50
++    high_vol_risk_multiplier: float = 0.65
++    kill_switch: bool = False
++    kill_switch_force_flatten: bool = True
++    min_stop_distance_bps: float = 8.0
++    volatility_stop_weight: float = 0.50
++    soft_spread_bps_cap: float = 10.0
++    hard_spread_bps_cap: float = 25.0
++    tier_a_symbols: tuple[str, ...] = ("BTCUSDT", "ETHUSDT")
++    tier_b_symbols: tuple[str, ...] = ("SOLUSDT", "XRPUSDT", "BNBUSDT", "ADAUSDT", "DOGEUSDT", "LTCUSDT", "BCHUSDT", "AVAXUSDT", "LINKUSDT")
++
++    @classmethod
++    def from_env(cls) -> "RiskPolicyLimits":
++        def _f(name: str, default: float) -> float:
++            try:
++                return float(os.getenv(name, str(default)))
++            except Exception:
++                return float(default)
++
++        def _b(name: str, default: bool) -> bool:
++            v = os.getenv(name)
++            if v is None:
++                return default
++            return str(v).strip().lower() in {"1", "true", "yes", "on"}
++
++        def _csv(name: str, default: Iterable[str]) -> tuple[str, ...]:
++            raw = os.getenv(name)
++            if raw is None:
++                return tuple(default)
++            values = tuple(str(v).strip().upper() for v in raw.split(",") if str(v).strip())
++            return values or tuple(default)
++
++        return cls(
++            max_daily_loss_pct=_f("RISK_MAX_DAILY_LOSS_PCT", cls.max_daily_loss_pct),
++            max_total_exposure_ratio=_f("RISK_MAX_TOTAL_EXPOSURE_RATIO", cls.max_total_exposure_ratio),
++            max_cluster_exposure_ratio=_f("RISK_MAX_CLUSTER_EXPOSURE_RATIO", cls.max_cluster_exposure_ratio),
++            infra_degraded_risk_multiplier=_f("RISK_INFRA_DEGRADED_MULTIPLIER", cls.infra_degraded_risk_multiplier),
++            high_vol_risk_multiplier=_f("RISK_HIGH_VOL_MULTIPLIER", cls.high_vol_risk_multiplier),
++            kill_switch=_b("RISK_KILL_SWITCH", cls.kill_switch),
++            kill_switch_force_flatten=_b("RISK_KILL_SWITCH_FORCE_FLATTEN", cls.kill_switch_force_flatten),
++            min_stop_distance_bps=_f("RISK_MIN_STOP_DISTANCE_BPS", cls.min_stop_distance_bps),
++            volatility_stop_weight=_f("RISK_VOLATILITY_STOP_WEIGHT", cls.volatility_stop_weight),
++            soft_spread_bps_cap=_f("RISK_SOFT_SPREAD_BPS_CAP", cls.soft_spread_bps_cap),
++            hard_spread_bps_cap=_f("RISK_HARD_SPREAD_BPS_CAP", cls.hard_spread_bps_cap),
++            tier_a_symbols=_csv("RISK_TIER_A_SYMBOLS", cls.tier_a_symbols),
++            tier_b_symbols=_csv("RISK_TIER_B_SYMBOLS", cls.tier_b_symbols),
++        )
++
++    def tier_policy(self, tier: str) -> TierPolicy:
++        t = _tier(tier)
++        # Safer defaults than legacy universal 100x / 5% risk settings.
++        if t == "A":
++            return TierPolicy(
++                name="A",
++                leverage_cap=_f_env("RISK_TIER_A_MAX_LEVERAGE", 10.0),
++                min_confidence=_f_env("RISK_TIER_A_MIN_CONFIDENCE", 0.55),
++                maker_allowed=_b_env("RISK_TIER_A_MAKER_ALLOWED", True),
++                slippage_bps_cap=_f_env("RISK_TIER_A_SLIPPAGE_BPS_CAP", 12.0),
++                watchdog_timeout_ms=_i_env("RISK_TIER_A_WATCHDOG_TIMEOUT_MS", 4000),
++                max_symbol_exposure_ratio=_f_env("RISK_TIER_A_MAX_SYMBOL_EXPOSURE_RATIO", 0.70),
++                max_concurrent_positions=_i_env("RISK_TIER_A_MAX_CONCURRENT_POSITIONS", 3),
++                base_risk_pct=_f_env("RISK_TIER_A_BASE_RISK_PCT", 0.75),
++            )
++        if t == "B":
++            return TierPolicy(
++                name="B",
++                leverage_cap=_f_env("RISK_TIER_B_MAX_LEVERAGE", 5.0),
++                min_confidence=_f_env("RISK_TIER_B_MIN_CONFIDENCE", 0.60),
++                maker_allowed=_b_env("RISK_TIER_B_MAKER_ALLOWED", True),
++                slippage_bps_cap=_f_env("RISK_TIER_B_SLIPPAGE_BPS_CAP", 18.0),
++                watchdog_timeout_ms=_i_env("RISK_TIER_B_WATCHDOG_TIMEOUT_MS", 3500),
++                max_symbol_exposure_ratio=_f_env("RISK_TIER_B_MAX_SYMBOL_EXPOSURE_RATIO", 0.45),
++                max_concurrent_positions=_i_env("RISK_TIER_B_MAX_CONCURRENT_POSITIONS", 2),
++                base_risk_pct=_f_env("RISK_TIER_B_BASE_RISK_PCT", 0.45),
++            )
++        return TierPolicy(
++            name="C",
++            leverage_cap=_f_env("RISK_TIER_C_MAX_LEVERAGE", 3.0),
++            min_confidence=_f_env("RISK_TIER_C_MIN_CONFIDENCE", 0.68),
++            maker_allowed=_b_env("RISK_TIER_C_MAKER_ALLOWED", False),
++            slippage_bps_cap=_f_env("RISK_TIER_C_SLIPPAGE_BPS_CAP", 10.0),
++            watchdog_timeout_ms=_i_env("RISK_TIER_C_WATCHDOG_TIMEOUT_MS", 2500),
++            max_symbol_exposure_ratio=_f_env("RISK_TIER_C_MAX_SYMBOL_EXPOSURE_RATIO", 0.20),
++            max_concurrent_positions=_i_env("RISK_TIER_C_MAX_CONCURRENT_POSITIONS", 1),
++            base_risk_pct=_f_env("RISK_TIER_C_BASE_RISK_PCT", 0.25),
++        )
++
++
++@dataclass(frozen=True)
++class RiskPosition:
++    symbol: str
++    notional_usd: float
++    side: str = "LONG"
++    cluster: str = "default"
++    tier: str = "B"
++
++
++@dataclass(frozen=True)
++class RiskPolicyInput:
++    symbol: str
++    cluster: str
++    tier: str
++    requested_notional_usd: float
++    current_positions: List[RiskPosition] = field(default_factory=list)
++    equity_usd: float = 0.0
++    daily_pnl_pct: float = 0.0
++    stop_distance_bps: float = 0.0
++    volatility_bps: float = 0.0
++    spread_bps: float = 0.0
++    expected_slippage_bps: float = 0.0
++    confidence: float = 0.0
++    maker_policy_requested: bool = False
++    infra_degraded: bool = False
++    high_vol: bool = False
++    kill_switch: bool = False
++
++
++@dataclass(frozen=True)
++class RiskPolicyDecision:
++    level: str
++    allow_trade_publish: bool
++    adjusted_notional_usd: float
++    leverage_cap: float
++    risk_multiplier: float
++    reasons: List[str]
++    snapshot: Dict[str, Any]
++    tier_policy: TierPolicy
++    maker_policy_allowed: bool
++    min_confidence_required: float
++    watchdog_timeout_ms: int
++    effective_execution_policy: str
++
++    def to_dict(self) -> Dict[str, Any]:
++        return {
++            "level": self.level,
++            "allow_trade_publish": bool(self.allow_trade_publish),
++            "adjusted_notional_usd": float(self.adjusted_notional_usd),
++            "leverage_cap": float(self.leverage_cap),
++            "risk_multiplier": float(self.risk_multiplier),
++            "reasons": list(self.reasons),
++            "snapshot": dict(self.snapshot),
++            "tier_policy": self.tier_policy.to_dict(),
++            "maker_policy_allowed": bool(self.maker_policy_allowed),
++            "min_confidence_required": float(self.min_confidence_required),
++            "watchdog_timeout_ms": int(self.watchdog_timeout_ms),
++            "effective_execution_policy": str(self.effective_execution_policy),
++        }
++
++
++def _f(v: Any, default: float = 0.0) -> float:
++    try:
++        return float(v)
++    except Exception:
++        return float(default)
++
++
++def _i_env(name: str, default: int) -> int:
++    try:
++        return int(float(os.getenv(name, str(default))))
++    except Exception:
++        return int(default)
++
++
++def _f_env(name: str, default: float) -> float:
++    try:
++        return float(os.getenv(name, str(default)))
++    except Exception:
++        return float(default)
++
++
++def _b_env(name: str, default: bool) -> bool:
++    raw = os.getenv(name)
++    if raw is None:
++        return default
++    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
++
++
++def _tier(v: Any) -> str:
++    s = str(v or "").strip().upper()
++    return s if s in {"A", "B", "C"} else "B"
++
++
++def infer_symbol_tier(symbol: Any, limits: Optional[RiskPolicyLimits] = None) -> str:
++    lim = limits or RiskPolicyLimits.from_env()
++    sym = str(symbol or "").strip().upper()
++    if sym in set(lim.tier_a_symbols):
++        return "A"
++    if sym in set(lim.tier_b_symbols):
++        return "B"
++    if sym.endswith("USDT") and (sym.startswith("1000") or "PEPE" in sym or "BONK" in sym or "WIF" in sym or "FLOKI" in sym):
++        return "C"
++    return "C"
++
++
++def _level_num(level: str) -> int:
++    return {
++        RISK_ALLOW: 0,
++        RISK_ALLOW_TIGHTENED: 1,
++        RISK_DENY_SOFT: 2,
++        RISK_DENY_HARD: 3,
++        RISK_FORCE_FLATTEN: 4,
++    }.get(level, 3)
++
++
++def _count_positions(positions: Iterable[RiskPosition], *, symbol: str) -> int:
++    return sum(1 for p in positions if str(p.symbol).upper() == symbol and abs(_f(p.notional_usd)) > 0)
++
++
++def evaluate_risk_policy(inp: RiskPolicyInput, limits: Optional[RiskPolicyLimits] = None) -> RiskPolicyDecision:
++    lim = limits or RiskPolicyLimits.from_env()
++    symbol = str(inp.symbol or "UNKNOWN").upper()
++    tier = _tier(inp.tier) if str(inp.tier or '').strip() else infer_symbol_tier(symbol, lim)
++    cluster = str(inp.cluster or symbol)
++    tier_policy = lim.tier_policy(tier)
++    equity = max(0.0, _f(inp.equity_usd))
++    req = max(0.0, _f(inp.requested_notional_usd))
++    positions = list(inp.current_positions or [])
++
++    total_exposure = sum(abs(_f(p.notional_usd)) for p in positions)
++    symbol_exposure = sum(abs(_f(p.notional_usd)) for p in positions if str(p.symbol).upper() == symbol)
++    cluster_exposure = sum(abs(_f(p.notional_usd)) for p in positions if str(p.cluster or '') == cluster)
++    symbol_position_count = _count_positions(positions, symbol=symbol)
++
++    total_ratio = (total_exposure / equity) if equity > 0 else 0.0
++    symbol_ratio = (symbol_exposure / equity) if equity > 0 else 0.0
++    cluster_ratio = (cluster_exposure / equity) if equity > 0 else 0.0
++
++    if TRADE_PORTFOLIO_TOTAL_EXPOSURE_RATIO:
++        TRADE_PORTFOLIO_TOTAL_EXPOSURE_RATIO.set(total_ratio)
++    if TRADE_PORTFOLIO_SYMBOL_EXPOSURE_RATIO:
++        TRADE_PORTFOLIO_SYMBOL_EXPOSURE_RATIO.labels(symbol=symbol).set(symbol_ratio)
++    if TRADE_PORTFOLIO_CLUSTER_EXPOSURE_RATIO:
++        TRADE_PORTFOLIO_CLUSTER_EXPOSURE_RATIO.labels(cluster=cluster).set(cluster_ratio)
++
++    level = RISK_ALLOW
++    allow = True
++    risk_multiplier = 1.0
++    reasons: List[str] = []
++    maker_allowed = bool(tier_policy.maker_allowed) and not bool(inp.infra_degraded)
++    effective_execution_policy = "MAKER_FIRST" if (maker_allowed and bool(inp.maker_policy_requested)) else "SAFETY_FIRST"
++
++    if lim.kill_switch or bool(inp.kill_switch):
++        level = RISK_FORCE_FLATTEN if lim.kill_switch_force_flatten else RISK_DENY_HARD
++        allow = False
++        reasons.append('kill_switch')
++    elif _f(inp.daily_pnl_pct) <= -abs(lim.max_daily_loss_pct):
++        level = RISK_FORCE_FLATTEN
++        allow = False
++        reasons.append('daily_loss_limit')
++
++    if allow and symbol_position_count >= tier_policy.max_concurrent_positions:
++        level = RISK_DENY_SOFT
++        allow = False
++        reasons.append('tier_max_concurrent_positions')
++
++    if allow and equity <= 0:
++        level = RISK_DENY_HARD
++        allow = False
++        reasons.append('missing_equity')
++
++    confidence = _f(inp.confidence)
++    if allow and total_ratio > lim.max_total_exposure_ratio:
++        level = RISK_DENY_HARD
++        allow = False
++        reasons.append('total_exposure_cap')
++    if allow and symbol_ratio > tier_policy.max_symbol_exposure_ratio:
++        level = RISK_DENY_HARD
++        allow = False
++        reasons.append('symbol_exposure_cap')
++    if allow and cluster_ratio > lim.max_cluster_exposure_ratio:
++        level = RISK_DENY_HARD
++        allow = False
++        reasons.append('cluster_exposure_cap')
++
++    if allow and confidence and confidence < float(tier_policy.min_confidence):
++        level = RISK_DENY_SOFT
++        allow = False
++        reasons.append('confidence_below_tier_floor')
++
++    spread_bps = _f(inp.spread_bps)
++    expected_slippage_bps = _f(inp.expected_slippage_bps)
++    if allow and spread_bps > lim.hard_spread_bps_cap:
++        level = RISK_DENY_HARD
++        allow = False
++        reasons.append('spread_hard_cap')
++    if allow and expected_slippage_bps > tier_policy.slippage_bps_cap:
++        level = RISK_DENY_HARD
++        allow = False
++        reasons.append('slippage_hard_cap')
++
++    if allow:
++        # Tightening multipliers stack multiplicatively and are fully deterministic.
++        if inp.infra_degraded:
++            risk_multiplier *= max(0.10, min(1.0, lim.infra_degraded_risk_multiplier))
++            reasons.append('infra_degraded_tightened')
++        if inp.high_vol:
++            risk_multiplier *= max(0.10, min(1.0, lim.high_vol_risk_multiplier))
++            reasons.append('high_vol_tightened')
++        if spread_bps > lim.soft_spread_bps_cap:
++            risk_multiplier *= 0.75
++            reasons.append('spread_soft_cap')
++        if expected_slippage_bps > (tier_policy.slippage_bps_cap * 0.66):
++            risk_multiplier *= 0.75
++            reasons.append('slippage_soft_cap')
++        if not maker_allowed and bool(inp.maker_policy_requested):
++            reasons.append('maker_policy_disabled_for_tier_or_infra')
++            effective_execution_policy = 'SAFETY_FIRST'
++        if risk_multiplier < 0.999 and level == RISK_ALLOW:
++            level = RISK_ALLOW_TIGHTENED
++
++    # Per-trade risk sizing: risk_budget / effective stop fraction.
++    stop_distance_bps = max(_f(inp.stop_distance_bps), lim.min_stop_distance_bps)
++    volatility_component_bps = max(0.0, _f(inp.volatility_bps) * max(0.0, lim.volatility_stop_weight))
++    effective_stop_bps = max(stop_distance_bps, volatility_component_bps, lim.min_stop_distance_bps)
++    effective_stop_frac = max(effective_stop_bps / 10000.0, 0.0001)
++    base_risk_usd = equity * (tier_policy.base_risk_pct / 100.0)
++    budget_risk_usd = base_risk_usd * risk_multiplier if allow else 0.0
++    model_notional_usd = budget_risk_usd / effective_stop_frac if effective_stop_frac > 0 else 0.0
++    leverage_notional_cap = equity * tier_policy.leverage_cap
++    residual_symbol_cap = max(0.0, (tier_policy.max_symbol_exposure_ratio * equity) - symbol_exposure)
++    residual_total_cap = max(0.0, (lim.max_total_exposure_ratio * equity) - total_exposure)
++    residual_cluster_cap = max(0.0, (lim.max_cluster_exposure_ratio * equity) - cluster_exposure)
++    max_position_notional_usd = max(0.0, min(leverage_notional_cap, residual_symbol_cap, residual_total_cap, residual_cluster_cap))
++
++    requested_target_notional = req if req > 0 else model_notional_usd
++    adjusted = min(requested_target_notional, model_notional_usd, max_position_notional_usd) if allow else 0.0
++    if allow and adjusted <= 0.0:
++        level = RISK_DENY_SOFT
++        allow = False
++        reasons.append('no_residual_risk_capacity')
++    elif allow and requested_target_notional > adjusted:
++        reasons.append('notional_clamped_by_risk_engine')
++        if level == RISK_ALLOW:
++            level = RISK_ALLOW_TIGHTENED
++
++    snapshot = {
++        'symbol': symbol,
++        'cluster': cluster,
++        'tier': tier,
++        'equity_usd': float(equity),
++        'daily_pnl_pct': float(_f(inp.daily_pnl_pct)),
++        'requested_notional_usd': float(req),
++        'adjusted_notional_usd': float(adjusted),
++        'base_risk_usd': float(base_risk_usd),
++        'budget_risk_usd': float(budget_risk_usd),
++        'effective_stop_bps': float(effective_stop_bps),
++        'spread_bps': float(spread_bps),
++        'expected_slippage_bps': float(expected_slippage_bps),
++        'confidence': float(confidence),
++        'total_exposure_ratio': float(total_ratio),
++        'symbol_exposure_ratio': float(symbol_ratio),
++        'cluster_exposure_ratio': float(cluster_ratio),
++        'max_position_notional_usd': float(max_position_notional_usd),
++        'symbol_position_count': int(symbol_position_count),
++        'maker_policy_requested': bool(inp.maker_policy_requested),
++        'maker_policy_allowed': bool(maker_allowed),
++        'infra_degraded': bool(inp.infra_degraded),
++        'high_vol': bool(inp.high_vol),
++        'kill_switch': bool(lim.kill_switch or inp.kill_switch),
++    }
++
++    if TRADE_RISK_LEVEL:
++        TRADE_RISK_LEVEL.labels(symbol=symbol).set(_level_num(level))
++    if TRADE_RISK_RECOMMENDED_NOTIONAL_USD:
++        TRADE_RISK_RECOMMENDED_NOTIONAL_USD.labels(symbol=symbol).set(float(adjusted))
++    if TRADE_RISK_LEVERAGE_CAP:
++        TRADE_RISK_LEVERAGE_CAP.labels(symbol=symbol, tier=tier).set(float(tier_policy.leverage_cap))
++    if TRADE_RISK_MIN_CONFIDENCE_REQUIRED:
++        TRADE_RISK_MIN_CONFIDENCE_REQUIRED.labels(symbol=symbol, tier=tier).set(float(tier_policy.min_confidence))
++    if TRADE_RISK_MAKER_ALLOWED:
++        TRADE_RISK_MAKER_ALLOWED.labels(symbol=symbol, tier=tier).set(1.0 if maker_allowed else 0.0)
++    if level in {RISK_DENY_SOFT, RISK_DENY_HARD} and TRADE_RISK_DENY_TOTAL:
++        for reason in sorted(set(reasons)):
++            TRADE_RISK_DENY_TOTAL.labels(symbol=symbol, reason=reason, level=level).inc()
++    if level == RISK_FORCE_FLATTEN and TRADE_RISK_FORCE_FLATTEN_TOTAL:
++        for reason in sorted(set(reasons)):
++            TRADE_RISK_FORCE_FLATTEN_TOTAL.labels(symbol=symbol, reason=reason).inc()
++
++    return RiskPolicyDecision(
++        level=level,
++        allow_trade_publish=bool(allow),
++        adjusted_notional_usd=float(adjusted),
++        leverage_cap=float(tier_policy.leverage_cap),
++        risk_multiplier=float(risk_multiplier if allow else 0.0),
++        reasons=sorted(set(reasons)),
++        snapshot=snapshot,
++        tier_policy=tier_policy,
++        maker_policy_allowed=bool(maker_allowed),
++        min_confidence_required=float(tier_policy.min_confidence),
++        watchdog_timeout_ms=int(tier_policy.watchdog_timeout_ms),
++        effective_execution_policy=effective_execution_policy,
++    )
++
++
++# ---- Backward-compatibility aliases for the previous portfolio-risk module ----
++PortfolioPosition = RiskPosition
++PortfolioRiskInput = RiskPolicyInput
++PortfolioRiskLimits = RiskPolicyLimits
++PortfolioRiskDecision = RiskPolicyDecision
++
++def evaluate_portfolio_risk(inp: RiskPolicyInput, limits: Optional[RiskPolicyLimits] = None) -> RiskPolicyDecision:
++    return evaluate_risk_policy(inp, limits)
+diff -ruN p33aut/audit_code/risk/test_risk_policy_engine_v1.py p4work/audit_code/risk/test_risk_policy_engine_v1.py
+--- p33aut/audit_code/risk/test_risk_policy_engine_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p4work/audit_code/risk/test_risk_policy_engine_v1.py	2026-03-07 06:55:16.840959313 +0000
+@@ -0,0 +1,54 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++mod_path = Path(__file__).resolve().parent / 'risk_policy_engine.py'
++spec = importlib.util.spec_from_file_location('risk_policy_engine', mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++spec.loader.exec_module(mod)
++
++
++def test_infer_symbol_tier_defaults():
++    limits = mod.RiskPolicyLimits.from_env()
++    assert mod.infer_symbol_tier('BTCUSDT', limits) == 'A'
++    assert mod.infer_symbol_tier('SOLUSDT', limits) == 'B'
++    assert mod.infer_symbol_tier('1000PEPEUSDT', limits) == 'C'
++
++
++def test_daily_loss_forces_flatten():
++    decision = mod.evaluate_risk_policy(mod.RiskPolicyInput(
++        symbol='BTCUSDT', cluster='majors', tier='A', requested_notional_usd=1000.0,
++        equity_usd=10000.0, daily_pnl_pct=-3.0,
++    ))
++    assert decision.level == mod.RISK_FORCE_FLATTEN
++    assert decision.allow_trade_publish is False
++
++
++def test_tier_c_maker_is_disabled_and_tightened():
++    decision = mod.evaluate_risk_policy(mod.RiskPolicyInput(
++        symbol='1000PEPEUSDT', cluster='memes', tier='C', requested_notional_usd=500.0,
++        equity_usd=10000.0, stop_distance_bps=25.0, expected_slippage_bps=6.0,
++        confidence=0.75, maker_policy_requested=True,
++    ))
++    assert decision.maker_policy_allowed is False
++    assert decision.effective_execution_policy == 'SAFETY_FIRST'
++
++
++def test_risk_sizing_uses_stop_distance_and_caps():
++    decision = mod.evaluate_risk_policy(mod.RiskPolicyInput(
++        symbol='ETHUSDT', cluster='majors', tier='A', requested_notional_usd=200000.0,
++        equity_usd=10000.0, stop_distance_bps=50.0, confidence=0.9,
++    ))
++    assert decision.allow_trade_publish is True
++    assert 0.0 < decision.adjusted_notional_usd < 200000.0
++    assert decision.leverage_cap == 10.0
++
++
++def test_confidence_below_floor_denies_soft():
++    decision = mod.evaluate_risk_policy(mod.RiskPolicyInput(
++        symbol='SOLUSDT', cluster='majors', tier='B', requested_notional_usd=1000.0,
++        equity_usd=10000.0, stop_distance_bps=40.0, confidence=0.2,
++    ))
++    assert decision.level == mod.RISK_DENY_SOFT
++    assert decision.allow_trade_publish is False
+diff -ruN p33aut/audit_code/test_crypto_orderflow_service_p4_contract_v1.py p4work/audit_code/test_crypto_orderflow_service_p4_contract_v1.py
+--- p33aut/audit_code/test_crypto_orderflow_service_p4_contract_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p4work/audit_code/test_crypto_orderflow_service_p4_contract_v1.py	2026-03-07 06:54:57.439171942 +0000
+@@ -0,0 +1,8 @@
++from pathlib import Path
++
++
++def test_crypto_orderflow_service_uses_new_risk_engine_contract():
++    src = (Path(__file__).resolve().parent / 'crypto_orderflow_service.py').read_text(encoding='utf-8')
++    assert 'risk_policy_engine' in src
++    assert 'risk_watchdog_timeout_ms' in src
++    assert 'effective_execution_policy' in src or 'execution_policy' in src
+diff -ruN p33aut/audit_code/test_p4_risk_assets_v1.py p4work/audit_code/test_p4_risk_assets_v1.py
+--- p33aut/audit_code/test_p4_risk_assets_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p4work/audit_code/test_p4_risk_assets_v1.py	2026-03-07 06:57:15.704723499 +0000
+@@ -0,0 +1,7 @@
++from pathlib import Path
++
++
++def test_p4_assets_exist():
++    root = Path(__file__).resolve().parents[1]
++    assert (root / 'config' / 'env.execution-p4-risk.example').exists()
++    assert (root / 'monitoring' / 'prometheus_rules_execution_p4_risk.yml').exists()
+diff -ruN p33aut/config/env.execution-p4-risk.example p4work/config/env.execution-p4-risk.example
+--- p33aut/config/env.execution-p4-risk.example	1970-01-01 00:00:00.000000000 +0000
++++ p4work/config/env.execution-p4-risk.example	2026-03-07 06:54:57.438829696 +0000
+@@ -0,0 +1,39 @@
++# P4 risk engine safe defaults
++RISK_KILL_SWITCH=0
++RISK_KILL_SWITCH_FORCE_FLATTEN=1
++RISK_MAX_DAILY_LOSS_PCT=2.0
++RISK_MAX_TOTAL_EXPOSURE_RATIO=2.25
++RISK_MAX_CLUSTER_EXPOSURE_RATIO=1.15
++RISK_INFRA_DEGRADED_MULTIPLIER=0.50
++RISK_HIGH_VOL_MULTIPLIER=0.65
++
++RISK_TIER_A_SYMBOLS=BTCUSDT,ETHUSDT
++RISK_TIER_B_SYMBOLS=SOLUSDT,XRPUSDT,BNBUSDT,ADAUSDT,DOGEUSDT,LTCUSDT,BCHUSDT,AVAXUSDT,LINKUSDT
++
++RISK_TIER_A_MAX_LEVERAGE=10
++RISK_TIER_B_MAX_LEVERAGE=5
++RISK_TIER_C_MAX_LEVERAGE=3
++
++RISK_TIER_A_MIN_CONFIDENCE=0.55
++RISK_TIER_B_MIN_CONFIDENCE=0.60
++RISK_TIER_C_MIN_CONFIDENCE=0.68
++
++RISK_TIER_A_BASE_RISK_PCT=0.75
++RISK_TIER_B_BASE_RISK_PCT=0.45
++RISK_TIER_C_BASE_RISK_PCT=0.25
++
++RISK_TIER_A_SLIPPAGE_BPS_CAP=12
++RISK_TIER_B_SLIPPAGE_BPS_CAP=18
++RISK_TIER_C_SLIPPAGE_BPS_CAP=10
++
++RISK_TIER_A_WATCHDOG_TIMEOUT_MS=4000
++RISK_TIER_B_WATCHDOG_TIMEOUT_MS=3500
++RISK_TIER_C_WATCHDOG_TIMEOUT_MS=2500
++
++RISK_TIER_A_MAX_SYMBOL_EXPOSURE_RATIO=0.70
++RISK_TIER_B_MAX_SYMBOL_EXPOSURE_RATIO=0.45
++RISK_TIER_C_MAX_SYMBOL_EXPOSURE_RATIO=0.20
++
++RISK_TIER_A_MAX_CONCURRENT_POSITIONS=3
++RISK_TIER_B_MAX_CONCURRENT_POSITIONS=2
++RISK_TIER_C_MAX_CONCURRENT_POSITIONS=1
+diff -ruN p33aut/monitoring/prometheus_rules_execution_p4_risk.yml p4work/monitoring/prometheus_rules_execution_p4_risk.yml
+--- p33aut/monitoring/prometheus_rules_execution_p4_risk.yml	1970-01-01 00:00:00.000000000 +0000
++++ p4work/monitoring/prometheus_rules_execution_p4_risk.yml	2026-03-07 06:54:57.438973765 +0000
+@@ -0,0 +1,24 @@
++groups:
++  - name: trade-execution-p4-risk
++    rules:
++      - alert: TradeRiskForceFlatten
++        expr: increase(trade_risk_force_flatten_total[5m]) > 0
++        for: 0m
++        labels:
++          severity: critical
++        annotations:
++          summary: Trade risk engine requested force flatten
++      - alert: TradeRiskDenySpike
++        expr: increase(trade_risk_deny_total[10m]) > 10
++        for: 5m
++        labels:
++          severity: warning
++        annotations:
++          summary: Trade risk engine denials are spiking
++      - alert: TradePortfolioExposureHigh
++        expr: trade_portfolio_total_exposure_ratio > 2.0
++        for: 5m
++        labels:
++          severity: warning
++        annotations:
++          summary: Total portfolio exposure is high

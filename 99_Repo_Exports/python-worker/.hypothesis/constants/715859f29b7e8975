@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/signal_preprocess.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 30.0, 100.0, 1000, 1000000000, 10000000000, 1000000000000, 10000000000000, '+1', '-1', '0', '1', '30', 'LONG', 'SHORT', 'buy', 'confidence', 'confidence01', 'confidence_pct', 'data_quality_flags', 'direction', 'entry', 'entry_price', 'false', 'last_price', 'long', 'no', 'off', 'price', 'sell', 'short', 'sid', 'side', 'side_int', 'signal_id', 'source', 'symbol', 'ts', 'ts_ms']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/redis_window.py
+# hypothesis_version: 6.148.10
+
+[2000, '+', '-', 'indicators', 'payload', 'ts_ms']

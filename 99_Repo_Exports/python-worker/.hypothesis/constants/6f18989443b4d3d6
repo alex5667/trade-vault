@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/_config/__init__.py
+# hypothesis_version: 6.148.10
+
+['block', 'config', 'copy_on_write', 'data_manager', 'describe_option', 'future', 'get_option', 'infer_string', 'mode', 'nullable_dtypes', 'option_context', 'options', 'reset_option', 'set_option', 'using_copy_on_write']

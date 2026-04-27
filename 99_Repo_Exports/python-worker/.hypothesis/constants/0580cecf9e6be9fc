@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/ev_giveback_stats.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-12, 0.001, 0.05, 0.5, 1.0, 10000.0, '0', '0.05', '1', '1m', '30', 'GivebackEmaConfig', 'ema_giveback_bps', 'ignore', 'last_ts_ms', 'na', 'name', 'on', 'pipeline', 'samples', 'trailgb', 'true', 'utf-8', 'value', 'yes']

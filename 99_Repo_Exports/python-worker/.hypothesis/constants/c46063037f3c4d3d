@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/tm_policy_autopropose.py
+# hypothesis_version: 6.148.10
+
+[1000, '--group', '--input-json', '--redis-url', '60000', 'A', 'OVR_HOLD_DOWN_MS', 'REDIS_URL', '__main__', 'abs_lvl_tier', 'apply_kind', 'arm_map', 'arm_n', 'arm_winners', 'continuation', 'default', 'enabled', 'group', 'latest_key', 'meta_key', 'na', 'notes', 'overrides', 'overrides_v1', 'r', 'regime', 'reversal', 'scenario', 'sid', 'symbol', 'tier_map', 'tier_n', 'tier_reco', 'updated_ts_ms', 'utf-8', 'v', 'winner_arm', '{}']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/gpu/robust_z_gpu.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-06, 1.4826, 3.0, 100, 'CUDA not available', 'backend', 'count', 'gpu', 'ignore', 'mad', 'median', 'threshold', 'window_size']

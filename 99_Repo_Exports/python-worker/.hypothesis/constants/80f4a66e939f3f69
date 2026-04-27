@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/llm_client.py
+# hypothesis_version: 6.148.10
+
+[-1.0, 0.0, 0.1, 0.15, 0.2, 0.25, 1.0, 2.0, 100, 256, '/', 'GEMINI_API_KEY', 'GEMINI_BASE_URL', 'GEMINI_MODEL', 'LLM_MAX_RETRIES', 'LLM_RPS', 'LLM_TIMEOUT_SEC', 'candidates', 'confidence', 'content', 'contents', 'err', 'gemini-1.5-flash', 'generationConfig', 'maxOutputTokens', 'news_llm', 'non-json response', 'parts', 'primary_tag', 'risk', 'role', 'summary', 'surprise', 'tags', 'temperature', 'text', 'user', '{', '}']

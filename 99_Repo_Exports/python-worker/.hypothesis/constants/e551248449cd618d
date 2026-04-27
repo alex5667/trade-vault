@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/tools/numeric.py
+# hypothesis_version: 6.148.10
+
+['Float', 'Integer', 'O', 'UnsignedInteger', 'coerce', 'dtype', 'float', 'i8', 'ignore', 'integer', 'mM', 'ndim', 'pyarrow', 'pyarrow_numpy', 'raise', 'signed', 'unsigned']

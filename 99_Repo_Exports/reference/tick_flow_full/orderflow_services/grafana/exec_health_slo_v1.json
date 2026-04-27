@@ -1,0 +1,58 @@
+{
+  "title": "ExecHealth Rollout SLO (v1)",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Active / stale instances",
+      "targets": [
+        {"expr": "exec_health_slo_active_instances{scope=~\"$scope|all\"}", "legendFormat": "active {{scope}}"},
+        {"expr": "exec_health_slo_stale_instances{scope=~\"$scope\"}", "legendFormat": "stale {{scope}}"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Share by scope",
+      "targets": [
+        {"expr": "exec_health_slo_share{scope=~\"$scope\", outcome=~\"$outcome\"}", "legendFormat": "{{scope}} {{outcome}}"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Mode / rollout drift",
+      "targets": [
+        {"expr": "exec_health_slo_scope_mode_distinct{scope=~\"$scope\"}", "legendFormat": "mode distinct {{scope}}"},
+        {"expr": "exec_health_slo_rollout_drift_instances{scope=~\"$scope\"}", "legendFormat": "drift {{scope}}"},
+        {"expr": "exec_health_slo_cross_scope_mode_distinct", "legendFormat": "cross-scope mode distinct"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Threshold mismatch",
+      "targets": [
+        {"expr": "exec_health_slo_scope_threshold_distinct{scope=~\"$scope\", metric=~\"$metric\"}", "legendFormat": "{{scope}} {{metric}}"},
+        {"expr": "exec_health_slo_cross_scope_threshold_distinct{metric=~\"$metric\"}", "legendFormat": "cross {{metric}}"}
+      ]
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "scope",
+        "type": "custom",
+        "query": "edge,pipeline,entry_policy"
+      },
+      {
+        "name": "outcome",
+        "type": "custom",
+        "query": "apply,veto,pass"
+      },
+      {
+        "name": "metric",
+        "type": "custom",
+        "query": "threshold_is_p95_bps,threshold_perm_impact_p95_bps,threshold_realized_spread_p50_bps"
+      }
+    ]
+  }
+}

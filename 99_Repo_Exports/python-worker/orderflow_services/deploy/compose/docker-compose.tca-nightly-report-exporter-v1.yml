@@ -1,0 +1,18 @@
+services:
+  tca-nightly-report-exporter:
+    image: ${TRADE_ORDERFLOW_IMAGE:?}
+    working_dir: /app
+    environment:
+      PYTHONPATH: /app
+      REDIS_URL: ${REDIS_URL:?}
+      TCA_NIGHTLY_REPORT_STATE_KEY: ${TCA_NIGHTLY_REPORT_STATE_KEY:-state:tca_nightly_report:last}
+      TCA_NIGHTLY_REPORT_EXPORTER_PORT: ${TCA_NIGHTLY_REPORT_EXPORTER_PORT:-9866}
+      TCA_NIGHTLY_REPORT_EXPORTER_INTERVAL_S: ${TCA_NIGHTLY_REPORT_EXPORTER_INTERVAL_S:-30}
+    volumes:
+      - ${TRADE_REPO_ROOT:?}:/app:ro
+    ports:
+      - "${TCA_NIGHTLY_REPORT_EXPORTER_PORT:-9866}:${TCA_NIGHTLY_REPORT_EXPORTER_PORT:-9866}"
+    command:
+      - python3
+      - -m
+      - orderflow_services.tca_nightly_report_exporter_v1

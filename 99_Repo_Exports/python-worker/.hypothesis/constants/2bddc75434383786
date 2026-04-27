@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/ev_tp1_stats.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.05, 1.0, 1000, '0', '0.05', '1', 'EV_TP1_EMA_ALPHA', 'EV_TP1_STATS_ENABLED', 'EV_TP1_STATS_TTL_SEC', 'EvTp1StatsConfig', 'ema_tp1', 'entry_regime', 'evalsha', 'last_ts_ms', 'market_regime', 'min_n', 'na', 'on', 'p_hit_tp1', 'regime', 'script_load', 'total_trades', 'tp1_hits', 'true', 'use_regime_dim', 'yes']

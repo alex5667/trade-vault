@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/replay/replay_runner.py
+# hypothesis_version: 6.148.10
+
+[500, 100000, '0-0', 'MICROBAR_SYMBOLS_SET', 'REDIS_URL', '[', '_single_', 'dump_jsonl', 'ignore', 'payload', 'r', 'signals', 'utf-8', '{', '{sym}']

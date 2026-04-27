@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/feature_flags.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1000, '0', '1', '1000', 'FEATURE_FLAGS_FILE', 'FEATURE_FLAGS_JSON', 'FEATURE_FLAGS_REV', 'REGIME_DETECTOR_V2', 'USE_UNIFIED_SCORING', 'env', 'env_json', 'false', 'feature_flags:json', 'file', 'n', 'no', 'off', 'on', 'r', 'redis', 'regime_detector_v2', 'replace', 'rev', 'revision', 'true', 'use_unified_scoring', 'utf-8', 'y', 'yes']

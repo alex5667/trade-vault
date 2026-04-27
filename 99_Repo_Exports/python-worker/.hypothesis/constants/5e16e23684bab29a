@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/sparse/data.py
+# hypothesis_version: 6.148.10
+
+['isscalarlike', 'matrix', 'name', 'npfunc', 'spmatrix', 'validateaxis']

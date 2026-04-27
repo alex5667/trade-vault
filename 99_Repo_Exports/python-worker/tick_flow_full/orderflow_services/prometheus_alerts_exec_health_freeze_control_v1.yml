@@ -1,0 +1,37 @@
+groups:
+  - name: exec-health-freeze-control-v1
+    rules:
+      - alert: OF_ExecHealth_FreezeControl_ExporterStale_Warn
+        expr: exec_health_freeze_control_exporter_up == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: ExecHealth freeze control exporter is down
+          description: >
+            exec_health_freeze_control_exporter_up=0 for >10m.
+            Check container exec-health-freeze-control-exporter.
+
+      - alert: OF_ExecHealth_FreezeControl_AckPending_Warn
+        expr: exec_health_freeze_control_manual_ack_required == 1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: ExecHealth freeze is latched and still waiting for manual ack
+          description: >
+            exec_health_freeze_control_manual_ack_required=1 for >15m.
+            Operator must run: python orderflow_services/exec_health_freeze_override_v1.py thaw
+            See runbook_exec_health_freeze_control_v1.md.
+
+      - alert: OF_ExecHealth_FreezeControl_ManualOverrideActive_Warn
+        expr: exec_health_freeze_control_manual_override_active == 1
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: ExecHealth manual override/thaw is active
+          description: >
+            exec_health_freeze_control_manual_override_active=1 for >30m.
+            Confirm this is intentional. If not, investigate source:
+            exec_health_freeze_control_source.

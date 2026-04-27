@@ -1,0 +1,5 @@
+=== START 2026-04-19T13:30:22+03:00 ===
+done: copied=48 skipped=177111 export_root=/home/alex/Apps/Obsidian/trade-vault/99_Repo_Exports
+lint failed:
+ - /home/alex/Apps/Obsidian/trade-vault/2026-04-19.md: missing frontmatter
+ - /home/alex/Apps/Obsidian/trade-vault/тест.md: missing frontmatter

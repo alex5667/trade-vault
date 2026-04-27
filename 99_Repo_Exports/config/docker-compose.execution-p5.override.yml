@@ -1,0 +1,94 @@
+version: '3.9'
+
+# P5 rollout overlay for execution hardening.
+# Apply on top of the project's existing compose files, for example:
+#   docker compose \
+#     -f docker-compose-binance.yml \
+#     -f docker-compose-crypto-orderflow.yml \
+#     -f docker-compose-monitoring.yml \
+#     -f config/docker-compose.execution-p5.override.yml up -d
+#
+# Design goals:
+#   * enable/disable P1-P4 layers with env flags only
+#   * add mandatory user-stream worker for reconcile-first mode
+#   * mount Grafana dashboard/provisioning artefacts without modifying the base stack
+#   * keep rollback trivial: remove this overlay or flip the flags in env.execution-p5.example
+
+services:
+  binance-executor:
+    environment:
+      - EXEC_ALGO_CANONICAL_V2=${EXEC_ALGO_CANONICAL_V2:-1}
+      - EXEC_RECONCILE_ENABLE=${EXEC_RECONCILE_ENABLE:-1}
+      - EXEC_USER_STREAM_ENABLE=${EXEC_USER_STREAM_ENABLE:-1}
+      - EXEC_MAKER_TP_ENABLE=${EXEC_MAKER_TP_ENABLE:-1}
+      - EXEC_JOURNAL_SQL_ENABLE=${EXEC_JOURNAL_SQL_ENABLE:-1}
+      - EXEC_FORCE_SAFETY_FIRST=${EXEC_FORCE_SAFETY_FIRST:-0}
+      - EXEC_DEGRADED_MODE_FORCE_SAFETY_FIRST=${EXEC_DEGRADED_MODE_FORCE_SAFETY_FIRST:-1}
+      - EXEC_DEGRADED_MODE_DISABLE_MAKER=${EXEC_DEGRADED_MODE_DISABLE_MAKER:-1}
+      - USER_STREAM_STREAM=${USER_STREAM_STREAM:-orders:user_stream}
+      - USER_STREAM_CACHE_PREFIX=${USER_STREAM_CACHE_PREFIX:-orders:user_stream:}
+      - EXECUTION_JOURNAL_DSN=${EXECUTION_JOURNAL_DSN:-}
+      - BINANCE_RECV_WINDOW_MS=${BINANCE_RECV_WINDOW_MS:-3000}
+      - BINANCE_TIME_SYNC_INTERVAL_MS=${BINANCE_TIME_SYNC_INTERVAL_MS:-30000}
+      - MAX_CLOCK_DRIFT_MS=${MAX_CLOCK_DRIFT_MS:-250}
+      - TP_LIMIT_WATCHDOG_ENABLE=${TP_LIMIT_WATCHDOG_ENABLE:-1}
+      - TP_LIMIT_WATCHDOG_TIMEOUT_MS=${TP_LIMIT_WATCHDOG_TIMEOUT_MS:-4000}
+      - PROTECTION_ARM_TIMEOUT_MS=${PROTECTION_ARM_TIMEOUT_MS:-2500}
+
+  # Dedicated worker keeps listenKey alive, consumes ORDER_TRADE_UPDATE/ALGO_UPDATE,
+  # and stores normalized events in Redis so executor reconcile can prefer event-driven
+  # verification before REST polling.
+  binance-user-stream-worker:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-binance-user-stream-worker
+    restart: on-failure:5
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+      - BINANCE_API_KEY=${BINANCE_API_KEY:-}
+      - BINANCE_API_SECRET=${BINANCE_API_SECRET:-}
+      - BINANCE_FUTURES_BASE_URL=${BINANCE_FUTURES_BASE_URL:-https://fapi.binance.com}
+      - BINANCE_HTTP_TIMEOUT_S=${BINANCE_HTTP_TIMEOUT_S:-8.0}
+      - BINANCE_RECV_WINDOW_MS=${BINANCE_RECV_WINDOW_MS:-3000}
+      - BINANCE_TIME_SYNC_INTERVAL_MS=${BINANCE_TIME_SYNC_INTERVAL_MS:-30000}
+      - USER_STREAM_STREAM=${USER_STREAM_STREAM:-orders:user_stream}
+      - USER_STREAM_CACHE_PREFIX=${USER_STREAM_CACHE_PREFIX:-orders:user_stream:}
+      - USER_STREAM_CACHE_TTL_SEC=${USER_STREAM_CACHE_TTL_SEC:-900}
+      - EXEC_USER_STREAM_ENABLE=${EXEC_USER_STREAM_ENABLE:-1}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    volumes:
+      - ./python-worker:/app
+    command:
+      - python
+      - -m
+      - services.binance_user_stream_worker
+
+  crypto-orderflow-service:
+    environment:
+      - TRADE_DQ_HARD_VETO_ENABLE=${TRADE_DQ_HARD_VETO_ENABLE:-1}
+      - TRADE_RISK_ENGINE_V2_ENABLE=${TRADE_RISK_ENGINE_V2_ENABLE:-1}
+      - PORTFOLIO_RISK_HARD_VETO=${PORTFOLIO_RISK_HARD_VETO:-1}
+      - RISK_MAX_DAILY_LOSS_PCT=${RISK_MAX_DAILY_LOSS_PCT:-2.0}
+      - RISK_MAX_TOTAL_EXPOSURE_RATIO=${RISK_MAX_TOTAL_EXPOSURE_RATIO:-2.5}
+      - RISK_MAX_SYMBOL_EXPOSURE_RATIO=${RISK_MAX_SYMBOL_EXPOSURE_RATIO:-0.75}
+      - RISK_MAX_CLUSTER_EXPOSURE_RATIO=${RISK_MAX_CLUSTER_EXPOSURE_RATIO:-1.25}
+      - RISK_TIER_A_MAX_LEVERAGE=${RISK_TIER_A_MAX_LEVERAGE:-10}
+      - RISK_TIER_B_MAX_LEVERAGE=${RISK_TIER_B_MAX_LEVERAGE:-5}
+      - RISK_TIER_C_MAX_LEVERAGE=${RISK_TIER_C_MAX_LEVERAGE:-3}
+      - REDIS_DQ_QUEUE_LAG_HARD_MS=${REDIS_DQ_QUEUE_LAG_HARD_MS:-2500}
+      - REDIS_DQ_TICK_STALE_HARD_MS=${REDIS_DQ_TICK_STALE_HARD_MS:-2500}
+      - REDIS_DQ_BOOK_STALE_HARD_MS=${REDIS_DQ_BOOK_STALE_HARD_MS:-2500}
+      - REDIS_DQ_TIMEOUT_EVENTS_HARD=${REDIS_DQ_TIMEOUT_EVENTS_HARD:-5}
+      - REDIS_DQ_XACK_FAIL_HARD=${REDIS_DQ_XACK_FAIL_HARD:-2}
+
+  grafana:
+    volumes:
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards-json:ro
+      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro

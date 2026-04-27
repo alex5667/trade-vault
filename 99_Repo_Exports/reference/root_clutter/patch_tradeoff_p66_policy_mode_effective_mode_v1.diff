@@ -1,0 +1,666 @@
+diff --git a/orderflow_services/policy_mode_kpi_worker_p66_v1.py b/orderflow_services/policy_mode_kpi_worker_p66_v1.py
+new file mode 100644
+index 0000000..b6d9b6f
+--- /dev/null
++++ b/orderflow_services/policy_mode_kpi_worker_p66_v1.py
+@@ -0,0 +1,365 @@
++#!/usr/bin/env python3
++"""
++P66: Policy mode KPI worker
++
++Consumes `decisions:final` stream and maintains rolling 24h counters:
++  - counts by regime (ok|warn|block|unknown) x effective_mode (active|shadow|block|unknown)
++  - mismatch counters:
++      * block_regime_effective_not_block
++      * warn_regime_effective_active
++
++Writes state to Redis hash:
++  metrics:policy_mode:state
++
++Low-cardinality, deterministic time, per-minute buckets with window subtract.
++"""
++
++from __future__ import annotations
++
++import json
++import os
++import socket
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Tuple
++
++
++def _env(name: str, default: str = "") -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return d
++
++
++def _minute(ts_ms: int) -> int:
++    return int(ts_ms // 60000)
++
++
++def _parse_json_maybe(v: Any) -> Any:
++    if v is None:
++        return None
++    if isinstance(v, (dict, list)):
++        return v
++    s = str(v)
++    s0 = s.strip()
++    if not s0:
++        return s
++    if (s0.startswith("{") and s0.endswith("}")) or (s0.startswith("[") and s0.endswith("]")):
++        try:
++            return json.loads(s0)
++        except Exception:
++            return s
++    return s
++
++
++def _norm_state(v: Any) -> str:
++    s = str(v or "").strip().lower()
++    if s in ("ok", "warn", "block"):
++        return s
++    return "unknown"
++
++
++def _regime_from_states(dq_state: Any, drift_state: Any) -> str:
++    dq = _norm_state(dq_state)
++    dr = _norm_state(drift_state)
++    if dq == "block" or dr == "block":
++        return "block"
++    if dq == "warn" or dr == "warn":
++        return "warn"
++    if dq == "ok" and dr == "ok":
++        return "ok"
++    return "unknown"
++
++
++def _norm_mode(v: Any) -> str:
++    s = str(v or "").strip().lower()
++    # allow multiple naming variants
++    if s in ("active", "live", "on"):
++        return "active"
++    if s in ("shadow", "paper", "dry", "dry_run"):
++        return "shadow"
++    if s in ("block", "off", "disabled", "freeze"):
++        return "block"
++    return "unknown"
++
++
++def _decision_ts_ms(fields: Dict[str, Any], stream_id: str) -> int:
++    for k in ("decision_ts_ms", "ts_ms", "ts", "decision_ts"):
++        if k in fields:
++            ts = _i(fields.get(k), 0)
++            if ts > 0:
++                if ts < 10_000_000_000:
++                    ts *= 1000
++                return ts
++    try:
++        return int(str(stream_id).split("-", 1)[0])
++    except Exception:
++        return _now_ms()
++
++
++@dataclass
++class Cfg:
++    redis_url: str
++    stream: str
++    group: str
++    consumer: str
++    block_ms: int
++    count: int
++    window_minutes: int
++    bucket_prefix: str
++    bucket_ttl_s: int
++    state_key: str
++    claim_idle_ms: int
++    sleep_on_idle_s: float
++    rebuild_gap_minutes: int
++
++
++def load_cfg() -> Cfg:
++    return Cfg(
++        redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
++        stream=_env("DECISIONS_FINAL_STREAM", "decisions:final"),
++        group=_env("POLICY_MODE_CG", "policy_mode_kpi_p66_v1"),
++        consumer=_env("POLICY_MODE_CONSUMER", socket.gethostname()),
++        block_ms=_i(_env("POLICY_MODE_BLOCK_MS", "5000"), 5000),
++        count=_i(_env("POLICY_MODE_READ_COUNT", "200"), 200),
++        window_minutes=_i(_env("POLICY_MODE_WINDOW_MINUTES", "1440"), 1440),
++        bucket_prefix=_env("POLICY_MODE_BUCKET_PREFIX", "kpi:policy_mode:bucket:"),
++        bucket_ttl_s=_i(_env("POLICY_MODE_BUCKET_TTL_S", str(86400 * 3)), 86400 * 3),
++        state_key=_env("POLICY_MODE_STATE_KEY", "metrics:policy_mode:state"),
++        claim_idle_ms=_i(_env("POLICY_MODE_CLAIM_IDLE_MS", "60000"), 60000),
++        sleep_on_idle_s=float(_env("POLICY_MODE_SLEEP_ON_IDLE_S", "0.2") or 0.2),
++        rebuild_gap_minutes=_i(_env("POLICY_MODE_REBUILD_GAP_MINUTES", "10"), 10),
++    )
++
++
++def _bucket_key(cfg: Cfg, minute_id: int) -> str:
++    return f"{cfg.bucket_prefix}{minute_id}"
++
++
++def _ensure_group(r, cfg: Cfg) -> None:
++    try:
++        r.xgroup_create(name=cfg.stream, groupname=cfg.group, id="0-0", mkstream=True)
++    except Exception:
++        pass
++
++
++FIELDS = [
++    "ok_active", "ok_shadow", "ok_block", "ok_unknown",
++    "warn_active", "warn_shadow", "warn_block", "warn_unknown",
++    "block_active", "block_shadow", "block_block", "block_unknown",
++    "unknown_active", "unknown_shadow", "unknown_block", "unknown_unknown",
++    "total",
++    "mismatch_block_regime_effective_not_block",
++    "mismatch_warn_regime_effective_active",
++]
++
++
++def _hget_counts(r, key: str) -> Dict[str, int]:
++    d = r.hgetall(key) or {}
++    out: Dict[str, int] = {}
++    for k in FIELDS:
++        out[k] = _i(d.get(k), 0)
++    return out
++
++
++def _bootstrap_state(r, cfg: Cfg, now_ms: int) -> Tuple[int, Dict[str, int], int]:
++    cur_min = _minute(now_ms)
++    start_min = cur_min - cfg.window_minutes + 1
++    rolling = {k: 0 for k in FIELDS}
++    st = r.hgetall(cfg.state_key) or {}
++    last_ts_ms = _i(st.get("last_ts_ms"), 0)
++
++    pipe = r.pipeline()
++    for m in range(start_min, cur_min + 1):
++        pipe.hmget(_bucket_key(cfg, m), FIELDS)
++    rows = pipe.execute()
++    for row in rows:
++        if not row:
++            continue
++        for idx, k in enumerate(FIELDS):
++            rolling[k] += _i(row[idx], 0) if idx < len(row) else 0
++
++    r.hset(
++        cfg.state_key,
++        mapping={
++            "cur_minute": str(cur_min),
++            **{f"rolling_{k}": str(int(v)) for k, v in rolling.items()},
++            "last_ts_ms": str(int(last_ts_ms)),
++            "updated_ts_ms": str(int(now_ms)),
++        },
++    )
++    return cur_min, rolling, last_ts_ms
++
++
++def _advance_window(r, cfg: Cfg, from_min: int, to_min: int, rolling: Dict[str, int]) -> int:
++    if to_min <= from_min:
++        return from_min
++    gap = to_min - from_min
++    if gap >= cfg.rebuild_gap_minutes:
++        cur_min, new_roll, _ = _bootstrap_state(r, cfg, _now_ms())
++        rolling.update(new_roll)
++        return cur_min
++    cur = from_min
++    for m in range(from_min + 1, to_min + 1):
++        out_m = m - cfg.window_minutes
++        out_counts = _hget_counts(r, _bucket_key(cfg, out_m))
++        for k in FIELDS:
++            rolling[k] = max(0, int(rolling.get(k, 0)) - int(out_counts.get(k, 0)))
++        cur = m
++    return cur
++
++
++def _decode_fields(raw: Dict[str, Any]) -> Dict[str, Any]:
++    return {str(k): v for k, v in (raw or {}).items()}
++
++
++def _process_one(r, cfg: Cfg, stream_id: str, fields: Dict[str, Any], cur_min: int, rolling: Dict[str, int], last_ts_ms: int) -> Tuple[int, int]:
++    ts_ms = _decision_ts_ms(fields, stream_id)
++    last_ts_ms = max(last_ts_ms, ts_ms)
++    m = _minute(ts_ms)
++    if m < cur_min - cfg.window_minutes:
++        return cur_min, last_ts_ms
++    if m > cur_min:
++        cur_min = _advance_window(r, cfg, cur_min, m, rolling)
++
++    dq_state = _parse_json_maybe(fields.get("dq_state", "unknown"))
++    drift_state = _parse_json_maybe(fields.get("drift_state", "unknown"))
++    if isinstance(dq_state, dict) and "state" in dq_state:
++        dq_state = dq_state.get("state")
++    if isinstance(drift_state, dict) and "state" in drift_state:
++        drift_state = drift_state.get("state")
++    regime = _regime_from_states(dq_state, drift_state)
++
++    eff = fields.get("policy_effective_mode", None)
++    if eff is None:
++        eff = fields.get("effective_mode", None)
++    if eff is None:
++        eff = fields.get("policy_mode", None)
++    effective_mode = _norm_mode(eff)
++
++    cell = f"{regime}_{effective_mode}"
++    if cell not in rolling:
++        cell = "unknown_unknown"
++
++    mism_block_not_block = 1 if (regime == "block" and effective_mode != "block") else 0
++    mism_warn_active = 1 if (regime == "warn" and effective_mode == "active") else 0
++
++    bkey = _bucket_key(cfg, m)
++    pipe = r.pipeline()
++    pipe.hincrby(bkey, cell, 1)
++    pipe.hincrby(bkey, "total", 1)
++    if mism_block_not_block:
++        pipe.hincrby(bkey, "mismatch_block_regime_effective_not_block", 1)
++    if mism_warn_active:
++        pipe.hincrby(bkey, "mismatch_warn_regime_effective_active", 1)
++    pipe.expire(bkey, cfg.bucket_ttl_s)
++
++    rolling[cell] += 1
++    rolling["total"] += 1
++    if mism_block_not_block:
++        rolling["mismatch_block_regime_effective_not_block"] += 1
++    if mism_warn_active:
++        rolling["mismatch_warn_regime_effective_active"] += 1
++
++    pipe.hset(
++        cfg.state_key,
++        mapping={
++            "cur_minute": str(cur_min),
++            **{f"rolling_{k}": str(int(v)) for k, v in rolling.items()},
++            "last_ts_ms": str(int(last_ts_ms)),
++            "updated_ts_ms": str(_now_ms()),
++        },
++    )
++    pipe.execute()
++    return cur_min, last_ts_ms
++
++
++def main() -> int:
++    cfg = load_cfg()
++    import redis  # type: ignore
++
++    r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
++    _ensure_group(r, cfg)
++
++    cur_min, rolling, last_ts_ms = _bootstrap_state(r, cfg, _now_ms())
++    last_claim_ms = 0
++
++    while True:
++        now_ms = _now_ms()
++        if now_ms - last_claim_ms > cfg.claim_idle_ms:
++            last_claim_ms = now_ms
++            try:
++                res = r.xautoclaim(cfg.stream, cfg.group, cfg.consumer, min_idle_time=cfg.claim_idle_ms, start_id="0-0", count=cfg.count)
++                msgs = res[1] if isinstance(res, (list, tuple)) and len(res) >= 2 else []
++                for mid, mfields in msgs:
++                    cur_min, last_ts_ms = _process_one(r, cfg, str(mid), _decode_fields(mfields), cur_min, rolling, last_ts_ms)
++                    r.xack(cfg.stream, cfg.group, mid)
++            except Exception:
++                pass
++
++        try:
++            data = r.xreadgroup(groupname=cfg.group, consumername=cfg.consumer, streams={cfg.stream: ">"}, count=cfg.count, block=cfg.block_ms)
++        except Exception:
++            time.sleep(1.0)
++            continue
++        if not data:
++            time.sleep(cfg.sleep_on_idle_s)
++            continue
++        for _stream, msgs in data:
++            for mid, mfields in msgs:
++                try:
++                    cur_min, last_ts_ms = _process_one(r, cfg, str(mid), _decode_fields(mfields), cur_min, rolling, last_ts_ms)
++                except Exception:
++                    pass
++                try:
++                    r.xack(cfg.stream, cfg.group, mid)
++                except Exception:
++                    pass
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/orderflow_services/policy_mode_exporter_p66_v1.py b/orderflow_services/policy_mode_exporter_p66_v1.py
+new file mode 100644
+index 0000000..4970ac5
+--- /dev/null
++++ b/orderflow_services/policy_mode_exporter_p66_v1.py
+@@ -0,0 +1,247 @@
++#!/usr/bin/env python3
++"""
++P66: Policy mode exporter
++
++Reads Redis hash `metrics:policy_mode:state` and exports:
++  - policy_mode_last_ts_ms, policy_mode_last_age_seconds
++  - policy_mode_n_24h_total
++  - policy_mode_n_24h{regime,effective_mode}
++  - policy_mode_share_24h{regime,effective_mode}
++  - policy_mode_mismatch_share_24h{kind}
++"""
++
++from __future__ import annotations
++
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict
++
++from prometheus_client import Gauge, start_http_server
++
++
++def _env(name: str, default: str = "") -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _now_s() -> float:
++    return time.time()
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return d
++
++
++@dataclass
++class Cfg:
++    redis_url: str
++    state_key: str
++    port: int
++    interval_s: float
++
++
++def load_cfg() -> Cfg:
++    return Cfg(
++        redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
++        state_key=_env("POLICY_MODE_STATE_KEY", "metrics:policy_mode:state"),
++        port=_i(_env("POLICY_MODE_EXPORTER_PORT", "9818"), 9818),
++        interval_s=float(_env("POLICY_MODE_EXPORTER_INTERVAL_S", "5") or 5),
++    )
++
++
++LAST_TS = Gauge("policy_mode_last_ts_ms", "Last policy mode decision timestamp (ms)")
++LAST_AGE = Gauge("policy_mode_last_age_seconds", "Age of last policy mode decision (seconds)")
++TOTAL = Gauge("policy_mode_n_24h_total", "Total decisions observed (24h)")
++N = Gauge("policy_mode_n_24h", "Decisions count (24h) by regime and effective mode", ["regime", "effective_mode"])
++SHARE = Gauge("policy_mode_share_24h", "Decisions share (24h) by regime and effective mode", ["regime", "effective_mode"])
++MISM = Gauge("policy_mode_mismatch_share_24h", "Mismatch share (24h) by kind", ["kind"])
++
++
++REGIMES = ("ok", "warn", "block", "unknown")
++MODES = ("active", "shadow", "block", "unknown")
++
++
++def _read_hash(r, key: str) -> Dict[str, str]:
++    try:
++        return r.hgetall(key) or {}
++    except Exception:
++        return {}
++
++
++def _cell_key(reg: str, mode: str) -> str:
++    return f"rolling_{reg}_{mode}"
++
++
++def main() -> int:
++    cfg = load_cfg()
++    import redis  # type: ignore
++
++    r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
++    start_http_server(cfg.port)
++
++    while True:
++        d = _read_hash(r, cfg.state_key)
++        last_ts = _i(d.get("last_ts_ms"), 0)
++        LAST_TS.set(float(last_ts))
++        age = 0.0
++        if last_ts > 0:
++            age = max(0.0, _now_s() - (float(last_ts) / 1000.0))
++        LAST_AGE.set(age)
++
++        total = _i(d.get("rolling_total"), 0)
++        TOTAL.set(float(max(0, total)))
++
++        for reg in REGIMES:
++            for mode in MODES:
++                n = _i(d.get(_cell_key(reg, mode)), 0)
++                N.labels(regime=reg, effective_mode=mode).set(float(max(0, n)))
++                share = (float(n) / float(total)) if total > 0 else 0.0
++                SHARE.labels(regime=reg, effective_mode=mode).set(share)
++
++        mism1 = _i(d.get("rolling_mismatch_block_regime_effective_not_block"), 0)
++        mism2 = _i(d.get("rolling_mismatch_warn_regime_effective_active"), 0)
++        denom = float(total) if total > 0 else 1.0
++        MISM.labels(kind="block_regime_effective_not_block").set(float(mism1) / denom)
++        MISM.labels(kind="warn_regime_effective_active").set(float(mism2) / denom)
++
++        time.sleep(cfg.interval_s)
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/ok_rate_logic/docker-compose-crypto-orderflow.yml b/ok_rate_logic/docker-compose-crypto-orderflow.yml
+index c2f513a..1d14db2 100644
+--- a/ok_rate_logic/docker-compose-crypto-orderflow.yml
++++ b/ok_rate_logic/docker-compose-crypto-orderflow.yml
+@@ -1201,6 +1201,70 @@ services:
+     networks:
+       - trade-network
+       - scanner-network
+
++  policy-mode-kpi-worker-p66:
++    build: *id001
++    runtime: ${POLICY_MODE_WORKER_RUNTIME:-nvidia}
++    container_name: policy-mode-kpi-worker-p66
++    restart: unless-stopped
++    environment:
++      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
++      - DECISIONS_FINAL_STREAM=${DECISIONS_FINAL_STREAM:-decisions:final}
++      - POLICY_MODE_CG=${POLICY_MODE_CG:-policy_mode_kpi_p66_v1}
++      - POLICY_MODE_CONSUMER=${POLICY_MODE_CONSUMER:-policy-mode-kpi-worker-p66}
++      - POLICY_MODE_STATE_KEY=${POLICY_MODE_STATE_KEY:-metrics:policy_mode:state}
++      - POLICY_MODE_BUCKET_PREFIX=${POLICY_MODE_BUCKET_PREFIX:-kpi:policy_mode:bucket:}
++      - POLICY_MODE_WINDOW_MINUTES=${POLICY_MODE_WINDOW_MINUTES:-1440}
++      - POLICY_MODE_BUCKET_TTL_S=${POLICY_MODE_BUCKET_TTL_S:-259200}
++      - POLICY_MODE_BLOCK_MS=${POLICY_MODE_BLOCK_MS:-5000}
++      - POLICY_MODE_READ_COUNT=${POLICY_MODE_READ_COUNT:-200}
++      - PYTHONUNBUFFERED=1
++      - PYTHONPATH=/app:/app/ml_analysis:/app/tick_flow_full
++    command: ["python", "-m", "orderflow_services.policy_mode_kpi_worker_p66_v1"]
++    volumes:
++      - .:/app
++    networks:
++      - trade-network
++      - scanner-network
++
++  policy-mode-exporter-p66:
++    build: *id001
++    runtime: ${POLICY_MODE_EXPORTER_RUNTIME:-nvidia}
++    container_name: policy-mode-exporter-p66
++    restart: unless-stopped
++    environment:
++      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
++      - POLICY_MODE_STATE_KEY=${POLICY_MODE_STATE_KEY:-metrics:policy_mode:state}
++      - POLICY_MODE_EXPORTER_PORT=${POLICY_MODE_EXPORTER_PORT:-9818}
++      - POLICY_MODE_EXPORTER_INTERVAL_S=${POLICY_MODE_EXPORTER_INTERVAL_S:-5}
++      - PYTHONUNBUFFERED=1
++      - PYTHONPATH=/app:/app/ml_analysis:/app/tick_flow_full
++    command: ["python", "-m", "orderflow_services.policy_mode_exporter_p66_v1"]
++    ports:
++      - "${POLICY_MODE_EXPORTER_PORT:-9818}:9818"
++    volumes:
++      - .:/app
++    networks:
++      - trade-network
++      - scanner-network
++
+   scanner-signal-quality-worker:
+     build: *id001
+diff --git a/monitoring/prometheus/prometheus.yml b/monitoring/prometheus/prometheus.yml
+index 3e0f7c1..8f5e93c 100644
+--- a/monitoring/prometheus/prometheus.yml
++++ b/monitoring/prometheus/prometheus.yml
+@@ -58,6 +58,15 @@ scrape_configs:
+     static_configs:
+       - targets:
+           - signal-quality-regime-exporter-p66:9817
++
++  # -----------------------------
++  # Policy mode exporter (P66)
++  # -----------------------------
++  - job_name: policy_mode_p66
++    scrape_interval: 15s
++    static_configs:
++      - targets:
++          - policy-mode-exporter-p66:9818
+
+   # NOTE:
+   # If you have other exporters (conf_cal_live, proof_controller, etc),
+diff --git a/ok_rate_logic/prometheus_alerts_tradeoff_p66_v1.yml b/ok_rate_logic/prometheus_alerts_tradeoff_p66_v1.yml
+index 2e0e0c3..0ee4bf5 100644
+--- a/ok_rate_logic/prometheus_alerts_tradeoff_p66_v1.yml
++++ b/ok_rate_logic/prometheus_alerts_tradeoff_p66_v1.yml
+@@ -78,3 +78,33 @@ groups:
+           summary: "Block regime has executed trades (unexpected)"
+           description: "There are many closed trades in regime=block in last 24h. Verify that DQ/Drift gates correctly block/route decisions and policy modes are enforced."
+           runbook_path: "/tradeoff_p66.md"
+           dashboard_path: "/d/tradeoff_p66/tradeoff-coverage-vs-quality?orgId=1"
++
++      - alert: PolicyModeBlockRegimeNotBlockedSLO
++        expr: policy_mode_n_24h_total > 200 and policy_mode_mismatch_share_24h{kind="block_regime_effective_not_block"} > 0.01
++        for: 30m
++        labels:
++          severity: critical
++          team: trade
++          component: policy_mode
++        annotations:
++          summary: "Policy mismatch: block regime not blocked (>1%)"
++          description: "Some decisions are in block regime but effective_mode is not block. This indicates a policy enforcement bug or missing fields in decisions:final."
++          runbook_path: "/tradeoff_p66.md"
++          dashboard_path: "/d/tradeoff_p66/tradeoff-coverage-vs-quality?orgId=1"
++
++      - alert: PolicyModeWarnRegimeActiveShareHighSLO
++        expr: policy_mode_n_24h_total > 200 and policy_mode_mismatch_share_24h{kind="warn_regime_effective_active"} > 0.05
++        for: 30m
++        labels:
++          severity: warning
++          team: trade
++          component: policy_mode
++        annotations:
++          summary: "Policy mismatch: warn regime still active (>5%)"
++          description: "A high share of warn-regime decisions have effective_mode=active. Consider enforcing shadow mode on warn or review warn thresholds."
++          runbook_path: "/tradeoff_p66.md"
++          dashboard_path: "/d/tradeoff_p66/tradeoff-coverage-vs-quality?orgId=1"
+diff --git a/monitoring/runbooks/tradeoff_p66.md b/monitoring/runbooks/tradeoff_p66.md
+index a22d8e3..693a0a5 100644
+--- a/monitoring/runbooks/tradeoff_p66.md
++++ b/monitoring/runbooks/tradeoff_p66.md
+@@ -11,6 +11,7 @@
+ ## Dashboard
+ - `/d/tradeoff_p66/tradeoff-coverage-vs-quality?orgId=1`
+
+ ## What we monitor
+ Low-cardinality “tradeoff plane” between:
+ 1) **Coverage**: what share of opportunities ends up in `ok|warn|block|unknown` regimes.
+ 2) **Freshness**: decisions:final stream must keep flowing.
+ 3) **Quality by regime**: expectancy/precision/ECE for closed trades, bucketed by the same regime.
++4) **Policy enforcement**: which effective_mode (active/shadow/block) was actually applied per regime.
+@@ -26,6 +27,12 @@
+ - `signal_quality_precision_top5p_24h_by_regime{regime="ok|warn|block"}`
+ - `signal_quality_ece_24h_by_regime{regime="ok|warn|block"}`
+ - `signal_quality_n_24h_by_regime{regime="ok|warn|block"}`
++
++- `policy_mode_last_ts_ms`
++- `policy_mode_last_age_seconds`
++- `policy_mode_n_24h_total`
++- `policy_mode_n_24h{regime,effective_mode}`
++- `policy_mode_mismatch_share_24h{kind}`
+@@ -35,6 +42,8 @@
+ - `DecisionRegimeBlockShareHighSLO` (warning)
+ - `SignalQualityOkRegimeExpectancyNegativeSLO` (warning)
+ - `SignalQualityWarnRegimeEceHighSLO` (warning)
+ - `SignalQualityBlockRegimeStillTradingSLO` (warning)
++- `PolicyModeBlockRegimeNotBlockedSLO` (critical)
++- `PolicyModeWarnRegimeActiveShareHighSLO` (warning)
+@@ -49,6 +58,10 @@
+ 5) If **signal quality degraded**:
+    - verify signal-quality KPI worker is writing cfg keys
+    - compare by-regime curves: ok vs warn vs block
++6) If **policy mismatch**:
++   - inspect decisions:final payload fields: policy_effective_mode / policy_mode
++   - verify enforcement path in decision->execution pipeline.
+@@ -57,6 +70,16 @@
+ redis-cli HGETALL settings:dynamic_cfg | egrep 'signal_quality_(expectancy|precision|ece|n)_24h_regime_|signal_quality_last_ts_ms'
+ ```
+
++### Validate policy mode state
++```bash
++redis-cli HGETALL metrics:policy_mode:state | head
++```
++
+ ## Rollback / mitigation
+ - If decisions flow is broken: restart orderflow service and redis ingest components.
+ - If `unknown` spikes after schema change: restore `dq_state/drift_state` writers or adjust worker parser.
+ - If `block` spikes due to noisy thresholds: temporarily relax gates or switch ML rollout to `shadow`.
+ - If ok-regime expectancy is negative: rollback recent scorer/calibrator changes; validate slippage decomposition & fill-prob proxies.
++- If policy mismatch: fail-closed (force block), then fix field wiring and enforcement logic.
+diff --git a/monitoring/grafana/dashboards/tradeoff_p66.json b/monitoring/grafana/dashboards/tradeoff_p66.json
+index b7b7a0c..c7b2b28 100644
+--- a/monitoring/grafana/dashboards/tradeoff_p66.json
++++ b/monitoring/grafana/dashboards/tradeoff_p66.json
+@@ -3,7 +3,7 @@
+   "title": "Tradeoff: Coverage vs Quality (Regimes) — P66",
+   "timezone": "browser",
+   "schemaVersion": 39,
+-  "version": 2,
++  "version": 3,
+   "editable": true,
+   "refresh": "30s",
+   "time": { "from": "now-48h", "to": "now" },
+@@ -241,6 +241,90 @@
+       "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+       "options": { "legend": { "displayMode": "table", "placement": "bottom" } }
+     },
++    {
++      "id": 9,
++      "type": "timeseries",
++      "title": "Policy effective mode share by regime (24h)",
++      "gridPos": { "x": 0, "y": 61, "w": 24, "h": 10 },
++      "targets": [
++        { "expr": "sum(policy_mode_share_24h{regime=\"ok\",effective_mode=\"active\",instance=~\"$instance\"})", "legendFormat": "ok/active", "refId": "A" },
++        { "expr": "sum(policy_mode_share_24h{regime=\"ok\",effective_mode=\"shadow\",instance=~\"$instance\"})", "legendFormat": "ok/shadow", "refId": "B" },
++        { "expr": "sum(policy_mode_share_24h{regime=\"warn\",effective_mode=\"active\",instance=~\"$instance\"})", "legendFormat": "warn/active", "refId": "C" },
++        { "expr": "sum(policy_mode_share_24h{regime=\"warn\",effective_mode=\"shadow\",instance=~\"$instance\"})", "legendFormat": "warn/shadow", "refId": "D" },
++        { "expr": "sum(policy_mode_share_24h{regime=\"block\",effective_mode=\"block\",instance=~\"$instance\"})", "legendFormat": "block/block", "refId": "E" }
++      ],
++      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
++      "options": { "legend": { "displayMode": "table", "placement": "bottom" } }
++    },
++    {
++      "id": 10,
++      "type": "timeseries",
++      "title": "Policy mismatch shares (24h)",
++      "gridPos": { "x": 0, "y": 71, "w": 24, "h": 8 },
++      "targets": [
++        { "expr": "policy_mode_mismatch_share_24h{kind=\"block_regime_effective_not_block\",instance=~\"$instance\"}", "legendFormat": "block_not_block", "refId": "A" },
++        { "expr": "policy_mode_mismatch_share_24h{kind=\"warn_regime_effective_active\",instance=~\"$instance\"}", "legendFormat": "warn_active", "refId": "B" }
++      ],
++      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
++      "options": { "legend": { "displayMode": "table", "placement": "bottom" } }
++    }
+   ]
+ }

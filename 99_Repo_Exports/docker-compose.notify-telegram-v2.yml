@@ -1,0 +1,110 @@
+services:
+  telegram-notifier-v2:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    oom_score_adj: -500
+    init: true
+    restart: always
+    env_file:
+    - .env
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=/app/python-worker
+    - REDIS_URL=${REDIS_URL:-${REDIS_URL}}
+    - NOTIFY_COUNTER_ONLY_STREAMS=
+    - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    - NOTIFY_TELEGRAM_CHAT_ID_CRIT=${NOTIFY_TELEGRAM_CHAT_ID_CRIT:-${TELEGRAM_CHAT_ID}}
+    - NOTIFY_TELEGRAM_CHAT_ID_PAGE=${NOTIFY_TELEGRAM_CHAT_ID_PAGE:-${TELEGRAM_CHAT_ID}}
+    - NOTIFY_RECEIPT_KEY_PREFIX=${NOTIFY_RECEIPT_KEY_PREFIX:-notify:receipt:}
+    - NOTIFY_RECEIPT_TTL_SEC=${NOTIFY_RECEIPT_TTL_SEC:-3600}
+    - NOTIFY_METRICS_ENABLE=1
+    - NOTIFY_METRICS_PORT=${NOTIFY_METRICS_PORT:-9125}
+    - NOTIFY_METRICS_ADDR=0.0.0.0
+    - TZ=UTC
+    ports:
+    - ${NOTIFY_METRICS_PORT:-9125}:${NOTIFY_METRICS_PORT:-9125}
+    command: python python-worker/services/telegram_notifier_worker_v2.py
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python -c "import urllib.request; urllib.request.urlopen('http://localhost:9125/metrics',
+        timeout=2).read()" >/dev/null 2>&1 || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+    - scanner-infra
+    - scanner-ops
+    - scanner-network
+    dns:
+    - 8.8.8.8
+    - 8.8.4.4
+    deploy:
+      resources:
+        reservations:
+          memory: 24M
+  page-receipts-sre-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    init: true
+    restart: always
+    env_file:
+    - .env
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=/app/python-worker
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - NOTIFY_RECEIPT_KEY_PREFIX=${NOTIFY_RECEIPT_KEY_PREFIX:-notify:receipt:}
+    - NOTIFY_RECEIPT_RESEND_SEC=${NOTIFY_RECEIPT_RESEND_SEC:-300}
+    - TZ=UTC
+    command: sh -c "while true; do python python-worker/tools/page_receipts_sre_monitor.py
+      --notify; sleep 300; done"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-network
+    - scanner-infra
+    deploy:
+      resources:
+        reservations:
+          memory: 24M
+  notify-delivery-sre-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    init: true
+    restart: always
+    env_file:
+    - .env
+    environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=/app/python-worker
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - NOTIFY_TELEGRAM_MIRROR_BASE=1
+    - TZ=UTC
+    command: sh -c "while true; do python python-worker/tools/notify_delivery_sre_monitor.py;
+      sleep 300; done"
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-network
+    - scanner-infra
+    deploy:
+      resources:
+        reservations:
+          memory: 24M
+networks:
+  scanner-infra:
+    external: true
+  scanner-ops:
+    external: true
+  scanner-network:
+    external: true

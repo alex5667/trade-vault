@@ -1,0 +1,1316 @@
+diff -ruN /tmp/tmp.uIL54s3rO6/.pytest_cache/.gitignore /mnt/data/phase1_2_patch_build/.pytest_cache/.gitignore
+--- /tmp/tmp.uIL54s3rO6/.pytest_cache/.gitignore	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase1_2_patch_build/.pytest_cache/.gitignore	2026-04-05 11:45:25.475330422 +0000
+@@ -0,0 +1,2 @@
++# Created by pytest automatically.
++*
+diff -ruN /tmp/tmp.uIL54s3rO6/.pytest_cache/CACHEDIR.TAG /mnt/data/phase1_2_patch_build/.pytest_cache/CACHEDIR.TAG
+--- /tmp/tmp.uIL54s3rO6/.pytest_cache/CACHEDIR.TAG	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase1_2_patch_build/.pytest_cache/CACHEDIR.TAG	2026-04-05 11:45:25.475378896 +0000
+@@ -0,0 +1,4 @@
++Signature: 8a477f597d28d172789f06886806bc55
++# This file is a cache directory tag created by pytest.
++# For information about cache directory tags, see:
++#	https://bford.info/cachedir/spec.html
+diff -ruN /tmp/tmp.uIL54s3rO6/.pytest_cache/README.md /mnt/data/phase1_2_patch_build/.pytest_cache/README.md
+--- /tmp/tmp.uIL54s3rO6/.pytest_cache/README.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase1_2_patch_build/.pytest_cache/README.md	2026-04-05 11:45:25.475270380 +0000
+@@ -0,0 +1,8 @@
++# pytest cache directory #
++
++This directory contains data from the pytest's cache plugin,
++which provides the `--lf` and `--ff` options, as well as the `cache` fixture.
++
++**Do not** commit this to version control.
++
++See [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.
+diff -ruN /tmp/tmp.uIL54s3rO6/.pytest_cache/v/cache/lastfailed /mnt/data/phase1_2_patch_build/.pytest_cache/v/cache/lastfailed
+--- /tmp/tmp.uIL54s3rO6/.pytest_cache/v/cache/lastfailed	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase1_2_patch_build/.pytest_cache/v/cache/lastfailed	2026-04-05 11:45:42.522698823 +0000
+@@ -0,0 +1 @@
++{}
+\ No newline at end of file
+diff -ruN /tmp/tmp.uIL54s3rO6/.pytest_cache/v/cache/nodeids /mnt/data/phase1_2_patch_build/.pytest_cache/v/cache/nodeids
+--- /tmp/tmp.uIL54s3rO6/.pytest_cache/v/cache/nodeids	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase1_2_patch_build/.pytest_cache/v/cache/nodeids	2026-04-05 11:45:42.522395380 +0000
+@@ -0,0 +1,8 @@
++[
++  "orderflow_services/tests/test_context_cache_registry_v1.py::test_build_cache_observation_extracts_versions_and_size",
++  "orderflow_services/tests/test_llm_recommendation_feedback_loop_v1.py::test_normalize_feedback_defaults_and_lowercases",
++  "orderflow_services/tests/test_llm_recommendation_feedback_loop_v1.py::test_update_summary_counts_total_and_verdict",
++  "orderflow_services/tests/test_ml_fleet_batch_review_scheduler_v1.py::test_group_batch_items_respects_max_items",
++  "orderflow_services/tests/test_ml_fleet_batch_review_scheduler_v1.py::test_select_suspicious_snapshots_filters_ok_by_default",
++  "orderflow_services/tests/test_vertex_cost_accounting_v1.py::test_estimate_cost_increases_with_io"
++]
+\ No newline at end of file
+Binary files /tmp/tmp.uIL54s3rO6/orderflow_services/__pycache__/context_cache_registry_v1.cpython-313.pyc and /mnt/data/phase1_2_patch_build/orderflow_services/__pycache__/context_cache_registry_v1.cpython-313.pyc differ
+Binary files /tmp/tmp.uIL54s3rO6/orderflow_services/__pycache__/llm_recommendation_feedback_loop_v1.cpython-313.pyc and /mnt/data/phase1_2_patch_build/orderflow_services/__pycache__/llm_recommendation_feedback_loop_v1.cpython-313.pyc differ
+Binary files /tmp/tmp.uIL54s3rO6/orderflow_services/__pycache__/ml_fleet_batch_review_scheduler_v1.cpython-313.pyc and /mnt/data/phase1_2_patch_build/orderflow_services/__pycache__/ml_fleet_batch_review_scheduler_v1.cpython-313.pyc differ
+Binary files /tmp/tmp.uIL54s3rO6/orderflow_services/__pycache__/vertex_cost_accounting_v1.cpython-313.pyc and /mnt/data/phase1_2_patch_build/orderflow_services/__pycache__/vertex_cost_accounting_v1.cpython-313.pyc differ
+diff -ruN /tmp/tmp.uIL54s3rO6/orderflow_services/context_cache_registry_v1.py /mnt/data/phase1_2_patch_build/orderflow_services/context_cache_registry_v1.py
+--- /tmp/tmp.uIL54s3rO6/orderflow_services/context_cache_registry_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase1_2_patch_build/orderflow_services/context_cache_registry_v1.py	2026-04-05 11:45:22.953166025 +0000
+@@ -0,0 +1,116 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from dataclasses import dataclass, asdict
++from typing import Any, Dict, Optional
++
++try:
++    import redis
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++
++@dataclass
++class ContextCacheEntry:
++    compact_hash: str
++    prompt_version: str
++    policy_version: str
++    hits: int
++    payload_bytes: int
++    eligible: bool
++    cache_ref: str
++    first_seen_ms: int
++    last_seen_ms: int
++
++    def to_dict(self) -> Dict[str, Any]:
++        return asdict(self)
++
++
++class ContextCacheRegistryV1:
++    """Redis-backed advisory registry for context cache candidates.
++
++    Current implementation is intentionally provider-agnostic and safe:
++      - tracks repeated compact payloads
++      - marks entries eligible for provider-side context caching
++      - stores a stable cache_ref placeholder so downstream services can reason about reuse
++
++    A future phase can replace stub cache_ref values with actual Vertex cache handles.
++    """
++
++    def __init__(self, redis_url: str) -> None:
++        self._redis_url = redis_url
++        self._min_hits = int(os.getenv("VERTEX_CONTEXT_CACHE_MIN_HITS", "3") or 3)
++        self._min_payload_bytes = int(os.getenv("VERTEX_CONTEXT_CACHE_MIN_BYTES", "2048") or 2048)
++        self._ttl_sec = int(os.getenv("VERTEX_CONTEXT_CACHE_TTL_SEC", str(7 * 86400)) or (7 * 86400))
++        self._r = redis.Redis.from_url(redis_url, decode_responses=True) if redis is not None else None
++
++    @staticmethod
++    def _key(compact_hash: str) -> str:
++        return f"metrics:ml:context_cache:entry:{compact_hash}"
++
++    def lookup(self, compact_hash: str) -> Optional[ContextCacheEntry]:
++        if self._r is None:
++            return None
++        try:
++            raw = self._r.hgetall(self._key(compact_hash))
++            if not raw:
++                return None
++            return ContextCacheEntry(
++                compact_hash=str(raw.get("compact_hash") or compact_hash),
++                prompt_version=str(raw.get("prompt_version") or "unknown"),
++                policy_version=str(raw.get("policy_version") or "unknown"),
++                hits=int(raw.get("hits") or 0),
++                payload_bytes=int(raw.get("payload_bytes") or 0),
++                eligible=str(raw.get("eligible") or "0") == "1",
++                cache_ref=str(raw.get("cache_ref") or ""),
++                first_seen_ms=int(raw.get("first_seen_ms") or 0),
++                last_seen_ms=int(raw.get("last_seen_ms") or 0),
++            )
++        except Exception:
++            return None
++
++    def observe(self, *, compact_hash: str, prompt_version: str, policy_version: str, payload_bytes: int, ts_ms: int) -> ContextCacheEntry:
++        if self._r is None:
++            return ContextCacheEntry(compact_hash, prompt_version, policy_version, 0, payload_bytes, False, "", ts_ms, ts_ms)
++        key = self._key(compact_hash)
++        try:
++            p = self._r.pipeline()
++            p.hsetnx(key, "compact_hash", compact_hash)
++            p.hsetnx(key, "prompt_version", prompt_version)
++            p.hsetnx(key, "policy_version", policy_version)
++            p.hsetnx(key, "first_seen_ms", int(ts_ms))
++            p.hincrby(key, "hits", 1)
++            p.hset(key, mapping={
++                "payload_bytes": int(payload_bytes),
++                "last_seen_ms": int(ts_ms),
++            })
++            p.expire(key, self._ttl_sec)
++            p.execute()
++            entry = self.lookup(compact_hash)
++            if entry is None:
++                entry = ContextCacheEntry(compact_hash, prompt_version, policy_version, 1, payload_bytes, False, "", ts_ms, ts_ms)
++            eligible = bool(entry.hits >= self._min_hits and payload_bytes >= self._min_payload_bytes)
++            cache_ref = entry.cache_ref or (f"stub:{compact_hash}" if eligible else "")
++            self._r.hset(key, mapping={
++                "eligible": 1 if eligible else 0,
++                "cache_ref": cache_ref,
++            })
++            refreshed = self.lookup(compact_hash)
++            return refreshed or ContextCacheEntry(compact_hash, prompt_version, policy_version, entry.hits, payload_bytes, eligible, cache_ref, entry.first_seen_ms, ts_ms)
++        except Exception:
++            return ContextCacheEntry(compact_hash, prompt_version, policy_version, 0, payload_bytes, False, "", ts_ms, ts_ms)
++
++
++def build_cache_observation(payload: Dict[str, Any]) -> Dict[str, Any]:
++    compact_hash = str(payload.get("compact_hash") or "")
++    prompt_version = str(payload.get("prompt_version") or "unknown")
++    policy_version = str(payload.get("policy_version") or "unknown")
++    payload_bytes = len(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8"))
++    return {
++        "compact_hash": compact_hash,
++        "prompt_version": prompt_version,
++        "policy_version": policy_version,
++        "payload_bytes": payload_bytes,
++    }
+diff -ruN /tmp/tmp.uIL54s3rO6/orderflow_services/docker_compose_fragment_ml_phase1_2_v1.yml /mnt/data/phase1_2_patch_build/orderflow_services/docker_compose_fragment_ml_phase1_2_v1.yml
+--- /tmp/tmp.uIL54s3rO6/orderflow_services/docker_compose_fragment_ml_phase1_2_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase1_2_patch_build/orderflow_services/docker_compose_fragment_ml_phase1_2_v1.yml	2026-04-05 11:45:23.016880539 +0000
+@@ -0,0 +1,63 @@
++version: '3.9'
++
++services:
++  scanner-ml-batch-review-scheduler-v1:
++    build:
++      context: .
++      dockerfile: python-worker/Dockerfile
++    command: ["python", "-m", "orderflow_services.ml_fleet_batch_review_scheduler_v1"]
++    restart: unless-stopped
++    env_file:
++      - .env
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      ML_BATCH_REVIEW_SCHEDULER_PORT: ${ML_BATCH_REVIEW_SCHEDULER_PORT:-9851}
++    ports:
++      - "9851:9851"
++
++  scanner-ml-context-cache-manager-v1:
++    build:
++      context: .
++      dockerfile: python-worker/Dockerfile
++    command: ["python", "-m", "orderflow_services.ml_context_cache_manager_v1"]
++    restart: unless-stopped
++    env_file:
++      - .env
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      ML_CONTEXT_CACHE_MANAGER_PORT: ${ML_CONTEXT_CACHE_MANAGER_PORT:-9852}
++    ports:
++      - "9852:9852"
++
++  scanner-ml-vertex-batch-review-v1:
++    build:
++      context: .
++      dockerfile: python-worker/Dockerfile
++    command: ["python", "-m", "orderflow_services.ml_vertex_batch_review_orchestrator_v1"]
++    restart: unless-stopped
++    env_file:
++      - .env
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      VERTEX_PROJECT_ID: ${VERTEX_PROJECT_ID:-}
++      VERTEX_LOCATION: ${VERTEX_LOCATION:-global}
++      VERTEX_BATCH_TRIAGE_MODEL: ${VERTEX_BATCH_TRIAGE_MODEL:-gemini-2.5-flash-lite}
++      ML_VERTEX_BATCH_REVIEW_METRICS_PORT: ${ML_VERTEX_BATCH_REVIEW_METRICS_PORT:-9853}
++    ports:
++      - "9853:9853"
++
++  scanner-ml-recommendation-feedback-v1:
++    build:
++      context: .
++      dockerfile: python-worker/Dockerfile
++    command: ["python", "-m", "orderflow_services.llm_recommendation_feedback_loop_v1"]
++    restart: unless-stopped
++    env_file:
++      - .env
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_RECOMMENDATION_FEEDBACK_PORT: ${ML_RECOMMENDATION_FEEDBACK_PORT:-9854}
++    ports:
++      - "9854:9854"
+diff -ruN /tmp/tmp.uIL54s3rO6/orderflow_services/llm_recommendation_feedback_loop_v1.py /mnt/data/phase1_2_patch_build/orderflow_services/llm_recommendation_feedback_loop_v1.py
+--- /tmp/tmp.uIL54s3rO6/orderflow_services/llm_recommendation_feedback_loop_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase1_2_patch_build/orderflow_services/llm_recommendation_feedback_loop_v1.py	2026-04-05 11:45:39.979427166 +0000
+@@ -0,0 +1,136 @@
++from __future__ import annotations
++
++import asyncio
++import json
++import os
++import time
++from dataclasses import dataclass, asdict
++from typing import Any, Dict
++
++try:
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++from prometheus_client import Counter, Gauge, Histogram, start_http_server
++
++
++STREAM = os.getenv("ML_RECOMMENDATION_FEEDBACK_STREAM", "stream:ml:recommendation_feedback")
++GROUP = os.getenv("ML_RECOMMENDATION_FEEDBACK_GROUP", "cg:ml_recommendation_feedback_v1")
++CONSUMER = os.getenv("HOSTNAME", "ml-recommendation-feedback-v1")
++LAST_HASH = os.getenv("ML_RECOMMENDATION_FEEDBACK_LAST_HASH", "metrics:ml:recommendation_feedback:last")
++
++RUNS = Counter("ml_recommendation_feedback_events_total", "Feedback events", ["verdict", "action"])
++LAST_RUN = Gauge("ml_recommendation_feedback_last_run_ts_seconds", "Last run ts")
++UP = Gauge("ml_recommendation_feedback_up", "Health")
++LOOP_LAT = Histogram("ml_recommendation_feedback_loop_seconds", "Loop latency")
++
++
++@dataclass
++class RecommendationFeedback:
++    recommendation_id: str
++    analysis_run_id: str
++    ts_ms: int
++    verdict: str
++    action: str
++    target: str
++    reviewer: str
++    reason_code: str
++    prompt_version: str
++    policy_version: str
++    notes: str
++
++    def to_dict(self) -> Dict[str, Any]:
++        return asdict(self)
++
++
++def normalize_feedback(fields: Dict[str, Any]) -> RecommendationFeedback:
++    def _s(v: Any) -> str:
++        return "" if v is None else str(v)
++    return RecommendationFeedback(
++        recommendation_id=_s(fields.get("recommendation_id") or fields.get("id")),
++        analysis_run_id=_s(fields.get("analysis_run_id")),
++        ts_ms=int(fields.get("ts_ms") or int(time.time() * 1000)),
++        verdict=_s(fields.get("verdict") or "unknown").lower(),
++        action=_s(fields.get("action") or "unknown"),
++        target=_s(fields.get("target") or ""),
++        reviewer=_s(fields.get("reviewer") or "system"),
++        reason_code=_s(fields.get("reason_code") or ""),
++        prompt_version=_s(fields.get("prompt_version") or "unknown"),
++        policy_version=_s(fields.get("policy_version") or "unknown"),
++        notes=_s(fields.get("notes") or ""),
++    )
++
++
++def update_summary(summary: Dict[str, int], feedback: RecommendationFeedback) -> Dict[str, int]:
++    verdict = feedback.verdict
++    summary = dict(summary)
++    summary[verdict] = int(summary.get(verdict, 0)) + 1
++    summary["total"] = int(summary.get("total", 0)) + 1
++    return summary
++
++
++async def _write_db_if_possible(payload: RecommendationFeedback) -> None:
++    db_url = os.getenv("DATABASE_URL", "").strip()
++    if not db_url:
++        return
++    try:
++        import psycopg
++        async with await psycopg.AsyncConnection.connect(db_url) as conn:
++            async with conn.cursor() as cur:
++                await cur.execute(
++                    """
++                    INSERT INTO llm_recommendation_feedback (
++                      recommendation_id, analysis_run_id, ts_ms, verdict, action, target,
++                      reviewer, reason_code, prompt_version, policy_version, notes
++                    ) VALUES (
++                      %(recommendation_id)s, %(analysis_run_id)s, %(ts_ms)s, %(verdict)s, %(action)s, %(target)s,
++                      %(reviewer)s, %(reason_code)s, %(prompt_version)s, %(policy_version)s, %(notes)s
++                    )
++                    ON CONFLICT DO NOTHING
++                    """,
++                    payload.to_dict(),
++                )
++            await conn.commit()
++    except Exception:
++        return
++
++
++async def main() -> None:
++    if redis is None:
++        raise RuntimeError("redis package is required")
++    start_http_server(int(os.getenv("ML_RECOMMENDATION_FEEDBACK_PORT", "9854")))
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=False)
++    try:
++        await r.xgroup_create(STREAM, GROUP, id="0", mkstream=True)
++    except Exception:
++        pass
++    UP.set(1.0)
++    while True:
++        t0 = time.perf_counter()
++        rows = await r.xreadgroup(GROUP, CONSUMER, {STREAM: ">"}, count=64, block=5000)
++        if not rows:
++            LAST_RUN.set(time.time())
++            await asyncio.sleep(1.0)
++            continue
++        for _, msgs in rows:
++            for msg_id, fields in msgs:
++                data = {(_k.decode() if isinstance(_k, bytes) else str(_k)): (_v.decode() if isinstance(_v, bytes) else str(_v)) for _k, _v in fields.items()}
++                try:
++                    fb = normalize_feedback(data)
++                    await _write_db_if_possible(fb)
++                    key = f"metrics:ml:recommendation_feedback:summary:{fb.action}"
++                    raw = await r.hgetall(key)
++                    summary = {str(k): int(v) for k, v in raw.items()} if raw else {}
++                    summary = update_summary(summary, fb)
++                    await r.hset(key, mapping={k: int(v) for k, v in summary.items()})
++                    await r.hset(LAST_HASH, mapping=fb.to_dict())
++                    RUNS.labels(verdict=fb.verdict, action=fb.action).inc()
++                    await r.xack(STREAM, GROUP, msg_id)
++                except Exception:
++                    await r.xack(STREAM, GROUP, msg_id)
++        LAST_RUN.set(time.time())
++        LOOP_LAT.observe(max(0.0, time.perf_counter() - t0))
++
++
++if __name__ == "__main__":
++    asyncio.run(main())
+diff -ruN /tmp/tmp.uIL54s3rO6/orderflow_services/ml_context_cache_manager_v1.py /mnt/data/phase1_2_patch_build/orderflow_services/ml_context_cache_manager_v1.py
+--- /tmp/tmp.uIL54s3rO6/orderflow_services/ml_context_cache_manager_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase1_2_patch_build/orderflow_services/ml_context_cache_manager_v1.py	2026-04-05 11:45:22.976844020 +0000
+@@ -0,0 +1,89 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from typing import Any, Dict
++
++from prometheus_client import Counter, Gauge, Histogram, start_http_server
++
++try:
++    import redis
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++from orderflow_services.context_cache_registry_v1 import ContextCacheRegistryV1, build_cache_observation
++
++
++RUNS = Counter("ml_context_cache_manager_runs_total", "Context cache manager runs", ["status"])
++ENTRIES = Counter("ml_context_cache_entries_total", "Context cache entries observed", ["eligible"])
++LAST_RUN = Gauge("ml_context_cache_manager_last_run_ts_seconds", "Last run ts")
++LAST_HITS = Gauge("ml_context_cache_last_hits", "Last observed hits")
++LAST_PAYLOAD_BYTES = Gauge("ml_context_cache_last_payload_bytes", "Last observed payload bytes")
++LOOP_LAT = Histogram("ml_context_cache_manager_loop_seconds", "Loop latency")
++
++
++def _s(x: Any) -> str:
++    if isinstance(x, bytes):
++        return x.decode("utf-8", "replace")
++    return str(x)
++
++
++def main() -> None:
++    if redis is None:
++        raise RuntimeError("redis package is required")
++    start_http_server(int(os.getenv("ML_CONTEXT_CACHE_MANAGER_PORT", "9852")))
++    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
++    r = redis.Redis.from_url(redis_url, decode_responses=False)
++    registry = ContextCacheRegistryV1(redis_url)
++    in_stream = os.getenv("ML_ANALYSIS_BATCH_REQUESTS_STREAM", "stream:ml:analysis_batch_requests")
++    group = os.getenv("ML_CONTEXT_CACHE_MANAGER_GROUP", "cg:ml_context_cache_manager_v1")
++    consumer = os.getenv("HOSTNAME", "ml-context-cache-manager-v1")
++    last_hash = os.getenv("ML_CONTEXT_CACHE_LAST_HASH", "metrics:ml:context_cache:last")
++    try:
++        r.xgroup_create(in_stream, group, id="0", mkstream=True)
++    except Exception:
++        pass
++    while True:
++        t0 = time.perf_counter()
++        rows = r.xreadgroup(groupname=group, consumername=consumer, streams={in_stream: ">"}, count=32, block=5000)
++        if not rows:
++            LAST_RUN.set(time.time())
++            continue
++        for _, msgs in rows:
++            for msg_id, fields in msgs:
++                try:
++                    data = {_s(k): _s(v) for k, v in fields.items()}
++                    payload = json.loads(data.get("payload") or "{}")
++                    obs = build_cache_observation(payload)
++                    entry = registry.observe(
++                        compact_hash=str(obs.get("compact_hash") or payload.get("batch_id") or ""),
++                        prompt_version=str(obs.get("prompt_version") or "unknown"),
++                        policy_version=str(obs.get("policy_version") or "unknown"),
++                        payload_bytes=int(obs.get("payload_bytes") or 0),
++                        ts_ms=int(payload.get("ts_ms") or int(time.time() * 1000)),
++                    )
++                    r.hset(last_hash, mapping={
++                        "compact_hash": entry.compact_hash,
++                        "prompt_version": entry.prompt_version,
++                        "policy_version": entry.policy_version,
++                        "hits": entry.hits,
++                        "payload_bytes": entry.payload_bytes,
++                        "eligible": 1 if entry.eligible else 0,
++                        "cache_ref": entry.cache_ref,
++                        "last_seen_ms": entry.last_seen_ms,
++                    })
++                    ENTRIES.labels(eligible="1" if entry.eligible else "0").inc()
++                    LAST_HITS.set(entry.hits)
++                    LAST_PAYLOAD_BYTES.set(entry.payload_bytes)
++                    RUNS.labels(status="ok").inc()
++                    r.xack(in_stream, group, msg_id)
++                except Exception:
++                    RUNS.labels(status="err").inc()
++                    r.xack(in_stream, group, msg_id)
++        LAST_RUN.set(time.time())
++        LOOP_LAT.observe(max(0.0, time.perf_counter() - t0))
++
++
++if __name__ == "__main__":
++    main()
+diff -ruN /tmp/tmp.uIL54s3rO6/orderflow_services/ml_fleet_batch_review_scheduler_v1.py /mnt/data/phase1_2_patch_build/orderflow_services/ml_fleet_batch_review_scheduler_v1.py
+--- /tmp/tmp.uIL54s3rO6/orderflow_services/ml_fleet_batch_review_scheduler_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase1_2_patch_build/orderflow_services/ml_fleet_batch_review_scheduler_v1.py	2026-04-05 11:45:22.969163654 +0000
+@@ -0,0 +1,127 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++import uuid
++from typing import Any, Dict, Iterable, List
++
++from prometheus_client import Counter, Gauge, Histogram, start_http_server
++
++try:
++    import redis
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++
++RUNS = Counter("ml_batch_review_scheduler_runs_total", "Batch review scheduler runs", ["status"])
++BATCHES = Counter("ml_batch_review_batches_total", "Batch review batches emitted", ["family"])
++ITEMS = Counter("ml_batch_review_items_total", "Batch review items emitted", ["family"])
++LAST_RUN = Gauge("ml_batch_review_scheduler_last_run_ts_seconds", "Last run ts")
++SELECTED = Gauge("ml_batch_review_scheduler_selected_items", "Selected suspicious items count")
++BUILD_LAT = Histogram("ml_batch_review_scheduler_build_seconds", "Batch build latency")
++
++
++def _loads(value: Any, default: Any) -> Any:
++    if value is None:
++        return default
++    if isinstance(value, (dict, list)):
++        return value
++    try:
++        return json.loads(value)
++    except Exception:
++        return default
++
++
++def snapshot_to_batch_item(model_id: str, h: Dict[str, Any]) -> Dict[str, Any]:
++    return {
++        "model_id": model_id,
++        "family": h.get("family", "unknown"),
++        "kind": h.get("kind", "unknown"),
++        "status": h.get("status", "unknown"),
++        "promotion_state": h.get("promotion_state", "unknown"),
++        "champion_flag": str(h.get("champion_flag", "0")) in {"1", "true", "True"},
++        "latency_p95_max_ms": float(h.get("latency_p95_max_ms", 0.0) or 0.0),
++        "error_rate_max": float(h.get("error_rate_max", 0.0) or 0.0),
++        "missing_critical_rate_max": float(h.get("missing_critical_rate_max", 0.0) or 0.0),
++        "ece_max": float(h.get("ece_max", 0.0) or 0.0),
++        "brier_max": float(h.get("brier_max", 0.0) or 0.0),
++        "reason_codes": _loads(h.get("reason_codes_json"), []),
++        "hot_symbols": _loads(h.get("hot_symbols_json"), []),
++        "schema_ver": h.get("schema_ver", ""),
++    }
++
++
++def select_suspicious_snapshots(rows: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
++    out: List[Dict[str, Any]] = []
++    include_ok = str(os.getenv("ML_BATCH_REVIEW_INCLUDE_OK", "0") or "0") == "1"
++    for h in rows:
++        status = str(h.get("status") or "unknown").lower()
++        if include_ok or status in {"warning", "critical"}:
++            out.append(h)
++    return out
++
++
++def group_batch_items(items: List[Dict[str, Any]], max_items: int) -> List[List[Dict[str, Any]]]:
++    max_items = max(1, int(max_items))
++    return [items[i:i + max_items] for i in range(0, len(items), max_items)]
++
++
++def main() -> None:
++    if redis is None:
++        raise RuntimeError("redis package is required")
++    start_http_server(int(os.getenv("ML_BATCH_REVIEW_SCHEDULER_PORT", "9851")))
++    r = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True)
++    out_stream = os.getenv("ML_ANALYSIS_BATCH_REQUESTS_STREAM", "stream:ml:analysis_batch_requests")
++    every_sec = int(os.getenv("ML_BATCH_REVIEW_EVERY_SEC", "3600") or 3600)
++    max_items = int(os.getenv("ML_BATCH_REVIEW_MAX_ITEMS", "10") or 10)
++    while True:
++        t0 = time.perf_counter()
++        try:
++            keys = [k for k in r.scan_iter(match="metrics:ml:model_snapshot:*") if not k.endswith(":last")]
++            rows = [r.hgetall(k) for k in keys]
++            suspicious = select_suspicious_snapshots(rows)
++            SELECTED.set(len(suspicious))
++            if suspicious:
++                items = [snapshot_to_batch_item(str(h.get("model_id") or "unknown"), h) for h in suspicious]
++                for chunk in group_batch_items(items, max_items=max_items):
++                    family = str(chunk[0].get("family") or "unknown") if chunk else "unknown"
++                    ts_ms = int(time.time() * 1000)
++                    batch_scope = {
++                        "families": sorted(list({str(x.get("family") or "unknown") for x in chunk})),
++                        "model_ids": [str(x.get("model_id") or "unknown") for x in chunk],
++                        "item_count": len(chunk),
++                    }
++                    payload = {
++                        "schema_version": 1,
++                        "batch_id": uuid.uuid4().hex,
++                        "ts_ms": ts_ms,
++                        "task_type": "fleet_batch_triage",
++                        "priority": "low",
++                        "prompt_version": str(os.getenv("ML_TRIAGE_PROMPT_VERSION", "ml_triage_v1")),
++                        "policy_version": str(os.getenv("ML_TRIAGE_POLICY_VERSION", "policy_v1")),
++                        "batch_scope_json": batch_scope,
++                        "items_json": chunk,
++                    }
++                    r.xadd(out_stream, {
++                        "schema_version": 1,
++                        "batch_id": payload["batch_id"],
++                        "ts_ms": ts_ms,
++                        "task_type": payload["task_type"],
++                        "priority": payload["priority"],
++                        "family": family,
++                        "item_count": len(chunk),
++                        "payload": json.dumps(payload, ensure_ascii=False),
++                    }, maxlen=int(os.getenv("ML_ANALYSIS_BATCH_REQUESTS_MAXLEN", "50000") or 50000), approximate=True)
++                    BATCHES.labels(family=family).inc()
++                    ITEMS.labels(family=family).inc(len(chunk))
++            RUNS.labels(status="ok").inc()
++            LAST_RUN.set(time.time())
++        except Exception:
++            RUNS.labels(status="err").inc()
++        BUILD_LAT.observe(max(0.0, time.perf_counter() - t0))
++        time.sleep(max(5, every_sec))
++
++
++if __name__ == "__main__":
++    main()
+diff -ruN /tmp/tmp.uIL54s3rO6/orderflow_services/ml_vertex_batch_review_orchestrator_v1.py /mnt/data/phase1_2_patch_build/orderflow_services/ml_vertex_batch_review_orchestrator_v1.py
+--- /tmp/tmp.uIL54s3rO6/orderflow_services/ml_vertex_batch_review_orchestrator_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase1_2_patch_build/orderflow_services/ml_vertex_batch_review_orchestrator_v1.py	2026-04-05 11:45:22.993231222 +0000
+@@ -0,0 +1,214 @@
++from __future__ import annotations
++
++import asyncio
++import json
++import os
++import time
++from typing import Any, Dict
++
++import redis.asyncio as redis
++from prometheus_client import Counter, Gauge, Histogram, start_http_server
++
++from orderflow_services.llm_recommendation_guard_v1 import guard_recommendations
++from orderflow_services.providers.vertex_genai_provider_v1_2 import VertexGenAIProviderV12, VertexProviderError
++from orderflow_services.vertex_cost_accounting_v1 import CostRecord, record_cost
++
++
++REQUESTS_STREAM = os.getenv("ML_ANALYSIS_BATCH_REQUESTS_STREAM", "stream:ml:analysis_batch_requests")
++RESULTS_STREAM = os.getenv("ML_ANALYSIS_RESULTS_STREAM", "stream:ml:analysis_results")
++PROPOSALS_STREAM = os.getenv("ML_RECOMMENDATION_PROPOSALS_STREAM", "stream:ml:recommendation_proposals")
++DLQ_STREAM = os.getenv("ML_ANALYSIS_DLQ_STREAM", "stream:ml:analysis_dlq")
++GROUP = os.getenv("ML_VERTEX_BATCH_REVIEW_GROUP", "cg:ml_vertex_batch_review_v1")
++CONSUMER = os.getenv("HOSTNAME", "ml-vertex-batch-review-v1")
++LAST_HASH = os.getenv("ML_ANALYSIS_RESULTS_LAST_HASH", "metrics:ml:analysis_results:last")
++
++REQS = Counter("ml_batch_analysis_requests_total", "Batch analysis requests", ["provider", "status"])
++ITEMS = Counter("ml_batch_analysis_items_total", "Batch analysis items", ["provider", "status"])
++LAT = Histogram("ml_batch_analysis_latency_seconds", "Batch analysis latency", ["provider"])
++LAST_RUN_TS = Gauge("ml_vertex_batch_review_last_run_ts_seconds", "Last run ts")
++UP = Gauge("ml_vertex_batch_review_up", "Health")
++Q_LAG_MS = Gauge("ml_batch_analysis_queue_lag_ms", "Queue lag ms")
++COST_USD = Gauge("ml_batch_analysis_last_cost_usd", "Last accounted cost usd")
++
++
++def _s(x: Any) -> str:
++    if isinstance(x, bytes):
++        return x.decode("utf-8", "replace")
++    return str(x)
++
++
++async def _write_result_db_if_possible(payload: Dict[str, Any]) -> None:
++    db_url = os.getenv("DATABASE_URL", "").strip()
++    if not db_url:
++        return
++    try:
++        import psycopg
++        async with await psycopg.AsyncConnection.connect(db_url) as conn:
++            async with conn.cursor() as cur:
++                await cur.execute(
++                    """
++                    INSERT INTO llm_analysis_runs (
++                      analysis_run_id, ts_ms, provider, model_name, task_type,
++                      scope_json, input_refs_json, output_json, status, latency_ms, cost_usd,
++                      prompt_version, policy_version, compact_hash, batch_id,
++                      input_chars, output_chars, estimated_cost_usd, actual_cost_usd, context_cache_ref
++                    ) VALUES (
++                      %(analysis_run_id)s, %(ts_ms)s, %(provider)s, %(model_name)s, %(task_type)s,
++                      %(scope_json)s::jsonb, %(input_refs_json)s::jsonb, %(output_json)s::jsonb,
++                      %(status)s, %(latency_ms)s, %(cost_usd)s,
++                      %(prompt_version)s, %(policy_version)s, %(compact_hash)s, %(batch_id)s,
++                      %(input_chars)s, %(output_chars)s, %(estimated_cost_usd)s, %(actual_cost_usd)s, %(context_cache_ref)s
++                    )
++                    ON CONFLICT (analysis_run_id) DO NOTHING
++                    """,
++                    payload,
++                )
++            await conn.commit()
++    except Exception:
++        return
++
++
++async def main() -> None:
++    start_http_server(int(os.getenv("ML_VERTEX_BATCH_REVIEW_METRICS_PORT", "9853")))
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=False)
++    provider = VertexGenAIProviderV12()
++    try:
++        await r.xgroup_create(REQUESTS_STREAM, GROUP, id="0", mkstream=True)
++    except Exception:
++        pass
++    UP.set(1.0)
++    while True:
++        rows = await r.xreadgroup(GROUP, CONSUMER, {REQUESTS_STREAM: ">"}, count=10, block=5000)
++        if not rows:
++            await asyncio.sleep(1.0)
++            continue
++        for _stream, msgs in rows:
++            for msg_id, fields in msgs:
++                data = {_s(k): _s(v) for k, v in fields.items()}
++                try:
++                    payload = json.loads(data.get("payload") or "{}")
++                except Exception:
++                    payload = {}
++                try:
++                    lag_ms = max(0, int(time.time() * 1000) - int(payload.get("ts_ms", 0) or 0))
++                    Q_LAG_MS.set(lag_ms)
++                except Exception:
++                    pass
++                try:
++                    t0 = time.perf_counter()
++                    results = provider.analyze_batch(payload)
++                    REQS.labels(provider="vertex", status="ok").inc()
++                    ITEMS.labels(provider="vertex", status="ok").inc(len(results))
++                    for idx, res in enumerate(results):
++                        item = (payload.get("items_json") or [])[idx] if idx < len(payload.get("items_json") or []) else {}
++                        model_target = str(item.get("model_id") or res.request_id)
++                        guarded = guard_recommendations(res.output_json)
++                        analysis_run_id = str(res.output_json.get("analysis_run_id") or f"{res.batch_id}_{idx}")
++                        out_row = {
++                            "analysis_run_id": analysis_run_id,
++                            "ts_ms": int(time.time() * 1000),
++                            "provider": res.provider,
++                            "model_name": res.model_name,
++                            "task_type": payload.get("task_type", "fleet_batch_triage"),
++                            "scope_json": json.dumps({"model_id": model_target, "batch_id": res.batch_id}, ensure_ascii=False),
++                            "input_refs_json": json.dumps({"request_id": res.request_id, "batch_id": res.batch_id}, ensure_ascii=False),
++                            "output_json": json.dumps(res.output_json, ensure_ascii=False),
++                            "status": "ok" if guarded.get("valid") else "guard_error",
++                            "latency_ms": res.latency_ms,
++                            "cost_usd": res.actual_cost_usd,
++                            "prompt_version": payload.get("prompt_version", "unknown"),
++                            "policy_version": payload.get("policy_version", "unknown"),
++                            "compact_hash": payload.get("batch_compact_hash", ""),
++                            "batch_id": res.batch_id,
++                            "input_chars": res.input_chars,
++                            "output_chars": res.output_chars,
++                            "estimated_cost_usd": res.estimated_cost_usd,
++                            "actual_cost_usd": res.actual_cost_usd,
++                            "context_cache_ref": res.context_cache_ref,
++                        }
++                        await _write_result_db_if_possible(out_row)
++                        await r.xadd(RESULTS_STREAM, {
++                            "schema_version": 1,
++                            "analysis_run_id": analysis_run_id,
++                            "request_id": res.request_id,
++                            "batch_id": res.batch_id,
++                            "provider": res.provider,
++                            "model_name": res.model_name,
++                            "task_type": out_row["task_type"],
++                            "ts_ms": out_row["ts_ms"],
++                            "status": out_row["status"],
++                            "output_json": out_row["output_json"],
++                            "guarded_recommendations_json": json.dumps(guarded.get("guarded_recommendations", []), ensure_ascii=False),
++                            "blocked_recommendations_json": json.dumps(guarded.get("blocked_recommendations", []), ensure_ascii=False),
++                            "estimated_cost_usd": res.estimated_cost_usd,
++                            "actual_cost_usd": res.actual_cost_usd,
++                            "context_cache_ref": res.context_cache_ref,
++                        }, maxlen=int(os.getenv("ML_ANALYSIS_RESULTS_STREAM_MAXLEN", "100000") or 100000), approximate=True)
++                        for rec in guarded.get("guarded_recommendations", []):
++                            await r.xadd(PROPOSALS_STREAM, {
++                                "schema_version": 1,
++                                "analysis_run_id": analysis_run_id,
++                                "request_id": res.request_id,
++                                "batch_id": res.batch_id,
++                                "ts_ms": out_row["ts_ms"],
++                                "action": rec.get("action", ""),
++                                "target": rec.get("target", model_target),
++                                "risk": rec.get("risk", "medium"),
++                                "reason_code": rec.get("reason_code", ""),
++                                "prompt_version": out_row["prompt_version"],
++                                "policy_version": out_row["policy_version"],
++                                "apply_mode": "REVIEW_ONLY",
++                                "recommendation_json": json.dumps(rec, ensure_ascii=False),
++                            }, maxlen=int(os.getenv("ML_RECOMMENDATION_PROPOSALS_STREAM_MAXLEN", "100000") or 100000), approximate=True)
++                        record_cost(os.getenv("REDIS_URL", "redis://localhost:6379/0"), CostRecord(
++                            provider=res.provider,
++                            model_name=res.model_name,
++                            request_id=res.request_id,
++                            batch_id=res.batch_id,
++                            ts_ms=out_row["ts_ms"],
++                            input_chars=res.input_chars,
++                            output_chars=res.output_chars,
++                            estimated_cost_usd=res.estimated_cost_usd,
++                            actual_cost_usd=res.actual_cost_usd,
++                            context_cache_ref=res.context_cache_ref,
++                        ))
++                        COST_USD.set(res.actual_cost_usd)
++                    await r.hset(LAST_HASH, mapping={
++                        "batch_id": payload.get("batch_id", ""),
++                        "provider": "vertex",
++                        "model_name": provider.model_name,
++                        "task_type": payload.get("task_type", "fleet_batch_triage"),
++                        "status": "ok",
++                        "ts_ms": int(time.time() * 1000),
++                    })
++                    LAT.labels(provider="vertex").observe(max(0.0, time.perf_counter() - t0))
++                    LAST_RUN_TS.set(time.time())
++                    await r.xack(REQUESTS_STREAM, GROUP, msg_id)
++                except VertexProviderError as exc:
++                    REQS.labels(provider="vertex", status="err_provider").inc()
++                    await r.xadd(DLQ_STREAM, {
++                        "schema_version": 1,
++                        "batch_id": payload.get("batch_id", ""),
++                        "task_type": payload.get("task_type", "fleet_batch_triage"),
++                        "error_kind": "provider_error",
++                        "error_text": str(exc),
++                        "payload_json": json.dumps(data, ensure_ascii=False),
++                        "ts_ms": int(time.time() * 1000),
++                    }, maxlen=int(os.getenv("ML_ANALYSIS_DLQ_STREAM_MAXLEN", "50000") or 50000), approximate=True)
++                    await r.xack(REQUESTS_STREAM, GROUP, msg_id)
++                except Exception as exc:
++                    REQS.labels(provider="vertex", status="err_runtime").inc()
++                    await r.xadd(DLQ_STREAM, {
++                        "schema_version": 1,
++                        "batch_id": payload.get("batch_id", ""),
++                        "task_type": payload.get("task_type", "fleet_batch_triage"),
++                        "error_kind": "runtime_error",
++                        "error_text": str(exc),
++                        "payload_json": json.dumps(data, ensure_ascii=False),
++                        "ts_ms": int(time.time() * 1000),
++                    }, maxlen=int(os.getenv("ML_ANALYSIS_DLQ_STREAM_MAXLEN", "50000") or 50000), approximate=True)
++                    await r.xack(REQUESTS_STREAM, GROUP, msg_id)
++
++
++if __name__ == "__main__":
++    asyncio.run(main())
+diff -ruN /tmp/tmp.uIL54s3rO6/orderflow_services/prometheus_alerts_ml_phase1_2_v1.yml /mnt/data/phase1_2_patch_build/orderflow_services/prometheus_alerts_ml_phase1_2_v1.yml
+--- /tmp/tmp.uIL54s3rO6/orderflow_services/prometheus_alerts_ml_phase1_2_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase1_2_patch_build/orderflow_services/prometheus_alerts_ml_phase1_2_v1.yml	2026-04-05 11:45:23.024605319 +0000
+@@ -0,0 +1,34 @@
++groups:
++  - name: ml-phase1-2-v1
++    rules:
++      - alert: MLBatchReviewSchedulerStale
++        expr: time() - ml_batch_review_scheduler_last_run_ts_seconds > 7200
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: "ML batch review scheduler stale"
++
++      - alert: MLContextCacheManagerStale
++        expr: time() - ml_context_cache_manager_last_run_ts_seconds > 1800
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: "ML context cache manager stale"
++
++      - alert: MLVertexBatchReviewStale
++        expr: time() - ml_vertex_batch_review_last_run_ts_seconds > 7200
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: "ML Vertex batch review orchestrator stale"
++
++      - alert: MLRecommendationFeedbackStale
++        expr: time() - ml_recommendation_feedback_last_run_ts_seconds > 21600
++        for: 10m
++        labels:
++          severity: info
++        annotations:
++          summary: "ML recommendation feedback loop has not processed new events recently"
+diff -ruN /tmp/tmp.uIL54s3rO6/orderflow_services/providers/vertex_genai_provider_v1_2.py /mnt/data/phase1_2_patch_build/orderflow_services/providers/vertex_genai_provider_v1_2.py
+--- /tmp/tmp.uIL54s3rO6/orderflow_services/providers/vertex_genai_provider_v1_2.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase1_2_patch_build/orderflow_services/providers/vertex_genai_provider_v1_2.py	2026-04-05 11:45:22.984937554 +0000
+@@ -0,0 +1,173 @@
++from __future__ import annotations
++
++import json
++import os
++import random
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional
++
++from orderflow_services.context_cache_registry_v1 import ContextCacheRegistryV1
++from orderflow_services.vertex_budget_guard_v1 import VertexBudgetGuardV1
++from orderflow_services.vertex_cost_accounting_v1 import estimate_cost_usd
++
++
++class VertexProviderError(RuntimeError):
++    pass
++
++
++@dataclass
++class VertexBatchItemResult:
++    provider: str
++    model_name: str
++    batch_id: str
++    request_id: str
++    output_json: Dict[str, Any]
++    latency_ms: int
++    input_chars: int
++    output_chars: int
++    estimated_cost_usd: float
++    actual_cost_usd: float
++    context_cache_ref: str
++
++
++class VertexGenAIProviderV12:
++    def __init__(self) -> None:
++        self.project_id = os.getenv("VERTEX_PROJECT_ID", "").strip()
++        self.location = os.getenv("VERTEX_LOCATION", "global").strip() or "global"
++        self.model_name = os.getenv("VERTEX_BATCH_TRIAGE_MODEL", os.getenv("VERTEX_TRIAGE_MODEL", "gemini-2.5-flash-lite"))
++        self.retry_max = int(os.getenv("VERTEX_RETRY_MAX", "5") or 5)
++        self.retry_base_ms = int(os.getenv("VERTEX_RETRY_BASE_MS", "500") or 500)
++        self.context_cache_enable = str(os.getenv("VERTEX_CONTEXT_CACHE_ENABLE", "0") or "0") == "1"
++        self.context_cache_mode = str(os.getenv("VERTEX_CONTEXT_CACHE_MODE", "ADVISORY") or "ADVISORY").upper()
++        self.redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
++        self.budget_guard = VertexBudgetGuardV1(self.redis_url)
++        self.cache_registry = ContextCacheRegistryV1(self.redis_url)
++
++    def _build_batch_prompt(self, payload: Dict[str, Any]) -> str:
++        items = payload.get("items_json") or []
++        body = {
++            "task": "fleet_batch_triage",
++            "instructions": [
++                "Return strictly JSON.",
++                "Return one result item per input item.",
++                "Recommendations must be advisory-only and low risk.",
++                "Do not propose direct risk limit changes or execution changes.",
++            ],
++            "batch_scope": payload.get("batch_scope_json") or {},
++            "items": items,
++        }
++        return json.dumps(body, ensure_ascii=False, sort_keys=True)
++
++    def _parse_batch_response(self, text: str, fallback_payload: Dict[str, Any]) -> List[Dict[str, Any]]:
++        try:
++            obj = json.loads(text)
++            if isinstance(obj, dict) and isinstance(obj.get("items"), list):
++                return obj["items"]
++            if isinstance(obj, list):
++                return obj
++        except Exception:
++            pass
++        # deterministic fallback: emit one blocked/inspection result per item
++        items = fallback_payload.get("items_json") or []
++        out: List[Dict[str, Any]] = []
++        for item in items:
++            out.append({
++                "analysis_run_id": f"fallback_{item.get('model_id', 'unknown')}",
++                "status": "fallback",
++                "summary": "vertex_batch_parse_failed",
++                "findings": [],
++                "recommendations": [
++                    {
++                        "action": "open_incident",
++                        "target": str(item.get("model_id") or "unknown"),
++                        "risk": "low",
++                        "reason_code": "VERTEX_BATCH_PARSE_FAILED",
++                    }
++                ],
++            })
++        return out
++
++    def _call_vertex(self, prompt: str, *, context_cache_ref: str = "") -> str:
++        try:
++            from google import genai  # type: ignore
++        except Exception as exc:  # pragma: no cover
++            raise VertexProviderError(f"google-genai unavailable: {exc}")
++
++        if not self.project_id:
++            raise VertexProviderError("VERTEX_PROJECT_ID is not set")
++
++        client = genai.Client(vertexai=True, project=self.project_id, location=self.location)
++        config = {
++            "response_mime_type": "application/json",
++            "temperature": 0.0,
++            "top_p": 0.1,
++        }
++        # Keep context-cache handling advisory by default; avoid relying on volatile SDK fields.
++        if self.context_cache_enable and context_cache_ref and self.context_cache_mode == "ATTACH":
++            config["cached_content"] = context_cache_ref
++        resp = client.models.generate_content(model=self.model_name, contents=prompt, config=config)
++        text = getattr(resp, "text", None)
++        if not text:
++            raise VertexProviderError("empty_vertex_response")
++        return str(text)
++
++    def analyze_batch(self, payload: Dict[str, Any]) -> List[VertexBatchItemResult]:
++        batch_id = str(payload.get("batch_id") or "")
++        prompt = self._build_batch_prompt(payload)
++        prompt_version = str(payload.get("prompt_version") or "unknown")
++        policy_version = str(payload.get("policy_version") or "unknown")
++        compact_hash = str(payload.get("batch_compact_hash") or batch_id)
++        context_cache_ref = ""
++        if self.context_cache_enable:
++            entry = self.cache_registry.lookup(compact_hash)
++            if entry and entry.eligible:
++                context_cache_ref = entry.cache_ref
++        input_chars = len(prompt)
++        estimated_output_chars = int(os.getenv("VERTEX_BATCH_TRIAGE_EST_OUTPUT_CHARS", "6000") or 6000)
++        est_cost = estimate_cost_usd(model_name=self.model_name, input_chars=input_chars, output_chars=estimated_output_chars)
++        budget_dec = self.budget_guard.check_and_reserve(provider="vertex", model=self.model_name, estimated_cost_usd=est_cost, ts=int((payload.get("ts_ms") or 0) / 1000 or time.time()))
++        if not budget_dec.allowed:
++            raise VertexProviderError(f"budget_guard:{budget_dec.reason}")
++
++        started = time.perf_counter()
++        last_exc: Optional[Exception] = None
++        text = ""
++        for attempt in range(self.retry_max):
++            try:
++                text = self._call_vertex(prompt, context_cache_ref=context_cache_ref)
++                break
++            except Exception as exc:  # pragma: no cover
++                last_exc = exc
++                if attempt + 1 >= self.retry_max:
++                    raise VertexProviderError(str(exc))
++                sleep_ms = (self.retry_base_ms * (2 ** attempt)) + random.randint(0, 200)
++                time.sleep(max(0.05, sleep_ms / 1000.0))
++        latency_ms = int((time.perf_counter() - started) * 1000)
++        parsed = self._parse_batch_response(text, payload)
++        output_chars = len(text)
++        actual_cost = estimate_cost_usd(model_name=self.model_name, input_chars=input_chars, output_chars=output_chars)
++        items = payload.get("items_json") or []
++        out: List[VertexBatchItemResult] = []
++        for idx, item in enumerate(items):
++            result_json = parsed[idx] if idx < len(parsed) else {
++                "analysis_run_id": f"missing_{item.get('model_id', idx)}",
++                "status": "fallback",
++                "summary": "missing_batch_item_result",
++                "findings": [],
++                "recommendations": [],
++            }
++            out.append(VertexBatchItemResult(
++                provider="vertex",
++                model_name=self.model_name,
++                batch_id=batch_id,
++                request_id=str(item.get("model_id") or f"item_{idx}"),
++                output_json=result_json,
++                latency_ms=latency_ms,
++                input_chars=input_chars,
++                output_chars=max(0, int(output_chars / max(1, len(items)))),
++                estimated_cost_usd=max(0.0, est_cost / max(1, len(items))),
++                actual_cost_usd=max(0.0, actual_cost / max(1, len(items))),
++                context_cache_ref=context_cache_ref,
++            ))
++        return out
+diff -ruN /tmp/tmp.uIL54s3rO6/orderflow_services/runbook_ml_phase1_2_v1.md /mnt/data/phase1_2_patch_build/orderflow_services/runbook_ml_phase1_2_v1.md
+--- /tmp/tmp.uIL54s3rO6/orderflow_services/runbook_ml_phase1_2_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase1_2_patch_build/orderflow_services/runbook_ml_phase1_2_v1.md	2026-04-05 11:45:23.034665817 +0000
+@@ -0,0 +1,72 @@
++# ML Phase 1.2 Runbook (scanner_infra only)
++
++## Scope
++Phase 1.2 adds four async/background capabilities inside `scanner_infra` only:
++
++1. Fleet batch triage scheduler
++2. Advisory context-cache registry/manager
++3. Vertex batch review orchestrator with cost accounting
++4. Recommendation feedback loop
++
++No UI. No NestJS/Next.js. No auto-apply. No hot-path changes.
++
++## Streams
++- `stream:ml:analysis_batch_requests`
++- `stream:ml:analysis_results`
++- `stream:ml:recommendation_proposals`
++- `stream:ml:analysis_dlq`
++- `stream:ml:analysis_cost`
++- `stream:ml:recommendation_feedback`
++
++## Redis hashes
++- `metrics:ml:context_cache:last`
++- `metrics:ml:analysis_cost:last`
++- `metrics:ml:recommendation_feedback:last`
++- `metrics:ml:recommendation_feedback:summary:<action>`
++
++## Rollout
++1. Apply SQL patch `ml_phase1_2_v1.sql`
++2. Add compose fragment `docker_compose_fragment_ml_phase1_2_v1.yml`
++3. Load alert rules `prometheus_alerts_ml_phase1_2_v1.yml`
++4. Verify ports: `9851`, `9852`, `9853`, `9854`
++5. Smoke checks:
++
++```bash
++redis-cli XREVRANGE stream:ml:analysis_batch_requests + - COUNT 5
++redis-cli HGETALL metrics:ml:context_cache:last
++redis-cli HGETALL metrics:ml:analysis_cost:last
++redis-cli HGETALL metrics:ml:recommendation_feedback:last
++curl -s localhost:9851/metrics | grep '^ml_batch_review_'
++curl -s localhost:9852/metrics | grep '^ml_context_cache_'
++curl -s localhost:9853/metrics | grep '^ml_batch_analysis_'
++curl -s localhost:9854/metrics | grep '^ml_recommendation_feedback_'
++```
++
++## Key ENV
++```bash
++VERTEX_PROJECT_ID=...
++VERTEX_LOCATION=global
++VERTEX_BATCH_TRIAGE_MODEL=gemini-2.5-flash-lite
++VERTEX_MAX_DAILY_USD=25
++VERTEX_MAX_CALLS_PER_HOUR=300
++VERTEX_CONTEXT_CACHE_ENABLE=1
++VERTEX_CONTEXT_CACHE_MODE=ADVISORY
++VERTEX_CONTEXT_CACHE_MIN_HITS=3
++VERTEX_CONTEXT_CACHE_MIN_BYTES=2048
++ML_BATCH_REVIEW_EVERY_SEC=3600
++ML_BATCH_REVIEW_MAX_ITEMS=10
++```
++
++## Notes
++- Context-cache support in this phase is **advisory registry + provider hook**. It does not yet provision Vertex cache artifacts directly.
++- Cost accounting is estimate-driven unless future provider metadata exposes exact billed usage.
++- Feedback loop depends on some upstream actor publishing to `stream:ml:recommendation_feedback`.
++
++## Rollback
++Stop these services only:
++- `scanner-ml-batch-review-scheduler-v1`
++- `scanner-ml-context-cache-manager-v1`
++- `scanner-ml-vertex-batch-review-v1`
++- `scanner-ml-recommendation-feedback-v1`
++
++Leave schema/tables/streams in place.
+diff -ruN /tmp/tmp.uIL54s3rO6/orderflow_services/sql/ml_phase1_2_v1.sql /mnt/data/phase1_2_patch_build/orderflow_services/sql/ml_phase1_2_v1.sql
+--- /tmp/tmp.uIL54s3rO6/orderflow_services/sql/ml_phase1_2_v1.sql	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase1_2_patch_build/orderflow_services/sql/ml_phase1_2_v1.sql	2026-04-05 11:45:23.009341131 +0000
+@@ -0,0 +1,33 @@
++ALTER TABLE llm_analysis_runs ADD COLUMN IF NOT EXISTS batch_id text;
++ALTER TABLE llm_analysis_runs ADD COLUMN IF NOT EXISTS input_chars bigint;
++ALTER TABLE llm_analysis_runs ADD COLUMN IF NOT EXISTS output_chars bigint;
++ALTER TABLE llm_analysis_runs ADD COLUMN IF NOT EXISTS estimated_cost_usd double precision;
++ALTER TABLE llm_analysis_runs ADD COLUMN IF NOT EXISTS actual_cost_usd double precision;
++ALTER TABLE llm_analysis_runs ADD COLUMN IF NOT EXISTS context_cache_ref text;
++
++CREATE TABLE IF NOT EXISTS llm_recommendation_feedback (
++  recommendation_id   text NOT NULL,
++  analysis_run_id     text,
++  ts_ms               bigint NOT NULL,
++  verdict             text NOT NULL,
++  action              text NOT NULL,
++  target              text NOT NULL,
++  reviewer            text NOT NULL,
++  reason_code         text,
++  prompt_version      text,
++  policy_version      text,
++  notes               text,
++  created_at          timestamptz NOT NULL DEFAULT now()
++);
++
++CREATE INDEX IF NOT EXISTS idx_llm_analysis_runs_batch_ts
++  ON llm_analysis_runs (batch_id, ts_ms DESC);
++
++CREATE INDEX IF NOT EXISTS idx_llm_analysis_runs_provider_ts
++  ON llm_analysis_runs (provider, ts_ms DESC);
++
++CREATE INDEX IF NOT EXISTS idx_llm_recommendation_feedback_action_ts
++  ON llm_recommendation_feedback (action, ts_ms DESC);
++
++CREATE INDEX IF NOT EXISTS idx_llm_recommendation_feedback_verdict_ts
++  ON llm_recommendation_feedback (verdict, ts_ms DESC);
+Binary files /tmp/tmp.uIL54s3rO6/orderflow_services/tests/__pycache__/test_context_cache_registry_v1.cpython-313-pytest-9.0.2.pyc and /mnt/data/phase1_2_patch_build/orderflow_services/tests/__pycache__/test_context_cache_registry_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files /tmp/tmp.uIL54s3rO6/orderflow_services/tests/__pycache__/test_llm_recommendation_feedback_loop_v1.cpython-313-pytest-9.0.2.pyc and /mnt/data/phase1_2_patch_build/orderflow_services/tests/__pycache__/test_llm_recommendation_feedback_loop_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files /tmp/tmp.uIL54s3rO6/orderflow_services/tests/__pycache__/test_ml_fleet_batch_review_scheduler_v1.cpython-313-pytest-9.0.2.pyc and /mnt/data/phase1_2_patch_build/orderflow_services/tests/__pycache__/test_ml_fleet_batch_review_scheduler_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files /tmp/tmp.uIL54s3rO6/orderflow_services/tests/__pycache__/test_vertex_cost_accounting_v1.cpython-313-pytest-9.0.2.pyc and /mnt/data/phase1_2_patch_build/orderflow_services/tests/__pycache__/test_vertex_cost_accounting_v1.cpython-313-pytest-9.0.2.pyc differ
+diff -ruN /tmp/tmp.uIL54s3rO6/orderflow_services/tests/test_context_cache_registry_v1.py /mnt/data/phase1_2_patch_build/orderflow_services/tests/test_context_cache_registry_v1.py
+--- /tmp/tmp.uIL54s3rO6/orderflow_services/tests/test_context_cache_registry_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase1_2_patch_build/orderflow_services/tests/test_context_cache_registry_v1.py	2026-04-05 11:45:23.048539037 +0000
+@@ -0,0 +1,15 @@
++from orderflow_services.context_cache_registry_v1 import build_cache_observation
++
++
++def test_build_cache_observation_extracts_versions_and_size():
++    payload = {
++        "compact_hash": "abc",
++        "prompt_version": "p1",
++        "policy_version": "q1",
++        "x": "y",
++    }
++    obs = build_cache_observation(payload)
++    assert obs["compact_hash"] == "abc"
++    assert obs["prompt_version"] == "p1"
++    assert obs["policy_version"] == "q1"
++    assert obs["payload_bytes"] > 0
+diff -ruN /tmp/tmp.uIL54s3rO6/orderflow_services/tests/test_llm_recommendation_feedback_loop_v1.py /mnt/data/phase1_2_patch_build/orderflow_services/tests/test_llm_recommendation_feedback_loop_v1.py
+--- /tmp/tmp.uIL54s3rO6/orderflow_services/tests/test_llm_recommendation_feedback_loop_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase1_2_patch_build/orderflow_services/tests/test_llm_recommendation_feedback_loop_v1.py	2026-04-05 11:45:23.062849177 +0000
+@@ -0,0 +1,15 @@
++from orderflow_services.llm_recommendation_feedback_loop_v1 import normalize_feedback, update_summary
++
++
++def test_normalize_feedback_defaults_and_lowercases():
++    fb = normalize_feedback({"recommendation_id": "r1", "verdict": "Accepted", "action": "freeze_candidate"})
++    assert fb.recommendation_id == "r1"
++    assert fb.verdict == "accepted"
++    assert fb.action == "freeze_candidate"
++
++
++def test_update_summary_counts_total_and_verdict():
++    fb = normalize_feedback({"recommendation_id": "r1", "verdict": "rejected", "action": "freeze_candidate"})
++    out = update_summary({}, fb)
++    assert out["rejected"] == 1
++    assert out["total"] == 1
+diff -ruN /tmp/tmp.uIL54s3rO6/orderflow_services/tests/test_ml_fleet_batch_review_scheduler_v1.py /mnt/data/phase1_2_patch_build/orderflow_services/tests/test_ml_fleet_batch_review_scheduler_v1.py
+--- /tmp/tmp.uIL54s3rO6/orderflow_services/tests/test_ml_fleet_batch_review_scheduler_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase1_2_patch_build/orderflow_services/tests/test_ml_fleet_batch_review_scheduler_v1.py	2026-04-05 11:45:23.041942144 +0000
+@@ -0,0 +1,18 @@
++from orderflow_services.ml_fleet_batch_review_scheduler_v1 import group_batch_items, select_suspicious_snapshots
++
++
++def test_group_batch_items_respects_max_items():
++    items = [{"i": i} for i in range(7)]
++    groups = group_batch_items(items, max_items=3)
++    assert [len(x) for x in groups] == [3, 3, 1]
++
++
++def test_select_suspicious_snapshots_filters_ok_by_default(monkeypatch):
++    monkeypatch.delenv("ML_BATCH_REVIEW_INCLUDE_OK", raising=False)
++    rows = [
++        {"status": "ok", "model_id": "a"},
++        {"status": "warning", "model_id": "b"},
++        {"status": "critical", "model_id": "c"},
++    ]
++    out = select_suspicious_snapshots(rows)
++    assert {x["model_id"] for x in out} == {"b", "c"}
+diff -ruN /tmp/tmp.uIL54s3rO6/orderflow_services/tests/test_vertex_cost_accounting_v1.py /mnt/data/phase1_2_patch_build/orderflow_services/tests/test_vertex_cost_accounting_v1.py
+--- /tmp/tmp.uIL54s3rO6/orderflow_services/tests/test_vertex_cost_accounting_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase1_2_patch_build/orderflow_services/tests/test_vertex_cost_accounting_v1.py	2026-04-05 11:45:23.054987281 +0000
+@@ -0,0 +1,7 @@
++from orderflow_services.vertex_cost_accounting_v1 import estimate_cost_usd
++
++
++def test_estimate_cost_increases_with_io():
++    a = estimate_cost_usd(model_name="gemini-2.5-flash-lite", input_chars=1000, output_chars=100)
++    b = estimate_cost_usd(model_name="gemini-2.5-flash-lite", input_chars=2000, output_chars=500)
++    assert b > a
+diff -ruN /tmp/tmp.uIL54s3rO6/orderflow_services/vertex_cost_accounting_v1.py /mnt/data/phase1_2_patch_build/orderflow_services/vertex_cost_accounting_v1.py
+--- /tmp/tmp.uIL54s3rO6/orderflow_services/vertex_cost_accounting_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase1_2_patch_build/orderflow_services/vertex_cost_accounting_v1.py	2026-04-05 11:45:22.960974963 +0000
+@@ -0,0 +1,91 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from dataclasses import dataclass, asdict
++from typing import Any, Dict, Optional
++
++try:
++    import redis
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++
++@dataclass
++class CostRecord:
++    provider: str
++    model_name: str
++    request_id: str
++    batch_id: str
++    ts_ms: int
++    input_chars: int
++    output_chars: int
++    estimated_cost_usd: float
++    actual_cost_usd: float
++    context_cache_ref: str
++
++    def to_dict(self) -> Dict[str, Any]:
++        return asdict(self)
++
++
++def estimate_cost_usd(*, model_name: str, input_chars: int, output_chars: int) -> float:
++    """Conservative local estimate for accounting/budget visibility.
++
++    Pricing is intentionally env-driven because Vertex prices can change.
++    Defaults are low and should be overridden in production.
++    """
++    if "flash-lite" in model_name:
++        in_per_mchar = float(os.getenv("VERTEX_FLASH_LITE_IN_USD_PER_MCHARS", "0.10") or 0.10)
++        out_per_mchar = float(os.getenv("VERTEX_FLASH_LITE_OUT_USD_PER_MCHARS", "0.40") or 0.40)
++    else:
++        in_per_mchar = float(os.getenv("VERTEX_FLASH_IN_USD_PER_MCHARS", "0.30") or 0.30)
++        out_per_mchar = float(os.getenv("VERTEX_FLASH_OUT_USD_PER_MCHARS", "1.20") or 1.20)
++    return (max(0, input_chars) / 1_000_000.0) * in_per_mchar + (max(0, output_chars) / 1_000_000.0) * out_per_mchar
++
++
++def record_cost(redis_url: str, rec: CostRecord) -> None:
++    if redis is None:
++        return
++    try:
++        r = redis.Redis.from_url(redis_url, decode_responses=True)
++        day = time.strftime("%Y%m%d", time.gmtime(int(rec.ts_ms) / 1000.0))
++        hour = time.strftime("%Y%m%d%H", time.gmtime(int(rec.ts_ms) / 1000.0))
++        last_key = os.getenv("ML_ANALYSIS_COST_LAST_HASH", "metrics:ml:analysis_cost:last")
++        day_key = f"metrics:ml:analysis_cost:usd:{rec.provider}:{rec.model_name}:{day}"
++        hour_key = f"metrics:ml:analysis_cost:reqs:{rec.provider}:{rec.model_name}:{hour}"
++        stream = os.getenv("ML_ANALYSIS_COST_STREAM", "stream:ml:analysis_cost")
++        p = r.pipeline()
++        p.hset(last_key, mapping={
++            "provider": rec.provider,
++            "model_name": rec.model_name,
++            "request_id": rec.request_id,
++            "batch_id": rec.batch_id,
++            "ts_ms": rec.ts_ms,
++            "input_chars": rec.input_chars,
++            "output_chars": rec.output_chars,
++            "estimated_cost_usd": rec.estimated_cost_usd,
++            "actual_cost_usd": rec.actual_cost_usd,
++            "context_cache_ref": rec.context_cache_ref,
++        })
++        p.incrbyfloat(day_key, float(rec.actual_cost_usd or rec.estimated_cost_usd))
++        p.expire(day_key, 7 * 86400)
++        p.incr(hour_key, 1)
++        p.expire(hour_key, 3 * 86400)
++        p.xadd(stream, {
++            "schema_version": 1,
++            "provider": rec.provider,
++            "model_name": rec.model_name,
++            "request_id": rec.request_id,
++            "batch_id": rec.batch_id,
++            "ts_ms": rec.ts_ms,
++            "input_chars": rec.input_chars,
++            "output_chars": rec.output_chars,
++            "estimated_cost_usd": rec.estimated_cost_usd,
++            "actual_cost_usd": rec.actual_cost_usd,
++            "context_cache_ref": rec.context_cache_ref,
++            "payload_json": json.dumps(rec.to_dict(), ensure_ascii=False),
++        }, maxlen=int(os.getenv("ML_ANALYSIS_COST_STREAM_MAXLEN", "100000") or 100000), approximate=True)
++        p.execute()
++    except Exception:
++        return

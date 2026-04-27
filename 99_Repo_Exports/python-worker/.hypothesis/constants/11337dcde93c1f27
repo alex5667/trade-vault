@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/entry_policy_ab_report_service.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.2, 0.5, 10000.0, 1000, 60000, 300000, ',', '0', '1000', '200', '25', '60', '86400', ':', '>', 'A', 'AB_AUDIT_CONSUMER', 'AB_AUDIT_GROUP', 'AB_AUDIT_STREAM', 'AB_MIN_N_PER_ARM', 'AB_PRICE_KEY_FMT', 'AB_READ_BLOCK_MS', 'AB_READ_COUNT', 'AB_REPORT_EVERY_SEC', 'AB_REPORT_TTL_SEC', 'B', 'C', 'LONG', 'REDIS_URL', 'SHORT', '__main__', 'ab-report', 'arm', 'avg_ret_bps', 'close_px', 'default', 'entry_policy_audit', 'fallback', 'group', 'h300', 'h60', 'illiquid', 'last', 'max_avg_ret_h300', 'metrics', 'mid', 'min_n', 'n', 'na', 'news', 'note', 'ok', 'payload', 'pending', 'price', 'reason', 'regime', 'setup_ts_ms', 'side', 'snap', 'symbol', 'thin', 'ts', 'ts_ms', 'type', 'winner_arm', 'winrate', '{}']

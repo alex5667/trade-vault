@@ -1,0 +1,20 @@
+groups:
+  - name: latency_contract_p45_deploy_lint
+    rules:
+      - alert: OF_LatencyDeployLint_ExporterStale_Warn
+        expr: latency_contract_deploy_lint_exporter_read_ok < 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Latency deploy-lint exporter stale"
+          description: "Exporter cannot read Redis deploy-lint state. Visibility into persistent config drift is degraded."
+
+      - alert: OF_LatencyDeployLint_PersistentConfigDrift_Crit
+        expr: latency_contract_deploy_lint_summary_gate_active_total > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Persistent deploy-lint config drift blocks sensitive jobs"
+          description: "At least one latency-sensitive rollout/apply purpose has persistent config drift and should remain blocked until config is fixed."

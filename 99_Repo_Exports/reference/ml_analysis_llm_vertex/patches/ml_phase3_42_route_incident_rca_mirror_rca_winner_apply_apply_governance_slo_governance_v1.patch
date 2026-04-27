@@ -1,0 +1,989 @@
+diff --git a/orderflow_services/route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_analytics_v3_42.py b/orderflow_services/route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_analytics_v3_42.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_analytics_v3_42.py
+@@ -0,0 +1,358 @@
++from __future__ import annotations
++
++import asyncio
++import json
++import os
++import time
++from typing import Any, Dict, List, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    import psycopg
++except Exception:  # pragma: no cover
++    psycopg = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++
++APP_NAME = "route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_analytics_v3_42"
++DECISIONS_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_CONTROLLER_DECISIONS_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_controller_decisions",
++)
++JOURNAL_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_CONTROLLER_JOURNAL_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_controller_journal",
++)
++VERIFICATION_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_VERIFICATION_RESULTS_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_verification_results",
++)
++ROLLBACK_JOURNAL_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_ROLLBACK_JOURNAL_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_rollback_journal",
++)
++OUTPUT_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_SLO_ROLLUPS_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_rollups",
++)
++LAST_HASH = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_SLO_LAST_HASH",
++    "metrics:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_slo:last",
++)
++AUDIT_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_SLO_AUDIT_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_audit",
++)
++PORT = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_SLO_PORT", "9970"))
++MAXLEN = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_SLO_MAXLEN", "20000"))
++RUN_EVERY_SEC = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_SLO_RUN_EVERY_SEC", "300"))
++WINDOW_MIN = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_SLO_WINDOW_MIN", "1440"))
++LOOKBACK_COUNT = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_SLO_LOOKBACK_COUNT", "1000"))
++ROLLBACK_MTTR_SLO_SEC = float(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_ROLLBACK_MTTR_SLO_SEC", "120"))
++
++ACTIONABLE_APPLY_DECISIONS = {"APPLY_PRIMARY_ARM_SHADOW", "APPLY_SINGLE_ARM"}
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter("ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_runs_total", "Governance apply SLO runs", ("status",))
++LAT = _hist("ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_latency_seconds", "Governance apply SLO latency seconds")
++UP = _gauge("ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_up", "Governance apply SLO up")
++LAST_RUN_TS = _gauge("ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_last_run_ts_seconds", "Governance apply SLO last run ts")
++APPLY_RATE = _gauge("ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_rate", "Governance apply rate")
++VERIFY_KEEP_RATE = _gauge("ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_verify_keep_rate", "Governance verify keep rate")
++ROLLBACK_MTTR_P95 = _gauge("ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_rollback_mttr_p95_seconds", "Governance rollback MTTR p95")
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def parse_int(v: Any, default: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return default
++
++
++def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        if isinstance(v, (bytes, bytearray)):
++            try:
++                out[kk] = v.decode()
++            except Exception:
++                out[kk] = v.hex()
++        else:
++            out[kk] = v
++    return out
++
++
++def stable_json(obj: Any) -> str:
++    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++async def xr_recent(client: Any, stream_key: str, count: int) -> List[Dict[str, Any]]:
++    try:
++        rows = await client.xrevrange(stream_key, count=count)
++    except Exception:
++        return []
++    out: List[Dict[str, Any]] = []
++    for entry_id, payload in rows:
++        row = as_dict(payload)
++        row["_stream_id"] = entry_id.decode() if isinstance(entry_id, (bytes, bytearray)) else str(entry_id)
++        out.append(row)
++    return out
++
++
++def percentile(values: List[float], q: float) -> float:
++    if not values:
++        return 0.0
++    values = sorted(values)
++    if len(values) == 1:
++        return float(values[0])
++    idx = max(0, min(len(values) - 1, int(round((len(values) - 1) * q))))
++    return float(values[idx])
++
++
++def _is_actionable_apply(row: Dict[str, Any]) -> bool:
++    return str(row.get("decision") or "") in ACTIONABLE_APPLY_DECISIONS
++
++
++def compute_rollup(
++    decision_rows: List[Dict[str, Any]],
++    journal_rows: List[Dict[str, Any]],
++    verification_rows: List[Dict[str, Any]],
++    rollback_rows: List[Dict[str, Any]],
++) -> Dict[str, Any]:
++    cutoff = now_ms() - WINDOW_MIN * 60 * 1000
++    decisions = [r for r in decision_rows if parse_int(r.get("ts_ms"), 0) >= cutoff]
++    journal = [r for r in journal_rows if parse_int(r.get("ts_ms"), 0) >= cutoff]
++    verification = [r for r in verification_rows if parse_int(r.get("ts_ms"), 0) >= cutoff]
++    rollback = [r for r in rollback_rows if parse_int(r.get("ts_ms"), 0) >= cutoff]
++
++    apply_requests = [r for r in decisions if _is_actionable_apply(r)]
++    applied = [r for r in journal if _is_actionable_apply(r)]
++    verified_keep = [r for r in verification if str(r.get("decision") or "") == "KEEP_APPLIED"]
++    rollback_results = [r for r in verification if str(r.get("decision") or "") == "ROLLBACK_PREVIOUS_POLICY"]
++
++    apply_rate = (len(applied) / len(apply_requests)) if apply_requests else 1.0
++    verify_keep_rate = (len(verified_keep) / len(applied)) if applied else 1.0
++
++    rollback_decisions_sorted = sorted(rollback_results, key=lambda r: parse_int(r.get("ts_ms"), 0))
++    rollback_applied_sorted = sorted(rollback, key=lambda r: parse_int(r.get("ts_ms"), 0))
++    mttrs: List[float] = []
++    j = 0
++    for dec in rollback_decisions_sorted:
++        dec_ts = parse_int(dec.get("ts_ms"), 0)
++        while j < len(rollback_applied_sorted) and parse_int(rollback_applied_sorted[j].get("ts_ms"), 0) < dec_ts:
++            j += 1
++        if j < len(rollback_applied_sorted):
++            mttrs.append(max(0, parse_int(rollback_applied_sorted[j].get("ts_ms"), 0) - dec_ts) / 1000.0)
++            j += 1
++
++    mttr_p50 = percentile(mttrs, 0.50)
++    mttr_p95 = percentile(mttrs, 0.95)
++
++    reason_codes: List[str] = []
++    if apply_rate < 1.0:
++        reason_codes.append("APPLY_RATE_LOW")
++    if verify_keep_rate < 1.0:
++        reason_codes.append("VERIFY_KEEP_RATE_LOW")
++    if mttr_p95 > ROLLBACK_MTTR_SLO_SEC:
++        reason_codes.append("ROLLBACK_MTTR_P95_HIGH")
++        reason_codes.append("ROLLBACK_MTTR_SLO_BREACH")
++
++    return {
++        "window_min": WINDOW_MIN,
++        "apply_requests": len(apply_requests),
++        "applied_n": len(applied),
++        "verified_keep_n": len(verified_keep),
++        "rollback_decisions_n": len(rollback_results),
++        "rollback_applied_n": len(rollback),
++        "apply_rate": round(apply_rate, 6),
++        "verify_keep_rate": round(verify_keep_rate, 6),
++        "rollback_mttr_p50_sec": round(mttr_p50, 6),
++        "rollback_mttr_p95_sec": round(mttr_p95, 6),
++        "rollback_mttr_samples": len(mttrs),
++        "reason_codes": reason_codes,
++    }
++
++
++async def persist_if_configured(db_url: str, rollup: Dict[str, Any]) -> None:
++    if not db_url or psycopg is None:
++        return
++    with psycopg.connect(db_url) as conn:  # pragma: no cover
++        with conn.cursor() as cur:
++            cur.execute(
++                """
++                INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_rollups (
++                    ts_ms, window_min, apply_requests, applied_n, verified_keep_n,
++                    rollback_decisions_n, rollback_applied_n, apply_rate, verify_keep_rate,
++                    rollback_mttr_p50_sec, rollback_mttr_p95_sec, rollback_mttr_samples, reason_codes_json
++                ) VALUES (
++                    %(ts_ms)s, %(window_min)s, %(apply_requests)s, %(applied_n)s, %(verified_keep_n)s,
++                    %(rollback_decisions_n)s, %(rollback_applied_n)s, %(apply_rate)s, %(verify_keep_rate)s,
++                    %(rollback_mttr_p50_sec)s, %(rollback_mttr_p95_sec)s, %(rollback_mttr_samples)s, %(reason_codes_json)s
++                )
++                """,
++                {
++                    "ts_ms": now_ms(),
++                    **rollup,
++                    "reason_codes_json": json.dumps(rollup["reason_codes"]),
++                },
++            )
++            conn.commit()
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    db_url = os.getenv("DATABASE_URL", "")
++
++    while True:
++        started = time.perf_counter()
++        status = "ok"
++        try:
++            decisions = await xr_recent(r, DECISIONS_STREAM, LOOKBACK_COUNT)
++            journal = await xr_recent(r, JOURNAL_STREAM, LOOKBACK_COUNT)
++            verification = await xr_recent(r, VERIFICATION_STREAM, LOOKBACK_COUNT)
++            rollback = await xr_recent(r, ROLLBACK_JOURNAL_STREAM, LOOKBACK_COUNT)
++
++            rollup = compute_rollup(decisions, journal, verification, rollback)
++            await persist_if_configured(db_url, rollup)
++            await r.xadd(
++                OUTPUT_STREAM,
++                {
++                    "schema_version": 1,
++                    "payload_json": stable_json(rollup),
++                    "reason_codes_json": stable_json(rollup["reason_codes"]),
++                    "ts_ms": str(now_ms()),
++                },
++                maxlen=MAXLEN,
++                approximate=True,
++            )
++            await r.hset(
++                LAST_HASH,
++                mapping={
++                    "apply_rate": str(rollup["apply_rate"]),
++                    "verify_keep_rate": str(rollup["verify_keep_rate"]),
++                    "rollback_mttr_p95_sec": str(rollup["rollback_mttr_p95_sec"]),
++                    "rollback_mttr_samples": str(rollup["rollback_mttr_samples"]),
++                    "reason_codes_json": stable_json(rollup["reason_codes"]),
++                    "ts_ms": str(now_ms()),
++                },
++            )
++            if APPLY_RATE:
++                APPLY_RATE.set(rollup["apply_rate"])
++            if VERIFY_KEEP_RATE:
++                VERIFY_KEEP_RATE.set(rollup["verify_keep_rate"])
++            if ROLLBACK_MTTR_P95:
++                ROLLBACK_MTTR_P95.set(rollup["rollback_mttr_p95_sec"])
++            if LAST_RUN_TS:
++                LAST_RUN_TS.set(time.time())
++        except Exception as exc:
++            status = "error"
++            await r.xadd(
++                AUDIT_STREAM,
++                {"event_type": "ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_SLO_FAILED", "error": str(exc), "ts_ms": str(now_ms())},
++                maxlen=MAXLEN,
++                approximate=True,
++            )
++        finally:
++            if RUNS:
++                RUNS.labels(status=status).inc()
++            if LAT:
++                LAT.observe(max(time.perf_counter() - started, 0.0))
++            await asyncio.sleep(max(RUN_EVERY_SEC, 5))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    asyncio.run(main())
+diff --git a/orderflow_services/route_incident_rca_mirror_rca_winner_apply_apply_governance_retry_controller_v3_42.py b/orderflow_services/route_incident_rca_mirror_rca_winner_apply_apply_governance_retry_controller_v3_42.py
+new file mode 100644
+index 0000000..1111112
+--- /dev/null
++++ b/orderflow_services/route_incident_rca_mirror_rca_winner_apply_apply_governance_retry_controller_v3_42.py
+@@ -0,0 +1,425 @@
++from __future__ import annotations
++
++import asyncio
++import json
++import os
++import time
++from typing import Any, Dict, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    import psycopg
++except Exception:  # pragma: no cover
++    psycopg = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++
++APP_NAME = "route_incident_rca_mirror_rca_winner_apply_apply_governance_retry_controller_v3_42"
++VERIFICATION_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_VERIFICATION_RESULTS_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_verification_results",
++)
++OUTPUT_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_RESULTS_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_retry_results",
++)
++LAST_HASH = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_LAST_HASH",
++    "metrics:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_retry:last",
++)
++AUDIT_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_AUDIT_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_retry_audit",
++)
++STATE_PREFIX = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_STATE_PREFIX",
++    "state:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_retry:",
++)
++EXPERIMENT_POLICY_KEY = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_EXPERIMENT_GLOBAL_POLICY_KEY",
++    "cfg:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_experiment:global",
++)
++PORT = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_PORT", "9971"))
++MAXLEN = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_MAXLEN", "20000"))
++RUN_EVERY_SEC = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_RUN_EVERY_SEC", "180"))
++LOOKBACK_COUNT = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_LOOKBACK_COUNT", "50"))
++MAX_ATTEMPTS = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_MAX_ATTEMPTS", "2"))
++BACKOFF_SEC = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_BACKOFF_SEC", "120"))
++STATE_TTL_SEC = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_STATE_TTL_SEC", "86400"))
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter("ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_retry_runs_total", "Governance retry runs", ("status", "decision"))
++LAT = _hist("ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_retry_latency_seconds", "Governance retry latency seconds")
++UP = _gauge("ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_retry_up", "Governance retry up")
++LAST_RUN_TS = _gauge("ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_retry_last_run_ts_seconds", "Governance retry last run ts")
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def parse_int(v: Any, default: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return default
++
++
++def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        if isinstance(v, (bytes, bytearray)):
++            try:
++                out[kk] = v.decode()
++            except Exception:
++                out[kk] = v.hex()
++        else:
++            out[kk] = v
++    return out
++
++
++async def xr_recent(client: Any, stream_key: str, count: int) -> list[Dict[str, Any]]:
++    try:
++        rows = await client.xrevrange(stream_key, count=count)
++    except Exception:
++        return []
++    out = []
++    for entry_id, payload in rows:
++        row = as_dict(payload)
++        row["_stream_id"] = entry_id.decode() if isinstance(entry_id, (bytes, bytearray)) else str(entry_id)
++        out.append(row)
++    return out
++
++
++def actionable_verification(row: Dict[str, Any]) -> bool:
++    return str(row.get("decision") or "") == "ROLLBACK_PREVIOUS_POLICY"
++
++
++def event_key(row: Dict[str, Any]) -> str:
++    return f"{row.get('reason_code','?')}:{row.get('rollback_mode','?')}:{row.get('rollback_primary_arm','?')}:{row.get('ts_ms','0')}"
++
++
++async def persist_if_configured(db_url: str, result: Dict[str, Any]) -> None:
++    if not db_url or psycopg is None:
++        return
++    with psycopg.connect(db_url) as conn:  # pragma: no cover
++        with conn.cursor() as cur:
++            cur.execute(
++                """
++                INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_retry_results (
++                    ts_ms, event_key, decision, reason_code, attempts, rollback_mode, rollback_primary_arm, result_json
++                ) VALUES (
++                    %(ts_ms)s, %(event_key)s, %(decision)s, %(reason_code)s, %(attempts)s, %(rollback_mode)s, %(rollback_primary_arm)s, %(result_json)s
++                )
++                """,
++                {
++                    "ts_ms": now_ms(),
++                    "event_key": result["event_key"],
++                    "decision": result["decision"],
++                    "reason_code": result["reason_code"],
++                    "attempts": result["attempts"],
++                    "rollback_mode": result["rollback_mode"],
++                    "rollback_primary_arm": result["rollback_primary_arm"],
++                    "result_json": json.dumps(result),
++                },
++            )
++            conn.commit()
++
++
++def reconstruct_shadow_arms(mode: str, primary_arm: str) -> str:
++    if mode == "SINGLE_ARM":
++        return "[]"
++    return json.dumps([a for a in ("deterministic", "vertex_candidate", "local_fallback_candidate") if a != primary_arm])
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    db_url = os.getenv("DATABASE_URL", "")
++
++    while True:
++        started = time.perf_counter()
++        status = "ok"
++        decision_label = "NOOP"
++        try:
++            rows = await xr_recent(r, VERIFICATION_STREAM, LOOKBACK_COUNT)
++            target = next((r0 for r0 in rows if actionable_verification(r0)), None)
++            if not target:
++                await asyncio.sleep(max(RUN_EVERY_SEC, 5))
++                continue
++
++            rollback_mode = str(target.get("rollback_mode") or "SHADOW")
++            rollback_primary = str(target.get("rollback_primary_arm") or "deterministic")
++            current_mode_raw = await r.hget(EXPERIMENT_POLICY_KEY, "mode")
++            current_primary_raw = await r.hget(EXPERIMENT_POLICY_KEY, "primary_arm")
++            current_mode = current_mode_raw.decode() if isinstance(current_mode_raw, (bytes, bytearray)) else str(current_mode_raw or "SHADOW")
++            current_primary = current_primary_raw.decode() if isinstance(current_primary_raw, (bytes, bytearray)) else str(current_primary_raw or "deterministic")
++
++            ek = event_key(target)
++            state_key = f"{STATE_PREFIX}{ek}"
++            st = as_dict(await r.hgetall(state_key))
++            attempts = parse_int(st.get("attempts"), 0)
++            last_attempt_ts = parse_int(st.get("last_attempt_ts_ms"), 0)
++            resolved = parse_int(st.get("resolved"), 0)
++
++            result = {
++                "schema_version": 1,
++                "event_key": ek,
++                "rollback_mode": rollback_mode,
++                "rollback_primary_arm": rollback_primary,
++                "attempts": attempts,
++                "decision": "NOOP",
++                "reason_code": "NO_ACTION",
++                "ts_ms": str(now_ms()),
++            }
++
++            if resolved == 1:
++                result["reason_code"] = "ALREADY_RESOLVED"
++            elif current_mode == rollback_mode and current_primary == rollback_primary:
++                result["decision"] = "RESOLVED"
++                result["reason_code"] = "ROLLBACK_TARGET_ALREADY_ACTIVE"
++                await r.hset(state_key, mapping={"resolved": "1", "attempts": str(attempts), "last_attempt_ts_ms": str(last_attempt_ts)})
++                await r.expire(state_key, STATE_TTL_SEC)
++            elif attempts >= MAX_ATTEMPTS:
++                result["decision"] = "EXHAUSTED"
++                result["reason_code"] = "MAX_ATTEMPTS_REACHED"
++            elif last_attempt_ts > 0 and (now_ms() - last_attempt_ts) < BACKOFF_SEC * 1000:
++                result["reason_code"] = "BACKOFF_ACTIVE"
++            else:
++                await r.hset(
++                    EXPERIMENT_POLICY_KEY,
++                    mapping={
++                        "mode": rollback_mode,
++                        "primary_arm": rollback_primary,
++                        "shadow_arms_json": reconstruct_shadow_arms(rollback_mode, rollback_primary),
++                        "last_mode_switch_ts_ms": str(now_ms()),
++                        "last_mode_switch_reason_code": "GOVERNANCE_RETRY_REAPPLY",
++                        "last_mode_switch_source": APP_NAME,
++                    },
++                )
++                attempts += 1
++                await r.hset(state_key, mapping={"attempts": str(attempts), "last_attempt_ts_ms": str(now_ms()), "resolved": "0"})
++                await r.expire(state_key, STATE_TTL_SEC)
++                result["attempts"] = attempts
++                result["decision"] = "REAPPLIED"
++                result["reason_code"] = "RETRY_REAPPLY"
++
++            await persist_if_configured(db_url, result)
++            await r.xadd(OUTPUT_STREAM, result, maxlen=MAXLEN, approximate=True)
++            await r.xadd(
++                AUDIT_STREAM,
++                {"event_type": "ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_EVALUATED", **result},
++                maxlen=MAXLEN,
++                approximate=True,
++            )
++            await r.hset(
++                LAST_HASH,
++                mapping={
++                    "event_key": ek,
++                    "decision": result["decision"],
++                    "reason_code": result["reason_code"],
++                    "attempts": str(result["attempts"]),
++                    "rollback_mode": rollback_mode,
++                    "rollback_primary_arm": rollback_primary,
++                    "ts_ms": str(now_ms()),
++                },
++            )
++            decision_label = result["decision"]
++            if LAST_RUN_TS:
++                LAST_RUN_TS.set(time.time())
++        except Exception as exc:
++            status = "error"
++            await r.xadd(AUDIT_STREAM, {"event_type": "ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_FAILED", "error": str(exc), "ts_ms": str(now_ms())}, maxlen=MAXLEN, approximate=True)
++        finally:
++            if RUNS:
++                RUNS.labels(status=status, decision=decision_label).inc()
++            if LAT:
++                LAT.observe(max(time.perf_counter() - started, 0.0))
++            await asyncio.sleep(max(RUN_EVERY_SEC, 5))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    asyncio.run(main())
+diff --git a/orderflow_services/route_incident_rca_mirror_rca_winner_apply_apply_governance_auto_escalation_summarizer_v3_42.py b/orderflow_services/route_incident_rca_mirror_rca_winner_apply_apply_governance_auto_escalation_summarizer_v3_42.py
+new file mode 100644
+index 0000000..1111113
+--- /dev/null
++++ b/orderflow_services/route_incident_rca_mirror_rca_winner_apply_apply_governance_auto_escalation_summarizer_v3_42.py
+@@ -0,0 +1,286 @@
++from __future__ import annotations
++
++import asyncio
++import json
++import os
++import time
++from typing import Any, Dict, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    import psycopg
++except Exception:  # pragma: no cover
++    psycopg = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++
++APP_NAME = "route_incident_rca_mirror_rca_winner_apply_apply_governance_auto_escalation_summarizer_v3_42"
++SLO_LAST_HASH = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_SLO_LAST_HASH",
++    "metrics:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_slo:last",
++)
++RETRY_LAST_HASH = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_LAST_HASH",
++    "metrics:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_retry:last",
++)
++OUTPUT_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_ESCALATIONS_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_escalations",
++)
++LAST_HASH = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_ESCALATIONS_LAST_HASH",
++    "metrics:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_escalations:last",
++)
++AUDIT_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_ESCALATIONS_AUDIT_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_escalations_audit",
++)
++PORT = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_ESCALATIONS_PORT", "9972"))
++MAXLEN = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_ESCALATIONS_MAXLEN", "20000"))
++RUN_EVERY_SEC = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_ESCALATIONS_RUN_EVERY_SEC", "300"))
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter("ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_escalations_runs_total", "Governance escalation runs", ("status", "severity"))
++LAT = _hist("ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_escalations_latency_seconds", "Governance escalation latency seconds")
++UP = _gauge("ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_escalations_up", "Governance escalation up")
++LAST_RUN_TS = _gauge("ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_escalations_last_run_ts_seconds", "Governance escalation last run ts")
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        if isinstance(v, (bytes, bytearray)):
++            try:
++                out[kk] = v.decode()
++            except Exception:
++                out[kk] = v.hex()
++        else:
++            out[kk] = v
++    return out
++
++
++def stable_json(obj: Any) -> str:
++    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++def parse_float(v: Any, default: float = 0.0) -> float:
++    try:
++        return float(v)
++    except Exception:
++        return default
++
++
++def decide_severity(slo: Dict[str, Any], retry: Dict[str, Any]) -> Dict[str, Any]:
++    apply_rate = parse_float(slo.get("apply_rate"), 1.0)
++    verify_keep_rate = parse_float(slo.get("verify_keep_rate"), 1.0)
++    mttr_p95 = parse_float(slo.get("rollback_mttr_p95_sec"), 0.0)
++    retry_decision = str(retry.get("decision") or "NOOP")
++    retry_reason = str(retry.get("reason_code") or "NO_ACTION")
++
++    severity = "info"
++    reason_codes = []
++    if apply_rate < 1.0:
++        reason_codes.append("APPLY_RATE_LOW")
++    if verify_keep_rate < 1.0:
++        reason_codes.append("VERIFY_KEEP_RATE_LOW")
++    if mttr_p95 > 120.0:
++        reason_codes.append("ROLLBACK_MTTR_P95_HIGH")
++    if retry_decision == "EXHAUSTED":
++        reason_codes.append("RETRY_EXHAUSTED")
++
++    if "RETRY_EXHAUSTED" in reason_codes or "VERIFY_KEEP_RATE_LOW" in reason_codes:
++        severity = "critical"
++    elif reason_codes:
++        severity = "warning"
++
++    return {
++        "severity": severity,
++        "reason_codes": reason_codes or ["OK"],
++        "retry_decision": retry_decision,
++        "retry_reason_code": retry_reason,
++        "apply_rate": apply_rate,
++        "verify_keep_rate": verify_keep_rate,
++        "rollback_mttr_p95_sec": mttr_p95,
++    }
++
++
++async def persist_if_configured(db_url: str, summary: Dict[str, Any]) -> None:
++    if not db_url or psycopg is None:
++        return
++    with psycopg.connect(db_url) as conn:  # pragma: no cover
++        with conn.cursor() as cur:
++            cur.execute(
++                """
++                INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_escalations (
++                    ts_ms, severity, summary_json
++                ) VALUES (
++                    %(ts_ms)s, %(severity)s, %(summary_json)s
++                )
++                """,
++                {"ts_ms": now_ms(), "severity": summary["severity"], "summary_json": json.dumps(summary)},
++            )
++            conn.commit()
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    db_url = os.getenv("DATABASE_URL", "")
++
++    while True:
++        started = time.perf_counter()
++        status = "ok"
++        severity = "info"
++        try:
++            slo = as_dict(await r.hgetall(SLO_LAST_HASH))
++            retry = as_dict(await r.hgetall(RETRY_LAST_HASH))
++            summary = decide_severity(slo, retry)
++            severity = summary["severity"]
++            await persist_if_configured(db_url, summary)
++            await r.xadd(OUTPUT_STREAM, {"schema_version": 1, "severity": severity, "summary_json": stable_json(summary), "ts_ms": str(now_ms())}, maxlen=MAXLEN, approximate=True)
++            await r.hset(LAST_HASH, mapping={"severity": severity, "summary_json": stable_json(summary), "ts_ms": str(now_ms())})
++            await r.xadd(AUDIT_STREAM, {"event_type": "ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_ESCALATION_SUMMARY", "severity": severity, "ts_ms": str(now_ms())}, maxlen=MAXLEN, approximate=True)
++            if LAST_RUN_TS:
++                LAST_RUN_TS.set(time.time())
++        except Exception as exc:
++            status = "error"
++            await r.xadd(AUDIT_STREAM, {"event_type": "ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_ESCALATION_FAILED", "error": str(exc), "ts_ms": str(now_ms())}, maxlen=MAXLEN, approximate=True)
++        finally:
++            if RUNS:
++                RUNS.labels(status=status, severity=severity).inc()
++            if LAT:
++                LAT.observe(max(time.perf_counter() - started, 0.0))
++            await asyncio.sleep(max(RUN_EVERY_SEC, 5))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    asyncio.run(main())
+diff --git a/orderflow_services/sql/ml_phase3_42_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_governance_v1.sql b/orderflow_services/sql/ml_phase3_42_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_governance_v1.sql
+new file mode 100644
+index 0000000..2222223
+--- /dev/null
++++ b/orderflow_services/sql/ml_phase3_42_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_governance_v1.sql
+@@ -0,0 +1,43 @@
++BEGIN;
++
++CREATE TABLE IF NOT EXISTS llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_rollups (
++    id                    bigserial PRIMARY KEY,
++    ts_ms                 bigint NOT NULL,
++    window_min            integer NOT NULL,
++    apply_requests        integer NOT NULL,
++    applied_n             integer NOT NULL,
++    verified_keep_n       integer NOT NULL,
++    rollback_decisions_n  integer NOT NULL,
++    rollback_applied_n    integer NOT NULL,
++    apply_rate            double precision NOT NULL,
++    verify_keep_rate      double precision NOT NULL,
++    rollback_mttr_p50_sec double precision NOT NULL,
++    rollback_mttr_p95_sec double precision NOT NULL,
++    rollback_mttr_samples integer NOT NULL,
++    reason_codes_json     jsonb NOT NULL
++);
++CREATE INDEX IF NOT EXISTS idx_llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_rollups_ts
++    ON llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_rollups(ts_ms DESC);
++
++CREATE TABLE IF NOT EXISTS llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_retry_results (
++    id                   bigserial PRIMARY KEY,
++    ts_ms                bigint NOT NULL,
++    event_key            text NOT NULL,
++    decision             text NOT NULL,
++    reason_code          text NOT NULL,
++    attempts             integer NOT NULL,
++    rollback_mode        text NOT NULL,
++    rollback_primary_arm text NOT NULL,
++    result_json          jsonb NOT NULL
++);
++CREATE INDEX IF NOT EXISTS idx_llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_retry_results_ts
++    ON llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_retry_results(ts_ms DESC);
++
++CREATE TABLE IF NOT EXISTS llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_escalations (
++    id           bigserial PRIMARY KEY,
++    ts_ms        bigint NOT NULL,
++    severity     text NOT NULL,
++    summary_json jsonb NOT NULL
++);
++CREATE INDEX IF NOT EXISTS idx_llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_escalations_ts
++    ON llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_escalations(ts_ms DESC);
++
++COMMIT;
+diff --git a/orderflow_services/docker_compose_fragment_ml_phase3_42_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_governance_v1.yml b/orderflow_services/docker_compose_fragment_ml_phase3_42_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_governance_v1.yml
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/orderflow_services/docker_compose_fragment_ml_phase3_42_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_governance_v1.yml
+@@ -0,0 +1,46 @@
++services:
++  scanner-route-incident-rca-mirror-rca-winner-apply-apply-governance-slo-v3-42:
++    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
++    command: ["python", "-m", "orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_analytics_v3_42"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_SLO_PORT: ${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_SLO_PORT:-9970}
++    ports: ["${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_SLO_PORT:-9970}:9970"]
++    depends_on: [redis-worker-1]
++
++  scanner-route-incident-rca-mirror-rca-winner-apply-apply-governance-retry-v3-42:
++    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
++    command: ["python", "-m", "orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_retry_controller_v3_42"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_PORT: ${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_PORT:-9971}
++      ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_MAX_ATTEMPTS: ${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_MAX_ATTEMPTS:-2}
++      ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_BACKOFF_SEC: ${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_BACKOFF_SEC:-120}
++    ports: ["${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_PORT:-9971}:9971"]
++    depends_on: [redis-worker-1]
++
++  scanner-route-incident-rca-mirror-rca-winner-apply-apply-governance-escalations-v3-42:
++    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
++    command: ["python", "-m", "orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_auto_escalation_summarizer_v3_42"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_ESCALATIONS_PORT: ${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_ESCALATIONS_PORT:-9972}
++    ports: ["${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_ESCALATIONS_PORT:-9972}:9972"]
++    depends_on: [redis-worker-1]
+diff --git a/orderflow_services/prometheus_alerts_ml_phase3_42_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_governance_v1.yml b/orderflow_services/prometheus_alerts_ml_phase3_42_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_governance_v1.yml
+new file mode 100644
+index 0000000..4444444
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_ml_phase3_42_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_governance_v1.yml
+@@ -0,0 +1,39 @@
++groups:
++  - name: ml_phase3_42_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_governance_v1
++    rules:
++      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceSLOStale
++        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_last_run_ts_seconds > 1800
++        for: 10m
++        labels: { severity: warning }
++        annotations:
++          summary: "route incident RCA mirror winner-apply apply governance SLO analytics is stale"
++
++      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceRetryStale
++        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_retry_last_run_ts_seconds > 1800
++        for: 10m
++        labels: { severity: warning }
++        annotations:
++          summary: "route incident RCA mirror winner-apply apply governance retry controller is stale"
++
++      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceEscalationsStale
++        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_escalations_last_run_ts_seconds > 1800
++        for: 10m
++        labels: { severity: warning }
++        annotations:
++          summary: "route incident RCA mirror winner-apply apply governance escalation summarizer is stale"
++
++      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceRollbackMTTRHigh
++        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_rollback_mttr_p95_seconds > 120
++        for: 10m
++        labels: { severity: warning }
++        annotations:
++          summary: "route incident RCA mirror winner-apply apply governance rollback MTTR p95 is high"
+diff --git a/orderflow_services/runbook_ml_phase3_42_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_governance_v1.md b/orderflow_services/runbook_ml_phase3_42_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_governance_v1.md
+new file mode 100644
+index 0000000..5555555
+--- /dev/null
++++ b/orderflow_services/runbook_ml_phase3_42_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_governance_v1.md
+@@ -0,0 +1,77 @@
++# Phase 3.42 — Route Incident RCA Mirror RCA Winner-Apply Apply Governance SLO/MTTR + Retry/Escalation
++
++## Цель
++Дать `winner-apply apply governance apply/verify contour` такой же governance layer, как у других safety loops:
++- SLO / MTTR analytics
++- bounded retry
++- auto-escalation summaries
++
++## Что делает
++- `governance_slo_analytics`:
++  - считает apply rate
++  - считает verify keep rate
++  - считает rollback MTTR p50 / p95
++- `governance_retry_controller`:
++  - bounded re-apply rollback target, если verification loop потребовал rollback, а live policy ещё не сошлась
++- `governance_auto_escalation_summarizer`:
++  - поднимает severity summary по SLO + retry
++
++## Safe start
++```bash
++export ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_MAX_ATTEMPTS=2
++export ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_BACKOFF_SEC=120
++export ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_ROLLBACK_MTTR_SLO_SEC=120
++```
++
++## Smoke checks
++```bash
++curl -s localhost:9970/metrics | grep '^ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_'
++curl -s localhost:9971/metrics | grep '^ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_retry_'
++curl -s localhost:9972/metrics | grep '^ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_escalations_'
++redis-cli HGETALL metrics:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_slo:last
++redis-cli HGETALL metrics:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_retry:last
++redis-cli XREVRANGE stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_rollups + - COUNT 5
++redis-cli XREVRANGE stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_retry_results + - COUNT 5
++redis-cli XREVRANGE stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_escalations + - COUNT 5
++```
++
++## Notes
++- scope только `scanner_infra`
++- hot path не затронут
++- retry bounded
++- escalation advisory-only
+diff --git a/orderflow_services/tests/test_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_governance_v3_42.py b/orderflow_services/tests/test_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_governance_v3_42.py
+new file mode 100644
+index 0000000..6666666
+--- /dev/null
++++ b/orderflow_services/tests/test_route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_governance_v3_42.py
+@@ -0,0 +1,47 @@
++from orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_slo_analytics_v3_42 import compute_rollup
++from orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_auto_escalation_summarizer_v3_42 import decide_severity
++
++
++def test_compute_rollup_detects_low_verify_keep_rate():
++    decisions = [
++        {"ts_ms": "9999999999999", "decision": "APPLY_PRIMARY_ARM_SHADOW"},
++        {"ts_ms": "9999999999999", "decision": "APPLY_SINGLE_ARM"},
++    ]
++    journal = [
++        {"ts_ms": "9999999999999", "decision": "APPLY_PRIMARY_ARM_SHADOW"},
++        {"ts_ms": "9999999999999", "decision": "APPLY_SINGLE_ARM"},
++    ]
++    verification = [
++        {"ts_ms": "9999999999999", "decision": "KEEP_APPLIED"},
++    ]
++    rollback = []
++    rollup = compute_rollup(decisions, journal, verification, rollback)
++    assert rollup["apply_rate"] == 1.0
++    assert rollup["verify_keep_rate"] == 0.5
++    assert "VERIFY_KEEP_RATE_LOW" in rollup["reason_codes"]
++
++
++def test_decide_severity_critical_on_retry_exhausted():
++    slo = {"apply_rate": "1.0", "verify_keep_rate": "1.0", "rollback_mttr_p95_sec": "10"}
++    retry = {"decision": "EXHAUSTED", "reason_code": "MAX_ATTEMPTS_REACHED"}
++    summary = decide_severity(slo, retry)
++    assert summary["severity"] == "critical"
++    assert "RETRY_EXHAUSTED" in summary["reason_codes"]
++
++
++def test_decide_severity_warning_on_mttr_high():
++    slo = {"apply_rate": "1.0", "verify_keep_rate": "1.0", "rollback_mttr_p95_sec": "130"}
++    retry = {"decision": "NOOP", "reason_code": "NO_ACTION"}
++    summary = decide_severity(slo, retry)
++    assert summary["severity"] == "warning"

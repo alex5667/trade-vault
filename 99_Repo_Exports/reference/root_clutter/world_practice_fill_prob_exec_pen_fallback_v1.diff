@@ -1,0 +1,93 @@
+diff -ruN a/services/orderflow/components/tick_processor.py b/services/orderflow/components/tick_processor.py
+--- a/services/orderflow/components/tick_processor.py
++++ b/services/orderflow/components/tick_processor.py
+@@ -73,6 +73,7 @@
+ from core.confirmations_schema_v1 import apply_confirmations_to_indicators
+ from core.of_inputs_contract import OFInputsV1, OFInputsV2
+ from core.instrument_config import get_default_delta_tiers
++from core.fill_prob_proxy import compute_fill_prob_proxy
+ 
+ from handlers.crypto_orderflow.utils.log_sampler import sampled_info, sampled_warning, sampled_debug, LogSamplerFactory
+ 
+@@ -1259,6 +1260,34 @@
+         t_build_us = int((time.perf_counter_ns() - t_build_ns0) / 1000)
+         indicators["of_build_us"] = int(t_build_us)
+ 
++        # Fill-prob / exec_fill_pen fallback (smoke-check: detect broken wiring)
++        # If OFConfirmEngine already computed these fields, we do NOT override them.
++        try:
++            if "fill_prob_proxy" not in indicators:
++                fp = compute_fill_prob_proxy(
++                    direction=str(direction),
++                    cancel_to_trade_bid=float(indicators.get("cancel_to_trade_bid", 0.0) or 0.0),
++                    cancel_to_trade_ask=float(indicators.get("cancel_to_trade_ask", 0.0) or 0.0),
++                    eta_fill_bid_sec=float(indicators.get("eta_fill_bid_sec", 0.0) or 0.0),
++                    eta_fill_ask_sec=float(indicators.get("eta_fill_ask_sec", 0.0) or 0.0),
++                    max_wait_s=float(getattr(runtime, "config", {}).get("fill_prob_max_wait_s", 2.0) or 2.0),
++                )
++                indicators.setdefault("fill_prob_proxy", float(fp.get("fill_prob_proxy", 0.0) or 0.0))
++                indicators.setdefault("eta_fill_sec", float(fp.get("eta_fill_sec", 0.0) or 0.0))
++                indicators.setdefault("fill_prob_p_base", float(fp.get("p_base", 0.0) or 0.0))
++                indicators.setdefault("fill_prob_p_wait", float(fp.get("p_wait", 0.0) or 0.0))
++        
++            if "exec_fill_pen" not in indicators and "fill_prob_proxy" in indicators:
++                w_fill = float(getattr(runtime, "config", {}).get("exec_fill_pen_w", 0.20) or 0.20)
++                p = float(indicators.get("fill_prob_proxy", 0.0) or 0.0)
++                if p < 0.0:
++                    p = 0.0
++                if p > 1.0:
++                    p = 1.0
++                indicators["exec_fill_pen"] = float(w_fill * (1.0 - p))
++        except Exception:
++            pass
++
+         # Fail-safe: if engine returns None (should not happen), reconstruct default to avoid bypass
+         if not ofc:
+              try:
+
+diff -ruN a/tick_flow_full/services/orderflow/components/tick_processor.py b/tick_flow_full/services/orderflow/components/tick_processor.py
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -63,6 +63,7 @@
+ from core.bucket_allowlist_v1 import bucket_allowed
+ from core.of_inputs_contract import OFInputsV1, OFInputsV2
+ from core.instrument_config import get_default_delta_tiers
++from core.fill_prob_proxy import compute_fill_prob_proxy
+ 
+ from handlers.crypto_orderflow.utils.log_sampler import sampled_info, sampled_warning, sampled_debug, LogSamplerFactory
+ 
+@@ -1430,6 +1431,34 @@
+         t_build_us = int((time.perf_counter_ns() - t_build_ns0) / 1000)
+         indicators["of_build_us"] = int(t_build_us)
+ 
++        # Fill-prob / exec_fill_pen fallback (smoke-check: detect broken wiring)
++        # If OFConfirmEngine already computed these fields, we do NOT override them.
++        try:
++            if "fill_prob_proxy" not in indicators:
++                fp = compute_fill_prob_proxy(
++                    direction=str(direction),
++                    cancel_to_trade_bid=float(indicators.get("cancel_to_trade_bid", 0.0) or 0.0),
++                    cancel_to_trade_ask=float(indicators.get("cancel_to_trade_ask", 0.0) or 0.0),
++                    eta_fill_bid_sec=float(indicators.get("eta_fill_bid_sec", 0.0) or 0.0),
++                    eta_fill_ask_sec=float(indicators.get("eta_fill_ask_sec", 0.0) or 0.0),
++                    max_wait_s=float(getattr(runtime, "config", {}).get("fill_prob_max_wait_s", 2.0) or 2.0),
++                )
++                indicators.setdefault("fill_prob_proxy", float(fp.get("fill_prob_proxy", 0.0) or 0.0))
++                indicators.setdefault("eta_fill_sec", float(fp.get("eta_fill_sec", 0.0) or 0.0))
++                indicators.setdefault("fill_prob_p_base", float(fp.get("p_base", 0.0) or 0.0))
++                indicators.setdefault("fill_prob_p_wait", float(fp.get("p_wait", 0.0) or 0.0))
++        
++            if "exec_fill_pen" not in indicators and "fill_prob_proxy" in indicators:
++                w_fill = float(getattr(runtime, "config", {}).get("exec_fill_pen_w", 0.20) or 0.20)
++                p = float(indicators.get("fill_prob_proxy", 0.0) or 0.0)
++                if p < 0.0:
++                    p = 0.0
++                if p > 1.0:
++                    p = 1.0
++                indicators["exec_fill_pen"] = float(w_fill * (1.0 - p))
++        except Exception:
++            pass
++
+         # Fail-safe: if engine returns None (should not happen), reconstruct default to avoid bypass
+         if not ofc:
+              try:

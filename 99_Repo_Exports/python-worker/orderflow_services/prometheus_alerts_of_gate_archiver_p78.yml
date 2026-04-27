@@ -1,0 +1,234 @@
+# P78/P80/P81 — OF gate archiver + rollups health alerts.
+#
+# Dashboards:
+#   - orderflow_services/grafana/of_gate_archiver_health_p78.json
+#   - orderflow_services/grafana/of_gate_rollups_freshness_p80.json
+#   - orderflow_services/grafana/of_gate_timescale_policies_p81.json
+#
+# Runbooks:
+#   - orderflow_services/runbook_of_gate_archiver_exporter_p78.md
+#   - orderflow_services/runbook_of_gate_metrics_rollups_p2.md
+#   - orderflow_services/runbook_of_gate_timescale_policies_p81.md
+
+groups:
+  - name: of_gate_archiver_p78
+    rules:
+      # ── Staleness ─────────────────────────────────────────────────────────
+
+      # Metrics archiver: no update for >15m means the archiver process is likely stuck/dead.
+      - alert: OF_Gate_Archiver_Metrics_Stale
+        expr: (time() * 1000 - of_gate_archiver_last_run_ts_ms{kind="metrics"}) / 1000 > 900
+        for: 10m
+        labels:
+          severity: critical
+          component: of_gate
+          p_ref: P78
+        annotations:
+          summary: "OF-gate metrics archiver stale (>15m)"
+          description: >-
+            No updates from of-gate metrics archiver for >15 minutes.
+            Check stream_archiver container logs and Redis connectivity.
+            Ensure OF_GATE_METRICS_ARCHIVE_ENABLED=1.
+            Age={{ $value | humanizeDuration }}
+          runbook_path: orderflow_services/runbook_of_gate_archiver_exporter_p78.md
+          dashboard_path: orderflow_services/grafana/of_gate_archiver_health_p78.json
+
+      # Quarantine archiver: lower severity (no quarantine traffic is also OK).
+      - alert: OF_Gate_Archiver_Quarantine_Stale
+        expr: (time() * 1000 - of_gate_archiver_last_run_ts_ms{kind="quarantine"}) / 1000 > 900
+        for: 10m
+        labels:
+          severity: warning
+          component: of_gate
+          p_ref: P78
+        annotations:
+          summary: "OF-gate quarantine archiver stale (>15m)"
+          description: >-
+            No updates from of-gate quarantine archiver for >15 minutes.
+            Check stream_archiver container and Redis connectivity.
+            Ensure OF_GATE_QUARANTINE_ARCHIVE_ENABLED=1.
+            Age={{ $value | humanizeDuration }}
+          runbook_path: orderflow_services/runbook_of_gate_archiver_exporter_p78.md
+          dashboard_path: orderflow_services/grafana/of_gate_archiver_health_p78.json
+
+      # Rollups refresh: alert only if it has ever run (gated on last_run_ts_ms > 0)
+      # to avoid noise when manual refresh has never been triggered.
+      - alert: OF_Gate_RollupsRefresh_Stale
+        expr: >-
+          of_gate_archiver_last_run_ts_ms{kind="rollups_refresh"} > 0
+          and (time() * 1000 - of_gate_archiver_last_run_ts_ms{kind="rollups_refresh"}) / 1000 > 86400
+        for: 1h
+        labels:
+          severity: warning
+          component: of_gate
+          p_ref: P78
+        annotations:
+          summary: "OF-gate rollups refresh job stale (>24h)"
+          description: >-
+            No updates from of-gate rollups refresh for >24 hours.
+            If you rely on manual refresh, check the nightly timer job.
+            Run: python -m orderflow_services.of_gate_history_migration_v1 refresh --days 7
+            Age={{ $value | humanizeDuration }}
+          runbook_path: orderflow_services/runbook_of_gate_metrics_rollups_p2.md
+          dashboard_path: orderflow_services/grafana/of_gate_rollups_freshness_p80.json
+
+      # ── Errors ────────────────────────────────────────────────────────────
+      # Monotonic-ish counters: alert on any increase.
+
+      - alert: OF_Gate_Archiver_Errors
+        expr: increase(of_gate_archiver_error_total{kind="metrics"}[10m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: of_gate
+          p_ref: P78
+        annotations:
+          summary: "OF-gate metrics archiver errors detected"
+          description: >-
+            Error count increased in the last 10m.
+            Inspect DLQ stream: stream:dlq:of_gate_metrics.
+            Check archiver logs for parse_error / pg_batch_error.
+          runbook_path: orderflow_services/runbook_of_gate_archiver_exporter_p78.md
+          dashboard_path: orderflow_services/grafana/of_gate_archiver_health_p78.json
+
+      - alert: OF_Gate_QuarantineArchiver_Errors
+        expr: increase(of_gate_archiver_error_total{kind="quarantine"}[10m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: of_gate
+          p_ref: P78
+        annotations:
+          summary: "OF-gate quarantine archiver errors detected"
+          description: >-
+            Error count increased in the last 10m.
+            Inspect DLQ stream: stream:dlq:of_gate_quarantine.
+            Check archiver logs for parse_error / pg_batch_error.
+          runbook_path: orderflow_services/runbook_of_gate_archiver_exporter_p78.md
+          dashboard_path: orderflow_services/grafana/of_gate_archiver_health_p78.json
+
+      - alert: OF_Gate_RollupsRefresh_Errors
+        expr: increase(of_gate_archiver_error_total{kind="rollups_refresh"}[24h]) > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: of_gate
+          p_ref: P78
+        annotations:
+          summary: "OF-gate rollups refresh job errors detected"
+          description: >-
+            Errors increased for rollups_refresh in last 24h.
+            Check of_gate_history_migration logs and DB connectivity.
+          runbook_path: orderflow_services/runbook_of_gate_metrics_rollups_p2.md
+          dashboard_path: orderflow_services/grafana/of_gate_rollups_freshness_p80.json
+
+      # ── P80: Rollups freshness probe ───────────────────────────────────────
+
+      - alert: OF_Gate_RollupsFreshnessProbe_Stale
+        expr: (time() * 1000 - of_gate_archiver_last_run_ts_ms{kind="rollups_freshness"}) / 1000 > 1800
+        for: 15m
+        labels:
+          severity: warning
+          component: of_gate
+          p_ref: P80
+        annotations:
+          summary: "OF-gate rollups freshness probe stale (>30m)"
+          description: >-
+            No updates from rollups freshness probe for >30 minutes.
+            Ensure of_timers_worker runs of_gate_rollups_freshness_probe_v1 and DB is reachable.
+            Age={{ $value | humanizeDuration }}
+          runbook_path: orderflow_services/runbook_of_gate_metrics_rollups_p2.md
+          dashboard_path: orderflow_services/grafana/of_gate_rollups_freshness_p80.json
+
+      - alert: OF_Gate_Rollups_5m_Stale
+        expr: of_gate_rollups_freshness_ok == 1 and of_gate_rollups_bucket_age_sec{view="5m"} > 1800
+        for: 15m
+        labels:
+          severity: warning
+          component: of_gate
+          p_ref: P80
+        annotations:
+          summary: "OF-gate rollup 5m stale (>30m)"
+          description: >-
+            Latest bucket in of_gate_ok_rate_5m is older than 30 minutes.
+            bucket_age={{ $value | humanizeDuration }}
+          runbook_path: orderflow_services/runbook_of_gate_metrics_rollups_p2.md
+          dashboard_path: orderflow_services/grafana/of_gate_rollups_freshness_p80.json
+
+      - alert: OF_Gate_Rollups_1h_Stale
+        expr: of_gate_rollups_freshness_ok == 1 and of_gate_rollups_bucket_age_sec{view="1h"} > 10800
+        for: 30m
+        labels:
+          severity: warning
+          component: of_gate
+          p_ref: P80
+        annotations:
+          summary: "OF-gate rollup 1h stale (>3h)"
+          description: >-
+            Latest bucket in of_gate_ok_rate_1h is older than 3 hours.
+            bucket_age={{ $value | humanizeDuration }}
+          runbook_path: orderflow_services/runbook_of_gate_metrics_rollups_p2.md
+          dashboard_path: orderflow_services/grafana/of_gate_rollups_freshness_p80.json
+
+      # ── P81: Timescale policy probe ────────────────────────────────────────
+
+      - alert: OF_Gate_TimescalePolicyProbe_Stale
+        expr: (time() * 1000 - of_gate_archiver_last_run_ts_ms{kind="timescale_policy_probe"}) / 1000 > 7200
+        for: 20m
+        labels:
+          severity: warning
+          component: of_gate
+          p_ref: P81
+        annotations:
+          summary: "OF-gate Timescale policy probe stale (>2h)"
+          description: >-
+            No updates from timescale policy probe for >2 hours.
+            Ensure of_timers_worker runs of_gate_timescale_policy_probe_v1 and DB is reachable.
+            Age={{ $value | humanizeDuration }}
+          runbook_path: orderflow_services/runbook_of_gate_timescale_policies_p81.md
+          dashboard_path: orderflow_services/grafana/of_gate_timescale_policies_p81.json
+
+      - alert: OF_Gate_TimescaleMissing
+        expr: of_gate_timescale_expect == 1 and of_gate_timescale_present == 0
+        for: 30m
+        labels:
+          severity: critical
+          component: of_gate
+          p_ref: P81
+        annotations:
+          summary: "TimescaleDB extension missing (expected)"
+          description: >-
+            Timescale extension is missing but expected.
+            Rollups/retention policies will not run.
+          runbook_path: orderflow_services/runbook_of_gate_timescale_policies_p81.md
+          dashboard_path: orderflow_services/grafana/of_gate_timescale_policies_p81.json
+
+      - alert: OF_Gate_TimescalePoliciesMissing
+        expr: of_gate_timescale_present == 1 and of_gate_timescale_policies_missing > 0
+        for: 20m
+        labels:
+          severity: critical
+          component: of_gate
+          p_ref: P81
+        annotations:
+          summary: "Missing Timescale policies for OF-gate rollups"
+          description: >-
+            One or more required policies are missing.
+            missing={{ $value }}
+          runbook_path: orderflow_services/runbook_of_gate_timescale_policies_p81.md
+          dashboard_path: orderflow_services/grafana/of_gate_timescale_policies_p81.json
+
+      - alert: OF_Gate_TimescalePoliciesDisabled
+        expr: of_gate_timescale_present == 1 and of_gate_timescale_policies_disabled > 0
+        for: 20m
+        labels:
+          severity: warning
+          component: of_gate
+          p_ref: P81
+        annotations:
+          summary: "Timescale policies disabled for OF-gate rollups"
+          description: >-
+            One or more required policies are disabled (scheduled=false).
+            disabled={{ $value }}
+          runbook_path: orderflow_services/runbook_of_gate_timescale_policies_p81.md
+          dashboard_path: orderflow_services/grafana/of_gate_timescale_policies_p81.json

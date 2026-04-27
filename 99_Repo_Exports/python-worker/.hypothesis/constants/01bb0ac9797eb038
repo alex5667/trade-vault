@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/utils/log_sampler.py
+# hypothesis_version: 6.148.10
+
+[100, 500, 1000, 5000, 10000, '1', 'DIAGNOSTIC', 'HEALTH', 'METRICS', 'UPDATE_CHECK', 'on', 'true', 'yes']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/ab_winner_evaluator_lcb.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.05, 0.1, 1.28, 1.64, 10000.0, 120, '0', '1', 'A', 'B', 'C', 'LCB_FEES_ALREADY_NET', 'LCB_SUBTRACT_FEES', 'ab_arm', 'arm', 'arms', 'fees_usd', 'illiquid', 'insufficient_n', 'lcb_below_floor', 'lcb_r', 'lcb_z_default', 'lcb_z_thin', 'mean_r', 'min_lcb_r', 'min_lcb_r_default', 'min_lcb_r_thin', 'min_n', 'min_n_default', 'min_n_thin', 'n', 'na', 'news', 'ok', 'p0_slippage_bps_est', 'r_mult', 'reason', 'regime', 'risk_usd', 'std_r', 'thin', 'turnover_roundtrip', 'winner_arm', 'z']

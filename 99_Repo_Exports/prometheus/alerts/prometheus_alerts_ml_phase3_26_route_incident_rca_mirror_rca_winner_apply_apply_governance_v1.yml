@@ -1,0 +1,24 @@
+groups:
+  - name: ml_phase3_26_route_incident_rca_mirror_rca_winner_apply_apply_governance_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplySLOStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_slo_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyRetryStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_retry_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyEscalationsStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_escalations_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyRollbackMTTRHigh
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_rollback_mttr_p95_seconds > 120
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Winner Apply contour rollback MTTR is > 120s"

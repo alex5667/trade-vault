@@ -1,0 +1,64 @@
+{
+  "title": "Latency Contract P4.1 Coverage",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "SLO Gate OK",
+      "description": "1 = all required stages present and fresh; 0 = missing or stale",
+      "targets": [
+        {
+          "expr": "latency_contract_slo_gate_ok"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Missing Required Stages",
+      "targets": [
+        {
+          "expr": "latency_contract_slo_missing_total"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Stale Required Stages",
+      "targets": [
+        {
+          "expr": "latency_contract_slo_stale_total"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Budget Breaches",
+      "targets": [
+        {
+          "expr": "latency_contract_slo_budget_breach_total"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Required Stage Presence",
+      "description": "1 = hash exists in Redis; 0 = missing",
+      "targets": [
+        {
+          "expr": "latency_contract_required_stage_present"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Required Stage Age (seconds)",
+      "description": "Time since last_ts_ms was written. High values = writer is down.",
+      "targets": [
+        {
+          "expr": "latency_contract_required_stage_age_seconds"
+        }
+      ]
+    }
+  ]
+}

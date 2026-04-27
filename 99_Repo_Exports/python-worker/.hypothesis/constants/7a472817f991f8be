@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/train_confidence_calibration.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 86400.0, 300, 5000, '*', '--baseline', '--dsn', '--min-samples', '--mode', '--out', '--since', '--val-days', '.', '.bak', '.report.json', '.tmp', '14', '300', 'CONF_CAL_ISO_MODE', 'CONF_CAL_MIN_SAMPLES', 'CONF_CAL_VAL_DAYS', 'PERF_PG_DSN', 'TRADES_DB_DSN', '__main__', 'baseline_groups', 'baseline_trained_at', 'breakeven', 'brier', 'conf_calib_cursor', 'delta_groups', 'ece', 'eligible_rows', 'expired_no_entry', 'expired_no_target', 'global', 'groups', 'groups_written', 'isotonic', 'linear', 'manual_exit', 'max_ts_epoch', 'mode', 'n', 'n_train', 'n_val', 'nan', 'p', 'r', 'rb', 'since', 'stop_hit', 'target_hit', 'total_rows', 'trained_at', 'type', 'utf-8', 'val_cut_epoch', 'val_days', 'version', 'w', 'wb', 'x']

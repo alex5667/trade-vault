@@ -1,0 +1,1071 @@
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' repo_p41_work/orderflow_services/grafana/latency_contract_p42_v1.json repo_p42_work/orderflow_services/grafana/latency_contract_p42_v1.json
+--- repo_p41_work/orderflow_services/grafana/latency_contract_p42_v1.json	1970-01-01 00:00:00.000000000 +0000
++++ repo_p42_work/orderflow_services/grafana/latency_contract_p42_v1.json	2026-03-08 08:06:00.923755122 +0000
+@@ -0,0 +1,42 @@
++{
++  "title": "Latency Contract Rollout Gate (p4.2)",
++  "timezone": "browser",
++  "schemaVersion": 39,
++  "version": 1,
++  "panels": [
++    {
++      "type": "stat",
++      "title": "Rollout gate active",
++      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
++      "targets": [{"expr": "latency_contract_rollout_gate_active"}]
++    },
++    {
++      "type": "stat",
++      "title": "External missing total",
++      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
++      "targets": [{"expr": "latency_contract_rollout_gate_external_missing_total"}]
++    },
++    {
++      "type": "stat",
++      "title": "Budget breach total",
++      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
++      "targets": [{"expr": "latency_contract_rollout_gate_budget_breach_total"}]
++    },
++    {
++      "type": "timeseries",
++      "title": "Budget hold seconds",
++      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
++      "targets": [{"expr": "latency_contract_rollout_gate_budget_hold_seconds"}]
++    },
++    {
++      "type": "timeseries",
++      "title": "SLO gate components",
++      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
++      "targets": [
++        {"expr": "latency_contract_slo_missing_total", "legendFormat": "missing_total"},
++        {"expr": "latency_contract_slo_budget_breach_total", "legendFormat": "budget_breach_total"},
++        {"expr": "latency_contract_required_stage_present{service=~\"go_ingest|nest_gateway\"}", "legendFormat": "{{service}}/{{stage}}/{{symbol}} present"}
++      ]
++    }
++  ]
++}
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' repo_p41_work/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh repo_p42_work/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh
+--- repo_p41_work/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh	1970-01-01 00:00:00.000000000 +0000
++++ repo_p42_work/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh	2026-03-08 08:06:00.899874803 +0000
+@@ -0,0 +1,10 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++if [[ $# -lt 1 ]]; then
++  echo "usage: $0 <command...>" >&2
++  exit 64
++fi
++
++python3 -m orderflow_services.latency_contract_rollout_preflight_v1 --purpose latency_contract_sensitive_apply
++exec "$@"
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' repo_p41_work/orderflow_services/latency_contract_exporter_v1.py repo_p42_work/orderflow_services/latency_contract_exporter_v1.py
+--- repo_p41_work/orderflow_services/latency_contract_exporter_v1.py	2026-03-08 07:49:56.598495092 +0000
++++ repo_p42_work/orderflow_services/latency_contract_exporter_v1.py	2026-03-08 08:06:19.936846336 +0000
+@@ -53,6 +53,12 @@
+ G_SLO_STALE = Gauge('latency_contract_slo_stale_total', 'Latency contract stale required stages total')
+ G_SLO_BUDGET = Gauge('latency_contract_slo_budget_breach_total', 'Latency contract budget breach total')
+ 
++G_ROLLOUT_GATE_ACTIVE = Gauge('latency_contract_rollout_gate_active', 'Latency contract rollout gate active')
++G_ROLLOUT_GATE_EXTERNAL_MISSING = Gauge('latency_contract_rollout_gate_external_missing_total', 'Latency contract rollout gate external missing total')
++G_ROLLOUT_GATE_BUDGET_TOTAL = Gauge('latency_contract_rollout_gate_budget_breach_total', 'Latency contract rollout gate current budget breach total')
++G_ROLLOUT_GATE_BUDGET_HOLD = Gauge('latency_contract_rollout_gate_budget_hold_seconds', 'Latency contract rollout gate budget hold seconds')
++G_ROLLOUT_GATE_HOLD_REACHED = Gauge('latency_contract_rollout_gate_budget_hold_reached', 'Latency contract rollout gate hold threshold reached')
++
+ 
+ @dataclass
+ class Cfg:
+@@ -62,6 +68,7 @@
+     key_prefix: str
+     stale_s: int
+     slo_summary_key: str
++    rollout_gate_state_key: str
+ 
+ 
+ def load_cfg() -> Cfg:
+@@ -72,6 +79,7 @@
+         key_prefix=_env('LATENCY_CONTRACT_KEY_PREFIX', 'metrics:latency_contract:last'),
+         stale_s=_i(_env('LATENCY_CONTRACT_EXPORTER_STALE_S', '300'), 300),
+         slo_summary_key=_env('LATENCY_CONTRACT_SLO_SUMMARY_KEY', 'metrics:latency_contract:slo:last'),
++        rollout_gate_state_key=_env('LATENCY_CONTRACT_ROLLOUT_GATE_STATE_KEY', 'metrics:latency_contract:rollout_gate:last'),
+     )
+ 
+ 
+@@ -146,6 +154,13 @@
+             G_SLO_MISSING.set(_f(summary.get('missing_total'), 0.0))
+             G_SLO_STALE.set(_f(summary.get('stale_total'), 0.0))
+             G_SLO_BUDGET.set(_f(summary.get('budget_breach_total'), 0.0))
++
++            gate = r.hgetall(cfg.rollout_gate_state_key) or {}
++            G_ROLLOUT_GATE_ACTIVE.set(_f(gate.get('gate_active'), 0.0))
++            G_ROLLOUT_GATE_EXTERNAL_MISSING.set(_f(gate.get('external_missing_total'), 0.0))
++            G_ROLLOUT_GATE_BUDGET_TOTAL.set(_f(gate.get('budget_breach_total'), 0.0))
++            G_ROLLOUT_GATE_BUDGET_HOLD.set(_f(gate.get('budget_breach_hold_s'), 0.0))
++            G_ROLLOUT_GATE_HOLD_REACHED.set(_f(gate.get('budget_hold_reached'), 0.0))
+             G_EXPORTER_READ_OK.set(1.0)
+         except Exception:
+             G_EXPORTER_READ_OK.set(0.0)
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' repo_p41_work/orderflow_services/latency_contract_rollout_gate_v1.py repo_p42_work/orderflow_services/latency_contract_rollout_gate_v1.py
+--- repo_p41_work/orderflow_services/latency_contract_rollout_gate_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p42_work/orderflow_services/latency_contract_rollout_gate_v1.py	2026-03-08 08:06:00.881185836 +0000
+@@ -0,0 +1,152 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Rollout/apply blocker for latency-contract coverage.
++
++Blocks sensitive rollout/apply paths when:
++- external required stages are missing (`go_ingest/ingest_to_redis`,
++  `nest_gateway/emit_to_ws`, `nest_gateway/end_to_end_event`)
++- or `budget_breach_total` stays above threshold for N minutes.
++
++This service reads the P4.1 SLO summary, maintains a small state hash with
++hold-duration bookkeeping, and writes an active gate key that preflight wrappers
++can check before starting sensitive jobs.
++"""
++
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, Tuple
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return d
++
++
++def _f(v: Any, d: float = 0.0) -> float:
++    try:
++        return float(v)
++    except Exception:
++        try:
++            return float(str(v).strip())
++        except Exception:
++            return d
++
++
++@dataclass
++class Cfg:
++    redis_url: str
++    summary_key: str
++    state_key: str
++    gate_key: str
++    interval_s: float
++    budget_hold_s: int
++    gate_ttl_s: int
++
++
++def load_cfg() -> Cfg:
++    return Cfg(
++        redis_url=_env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
++        summary_key=_env('LATENCY_CONTRACT_SLO_SUMMARY_KEY', 'metrics:latency_contract:slo:last'),
++        state_key=_env('LATENCY_CONTRACT_ROLLOUT_GATE_STATE_KEY', 'metrics:latency_contract:rollout_gate:last'),
++        gate_key=_env('LATENCY_CONTRACT_ROLLOUT_GATE_KEY', 'cfg:orderflow:latency_contract:rollout_gate:v1'),
++        interval_s=float(_env('LATENCY_CONTRACT_ROLLOUT_GATE_INTERVAL_S', '10') or 10),
++        budget_hold_s=_i(_env('LATENCY_CONTRACT_ROLLOUT_GATE_BUDGET_HOLD_S', '300'), 300),
++        gate_ttl_s=_i(_env('LATENCY_CONTRACT_ROLLOUT_GATE_TTL_S', '900'), 900),
++    )
++
++
++def evaluate_once(r: Any, cfg: Cfg) -> Dict[str, str]:
++    now_ms = int(time.time() * 1000)
++    raw = r.hgetall(cfg.summary_key) or {}
++    prev = r.hgetall(cfg.state_key) or {}
++
++    if not raw:
++        # Missing SLO summary is treated as rollout-blocking because coverage is unknown.
++        mapping = {
++            'schema_version': '1',
++            'last_ts_ms': str(now_ms),
++            'summary_present': '0',
++            'external_missing_total': '999999',
++            'budget_breach_total': '0',
++            'budget_breach_since_ts_ms': str(_i(prev.get('budget_breach_since_ts_ms'), 0)),
++            'budget_breach_hold_s': '0',
++            'budget_hold_reached': '0',
++            'gate_active': '1',
++            'gate_reason_code': 'summary_missing',
++            'gate_reason_codes': 'summary_missing',
++        }
++        return mapping
++
++    external_missing_total = _i(raw.get('external_missing_total'), 0)
++    budget_breach_total = _i(raw.get('budget_breach_total'), 0)
++    prev_since = _i(prev.get('budget_breach_since_ts_ms'), 0)
++    if budget_breach_total > 0:
++        since_ms = prev_since if prev_since > 0 else now_ms
++    else:
++        since_ms = 0
++    hold_s = int(max(0, (now_ms - since_ms) / 1000.0)) if since_ms > 0 else 0
++    hold_reached = 1 if (budget_breach_total > 0 and hold_s >= cfg.budget_hold_s) else 0
++
++    reasons = []
++    if external_missing_total > 0:
++        reasons.append('external_missing')
++    if hold_reached:
++        reasons.append('budget_breach_sustained')
++    gate_active = 1 if reasons else 0
++    reason_code = reasons[0] if reasons else 'ok'
++
++    mapping = {
++        'schema_version': '1',
++        'last_ts_ms': str(now_ms),
++        'summary_present': '1',
++        'external_missing_total': str(external_missing_total),
++        'budget_breach_total': str(budget_breach_total),
++        'budget_breach_since_ts_ms': str(since_ms),
++        'budget_breach_hold_s': str(hold_s),
++        'budget_hold_reached': str(hold_reached),
++        'gate_active': str(gate_active),
++        'gate_reason_code': reason_code,
++        'gate_reason_codes': ','.join(reasons) if reasons else 'ok',
++    }
++    return mapping
++
++
++def reconcile_gate_key(r: Any, cfg: Cfg, mapping: Dict[str, str]) -> None:
++    active = _i(mapping.get('gate_active'), 0)
++    if active:
++        r.hset(cfg.gate_key, mapping=mapping)
++        try:
++            r.expire(cfg.gate_key, max(1, int(cfg.gate_ttl_s)))
++        except Exception:
++            pass
++    else:
++        try:
++            r.delete(cfg.gate_key)
++        except Exception:
++            pass
++
++
++def main() -> int:
++    cfg = load_cfg()
++    import redis  # type: ignore
++    r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
++    while True:
++        try:
++            mapping = evaluate_once(r, cfg)
++            r.hset(cfg.state_key, mapping=mapping)
++            reconcile_gate_key(r, cfg, mapping)
++        except Exception:
++            pass
++        time.sleep(cfg.interval_s)
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' repo_p41_work/orderflow_services/latency_contract_rollout_preflight_v1.py repo_p42_work/orderflow_services/latency_contract_rollout_preflight_v1.py
+--- repo_p41_work/orderflow_services/latency_contract_rollout_preflight_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p42_work/orderflow_services/latency_contract_rollout_preflight_v1.py	2026-03-08 08:06:00.887695951 +0000
+@@ -0,0 +1,55 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Preflight guard for sensitive rollout/apply paths.
++
++Exit codes:
++- 0: allow
++- 24: blocked by latency-contract rollout gate
++- 25: state missing / invalid, treat as soft infrastructure failure
++"""
++
++import argparse
++import os
++from typing import Any
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return d
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser()
++    ap.add_argument('--purpose', default='latency_contract_sensitive_apply')
++    ns = ap.parse_args()
++
++    import redis  # type: ignore
++    redis_url = _env('REDIS_URL', 'redis://redis-worker-1:6379/0')
++    state_key = _env('LATENCY_CONTRACT_ROLLOUT_GATE_STATE_KEY', 'metrics:latency_contract:rollout_gate:last')
++    gate_key = _env('LATENCY_CONTRACT_ROLLOUT_GATE_KEY', 'cfg:orderflow:latency_contract:rollout_gate:v1')
++    r = redis.Redis.from_url(redis_url, decode_responses=True)
++
++    gate = r.hgetall(gate_key) or {}
++    if not gate:
++        gate = r.hgetall(state_key) or {}
++    if not gate:
++        print(f'LATENCY_CONTRACT_PREFLIGHT_INVALID purpose={ns.purpose} reason=state_missing')
++        return 25
++    active = _i(gate.get('gate_active'), 0)
++    if active > 0:
++        reason = gate.get('gate_reason_codes') or gate.get('gate_reason_code') or 'latency_contract_gate'
++        print(f'LATENCY_CONTRACT_PREFLIGHT_BLOCK purpose={ns.purpose} reason={reason}')
++        return 24
++    print(f'LATENCY_CONTRACT_PREFLIGHT_OK purpose={ns.purpose}')
++    return 0
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' repo_p41_work/orderflow_services/latency_contract_slo_gate_v1.py repo_p42_work/orderflow_services/latency_contract_slo_gate_v1.py
+--- repo_p41_work/orderflow_services/latency_contract_slo_gate_v1.py	2026-03-08 07:49:56.589637456 +0000
++++ repo_p42_work/orderflow_services/latency_contract_slo_gate_v1.py	2026-03-08 08:04:49.532810488 +0000
+@@ -13,7 +13,7 @@
+ from dataclasses import dataclass
+ from typing import Any, Dict, Iterable, Tuple
+ 
+-from services.observability.latency_semconv import required_stage_owners, default_symbol_allowlist
++from services.observability.latency_semconv import required_stage_owners, external_required_stage_owners, default_symbol_allowlist
+ 
+ 
+ def _env(name: str, default: str = '') -> str:
+@@ -81,6 +81,9 @@
+     budget_breach_total = 0
+     present_total = 0
+     required_total = 0
++    external_missing_total = 0
++    external_stale_total = 0
++    external_required = set(external_required_stage_owners())
+     per_stage = {}
+     for service, stage in required_stage_owners():
+         for symbol in cfg.symbols:
+@@ -94,12 +97,16 @@
+             budget_breach = 0
+             if not present:
+                 missing_total += 1
++                if (service, stage) in external_required:
++                    external_missing_total += 1
+             else:
+                 present_total += 1
+                 age_s = max(0.0, now - (last_ts_ms / 1000.0)) if last_ts_ms > 0 else float(cfg.stale_s)
+                 if age_s > float(cfg.stale_s):
+                     stale_total += 1
+                     stale = 1
++                    if (service, stage) in external_required:
++                        external_stale_total += 1
+                 budget = _budget(stage)
+                 if budget > 0 and last_duration_ms > budget:
+                     budget_breach_total += 1
+@@ -113,6 +120,8 @@
+         'present_total': str(present_total),
+         'missing_total': str(missing_total),
+         'stale_total': str(stale_total),
++        'external_missing_total': str(external_missing_total),
++        'external_stale_total': str(external_stale_total),
+         'budget_breach_total': str(budget_breach_total),
+         'gate_ok': str(gate_ok),
+     }
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' repo_p41_work/orderflow_services/prometheus_alerts_latency_contract_p42_v1.yml repo_p42_work/orderflow_services/prometheus_alerts_latency_contract_p42_v1.yml
+--- repo_p41_work/orderflow_services/prometheus_alerts_latency_contract_p42_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ repo_p42_work/orderflow_services/prometheus_alerts_latency_contract_p42_v1.yml	2026-03-08 08:06:00.912125565 +0000
+@@ -0,0 +1,29 @@
++groups:
++  - name: latency_contract_p42_v1
++    rules:
++      - alert: OF_LatencyContract_RolloutGate_Active_Crit
++        expr: latency_contract_rollout_gate_active > 0
++        for: 2m
++        labels:
++          severity: critical
++        annotations:
++          summary: "Latency contract rollout gate active"
++          description: "Sensitive rollout/apply path must stay blocked while external latency coverage is missing or budget breaches are sustained."
++
++      - alert: OF_LatencyContract_ExternalCoverageMissing_Crit
++        expr: latency_contract_rollout_gate_external_missing_total > 0
++        for: 1m
++        labels:
++          severity: critical
++        annotations:
++          summary: "Latency contract external stage coverage missing"
++          description: "Missing one or more required external stages: go_ingest/ingest_to_redis or nest_gateway/*"
++
++      - alert: OF_LatencyContract_BudgetBreachSustained_Crit
++        expr: latency_contract_rollout_gate_budget_hold_reached > 0
++        for: 1m
++        labels:
++          severity: critical
++        annotations:
++          summary: "Latency contract budget breach sustained"
++          description: "budget_breach_total has remained above zero longer than the configured hold threshold."
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' repo_p41_work/orderflow_services/runbook_latency_contract_p42_v1.md repo_p42_work/orderflow_services/runbook_latency_contract_p42_v1.md
+--- repo_p41_work/orderflow_services/runbook_latency_contract_p42_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ repo_p42_work/orderflow_services/runbook_latency_contract_p42_v1.md	2026-03-08 08:06:00.929627593 +0000
+@@ -0,0 +1,36 @@
++# Latency Contract Rollout Gate (P4.2)
++
++This guard blocks sensitive rollout/apply paths when cross-service latency
++coverage is incomplete or when latency budgets remain breached for too long.
++
++## Block conditions
++
++- missing external stage coverage:
++  - `go_ingest / ingest_to_redis`
++  - `nest_gateway / emit_to_ws`
++  - `nest_gateway / end_to_end_event`
++- `budget_breach_total > 0` for at least `LATENCY_CONTRACT_ROLLOUT_GATE_BUDGET_HOLD_S`
++
++## Keys
++
++- SLO summary: `metrics:latency_contract:slo:last`
++- rollout gate state: `metrics:latency_contract:rollout_gate:last`
++- active gate key: `cfg:orderflow:latency_contract:rollout_gate:v1`
++
++## Preflight
++
++```bash
++python3 -m orderflow_services.latency_contract_rollout_preflight_v1 --purpose latency_contract_sensitive_apply
++```
++
++## Generic wrapper
++
++```bash
++orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh <command...>
++```
++
++## Typical remediation
++
++1. Confirm external writers are alive and writing hashes for Go/NestJS stages.
++2. Inspect `metrics:latency_contract:slo:last` and `metrics:latency_contract:rollout_gate:last`.
++3. If the block is due to sustained budget breach, resolve the latency issue first; do not bypass the gate.
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' repo_p41_work/orderflow_services/tests/test_latency_contract_p42_alerts_yaml_v1.py repo_p42_work/orderflow_services/tests/test_latency_contract_p42_alerts_yaml_v1.py
+--- repo_p41_work/orderflow_services/tests/test_latency_contract_p42_alerts_yaml_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p42_work/orderflow_services/tests/test_latency_contract_p42_alerts_yaml_v1.py	2026-03-08 08:07:42.799276266 +0000
+@@ -0,0 +1,9 @@
++import os
++import yaml
++
++
++def test_p42_alerts_yaml_valid():
++    path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'prometheus_alerts_latency_contract_p42_v1.yml'))
++    with open(path, 'r', encoding='utf-8') as f:
++        data = yaml.safe_load(f)
++    assert 'groups' in data and data['groups']
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' repo_p41_work/orderflow_services/tests/test_latency_contract_p42_dashboard_json_v1.py repo_p42_work/orderflow_services/tests/test_latency_contract_p42_dashboard_json_v1.py
+--- repo_p41_work/orderflow_services/tests/test_latency_contract_p42_dashboard_json_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p42_work/orderflow_services/tests/test_latency_contract_p42_dashboard_json_v1.py	2026-03-08 08:07:42.807257823 +0000
+@@ -0,0 +1,10 @@
++import json
++import os
++
++
++def test_p42_dashboard_json_valid():
++    path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'grafana', 'latency_contract_p42_v1.json'))
++    with open(path, 'r', encoding='utf-8') as f:
++        data = json.load(f)
++    assert data['title']
++    assert data['panels']
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' repo_p41_work/orderflow_services/tests/test_latency_contract_p42_exporter_v1.py repo_p42_work/orderflow_services/tests/test_latency_contract_p42_exporter_v1.py
+--- repo_p41_work/orderflow_services/tests/test_latency_contract_p42_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p42_work/orderflow_services/tests/test_latency_contract_p42_exporter_v1.py	2026-03-08 08:07:42.791577383 +0000
+@@ -0,0 +1,7 @@
++from orderflow_services import latency_contract_exporter_v1 as mod
++
++
++def test_p42_exporter_has_rollout_gate_metrics():
++    assert hasattr(mod, 'G_ROLLOUT_GATE_ACTIVE')
++    assert hasattr(mod, 'G_ROLLOUT_GATE_EXTERNAL_MISSING')
++    assert hasattr(mod, 'G_ROLLOUT_GATE_BUDGET_HOLD')
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' repo_p41_work/orderflow_services/tests/test_latency_contract_rollout_gate_v1.py repo_p42_work/orderflow_services/tests/test_latency_contract_rollout_gate_v1.py
+--- repo_p41_work/orderflow_services/tests/test_latency_contract_rollout_gate_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p42_work/orderflow_services/tests/test_latency_contract_rollout_gate_v1.py	2026-03-08 08:07:42.772647222 +0000
+@@ -0,0 +1,56 @@
++from orderflow_services.latency_contract_rollout_gate_v1 import Cfg, evaluate_once
++
++
++class FakeRedis:
++    def __init__(self, data):
++        self.data = data
++
++    def hgetall(self, key):
++        return dict(self.data.get(key, {}))
++
++
++def test_rollout_gate_blocks_on_external_missing():
++    data = {
++        'metrics:latency_contract:slo:last': {
++            'external_missing_total': '2',
++            'budget_breach_total': '0',
++        },
++        'metrics:latency_contract:rollout_gate:last': {},
++    }
++    cfg = Cfg(
++        redis_url='redis://x',
++        summary_key='metrics:latency_contract:slo:last',
++        state_key='metrics:latency_contract:rollout_gate:last',
++        gate_key='cfg:orderflow:latency_contract:rollout_gate:v1',
++        interval_s=10.0,
++        budget_hold_s=300,
++        gate_ttl_s=900,
++    )
++    m = evaluate_once(FakeRedis(data), cfg)
++    assert int(m['gate_active']) == 1
++    assert m['gate_reason_code'] == 'external_missing'
++
++
++def test_rollout_gate_blocks_on_sustained_budget_breach():
++    data = {
++        'metrics:latency_contract:slo:last': {
++            'external_missing_total': '0',
++            'budget_breach_total': '1',
++        },
++        'metrics:latency_contract:rollout_gate:last': {
++            'budget_breach_since_ts_ms': '1',
++        },
++    }
++    cfg = Cfg(
++        redis_url='redis://x',
++        summary_key='metrics:latency_contract:slo:last',
++        state_key='metrics:latency_contract:rollout_gate:last',
++        gate_key='cfg:orderflow:latency_contract:rollout_gate:v1',
++        interval_s=10.0,
++        budget_hold_s=1,
++        gate_ttl_s=900,
++    )
++    m = evaluate_once(FakeRedis(data), cfg)
++    assert int(m['budget_hold_reached']) == 1
++    assert int(m['gate_active']) == 1
++    assert 'budget_breach_sustained' in m['gate_reason_codes']
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' repo_p41_work/orderflow_services/tests/test_latency_contract_rollout_preflight_v1.py repo_p42_work/orderflow_services/tests/test_latency_contract_rollout_preflight_v1.py
+--- repo_p41_work/orderflow_services/tests/test_latency_contract_rollout_preflight_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p42_work/orderflow_services/tests/test_latency_contract_rollout_preflight_v1.py	2026-03-08 08:07:42.783815058 +0000
+@@ -0,0 +1,15 @@
++import os
++import subprocess
++import sys
++
++
++class _Env:
++    pass
++
++
++def test_wrapper_script_exists_and_references_preflight():
++    path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'integrations', 'run_with_latency_contract_rollout_preflight_v1.sh'))
++    with open(path, 'r', encoding='utf-8') as f:
++        text = f.read()
++    assert 'latency_contract_rollout_preflight_v1' in text
++    assert 'exec "$@"' in text
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' repo_p41_work/services/observability/latency_semconv.py repo_p42_work/services/observability/latency_semconv.py
+--- repo_p41_work/services/observability/latency_semconv.py	2026-03-08 07:49:56.588864149 +0000
++++ repo_p42_work/services/observability/latency_semconv.py	2026-03-08 08:04:18.013510146 +0000
+@@ -117,6 +117,12 @@
+     (SERVICE_NEST_GATEWAY, STAGE_END_TO_END_EVENT),
+ )
+ 
++EXTERNAL_REQUIRED_STAGE_OWNERS = (
++    (SERVICE_GO_INGEST, STAGE_INGEST_TO_REDIS),
++    (SERVICE_NEST_GATEWAY, STAGE_EMIT_TO_WS),
++    (SERVICE_NEST_GATEWAY, STAGE_END_TO_END_EVENT),
++)
++
+ 
+ def required_stage_owners() -> tuple[tuple[str, str], ...]:
+     """Canonical service->stage ownership for cross-service SLO coverage.
+@@ -173,3 +179,12 @@
+ 
+ def default_symbol_allowlist() -> Set[str]:
+     return parse_allowlist(os.getenv('LATENCY_CONTRACT_SYMBOL_ALLOWLIST', 'BTCUSDT,ETHUSDT'))
++
++
++def external_required_stage_owners() -> tuple[tuple[str, str], ...]:
++    """Subset of required stages that must be written by external runtimes.
++
++    Used by rollout/apply blockers so that Python-side coverage alone cannot mask
++    missing Go ingest or NestJS websocket stages.
++    """
++    return EXTERNAL_REQUIRED_STAGE_OWNERS
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' repo_p41_work/tick_flow_full/orderflow_services/grafana/latency_contract_p42_v1.json repo_p42_work/tick_flow_full/orderflow_services/grafana/latency_contract_p42_v1.json
+--- repo_p41_work/tick_flow_full/orderflow_services/grafana/latency_contract_p42_v1.json	1970-01-01 00:00:00.000000000 +0000
++++ repo_p42_work/tick_flow_full/orderflow_services/grafana/latency_contract_p42_v1.json	2026-03-08 08:07:16.282852133 +0000
+@@ -0,0 +1,42 @@
++{
++  "title": "Latency Contract Rollout Gate (p4.2)",
++  "timezone": "browser",
++  "schemaVersion": 39,
++  "version": 1,
++  "panels": [
++    {
++      "type": "stat",
++      "title": "Rollout gate active",
++      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
++      "targets": [{"expr": "latency_contract_rollout_gate_active"}]
++    },
++    {
++      "type": "stat",
++      "title": "External missing total",
++      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
++      "targets": [{"expr": "latency_contract_rollout_gate_external_missing_total"}]
++    },
++    {
++      "type": "stat",
++      "title": "Budget breach total",
++      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
++      "targets": [{"expr": "latency_contract_rollout_gate_budget_breach_total"}]
++    },
++    {
++      "type": "timeseries",
++      "title": "Budget hold seconds",
++      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
++      "targets": [{"expr": "latency_contract_rollout_gate_budget_hold_seconds"}]
++    },
++    {
++      "type": "timeseries",
++      "title": "SLO gate components",
++      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
++      "targets": [
++        {"expr": "latency_contract_slo_missing_total", "legendFormat": "missing_total"},
++        {"expr": "latency_contract_slo_budget_breach_total", "legendFormat": "budget_breach_total"},
++        {"expr": "latency_contract_required_stage_present{service=~\"go_ingest|nest_gateway\"}", "legendFormat": "{{service}}/{{stage}}/{{symbol}} present"}
++      ]
++    }
++  ]
++}
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' repo_p41_work/tick_flow_full/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh repo_p42_work/tick_flow_full/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh
+--- repo_p41_work/tick_flow_full/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh	1970-01-01 00:00:00.000000000 +0000
++++ repo_p42_work/tick_flow_full/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh	2026-03-08 08:07:16.302635459 +0000
+@@ -0,0 +1,10 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++if [[ $# -lt 1 ]]; then
++  echo "usage: $0 <command...>" >&2
++  exit 64
++fi
++
++python3 -m orderflow_services.latency_contract_rollout_preflight_v1 --purpose latency_contract_sensitive_apply
++exec "$@"
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' repo_p41_work/tick_flow_full/orderflow_services/latency_contract_exporter_v1.py repo_p42_work/tick_flow_full/orderflow_services/latency_contract_exporter_v1.py
+--- repo_p41_work/tick_flow_full/orderflow_services/latency_contract_exporter_v1.py	2026-03-08 07:35:51.900045554 +0000
++++ repo_p42_work/tick_flow_full/orderflow_services/latency_contract_exporter_v1.py	2026-03-08 08:07:16.193484597 +0000
+@@ -13,6 +13,8 @@
+ from dataclasses import dataclass
+ from typing import Any, Dict
+ 
++from services.observability.latency_semconv import required_stage_owners, default_symbol_allowlist
++
+ from prometheus_client import Gauge, start_http_server
+ 
+ 
+@@ -44,6 +46,18 @@
+ G_STAGE_BUDGET = Gauge('latency_contract_stage_budget_ms', 'Configured SLO budget (ms) per stage', ['stage'])
+ G_EXPORTER_KEYS = Gauge('latency_contract_exporter_keys', 'Number of latency contract keys seen in Redis')
+ G_EXPORTER_READ_OK = Gauge('latency_contract_exporter_read_ok', 'Exporter Redis read status')
++G_REQUIRED_PRESENT = Gauge('latency_contract_required_stage_present', 'Required service-stage-symbol contract presence', ['service', 'stage', 'symbol'])
++G_REQUIRED_AGE = Gauge('latency_contract_required_stage_age_seconds', 'Required service-stage-symbol age', ['service', 'stage', 'symbol'])
++G_SLO_GATE_OK = Gauge('latency_contract_slo_gate_ok', 'Latency contract SLO gate ok')
++G_SLO_MISSING = Gauge('latency_contract_slo_missing_total', 'Latency contract missing required stages total')
++G_SLO_STALE = Gauge('latency_contract_slo_stale_total', 'Latency contract stale required stages total')
++G_SLO_BUDGET = Gauge('latency_contract_slo_budget_breach_total', 'Latency contract budget breach total')
++
++G_ROLLOUT_GATE_ACTIVE = Gauge('latency_contract_rollout_gate_active', 'Latency contract rollout gate active')
++G_ROLLOUT_GATE_EXTERNAL_MISSING = Gauge('latency_contract_rollout_gate_external_missing_total', 'Latency contract rollout gate external missing total')
++G_ROLLOUT_GATE_BUDGET_TOTAL = Gauge('latency_contract_rollout_gate_budget_breach_total', 'Latency contract rollout gate current budget breach total')
++G_ROLLOUT_GATE_BUDGET_HOLD = Gauge('latency_contract_rollout_gate_budget_hold_seconds', 'Latency contract rollout gate budget hold seconds')
++G_ROLLOUT_GATE_HOLD_REACHED = Gauge('latency_contract_rollout_gate_budget_hold_reached', 'Latency contract rollout gate hold threshold reached')
+ 
+ 
+ @dataclass
+@@ -53,6 +67,8 @@
+     interval_s: float
+     key_prefix: str
+     stale_s: int
++    slo_summary_key: str
++    rollout_gate_state_key: str
+ 
+ 
+ def load_cfg() -> Cfg:
+@@ -62,6 +78,8 @@
+         interval_s=float(_env('LATENCY_CONTRACT_EXPORTER_INTERVAL_S', '10') or 10),
+         key_prefix=_env('LATENCY_CONTRACT_KEY_PREFIX', 'metrics:latency_contract:last'),
+         stale_s=_i(_env('LATENCY_CONTRACT_EXPORTER_STALE_S', '300'), 300),
++        slo_summary_key=_env('LATENCY_CONTRACT_SLO_SUMMARY_KEY', 'metrics:latency_contract:slo:last'),
++        rollout_gate_state_key=_env('LATENCY_CONTRACT_ROLLOUT_GATE_STATE_KEY', 'metrics:latency_contract:rollout_gate:last'),
+     )
+ 
+ 
+@@ -101,6 +119,7 @@
+ 
+     r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
+     start_http_server(cfg.port)
++    symbols = tuple(sorted(default_symbol_allowlist()))
+     for st in ('ingest_to_redis', 'redis_to_feature', 'feature_to_emit', 'emit_to_ws', 'end_to_end_event'):
+         G_STAGE_BUDGET.labels(stage=st).set(_budget(st))
+     while True:
+@@ -119,6 +138,29 @@
+                 G_STAGE_COUNT.labels(service=service, stage=stage, symbol=symbol).set(1.0)
+                 n += 1
+             G_EXPORTER_KEYS.set(float(n))
++
++            # Required stage coverage matrix.
++            for service, stage in required_stage_owners():
++                for symbol in symbols:
++                    raw = r.hgetall(f"{cfg.key_prefix}:{service}:{stage}:{symbol}") or {}
++                    present = 1.0 if raw else 0.0
++                    last_ts_ms = _i(raw.get('last_ts_ms'), 0)
++                    age_s = max(0.0, now - (float(last_ts_ms) / 1000.0)) if last_ts_ms > 0 else float(cfg.stale_s)
++                    G_REQUIRED_PRESENT.labels(service=service, stage=stage, symbol=symbol).set(present)
++                    G_REQUIRED_AGE.labels(service=service, stage=stage, symbol=symbol).set(age_s)
++
++            summary = r.hgetall(cfg.slo_summary_key) or {}
++            G_SLO_GATE_OK.set(_f(summary.get('gate_ok'), 0.0))
++            G_SLO_MISSING.set(_f(summary.get('missing_total'), 0.0))
++            G_SLO_STALE.set(_f(summary.get('stale_total'), 0.0))
++            G_SLO_BUDGET.set(_f(summary.get('budget_breach_total'), 0.0))
++
++            gate = r.hgetall(cfg.rollout_gate_state_key) or {}
++            G_ROLLOUT_GATE_ACTIVE.set(_f(gate.get('gate_active'), 0.0))
++            G_ROLLOUT_GATE_EXTERNAL_MISSING.set(_f(gate.get('external_missing_total'), 0.0))
++            G_ROLLOUT_GATE_BUDGET_TOTAL.set(_f(gate.get('budget_breach_total'), 0.0))
++            G_ROLLOUT_GATE_BUDGET_HOLD.set(_f(gate.get('budget_breach_hold_s'), 0.0))
++            G_ROLLOUT_GATE_HOLD_REACHED.set(_f(gate.get('budget_hold_reached'), 0.0))
+             G_EXPORTER_READ_OK.set(1.0)
+         except Exception:
+             G_EXPORTER_READ_OK.set(0.0)
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' repo_p41_work/tick_flow_full/orderflow_services/latency_contract_rollout_gate_v1.py repo_p42_work/tick_flow_full/orderflow_services/latency_contract_rollout_gate_v1.py
+--- repo_p41_work/tick_flow_full/orderflow_services/latency_contract_rollout_gate_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p42_work/tick_flow_full/orderflow_services/latency_contract_rollout_gate_v1.py	2026-03-08 08:07:16.214491286 +0000
+@@ -0,0 +1,152 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Rollout/apply blocker for latency-contract coverage.
++
++Blocks sensitive rollout/apply paths when:
++- external required stages are missing (`go_ingest/ingest_to_redis`,
++  `nest_gateway/emit_to_ws`, `nest_gateway/end_to_end_event`)
++- or `budget_breach_total` stays above threshold for N minutes.
++
++This service reads the P4.1 SLO summary, maintains a small state hash with
++hold-duration bookkeeping, and writes an active gate key that preflight wrappers
++can check before starting sensitive jobs.
++"""
++
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, Tuple
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return d
++
++
++def _f(v: Any, d: float = 0.0) -> float:
++    try:
++        return float(v)
++    except Exception:
++        try:
++            return float(str(v).strip())
++        except Exception:
++            return d
++
++
++@dataclass
++class Cfg:
++    redis_url: str
++    summary_key: str
++    state_key: str
++    gate_key: str
++    interval_s: float
++    budget_hold_s: int
++    gate_ttl_s: int
++
++
++def load_cfg() -> Cfg:
++    return Cfg(
++        redis_url=_env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
++        summary_key=_env('LATENCY_CONTRACT_SLO_SUMMARY_KEY', 'metrics:latency_contract:slo:last'),
++        state_key=_env('LATENCY_CONTRACT_ROLLOUT_GATE_STATE_KEY', 'metrics:latency_contract:rollout_gate:last'),
++        gate_key=_env('LATENCY_CONTRACT_ROLLOUT_GATE_KEY', 'cfg:orderflow:latency_contract:rollout_gate:v1'),
++        interval_s=float(_env('LATENCY_CONTRACT_ROLLOUT_GATE_INTERVAL_S', '10') or 10),
++        budget_hold_s=_i(_env('LATENCY_CONTRACT_ROLLOUT_GATE_BUDGET_HOLD_S', '300'), 300),
++        gate_ttl_s=_i(_env('LATENCY_CONTRACT_ROLLOUT_GATE_TTL_S', '900'), 900),
++    )
++
++
++def evaluate_once(r: Any, cfg: Cfg) -> Dict[str, str]:
++    now_ms = int(time.time() * 1000)
++    raw = r.hgetall(cfg.summary_key) or {}
++    prev = r.hgetall(cfg.state_key) or {}
++
++    if not raw:
++        # Missing SLO summary is treated as rollout-blocking because coverage is unknown.
++        mapping = {
++            'schema_version': '1',
++            'last_ts_ms': str(now_ms),
++            'summary_present': '0',
++            'external_missing_total': '999999',
++            'budget_breach_total': '0',
++            'budget_breach_since_ts_ms': str(_i(prev.get('budget_breach_since_ts_ms'), 0)),
++            'budget_breach_hold_s': '0',
++            'budget_hold_reached': '0',
++            'gate_active': '1',
++            'gate_reason_code': 'summary_missing',
++            'gate_reason_codes': 'summary_missing',
++        }
++        return mapping
++
++    external_missing_total = _i(raw.get('external_missing_total'), 0)
++    budget_breach_total = _i(raw.get('budget_breach_total'), 0)
++    prev_since = _i(prev.get('budget_breach_since_ts_ms'), 0)
++    if budget_breach_total > 0:
++        since_ms = prev_since if prev_since > 0 else now_ms
++    else:
++        since_ms = 0
++    hold_s = int(max(0, (now_ms - since_ms) / 1000.0)) if since_ms > 0 else 0
++    hold_reached = 1 if (budget_breach_total > 0 and hold_s >= cfg.budget_hold_s) else 0
++
++    reasons = []
++    if external_missing_total > 0:
++        reasons.append('external_missing')
++    if hold_reached:
++        reasons.append('budget_breach_sustained')
++    gate_active = 1 if reasons else 0
++    reason_code = reasons[0] if reasons else 'ok'
++
++    mapping = {
++        'schema_version': '1',
++        'last_ts_ms': str(now_ms),
++        'summary_present': '1',
++        'external_missing_total': str(external_missing_total),
++        'budget_breach_total': str(budget_breach_total),
++        'budget_breach_since_ts_ms': str(since_ms),
++        'budget_breach_hold_s': str(hold_s),
++        'budget_hold_reached': str(hold_reached),
++        'gate_active': str(gate_active),
++        'gate_reason_code': reason_code,
++        'gate_reason_codes': ','.join(reasons) if reasons else 'ok',
++    }
++    return mapping
++
++
++def reconcile_gate_key(r: Any, cfg: Cfg, mapping: Dict[str, str]) -> None:
++    active = _i(mapping.get('gate_active'), 0)
++    if active:
++        r.hset(cfg.gate_key, mapping=mapping)
++        try:
++            r.expire(cfg.gate_key, max(1, int(cfg.gate_ttl_s)))
++        except Exception:
++            pass
++    else:
++        try:
++            r.delete(cfg.gate_key)
++        except Exception:
++            pass
++
++
++def main() -> int:
++    cfg = load_cfg()
++    import redis  # type: ignore
++    r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
++    while True:
++        try:
++            mapping = evaluate_once(r, cfg)
++            r.hset(cfg.state_key, mapping=mapping)
++            reconcile_gate_key(r, cfg, mapping)
++        except Exception:
++            pass
++        time.sleep(cfg.interval_s)
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' repo_p41_work/tick_flow_full/orderflow_services/latency_contract_rollout_preflight_v1.py repo_p42_work/tick_flow_full/orderflow_services/latency_contract_rollout_preflight_v1.py
+--- repo_p41_work/tick_flow_full/orderflow_services/latency_contract_rollout_preflight_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p42_work/tick_flow_full/orderflow_services/latency_contract_rollout_preflight_v1.py	2026-03-08 08:07:16.223631804 +0000
+@@ -0,0 +1,55 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Preflight guard for sensitive rollout/apply paths.
++
++Exit codes:
++- 0: allow
++- 24: blocked by latency-contract rollout gate
++- 25: state missing / invalid, treat as soft infrastructure failure
++"""
++
++import argparse
++import os
++from typing import Any
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return d
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser()
++    ap.add_argument('--purpose', default='latency_contract_sensitive_apply')
++    ns = ap.parse_args()
++
++    import redis  # type: ignore
++    redis_url = _env('REDIS_URL', 'redis://redis-worker-1:6379/0')
++    state_key = _env('LATENCY_CONTRACT_ROLLOUT_GATE_STATE_KEY', 'metrics:latency_contract:rollout_gate:last')
++    gate_key = _env('LATENCY_CONTRACT_ROLLOUT_GATE_KEY', 'cfg:orderflow:latency_contract:rollout_gate:v1')
++    r = redis.Redis.from_url(redis_url, decode_responses=True)
++
++    gate = r.hgetall(gate_key) or {}
++    if not gate:
++        gate = r.hgetall(state_key) or {}
++    if not gate:
++        print(f'LATENCY_CONTRACT_PREFLIGHT_INVALID purpose={ns.purpose} reason=state_missing')
++        return 25
++    active = _i(gate.get('gate_active'), 0)
++    if active > 0:
++        reason = gate.get('gate_reason_codes') or gate.get('gate_reason_code') or 'latency_contract_gate'
++        print(f'LATENCY_CONTRACT_PREFLIGHT_BLOCK purpose={ns.purpose} reason={reason}')
++        return 24
++    print(f'LATENCY_CONTRACT_PREFLIGHT_OK purpose={ns.purpose}')
++    return 0
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' repo_p41_work/tick_flow_full/orderflow_services/latency_contract_slo_gate_v1.py repo_p42_work/tick_flow_full/orderflow_services/latency_contract_slo_gate_v1.py
+--- repo_p41_work/tick_flow_full/orderflow_services/latency_contract_slo_gate_v1.py	2026-03-08 07:49:56.599942250 +0000
++++ repo_p42_work/tick_flow_full/orderflow_services/latency_contract_slo_gate_v1.py	2026-03-08 08:07:16.205219178 +0000
+@@ -13,7 +13,7 @@
+ from dataclasses import dataclass
+ from typing import Any, Dict, Iterable, Tuple
+ 
+-from services.observability.latency_semconv import required_stage_owners, default_symbol_allowlist
++from services.observability.latency_semconv import required_stage_owners, external_required_stage_owners, default_symbol_allowlist
+ 
+ 
+ def _env(name: str, default: str = '') -> str:
+@@ -81,6 +81,9 @@
+     budget_breach_total = 0
+     present_total = 0
+     required_total = 0
++    external_missing_total = 0
++    external_stale_total = 0
++    external_required = set(external_required_stage_owners())
+     per_stage = {}
+     for service, stage in required_stage_owners():
+         for symbol in cfg.symbols:
+@@ -94,12 +97,16 @@
+             budget_breach = 0
+             if not present:
+                 missing_total += 1
++                if (service, stage) in external_required:
++                    external_missing_total += 1
+             else:
+                 present_total += 1
+                 age_s = max(0.0, now - (last_ts_ms / 1000.0)) if last_ts_ms > 0 else float(cfg.stale_s)
+                 if age_s > float(cfg.stale_s):
+                     stale_total += 1
+                     stale = 1
++                    if (service, stage) in external_required:
++                        external_stale_total += 1
+                 budget = _budget(stage)
+                 if budget > 0 and last_duration_ms > budget:
+                     budget_breach_total += 1
+@@ -113,6 +120,8 @@
+         'present_total': str(present_total),
+         'missing_total': str(missing_total),
+         'stale_total': str(stale_total),
++        'external_missing_total': str(external_missing_total),
++        'external_stale_total': str(external_stale_total),
+         'budget_breach_total': str(budget_breach_total),
+         'gate_ok': str(gate_ok),
+     }
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' repo_p41_work/tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_p42_v1.yml repo_p42_work/tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_p42_v1.yml
+--- repo_p41_work/tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_p42_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ repo_p42_work/tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_p42_v1.yml	2026-03-08 08:07:16.232827227 +0000
+@@ -0,0 +1,29 @@
++groups:
++  - name: latency_contract_p42_v1
++    rules:
++      - alert: OF_LatencyContract_RolloutGate_Active_Crit
++        expr: latency_contract_rollout_gate_active > 0
++        for: 2m
++        labels:
++          severity: critical
++        annotations:
++          summary: "Latency contract rollout gate active"
++          description: "Sensitive rollout/apply path must stay blocked while external latency coverage is missing or budget breaches are sustained."
++
++      - alert: OF_LatencyContract_ExternalCoverageMissing_Crit
++        expr: latency_contract_rollout_gate_external_missing_total > 0
++        for: 1m
++        labels:
++          severity: critical
++        annotations:
++          summary: "Latency contract external stage coverage missing"
++          description: "Missing one or more required external stages: go_ingest/ingest_to_redis or nest_gateway/*"
++
++      - alert: OF_LatencyContract_BudgetBreachSustained_Crit
++        expr: latency_contract_rollout_gate_budget_hold_reached > 0
++        for: 1m
++        labels:
++          severity: critical
++        annotations:
++          summary: "Latency contract budget breach sustained"
++          description: "budget_breach_total has remained above zero longer than the configured hold threshold."
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' repo_p41_work/tick_flow_full/orderflow_services/runbook_latency_contract_p42_v1.md repo_p42_work/tick_flow_full/orderflow_services/runbook_latency_contract_p42_v1.md
+--- repo_p41_work/tick_flow_full/orderflow_services/runbook_latency_contract_p42_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ repo_p42_work/tick_flow_full/orderflow_services/runbook_latency_contract_p42_v1.md	2026-03-08 08:07:16.294600723 +0000
+@@ -0,0 +1,36 @@
++# Latency Contract Rollout Gate (P4.2)
++
++This guard blocks sensitive rollout/apply paths when cross-service latency
++coverage is incomplete or when latency budgets remain breached for too long.
++
++## Block conditions
++
++- missing external stage coverage:
++  - `go_ingest / ingest_to_redis`
++  - `nest_gateway / emit_to_ws`
++  - `nest_gateway / end_to_end_event`
++- `budget_breach_total > 0` for at least `LATENCY_CONTRACT_ROLLOUT_GATE_BUDGET_HOLD_S`
++
++## Keys
++
++- SLO summary: `metrics:latency_contract:slo:last`
++- rollout gate state: `metrics:latency_contract:rollout_gate:last`
++- active gate key: `cfg:orderflow:latency_contract:rollout_gate:v1`
++
++## Preflight
++
++```bash
++python3 -m orderflow_services.latency_contract_rollout_preflight_v1 --purpose latency_contract_sensitive_apply
++```
++
++## Generic wrapper
++
++```bash
++orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh <command...>
++```
++
++## Typical remediation
++
++1. Confirm external writers are alive and writing hashes for Go/NestJS stages.
++2. Inspect `metrics:latency_contract:slo:last` and `metrics:latency_contract:rollout_gate:last`.
++3. If the block is due to sustained budget breach, resolve the latency issue first; do not bypass the gate.

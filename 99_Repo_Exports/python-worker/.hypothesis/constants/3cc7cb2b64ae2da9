@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/of_regress_baseline_check.py
+# hypothesis_version: 6.148.10
+
+[1e-09, '--baseline', '--candidate', '--fail-on-mismatch', '--max-mismatches', '--out', '--symbol', '0', '__main__', 'evidence', 'have', 'mismatch_by_field', 'mismatch_by_type_top', 'mismatches', 'n', 'na', 'need', 'need_reason', 'ok', 'r', 'reason', 'scenario', 'scenario_v4', 'score', 'sid', 'symbol', 'utf-8', 'w']

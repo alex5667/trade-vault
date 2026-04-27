@@ -1,0 +1,139 @@
+diff --git a/ok_rate_logic/prometheus_alerts_web_uptime_v1.yml b/ok_rate_logic/prometheus_alerts_web_uptime_v1.yml
+index c6c3310..d2a6f8a 100644
+--- a/ok_rate_logic/prometheus_alerts_web_uptime_v1.yml
++++ b/ok_rate_logic/prometheus_alerts_web_uptime_v1.yml
+@@ -1,6 +1,56 @@
+ groups:
+   - name: web-uptime
+     rules:
++      - alert: BlackboxExporterScrapeDownCritical
++        expr: min(up{job=~"blackbox_http|blackbox_public"}) == 0
++        for: 5m
++        labels:
++          severity: critical
++          team: trade
++          component: monitoring
++        annotations:
++          summary: "Blackbox exporter scrape DOWN"
++          description: "Prometheus cannot scrape blackbox jobs (blackbox_http/blackbox_public). This can mute uptime alerts. Check blackbox-exporter container and Prometheus->blackbox connectivity."
++          runbook_path: "/web_uptime.md"
++          dashboard_path: "/d/web_uptime/web-uptime-blackbox?orgId=1"
++
++      - alert: BlackboxProbeMetricsMissingInternal
++        expr: absent(probe_success{job="blackbox_http"})
++        for: 20m
++        labels:
++          severity: warning
++          team: trade
++          component: monitoring
++        annotations:
++          summary: "Blackbox probe metrics missing (internal job)"
++          description: "probe_success{job=\"blackbox_http\"} is absent for 20m. Uptime coverage may be broken. Check Prometheus config/relabel and blackbox-exporter."
++          runbook_path: "/web_uptime.md"
++          dashboard_path: "/d/web_uptime/web-uptime-blackbox?orgId=1"
++
++      - alert: BlackboxProbeMetricsMissingPublic
++        expr: absent(probe_success{job="blackbox_public"})
++        for: 20m
++        labels:
++          severity: warning
++          team: trade
++          component: monitoring
++        annotations:
++          summary: "Blackbox probe metrics missing (public job)"
++          description: "probe_success{job=\"blackbox_public\"} is absent for 20m. Public routing/TLS coverage may be broken. Check Prometheus config/relabel and blackbox-exporter."
++          runbook_path: "/web_uptime.md"
++          dashboard_path: "/d/web_uptime/web-uptime-blackbox?orgId=1"
++
+       - alert: WebServiceDownCritical
+         expr: probe_success{job="blackbox_http"} == 0
+         for: 5m
+         labels:
+           severity: critical
+@@ -83,3 +133,11 @@ groups:
+           summary: "Public probe latency high (>5s)"
+           description: "Blackbox probe_duration_seconds exceeded 5s for {{ $labels.instance }} (max over 10m). Check public-proxy load, DNS, upstream slowness."
+           runbook_path: "/web_uptime.md"
+           dashboard_path: "/d/web_uptime/web-uptime-blackbox?orgId=1"
+diff --git a/monitoring/grafana/dashboards/web_uptime.json b/monitoring/grafana/dashboards/web_uptime.json
+index 4ccf8da..c6a89e7 100644
+--- a/monitoring/grafana/dashboards/web_uptime.json
++++ b/monitoring/grafana/dashboards/web_uptime.json
+@@ -4,7 +4,7 @@
+   "timezone": "browser",
+   "schemaVersion": 39,
+-  "version": 1,
++  "version": 2,
+   "editable": true,
+   "refresh": "30s",
+   "time": { "from": "now-24h", "to": "now" },
+@@ -322,6 +322,46 @@
+       "targets": [
+         { "expr": "probe_http_status_code{job=\"blackbox_public\"}", "legendFormat": "{{instance}}", "refId": "A" }
+       ],
+       "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+       "options": { "legend": { "displayMode": "table", "placement": "bottom" } }
++    },
++    {
++      "id": 9,
++      "type": "stat",
++      "title": "Blackbox scrape UP (min up, public job)",
++      "gridPos": { "x": 0, "y": 33, "w": 12, "h": 6 },
++      "targets": [
++        { "expr": "min(up{job=\"blackbox_public\"})", "refId": "A" }
++      ],
++      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
++      "fieldConfig": {
++        "defaults": { "unit": "none", "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } },
++        "overrides": []
++      }
++    },
++    {
++      "id": 10,
++      "type": "stat",
++      "title": "Blackbox scrape UP (min up, internal job)",
++      "gridPos": { "x": 12, "y": 33, "w": 12, "h": 6 },
++      "targets": [
++        { "expr": "min(up{job=\"blackbox_http\"})", "refId": "A" }
++      ],
++      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
++      "fieldConfig": {
++        "defaults": { "unit": "none", "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } },
++        "overrides": []
++      }
+     }
+   ]
+ }
+diff --git a/monitoring/runbooks/web_uptime.md b/monitoring/runbooks/web_uptime.md
+index b3537c3..f3c46c8 100644
+--- a/monitoring/runbooks/web_uptime.md
++++ b/monitoring/runbooks/web_uptime.md
+@@ -10,10 +10,13 @@
+ ## Dashboard
+ - `/d/web_uptime/web-uptime-blackbox?orgId=1`
+
+ ## Symptoms
++- Alert: `BlackboxExporterScrapeDownCritical`
++- Alert: `BlackboxProbeMetricsMissingInternal` / `BlackboxProbeMetricsMissingPublic`
+ - Alert: `WebServiceDownCritical` (internal)
+ - Alert: `WebServiceDownWarningPublic` (public routing/TLS)
+ - Alert: `WebTlsCertExpiringSoon` / `WebTlsCertExpiringCritical`
+ - Alert: `WebProbeLatencyHighPublic`
+
+ ## Immediate checks (internal)
+ 1) Prometheus Targets:
+    - `trade-blackbox-exporter` is UP
+    - jobs: `blackbox_http` and `blackbox_public`
++   - check `min(up{job="blackbox_public"})` and `min(up{job="blackbox_http"})` (should be 1)
+ 2) Identify failing instance from alert label `instance`:
+    - `http://trade-grafana:3000/api/health`
+    - `http://trade-runbooks-web:8082/healthz`
++
++## Blackbox exporter scrape DOWN / metrics missing
++1) Docker:
++   - `docker ps | grep blackbox`
++   - `docker logs trade-blackbox-exporter -n 200`
++2) Connectivity from Prometheus container:
++   - `docker exec -it trade-prometheus wget -qO- http://trade-blackbox-exporter:9115/-/healthy`
++3) Validate blackbox config (CI already checks):
++   - `./scripts/ci_prometheus_lint.sh`

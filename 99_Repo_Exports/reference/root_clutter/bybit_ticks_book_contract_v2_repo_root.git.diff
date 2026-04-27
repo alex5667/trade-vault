@@ -1,0 +1,1261 @@
+diff --git a/.env.example b/.env.example
+index e0f1128..04d61d1 100644
+--- a/.env.example
++++ b/.env.example
+@@ -2,6 +2,40 @@
+ # FUTURES_WS_ENABLED=true
+ # FUTURES_SYMBOLS=BTCUSDT,ETHUSDT
+ 
++# --- Bybit Futures WS (ticks + orderbook -> Redis Streams for Python worker) ---
++# Включение:
++# BYBIT_FUTURES_WS_ENABLED=true
++#
++# Базовый allowlist (fallback = FUTURES_SYMBOLS):
++# BYBIT_FUTURES_SYMBOLS=BTCUSDT,ETHUSDT
++#
++# Public WS endpoint (linear USDT perps):
++# BYBIT_FUTURES_WS_URL=wss://stream.bybit.com/v5/public/linear
++#
++# Что подписывать:
++# BYBIT_TRADES_ENABLED=true
++# BYBIT_ORDERBOOK_ENABLED=true
++#
++# Orderbook глубина подписки и размер публикуемого snapshot:
++# BYBIT_BOOK_DEPTH=50
++# BYBIT_BOOK_MAX_LEVELS=50
++#
++# Динамический allowlist через Redis Set (добавляйте/убирайте символы без рестарта):
++# BYBIT_SYMBOLS_REDIS_KEY=bybit:futures:linear:symbols
++# BYBIT_SYMBOLS_REFRESH_INTERVAL=30s
++#
++# Если нужно 1:1 совпадение имен стримов с вашим пайплайном (symbol remap):
++# BYBIT_SYMBOL_MAP=BTCUSDC:BTCUSDT,ETHUSDC:ETHUSDT
++#
++# WS timeouts / buffering:
++# BYBIT_WS_PING_PERIOD=20s
++# BYBIT_WS_READ_TIMEOUT=90s
++# BYBIT_WS_WRITE_WAIT=5s
++# BYBIT_WS_HANDSHAKE_TIMEOUT=45s
++# BYBIT_WS_DIAL_TIMEOUT=30s
++# BYBIT_WS_TCP_KEEPALIVE=60s
++# BYBIT_MSG_CHAN_CAP=5000
++
+ # --- A1: Liquidations (SAFE defaults) ---
+ # Enable ingestion:
+ # LIQ_WS_ENABLED=true
+diff --git a/cmd/worker/main.go b/cmd/worker/main.go
+index 1e5ca11..dcbff57 100644
+--- a/cmd/worker/main.go
++++ b/cmd/worker/main.go
+@@ -15,6 +15,7 @@ import (
+ 	"go-worker/binance"
+ 	"go-worker/infra/redisclient"
+ 	"go-worker/internal/app"
++	internalbybit "go-worker/internal/bybit"
+ 	internalbinance "go-worker/internal/binance"
+ 	"go-worker/internal/connections"
+ 	"go-worker/internal/liquidation"
+@@ -220,6 +221,7 @@ func main() {
+ 
+ 	futuresSymbols := parseFuturesSymbols(os.Getenv("FUTURES_SYMBOLS"))
+ 	isFuturesEnabled := parseFuturesEnabled(os.Getenv("FUTURES_WS_ENABLED"))
++	isBybitFuturesEnabled := internalbybit.IsEnabled()
+ 
+ 	// --- A1: Liquidation WS ingestion (forceOrder / allLiquidation) ---
+ 	//
+@@ -240,16 +242,19 @@ func main() {
+ 
+ 	var futuresController *internalbinance.FuturesStreamController
+ 	var batchPublisher *redis.BatchTickPublisher
++	var bybitController *internalbybit.FuturesStreamController
++
++	// BatchTickPublisher создаётся, если включён любой high-throughput ingestion (Binance Futures / Bybit Futures).
++	if isFuturesEnabled || isBybitFuturesEnabled {
++		batchPublisher = redis.NewBatchTickPublisher(redisclient.ClientTicks, 100, 10*time.Millisecond)
++		batchPublisher.Start(ctx)
++	}
+ 
+ 	if isFuturesEnabled {
+ 		log.Printf("✅ Binance Futures WS включён для символов: %v", futuresSymbols)
+ 
+ 		futuresLogger := log.New(os.Stdout, "[futures] ", log.LstdFlags|log.Lmicroseconds)
+ 
+-		// Priority 2: Используем BatchTickPublisher для мультиплексных Futures (высокая нагрузка)
+-		batchPublisher = redis.NewBatchTickPublisher(redisclient.ClientTicks, 100, 10*time.Millisecond)
+-		batchPublisher.Start(ctx)
+-
+ 		// Configure staleness thresholds
+ 		stalenessConfig := orderflow.StalenessConfig{
+ 			MaxAgeTickMs: 150,  // 150ms for signal gating (relative to tick)
+@@ -271,6 +276,16 @@ func main() {
+ 		log.Printf("⚠️ Binance Futures WS отключён (FUTURES_WS_ENABLED=false)")
+ 	}
+ 
++	if isBybitFuturesEnabled {
++		bybitSymbols := internalbybit.ParseBaseSymbols()
++		log.Printf("✅ Bybit Futures WS включён для символов: %v", bybitSymbols)
++		bybitLogger := log.New(os.Stdout, "[bybit] ", log.LstdFlags|log.Lmicroseconds)
++		bybitController = internalbybit.NewFuturesStreamController(redisclient.Client, batchPublisher, bybitLogger)
++		go bybitController.Run(ctx, bybitSymbols)
++	} else {
++		log.Printf("⚠️ Bybit Futures WS отключён (BYBIT_FUTURES_WS_ENABLED=false)")
++	}
++
+ 	// Используем уникальные имена для общих стримов (volatility и т.д.),
+ 	// чтобы каждый воркер (1m, 5m...) получал свою копию сообщения.
+ 	hostname, _ := os.Hostname()
+@@ -328,6 +343,9 @@ func main() {
+ 	if futuresController != nil {
+ 		futuresController.Stop()
+ 	}
++	if bybitController != nil {
++		bybitController.Stop()
++	}
+ 
+ 	// Stop liquidation ingestion (best-effort flush)
+ 	if liqController != nil {
+diff --git a/internal/bybit/futures_normalizer.go b/internal/bybit/futures_normalizer.go
+new file mode 100644
+index 0000000..831b4c9
+--- /dev/null
++++ b/internal/bybit/futures_normalizer.go
+@@ -0,0 +1,360 @@
++package bybit
++
++import (
++	"bytes"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"hash/fnv"
++	"sort"
++	"strconv"
++	"strings"
++	"sync"
++
++	"go-worker/pkg/timeutil"
++)
++
++// flexInt64 supports JSON numbers and strings.
++type flexInt64 struct {
++	value int64
++	valid bool
++}
++
++func (f *flexInt64) UnmarshalJSON(raw []byte) error {
++	raw = bytes.TrimSpace(raw)
++	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
++		f.valid = false
++		f.value = 0
++		return nil
++	}
++	if raw[0] == '"' {
++		s, err := strconv.Unquote(string(raw))
++		if err != nil {
++			f.valid = false
++			f.value = 0
++			return nil
++		}
++		s = strings.TrimSpace(s)
++		if s == "" {
++			f.valid = false
++			f.value = 0
++			return nil
++		}
++		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
++			f.valid = true
++			f.value = n
++			return nil
++		}
++		f.valid = false
++		f.value = 0
++		return nil
++	}
++	dec := json.NewDecoder(bytes.NewReader(raw))
++	dec.UseNumber()
++	var v any
++	if err := dec.Decode(&v); err != nil {
++		f.valid = false
++		f.value = 0
++		return nil
++	}
++	switch t := v.(type) {
++	case json.Number:
++		if n, err := t.Int64(); err == nil {
++			f.valid = true
++			f.value = n
++			return nil
++		}
++		if fl, err := t.Float64(); err == nil {
++			f.valid = true
++			f.value = int64(fl)
++			return nil
++		}
++	case float64:
++		f.valid = true
++		f.value = int64(t)
++		return nil
++	}
++	f.valid = false
++	f.value = 0
++	return nil
++}
++
++func (f flexInt64) OrDefault(def int64) int64 {
++	if f.valid {
++		return f.value
++	}
++	return def
++}
++
++type bybitEnvelope struct {
++	Topic string          `json:"topic"`
++	Type  string          `json:"type"` // snapshot|delta
++	Ts    flexInt64       `json:"ts"`
++	Data  json.RawMessage `json:"data"`
++	Op    string          `json:"op"`
++}
++
++type bybitTrade struct {
++	T    flexInt64 `json:"T"`
++	S    string    `json:"s"`
++	Side string    `json:"S"` // Buy/Sell
++	V    string    `json:"v"`
++	P    string    `json:"p"`
++	ID   string    `json:"i"`
++	Seq  flexInt64 `json:"seq"`
++}
++
++type bybitOrderbook struct {
++	S   string     `json:"s"`
++	B   [][]string `json:"b"`
++	A   [][]string `json:"a"`
++	U   flexInt64  `json:"u"`
++	Seq flexInt64  `json:"seq"`
++}
++
++func NormalizedTickValues(symbol string, ts int64, price, qty, side, source, market string, tradeID int64, extras map[string]any) map[string]any {
++	vals := map[string]any{
++		"symbol":     strings.ToUpper(symbol),
++		"ts":         ts,
++		"price":      price,
++		"qty":        qty,
++		"side":       side,
++		"source":     source,
++		"market":     market,
++		"trade_id":   tradeID,
++		"written_at": timeutil.GetCurrentTimestampMs(),
++	}
++	for k, v := range extras {
++		vals[k] = v
++	}
++	return vals
++}
++
++func NormalizedBookValues(symbol string, ts int64, firstID, finalID, prevFinal int64, bids, asks [][]string, source, market string, extras map[string]any) map[string]any {
++	bidsJSON, _ := json.Marshal(bids)
++	asksJSON, _ := json.Marshal(asks)
++	vals := map[string]any{
++		"symbol":     strings.ToUpper(symbol),
++		"ts":         ts,
++		"first_id":   firstID,
++		"final_id":   finalID,
++		"prev_final": prevFinal,
++		"bids":       string(bidsJSON),
++		"asks":       string(asksJSON),
++		"source":     source,
++		"market":     market,
++		"written_at": timeutil.GetCurrentTimestampMs(),
++	}
++	for k, v := range extras {
++		vals[k] = v
++	}
++	return vals
++}
++
++var (
++	errEmptyPayload = errors.New("empty bybit payload")
++)
++
++type BookState struct {
++	bids  map[string]string
++	asks  map[string]string
++	lastU int64
++	mu    sync.Mutex
++}
++
++func newBookState() *BookState {
++	return &BookState{bids: make(map[string]string), asks: make(map[string]string)}
++}
++
++func (bs *BookState) resetFromSnapshot(bids, asks [][]string, u int64) {
++	bs.bids = make(map[string]string, len(bids))
++	for _, lvl := range bids {
++		if len(lvl) < 2 {
++			continue
++		}
++		px := strings.TrimSpace(lvl[0])
++		sz := strings.TrimSpace(lvl[1])
++		if px == "" || sz == "" || sz == "0" {
++			continue
++		}
++		bs.bids[px] = sz
++	}
++	bs.asks = make(map[string]string, len(asks))
++	for _, lvl := range asks {
++		if len(lvl) < 2 {
++			continue
++		}
++		px := strings.TrimSpace(lvl[0])
++		sz := strings.TrimSpace(lvl[1])
++		if px == "" || sz == "" || sz == "0" {
++			continue
++		}
++		bs.asks[px] = sz
++	}
++	bs.lastU = u
++}
++
++func (bs *BookState) applyDelta(sideMap map[string]string, updates [][]string) {
++	for _, lvl := range updates {
++		if len(lvl) < 2 {
++			continue
++		}
++		px := strings.TrimSpace(lvl[0])
++		sz := strings.TrimSpace(lvl[1])
++		if px == "" {
++			continue
++		}
++		if sz == "0" || sz == "" {
++			delete(sideMap, px)
++			continue
++		}
++		sideMap[px] = sz
++	}
++}
++
++func (bs *BookState) snapshotTopN(n int) (bids [][]string, asks [][]string) {
++	type kv struct{ px, sz string }
++	b := make([]kv, 0, len(bs.bids))
++	for px, sz := range bs.bids {
++		b = append(b, kv{px: px, sz: sz})
++	}
++	a := make([]kv, 0, len(bs.asks))
++	for px, sz := range bs.asks {
++		a = append(a, kv{px: px, sz: sz})
++	}
++	sort.Slice(b, func(i, j int) bool {
++		fi, ei := strconv.ParseFloat(b[i].px, 64)
++		fj, ej := strconv.ParseFloat(b[j].px, 64)
++		if ei == nil && ej == nil {
++			return fi > fj
++		}
++		return b[i].px > b[j].px
++	})
++	sort.Slice(a, func(i, j int) bool {
++		fi, ei := strconv.ParseFloat(a[i].px, 64)
++		fj, ej := strconv.ParseFloat(a[j].px, 64)
++		if ei == nil && ej == nil {
++			return fi < fj
++		}
++		return a[i].px < a[j].px
++	})
++	if n > 0 && len(b) > n {
++		b = b[:n]
++	}
++	if n > 0 && len(a) > n {
++		a = a[:n]
++	}
++	bids = make([][]string, 0, len(b))
++	for _, it := range b {
++		bids = append(bids, []string{it.px, it.sz})
++	}
++	asks = make([][]string, 0, len(a))
++	for _, it := range a {
++		asks = append(asks, []string{it.px, it.sz})
++	}
++	return bids, asks
++}
++
++type BookStore struct {
++	states map[string]*BookState
++	mu     sync.Mutex
++}
++
++func NewBookStore() *BookStore {
++	return &BookStore{states: make(map[string]*BookState)}
++}
++
++func (bs *BookStore) state(symbol string) *BookState {
++	symbol = strings.ToUpper(symbol)
++	bs.mu.Lock()
++	defer bs.mu.Unlock()
++	st, ok := bs.states[symbol]
++	if ok {
++		return st
++	}
++	st = newBookState()
++	bs.states[symbol] = st
++	return st
++}
++
++func NormalizeMessage(raw []byte, mapping map[string]string, store *BookStore, bookMaxLevels int) (ticks []struct{ Symbol string; Values map[string]any }, books []struct{ Symbol string; Values map[string]any }, err error) {
++	if len(raw) == 0 {
++		return nil, nil, errEmptyPayload
++	}
++	var env bybitEnvelope
++	if err := json.Unmarshal(raw, &env); err != nil {
++		return nil, nil, fmt.Errorf("decode envelope: %w", err)
++	}
++	if env.Topic == "" {
++		return nil, nil, nil
++	}
++
++	if strings.HasPrefix(env.Topic, "publicTrade.") {
++		var items []bybitTrade
++		if err := json.Unmarshal(env.Data, &items); err != nil {
++			return nil, nil, fmt.Errorf("decode trade: %w", err)
++		}
++		for _, it := range items {
++			sym := mapSymbol(it.S, mapping)
++			if sym == "" {
++				continue
++			}
++			ts := it.T.OrDefault(env.Ts.OrDefault(timeutil.GetCurrentTimestampMs()))
++			side := "BUY"
++			if strings.EqualFold(strings.TrimSpace(it.Side), "Sell") {
++				side = "SELL"
++			}
++			tradeID, tradeIDRaw := parseTradeID(it.ID)
++			extras := map[string]any{"seq": it.Seq.OrDefault(0)}
++			if tradeIDRaw != "" {
++				extras["trade_id_raw"] = tradeIDRaw
++			}
++			vals := NormalizedTickValues(sym, ts, it.P, it.V, side, "bybit-linear", "USDT-M", tradeID, extras)
++			ticks = append(ticks, struct{ Symbol string; Values map[string]any }{Symbol: sym, Values: vals})
++		}
++		return ticks, nil, nil
++	}
++
++	if strings.HasPrefix(env.Topic, "orderbook.") {
++		var ob bybitOrderbook
++		if err := json.Unmarshal(env.Data, &ob); err != nil {
++			return nil, nil, fmt.Errorf("decode orderbook: %w", err)
++		}
++		sym := mapSymbol(ob.S, mapping)
++		if sym == "" {
++			return nil, nil, nil
++		}
++		st := store.state(sym)
++		st.mu.Lock()
++		defer st.mu.Unlock()
++		u := ob.U.OrDefault(0)
++		prev := st.lastU
++		if strings.EqualFold(strings.TrimSpace(env.Type), "snapshot") || prev == 0 {
++			st.resetFromSnapshot(ob.B, ob.A, u)
++		} else {
++			st.applyDelta(st.bids, ob.B)
++			st.applyDelta(st.asks, ob.A)
++			st.lastU = u
++		}
++		bids, asks := st.snapshotTopN(bookMaxLevels)
++		ts := env.Ts.OrDefault(timeutil.GetCurrentTimestampMs())
++		vals := NormalizedBookValues(sym, ts, u, u, prev, bids, asks, "bybit-linear", "USDT-M", map[string]any{"seq": ob.Seq.OrDefault(0)})
++		books = append(books, struct{ Symbol string; Values map[string]any }{Symbol: sym, Values: vals})
++		return nil, books, nil
++	}
++
++	return nil, nil, nil
++}
++
++func parseTradeID(raw string) (id int64, rawOut string) {
++	s := strings.TrimSpace(raw)
++	if s == "" {
++		return 0, ""
++	}
++	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
++		return n, ""
++	}
++	h := fnv.New64a()
++	_, _ = h.Write([]byte(s))
++	return int64(h.Sum64()), s
++}
+diff --git a/internal/bybit/futures_normalizer_test.go b/internal/bybit/futures_normalizer_test.go
+new file mode 100644
+index 0000000..054d940
+--- /dev/null
++++ b/internal/bybit/futures_normalizer_test.go
+@@ -0,0 +1,64 @@
++package bybit
++
++import "testing"
++
++func TestNormalizeTrade_OK(t *testing.T) {
++	raw := []byte(`{"topic":"publicTrade.BTCUSDT","type":"snapshot","ts":1672304486868,"data":[{"T":1672304486865,"s":"BTCUSDT","S":"Buy","v":"0.001","p":"16578.50","i":"123","seq":100}]}`)
++	store := NewBookStore()
++	ticks, books, err := NormalizeMessage(raw, nil, store, 50)
++	if err != nil {
++		t.Fatalf("err: %v", err)
++	}
++	if len(books) != 0 {
++		t.Fatalf("expected no books")
++	}
++	if len(ticks) != 1 {
++		t.Fatalf("expected 1 tick, got %d", len(ticks))
++	}
++	if ticks[0].Symbol != "BTCUSDT" {
++		t.Fatalf("symbol=%s", ticks[0].Symbol)
++	}
++	if ticks[0].Values["side"].(string) != "BUY" {
++		t.Fatalf("side=%v", ticks[0].Values["side"])
++	}
++}
++
++func TestNormalizeOrderbook_SnapshotThenDelta(t *testing.T) {
++	snap := []byte(`{"topic":"orderbook.50.BTCUSDT","type":"snapshot","ts":1672304486000,"data":{"s":"BTCUSDT","b":[["100","1"],["99","2"]],"a":[["101","1"],["102","2"]],"u":10,"seq":1}}`)
++	delta := []byte(`{"topic":"orderbook.50.BTCUSDT","type":"delta","ts":1672304487000,"data":{"s":"BTCUSDT","b":[["100","0"],["98","3"]],"a":[["101","1.5"]],"u":11,"seq":2}}`)
++	store := NewBookStore()
++	_, books1, err := NormalizeMessage(snap, nil, store, 10)
++	if err != nil {
++		t.Fatalf("err: %v", err)
++	}
++	if len(books1) != 1 {
++		t.Fatalf("expected 1 book, got %d", len(books1))
++	}
++	_, books2, err := NormalizeMessage(delta, nil, store, 10)
++	if err != nil {
++		t.Fatalf("err: %v", err)
++	}
++	if len(books2) != 1 {
++		t.Fatalf("expected 1 book, got %d", len(books2))
++	}
++	bids := books2[0].Values["bids"].(string)
++	if !contains(bids, "\"99\"") || !contains(bids, "\"98\"") {
++		t.Fatalf("unexpected bids json: %s", bids)
++	}
++	if contains(bids, "\"100\"") {
++		t.Fatalf("expected bid 100 removed, got: %s", bids)
++	}
++}
++
++func contains(s, sub string) bool {
++	return indexOf(s, sub) >= 0
++}
++
++func indexOf(s, sub string) int {
++	for i := 0; i <= len(s)-len(sub); i++ {
++		if s[i:i+len(sub)] == sub {
++			return i
++		}
++	}
++	return -1
++}
+diff --git a/internal/bybit/futures_streams.go b/internal/bybit/futures_streams.go
+new file mode 100644
+index 0000000..afc60ab
+--- /dev/null
++++ b/internal/bybit/futures_streams.go
+@@ -0,0 +1,475 @@
++package bybit
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"log"
++	"net"
++	"os"
++	"sort"
++	"strings"
++	"sync"
++	"time"
++
++	"go-worker/internal/monitoring"
++	internalredis "go-worker/internal/redis"
++	"go-worker/internal/wsconn"
++
++	"github.com/go-redis/redis/v8"
++	"github.com/gorilla/websocket"
++)
++
++type wsCommand struct {
++	Op    string   `json:"op"`
++	Args  []string `json:"args,omitempty"`
++	ReqID string   `json:"req_id,omitempty"`
++}
++
++// FuturesWSManager maintains a single Bybit public WS connection.
++type FuturesWSManager struct {
++	conn    *websocket.Conn
++	log     *log.Logger
++	mu      sync.Mutex
++	writeMu sync.Mutex
++	cfg     wsconn.Config
++	url     string
++
++	subs           map[string]struct{}
++	bookStore      *BookStore
++	symbolMap      map[string]string
++	bookMaxLevels  int
++}
++
++func NewFuturesWSManager(url string, cfg wsconn.Config, logger *log.Logger, symbolMap map[string]string, bookMaxLevels int) *FuturesWSManager {
++	if logger == nil {
++		logger = log.New(os.Stdout, "[bybit] ", log.LstdFlags|log.Lmicroseconds)
++	}
++	return &FuturesWSManager{
++		log:          logger,
++		cfg:          cfg,
++		url:          url,
++		subs:         make(map[string]struct{}),
++		bookStore:    NewBookStore(),
++		symbolMap:    symbolMap,
++		bookMaxLevels: bookMaxLevels,
++	}
++}
++
++func (m *FuturesWSManager) Connect(ctx context.Context) error {
++	m.mu.Lock()
++	defer m.mu.Unlock()
++	if m.conn != nil {
++		_ = m.conn.Close()
++		m.conn = nil
++	}
++	conn, err := wsconn.Dial(ctx, m.url, m.cfg)
++	if err != nil {
++		return err
++	}
++	wsconn.SetupPingPong(conn, m.cfg.ReadTimeout, m.cfg.WriteWait, func(msg []byte) error {
++		m.writeMu.Lock()
++		defer m.writeMu.Unlock()
++		return conn.WriteControl(websocket.PongMessage, msg, time.Now().Add(m.cfg.WriteWait))
++	})
++	_ = conn.SetReadDeadline(time.Now().Add(m.cfg.ReadTimeout))
++	m.conn = conn
++	return nil
++}
++
++func (m *FuturesWSManager) Close() {
++	m.mu.Lock()
++	defer m.mu.Unlock()
++	if m.conn != nil {
++		_ = m.conn.Close()
++		m.conn = nil
++	}
++}
++
++func (m *FuturesWSManager) sendJSON(v any) error {
++	m.mu.Lock()
++	conn := m.conn
++	m.mu.Unlock()
++	if conn == nil {
++		return nil
++	}
++	m.writeMu.Lock()
++	defer m.writeMu.Unlock()
++	_ = conn.SetWriteDeadline(time.Now().Add(m.cfg.WriteWait))
++	return conn.WriteJSON(v)
++}
++
++func (m *FuturesWSManager) subscribe(args []string) error {
++	if len(args) == 0 {
++		return nil
++	}
++	if err := m.sendJSON(wsCommand{Op: "subscribe", Args: args}); err != nil {
++		return err
++	}
++	monitoring.RecordBybitLiveSubscription("subscribe")
++	return nil
++}
++
++func (m *FuturesWSManager) unsubscribe(args []string) error {
++	if len(args) == 0 {
++		return nil
++	}
++	if err := m.sendJSON(wsCommand{Op: "unsubscribe", Args: args}); err != nil {
++		return err
++	}
++	monitoring.RecordBybitLiveSubscription("unsubscribe")
++	return nil
++}
++
++func (m *FuturesWSManager) ping() error {
++	return m.sendJSON(wsCommand{Op: "ping"})
++}
++
++func (m *FuturesWSManager) ReadLoop(ctx context.Context, publisher internalredis.Publisher) error {
++	m.mu.Lock()
++	conn := m.conn
++	m.mu.Unlock()
++	if conn == nil {
++		return errors.New("bybit ws conn is nil")
++	}
++
++	msgChan := make(chan []byte, m.cfg.MsgChanCapacity)
++	handlerDone := make(chan struct{})
++	go func() {
++		defer close(handlerDone)
++		for msg := range msgChan {
++			ticks, books, err := NormalizeMessage(msg, m.symbolMap, m.bookStore, m.bookMaxLevels)
++			if err != nil {
++				monitoring.RecordBybitParseError()
++				continue
++			}
++			for _, t := range ticks {
++				_ = publisher.PublishTick(ctx, t.Symbol, t.Values)
++				monitoring.RecordBybitMessage(t.Symbol, "trade")
++			}
++			for _, b := range books {
++				_ = publisher.PublishBook(ctx, b.Symbol, b.Values)
++				monitoring.RecordBybitMessage(b.Symbol, "book")
++			}
++		}
++	}()
++
++	pingCtx, cancel := context.WithCancel(ctx)
++	defer cancel()
++
++	errCh := make(chan error, 1)
++	go func() {
++		ticker := time.NewTicker(m.cfg.PingPeriod)
++		defer ticker.Stop()
++		for {
++			select {
++			case <-pingCtx.Done():
++				return
++			case <-ticker.C:
++				if err := m.ping(); err != nil {
++					errCh <- err
++					return
++				}
++				_ = conn.SetReadDeadline(time.Now().Add(m.cfg.ReadTimeout))
++			}
++		}
++	}()
++
++	defer func() {
++		close(msgChan)
++		<-handlerDone
++	}()
++
++	readTimeout := m.cfg.ReadTimeout
++	lastMessage := time.Now()
++
++	for {
++		select {
++		case err := <-errCh:
++			return err
++		case <-ctx.Done():
++			return ctx.Err()
++		default:
++		}
++
++		_, msg, err := conn.ReadMessage()
++		if err != nil {
++			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
++				if time.Since(lastMessage) > readTimeout {
++					return fmt.Errorf("read timeout: %w", err)
++				}
++				continue
++			}
++			return fmt.Errorf("read error: %w", err)
++		}
++		lastMessage = time.Now()
++		_ = conn.SetReadDeadline(time.Now().Add(readTimeout))
++		select {
++		case msgChan <- msg:
++		default:
++			monitoring.RecordFuturesMessageDropped("BYBIT_PUBLIC")
++		}
++	}
++}
++
++type FuturesStreamController struct {
++	client    *redis.Client
++	publisher internalredis.Publisher
++	logger    *log.Logger
++
++	symbolsKey      string
++	refreshInterval time.Duration
++
++	mu            sync.Mutex
++	currentSymbols []string
++	cancel        context.CancelFunc
++	manager       *FuturesWSManager
++
++	cfg          wsconn.Config
++	wsURL        string
++	symbolMap    map[string]string
++	bookDepth    int
++	bookMaxLevels int
++	tradesEnabled bool
++	bookEnabled   bool
++}
++
++func NewFuturesStreamController(client *redis.Client, publisher internalredis.Publisher, logger *log.Logger) *FuturesStreamController {
++	cfg := wsconn.DefaultConfig()
++	cfg.HandshakeTimeout = getEnvDuration("BYBIT_WS_HANDSHAKE_TIMEOUT", cfg.HandshakeTimeout)
++	cfg.DialTimeout = getEnvDuration("BYBIT_WS_DIAL_TIMEOUT", cfg.DialTimeout)
++	cfg.TCPKeepAlive = getEnvDuration("BYBIT_WS_TCP_KEEPALIVE", cfg.TCPKeepAlive)
++	cfg.ReadTimeout = getEnvDuration("BYBIT_WS_READ_TIMEOUT", 90*time.Second)
++	cfg.PingPeriod = getEnvDuration("BYBIT_WS_PING_PERIOD", 20*time.Second)
++	cfg.WriteWait = getEnvDuration("BYBIT_WS_WRITE_WAIT", cfg.WriteWait)
++	cfg.MsgChanCapacity = getEnvInt("BYBIT_MSG_CHAN_CAP", cfg.MsgChanCapacity)
++
++	return &FuturesStreamController{
++		client:          client,
++		publisher:       publisher,
++		logger:          logger,
++		symbolsKey:      getEnv("BYBIT_SYMBOLS_REDIS_KEY", "bybit:futures:linear:symbols"),
++		refreshInterval: getEnvDuration("BYBIT_SYMBOLS_REFRESH_INTERVAL", 30*time.Second),
++		cfg:             cfg,
++		wsURL:           getEnv("BYBIT_FUTURES_WS_URL", "wss://stream.bybit.com/v5/public/linear"),
++		symbolMap:       parseSymbolMap(getEnv("BYBIT_SYMBOL_MAP", "")),
++		bookDepth:       getEnvInt("BYBIT_BOOK_DEPTH", 50),
++		bookMaxLevels:   getEnvInt("BYBIT_BOOK_MAX_LEVELS", 50),
++		tradesEnabled:   getEnvBool("BYBIT_TRADES_ENABLED", true),
++		bookEnabled:     getEnvBool("BYBIT_ORDERBOOK_ENABLED", true),
++	}
++}
++
++func (c *FuturesStreamController) Run(ctx context.Context, baseSymbols []string) {
++	if c.logger == nil {
++		c.logger = log.New(os.Stdout, "[bybit] ", log.LstdFlags|log.Lmicroseconds)
++	}
++	c.logger.Printf("Bybit Futures controller стартует. Redis key: %s", c.symbolsKey)
++
++	desired := c.loadSymbols(ctx, baseSymbols)
++	c.reconcile(ctx, desired)
++
++	ticker := time.NewTicker(c.refreshInterval)
++	defer ticker.Stop()
++	for {
++		select {
++		case <-ctx.Done():
++			c.logger.Println("Bybit Futures controller остановка по контексту")
++			c.Stop()
++			return
++		case <-ticker.C:
++			desired = c.loadSymbols(ctx, baseSymbols)
++			c.reconcile(ctx, desired)
++		}
++	}
++}
++
++func (c *FuturesStreamController) Stop() {
++	c.mu.Lock()
++	defer c.mu.Unlock()
++	if c.cancel != nil {
++		c.cancel()
++		c.cancel = nil
++	}
++	if c.manager != nil {
++		c.manager.Close()
++		c.manager = nil
++	}
++}
++
++func (c *FuturesStreamController) loadSymbols(ctx context.Context, base []string) []string {
++	set := make(map[string]struct{}, len(base))
++	for _, s := range base {
++		x := strings.ToUpper(strings.TrimSpace(s))
++		if x != "" {
++			set[x] = struct{}{}
++		}
++	}
++	if c.client != nil && c.symbolsKey != "" {
++		syms, err := c.client.SMembers(ctx, c.symbolsKey).Result()
++		if err == nil {
++			for _, s := range syms {
++				x := strings.ToUpper(strings.TrimSpace(s))
++				if x != "" {
++					set[x] = struct{}{}
++				}
++			}
++		}
++	}
++	out := make([]string, 0, len(set))
++	for s := range set {
++		out = append(out, s)
++	}
++	sort.Strings(out)
++	return out
++}
++
++func (c *FuturesStreamController) reconcile(ctx context.Context, symbols []string) {
++	c.mu.Lock()
++	defer c.mu.Unlock()
++
++	if len(symbols) == len(c.currentSymbols) {
++		match := true
++		curr := make(map[string]struct{}, len(c.currentSymbols))
++		for _, s := range c.currentSymbols {
++			curr[s] = struct{}{}
++		}
++		for _, s := range symbols {
++			if _, ok := curr[s]; !ok {
++				match = false
++				break
++			}
++		}
++		if match {
++			return
++		}
++	}
++
++	if c.manager == nil {
++		mgr := NewFuturesWSManager(c.wsURL, c.cfg, c.logger, c.symbolMap, c.bookMaxLevels)
++		c.manager = mgr
++		mctx, cancel := context.WithCancel(ctx)
++		c.cancel = cancel
++		if err := mgr.Connect(mctx); err != nil {
++			c.logger.Printf("Bybit WS connect error: %v", err)
++			monitoring.RecordBybitReconnect("connect_error")
++			c.manager = nil
++			cancel()
++			c.cancel = nil
++			return
++		}
++		args := c.buildArgs(symbols)
++		if err := mgr.subscribe(args); err != nil {
++			c.logger.Printf("Bybit subscribe error: %v", err)
++			monitoring.RecordBybitReconnect("subscribe_error")
++			mgr.Close()
++			c.manager = nil
++			cancel()
++			c.cancel = nil
++			return
++		}
++		for _, a := range args {
++			mgr.subs[a] = struct{}{}
++		}
++		c.currentSymbols = symbols
++		go func() {
++			err := mgr.ReadLoop(mctx, c.publisher)
++			if err != nil && !wsconn.IsContextError(err) {
++				c.logger.Printf("Bybit readloop exit: %v", err)
++				monitoring.RecordBybitReconnect("readloop_exit")
++			}
++		}()
++		return
++	}
++
++	currSet := make(map[string]struct{}, len(c.currentSymbols))
++	for _, s := range c.currentSymbols {
++		currSet[s] = struct{}{}
++	}
++	newSet := make(map[string]struct{}, len(symbols))
++	for _, s := range symbols {
++		newSet[s] = struct{}{}
++	}
++	var add, rem []string
++	for s := range newSet {
++		if _, ok := currSet[s]; !ok {
++			add = append(add, s)
++		}
++	}
++	for s := range currSet {
++		if _, ok := newSet[s]; !ok {
++			rem = append(rem, s)
++		}
++	}
++	sort.Strings(add)
++	sort.Strings(rem)
++	addArgs := c.buildArgs(add)
++	remArgs := c.buildArgs(rem)
++	if len(remArgs) > 0 {
++		if err := c.manager.unsubscribe(remArgs); err != nil {
++			c.logger.Printf("Bybit unsubscribe error: %v", err)
++			monitoring.RecordBybitReconnect("unsubscribe_error")
++		}
++		for _, a := range remArgs {
++			delete(c.manager.subs, a)
++		}
++	}
++	if len(addArgs) > 0 {
++		if err := c.manager.subscribe(addArgs); err != nil {
++			c.logger.Printf("Bybit subscribe(add) error: %v", err)
++			monitoring.RecordBybitReconnect("subscribe_add_error")
++		}
++		for _, a := range addArgs {
++			c.manager.subs[a] = struct{}{}
++		}
++	}
++	c.currentSymbols = symbols
++}
++
++func (c *FuturesStreamController) buildArgs(symbols []string) []string {
++	args := make([]string, 0, len(symbols)*2)
++	for _, sym := range symbols {
++		s := strings.ToUpper(strings.TrimSpace(sym))
++		if s == "" {
++			continue
++		}
++		if c.bookEnabled {
++			args = append(args, fmt.Sprintf("orderbook.%d.%s", c.bookDepth, s))
++		}
++		if c.tradesEnabled {
++			args = append(args, fmt.Sprintf("publicTrade.%s", s))
++		}
++	}
++	maxArgs := getEnvInt("BYBIT_MAX_ARGS_PER_SUB", 0)
++	if maxArgs > 0 && len(args) > maxArgs {
++		args = args[:maxArgs]
++	}
++	return args
++}
++
++func ParseBaseSymbols() []string {
++	raw := strings.TrimSpace(os.Getenv("BYBIT_FUTURES_SYMBOLS"))
++	if raw == "" {
++		raw = strings.TrimSpace(os.Getenv("FUTURES_SYMBOLS"))
++	}
++	if raw == "" {
++		return []string{"BTCUSDT", "ETHUSDT"}
++	}
++	parts := strings.Split(raw, ",")
++	out := make([]string, 0, len(parts))
++	for _, p := range parts {
++		s := strings.ToUpper(strings.TrimSpace(p))
++		if s != "" {
++			out = append(out, s)
++		}
++	}
++	if len(out) == 0 {
++		return []string{"BTCUSDT", "ETHUSDT"}
++	}
++	sort.Strings(out)
++	return out
++}
++
++func IsEnabled() bool {
++	return getEnvBool("BYBIT_FUTURES_WS_ENABLED", false)
++}
+diff --git a/internal/bybit/futures_streams_test.go b/internal/bybit/futures_streams_test.go
+new file mode 100644
+index 0000000..ed7ef3a
+--- /dev/null
++++ b/internal/bybit/futures_streams_test.go
+@@ -0,0 +1,42 @@
++package bybit
++
++import (
++	"os"
++	"reflect"
++	"testing"
++)
++
++func TestParseBaseSymbols_Fallback(t *testing.T) {
++	_ = os.Unsetenv("BYBIT_FUTURES_SYMBOLS")
++	_ = os.Unsetenv("FUTURES_SYMBOLS")
++	s := ParseBaseSymbols()
++	if len(s) == 0 {
++		t.Fatalf("expected non-empty")
++	}
++}
++
++func TestParseSymbolMap(t *testing.T) {
++	m := parseSymbolMap("BTCUSDT:BTCUSDT,ETH:ETHUSDT")
++	if m["BTCUSDT"] != "BTCUSDT" || m["ETH"] != "ETHUSDT" {
++		t.Fatalf("map=%v", m)
++	}
++}
++
++func TestMapSymbol(t *testing.T) {
++	m := map[string]string{"BTCUSDT": "XBTUSDT"}
++	if got := mapSymbol("btcusdt", m); got != "XBTUSDT" {
++		t.Fatalf("got=%s", got)
++	}
++}
++
++func TestBuildArgs(t *testing.T) {
++	os.Setenv("BYBIT_BOOK_DEPTH", "50")
++	os.Setenv("BYBIT_TRADES_ENABLED", "true")
++	os.Setenv("BYBIT_ORDERBOOK_ENABLED", "true")
++	c := NewFuturesStreamController(nil, nil, nil)
++	args := c.buildArgs([]string{"BTCUSDT"})
++	expected := []string{"orderbook.50.BTCUSDT", "publicTrade.BTCUSDT"}
++	if !reflect.DeepEqual(args, expected) {
++		t.Fatalf("args=%v expected=%v", args, expected)
++	}
++}
+diff --git a/internal/bybit/utils.go b/internal/bybit/utils.go
+new file mode 100644
+index 0000000..f2d5324
+--- /dev/null
++++ b/internal/bybit/utils.go
+@@ -0,0 +1,102 @@
++package bybit
++
++import (
++	"os"
++	"strconv"
++	"strings"
++	"time"
++)
++
++// getEnv returns env var value or defaultValue if empty.
++func getEnv(key, defaultValue string) string {
++	v := strings.TrimSpace(os.Getenv(key))
++	if v == "" {
++		return defaultValue
++	}
++	return v
++}
++
++// getEnvBool parses common boolean-ish values.
++// Empty => defaultValue.
++func getEnvBool(key string, defaultValue bool) bool {
++	v := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
++	if v == "" {
++		return defaultValue
++	}
++	switch v {
++	case "1", "true", "yes", "on":
++		return true
++	case "0", "false", "no", "off":
++		return false
++	default:
++		return defaultValue
++	}
++}
++
++func getEnvInt(key string, defaultValue int) int {
++	v := strings.TrimSpace(os.Getenv(key))
++	if v == "" {
++		return defaultValue
++	}
++	n, err := strconv.Atoi(v)
++	if err != nil || n <= 0 {
++		return defaultValue
++	}
++	return n
++}
++
++func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
++	v := strings.TrimSpace(os.Getenv(key))
++	if v == "" {
++		return defaultValue
++	}
++	d, err := time.ParseDuration(v)
++	if err != nil || d <= 0 {
++		return defaultValue
++	}
++	return d
++}
++
++// parseSymbolMap parses env like: "BTCUSDT:BTCUSDT,ETHUSDT:ETHUSDT" or "BTC:BTCUSDT".
++// For Bybit we usually don't need mapping, but it is helpful when you want 1:1 stream names
++// with an existing Python pipeline (e.g., map "BTCUSDC" -> "BTCUSDT").
++func parseSymbolMap(raw string) map[string]string {
++	m := make(map[string]string)
++	raw = strings.TrimSpace(raw)
++	if raw == "" {
++		return m
++	}
++	parts := strings.Split(raw, ",")
++	for _, p := range parts {
++		p = strings.TrimSpace(p)
++		if p == "" {
++			continue
++		}
++		kv := strings.SplitN(p, ":", 2)
++		if len(kv) != 2 {
++			continue
++		}
++		k := strings.ToUpper(strings.TrimSpace(kv[0]))
++		v := strings.ToUpper(strings.TrimSpace(kv[1]))
++		if k == "" || v == "" {
++			continue
++		}
++		m[k] = v
++	}
++	return m
++}
++
++// mapSymbol applies explicit mapping first, otherwise returns uppercased in.
++func mapSymbol(in string, mapping map[string]string) string {
++	s := strings.ToUpper(strings.TrimSpace(in))
++	if s == "" {
++		return s
++	}
++	if mapping == nil {
++		return s
++	}
++	if out, ok := mapping[s]; ok && out != "" {
++		return out
++	}
++	return s
++}
+diff --git a/internal/monitoring/bybit_futures_metrics.go b/internal/monitoring/bybit_futures_metrics.go
+new file mode 100644
+index 0000000..49da7b4
+--- /dev/null
++++ b/internal/monitoring/bybit_futures_metrics.go
+@@ -0,0 +1,66 @@
++package monitoring
++
++import (
++	"strings"
++
++	"github.com/prometheus/client_golang/prometheus"
++	"github.com/prometheus/client_golang/prometheus/promauto"
++)
++
++var (
++	bybitFuturesMessagesTotal = promauto.NewCounterVec(
++		prometheus.CounterOpts{
++			Name: "bybit_futures_messages_total",
++			Help: "Количество обработанных сообщений Bybit Futures по типам (trade/book)",
++		},
++		[]string{"symbol", "type"},
++	)
++
++	bybitFuturesReconnectsTotal = promauto.NewCounterVec(
++		prometheus.CounterOpts{
++			Name: "bybit_futures_reconnects_total",
++			Help: "Количество переподключений/рестартов Bybit Futures WebSocket по причинам",
++		},
++		[]string{"reason"},
++	)
++
++	bybitWSLiveSubscriptionsTotal = promauto.NewCounterVec(
++		prometheus.CounterOpts{
++			Name: "bybit_ws_live_subscriptions_total",
++			Help: "Количество успешно отправленных live-команд subscribe/unsubscribe Bybit",
++		},
++		[]string{"method"},
++	)
++
++	bybitParseErrorsTotal = promauto.NewCounter(
++		prometheus.CounterOpts{
++			Name: "bybit_parse_errors_total",
++			Help: "Количество ошибок парсинга Bybit WS сообщений",
++		},
++	)
++)
++
++func RecordBybitMessage(symbol, msgType string) {
++	if symbol == "" || msgType == "" {
++		return
++	}
++	bybitFuturesMessagesTotal.WithLabelValues(strings.ToUpper(symbol), msgType).Inc()
++}
++
++func RecordBybitReconnect(reason string) {
++	if reason == "" {
++		reason = "unknown"
++	}
++	bybitFuturesReconnectsTotal.WithLabelValues(reason).Inc()
++}
++
++func RecordBybitLiveSubscription(method string) {
++	if method == "" {
++		method = "unknown"
++	}
++	bybitWSLiveSubscriptionsTotal.WithLabelValues(method).Inc()
++}
++
++func RecordBybitParseError() {
++	bybitParseErrorsTotal.Inc()
++}

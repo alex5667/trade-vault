@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/candidate_score.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.08, 0.1, 0.15, 0.2, 0.25, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 20.0, 800, 2000, 2500, 'absorption=', 'bonuses', 'cand_b_absorption', 'cand_b_ice', 'cand_b_obi', 'cand_b_reclaim', 'cand_p_book_churn', 'cand_p_book_stale', 'cand_p_spread_bps', 'cand_p_spread_z', 'cand_w_delta_z', 'data_health', 'delta_z', 'iceberg_strict=1', 'obi_stable=', 'of', 'pen_book_churn_z', 'pen_book_stale', 'pen_spread_bps', 'pen_spread_z', 'reclaim=', 'reclaim=1', 'w_slip']

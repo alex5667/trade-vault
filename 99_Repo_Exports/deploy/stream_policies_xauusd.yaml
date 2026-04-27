@@ -1,0 +1,63 @@
+# Stream Trimming Policy для XAUUSD тиков
+# Добавьте это в вашу конфигурацию stream trimmer
+
+# Пример интеграции в существующий batch trimmer:
+# streams.extend([
+#   {"name": "stream:tick_XAUUSD", "maxlen": 200000, "approximate": True},
+# ])
+
+streams:
+  # Тиковый стрим XAUUSD
+  - name: 'stream:tick_XAUUSD'
+    maxlen: 200000 # ~200k тиков (примерно 12-24 часа активной торговли)
+    approximate: true # ~ для экономии CPU
+    description: 'Тики XAUUSD от MT5 EA (TickBridge)'
+
+  # Order Book (DOM) стрим XAUUSD - v2
+  - name: 'stream:book_XAUUSD'
+    maxlen: 20000 # ~20k snapshots (примерно 2-4 часа при ~2 обновлениях/сек)
+    approximate: true # ~ для экономии CPU
+    description: 'Order Book snapshots XAUUSD от MT5 EA (BookBridge)'
+
+  # Можно добавить другие символы
+  # - name: "stream:tick_BTCUSD"
+  #   maxlen: 150000
+  #   approximate: true
+
+  # - name: "stream:book_BTCUSD"
+  #   maxlen: 15000
+  #   approximate: true
+
+  # - name: "stream:tick_EURUSD"
+  #   maxlen: 100000
+  #   approximate: true
+
+  # - name: "stream:book_EURUSD"
+  #   maxlen: 10000
+  #   approximate: true
+# Политика тримминга:
+# - Тримминг каждые 5 минут (как в вашей системе)
+# - MAXLEN ~ для снижения нагрузки на CPU
+# - approximate=true позволяет Redis оптимизировать удаление
+
+# Расчет размера для тиков:
+# - 200k тиков * ~200 bytes/тик = ~40MB памяти
+# - При 5 тиках/сек = ~11 часов истории
+# - При 10 тиках/сек = ~5.5 часов истории
+# - Пиковая нагрузка 50 тиков/сек = ~1 час истории
+
+# Расчет размера для Order Book:
+# - 20k snapshots * ~1KB/snapshot = ~20MB памяти
+# - При 2 обновлениях/сек = ~2.7 часов истории
+# - При 5 обновлениях/сек = ~1.1 часов истории
+# - Быстрый рынок 10 обновлений/сек = ~30 минут истории
+
+# Кеширование (дополнительно):
+# - book:latest:<SYMBOL> - последний snapshot (используется обработчиком)
+# - ~1KB на символ, TTL не установлен (всегда актуальный)
+
+# Настройка под ваши нужды:
+# - Больше истории → увеличьте maxlen
+# - Экономия памяти → уменьшите maxlen
+# - Realtime only → tick maxlen: 10000, book maxlen: 5000
+

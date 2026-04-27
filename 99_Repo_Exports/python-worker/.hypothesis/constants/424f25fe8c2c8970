@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/__init__.py
+# hypothesis_version: 6.148.10
+
+['1.21.6', '1.28.0', 'LowLevelCallable', '_', '__version__', 'cluster', 'constants', 'datasets', 'fft', 'fftpack', 'integrate', 'interpolate', 'io', 'linalg', 'misc', 'ndimage', 'odr', 'optimize', 'rand', 'randn', 'show_config', 'signal', 'sparse', 'spatial', 'special', 'stats', 'test']

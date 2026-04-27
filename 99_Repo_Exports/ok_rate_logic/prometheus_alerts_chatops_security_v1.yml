@@ -1,0 +1,28 @@
+groups:
+  - name: chatops-security
+    rules:
+      - alert: ChatOpsUnauthorizedSpike
+        expr: increase(chatops_unauthorized_total[10m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          team: trade
+          component: monitoring
+        annotations:
+          summary: "ChatOps unauthorized attempts spike"
+          description: "Unauthorized attempts in allowed chat exceeded threshold in 10m. Check group membership and admin allowlist."
+          runbook_path: "/chatops_security.md"
+          dashboard_path: "/d/chatops_security/chatops-security?orgId=1"
+
+      - alert: ChatOpsRateLimitedSpike
+        expr: increase(chatops_rate_limited_total[10m]) > 10
+        for: 10m
+        labels:
+          severity: warning
+          team: trade
+          component: monitoring
+        annotations:
+          summary: "ChatOps rate-limited spike"
+          description: "Rate-limited commands exceeded threshold in 10m. Possible abuse or too low rate_limit_per_min."
+          runbook_path: "/chatops_security.md"
+          dashboard_path: "/d/chatops_security/chatops-security?orgId=1"

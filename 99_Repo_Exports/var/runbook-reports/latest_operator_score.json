@@ -1,0 +1,14 @@
+{
+  "execution_score": 50.0,
+  "replay_score": 100.0,
+  "risk_score": 75.0,
+  "risk_mismatch_rate": 0.0,
+  "health_status": "warning",
+  "mismatch_quarantine_count_24h": 0.0,
+  "mismatch_avg_rate_24h": 0.0,
+  "mismatch_penalty": 0.0,
+  "archive_consistency_mismatch_count": 0,
+  "archive_consistency_penalty": 0.0,
+  "score": 67.5,
+  "bucket": "red"
+}

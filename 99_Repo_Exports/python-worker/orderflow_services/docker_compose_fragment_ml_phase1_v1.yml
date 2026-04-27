@@ -1,0 +1,45 @@
+
+services:
+  scanner-ml-analysis-pack-builder-v1:
+    build:
+      context: ../../
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-ml-analysis-pack-builder-v1
+    restart: unless-stopped
+    command: ["python", "-u", "-m", "orderflow_services.ml_analysis_input_pack_builder_v1"]
+    environment:
+      REDIS_URL: redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0
+      ML_ANALYSIS_PACK_BUILDER_METRICS_PORT: "9857"
+      ML_ANALYSIS_PACK_BUILDER_EVERY_SEC: "60"
+      ML_ANALYSIS_PACK_BUILDER_WINDOW_MIN: "60"
+      ML_ANALYSIS_PACK_BUILDER_INCLUDE_HEALTHY: "0"
+    ports:
+      - "9857:9857"
+    networks:
+      - scanner-network
+
+  scanner-ml-vertex-triage-v1:
+    build:
+      context: ../../
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-ml-vertex-triage-v1
+    restart: unless-stopped
+    command: ["python", "-u", "-m", "orderflow_services.ml_vertex_triage_orchestrator_v1"]
+    environment:
+      REDIS_URL: redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0
+      DATABASE_URL: ${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD}@scanner-pgbouncer:5432/scanner_analytics?sslmode=disable}
+      ML_VERTEX_TRIAGE_METRICS_PORT: "9858"
+      VERTEX_PROJECT_ID: ${VERTEX_PROJECT_ID:-trade-agent-ml}
+      VERTEX_LOCATION: ${VERTEX_LOCATION:-global}
+      VERTEX_TRIAGE_MODEL: ${VERTEX_TRIAGE_MODEL:-gemini-2.5-flash-lite}
+      VERTEX_TIMEOUT_MS: ${VERTEX_TIMEOUT_MS:-45000}
+      VERTEX_TEMPERATURE: ${VERTEX_TEMPERATURE:-0.1}
+      VERTEX_MAX_OUTPUT_TOKENS: ${VERTEX_MAX_OUTPUT_TOKENS:-4096}
+    ports:
+      - "9858:9858"
+    networks:
+      - scanner-network
+
+networks:
+  scanner-network:
+    external: true

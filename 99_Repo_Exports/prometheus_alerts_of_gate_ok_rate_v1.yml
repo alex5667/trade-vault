@@ -1,0 +1,114 @@
+groups:
+- name: of_gate_ok_rate_v1
+  interval: 30s
+  rules:
+      # ─────────────────────────────
+      # Recording rules
+      # ─────────────────────────────
+  - record: of_gate:eligible_rate5m
+    expr: sum by (symbol) (rate(of_gate_eligible_total[5m]))
+
+  - record: of_gate:ok_rate_strict5m
+    expr: sum(rate(of_gate_ok_hard_total[5m])) / 
+      sum(rate(of_gate_eligible_total[5m]))
+
+  - record: of_gate:ok_rate_soft5m
+    expr: (sum(rate(of_gate_ok_hard_total[5m])) + 
+      sum(rate(of_gate_ok_soft_total[5m]))) / 
+      sum(rate(of_gate_eligible_total[5m]))
+
+  - record: of_gate:soft_share5m
+    expr: sum(rate(of_gate_ok_soft_total[5m])) / 
+      clamp_min(sum(rate(of_gate_ok_soft_total[5m])) + 
+      sum(rate(of_gate_ok_hard_total[5m])), 1e-9)
+
+  - record: of_gate:quarantine_rate5m
+    expr: sum(rate(of_gate_quarantined_total[5m]))
+
+  - record: of_gate:quarantine_share5m
+    expr: sum(rate(of_gate_quarantined_total[5m])) / 
+      clamp_min(sum(rate(of_gate_quarantined_total[5m])) + 
+      sum(rate(of_gate_eligible_total[5m])), 1e-9)
+
+      # ─────────────────────────────
+      # Alerts
+      # ─────────────────────────────
+  - alert: OF_Gate_EligibleAbsent15m
+    expr: absent_over_time(of_gate_eligible_total[15m])
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: "OF gate: of_gate_eligible_total absent"
+      description: "Metric of_gate_eligible_total has been absent for 15m (scrape
+        or pipeline down)."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: OF_Gate_NoEligible15m
+    expr: sum(increase(of_gate_eligible_total[15m])) == 0
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: "OF gate: no eligible rows in 15m"
+      description: "No new of_gate eligible rows were emitted in the last 15 minutes
+        (could be pipeline down, or metrics emission disabled)."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: OF_Gate_OkRateStrictLow
+    expr: (sum(rate(of_gate_ok_hard_total[5m])) / 
+      sum(rate(of_gate_eligible_total[5m])) < 0.10) and 
+      (sum(rate(of_gate_eligible_total[5m])) > 0)
+    for: 10m
+    labels:
+      severity: critical
+    annotations:
+      summary: "OF gate: ok_rate_strict low"
+      description: "Hard ok_rate dropped below 0.10 for 10 minutes (denominator >
+        0). Investigate data quality, gating regressions, or upstream feeds."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: OF_Gate_SoftShareHigh
+    expr: (sum(rate(of_gate_ok_soft_total[5m])) / 
+      clamp_min(sum(rate(of_gate_ok_soft_total[5m])) + 
+      sum(rate(of_gate_ok_hard_total[5m])), 1e-9) > 0.50) and 
+      (sum(rate(of_gate_ok_soft_total[5m])) + 
+      sum(rate(of_gate_ok_hard_total[5m])) > 0)
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "OF gate: soft_share high"
+      description: "Share of ok_soft among all oks is above 0.50 for 10 minutes. This
+        indicates degraded quality even when still passing."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: OF_Gate_QuarantineShareHigh
+    expr: (of_gate:quarantine_share5m > 0.01) and 
+      (sum(rate(of_gate_quarantined_total[5m])) + 
+      sum(rate(of_gate_eligible_total[5m])) > 0)
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "OF gate: DQ quarantine share high"
+      description: "More than 1% of of-gate rows are being quarantined (DQ validation
+        failures). Check top 'why' labels and contract check output."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: OF_Gate_QuarantineRateHigh
+    expr: of_gate:quarantine_rate5m > 1
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "OF gate: DQ quarantine rate high"
+      description: "Quarantine rate above 1/s for 10 minutes. Likely schema breakage
+        or time normalization issues."
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd

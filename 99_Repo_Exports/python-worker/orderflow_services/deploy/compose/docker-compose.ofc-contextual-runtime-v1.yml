@@ -1,0 +1,45 @@
+services:
+  ofc-contextual-runtime:
+    image: ${TRADE_ORDERFLOW_IMAGE:?}
+    working_dir: /app
+    env_file:
+    - ${TRADE_REPO_ROOT:?}/config/crypto-of-common.env
+    environment:
+      PYTHONPATH: /app
+      REDIS_URL: ${REDIS_URL:?}
+      ANALYTICS_DB_DSN: ${ANALYTICS_DB_DSN}
+      OFC_CTX_RUNTIME_OVERLAY_ENV_FILE: ${OFC_CTX_RUNTIME_OVERLAY_ENV_FILE:-/var/lib/trade/ofc_contextual_rollout.env}
+      OFC_CTX_ROLLBACK_FLAG_PATH: ${OFC_CTX_ROLLBACK_FLAG_PATH:-/var/lib/trade/ofc_contextual.rollback}
+      OFC_CTX_RUNTIME_POLL_SEC: ${OFC_CTX_RUNTIME_POLL_SEC:-5}
+      OFC_CTX_RUNTIME_RESTART_COOLDOWN_SEC: ${OFC_CTX_RUNTIME_RESTART_COOLDOWN_SEC:-15}
+      OFC_CTX_RUNTIME_TERM_GRACE_SEC: ${OFC_CTX_RUNTIME_TERM_GRACE_SEC:-20}
+      OFC_CTX_RUNTIME_RELOADER_STATE_PATH: ${OFC_CTX_RUNTIME_RELOADER_STATE_PATH:-/var/lib/trade/ofc_contextual_runtime_reloader_state.json}
+      OFC_RUNTIME_COMMAND: ${OFC_RUNTIME_COMMAND:?}
+    volumes:
+    - ${TRADE_REPO_ROOT:?}/python-worker:/app:ro
+    - /var/lib/trade:/var/lib/trade
+    networks:
+    - scanner-core
+    - scanner-infra
+    - scanner-network
+    restart: unless-stopped
+    command:
+    - bash
+    - -lc
+    - python3 -m orderflow_services.ofc_contextual_runtime_reloader_v1 --overlay-env-file
+      "${OFC_CTX_RUNTIME_OVERLAY_ENV_FILE:-/var/lib/trade/ofc_contextual_rollout.env}"
+      --rollback-flag-path "${OFC_CTX_ROLLBACK_FLAG_PATH:-/var/lib/trade/ofc_contextual.rollback}"
+      --poll-sec "${OFC_CTX_RUNTIME_POLL_SEC:-5}" --cooldown-sec "${OFC_CTX_RUNTIME_RESTART_COOLDOWN_SEC:-15}"
+      --grace-sec "${OFC_CTX_RUNTIME_TERM_GRACE_SEC:-20}" --state-path "${OFC_CTX_RUNTIME_RELOADER_STATE_PATH:-/var/lib/trade/ofc_contextual_runtime_reloader_state.json}"
+      -- bash -lc "${OFC_RUNTIME_COMMAND:?}"
+    deploy:
+      resources:
+        reservations:
+          memory: 24M
+networks:
+  scanner-core:
+    external: true
+  scanner-infra:
+    external: true
+  scanner-network:
+    external: true

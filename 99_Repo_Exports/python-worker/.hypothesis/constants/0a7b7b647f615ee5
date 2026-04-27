@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/atr_horizon_shadow_surface.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.5, 2.0, '1.5', '2.0', 'BUY', 'LONG', 'RS_SHADOW_INCOMPLETE', 'RS_SHADOW_OK', 'SELL', 'SHORT', 'alpha_half_life_ms', 'atr_pct', 'atr_profile', 'atr_tf_ms', 'atr_value', 'entry', 'entry_price', 'hold_target_ms', 'horizon', 'max_signal_age_ms', 'meta', 'price', 'shadow', 'side', 'sl_atr_mult', 'tp1_atr_mult']

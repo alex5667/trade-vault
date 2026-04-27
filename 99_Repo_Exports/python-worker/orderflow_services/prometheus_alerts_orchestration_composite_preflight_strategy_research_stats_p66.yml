@@ -1,0 +1,115 @@
+groups:
+  - name: orchestration_composite_preflight_strategy_research_stats_p66
+    rules:
+      - alert: TradeStrategyResearchStatsPboHighSustained24h
+        expr: |
+          (
+            sum by (purpose) (
+              orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window="24h",decision_status=~"block|invalid",family="pbo_high"}
+            )
+            >= on (purpose) group_left
+            max by (purpose) (strategy_research_stats_alert_policy_min_events_24h{family="pbo_high"})
+          )
+          * on (purpose) group_left
+          max by (purpose) (strategy_research_stats_alert_policy_enabled{family="pbo_high"})
+          * on (purpose) group_left
+          (1 - max by (purpose) (strategy_research_stats_alert_policy_suppress_active{family="pbo_high"}))
+          > 0
+        for: 10m
+        labels:
+          severity: warning
+          source: strategy_research_stats
+          family: pbo_high
+        annotations:
+          summary: "Sustained strategy_research_stats pbo_high blocks over 24h"
+          description: "Composite preflight history shows repeated rollout block/invalid decisions driven by strategy_research_stats family=pbo_high for purpose={{ $labels.purpose }} in the last 24h and the per-purpose alert policy threshold is exceeded."
+
+      - alert: TradeStrategyResearchStatsReportStaleRecurring7d
+        expr: |
+          (
+            sum by (purpose) (
+              orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window="7d",decision_status=~"block|invalid",family="report_stale"}
+            )
+            >= on (purpose) group_left
+            max by (purpose) (strategy_research_stats_alert_policy_min_events_7d{family="report_stale"})
+          )
+          * on (purpose) group_left
+          max by (purpose) (strategy_research_stats_alert_policy_enabled{family="report_stale"})
+          * on (purpose) group_left
+          (1 - max by (purpose) (strategy_research_stats_alert_policy_suppress_active{family="report_stale"}))
+          > 0
+        for: 15m
+        labels:
+          severity: warning
+          source: strategy_research_stats
+          family: report_stale
+        annotations:
+          summary: "Recurring strategy_research_stats report_stale over 7d"
+          description: "Composite preflight repeatedly blocked or invalidated rollout for purpose={{ $labels.purpose }} because strategy_research_stats reports were stale, and the per-purpose alert policy threshold is exceeded."
+
+      - alert: TradeStrategyResearchStatsPsrDsrLowShareRising24hVs7d
+        expr: |
+          (
+            (
+              sum by (purpose) (
+                orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window="24h",decision_status=~"block|invalid",family=~"psr_low|dsr_low"}
+              )
+              / clamp_min(
+                  sum by (purpose) (
+                    orchestration_composite_preflight_history_events_total{window="24h",selected_source="strategy_research_stats",decision_status=~"block|invalid"}
+                  ),
+                  1
+              )
+            )
+            > on (purpose) group_left
+            max by (purpose) (strategy_research_stats_alert_policy_share_threshold_24h{family="psr_dsr_low"})
+          )
+          * on (purpose) group_left
+          (
+            sum by (purpose) (
+              orchestration_composite_preflight_history_events_total{window="24h",selected_source="strategy_research_stats",decision_status=~"block|invalid"}
+            )
+            >= on (purpose) group_left
+            max by (purpose) (strategy_research_stats_alert_policy_min_events_24h{family="psr_dsr_low"})
+          )
+          * on (purpose) group_left
+          (
+            (
+              sum by (purpose) (
+                orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window="24h",decision_status=~"block|invalid",family=~"psr_low|dsr_low"}
+              )
+              / clamp_min(
+                  sum by (purpose) (
+                    orchestration_composite_preflight_history_events_total{window="24h",selected_source="strategy_research_stats",decision_status=~"block|invalid"}
+                  ),
+                  1
+              )
+            )
+            -
+            (
+              sum by (purpose) (
+                orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window="7d",decision_status=~"block|invalid",family=~"psr_low|dsr_low"}
+              )
+              / clamp_min(
+                  sum by (purpose) (
+                    orchestration_composite_preflight_history_events_total{window="7d",selected_source="strategy_research_stats",decision_status=~"block|invalid"}
+                  ),
+                  1
+              )
+            )
+            > on (purpose) group_left
+            max by (purpose) (strategy_research_stats_alert_policy_delta_vs_7d{family="psr_dsr_low"})
+          )
+          * on (purpose) group_left
+          max by (purpose) (strategy_research_stats_alert_policy_enabled{family="psr_dsr_low"})
+          * on (purpose) group_left
+          (1 - max by (purpose) (strategy_research_stats_alert_policy_suppress_active{family="psr_dsr_low"}))
+          > 0
+        for: 20m
+        labels:
+          severity: warning
+          source: strategy_research_stats
+          family: psr_dsr_low
+        annotations:
+          summary: "Rising PSR/DSR low share in strategy_research_stats rollout stops"
+          description: "For purpose={{ $labels.purpose }}, the share of strategy_research_stats-driven block/invalid decisions attributed to psr_low or dsr_low is above the per-purpose 24h threshold and exceeds the 7d baseline by more than the configured delta."

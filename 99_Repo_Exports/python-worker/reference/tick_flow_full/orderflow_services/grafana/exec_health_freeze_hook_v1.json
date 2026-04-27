@@ -1,0 +1,35 @@
+{
+  "title": "ExecHealth Freeze Hook (v1)",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "title": "Blocks by Scope",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "sum by(scope) (increase(exec_health_freeze_hook_block_total[$__rate_interval]))", "legendFormat": "{{scope}}"}
+      ]
+    },
+    {
+      "title": "Freeze Active",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "max by(scope) (exec_health_freeze_hook_active)", "legendFormat": "{{scope}}"}
+      ]
+    },
+    {
+      "title": "Reader Errors",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "sum by(scope,where) (increase(exec_health_freeze_hook_reader_errors_total[$__rate_interval]))", "legendFormat": "{{scope}} {{where}}"}
+      ]
+    },
+    {
+      "title": "State Age Seconds",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "max by(scope) (exec_health_freeze_hook_state_age_seconds)", "legendFormat": "{{scope}}"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/tools/times.py
+# hypothesis_version: 6.148.10
+
+['%H%M', '%H%M%S', '%H:%M', '%H:%M:%S', '%I%M%S%p', '%I%M%p', '%I:%M%p', '%I:%M:%S%p', 'O', 'ignore', 'ndim', 'raise']

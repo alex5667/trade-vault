@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/../scripts/analyze_trailing_vs_baseline_postgres.py
+# hypothesis_version: 6.148.10
+
+[-0.05, 0.0, 0.05, 0.1, 0.5, 0.55, 0.6, 200, 1000, 3600, '\n🎯 РЕКОМЕНДАЦИИ:', '\n📋 РЕЗЮМЕ:', '%Y-%m-%d', '-', '--dsn', '--limit', '--min-trades-per-tag', '--since-days', '--source', '--symbol', '1', '<untagged>', '=', 'CryptoOrderFlow', 'UNKNOWN', 'Unknown', '__GLOBAL__', '__main__', 'delta_expectancy_r', 'n', 'share_better', 'share_worse', 't', 'tag', 'total_trades', 'trailing_share', 'true', 'y', 'yes', 'Источник стратегии', 'Мин. сделок на тег', '⚠️  Ослабить', '✅ Усилить', '🤔 Мониторить']

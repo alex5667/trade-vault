@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/atr_sanity.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.5, 10.0, 1000, 10000, 60000, 120000, 180000, 300000, 600000, 900000, 1200000, 1800000, 3600000, 7200000, 14400000, 28800000, 86400000, '1', '1.2', '10.0', '15m', '1800000', '1d', '1h', '1m', '2.0', '2h', '3', '30m', '3600', '3m', '4h', '5m', '800.0', '900000', 'ATR_BPS_MAX_SANITY', 'ATR_BPS_MIN_SANITY', 'ATR_JUMP_ACCEPT_K', 'ATR_JUMP_MAX_REL', 'ATR_JUMP_WINDOW_SEC', 'ATR_LAST_GOOD_TTL_MS', 'ATR_MAX_AGE_MS', 'ATR_SANITY_WINDOW', 'atr<=0', 'd1', 'h1', 'h2', 'h4', 'jump_rel', 'm1', 'm15', 'm3', 'm30', 'm5', 'na', 'on', 'true', 'yes']

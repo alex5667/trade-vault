@@ -1,0 +1,179 @@
+diff --git a/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py b/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py
+index 15d75c3..6404b2d 100644
+--- a/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py
++++ b/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py
+@@ -46,7 +46,7 @@ def _mk_url(base: str, path: str) -> str:
+     return b + p
+
+
+-def _targets_from_redis() -> Tuple[List[str], List[str]]:
++def _targets_from_redis() -> Tuple[List[str], List[str], int]:
+     """Read runbook/dashboard PATHS from Redis cfg (best-effort).
+
+     Expected hash key: cfg:monitoring_smoke:targets
+     Fields: runbook_paths, dashboard_paths (CSV)
+     """
+     redis_url = _env("REDIS_URL", "")
+     key = _env("MONITORING_SMOKE_TARGETS_KEY", "cfg:monitoring_smoke:targets")
+     if not redis_url:
+-        return [], []
++        return [], [], 0
+     try:
+         import redis  # type: ignore
+
+         r = redis.Redis.from_url(redis_url, decode_responses=True)
+         d = r.hgetall(key) or {}
+         rb = _split_csv(str(d.get("runbook_paths", "") or ""))
+         dp = _split_csv(str(d.get("dashboard_paths", "") or ""))
+-        return rb, dp
++        ts = 0
++        try:
++            ts = int(float(d.get("updated_ts_ms", "0") or 0))
++        except Exception:
++            ts = 0
++        return rb, dp, ts
+     except Exception:
+-        return [], []
++        return [], [], 0
+
+
+ def _smoke_contract_targets(public_base: str) -> Tuple[List[str], List[str]]:
+@@ -75,10 +75,16 @@ def _smoke_contract_targets(public_base: str) -> Tuple[List[str], List[str]]:
+
+     if (not runbooks) or (not dashboards):
+         if _env("SMOKE_TARGETS_FROM_REDIS", "1") in ("1", "true", "yes", "on"):
+-            rb2, dp2 = _targets_from_redis()
++            rb2, dp2, _ = _targets_from_redis()
+             if (not runbooks) and rb2:
+                 runbooks = rb2
+             if (not dashboards) and dp2:
+                 dashboards = dp2
+@@ -147,6 +153,32 @@ def main() -> int:
+     ]
+     runbook_urls, dash_urls = _smoke_contract_targets(public_base)
+
++    # 0) Targets freshness (fail-closed warning signal). This protects against "refresh disabled/broken".
++    targets_stale = False
++    targets_age_s = 0
++    max_age_s = int(_env("MONITORING_SMOKE_TARGETS_MAX_AGE_S", "604800"))  # 7 days
++    if _env("SMOKE_TARGETS_FROM_REDIS", "1") in ("1", "true", "yes", "on"):
++        _, _, ts = _targets_from_redis()
++        now_ms = _now_ms()
++        if ts > 0 and ts <= now_ms:
++            targets_age_s = int((now_ms - ts) / 1000)
++            if targets_age_s > max_age_s:
++                targets_stale = True
++        else:
++            # If redis targets are enabled but missing timestamp, treat as stale.
++            targets_stale = True
++
+     checks: List[Dict[str, str]] = []
+     ok_all = True
+
+@@ -234,6 +266,7 @@ def main() -> int:
+     prom_api_ok = all(c.get("ok") == "1" for c in checks if c.get("kind") == "prom_api") if any(c.get("kind") == "prom_api" for c in checks) else False
+     blackbox_exporter_ok = all(c.get("ok") == "1" for c in checks if c.get("kind") == "blackbox_exporter") if any(c.get("kind") == "blackbox_exporter" for c in checks) else False
+     fields = {
+         "success": "1" if ok_all else "0",
+         "runbooks_ok": "1" if runbooks_ok else "0",
+         "dashboards_ok": "1" if dashboards_ok else "0",
+         "alertmanager_api_ok": "1" if am_api_ok else "0",
+         "prometheus_api_ok": "1" if prom_api_ok else "0",
+         "blackbox_exporter_ok": "1" if blackbox_exporter_ok else "0",
++        "targets_stale": "1" if targets_stale else "0",
++        "targets_age_s": str(int(targets_age_s)),
+         "updated_ts_ms": str(ts_ms),
+         "reason": "ok" if ok_all else "failed",
+         "public_base_url": public_base,
+         "failed_total": str(len(failed_checks)),
+         "failed_health": json.dumps(failed_health, ensure_ascii=False)[:1200],
+         "failed_contract": json.dumps(failed_contract, ensure_ascii=False)[:1200],
+     }
+diff --git a/ml_analysis/tools/monitoring_smoke_exporter_v1.py b/ml_analysis/tools/monitoring_smoke_exporter_v1.py
+index 7ea3bd7..d0d9d0d 100644
+--- a/ml_analysis/tools/monitoring_smoke_exporter_v1.py
++++ b/ml_analysis/tools/monitoring_smoke_exporter_v1.py
+@@ -60,6 +60,8 @@ def metrics() -> PlainTextResponse:
+     alertmanager_api_ok = 0.0
+     prometheus_api_ok = 0.0
+     blackbox_exporter_ok = 0.0
++    targets_stale = 0.0
++    targets_age_s = 0.0
+     if d:
+@@ -102,6 +104,16 @@ def metrics() -> PlainTextResponse:
+         except Exception:
+             blackbox_exporter_ok = 0.0
+
++        try:
++            targets_stale = 1.0 if float(d.get("targets_stale", "0")) > 0 else 0.0
++        except Exception:
++            targets_stale = 0.0
++        try:
++            targets_age_s = float(d.get("targets_age_s", "0") or 0)
++        except Exception:
++            targets_age_s = 0.0
++
+     age_s = 0.0
+     if updated_ts > 0:
+         age_s = max(0.0, (time.time() * 1000.0 - updated_ts) / 1000.0)
+@@ -147,6 +159,16 @@ def metrics() -> PlainTextResponse:
+     lines.append("# TYPE monitoring_smoke_blackbox_exporter_ok gauge")
+     lines.append(f"monitoring_smoke_blackbox_exporter_ok {blackbox_exporter_ok}")
+
++    lines.append("# HELP monitoring_smoke_targets_stale 1 if cfg:monitoring_smoke:targets is missing or too old")
++    lines.append("# TYPE monitoring_smoke_targets_stale gauge")
++    lines.append(f"monitoring_smoke_targets_stale {targets_stale}")
++
++    lines.append("# HELP monitoring_smoke_targets_age_seconds Age of cfg:monitoring_smoke:targets (seconds)")
++    lines.append("# TYPE monitoring_smoke_targets_age_seconds gauge")
++    lines.append(f"monitoring_smoke_targets_age_seconds {targets_age_s}")
++
+     return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
+diff --git a/ok_rate_logic/prometheus_alerts_monitoring_smoke_targets_stale_v1.yml b/ok_rate_logic/prometheus_alerts_monitoring_smoke_targets_stale_v1.yml
+new file mode 100644
+index 0000000..b3f8c6e
+--- /dev/null
++++ b/ok_rate_logic/prometheus_alerts_monitoring_smoke_targets_stale_v1.yml
+@@ -0,0 +1,22 @@
++groups:
++  - name: monitoring-smoke-targets
++    rules:
++      - alert: MonitoringSmokeTargetsStale
++        expr: monitoring_smoke_targets_stale == 1
++        for: 2h
++        labels:
++          severity: warning
++          team: trade
++          component: monitoring
++        annotations:
++          summary: "Monitoring smoke targets stale"
++          description: "cfg:monitoring_smoke:targets is missing or older than MONITORING_SMOKE_TARGETS_MAX_AGE_S. Smoke contract may miss new alert links."
++          runbook_path: "/web_uptime.md"
++          dashboard_path: "/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1"
+diff --git a/monitoring/README_smoke_tests.md b/monitoring/README_smoke_tests.md
+index b5c64f7..adf3bd7 100644
+--- a/monitoring/README_smoke_tests.md
++++ b/monitoring/README_smoke_tests.md
+@@ -40,6 +40,14 @@
+ python -m ml_analysis.tools.build_smoke_contract_targets_from_alerts_v1
+ ```
+
++## Targets freshness
++If Redis targets are enabled, nightly smoke checks `updated_ts_ms` in `cfg:monitoring_smoke:targets`.
++If older than `MONITORING_SMOKE_TARGETS_MAX_AGE_S` (default 7d) it marks targets as stale.
++
++Override:
++```bash
++export MONITORING_SMOKE_TARGETS_MAX_AGE_S=604800
++```
++
+ ## Run manually
+ ```bash
+ export PUBLIC_BASE_URL="https://localhost"
+ export SMOKE_VERIFY_TLS=0
+@@ -70,4 +78,6 @@
+ - `monitoring_smoke_alertmanager_api_ok`
+ - `monitoring_smoke_prometheus_api_ok`
+ - `monitoring_smoke_blackbox_exporter_ok`
++- `monitoring_smoke_targets_stale`
++- `monitoring_smoke_targets_age_seconds`

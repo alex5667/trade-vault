@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/edge_gate_reporter.py
+# hypothesis_version: 6.148.10
+
+[10.0, 30.0, 100, 'EdgeGateReporter', 'TRADES_DB_DSN', '__main__', 'avg_fees', 'n', 'p50_margin', 'p90_margin', 'pass_rate', 'symbol', '⚠️', '✅', '💀']

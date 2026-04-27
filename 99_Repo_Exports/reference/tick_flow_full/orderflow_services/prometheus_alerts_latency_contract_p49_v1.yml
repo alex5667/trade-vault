@@ -1,0 +1,17 @@
+groups:
+  - name: latency-contract-p49
+    rules:
+      - alert: OF_LatencyDeployLint_PolicyBlocked_Crit
+        expr: latency_contract_deploy_lint_summary_policy_blocked_gate_active_total > 0
+        for: 15m
+        labels: {severity: crit}
+        annotations:
+          summary: "Latency deploy-lint silence policy blocked further ack"
+          description: "At least one active deploy-lint gate has hit the silence policy limits and the latest ack attempt was denied. A separate escalation ticket is now required for further notifier suppression."
+      - alert: OF_LatencyDeployLint_PolicyOverrideActive_Warn
+        expr: latency_contract_deploy_lint_summary_policy_override_gate_active_total > 0
+        for: 24h
+        labels: {severity: warn}
+        annotations:
+          summary: "Latency deploy-lint notifier is silenced under escalation override"
+          description: "A deploy-lint notifier silence currently relies on an escalation-ticket override because the rolling silence budget or re-ack limit was exceeded. Gate enforcement still applies; review accountability and fix the drift."

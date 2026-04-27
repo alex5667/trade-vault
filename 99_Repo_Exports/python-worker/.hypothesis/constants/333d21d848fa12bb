@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/sources/fmp_calendar.py
+# hypothesis_version: 6.148.10
+
+[b'\x1f', 12.0, 200, 300, 1000, 1024, 3600, '%Y-%m-%d', '%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%S%z', '/', '1', '2', '3', 'FMPCalendarConfig', 'FMP_API_KEY', 'GET', 'User-Agent', 'apikey', 'asset_class', 'backDays', 'back_days', 'baseURL', 'base_url', 'countries', 'country', 'countryCode', 'currency', 'currencyCode', 'data', 'date', 'datetime', 'enabled', 'event', 'eventId', 'event_ts_ms', 'fmp', 'fmpcal', 'forecast', 'from', 'high', 'httpTimeoutSec', 'http_timeout_sec', 'id', 'ignore', 'impact', 'importance', 'ingested_ts_ms', 'lookaheadDays', 'lookahead_days', 'low', 'medium', 'name', 'payload', 'previous', 'publishedDate', 'replace', 'source', 'status', 'title', 'to', 'uid', 'unit', 'updated', 'userAgent', 'user_agent', 'utf-8', 'volatility']

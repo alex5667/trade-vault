@@ -1,0 +1,2803 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - 0.0.0.0:6379:6379
+    volumes:
+      - redis-data:/data
+      - ./redis-external-access.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf --save "" --appendonly yes
+    networks:
+      - scanner-network
+    healthcheck:
+      test:
+        - CMD
+        - sh
+        - -c
+        - redis-cli -h localhost -p 6379 ping | grep -q PONG && redis-cli -h localhost
+          -p 6379 SET __healthcheck__ test && redis-cli -h localhost -p 6379 GET __healthcheck__
+          | grep -q test && redis-cli -h localhost -p 6379 DEL __healthcheck__
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+          cpus: '4.0'
+        reservations:
+          memory: 4G
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+      memlock:
+        soft: -1
+        hard: -1
+    shm_size: 2gb
+    sysctls:
+      net.core.somaxconn: 65535
+  redis-worker-1:
+    image: redis:7-alpine
+    container_name: redis-worker-1
+    expose:
+      - '6379'
+    volumes:
+      - redis-worker-1-data:/data
+      - ./redis-worker-stable.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      scanner-network:
+        aliases:
+          - redis-worker-1
+          - scanner-redis-worker-1
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    shm_size: 512mb
+    sysctls:
+      net.core.somaxconn: 4096
+  redis-worker-1b:
+    image: redis:7-alpine
+    container_name: redis-worker-1b
+    expose:
+      - '6379'
+    volumes:
+      - redis-worker-1b-data:/data
+      - ./redis-worker-stable.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      scanner-network:
+        aliases:
+          - redis-worker-1b
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    shm_size: 512mb
+    sysctls:
+      net.core.somaxconn: 4096
+  redis-worker-2:
+    image: redis:7-alpine
+    container_name: redis-worker-2
+    expose:
+      - '6379'
+    volumes:
+      - redis-worker-2-data:/data
+      - ./redis-worker-stable.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      scanner-network:
+        aliases:
+          - redis-worker-2
+          - scanner-redis-worker-2
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    shm_size: 512mb
+    sysctls:
+      net.core.somaxconn: 4096
+  redis-worker-2b:
+    image: redis:7-alpine
+    container_name: redis-worker-2b
+    expose:
+      - '6379'
+    volumes:
+      - redis-worker-2b-data:/data
+      - ./redis-worker-stable.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      scanner-network:
+        aliases:
+          - redis-worker-2b
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    shm_size: 512mb
+    sysctls:
+      net.core.somaxconn: 4096
+  redis-ticks:
+    image: redis:7-alpine
+    container_name: redis-ticks
+    expose:
+      - '6379'
+    volumes:
+      - redis-ticks-data:/data
+      - ./redis-ticks.conf:/usr/local/etc/redis/redis.conf
+    command:
+      'redis-server /usr/local/etc/redis/redis.conf --maxmemory 16gb --maxmemory-policy
+      allkeys-lru
+
+      '
+    networks:
+      scanner-network:
+        aliases:
+          - redis-ticks
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - sh
+        - -c
+        - redis-cli ping | grep -q PONG && redis-cli SET __healthcheck__ test && redis-cli
+          GET __healthcheck__ | grep -q test && redis-cli DEL __healthcheck__
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+          cpus: '3.0'
+        reservations:
+          memory: 2G
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    shm_size: 1gb
+    sysctls:
+      net.core.somaxconn: 8192
+  go-worker-1m:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile
+    container_name: scanner-go-worker-1m
+    environment:
+      - REDIS_HOST=redis-worker-1
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_POOL_SIZE=150
+      - REDIS_MIN_IDLE_CONNS=15
+      - REDIS_MAX_RETRIES=5
+      - REDIS_RETRY_MIN_BACKOFF=100ms
+      - REDIS_RETRY_MAX_BACKOFF=3s
+      - REDIS_DIAL_TIMEOUT=10s
+      - REDIS_READ_TIMEOUT=30s
+      - REDIS_WRITE_TIMEOUT=30s
+      - REDIS_POOL_TIMEOUT=10s
+      - BINANCE_WS_TIMEFRAME=kline_1m
+      - REDIS_CANDLES_HOST=redis-worker-1
+      - REDIS_CANDLES_PORT=6379
+      - REDIS_CANDLES_HOST_2=redis-worker-2
+      - REDIS_CANDLES_PORT_2=6379
+      - REDIS_TICKS_HOST=redis-ticks
+      - REDIS_TICKS_PORT=6379
+      - PROMETHEUS_PORT=2112
+      - BINANCE_MAX_PAIRS_TO_FETCH=150
+      - BINANCE_MIN_SYMBOLS_REQUIRED=150
+      - BINANCE_MAX_PAIRS_TO_ADD=300
+      - BINANCE_MIN_TRADES_24H=1000
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - sleep 30 && ./main
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G
+          cpus: '1.5'
+        reservations:
+          memory: 384M
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --no-verbose
+        - --tries=1
+        - --spider
+        - http://localhost:2112/metrics
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+  go-worker-5m:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile
+    container_name: scanner-go-worker-5m
+    environment:
+      - REDIS_HOST=redis-worker-2
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_POOL_SIZE=150
+      - REDIS_MIN_IDLE_CONNS=15
+      - REDIS_MAX_RETRIES=5
+      - REDIS_RETRY_MIN_BACKOFF=100ms
+      - REDIS_RETRY_MAX_BACKOFF=3s
+      - REDIS_DIAL_TIMEOUT=10s
+      - REDIS_READ_TIMEOUT=30s
+      - REDIS_WRITE_TIMEOUT=30s
+      - REDIS_POOL_TIMEOUT=10s
+      - BINANCE_WS_TIMEFRAME=kline_5m
+      - REDIS_CANDLES_HOST=redis-worker-1
+      - REDIS_CANDLES_PORT=6379
+      - REDIS_CANDLES_HOST_2=redis-worker-2
+      - REDIS_CANDLES_PORT_2=6379
+      - REDIS_TICKS_HOST=redis-ticks
+      - REDIS_TICKS_PORT=6379
+      - PROMETHEUS_PORT=2113
+      - BINANCE_MAX_PAIRS_TO_FETCH=150
+      - BINANCE_MIN_SYMBOLS_REQUIRED=150
+      - BINANCE_MAX_PAIRS_TO_ADD=300
+      - BINANCE_MIN_TRADES_24H=1000
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - sleep 120 && ./main
+    deploy:
+      resources:
+        limits:
+          memory: 1.2G
+          cpus: '1.0'
+        reservations:
+          memory: 320M
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --no-verbose
+        - --tries=1
+        - --spider
+        - http://localhost:2113/metrics
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+  go-worker-15m:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile
+    container_name: scanner-go-worker-15m
+    environment:
+      - REDIS_HOST=redis-worker-1
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_POOL_SIZE=150
+      - REDIS_MIN_IDLE_CONNS=15
+      - REDIS_MAX_RETRIES=5
+      - REDIS_RETRY_MIN_BACKOFF=100ms
+      - REDIS_RETRY_MAX_BACKOFF=3s
+      - REDIS_DIAL_TIMEOUT=10s
+      - REDIS_READ_TIMEOUT=30s
+      - REDIS_WRITE_TIMEOUT=30s
+      - REDIS_POOL_TIMEOUT=10s
+      - BINANCE_WS_TIMEFRAME=kline_15m
+      - REDIS_CANDLES_HOST=redis-worker-1
+      - REDIS_CANDLES_PORT=6379
+      - REDIS_CANDLES_HOST_2=redis-worker-2
+      - REDIS_CANDLES_PORT_2=6379
+      - REDIS_TICKS_HOST=redis-ticks
+      - REDIS_TICKS_PORT=6379
+      - PROMETHEUS_PORT=2114
+      - BINANCE_MAX_PAIRS_TO_FETCH=150
+      - BINANCE_MIN_SYMBOLS_REQUIRED=150
+      - BINANCE_MAX_PAIRS_TO_ADD=300
+      - BINANCE_MIN_TRADES_24H=1000
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - sleep 210 && ./main
+    deploy:
+      resources:
+        limits:
+          memory: 1.0G
+          cpus: '0.8'
+        reservations:
+          memory: 256M
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --no-verbose
+        - --tries=1
+        - --spider
+        - http://localhost:2114/metrics
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 270s
+  go-worker-1h:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile
+    container_name: scanner-go-worker-1h
+    environment:
+      - REDIS_HOST=redis-worker-2
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_POOL_SIZE=150
+      - REDIS_MIN_IDLE_CONNS=15
+      - REDIS_MAX_RETRIES=5
+      - REDIS_RETRY_MIN_BACKOFF=100ms
+      - REDIS_RETRY_MAX_BACKOFF=3s
+      - REDIS_DIAL_TIMEOUT=10s
+      - REDIS_READ_TIMEOUT=30s
+      - REDIS_WRITE_TIMEOUT=30s
+      - REDIS_POOL_TIMEOUT=10s
+      - BINANCE_WS_TIMEFRAME=kline_1h
+      - REDIS_CANDLES_HOST=redis-worker-1
+      - REDIS_CANDLES_PORT=6379
+      - REDIS_CANDLES_HOST_2=redis-worker-2
+      - REDIS_CANDLES_PORT_2=6379
+      - REDIS_TICKS_HOST=redis-ticks
+      - REDIS_TICKS_PORT=6379
+      - PROMETHEUS_PORT=2115
+      - BINANCE_MAX_PAIRS_TO_FETCH=150
+      - BINANCE_MIN_SYMBOLS_REQUIRED=150
+      - BINANCE_MAX_PAIRS_TO_ADD=300
+      - BINANCE_MIN_TRADES_24H=1000
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - sleep 300 && ./main
+    deploy:
+      resources:
+        limits:
+          memory: 800M
+          cpus: '0.6'
+        reservations:
+          memory: 256M
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --no-verbose
+        - --tries=1
+        - --spider
+        - http://localhost:2115/metrics
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 360s
+  go-worker-4h:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile
+    container_name: scanner-go-worker-4h
+    environment:
+      - REDIS_HOST=redis-worker-1
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_POOL_SIZE=150
+      - REDIS_MIN_IDLE_CONNS=15
+      - REDIS_MAX_RETRIES=5
+      - REDIS_RETRY_MIN_BACKOFF=100ms
+      - REDIS_RETRY_MAX_BACKOFF=3s
+      - REDIS_DIAL_TIMEOUT=10s
+      - REDIS_READ_TIMEOUT=30s
+      - REDIS_WRITE_TIMEOUT=30s
+      - REDIS_POOL_TIMEOUT=10s
+      - BINANCE_WS_TIMEFRAME=kline_4h
+      - REDIS_CANDLES_HOST=redis-worker-1
+      - REDIS_CANDLES_PORT=6379
+      - REDIS_CANDLES_HOST_2=redis-worker-2
+      - REDIS_CANDLES_PORT_2=6379
+      - REDIS_TICKS_HOST=redis-ticks
+      - REDIS_TICKS_PORT=6379
+      - PROMETHEUS_PORT=2116
+      - BINANCE_MAX_PAIRS_TO_FETCH=150
+      - BINANCE_MIN_SYMBOLS_REQUIRED=150
+      - BINANCE_MAX_PAIRS_TO_ADD=300
+      - BINANCE_MIN_TRADES_24H=1000
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - sleep 390 && ./main
+    deploy:
+      resources:
+        limits:
+          memory: 700M
+          cpus: '0.5'
+        reservations:
+          memory: 192M
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --no-verbose
+        - --tries=1
+        - --spider
+        - http://localhost:2116/metrics
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 450s
+  go-worker-1d:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile
+    container_name: scanner-go-worker-1d
+    environment:
+      - REDIS_HOST=redis-worker-2
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_POOL_SIZE=150
+      - REDIS_MIN_IDLE_CONNS=15
+      - REDIS_MAX_RETRIES=5
+      - REDIS_RETRY_MIN_BACKOFF=100ms
+      - REDIS_RETRY_MAX_BACKOFF=3s
+      - REDIS_DIAL_TIMEOUT=10s
+      - REDIS_READ_TIMEOUT=30s
+      - REDIS_WRITE_TIMEOUT=30s
+      - REDIS_POOL_TIMEOUT=10s
+      - BINANCE_WS_TIMEFRAME=kline_1d
+      - REDIS_CANDLES_HOST=redis-worker-1
+      - REDIS_CANDLES_PORT=6379
+      - REDIS_CANDLES_HOST_2=redis-worker-2
+      - REDIS_CANDLES_PORT_2=6379
+      - REDIS_TICKS_HOST=redis-ticks
+      - REDIS_TICKS_PORT=6379
+      - PROMETHEUS_PORT=2117
+      - BINANCE_MAX_PAIRS_TO_FETCH=150
+      - BINANCE_MIN_SYMBOLS_REQUIRED=150
+      - BINANCE_MAX_PAIRS_TO_ADD=300
+      - BINANCE_MIN_TRADES_24H=1000
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - sleep 480 && ./main
+    deploy:
+      resources:
+        limits:
+          memory: 600M
+          cpus: '0.4'
+        reservations:
+          memory: 192M
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --no-verbose
+        - --tries=1
+        - --spider
+        - http://localhost:2117/metrics
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 540s
+  go-worker-1w:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile
+    container_name: scanner-go-worker-1w
+    environment:
+      - REDIS_HOST=redis-worker-1
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_POOL_SIZE=150
+      - REDIS_MIN_IDLE_CONNS=15
+      - REDIS_MAX_RETRIES=5
+      - REDIS_RETRY_MIN_BACKOFF=100ms
+      - REDIS_RETRY_MAX_BACKOFF=3s
+      - REDIS_DIAL_TIMEOUT=10s
+      - REDIS_READ_TIMEOUT=30s
+      - REDIS_WRITE_TIMEOUT=30s
+      - REDIS_POOL_TIMEOUT=10s
+      - BINANCE_WS_TIMEFRAME=kline_1w
+      - REDIS_CANDLES_HOST=redis-worker-1
+      - REDIS_CANDLES_PORT=6379
+      - REDIS_CANDLES_HOST_2=redis-worker-2
+      - REDIS_CANDLES_PORT_2=6379
+      - REDIS_TICKS_HOST=redis-ticks
+      - REDIS_TICKS_PORT=6379
+      - PROMETHEUS_PORT=2118
+      - BINANCE_MAX_PAIRS_TO_FETCH=150
+      - BINANCE_MIN_SYMBOLS_REQUIRED=150
+      - BINANCE_MAX_PAIRS_TO_ADD=300
+      - BINANCE_MIN_TRADES_24H=1000
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - sleep 570 && ./main
+    deploy:
+      resources:
+        limits:
+          memory: 500M
+          cpus: '0.3'
+        reservations:
+          memory: 128M
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --no-verbose
+        - --tries=1
+        - --spider
+        - http://localhost:2118/metrics
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 630s
+  go-worker-1month:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile
+    container_name: scanner-go-worker-1month
+    environment:
+      - REDIS_HOST=redis-worker-2
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_POOL_SIZE=150
+      - REDIS_MIN_IDLE_CONNS=15
+      - REDIS_MAX_RETRIES=5
+      - REDIS_RETRY_MIN_BACKOFF=100ms
+      - REDIS_RETRY_MAX_BACKOFF=3s
+      - REDIS_DIAL_TIMEOUT=10s
+      - REDIS_READ_TIMEOUT=30s
+      - REDIS_WRITE_TIMEOUT=30s
+      - REDIS_POOL_TIMEOUT=10s
+      - BINANCE_WS_TIMEFRAME=kline_1M
+      - REDIS_CANDLES_HOST=redis-worker-1
+      - REDIS_CANDLES_PORT=6379
+      - REDIS_CANDLES_HOST_2=redis-worker-2
+      - REDIS_CANDLES_PORT_2=6379
+      - REDIS_TICKS_HOST=redis-ticks
+      - REDIS_TICKS_PORT=6379
+      - PROMETHEUS_PORT=2119
+      - BINANCE_MAX_PAIRS_TO_FETCH=150
+      - BINANCE_MIN_SYMBOLS_REQUIRED=150
+      - BINANCE_MAX_PAIRS_TO_ADD=300
+      - BINANCE_MIN_TRADES_24H=1000
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - sleep 660 && ./main
+    deploy:
+      resources:
+        limits:
+          memory: 500M
+          cpus: '0.3'
+        reservations:
+          memory: 128M
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --no-verbose
+        - --tries=1
+        - --spider
+        - http://localhost:2119/metrics
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 720s
+  go-worker-3month:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile
+    container_name: scanner-go-worker-3month
+    environment:
+      - REDIS_HOST=redis-worker-1
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_POOL_SIZE=150
+      - REDIS_MIN_IDLE_CONNS=15
+      - REDIS_MAX_RETRIES=5
+      - REDIS_RETRY_MIN_BACKOFF=100ms
+      - REDIS_RETRY_MAX_BACKOFF=3s
+      - REDIS_DIAL_TIMEOUT=10s
+      - REDIS_READ_TIMEOUT=30s
+      - REDIS_WRITE_TIMEOUT=30s
+      - REDIS_POOL_TIMEOUT=10s
+      - BINANCE_WS_TIMEFRAME=kline_3M
+      - REDIS_CANDLES_HOST=redis-worker-1
+      - REDIS_CANDLES_PORT=6379
+      - REDIS_CANDLES_HOST_2=redis-worker-2
+      - REDIS_CANDLES_PORT_2=6379
+      - REDIS_TICKS_HOST=redis-ticks
+      - REDIS_TICKS_PORT=6379
+      - PROMETHEUS_PORT=2120
+      - BINANCE_MAX_PAIRS_TO_FETCH=150
+      - BINANCE_MIN_SYMBOLS_REQUIRED=150
+      - BINANCE_MAX_PAIRS_TO_ADD=300
+      - BINANCE_MIN_TRADES_24H=1000
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - sleep 750 && ./main
+    deploy:
+      resources:
+        limits:
+          memory: 400M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --no-verbose
+        - --tries=1
+        - --spider
+        - http://localhost:2120/metrics
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 810s
+  go-worker-1y:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile
+    container_name: scanner-go-worker-1y
+    environment:
+      - REDIS_HOST=redis-worker-2
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_POOL_SIZE=150
+      - REDIS_MIN_IDLE_CONNS=15
+      - REDIS_MAX_RETRIES=5
+      - REDIS_RETRY_MIN_BACKOFF=100ms
+      - REDIS_RETRY_MAX_BACKOFF=3s
+      - REDIS_DIAL_TIMEOUT=10s
+      - REDIS_READ_TIMEOUT=30s
+      - REDIS_WRITE_TIMEOUT=30s
+      - REDIS_POOL_TIMEOUT=10s
+      - BINANCE_WS_TIMEFRAME=kline_1y
+      - REDIS_CANDLES_HOST=redis-worker-1
+      - REDIS_CANDLES_PORT=6379
+      - REDIS_CANDLES_HOST_2=redis-worker-2
+      - REDIS_CANDLES_PORT_2=6379
+      - REDIS_TICKS_HOST=redis-ticks
+      - REDIS_TICKS_PORT=6379
+      - PROMETHEUS_PORT=2121
+      - BINANCE_MAX_PAIRS_TO_FETCH=150
+      - BINANCE_MIN_SYMBOLS_REQUIRED=150
+      - BINANCE_MAX_PAIRS_TO_ADD=300
+      - BINANCE_MIN_TRADES_24H=1000
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - sleep 840 && ./main
+    deploy:
+      resources:
+        limits:
+          memory: 400M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --no-verbose
+        - --tries=1
+        - --spider
+        - http://localhost:2121/metrics
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 900s
+  python-worker:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-python-worker
+    runtime: nvidia
+    environment:
+      - TRADES_DB_DSN=postgresql://postgres:postgres@postgres:5432/scanner_analytics
+      - REDIS_HOST=redis-worker-1
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - REDIS_TICKS_URL=redis://redis-ticks:6379/0
+      - REDIS_TICKS_HOST=redis-ticks
+      - REDIS_TICKS_PORT=6379
+      - REDIS_SOCKET_TIMEOUT=30
+      - REDIS_SOCKET_CONNECT_TIMEOUT=10
+      - REDIS_MAX_CONNECTIONS=100
+      - REDIS_RETRY_ON_TIMEOUT=true
+      - REDIS_HEALTH_CHECK_INTERVAL=30
+      - REDIS_SIGNALS_HOST=redis-worker-1
+      - REDIS_SIGNALS_PORT=6379
+      - REDIS_SIGNALS_HOST_2=redis-worker-2
+      - REDIS_SIGNALS_PORT_2=6379
+      - L2_NEGATIVE_SKEW_STALE_MS=5000
+      - MANUAL_AUDIT_LEVEL=compact
+      - MANUAL_AUDIT_MAX_BYTES=12000
+      - MANUAL_AUDIT_ROUND=4
+      - CONF_BREAKDOWN_MAX_KEYS=8
+      - CONF_BREAKDOWN_ROUND=4
+      - METRICS_EVERY_MS=15000
+      - MODE_MOMO_EMA_ALPHA=0.02
+      - XAU_HANDLER_ENABLED=true
+      - XAU_SYMBOL=XAUUSD
+      - XAU_TICK_STREAM=stream:tick_XAUUSD
+      - XAU_TICK_STREAM_MAXLEN=50000
+      - XAU_TICK_POLL_INTERVAL=0.2
+      - XAU_TICK_FETCH_COUNT=500
+      - XAU_TICK_LOOKBACK_SEC=5.0
+      - XAU_GROUP=xauusd-signal-group
+      - XAU_CONSUMER=xau-handler
+      - XAU_DELTA_WINDOW=120
+      - XAU_DELTA_Z_THRESHOLD=3.0
+      - XAU_WEAK_PROGRESS_ATR=0.10
+      - XAU_OBI_THRESHOLD=0.5
+      - XAU_OBI_MIN_DURATION=2.0
+      - XAU_ICEBERG_REFRESH=2
+      - XAU_ICEBERG_DURATION=1.5
+      - XAU_ICEBERG_REFRESH_MIN_ABS=1.0
+      - XAU_DIST_ATR_THRESHOLD=0.5
+      - XAU_MIN_SIGNAL_INTERVAL=60
+      - XAU_READ_COUNT=100
+      - XAU_READ_BLOCK_MS=1000
+      - XAU_OHLC_GROUP=xauusd-ohlc-group
+      - SESSION_CLOSE_TZ=UTC
+      - SESSION_CLOSE_HOUR=0
+      - SESSION_CLOSE_MIN=0
+      - ATR_SOURCE=ticks
+      - ATR_TF=1m
+      - USE_TELEGRAM_BUTTONS=0
+      - ACCOUNT_DEPOSIT_USD=100
+      - ACCOUNT_LEVERAGE=100
+      - RISK_PERCENT=5.0
+      - SIGNAL_MIN_CONF=85
+      - SIGNAL_CONF_DEFAULT=0
+      - XAU_CONTRACT_SIZE=100
+      - XAU_LOT_STEP=0.01
+      - STOP_MODE=ATR
+      - STOP_ATR_MULT=0.6
+      - STOP_PCT=0.2
+      - STOP_POINTS=1.0
+      - TP_MODE=RR
+      - TP_RR=1,2,3
+      - TP_ATR_MULTS=0.6,1.0,1.5
+      - NOTIFY_STREAM=notify:telegram
+      - PERIODIC_REPORT_WINDOW_SECONDS=3600
+      - REPORT_TRIGGER_COUNT=30
+      - PERIODIC_REPORT_CHECK_INTERVAL_SEC=300
+      - PERIODIC_REPORT_TRIM_RATIO=0.10
+      - PERIODIC_REPORT_ES_ALPHA=0.05
+      - PERIODIC_REPORT_MIN_TRADES_FOR_ES=30
+      - PERIODIC_REPORT_FEES_RATIO_THRESHOLD=0.01
+      - TOUCH_WINDOW_MS=500
+      - TOUCH_TAU_REFILL_MS=250
+      - TOUCH_RECOVER_FRAC=0.90
+      - TOUCH_RHO_REFILL_MIN=1.7
+      - TOUCH_RHO_DEPLETION_MAX=1.5
+      - TOUCH_MAX_TOUCH_TICKS=1
+      - TOUCH_BOOK_FRESH_MS=250
+      - TOUCH_FILTER_ENABLED=true
+      - TOUCH_FILTER_KINDS=breakout,extreme
+      - ORDERFLOW_SIGNAL_STREAM=signals:orderflow:XAUUSD
+      - NOTIFY_SIGNAL_EVERY_N=3
+      - DOM_VENDOR=BINANCE
+      - DOM_DEPTH=15
+      - MOCK_MID_PRICE=3955.0
+      - MOCK_TICK_SIZE=0.1
+      - BOOK_STREAM=stream:book_XAUUSD
+      - BOOK_LAST_KEY=book:levels:XAUUSD
+      # Local calibration
+      - LOCAL_CALIBRATION_FILE=/app/data/local_calibration.json
+      - PG_DSN=postgresql://postgres:12345@postgres:5434/trade
+      # Calibration parameters
+      - CALIB_LOOKBACK_DAYS=365
+      - CALIB_MIN_TRADES_CLUSTER=300
+      - CALIB_MIN_TRADES_BUCKET=30
+      - CALIB_MIN_MEAN_PNL_R=0.0
+      - GPU_ENABLED=true
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - USE_FILE_LOGGING=true
+      - LOG_DIR=/app/logs
+      - LOG_LEVEL=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+      go-worker-1m:
+        condition: service_healthy
+      go-worker-5m:
+        condition: service_healthy
+      go-worker-15m:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
+          memory: 512M
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    command:
+      - sh
+      - -c
+      - sleep 30 && python main.py
+    volumes:
+      - ./logs:/app/logs
+  ohlc-aggregator:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-ohlc-aggregator
+    environment:
+      - REDIS_URL=redis://redis-ticks:6379/0
+      - XAU_TICK_STREAM=stream:tick_XAUUSD
+      - XAU_OHLC_GROUP=xauusd-ohlc-group
+      - XAU_OHLC_CONSUMER=ohlc-aggregator-docker
+      - SESSION_CLOSE_TZ=UTC
+      - SESSION_CLOSE_HOUR=0
+      - SESSION_CLOSE_MIN=0
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+    command:
+      - sh
+      - -c
+      - sleep 35 && python services/ohlc_aggregator.py
+  binance-iceberg-detector:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-binance-iceberg-detector
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - REDIS_TICKS_URL=redis://redis-ticks:6379/0
+      - ORDERFLOW_SYMBOLS=BTCUSDT,ETHUSDT
+      - ICEBERG_MIN_DURATION=1.5
+      - ICEBERG_MIN_REFRESH=2
+      - ICEBERG_MIN_EXECUTED=20.0
+      - ICEBERG_MAX_DIST_ATR=0.5
+      - ICEBERG_MAX_DIST_REL=0.0025
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.4'
+        reservations:
+          memory: 96M
+    command:
+      - sh
+      - -c
+      - sleep 45 && python services/binance_iceberg_detector.py
+  multi-symbol-orderflow:
+    profiles:
+      - default
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    runtime: nvidia
+    environment:
+#      - REDIS_URL=redis://redis-worker-1:6379/0
+      - REDIS_HOST=redis-worker-1
+      - REDIS_SOCKET_TIMEOUT=30
+      - REDIS_SOCKET_CONNECT_TIMEOUT=10
+      - REDIS_MAX_CONNECTIONS=100
+      - REDIS_RETRY_ON_TIMEOUT=true
+      - REDIS_HEALTH_CHECK_INTERVAL=30
+      - FORCE_TRAIL_AFTER_TP1=true
+      - TRAILING_TP1_OFFSET_ATR=0.6
+      - TRAILING_AFTER_TP1_SOURCES=CryptoOrderFlow
+      - TRAILING_TP1_OFFSET_ATR_CRYPTOORDERFLOW=0.5
+      - TRAILING_AFTER_TP1_ETHUSDT=true
+      - TRAILING_TP1_OFFSET_ATR_ETHUSDT=0.45
+      - TRAILING_AFTER_TP1_BTCUSDT=true
+      - TRAILING_TP1_OFFSET_ATR_BTCUSDT=0.45
+      - REDIS_TICKS_HOST=redis-ticks
+      - REDIS_TICKS_PORT=6379
+      - REDIS_TICKS_URL=redis://redis-ticks:6379/0
+      - REDIS_SIGNALS_HOST=redis-worker-1
+      - REDIS_SIGNALS_PORT=6379
+      - REDIS_SIGNALS_HOST_2=redis-worker-2
+      - REDIS_SIGNALS_PORT_2=6379
+      - SYMBOLS=XAUUSD,BTCUSDT,ETHUSDT
+      - STRATEGIES=orderflow,ta,aggregated,cryptoorderflow
+      - DYNAMIC_SYMBOLS=true
+      - XAU_DELTA_WINDOW=120
+      - XAU_DELTA_Z_THRESHOLD=3.0
+      - XAU_WEAK_PROGRESS_ATR=0.10
+      - XAU_OBI_THRESHOLD=0.5
+      - XAU_OBI_MIN_DURATION=2.0
+      - XAU_ICEBERG_REFRESH=2
+      - XAU_ICEBERG_DURATION=1.5
+      - XAU_ICEBERG_REFRESH_MIN_ABS=1.0
+      - XAU_DIST_ATR_THRESHOLD=0.5
+      - XAU_MIN_SIGNAL_INTERVAL=60
+      - XAU_READ_COUNT=100
+      - XAU_READ_BLOCK_MS=1000
+      - BTCUSD_TICK_STREAM=stream:tick_BTCUSD
+      - BTCUSD_BOOK_STREAM=stream:book_BTCUSD
+      - BTC_DELTA_WINDOW=120
+      - BTC_DELTA_Z_THRESHOLD=2.7
+      - BTC_WEAK_PROGRESS_ATR=0.15
+      - BTC_OBI_THRESHOLD=0.35
+      - BTC_OBI_MIN_DURATION=1.5
+      - BTC_ICEBERG_REFRESH=3
+      - BTC_ICEBERG_DURATION=1.0
+      - BTC_DIST_ATR_THRESHOLD=0.4
+      - BTC_MIN_SIGNAL_INTERVAL=20
+      - BTC_READ_COUNT=100
+      - BTC_READ_BLOCK_MS=1000
+      - BTC_STOP_MODE=ATR
+      - BTC_STOP_ATR_MULT=0.8
+      - BTC_TP_RR=1,1.5,2.5
+      - ETHUSD_TICK_STREAM=stream:tick_ETHUSD
+      - ETHUSD_BOOK_STREAM=stream:book_ETHUSD
+      - ETH_DELTA_WINDOW=120
+      - ETH_DELTA_Z_THRESHOLD=2.7
+      - ETH_WEAK_PROGRESS_ATR=0.15
+      - ETH_OBI_THRESHOLD=0.4
+      - ETH_OBI_MIN_DURATION=1.5
+      - ETH_ICEBERG_REFRESH=3
+      - ETH_ICEBERG_DURATION=1.0
+      - ETH_DIST_ATR_THRESHOLD=0.4
+      - ETH_MIN_SIGNAL_INTERVAL=30
+      - ETH_READ_COUNT=100
+      - ETH_READ_BLOCK_MS=1000
+      - ATR_SOURCE=redis
+      - ATR_TF=1m
+      - STOP_MODE=ATR
+      - STOP_ATR_MULT=0.6
+      - STOP_PCT=0.2
+      - STOP_POINTS=1.0
+      - TP_MODE=RR
+      - TP_RR=1,2,3
+      - TP_ATR_MULTS=0.6,1.0,1.5
+      - STREAM_MSG_MAX_RETRIES=3
+      - STREAM_CLAIM_INTERVAL_MS=5000
+      - STREAM_CLAIM_MIN_IDLE_MS=15000
+      - STREAM_CLAIM_COUNT=50
+      - ORDERFLOW_DLQ_STREAM=stream:dlq:orderflow
+      # Golden pattern configuration
+      - GOLDEN_CONFIDENCE_DEFAULT=20
+      - GOLDEN_WEIGHT_DEFAULT=1.0
+      # Pattern-specific overrides
+      - GOLDEN_CONF_BREAKOUT_R1=93
+      - GOLDEN_CONF_FADE_PDH=88
+      - GOLDEN_CONF_FADE_HTF_OB=92
+      - GOLDEN_WEIGHT_BREAKOUT_R1=1.5
+      - GOLDEN_WEIGHT_FADE_PDH=0.8
+      - GOLDEN_WEIGHT_FADE_HTF_OB=1.2
+      # Scoring configuration
+      - CONFIDENCE_SCALE=0.01
+      - GOLDEN_SCORE_MULTIPLIER=1.3
+      - FINAL_SCORE_MAX=5.0
+      - MIN_FINAL_SCORE=0.6
+      - REDIS_BACKOFF_BASE=0.25
+      - REDIS_BACKOFF_FACTOR=2.0
+      - REDIS_BACKOFF_CAP=5.0
+      - REDIS_BACKOFF_JITTER=0.15
+      - REDIS_IDLE_SLEEP_SEC=0.05
+      - DLQ_MAX_FIELD_BYTES=16384
+      - DLQ_MAX_TOTAL_BYTES=65536
+      - DLQ_HASH_TRUNCATED=1
+      - L2_MAX_AGE_MS=60000
+      - L2_NEGATIVE_SKEW_STALE_MS=5000
+      - MANUAL_AUDIT_LEVEL=compact
+      - MANUAL_AUDIT_MAX_BYTES=12000
+      - MANUAL_AUDIT_ROUND=4
+      - CONF_BREAKDOWN_MAX_KEYS=8
+      - CONF_BREAKDOWN_ROUND=4
+      - METRICS_EVERY_MS=15000
+      - MODE_MOMO_EMA_ALPHA=0.02
+      - DELTA_BUCKET_MS=1000
+      - OBI_MAX_STALE_MS=2500
+      - TRAIL_Z_THRESHOLD=4.5
+      - BREAKOUT_REQUIRE_OBI=true
+      - LEVEL_SIGNAL_COOLDOWN_MS=15000
+      - BREAKOUT_MIN_DIST_ATR=0.0
+      - TP1_SHIFT_MULT=1.4
+      - NOTIFY_STREAM=notify:telegram
+      - USE_TELEGRAM_BUTTONS=0
+      - SNAP_PREFIX=signal:snap
+      - SNAP_TTL=21600
+      - USE_SIGNAL_OUTBOX=true
+      - SIGNAL_OUTBOX_STREAM=stream:signals:outbox
+      - SIGNAL_OUTBOX_MAXLEN=200000
+      - SIGNAL_DEDUP_GRANULARITY=minute
+      - SIGNAL_DEDUP_TTL_MS=90000
+      - OUTBOX_GROUP=signals-outbox-group
+      - OUTBOX_CONSUMER=outbox-dispatcher
+      - OUTBOX_MAX_RETRIES=5
+      - OUTBOX_DLQ_STREAM=stream:dlq:signal_outbox
+      - OUTBOX_CLAIM_INTERVAL_MS=5000
+      - OUTBOX_CLAIM_MIN_IDLE_MS=15000
+      - OUTBOX_CLAIM_COUNT=100
+      - OUTBOX_SENT_TTL_SEC=172800
+      - CRYPTO_DEFAULT_DAILY_RANGE_PCT=0.04
+      - CRYPTO_OBI_SPIKE_THR=0.7
+      - ABSORPTION_USE_MICRO_PROXY=true
+      - ABSORPTION_MICRO_ADVERSE_MIN=0.62
+      - ABSORPTION_MICRO_REALIZED_EMA_MAX=-0.40
+      - REALIZED_HORIZON_MS=2000
+      - REALIZED_EMA_ALPHA=0.08
+      - SPREAD_MAX_BPS=10
+      - ENABLE_L3_PROXY=true
+      - L3_TAKER_RATE_EMA_ALPHA=0.12
+      - L3_EPS=1e-9
+      - L3_CANCEL_RATE_EMA_ALPHA=0.15
+      - L2_K_SMALL=5
+      - L2_K_LARGE=20
+      - L2_WALL_MULT=3.0
+      - L2_WALL_MAX_DIST_BPS=15.0
+      - L2_BATCH_MIN=3
+      - ROBUST_Z_BACKEND=auto
+      - ROBUST_Z_GPU_MIN_N=2048
+      - OBI_SUSTAINED_USE_FRACTION=true
+      - OBI_SUSTAINED_MIN_SAMPLES=3
+      - OBI_SUSTAINED_MIN_FRACTION=0.6
+      - BREAKOUT_REQUIRE_OBI20=true
+      - BREAKOUT_MIN_MICROPRICE_SHIFT_BPS=0.2
+      - BREAKOUT_WALL_MAX_DIST_BPS=10.0
+      - BREAKOUT_MIN_DEPLETION_SCORE=0.05
+      - BREAKOUT_MAX_REFILL_SCORE=0.05
+      - BREAKOUT_MAX_IMPACT_PROXY=0.35
+      - BREAKOUT_USE_L3_FILTERS=true
+      - BREAKOUT_L3_MAX_CANCEL_TO_TRADE=3.0
+      - BREAKOUT_L3_MIN_TAKER_RATE=0.0
+      - BREAKOUT_L3_MAX_ETA_SEC=0.0
+      - ABSORPTION_MIN_REFILL_SCORE=0.05
+      - ABSORPTION_WALL_MAX_DIST_BPS=12.0
+      - ABSORPTION_USE_L3_FILTERS=true
+      - ABSORPTION_L3_MIN_TAKER_RATE=0.0
+      - EXTREME_USE_L3_FILTERS=true
+      - EXTREME_L3_MAX_CANCEL_TO_TRADE=6.0
+      - EXTREME_L3_MIN_TAKER_RATE=0.0
+      - HEALTH_CHECK_INTERVAL=60
+      - CANDLE_BATCH_SIZE=5
+      - CANDLE_BATCH_INTERVAL_SEC=2.0
+      - GPU_ENABLED=true
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      # Golden pattern configuration
+      - GOLDEN_CONFIDENCE_DEFAULT=20
+      - GOLDEN_WEIGHT_DEFAULT=1.0
+      # Pattern-specific overrides
+      - GOLDEN_CONF_BREAKOUT_R1=93
+      - GOLDEN_CONF_FADE_PDH=88
+      - GOLDEN_CONF_FADE_HTF_OB=92
+      - GOLDEN_WEIGHT_BREAKOUT_R1=1.5
+      - GOLDEN_WEIGHT_FADE_PDH=0.8
+      - GOLDEN_WEIGHT_FADE_HTF_OB=1.2
+      # Scoring configuration
+      - CONFIDENCE_SCALE=0.01
+      - GOLDEN_SCORE_MULTIPLIER=1.3
+      - FINAL_SCORE_MAX=5.0
+      - MIN_FINAL_SCORE=0.6
+      # Local calibration
+      - LOCAL_CALIBRATION_FILE=/app/data/local_calibration.json
+      - PG_DSN=postgresql://postgres:12345@postgres:5434/trade
+      # Calibration parameters
+      - CALIB_LOOKBACK_DAYS=365
+      - CALIB_MIN_TRADES_CLUSTER=300
+      - CALIB_MIN_TRADES_BUCKET=30
+      - CALIB_MIN_MEAN_PNL_R=0.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+    ulimits:
+      nofile:
+        soft: 4096
+        hard: 4096
+    healthcheck:
+      test:
+        - CMD
+        - pgrep
+        - -f
+        - main_multi_symbol.py
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    command:
+      - sh
+      - -c
+      - sleep 15 && if [ "$$DYNAMIC_SYMBOLS" = "true" ]; then python main_multi_symbol_dynamic.py;
+        else python main_multi_symbol.py; fi
+  crypto-orderflow-service:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-crypto-orderflow
+    runtime: nvidia
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - REDIS_TICKS_URL=redis://redis-ticks:6379/0
+      - ATR_SOURCE=redis
+      - ATR_TF=1m
+      - CRYPTO_OF_REFRESH_SEC=30
+      - CRYPTO_OF_LOG_LEVEL=DEBUG
+      - ORDERS_QUEUE=orders:queue
+      - CRYPTO_NOTIFY_STREAM=notify:telegram
+      - CRYPTO_NOTIFY_REDIS_URL=redis://redis-worker-1:6379/0
+      - CRYPTO_RAW_STREAM=signals:crypto:raw
+      - ATR_REDIS_URL=redis://redis-worker-1:6379/0
+      - CRYPTO_NOTIFY_SIGNAL_EVERY_N=10
+      - CRYPTO_SIGNAL_MIN_CONF=80
+      - DISABLE_CONFIDENCE_FILTER=false
+      # Signal Scoring Configuration
+      - MIN_SIGNAL_CONFIDENCE=80
+      - MIN_SIGNAL_CONFIDENCE__XAUUSD=20
+      - GOLDEN_PATTERN_MIN_CONFIDENCE=90
+      - SIGNAL_METRIC_WEIGHT__DELTA_SPIKE_Z=1.0
+      - SIGNAL_METRIC_WEIGHT__OBI=0.7
+      - SIGNAL_METRIC_WEIGHT__WEAK_PROGRESS=0.5
+      - SIGNAL_METRIC_WEIGHT__ATR_QUANTILE=0.3
+      - SIGNAL_PATTERN_WEIGHT__BREAKOUT_R1=1.2
+      - SIGNAL_PATTERN_WEIGHT__FADE_PDH=1.1
+      - SIGNAL_PATTERN_WEIGHT__FADE_HTF_OB=1.3
+      - SIGNAL_PATTERN_MIN_CONF__BREAKOUT_R1=85
+      - SIGNAL_PATTERN_MIN_CONF__FADE_PDH=80
+      - SIGNAL_PATTERN_MIN_CONF__FADE_HTF_OB=88
+      - TP1_SHIFT_MULT=1.4
+      - PYTHONPATH=/app
+      - ACCOUNT_DEPOSIT_USD=100
+      - ACCOUNT_LEVERAGE=100
+      - RISK_PERCENT=5.0
+      - CRYPTO_COMMISSION_RATE=0.0004
+      - TRAILING_TP1_OFFSET_ATR=0.6
+      - TRAILING_AFTER_TP1_SOURCES=CryptoOrderFlow
+      - TRAILING_TP1_OFFSET_ATR_CRYPTOORDERFLOW=0.5
+      - TRAILING_TP1_OFFSET_ATR_ETHUSDT=0.45
+      - STREAM_MSG_MAX_RETRIES=3
+      - STREAM_CLAIM_INTERVAL_MS=5000
+      - STREAM_CLAIM_MIN_IDLE_MS=15000
+      - STREAM_CLAIM_COUNT=50
+      - ORDERFLOW_DLQ_STREAM=stream:dlq:orderflow
+      - DELTA_BUCKET_MS=1000
+      - OBI_MAX_STALE_MS=2500
+      - TRAIL_Z_THRESHOLD=4.5
+      - FORCE_TRAIL_AFTER_TP1=true
+      - LEVEL_SIGNAL_COOLDOWN_MS=15000
+      - BREAKOUT_MIN_DIST_ATR=0.0
+      - USE_SIGNAL_OUTBOX=true
+      - SIGNAL_OUTBOX_STREAM=stream:signals:outbox
+      - SIGNAL_OUTBOX_MAXLEN=200000
+      - SIGNAL_DEDUP_GRANULARITY=minute
+      - SIGNAL_DEDUP_TTL_MS=90000
+      - OUTBOX_GROUP=signals-outbox-group
+      - OUTBOX_CONSUMER=outbox-dispatcher
+      - OUTBOX_MAX_RETRIES=5
+      - OUTBOX_DLQ_STREAM=stream:dlq:signal_outbox
+      - OUTBOX_CLAIM_INTERVAL_MS=5000
+      - OUTBOX_CLAIM_MIN_IDLE_MS=15000
+      - OUTBOX_CLAIM_COUNT=100
+      - OUTBOX_SENT_TTL_SEC=172800
+      - CRYPTO_DEFAULT_DAILY_RANGE_PCT=0.04
+      - CRYPTO_OBI_SPIKE_THR=0.7
+      - GPU_ENABLED=true
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - ENABLE_L3_PROXY=true
+      - L3_TAKER_RATE_EMA_ALPHA=0.12
+      - L3_EPS=1e-9
+      - L2_K_SMALL=5
+      - L2_K_LARGE=20
+      - L2_WALL_MULT=3.0
+      - L2_WALL_MAX_DIST_BPS=15.0
+      - L2_BATCH_MIN=3
+      - ROBUST_Z_BACKEND=auto
+      - ROBUST_Z_GPU_MIN_N=2048
+      - OBI_SUSTAINED_USE_FRACTION=true
+      - OBI_SUSTAINED_MIN_SAMPLES=3
+      - OBI_SUSTAINED_MIN_FRACTION=0.6
+      - BREAKOUT_REQUIRE_OBI=true
+      - BREAKOUT_REQUIRE_OBI20=true
+      - BREAKOUT_MIN_MICROPRICE_SHIFT_BPS=0.2
+      - BREAKOUT_WALL_MAX_DIST_BPS=10.0
+      - BREAKOUT_MIN_DEPLETION_SCORE=0.05
+      - BREAKOUT_MAX_REFILL_SCORE=0.05
+      - BREAKOUT_MAX_IMPACT_PROXY=0.35
+      - ABSORPTION_MIN_REFILL_SCORE=0.05
+      - ABSORPTION_WALL_MAX_DIST_BPS=12.0
+      - ABSORPTION_USE_L3_FILTERS=true
+      - ABSORPTION_L3_MIN_TAKER_RATE=0.0
+      - EXTREME_USE_L3_FILTERS=true
+      - EXTREME_L3_MAX_CANCEL_TO_TRADE=6.0
+      - EXTREME_L3_MIN_TAKER_RATE=0.0
+      - BTC_DELTA_Z_THRESHOLD=2.0
+      - BTC_OBI_THRESHOLD=0.35
+      - BTC_MIN_SIGNAL_INTERVAL=20
+      - BTC_STOP_MODE=ATR
+      - BTC_STOP_ATR_MULT=0.8
+      - BTC_TP_RR=1,1.5,2.5
+      - ETH_DELTA_Z_THRESHOLD=2.0
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    volumes:
+      - ./logs:/app/logs
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+    command:
+      - sh
+      - -c
+      - sleep 40 && python services/crypto_orderflow_service.py
+  crypto-orderflow-service-2:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-crypto-orderflow-2
+    runtime: nvidia
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - REDIS_TICKS_URL=redis://redis-ticks:6379/0
+      - ATR_SOURCE=redis
+      - ATR_TF=1m
+      - CRYPTO_OF_REFRESH_SEC=30
+      - CRYPTO_OF_LOG_LEVEL=DEBUG
+      - ORDERS_QUEUE=orders:queue
+      - CRYPTO_NOTIFY_STREAM=notify:telegram
+      - CRYPTO_NOTIFY_REDIS_URL=redis://redis-worker-1:6379/0
+      - CRYPTO_RAW_STREAM=signals:crypto:raw
+      - ATR_REDIS_URL=redis://redis-worker-1:6379/0
+      - CRYPTO_NOTIFY_SIGNAL_EVERY_N=10
+      - CRYPTO_SIGNAL_MIN_CONF=80
+      - DISABLE_CONFIDENCE_FILTER=false
+      # Signal Scoring Configuration
+      - MIN_SIGNAL_CONFIDENCE=80
+      - MIN_SIGNAL_CONFIDENCE__XAUUSD=20
+      - GOLDEN_PATTERN_MIN_CONFIDENCE=90
+      - SIGNAL_METRIC_WEIGHT__DELTA_SPIKE_Z=1.0
+      - SIGNAL_METRIC_WEIGHT__OBI=0.7
+      - SIGNAL_METRIC_WEIGHT__WEAK_PROGRESS=0.5
+      - SIGNAL_METRIC_WEIGHT__ATR_QUANTILE=0.3
+      - SIGNAL_PATTERN_WEIGHT__BREAKOUT_R1=1.2
+      - SIGNAL_PATTERN_WEIGHT__FADE_PDH=1.1
+      - SIGNAL_PATTERN_WEIGHT__FADE_HTF_OB=1.3
+      - SIGNAL_PATTERN_MIN_CONF__BREAKOUT_R1=85
+      - SIGNAL_PATTERN_MIN_CONF__FADE_PDH=80
+      - SIGNAL_PATTERN_MIN_CONF__FADE_HTF_OB=88
+      - TP1_SHIFT_MULT=1.4
+      - PYTHONPATH=/app
+      - ACCOUNT_DEPOSIT_USD=100
+      - ACCOUNT_LEVERAGE=100
+      - RISK_PERCENT=5.0
+      - CRYPTO_COMMISSION_RATE=0.0004
+      - TRAILING_TP1_OFFSET_ATR=0.6
+      - TRAILING_AFTER_TP1_SOURCES=CryptoOrderFlow
+      - TRAILING_TP1_OFFSET_ATR_CRYPTOORDERFLOW=0.5
+      - TRAILING_TP1_OFFSET_ATR_ETHUSDT=0.45
+      - STREAM_MSG_MAX_RETRIES=3
+      - STREAM_CLAIM_INTERVAL_MS=5000
+      - STREAM_CLAIM_MIN_IDLE_MS=15000
+      - STREAM_CLAIM_COUNT=50
+      - ORDERFLOW_DLQ_STREAM=stream:dlq:orderflow
+      - DELTA_BUCKET_MS=1000
+      - OBI_MAX_STALE_MS=2500
+      - TRAIL_Z_THRESHOLD=4.5
+      - FORCE_TRAIL_AFTER_TP1=true
+      - LEVEL_SIGNAL_COOLDOWN_MS=15000
+      - BREAKOUT_MIN_DIST_ATR=0.0
+      - USE_SIGNAL_OUTBOX=true
+      - SIGNAL_OUTBOX_STREAM=stream:signals:outbox
+      - SIGNAL_OUTBOX_MAXLEN=200000
+      - SIGNAL_DEDUP_GRANULARITY=minute
+      - SIGNAL_DEDUP_TTL_MS=90000
+      - OUTBOX_GROUP=signals-outbox-group
+      - OUTBOX_CONSUMER=outbox-dispatcher
+      - OUTBOX_MAX_RETRIES=5
+      - OUTBOX_DLQ_STREAM=stream:dlq:signal_outbox
+      - OUTBOX_CLAIM_INTERVAL_MS=5000
+      - OUTBOX_CLAIM_MIN_IDLE_MS=15000
+      - OUTBOX_CLAIM_COUNT=100
+      - OUTBOX_SENT_TTL_SEC=172800
+      - CRYPTO_DEFAULT_DAILY_RANGE_PCT=0.04
+      - CRYPTO_OBI_SPIKE_THR=0.7
+      - GPU_ENABLED=true
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - ENABLE_L3_PROXY=true
+      - L3_TAKER_RATE_EMA_ALPHA=0.12
+      - L3_EPS=1e-9
+      - L2_K_SMALL=5
+      - L2_K_LARGE=20
+      - L2_WALL_MULT=3.0
+      - L2_WALL_MAX_DIST_BPS=15.0
+      - L2_BATCH_MIN=3
+      - ROBUST_Z_BACKEND=auto
+      - ROBUST_Z_GPU_MIN_N=2048
+      - OBI_SUSTAINED_USE_FRACTION=true
+      - OBI_SUSTAINED_MIN_SAMPLES=3
+      - OBI_SUSTAINED_MIN_FRACTION=0.6
+      - BREAKOUT_REQUIRE_OBI=true
+      - BREAKOUT_REQUIRE_OBI20=true
+      - BREAKOUT_MIN_MICROPRICE_SHIFT_BPS=0.2
+      - BREAKOUT_WALL_MAX_DIST_BPS=10.0
+      - BREAKOUT_MIN_DEPLETION_SCORE=0.05
+      - BREAKOUT_MAX_REFILL_SCORE=0.05
+      - BREAKOUT_MAX_IMPACT_PROXY=0.35
+      - ABSORPTION_MIN_REFILL_SCORE=0.05
+      - ABSORPTION_WALL_MAX_DIST_BPS=12.0
+      - ABSORPTION_USE_L3_FILTERS=true
+      - ABSORPTION_L3_MIN_TAKER_RATE=0.0
+      - EXTREME_USE_L3_FILTERS=true
+      - EXTREME_L3_MAX_CANCEL_TO_TRADE=6.0
+      - EXTREME_L3_MIN_TAKER_RATE=0.0
+      - BTC_DELTA_Z_THRESHOLD=2.0
+      - BTC_OBI_THRESHOLD=0.35
+      - BTC_MIN_SIGNAL_INTERVAL=20
+      - BTC_STOP_MODE=ATR
+      - BTC_STOP_ATR_MULT=0.8
+      - BTC_TP_RR=1,1.5,2.5
+      - ETH_DELTA_Z_THRESHOLD=2.0
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    volumes:
+      - ./logs:/app/logs
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+    command:
+      - sh
+      - -c
+      - sleep 40 && python services/crypto_orderflow_service.py
+  tick-ingest-server:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-tick-ingest
+    environment:
+      - REDIS_URL=redis://redis-ticks:6379/0
+      - REDIS_SIGNALS_HOST=redis-ticks
+      - REDIS_SIGNALS_PORT=6379
+      - REDIS_SIGNALS_HOST_2=redis
+      - REDIS_SIGNALS_PORT_2=6379
+      - XAU_TICK_STREAM=stream:tick_XAUUSD
+      - XAU_BOOK_STREAM=stream:book_XAUUSD
+      - XAU_TICK_STREAM_MAXLEN=50000
+      - XAU_BOOK_STREAM_MAXLEN=20000
+      - XAU_TICK_USE_MAXLEN=false
+      - ALLOW_SYMBOLS=XAUUSD
+      - TICK_INGEST_HOST=0.0.0.0
+      - TICK_INGEST_PORT=8087
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    ports:
+      - 8087:8087
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+    ulimits:
+      nofile:
+        soft: 4096
+        hard: 4096
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://localhost:8087/health
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    command:
+      - sh
+      - -c
+      - sleep 30 && uvicorn services.tick_ingest_server:app --host 0.0.0.0 --port 8087
+  signal-performance-tracker:
+    profiles:
+      - default
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-signal-tracker
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - REDIS_HOST=redis-worker-1
+      - REDIS_PORT=6379
+      - REDIS_TICKS_URL=redis://redis-ticks:6379/0
+      - REDIS_TICKS_HOST=redis-ticks
+      - REDIS_TICKS_PORT=6379
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - TRACKER_CONFIG_PATH=/app/python-worker/config/signal_tracker_config.json
+      - SYMBOLS=XAUUSD,BTCUSDT,ETHUSDT
+      - STRATEGIES=orderflow,ta,aggregated,cryptoorderflow
+      - PERIODIC_REPORT_HOURS=1
+      - TP_RATIO=${TP_RATIO:-0.5,0.3,0.2}
+      - ENTRY_TAG_ANALYTICS_ENABLED=true
+      - ENTRY_TAG_ANALYTICS_LIMIT=2000
+      - ENTRY_TAG_MIN_TRADES=10
+      - TRAILING_TP1_OFFSET_ATR=0.6
+      - TRAILING_AFTER_TP1_SOURCES=CryptoOrderFlow
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      multi-symbol-orderflow:
+        condition: service_started
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+    ulimits:
+      nofile:
+        soft: 4096
+        hard: 4096
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pgrep -f signal_performance_tracker.py || exit 1
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    command:
+      - sh
+      - -c
+      - sleep 90 && python -m services.signal_performance_tracker
+  signal-dispatcher:
+    profiles:
+      - default
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-signal-dispatcher
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - REDIS_TICKS_URL=redis://redis-ticks:6379/0
+      - REDIS_SIGNALS_HOST=redis-worker-1
+      - REDIS_SIGNALS_PORT=6379
+      - REDIS_SIGNALS_HOST_2=redis-worker-2
+      - REDIS_SIGNALS_PORT_2=6379
+      - SIGNAL_OUTBOX_STREAM=stream:signals:outbox
+      - SIGNAL_DLQ_STREAM=stream:signals:dlq
+      - NOTIFY_STREAM=notify:telegram
+      - SIGNAL_OUTBOX_GROUP=signals-outbox-group
+      - SIGNAL_OUTBOX_CONSUMER=dispatcher
+      - SIGNAL_OUTBOX_READ_COUNT=200
+      - SIGNAL_OUTBOX_READ_BLOCK_MS=1000
+      - SIGNAL_OUTBOX_MAX_ATTEMPTS=7
+      - SIGNAL_DELIVERY_TTL_SEC=86400
+      - NOTIFY_SIGNAL_COUNTER_KEY=notify:telegram:signal_counter
+      - CRYPTO_NOTIFY_SIGNAL_EVERY_N=10
+      - PYTHONPATH=/app
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+    ulimits:
+      nofile:
+        soft: 4096
+        hard: 4096
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pgrep -f signal_dispatcher.py || exit 1
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    command:
+      - sh
+      - -c
+      - sleep 30 && python -m services.signal_dispatcher
+  periodic-reporter:
+    profiles:
+      - default
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-periodic-reporter
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - REDIS_HOST=redis-worker-1
+      - REDIS_PORT=6379
+      - PERIODIC_REPORT_INTERVAL_HOURS=0
+      - DAILY_REPORT_TIME=00:00
+      - NOTIFY_STREAM=notify:telegram
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      signal-performance-tracker:
+        condition: service_started
+    networks:
+      - scanner-network
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.3'
+        reservations:
+          memory: 64M
+    ulimits:
+      nofile:
+        soft: 4096
+        hard: 4096
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pgrep -f periodic_reporter.py || exit 1
+      interval: 120s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    command:
+      - sh
+      - -c
+      - sleep 120 && python -m services.periodic_reporter
+
+  trailing-tuner:
+    profiles:
+      - default
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-trailing-tuner
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - TRAILING_AUTOTUNE_STREAM=trades:closed
+      - TRAILING_AUTOTUNE_LIMIT=2000
+      - TRAILING_AUTOTUNE_SOURCE=CryptoOrderFlow
+      - TRAILING_AUTOTUNE_SYMBOLS=ETHUSDT,BTCUSDT
+      - TRAILING_AUTOTUNE_MIN_TRADES=50
+      - TRAILING_AUTOTUNE_MFE_QUANTILE=0.25
+      - TRAILING_AUTOTUNE_ENABLED=false # ← по умолчанию выключено
+      - TRAILING_AUTOTUNE_CONF_THRESHOLD=0.6 # минимальная confidence для записи
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.2'
+        reservations:
+          memory: 32M
+    # Запуск раз в час
+    command:
+      - sh
+      - -c
+      - |
+        while true; do
+          echo "🔧 Запуск trailing tuner..."
+          python tools/recommend_trailing_from_redis.py
+          echo "✅ Завершено. Ожидание 1 час..."
+          sleep 3600
+        done
+
+  # 1) Базовый воркер (анализ полной истории, автонастройка трейла)
+  scanner-trailing-autotune:
+    profiles:
+      - default
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-trailing-autotune
+    restart: unless-stopped
+    depends_on:
+      - redis
+      - redis-worker-1
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=redis://redis-worker-1:6379/0
+
+      # какие сделки анализируем
+      - TRAILING_AUTOTUNE_STREAM=trades:closed
+      - TRAILING_AUTOTUNE_SOURCE=CryptoOrderFlow
+      - TRAILING_AUTOTUNE_SYMBOLS=ETHUSDT,BTCUSDT
+      - TRAILING_AUTOTUNE_LIMIT=5000 # больше сделок для полной истории
+      - TRAILING_AUTOTUNE_MIN_TRADES=100 # строже требования к статистике
+      - TRAILING_AUTOTUNE_MFE_QUANTILE=0.25
+
+      # анализ по всей истории (скользящее окно не задаем)
+      # TRAILING_AUTOTUNE_WINDOW_HOURS=""
+
+      # автонастройка трейла включена
+      - TRAILING_AUTOTUNE_ENABLED=1
+      - TRAILING_AUTOTUNE_CONF_THRESHOLD=0.6
+
+      # фильтры по времени (опционально)
+      # - TRAILING_AUTOTUNE_FROM_TS=1733870000000
+      # - TRAILING_AUTOTUNE_TO_TS=1733956399000
+
+      # Telegram: раз в час
+      - TRAILING_AUTOTUNE_TELEGRAM_ENABLED=1
+      - TRAILING_AUTOTUNE_INTERVAL_SEC=3600
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+
+    command: ['python', '-m', 'tools.trailing_autotune_telegram']
+    networks:
+      - scanner-network
+    volumes:
+      - ./logs:/app/logs
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.3'
+        reservations:
+          memory: 64M
+
+  # 2) Воркер «последние 24 часа», каждые 15 минут
+  scanner-trailing-autotune-24h:
+    profiles:
+      - default
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-trailing-autotune-24h
+    restart: unless-stopped
+    depends_on:
+      - redis
+      - redis-worker-1
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=redis://redis-worker-1:6379/0
+
+      # какие сделки анализируем
+      - TRAILING_AUTOTUNE_STREAM=trades:closed
+      - TRAILING_AUTOTUNE_SOURCE=CryptoOrderFlow
+      - TRAILING_AUTOTUNE_SYMBOLS=ETHUSDT,BTCUSDT
+      - TRAILING_AUTOTUNE_LIMIT=2000
+      - TRAILING_AUTOTUNE_MIN_TRADES=30
+      - TRAILING_AUTOTUNE_MFE_QUANTILE=0.25
+
+      # скользящее окно 24 часа
+      - TRAILING_AUTOTUNE_WINDOW_HOURS=24
+
+      # автообновление отключено для 24h-анализа (только анализ)
+      - TRAILING_AUTOTUNE_ENABLED=0
+      - TRAILING_AUTOTUNE_CONF_THRESHOLD=0.7
+
+      # Telegram: каждые 15 минут
+      - TRAILING_AUTOTUNE_TELEGRAM_ENABLED=1
+      - TRAILING_AUTOTUNE_INTERVAL_SEC=900
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+
+    command: ['python', '-m', 'tools.trailing_autotune_telegram']
+    networks:
+      - scanner-network
+    volumes:
+      - ./logs:/app/logs
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.3'
+        reservations:
+          memory: 64M
+
+  py-obi-service:
+    build:
+      context: ./py-obi
+      dockerfile: Dockerfile.gpu
+    container_name: scanner-py-obi
+    runtime: nvidia
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PORT=8088
+      - OBI_WINDOW_LEVELS=5
+      - OBI_THRESHOLD=0.25
+      - OBI_SUSTAIN_MS=1200
+      - RING_SECONDS=600
+      - NOTIFY_URL=http://scanner-go-gateway:8090/notify
+      - REDIS_HOST=redis-ticks
+      - REDIS_PORT=6379
+      - REDIS_URL=redis://redis-ticks:6379/0
+      - GPU_ENABLED=true
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    ports:
+      - 8088:8088
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://localhost:8088/healthz
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+  go-gateway:
+    build:
+      context: ./go-gateway
+      dockerfile: Dockerfile
+    container_name: scanner-go-gateway
+    environment:
+      - PORT=8090
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - OBI_HOST=http://py-obi-service:8088
+      - REDIS_URL=redis://redis:6379/0
+      - SYMBOL=XAUUSD
+      - BOOK_LAST_KEY=book:levels:XAUUSD
+      - PIVOTS_LAST_KEY=pivots:latest
+      - ATR_LAST_KEY=ta:last:atr:XAUUSD
+      - PAPER_MODE=1
+      - SSE_INTERVAL_MS=1000
+      - DOM_LEVELS_LIMIT=20
+      - SPEC_POINT=0.1
+      - SPEC_TICK_VALUE_PER_LOT=1.0
+      - SPEC_CONTRACT_SIZE=0
+    depends_on:
+      py-obi-service:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - 8090:8090
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://localhost:8090/healthz
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+  telegram-worker:
+    profiles:
+      - default
+    build:
+      context: .
+      dockerfile: telegram-worker/Dockerfile
+    container_name: scanner-telegram-worker
+    env_file:
+      - ./telegram-worker/.env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - SESSIONS_DIR=/app/sessions
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - STREAM_NAME=signal:telegram:raw
+      - NOTIFY_STREAM=notify:telegram
+      - PARSED_TTL_SECONDS=3600
+      - CHANNELS=
+      - CHANNELS_REDIS_KEY=telegram:channels:usernames
+      - CHANNELS_REFRESH_SEC=60
+      - TG_WHITELIST=
+      - MAX_THREADS=5
+      - CHANNELS_PER_THREAD=20
+      - RAW_STREAM=signal:telegram:raw
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./telegram-worker/sessions:/app/sessions
+    networks:
+      - scanner-network
+    restart: on-failure:5
+    command:
+      - sh
+      - -c
+      - sleep 25 && python multithreaded_worker.py
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+  signal-parser-worker:
+    build:
+      context: .
+      dockerfile: telegram-worker/Dockerfile
+    container_name: scanner-signal-parser-worker
+    env_file:
+      - ./telegram-worker/.env
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - RAW_STREAM=signal:telegram:raw
+      - NOTIFY_STREAM=notify:telegram
+      - PARSED_TTL_SECONDS=3600
+      - CHANNELS=
+      - CHANNELS_REDIS_KEY=telegram:channels:usernames
+      - CHANNELS_REFRESH_SEC=60
+      - TG_WHITELIST=
+      # Local calibration
+      - LOCAL_CALIBRATION_FILE=/app/data/local_calibration.json
+      - PG_DSN=postgresql://postgres:12345@postgres:5434/trade
+      # Calibration parameters
+      - CALIB_LOOKBACK_DAYS=365
+      - CALIB_MIN_TRADES_CLUSTER=300
+      - CALIB_MIN_TRADES_BUCKET=30
+      - CALIB_MIN_MEAN_PNL_R=0.0
+    depends_on:
+      redis:
+        condition: service_healthy
+      telegram-worker:
+        condition: service_started
+    command:
+      - sh
+      - -c
+      - sleep 40 && python simple_signal_worker.py & python notify_worker.py & wait
+    networks:
+      - scanner-network
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+  notify-worker:
+    build:
+      context: .
+      dockerfile: telegram-worker/Dockerfile
+    container_name: scanner-notify-worker
+    env_file:
+      - ./telegram-worker/.env
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - NOTIFY_STREAM=notify:telegram
+      - PARSED_TTL_SECONDS=3600
+      - CHANNELS=
+      - CHANNELS_REDIS_KEY=telegram:channels:usernames
+      - CHANNELS_REFRESH_SEC=60
+      - TG_WHITELIST=
+    depends_on:
+      redis:
+        condition: service_healthy
+      signal-parser-worker:
+        condition: service_started
+    command:
+      - sh
+      - -c
+      - sleep 50 && python notify_worker.py
+    networks:
+      - scanner-network
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+  redis-cleanup:
+    build:
+      context: .
+      dockerfile: Dockerfile.cleanup
+    container_name: redis-cleanup
+    environment:
+      - REDIS_HOST=redis-worker-1
+      - REDIS_PORT=6379
+    depends_on:
+      redis:
+        condition: service_healthy
+      go-worker-1m:
+        condition: service_started
+      go-worker-5m:
+        condition: service_started
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - sleep 60 && while true; do ./redis-streams-cleanup.sh setup; sleep 21600; done
+  stream-trimmer:
+    build:
+      context: .
+      dockerfile: telegram-worker/Dockerfile
+    container_name: scanner-stream-trimmer
+    environment:
+      - REDIS_HOST=redis-worker-1
+      - REDIS_PORT=6379
+      - TRIM_INTERVAL_SECONDS=300
+      - DRY_RUN=false
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - sleep 30 && python3 /app/scripts/redis_batch_stream_trimmer.py
+    volumes:
+      - ./scripts:/app/scripts
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.1'
+        reservations:
+          memory: 64M
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: scanner-prometheus
+    ports:
+      - 9090:9090
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.console.libraries=/etc/prometheus/console_libraries
+      - --web.console.templates=/etc/prometheus/consoles
+      - --storage.tsdb.retention.time=200h
+      - --web.enable-lifecycle
+    depends_on:
+      - go-worker-1m
+      - go-worker-5m
+      - go-worker-15m
+      - go-worker-1h
+      - go-worker-4h
+      - go-worker-1d
+      - go-worker-1w
+      - go-worker-1month
+      - go-worker-3month
+      - go-worker-1y
+    networks:
+      - scanner-network
+    restart: unless-stopped
+  grafana:
+    image: grafana/grafana:latest
+    container_name: scanner-grafana
+    ports:
+      - 3001:3000
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - scanner-network
+    restart: unless-stopped
+  regime-worker:
+    build:
+      context: .
+      dockerfile: regime-worker/Dockerfile
+    image: scanner_infra-regime-worker:latest
+    container_name: scanner-regime-worker
+    environment:
+      - REDIS_READ_HOST=redis-worker-1
+      - REDIS_READ_PORT=6379
+      - REDIS_HOST=redis-worker-1
+      - REDIS_PORT=6379
+      - REGIME_WILDER_N=14
+      - REGIME_STREAM_OUT=stream:regime
+      - REGIME_CONSUMER_GROUP=regime-worker-group
+      - REGIME_READ_COUNT=10
+      - REGIME_READ_BLOCK_MS=1000
+      - DATABASE_URL=postgresql://trading:trading_password@postgres:5432/trade
+      - REGIME_QUANTILES_TTL_SEC=600
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      go-worker-1m:
+        condition: service_healthy
+      go-worker-5m:
+        condition: service_healthy
+      go-worker-15m:
+        condition: service_healthy
+      go-worker-1h:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - sleep 35 && python main.py
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+  regime-quantiles-job:
+    build:
+      context: .
+      dockerfile: regime-quantiles-job/Dockerfile
+    image: scanner_infra-regime-quantiles-job:latest
+    container_name: scanner-regime-quantiles-job
+    network_mode: host
+    environment:
+      - DATABASE_URL=postgresql://trading:trading_password@localhost:5435/trade
+      - REGIME_QUANTILES_INTERVAL_SEC=${REGIME_QUANTILES_INTERVAL_SEC:-900}
+      - REGIME_QUANTILES_LOOKBACK_DAYS=${REGIME_QUANTILES_LOOKBACK_DAYS:-14}
+      - REGIME_QUANTILES_MIN_SAMPLES=${REGIME_QUANTILES_MIN_SAMPLES:-500}
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+  signal-generator:
+    build:
+      context: .
+      dockerfile: signal-generator/Dockerfile
+    container_name: scanner-signal-generator
+    restart: unless-stopped
+    environment:
+      - GATEWAY_URL=http://scanner-go-gateway:8090
+      - OBI_SERVICE_URL=http://py-obi-service:8088
+      - SYMBOL=XAUUSD
+      - TIMEFRAME=M1
+      - CHECK_INTERVAL=30
+      - USE_REAL_TICKS=true
+      - REDIS_TICKS_URL=redis://redis-ticks:6379/0
+      - REDIS_SIGNALS_URL=redis://redis-worker-1:6379/0
+      - TICK_STREAM=stream:tick_XAUUSD
+      - EMA_FAST=9
+      - EMA_SLOW=21
+      - RSI_PERIOD=14
+      - RSI_OVERSOLD=35
+      - RSI_OVERBOUGHT=65
+      - ATR_PERIOD=14
+      - ATR_SL_MULTIPLIER=1.5
+      - ATR_TP_MULTIPLIERS=2.0,3.0,4.0
+      - DEFAULT_LOT=0.01
+      - MAX_LOT=0.1
+      - RISK_PERCENT=5.0
+      - ENABLE_POSITION_TRACKING=false
+      - MAX_POSITION_DURATION_HOURS=2.0
+      - TA_STREAM=signals:ta:XAUUSD
+      - NOTIFY_SIGNAL_EVERY_N=1
+      - USE_FILE_LOGGING=true
+      - LOG_DIR=/app/logs
+      # Golden pattern configuration
+      - GOLDEN_CONFIDENCE_DEFAULT=20
+      - GOLDEN_WEIGHT_DEFAULT=1.0
+      # Pattern-specific overrides
+      - GOLDEN_CONF_BREAKOUT_R1=93
+      - GOLDEN_CONF_FADE_PDH=88
+      - GOLDEN_CONF_FADE_HTF_OB=92
+      - GOLDEN_WEIGHT_BREAKOUT_R1=1.5
+      - GOLDEN_WEIGHT_FADE_PDH=0.8
+      - GOLDEN_WEIGHT_FADE_HTF_OB=1.2
+      # Scoring configuration
+      - CONFIDENCE_SCALE=0.01
+      - GOLDEN_SCORE_MULTIPLIER=1.3
+      - FINAL_SCORE_MAX=5.0
+      - MIN_FINAL_SCORE=0.6
+      # Local calibration
+      - LOCAL_CALIBRATION_FILE=/app/data/local_calibration.json
+      - PG_DSN=postgresql://postgres:12345@postgres:5434/trade
+      # Calibration parameters
+      - CALIB_LOOKBACK_DAYS=365
+      - CALIB_MIN_TRADES_CLUSTER=300
+      - CALIB_MIN_TRADES_BUCKET=30
+      - CALIB_MIN_MEAN_PNL_R=0.0
+      - LOG_LEVEL=INFO
+    depends_on:
+      redis-ticks:
+        condition: service_healthy
+      go-gateway:
+        condition: service_started
+      py-obi-service:
+        condition: service_started
+      redis-worker-1:
+        condition: service_started
+    networks:
+      - scanner-network
+    volumes:
+      - ./logs:/app/logs
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+  aggregated-hub:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-aggregated-hub
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - REDIS_TICKS_URL=redis://redis-ticks:6379/0
+      - SYMBOL=XAUUSD
+      - TICK_STREAM=stream:tick_XAUUSD
+      - PRINTS_STREAM=trades:prints_XAUUSD
+      - ORDERFLOW_STREAM=signals:orderflow:XAUUSD
+      - TA_STREAM=signals:ta:XAUUSD
+      - NOTIFY_STREAM=notify:telegram
+      - NOTIFY_SIGNAL_EVERY_N=3
+      - GATEWAY_URL=http://scanner-go-gateway:8090
+      - GATEWAY_PUSH_PATH=/orders/push
+      - LOG_LEVEL=DEBUG
+      - USE_FILE_LOGGING=true
+      - LOG_DIR=/app/logs
+      - HUB_CONFIDENCE_THR=0.25
+      - HUB_MIN_SIG_INT_SEC=180
+      - W_DELTA_PRO=0.50
+      - W_SPEED=0.15
+      - W_CLUSTER=0.25
+      - W_LEGACY=0.10
+      - HUB_SIDE_LOCK_SEC=20
+      - MIN_CONF=20.0
+      - HUB_COOLDOWN=300
+      - RISK_PCT=1.0
+      - SL_MULT=1.5
+      - TP_MULTS=2.0,3.0,4.0
+      - PARQUET_LABELS_DIR=/data/labels
+      - BOOK_LAST_KEY=book:levels:XAUUSD
+      - PIVOTS_KEY=pivots:latest
+      - USE_RISK_SIZER=true
+      - ACCOUNT_BALANCE=10000.0
+      - SYMBOL_POINT=0.1
+      - TICK_VALUE_PER_LOT=1.0
+      - LOT_STEP=0.01
+      - MIN_LOT=0.01
+      - MAX_LOT=10.0
+    depends_on:
+      - go-gateway
+      - py-obi-service
+      - redis-ticks
+      - redis-worker-1
+      - python-worker
+      - signal-generator
+    volumes:
+      - ./data/labels:/data/labels
+      - ./logs:/app/logs
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    command:
+      - python
+      - aggregated_signal_hub_v2.py
+    working_dir: /app
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: '0.75'
+        reservations:
+          memory: 384M
+  dom-ingester:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-dom-ingester
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - SYMBOL=XAUUSD
+      - DOM_VENDOR=BINANCE
+      - DOM_DEPTH=15
+      - BOOK_STREAM=stream:book_XAUUSD
+      - BOOK_LAST_KEY=book:levels:XAUUSD
+      - MOCK_MID_PRICE=3955.0
+      - MOCK_TICK_SIZE=0.1
+      - LOG_LEVEL=INFO
+    depends_on:
+      - redis-worker-1
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    command:
+      - python
+      - dom_stream_ingester.py
+    working_dir: /app
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+  atr-worker:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-atr-worker
+    runtime: nvidia
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - CANDLES_STREAM=candles:data
+      - ATR_GROUP=atr-worker-group
+      - ATR_CONSUMER=atr-worker-1
+      - ATR_PERIOD=14
+      - ATR_SYMBOLS=XAUUSD,BTCUSDT,ETHUSDT
+      - ATR_TFS=1m,5m,15m
+      - ADX_SYMBOLS=BTCUSDT,ETHUSDT
+      - ADX_TFS=1m
+      - ADX_PERIOD=14
+      - ADX_KEY_TEMPLATE=adx:{symbol}
+      - CONFIG_REFRESH_INTERVAL_SEC=5
+      - ATR_SYMBOLS_KEY=atr:config:symbols
+      - ATR_TFS_KEY=atr:config:tfs
+      - ADX_SYMBOLS_KEY=adx:config:symbols
+      - ADX_TFS_KEY=adx:config:tfs
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - GPU_ENABLED=true
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    depends_on:
+      - redis-worker-1
+      - go-worker-1m
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - sleep 180 && python3 services/atr_from_candles.py
+    working_dir: /app
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pgrep -f atr_from_candles || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+  signal-hub:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-signal-hub
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - SYMBOL=XAUUSD
+      - STREAM_ORDERFLOW=signals:orderflow:XAUUSD
+      - STREAM_TA=signals:ta:XAUUSD
+      - BOOK_LAST_KEY=book:levels:XAUUSD
+      - HUB_GROUP=hub-XAUUSD
+      - HUB_CONSUMER=hub-1
+      - MIN_CONF=60
+      - HUB_COOLDOWN=300
+      - W_OF=0.45
+      - W_TA=0.35
+      - W_CLUSTER=0.20
+      - GATEWAY_URL=http://go-gateway:8090
+      - ORDERS_PUSH_URL=http://go-gateway:8090/orders/push
+      - NOTIFY_STREAM=notify:telegram
+      - USE_RISK_SIZER=true
+      - RISK_PCT=1.0
+      - SL_MULT=1.5
+      - TP_MULTS=2.0,3.0,4.0
+      - ATR_FALLBACK=3.0
+      - SYMBOL_POINT=0.1
+      - TICK_VALUE_PER_LOT=1.0
+      - LOT_STEP=0.01
+      - MIN_LOT=0.01
+      - MAX_LOT=10.0
+      - MIN_TRADES_FOR_PRO=5
+      - TRADES_STREAM=trades:XAUUSD
+      - PYTHONPATH=/app
+    command:
+      - python3
+      - hub/aggregated_signal_hub_pro.py
+    depends_on:
+      redis:
+        condition: service_healthy
+      go-gateway:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: on-failure:3
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+  paper-executor:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-paper-executor
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - SYMBOL=XAUUSD
+      - TICK_STREAM=stream:tick_XAUUSD
+      - PAPER_ORDERS_STREAM=paper:orders
+      - PAPER_DEALS_STREAM=paper:deals
+      - PAPER_PARQUET=/data/paper_trades.parquet
+      - WORKER_THREADS=4
+      - ROUTE_CACHE_TTL_MS=500
+    volumes:
+      - backtest-data:/data
+      - ./python-worker:/app/python-worker:ro
+    command:
+      - python3
+      - python-worker/paper_executor.py
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15
+    container_name: scanner-postgres
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=12345
+      - POSTGRES_DB=trade
+      - POSTGRES_PORT=5432
+    ports:
+      - '5434:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d trade']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  scanner-network:
+    external: true
+volumes:
+  redis-data:
+    driver: local
+  redis-ticks-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  tg-sessions:
+    driver: local
+  backtest-data:
+    driver: local
+  postgres-data:
+    driver: local
+  redis-worker-1-data:
+    driver: local
+  redis-worker-2-data:
+    driver: local
+  redis-worker-1b-data:
+    driver: local
+  redis-worker-2b-data:
+    driver: local

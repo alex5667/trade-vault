@@ -1,0 +1,245 @@
+# Пример baseline-конфигурации для CryptoConfScorer
+# Сгенерировано оффлайн-джобом baseline_job.py
+
+crypto_conf_scorer:
+  default:
+    l3:
+      spread_max_ok_bps: 5.0
+      spread_hard_limit_bps: 18.0
+      cancel_soft: 2.0
+      cancel_hard: 4.5
+      obi_good_min: 0.55
+      obi_bad_max: 0.20
+      mp_drift_max_bps: 4.0
+
+  by_symbol:
+    BTCUSDT:
+      crypto_orderflow:
+        long:
+          l3:
+            spread_max_ok_bps: 3.0
+            spread_hard_limit_bps: 15.0
+            cancel_soft: 1.5
+            cancel_hard: 4.0
+            obi_good_min: 0.6
+            obi_bad_max: 0.15
+            mp_drift_max_bps: 3.0
+        short:
+          l3:
+            spread_max_ok_bps: 3.0
+            spread_hard_limit_bps: 15.0
+            cancel_soft: 1.5
+            cancel_hard: 4.0
+            obi_good_min: 0.6
+            obi_bad_max: 0.15
+            mp_drift_max_bps: 3.0
+
+    ETHUSDT:
+      crypto_orderflow:
+        long:
+          l3:
+            spread_max_ok_bps: 4.0
+            spread_hard_limit_bps: 16.0
+            cancel_soft: 1.8
+            cancel_hard: 4.2
+            obi_good_min: 0.58
+            obi_bad_max: 0.18
+            mp_drift_max_bps: 3.5
+        short:
+          l3:
+            spread_max_ok_bps: 4.0
+            spread_hard_limit_bps: 16.0
+            cancel_soft: 1.8
+            cancel_hard: 4.2
+            obi_good_min: 0.58
+            obi_bad_max: 0.18
+            mp_drift_max_bps: 3.5
+
+    PEPEUSDT:
+      crypto_orderflow:
+        long:
+          l3:
+            spread_max_ok_bps: 6.0
+            spread_hard_limit_bps: 30.0
+            cancel_soft: 2.0
+            cancel_hard: 5.0
+            obi_good_min: 0.65
+            obi_bad_max: 0.12
+            mp_drift_max_bps: 4.0
+        short:
+          l3:
+            spread_max_ok_bps: 6.0
+            spread_hard_limit_bps: 30.0
+            cancel_soft: 2.0
+            cancel_hard: 5.0
+            obi_good_min: 0.65
+            obi_bad_max: 0.12
+            mp_drift_max_bps: 4.0
+
+    DOGEUSDT:
+      crypto_orderflow:
+        long:
+          l3:
+            spread_max_ok_bps: 4.0
+            spread_hard_limit_bps: 20.0
+            cancel_soft: 1.7
+            cancel_hard: 4.5
+            obi_good_min: 0.62
+            obi_bad_max: 0.14
+            mp_drift_max_bps: 3.5
+        short:
+          l3:
+            spread_max_ok_bps: 4.0
+            spread_hard_limit_bps: 20.0
+            cancel_soft: 1.7
+            cancel_hard: 4.5
+            obi_good_min: 0.62
+            obi_bad_max: 0.14
+            mp_drift_max_bps: 3.5
+
+    SHIBUSDT:
+      crypto_orderflow:
+        long:
+          l3:
+            spread_max_ok_bps: 6.0
+            spread_hard_limit_bps: 30.0
+            cancel_soft: 2.0
+            cancel_hard: 5.0
+            obi_good_min: 0.65
+            obi_bad_max: 0.12
+            mp_drift_max_bps: 4.0
+        short:
+          l3:
+            spread_max_ok_bps: 6.0
+            spread_hard_limit_bps: 30.0
+            cancel_soft: 2.0
+            cancel_hard: 5.0
+            obi_good_min: 0.65
+            obi_bad_max: 0.12
+            mp_drift_max_bps: 4.0
+
+    FLOKIUSDT:
+      crypto_orderflow:
+        long:
+          l3:
+            spread_max_ok_bps: 6.0
+            spread_hard_limit_bps: 35.0
+            cancel_soft: 2.0
+            cancel_hard: 5.0
+            obi_good_min: 0.65
+            obi_bad_max: 0.12
+            mp_drift_max_bps: 4.0
+        short:
+          l3:
+            spread_max_ok_bps: 6.0
+            spread_hard_limit_bps: 35.0
+            cancel_soft: 2.0
+            cancel_hard: 5.0
+            obi_good_min: 0.65
+            obi_bad_max: 0.12
+            mp_drift_max_bps: 4.0
+
+    BONKUSDT:
+      crypto_orderflow:
+        long:
+          l3:
+            spread_max_ok_bps: 6.0
+            spread_hard_limit_bps: 40.0
+            cancel_soft: 2.0
+            cancel_hard: 5.0
+            obi_good_min: 0.65
+            obi_bad_max: 0.12
+            mp_drift_max_bps: 4.0
+        short:
+          l3:
+            spread_max_ok_bps: 6.0
+            spread_hard_limit_bps: 40.0
+            cancel_soft: 2.0
+            cancel_hard: 5.0
+            obi_good_min: 0.65
+            obi_bad_max: 0.12
+            mp_drift_max_bps: 4.0
+
+    WIFUSDT:
+      crypto_orderflow:
+        long:
+          l3:
+            spread_max_ok_bps: 6.0
+            spread_hard_limit_bps: 28.0
+            cancel_soft: 2.0
+            cancel_hard: 5.0
+            obi_good_min: 0.65
+            obi_bad_max: 0.12
+            mp_drift_max_bps: 4.0
+        short:
+          l3:
+            spread_max_ok_bps: 6.0
+            spread_hard_limit_bps: 28.0
+            cancel_soft: 2.0
+            cancel_hard: 5.0
+            obi_good_min: 0.65
+            obi_bad_max: 0.12
+            mp_drift_max_bps: 4.0
+
+    SUIUSDT:
+      crypto_orderflow:
+        long:
+          l3:
+            spread_max_ok_bps: 3.5
+            spread_hard_limit_bps: 18.0
+            cancel_soft: 1.6
+            cancel_hard: 4.2
+            obi_good_min: 0.60
+            obi_bad_max: 0.15
+            mp_drift_max_bps: 3.2
+        short:
+          l3:
+            spread_max_ok_bps: 3.5
+            spread_hard_limit_bps: 18.0
+            cancel_soft: 1.6
+            cancel_hard: 4.2
+            obi_good_min: 0.60
+            obi_bad_max: 0.15
+            mp_drift_max_bps: 3.2
+
+    APTUSDT:
+      crypto_orderflow:
+        long:
+          l3:
+            spread_max_ok_bps: 3.5
+            spread_hard_limit_bps: 18.0
+            cancel_soft: 1.6
+            cancel_hard: 4.2
+            obi_good_min: 0.60
+            obi_bad_max: 0.15
+            mp_drift_max_bps: 3.2
+        short:
+          l3:
+            spread_max_ok_bps: 3.5
+            spread_hard_limit_bps: 18.0
+            cancel_soft: 1.6
+            cancel_hard: 4.2
+            obi_good_min: 0.60
+            obi_bad_max: 0.15
+            mp_drift_max_bps: 3.2
+
+    ARBUSDT:
+      crypto_orderflow:
+        long:
+          l3:
+            spread_max_ok_bps: 3.5
+            spread_hard_limit_bps: 18.0
+            cancel_soft: 1.6
+            cancel_hard: 4.2
+            obi_good_min: 0.60
+            obi_bad_max: 0.15
+            mp_drift_max_bps: 3.2
+        short:
+          l3:
+            spread_max_ok_bps: 3.5
+            spread_hard_limit_bps: 18.0
+            cancel_soft: 1.6
+            cancel_hard: 4.2
+            obi_good_min: 0.60
+            obi_bad_max: 0.15
+            mp_drift_max_bps: 3.2

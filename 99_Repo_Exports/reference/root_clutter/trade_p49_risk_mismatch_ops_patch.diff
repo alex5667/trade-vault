@@ -1,0 +1,462 @@
+diff -ruN p48work/audit_code/risk/test_p49_risk_mismatch_summary_assets_v1.py p49work/audit_code/risk/test_p49_risk_mismatch_summary_assets_v1.py
+--- p48work/audit_code/risk/test_p49_risk_mismatch_summary_assets_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p49work/audit_code/risk/test_p49_risk_mismatch_summary_assets_v1.py	2026-03-07 08:24:34.055941831 +0000
+@@ -0,0 +1,10 @@
++from pathlib import Path
++
++
++def test_p49_migrations_and_alerts_exist():
++    base = Path(__file__).resolve().parents[2]
++    assert (base / 'db' / 'migrations' / '20260306_17_risk_mismatch_retention_partitioning.sql').exists()
++    assert (base / 'db' / 'migrations' / '20260306_18_risk_mismatch_retention_partitioning_indexes.sql').exists()
++    alert = (base / 'monitoring' / 'prometheus_rules_execution_p49_risk_mismatch.yml').read_text(encoding='utf-8')
++    assert 'TradeRiskMismatchRateHigh24h' in alert
++    assert 'TradeRiskMismatchSummaryStale' in alert
+diff -ruN p48work/binance_execution/test_p49_risk_drift_drilldown_assets_v1.py p49work/binance_execution/test_p49_risk_drift_drilldown_assets_v1.py
+--- p48work/binance_execution/test_p49_risk_drift_drilldown_assets_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p49work/binance_execution/test_p49_risk_drift_drilldown_assets_v1.py	2026-03-07 08:24:34.096413323 +0000
+@@ -0,0 +1,8 @@
++from pathlib import Path
++import json
++
++
++def test_drilldown_dashboard_contains_sid_and_decision_id_variables():
++    dash = json.loads((Path(__file__).resolve().parents[1] / 'monitoring' / 'grafana' / 'dashboards' / 'trade_execution_p49_risk_drift_drilldown.json').read_text(encoding='utf-8'))
++    names = {item['name'] for item in dash.get('templating', {}).get('list', [])}
++    assert {'sid', 'decision_id'} <= names
+diff -ruN p48work/binance_execution/test_runbook_server_risk_mismatch_summary_v1.py p49work/binance_execution/test_runbook_server_risk_mismatch_summary_v1.py
+--- p48work/binance_execution/test_runbook_server_risk_mismatch_summary_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p49work/binance_execution/test_runbook_server_risk_mismatch_summary_v1.py	2026-03-07 08:24:34.085399355 +0000
+@@ -0,0 +1,6 @@
++from pathlib import Path
++
++
++def test_runbook_server_has_risk_mismatch_summary_endpoint():
++    src = (Path(__file__).resolve().parents[1] / 'runbooks' / 'server' / 'runbook_server.py').read_text(encoding='utf-8')
++    assert '/api/risk-mismatch-summary/latest' in src
+diff -ruN p48work/config/docker-compose.execution-p49-risk-mismatch.override.yml p49work/config/docker-compose.execution-p49-risk-mismatch.override.yml
+--- p48work/config/docker-compose.execution-p49-risk-mismatch.override.yml	1970-01-01 00:00:00.000000000 +0000
++++ p49work/config/docker-compose.execution-p49-risk-mismatch.override.yml	2026-03-07 08:24:33.970237901 +0000
+@@ -0,0 +1,7 @@
++services:
++  trade-risk-mismatch-summary-refresher:
++    command: ["python3", "/opt/trade/scripts/refresh_risk_mismatch_summary.py"]
++    environment:
++      - RISK_MISMATCH_SUMMARY_TEXTFILE_PATH=/var/lib/node_exporter/textfile_collector/risk_mismatch_summary.prom
++  trade-risk-mismatch-retention:
++    command: ["python3", "/opt/trade/scripts/purge_risk_mismatch_hot_tables.py"]
+diff -ruN p48work/config/env.execution-p49-risk-mismatch.example p49work/config/env.execution-p49-risk-mismatch.example
+--- p48work/config/env.execution-p49-risk-mismatch.example	1970-01-01 00:00:00.000000000 +0000
++++ p49work/config/env.execution-p49-risk-mismatch.example	2026-03-07 08:24:33.960377290 +0000
+@@ -0,0 +1,5 @@
++RISK_MISMATCH_SUMMARY_TEXTFILE_PATH=/var/lib/node_exporter/textfile_collector/risk_mismatch_summary.prom
++RISK_MISMATCH_SUMMARY_STALE_SEC=1800
++RISK_MISMATCH_RETENTION_DAYS=30
++RISK_MISMATCH_REPEAT_THRESHOLD=3
++RISK_MISMATCH_DRILLDOWN_DASHBOARD_UID=trade-execution-p49-risk-drift-drilldown
+diff -ruN p48work/db/migrations/20260306_17_risk_mismatch_retention_partitioning.sql p49work/db/migrations/20260306_17_risk_mismatch_retention_partitioning.sql
+--- p48work/db/migrations/20260306_17_risk_mismatch_retention_partitioning.sql	1970-01-01 00:00:00.000000000 +0000
++++ p49work/db/migrations/20260306_17_risk_mismatch_retention_partitioning.sql	2026-03-07 08:24:33.854344015 +0000
+@@ -0,0 +1,35 @@
++-- P4.9: retention + partitioning for risk_mismatch_quarantine_ledger.
++
++create table if not exists risk_mismatch_quarantine_ledger_archive (
++  like risk_mismatch_quarantine_ledger including all
++) partition by range (created_ts_ms);
++
++create or replace function ensure_monthly_range_partition_risk_mismatch(parent_table text, partition_prefix text, ts_ms bigint)
++returns void language plpgsql as $$
++declare
++  start_ts timestamptz;
++  end_ts timestamptz;
++  part_name text;
++  from_ms bigint;
++  to_ms bigint;
++begin
++  start_ts := date_trunc('month', to_timestamp(ts_ms / 1000.0) at time zone 'utc');
++  end_ts := start_ts + interval '1 month';
++  part_name := partition_prefix || to_char(start_ts, 'YYYYMM');
++  from_ms := (extract(epoch from start_ts) * 1000)::bigint;
++  to_ms := (extract(epoch from end_ts) * 1000)::bigint;
++  execute format('create table if not exists %I partition of %I for values from (%s) to (%s)', part_name, parent_table, from_ms, to_ms);
++end$$;
++
++create or replace function purge_risk_mismatch_hot_tables(cutoff_ts_ms bigint)
++returns table(purged_quarantine bigint) language plpgsql as $$
++declare
++  q_count bigint := 0;
++begin
++  perform ensure_monthly_range_partition_risk_mismatch('risk_mismatch_quarantine_ledger_archive', 'risk_mismatch_quarantine_archive_', cutoff_ts_ms);
++  insert into risk_mismatch_quarantine_ledger_archive
++  select * from risk_mismatch_quarantine_ledger where created_ts_ms < cutoff_ts_ms;
++  get diagnostics q_count = row_count;
++  delete from risk_mismatch_quarantine_ledger where created_ts_ms < cutoff_ts_ms;
++  return query select q_count;
++end$$;
+diff -ruN p48work/db/migrations/20260306_18_risk_mismatch_retention_partitioning_indexes.sql p49work/db/migrations/20260306_18_risk_mismatch_retention_partitioning_indexes.sql
+--- p48work/db/migrations/20260306_18_risk_mismatch_retention_partitioning_indexes.sql	1970-01-01 00:00:00.000000000 +0000
++++ p49work/db/migrations/20260306_18_risk_mismatch_retention_partitioning_indexes.sql	2026-03-07 08:24:33.863850333 +0000
+@@ -0,0 +1,2 @@
++create index if not exists risk_mismatch_quarantine_ledger_archive_sid_idx on risk_mismatch_quarantine_ledger_archive (sid, created_ts_ms desc);
++create index if not exists risk_mismatch_quarantine_ledger_archive_decision_idx on risk_mismatch_quarantine_ledger_archive (decision_id, created_ts_ms desc);
+diff -ruN p48work/deploy/systemd/README.md p49work/deploy/systemd/README.md
+--- p48work/deploy/systemd/README.md	2026-03-07 07:24:22.000000000 +0000
++++ p49work/deploy/systemd/README.md	2026-03-07 08:24:34.097734098 +0000
+@@ -35,3 +35,4 @@
+ 
+ - `trade-risk-engine-canary-report.timer` — periodic risk-engine canary report
+ - `trade-risk-decision-summary-refresh.timer` — periodic refresh of materialized risk decision summary
++- trade-risk-mismatch-retention.timer — purge risk mismatch quarantine hot rows to archive partitions.
+diff -ruN p48work/deploy/systemd/trade-risk-mismatch-retention.service p49work/deploy/systemd/trade-risk-mismatch-retention.service
+--- p48work/deploy/systemd/trade-risk-mismatch-retention.service	1970-01-01 00:00:00.000000000 +0000
++++ p49work/deploy/systemd/trade-risk-mismatch-retention.service	2026-03-07 08:24:33.893890615 +0000
+@@ -0,0 +1,9 @@
++[Unit]
++Description=Purge archived risk mismatch quarantine rows
++After=network-online.target
++
++[Service]
++Type=oneshot
++WorkingDirectory=/opt/trade
++EnvironmentFile=-/etc/default/trade-risk-p49
++ExecStart=/usr/bin/python3 /opt/trade/scripts/purge_risk_mismatch_hot_tables.py
+diff -ruN p48work/deploy/systemd/trade-risk-mismatch-retention.timer p49work/deploy/systemd/trade-risk-mismatch-retention.timer
+--- p48work/deploy/systemd/trade-risk-mismatch-retention.timer	1970-01-01 00:00:00.000000000 +0000
++++ p49work/deploy/systemd/trade-risk-mismatch-retention.timer	2026-03-07 08:24:33.948145127 +0000
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Periodic purge of risk mismatch quarantine ledger hot rows
++
++[Timer]
++OnCalendar=*-*-* 03:35:00
++Persistent=true
++Unit=trade-risk-mismatch-retention.service
++
++[Install]
++WantedBy=timers.target
+diff -ruN p48work/monitoring/alertmanager/templates/trade_execution.tmpl p49work/monitoring/alertmanager/templates/trade_execution.tmpl
+--- p48work/monitoring/alertmanager/templates/trade_execution.tmpl	2026-03-07 08:13:08.000000000 +0000
++++ p49work/monitoring/alertmanager/templates/trade_execution.tmpl	2026-03-07 08:24:33.660089741 +0000
+@@ -23,6 +23,8 @@
+ Risk Canary: http://trade-runbook-server:18080/api/risk-canary/latest
+ Risk Summary: http://trade-runbook-server:18080/api/risk-summary/latest
+ Risk Drift: http://trade-runbook-server:18080/api/risk-mismatch/latest
++Risk Drift Summary: http://trade-runbook-server:18080/api/risk-mismatch-summary/latest
++Risk Drift Drilldown: http://grafana:3000/d/trade-execution-p49-risk-drift-drilldown/trade-execution-p49-risk-drift-drilldown
+ Unified Ops Dashboard: http://grafana:3000/d/trade-execution-p48-unified/trade-execution-p48-unified
+ Silence: {{ .ExternalURL }}/#/silences/new?filter=%7Balertname%3D%22{{ .CommonLabels.alertname }}%22%7D
+ {{- end }}
+diff -ruN p48work/monitoring/grafana/dashboards/trade_execution_p49_risk_drift_drilldown.json p49work/monitoring/grafana/dashboards/trade_execution_p49_risk_drift_drilldown.json
+--- p48work/monitoring/grafana/dashboards/trade_execution_p49_risk_drift_drilldown.json	1970-01-01 00:00:00.000000000 +0000
++++ p49work/monitoring/grafana/dashboards/trade_execution_p49_risk_drift_drilldown.json	2026-03-07 08:24:33.883807110 +0000
+@@ -0,0 +1,18 @@
++{
++  "title": "Trade Execution P49 Risk Drift Drilldown",
++  "uid": "trade-execution-p49-risk-drift-drilldown",
++  "schemaVersion": 38,
++  "version": 1,
++  "templating": {
++    "list": [
++      {"name": "sid", "type": "textbox", "label": "SID", "query": ""},
++      {"name": "decision_id", "type": "textbox", "label": "Decision ID", "query": ""}
++    ]
++  },
++  "panels": [
++    {"type": "text", "title": "Drilldown Filters", "gridPos": {"x":0,"y":0,"w":24,"h":4}, "options": {"mode": "markdown", "content": "Use **sid** and **decision_id** variables to drill into mismatch quarantine events and correlated risk decisions."}},
++    {"type": "table", "title": "Mismatch Quarantine Ledger", "gridPos": {"x":0,"y":4,"w":24,"h":8}, "targets": [{"refId": "A", "rawSql": "select created_ts_ms, sid, decision_id, symbol, tier, repeated_count, mismatch_rate, quarantine_action from risk_mismatch_quarantine_ledger where ('${sid}' = '' or sid='${sid}') and ('${decision_id}' = '' or decision_id='${decision_id}') order by created_ts_ms desc limit 200"}]},
++    {"type": "table", "title": "Risk Decision Audit", "gridPos": {"x":0,"y":12,"w":24,"h":8}, "targets": [{"refId": "B", "rawSql": "select created_ts_ms, decision_id, sid, symbol, tier, level, effective_execution_policy, adjusted_notional_usd, leverage_cap, clamp_ratio from risk_decision_audit where ('${sid}' = '' or sid='${sid}') and ('${decision_id}' = '' or decision_id='${decision_id}') order by created_ts_ms desc limit 200"}]},
++    {"type": "table", "title": "Risk Snapshot", "gridPos": {"x":0,"y":20,"w":24,"h":8}, "targets": [{"refId": "C", "rawSql": "select updated_ts_ms, decision_id, sid, symbol, tier, level, effective_execution_policy, adjusted_notional_usd, leverage_cap, clamp_ratio from risk_snapshot where ('${sid}' = '' or sid='${sid}') and ('${decision_id}' = '' or decision_id='${decision_id}') order by updated_ts_ms desc limit 200"}]}
++  ]
++}
+diff -ruN p48work/monitoring/prometheus_rules_execution_p49_risk_mismatch.yml p49work/monitoring/prometheus_rules_execution_p49_risk_mismatch.yml
+--- p48work/monitoring/prometheus_rules_execution_p49_risk_mismatch.yml	1970-01-01 00:00:00.000000000 +0000
++++ p49work/monitoring/prometheus_rules_execution_p49_risk_mismatch.yml	2026-03-07 08:24:33.842786947 +0000
+@@ -0,0 +1,30 @@
++groups:
++  - name: trade-risk-mismatch-summary
++    rules:
++      - alert: TradeRiskMismatchSummaryStale
++        expr: trade_risk_mismatch_summary_stale > 0
++        for: 15m
++        labels:
++          severity: warning
++          domain: risk
++        annotations:
++          summary: Risk mismatch materialized summary is stale.
++          description: risk_mismatch_summary_mv refresh report has exceeded freshness threshold.
++      - alert: TradeRiskMismatchRateHigh24h
++        expr: max by (tier) (trade_risk_mismatch_summary_avg_rate{window_name="24h"}) > 0.10
++        for: 20m
++        labels:
++          severity: warning
++          domain: risk
++        annotations:
++          summary: Risk mismatch rate is high over 24h.
++          description: Materialized mismatch summary shows sustained elevated avg mismatch rate.
++      - alert: TradeRiskMismatchQuarantineSpike24h
++        expr: sum(trade_risk_mismatch_summary_quarantine_count{window_name="24h"}) > 5
++        for: 10m
++        labels:
++          severity: critical
++          domain: risk
++        annotations:
++          summary: Risk mismatch quarantine spike detected.
++          description: Materialized mismatch summary reports too many quarantined sid in the last 24h.
+diff -ruN p48work/runbooks/P49_RISK_MISMATCH_SUMMARY_AND_DRILLDOWN.md p49work/runbooks/P49_RISK_MISMATCH_SUMMARY_AND_DRILLDOWN.md
+--- p48work/runbooks/P49_RISK_MISMATCH_SUMMARY_AND_DRILLDOWN.md	1970-01-01 00:00:00.000000000 +0000
++++ p49work/runbooks/P49_RISK_MISMATCH_SUMMARY_AND_DRILLDOWN.md	2026-03-07 08:24:34.044510786 +0000
+@@ -0,0 +1,13 @@
++# P4.9 — Risk mismatch summary and drilldown
++
++## Что добавлено
++- materialized-summary alerts по `risk_mismatch_summary_mv`
++- freshness textfile exporter для mismatch summary
++- penalty в operator score на основе materialized mismatch summary
++- Grafana drilldown dashboard по `sid` / `decision_id`
++- retention/partitioning для `risk_mismatch_quarantine_ledger`
++
++## Операторские шаги
++1. Проверьте `/api/risk-mismatch-summary/latest`.
++2. Если alert ссылается на Risk Drift Drilldown — откройте dashboard и задайте `sid` или `decision_id`.
++3. Для ночной очистки сначала запустите `purge_risk_mismatch_hot_tables.py --dry-run`.
+diff -ruN p48work/runbooks/server/runbook_server.py p49work/runbooks/server/runbook_server.py
+--- p48work/runbooks/server/runbook_server.py	2026-03-07 08:13:08.000000000 +0000
++++ p49work/runbooks/server/runbook_server.py	2026-03-07 08:24:33.659389394 +0000
+@@ -43,7 +43,7 @@
+ <style>body{{font-family:sans-serif;margin:2rem;max-width:1100px}}code{{background:#f4f4f4;padding:.1rem .3rem}}.badge{{padding:.15rem .5rem;border-radius:4px;background:#eee}}.ok{{background:#d1fae5}}.warning{{background:#fef3c7}}.critical{{background:#fee2e2}}</style>
+ </head><body>
+ <h1>Trade Execution Runbooks</h1>
+-<p>Latest health: <span class="badge {badge}">{html.escape(badge)}</span> — <a href="/api/health/latest">Health JSON</a> | <a href="/api/rebuild/latest">Rebuild JSON</a> | <a href="/api/autonomy/latest">Autonomy JSON</a> | <a href="/api/replay-slo/latest">Replay SLO JSON</a> | <a href="/api/risk-canary/latest">Risk Canary JSON</a> | <a href="/api/risk-summary/latest">Risk Summary JSON</a> | <a href="/api/operator-score/latest">Operator Score JSON</a> | <a href="/api/risk-mismatch/latest">Risk Drift JSON</a></p>
++<p>Latest health: <span class="badge {badge}">{html.escape(badge)}</span> — <a href="/api/health/latest">Health JSON</a> | <a href="/api/rebuild/latest">Rebuild JSON</a> | <a href="/api/autonomy/latest">Autonomy JSON</a> | <a href="/api/replay-slo/latest">Replay SLO JSON</a> | <a href="/api/risk-canary/latest">Risk Canary JSON</a> | <a href="/api/risk-summary/latest">Risk Summary JSON</a> | <a href="/api/operator-score/latest">Operator Score JSON</a> | <a href="/api/risk-mismatch/latest">Risk Drift JSON</a> | <a href="/api/risk-mismatch-summary/latest">Risk Drift Summary JSON</a></p>
+ <h2>Runbooks</h2><ul>{''.join(items) or '<li>no runbooks found</li>'}</ul>
+ <h2>Reports</h2><ul>{''.join(report_items) or '<li>no reports found</li>'}</ul>
+ <p><code>/healthz</code> returns 200 if the server process is alive.</p>
+@@ -112,6 +112,18 @@
+                 return
+             self.send_error(404, 'risk canary report not found')
+             return
++        if parsed.path == '/api/risk-mismatch-summary/latest':
++            latest = self.report_root / 'latest_risk_mismatch_summary.json'
++            if latest.exists():
++                body = latest.read_bytes()
++                self.send_response(200)
++                self.send_header('Content-Type', 'application/json; charset=utf-8')
++                self.send_header('Content-Length', str(len(body)))
++                self.end_headers()
++                self.wfile.write(body)
++                return
++            self.send_error(404, 'risk mismatch summary not found')
++            return
+         if parsed.path == '/api/operator-score/latest':
+             latest = self.report_root / 'latest_operator_score.json'
+             if latest.exists():
+diff -ruN p48work/scripts/build_operator_score_report.py p49work/scripts/build_operator_score_report.py
+--- p48work/scripts/build_operator_score_report.py	2026-03-07 08:00:03.000000000 +0000
++++ p49work/scripts/build_operator_score_report.py	2026-03-07 08:24:31.450342897 +0000
+@@ -42,18 +42,43 @@
+     return max(0.0, score)
+ 
+ 
++def _extract_mismatch_penalty(doc: Dict[str, Any]) -> Dict[str, float]:
++    rows = list(doc.get('rows') or [])
++    target = next((x for x in rows if str(x.get('window_name')) == '24h' and str(x.get('tier') or '').upper() == 'ALL'), None)
++    if target is None:
++        target_rows = [x for x in rows if str(x.get('window_name')) == '24h']
++        if target_rows:
++            avg_q = sum(float(x.get('quarantine_count') or 0.0) for x in target_rows)
++            avg_r = sum(float(x.get('avg_mismatch_rate') or 0.0) for x in target_rows) / len(target_rows)
++        else:
++            avg_q = 0.0
++            avg_r = 0.0
++    else:
++        avg_q = float(target.get('quarantine_count') or 0.0)
++        avg_r = float(target.get('avg_mismatch_rate') or 0.0)
++    penalty = min(avg_q * 2.0, 12.0) + min(avg_r * 100.0, 12.0)
++    return {
++        'mismatch_quarantine_count_24h': avg_q,
++        'mismatch_avg_rate_24h': avg_r,
++        'mismatch_penalty': round(penalty, 2),
++    }
++
++
+ def build_report(report_dir: Path) -> Dict[str, Any]:
+     execution = _load_json(report_dir / 'latest_canary_scoring.json')
+     replay = _load_json(report_dir / 'latest_replay_slo_summary.json')
+     risk = _load_json(report_dir / 'latest_risk_engine_canary.json')
+     health = _load_json(report_dir / 'latest_execution_health.json')
+     risk_consistency = _load_json(report_dir / 'latest_risk_signal_consistency.json')
++    mismatch_summary = _load_json(report_dir / 'latest_risk_mismatch_summary.json')
+     execution_score = float(execution.get('score') or 50.0)
+     replay_score = _replay_score(replay)
+     risk_score = float(risk.get('score') or 50.0)
+     mismatch_rate = float(risk_consistency.get('mismatch_rate') or 0.0)
++    summary = _extract_mismatch_penalty(mismatch_summary)
+     score = execution_score * 0.40 + replay_score * 0.30 + risk_score * 0.30
+     score -= min(mismatch_rate * 100.0, 10.0)
++    score -= float(summary.get('mismatch_penalty') or 0.0)
+     status = str(health.get('overall_status') or 'ok')
+     if status == 'warning':
+         score -= 5.0
+@@ -66,6 +91,7 @@
+         'risk_score': round(risk_score, 2),
+         'risk_mismatch_rate': mismatch_rate,
+         'health_status': status,
++        **summary,
+         'score': round(score, 2),
+         'bucket': _bucket(score),
+     }
+diff -ruN p48work/scripts/purge_risk_mismatch_hot_tables.py p49work/scripts/purge_risk_mismatch_hot_tables.py
+--- p48work/scripts/purge_risk_mismatch_hot_tables.py	1970-01-01 00:00:00.000000000 +0000
++++ p49work/scripts/purge_risk_mismatch_hot_tables.py	2026-03-07 08:24:33.874028301 +0000
+@@ -0,0 +1,41 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import time
++
++try:
++    import psycopg  # type: ignore
++except Exception:  # pragma: no cover
++    psycopg = None  # type: ignore
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description='Archive and purge risk mismatch quarantine ledger rows older than retention window.')
++    parser.add_argument('--dsn', default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')))
++    parser.add_argument('--retention-days', type=int, default=int(os.getenv('RISK_MISMATCH_RETENTION_DAYS', '30')))
++    parser.add_argument('--dry-run', action='store_true')
++    args = parser.parse_args()
++    if not args.dsn or psycopg is None:
++        raise RuntimeError('psycopg + DSN required')
++    cutoff_ms = int((time.time() - args.retention_days * 86400) * 1000)
++    out = {'cutoff_ts_ms': cutoff_ms, 'dry_run': bool(args.dry_run)}
++    with psycopg.connect(args.dsn) as conn:
++        with conn.cursor() as cur:
++            if args.dry_run:
++                cur.execute('select count(*) from risk_mismatch_quarantine_ledger where created_ts_ms < %s', (cutoff_ms,))
++                out['rows_to_purge'] = int(cur.fetchone()[0])
++            else:
++                cur.execute('select * from purge_risk_mismatch_hot_tables(%s)', (cutoff_ms,))
++                row = cur.fetchone() or (0,)
++                out['purged_quarantine'] = int(row[0])
++        if not args.dry_run:
++            conn.commit()
++    print(json.dumps(out, ensure_ascii=False, indent=2))
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+diff -ruN p48work/scripts/refresh_risk_mismatch_summary.py p49work/scripts/refresh_risk_mismatch_summary.py
+--- p48work/scripts/refresh_risk_mismatch_summary.py	2026-03-07 08:12:12.000000000 +0000
++++ p49work/scripts/refresh_risk_mismatch_summary.py	2026-03-07 08:24:31.430307330 +0000
+@@ -20,14 +20,46 @@
+     tmp.replace(path)
+ 
+ 
++def render_textfile(report: dict) -> str:
++    generated_at_ms = int(report.get('generated_at_ms') or 0)
++    freshness_seconds = max(0.0, (time.time() * 1000.0 - generated_at_ms) / 1000.0) if generated_at_ms else 0.0
++    stale_threshold = int(report.get('freshness_stale_threshold_sec') or 1800)
++    rows = list(report.get('rows') or [])
++    lines = [
++        '# HELP trade_risk_mismatch_summary_freshness_seconds Freshness of the latest materialized mismatch summary report.',
++        '# TYPE trade_risk_mismatch_summary_freshness_seconds gauge',
++        f'trade_risk_mismatch_summary_freshness_seconds {freshness_seconds}',
++        '# HELP trade_risk_mismatch_summary_stale Whether the mismatch summary report is stale.',
++        '# TYPE trade_risk_mismatch_summary_stale gauge',
++        f"trade_risk_mismatch_summary_stale {1 if freshness_seconds > float(stale_threshold) else 0}",
++        '# HELP trade_risk_mismatch_summary_row_count Number of rows emitted by risk_mismatch_summary_mv.',
++        '# TYPE trade_risk_mismatch_summary_row_count gauge',
++        f"trade_risk_mismatch_summary_row_count {int(report.get('row_count') or 0)}",
++        '# HELP trade_risk_mismatch_summary_avg_rate Average mismatch rate aggregated from risk_mismatch_summary_mv.',
++        '# TYPE trade_risk_mismatch_summary_avg_rate gauge',
++        '# HELP trade_risk_mismatch_summary_quarantine_count Quarantine count aggregated from risk_mismatch_summary_mv.',
++        '# TYPE trade_risk_mismatch_summary_quarantine_count gauge',
++    ]
++    for row in rows:
++        window_name = str(row.get('window_name') or '')
++        tier = str(row.get('tier') or 'UNKNOWN')
++        avg_rate = float(row.get('avg_mismatch_rate') or 0.0)
++        quarantine_count = int(row.get('quarantine_count') or 0)
++        lines.append(f'trade_risk_mismatch_summary_avg_rate{{window_name="{window_name}",tier="{tier}"}} {avg_rate}')
++        lines.append(f'trade_risk_mismatch_summary_quarantine_count{{window_name="{window_name}",tier="{tier}"}} {quarantine_count}')
++    return '\n'.join(lines) + '\n'
++
++
+ def main() -> int:
+     parser = argparse.ArgumentParser(description='Refresh materialized risk mismatch summary.')
+     parser.add_argument('--dsn', default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')))
+     parser.add_argument('--out', default=os.getenv('RISK_MISMATCH_SUMMARY_REPORT_PATH', '/var/lib/trade-runbook/reports/latest_risk_mismatch_summary.json'))
++    parser.add_argument('--textfile-output', default=os.getenv('RISK_MISMATCH_SUMMARY_TEXTFILE_PATH', ''))
++    parser.add_argument('--freshness-stale-threshold-sec', type=int, default=int(os.getenv('RISK_MISMATCH_SUMMARY_STALE_SEC', '1800')))
+     args = parser.parse_args()
+     if not args.dsn or psycopg is None:
+         raise RuntimeError('psycopg + DSN required')
+-    report = {'generated_at_ms': int(time.time() * 1000), 'rows': []}
++    report = {'generated_at_ms': int(time.time() * 1000), 'rows': [], 'freshness_stale_threshold_sec': int(args.freshness_stale_threshold_sec)}
+     with psycopg.connect(args.dsn) as conn:
+         with conn.cursor() as cur:
+             cur.execute('refresh materialized view risk_mismatch_summary_mv')
+@@ -46,6 +78,8 @@
+         conn.commit()
+     report['row_count'] = len(report['rows'])
+     _write_atomic(Path(args.out), json.dumps(report, ensure_ascii=False, indent=2) + '\n')
++    if args.textfile_output:
++        _write_atomic(Path(args.textfile_output), render_textfile(report))
+     print(json.dumps({'row_count': report['row_count']}, ensure_ascii=False))
+     return 0
+ 
+diff -ruN p48work/scripts/test_build_operator_score_report_p49_v1.py p49work/scripts/test_build_operator_score_report_p49_v1.py
+--- p48work/scripts/test_build_operator_score_report_p49_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p49work/scripts/test_build_operator_score_report_p49_v1.py	2026-03-07 08:24:34.076005705 +0000
+@@ -0,0 +1,22 @@
++from pathlib import Path
++import importlib.util
++import json
++import sys
++
++path = Path(__file__).resolve().parents[0] / 'build_operator_score_report.py'
++spec = importlib.util.spec_from_file_location('build_operator_score_report_p49', path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++spec.loader.exec_module(mod)
++
++
++def test_operator_score_penalized_by_mismatch_summary(tmp_path: Path):
++    (tmp_path / 'latest_canary_scoring.json').write_text(json.dumps({'score': 95}), encoding='utf-8')
++    (tmp_path / 'latest_replay_slo_summary.json').write_text(json.dumps({'items': [{'window_name': '24h', 'rehydrate_total': 10, 'replay_truncated_total': 0, 'retention_guard_total': 0, 'replay_latency_p95_ms': 10}]}), encoding='utf-8')
++    (tmp_path / 'latest_risk_engine_canary.json').write_text(json.dumps({'score': 95}), encoding='utf-8')
++    (tmp_path / 'latest_execution_health.json').write_text(json.dumps({'overall_status': 'ok'}), encoding='utf-8')
++    (tmp_path / 'latest_risk_signal_consistency.json').write_text(json.dumps({'mismatch_rate': 0.0}), encoding='utf-8')
++    (tmp_path / 'latest_risk_mismatch_summary.json').write_text(json.dumps({'rows': [{'window_name': '24h', 'tier': 'ALL', 'quarantine_count': 3, 'avg_mismatch_rate': 0.08}]}), encoding='utf-8')
++    rep = mod.build_report(tmp_path)
++    assert rep['mismatch_penalty'] > 0
++    assert rep['score'] < 95
+diff -ruN p48work/scripts/test_refresh_risk_mismatch_summary_p49_v1.py p49work/scripts/test_refresh_risk_mismatch_summary_p49_v1.py
+--- p48work/scripts/test_refresh_risk_mismatch_summary_p49_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p49work/scripts/test_refresh_risk_mismatch_summary_p49_v1.py	2026-03-07 08:24:34.066003141 +0000
+@@ -0,0 +1,20 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++path = Path(__file__).resolve().parents[0] / 'refresh_risk_mismatch_summary.py'
++spec = importlib.util.spec_from_file_location('refresh_risk_mismatch_summary_p49', path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++spec.loader.exec_module(mod)
++
++
++def test_render_textfile_contains_freshness_and_rate():
++    text = mod.render_textfile({
++        'generated_at_ms': 1,
++        'freshness_stale_threshold_sec': 1800,
++        'row_count': 1,
++        'rows': [{'window_name': '24h', 'tier': 'A', 'avg_mismatch_rate': 0.12, 'quarantine_count': 4}],
++    })
++    assert 'trade_risk_mismatch_summary_freshness_seconds' in text
++    assert 'trade_risk_mismatch_summary_avg_rate{window_name="24h",tier="A"} 0.12' in text

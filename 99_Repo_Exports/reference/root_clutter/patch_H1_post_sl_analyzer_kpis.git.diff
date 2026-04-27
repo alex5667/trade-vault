@@ -1,0 +1,387 @@
+diff --git a/services/post_sl_analyzer.py b/services/post_sl_analyzer.py
+index dc69e3d..09e569d 100644
+--- a/services/post_sl_analyzer.py
++++ b/services/post_sl_analyzer.py
+@@ -29,7 +29,11 @@ import signal
+ from collections import defaultdict
+ from dataclasses import dataclass, field
+ from typing import Dict, List, Optional, Set, Any, Tuple, Callable, Union
+-import redis
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    # Optional dependency for unit tests; production containers must include redis-py.
++    redis = None  # type: ignore
+ 
+ # Ensure we can import from project root
+ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+@@ -59,6 +63,11 @@ MAX_BARS = int(os.getenv("POST_SL_MAX_BARS", "120"))  # Start with 2h horizon
+ ATR_CAP = float(os.getenv("POST_SL_ATR_CAP", "2.0"))  # 2.0 * ATR strict cap
+ TP1_EPS_BPS = float(os.getenv("POST_SL_TP1_EPS_BPS", "2.0")) # 2 bps tolerance
+ 
++# LiqMap KPIs (post-trade analytics)
++POST_SL_LIQMAP_KPI_WINDOW = os.getenv("POST_SL_LIQMAP_KPI_WINDOW", "1h").strip() or "1h"
++POST_SL_LIQMAP_KPI_MIN_USD = float(os.getenv("POST_SL_LIQMAP_KPI_MIN_USD", "250000"))
++POST_SL_LIQMAP_KPI_NEAR_BPS = float(os.getenv("POST_SL_LIQMAP_KPI_NEAR_BPS", "10"))
++
+ 
+ # --- Data Structures ---
+ 
+@@ -92,6 +101,144 @@ def _norm_regime(x) -> str:
+     except Exception:
+         return "na"
+ 
++
++def _safe_float(x: Any, default: float = 0.0) -> float:
++    try:
++        v = float(x)
++        if v != v or v == float("inf") or v == float("-inf"):
++            return float(default)
++        return float(v)
++    except Exception:
++        return float(default)
++
++def _extract_indicators_from_trade(t: Dict[str, Any]) -> Dict[str, Any]:
++    """Best-effort extraction of runtime indicators from a hydrated trade dict.
++
++    Fail-open by design: post-trade analytics must not break on missing / malformed payloads.
++    """
++    ind = t.get("indicators")
++    if isinstance(ind, dict):
++        return ind
++
++    sp = t.get("signal_payload")
++    if isinstance(sp, (bytes, bytearray)):
++        try:
++            sp = sp.decode("utf-8", errors="ignore")
++        except Exception:
++            sp = None
++
++    if isinstance(sp, str) and sp.strip().startswith("{"):
++        try:
++            obj = json.loads(sp)
++            ind = obj.get("indicators")
++            if isinstance(ind, dict):
++                return ind
++            # Some producers might nest indicators
++            runtime = obj.get("runtime")
++            if isinstance(runtime, dict):
++                ind = runtime.get("indicators")
++                if isinstance(ind, dict):
++                    return ind
++        except Exception:
++            return {}
++
++    return {}
++
++def _liqmap_peak_from_indicators(
++    *,
++    indicators: Dict[str, Any],
++    entry_price: float,
++    window: str,
++    direction: str,  # "up" or "dn"
++) -> Tuple[float, float]:
++    """Get (peak_price, peak_usd) for liqmap peak (fail-open).
++
++    Supports both:
++      A) explicit peak price keys:
++         liqmap_<w>_peak_up_price / peak_dn_price
++         liqmap_<w>_peak_up_usd   / peak_dn_usd
++         liqmap_<w>_peak_up_dist_bps / peak_dn_dist_bps
++
++      B) compact core.liqmap_features_v1 keys:
++         liqmap_<w>_dist_up_bps / dist_dn_bps
++         liqmap_<w>_peak_up1_usd / peak_dn1_usd
++         (price will be derived from entry+dist)
++    """
++    w = (window or "1h").strip() or "1h"
++    pref = f"liqmap_{w}_"
++    d = (direction or "").strip().lower()
++    if d not in ("up", "dn"):
++        return 0.0, 0.0
++
++    px = _safe_float(indicators.get(f"{pref}peak_{d}_price", 0.0), 0.0)
++    usd = _safe_float(indicators.get(f"{pref}peak_{d}_usd", 0.0), 0.0)
++    dist = _safe_float(indicators.get(f"{pref}peak_{d}_dist_bps", 0.0), 0.0)
++
++    # v1 compact keys
++    if usd <= 0.0:
++        usd = _safe_float(indicators.get(f"{pref}peak_{d}1_usd", 0.0), 0.0)
++        if d == "up" and usd <= 0.0:
++            usd = _safe_float(indicators.get(f"{pref}peak_up1_usd", 0.0), 0.0)
++        if d == "dn" and usd <= 0.0:
++            usd = _safe_float(indicators.get(f"{pref}peak_dn1_usd", 0.0), 0.0)
++
++    if dist <= 0.0:
++        dist = _safe_float(indicators.get(f"{pref}dist_{d}_bps", 0.0), 0.0)
++        if d == "up" and dist <= 0.0:
++            dist = _safe_float(indicators.get(f"{pref}dist_up_bps", 0.0), 0.0)
++        if d == "dn" and dist <= 0.0:
++            dist = _safe_float(indicators.get(f"{pref}dist_dn_bps", 0.0), 0.0)
++
++    if px <= 0.0 and dist > 0.0 and entry_price > 0.0:
++        if d == "up":
++            px = entry_price * (1.0 + dist / 10000.0)
++        else:
++            px = entry_price * (1.0 - dist / 10000.0)
++
++    if px <= 0.0 or usd <= 0.0:
++        return 0.0, 0.0
++    return float(px), float(usd)
++
++def compute_sl_hit_near_liqmap_peak(
++    *,
++    side: str,
++    entry_price: float,
++    exit_price: float,
++    indicators: Dict[str, Any],
++    window: str,
++    min_usd: float,
++    near_bps: float,
++) -> Tuple[int, float, float]:
++    """KPI: SL hit near a strong liqmap peak.
++
++    Returns (flag, dist_bps, peak_usd_used).
++    """
++    s = _norm_side(side)
++    entry = _safe_float(entry_price, 0.0)
++    exit_px = _safe_float(exit_price, 0.0)
++    if entry <= 0.0 or exit_px <= 0.0 or s not in ("LONG", "SHORT"):
++        return 0, 0.0, 0.0
++
++    direction = "dn" if s == "LONG" else "up"
++    peak_px, peak_usd = _liqmap_peak_from_indicators(indicators=indicators, entry_price=entry, window=window, direction=direction)
++    if peak_px <= 0.0 or peak_usd < float(min_usd):
++        return 0, 0.0, float(peak_usd)
++
++    dist_bps = abs(exit_px - peak_px) / entry * 10000.0
++    flag = 1 if dist_bps <= float(near_bps) else 0
++    return int(flag), float(dist_bps), float(peak_usd)
++
++def is_tp1_anchored_by_liqmap(indicators: Dict[str, Any]) -> int:
++    """Detect whether TP1 overlay was applied due to liqmap anchoring."""
++    try:
++        applied = _safe_float(indicators.get("liqmap_levels_applied", 0.0), 0.0) >= 1.0
++        tp1_adj_bps = abs(_safe_float(indicators.get("liqmap_tp1_adj_bps", 0.0), 0.0))
++        reason = str(indicators.get("liqmap_levels_reason", "") or "")
++        reason_is_tp1 = ("tp1" in reason) or (reason == "tp1_sl")
++        anchor_usd = _safe_float(indicators.get("liqmap_tp1_anchor_usd", 0.0), 0.0)
++        return int(applied and (tp1_adj_bps > 0.01) and (reason_is_tp1 or anchor_usd > 0.0))
++    except Exception:
++        return 0
+ @dataclass
+ class TrackState:
+     trade_id: str
+@@ -103,6 +250,13 @@ class TrackState:
+     start_ts_ms: int
+     atr_entry: float
+     regime: str = "na"
++    exit_price: float = 0.0
++    # LiqMap KPIs (computed at trade close time; fail-open)
++    liqmap_sl_hit_near_peak: int = 0
++    liqmap_sl_peak_dist_bps: float = 0.0
++    liqmap_sl_peak_usd: float = 0.0
++    liqmap_tp1_anchored: int = 0
++    liqmap_kpi_window: str = "1h"
+     
+     # Tracking State
+     max_favorable: float = field(init=False)
+@@ -122,6 +276,8 @@ class TrackState:
+ class PostSlAnalyzer:
+     def __init__(self):
+         self.running = False
++        if redis is None:
++            raise RuntimeError("redis-py is required to run PostSlAnalyzer (missing dependency)")
+         self.redis = redis.from_url(REDIS_URL, decode_responses=True)
+         # Active tracks: symbol -> List[TrackState]
+         self.tracks: Dict[str, List[TrackState]] = defaultdict(list)
+@@ -487,6 +643,23 @@ class PostSlAnalyzer:
+ 
+         regime = str(t.get("regime", "na"))
+ 
++        exit_price = _safe_float(t.get("exit_price", 0.0), 0.0)
++        indicators = _extract_indicators_from_trade(t)
++
++        # KPI: did SL occur near a strong liqmap peak?
++        # We compute this from *entry-time indicators* captured in signal_payload.
++        sl_near_flag, sl_near_dist_bps, sl_peak_usd = compute_sl_hit_near_liqmap_peak(
++            side=direction,
++            entry_price=entry,
++            exit_price=exit_price,
++            indicators=indicators,
++            window=POST_SL_LIQMAP_KPI_WINDOW,
++            min_usd=POST_SL_LIQMAP_KPI_MIN_USD,
++            near_bps=POST_SL_LIQMAP_KPI_NEAR_BPS,
++        )
++
++        tp1_anchored = is_tp1_anchored_by_liqmap(indicators)
++
+         track = TrackState(
+             trade_id=str(t.get("trade_id") or msg_id),
+             symbol=symbol,
+@@ -496,7 +669,13 @@ class PostSlAnalyzer:
+             tp1_price=tp1,
+             start_ts_ms=exit_ts,
+             atr_entry=atr,
+-            regime=regime
++            regime=regime,
++            exit_price=exit_price,
++            liqmap_sl_hit_near_peak=int(sl_near_flag),
++            liqmap_sl_peak_dist_bps=float(sl_near_dist_bps),
++            liqmap_sl_peak_usd=float(sl_peak_usd),
++            liqmap_tp1_anchored=int(tp1_anchored),
++            liqmap_kpi_window=str(POST_SL_LIQMAP_KPI_WINDOW),
+         )
+         
+         self.tracks[symbol].append(track)
+@@ -685,6 +864,15 @@ class PostSlAnalyzer:
+             "post_sl_mfe_r": float(mfe_r),
+             "post_sl_mfe_atr": float(mfe_atr),
+             "post_sl_req_buffer_atr": float(req_buffer_atr),
++# LiqMap post-trade KPIs (fail-open)
++"sl_hit_near_liqmap_peak": int(getattr(track, "liqmap_sl_hit_near_peak", 0) or 0),
++"sl_liqmap_peak_dist_bps": float(getattr(track, "liqmap_sl_peak_dist_bps", 0.0) or 0.0),
++"sl_liqmap_peak_usd": float(getattr(track, "liqmap_sl_peak_usd", 0.0) or 0.0),
++# "tp1_anchored_and_hit" is measured on the *post-SL horizon*:
++# did the (liqmap-anchored) TP1 level get hit after the SL event?
++"tp1_anchored_and_hit": int((getattr(track, "liqmap_tp1_anchored", 0) or 0) and int(tp1_hit)),
++"tp1_anchored": int(getattr(track, "liqmap_tp1_anchored", 0) or 0),
++"liqmap_kpi_window": str(getattr(track, "liqmap_kpi_window", "1h") or "1h"),
+             "event_ts_ms": int(track.start_ts_ms or 0),
+             "end_ts_ms": int(end_ts_ms or 0),
+             "ingest_ts_ms": now_ms,
+diff --git a/services/tests/conftest.py b/services/tests/conftest.py
+new file mode 100644
+index 0000000..34bb063
+--- /dev/null
++++ b/services/tests/conftest.py
+@@ -0,0 +1,33 @@
++"""Pytest configuration for services/* tests.
++
++We run unit tests in a minimal environment where the repo is not installed as a
++package. This file makes local imports deterministic.
++
++Important ordering:
++- Repo root must come before tick_flow_full in sys.path, because tick_flow_full
++  also contains a `services/` directory and would otherwise shadow the real SoT
++  `services/` package.
++- tick_flow_full is added to support top-level imports like `common.*`.
++"""
++
++import sys
++from pathlib import Path
++
++_HERE = Path(__file__).resolve()
++_REPO_ROOT = None
++for p in _HERE.parents:
++    if (p / "services").is_dir() and (p / "tick_flow_full").is_dir():
++        _REPO_ROOT = p
++        break
++
++if _REPO_ROOT is None:
++    _REPO_ROOT = _HERE.parents[3]
++
++# 1) Repo root (for `services.*` imports)
++if str(_REPO_ROOT) not in sys.path:
++    sys.path.insert(0, str(_REPO_ROOT))
++
++# 2) tick_flow_full (for top-level `common.*` imports) — append to avoid shadowing
++_tick_flow_full = _REPO_ROOT / "tick_flow_full"
++if _tick_flow_full.is_dir() and str(_tick_flow_full) not in sys.path:
++    sys.path.append(str(_tick_flow_full))
+diff --git a/services/tests/test_post_sl_analyzer_liqmap_kpi_v1.py b/services/tests/test_post_sl_analyzer_liqmap_kpi_v1.py
+new file mode 100644
+index 0000000..e8fca8a
+--- /dev/null
++++ b/services/tests/test_post_sl_analyzer_liqmap_kpi_v1.py
+@@ -0,0 +1,71 @@
++from services.post_sl_analyzer import compute_sl_hit_near_liqmap_peak, is_tp1_anchored_by_liqmap
++
++def test_sl_hit_near_liqmap_peak_explicit_price_long():
++    indicators = {
++        "liqmap_1h_peak_dn_price": 90.0,
++        "liqmap_1h_peak_dn_usd": 300000.0,
++    }
++    flag, dist_bps, peak_usd = compute_sl_hit_near_liqmap_peak(
++        side="LONG",
++        entry_price=100.0,
++        exit_price=90.01,   # 1 bp away from 90.0 (relative to entry)
++        indicators=indicators,
++        window="1h",
++        min_usd=250000.0,
++        near_bps=10.0,
++    )
++    assert flag == 1
++    assert peak_usd >= 250000.0
++    assert dist_bps <= 10.0
++
++def test_sl_hit_near_liqmap_peak_derived_price_short():
++    # No explicit peak_up_price: derive from entry and dist_up_bps.
++    indicators = {
++        "liqmap_1h_dist_up_bps": 1000.0,   # +10%
++        "liqmap_1h_peak_up1_usd": 500000.0,
++    }
++    flag, dist_bps, peak_usd = compute_sl_hit_near_liqmap_peak(
++        side="SHORT",
++        entry_price=100.0,
++        exit_price=110.01,  # ~1 bp away from derived 110.0
++        indicators=indicators,
++        window="1h",
++        min_usd=250000.0,
++        near_bps=10.0,
++    )
++    assert flag == 1
++    assert peak_usd >= 250000.0
++    assert dist_bps <= 10.0
++
++def test_sl_hit_near_liqmap_peak_min_usd_blocks():
++    indicators = {
++        "liqmap_1h_dist_dn_bps": 1000.0,
++        "liqmap_1h_peak_dn1_usd": 10000.0,  # too small
++    }
++    flag, dist_bps, peak_usd = compute_sl_hit_near_liqmap_peak(
++        side="LONG",
++        entry_price=100.0,
++        exit_price=90.0,
++        indicators=indicators,
++        window="1h",
++        min_usd=250000.0,
++        near_bps=10.0,
++    )
++    assert flag == 0
++    assert dist_bps == 0.0
++
++def test_tp1_anchored_detection():
++    indicators = {
++        "liqmap_levels_applied": 1,
++        "liqmap_tp1_adj_bps": -12.5,
++        "liqmap_levels_reason": "tp1_before_peak",
++        "liqmap_tp1_anchor_usd": 300000.0,
++    }
++    assert is_tp1_anchored_by_liqmap(indicators) == 1
++
++if __name__ == "__main__":
++    test_sl_hit_near_liqmap_peak_explicit_price_long()
++    test_sl_hit_near_liqmap_peak_derived_price_short()
++    test_sl_hit_near_liqmap_peak_min_usd_blocks()
++    test_tp1_anchored_detection()
++    print("test_post_sl_analyzer_liqmap_kpi_v1.py OK")
+diff --git a/services/__init__.py b/services/__init__.py
+index 80fadeb..b323b1d 100644
+--- a/services/__init__.py
++++ b/services/__init__.py
+@@ -1,4 +1,5 @@
+-"""
+-Сервисы для работы с внешними источниками данных.
+-"""
++"""Service-layer Python package.
+ 
++This file exists primarily to enable unit-test imports (pytest) without relying on
++external PYTHONPATH manipulation.
++"""
+diff --git a/services/orderflow/__init__.py b/services/orderflow/__init__.py
+index e69de29..7df798a 100644
+--- a/services/orderflow/__init__.py
++++ b/services/orderflow/__init__.py
+@@ -0,0 +1 @@
++"""Orderflow service package (runtime + workers)."""

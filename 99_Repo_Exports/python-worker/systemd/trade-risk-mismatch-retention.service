@@ -1,0 +1,9 @@
+[Unit]
+Description=Purge archived risk mismatch quarantine rows
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/trade
+EnvironmentFile=-/etc/default/trade-risk-p49
+ExecStart=/usr/bin/python3 /opt/trade/scripts/purge_risk_mismatch_hot_tables.py

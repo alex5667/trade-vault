@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/PIL/_typing.py
+# hypothesis_version: 6.148.10
+
+['TypeGuard']

@@ -1,0 +1,11 @@
+groups:
+  - name: ml_phase2_12_operator_routing_incident_rca_routing_v1
+    rules:
+      - alert: MLOperatorRoutingIncidentRCARoutingStale
+        expr: time() - ml_operator_routing_incident_rca_routing_last_run_ts_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "routing incident RCA routing controller is stale"
+          description: "Routing incident RCA routing controller has not completed a run in 5+ minutes"

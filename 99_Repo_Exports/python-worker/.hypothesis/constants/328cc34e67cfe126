@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/reliability_adjuster.py
+# hypothesis_version: 6.148.10
+
+[-1.0, 0.0, 1e-12, 0.03, 0.04, 0.1, 0.15, 0.5, 0.65, 1.0, 1.96, 2.58, 100.0, 100, 150, 500, 512, 1000, ',', '0', '1', '50', 'DOWN', 'LONG', 'NA', 'RELIABILITY_TARGETS', 'SHORT', 'UP', 'conf', 'confidence', 'confidence_adjusted', 'ctx', 'entry_regime', 'false', 'final_score', 'hard', 'hardest', 'kind', 'na', 'no', 'off', 'on', 'p', 'pnl', 'prob', 'regime', 'regime_label', 'score', 'smt_coh', 'smt_leader_confirm', 'smt_leader_dir', 'soft', 'tp1', 'tp1_hit', 'tp1_no_sl', 'tp1_not_sl', 'tp1nosl', 'tp2', 'tp2_hit', 'true', 'venue', 'win', 'yes', '|']

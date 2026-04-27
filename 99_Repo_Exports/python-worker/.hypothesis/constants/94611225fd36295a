@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/bottleneck/benchmark/bench_detailed.py
+# hypothesis_version: 6.148.10
+
+[0.0, 100, '%8.1f  %s   %s', '%s benchmark', '(a)', '(a, 0)', '(a, 0, 2)', '(a, 1)', '(a, 2)', '(a, 20)', '(a, 20, axis=0)', '(a, 20, axis=1)', '(a, 20, axis=2)', '(a, 200)', '(a, 200, axis=0)', '(a, np.nan, 0)', 'all', 'argpartition', 'array(1.0)', 'bench_detailed', 'bn_fn', 'ignore', 'move', 'name', 'nanrankdata', 'nansum', 'partition', 'push', 'rand(1)', 'rand(10)', 'rand(10, 10)', 'rand(100)', 'rand(100, 100)', 'rand(100, 100, 100)', 'rand(1000)', 'rand(1000, 1000)', 'rand(100000, 2)', 'rand(1000000)', 'rankdata', 'reduce', 'repeat', 'replace', 'setup', 'sl_fn', 'statements']

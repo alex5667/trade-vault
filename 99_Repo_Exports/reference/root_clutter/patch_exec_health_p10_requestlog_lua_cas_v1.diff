@@ -1,0 +1,1873 @@
+--- a/services/orderflow/exec_health_freeze_control.py
++++ b/services/orderflow/exec_health_freeze_control.py
+@@ -416,7 +416,7 @@
+     nonce = str(ack_nonce or p.get("expected_ack_nonce") or f"ack-{int(now_ms)}")
+     return {
+         "schema_name": "exec_health_freeze_control",
+-        "schema_version": 3,
++        "schema_version": 4,
+         "updated_ts_ms": int(now_ms),
+         "effective_freeze_active": 1,
+         "control_source": "autoguard",
+@@ -453,6 +453,9 @@
+         "thaw_request_ticket": "",
+         "thaw_approve_ts_ms": 0,
+         "thaw_approved_by": "",
++        "thaw_prepare_request_event_id": "",
++        "thaw_approve_request_event_id": "",
++        "thaw_commit_request_event_id": "",
+         "manual_commit_request_id": "",
+         "manual_commit_by": "",
+         "manual_commit_ts_ms": 0,
+@@ -476,7 +479,7 @@
+     nonce = str(provided_ack_nonce or expected or f"ack-{int(now_ms)}")
+     return {
+         "schema_name": "exec_health_freeze_control",
+-        "schema_version": 3,
++        "schema_version": 4,
+         "updated_ts_ms": int(now_ms),
+         "effective_freeze_active": 0,
+         "control_source": "manual_override_thaw",
+@@ -511,6 +514,9 @@
+         "thaw_request_ticket": str(ticket),
+         "thaw_approve_ts_ms": int(now_ms),
+         "thaw_approved_by": str(operator),
++        "thaw_prepare_request_event_id": "",
++        "thaw_approve_request_event_id": "",
++        "thaw_commit_request_event_id": str(manual_ack_event_id or ""),
+         "manual_commit_request_id": "legacy-single-operator",
+         "manual_commit_by": str(operator),
+         "manual_commit_ts_ms": int(now_ms),
+@@ -527,14 +533,15 @@
+     reason: str,
+     ticket: str,
+     provided_ack_nonce: str,
++    request_event_id: str = "",
+ ) -> Dict[str, Any]:
+     p = dict(prev or {})
+     expected = _s(p.get("expected_ack_nonce"), "")
+     nonce = str(provided_ack_nonce or expected or f"ack-{int(now_ms)}")
+     return {
+-        **{k: v for k, v in p.items() if k not in {"updated_ts_ms", "control_source", "active_thaw_request_id", "thaw_request_status", "thaw_request_nonce", "thaw_prepare_ts_ms", "thaw_prepared_by", "thaw_request_reason", "thaw_request_ticket", "thaw_approve_ts_ms", "thaw_approved_by", "manual_commit_request_id", "manual_commit_by", "manual_commit_ts_ms", "manual_commit_sig"}},
++        **{k: v for k, v in p.items() if k not in {"updated_ts_ms", "control_source", "active_thaw_request_id", "thaw_request_status", "thaw_request_nonce", "thaw_prepare_ts_ms", "thaw_prepared_by", "thaw_request_reason", "thaw_request_ticket", "thaw_approve_ts_ms", "thaw_approved_by", "thaw_prepare_request_event_id", "thaw_approve_request_event_id", "thaw_commit_request_event_id", "manual_commit_request_id", "manual_commit_by", "manual_commit_ts_ms", "manual_commit_sig"}},
+         "schema_name": "exec_health_freeze_control",
+-        "schema_version": 3,
++        "schema_version": 4,
+         "updated_ts_ms": int(now_ms),
+         "control_source": "manual_thaw_prepare",
+         "effective_freeze_active": 1,
+@@ -559,6 +566,9 @@
+         "thaw_request_ticket": str(ticket),
+         "thaw_approve_ts_ms": 0,
+         "thaw_approved_by": "",
++        "thaw_prepare_request_event_id": str(request_event_id or ""),
++        "thaw_approve_request_event_id": "",
++        "thaw_commit_request_event_id": "",
+         "manual_commit_request_id": "",
+         "manual_commit_by": "",
+         "manual_commit_ts_ms": 0,
+@@ -573,12 +583,13 @@
+     now_ms: int,
+     request_id: str,
+     approver: str,
++    request_event_id: str = "",
+ ) -> Dict[str, Any]:
+     p = dict(prev or {})
+     return {
+         **p,
+         "schema_name": "exec_health_freeze_control",
+-        "schema_version": 3,
++        "schema_version": 4,
+         "updated_ts_ms": int(now_ms),
+         "control_source": "manual_thaw_approve",
+         "effective_freeze_active": 1,
+@@ -587,6 +598,7 @@
+         "thaw_request_status": "approved",
+         "thaw_approve_ts_ms": int(now_ms),
+         "thaw_approved_by": str(approver),
++        "thaw_approve_request_event_id": str(request_event_id or ""),
+         "last_operator_action": "manual_ack_thaw_approve",
+     }
+ 
+@@ -599,12 +611,13 @@
+     commit_by: str,
+     commit_sig: str,
+     commit_event_id: str,
++    request_event_id: str = "",
+ ) -> Dict[str, Any]:
+     p = dict(prev or {})
+     return {
+         **p,
+         "schema_name": "exec_health_freeze_control",
+-        "schema_version": 3,
++        "schema_version": 4,
+         "updated_ts_ms": int(now_ms),
+         "effective_freeze_active": 0,
+         "control_source": "manual_override_thaw",
+@@ -623,6 +636,7 @@
+         "manual_override_until_ts_ms": 0,
+         "active_thaw_request_id": str(request_id),
+         "thaw_request_status": "committed",
++        "thaw_commit_request_event_id": str(request_event_id or commit_event_id or ""),
+         "manual_commit_request_id": str(request_id),
+         "manual_commit_by": str(commit_by),
+         "manual_commit_ts_ms": int(now_ms),
+@@ -644,7 +658,7 @@
+     p = dict(prev or {})
+     return {
+         "schema_name": "exec_health_freeze_control",
+-        "schema_version": 3,
++        "schema_version": 4,
+         "updated_ts_ms": int(now_ms),
+         "effective_freeze_active": 1,
+         "control_source": "manual_override_freeze",
+--- a/services/orderflow/exec_health_freeze_integrity.py
++++ b/services/orderflow/exec_health_freeze_integrity.py
+@@ -5,6 +5,7 @@
+ from typing import Any, Dict, List, Mapping, Sequence, Tuple
+ 
+ from services.orderflow.exec_health_freeze_control import parse_exec_health_freeze_control, verify_manual_ack_signature, verify_thaw_release_signature
++from services.orderflow.exec_health_freeze_request_log import REQUEST_LOG_VIOLATION_KINDS, evaluate_request_log_sequence
+ 
+ 
+ VIOLATION_KINDS = [
+@@ -15,6 +16,7 @@
+     "thaw_without_valid_ack_event",
+     "invalid_ack_event_signature",
+     "invalid_control_ack_signature",
++    *[k for k in REQUEST_LOG_VIOLATION_KINDS if k != "none"],
+ ]
+ 
+ 
+@@ -53,13 +55,21 @@
+     latest_trigger_event_id: str
+     latest_trigger_nonce: str
+     invalid_ack_event_present: bool
++    request_log_valid_sequence: bool
++    request_log_request_id: str
+     violation_kinds: List[str]
+ 
+ 
++class _ReqSeqProxy:
++    request_id: str = ""
++    valid_sequence: bool = False
++    violation_kinds: List[str] = ["none"]
++
++
+ def find_latest_trigger_event(events: Sequence[Any]) -> Tuple[str, Dict[str, Any]]:
+     for rec in events:
+         eid, payload = _event_payload(rec)
+-        if _s(payload.get("kind")) == "autoguard_freeze_latch":
++        if _s(payload.get("kind")) in {"autoguard_freeze_latch", "tamper_refreeze_latch"}:
+             return eid, payload
+     return "", {}
+ 
+@@ -113,12 +123,14 @@
+     control_raw: Mapping[str, Any] | None,
+     state_raw: Mapping[str, Any] | None,
+     events: Sequence[Any] | None,
++    request_events: Sequence[Any] | None = None,
+     now_ms: int | None = None,
+ ) -> FreezeIntegrityResult:
+     _ = int(now_ms or _now_ms())
+     control = parse_exec_health_freeze_control(control_raw or {})
+     state = parse_exec_health_freeze_control(state_raw or {})
+     evs = list(events or [])
++    req_evs = list(request_events or [])
+ 
+     control_present = bool(getattr(control, 'raw_payload', None))
+     state_present = bool(getattr(state, 'raw_payload', None))
+@@ -149,23 +161,40 @@
+                 break
+             invalid_ack_event_present = True
+ 
++    request_log_res = evaluate_request_log_sequence(
++        control_raw=control.raw_payload,
++        request_events=req_evs,
++        request_id=control.active_thaw_request_id or control.manual_commit_request_id or None,
++    )
++
+     violations: List[str] = []
+     if control_present and control.manual_override_action == 'thaw' and control.manual_override_active:
+         if not verify_thaw_release_signature(control.raw_payload):
+             violations.append('invalid_control_ack_signature')
+-        elif pending_ack_nonce and not valid_ack_event_present:
++        elif not request_log_res.valid_sequence:
++            violations.append('thaw_without_valid_ack_event')
++        elif pending_ack_nonce and not (valid_ack_event_present or request_log_res.valid_sequence):
+             violations.append('thaw_without_valid_ack_event')
+ 
+-    pending_ack = bool((control.manual_ack_required or state.manual_ack_required or pending_ack_nonce) and not valid_ack_event_present)
++    pending_ack = bool((control.manual_ack_required or state.manual_ack_required or pending_ack_nonce) and not request_log_res.valid_sequence)
+     if pending_ack and not control_present and state_present:
+         violations.append('control_missing_pending_ack')
+     if pending_ack and control_present and not state_present:
+         violations.append('state_missing_pending_ack')
+     if pending_ack and not control_present and not state_present and latest_trigger_nonce:
+         violations.append('control_state_missing_without_valid_ack')
+-    if invalid_ack_event_present and not valid_ack_event_present:
++    if invalid_ack_event_present and not valid_ack_event_present and not request_log_res.valid_sequence:
+         violations.append('invalid_ack_event_signature')
+ 
++    for kind in request_log_res.violation_kinds:
++        if kind != 'none':
++            violations.append(kind)
++
++    # direct hash edit without corresponding request-log commit sequence is tamper
++    if control_present and control.manual_override_action == 'thaw' and control.manual_override_active and not request_log_res.valid_sequence:
++        if 'thaw_without_valid_ack_event' not in violations:
++            violations.append('thaw_without_valid_ack_event')
++
+     if not violations:
+         violations = ['none']
+ 
+@@ -174,10 +203,12 @@
+         state_present=state_present,
+         pending_ack_nonce=str(pending_ack_nonce or ''),
+         pending_trigger_ts_ms=int(pending_trigger_ts_ms or 0),
+-        valid_ack_event_present=bool(valid_ack_event_present),
+-        valid_ack_event_id=str(valid_ack_event_id or ''),
++        valid_ack_event_present=bool(valid_ack_event_present or request_log_res.valid_sequence),
++        valid_ack_event_id=str(valid_ack_event_id or request_log_res.commit_event_id or ''),
+         latest_trigger_event_id=str(latest_trigger_event_id or ''),
+         latest_trigger_nonce=str(latest_trigger_nonce or ''),
+         invalid_ack_event_present=bool(invalid_ack_event_present),
++        request_log_valid_sequence=bool(request_log_res.valid_sequence),
++        request_log_request_id=str(request_log_res.request_id or ''),
+         violation_kinds=violations,
+     )
+--- a/services/orderflow/exec_health_freeze_request_log.py
++++ b/services/orderflow/exec_health_freeze_request_log.py
+@@ -0,0 +1,300 @@
++from __future__ import annotations
++
++"""Append-only request log + Lua CAS for ExecHealth freeze thaw workflow.
++
++P10 moves prepare/approve/commit away from the mutable control hash into a
++separate append-only Redis Stream. The control/state hashes become a
++materialized projection, while the request log is the audit source of truth.
++
++This module provides:
++- request-log sequence evaluation
++- small Lua CAS helpers for prepare/approve/commit projection writes
++"""
++
++import os
++from dataclasses import dataclass
++from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
++
++from services.orderflow.exec_health_freeze_control import parse_exec_health_freeze_control
++
++REQUEST_STREAM_ENV = "EXEC_HEALTH_FREEZE_REQUEST_STREAM"
++DEFAULT_REQUEST_STREAM = "ops:exec_health:freeze_requests:v1"
++
++REQUEST_LOG_VIOLATION_KINDS = [
++    "none",
++    "request_log_prepare_missing",
++    "request_log_approve_missing",
++    "request_log_commit_missing",
++    "request_log_same_operator_violation",
++    "request_log_out_of_order",
++    "request_log_nonce_mismatch",
++    "control_request_mismatch",
++]
++
++
++def _s(x: Any, d: str = "") -> str:
++    try:
++        return str(x) if x is not None else str(d)
++    except Exception:
++        return str(d)
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++def _event_payload(rec: Any) -> Tuple[str, Dict[str, Any]]:
++    if isinstance(rec, (list, tuple)) and len(rec) >= 2:
++        return str(rec[0]), dict(rec[1] or {})
++    return "", {}
++
++
++def _xid_key(xid: str) -> Tuple[int, int]:
++    try:
++        a, b = str(xid).split("-", 1)
++        return int(a), int(b)
++    except Exception:
++        return 0, 0
++
++
++def sort_events_asc(events: Sequence[Any]) -> List[Tuple[str, Dict[str, Any]]]:
++    rows = [_event_payload(e) for e in list(events or [])]
++    rows = [(eid, payload) for eid, payload in rows if eid]
++    rows.sort(key=lambda x: _xid_key(x[0]))
++    return rows
++
++
++@dataclass(frozen=True)
++class FreezeRequestLogResult:
++    request_id: str
++    request_nonce: str
++    prepare_present: bool
++    approve_present: bool
++    commit_present: bool
++    prepare_event_id: str
++    approve_event_id: str
++    commit_event_id: str
++    prepared_by: str
++    approved_by: str
++    commit_by: str
++    valid_sequence: bool
++    same_operator_violation: bool
++    control_request_mismatch: bool
++    violation_kinds: List[str]
++
++
++def find_request_events_for_request(events: Sequence[Any], request_id: str) -> List[Tuple[str, Dict[str, Any]]]:
++    rid = str(request_id or "")
++    out: List[Tuple[str, Dict[str, Any]]] = []
++    for eid, payload in sort_events_asc(events):
++        if _s(payload.get("request_id")) == rid:
++            out.append((eid, payload))
++    return out
++
++
++def evaluate_request_log_sequence(
++    *,
++    control_raw: Mapping[str, Any] | None,
++    request_events: Sequence[Any] | None,
++    request_id: str | None = None,
++) -> FreezeRequestLogResult:
++    control = parse_exec_health_freeze_control(control_raw or {})
++    rid = str(request_id or control.active_thaw_request_id or control.manual_commit_request_id or "")
++    expected_nonce = str(control.thaw_request_nonce or control.expected_ack_nonce or "")
++    rows = find_request_events_for_request(request_events or [], rid) if rid else []
++
++    prepare_eid = approve_eid = commit_eid = ""
++    prepare_ev: Dict[str, Any] = {}
++    approve_ev: Dict[str, Any] = {}
++    commit_ev: Dict[str, Any] = {}
++    for eid, payload in rows:
++        kind = _s(payload.get("kind"))
++        if kind == "manual_ack_thaw_prepare":
++            prepare_eid, prepare_ev = eid, payload
++        elif kind == "manual_ack_thaw_approve":
++            approve_eid, approve_ev = eid, payload
++        elif kind == "manual_ack_thaw_commit":
++            commit_eid, commit_ev = eid, payload
++
++    prepare_present = bool(prepare_eid)
++    approve_present = bool(approve_eid)
++    commit_present = bool(commit_eid)
++    prepared_by = _s(prepare_ev.get("operator")) or _s(control.raw_payload.get("thaw_prepared_by"))
++    approved_by = _s(approve_ev.get("operator")) or _s(control.raw_payload.get("thaw_approved_by"))
++    commit_by = _s(commit_ev.get("operator")) or _s(control.raw_payload.get("manual_commit_by"))
++    request_nonce = _s(commit_ev.get("ack_nonce")) or _s(approve_ev.get("ack_nonce")) or _s(prepare_ev.get("ack_nonce")) or expected_nonce
++
++    same_operator = bool(prepared_by and approved_by and prepared_by == approved_by)
++    out_of_order = False
++    if prepare_present and approve_present and _xid_key(approve_eid) <= _xid_key(prepare_eid):
++        out_of_order = True
++    if approve_present and commit_present and _xid_key(commit_eid) <= _xid_key(approve_eid):
++        out_of_order = True
++
++    control_request_mismatch = False
++    if rid:
++        if control.active_thaw_request_id and control.active_thaw_request_id != rid:
++            control_request_mismatch = True
++        if control.thaw_prepared_by and prepared_by and control.thaw_prepared_by != prepared_by:
++            control_request_mismatch = True
++        if control.thaw_approved_by and approved_by and control.thaw_approved_by != approved_by:
++            control_request_mismatch = True
++        if control.manual_commit_by and commit_by and control.manual_commit_by != commit_by:
++            control_request_mismatch = True
++
++    nonce_mismatch = bool(expected_nonce and request_nonce and expected_nonce != request_nonce)
++    valid_sequence = bool(
++        rid
++        and prepare_present
++        and approve_present
++        and commit_present
++        and not same_operator
++        and not out_of_order
++        and not nonce_mismatch
++        and approved_by
++        and commit_by == approved_by
++    )
++
++    violations: List[str] = []
++    if rid:
++        if not prepare_present:
++            violations.append("request_log_prepare_missing")
++        if not approve_present:
++            violations.append("request_log_approve_missing")
++        if not commit_present:
++            violations.append("request_log_commit_missing")
++    if same_operator:
++        violations.append("request_log_same_operator_violation")
++    if out_of_order:
++        violations.append("request_log_out_of_order")
++    if nonce_mismatch:
++        violations.append("request_log_nonce_mismatch")
++    if control_request_mismatch:
++        violations.append("control_request_mismatch")
++    if not violations:
++        violations = ["none"]
++
++    return FreezeRequestLogResult(
++        request_id=rid,
++        request_nonce=request_nonce,
++        prepare_present=prepare_present,
++        approve_present=approve_present,
++        commit_present=commit_present,
++        prepare_event_id=prepare_eid,
++        approve_event_id=approve_eid,
++        commit_event_id=commit_eid,
++        prepared_by=prepared_by,
++        approved_by=approved_by,
++        commit_by=commit_by,
++        valid_sequence=valid_sequence,
++        same_operator_violation=same_operator,
++        control_request_mismatch=control_request_mismatch,
++        violation_kinds=violations,
++    )
++
++
++def mapping_to_argv(mapping: Mapping[str, Any]) -> List[str]:
++    flat: List[str] = []
++    for k, v in dict(mapping).items():
++        flat.extend([str(k), str(v)])
++    return flat
++
++
++PREPARE_CAS_LUA = r'''
++local ctl=KEYS[1]
++local st=KEYS[2]
++local expected_nonce=ARGV[1]
++local request_id=ARGV[2]
++local n=tonumber(ARGV[3]) or 0
++local cur_expected=redis.call('HGET', ctl, 'expected_ack_nonce') or ''
++if cur_expected == '' then
++  cur_expected = redis.call('HGET', st, 'expected_ack_nonce') or ''
++end
++if cur_expected ~= '' and expected_nonce ~= cur_expected then
++  return 0
++end
++local active_id=redis.call('HGET', ctl, 'active_thaw_request_id') or ''
++local active_status=redis.call('HGET', ctl, 'thaw_request_status') or ''
++if active_id ~= '' and active_id ~= request_id and (active_status == 'prepared' or active_status == 'approved') then
++  return -2
++end
++for i=0,n-1 do
++  local field=ARGV[4 + i*2]
++  local value=ARGV[5 + i*2]
++  redis.call('HSET', ctl, field, value)
++  redis.call('HSET', st, field, value)
++end
++return 1
++'''
++
++APPROVE_CAS_LUA = r'''
++local ctl=KEYS[1]
++local st=KEYS[2]
++local request_id=ARGV[1]
++local approver=ARGV[2]
++local n=tonumber(ARGV[3]) or 0
++local active_id=redis.call('HGET', ctl, 'active_thaw_request_id') or ''
++local active_status=redis.call('HGET', ctl, 'thaw_request_status') or ''
++local prepared_by=redis.call('HGET', ctl, 'thaw_prepared_by') or ''
++if active_id ~= request_id then return 0 end
++if active_status ~= 'prepared' then return -2 end
++if prepared_by ~= '' and prepared_by == approver then return -3 end
++for i=0,n-1 do
++  local field=ARGV[4 + i*2]
++  local value=ARGV[5 + i*2]
++  redis.call('HSET', ctl, field, value)
++  redis.call('HSET', st, field, value)
++end
++return 1
++'''
++
++COMMIT_CAS_LUA = r'''
++local ctl=KEYS[1]
++local st=KEYS[2]
++local request_id=ARGV[1]
++local operator=ARGV[2]
++local n=tonumber(ARGV[3]) or 0
++local active_id=redis.call('HGET', ctl, 'active_thaw_request_id') or ''
++local active_status=redis.call('HGET', ctl, 'thaw_request_status') or ''
++local approved_by=redis.call('HGET', ctl, 'thaw_approved_by') or ''
++if active_id ~= request_id then return 0 end
++if active_status ~= 'approved' then return -2 end
++if approved_by == '' or approved_by ~= operator then return -3 end
++for i=0,n-1 do
++  local field=ARGV[4 + i*2]
++  local value=ARGV[5 + i*2]
++  redis.call('HSET', ctl, field, value)
++  redis.call('HSET', st, field, value)
++end
++return 1
++'''
++
++
++def _eval_status(value: Any) -> int:
++    if isinstance(value, (list, tuple)) and value:
++        try:
++            return int(value[0])
++        except Exception:
++            pass
++    try:
++        return int(value)
++    except Exception:
++        return -999
++
++
++def eval_prepare_cas(redis_client: Any, *, control_key: str, state_key: str, expected_nonce: str, request_id: str, mapping: Mapping[str, Any]) -> int:
++    argv = [str(expected_nonce), str(request_id), str(len(dict(mapping)))] + mapping_to_argv(mapping)
++    return _eval_status(redis_client.eval(PREPARE_CAS_LUA, 2, control_key, state_key, *argv))
++
++
++def eval_approve_cas(redis_client: Any, *, control_key: str, state_key: str, request_id: str, approver: str, mapping: Mapping[str, Any]) -> int:
++    argv = [str(request_id), str(approver), str(len(dict(mapping)))] + mapping_to_argv(mapping)
++    return _eval_status(redis_client.eval(APPROVE_CAS_LUA, 2, control_key, state_key, *argv))
++
++
++def eval_commit_cas(redis_client: Any, *, control_key: str, state_key: str, request_id: str, operator: str, mapping: Mapping[str, Any]) -> int:
++    argv = [str(request_id), str(operator), str(len(dict(mapping)))] + mapping_to_argv(mapping)
++    return _eval_status(redis_client.eval(COMMIT_CAS_LUA, 2, control_key, state_key, *argv))
+--- a/services/orderflow/tests/test_exec_health_freeze_integrity_v1.py
++++ b/services/orderflow/tests/test_exec_health_freeze_integrity_v1.py
+@@ -10,19 +10,22 @@
+     events = [
+         ('2-0', {'kind': 'autoguard_freeze_latch', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000'}),
+     ]
+-    res = evaluate_freeze_integrity(control_raw={}, state_raw={}, events=events)
++    res = evaluate_freeze_integrity(control_raw={}, state_raw={}, events=events, request_events=[])
+     assert 'control_state_missing_without_valid_ack' in res.violation_kinds
+ 
+ 
+ def test_valid_signed_commit_event_clears_pending_violation() -> None:
+     os.environ['EXEC_HEALTH_ACK_SIGNING_SECRET'] = 'test-secret'
+     sig = sign_dual_control_commit(secret='test-secret', request_id='r1', ack_nonce='n1', prepared_by='alice', approved_by='bob', commit_by='bob', reason='validated', ticket='INC-1', trigger_ts_ms=10000, prepared_ts_ms=10500, approved_ts_ms=10800, commit_ts_ms=11000)
+-    events = [
+-        ('4-0', {'kind': 'manual_ack_thaw_commit', 'request_id': 'r1', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000', 'prepared_ts_ms': '10500', 'approved_ts_ms': '10800', 'ts_ms': '11000', 'operator': 'bob', 'prepared_by': 'alice', 'approved_by': 'bob', 'reason': 'validated', 'ticket': 'INC-1', 'commit_sig': sig}),
+-        ('2-0', {'kind': 'autoguard_freeze_latch', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000'}),
++    request_events = [
++        ('4-0', {'kind': 'manual_ack_thaw_prepare', 'request_id': 'r1', 'ack_nonce': 'n1', 'operator': 'alice'}),
++        ('5-0', {'kind': 'manual_ack_thaw_approve', 'request_id': 'r1', 'ack_nonce': 'n1', 'operator': 'bob'}),
++        ('6-0', {'kind': 'manual_ack_thaw_commit', 'request_id': 'r1', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000', 'prepared_ts_ms': '10500', 'approved_ts_ms': '10800', 'ts_ms': '11000', 'operator': 'bob', 'prepared_by': 'alice', 'approved_by': 'bob', 'reason': 'validated', 'ticket': 'INC-1', 'commit_sig': sig}),
+     ]
+-    res = evaluate_freeze_integrity(control_raw={'expected_ack_nonce': 'n1'}, state_raw={}, events=events)
++    events = [('2-0', {'kind': 'autoguard_freeze_latch', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000'})]
++    res = evaluate_freeze_integrity(control_raw={'expected_ack_nonce': 'n1', 'active_thaw_request_id': 'r1'}, state_raw={}, events=events, request_events=request_events)
+     assert res.valid_ack_event_present is True
++    assert res.request_log_valid_sequence is True
+     assert res.violation_kinds == ['none']
+ 
+ 
+@@ -46,5 +49,6 @@
+         'last_trigger_ts_ms': '10000',
+     }
+     events = [('2-0', {'kind': 'autoguard_freeze_latch', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000'})]
+-    res = evaluate_freeze_integrity(control_raw=control, state_raw={}, events=events)
++    res = evaluate_freeze_integrity(control_raw=control, state_raw={}, events=events, request_events=[])
+     assert 'invalid_control_ack_signature' in res.violation_kinds
++    assert 'request_log_prepare_missing' in res.violation_kinds
+--- a/services/orderflow/tests/test_exec_health_freeze_request_log_v1.py
++++ b/services/orderflow/tests/test_exec_health_freeze_request_log_v1.py
+@@ -0,0 +1,31 @@
++from __future__ import annotations
++
++from services.orderflow.exec_health_freeze_request_log import evaluate_request_log_sequence
++
++
++def test_valid_request_log_sequence() -> None:
++    control = {'active_thaw_request_id': 'r1', 'thaw_request_nonce': 'n1', 'thaw_prepared_by': 'alice', 'thaw_approved_by': 'bob', 'manual_commit_by': 'bob'}
++    req = [
++        ('1-0', {'kind': 'manual_ack_thaw_prepare', 'request_id': 'r1', 'operator': 'alice', 'ack_nonce': 'n1'}),
++        ('2-0', {'kind': 'manual_ack_thaw_approve', 'request_id': 'r1', 'operator': 'bob', 'ack_nonce': 'n1'}),
++        ('3-0', {'kind': 'manual_ack_thaw_commit', 'request_id': 'r1', 'operator': 'bob', 'ack_nonce': 'n1'}),
++    ]
++    res = evaluate_request_log_sequence(control_raw=control, request_events=req)
++    assert res.valid_sequence is True
++    assert res.violation_kinds == ['none']
++
++
++def test_control_commit_without_request_log_is_tamper() -> None:
++    control = {
++        'active_thaw_request_id': 'r1',
++        'manual_commit_request_id': 'r1',
++        'manual_override_active': '1',
++        'manual_override_action': 'thaw',
++        'thaw_request_nonce': 'n1',
++        'thaw_prepared_by': 'alice',
++        'thaw_approved_by': 'bob',
++        'manual_commit_by': 'bob',
++    }
++    res = evaluate_request_log_sequence(control_raw=control, request_events=[])
++    assert 'request_log_prepare_missing' in res.violation_kinds
++    assert 'request_log_commit_missing' in res.violation_kinds
+--- a/orderflow_services/exec_health_freeze_override_v1.py
++++ b/orderflow_services/exec_health_freeze_override_v1.py
+@@ -24,6 +24,12 @@
+     sign_dual_control_commit,
+     stringify_mapping,
+ )
++from services.orderflow.exec_health_freeze_request_log import (
++    DEFAULT_REQUEST_STREAM,
++    eval_approve_cas,
++    eval_commit_cas,
++    eval_prepare_cas,
++)
+ 
+ 
+ def _now_ms() -> int:
+@@ -43,6 +49,7 @@
+         self.state_key = os.getenv("EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY", "metrics:exec_health:slo:autoguard:state")
+         self.freeze_key = os.getenv("EXEC_HEALTH_AUTO_FREEZE_KEY", "cfg:orderflow:exec_health:auto_freeze:v1")
+         self.event_stream = os.getenv("EXEC_HEALTH_FREEZE_EVENT_STREAM", "ops:exec_health:freeze_events:v1")
++        self.request_stream = os.getenv("EXEC_HEALTH_FREEZE_REQUEST_STREAM", DEFAULT_REQUEST_STREAM)
+         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
+ 
+     def _read_hash(self, key: str) -> Dict[str, Any]:
+@@ -62,6 +69,7 @@
+             "control_key": self.control_key,
+             "state_key": self.state_key,
+             "freeze_key": self.freeze_key,
++            "request_stream": self.request_stream,
+             "pending_ack_nonce": ctl.expected_ack_nonce or st.expected_ack_nonce,
+             "active_thaw_request_id": ctl.active_thaw_request_id or st.active_thaw_request_id,
+             "thaw_request_status": ctl.thaw_request_status or st.thaw_request_status,
+@@ -81,6 +89,12 @@
+         except Exception:
+             return ""
+ 
++    def _emit_request_event(self, payload: Dict[str, Any]) -> str:
++        try:
++            return str(self.r.xadd(self.request_stream, stringify_mapping(payload), maxlen=10000) or "")
++        except Exception:
++            return ""
++
+     def _load_pair(self):
+         prev_ctl = self._read_hash(self.control_key)
+         prev_state = self._read_hash(self.state_key)
+@@ -114,7 +128,7 @@
+             "source": "exec_health_freeze_override_v1",
+             "control_key": self.control_key,
+         }
+-        event_id = self._emit_event(event_payload)
++        request_event_id = self._emit_request_event(event_payload)
+         upd = build_thaw_prepare_update(
+             prev=prev_ctl,
+             now_ms=now,
+@@ -123,14 +137,19 @@
+             reason=reason,
+             ticket=ticket,
+             provided_ack_nonce=str(nonce),
++            request_event_id=request_event_id,
++        )
++        rc = eval_prepare_cas(
++            self.r,
++            control_key=self.control_key,
++            state_key=self.state_key,
++            expected_nonce=str(nonce),
++            request_id=request_id,
++            mapping=upd,
+         )
+-        upd["thaw_prepare_event_id"] = str(event_id or "")
+-        self._write_hash(self.control_key, upd)
+-        state_upd = dict(prev_state)
+-        state_upd.update(upd)
+-        state_upd["state_thaw_prepare_written_ts_ms"] = int(now)
+-        self._write_hash(self.state_key, state_upd)
+-        return {"ok": True, "action": "prepare-thaw", **event_payload, "event_id": event_id, "effective_freeze_active": 1}
++        if rc != 1:
++            raise ValueError(f"prepare CAS failed: rc={rc}")
++        return {"ok": True, "action": "prepare-thaw", **event_payload, "request_event_id": request_event_id, "effective_freeze_active": 1}
+ 
+     def approve_thaw(self, *, operator: str, request_id: str) -> Dict[str, Any]:
+         now = _now_ms()
+@@ -155,15 +174,12 @@
+             "source": "exec_health_freeze_override_v1",
+             "control_key": self.control_key,
+         }
+-        event_id = self._emit_event(event_payload)
+-        upd = build_thaw_approve_update(prev=prev_ctl, now_ms=now, request_id=str(request_id), approver=operator)
+-        upd["thaw_approve_event_id"] = str(event_id or "")
+-        self._write_hash(self.control_key, upd)
+-        state_upd = dict(prev_state)
+-        state_upd.update(upd)
+-        state_upd["state_thaw_approve_written_ts_ms"] = int(now)
+-        self._write_hash(self.state_key, state_upd)
+-        return {"ok": True, "action": "approve-thaw", **event_payload, "event_id": event_id, "effective_freeze_active": 1}
++        request_event_id = self._emit_request_event(event_payload)
++        upd = build_thaw_approve_update(prev=prev_ctl, now_ms=now, request_id=str(request_id), approver=operator, request_event_id=request_event_id)
++        rc = eval_approve_cas(self.r, control_key=self.control_key, state_key=self.state_key, request_id=str(request_id), approver=operator, mapping=upd)
++        if rc != 1:
++            raise ValueError(f"approve CAS failed: rc={rc}")
++        return {"ok": True, "action": "approve-thaw", **event_payload, "request_event_id": request_event_id, "effective_freeze_active": 1}
+ 
+     def commit_thaw(self, *, operator: str, request_id: str) -> Dict[str, Any]:
+         now = _now_ms()
+@@ -214,6 +230,8 @@
+             "source": "exec_health_freeze_override_v1",
+             "control_key": self.control_key,
+         }
++        request_event_id = self._emit_request_event(event_payload)
++        # Keep mirrored operator event for backward-compatible human/audit consumption.
+         event_id = self._emit_event(event_payload)
+         upd = build_dual_control_commit_thaw_update(
+             prev=prev_ctl,
+@@ -222,13 +240,12 @@
+             commit_by=operator,
+             commit_sig=sig,
+             commit_event_id=event_id,
++            request_event_id=request_event_id,
+         )
+-        self._write_hash(self.control_key, upd)
+-        state_upd = dict(prev_state)
+-        state_upd.update(upd)
+-        state_upd["state_thaw_commit_written_ts_ms"] = int(now)
+-        self._write_hash(self.state_key, state_upd)
+-        return {"ok": True, "action": "commit-thaw", **event_payload, "event_id": event_id, "effective_freeze_active": 0}
++        rc = eval_commit_cas(self.r, control_key=self.control_key, state_key=self.state_key, request_id=str(request_id), operator=operator, mapping=upd)
++        if rc != 1:
++            raise ValueError(f"commit CAS failed: rc={rc}")
++        return {"ok": True, "action": "commit-thaw", **event_payload, "event_id": event_id, "request_event_id": request_event_id, "effective_freeze_active": 0}
+ 
+     def freeze(self, *, operator: str, reason: str, ticket: str, minutes: int) -> Dict[str, Any]:
+         now = _now_ms()
+--- a/orderflow_services/exec_health_freeze_integrity_exporter_v1.py
++++ b/orderflow_services/exec_health_freeze_integrity_exporter_v1.py
+@@ -12,6 +12,7 @@
+ from prometheus_client import Gauge, start_http_server
+ 
+ from services.orderflow.exec_health_freeze_integrity import VIOLATION_KINDS, evaluate_freeze_integrity
++from services.orderflow.exec_health_freeze_request_log import DEFAULT_REQUEST_STREAM
+ 
+ 
+ def _now_ms() -> int:
+@@ -31,6 +32,7 @@
+ PENDING_ACK = Gauge("exec_health_freeze_integrity_pending_ack", "1 if a pending signed manual ack is still required")
+ VALID_ACK_EVENT = Gauge("exec_health_freeze_integrity_valid_ack_event_present", "1 if a valid signed ack event exists for the current nonce")
+ INVALID_ACK_EVENT = Gauge("exec_health_freeze_integrity_invalid_ack_event_present", "1 if an invalid ack event was observed")
++REQUEST_LOG_VALID = Gauge("exec_health_freeze_integrity_request_log_valid_sequence", "1 if append-only request log has a valid prepare/approve/commit sequence")
+ VIOLATION = Gauge("exec_health_freeze_integrity_violation", "One-hot freeze integrity violations", ["kind"])
+ LAST_TRIGGER_TS_MS = Gauge("exec_health_freeze_integrity_last_trigger_ts_ms", "Latest trigger ts referenced by control/state or stream")
+ STATE_AGE_S = Gauge("exec_health_freeze_integrity_state_age_seconds", "Max age of control/state hashes")
+@@ -49,9 +51,11 @@
+     control_key = os.getenv("EXEC_HEALTH_FREEZE_CONTROL_KEY", "cfg:orderflow:exec_health:freeze_control:v1")
+     state_key = os.getenv("EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY", "metrics:exec_health:slo:autoguard:state")
+     event_stream = os.getenv("EXEC_HEALTH_FREEZE_EVENT_STREAM", "ops:exec_health:freeze_events:v1")
++    request_stream = os.getenv("EXEC_HEALTH_FREEZE_REQUEST_STREAM", DEFAULT_REQUEST_STREAM)
+     port = int(os.getenv("EXEC_HEALTH_FREEZE_INTEGRITY_EXPORTER_PORT", "9828"))
+     interval_s = float(os.getenv("EXEC_HEALTH_FREEZE_INTEGRITY_EXPORTER_INTERVAL_S", "10") or 10)
+     event_count = int(os.getenv("EXEC_HEALTH_FREEZE_INTEGRITY_EVENT_COUNT", "100") or 100)
++    request_count = int(os.getenv("EXEC_HEALTH_FREEZE_REQUEST_EVENT_COUNT", "200") or 200)
+     if redis is None:
+         raise RuntimeError("redis dependency missing")
+     r = redis.Redis.from_url(redis_url, decode_responses=True)
+@@ -61,13 +65,15 @@
+             control = r.hgetall(control_key) or {}
+             state = r.hgetall(state_key) or {}
+             events = _read_events(r, event_stream, event_count)
+-            res = evaluate_freeze_integrity(control_raw=control, state_raw=state, events=events, now_ms=_now_ms())
++            request_events = _read_events(r, request_stream, request_count)
++            res = evaluate_freeze_integrity(control_raw=control, state_raw=state, events=events, request_events=request_events, now_ms=_now_ms())
+             UP.set(1.0)
+             CONTROL_PRESENT.set(1.0 if res.control_present else 0.0)
+             STATE_PRESENT.set(1.0 if res.state_present else 0.0)
+             PENDING_ACK.set(1.0 if res.pending_ack_nonce and not res.valid_ack_event_present else 0.0)
+             VALID_ACK_EVENT.set(1.0 if res.valid_ack_event_present else 0.0)
+             INVALID_ACK_EVENT.set(1.0 if res.invalid_ack_event_present else 0.0)
++            REQUEST_LOG_VALID.set(1.0 if res.request_log_valid_sequence else 0.0)
+             LAST_TRIGGER_TS_MS.set(float(res.pending_trigger_ts_ms or 0))
+             now_ms = _now_ms()
+             ages = []
+--- a/orderflow_services/exec_health_freeze_dual_control_exporter_v1.py
++++ b/orderflow_services/exec_health_freeze_dual_control_exporter_v1.py
+@@ -12,6 +12,7 @@
+ from prometheus_client import Gauge, start_http_server
+ 
+ from services.orderflow.exec_health_freeze_dual_control import DUAL_CONTROL_VIOLATION_KINDS, evaluate_freeze_dual_control
++from services.orderflow.exec_health_freeze_request_log import DEFAULT_REQUEST_STREAM
+ 
+ 
+ def _read_events(r: Any, key: str, count: int) -> List[Tuple[str, Dict[str, Any]]]:
+@@ -36,7 +37,7 @@
+     redis_url = os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0')
+     control_key = os.getenv('EXEC_HEALTH_FREEZE_CONTROL_KEY', 'cfg:orderflow:exec_health:freeze_control:v1')
+     state_key = os.getenv('EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY', 'metrics:exec_health:slo:autoguard:state')
+-    event_stream = os.getenv('EXEC_HEALTH_FREEZE_EVENT_STREAM', 'ops:exec_health:freeze_events:v1')
++    request_stream = os.getenv('EXEC_HEALTH_FREEZE_REQUEST_STREAM', DEFAULT_REQUEST_STREAM)
+     port = int(os.getenv('EXEC_HEALTH_FREEZE_DUAL_CONTROL_EXPORTER_PORT', '9829'))
+     interval_s = float(os.getenv('EXEC_HEALTH_FREEZE_DUAL_CONTROL_EXPORTER_INTERVAL_S', '10') or 10)
+     event_count = int(os.getenv('EXEC_HEALTH_FREEZE_DUAL_CONTROL_EVENT_COUNT', '100') or 100)
+@@ -48,7 +49,7 @@
+         try:
+             control = r.hgetall(control_key) or {}
+             state = r.hgetall(state_key) or {}
+-            events = _read_events(r, event_stream, event_count)
++            events = _read_events(r, request_stream, event_count)
+             res = evaluate_freeze_dual_control(control_raw=control, state_raw=state, events=events)
+             UP.set(1.0)
+             PENDING.set(1.0 if res.pending_request else 0.0)
+--- a/orderflow_services/exec_health_freeze_tamper_guard_v1.py
++++ b/orderflow_services/exec_health_freeze_tamper_guard_v1.py
+@@ -0,0 +1,207 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import json
++import os
++import secrets
++import time
++from typing import Any, Dict, List, Tuple
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++from prometheus_client import Counter, Gauge, start_http_server
++
++from services.orderflow.exec_health_freeze_control import build_autoguard_latch_update, stringify_mapping
++from services.orderflow.exec_health_freeze_integrity import evaluate_freeze_integrity
++from services.orderflow.exec_health_freeze_request_log import DEFAULT_REQUEST_STREAM
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++def _read_events(r: Any, key: str, count: int) -> List[Tuple[str, Dict[str, Any]]]:
++    try:
++        rows = r.xrevrange(key, count=max(1, int(count))) or []
++        return [(str(eid), dict(payload or {})) for eid, payload in rows]
++    except Exception:
++        return []
++
++
++TAMPER_REFREEZE_KINDS = {
++    'control_state_missing_without_valid_ack',
++    'thaw_without_valid_ack_event',
++    'invalid_control_ack_signature',
++    'request_log_prepare_missing',
++    'request_log_approve_missing',
++    'request_log_commit_missing',
++    'request_log_same_operator_violation',
++    'request_log_out_of_order',
++    'request_log_nonce_mismatch',
++    'control_request_mismatch',
++}
++
++
++def should_refreeze(violation_kinds: List[str]) -> bool:
++    return any(k in TAMPER_REFREEZE_KINDS for k in list(violation_kinds or []))
++
++
++UP = Gauge('exec_health_freeze_tamper_guard_up', '1 if tamper guard loop is healthy')
++TAMPER_ACTIVE = Gauge('exec_health_freeze_tamper_guard_tamper_active', '1 if current integrity evaluation indicates tamper requiring refreeze')
++STATE_AGE_S = Gauge('exec_health_freeze_tamper_guard_state_age_seconds', 'Age of tamper guard state hash in seconds')
++LAST_REFREEZE_TS_MS = Gauge('exec_health_freeze_tamper_guard_last_refreeze_ts_ms', 'Last automatic tamper refreeze timestamp')
++VIOLATION = Gauge('exec_health_freeze_tamper_guard_violation', 'One-hot tamper violations seen by guard', ['kind'])
++REFREEZE_TOTAL = Counter('exec_health_freeze_tamper_guard_refreeze_total', 'Automatic re-freeze actions due to tamper', ['reason'])
++
++
++class Guard:
++    def __init__(self) -> None:
++        if redis is None:
++            raise RuntimeError('redis dependency missing')
++        self.redis_url = os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0')
++        self.control_key = os.getenv('EXEC_HEALTH_FREEZE_CONTROL_KEY', 'cfg:orderflow:exec_health:freeze_control:v1')
++        self.state_key = os.getenv('EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY', 'metrics:exec_health:slo:autoguard:state')
++        self.freeze_key = os.getenv('EXEC_HEALTH_AUTO_FREEZE_KEY', 'cfg:orderflow:exec_health:auto_freeze:v1')
++        self.event_stream = os.getenv('EXEC_HEALTH_FREEZE_EVENT_STREAM', 'ops:exec_health:freeze_events:v1')
++        self.request_stream = os.getenv('EXEC_HEALTH_FREEZE_REQUEST_STREAM', DEFAULT_REQUEST_STREAM)
++        self.notify_stream = os.getenv('EXEC_HEALTH_AUTOGUARD_NOTIFY_STREAM', 'notify:telegram')
++        self.guard_state_key = os.getenv('EXEC_HEALTH_TAMPER_GUARD_STATE_KEY', 'metrics:exec_health:freeze_tamper_guard:last')
++        self.interval_s = float(os.getenv('EXEC_HEALTH_TAMPER_GUARD_INTERVAL_S', '10') or 10)
++        self.cooldown_s = max(30, int(os.getenv('EXEC_HEALTH_TAMPER_GUARD_COOLDOWN_S', '300') or 300))
++        self.freeze_minutes = max(1, int(os.getenv('EXEC_HEALTH_TAMPER_GUARD_FREEZE_MINUTES', '30') or 30))
++        self.event_count = max(10, int(os.getenv('EXEC_HEALTH_FREEZE_INTEGRITY_EVENT_COUNT', '100') or 100))
++        self.request_count = max(10, int(os.getenv('EXEC_HEALTH_FREEZE_REQUEST_EVENT_COUNT', '200') or 200))
++        self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
++
++    def _read_hash(self, key: str) -> Dict[str, Any]:
++        try:
++            return self.r.hgetall(key) or {}
++        except Exception:
++            return {}
++
++    def _write_hash(self, key: str, payload: Dict[str, Any]) -> None:
++        self.r.hset(key, mapping=stringify_mapping(payload))
++        self.r.expire(key, 86400 * 7)
++
++    def _emit_event(self, payload: Dict[str, Any]) -> str:
++        try:
++            return str(self.r.xadd(self.event_stream, stringify_mapping(payload), maxlen=5000) or '')
++        except Exception:
++            return ''
++
++    def _notify(self, text: str) -> None:
++        try:
++            self.r.xadd(self.notify_stream, {'ts_ms': str(_now_ms()), 'source': 'exec_health_freeze_tamper_guard_v1', 'text': text}, maxlen=5000)
++        except Exception:
++            pass
++
++    def run_once(self) -> Dict[str, Any]:
++        now = _now_ms()
++        control = self._read_hash(self.control_key)
++        state = self._read_hash(self.state_key)
++        guard_state = self._read_hash(self.guard_state_key)
++        events = _read_events(self.r, self.event_stream, self.event_count)
++        request_events = _read_events(self.r, self.request_stream, self.request_count)
++        integ = evaluate_freeze_integrity(control_raw=control, state_raw=state, events=events, request_events=request_events, now_ms=now)
++        tamper = should_refreeze(integ.violation_kinds)
++        cooldown_until = _i(guard_state.get('cooldown_until_ts_ms'), 0)
++        last_refreeze_ts_ms = _i(guard_state.get('last_refreeze_ts_ms'), 0)
++        out = {
++            'ok': True,
++            'tamper_active': int(tamper),
++            'violation_kinds_json': json.dumps(list(integ.violation_kinds), ensure_ascii=False),
++            'last_refreeze_ts_ms': int(last_refreeze_ts_ms),
++            'cooldown_until_ts_ms': int(cooldown_until),
++        }
++        if tamper and now >= cooldown_until:
++            freeze_until_ts_ms = now + self.freeze_minutes * 60 * 1000
++            ack_nonce = secrets.token_hex(16)
++            reasons = ['freeze_control_tamper'] + [k for k in integ.violation_kinds if k != 'none']
++            trigger_event_id = self._emit_event({
++                'ts_ms': now,
++                'kind': 'tamper_refreeze_latch',
++                'ack_nonce': ack_nonce,
++                'trigger_ts_ms': now,
++                'reasons_json': json.dumps(reasons, ensure_ascii=False),
++                'freeze_until_ts_ms': freeze_until_ts_ms,
++                'source': 'exec_health_freeze_tamper_guard_v1',
++                'request_id': integ.request_log_request_id,
++            })
++            raw = {
++                'schema_name': 'exec_health_auto_freeze',
++                'schema_version': 1,
++                'ts_ms': now,
++                'freeze_active': 1,
++                'freeze_reason': ','.join(reasons),
++                'freeze_until_ts_ms': freeze_until_ts_ms,
++            }
++            self.r.set(self.freeze_key, json.dumps(raw, separators=(',', ':')))
++            self.r.pexpire(self.freeze_key, self.freeze_minutes * 60 * 1000)
++            latch = build_autoguard_latch_update(prev=control, now_ms=now, reasons=reasons, freeze_until_ts_ms=freeze_until_ts_ms, ack_nonce=ack_nonce, trigger_event_id=trigger_event_id)
++            self._write_hash(self.control_key, latch)
++            state_upd = dict(state)
++            state_upd.update(latch)
++            state_upd['state_tamper_refreeze_written_ts_ms'] = int(now)
++            self._write_hash(self.state_key, state_upd)
++            guard_state.update({
++                'schema_name': 'exec_health_freeze_tamper_guard_state',
++                'schema_version': 1,
++                'updated_ts_ms': int(now),
++                'last_refreeze_ts_ms': int(now),
++                'cooldown_until_ts_ms': int(now + self.cooldown_s * 1000),
++                'last_reason': ','.join(reasons),
++                'request_id': str(integ.request_log_request_id or ''),
++                'refreeze_total': _i(guard_state.get('refreeze_total'), 0) + 1,
++            })
++            self._write_hash(self.guard_state_key, guard_state)
++            self._notify(f'ExecHealth tamper detected -> auto re-freeze: {", ".join(reasons)}')
++            REFREEZE_TOTAL.labels(reason='freeze_control_tamper').inc()
++            out.update({'refreeze_performed': 1, 'last_refreeze_ts_ms': int(now), 'cooldown_until_ts_ms': int(now + self.cooldown_s * 1000)})
++        else:
++            guard_state.update({
++                'schema_name': 'exec_health_freeze_tamper_guard_state',
++                'schema_version': 1,
++                'updated_ts_ms': int(now),
++                'last_refreeze_ts_ms': int(last_refreeze_ts_ms),
++                'cooldown_until_ts_ms': int(cooldown_until),
++                'last_reason': guard_state.get('last_reason', ''),
++                'request_id': str(integ.request_log_request_id or guard_state.get('request_id', '')),
++                'refreeze_total': _i(guard_state.get('refreeze_total'), 0),
++            })
++            self._write_hash(self.guard_state_key, guard_state)
++            out['refreeze_performed'] = 0
++
++        UP.set(1.0)
++        TAMPER_ACTIVE.set(1.0 if tamper else 0.0)
++        LAST_REFREEZE_TS_MS.set(float(_i(guard_state.get('last_refreeze_ts_ms'), 0) or out.get('last_refreeze_ts_ms', 0) or 0))
++        age = 0.0 if not guard_state else max(0.0, float(now - _i(guard_state.get('updated_ts_ms'), 0)) / 1000.0)
++        STATE_AGE_S.set(age)
++        active = set(integ.violation_kinds)
++        for kind in sorted(TAMPER_REFREEZE_KINDS):
++            VIOLATION.labels(kind=kind).set(1.0 if kind in active else 0.0)
++        return out
++
++
++def main() -> None:
++    g = Guard()
++    port = int(os.getenv('EXEC_HEALTH_TAMPER_GUARD_EXPORTER_PORT', '9830'))
++    start_http_server(port)
++    while True:
++        try:
++            g.run_once()
++        except Exception:
++            UP.set(0.0)
++        time.sleep(g.interval_s)
++
++
++if __name__ == '__main__':
++    main()
+--- a/orderflow_services/prometheus_alerts_exec_health_freeze_tamper_guard_v1.yml
++++ b/orderflow_services/prometheus_alerts_exec_health_freeze_tamper_guard_v1.yml
+@@ -0,0 +1,24 @@
++groups:
++  - name: exec-health-freeze-tamper-guard-v1
++    rules:
++      - alert: OF_ExecHealth_FreezeTamperDetected_Crit
++        expr: exec_health_freeze_tamper_guard_tamper_active > 0
++        for: 1m
++        labels:
++          severity: critical
++        annotations:
++          summary: ExecHealth freeze tamper detected and re-freeze required
++      - alert: OF_ExecHealth_FreezeTamperRefreezePerformed_Warn
++        expr: increase(exec_health_freeze_tamper_guard_refreeze_total[15m]) > 0
++        for: 0m
++        labels:
++          severity: warning
++        annotations:
++          summary: ExecHealth tamper guard performed an automatic re-freeze
++      - alert: OF_ExecHealth_FreezeTamperGuard_ExporterStale_Warn
++        expr: exec_health_freeze_tamper_guard_up == 0 or exec_health_freeze_tamper_guard_state_age_seconds > 120
++        for: 5m
++        labels:
++          severity: warning
++        annotations:
++          summary: ExecHealth tamper guard exporter is stale or unhealthy
+--- a/orderflow_services/grafana/exec_health_freeze_tamper_guard_v1.json
++++ b/orderflow_services/grafana/exec_health_freeze_tamper_guard_v1.json
+@@ -0,0 +1,44 @@
++{
++  "title": "ExecHealth Freeze Tamper Guard (v1)",
++  "uid": "exec-health-freeze-tamper-guard-v1",
++  "schemaVersion": 39,
++  "version": 1,
++  "panels": [
++    {
++      "title": "Tamper Active",
++      "type": "stat",
++      "targets": [
++        {
++          "expr": "exec_health_freeze_tamper_guard_tamper_active"
++        }
++      ]
++    },
++    {
++      "title": "Automatic Re-freeze Total",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "exec_health_freeze_tamper_guard_refreeze_total"
++        }
++      ]
++    },
++    {
++      "title": "Violation Kinds",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "exec_health_freeze_tamper_guard_violation"
++        }
++      ]
++    },
++    {
++      "title": "Last Re-freeze",
++      "type": "stat",
++      "targets": [
++        {
++          "expr": "exec_health_freeze_tamper_guard_last_refreeze_ts_ms"
++        }
++      ]
++    }
++  ]
++}
+\ No newline at end of file
+--- a/orderflow_services/runbook_exec_health_freeze_tamper_guard_v1.md
++++ b/orderflow_services/runbook_exec_health_freeze_tamper_guard_v1.md
+@@ -0,0 +1,28 @@
++# ExecHealth Freeze Tamper Guard (v1)
++
++## Purpose
++
++Detect direct edits of `freeze_control` / `state` that are not backed by a valid
++append-only request-log sequence and automatically re-freeze the system.
++
++## Inputs
++
++- `cfg:orderflow:exec_health:freeze_control:v1`
++- `metrics:exec_health:slo:autoguard:state`
++- `ops:exec_health:freeze_events:v1`
++- `ops:exec_health:freeze_requests:v1`
++
++## Automatic action
++
++When tamper is detected, the guard:
++
++1. emits `tamper_refreeze_latch`
++2. rewrites the raw freeze key
++3. rewrites freeze control/state with a fresh `expected_ack_nonce`
++4. notifies operators via `notify:telegram`
++
++## Operator guidance
++
++- inspect request log for the last `request_id`
++- compare control hash fields with prepare/approve/commit events
++- do **not** thaw until the tamper source is understood
+--- a/orderflow_services/tests/test_exec_health_freeze_override_v1.py
++++ b/orderflow_services/tests/test_exec_health_freeze_override_v1.py
+@@ -46,6 +46,45 @@
+         self.stream.append((key, dict(mapping)))
+         return f'{len(self.stream)}-0'
+ 
++    def eval(self, script: str, numkeys: int, *args):
++        control_key, state_key = args[:2]
++        argv = list(args[2:])
++        ctl = self.hashes.setdefault(control_key, {})
++        st = self.hashes.setdefault(state_key, {})
++        if 'cur_expected' in script:  # prepare
++            expected_nonce, request_id, n = argv[0], argv[1], int(argv[2])
++            cur_expected = ctl.get('expected_ack_nonce') or st.get('expected_ack_nonce') or ''
++            if cur_expected and expected_nonce != cur_expected:
++                return 0
++            active_id = ctl.get('active_thaw_request_id', '')
++            active_status = ctl.get('thaw_request_status', '')
++            if active_id and active_id != request_id and active_status in {'prepared', 'approved'}:
++                return -2
++            flat = argv[3:]
++        elif 'prepared_by' in script and 'approved_by' not in script:  # approve
++            request_id, approver, n = argv[0], argv[1], int(argv[2])
++            if ctl.get('active_thaw_request_id', '') != request_id:
++                return 0
++            if ctl.get('thaw_request_status', '') != 'prepared':
++                return -2
++            if ctl.get('thaw_prepared_by', '') == approver:
++                return -3
++            flat = argv[3:]
++        else:  # commit
++            request_id, operator, n = argv[0], argv[1], int(argv[2])
++            if ctl.get('active_thaw_request_id', '') != request_id:
++                return 0
++            if ctl.get('thaw_request_status', '') != 'approved':
++                return -2
++            if ctl.get('thaw_approved_by', '') != operator:
++                return -3
++            flat = argv[3:]
++        for i in range(0, len(flat), 2):
++            field, value = flat[i], flat[i+1]
++            ctl[str(field)] = str(value)
++            st[str(field)] = str(value)
++        return 1
++
+ 
+ def _ctl():
+     c = OverrideController.__new__(OverrideController)
+@@ -53,6 +92,7 @@
+     c.state_key = 'metrics:exec_health:slo:autoguard:state'
+     c.freeze_key = 'cfg:orderflow:exec_health:auto_freeze:v1'
+     c.event_stream = 'ops:exec_health:freeze_events:v1'
++    c.request_stream = 'ops:exec_health:freeze_requests:v1'
+     c.r = FakeRedis()
+     return c
+ 
+@@ -62,7 +102,7 @@
+     c = _ctl()
+     prep = c.prepare_thaw(operator='alice', reason='validated rollback', ticket='INC-42', nonce='n1')
+     rid = prep['request_id']
+-    appr = c.approve_thaw(operator='bob', request_id=rid)
++    c.approve_thaw(operator='bob', request_id=rid)
+     out = c.commit_thaw(operator='bob', request_id=rid)
+     assert out['ok'] is True
+     st = parse_exec_health_freeze_control(c.r.hashes[c.control_key])
+@@ -71,7 +111,8 @@
+     assert st.thaw_prepared_by == 'alice'
+     assert st.thaw_approved_by == 'bob'
+     assert verify_dual_control_commit_signature(c.r.hashes[c.control_key], secret='test-secret') is True
+-    assert c.r.stream[-1][1]['kind'] == 'manual_ack_thaw_commit'
++    assert c.r.stream[-1][0] == 'ops:exec_health:freeze_events:v1'
++    assert any(key == 'ops:exec_health:freeze_requests:v1' and row['kind'] == 'manual_ack_thaw_commit' for key, row in c.r.stream)
+ 
+ 
+ def test_approve_requires_distinct_second_operator() -> None:
+--- a/orderflow_services/tests/test_exec_health_freeze_integrity_exporter_v1.py
++++ b/orderflow_services/tests/test_exec_health_freeze_integrity_exporter_v1.py
+@@ -10,11 +10,14 @@
+     os.environ['EXEC_HEALTH_ACK_SIGNING_SECRET'] = 'test-secret'
+     sig = sign_dual_control_commit(secret='test-secret', request_id='r1', ack_nonce='n1', prepared_by='alice', approved_by='bob', commit_by='bob', reason='validated', ticket='INC-1', trigger_ts_ms=10000, prepared_ts_ms=10500, approved_ts_ms=10800, commit_ts_ms=11000)
+     res = evaluate_freeze_integrity(
+-        control_raw={'expected_ack_nonce': 'n1'},
++        control_raw={'expected_ack_nonce': 'n1', 'active_thaw_request_id': 'r1'},
+         state_raw={},
+-        events=[
+-            ('4-0', {'kind': 'manual_ack_thaw_commit', 'request_id': 'r1', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000', 'prepared_ts_ms': '10500', 'approved_ts_ms': '10800', 'ts_ms': '11000', 'operator': 'bob', 'prepared_by': 'alice', 'approved_by': 'bob', 'reason': 'validated', 'ticket': 'INC-1', 'commit_sig': sig}),
+-            ('2-0', {'kind': 'autoguard_freeze_latch', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000'}),
++        events=[('2-0', {'kind': 'autoguard_freeze_latch', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000'})],
++        request_events=[
++            ('3-0', {'kind': 'manual_ack_thaw_prepare', 'request_id': 'r1', 'ack_nonce': 'n1', 'operator': 'alice'}),
++            ('4-0', {'kind': 'manual_ack_thaw_approve', 'request_id': 'r1', 'ack_nonce': 'n1', 'operator': 'bob'}),
++            ('5-0', {'kind': 'manual_ack_thaw_commit', 'request_id': 'r1', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000', 'prepared_ts_ms': '10500', 'approved_ts_ms': '10800', 'ts_ms': '11000', 'operator': 'bob', 'prepared_by': 'alice', 'approved_by': 'bob', 'reason': 'validated', 'ticket': 'INC-1', 'commit_sig': sig}),
+         ],
+     )
+     assert res.valid_ack_event_present is True
++    assert res.request_log_valid_sequence is True
+--- a/orderflow_services/tests/test_exec_health_freeze_tamper_guard_v1.py
++++ b/orderflow_services/tests/test_exec_health_freeze_tamper_guard_v1.py
+@@ -0,0 +1,88 @@
++from __future__ import annotations
++
++from orderflow_services.exec_health_freeze_tamper_guard_v1 import Guard, should_refreeze
++
++
++class FakeRedis:
++    def __init__(self):
++        self.hashes = {
++            'cfg:orderflow:exec_health:freeze_control:v1': {
++                'manual_override_active': '1',
++                'manual_override_action': 'thaw',
++                'active_thaw_request_id': 'r1',
++                'manual_commit_request_id': 'r1',
++                'expected_ack_nonce': 'n1',
++                'manual_ack_nonce': 'n1',
++                'thaw_request_nonce': 'n1',
++                'thaw_prepared_by': 'alice',
++                'thaw_approved_by': 'bob',
++                'manual_commit_by': 'bob',
++                'manual_commit_sig': 'bad',
++                'manual_ack_sig': 'bad',
++                'last_trigger_ts_ms': '10000',
++                'updated_ts_ms': '11000',
++            },
++            'metrics:exec_health:slo:autoguard:state': {},
++            'metrics:exec_health:freeze_tamper_guard:last': {},
++        }
++        self.values = {}
++        self.stream = []
++
++    def hgetall(self, key: str):
++        return dict(self.hashes.get(key, {}))
++
++    def hset(self, key: str, mapping):
++        self.hashes.setdefault(key, {}).update({str(k): str(v) for k, v in dict(mapping).items()})
++
++    def expire(self, key: str, ttl: int):
++        return True
++
++    def set(self, key: str, value: str):
++        self.values[key] = value
++
++    def pexpire(self, key: str, ttl: int):
++        return True
++
++    def xrevrange(self, key: str, count: int = 10):
++        rows = [(eid, payload) for k, eid, payload in self.stream if k == key]
++        return list(reversed(rows))[:count]
++
++    def xadd(self, key: str, mapping, maxlen=0):
++        eid = f'{len(self.stream)+1}-0'
++        self.stream.append((key, eid, {str(k): str(v) for k, v in dict(mapping).items()}))
++        return eid
++
++
++def _guard() -> Guard:
++    g = Guard.__new__(Guard)
++    g.control_key = 'cfg:orderflow:exec_health:freeze_control:v1'
++    g.state_key = 'metrics:exec_health:slo:autoguard:state'
++    g.freeze_key = 'cfg:orderflow:exec_health:auto_freeze:v1'
++    g.event_stream = 'ops:exec_health:freeze_events:v1'
++    g.request_stream = 'ops:exec_health:freeze_requests:v1'
++    g.notify_stream = 'notify:telegram'
++    g.guard_state_key = 'metrics:exec_health:freeze_tamper_guard:last'
++    g.interval_s = 10
++    g.cooldown_s = 300
++    g.freeze_minutes = 30
++    g.event_count = 100
++    g.request_count = 100
++    g.r = FakeRedis()
++    return g
++
++
++def test_should_refreeze_for_tamper_kinds() -> None:
++    assert should_refreeze(['control_request_mismatch']) is True
++    assert should_refreeze(['none']) is False
++
++
++def test_guard_refreezes_on_direct_hash_edit_without_request_log() -> None:
++    g = _guard()
++    out = g.run_once()
++    assert out['tamper_active'] == 1
++    assert out['refreeze_performed'] == 1
++    assert 'cfg:orderflow:exec_health:auto_freeze:v1' in g.r.values
++    control = g.r.hashes[g.control_key]
++    assert control['control_source'] == 'autoguard'
++    assert control['manual_ack_required'] == '1'
++    assert any(k == 'ops:exec_health:freeze_events:v1' and payload['kind'] == 'tamper_refreeze_latch' for k, _, payload in g.r.stream)
+--- a/orderflow_services/tests/test_exec_health_freeze_tamper_guard_alerts_yaml_v1.py
++++ b/orderflow_services/tests/test_exec_health_freeze_tamper_guard_alerts_yaml_v1.py
+@@ -0,0 +1,12 @@
++from __future__ import annotations
++
++import yaml
++from pathlib import Path
++
++
++def test_tamper_guard_alerts_yaml_loads() -> None:
++    path = Path('orderflow_services/prometheus_alerts_exec_health_freeze_tamper_guard_v1.yml')
++    obj = yaml.safe_load(path.read_text())
++    names = [r['alert'] for g in obj.get('groups', []) for r in g.get('rules', []) if 'alert' in r]
++    assert 'OF_ExecHealth_FreezeTamperDetected_Crit' in names
++    assert 'OF_ExecHealth_FreezeTamperRefreezePerformed_Warn' in names
+--- a/orderflow_services/tests/test_exec_health_freeze_tamper_guard_dashboard_json_v1.py
++++ b/orderflow_services/tests/test_exec_health_freeze_tamper_guard_dashboard_json_v1.py
+@@ -0,0 +1,13 @@
++from __future__ import annotations
++
++import json
++from pathlib import Path
++
++
++def test_tamper_guard_dashboard_json_loads() -> None:
++    path = Path('orderflow_services/grafana/exec_health_freeze_tamper_guard_v1.json')
++    obj = json.loads(path.read_text())
++    assert obj['title'] == 'ExecHealth Freeze Tamper Guard (v1)'
++    titles = [p.get('title') for p in obj.get('panels', [])]
++    assert 'Tamper Active' in titles
++    assert 'Automatic Re-freeze Total' in titles
+--- a/tick_flow_full/orderflow_services/exec_health_freeze_override_v1.py
++++ b/tick_flow_full/orderflow_services/exec_health_freeze_override_v1.py
+@@ -24,6 +24,12 @@
+     sign_dual_control_commit,
+     stringify_mapping,
+ )
++from services.orderflow.exec_health_freeze_request_log import (
++    DEFAULT_REQUEST_STREAM,
++    eval_approve_cas,
++    eval_commit_cas,
++    eval_prepare_cas,
++)
+ 
+ 
+ def _now_ms() -> int:
+@@ -43,6 +49,7 @@
+         self.state_key = os.getenv("EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY", "metrics:exec_health:slo:autoguard:state")
+         self.freeze_key = os.getenv("EXEC_HEALTH_AUTO_FREEZE_KEY", "cfg:orderflow:exec_health:auto_freeze:v1")
+         self.event_stream = os.getenv("EXEC_HEALTH_FREEZE_EVENT_STREAM", "ops:exec_health:freeze_events:v1")
++        self.request_stream = os.getenv("EXEC_HEALTH_FREEZE_REQUEST_STREAM", DEFAULT_REQUEST_STREAM)
+         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
+ 
+     def _read_hash(self, key: str) -> Dict[str, Any]:
+@@ -62,6 +69,7 @@
+             "control_key": self.control_key,
+             "state_key": self.state_key,
+             "freeze_key": self.freeze_key,
++            "request_stream": self.request_stream,
+             "pending_ack_nonce": ctl.expected_ack_nonce or st.expected_ack_nonce,
+             "active_thaw_request_id": ctl.active_thaw_request_id or st.active_thaw_request_id,
+             "thaw_request_status": ctl.thaw_request_status or st.thaw_request_status,
+@@ -81,6 +89,12 @@
+         except Exception:
+             return ""
+ 
++    def _emit_request_event(self, payload: Dict[str, Any]) -> str:
++        try:
++            return str(self.r.xadd(self.request_stream, stringify_mapping(payload), maxlen=10000) or "")
++        except Exception:
++            return ""
++
+     def _load_pair(self):
+         prev_ctl = self._read_hash(self.control_key)
+         prev_state = self._read_hash(self.state_key)
+@@ -114,7 +128,7 @@
+             "source": "exec_health_freeze_override_v1",
+             "control_key": self.control_key,
+         }
+-        event_id = self._emit_event(event_payload)
++        request_event_id = self._emit_request_event(event_payload)
+         upd = build_thaw_prepare_update(
+             prev=prev_ctl,
+             now_ms=now,
+@@ -123,14 +137,19 @@
+             reason=reason,
+             ticket=ticket,
+             provided_ack_nonce=str(nonce),
++            request_event_id=request_event_id,
++        )
++        rc = eval_prepare_cas(
++            self.r,
++            control_key=self.control_key,
++            state_key=self.state_key,
++            expected_nonce=str(nonce),
++            request_id=request_id,
++            mapping=upd,
+         )
+-        upd["thaw_prepare_event_id"] = str(event_id or "")
+-        self._write_hash(self.control_key, upd)
+-        state_upd = dict(prev_state)
+-        state_upd.update(upd)
+-        state_upd["state_thaw_prepare_written_ts_ms"] = int(now)
+-        self._write_hash(self.state_key, state_upd)
+-        return {"ok": True, "action": "prepare-thaw", **event_payload, "event_id": event_id, "effective_freeze_active": 1}
++        if rc != 1:
++            raise ValueError(f"prepare CAS failed: rc={rc}")
++        return {"ok": True, "action": "prepare-thaw", **event_payload, "request_event_id": request_event_id, "effective_freeze_active": 1}
+ 
+     def approve_thaw(self, *, operator: str, request_id: str) -> Dict[str, Any]:
+         now = _now_ms()
+@@ -155,15 +174,12 @@
+             "source": "exec_health_freeze_override_v1",
+             "control_key": self.control_key,
+         }
+-        event_id = self._emit_event(event_payload)
+-        upd = build_thaw_approve_update(prev=prev_ctl, now_ms=now, request_id=str(request_id), approver=operator)
+-        upd["thaw_approve_event_id"] = str(event_id or "")
+-        self._write_hash(self.control_key, upd)
+-        state_upd = dict(prev_state)
+-        state_upd.update(upd)
+-        state_upd["state_thaw_approve_written_ts_ms"] = int(now)
+-        self._write_hash(self.state_key, state_upd)
+-        return {"ok": True, "action": "approve-thaw", **event_payload, "event_id": event_id, "effective_freeze_active": 1}
++        request_event_id = self._emit_request_event(event_payload)
++        upd = build_thaw_approve_update(prev=prev_ctl, now_ms=now, request_id=str(request_id), approver=operator, request_event_id=request_event_id)
++        rc = eval_approve_cas(self.r, control_key=self.control_key, state_key=self.state_key, request_id=str(request_id), approver=operator, mapping=upd)
++        if rc != 1:
++            raise ValueError(f"approve CAS failed: rc={rc}")
++        return {"ok": True, "action": "approve-thaw", **event_payload, "request_event_id": request_event_id, "effective_freeze_active": 1}
+ 
+     def commit_thaw(self, *, operator: str, request_id: str) -> Dict[str, Any]:
+         now = _now_ms()
+@@ -214,6 +230,8 @@
+             "source": "exec_health_freeze_override_v1",
+             "control_key": self.control_key,
+         }
++        request_event_id = self._emit_request_event(event_payload)
++        # Keep mirrored operator event for backward-compatible human/audit consumption.
+         event_id = self._emit_event(event_payload)
+         upd = build_dual_control_commit_thaw_update(
+             prev=prev_ctl,
+@@ -222,13 +240,12 @@
+             commit_by=operator,
+             commit_sig=sig,
+             commit_event_id=event_id,
++            request_event_id=request_event_id,
+         )
+-        self._write_hash(self.control_key, upd)
+-        state_upd = dict(prev_state)
+-        state_upd.update(upd)
+-        state_upd["state_thaw_commit_written_ts_ms"] = int(now)
+-        self._write_hash(self.state_key, state_upd)
+-        return {"ok": True, "action": "commit-thaw", **event_payload, "event_id": event_id, "effective_freeze_active": 0}
++        rc = eval_commit_cas(self.r, control_key=self.control_key, state_key=self.state_key, request_id=str(request_id), operator=operator, mapping=upd)
++        if rc != 1:
++            raise ValueError(f"commit CAS failed: rc={rc}")
++        return {"ok": True, "action": "commit-thaw", **event_payload, "event_id": event_id, "request_event_id": request_event_id, "effective_freeze_active": 0}
+ 
+     def freeze(self, *, operator: str, reason: str, ticket: str, minutes: int) -> Dict[str, Any]:
+         now = _now_ms()
+--- a/tick_flow_full/orderflow_services/exec_health_freeze_integrity_exporter_v1.py
++++ b/tick_flow_full/orderflow_services/exec_health_freeze_integrity_exporter_v1.py
+@@ -12,6 +12,7 @@
+ from prometheus_client import Gauge, start_http_server
+ 
+ from services.orderflow.exec_health_freeze_integrity import VIOLATION_KINDS, evaluate_freeze_integrity
++from services.orderflow.exec_health_freeze_request_log import DEFAULT_REQUEST_STREAM
+ 
+ 
+ def _now_ms() -> int:
+@@ -31,6 +32,7 @@
+ PENDING_ACK = Gauge("exec_health_freeze_integrity_pending_ack", "1 if a pending signed manual ack is still required")
+ VALID_ACK_EVENT = Gauge("exec_health_freeze_integrity_valid_ack_event_present", "1 if a valid signed ack event exists for the current nonce")
+ INVALID_ACK_EVENT = Gauge("exec_health_freeze_integrity_invalid_ack_event_present", "1 if an invalid ack event was observed")
++REQUEST_LOG_VALID = Gauge("exec_health_freeze_integrity_request_log_valid_sequence", "1 if append-only request log has a valid prepare/approve/commit sequence")
+ VIOLATION = Gauge("exec_health_freeze_integrity_violation", "One-hot freeze integrity violations", ["kind"])
+ LAST_TRIGGER_TS_MS = Gauge("exec_health_freeze_integrity_last_trigger_ts_ms", "Latest trigger ts referenced by control/state or stream")
+ STATE_AGE_S = Gauge("exec_health_freeze_integrity_state_age_seconds", "Max age of control/state hashes")
+@@ -49,9 +51,11 @@
+     control_key = os.getenv("EXEC_HEALTH_FREEZE_CONTROL_KEY", "cfg:orderflow:exec_health:freeze_control:v1")
+     state_key = os.getenv("EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY", "metrics:exec_health:slo:autoguard:state")
+     event_stream = os.getenv("EXEC_HEALTH_FREEZE_EVENT_STREAM", "ops:exec_health:freeze_events:v1")
++    request_stream = os.getenv("EXEC_HEALTH_FREEZE_REQUEST_STREAM", DEFAULT_REQUEST_STREAM)
+     port = int(os.getenv("EXEC_HEALTH_FREEZE_INTEGRITY_EXPORTER_PORT", "9828"))
+     interval_s = float(os.getenv("EXEC_HEALTH_FREEZE_INTEGRITY_EXPORTER_INTERVAL_S", "10") or 10)
+     event_count = int(os.getenv("EXEC_HEALTH_FREEZE_INTEGRITY_EVENT_COUNT", "100") or 100)
++    request_count = int(os.getenv("EXEC_HEALTH_FREEZE_REQUEST_EVENT_COUNT", "200") or 200)
+     if redis is None:
+         raise RuntimeError("redis dependency missing")
+     r = redis.Redis.from_url(redis_url, decode_responses=True)
+@@ -61,13 +65,15 @@
+             control = r.hgetall(control_key) or {}
+             state = r.hgetall(state_key) or {}
+             events = _read_events(r, event_stream, event_count)
+-            res = evaluate_freeze_integrity(control_raw=control, state_raw=state, events=events, now_ms=_now_ms())
++            request_events = _read_events(r, request_stream, request_count)
++            res = evaluate_freeze_integrity(control_raw=control, state_raw=state, events=events, request_events=request_events, now_ms=_now_ms())
+             UP.set(1.0)
+             CONTROL_PRESENT.set(1.0 if res.control_present else 0.0)
+             STATE_PRESENT.set(1.0 if res.state_present else 0.0)
+             PENDING_ACK.set(1.0 if res.pending_ack_nonce and not res.valid_ack_event_present else 0.0)
+             VALID_ACK_EVENT.set(1.0 if res.valid_ack_event_present else 0.0)
+             INVALID_ACK_EVENT.set(1.0 if res.invalid_ack_event_present else 0.0)
++            REQUEST_LOG_VALID.set(1.0 if res.request_log_valid_sequence else 0.0)
+             LAST_TRIGGER_TS_MS.set(float(res.pending_trigger_ts_ms or 0))
+             now_ms = _now_ms()
+             ages = []
+--- a/tick_flow_full/orderflow_services/exec_health_freeze_dual_control_exporter_v1.py
++++ b/tick_flow_full/orderflow_services/exec_health_freeze_dual_control_exporter_v1.py
+@@ -12,6 +12,7 @@
+ from prometheus_client import Gauge, start_http_server
+ 
+ from services.orderflow.exec_health_freeze_dual_control import DUAL_CONTROL_VIOLATION_KINDS, evaluate_freeze_dual_control
++from services.orderflow.exec_health_freeze_request_log import DEFAULT_REQUEST_STREAM
+ 
+ 
+ def _read_events(r: Any, key: str, count: int) -> List[Tuple[str, Dict[str, Any]]]:
+@@ -36,7 +37,7 @@
+     redis_url = os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0')
+     control_key = os.getenv('EXEC_HEALTH_FREEZE_CONTROL_KEY', 'cfg:orderflow:exec_health:freeze_control:v1')
+     state_key = os.getenv('EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY', 'metrics:exec_health:slo:autoguard:state')
+-    event_stream = os.getenv('EXEC_HEALTH_FREEZE_EVENT_STREAM', 'ops:exec_health:freeze_events:v1')
++    request_stream = os.getenv('EXEC_HEALTH_FREEZE_REQUEST_STREAM', DEFAULT_REQUEST_STREAM)
+     port = int(os.getenv('EXEC_HEALTH_FREEZE_DUAL_CONTROL_EXPORTER_PORT', '9829'))
+     interval_s = float(os.getenv('EXEC_HEALTH_FREEZE_DUAL_CONTROL_EXPORTER_INTERVAL_S', '10') or 10)
+     event_count = int(os.getenv('EXEC_HEALTH_FREEZE_DUAL_CONTROL_EVENT_COUNT', '100') or 100)
+@@ -48,7 +49,7 @@
+         try:
+             control = r.hgetall(control_key) or {}
+             state = r.hgetall(state_key) or {}
+-            events = _read_events(r, event_stream, event_count)
++            events = _read_events(r, request_stream, event_count)
+             res = evaluate_freeze_dual_control(control_raw=control, state_raw=state, events=events)
+             UP.set(1.0)
+             PENDING.set(1.0 if res.pending_request else 0.0)
+--- a/tick_flow_full/orderflow_services/exec_health_freeze_tamper_guard_v1.py
++++ b/tick_flow_full/orderflow_services/exec_health_freeze_tamper_guard_v1.py
+@@ -0,0 +1,207 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import json
++import os
++import secrets
++import time
++from typing import Any, Dict, List, Tuple
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++from prometheus_client import Counter, Gauge, start_http_server
++
++from services.orderflow.exec_health_freeze_control import build_autoguard_latch_update, stringify_mapping
++from services.orderflow.exec_health_freeze_integrity import evaluate_freeze_integrity
++from services.orderflow.exec_health_freeze_request_log import DEFAULT_REQUEST_STREAM
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++def _read_events(r: Any, key: str, count: int) -> List[Tuple[str, Dict[str, Any]]]:
++    try:
++        rows = r.xrevrange(key, count=max(1, int(count))) or []
++        return [(str(eid), dict(payload or {})) for eid, payload in rows]
++    except Exception:
++        return []
++
++
++TAMPER_REFREEZE_KINDS = {
++    'control_state_missing_without_valid_ack',
++    'thaw_without_valid_ack_event',
++    'invalid_control_ack_signature',
++    'request_log_prepare_missing',
++    'request_log_approve_missing',
++    'request_log_commit_missing',
++    'request_log_same_operator_violation',
++    'request_log_out_of_order',
++    'request_log_nonce_mismatch',
++    'control_request_mismatch',
++}
++
++
++def should_refreeze(violation_kinds: List[str]) -> bool:
++    return any(k in TAMPER_REFREEZE_KINDS for k in list(violation_kinds or []))
++
++
++UP = Gauge('exec_health_freeze_tamper_guard_up', '1 if tamper guard loop is healthy')
++TAMPER_ACTIVE = Gauge('exec_health_freeze_tamper_guard_tamper_active', '1 if current integrity evaluation indicates tamper requiring refreeze')
++STATE_AGE_S = Gauge('exec_health_freeze_tamper_guard_state_age_seconds', 'Age of tamper guard state hash in seconds')
++LAST_REFREEZE_TS_MS = Gauge('exec_health_freeze_tamper_guard_last_refreeze_ts_ms', 'Last automatic tamper refreeze timestamp')
++VIOLATION = Gauge('exec_health_freeze_tamper_guard_violation', 'One-hot tamper violations seen by guard', ['kind'])
++REFREEZE_TOTAL = Counter('exec_health_freeze_tamper_guard_refreeze_total', 'Automatic re-freeze actions due to tamper', ['reason'])
++
++
++class Guard:
++    def __init__(self) -> None:
++        if redis is None:
++            raise RuntimeError('redis dependency missing')
++        self.redis_url = os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0')
++        self.control_key = os.getenv('EXEC_HEALTH_FREEZE_CONTROL_KEY', 'cfg:orderflow:exec_health:freeze_control:v1')
++        self.state_key = os.getenv('EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY', 'metrics:exec_health:slo:autoguard:state')
++        self.freeze_key = os.getenv('EXEC_HEALTH_AUTO_FREEZE_KEY', 'cfg:orderflow:exec_health:auto_freeze:v1')
++        self.event_stream = os.getenv('EXEC_HEALTH_FREEZE_EVENT_STREAM', 'ops:exec_health:freeze_events:v1')
++        self.request_stream = os.getenv('EXEC_HEALTH_FREEZE_REQUEST_STREAM', DEFAULT_REQUEST_STREAM)
++        self.notify_stream = os.getenv('EXEC_HEALTH_AUTOGUARD_NOTIFY_STREAM', 'notify:telegram')
++        self.guard_state_key = os.getenv('EXEC_HEALTH_TAMPER_GUARD_STATE_KEY', 'metrics:exec_health:freeze_tamper_guard:last')
++        self.interval_s = float(os.getenv('EXEC_HEALTH_TAMPER_GUARD_INTERVAL_S', '10') or 10)
++        self.cooldown_s = max(30, int(os.getenv('EXEC_HEALTH_TAMPER_GUARD_COOLDOWN_S', '300') or 300))
++        self.freeze_minutes = max(1, int(os.getenv('EXEC_HEALTH_TAMPER_GUARD_FREEZE_MINUTES', '30') or 30))
++        self.event_count = max(10, int(os.getenv('EXEC_HEALTH_FREEZE_INTEGRITY_EVENT_COUNT', '100') or 100))
++        self.request_count = max(10, int(os.getenv('EXEC_HEALTH_FREEZE_REQUEST_EVENT_COUNT', '200') or 200))
++        self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
++
++    def _read_hash(self, key: str) -> Dict[str, Any]:
++        try:
++            return self.r.hgetall(key) or {}
++        except Exception:
++            return {}
++
++    def _write_hash(self, key: str, payload: Dict[str, Any]) -> None:
++        self.r.hset(key, mapping=stringify_mapping(payload))
++        self.r.expire(key, 86400 * 7)
++
++    def _emit_event(self, payload: Dict[str, Any]) -> str:
++        try:
++            return str(self.r.xadd(self.event_stream, stringify_mapping(payload), maxlen=5000) or '')
++        except Exception:
++            return ''
++
++    def _notify(self, text: str) -> None:
++        try:
++            self.r.xadd(self.notify_stream, {'ts_ms': str(_now_ms()), 'source': 'exec_health_freeze_tamper_guard_v1', 'text': text}, maxlen=5000)
++        except Exception:
++            pass
++
++    def run_once(self) -> Dict[str, Any]:
++        now = _now_ms()
++        control = self._read_hash(self.control_key)
++        state = self._read_hash(self.state_key)
++        guard_state = self._read_hash(self.guard_state_key)
++        events = _read_events(self.r, self.event_stream, self.event_count)
++        request_events = _read_events(self.r, self.request_stream, self.request_count)
++        integ = evaluate_freeze_integrity(control_raw=control, state_raw=state, events=events, request_events=request_events, now_ms=now)
++        tamper = should_refreeze(integ.violation_kinds)
++        cooldown_until = _i(guard_state.get('cooldown_until_ts_ms'), 0)
++        last_refreeze_ts_ms = _i(guard_state.get('last_refreeze_ts_ms'), 0)
++        out = {
++            'ok': True,
++            'tamper_active': int(tamper),
++            'violation_kinds_json': json.dumps(list(integ.violation_kinds), ensure_ascii=False),
++            'last_refreeze_ts_ms': int(last_refreeze_ts_ms),
++            'cooldown_until_ts_ms': int(cooldown_until),
++        }
++        if tamper and now >= cooldown_until:
++            freeze_until_ts_ms = now + self.freeze_minutes * 60 * 1000
++            ack_nonce = secrets.token_hex(16)
++            reasons = ['freeze_control_tamper'] + [k for k in integ.violation_kinds if k != 'none']
++            trigger_event_id = self._emit_event({
++                'ts_ms': now,
++                'kind': 'tamper_refreeze_latch',
++                'ack_nonce': ack_nonce,
++                'trigger_ts_ms': now,
++                'reasons_json': json.dumps(reasons, ensure_ascii=False),
++                'freeze_until_ts_ms': freeze_until_ts_ms,
++                'source': 'exec_health_freeze_tamper_guard_v1',
++                'request_id': integ.request_log_request_id,
++            })
++            raw = {
++                'schema_name': 'exec_health_auto_freeze',
++                'schema_version': 1,
++                'ts_ms': now,
++                'freeze_active': 1,
++                'freeze_reason': ','.join(reasons),
++                'freeze_until_ts_ms': freeze_until_ts_ms,
++            }
++            self.r.set(self.freeze_key, json.dumps(raw, separators=(',', ':')))
++            self.r.pexpire(self.freeze_key, self.freeze_minutes * 60 * 1000)
++            latch = build_autoguard_latch_update(prev=control, now_ms=now, reasons=reasons, freeze_until_ts_ms=freeze_until_ts_ms, ack_nonce=ack_nonce, trigger_event_id=trigger_event_id)
++            self._write_hash(self.control_key, latch)
++            state_upd = dict(state)
++            state_upd.update(latch)
++            state_upd['state_tamper_refreeze_written_ts_ms'] = int(now)
++            self._write_hash(self.state_key, state_upd)
++            guard_state.update({
++                'schema_name': 'exec_health_freeze_tamper_guard_state',
++                'schema_version': 1,
++                'updated_ts_ms': int(now),
++                'last_refreeze_ts_ms': int(now),
++                'cooldown_until_ts_ms': int(now + self.cooldown_s * 1000),
++                'last_reason': ','.join(reasons),
++                'request_id': str(integ.request_log_request_id or ''),
++                'refreeze_total': _i(guard_state.get('refreeze_total'), 0) + 1,
++            })
++            self._write_hash(self.guard_state_key, guard_state)
++            self._notify(f'ExecHealth tamper detected -> auto re-freeze: {", ".join(reasons)}')
++            REFREEZE_TOTAL.labels(reason='freeze_control_tamper').inc()
++            out.update({'refreeze_performed': 1, 'last_refreeze_ts_ms': int(now), 'cooldown_until_ts_ms': int(now + self.cooldown_s * 1000)})
++        else:
++            guard_state.update({
++                'schema_name': 'exec_health_freeze_tamper_guard_state',
++                'schema_version': 1,
++                'updated_ts_ms': int(now),
++                'last_refreeze_ts_ms': int(last_refreeze_ts_ms),
++                'cooldown_until_ts_ms': int(cooldown_until),
++                'last_reason': guard_state.get('last_reason', ''),
++                'request_id': str(integ.request_log_request_id or guard_state.get('request_id', '')),
++                'refreeze_total': _i(guard_state.get('refreeze_total'), 0),
++            })
++            self._write_hash(self.guard_state_key, guard_state)
++            out['refreeze_performed'] = 0
++
++        UP.set(1.0)
++        TAMPER_ACTIVE.set(1.0 if tamper else 0.0)
++        LAST_REFREEZE_TS_MS.set(float(_i(guard_state.get('last_refreeze_ts_ms'), 0) or out.get('last_refreeze_ts_ms', 0) or 0))
++        age = 0.0 if not guard_state else max(0.0, float(now - _i(guard_state.get('updated_ts_ms'), 0)) / 1000.0)
++        STATE_AGE_S.set(age)
++        active = set(integ.violation_kinds)
++        for kind in sorted(TAMPER_REFREEZE_KINDS):
++            VIOLATION.labels(kind=kind).set(1.0 if kind in active else 0.0)
++        return out
++
++
++def main() -> None:
++    g = Guard()
++    port = int(os.getenv('EXEC_HEALTH_TAMPER_GUARD_EXPORTER_PORT', '9830'))
++    start_http_server(port)
++    while True:
++        try:
++            g.run_once()
++        except Exception:
++            UP.set(0.0)
++        time.sleep(g.interval_s)
++
++
++if __name__ == '__main__':
++    main()
+--- a/tick_flow_full/orderflow_services/prometheus_alerts_exec_health_freeze_tamper_guard_v1.yml
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_exec_health_freeze_tamper_guard_v1.yml
+@@ -0,0 +1,24 @@
++groups:
++  - name: exec-health-freeze-tamper-guard-v1
++    rules:
++      - alert: OF_ExecHealth_FreezeTamperDetected_Crit
++        expr: exec_health_freeze_tamper_guard_tamper_active > 0
++        for: 1m
++        labels:
++          severity: critical
++        annotations:
++          summary: ExecHealth freeze tamper detected and re-freeze required
++      - alert: OF_ExecHealth_FreezeTamperRefreezePerformed_Warn
++        expr: increase(exec_health_freeze_tamper_guard_refreeze_total[15m]) > 0
++        for: 0m
++        labels:
++          severity: warning
++        annotations:
++          summary: ExecHealth tamper guard performed an automatic re-freeze
++      - alert: OF_ExecHealth_FreezeTamperGuard_ExporterStale_Warn
++        expr: exec_health_freeze_tamper_guard_up == 0 or exec_health_freeze_tamper_guard_state_age_seconds > 120
++        for: 5m
++        labels:
++          severity: warning
++        annotations:
++          summary: ExecHealth tamper guard exporter is stale or unhealthy
+--- a/tick_flow_full/orderflow_services/grafana/exec_health_freeze_tamper_guard_v1.json
++++ b/tick_flow_full/orderflow_services/grafana/exec_health_freeze_tamper_guard_v1.json
+@@ -0,0 +1,44 @@
++{
++  "title": "ExecHealth Freeze Tamper Guard (v1)",
++  "uid": "exec-health-freeze-tamper-guard-v1",
++  "schemaVersion": 39,
++  "version": 1,
++  "panels": [
++    {
++      "title": "Tamper Active",
++      "type": "stat",
++      "targets": [
++        {
++          "expr": "exec_health_freeze_tamper_guard_tamper_active"
++        }
++      ]
++    },
++    {
++      "title": "Automatic Re-freeze Total",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "exec_health_freeze_tamper_guard_refreeze_total"
++        }
++      ]
++    },
++    {
++      "title": "Violation Kinds",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "exec_health_freeze_tamper_guard_violation"
++        }
++      ]
++    },
++    {
++      "title": "Last Re-freeze",
++      "type": "stat",
++      "targets": [
++        {
++          "expr": "exec_health_freeze_tamper_guard_last_refreeze_ts_ms"
++        }
++      ]
++    }
++  ]
++}
+\ No newline at end of file
+--- a/tick_flow_full/orderflow_services/runbook_exec_health_freeze_tamper_guard_v1.md
++++ b/tick_flow_full/orderflow_services/runbook_exec_health_freeze_tamper_guard_v1.md
+@@ -0,0 +1,28 @@
++# ExecHealth Freeze Tamper Guard (v1)
++
++## Purpose
++
++Detect direct edits of `freeze_control` / `state` that are not backed by a valid
++append-only request-log sequence and automatically re-freeze the system.
++
++## Inputs
++
++- `cfg:orderflow:exec_health:freeze_control:v1`
++- `metrics:exec_health:slo:autoguard:state`
++- `ops:exec_health:freeze_events:v1`
++- `ops:exec_health:freeze_requests:v1`
++
++## Automatic action
++
++When tamper is detected, the guard:
++
++1. emits `tamper_refreeze_latch`
++2. rewrites the raw freeze key
++3. rewrites freeze control/state with a fresh `expected_ack_nonce`
++4. notifies operators via `notify:telegram`
++
++## Operator guidance
++
++- inspect request log for the last `request_id`
++- compare control hash fields with prepare/approve/commit events
++- do **not** thaw until the tamper source is understood

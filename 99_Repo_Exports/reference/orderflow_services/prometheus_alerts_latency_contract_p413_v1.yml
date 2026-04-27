@@ -1,0 +1,17 @@
+groups:
+  - name: latency-contract-p413
+    rules:
+      - alert: OF_LatencyDeployLint_DualControlSemanticBindingMismatch_Warn
+        expr: latency_contract_deploy_lint_summary_dual_control_semantic_binding_mismatch_total > 0
+        for: 10m
+        labels: {severity: warn}
+        annotations:
+          summary: "Latency deploy-lint override semantic binding no longer matches"
+          description: "At least one latest dual-control override approval is still present, but gate_reason_code / errors_count / details_json fingerprint no longer matches the current drift snapshot. A fresh prepare/approve cycle is required before final ack."
+      - alert: OF_LatencyDeployLint_DetailsFingerprintMismatch_Crit
+        expr: (latency_contract_deploy_lint_silence_approval_binding_match == 0) and (latency_contract_deploy_lint_silence_approval_details_fingerprint_match == 0)
+        for: 5m
+        labels: {severity: crit}
+        annotations:
+          summary: "Latency deploy-lint approval details fingerprint drifted"
+          description: "The latest override approval no longer matches the canonical details_json fingerprint of the current deploy-lint state. Operators must refresh approval on the new semantic drift snapshot."

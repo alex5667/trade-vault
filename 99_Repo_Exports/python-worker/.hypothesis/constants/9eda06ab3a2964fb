@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/orderflow_services/confidence_calibrator.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-06, 1.0, 1000, 5000, 1000000, 'a', 'b', 'brier', 'cal', 'ece', 'eps', 'fail', 'identity', 'instrument', 'last_check_ms', 'meta', 'mtime_ns', 'nan', 'ok', 'path', 'platt_logit', 'r', 'raw', 'schema_version', 'st_mtime_ns', 'symbol', 'symbol_name', 't', 'temp_logit', 'train_report', 'type', 'unknown', 'utf-8']

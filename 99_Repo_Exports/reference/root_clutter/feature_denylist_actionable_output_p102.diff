@@ -1,0 +1,968 @@
+diff --git a/ml_analysis/tests/test_feature_denylist_proposal_v1.py b/ml_analysis/tests/test_feature_denylist_proposal_v1.py
+new file mode 100644
+index 0000000..8219769
+--- /dev/null
++++ b/ml_analysis/tests/test_feature_denylist_proposal_v1.py
+@@ -0,0 +1,140 @@
++import json
++import sys
++from pathlib import Path
++
++import pytest
++
++# Mirror existing tests' import contract:
++# add tick_flow_full to sys.path so we can import as `core.*`
++ROOT = Path(__file__).resolve().parents[2]
++TICK_FLOW_FULL = ROOT / "tick_flow_full"
++if str(TICK_FLOW_FULL) not in sys.path:
++    sys.path.insert(0, str(TICK_FLOW_FULL))
++
++
++def _pick_v5_extra_keys():
++    from core.feature_registry import get_schema_info
++
++    v4 = set(get_schema_info("v4_of").feature_names)
++    v5 = set(get_schema_info("v5_of").feature_names)
++    extras = sorted(v5 - v4)
++
++    num = None
++    boo = None
++    for f in extras:
++        if f.startswith("n:") and num is None:
++            num = f[2:]
++        if f.startswith("b:") and boo is None:
++            boo = f[2:]
++        if num and boo:
++            break
++
++    if num is None and extras:
++        f = extras[0]
++        num = f.split(":", 1)[-1]
++
++    return num, boo
++
++
++def test_feature_registry_v5_of_stable_filters_denylist(tmp_path, monkeypatch):
++    import core.feature_registry as fr
++
++    num_key, bool_key = _pick_v5_extra_keys()
++    assert num_key is not None
++
++    deny = {
++        "ver": "v1",
++        "updated_utc": "",
++        "deny_num": [num_key],
++        "deny_bool": [bool_key] if bool_key else [],
++        "notes": "test",
++    }
++    deny_path = tmp_path / "feature_denylist_v1.json"
++    deny_path.write_text(json.dumps(deny, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
++
++    monkeypatch.setenv("ML_FEATURE_DENYLIST_PATH", str(deny_path))
++    fr._DENYLIST_CACHE = None
++
++    v5 = set(fr.get_schema_info("v5_of").feature_names)
++    stable = set(fr.get_schema_info("v5_of_stable").feature_names)
++
++    assert f"n:{num_key}" in v5
++    assert f"n:{num_key}" not in stable
++
++    if bool_key:
++        assert f"b:{bool_key}" in v5
++        assert f"b:{bool_key}" not in stable
++
++
++def test_autogen_denylist_proposal_writes_diff_and_dedups(tmp_path, monkeypatch):
++    # Ensure tool can import `core` too
++    if str(TICK_FLOW_FULL) not in sys.path:
++        sys.path.insert(0, str(TICK_FLOW_FULL))
++
++    from ml_analysis.tools import autogen_feature_denylist_proposal_v1 as tool
++
++    num_key, _ = _pick_v5_extra_keys()
++    assert num_key is not None
++
++    fs_dir = tmp_path / "fs_run"
++    fs_dir.mkdir(parents=True)
++
++    st = fs_dir / "stability_table.csv"
++    st.write_text("feature,flag_noise\n" f"n:{num_key},1\n", encoding="utf-8")
++
++    deny_path = tmp_path / "feature_denylist_v1.json"
++    deny_path.write_text(
++        json.dumps({"ver": "v1", "updated_utc": "", "deny_num": [], "deny_bool": [], "notes": ""}, indent=2)
++        + "\n",
++        encoding="utf-8",
++    )
++
++    proposals_dir = tmp_path / "proposals"
++    monkeypatch.chdir(tmp_path)
++
++    argv = [
++        "--fs-run-dir",
++        str(fs_dir),
++        "--denylist-path",
++        str(deny_path),
++        "--proposals-dir",
++        str(proposals_dir),
++        "--dedup-days",
++        "30",
++        "--max-features",
++        "5",
++    ]
++
++    import sys as _sys
++
++    old = _sys.argv
++    try:
++        _sys.argv = ["autogen"] + argv
++        assert tool.main() == 0
++    finally:
++        _sys.argv = old
++
++    diffs = list(proposals_dir.glob("denylist_proposal_*.diff"))
++    manifests = list(proposals_dir.glob("denylist_proposal_*.manifest.json"))
++    assert len(diffs) == 1
++    assert len(manifests) == 1
++
++    diff_txt = diffs[0].read_text(encoding="utf-8")
++    assert num_key in diff_txt
++
++    m = json.loads(manifests[0].read_text(encoding="utf-8"))
++    assert m["status"] == "pending_ab"
++    assert num_key in m["adds"]["deny_num"]
++
++    # rerun -> dedup
++    old = _sys.argv
++    try:
++        _sys.argv = ["autogen"] + argv
++        assert tool.main() == 0
++    finally:
++        _sys.argv = old
++
++    diffs2 = list(proposals_dir.glob("denylist_proposal_*.diff"))
++    manifests2 = list(proposals_dir.glob("denylist_proposal_*.manifest.json"))
++    assert len(diffs2) == 1
++    assert len(manifests2) == 1
+diff --git a/ml_analysis/tools/approve_feature_denylist_proposal_v1.py b/ml_analysis/tools/approve_feature_denylist_proposal_v1.py
+new file mode 100644
+index 0000000..cef9fad
+--- /dev/null
++++ b/ml_analysis/tools/approve_feature_denylist_proposal_v1.py
+@@ -0,0 +1,78 @@
++"""Approve a denylist proposal after replay/AB evidence.
++
++This tool is intentionally non-invasive:
++  - It does NOT apply patches.
++  - It only transitions proposal manifest status -> approved
++    and stores a small approval record.
++
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++from datetime import datetime, timezone
++from pathlib import Path
++
++UTC = timezone.utc
++
++
++def _utc_now() -> str:
++    return datetime.now(tz=UTC).isoformat()
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--manifest", required=True, help="Path to denylist_proposal_*.manifest.json")
++    ap.add_argument("--ab-report-json", required=True, help="Path to AB/replay summary json (produced by your eval bundle)")
++    ap.add_argument("--approve", type=int, default=0, help="1 = write approval record and set status=approved")
++
++    args = ap.parse_args()
++
++    mp = Path(args.manifest).expanduser().resolve()
++    rp = Path(args.ab_report_json).expanduser().resolve()
++
++    if not mp.exists():
++        print(f"manifest not found: {mp}")
++        return 2
++    if not rp.exists():
++        print(f"ab-report-json not found: {rp}")
++        return 2
++
++    m = json.loads(mp.read_text(encoding="utf-8"))
++    if not isinstance(m, dict):
++        print("bad manifest format")
++        return 2
++
++    if int(args.approve) != 1:
++        print("dry-run: pass --approve 1 to approve")
++        print(f"current status: {m.get('status')}")
++        return 0
++
++    m["status"] = "approved"
++    m["approved_utc"] = _utc_now()
++    m["ab_report_json"] = str(rp)
++
++    mp.write_text(json.dumps(m, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
++
++    approval = {
++        "kind": "feature_denylist_approval",
++        "approved_utc": _utc_now(),
++        "proposal_hash": m.get("proposal_hash"),
++        "manifest": str(mp),
++        "ab_report_json": str(rp),
++    }
++    apath = mp.with_suffix(".approval.json")
++    apath.write_text(json.dumps(approval, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
++
++    print(f"approved: {mp}")
++    print(f"approval record: {apath}")
++    print("next:")
++    for cmd in (m.get("apply_instructions") or []):
++        print(f"  {cmd}")
++
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/ml_analysis/tools/autogen_feature_denylist_proposal_v1.py b/ml_analysis/tools/autogen_feature_denylist_proposal_v1.py
+new file mode 100644
+index 0000000..f46579f
+--- /dev/null
++++ b/ml_analysis/tools/autogen_feature_denylist_proposal_v1.py
+@@ -0,0 +1,448 @@
++"""Autogen actionable output for feature-selection loop.
++
++Creates a candidate unified diff that moves noisy v5 extras into denylist,
++so you can train on v5_of_stable (v5_of minus denylist) without touching
++online schema immediately.
++
++Safety properties:
++  - Does NOT apply anything.
++  - Writes proposal manifest with status=pending_ab.
++  - Has dedup window (N days) to avoid spamming same proposal.
++
++Expected input:
++  - stability_table.csv produced by your feature-selection loop.
++
++Output:
++  - proposals/denylist_proposal_YYYYMMDD_<hash8>.diff
++  - proposals/denylist_proposal_YYYYMMDD_<hash8>.manifest.json
++
++"""
++
++from __future__ import annotations
++
++import argparse
++import csv
++import difflib
++import hashlib
++import json
++import os
++from dataclasses import dataclass
++from datetime import datetime, timedelta, timezone
++from pathlib import Path
++from typing import Dict, List, Optional, Sequence, Set, Tuple
++
++
++import sys
++
++# Ensure `core.*` imports work (repo uses tick_flow_full as PYTHONPATH root).
++_REPO_ROOT = Path(__file__).resolve().parents[2]
++_TICK_FLOW_FULL = _REPO_ROOT / "tick_flow_full"
++if _TICK_FLOW_FULL.exists() and str(_TICK_FLOW_FULL) not in sys.path:
++    sys.path.insert(0, str(_TICK_FLOW_FULL))
++
++
++UTC = timezone.utc
++
++
++@dataclass(frozen=True)
++class Candidate:
++    key: str
++    kind: str  # 'num' | 'bool'
++    score: float
++    reason: str
++
++
++def _utc_now() -> datetime:
++    return datetime.now(tz=UTC)
++
++
++def _sha1_8(s: str) -> str:
++    return hashlib.sha1(s.encode("utf-8")).hexdigest()[:8]
++
++
++def _read_csv_dicts(path: Path) -> List[Dict[str, str]]:
++    with path.open("r", encoding="utf-8") as f:
++        reader = csv.DictReader(f)
++        return [dict(r) for r in reader]
++
++
++def _try_float(x: object, default: float = 0.0) -> float:
++    try:
++        if x is None:
++            return default
++        s = str(x).strip()
++        if s == "" or s.lower() in ("nan", "none"):
++            return default
++        return float(s)
++    except Exception:
++        return default
++
++
++def _parse_feature_name(raw: str) -> Tuple[str, Optional[str]]:
++    """Return (key, kind_hint) where kind_hint in {'num','bool',None}."""
++    s = (raw or "").strip()
++    if s.startswith("n:"):
++        return s[2:], "num"
++    if s.startswith("b:"):
++        return s[2:], "bool"
++    if s.startswith("f_"):
++        return s[2:], "num"
++    # column safe name from FeatureRegistry: n_xxx / b_xxx
++    if s.startswith("n_"):
++        return s[2:], "num"
++    if s.startswith("b_"):
++        return s[2:], "bool"
++    return s, None
++
++
++def _load_registry_keys() -> Tuple[Set[str], Set[str], Set[str], Set[str]]:
++    """Return (v4_num, v4_bool, v5_num, v5_bool) sets of raw keys (no prefixes)."""
++    try:
++        from core.feature_registry import get_schema_info
++
++        v4 = get_schema_info("v4_of").feature_names
++        v5 = get_schema_info("v5_of").feature_names
++
++        def split(names: Sequence[str]) -> Tuple[Set[str], Set[str]]:
++            n: Set[str] = set()
++            b: Set[str] = set()
++            for nm in names:
++                if nm.startswith("n:"):
++                    n.add(nm[2:])
++                elif nm.startswith("b:"):
++                    b.add(nm[2:])
++            return n, b
++
++        v4n, v4b = split(v4)
++        v5n, v5b = split(v5)
++        return v4n, v4b, v5n, v5b
++    except Exception:
++        # best-effort fallback
++        return set(), set(), set(), set()
++
++
++def _load_denylist_json(path: Path) -> Dict:
++    if not path.exists():
++        return {
++            "ver": "v1",
++            "updated_utc": "",
++            "deny_num": [],
++            "deny_bool": [],
++            "notes": "",
++        }
++    try:
++        obj = json.loads(path.read_text(encoding="utf-8"))
++        if isinstance(obj, dict):
++            return obj
++    except Exception:
++        pass
++    return {
++        "ver": "v1",
++        "updated_utc": "",
++        "deny_num": [],
++        "deny_bool": [],
++        "notes": "",
++    }
++
++
++def _unified_diff(a_text: str, b_text: str, a_path: str, b_path: str) -> str:
++    a_lines = a_text.splitlines(True)
++    b_lines = b_text.splitlines(True)
++    diff = difflib.unified_diff(
++        a_lines,
++        b_lines,
++        fromfile=f"a/{a_path}",
++        tofile=f"b/{b_path}",
++        lineterm="",
++    )
++    return "\n".join(diff) + "\n"
++
++
++def _find_stability_table(fs_run_dir: Path) -> Optional[Path]:
++    if fs_run_dir.is_file() and fs_run_dir.name.endswith(".csv"):
++        return fs_run_dir
++    p = fs_run_dir / "stability_table.csv"
++    if p.exists():
++        return p
++    # common alt names
++    for name in ("stability.csv", "stability_table_v1.csv"):
++        q = fs_run_dir / name
++        if q.exists():
++            return q
++    return None
++
++
++def _list_recent_manifests(proposals_dir: Path, since: datetime) -> List[Path]:
++    out: List[Path] = []
++    if not proposals_dir.exists():
++        return out
++    for p in sorted(proposals_dir.glob("denylist_proposal_*.manifest.json")):
++        try:
++            mtime = datetime.fromtimestamp(p.stat().st_mtime, tz=UTC)
++            if mtime >= since:
++                out.append(p)
++        except Exception:
++            continue
++    return out
++
++
++def _select_candidates(
++    rows: List[Dict[str, str]],
++    extras_num: Set[str],
++    extras_bool: Set[str],
++    v5_num: Set[str],
++    v5_bool: Set[str],
++    max_features: int,
++    min_importance: float,
++    max_cv: float,
++) -> List[Candidate]:
++    cands: List[Candidate] = []
++
++    for r in rows:
++        feat = (r.get("feature") or r.get("name") or r.get("col") or "").strip()
++        if not feat:
++            continue
++
++        key, kind_hint = _parse_feature_name(feat)
++
++        # infer kind by registry if possible
++        kind = kind_hint
++        if kind is None:
++            if key in v5_bool:
++                kind = "bool"
++            else:
++                kind = "num"
++
++        # only consider v5 extras (protect core)
++        if kind == "num" and key not in extras_num:
++            continue
++        if kind == "bool" and key not in extras_bool:
++            continue
++
++        # Noise criteria
++        flag_noise = (r.get("flag_noise") or r.get("is_noise") or "").strip().lower() in ("1", "true", "yes")
++        imp = _try_float(r.get("global_perm_auc_drop") or r.get("perm_importance") or r.get("importance") or 0.0)
++        cv_reg = _try_float(r.get("regime_cv") or r.get("cv_regime") or 0.0)
++        cv_hour = _try_float(r.get("hour_cv") or r.get("cv_hour") or 0.0)
++        cv = max(cv_reg, cv_hour)
++
++        # Conservative defaults: require either explicit flag or (low importance + high instability)
++        is_noise = bool(flag_noise) or (imp <= min_importance and cv >= max_cv)
++        if not is_noise:
++            continue
++
++        # score: prioritize by instability first, then tiny importance
++        score = (cv * 10.0) + (min_importance - imp)
++        reason = "flag_noise" if flag_noise else f"imp<= {min_importance:.4g} & cv>= {max_cv:.3g}"
++
++        cands.append(Candidate(key=key, kind=kind, score=float(score), reason=reason))
++
++    # sort desc by score
++    cands.sort(key=lambda x: x.score, reverse=True)
++
++    # dedup by key
++    seen: Set[Tuple[str, str]] = set()
++    out: List[Candidate] = []
++    for c in cands:
++        k = (c.kind, c.key)
++        if k in seen:
++            continue
++        out.append(c)
++        seen.add(k)
++        if len(out) >= max_features:
++            break
++
++    return out
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser()
++    ap.add_argument(
++        "--fs-run-dir",
++        default=os.environ.get("FEATURE_SELECTION_RUN_DIR", ""),
++        help="Directory containing stability_table.csv from feature selection loop.",
++    )
++    ap.add_argument(
++        "--denylist-path",
++        default=os.environ.get(
++            "ML_FEATURE_DENYLIST_PATH",
++            str(Path("tick_flow_full/core/feature_denylist_v1.json")),
++        ),
++        help="Path to feature_denylist_v1.json in the repo.",
++    )
++    ap.add_argument(
++        "--proposals-dir",
++        default=os.environ.get("FEATURE_DENYLIST_PROPOSALS_DIR", ""),
++        help="Output dir for proposals (default: <fs-run-dir>/proposals).",
++    )
++    ap.add_argument("--dedup-days", type=int, default=int(os.environ.get("FEATURE_DENYLIST_DEDUP_DAYS", "7")))
++    ap.add_argument("--max-features", type=int, default=int(os.environ.get("FEATURE_DENYLIST_MAX", "12")))
++    ap.add_argument("--min-importance", type=float, default=float(os.environ.get("FEATURE_DENYLIST_MIN_IMPORTANCE", "0.0001")))
++    ap.add_argument("--max-cv", type=float, default=float(os.environ.get("FEATURE_DENYLIST_MIN_CV", "0.25")))
++
++    args = ap.parse_args()
++
++    fs_run_dir = Path(args.fs_run_dir).expanduser().resolve() if args.fs_run_dir else Path("")
++    if not fs_run_dir:
++        print("[denylist] no --fs-run-dir; nothing to do")
++        return 0
++
++    st_path = _find_stability_table(fs_run_dir)
++    if not st_path:
++        print(f"[denylist] no stability_table.csv in {fs_run_dir}")
++        return 0
++
++    denylist_path = Path(args.denylist_path).expanduser().resolve()
++
++    proposals_dir = Path(args.proposals_dir).expanduser().resolve() if args.proposals_dir else (fs_run_dir / "proposals")
++    proposals_dir.mkdir(parents=True, exist_ok=True)
++
++    rows = _read_csv_dicts(st_path)
++
++    v4n, v4b, v5n, v5b = _load_registry_keys()
++    extras_num = (v5n - v4n) if v5n else set()
++    extras_bool = (v5b - v4b) if v5b else set()
++
++    # if registry unavailable, fallback: allow all features
++    if not v5n and not v5b:
++        # try infer kind by prefix
++        extras_num = set()
++        extras_bool = set()
++        for r in rows:
++            feat = (r.get("feature") or r.get("name") or "").strip()
++            if feat.startswith("n:") or feat.startswith("f_") or feat.startswith("n_"):
++                extras_num.add(_parse_feature_name(feat)[0])
++            elif feat.startswith("b:") or feat.startswith("b_"):
++                extras_bool.add(_parse_feature_name(feat)[0])
++
++    cands = _select_candidates(
++        rows=rows,
++        extras_num=extras_num,
++        extras_bool=extras_bool,
++        v5_num=v5n,
++        v5_bool=v5b,
++        max_features=int(args.max_features),
++        min_importance=float(args.min_importance),
++        max_cv=float(args.max_cv),
++    )
++
++    if not cands:
++        print("[denylist] no candidates")
++        return 0
++
++    current = _load_denylist_json(denylist_path)
++    deny_num: Set[str] = set(current.get("deny_num") or [])
++    deny_bool: Set[str] = set(current.get("deny_bool") or [])
++
++    added_num: List[str] = []
++    added_bool: List[str] = []
++
++    for c in cands:
++        if c.kind == "bool":
++            if c.key not in deny_bool:
++                deny_bool.add(c.key)
++                added_bool.append(c.key)
++        else:
++            if c.key not in deny_num:
++                deny_num.add(c.key)
++                added_num.append(c.key)
++
++    if not added_num and not added_bool:
++        print("[denylist] candidates already denylisted")
++        return 0
++
++    # proposal hash (stable)
++    proposal_payload = json.dumps(
++        {
++            "deny_num": sorted(deny_num),
++            "deny_bool": sorted(deny_bool),
++        },
++        sort_keys=True,
++        separators=(",", ":"),
++    )
++    ph = _sha1_8(proposal_payload)
++
++    # dedup by manifests in last N days
++    since = _utc_now() - timedelta(days=int(args.dedup_days))
++    for mp in _list_recent_manifests(proposals_dir, since=since):
++        try:
++            m = json.loads(mp.read_text(encoding="utf-8"))
++            if isinstance(m, dict) and str(m.get("proposal_hash") or "") == ph:
++                print(f"[denylist] dedup hit: {ph} already proposed recently ({mp.name})")
++                return 0
++        except Exception:
++            continue
++
++    # build new JSON
++    updated = dict(current)
++    updated["updated_utc"] = _utc_now().isoformat()
++    updated["deny_num"] = sorted(deny_num)
++    updated["deny_bool"] = sorted(deny_bool)
++
++    a_text = denylist_path.read_text(encoding="utf-8") if denylist_path.exists() else json.dumps(current, indent=2, ensure_ascii=False) + "\n"
++    b_text = json.dumps(updated, indent=2, ensure_ascii=False) + "\n"
++
++    # relative paths in diff
++    try:
++        repo_root = Path.cwd().resolve()
++        a_rel = str(denylist_path.relative_to(repo_root))
++    except Exception:
++        a_rel = str(denylist_path)
++
++    diff_txt = _unified_diff(a_text=a_text, b_text=b_text, a_path=a_rel, b_path=a_rel)
++
++    date_s = _utc_now().strftime("%Y%m%d")
++    diff_name = f"denylist_proposal_{date_s}_{ph}.diff"
++    manifest_name = f"denylist_proposal_{date_s}_{ph}.manifest.json"
++
++    diff_path = proposals_dir / diff_name
++    manifest_path = proposals_dir / manifest_name
++
++    diff_path.write_text(diff_txt, encoding="utf-8")
++
++    manifest = {
++        "kind": "feature_denylist_proposal",
++        "created_utc": _utc_now().isoformat(),
++        "proposal_hash": ph,
++        "status": "pending_ab",
++        "inputs": {
++            "fs_run_dir": str(fs_run_dir),
++            "stability_table": str(st_path),
++            "denylist_path": a_rel,
++        },
++        "adds": {
++            "deny_num": sorted(added_num),
++            "deny_bool": sorted(added_bool),
++        },
++        "denylist_after": {
++            "deny_num": sorted(deny_num),
++            "deny_bool": sorted(deny_bool),
++        },
++        "selection_thresholds": {
++            "min_importance": float(args.min_importance),
++            "max_cv": float(args.max_cv),
++            "max_features": int(args.max_features),
++        },
++        "required_confirmation": {
++            "type": "replay_ab",
++            "must": [
++                "Replay/AB compare v5_of (full) vs v5_of_stable (denylist applied) on same input window",
++                "Check model metrics (AUC/MCC) AND trading metrics (PnL/DD) AND stability by regime/hour buckets",
++                "Only after approval apply the diff and bump model artifact/version if you promote",
++            ],
++        },
++        "apply_instructions": [
++            f"git apply {diff_path}",
++            "(or copy the denylist JSON changes manually)",
++        ],
++        "notes": "This proposal only affects v5_of_stable (training baseline). v5_of remains unchanged unless you switch schema_ver.",
++    }
++    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
++
++    print(f"[denylist] wrote: {diff_path}")
++    print(f"[denylist] manifest: {manifest_path}")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/ml_analysis/tools/build_dataset_from_inputs_outcomes_v2.py b/ml_analysis/tools/build_dataset_from_inputs_outcomes_v2.py
+index 333e810..aea6c92 100644
+--- a/ml_analysis/tools/build_dataset_from_inputs_outcomes_v2.py
++++ b/ml_analysis/tools/build_dataset_from_inputs_outcomes_v2.py
+@@ -251,8 +251,8 @@ def main() -> None:
+     ap.add_argument(
+         "--schema-ver",
+         default=os.environ.get("ML_FEATURE_SCHEMA_VER", "v3"),
+-        choices=["v2", "v3", "v4_of"],
+-        help="версия Feature Registry для --emit-wide-cols (default: v3)",
++        choices=["v2", "v3", "v4_of", "v5_of", "v5", "v5_of_stable", "v5_stable"],
++        help="версия Feature Registry для --emit-wide-cols (default: v3). Use v5_of_stable for stable baseline.",
+     )
+     ap.add_argument(
+         "--emit-wide-cols",
+diff --git a/ml_analysis/tools/build_edge_stack_dataset_from_redis.py b/ml_analysis/tools/build_edge_stack_dataset_from_redis.py
+index 5564f78..118df12 100644
+--- a/ml_analysis/tools/build_edge_stack_dataset_from_redis.py
++++ b/ml_analysis/tools/build_edge_stack_dataset_from_redis.py
+@@ -1550,7 +1550,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
+     ap.add_argument(
+         "--feature_schema_ver",
+         default=os.environ.get("ML_FEATURE_SCHEMA_VER", ""),
+-        choices=["", "v2", "v3", "v4", "v4_of"],
++        choices=["", "v2", "v3", "v4", "v4_of", "v5", "v5_of", "v5_of_stable", "v5_stable"],
+         help="Если задан, feature_cols берётся из Feature Registry (детерминированно), "
+             "а не из infer_feature_cols() (sample-зависимый). Empty = прежнее поведение.",
+     )
+diff --git a/services/of_timers_worker.py b/services/of_timers_worker.py
+index d9608a5..1e8cfa6 100644
+--- a/services/of_timers_worker.py
++++ b/services/of_timers_worker.py
+@@ -1499,6 +1499,32 @@ def run_meta_ab_v2_nightly_job_v1() -> bool:
+     return run_tool(module, timeout=timeout_s)
+ 
+ 
++
++
++def run_feature_denylist_proposal_autogen() -> bool:
++    """Autogen denylist proposal diff from the latest feature-selection run.
++
++    Controlled by:
++      - ENABLE_FEATURE_DENYLIST_PROPOSAL=1
++      - FEATURE_SELECTION_RUN_DIR must contain stability_table.csv
++
++    Output (no auto-apply):
++      <FEATURE_SELECTION_RUN_DIR>/proposals/denylist_proposal_*.diff
++    """
++    if os.getenv("ENABLE_FEATURE_DENYLIST_PROPOSAL", "0") != "1":
++        return False
++
++    fs_dir = (os.environ.get("FEATURE_SELECTION_RUN_DIR") or "").strip()
++    if not fs_dir:
++        # tool will no-op but we treat as disabled
++        return False
++
++    return run_tool(
++        "ml_analysis.tools.autogen_feature_denylist_proposal_v1",
++        ["--fs-run-dir", fs_dir],
++        timeout=180,
++    )
++
+ def run_close_backfill() -> bool:
+     """Run Close Backfill Replay (P55)."""
+     if os.getenv("ENABLE_CLOSE_BACKFILL_TIMER", "0") != "1":
+@@ -2359,6 +2385,7 @@ def main() -> None:
+                 ("meta_ab_v2", 5, 55, run_meta_ab_v2_nightly_job_v1),
+                 ("confirmations_coverage", 6, 5, run_confirmations_coverage_nightly),
+                 ("enforce_bucket_promoter", 6, 10, run_nightly_enforce_bucket_promoter),
++            ("feature_denylist_proposal_autogen", 6, 25, run_feature_denylist_proposal_autogen),
+                 ("meta_ramp", 6, 20, run_nightly_meta_enforce_ramp),
+                 ("meta_self_heal", 7, 10, run_nightly_meta_self_heal),
+                 ("meta_stage2_opt", 7, 25, run_nightly_meta_stage2_opt),
+diff --git a/tick_flow_full/core/feature_denylist_v1.json b/tick_flow_full/core/feature_denylist_v1.json
+new file mode 100644
+index 0000000..090f29e
+--- /dev/null
++++ b/tick_flow_full/core/feature_denylist_v1.json
+@@ -0,0 +1,7 @@
++{
++  "ver": "v1",
++  "updated_utc": "",
++  "deny_num": [],
++  "deny_bool": [],
++  "notes": "Auto-managed denylist for v5_of_stable. This file is intentionally small and low-cardinality.\n\nWorkflow:\n  1) nightly feature_selection_loop produces stability_table.csv\n  2) autogen_feature_denylist_proposal_v1.py generates a candidate unified diff for this file\n  3) human approves via replay/AB before applying\n"
++}
+diff --git a/tick_flow_full/core/feature_registry.py b/tick_flow_full/core/feature_registry.py
+index 0bfaff2..2a66ff5 100644
+--- a/tick_flow_full/core/feature_registry.py
++++ b/tick_flow_full/core/feature_registry.py
+@@ -8,6 +8,8 @@
+   v2  — ядро v2 (25 фич): num×15 + bool×9 + dir×2 + bucket×3 + hour×24 + dow×7
+   v3  — v2 + online-friendly extras (29 num, 9 bool)
+   v4_of — полная онлайн-схема v4 (48 num, 21 bool) из MLFeatureSchemaV4OF
++  v5_of — v4_of + расширения (core+extras) из MLFeatureSchemaV5OF
++  v5_of_stable — v5_of минус denylist (feature_denylist_v1.json), для stable training baseline
+ 
+ Публичный API:
+   get_schema_info(ver: str) → FeatureSchemaInfo
+@@ -20,8 +22,11 @@ from __future__ import annotations
+ 
+ import hashlib
+ import json
++import os
++from pathlib import Path
++
+ from dataclasses import dataclass
+-from typing import Dict, List, Optional
++from typing import Dict, List, Optional, Tuple
+ 
+ 
+ def _sha256_16(items: List[str]) -> str:
+@@ -288,6 +293,67 @@ def _get_v5_of_keys():
+         return _get_v4_of_keys()
+ 
+ 
++
++
++# ---------------------------------------------------------------------------
++# v5_of_stable schema — v5_of minus denylist (feature_denylist_v1.json)
++# ---------------------------------------------------------------------------
++
++_DENYLIST_CACHE: Optional[dict] = None
++
++
++def _denylist_path() -> Path:
++    """Path to denylist JSON.
++
++    Override via ML_FEATURE_DENYLIST_PATH.
++    """
++    p = (os.environ.get("ML_FEATURE_DENYLIST_PATH") or "").strip()
++    if p:
++        return Path(p)
++    return Path(__file__).with_name("feature_denylist_v1.json")
++
++
++def _load_feature_denylist() -> Tuple[set, set]:
++    """Load denylist as (deny_num, deny_bool)."""
++    global _DENYLIST_CACHE
++    if _DENYLIST_CACHE is not None:
++        dn = set((_DENYLIST_CACHE.get("deny_num") or []))
++        db = set((_DENYLIST_CACHE.get("deny_bool") or []))
++        return dn, db
++
++    path = _denylist_path()
++    obj: dict = {}
++    try:
++        if path.exists():
++            obj = json.loads(path.read_text(encoding="utf-8"))
++    except Exception:
++        obj = {}
++
++    if not isinstance(obj, dict):
++        obj = {}
++
++    _DENYLIST_CACHE = obj
++    dn = set(obj.get("deny_num") or [])
++    db = set(obj.get("deny_bool") or [])
++    return dn, db
++
++
++def _get_v5_of_stable_keys():
++    """v5_of_stable = v5_of minus denylisted keys.
++
++    Motivation:
++      - keep online schema superset (v5_of)
++      - allow training to start from stable subset (v5_of_stable)
++      - move noisy features to denylist via controlled proposal+AB workflow
++    """
++    num_keys, bool_keys = _get_v5_of_keys()
++    dn, db = _load_feature_denylist()
++    if not dn and not db:
++        return num_keys, bool_keys
++
++    num_f = [k for k in num_keys if str(k) not in dn]
++    bool_f = [k for k in bool_keys if str(k) not in db]
++    return num_f, bool_f
+ # ---------------------------------------------------------------------------
+ # Кэш: чтобы не пересчитывать хэши на каждый вызов
+ # ---------------------------------------------------------------------------
+@@ -300,7 +366,7 @@ def get_schema_info(ver: str) -> FeatureSchemaInfo:
+     """Возвращает FeatureSchemaInfo для заданной версии схемы.
+ 
+     Args:
+-        ver: одно из "v2", "v3", "v4_of", "v5_of"
++        ver: одно из "v2", "v3", "v4_of", "v5_of", "v5_of_stable"
+ 
+     Returns:
+         FeatureSchemaInfo — неизменяемый дескриптор схемы.
+@@ -324,10 +390,14 @@ def get_schema_info(ver: str) -> FeatureSchemaInfo:
+         num_keys, bool_keys = _get_v5_of_keys()
+         names = _build_feature_names(num_keys, bool_keys)
+         v = "v5_of"
++    elif v in ("v5_of_stable", "v5_stable", "v5stable"):
++        num_keys, bool_keys = _get_v5_of_stable_keys()
++        names = _build_feature_names(num_keys, bool_keys)
++        v = "v5_of_stable"
+     else:
+         raise ValueError(
+             f"Unsupported feature schema version: {ver!r}. "
+-            f"Supported: 'v2', 'v3', 'v4_of', 'v5_of'."
++            f"Supported: 'v2', 'v3', 'v4_of', 'v5_of', 'v5_of_stable'."
+         )
+ 
+     info = _make_schema_info(v, names)
+@@ -371,16 +441,18 @@ def get_edge_stack_feature_spec(
+         ver = "v4_of"
+     if ver == "v5of":
+         ver = "v5_of"
++    if ver in ("v5_of_stable", "v5stable", "v5_stable"):
++        ver = "v5_of_stable"
+ 
+     # расширенный allowlist: v2/v3/v4/v4_of
+-    if ver not in ("v2", "v3", "v4", "v4_of", "v5", "v5_of"):
++    if ver not in ("v2", "v3", "v4", "v4_of", "v5", "v5_of", "v5_of_stable"):
+         raise ValueError(
+-            f"edge-stack registry supports v2/v3/v4/v4_of/v5_of only, got {schema_ver!r}"
++            f"edge-stack registry supports v2/v3/v4/v4_of/v5_of/v5_of_stable only, got {schema_ver!r}"
+         )
+ 
+     # Числовой номер версии для умолчаний (v4_of → 4)
+     try:
+-        ver_num = 4 if ver in ("v4_of", "v5_of") else int(ver.lstrip("v"))
++        ver_num = 5 if ver in ("v5_of", "v5_of_stable") else (4 if ver == "v4_of" else int(ver.lstrip("v")))
+     except Exception:
+         ver_num = 0
+ 
+@@ -392,9 +464,12 @@ def get_edge_stack_feature_spec(
+     elif ver in ("v4", "v4_of"):
+         num_keys, bool_keys = _get_v4_of_keys()
+         ver = "v4_of"  # канонизируем v4 → v4_of для кэша
+-    else:  # v5 / v5_of
+-        num_keys, bool_keys = _get_v5_of_keys()
+-        ver = "v5_of"
++    else:  # v5 / v5_of / v5_of_stable
++        if ver == "v5_of_stable":
++            num_keys, bool_keys = _get_v5_of_stable_keys()
++        else:
++            num_keys, bool_keys = _get_v5_of_keys()
++            ver = "v5_of"
+ 
+     # Строим f_* колонки детерминированно
+     fkeys: List[str] = []
+diff --git a/tick_flow_full/services/of_timers_worker.py b/tick_flow_full/services/of_timers_worker.py
+index 70b9804..1b55e89 100644
+--- a/tick_flow_full/services/of_timers_worker.py
++++ b/tick_flow_full/services/of_timers_worker.py
+@@ -1655,6 +1655,28 @@ def run_meta_ab_v2_nightly_job_v1() -> bool:
+     return run_tool(module, timeout=timeout_s)
+ 
+ 
++
++
++def run_nightly_feature_denylist_proposal_autogen() -> bool:
++    """Nightly: generate candidate denylist diff from feature-selection loop output.
++
++    Enabled when ENABLE_FEATURE_DENYLIST_PROPOSAL=1 and FEATURE_SELECTION_RUN_DIR is set.
++    The proposal is written to <FEATURE_SELECTION_RUN_DIR>/proposals and requires replay/AB
++    confirmation before apply.
++    """
++    if os.getenv("ENABLE_FEATURE_DENYLIST_PROPOSAL", "0") != "1":
++        return True
++
++    fs_dir = (os.environ.get("FEATURE_SELECTION_RUN_DIR") or "").strip()
++    if not fs_dir:
++        return True
++
++    return run_tool(
++        "ml_analysis.tools.autogen_feature_denylist_proposal_v1",
++        ["--fs-run-dir", fs_dir],
++        timeout=180,
++    )
++
+ def run_close_backfill() -> bool:
+     """Run Close Backfill Replay (P55)."""
+     if os.getenv("ENABLE_CLOSE_BACKFILL_TIMER", "0") != "1":
+@@ -2524,6 +2546,7 @@ def main() -> None:
+                 ("meta_ab_v2", 5, 55, run_meta_ab_v2_nightly_job_v1),
+                 ("confirmations_coverage", 6, 5, run_confirmations_coverage_nightly),
+                 ("enforce_bucket_promoter", 6, 10, run_nightly_enforce_bucket_promoter),
++            ("feature_denylist_proposal_autogen", 6, 25, run_nightly_feature_denylist_proposal_autogen),
+                 ("meta_ramp", 6, 20, run_nightly_meta_enforce_ramp),
+                 ("meta_self_heal", 7, 10, run_nightly_meta_self_heal),
+                 ("meta_stage2_opt", 7, 25, run_nightly_meta_stage2_opt),

@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/_lib/_util.py
+# hypothesis_version: 6.148.10
+
+[171, 1638083107694713882823079058616272161, "'%s'", ', ', '.', 'C', 'FullArgSpec', 'GeneratorType', 'O', '__len__', 'annotations', 'args', 'data', 'defaults', 'ignore', 'int64', 'kwonlyargs', 'kwonlydefaults', 'omit', 'propagate', 'raise', 'varargs', 'varkw']

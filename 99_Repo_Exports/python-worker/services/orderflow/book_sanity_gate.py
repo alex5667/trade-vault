@@ -1,0 +1,148 @@
+from __future__ import annotations
+
+"""BookSanityGate (P5).
+
+A separate gate from DataQualityGate:
+- DataQualityGate focuses on time (epoch ms, lag, out-of-order) and upstream
+  quarantine semantics.
+- BookSanityGate focuses on market microstructure sanity (crossed BBO, NaNs,
+  negative depth) and tick-to-book symptoms.
+
+Policy:
+- default/soft: annotate only (never veto)
+- strict: tighten (optional; here we only annotate to keep P5 minimal)
+- hard: veto on a finite set of flags
+
+The gate is designed to be fail-open and should never throw.
+"""
+
+import os
+from dataclasses import dataclass
+from typing import Any, Dict, List, Tuple
+
+
+@dataclass
+class BookSanityDecision:
+    apply: bool
+    veto: bool
+    gate: str
+    reason_code: str
+    flags: List[str]
+    notes: str = ""
+
+
+def _profile() -> str:
+    return str(os.getenv("GATE_PROFILE", os.getenv("BOOK_SANITY_PROFILE", "default")) or "default").strip().lower()
+
+
+class BookSanityGate:
+    def __init__(
+        self,
+        *,
+        enabled: bool,
+        mode: str,
+        veto_trade_outside_bbo: bool = False,
+        outside_bbo_max_dist_bps: float = 0.0,
+    ) -> None:
+        self.enabled = bool(enabled)
+        self.mode = str(mode or "auto").strip().lower()
+        # Optional: hard-veto when a trade prints outside the current BBO.
+        self.veto_trade_outside_bbo = bool(veto_trade_outside_bbo)
+        self.outside_bbo_max_dist_bps = float(max(0.0, float(outside_bbo_max_dist_bps or 0.0)))
+
+    @staticmethod
+    def from_env() -> "BookSanityGate":
+        enabled = bool(int(os.getenv("BOOK_SANITY_GATE_ENABLED", "1") or 1))
+        mode = os.getenv("BOOK_SANITY_MODE", "auto")
+        return BookSanityGate(
+            enabled=enabled,
+            mode=str(mode),
+            veto_trade_outside_bbo=bool(int(os.getenv("BOOK_SANITY_VETO_TRADE_OUTSIDE_BBO", "0") or 0)),
+            outside_bbo_max_dist_bps=float(os.getenv("BOOK_SANITY_OUTSIDE_BBO_MAX_DIST_BPS", "0") or 0.0),
+        )
+
+    def _effective_mode(self) -> str:
+        if self.mode in ("monitor", "tighten", "veto"):
+            return self.mode
+        # auto
+        p = _profile()
+        if p in ("hard", "strict"):
+            return "veto" if p == "hard" else "monitor"
+        return "monitor"
+
+    def evaluate(self, *, indicators: Dict[str, Any], symbol: str) -> BookSanityDecision:
+        if not self.enabled:
+            return BookSanityDecision(apply=False, veto=False, gate="BookSanityGate", reason_code="", flags=[])
+
+        flags = []
+        try:
+            raw = indicators.get("book_sanity_flags")
+            if isinstance(raw, list):
+                flags = [str(x) for x in raw if x]
+            elif isinstance(raw, str):
+                # may arrive as CSV
+                flags = [s.strip() for s in raw.split(",") if s.strip()]
+        except Exception:
+            flags = []
+
+        mode = self._effective_mode()
+
+        # Read trade_outside_bbo from indicators (set by tick_processor).
+        outside_bbo = bool(int(indicators.get("trade_outside_bbo", 0) or 0)) or ("trade_outside_bbo" in flags)
+        try:
+            outside_bbo_dist_bps = float(indicators.get("trade_outside_bbo_dist_bps", 0.0) or 0.0)
+        except Exception:
+            outside_bbo_dist_bps = 0.0
+
+        # default behavior: annotate only if any sanity symptom exists
+        if not flags and not outside_bbo:
+            return BookSanityDecision(apply=False, veto=False, gate="BookSanityGate", reason_code="", flags=[])
+
+        # Veto conditions (finite set)
+        veto_flags = {"crossed_bbo", "nan_px", "nan_depth", "neg_qty"}
+        do_veto = any(f in veto_flags for f in flags)
+        do_trade_outside_veto = bool(
+            outside_bbo
+            and self.veto_trade_outside_bbo
+            and (self.outside_bbo_max_dist_bps <= 0.0 or outside_bbo_dist_bps >= self.outside_bbo_max_dist_bps)
+        )
+
+        if mode != "veto":
+            return BookSanityDecision(
+                apply=True,
+                veto=False,
+                gate="BookSanityGate",
+                reason_code="BOOK_SANITY_FLAGS",
+                flags=flags,
+                notes=f"mode={mode}",
+            )
+
+        if do_veto or do_trade_outside_veto:
+            # Deterministic reason (first match)
+            reason = "VETO_BOOK_SANITY"
+            if "crossed_bbo" in flags:
+                reason = "VETO_BOOK_CROSS"
+            elif "nan_depth" in flags or "nan_px" in flags:
+                reason = "VETO_BOOK_NAN"
+            elif "neg_qty" in flags:
+                reason = "VETO_BOOK_NEG_QTY"
+            elif do_trade_outside_veto:
+                reason = "VETO_TRADE_OUTSIDE_BBO"
+
+            return BookSanityDecision(
+                apply=True,
+                veto=True,
+                gate="BookSanityGate",
+                reason_code=str(reason),
+                flags=flags + (["trade_outside_bbo"] if outside_bbo and "trade_outside_bbo" not in flags else []),
+                notes=f"symbol={symbol} dist_bps={outside_bbo_dist_bps:.4f}",
+            )
+
+        return BookSanityDecision(
+            apply=True,
+            veto=False,
+            gate="BookSanityGate",
+            reason_code="BOOK_SANITY_FLAGS",
+            flags=flags,
+            notes=f"mode={mode}",
+        )

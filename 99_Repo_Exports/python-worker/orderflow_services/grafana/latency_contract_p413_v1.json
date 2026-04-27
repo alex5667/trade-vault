@@ -1,0 +1,84 @@
+{
+  "title": "Latency Contract P4.13 Semantic Approval Binding",
+  "schemaVersion": 39,
+  "version": 413,
+  "panels": [
+    {
+      "title": "Dual-control semantic binding mismatch total",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "latency_contract_deploy_lint_summary_dual_control_semantic_binding_mismatch_total"
+        }
+      ]
+    },
+    {
+      "title": "Dual-control binding mismatch total (all fields)",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "latency_contract_deploy_lint_summary_dual_control_binding_mismatch_total"
+        }
+      ]
+    },
+    {
+      "title": "Dual-control invalidated gate active total",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "latency_contract_deploy_lint_summary_dual_control_invalidated_gate_active_total"
+        }
+      ]
+    },
+    {
+      "title": "Approval binding schema version by purpose",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "latency_contract_deploy_lint_silence_approval_binding_schema_version",
+          "legendFormat": "__auto"
+        }
+      ]
+    },
+    {
+      "title": "Approval binding match (all fields) by purpose",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "latency_contract_deploy_lint_silence_approval_binding_match",
+          "legendFormat": "__auto"
+        }
+      ]
+    },
+    {
+      "title": "Approval details fingerprint match by purpose (P4.13)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "latency_contract_deploy_lint_silence_approval_details_fingerprint_match",
+          "legendFormat": "__auto"
+        }
+      ]
+    },
+    {
+      "title": "Approval invalidated by purpose",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "latency_contract_deploy_lint_silence_approval_invalidated",
+          "legendFormat": "__auto"
+        }
+      ]
+    },
+    {
+      "title": "Approval freshness remaining seconds",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "latency_contract_deploy_lint_silence_approval_freshness_remaining_seconds",
+          "legendFormat": "__auto"
+        }
+      ]
+    }
+  ]
+}

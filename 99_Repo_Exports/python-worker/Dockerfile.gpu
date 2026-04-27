@@ -1,0 +1,140 @@
+# GPU-enabled Dockerfile для python-worker с поддержкой CUDA
+# Использует базовый образ nvidia/cuda для всех CUDA библиотек
+
+ARG CUDA_VERSION=12.1.0
+ARG PYTHON_VERSION=3.12
+ARG PIP_INDEX_URL=https://pypi.org/simple
+ARG PIP_EXTRA_INDEX_URL=
+
+###############################################################################
+# Builder stage: fetch wheels using configurable PyPI mirror
+###############################################################################
+FROM python:${PYTHON_VERSION}-slim AS builder
+
+ARG PIP_INDEX_URL
+ARG PIP_EXTRA_INDEX_URL
+
+ENV PIP_INDEX_URL=${PIP_INDEX_URL}
+ENV PIP_EXTRA_INDEX_URL=${PIP_EXTRA_INDEX_URL}
+
+ENV VIRTUAL_ENV=/opt/venv
+RUN python -m venv "${VIRTUAL_ENV}"
+ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN --mount=type=cache,target=/root/.cache/pip \
+    --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+      build-essential \
+      gfortran \
+      libopenblas-dev \
+      liblapack-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN pip install --default-timeout=100 --upgrade pip wheel
+
+WORKDIR /app
+
+COPY python-worker/requirements.txt ./
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip wheel --wheel-dir /tmp/wheels -r requirements.txt
+
+###############################################################################
+# Runtime stage: используем nvidia/cuda базовый образ для всех CUDA библиотек
+###############################################################################
+FROM nvidia/cuda:${CUDA_VERSION}-cudnn8-runtime-ubuntu22.04 AS runtime
+
+ARG PIP_INDEX_URL
+ARG PIP_EXTRA_INDEX_URL
+
+ENV PYTHONUNBUFFERED=1
+ENV PIP_INDEX_URL=${PIP_INDEX_URL}
+ENV PIP_EXTRA_INDEX_URL=${PIP_EXTRA_INDEX_URL}
+
+# Устанавливаем Python 3.12 через deadsnakes PPA
+# ✅ Оптимизация: используем cache mount для apt и объединяем операции
+# ✅ Fix: заменяем HTTP на HTTPS в apt sources для надежности
+ENV DEBIAN_FRONTEND=noninteractive
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    sed -i 's|http://archive.ubuntu.com|https://archive.ubuntu.com|g' /etc/apt/sources.list && \
+    sed -i 's|http://security.ubuntu.com|https://security.ubuntu.com|g' /etc/apt/sources.list && \
+    sed -i 's|http://ports.ubuntu.com|https://ports.ubuntu.com|g' /etc/apt/sources.list.d/*.list 2>/dev/null || true && \
+    apt-get update --allow-releaseinfo-change || \
+    (sleep 5 && apt-get update --allow-releaseinfo-change) || \
+    (sleep 10 && apt-get update --allow-releaseinfo-change) && \
+    apt-get install -y --no-install-recommends \
+      software-properties-common \
+      ca-certificates \
+      gnupg2 && \
+    add-apt-repository -y ppa:deadsnakes/ppa && \
+    apt-get update --allow-releaseinfo-change || \
+    (sleep 5 && apt-get update --allow-releaseinfo-change) || \
+    (sleep 10 && apt-get update --allow-releaseinfo-change) && \
+    apt-get install -y --no-install-recommends \
+      python3.12 \
+      python3.12-venv \
+      python3.12-dev \
+      python3-pip \
+      postgresql-client \
+      libopenblas-dev \
+      liblapack-dev \
+      libgomp1 && \
+    rm -rf /var/lib/apt/lists/* && \
+    ln -sf /usr/bin/python3.12 /usr/bin/python3 && \
+    ln -sf /usr/bin/python3 /usr/bin/python
+
+ENV VIRTUAL_ENV=/opt/venv
+RUN python3 -m venv "${VIRTUAL_ENV}"
+ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
+
+# ✅ GPU Support: переменные окружения для CUDA
+# Все CUDA библиотеки уже включены в базовый образ nvidia/cuda
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+ENV GPU_ENABLED=true
+ENV PYTHONPATH=/app
+# LD_LIBRARY_PATH: убеждаемся, что все пути CUDA включены
+ENV LD_LIBRARY_PATH=/usr/local/cuda-12.1/lib64:/usr/local/cuda-12.1/targets/x86_64-linux/lib:${LD_LIBRARY_PATH}
+
+WORKDIR /app
+
+COPY --from=builder /tmp/wheels /tmp/wheels
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip wheel && \
+    pip install --no-cache-dir --no-deps /tmp/wheels/* && \
+    rm -rf /tmp/wheels
+
+# ✅ CuPy & Numba: установка в runtime stage где есть nvidia/cuda base image
+# Нельзя собирать wheels в builder stage (python:slim без CUDA!)
+# cupy-cuda12x требует совместимость с CUDA 12.x (драйвер >= 520, Compute >= 6.0)
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir \
+        "cupy-cuda12x==12.3.0" \
+        "numba==0.59.1"
+
+# CuPy JIT-кэш — предотвращает повторную компиляцию ядер при каждом старте
+ENV CUPY_CACHE_DIR=/tmp/cupy_cache
+ENV CUPY_CACHE_SAVE_CUDA_SOURCE=0
+# Numba JIT-кэш
+ENV NUMBA_CACHE_DIR=/tmp/numba_cache
+
+# Copy application code
+COPY common/ ./common/
+COPY hub/ ./hub/
+COPY infra/ ./infra/
+COPY core/ ./core/
+COPY risk/ ./risk/
+COPY dispatch/ ./dispatch/
+COPY persistence/ ./persistence/
+COPY regime-worker/ ./regime-worker/
+COPY specs/ ./specs/
+COPY orderflow_services/ ./orderflow_services/
+COPY python-worker/ .
+COPY scripts/send_real_report.py /app/send_real_report.py
+
+
+CMD ["python", "main.py"]

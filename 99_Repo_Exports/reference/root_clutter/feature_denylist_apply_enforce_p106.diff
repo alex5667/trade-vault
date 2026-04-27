@@ -1,0 +1,580 @@
+diff --git a/ml_analysis/tools/approve_feature_denylist_proposal_v1.py b/ml_analysis/tools/approve_feature_denylist_proposal_v1.py
+index cef9fad..d047629 100644
+--- a/ml_analysis/tools/approve_feature_denylist_proposal_v1.py
++++ b/ml_analysis/tools/approve_feature_denylist_proposal_v1.py
+@@ -24,20 +24,22 @@ def _utc_now() -> str:
+ def main() -> int:
+     ap = argparse.ArgumentParser()
+     ap.add_argument("--manifest", required=True, help="Path to denylist_proposal_*.manifest.json")
+-    ap.add_argument("--ab-report-json", required=True, help="Path to AB/replay summary json (produced by your eval bundle)")
++    ap.add_argument(
++        "--ab-report-json",
++        required=False,
++        default="",
++        help="Optional. If omitted, will use manifest['ab']['report_json'].",
++    )
+     ap.add_argument("--approve", type=int, default=0, help="1 = write approval record and set status=approved")
+ 
+     args = ap.parse_args()
+ 
+     mp = Path(args.manifest).expanduser().resolve()
+-    rp = Path(args.ab_report_json).expanduser().resolve()
++    rp = None
+ 
+     if not mp.exists():
+         print(f"manifest not found: {mp}")
+         return 2
+-    if not rp.exists():
+-        print(f"ab-report-json not found: {rp}")
+-        return 2
+ 
+     m = json.loads(mp.read_text(encoding="utf-8"))
+     if not isinstance(m, dict):
+@@ -49,9 +51,50 @@ def main() -> int:
+         print(f"current status: {m.get('status')}")
+         return 0
+ 
++    # Hard gate: approval is only allowed after AB/replay gate passed.
++    st = (m.get("status") or "").strip()
++    if st != "ab_done":
++        print(f"ERROR: cannot approve: status must be 'ab_done' (got '{st}')")
++        return 2
++
++    ab = m.get("ab") or {}
++    try:
++        gate_pass = int(ab.get("gate_pass") or 0)
++    except Exception:
++        gate_pass = 0
++    if gate_pass != 1:
++        print("ERROR: cannot approve: AB gate did not pass (ab.gate_pass!=1)")
++        return 2
++
++    manifest_report = (ab.get("report_json") or "").strip()
++    cli_report = (args.ab_report_json or "").strip()
++    report_json = cli_report or manifest_report
++    if not report_json:
++        print("ERROR: missing AB report json (use --ab-report-json or set ab.report_json)")
++        return 2
++    if cli_report and manifest_report and Path(cli_report).resolve() != Path(manifest_report).resolve():
++        print("ERROR: --ab-report-json mismatch with manifest ab.report_json")
++        print(f"  cli: {cli_report}")
++        print(f"  manifest: {manifest_report}")
++        return 2
++
++    rp = Path(report_json).expanduser().resolve()
++    if not rp.exists():
++        print(f"ab-report-json not found: {rp}")
++        return 2
++    rep = json.loads(rp.read_text(encoding="utf-8"))
++    try:
++        rep_gate_pass = int(rep.get("gate_pass") or 0)
++    except Exception:
++        rep_gate_pass = 0
++    if rep_gate_pass != 1:
++        print("ERROR: AB report gate_pass != 1")
++        return 2
++
+     m["status"] = "approved"
+     m["approved_utc"] = _utc_now()
+     m["ab_report_json"] = str(rp)
++    m["approved_gate_pass"] = 1
+ 
+     mp.write_text(json.dumps(m, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+ 
+diff --git a/ml_analysis/tools/feature_denylist_proposal_exporter_v1.py b/ml_analysis/tools/feature_denylist_proposal_exporter_v1.py
+index 0b01e0c..aef9ee8 100644
+--- a/ml_analysis/tools/feature_denylist_proposal_exporter_v1.py
++++ b/ml_analysis/tools/feature_denylist_proposal_exporter_v1.py
+@@ -5,8 +5,9 @@ Intended for node_exporter textfile collector or similar.
+ 
+ Metrics
+ -------
+-feature_denylist_proposals_total{status="pending_ab|ab_done|ab_failed|approved"}
++feature_denylist_proposals_total{status="pending_ab|ab_done|ab_failed|approved|applied"}
+ feature_denylist_oldest_pending_age_seconds
++feature_denylist_oldest_approved_not_applied_age_seconds
+ 
+ Optionally also exports last nightly AB runner stats from Redis hash
+ FEATURE_DENYLIST_AB_METRICS_KEY (default metrics:feature_denylist_ab:last):
+@@ -56,7 +57,7 @@ def _read_json(path: Path) -> Dict[str, Any]:
+ 
+ 
+ def _scrape_manifest_statuses(proposals_dir: Path) -> Dict[str, int]:
+-    counts: Dict[str, int] = {"pending_ab": 0, "ab_done": 0, "ab_failed": 0, "approved": 0}
++    counts: Dict[str, int] = {"pending_ab": 0, "ab_done": 0, "ab_failed": 0, "approved": 0, "applied": 0}
+     if not proposals_dir.exists():
+         return counts
+     for p in proposals_dir.glob("denylist_proposal_*.manifest.json"):
+@@ -87,6 +88,24 @@ def _oldest_pending_age_s(proposals_dir: Path) -> int:
+     return int(time.time() - pending[0].stat().st_mtime)
+ 
+ 
++def _oldest_approved_not_applied_age_s(proposals_dir: Path) -> int:
++    """Max age among proposals with status=approved (approved but not applied yet)."""
++    if not proposals_dir.exists():
++        return 0
++    approved: List[Path] = []
++    for p in proposals_dir.glob("denylist_proposal_*.manifest.json"):
++        try:
++            m = _read_json(p)
++            if str(m.get("status") or "") == "approved":
++                approved.append(p)
++        except Exception:
++            continue
++    if not approved:
++        return 0
++    approved.sort(key=lambda x: x.stat().st_mtime)
++    return int(time.time() - approved[0].stat().st_mtime)
++
++
+ def _format_metric(name: str, labels: Dict[str, str], value: float) -> str:
+     if labels:
+         lab = ",".join([f'{k}="{v}"' for k, v in labels.items()])
+@@ -100,6 +119,7 @@ def main() -> int:
+ 
+     counts = _scrape_manifest_statuses(proposals_dir)
+     oldest_age = _oldest_pending_age_s(proposals_dir)
++    oldest_approved_age = _oldest_approved_not_applied_age_s(proposals_dir)
+ 
+     lines: List[str] = []
+     lines.append("# HELP feature_denylist_proposals_total Number of denylist proposals by status\n")
+@@ -111,6 +131,10 @@ def main() -> int:
+     lines.append("# TYPE feature_denylist_oldest_pending_age_seconds gauge\n")
+     lines.append(_format_metric("feature_denylist_oldest_pending_age_seconds", {}, float(oldest_age)))
+ 
++    lines.append("# HELP feature_denylist_oldest_approved_not_applied_age_seconds Age in seconds of oldest proposal with status=approved\n")
++    lines.append("# TYPE feature_denylist_oldest_approved_not_applied_age_seconds gauge\n")
++    lines.append(_format_metric("feature_denylist_oldest_approved_not_applied_age_seconds", {}, float(oldest_approved_age)))
++
+     # Optional: AB runner last stats from Redis
+     r = _get_redis()
+     key = os.getenv("FEATURE_DENYLIST_AB_METRICS_KEY", "metrics:feature_denylist_ab:last")
+diff --git a/ml_analysis/tools/autogen_feature_denylist_proposal_v1.py b/ml_analysis/tools/autogen_feature_denylist_proposal_v1.py
+index f46579f..fe6a42a 100644
+--- a/ml_analysis/tools/autogen_feature_denylist_proposal_v1.py
++++ b/ml_analysis/tools/autogen_feature_denylist_proposal_v1.py
+@@ -432,8 +432,8 @@ def main() -> int:
+             ],
+         },
+         "apply_instructions": [
+-            f"git apply {diff_path}",
+-            "(or copy the denylist JSON changes manually)",
++            f"python -m ml_analysis.tools.apply_feature_denylist_proposal_v1 --manifest {manifest_path} --apply 1",
++            f"(or for code-review: git apply {diff_path})",
+         ],
+         "notes": "This proposal only affects v5_of_stable (training baseline). v5_of remains unchanged unless you switch schema_ver.",
+     }
+diff --git a/orderflow_services/prometheus_alerts_feature_denylist_p103.yml b/orderflow_services/prometheus_alerts_feature_denylist_p103.yml
+index cf8b47c..c45b8a4 100644
+--- a/orderflow_services/prometheus_alerts_feature_denylist_p103.yml
++++ b/orderflow_services/prometheus_alerts_feature_denylist_p103.yml
+@@ -16,6 +16,17 @@ groups:
+       summary: "Feature denylist proposal pending AB is stale"
+       description: "Oldest pending_ab proposal age {{ $value }}s (>72h). Run nightly_feature_denylist_ab_runner_v1 or investigate AB failures."
+ 
++  - alert: FeatureDenylistApprovedNotAppliedStale
++    expr: feature_denylist_oldest_approved_not_applied_age_seconds > 24*3600
++    for: 30m
++    labels:
++      severity: warning
++      tier: P106
++      owner: ml
++    annotations:
++      summary: "Feature denylist proposal approved but not applied"
++      description: "Oldest approved proposal age {{ $value }}s (>24h). Apply it: python -m ml_analysis.tools.apply_feature_denylist_proposal_v1 --manifest <...> --apply 1."
++
+   - alert: FeatureDenylistABRunnerStale
+     expr: feature_denylist_ab_runner_age_seconds > 6*3600
+     for: 30m
+diff --git a/tick_flow_full/orderflow_services/prometheus_alerts_feature_denylist_p103.yml b/tick_flow_full/orderflow_services/prometheus_alerts_feature_denylist_p103.yml
+index cf8b47c..c45b8a4 100644
+--- a/tick_flow_full/orderflow_services/prometheus_alerts_feature_denylist_p103.yml
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_feature_denylist_p103.yml
+@@ -16,6 +16,17 @@ groups:
+       summary: "Feature denylist proposal pending AB is stale"
+       description: "Oldest pending_ab proposal age {{ $value }}s (>72h). Run nightly_feature_denylist_ab_runner_v1 or investigate AB failures."
+ 
++  - alert: FeatureDenylistApprovedNotAppliedStale
++    expr: feature_denylist_oldest_approved_not_applied_age_seconds > 24*3600
++    for: 30m
++    labels:
++      severity: warning
++      tier: P106
++      owner: ml
++    annotations:
++      summary: "Feature denylist proposal approved but not applied"
++      description: "Oldest approved proposal age {{ $value }}s (>24h). Apply it: python -m ml_analysis.tools.apply_feature_denylist_proposal_v1 --manifest <...> --apply 1."
++
+   - alert: FeatureDenylistABRunnerStale
+     expr: feature_denylist_ab_runner_age_seconds > 6*3600
+     for: 30m
+diff --git a/orderflow_services/runbook_feature_denylist_p103.md b/orderflow_services/runbook_feature_denylist_p103.md
+index ee42280..07578c0 100644
+--- a/orderflow_services/runbook_feature_denylist_p103.md
++++ b/orderflow_services/runbook_feature_denylist_p103.md
+@@ -39,6 +39,22 @@ ls -lt proposals/ab_runs | head
+ ### FeatureDenylistABRunnerStale
+ AB runner is not ticking (Redis metrics not refreshed).
+ 
++### FeatureDenylistApprovedNotAppliedStale
++Oldest approved proposal (status=approved) is older than 24 hours.
++
++**Fast check**
++```bash
++jq -r 'select(.status=="approved") | .proposal_hash,.approved_utc' proposals/denylist_proposal_*.manifest.json | head -n 20
++```
++
++**Action**
++Apply the approved proposal:
++```bash
++python -m ml_analysis.tools.apply_feature_denylist_proposal_v1 \
++  --manifest <manifest> \
++  --apply 1
++```
++
+ **Action**
+ - Ensure timers worker is running and `ENABLE_FEATURE_DENYLIST_AB_RUNNER=1`.
+ - Ensure exporter is running (textfile collector):
+@@ -69,7 +85,15 @@ python -m ml_analysis.tools.approve_feature_denylist_proposal_v1 \
+   --approve 1
+ ```
+ 
+-3) Apply instructions are printed by the approval tool. Apply in a separate PR/patch.
++3) Apply (status -> applied) to update the active denylist json:
++
++```bash
++python -m ml_analysis.tools.apply_feature_denylist_proposal_v1 \
++  --manifest <manifest> \
++  --apply 1
++```
++
++If you prefer code-review workflow, you can still apply the generated patch in a separate PR.
+ 
+ ## Rollback
+ If a denylist was applied and quality regressed:
+diff --git a/tick_flow_full/orderflow_services/runbook_feature_denylist_p103.md b/tick_flow_full/orderflow_services/runbook_feature_denylist_p103.md
+index ee42280..07578c0 100644
+--- a/tick_flow_full/orderflow_services/runbook_feature_denylist_p103.md
++++ b/tick_flow_full/orderflow_services/runbook_feature_denylist_p103.md
+@@ -39,6 +39,22 @@ ls -lt proposals/ab_runs | head
+ ### FeatureDenylistABRunnerStale
+ AB runner is not ticking (Redis metrics not refreshed).
+ 
++### FeatureDenylistApprovedNotAppliedStale
++Oldest approved proposal (status=approved) is older than 24 hours.
++
++**Fast check**
++```bash
++jq -r 'select(.status=="approved") | .proposal_hash,.approved_utc' proposals/denylist_proposal_*.manifest.json | head -n 20
++```
++
++**Action**
++Apply the approved proposal:
++```bash
++python -m ml_analysis.tools.apply_feature_denylist_proposal_v1 \
++  --manifest <manifest> \
++  --apply 1
++```
++
+ **Action**
+ - Ensure timers worker is running and `ENABLE_FEATURE_DENYLIST_AB_RUNNER=1`.
+ - Ensure exporter is running (textfile collector):
+@@ -69,7 +85,15 @@ python -m ml_analysis.tools.approve_feature_denylist_proposal_v1 \
+   --approve 1
+ ```
+ 
+-3) Apply instructions are printed by the approval tool. Apply in a separate PR/patch.
++3) Apply (status -> applied) to update the active denylist json:
++
++```bash
++python -m ml_analysis.tools.apply_feature_denylist_proposal_v1 \
++  --manifest <manifest> \
++  --apply 1
++```
++
++If you prefer code-review workflow, you can still apply the generated patch in a separate PR.
+ 
+ ## Rollback
+ If a denylist was applied and quality regressed:
+diff --git a/ml_analysis/tools/apply_feature_denylist_proposal_v1.py b/ml_analysis/tools/apply_feature_denylist_proposal_v1.py
+new file mode 100644
+index 0000000..e740775
+--- /dev/null
++++ b/ml_analysis/tools/apply_feature_denylist_proposal_v1.py
+@@ -0,0 +1,160 @@
++#!/usr/bin/env python3
++"""Apply an *approved* feature denylist proposal to the active denylist json.
++
++Safety properties:
++ - Only applies when manifest.status == 'approved'
++ - Applies by *union* with manifest['denylist_after'] (never removes keys)
++ - Writes a backup copy and an audit record
++ - Updates manifest.status -> 'applied'
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import shutil
++from datetime import datetime, timezone
++from hashlib import sha256
++from pathlib import Path
++from typing import Any, Dict, List, Tuple
++
++
++def _utc_now() -> str:
++    return datetime.now(timezone.utc).isoformat()
++
++
++def _sha256_short(s: str, n: int = 8) -> str:
++    return sha256(s.encode("utf-8")).hexdigest()[:n]
++
++
++def _stable_sorted_unique(xs: List[str]) -> List[str]:
++    # stable deterministic ordering for diffs
++    return sorted(set(xs))
++
++
++def _load_json(path: Path) -> Dict[str, Any]:
++    return json.loads(path.read_text(encoding="utf-8"))
++
++
++def _atomic_write_json(path: Path, obj: Dict[str, Any]) -> None:
++    tmp = path.with_suffix(path.suffix + ".tmp")
++    tmp.write_text(json.dumps(obj, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
++    os.replace(tmp, path)
++
++
++def _resolve_default_denylist_path() -> Path:
++    return Path("tick_flow_full/core/feature_denylist_v1.json").resolve()
++
++
++def _extract_after(m: Dict[str, Any]) -> Tuple[List[str], List[str]]:
++    after = m.get("denylist_after") or {}
++    dn = after.get("deny_num") or []
++    db = after.get("deny_bool") or []
++    if not isinstance(dn, list) or not isinstance(db, list):
++        raise ValueError("denylist_after must contain lists deny_num/deny_bool")
++    return [str(x) for x in dn], [str(x) for x in db]
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--manifest", required=True, help="Path to denylist_proposal_*.manifest.json")
++    ap.add_argument(
++        "--denylist-path",
++        default="",
++        help="Optional. Defaults to tick_flow_full/core/feature_denylist_v1.json (repo-relative).",
++    )
++    ap.add_argument("--applier", default=os.environ.get("USER", ""))
++    ap.add_argument("--apply", type=int, default=0, help="1 = apply (otherwise dry-run)")
++    args = ap.parse_args()
++
++    mp = Path(args.manifest).expanduser().resolve()
++    if not mp.exists():
++        print(f"manifest not found: {mp}")
++        return 2
++
++    m = _load_json(mp)
++    if m.get("kind") != "feature_denylist_proposal_v1":
++        print("ERROR: manifest kind mismatch")
++        return 2
++
++    st = (m.get("status") or "").strip()
++    if st != "approved":
++        print(f"ERROR: cannot apply: status must be 'approved' (got '{st}')")
++        return 2
++
++    denylist_path = Path(args.denylist_path).expanduser().resolve() if args.denylist_path else _resolve_default_denylist_path()
++    if not denylist_path.exists():
++        print(f"denylist json not found: {denylist_path}")
++        return 2
++
++    active = _load_json(denylist_path)
++    before_dn = [str(x) for x in (active.get("deny_num") or [])]
++    before_db = [str(x) for x in (active.get("deny_bool") or [])]
++
++    after_dn, after_db = _extract_after(m)
++
++    # Apply by union.
++    new_dn = _stable_sorted_unique(before_dn + after_dn)
++    new_db = _stable_sorted_unique(before_db + after_db)
++
++    add_dn = [x for x in new_dn if x not in before_dn]
++    add_db = [x for x in new_db if x not in before_db]
++
++    print(f"denylist_path: {denylist_path}")
++    print(f"adds: deny_num={len(add_dn)} deny_bool={len(add_db)}")
++    if add_dn:
++        print("+ deny_num:")
++        for k in add_dn:
++            print(f"  - {k}")
++    if add_db:
++        print("+ deny_bool:")
++        for k in add_db:
++            print(f"  - {k}")
++
++    if int(args.apply) != 1:
++        print("dry-run: pass --apply 1 to apply")
++        return 0
++
++    # Backup
++    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
++    bak = denylist_path.with_suffix(denylist_path.suffix + f".bak.{ts}")
++    shutil.copy2(denylist_path, bak)
++
++    active["deny_num"] = new_dn
++    active["deny_bool"] = new_db
++    active["updated_utc"] = _utc_now()
++    _atomic_write_json(denylist_path, active)
++
++    # Audit record
++    ph = str(m.get("proposal_hash") or "")
++    ph8 = _sha256_short(ph or mp.as_posix(), 8)
++    audit = {
++        "kind": "feature_denylist_apply_record_v1",
++        "applied_utc": _utc_now(),
++        "applier": args.applier,
++        "manifest": str(mp),
++        "proposal_hash": ph,
++        "denylist_path": str(denylist_path),
++        "backup_path": str(bak),
++        "adds": {"deny_num": add_dn, "deny_bool": add_db},
++        "counts_before": {"deny_num": len(before_dn), "deny_bool": len(before_db)},
++        "counts_after": {"deny_num": len(new_dn), "deny_bool": len(new_db)},
++    }
++    audit_path = denylist_path.parent / f"feature_denylist_apply_{ts}_{ph8}.json"
++    _atomic_write_json(audit_path, audit)
++
++    # Update manifest
++    m["status"] = "applied"
++    m["applied_utc"] = _utc_now()
++    m["applied_by"] = args.applier
++    m["applied_denylist_path"] = str(denylist_path)
++    m["applied_audit_record"] = str(audit_path)
++    mp.write_text(json.dumps(m, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
++
++    print(f"OK: applied. audit_record={audit_path}")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/ml_analysis/tests/test_feature_denylist_apply_v1.py b/ml_analysis/tests/test_feature_denylist_apply_v1.py
+new file mode 100644
+index 0000000..0d93c62
+--- /dev/null
++++ b/ml_analysis/tests/test_feature_denylist_apply_v1.py
+@@ -0,0 +1,110 @@
++import json
++
++
++def _write_json(p, obj):
++    p.write_text(json.dumps(obj, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
++
++
++def test_approve_requires_ab_done_and_gate_pass(tmp_path, monkeypatch):
++    from ml_analysis.tools import approve_feature_denylist_proposal_v1 as approve
++
++    proposals_dir = tmp_path / "proposals"
++    proposals_dir.mkdir(parents=True)
++
++    manifest = proposals_dir / "denylist_proposal_test.manifest.json"
++    report = proposals_dir / "ab_report.json"
++    _write_json(report, {"gate_pass": 1, "manifest": str(manifest)})
++
++    m = {
++        "kind": "feature_denylist_proposal_v1",
++        "proposal_hash": "ph",
++        "created_utc": "2026-02-25T00:00:00+00:00",
++        "status": "pending_ab",
++        "ab": {"gate_pass": 1, "report_json": str(report)},
++        "denylist_after": {"deny_num": ["n:x"], "deny_bool": []},
++    }
++    _write_json(manifest, m)
++
++    import sys as _sys
++
++    old = _sys.argv
++    try:
++        _sys.argv = ["approve", "--manifest", str(manifest), "--approve", "1"]
++        assert approve.main() == 2
++    finally:
++        _sys.argv = old
++
++    # ab_done but gate_pass=0
++    m["status"] = "ab_done"
++    m["ab"]["gate_pass"] = 0
++    _write_json(manifest, m)
++    old = _sys.argv
++    try:
++        _sys.argv = ["approve", "--manifest", str(manifest), "--approve", "1"]
++        assert approve.main() == 2
++    finally:
++        _sys.argv = old
++
++
++def test_approve_then_apply_happy_path(tmp_path, monkeypatch):
++    from ml_analysis.tools import approve_feature_denylist_proposal_v1 as approve
++    from ml_analysis.tools import apply_feature_denylist_proposal_v1 as apply_tool
++
++    proposals_dir = tmp_path / "proposals"
++    proposals_dir.mkdir(parents=True)
++
++    deny = tmp_path / "feature_denylist_v1.json"
++    _write_json(deny, {"deny_num": ["n:keep"], "deny_bool": ["b:keep"], "updated_utc": ""})
++
++    manifest = proposals_dir / "denylist_proposal_test.manifest.json"
++    report = proposals_dir / "ab_report.json"
++    _write_json(report, {"gate_pass": 1, "manifest": str(manifest)})
++
++    m = {
++        "kind": "feature_denylist_proposal_v1",
++        "proposal_hash": "ph",
++        "created_utc": "2026-02-25T00:00:00+00:00",
++        "status": "ab_done",
++        "ab": {"gate_pass": 1, "report_json": str(report)},
++        "denylist_after": {"deny_num": ["n:keep", "n:add1"], "deny_bool": ["b:keep", "b:add1"]},
++    }
++    _write_json(manifest, m)
++
++    import sys as _sys
++
++    old = _sys.argv
++    try:
++        _sys.argv = ["approve", "--manifest", str(manifest), "--approve", "1"]
++        assert approve.main() == 0
++    finally:
++        _sys.argv = old
++
++    m2 = json.loads(manifest.read_text(encoding="utf-8"))
++    assert m2["status"] == "approved"
++    assert m2.get("approved_gate_pass") == 1
++
++    old = _sys.argv
++    try:
++        _sys.argv = [
++            "apply",
++            "--manifest",
++            str(manifest),
++            "--denylist-path",
++            str(deny),
++            "--apply",
++            "1",
++        ]
++        assert apply_tool.main() == 0
++    finally:
++        _sys.argv = old
++
++    active = json.loads(deny.read_text(encoding="utf-8"))
++    assert "n:keep" in active["deny_num"]
++    assert "n:add1" in active["deny_num"]
++    assert "b:keep" in active["deny_bool"]
++    assert "b:add1" in active["deny_bool"]
++
++    m3 = json.loads(manifest.read_text(encoding="utf-8"))
++    assert m3["status"] == "applied"
++    assert m3.get("applied_denylist_path")
++    assert m3.get("applied_audit_record")

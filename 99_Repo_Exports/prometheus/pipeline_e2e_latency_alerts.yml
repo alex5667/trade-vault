@@ -1,0 +1,165 @@
+groups:
+  - name: pipeline_e2e_latency
+    rules:
+
+      # ── 1. Go BatchTickPublisher: тихий drop тиков ─────────────────────────
+      # Метрика: go_worker_batch_publisher_dropped_total (Counter, futures_metrics.go:96)
+      # Триггер: любой drop за последние 5 минут → немедленно
+      - alert: GoBatchPublisherTicksDropped
+        expr: |
+          increase(go_worker_batch_publisher_dropped_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          component: go-worker
+        annotations:
+          summary: "Go BatchTickPublisher дропает тики"
+          description: |
+            За последние 5 минут Go-воркер потерял {{ $value | humanize }} тиков из-за
+            переполнения внутреннего канала (cap=20000).
+            Признаки: Python отстаёт от Go, или Redis недоступен.
+            Action: проверить tm_db_batch_pending, Redis latency, Python CPU.
+          runbook_url: "https://wiki/runbooks/go-batch-publisher-drop"
+
+      # ── 1b. Go BatchPublisher flush errors ────────────────────────────────
+      # Метрика: go_worker_batch_publisher_flush_errors_total (futures_metrics.go:110)
+      - alert: GoBatchPublisherFlushErrors
+        expr: |
+          increase(go_worker_batch_publisher_flush_errors_total[5m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+          component: go-worker
+        annotations:
+          summary: "Go BatchPublisher: ошибки Pipeline flush в Redis"
+          description: |
+            {{ $value | humanize }} ошибок Redis Pipeline за последние 5 минут.
+            Тики не доходят до stream:tick_*. Проверить Redis connectivity.
+            Action: docker logs go-worker-1m, redis-cli ping.
+
+      # ── 1c. Go BatchPublisher: систематический backpressure (канал полон >50ms) ───
+      # Метрика: go_worker_batch_publisher_backpressure_total (futures_metrics.go:121)
+      # Триггер: backpressure events — значит канал был полон даже после ожидания BATCH_PUBLISHER_BACKPRESSURE_MS
+      # Это симптом sustained congestion (Redis lag или Python consumer медленный).
+      - alert: GoBatchPublisherBackpressureSustained
+        expr: |
+          increase(go_worker_batch_publisher_backpressure_total[5m]) > 100
+        for: 2m
+        labels:
+          severity: warning
+          component: go-worker
+        annotations:
+          summary: "Go BatchPublisher: устойчивый backpressure — канал переполнен"
+          description: |
+            {{ $value | humanize }} backpressure-событий за последние 5 минут.
+            Канал (cap=20000) переполнен дольше, чем BATCH_PUBLISHER_BACKPRESSURE_MS=50ms.
+            Тики CVD/orderflow могут теряться. Проверить:
+            - go_worker_batch_publisher_chan_fill_ratio (должен быть <0.8)
+            - go_worker_batch_publisher_dropped_total (итоговые дропы)
+            - Redis latency (redis-ticks), Python consumer lag.
+            Action: увеличить BATCH_PUBLISHER_BACKPRESSURE_MS до 100ms или масштабировать Python.
+          runbook_url: "https://wiki/runbooks/go-batch-publisher-backpressure"
+
+      - alert: GoBatchPublisherBackpressureCritical
+        expr: |
+          increase(go_worker_batch_publisher_backpressure_total[2m]) > 500
+        for: 1m
+        labels:
+          severity: critical
+          component: go-worker
+        annotations:
+          summary: "КРИТИЧНО: Go BatchPublisher backpressure >500/2min — риск потери CVD-истории"
+          description: |
+            {{ $value | humanize }} backpressure-событий за 2 минуты.
+            При >10k msg/s и заполненном канале CVD/orderflow теряет историю.
+            Немедленно: проверить redis-ticks latency, Python worker CPU, MAXLEN, pipeline flush errors.
+
+      # 2. BatchTradeWriter: очередь закрытых сделок близка к пределу ──────
+      # Метрика: tm_db_batch_pending (Gauge, в batch_trade_writer.py)
+      # Лимит очереди BATCH_WRITER_QUEUE_MAXSIZE=10000
+      - alert: BatchWriterQueueHigh
+        expr: |
+          tm_db_batch_pending > 1000
+        for: 2m
+        labels:
+          severity: warning
+          component: python-worker
+        annotations:
+          summary: "Очередь BatchTradeWriter > 1000 сделок"
+          description: |
+            Текущее значение: {{ $value }} сделок ожидают записи в PostgreSQL.
+            При достижении 10000 новые сделки будут потеряны (drop без retry).
+            Признаки: медленный PG, pg_bouncer backpressure, или burst закрытий.
+            Action: проверить tm_db_flush_duration_ms, postgres connections, disk I/O.
+          runbook_url: "https://wiki/runbooks/batch-writer-queue"
+
+      - alert: BatchWriterQueueCritical
+        expr: |
+          tm_db_batch_pending > 5000
+        for: 1m
+        labels:
+          severity: critical
+          component: python-worker
+        annotations:
+          summary: "КРИТИЧНО: очередь BatchTradeWriter > 5000 — риск потери сделок"
+          description: |
+            {{ $value }} сделок в очереди. При 10000 новые закрытия будут ПОТЕРЯНЫ.
+            Немедленно проверить: PostgreSQL, PgBouncer, диск, сеть до DB.
+
+      # ── 3. End-to-end задержка записи закрытой сделки в Postgres ────────────
+      # Метрика: tm_close_end2end_ms (Histogram, в batch_trade_writer.py)
+      # = time.time()*1000 - closed.exit_ts_ms (момент решения о закрытии → INSERT в PG)
+      - alert: TradeCloseE2ELatencyHigh
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(tm_close_end2end_ms_bucket[5m])) by (le)
+          ) > 3000
+        for: 5m
+        labels:
+          severity: warning
+          component: python-worker
+        annotations:
+          summary: "Сквозная задержка закрытия сделки p95 > 3с"
+          description: |
+            p95 задержки от exit_ts_ms (момент закрытия позиции) до записи в Postgres
+            составляет {{ $value | humanize }}ms. Ожидаемое норма: < 1500ms.
+            Признаки: BatchWriter перегружен, PG slow query, flush_interval слишком большой.
+            Action: проверить tm_db_batch_pending, BATCH_WRITER_FLUSH_INTERVAL.
+          runbook_url: "https://wiki/runbooks/trade-close-e2e"
+
+      - alert: TradeCloseE2ELatencyCritical
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(tm_close_end2end_ms_bucket[5m])) by (le)
+          ) > 10000
+        for: 2m
+        labels:
+          severity: critical
+          component: python-worker
+        annotations:
+          summary: "КРИТИЧНО: задержка закрытия сделки p95 > 10с"
+          description: |
+            p95 = {{ $value | humanize }}ms. Возможна серьёзная деградация.
+            Закрытые сделки не записываются в БД своевременно.
+
+      - alert: GateBlockRateSpike
+        expr: rate(gate_rejects_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          component: python-worker
+        annotations:
+          summary: "Gate block rate spike"
+          description: "High rate of signal gate rejections. Check market conditions or detector drift."
+
+      - alert: SignalToFillLatencyHigh
+        expr: histogram_quantile(0.95, sum(rate(signal_to_fill_latency_ms_bucket[5m])) by (le)) > 500
+        for: 5m
+        labels:
+          severity: warning
+          component: go-gateway
+        annotations:
+          summary: "Signal to fill latency > 500ms"
+          description: "Execution latency is elevated. Check Binance executor or NestJS gateway."

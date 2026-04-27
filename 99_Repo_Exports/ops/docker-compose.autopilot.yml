@@ -1,0 +1,54 @@
+# Autopilot scheduler container (no systemd).
+#
+# Usage (example):
+#   docker compose -f docker-compose-backend.yml -f ops/docker-compose.autopilot.yml up -d
+#
+# Requires env:
+#   TELEGRAM_BOT_TOKEN
+#   TELEGRAM_CHAT_ID
+
+services:
+  scanner-autopilot:
+    build:
+      context: .
+      dockerfile: docker/python-worker.Dockerfile
+    container_name: scanner-autopilot
+    command: ["python", "-m", "services.autopilot_scheduler_service"]
+    environment:
+      - AUTOPILOT_EVERY_MIN=${AUTOPILOT_EVERY_MIN:-60}
+      - AUTOPILOT_PROPOSE_EVERY_HOURS=${AUTOPILOT_PROPOSE_EVERY_HOURS:-24}
+      - AUTOPILOT_PROPOSE_AT_HOUR_UTC=${AUTOPILOT_PROPOSE_AT_HOUR_UTC:-8}
+      - AUTOPILOT_SINCE_HOURS=${AUTOPILOT_SINCE_HOURS:-168}
+      - AUTOPILOT_WINDOW_DAYS=${AUTOPILOT_WINDOW_DAYS:-7}
+      - AUTOPILOT_OUT_DIR=${AUTOPILOT_OUT_DIR:-/tmp/autopilot}
+      - AUTOPILOT_REDIS_URL=${AUTOPILOT_REDIS_URL:-${REDIS_URL}}
+      - REDIS_URL=${AUTOPILOT_REDIS_URL:-${REDIS_URL}}
+      - AUTOPILOT_LOCK_KEY=${AUTOPILOT_LOCK_KEY:-lock:autopilot:reporter}
+      - AUTOPILOT_LOCK_TTL_SEC=${AUTOPILOT_LOCK_TTL_SEC:-3300}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    restart: unless-stopped
+    depends_on:
+      - redis-worker-1
+
+  scanner-autopilot-orchestrator:
+    build:
+      context: .
+      dockerfile: docker/python-worker.Dockerfile
+    container_name: scanner-autopilot-orchestrator
+    command: ["python", "-m", "services.autopilot_orchestrator_service"]
+    environment:
+      - REDIS_URL=${AUTOPILOT_REDIS_URL:-${REDIS_URL:-redis://redis-worker-1:6379/0}}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - AUTOPILOT_REPO_ROOT=/app
+      - AUTOPILOT_SINCE_HOURS=${AUTOPILOT_SINCE_HOURS:-168}
+      - AUTOPILOT_WINDOW_DAYS=${AUTOPILOT_WINDOW_DAYS:-7}
+      - AUTOPILOT_TZ=${AUTOPILOT_TZ:-Europe/Zaporozhye}
+      - AUTOPILOT_RUN_HOUR_LOCAL=${AUTOPILOT_RUN_HOUR_LOCAL:-9}
+      - AUTOPILOT_RUN_MINUTE_LOCAL=${AUTOPILOT_RUN_MINUTE_LOCAL:-5}
+      - AUTOPILOT_LOCK_TTL_SEC=${AUTOPILOT_LOCK_TTL_SEC:-21600}
+      - AUTOPILOT_POLL_SEC=${AUTOPILOT_POLL_SEC:-20}
+    restart: unless-stopped
+    depends_on:
+      - redis-worker-1

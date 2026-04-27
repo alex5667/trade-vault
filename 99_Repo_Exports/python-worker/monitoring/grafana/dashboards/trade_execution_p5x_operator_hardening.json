@@ -1,0 +1,27 @@
+{
+  "title": "Trade Execution P5x Operator Hardening",
+  "uid": "trade-execution-p5x-operator-hardening",
+  "schemaVersion": 38,
+  "version": 1,
+  "templating": {
+    "list": [
+      {"name": "sid", "type": "textbox", "current": {"text": "", "value": ""}},
+      {"name": "decision_id", "type": "textbox", "current": {"text": "", "value": ""}}
+    ]
+  },
+  "annotations": {
+    "list": [
+      {"name": "Risk Drift Summary", "datasource": "-- Grafana --", "enable": true, "hide": false, "iconColor": "red", "type": "dashboard"},
+      {"name": "Risk Drift Autosilence", "datasource": "-- Grafana --", "enable": true, "hide": false, "iconColor": "orange", "type": "dashboard"}
+    ]
+  },
+  "panels": [
+    {"type": "stat", "title": "Operator Score", "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4}, "targets": []},
+    {"type": "stat", "title": "Mismatch Summary Stale", "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4}, "targets": []},
+    {"type": "stat", "title": "Archive Consistency Mismatch Count", "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4}, "targets": []},
+    {"type": "stat", "title": "Risk Drift Autosilence Trigger", "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4}, "targets": []},
+    {"type": "timeseries", "title": "Mismatch Rate by Window/Tier", "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8}, "targets": []},
+    {"type": "timeseries", "title": "Mismatch Quarantine Count by Window/Tier", "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8}, "targets": []},
+    {"type": "logs", "title": "Risk Drift Drilldown by sid/decision_id", "gridPos": {"x": 0, "y": 12, "w": 24, "h": 10}, "targets": []}
+  ]
+}

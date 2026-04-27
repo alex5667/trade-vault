@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/unified_signal_emitter.py
+# hypothesis_version: 6.148.10
+
+[1000, 'counter', 'inc', 'labels', 'outbox.emit.failed', 'outbox.emit.written', 'signals:outbox']

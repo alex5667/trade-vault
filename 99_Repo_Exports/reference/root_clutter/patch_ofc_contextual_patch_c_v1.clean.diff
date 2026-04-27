@@ -1,0 +1,1173 @@
+--- proj987/ml_analysis/tests/test_ofc_contextual_bundle_runtime_guard_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ proj987_c/ml_analysis/tests/test_ofc_contextual_bundle_runtime_guard_v1.py	2026-03-14 11:14:42.062435980 +0000
+@@ -0,0 +1,59 @@
++from __future__ import annotations
++
++import json
++import subprocess
++import sys
++from pathlib import Path
++
++import pytest
++
++
++def test_patch_b_dataset_train_bundle_scripts_exist():
++    root = Path(__file__).resolve().parents[2]
++    if not (root / "ml_analysis/tools/build_ofc_contextual_dataset_v1.py").exists():
++        pytest.skip("Patch B not applied")
++    assert (root / "ml_analysis/tools/train_ofc_exec_cost_v1.py").exists()
++    assert (root / "ml_analysis/tools/train_ofc_rule_success_v1.py").exists()
++    assert (root / "ml_analysis/tools/build_ofc_contextual_bundle_v1.py").exists()
++
++
++@pytest.mark.skipif(not (Path(__file__).resolve().parents[2] / "ml_analysis/tools/build_ofc_contextual_dataset_v1.py").exists(), reason="Patch B not applied")
++def test_nightly_bundle_guard_smoke(tmp_path: Path):
++    root = Path(__file__).resolve().parents[2]
++    decisions = tmp_path / "decisions.jsonl"
++    outcomes = tmp_path / "outcomes.jsonl"
++    decisions.write_text(json.dumps({
++        "sid": "s1",
++        "symbol": "BTCUSDT",
++        "direction": "long",
++        "decision_ts_ms": 1700000000000,
++        "ctx_key": "symbol=BTCUSDT|session=eu",
++        "ctx_session": "eu",
++        "of_score_final": 0.63,
++        "ctx_exec_risk_ref_bps": 4.0,
++        "expected_slippage_bps": 1.0,
++        "spread_bps": 0.8,
++    }) + "\n", encoding="utf-8")
++    outcomes.write_text(json.dumps({
++        "sid": "s1",
++        "symbol": "BTCUSDT",
++        "direction": "long",
++        "pnl_bps_net": 1.2,
++        "realized_slippage_bps": 0.9,
++        "fill_delay_ms": 150,
++    }) + "\n", encoding="utf-8")
++    work_dir = tmp_path / "work"
++    rc = subprocess.run(
++        [
++            sys.executable,
++            str(root / "orderflow_services/nightly_ofc_contextual_ops_bundle_v1.py"),
++            "--decisions_jsonl", str(decisions),
++            "--outcomes_jsonl", str(outcomes),
++            "--work_dir", str(work_dir),
++            "--registry_dir", str(work_dir / "registry"),
++            "--bundle_out_dir", str(work_dir / "current"),
++        ],
++        check=False,
++    ).returncode
++    assert rc == 0
++    assert (work_dir / "current" / "manifest.json").exists()
+--- proj987/orderflow_services/deploy/env/ofc_contextual_patch_c_v1.env.example	1970-01-01 00:00:00.000000000 +0000
++++ proj987_c/orderflow_services/deploy/env/ofc_contextual_patch_c_v1.env.example	2026-03-14 11:14:23.834375588 +0000
+@@ -0,0 +1,25 @@
++# Patch C — OFC contextual writer + exporter + nightly ops bundle
++REDIS_URL=redis://redis-worker-1:6379/0
++TRADES_DB_DSN=postgresql://user:pass@postgres:5432/scanner_analytics
++
++# Writer
++OFC_CTX_DECISION_STREAM=decisions:final
++OFC_CTX_DECISION_CG=ofc_ctx_decision_writer
++OFC_CTX_DECISION_BLOCK_MS=5000
++OFC_CTX_DECISION_COUNT=128
++OFC_CTX_DECISION_BATCH_SIZE=200
++OFC_CTX_DECISION_DLQ_STREAM=events:ofc_ctx_decision:dlq
++OFC_CTX_DECISION_METRICS_KEY=metrics:ofc_contextual_decision_writer
++OFC_CTX_DECISION_WRITER_METRICS_PORT=9831
++
++# Exporter
++OFC_CTX_EXPORTER_PORT=9159
++OFC_CTX_OPS_METRICS_KEY=metrics:ofc_contextual_ops_bundle
++
++# Nightly bundle
++OFC_CTX_DECISIONS_JSONL=./data/ofc_ctx/decisions.jsonl
++OFC_CTX_OUTCOMES_JSONL=./data/ofc_ctx/outcomes.jsonl
++OFC_CTX_WORK_DIR=./artifacts/ofc_ctx
++OFC_CTX_REGISTRY_DIR=./artifacts/ofc_ctx/registry
++OFC_CTX_BUNDLE_OUT_DIR=./artifacts/ofc_ctx/current
++OFC_CTX_SUCCESS_BPS=0.0
+--- proj987/orderflow_services/nightly_ofc_contextual_ops_bundle_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ proj987_c/orderflow_services/nightly_ofc_contextual_ops_bundle_v1.py	2026-03-14 11:14:23.812163857 +0000
+@@ -0,0 +1,162 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Nightly orchestrator for OFC contextual Patch B/C workflow.
++
++Runs:
++1) build_ofc_contextual_dataset_v1.py
++2) train_ofc_exec_cost_v1.py
++3) train_ofc_rule_success_v1.py
++4) build_ofc_contextual_bundle_v1.py
++
++Writes summary metrics hash into Redis for exporter/alerts.
++"""
++
++import argparse
++import json
++import logging
++import os
++import subprocess
++import sys
++import time
++from pathlib import Path
++from typing import Any, Dict, List, Optional
++
++logging.basicConfig(
++    level=logging.INFO,
++    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
++    datefmt="%Y-%m-%d %H:%M:%S",
++)
++logger = logging.getLogger("nightly_ofc_contextual_ops_bundle")
++
++try:
++    import redis  # type: ignore
++except Exception:
++    redis = None  # type: ignore
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _script(rel_path: str) -> str:
++    base = Path(__file__).resolve().parents[1]
++    path = base / rel_path
++    return str(path)
++
++
++def _run(cmd: List[str]) -> int:
++    logger.info("RUNNING: %s", " ".join(cmd))
++    try:
++        return subprocess.run(cmd, check=False).returncode
++    except Exception as e:
++        logger.error("Command failed: %s", e)
++        return 1
++
++
++def _write_metrics_hash(mapping: Dict[str, Any]) -> None:
++    if redis is None:
++        return
++    redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++    metrics_key = os.getenv("OFC_CTX_OPS_METRICS_KEY", "metrics:ofc_contextual_ops_bundle")
++    try:
++        r = redis.Redis.from_url(redis_url, decode_responses=False)
++        r.hset(metrics_key, mapping={str(k): str(v) for k, v in mapping.items()})
++    except Exception:
++        return
++
++
++def _read_manifest_created_ts(bundle_dir: str) -> int:
++    try:
++        p = Path(bundle_dir) / "manifest.json"
++        obj = json.loads(p.read_text(encoding="utf-8"))
++        return int(obj.get("created_ts_ms") or obj.get("ts_ms") or 0)
++    except Exception:
++        return 0
++
++
++def main(argv: Optional[List[str]] = None) -> int:
++    ap = argparse.ArgumentParser(description="Nightly OFC contextual ops bundle")
++    ap.add_argument("--decisions_jsonl", default=os.getenv("OFC_CTX_DECISIONS_JSONL", "./data/ofc_ctx/decisions.jsonl"))
++    ap.add_argument("--outcomes_jsonl", default=os.getenv("OFC_CTX_OUTCOMES_JSONL", "./data/ofc_ctx/outcomes.jsonl"))
++    ap.add_argument("--work_dir", default=os.getenv("OFC_CTX_WORK_DIR", "./artifacts/ofc_ctx"))
++    ap.add_argument("--registry_dir", default=os.getenv("OFC_CTX_REGISTRY_DIR", "./artifacts/ofc_ctx/registry"))
++    ap.add_argument("--bundle_out_dir", default=os.getenv("OFC_CTX_BUNDLE_OUT_DIR", "./artifacts/ofc_ctx/current"))
++    ap.add_argument("--success_bps", type=float, default=float(os.getenv("OFC_CTX_SUCCESS_BPS", "0.0") or 0.0))
++    ap.add_argument("--emit-metrics", action="store_true")
++    args = ap.parse_args(argv)
++
++    start_ts = _now_ms()
++    work_dir = Path(args.work_dir)
++    ds_dir = work_dir / "datasets"
++    model_dir = work_dir / "models"
++    ds_dir.mkdir(parents=True, exist_ok=True)
++    model_dir.mkdir(parents=True, exist_ok=True)
++
++    dataset_report = ds_dir / "dataset_report.json"
++    exec_ds = ds_dir / "exec_cost_train.jsonl"
++    rule_ds = ds_dir / "rule_success_train.jsonl"
++    exec_model = model_dir / "exec_cost_model.json"
++    rule_model = model_dir / "rule_success_model.json"
++    bundle_dir = model_dir / "bundle"
++    gate_cfg = model_dir / "gate_cfg.json"
++    gate_cfg.write_text(json.dumps({
++        "p_min_default": float(os.getenv("OFC_CTX_P_MIN_DEFAULT", "0.55") or 0.55),
++        "edge_floor_p50_bps": float(os.getenv("OFC_CTX_EDGE_FLOOR_P50_BPS", "0.0") or 0.0),
++        "edge_floor_p90_bps": float(os.getenv("OFC_CTX_EDGE_FLOOR_P90_BPS", "-2.0") or -2.0),
++    }, indent=2, sort_keys=True), encoding="utf-8")
++
++    py = sys.executable
++    rc_dataset = _run([
++        py,
++        _script("ml_analysis/tools/build_ofc_contextual_dataset_v1.py"),
++        "--decisions_jsonl", str(args.decisions_jsonl),
++        "--outcomes_jsonl", str(args.outcomes_jsonl),
++        "--out_exec_cost_jsonl", str(exec_ds),
++        "--out_rule_success_jsonl", str(rule_ds),
++        "--out_report_json", str(dataset_report),
++        "--success_bps", str(args.success_bps),
++    ])
++    if rc_dataset != 0:
++        if args.emit_metrics:
++            _write_metrics_hash({"last_run_ts_ms": start_ts, "last_ok": 0, "last_exit_code": rc_dataset})
++        return rc_dataset
++
++    rc_exec = _run([py, _script("ml_analysis/tools/train_ofc_exec_cost_v1.py"), "--train_jsonl", str(exec_ds), "--out_model_json", str(exec_model)])
++    if rc_exec != 0:
++        if args.emit_metrics:
++            _write_metrics_hash({"last_run_ts_ms": start_ts, "last_ok": 0, "last_exit_code": rc_exec})
++        return rc_exec
++
++    rc_rule = _run([py, _script("ml_analysis/tools/train_ofc_rule_success_v1.py"), "--train_jsonl", str(rule_ds), "--out_model_json", str(rule_model)])
++    if rc_rule != 0:
++        if args.emit_metrics:
++            _write_metrics_hash({"last_run_ts_ms": start_ts, "last_ok": 0, "last_exit_code": rc_rule})
++        return rc_rule
++
++    rc_bundle = _run([
++        py,
++        _script("ml_analysis/tools/build_ofc_contextual_bundle_v1.py"),
++        "--exec_cost_model_path", str(exec_model),
++        "--rule_success_model_path", str(rule_model),
++        "--gate_cfg_json", str(gate_cfg),
++        "--out_bundle_dir", str(bundle_dir),
++        "--registry_dir", str(args.registry_dir),
++        "--promote_dst_dir", str(args.bundle_out_dir),
++    ])
++    created_ts_ms = _read_manifest_created_ts(str(args.bundle_out_dir)) if rc_bundle == 0 else 0
++    if args.emit_metrics:
++        _write_metrics_hash(
++            {
++                "last_run_ts_ms": _now_ms(),
++                "last_ok": 1 if rc_bundle == 0 else 0,
++                "last_exit_code": rc_bundle,
++                "bundle_created_ts_ms": created_ts_ms,
++                "bundle_out_dir": str(args.bundle_out_dir),
++            }
++        )
++    return rc_bundle
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+--- proj987/orderflow_services/ofc_contextual_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ proj987_c/orderflow_services/ofc_contextual_exporter_v1.py	2026-03-14 11:14:23.778335850 +0000
+@@ -0,0 +1,104 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Prometheus exporter for OFC contextual writer + ops bundle health.
++
++Reads Redis hashes written by:
++- services/orderflow/ofc_contextual_decision_writer_v1.py
++- orderflow_services/nightly_ofc_contextual_ops_bundle_v1.py
++"""
++
++import os
++import time
++from typing import Any, Dict
++
++from prometheus_client import Gauge, start_http_server  # type: ignore
++
++try:
++    import redis  # type: ignore
++except Exception:
++    redis = None  # type: ignore
++
++WRITER_LAST_RUN_TS_MS = Gauge("ofc_contextual_writer_last_run_ts_ms", "Last writer run timestamp in ms", [])
++WRITER_STALENESS_SEC = Gauge("ofc_contextual_writer_staleness_sec", "Seconds since OFC contextual writer last run", [])
++WRITER_WRITTEN_TOTAL = Gauge("ofc_contextual_writer_written_total", "Writer cumulative rows written (monotonic-ish from Redis hash)", [])
++WRITER_DB_FAIL_TOTAL = Gauge("ofc_contextual_writer_db_fail_total", "Writer cumulative DB failures (monotonic-ish from Redis hash)", [])
++WRITER_DLQ_TOTAL = Gauge("ofc_contextual_writer_dlq_total", "Writer cumulative DLQ rows (monotonic-ish from Redis hash)", [])
++WRITER_PENDING_COUNT = Gauge("ofc_contextual_writer_pending_count", "Writer current pending entries in Redis consumer group", [])
++WRITER_LAST_OK = Gauge("ofc_contextual_writer_last_ok", "1 if writer last batch succeeded", [])
++WRITER_LAST_BATCH_ROWS = Gauge("ofc_contextual_writer_last_batch_rows", "Rows written in last successful batch", [])
++
++OPS_LAST_RUN_TS_MS = Gauge("ofc_contextual_ops_last_run_ts_ms", "Last OFC contextual ops bundle run timestamp in ms", [])
++OPS_STALENESS_SEC = Gauge("ofc_contextual_ops_staleness_sec", "Seconds since OFC contextual ops bundle last run", [])
++OPS_LAST_OK = Gauge("ofc_contextual_ops_last_ok", "1 if last OFC contextual ops bundle run succeeded", [])
++OPS_LAST_EXIT_CODE = Gauge("ofc_contextual_ops_last_exit_code", "Last OFC contextual ops bundle exit code", [])
++BUNDLE_CREATED_TS_MS = Gauge("ofc_contextual_bundle_created_ts_ms", "Active OFC contextual bundle creation timestamp in ms", [])
++BUNDLE_AGE_SECONDS = Gauge("ofc_contextual_bundle_age_seconds", "Age of active OFC contextual bundle in seconds", [])
++
++
++def _i(x: Any, default: int = 0) -> int:
++    try:
++        if x is None:
++            return default
++        if isinstance(x, (bytes, bytearray)):
++            x = x.decode("utf-8", "replace")
++        return int(float(x))
++    except Exception:
++        return default
++
++
++class Exporter:
++    def __init__(self) -> None:
++        self.redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++        self.port = int(os.getenv("OFC_CTX_EXPORTER_PORT", "9159") or 9159)
++        self.writer_key = os.getenv("OFC_CTX_DECISION_METRICS_KEY", "metrics:ofc_contextual_decision_writer")
++        self.ops_key = os.getenv("OFC_CTX_OPS_METRICS_KEY", "metrics:ofc_contextual_ops_bundle")
++        self.r = redis.Redis.from_url(self.redis_url, decode_responses=False) if redis else None
++
++    def _hgetall(self, key: str) -> Dict[str, Any]:
++        if not self.r:
++            return {}
++        try:
++            raw = self.r.hgetall(key) or {}
++            return {
++                (k.decode("utf-8", "replace") if isinstance(k, (bytes, bytearray)) else str(k)): v
++                for k, v in raw.items()
++            }
++        except Exception:
++            return {}
++
++    def tick(self) -> None:
++        now_ms = int(time.time() * 1000)
++        w = self._hgetall(self.writer_key)
++        w_last = _i(w.get("last_run_ts_ms"), 0)
++        WRITER_LAST_RUN_TS_MS.set(w_last)
++        WRITER_STALENESS_SEC.set(max(0.0, (now_ms - w_last) / 1000.0) if w_last > 0 else 0.0)
++        WRITER_WRITTEN_TOTAL.set(_i(w.get("written_total"), 0))
++        WRITER_DB_FAIL_TOTAL.set(_i(w.get("db_fail_total"), 0))
++        WRITER_DLQ_TOTAL.set(_i(w.get("dlq_total"), 0))
++        WRITER_PENDING_COUNT.set(_i(w.get("pending_count"), 0))
++        WRITER_LAST_OK.set(_i(w.get("last_ok"), 0))
++        WRITER_LAST_BATCH_ROWS.set(_i(w.get("last_batch_rows"), 0))
++
++        o = self._hgetall(self.ops_key)
++        o_last = _i(o.get("last_run_ts_ms"), 0)
++        created_ts_ms = _i(o.get("bundle_created_ts_ms"), 0)
++        OPS_LAST_RUN_TS_MS.set(o_last)
++        OPS_STALENESS_SEC.set(max(0.0, (now_ms - o_last) / 1000.0) if o_last > 0 else 0.0)
++        OPS_LAST_OK.set(_i(o.get("last_ok"), 0))
++        OPS_LAST_EXIT_CODE.set(_i(o.get("last_exit_code"), 0))
++        BUNDLE_CREATED_TS_MS.set(created_ts_ms)
++        BUNDLE_AGE_SECONDS.set(max(0.0, (now_ms - created_ts_ms) / 1000.0) if created_ts_ms > 0 else 0.0)
++
++
++def run() -> int:
++    ex = Exporter()
++    start_http_server(ex.port)
++    print(f"ofc_contextual_exporter_v1 serving on :{ex.port}")
++    while True:
++        ex.tick()
++        time.sleep(5.0)
++
++
++if __name__ == "__main__":
++    raise SystemExit(run())
+--- proj987/orderflow_services/prometheus_alerts_ofc_contextual_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ proj987_c/orderflow_services/prometheus_alerts_ofc_contextual_v1.yml	2026-03-14 11:14:23.800722392 +0000
+@@ -0,0 +1,54 @@
++groups:
++  - name: ofc_contextual_v1
++    rules:
++      - alert: OFC_Contextual_Writer_Stale
++        expr: (time() * 1000 - ofc_contextual_writer_last_run_ts_ms) / 1000 > 900
++        for: 10m
++        labels:
++          severity: critical
++          component: ofc_contextual
++          p_ref: PatchC
++        annotations:
++          summary: "OFC contextual decision writer stale (>15m)"
++          description: >-
++            OFC contextual decision writer has not updated for more than 15 minutes.
++            Check Redis consumer group health, DB connectivity and writer logs.
++
++      - alert: OFC_Contextual_Writer_Pending_Backlog
++        expr: ofc_contextual_writer_pending_count > 1000
++        for: 10m
++        labels:
++          severity: warning
++          component: ofc_contextual
++          p_ref: PatchC
++        annotations:
++          summary: "OFC contextual decision writer pending backlog high"
++          description: >-
++            Pending entries in the OFC contextual writer consumer group exceed 1000.
++            The writer may be lagging behind decisions:final throughput.
++
++      - alert: OFC_Contextual_Ops_Bundle_Stale
++        expr: ofc_contextual_ops_staleness_sec > 129600
++        for: 30m
++        labels:
++          severity: warning
++          component: ofc_contextual
++          p_ref: PatchC
++        annotations:
++          summary: "OFC contextual ops bundle stale (>36h)"
++          description: >-
++            Nightly OFC contextual bundle workflow has not run successfully within 36 hours.
++            Active bundle may be stale relative to current market regime.
++
++      - alert: OFC_Contextual_Ops_Last_Run_Failed
++        expr: ofc_contextual_ops_last_ok == 0 and ofc_contextual_ops_last_run_ts_ms > 0
++        for: 30m
++        labels:
++          severity: critical
++          component: ofc_contextual
++          p_ref: PatchC
++        annotations:
++          summary: "OFC contextual ops bundle last run failed"
++          description: >-
++            The last OFC contextual bundle build/train/promote workflow exited with failure.
++            Inspect bundle runner logs and verify dataset/train/build scripts from Patch B.
+--- proj987/orderflow_services/tests/test_ofc_contextual_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ proj987_c/orderflow_services/tests/test_ofc_contextual_exporter_v1.py	2026-03-14 11:14:23.844601015 +0000
+@@ -0,0 +1,34 @@
++from __future__ import annotations
++
++from orderflow_services.ofc_contextual_exporter_v1 import Exporter
++
++
++class FakeRedis:
++    def __init__(self, data):
++        self.data = data
++
++    def hgetall(self, key):
++        return self.data.get(key, {})
++
++
++def test_exporter_tick_reads_writer_and_ops_hashes(monkeypatch):
++    ex = Exporter()
++    ex.r = FakeRedis(
++        {
++            ex.writer_key: {
++                b"last_run_ts_ms": b"1700000000000",
++                b"written_total": b"12",
++                b"db_fail_total": b"1",
++                b"pending_count": b"5",
++                b"last_ok": b"1",
++                b"last_batch_rows": b"7",
++            },
++            ex.ops_key: {
++                b"last_run_ts_ms": b"1700003600000",
++                b"last_ok": b"1",
++                b"last_exit_code": b"0",
++                b"bundle_created_ts_ms": b"1700003600000",
++            },
++        }
++    )
++    ex.tick()
+--- proj987/services/archivers/sql/20260314_ofc_contextual_decisions_writer_v1.sql	1970-01-01 00:00:00.000000000 +0000
++++ proj987_c/services/archivers/sql/20260314_ofc_contextual_decisions_writer_v1.sql	2026-03-14 11:14:23.766311343 +0000
+@@ -0,0 +1,36 @@
++create table if not exists ofc_contextual_decisions (
++    decision_ts_ms bigint not null,
++    sid text not null,
++    symbol text not null,
++    direction text not null,
++    session text,
++    dow smallint,
++    hour_utc smallint,
++    scenario_v4 text,
++    legacy_rule_score double precision,
++    legacy_rule_ok boolean,
++    legacy_reason text,
++    ctx_enabled boolean,
++    ctx_mode text,
++    ctx_key text,
++    ctx_bundle_ver text,
++    ctx_p_rule_raw double precision,
++    ctx_p_rule_cal double precision,
++    ctx_cost_p50_bps double precision,
++    ctx_cost_p90_bps double precision,
++    ctx_exec_risk_ref_bps double precision,
++    ctx_edge_net_p50_bps double precision,
++    ctx_edge_net_p90_bps double precision,
++    ctx_decision text,
++    ctx_reason text,
++    ctx_fallback_level text,
++    ctx_shadow_disagree boolean,
++    ctx_infer_latency_us integer,
++    spread_bps_missing boolean,
++    slippage_missing boolean,
++    created_at timestamptz default now(),
++    primary key (decision_ts_ms, sid)
++);
++create index if not exists idx_ofc_ctx_decisions_symbol_ts on ofc_contextual_decisions(symbol, decision_ts_ms desc);
++create index if not exists idx_ofc_ctx_decisions_bundle_ts on ofc_contextual_decisions(ctx_bundle_ver, decision_ts_ms desc);
++create index if not exists idx_ofc_ctx_decisions_disagree_ts on ofc_contextual_decisions(ctx_shadow_disagree, decision_ts_ms desc);
+--- proj987/services/orderflow/metrics.py	2026-03-07 08:21:57.000000000 +0000
++++ proj987_c/services/orderflow/metrics.py	2026-03-14 11:11:03.760974941 +0000
+@@ -1928,3 +1928,54 @@
+ 
+ # pre_publish_veto_total → pre_publish_gate_veto_total
+ pre_publish_veto_total = pre_publish_gate_veto_total  # noqa: F811
++
++
++# OFC contextual Patch C metrics
++ofc_ctx_writer_written_total = _get_or_create_prom_counter(
++    "ofc_ctx_writer_written_total",
++    "Total OFC contextual decision rows written to DB",
++    ["result"],
++)
++
++ofc_ctx_writer_db_fail_total = _get_or_create_prom_counter(
++    "ofc_ctx_writer_db_fail_total",
++    "Total OFC contextual decision writer DB failures",
++    [],
++)
++
++ofc_ctx_writer_dlq_total = _get_or_create_prom_counter(
++    "ofc_ctx_writer_dlq_total",
++    "Total OFC contextual decision writer DLQ rows",
++    ["reason"],
++)
++
++ofc_ctx_writer_pending_count = _get_or_create_prom_gauge(
++    "ofc_ctx_writer_pending_count",
++    "Current OFC contextual decision writer pending entries in consumer group",
++    [],
++)
++
++ofc_ctx_writer_redis_lag_ms = _get_or_create_prom_histogram(
++    "ofc_ctx_writer_redis_lag_ms",
++    "Lag between now and decision_ts_ms for OFC contextual decision writer entries",
++    [],
++    buckets=[50,100,250,500,1000,2000,5000,10000,30000,60000,120000],
++)
++
++ofc_ctx_bundle_last_ok = _get_or_create_prom_gauge(
++    "ofc_ctx_bundle_last_ok",
++    "Last OFC contextual ops bundle status (1 ok, 0 fail)",
++    [],
++)
++
++ofc_ctx_bundle_last_exit_code = _get_or_create_prom_gauge(
++    "ofc_ctx_bundle_last_exit_code",
++    "Last OFC contextual ops bundle exit code",
++    [],
++)
++
++ofc_ctx_bundle_age_seconds = _get_or_create_prom_gauge(
++    "ofc_ctx_bundle_age_seconds",
++    "Age of active OFC contextual bundle in seconds",
++    [],
++)
+--- proj987/services/orderflow/ofc_contextual_decision_writer_metrics.py	1970-01-01 00:00:00.000000000 +0000
++++ proj987_c/services/orderflow/ofc_contextual_decision_writer_metrics.py	2026-03-14 11:14:23.741924857 +0000
+@@ -0,0 +1,124 @@
++"""Prometheus metrics for OFC contextual decision writer.
++
++Low-cardinality, singleton, fail-open metrics wrapper used by
++services/orderflow/ofc_contextual_decision_writer_v1.py.
++"""
++from __future__ import annotations
++
++import logging
++import os
++from dataclasses import dataclass
++from typing import Any, Optional
++
++logger = logging.getLogger("ofc_contextual_decision_writer.metrics")
++
++
++class _NoOp:
++    def inc(self, amount: float = 1.0) -> None:
++        return
++
++    def observe(self, amount: float) -> None:
++        return
++
++    def set(self, amount: float) -> None:
++        return
++
++    def labels(self, **_kw: Any) -> "_NoOp":
++        return self
++
++
++@dataclass
++class WriterMetrics:
++    written_total: Any
++    db_fail_total: Any
++    processed_total: Any
++    dlq_total: Any
++    pending_count: Any
++    redis_lag_ms: Any
++    last_ok: Any
++    last_batch_rows: Any
++
++
++_METRICS: Optional[WriterMetrics] = None
++_METRICS_PORT: Optional[int] = None
++
++
++def build_metrics() -> WriterMetrics:
++    global _METRICS
++    if _METRICS is not None:
++        return _METRICS
++    try:
++        from prometheus_client import Counter, Histogram, Gauge
++
++        _METRICS = WriterMetrics(
++            written_total=Counter(
++                "ofc_contextual_decision_writer_written_total",
++                "Rows successfully upserted into ofc_contextual_decisions.",
++            ),
++            db_fail_total=Counter(
++                "ofc_contextual_decision_writer_db_fail_total",
++                "DB write failures for OFC contextual decision writer.",
++            ),
++            processed_total=Counter(
++                "ofc_contextual_decision_writer_processed_total",
++                "Redis entries processed by OFC contextual decision writer.",
++            ),
++            dlq_total=Counter(
++                "ofc_contextual_decision_writer_dlq_total",
++                "Entries sent to DLQ by OFC contextual decision writer.",
++                ["reason"],
++            ),
++            pending_count=Gauge(
++                "ofc_contextual_decision_writer_pending_count",
++                "Current pending entries in the OFC contextual decision writer consumer group.",
++            ),
++            redis_lag_ms=Histogram(
++                "ofc_contextual_decision_writer_redis_lag_ms",
++                "Lag in ms from decision_ts_ms to writer processing time.",
++                buckets=(50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000),
++            ),
++            last_ok=Gauge(
++                "ofc_contextual_decision_writer_last_ok",
++                "1 if last OFC contextual decision writer batch succeeded, 0 otherwise.",
++            ),
++            last_batch_rows=Gauge(
++                "ofc_contextual_decision_writer_last_batch_rows",
++                "Rows written in the last successful writer batch.",
++            ),
++        )
++        return _METRICS
++    except Exception as e:
++        logger.warning("prometheus_client not available, metrics disabled: %s", e)
++        noop = _NoOp()
++        _METRICS = WriterMetrics(
++            written_total=noop,
++            db_fail_total=noop,
++            processed_total=noop,
++            dlq_total=noop,
++            pending_count=noop,
++            redis_lag_ms=noop,
++            last_ok=noop,
++            last_batch_rows=noop,
++        )
++        return _METRICS
++
++
++def start_metrics_server() -> Optional[int]:
++    global _METRICS_PORT
++    if _METRICS_PORT is not None:
++        return _METRICS_PORT
++    if os.getenv("OFC_CTX_DECISION_WRITER_METRICS_ENABLE", "1").lower() not in {"1", "true", "yes", "on"}:
++        return None
++    try:
++        port = int(os.getenv("OFC_CTX_DECISION_WRITER_METRICS_PORT", "9831"))
++    except Exception:
++        port = 9831
++    try:
++        from prometheus_client import start_http_server
++        start_http_server(port)
++        logger.info("ofc_contextual_decision_writer metrics listening on :%d", port)
++        _METRICS_PORT = port
++        return port
++    except Exception as e:
++        logger.warning("failed to start metrics server: %s", e)
++        return None
+--- proj987/services/orderflow/ofc_contextual_decision_writer_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ proj987_c/services/orderflow/ofc_contextual_decision_writer_v1.py	2026-03-14 11:14:23.754345932 +0000
+@@ -0,0 +1,419 @@
++from __future__ import annotations
++
++"""Redis Stream -> Timescale writer for OFC contextual decision records.
++
++Consumes `decisions:final` (or a dedicated stream if configured), extracts ctx_* fields
++from DecisionRecordV1 payloads, and persists rows into `ofc_contextual_decisions`.
++The service is fail-open relative to trading path.
++"""
++
++import asyncio
++import json
++import logging
++import os
++import socket
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional, Tuple
++
++try:
++    import redis.asyncio as aioredis  # type: ignore
++except Exception:  # pragma: no cover
++    aioredis = None
++
++from services.orderflow.ofc_contextual_decision_writer_metrics import build_metrics, start_metrics_server
++
++logger = logging.getLogger("ofc_contextual_decision_writer")
++
++
++def _env(name: str, default: str) -> str:
++    v = os.getenv(name)
++    return v if v is not None and v != "" else default
++
++
++def _env_int(name: str, default: int) -> int:
++    try:
++        return int(float(_env(name, str(default))))
++    except Exception:
++        return int(default)
++
++
++def _env_float(name: str, default: float) -> float:
++    try:
++        return float(_env(name, str(default)))
++    except Exception:
++        return float(default)
++
++
++def _env_bool(name: str, default: bool) -> bool:
++    v = os.getenv(name)
++    if v is None or str(v).strip() == "":
++        return bool(default)
++    return str(v).strip().lower() in {"1", "true", "yes", "on"}
++
++
++def pick_dsn() -> str:
++    return (
++        os.getenv("TRADES_DB_DSN")
++        or os.getenv("TIMESCALE_DSN")
++        or os.getenv("ANALYTICS_DB_DSN")
++        or os.getenv("ANALYTICS_DSN")
++        or os.getenv("PG_DSN")
++        or os.getenv("DATABASE_URL")
++        or ""
++    )
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _decode(v: Any) -> Any:
++    if isinstance(v, (bytes, bytearray)):
++        try:
++            return v.decode("utf-8", "replace")
++        except Exception:
++            return str(v)
++    return v
++
++
++def _to_int(v: Any, default: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return int(default)
++
++
++def _to_float(v: Any, default: float = 0.0) -> float:
++    try:
++        return float(v)
++    except Exception:
++        return float(default)
++
++
++def _to_bool(v: Any, default: bool = False) -> bool:
++    if isinstance(v, bool):
++        return v
++    if v is None:
++        return default
++    s = str(v).strip().lower()
++    if s in {"1", "true", "yes", "on"}:
++        return True
++    if s in {"0", "false", "no", "off"}:
++        return False
++    return default
++
++
++def _loads_json(v: Any) -> Optional[dict]:
++    if v is None:
++        return None
++    if isinstance(v, dict):
++        return v
++    v = _decode(v)
++    if not isinstance(v, str):
++        v = str(v)
++    s = v.strip()
++    if not s:
++        return None
++    try:
++        obj = json.loads(s)
++        return obj if isinstance(obj, dict) else None
++    except Exception:
++        return None
++
++
++def _parse_stream_fields(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    if b"payload" in fields:
++        return _loads_json(fields.get(b"payload")) or {}
++    if "payload" in fields:
++        return _loads_json(fields.get("payload")) or {}
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        out[str(_decode(k))] = _decode(v)
++    return out
++
++
++def _extract_ctx_source(evt: Dict[str, Any]) -> Dict[str, Any]:
++    ofc = evt.get("of_confirm") if isinstance(evt.get("of_confirm"), dict) else {}
++    ev = ofc.get("evidence") if isinstance(ofc.get("evidence"), dict) else {}
++    return ev if ev else evt
++
++
++def _normalize_row(evt: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], str]:
++    src = _extract_ctx_source(evt)
++    sid = str(evt.get("sid") or evt.get("signal_id") or "").strip()
++    symbol = str(evt.get("symbol") or evt.get("sym") or "").strip()
++    decision_ts_ms = _to_int(evt.get("decision_ts_ms") or evt.get("ts_ms") or evt.get("ts_emit_ms"), 0)
++    if not sid:
++        return None, "missing:sid"
++    if not symbol:
++        return None, "missing:symbol"
++    if decision_ts_ms <= 0:
++        return None, "bad:decision_ts_ms"
++
++    ctx_enabled = _to_bool(src.get("ctx_enable") if "ctx_enable" in src else evt.get("ctx_enabled"), False)
++    # Accept records even if ctx layer ran in shadow-only, but skip completely empty non-ctx rows.
++    has_any_ctx = ctx_enabled or any(k.startswith("ctx_") for k in list(evt.keys()) + list(src.keys()))
++    if not has_any_ctx:
++        return None, "skip:no_ctx"
++
++    row = {
++        "decision_ts_ms": decision_ts_ms,
++        "sid": sid,
++        "symbol": symbol,
++        "direction": str(evt.get("direction") or evt.get("side") or ""),
++        "session": str(evt.get("ctx_session") or evt.get("session") or ""),
++        "dow": _to_int(evt.get("ctx_dow") or evt.get("dow"), 0),
++        "hour_utc": _to_int(evt.get("ctx_hour_utc") or evt.get("hour_utc"), 0),
++        "scenario_v4": str(evt.get("scenario_v4") or ""),
++        "legacy_rule_score": _to_float(evt.get("of_score_final") or evt.get("raw_score") or evt.get("score"), 0.0),
++        "legacy_rule_ok": _to_bool(evt.get("ok"), False),
++        "legacy_reason": str(evt.get("reason") or ""),
++        "ctx_enabled": bool(ctx_enabled),
++        "ctx_mode": str(src.get("ctx_mode") or evt.get("ctx_mode") or "off"),
++        "ctx_key": str(src.get("ctx_key") or evt.get("ctx_key") or ""),
++        "ctx_bundle_ver": str(src.get("ctx_bundle_ver") or evt.get("ctx_bundle_ver") or ""),
++        "ctx_p_rule_raw": _to_float(src.get("ctx_p_rule_raw") if src.get("ctx_p_rule_raw") is not None else evt.get("ctx_p_rule_raw"), 0.0),
++        "ctx_p_rule_cal": _to_float(src.get("ctx_p_rule_cal") if src.get("ctx_p_rule_cal") is not None else evt.get("ctx_p_rule_cal"), 0.0),
++        "ctx_cost_p50_bps": _to_float(src.get("ctx_cost_p50_bps") if src.get("ctx_cost_p50_bps") is not None else evt.get("ctx_cost_p50_bps"), 0.0),
++        "ctx_cost_p90_bps": _to_float(src.get("ctx_cost_p90_bps") if src.get("ctx_cost_p90_bps") is not None else evt.get("ctx_cost_p90_bps"), 0.0),
++        "ctx_exec_risk_ref_bps": _to_float(src.get("ctx_exec_risk_ref_bps") if src.get("ctx_exec_risk_ref_bps") is not None else evt.get("ctx_exec_risk_ref_bps"), 0.0),
++        "ctx_edge_net_p50_bps": _to_float(src.get("ctx_edge_net_p50_bps") if src.get("ctx_edge_net_p50_bps") is not None else evt.get("ctx_edge_net_p50_bps"), 0.0),
++        "ctx_edge_net_p90_bps": _to_float(src.get("ctx_edge_net_p90_bps") if src.get("ctx_edge_net_p90_bps") is not None else evt.get("ctx_edge_net_p90_bps"), 0.0),
++        "ctx_decision": str(evt.get("ctx_decision") or ("allow" if _to_bool(src.get("ctx_allow") if src.get("ctx_allow") is not None else evt.get("ctx_allow"), False) else "deny")),
++        "ctx_reason": str(src.get("ctx_reason") or evt.get("ctx_reason") or ""),
++        "ctx_fallback_level": str(src.get("ctx_fallback_level") or evt.get("ctx_fallback_level") or ""),
++        "ctx_shadow_disagree": _to_bool(src.get("ctx_shadow_disagree") if src.get("ctx_shadow_disagree") is not None else evt.get("ctx_shadow_disagree"), False),
++        "ctx_infer_latency_us": _to_int(src.get("ctx_infer_latency_us") if src.get("ctx_infer_latency_us") is not None else evt.get("ctx_infer_latency_us"), 0),
++        "spread_bps_missing": _to_bool(evt.get("spread_bps_missing"), False),
++        "slippage_missing": _to_bool(evt.get("slippage_missing"), False),
++    }
++    return row, ""
++
++
++class PgWriter:
++    def __init__(self, dsn: str):
++        self.dsn = dsn
++
++    def _connect(self):
++        try:
++            import psycopg  # type: ignore
++            return psycopg.connect(self.dsn)
++        except Exception:
++            import psycopg2  # type: ignore
++            return psycopg2.connect(self.dsn)
++
++    def insert_rows(self, rows: List[Dict[str, Any]]) -> int:
++        if not rows:
++            return 0
++        conn = self._connect()
++        try:
++            cur = conn.cursor()
++            sql = (
++                "INSERT INTO ofc_contextual_decisions ("
++                "decision_ts_ms,sid,symbol,direction,session,dow,hour_utc,scenario_v4,"
++                "legacy_rule_score,legacy_rule_ok,legacy_reason,ctx_enabled,ctx_mode,ctx_key,ctx_bundle_ver,"
++                "ctx_p_rule_raw,ctx_p_rule_cal,ctx_cost_p50_bps,ctx_cost_p90_bps,ctx_exec_risk_ref_bps,"
++                "ctx_edge_net_p50_bps,ctx_edge_net_p90_bps,ctx_decision,ctx_reason,ctx_fallback_level,"
++                "ctx_shadow_disagree,ctx_infer_latency_us,spread_bps_missing,slippage_missing) "
++                "VALUES (%(decision_ts_ms)s,%(sid)s,%(symbol)s,%(direction)s,%(session)s,%(dow)s,%(hour_utc)s,%(scenario_v4)s,"
++                "%(legacy_rule_score)s,%(legacy_rule_ok)s,%(legacy_reason)s,%(ctx_enabled)s,%(ctx_mode)s,%(ctx_key)s,%(ctx_bundle_ver)s,"
++                "%(ctx_p_rule_raw)s,%(ctx_p_rule_cal)s,%(ctx_cost_p50_bps)s,%(ctx_cost_p90_bps)s,%(ctx_exec_risk_ref_bps)s,"
++                "%(ctx_edge_net_p50_bps)s,%(ctx_edge_net_p90_bps)s,%(ctx_decision)s,%(ctx_reason)s,%(ctx_fallback_level)s,"
++                "%(ctx_shadow_disagree)s,%(ctx_infer_latency_us)s,%(spread_bps_missing)s,%(slippage_missing)s) "
++                "ON CONFLICT (decision_ts_ms, sid) DO UPDATE SET "
++                "ctx_mode=EXCLUDED.ctx_mode, ctx_bundle_ver=EXCLUDED.ctx_bundle_ver, ctx_p_rule_raw=EXCLUDED.ctx_p_rule_raw, "
++                "ctx_p_rule_cal=EXCLUDED.ctx_p_rule_cal, ctx_cost_p50_bps=EXCLUDED.ctx_cost_p50_bps, ctx_cost_p90_bps=EXCLUDED.ctx_cost_p90_bps, "
++                "ctx_edge_net_p50_bps=EXCLUDED.ctx_edge_net_p50_bps, ctx_edge_net_p90_bps=EXCLUDED.ctx_edge_net_p90_bps, ctx_reason=EXCLUDED.ctx_reason, "
++                "ctx_fallback_level=EXCLUDED.ctx_fallback_level, ctx_shadow_disagree=EXCLUDED.ctx_shadow_disagree, ctx_infer_latency_us=EXCLUDED.ctx_infer_latency_us"
++            )
++            cur.executemany(sql, rows)
++            conn.commit()
++            return len(rows)
++        finally:
++            conn.close()
++
++
++@dataclass
++class Cfg:
++    redis_url: str
++    stream: str
++    group: str
++    consumer: str
++    block_ms: int
++    count: int
++    dlq_stream: str
++    dlq_maxlen: int
++    batch_size: int
++    metrics_key: str
++    metrics_port: int
++    fail_sleep_sec: float
++
++    @staticmethod
++    def from_env() -> "Cfg":
++        host = socket.gethostname()
++        return Cfg(
++            redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
++            stream=_env("OFC_CTX_DECISION_STREAM", _env("DECISIONS_FINAL_STREAM", "decisions:final")),
++            group=_env("OFC_CTX_DECISION_CG", "ofc_ctx_decision_writer"),
++            consumer=_env("OFC_CTX_DECISION_CONSUMER", f"{host}:{os.getpid()}"),
++            block_ms=_env_int("OFC_CTX_DECISION_BLOCK_MS", 5000),
++            count=_env_int("OFC_CTX_DECISION_COUNT", 128),
++            dlq_stream=_env("OFC_CTX_DECISION_DLQ_STREAM", "events:ofc_ctx_decision:dlq"),
++            dlq_maxlen=_env_int("OFC_CTX_DECISION_DLQ_MAXLEN", 200000),
++            batch_size=_env_int("OFC_CTX_DECISION_BATCH_SIZE", 200),
++            metrics_key=_env("OFC_CTX_DECISION_METRICS_KEY", "metrics:ofc_contextual_decision_writer"),
++            metrics_port=_env_int("OFC_CTX_DECISION_WRITER_METRICS_PORT", 9831),
++            fail_sleep_sec=_env_float("OFC_CTX_DECISION_FAIL_SLEEP_SEC", 1.0),
++        )
++
++
++async def _ensure_group(r: Any, *, stream: str, group: str) -> None:
++    while True:
++        try:
++            await r.xgroup_create(stream, group, id="$", mkstream=True)
++            return
++        except Exception as e:
++            if "BUSYGROUP" in str(e).upper():
++                return
++            if "LOADING" in str(e).upper():
++                await asyncio.sleep(1.0)
++                continue
++            raise
++
++
++async def _publish_dlq(r: Any, *, stream: str, payload: Dict[str, Any], reason: str, maxlen: int) -> None:
++    try:
++        body = {
++            "payload": json.dumps(payload, ensure_ascii=False),
++            "reason": str(reason),
++            "ts_ms": str(_now_ms()),
++        }
++        await r.xadd(stream, body, maxlen=maxlen, approximate=True)
++    except Exception:
++        return
++
++
++async def _update_status(r: Any, key: str, mapping: Dict[str, Any]) -> None:
++    try:
++        m = {str(k): str(v) for k, v in mapping.items()}
++        await r.hset(key, mapping=m)
++    except Exception:
++        return
++
++
++async def main() -> None:
++    if aioredis is None:
++        raise RuntimeError("redis-py is required")
++    dsn = pick_dsn()
++    if not dsn:
++        raise RuntimeError("TRADES_DB_DSN (or TIMESCALE_DSN) must be set")
++
++    cfg = Cfg.from_env()
++    metrics = build_metrics()
++    start_metrics_server()
++
++    r = aioredis.from_url(cfg.redis_url, decode_responses=False)
++    await _ensure_group(r, stream=cfg.stream, group=cfg.group)
++    pg = PgWriter(dsn)
++
++    logger.info("ofc_contextual_decision_writer started: stream=%s group=%s", cfg.stream, cfg.group)
++    while True:
++        try:
++            res = await r.xreadgroup(
++                groupname=cfg.group,
++                consumername=cfg.consumer,
++                streams={cfg.stream: ">"},
++                count=cfg.count,
++                block=cfg.block_ms,
++            )
++            if not res:
++                try:
++                    pend = await r.xpending(cfg.stream, cfg.group)
++                    pending = int(pend["pending"] if isinstance(pend, dict) else pend[0])
++                    metrics.pending_count.set(pending)
++                    await _update_status(r, cfg.metrics_key, {"pending_count": pending})
++                except Exception:
++                    pass
++                continue
++
++            ack_ids: List[str] = []
++            rows: List[Dict[str, Any]] = []
++            dlq_count = 0
++            last_error = ""
++            for _stream, entries in res:
++                for msg_id, fields in entries:
++                    payload = _parse_stream_fields(fields)
++                    metrics.processed_total.inc()
++                    row, reason = _normalize_row(payload)
++                    if row is None:
++                        if reason != "skip:no_ctx":
++                            dlq_count += 1
++                            metrics.dlq_total.labels(reason=reason).inc()
++                            await _publish_dlq(r, stream=cfg.dlq_stream, payload=payload, reason=reason, maxlen=cfg.dlq_maxlen)
++                        ack_ids.append(msg_id)
++                        continue
++                    lag_ms = max(0, _now_ms() - int(row["decision_ts_ms"]))
++                    metrics.redis_lag_ms.observe(lag_ms)
++                    rows.append(row)
++                    ack_ids.append(msg_id)
++
++            written = 0
++            if rows:
++                try:
++                    written = pg.insert_rows(rows[: cfg.batch_size])
++                    metrics.written_total.inc(written)
++                    metrics.last_ok.set(1)
++                    metrics.last_batch_rows.set(written)
++                except Exception as e:
++                    last_error = str(e)[:240]
++                    metrics.db_fail_total.inc()
++                    metrics.last_ok.set(0)
++                    logger.exception("ofc_contextual_decision_writer DB failure")
++                    await _update_status(
++                        r,
++                        cfg.metrics_key,
++                        {
++                            "last_run_ts_ms": _now_ms(),
++                            "last_ok": 0,
++                            "db_fail_total": 1,
++                            "last_error": last_error,
++                            "pending_count": len(ack_ids),
++                        },
++                    )
++                    await asyncio.sleep(cfg.fail_sleep_sec)
++                    continue
++
++            if ack_ids:
++                await r.xack(cfg.stream, cfg.group, *ack_ids)
++            try:
++                pend = await r.xpending(cfg.stream, cfg.group)
++                pending = int(pend["pending"] if isinstance(pend, dict) else pend[0])
++            except Exception:
++                pending = 0
++            metrics.pending_count.set(pending)
++            await _update_status(
++                r,
++                cfg.metrics_key,
++                {
++                    "last_run_ts_ms": _now_ms(),
++                    "last_ok": 1,
++                    "last_batch_rows": written,
++                    "written_total": written,
++                    "dlq_total": dlq_count,
++                    "pending_count": pending,
++                    "last_error": last_error,
++                },
++            )
++        except Exception:
++            logger.exception("ofc_contextual_decision_writer loop failure")
++            metrics.last_ok.set(0)
++            await asyncio.sleep(cfg.fail_sleep_sec)
++
++
++if __name__ == "__main__":
++    logging.basicConfig(
++        level=os.getenv("LOG_LEVEL", "INFO").upper(),
++        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
++    )
++    raise SystemExit(asyncio.run(main()))
+--- proj987/services/orderflow/tests/test_ofc_contextual_decision_writer_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ proj987_c/services/orderflow/tests/test_ofc_contextual_decision_writer_v1.py	2026-03-14 11:14:23.855995032 +0000
+@@ -0,0 +1,43 @@
++from __future__ import annotations
++
++from services.orderflow.ofc_contextual_decision_writer_v1 import _normalize_row
++
++
++def test_normalize_row_accepts_ctx_event():
++    row, reason = _normalize_row(
++        {
++            "sid": "s1",
++            "symbol": "BTCUSDT",
++            "direction": "long",
++            "decision_ts_ms": 1700000000000,
++            "ok": 1,
++            "reason": "score_veto",
++            "ctx_enabled": True,
++            "ctx_mode": "shadow",
++            "ctx_key": "symbol=BTCUSDT|session=eu",
++            "ctx_bundle_ver": "b1",
++            "ctx_p_rule_raw": 0.62,
++            "ctx_p_rule_cal": 0.59,
++            "ctx_cost_p50_bps": 1.1,
++            "ctx_cost_p90_bps": 1.8,
++            "ctx_exec_risk_ref_bps": 4.0,
++            "ctx_edge_net_p50_bps": 0.4,
++            "ctx_edge_net_p90_bps": -0.8,
++            "ctx_reason": "shadow_only",
++            "ctx_fallback_level": "global",
++            "ctx_shadow_disagree": True,
++            "ctx_infer_latency_us": 210,
++        }
++    )
++    assert reason == ""
++    assert row is not None
++    assert row["sid"] == "s1"
++    assert row["ctx_enabled"] is True
++    assert row["ctx_mode"] == "shadow"
++    assert row["ctx_shadow_disagree"] is True
++
++
++def test_normalize_row_skips_non_ctx_event():
++    row, reason = _normalize_row({"sid": "s1", "symbol": "BTCUSDT", "decision_ts_ms": 1700000000000})
++    assert row is None
++    assert reason == "skip:no_ctx"
+--- proj987/tick_flow_full/orderflow_services/nightly_ofc_contextual_ops_bundle_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ proj987_c/tick_flow_full/orderflow_services/nightly_ofc_contextual_ops_bundle_v1.py	2026-03-14 11:14:23.823523949 +0000
+@@ -0,0 +1,10 @@
++"""Wrapper for canonical implementation.
++
++Keep single source of truth in top-level `orderflow_services`.
++"""
++
++from orderflow_services.nightly_ofc_contextual_ops_bundle_v1 import main
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+--- proj987/tick_flow_full/orderflow_services/ofc_contextual_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ proj987_c/tick_flow_full/orderflow_services/ofc_contextual_exporter_v1.py	2026-03-14 11:14:23.789562424 +0000
+@@ -0,0 +1,10 @@
++"""Wrapper for canonical implementation.
++
++Keep single source of truth in top-level `orderflow_services`.
++"""
++
++from orderflow_services.ofc_contextual_exporter_v1 import run
++
++
++if __name__ == "__main__":
++    raise SystemExit(run())

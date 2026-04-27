@@ -1,0 +1,76 @@
+services:
+  scanner-ml-operator-rca-routing-slo-v2-7:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    restart: unless-stopped
+    command: ["python", "-m", "orderflow_services.operator_rca_routing_slo_analytics_v2_7"]
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      ML_OPERATOR_RCA_ROUTING_SLO_METRICS_PORT: "9880"
+    ports:
+      - "9880:9880"
+    networks:
+      - scanner-network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "python", "-c", "print('ok')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  scanner-ml-operator-rca-routing-retry-v2-7:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    restart: unless-stopped
+    command: ["python", "-m", "orderflow_services.rollback_retry_controller_v2_7"]
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      ML_OPERATOR_RCA_ROUTING_RETRY_METRICS_PORT: "9881"
+    ports:
+      - "9881:9881"
+    networks:
+      - scanner-network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "python", "-c", "print('ok')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  scanner-ml-operator-rca-routing-escalation-v2-7:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    restart: unless-stopped
+    command: ["python", "-m", "orderflow_services.rollback_auto_escalation_summarizer_v2_7"]
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      ML_OPERATOR_RCA_ROUTING_ESCALATION_METRICS_PORT: "9882"
+    ports:
+      - "9882:9882"
+    networks:
+      - scanner-network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "python", "-c", "print('ok')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+networks:
+  scanner-network:
+    external: true

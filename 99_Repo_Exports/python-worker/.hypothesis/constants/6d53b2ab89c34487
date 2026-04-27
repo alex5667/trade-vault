@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/reshape/pivot.py
+# hypothesis_version: 6.148.10
+
+['\ndata : DataFrame', 'All', '__dummy__', '__name__', 'aggfunc', 'all', 'col', 'columns', 'fill_value', 'index', 'mean', 'pivot', 'pivot_table', 'row']

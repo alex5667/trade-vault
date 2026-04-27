@@ -1,0 +1,75 @@
+groups:
+  - name: orderflow.dq.gate.policy.v2
+    rules:
+      # NOTE: These alerts assume SAFE defaults (DQ_MODE=safe).
+      # If you run STRICT, adjust thresholds (see runbook_dq_gate_policy_v2.md).
+
+      - alert: OF_DQ_TickGapP95High_Warn
+        expr: tick_gap_p95_ms > 5000
+        for: 2m
+        labels:
+          severity: warn
+          component: data-quality
+        annotations:
+          summary: "tick_gap_p95_ms is elevated (SAFE soft)"
+          description: "tick_gap_p95_ms > 5000ms for 2m. If sustained + missing_seq rises, consider DQ actions. See runbook_dq_gate_policy_v2.md"
+
+      - alert: OF_DQ_TickGapP95High_Crit
+        expr: tick_gap_p95_ms > 8000
+        for: 30s
+        labels:
+          severity: crit
+          component: data-quality
+        annotations:
+          summary: "tick_gap_p95_ms is high (SAFE hard)"
+          description: "tick_gap_p95_ms > 8000ms for 30s. Strong indicator of stale feed; consider DQ_GATE_MODE penalty/off or isolate symbol. See runbook_dq_gate_policy_v2.md"
+
+      - alert: OF_DQ_TickGapP95Extreme_Crit
+        expr: tick_gap_p95_ms > 12000
+        for: 10s
+        labels:
+          severity: crit
+          component: data-quality
+        annotations:
+          summary: "tick_gap_p95_ms is extreme (SAFE extreme)"
+          description: "tick_gap_p95_ms > 12000ms for 10s. Treat as acute feed failure. See runbook_dq_gate_policy_v2.md"
+
+      - alert: OF_DQ_TickMissingSeqEmaHigh_Warn
+        expr: tick_missing_seq_ema > 0.125
+        for: 2m
+        labels:
+          severity: warn
+          component: data-quality
+        annotations:
+          summary: "tick_missing_seq_ema is elevated (SAFE soft)"
+          description: "tick_missing_seq_ema > 0.125 for 2m. Indicates repeated tick sequence gaps. See runbook_dq_gate_policy_v2.md"
+
+      - alert: OF_DQ_TickMissingSeqEmaHigh_Crit
+        expr: tick_missing_seq_ema > 0.25
+        for: 30s
+        labels:
+          severity: crit
+          component: data-quality
+        annotations:
+          summary: "tick_missing_seq_ema is high (SAFE hard)"
+          description: "tick_missing_seq_ema > 0.25 for 30s. Consider enforcing DQ quarantine or isolate symbol. See runbook_dq_gate_policy_v2.md"
+
+      - alert: OF_DQ_BookMissingSeqEmaHigh_Warn
+        expr: book_missing_seq_ema > 0.125
+        for: 2m
+        labels:
+          severity: warn
+          component: data-quality
+        annotations:
+          summary: "book_missing_seq_ema is elevated (SAFE soft)"
+          description: "book_missing_seq_ema > 0.125 for 2m. Indicates repeated book update gaps / lastUpdateId issues. See runbook_dq_gate_policy_v2.md"
+
+      - alert: OF_DQ_BookMissingSeqEmaHigh_Crit
+        expr: book_missing_seq_ema > 0.25
+        for: 30s
+        labels:
+          severity: crit
+          component: data-quality
+        annotations:
+          summary: "book_missing_seq_ema is high (SAFE hard)"
+          description: "book_missing_seq_ema > 0.25 for 30s. Consider isolating symbol or switching DQ to enforce if calibrated. See runbook_dq_gate_policy_v2.md"

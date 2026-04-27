@@ -1,0 +1,356 @@
+# Prometheus алерты для ML Confirm Gate
+# 
+# Причины алертов:
+#   - no_cfg: отсутствие конфига в Redis
+#   - load_fail: ошибка загрузки модели
+#   - enforce_share missing: отсутствие enforce_share в конфиге
+#   - labels empty: пустой labels:tb стрим
+
+groups:
+  - name: ml_confirm_alerts
+    interval: 30s
+    rules:
+      # ============================================================
+      # no_cfg (критично)
+      # ============================================================
+      - alert: MLConfirmNoCfgRateHigh
+        expr: |
+          (
+            increase(ml_confirm_errors_total{reason="no_cfg"}[5m])
+          /
+            clamp_min(increase(ml_confirm_events_total[5m]), 1)
+          ) > 0.01
+        for: 2m
+        labels:
+          severity: critical
+          component: ml_confirm_gate
+        annotations:
+          summary: "ML Confirm: High no_cfg error rate"
+          description: |
+            ML Confirm Gate has >1% no_cfg errors in the last 5 minutes.
+            This indicates missing or invalid champion config in Redis.
+            Check: cfg:ml_confirm:champion key in Redis.
+
+      - alert: MLConfirmCfgMissing
+        expr: min_over_time(ml_confirm_cfg_present{job="ml-confirm-sre-poller"}[2m]) == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: ml_confirm_gate
+        annotations:
+          summary: "ML Confirm: champion cfg missing in Redis"
+          description: |
+            Champion config (cfg:ml_confirm:champion) is missing from Redis.
+            Check Redis connectivity and config restoration from disk backup.
+
+      # ============================================================
+      # load_fail (критично)
+      # ============================================================
+      - alert: MLConfirmModelLoadFail
+        expr: increase(ml_confirm_errors_total{reason="load_fail"}[10m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: ml_confirm_gate
+        annotations:
+          summary: "ML Confirm: Model load failure"
+          description: |
+            ML Confirm Gate failed to load model in the last 10 minutes.
+            Check model file path and permissions.
+
+      - alert: MLConfirmModelNotLoaded
+        expr: ml_confirm_model_loaded == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: ml_confirm_gate
+        annotations:
+          summary: "ML Confirm: Model not loaded"
+          description: |
+            ML Confirm Gate model is not loaded (required for ENFORCE/CANARY mode).
+            Check model file existence and load errors.
+
+      # ============================================================
+      # enforce_share missing / invalid_cfg (критично)
+      # ============================================================
+      - alert: MLConfirmInvalidCfg
+        expr: increase(ml_confirm_errors_total{reason="invalid_cfg"}[10m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: ml_confirm_gate
+        annotations:
+          summary: "ML Confirm: Invalid champion config"
+          description: |
+            ML Confirm Gate detected invalid champion config (validation failed).
+            Check: enforce_share missing, mode/enforce_share mismatch, or schema_version unsupported.
+
+      - alert: MLConfirmEnforceShareMissing
+        expr: increase(ml_missing_critical_total{field="champion.enforce_share"}[30m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: ml_confirm_gate
+        annotations:
+          summary: "ML Confirm: enforce_share missing/defaulted"
+          description: |
+            enforce_share missing in champion config (should not happen in production).
+            Check champion config JSON for missing enforce_share field.
+
+      # ============================================================
+      # labels empty (критично для train)
+      # ============================================================
+      - alert: TBLabelsEmpty
+        expr: max_over_time(tb_labels_xlen{job="ml-confirm-sre-poller"}[30m]) < 1
+        for: 30m
+        labels:
+          severity: critical
+          component: tb_labeler
+        annotations:
+          summary: "TB labels stream is empty"
+          description: "labels:tb has no new data for 30m (training will fail or degrade)"
+
+      - alert: TBLabelsBelowMin
+        expr: max_over_time(tb_labels_xlen{job="ml-confirm-sre-poller"}[60m]) < 500
+        for: 60m
+        labels:
+          severity: warning
+          component: tb_labeler
+        annotations:
+          summary: "TB labels stream below minimum"
+          description: "labels:tb < 500 for 60m (warmup or labeler issues)"
+
+      - alert: TBLabelsNoNewData
+        expr: tb_labels_xadd_rate{job="ml-confirm-sre-poller"} == 0
+        for: 30m
+        labels:
+          severity: warning
+          component: tb_labeler
+        annotations:
+          summary: "TB Labels: No new data"
+          description: |
+            labels:tb stream has no new data (xadd_rate=0) for 30+ minutes.
+            Check labeler worker status and input streams.
+
+      - alert: TBTrainEmptyRun
+        expr: increase(tb_train_empty_run_total{job="ml-confirm-sre-poller"}[24h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: ml_train
+        annotations:
+          summary: "TB Train: Empty training run detected"
+          description: |
+            Training run exported 0 labels in the last 24 hours.
+            Check training pipeline and labels:tb stream.
+
+      # ============================================================
+      # Promo failures
+      # ============================================================
+      - alert: MLConfirmPromoFail
+        expr: increase(tb_promo_fail_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: ml_promo
+        annotations:
+          summary: "ML Confirm: Promotion failure"
+          description: |
+            Champion promotion failed in the last hour.
+            Check promotion logs and config validation.
+
+      # ============================================================
+      # CVD Quarantine Fallback Anomaly
+      # ============================================================
+      - alert: MLConfirmHighDivMatchFallback
+        expr: increase(div_match_fallback_total[5m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+          component: ml_confirm_gate
+        annotations:
+          summary: "CVD Quarantine: Abnormally high div_match=1 fallback rate"
+          description: |
+            Symbol {{ $labels.symbol }} has an abnormally high rate of div_match=1 originating from the volume_fallback (delta_tick) while CVD is in quarantine.
+            Check for excessive tick noise or an issue with the fallback logic.
+
+
+      # ─── P1-5: OF Gate Decision Error Rate ───────────────────────────────────
+      # Alert fires when rejection/timeout share of gate decisions exceeds 5% over 5m.
+      # Metric contract:
+      #   of_gate_decisions_total{symbol, direction, result}  -- counter: all decisions
+      #   of_gate_decision_errors_total{symbol, reason}       -- counter: rejections/timeouts
+      - alert: OfGateDecisionErrorRateHigh
+        expr: |
+          (
+            increase(of_gate_decision_errors_total[5m])
+          /
+            clamp_min(increase(of_gate_decisions_total[5m]), 1)
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          component: of_gate
+        annotations:
+          summary: "OF Gate: high error/rejection rate ({{ $labels.symbol }})"
+          description: |
+            OF Gate decision error rate для {{ $labels.symbol }} превысила 5% за последние 5 минут.
+            Причина: {{ $labels.reason }}
+            Проверить:
+              1. Логи of_confirm_engine на timeout / rejection / exception.
+              2. Redis latency (LATENCY LATEST).
+              3. Статус DQ gate (data_health_score < threshold?).
+
+      # ============================================================
+      # Error-budget burn-rate (multi-window: 5m / 1h / 6h)
+      # ============================================================
+      # Методология: SRE Workbook Chapter 5 (multi-window burn-rate).
+      # SLO: ml_confirm_gate error rate ≤ 1% (SLO budget = 1.0).
+      # Burn-rate = текущий error-rate / error_budget_rate.
+      # При burn-rate >14.4 бюджет 30d сгорит за 2h → критично.
+      # При burn-rate >6 бюджет 30d сгорит за 5h → критично/high.
+      # При burn-rate >1 ошибка устойчива, но медленно сжигает бюджет → warn.
+      #
+      # Metric contract:
+      #   ml_confirm_errors_total{reason}   -- counter (все причины ошибок)
+      #   ml_confirm_events_total            -- counter (все события)
+      # ─────────────────────────────────────────────────────────────
+
+      # Быстрое окно 5m + подтверждение 1h (burn-rate > 14.4 → page)
+      - alert: MLConfirmBurnRateCritical5m
+        expr: |
+          (
+            rate(ml_confirm_errors_total[5m])
+          /
+            clamp_min(rate(ml_confirm_events_total[5m]), 1e-6)
+          ) > 0.144
+        for: 2m
+        labels:
+          severity: critical
+          component: ml_confirm_gate
+          window: 5m
+        annotations:
+          summary: "ML Confirm: critical burn-rate (5m window, budget sgt by ~2h)"
+          description: |
+            ML Confirm Gate: ошибки горят с burn-rate > 14.4x SLO за последние 5 минут.
+            При текущей скорости 30-дневный error budget сгорит примерно за 2 часа.
+            Немедленно проверить: no_cfg / load_fail / invalid_cfg ошибки в логах.
+
+      # Среднее окно 1h (burn-rate > 6 → warning)
+      - alert: MLConfirmBurnRateHigh1h
+        expr: |
+          (
+            rate(ml_confirm_errors_total[1h])
+          /
+            clamp_min(rate(ml_confirm_events_total[1h]), 1e-6)
+          ) > 0.06
+        for: 5m
+        labels:
+          severity: warning
+          component: ml_confirm_gate
+          window: 1h
+        annotations:
+          summary: "ML Confirm: elevated burn-rate (1h window)"
+          description: |
+            ML Confirm Gate: ошибки горят с burn-rate > 6x SLO за последний час.
+            При текущей скорости 30-дневный error budget сгорит примерно за 5 часов.
+            Проверить лог ML Confirm Gate на повторяющиеся паттерны ошибок.
+
+      # Длинное окно 6h (burn-rate > 1 → ранее предупреждение о медленной деградации)
+      - alert: MLConfirmBurnRateSlow6h
+        expr: |
+          (
+            rate(ml_confirm_errors_total[6h])
+          /
+            clamp_min(rate(ml_confirm_events_total[6h]), 1e-6)
+          ) > 0.01
+        for: 10m
+        labels:
+          severity: warning
+          component: ml_confirm_gate
+          window: 6h
+        annotations:
+          summary: "ML Confirm: slow budget burn (6h window, >1x SLO error rate)"
+          description: |
+            ML Confirm Gate: error-rate превышает SLO-цель (1%) в 6-часовом окне.
+            Бюджет сжигается медленно, но стабильно. Требует расследования до эскалации.
+            Типичные причины: config churn, model reload failures, Redis instability.
+
+      # ============================================================
+      # ML Precision / Expectancy drift алерты
+      # ============================================================
+      # Metric contract (экспортируется ml_confirm_gate).
+      #   ml_confirm_precision{symbol, direction}  -- gauge: rolling precision (TP1 hit rate)
+      #   ml_confirm_expectancy{symbol, direction} -- gauge: rolling R-expectancy (mean R/trade)
+      #   ml_confirm_sample_count{symbol}          -- gauge: sample count за окно
+      #
+      # Порог precision < 0.45 (ниже random при 2:1 TP/SL) — опасная зона.
+      # Порог expectancy < -0.05R — модель теряет деньги в среднем.
+      # min_over_time за 30m фильтрует одиночные провалы на малой выборке.
+      # ─────────────────────────────────────────────────────────────
+
+      - alert: MLConfirmPrecisionDrift
+        expr: |
+          (
+            min_over_time(ml_confirm_precision[30m])
+          ) < 0.45
+          and
+          (
+            ml_confirm_sample_count > 50
+          )
+        for: 15m
+        labels:
+          severity: warning
+          component: ml_confirm_gate
+        annotations:
+          summary: "ML Confirm: precision drift detected ({{ $labels.symbol }} {{ $labels.direction }})"
+          description: |
+            ML Confirm Gate precision для {{ $labels.symbol }} / {{ $labels.direction }}
+            упала ниже 0.45 (ниже случайного уровня для TP/SL=2) и держится > 15 минут.
+            Выборка >= 50 сделок — статистически достоверно.
+            Возможные причины:
+              1. Дрейф входного распределения (feature drift — проверить PSI).
+              2. Несоответствие между training и serving (schema version mismatch).
+              3. Смена режима рынка — проверить режимные метки.
+            Действие: сравнить с baseline, рассмотреть переключение на champion-fallback.
+
+      - alert: MLConfirmPrecisionDriftCritical
+        expr: |
+          (
+            min_over_time(ml_confirm_precision[1h])
+          ) < 0.38
+          and
+          (
+            ml_confirm_sample_count > 30
+          )
+        for: 10m
+        labels:
+          severity: critical
+          component: ml_confirm_gate
+        annotations:
+          summary: "ML Confirm: CRITICAL precision collapse ({{ $labels.symbol }} {{ $labels.direction }})"
+          description: |
+            ML Confirm precision упала ниже 0.38 в 1h окне при n>30.
+            Это экстремальный дрейф — модель активно вредит P&L.
+            Немедленно: переключить ml_confirm режим в SHADOW или отключить ENFORCE.
+
+      - alert: MLConfirmExpectancyDrift
+        expr: |
+          (
+            min_over_time(ml_confirm_expectancy[30m])
+          ) < -0.05
+          and
+          (
+            ml_confirm_sample_count > 50
+          )
+        for: 20m
+        labels:
+          severity: warning
+          component: ml_confirm_gate
+        annotations:
+          summary: "ML Confirm: negative expectancy drift ({{ $labels.symbol }} {{ $labels.direction }})"
+          description: |
+            Средний R-expectancy для {{ $labels.symbol }} / {{ $labels.direction }}
+            упал ниже −0.05R при выборке > 50 сделок.
+            Подтверждённые потери хуже порога — ревизия калибратора обязательна.
+            Проверить: IsotonicRegression калибровку, ATR-floor работу, режим рынка.

@@ -1,0 +1,179 @@
+--- a/tick_flow_full/core/liqmap_gate_v1.py
++++ b/tick_flow_full/core/liqmap_gate_v1.py
+@@ -34,6 +34,32 @@
+             return int(default)
+ 
+ 
++
++def _norm_mode(x: Any) -> str:
++    """Normalize liqmap gate mode to a minimal production set.
++
++    Supported modes (case-insensitive): OFF | SHADOW | ENFORCE.
++
++    Legacy/experimental strings (e.g. "penalty", "both", "boost") are mapped to
++    SHADOW (observe-only) for safety, to avoid accidentally introducing new hard-veto
++    policy before it is stabilized.
++
++    Unknown strings are also mapped to SHADOW (observe-only).
++    """
++    s = str(x or "").strip().lower()
++    if s in ("", "off", "0", "false", "no", "disabled", "none"):
++        return "OFF"
++    if s in ("shadow", "observe", "observed", "dryrun", "dry-run"):
++        return "SHADOW"
++    if s in ("enforce", "veto", "hard", "block"):
++        return "ENFORCE"
++
++    if s in ("penalty", "both", "boost", "pen", "soft", "score", "score_only"):
++        return "SHADOW"
++
++    return "SHADOW"
++
++
+ @dataclass(frozen=True)
+ class LiqMapGateDecision:
+     mode: str
+@@ -62,7 +88,7 @@
+ 
+     Config keys (cfg2):
+       - liqmap_gate_enable (0/1)
+-      - liqmap_gate_mode: OFF/SHADOW/ENFORCE
++      - liqmap_gate_mode: off|shadow|enforce (case-insensitive). Unknown/legacy values are mapped to SHADOW.
+       - liqmap_gate_window: e.g. '5m'
+       - liqmap_gate_sl_atr_mult: use stop_atr_mult if absent
+       - liqmap_gate_sl_band_mult: multiply SL band for "adverse inside stop" check
+@@ -70,7 +96,7 @@
+       - liqmap_gate_min_rr: veto if rr < this (optional)
+       - liqmap_gate_require_reward: if 1, missing favorable peak => veto
+     """
+-    mode = str(cfg2.get("liqmap_gate_mode", "OFF") or "OFF").upper()
++    mode = _norm_mode(cfg2.get("liqmap_gate_mode", "OFF"))
+     enable = bool(_i(cfg2.get("liqmap_gate_enable", 0), 0))
+     window = str(cfg2.get("liqmap_gate_window", "5m") or "5m")
+ 
+
+--- a/liquidation_map/liqmap_gate_v1.py
++++ b/liquidation_map/liqmap_gate_v1.py
+@@ -34,6 +34,32 @@
+             return int(default)
+ 
+ 
++
++def _norm_mode(x: Any) -> str:
++    """Normalize liqmap gate mode to a minimal production set.
++
++    Supported modes (case-insensitive): OFF | SHADOW | ENFORCE.
++
++    Legacy/experimental strings (e.g. "penalty", "both", "boost") are mapped to
++    SHADOW (observe-only) for safety, to avoid accidentally introducing new hard-veto
++    policy before it is stabilized.
++
++    Unknown strings are also mapped to SHADOW (observe-only).
++    """
++    s = str(x or "").strip().lower()
++    if s in ("", "off", "0", "false", "no", "disabled", "none"):
++        return "OFF"
++    if s in ("shadow", "observe", "observed", "dryrun", "dry-run"):
++        return "SHADOW"
++    if s in ("enforce", "veto", "hard", "block"):
++        return "ENFORCE"
++
++    if s in ("penalty", "both", "boost", "pen", "soft", "score", "score_only"):
++        return "SHADOW"
++
++    return "SHADOW"
++
++
+ @dataclass(frozen=True)
+ class LiqMapGateDecision:
+     mode: str
+@@ -62,7 +88,7 @@
+ 
+     Config keys (cfg2):
+       - liqmap_gate_enable (0/1)
+-      - liqmap_gate_mode: OFF/SHADOW/ENFORCE
++      - liqmap_gate_mode: off|shadow|enforce (case-insensitive). Unknown/legacy values are mapped to SHADOW.
+       - liqmap_gate_window: e.g. '5m'
+       - liqmap_gate_sl_atr_mult: use stop_atr_mult if absent
+       - liqmap_gate_sl_band_mult: multiply SL band for "adverse inside stop" check
+@@ -70,7 +96,7 @@
+       - liqmap_gate_min_rr: veto if rr < this (optional)
+       - liqmap_gate_require_reward: if 1, missing favorable peak => veto
+     """
+-    mode = str(cfg2.get("liqmap_gate_mode", "OFF") or "OFF").upper()
++    mode = _norm_mode(cfg2.get("liqmap_gate_mode", "OFF"))
+     enable = bool(_i(cfg2.get("liqmap_gate_enable", 0), 0))
+     window = str(cfg2.get("liqmap_gate_window", "5m") or "5m")
+ 
+
+--- a/tick_flow_full/tests/core/test_liqmap_gate_v1.py
++++ b/tick_flow_full/tests/core/test_liqmap_gate_v1.py
+@@ -76,3 +76,20 @@
+     res = evaluate_liqmap_gate_v1(indicators=ind, direction="LONG", cfg2=cfg2)
+     assert res.shadow_veto == 0
+     assert res.veto == 0
++def test_liqmap_gate_legacy_modes_mapped_to_shadow():
++    ind = _base_indicators()
++    for legacy in ("penalty", "both", "boost", "score_only"):
++        cfg2 = _base_cfg(legacy)
++        res = evaluate_liqmap_gate_v1(indicators=ind, direction="LONG", cfg2=cfg2)
++        # Production minimal set: any legacy/unknown mode must normalize to SHADOW (observe-only).
++        assert res.mode == "SHADOW"
++        assert res.shadow_veto in (0, 1)
++        assert res.veto == 0
++
++
++def test_liqmap_gate_unknown_mode_defaults_to_shadow_not_enforce():
++    ind = _base_indicators()
++    cfg2 = _base_cfg("enfocre")  # typo should not accidentally enforce
++    res = evaluate_liqmap_gate_v1(indicators=ind, direction="LONG", cfg2=cfg2)
++    assert res.mode == "SHADOW"
++    assert res.veto == 0
+
+--- a/tick_flow_full/core/of_confirm_engine.py
++++ b/tick_flow_full/core/of_confirm_engine.py
+@@ -1252,6 +1252,8 @@
+         liqmap_shadow_veto = 0
+         liqmap_veto = 0
+         liqmap_reason = "off"
++        liqmap_mode = "OFF"
++        liqmap_window = str(cfg2.get("liqmap_gate_window", "5m") or "5m")
+         liqmap_risk_bps = 0.0
+         liqmap_reward_bps = 0.0
+         liqmap_rr = 0.0
+@@ -1268,6 +1270,10 @@
+             liqmap_adverse_peak_usd = float(getattr(lmg, "adverse_peak_usd", 0.0) or 0.0)
+             liqmap_favorable_peak_usd = float(getattr(lmg, "favorable_peak_usd", 0.0) or 0.0)
+ 
++            # Normalize exported mode/window to a minimal production set (OFF/SHADOW/ENFORCE).
++            liqmap_mode = str(getattr(lmg, "mode", "OFF") or "OFF")
++            liqmap_window = str(getattr(lmg, "window", liqmap_window) or liqmap_window)
++
+             # Gate bit is set on *any* LiqMap hit:
+             #  - shadow_veto==1: even in SHADOW mode we mark the bit for analysis/decision-record
+             #  - veto==1: ENFORCE veto path (hard block later) also marks the bit
+@@ -1286,6 +1292,10 @@
+             indicators["liqmap_gate_veto"] = int(liqmap_veto)
+             # small enum string, keep short to avoid cardinality explosions
+             indicators["liqmap_gate_reason"] = str(liqmap_reason)[:40]
++            # Back-compat alias used by existing decision_record_v1 schema
++            indicators["liqmap_gate_veto_reason"] = str(liqmap_reason)[:40]
++            indicators["liqmap_gate_mode"] = str(liqmap_mode)[:16]
++            indicators["liqmap_gate_window"] = str(liqmap_window)[:8]
+             indicators["liqmap_gate_risk_bps"] = float(liqmap_risk_bps)
+             indicators["liqmap_gate_reward_bps"] = float(liqmap_reward_bps)
+             indicators["liqmap_gate_rr"] = float(liqmap_rr)
+
+--- a/tick_flow_full/tests/core/test_of_confirm_engine_liqmap_gate_wiring_v1.py
++++ b/tick_flow_full/tests/core/test_of_confirm_engine_liqmap_gate_wiring_v1.py
+@@ -32,6 +32,9 @@
+         "liqmap_gate_rr",
+         "liqmap_gate_adverse_peak_usd",
+         "liqmap_gate_favorable_peak_usd",
++        "liqmap_gate_veto_reason",
++        "liqmap_gate_mode",
++        "liqmap_gate_window",
+     ):
+         assert k in text
+ 
+

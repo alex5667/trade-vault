@@ -1,0 +1,174 @@
+diff --git a/orderflow_services/conf_score_guardrails_promote_v1.py b/orderflow_services/conf_score_guardrails_promote_v1.py
+index 1c67e25..cccf6a7 100644
+--- a/orderflow_services/conf_score_guardrails_promote_v1.py
++++ b/orderflow_services/conf_score_guardrails_promote_v1.py
+@@ -35,6 +35,8 @@ from typing import Any, Dict, Optional, Tuple
+ 
+ import redis
+ 
++from orderflow_services.research_guard_blocker_v1 import check_research_guard_blocker
++
+ # -------------------------------------------------------------------------
+ # Health Check Logic
+ # -------------------------------------------------------------------------
+@@ -236,6 +238,16 @@ def main():
+         
+     print(f"Candidate bundle: {fname}")
+ 
++    # 1.5 Research guard blocker (P5). Fail-open while report-only=1.
++    if os.getenv("ENABLE_STRATEGY_RESEARCH_GUARD_BLOCKER", "0") == "1":
++        blocked, reason, _ = check_research_guard_blocker(
++            args.redis_url,
++            os.getenv("STRATEGY_RESEARCH_GUARD_BLOCKER_KEY", "cfg:research_guard:blocker:v1"),
++        )
++        if blocked:
++            print(f"Research guard BLOCKED promotion: {reason}. logic=SKIP_PROMOTE")
++            sys.exit(0)
++
+     # 2. Check Health
+     if args.require_health:
+         is_healthy, reason, hdata = check_health_gates(
+diff --git a/orderflow_services/conf_score_guardrails_apply_v1.py b/orderflow_services/conf_score_guardrails_apply_v1.py
+index 1012747..7afd1bf 100644
+--- a/orderflow_services/conf_score_guardrails_apply_v1.py
++++ b/orderflow_services/conf_score_guardrails_apply_v1.py
+@@ -46,6 +46,8 @@ from datetime import datetime, timezone
+ from typing import Any, Dict, List, Optional, Tuple, ContextManager
+ from contextlib import contextmanager
+ 
++from orderflow_services.research_guard_blocker_v1 import check_research_guard_blocker
++
+ 
+ def _now_ms() -> int:
+     return int(time.time() * 1000)
+@@ -771,6 +773,16 @@ def main() -> int:
+         is_stage_mode = (getattr(args, "stage", 0) == 1)
+         target_prefix = args.staged_key_prefix if is_stage_mode else args.key_prefix
+         
++        # 3.5 Research guard blocker (P5). Fail-open while report-only=1.
++        if int(args.apply) == 1 and os.getenv("ENABLE_STRATEGY_RESEARCH_GUARD_BLOCKER", "0") == "1":
++            blocked, reason, _ = check_research_guard_blocker(
++                args.redis_url,
++                os.getenv("STRATEGY_RESEARCH_GUARD_BLOCKER_KEY", "cfg:research_guard:blocker:v1"),
++            )
++            if blocked:
++                print(json.dumps({"blocked": True, "reason": reason, "source": "research_guard_blocker"}, ensure_ascii=False))
++                return 0
++
+         # 4. Redis Apply
+         applied_info = None
+         
+diff --git a/services/of_timers_worker.py b/services/of_timers_worker.py
+index d1d4c99..479a91b 100644
+--- a/services/of_timers_worker.py
++++ b/services/of_timers_worker.py
+@@ -21,6 +21,7 @@ Runs periodic tasks:
+   - Archive retention+manifest: daily at 03:40
+   - Edge-stack dataset build: daily at 03:50
+   - Feature selection loop (importance+stability): daily at 04:02
++  - Strategy research guard (PSR/DSR/PBO/CSCV): daily at 04:35
+   - Confidence cal live health: hourly at :45 minutes
+   - P99 OFInputs DLQ DB drilldown: hourly at :46 minutes
+    - P104 Feature denylist proposal exporter: hourly at :46 minutes (after nightly AB-runner)
+@@ -1836,6 +1837,21 @@ def run_feature_selection_loop_bundle_v1() -> bool:
+     return run_tool("ml_analysis.tools.nightly_feature_selection_loop_bundle_v1", timeout=timeout_s)
+ 
+ 
++def run_strategy_research_guard_bundle() -> bool:
++    """P5 nightly/weekly research guard bundle.
++
++    Computes PSR / DSR / PBO / CSCV on a deterministic research dataset and
++    publishes a compact blocker state that later apply/promote flows may consult.
++    Safe default is report-only mode.
++    """
++    if os.getenv("ENABLE_STRATEGY_RESEARCH_GUARD", "1") != "1":
++        return True
++    return run_tool(
++        "ml_analysis.tools.nightly_strategy_research_guard_bundle_v1",
++        timeout=int(os.getenv("STRATEGY_RESEARCH_GUARD_TIMEOUT_S", "1800")),
++    )
++
++
+ def run_edge_stack_shadow_eval() -> bool:
+     """Run Edge Stack Shadow Eval (P60)."""
+     args = []
+@@ -2969,6 +2985,7 @@ def main() -> None:
+                 ("edge_stack_v1_bundle_p59", 5, 10, run_nightly_edge_stack_train),
+                 ("edge_stack_v1_dataset", 5, 0, run_edge_stack_v1_dataset_build_fallback),
+                 ("edge_stack_v1_oof_train", 5, 10, run_ml_train_edge_stack_v1_oof),
++                ("strategy_research_guard", 4, 35, run_strategy_research_guard_bundle),
+                 ("code_audit", 4, 50, run_code_audit),
+                 ("meta_train", 5, 10, run_nightly_meta_train),
+                 ("ml_calib_health", 5, 20, run_ml_calibration_health),
+diff --git a/tick_flow_full/services/of_timers_worker.py b/tick_flow_full/services/of_timers_worker.py
+index d1d4c99..479a91b 100644
+--- a/tick_flow_full/services/of_timers_worker.py
++++ b/tick_flow_full/services/of_timers_worker.py
+@@ -21,6 +21,7 @@ Runs periodic tasks:
+   - Archive retention+manifest: daily at 03:40
+   - Edge-stack dataset build: daily at 03:50
+   - Feature selection loop (importance+stability): daily at 04:02
++  - Strategy research guard (PSR/DSR/PBO/CSCV): daily at 04:35
+   - Confidence cal live health: hourly at :45 minutes
+   - P99 OFInputs DLQ DB drilldown: hourly at :46 minutes
+    - P104 Feature denylist proposal exporter: hourly at :46 minutes (after nightly AB-runner)
+@@ -1836,6 +1837,21 @@ def run_feature_selection_loop_bundle_v1() -> bool:
+     return run_tool("ml_analysis.tools.nightly_feature_selection_loop_bundle_v1", timeout=timeout_s)
+ 
+ 
++def run_strategy_research_guard_bundle() -> bool:
++    """P5 nightly/weekly research guard bundle.
++
++    Computes PSR / DSR / PBO / CSCV on a deterministic research dataset and
++    publishes a compact blocker state that later apply/promote flows may consult.
++    Safe default is report-only mode.
++    """
++    if os.getenv("ENABLE_STRATEGY_RESEARCH_GUARD", "1") != "1":
++        return True
++    return run_tool(
++        "ml_analysis.tools.nightly_strategy_research_guard_bundle_v1",
++        timeout=int(os.getenv("STRATEGY_RESEARCH_GUARD_TIMEOUT_S", "1800")),
++    )
++
++
+ def run_edge_stack_shadow_eval() -> bool:
+     """Run Edge Stack Shadow Eval (P60)."""
+     args = []
+@@ -2969,6 +2985,7 @@ def main() -> None:
+                 ("edge_stack_v1_bundle_p59", 5, 10, run_nightly_edge_stack_train),
+                 ("edge_stack_v1_dataset", 5, 0, run_edge_stack_v1_dataset_build_fallback),
+                 ("edge_stack_v1_oof_train", 5, 10, run_ml_train_edge_stack_v1_oof),
++                ("strategy_research_guard", 4, 35, run_strategy_research_guard_bundle),
+                 ("code_audit", 4, 50, run_code_audit),
+                 ("meta_train", 5, 10, run_nightly_meta_train),
+                 ("ml_calib_health", 5, 20, run_ml_calibration_health),
+diff --git a/tick_flow_full/orderflow_services/conf_score_guardrails_apply_v1.py b/tick_flow_full/orderflow_services/conf_score_guardrails_apply_v1.py
+index 1012747..7afd1bf 100644
+--- a/tick_flow_full/orderflow_services/conf_score_guardrails_apply_v1.py
++++ b/tick_flow_full/orderflow_services/conf_score_guardrails_apply_v1.py
+@@ -46,6 +46,8 @@ from datetime import datetime, timezone
+ from typing import Any, Dict, List, Optional, Tuple, ContextManager
+ from contextlib import contextmanager
+ 
++from orderflow_services.research_guard_blocker_v1 import check_research_guard_blocker
++
+ 
+ def _now_ms() -> int:
+     return int(time.time() * 1000)
+@@ -771,6 +773,16 @@ def main() -> int:
+         is_stage_mode = (getattr(args, "stage", 0) == 1)
+         target_prefix = args.staged_key_prefix if is_stage_mode else args.key_prefix
+         
++        # 3.5 Research guard blocker (P5). Fail-open while report-only=1.
++        if int(args.apply) == 1 and os.getenv("ENABLE_STRATEGY_RESEARCH_GUARD_BLOCKER", "0") == "1":
++            blocked, reason, _ = check_research_guard_blocker(
++                args.redis_url,
++                os.getenv("STRATEGY_RESEARCH_GUARD_BLOCKER_KEY", "cfg:research_guard:blocker:v1"),
++            )
++            if blocked:
++                print(json.dumps({"blocked": True, "reason": reason, "source": "research_guard_blocker"}, ensure_ascii=False))
++                return 0
++
+         # 4. Redis Apply
+         applied_info = None
+         

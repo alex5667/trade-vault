@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signal_scoring/reason_policy.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1000, '*', '300', '50', '900', 'Validation', 'breakout', 'count', 'error', 'flags', 'from', 'hint', 'kind', 'labels', 'parts', 'reason_code', 'reason_code_original', 'reason_kind_mismatch', 'sev', 'severity', 'to', 'ts', 'veto', 'warn', 'warning', 'window_s']

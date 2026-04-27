@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/ofc_context_v1.py
+# hypothesis_version: 6.148.10
+
+[1000.0, 'book_health_regime', 'book_regime', 'ctx_session', 'dn_tier_active', 'last_regime', 'liq_regime', 'na', 'notional_bucket', 'off', 'session', 'session_', 'session_asia', 'session_eu', 'session_name', 'session_off', 'session_us', 'vol_regime', 'vol_shock_regime']

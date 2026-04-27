@@ -1,0 +1,11 @@
+[Unit]
+Description=Trade OF nightly calibration + recs bundle
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/trade/of_reports.env
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+ExecStart=/usr/bin/python3 -m tools.nightly_gate_calibrate_bundle
+

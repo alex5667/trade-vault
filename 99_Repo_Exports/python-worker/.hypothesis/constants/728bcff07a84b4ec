@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/arrays/floating.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 'Float32', 'Float64', 'float32', 'float64']

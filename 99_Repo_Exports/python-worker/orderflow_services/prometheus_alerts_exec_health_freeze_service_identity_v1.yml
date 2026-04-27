@@ -1,0 +1,21 @@
+groups:
+- name: exec_health_freeze_service_identity_v1
+  rules:
+  - alert: OF_ExecHealth_FreezeServiceIdentityDrift_Crit
+    expr: max(exec_health_freeze_service_identity_violation) > 0
+    for: 2m
+    labels:
+      severity: critical
+      layer: exec_health
+    annotations:
+      summary: ExecHealth Redis service identity drift detected
+      description: CLIENT LIST no longer matches the expected user/name/lib-name contract for one or more trusted services.
+  - alert: OF_ExecHealth_FreezeServiceIdentityExporter_Stale_Warn
+    expr: time() - (exec_health_freeze_service_identity_last_check_ts_ms / 1000) > 180
+    for: 5m
+    labels:
+      severity: warning
+      layer: exec_health
+    annotations:
+      summary: ExecHealth service identity exporter stale
+      description: The service identity exporter has not refreshed recently.

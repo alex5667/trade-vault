@@ -1,0 +1,35 @@
+
+services:
+  scanner-ml-model-snapshot-compactor-v1:
+    container_name: scanner-ml-model-snapshot-compactor-v1
+    build:
+      context: ../../
+      dockerfile: python-worker/Dockerfile
+    working_dir: /app
+    command: ["python", "-u", "-m", "orderflow_services.ml_model_snapshot_compactor_v1"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0
+      TRADES_DB_DSN: ${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD}@scanner-pgbouncer:5432/scanner_analytics?sslmode=disable}
+      ML_MODEL_SNAPSHOT_EXPORTER_PORT: ${ML_MODEL_SNAPSHOT_EXPORTER_PORT:-9856}
+      ML_MODEL_SNAPSHOT_INTERVAL_S: ${ML_MODEL_SNAPSHOT_INTERVAL_S:-60}
+      ML_MODEL_SNAPSHOT_STREAM: ${ML_MODEL_SNAPSHOT_STREAM:-stream:ml:model_snapshot}
+      ML_MODEL_SNAPSHOT_SUMMARY_KEY: ${ML_MODEL_SNAPSHOT_SUMMARY_KEY:-metrics:ml:model_snapshot:last}
+      ML_MODEL_SNAPSHOT_KEY_PREFIX: ${ML_MODEL_SNAPSHOT_KEY_PREFIX:-metrics:ml:model_snapshot:}
+      ML_MODEL_SNAPSHOT_LOOKBACK_MIN: ${ML_MODEL_SNAPSHOT_LOOKBACK_MIN:-30}
+      ML_MODEL_SNAPSHOT_STALE_WARN_SEC: ${ML_MODEL_SNAPSHOT_STALE_WARN_SEC:-300}
+      ML_MODEL_SNAPSHOT_STALE_CRIT_SEC: ${ML_MODEL_SNAPSHOT_STALE_CRIT_SEC:-900}
+      ML_MODEL_SNAPSHOT_ERR_WARN: ${ML_MODEL_SNAPSHOT_ERR_WARN:-0.01}
+      ML_MODEL_SNAPSHOT_ERR_CRIT: ${ML_MODEL_SNAPSHOT_ERR_CRIT:-0.05}
+      ML_MODEL_SNAPSHOT_MISS_WARN: ${ML_MODEL_SNAPSHOT_MISS_WARN:-0.01}
+      ML_MODEL_SNAPSHOT_MISS_CRIT: ${ML_MODEL_SNAPSHOT_MISS_CRIT:-0.05}
+      ML_MODEL_SNAPSHOT_LAT_P95_WARN_MS: ${ML_MODEL_SNAPSHOT_LAT_P95_WARN_MS:-5.0}
+      ML_MODEL_SNAPSHOT_LAT_P95_CRIT_MS: ${ML_MODEL_SNAPSHOT_LAT_P95_CRIT_MS:-10.0}
+    ports:
+      - "9856:9856"
+    networks:
+      - scanner-network
+
+networks:
+  scanner-network:
+    external: true

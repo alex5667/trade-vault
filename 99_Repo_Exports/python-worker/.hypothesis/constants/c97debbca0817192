@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/fft/_pocketfft/helper.py
+# hypothesis_version: 6.148.10
+
+['=', 'ALIGNED', '__array__', 'axes', 'backward', 'default_workers', 'dtype', 'fc', 'forward', 'ortho', 'shape', 'value']

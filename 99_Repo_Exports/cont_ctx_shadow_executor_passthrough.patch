@@ -1,0 +1,141 @@
+--- a/services/shadow_calib_meta.py	1970-01-01 00:00:00.000000000 +0000
++++ b/services/shadow_calib_meta.py	2026-04-04 18:35:07.133165460 +0000
+@@ -0,0 +1,46 @@
++from __future__ import annotations
++
++from typing import Any, Dict, Mapping
++
++# Metadata that must survive shadow/paper open -> resize -> close lifecycle
++# so calibrators can join trades:closed back to the candidate window.
++CALIB_PASSTHROUGH_KEYS = (
++    "paper_only",
++    "shadow_only",
++    "is_virtual",
++    "virtual",
++    "calib",
++    "calib_kind",
++    "calib_run_id",
++    "candidate_window_ms",
++    "baseline_window_ms",
++    "cont_ctx_age_ms",
++    "entry_reason",
++    "parent_signal_id",
++)
++
++
++def extract_shadow_calib_meta(*sources: Mapping[str, Any]) -> Dict[str, Any]:
++    """Extract shadow/calibration metadata from payload-like mappings.
++
++    Priority: earlier sources win. Empty strings / None are ignored.
++    Keys are intentionally flat to minimize hidden dependencies between
++    signal-pipeline, execution-router and binance-executor.
++    """
++    out: Dict[str, Any] = {}
++    for src in sources:
++        if not isinstance(src, Mapping):
++            continue
++        for key in CALIB_PASSTHROUGH_KEYS:
++            if key in out:
++                continue
++            try:
++                value = src.get(key)  # type: ignore[attr-defined]
++            except Exception:
++                value = None
++            if value is None:
++                continue
++            if isinstance(value, str) and value == "":
++                continue
++            out[key] = value
++    return out
+--- a/services/orderflow/signal_pipeline.py	2026-04-03 19:53:12.000000000 +0000
++++ b/services/orderflow/signal_pipeline.py	2026-04-04 18:35:07.150432570 +0000
+@@ -2273,6 +2273,12 @@
+                 "atr": float(indicators.get("atr", 0.0) or 0.0),
+                 "validation_status": "failed" if is_rejected_signal else str(enriched_signal.get("validation_status") or ""),
+             }
++            shadow_meta = extract_shadow_calib_meta(enriched_signal, indicators)
++            if shadow_meta:
++                order_payload.update(shadow_meta)
++                order_payload.setdefault("paper_only", 1)
++                order_payload.setdefault("shadow_only", 1)
++                order_payload["is_virtual"] = 1
+             if "tp_ratio" in enriched_signal:
+                 order_payload["tp_ratio"] = enriched_signal["tp_ratio"]
+                 
+--- a/services/execution_router.py	2026-03-31 17:22:13.000000000 +0000
++++ b/services/execution_router.py	2026-04-04 18:35:07.151815887 +0000
+@@ -284,6 +284,7 @@
+             "strategy": original_payload.get("strategy"),
+             "confidence": original_payload.get("confidence"),
+         }
++        resize_payload.update(extract_shadow_calib_meta(original_payload))
+ 
+         if tp_qtys:
+             resize_payload["tp_qtys_requested_json"] = json.dumps(tp_qtys)
+--- a/services/binance_executor.py	2026-04-04 10:53:31.000000000 +0000
++++ b/services/binance_executor.py	2026-04-04 18:35:07.157578872 +0000
+@@ -5066,6 +5066,8 @@
+         if tps:
+             self._transition_state(sid, symbol=symbol, action="open", next_state=FSM_TP_POLICY_ARMED, details={"tp_levels_count": len(tps)})
+ 
++        shadow_meta = extract_shadow_calib_meta(payload)
++
+         result = {
+             "sid": sid, "symbol": symbol, "action": "open",
+             "status": status.lower(), "side": logical,
+@@ -5076,6 +5078,7 @@
+             "execution_policy": policy.name,
+             **audit_chain, **audit_policies, **order_refs,
+             **prot, **trail, **maker_watchdogs,
++            **shadow_meta,
+             "json": json.dumps(
+                 {"entry": j_final, "protective": prot, "trailing": trail, "tp_watchdogs": maker_watchdogs},
+                 ensure_ascii=False, default=str,
+@@ -5096,6 +5099,7 @@
+             "execution_policy": policy.name,
+             **audit_chain, **audit_policies, **order_refs,
+             **prot, **trail, **maker_watchdogs,
++            **shadow_meta,
+         })
+         return result
+ 
+--- a/services/tests/test_shadow_calib_meta_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/services/tests/test_shadow_calib_meta_v1.py	2026-04-04 18:35:07.158383875 +0000
+@@ -0,0 +1,37 @@
++from services.shadow_calib_meta import extract_shadow_calib_meta
++
++
++def test_extract_shadow_calib_meta_priority_and_filtering() -> None:
++    primary = {
++        "calib": 1,
++        "calib_kind": "cont_ctx_window",
++        "candidate_window_ms": 180000,
++        "entry_reason": "rescued_cont_ctx_window",
++        "paper_only": 1,
++        "shadow_only": 1,
++        "parent_signal_id": "sig-1",
++    }
++    secondary = {
++        "calib": 0,
++        "candidate_window_ms": 150000,
++        "baseline_window_ms": 120000,
++        "cont_ctx_age_ms": 133000,
++        "entry_reason": "",
++    }
++
++    out = extract_shadow_calib_meta(primary, secondary)
++
++    assert out["calib"] == 1
++    assert out["candidate_window_ms"] == 180000
++    assert out["baseline_window_ms"] == 120000
++    assert out["cont_ctx_age_ms"] == 133000
++    assert out["entry_reason"] == "rescued_cont_ctx_window"
++
++
++def test_extract_shadow_calib_meta_ignores_none_and_empty_strings() -> None:
++    out = extract_shadow_calib_meta({
++        "calib": None,
++        "calib_kind": "",
++        "paper_only": 1,
++    })
++    assert out == {"paper_only": 1}

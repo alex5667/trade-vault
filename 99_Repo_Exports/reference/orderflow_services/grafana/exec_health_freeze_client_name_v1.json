@@ -1,0 +1,44 @@
+{
+  "title": "ExecHealth Freeze Client Name Audit (v1)",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Client-name policy violations",
+      "targets": [{"expr": "exec_health_freeze_client_name_violation"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Trusted client field match",
+      "targets": [{"expr": "exec_health_freeze_client_name_match"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Trusted client connections and origins",
+      "targets": [
+        {
+          "expr": "exec_health_freeze_client_name_active_connections"
+        },
+        {
+          "expr": "exec_health_freeze_client_name_distinct_addrs"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Reconnect self-healing recoveries",
+      "targets": [
+        {
+          "expr": "exec_health_freeze_client_name_recovery_total"
+        },
+        {
+          "expr": "exec_health_freeze_client_name_repair_failed_total"
+        },
+        {
+          "expr": "exec_health_freeze_client_name_last_recovery_ts_ms"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 2
+}

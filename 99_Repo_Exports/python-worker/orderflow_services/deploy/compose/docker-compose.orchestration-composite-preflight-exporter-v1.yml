@@ -1,0 +1,34 @@
+services:
+  orchestration-composite-preflight-exporter:
+    image: ${TRADE_ORDERFLOW_IMAGE:?}
+    container_name: scanner-orchestration-composite-preflight-exporter
+    restart: always
+    working_dir: /app/python-worker
+    environment:
+      PYTHONPATH: /app/python-worker
+      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
+      ORCHESTRATION_PREFLIGHT_STATE_PREFIX: ${ORCHESTRATION_PREFLIGHT_STATE_PREFIX:-metrics:orchestration:preflight:last}
+      ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PURPOSES: ${ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PURPOSES:-latency_contract_sensitive_apply,conf_score_guardrails_apply,conf_score_guardrails_promote,meta_cov_rollout_controller,conf_score_guardrails_autopromo_controller}
+      ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PORT: ${ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PORT:-9837}
+      ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_INTERVAL_S: ${ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_INTERVAL_S:-15}
+    volumes:
+      - ${TRADE_REPO_ROOT:?}:/app:ro
+    expose:
+      - "${ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PORT:-9837}"
+    command:
+      - bash
+      - -lc
+      - >-
+        python3 -m orderflow_services.orchestration_composite_preflight_exporter_v1
+    networks:
+      - trade-network
+      - scanner-core
+      - scanner-infra
+
+networks:
+  trade-network:
+    external: true
+  scanner-core:
+    external: true
+  scanner-infra:
+    external: true

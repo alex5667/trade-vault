@@ -1,0 +1,115 @@
+groups:
+- name: slo_tradeoff_p66
+  rules:
+  - alert: DecisionFinalStaleSLO
+    expr: (time() - (decision_last_ts_ms / 1000)) > 1800
+    for: 30m
+    labels:
+      severity: page
+      component: trade
+    annotations:
+      summary: "decisions:final is stale (>30m)"
+      description: "No recent decision records; investigate decision writer / Redis
+        stream / worker health."
+      runbook: "orderflow_services/runbook_tradeoff_dashboard_p66.md"
+
+  - alert: DecisionRegimeUnknownHighSLO
+    expr: decision_regime_share_24h{regime="unknown"} > 0.05 and decision_n_24h 
+      > 200
+    for: 1h
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "High unknown regime share (>5%)"
+      description: "decisions lack dq_state/drift_state fields. Breakdown becomes
+        unreliable."
+      runbook: "orderflow_services/runbook_tradeoff_dashboard_p66.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: DecisionRegimeBlockShareHighSLO
+    expr: decision_regime_share_24h{regime="block"} > 0.15 and decision_n_24h > 
+      200
+    for: 30m
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "Block regime share > 15%"
+      description: "Too much traffic is blocked by dq/drift. Check drift/dq panels
+        and recent changes."
+      runbook: "orderflow_services/runbook_tradeoff_dashboard_p66.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: SignalQualityOkExpectancyLowSLO
+    expr: signal_quality_n_24h_by_regime{regime="ok"} >= 50 and 
+      signal_quality_expectancy_r_24h_by_regime{regime="ok"} < 0.0
+    for: 2h
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "OK-regime expectancy below 0"
+      description: "Core regime quality degraded. Compare ok vs warn/block and check
+        drift/dq."
+      runbook: "orderflow_services/runbook_tradeoff_dashboard_p66.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: SignalQualityEceWarnHighSLO
+    expr: signal_quality_n_24h_by_regime{regime="warn"} >= 30 and 
+      signal_quality_ece_24h_by_regime{regime="warn"} > 0.10
+    for: 2h
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "ECE high in warn regime (>0.10)"
+      description: "Calibration drift: ML probabilities not matching outcomes. Check
+        drift PSI and retraining."
+      runbook: "orderflow_services/runbook_tradeoff_dashboard_p66.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: DriftPsiHighSLO
+    expr: psi_max_24h > 0.25
+    for: 30m
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "PSI drift max > 0.25"
+      description: "Strong distribution shift likely. Drift gating may increase block
+        share."
+      runbook: "orderflow_services/runbook_tradeoff_dashboard_p66.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: DriftRobustZHighSLO
+    expr: feature_drift_max_z_24h > 5
+    for: 30m
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "Feature drift robust z max > 5"
+      description: "Large feature drift. Validate feature pipeline and data quality."
+      runbook: "orderflow_services/runbook_tradeoff_dashboard_p66.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: DQFlagRateHighSLO
+    expr: dq_flag_rate > 0.05
+    for: 30m
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "DQ flag rate > 5%"
+      description: "Data quality issues rising. Check tick_time_age_p99_ms, book_stale_p99_ms,
+        and quarantine."
+      runbook: "orderflow_services/runbook_tradeoff_dashboard_p66.md"
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd

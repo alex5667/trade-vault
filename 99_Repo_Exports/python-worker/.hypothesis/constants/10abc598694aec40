@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/sparse/linalg/matfuncs.py
+# hypothesis_version: 6.148.10
+
+['LinearOperator', 'MatrixPowerOperator', 'ProductOperator', 'UPPER_TRIANGULAR', 'expm', 'inv', 'is_pydata_spmatrix', 'isspmatrix', 'solve', 'solve_triangular', 'spsolve']

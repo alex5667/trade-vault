@@ -1,0 +1,31 @@
+{
+  "title": "ExecHealth AutoGuard (v1)",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Freeze / trigger state",
+      "targets": [
+        {"expr": "exec_health_slo_autoguard_freeze_active", "legendFormat": "freeze_active"},
+        {"expr": "exec_health_slo_autoguard_mode_mismatch_active", "legendFormat": "mode_mismatch_active"},
+        {"expr": "exec_health_slo_autoguard_rollout_drift_active", "legendFormat": "rollout_drift_active"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Freeze remaining / state age",
+      "targets": [
+        {"expr": "exec_health_slo_autoguard_freeze_remaining_seconds", "legendFormat": "freeze_remaining_s"},
+        {"expr": "exec_health_slo_autoguard_state_age_seconds", "legendFormat": "state_age_s"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Rollback total",
+      "targets": [
+        {"expr": "exec_health_slo_autoguard_rollback_total", "legendFormat": "rollback_total"}
+      ]
+    }
+  ]
+}

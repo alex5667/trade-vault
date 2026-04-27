@@ -1,0 +1,7 @@
+{
+  "cutoff_ts_ms": 1773891339922,
+  "dry_run": true,
+  "generated_at_ms": 1776483339922,
+  "freshness_stale_threshold_sec": 86400,
+  "rows_to_purge": 0
+}

@@ -1,0 +1,663 @@
+--- a/tick_flow_full/core/feature_registry.py
++++ b/tick_flow_full/core/feature_registry.py
+@@ -477,6 +477,7 @@
+     scenario_prefix: str = "bucket:",
+     include_direction: bool = True,
+     include_scenario: bool = True,
++    include_bucket2_onehot: bool = False,
+     include_time_onehot: Optional[bool] = None,
+     sort_numeric_keys: bool = True,
+     max_numeric: int = 128,
+@@ -493,6 +494,7 @@
+       - Числовые/bool фичи → "f_{key}"
+       - direction → direction_BUY / direction_SELL
+       - scenario → bucket:* (рекомендуется) или scenario_v4_* (устарело)
++      - bucket2 → bucket2:* (добавочная категоризация; включается только при include_bucket2_onehot=True)
+       - time one-hots hour:/dow: включены по умолчанию для v3+
+ 
+     strict_feature_cols + forbid_scenario_v4_onehot:
+@@ -612,6 +614,12 @@
+             # scenario_v4_* (устаревший, legacy)
+             cols += ["scenario_v4_trend", "scenario_v4_range", "scenario_v4_other"]
+ 
++        # bucket2 block (separate prefix, does NOT replace bucket:)
++        # Используется только новыми моделями/датасетами. Старые модели не должны
++        # внезапно получить новые one-hot колонки.
++        if bool(include_bucket2_onehot):
++            cols += ["bucket2:breakout", "bucket2:reversal", "bucket2:high_var"]
++
+     # strict mode: запрещаем scenario_v4_* при forbid_scenario_v4_onehot
+     if strict_feature_cols and forbid_scenario_v4_onehot:
+         bad = [str(c) for c in cols if str(c).startswith("scenario_v4_")]
+@@ -642,6 +650,7 @@
+         max_numeric == 128
+         and not strict_feature_cols
+         and not forbid_scenario_v4_onehot
++        and not include_bucket2_onehot
+         and include_time_onehot is not False
+         and include_session_onehot is not False
+     ):
+
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -96,6 +96,12 @@
+     trade_cancel_to_trade_bid, trade_cancel_to_trade_ask,
+     trade_taker_flow_imb_z, trade_book_churn_score, trade_book_churn_hi,
+ 
++    # A8 observability gauges (microstructure extras)
++    trade_depth_total_10, trade_gini_depth_10,
++    trade_vwap_roll_diff_bps, trade_price_momentum_bps, trade_realized_vol_bps,
++    trade_pressure_per_min, trade_liquidity_pressure, trade_info_flow,
++    trade_flag_state,
++
+     trade_qi_mean, trade_qi_max_abs, trade_qi_slope,
+     trade_micro_mid_div_bps, trade_micro_shift_bps,
+     trade_depth_slope_bid, trade_depth_slope_ask, trade_depth_slope_imb, trade_depth_slope_imb_norm,
+@@ -133,6 +139,7 @@
+ from core.instrument_config import get_default_delta_tiers
+ from core.exec_regime_bucket_v1 import compute_exec_regime_bucket
+ from core.fill_prob_proxy import compute_fill_prob_proxy
++from core.bucket2_v1 import derive_bucket2_label
+ 
+ from handlers.crypto_orderflow.utils.log_sampler import sampled_info, sampled_warning, sampled_debug, LogSamplerFactory
+ 
+@@ -491,6 +498,31 @@
+         except Exception:
+             pass
+ 
++        # -----------------------------------------------------------------
++        # B1: bucket2 (breakout/reversal/high_var)
++        #
++        # Additive categorization for *new* models, exposed as `indicators["bucket2"]`.
++        # IMPORTANT: we do NOT touch existing bucket:trend/range/other logic.
++        #
++        # Encoder side (ml_confirm_gate) will one-hot encode `bucket2:*` only
++        # if a model was trained with these columns.
++        #
++        # Fail-open: if anything goes wrong -> keep missing/empty.
++        # -----------------------------------------------------------------
++        try:
++            if "bucket2" not in indicators:
++                ev = locals().get("ctx_evidence", {})
++                if (not ev) and ofc and hasattr(ofc, "evidence") and isinstance(ofc.evidence, dict):
++                    ev = ofc.evidence
++                sv4 = str((ev or {}).get("scenario_v4") or indicators.get("scenario_v4") or "")
++                indicators["bucket2"] = derive_bucket2_label(
++                    sv4,
++                    indicators=indicators,
++                    evidence=ev if isinstance(ev, dict) else None,
++                )
++        except Exception:
++            pass
++
+         decision = "ok"
+         norm_ts_ms = raw_ts_ms
+         back_ms = 0
+@@ -1896,6 +1928,28 @@
+                     float(indicators.get("max_expected_slippage_bps_eff", 0.0) or 0.0)
+                 )
+ 
++            # A8: additional microstructure gauges (depth/gini/vwap/mom/rv/flow/flags).
++            # NOTE: keep it strictly low-cardinality to avoid Prometheus churn.
++            trade_depth_total_10.labels(sym=_sym, bucket=_bk).set(float(indicators.get("depth_total_10", 0.0) or 0.0))
++            trade_gini_depth_10.labels(sym=_sym, bucket=_bk).set(float(indicators.get("gini_depth_10", 0.0) or 0.0))
++            trade_vwap_roll_diff_bps.labels(sym=_sym, bucket=_bk).set(float(indicators.get("vwap_roll_diff_bps", 0.0) or 0.0))
++            trade_price_momentum_bps.labels(sym=_sym, bucket=_bk).set(float(indicators.get("price_momentum_bps", 0.0) or 0.0))
++            trade_realized_vol_bps.labels(sym=_sym, bucket=_bk).set(float(indicators.get("realized_vol_bps", 0.0) or 0.0))
++            trade_pressure_per_min.labels(sym=_sym, bucket=_bk).set(float(indicators.get("pressure_per_min", 0.0) or 0.0))
++            trade_liquidity_pressure.labels(sym=_sym, bucket=_bk).set(float(indicators.get("liquidity_pressure", 0.0) or 0.0))
++            trade_info_flow.labels(sym=_sym, bucket=_bk).set(float(indicators.get("info_flow", 0.0) or 0.0))
++
++            for _flag in (
++                "flag_low_liq",
++                "flag_spread_spike",
++                "flag_large_trade",
++                "flag_high_gini",
++                "flag_high_mom",
++                "flag_high_realized_vol",
++                "flag_high_pressure",
++            ):
++                trade_flag_state.labels(sym=_sym, bucket=_bk, flag=_flag).set(float(indicators.get(_flag, 0.0) or 0.0))
++
+             # LOB pressure snapshots (microprice / depth shape / DW OBI)
+             trade_qi_mean.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_qi_mean", 0.0) or 0.0))
+             trade_qi_max_abs.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_qi_max_abs", 0.0) or 0.0))
+@@ -3219,6 +3273,30 @@
+                 "lob_dw_obi_stable": str(int(indicators.get("lob_dw_obi_stable", 0) or 0)),
+ 
+                 "max_expected_slippage_bps_eff": str(float(indicators.get("max_expected_slippage_bps_eff", 0.0) or 0.0)),
++
++                # A8: derived features observability (mirror Prom gauges + enable smoke-checks).
++                # Keep this list low-cardinality + small payload: scalars + 0/1 flags.
++                "depth_total_10": str(float(indicators.get("depth_total_10", 0.0) or 0.0)),
++                "gini_depth_10": str(float(indicators.get("gini_depth_10", 0.0) or 0.0)),
++                "vwap_roll_diff_bps": str(float(indicators.get("vwap_roll_diff_bps", 0.0) or 0.0)),
++                "price_momentum_bps": str(float(indicators.get("price_momentum_bps", 0.0) or 0.0)),
++                "realized_vol_bps": str(float(indicators.get("realized_vol_bps", 0.0) or 0.0)),
++                "pressure_per_min": str(float(indicators.get("pressure_per_min", 0.0) or 0.0)),
++                "liquidity_pressure": str(float(indicators.get("liquidity_pressure", 0.0) or 0.0)),
++                "info_flow": str(float(indicators.get("info_flow", 0.0) or 0.0)),
++
++                # No-data bits — required to avoid false positives in “stuck==0” checks.
++                "vwap_roll_no_data": str(int(indicators.get("vwap_roll_no_data", 1) or 0)),
++                "realized_vol_no_data": str(int(indicators.get("realized_vol_no_data", 1) or 0)),
++
++                # Flags (0/1) — useful for dashboard quick triage.
++                "flag_low_liq": str(int(indicators.get("flag_low_liq", 0) or 0)),
++                "flag_spread_spike": str(int(indicators.get("flag_spread_spike", 0) or 0)),
++                "flag_large_trade": str(int(indicators.get("flag_large_trade", 0) or 0)),
++                "flag_high_gini": str(int(indicators.get("flag_high_gini", 0) or 0)),
++                "flag_high_mom": str(int(indicators.get("flag_high_mom", 0) or 0)),
++                "flag_high_realized_vol": str(int(indicators.get("flag_high_realized_vol", 0) or 0)),
++                "flag_high_pressure": str(int(indicators.get("flag_high_pressure", 0) or 0)),
+                 "reason_code_top1": str(reason_top1),  # sanitized by enrich_schema_fields
+                 "meta_feature_coverage": str(float(meta_cov)),
+                 "meta_enforce_mode": meta_enforce,
+
+--- a/services/orderflow/components/tick_processor.py
++++ b/services/orderflow/components/tick_processor.py
+@@ -107,6 +107,12 @@
+     trade_cancel_to_trade_bid, trade_cancel_to_trade_ask,
+     trade_taker_flow_imb_z, trade_book_churn_score, trade_book_churn_hi,
+ 
++    # A8 observability gauges (microstructure extras)
++    trade_depth_total_10, trade_gini_depth_10,
++    trade_vwap_roll_diff_bps, trade_price_momentum_bps, trade_realized_vol_bps,
++    trade_pressure_per_min, trade_liquidity_pressure, trade_info_flow,
++    trade_flag_state,
++
+     trade_qi_mean, trade_qi_max_abs, trade_qi_slope,
+     trade_micro_mid_div_bps, trade_micro_shift_bps,
+     trade_depth_slope_bid, trade_depth_slope_ask, trade_depth_slope_imb, trade_depth_slope_imb_norm,
+@@ -148,6 +154,7 @@
+ from core.instrument_config import get_default_delta_tiers
+ from core.fill_prob_proxy import compute_fill_prob_proxy
+ from core.exec_regime_bucket_v1 import compute_exec_regime_bucket
++from core.bucket2_v1 import derive_bucket2_label
+ 
+ from handlers.crypto_orderflow.utils.log_sampler import sampled_info, sampled_warning, sampled_debug, LogSamplerFactory
+ 
+@@ -506,6 +513,31 @@
+         except Exception:
+             pass
+ 
++        # -----------------------------------------------------------------
++        # B1: bucket2 (breakout/reversal/high_var)
++        #
++        # Additive categorization for *new* models, exposed as `indicators["bucket2"]`.
++        # IMPORTANT: we do NOT touch existing bucket:trend/range/other logic.
++        #
++        # Encoder side (ml_confirm_gate) will one-hot encode `bucket2:*` only
++        # if a model was trained with these columns.
++        #
++        # Fail-open: if anything goes wrong -> keep missing/empty.
++        # -----------------------------------------------------------------
++        try:
++            if "bucket2" not in indicators:
++                ev = locals().get("ctx_evidence", {})
++                if (not ev) and ofc and hasattr(ofc, "evidence") and isinstance(ofc.evidence, dict):
++                    ev = ofc.evidence
++                sv4 = str((ev or {}).get("scenario_v4") or indicators.get("scenario_v4") or "")
++                indicators["bucket2"] = derive_bucket2_label(
++                    sv4,
++                    indicators=indicators,
++                    evidence=ev if isinstance(ev, dict) else None,
++                )
++        except Exception:
++            pass
++
+         decision = "ok"
+         norm_ts_ms = raw_ts_ms
+         back_ms = 0
+@@ -1783,6 +1815,28 @@
+                     float(indicators.get("max_expected_slippage_bps_eff", 0.0) or 0.0)
+                 )
+ 
++            # A8: additional microstructure gauges (depth/gini/vwap/mom/rv/flow/flags).
++            # NOTE: keep it strictly low-cardinality to avoid Prometheus churn.
++            trade_depth_total_10.labels(sym=_sym, bucket=_bk).set(float(indicators.get("depth_total_10", 0.0) or 0.0))
++            trade_gini_depth_10.labels(sym=_sym, bucket=_bk).set(float(indicators.get("gini_depth_10", 0.0) or 0.0))
++            trade_vwap_roll_diff_bps.labels(sym=_sym, bucket=_bk).set(float(indicators.get("vwap_roll_diff_bps", 0.0) or 0.0))
++            trade_price_momentum_bps.labels(sym=_sym, bucket=_bk).set(float(indicators.get("price_momentum_bps", 0.0) or 0.0))
++            trade_realized_vol_bps.labels(sym=_sym, bucket=_bk).set(float(indicators.get("realized_vol_bps", 0.0) or 0.0))
++            trade_pressure_per_min.labels(sym=_sym, bucket=_bk).set(float(indicators.get("pressure_per_min", 0.0) or 0.0))
++            trade_liquidity_pressure.labels(sym=_sym, bucket=_bk).set(float(indicators.get("liquidity_pressure", 0.0) or 0.0))
++            trade_info_flow.labels(sym=_sym, bucket=_bk).set(float(indicators.get("info_flow", 0.0) or 0.0))
++
++            for _flag in (
++                "flag_low_liq",
++                "flag_spread_spike",
++                "flag_large_trade",
++                "flag_high_gini",
++                "flag_high_mom",
++                "flag_high_realized_vol",
++                "flag_high_pressure",
++            ):
++                trade_flag_state.labels(sym=_sym, bucket=_bk, flag=_flag).set(float(indicators.get(_flag, 0.0) or 0.0))
++
+             # LOB pressure snapshots (microprice / depth shape / DW OBI)
+             trade_qi_mean.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_qi_mean", 0.0) or 0.0))
+             trade_qi_max_abs.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_qi_max_abs", 0.0) or 0.0))
+@@ -3129,6 +3183,30 @@
+ 
+                 "max_expected_slippage_bps_eff": str(float(indicators.get("max_expected_slippage_bps_eff", 0.0) or 0.0)),
+ 
++                # A8: derived features observability (mirror Prom gauges + enable smoke-checks).
++                # Keep this list low-cardinality + small payload: scalars + 0/1 flags.
++                "depth_total_10": str(float(indicators.get("depth_total_10", 0.0) or 0.0)),
++                "gini_depth_10": str(float(indicators.get("gini_depth_10", 0.0) or 0.0)),
++                "vwap_roll_diff_bps": str(float(indicators.get("vwap_roll_diff_bps", 0.0) or 0.0)),
++                "price_momentum_bps": str(float(indicators.get("price_momentum_bps", 0.0) or 0.0)),
++                "realized_vol_bps": str(float(indicators.get("realized_vol_bps", 0.0) or 0.0)),
++                "pressure_per_min": str(float(indicators.get("pressure_per_min", 0.0) or 0.0)),
++                "liquidity_pressure": str(float(indicators.get("liquidity_pressure", 0.0) or 0.0)),
++                "info_flow": str(float(indicators.get("info_flow", 0.0) or 0.0)),
++
++                # No-data bits — required to avoid false positives in “stuck==0” checks.
++                "vwap_roll_no_data": str(int(indicators.get("vwap_roll_no_data", 1) or 0)),
++                "realized_vol_no_data": str(int(indicators.get("realized_vol_no_data", 1) or 0)),
++
++                # Flags (0/1) — useful for dashboard quick triage.
++                "flag_low_liq": str(int(indicators.get("flag_low_liq", 0) or 0)),
++                "flag_spread_spike": str(int(indicators.get("flag_spread_spike", 0) or 0)),
++                "flag_large_trade": str(int(indicators.get("flag_large_trade", 0) or 0)),
++                "flag_high_gini": str(int(indicators.get("flag_high_gini", 0) or 0)),
++                "flag_high_mom": str(int(indicators.get("flag_high_mom", 0) or 0)),
++                "flag_high_realized_vol": str(int(indicators.get("flag_high_realized_vol", 0) or 0)),
++                "flag_high_pressure": str(int(indicators.get("flag_high_pressure", 0) or 0)),
++
+                 # Execution risk & slippage (world-practice trackers v16)
+                 # Enables SRE/QA/Timescale to distinguish: "rules/defaults",
+                 # "legacy vs eff vs decomp", "exec_risk exists, exec_pen=0" (broken wiring).
+
+--- a/tick_flow_full/services/ml_confirm_gate.py
++++ b/tick_flow_full/services/ml_confirm_gate.py
+@@ -18,6 +18,7 @@
+ from core.meta_model_lr import MetaModelLR
+ from core.champion_cfg_validator import validate_champion_cfg, CfgError, ChampionCfg
+ from core.edge_stack_mh_v1 import EdgeStackMHModelV1
++from core.bucket2_v1 import derive_bucket2_label
+ 
+ # Prometheus metrics (optional, fail-open if not available)
+ try:
+@@ -1338,6 +1339,19 @@
+         utc_dow = int(getattr(tm, "tm_wday", 0))
+         bucket = _bucket_from_scenario(s) or "other"
+ 
++        # B1: bucket2 (breakout/reversal/high_var) — additive categorization.
++        # Producer (tick_processor) should set indicators['bucket2'].
++        # Fail-open fallback: conservative derivation from scenario/id + indicators.
++        try:
++            bucket2 = str(indicators.get("bucket2") or "").strip().lower()
++        except Exception:
++            bucket2 = ""
++        if not bucket2:
++            try:
++                bucket2 = str(derive_bucket2_label(s, indicators=indicators) or "").strip().lower()
++            except Exception:
++                bucket2 = ""
++
+         cache: Dict[str, float] = {}
+ 
+         def num(name: str) -> float:
+@@ -1381,6 +1395,9 @@
+             elif col.startswith("bucket:"):
+                 val = col[len("bucket:"):].lower()
+                 row.append(1.0 if val == str(bucket).lower() else 0.0)
++            elif col.startswith("bucket2:"):
++                val = col[len("bucket2:"):].lower()
++                row.append(1.0 if bucket2 and val == str(bucket2).lower() else 0.0)
+             elif col.startswith("hour:"):
+                 try:
+                     hh = int(col[len("hour:"):])
+
+--- a/services/ml_confirm_gate.py
++++ b/services/ml_confirm_gate.py
+@@ -14,6 +14,7 @@
+ 
+ from services.ml_calibration import PlattLogitCalibrator
+ from core.feature_engineering import RobustScalerPack, apply_transform, bucketize, derive_regime_label, derive_session_label
++from core.bucket2_v1 import derive_bucket2_label
+ from core.fast_linear_util_mh import FastLinearUtilMHModel
+ from core.meta_model_lr import MetaModelLR
+ from core.champion_cfg_validator import validate_champion_cfg, CfgError, ChampionCfg
+@@ -1306,6 +1307,25 @@
+         liq_label = derive_regime_label(indicators.get("liq_regime"), fallback_score=_f(indicators.get("liq_score", None), None), cfg=liq_cfg)
+         vol_label = derive_regime_label(indicators.get("vol_regime"), fallback_score=_f(indicators.get("vol_score", None), None), cfg=liq_cfg)
+ 
++        # UTC hour/day-of-week and scenario bucket (legacy bucket:)
++        tm = time.gmtime(float(int(ts_ms or 0)) / 1000.0)
++        utc_hour = int(getattr(tm, "tm_hour", 0))
++        utc_dow = int(getattr(tm, "tm_wday", 0))
++        bucket = _bucket_from_scenario(s) or "other"
++
++        # B1: bucket2 (breakout/reversal/high_var) — additive categorization.
++        # Producer (tick_processor) should set indicators['bucket2'].
++        # Fail-open fallback: conservative derivation from scenario/id + indicators.
++        try:
++            bucket2 = str(indicators.get("bucket2") or "").strip().lower()
++        except Exception:
++            bucket2 = ""
++        if not bucket2:
++            try:
++                bucket2 = str(derive_bucket2_label(s, indicators=indicators) or "").strip().lower()
++            except Exception:
++                bucket2 = ""
++
+         cache: Dict[str, float] = {}
+ 
+         def num(name: str) -> float:
+@@ -1340,11 +1360,29 @@
+             elif col.startswith("scenario_v4_"):
+                 val = col[len("scenario_v4_"):].lower()
+                 row.append(1.0 if val == s else 0.0)
++            elif col.startswith("bucket:"):
++                val = col[len("bucket:"):].lower()
++                row.append(1.0 if val == str(bucket).lower() else 0.0)
++            elif col.startswith("bucket2:"):
++                val = col[len("bucket2:"):].lower()
++                row.append(1.0 if bucket2 and val == str(bucket2).lower() else 0.0)
+             elif col.startswith("session_"):
+                 # NOTE: session one-hots are derived from ts_ms, not from indicators,
+                 # to keep train==serve deterministic even if upstream did not export them.
+                 val = col[len("session_"):].lower()
+                 row.append(1.0 if val == str(session_label) else 0.0)
++            elif col.startswith("hour:"):
++                try:
++                    hh = int(col[len("hour:"):])
++                except Exception:
++                    hh = -1
++                row.append(1.0 if hh == int(utc_hour) else 0.0)
++            elif col.startswith("dow:"):
++                try:
++                    dd = int(col[len("dow:"):])
++                except Exception:
++                    dd = -1
++                row.append(1.0 if dd == int(utc_dow) else 0.0)
+             elif col.startswith("spread_bucket_"):
+                 val = col[len("spread_bucket_"):].lower()
+                 ok = (val == str(spread_bucket_idx)) or (val == f"b{spread_bucket_idx}") or (val == spread_bucket_label)
+
+--- a/signal_quality_gating/services/ml_confirm_gate.py
++++ b/signal_quality_gating/services/ml_confirm_gate.py
+@@ -14,6 +14,7 @@
+ 
+ from services.ml_calibration import PlattLogitCalibrator
+ from core.feature_engineering import RobustScalerPack, apply_transform, bucketize, derive_regime_label, derive_session_label
++from core.bucket2_v1 import derive_bucket2_label
+ from core.fast_linear_util_mh import FastLinearUtilMHModel
+ from core.meta_model_lr import MetaModelLR
+ from core.champion_cfg_validator import validate_champion_cfg, CfgError, ChampionCfg
+@@ -1270,6 +1271,25 @@
+         liq_label = derive_regime_label(indicators.get("liq_regime"), fallback_score=_f(indicators.get("liq_score", None), None), cfg=liq_cfg)
+         vol_label = derive_regime_label(indicators.get("vol_regime"), fallback_score=_f(indicators.get("vol_score", None), None), cfg=liq_cfg)
+ 
++        # UTC hour/day-of-week and scenario bucket (legacy bucket:)
++        tm = time.gmtime(float(int(ts_ms or 0)) / 1000.0)
++        utc_hour = int(getattr(tm, "tm_hour", 0))
++        utc_dow = int(getattr(tm, "tm_wday", 0))
++        bucket = _bucket_from_scenario(s) or "other"
++
++        # B1: bucket2 (breakout/reversal/high_var) — additive categorization.
++        # Producer (tick_processor) should set indicators['bucket2'].
++        # Fail-open fallback: conservative derivation from scenario/id + indicators.
++        try:
++            bucket2 = str(indicators.get("bucket2") or "").strip().lower()
++        except Exception:
++            bucket2 = ""
++        if not bucket2:
++            try:
++                bucket2 = str(derive_bucket2_label(s, indicators=indicators) or "").strip().lower()
++            except Exception:
++                bucket2 = ""
++
+         cache: Dict[str, float] = {}
+ 
+         def num(name: str) -> float:
+@@ -1304,9 +1324,27 @@
+             elif col.startswith("scenario_v4_"):
+                 val = col[len("scenario_v4_"):].lower()
+                 row.append(1.0 if val == s else 0.0)
++            elif col.startswith("bucket:"):
++                val = col[len("bucket:"):].lower()
++                row.append(1.0 if val == str(bucket).lower() else 0.0)
++            elif col.startswith("bucket2:"):
++                val = col[len("bucket2:"):].lower()
++                row.append(1.0 if bucket2 and val == str(bucket2).lower() else 0.0)
+             elif col.startswith("session_"):
+                 val = col[len("session_"):].lower()
+                 row.append(1.0 if val == str(session_label) else 0.0)
++            elif col.startswith("hour:"):
++                try:
++                    hh = int(col[len("hour:"):])
++                except Exception:
++                    hh = -1
++                row.append(1.0 if hh == int(utc_hour) else 0.0)
++            elif col.startswith("dow:"):
++                try:
++                    dd = int(col[len("dow:"):])
++                except Exception:
++                    dd = -1
++                row.append(1.0 if dd == int(utc_dow) else 0.0)
+             elif col.startswith("spread_bucket_"):
+                 val = col[len("spread_bucket_"):].lower()
+                 ok = (val == str(spread_bucket_idx)) or (val == f"b{spread_bucket_idx}") or (val == spread_bucket_label)
+
+--- a/tick_flow_full/core/bucket2_v1.py
++++ b/tick_flow_full/core/bucket2_v1.py
+@@ -0,0 +1,119 @@
++# -*- coding: utf-8 -*-
++"""bucket2_v1.py
++
++Bucket2 — дополнительная (не ломающая текущий bucket:) категоризация режима/сценария,
++предназначенная для *новых* моделей. Старый bucket:trend/range/other остаётся
++источником истины для существующих моделей и правил.
++
++Зачем:
++  - bucket: (legacy) слишком грубый, часто смешивает разные классы поведения.
++  - bucket2 вводит 3 orthogonal “world-practice” категории:
++      * breakout   — импульс/выход из диапазона (range expansion / momentum)
++      * reversal   — разворот/mean-reversion (sweep/reclaim/reversal markers)
++      * high_var   — высоковолатильные режимы/шоки (vol_shock/news proxy, HIGH_VAR)
++
++Важно:
++  - bucket2 *не заменяет* bucket:. Он добавляется как отдельный префикс `bucket2:`
++    и может использоваться только новыми моделями через feature_registry.
++  - Если bucket2 невозможно вывести надёжно, возвращается пустая строка (=> one-hot = 0).
++
++Determinism:
++  - Функция использует только входные строки/скаляры, без времени/случайности.
++  - Логика intentionally conservative: лучше "не классифицировать", чем ошибиться.
++"""
++
++from __future__ import annotations
++
++from typing import Any, Dict, Optional
++
++
++def _norm_scenario(s: str) -> str:
++    """Normalize scenario-like strings.
++
++    We follow the same rules as ml_confirm_gate._scenario_norm():
++      - take left part before '|', ' ', ':', '@'
++      - lowercase
++    """
++    s0 = (s or "").strip().lower()
++    if "|" in s0:
++        s0 = s0.split("|", 1)[0].strip()
++    if " " in s0:
++        s0 = s0.split(" ", 1)[0].strip()
++    if ":" in s0:
++        s0 = s0.split(":", 1)[0].strip()
++    if "@" in s0:
++        s0 = s0.split("@", 1)[0].strip()
++    return s0
++
++
++def derive_bucket2_label(
++    scenario_v4: str,
++    *,
++    indicators: Optional[Dict[str, Any]] = None,
++    evidence: Optional[Dict[str, Any]] = None,
++) -> str:
++    """Derive bucket2 label: breakout|reversal|high_var|"".
++
++    Args:
++        scenario_v4: scenario string (usually scenario_v4 / scenario id).
++        indicators:  dict of computed indicators (may contain exec_regime_bucket,
++                     momentum flags, realized_vol, etc.). Optional.
++        evidence:    evidence dict from OFConfirm (may contain sweep/reclaim/etc.). Optional.
++
++    Returns:
++        "high_var" / "reversal" / "breakout" / "" (unknown).
++    """
++    sv = _norm_scenario(str(scenario_v4 or ""))
++    ind = indicators or {}
++    ev = evidence or {}
++
++    # ---- 1) HIGH_VAR (highest precedence)
++    # Strong explicit markers in scenario id.
++    if "vol_shock" in sv or "news" in sv or "high_var" in sv or "highvar" in sv:
++        return "high_var"
++
++    # Runtime bucket (exec regime) already exists and is robust.
++    try:
++        b = str(ind.get("exec_regime_bucket") or "").strip().upper()
++        if b in ("HIGH_VAR", "EXTREME", "HIGH_VOL", "HIGH_VOL_LOW_LIQ", "LOW_LIQ"):
++            return "high_var"
++    except Exception:
++        pass
++
++    # Explicit realized-vol / flags (if present).
++    try:
++        if int(ind.get("flag_high_realized_vol", 0) or 0) == 1:
++            return "high_var"
++    except Exception:
++        pass
++
++    # ---- 2) REVERSAL
++    # Scenario markers.
++    if "reversal" in sv or "meanrev" in sv or "mean_revert" in sv or "reclaim" in sv:
++        return "reversal"
++    # Evidence flags (producer-side, more reliable than fuzzy string matching).
++    try:
++        if int(ev.get("sweep", 0) or 0) == 1:
++            return "reversal"
++        if int(ev.get("reclaim", 0) or 0) == 1:
++            return "reversal"
++    except Exception:
++        pass
++
++    # ---- 3) BREAKOUT
++    if "breakout" in sv:
++        return "breakout"
++    # Range-expansion / momentum proxies (conservative).
++    try:
++        if int(ind.get("fp_edge_range_expansion", 0) or 0) == 1:
++            return "breakout"
++    except Exception:
++        pass
++    try:
++        if int(ind.get("flag_high_mom", 0) or 0) == 1:
++            return "breakout"
++    except Exception:
++        pass
++
++    # No reliable classification.
++    return ""
+
+--- a/tick_flow_full/tests/core/test_bucket2_v1.py
++++ b/tick_flow_full/tests/core/test_bucket2_v1.py
+@@ -0,0 +1,41 @@
++from __future__ import annotations
++
++
++def test_bucket2_derive_high_var_from_scenario():
++    from core.bucket2_v1 import derive_bucket2_label
++
++    assert derive_bucket2_label("vol_shock_news_proxy") == "high_var"
++    assert derive_bucket2_label("VOL_SHOCK_NEWS_PROXY|v4") == "high_var"
++
++
++def test_bucket2_derive_high_var_from_exec_bucket():
++    from core.bucket2_v1 import derive_bucket2_label
++
++    assert derive_bucket2_label("na", indicators={"exec_regime_bucket": "HIGH_VAR"}) == "high_var"
++    assert derive_bucket2_label("na", indicators={"exec_regime_bucket": "EXTREME"}) == "high_var"
++
++
++def test_bucket2_derive_reversal_from_evidence():
++    from core.bucket2_v1 import derive_bucket2_label
++
++    assert derive_bucket2_label("na", evidence={"sweep": 1}) == "reversal"
++    assert derive_bucket2_label("na", evidence={"reclaim": 1}) == "reversal"
++
++
++def test_bucket2_derive_breakout_from_range_expansion_flag():
++    from core.bucket2_v1 import derive_bucket2_label
++
++    assert derive_bucket2_label("na", indicators={"fp_edge_range_expansion": 1}) == "breakout"
++    assert derive_bucket2_label("breakout") == "breakout"
++
++
++def test_feature_registry_bucket2_is_opt_in():
++    from core.feature_registry import get_edge_stack_feature_spec
++
++    spec0 = get_edge_stack_feature_spec("v7_of")
++    assert not any(str(c).startswith("bucket2:") for c in spec0.feature_cols)
++
++    spec1 = get_edge_stack_feature_spec("v7_of", include_bucket2_onehot=True)
++    assert "bucket2:breakout" in spec1.feature_cols
++    assert "bucket2:reversal" in spec1.feature_cols
++    assert "bucket2:high_var" in spec1.feature_cols
+
+--- a/tick_flow_full/tests/services/test_ml_confirm_gate_bucket2_v1.py
++++ b/tick_flow_full/tests/services/test_ml_confirm_gate_bucket2_v1.py
+@@ -0,0 +1,46 @@
++from __future__ import annotations
++
++import sys
++import types
++
++
++def test_ml_confirm_gate_bucket2_onehot_encoding():
++    # The repo code types against redis.Redis, but redis-py may be absent in the
++    # lightweight CI environment for unit tests.
++    if "redis" not in sys.modules:
++        stub = types.ModuleType("redis")
++        stub.Redis = object  # minimal attribute for type hints
++        sys.modules["redis"] = stub
++
++    # Import from tick_flow_full/services via test sys.path injection.
++    from services.ml_confirm_gate import MLConfirmGate
++
++    class _DummyModel:
++        # Minimal set of feature columns used in _build_feature_row.
++        feature_cols = [
++            "direction_BUY",
++            "bucket:trend",
++            "bucket2:breakout",
++            "hour:1",
++            "dow:3",  # 1970-01-01 is Thursday (tm_wday=3)
++            "f_spread_bps",
++        ]
++
++    gate = MLConfirmGate(
++        r=None,  # not used by _build_feature_row
++        mode="OFF",
++        fail_policy="OPEN",
++        champion_key="cfg:ml_confirm:champion",
++        challenger_key="cfg:ml_confirm:challenger",
++    )
++
++    row, missing = gate._build_feature_row(
++        model=_DummyModel(),
++        indicators={"spread_bps": 5.0, "bucket2": "breakout", "expected_slippage_bps": 0.0},
++        direction="BUY",
++        scenario="trend",
++        ts_ms=3600 * 1000,  # 1970-01-01 01:00:00 UTC
++    )
++
++    assert missing == []
++    assert row == [1.0, 1.0, 1.0, 1.0, 1.0, 5.0]
+

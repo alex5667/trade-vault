@@ -1,0 +1,254 @@
+diff --git a/monitoring/runbooks/monitoring_smoke.md b/monitoring/runbooks/monitoring_smoke.md
+new file mode 100644
+index 0000000..4bba8f7
+--- /dev/null
++++ b/monitoring/runbooks/monitoring_smoke.md
+@@ -0,0 +1,132 @@
++# Runbook: Monitoring Smoke (Nightly Contract)
++
++## Owner
++- team: **trade**
++- component: **monitoring**
++
++## Dashboard
++- `/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1`
++
++## What this is
++Nightly smoke is a **contract check** that validates:
++1) Public-proxy routes are alive (Grafana/Runbooks/Alertmanager/Prometheus).
++2) Alert links contract: `runbook_path` and `dashboard_path` used in alert annotations
++   are **actually reachable** via public-proxy.
++3) Telegram webhook link-builder works (dry-run).
++4) Internal critical dependency health (blackbox-exporter `/-/healthy`).
++5) Targets freshness: the generated contract targets list is **not stale**.
++
++## Where state is stored
++- Last smoke result hash:
++  - `metrics:monitoring_smoke:last`
++  - fields include:
++    - `success`, `runbooks_ok`, `dashboards_ok`, `failed_total`
++    - `alertmanager_api_ok`, `prometheus_api_ok`, `blackbox_exporter_ok`
++    - `targets_stale`, `targets_age_s`, `updated_ts_ms`
++- Contract targets (generated from alert annotations):
++  - `cfg:monitoring_smoke:targets` (override: `MONITORING_SMOKE_TARGETS_KEY`)
++  - fields:
++    - `runbook_paths` (CSV, public paths like `/runbooks/x.md`)
++    - `dashboard_paths` (CSV, public paths like `/grafana/d/<uid>/...`)
++    - `updated_ts_ms`
++
++## Alerts
++- `MonitoringSmokeRunbooksBroken`
++- `MonitoringSmokeDashboardsBroken`
++- `MonitoringSmokeAlertmanagerApiBroken`
++- `MonitoringSmokePrometheusApiBroken`
++- `MonitoringSmokeBlackboxExporterBroken`
++- `MonitoringSmokeTargetsStale`
++
++## Quick triage
++1) Open dashboard: `/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1`
++2) Identify which flag is 0:
++   - runbooks_ok / dashboards_ok / am_api_ok / prom_api_ok / blackbox_ok / targets_stale
++3) Inspect last result payload in Redis:
++```bash
++redis-cli HGETALL metrics:monitoring_smoke:last
++```
++4) If contract targets stale:
++```bash
++redis-cli HGETALL cfg:monitoring_smoke:targets
++```
++
++## Fix by symptom
++
++### Runbooks broken
++Typical causes:
++- runbooks-web container down
++- public-proxy route `/runbooks/*` misconfigured
++- missing markdown file under `monitoring/runbooks/`
++
++Actions:
++1) Public check:
++```bash
++curl -I https://<domain>/runbooks/healthz
++curl -I https://<domain>/runbooks/web_uptime.md
++```
++2) Internal check:
++```bash
++docker logs -n 200 trade-runbooks-web
++```
++
++### Dashboards broken (Grafana routes)
++Typical causes:
++- public-proxy route `/grafana/*` broken
++- Grafana down
++- wrong subpath config (root_url)
++
++Actions:
++```bash
++curl -I https://<domain>/grafana/api/health
++curl -I https://<domain>/grafana/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1
++```
++
++### Alertmanager / Prometheus API broken
++Actions:
++```bash
++curl -I https://<domain>/alertmanager/api/v2/status
++curl -I https://<domain>/prometheus/api/v1/status/runtimeinfo
++```
++If `/-/ready` is OK but API is not, check public-proxy path rewriting.
++
++### Blackbox exporter unhealthy (internal)
++Actions:
++```bash
++docker logs -n 200 trade-blackbox-exporter
++docker exec -it trade-prometheus wget -qO- http://trade-blackbox-exporter:9115/-/healthy
++```
++
++### Targets stale
++This means `cfg:monitoring_smoke:targets.updated_ts_ms` is missing or older than
++`MONITORING_SMOKE_TARGETS_MAX_AGE_S` (default 7 days).
++
++Actions:
++1) Refresh targets from alert annotations:
++```bash
++export PYTHONPATH=./tick_flow_full:./ml_analysis
++export REDIS_URL="redis://redis-worker-1:6379/0"
++python -m ml_analysis.tools.build_smoke_contract_targets_from_alerts_v1
++redis-cli HGETALL cfg:monitoring_smoke:targets
++```
++2) Ensure nightly refresh is enabled:
++- `ENABLE_MONITORING_SMOKE_TARGETS_REFRESH=1`
++- check `services/of_timers_worker.py` logs.
++
+diff --git a/ok_rate_logic/prometheus_alerts_monitoring_smoke_contract_v1.yml b/ok_rate_logic/prometheus_alerts_monitoring_smoke_contract_v1.yml
+index c8d9110..6b9e8f3 100644
+--- a/ok_rate_logic/prometheus_alerts_monitoring_smoke_contract_v1.yml
++++ b/ok_rate_logic/prometheus_alerts_monitoring_smoke_contract_v1.yml
+@@ -12,7 +12,7 @@ groups:
+         annotations:
+           summary: "Monitoring contract broken: runbooks URLs"
+           description: "Nightly monitoring smoke detected broken runbooks URLs under public-proxy (non-200). Fix runbooks-web routing or file paths."
+-          runbook_path: "/web_uptime.md"
++          runbook_path: "/monitoring_smoke.md"
+           dashboard_path: "/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1"
+
+       - alert: MonitoringSmokeDashboardsBroken
+@@ -26,5 +26,5 @@ groups:
+         annotations:
+           summary: "Monitoring contract broken: Grafana dashboards routes"
+           description: "Nightly monitoring smoke detected broken Grafana dashboard routes under public-proxy (non-200). Fix public-proxy/grafana subpath routing."
+-          runbook_path: "/web_uptime.md"
++          runbook_path: "/monitoring_smoke.md"
+           dashboard_path: "/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1"
+diff --git a/ok_rate_logic/prometheus_alerts_monitoring_smoke_apis_v1.yml b/ok_rate_logic/prometheus_alerts_monitoring_smoke_apis_v1.yml
+index ad1c5a1..a49df1f 100644
+--- a/ok_rate_logic/prometheus_alerts_monitoring_smoke_apis_v1.yml
++++ b/ok_rate_logic/prometheus_alerts_monitoring_smoke_apis_v1.yml
+@@ -12,7 +12,7 @@ groups:
+         annotations:
+           summary: "Monitoring smoke: Alertmanager API broken"
+           description: "Nightly monitoring smoke detected Alertmanager /api/v2/status under public-proxy is not OK."
+-          runbook_path: "/web_uptime.md"
++          runbook_path: "/monitoring_smoke.md"
+           dashboard_path: "/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1"
+
+       - alert: MonitoringSmokePrometheusApiBroken
+@@ -26,5 +26,5 @@ groups:
+         annotations:
+           summary: "Monitoring smoke: Prometheus API broken"
+           description: "Nightly monitoring smoke detected Prometheus /api/v1/status/runtimeinfo under public-proxy is not OK."
+-          runbook_path: "/web_uptime.md"
++          runbook_path: "/monitoring_smoke.md"
+           dashboard_path: "/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1"
+diff --git a/ok_rate_logic/prometheus_alerts_monitoring_smoke_blackbox_v1.yml b/ok_rate_logic/prometheus_alerts_monitoring_smoke_blackbox_v1.yml
+index d0a0b57..a4d7c91 100644
+--- a/ok_rate_logic/prometheus_alerts_monitoring_smoke_blackbox_v1.yml
++++ b/ok_rate_logic/prometheus_alerts_monitoring_smoke_blackbox_v1.yml
+@@ -12,6 +12,6 @@ groups:
+         annotations:
+           summary: "Monitoring smoke: blackbox-exporter unhealthy"
+           description: "Nightly monitoring smoke detected blackbox-exporter /-/healthy is not OK (internal). Uptime probes may become unreliable."
+-          runbook_path: "/web_uptime.md"
++          runbook_path: "/monitoring_smoke.md"
+           dashboard_path: "/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1"
+diff --git a/ok_rate_logic/prometheus_alerts_monitoring_smoke_targets_stale_v1.yml b/ok_rate_logic/prometheus_alerts_monitoring_smoke_targets_stale_v1.yml
+index b3f8c6e..09b10d6 100644
+--- a/ok_rate_logic/prometheus_alerts_monitoring_smoke_targets_stale_v1.yml
++++ b/ok_rate_logic/prometheus_alerts_monitoring_smoke_targets_stale_v1.yml
+@@ -12,6 +12,6 @@ groups:
+         annotations:
+           summary: "Monitoring smoke targets stale"
+           description: "cfg:monitoring_smoke:targets is missing or older than MONITORING_SMOKE_TARGETS_MAX_AGE_S. Smoke contract may miss new alert links."
+-          runbook_path: "/web_uptime.md"
++          runbook_path: "/monitoring_smoke.md"
+           dashboard_path: "/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1"
+diff --git a/monitoring/grafana/dashboards/monitoring_smoke.json b/monitoring/grafana/dashboards/monitoring_smoke.json
+index 7e92a8f..c55d3bb 100644
+--- a/monitoring/grafana/dashboards/monitoring_smoke.json
++++ b/monitoring/grafana/dashboards/monitoring_smoke.json
+@@ -5,7 +5,7 @@
+   "timezone": "browser",
+   "schemaVersion": 39,
+-  "version": 3,
++  "version": 4,
+   "editable": true,
+   "refresh": "30s",
+   "time": { "from": "now-48h", "to": "now" },
+@@ -90,6 +90,29 @@
+       "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
+       "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] }
+     },
++    {
++      "id": 14,
++      "type": "stat",
++      "title": "Targets stale (last)",
++      "gridPos": { "x": 0, "y": 12, "w": 6, "h": 6 },
++      "targets": [{ "expr": "monitoring_smoke_targets_stale", "refId": "A" }],
++      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "none",
++          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }
++        },
++        "overrides": []
++      }
++    },
++    {
++      "id": 15,
++      "type": "stat",
++      "title": "Targets age (seconds)",
++      "gridPos": { "x": 6, "y": 12, "w": 6, "h": 6 },
++      "targets": [{ "expr": "monitoring_smoke_targets_age_seconds", "refId": "A" }],
++      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
++      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
++    },
+     {
+       "id": 6,
+       "type": "timeseries",
+       "title": "Contract OK (last 48h)",
+-      "gridPos": { "x": 0, "y": 12, "w": 24, "h": 10 },
++      "gridPos": { "x": 0, "y": 18, "w": 24, "h": 10 },
+       "targets": [
+         { "expr": "monitoring_smoke_last_success", "legendFormat": "success", "refId": "A" },
+         { "expr": "monitoring_smoke_runbooks_ok", "legendFormat": "runbooks_ok", "refId": "B" },
+         { "expr": "monitoring_smoke_dashboards_ok", "legendFormat": "dashboards_ok", "refId": "C" },
+         { "expr": "monitoring_smoke_alertmanager_api_ok", "legendFormat": "am_api_ok", "refId": "D" },
+         { "expr": "monitoring_smoke_prometheus_api_ok", "legendFormat": "prom_api_ok", "refId": "E" },
+-        { "expr": "monitoring_smoke_blackbox_exporter_ok", "legendFormat": "blackbox_ok", "refId": "F" }
++        { "expr": "monitoring_smoke_blackbox_exporter_ok", "legendFormat": "blackbox_ok", "refId": "F" },
++        { "expr": "1 - monitoring_smoke_targets_stale", "legendFormat": "targets_fresh", "refId": "G" }
+       ],
+       "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+       "options": { "legend": { "displayMode": "table", "placement": "bottom" } }
+     },
+     {
+       "id": 7,
+       "type": "timeseries",
+       "title": "Failed checks total (trend)",
+-      "gridPos": { "x": 0, "y": 22, "w": 24, "h": 8 },
++      "gridPos": { "x": 0, "y": 28, "w": 24, "h": 8 },
+       "targets": [{ "expr": "monitoring_smoke_failed_checks_total", "legendFormat": "failed_total", "refId": "A" }],
+       "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+       "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+     }
+   ]
+ }

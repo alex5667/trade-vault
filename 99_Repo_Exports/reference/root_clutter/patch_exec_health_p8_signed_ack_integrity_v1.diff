@@ -1,0 +1,1673 @@
+--- a/services/orderflow/exec_health_freeze_control.py
++++ b/services/orderflow/exec_health_freeze_control.py
+@@ -2,23 +2,29 @@
+ 
+ """Latched control state for ExecHealth auto-freeze / manual thaw.
+ 
+-P7 purpose
+-----------
++P7/P8 purpose
++-------------
+ P5/P6 introduced a raw auto-freeze key that hard-blocks publish/entry paths.
+ That key alone is operationally weak because deleting it can thaw the system
+-without any audit trail. P7 adds a *latched* control/state layer:
+-
+-- autoguard trigger => writes ack-required latch into control/state hashes
+-- operator thaw => explicit manual_ack fields (operator/reason/ticket)
+-- consumers consult control/state first, raw freeze key only as last fallback
+-
+-This means a raw key deletion is no longer sufficient to clear the freeze.
++without any audit trail. P7 added a *latched* control/state layer. P8 hardens
++that flow further:
++
++- every autoguard trigger creates a pending ack nonce
++- operator thaw must provide the exact pending nonce (compare-and-set)
++- thaw writes a signed ack into control/state and into an audit event stream
++- control/state deletion without a valid ack-event can be detected separately
+ """
+ 
++import hashlib
++import hmac
+ import json
++import os
+ import time
+ from dataclasses import dataclass
+ from typing import Any, Dict, Mapping
++
++
++ACK_SIGNING_SECRET_ENV = "EXEC_HEALTH_ACK_SIGNING_SECRET"
+ 
+ 
+ def _now_ms() -> int:
+@@ -46,6 +52,11 @@
+         return bool(int(x))
+     except Exception:
+         return False
++
++
++def _secret(explicit: str | None = None) -> str:
++    sec = explicit if explicit is not None else os.getenv(ACK_SIGNING_SECRET_ENV, "")
++    return str(sec or "")
+ 
+ 
+ @dataclass(frozen=True)
+@@ -65,7 +76,89 @@
+     manual_override_active: bool
+     manual_override_action: str
+     manual_override_until_ts_ms: int
++    expected_ack_nonce: str
++    last_trigger_nonce: str
++    manual_ack_nonce: str
++    manual_ack_sig: str
++    manual_ack_event_id: str
++    last_trigger_event_id: str
+     raw_payload: Dict[str, Any]
++
++
++def build_manual_ack_signing_message(
++    *,
++    action: str,
++    operator: str,
++    reason: str,
++    ticket: str,
++    ack_nonce: str,
++    trigger_ts_ms: int,
++    ack_ts_ms: int,
++) -> str:
++    parts = [
++        "exec_health_manual_ack_v1",
++        str(action or "manual_ack_thaw"),
++        str(operator or ""),
++        str(reason or ""),
++        str(ticket or ""),
++        str(ack_nonce or ""),
++        str(int(trigger_ts_ms or 0)),
++        str(int(ack_ts_ms or 0)),
++    ]
++    return "|".join(parts)
++
++
++def sign_manual_ack(
++    *,
++    secret: str | None = None,
++    action: str,
++    operator: str,
++    reason: str,
++    ticket: str,
++    ack_nonce: str,
++    trigger_ts_ms: int,
++    ack_ts_ms: int,
++) -> str:
++    sec = _secret(secret)
++    if not sec:
++        return ""
++    msg = build_manual_ack_signing_message(
++        action=action,
++        operator=operator,
++        reason=reason,
++        ticket=ticket,
++        ack_nonce=ack_nonce,
++        trigger_ts_ms=trigger_ts_ms,
++        ack_ts_ms=ack_ts_ms,
++    ).encode("utf-8")
++    return hmac.new(sec.encode("utf-8"), msg, hashlib.sha256).hexdigest()
++
++
++def verify_manual_ack_signature(raw: Mapping[str, Any] | None, *, secret: str | None = None) -> bool:
++    obj = dict(raw or {})
++    sig = _s(obj.get("manual_ack_sig"), "")
++    nonce = _s(obj.get("manual_ack_nonce"), "")
++    action = _s(obj.get("manual_override_action"), "") or _s(obj.get("manual_ack_action"), "manual_ack_thaw")
++    operator = _s(obj.get("manual_ack_operator"), "")
++    reason = _s(obj.get("manual_ack_reason"), "")
++    ticket = _s(obj.get("manual_ack_ticket"), "")
++    trigger_ts_ms = _i(obj.get("last_trigger_ts_ms"), 0)
++    ack_ts_ms = _i(obj.get("manual_ack_ts_ms"), 0)
++    if action != "thaw" or not sig or not nonce or ack_ts_ms <= 0:
++        return False
++    exp = sign_manual_ack(
++        secret=secret,
++        action="thaw",
++        operator=operator,
++        reason=reason,
++        ticket=ticket,
++        ack_nonce=nonce,
++        trigger_ts_ms=trigger_ts_ms,
++        ack_ts_ms=ack_ts_ms,
++    )
++    if not exp:
++        return False
++    return hmac.compare_digest(sig, exp)
+ 
+ 
+ def parse_exec_health_freeze_control(raw: Any, *, now_ms: int | None = None) -> ExecHealthFreezeControlState:
+@@ -96,6 +189,12 @@
+     manual_override_active = _b(obj.get("manual_override_active"))
+     manual_override_action = _s(obj.get("manual_override_action"), "")
+     manual_override_until_ts_ms = _i(obj.get("manual_override_until_ts_ms"), 0)
++    expected_ack_nonce = _s(obj.get("expected_ack_nonce"), "")
++    last_trigger_nonce = _s(obj.get("last_trigger_nonce"), expected_ack_nonce)
++    manual_ack_nonce = _s(obj.get("manual_ack_nonce"), "")
++    manual_ack_sig = _s(obj.get("manual_ack_sig"), "")
++    manual_ack_event_id = _s(obj.get("manual_ack_event_id"), "")
++    last_trigger_event_id = _s(obj.get("last_trigger_event_id"), "")
+ 
+     effective = _b(obj.get("effective_freeze_active"))
+ 
+@@ -108,8 +207,6 @@
+             effective = False
+             source = source or "manual_override_thaw"
+     elif manual_ack_required and _i(obj.get("last_trigger_ts_ms"), 0) > 0:
+-        # Latched freeze survives expiry of the raw TTL key until an operator
+-        # explicitly records manual_ack.
+         effective = True
+         source = source or "autoguard"
+ 
+@@ -129,15 +226,30 @@
+         manual_override_active=bool(manual_override_active),
+         manual_override_action=manual_override_action,
+         manual_override_until_ts_ms=manual_override_until_ts_ms,
++        expected_ack_nonce=expected_ack_nonce,
++        last_trigger_nonce=last_trigger_nonce,
++        manual_ack_nonce=manual_ack_nonce,
++        manual_ack_sig=manual_ack_sig,
++        manual_ack_event_id=manual_ack_event_id,
++        last_trigger_event_id=last_trigger_event_id,
+         raw_payload=obj,
+     )
+ 
+ 
+-def build_autoguard_latch_update(*, prev: Mapping[str, Any] | None, now_ms: int, reasons: list[str], freeze_until_ts_ms: int) -> Dict[str, Any]:
++def build_autoguard_latch_update(
++    *,
++    prev: Mapping[str, Any] | None,
++    now_ms: int,
++    reasons: list[str],
++    freeze_until_ts_ms: int,
++    ack_nonce: str | None = None,
++    trigger_event_id: str = "",
++) -> Dict[str, Any]:
+     p = dict(prev or {})
++    nonce = str(ack_nonce or p.get("expected_ack_nonce") or f"ack-{int(now_ms)}")
+     return {
+         "schema_name": "exec_health_freeze_control",
+-        "schema_version": 1,
++        "schema_version": 2,
+         "updated_ts_ms": int(now_ms),
+         "effective_freeze_active": 1,
+         "control_source": "autoguard",
+@@ -149,10 +261,17 @@
+         "manual_ack_operator": "",
+         "manual_ack_reason": "",
+         "manual_ack_ticket": "",
++        "manual_ack_nonce": "",
++        "manual_ack_sig": "",
++        "manual_ack_event_id": "",
+         "manual_override_active": 0,
+         "manual_override_action": "",
+         "manual_override_until_ts_ms": 0,
++        "expected_ack_nonce": nonce,
++        "last_trigger_nonce": nonce,
+         "last_trigger_ts_ms": int(now_ms),
++        "last_trigger_event_id": str(trigger_event_id or ""),
++        "last_trigger_ts_iso": "",
+         "last_trigger_reasons_json": json.dumps(list(reasons), ensure_ascii=False),
+         "last_operator_action": "autoguard_freeze",
+         "trigger_total": _i(p.get("trigger_total"), 0) + 1,
+@@ -168,11 +287,16 @@
+     operator: str,
+     reason: str,
+     ticket: str,
++    provided_ack_nonce: str = "",
++    manual_ack_sig: str = "",
++    manual_ack_event_id: str = "",
+ ) -> Dict[str, Any]:
+     p = dict(prev or {})
++    expected = _s(p.get("expected_ack_nonce"), "")
++    nonce = str(provided_ack_nonce or expected or f"ack-{int(now_ms)}")
+     return {
+         "schema_name": "exec_health_freeze_control",
+-        "schema_version": 1,
++        "schema_version": 2,
+         "updated_ts_ms": int(now_ms),
+         "effective_freeze_active": 0,
+         "control_source": "manual_override_thaw",
+@@ -184,9 +308,16 @@
+         "manual_ack_operator": str(operator),
+         "manual_ack_reason": str(reason),
+         "manual_ack_ticket": str(ticket),
++        "manual_ack_nonce": nonce,
++        "manual_ack_sig": str(manual_ack_sig),
++        "manual_ack_event_id": str(manual_ack_event_id or ""),
+         "manual_override_active": 1,
+         "manual_override_action": "thaw",
+         "manual_override_until_ts_ms": 0,
++        "expected_ack_nonce": expected,
++        "last_trigger_nonce": _s(p.get("last_trigger_nonce"), expected),
++        "last_trigger_ts_ms": _i(p.get("last_trigger_ts_ms"), 0),
++        "last_trigger_event_id": _s(p.get("last_trigger_event_id"), ""),
+         "last_operator_action": "manual_ack_thaw",
+         "thaw_total": _i(p.get("thaw_total"), 0) + 1,
+         "trigger_total": _i(p.get("trigger_total"), 0),
+@@ -206,7 +337,7 @@
+     p = dict(prev or {})
+     return {
+         "schema_name": "exec_health_freeze_control",
+-        "schema_version": 1,
++        "schema_version": 2,
+         "updated_ts_ms": int(now_ms),
+         "effective_freeze_active": 1,
+         "control_source": "manual_override_freeze",
+@@ -218,9 +349,16 @@
+         "manual_ack_operator": _s(p.get("manual_ack_operator"), str(operator)),
+         "manual_ack_reason": _s(p.get("manual_ack_reason"), str(reason)),
+         "manual_ack_ticket": _s(p.get("manual_ack_ticket"), str(ticket)),
++        "manual_ack_nonce": _s(p.get("manual_ack_nonce"), ""),
++        "manual_ack_sig": _s(p.get("manual_ack_sig"), ""),
++        "manual_ack_event_id": _s(p.get("manual_ack_event_id"), ""),
+         "manual_override_active": 1,
+         "manual_override_action": "freeze",
+         "manual_override_until_ts_ms": int(until_ts_ms),
++        "expected_ack_nonce": _s(p.get("expected_ack_nonce"), ""),
++        "last_trigger_nonce": _s(p.get("last_trigger_nonce"), _s(p.get("expected_ack_nonce"), "")),
++        "last_trigger_ts_ms": _i(p.get("last_trigger_ts_ms"), 0),
++        "last_trigger_event_id": _s(p.get("last_trigger_event_id"), ""),
+         "last_operator_action": "manual_force_freeze",
+         "last_manual_freeze_operator": str(operator),
+         "last_manual_freeze_reason": str(reason),
+--- a/services/orderflow/exec_health_freeze_hook.py
++++ b/services/orderflow/exec_health_freeze_hook.py
+@@ -23,7 +23,7 @@
+ from dataclasses import dataclass
+ from typing import Any, Dict, Optional, Tuple
+ 
+-from services.orderflow.exec_health_freeze_control import parse_exec_health_freeze_control
++from services.orderflow.exec_health_freeze_control import parse_exec_health_freeze_control, verify_manual_ack_signature
+ from services.orderflow.metrics_exec_health_p6 import (
+     exec_health_freeze_hook_active,
+     exec_health_freeze_hook_block_total,
+@@ -195,10 +195,19 @@
+         ctl_raw = await redis.hgetall(control_key) if hasattr(redis, "hgetall") else {}
+         ctl = parse_exec_health_freeze_control(ctl_raw, now_ms=now)
+         if getattr(ctl, "raw_payload", None):
+-            state = _state_from_control(str(scope), ctl)
+-            _ASYNC_CACHE[cache_key] = (now + max(100, cache_ms), state)
+-            record_exec_health_freeze_state(scope=str(scope), state=state, blocked=bool(state.active), now_ms=now)
+-            return state
++            raw_payload = dict(getattr(ctl, "raw_payload", {}) or {})
++            if getattr(ctl, "manual_override_action", "") == "thaw" and getattr(ctl, "manual_override_active", False):
++                if verify_manual_ack_signature(raw_payload):
++                    state = _state_from_control(str(scope), ctl)
++                    _ASYNC_CACHE[cache_key] = (now + max(100, cache_ms), state)
++                    record_exec_health_freeze_state(scope=str(scope), state=state, blocked=bool(state.active), now_ms=now)
++                    return state
++                record_exec_health_freeze_reader_error(scope=str(scope), where="invalid_control_ack_signature")
++            else:
++                state = _state_from_control(str(scope), ctl)
++                _ASYNC_CACHE[cache_key] = (now + max(100, cache_ms), state)
++                record_exec_health_freeze_state(scope=str(scope), state=state, blocked=bool(state.active), now_ms=now)
++                return state
+     except Exception:
+         record_exec_health_freeze_reader_error(scope=str(scope), where="read_control")
+ 
+@@ -208,10 +217,19 @@
+         st_raw = await redis.hgetall(autoguard_state_key) if hasattr(redis, "hgetall") else {}
+         ctl = parse_exec_health_freeze_control(st_raw, now_ms=now)
+         if getattr(ctl, "raw_payload", None):
+-            state = _state_from_control(str(scope), ctl)
+-            _ASYNC_CACHE[cache_key] = (now + max(100, cache_ms), state)
+-            record_exec_health_freeze_state(scope=str(scope), state=state, blocked=bool(state.active), now_ms=now)
+-            return state
++            raw_payload = dict(getattr(ctl, "raw_payload", {}) or {})
++            if getattr(ctl, "manual_override_action", "") == "thaw" and getattr(ctl, "manual_override_active", False):
++                if verify_manual_ack_signature(raw_payload):
++                    state = _state_from_control(str(scope), ctl)
++                    _ASYNC_CACHE[cache_key] = (now + max(100, cache_ms), state)
++                    record_exec_health_freeze_state(scope=str(scope), state=state, blocked=bool(state.active), now_ms=now)
++                    return state
++                record_exec_health_freeze_reader_error(scope=str(scope), where="invalid_state_ack_signature")
++            else:
++                state = _state_from_control(str(scope), ctl)
++                _ASYNC_CACHE[cache_key] = (now + max(100, cache_ms), state)
++                record_exec_health_freeze_state(scope=str(scope), state=state, blocked=bool(state.active), now_ms=now)
++                return state
+     except Exception:
+         record_exec_health_freeze_reader_error(scope=str(scope), where="read_autoguard_state")
+ 
+--- a/services/orderflow/exec_health_freeze_integrity.py
++++ b/services/orderflow/exec_health_freeze_integrity.py
+@@ -0,0 +1,156 @@
++from __future__ import annotations
++
++import json
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
++
++from services.orderflow.exec_health_freeze_control import parse_exec_health_freeze_control, verify_manual_ack_signature
++
++
++VIOLATION_KINDS = [
++    "none",
++    "control_missing_pending_ack",
++    "state_missing_pending_ack",
++    "control_state_missing_without_valid_ack",
++    "thaw_without_valid_ack_event",
++    "invalid_ack_event_signature",
++    "invalid_control_ack_signature",
++]
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++def _s(x: Any, d: str = "") -> str:
++    try:
++        return str(x) if x is not None else str(d)
++    except Exception:
++        return str(d)
++
++
++def _event_payload(rec: Any) -> Tuple[str, Dict[str, Any]]:
++    if isinstance(rec, (list, tuple)) and len(rec) >= 2:
++        return str(rec[0]), dict(rec[1] or {})
++    return "", {}
++
++
++@dataclass(frozen=True)
++class FreezeIntegrityResult:
++    control_present: bool
++    state_present: bool
++    pending_ack_nonce: str
++    pending_trigger_ts_ms: int
++    valid_ack_event_present: bool
++    valid_ack_event_id: str
++    latest_trigger_event_id: str
++    latest_trigger_nonce: str
++    invalid_ack_event_present: bool
++    violation_kinds: List[str]
++
++
++
++def find_latest_trigger_event(events: Sequence[Any]) -> Tuple[str, Dict[str, Any]]:
++    for rec in events:
++        eid, payload = _event_payload(rec)
++        if _s(payload.get("kind")) == "autoguard_freeze_latch":
++            return eid, payload
++    return "", {}
++
++
++
++def find_ack_events_for_nonce(events: Sequence[Any], nonce: str) -> List[Tuple[str, Dict[str, Any]]]:
++    out: List[Tuple[str, Dict[str, Any]]] = []
++    for rec in events:
++        eid, payload = _event_payload(rec)
++        if _s(payload.get("kind")) == "manual_ack_thaw" and _s(payload.get("ack_nonce")) == str(nonce):
++            out.append((eid, payload))
++    return out
++
++
++
++def evaluate_freeze_integrity(
++    *,
++    control_raw: Mapping[str, Any] | None,
++    state_raw: Mapping[str, Any] | None,
++    events: Sequence[Any] | None,
++    now_ms: int | None = None,
++) -> FreezeIntegrityResult:
++    _ = int(now_ms or _now_ms())
++    control = parse_exec_health_freeze_control(control_raw or {})
++    state = parse_exec_health_freeze_control(state_raw or {})
++    evs = list(events or [])
++
++    control_present = bool(getattr(control, "raw_payload", None))
++    state_present = bool(getattr(state, "raw_payload", None))
++
++    pending_ack_nonce = control.expected_ack_nonce or state.expected_ack_nonce
++    pending_trigger_ts_ms = _i(control.raw_payload.get("last_trigger_ts_ms"), 0) or _i(state.raw_payload.get("last_trigger_ts_ms"), 0)
++
++    latest_trigger_event_id, latest_trigger_event = find_latest_trigger_event(evs)
++    latest_trigger_nonce = _s(latest_trigger_event.get("ack_nonce"), "")
++    if not pending_ack_nonce:
++        pending_ack_nonce = latest_trigger_nonce
++    if pending_trigger_ts_ms <= 0:
++        pending_trigger_ts_ms = _i(latest_trigger_event.get("trigger_ts_ms"), 0)
++
++    valid_ack_event_present = False
++    valid_ack_event_id = ""
++    invalid_ack_event_present = False
++    if pending_ack_nonce:
++        for eid, payload in find_ack_events_for_nonce(evs, pending_ack_nonce):
++            p = dict(payload)
++            p["manual_override_action"] = "thaw"
++            p["manual_ack_sig"] = _s(payload.get("ack_sig"), "")
++            p["manual_ack_nonce"] = _s(payload.get("ack_nonce"), "")
++            p["manual_ack_operator"] = _s(payload.get("operator"), "")
++            p["manual_ack_reason"] = _s(payload.get("reason"), "")
++            p["manual_ack_ticket"] = _s(payload.get("ticket"), "")
++            p["manual_ack_ts_ms"] = _i(payload.get("ts_ms"), 0)
++            p["last_trigger_ts_ms"] = _i(payload.get("trigger_ts_ms"), pending_trigger_ts_ms)
++            if verify_manual_ack_signature(p):
++                valid_ack_event_present = True
++                valid_ack_event_id = eid
++                break
++            invalid_ack_event_present = True
++
++    violations: List[str] = []
++    if control_present and control.manual_override_action == "thaw" and control.manual_override_active:
++        if not verify_manual_ack_signature(control.raw_payload):
++            violations.append("invalid_control_ack_signature")
++        elif pending_ack_nonce and not valid_ack_event_present:
++            violations.append("thaw_without_valid_ack_event")
++
++    pending_ack = bool((control.manual_ack_required or state.manual_ack_required or pending_ack_nonce) and not valid_ack_event_present)
++    if pending_ack and not control_present and state_present:
++        violations.append("control_missing_pending_ack")
++    if pending_ack and control_present and not state_present:
++        violations.append("state_missing_pending_ack")
++    if pending_ack and not control_present and not state_present and latest_trigger_nonce:
++        violations.append("control_state_missing_without_valid_ack")
++    if invalid_ack_event_present and not valid_ack_event_present:
++        violations.append("invalid_ack_event_signature")
++
++    if not violations:
++        violations = ["none"]
++
++    return FreezeIntegrityResult(
++        control_present=control_present,
++        state_present=state_present,
++        pending_ack_nonce=str(pending_ack_nonce or ""),
++        pending_trigger_ts_ms=int(pending_trigger_ts_ms or 0),
++        valid_ack_event_present=bool(valid_ack_event_present),
++        valid_ack_event_id=str(valid_ack_event_id or ""),
++        latest_trigger_event_id=str(latest_trigger_event_id or ""),
++        latest_trigger_nonce=str(latest_trigger_nonce or ""),
++        invalid_ack_event_present=bool(invalid_ack_event_present),
++        violation_kinds=violations,
++    )
+--- a/services/orderflow/tests/test_exec_health_freeze_control_v1.py
++++ b/services/orderflow/tests/test_exec_health_freeze_control_v1.py
+@@ -8,17 +8,19 @@
+ 
+ 
+ def test_parse_control_latched_freeze_requires_manual_ack() -> None:
+-    raw = build_autoguard_latch_update(prev={}, now_ms=10_000, reasons=["cross_scope_mode_mismatch"], freeze_until_ts_ms=11_000)
++    raw = build_autoguard_latch_update(prev={}, now_ms=10_000, reasons=["cross_scope_mode_mismatch"], freeze_until_ts_ms=11_000, ack_nonce="n1")
+     st = parse_exec_health_freeze_control(raw, now_ms=50_000)
+     assert st.effective_freeze_active is True
+     assert st.manual_ack_required is True
+     assert st.control_source == "autoguard"
++    assert st.expected_ack_nonce == "n1"
+ 
+ 
+ def test_parse_control_manual_thaw_override_clears_freeze() -> None:
+-    raw = build_manual_ack_thaw_update(prev={}, now_ms=20_000, operator="alex", reason="checked", ticket="INC-1")
++    raw = build_manual_ack_thaw_update(prev={"expected_ack_nonce": "n1", "last_trigger_ts_ms": 12000}, now_ms=20_000, operator="alex", reason="checked", ticket="INC-1", provided_ack_nonce="n1")
+     st = parse_exec_health_freeze_control(raw, now_ms=25_000)
+     assert st.effective_freeze_active is False
+     assert st.manual_ack_required is False
+     assert st.manual_override_action == "thaw"
+     assert st.manual_ack_operator == "alex"
++    assert st.manual_ack_nonce == "n1"
+--- a/services/orderflow/tests/test_exec_health_freeze_hook_control_v1.py
++++ b/services/orderflow/tests/test_exec_health_freeze_hook_control_v1.py
+@@ -2,7 +2,9 @@
+ 
+ import asyncio
+ import json
++import os
+ 
++from services.orderflow.exec_health_freeze_control import sign_manual_ack
+ from services.orderflow.exec_health_freeze_hook import aread_exec_health_auto_freeze
+ 
+ 
+@@ -33,7 +35,8 @@
+         'last_trigger_ts_ms': '10000',
+         'updated_ts_ms': '10000',
+         'freeze_reason': 'cross_scope_mode_mismatch',
+-        'schema_version': '1',
++        'schema_version': '2',
++        'expected_ack_nonce': 'n1',
+     }
+     r = FakeRedis(control=control, raw=None)
+ 
+@@ -46,16 +49,33 @@
+     assert r.get_calls == 0
+ 
+ 
+-def test_manual_thaw_override_wins_over_raw_freeze_key() -> None:
++def test_manual_thaw_override_wins_over_raw_freeze_key_only_with_valid_signature() -> None:
++    os.environ['EXEC_HEALTH_ACK_SIGNING_SECRET'] = 'test-secret'
++    sig = sign_manual_ack(
++        secret='test-secret',
++        action='thaw',
++        operator='alex',
++        reason='validated',
++        ticket='INC-1',
++        ack_nonce='n1',
++        trigger_ts_ms=12000,
++        ack_ts_ms=15000,
++    )
+     control = {
+         'effective_freeze_active': '0',
+         'control_source': 'manual_override_thaw',
+         'manual_ack_required': '0',
+         'manual_ack_ts_ms': '15000',
++        'manual_ack_operator': 'alex',
++        'manual_ack_reason': 'validated',
++        'manual_ack_ticket': 'INC-1',
++        'manual_ack_nonce': 'n1',
++        'manual_ack_sig': sig,
+         'manual_override_active': '1',
+         'manual_override_action': 'thaw',
++        'last_trigger_ts_ms': '12000',
+         'updated_ts_ms': '15000',
+-        'schema_version': '1',
++        'schema_version': '2',
+     }
+     raw = json.dumps({'freeze_active': 1, 'freeze_reason': 'drift', 'freeze_until_ts_ms': 60_000, 'ts_ms': 12_000})
+     r = FakeRedis(control=control, raw=raw)
+@@ -66,3 +86,33 @@
+     st = asyncio.run(_run())
+     assert st.active is False
+     assert r.get_calls == 0
++
++
++def test_invalid_manual_thaw_signature_falls_back_to_raw_freeze() -> None:
++    os.environ['EXEC_HEALTH_ACK_SIGNING_SECRET'] = 'test-secret'
++    control = {
++        'effective_freeze_active': '0',
++        'control_source': 'manual_override_thaw',
++        'manual_ack_required': '0',
++        'manual_ack_ts_ms': '15000',
++        'manual_ack_operator': 'alex',
++        'manual_ack_reason': 'validated',
++        'manual_ack_ticket': 'INC-1',
++        'manual_ack_nonce': 'n1',
++        'manual_ack_sig': 'bad',
++        'manual_override_active': '1',
++        'manual_override_action': 'thaw',
++        'last_trigger_ts_ms': '12000',
++        'updated_ts_ms': '15000',
++        'schema_version': '2',
++    }
++    raw = json.dumps({'freeze_active': 1, 'freeze_reason': 'drift', 'freeze_until_ts_ms': 60_000, 'ts_ms': 12_000})
++    r = FakeRedis(control=control, raw=raw)
++
++    async def _run():
++        return await aread_exec_health_auto_freeze(redis=r, scope='entry_policy_ctl2', now_ms=20_000, cache_ttl_ms=1, force=True)
++
++    st = asyncio.run(_run())
++    assert st.active is True
++    assert st.freeze_reason == 'drift'
++    assert r.get_calls == 1
+--- a/services/orderflow/tests/test_exec_health_freeze_integrity_v1.py
++++ b/services/orderflow/tests/test_exec_health_freeze_integrity_v1.py
+@@ -0,0 +1,52 @@
++from __future__ import annotations
++
++from services.orderflow.exec_health_freeze_control import sign_manual_ack
++from services.orderflow.exec_health_freeze_integrity import evaluate_freeze_integrity
++
++
++def test_detects_missing_control_state_without_valid_ack_event() -> None:
++    events = [
++        ('2-0', {'kind': 'autoguard_freeze_latch', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000'}),
++    ]
++    res = evaluate_freeze_integrity(control_raw={}, state_raw={}, events=events)
++    assert 'control_state_missing_without_valid_ack' in res.violation_kinds
++
++
++def test_valid_signed_ack_event_clears_pending_violation() -> None:
++    sig = sign_manual_ack(
++        secret='test-secret',
++        action='thaw',
++        operator='alex',
++        reason='validated',
++        ticket='INC-1',
++        ack_nonce='n1',
++        trigger_ts_ms=10000,
++        ack_ts_ms=11000,
++    )
++    events = [
++        ('3-0', {'kind': 'manual_ack_thaw', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000', 'ts_ms': '11000', 'operator': 'alex', 'reason': 'validated', 'ticket': 'INC-1', 'ack_sig': sig}),
++        ('2-0', {'kind': 'autoguard_freeze_latch', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000'}),
++    ]
++    import os
++    os.environ['EXEC_HEALTH_ACK_SIGNING_SECRET'] = 'test-secret'
++    res = evaluate_freeze_integrity(control_raw={}, state_raw={}, events=events)
++    assert res.valid_ack_event_present is True
++    assert res.violation_kinds == ['none']
++
++
++def test_detects_thaw_without_valid_ack_event() -> None:
++    control = {
++        'manual_override_active': '1',
++        'manual_override_action': 'thaw',
++        'manual_ack_ts_ms': '11000',
++        'manual_ack_operator': 'alex',
++        'manual_ack_reason': 'validated',
++        'manual_ack_ticket': 'INC-1',
++        'manual_ack_nonce': 'n1',
++        'manual_ack_sig': 'bad',
++        'expected_ack_nonce': 'n1',
++        'last_trigger_ts_ms': '10000',
++    }
++    events = [('2-0', {'kind': 'autoguard_freeze_latch', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000'})]
++    res = evaluate_freeze_integrity(control_raw=control, state_raw={}, events=events)
++    assert 'invalid_control_ack_signature' in res.violation_kinds
+--- a/orderflow_services/exec_health_slo_autoguard_v1.py
++++ b/orderflow_services/exec_health_slo_autoguard_v1.py
+@@ -4,6 +4,7 @@
+ import asyncio
+ import json
+ import os
++import secrets
+ import time
+ from dataclasses import dataclass
+ from typing import Any, Dict, List, Tuple
+@@ -54,6 +55,7 @@
+     freeze_key: str
+     control_key: str
+     notify_stream: str
++    event_stream: str
+     loop_s: int
+     mode_mismatch_minutes: int
+     drift_minutes: int
+@@ -74,6 +76,7 @@
+             freeze_key=os.getenv("EXEC_HEALTH_AUTO_FREEZE_KEY", "cfg:orderflow:exec_health:auto_freeze:v1"),
+             control_key=os.getenv("EXEC_HEALTH_FREEZE_CONTROL_KEY", "cfg:orderflow:exec_health:freeze_control:v1"),
+             notify_stream=os.getenv("EXEC_HEALTH_AUTOGUARD_NOTIFY_STREAM", "notify:telegram"),
++            event_stream=os.getenv("EXEC_HEALTH_FREEZE_EVENT_STREAM", "ops:exec_health:freeze_events:v1"),
+             loop_s=max(5, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_CHECK_EVERY_S", "30"), 30)),
+             mode_mismatch_minutes=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_MODE_MISMATCH_MINUTES", "5"), 5)),
+             drift_minutes=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_DRIFT_MINUTES", "10"), 10)),
+@@ -152,15 +155,28 @@
+         except Exception:
+             pass
+ 
++    async def _emit_event(self, payload: Dict[str, Any]) -> str:
++        try:
++            return str(await self.r.xadd(self.cfg.event_stream, stringify_mapping(payload), maxlen=5000) or "")
++        except Exception:
++            return ""
++
+     async def _set_state(self, state: Dict[str, Any]) -> None:
+         payload = {str(k): str(v) for k, v in state.items()}
+         await self.r.hset(self.cfg.state_key, mapping=payload)
+         await self.r.expire(self.cfg.state_key, max(300, self.cfg.cooldown_minutes * 180))
+ 
+ 
+-    async def _set_control_latch(self, *, now_ms: int, reasons: List[str], freeze_until_ts_ms: int) -> None:
++    async def _set_control_latch(self, *, now_ms: int, reasons: List[str], freeze_until_ts_ms: int, ack_nonce: str, trigger_event_id: str = "") -> None:
+         prev = await self._read_hash(self.cfg.control_key)
+-        payload = build_autoguard_latch_update(prev=prev, now_ms=now_ms, reasons=list(reasons), freeze_until_ts_ms=int(freeze_until_ts_ms))
++        payload = build_autoguard_latch_update(
++            prev=prev,
++            now_ms=now_ms,
++            reasons=list(reasons),
++            freeze_until_ts_ms=int(freeze_until_ts_ms),
++            ack_nonce=str(ack_nonce),
++            trigger_event_id=str(trigger_event_id or ""),
++        )
+         await self.r.hset(self.cfg.control_key, mapping=stringify_mapping(payload))
+         await self.r.expire(self.cfg.control_key, max(86400, self.cfg.freeze_minutes * 86400))
+ 
+@@ -227,8 +243,18 @@
+ 
+         if ev.should_trigger and now >= cooldown_until:
+             freeze_until_ts_ms = int(now + self.cfg.freeze_minutes * 60 * 1000)
++            ack_nonce = secrets.token_hex(16)
++            trigger_event_id = await self._emit_event({
++                "ts_ms": now,
++                "kind": "autoguard_freeze_latch",
++                "ack_nonce": ack_nonce,
++                "trigger_ts_ms": now,
++                "reasons_json": json.dumps(list(ev.trigger_reasons), ensure_ascii=False),
++                "freeze_until_ts_ms": freeze_until_ts_ms,
++                "source": "exec_health_slo_autoguard_v1",
++            })
+             await self._set_freeze(now_ms=now, reasons=ev.trigger_reasons)
+-            await self._set_control_latch(now_ms=now, reasons=ev.trigger_reasons, freeze_until_ts_ms=freeze_until_ts_ms)
++            await self._set_control_latch(now_ms=now, reasons=ev.trigger_reasons, freeze_until_ts_ms=freeze_until_ts_ms, ack_nonce=ack_nonce, trigger_event_id=trigger_event_id)
+             did_rb, from_sid, to_sid = await self._maybe_rollback(now_ms=now, reasons=ev.trigger_reasons, state=state)
+             state.update(
+                 {
+@@ -242,6 +268,12 @@
+                     "manual_ack_operator": "",
+                     "manual_ack_reason": "",
+                     "manual_ack_ticket": "",
++                    "manual_ack_nonce": "",
++                    "manual_ack_sig": "",
++                    "manual_ack_event_id": "",
++                    "expected_ack_nonce": str(ack_nonce),
++                    "last_trigger_nonce": str(ack_nonce),
++                    "last_trigger_event_id": str(trigger_event_id or ""),
+                     "control_source": "autoguard",
+                     "effective_freeze_active": 1,
+                     "last_rollback_ts_ms": int(now if did_rb else _i(state.get("last_rollback_ts_ms"), 0)),
+--- a/orderflow_services/exec_health_freeze_override_v1.py
++++ b/orderflow_services/exec_health_freeze_override_v1.py
+@@ -14,22 +14,17 @@
+     redis = None
+ 
+ from services.orderflow.exec_health_freeze_control import (
++    ACK_SIGNING_SECRET_ENV,
+     build_manual_ack_thaw_update,
+     build_manual_freeze_update,
+     parse_exec_health_freeze_control,
++    sign_manual_ack,
+     stringify_mapping,
+ )
+ 
+ 
+ def _now_ms() -> int:
+     return int(time.time() * 1000)
+-
+-
+-def _i(x: Any, d: int = 0) -> int:
+-    try:
+-        return int(float(x))
+-    except Exception:
+-        return int(d)
+ 
+ 
+ def _jprint(obj: Dict[str, Any]) -> None:
+@@ -64,6 +59,8 @@
+             "control_key": self.control_key,
+             "state_key": self.state_key,
+             "freeze_key": self.freeze_key,
++            "pending_ack_nonce": ctl.expected_ack_nonce or st.expected_ack_nonce,
++            "last_trigger_ts_ms": int(ctl.raw_payload.get("last_trigger_ts_ms") or st.raw_payload.get("last_trigger_ts_ms") or 0),
+             "control": dict(getattr(ctl, "raw_payload", {}) or {}),
+             "state_fallback": dict(getattr(st, "raw_payload", {}) or {}),
+             "raw_freeze": json.loads(raw) if raw else {},
+@@ -73,36 +70,81 @@
+         self.r.hset(key, mapping=stringify_mapping(payload))
+         self.r.expire(key, 86400 * 30)
+ 
+-    def _emit_event(self, payload: Dict[str, Any]) -> None:
++    def _emit_event(self, payload: Dict[str, Any]) -> str:
+         try:
+-            self.r.xadd(self.event_stream, stringify_mapping(payload), maxlen=5000)
++            return str(self.r.xadd(self.event_stream, stringify_mapping(payload), maxlen=5000) or "")
+         except Exception:
+-            pass
+-
+-    def thaw(self, *, operator: str, reason: str, ticket: str) -> Dict[str, Any]:
++            return ""
++
++    def thaw(self, *, operator: str, reason: str, ticket: str, nonce: str) -> Dict[str, Any]:
+         now = _now_ms()
+-        if not operator.strip() or not reason.strip():
+-            raise ValueError("operator and reason are required")
++        if not operator.strip() or not reason.strip() or not nonce.strip():
++            raise ValueError("operator, reason and nonce are required")
++        secret = os.getenv(ACK_SIGNING_SECRET_ENV, "")
++        if not secret:
++            raise ValueError(f"{ACK_SIGNING_SECRET_ENV} is required for signed manual thaw")
++
+         prev_ctl = self._read_hash(self.control_key)
+-        upd = build_manual_ack_thaw_update(prev=prev_ctl, now_ms=now, operator=operator, reason=reason, ticket=ticket)
+-        self._write_hash(self.control_key, upd)
+-
+         prev_state = self._read_hash(self.state_key)
+-        state_upd = dict(prev_state)
+-        state_upd.update(upd)
+-        state_upd["state_manual_ack_written_ts_ms"] = int(now)
+-        self._write_hash(self.state_key, state_upd)
+-
+-        ev = {
++        ctl = parse_exec_health_freeze_control(prev_ctl)
++        st = parse_exec_health_freeze_control(prev_state)
++        expected_nonce = ctl.expected_ack_nonce or st.expected_ack_nonce
++        trigger_ts_ms = int(prev_ctl.get("last_trigger_ts_ms") or prev_state.get("last_trigger_ts_ms") or 0)
++        if not expected_nonce:
++            raise ValueError("no pending ack nonce found in control/state")
++        if str(nonce) != str(expected_nonce):
++            raise ValueError("ack nonce mismatch (CAS failed)")
++        if not (ctl.manual_ack_required or st.manual_ack_required or ctl.effective_freeze_active or st.effective_freeze_active):
++            raise ValueError("freeze is not awaiting manual ack")
++
++        sig = sign_manual_ack(
++            secret=secret,
++            action="thaw",
++            operator=operator,
++            reason=reason,
++            ticket=ticket,
++            ack_nonce=str(nonce),
++            trigger_ts_ms=trigger_ts_ms,
++            ack_ts_ms=now,
++        )
++        event_payload = {
+             "ts_ms": now,
+             "kind": "manual_ack_thaw",
+             "operator": operator,
+             "reason": reason,
+             "ticket": ticket,
++            "ack_nonce": str(nonce),
++            "trigger_ts_ms": int(trigger_ts_ms),
++            "ack_sig": sig,
++            "source": "exec_health_freeze_override_v1",
+             "control_key": self.control_key,
+         }
+-        self._emit_event(ev)
+-        return {"ok": True, "action": "thaw", **ev, "effective_freeze_active": 0}
++        event_id = self._emit_event(event_payload)
++
++        upd = build_manual_ack_thaw_update(
++            prev=prev_ctl,
++            now_ms=now,
++            operator=operator,
++            reason=reason,
++            ticket=ticket,
++            provided_ack_nonce=str(nonce),
++            manual_ack_sig=sig,
++            manual_ack_event_id=event_id,
++        )
++        self._write_hash(self.control_key, upd)
++
++        state_upd = dict(prev_state)
++        state_upd.update(upd)
++        state_upd["state_manual_ack_written_ts_ms"] = int(now)
++        self._write_hash(self.state_key, state_upd)
++
++        return {
++            "ok": True,
++            "action": "thaw",
++            **event_payload,
++            "event_id": event_id,
++            "effective_freeze_active": 0,
++        }
+ 
+     def freeze(self, *, operator: str, reason: str, ticket: str, minutes: int) -> Dict[str, Any]:
+         now = _now_ms()
+@@ -151,6 +193,7 @@
+     ap.add_argument("--operator", default=os.getenv("OPERATOR", ""))
+     ap.add_argument("--reason", default=os.getenv("REASON", ""))
+     ap.add_argument("--ticket", default=os.getenv("TICKET", ""))
++    ap.add_argument("--nonce", default=os.getenv("ACK_NONCE", ""))
+     ap.add_argument("--minutes", type=int, default=int(os.getenv("EXEC_HEALTH_MANUAL_FREEZE_MINUTES", "30") or 30))
+     return ap
+ 
+@@ -162,7 +205,7 @@
+         _jprint(ctl.status())
+         return 0
+     if args.command == "thaw":
+-        _jprint(ctl.thaw(operator=args.operator, reason=args.reason, ticket=args.ticket))
++        _jprint(ctl.thaw(operator=args.operator, reason=args.reason, ticket=args.ticket, nonce=args.nonce))
+         return 0
+     if args.command == "freeze":
+         _jprint(ctl.freeze(operator=args.operator, reason=args.reason, ticket=args.ticket, minutes=args.minutes))
+--- a/orderflow_services/exec_health_freeze_integrity_exporter_v1.py
++++ b/orderflow_services/exec_health_freeze_integrity_exporter_v1.py
+@@ -0,0 +1,88 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import os
++import time
++from typing import Any, Dict, List, Tuple
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++from prometheus_client import Gauge, start_http_server
++
++from services.orderflow.exec_health_freeze_integrity import VIOLATION_KINDS, evaluate_freeze_integrity
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++UP = Gauge("exec_health_freeze_integrity_exporter_up", "1 if exporter can read freeze control integrity state")
++CONTROL_PRESENT = Gauge("exec_health_freeze_integrity_control_present", "1 if freeze control hash is present")
++STATE_PRESENT = Gauge("exec_health_freeze_integrity_state_present", "1 if autoguard state hash is present")
++PENDING_ACK = Gauge("exec_health_freeze_integrity_pending_ack", "1 if a pending signed manual ack is still required")
++VALID_ACK_EVENT = Gauge("exec_health_freeze_integrity_valid_ack_event_present", "1 if a valid signed ack event exists for the current nonce")
++INVALID_ACK_EVENT = Gauge("exec_health_freeze_integrity_invalid_ack_event_present", "1 if an invalid ack event was observed")
++VIOLATION = Gauge("exec_health_freeze_integrity_violation", "One-hot freeze integrity violations", ["kind"])
++LAST_TRIGGER_TS_MS = Gauge("exec_health_freeze_integrity_last_trigger_ts_ms", "Latest trigger ts referenced by control/state or stream")
++STATE_AGE_S = Gauge("exec_health_freeze_integrity_state_age_seconds", "Max age of control/state hashes")
++
++
++def _read_events(r: Any, key: str, count: int) -> List[Tuple[str, Dict[str, Any]]]:
++    try:
++        rows = r.xrevrange(key, count=max(1, int(count))) or []
++        return [(str(eid), dict(payload or {})) for eid, payload in rows]
++    except Exception:
++        return []
++
++
++def main() -> None:
++    redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++    control_key = os.getenv("EXEC_HEALTH_FREEZE_CONTROL_KEY", "cfg:orderflow:exec_health:freeze_control:v1")
++    state_key = os.getenv("EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY", "metrics:exec_health:slo:autoguard:state")
++    event_stream = os.getenv("EXEC_HEALTH_FREEZE_EVENT_STREAM", "ops:exec_health:freeze_events:v1")
++    port = int(os.getenv("EXEC_HEALTH_FREEZE_INTEGRITY_EXPORTER_PORT", "9828"))
++    interval_s = float(os.getenv("EXEC_HEALTH_FREEZE_INTEGRITY_EXPORTER_INTERVAL_S", "10") or 10)
++    event_count = int(os.getenv("EXEC_HEALTH_FREEZE_INTEGRITY_EVENT_COUNT", "100") or 100)
++    if redis is None:
++        raise RuntimeError("redis dependency missing")
++    r = redis.Redis.from_url(redis_url, decode_responses=True)
++    start_http_server(port)
++    while True:
++        try:
++            control = r.hgetall(control_key) or {}
++            state = r.hgetall(state_key) or {}
++            events = _read_events(r, event_stream, event_count)
++            res = evaluate_freeze_integrity(control_raw=control, state_raw=state, events=events, now_ms=_now_ms())
++            UP.set(1.0)
++            CONTROL_PRESENT.set(1.0 if res.control_present else 0.0)
++            STATE_PRESENT.set(1.0 if res.state_present else 0.0)
++            PENDING_ACK.set(1.0 if res.pending_ack_nonce and not res.valid_ack_event_present else 0.0)
++            VALID_ACK_EVENT.set(1.0 if res.valid_ack_event_present else 0.0)
++            INVALID_ACK_EVENT.set(1.0 if res.invalid_ack_event_present else 0.0)
++            LAST_TRIGGER_TS_MS.set(float(res.pending_trigger_ts_ms or 0))
++            now_ms = _now_ms()
++            ages = []
++            if control:
++                ages.append(max(0.0, float(now_ms - _i(control.get("updated_ts_ms"), 0)) / 1000.0))
++            if state:
++                ages.append(max(0.0, float(now_ms - _i(state.get("updated_ts_ms"), 0)) / 1000.0))
++            STATE_AGE_S.set(max(ages) if ages else 0.0)
++            active = set(res.violation_kinds)
++            for kind in VIOLATION_KINDS:
++                VIOLATION.labels(kind=kind).set(1.0 if kind in active else 0.0)
++        except Exception:
++            UP.set(0.0)
++        time.sleep(interval_s)
++
++
++if __name__ == "__main__":
++    main()
+--- a/orderflow_services/prometheus_alerts_exec_health_freeze_integrity_v1.yml
++++ b/orderflow_services/prometheus_alerts_exec_health_freeze_integrity_v1.yml
+@@ -0,0 +1,24 @@
++groups:
++  - name: exec-health-freeze-integrity-v1
++    rules:
++      - alert: OF_ExecHealth_FreezeIntegrity_ExporterStale_Warn
++        expr: exec_health_freeze_integrity_exporter_up == 0
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: ExecHealth freeze integrity exporter is down
++      - alert: OF_ExecHealth_FreezeIntegrity_TamperDetected_Crit
++        expr: max without(kind) (exec_health_freeze_integrity_violation{kind!="none"}) > 0
++        for: 2m
++        labels:
++          severity: critical
++        annotations:
++          summary: ExecHealth freeze control/state tamper or unsigned thaw detected
++      - alert: OF_ExecHealth_FreezeIntegrity_PendingAckStuck_Warn
++        expr: exec_health_freeze_integrity_pending_ack == 1
++        for: 30m
++        labels:
++          severity: warning
++        annotations:
++          summary: ExecHealth freeze still waits for a valid signed manual ack
+--- a/orderflow_services/runbook_exec_health_freeze_integrity_v1.md
++++ b/orderflow_services/runbook_exec_health_freeze_integrity_v1.md
+@@ -0,0 +1,18 @@
++# ExecHealth Freeze Integrity (v1)
++
++Purpose: detect control/state deletion, unsigned thaw, or missing signed ack-event.
++
++Key checks:
++- pending ack nonce exists after autoguard freeze
++- manual thaw must emit signed `manual_ack_thaw` event
++- control/state disappearance without valid ack-event is a tamper violation
++
++Primary metrics:
++- `exec_health_freeze_integrity_violation{kind=...}`
++- `exec_health_freeze_integrity_pending_ack`
++- `exec_health_freeze_integrity_valid_ack_event_present`
++
++Operator flow:
++1. `status` to read the current pending nonce.
++2. `thaw --nonce <pending_nonce> --operator ... --reason ... --ticket ...`
++3. Verify exporter shows `valid_ack_event_present=1` and `violation{kind="none"}=1`.
+--- a/orderflow_services/grafana/exec_health_freeze_integrity_v1.json
++++ b/orderflow_services/grafana/exec_health_freeze_integrity_v1.json
+@@ -0,0 +1,18 @@
++{
++  "title": "ExecHealth Freeze Integrity (v1)",
++  "panels": [
++    {
++      "title": "Violations",
++      "targets": [
++        {"expr": "exec_health_freeze_integrity_violation"}
++      ]
++    },
++    {
++      "title": "Ack state",
++      "targets": [
++        {"expr": "exec_health_freeze_integrity_pending_ack"},
++        {"expr": "exec_health_freeze_integrity_valid_ack_event_present"}
++      ]
++    }
++  ]
++}
+--- a/orderflow_services/tests/test_exec_health_freeze_override_v1.py
++++ b/orderflow_services/tests/test_exec_health_freeze_override_v1.py
+@@ -1,6 +1,8 @@
+ from __future__ import annotations
+ 
+-from services.orderflow.exec_health_freeze_control import parse_exec_health_freeze_control
++import os
++
++from services.orderflow.exec_health_freeze_control import parse_exec_health_freeze_control, verify_manual_ack_signature
+ from orderflow_services.exec_health_freeze_override_v1 import OverrideController
+ 
+ 
+@@ -11,6 +13,8 @@
+                 'effective_freeze_active': '1',
+                 'control_source': 'autoguard',
+                 'manual_ack_required': '1',
++                'expected_ack_nonce': 'n1',
++                'last_trigger_nonce': 'n1',
+                 'last_trigger_ts_ms': '10000',
+                 'updated_ts_ms': '10000',
+             },
+@@ -42,16 +46,36 @@
+         return '1-0'
+ 
+ 
+-def test_manual_thaw_requires_operator_and_persists_ack_fields() -> None:
++def test_manual_thaw_requires_nonce_and_persists_signed_ack_fields() -> None:
++    os.environ['EXEC_HEALTH_ACK_SIGNING_SECRET'] = 'test-secret'
+     c = OverrideController.__new__(OverrideController)
+     c.control_key = 'cfg:orderflow:exec_health:freeze_control:v1'
+     c.state_key = 'metrics:exec_health:slo:autoguard:state'
+     c.freeze_key = 'cfg:orderflow:exec_health:auto_freeze:v1'
+     c.event_stream = 'ops:exec_health:freeze_events:v1'
+     c.r = FakeRedis()
+-    out = c.thaw(operator='alex', reason='validated rollback', ticket='INC-42')
++    out = c.thaw(operator='alex', reason='validated rollback', ticket='INC-42', nonce='n1')
+     assert out['ok'] is True
+     st = parse_exec_health_freeze_control(c.r.hashes[c.control_key])
+     assert st.effective_freeze_active is False
+     assert st.manual_ack_operator == 'alex'
+     assert st.manual_ack_reason == 'validated rollback'
++    assert st.manual_ack_nonce == 'n1'
++    assert verify_manual_ack_signature(c.r.hashes[c.control_key], secret='test-secret') is True
++    assert c.r.stream[-1][1]['ack_nonce'] == 'n1'
++
++
++def test_manual_thaw_cas_fails_on_wrong_nonce() -> None:
++    os.environ['EXEC_HEALTH_ACK_SIGNING_SECRET'] = 'test-secret'
++    c = OverrideController.__new__(OverrideController)
++    c.control_key = 'cfg:orderflow:exec_health:freeze_control:v1'
++    c.state_key = 'metrics:exec_health:slo:autoguard:state'
++    c.freeze_key = 'cfg:orderflow:exec_health:auto_freeze:v1'
++    c.event_stream = 'ops:exec_health:freeze_events:v1'
++    c.r = FakeRedis()
++    try:
++        c.thaw(operator='alex', reason='validated rollback', ticket='INC-42', nonce='wrong')
++    except ValueError as e:
++        assert 'CAS failed' in str(e)
++    else:
++        raise AssertionError('expected CAS failure')
+--- a/orderflow_services/tests/test_exec_health_slo_autoguard_control_v1.py
++++ b/orderflow_services/tests/test_exec_health_slo_autoguard_control_v1.py
+@@ -1,7 +1,6 @@
+ from __future__ import annotations
+ 
+ import asyncio
+-import json
+ 
+ from orderflow_services.exec_health_slo_autoguard_v1 import AutoGuard, GuardCfg
+ 
+@@ -17,6 +16,7 @@
+             'cfg:orderflow:exec_health:freeze_control:v1': {},
+         }
+         self.values = {'cfg:orderflow:overrides:v1:active_sid': 'a', 'cfg:orderflow:overrides:v1:prev_sid': 'a'}
++        self.streams = {}
+ 
+     async def hgetall(self, key: str):
+         return dict(self.hashes.get(key, {}))
+@@ -38,10 +38,13 @@
+         return self.values.get(key)
+ 
+     async def xadd(self, key: str, mapping, maxlen=0):
+-        return '1-0'
++        arr = self.streams.setdefault(key, [])
++        eid = f"{len(arr)+1}-0"
++        arr.append((eid, dict(mapping)))
++        return eid
+ 
+ 
+-def test_autoguard_writes_latched_control_state() -> None:
++def test_autoguard_writes_latched_control_state_and_pending_nonce() -> None:
+     cfg = GuardCfg(
+         redis_url='redis://test/0',
+         summary_key='metrics:exec_health:slo:last',
+@@ -49,6 +52,7 @@
+         freeze_key='cfg:orderflow:exec_health:auto_freeze:v1',
+         control_key='cfg:orderflow:exec_health:freeze_control:v1',
+         notify_stream='notify:telegram',
++        event_stream='ops:exec_health:freeze_events:v1',
+         loop_s=30,
+         mode_mismatch_minutes=0,
+         drift_minutes=10,
+@@ -69,3 +73,5 @@
+     assert ctl.get('effective_freeze_active') == '1'
+     assert ctl.get('manual_ack_required') == '1'
+     assert ctl.get('control_source') == 'autoguard'
++    assert ctl.get('expected_ack_nonce')
++    assert g.r.streams['ops:exec_health:freeze_events:v1'][-1][1]['kind'] == 'autoguard_freeze_latch'
+--- a/orderflow_services/tests/test_exec_health_slo_autoguard_v1.py
++++ b/orderflow_services/tests/test_exec_health_slo_autoguard_v1.py
+@@ -9,7 +9,9 @@
+         summary_key='k1',
+         state_key='k2',
+         freeze_key='k3',
++        control_key='k3c',
+         notify_stream='k4',
++        event_stream='k5',
+         loop_s=30,
+         mode_mismatch_minutes=5,
+         drift_minutes=10,
+--- a/orderflow_services/tests/test_exec_health_freeze_integrity_exporter_v1.py
++++ b/orderflow_services/tests/test_exec_health_freeze_integrity_exporter_v1.py
+@@ -0,0 +1,28 @@
++from __future__ import annotations
++
++from services.orderflow.exec_health_freeze_control import sign_manual_ack
++from services.orderflow.exec_health_freeze_integrity import evaluate_freeze_integrity
++
++
++def test_integrity_evaluator_sees_valid_ack_event() -> None:
++    import os
++    os.environ['EXEC_HEALTH_ACK_SIGNING_SECRET'] = 'test-secret'
++    sig = sign_manual_ack(
++        secret='test-secret',
++        action='thaw',
++        operator='alex',
++        reason='validated',
++        ticket='INC-1',
++        ack_nonce='n1',
++        trigger_ts_ms=10000,
++        ack_ts_ms=11000,
++    )
++    res = evaluate_freeze_integrity(
++        control_raw={'expected_ack_nonce': 'n1'},
++        state_raw={},
++        events=[
++            ('3-0', {'kind': 'manual_ack_thaw', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000', 'ts_ms': '11000', 'operator': 'alex', 'reason': 'validated', 'ticket': 'INC-1', 'ack_sig': sig}),
++            ('2-0', {'kind': 'autoguard_freeze_latch', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000'}),
++        ],
++    )
++    assert res.valid_ack_event_present is True
+--- a/orderflow_services/tests/test_exec_health_freeze_integrity_alerts_yaml_v1.py
++++ b/orderflow_services/tests/test_exec_health_freeze_integrity_alerts_yaml_v1.py
+@@ -0,0 +1,11 @@
++from __future__ import annotations
++
++from pathlib import Path
++import yaml
++
++
++def test_exec_health_freeze_integrity_alerts_yaml_has_expected_alerts() -> None:
++    obj = yaml.safe_load(Path('orderflow_services/prometheus_alerts_exec_health_freeze_integrity_v1.yml').read_text())
++    alerts = [r.get('alert') for g in obj.get('groups', []) for r in g.get('rules', [])]
++    assert 'OF_ExecHealth_FreezeIntegrity_TamperDetected_Crit' in alerts
++    assert 'OF_ExecHealth_FreezeIntegrity_PendingAckStuck_Warn' in alerts
+--- a/orderflow_services/tests/test_exec_health_freeze_integrity_dashboard_json_v1.py
++++ b/orderflow_services/tests/test_exec_health_freeze_integrity_dashboard_json_v1.py
+@@ -0,0 +1,12 @@
++from __future__ import annotations
++
++import json
++from pathlib import Path
++
++
++def test_exec_health_freeze_integrity_dashboard_json_title_and_queries() -> None:
++    obj = json.loads(Path('orderflow_services/grafana/exec_health_freeze_integrity_v1.json').read_text())
++    assert obj['title'] == 'ExecHealth Freeze Integrity (v1)'
++    q = json.dumps(obj)
++    assert 'exec_health_freeze_integrity_violation' in q
++    assert 'exec_health_freeze_integrity_valid_ack_event_present' in q
+--- a/tick_flow_full/orderflow_services/exec_health_slo_autoguard_v1.py
++++ b/tick_flow_full/orderflow_services/exec_health_slo_autoguard_v1.py
+@@ -4,9 +4,15 @@
+ import asyncio
+ import json
+ import os
++import secrets
+ import time
+ from dataclasses import dataclass
+ from typing import Any, Dict, List, Tuple
++
++from services.orderflow.exec_health_freeze_control import (
++    build_autoguard_latch_update,
++    stringify_mapping,
++)
+ 
+ try:
+     import redis.asyncio as aioredis  # type: ignore
+@@ -47,7 +53,9 @@
+     summary_key: str
+     state_key: str
+     freeze_key: str
++    control_key: str
+     notify_stream: str
++    event_stream: str
+     loop_s: int
+     mode_mismatch_minutes: int
+     drift_minutes: int
+@@ -66,7 +74,9 @@
+             summary_key=os.getenv("EXEC_HEALTH_SLO_SUMMARY_KEY", "metrics:exec_health:slo:last"),
+             state_key=os.getenv("EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY", "metrics:exec_health:slo:autoguard:state"),
+             freeze_key=os.getenv("EXEC_HEALTH_AUTO_FREEZE_KEY", "cfg:orderflow:exec_health:auto_freeze:v1"),
++            control_key=os.getenv("EXEC_HEALTH_FREEZE_CONTROL_KEY", "cfg:orderflow:exec_health:freeze_control:v1"),
+             notify_stream=os.getenv("EXEC_HEALTH_AUTOGUARD_NOTIFY_STREAM", "notify:telegram"),
++            event_stream=os.getenv("EXEC_HEALTH_FREEZE_EVENT_STREAM", "ops:exec_health:freeze_events:v1"),
+             loop_s=max(5, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_CHECK_EVERY_S", "30"), 30)),
+             mode_mismatch_minutes=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_MODE_MISMATCH_MINUTES", "5"), 5)),
+             drift_minutes=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_DRIFT_MINUTES", "10"), 10)),
+@@ -145,10 +155,30 @@
+         except Exception:
+             pass
+ 
++    async def _emit_event(self, payload: Dict[str, Any]) -> str:
++        try:
++            return str(await self.r.xadd(self.cfg.event_stream, stringify_mapping(payload), maxlen=5000) or "")
++        except Exception:
++            return ""
++
+     async def _set_state(self, state: Dict[str, Any]) -> None:
+         payload = {str(k): str(v) for k, v in state.items()}
+         await self.r.hset(self.cfg.state_key, mapping=payload)
+         await self.r.expire(self.cfg.state_key, max(300, self.cfg.cooldown_minutes * 180))
++
++
++    async def _set_control_latch(self, *, now_ms: int, reasons: List[str], freeze_until_ts_ms: int, ack_nonce: str, trigger_event_id: str = "") -> None:
++        prev = await self._read_hash(self.cfg.control_key)
++        payload = build_autoguard_latch_update(
++            prev=prev,
++            now_ms=now_ms,
++            reasons=list(reasons),
++            freeze_until_ts_ms=int(freeze_until_ts_ms),
++            ack_nonce=str(ack_nonce),
++            trigger_event_id=str(trigger_event_id or ""),
++        )
++        await self.r.hset(self.cfg.control_key, mapping=stringify_mapping(payload))
++        await self.r.expire(self.cfg.control_key, max(86400, self.cfg.freeze_minutes * 86400))
+ 
+     async def _set_freeze(self, *, now_ms: int, reasons: List[str]) -> None:
+         until = now_ms + int(self.cfg.freeze_minutes * 60 * 1000)
+@@ -212,15 +242,40 @@
+         )
+ 
+         if ev.should_trigger and now >= cooldown_until:
++            freeze_until_ts_ms = int(now + self.cfg.freeze_minutes * 60 * 1000)
++            ack_nonce = secrets.token_hex(16)
++            trigger_event_id = await self._emit_event({
++                "ts_ms": now,
++                "kind": "autoguard_freeze_latch",
++                "ack_nonce": ack_nonce,
++                "trigger_ts_ms": now,
++                "reasons_json": json.dumps(list(ev.trigger_reasons), ensure_ascii=False),
++                "freeze_until_ts_ms": freeze_until_ts_ms,
++                "source": "exec_health_slo_autoguard_v1",
++            })
+             await self._set_freeze(now_ms=now, reasons=ev.trigger_reasons)
++            await self._set_control_latch(now_ms=now, reasons=ev.trigger_reasons, freeze_until_ts_ms=freeze_until_ts_ms, ack_nonce=ack_nonce, trigger_event_id=trigger_event_id)
+             did_rb, from_sid, to_sid = await self._maybe_rollback(now_ms=now, reasons=ev.trigger_reasons, state=state)
+             state.update(
+                 {
+                     "freeze_active": 1,
+-                    "freeze_until_ts_ms": int(now + self.cfg.freeze_minutes * 60 * 1000),
++                    "freeze_until_ts_ms": int(freeze_until_ts_ms),
+                     "last_trigger_ts_ms": int(now),
+                     "last_trigger_reasons_json": json.dumps(list(ev.trigger_reasons), ensure_ascii=False),
+                     "last_action": "freeze+rollback" if did_rb else "freeze",
++                    "manual_ack_required": 1,
++                    "manual_ack_ts_ms": 0,
++                    "manual_ack_operator": "",
++                    "manual_ack_reason": "",
++                    "manual_ack_ticket": "",
++                    "manual_ack_nonce": "",
++                    "manual_ack_sig": "",
++                    "manual_ack_event_id": "",
++                    "expected_ack_nonce": str(ack_nonce),
++                    "last_trigger_nonce": str(ack_nonce),
++                    "last_trigger_event_id": str(trigger_event_id or ""),
++                    "control_source": "autoguard",
++                    "effective_freeze_active": 1,
+                     "last_rollback_ts_ms": int(now if did_rb else _i(state.get("last_rollback_ts_ms"), 0)),
+                     "last_rollback_from_sid": str(from_sid or state.get("last_rollback_from_sid") or ""),
+                     "last_rollback_to_sid": str(to_sid or state.get("last_rollback_to_sid") or ""),
+--- a/tick_flow_full/orderflow_services/exec_health_freeze_override_v1.py
++++ b/tick_flow_full/orderflow_services/exec_health_freeze_override_v1.py
+@@ -14,22 +14,17 @@
+     redis = None
+ 
+ from services.orderflow.exec_health_freeze_control import (
++    ACK_SIGNING_SECRET_ENV,
+     build_manual_ack_thaw_update,
+     build_manual_freeze_update,
+     parse_exec_health_freeze_control,
++    sign_manual_ack,
+     stringify_mapping,
+ )
+ 
+ 
+ def _now_ms() -> int:
+     return int(time.time() * 1000)
+-
+-
+-def _i(x: Any, d: int = 0) -> int:
+-    try:
+-        return int(float(x))
+-    except Exception:
+-        return int(d)
+ 
+ 
+ def _jprint(obj: Dict[str, Any]) -> None:
+@@ -64,6 +59,8 @@
+             "control_key": self.control_key,
+             "state_key": self.state_key,
+             "freeze_key": self.freeze_key,
++            "pending_ack_nonce": ctl.expected_ack_nonce or st.expected_ack_nonce,
++            "last_trigger_ts_ms": int(ctl.raw_payload.get("last_trigger_ts_ms") or st.raw_payload.get("last_trigger_ts_ms") or 0),
+             "control": dict(getattr(ctl, "raw_payload", {}) or {}),
+             "state_fallback": dict(getattr(st, "raw_payload", {}) or {}),
+             "raw_freeze": json.loads(raw) if raw else {},
+@@ -73,36 +70,81 @@
+         self.r.hset(key, mapping=stringify_mapping(payload))
+         self.r.expire(key, 86400 * 30)
+ 
+-    def _emit_event(self, payload: Dict[str, Any]) -> None:
++    def _emit_event(self, payload: Dict[str, Any]) -> str:
+         try:
+-            self.r.xadd(self.event_stream, stringify_mapping(payload), maxlen=5000)
++            return str(self.r.xadd(self.event_stream, stringify_mapping(payload), maxlen=5000) or "")
+         except Exception:
+-            pass
+-
+-    def thaw(self, *, operator: str, reason: str, ticket: str) -> Dict[str, Any]:
++            return ""
++
++    def thaw(self, *, operator: str, reason: str, ticket: str, nonce: str) -> Dict[str, Any]:
+         now = _now_ms()
+-        if not operator.strip() or not reason.strip():
+-            raise ValueError("operator and reason are required")
++        if not operator.strip() or not reason.strip() or not nonce.strip():
++            raise ValueError("operator, reason and nonce are required")
++        secret = os.getenv(ACK_SIGNING_SECRET_ENV, "")
++        if not secret:
++            raise ValueError(f"{ACK_SIGNING_SECRET_ENV} is required for signed manual thaw")
++
+         prev_ctl = self._read_hash(self.control_key)
+-        upd = build_manual_ack_thaw_update(prev=prev_ctl, now_ms=now, operator=operator, reason=reason, ticket=ticket)
+-        self._write_hash(self.control_key, upd)
+-
+         prev_state = self._read_hash(self.state_key)
+-        state_upd = dict(prev_state)
+-        state_upd.update(upd)
+-        state_upd["state_manual_ack_written_ts_ms"] = int(now)
+-        self._write_hash(self.state_key, state_upd)
+-
+-        ev = {
++        ctl = parse_exec_health_freeze_control(prev_ctl)
++        st = parse_exec_health_freeze_control(prev_state)
++        expected_nonce = ctl.expected_ack_nonce or st.expected_ack_nonce
++        trigger_ts_ms = int(prev_ctl.get("last_trigger_ts_ms") or prev_state.get("last_trigger_ts_ms") or 0)
++        if not expected_nonce:
++            raise ValueError("no pending ack nonce found in control/state")
++        if str(nonce) != str(expected_nonce):
++            raise ValueError("ack nonce mismatch (CAS failed)")
++        if not (ctl.manual_ack_required or st.manual_ack_required or ctl.effective_freeze_active or st.effective_freeze_active):
++            raise ValueError("freeze is not awaiting manual ack")
++
++        sig = sign_manual_ack(
++            secret=secret,
++            action="thaw",
++            operator=operator,
++            reason=reason,
++            ticket=ticket,
++            ack_nonce=str(nonce),
++            trigger_ts_ms=trigger_ts_ms,
++            ack_ts_ms=now,
++        )
++        event_payload = {
+             "ts_ms": now,
+             "kind": "manual_ack_thaw",
+             "operator": operator,
+             "reason": reason,
+             "ticket": ticket,
++            "ack_nonce": str(nonce),
++            "trigger_ts_ms": int(trigger_ts_ms),
++            "ack_sig": sig,
++            "source": "exec_health_freeze_override_v1",
+             "control_key": self.control_key,
+         }
+-        self._emit_event(ev)
+-        return {"ok": True, "action": "thaw", **ev, "effective_freeze_active": 0}
++        event_id = self._emit_event(event_payload)
++
++        upd = build_manual_ack_thaw_update(
++            prev=prev_ctl,
++            now_ms=now,
++            operator=operator,
++            reason=reason,
++            ticket=ticket,
++            provided_ack_nonce=str(nonce),
++            manual_ack_sig=sig,
++            manual_ack_event_id=event_id,
++        )
++        self._write_hash(self.control_key, upd)
++
++        state_upd = dict(prev_state)
++        state_upd.update(upd)
++        state_upd["state_manual_ack_written_ts_ms"] = int(now)
++        self._write_hash(self.state_key, state_upd)
++
++        return {
++            "ok": True,
++            "action": "thaw",
++            **event_payload,
++            "event_id": event_id,
++            "effective_freeze_active": 0,
++        }
+ 
+     def freeze(self, *, operator: str, reason: str, ticket: str, minutes: int) -> Dict[str, Any]:
+         now = _now_ms()
+@@ -151,6 +193,7 @@
+     ap.add_argument("--operator", default=os.getenv("OPERATOR", ""))
+     ap.add_argument("--reason", default=os.getenv("REASON", ""))
+     ap.add_argument("--ticket", default=os.getenv("TICKET", ""))
++    ap.add_argument("--nonce", default=os.getenv("ACK_NONCE", ""))
+     ap.add_argument("--minutes", type=int, default=int(os.getenv("EXEC_HEALTH_MANUAL_FREEZE_MINUTES", "30") or 30))
+     return ap
+ 
+@@ -162,7 +205,7 @@
+         _jprint(ctl.status())
+         return 0
+     if args.command == "thaw":
+-        _jprint(ctl.thaw(operator=args.operator, reason=args.reason, ticket=args.ticket))
++        _jprint(ctl.thaw(operator=args.operator, reason=args.reason, ticket=args.ticket, nonce=args.nonce))
+         return 0
+     if args.command == "freeze":
+         _jprint(ctl.freeze(operator=args.operator, reason=args.reason, ticket=args.ticket, minutes=args.minutes))
+--- a/tick_flow_full/orderflow_services/exec_health_freeze_integrity_exporter_v1.py
++++ b/tick_flow_full/orderflow_services/exec_health_freeze_integrity_exporter_v1.py
+@@ -0,0 +1,88 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import os
++import time
++from typing import Any, Dict, List, Tuple
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++from prometheus_client import Gauge, start_http_server
++
++from services.orderflow.exec_health_freeze_integrity import VIOLATION_KINDS, evaluate_freeze_integrity
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++UP = Gauge("exec_health_freeze_integrity_exporter_up", "1 if exporter can read freeze control integrity state")
++CONTROL_PRESENT = Gauge("exec_health_freeze_integrity_control_present", "1 if freeze control hash is present")
++STATE_PRESENT = Gauge("exec_health_freeze_integrity_state_present", "1 if autoguard state hash is present")
++PENDING_ACK = Gauge("exec_health_freeze_integrity_pending_ack", "1 if a pending signed manual ack is still required")
++VALID_ACK_EVENT = Gauge("exec_health_freeze_integrity_valid_ack_event_present", "1 if a valid signed ack event exists for the current nonce")
++INVALID_ACK_EVENT = Gauge("exec_health_freeze_integrity_invalid_ack_event_present", "1 if an invalid ack event was observed")
++VIOLATION = Gauge("exec_health_freeze_integrity_violation", "One-hot freeze integrity violations", ["kind"])
++LAST_TRIGGER_TS_MS = Gauge("exec_health_freeze_integrity_last_trigger_ts_ms", "Latest trigger ts referenced by control/state or stream")
++STATE_AGE_S = Gauge("exec_health_freeze_integrity_state_age_seconds", "Max age of control/state hashes")
++
++
++def _read_events(r: Any, key: str, count: int) -> List[Tuple[str, Dict[str, Any]]]:
++    try:
++        rows = r.xrevrange(key, count=max(1, int(count))) or []
++        return [(str(eid), dict(payload or {})) for eid, payload in rows]
++    except Exception:
++        return []
++
++
++def main() -> None:
++    redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++    control_key = os.getenv("EXEC_HEALTH_FREEZE_CONTROL_KEY", "cfg:orderflow:exec_health:freeze_control:v1")
++    state_key = os.getenv("EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY", "metrics:exec_health:slo:autoguard:state")
++    event_stream = os.getenv("EXEC_HEALTH_FREEZE_EVENT_STREAM", "ops:exec_health:freeze_events:v1")
++    port = int(os.getenv("EXEC_HEALTH_FREEZE_INTEGRITY_EXPORTER_PORT", "9828"))
++    interval_s = float(os.getenv("EXEC_HEALTH_FREEZE_INTEGRITY_EXPORTER_INTERVAL_S", "10") or 10)
++    event_count = int(os.getenv("EXEC_HEALTH_FREEZE_INTEGRITY_EVENT_COUNT", "100") or 100)
++    if redis is None:
++        raise RuntimeError("redis dependency missing")
++    r = redis.Redis.from_url(redis_url, decode_responses=True)
++    start_http_server(port)
++    while True:
++        try:
++            control = r.hgetall(control_key) or {}
++            state = r.hgetall(state_key) or {}
++            events = _read_events(r, event_stream, event_count)
++            res = evaluate_freeze_integrity(control_raw=control, state_raw=state, events=events, now_ms=_now_ms())
++            UP.set(1.0)
++            CONTROL_PRESENT.set(1.0 if res.control_present else 0.0)
++            STATE_PRESENT.set(1.0 if res.state_present else 0.0)
++            PENDING_ACK.set(1.0 if res.pending_ack_nonce and not res.valid_ack_event_present else 0.0)
++            VALID_ACK_EVENT.set(1.0 if res.valid_ack_event_present else 0.0)
++            INVALID_ACK_EVENT.set(1.0 if res.invalid_ack_event_present else 0.0)
++            LAST_TRIGGER_TS_MS.set(float(res.pending_trigger_ts_ms or 0))
++            now_ms = _now_ms()
++            ages = []
++            if control:
++                ages.append(max(0.0, float(now_ms - _i(control.get("updated_ts_ms"), 0)) / 1000.0))
++            if state:
++                ages.append(max(0.0, float(now_ms - _i(state.get("updated_ts_ms"), 0)) / 1000.0))
++            STATE_AGE_S.set(max(ages) if ages else 0.0)
++            active = set(res.violation_kinds)
++            for kind in VIOLATION_KINDS:
++                VIOLATION.labels(kind=kind).set(1.0 if kind in active else 0.0)
++        except Exception:
++            UP.set(0.0)
++        time.sleep(interval_s)
++
++
++if __name__ == "__main__":
++    main()
+--- a/tick_flow_full/orderflow_services/prometheus_alerts_exec_health_freeze_integrity_v1.yml
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_exec_health_freeze_integrity_v1.yml
+@@ -0,0 +1,24 @@
++groups:
++  - name: exec-health-freeze-integrity-v1
++    rules:
++      - alert: OF_ExecHealth_FreezeIntegrity_ExporterStale_Warn
++        expr: exec_health_freeze_integrity_exporter_up == 0
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: ExecHealth freeze integrity exporter is down
++      - alert: OF_ExecHealth_FreezeIntegrity_TamperDetected_Crit
++        expr: max without(kind) (exec_health_freeze_integrity_violation{kind!="none"}) > 0
++        for: 2m
++        labels:
++          severity: critical
++        annotations:
++          summary: ExecHealth freeze control/state tamper or unsigned thaw detected
++      - alert: OF_ExecHealth_FreezeIntegrity_PendingAckStuck_Warn
++        expr: exec_health_freeze_integrity_pending_ack == 1
++        for: 30m
++        labels:
++          severity: warning
++        annotations:
++          summary: ExecHealth freeze still waits for a valid signed manual ack
+--- a/tick_flow_full/orderflow_services/runbook_exec_health_freeze_integrity_v1.md
++++ b/tick_flow_full/orderflow_services/runbook_exec_health_freeze_integrity_v1.md
+@@ -0,0 +1,18 @@
++# ExecHealth Freeze Integrity (v1)
++
++Purpose: detect control/state deletion, unsigned thaw, or missing signed ack-event.
++
++Key checks:
++- pending ack nonce exists after autoguard freeze
++- manual thaw must emit signed `manual_ack_thaw` event
++- control/state disappearance without valid ack-event is a tamper violation
++
++Primary metrics:
++- `exec_health_freeze_integrity_violation{kind=...}`
++- `exec_health_freeze_integrity_pending_ack`
++- `exec_health_freeze_integrity_valid_ack_event_present`
++
++Operator flow:
++1. `status` to read the current pending nonce.
++2. `thaw --nonce <pending_nonce> --operator ... --reason ... --ticket ...`
++3. Verify exporter shows `valid_ack_event_present=1` and `violation{kind="none"}=1`.
+--- a/tick_flow_full/orderflow_services/grafana/exec_health_freeze_integrity_v1.json
++++ b/tick_flow_full/orderflow_services/grafana/exec_health_freeze_integrity_v1.json
+@@ -0,0 +1,18 @@
++{
++  "title": "ExecHealth Freeze Integrity (v1)",
++  "panels": [
++    {
++      "title": "Violations",
++      "targets": [
++        {"expr": "exec_health_freeze_integrity_violation"}
++      ]
++    },
++    {
++      "title": "Ack state",
++      "targets": [
++        {"expr": "exec_health_freeze_integrity_pending_ack"},
++        {"expr": "exec_health_freeze_integrity_valid_ack_event_present"}
++      ]
++    }
++  ]
++}

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/core/cost_edge_gate.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.1, 0.5, 0.8, 4.0, 10000.0, '0.0', '1', '4.0', 'EDGE_COST_BUFFER_BPS', 'EDGE_COST_K', 'EDGE_COST_K_', 'LOG_EDGE_VETO', 'LONG', 'OK', 'PASS', 'VETO', 'VETO_COST', 'VETO_COST_BAD_INPUT', 'VETO_COST_NO_EDGE', 'ask', 'atr', 'bad_price', 'bid', 'inf', 'none', 'rr', 'side', 'sl', 'spread_bps', 'tp1', 'tp1_atr_mult', 'tp_levels', 'tp_rr']

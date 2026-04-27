@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/mixins/crypto_orderflow_init.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.5, 0.6, 0.8, 5.0, 2500.0, 1000, 2000, '0', '0.10', '1', '15000', '1m', '300', '95.0', 'ATR_TF', 'CONFIDENCE_CAP_PCT', 'CryptoOrderFlow', 'EDGE_COST_LOG_VETO', 'GEOMETRY_ENABLED', 'LEVELS_EMPIRICAL_TF', 'LOG_EDGE_VETO', 'STRICT_REASON_CODES', 'USE_SCORE_CALIBRATOR', 'VETO_UNKNOWN', '_consistency_gate', '_gate_cache', '_redis', 'book', 'calibrator', 'consistency', 'evaluate', 'false', 'gauge', 'hist', 'inc', 'kind', 'l2', 'l2_snapshot', 'no', 'observe', 'on', 'reason_code', 'redis', 'redis_client', 'symbol', 'true', 'ts', 'ts_ms', 'yes']

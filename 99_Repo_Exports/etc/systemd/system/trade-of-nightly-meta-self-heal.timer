@@ -1,0 +1,10 @@
+[Unit]
+Description=Run meta cells self-heal nightly
+
+[Timer]
+OnCalendar=*-*-* 07:10:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+

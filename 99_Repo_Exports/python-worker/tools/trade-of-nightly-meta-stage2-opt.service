@@ -1,0 +1,13 @@
+[Unit]
+Description=Trade OF nightly meta Stage2 optimize share (v5 per-bucket budgets + hard-stop)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/trade/of_reports.env
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+ExecStart=/usr/bin/python3 -m tools.nightly_meta_stage2_optimize_share_bundle_v5
+StandardOutput=journal
+StandardError=journal
+

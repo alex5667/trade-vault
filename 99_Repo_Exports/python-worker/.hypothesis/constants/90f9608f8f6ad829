@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/trailing_condition.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.1, 2.0, 20.0, ')', ',', '0', '0.10', '1', '1m', '2.0', '20', '30', 'BUY', 'LONG', 'OR(', 'SELL', 'SHORT', 'TRAIL_COND_DISABLED', 'TRAIL_COND_ENABLED', 'TRAIL_COND_KINDS', 'TRAIL_COND_OBI_THR', 'TRAIL_COND_Z_THR', 'absorption', 'breakout', 'delta_z', 'ema_giveback_bps', 'extreme', 'na', 'name', 'obi', 'obi_20', 'obi_avg', 'obi_is_sustained', 'obi_spike', 'obi_stable', 'obi_sustained', 'obi_sustained=0', 'obi_sustained=1', 'obi_value', 'of', 'on', 'raw_score', 'samples', 'true', 'value', 'yes', 'z', 'z_delta', 'zscore']

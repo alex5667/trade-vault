@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/observability/metrics_exporter.py
+# hypothesis_version: 6.148.10
+
+[b'not found', 200, 404, 500, 1000, 2000, ',', '/metrics', '/metrics/', '0', '0.0.0.0', '1', '10', '1m:1,5m:2,15m:3,1h:4', '200', '9109', ':', 'Content-Length', 'Content-Type', 'METRICS_BIND', 'METRICS_ENABLE', 'METRICS_ENABLE=0', 'METRICS_MAX_SYMBOLS', 'METRICS_PORT', 'METRICS_REDIS_URL', 'METRICS_TFS_MAP', 'MICROBAR_SYMBOLS_SET', 'REDIS_URL', 'REPORTS_REDIS_URL', '__main__', 'age_ms', 'atr_age_ms', 'atr_bad_active', 'atr_selected_tf', 'cvd_jump_total', 'ignore', 'lcb_margin', 'legacy', 'majors', 'metrics:lcb:keys', 'regime', 'scenario', 'stream', 'symbol', 'tf', 'true', 'utf-8', 'yes', '{sym}', '|']

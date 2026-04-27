@@ -1,0 +1,2984 @@
+
+services:
+  crypto-orderflow-service:
+    build: &id001
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+#    runtime: nvidia
+    environment:
+      - LIQMAP_FEATURES_ENABLE=1
+      - LIQMAP_SNAPSHOT_KEY_PREFIX=liqmap:snapshot
+      # Canonical env vars (patch A1): windows, refresh throttle, fail-open stale
+      - LIQMAP_FEATURES_WINDOWS=5m,1h
+      - LIQMAP_FEATURES_REFRESH_MS=1500
+      - LIQMAP_FEATURES_FAILOPEN_STALE_MS=120000
+      # Optional tuning
+      - LIQMAP_NEAR_BAND_BPS=20
+      - LIQMAP_PEAK_MIN_SHARE=0.05
+      - LIQMAP_FEATURE_PEAK_RANGE_BPS=600
+      - LIQMAP_FEATURE_FRONT_RUN_BPS=20
+      - LIQMAP_FEATURE_SL_BUFFER_BPS=15
+      - LIQMAP_SL_WIDEN_CAP=1.25
+      - LIQMAP_SL_WIDEN_HARD_VETO=1
+      - OMP_NUM_THREADS=1
+      - OPENBLAS_NUM_THREADS=1
+      - MKL_NUM_THREADS=1
+      - METRICS_PORT=8001
+      - PROMETHEUS_PORT=8001
+      - CONFIDENCE_EVIDENCE_ENABLE=1
+      # Confidence Calibration A/B
+      - CONF_CAL_AB_MODE=${CONF_CAL_AB_MODE:-off}
+      - CONF_CAL_AB_SHARE=${CONF_CAL_AB_SHARE:-0.0}
+      - CONF_CAL_AB_SHADOW=${CONF_CAL_AB_SHADOW:-false}
+      - CONF_CAL_CHALLENGER_BUNDLE_PATH=${CONF_CAL_CHALLENGER_BUNDLE_PATH:-}
+      - CONF_CAL_AB_STICKY_KEY=${CONF_CAL_AB_STICKY_KEY:-symbol|session}
+      - VETO_TOPN_WINDOW_MS=300000
+      - VETO_TOPN_N=5
+      - VETO_TOPN_MIN_TOTAL=30
+      - VETO_TOPN_ALERT_SHARE=0.50
+      - VETO_TOPN_ALERT_COUNT=50
+      - VETO_TOPN_COOLDOWN_MS=600000
+      - VETO_TOPN_CHANGE_MIN_SHARE=0.35
+      - VETO_TOPN_CHANGE_COOLDOWN_MS=900000
+      - VETO_TOPN_FAMILY_CHANGE_MIN_SHARE=0.45
+      - VETO_TOPN_FAMILY_CHANGE_MIN_DELTA=0.20
+      - VETO_TOPN_FAMILY_CHANGE_MIN_TOTAL_DELTA=7
+      - VETO_TOPN_FAMILY_CHANGE_MIN_TOTAL_RATIO=1.10
+      - VETO_TOPN_FAMILY_CHANGE_COOLDOWN_MS=900000
+
+
+      - CVD_DIV_PUBLISH=1
+      - CVD_SNAPSHOT_ENABLE=1
+      # Bias Cascade & Divergence Inference (roi_bias_cascade_div_infer_v2)
+      - BIAS_REGIME_ENABLE=1
+      - BIAS_RSI_ENABLE=1
+      - BIAS_REGIME_TTL_MS=300000
+      - BIAS_RSI_TTL_MS=300000
+      - BIAS_RSI_HI=60
+      - BIAS_RSI_LO=40
+      - BIAS_RSI_REQUIRE_SLOPE=0
+      - DIV_INFER_ENABLE=1
+      - DIV_INFER_MIN_STRENGTH=0.0
+      - DIV_INFER_MAX_AGE_MS=180000
+      - REASON_MISMATCH_WINDOW_MS=60000
+
+      - REASON_MISMATCH_MIN_EVENTS=50
+      - REASON_MISMATCH_RATIO_WARN=0.02
+      - REASON_MISMATCH_RATIO_ERROR=0.005
+      - REASON_MISMATCH_ALERT_COOLDOWN_MS=30000
+      - REASON_LEGACY_ALERT_WINDOW_S=300
+      - REASON_LEGACY_ALERT_MIN_EVENTS=50
+      - REASON_LEGACY_ALERT_COOLDOWN_S=900
+      - DATA_QUALITY_GATE_ENABLED=1
+      # --- P2/F: Data Quality Gate (DQ) Policy v2 ----------
+      - DQ_GATE_ENABLE=1
+      - DQ_GATE_MODE=penalty
+      - DQ_MODE=safe
+      - DQ_PEN_MAX=0.10
+      - DQ_TICK_GAP_MIN_SAMPLES=50
+      # -----------------------------------------------------
+      - DATA_ATR_STALE_MAX_MS=60000
+      - SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,SUIUSDT,APTUSDT,ARBUSDT,XAUUSDT
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - REDIS_TICKS_URL=redis://redis-ticks:6379/0
+      - ATR_SOURCE=redis
+      - ATR_TF=1m
+      - CRYPTO_OF_REFRESH_SEC=30
+      - PERIODIC_REPORT_WINDOW_SECONDS=3600
+      - REPORT_TRIGGER_COUNT=1000000
+      - ML_REPLAY_CAPTURE_ENABLE=1
+      # Periodic reporter: main loop НЕ запускается в crypto_orderflow_service (только в periodic-reporter-timer)
+      - PERIODIC_REPORT_CHECK_INTERVAL_SEC=0
+      # Событийные hourly/daily отчёты отключены — расписанием управляет periodic-reporter-timer
+      - DISABLE_SCHEDULED_REPORTS=true
+      - HOURLY_REPORT_ENABLED=false
+      # Daily bulk report env (используется только periodic-reporter-timer, здесь для документации)
+      - DAILY_REPORT_ENABLED=false
+      - DAILY_REPORT_UTC_HOUR=17
+      - DAILY_REPORT_UTC_MINUTE=0
+      - DAILY_REPORT_SYMBOLS=ALL
+      - DAILY_REPORT_SOURCE=CryptoOrderFlow
+      - CRYPTO_OF_LOG_LEVEL=INFO
+      - DEBUG_VETO=1
+      - CRYPTO_OF_DEBUG_DELTAS=true
+      - LOG_SAMPLE_DELTA_EVENT_RATE=10000
+      - LOG_SAMPLE_LOW_CONF_RATE=10000
+      - LOG_SAMPLE_OFI_PUBLISHING_RATE=10000
+      - LOG_SAMPLE_OFI_PUBLISHED_RATE=10000
+      - LOG_SAMPLE_DN_TIER_VETO_RATE=10000
+      - CRYPTO_OF_DEBUG_DELTAS=1
+      - DELTA_Z_THRESHOLD=3.0
+      - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=0
+      - CRYPTO_OF_STRONG_GATE_SHADOW=1
+
+      # Taker Flow Gate & Slippage Decomp
+      - taker_flow_gate_mode=shadow
+      - taker_flow_contra_z_hard=2.5
+      - taker_flow_contra_imb_hard=0.25
+      - taker_flow_gate_min_abs_rate=2.0
+      - slippage_decomp_enable=1
+      - slippage_decomp_enforce_max=1
+      - slippage_decomp_impact_coeff_bps=10.0
+      - regime_slip_factor_high_vol_low_liq=0.70
+      - regime_slip_factor_low_liq=0.85
+      - regime_slip_factor_high_vol=0.85
+      - regime_need_bump_high_vol_low_liq=1
+      - regime_enforce_strong_high_vol_low_liq=1
+
+      - OBI_STABLE_SCORE_MIN=0.85
+      - WEAK_RECENT_WINDOW=5
+      - FP_EDGE_VALID_MS=30000
+      - ORDERS_QUEUE=orders:queue
+      - CRYPTO_NOTIFY_STREAM=notify:telegram
+      # ✅ P0/P1: Performance and reliability improvements
+      - CRYPTO_OF_BOOTSTRAP_MAX_CONC=10
+      - CRYPTO_OF_ACK_BATCH=200
+      - CRYPTO_OF_MAX_LAG_MS=1000
+      - REDIS_MAIN_MAX_CONNECTIONS=1000
+      - REDIS_TICKS_MAX_CONNECTIONS=1000
+      - REDIS_NOTIFY_MAX_CONNECTIONS=10
+      # P45 Unified Decision Record
+      - DECISION_RECORD_ENABLE=1
+      - DECISION_RECORD_EARLY_VETO_ENABLE=1
+      - DECISION_RECORD_SAMPLE=1.0
+      - DECISION_TTL_SEC=1209600
+      - DECISIONS_FINAL_STREAM=decisions:final
+      - DECISIONS_FINAL_MAXLEN=200000
+      - DECISION_DQ_HEALTH_MIN=0.70
+      - CRYPTO_OF_DROP_ON_LAG=true
+      - CRYPTO_OF_MAX_TS_SKEW_MS=21600000
+      - CRYPTO_OF_PEL_SWEEP=false
+      - CRYPTO_OF_PEL_SWEEP_INTERVAL_SEC=10
+      - CRYPTO_OF_PEL_MIN_IDLE_MS=60000
+      - CRYPTO_OF_PEL_COUNT=200
+      - CRYPTO_OF_PEL_QUARANTINE=false
+      # PEL Recovery (Expert Recommendations)
+      - REDIS_SOCKET_TIMEOUT=15
+      - REDIS_SOCKET_CONNECT_TIMEOUT=5
+      - REDIS_PEL_RECOVERY_EVERY_SEC=30
+      - REDIS_PEL_MIN_IDLE_MS=15000
+      - REDIS_PEL_CLAIM_COUNT=100
+      - REDIS_PEL_START_ID=0-0
+      - REDIS_PEL_CLAIM_MAX_ITERS=2
+      - TICK_UID_DEDUPE_CACHE_SIZE=4096
+      # Tick Deduplication
+      - TICK_DEDUPE_ENABLE=1
+      - TICK_DEDUPE_MAX=50000
+      - TICK_DEDUP_WINDOW=4096
+      # Tick Dedup (in-memory deduper)
+      - TICK_DEDUP_ENABLE=1
+      - TICK_DEDUP_MAX_ITEMS=20000
+      - TICK_DEDUP_MAX_AGE_MS=180000
+      # Tick Quarantine (bad schema/time/exception)
+      - TICK_QUARANTINE_ENABLE=1
+      - TICK_QUARANTINE_STREAM=stream:tick:quarantine
+      - TICK_QUARANTINE_MAXLEN=50000
+      - TICK_QUARANTINE_SAMPLE_RATE=0.05
+      # Tick Time Policy (event-time hygiene before strategy)
+      - TICK_TIME_MAX_FUTURE_MS=5000
+      - TICK_TIME_MAX_PAST_MS=120000
+      - TICK_TIME_MAX_REORDER_MS=1500
+      - TICK_TIME_ALLOW_SOFT_REORDER=1
+      - TICK_TIME_CLAMP_SOFT_FUTURE=1
+      # Tick Time Observability (Prometheus histograms + optional Redis stream for offline quantiles)
+      - TICK_TIME_OBSERVE_ENABLE=1
+      - TICK_TIME_AGE_CLAMP_MS=120000
+      - TICK_TIME_STREAM_ENABLE=0
+      - TICK_TIME_STREAM_KEY=metrics:tick_time
+      - TICK_TIME_STREAM_SAMPLE=0.01
+      - TICK_TIME_STREAM_MAXLEN=200000
+      # Bad Time Quarantine Policy (next_step_6_tick_time_policy_enforce_autotune)
+      - BAD_TIME_TRIGGER_STREAK=3
+      - BAD_TIME_TRIGGER_SCORE=3.0
+      - BAD_TIME_HARD_PENALTY=1.0
+      - BAD_TIME_SOFT_PENALTY=0.2
+      - BAD_TIME_DECAY_PER_OK=0.1
+      - BAD_TIME_QUARANTINE_MS=60000
+      - BAD_TIME_STATE_FREEZE_MS=15000
+      # Tick Side Policy (UNKNOWN side)
+      - CRYPTO_OF_UNKNOWN_SIDE_POLICY=ignore_delta
+      - TICK_SIDE_QUARANTINE_STREAM=stream:tick_side:quarantine
+      - TICK_SIDE_QUARANTINE_MAXLEN=20000
+      - TICK_SIDE_QUARANTINE_SAMPLE=0.01
+      # Step16: limit cardinality + throttle gauge emission (per label)
+      - TICK_QUALITY_SYMBOL_ALLOWLIST=BTCUSDT,ETHUSDT,SOLUSDT
+      - TICK_QUALITY_SYMBOL_LABEL_MODE=collapse
+      - TICK_QUALITY_EMA_UPDATE_MIN_MS=250
+      - TICK_INGEST_LATENCY_SAMPLE=0.1
+      - CRYPTO_NOTIFY_REDIS_URL=redis://redis-worker-2:6379/0
+
+      - CRYPTO_RAW_STREAM=signals:crypto:raw
+      - ATR_REDIS_URL=redis://redis-worker-2:6379/0
+      - REDIS_SAVE_TP_FILLS=1
+      - REDIS_CLOSED_ZSETS_ENABLED=1
+      - REDIS_LEGACY_CLOSED_LISTS_ENABLED=1
+      - TRADES_CLOSED_STREAM_COMPACT=0
+      - REDIS_SAVE_SIGNAL_PAYLOAD=0
+      - HEALTH_SNAPSHOT_CACHE_TTL_MS=2000
+      - CRYPTO_NOTIFY_SIGNAL_EVERY_N=100
+      - CRYPTO_SIGNAL_MIN_CONF=${CRYPTO_SIGNAL_MIN_CONF:-55}
+      - CRYPTO_PAPER_SHADOW_ENABLED=${CRYPTO_PAPER_SHADOW_ENABLED:-0}
+      - BINANCE_VIRTUAL_ORDERS_ENABLED=${BINANCE_VIRTUAL_ORDERS_ENABLED:-0}
+      # PAPER_ORDERS_STREAM and PAPER_ORDERS_MAXLEN intentionally omitted — paper shadow is disabled
+      - DISABLE_CONFIDENCE_FILTER=false
+      - MIN_SIGNAL_CONFIDENCE=70
+      - ATR_JUMP_MAX_REL=${ATR_JUMP_MAX_REL:-1.2}
+      - MIN_SIGNAL_CONFIDENCE__XAUUSD=20
+      - MIN_SIGNAL_CONFIDENCE__XAUUSDT=70
+      # Отключение релаксации confidence для мем-коинов (по умолчанию снижается до 30%)
+      - CONF_RELAX_DISABLE=true
+      # Альтернативно можно установить свой порог релаксации:
+      # - CONF_RELAX_MAX=70
+      - GOLDEN_PATTERN_MIN_CONFIDENCE=90
+      - SIGNAL_METRIC_WEIGHT__DELTA_SPIKE_Z=1.0
+      - SIGNAL_METRIC_WEIGHT__OBI=0.7
+      - SIGNAL_METRIC_WEIGHT__WEAK_PROGRESS=0.5
+      - SIGNAL_METRIC_WEIGHT__ATR_QUANTILE=0.3
+      - SCORING_LIQUIDITY_WEIGHT=0.3
+      - SCORING_LIQUIDITY_HARD_FLOOR=0.15
+      - SCORING_LIQUIDITY_ENABLED=1
+      - SCORING_LIQUIDITY_BREAK_FLOOR=0.3
+      - SCORING_LIQUIDITY_ABSORPTION_KILL_FLOOR=0.6
+      - SCORING_LIQ_BREAK_MAX=0.15
+      - SCORING_LIQ_ABSORB_MAX=0.15
+      - SCORING_LIQ_NEUTRAL_SPAN=0.05
+      - SIGNAL_PATTERN_WEIGHT__BREAKOUT_R1=1.2
+      - SIGNAL_PATTERN_WEIGHT__FADE_PDH=1.1
+      - SIGNAL_PATTERN_WEIGHT__FADE_HTF_OB=1.3
+      - SIGNAL_PATTERN_MIN_CONF__BREAKOUT_R1=85
+      - SIGNAL_PATTERN_MIN_CONF__FADE_PDH=80
+      - SIGNAL_PATTERN_MIN_CONF__FADE_HTF_OB=88
+      - TP1_SHIFT_MULT=1.4
+      - SLQ_ENABLE=1
+      - SLQ_K=0.7
+      - PYTHONPATH=/app
+      - ACCOUNT_DEPOSIT_USD=100
+      - ACCOUNT_LEVERAGE=100
+      - RISK_PERCENT=5.0
+      - CRYPTO_COMMISSION_RATE=0.0005
+      - TRAILING_TP1_OFFSET_ATR=0.6
+      - TRAILING_AFTER_TP1_SOURCES=CryptoOrderFlow
+      - TRAILING_TP1_OFFSET_ATR_CRYPTOORDERFLOW=0.5
+      - TRAILING_TP1_OFFSET_ATR_ETHUSDT=0.45
+      - TM_ORPHAN_TIMEOUT_ENABLED=0
+      - PUBLISH_OF_INPUTS=1
+      - OF_INPUTS_STREAM=signals:of:inputs
+      - OF_INPUTS_STREAM_MAXLEN=5000000
+      - OF_INPUTS_PERSIST_ENABLE=1
+      - OF_INPUTS_PERSIST_PATH=/var/lib/trade/of_inputs_archive
+      - OF_INPUTS_PERSIST_BATCH=1000
+      - PUBLISH_OF_CONFIRM=1
+      - OF_CONFIRM_STREAM=signals:of:confirm
+      - CRYPTO_ATR_BPS_MIN_STATIC=0.0
+      - CRYPTO_ATR_GATE_AUDIT_ONLY=false
+      - CRYPTO_OF_PUBLISH_CONFIRM=true
+      - CRYPTO_OF_CONFIRM_STREAM=signals:of:confirm
+      # OFC Capture for golden replay
+      - OFC_CAPTURE=1
+      - OFC_CAPTURE_EVERY_N=50
+      - OFC_CAPTURE_PATH=/tmp/ofc_capture.ndjson
+      - OFC_CAPTURE_SNAPSHOT=1
+      - OFC_CAPTURE_CANCEL_STATE=0
+      # ML Confirm Gate Configuration
+      - ML_CONFIRM_MODE=SHADOW
+      - ML_CONFIRM_FAIL_POLICY=OPEN
+      - ML_CFG_CHAMPION_KEY=cfg:ml_confirm:champion
+      - ML_CFG_CHALLENGER_KEY=cfg:ml_confirm:challenger
+      - ML_MODEL_CACHE_TTL_MS=60000
+      - ML_FEATURE_SCHEMA_VER=v5_of_stable
+      - ML_CONFIRM_CHECK_FEATURE_NAMES=1
+      # P61: ML Confirm Rollout Configuration
+      - ML_CONFIRM_ROLLOUT_MODE=${ML_CONFIRM_ROLLOUT_MODE:-shadow}
+      - ML_CONFIRM_CANARY_RATE=${ML_CONFIRM_CANARY_RATE:-0.05}
+      - ML_DENY_ALLOW_RULE_STRONG=${ML_DENY_ALLOW_RULE_STRONG:-true}
+      - ML_ABSTAIN_ALLOW_RULE_STRONG=${ML_ABSTAIN_ALLOW_RULE_STRONG:-true}
+      - ML_CONFIRM_METRICS_MAXLEN=200000    # P1: было hardcode 50000 → +4x буфер для archiver
+      # ------------------------------------------------------------------
+      # PRE-PUBLISH GATES: Rollout Plan (детерминированная оценка качества сигналов)
+      # ------------------------------------------------------------------
+      # Этап 1: SHADOW-анализ (только запись в rejected stream, гейты disabled)
+      # - Запись veto-сигналов в signals:crypto:rejected для триажа
+      # - Метрики pre_publish_veto_total для мониторинга
+      # - Гейты отключены (enabled=False) - безопасный старт
+      - CRYPTO_REJECTED_SIGNAL_STREAM=signals:crypto:rejected
+      - CRYPTO_REJECTED_SIGNAL_MAXLEN=50000
+      - PRE_PUBLISH_GATE_MODE=SHADOW
+      # P50: Drift Gate (Global market/feature drift check)
+      - ENABLE_PP_DRIFT_GATE=1
+      - DRIFT_GATE_BLOCK_POLICY=DENY
+      - OF_RULE_STRONG_MIN=0.75
+      # HardDataQualityGate: отсекает stale L2/touch/ATR, gaps, low depth
+      # По умолчанию отключен (0) - безопасный rollout
+      - DATA_HARD_GATE_ENABLED=0
+      # Этап 2: Включить HardDataQualityGate на 1-2 символа для тестирования
+      # Раскомментируйте для включения на конкретных символах:
+      # - DATA_HARD_GATE_ENABLED__BTCUSDT=1
+      # - DATA_HARD_GATE_ENABLED__ETHUSDT=1
+      # Параметры HardDataQualityGate (глобальные, можно переопределить per-symbol):
+      - DATA_REQUIRE_EPOCH_TS=0
+      - DATA_STRICT_MISSING_ATR_TS=0
+      - DATA_STRICT_TOUCH_FRESH=0
+      - DATA_VETO_FLAGS=
+      # RegimeSessionGate: отсекает по regime/session матрице, spread/depth/burst_flip
+      # По умолчанию отключен (0) - постепенное расширение
+      - RS_GATE_ENABLED=0
+      # Этап 3: Подключить RegimeSessionGate на конкретных символах
+      # Раскомментируйте для включения на конкретных символах:
+      # - RS_GATE_ENABLED__BTCUSDT=1
+      # - RS_GATE_ENABLED__ETHUSDT=1
+      # Параметры RegimeSessionGate (глобальные, можно переопределить per-symbol×kind×regime):
+      - RS_SPREAD_MAX_BPS_DEFAULT=0.0
+      - RS_DEPTH_MIN_DEFAULT=0.0
+      - RS_BURST_FLIP_MAX_DEFAULT=0.0
+      # Примеры per-symbol×kind конфигурации (раскомментируйте при необходимости):
+      # - RS_SPREAD_MAX_BPS__BTCUSDT__breakout=8.0
+      # - RS_DEPTH_MIN__BTCUSDT__breakout=0.0
+      # - RS_BURST_FLIP_MAX__BTCUSDT__breakout=0.65
+      # - RS_DENY__BTCUSDT__breakout__range=1
+      # - RS_ALLOW_ONLY_REGIMES__BTCUSDT__breakout=trend,expansion
+      - ML_MODEL_FALLBACK_ENABLE=1
+      # Confidence Scorer Enhancements (Phases 1-3)
+      - ML_SCORING_ENABLE=1
+      - SCORER_WEIGHTS_PATH=python-worker/config/suggested_weights.json
+      - SCORER_ML_MODEL_PATH=python-worker/ml_models/scorer_model.lgb
+      - PG_DSN=postgresql://trading:trading_password@postgres:5432/scanner_analytics
+      - TRADES_DB_DSN=postgresql://trading:trading_password@postgres:5432/scanner_analytics
+      # XAUUSDT Specific Overrides (Fix for ATR Gate & Cooldown)
+      - XAU_ATR_GATE_AUDIT_ONLY=false
+      - XAU_EXEC_RISK_REF_BPS=8.0
+      - XAU_MIN_SIGNAL_INTERVAL=12
+      - XAU_REQUIRE_STRONG_CONFIRMATION=0
+      - XAU_STRONG_GATE_SHADOW=1
+      - STREAM_TICK_XAUUSDT=stream:tick_XAUUSDT
+      - STREAM_BOOK_XAUUSDT=stream:book_XAUUSDT
+
+      # Microburst & Microstructure
+      - BURST_ENABLE=1
+      - CRYPTO_BURST_ENABLE=1
+      - BURST_WINDOW_MS=2500
+      - BURST_MAX_AGE_MS=8000
+      - PRESSURE_WINDOW_MS=60000
+      - PRESSURE_HI_PER_MIN=4.0
+      - PRESSURE_MIN_CANDIDATE_SCORE=1.0
+      - PRESSURE_TIER_CALIB_MIN_SAMPLES=300
+      - PRESSURE_TIER_CALIB_REFRESH_MS=60000
+      - PRESSURE_TIER1_USD_BTCUSDT=50000
+      - PRESSURE_TIER2_USD_BTCUSDT=150000
+      - PRESSURE_TIER1_USD_ETHUSDT=25000
+      - PRESSURE_TIER2_USD_ETHUSDT=75000
+      - PRESSURE_TIER1_USD_SOLUSDT=50000
+      - PRESSURE_TIER2_USD_SOLUSDT=150000
+      # DN-GATE Thresholds (per-symbol)
+      - BTC_DN_TIER0_USD=50000
+      - BTC_DN_TIER1_USD=80000
+      - BTC_DN_TIER2_USD=150000
+      - ETH_DN_TIER0_USD=25000
+      - ETH_DN_TIER1_USD=40000
+      - ETH_DN_TIER2_USD=75000
+      - SPREAD_STATS_WINDOW=300
+      - SPREAD_Z_PENALTY_START=2.0
+      - SPREAD_Z_PENALTY_FULL=5.0
+      - PRESSURE_SPREAD_Z_MAX=4.0
+      - PRESSURE_BOOK_STALE_MAX_MS=3000
+      - BOOK_STALE_PENALTY_START_MS=1000
+      - BOOK_STALE_PENALTY_FULL_MS=5000
+      - BOOK_RATE_EMA_ALPHA=0.2
+      - CAND_W_DELTA_Z=0.5
+      
+      # Telegram Publishing: Disabled (routed via ExecutionGateService)
+      - PUBLISH_TELEGRAM_DIRECT=0
+      - CAND_B_OBI=0.2
+      - CAND_B_ICE=0.2
+      - CAND_B_ABSORPTION=0.1
+      - CAND_B_RECLAIM=0.1
+      - CAND_P_SPREAD_Z=0.25
+      - CAND_P_SPREAD_BPS=0.15
+      - CAND_P_BOOK_STALE=0.20
+
+      # Book churn stats
+      - BOOK_RATE_STATS_WINDOW=300
+      - BOOK_CHURN_Z_START=2.0
+      - BOOK_CHURN_Z_FULL=5.0
+      - BOOK_CHURN_Z_HI=4.0
+
+      # Expert Calibration - Book Rate & Delta Notional
+      - BOOK_CALIB_MIN_SAMPLES=300
+      - BOOK_CALIB_KEY_PREFIX=calib:book_rate
+      - BOOK_CALIB_REGIMES_SET_PREFIX=calib:book_rate:regimes
+      - BOOK_CALIB_TTL_SEC=604800
+      - DN_CALIB_MIN_SAMPLES=300
+      - DN_CALIB_KEY_PREFIX=calib:dn
+      - DN_CALIB_REGIMES_SET_PREFIX=calib:dn:regimes
+      - DN_CALIB_TTL_SEC=604800
+      - BOOK_CALIB_ENABLE=1
+      - DN_CALIB_ENABLE=1
+
+      # Candidate penalty/veto
+      - BOOK_RATE_Z_PENALTY_START=2.0
+      - BOOK_RATE_Z_PENALTY_FULL=5.0
+      - CAND_P_BOOK_CHURN=0.15
+      - PRESSURE_BOOK_RATE_Z_MAX=6.0
+
+      # Strong need escalation on churn
+      - STRONG_NEED_CHURN=3
+
+      # Same-tick need escalation
+      - STRONG_NEED_ESCALATED=3
+      - STRONG_NEED_EXTREME_ENABLE=1
+      - STRONG_NEED_EXTREME=4
+
+      # A/B/C routing and contextual split
+      - AB_VER=1
+      - AB_SPLIT_B_DEFAULT=10
+      - AB_SPLIT_C_DEFAULT=10
+      - AB_SPLIT_B_THIN=20
+      - AB_SPLIT_C_THIN=20
+      - ENTRY_AB_EXECUTE_ARMS_DEFAULT=A
+      - ENTRY_AB_EXECUTE_ARMS_THIN=A
+
+      # Regime ADX-aware parameters
+      - REGIME_ADX_HI_Q=0.75
+      - REGIME_ADX_LO_Q=0.40
+      - REGIME_W_ADX=0.20
+      - REGIME_TREND_DIR_HOLD_MIN=0.10
+
+      - SMT_COH_BUNDLE=btc_eth_sol
+      - SMT_BUNDLE_1=btc_eth_sol:BTCUSDT,ETHUSDT,SOLUSDT
+      - SMT_COH_WINDOW_N=180
+      - SMT_COH_MAX_LAG=5
+      - SMT_LEADER_DIR_WINDOW=6
+      - SMT_LEADER_CONFIRM_MIN_BPS=12.0
+      - SMT_COH_MIN_CORR=0.55
+      - SMT_PRICE_STALE_MS=7000
+      - SMT_COH_THR=0.65
+      - SMT_LEADER_MIN_OF_SCORE=1.0
+      - SMT_ZONE_MAX_BP=15.0
+      # SMT News Gate
+      - SMT_NEWS_ASSET_CLASS=crypto
+      - SMT_NEWS_HI_GRADE=4
+      - SMT_NEWS_PRE_SEC=300
+      - SMT_NEWS_POST_SEC=300
+      # SMT ADX-aware strictness
+      - SMT_ADX_TREND_HI_Q=0.75
+      - SMT_ADX_CHOP_LO_Q=0.40
+      - SMT_ENTRY_MIN_OF_SCORE=1.0
+      - SMT_ENTRY_MIN_OF_SCORE_CHOP=1.0
+      - SMT_ENTRY_MIN_OF_SCORE_TREND=1.0
+      - SMT_ENTRY_OBI_MIN_SEC=1.5
+      - ENTRY_ADX_CHOP_LO_Q=0.40
+
+      # Pressure-aware cooldown
+
+      # Redis cache TTLs for ADX computation
+      - RQ_CACHE_MS=60000
+      - ADX_CACHE_MS=300
+
+      # Snapshot staleness TTLs
+      - WP_VALID_MS=15000
+      - OF_DIR_VALID_MS=30000
+
+      # Trailing parameters for new symbols (disabled for memecoins initially)
+      - TRAILING_AFTER_TP1_1000PEPEUSDT=true
+      - TRAILING_TP1_OFFSET_ATR_1000PEPEUSDT=0.55
+
+      - TRAILING_AFTER_TP1_DOGEUSDT=true
+      - TRAILING_TP1_OFFSET_ATR_DOGEUSDT=0.50
+
+      - TRAILING_AFTER_TP1_1000SHIBUSDT=true
+      - TRAILING_TP1_OFFSET_ATR_1000SHIBUSDT=0.55
+
+      - TRAILING_AFTER_TP1_1000FLOKIUSDT=true
+      - TRAILING_TP1_OFFSET_ATR_1000FLOKIUSDT=0.60
+
+      - TRAILING_AFTER_TP1_1000BONKUSDT=true
+      - TRAILING_TP1_OFFSET_ATR_1000BONKUSDT=0.60
+
+      - TRAILING_AFTER_TP1_WIFUSDT=true
+      - TRAILING_TP1_OFFSET_ATR_WIFUSDT=0.55
+
+      - TRAILING_AFTER_TP1_SUIUSDT=true
+      - TRAILING_TP1_OFFSET_ATR_SUIUSDT=0.45
+
+      - TRAILING_AFTER_TP1_APTUSDT=true
+      - TRAILING_TP1_OFFSET_ATR_APTUSDT=0.45
+
+      - TRAILING_AFTER_TP1_ARBUSDT=true
+      - TRAILING_TP1_OFFSET_ATR_ARBUSDT=0.45
+      - TRAILING_AUTOTUNE_CONF_THRESHOLD=0.60
+      - TRAILING_AUTOTUNE_MIN_TRADES=10
+      - STREAM_MSG_MAX_RETRIES=3
+      - STREAM_CLAIM_INTERVAL_MS=5000
+      - STREAM_CLAIM_MIN_IDLE_MS=15000
+      - STREAM_CLAIM_COUNT=50
+      - ORDERFLOW_DLQ_STREAM=stream:dlq:orderflow
+      - DELTA_BUCKET_MS=1000
+      - TRAIL_Z_THRESHOLD=4.5
+      - FORCE_TRAIL_AFTER_TP1=true
+      - LEVEL_SIGNAL_COOLDOWN_MS=15000
+      - BREAKOUT_MIN_DIST_ATR=0.0
+      - USE_SIGNAL_OUTBOX=true
+      - SIGNAL_OUTBOX_STREAM=stream:signals:outbox
+      - OUTBOX_LABELS_STREAM=stream:signals:labels
+      - SIGNAL_OUTBOX_MAXLEN=200000
+      - SIGNAL_DEDUP_GRANULARITY=minute
+      - OUTBOX_GROUP=signals-outbox-group
+      - OUTBOX_CONSUMER=outbox-dispatcher
+      - OUTBOX_MAX_RETRIES=5
+      - OUTBOX_DLQ_STREAM=stream:dlq:signal_outbox
+      - OUTBOX_CLAIM_INTERVAL_MS=5000
+      - OUTBOX_CLAIM_MIN_IDLE_MS=15000
+      - OUTBOX_CLAIM_COUNT=100
+      - OUTBOX_SENT_TTL_SEC=172800
+      - OUTBOX_SEM_DEDUP=1
+      - OUTBOX_SEM_DEDUP_BUCKET_MS=1000
+      - OUTBOX_SEM_DEDUP_LEVEL_DECIMALS=2
+      - OUTBOX_SEM_DEDUP_TTL_MS=15000
+      - SEM_DEDUP_REPORT_WINDOW_SEC=300
+      - SEM_DEDUP_REPORT_MIN_EVENTS=30
+      - SEM_DEDUP_OVER_RATIO=0.60
+      - SEM_DEDUP_UNDER_RATIO=0.05
+      - SEM_DEDUP_HITS_SPIKE_PER_MIN=200
+      - SEM_DEDUP_REPORT_TOP_N=6
+      - CRYPTO_DEFAULT_DAILY_RANGE_PCT=0.04
+      - CRYPTO_OBI_SPIKE_THR=0.7
+      - GPU_ENABLED=true
+      - GPU_OFFLOAD_ENABLED=1
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - ENABLE_L3_PROXY=true
+      - BREAKOUT_REQUIRE_OBI=true
+      - BREAKOUT_REQUIRE_OBI20=true
+      - BREAKOUT_MIN_MICROPRICE_SHIFT_BPS=0.2
+      - BREAKOUT_WALL_MAX_DIST_BPS=10.0
+      - BREAKOUT_MIN_DEPLETION_SCORE=0.05
+      - BREAKOUT_MAX_REFILL_SCORE=0.05
+      - BREAKOUT_MAX_IMPACT_PROXY=0.35
+      - ABSORPTION_MIN_REFILL_SCORE=0.05
+      - ABSORPTION_WALL_MAX_DIST_BPS=12.0
+      - ABSORPTION_USE_L3_FILTERS=true
+      - ABSORPTION_L3_MIN_TAKER_RATE=0.0
+      - EXTREME_USE_L3_FILTERS=true
+      - EXTREME_L3_MAX_CANCEL_TO_TRADE=6.0
+      - EXTREME_L3_MIN_TAKER_RATE=0.0
+      - BTC_DELTA_Z_THRESHOLD=2.0
+      - BTC_OBI_THRESHOLD=0.35
+      - BTC_MIN_SIGNAL_INTERVAL=20
+      - BTC_STOP_MODE=ATR
+      - BTC_STOP_ATR_MULT=0.8
+      - BTC_TP_MODE=RR
+      - BTC_TP_RR=0.875,1.625,2.5
+      - ETH_TP_MODE=RR
+      - ETH_TP_RR=0.875,1.625,2.5
+      - TP_MODE=RR
+      - TP_RR=1,2,3
+      - TP_ATR_MULTS=0.6,1.0,1.5
+      - LEVELS_DEBUG=1
+      - ADVERSE_CHECK_ENABLE=1
+      - ATR_GATE_MODE=ENFORCE
+      - ATR_SANITY_ENABLE=1
+      - ATR_JUMP_ACCEPT_K=3
+      - ATR_JUMP_ACCEPT_MAX_REL=10.0
+      - ATR_JUMP_ACCEPT_REBASE=1
+      - ATR_SANITY_MIN_SAMPLES=500
+      - ATR_SANITY_MAX_AGE_MS=180000
+      - ATR_SANITY_LO_BPS=0.50
+      - ATR_SANITY_HI_BPS=200.0
+      - ATR_SANITY_KEY_PREFIX=calib:atrbps
+      - ATR_SANITY_REGIMES_SET_PREFIX=calib:atrbps:regimes
+      - ATR_SANITY_TTL_SEC=604800
+      - ATR_SANITY_PERSIST_MIN_BARS=30
+      - ATR_SANITY_PERSIST_MIN_INTERVAL_MS=60000
+      - ATR_SANITY_MAX_BPS_ABS=500.0
+      - ATR_SANITY_FALLBACK_PCT=0.0003
+      - ATR_TF_CALIB_ENABLE=1                    # Enable ATR TF Calibration (1m/5m/15m)
+      - ATR_TF_CANDIDATES=1m,5m,15m              # Candidate TFs to scan
+      - ATR_TF_CALIB_MIN_SAMPLES=300             # Bars to warm up calibration
+      - ATR_TF_MAX_AGE_MS=180000                 # Max age before penalizing stale choice (3m)
+      - ATR_SRC_AGE_SCALE_MS=120000              # Scale for freshness score (2m)
+      - ATR_SRC_CONSIST_TOL=0.35                 # 35% consistency tolerance vs median
+      - ATR_BPS_CALIB_ENABLE=1
+      - ATR_TF_CALIB_MODE=shadow
+      - ATR_TF_CALIB_TFS=1m,5m,15m,1h
+      - FEES_BPS_RT=4
+      - TP_BPS_BUFFER=6
+      - ROCKET_TP1_ATR_MULT=0.78
+      - ROCKET_TP1_ATR_MULT_BTCUSDT=2.28
+      - ROCKET_TP1_ATR_MULT_ETHUSDT=1.58
+      - ROCKET_TP1_ATR_MULT_SOLUSDT=1.50
+      - ROCKET_TP1_ATR_MULT_BNBUSDT=2.02
+      - ROCKET_TP1_ATR_MULT_XRPUSDT=1.50
+      - ROCKET_TP1_ATR_MULT_1000PEPEUSDT=1.50
+      - ROCKET_TP1_ATR_MULT_DOGEUSDT=1.50
+      - ROCKET_TP1_ATR_MULT_1000SHIBUSDT=1.50
+      - ROCKET_TP1_ATR_MULT_1000FLOKIUSDT=1.50
+      - ROCKET_TP1_ATR_MULT_1000BONKUSDT=1.50
+      - ROCKET_TP1_ATR_MULT_WIFUSDT=1.50
+      - ROCKET_TP1_ATR_MULT_SUIUSDT=1.50
+      - ROCKET_TP1_ATR_MULT_APTUSDT=1.50
+      - ROCKET_TP1_ATR_MULT_ARBUSDT=1.50
+
+      # 1000PEPEUSDT parameters
+      - 1000PEPE_DELTA_WINDOW=240
+      - 1000PEPE_DELTA_Z_THRESHOLD=3.1
+      - 1000PEPE_OBI_THRESHOLD=0.42
+      - 1000PEPE_OBI_MIN_DURATION=2.0
+      - 1000PEPE_ICEBERG_REFRESH=4
+      - 1000PEPE_ICEBERG_DURATION=1.2
+      - 1000PEPE_DIST_ATR_THRESHOLD=0.55
+      - 1000PEPE_MIN_SIGNAL_INTERVAL=45
+      - 1000PEPE_READ_COUNT=150
+      - 1000PEPE_READ_BLOCK_MS=1000
+      - 1000PEPE_WEAK_PROGRESS_ATR=0.22
+
+      # DOGEUSDT parameters
+      - DOGE_DELTA_WINDOW=150
+      - DOGE_DELTA_Z_THRESHOLD=2.8
+      - DOGE_OBI_THRESHOLD=0.34
+      - DOGE_OBI_MIN_DURATION=1.6
+      - DOGE_ICEBERG_REFRESH=3
+      - DOGE_ICEBERG_DURATION=1.0
+      - DOGE_DIST_ATR_THRESHOLD=0.42
+      - DOGE_MIN_SIGNAL_INTERVAL=20
+      - DOGE_READ_COUNT=120
+      - DOGE_READ_BLOCK_MS=1000
+      - DOGE_WEAK_PROGRESS_ATR=0.16
+
+      # 1000SHIBUSDT parameters
+      - 1000SHIB_DELTA_WINDOW=240
+      - 1000SHIB_DELTA_Z_THRESHOLD=3.1
+      - 1000SHIB_OBI_THRESHOLD=0.42
+      - 1000SHIB_OBI_MIN_DURATION=2.0
+      - 1000SHIB_ICEBERG_REFRESH=4
+      - 1000SHIB_ICEBERG_DURATION=1.2
+      - 1000SHIB_DIST_ATR_THRESHOLD=0.55
+      - 1000SHIB_MIN_SIGNAL_INTERVAL=45
+      - 1000SHIB_READ_COUNT=150
+      - 1000SHIB_READ_BLOCK_MS=1000
+      - 1000SHIB_WEAK_PROGRESS_ATR=0.22
+
+      # 1000FLOKIUSDT parameters
+      - 1000FLOKI_DELTA_WINDOW=240
+      - 1000FLOKI_DELTA_Z_THRESHOLD=3.1
+      - 1000FLOKI_OBI_THRESHOLD=0.43
+      - 1000FLOKI_OBI_MIN_DURATION=2.1
+      - 1000FLOKI_ICEBERG_REFRESH=4
+      - 1000FLOKI_ICEBERG_DURATION=1.2
+      - 1000FLOKI_DIST_ATR_THRESHOLD=0.58
+      - 1000FLOKI_MIN_SIGNAL_INTERVAL=50
+      - 1000FLOKI_READ_COUNT=150
+      - 1000FLOKI_READ_BLOCK_MS=1000
+      - 1000FLOKI_WEAK_PROGRESS_ATR=0.24
+
+      # 1000BONKUSDT parameters
+      - 1000BONK_DELTA_WINDOW=240
+      - 1000BONK_DELTA_Z_THRESHOLD=3.2
+      - 1000BONK_OBI_THRESHOLD=0.44
+      - 1000BONK_OBI_MIN_DURATION=2.1
+      - 1000BONK_ICEBERG_REFRESH=4
+      - 1000BONK_ICEBERG_DURATION=1.2
+      - 1000BONK_DIST_ATR_THRESHOLD=0.60
+      - 1000BONK_MIN_SIGNAL_INTERVAL=55
+      - 1000BONK_READ_COUNT=150
+      - 1000BONK_READ_BLOCK_MS=1000
+      - 1000BONK_WEAK_PROGRESS_ATR=0.25
+
+      # WIFUSDT parameters
+      - WIF_DELTA_WINDOW=220
+      - WIF_DELTA_Z_THRESHOLD=3.0
+      - WIF_OBI_THRESHOLD=0.40
+      - WIF_OBI_MIN_DURATION=1.9
+      - WIF_ICEBERG_REFRESH=4
+      - WIF_ICEBERG_DURATION=1.1
+      - WIF_DIST_ATR_THRESHOLD=0.55
+      - WIF_MIN_SIGNAL_INTERVAL=40
+      - WIF_READ_COUNT=140
+      - WIF_READ_BLOCK_MS=1000
+      - WIF_WEAK_PROGRESS_ATR=0.21
+
+      # SUIUSDT parameters
+      - SUI_DELTA_WINDOW=140
+      - SUI_DELTA_Z_THRESHOLD=2.8
+      - SUI_OBI_THRESHOLD=0.34
+      - SUI_OBI_MIN_DURATION=1.6
+      - SUI_ICEBERG_REFRESH=3
+      - SUI_ICEBERG_DURATION=1.0
+      - SUI_DIST_ATR_THRESHOLD=0.42
+      - SUI_MIN_SIGNAL_INTERVAL=20
+      - SUI_READ_COUNT=120
+      - SUI_READ_BLOCK_MS=1000
+      - SUI_WEAK_PROGRESS_ATR=0.16
+
+      # APTUSDT parameters
+      - APT_DELTA_WINDOW=140
+      - APT_DELTA_Z_THRESHOLD=2.8
+      - APT_OBI_THRESHOLD=0.34
+      - APT_OBI_MIN_DURATION=1.6
+      - APT_ICEBERG_REFRESH=3
+      - APT_ICEBERG_DURATION=1.0
+      - APT_DIST_ATR_THRESHOLD=0.42
+      - APT_MIN_SIGNAL_INTERVAL=20
+      - APT_READ_COUNT=120
+      - APT_READ_BLOCK_MS=1000
+      - APT_WEAK_PROGRESS_ATR=0.16
+
+      # ARBUSDT parameters
+      - ARB_DELTA_WINDOW=140
+      - ARB_DELTA_Z_THRESHOLD=2.8
+      - ARB_OBI_THRESHOLD=0.34
+      - ARB_OBI_MIN_DURATION=1.6
+      - ARB_ICEBERG_REFRESH=3
+      - ARB_ICEBERG_DURATION=1.0
+      - ARB_DIST_ATR_THRESHOLD=0.42
+      - ARB_MIN_SIGNAL_INTERVAL=20
+      - ARB_READ_COUNT=120
+      - ARB_READ_BLOCK_MS=1000
+      - ARB_WEAK_PROGRESS_ATR=0.16
+
+      # Risk management parameters for new symbols
+      - 1000PEPE_STOP_MODE=ATR
+      - 1000PEPE_STOP_ATR_MULT=1.10
+      - 1000PEPE_TP_RR=1,1.5,2.5
+
+      - DOGE_STOP_MODE=ATR
+      - DOGE_STOP_ATR_MULT=0.90
+      - DOGE_TP_RR=1,1.5,2.5
+
+      - 1000SHIB_STOP_MODE=ATR
+      - 1000SHIB_STOP_ATR_MULT=1.10
+      - 1000SHIB_TP_RR=1,1.5,2.5
+
+      - 1000FLOKI_STOP_MODE=ATR
+      - 1000FLOKI_STOP_ATR_MULT=1.15
+      - 1000FLOKI_TP_RR=1,1.5,2.5
+
+      - 1000BONK_STOP_MODE=ATR
+      - 1000BONK_STOP_ATR_MULT=1.20
+      - 1000BONK_TP_RR=1,1.5,2.5
+
+      - WIF_STOP_MODE=ATR
+      - WIF_STOP_ATR_MULT=1.05
+      - WIF_TP_RR=1,1.5,2.5
+
+      - SUI_STOP_MODE=ATR
+      - SUI_STOP_ATR_MULT=0.90
+      - SUI_TP_RR=1,1.5,2.5
+
+      - APT_STOP_MODE=ATR
+      - APT_STOP_ATR_MULT=0.90
+      - APT_TP_RR=1,1.5,2.5
+
+      - ARB_STOP_MODE=ATR
+      - ARB_STOP_ATR_MULT=0.90
+      - ARB_TP_RR=1,1.5,2.5
+
+      - ETH_DELTA_Z_THRESHOLD=2.0
+      - BAD_TIME_RECOVERY_OK_STREAK=5
+      - BAD_TIME_RECOVERY_MAX_MS=8000
+      - BAD_TIME_RECOVERY_FAIL_QUARANTINE_MS=20000
+      - BAD_TIME_RECOVERY_FAIL_STATE_FREEZE_MS=5000
+      # Tick time quarantine integration
+      - ENABLE_TICK_TIME_QUARANTINE=1
+      - TICK_TIME_QUARANTINE_STREAM=quarantine:tick_time
+      - TICK_TIME_QUARANTINE_MAXLEN=200000
+      - TICK_TIME_QUARANTINE_SAMPLE=0.02
+      - BAD_TIME_QUARANTINE_STREAM=stream:tick_time:quarantine
+      - BAD_TIME_QUARANTINE_SAMPLE_RATE=0.01
+      - EDGE_COST_GATE_ENABLED=1
+      - EDGE_EXPECTED_MOVE_MODE=ev
+      - EDGE_EV_P_MIN=0.55
+      - EDGE_EV_MIN_TRADES=40
+      - EDGE_EV_STRICT_MISSING_STATS=0
+      - EDGE_COST_APPLY_KINDS=breakout,absorption,extreme,obi_spike
+      - EDGE_COST_STRICT_MISSING_LEVELS=1
+      - EV_TP1_ENABLED=1
+      - EV_TP1_ALPHA=0.05
+      - EV_TP1_TTL_SEC=604800
+      - EV_TP1_USE_REGIME_DIM=1
+      - EV_TP1_TF=1m
+      - EDGE_COST_K=2.0
+      - EDGE_COST_K_BTCUSDT=2.5
+      - EDGE_COST_K_ETHUSDT=2.0
+      - EDGE_FEES_BPS_DEFAULT=4.0
+      - EDGE_SLIPPAGE_BPS_DEFAULT=4.0
+      - EDGE_SLIPPAGE_USE_SPREAD_HALF=1
+      - EDGE_LEVELS_MIN_STOP_BPS=8
+      - EDGE_LEVELS_MIN_TP1_BPS=12
+      - EDGE_COST_LOG_VETO=1
+      - MIN_CONF_DEFAULT=50
+      - MIN_CONF_BTCUSDT=75
+      - MIN_CONF_ETHUSDT=72
+      - MIN_CONF_FACTOR_DEFAULT=0.45
+      - MIN_CONF_FACTOR_BTCUSDT=0.55
+      - MIN_CONF_FACTOR_ETHUSDT=0.52
+
+      # Quality/Confidence parameters for new symbols
+      - MIN_CONF_1000PEPEUSDT=50
+      - MIN_CONF_FACTOR_1000PEPEUSDT=0.60
+      - EDGE_COST_K_1000PEPEUSDT=3.3
+      - LIQ_MAX_SPREAD_BPS_1000PEPEUSDT=30
+
+      - MIN_CONF_FACTOR_DOGEUSDT=0.56
+      - EDGE_COST_K_DOGEUSDT=2.7
+      - LIQ_MAX_SPREAD_BPS_DOGEUSDT=18
+
+      - MIN_CONF_1000SHIBUSDT=50
+      - MIN_CONF_FACTOR_1000SHIBUSDT=0.60
+      - EDGE_COST_K_1000SHIBUSDT=3.3
+      - LIQ_MAX_SPREAD_BPS_1000SHIBUSDT=30
+
+      - MIN_CONF_1000FLOKIUSDT=50
+      - MIN_CONF_FACTOR_1000FLOKIUSDT=0.62
+      - EDGE_COST_K_1000FLOKIUSDT=3.5
+      - LIQ_MAX_SPREAD_BPS_1000FLOKIUSDT=35
+
+      - MIN_CONF_1000BONKUSDT=50
+      - MIN_CONF_FACTOR_1000BONKUSDT=0.63
+      - EDGE_COST_K_1000BONKUSDT=3.6
+      - LIQ_MAX_SPREAD_BPS_1000BONKUSDT=40
+
+      - MIN_CONF_WIFUSDT=50
+      - MIN_CONF_FACTOR_WIFUSDT=0.60
+      - EDGE_COST_K_WIFUSDT=3.2
+      - LIQ_MAX_SPREAD_BPS_WIFUSDT=28
+
+      - MIN_CONF_SUIUSDT=50
+      - MIN_CONF_FACTOR_SUIUSDT=0.56
+      - EDGE_COST_K_SUIUSDT=2.6
+      - LIQ_MAX_SPREAD_BPS_SUIUSDT=14
+
+      - MIN_CONF_APTUSDT=50
+      - MIN_CONF_FACTOR_APTUSDT=0.56
+      - EDGE_COST_K_APTUSDT=2.6
+      - LIQ_MAX_SPREAD_BPS_APTUSDT=14
+
+      - MIN_CONF_ARBUSDT=50
+      - MIN_CONF_FACTOR_ARBUSDT=0.56
+      - EDGE_COST_K_ARBUSDT=2.6
+      - LIQ_MAX_SPREAD_BPS_ARBUSDT=14
+      # OBSERVE MODE: флаги качества данных выставляются, но veto не применяется
+      # - DATA_VETO_FLAGS=stale_l2,l3_missing,missing_htf  # Закомментировано для observe
+      - REGIME_GATE_ENABLED=1
+      - REGIME_APPLY_KINDS=breakout,absorption
+      - REGIME_DENY_BREAKOUT=range,squeeze
+      - REGIME_DENY_ABSORPTION=trending_bull,trending_bear,expansion
+      - LIQ_GATE_ENABLED=1
+      - LIQ_APPLY_KINDS=breakout,absorption,extreme,obi_spike
+      - LIQ_MAX_SPREAD_BPS=15
+      - LIQ_MAX_SPREAD_BPS_BTCUSDT=10
+      - LIQ_MAX_SPREAD_BPS_ETHUSDT=12
+      - LIQ_MIN_DEPTH_5=0
+      - LIQ_MAX_BURST_FLIP_RATIO=0.80
+      - CONSISTENCY_GATE_ENABLED=1
+      - CONSISTENCY_APPLY_KINDS=breakout,absorption,extreme,obi_spike
+      - CONS_BREAKOUT_REQUIRE_TOUCH_FRESH=1
+      - CONS_BREAKOUT_REQUIRE_TOUCH_TAG=1
+      - CONS_BREAKOUT_TOUCH_TAG_REQUIRED=depletion
+      - CONS_BREAKOUT_MIN_TOUCH_RHO=0.10
+      - CONS_ABSORPTION_REQUIRE_TOUCH_FRESH=1
+      - CONS_ABSORPTION_TOUCH_TAG_REQUIRED=refill
+      - CONS_ABSORPTION_MIN_TOUCH_RHO=0.10
+      - DATA_MAX_EVENT_LAG_MS=2500
+      - DATA_OUT_OF_ORDER_TOL_MS=1000
+      - DATA_QUARANTINE_VETO=1
+      - LEVELS_EMPIRICAL_ENABLED=1
+      - LEVELS_EMPIRICAL_MIN_SAMPLES=80
+      - LEVELS_EMPIRICAL_BLEND_ALPHA=0.7
+      - LEVELS_EMPIRICAL_TP1_MIN_RR=1.1
+      - LEVELS_EMPIRICAL_TP1_ATR_MIN=0.35
+      - LEVELS_EMPIRICAL_TP1_ATR_MAX=2.00
+      - LEVELS_EMPIRICAL_STOP_ATR_MIN=0.30
+      - LEVELS_EMPIRICAL_STOP_ATR_MAX=2.50
+      - LEVELS_EMPIRICAL_TP1_BPS_MIN=8
+      - LEVELS_EMPIRICAL_TP1_BPS_MAX=400
+      - LEVELS_EMPIRICAL_STOP_BPS_MIN=8
+      - LEVELS_EMPIRICAL_STOP_BPS_MAX=700
+      - EV_GATE_ENABLED=1
+      - EV_GATE_P_MIN=0.55
+      - EV_GATE_K_COST=1.0
+      - EV_GATE_COSTS_BPS=4
+      - EV_GATE_MIN_N=80
+      - EV_GATE_USE_REGIME_DIM=1
+      - EV_GATE_PREFER_EMA=1
+      - EV_GATE_LOG_VETO=1
+      - EV_GATE_CACHE_MS=2000
+      - EV_GATE_EMA_ALPHA=0.05
+      - EV_GATE_STATS_TTL_SEC=604800
+      - EMP_TIME_SNAPSHOTS_ENABLED=1
+      - EMP_TIME_BUCKETS_MINUTES=1,2,3,5,8,13,21,34,45
+      - EMP_TIME_LEVELS_ENABLED=1
+      - EMP_TIME_LEVELS_BUF_MAX=300
+      - EMP_TIME_LEVELS_BUF_TTL_SEC=604800
+      - EMP_TIME_LEVELS_RUNTIME_ENABLED=1
+      - EMP_TIME_LEVELS_MIN_N=120
+      - EMP_TIME_LEVELS_Q_MFE=0.60
+      - EMP_TIME_LEVELS_Q_MAE=0.80
+      - EMP_LEVELS_USE_REGIME_DIM=1
+      - ENTRY_POLICY_ENABLED=1
+      - ENTRY_POLICY_DELAY_ENABLED=1
+      - ENTRY_POLICY_DELAY_BUCKET_MS=1000
+      - ENTRY_POLICY_DELAY_BUCKETS=2
+      - ENTRY_POLICY_SPREAD_MAX_BPS=30
+      - ENTRY_POLICY_SPREAD_SHOCK_MULT=2.5
+      - ENTRY_POLICY_BURST_FLIP_MAX=0.70
+      - ENTRY_POLICY_CANCEL_TO_TRADE_MAX=0.90
+      - EXEC_SPREAD_EMA_ENABLED=1
+      - EXEC_SPREAD_EMA_ALPHA=0.05
+      - EXEC_SPREAD_EMA_TTL_S=2592000
+      - EXEC_SPREAD_EMA_PREFIX="spreadema:"
+      - EXEC_SPREAD_EMA_MIN_SAMPLES=10
+      - ENTRY_POLICY_DIAG_STREAM=entry_policy_diag
+      - ENTRY_POLICY_DIAG_MAXLEN=100000
+      - REL_CAL_ENABLED=0
+      - REL_CAL_PREFIX="relcal:"
+      - REL_CAL_USE_KIND_DIM=1
+      - REL_CAL_USE_REGIME_DIM=1
+      - REL_CAL_USE_TF_DIM=0
+      - REL_CAL_BIN_SIZE=5
+      - REL_CAL_MIN_TOTAL_SAMPLES=30
+      - REL_CAL_MIN_BIN_SAMPLES=5
+      - REL_CAL_LAPLACE_ALPHA=1.0
+      - REL_CAL_TTL_S=5184000
+      - REL_CAL_OUTCOME=tp1
+
+      # DecisionTrace system (end-to-end signal correlation & diagnostics)
+      - DECISION_TRACE_ENABLE=1
+      - DECISION_TRACE_MAX_EVENTS=200
+      - DECISION_TRACE_DIAG_STREAM=stream:signals:diagnostics
+      - SIGNAL_DIAGNOSTICS_STREAM=stream:signals:diagnostics
+      - DECISION_TRACE_SIDECAR_UPDATE_ON_SUCCESS=0
+      - DECISION_TRACE_LOG_SAMPLE_RATE=0.02
+      - DECISION_TRACE_SUMMARY_MAXLEN=240
+      - DECISION_TRACE_SIDECAR_MAX_BYTES=120000
+      - RUNTIME_SNAPSHOT_REFRESH_SEC=5
+      # RUNTIME_RELOAD_TOKEN=... (опционально: смена значения гарантированно сбросит кеш)
+      # RUNTIME_REDIS_RELOAD_KEY=runtime:reload (опционально: sync-Redis key-based reload)
+      - RUNTIME_REFRESH_EVERY_SEC=10
+
+      # AB Winner Evaluator LCB & Regime Thresholds
+      # Global Defaults
+      - AB_LCB_K_DEFAULT=0.75
+      - AB_Z_MIN_DEFAULT=1.0
+      - AB_MIN_N_PER_ARM_DEFAULT=20
+      - AB_MIN_TOTAL_N_DEFAULT=60
+      - AB_MIN_MEAN_GAP_R_DEFAULT=0.05
+      - AB_MIN_LCB_GAP_R_DEFAULT=0.02
+
+      # THIN / NEWS
+      - AB_LCB_K_THIN=1.00
+      - AB_Z_MIN_THIN=1.5
+      - AB_MIN_N_PER_ARM_THIN=30
+      - AB_MIN_TOTAL_N_THIN=90
+      - AB_MIN_MEAN_GAP_R_THIN=0.08
+      - AB_MIN_LCB_GAP_R_THIN=0.04
+
+      # TREND
+      - AB_LCB_K_TREND=0.75
+      - AB_Z_MIN_TREND=1.0
+      - AB_MIN_N_PER_ARM_TREND=20
+      - AB_MIN_TOTAL_N_TREND=60
+      - AB_MIN_MEAN_GAP_R_TREND=0.05
+      - AB_MIN_LCB_GAP_R_TREND=0.02
+
+      # RANGE
+      - AB_LCB_K_RANGE=0.90
+      - AB_Z_MIN_RANGE=1.2
+      - AB_MIN_N_PER_ARM_RANGE=25
+      - AB_MIN_TOTAL_N_RANGE=75
+      - AB_MIN_MEAN_GAP_R_RANGE=0.06
+      - AB_MIN_LCB_GAP_R_RANGE=0.03
+
+      # Apply-Aware Penalty (Stronger than flip)
+      - AB_APPLY_HOLD_SEC=7200
+      # THIN
+      - AB_APPLY_LCB_MULT_THIN=2.6
+      - AB_APPLY_Z_ADD_THIN=0.9
+      - AB_APPLY_K_ADD_THIN=0.35
+      # TREND
+      - AB_APPLY_LCB_MULT_TREND=1.8
+      - AB_APPLY_Z_ADD_TREND=0.5
+      - AB_APPLY_K_ADD_TREND=0.20
+      # RANGE
+      - AB_APPLY_LCB_MULT_RANGE=2.2
+      - AB_APPLY_Z_ADD_RANGE=0.7
+      - AB_APPLY_K_ADD_RANGE=0.30
+      
+      - CALIB_PERSIST_ENABLE=1
+      - CALIB_PERSIST_MIN_BARS=120
+      - CALIB_PERSIST_MIN_INTERVAL_MS=60000
+      - STRONG_DYNAMIC_NEED_ENABLE=0
+      - ATR_FLOOR_T0_BPS=3.0
+      - ATR_FLOOR_T1_BPS=5.0
+      - ATR_FLOOR_T2_BPS=8.0
+      - ATR_FLOOR_TIER_DEFAULT=1
+      - ATR_FLOOR_TIER_TREND=0
+      - ATR_FLOOR_TIER_THIN=2
+      - ATR_FLOOR_TIER_RANGE=1
+      - DN_TIER_DEFAULT=1
+      - DN_TIER_TREND=0
+      - DN_TIER_RANGE=1
+      - DN_TIER_THIN=2
+      - DN_PERSIST_MIN_INTERVAL_MS=60000
+      - ABS_LVL_TIER_DEFAULT=1
+      - ABS_LVL_TIER_RANGE=1
+      - ABS_LVL_TIER_TREND=0
+      - ABS_LVL_TIER_THIN=2
+      - ABS_LVL_EFF_QUOTE_TH=0.0020
+      - ABS_LVL_MIN_QUOTE_DELTA=0.0
+      - ABS_LVL_TH_DRIFT_MAX=0.35
+      - ABS_LVL_TH_RANGE_MAX=1.20
+      - ABS_LVL_CALIB_MIN_SAMPLES=300
+      - ABS_LVL_TH_UNSTABLE=0
+      - SMT_SNAPSHOT_EVERY_MS=1000
+      - SMT_OF_STRONG_VALID_MS=120000
+      - SMT_RECLAIM_VALID_MS=120000
+      - SMT_SWEEP_VALID_MS=120000
+      - SMT_RETRACE_ATR=0.0
+      - SMT_NEAR_ZONE_BP=15.0
+      - SMT_SNAPSHOT_TTL_SEC=30
+      - ATR_TF_CALIB_REFRESH_MS=60000
+      - ATR_TF_CALIB_PERSIST_GAP_MS=300000
+      - EQ_ATR_REFRESH_MS=15000
+      - MICRO_TF=1s
+      - BOOK_RATE_CRIT_HZ=2.0
+      - CRYPTO_OF_SUPERVISOR=true
+      - CRYPTO_OF_SUPERVISOR_INTERVAL_SEC=5
+      - CRYPTO_OF_SUPERVISOR_MAX_RESTARTS=10
+      - CRYPTO_OF_SUPERVISOR_WINDOW_SEC=300
+
+      # Split streams configuration for microbar publishing
+      - MICROBAR_SPLIT_STREAMS_ENABLE=1
+      - MICROBAR_SPLIT_DUAL_WRITE=0
+      - "MICROBAR_LEGACY_STREAM=events:microbar_closed"
+      - "MICROBAR_MAJORS_STREAM=events:microbar_closed:majors"
+      - "MICROBAR_PER_SYMBOL_PREFIX=events:microbar_closed:"
+      - MICROBAR_PER_SYMBOL_STREAM_TEMPLATE=events:microbar_closed:{sym}
+      - MICROBAR_SYMBOLS_SET=events:microbar_closed:symbols
+      - MICROBAR_SYMBOLS_SET_TTL_SEC=86400
+      - MICROBAR_PER_SYMBOL_MAXLEN=50000
+      - MICROBAR_LEGACY_MAXLEN=200000
+      - MICROBAR_MAJORS=BTCUSDT,ETHUSDT
+
+    depends_on: &id003 []
+      # Note: redis-worker-1, redis-ticks, and postgres are in docker-compose-infrastructure.yml
+      # They will be resolved via DNS in the shared scanner-network
+      # If infrastructure is not running, these will fail to connect but won't block startup
+      # Postgres DNS resolution: use service name "postgres" (not extra_hosts with hardcoded IP)
+    networks: &id004
+      - scanner-network
+    volumes: &id005
+      - ./python-worker:/app
+      - ./logs:/app/logs
+      - ./python-worker/services:/app/services
+      - ./python-worker/core:/app/core
+      - ./python-worker/infra:/app/infra
+      - ./python-worker/common:/app/common
+      - /var/lib/trade/ml_models:/var/lib/trade/ml_models
+      - /var/lib/trade/of_reports/models:/var/lib/trade/of_reports/models
+      - /var/lib/trade:/var/lib/trade
+      - ./python-worker/persistence:/app/persistence
+      - ./python-worker/risk:/app/risk
+      - ./python-worker/handlers:/app/handlers
+      - ./python-worker/tools:/app/tools
+      - ./python-worker/ml_analysis:/app/ml_analysis
+      - ./calibration:/app/calibration
+      - /tmp:/tmp
+    restart: on-failure:5
+    deploy: &id006
+      resources:
+        limits:
+          memory: 4GB
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: &id007
+      - sh
+      - -c
+      - sleep 40 && python services/crypto_orderflow_service.py
+    container_name: scanner-crypto-orderflow
+  scanner-signal-quality-worker:
+    build: *id001
+    runtime: nvidia
+    container_name: scanner-signal-quality-worker
+    command: python -m services.orderflow.signal_quality_kpi_worker_v1 --loop-s 900
+    restart: unless-stopped
+    volumes:
+      - ./python-worker:/app
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - TRADES_CLOSED_STREAM=trades:closed
+      - SIGNAL_QUALITY_LOOKBACK_H=24
+      - SIGNAL_QUALITY_MAX_SCAN=200000
+      - SIGNAL_QUALITY_MIN_N=30
+      - SIGNAL_QUALITY_TOP_P=0.05
+      - SIGNAL_QUALITY_ECE_BINS=10
+      - SIGNAL_QUALITY_WIN_R_MIN=0.0
+      - DYN_CFG_KEY=settings:dynamic_cfg
+      - SIGNAL_QUALITY_WRITE_CFG2=1
+      - SIGNAL_QUALITY_OUT_HASH=metrics:signal_quality:24h
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    networks:
+      - trade-network
+      - scanner-network
+
+  scanner-signal-quality-exporter:
+    build: *id001
+    runtime: nvidia
+    container_name: scanner-signal-quality-exporter
+    command: python -m services.orderflow.signal_quality_exporter_v1
+    restart: unless-stopped
+    volumes:
+      - ./python-worker:/app
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - SIGNAL_QUALITY_OUT_HASH=metrics:signal_quality:24h
+      - SIGNAL_QUALITY_EXPORTER_PORT=9143
+    ports:
+      - "9143:9143"
+    networks:
+      - trade-network
+      - scanner-network
+
+
+  crypto-orderflow-service-2:
+    build: *id001
+    runtime: nvidia
+    environment:
+      - LIQMAP_FEATURES_ENABLE=1
+      - LIQMAP_SNAPSHOT_KEY_PREFIX=liqmap:snapshot
+      # Canonical env vars (patch A1): windows, refresh throttle, fail-open stale
+      - LIQMAP_FEATURES_WINDOWS=5m,1h
+      - LIQMAP_FEATURES_REFRESH_MS=1500
+      - LIQMAP_FEATURES_FAILOPEN_STALE_MS=120000
+      # Optional tuning
+      - LIQMAP_NEAR_BAND_BPS=20
+      - LIQMAP_PEAK_MIN_SHARE=0.05
+      - LIQMAP_FEATURE_PEAK_RANGE_BPS=600
+      - LIQMAP_FEATURE_FRONT_RUN_BPS=20
+      - LIQMAP_FEATURE_SL_BUFFER_BPS=15
+      - LIQMAP_SL_WIDEN_CAP=1.25
+      - LIQMAP_SL_WIDEN_HARD_VETO=1
+      - METRICS_PORT=8001
+      - PROMETHEUS_PORT=8002
+      # Confidence Calibration A/B
+      - CONF_CAL_AB_MODE=${CONF_CAL_AB_MODE:-off}
+      - CONF_CAL_AB_SHARE=${CONF_CAL_AB_SHARE:-0.0}
+      - CONF_CAL_AB_SHADOW=${CONF_CAL_AB_SHADOW:-false}
+      - CONF_CAL_CHALLENGER_BUNDLE_PATH=${CONF_CAL_CHALLENGER_BUNDLE_PATH:-}
+      - CONF_CAL_AB_STICKY_KEY=${CONF_CAL_AB_STICKY_KEY:-symbol|session}
+      - OF_GATE_METRICS_ENABLE=1
+      - OF_GATE_METRICS_STREAM=metrics:of_gate
+      - OF_GATE_METRICS_SAMPLE=0.10
+      - OF_GATE_METRICS_MAXLEN=200000
+      # DQ quarantine for of-gate rows that fail producer-side contract validation.
+      # Bad rows go to quarantine:metrics:of_gate stream; they never count in ok_rate denominator.
+      - OF_GATE_DQ_QUARANTINE_ENABLE=1
+      - OF_GATE_DQ_QUARANTINE_STREAM=quarantine:metrics:of_gate
+      - OF_GATE_DQ_QUARANTINE_MAXLEN=50000
+      - VETO_TOPN_WINDOW_MS=300000
+      - VETO_TOPN_N=5
+      - VETO_TOPN_MIN_TOTAL=30
+      - VETO_TOPN_ALERT_SHARE=0.50
+      - VETO_TOPN_ALERT_COUNT=50
+      - VETO_TOPN_COOLDOWN_MS=600000
+      - VETO_TOPN_CHANGE_MIN_SHARE=0.35
+      - VETO_TOPN_CHANGE_COOLDOWN_MS=900000
+      - VETO_TOPN_FAMILY_CHANGE_MIN_SHARE=0.45
+      - VETO_TOPN_FAMILY_CHANGE_MIN_DELTA=0.20
+      - VETO_TOPN_FAMILY_CHANGE_MIN_TOTAL_DELTA=7
+      - VETO_TOPN_FAMILY_CHANGE_MIN_TOTAL_RATIO=1.10
+      - VETO_TOPN_FAMILY_CHANGE_COOLDOWN_MS=900000
+      - CVD_DIV_PUBLISH=1
+      - CVD_SNAPSHOT_ENABLE=1
+      # Bias Cascade & Divergence Inference (roi_bias_cascade_div_infer_v2)
+      - BIAS_REGIME_ENABLE=1
+      - BIAS_RSI_ENABLE=1
+      - BIAS_REGIME_TTL_MS=300000
+      - BIAS_RSI_TTL_MS=300000
+      - BIAS_RSI_HI=60
+      - BIAS_RSI_LO=40
+      - BIAS_RSI_REQUIRE_SLOPE=0
+      - DIV_INFER_ENABLE=1
+      - DIV_INFER_MIN_STRENGTH=0.0
+      - DIV_INFER_MAX_AGE_MS=180000
+      - REASON_MISMATCH_WINDOW_MS=60000
+      - REASON_MISMATCH_MIN_EVENTS=50
+      - REASON_MISMATCH_RATIO_WARN=0.02
+      - REASON_MISMATCH_RATIO_ERROR=0.005
+      - REASON_MISMATCH_ALERT_COOLDOWN_MS=30000
+      - REASON_LEGACY_ALERT_WINDOW_S=300
+      - REASON_LEGACY_ALERT_MIN_EVENTS=50
+      - REASON_LEGACY_ALERT_COOLDOWN_S=900
+      - DATA_QUALITY_GATE_ENABLED=1
+      - DATA_ATR_STALE_MAX_MS=60000
+      - SYMBOLS=1000PEPEUSDT,DOGEUSDT,1000SHIBUSDT,1000FLOKIUSDT,1000BONKUSDT,WIFUSDT
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - REDIS_TICKS_URL=redis://redis-worker-1:6379/0
+      # OFC Capture for golden replay
+      - OFC_CAPTURE=1
+      - OFC_CAPTURE_EVERY_N=50
+      - OFC_CAPTURE_PATH=/tmp/ofc_capture.ndjson
+      - OFC_CAPTURE_SNAPSHOT=1
+      - OFC_CAPTURE_CANCEL_STATE=0
+      - ATR_SOURCE=redis
+      - ATR_TF=1m
+      - CRYPTO_OF_REFRESH_SEC=30
+      - CRYPTO_OF_LOG_LEVEL=INFO
+      - DEBUG_VETO=1
+      - CRYPTO_OF_DEBUG_DELTAS=true
+      - DELTA_Z_THRESHOLD=3.0
+      # Confidence Scorer Enhancements (Phases 1-3)
+      - ML_SCORING_ENABLE=1
+      - SCORER_WEIGHTS_PATH=python-worker/config/suggested_weights.json
+      - SCORER_ML_MODEL_PATH=python-worker/ml_models/scorer_model.lgb
+      - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=0
+      - CRYPTO_OF_STRONG_GATE_SHADOW=1
+      - OBI_STABLE_SCORE_MIN=0.85
+      - WEAK_RECENT_WINDOW=5
+      - FP_EDGE_VALID_MS=30000
+      - PG_DSN=postgresql://trading:trading_password@postgres:5432/scanner_analytics
+      - TRADES_DB_DSN=postgresql://trading:trading_password@postgres:5432/scanner_analytics
+      - ORDERS_QUEUE=orders:queue
+      - CRYPTO_NOTIFY_STREAM=notify:telegram
+      # ✅ P0/P1: Performance and reliability improvements
+      - CRYPTO_OF_BOOTSTRAP_MAX_CONC=10
+      - CRYPTO_OF_ACK_BATCH=200
+      - CRYPTO_OF_MAX_LAG_MS=1000
+      - REDIS_MAIN_MAX_CONNECTIONS=200
+      - REDIS_TICKS_MAX_CONNECTIONS=200
+      - REDIS_NOTIFY_MAX_CONNECTIONS=10
+      - CRYPTO_OF_DROP_ON_LAG=true
+      - CRYPTO_OF_MAX_TS_SKEW_MS=21600000
+      - CRYPTO_OF_PEL_SWEEP=false
+      - CRYPTO_OF_PEL_SWEEP_INTERVAL_SEC=10
+      - CRYPTO_OF_PEL_MIN_IDLE_MS=60000
+      - CRYPTO_OF_PEL_COUNT=200
+      - CRYPTO_OF_PEL_QUARANTINE=false
+      # PEL Recovery (Expert Recommendations)
+      - REDIS_SOCKET_TIMEOUT=15
+      - REDIS_SOCKET_CONNECT_TIMEOUT=5
+      - REDIS_PEL_RECOVERY_EVERY_SEC=30
+      - REDIS_PEL_MIN_IDLE_MS=15000
+      - REDIS_PEL_CLAIM_COUNT=100
+      - REDIS_PEL_START_ID=0-0
+      - REDIS_PEL_CLAIM_MAX_ITERS=2
+      - TICK_UID_DEDUPE_CACHE_SIZE=4096
+      # Tick Deduplication
+      - TICK_DEDUPE_ENABLE=1
+      - TICK_DEDUPE_MAX=50000
+      - TICK_DEDUP_WINDOW=4096
+      # Tick Dedup (in-memory deduper)
+      - TICK_DEDUP_ENABLE=1
+      - TICK_DEDUP_MAX_ITEMS=20000
+      - TICK_DEDUP_MAX_AGE_MS=180000
+      # Tick Quarantine (bad schema/time/exception)
+      - TICK_QUARANTINE_ENABLE=1
+      - TICK_QUARANTINE_STREAM=stream:tick:quarantine
+      - TICK_QUARANTINE_MAXLEN=50000
+      - TICK_QUARANTINE_SAMPLE_RATE=0.05
+      # Tick Time Policy (event-time hygiene before strategy)
+      - TICK_TIME_MAX_FUTURE_MS=5000
+      - TICK_TIME_MAX_PAST_MS=120000
+      - TICK_TIME_MAX_REORDER_MS=1500
+      - TICK_TIME_ALLOW_SOFT_REORDER=1
+      - TICK_TIME_CLAMP_SOFT_FUTURE=1
+      - CRYPTO_NOTIFY_REDIS_URL=redis://redis-worker-2:6379/0
+      - CRYPTO_RAW_STREAM=signals:crypto:raw
+      - ATR_JUMP_MAX_REL=1.2
+      - ATR_REDIS_URL=redis://redis-worker-2:6379/0
+      - REDIS_SAVE_TP_FILLS=1
+      - REDIS_CLOSED_ZSETS_ENABLED=1
+      - REDIS_LEGACY_CLOSED_LISTS_ENABLED=1
+      - TRADES_CLOSED_STREAM_COMPACT=0
+      - REDIS_SAVE_SIGNAL_PAYLOAD=0
+      - HEALTH_SNAPSHOT_CACHE_TTL_MS=2000
+      - CRYPTO_NOTIFY_SIGNAL_EVERY_N=100
+      - CRYPTO_SIGNAL_MIN_CONF=${CRYPTO_SIGNAL_MIN_CONF:-55}
+      - DISABLE_CONFIDENCE_FILTER=false
+      - MIN_SIGNAL_CONFIDENCE=70
+      - MIN_SIGNAL_CONFIDENCE__XAUUSD=20
+      - MIN_SIGNAL_CONFIDENCE__XAUUSDT=70
+      # Отключение релаксации confidence для мем-коинов (по умолчанию снижается до 30%)
+      - CONF_RELAX_DISABLE=true
+      - CONF_CAL_PROOF_STATE_PATH=/app/calibration/conf_cal_proof_state.json
+      - CONF_CAL_PROMOTION_STATUS_PATH=/app/calibration/conf_cal_promo_status.json
+      # Альтернативно можно установить свой порог релаксации:
+      # - CONF_RELAX_MAX=70
+      - GOLDEN_PATTERN_MIN_CONFIDENCE=90
+      - SIGNAL_METRIC_WEIGHT__DELTA_SPIKE_Z=1.0
+      - SIGNAL_METRIC_WEIGHT__OBI=0.7
+      - SIGNAL_METRIC_WEIGHT__WEAK_PROGRESS=0.5
+      - SIGNAL_METRIC_WEIGHT__ATR_QUANTILE=0.3
+      - SCORING_LIQUIDITY_WEIGHT=0.3
+      - SCORING_LIQUIDITY_HARD_FLOOR=0.15
+      - SCORING_LIQUIDITY_ENABLED=1
+      - SCORING_LIQUIDITY_BREAK_FLOOR=0.3
+      - SCORING_LIQUIDITY_ABSORPTION_KILL_FLOOR=0.6
+      - SCORING_LIQ_BREAK_MAX=0.15
+      - SCORING_LIQ_ABSORB_MAX=0.15
+      - SCORING_LIQ_NEUTRAL_SPAN=0.05
+      - SIGNAL_PATTERN_WEIGHT__BREAKOUT_R1=1.2
+      - SIGNAL_PATTERN_WEIGHT__FADE_PDH=1.1
+      - SIGNAL_PATTERN_WEIGHT__FADE_HTF_OB=1.3
+      - SIGNAL_PATTERN_MIN_CONF__BREAKOUT_R1=85
+      - SIGNAL_PATTERN_MIN_CONF__FADE_PDH=80
+      - SIGNAL_PATTERN_MIN_CONF__FADE_HTF_OB=88
+      - TP1_SHIFT_MULT=1.4
+      - SLQ_ENABLE=1
+      - SLQ_K=0.7
+      - PYTHONPATH=/app
+      - ACCOUNT_DEPOSIT_USD=100
+      - ACCOUNT_LEVERAGE=100
+      - RISK_PERCENT=5.0
+      - CRYPTO_COMMISSION_RATE=0.0005
+      - TRAILING_TP1_OFFSET_ATR=0.6
+      - TRAILING_AFTER_TP1_SOURCES=CryptoOrderFlow
+      - TRAILING_TP1_OFFSET_ATR_CRYPTOORDERFLOW=0.5
+      - TRAILING_TP1_OFFSET_ATR_ETHUSDT=0.45
+      - TM_ORPHAN_TIMEOUT_ENABLED=0
+      - PUBLISH_OF_INPUTS=1
+      - OF_INPUTS_STREAM=signals:of:inputs
+      - PUBLISH_OF_CONFIRM=1
+      - OF_CONFIRM_STREAM=signals:of:confirm
+      - CRYPTO_ATR_BPS_MIN_STATIC=0.0
+      - CRYPTO_ATR_GATE_AUDIT_ONLY=false
+      - CRYPTO_OF_PUBLISH_CONFIRM=true
+      - CRYPTO_OF_CONFIRM_STREAM=signals:of:confirm
+      - BURST_ENABLE=1
+      - CRYPTO_BURST_ENABLE=1
+      - BURST_WINDOW_MS=2500
+      - BURST_MAX_AGE_MS=8000
+      - PRESSURE_WINDOW_MS=60000
+      - PRESSURE_HI_PER_MIN=4.0
+      - PRESSURE_MIN_CANDIDATE_SCORE=1.0
+      - SPREAD_STATS_WINDOW=300
+      - SPREAD_Z_PENALTY_START=2.0
+      - SPREAD_Z_PENALTY_FULL=5.0
+      - PRESSURE_SPREAD_Z_MAX=4.0
+      - PRESSURE_BOOK_STALE_MAX_MS=3000
+      - BOOK_STALE_PENALTY_START_MS=1000
+      - BOOK_STALE_PENALTY_FULL_MS=5000
+      - BOOK_RATE_EMA_ALPHA=0.2
+      - CAND_W_DELTA_Z=0.5
+      - CAND_B_OBI=0.2
+      - CAND_B_ICE=0.2
+      - CAND_B_ABSORPTION=0.1
+      - CAND_B_RECLAIM=0.1
+      - CAND_P_SPREAD_Z=0.25
+      - CAND_P_SPREAD_BPS=0.15
+      - CAND_P_BOOK_STALE=0.20
+      - BOOK_RATE_STATS_WINDOW=300
+      - BOOK_CHURN_Z_START=2.0
+      - BOOK_CHURN_Z_FULL=5.0
+      - BOOK_CHURN_Z_HI=4.0
+
+      # Expert Calibration - Book Rate & Delta Notional
+      - BOOK_CALIB_MIN_SAMPLES=300
+      - BOOK_CALIB_KEY_PREFIX=calib:book_rate
+      - BOOK_CALIB_REGIMES_SET_PREFIX=calib:book_rate:regimes
+      - BOOK_CALIB_TTL_SEC=604800
+      - DN_CALIB_MIN_SAMPLES=300
+      - DN_CALIB_KEY_PREFIX=calib:dn
+      - DN_CALIB_REGIMES_SET_PREFIX=calib:dn:regimes
+      - DN_CALIB_TTL_SEC=604800
+      - BOOK_CALIB_ENABLE=1
+      - DN_CALIB_ENABLE=1
+      - BOOK_RATE_Z_PENALTY_START=2.0
+      - BOOK_RATE_Z_PENALTY_FULL=5.0
+      - CAND_P_BOOK_CHURN=0.15
+      - PRESSURE_BOOK_RATE_Z_MAX=6.0
+      - STRONG_NEED_CHURN=3
+      - STRONG_NEED_ESCALATED=3
+      - STRONG_NEED_EXTREME_ENABLE=1
+      - STRONG_NEED_EXTREME=4
+      - AB_VER=1
+      - AB_SPLIT_B_DEFAULT=10
+      - AB_SPLIT_C_DEFAULT=10
+      - AB_SPLIT_B_THIN=20
+      - AB_SPLIT_C_THIN=20
+      - ENTRY_AB_EXECUTE_ARMS_DEFAULT=A
+      - ENTRY_AB_EXECUTE_ARMS_THIN=A
+      - REGIME_ADX_HI_Q=0.75
+      - REGIME_ADX_LO_Q=0.40
+      - REGIME_W_ADX=0.20
+      - REGIME_TREND_DIR_HOLD_MIN=0.10
+      # SMT_COH_BUNDLE intentionally disabled for meme-coin service
+      # (BTCUSDT/ETHUSDT/SOLUSDT are not in SYMBOLS here — no SMT reader needed)
+      - SMT_COH_BUNDLE=
+      - SMT_COH_WINDOW_N=180
+      - SMT_COH_MAX_LAG=5
+      - SMT_LEADER_DIR_WINDOW=6
+      - SMT_LEADER_CONFIRM_MIN_BPS=12.0
+      - SMT_COH_MIN_CORR=0.55
+      - SMT_PRICE_STALE_MS=7000
+      - SMT_COH_THR=0.65
+      - SMT_LEADER_MIN_OF_SCORE=1.0
+      - SMT_ZONE_MAX_BP=15.0
+      - SMT_NEWS_ASSET_CLASS=crypto
+      - SMT_NEWS_HI_GRADE=4
+      - SMT_NEWS_PRE_SEC=300
+      - SMT_NEWS_POST_SEC=300
+      - SMT_ADX_TREND_HI_Q=0.75
+      - SMT_ADX_CHOP_LO_Q=0.40
+      - SMT_ENTRY_MIN_OF_SCORE=1.0
+      - SMT_ENTRY_MIN_OF_SCORE_CHOP=1.0
+      - SMT_ENTRY_MIN_OF_SCORE_TREND=1.0
+      - SMT_ENTRY_OBI_MIN_SEC=1.5
+      - ENTRY_ADX_CHOP_LO_Q=0.40
+      - RQ_CACHE_MS=60000
+      - ADX_CACHE_MS=300
+      - WP_VALID_MS=15000
+      - OF_DIR_VALID_MS=30000
+      - TRAILING_AFTER_TP1_1000PEPEUSDT=true
+      - TRAILING_TP1_OFFSET_ATR_1000PEPEUSDT=0.55
+      - TRAILING_AFTER_TP1_DOGEUSDT=true
+      - TRAILING_TP1_OFFSET_ATR_DOGEUSDT=0.50
+      - TRAILING_AFTER_TP1_1000SHIBUSDT=true
+      - TRAILING_TP1_OFFSET_ATR_1000SHIBUSDT=0.55
+      - TRAILING_AFTER_TP1_1000FLOKIUSDT=true
+      - TRAILING_TP1_OFFSET_ATR_1000FLOKIUSDT=0.60
+      - TRAILING_AFTER_TP1_1000BONKUSDT=true
+      - TRAILING_TP1_OFFSET_ATR_1000BONKUSDT=0.60
+      - TRAILING_AFTER_TP1_WIFUSDT=true
+      - TRAILING_TP1_OFFSET_ATR_WIFUSDT=0.55
+      - TRAILING_AFTER_TP1_SUIUSDT=true
+      - TRAILING_TP1_OFFSET_ATR_SUIUSDT=0.45
+      - TRAILING_AFTER_TP1_APTUSDT=true
+      - TRAILING_TP1_OFFSET_ATR_APTUSDT=0.45
+      - TRAILING_AFTER_TP1_ARBUSDT=true
+      - TRAILING_TP1_OFFSET_ATR_ARBUSDT=0.45
+      - TRAILING_AUTOTUNE_CONF_THRESHOLD=0.60
+      - TRAILING_AUTOTUNE_MIN_TRADES=10
+      - STREAM_MSG_MAX_RETRIES=3
+      - STREAM_CLAIM_INTERVAL_MS=5000
+      - STREAM_CLAIM_MIN_IDLE_MS=15000
+      - STREAM_CLAIM_COUNT=50
+      - ORDERFLOW_DLQ_STREAM=stream:dlq:orderflow
+      - DELTA_BUCKET_MS=1000
+      - TRAIL_Z_THRESHOLD=4.5
+      - FORCE_TRAIL_AFTER_TP1=true
+      - LEVEL_SIGNAL_COOLDOWN_MS=15000
+      - BREAKOUT_MIN_DIST_ATR=0.0
+      - USE_SIGNAL_OUTBOX=true
+      - SIGNAL_OUTBOX_STREAM=stream:signals:outbox
+      - OUTBOX_LABELS_STREAM=stream:signals:labels
+      - SIGNAL_OUTBOX_MAXLEN=200000
+      - SIGNAL_DEDUP_GRANULARITY=minute
+      - OUTBOX_GROUP=signals-outbox-group
+      - OUTBOX_CONSUMER=outbox-dispatcher
+      - OUTBOX_MAX_RETRIES=5
+      - OUTBOX_DLQ_STREAM=stream:dlq:signal_outbox
+      - OUTBOX_CLAIM_INTERVAL_MS=5000
+      - OUTBOX_CLAIM_MIN_IDLE_MS=15000
+      - OUTBOX_CLAIM_COUNT=100
+      - OUTBOX_SENT_TTL_SEC=172800
+      - OUTBOX_SEM_DEDUP=1
+      - OUTBOX_SEM_DEDUP_BUCKET_MS=1000
+      - OUTBOX_SEM_DEDUP_LEVEL_DECIMALS=2
+      - OUTBOX_SEM_DEDUP_TTL_MS=15000
+      - SEM_DEDUP_REPORT_WINDOW_SEC=300
+      - SEM_DEDUP_REPORT_MIN_EVENTS=30
+      - SEM_DEDUP_OVER_RATIO=0.60
+      - SEM_DEDUP_UNDER_RATIO=0.05
+      - SEM_DEDUP_HITS_SPIKE_PER_MIN=200
+      - SEM_DEDUP_REPORT_TOP_N=6
+      - CRYPTO_DEFAULT_DAILY_RANGE_PCT=0.04
+      - CRYPTO_OBI_SPIKE_THR=0.7
+      - GPU_ENABLED=true
+      - REDIS_TICKS_URL=redis://redis-ticks:6379/0
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - ENABLE_L3_PROXY=true
+      - BREAKOUT_REQUIRE_OBI=true
+      - BREAKOUT_REQUIRE_OBI20=true
+      - BREAKOUT_MIN_MICROPRICE_SHIFT_BPS=0.2
+      - BREAKOUT_WALL_MAX_DIST_BPS=10.0
+      - BREAKOUT_MIN_DEPLETION_SCORE=0.05
+      - BREAKOUT_MAX_REFILL_SCORE=0.05
+      - BREAKOUT_MAX_IMPACT_PROXY=0.35
+      - ABSORPTION_MIN_REFILL_SCORE=0.05
+      - ABSORPTION_WALL_MAX_DIST_BPS=12.0
+      - ABSORPTION_USE_L3_FILTERS=true
+      - ABSORPTION_L3_MIN_TAKER_RATE=0.0
+      - EXTREME_USE_L3_FILTERS=true
+      - EXTREME_L3_MAX_CANCEL_TO_TRADE=6.0
+      - EXTREME_L3_MIN_TAKER_RATE=0.0
+      - BTC_DELTA_Z_THRESHOLD=2.0
+      - BTC_OBI_THRESHOLD=0.35
+      - BTC_MIN_SIGNAL_INTERVAL=20
+      - BTC_STOP_MODE=ATR
+      - BTC_STOP_ATR_MULT=0.8
+      - BTC_TP_MODE=RR
+      - BTC_TP_RR=0.875,1.625,2.5
+      - ETH_TP_MODE=RR
+      - ETH_TP_RR=0.875,1.625,2.5
+      - TP_MODE=RR
+      - TP_RR=1,2,3
+      - TP_ATR_MULTS=0.6,1.0,1.5
+      - LEVELS_DEBUG=1
+      - ATR_GATE_MODE=ENFORCE
+      - ADVERSE_CHECK_ENABLE=1
+      - ATR_SANITY_ENABLE=1
+      - ATR_SANITY_MIN_SAMPLES=500
+      - ATR_SANITY_MAX_AGE_MS=180000
+      - ATR_SANITY_LO_BPS=0.50
+      - ATR_SANITY_HI_BPS=200.0
+      - ATR_SANITY_KEY_PREFIX=calib:atrbps
+      - ATR_SANITY_REGIMES_SET_PREFIX=calib:atrbps:regimes
+      - ATR_SANITY_TTL_SEC=604800
+      - ATR_SANITY_PERSIST_MIN_BARS=30
+      - ATR_SANITY_PERSIST_MIN_INTERVAL_MS=60000
+      - ATR_SANITY_MAX_BPS_ABS=500.0
+      - ATR_SANITY_FALLBACK_PCT=0.0003
+      - ATR_BPS_CALIB_ENABLE=1
+      - ATR_TF_CALIB_ENABLE=1
+      - ATR_TF_CALIB_MODE=shadow
+      - ATR_TF_CALIB_TFS=1m,5m,15m,1h
+      - FEES_BPS_RT=4
+      - TP_BPS_BUFFER=6
+      - ROCKET_TP1_ATR_MULT=0.78
+      - ROCKET_TP1_ATR_MULT_BTCUSDT=2.28
+      - ROCKET_TP1_ATR_MULT_ETHUSDT=1.58
+      - ROCKET_TP1_ATR_MULT_SOLUSDT=1.50
+      - ROCKET_TP1_ATR_MULT_BNBUSDT=2.02
+      - ROCKET_TP1_ATR_MULT_XRPUSDT=1.50
+      - ROCKET_TP1_ATR_MULT_1000PEPEUSDT=1.50
+      - ROCKET_TP1_ATR_MULT_DOGEUSDT=1.50
+      - ROCKET_TP1_ATR_MULT_1000SHIBUSDT=1.50
+      - ROCKET_TP1_ATR_MULT_1000FLOKIUSDT=1.50
+      - ROCKET_TP1_ATR_MULT_1000BONKUSDT=1.50
+      - ROCKET_TP1_ATR_MULT_WIFUSDT=1.50
+      - ROCKET_TP1_ATR_MULT_SUIUSDT=1.50
+      - ROCKET_TP1_ATR_MULT_APTUSDT=1.50
+      - ROCKET_TP1_ATR_MULT_ARBUSDT=1.50
+      - 1000PEPE_DELTA_WINDOW=240
+      - 1000PEPE_DELTA_Z_THRESHOLD=3.1
+      - 1000PEPE_OBI_THRESHOLD=0.42
+      - 1000PEPE_OBI_MIN_DURATION=2.0
+      - 1000PEPE_ICEBERG_REFRESH=4
+      - 1000PEPE_ICEBERG_DURATION=1.2
+      - 1000PEPE_DIST_ATR_THRESHOLD=0.55
+      - 1000PEPE_MIN_SIGNAL_INTERVAL=45
+      - 1000PEPE_READ_COUNT=150
+      - 1000PEPE_READ_BLOCK_MS=1000
+      - 1000PEPE_WEAK_PROGRESS_ATR=0.22
+      - DOGE_DELTA_WINDOW=150
+      - DOGE_DELTA_Z_THRESHOLD=2.8
+      - DOGE_OBI_THRESHOLD=0.34
+      - DOGE_OBI_MIN_DURATION=1.6
+      - DOGE_ICEBERG_REFRESH=3
+      - DOGE_ICEBERG_DURATION=1.0
+      - DOGE_DIST_ATR_THRESHOLD=0.42
+      - DOGE_MIN_SIGNAL_INTERVAL=20
+      - DOGE_READ_COUNT=120
+      - DOGE_READ_BLOCK_MS=1000
+      - DOGE_WEAK_PROGRESS_ATR=0.16
+      - 1000SHIB_DELTA_WINDOW=240
+      - 1000SHIB_DELTA_Z_THRESHOLD=3.1
+      - 1000SHIB_OBI_THRESHOLD=0.42
+      - 1000SHIB_OBI_MIN_DURATION=2.0
+      - 1000SHIB_ICEBERG_REFRESH=4
+      - 1000SHIB_ICEBERG_DURATION=1.2
+      - 1000SHIB_DIST_ATR_THRESHOLD=0.55
+      - 1000SHIB_MIN_SIGNAL_INTERVAL=45
+      - 1000SHIB_READ_COUNT=150
+      - 1000SHIB_READ_BLOCK_MS=1000
+      - 1000SHIB_WEAK_PROGRESS_ATR=0.22
+      - 1000FLOKI_DELTA_WINDOW=240
+      - 1000FLOKI_DELTA_Z_THRESHOLD=3.1
+      - 1000FLOKI_OBI_THRESHOLD=0.43
+      - 1000FLOKI_OBI_MIN_DURATION=2.1
+      - 1000FLOKI_ICEBERG_REFRESH=4
+      - 1000FLOKI_ICEBERG_DURATION=1.2
+      - 1000FLOKI_DIST_ATR_THRESHOLD=0.58
+      - 1000FLOKI_MIN_SIGNAL_INTERVAL=50
+      - 1000FLOKI_READ_COUNT=150
+      - 1000FLOKI_READ_BLOCK_MS=1000
+      - 1000FLOKI_WEAK_PROGRESS_ATR=0.24
+      - 1000BONK_DELTA_WINDOW=240
+      - 1000BONK_DELTA_Z_THRESHOLD=3.2
+      - 1000BONK_OBI_THRESHOLD=0.44
+      - 1000BONK_OBI_MIN_DURATION=2.1
+      - 1000BONK_ICEBERG_REFRESH=4
+      - 1000BONK_ICEBERG_DURATION=1.2
+      - 1000BONK_DIST_ATR_THRESHOLD=0.60
+      - 1000BONK_MIN_SIGNAL_INTERVAL=55
+      - 1000BONK_READ_COUNT=150
+      - 1000BONK_READ_BLOCK_MS=1000
+      - 1000BONK_WEAK_PROGRESS_ATR=0.25
+      - WIF_DELTA_WINDOW=220
+      - WIF_DELTA_Z_THRESHOLD=3.0
+      - WIF_OBI_THRESHOLD=0.40
+      - WIF_OBI_MIN_DURATION=1.9
+      - WIF_ICEBERG_REFRESH=4
+      - WIF_ICEBERG_DURATION=1.1
+      - WIF_DIST_ATR_THRESHOLD=0.55
+      - WIF_MIN_SIGNAL_INTERVAL=40
+      - WIF_READ_COUNT=140
+      - WIF_READ_BLOCK_MS=1000
+      - WIF_WEAK_PROGRESS_ATR=0.21
+      - SUI_DELTA_WINDOW=140
+      - SUI_DELTA_Z_THRESHOLD=2.8
+      - SUI_OBI_THRESHOLD=0.34
+      - SUI_OBI_MIN_DURATION=1.6
+      - SUI_ICEBERG_REFRESH=3
+      - SUI_ICEBERG_DURATION=1.0
+      - SUI_DIST_ATR_THRESHOLD=0.42
+      - SUI_MIN_SIGNAL_INTERVAL=20
+      - SUI_READ_COUNT=120
+      - SUI_READ_BLOCK_MS=1000
+      - SUI_WEAK_PROGRESS_ATR=0.16
+      - APT_DELTA_WINDOW=140
+      - APT_DELTA_Z_THRESHOLD=2.8
+      - APT_OBI_THRESHOLD=0.34
+      - APT_OBI_MIN_DURATION=1.6
+      - APT_ICEBERG_REFRESH=3
+      - APT_ICEBERG_DURATION=1.0
+      - APT_DIST_ATR_THRESHOLD=0.42
+      - APT_MIN_SIGNAL_INTERVAL=20
+      - APT_READ_COUNT=120
+      - APT_READ_BLOCK_MS=1000
+      - APT_WEAK_PROGRESS_ATR=0.16
+      - ARB_DELTA_WINDOW=140
+      - ARB_DELTA_Z_THRESHOLD=2.8
+      - ARB_OBI_THRESHOLD=0.34
+      - ARB_OBI_MIN_DURATION=1.6
+      - ARB_ICEBERG_REFRESH=3
+      - ARB_ICEBERG_DURATION=1.0
+      - ARB_DIST_ATR_THRESHOLD=0.42
+      - ARB_MIN_SIGNAL_INTERVAL=20
+      - ARB_READ_COUNT=120
+      - ARB_READ_BLOCK_MS=1000
+      - ARB_WEAK_PROGRESS_ATR=0.16
+      - 1000PEPE_STOP_MODE=ATR
+      - 1000PEPE_STOP_ATR_MULT=1.10
+      - 1000PEPE_TP_RR=1,1.5,2.5
+      - DOGE_STOP_MODE=ATR
+      - DOGE_STOP_ATR_MULT=0.90
+      - DOGE_TP_RR=1,1.5,2.5
+      - 1000SHIB_STOP_MODE=ATR
+      - 1000SHIB_STOP_ATR_MULT=1.10
+      - 1000SHIB_TP_RR=1,1.5,2.5
+      - 1000FLOKI_STOP_MODE=ATR
+      - 1000FLOKI_STOP_ATR_MULT=1.15
+      - 1000FLOKI_TP_RR=1,1.5,2.5
+      - 1000BONK_STOP_MODE=ATR
+      - 1000BONK_STOP_ATR_MULT=1.20
+      - 1000BONK_TP_RR=1,1.5,2.5
+      - WIF_STOP_MODE=ATR
+      - WIF_STOP_ATR_MULT=1.05
+      - WIF_TP_RR=1,1.5,2.5
+      - SUI_STOP_MODE=ATR
+      - SUI_STOP_ATR_MULT=0.90
+      - SUI_TP_RR=1,1.5,2.5
+      - APT_STOP_MODE=ATR
+      - APT_STOP_ATR_MULT=0.90
+      - APT_TP_RR=1,1.5,2.5
+      - ARB_STOP_MODE=ATR
+      - ARB_STOP_ATR_MULT=0.90
+      - ARB_TP_RR=1,1.5,2.5
+      - ETH_DELTA_Z_THRESHOLD=2.0
+      - BAD_TIME_RECOVERY_OK_STREAK=5
+      - BAD_TIME_RECOVERY_MAX_MS=8000
+      - BAD_TIME_RECOVERY_FAIL_QUARANTINE_MS=20000
+      - BAD_TIME_RECOVERY_FAIL_STATE_FREEZE_MS=5000
+      # Tick time quarantine integration
+      - ENABLE_TICK_TIME_QUARANTINE=1
+      - TICK_TIME_QUARANTINE_STREAM=quarantine:tick_time
+      - TICK_TIME_QUARANTINE_MAXLEN=200000
+      - TICK_TIME_QUARANTINE_SAMPLE=0.02
+      - BAD_TIME_QUARANTINE_STREAM=stream:tick_time:quarantine
+      - BAD_TIME_QUARANTINE_SAMPLE_RATE=0.01
+      - EDGE_COST_GATE_ENABLED=1
+      - EDGE_EXPECTED_MOVE_MODE=ev
+      - EDGE_EV_P_MIN=0.55
+      - EDGE_EV_MIN_TRADES=40
+      - EDGE_EV_STRICT_MISSING_STATS=0
+      - EDGE_COST_APPLY_KINDS=breakout,absorption,extreme,obi_spike
+      - EDGE_COST_STRICT_MISSING_LEVELS=1
+      - EV_TP1_ENABLED=1
+      - EV_TP1_ALPHA=0.05
+      - EV_TP1_TTL_SEC=604800
+      - EV_TP1_USE_REGIME_DIM=1
+      - EV_TP1_TF=1m
+      - EDGE_COST_K=2.0
+      - EDGE_COST_K_BTCUSDT=2.5
+      - EDGE_COST_K_ETHUSDT=2.0
+      - EDGE_FEES_BPS_DEFAULT=4.0
+      - EDGE_SLIPPAGE_BPS_DEFAULT=4.0
+      - EDGE_SLIPPAGE_USE_SPREAD_HALF=1
+      - EDGE_LEVELS_MIN_STOP_BPS=8
+      - EDGE_LEVELS_MIN_TP1_BPS=12
+      - EDGE_COST_LOG_VETO=1
+      - MIN_CONF_DEFAULT=50
+      - MIN_CONF_BTCUSDT=75
+      - MIN_CONF_ETHUSDT=72
+      - MIN_CONF_FACTOR_DEFAULT=0.45
+      - MIN_CONF_FACTOR_BTCUSDT=0.55
+      - MIN_CONF_FACTOR_ETHUSDT=0.52
+      - MIN_CONF_1000PEPEUSDT=50
+      - MIN_CONF_FACTOR_1000PEPEUSDT=0.60
+      - EDGE_COST_K_1000PEPEUSDT=3.3
+      - LIQ_MAX_SPREAD_BPS_1000PEPEUSDT=30
+      - MIN_CONF_FACTOR_DOGEUSDT=0.56
+      - EDGE_COST_K_DOGEUSDT=2.7
+      - LIQ_MAX_SPREAD_BPS_DOGEUSDT=18
+      - MIN_CONF_1000SHIBUSDT=50
+      - MIN_CONF_FACTOR_1000SHIBUSDT=0.60
+      - EDGE_COST_K_1000SHIBUSDT=3.3
+      - LIQ_MAX_SPREAD_BPS_1000SHIBUSDT=30
+      - MIN_CONF_1000FLOKIUSDT=50
+      - MIN_CONF_FACTOR_1000FLOKIUSDT=0.62
+      - EDGE_COST_K_1000FLOKIUSDT=3.5
+      - LIQ_MAX_SPREAD_BPS_1000FLOKIUSDT=35
+      - MIN_CONF_1000BONKUSDT=50
+      - MIN_CONF_FACTOR_1000BONKUSDT=0.63
+      - EDGE_COST_K_1000BONKUSDT=3.6
+      - LIQ_MAX_SPREAD_BPS_1000BONKUSDT=40
+      - MIN_CONF_WIFUSDT=50
+      - MIN_CONF_FACTOR_WIFUSDT=0.60
+      - EDGE_COST_K_WIFUSDT=3.2
+      - LIQ_MAX_SPREAD_BPS_WIFUSDT=28
+      - MIN_CONF_SUIUSDT=50
+      - MIN_CONF_FACTOR_SUIUSDT=0.56
+      - EDGE_COST_K_SUIUSDT=2.6
+      - LIQ_MAX_SPREAD_BPS_SUIUSDT=14
+      - MIN_CONF_APTUSDT=50
+      - MIN_CONF_FACTOR_APTUSDT=0.56
+      - EDGE_COST_K_APTUSDT=2.6
+      - LIQ_MAX_SPREAD_BPS_APTUSDT=14
+      - MIN_CONF_ARBUSDT=50
+      - MIN_CONF_FACTOR_ARBUSDT=0.56
+      - EDGE_COST_K_ARBUSDT=2.6
+      - LIQ_MAX_SPREAD_BPS_ARBUSDT=14
+      # OBSERVE MODE: флаги качества данных выставляются, но veto не применяется
+      # - DATA_VETO_FLAGS=stale_l2,l3_missing,missing_htf  # Закомментировано для observe
+      - REGIME_GATE_ENABLED=1
+      - REGIME_APPLY_KINDS=breakout,absorption
+      - REGIME_DENY_BREAKOUT=range,squeeze
+      - REGIME_DENY_ABSORPTION=trending_bull,trending_bear,expansion
+      - LIQ_GATE_ENABLED=1
+      - LIQ_APPLY_KINDS=breakout,absorption,extreme,obi_spike
+      - LIQ_MAX_SPREAD_BPS=15
+      - LIQ_MAX_SPREAD_BPS_BTCUSDT=10
+      - LIQ_MAX_SPREAD_BPS_ETHUSDT=12
+      - LIQ_MIN_DEPTH_5=0
+      - LIQ_MAX_BURST_FLIP_RATIO=0.80
+      - CONSISTENCY_GATE_ENABLED=1
+      - CONSISTENCY_APPLY_KINDS=breakout,absorption,extreme,obi_spike
+      - CONS_BREAKOUT_REQUIRE_TOUCH_FRESH=1
+      - CONS_BREAKOUT_REQUIRE_TOUCH_TAG=1
+      - CONS_BREAKOUT_TOUCH_TAG_REQUIRED=depletion
+      - CONS_BREAKOUT_MIN_TOUCH_RHO=0.10
+      - CONS_ABSORPTION_REQUIRE_TOUCH_FRESH=1
+      - CONS_ABSORPTION_TOUCH_TAG_REQUIRED=refill
+      - CONS_ABSORPTION_MIN_TOUCH_RHO=0.10
+      - DATA_HARD_GATE_ENABLED=0  # OBSERVE: gate отключен, флаги выставляются через preprocess_signal_for_publish
+      - DATA_REQUIRE_EPOCH_TS=1
+      - DATA_MAX_EVENT_LAG_MS=2500
+      - DATA_OUT_OF_ORDER_TOL_MS=1000
+      - DATA_QUARANTINE_VETO=1
+      - DATA_STRICT_MISSING_ATR_TS=1
+      - LEVELS_EMPIRICAL_ENABLED=1
+      - LEVELS_EMPIRICAL_MIN_SAMPLES=80
+      - LEVELS_EMPIRICAL_BLEND_ALPHA=0.7
+      - LEVELS_EMPIRICAL_TP1_MIN_RR=1.1
+      - LEVELS_EMPIRICAL_TP1_ATR_MIN=0.35
+      - LEVELS_EMPIRICAL_TP1_ATR_MAX=2.00
+      - LEVELS_EMPIRICAL_STOP_ATR_MIN=0.30
+      - LEVELS_EMPIRICAL_STOP_ATR_MAX=2.50
+      - LEVELS_EMPIRICAL_TP1_BPS_MIN=8
+      - LEVELS_EMPIRICAL_TP1_BPS_MAX=400
+      - LEVELS_EMPIRICAL_STOP_BPS_MIN=8
+      - LEVELS_EMPIRICAL_STOP_BPS_MAX=700
+      - EV_GATE_ENABLED=1
+      - EV_GATE_P_MIN=0.55
+      - EV_GATE_K_COST=1.0
+      - EV_GATE_COSTS_BPS=4
+      - EV_GATE_MIN_N=80
+      - EV_GATE_USE_REGIME_DIM=1
+      - EV_GATE_PREFER_EMA=1
+      - EV_GATE_LOG_VETO=1
+      - EV_GATE_CACHE_MS=2000
+      - EV_GATE_EMA_ALPHA=0.05
+      - EV_GATE_STATS_TTL_SEC=604800
+      - EMP_TIME_SNAPSHOTS_ENABLED=1
+      - EMP_TIME_BUCKETS_MINUTES=1,2,3,5,8,13,21,34,45
+      - EMP_TIME_LEVELS_ENABLED=1
+      - EMP_TIME_LEVELS_BUF_MAX=300
+      - EMP_TIME_LEVELS_BUF_TTL_SEC=604800
+      - EMP_TIME_LEVELS_RUNTIME_ENABLED=1
+      - EMP_TIME_LEVELS_MIN_N=120
+      - EMP_TIME_LEVELS_Q_MFE=0.60
+      - EMP_TIME_LEVELS_Q_MAE=0.80
+      - EMP_LEVELS_USE_REGIME_DIM=1
+      - ENTRY_POLICY_ENABLED=1
+      - ENTRY_POLICY_DELAY_ENABLED=1
+      - ENTRY_POLICY_DELAY_BUCKET_MS=1000
+      - ENTRY_POLICY_DELAY_BUCKETS=2
+      - ENTRY_POLICY_SPREAD_MAX_BPS=30
+      - ENTRY_POLICY_SPREAD_SHOCK_MULT=2.5
+      - ENTRY_POLICY_BURST_FLIP_MAX=0.70
+      - ENTRY_POLICY_CANCEL_TO_TRADE_MAX=0.90
+      - EXEC_SPREAD_EMA_ENABLED=1
+      - EXEC_SPREAD_EMA_ALPHA=0.05
+      - EXEC_SPREAD_EMA_TTL_S=2592000
+      - EXEC_SPREAD_EMA_PREFIX="spreadema:"
+      - EXEC_SPREAD_EMA_MIN_SAMPLES=10
+      - ENTRY_POLICY_DIAG_STREAM=entry_policy_diag
+      - ENTRY_POLICY_DIAG_MAXLEN=100000
+      - REL_CAL_ENABLED=0
+      - REL_CAL_PREFIX="relcal:"
+      - REL_CAL_USE_KIND_DIM=1
+      - REL_CAL_USE_REGIME_DIM=1
+      - REL_CAL_USE_TF_DIM=0
+      - REL_CAL_BIN_SIZE=5
+      - REL_CAL_MIN_TOTAL_SAMPLES=30
+      - REL_CAL_MIN_BIN_SAMPLES=5
+      - REL_CAL_LAPLACE_ALPHA=1.0
+      - REL_CAL_TTL_S=5184000
+      - REL_CAL_OUTCOME=tp1
+      - DECISION_TRACE_ENABLE=1
+      - DECISION_TRACE_MAX_EVENTS=200
+      - DECISION_TRACE_DIAG_STREAM=stream:signals:diagnostics
+      - SIGNAL_DIAGNOSTICS_STREAM=stream:signals:diagnostics
+      - DECISION_TRACE_SIDECAR_UPDATE_ON_SUCCESS=0
+      - DECISION_TRACE_LOG_SAMPLE_RATE=0.02
+      - DECISION_TRACE_SUMMARY_MAXLEN=240
+      - DECISION_TRACE_SIDECAR_MAX_BYTES=120000
+      - RUNTIME_SNAPSHOT_REFRESH_SEC=5
+      - RUNTIME_REFRESH_EVERY_SEC=10
+      - AB_LCB_K_DEFAULT=0.75
+      - AB_Z_MIN_DEFAULT=1.0
+      - AB_MIN_N_PER_ARM_DEFAULT=20
+      - AB_MIN_TOTAL_N_DEFAULT=60
+      - AB_MIN_MEAN_GAP_R_DEFAULT=0.05
+      - AB_MIN_LCB_GAP_R_DEFAULT=0.02
+      - AB_LCB_K_THIN=1.00
+      - AB_Z_MIN_THIN=1.5
+      - AB_MIN_N_PER_ARM_THIN=30
+      - AB_MIN_TOTAL_N_THIN=90
+      - AB_MIN_MEAN_GAP_R_THIN=0.08
+      - AB_MIN_LCB_GAP_R_THIN=0.04
+      - AB_LCB_K_TREND=0.75
+      - AB_Z_MIN_TREND=1.0
+      - AB_MIN_N_PER_ARM_TREND=20
+      - AB_MIN_TOTAL_N_TREND=60
+      - AB_MIN_MEAN_GAP_R_TREND=0.05
+      - AB_MIN_LCB_GAP_R_TREND=0.02
+      - AB_LCB_K_RANGE=0.90
+      - AB_Z_MIN_RANGE=1.2
+      - AB_MIN_N_PER_ARM_RANGE=25
+      - AB_MIN_TOTAL_N_RANGE=75
+      - AB_MIN_MEAN_GAP_R_RANGE=0.06
+      - AB_MIN_LCB_GAP_R_RANGE=0.03
+      - AB_APPLY_HOLD_SEC=7200
+      - AB_APPLY_LCB_MULT_THIN=2.6
+      - AB_APPLY_Z_ADD_THIN=0.9
+      - AB_APPLY_K_ADD_THIN=0.35
+      - AB_APPLY_LCB_MULT_TREND=1.8
+      - AB_APPLY_Z_ADD_TREND=0.5
+      - AB_APPLY_K_ADD_TREND=0.20
+      - AB_APPLY_LCB_MULT_RANGE=2.2
+      - AB_APPLY_Z_ADD_RANGE=0.7
+      - AB_APPLY_K_ADD_RANGE=0.30
+      
+      - CALIB_PERSIST_ENABLE=1
+      - CALIB_PERSIST_MIN_BARS=120
+      - CALIB_PERSIST_MIN_INTERVAL_MS=60000
+      - STRONG_DYNAMIC_NEED_ENABLE=0
+      - ATR_FLOOR_T0_BPS=3.0
+      - ATR_FLOOR_T1_BPS=5.0
+      - ATR_FLOOR_T2_BPS=8.0
+      - ATR_FLOOR_TIER_DEFAULT=1
+      - ATR_FLOOR_TIER_TREND=0
+      - ATR_FLOOR_TIER_THIN=2
+      - ATR_FLOOR_TIER_RANGE=1
+      - DN_TIER_DEFAULT=1
+      - DN_TIER_TREND=0
+      - DN_TIER_RANGE=1
+      - DN_TIER_THIN=2
+      - DN_PERSIST_MIN_INTERVAL_MS=60000
+      - ABS_LVL_TIER_DEFAULT=1
+      - ABS_LVL_TIER_RANGE=1
+      - ABS_LVL_TIER_TREND=0
+      - ABS_LVL_TIER_THIN=2
+      - ABS_LVL_EFF_QUOTE_TH=0.0020
+      - ABS_LVL_MIN_QUOTE_DELTA=0.0
+      - ABS_LVL_TH_DRIFT_MAX=0.35
+      - ABS_LVL_TH_RANGE_MAX=1.20
+      - ABS_LVL_CALIB_MIN_SAMPLES=300
+      - ABS_LVL_TH_UNSTABLE=0
+      - SMT_SNAPSHOT_EVERY_MS=1000
+      - SMT_OF_STRONG_VALID_MS=120000
+      - SMT_RECLAIM_VALID_MS=120000
+      - SMT_SWEEP_VALID_MS=120000
+      - SMT_RETRACE_ATR=0.0
+      - SMT_NEAR_ZONE_BP=15.0
+      - SMT_SNAPSHOT_TTL_SEC=30
+      - ATR_TF_CALIB_REFRESH_MS=60000
+      - ATR_TF_CALIB_PERSIST_GAP_MS=300000
+      - EQ_ATR_REFRESH_MS=15000
+      - MICRO_TF=1s
+      - BOOK_RATE_CRIT_HZ=2.0
+      - CRYPTO_OF_SUPERVISOR=true
+      - CRYPTO_OF_SUPERVISOR_INTERVAL_SEC=5
+      - CRYPTO_OF_SUPERVISOR_MAX_RESTARTS=10
+      - CRYPTO_OF_SUPERVISOR_WINDOW_SEC=300
+
+      # Split streams configuration for microbar publishing
+      - MICROBAR_SPLIT_STREAMS_ENABLE=1
+      - MICROBAR_SPLIT_DUAL_WRITE=0
+      - "MICROBAR_LEGACY_STREAM=events:microbar_closed"
+      - "MICROBAR_MAJORS_STREAM=events:microbar_closed:majors"
+      - "MICROBAR_PER_SYMBOL_PREFIX=events:microbar_closed:"
+      - MICROBAR_PER_SYMBOL_STREAM_TEMPLATE=events:microbar_closed:{sym}
+      - MICROBAR_SYMBOLS_SET=events:microbar_closed:symbols
+      - MICROBAR_SYMBOLS_SET_TTL_SEC=86400
+      - MICROBAR_PER_SYMBOL_MAXLEN=50000
+      - MICROBAR_LEGACY_MAXLEN=200000
+      - MICROBAR_MAJORS=BTCUSDT,ETHUSDT
+      - STREAM_TICK_XAUUSDT=stream:tick_XAUUSDT
+      - STREAM_BOOK_XAUUSDT=stream:book_XAUUSDT
+      - XAU_REQUIRE_STRONG_CONFIRMATION=0
+      - XAU_STRONG_GATE_SHADOW=1
+    depends_on: *id003
+    networks: *id004
+    volumes: *id005
+    restart: on-failure:5
+    deploy: *id006
+    command: *id007
+    container_name: scanner-crypto-orderflow-2
+
+  scanner-crypto-orderflow-meme:
+    build: *id001
+    environment:
+      - CRYPTO_SYMBOLS_SET_KEY=crypto:symbols:meme
+      - CRYPTO_DEFAULT_SYMBOLS_ENABLED=0
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - REDIS_TICKS_URL=redis://redis-ticks:6379/0
+      - ATR_REDIS_URL=redis://redis-worker-2:6379/0
+      - CRYPTO_NOTIFY_REDIS_URL=redis://redis-worker-2:6379/0
+      - PG_DSN=postgresql://trading:trading_password@postgres:5432/scanner_analytics
+      - TRADES_DB_DSN=postgresql://trading:trading_password@postgres:5432/scanner_analytics
+      # Meme-specific parameters:
+      - OMP_NUM_THREADS=1
+      - OPENBLAS_NUM_THREADS=1
+      - MKL_NUM_THREADS=1
+      - PYTHONUNBUFFERED=1
+      - TICK_SAMPLE_RATE=${TICK_SAMPLE_RATE:-0.5}    # P1: снижено 1.0→0.5 (защита от meme flash-crash)
+      - OUTBOX_STREAM_MAXLEN=10000                    # P1: ограничиваем outbox RAM
+    depends_on: *id003
+    networks: *id004
+    volumes: *id005
+    restart: on-failure:5
+    deploy: *id006
+    # Эксклюзивное прописывание своего сета символов перед стартом: meme = 1000FLOKIUSDT + 1000BONKUSDT
+    command:
+      - sh
+      - -c
+      - |
+        redis-cli -u redis://redis-worker-1:6379 DEL crypto:symbols:meme
+        redis-cli -u redis://redis-worker-1:6379 SADD crypto:symbols:meme 1000FLOKIUSDT 1000BONKUSDT
+        sleep 40 && python services/crypto_orderflow_service.py
+    container_name: scanner-crypto-orderflow-meme
+
+  scanner-crypto-orderflow-meme-2:
+    build: *id001
+    environment:
+      - CRYPTO_SYMBOLS_SET_KEY=crypto:symbols:meme2
+      - CRYPTO_DEFAULT_SYMBOLS_ENABLED=0
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - REDIS_TICKS_URL=redis://redis-ticks:6379/0
+      - ATR_REDIS_URL=redis://redis-worker-2:6379/0
+      - CRYPTO_NOTIFY_REDIS_URL=redis://redis-worker-2:6379/0
+      - PG_DSN=postgresql://trading:trading_password@postgres:5432/scanner_analytics
+      - TRADES_DB_DSN=postgresql://trading:trading_password@postgres:5432/scanner_analytics
+      # Meme-specific parameters:
+      - OMP_NUM_THREADS=1
+      - OPENBLAS_NUM_THREADS=1
+      - MKL_NUM_THREADS=1
+      - PYTHONUNBUFFERED=1
+      - TICK_SAMPLE_RATE=${TICK_SAMPLE_RATE:-0.5}    # P1: снижено 1.0→0.5 (защита от meme flash-crash)
+      - OUTBOX_STREAM_MAXLEN=10000                    # P1: ограничиваем outbox RAM
+    depends_on: *id003
+    networks: *id004
+    volumes: *id005
+    restart: on-failure:5
+    deploy: *id006
+    # Эксклюзивное прописывание своего сета символов перед стартом: meme2 = 1000PEPEUSDT + 1000SHIBUSDT
+    command:
+      - sh
+      - -c
+      - |
+        redis-cli -u redis://redis-worker-1:6379 DEL crypto:symbols:meme2
+        redis-cli -u redis://redis-worker-1:6379 SADD crypto:symbols:meme2 1000PEPEUSDT 1000SHIBUSDT
+        sleep 40 && python services/crypto_orderflow_service.py
+    container_name: scanner-crypto-orderflow-meme-2
+
+  # P0 Fix: 3-й meme shard — DOGEUSDT + WIFUSDT (meme3 Redis key)
+  scanner-crypto-orderflow-meme-3:
+    build: *id001
+    environment:
+      - CRYPTO_SYMBOLS_SET_KEY=crypto:symbols:meme3
+      - CRYPTO_DEFAULT_SYMBOLS_ENABLED=0
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - REDIS_TICKS_URL=redis://redis-ticks:6379/0
+      - ATR_REDIS_URL=redis://redis-worker-2:6379/0
+      - CRYPTO_NOTIFY_REDIS_URL=redis://redis-worker-2:6379/0
+      - PG_DSN=postgresql://trading:trading_password@postgres:5432/scanner_analytics
+      - TRADES_DB_DSN=postgresql://trading:trading_password@postgres:5432/scanner_analytics
+      # Meme-specific parameters:
+      - OMP_NUM_THREADS=1
+      - OPENBLAS_NUM_THREADS=1
+      - MKL_NUM_THREADS=1
+      - PYTHONUNBUFFERED=1
+      - TICK_SAMPLE_RATE=${TICK_SAMPLE_RATE:-0.5}    # P0: защита от meme flash-crash
+      - OUTBOX_STREAM_MAXLEN=10000                    # P0: ограничиваем outbox RAM
+    depends_on: *id003
+    networks: *id004
+    volumes: *id005
+    restart: on-failure:5
+    deploy: *id006
+    # Эксклюзивное прописывание своего сета символов перед стартом: meme3 = DOGEUSDT + WIFUSDT
+    command:
+      - sh
+      - -c
+      - |
+        redis-cli -u redis://redis-worker-1:6379 DEL crypto:symbols:meme3
+        redis-cli -u redis://redis-worker-1:6379 SADD crypto:symbols:meme3 DOGEUSDT WIFUSDT
+        sleep 40 && python services/crypto_orderflow_service.py
+    container_name: scanner-crypto-orderflow-meme-3
+
+  of-confirm-service:
+    build: *id001
+    command: ["python", "-m", "services.of_confirm_service"]
+    environment:
+      CONFIDENCE_EVIDENCE_ENABLE: "1"
+      # Split streams configuration for microbar consumption
+      MICROBAR_SPLIT_STREAMS_ENABLE: ${MICROBAR_SPLIT_STREAMS_ENABLE:-1}
+      MICROBAR_LEGACY_STREAM: ${MICROBAR_LEGACY_STREAM:-events:microbar_closed}
+      MICROBAR_PER_SYMBOL_STREAM_TEMPLATE: ${MICROBAR_PER_SYMBOL_STREAM_TEMPLATE:-events:microbar_closed:{sym}}
+      MICROBAR_SYMBOLS_SET: ${MICROBAR_SYMBOLS_SET:-events:microbar_closed:symbols}
+      # Enable microbar consumption in of_confirm_service (integrated in _consume_ticks loop)
+      # Required: MICROBAR_SPLIT_STREAMS_ENABLE=1 and OF_CONFIRM_BARS_ENABLE=1
+      OF_CONFIRM_BARS_ENABLE: ${OF_CONFIRM_BARS_ENABLE:-1}
+      OF_CONFIRM_BARS_REFRESH_SEC: ${OF_CONFIRM_BARS_REFRESH_SEC:-30}
+      OF_CONFIRM_BARS_MAX_STREAMS: ${OF_CONFIRM_BARS_MAX_STREAMS:-200}
+      OF_CONFIRM_BARS_BATCH: ${OF_CONFIRM_BARS_BATCH:-200}
+      OF_CONFIRM_BARS_BLOCK_MS: ${OF_CONFIRM_BARS_BLOCK_MS:-500}
+      ATR_JUMP_MAX_REL: ${ATR_JUMP_MAX_REL:-1.2}
+    depends_on: *id003
+    networks: *id004
+    volumes: *id005
+    restart: on-failure:5
+    deploy: *id006
+    container_name: of-confirm-service
+
+  execution-gate-service:
+    build: *id001
+    command: python /app/services/execution_gate_service.py
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONUNBUFFERED=1
+      - ATR_JUMP_MAX_REL=${ATR_JUMP_MAX_REL:-1.2}
+      - PROMETHEUS_PORT=8004
+      - LOG_LEVEL=INFO
+      - EXEC_GATE_TTL_S=5.0
+      - EXEC_GATE_MATCH_MS=2000
+      - EXEC_GATE_REQUIRE_OF_CONFIRM=false
+    depends_on: *id003
+    ports:
+      - "8004:8004"
+    # Note: redis-worker-1 is in docker-compose-infrastructure.yml
+    # It will be resolved via DNS in the shared scanner-network
+    networks: *id004
+    volumes: *id005
+    restart: on-failure:5
+    deploy: *id006
+    container_name: execution-gate-service
+
+  ml-confirm-sre-poller:
+    build: *id001
+    command: ["python", "-m", "services.ml_confirm_sre_poller.main"]
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+      - PROMETHEUS_PORT=8005
+      - ML_CONFIRM_CHAMPION_KEY=cfg:ml_confirm:champion
+      - TB_LABELS_STREAM=labels:tb
+      - ML_CONFIRM_SRE_POLL_INTERVAL_SEC=5
+      - ML_CONFIRM_KIND_DEFAULT=util_mh_v1
+    depends_on: *id003
+    ports:
+      - "8005:8005"
+    networks: *id004
+    volumes: *id005
+    restart: on-failure:5
+    deploy: *id006
+    container_name: ml-confirm-sre-poller
+
+  # paper-executor-multi:
+  #   build: *id001
+  #   environment:
+  #     - REDIS_URL=redis://redis-worker-1:6379/0
+  #     - PAPER_SYMBOLS_MODE=auto
+  #     - PAPER_SYMBOLS_REFRESH_SEC=15
+  #     - TICK_STREAM_PREFIX=stream:tick_
+  #     - PAPER_ORDERS_STREAM=paper:orders
+  #     - PAPER_DEALS_STREAM=events:trades
+  #     - PAPER_PARQUET=/tmp/paper_trades_multi.parquet
+  #     - PYTHONUNBUFFERED=1
+  #   depends_on: *id003
+  #   networks: *id004
+  #   volumes: *id005
+  #   restart: on-failure:5
+  #   container_name: scanner-paper-executor-multi
+
+  scanner-ab-winner:
+    build: *id001
+    runtime: nvidia
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - AB_EVENTS_STREAM=events:trades
+      - AB_WINNER_GROUP=ab-winner-v2
+      - AB_WINNER_CONSUMER=c-docker
+      - AB_WINNER_EVAL_EVERY_MS=300000
+      - AB_LCB_CONF_TREND=0.90
+      - AB_LCB_MINN_TREND=60
+      - AB_LCB_EDGE_TREND=0.07
+      - AB_LCB_CONF_RANGE=0.95
+      - AB_LCB_MINN_RANGE=80
+      - AB_LCB_EDGE_RANGE=0.10
+      - AB_LCB_CONF_THIN=0.975
+      - AB_LCB_MINN_THIN=120
+      - AB_LCB_EDGE_THIN=0.15
+      - PYTHONPATH=/app
+      - CRYPTO_OF_LOG_LEVEL=INFO
+    depends_on: *id003
+    networks: *id004
+    volumes: *id005
+    restart: on-failure:5
+    command: python -m services.ab_winner_suggester_service_v2
+    deploy: *id006
+
+
+  ab-winner-apply-runner:
+    build: *id001
+    runtime: nvidia
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONUNBUFFERED=1
+      - AB_APPLY_RUNNER_INTERVAL_SEC=10
+      - AB_ACTIVE_ARM_LOCK_SEC=21600
+      - AB_ACTIVE_ARM_TTL_SEC=0
+      - AB_APPLIED_TTL_SEC=604800
+      - ENTRY_POLICY_APPROVALS_REQUIRED=2
+      - AB_APPLY_METRICS_ENABLE=1
+      - AB_APPLY_METRICS_PORT=9109
+      - AB_APPLY_ALERT_ON_LOCKED=1
+      - AB_APPLY_LOCK_ALERT_GAP_SEC=600
+    depends_on: *id003
+    networks: *id004
+    volumes: *id005
+    restart: always
+    command: ["python", "-m", "services.ab_winner_apply_runner"]
+    container_name: ab-winner-apply-runner
+  
+  ab-winner-evaluator:
+    build: *id001
+    runtime: nvidia
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONUNBUFFERED=1
+    depends_on: *id003
+    networks: *id004
+    volumes: *id005
+    restart: always
+    command:
+      - sh
+      - -c
+      - "while true; do python3 -m tools.ab_winner_evaluate_once; sleep 3600; done"
+    container_name: ab-winner-evaluator
+
+  of-reports-autopilot:
+    build: *id001
+    runtime: nvidia
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONUNBUFFERED=1
+      - OF_INPUTS_STREAM=signals:of:inputs
+      - STATE_DIR=/app/of_reports_state
+      - OUT_DIR=/app/of_reports_out
+      - BASELINE_DIR=/app/of_reports_baselines
+      - BASELINE_INPUTS=/app/of_reports_baselines/inputs_canary.ndjson
+      - CANARY_SYMBOLS=BTCUSDT,ETHUSDT
+      - CANARY_SHARE=0.10
+      - TELEGRAM_MODE=redis
+      - TELEGRAM_NOTIFY_STREAM=notify:telegram
+      - ATR_JUMP_MAX_REL=${ATR_JUMP_MAX_REL:-1.2}
+    depends_on: *id003
+    networks: *id004
+    volumes:
+      - ./logs:/app/logs
+      - ./python-worker/services:/app/services
+      - ./python-worker/core:/app/core
+      - ./python-worker/tools:/app/tools
+      - ./python-worker/of_reports_state:/app/of_reports_state
+      - ./python-worker/of_reports_out:/app/of_reports_out
+      - ./python-worker/of_reports_baselines:/app/of_reports_baselines
+    restart: always
+    command: ["python", "-m", "services.autopilot_of_reports_service"]
+    container_name: of-reports-autopilot
+    profiles: ["default"]
+
+  recs-callback-worker:
+    build: *id001
+    runtime: nvidia
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONUNBUFFERED=1
+      - BOT_CALLBACKS_STREAM=bot:callbacks
+      - BOT_CALLBACKS_GROUP=recs-callbacks
+      - BOT_CALLBACKS_CONSUMER=recs-cb-1
+      - RECS_HMAC_SECRET=${RECS_HMAC_SECRET:-CHANGE_ME}
+      - RECS_TTL_SEC=86400
+      - RECS_ALLOWED_USER_IDS=${RECS_ALLOWED_USER_IDS:-}
+      - STREAM_ARCHIVER_BATCH_SIZE=${STREAM_ARCHIVER_BATCH_SIZE:-3000}
+      - OF_CONFIRM_VERSION=2
+
+      # ---- Tick Sampling to protect against meme coin storms ----
+      - TICK_SAMPLE_RATE=${TICK_SAMPLE_RATE:-0.25} # Process only 25% of ticks to reduce the load from meme coins.
+    depends_on: *id003
+    networks: *id004
+    volumes:
+      - ./logs:/app/logs
+      - ./python-worker/services:/app/services
+      - ./python-worker/core:/app/core
+    restart: always
+    command: ["python", "-m", "services.recs_callback_worker"]
+    container_name: recs-callback-worker
+    profiles: ["default"]
+
+  recs-callback-worker-v2:
+    build: *id001
+    runtime: nvidia
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONUNBUFFERED=1
+      - BOT_CALLBACKS_STREAM=bot:callbacks
+      - BOT_CALLBACKS_GROUP=recs-callback-worker-v2
+      - BOT_CALLBACKS_CONSUMER=c1
+      - RECS_HMAC_SECRET=${RECS_HMAC_SECRET:-CHANGE_ME}
+      - RECS_TTL_SEC=86400
+      - NOTIFY_TELEGRAM_STREAM=notify:telegram
+      - ENABLE_OF_GATE_DLQ_TRIAGE_TIMER=1
+    depends_on: *id003
+    networks: *id004
+    volumes:
+      - ./logs:/app/logs
+      - ./python-worker/services:/app/services
+      - ./python-worker/core:/app/core
+    restart: always
+    command: ["python", "-m", "services.recs_callback_worker_v2"]
+    container_name: recs-callback-worker-v2
+    profiles: ["default"]
+
+  prom-rules-bundle-smoke-timer:
+    build: *id001
+    runtime: nvidia
+    container_name: scanner-prom-rules-bundle-smoke-timer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONPATH=.:/app
+      - ENABLE_PROM_RULES_BUNDLE_SMOKE=1
+      - PROM_RULES_BUNDLE_SMOKE_BLOCK_REASON=prom_rules_bundle_smoke
+      - PROM_RULES_BUNDLE_SMOKE_PROMTOOL=auto
+      - PROM_RULES_REPO_ROOT=/app
+    depends_on: *id003
+    networks: *id004
+    volumes:
+      - ./python-worker:/app
+    working_dir: /app
+    command: >
+      sh -c "sleep 120 && while true; do
+        python3 -m services.prom_rules_bundle_smoke_runner_v1 || true;
+        sleep 3600;
+      done"
+    profiles: ["default"]
+
+  # OFC (Orderflow Confirm) Golden Replay & Validation Timers
+  # Интегрированы для детерминированного replay и валидации capture
+  of-timers-worker:
+    build: *id001
+    runtime: nvidia
+    container_name: scanner-of-timers-worker
+    restart: unless-stopped
+    env_file:
+      - ops/meta_ab_timer/meta_ab_v2.env
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONPATH=.:/app
+      - NOTIFY_TELEGRAM_STREAM=notify:telegram
+      # A8 Observability Smoke Checks
+      - ENABLE_A8_NEW_FEATURES_SMOKE=1
+      - A8_SMOKE_RECENT_S=600
+      - A8_SMOKE_NAN_RATE_MAX=0.01
+      - A8_SMOKE_RV_MIN_READY=40
+      - A8_SMOKE_RV_EPS_BPS=1e-6
+      - A8_SMOKE_RV_NEVER_READY_MIN_RECENT=200
+      - A8_NEW_FEATURES_SMOKE_COOLDOWN_S=21600
+      - OF_GATE_METRICS_STREAM=metrics:of_gate
+      - ENABLE_OF_GATE_DLQ_TRIAGE_TIMER=1
+      - ENABLE_OF_GATE_DLQ_AUTO_REPLAY_TIMER=${ENABLE_OF_GATE_DLQ_AUTO_REPLAY_TIMER:-1}
+      - OF_GATE_DLQ_AUTO_REPLAY_COMMIT=${OF_GATE_DLQ_AUTO_REPLAY_COMMIT:-0}
+      - ENABLE_OF_INPUTS_DLQ_AUTO_REPLAY=1
+      - ENABLE_OF_INPUTS_DLQ_DB_ARCHIVE_P98=1
+      - OF_INPUTS_DLQ_AUTO_REPLAY_COMMIT=1
+      - CANARY_SYMBOLS=${CANARY_SYMBOLS:-BTCUSDT,ETHUSDT}
+      - "CFG_HASH_PREFIX=config:orderflow:"
+      - CFG_DRIFT_STATE_KEY=sre:cfg:last_snapshot
+      - BASELINE_INPUTS=${BASELINE_INPUTS:-/var/lib/trade/of_reports/baselines/inputs_canary.ndjson}
+      - BASELINE_OUTPUT=${BASELINE_OUTPUT:-/var/lib/trade/of_reports/baselines/baseline.ndjson}
+      - OUT_DIR=/var/lib/trade/of_reports/out
+      - LAT_P99_US_MAX=${LAT_P99_US_MAX:-3000}
+      - THROUGHPUT_MIN=${THROUGHPUT_MIN:-2000}
+      - REGRESS_MAX_MISMATCHES=${REGRESS_MAX_MISMATCHES:-0}
+      - REGRESS_FAIL_DISABLE_ENFORCE=${REGRESS_FAIL_DISABLE_ENFORCE:-1}
+      - REGRESS_TARGET_SYMBOLS=${REGRESS_TARGET_SYMBOLS:-BTCUSDT,ETHUSDT}
+      - RECS_HMAC_SECRET=${RECS_HMAC_SECRET:-CHANGE_ME_LONG_RANDOM}
+      - RECS_TTL_SEC=${RECS_TTL_SEC:-86400}
+      - ML_CONFIRM_MODE=OFF
+      - ML_CONFIRM_METRICS_MAXLEN=200000    # P1: буфер 200k для archiver
+      - OFC_CAPTURE=${OFC_CAPTURE:-/tmp/ofc_capture.ndjson}
+      - OFC_GOLDEN=${OFC_GOLDEN:-/tmp/ofc_golden.ndjson}
+      - OFC_VALIDATE_STRICT=${OFC_VALIDATE_STRICT:-1}
+      - OFC_REPLAY_STRICT=${OFC_REPLAY_STRICT:-1}
+      - OFC_REPLAY_MAX_ROWS=${OFC_REPLAY_MAX_ROWS:-0}
+      - DYN_CFG_KEY=settings:dynamic_cfg
+      - CRYPTO_NOTIFY_STREAM=notify:telegram
+      - ALERTS_GLOB=/app/alerts_source/prometheus_alerts_*.yml
+      - ENABLE_META_COV_QUARANTINE_MONITOR=1
+      - META_COV_QUAR_NOTIFY_COOLDOWN_SEC=3600
+      - ENABLE_META_COV_OPS_BUNDLE=0
+      - ENABLE_META_COV_OUTCOME_AUTO_APPLY=0
+      - ENABLE_META_COV_OUTCOME_GUARD=0
+      - META_COV_OPS_APPLY=0
+      - ENABLE_META_AB_V2_NIGHTLY=1
+      - META_AB_V2_NIGHTLY_TIMEOUT_S=2100
+      - ENABLE_CONFIRMATIONS_COVERAGE_NIGHTLY=1
+      # OF Gate contract smoke-check (hourly :08) — exit=2 sends alert
+      # Set ENABLE_OF_GATE_CONTRACT_SMOKE=0 for emergency rollback without code change
+      - OF_GATE_METRICS_ENABLE=${OF_GATE_METRICS_ENABLE:-1}
+      - ML_FEATURE_SCHEMA_VER=v4_of
+      - ENABLE_OF_GATE_CONTRACT_SMOKE=${ENABLE_OF_GATE_CONTRACT_SMOKE:-1}
+      - OF_GATE_CONTRACT_SMOKE_MODULE=${OF_GATE_CONTRACT_SMOKE_MODULE:-orderflow_services.of_gate_metrics_contract_check_v1}
+      - OF_GATE_CONTRACT_SMOKE_TIMEOUT_S=${OF_GATE_CONTRACT_SMOKE_TIMEOUT_S:-120}
+      - OF_GATE_CONTRACT_SMOKE_DRY_RUN=${OF_GATE_CONTRACT_SMOKE_DRY_RUN:-0}
+      - OF_GATE_CONTRACT_CHECK_LIMIT=${OF_GATE_CONTRACT_CHECK_LIMIT:-2000}
+      - OF_GATE_CONTRACT_BAD_MAX=${OF_GATE_CONTRACT_BAD_MAX:-0.001}
+      # Cooldown/dedup — avoids re-sending the same alert within COOLDOWN_S seconds
+      - OF_GATE_CONTRACT_SMOKE_COOLDOWN_S=${OF_GATE_CONTRACT_SMOKE_COOLDOWN_S:-21600}
+      - OF_GATE_CONTRACT_SMOKE_DEDUP_BUCKET=${OF_GATE_CONTRACT_SMOKE_DEDUP_BUCKET:-0.0001}
+      - OF_GATE_CONTRACT_SMOKE_DEDUP_ENABLE=${OF_GATE_CONTRACT_SMOKE_DEDUP_ENABLE:-1}
+      - OF_GATE_CONTRACT_SMOKE_DEDUP_PREFIX=${OF_GATE_CONTRACT_SMOKE_DEDUP_PREFIX:-dedup:alert:of_gate_contract:}
+      # TOOL_NOTIFY=0: timers worker sends the alert itself (no duplicate from the tool)
+      - OF_GATE_CONTRACT_SMOKE_TOOL_NOTIFY=${OF_GATE_CONTRACT_SMOKE_TOOL_NOTIFY:-0}
+      # World-practice trackers smoke-check (hourly :11) — exit=2 sends alert
+      # Auto-enabled when OF_GATE_METRICS_ENABLE=1. Set ENABLE_WORLD_PRACTICE_SMOKE=0 to disable.
+      - ENABLE_WORLD_PRACTICE_SMOKE=${ENABLE_WORLD_PRACTICE_SMOKE:-1}
+      - WORLD_PRACTICE_SMOKE_TIMEOUT_S=${WORLD_PRACTICE_SMOKE_TIMEOUT_S:-120}
+      - WORLD_PRACTICE_SMOKE_COOLDOWN_S=${WORLD_PRACTICE_SMOKE_COOLDOWN_S:-21600}
+      - WORLD_PRACTICE_SMOKE_MODULE=${WORLD_PRACTICE_SMOKE_MODULE:-orderflow_services.world_practice_gauges_smoke_check_v1}
+      # Feature Registry: OOF training без feature_cols.json
+      # ML_EDGE_STACK_OOF_FEATURE_SCHEMA_VER: если задан, тренируем из Registry (без feature_cols.json)
+      # ML_EDGE_STACK_OOF_REQUIRE_REGISTRY=0: soft-fail (fallback на legacy feature_cols.json если нет registry)
+      - ML_EDGE_STACK_OOF_FEATURE_SCHEMA_VER=${ML_EDGE_STACK_OOF_FEATURE_SCHEMA_VER:-v3}
+      - ML_EDGE_STACK_OOF_REQUIRE_REGISTRY=${ML_EDGE_STACK_OOF_REQUIRE_REGISTRY:-0}
+      - ML_EDGE_STACK_OOF_SCENARIO_PREFIX=${ML_EDGE_STACK_OOF_SCENARIO_PREFIX:-bucket:}
+      - ML_EDGE_STACK_OOF_INCLUDE_TIME_ONEHOT=${ML_EDGE_STACK_OOF_INCLUDE_TIME_ONEHOT:-1}
+      # Опциональный path к dataset report.json (для hash-check feature_cols → column drift alert)
+      - ML_EDGE_STACK_OOF_DATASET_REPORT_JSON=${ML_EDGE_STACK_OOF_DATASET_REPORT_JSON:-}
+      # P71: Slippage decomposition calibrator + execution-risk layer
+      - ENABLE_SLIPPAGE_CALIBRATOR=${ENABLE_SLIPPAGE_CALIBRATOR:-1}
+      - SLIPPAGE_DECOMP_ENABLE=${SLIPPAGE_DECOMP_ENABLE:-1}
+      - SLIPPAGE_DECOMP_IMPACT_COEFF_BPS=${SLIPPAGE_DECOMP_IMPACT_COEFF_BPS:-8.0}
+      - SLIPPAGE_DECOMP_CAP_BPS=${SLIPPAGE_DECOMP_CAP_BPS:-200.0}
+      # P1/P2: OF Gate SRE monitor (every 15m at offset :08) → ok_rate/soft_rate/no_data
+      # Set ENABLE_OF_GATE_SRE_MONITOR_TIMER=1 to enable; default 0 for safe rollout
+      - ENABLE_OF_GATE_SRE_MONITOR_TIMER=${ENABLE_OF_GATE_SRE_MONITOR_TIMER:-0}
+      - SRE_OF_GATE_WINDOW_MIN=${SRE_OF_GATE_WINDOW_MIN:-15}
+      - SRE_OF_GATE_MIN_N=${SRE_OF_GATE_MIN_N:-200}
+      - SRE_OF_GATE_ALWAYS=${SRE_OF_GATE_ALWAYS:-0}
+      - SRE_OF_GATE_TIMEOUT_S=${SRE_OF_GATE_TIMEOUT_S:-180}
+      # P59: Nightly edge_stack_v1 training bundle (Dataset→Validate→Train→Validate→Promote)
+      # EDGE_STACK_BUNDLE_ENABLED=1 disables old 05:00/05:10 fallback steps (no-op guard in worker)
+      - EDGE_STACK_BUNDLE_ENABLED=${EDGE_STACK_BUNDLE_ENABLED:-1}
+      # EDGE_STACK_AUTO_PROMOTE=0 safe default: produces candidate only, never auto-promotes champion
+      # Set to 1 only after 2-3 nights of stable metrics (brier/ECE within thresholds)
+      - EDGE_STACK_AUTO_PROMOTE=${EDGE_STACK_AUTO_PROMOTE:-0}
+      - EDGE_STACK_V1_DIR=${EDGE_STACK_V1_DIR:-/var/lib/trade/ml_models/edge_stack_v1}
+      - EDGE_STACK_WINDOW_HOURS=${EDGE_STACK_WINDOW_HOURS:-72}
+      # Dataset guardrails (fail_validate if violated)
+      - EDGE_STACK_MIN_JOINED=${EDGE_STACK_MIN_JOINED:-2000}
+      - EDGE_STACK_POS_RATE_MIN=${EDGE_STACK_POS_RATE_MIN:-0.05}
+      - EDGE_STACK_POS_RATE_MAX=${EDGE_STACK_POS_RATE_MAX:-0.60}
+      # Train validation guardrails → also used by Prometheus alerts
+      - EDGE_STACK_PROMOTE_BRIER_MAX=${EDGE_STACK_PROMOTE_BRIER_MAX:-0.30}
+      - EDGE_STACK_PROMOTE_ECE_MAX=${EDGE_STACK_PROMOTE_ECE_MAX:-0.08}
+      - EDGE_STACK_SCENARIO_PREFIX=${EDGE_STACK_SCENARIO_PREFIX:-bucket:}
+      - EDGE_STACK_INCLUDE_TIME_ONEHOT=${EDGE_STACK_INCLUDE_TIME_ONEHOT:-1}
+      # Redis key for metrics hash (read by edge-stack-train-exporter)
+      - EDGE_STACK_TRAIN_METRICS_KEY=${EDGE_STACK_TRAIN_METRICS_KEY:-metrics:edge_stack_train:last}
+      # P60: Shadow eval guard thresholds (used by tools.edge_stack_shadow_eval_bundle_v1)
+      # Candidate Brier must be ≤ champion * MAX_BRIER_REL (1.02 = max 2% regression)
+      - EDGE_STACK_PROMOTE_MAX_BRIER_REL=${EDGE_STACK_PROMOTE_MAX_BRIER_REL:-1.02}
+      # Absolute ECE difference limit between candidate and champion
+      - EDGE_STACK_PROMOTE_MAX_ECE_ABS_DIFF=${EDGE_STACK_PROMOTE_MAX_ECE_ABS_DIFF:-0.005}
+      # Candidate must >= champion precision@top5% + this delta (0 = no requirement)
+      - EDGE_STACK_PROMOTE_MIN_PREC_DELTA=${EDGE_STACK_PROMOTE_MIN_PREC_DELTA:-0.0}
+      # Redis key for shadow eval metrics hash (read by edge-stack-shadow-exporter)
+      - EDGE_STACK_SHADOW_METRICS_KEY=${EDGE_STACK_SHADOW_METRICS_KEY:-metrics:edge_stack_shadow:last}
+      # P60: Redis keys for champion/candidate cfgs (consumed by shadow eval bundle)
+      - EDGE_STACK_CHAMPION_KEY=${EDGE_STACK_CHAMPION_KEY:-cfg:ml_confirm:edge_stack_v1:champion}
+      - EDGE_STACK_CANDIDATE_KEY=${EDGE_STACK_CANDIDATE_KEY:-cfg:ml_confirm:edge_stack_v1:candidate}
+      # Auto-init fix: p_min default for edge_stack_v1 auto-generated cfg
+      - EDGE_STACK_P_MIN_DEFAULT=${EDGE_STACK_P_MIN_DEFAULT:-0.55}
+      - EDGE_STACK_HARD_P_MIN_FLOOR=${EDGE_STACK_HARD_P_MIN_FLOOR:-0.0}
+      # P78: Nightly OF-gate rollups refresh (Timescale CAGG refresh for ok_rate history)
+      # Set ENABLE_OF_GATE_ROLLUPS_REFRESH_NIGHTLY=1 to activate; default 0 for safe rollout.
+      # Safe window is in UTC; must have DB access (TRADES_DB_DSN).
+      - ENABLE_OF_GATE_ROLLUPS_REFRESH_NIGHTLY=${ENABLE_OF_GATE_ROLLUPS_REFRESH_NIGHTLY:-1}
+      - OF_GATE_ROLLUPS_REFRESH_DAYS=${OF_GATE_ROLLUPS_REFRESH_DAYS:-30}
+      - OF_GATE_ROLLUPS_REFRESH_TIMEOUT_S=${OF_GATE_ROLLUPS_REFRESH_TIMEOUT_S:-1800}
+      - OF_GATE_ROLLUPS_REFRESH_SAFE_START_UTC=${OF_GATE_ROLLUPS_REFRESH_SAFE_START_UTC:-02:30}
+      - OF_GATE_ROLLUPS_REFRESH_SAFE_END_UTC=${OF_GATE_ROLLUPS_REFRESH_SAFE_END_UTC:-05:30}
+      # P-BPG: Nightly enforce bucket promoter (06:10 UTC, after slippage calibrator)
+      # Reads v_exec_slippage_eval (DB) + metrics:of_gate (Redis) and proposes allowlist expansion.
+      # ENABLE_ENFORCE_BUCKET_PROMOTER=1 activates; PROMOTE_APPLY=0 = propose-only (safe default).
+      - ENABLE_ENFORCE_BUCKET_PROMOTER=${ENABLE_ENFORCE_BUCKET_PROMOTER:-0}
+      - ENFORCE_BUCKET_PROMOTER_TIMEOUT_S=${ENFORCE_BUCKET_PROMOTER_TIMEOUT_S:-600}
+      - ENABLE_ENFORCE_BUCKET_PREFLIGHT=${ENABLE_ENFORCE_BUCKET_PREFLIGHT:-1}
+      - ENFORCE_BUCKET_NOTIFY=${ENFORCE_BUCKET_NOTIFY:-1}
+      - ENFORCE_BUCKET_NOTIFY_COOLDOWN_SEC=${ENFORCE_BUCKET_NOTIFY_COOLDOWN_SEC:-1800}
+      - ENABLE_ENFORCE_BUCKET_ROLLBACK=${ENABLE_ENFORCE_BUCKET_ROLLBACK:-1}
+      - ENFORCE_BUCKET_ROLLBACK_APPLY=${ENFORCE_BUCKET_ROLLBACK_APPLY:-1}
+      # PROMOTE_APPLY=0: write proposal:* keys only (no cfg:* override). Set 1 for auto-apply.
+      - PROMOTE_APPLY=${PROMOTE_APPLY:-0}
+      - PROMOTE_MIN_APPLY_GAP_SEC=${PROMOTE_MIN_APPLY_GAP_SEC:-21600}
+      - ENFORCE_BUCKET_PROMOTER_LOCK_KEY=${ENFORCE_BUCKET_PROMOTER_LOCK_KEY:-lock:enforce_bucket_promoter}
+      - ENFORCE_BUCKET_PROMOTER_LOCK_TTL_SEC=${ENFORCE_BUCKET_PROMOTER_LOCK_TTL_SEC:-1800}
+      - ENFORCE_BUCKET_ROLLBACK_LOCK_KEY=${ENFORCE_BUCKET_ROLLBACK_LOCK_KEY:-lock:enforce_bucket_promoter:rollback}
+      - ENFORCE_BUCKET_ROLLBACK_LOCK_TTL_SEC=${ENFORCE_BUCKET_ROLLBACK_LOCK_TTL_SEC:-900}
+      - PROMOTE_LOOKBACK_HOURS=${PROMOTE_LOOKBACK_HOURS:-24}
+      - PROMOTE_MIN_DB_SAMPLES=${PROMOTE_MIN_DB_SAMPLES:-100}
+      - PROMOTE_MAX_P95_RESID_BPS=${PROMOTE_MAX_P95_RESID_BPS:-3.0}
+      - PROMOTE_MAX_P99_RESID_BPS=${PROMOTE_MAX_P99_RESID_BPS:-8.0}
+      - PROMOTE_MIN_ELIGIBLE=${PROMOTE_MIN_ELIGIBLE:-200}
+      - PROMOTE_MIN_OK_SOFT=${PROMOTE_MIN_OK_SOFT:-0.05}
+      - PROMOTE_ADD_ORDER=${PROMOTE_ADD_ORDER:-HIGH_VOL,LOW_LIQ}
+      - PROMOTE_DEFAULT_BUCKET=${PROMOTE_DEFAULT_BUCKET:-HIGH_VOL_LOW_LIQ}
+      - PROMOTE_MAX_SCAN=${PROMOTE_MAX_SCAN:-200000}
+      - PROMOTE_PROPOSAL_TTL_SEC=${PROMOTE_PROPOSAL_TTL_SEC:-259200}
+      # P80: Per-symbol promotion overrides
+      - PROMOTE_SCOPE=${PROMOTE_SCOPE:-per_symbol}
+      - PROMOTE_SYMBOLS=${PROMOTE_SYMBOLS:-BTCUSDT,ETHUSDT}
+      - PROMOTE_DB_STATS_SOURCE=${PROMOTE_DB_STATS_SOURCE:-mv}
+      - PROMOTE_STATS_MV=${PROMOTE_STATS_MV:-mv_exec_slippage_eval_1h_stats}
+      # P80: MV Refresher Guard + SLO Freezer
+      - ENABLE_EXEC_SLIP_STATS_REFRESHER=${ENABLE_EXEC_SLIP_STATS_REFRESHER:-1}
+      - ENABLE_ENFORCE_BUCKET_SLO_FREEZER=${ENABLE_ENFORCE_BUCKET_SLO_FREEZER:-1}
+      - ENFORCE_FREEZE_SYMBOLS=${ENFORCE_FREEZE_SYMBOLS:-BTCUSDT,ETHUSDT}
+      - ENFORCE_FREEZE_LOOKBACK_H=${ENFORCE_FREEZE_LOOKBACK_H:-4}
+      - ENFORCE_FREEZE_MIN_DB_SAMPLES=${ENFORCE_FREEZE_MIN_DB_SAMPLES:-80}
+      - ENFORCE_FREEZE_MAX_P95_RESID_BPS=${ENFORCE_FREEZE_MAX_P95_RESID_BPS:-6.0}
+      - ENFORCE_FREEZE_MAX_P99_RESID_BPS=${ENFORCE_FREEZE_MAX_P99_RESID_BPS:-15.0}
+      - ENFORCE_FREEZE_MAX_EDGE_NEG_SHARE=${ENFORCE_FREEZE_MAX_EDGE_NEG_SHARE:-0.40}
+      # P80: OF-gate rollups freshness probe (hourly :52, writes to Redis hash for exporter)
+      # Runs automatically if ENABLE_OF_GATE_ROLLUPS_REFRESH_NIGHTLY=1; set explicitly to override.
+      - ENABLE_OF_GATE_ROLLUPS_FRESHNESS_PROBE=${ENABLE_OF_GATE_ROLLUPS_FRESHNESS_PROBE:-1}
+      - OF_GATE_ROLLUPS_FRESHNESS_TIMEOUT_S=${OF_GATE_ROLLUPS_FRESHNESS_TIMEOUT_S:-60}
+      - OF_GATE_ROLLUPS_FRESHNESS_METRICS_KEY=${OF_GATE_ROLLUPS_FRESHNESS_METRICS_KEY:-metrics:of_gate_rollups_freshness}
+
+      # P102: Feature Denylist Autogen
+      - ENABLE_FEATURE_DENYLIST_PROPOSAL=${ENABLE_FEATURE_DENYLIST_PROPOSAL:-1}
+      - FEATURE_SELECTION_RUN_DIR=${FEATURE_SELECTION_RUN_DIR:-/var/lib/trade/feature_selection}
+
+      # P104: Feature Denylist Proposal Exporter (hourly :46, node_exporter textfile collector)
+      # Writes feature_denylist_proposals_total / oldest_pending_age_seconds / ab_runner_* gauges.
+      # Set ENABLE_FEATURE_DENYLIST_EXPORTER=1 to activate (default: 0 for staged rollout).
+      # FEATURE_DENYLIST_EXPORT_PATH must be writable by the container and scraped by node_exporter.
+      - ENABLE_FEATURE_DENYLIST_EXPORTER=${ENABLE_FEATURE_DENYLIST_EXPORTER:-1}
+      - FEATURE_DENYLIST_EXPORT_PATH=${FEATURE_DENYLIST_EXPORT_PATH:-/var/lib/node_exporter/textfile_collector/feature_denylist.prom}
+      - FEATURE_DENYLIST_EXPORTER_MODULE=${FEATURE_DENYLIST_EXPORTER_MODULE:-ml_analysis.tools.feature_denylist_proposal_exporter_v1}
+      - FEATURE_DENYLIST_EXPORTER_TIMEOUT_S=${FEATURE_DENYLIST_EXPORTER_TIMEOUT_S:-30}
+
+      # P81: OF-gate timescale policy probe (hourly :37, writes to Redis hash for exporter)
+      # set ENABLE_OF_GATE_TIMESCALE_POLICY_PROBE=1 to activate
+      - ENABLE_OF_GATE_TIMESCALE_POLICY_PROBE=${ENABLE_OF_GATE_TIMESCALE_POLICY_PROBE:-1}
+
+      # Lock key shared with nightly refresh (prevents concurrent multi-container runs)
+      - OF_GATE_ROLLUPS_REFRESH_LOCK_KEY=${OF_GATE_ROLLUPS_REFRESH_LOCK_KEY:-lock:of_gate_rollups_refresh}
+      # DB DSN required by freshness probe + rollups refresh (TimescaleDB)
+      - TRADES_DB_DSN=${TRADES_DB_DSN:-postgresql://trading:trading_password@postgres:5432/scanner_analytics}
+
+      # P83: Nightly OF-gate DLQ archive to DB
+      # Set ENABLE_OF_GATE_DLQ_DB_ARCHIVE_NIGHTLY=1 to activate
+      - ENABLE_OF_GATE_DLQ_DB_ARCHIVE_NIGHTLY=${ENABLE_OF_GATE_DLQ_DB_ARCHIVE_NIGHTLY:-1}
+      - OF_GATE_DLQ_DB_ARCHIVE_TIMEOUT_S=${OF_GATE_DLQ_DB_ARCHIVE_TIMEOUT_S:-1800}
+      - OF_GATE_DLQ_DB_ARCHIVE_STREAMS=${OF_GATE_DLQ_DB_ARCHIVE_STREAMS:-stream:dlq:of_gate_metrics,stream:dlq:of_gate_quarantine}
+      - OF_GATE_DLQ_DB_ARCHIVE_SAFE_START_UTC=${OF_GATE_DLQ_DB_ARCHIVE_SAFE_START_UTC:-02:30}
+      - OF_GATE_DLQ_DB_ARCHIVE_SAFE_END_UTC=${OF_GATE_DLQ_DB_ARCHIVE_SAFE_END_UTC:-05:30}
+
+      # P85: Monitoring Smoke Tests (nightly) + Auto Promote Gate
+      - ENABLE_MONITORING_SMOKE_NIGHTLY=${ENABLE_MONITORING_SMOKE_NIGHTLY:-1}
+      - MONITORING_SMOKE_TIMEOUT_S=${MONITORING_SMOKE_TIMEOUT_S:-240}
+      - MONITORING_SMOKE_FAIL_MODE=${MONITORING_SMOKE_FAIL_MODE:-fail_closed}
+      - MONITORING_SMOKE_MAX_AGE_S=${MONITORING_SMOKE_MAX_AGE_S:-21600}
+      - MONITORING_SMOKE_METRICS_KEY=${MONITORING_SMOKE_METRICS_KEY:-metrics:monitoring_smoke:last}
+
+      # P107/P109: OFInputs exporters smoke-check (hourly :14)
+      # Checks HTTP /metrics of all of-inputs exporters; on failure sets a global fail-closed
+      # auto-apply block in Redis (cleared automatically on recovery, owner-safe).
+      # ENABLE_OF_INPUTS_EXPORTERS_SMOKE_P107=0 disables entirely (for emergency rollback).
+      - ENABLE_OF_INPUTS_EXPORTERS_SMOKE_P107=${ENABLE_OF_INPUTS_EXPORTERS_SMOKE_P107:-1}
+      - OF_INPUTS_EXPORTERS_SMOKE_TIMEOUT_S=${OF_INPUTS_EXPORTERS_SMOKE_TIMEOUT_S:-30}
+      - OF_INPUTS_EXPORTERS_SMOKE_COOLDOWN_S=${OF_INPUTS_EXPORTERS_SMOKE_COOLDOWN_S:-21600}
+      - OF_INPUTS_EXPORTERS_SMOKE_MODULE=${OF_INPUTS_EXPORTERS_SMOKE_MODULE:-orderflow_services.of_inputs_exporters_smoke_p107}
+      # Fail-closed block controls (P109)
+      - OF_INPUTS_EXPORTERS_SMOKE_BLOCK_AUTO_APPLY=${OF_INPUTS_EXPORTERS_SMOKE_BLOCK_AUTO_APPLY:-1}
+      - OF_INPUTS_EXPORTERS_SMOKE_BLOCK_REASON=${OF_INPUTS_EXPORTERS_SMOKE_BLOCK_REASON:-of_inputs_exporters_smoke}
+      - OF_INPUTS_EXPORTERS_SMOKE_BLOCK_TTL_S=${OF_INPUTS_EXPORTERS_SMOKE_BLOCK_TTL_S:-21600}
+
+      # P111: OF-Gate exporters wiring smoke-check (hourly :14)
+      # Checks HTTP /metrics of all of-gate exporters; on failure sets a global fail-closed
+      # auto-apply block in Redis (cleared automatically on recovery, owner-safe).
+      - ENABLE_OF_GATE_EXPORTERS_SMOKE_P111=${ENABLE_OF_GATE_EXPORTERS_SMOKE_P111:-1}
+      - OF_GATE_EXPORTERS_SMOKE_TIMEOUT_S=${OF_GATE_EXPORTERS_SMOKE_TIMEOUT_S:-30}
+      - OF_GATE_EXPORTERS_SMOKE_COOLDOWN_S=${OF_GATE_EXPORTERS_SMOKE_COOLDOWN_S:-21600}
+      - OF_GATE_EXPORTERS_SMOKE_MODULE=${OF_GATE_EXPORTERS_SMOKE_MODULE:-orderflow_services.of_gate_exporters_smoke_p111}
+      # Fail-closed block controls
+      - OF_GATE_EXPORTERS_SMOKE_BLOCK_AUTO_APPLY=${OF_GATE_EXPORTERS_SMOKE_BLOCK_AUTO_APPLY:-1}
+      - OF_GATE_EXPORTERS_SMOKE_BLOCK_REASON=${OF_GATE_EXPORTERS_SMOKE_BLOCK_REASON:-of_gate_exporters_smoke}
+      - OF_GATE_EXPORTERS_SMOKE_BLOCK_TTL_S=${OF_GATE_EXPORTERS_SMOKE_BLOCK_TTL_S:-21600}
+
+    depends_on: *id003
+    networks: *id004
+    volumes:
+      - ./python-worker:/app
+      - ./ml_analysis:/app/ml_analysis:ro
+      - ./ok_rate_logic:/app/alerts_source:ro
+      - /tmp:/tmp
+      - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+      - /var/lib/trade/feature_selection:/var/lib/trade/feature_selection
+      # P104: textfile_collector dir for node_exporter (feature_denylist.prom written hourly :46)
+      - /var/lib/node_exporter/textfile_collector:/var/lib/node_exporter/textfile_collector
+    working_dir: /app
+    command: >
+      sh -c "sleep 30 && python3 -m services.of_timers_worker"
+    profiles: ["default"]
+
+  # P76 — OF gate contract smoke-check Prometheus exporter (:9148)
+  # Reads sre:of_gate_contract_smoke (written hourly by of-timers-worker at :08)
+  # and exposes Prometheus Gauges (bad_share, missing_schema_share, top dq_code, etc.)
+  of-gate-contract-smoke-exporter:
+    build: *id001
+    container_name: scanner-of-gate-smoke-exporter
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONPATH=.:/app
+      - OF_GATE_CONTRACT_SMOKE_OUT_STREAM=${OF_GATE_CONTRACT_SMOKE_OUT_STREAM:-sre:of_gate_contract_smoke}
+      - OF_GATE_CONTRACT_SMOKE_EXPORTER_PORT=${OF_GATE_CONTRACT_SMOKE_EXPORTER_PORT:-9148}
+      # Poll interval for reading the summary stream (default 15s)
+      - OF_GATE_CONTRACT_SMOKE_EXPORTER_INTERVAL_SEC=${OF_GATE_CONTRACT_SMOKE_EXPORTER_INTERVAL_SEC:-15}
+      - PYTHONUNBUFFERED=1
+    depends_on: *id003
+    networks: *id004
+    volumes:
+      - ./python-worker:/app
+    working_dir: /app
+    ports:
+      - "9148:9148"
+    command: ["python3", "-m", "orderflow_services.of_gate_contract_smoke_exporter_v1"]
+    profiles: ["default"]
+
+  # Meta coverage rollout exporter (P35/P37)
+  meta-cov-rollout-exporter:
+    build: *id001
+    container_name: scanner-meta-cov-rollout-exporter
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONPATH=.:/app
+      - META_ENFORCE_KEY=cfg2:meta_enforce
+      - META_COV_QUARANTINE_KEY=cfg2:meta_cov_quarantine
+      - META_COV_OPS_STATE_KEY=cfg2:meta_cov_ops_state
+      - OPS_STREAM_META_COV=ops:meta_cov_ops
+      - META_COV_SOURCE_WINDOW_SEC=3600   # P1: ограничиваем окно XREVRANGE (было ∞)
+      - META_COV_READ_COUNT=5000           # P1: было 50000 → снижаем нагрузку на Redis
+    depends_on: *id003
+    networks: *id004
+    volumes:
+      - ./python-worker:/app
+    working_dir: /app
+    ports:
+      - '9623:9623'
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'    # P1: был без лимита → XREVRANGE блокировал Redis 6-7ms
+        reservations:
+          memory: 64M
+    command: >
+      sh -c "python3 orderflow_services/meta_cov_rollout_exporter_v1.py --port 9623"
+    profiles: ["default"]
+
+  # Note: edge-stack-shadow-exporter (port 8013) and edge-stack-train-exporter (port 9813)
+  # have been removed from here because they are duplicates of the 
+  # -p60 and -p59 exporters defined in docker-compose-timers.yml
+
+  archiver-signals-1:
+    build: *id001
+    runtime: nvidia
+    container_name: scanner-archiver-signals-1
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - TRADES_DB_DSN=postgresql://trading:trading_password@postgres:5432/scanner_analytics
+      - ENTRY_AUDIT_ARCHIVE_ENABLED=0
+      - POSITION_EVENTS_ARCHIVE_ENABLED=0
+      - CONFIDENCE_SCORES_ARCHIVE_ENABLED=1
+      - CONF_SCORES_BATCH=5000
+      - CONF_SCORES_AUTO_MIGRATE=1
+      # P71: trades:closed archival for slippage decomp / edge-minus-slip analysis
+      # Set to 1 once trades_closed table is provisioned (DDL auto-runs on first start)
+      - TRADES_CLOSED_ARCHIVE_ENABLED=${TRADES_CLOSED_ARCHIVE_ENABLED:-0}
+      - TRADES_CLOSED_AUTO_MIGRATE=${TRADES_CLOSED_AUTO_MIGRATE:-1}
+      - TRADES_CLOSED_STREAM=${TRADES_CLOSED_STREAM:-trades:closed}
+      # P3: of_gate_metrics archival → per-tick rows (ok/ok_soft/symbol/scenario_v4/reason_code)
+      # Set OF_GATE_METRICS_ARCHIVE_ENABLED=1 to enable (DDL auto-runs on first start)
+      - OF_GATE_METRICS_ARCHIVE_ENABLED=${OF_GATE_METRICS_ARCHIVE_ENABLED:-1}
+      - OF_GATE_METRICS_AUTO_MIGRATE=${OF_GATE_METRICS_AUTO_MIGRATE:-1}
+      - OF_GATE_METRICS_ROLLUPS_AUTO_MIGRATE=${OF_GATE_METRICS_ROLLUPS_AUTO_MIGRATE:-0}
+      - OF_GATE_METRICS_STREAM=${OF_GATE_METRICS_STREAM:-metrics:of_gate}
+      - OF_GATE_METRICS_CG=${OF_GATE_METRICS_CG:-of_gate_metrics_archiver}
+      - OF_GATE_METRICS_CONSUMER=${OF_GATE_METRICS_CONSUMER:-archiver_of_gate_1}
+      - OF_GATE_METRICS_BATCH=${OF_GATE_METRICS_BATCH:-5000}
+      - OF_GATE_METRICS_BLOCK_MS=${OF_GATE_METRICS_BLOCK_MS:-1000}
+      - OF_GATE_METRICS_MIN_IDLE_MS=${OF_GATE_METRICS_MIN_IDLE_MS:-60000}
+      - OF_GATE_METRICS_DLQ_STREAM=${OF_GATE_METRICS_DLQ_STREAM:-stream:dlq:of_gate_metrics}
+      # P3: quarantine archival → of_gate_metrics_quarantine table (DQ-rejected events)
+      # Set OF_GATE_QUARANTINE_ARCHIVE_ENABLED=1 to enable alongside raw metrics archiver
+      - OF_GATE_QUARANTINE_ARCHIVE_ENABLED=${OF_GATE_QUARANTINE_ARCHIVE_ENABLED:-1}
+      - OF_GATE_QUARANTINE_AUTO_MIGRATE=${OF_GATE_QUARANTINE_AUTO_MIGRATE:-1}
+      - OF_GATE_QUARANTINE_STREAM=${OF_GATE_QUARANTINE_STREAM:-quarantine:metrics:of_gate}
+      - OF_GATE_QUARANTINE_CG=${OF_GATE_QUARANTINE_CG:-of_gate_quarantine_archiver}
+      - OF_GATE_QUARANTINE_CONSUMER=${OF_GATE_QUARANTINE_CONSUMER:-archiver_of_gate_q_1}
+      - OF_GATE_QUARANTINE_BATCH=${OF_GATE_QUARANTINE_BATCH:-5000}
+      - OF_GATE_QUARANTINE_BLOCK_MS=${OF_GATE_QUARANTINE_BLOCK_MS:-1000}
+      - OF_GATE_QUARANTINE_MIN_IDLE_MS=${OF_GATE_QUARANTINE_MIN_IDLE_MS:-60000}
+      - OF_GATE_QUARANTINE_DLQ_STREAM=${OF_GATE_QUARANTINE_DLQ_STREAM:-stream:dlq:of_gate_quarantine}
+    depends_on: *id003
+    networks: *id004
+    volumes:
+      - ./python-worker:/app
+    working_dir: /app
+    command: >
+      sh -c "sleep 30 && python3 -u services/archivers/stream_archiver.py"
+    profiles: ["default"]
+
+  trade-close-joiner:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    runtime: nvidia
+    restart: always
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - TRADE_EVENTS_STREAM=events:trades
+      - TRADE_EVENTS_GROUP=trade_close_joiner_v1
+      - TRADES_CLOSED_STREAM=trades:closed
+      - ML_REPLAY_INPUTS_STREAM=ml_replay_inputs_v1
+      - CLOSE_WAIT_STREAM=trades:close_wait
+      - JOIN_DEDUP_TTL_SEC=604800
+      - LABEL_WIN_R_MIN=0.0
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+    command: ["python", "-m", "services.orderflow.trade_close_joiner_worker_v1"]
+    volumes: *id005
+    networks:
+      - trade-network
+      - scanner-network
+
+
+  # =====================================================================
+  # Prometheus real deploy wiring (patch_prometheus_real_deploy_wiring_v1)
+  # Separate from scanner-prometheus (docker-compose-monitoring.yml on port 19090).
+  # This instance runs on trade-network and knows all orderflow alert rules.
+  # Prometheus (real deploy wiring)
+  # -----------------------------
+
+  chatops-telegram-freeze-bot:
+    build:
+      context: .
+      dockerfile: monitoring/chatops/telegram_freeze_bot/Dockerfile
+    container_name: chatops-telegram-freeze-bot
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_ALLOWED_CHAT_ID=${TELEGRAM_ALLOWED_CHAT_ID:-${TELEGRAM_CHAT_ID:-}}
+      - TELEGRAM_ADMIN_USER_IDS=${TELEGRAM_ADMIN_USER_IDS:-}
+      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+      - OPS_EVENT_STREAM=${OPS_EVENT_STREAM:-ops:eventlog}
+      - EDGE_STACK_PROMOTE_FREEZE_DURATION_S=${EDGE_STACK_PROMOTE_FREEZE_DURATION_S:-86400}
+      - TELEGRAM_BOT_OFFSET_KEY=${TELEGRAM_BOT_OFFSET_KEY:-ops:telegram_freeze_bot:offset}
+      - TELEGRAM_BOT_POLL_INTERVAL_S=${TELEGRAM_BOT_POLL_INTERVAL_S:-2.0}
+      - TELEGRAM_BOT_LONGPOLL_TIMEOUT_S=${TELEGRAM_BOT_LONGPOLL_TIMEOUT_S:-25}
+      - PYTHONPATH=/app/python-worker
+    volumes:
+      - ./python-worker:/app/python-worker:ro
+    networks:
+      - trade-network
+
+  # Public reverse proxy (single base URL for phone-friendly links, HTTPS via Let's Encrypt)
+  # Set PUBLIC_DOMAIN=your.domain.tld and ensure ports 80/443 are reachable.
+  # For local dev you can use PUBLIC_DOMAIN=localhost and CADDY_LOCAL_TLS=1.
+  public-proxy:
+    image: caddy:2.8.4
+    container_name: trade-public-proxy
+    restart: unless-stopped
+    environment:
+      - PUBLIC_DOMAIN=${PUBLIC_DOMAIN:-localhost}
+      - CADDY_LOCAL_TLS=${CADDY_LOCAL_TLS:-0}
+    ports:
+      - "${PUBLIC_HTTP_PORT:-80}:80"
+      - "${PUBLIC_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./monitoring/public_proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - trade-network
+
+  # Blackbox exporter (HTTP checks for Grafana/Runbooks/Alertmanager/Prometheus)
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.25.0
+    container_name: trade-blackbox-exporter
+    profiles: ["disabled"]
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/blackbox/blackbox.yml"
+    ports:
+      - "${BLACKBOX_PORT:-9115}:9115"
+    volumes:
+      - ./monitoring/blackbox/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    networks:
+      - trade-network
+
+  # Runbooks static web (serves monitoring/runbooks/*.md)
+  # Used by alert annotations runbook_url.
+  runbooks-web:
+    image: nginx:1.27-alpine
+    container_name: trade-runbooks-web
+    restart: unless-stopped
+    ports:
+      - "${RUNBOOKS_WEB_PORT:-8082}:8082"
+    volumes:
+      - ./monitoring/runbooks:/usr/share/nginx/html:ro
+      - ./monitoring/runbooks_web/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - trade-network
+
+  chatops-metrics-exporter:
+    build:
+      context: .
+      dockerfile: monitoring/chatops/chatops_metrics_exporter/Dockerfile
+    container_name: chatops-metrics-exporter
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+      - CHATOPS_METRICS_EXPORTER_PORT=${CHATOPS_METRICS_EXPORTER_PORT:-9817}
+    ports:
+      - "${CHATOPS_METRICS_EXPORTER_PORT:-9817}:9817"
+    networks:
+      - trade-network
+
+  trade-grafana:
+    image: grafana/grafana:11.1.0
+    container_name: trade-grafana
+    profiles: ["disabled"]
+    restart: unless-stopped
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      # When served behind /grafana via public-proxy:
+      - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-%(protocol)s://%(domain)s/grafana/}
+      - GF_SERVER_SERVE_FROM_SUB_PATH=${GRAFANA_SERVE_FROM_SUB_PATH:-true}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - trade-prometheus
+    networks:
+      - trade-network
+
+  trade-prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: trade-prometheus
+    profiles: ["disabled"]
+    restart: unless-stopped
+    environment:
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-https://localhost}
+      - PROM_TEMPLATE_PATH=/etc/prometheus/prometheus.yml.tmpl
+      - PROM_CONFIG_PATH=/etc/prometheus/prometheus.yml
+      # If serving behind proxy prefix, pass extra args here:
+      - PROMETHEUS_EXTRA_ARGS=--log.level=warn ${PROMETHEUS_EXTRA_ARGS:-}
+    entrypoint: ["/bin/sh", "/etc/prometheus/entrypoint_envsubst.sh"]
+    ports:
+      # Env-overridable port; defaults to 9090 (distinct from scanner-prometheus on 19090)
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml.tmpl:/etc/prometheus/prometheus.yml.tmpl:ro
+      - ./monitoring/prometheus/entrypoint_envsubst.sh:/etc/prometheus/entrypoint_envsubst.sh:ro
+      # Load rules from ok_rate_logic/prometheus_alerts_*.yml
+      - ./ok_rate_logic:/etc/prometheus/rules/ok_rate_logic:ro
+      # Main prometheus config with scrape jobs for P59/P60 + alerting wiring
+      - ./orderflow_services:/etc/prometheus/rules/orderflow_services:ro
+      # Bybit DQ alerts
+      - ./infra/prometheus/rules:/etc/prometheus/rules/bybit_dq:ro
+      # Persistent TSDB storage
+      - trade_prometheus_data:/prometheus
+    networks:
+      - trade-network
+
+
+
+  # Optional Alertmanager: required for real notifications (Telegram/Email/Slack).
+  # Without it Prometheus still shows firing alerts in its UI but won't send them.
+  # Config at monitoring/alertmanager/alertmanager.yml has Telegram webhook routing.
+  trade-alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: trade-alertmanager
+    profiles: ["disabled"]
+    restart: unless-stopped
+    ports:
+      - "${ALERTMANAGER_PORT:-9093}:9093"
+    volumes:
+      # Full alertmanager config with quiet hours + Telegram webhook routing
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - trade_alertmanager_data:/alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      # When served behind /alertmanager via public-proxy:
+      - "--web.external-url=${ALERTMANAGER_EXTERNAL_URL:-}"
+      - "--web.route-prefix=${ALERTMANAGER_ROUTE_PREFIX:-/}"
+    networks:
+      - trade-network
+
+  of-gate-dlq-exporter:
+    build: *id001
+    runtime: nvidia
+    restart: always
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - OF_GATE_DLQ_EXPORTER_PORT=9154
+      - OF_GATE_DLQ_EXPORTER_REFRESH_SEC=10
+      - OF_GATE_DLQ_STREAMS=stream:dlq:of_gate_metrics,stream:dlq:of_gate_quarantine
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+    command: ["python", "-m", "orderflow_services.of_gate_dlq_exporter_v1"]
+    ports:
+      - "9154:9154"
+    networks:
+      - trade-network
+      - scanner-network
+    volumes:
+      - ./python-worker:/app
+
+  of-gate-archiver-exporter:
+    build: *id001
+    container_name: scanner-of-gate-archiver-exporter
+    restart: always
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - OF_GATE_ARCHIVER_EXPORTER_PORT=9152
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+    command: ["python", "-m", "orderflow_services.of_gate_archiver_exporter_v1"]
+    ports:
+      - "9152:9152"
+    networks:
+      - trade-network
+      - scanner-network
+    volumes:
+      - ./python-worker:/app
+
+  # Periodic Reporter Timer: daily bulk report в 17:00 UTC для всех символов
+  # Запускает periodic_reporter.main() с main loop (CHECK_INTERVAL=300)
+  periodic-reporter-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-periodic-reporter-timer
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/trade:/var/lib/trade
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - CRYPTO_NOTIFY_REDIS_URL=redis://redis-worker-2:6379/0
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      # Main loop: CHECK_INTERVAL=0 → третий механизм (каждые N сек) ВЫКЛЮЧЕН.
+      # Работают только hourly (в XX:00) и daily (в 17:00) schedulers через sleep(10) loop.
+      - PERIODIC_REPORT_CHECK_INTERVAL_SEC=0
+      # Daily bulk report: 17:00 UTC, все символы из stats:symbols
+      - DAILY_REPORT_ENABLED=true
+      - DAILY_REPORT_UTC_HOUR=17
+      - DAILY_REPORT_UTC_MINUTE=0
+      - DAILY_REPORT_SYMBOLS=ALL
+      - DAILY_REPORT_SOURCE=CryptoOrderFlow
+      # Hourly reports
+      - HOURLY_REPORT_ENABLED=true
+      # Window для hourly отчётов (1 час)
+      - PERIODIC_REPORT_WINDOW_SECONDS=3600
+      # Включить virtual trades в отчёты (если нет реальных)
+      - PERIODIC_REPORT_SEND_VIRTUAL_ONLY=true
+      # ZSET index для быстрого поиска сделок
+      - PERIODIC_REPORT_USE_ZSET=1
+      - REDIS_CLOSED_ZSETS_ENABLED=1
+      - REPORT_TRIGGER_COUNT=1000000
+      - PG_DSN=postgresql://trading:trading_password@postgres:5432/scanner_analytics
+      - TRADES_DB_DSN=postgresql://trading:trading_password@postgres:5432/scanner_analytics
+    command: >
+      sh -c "sleep 20 && python -m services.periodic_reporter"
+    networks:
+      - scanner-network
+
+networks:
+  scanner-network:
+    external: true
+
+  trade-network:
+    external: true
+
+volumes:
+  # Named volumes for Prometheus + Alertmanager persistence across restarts
+  trade_prometheus_data:
+  trade_alertmanager_data:
+  grafana_data:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,30 @@
+groups:
+  - name: ml_phase3_31_route_incident_rca_mirror_rca_winner_apply_apply_evaluator_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyEvaluatorStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_evaluator_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror RCA winner-apply apply evaluator is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyEvaluatorErrors
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_evaluator_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror RCA winner-apply apply evaluator has errors"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyEvaluatorVertexRecommended
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_evaluator_runs_total{decision="PROMOTE_VERTEX_CANDIDATE"}[30m]) > 0
+        for: 5m
+        labels: { severity: info }
+        annotations:
+          summary: "route incident RCA mirror RCA winner-apply apply evaluator recommends vertex_candidate"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyEvaluatorLocalRecommended
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_evaluator_runs_total{decision="PROMOTE_LOCAL_FALLBACK_CANDIDATE"}[30m]) > 0
+        for: 5m
+        labels: { severity: info }
+        annotations:
+          summary: "route incident RCA mirror RCA winner-apply apply evaluator recommends local_fallback_candidate"

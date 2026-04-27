@@ -1,0 +1,27 @@
+services:
+  scanner-ml-incident-bundle-to-vertex-bridge-v1:
+    build:
+      context: .
+    command: ["python", "-m", "orderflow_services.incident_bundle_to_vertex_bridge_v1"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL}
+      ML_OPERATOR_RCA_BRIDGE_PORT: 9868
+      ML_OPERATOR_RCA_PROMPT_VERSION: incident_rca_v1
+      ML_OPERATOR_RCA_POLICY_VERSION: policy_v1
+    ports: ["9868:9868"]
+
+  scanner-ml-operator-rca-v2-0:
+    build:
+      context: .
+    command: ["python", "-m", "orderflow_services.ml_operator_rca_orchestrator_v2_0"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL}
+      DATABASE_URL: ${DATABASE_URL:-}
+      VERTEX_PROJECT_ID: ${VERTEX_PROJECT_ID}
+      VERTEX_LOCATION: ${VERTEX_LOCATION:-global}
+      VERTEX_RCA_MODEL: ${VERTEX_RCA_MODEL:-gemini-2.5-flash}
+      VERTEX_RCA_DRY_RUN: ${VERTEX_RCA_DRY_RUN:-1}
+      ML_OPERATOR_RCA_PORT: 9869
+    ports: ["9869:9869"]

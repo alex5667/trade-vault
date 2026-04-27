@@ -1,0 +1,145 @@
+diff --git a/scripts/ci_smoke_contract_targets_autogen_check.py b/scripts/ci_smoke_contract_targets_autogen_check.py
+new file mode 100755
+index 0000000..4d0de3c
+--- /dev/null
++++ b/scripts/ci_smoke_contract_targets_autogen_check.py
+@@ -0,0 +1,160 @@
++#!/usr/bin/env python3
++import glob
++import sys
++from typing import Any, Dict, List, Set, Tuple
++
++import yaml
++
++
++def _as_list(x: Any) -> List[Any]:
++    if x is None:
++        return []
++    if isinstance(x, list):
++        return x
++    return [x]
++
++
++def _load_yaml(path: str) -> Any:
++    with open(path, "r", encoding="utf-8") as f:
++        return yaml.safe_load(f)
++
++
++def main() -> int:
++    # Import the production builder logic (source of truth).
++    try:
++        from ml_analysis.tools.build_smoke_contract_targets_from_alerts_v1 import (  # type: ignore
++            REQUIRED_FOR,
++            _normalize_dashboard_path,
++            _normalize_runbook_path,
++            build_targets_from_alerts,
++        )
++    except Exception as e:
++        print(f"[FAIL] cannot import build_smoke_contract_targets_from_alerts_v1: {type(e).__name__}", file=sys.stderr)
++        return 2
++
++    alerts_files = sorted(glob.glob("ok_rate_logic/prometheus_alerts_*.yml"))
++    if not alerts_files:
++        print("[FAIL] no ok_rate_logic/prometheus_alerts_*.yml found", file=sys.stderr)
++        return 2
++
++    # Expected targets from alert annotations (normalized).
++    exp_runbooks: Set[str] = set()
++    exp_dashboards: Set[str] = set()
++
++    for fp in alerts_files:
++        doc = _load_yaml(fp) or {}
++        groups = _as_list(doc.get("groups"))
++        for g in groups:
++            rules = _as_list((g or {}).get("rules"))
++            for r in rules:
++                labels: Dict[str, Any] = (r or {}).get("labels") or {}
++                ann: Dict[str, Any] = (r or {}).get("annotations") or {}
++                sev = str(labels.get("severity") or "").strip().lower()
++                if sev not in set([str(x) for x in REQUIRED_FOR]):
++                    continue
++                rb = _normalize_runbook_path(str(ann.get("runbook_path") or "").strip())
++                dp = _normalize_dashboard_path(str(ann.get("dashboard_path") or "").strip())
++                if rb:
++                    exp_runbooks.add(rb)
++                if dp:
++                    exp_dashboards.add(dp)
++
++    runbooks, dashboards = build_targets_from_alerts()
++    act_runbooks = set(runbooks)
++    act_dashboards = set(dashboards)
++
++    bad = 0
++    if not act_runbooks:
++        bad += 1
++        print("[FAIL] build_targets_from_alerts returned empty runbooks set")
++    if not act_dashboards:
++        bad += 1
++        print("[FAIL] build_targets_from_alerts returned empty dashboards set")
++
++    # Sanity formatting rules (public-proxy paths)
++    for rb in act_runbooks:
++        if not rb.startswith("/runbooks/"):
++            bad += 1
++            print(f"[FAIL] runbook path not under /runbooks/: {rb!r}")
++    for dp in act_dashboards:
++        if not (dp.startswith("/grafana/d/") or dp.startswith("/grafana/d-solo/") or dp.startswith("/grafana/")):
++            bad += 1
++            print(f"[FAIL] dashboard path not under /grafana/: {dp!r}")
++
++    # Equality check vs expected annotations normalization
++    missing_rb = sorted(exp_runbooks - act_runbooks)
++    extra_rb = sorted(act_runbooks - exp_runbooks)
++    missing_dp = sorted(exp_dashboards - act_dashboards)
++    extra_dp = sorted(act_dashboards - exp_dashboards)
++
++    if missing_rb:
++        bad += 1
++        print(f"[FAIL] missing runbook targets from builder ({len(missing_rb)}): {missing_rb[:10]}")
++    if missing_dp:
++        bad += 1
++        print(f"[FAIL] missing dashboard targets from builder ({len(missing_dp)}): {missing_dp[:10]}")
++    if extra_rb:
++        bad += 1
++        print(f"[FAIL] extra runbook targets in builder ({len(extra_rb)}): {extra_rb[:10]}")
++    if extra_dp:
++        bad += 1
++        print(f"[FAIL] extra dashboard targets in builder ({len(extra_dp)}): {extra_dp[:10]}")
++
++    if bad:
++        print(f"FAILED: smoke contract targets autogen check failed ({bad} issues)")
++        return 1
++    print(f"OK: smoke contract targets autogen matches alert annotations (runbooks={len(act_runbooks)} dashboards={len(act_dashboards)})")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/scripts/ci_prometheus_lint.sh b/scripts/ci_prometheus_lint.sh
+index a5d7c0c..a0fdfd3 100755
+--- a/scripts/ci_prometheus_lint.sh
++++ b/scripts/ci_prometheus_lint.sh
+@@ -27,6 +27,9 @@ python "${ROOT_DIR}/scripts/ci_alerts_annotations_check.py"
+ echo "[lint] alerts links exist check (runbooks + dashboard uids)"
+ python "${ROOT_DIR}/scripts/ci_alerts_links_exist_check.py"
+
++echo "[lint] smoke contract targets autogen check (alerts -> cfg:monitoring_smoke:targets)"
++python "${ROOT_DIR}/scripts/ci_smoke_contract_targets_autogen_check.py"
++
+ echo "[lint] render prometheus config template + promtool check config"
+ PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-https://localhost}"
+ docker run --rm -e PUBLIC_BASE_URL="${PUBLIC_BASE_URL}" \
+diff --git a/monitoring/README_ci_prometheus_lint.md b/monitoring/README_ci_prometheus_lint.md
+index 1b5b2be..d36fdc3 100644
+--- a/monitoring/README_ci_prometheus_lint.md
++++ b/monitoring/README_ci_prometheus_lint.md
+@@ -10,6 +10,10 @@
+ - `runbook_path` must map to an existing file under `monitoring/runbooks/`
+ - `dashboard_path` must reference an existing dashboard uid under `monitoring/grafana/dashboards/`
+
++0.2) Smoke contract targets autogen:
++- `build_smoke_contract_targets_from_alerts_v1` must produce targets equal to normalized alert annotations
++- this prevents “green smoke” if contract-check targets drift from alert links
++
+ 1) `docker compose config -q` for:
+ - `ok_rate_logic/docker-compose-crypto-orderflow.yml`

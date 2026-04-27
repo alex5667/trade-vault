@@ -1,0 +1,36 @@
+groups:
+  - name: signals_outbox_alerts_v1
+    interval: 30s
+    rules:
+      - alert: SignalsOutboxPendingHigh
+        expr: redis_stream_group_messages_pending{stream="stream:signals:outbox", consumer_group="signals-outbox-group"} > 5000
+        for: 5m
+        labels:
+          severity: warning
+          component: signal_outbox
+        annotations:
+          summary: "Signals outbox (stream:signals:outbox) PEL size is > 5000"
+          runbook: "See Signals Outbox recovery documentation"
+          description: "Накопление сигналов в stream:signals:outbox, консюмеры (signals-outbox-group) не успевают обрабатывать очередь (xpending > 5000)."
+
+      - alert: SignalsOutboxLengthHigh
+        expr: redis_stream_length{stream="stream:signals:outbox"} > 40000
+        for: 5m
+        labels:
+          severity: warning
+          component: signal_outbox
+        annotations:
+          summary: "Signals outbox (stream:signals:outbox) XLEN > 40000"
+          runbook: "See Signals Outbox recovery documentation"
+          description: "Размер очереди stream:signals:outbox превышает 80% от лимита в 50000. Из-за этого возможна деградация системы при вытеснении старых недоставленных сигналов."
+
+      - alert: SignalEmitRateDrop
+        expr: rate(signals:outbox[5m]) == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: signal_outbox
+        annotations:
+          summary: "Signal emit rate dropped to 0"
+          runbook: "See Signals Outbox recovery documentation"
+          description: "No signals emitted to outbox for 5 minutes (rate == 0). Check Python signal generation."

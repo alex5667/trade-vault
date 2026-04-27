@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/outbox/envelope_builder.py
+# hypothesis_version: 6.148.10
+
+[1000, 100000, 'OUTBOX_META_PREFIX', 'audit', 'audit_payload', 'audit_stream', 'data', 'decision_trace', 'entry_policy_diag', 'envelope', 'events', 'extra', 'kind', 'manual', 'manual_payload', 'meta', 'metrics', 'name', 'notify', 'outbox_envelope:v2', 'parts_full', 'payload_bytes', 'payload_fp_v', 'payload_meta', 'payload_schema', 'payload_sha1', 'raw_trace', 'reason_code', 'req_targets', 'sid', 'signal:meta:', 'signal_stream', 'snapshot', 'snapshot_payload', 'stage', 'symbol', 'targets', 'trace', 'trace_id', 'trace_meta_key', 'ts_ms', 'type', 'v']

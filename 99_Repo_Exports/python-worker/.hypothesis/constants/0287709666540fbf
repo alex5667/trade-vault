@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/decision_coverage_kpi_worker_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1000, 3600, '%Y-%m-%d %H:%M:%S', '+', '-', '--once', '0', '0.0', '200000', '24', 'DYN_CFG_KEY', 'REDIS_URL', '__main__', 'allow', 'block', 'decision', 'decision_last_ts_ms', 'decision_n_24h', 'decisions:final', 'deny', 'dq_state', 'drift_state', 'ok', 'payload', 'policy_regime', 'redis://redis:6379/0', 'settings:dynamic_cfg', 'total', 'ts', 'unknown', 'veto', 'warn']

@@ -1,0 +1,854 @@
+diff -ruN /tmp/p33/.pytest_cache/.gitignore /tmp/p33hard/.pytest_cache/.gitignore
+--- /tmp/p33/.pytest_cache/.gitignore	2026-03-07 05:59:56.000000000 +0000
++++ /tmp/p33hard/.pytest_cache/.gitignore	1970-01-01 00:00:00.000000000 +0000
+@@ -1,2 +0,0 @@
+-# Created by pytest automatically.
+-*
+diff -ruN /tmp/p33/.pytest_cache/CACHEDIR.TAG /tmp/p33hard/.pytest_cache/CACHEDIR.TAG
+--- /tmp/p33/.pytest_cache/CACHEDIR.TAG	2026-03-07 05:59:56.000000000 +0000
++++ /tmp/p33hard/.pytest_cache/CACHEDIR.TAG	1970-01-01 00:00:00.000000000 +0000
+@@ -1,4 +0,0 @@
+-Signature: 8a477f597d28d172789f06886806bc55
+-# This file is a cache directory tag created by pytest.
+-# For information about cache directory tags, see:
+-#	https://bford.info/cachedir/spec.html
+diff -ruN /tmp/p33/.pytest_cache/README.md /tmp/p33hard/.pytest_cache/README.md
+--- /tmp/p33/.pytest_cache/README.md	2026-03-07 05:59:56.000000000 +0000
++++ /tmp/p33hard/.pytest_cache/README.md	1970-01-01 00:00:00.000000000 +0000
+@@ -1,8 +0,0 @@
+-# pytest cache directory #
+-
+-This directory contains data from the pytest's cache plugin,
+-which provides the `--lf` and `--ff` options, as well as the `cache` fixture.
+-
+-**Do not** commit this to version control.
+-
+-See [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.
+diff -ruN /tmp/p33/.pytest_cache/v/cache/nodeids /tmp/p33hard/.pytest_cache/v/cache/nodeids
+--- /tmp/p33/.pytest_cache/v/cache/nodeids	2026-03-07 05:59:56.000000000 +0000
++++ /tmp/p33hard/.pytest_cache/v/cache/nodeids	1970-01-01 00:00:00.000000000 +0000
+@@ -1,7 +0,0 @@
+-[
+-  "binance_execution/test_binance_executor_p33_rehydrate_v1.py::test_load_order_state_rehydrates_from_exec_stream_when_state_missing",
+-  "binance_execution/test_binance_executor_p33_rehydrate_v1.py::test_resume_open_from_rehydrated_state_returns_snapshot",
+-  "binance_execution/test_execution_replay_consistency_v1.py::test_rebuild_state_from_stream_and_persist",
+-  "binance_execution/test_execution_state_replay_v1.py::test_compare_replayed_state_detects_mismatch",
+-  "binance_execution/test_execution_state_replay_v1.py::test_replay_sid_state_builds_materialized_snapshot"
+-]
+\ No newline at end of file
+Binary files /tmp/p33/binance_execution/__pycache__/binance_executor.cpython-313.pyc and /tmp/p33hard/binance_execution/__pycache__/binance_executor.cpython-313.pyc differ
+Binary files /tmp/p33/binance_execution/__pycache__/binance_futures_client.cpython-313.pyc and /tmp/p33hard/binance_execution/__pycache__/binance_futures_client.cpython-313.pyc differ
+Binary files /tmp/p33/binance_execution/__pycache__/execution_intent_validator.cpython-313.pyc and /tmp/p33hard/binance_execution/__pycache__/execution_intent_validator.cpython-313.pyc differ
+Binary files /tmp/p33/binance_execution/__pycache__/execution_journal.cpython-313.pyc and /tmp/p33hard/binance_execution/__pycache__/execution_journal.cpython-313.pyc differ
+Binary files /tmp/p33/binance_execution/__pycache__/execution_policy.cpython-313.pyc and /tmp/p33hard/binance_execution/__pycache__/execution_policy.cpython-313.pyc differ
+Binary files /tmp/p33/binance_execution/__pycache__/execution_state_replay.cpython-313.pyc and /tmp/p33hard/binance_execution/__pycache__/execution_state_replay.cpython-313.pyc differ
+Binary files /tmp/p33/binance_execution/__pycache__/rollout_flags.cpython-313.pyc and /tmp/p33hard/binance_execution/__pycache__/rollout_flags.cpython-313.pyc differ
+Binary files /tmp/p33/binance_execution/__pycache__/test_binance_executor_p33_rehydrate_v1.cpython-313-pytest-9.0.2.pyc and /tmp/p33hard/binance_execution/__pycache__/test_binance_executor_p33_rehydrate_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files /tmp/p33/binance_execution/__pycache__/test_execution_replay_consistency_v1.cpython-313-pytest-9.0.2.pyc and /tmp/p33hard/binance_execution/__pycache__/test_execution_replay_consistency_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files /tmp/p33/binance_execution/__pycache__/test_execution_state_replay_v1.cpython-313-pytest-9.0.2.pyc and /tmp/p33hard/binance_execution/__pycache__/test_execution_state_replay_v1.cpython-313-pytest-9.0.2.pyc differ
+diff -ruN /tmp/p33/binance_execution/binance_executor.py /tmp/p33hard/binance_execution/binance_executor.py
+--- /tmp/p33/binance_execution/binance_executor.py	2026-03-07 05:59:11.000000000 +0000
++++ /tmp/p33hard/binance_execution/binance_executor.py	2026-03-07 06:12:24.748288020 +0000
+@@ -84,7 +84,12 @@
+         resolve_execution_policy,
+     )
+     from services.execution_journal import ExecutionJournalSink
+-    from services.execution_state_replay import rebuild_state_from_stream, persist_state_snapshot
++    from services.execution_state_replay import (
++        rebuild_state_from_stream,
++        rebuild_state_with_fallback,
++        persist_state_snapshot,
++        compare_replayed_state,
++    )
+     from services.rollout_flags import RolloutFlags
+ except Exception:  # pragma: no cover - standalone bundle / local tests
+     from binance_futures_client import BinanceAPIError, BinanceFuturesClient
+@@ -96,7 +101,12 @@
+         resolve_execution_policy,
+     )
+     from execution_journal import ExecutionJournalSink
+-    from execution_state_replay import rebuild_state_from_stream, persist_state_snapshot
++    from execution_state_replay import (
++        rebuild_state_from_stream,
++        rebuild_state_with_fallback,
++        persist_state_snapshot,
++        compare_replayed_state,
++    )
+     from rollout_flags import RolloutFlags
+ 
+ try:
+@@ -141,6 +151,16 @@
+     "Number of executor finite-state-machine transitions.",
+     ["action", "symbol", "next_state"],
+ )
++EXECUTION_REHYDRATE_TOTAL = _metric(Counter,
++    "execution_rehydrate_total",
++    "Execution state recovery attempts by source/result.",
++    ["source", "result"],
++)
++EXECUTION_REPLAY_MISMATCH_TOTAL = _metric(Counter,
++    "execution_replay_mismatch_total",
++    "Mismatches between hot Redis state and replayed/SQL-backed state during recovery.",
++    ["severity"],
++)
+ 
+ # ---------------------------------------------------------------------------
+ # Helpers
+@@ -654,6 +674,10 @@
+         self.state_ttl = int(os.getenv("ORDERS_STATE_TTL_SEC", "86400"))  # default 24h
+         self.exec_replay_scan_count = int(os.getenv("EXEC_REPLAY_SCAN_COUNT", "20000"))
+         self.exec_rehydrate_on_state_miss = _bool_env("EXEC_REHYDRATE_ON_STATE_MISS", True)
++        self.exec_replay_checkpoint_key_prefix = (os.getenv("EXEC_REPLAY_CHECKPOINT_KEY_PREFIX") or "orders:exec:replay:cursor:").rstrip(":") + ":"
++        self.exec_replay_sql_fallback_enable = _bool_env("EXEC_REPLAY_SQL_FALLBACK_ENABLE", True)
++        self.exec_replay_quarantine_on_mismatch = _bool_env("EXEC_REPLAY_QUARANTINE_ON_MISMATCH", True)
++        self.exec_replay_quarantine_prefix = (os.getenv("ORDERS_QUARANTINE_PREFIX") or "orders:quarantine:state:").rstrip(":") + ":"
+ 
+         # Reconcile + user-stream integration. The worker stores the latest
+         # normalized ORDER_TRADE_UPDATE / ALGO_UPDATE payloads in Redis so the
+@@ -712,7 +736,13 @@
+         fields.setdefault("mono_ms", str(_mono_ms()))
+         fields.setdefault("venue", "binance")
+         try:
+-            self.r.xadd(self.exec_stream, {k: str(v) for k, v in fields.items() if v is not None})
++            stream_id = self.r.xadd(self.exec_stream, {k: str(v) for k, v in fields.items() if v is not None})
++            sid = str(fields.get("sid") or "").strip()
++            if sid and stream_id:
++                try:
++                    self.r.set(self._replay_checkpoint_key(sid), stream_id)
++                except Exception:
++                    pass
+         except Exception:
+             pass
+         try:
+@@ -786,38 +816,108 @@
+         except Exception:
+             pass  # fail-open: state is best-effort; exec stream is authoritative
+ 
++    def _replay_checkpoint_key(self, sid: str) -> str:
++        return f"{getattr(self, "exec_replay_checkpoint_key_prefix", "orders:exec:replay:cursor:")}{sid}"
++
++    def _quarantine_sid_for_replay_mismatch(self, sid: str, *, mismatch: Dict[str, Any], state_doc: Dict[str, Any]) -> None:
++        if not getattr(self, "exec_replay_quarantine_on_mismatch", True):
++            return
++        try:
++            qprefix = getattr(self, "exec_replay_quarantine_prefix", "orders:quarantine:state:")
++            qkey = f"{qprefix}{sid}"
++            payload = dict(state_doc or {})
++            payload.update({
++                'sid': sid,
++                'quarantined_at_ms': _ms_now(),
++                'quarantine_reason': 'replay_mismatch',
++                'quarantine_source': 'executor_rehydrate',
++                'replay_mismatch': mismatch,
++            })
++            pipe = self.r.pipeline()
++            pipe.set(qkey, json.dumps(payload, ensure_ascii=False, default=str))
++            pipe.sadd(f"{qprefix}sids", sid)
++            pipe.xadd(f"{qprefix}events", {
++                'sid': sid, 'event': 'REPLAY_MISMATCH_QUARANTINED', 'ts_ms': str(_ms_now())
++            }, maxlen=10000, approximate=True)
++            pipe.execute()
++        except Exception:
++            return
++
+     def _recover_state_from_exec_stream(self, sid: str) -> Dict[str, Any]:
+         """Best-effort rehydrate of ``orders:state:{sid}`` from ``orders:exec``.
+ 
+-        Redis state keys are a materialized view; the stream remains the
+-        authoritative fact log. When a worker restarts after losing the hot
+-        state key, we replay the most recent execution facts for that ``sid``
+-        and persist the rebuilt snapshot back into Redis.
++        Hardening additions:
++        - bounded replay window using a per-sid checkpoint/cursor;
++        - optional SQL-backed fallback when the stream window is insufficient;
++        - quarantine on critical mismatch between existing hot state and replayed state.
+         """
+         if not self.exec_rehydrate_on_state_miss:
+             return {}
++        existing: Dict[str, Any] = {}
++        try:
++            raw = self.r.get(f"{self.state_key_prefix}{sid}")
++            if raw:
++                doc = json.loads(raw)
++                if isinstance(doc, dict):
++                    existing = doc
++        except Exception:
++            existing = {}
++        checkpoint_id = ''
++        try:
++            checkpoint_id = str(self.r.get(self._replay_checkpoint_key(sid)) or existing.get('stream_last_id') or '')
++        except Exception:
++            checkpoint_id = str(existing.get('stream_last_id') or '')
++        sql_dsn = os.getenv('EXECUTION_JOURNAL_DSN', '') if getattr(self, 'exec_replay_sql_fallback_enable', True) else ''
+         try:
+-            state_doc = rebuild_state_from_stream(
+-                self.r, exec_stream=self.exec_stream, sid=sid, scan_count=self.exec_replay_scan_count
++            result = rebuild_state_with_fallback(
++                self.r,
++                exec_stream=self.exec_stream,
++                sid=sid,
++                scan_count=self.exec_replay_scan_count,
++                checkpoint_id=checkpoint_id,
++                sql_dsn=sql_dsn,
+             )
++            state_doc = dict(result.state_doc or {})
+             if not state_doc:
++                if EXECUTION_REHYDRATE_TOTAL:
++                    EXECUTION_REHYDRATE_TOTAL.labels(source='none', result='miss').inc()
+                 return {}
++            if existing:
++                mismatch = compare_replayed_state(existing, state_doc)
++                if mismatch:
++                    sev = 'critical' if any(k in {'status', 'fsm_state'} for k in mismatch) else 'warning'
++                    if EXECUTION_REPLAY_MISMATCH_TOTAL:
++                        EXECUTION_REPLAY_MISMATCH_TOTAL.labels(severity=sev).inc()
++                    if sev == 'critical':
++                        self._quarantine_sid_for_replay_mismatch(sid, mismatch=mismatch, state_doc=state_doc)
++                        self._exec_event({
++                            'sid': sid, 'action': 'rehydrate', 'event_type': 'rehydrate_replay_mismatch',
++                            'severity': sev, 'mismatch_fields': ','.join(sorted(mismatch.keys())),
++                        })
+             persist_state_snapshot(
+                 self.r,
+                 state_key=f"{self.state_key_prefix}{sid}",
+                 state_doc=state_doc,
+                 ttl_sec=self.state_ttl if self.state_ttl > 0 else 0,
++                checkpoint_key=self._replay_checkpoint_key(sid),
+             )
++            if EXECUTION_REHYDRATE_TOTAL:
++                EXECUTION_REHYDRATE_TOTAL.labels(source=result.source, result='ok').inc()
+             self._exec_event({
+                 "sid": sid,
+                 "action": "rehydrate",
+-                "event_type": "state_rehydrated_from_stream",
++                "event_type": "state_rehydrated",
+                 "fsm_state": state_doc.get("fsm_state"),
+                 "stream_last_id": state_doc.get("stream_last_id"),
+                 "stream_replayed_events": state_doc.get("stream_replayed_events"),
++                "rehydrate_source": result.source,
++                "replay_truncated": int(bool(result.truncated)),
++                "checkpoint_id": result.checkpoint_id,
+             })
+             return state_doc
+         except Exception:
++            if EXECUTION_REHYDRATE_TOTAL:
++                EXECUTION_REHYDRATE_TOTAL.labels(source='error', result='fail').inc()
+             return {}
+ 
+     def _load_order_state(self, sid: str) -> Dict[str, Any]:
+diff -ruN /tmp/p33/binance_execution/execution_state_replay.py /tmp/p33hard/binance_execution/execution_state_replay.py
+--- /tmp/p33/binance_execution/execution_state_replay.py	2026-03-07 05:59:11.000000000 +0000
++++ /tmp/p33hard/binance_execution/execution_state_replay.py	2026-03-07 06:07:44.525835541 +0000
+@@ -2,16 +2,73 @@
+ 
+ """Replay Redis ``orders:exec`` facts into a materialized ``orders:state:{sid}`` snapshot.
+ 
+-This module closes the P3.3 gap where Redis state keys are treated as a fast cache
+-while the execution stream is the authoritative source of facts. The replay logic
+-is intentionally deterministic and side-effect free so it can be reused by the
+-executor on restart, by maintenance scripts, and by unit tests.
++Hardening additions:
++- bounded replay using a Redis checkpoint/cursor per ``sid``;
++- optional SQL-backed replay fallback from ``execution_orders`` +
++  ``execution_protection_refs`` when the stream window is insufficient;
++- deterministic replay result object so callers can expose metrics and alerts.
+ """
+ 
+ import json
++import os
+ import time
++from dataclasses import dataclass
+ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+ 
++try:  # pragma: no cover
++    from prometheus_client import Counter, REGISTRY
++except Exception:  # pragma: no cover
++    Counter = None  # type: ignore
++    REGISTRY = None  # type: ignore
++
++
++def _metric(factory, name: str, *args, **kwargs):
++    if factory is None:
++        return None
++    try:
++        return factory(name, *args, **kwargs)
++    except ValueError:
++        return getattr(REGISTRY, '_names_to_collectors', {}).get(name) if REGISTRY is not None else None
++
++
++TRADE_EXECUTION_REHYDRATE_TOTAL = _metric(
++    Counter,
++    'trade_execution_rehydrate_total',
++    'Execution state rehydrate attempts by source/result.',
++    ['source', 'result'],
++)
++TRADE_EXECUTION_REPLAY_TRUNCATED_TOTAL = _metric(
++    Counter,
++    'trade_execution_replay_truncated_total',
++    'Replay windows that were truncated before the requested sid was found.',
++)
++TRADE_EXECUTION_REPLAY_SQL_FALLBACK_TOTAL = _metric(
++    Counter,
++    'trade_execution_replay_sql_fallback_total',
++    'Replay attempts that used SQL fallback state.',
++    ['result'],
++)
++
++
++try:  # pragma: no cover
++    import psycopg  # type: ignore
++except Exception:  # pragma: no cover
++    psycopg = None
++    try:
++        import psycopg2 as psycopg  # type: ignore
++    except Exception:  # pragma: no cover
++        psycopg = None
++
++
++@dataclass(frozen=True)
++class ReplayBuildResult:
++    state_doc: Dict[str, Any]
++    source: str
++    used_checkpoint: bool
++    checkpoint_id: str
++    replayed_events: int
++    truncated: bool
++
+ 
+ def _s(v: Any) -> str:
+     return '' if v is None else str(v)
+@@ -40,7 +97,6 @@
+         return {}
+ 
+ 
+-# Keys that should never be copied into the materialized state document.
+ TRANSIENT_FIELDS = {
+     'stream_id',
+     'event_type',
+@@ -61,12 +117,6 @@
+ 
+ 
+ def normalize_stream_rows(rows: Sequence[Tuple[Any, Mapping[str, Any]]]) -> List[Dict[str, Any]]:
+-    """Normalize XRANGE/XREVRANGE rows into plain dictionaries.
+-
+-    Each output item contains the original ``stream_id`` plus decoded field/value
+-    pairs. The function accepts either bytes or strings and preserves ordering
+-    from the input sequence.
+-    """
+     out: List[Dict[str, Any]] = []
+     for stream_id, fields in rows:
+         doc: Dict[str, Any] = {'stream_id': _s(stream_id)}
+@@ -82,8 +132,6 @@
+ def extract_sid_events(rows: Sequence[Tuple[Any, Mapping[str, Any]]], sid: str) -> List[Dict[str, Any]]:
+     sid = _s(sid)
+     events = [doc for doc in normalize_stream_rows(rows) if _s(doc.get('sid')) == sid]
+-    # XRANGE returns oldest-first; XREVRANGE newest-first. Sort by stream id to
+-    # guarantee deterministic oldest->newest replay regardless of caller.
+     events.sort(key=lambda d: _stream_sort_key(_s(d.get('stream_id'))))
+     return events
+ 
+@@ -97,15 +145,6 @@
+ 
+ 
+ def replay_sid_state(events: Sequence[Mapping[str, Any]], *, base_state: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+-    """Replay one SID's event list into a materialized state snapshot.
+-
+-    Replay strategy:
+-    - process events oldest->newest
+-    - copy stable fields into the state document
+-    - keep the latest non-empty value for the important execution fields
+-    - track replay metadata so operators can see when the state was rebuilt from
+-      the stream rather than directly loaded from Redis.
+-    """
+     state: Dict[str, Any] = dict(base_state or {})
+     replay_count = 0
+     last_stream_id = ''
+@@ -119,7 +158,6 @@
+                 continue
+             if key in STATE_PRIORITY_FIELDS or key.startswith('tp') or key.startswith('trail_') or key.startswith('fsm_'):
+                 state[key] = value
+-        # Preserve action/status even when only emitted in generic fact events.
+         if _s(ev.get('action')):
+             state['action'] = _s(ev.get('action'))
+         if _s(ev.get('status')):
+@@ -128,7 +166,6 @@
+             state['symbol'] = _s(ev.get('symbol'))
+         if _s(ev.get('sid')):
+             state['sid'] = _s(ev.get('sid'))
+-        # A state_transition event is authoritative for fsm_state.
+         if _s(ev.get('event_type')) == 'state_transition' and _s(ev.get('fsm_state')):
+             state['fsm_state'] = _s(ev.get('fsm_state'))
+             state['fsm_prev_state'] = _s(ev.get('prev_state') or ev.get('fsm_prev_state'))
+@@ -145,14 +182,106 @@
+     return state
+ 
+ 
++def _load_sql_state_snapshot(*, dsn: str, sid: str) -> Dict[str, Any]:
++    if not dsn or psycopg is None:
++        return {}
++    conn = psycopg.connect(dsn)
++    try:
++        with conn.cursor() as cur:
++            cur.execute(
++                'select state_jsonb from execution_orders where sid=%s order by updated_at_ms desc limit 1',
++                (sid,),
++            )
++            row = cur.fetchone()
++            if not row:
++                return {}
++            state = _loads(row[0])
++            cur.execute(
++                'select sl_algo_id, tp1_algo_id, tp2_algo_id, tp3_algo_id, trail_algo_id from execution_protection_refs where sid=%s',
++                (sid,),
++            )
++            refs = cur.fetchone()
++            if refs:
++                state.setdefault('sl_algo_id', refs[0])
++                state.setdefault('tp1_algo_id', refs[1])
++                state.setdefault('tp2_algo_id', refs[2])
++                state.setdefault('tp3_algo_id', refs[3])
++                state.setdefault('trail_algo_id', refs[4])
++            if state:
++                state['rehydrated_from_sql'] = True
++                state['rehydrated_ts_ms'] = int(time.time() * 1000)
++            return state
++    finally:
++        try:
++            conn.close()
++        except Exception:
++            pass
++
++
++def _bounded_rows(redis_client: Any, *, exec_stream: str, checkpoint_id: str, scan_count: int) -> Tuple[List[Tuple[Any, Mapping[str, Any]]], bool]:
++    if not checkpoint_id:
++        rows = redis_client.xrevrange(exec_stream, '+', '-', count=int(scan_count))
++        return rows, False
++    recent = redis_client.xrevrange(exec_stream, '+', checkpoint_id, count=int(scan_count))
++    if recent:
++        return recent, False
++    older = redis_client.xrevrange(exec_stream, checkpoint_id, '-', count=int(scan_count))
++    return older, bool(older)
++
++
+ def rebuild_state_from_stream(redis_client: Any, *, exec_stream: str, sid: str, scan_count: int = 20000) -> Dict[str, Any]:
+-    """Load latest rows from the execution stream and rebuild one ``sid`` state."""
+     rows = redis_client.xrevrange(exec_stream, '+', '-', count=int(scan_count))
+     events = extract_sid_events(rows, sid)
+     return replay_sid_state(events)
+ 
+ 
+-def persist_state_snapshot(redis_client: Any, *, state_key: str, state_doc: Mapping[str, Any], ttl_sec: int = 0) -> bool:
++def rebuild_state_with_fallback(
++    redis_client: Any,
++    *,
++    exec_stream: str,
++    sid: str,
++    scan_count: int = 20000,
++    checkpoint_id: str = '',
++    sql_dsn: str = '',
++) -> ReplayBuildResult:
++    rows, truncated = _bounded_rows(redis_client, exec_stream=exec_stream, checkpoint_id=checkpoint_id, scan_count=scan_count)
++    events = extract_sid_events(rows, sid)
++    if events:
++        state = replay_sid_state(events)
++        if TRADE_EXECUTION_REHYDRATE_TOTAL:
++            TRADE_EXECUTION_REHYDRATE_TOTAL.labels(source='stream', result='ok').inc()
++        if truncated and TRADE_EXECUTION_REPLAY_TRUNCATED_TOTAL:
++            TRADE_EXECUTION_REPLAY_TRUNCATED_TOTAL.inc()
++        return ReplayBuildResult(
++            state_doc=state,
++            source='stream',
++            used_checkpoint=bool(checkpoint_id),
++            checkpoint_id=checkpoint_id,
++            replayed_events=int(state.get('stream_replayed_events') or len(events)),
++            truncated=truncated,
++        )
++    sql_state = _load_sql_state_snapshot(dsn=sql_dsn, sid=sid) if sql_dsn else {}
++    if sql_state:
++        if TRADE_EXECUTION_REPLAY_SQL_FALLBACK_TOTAL:
++            TRADE_EXECUTION_REPLAY_SQL_FALLBACK_TOTAL.labels(result='ok').inc()
++        if TRADE_EXECUTION_REHYDRATE_TOTAL:
++            TRADE_EXECUTION_REHYDRATE_TOTAL.labels(source='sql', result='ok').inc()
++        return ReplayBuildResult(
++            state_doc=sql_state,
++            source='sql',
++            used_checkpoint=bool(checkpoint_id),
++            checkpoint_id=checkpoint_id,
++            replayed_events=0,
++            truncated=truncated,
++        )
++    if TRADE_EXECUTION_REPLAY_SQL_FALLBACK_TOTAL:
++        TRADE_EXECUTION_REPLAY_SQL_FALLBACK_TOTAL.labels(result='miss').inc()
++    if TRADE_EXECUTION_REHYDRATE_TOTAL:
++        TRADE_EXECUTION_REHYDRATE_TOTAL.labels(source='none', result='miss').inc()
++    return ReplayBuildResult(state_doc={}, source='none', used_checkpoint=bool(checkpoint_id), checkpoint_id=checkpoint_id, replayed_events=0, truncated=truncated)
++
++
++def persist_state_snapshot(redis_client: Any, *, state_key: str, state_doc: Mapping[str, Any], ttl_sec: int = 0, checkpoint_key: str = '') -> bool:
+     if not state_doc:
+         return False
+     payload = json.dumps(dict(state_doc), ensure_ascii=False, default=str)
+@@ -160,11 +289,13 @@
+         redis_client.set(state_key, payload, ex=int(ttl_sec))
+     else:
+         redis_client.set(state_key, payload)
++    last_id = _s(state_doc.get('stream_last_id'))
++    if checkpoint_key and last_id:
++        redis_client.set(checkpoint_key, last_id)
+     return True
+ 
+ 
+ def compare_replayed_state(redis_state: Mapping[str, Any], replayed_state: Mapping[str, Any]) -> Dict[str, Any]:
+-    """Return a compact mismatch report for operator/runbook use."""
+     mismatches: Dict[str, Any] = {}
+     fields = [
+         'symbol', 'status', 'fsm_state', 'execution_policy', 'binance_order_id',
+diff -ruN /tmp/p33/binance_execution/test_check_execution_replay_consistency_hardening_v1.py /tmp/p33hard/binance_execution/test_check_execution_replay_consistency_hardening_v1.py
+--- /tmp/p33/binance_execution/test_check_execution_replay_consistency_hardening_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p33hard/binance_execution/test_check_execution_replay_consistency_hardening_v1.py	2026-03-07 06:11:25.912545295 +0000
+@@ -0,0 +1,8 @@
++from pathlib import Path
++
++
++def test_checker_supports_quarantine_and_checkpoint():
++    src = (Path(__file__).resolve().parents[1] / 'scripts' / 'check_execution_replay_consistency.py').read_text(encoding='utf-8')
++    assert '--quarantine-on-critical' in src
++    assert 'checkpoint_prefix' in src
++    assert 'rebuild_state_with_fallback' in src
+diff -ruN /tmp/p33/binance_execution/test_execution_state_replay_hardening_v1.py /tmp/p33hard/binance_execution/test_execution_state_replay_hardening_v1.py
+--- /tmp/p33/binance_execution/test_execution_state_replay_hardening_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p33hard/binance_execution/test_execution_state_replay_hardening_v1.py	2026-03-07 06:11:48.101155678 +0000
+@@ -0,0 +1,36 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++mod_path = Path(__file__).resolve().parent / 'execution_state_replay.py'
++spec = importlib.util.spec_from_file_location('execution_state_replay', mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++spec.loader.exec_module(mod)
++
++
++class FakeRedis:
++    def __init__(self, rows):
++        self.rows = rows
++        self.kv = {}
++
++    def xrevrange(self, _stream, end, start, count=1000):
++        return list(self.rows)[:count]
++
++    def set(self, key, value, ex=None):
++        self.kv[key] = value
++
++
++def test_rebuild_uses_sql_fallback_when_stream_empty(monkeypatch):
++    fake = FakeRedis([])
++    monkeypatch.setattr(mod, '_load_sql_state_snapshot', lambda dsn, sid: {'sid': sid, 'fsm_state': 'PROTECTED', 'status': 'open'})
++    res = mod.rebuild_state_with_fallback(fake, exec_stream='orders:exec', sid='s1', sql_dsn='postgres://x')
++    assert res.source == 'sql'
++    assert res.state_doc['sid'] == 's1'
++
++
++def test_persist_state_snapshot_writes_checkpoint():
++    fake = FakeRedis([])
++    ok = mod.persist_state_snapshot(fake, state_key='orders:state:s1', state_doc={'sid': 's1', 'stream_last_id': '100-1'}, checkpoint_key='orders:exec:replay:cursor:s1')
++    assert ok is True
++    assert 'orders:exec:replay:cursor:s1' in fake.kv
+diff -ruN /tmp/p33/binance_execution/test_executor_p33_hardening_contract_v1.py /tmp/p33hard/binance_execution/test_executor_p33_hardening_contract_v1.py
+--- /tmp/p33/binance_execution/test_executor_p33_hardening_contract_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p33hard/binance_execution/test_executor_p33_hardening_contract_v1.py	2026-03-07 06:11:25.897042933 +0000
+@@ -0,0 +1,9 @@
++from pathlib import Path
++
++
++def test_executor_contains_replay_hardening_hooks():
++    src = (Path(__file__).resolve().parent / 'binance_executor.py').read_text(encoding='utf-8')
++    assert 'EXEC_REPLAY_SQL_FALLBACK_ENABLE' in src
++    assert 'EXEC_REPLAY_QUARANTINE_ON_MISMATCH' in src
++    assert 'execution_rehydrate_total' in src
++    assert 'replay_mismatch' in src
+diff -ruN /tmp/p33/binance_execution/test_p33_hardening_ops_assets_v1.py /tmp/p33hard/binance_execution/test_p33_hardening_ops_assets_v1.py
+--- /tmp/p33/binance_execution/test_p33_hardening_ops_assets_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p33hard/binance_execution/test_p33_hardening_ops_assets_v1.py	2026-03-07 06:11:25.904455516 +0000
+@@ -0,0 +1,14 @@
++from pathlib import Path
++
++
++def test_systemd_rebuild_timer_exists():
++    root = Path(__file__).resolve().parents[1]
++    assert (root / 'deploy' / 'systemd' / 'trade-execution-rebuild-state.service').exists()
++    assert (root / 'deploy' / 'systemd' / 'trade-execution-rebuild-state.timer').exists()
++
++
++def test_prometheus_rules_exist():
++    root = Path(__file__).resolve().parents[1]
++    rules = (root / 'monitoring' / 'prometheus_rules_execution_p33_hardening.yml').read_text(encoding='utf-8')
++    assert 'TradeExecutionReplaySqlFallbackSpike' in rules
++    assert 'TradeExecutionReplayMismatchCritical' in rules
+diff -ruN /tmp/p33/config/docker-compose.execution-p33-hardening.override.yml /tmp/p33hard/config/docker-compose.execution-p33-hardening.override.yml
+--- /tmp/p33/config/docker-compose.execution-p33-hardening.override.yml	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p33hard/config/docker-compose.execution-p33-hardening.override.yml	2026-03-07 06:10:58.707030507 +0000
+@@ -0,0 +1,7 @@
++services:
++  trade-execution-worker:
++    environment:
++      EXEC_REHYDRATE_ON_STATE_MISS: "1"
++      EXEC_REPLAY_SQL_FALLBACK_ENABLE: "1"
++      EXEC_REPLAY_QUARANTINE_ON_MISMATCH: "1"
++      EXEC_REPLAY_CHECKPOINT_KEY_PREFIX: "orders:exec:replay:cursor:"
+diff -ruN /tmp/p33/config/env.execution-p33-hardening.example /tmp/p33hard/config/env.execution-p33-hardening.example
+--- /tmp/p33/config/env.execution-p33-hardening.example	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p33hard/config/env.execution-p33-hardening.example	2026-03-07 06:10:58.713063374 +0000
+@@ -0,0 +1,6 @@
++EXEC_REHYDRATE_ON_STATE_MISS=1
++EXEC_REPLAY_SCAN_COUNT=20000
++EXEC_REPLAY_SQL_FALLBACK_ENABLE=1
++EXEC_REPLAY_QUARANTINE_ON_MISMATCH=1
++EXEC_REPLAY_CHECKPOINT_KEY_PREFIX=orders:exec:replay:cursor:
++EXEC_REPLAY_CRITICAL_THRESHOLD=1
+diff -ruN /tmp/p33/deploy/systemd/trade-execution-rebuild-state.service /tmp/p33hard/deploy/systemd/trade-execution-rebuild-state.service
+--- /tmp/p33/deploy/systemd/trade-execution-rebuild-state.service	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p33hard/deploy/systemd/trade-execution-rebuild-state.service	2026-03-07 06:10:58.670761897 +0000
+@@ -0,0 +1,9 @@
++[Unit]
++Description=Trade execution state rebuild from orders:exec
++After=network-online.target
++
++[Service]
++Type=oneshot
++WorkingDirectory=/opt/trade
++EnvironmentFile=-/etc/default/trade-execution-p33-hardening
++ExecStart=/usr/bin/python3 /opt/trade/scripts/rebuild_orders_state_from_exec.py --journal-dsn ${EXECUTION_JOURNAL_DSN}
+diff -ruN /tmp/p33/deploy/systemd/trade-execution-rebuild-state.timer /tmp/p33hard/deploy/systemd/trade-execution-rebuild-state.timer
+--- /tmp/p33/deploy/systemd/trade-execution-rebuild-state.timer	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p33hard/deploy/systemd/trade-execution-rebuild-state.timer	2026-03-07 06:10:58.679227554 +0000
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Periodic rebuild of orders:state materialized view
++
++[Timer]
++OnBootSec=2m
++OnUnitActiveSec=15m
++Unit=trade-execution-rebuild-state.service
++
++[Install]
++WantedBy=timers.target
+diff -ruN /tmp/p33/monitoring/prometheus_rules_execution_p33_hardening.yml /tmp/p33hard/monitoring/prometheus_rules_execution_p33_hardening.yml
+--- /tmp/p33/monitoring/prometheus_rules_execution_p33_hardening.yml	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p33hard/monitoring/prometheus_rules_execution_p33_hardening.yml	2026-03-07 06:10:58.700094506 +0000
+@@ -0,0 +1,35 @@
++groups:
++  - name: trade-execution-p33-hardening
++    rules:
++      - alert: TradeExecutionReplaySqlFallbackSpike
++        expr: increase(trade_execution_replay_sql_fallback_total{result="ok"}[15m]) > 5
++        for: 5m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Replay is relying on SQL fallback"
++          description: "Redis orders:exec replay window is insufficient or checkpoints are stale; SQL-backed recovery is being used repeatedly."
++      - alert: TradeExecutionReplayMismatchCritical
++        expr: increase(execution_replay_mismatch_total{severity="critical"}[10m]) > 0
++        for: 1m
++        labels:
++          severity: critical
++        annotations:
++          summary: "Critical replay mismatch detected"
++          description: "Hot Redis state diverged from replayed/SQL-backed execution state and the sid may have been quarantined."
++      - alert: TradeExecutionRehydrateFailures
++        expr: increase(execution_rehydrate_total{result="fail"}[10m]) > 0
++        for: 2m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Execution rehydrate failures detected"
++          description: "Executor failed to recover missing orders:state from stream or SQL fallback."
++      - alert: TradeExecutionReplayTruncated
++        expr: increase(trade_execution_replay_truncated_total[30m]) > 0
++        for: 5m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Replay window truncated"
++          description: "Bounded replay window hit the checkpoint boundary before locating all sid events; consider rebuild/checkpoint review."
+diff -ruN /tmp/p33/runbooks/P33_HARDENING_REPLAY_AND_RECOVERY.md /tmp/p33hard/runbooks/P33_HARDENING_REPLAY_AND_RECOVERY.md
+--- /tmp/p33/runbooks/P33_HARDENING_REPLAY_AND_RECOVERY.md	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p33hard/runbooks/P33_HARDENING_REPLAY_AND_RECOVERY.md	2026-03-07 06:10:58.720317604 +0000
+@@ -0,0 +1,6 @@
++# P3.3 Hardening: replay, SQL fallback, quarantine
++
++1. Use `scripts/check_execution_replay_consistency.py --quarantine-on-critical` during incident review.
++2. If `trade_execution_replay_sql_fallback_total` spikes, inspect `orders:exec` retention and checkpoint freshness.
++3. If `execution_replay_mismatch_total{severity="critical"}` fires, keep degraded mode enabled and review quarantined `sid` before unquarantine.
++4. `trade-execution-rebuild-state.timer` can safely rebuild `orders:state:*` because `orders:exec` remains SoT.
+diff -ruN /tmp/p33/scripts/check_execution_replay_consistency.py /tmp/p33hard/scripts/check_execution_replay_consistency.py
+--- /tmp/p33/scripts/check_execution_replay_consistency.py	2026-03-07 05:59:11.000000000 +0000
++++ /tmp/p33hard/scripts/check_execution_replay_consistency.py	2026-03-07 06:10:09.582311778 +0000
+@@ -12,9 +12,12 @@
+     redis = None  # type: ignore
+ 
+ try:
+-    from services.execution_state_replay import rebuild_state_from_stream, compare_replayed_state
++    from services.execution_state_replay import rebuild_state_with_fallback, compare_replayed_state
+ except Exception:  # pragma: no cover
+-    from binance_execution.execution_state_replay import rebuild_state_from_stream, compare_replayed_state
++    try:
++        from binance_execution.execution_state_replay import rebuild_state_with_fallback, compare_replayed_state
++    except Exception:
++        from execution_state_replay import rebuild_state_with_fallback, compare_replayed_state  # type: ignore
+ 
+ 
+ def _loads(value: Any) -> Dict[str, Any]:
+@@ -29,31 +32,67 @@
+         return {}
+ 
+ 
++def _quarantine(redis_client: Any, *, sid: str, mismatch: Dict[str, Any], state_doc: Dict[str, Any], prefix: str) -> None:
++    qprefix = prefix.rstrip(':') + ':'
++    payload = dict(state_doc or {})
++    payload.update({'sid': sid, 'quarantine_reason': 'replay_mismatch', 'replay_mismatch': mismatch})
++    pipe = redis_client.pipeline()
++    pipe.set(f'{qprefix}{sid}', json.dumps(payload, ensure_ascii=False, default=str))
++    pipe.sadd(f'{qprefix}sids', sid)
++    pipe.xadd(f'{qprefix}events', {'sid': sid, 'event': 'REPLAY_MISMATCH_QUARANTINED'}, maxlen=10000, approximate=True)
++    pipe.execute()
++
++
+ def main() -> int:
+-    parser = argparse.ArgumentParser(description='Compare Redis materialized state keys against state replayed from orders:exec.')
++    parser = argparse.ArgumentParser(description='Compare Redis hot state against replayed state with checkpoint + SQL fallback.')
+     parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
+     parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', 'orders:exec'))
+     parser.add_argument('--state-prefix', default=(os.getenv('ORDERS_STATE_KEY_PREFIX') or 'orders:state:'))
++    parser.add_argument('--checkpoint-prefix', default=(os.getenv('EXEC_REPLAY_CHECKPOINT_KEY_PREFIX') or 'orders:exec:replay:cursor:'))
+     parser.add_argument('--scan-count', type=int, default=int(os.getenv('EXEC_REPLAY_SCAN_COUNT', '20000')))
++    parser.add_argument('--journal-dsn', default=os.getenv('EXECUTION_JOURNAL_DSN', ''))
+     parser.add_argument('--critical-threshold', type=int, default=int(os.getenv('EXEC_REPLAY_CRITICAL_THRESHOLD', '1')))
++    parser.add_argument('--quarantine-on-critical', action='store_true')
++    parser.add_argument('--quarantine-prefix', default=os.getenv('ORDERS_QUARANTINE_PREFIX', 'orders:quarantine:state:'))
+     args = parser.parse_args()
+     if redis is None:
+         raise RuntimeError('redis package required')
+     r = redis.from_url(args.redis_url, decode_responses=True)
+     prefix = args.state_prefix.rstrip(':') + ':'
++    cprefix = args.checkpoint_prefix.rstrip(':') + ':'
+     mismatches: List[Dict[str, Any]] = []
+     count = 0
+     for key in r.scan_iter(match=f'{prefix}*'):
+         count += 1
+         sid = str(key).split(prefix, 1)[-1]
+         redis_state = _loads(r.get(key))
+-        replayed = rebuild_state_from_stream(r, exec_stream=args.exec_stream, sid=sid, scan_count=args.scan_count)
+-        diff = compare_replayed_state(redis_state, replayed)
++        checkpoint_id = str(r.get(f'{cprefix}{sid}') or redis_state.get('stream_last_id') or '')
++        replayed = rebuild_state_with_fallback(
++            r,
++            exec_stream=args.exec_stream,
++            sid=sid,
++            scan_count=args.scan_count,
++            checkpoint_id=checkpoint_id,
++            sql_dsn=args.journal_dsn,
++        )
++        diff = compare_replayed_state(redis_state, replayed.state_doc)
+         if diff:
+-            mismatches.append({'sid': sid, 'mismatches': diff, 'fsm_state': replayed.get('fsm_state')})
++            severity = 'critical' if any(k in {'status', 'fsm_state'} for k in diff) else 'warning'
++            item = {
++                'sid': sid,
++                'severity': severity,
++                'mismatches': diff,
++                'replay_source': replayed.source,
++                'replay_truncated': bool(replayed.truncated),
++                'checkpoint_id': replayed.checkpoint_id,
++            }
++            mismatches.append(item)
++            if severity == 'critical' and args.quarantine_on_critical:
++                _quarantine(r, sid=sid, mismatch=diff, state_doc=replayed.state_doc, prefix=args.quarantine_prefix)
+     out = {'checked_state_keys': count, 'mismatches_total': len(mismatches), 'critical_threshold': args.critical_threshold, 'items': mismatches}
+     print(json.dumps(out, ensure_ascii=False, indent=2))
+-    return 2 if len(mismatches) >= args.critical_threshold else 0
++    crit = sum(1 for x in mismatches if x['severity'] == 'critical')
++    return 2 if crit >= args.critical_threshold else (1 if mismatches else 0)
+ 
+ 
+ if __name__ == '__main__':  # pragma: no cover
+diff -ruN /tmp/p33/scripts/rebuild_orders_state_from_exec.py /tmp/p33hard/scripts/rebuild_orders_state_from_exec.py
+--- /tmp/p33/scripts/rebuild_orders_state_from_exec.py	2026-03-07 05:59:11.000000000 +0000
++++ /tmp/p33hard/scripts/rebuild_orders_state_from_exec.py	2026-03-07 06:10:31.511516430 +0000
+@@ -12,9 +12,12 @@
+     redis = None  # type: ignore
+ 
+ try:
+-    from services.execution_state_replay import rebuild_state_from_stream, persist_state_snapshot
++    from services.execution_state_replay import rebuild_state_with_fallback, persist_state_snapshot
+ except Exception:  # pragma: no cover
+-    from binance_execution.execution_state_replay import rebuild_state_from_stream, persist_state_snapshot
++    try:
++        from binance_execution.execution_state_replay import rebuild_state_with_fallback, persist_state_snapshot
++    except Exception:
++        from execution_state_replay import rebuild_state_with_fallback, persist_state_snapshot  # type: ignore
+ 
+ 
+ def main() -> int:
+@@ -22,7 +25,9 @@
+     parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
+     parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', 'orders:exec'))
+     parser.add_argument('--state-prefix', default=(os.getenv('ORDERS_STATE_KEY_PREFIX') or 'orders:state:'))
++    parser.add_argument('--checkpoint-prefix', default=(os.getenv('EXEC_REPLAY_CHECKPOINT_KEY_PREFIX') or 'orders:exec:replay:cursor:'))
+     parser.add_argument('--scan-count', type=int, default=int(os.getenv('EXEC_REPLAY_SCAN_COUNT', '20000')))
++    parser.add_argument('--journal-dsn', default=os.getenv('EXECUTION_JOURNAL_DSN', ''))
+     parser.add_argument('--sid', action='append', default=[])
+     parser.add_argument('--ttl-sec', type=int, default=int(os.getenv('ORDERS_STATE_TTL_SEC', '86400')))
+     parser.add_argument('--dry-run', action='store_true')
+@@ -31,6 +36,7 @@
+         raise RuntimeError('redis package required')
+     r = redis.from_url(args.redis_url, decode_responses=True)
+     state_prefix = args.state_prefix.rstrip(':') + ':'
++    checkpoint_prefix = args.checkpoint_prefix.rstrip(':') + ':'
+     sids: List[str] = list(args.sid or [])
+     if not sids:
+         rows = r.xrevrange(args.exec_stream, '+', '-', count=int(args.scan_count))
+@@ -44,13 +50,37 @@
+         sids = seen
+     rebuilt: List[Dict[str, Any]] = []
+     for sid in sids:
+-        state = rebuild_state_from_stream(r, exec_stream=args.exec_stream, sid=sid, scan_count=args.scan_count)
++        checkpoint_id = str(r.get(f'{checkpoint_prefix}{sid}') or '')
++        result = rebuild_state_with_fallback(
++            r,
++            exec_stream=args.exec_stream,
++            sid=sid,
++            scan_count=args.scan_count,
++            checkpoint_id=checkpoint_id,
++            sql_dsn=args.journal_dsn,
++        )
++        state = result.state_doc
+         if not state:
+-            rebuilt.append({'sid': sid, 'rebuilt': False, 'reason': 'stream_events_not_found'})
++            rebuilt.append({'sid': sid, 'rebuilt': False, 'reason': 'state_not_found', 'source': result.source})
+             continue
+         if not args.dry_run:
+-            persist_state_snapshot(r, state_key=f'{state_prefix}{sid}', state_doc=state, ttl_sec=args.ttl_sec)
+-        rebuilt.append({'sid': sid, 'rebuilt': True, 'fsm_state': state.get('fsm_state'), 'stream_last_id': state.get('stream_last_id'), 'events': state.get('stream_replayed_events', 0)})
++            persist_state_snapshot(
++                r,
++                state_key=f'{state_prefix}{sid}',
++                state_doc=state,
++                ttl_sec=args.ttl_sec,
++                checkpoint_key=f'{checkpoint_prefix}{sid}',
++            )
++        rebuilt.append({
++            'sid': sid,
++            'rebuilt': True,
++            'fsm_state': state.get('fsm_state'),
++            'stream_last_id': state.get('stream_last_id'),
++            'events': state.get('stream_replayed_events', 0),
++            'source': result.source,
++            'checkpoint_id': result.checkpoint_id,
++            'truncated': result.truncated,
++        })
+     print(json.dumps({'count': len(rebuilt), 'items': rebuilt}, ensure_ascii=False, indent=2))
+     return 0
+ 

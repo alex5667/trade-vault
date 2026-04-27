@@ -1,0 +1,618 @@
+diff -ruN orderflow_services/deploy/compose/docker-compose.ofc-contextual-runtime-summary-writer-v1.yml orderflow_services/deploy/compose/docker-compose.ofc-contextual-runtime-summary-writer-v1.yml
+--- orderflow_services/deploy/compose/docker-compose.ofc-contextual-runtime-summary-writer-v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/deploy/compose/docker-compose.ofc-contextual-runtime-summary-writer-v1.yml	2026-03-14 12:39:06.129171576 +0000
+@@ -0,0 +1,20 @@
++services:
++  ofc-contextual-runtime-summary-writer-v1:
++    image: ${TRADE_ORDERFLOW_IMAGE:?}
++    restart: unless-stopped
++    working_dir: /app
++    environment:
++      PYTHONPATH: /app
++      REDIS_URL: ${REDIS_URL:?}
++      OFC_CTX_RUNTIME_RELOADER_STATE_PATH: ${OFC_CTX_RUNTIME_RELOADER_STATE_PATH:-/var/lib/trade/ofc_contextual_runtime_reloader_state.json}
++      OFC_CTX_RUNTIME_SUMMARY_KEY: ${OFC_CTX_RUNTIME_SUMMARY_KEY:-metrics:ofc_contextual_runtime:last}
++      OFC_CTX_RUNTIME_SUMMARY_TEXTFILE_PATH: ${OFC_CTX_RUNTIME_SUMMARY_TEXTFILE_PATH:-/var/lib/node_exporter/textfile_collector/ofc_contextual_runtime.prom}
++      OFC_CTX_RUNTIME_SUMMARY_INTERVAL_S: ${OFC_CTX_RUNTIME_SUMMARY_INTERVAL_S:-15}
++    volumes:
++      - ${TRADE_REPO_ROOT:?}:/app:ro
++      - /var/lib/trade:/var/lib/trade
++      - /var/lib/node_exporter/textfile_collector:/var/lib/node_exporter/textfile_collector
++    command:
++      - python3
++      - -m
++      - orderflow_services.ofc_contextual_runtime_summary_writer_v1
+diff -ruN orderflow_services/deploy/env/ofc-contextual-rollout-v1.env.example orderflow_services/deploy/env/ofc-contextual-rollout-v1.env.example
+--- orderflow_services/deploy/env/ofc-contextual-rollout-v1.env.example	2026-03-14 12:35:35.536736224 +0000
++++ orderflow_services/deploy/env/ofc-contextual-rollout-v1.env.example	2026-03-14 12:39:06.129552494 +0000
+@@ -31,3 +31,4 @@
+ OFC_CTX_ROLLOUT_EXPORTER_PORT=9848
+ OFC_CTX_ROLLOUT_EXPORTER_INTERVAL_S=15
+ 
++OFC_CTX_RUNTIME_SUMMARY_KEY=metrics:ofc_contextual_runtime:last
+diff -ruN orderflow_services/deploy/env/ofc-contextual-runtime-health-exporter-v1.env.example orderflow_services/deploy/env/ofc-contextual-runtime-health-exporter-v1.env.example
+--- orderflow_services/deploy/env/ofc-contextual-runtime-health-exporter-v1.env.example	2026-03-14 12:35:35.539332140 +0000
++++ orderflow_services/deploy/env/ofc-contextual-runtime-health-exporter-v1.env.example	2026-03-14 12:39:06.129662229 +0000
+@@ -1,5 +1,7 @@
++REDIS_URL=redis://redis-worker-1:6379/0
+ # Runtime reloader health exporter
+ TRADE_REPO_ROOT=/opt/trade/prod/repo
+ OFC_CTX_RUNTIME_RELOADER_STATE_PATH=/var/lib/trade/ofc_contextual_runtime_reloader_state.json
+ OFC_CTX_RUNTIME_HEALTH_EXPORTER_PORT=9850
+ OFC_CTX_RUNTIME_HEALTH_EXPORTER_INTERVAL_S=15
++OFC_CTX_RUNTIME_SUMMARY_KEY=metrics:ofc_contextual_runtime:last
+diff -ruN orderflow_services/deploy/env/ofc-contextual-runtime-summary-writer-v1.env.example orderflow_services/deploy/env/ofc-contextual-runtime-summary-writer-v1.env.example
+--- orderflow_services/deploy/env/ofc-contextual-runtime-summary-writer-v1.env.example	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/deploy/env/ofc-contextual-runtime-summary-writer-v1.env.example	2026-03-14 12:39:06.129385351 +0000
+@@ -0,0 +1,7 @@
++# Runtime reloader summary writer
++TRADE_REPO_ROOT=/opt/trade/prod/repo
++REDIS_URL=redis://redis-worker-1:6379/0
++OFC_CTX_RUNTIME_RELOADER_STATE_PATH=/var/lib/trade/ofc_contextual_runtime_reloader_state.json
++OFC_CTX_RUNTIME_SUMMARY_KEY=metrics:ofc_contextual_runtime:last
++OFC_CTX_RUNTIME_SUMMARY_TEXTFILE_PATH=/var/lib/node_exporter/textfile_collector/ofc_contextual_runtime.prom
++OFC_CTX_RUNTIME_SUMMARY_INTERVAL_S=15
+diff -ruN orderflow_services/deploy/env/ofc-contextual-runtime-v1.env.example orderflow_services/deploy/env/ofc-contextual-runtime-v1.env.example
+--- orderflow_services/deploy/env/ofc-contextual-runtime-v1.env.example	2026-03-14 12:35:35.538250898 +0000
++++ orderflow_services/deploy/env/ofc-contextual-runtime-v1.env.example	2026-03-14 12:39:06.129763632 +0000
+@@ -16,3 +16,6 @@
+ OFC_CTX_RUNTIME_RESTART_COOLDOWN_SEC=15
+ OFC_CTX_RUNTIME_TERM_GRACE_SEC=20
+ OFC_CTX_RUNTIME_RELOADER_STATE_PATH=/var/lib/trade/ofc_contextual_runtime_reloader_state.json
++OFC_CTX_RUNTIME_SUMMARY_KEY=metrics:ofc_contextual_runtime:last
++OFC_CTX_RUNTIME_SUMMARY_TEXTFILE_PATH=/var/lib/node_exporter/textfile_collector/ofc_contextual_runtime.prom
++OFC_CTX_RUNTIME_SUMMARY_INTERVAL_S=15
+diff -ruN orderflow_services/deploy/systemd/trade-ofc-contextual-runtime-summary-writer.service orderflow_services/deploy/systemd/trade-ofc-contextual-runtime-summary-writer.service
+--- orderflow_services/deploy/systemd/trade-ofc-contextual-runtime-summary-writer.service	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/deploy/systemd/trade-ofc-contextual-runtime-summary-writer.service	2026-03-14 12:39:06.129300557 +0000
+@@ -0,0 +1,14 @@
++[Unit]
++Description=OFC contextual runtime summary writer v1
++After=network.target
++
++[Service]
++Type=simple
++EnvironmentFile=-/etc/default/ofc-contextual-runtime-summary-writer-v1
++WorkingDirectory=${TRADE_REPO_ROOT}
++ExecStart=/usr/bin/env python3 -m orderflow_services.ofc_contextual_runtime_summary_writer_v1
++Restart=always
++RestartSec=5
++
++[Install]
++WantedBy=multi-user.target
+diff -ruN orderflow_services/ofc_contextual_rollout_controller_v1.py orderflow_services/ofc_contextual_rollout_controller_v1.py
+--- orderflow_services/ofc_contextual_rollout_controller_v1.py	2026-03-14 12:35:35.533889751 +0000
++++ orderflow_services/ofc_contextual_rollout_controller_v1.py	2026-03-14 12:39:06.128832135 +0000
+@@ -280,6 +280,7 @@
+     ap.add_argument("--force-mode", default=_env("OFC_CTX_FORCE_MODE", ""))
+     ap.add_argument("--exporter-summary-key", default=_env("OFC_CTX_EXPORTER_SUMMARY_KEY", "metrics:ofc_contextual_exporter:last"))
+     ap.add_argument("--writer-summary-key", default=_env("OFC_CTX_WRITER_SUMMARY_KEY", "metrics:ofc_contextual_writer:last"))
++    ap.add_argument("--runtime-summary-key", default=_env("OFC_CTX_RUNTIME_SUMMARY_KEY", "metrics:ofc_contextual_runtime:last"))
+     ap.add_argument("--nightly-summary-key", default=_env("OFC_CTX_NIGHTLY_SUMMARY_KEY", "metrics:ofc_contextual_nightly:last"))
+     ap.add_argument("--rollout-state-key", default=_env("OFC_CTX_ROLLOUT_STATE_KEY", "cfg:ofc_contextual:rollout:v1"))
+     ap.add_argument("--rollout-summary-key", default=_env("OFC_CTX_ROLLOUT_SUMMARY_KEY", "metrics:ofc_contextual_rollout:last"))
+@@ -318,6 +319,7 @@
+         force_mode=args.force_mode,
+     )
+ 
++    runtime = _read_hash(client, args.runtime_summary_key)
+     canary_symbols = _parse_symbols(args.canary_symbols)
+     summary = {
+         "ts_ms": _now_ms(),
+@@ -335,6 +337,14 @@
+         "nightly_success": int(inputs.nightly_success),
+         "rollback_requested": int(inputs.rollback_requested),
+         "canary_symbols_count": len(canary_symbols),
++        "runtime_summary_age_seconds": float(runtime.get("state_age_seconds", 0.0) or 0.0),
++        "runtime_child_pid": int(_to_int(runtime.get("child_pid", 0), 0)),
++        "runtime_child_uptime_seconds": float(runtime.get("child_uptime_seconds", 0.0) or 0.0),
++        "runtime_restart_count": int(_to_int(runtime.get("restart_count", 0), 0)),
++        "runtime_defer_active": int(_to_int(runtime.get("defer_active", 0), 0)),
++        "runtime_cooldown_remaining_seconds": float(runtime.get("cooldown_remaining_seconds", 0.0) or 0.0),
++        "runtime_last_restart_reason_kind": str(runtime.get("last_restart_reason_kind", "unknown") or "unknown"),
++        "runtime_active_overlay_fingerprint": str(runtime.get("active_overlay_fingerprint", "") or ""),
+     }
+ 
+     if int(args.apply) == 1:
+diff -ruN orderflow_services/ofc_contextual_rollout_exporter_v1.py orderflow_services/ofc_contextual_rollout_exporter_v1.py
+--- orderflow_services/ofc_contextual_rollout_exporter_v1.py	2026-03-14 12:35:35.534300613 +0000
++++ orderflow_services/ofc_contextual_rollout_exporter_v1.py	2026-03-14 12:39:06.129001676 +0000
+@@ -61,6 +61,13 @@
+ WRITER_LAG = Gauge("ofc_ctx_rollout_writer_lag_seconds", "Writer lag seconds")
+ ROLLBACK_REQ = Gauge("ofc_ctx_rollout_rollback_requested", "1 if rollback requested")
+ CANARY_COUNT = Gauge("ofc_ctx_rollout_canary_symbols_count", "Canary symbol count")
++RUNTIME_SUMMARY_AGE = Gauge("ofc_ctx_rollout_runtime_summary_age_seconds", "Runtime summary age seconds")
++RUNTIME_CHILD_PID = Gauge("ofc_ctx_rollout_runtime_child_pid", "Runtime child pid")
++RUNTIME_CHILD_UPTIME = Gauge("ofc_ctx_rollout_runtime_child_uptime_seconds", "Runtime child uptime seconds")
++RUNTIME_RESTART_COUNT = Gauge("ofc_ctx_rollout_runtime_restart_count", "Runtime restart count")
++RUNTIME_DEFER_ACTIVE = Gauge("ofc_ctx_rollout_runtime_defer_active", "Runtime defer active flag")
++RUNTIME_COOLDOWN_REMAINING = Gauge("ofc_ctx_rollout_runtime_cooldown_remaining_seconds", "Runtime cooldown remaining seconds")
++RUNTIME_INFO = Gauge("ofc_ctx_rollout_runtime_info", "Runtime overlay/restart labels", ["active_overlay_fingerprint", "last_restart_reason_kind"])
+ 
+ 
+ MODES = ("off", "shadow", "tighten_only", "replace_score_veto")
+@@ -76,6 +83,7 @@
+     port = int(_env("OFC_CTX_ROLLOUT_EXPORTER_PORT", "9848") or 9848)
+     interval_s = float(_env("OFC_CTX_ROLLOUT_EXPORTER_INTERVAL_S", "15") or 15)
+     key = _env("OFC_CTX_ROLLOUT_SUMMARY_KEY", "metrics:ofc_contextual_rollout:last")
++    runtime_key = _env("OFC_CTX_RUNTIME_SUMMARY_KEY", "metrics:ofc_contextual_runtime:last")
+     start_http_server(port)
+     while True:
+         UP.set(1.0)
+@@ -85,7 +93,8 @@
+             time.sleep(interval_s)
+             continue
+         summary = _read_hash(client, key)
+-        REDIS_OK.set(1.0 if summary else 0.0)
++        runtime = _read_hash(client, runtime_key)
++        REDIS_OK.set(1.0 if (summary or runtime) else 0.0)
+         _publish_mode(CURRENT_MODE, summary.get("current_mode", "shadow"))
+         _publish_mode(DESIRED_MODE, summary.get("desired_mode", "shadow"))
+         BLOCKED.set(_to_int(summary.get("blocked", 0), 0))
+@@ -98,6 +107,16 @@
+         WRITER_LAG.set(_to_float(summary.get("writer_lag_seconds", 0.0), 0.0))
+         ROLLBACK_REQ.set(_to_int(summary.get("rollback_requested", 0), 0))
+         CANARY_COUNT.set(_to_float(summary.get("canary_symbols_count", 0.0), 0.0))
++        runtime_src = runtime or summary
++        RUNTIME_SUMMARY_AGE.set(_to_float(runtime_src.get("state_age_seconds", runtime_src.get("runtime_summary_age_seconds", 0.0)), 0.0))
++        RUNTIME_CHILD_PID.set(_to_float(runtime_src.get("child_pid", runtime_src.get("runtime_child_pid", 0.0)), 0.0))
++        RUNTIME_CHILD_UPTIME.set(_to_float(runtime_src.get("child_uptime_seconds", runtime_src.get("runtime_child_uptime_seconds", 0.0)), 0.0))
++        RUNTIME_RESTART_COUNT.set(_to_float(runtime_src.get("restart_count", runtime_src.get("runtime_restart_count", 0.0)), 0.0))
++        RUNTIME_DEFER_ACTIVE.set(_to_float(runtime_src.get("defer_active", runtime_src.get("runtime_defer_active", 0.0)), 0.0))
++        RUNTIME_COOLDOWN_REMAINING.set(_to_float(runtime_src.get("cooldown_remaining_seconds", runtime_src.get("runtime_cooldown_remaining_seconds", 0.0)), 0.0))
++        fp = str(runtime_src.get("active_overlay_fingerprint", runtime_src.get("runtime_active_overlay_fingerprint", "")) or "")[:128]
++        rk = str(runtime_src.get("last_restart_reason_kind", runtime_src.get("runtime_last_restart_reason_kind", "unknown")) or "unknown")[:64]
++        RUNTIME_INFO.labels(active_overlay_fingerprint=fp, last_restart_reason_kind=rk).set(1.0)
+         time.sleep(interval_s)
+ 
+ 
+diff -ruN orderflow_services/ofc_contextual_runtime_health_exporter_v1.py orderflow_services/ofc_contextual_runtime_health_exporter_v1.py
+--- orderflow_services/ofc_contextual_runtime_health_exporter_v1.py	2026-03-14 12:35:35.540191864 +0000
++++ orderflow_services/ofc_contextual_runtime_health_exporter_v1.py	2026-03-14 12:41:19.969568186 +0000
+@@ -8,6 +8,11 @@
+ 
+ from prometheus_client import Gauge, start_http_server
+ 
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
+ logger = logging.getLogger(__name__)
+ 
+ 
+@@ -29,6 +34,26 @@
+         return int(default)
+ 
+ 
++
++
++def _redis_client(redis_url: str):
++    if redis is None:
++        return None
++    try:
++        return redis.Redis.from_url(redis_url, decode_responses=True)
++    except Exception:
++        return None
++
++
++def _read_hash(client: Any, key: str) -> Dict[str, Any]:
++    if client is None or not key:
++        return {}
++    try:
++        data = client.hgetall(key)
++        return data if isinstance(data, dict) else {}
++    except Exception:
++        return {}
++
+ def _read_json(path: str) -> Dict[str, Any]:
+     if not path or not os.path.exists(path):
+         return {}
+@@ -82,16 +107,32 @@
+ COOLDOWN_REMAINING_SECONDS = Gauge('ofc_ctx_runtime_reloader_cooldown_remaining_seconds', 'Cooldown remaining before reloader may restart child')
+ DEFER_UNTIL_SECONDS = Gauge('ofc_ctx_runtime_reloader_defer_until_seconds', 'Seconds until defer state expires')
+ INFO = Gauge('ofc_ctx_runtime_reloader_info', 'One-hot info for runtime reloader state', ['active_overlay_fingerprint', 'last_restart_reason_kind', 'defer_reason'])
++SOURCE = Gauge('ofc_ctx_runtime_reloader_summary_source', 'One-hot source of runtime summary', ['source'])
+ 
+ _LAST_INFO: Optional[tuple[str, str, str]] = None
+ 
+ 
+-def export_once(state_path: str) -> Dict[str, Any]:
++def _resolve_data(state_path: str, redis_url: str = '', summary_key: str = '') -> Dict[str, Any]:
++    if summary_key:
++        client = _redis_client(redis_url)
++        summary = _read_hash(client, summary_key)
++        if summary:
++            summary['summary_source'] = 'redis'
++            return summary
++    data = _read_json(state_path)
++    if data:
++        data['summary_source'] = 'json'
++    return data
++
++
++def export_once(state_path: str, redis_url: str = '', summary_key: str = '') -> Dict[str, Any]:
+     global _LAST_INFO
+     data = _read_json(state_path)
+     UP.set(1.0)
+     STATE_PRESENT.set(1.0 if data else 0.0)
+     if not data:
++        for s in ('redis', 'json'):
++            SOURCE.labels(source=s).set(0.0)
+         STATE_AGE_SECONDS.set(0.0)
+         CHILD_PID.set(0.0)
+         CHILD_UPTIME_SECONDS.set(0.0)
+@@ -107,16 +148,28 @@
+             _LAST_INFO = None
+         return {}
+ 
+-    STATE_AGE_SECONDS.set(_age_seconds(data.get('ts_ms', 0)))
+-    CHILD_PID.set(float(_to_int(data.get('child_pid', 0), 0)))
+-    CHILD_UPTIME_SECONDS.set(_uptime_seconds(data.get('child_start_ts_ms', 0)))
++    source = _str(data.get('summary_source', 'json')) or 'json'
++    for s in ('redis', 'json'):
++        SOURCE.labels(source=s).set(1.0 if s == source else 0.0)
++    if source == 'redis':
++        STATE_AGE_SECONDS.set(_to_float(data.get('state_age_seconds', 0.0), 0.0))
++        CHILD_PID.set(float(_to_int(data.get('child_pid', 0), 0)))
++        CHILD_UPTIME_SECONDS.set(_to_float(data.get('child_uptime_seconds', 0.0), 0.0))
++    else:
++        STATE_AGE_SECONDS.set(_age_seconds(data.get('ts_ms', 0)))
++        CHILD_PID.set(float(_to_int(data.get('child_pid', 0), 0)))
++        CHILD_UPTIME_SECONDS.set(_uptime_seconds(data.get('child_start_ts_ms', 0)))
+     RESTART_COUNT.set(float(_to_int(data.get('restart_count', 0), 0)))
+     LAST_EXIT_CODE.set(float(_to_int(data.get('last_child_exit_code', 0), 0)))
+     ROLLBACK_FLAG_PRESENT.set(float(_to_int(data.get('rollback_exists', 0), 0)))
+     OVERLAY_DIRTY.set(float(_to_int(data.get('overlay_dirty', 0), 0)))
+     DEFER_ACTIVE.set(float(_to_int(data.get('defer_active', 0), 0)))
+-    COOLDOWN_REMAINING_SECONDS.set(_cooldown_remaining_seconds(data.get('cooldown_until_ts_ms', 0)))
+-    DEFER_UNTIL_SECONDS.set(_cooldown_remaining_seconds(data.get('defer_until_ts_ms', 0)))
++    if source == 'redis':
++        COOLDOWN_REMAINING_SECONDS.set(_to_float(data.get('cooldown_remaining_seconds', 0.0), 0.0))
++        DEFER_UNTIL_SECONDS.set(_to_float(data.get('defer_remaining_seconds', 0.0), 0.0))
++    else:
++        COOLDOWN_REMAINING_SECONDS.set(_cooldown_remaining_seconds(data.get('cooldown_until_ts_ms', 0)))
++        DEFER_UNTIL_SECONDS.set(_cooldown_remaining_seconds(data.get('defer_until_ts_ms', 0)))
+ 
+     labels = (
+         _str(data.get('active_overlay_fingerprint', 'unknown'))[:64],
+@@ -134,10 +187,12 @@
+     port = _to_int(_env('OFC_CTX_RUNTIME_HEALTH_EXPORTER_PORT', '9850'), 9850)
+     interval_s = max(1.0, _to_float(_env('OFC_CTX_RUNTIME_HEALTH_EXPORTER_INTERVAL_S', '15'), 15.0))
+     state_path = _env('OFC_CTX_RUNTIME_RELOADER_STATE_PATH', '/var/lib/trade/ofc_contextual_runtime_reloader_state.json')
++    redis_url = _env('REDIS_URL', 'redis://redis-worker-1:6379/0')
++    summary_key = _env('OFC_CTX_RUNTIME_SUMMARY_KEY', 'metrics:ofc_contextual_runtime:last')
+     start_http_server(port)
+     logger.info('ofc contextual runtime health exporter listening on %s', port)
+     while True:
+-        export_once(state_path)
++        export_once(state_path, redis_url=redis_url, summary_key=summary_key)
+         time.sleep(interval_s)
+ 
+ 
+diff -ruN orderflow_services/ofc_contextual_runtime_summary_writer_v1.py orderflow_services/ofc_contextual_runtime_summary_writer_v1.py
+--- orderflow_services/ofc_contextual_runtime_summary_writer_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/ofc_contextual_runtime_summary_writer_v1.py	2026-03-14 12:40:47.471440705 +0000
+@@ -0,0 +1,215 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from typing import Any, Dict, Optional
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++
++def _env(name: str, default: str = "") -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _to_int(v: Any, default: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return int(default)
++
++
++def _to_float(v: Any, default: float = 0.0) -> float:
++    try:
++        return float(v)
++    except Exception:
++        return float(default)
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _read_json(path: str) -> Dict[str, Any]:
++    if not path or not os.path.exists(path):
++        return {}
++    try:
++        with open(path, "r", encoding="utf-8") as fh:
++            data = json.load(fh)
++        return data if isinstance(data, dict) else {}
++    except Exception:
++        return {}
++
++
++def _redis_client(redis_url: str):
++    if redis is None:
++        return None
++    try:
++        return redis.Redis.from_url(redis_url, decode_responses=True)
++    except Exception:
++        return None
++
++
++def _write_hash(client: Any, key: str, mapping: Dict[str, Any]) -> bool:
++    if client is None or not key:
++        return False
++    payload: Dict[str, str] = {}
++    for k, v in mapping.items():
++        if isinstance(v, (dict, list)):
++            payload[str(k)] = json.dumps(v, ensure_ascii=False, separators=(",", ":"))
++        else:
++            payload[str(k)] = str(v)
++    try:
++        client.hset(key, mapping=payload)
++        return True
++    except Exception:
++        return False
++
++
++def _escape_label(v: Any) -> str:
++    return str(v or "").replace("\\", r"\\").replace('"', r'\"').replace("\n", r"\n")
++
++
++def _write_textfile(path: str, summary: Dict[str, Any]) -> bool:
++    if not path:
++        return False
++    os.makedirs(os.path.dirname(path), exist_ok=True)
++    lines = [
++        "# HELP ofc_ctx_runtime_summary_up 1 if runtime summary writer produced metrics",
++        "# TYPE ofc_ctx_runtime_summary_up gauge",
++        "ofc_ctx_runtime_summary_up 1",
++        "# HELP ofc_ctx_runtime_summary_state_present 1 if runtime state exists and parses",
++        "# TYPE ofc_ctx_runtime_summary_state_present gauge",
++        f"ofc_ctx_runtime_summary_state_present {1 if summary else 0}",
++        "# HELP ofc_ctx_runtime_summary_age_seconds Age of runtime summary state",
++        "# TYPE ofc_ctx_runtime_summary_age_seconds gauge",
++        f"ofc_ctx_runtime_summary_age_seconds {float(summary.get('state_age_seconds', 0.0) or 0.0):.6f}",
++        "# HELP ofc_ctx_runtime_summary_child_pid Current child pid",
++        "# TYPE ofc_ctx_runtime_summary_child_pid gauge",
++        f"ofc_ctx_runtime_summary_child_pid {float(summary.get('child_pid', 0) or 0):.0f}",
++        "# HELP ofc_ctx_runtime_summary_child_uptime_seconds Current child uptime",
++        "# TYPE ofc_ctx_runtime_summary_child_uptime_seconds gauge",
++        f"ofc_ctx_runtime_summary_child_uptime_seconds {float(summary.get('child_uptime_seconds', 0.0) or 0.0):.6f}",
++        "# HELP ofc_ctx_runtime_summary_restart_count Runtime restart count",
++        "# TYPE ofc_ctx_runtime_summary_restart_count gauge",
++        f"ofc_ctx_runtime_summary_restart_count {float(summary.get('restart_count', 0) or 0):.0f}",
++        "# HELP ofc_ctx_runtime_summary_cooldown_remaining_seconds Cooldown remaining",
++        "# TYPE ofc_ctx_runtime_summary_cooldown_remaining_seconds gauge",
++        f"ofc_ctx_runtime_summary_cooldown_remaining_seconds {float(summary.get('cooldown_remaining_seconds', 0.0) or 0.0):.6f}",
++        "# HELP ofc_ctx_runtime_summary_defer_remaining_seconds Defer remaining",
++        "# TYPE ofc_ctx_runtime_summary_defer_remaining_seconds gauge",
++        f"ofc_ctx_runtime_summary_defer_remaining_seconds {float(summary.get('defer_remaining_seconds', 0.0) or 0.0):.6f}",
++        "# HELP ofc_ctx_runtime_summary_overlay_dirty Overlay dirty flag",
++        "# TYPE ofc_ctx_runtime_summary_overlay_dirty gauge",
++        f"ofc_ctx_runtime_summary_overlay_dirty {float(summary.get('overlay_dirty', 0) or 0):.0f}",
++        "# HELP ofc_ctx_runtime_summary_defer_active Defer active flag",
++        "# TYPE ofc_ctx_runtime_summary_defer_active gauge",
++        f"ofc_ctx_runtime_summary_defer_active {float(summary.get('defer_active', 0) or 0):.0f}",
++        "# HELP ofc_ctx_runtime_summary_rollback_flag_present Rollback flag present",
++        "# TYPE ofc_ctx_runtime_summary_rollback_flag_present gauge",
++        f"ofc_ctx_runtime_summary_rollback_flag_present {float(summary.get('rollback_exists', 0) or 0):.0f}",
++        "# HELP ofc_ctx_runtime_summary_info Runtime summary info labels",
++        "# TYPE ofc_ctx_runtime_summary_info gauge",
++        'ofc_ctx_runtime_summary_info{active_overlay_fingerprint="%s",last_restart_reason_kind="%s",defer_reason="%s"} 1'
++        % (
++            _escape_label(summary.get("active_overlay_fingerprint", "unknown")[:128]),
++            _escape_label(summary.get("last_restart_reason_kind", "unknown")[:64]),
++            _escape_label(summary.get("defer_reason", "")[:64]),
++        ),
++    ]
++    tmp = path + ".tmp"
++    with open(tmp, "w", encoding="utf-8") as fh:
++        fh.write("\n".join(lines) + "\n")
++    os.replace(tmp, path)
++    return True
++
++
++def build_summary(state: Dict[str, Any], *, now_ms: Optional[int] = None) -> Dict[str, Any]:
++    now_ms = int(now_ms if now_ms is not None else _now_ms())
++    if not state:
++        return {
++            "ts_ms": now_ms,
++            "state_present": 0,
++            "state_age_seconds": 0.0,
++            "child_pid": 0,
++            "child_uptime_seconds": 0.0,
++            "restart_count": 0,
++            "last_restart_reason": "",
++            "last_restart_reason_kind": "unknown",
++            "cooldown_remaining_seconds": 0.0,
++            "defer_active": 0,
++            "defer_reason": "",
++            "defer_remaining_seconds": 0.0,
++            "overlay_dirty": 0,
++            "rollback_exists": 0,
++            "active_overlay_fingerprint": "",
++            "desired_overlay_fingerprint": "",
++            "last_child_exit_code": 0,
++        }
++    ts_ms = _to_int(state.get("ts_ms", 0), 0)
++    child_start_ts_ms = _to_int(state.get("child_start_ts_ms", 0), 0)
++    cooldown_until_ts_ms = _to_int(state.get("cooldown_until_ts_ms", 0), 0)
++    defer_until_ts_ms = _to_int(state.get("defer_until_ts_ms", 0), 0)
++    return {
++        "ts_ms": now_ms,
++        "state_present": 1,
++        "state_ts_ms": ts_ms,
++        "state_age_seconds": max(0.0, (now_ms - ts_ms) / 1000.0) if ts_ms > 0 else 0.0,
++        "child_pid": _to_int(state.get("child_pid", 0), 0),
++        "child_uptime_seconds": max(0.0, (now_ms - child_start_ts_ms) / 1000.0) if child_start_ts_ms > 0 else 0.0,
++        "restart_count": _to_int(state.get("restart_count", 0), 0),
++        "last_restart_reason": str(state.get("last_restart_reason", "") or ""),
++        "last_restart_reason_kind": str(state.get("last_restart_reason_kind", "unknown") or "unknown"),
++        "cooldown_remaining_seconds": max(0.0, (cooldown_until_ts_ms - now_ms) / 1000.0) if cooldown_until_ts_ms > 0 else 0.0,
++        "defer_active": _to_int(state.get("defer_active", 0), 0),
++        "defer_reason": str(state.get("defer_reason", "") or ""),
++        "defer_remaining_seconds": max(0.0, (defer_until_ts_ms - now_ms) / 1000.0) if defer_until_ts_ms > 0 else 0.0,
++        "overlay_dirty": _to_int(state.get("overlay_dirty", 0), 0),
++        "rollback_exists": _to_int(state.get("rollback_exists", 0), 0),
++        "active_overlay_fingerprint": str(state.get("active_overlay_fingerprint", "") or ""),
++        "desired_overlay_fingerprint": str(state.get("desired_overlay_fingerprint", "") or ""),
++        "last_child_exit_code": _to_int(state.get("last_child_exit_code", 0), 0),
++    }
++
++
++def write_summary_once(
++    *,
++    state_path: str,
++    redis_url: str = "",
++    summary_key: str = "",
++    textfile_path: str = "",
++    now_ms: Optional[int] = None,
++) -> Dict[str, Any]:
++    state = _read_json(state_path)
++    summary = build_summary(state, now_ms=now_ms)
++    summary["redis_write_ok"] = 0
++    summary["textfile_write_ok"] = 0
++    if summary_key:
++        client = _redis_client(redis_url)
++        summary["redis_write_ok"] = 1 if _write_hash(client, summary_key, summary) else 0
++    if textfile_path:
++        summary["textfile_write_ok"] = 1 if _write_textfile(textfile_path, summary) else 0
++    return summary
++
++
++def main() -> None:  # pragma: no cover
++    state_path = _env("OFC_CTX_RUNTIME_RELOADER_STATE_PATH", "/var/lib/trade/ofc_contextual_runtime_reloader_state.json")
++    redis_url = _env("REDIS_URL", "redis://redis-worker-1:6379/0")
++    summary_key = _env("OFC_CTX_RUNTIME_SUMMARY_KEY", "metrics:ofc_contextual_runtime:last")
++    textfile_path = _env("OFC_CTX_RUNTIME_SUMMARY_TEXTFILE_PATH", "/var/lib/node_exporter/textfile_collector/ofc_contextual_runtime.prom")
++    interval_s = max(1.0, _to_float(_env("OFC_CTX_RUNTIME_SUMMARY_INTERVAL_S", "15"), 15.0))
++    while True:
++        write_summary_once(
++            state_path=state_path,
++            redis_url=redis_url,
++            summary_key=summary_key,
++            textfile_path=textfile_path,
++        )
++        time.sleep(interval_s)
++
++
++if __name__ == "__main__":  # pragma: no cover
++    main()
+diff -ruN orderflow_services/prometheus_alerts_ofc_contextual_runtime_summary_v1.yml orderflow_services/prometheus_alerts_ofc_contextual_runtime_summary_v1.yml
+--- orderflow_services/prometheus_alerts_ofc_contextual_runtime_summary_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/prometheus_alerts_ofc_contextual_runtime_summary_v1.yml	2026-03-14 12:39:06.129845648 +0000
+@@ -0,0 +1,19 @@
++groups:
++  - name: ofc_contextual_runtime_summary_v1
++    rules:
++      - alert: OFCContextualRuntimeSummaryStale
++        expr: ofc_ctx_rollout_runtime_summary_age_seconds > 120
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: "OFC contextual runtime summary is stale"
++          description: "Runtime summary age exceeded 120s; rollout/exporter may be reading stale runtime state."
++      - alert: OFCContextualRuntimeDeferStuck
++        expr: ofc_ctx_rollout_runtime_defer_active > 0 and ofc_ctx_rollout_runtime_cooldown_remaining_seconds > 300
++        for: 15m
++        labels:
++          severity: warning
++        annotations:
++          summary: "OFC contextual runtime restart defer is stuck"
++          description: "Runtime reloader remains deferred for more than expected cooldown window."
+diff -ruN orderflow_services/tests/test_ofc_contextual_rollout_runtime_summary_v1.py orderflow_services/tests/test_ofc_contextual_rollout_runtime_summary_v1.py
+--- orderflow_services/tests/test_ofc_contextual_rollout_runtime_summary_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/tests/test_ofc_contextual_rollout_runtime_summary_v1.py	2026-03-14 12:39:06.129991601 +0000
+@@ -0,0 +1,6 @@
++from orderflow_services.ofc_contextual_rollout_controller_v1 import _read_hash
++
++
++def test_placeholder_runtime_summary_keys_documented():
++    # smoke placeholder to ensure Patch G adds the expected key name contract.
++    assert callable(_read_hash)
+diff -ruN orderflow_services/tests/test_ofc_contextual_runtime_health_summary_source_v1.py orderflow_services/tests/test_ofc_contextual_runtime_health_summary_source_v1.py
+--- orderflow_services/tests/test_ofc_contextual_runtime_health_summary_source_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/tests/test_ofc_contextual_runtime_health_summary_source_v1.py	2026-03-14 12:39:06.130138807 +0000
+@@ -0,0 +1,8 @@
++from orderflow_services.ofc_contextual_runtime_health_exporter_v1 import export_once
++
++
++def test_export_once_accepts_redis_summary_args(tmp_path):
++    state = tmp_path / 'state.json'
++    state.write_text('{}', encoding='utf-8')
++    data = export_once(str(state), redis_url='', summary_key='')
++    assert isinstance(data, dict)
+diff -ruN orderflow_services/tests/test_ofc_contextual_runtime_summary_writer_v1.py orderflow_services/tests/test_ofc_contextual_runtime_summary_writer_v1.py
+--- orderflow_services/tests/test_ofc_contextual_runtime_summary_writer_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/tests/test_ofc_contextual_runtime_summary_writer_v1.py	2026-03-14 12:39:06.129940590 +0000
+@@ -0,0 +1,53 @@
++from pathlib import Path
++
++from orderflow_services.ofc_contextual_runtime_summary_writer_v1 import build_summary, write_summary_once
++
++
++def test_build_summary_derives_runtime_fields():
++    state = {
++        'ts_ms': 1000,
++        'child_pid': 4242,
++        'child_start_ts_ms': 500,
++        'restart_count': 3,
++        'last_restart_reason_kind': 'overlay_changed',
++        'cooldown_until_ts_ms': 1400,
++        'defer_active': 1,
++        'defer_reason': 'cooldown',
++        'defer_until_ts_ms': 1300,
++        'overlay_dirty': 1,
++        'rollback_exists': 0,
++        'active_overlay_fingerprint': 'abc',
++        'desired_overlay_fingerprint': 'def',
++    }
++    summary = build_summary(state, now_ms=1200)
++    assert summary['child_pid'] == 4242
++    assert summary['child_uptime_seconds'] == 0.7
++    assert summary['restart_count'] == 3
++    assert summary['cooldown_remaining_seconds'] == 0.2
++    assert summary['defer_remaining_seconds'] == 0.1
++    assert summary['active_overlay_fingerprint'] == 'abc'
++
++
++def test_write_summary_once_emits_textfile(tmp_path: Path):
++    state_path = tmp_path / 'state.json'
++    textfile = tmp_path / 'collector' / 'runtime.prom'
++    state_path.write_text("""{
++  "ts_ms": 1000,
++  "child_pid": 123,
++  "child_start_ts_ms": 900,
++  "restart_count": 1,
++  "last_restart_reason_kind": "initial",
++  "active_overlay_fingerprint": "fp"
++}
++""", encoding='utf-8')
++    summary = write_summary_once(
++        state_path=str(state_path),
++        redis_url='',
++        summary_key='',
++        textfile_path=str(textfile),
++        now_ms=1100,
++    )
++    assert summary['child_pid'] == 123
++    data = textfile.read_text(encoding='utf-8')
++    assert 'ofc_ctx_runtime_summary_up 1' in data
++    assert 'active_overlay_fingerprint="fp"' in data
+diff -ruN tick_flow_full/orderflow_services/ofc_contextual_runtime_summary_writer_v1.py tick_flow_full/orderflow_services/ofc_contextual_runtime_summary_writer_v1.py
+--- tick_flow_full/orderflow_services/ofc_contextual_runtime_summary_writer_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ tick_flow_full/orderflow_services/ofc_contextual_runtime_summary_writer_v1.py	2026-03-14 12:39:06.128347083 +0000
+@@ -0,0 +1 @@
++from orderflow_services.ofc_contextual_runtime_summary_writer_v1 import *  # noqa

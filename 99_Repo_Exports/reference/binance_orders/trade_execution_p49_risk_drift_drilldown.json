@@ -1,0 +1,18 @@
+{
+  "title": "Trade Execution P49 Risk Drift Drilldown",
+  "uid": "trade-execution-p49-risk-drift-drilldown",
+  "schemaVersion": 38,
+  "version": 1,
+  "templating": {
+    "list": [
+      {"name": "sid", "type": "textbox", "label": "SID", "query": ""},
+      {"name": "decision_id", "type": "textbox", "label": "Decision ID", "query": ""}
+    ]
+  },
+  "panels": [
+    {"type": "text", "title": "Drilldown Filters", "gridPos": {"x":0,"y":0,"w":24,"h":4}, "options": {"mode": "markdown", "content": "Use **sid** and **decision_id** variables to drill into mismatch quarantine events and correlated risk decisions."}},
+    {"type": "table", "title": "Mismatch Quarantine Ledger", "gridPos": {"x":0,"y":4,"w":24,"h":8}, "targets": [{"refId": "A", "rawSql": "select created_ts_ms, sid, decision_id, symbol, tier, repeated_count, mismatch_rate, quarantine_action from risk_mismatch_quarantine_ledger where ('${sid}' = '' or sid='${sid}') and ('${decision_id}' = '' or decision_id='${decision_id}') order by created_ts_ms desc limit 200"}]},
+    {"type": "table", "title": "Risk Decision Audit", "gridPos": {"x":0,"y":12,"w":24,"h":8}, "targets": [{"refId": "B", "rawSql": "select created_ts_ms, decision_id, sid, symbol, tier, level, effective_execution_policy, adjusted_notional_usd, leverage_cap, clamp_ratio from risk_decision_audit where ('${sid}' = '' or sid='${sid}') and ('${decision_id}' = '' or decision_id='${decision_id}') order by created_ts_ms desc limit 200"}]},
+    {"type": "table", "title": "Risk Snapshot", "gridPos": {"x":0,"y":20,"w":24,"h":8}, "targets": [{"refId": "C", "rawSql": "select updated_ts_ms, decision_id, sid, symbol, tier, level, effective_execution_policy, adjusted_notional_usd, leverage_cap, clamp_ratio from risk_snapshot where ('${sid}' = '' or sid='${sid}') and ('${decision_id}' = '' or decision_id='${decision_id}') order by updated_ts_ms desc limit 200"}]}
+  ]
+}

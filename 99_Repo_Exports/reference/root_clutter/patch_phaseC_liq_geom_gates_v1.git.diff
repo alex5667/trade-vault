@@ -1,0 +1,1109 @@
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=archivers' /mnt/data/repo_orig/services/orderflow/book_geometry.py /mnt/data/repo/services/orderflow/book_geometry.py
+--- /mnt/data/repo_orig/services/orderflow/book_geometry.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo/services/orderflow/book_geometry.py	2026-03-07 07:02:34.442379549 +0000
+@@ -0,0 +1,170 @@
++"""services.orderflow.book_geometry
++
++Phase C (P2): Liquidity geometry metrics computed from a bounded L2 snapshot (top-5).
++
++Why bounded top-5?
++  - Hot-path safe: predictable CPU and memory.
++  - Deterministic: same inputs -> same outputs.
++  - Good enough for *relative* measures (slope / DWS) used as a risk overlay.
++
++Metrics implemented:
++  - Book slope (USD per bps): how much notional sits per 1 bps away from mid.
++  - Depth-weighted spread (DWS, bps): spread proxy that accounts for near-book depth.
++  - Notional within X bps (USD): cost-to-cross band proxy.
++
++All functions are fail-open and return 0.0 for missing/invalid inputs.
++"""
++
++from __future__ import annotations
++
++from typing import Any, Iterable, List, Sequence, Tuple
++
++
++Level = Tuple[float, float]  # (px, qty)
++
++
++def _f(x: Any, d: float = 0.0) -> float:
++    try:
++        return float(x)
++    except Exception:
++        return d
++
++
++def _safe_mid(best_bid: float, best_ask: float) -> float:
++    bb = float(best_bid or 0.0)
++    ba = float(best_ask or 0.0)
++    if bb > 0.0 and ba > 0.0 and ba >= bb:
++        return 0.5 * (bb + ba)
++    return 0.0
++
++
++def calc_cost_to_cross(levels: Sequence[Level], *, mid: float, xbps: float) -> float:
++    """Return notional (USD) available within X bps band from mid on the given side.
++
++    Note: for bids, distance is (mid - px); for asks, distance is (px - mid).
++    The caller should pass side-specific `levels`.
++    """
++    try:
++        mid = float(mid or 0.0)
++        if mid <= 0.0:
++            return 0.0
++        xbps = float(xbps or 0.0)
++        if xbps <= 0.0:
++            return 0.0
++        band = mid * (xbps / 10_000.0)
++        # floating tolerance to avoid boundary precision issues
++        band_eps = band + (1e-12 * max(mid, 1.0))
++        out = 0.0
++        for px, qty in levels:
++            px = float(px or 0.0)
++            qty = float(qty or 0.0)
++            if px <= 0.0 or qty <= 0.0:
++                continue
++            if abs(px - mid) <= band_eps:
++                out += px * qty
++        return float(out)
++    except Exception:
++        return 0.0
++
++
++def calc_book_slope(bids: Sequence[Level], asks: Sequence[Level], *, mid: float) -> Tuple[float, float]:
++    """Compute liquidity slope for bid and ask sides.
++
++    Definition (robust/simple):
++      slope_side = sum(notional_i / distance_bps_i) for levels within top-5.
++
++    Units: USD per bps (higher = better, more liquidity close to mid).
++    """
++    try:
++        mid = float(mid or 0.0)
++        if mid <= 0.0:
++            return 0.0, 0.0
++
++        def _side(levels: Sequence[Level], sign: int) -> float:
++            s = 0.0
++            for px, qty in levels:
++                px = float(px or 0.0)
++                qty = float(qty or 0.0)
++                if px <= 0.0 or qty <= 0.0:
++                    continue
++                # distance bps from mid
++                dist_bps = (abs(px - mid) / mid) * 10_000.0
++                if dist_bps <= 0.0:
++                    continue
++                notional = px * qty
++                s += notional / dist_bps
++            return float(s)
++
++        slope_bid = _side(bids, -1)
++        slope_ask = _side(asks, +1)
++        return slope_bid, slope_ask
++    except Exception:
++        return 0.0, 0.0
++
++
++def calc_depth_weighted_spread(bids: Sequence[Level], asks: Sequence[Level], *, mid: float, xbps: float = 5.0) -> float:
++    """Depth-weighted spread (DWS) proxy.
++
++    Approach:
++      - Compute VWAP of bids and asks within X bps band from mid.
++      - DWS = (vwap_ask - vwap_bid) / mid * 10_000
++
++    If we cannot compute VWAPs (no depth), returns 0.0.
++    """
++    try:
++        mid = float(mid or 0.0)
++        if mid <= 0.0:
++            return 0.0
++        xbps = float(xbps or 5.0)
++        if xbps <= 0.0:
++            return 0.0
++        band = mid * (xbps / 10_000.0)
++
++        def _vwap(levels: Sequence[Level]) -> Tuple[float, float]:
++            notional = 0.0
++            qty_sum = 0.0
++            for px, qty in levels:
++                px = float(px or 0.0)
++                qty = float(qty or 0.0)
++                if px <= 0.0 or qty <= 0.0:
++                    continue
++                if abs(px - mid) > band:
++                    continue
++                notional += px * qty
++                qty_sum += qty
++            if qty_sum <= 0.0:
++                return 0.0, 0.0
++            return float(notional / qty_sum), float(qty_sum)
++
++        vwap_bid, qb = _vwap(bids)
++        vwap_ask, qa = _vwap(asks)
++        if vwap_bid <= 0.0 or vwap_ask <= 0.0:
++            return 0.0
++        dws_bps = ((vwap_ask - vwap_bid) / mid) * 10_000.0
++        # Bound to sane values (avoid outliers from corrupt books)
++        if dws_bps < 0.0:
++            return 0.0
++        if dws_bps > 10_000.0:
++            return 10_000.0
++        return float(dws_bps)
++    except Exception:
++        return 0.0
++
++
++def extract_levels_from_runtime(runtime: Any) -> Tuple[List[Level], List[Level], float]:
++    """Best-effort extraction of (bids, asks, mid) from SymbolRuntime.
++
++    We prefer typed snapshot runtime.last_book (top5).
++    """
++    try:
++        snap = getattr(runtime, "last_book", None) or getattr(getattr(runtime, "book_state", None), "snap", None)
++        if snap is None:
++            return [], [], 0.0
++        bids = list(getattr(snap, "bids", []) or [])
++        asks = list(getattr(snap, "asks", []) or [])
++        bb = _f(getattr(snap, "best_bid_px", 0.0) or 0.0)
++        ba = _f(getattr(snap, "best_ask_px", 0.0) or 0.0)
++        mid = _safe_mid(bb, ba)
++        return bids, asks, float(mid)
++    except Exception:
++        return [], [], 0.0
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=archivers' /mnt/data/repo_orig/services/orderflow/liquidity_geom_policy.py /mnt/data/repo/services/orderflow/liquidity_geom_policy.py
+--- /mnt/data/repo_orig/services/orderflow/liquidity_geom_policy.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo/services/orderflow/liquidity_geom_policy.py	2026-03-07 06:57:11.951314081 +0000
+@@ -0,0 +1,90 @@
++"""services.orderflow.liquidity_geom_policy
++
++Shared, pure logic for Phase C (P2) liquidity geometry/resiliency gating.
++
++This module is intentionally dependency-free so it can be unit-tested and reused
++in both:
++  - services.orderflow.signal_pipeline (LiquidityGate)
++  - services.smt_entry_policy_service (EntryPolicyGate overlay)
++
++Profiles:
++  - default/soft: annotate only
++  - strict: tighten only
++  - hard: tighten + veto
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import List, Tuple
++
++
++@dataclass
++class LiqGeomDecision:
++    flags: List[str]
++    slope_min: float
++    tighten_add_bps: float
++    veto: bool
++    veto_reason: str
++
++
++def slope_min(slope_bid: float, slope_ask: float) -> float:
++    sb = float(slope_bid or 0.0)
++    sa = float(slope_ask or 0.0)
++    out = min(sb if sb > 0 else 1e18, sa if sa > 0 else 1e18)
++    return 0.0 if out >= 1e18 else float(out)
++
++
++def evaluate_liq_geom(
++    *,
++    profile: str,
++    slope_bid: float,
++    slope_ask: float,
++    dws_bps: float,
++    recovery_ms: int,
++    thr_slope: float,
++    thr_dws: float,
++    thr_recovery_ms: int,
++    tighten_cap_bps: float,
++    tighten_mult: float,
++) -> LiqGeomDecision:
++    """Return flags + tighten add + veto decision.
++
++    Thresholds are considered disabled when <= 0.
++    Tighten add is bounded to [0..cap].
++    """
++    p = str(profile or "default").strip().lower()
++    if p not in {"default", "soft", "strict", "hard"}:
++        p = "default"
++
++    sb = float(slope_bid or 0.0)
++    sa = float(slope_ask or 0.0)
++    smin = slope_min(sb, sa)
++    dws = float(dws_bps or 0.0)
++    rec = int(recovery_ms or 0)
++    ts = float(thr_slope or 0.0)
++    td = float(thr_dws or 0.0)
++    tr = int(thr_recovery_ms or 0)
++
++    flags: List[str] = []
++    if ts > 0.0 and smin > 0.0 and smin < ts:
++        flags.append("slope_low")
++    if td > 0.0 and dws > 0.0 and dws > td:
++        flags.append("dws_high")
++    if tr > 0 and rec > tr:
++        flags.append("recovery_slow")
++
++    cap = max(0.0, float(tighten_cap_bps or 0.0))
++    mult = max(0.0, float(tighten_mult or 0.0))
++    sev = 0.0
++    if ts > 0.0 and smin > 0.0 and smin < ts:
++        sev = max(sev, min(1.0, (ts - smin) / max(ts, 1e-9)))
++    if td > 0.0 and dws > td:
++        sev = max(sev, min(1.0, (dws - td) / max(td, 1e-9)))
++    if tr > 0 and rec > tr:
++        sev = max(sev, min(1.0, (rec - tr) / max(float(tr), 1.0)))
++
++    add = max(0.0, min(mult * cap * sev, cap)) if (flags and p in {"strict", "hard"}) else 0.0
++    veto = bool(flags and p == "hard")
++    veto_reason = "liq_geom:" + ",".join(flags) if veto else ""
++    return LiqGeomDecision(flags=flags, slope_min=float(smin), tighten_add_bps=float(add), veto=veto, veto_reason=veto_reason)
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=archivers' /mnt/data/repo_orig/services/orderflow/liquidity_resiliency.py /mnt/data/repo/services/orderflow/liquidity_resiliency.py
+--- /mnt/data/repo_orig/services/orderflow/liquidity_resiliency.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo/services/orderflow/liquidity_resiliency.py	2026-03-07 07:02:47.008820145 +0000
+@@ -0,0 +1,160 @@
++"""services.orderflow.liquidity_resiliency
++
++Phase C (P2): Liquidity resiliency / recovery time tracker.
++
++Goal
++  Detect *fragile* market episodes where liquidity temporarily collapses and takes time
++  to recover, even if instantaneous spread/depth snapshots look acceptable.
++
++Design constraints
++  - Hot-path safe (O(1) update).
++  - Deterministic event-time: caller must pass `ts_ms` (epoch ms).
++  - Fail-open: never raises, returns 0/neutral values on missing inputs.
++
++State machine
++  Baselines:
++    - spread_ema_bps
++    - depth_ema_usd
++
++  Stress enters when:
++    spread_bps > spread_ema_bps * stress_spread_mult
++      OR
++    depth_usd < depth_ema_usd * (1 - stress_depth_drop_frac)
++
++  Stress exits when (must hold for `recover_hold_ms`):
++    spread_bps <= spread_ema_bps * recover_spread_mult
++      AND
++    depth_usd >= depth_ema_usd * (1 - recover_depth_drop_frac)
++
++Outputs
++  - liq_recovery_time_ms: duration since stress start while stressed else 0
++  - liq_fragility_score: [0..1] heuristic severity (spread_ratio + depth_ratio)
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++
++
++def _f(x, d: float = 0.0) -> float:
++    try:
++        return float(x)
++    except Exception:
++        return d
++
++
++def _i(x, d: int = 0) -> int:
++    try:
++        return int(x)
++    except Exception:
++        return d
++
++
++@dataclass
++class LiquidityResiliencyTracker:
++    """O(1) tracker for liquidity fragility and recovery time."""
++
++    ema_alpha: float = 0.02
++    stress_spread_mult: float = 1.75
++    stress_depth_drop_frac: float = 0.50
++    recover_spread_mult: float = 1.20
++    recover_depth_drop_frac: float = 0.20
++    recover_hold_ms: int = 1000
++
++    # state
++    spread_ema_bps: float = 0.0
++    depth_ema_usd: float = 0.0
++    stress_active: int = 0
++    stress_start_ts_ms: int = 0
++    recover_candidate_ts_ms: int = 0
++
++    def update(self, *, ts_ms: int, spread_bps: float, depth_usd: float) -> dict:
++        """Update state and return a dict suitable to merge into indicators."""
++        try:
++            ts = _i(ts_ms, 0)
++            spr = max(0.0, _f(spread_bps, 0.0))
++            dep = max(0.0, _f(depth_usd, 0.0))
++            a = float(self.ema_alpha or 0.02)
++            a = min(max(a, 0.001), 0.50)
++
++            # IMPORTANT: detect stress against the *previous* baseline.
++            # If we update EMA first, we may "chase" the spike and miss stress entry.
++            spr_base_pre = float(self.spread_ema_bps or 0.0)
++            dep_base_pre = float(self.depth_ema_usd or 0.0)
++            if spr_base_pre <= 0.0:
++                spr_base_pre = spr
++            if dep_base_pre <= 0.0:
++                dep_base_pre = dep
++
++            # Stress entry condition (against pre-update baseline)
++            stress = False
++            if spr_base_pre > 0.0 and spr > (spr_base_pre * float(self.stress_spread_mult or 1.75)):
++                stress = True
++            if dep_base_pre > 0.0:
++                min_dep = dep_base_pre * max(0.0, 1.0 - float(self.stress_depth_drop_frac or 0.50))
++                if dep < min_dep:
++                    stress = True
++            # EMA update (post detection)
++            if self.spread_ema_bps <= 0.0:
++                self.spread_ema_bps = spr
++            else:
++                self.spread_ema_bps = (1.0 - a) * self.spread_ema_bps + a * spr
++
++            if self.depth_ema_usd <= 0.0:
++                self.depth_ema_usd = dep
++            else:
++                self.depth_ema_usd = (1.0 - a) * self.depth_ema_usd + a * dep
++
++            # Ratios (bounded) (post-update for smoother telemetry)
++            spr_base = max(self.spread_ema_bps, 1e-9)
++            dep_base = max(self.depth_ema_usd, 1e-9)
++            spr_ratio = spr / spr_base
++            dep_ratio = dep / dep_base
++
++
++            if self.stress_active == 0 and stress and ts > 0:
++                self.stress_active = 1
++                self.stress_start_ts_ms = ts
++                self.recover_candidate_ts_ms = 0
++
++            # Stress exit requires hold duration
++            if self.stress_active == 1:
++                ok_spread = spr <= spr_base * float(self.recover_spread_mult or 1.20)
++                min_dep2 = dep_base * max(0.0, 1.0 - float(self.recover_depth_drop_frac or 0.20))
++                ok_depth = dep >= min_dep2
++                if ok_spread and ok_depth:
++                    if self.recover_candidate_ts_ms <= 0:
++                        self.recover_candidate_ts_ms = ts
++                    elif (ts - self.recover_candidate_ts_ms) >= int(self.recover_hold_ms or 1000):
++                        # recovered
++                        self.stress_active = 0
++                        self.stress_start_ts_ms = 0
++                        self.recover_candidate_ts_ms = 0
++                else:
++                    self.recover_candidate_ts_ms = 0
++
++            liq_recovery_time_ms = 0
++            if self.stress_active == 1 and self.stress_start_ts_ms > 0 and ts >= self.stress_start_ts_ms:
++                liq_recovery_time_ms = ts - self.stress_start_ts_ms
++
++            # Fragility score: combine spread expansion and depth contraction (bounded 0..1)
++            # Use simple transform to avoid heavy math.
++            spread_sev = max(0.0, min(1.0, (spr_ratio - 1.0) / max(float(self.stress_spread_mult or 1.75) - 1.0, 0.25)))
++            depth_sev = max(0.0, min(1.0, (1.0 - dep_ratio) / max(float(self.stress_depth_drop_frac or 0.50), 0.10)))
++            frag = max(spread_sev, depth_sev)
++
++            return {
++                "liq_stress_active": int(self.stress_active),
++                "liq_recovery_time_ms": int(liq_recovery_time_ms),
++                "liq_fragility_score": float(frag),
++                "liq_spread_ema": float(self.spread_ema_bps),
++                "liq_depth_ema_usd": float(self.depth_ema_usd),
++                "liq_spread_ratio": float(spr_ratio),
++                "liq_depth_ratio": float(dep_ratio),
++            }
++        except Exception:
++            return {
++                "liq_stress_active": 0,
++                "liq_recovery_time_ms": 0,
++                "liq_fragility_score": 0.0,
++            }
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=archivers' /mnt/data/repo_orig/services/orderflow/metrics.py /mnt/data/repo/services/orderflow/metrics.py
+--- /mnt/data/repo_orig/services/orderflow/metrics.py	2026-03-04 18:20:29.000000000 +0000
++++ /mnt/data/repo/services/orderflow/metrics.py	2026-03-07 06:53:39.110072689 +0000
+@@ -1831,5 +1831,53 @@
+     ["reason"],
+ )
+ 
++# ---------------------------------------------------------------------------
++# Phase C (P2): Liquidity geometry / resiliency (low-cardinality telemetry)
++# ---------------------------------------------------------------------------
++#
++# These are *optional* metrics used for debugging and SRE guardrails.
++# We keep cardinality bounded:
++#   - label `symbol` is used, but callers should collapse to "__all__" unless the
++#     symbol is explicitly allow-listed.
++
++liq_geom_monitor_hit_total = _get_or_create_prom_counter(
++    "liq_geom_monitor_hit_total",
++    "Total monitor hits for liquidity geometry flags (slope/dws/recovery)",
++    ["symbol", "profile"],
++)
++
++liq_geom_tighten_total = _get_or_create_prom_counter(
++    "liq_geom_tighten_total",
++    "Total tighten actions applied due to liquidity geometry (expected_slippage add)",
++    ["symbol", "profile"],
++)
++
++liq_geom_veto_total = _get_or_create_prom_counter(
++    "liq_geom_veto_total",
++    "Total vetos due to liquidity geometry in hard profile",
++    ["symbol", "reason"],
++)
++
++liq_geom_dws_bps = _get_or_create_prom_histogram(
++    "liq_geom_dws_bps",
++    "Depth-weighted spread proxy (bps), bounded top5",
++    ["symbol"],
++    buckets=[0.0, 0.2, 0.5, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377],
++)
++
++liq_geom_book_slope_min_usd_per_bps = _get_or_create_prom_histogram(
++    "liq_geom_book_slope_min_usd_per_bps",
++    "Min(book_slope_bid, book_slope_ask) in USD/bps (higher is better)",
++    ["symbol"],
++    buckets=[0.0, 100, 300, 1_000, 3_000, 10_000, 30_000, 100_000, 300_000, 1_000_000, 3_000_000, 10_000_000],
++)
++
++liq_geom_recovery_time_ms = _get_or_create_prom_histogram(
++    "liq_geom_recovery_time_ms",
++    "Liquidity stress recovery time (ms) while stressed, else 0",
++    ["symbol"],
++    buckets=[0.0, 50, 100, 200, 500, 1_000, 2_000, 5_000, 10_000, 20_000, 60_000, 120_000],
++)
++
+ # pre_publish_veto_total → pre_publish_gate_veto_total
+ pre_publish_veto_total = pre_publish_gate_veto_total  # noqa: F811
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=archivers' /mnt/data/repo_orig/services/orderflow/runtime.py /mnt/data/repo/services/orderflow/runtime.py
+--- /mnt/data/repo_orig/services/orderflow/runtime.py	2026-03-04 18:25:37.000000000 +0000
++++ /mnt/data/repo/services/orderflow/runtime.py	2026-03-07 06:52:26.225939848 +0000
+@@ -158,6 +158,10 @@
+     LogSampler, LogSamplerFactory
+ )
+ 
++# Phase C (P2): Liquidity resiliency (recovery time + fragility) is tracked in hot-path
++# and surfaced into `indicators` for gating/ML.
++from services.orderflow.liquidity_resiliency import LiquidityResiliencyTracker
++
+ 
+ 
+ 
+@@ -380,6 +384,9 @@
+     liq_score: float = 0.0
+     liq_regime: str = "normal"
+ 
++    # Phase C (P2): resiliency tracker (spread/depth recovery time)
++    liq_resiliency: LiquidityResiliencyTracker = field(init=False)
++
+     # NEW: footprint edge absorb detector and last event
+     fp_edge: FPEdgeAbsorbDetector = field(init=False)
+     last_fp_edge: Optional[EdgeAbsorbEvent] = None
+@@ -702,6 +709,35 @@
+         from core.liquidity_regime import LiquidityRegimeService
+         self.liq_service = LiquidityRegimeService(symbol=self.symbol, cfg=self.config)
+ 
++        # Phase C (P2): LiquidityResiliencyTracker
++        #
++        # This tracker adds a "time dimension" to liquidity by measuring how long the
++        # market stays stressed (wide spread / shallow depth) before recovering.
++        # It is *monitor-only by default* and should never block the hot path.
++        try:
++            alpha = float(os.getenv("LIQ_RES_ALPHA", str(self.config.get("liq_res_alpha", 0.02))))
++            stress_spread_mult = float(os.getenv("LIQ_RES_STRESS_SPREAD_MULT", str(self.config.get("liq_res_stress_spread_mult", 1.75))))
++            stress_depth_drop_frac = float(os.getenv("LIQ_RES_STRESS_DEPTH_DROP_FRAC", str(self.config.get("liq_res_stress_depth_drop_frac", 0.50))))
++            recover_spread_mult = float(os.getenv("LIQ_RES_RECOVER_SPREAD_MULT", str(self.config.get("liq_res_recover_spread_mult", 1.20))))
++            recover_depth_drop_frac = float(os.getenv("LIQ_RES_RECOVER_DEPTH_DROP_FRAC", str(self.config.get("liq_res_recover_depth_drop_frac", 0.20))))
++            recover_hold_ms = int(os.getenv("LIQ_RES_RECOVER_HOLD_MS", str(self.config.get("liq_res_recover_hold_ms", 1000))))
++        except Exception:
++            alpha = 0.02
++            stress_spread_mult = 1.75
++            stress_depth_drop_frac = 0.50
++            recover_spread_mult = 1.20
++            recover_depth_drop_frac = 0.20
++            recover_hold_ms = 1000
++
++        self.liq_resiliency = LiquidityResiliencyTracker(
++            ema_alpha=max(0.001, min(alpha, 0.5)),
++            stress_spread_mult=max(1.05, stress_spread_mult),
++            stress_depth_drop_frac=max(0.05, min(stress_depth_drop_frac, 0.95)),
++            recover_spread_mult=max(1.01, recover_spread_mult),
++            recover_depth_drop_frac=max(0.01, min(recover_depth_drop_frac, 0.95)),
++            recover_hold_ms=max(0, recover_hold_ms),
++        )
++
+         # Pressure/burst defaults (config-tunable, safe)
+         pw = int(self.config.get("pressure_window_ms", 60_000))
+         pa = float(self.config.get("pressure_ema_alpha", 0.20))
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=archivers' /mnt/data/repo_orig/services/orderflow/signal_pipeline.py /mnt/data/repo/services/orderflow/signal_pipeline.py
+--- /mnt/data/repo_orig/services/orderflow/signal_pipeline.py	2026-03-06 20:24:42.000000000 +0000
++++ /mnt/data/repo/services/orderflow/signal_pipeline.py	2026-03-07 06:57:54.128802075 +0000
+@@ -25,6 +25,8 @@
+ # Metrics
+ from services.orderflow.metrics import (
+     signals_total, strong_gate_veto_total, pre_publish_veto_total, of_session_outcome_total
++    , liq_geom_monitor_hit_total, liq_geom_tighten_total, liq_geom_veto_total
++    , liq_geom_dws_bps, liq_geom_book_slope_min_usd_per_bps, liq_geom_recovery_time_ms
+ )
+ from services.orderflow.utils import session_utc
+ from handlers.crypto_orderflow.utils.log_sampler import LogSamplerFactory, sampled_info
+@@ -85,6 +87,14 @@
+         self.decision_snapshot_stream_maxlen = int(os.getenv("DECISION_SNAPSHOT_STREAM_MAXLEN", "200000") or 200000)
+         self.decision_snapshot_schema_version = int(os.getenv("DECISION_SNAPSHOT_SCHEMA_VERSION", "1") or 1)
+ 
++        # ------------------------------------------------------------------
++        # Phase C (P2): Liquidity geometry telemetry (optional)
++        # ------------------------------------------------------------------
++        # To avoid high cardinality, we only emit per-symbol metrics for a small
++        # allowlist. All other symbols are aggregated into symbol="__all__".
++        raw_syms = str(os.getenv("LIQ_GEOM_METRICS_SYMBOLS", "") or "").strip()
++        self._liq_geom_syms_allow = {s.strip().upper() for s in raw_syms.split(",") if s.strip()} if raw_syms else set()
++
+         # TB Labeler Feed (P45 fix): explicitly feed signals:of:inputs
+         self.publish_of_inputs = os.getenv("PUBLISH_OF_INPUTS", "1").lower() in {"1", "true", "yes", "on"}
+         self.of_inputs_stream = os.getenv("OF_INPUTS_STREAM", "signals:of:inputs")
+@@ -469,6 +479,116 @@
+         if curr_stale_ms <= 0:
+             curr_stale_ms = int(indicators.get("liq_book_stale_ms", 0) or 0)
+ 
++        # ------------------------------------------------------------------
++        # Phase C (P2): Liquidity geometry & resiliency gate (monitor/tighten/veto)
++        # ------------------------------------------------------------------
++        # Inputs must already be present in indicators (computed in strategy.py):
++        #   - book_slope_bid/ask (USD/bps)
++        #   - dws_bps (bps)
++        #   - liq_recovery_time_ms (ms)
++        #
++        # Profiles:
++        #   - default/soft: annotate only
++        #   - strict: tighten execution cost proxy (expected_slippage_bps add)
++        #   - hard: tighten + veto when thresholds breached
++        #
++        # Thresholds (shared across profiles, 0 disables):
++        #   - LIQ_MIN_BOOK_SLOPE
++        #   - LIQ_MAX_DWS_BPS
++        #   - LIQ_MAX_RECOVERY_TIME_MS
++        liq_profile = str(os.getenv("LIQ_GATE_PROFILE", os.getenv("GATE_PROFILE", "default")) or "default").strip().lower()
++        if liq_profile not in {"default", "soft", "strict", "hard"}:
++            liq_profile = "default"
++
++        slope_bid = float(indicators.get("book_slope_bid", 0.0) or 0.0)
++        slope_ask = float(indicators.get("book_slope_ask", 0.0) or 0.0)
++        dws_bps = float(indicators.get("dws_bps", 0.0) or 0.0)
++        rec_ms = int(indicators.get("liq_recovery_time_ms", 0) or 0)
++
++        thr_slope = float(os.getenv("LIQ_MIN_BOOK_SLOPE", "0") or 0.0)
++        thr_dws = float(os.getenv("LIQ_MAX_DWS_BPS", "0") or 0.0)
++        thr_rec = int(os.getenv("LIQ_MAX_RECOVERY_TIME_MS", "0") or 0)
++
++        cap = float(os.getenv("LIQ_GEOM_TIGHTEN_ADD_CAP_BPS", "10.0") or 10.0)
++        mult = float(os.getenv("LIQ_GEOM_TIGHTEN_ADD_MULT", "1.0") or 1.0)
++
++        from services.orderflow.liquidity_geom_policy import evaluate_liq_geom
++        decg = evaluate_liq_geom(
++            profile=liq_profile,
++            slope_bid=slope_bid,
++            slope_ask=slope_ask,
++            dws_bps=dws_bps,
++            recovery_ms=rec_ms,
++            thr_slope=thr_slope,
++            thr_dws=thr_dws,
++            thr_recovery_ms=thr_rec,
++            tighten_cap_bps=cap,
++            tighten_mult=mult,
++        )
++
++        # Always annotate for observability/debugging
++        if decg.flags:
++            indicators["liq_geom_monitor_hit"] = 1
++            indicators["liq_geom_flags"] = ",".join(decg.flags)
++        else:
++            indicators.setdefault("liq_geom_monitor_hit", 0)
++            indicators.setdefault("liq_geom_flags", "")
++        indicators["liq_geom_profile"] = liq_profile
++
++        # Optional Prometheus telemetry (bounded symbol cardinality)
++        try:
++            sym_label = str(symbol).upper()
++            if self._liq_geom_syms_allow and sym_label not in self._liq_geom_syms_allow:
++                sym_label = "__all__"
++            if dws_bps > 0:
++                liq_geom_dws_bps.labels(symbol=sym_label).observe(float(dws_bps))
++            if decg.slope_min > 0:
++                liq_geom_book_slope_min_usd_per_bps.labels(symbol=sym_label).observe(float(decg.slope_min))
++            liq_geom_recovery_time_ms.labels(symbol=sym_label).observe(float(max(0, rec_ms)))
++            if decg.flags:
++                liq_geom_monitor_hit_total.labels(symbol=sym_label, profile=liq_profile).inc()
++        except Exception:
++            pass
++
++        # strict/hard: tighten execution cost proxy (expected_slippage_bps)
++        if decg.tighten_add_bps > 0.0:
++            exp0 = float(indicators.get("expected_slippage_bps", 0.0) or 0.0)
++            indicators["liq_geom_tighten_add_bps"] = float(decg.tighten_add_bps)
++            indicators["expected_slippage_bps"] = float(exp0 + float(decg.tighten_add_bps))
++            try:
++                sym_label2 = str(symbol).upper()
++                if self._liq_geom_syms_allow and sym_label2 not in self._liq_geom_syms_allow:
++                    sym_label2 = "__all__"
++                liq_geom_tighten_total.labels(symbol=sym_label2, profile=liq_profile).inc()
++            except Exception:
++                pass
++
++        # hard: veto on breach
++        if decg.veto:
++            geom_reason = str(decg.veto_reason)
++            try:
++                sym_label3 = str(symbol).upper()
++                if self._liq_geom_syms_allow and sym_label3 not in self._liq_geom_syms_allow:
++                    sym_label3 = "__all__"
++                liq_geom_veto_total.labels(symbol=sym_label3, reason=geom_reason).inc()
++            except Exception:
++                pass
++            logger.info(
++                "🛡️ [GATE] Liquidity-Geometry VETO (%s): %s | slope_min=%.1f thr=%.1f dws=%.2f thr=%.2f rec_ms=%d thr=%d",
++                symbol,
++                geom_reason,
++                float(decg.slope_min),
++                thr_slope,
++                dws_bps,
++                thr_dws,
++                rec_ms,
++                thr_rec,
++            )
++            strong_gate_veto_total.labels(symbol=symbol, scenario="liq_geom", reason=geom_reason, mode="ENFORCE").inc()
++            passed = False
++            reason = f"LIQ_GEOM_VETO: {geom_reason}"
++            return
++
+         spread_veto = False
+         spread_reason = ""
+ 
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=archivers' /mnt/data/repo_orig/services/orderflow/strategy.py /mnt/data/repo/services/orderflow/strategy.py
+--- /mnt/data/repo_orig/services/orderflow/strategy.py	2026-03-06 20:25:29.000000000 +0000
++++ /mnt/data/repo/services/orderflow/strategy.py	2026-03-07 06:53:11.928743508 +0000
+@@ -2461,7 +2461,9 @@
+                 depth_usd_min_5 = 0.0
+                 spread_bps = float(getattr(runtime, "last_spread_bps", 0.0) or 0.0)
+ 
+-            # Use the service to calculate regime from raw metrics
++            # Use the service to calculate regime from raw metrics.
++            # NOTE: this is *not* the same as LiquidityGate; it is a regime classifier
++            # used as risk overlay + input to downstream gates/ML.
+             liq_ev = runtime.liq_service.update(
+                 ts_ms=int(tick_ts),
+                 spread_bps=float(spread_bps),
+@@ -2490,11 +2492,93 @@
+             runtime.last_liq = {"score": liq_ev.score, "regime": liq_ev.regime}
+ 
+             indicators["liq_depth_usd_min_5"] = float(depth_usd_min_5)
+-            indicators["liq_spread_bps"] = float(liq.spread_bps)
+-            indicators["liq_book_rate_hz"] = float(liq.book_rate_ema_hz)
+-            indicators["liq_book_stale_ms"] = int(liq.book_stale_ms)
+-            if liq.why:
+-                indicators["liq_why"] = str(liq.why)
++            # NOTE: previous code referenced `liq.*` which does not exist here.
++            # Use local computed numbers + runtime state.
++            indicators["liq_spread_bps"] = float(spread_bps)
++            indicators["liq_book_rate_hz"] = float(getattr(runtime, "book_rate_ema", 0.0) or 0.0)
++            indicators["liq_book_stale_ms"] = int(book_stale_ms)
++            why = getattr(liq_ev, "why", "")
++            if why:
++                indicators["liq_why"] = str(why)
++
++            # ------------------------------------------------------------
++            # Phase C (P2): Liquidity geometry (slope / DWS / notional bands)
++            # ------------------------------------------------------------
++            # These metrics are hot-path safe because they operate on bounded top-5.
++            # They are used in monitor-only mode by default and can be enforced via
++            # LiquidityGate / EntryPolicy profiles.
++            try:
++                from services.orderflow.book_geometry import (
++                    extract_levels_from_runtime,
++                    calc_book_slope,
++                    calc_depth_weighted_spread,
++                    calc_cost_to_cross,
++                )
++                bids, asks, mid2 = extract_levels_from_runtime(runtime)
++                if mid2 <= 0.0:
++                    mid2 = mid
++
++                slope_bid, slope_ask = calc_book_slope(bids, asks, mid=mid2)
++                dws_band_bps = float(os.getenv("LIQ_GEOM_DWS_BAND_BPS", "5"))
++                dws_bps = calc_depth_weighted_spread(bids, asks, mid=mid2, xbps=dws_band_bps)
++
++                nb1 = calc_cost_to_cross(bids, mid=mid2, xbps=1.0)
++                na1 = calc_cost_to_cross(asks, mid=mid2, xbps=1.0)
++                nb5 = calc_cost_to_cross(bids, mid=mid2, xbps=5.0)
++                na5 = calc_cost_to_cross(asks, mid=mid2, xbps=5.0)
++
++                indicators["book_slope_bid"] = float(slope_bid)
++                indicators["book_slope_ask"] = float(slope_ask)
++                indicators["dws_bps"] = float(dws_bps)
++
++                indicators["notional_bid_within_1bp"] = float(nb1)
++                indicators["notional_ask_within_1bp"] = float(na1)
++                indicators["notional_bid_within_5bp"] = float(nb5)
++                indicators["notional_ask_within_5bp"] = float(na5)
++
++                # symmetric liquidity proxy (min side)
++                indicators["notional_within_1bp"] = float(min(nb1, na1))
++                indicators["notional_within_5bp"] = float(min(nb5, na5))
++
++                # Resiliency tracker uses spread + depth proxy to compute recovery time
++                try:
++                    depth_usd = float(min(nb5, na5))
++                    if depth_usd <= 0.0:
++                        depth_usd = float(depth_usd_min_5)
++                    out = runtime.liq_resiliency.update(
++                        ts_ms=int(tick_ts),
++                        spread_bps=float(spread_bps),
++                        depth_usd=float(depth_usd),
++                    )
++                    if isinstance(out, dict):
++                        indicators.update(out)
++                except Exception:
++                    pass
++
++                # Monitor-only flags (no veto here; enforcement happens in SignalPipeline)
++                flags = []
++                try:
++                    thr_slope = float(os.getenv("LIQ_MIN_BOOK_SLOPE", "0") or 0.0)
++                    thr_dws = float(os.getenv("LIQ_MAX_DWS_BPS", "0") or 0.0)
++                    thr_rec = int(os.getenv("LIQ_MAX_RECOVERY_TIME_MS", "0") or 0)
++                    smin = min(float(slope_bid or 0.0), float(slope_ask or 0.0))
++                    rec_ms = int(indicators.get("liq_recovery_time_ms", 0) or 0)
++                    if thr_slope > 0 and smin > 0 and smin < thr_slope:
++                        flags.append("slope_low")
++                    if thr_dws > 0 and float(dws_bps or 0.0) > thr_dws:
++                        flags.append("dws_high")
++                    if thr_rec > 0 and rec_ms > thr_rec:
++                        flags.append("recovery_slow")
++                except Exception:
++                    pass
++
++                if flags:
++                    indicators["liq_geom_monitor_hit"] = 1
++                    indicators["liq_geom_flags"] = ",".join(flags)
++                else:
++                    indicators.setdefault("liq_geom_monitor_hit", 0)
++            except Exception:
++                pass
+         except Exception:
+             pass
+ 
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=archivers' /mnt/data/repo_orig/services/orderflow/tests/test_book_geometry_v1.py /mnt/data/repo/services/orderflow/tests/test_book_geometry_v1.py
+--- /mnt/data/repo_orig/services/orderflow/tests/test_book_geometry_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo/services/orderflow/tests/test_book_geometry_v1.py	2026-03-07 07:00:03.611224103 +0000
+@@ -0,0 +1,47 @@
++import unittest
++import sys
++import os
++
++
++# Ensure repo root is on sys.path for imports when running via `python -m unittest`
++# tests/ -> orderflow/ -> services/ -> repo/
++ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
++if ROOT not in sys.path:
++    sys.path.insert(0, ROOT)
++
++
++from services.orderflow.book_geometry import (
++    calc_book_slope,
++    calc_depth_weighted_spread,
++    calc_cost_to_cross,
++)
++
++
++class TestBookGeometryV1(unittest.TestCase):
++    def test_slope_positive(self) -> None:
++        mid = 100.0
++        bids = [(99.9, 10.0), (99.8, 5.0), (99.5, 2.0)]
++        asks = [(100.1, 10.0), (100.2, 5.0), (100.5, 2.0)]
++        sb, sa = calc_book_slope(bids, asks, mid=mid)
++        self.assertGreater(sb, 0.0)
++        self.assertGreater(sa, 0.0)
++
++    def test_dws_reasonable(self) -> None:
++        mid = 100.0
++        bids = [(99.99, 1.0), (99.98, 2.0), (99.95, 10.0)]
++        asks = [(100.01, 1.0), (100.02, 2.0), (100.05, 10.0)]
++        dws = calc_depth_weighted_spread(bids, asks, mid=mid, xbps=5.0)
++        # Should be close to a few bps, not negative
++        self.assertGreaterEqual(dws, 0.0)
++        self.assertLess(dws, 50.0)
++
++    def test_notional_within_band(self) -> None:
++        mid = 100.0
++        bids = [(99.99, 1.0), (99.80, 1.0)]
++        # within 1bp band around mid => 0.01 price band
++        n1 = calc_cost_to_cross(bids, mid=mid, xbps=1.0)
++        self.assertAlmostEqual(n1, 99.99 * 1.0, places=6)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=archivers' /mnt/data/repo_orig/services/orderflow/tests/test_liquidity_geom_policy_v1.py /mnt/data/repo/services/orderflow/tests/test_liquidity_geom_policy_v1.py
+--- /mnt/data/repo_orig/services/orderflow/tests/test_liquidity_geom_policy_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo/services/orderflow/tests/test_liquidity_geom_policy_v1.py	2026-03-07 07:00:18.700833753 +0000
+@@ -0,0 +1,67 @@
++import unittest
++import sys
++import os
++
++
++ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
++if ROOT not in sys.path:
++    sys.path.insert(0, ROOT)
++
++
++from services.orderflow.liquidity_geom_policy import evaluate_liq_geom
++
++
++class TestLiquidityGeomPolicyV1(unittest.TestCase):
++    def test_default_only_annotate(self) -> None:
++        d = evaluate_liq_geom(
++            profile="default",
++            slope_bid=100.0,
++            slope_ask=100.0,
++            dws_bps=10.0,
++            recovery_ms=5000,
++            thr_slope=500.0,
++            thr_dws=5.0,
++            thr_recovery_ms=1000,
++            tighten_cap_bps=10.0,
++            tighten_mult=1.0,
++        )
++        self.assertTrue(d.flags)
++        self.assertEqual(d.tighten_add_bps, 0.0)
++        self.assertFalse(d.veto)
++
++    def test_strict_tighten(self) -> None:
++        d = evaluate_liq_geom(
++            profile="strict",
++            slope_bid=100.0,
++            slope_ask=100.0,
++            dws_bps=10.0,
++            recovery_ms=5000,
++            thr_slope=500.0,
++            thr_dws=5.0,
++            thr_recovery_ms=1000,
++            tighten_cap_bps=10.0,
++            tighten_mult=1.0,
++        )
++        self.assertTrue(d.flags)
++        self.assertGreater(d.tighten_add_bps, 0.0)
++        self.assertFalse(d.veto)
++
++    def test_hard_veto(self) -> None:
++        d = evaluate_liq_geom(
++            profile="hard",
++            slope_bid=100.0,
++            slope_ask=100.0,
++            dws_bps=10.0,
++            recovery_ms=5000,
++            thr_slope=500.0,
++            thr_dws=5.0,
++            thr_recovery_ms=1000,
++            tighten_cap_bps=10.0,
++            tighten_mult=1.0,
++        )
++        self.assertTrue(d.veto)
++        self.assertTrue(d.veto_reason.startswith("liq_geom:"))
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=archivers' /mnt/data/repo_orig/services/orderflow/tests/test_liquidity_resiliency_v1.py /mnt/data/repo/services/orderflow/tests/test_liquidity_resiliency_v1.py
+--- /mnt/data/repo_orig/services/orderflow/tests/test_liquidity_resiliency_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo/services/orderflow/tests/test_liquidity_resiliency_v1.py	2026-03-07 07:00:11.525042192 +0000
+@@ -0,0 +1,50 @@
++import unittest
++import sys
++import os
++
++
++ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
++if ROOT not in sys.path:
++    sys.path.insert(0, ROOT)
++
++
++from services.orderflow.liquidity_resiliency import LiquidityResiliencyTracker
++
++
++class TestLiquidityResiliencyV1(unittest.TestCase):
++    def test_stress_and_recover(self) -> None:
++        tr = LiquidityResiliencyTracker(
++            ema_alpha=0.5,
++            stress_spread_mult=1.5,
++            stress_depth_drop_frac=0.5,
++            recover_spread_mult=1.1,
++            recover_depth_drop_frac=0.2,
++            recover_hold_ms=200,
++        )
++
++        # establish baseline
++        out = tr.update(ts_ms=1000, spread_bps=1.0, depth_usd=10_000.0)
++        self.assertEqual(out["liq_stress_active"], 0)
++
++        # trigger stress by wide spread
++        out = tr.update(ts_ms=1100, spread_bps=2.0, depth_usd=10_000.0)
++        self.assertEqual(out["liq_stress_active"], 1)
++        self.assertGreaterEqual(out["liq_recovery_time_ms"], 0)
++
++        # still stressed
++        out = tr.update(ts_ms=1300, spread_bps=2.0, depth_usd=10_000.0)
++        self.assertEqual(out["liq_stress_active"], 1)
++        self.assertGreaterEqual(out["liq_recovery_time_ms"], 200)
++
++        # recover condition satisfied, but hold required
++        out = tr.update(ts_ms=1400, spread_bps=1.0, depth_usd=10_000.0)
++        self.assertEqual(out["liq_stress_active"], 1)
++
++        # after hold
++        out = tr.update(ts_ms=1650, spread_bps=1.0, depth_usd=10_000.0)
++        self.assertEqual(out["liq_stress_active"], 0)
++        self.assertEqual(out["liq_recovery_time_ms"], 0)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=archivers' /mnt/data/repo_orig/services/smt_entry_policy_service.py /mnt/data/repo/services/smt_entry_policy_service.py
+--- /mnt/data/repo_orig/services/smt_entry_policy_service.py	2026-02-19 20:18:57.000000000 +0000
++++ /mnt/data/repo/services/smt_entry_policy_service.py	2026-03-07 06:58:22.651929862 +0000
+@@ -134,6 +134,13 @@
+             allow_zone_id_change_if_near=self.cfg.allow_zone_id_change_if_near,
+         )
+ 
++        # Optional: max expected slippage veto (used by entry_policy_core).
++        # If unset (=0), core keeps this gate disabled.
++        try:
++            self.core_cfg.max_expected_slippage_bps = float(os.getenv("SMT_ENTRY_MAX_EXPECTED_SLIPPAGE_BPS", "0") or 0.0)
++        except Exception:
++            self.core_cfg.max_expected_slippage_bps = 0.0
++
+     async def _get_active_arm(self, *, symbol: str, regime: str, group: str, scenario: str, raw_only: bool = False) -> str:
+         sym, rg, g, scn = symbol.upper(), regime.lower(), group.lower(), (scenario or "").lower()
+         now = _now_ms()
+@@ -270,12 +277,93 @@
+                         "active_arm_min_switch_gap_ms": int(getattr(o, "active_arm_min_switch_gap_ms", 0) or 0),
+                     },
+                     "active_arm_dbg": getattr(self, "_last_active_arm_dbg", None),
++                    # Liquidity geometry / resiliency (Phase C)
++                    # These fields are *best-effort* and may be missing depending on
++                    # how SMT snapshots are produced.
++                    "liq_geom": {
++                        "profile": str(snap.get("liq_geom_profile", "")),
++                        "flags": str(snap.get("liq_geom_flags", "")),
++                        "slope_min": float(snap.get("liq_geom_slope_min", 0.0) or 0.0),
++                        "dws_bps": float(snap.get("liq_geom_dws_bps", 0.0) or 0.0),
++                        "recovery_time_ms": int(snap.get("liq_geom_recovery_time_ms", 0) or 0),
++                        "tighten_add_bps": float(snap.get("liq_geom_tighten_add_bps", 0.0) or 0.0),
++                    },
+                 },
+                 "snap": {k: snap.get(k) for k in ("close_px", "spread_bp", "pressure_sps", "cooldown_sps", "obi_age_ms", "regime")},
+             }
+             await self.r.xadd(self.cfg.audit_stream, {"data": json.dumps(payload)}, maxlen=self.cfg.audit_stream_maxlen, approximate=True)
+         except Exception: pass
+ 
++    def _apply_liq_geom_policy(self, *, cand: Dict[str, Any], snap: Dict[str, Any]) -> Tuple[bool, str, str]:
++        """Phase C (P2): Liquidity geometry/resiliency policy for EntryPolicy.
++
++        Requirements from product:
++          - default/soft: annotate only
++          - strict: tighten expected_slippage_bps
++          - hard: tighten + veto
++
++        This gate is fail-open: missing fields => no action.
++        """
++        try:
++            profile = str(os.getenv("ENTRY_POLICY_PROFILE", os.getenv("GATE_PROFILE", "default")) or "default").strip().lower()
++            if profile not in {"default", "soft", "strict", "hard"}:
++                profile = "default"
++
++            micro = snap.get("micro") if isinstance(snap.get("micro"), dict) else {}
++
++            slope_bid = _f(snap.get("book_slope_bid", micro.get("book_slope_bid", 0.0)), 0.0)
++            slope_ask = _f(snap.get("book_slope_ask", micro.get("book_slope_ask", 0.0)), 0.0)
++            dws_bps = _f(snap.get("dws_bps", micro.get("dws_bps", 0.0)), 0.0)
++            rec_ms = _i(snap.get("liq_recovery_time_ms", micro.get("liq_recovery_time_ms", 0)), 0)
++
++            thr_slope = float(os.getenv("ENTRY_LIQ_MIN_BOOK_SLOPE", os.getenv("LIQ_MIN_BOOK_SLOPE", "0")) or 0.0)
++            thr_dws = float(os.getenv("ENTRY_LIQ_MAX_DWS_BPS", os.getenv("LIQ_MAX_DWS_BPS", "0")) or 0.0)
++            thr_rec = int(os.getenv("ENTRY_LIQ_MAX_RECOVERY_TIME_MS", os.getenv("LIQ_MAX_RECOVERY_TIME_MS", "0")) or 0)
++
++            cap = float(os.getenv("ENTRY_LIQ_TIGHTEN_ADD_CAP_BPS", os.getenv("LIQ_GEOM_TIGHTEN_ADD_CAP_BPS", "10.0")) or 10.0)
++            mult = float(os.getenv("ENTRY_LIQ_TIGHTEN_ADD_MULT", os.getenv("LIQ_GEOM_TIGHTEN_ADD_MULT", "1.0")) or 1.0)
++
++            from services.orderflow.liquidity_geom_policy import evaluate_liq_geom
++            decg = evaluate_liq_geom(
++                profile=profile,
++                slope_bid=slope_bid,
++                slope_ask=slope_ask,
++                dws_bps=dws_bps,
++                recovery_ms=rec_ms,
++                thr_slope=thr_slope,
++                thr_dws=thr_dws,
++                thr_recovery_ms=thr_rec,
++                tighten_cap_bps=cap,
++                tighten_mult=mult,
++            )
++
++            # Always annotate
++            snap["liq_geom_profile"] = profile
++            snap["liq_geom_flags"] = ",".join(decg.flags) if decg.flags else ""
++            snap["liq_geom_slope_min"] = float(decg.slope_min)
++            snap["liq_geom_dws_bps"] = float(dws_bps)
++            snap["liq_geom_recovery_time_ms"] = int(rec_ms)
++
++            if (not decg.flags) or profile in {"default", "soft"}:
++                return True, "", ""
++
++            if decg.tighten_add_bps > 0.0:
++                exp0 = _f(snap.get("expected_slippage_bps", micro.get("expected_slippage_bps", 0.0)), 0.0)
++                exp1 = float(exp0 + float(decg.tighten_add_bps))
++                snap["expected_slippage_bps"] = exp1
++                if isinstance(micro, dict):
++                    micro["expected_slippage_bps"] = exp1
++                    snap["micro"] = micro
++                snap["liq_geom_tighten_add_bps"] = float(decg.tighten_add_bps)
++
++            if decg.veto:
++                notes = f"flags={snap.get('liq_geom_flags','')} slope_min={decg.slope_min:.1f} dws_bps={dws_bps:.2f} rec_ms={rec_ms}"
++                return False, "DENY_LIQ_GEOM", notes
++
++            return True, "", ""
++        except Exception:
++            return True, "", ""
++
+     async def _emit_entry(self, *, now_ms: int, cand: Dict[str, Any], snap: Dict[str, Any], bundle: Dict[str, Any]) -> None:
+         try:
+             eid = _entry_id(cand, snap, bundle)
+@@ -480,6 +568,15 @@
+                 await self._audit(now_ms=_now_ms(), cand=cand, ok=True, reason_code="ALLOW_SHADOW_FROZEN_NONA", notes=frz_reason, snap=snap, bundle=bundle, ovr=ovr)
+                 return
+ 
++        # Phase C (P2): Liquidity geometry/resiliency overlay for EntryPolicy
++        # - default/soft: annotate only (audit)
++        # - strict: tighten expected_slippage_bps (more conservative)
++        # - hard: tighten + veto
++        ok_geom, geom_rc, geom_notes = self._apply_liq_geom_policy(cand=cand, snap=snap)
++        if not ok_geom:
++            await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code=str(geom_rc), notes=str(geom_notes), snap=snap, bundle=bundle, ovr=ovr)
++            return
++
+         from services.entry_policy_core import evaluate_entry_policy
+         dec = evaluate_entry_policy(now_ms=_now_ms(), cand=cand, snap=snap, bundle=bundle, cfg=self.core_cfg, dedup_state=self._dedup)
+         

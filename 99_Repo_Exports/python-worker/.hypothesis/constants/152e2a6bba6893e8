@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/orderflow_services/of_gate_rollups_freshness_probe_v1.py
+# hypothesis_version: 6.148.10
+
+[1000, 'DATABASE_URL', 'PG_DSN', 'REDIS_URL', 'TRADES_DB_DSN', '__main__', 'age_1h_s', 'age_5m_s', 'bucket_1h_ts_ms', 'bucket_5m_ts_ms', 'error', 'last_run_ts_ms', 'of_gate_ok_rate_1h', 'of_gate_ok_rate_5m', 'ok', 'view_1h', 'view_5m']

@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS edge_gate_events CASCADE;

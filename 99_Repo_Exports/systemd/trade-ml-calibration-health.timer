@@ -1,0 +1,27 @@
+[Unit]
+Description=Run Trade ML calibration health monitor daily
+
+[Timer]
+OnCalendar=*-*-* 03:20:00
+Persistent=true
+RandomizedDelaySec=30
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

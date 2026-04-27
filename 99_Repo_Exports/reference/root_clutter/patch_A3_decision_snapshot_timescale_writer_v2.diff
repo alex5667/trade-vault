@@ -1,0 +1,823 @@
+--- /dev/null
++++ python-worker/services/posttrade/decision_snapshot_db.py
+@@ -0,0 +1,349 @@
++
++We intentionally keep the interface tiny and explicit:
++- `ensure_schema()` is best-effort (OK if the table already exists).
++- `upsert_decision_snapshots(rows)` performs batched idempotent writes.
++
++Why BIGINT epoch-ms time:
++- Matches the system-wide time contract (event-time is epoch-ms).
++- Avoids timezone drift and conversion bugs.
++- TimescaleDB supports BIGINT time for hypertables.
++
++Dependencies:
++- Postgres: prefers `psycopg` (v3) or `psycopg2`.
++  If none are installed, Postgres adapter will raise a clear error.
++- Tests use SQLite via stdlib `sqlite3`.
++"""
++
++from __future__ import annotations
++
++import json
++import os
++import sqlite3
++from dataclasses import dataclass
++from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
++
++Row = Dict[str, Any]
++
++
++def _to_int(v: Any, default: int = 0) -> int:
++    try:
++        return int(v)
++    except Exception:
++        return default
++
++
++def _to_float(v: Any) -> Optional[float]:
++    try:
++        f = float(v)
++    except Exception:
++        return None
++    if f != f:  # NaN
++        return None
++    return f
++
++
++def _to_text_array(v: Any) -> List[str]:
++    if v is None:
++        return []
++    if isinstance(v, list):
++        return [str(x) for x in v if x is not None]
++    # tolerate comma-separated string
++    s = str(v).strip()
++    if not s:
++        return []
++    return [x.strip() for x in s.split(",") if x.strip()]
++
++
++def _json_dumps(v: Any) -> str:
++    try:
++        return json.dumps(v, ensure_ascii=False, separators=(",", ":"))
++    except Exception:
++        return "{}"
++
++
++@dataclass
++class SQLiteDecisionSnapshotDB:
++    """SQLite adapter used for integration smoke tests.
++
++    Notes:
++    - SQLite doesn't have JSONB or TEXT[]; we store them as TEXT.
++    - `ts_decision_ms` remains BIGINT to match production schema.
++    """
++
++    conn: sqlite3.Connection
++
++    def ensure_schema(self) -> None:
++        cur = self.conn.cursor()
++        cur.execute(
++            """
++            CREATE TABLE IF NOT EXISTS decision_snapshot (
++              ts_decision_ms INTEGER NOT NULL,
++              sid TEXT NOT NULL,
++              symbol TEXT NOT NULL,
++              venue TEXT NOT NULL,
++              session TEXT NOT NULL,
++              tf TEXT NOT NULL,
++              kind TEXT NOT NULL,
++              side TEXT NOT NULL,
++              direction TEXT NOT NULL,
++
++              decision_bid REAL,
++              decision_ask REAL,
++              decision_mid REAL,
++              decision_spread_bps REAL,
++
++              decision_depth_bid_5 REAL,
++              decision_depth_ask_5 REAL,
++              decision_depth_bid_20 REAL,
++              decision_depth_ask_20 REAL,
++
++              decision_book_slope_bid REAL,
++              decision_book_slope_ask REAL,
++              decision_dws_bps REAL,
++
++              decision_ofi_norm REAL,
++              decision_expected_slippage_bps REAL,
++              decision_exec_risk_norm REAL,
++
++              decision_price REAL,
++
++              tca_ready INTEGER NOT NULL DEFAULT 0,
++              book_sanity_flags TEXT NOT NULL DEFAULT '[]',
++
++              schema_version INTEGER NOT NULL DEFAULT 1,
++              producer TEXT NOT NULL DEFAULT '',
++              ts_insert_ms INTEGER NOT NULL DEFAULT 0,
++
++              extra TEXT,
++
++              UNIQUE (sid, ts_decision_ms)
++            );
++            """
++        )
++        self.conn.commit()
++
++    def upsert_decision_snapshots(self, rows: Sequence[Row]) -> int:
++        if not rows:
++            return 0
++        cur = self.conn.cursor()
++        sql = (
++            """
++            INSERT INTO decision_snapshot (
++              ts_decision_ms, sid, symbol, venue, session, tf, kind, side, direction,
++              decision_bid, decision_ask, decision_mid, decision_spread_bps,
++              decision_depth_bid_5, decision_depth_ask_5, decision_depth_bid_20, decision_depth_ask_20,
++              decision_book_slope_bid, decision_book_slope_ask, decision_dws_bps,
++              decision_ofi_norm, decision_expected_slippage_bps, decision_exec_risk_norm,
++              decision_price,
++              tca_ready, book_sanity_flags,
++              schema_version, producer, ts_insert_ms,
++              extra
++            ) VALUES (
++              :ts_decision_ms, :sid, :symbol, :venue, :session, :tf, :kind, :side, :direction,
++              :decision_bid, :decision_ask, :decision_mid, :decision_spread_bps,
++              :decision_depth_bid_5, :decision_depth_ask_5, :decision_depth_bid_20, :decision_depth_ask_20,
++              :decision_book_slope_bid, :decision_book_slope_ask, :decision_dws_bps,
++              :decision_ofi_norm, :decision_expected_slippage_bps, :decision_exec_risk_norm,
++              :decision_price,
++              :tca_ready, :book_sanity_flags,
++              :schema_version, :producer, :ts_insert_ms,
++              :extra
++            )
++            ON CONFLICT(sid, ts_decision_ms) DO UPDATE SET
++              symbol=excluded.symbol,
++              venue=excluded.venue,
++              session=excluded.session,
++              tf=excluded.tf,
++              kind=excluded.kind,
++              side=excluded.side,
++              direction=excluded.direction,
++              decision_bid=excluded.decision_bid,
++              decision_ask=excluded.decision_ask,
++              decision_mid=excluded.decision_mid,
++              decision_spread_bps=excluded.decision_spread_bps,
++              decision_depth_bid_5=excluded.decision_depth_bid_5,
++              decision_depth_ask_5=excluded.decision_depth_ask_5,
++              decision_depth_bid_20=excluded.decision_depth_bid_20,
++              decision_depth_ask_20=excluded.decision_depth_ask_20,
++              decision_book_slope_bid=excluded.decision_book_slope_bid,
++              decision_book_slope_ask=excluded.decision_book_slope_ask,
++              decision_dws_bps=excluded.decision_dws_bps,
++              decision_ofi_norm=excluded.decision_ofi_norm,
++              decision_expected_slippage_bps=excluded.decision_expected_slippage_bps,
++              decision_exec_risk_norm=excluded.decision_exec_risk_norm,
++              decision_price=excluded.decision_price,
++              tca_ready=excluded.tca_ready,
++              book_sanity_flags=excluded.book_sanity_flags,
++              schema_version=excluded.schema_version,
++              producer=excluded.producer,
++              ts_insert_ms=excluded.ts_insert_ms,
++              extra=excluded.extra;
++            """
++        )
++        params = []
++        for r in rows:
++            p = dict(r)
++            p["tca_ready"] = 1 if bool(r.get("tca_ready")) else 0
++            p["book_sanity_flags"] = _json_dumps(_to_text_array(r.get("book_sanity_flags")))
++            p["extra"] = _json_dumps(r.get("extra")) if r.get("extra") is not None else None
++            params.append(p)
++        cur.executemany(sql, params)
++        self.conn.commit()
++        return len(rows)
++
++
++@dataclass
++class PostgresDecisionSnapshotDB:
++    """Postgres/Timescale adapter.
++
++    Uses psycopg v3 if available, otherwise psycopg2.
++
++    Note: schema management (CREATE TABLE + hypertable) is intentionally separated.
++    In prod you should apply `decision_snapshot_timescale.sql` via migrations/psql.
++    `ensure_schema()` here is a best-effort fallback for dev/staging.
++    """
++
++    dsn: str
++
++    def _connect(self):
++        try:
++            import psycopg  # type: ignore
++            return psycopg.connect(self.dsn)
++        except Exception:
++            try:
++                import psycopg2  # type: ignore
++                return psycopg2.connect(self.dsn)
++            except Exception as e:
++                raise RuntimeError(
++                    "Postgres driver not available. Install psycopg (v3) or psycopg2."
++                ) from e
++
++    def ensure_schema(self) -> None:
++        conn = self._connect()
++        try:
++            cur = conn.cursor()
++            # Minimal schema (no hypertable here; do it in SQL migration for Timescale)
++            cur.execute(
++                """
++                CREATE TABLE IF NOT EXISTS decision_snapshot (
++                  ts_decision_ms BIGINT NOT NULL,
++                  sid TEXT NOT NULL,
++                  symbol TEXT NOT NULL,
++                  venue TEXT NOT NULL DEFAULT 'binance',
++                  session TEXT NOT NULL DEFAULT '',
++                  tf TEXT NOT NULL DEFAULT '',
++                  kind TEXT NOT NULL DEFAULT '',
++                  side TEXT NOT NULL DEFAULT '',
++                  direction TEXT NOT NULL DEFAULT '',
++
++                  decision_bid DOUBLE PRECISION NULL,
++                  decision_ask DOUBLE PRECISION NULL,
++                  decision_mid DOUBLE PRECISION NULL,
++                  decision_spread_bps DOUBLE PRECISION NULL,
++
++                  decision_depth_bid_5 DOUBLE PRECISION NULL,
++                  decision_depth_ask_5 DOUBLE PRECISION NULL,
++                  decision_depth_bid_20 DOUBLE PRECISION NULL,
++                  decision_depth_ask_20 DOUBLE PRECISION NULL,
++
++                  decision_book_slope_bid DOUBLE PRECISION NULL,
++                  decision_book_slope_ask DOUBLE PRECISION NULL,
++                  decision_dws_bps DOUBLE PRECISION NULL,
++
++                  decision_ofi_norm DOUBLE PRECISION NULL,
++                  decision_expected_slippage_bps DOUBLE PRECISION NULL,
++                  decision_exec_risk_norm DOUBLE PRECISION NULL,
++
++                  decision_price DOUBLE PRECISION NULL,
++
++                  tca_ready BOOLEAN NOT NULL DEFAULT FALSE,
++                  book_sanity_flags TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
++
++                  schema_version INTEGER NOT NULL DEFAULT 1,
++                  producer TEXT NOT NULL DEFAULT '',
++                  ts_insert_ms BIGINT NOT NULL DEFAULT 0,
++
++                  extra JSONB NULL,
++
++                  UNIQUE (sid, ts_decision_ms)
++                );
++                """
++            )
++            conn.commit()
++        finally:
++            conn.close()
++
++    def upsert_decision_snapshots(self, rows: Sequence[Row]) -> int:
++        if not rows:
++            return 0
++        conn = self._connect()
++        try:
++            cur = conn.cursor()
++            sql = (
++                """
++                INSERT INTO decision_snapshot (
++                  ts_decision_ms, sid, symbol, venue, session, tf, kind, side, direction,
++                  decision_bid, decision_ask, decision_mid, decision_spread_bps,
++                  decision_depth_bid_5, decision_depth_ask_5, decision_depth_bid_20, decision_depth_ask_20,
++                  decision_book_slope_bid, decision_book_slope_ask, decision_dws_bps,
++                  decision_ofi_norm, decision_expected_slippage_bps, decision_exec_risk_norm,
++                  decision_price,
++                  tca_ready, book_sanity_flags,
++                  schema_version, producer, ts_insert_ms,
++                  extra
++                ) VALUES (
++                  %(ts_decision_ms)s, %(sid)s, %(symbol)s, %(venue)s, %(session)s, %(tf)s, %(kind)s, %(side)s, %(direction)s,
++                  %(decision_bid)s, %(decision_ask)s, %(decision_mid)s, %(decision_spread_bps)s,
++                  %(decision_depth_bid_5)s, %(decision_depth_ask_5)s, %(decision_depth_bid_20)s, %(decision_depth_ask_20)s,
++                  %(decision_book_slope_bid)s, %(decision_book_slope_ask)s, %(decision_dws_bps)s,
++                  %(decision_ofi_norm)s, %(decision_expected_slippage_bps)s, %(decision_exec_risk_norm)s,
++                  %(decision_price)s,
++                  %(tca_ready)s, %(book_sanity_flags)s,
++                  %(schema_version)s, %(producer)s, %(ts_insert_ms)s,
++                  %(extra)s
++                )
++                ON CONFLICT (sid, ts_decision_ms) DO UPDATE SET
++                  symbol=excluded.symbol,
++                  venue=excluded.venue,
++                  session=excluded.session,
++                  tf=excluded.tf,
++                  kind=excluded.kind,
++                  side=excluded.side,
++                  direction=excluded.direction,
++                  decision_bid=excluded.decision_bid,
++                  decision_ask=excluded.decision_ask,
++                  decision_mid=excluded.decision_mid,
++                  decision_spread_bps=excluded.decision_spread_bps,
++                  decision_depth_bid_5=excluded.decision_depth_bid_5,
++                  decision_depth_ask_5=excluded.decision_depth_ask_5,
++                  decision_depth_bid_20=excluded.decision_depth_bid_20,
++                  decision_depth_ask_20=excluded.decision_depth_ask_20,
++                  decision_book_slope_bid=excluded.decision_book_slope_bid,
++                  decision_book_slope_ask=excluded.decision_book_slope_ask,
++                  decision_dws_bps=excluded.decision_dws_bps,
++                  decision_ofi_norm=excluded.decision_ofi_norm,
++                  decision_expected_slippage_bps=excluded.decision_expected_slippage_bps,
++                  decision_exec_risk_norm=excluded.decision_exec_risk_norm,
++                  decision_price=excluded.decision_price,
++                  tca_ready=excluded.tca_ready,
++                  book_sanity_flags=excluded.book_sanity_flags,
++                  schema_version=excluded.schema_version,
++                  producer=excluded.producer,
++                  ts_insert_ms=excluded.ts_insert_ms,
++                  extra=excluded.extra;
++                """
++            )
++            params = []
++            for r in rows:
++                p = dict(r)
++                p["tca_ready"] = bool(r.get("tca_ready"))
++                p["book_sanity_flags"] = _to_text_array(r.get("book_sanity_flags"))
++                # psycopg2: pass JSON as string; psycopg3 handles dict as json automatically sometimes
++                extra = r.get("extra")
++                p["extra"] = extra if isinstance(extra, (dict, list)) else (json.loads(extra) if isinstance(extra, str) and extra.strip().startswith(("{","[")) else extra)
++                params.append(p)
++            cur.executemany(sql, params)
++            conn.commit()
++            return len(rows)
++        finally:
++            conn.close()
+--- /dev/null
++++ python-worker/services/posttrade/decision_snapshot_writer.py
+@@ -0,0 +1,288 @@
++
++This service consumes Redis Stream `events:decision_snapshot` (A2) and writes rows into
++Postgres/Timescale `decision_snapshot` table.
++
++Properties:
++- at-least-once delivery (Redis Streams consumer group)
++- idempotent DB upsert on UNIQUE(sid, ts_decision_ms)
++- batched writes (reduce DB overhead)
++- fail-open wrt the trading path: writer can be down without blocking signal publishing.
++
++ENV:
++  # Redis
++  REDIS_URL=redis://redis-worker-1:6379/0
++  DECISION_SNAPSHOT_STREAM=events:decision_snapshot
++  DECISION_SNAPSHOT_CG=decision_snapshot_writer
++  DECISION_SNAPSHOT_CONSUMER=<auto>
++  DECISION_SNAPSHOT_XREAD_BLOCK_MS=2000
++  DECISION_SNAPSHOT_BATCH_SIZE=200
++
++  # DB
++  TIMESCALE_DSN=postgresql://user:pass@host:5432/dbname
++  DECISION_SNAPSHOT_DB_TYPE=postgres|sqlite   (sqlite only for tests/dev)
++  DECISION_SNAPSHOT_DB_ENSURE_SCHEMA=0|1      (prod should apply SQL migrations)
++  DECISION_SNAPSHOT_DB_UPSERT_CHUNK=500
++
++  # Operational
++  DECISION_SNAPSHOT_LOG_EVERY_N=200
++  DECISION_SNAPSHOT_FAIL_SLEEP_SEC=1.0
++"""
++
++from __future__ import annotations
++
++import asyncio
++import json
++import logging
++import os
++import socket
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional, Sequence, Tuple
++
++import redis.asyncio as aioredis
++from redis.exceptions import RedisError
++
++from services.posttrade.decision_snapshot_db import (
++    PostgresDecisionSnapshotDB,
++    SQLiteDecisionSnapshotDB,
++    _to_int,
++    _to_float,
++    _to_text_array,
++)
++
++logger = logging.getLogger("decision_snapshot_writer")
++
++
++def _env(name: str, default: str) -> str:
++    v = os.getenv(name)
++    return str(v) if v is not None and str(v) != "" else default
++
++
++def _env_int(name: str, default: int) -> int:
++    return _to_int(os.getenv(name), default=default)
++
++
++def _env_float(name: str, default: float) -> float:
++    try:
++        return float(os.getenv(name) or default)
++    except Exception:
++        return float(default)
++
++
++def _consumer_id() -> str:
++    v = os.getenv("DECISION_SNAPSHOT_CONSUMER")
++    if v:
++        return v
++    return f"{socket.gethostname()}-{os.getpid()}"
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++@dataclass
++class DecisionSnapshotWriterConfig:
++    redis_url: str = _env("REDIS_URL", "redis://redis-worker-1:6379/0")
++    stream: str = _env("DECISION_SNAPSHOT_STREAM", "events:decision_snapshot")
++    group: str = _env("DECISION_SNAPSHOT_CG", "decision_snapshot_writer")
++    consumer: str = _consumer_id()
++    block_ms: int = _env_int("DECISION_SNAPSHOT_XREAD_BLOCK_MS", 2000)
++    batch_size: int = _env_int("DECISION_SNAPSHOT_BATCH_SIZE", 200)
++
++    db_type: str = _env("DECISION_SNAPSHOT_DB_TYPE", "postgres")
++    timescale_dsn: str = _env("TIMESCALE_DSN", _env("DATABASE_URL", ""))
++    ensure_schema: bool = bool(_env_int("DECISION_SNAPSHOT_DB_ENSURE_SCHEMA", 0))
++    upsert_chunk: int = _env_int("DECISION_SNAPSHOT_DB_UPSERT_CHUNK", 500)
++
++    log_every_n: int = _env_int("DECISION_SNAPSHOT_LOG_EVERY_N", 200)
++    fail_sleep_sec: float = _env_float("DECISION_SNAPSHOT_FAIL_SLEEP_SEC", 1.0)
++
++
++def _parse_payload(raw: Any) -> Optional[Dict[str, Any]]:
++    """Parse Redis Stream entry field `payload` into dict."""
++    if raw is None:
++        return None
++    if isinstance(raw, (bytes, bytearray)):
++        try:
++            raw = raw.decode("utf-8", errors="replace")
++        except Exception:
++            raw = str(raw)
++    if isinstance(raw, str):
++        s = raw.strip()
++        if not s:
++            return None
++        try:
++            return json.loads(s)
++        except Exception:
++            return None
++    if isinstance(raw, dict):
++        return raw
++    return None
++
++
++def _normalize_row(evt: Dict[str, Any]) -> Dict[str, Any]:
++    """Map event dict to DB row dict (best-effort)."""
++    # event schema is produced by services/orderflow/decision_snapshot.py (A2)
++    ts_decision_ms = _to_int(evt.get("decision_ts_ms") or evt.get("ts_emit_ms") or evt.get("ts_event_ms"), 0)
++    sid = str(evt.get("sid") or evt.get("signal_id") or "").strip()
++    symbol = str(evt.get("symbol") or evt.get("sym") or "").strip()
++
++    row: Dict[str, Any] = {
++        "ts_decision_ms": int(ts_decision_ms),
++        "sid": sid,
++        "symbol": symbol or "UNKNOWN",
++        "venue": str(evt.get("venue") or "binance"),
++        "session": str(evt.get("session") or ""),
++        "tf": str(evt.get("tf") or ""),
++        "kind": str(evt.get("kind") or ""),
++        "side": str(evt.get("side") or evt.get("direction") or ""),
++        "direction": str(evt.get("direction") or ""),
++        "decision_bid": _to_float(evt.get("decision_bid")),
++        "decision_ask": _to_float(evt.get("decision_ask")),
++        "decision_mid": _to_float(evt.get("decision_mid")),
++        "decision_spread_bps": _to_float(evt.get("decision_spread_bps")),
++        "decision_depth_bid_5": _to_float(evt.get("decision_depth_bid_5")),
++        "decision_depth_ask_5": _to_float(evt.get("decision_depth_ask_5")),
++        "decision_depth_bid_20": _to_float(evt.get("decision_depth_bid_20")),
++        "decision_depth_ask_20": _to_float(evt.get("decision_depth_ask_20")),
++        "decision_book_slope_bid": _to_float(evt.get("decision_book_slope_bid")),
++        "decision_book_slope_ask": _to_float(evt.get("decision_book_slope_ask")),
++        "decision_dws_bps": _to_float(evt.get("decision_dws_bps")),
++        "decision_ofi_norm": _to_float(evt.get("decision_ofi_norm")),
++        "decision_expected_slippage_bps": _to_float(evt.get("decision_expected_slippage_bps")),
++        "decision_exec_risk_norm": _to_float(evt.get("decision_exec_risk_norm")),
++        "decision_price": _to_float(evt.get("decision_price") or evt.get("decision_mid")),
++        "tca_ready": bool(evt.get("tca_ready") or False),
++        "book_sanity_flags": _to_text_array(evt.get("book_sanity_flags")),
++        "schema_version": _to_int(evt.get("schema_version") or evt.get("schema_ver") or 1, 1),
++        "producer": str(evt.get("producer") or evt.get("service") or os.getenv("SERVICE_NAME", "python-worker")),
++        "ts_insert_ms": _now_ms(),
++    }
++
++    # Preserve remaining fields for audits/debugging. Keep bounded to avoid huge rows.
++    extra = dict(evt)
++    # Remove known columns to avoid duplication.
++    for k in list(row.keys()):
++        extra.pop(k, None)
++    # Also remove common aliases.
++    extra.pop("ts_emit_ms", None)
++    extra.pop("ts_event_ms", None)
++    extra.pop("signal_id", None)
++    row["extra"] = extra if extra else None
++
++    # Defensive: require minimal keys.
++    if not row["sid"] or row["ts_decision_ms"] <= 0:
++        # Writer can still store UNKNOWN, but missing sid breaks joins. Skip to avoid junk rows.
++        raise ValueError(f"bad decision_snapshot row: sid={row['sid']!r} ts={row['ts_decision_ms']}")
++    return row
++
++
++class DecisionSnapshotStreamWorker:
++    def __init__(self, *, cfg: DecisionSnapshotWriterConfig, redis: Any, db: Any):
++        self.cfg = cfg
++        self.redis = redis
++        self.db = db
++        self._seen = 0
++        self._written = 0
++
++    async def ensure_group(self) -> None:
++        """Create consumer group if missing (MKSTREAM)."""
++        try:
++            await self.redis.xgroup_create(name=self.cfg.stream, groupname=self.cfg.group, id="0-0", mkstream=True)
++        except RedisError as e:
++            # BUSYGROUP means group exists - that's OK.
++            if "BUSYGROUP" in str(e):
++                return
++            raise
++
++    async def run_once(self) -> int:
++        """Read one batch, write to DB, ACK on success."""
++        resp = await self.redis.xreadgroup(
++            groupname=self.cfg.group,
++            consumername=self.cfg.consumer,
++            streams={self.cfg.stream: ">"},
++            count=self.cfg.batch_size,
++            block=self.cfg.block_ms,
++        )
++        if not resp:
++            return 0
++
++        # redis-py format: [(stream, [(id, {field: value, ...}), ...])]
++        total = 0
++        to_ack: List[str] = []
++        rows: List[Dict[str, Any]] = []
++
++        for _, entries in resp:
++            for entry_id, fields in entries:
++                total += 1
++                payload = _parse_payload(fields.get(b"payload") or fields.get("payload"))
++                if payload is None:
++                    # malformed - ack to avoid stuck pending entries
++                    to_ack.append(entry_id)
++                    continue
++                try:
++                    row = _normalize_row(payload)
++                    rows.append(row)
++                    to_ack.append(entry_id)
++                except Exception as e:
++                    # Bad row: ack to avoid poison-pill loops; keep a trace in logs.
++                    logger.warning("bad decision_snapshot row (acked): id=%s err=%s", entry_id, e)
++                    to_ack.append(entry_id)
++
++        if rows:
++            # Upsert in chunks for better DB behavior under spikes.
++            n = 0
++            for i in range(0, len(rows), self.cfg.upsert_chunk):
++                chunk = rows[i:i+self.cfg.upsert_chunk]
++                n += await asyncio.to_thread(self.db.upsert_decision_snapshots, chunk)
++            self._written += n
++
++        if to_ack:
++            # ACK after DB commit (best-effort).
++            try:
++                await self.redis.xack(self.cfg.stream, self.cfg.group, *to_ack)
++            except Exception as e:
++                logger.warning("xack failed: %s", e)
++
++        self._seen += total
++        if self.cfg.log_every_n > 0 and (self._seen % self.cfg.log_every_n) < total:
++            logger.info("decision_snapshot_writer: seen=%d written=%d", self._seen, self._written)
++
++        return total
++
++    async def run_forever(self) -> None:
++        await self.ensure_group()
++        while True:
++            try:
++                n = await self.run_once()
++                if n == 0:
++                    await asyncio.sleep(0.01)
++            except Exception as e:
++                logger.exception("decision_snapshot_writer loop error: %s", e)
++                await asyncio.sleep(self.cfg.fail_sleep_sec)
++
++
++async def main() -> None:
++    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
++    cfg = DecisionSnapshotWriterConfig()
++
++    if cfg.db_type.lower() == "sqlite":
++        import sqlite3
++        conn = sqlite3.connect(_env("DECISION_SNAPSHOT_SQLITE_PATH", ":memory:"))
++        db = SQLiteDecisionSnapshotDB(conn=conn)
++    else:
++        if not cfg.timescale_dsn:
++            raise RuntimeError("TIMESCALE_DSN (or DATABASE_URL) is required for DECISION_SNAPSHOT_DB_TYPE=postgres")
++        db = PostgresDecisionSnapshotDB(dsn=cfg.timescale_dsn)
++
++    if cfg.ensure_schema:
++        # For dev/staging only; prod should apply SQL migrations explicitly.
++        await asyncio.to_thread(db.ensure_schema)
++
++    r = aioredis.from_url(cfg.redis_url, encoding=None, decode_responses=False)
++    worker = DecisionSnapshotStreamWorker(cfg=cfg, redis=r, db=db)
++    await worker.run_forever()
++
++
++if __name__ == "__main__":
++    asyncio.run(main())
+--- /dev/null
++++ python-worker/services/posttrade/__init__.py
+@@ -0,0 +1,1 @@
++from .decision_snapshot_writer import DecisionSnapshotStreamWorker, DecisionSnapshotWriterConfig
+--- /dev/null
++++ python-worker/services/posttrade/sql/decision_snapshot_timescale.sql
+@@ -0,0 +1,66 @@
++--
++-- Design notes:
++-- - Time column is epoch-ms BIGINT to stay consistent with the system-wide time contract.
++-- - Idempotency: UNIQUE(sid, ts_decision_ms) so repeated writes are safe (at-least-once stream delivery).
++-- - Hypertable: partition by ts_decision_ms; tune chunk interval via DECISION_SNAPSHOT_CHUNK_MS if desired.
++--
++-- Requirements:
++--   CREATE EXTENSION IF NOT EXISTS timescaledb;
++--
++-- Apply:
++--   psql "$TIMESCALE_DSN" -f decision_snapshot_timescale.sql
++--
++
++CREATE TABLE IF NOT EXISTS decision_snapshot (
++  ts_decision_ms                BIGINT NOT NULL,
++  sid                           TEXT   NOT NULL,
++  symbol                        TEXT   NOT NULL,
++  venue                         TEXT   NOT NULL DEFAULT 'binance',
++  session                       TEXT   NOT NULL DEFAULT '',
++  tf                            TEXT   NOT NULL DEFAULT '',
++  kind                          TEXT   NOT NULL DEFAULT '',
++  side                          TEXT   NOT NULL DEFAULT '',
++  direction                     TEXT   NOT NULL DEFAULT '',
++
++  decision_bid                  DOUBLE PRECISION NULL,
++  decision_ask                  DOUBLE PRECISION NULL,
++  decision_mid                  DOUBLE PRECISION NULL,
++  decision_spread_bps           DOUBLE PRECISION NULL,
++
++  decision_depth_bid_5          DOUBLE PRECISION NULL,
++  decision_depth_ask_5          DOUBLE PRECISION NULL,
++  decision_depth_bid_20         DOUBLE PRECISION NULL,
++  decision_depth_ask_20         DOUBLE PRECISION NULL,
++
++  decision_book_slope_bid       DOUBLE PRECISION NULL,
++  decision_book_slope_ask       DOUBLE PRECISION NULL,
++  decision_dws_bps              DOUBLE PRECISION NULL,
++
++  decision_ofi_norm             DOUBLE PRECISION NULL,
++  decision_expected_slippage_bps DOUBLE PRECISION NULL,
++  decision_exec_risk_norm       DOUBLE PRECISION NULL,
++
++  decision_price                DOUBLE PRECISION NULL,
++
++  tca_ready                     BOOLEAN NOT NULL DEFAULT FALSE,
++  book_sanity_flags             TEXT[]  NOT NULL DEFAULT ARRAY[]::TEXT[],
++
++  schema_version                INTEGER NOT NULL DEFAULT 1,
++  producer                      TEXT    NOT NULL DEFAULT '',
++  ts_insert_ms                  BIGINT  NOT NULL DEFAULT 0,
++
++  extra                         JSONB   NULL,
++
++  UNIQUE (sid, ts_decision_ms)
++);
++
++-- Create hypertable if TimescaleDB is available.
++DO $$
++BEGIN
++  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
++    PERFORM create_hypertable('decision_snapshot', 'ts_decision_ms', if_not_exists => TRUE);
++  END IF;
++END$$;
++
++CREATE INDEX IF NOT EXISTS idx_decision_snapshot_sid ON decision_snapshot (sid);
++CREATE INDEX IF NOT EXISTS idx_decision_snapshot_symbol_ts ON decision_snapshot (symbol, ts_decision_ms DESC);
+--- /dev/null
++++ python-worker/tests/test_decision_snapshot_writer_integration.py
+@@ -0,0 +1,104 @@
++import asyncio
++import json
++import sqlite3
++import sys
++import unittest
++from pathlib import Path
++
++# Ensure repository root and python-worker are importable when running via `python -m unittest`
++ROOT = Path(__file__).resolve()
++# .../python-worker/tests/test_*.py -> go up 2 to python-worker, up 1 to repo root
++PYWORKER = ROOT.parents[1]
++REPO = ROOT.parents[2]
++for p in (str(PYWORKER), str(REPO)):
++    if p not in sys.path:
++        sys.path.insert(0, p)
++
++from services.posttrade.decision_snapshot_db import SQLiteDecisionSnapshotDB
++from services.posttrade.decision_snapshot_writer import (
++    DecisionSnapshotWriterConfig,
++    DecisionSnapshotStreamWorker,
++)
++
++class FakeRedis:
++    """Minimal Redis Streams stub for integration smoke test.
++
++    Implements only the subset used by DecisionSnapshotStreamWorker:
++    - xgroup_create
++    - xreadgroup
++    - xack
++    """
++
++    def __init__(self, stream: str, entries):
++        self.stream = stream
++        self.entries = entries[:]  # list of (id, fields)
++        self.acked = []
++        self.created = False
++
++    async def xgroup_create(self, name, groupname, id, mkstream):
++        self.created = True
++        return True
++
++    async def xreadgroup(self, groupname, consumername, streams, count, block):
++        # streams is dict {stream: ">"}
++        if not self.entries:
++            return []
++        batch = self.entries[:count]
++        self.entries = self.entries[count:]
++        return [(self.stream, batch)]
++
++    async def xack(self, stream, group, *ids):
++        self.acked.extend(list(ids))
++        return len(ids)
++
++class DecisionSnapshotWriterIntegrationTest(unittest.TestCase):
++    def test_fake_redis_to_sqlite_idempotent(self):
++        conn = sqlite3.connect(":memory:")
++        db = SQLiteDecisionSnapshotDB(conn=conn)
++        db.ensure_schema()
++
++        evt = {
++            "schema_version": 1,
++            "producer": "python-worker",
++            "sid": "S1",
++            "symbol": "BTCUSDT",
++            "venue": "binance",
++            "session": "utc",
++            "tf": "1m",
++            "kind": "breakout",
++            "side": "LONG",
++            "direction": "LONG",
++            "decision_ts_ms": 1710000000000,
++            "decision_bid": 100.0,
++            "decision_ask": 100.1,
++            "decision_mid": 100.05,
++            "decision_spread_bps": 10.0,
++            "tca_ready": True,
++            "book_sanity_flags": [],
++        }
++        fields = {b"payload": json.dumps(evt).encode("utf-8")}
++        fake = FakeRedis("events:decision_snapshot", [("1-0", fields), ("1-0", fields)])  # duplicate
++
++        cfg = DecisionSnapshotWriterConfig()
++        cfg.stream = "events:decision_snapshot"
++        cfg.group = "decision_snapshot_writer"
++        cfg.consumer = "test"
++        cfg.batch_size = 10
++        cfg.block_ms = 1
++        cfg.upsert_chunk = 100
++        cfg.log_every_n = 0
++
++        worker = DecisionSnapshotStreamWorker(cfg=cfg, redis=fake, db=db)
++
++        async def run():
++            await worker.ensure_group()
++            await worker.run_once()
++            await worker.run_once()
++
++        asyncio.run(run())
++
++        cur = conn.cursor()
++        cur.execute("SELECT COUNT(*) FROM decision_snapshot")
++        n = cur.fetchone()[0]
++        self.assertEqual(n, 1, "duplicate events must upsert into a single row")
++        self.assertGreaterEqual(len(fake.acked), 2, "entries must be acked")

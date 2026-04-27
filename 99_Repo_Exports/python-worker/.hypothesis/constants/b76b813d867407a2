@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/stream_consumer_impl.py
+# hypothesis_version: 6.148.10
+
+[0.0, 120, 6379, '+', '-', '0', '0-0', '1', '2.0', '200', '30000', '86400', '=', '>', 'NOGROUP', 'REDIS_HOST', 'REDIS_PORT', 'REDIS_URL', 'TEST_REDIS_URL', '__main__', 'false', 'localhost', 'message_id', 'no', 'recover_ack_only_ok', 'recover_reprocess_ok', 'scanner:msg_done:v1', 'streams_to_consume', 'xautoclaim', 'xclaim', 'xpending_range']

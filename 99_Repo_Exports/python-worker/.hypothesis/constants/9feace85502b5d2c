@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/liquidity_regime_service.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.1, 0.18, 0.2, 0.23, 0.25, 0.35, 0.42, 0.5, 0.6, 0.8, 1.0, 1.5, 1.8, 3.0, 8000.0, 15000.0, 25000.0, 30000.0, 45000.0, 80000.0, 200000.0, '1000', 'BNBUSDT', 'BONK', 'BTCUSDT', 'ETHUSDT', 'FLOKI', 'PEPE', 'SHIB', 'SOLUSDT', 'book_rate_min_hz', 'book_rate_warn_hz', 'dist_bp_threshold', 'dn_tier1_usd', 'large', 'liq_depth_crit_mult', 'liq_depth_warn_mult', 'liq_spread_crit_mult', 'liq_spread_warn_mult', 'liq_stressed_score', 'liq_thin_score', 'majors', 'memes', 'mid', 'normal', 'stressed', 'thin', 'tier1']

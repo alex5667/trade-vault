@@ -1,0 +1,1058 @@
+diff --git a/orderflow_services/operator_routing_incident_route_rca_route_slo_analytics_v2_25.py b/orderflow_services/operator_routing_incident_route_rca_route_slo_analytics_v2_25.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/operator_routing_incident_route_rca_route_slo_analytics_v2_25.py
+@@ -0,0 +1,336 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from typing import Any, Dict, List, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    import psycopg
++except Exception:  # pragma: no cover
++    psycopg = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++
++APP_NAME = "operator_routing_incident_route_rca_route_slo_analytics_v2_25"
++VERIFY_RESULTS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_VERIFY_RESULTS_STREAM",
++    "stream:ml:operator_routing_incident_route_rca_routing_verify_results",
++)
++ROLLBACK_RESULTS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_ROLLBACK_RESULTS_STREAM",
++    "stream:ml:operator_routing_incident_route_rca_routing_rollback_results",
++)
++OUTPUT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_SLO_ROLLUPS_STREAM",
++    "stream:ml:operator_routing_incident_route_rca_route_slo_rollups",
++)
++LAST_HASH = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_SLO_LAST_HASH",
++    "metrics:ml:operator_routing_incident_route_rca_route_slo:last",
++)
++AUDIT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_AUDIT_STREAM",
++    "stream:ml:operator_routing_incident_route_rca_routing_apply_audit",
++)
++PORT = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_SLO_PORT", "9912"))
++MAXLEN = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_SLO_MAXLEN", "20000"))
++WINDOW_MIN = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_SLO_WINDOW_MIN", "1440"))
++MTTR_SLO_SEC = float(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_MTTR_SLO_SEC", "900"))
++SUCCESS_RATE_MIN = float(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_SUCCESS_RATE_MIN", "0.85"))
++RUN_EVERY_SEC = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_SLO_RUN_EVERY_SEC", "300"))
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter(
++    "ml_operator_routing_incident_route_rca_route_slo_runs_total",
++    "Route incident RCA route SLO analytics runs",
++    ("status",),
++)
++LAT = _hist(
++    "ml_operator_routing_incident_route_rca_route_slo_latency_seconds",
++    "Route incident RCA route SLO analytics latency seconds",
++)
++UP = _gauge(
++    "ml_operator_routing_incident_route_rca_route_slo_up",
++    "Route incident RCA route SLO analytics up",
++)
++LAST_RUN_TS = _gauge(
++    "ml_operator_routing_incident_route_rca_route_slo_last_run_ts_seconds",
++    "Route incident RCA route SLO analytics last run timestamp",
++)
++SUCCESS_RATE = _gauge(
++    "ml_operator_routing_incident_route_rca_route_success_rate",
++    "Route incident RCA route safety-loop success rate",
++)
++MTTR_P95 = _gauge(
++    "ml_operator_routing_incident_route_rca_route_mttr_p95_seconds",
++    "Route incident RCA route safety-loop MTTR p95 seconds",
++)
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        if isinstance(v, (bytes, bytearray)):
++            try:
++                out[kk] = v.decode()
++            except Exception:
++                out[kk] = v.hex()
++        else:
++            out[kk] = v
++    return out
++
++
++def safe_int(value: Any, default: int = 0) -> int:
++    try:
++        return int(float(value))
++    except Exception:
++        return default
++
++
++def stable_json(obj: Any) -> str:
++    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++async def xr_recent(client: Any, stream_key: str, count: int) -> List[Dict[str, Any]]:
++    try:
++        rows = await client.xrevrange(stream_key, count=count)
++    except Exception:
++        return []
++    out: List[Dict[str, Any]] = []
++    for entry_id, payload in rows:
++        row = as_dict(payload)
++        row["_stream_id"] = entry_id.decode() if isinstance(entry_id, (bytes, bytearray)) else str(entry_id)
++        out.append(row)
++    return out
++
++
++def percentile(values: List[float], q: float) -> float:
++    if not values:
++        return 0.0
++    if len(values) == 1:
++        return float(values[0])
++    idx = max(0, min(len(values) - 1, int(round((len(values) - 1) * q))))
++    values_sorted = sorted(values)
++    return float(values_sorted[idx])
++
++
++def compute_rollup(verify_rows: List[Dict[str, Any]], rollback_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
++    now = now_ms()
++    window_start = now - WINDOW_MIN * 60 * 1000
++
++    verify_rows = [r for r in verify_rows if safe_int(r.get("ts_ms"), 0) >= window_start]
++    rollback_rows = [r for r in rollback_rows if safe_int(r.get("ts_ms"), 0) >= window_start]
++
++    total = len(verify_rows)
++    success = sum(1 for r in verify_rows if r.get("verification_status") == "PASS")
++    failed = sum(1 for r in verify_rows if r.get("verification_status") == "ROLLBACK_REQUIRED")
++    inconclusive = sum(1 for r in verify_rows if r.get("verification_status") == "INCONCLUSIVE")
++
++    mttr_values: List[float] = []
++    rollback_by_exp: Dict[str, Dict[str, Any]] = {}
++    for r in rollback_rows:
++        exp = r.get("experiment_id", "")
++        if exp and exp not in rollback_by_exp:
++            rollback_by_exp[exp] = r
++
++    for r in verify_rows:
++        if r.get("verification_status") != "ROLLBACK_REQUIRED":
++            continue
++        exp = r.get("experiment_id", "")
++        rb = rollback_by_exp.get(exp)
++        if not rb:
++            continue
++        dt = max(0, safe_int(rb.get("ts_ms"), 0) - safe_int(r.get("ts_ms"), 0))
++        mttr_values.append(dt / 1000.0)
++
++    success_rate = (success / total) if total > 0 else 1.0
++    mttr_p50 = percentile(mttr_values, 0.50)
++    mttr_p95 = percentile(mttr_values, 0.95)
++    breach_n = sum(1 for x in mttr_values if x > MTTR_SLO_SEC)
++
++    reason_codes = []
++    if success_rate < SUCCESS_RATE_MIN:
++        reason_codes.append("ROUTE_SUCCESS_RATE_LOW")
++    if mttr_p95 > MTTR_SLO_SEC:
++        reason_codes.append("ROUTE_MTTR_P95_HIGH")
++        reason_codes.append("ROUTE_MTTR_SLO_BREACH")
++
++    return {
++        "window_min": WINDOW_MIN,
++        "total": total,
++        "success": success,
++        "failed": failed,
++        "inconclusive": inconclusive,
++        "success_rate": round(success_rate, 6),
++        "mttr_p50_sec": round(mttr_p50, 6),
++        "mttr_p95_sec": round(mttr_p95, 6),
++        "breach_n": breach_n,
++        "reason_codes": reason_codes,
++    }
++
++
++async def persist_if_configured(db_url: str, rollup: Dict[str, Any]) -> None:
++    if not db_url or psycopg is None:
++        return
++    with psycopg.connect(db_url) as conn:  # pragma: no cover
++        with conn.cursor() as cur:
++            cur.execute(
++                """
++                INSERT INTO llm_operator_routing_incident_route_rca_route_slo_rollups (
++                    ts_ms,
++                    window_min,
++                    total,
++                    success,
++                    failed,
++                    inconclusive,
++                    success_rate,
++                    mttr_p50_sec,
++                    mttr_p95_sec,
++                    breach_n,
++                    reason_codes_json
++                ) VALUES (
++                    %(ts_ms)s,
++                    %(window_min)s,
++                    %(total)s,
++                    %(success)s,
++                    %(failed)s,
++                    %(inconclusive)s,
++                    %(success_rate)s,
++                    %(mttr_p50_sec)s,
++                    %(mttr_p95_sec)s,
++                    %(breach_n)s,
++                    %(reason_codes_json)s
++                )
++                """,
++                {
++                    "ts_ms": now_ms(),
++                    "window_min": rollup["window_min"],
++                    "total": rollup["total"],
++                    "success": rollup["success"],
++                    "failed": rollup["failed"],
++                    "inconclusive": rollup["inconclusive"],
++                    "success_rate": rollup["success_rate"],
++                    "mttr_p50_sec": rollup["mttr_p50_sec"],
++                    "mttr_p95_sec": rollup["mttr_p95_sec"],
++                    "breach_n": rollup["breach_n"],
++                    "reason_codes_json": json.dumps(rollup["reason_codes"]),
++                },
++            )
++            conn.commit()
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    db_url = os.getenv("DATABASE_URL", "")
++    lookback = max(300, WINDOW_MIN * 10)
++
++    while True:
++        started = time.perf_counter()
++        status = "ok"
++        try:
++            verify_rows = await xr_recent(r, VERIFY_RESULTS_STREAM, lookback)
++            rollback_rows = await xr_recent(r, ROLLBACK_RESULTS_STREAM, lookback)
++            rollup = compute_rollup(verify_rows, rollback_rows)
++            await persist_if_configured(db_url, rollup)
++            await r.xadd(
++                OUTPUT_STREAM,
++                {
++                    "schema_version": 1,
++                    "payload_json": stable_json(rollup),
++                    "reason_codes_json": stable_json(rollup["reason_codes"]),
++                    "ts_ms": str(now_ms()),
++                },
++                maxlen=MAXLEN,
++                approximate=True,
++            )
++            await r.hset(
++                LAST_HASH,
++                mapping={
++                    "success_rate": str(rollup["success_rate"]),
++                    "mttr_p50_sec": str(rollup["mttr_p50_sec"]),
++                    "mttr_p95_sec": str(rollup["mttr_p95_sec"]),
++                    "breach_n": str(rollup["breach_n"]),
++                    "reason_codes_json": stable_json(rollup["reason_codes"]),
++                    "ts_ms": str(now_ms()),
++                },
++            )
++            if SUCCESS_RATE:
++                SUCCESS_RATE.set(rollup["success_rate"])
++            if MTTR_P95:
++                MTTR_P95.set(rollup["mttr_p95_sec"])
++            if LAST_RUN_TS:
++                LAST_RUN_TS.set(time.time())
++        except Exception as exc:
++            status = "error"
++            await r.xadd(
++                AUDIT_STREAM,
++                {
++                    "event_type": "ROUTE_INCIDENT_ROUTE_SLO_FAILED",
++                    "error": str(exc),
++                    "ts_ms": str(now_ms()),
++                },
++                maxlen=MAXLEN,
++                approximate=True,
++            )
++        finally:
++            if RUNS:
++                RUNS.labels(status=status).inc()
++            if LAT:
++                LAT.observe(max(time.perf_counter() - started, 0.0))
++            time.sleep(max(RUN_EVERY_SEC, 5))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    main()
+diff --git a/orderflow_services/operator_routing_incident_route_rca_route_retry_controller_v2_25.py b/orderflow_services/operator_routing_incident_route_rca_route_retry_controller_v2_25.py
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/orderflow_services/operator_routing_incident_route_rca_route_retry_controller_v2_25.py
+@@ -0,0 +1,348 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from typing import Any, Dict, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    import psycopg
++except Exception:  # pragma: no cover
++    psycopg = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++
++APP_NAME = "operator_routing_incident_route_rca_route_retry_controller_v2_25"
++VERIFY_RESULTS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_VERIFY_RESULTS_STREAM",
++    "stream:ml:operator_routing_incident_route_rca_routing_verify_results",
++)
++RETRY_REQUESTS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_REQUESTS_STREAM",
++    "stream:ml:operator_routing_incident_route_rca_route_retry_requests",
++)
++AUDIT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_AUDIT_STREAM",
++    "stream:ml:operator_routing_incident_route_rca_routing_apply_audit",
++)
++LAST_HASH = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_LAST_HASH",
++    "metrics:ml:operator_routing_incident_route_rca_route_retry:last",
++)
++GROUP = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_GROUP", APP_NAME)
++CONSUMER = os.getenv("HOSTNAME", APP_NAME)
++PORT = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_PORT", "9913"))
++MAXLEN = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_MAXLEN", "20000"))
++MAX_ATTEMPTS = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_MAX_ATTEMPTS", "3"))
++BASE_BACKOFF_SEC = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_BASE_BACKOFF_SEC", "300"))
++MAX_BACKOFF_SEC = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_MAX_BACKOFF_SEC", "3600"))
++
++RETRYABLE = {
++    "LOW_EXPOSURE",
++    "FEEDBACK_STALE",
++    "ROUTE_MISMATCH",
++}
++HARD_STOP = {
++    "BASELINE_ROUTE_MISSING",
++    "ROUTING_POLICY_CORRUPTED",
++}
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter(
++    "ml_operator_routing_incident_route_rca_route_retry_runs_total",
++    "Route incident RCA route retry controller runs",
++    ("status", "decision"),
++)
++LAT = _hist(
++    "ml_operator_routing_incident_route_rca_route_retry_latency_seconds",
++    "Route incident RCA route retry controller latency seconds",
++)
++UP = _gauge(
++    "ml_operator_routing_incident_route_rca_route_retry_up",
++    "Route incident RCA route retry controller up",
++)
++LAST_RUN_TS = _gauge(
++    "ml_operator_routing_incident_route_rca_route_retry_last_run_ts_seconds",
++    "Route incident RCA route retry controller last run timestamp",
++)
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        if isinstance(v, (bytes, bytearray)):
++            try:
++                out[kk] = v.decode()
++            except Exception:
++                out[kk] = v.hex()
++        else:
++            out[kk] = v
++    return out
++
++
++def safe_int(value: Any, default: int = 0) -> int:
++    try:
++        return int(float(value))
++    except Exception:
++        return default
++
++
++async def ensure_group(client: Any, stream_key: str, group: str) -> None:
++    try:
++        await client.xgroup_create(stream_key, group, id="$", mkstream=True)
++    except Exception:
++        return
++
++
++def evaluate_retry(row: Dict[str, Any]) -> Dict[str, Any]:
++    reason = str(row.get("verification_reason_code", ""))
++    attempts = safe_int(row.get("retry_attempt"), 0)
++    if reason in HARD_STOP:
++        return {"decision": "NO_RETRY", "reason_code": "HARD_STOP", "attempts": attempts}
++    if reason not in RETRYABLE:
++        return {"decision": "NO_RETRY", "reason_code": "NOT_RETRYABLE", "attempts": attempts}
++    if attempts >= MAX_ATTEMPTS:
++        return {"decision": "NO_RETRY", "reason_code": "MAX_ATTEMPTS_REACHED", "attempts": attempts}
++    backoff = min(MAX_BACKOFF_SEC, BASE_BACKOFF_SEC * max(1, 2 ** attempts))
++    return {
++        "decision": "RETRY",
++        "reason_code": "RETRY_SCHEDULED",
++        "attempts": attempts + 1,
++        "backoff_sec": backoff,
++    }
++
++
++async def persist_if_configured(db_url: str, row: Dict[str, Any], evaluation: Dict[str, Any]) -> None:
++    if not db_url or psycopg is None:
++        return
++    with psycopg.connect(db_url) as conn:  # pragma: no cover
++        with conn.cursor() as cur:
++            cur.execute(
++                """
++                INSERT INTO llm_operator_routing_incident_route_rca_route_retry_events (
++                    experiment_id,
++                    ts_ms,
++                    verification_reason_code,
++                    decision,
++                    attempts,
++                    backoff_sec,
++                    event_json
++                ) VALUES (
++                    %(experiment_id)s,
++                    %(ts_ms)s,
++                    %(verification_reason_code)s,
++                    %(decision)s,
++                    %(attempts)s,
++                    %(backoff_sec)s,
++                    %(event_json)s
++                )
++                """,
++                {
++                    "experiment_id": row.get("experiment_id", ""),
++                    "ts_ms": now_ms(),
++                    "verification_reason_code": row.get("verification_reason_code", ""),
++                    "decision": evaluation["decision"],
++                    "attempts": evaluation["attempts"],
++                    "backoff_sec": evaluation.get("backoff_sec", 0),
++                    "event_json": json.dumps({"row": row, "evaluation": evaluation}),
++                },
++            )
++            conn.commit()
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    await ensure_group(r, VERIFY_RESULTS_STREAM, GROUP)
++    db_url = os.getenv("DATABASE_URL", "")
++
++    while True:
++        rows = await r.xreadgroup(GROUP, CONSUMER, {VERIFY_RESULTS_STREAM: ">"}, count=32, block=5000)
++        if not rows:
++            continue
++        for _stream, messages in rows:
++            for msg_id, payload in messages:
++                started = time.perf_counter()
++                status = "ok"
++                decision_label = "NO_RETRY"
++                try:
++                    row = as_dict(payload)
++                    evaluation = evaluate_retry(row)
++                    decision_label = evaluation["decision"]
++                    await persist_if_configured(db_url, row, evaluation)
++                    if evaluation["decision"] == "RETRY":
++                        retry_payload = {
++                            "schema_version": 1,
++                            "experiment_id": row.get("experiment_id", ""),
++                            "retry_attempt": str(evaluation["attempts"]),
++                            "verification_reason_code": row.get("verification_reason_code", ""),
++                            "retry_after_ts_ms": str(now_ms() + evaluation["backoff_sec"] * 1000),
++                            "baseline_route_json": row.get("baseline_route_json", "{}"),
++                            "target_route_json": row.get("target_route_json", "{}"),
++                            "ts_ms": str(now_ms()),
++                        }
++                        await r.xadd(RETRY_REQUESTS_STREAM, retry_payload, maxlen=MAXLEN, approximate=True)
++                    await r.xadd(
++                        AUDIT_STREAM,
++                        {
++                            "event_type": "ROUTE_INCIDENT_ROUTE_RETRY_EVALUATED",
++                            "experiment_id": row.get("experiment_id", ""),
++                            "decision": evaluation["decision"],
++                            "reason_code": evaluation["reason_code"],
++                            "attempts": str(evaluation["attempts"]),
++                            "ts_ms": str(now_ms()),
++                        },
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.hset(
++                        LAST_HASH,
++                        mapping={
++                            "decision": evaluation["decision"],
++                            "reason_code": evaluation["reason_code"],
++                            "attempts": str(evaluation["attempts"]),
++                            "ts_ms": str(now_ms()),
++                        },
++                    )
++                    await r.xack(VERIFY_RESULTS_STREAM, GROUP, msg_id)
++                    if LAST_RUN_TS:
++                        LAST_RUN_TS.set(time.time())
++                except Exception as exc:
++                    status = "error"
++                    await r.xadd(
++                        AUDIT_STREAM,
++                        {
++                            "event_type": "ROUTE_INCIDENT_ROUTE_RETRY_FAILED",
++                            "error": str(exc),
++                            "ts_ms": str(now_ms()),
++                        },
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.xack(VERIFY_RESULTS_STREAM, GROUP, msg_id)
++                finally:
++                    if RUNS:
++                        RUNS.labels(status=status, decision=decision_label).inc()
++                    if LAT:
++                        LAT.observe(max(time.perf_counter() - started, 0.0))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    import asyncio
++    asyncio.run(main())
+diff --git a/orderflow_services/operator_routing_incident_route_rca_route_auto_escalation_summarizer_v2_25.py b/orderflow_services/operator_routing_incident_route_rca_route_auto_escalation_summarizer_v2_25.py
+new file mode 100644
+index 0000000..2222223
+--- /dev/null
++++ b/orderflow_services/operator_routing_incident_route_rca_route_auto_escalation_summarizer_v2_25.py
+@@ -0,0 +1,323 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from typing import Any, Dict, List, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    import psycopg
++except Exception:  # pragma: no cover
++    psycopg = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++
++APP_NAME = "operator_routing_incident_route_rca_route_auto_escalation_summarizer_v2_25"
++SLO_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_SLO_ROLLUPS_STREAM",
++    "stream:ml:operator_routing_incident_route_rca_route_slo_rollups",
++)
++VERIFY_RESULTS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_VERIFY_RESULTS_STREAM",
++    "stream:ml:operator_routing_incident_route_rca_routing_verify_results",
++)
++ROLLBACK_RESULTS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_ROLLBACK_RESULTS_STREAM",
++    "stream:ml:operator_routing_incident_route_rca_routing_rollback_results",
++)
++OUTPUT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_ESCALATIONS_STREAM",
++    "stream:ml:operator_routing_incident_route_rca_route_escalations",
++)
++LAST_HASH = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_ESCALATIONS_LAST_HASH",
++    "metrics:ml:operator_routing_incident_route_rca_route_escalations:last",
++)
++AUDIT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_AUDIT_STREAM",
++    "stream:ml:operator_routing_incident_route_rca_routing_apply_audit",
++)
++PORT = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_ESCALATIONS_PORT", "9914"))
++MAXLEN = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_ESCALATIONS_MAXLEN", "20000"))
++RUN_EVERY_SEC = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_ESCALATIONS_RUN_EVERY_SEC", "300"))
++ESCALATION_FAILED_MIN = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_ESCALATION_FAILED_MIN", "3"))
++ESCALATION_MANUAL_MIN = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_ESCALATION_MANUAL_MIN", "2"))
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter(
++    "ml_operator_routing_incident_route_rca_route_escalations_runs_total",
++    "Route incident RCA route escalation summarizer runs",
++    ("status", "severity"),
++)
++LAT = _hist(
++    "ml_operator_routing_incident_route_rca_route_escalations_latency_seconds",
++    "Route incident RCA route escalation summarizer latency seconds",
++)
++UP = _gauge(
++    "ml_operator_routing_incident_route_rca_route_escalations_up",
++    "Route incident RCA route escalation summarizer up",
++)
++LAST_RUN_TS = _gauge(
++    "ml_operator_routing_incident_route_rca_route_escalations_last_run_ts_seconds",
++    "Route incident RCA route escalation summarizer last run timestamp",
++)
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        if isinstance(v, (bytes, bytearray)):
++            try:
++                out[kk] = v.decode()
++            except Exception:
++                out[kk] = v.hex()
++        else:
++            out[kk] = v
++    return out
++
++
++async def xr_recent(client: Any, stream_key: str, count: int) -> List[Dict[str, Any]]:
++    try:
++        rows = await client.xrevrange(stream_key, count=count)
++    except Exception:
++        return []
++    out: List[Dict[str, Any]] = []
++    for entry_id, payload in rows:
++        row = as_dict(payload)
++        row["_stream_id"] = entry_id.decode() if isinstance(entry_id, (bytes, bytearray)) else str(entry_id)
++        out.append(row)
++    return out
++
++
++def stable_json(obj: Any) -> str:
++    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++def severity_and_summary(slo_last: Dict[str, Any], verify_rows: List[Dict[str, Any]], rollback_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
++    reason_codes = json.loads(slo_last.get("reason_codes_json", "[]") or "[]")
++    rollback_required_n = sum(1 for r in verify_rows if r.get("verification_status") == "ROLLBACK_REQUIRED")
++    inconclusive_n = sum(1 for r in verify_rows if r.get("verification_status") == "INCONCLUSIVE")
++    rolled_back_n = sum(1 for r in rollback_rows if r.get("status") == "ROLLED_BACK")
++    failed_n = sum(1 for r in rollback_rows if r.get("status") not in {"ROLLED_BACK", "INCONCLUSIVE"})
++
++    severity = "info"
++    if failed_n >= ESCALATION_FAILED_MIN or "ROUTE_MTTR_SLO_BREACH" in reason_codes:
++        severity = "critical"
++    elif inconclusive_n >= ESCALATION_MANUAL_MIN or "ROUTE_SUCCESS_RATE_LOW" in reason_codes:
++        severity = "warning"
++
++    return {
++        "severity": severity,
++        "rollback_required_n": rollback_required_n,
++        "inconclusive_n": inconclusive_n,
++        "rolled_back_n": rolled_back_n,
++        "failed_n": failed_n,
++        "slo_reason_codes": reason_codes,
++    }
++
++
++async def persist_if_configured(db_url: str, summary: Dict[str, Any]) -> None:
++    if not db_url or psycopg is None:
++        return
++    with psycopg.connect(db_url) as conn:  # pragma: no cover
++        with conn.cursor() as cur:
++            cur.execute(
++                """
++                INSERT INTO llm_operator_routing_incident_route_rca_route_escalations (
++                    ts_ms,
++                    severity,
++                    summary_json
++                ) VALUES (
++                    %(ts_ms)s,
++                    %(severity)s,
++                    %(summary_json)s
++                )
++                """,
++                {
++                    "ts_ms": now_ms(),
++                    "severity": summary["severity"],
++                    "summary_json": json.dumps(summary),
++                },
++            )
++            conn.commit()
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    db_url = os.getenv("DATABASE_URL", "")
++
++    while True:
++        started = time.perf_counter()
++        status = "ok"
++        severity = "info"
++        try:
++            slo_last_raw = await r.hgetall(os.getenv(
++                "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_SLO_LAST_HASH",
++                "metrics:ml:operator_routing_incident_route_rca_route_slo:last",
++            ))
++            slo_last = as_dict(slo_last_raw)
++            verify_rows = await xr_recent(r, VERIFY_RESULTS_STREAM, 200)
++            rollback_rows = await xr_recent(r, ROLLBACK_RESULTS_STREAM, 200)
++            summary = severity_and_summary(slo_last, verify_rows, rollback_rows)
++            severity = summary["severity"]
++            await persist_if_configured(db_url, summary)
++            await r.xadd(
++                OUTPUT_STREAM,
++                {
++                    "schema_version": 1,
++                    "severity": severity,
++                    "summary_json": stable_json(summary),
++                    "ts_ms": str(now_ms()),
++                },
++                maxlen=MAXLEN,
++                approximate=True,
++            )
++            await r.hset(
++                LAST_HASH,
++                mapping={
++                    "severity": severity,
++                    "summary_json": stable_json(summary),
++                    "ts_ms": str(now_ms()),
++                },
++            )
++            await r.xadd(
++                AUDIT_STREAM,
++                {
++                    "event_type": "ROUTE_INCIDENT_ROUTE_ESCALATION_SUMMARY",
++                    "severity": severity,
++                    "ts_ms": str(now_ms()),
++                },
++                maxlen=MAXLEN,
++                approximate=True,
++            )
++            if LAST_RUN_TS:
++                LAST_RUN_TS.set(time.time())
++        except Exception as exc:
++            status = "error"
++            await r.xadd(
++                AUDIT_STREAM,
++                {
++                    "event_type": "ROUTE_INCIDENT_ROUTE_ESCALATION_FAILED",
++                    "error": str(exc),
++                    "ts_ms": str(now_ms()),
++                },
++                maxlen=MAXLEN,
++                approximate=True,
++            )
++        finally:
++            if RUNS:
++                RUNS.labels(status=status, severity=severity).inc()
++            if LAT:
++                LAT.observe(max(time.perf_counter() - started, 0.0))
++            time.sleep(max(RUN_EVERY_SEC, 5))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    main()
+diff --git a/orderflow_services/sql/ml_phase2_25_v1.sql b/orderflow_services/sql/ml_phase2_25_v1.sql
+new file mode 100644
+index 0000000..2222224
+--- /dev/null
++++ b/orderflow_services/sql/ml_phase2_25_v1.sql
+@@ -0,0 +1,45 @@
++BEGIN;
++
++CREATE TABLE IF NOT EXISTS llm_operator_routing_incident_route_rca_route_slo_rollups (
++    id                bigserial PRIMARY KEY,
++    ts_ms             bigint NOT NULL,
++    window_min        integer NOT NULL,
++    total             integer NOT NULL,
++    success           integer NOT NULL,
++    failed            integer NOT NULL,
++    inconclusive      integer NOT NULL,
++    success_rate      double precision NOT NULL,
++    mttr_p50_sec      double precision NOT NULL,
++    mttr_p95_sec      double precision NOT NULL,
++    breach_n          integer NOT NULL,
++    reason_codes_json jsonb NOT NULL
++);
++
++CREATE TABLE IF NOT EXISTS llm_operator_routing_incident_route_rca_route_retry_events (
++    id                       bigserial PRIMARY KEY,
++    experiment_id            text NOT NULL,
++    ts_ms                    bigint NOT NULL,
++    verification_reason_code text NOT NULL,
++    decision                 text NOT NULL,
++    attempts                 integer NOT NULL,
++    backoff_sec              integer NOT NULL,
++    event_json               jsonb NOT NULL
++);
++
++CREATE TABLE IF NOT EXISTS llm_operator_routing_incident_route_rca_route_escalations (
++    id            bigserial PRIMARY KEY,
++    ts_ms         bigint NOT NULL,
++    severity      text NOT NULL,
++    summary_json  jsonb NOT NULL
++);
++
++CREATE INDEX IF NOT EXISTS idx_llm_operator_routing_incident_route_rca_route_slo_rollups_ts
++    ON llm_operator_routing_incident_route_rca_route_slo_rollups(ts_ms DESC);
++
++CREATE INDEX IF NOT EXISTS idx_llm_operator_routing_incident_route_rca_route_retry_events_exp_ts
++    ON llm_operator_routing_incident_route_rca_route_retry_events(experiment_id, ts_ms DESC);
++
++CREATE INDEX IF NOT EXISTS idx_llm_operator_routing_incident_route_rca_route_escalations_ts
++    ON llm_operator_routing_incident_route_rca_route_escalations(ts_ms DESC);
++
++COMMIT;
+diff --git a/orderflow_services/docker_compose_fragment_ml_phase2_25_v1.yml b/orderflow_services/docker_compose_fragment_ml_phase2_25_v1.yml
+new file mode 100644
+index 0000000..3333335
+--- /dev/null
++++ b/orderflow_services/docker_compose_fragment_ml_phase2_25_v1.yml
+@@ -0,0 +1,50 @@
++services:
++  scanner-operator-routing-incident-route-rca-route-slo-analytics-v2-25:
++    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
++    command: ["python", "-m", "orderflow_services.operator_routing_incident_route_rca_route_slo_analytics_v2_25"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_SLO_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_SLO_PORT:-9912}
++    ports: ["${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_SLO_PORT:-9912}:9912"]
++    depends_on: [redis-worker-1]
++
++  scanner-operator-routing-incident-route-rca-route-retry-controller-v2-25:
++    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
++    command: ["python", "-m", "orderflow_services.operator_routing_incident_route_rca_route_retry_controller_v2_25"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_PORT:-9913}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_MAX_ATTEMPTS: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_MAX_ATTEMPTS:-3}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_BASE_BACKOFF_SEC: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_BASE_BACKOFF_SEC:-300}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_MAX_BACKOFF_SEC: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_MAX_BACKOFF_SEC:-3600}
++    ports: ["${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_PORT:-9913}:9913"]
++    depends_on: [redis-worker-1]
++
++  scanner-operator-routing-incident-route-rca-route-auto-escalation-summarizer-v2-25:
++    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
++    command: ["python", "-m", "orderflow_services.operator_routing_incident_route_rca_route_auto_escalation_summarizer_v2_25"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_ESCALATIONS_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_ESCALATIONS_PORT:-9914}
++    ports: ["${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_ESCALATIONS_PORT:-9914}:9914"]
++    depends_on: [redis-worker-1]
+diff --git a/orderflow_services/prometheus_alerts_ml_phase2_25_v1.yml b/orderflow_services/prometheus_alerts_ml_phase2_25_v1.yml
+new file mode 100644
+index 0000000..3333336
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_ml_phase2_25_v1.yml
+@@ -0,0 +1,38 @@
++groups:
++  - name: ml_phase2_25_operator_routing_incident_route_rca_route_governance_v1
++    rules:
++      - alert: MLOperatorRoutingIncidentRouteRCARouteSLOStale
++        expr: time() - ml_operator_routing_incident_route_rca_route_slo_last_run_ts_seconds > 1800
++        for: 10m
++        labels: { severity: warning }
++        annotations:
++          summary: "route incident RCA route SLO analytics is stale"
++
++      - alert: MLOperatorRoutingIncidentRouteRCARouteRetryStale
++        expr: time() - ml_operator_routing_incident_route_rca_route_retry_last_run_ts_seconds > 1800
++        for: 10m
++        labels: { severity: warning }
++        annotations:
++          summary: "route incident RCA route retry controller is stale"
++
++      - alert: MLOperatorRoutingIncidentRouteRCARouteEscalationStale
++        expr: time() - ml_operator_routing_incident_route_rca_route_escalations_last_run_ts_seconds > 1800
++        for: 10m
++        labels: { severity: warning }
++        annotations:
++          summary: "route incident RCA route escalation summarizer is stale"
+diff --git a/orderflow_services/runbook_ml_phase2_25_v1.md b/orderflow_services/runbook_ml_phase2_25_v1.md
+new file mode 100644
+index 0000000..4444445
+--- /dev/null
++++ b/orderflow_services/runbook_ml_phase2_25_v1.md
+@@ -0,0 +1,47 @@
++# Phase 2.25 — Route Incident RCA Route SLO/MTTR + Retry/Escalation
++
++## Цель
++Замкнуть полный governance contour для `route incident RCA` route-safety loop:
++- SLO / MTTR analytics
++- bounded retry
++- auto-escalation summaries
++
++## Потоки
++- SLO rollups: `stream:ml:operator_routing_incident_route_rca_route_slo_rollups`
++- retry requests: `stream:ml:operator_routing_incident_route_rca_route_retry_requests`
++- escalations: `stream:ml:operator_routing_incident_route_rca_route_escalations`
++
++## Safe start
++```bash
++export ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_MTTR_SLO_SEC=900
++export ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_SUCCESS_RATE_MIN=0.85
++export ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_MAX_ATTEMPTS=3
++export ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_BASE_BACKOFF_SEC=300
++```
++
++## Smoke checks
++```bash
++curl -s localhost:9912/metrics | grep '^ml_operator_routing_incident_route_rca_route_slo_'
++curl -s localhost:9913/metrics | grep '^ml_operator_routing_incident_route_rca_route_retry_'
++curl -s localhost:9914/metrics | grep '^ml_operator_routing_incident_route_rca_route_escalations_'
++redis-cli HGETALL metrics:ml:operator_routing_incident_route_rca_route_slo:last
++redis-cli XREVRANGE stream:ml:operator_routing_incident_route_rca_route_retry_requests + - COUNT 5
++redis-cli XREVRANGE stream:ml:operator_routing_incident_route_rca_route_escalations + - COUNT 5
++```
++
++## Notes
++- scope только `scanner_infra`
++- hot path не затронут
++- retry bounded
++- escalation advisory-only
+diff --git a/orderflow_services/tests/test_operator_routing_incident_route_rca_route_governance_v2_25.py b/orderflow_services/tests/test_operator_routing_incident_route_rca_route_governance_v2_25.py
+new file mode 100644
+index 0000000..5555556
+--- /dev/null
++++ b/orderflow_services/tests/test_operator_routing_incident_route_rca_route_governance_v2_25.py
+@@ -0,0 +1,60 @@
++from orderflow_services.operator_routing_incident_route_rca_route_slo_analytics_v2_25 import (
++    compute_rollup,
++)
++from orderflow_services.operator_routing_incident_route_rca_route_retry_controller_v2_25 import (
++    evaluate_retry,
++)
++from orderflow_services.operator_routing_incident_route_rca_route_auto_escalation_summarizer_v2_25 import (
++    severity_and_summary,
++)
++
++
++def test_compute_rollup_detects_success_rate_issue():
++    verify_rows = [
++        {"ts_ms": "9999999999999", "experiment_id": "e1", "verification_status": "PASS"},
++        {"ts_ms": "9999999999999", "experiment_id": "e2", "verification_status": "ROLLBACK_REQUIRED"},
++        {"ts_ms": "9999999999999", "experiment_id": "e3", "verification_status": "ROLLBACK_REQUIRED"},
++    ]
++    rollback_rows = []
++    rollup = compute_rollup(verify_rows, rollback_rows)
++    assert rollup["failed"] == 2
++    assert "ROUTE_SUCCESS_RATE_LOW" in rollup["reason_codes"]
++
++
++def test_evaluate_retry_respects_retryable_and_hard_stop():
++    row = {"verification_reason_code": "LOW_EXPOSURE", "retry_attempt": "0"}
++    out = evaluate_retry(row)
++    assert out["decision"] == "RETRY"
++    row2 = {"verification_reason_code": "ROUTING_POLICY_CORRUPTED", "retry_attempt": "0"}
++    out2 = evaluate_retry(row2)
++    assert out2["decision"] == "NO_RETRY"
++    assert out2["reason_code"] == "HARD_STOP"
++
++
++def test_severity_and_summary_critical_on_breach():
++    slo_last = {"reason_codes_json": '["ROUTE_MTTR_SLO_BREACH"]'}
++    verify_rows = [{"verification_status": "ROLLBACK_REQUIRED"}]
++    rollback_rows = [{"status": "FAILED"}, {"status": "FAILED"}, {"status": "FAILED"}]
++    summary = severity_and_summary(slo_last, verify_rows, rollback_rows)
++    assert summary["severity"] == "critical"

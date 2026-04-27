@@ -1,0 +1,21 @@
+groups:
+  - name: tca_nightly_report_v1
+    interval: 60s
+    rules:
+      - alert: TCANightlyReportStale
+        expr: tca_nightly_report_last_age_seconds > 129600
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Nightly TCA report stale (>36h)"
+          description: "state:tca_nightly_report:last has not been refreshed recently. Check services.posttrade.tca_nightly_report_v1 and DB connectivity."
+
+      - alert: TCANightlyReportExecHealthBreaches
+        expr: (tca_nightly_report_breach_groups{metric="is_p95"} + tca_nightly_report_breach_groups{metric="perm_impact_p95"} + tca_nightly_report_breach_groups{metric="realized_spread_p50"}) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Nightly TCA report detected execution-health breaches"
+          description: "One or more 24h TCA groups exceeded IS/impact/adverse-selection thresholds. Review the JSON report and promotion gates before rollout."

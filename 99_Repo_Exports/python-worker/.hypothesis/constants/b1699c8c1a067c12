@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/async_signal_publisher.py
+# hypothesis_version: 6.148.10
+
+[0.5, 1.0, 2.0, 10.0, 1000, 10000, ',', '0', '1', '1.0', '2.0', ':', 'OPEN', 'Successful retries', '_risk_clip', 'action', 'advisory', 'allow', 'applied', 'async_pub_cmp', 'be', 'binance', 'block_release', 'clip', 'clip_new_risk', 'close', 'deny', 'deny_new_risk', 'dq_flags', 'kind', 'legacy_enforced', 'na', 'new_entry', 'on', 'orders:queue', 'original_risk', 'overall_action', 'payload', 'policy_enforcement', 'ratchet', 'reason', 'risk_pct', 'signal', 'sl', 'source', 'state', 'stream', 'symbol', 'tp', 'trail', 'true', 'venue', 'violations', 'yes']

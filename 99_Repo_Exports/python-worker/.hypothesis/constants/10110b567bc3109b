@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/dlq_sanitize.py
+# hypothesis_version: 6.148.10
+
+[500, 1000, '...', 'data_type', 'error', 'error_message', 'error_type']

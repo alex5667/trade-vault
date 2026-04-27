@@ -1,0 +1,875 @@
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=*.pyc' '--exclude=*.orig' '--exclude=*.rej' '--exclude=archivers' trade_p11_base/services/active_symbol_guard_cli.py trade_p11/services/active_symbol_guard_cli.py
+--- trade_p11_base/services/active_symbol_guard_cli.py	2026-03-16 19:09:12.644728360 +0000
++++ trade_p11/services/active_symbol_guard_cli.py	2026-03-16 19:15:03.648315084 +0000
+@@ -6,10 +6,12 @@
+ 
+ try:  # pragma: no cover
+     from services.active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics
++    from services.active_symbol_guard_incident_policy import ActiveSymbolGuardIncidentPolicyEngine
+     from services.binance_futures_client import BinanceFuturesClient
+     from services.execution_projection_worker import _redis_from_env
+ except Exception:  # pragma: no cover
+     from active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics  # type: ignore
++    from active_symbol_guard_incident_policy import ActiveSymbolGuardIncidentPolicyEngine  # type: ignore
+     from binance_futures_client import BinanceFuturesClient  # type: ignore
+     from execution_projection_worker import _redis_from_env  # type: ignore
+ 
+@@ -30,6 +32,8 @@
+     group.add_argument('--heatmap', action='store_true', help='Print windowed hot-symbol heatmap')
+     group.add_argument('--incident-symbol', help='Print full incident bundle for symbol')
+     group.add_argument('--incident-sid', help='Print full incident bundle for sid')
++    group.add_argument('--triage-symbol', help='Print triaged incident payload for symbol')
++    group.add_argument('--triage-sid', help='Print triaged incident payload for sid')
+     p.add_argument('--exchange', action='store_true', help='Include live Binance truth if client is configured')
+     p.add_argument('--pretty', action='store_true', help='Pretty-print JSON')
+     return p
+@@ -56,6 +60,10 @@
+         payload = diag.incident_bundle_symbol(args.incident_symbol, include_exchange=bool(args.exchange))
+     elif args.incident_sid:
+         payload = diag.incident_bundle_sid(args.incident_sid, include_exchange=bool(args.exchange))
++    elif args.triage_symbol:
++        payload = ActiveSymbolGuardIncidentPolicyEngine(r, diag).triage_symbol(args.triage_symbol, include_exchange=bool(args.exchange))
++    elif args.triage_sid:
++        payload = ActiveSymbolGuardIncidentPolicyEngine(r, diag).triage_sid(args.triage_sid, include_exchange=bool(args.exchange))
+     elif args.symbol:
+         payload = diag.debug_symbol(args.symbol, include_exchange=bool(args.exchange))
+     else:
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=*.pyc' '--exclude=*.orig' '--exclude=*.rej' '--exclude=archivers' trade_p11_base/services/active_symbol_guard_exporter.py trade_p11/services/active_symbol_guard_exporter.py
+--- trade_p11_base/services/active_symbol_guard_exporter.py	2026-03-16 19:09:12.645674716 +0000
++++ trade_p11/services/active_symbol_guard_exporter.py	2026-03-16 19:15:03.647445937 +0000
+@@ -7,10 +7,12 @@
+ 
+ try:  # pragma: no cover
+     from services.active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics
++    from services.active_symbol_guard_incident_policy import ActiveSymbolGuardIncidentPolicyEngine
+     from services.binance_futures_client import BinanceFuturesClient
+     from services.execution_projection_worker import _redis_from_env
+ except Exception:  # pragma: no cover
+     from active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics  # type: ignore
++    from active_symbol_guard_incident_policy import ActiveSymbolGuardIncidentPolicyEngine  # type: ignore
+     from binance_futures_client import BinanceFuturesClient  # type: ignore
+     from execution_projection_worker import _redis_from_env  # type: ignore
+ 
+@@ -23,6 +25,7 @@
+         parsed = urlparse(self.path)
+         path = parsed.path
+         diag = self._diag()
++        policy = self.server.policy  # type: ignore[attr-defined]
+         if path in ('/healthz', '/readyz', '/api/active-symbol-guard/health'):
+             snap = diag.snapshot()
+             status = 200 if snap.get('ok') else 503
+@@ -30,6 +33,14 @@
+         elif path == '/api/active-symbol-guard/heatmap':
+             body = json.dumps(diag.heatmap(), ensure_ascii=False).encode('utf-8')
+             status = 200
++        elif path.startswith('/api/active-symbol-guard/triage/symbol/'):
++            symbol = path.rsplit('/', 1)[-1].strip().upper()
++            body = json.dumps(policy.triage_symbol(symbol, include_exchange=True), ensure_ascii=False).encode('utf-8')
++            status = 200
++        elif path.startswith('/api/active-symbol-guard/triage/sid/'):
++            sid = path.rsplit('/', 1)[-1].strip()
++            body = json.dumps(policy.triage_sid(sid, include_exchange=True), ensure_ascii=False).encode('utf-8')
++            status = 200
+         elif path.startswith('/api/active-symbol-guard/incident/symbol/'):
+             symbol = path.rsplit('/', 1)[-1].strip().upper()
+             body = json.dumps(diag.incident_bundle_symbol(symbol, include_exchange=True), ensure_ascii=False).encode('utf-8')
+@@ -81,8 +92,10 @@
+     )
+     host = os.getenv('ACTIVE_SYMBOL_GUARD_EXPORTER_HOST', '0.0.0.0')
+     port = int(os.getenv('ACTIVE_SYMBOL_GUARD_EXPORTER_PORT', '8788'))
++    policy = ActiveSymbolGuardIncidentPolicyEngine(r, diag)
+     server = HTTPServer((host, port), _Handler)
+     server.diagnostics = diag  # type: ignore[attr-defined]
++    server.policy = policy  # type: ignore[attr-defined]
+     print(f'active-symbol-guard-exporter listening on {host}:{port}')
+     server.serve_forever()
+     return 0
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=*.pyc' '--exclude=*.orig' '--exclude=*.rej' '--exclude=archivers' trade_p11_base/services/active_symbol_guard_incident_notifier.py trade_p11/services/active_symbol_guard_incident_notifier.py
+--- trade_p11_base/services/active_symbol_guard_incident_notifier.py	1970-01-01 00:00:00.000000000 +0000
++++ trade_p11/services/active_symbol_guard_incident_notifier.py	2026-03-16 19:14:30.199683953 +0000
+@@ -0,0 +1,144 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from typing import Any, Dict, Iterable, List, Set
++
++try:  # pragma: no cover
++    from services.active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics
++    from services.active_symbol_guard_incident_policy import ActiveSymbolGuardIncidentPolicyEngine
++    from services.binance_futures_client import BinanceFuturesClient
++    from services.execution_projection_worker import _redis_from_env
++    from services.telegram.telegram_client import TelegramClient
++except Exception:  # pragma: no cover
++    from active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics  # type: ignore
++    from active_symbol_guard_incident_policy import ActiveSymbolGuardIncidentPolicyEngine  # type: ignore
++    from binance_futures_client import BinanceFuturesClient  # type: ignore
++    from execution_projection_worker import _redis_from_env  # type: ignore
++    from telegram.telegram_client import TelegramClient  # type: ignore
++
++
++def _ms_now() -> int:
++    return int(time.time() * 1000)
++
++
++class ActiveSymbolGuardIncidentNotifier:
++    def __init__(
++        self,
++        redis_client: Any,
++        diagnostics: ActiveSymbolGuardDiagnostics,
++        policy: ActiveSymbolGuardIncidentPolicyEngine,
++        *,
++        notify_stream: str = 'notify:telegram',
++        stream_maxlen: int = 200000,
++        direct_telegram: Any | None = None,
++    ) -> None:
++        self.r = redis_client
++        self.diagnostics = diagnostics
++        self.policy = policy
++        self.notify_stream = str(notify_stream or 'notify:telegram')
++        self.stream_maxlen = max(int(stream_maxlen or 0), 1)
++        self.direct_telegram = direct_telegram
++
++    def _candidate_symbols(self) -> List[str]:
++        snap = self.diagnostics.snapshot()
++        heatmap = (((snap or {}).get('heatmap') or {}).get('top_hot_symbols') or {})
++        candidates: Set[str] = set()
++        for item in list((snap or {}).get('guards') or []):
++            cls = str((item or {}).get('classification') or '')
++            if cls in {'pending_release', 'stale_tombstone'}:
++                candidates.add(str((item or {}).get('symbol') or '').strip().upper())
++        for item in list((snap or {}).get('cas_conflict_hot_symbols') or []):
++            candidates.add(str((item or {}).get('symbol') or '').strip().upper())
++        for item in list((snap or {}).get('resurrection_hot_symbols') or []):
++            candidates.add(str((item or {}).get('symbol') or '').strip().upper())
++        for window in ('5m', '1h'):
++            for item in list((heatmap or {}).get(window) or []):
++                candidates.add(str((item or {}).get('symbol') or '').strip().upper())
++        return sorted(sym for sym in candidates if sym)
++
++    def _send_stream(self, triaged: Dict[str, Any]) -> bool:
++        try:
++            fields = self.policy.telegram_stream_fields(triaged)
++            self.r.xadd(self.notify_stream, fields, maxlen=self.stream_maxlen, approximate=True)
++            self.policy.mark_notified(triaged, channel='telegram_stream', result='sent')
++            return True
++        except Exception:
++            self.policy.mark_notified(triaged, channel='telegram_stream', result='failed')
++            return False
++
++    def _send_direct(self, triaged: Dict[str, Any]) -> bool:
++        tg = self.direct_telegram
++        if tg is None:
++            return False
++        try:
++            ok = bool(tg.send_text(str((triaged or {}).get('telegram_text') or '')))
++            self.policy.mark_notified(triaged, channel='telegram_direct', result='sent' if ok else 'failed')
++            return ok
++        except Exception:
++            self.policy.mark_notified(triaged, channel='telegram_direct', result='failed')
++            return False
++
++    def run_once(self) -> Dict[str, Any]:
++        symbols = self._candidate_symbols()
++        sent: List[Dict[str, Any]] = []
++        skipped: List[Dict[str, Any]] = []
++        for symbol in symbols:
++            triaged = self.policy.triage_symbol(symbol, include_exchange=True)
++            policy = dict((triaged or {}).get('policy') or {})
++            if not bool(policy.get('should_notify')):
++                skipped.append({'symbol': symbol, 'decision': str(policy.get('decision') or 'skip')})
++                continue
++            stream_ok = self._send_stream(triaged)
++            if os.getenv('ACTIVE_SYMBOL_GUARD_NOTIFY_DIRECT_TELEGRAM', '0').lower() in ('1', 'true', 'yes', 'on'):
++                self._send_direct(triaged)
++            sent.append({
++                'symbol': symbol,
++                'severity': str(((triaged or {}).get('summary') or {}).get('severity') or ''),
++                'stream_sent': bool(stream_ok),
++                'fingerprint': str(policy.get('fingerprint') or ''),
++            })
++        return {
++            'generated_at_ms': _ms_now(),
++            'candidate_symbols': symbols,
++            'sent': sent,
++            'skipped': skipped,
++        }
++
++
++def _client_from_env():  # pragma: no cover
++    try:
++        return BinanceFuturesClient.from_env()
++    except Exception:
++        return None
++
++
++def main() -> int:  # pragma: no cover
++    r = _redis_from_env()
++    diag = ActiveSymbolGuardDiagnostics(
++        r,
++        client=_client_from_env(),
++        active_symbol_key_prefix=os.getenv('ORDERS_ACTIVE_SYMBOL_KEY_PREFIX', 'orders:active_symbol_sid:'),
++        state_key_prefix=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'),
++        state_ttl_sec=int(os.getenv('ORDERS_STATE_TTL_SEC', '86400')),
++        tombstone_ttl_sec=int(os.getenv('ACTIVE_SYMBOL_GUARD_TOMBSTONE_TTL_SEC', '120')),
++        stale_tombstone_ms=int(os.getenv('ACTIVE_SYMBOL_GUARD_STALE_TOMBSTONE_MS', '600000')),
++        hot_symbol_limit=int(os.getenv('ACTIVE_SYMBOL_GUARD_EXPORTER_HOT_LIMIT', '10')),
++    )
++    policy = ActiveSymbolGuardIncidentPolicyEngine(r, diag)
++    notifier = ActiveSymbolGuardIncidentNotifier(
++        r,
++        diag,
++        policy,
++        notify_stream=os.getenv('NOTIFY_TELEGRAM_STREAM', 'notify:telegram'),
++        stream_maxlen=int(os.getenv('ACTIVE_SYMBOL_GUARD_NOTIFY_STREAM_MAXLEN', '200000')),
++        direct_telegram=TelegramClient.from_env(),
++    )
++    result = notifier.run_once()
++    print(json.dumps(result, ensure_ascii=False))
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=*.pyc' '--exclude=*.orig' '--exclude=*.rej' '--exclude=archivers' trade_p11_base/services/active_symbol_guard_incident_policy.py trade_p11/services/active_symbol_guard_incident_policy.py
+--- trade_p11_base/services/active_symbol_guard_incident_policy.py	1970-01-01 00:00:00.000000000 +0000
++++ trade_p11/services/active_symbol_guard_incident_policy.py	2026-03-16 19:13:31.923548084 +0000
+@@ -0,0 +1,373 @@
++from __future__ import annotations
++
++import hashlib
++import json
++import os
++import time
++from typing import Any, Dict, List, Optional, Sequence
++
++try:  # pragma: no cover
++    from services.active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics
++    from services.execution_metrics import (
++        EXECUTION_ACTIVE_SYMBOL_GUARD_INCIDENT_TOTAL,
++        EXECUTION_ACTIVE_SYMBOL_GUARD_NOTIFY_TOTAL,
++        EXECUTION_ACTIVE_SYMBOL_GUARD_SUPPRESSION_TOTAL,
++    )
++except Exception:  # pragma: no cover
++    from active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics  # type: ignore
++    from execution_metrics import (  # type: ignore
++        EXECUTION_ACTIVE_SYMBOL_GUARD_INCIDENT_TOTAL,
++        EXECUTION_ACTIVE_SYMBOL_GUARD_NOTIFY_TOTAL,
++        EXECUTION_ACTIVE_SYMBOL_GUARD_SUPPRESSION_TOTAL,
++    )
++
++
++def _ms_now() -> int:
++    return int(time.time() * 1000)
++
++
++def _i(v: Any, default: int = 0) -> int:
++    try:
++        return int(v)
++    except Exception:
++        return int(default)
++
++
++class ActiveSymbolGuardIncidentPolicyEngine:
++    """Policy/triage layer for active-symbol incidents.
++
++    Responsibilities:
++    - convert diagnostics bundles into normalized severity and runbook actions
++    - apply dedupe/suppression policy in Redis
++    - emit notifier payloads that can be used by Telegram/HTTP/UI
++    """
++
++    def __init__(
++        self,
++        redis_client: Any,
++        diagnostics: ActiveSymbolGuardDiagnostics,
++        *,
++        dedupe_prefix: str = 'orders:active_symbol_guard:incident:dedupe:',
++        suppress_prefix: str = 'orders:active_symbol_guard:incident:suppress:',
++        incident_prefix: str = 'orders:active_symbol_guard:incident:last:',
++        dedupe_ttl_info_sec: int | None = None,
++        dedupe_ttl_warning_sec: int | None = None,
++        dedupe_ttl_critical_sec: int | None = None,
++    ) -> None:
++        self.r = redis_client
++        self.diagnostics = diagnostics
++        self.dedupe_prefix = str(dedupe_prefix or 'orders:active_symbol_guard:incident:dedupe:')
++        self.suppress_prefix = str(suppress_prefix or 'orders:active_symbol_guard:incident:suppress:')
++        self.incident_prefix = str(incident_prefix or 'orders:active_symbol_guard:incident:last:')
++        self.dedupe_ttl_info_sec = max(int(dedupe_ttl_info_sec or os.getenv('ACTIVE_SYMBOL_GUARD_INCIDENT_DEDUPE_INFO_SEC', '300')), 1)
++        self.dedupe_ttl_warning_sec = max(int(dedupe_ttl_warning_sec or os.getenv('ACTIVE_SYMBOL_GUARD_INCIDENT_DEDUPE_WARNING_SEC', '900')), 1)
++        self.dedupe_ttl_critical_sec = max(int(dedupe_ttl_critical_sec or os.getenv('ACTIVE_SYMBOL_GUARD_INCIDENT_DEDUPE_CRITICAL_SEC', '1800')), 1)
++        self.default_symbol_suppress_sec = max(int(os.getenv('ACTIVE_SYMBOL_GUARD_SYMBOL_SUPPRESS_SEC', '1800')), 1)
++        self.default_fingerprint_suppress_sec = max(int(os.getenv('ACTIVE_SYMBOL_GUARD_FINGERPRINT_SUPPRESS_SEC', '900')), 1)
++
++    def _severity_ttl_sec(self, severity: str) -> int:
++        sev = str(severity or 'info').lower()
++        if sev == 'critical':
++            return int(self.dedupe_ttl_critical_sec)
++        if sev == 'warning':
++            return int(self.dedupe_ttl_warning_sec)
++        return int(self.dedupe_ttl_info_sec)
++
++    def _notify_metric(self, severity: str, channel: str, result: str) -> None:
++        try:
++            if EXECUTION_ACTIVE_SYMBOL_GUARD_NOTIFY_TOTAL is not None:
++                EXECUTION_ACTIVE_SYMBOL_GUARD_NOTIFY_TOTAL.labels(
++                    severity=str(severity or ''), channel=str(channel or ''), result=str(result or '')
++                ).inc()
++        except Exception:
++            pass
++
++    def _suppression_metric(self, scope: str, result: str) -> None:
++        try:
++            if EXECUTION_ACTIVE_SYMBOL_GUARD_SUPPRESSION_TOTAL is not None:
++                EXECUTION_ACTIVE_SYMBOL_GUARD_SUPPRESSION_TOTAL.labels(scope=str(scope or ''), result=str(result or '')).inc()
++        except Exception:
++            pass
++
++    def _incident_metric(self, severity: str, classification: str, decision: str) -> None:
++        try:
++            if EXECUTION_ACTIVE_SYMBOL_GUARD_INCIDENT_TOTAL is not None:
++                EXECUTION_ACTIVE_SYMBOL_GUARD_INCIDENT_TOTAL.labels(
++                    severity=str(severity or ''), classification=str(classification or ''), decision=str(decision or '')
++                ).inc()
++        except Exception:
++            pass
++
++    def _fingerprint(self, summary: Dict[str, Any], exchange_truth: Dict[str, Any], race_chains: Sequence[Dict[str, Any]]) -> str:
++        symbol = str(summary.get('symbol') or '').strip().upper()
++        classification = str(summary.get('classification') or '')
++        severity = str(summary.get('severity') or '')
++        hot_5m = _i((summary.get('hotness') or {}).get('5m'), 0)
++        hot_bucket = '5+' if hot_5m >= 5 else '3+' if hot_5m >= 3 else '1+' if hot_5m >= 1 else '0'
++        race_types = sorted({str((item or {}).get('chain_type') or '') for item in (race_chains or []) if str((item or {}).get('chain_type') or '')})
++        shape = {
++            'symbol': symbol,
++            'classification': classification,
++            'severity': severity,
++            'hot_bucket': hot_bucket,
++            'race_types': race_types,
++            'exchange_has_live_position': bool((exchange_truth or {}).get('has_live_position')),
++            'exchange_has_open_orders': bool((exchange_truth or {}).get('has_open_orders')),
++            'exchange_reliable': bool((exchange_truth or {}).get('is_reliable')),
++        }
++        raw = json.dumps(shape, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
++        return hashlib.sha1(raw.encode('utf-8')).hexdigest()[:16]
++
++    def _score_bundle(self, bundle: Dict[str, Any]) -> Dict[str, Any]:
++        summary = dict(bundle.get('summary') or {})
++        exchange_truth = dict(bundle.get('exchange_truth') or {})
++        classification = str(summary.get('classification') or bundle.get('classification') or '')
++        hotness = dict(summary.get('hotness') or {})
++        hot_5m = _i(hotness.get('5m'), 0)
++        hot_1h = _i(hotness.get('1h'), 0)
++        race_chains = list(bundle.get('suspicious_writer_race_chains') or [])
++        race_types = [str((item or {}).get('chain_type') or '') for item in race_chains]
++        score = 0
++        reasons: List[str] = []
++
++        base_points = {
++            'active': 5,
++            'pending_release': 30,
++            'released_tombstone': 12,
++            'stale_tombstone': 45,
++            'unknown': 8,
++            'missing_symbol': 20,
++        }
++        score += int(base_points.get(classification, 0))
++        if classification in base_points:
++            reasons.append(f'class:{classification}+{base_points.get(classification, 0)}')
++
++        if hot_5m > 0:
++            add = min(hot_5m * 8, 32)
++            score += int(add)
++            reasons.append(f'hot5m+{add}')
++        if hot_1h > 0:
++            add = min(hot_1h * 2, 16)
++            score += int(add)
++            reasons.append(f'hot1h+{add}')
++        if race_chains:
++            add = min(len(race_chains) * 10, 30)
++            score += int(add)
++            reasons.append(f'race+{add}')
++        if 'multi_writer_conflict_burst' in race_types:
++            score += 15
++            reasons.append('multi_writer_conflict_burst+15')
++        if 'release_then_conflict' in race_types:
++            score += 20
++            reasons.append('release_then_conflict+20')
++        if 'resurrection_attempt' in race_types:
++            score += 35
++            reasons.append('resurrection_attempt+35')
++        if bool(exchange_truth.get('has_live_position')) and classification in {'released_tombstone', 'stale_tombstone'}:
++            score += 60
++            reasons.append('live_position_while_nonblocking+60')
++        elif bool(exchange_truth.get('has_live_position')) and classification == 'pending_release':
++            score += 20
++            reasons.append('live_position_pending_release+20')
++        if bool(exchange_truth.get('has_open_orders')) and classification in {'released_tombstone', 'stale_tombstone'}:
++            score += 25
++            reasons.append('open_orders_while_nonblocking+25')
++        if exchange_truth and not bool(exchange_truth.get('is_reliable')):
++            score += 5
++            reasons.append('exchange_unreliable+5')
++
++        severity = 'info'
++        if score >= 80:
++            severity = 'critical'
++        elif score >= 35:
++            severity = 'warning'
++        return {
++            'score': int(score),
++            'severity': severity,
++            'reasons': reasons,
++        }
++
++    def _runbook_actions(self, bundle: Dict[str, Any], policy: Dict[str, Any]) -> List[Dict[str, Any]]:
++        summary = dict(bundle.get('summary') or {})
++        symbol = str(summary.get('symbol') or '').strip().upper()
++        sid = str(summary.get('sid') or '').strip()
++        classification = str(summary.get('classification') or '')
++        exchange_truth = dict(bundle.get('exchange_truth') or {})
++        severity = str(policy.get('severity') or 'info')
++        base_url = os.getenv('ACTIVE_SYMBOL_GUARD_EXPORTER_BASE_URL', 'http://127.0.0.1:8788').rstrip('/')
++        actions: List[Dict[str, Any]] = [
++            {
++                'action': 'inspect',
++                'kind': 'read_only',
++                'endpoint': f'{base_url}/api/active-symbol-guard/incident/symbol/{symbol}',
++                'symbol': symbol,
++                'sid': sid,
++                'enabled': bool(symbol),
++            }
++        ]
++        hold_reason = f'active_symbol_incident:{severity}:{classification}'
++        actions.append({
++            'action': 'hold_symbol',
++            'kind': 'manual_or_automation',
++            'symbol': symbol,
++            'sid': sid,
++            'enabled': bool(symbol and severity in {'warning', 'critical'}),
++            'redis_key': f'orders:symbol_hold:{symbol}',
++            'payload': {'symbol': symbol, 'sid': sid, 'reason': hold_reason, 'ttl_sec': int(os.getenv('ACTIVE_SYMBOL_GUARD_RUNBOOK_HOLD_TTL_SEC', '1800'))},
++        })
++        force_release_enabled = bool(symbol and classification in {'pending_release', 'released_tombstone', 'stale_tombstone'} and bool(exchange_truth.get('is_flat')))
++        actions.append({
++            'action': 'force_release',
++            'kind': 'manual_or_guarded_automation',
++            'symbol': symbol,
++            'sid': sid,
++            'enabled': force_release_enabled,
++            'safety_preconditions': {
++                'exchange_is_flat': bool(exchange_truth.get('is_flat')),
++                'exchange_has_live_position': bool(exchange_truth.get('has_live_position')),
++                'exchange_has_open_orders': bool(exchange_truth.get('has_open_orders')),
++            },
++        })
++        actions.append({
++            'action': 'escalate',
++            'kind': 'manual_or_notification',
++            'symbol': symbol,
++            'sid': sid,
++            'enabled': bool(symbol and (severity == 'critical' or policy.get('score', 0) >= 65)),
++            'target': os.getenv('ACTIVE_SYMBOL_GUARD_ESCALATION_TARGET', 'telegram:oncall'),
++            'reason': ','.join(list(policy.get('reasons') or [])[:4]),
++        })
++        return actions
++
++    def _dedupe_key(self, fingerprint: str) -> str:
++        return f'{self.dedupe_prefix}{fingerprint}'
++
++    def _symbol_suppress_key(self, symbol: str) -> str:
++        return f'{self.suppress_prefix}symbol:{str(symbol or "").strip().upper()}'
++
++    def _fingerprint_suppress_key(self, fingerprint: str) -> str:
++        return f'{self.suppress_prefix}fingerprint:{fingerprint}'
++
++    def set_symbol_suppression(self, symbol: str, *, ttl_sec: Optional[int] = None, reason: str = 'manual') -> Dict[str, Any]:
++        symbol = str(symbol or '').strip().upper()
++        ttl = max(int(ttl_sec or self.default_symbol_suppress_sec), 1)
++        doc = {'symbol': symbol, 'reason': str(reason or ''), 'created_at_ms': _ms_now(), 'ttl_sec': ttl}
++        self.r.set(self._symbol_suppress_key(symbol), json.dumps(doc, ensure_ascii=False), ex=ttl)
++        return doc
++
++    def set_fingerprint_suppression(self, fingerprint: str, *, ttl_sec: Optional[int] = None, reason: str = 'manual') -> Dict[str, Any]:
++        fp = str(fingerprint or '').strip()
++        ttl = max(int(ttl_sec or self.default_fingerprint_suppress_sec), 1)
++        doc = {'fingerprint': fp, 'reason': str(reason or ''), 'created_at_ms': _ms_now(), 'ttl_sec': ttl}
++        self.r.set(self._fingerprint_suppress_key(fp), json.dumps(doc, ensure_ascii=False), ex=ttl)
++        return doc
++
++    def _load_json_key(self, key: str) -> Dict[str, Any]:
++        try:
++            raw = self.r.get(key)
++            doc = json.loads(raw) if raw else {}
++            return doc if isinstance(doc, dict) else {}
++        except Exception:
++            return {}
++
++    def _suppression_state(self, symbol: str, fingerprint: str) -> Dict[str, Any]:
++        sdoc = self._load_json_key(self._symbol_suppress_key(symbol)) if symbol else {}
++        fdoc = self._load_json_key(self._fingerprint_suppress_key(fingerprint)) if fingerprint else {}
++        return {
++            'symbol': sdoc,
++            'fingerprint': fdoc,
++            'is_suppressed': bool(sdoc or fdoc),
++        }
++
++    def _dedupe_state(self, fingerprint: str) -> Dict[str, Any]:
++        doc = self._load_json_key(self._dedupe_key(fingerprint)) if fingerprint else {}
++        return {'fingerprint': doc, 'is_deduped': bool(doc)}
++
++    def _store_dedupe(self, *, fingerprint: str, payload: Dict[str, Any], ttl_sec: int) -> None:
++        self.r.set(self._dedupe_key(fingerprint), json.dumps(payload, ensure_ascii=False, default=str), ex=max(int(ttl_sec), 1))
++
++    def triage_bundle(self, bundle: Dict[str, Any]) -> Dict[str, Any]:
++        summary = dict(bundle.get('summary') or {})
++        symbol = str(summary.get('symbol') or '').strip().upper()
++        sid = str(summary.get('sid') or '').strip()
++        score_info = self._score_bundle(bundle)
++        summary['severity'] = str(score_info.get('severity') or 'info')
++        summary['score'] = int(score_info.get('score') or 0)
++        exchange_truth = dict(bundle.get('exchange_truth') or {})
++        race_chains = list(bundle.get('suspicious_writer_race_chains') or [])
++        fingerprint = self._fingerprint(summary, exchange_truth, race_chains)
++        summary['fingerprint'] = fingerprint
++        bundle['summary'] = summary
++        policy = {
++            'severity': summary['severity'],
++            'score': summary['score'],
++            'score_reasons': list(score_info.get('reasons') or []),
++            'fingerprint': fingerprint,
++            'runbook_actions': self._runbook_actions(bundle, score_info),
++        }
++        suppression = self._suppression_state(symbol, fingerprint)
++        dedupe = self._dedupe_state(fingerprint)
++        policy['suppression'] = suppression
++        policy['dedupe'] = dedupe
++        decision = 'notify'
++        if suppression.get('is_suppressed'):
++            decision = 'suppressed'
++            self._suppression_metric('symbol_or_fingerprint', 'suppressed')
++        elif dedupe.get('is_deduped'):
++            decision = 'deduped'
++            self._suppression_metric('fingerprint', 'deduped')
++        policy['decision'] = decision
++        policy['should_notify'] = decision == 'notify'
++        policy['notify_channels'] = ['telegram_stream', 'http', 'ui'] if decision == 'notify' else []
++        bundle['policy'] = policy
++        bundle['runbook_actions'] = list(policy['runbook_actions'])
++        self._incident_metric(summary['severity'], str(summary.get('classification') or ''), decision)
++        return bundle
++
++    def triage_symbol(self, symbol: str, *, include_exchange: bool = False) -> Dict[str, Any]:
++        return self.triage_bundle(self.diagnostics.incident_bundle_symbol(symbol, include_exchange=include_exchange))
++
++    def triage_sid(self, sid: str, *, include_exchange: bool = False) -> Dict[str, Any]:
++        return self.triage_bundle(self.diagnostics.incident_bundle_sid(sid, include_exchange=include_exchange))
++
++    def mark_notified(self, triaged: Dict[str, Any], *, channel: str, result: str = 'sent') -> None:
++        summary = dict((triaged or {}).get('summary') or {})
++        policy = dict((triaged or {}).get('policy') or {})
++        severity = str(summary.get('severity') or 'info')
++        classification = str(summary.get('classification') or '')
++        fingerprint = str(policy.get('fingerprint') or summary.get('fingerprint') or '')
++        symbol = str(summary.get('symbol') or '').strip().upper()
++        ttl = self._severity_ttl_sec(severity)
++        if fingerprint:
++            doc = {
++                'fingerprint': fingerprint,
++                'symbol': symbol,
++                'severity': severity,
++                'classification': classification,
++                'notified_at_ms': _ms_now(),
++                'channel': str(channel or ''),
++                'result': str(result or ''),
++                'ttl_sec': ttl,
++            }
++            self._store_dedupe(fingerprint=fingerprint, payload=doc, ttl_sec=ttl)
++        self._notify_metric(severity, channel, result)
++        if symbol:
++            try:
++                self.r.set(f'{self.incident_prefix}{symbol}', json.dumps(triaged, ensure_ascii=False, default=str), ex=max(ttl, 60))
++            except Exception:
++                pass
++
++    def telegram_stream_fields(self, triaged: Dict[str, Any]) -> Dict[str, str]:
++        summary = dict((triaged or {}).get('summary') or {})
++        policy = dict((triaged or {}).get('policy') or {})
++        return {
++            'type': 'report',
++            'subtype': 'active_symbol_guard_incident',
++            'severity': str(summary.get('severity') or 'info'),
++            'symbol': str(summary.get('symbol') or ''),
++            'sid': str(summary.get('sid') or ''),
++            'fingerprint': str(policy.get('fingerprint') or summary.get('fingerprint') or ''),
++            'text': str((triaged or {}).get('telegram_text') or ''),
++            'payload': json.dumps(triaged, ensure_ascii=False, default=str),
++            'ts': str(_ms_now()),
++        }
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=*.pyc' '--exclude=*.orig' '--exclude=*.rej' '--exclude=archivers' trade_p11_base/services/execution_metrics.py trade_p11/services/execution_metrics.py
+--- trade_p11_base/services/execution_metrics.py	2026-03-16 19:09:12.646347841 +0000
++++ trade_p11/services/execution_metrics.py	2026-03-16 19:11:38.053967693 +0000
+@@ -156,6 +156,26 @@
+ )
+ 
+ 
++EXECUTION_ACTIVE_SYMBOL_GUARD_INCIDENT_TOTAL = _metric(
++    Counter,
++    "execution_active_symbol_guard_incident_total",
++    "Active-symbol guard incidents evaluated by the policy engine.",
++    ["severity", "classification", "decision"],
++)
++EXECUTION_ACTIVE_SYMBOL_GUARD_NOTIFY_TOTAL = _metric(
++    Counter,
++    "execution_active_symbol_guard_notify_total",
++    "Active-symbol guard notifications attempted by channel and result.",
++    ["severity", "channel", "result"],
++)
++EXECUTION_ACTIVE_SYMBOL_GUARD_SUPPRESSION_TOTAL = _metric(
++    Counter,
++    "execution_active_symbol_guard_suppression_total",
++    "Active-symbol guard incidents suppressed or deduped by policy scope.",
++    ["scope", "result"],
++)
++
++
+ MARK_CONTRACT_SPREAD_BPS = _metric(
+     Gauge,
+     "mark_contract_spread_bps",
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=*.pyc' '--exclude=*.orig' '--exclude=*.rej' '--exclude=archivers' trade_p11_base/services/prometheus_alerts_active_symbol_guard_p11.yml trade_p11/services/prometheus_alerts_active_symbol_guard_p11.yml
+--- trade_p11_base/services/prometheus_alerts_active_symbol_guard_p11.yml	1970-01-01 00:00:00.000000000 +0000
++++ trade_p11/services/prometheus_alerts_active_symbol_guard_p11.yml	2026-03-16 19:15:19.640667385 +0000
+@@ -0,0 +1,32 @@
++groups:
++  - name: active_symbol_guard_p11
++    rules:
++      - alert: ActiveSymbolGuardCriticalIncidents
++        expr: sum by (classification) (increase(execution_active_symbol_guard_incident_total{severity="critical",decision="notify"}[15m])) > 0
++        for: 2m
++        labels:
++          severity: page
++          service: trade-execution
++        annotations:
++          summary: "Critical active_symbol incidents require triage"
++          description: "Active-symbol incident policy engine produced notify-worthy critical incidents. classification={{ $labels.classification }}"
++
++      - alert: ActiveSymbolGuardSuppressionSpike
++        expr: sum(increase(execution_active_symbol_guard_suppression_total{result=~"suppressed|deduped"}[15m])) > 20
++        for: 5m
++        labels:
++          severity: warning
++          service: trade-execution
++        annotations:
++          summary: "Active_symbol incident suppression/dedupe spike"
++          description: "Suppressed or deduped incidents spiked. This can hide repeated races if policy thresholds are too wide."
++
++      - alert: ActiveSymbolGuardNotifierFailures
++        expr: sum by (channel) (increase(execution_active_symbol_guard_notify_total{result="failed"}[15m])) > 0
++        for: 5m
++        labels:
++          severity: page
++          service: trade-execution
++        annotations:
++          summary: "Active_symbol incident notifier failures"
++          description: "Notifier channel={{ $labels.channel }} failed to deliver active_symbol incident payloads."
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=*.pyc' '--exclude=*.orig' '--exclude=*.rej' '--exclude=archivers' trade_p11_base/services/tests/test_active_symbol_guard_assets_p11_v1.py trade_p11/services/tests/test_active_symbol_guard_assets_p11_v1.py
+--- trade_p11_base/services/tests/test_active_symbol_guard_assets_p11_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ trade_p11/services/tests/test_active_symbol_guard_assets_p11_v1.py	2026-03-16 19:16:33.226125123 +0000
+@@ -0,0 +1,15 @@
++from pathlib import Path
++
++
++def test_p11_assets_and_endpoints_exist():
++    policy = Path('services/active_symbol_guard_incident_policy.py').read_text()
++    notifier = Path('services/active_symbol_guard_incident_notifier.py').read_text()
++    exporter = Path('services/active_symbol_guard_exporter.py').read_text()
++    cli = Path('services/active_symbol_guard_cli.py').read_text()
++    alerts = Path('services/prometheus_alerts_active_symbol_guard_p11.yml').read_text()
++    assert 'severity' in policy and 'runbook_actions' in policy
++    assert 'notify:telegram' in notifier
++    assert '/api/active-symbol-guard/triage/symbol/' in exporter
++    assert '--triage-symbol' in cli and '--triage-sid' in cli
++    assert 'execution_active_symbol_guard_incident_total' in alerts
++    assert 'execution_active_symbol_guard_notify_total' in alerts
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=*.pyc' '--exclude=*.orig' '--exclude=*.rej' '--exclude=archivers' trade_p11_base/services/tests/test_active_symbol_guard_incident_notifier_p11_v1.py trade_p11/services/tests/test_active_symbol_guard_incident_notifier_p11_v1.py
+--- trade_p11_base/services/tests/test_active_symbol_guard_incident_notifier_p11_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ trade_p11/services/tests/test_active_symbol_guard_incident_notifier_p11_v1.py	2026-03-16 19:17:07.997303089 +0000
+@@ -0,0 +1,79 @@
++from __future__ import annotations
++
++import importlib.util
++import sys
++from pathlib import Path
++
++root = Path(__file__).resolve().parents[2]
++sys.path.insert(0, str(root))
++sys.path.insert(0, str(root / 'services'))
++policy_spec = importlib.util.spec_from_file_location('services.active_symbol_guard_incident_policy_p11_notifier', root / 'services' / 'active_symbol_guard_incident_policy.py')
++policy_mod = importlib.util.module_from_spec(policy_spec)
++assert policy_spec and policy_spec.loader
++policy_spec.loader.exec_module(policy_mod)
++notifier_spec = importlib.util.spec_from_file_location('services.active_symbol_guard_incident_notifier_p11', root / 'services' / 'active_symbol_guard_incident_notifier.py')
++notifier_mod = importlib.util.module_from_spec(notifier_spec)
++assert notifier_spec and notifier_spec.loader
++notifier_spec.loader.exec_module(notifier_mod)
++
++
++class FakeRedis:
++    def __init__(self):
++        self.kv = {}
++        self.streams = {}
++
++    def get(self, key):
++        return self.kv.get(key)
++
++    def set(self, key, value, ex=None):
++        self.kv[key] = value
++        return True
++
++    def xadd(self, stream, fields, maxlen=None, approximate=True):
++        self.streams.setdefault(stream, []).append(dict(fields))
++        return f'{len(self.streams[stream])}-0'
++
++
++class DummyDiag:
++    def snapshot(self):
++        return {
++            'guards': [{'symbol': 'BTCUSDT', 'classification': 'pending_release'}],
++            'cas_conflict_hot_symbols': [],
++            'resurrection_hot_symbols': [],
++            'heatmap': {'top_hot_symbols': {'5m': [{'symbol': 'BTCUSDT', 'count': 3}], '1h': []}},
++        }
++
++    def incident_bundle_symbol(self, symbol, include_exchange=False):
++        return {
++            'summary': {
++                'symbol': str(symbol).upper(),
++                'sid': 'sid-btc',
++                'classification': 'pending_release',
++                'severity': 'warning',
++                'hotness': {'5m': 3, '1h': 5},
++                'race_chain_count': 1,
++            },
++            'exchange_truth': {
++                'has_live_position': True,
++                'has_open_orders': False,
++                'is_reliable': True,
++                'is_flat': False,
++            },
++            'suspicious_writer_race_chains': [{'chain_type': 'conflict_then_other_writer_refresh'}],
++            'telegram_text': 'btc incident',
++        }
++
++
++def test_notifier_publishes_and_then_dedupes():
++    r = FakeRedis()
++    diag = DummyDiag()
++    policy = policy_mod.ActiveSymbolGuardIncidentPolicyEngine(r, diag)
++    notifier = notifier_mod.ActiveSymbolGuardIncidentNotifier(r, diag, policy, notify_stream='notify:telegram')
++    first = notifier.run_once()
++    assert first['sent']
++    assert 'notify:telegram' in r.streams
++    assert len(r.streams['notify:telegram']) == 1
++    second = notifier.run_once()
++    assert not second['sent']
++    assert second['skipped']
++    assert len(r.streams['notify:telegram']) == 1
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=*.pyc' '--exclude=*.orig' '--exclude=*.rej' '--exclude=archivers' trade_p11_base/services/tests/test_active_symbol_guard_incident_policy_p11_v1.py trade_p11/services/tests/test_active_symbol_guard_incident_policy_p11_v1.py
+--- trade_p11_base/services/tests/test_active_symbol_guard_incident_policy_p11_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ trade_p11/services/tests/test_active_symbol_guard_incident_policy_p11_v1.py	2026-03-16 19:17:07.996437284 +0000
+@@ -0,0 +1,92 @@
++from __future__ import annotations
++
++import importlib.util
++import sys
++from pathlib import Path
++
++root = Path(__file__).resolve().parents[2]
++sys.path.insert(0, str(root))
++sys.path.insert(0, str(root / 'services'))
++mod_path = root / 'services' / 'active_symbol_guard_incident_policy.py'
++spec = importlib.util.spec_from_file_location('services.active_symbol_guard_incident_policy_p11', mod_path)
++mod = importlib.util.module_from_spec(spec)
++assert spec and spec.loader
++spec.loader.exec_module(mod)
++
++
++class FakeRedis:
++    def __init__(self):
++        self.kv = {}
++        self.streams = {}
++
++    def get(self, key):
++        return self.kv.get(key)
++
++    def set(self, key, value, ex=None):
++        self.kv[key] = value
++        return True
++
++    def xadd(self, stream, fields, maxlen=None, approximate=True):
++        self.streams.setdefault(stream, []).append(dict(fields))
++        return f'{len(self.streams[stream])}-0'
++
++
++class DummyDiag:
++    def incident_bundle_symbol(self, symbol, include_exchange=False):
++        return {
++            'summary': {
++                'symbol': str(symbol).upper(),
++                'sid': 'sid-1',
++                'classification': 'stale_tombstone',
++                'severity': 'warning',
++                'hotness': {'5m': 4, '1h': 7},
++                'race_chain_count': 2,
++            },
++            'exchange_truth': {
++                'has_live_position': True,
++                'has_open_orders': False,
++                'is_reliable': True,
++                'is_flat': False,
++            },
++            'suspicious_writer_race_chains': [
++                {'chain_type': 'resurrection_attempt'},
++                {'chain_type': 'multi_writer_conflict_burst'},
++            ],
++            'telegram_text': 'incident text',
++        }
++
++    def incident_bundle_sid(self, sid, include_exchange=False):
++        return self.incident_bundle_symbol('BTCUSDT', include_exchange=include_exchange)
++
++
++def _action(payload, name: str):
++    for item in list(payload.get('runbook_actions') or []):
++        if str(item.get('action') or '') == name:
++            return item
++    return {}
++
++
++def test_triage_assigns_critical_and_runbook_actions():
++    r = FakeRedis()
++    engine = mod.ActiveSymbolGuardIncidentPolicyEngine(r, DummyDiag())
++    triaged = engine.triage_symbol('BTCUSDT', include_exchange=True)
++    assert triaged['summary']['severity'] == 'critical'
++    assert triaged['policy']['should_notify'] is True
++    assert triaged['policy']['decision'] == 'notify'
++    assert triaged['summary']['score'] >= 80
++    assert _action(triaged, 'inspect').get('enabled') is True
++    assert _action(triaged, 'hold_symbol').get('enabled') is True
++    assert _action(triaged, 'force_release').get('enabled') is False
++    assert _action(triaged, 'escalate').get('enabled') is True
++
++
++def test_dedupe_and_symbol_suppression_are_applied():
++    r = FakeRedis()
++    engine = mod.ActiveSymbolGuardIncidentPolicyEngine(r, DummyDiag())
++    first = engine.triage_symbol('BTCUSDT', include_exchange=True)
++    engine.mark_notified(first, channel='telegram_stream', result='sent')
++    second = engine.triage_symbol('BTCUSDT', include_exchange=True)
++    assert second['policy']['decision'] == 'deduped'
++    engine.set_symbol_suppression('BTCUSDT', ttl_sec=600, reason='maintenance')
++    third = engine.triage_symbol('BTCUSDT', include_exchange=True)
++    assert third['policy']['decision'] == 'suppressed'

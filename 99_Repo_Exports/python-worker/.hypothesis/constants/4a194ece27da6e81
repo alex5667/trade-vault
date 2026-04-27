@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/tick_time.py
+# hypothesis_version: 6.148.10
+
+[1000.0, 1000, '1', '120000', '1500', '1e12', '1e15', '5000', 'bad_ts', 'clamped_soft_future', 'future_hard', 'ignore', 'normalized_micros', 'normalized_seconds', 'past_hard', 'reorder_hard', 'reorder_soft', 'true', 'utf-8', 'yes']

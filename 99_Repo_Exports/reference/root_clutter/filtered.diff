@@ -1,0 +1,948 @@
+diff --git a/core/meta_model_lr.py b/core/meta_model_lr.py
+index 74ef37a..4f1504a 100644
+--- a/core/meta_model_lr.py
++++ b/core/meta_model_lr.py
+@@ -1,63 +1,87 @@
+-# python-worker/core/meta_model_lr.py
++"""MetaModelLR
++
++Lightweight, production-friendly logistic-regression meta model for OFConfirmEngine.
++
++Key requirements:
++- Deterministic, dependency-light inference (pure Python).
++- Train==Serve contract via:
++  * fixed ordered `features` list,
++  * per-feature `transforms`,
++  * per-feature robust scaling (median/MAD),
++  * `feature_cols_hash` + `schema_*` identifiers,
++  * `model_signature` to detect accidental corruption.
++
++JSON format (dump):
++{
++  "features": ["delta_z", ...],
++  "intercept": -0.12,
++  "coef": [0.1, ...],
++  "threshold": 0.5,
++  "transforms": {"delta_z": {"op": "clip", "lo": -8, "hi": 8}, ...},
++  "robust_scaler": {"delta_z": {"median": 0.0, "mad": 1.0, "eps": 1e-9}, ...},
++  "schema_name": "meta_feat_v8",
++  "schema_version": 8,
++  "schema_hash": "...",
++  "feature_cols_hash": "...",
++  "created_ms": 1700000000000,
++  "model_signature": "..."
++}
++
++Notes:
++- We accept a few legacy aliases on load (signature keys, coef keys).
++- We auto-align coef length to features (pad/truncate) to prevent runtime crashes.
++"""
++
+ from __future__ import annotations
+ 
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional
+ import hashlib
+ import json
+-import math
+ import time
+-from dataclasses import dataclass, field
+-from typing import Any, Dict, List, Optional
+ 
+ from core.feature_engineering import RobustScalerPack, apply_transform
+ 
+ 
+-def _sha256_hex(s: str) -> str:
+-    return hashlib.sha256(s.encode("utf-8")).hexdigest()
++def _sigmoid(x: float) -> float:
++    """Logistic sigmoid with basic overflow protection."""
++    import math
+ 
++    try:
++        if x >= 0:
++            z = math.exp(-x)
++            return float(1.0 / (1.0 + z))
++        z = math.exp(x)
++        return float(z / (1.0 + z))
++    except OverflowError:
++        return 0.0 if x < 0 else 1.0
++    except Exception:
++        return 0.0
+ 
+-def _sigmoid(x: float) -> float:
+-    # stable sigmoid
+-    if x >= 0:
+-        z = math.exp(-x)
+-        return 1.0 / (1.0 + z)
+-    z = math.exp(x)
+-    return z / (1.0 + z)
+ 
+ 
+-def _f(x: Any, d: float = 0.0) -> float:
++def _f(v: Any, default: float = 0.0) -> float:
+     try:
+-        if x is None:
+-            return d
+-        v = float(x)
+-        if not math.isfinite(v):
+-            return d
+-        return v
++        if v is None:
++            return float(default)
++        # bool is a subclass of int in Python; keep explicit.
++        if isinstance(v, bool):
++            return 1.0 if v else 0.0
++        return float(v)
+     except Exception:
+-        return d
++        return float(default)
+ 
+ 
+ @dataclass
+ class MetaModelLR:
+-    """Portable logistic regression model.
+-
+-    JSON format (backward compatible):
+-      {
+-        "features": [...],
+-        "intercept": ...,
+-        "coef": [...],
+-        "threshold": 0.5,
+-
+-        # optional:
+-        "transforms": { "f1": {"type":"log1p"}, "f2": {"type":"clip","lo":0,"hi":50} },
+-        "robust_scaler": { "f1": {"center": 1.23, "scale": 0.45}, ... }
+-      }
+-    """
+-
+     features: List[str]
+     intercept: float
+     coef: List[float]
+     threshold: float = 0.5
+ 
++    transforms: Optional[Dict[str, Any]] = None
++    robust_scaler: Optional[RobustScalerPack] = None
++
+     schema_name: str = "legacy"
+     schema_version: int = 0
+     schema_hash: str = ""
+@@ -66,87 +90,113 @@ class MetaModelLR:
+     created_ms: int = 0
+     model_signature: str = ""
+ 
+-    transforms: Dict[str, Any] = field(default_factory=dict)
+-    robust_scaler: Optional[RobustScalerPack] = None
++    def _align_params(self) -> None:
++        """Ensure len(coef) matches len(features).
++
++        We prefer padding with zeros (effectively ignoring extra features) over
++        raising, because inference must be fail-safe.
++        """
++        n = int(len(self.features))
++        if n <= 0:
++            self.coef = []
++            return
++        if len(self.coef) < n:
++            self.coef = list(self.coef) + [0.0] * (n - len(self.coef))
++        elif len(self.coef) > n:
++            self.coef = list(self.coef)[:n]
++
++    @staticmethod
++    def default(*, reason: str = "no_artifact") -> "MetaModelLR":
++        """Safe default model: always predicts ~0.
++
++        Intended only as a last-resort fallback if the artifact is missing.
++        Prefer running the engine in SHADOW mode on schema mismatch.
++        """
++        # sigmoid(-40) ~ 4e-18
++        m = MetaModelLR(features=[], intercept=-40.0, coef=[], threshold=0.5)
++        m.schema_name = f"default:{reason}"
++        m.schema_version = 0
++        m.created_ms = int(time.time() * 1000)
++        m.model_signature = ""
++        return m
+ 
+     @staticmethod
+-    def compute_feature_cols_hash(cols: List[str]) -> str:
+-        return _sha256_hex(",".join([str(x) for x in cols]))[:16]
++    def compute_feature_cols_hash(feature_cols: List[str]) -> str:
++        h = hashlib.sha256()
++        h.update("|".join([str(x) for x in feature_cols]).encode("utf-8"))
++        return h.hexdigest()[:16]
+ 
+     @staticmethod
+     def compute_signature(d: Dict[str, Any]) -> str:
+-        # Exclude signature itself
+-        dd = dict(d)
+-        dd.pop("model_signature", None)
+-        s = json.dumps(dd, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+-        return _sha256_hex(s)[:16]
++        """Compute a stable signature for artifact integrity.
++
++        The signature must be independent of formatting / key ordering.
++        """
++        # Exclude the signature field itself.
++        d2 = dict(d)
++        d2.pop("model_signature", None)
++        d2.pop("signature", None)
++        s = json.dumps(d2, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
++        h = hashlib.sha256()
++        h.update(s.encode("utf-8"))
++        return h.hexdigest()[:24]
+ 
+     @staticmethod
+     def load(path: str) -> "MetaModelLR":
+-        d = json.loads(open(path, "r", encoding="utf-8").read())
+-        tf = d.get("transforms") if isinstance(d.get("transforms"), dict) else {}
+-        rs = d.get("robust_scaler") if isinstance(d.get("robust_scaler"), dict) else {}
+-
+-        features = list(d.get("features", []) or [])
+-        schema_name = str(d.get("schema_name") or d.get("feature_schema") or "")
+-        schema_version = int(d.get("schema_version") or d.get("feature_schema_version") or 0)
+-
+-        # Backward compatibility:
+-        # - older artifacts sometimes stored schema_hash in feature_cols_hash
+-        cols_hash = str(d.get("feature_cols_hash") or d.get("schema_hash") or d.get("schema_cols_hash") or "")
+-        schema_hash = str(d.get("schema_hash") or d.get("feature_cols_hash") or d.get("schema_cols_hash") or cols_hash or "")
+-        
+-        # Ensure feature_cols_hash is set if features are present and it's missing
+-        if not cols_hash and features:
+-            cols_hash = MetaModelLR.compute_feature_cols_hash(features)
+-
+-        created_ms = int(d.get("created_ms") or 0)
+-        model_signature = str(d.get("model_signature") or "")
+-        
+-        rs_pack = None
+-        if rs:
+-            params: Dict[str, Dict[str, float]] = {}
+-            for k, v in rs.items():
+-                if not isinstance(v, dict):
+-                    continue
+-                try:
+-                    params[str(k)] = {
+-                        "center": float(v.get("center", 0.0)),
+-                        "scale": float(v.get("scale", 1.0)),
+-                    }
+-                except Exception:
+-                    continue
+-            rs_pack = RobustScalerPack(params=params)
+-
+-        return MetaModelLR(
++        with open(path, "r", encoding="utf-8") as f:
++            d = json.load(f)
++
++        features = list(d.get("features") or [])
++        intercept = float(d.get("intercept") or 0.0)
++
++        # Legacy aliases
++        coef = d.get("coef")
++        if coef is None:
++            coef = d.get("weights")
++        coef_list = [float(x) for x in (coef or [])]
++
++        threshold = float(d.get("threshold") or 0.5)
++        transforms = d.get("transforms") or None
++
++        rs_raw = d.get("robust_scaler") or None
++        rs_pack: Optional[RobustScalerPack] = None
++        if isinstance(rs_raw, dict):
++            # RobustScalerPack expects {name: {median, mad, eps}}
++            rs_pack = RobustScalerPack(params=rs_raw)
++
++        m = MetaModelLR(
+             features=features,
+-            intercept=float(d.get("intercept", 0.0)),
+-            coef=[float(x) for x in (d.get("coef", []) or [])],
+-            threshold=float(d.get("threshold", 0.5)),
+-            schema_name=schema_name or "legacy",
+-            schema_version=schema_version,
+-            schema_hash=schema_hash,
+-            feature_cols_hash=cols_hash,
+-            created_ms=created_ms,
+-            model_signature=model_signature,
+-            transforms={str(k): v for k, v in tf.items()},
++            intercept=intercept,
++            coef=coef_list,
++            threshold=threshold,
++            transforms=transforms,
+             robust_scaler=rs_pack,
++            schema_name=str(d.get("schema_name") or "legacy"),
++            schema_version=int(d.get("schema_version") or 0),
++            schema_hash=str(d.get("schema_hash") or ""),
++            feature_cols_hash=str(d.get("feature_cols_hash") or ""),
++            created_ms=int(d.get("created_ms") or 0),
++            model_signature=str(d.get("model_signature") or d.get("signature") or ""),
+         )
++        m._align_params()
++
++        # Backfill hash if missing (older artifacts)
++        if not m.feature_cols_hash and m.features:
++            m.feature_cols_hash = MetaModelLR.compute_feature_cols_hash(m.features)
++
++        return m
+ 
+     def to_dict(self) -> Dict[str, Any]:
+-        """Export to JSON-compatible dict."""
+-        rs_dict = {}
+-        if self.robust_scaler and hasattr(self.robust_scaler, "params"):
+-            # Reconstruct robust scaler dict
+-            for k, p in self.robust_scaler.params.items():
+-                rs_dict[k] = {"center": float(p.get("center", 0.0)), "scale": float(p.get("scale", 1.0))}
++        rs_dict = None
++        if self.robust_scaler is not None:
++            rs_dict = self.robust_scaler.to_dict()
+ 
+         return {
+-            "features": list(self.features),
++            "features": list(self.features or []),
+             "intercept": float(self.intercept),
+-            "coef": [float(x) for x in self.coef],
++            "coef": [float(x) for x in (self.coef or [])],
+             "threshold": float(self.threshold),
+-            "transforms": dict(self.transforms or {}),
++            "transforms": self.transforms or {},
+             "robust_scaler": rs_dict,
+             "schema_name": str(self.schema_name or "legacy"),
+             "schema_version": int(self.schema_version or 0),
+@@ -164,7 +214,6 @@ class MetaModelLR:
+             self.feature_cols_hash = MetaModelLR.compute_feature_cols_hash(self.features)
+ 
+         d = self.to_dict()
+-        # compute signature over canonical dict (excluding signature)
+         sig = MetaModelLR.compute_signature(d)
+         self.model_signature = sig
+         d["model_signature"] = sig
+diff --git a/core/meta_schema_registry.py b/core/meta_schema_registry.py
+new file mode 100644
+index 0000000..8dc7634
+--- /dev/null
++++ b/core/meta_schema_registry.py
+@@ -0,0 +1,83 @@
++from __future__ import annotations
++
++from typing import Dict, List, Tuple
++
++from core.meta_features_v1 import (
++    META_FEAT_V1_NAME,
++    META_FEAT_V1_VERSION,
++    META_FEAT_V1_COLS,
++    META_FEAT_V1_HASH,
++)
++from core.meta_features_v2 import (
++    META_FEAT_V2_NAME,
++    META_FEAT_V2_VERSION,
++    META_FEAT_V2_COLS,
++    META_FEAT_V2_HASH,
++)
++from core.meta_features_v3 import (
++    META_FEAT_V3_NAME,
++    META_FEAT_V3_VERSION,
++    META_FEAT_V3_COLS,
++    META_FEAT_V3_HASH,
++)
++from core.meta_features_v4 import (
++    META_FEAT_V4_NAME,
++    META_FEAT_V4_VERSION,
++    META_FEAT_V4_COLS,
++    META_FEAT_V4_HASH,
++)
++from core.meta_features_v5 import (
++    META_FEAT_V5_NAME,
++    META_FEAT_V5_VERSION,
++    META_FEAT_V5_COLS,
++    META_FEAT_V5_HASH,
++)
++from core.meta_features_v6 import (
++    META_FEAT_V6_NAME,
++    META_FEAT_V6_VERSION,
++    META_FEAT_V6_COLS,
++    META_FEAT_V6_HASH,
++)
++from core.meta_features_v7 import (
++    META_FEAT_V7_NAME,
++    META_FEAT_V7_VERSION,
++    META_FEAT_V7_COLS,
++    META_FEAT_V7_HASH,
++)
++
++try:
++    from core.meta_features_v8 import (
++        META_FEAT_V8_NAME,
++        META_FEAT_V8_VERSION,
++        META_FEAT_V8_COLS,
++        META_FEAT_V8_HASH,
++    )
++except Exception:  # optional
++    META_FEAT_V8_NAME = None  # type: ignore
++    META_FEAT_V8_VERSION = None  # type: ignore
++    META_FEAT_V8_COLS = None  # type: ignore
++    META_FEAT_V8_HASH = None  # type: ignore
++
++# Registry: name -> (version, cols, hash)
++META_SCHEMA_REGISTRY: Dict[str, Tuple[int, List[str], str]] = {
++    META_FEAT_V1_NAME: (META_FEAT_V1_VERSION, META_FEAT_V1_COLS, META_FEAT_V1_HASH),
++    META_FEAT_V2_NAME: (META_FEAT_V2_VERSION, META_FEAT_V2_COLS, META_FEAT_V2_HASH),
++    META_FEAT_V3_NAME: (META_FEAT_V3_VERSION, META_FEAT_V3_COLS, META_FEAT_V3_HASH),
++    META_FEAT_V4_NAME: (META_FEAT_V4_VERSION, META_FEAT_V4_COLS, META_FEAT_V4_HASH),
++    META_FEAT_V5_NAME: (META_FEAT_V5_VERSION, META_FEAT_V5_COLS, META_FEAT_V5_HASH),
++    META_FEAT_V6_NAME: (META_FEAT_V6_VERSION, META_FEAT_V6_COLS, META_FEAT_V6_HASH),
++    META_FEAT_V7_NAME: (META_FEAT_V7_VERSION, META_FEAT_V7_COLS, META_FEAT_V7_HASH),
++}
++
++if isinstance(META_FEAT_V8_NAME, str):
++    META_SCHEMA_REGISTRY[META_FEAT_V8_NAME] = (  # type: ignore
++        int(META_FEAT_V8_VERSION),
++        list(META_FEAT_V8_COLS),
++        str(META_FEAT_V8_HASH),
++    )
++
++def get_schema_info(name: str) -> Tuple[int, List[str], str]:
++    """Return (version, cols, hash) for a given schema name, or raises KeyError."""
++    if name not in META_SCHEMA_REGISTRY:
++        raise KeyError(f"Unknown meta schema: {name}")
++    return META_SCHEMA_REGISTRY[name]
+diff --git a/core/purged_embargo_split_v2.py b/core/purged_embargo_split_v2.py
+new file mode 100644
+index 0000000..4804422
+--- /dev/null
++++ b/core/purged_embargo_split_v2.py
+@@ -0,0 +1,52 @@
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Iterator, Tuple
++import numpy as np
++
++
++@dataclass(frozen=True)
++class PurgedEmbargoTimeSeriesSplitV2:
++    """Sequential time split with purge and embargo (ms-based).
++
++    ts_ms must be sorted ascending.
++    - Test windows are contiguous partitions.
++    - Train excludes:
++        * test interval itself
++        * purge_ms around [test_start, test_end]
++        * embargo_ms after test_end
++    """
++
++    n_splits: int = 5
++    purge_ms: int = 180_000
++    embargo_ms: int = 60_000
++
++    def split(self, ts_ms: np.ndarray) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
++        n = len(ts_ms)
++        if n < self.n_splits + 2:
++            return
++        test_size = max(1, n // (self.n_splits + 1))
++        for k in range(1, self.n_splits + 1):
++            te0 = k * test_size
++            te1 = min(n, (k + 1) * test_size)
++            if te1 <= te0:
++                continue
++
++            test_idx = np.arange(te0, te1, dtype=int)
++            t0 = int(ts_ms[te0])
++            t1 = int(ts_ms[te1 - 1])
++
++            purge_lo = t0 - int(self.purge_ms)
++            purge_hi = t1 + int(self.purge_ms)
++            embargo_hi = t1 + int(self.embargo_ms)
++
++            mask = np.ones(n, dtype=bool)
++            mask[test_idx] = False
++            mask &= ~((ts_ms >= purge_lo) & (ts_ms <= purge_hi))
++            mask &= ~((ts_ms > t1) & (ts_ms <= embargo_hi))
++
++            train_idx = np.where(mask)[0]
++            if len(train_idx) == 0:
++                continue
++            yield train_idx, test_idx
++
+diff --git a/ml_analysis/tests/test_train_meta_model_lr_v1_smoke.py b/ml_analysis/tests/test_train_meta_model_lr_v1_smoke.py
+new file mode 100644
+index 0000000..7ec8140
+--- /dev/null
++++ b/ml_analysis/tests/test_train_meta_model_lr_v1_smoke.py
+@@ -0,0 +1,81 @@
++import sys
++from pathlib import Path
++
++import numpy as np
++import pandas as pd
++import pytest
++
++
++def _ensure_repo_root_first() -> None:
++    # conftest.py puts tick_flow_full/ ahead of the repo root. For production code
++    # we want to test imports from the repo-root `core/`.
++    repo_root = Path(__file__).resolve().parents[2]
++    rp = str(repo_root)
++    if sys.path and sys.path[0] != rp:
++        sys.path.insert(0, rp)
++
++
++def test_train_meta_model_lr_from_df_smoke(tmp_path: Path):
++    _ensure_repo_root_first()
++
++    from tools.train_meta_model_lr_v1 import train_meta_model_lr_from_df
++    from core.meta_model_lr import MetaModelLR
++
++    n = 240
++    ts0 = 1_700_000_000_000
++    df = pd.DataFrame(
++        {
++            "sid": np.arange(n, dtype=np.int64),
++            "ts_ms": ts0 + np.arange(n, dtype=np.int64) * 1000,
++            "symbol": ["BTCUSDT"] * n,
++            # A few typical flattened indicator columns (parquet uses f_*).
++            "f_delta_z": np.random.normal(size=n),
++            "f_ofi": np.random.normal(size=n),
++            "f_spread_bps": np.abs(np.random.normal(size=n) * 2.0),
++            "f_liq_score": np.clip(np.random.normal(loc=1.0, scale=0.3, size=n), 0.0, 10.0),
++            # One-hot scenarios (trainer decodes scenario_v4_* keys).
++            "scenario_v4_trend": [1.0] * n,
++            # Label (example: horizon 60s)
++            "y_util_pos_60000": (np.arange(n) % 5 == 0).astype(int),
++        }
++    )
++
++    model, summary = train_meta_model_lr_from_df(
++        df,
++        schema_name="meta_feat_v8",
++        y_col="y_util_pos_60000",
++        n_splits=4,
++        purge_ms=10_000,
++        embargo_ms=10_000,
++        C=1.0,
++        max_iter=200,
++        threshold=0.5,
++    )
++
++    assert isinstance(model, MetaModelLR)
++    assert len(model.features) > 10  # schema has many features
++    assert len(model.coef) == len(model.features)
++    assert isinstance(summary, dict)
++    assert summary.get("y_col") == "y_util_pos_60000"
++
++    out = tmp_path / "meta_lr.json"
++    model.dump(str(out))
++    m2 = MetaModelLR.load(str(out))
++    assert m2.signature_ok()
++
++    # Deterministic prediction parity after load
++    feat = {k: 0.0 for k in m2.features}
++    p1 = float(m2.predict_proba(feat))
++    p2 = float(MetaModelLR.load(str(out)).predict_proba(feat))
++    assert abs(p1 - p2) < 1e-12
++
++
++def test_train_meta_model_lr_cli_help_smoke(monkeypatch):
++    _ensure_repo_root_first()
++
++    import tools.train_meta_model_lr_v1 as m
++
++    monkeypatch.setattr(sys, "argv", ["train_meta_model_lr_v1", "--help"])
++    with pytest.raises(SystemExit) as e:
++        m.main()
++    assert e.value.code == 0
+diff --git a/ml_analysis/tools/train_meta_model_lr_v1.py b/ml_analysis/tools/train_meta_model_lr_v1.py
+new file mode 100644
+index 0000000..2551f65
+--- /dev/null
++++ b/ml_analysis/tools/train_meta_model_lr_v1.py
+@@ -0,0 +1,394 @@
++"""Train MetaModelLR (portable JSON LR) from a dataset parquet.
++
++Train==Serve contract:
++  - Feature construction uses the same meta feature builder as runtime
++    (build_meta_features_v6/v7/v8).
++  - The same per-feature transforms are applied (clip/log1p/etc).
++  - Robust scaling is fitted as median/MAD and applied after transforms.
++  - LogisticRegression is trained on the scaled features.
++  - Time-series CV uses PurgedEmbargoTimeSeriesSplitV2 (purge/embargo by ts_ms).
++
++Dataset expectations:
++  - Only flat scalar columns (no nested payload/indicators/blob columns).
++  - Indicator fields are stored as scalars, typically with prefix "f_".
++  - Base columns: sid, ts_ms, symbol.
++  - Labels: y_util_pos_{horizon_ms} (binary), util_r_{horizon_ms}, y_edge_{horizon_ms}, etc.
++
++Usage:
++  python -m tools.train_meta_model_lr_v1 \
++    --parquet /data/dataset.parquet \
++    --schema meta_feat_v8 \
++    --horizon-ms 60000 \
++    --out /data/meta_lr_v8.json
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import time
++from dataclasses import asdict
++from typing import Any, Dict, List, Tuple
++
++import numpy as np
++import pandas as pd
++from sklearn.linear_model import LogisticRegression
++from sklearn.metrics import log_loss, roc_auc_score
++
++from core.feature_engineering import RobustScalerPack, apply_transform
++from core.meta_model_lr import MetaModelLR
++from core.meta_schema_registry import get_schema_info
++from core.purged_embargo_split_v2 import PurgedEmbargoTimeSeriesSplitV2
++
++
++def _safe_float(x: Any, default: float = 0.0) -> float:
++    try:
++        v = float(x)
++        if not np.isfinite(v):
++            return float(default)
++        return v
++    except Exception:
++        return float(default)
++
++
++def _safe_int(x: Any, default: int = 0) -> int:
++    try:
++        return int(x)
++    except Exception:
++        return int(default)
++
++
++def _decode_scenario_from_onehot(row: Dict[str, Any]) -> str:
++    # e.g. scenario_v4_trend == 1 -> "trend"
++    for k, v in row.items():
++        if not k.startswith("scenario_v4_"):
++            continue
++        try:
++            if float(v) >= 0.5:
++                return k[len("scenario_v4_") :]
++        except Exception:
++            continue
++    return ""
++
++
++def _get_any(row: Dict[str, Any], keys: List[str], default: Any = 0.0) -> Any:
++    for k in keys:
++        if k in row and row[k] is not None:
++            return row[k]
++    return default
++
++
++def _get_meta_builder(schema_name: str):
++    """Return (build_fn, cols, transforms) for schema_name."""
++    s = str(schema_name)
++    if s == "meta_feat_v8":
++        from core.meta_features_v8 import build_meta_features_v8, META_FEAT_V8_COLS, META_FEAT_V8_TRANSFORMS
++
++        return build_meta_features_v8, list(META_FEAT_V8_COLS), dict(META_FEAT_V8_TRANSFORMS)
++    if s == "meta_feat_v7":
++        from core.meta_features_v7 import build_meta_features_v7, META_FEAT_V7_COLS, META_FEAT_V7_TRANSFORMS
++
++        return build_meta_features_v7, list(META_FEAT_V7_COLS), dict(META_FEAT_V7_TRANSFORMS)
++    if s == "meta_feat_v6":
++        from core.meta_features_v6 import build_meta_features_v6, META_FEAT_V6_COLS, META_FEAT_V6_TRANSFORMS
++
++        return build_meta_features_v6, list(META_FEAT_V6_COLS), dict(META_FEAT_V6_TRANSFORMS)
++
++    raise ValueError(f"unknown_meta_schema: {schema_name}")
++
++
++def _build_xy_from_df(
++    df: pd.DataFrame,
++    schema_name: str,
++    y_col: str,
++) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[str], Dict[str, Any]]:
++    """Build X_raw, y, ts_ms, feature_cols, transforms.
++
++    X_raw is built by calling the runtime meta feature builder for each row.
++    """
++
++    if y_col not in df.columns:
++        raise KeyError(f"missing label column: {y_col}")
++    if "ts_ms" not in df.columns:
++        raise KeyError("missing required column: ts_ms")
++
++    build_fn, feature_cols, transforms = _get_meta_builder(schema_name)
++
++    # stable, deterministic ordering
++    df = df.sort_values("ts_ms", kind="mergesort").reset_index(drop=True)
++    rows = df.to_dict(orient="records")
++
++    X = np.zeros((len(rows), len(feature_cols)), dtype=np.float64)
++
++    for i, row in enumerate(rows):
++        indicators: Dict[str, Any] = {}
++        for k, v in row.items():
++            if k.startswith("f_"):
++                indicators[k[2:]] = _safe_float(v, 0.0)
++
++        # Common scalars may exist both as standalone columns or inside f_*.
++        have = _safe_int(_get_any(row, ["have", "f_have"], indicators.get("have", 0)), 0)
++        need = _safe_int(_get_any(row, ["need", "f_need"], indicators.get("need", 0)), 0)
++        ok_soft = _safe_int(_get_any(row, ["ok_soft", "f_ok_soft"], indicators.get("ok_soft", 0)), 0)
++
++        rule_score = _safe_float(
++            _get_any(row, ["rule_score", "score", "f_rule_score", "f_score"], indicators.get("rule_score", 0.0)),
++            0.0,
++        )
++        exec_risk_norm = _safe_float(
++            _get_any(row, ["exec_risk_norm", "f_exec_risk_norm"], indicators.get("exec_risk_norm", 0.0)),
++            0.0,
++        )
++        exec_risk_bps = _safe_float(
++            _get_any(row, ["exec_risk_bps", "f_exec_risk_bps"], indicators.get("exec_risk_bps", 0.0)),
++            0.0,
++        )
++
++        ml_scenario = str(_get_any(row, ["scenario_v4", "f_scenario_v4"], indicators.get("scenario_v4", "")))
++        if not ml_scenario:
++            ml_scenario = _decode_scenario_from_onehot(row)
++        if ml_scenario:
++            indicators["scenario_v4"] = ml_scenario
++
++        evidence = {"indicators": indicators}
++
++        feat_out = build_fn(
++            evidence=evidence,
++            indicators=indicators,
++            indicators_with_v4=indicators,
++            legs={},
++            runtime_snap=None,
++            runtime_prev_snap=None,
++            have=have,
++            need=need,
++            ok_soft=ok_soft,
++            rule_score=rule_score,
++            exec_risk_norm=exec_risk_norm,
++            exec_risk_bps=exec_risk_bps,
++            ml_scenario=ml_scenario,
++        )
++
++        feat = feat_out[0] if isinstance(feat_out, (tuple, list)) and feat_out else feat_out
++
++        for j, name in enumerate(feature_cols):
++            X[i, j] = _safe_float(feat.get(name, 0.0) if isinstance(feat, dict) else 0.0, 0.0)
++
++    y = pd.to_numeric(df[y_col], errors="coerce").fillna(0).astype(int).values
++    y = np.clip(y, 0, 1).astype(int)
++
++    ts_ms = pd.to_numeric(df["ts_ms"], errors="coerce").fillna(0).astype(np.int64).values
++    return X, y, ts_ms, feature_cols, transforms
++
++
++def _apply_transforms(X_raw: np.ndarray, feature_cols: List[str], transforms: Dict[str, Any]) -> np.ndarray:
++    X_tf = np.asarray(X_raw, dtype=np.float64).copy()
++    for j, name in enumerate(feature_cols):
++        t = transforms.get(name)
++        if not t:
++            continue
++        for i in range(X_tf.shape[0]):
++            X_tf[i, j] = float(apply_transform(X_tf[i, j], t))
++    return X_tf
++
++
++def _fit_lr(
++    X_scaled: np.ndarray,
++    y: np.ndarray,
++    C: float,
++    max_iter: int,
++) -> LogisticRegression:
++    lr = LogisticRegression(
++        penalty="l2",
++        C=float(C),
++        class_weight="balanced",
++        solver="lbfgs",
++        max_iter=int(max_iter),
++        n_jobs=1,
++    )
++    lr.fit(X_scaled, y)
++    return lr
++
++
++def _brier(y_true: np.ndarray, p: np.ndarray) -> float:
++    y = y_true.astype(np.float64)
++    return float(np.mean((p - y) ** 2))
++
++
++def train_meta_model_lr_from_df(
++    df: pd.DataFrame,
++    *,
++    schema_name: str,
++    y_col: str,
++    n_splits: int,
++    purge_ms: int,
++    embargo_ms: int,
++    C: float,
++    max_iter: int,
++    threshold: float,
++) -> Tuple[MetaModelLR, Dict[str, Any]]:
++    """Core training routine used by both CLI and tests."""
++
++    X_raw, y, ts_ms, feature_cols, transforms = _build_xy_from_df(df, schema_name=schema_name, y_col=y_col)
++
++    X_tf_full = _apply_transforms(X_raw, feature_cols, transforms)
++
++    pos_rate = float(np.mean(y)) if len(y) else 0.0
++
++    # CV (purged/embargoed): fit scaler+lr per fold to avoid leakage.
++    fold_metrics: List[Dict[str, Any]] = []
++    if int(n_splits) > 1 and len(y) >= 50:
++        splitter = PurgedEmbargoTimeSeriesSplitV2(
++            n_splits=int(n_splits),
++            purge_ms=int(purge_ms),
++            embargo_ms=int(embargo_ms),
++        )
++
++        for k, (tr_idx, te_idx) in enumerate(splitter.split(ts_ms), 1):
++            tr = np.asarray(tr_idx, dtype=np.int64)
++            te = np.asarray(te_idx, dtype=np.int64)
++            if len(te) == 0 or len(tr) == 0:
++                continue
++
++            rs = RobustScalerPack.fit(X_tf_full[tr], feature_cols)
++            X_tr = rs.transform(X_tf_full[tr], feature_cols)
++            X_te = rs.transform(X_tf_full[te], feature_cols)
++
++            lr = _fit_lr(X_tr, y[tr], C=C, max_iter=max_iter)
++            p_te = lr.predict_proba(X_te)[:, 1]
++
++            try:
++                auc = float(roc_auc_score(y[te], p_te))
++            except Exception:
++                auc = float("nan")
++            try:
++                ll = float(log_loss(y[te], p_te, labels=[0, 1]))
++            except Exception:
++                ll = float("nan")
++
++            fold_metrics.append(
++                {
++                    "fold": int(k),
++                    "train_n": int(len(tr)),
++                    "test_n": int(len(te)),
++                    "auc": auc,
++                    "logloss": ll,
++                    "brier": _brier(y[te], p_te),
++                }
++            )
++
++    # Final fit on full dataset
++    rs_full = RobustScalerPack.fit(X_tf_full, feature_cols)
++    X_scaled = rs_full.transform(X_tf_full, feature_cols)
++    lr_full = _fit_lr(X_scaled, y, C=C, max_iter=max_iter)
++
++    p_full = lr_full.predict_proba(X_scaled)[:, 1]
++    try:
++        auc_full = float(roc_auc_score(y, p_full))
++    except Exception:
++        auc_full = float("nan")
++    try:
++        ll_full = float(log_loss(y, p_full, labels=[0, 1]))
++    except Exception:
++        ll_full = float("nan")
++
++    ver, cols, schema_hash = get_schema_info(str(schema_name))
++    cols_hash = MetaModelLR.compute_feature_cols_hash(feature_cols)
++
++    model = MetaModelLR(
++        features=list(feature_cols),
++        intercept=float(lr_full.intercept_[0]),
++        coef=[float(x) for x in lr_full.coef_[0].tolist()],
++        threshold=float(threshold),
++        schema_name=str(schema_name),
++        schema_version=int(ver),
++        schema_hash=str(schema_hash),
++        feature_cols_hash=str(cols_hash),
++        transforms=transforms,
++        robust_scaler=rs_full,
++    )
++
++    summary: Dict[str, Any] = {
++        "y_col": str(y_col),
++        "n_rows": int(len(df)),
++        "pos_rate": float(pos_rate),
++        "cv": fold_metrics,
++        "cv_mean": {
++            "auc": float(np.nanmean([m["auc"] for m in fold_metrics])) if fold_metrics else None,
++            "logloss": float(np.nanmean([m["logloss"] for m in fold_metrics])) if fold_metrics else None,
++            "brier": float(np.nanmean([m["brier"] for m in fold_metrics])) if fold_metrics else None,
++        },
++        "train_full": {"auc": float(auc_full), "logloss": float(ll_full), "brier": _brier(y, p_full)},
++        "splits": {"n_splits": int(n_splits), "purge_ms": int(purge_ms), "embargo_ms": int(embargo_ms)},
++        "lr": {"C": float(C), "max_iter": int(max_iter), "class_weight": "balanced", "solver": "lbfgs"},
++    }
++
++    return model, summary
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser()
++
++    ap.add_argument("--parquet", "--input", dest="parquet", required=True, help="Dataset parquet path")
++    ap.add_argument("--out", "--output", dest="out", required=True, help="Output JSON path")
++
++    ap.add_argument("--schema", default="meta_feat_v8", help="Meta schema name")
++    ap.add_argument("--horizon-ms", type=int, default=60000, help="Label horizon in ms")
++    ap.add_argument("--y-col", default="", help="Override label column (default: y_util_pos_{horizon_ms})")
++
++    ap.add_argument("--n-splits", type=int, default=5, help="CV folds")
++    ap.add_argument("--purge-ms", type=int, default=60_000, help="Purging window in ms")
++    ap.add_argument("--embargo-ms", type=int, default=30_000, help="Embargo window in ms")
++
++    ap.add_argument("--C", type=float, default=1.0, help="LR inverse regularization")
++    ap.add_argument("--max-iter", type=int, default=200, help="LR max_iter")
++    ap.add_argument("--threshold", type=float, default=0.5, help="Decision threshold stored in artifact")
++
++    ap.add_argument("--max-rows", type=int, default=0, help="Optional cap for quick experiments")
++
++    args = ap.parse_args()
++
++    y_col = str(args.y_col or "").strip() or f"y_util_pos_{int(args.horizon_ms)}"
++
++    df = pd.read_parquet(str(args.parquet))
++    if int(args.max_rows) > 0:
++        df = df.head(int(args.max_rows)).copy()
++
++    if y_col not in df.columns:
++        print(f"ERROR: label column not found: {y_col}")
++        return 2
++
++    # Train
++    model, summary = train_meta_model_lr_from_df(
++        df,
++        schema_name=str(args.schema),
++        y_col=y_col,
++        n_splits=int(args.n_splits),
++        purge_ms=int(args.purge_ms),
++        embargo_ms=int(args.embargo_ms),
++        C=float(args.C),
++        max_iter=int(args.max_iter),
++        threshold=float(args.threshold),
++    )
++
++    # Export (signature stable)
++    model.dump(str(args.out))
++
++    # Attach training summary (not part of signature)
++    try:
++        d = json.loads(open(str(args.out), "r", encoding="utf-8").read())
++        d["training_summary"] = {
++            **summary,
++            "parquet": str(args.parquet),
++            "created_ms": int(time.time() * 1000),
++        }
++        with open(str(args.out), "w", encoding="utf-8") as f:
++            json.dump(d, f, indent=2, ensure_ascii=False)
++    except Exception:
++        pass
++
++    print(f"Saved: {args.out}")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())

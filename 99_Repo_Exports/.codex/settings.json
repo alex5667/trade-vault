@@ -1,0 +1,56 @@
+{
+  "workspace": "scanner_infra",
+  "project": "trade",
+  "primary_language": "ru",
+  "entrypoints": {
+    "trade": "tr:",
+    "default_orchestrator": "@trade-lead"
+  },
+  "paths": {
+    "skills": ".codex/skills",
+    "workflows": ".codex/workflows",
+    "agents": ".codex/agents/agents.md",
+    "rules": ".codex/rules"
+  },
+  "routing": {
+    "default_lane": "fast_local",
+    "direct_local_when": [
+      "local",
+      "bounded",
+      "clear",
+      "low_risk",
+      "additive",
+      "limited_to_1_or_2_files_or_one_narrow_subsystem"
+    ],
+    "fast_workflows": [
+      "trade-fast-fix",
+      "trade-fast-contract-check",
+      "trade-fast-test-gen",
+      "trade-fast-log-triage",
+      "trade-fast-doc-update"
+    ],
+    "investigation_workflow": "trade-parallel-investigation",
+    "sequential_review_workflow": "trade-sequential-review",
+    "release_gate_workflow": "trade-release-gate"
+  },
+  "escalation_triggers": [
+    "more_than_2_subsystems_affected",
+    "root_cause_unclear_after_fast_triage",
+    "architecture_redesign_required",
+    "non_backward_compatible_contract_or_schema_change_possible",
+    "ml_replay_regime_or_execution_risk_redesign",
+    "schema_retention_or_migration_redesign",
+    "high_rollout_risk",
+    "production_incident_rca"
+  ],
+  "invariants": [
+    "answer_user_in_russian",
+    "separate_facts_assumptions_risks",
+    "preserve_redis_websocket_rest_storage_backward_compatibility_by_default",
+    "make_time_units_timezone_monotonicity_and_late_data_behavior_explicit",
+    "bad_time_or_data_path_is_detect_sanitize_quarantine_metrics",
+    "optimization_flow_is_measure_change_remeasure",
+    "production_changes_need_tests_metrics_rollout_and_rollback"
+  ]
+}
+

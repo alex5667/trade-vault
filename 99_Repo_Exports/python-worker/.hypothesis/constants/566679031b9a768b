@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/atr_runtime_selector.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 1.5, 1000, 15000, 30000, 60000, 180000, 300000, 900000, ',', '14', '15m', '15s', '1m', '300000', '30s', '3m', '5m', '60000', 'ATR_HORIZON_WINDOW_N', 'ATR_SEL_EXACT', 'ATR_SEL_NEAREST', 'age_ms', 'alpha_half_life_ms', 'atr', 'atr_ts_ms', 'candidate_n', 'hold_target_ms', 'horizon', 'indicators', 'legacy', 'legacy_fallback', 'meta', 'missing', 'picked_source', 'picked_tf_ms', 'reason', 'reason_code', 'selector_exact', 'selector_nearest', 'source', 'stale', 'symbol', 'target_tf_ms', 'tf_ms', 'unknown', 'value']

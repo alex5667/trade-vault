@@ -1,0 +1,230 @@
+diff -ruN a/ml_analysis/tests/test_feature_registry.py b/ml_analysis/tests/test_feature_registry.py
+--- a/ml_analysis/tests/test_feature_registry.py	2026-02-25 14:55:22.000000000 +0000
++++ b/ml_analysis/tests/test_feature_registry.py	2026-02-26 07:42:17.491652160 +0000
+@@ -203,3 +203,19 @@
+     assert sd["ver"] == "v3"
+     assert sd["feature_cols_hash"] == spec.feature_cols_hash
+     assert sd["n_cols"] == len(spec.feature_cols)
++
++
++def test_feature_registry_schema_versions_include_v5_v6():
++    """Smoke: v5_of/v6_of schemas resolve and have deterministic non-empty feature list."""
++    from core.feature_registry import get_schema_info
++
++    for ver in ("v5_of", "v5_of_stable", "v6_of", "v6_of_stable"):
++        info = get_schema_info(ver)
++        assert info.version == ver
++        assert isinstance(info.feature_names, list)
++        assert len(info.feature_names) > 10
++        # must be unique and stable order
++        assert len(set(info.feature_names)) == len(info.feature_names)
++        # must contain direction + bucket fields
++        assert "cat:direction" in info.feature_names
++        assert "cat:bucket" in info.feature_names
+diff -ruN a/ml_analysis/tools/build_dataset_from_inputs_outcomes_v2.py b/ml_analysis/tools/build_dataset_from_inputs_outcomes_v2.py
+--- a/ml_analysis/tools/build_dataset_from_inputs_outcomes_v2.py	2026-02-25 19:30:44.000000000 +0000
++++ b/ml_analysis/tools/build_dataset_from_inputs_outcomes_v2.py	2026-02-26 07:43:44.717590804 +0000
+@@ -254,7 +254,7 @@
+     ap.add_argument(
+         "--schema-ver",
+         default=os.environ.get("ML_FEATURE_SCHEMA_VER", "v3"),
+-        choices=["v2", "v3", "v4_of", "v5_of", "v5", "v5_of_stable", "v5_stable"],
++        choices=["v2", "v3", "v4_of", "v5_of", "v5", "v5_of_stable", "v5_stable", "v6_of", "v6", "v6_of_stable", "v6_stable"],
+         help="версия Feature Registry для --emit-wide-cols (default: v3). Use v5_of_stable for stable baseline.",
+     )
+     ap.add_argument(
+diff -ruN a/ml_analysis/tools/build_edge_stack_dataset_from_redis.py b/ml_analysis/tools/build_edge_stack_dataset_from_redis.py
+--- a/ml_analysis/tools/build_edge_stack_dataset_from_redis.py	2026-02-25 17:51:46.000000000 +0000
++++ b/ml_analysis/tools/build_edge_stack_dataset_from_redis.py	2026-02-26 07:43:29.127883743 +0000
+@@ -1550,7 +1550,7 @@
+     ap.add_argument(
+         "--feature_schema_ver",
+         default=os.environ.get("ML_FEATURE_SCHEMA_VER", ""),
+-        choices=["", "v2", "v3", "v4", "v4_of", "v5", "v5_of"],
++        choices=["", "v2", "v3", "v4", "v4_of", "v5", "v5_of", "v5_of_stable", "v6", "v6_of", "v6_of_stable"],
+         help="Если задан, feature_cols берётся из Feature Registry (детерминированно), "
+             "а не из infer_feature_cols() (sample-зависимый). Empty = прежнее поведение.",
+     )
+diff -ruN a/ml_analysis/tools/train_edge_stack_v1_oof.py b/ml_analysis/tools/train_edge_stack_v1_oof.py
+--- a/ml_analysis/tools/train_edge_stack_v1_oof.py	2026-02-25 14:55:22.000000000 +0000
++++ b/ml_analysis/tools/train_edge_stack_v1_oof.py	2026-02-26 07:43:29.128803715 +0000
+@@ -443,7 +443,7 @@
+     ap.add_argument(
+         "--feature_schema_ver",
+         default=os.environ.get("FEATURE_SCHEMA_VER", os.environ.get("ML_FEATURE_SCHEMA_VER", "")),
+-        choices=["", "v2", "v3", "v4", "v4_of"],
++        choices=["", "v2", "v3", "v4", "v4_of", "v5", "v5_of", "v5_of_stable", "v6", "v6_of", "v6_of_stable"],
+         help="Если задан, берёт feature_cols из Feature Registry (детерминированно). "
+              "Заменяет feature_cols.json — исключает column drift.",
+     )
+diff -ruN a/services/ml_confirm_gate_dynamic_v8_stack_schema_v3.py b/services/ml_confirm_gate_dynamic_v8_stack_schema_v3.py
+--- a/services/ml_confirm_gate_dynamic_v8_stack_schema_v3.py	2026-02-25 14:55:22.000000000 +0000
++++ b/services/ml_confirm_gate_dynamic_v8_stack_schema_v3.py	2026-02-26 07:42:02.758047887 +0000
+@@ -21,6 +21,14 @@
+ from core.ml_feature_schema_v3_online import MLFeatureSchemaV3Online
+ from core.ml_feature_schema_v4_stack import MLFeatureSchemaV4Stack
+ from core.ml_feature_schema_v4_of import MLFeatureSchemaV4OF
++try:
++    from core.ml_feature_schema_v5_of import MLFeatureSchemaV5OF
++except Exception:
++    MLFeatureSchemaV5OF = None
++try:
++    from core.ml_feature_schema_v6_of import MLFeatureSchemaV6OF
++except Exception:
++    MLFeatureSchemaV6OF = None
+ from core.confirmations_schema_v1 import apply_confirmations_to_indicators
+@@ -87,6 +95,9 @@
+         # v3            → MLFeatureSchemaV3 (default, includes mae_r/mfe_r)
+         # v3_online/v3o → MLFeatureSchemaV3Online (serving-safe, no leakage)
+         # v4/v4_stack   → MLFeatureSchemaV4Stack (expanded 97-feature schema)
++# v4_of         → MLFeatureSchemaV4OF
++# v5_of/v5      → MLFeatureSchemaV5OF
++# v6_of/v6      → MLFeatureSchemaV6OF
+         schema_ver = (os.getenv("ML_FEATURE_SCHEMA_VER", "v3") or "v3").lower().strip()
+         if schema_ver == "v2":
+             self._schema: Any = MLFeatureSchemaV2()
+@@ -94,11 +105,15 @@
+             self._schema = MLFeatureSchemaV3Online()
+         elif schema_ver in ("v4", "v4_stack"):
+             self._schema = MLFeatureSchemaV4Stack()
+-        elif schema_ver in ("v4_of", "v5") and MLFeatureSchemaV4OF is not None:
++        elif schema_ver in ("v4_of", "v4of") and MLFeatureSchemaV4OF is not None:
+             self._schema = MLFeatureSchemaV4OF()
++        elif schema_ver in ("v5_of", "v5", "v5of") and MLFeatureSchemaV5OF is not None:
++            self._schema = MLFeatureSchemaV5OF()
++        elif schema_ver in ("v6_of", "v6", "v6of") and MLFeatureSchemaV6OF is not None:
++            self._schema = MLFeatureSchemaV6OF()
+         else:
+-
+             self._schema = MLFeatureSchemaV3()
++
+         self._metrics_stream = os.getenv("ML_CONFIRM_METRICS_STREAM", "metrics:ml_confirm")
+diff -ruN a/tick_flow_full/core/feature_registry.py b/tick_flow_full/core/feature_registry.py
+--- a/tick_flow_full/core/feature_registry.py	2026-02-25 19:30:27.000000000 +0000
++++ b/tick_flow_full/core/feature_registry.py	2026-02-26 07:40:50.453033983 +0000
+@@ -294,6 +294,32 @@
++# ---------------------------------------------------------------------------
++# v6_of schema — v5_of + flow + realized adverse drift (MLFeatureSchemaV6OF)
++# ---------------------------------------------------------------------------
++
++def _get_v6_of_keys():
++    """Импортирует num_keys + bool_keys из MLFeatureSchemaV6OF."""
++    try:
++        from core.ml_feature_schema_v6_of import MLFeatureSchemaV6OF  # type: ignore
++        schema = MLFeatureSchemaV6OF()
++        return list(schema.num_keys), list(schema.bool_keys)
++    except ImportError:
++        # fallback: best-effort superset over v5_of (keeps code runnable in minimal env)
++        return _get_v5_of_keys()
++
++
++def _get_v6_of_stable_keys():
++    """v6_of_stable = v6_of minus denylisted keys."""
++    num_keys, bool_keys = _get_v6_of_keys()
++    dn, db = _load_feature_denylist()
++    if not dn and not db:
++        return num_keys, bool_keys
++    num_f = [k for k in num_keys if str(k) not in dn]
++    bool_f = [k for k in bool_keys if str(k) not in db]
++    return num_f, bool_f
++
+@@ -366,7 +392,7 @@
+-        ver: одно из "v2", "v3", "v4_of", "v5_of", "v5_of_stable"
++        ver: одно из "v2", "v3", "v4_of", "v5_of", "v5_of_stable", "v6_of", "v6_of_stable"
+@@ -397,7 +423,7 @@
+-            f"Supported: 'v2', 'v3', 'v4_of', 'v5_of', 'v5_of_stable'."
++            f"Supported: 'v2', 'v3', 'v4_of', 'v5_of', 'v5_of_stable', 'v6_of', 'v6_of_stable'."
+@@ -441,18 +467,22 @@
+     if ver == "v5of":
+         ver = "v5_of"
++    if ver == "v6of":
++        ver = "v6_of"
+     if ver in ("v5_of_stable", "v5stable", "v5_stable"):
+         ver = "v5_of_stable"
++    if ver in ("v6_of_stable", "v6stable", "v6_stable"):
++        ver = "v6_of_stable"
+@@ -464,9 +494,16 @@
+-    else:  # v5 / v5_of / v5_of_stable
+-        if ver == "v5_of_stable":
++    else:  # v5/v6 allowlist
++        if ver in ("v6_of", "v6"):
++            num_keys, bool_keys = _get_v6_of_keys()
++            ver = "v6_of"
++        elif ver == "v6_of_stable":
++            num_keys, bool_keys = _get_v6_of_stable_keys()
++            ver = "v6_of_stable"
++        elif ver == "v5_of_stable":
+             num_keys, bool_keys = _get_v5_of_stable_keys()
++            ver = "v5_of_stable"
+         else:
+             num_keys, bool_keys = _get_v5_of_keys()
+             ver = "v5_of"
+diff -ruN a/tick_flow_full/core/ml_feature_schema_v6_of.py b/tick_flow_full/core/ml_feature_schema_v6_of.py
+--- a/tick_flow_full/core/ml_feature_schema_v6_of.py	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/core/ml_feature_schema_v6_of.py	2026-02-26 07:39:09.007475905 +0000
+@@ -0,0 +1,51 @@
++"""ML feature schema v6 (OrderFlow).
++
++v6_of = v5_of + world-practice flow + realized adverse drift.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import List
++
++from core.ml_feature_schema_v5_of import MLFeatureSchemaV5OF
++
++
++@dataclass
++class MLFeatureSchemaV6OF(MLFeatureSchemaV5OF):
++    """v6_of = v5_of + flow + realized adverse drift."""
++
++    def __post_init__(self) -> None:  # noqa: D401
++        super().__post_init__()
++
++        extra_num: List[str] = [
++            "taker_buy_rate_ema",
++            "taker_sell_rate_ema",
++            "taker_net_rate_ema",
++            "taker_flow_imb",
++            "taker_flow_imb_z",
++            "cancel_to_trade_bid",
++            "cancel_to_trade_ask",
++            "adverse_realized_drift_bps",
++            "adverse_realized_drift_z",
++            "adverse_realized_drift_ema_bps",
++            "adverse_realized_drift_slope_bps_per_min",
++            "adverse_realized_drift_cnt",
++        ]
++
++        for k in extra_num:
++            if k not in self.num_keys:
++                self.num_keys.append(k)
+diff -ruN a/tick_flow_full/services/ml_confirm_gate_dynamic_v8_stack_schema_v3.py b/tick_flow_full/services/ml_confirm_gate_dynamic_v8_stack_schema_v3.py
+--- a/tick_flow_full/services/ml_confirm_gate_dynamic_v8_stack_schema_v3.py	2026-02-25 17:00:35.000000000 +0000
++++ b/tick_flow_full/services/ml_confirm_gate_dynamic_v8_stack_schema_v3.py	2026-02-26 07:42:02.758928127 +0000
+@@ -25,6 +25,10 @@
+     from core.ml_feature_schema_v5_of import MLFeatureSchemaV5OF
+ except Exception:
+     MLFeatureSchemaV5OF = None
++try:
++    from core.ml_feature_schema_v6_of import MLFeatureSchemaV6OF
++except Exception:
++    MLFeatureSchemaV6OF = None
+@@ -92,6 +96,9 @@
++# v4_of         → MLFeatureSchemaV4OF
++# v5_of/v5      → MLFeatureSchemaV5OF
++# v6_of/v6      → MLFeatureSchemaV6OF
+@@ -99,11 +106,15 @@
+-        elif schema_ver in ("v4_of", "v5") and MLFeatureSchemaV4OF is not None:
++        elif schema_ver in ("v4_of", "v4of") and MLFeatureSchemaV4OF is not None:
+             self._schema = MLFeatureSchemaV4OF()
++        elif schema_ver in ("v5_of", "v5", "v5of") and MLFeatureSchemaV5OF is not None:
++            self._schema = MLFeatureSchemaV5OF()
++        elif schema_ver in ("v6_of", "v6", "v6of") and MLFeatureSchemaV6OF is not None:
++            self._schema = MLFeatureSchemaV6OF()
+         else:
+-
+             self._schema = MLFeatureSchemaV3()
++

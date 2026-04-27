@@ -1,0 +1,105 @@
+--- a/tick_flow_full/core/of_confirm_engine.py
++++ b/tick_flow_full/core/of_confirm_engine.py
+@@ -137,6 +137,31 @@
+ 
+ META_SCHEMA_V2P = (META_FEAT_V2_NAME, META_FEAT_V3_NAME, META_FEAT_V4_NAME, META_FEAT_V5_NAME, META_FEAT_V6_NAME, META_FEAT_V7_NAME, META_FEAT_V8_NAME, META_FEAT_V9_NAME)
+ 
++
++# ---- Meta schema builders (code-side) ----
++# Centralized mapping name -> {name, version, hash, builder}.
++# OFConfirmEngine uses this mapping at runtime, and unit tests assert its contents.
++# This reduces Train==Serve drift risk (a missing schema entry will break both runtime and tests).
++META_SCHEMA_BUILDERS: Dict[str, Dict[str, Any]] = {
++    META_FEAT_V1_NAME: dict(name=META_FEAT_V1_NAME, version=META_FEAT_V1_VERSION, hash=META_FEAT_V1_HASH, builder=build_meta_features_v1),
++    META_FEAT_V2_NAME: dict(name=META_FEAT_V2_NAME, version=META_FEAT_V2_VERSION, hash=META_FEAT_V2_HASH, builder=build_meta_features_v2),
++    META_FEAT_V3_NAME: dict(name=META_FEAT_V3_NAME, version=META_FEAT_V3_VERSION, hash=META_FEAT_V3_HASH, builder=build_meta_features_v3),
++    META_FEAT_V4_NAME: dict(name=META_FEAT_V4_NAME, version=META_FEAT_V4_VERSION, hash=META_FEAT_V4_HASH, builder=build_meta_features_v4),
++    META_FEAT_V5_NAME: dict(name=META_FEAT_V5_NAME, version=META_FEAT_V5_VERSION, hash=META_FEAT_V5_HASH, builder=build_meta_features_v5),
++    META_FEAT_V6_NAME: dict(name=META_FEAT_V6_NAME, version=META_FEAT_V6_VERSION, hash=META_FEAT_V6_HASH, builder=build_meta_features_v6),
++    META_FEAT_V7_NAME: dict(name=META_FEAT_V7_NAME, version=META_FEAT_V7_VERSION, hash=META_FEAT_V7_HASH, builder=build_meta_features_v7),
++    META_FEAT_V8_NAME: dict(name=META_FEAT_V8_NAME, version=META_FEAT_V8_VERSION, hash=META_FEAT_V8_HASH, builder=build_meta_features_v8),
++    META_FEAT_V9_NAME: dict(name=META_FEAT_V9_NAME, version=META_FEAT_V9_VERSION, hash=META_FEAT_V9_HASH, builder=build_meta_features_v9),
++}
++
++
++def get_meta_schema_cfg(schema_name: str) -> Dict[str, Any]:
++    """Return code-side meta schema config (or fallback to v1 for unknown schemas)."""
++    cfg = META_SCHEMA_BUILDERS.get(str(schema_name or ""))
++    if cfg is None:
++        return META_SCHEMA_BUILDERS[META_FEAT_V1_NAME]
++    return cfg
++
+ def _get_attr_or_key(obj: Any, name: str, default: Any = None) -> Any:
+     if obj is None:
+         return default
+@@ -2250,24 +2275,8 @@
+                     bs = getattr(runtime, "book_state", None)
+                     runtime_snap = getattr(bs, "snap", None) if bs is not None else None
+                     runtime_prev_snap = getattr(bs, "prev_snap", None) if bs is not None else None
+-
+-                    # Code-side schema registry
+-                    SCHEMAS = {
+-                        META_FEAT_V1_NAME: dict(name=META_FEAT_V1_NAME, version=META_FEAT_V1_VERSION, hash=META_FEAT_V1_HASH, builder=build_meta_features_v1),
+-                        META_FEAT_V2_NAME: dict(name=META_FEAT_V2_NAME, version=META_FEAT_V2_VERSION, hash=META_FEAT_V2_HASH, builder=build_meta_features_v2),
+-                        META_FEAT_V3_NAME: dict(name=META_FEAT_V3_NAME, version=META_FEAT_V3_VERSION, hash=META_FEAT_V3_HASH, builder=build_meta_features_v3),
+-                        META_FEAT_V4_NAME: dict(name=META_FEAT_V4_NAME, version=META_FEAT_V4_VERSION, hash=META_FEAT_V4_HASH, builder=build_meta_features_v4),
+-                        META_FEAT_V5_NAME: dict(name=META_FEAT_V5_NAME, version=META_FEAT_V5_VERSION, hash=META_FEAT_V5_HASH, builder=build_meta_features_v5),
+-                        META_FEAT_V6_NAME: dict(name=META_FEAT_V6_NAME, version=META_FEAT_V6_VERSION, hash=META_FEAT_V6_HASH, builder=build_meta_features_v6),
+-                        META_FEAT_V7_NAME: dict(name=META_FEAT_V7_NAME, version=META_FEAT_V7_VERSION, hash=META_FEAT_V7_HASH, builder=build_meta_features_v7),
+-                        META_FEAT_V8_NAME: dict(name=META_FEAT_V8_NAME, version=META_FEAT_V8_VERSION, hash=META_FEAT_V8_HASH, builder=build_meta_features_v8),
+-                        META_FEAT_V9_NAME: dict(name=META_FEAT_V9_NAME, version=META_FEAT_V9_VERSION, hash=META_FEAT_V9_HASH, builder=build_meta_features_v9),
+-                    }
+-
+-                    schema_cfg = SCHEMAS.get(model_schema_name)
+-                    if schema_cfg is None:
+-                        # Unknown schema: default to v1 features; mismatched models will be forced to SHADOW (unless legacy allowed).
+-                        schema_cfg = SCHEMAS[META_FEAT_V1_NAME]
++                    # Code-side schema registry (centralized at module-level)
++                    schema_cfg = get_meta_schema_cfg(model_schema_name)
+ 
+                     local_schema_name = str(schema_cfg["name"])
+                     local_schema_vers = int(schema_cfg["version"])
+--- a/tick_flow_full/tests/core/test_meta_features_v9_contract.py
++++ b/tick_flow_full/tests/core/test_meta_features_v9_contract.py
+@@ -1,4 +1,11 @@
+-from core.meta_features_v9 import META_FEAT_V9_COLS, build_meta_features_v9
++from core.meta_features_v9 import (
++    META_FEAT_V9_NAME,
++    META_FEAT_V9_VERSION,
++    META_FEAT_V9_HASH,
++    META_FEAT_V9_COLS,
++    build_meta_features_v9,
++)
++
+ 
+ 
+ def test_meta_features_v9_has_stable_keyset():
+@@ -27,3 +34,28 @@
+     ]
+     for k in gate_keys:
+         assert k in META_FEAT_V9_COLS, f"Missing gate key: {k}"
++
++
++def test_meta_features_v9_registered_in_meta_schema_registry():
++    """Ensures runtime registry knows about v9 (prevents silent drift)."""
++    from core.meta_schema_registry import get_schema_info
++    vers, cols, h = get_schema_info(META_FEAT_V9_NAME)
++    assert vers == META_FEAT_V9_VERSION
++    assert cols == META_FEAT_V9_COLS
++    assert h == META_FEAT_V9_HASH
++
++
++def test_meta_features_v9_wired_in_of_confirm_engine_schema_builders():
++    """Ensures OFConfirmEngine uses v9 builder when model requests meta_feat_v9."""
++    from core import of_confirm_engine as oce
++    assert META_FEAT_V9_NAME in oce.META_SCHEMA_REGISTRY, "v9 missing in engine META_SCHEMA_REGISTRY"
++    vers, h = oce.META_SCHEMA_REGISTRY[META_FEAT_V9_NAME]
++    assert vers == META_FEAT_V9_VERSION
++    assert h == META_FEAT_V9_HASH
++
++    # Builder wiring: if this breaks, runtime would silently fallback to v1.
++    cfg = oce.get_meta_schema_cfg(META_FEAT_V9_NAME)
++    assert cfg["name"] == META_FEAT_V9_NAME
++    assert int(cfg["version"]) == META_FEAT_V9_VERSION
++    assert str(cfg.get("hash", "")) == META_FEAT_V9_HASH
++    assert cfg["builder"] is build_meta_features_v9

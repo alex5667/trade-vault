@@ -1,0 +1,1432 @@
+--- services/orderflow/decision_snapshot.py	2026-03-06 18:19:30.000000000 +0000
++++ services/orderflow/decision_snapshot.py	2026-03-08 06:03:33.747847542 +0000
+@@ -236,24 +236,49 @@
+     return out
+ 
+ 
++def build_decision_snapshot(
++    signal: Dict[str, Any],
++    *,
++    runtime: Any | None,
++    indicators: Dict[str, Any] | None,
++    schema_version: int = 1,
++    include_indicators: bool = False,
++) -> Dict[str, Any]:
++    """Backward-compatible wrapper used by SignalPipeline.
++
++    Some runtime paths already import ``build_decision_snapshot(...)`` while the
++    original module shipped only ``build_decision_snapshot_event(...)``. Keeping
++    this alias here avoids fragile import-name drift.
++    """
++    return build_decision_snapshot_event(
++        signal=signal,
++        indicators=indicators,
++        runtime=runtime,
++        schema_version=schema_version,
++        include_indicators=include_indicators,
++    )
++
++
+ async def publish_decision_snapshot(
+     *,
+     publisher: Any,
+     stream: str,
+     maxlen: int,
+     symbol: str,
+-    evt: Dict[str, Any],
++    evt: Dict[str, Any] | None = None,
++    snapshot: Dict[str, Any] | None = None,
+ ) -> None:
+     """Smoke-test friendly wrapper: publish decision snapshot using AsyncSignalPublisher.xadd_json.
+ 
+     This wrapper exists to allow unit-testing publication behavior without importing SignalPipeline.
+     """
++    payload = evt if isinstance(evt, dict) else snapshot if isinstance(snapshot, dict) else {}
+     if StreamSink is None:
+         # Fallback: try direct xadd_json signature without StreamSink (some test stubs may accept it).
+-        await publisher.xadd_json(stream=stream, payload=evt, symbol=symbol)
++        await publisher.xadd_json(stream=stream, payload=payload, symbol=symbol)
+         return
+     await publisher.xadd_json(
+         sink=StreamSink(name=str(stream), field="payload", maxlen=int(maxlen)),
+-        payload=evt,
++        payload=payload,
+         symbol=str(symbol),
+     )
+--- /dev/null	2026-03-08 06:00:29.644516684 +0000
++++ services/orderflow/inline_exec_health.py	2026-03-08 06:03:05.959124880 +0000
+@@ -0,0 +1,490 @@
++from __future__ import annotations
++
++"""Inline execution-health state for hot/warm path feedback.
++
++Purpose
++-------
++Use *freshly observed* entry fills to maintain a lightweight rolling view of
++Implementation Shortfall (IS) per trading bucket so that the next signal can be
++penalized before post-trade hourly rollups catch up.
++
++Design
++------
++1. ``tca_worker`` already scans fills and joins them with decision snapshots.
++   We reuse that warm-path to update a compact Redis cache.
++2. For every entry fill we accumulate per-``sid`` fill state (VWAP + fee USD).
++3. The latest cumulative IS for each ``sid`` becomes one sample in a bounded
++   rolling window keyed by ``symbol/side/session/kind/tf``.
++4. From that bounded sample set we derive:
++   - ema_bps
++   - p50_bps
++   - p95_bps
++   - count
++5. ``EdgeCostGate`` reads those rollups synchronously and can monitor / tighten /
++   veto based on *very recent* execution degradation.
++
++Why keep one sample per sid instead of one sample per partial fill?
++------------------------------------------------------------------
++Partial fills should improve the *current trade* VWAP, not overweight the same
++trade multiple times in the rolling percentile. Therefore we overwrite the
++sample for the same ``sid`` with the latest cumulative VWAP-based IS.
++
++Key layout
++----------
++Session-aware primary keys:
++  - exec:inline:is:<SYM>:<SIDE>:<SESSION>:<KIND>:<TF>
++
++Compatibility / aggregate mirror keys (latest session):
++  - exec:inline:is:<SYM>:<SIDE>:<KIND>:<TF>
++
++Internal warm-path state:
++  - exec:inline:is:sid:<SID>
++  - exec:inline:is:samples:<SYM>:<SIDE>:<SESSION>:<KIND>:<TF>
++  - exec:inline:is:index:<SYM>:<SIDE>:<SESSION>:<KIND>:<TF>
++
++The module is intentionally fail-open: malformed values simply skip updates.
++"""
++
++import json
++import math
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional, Sequence, Tuple
++
++from services.posttrade.tca_math import implementation_shortfall_bps
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _s(v: Any, default: str = "") -> str:
++    try:
++        if isinstance(v, (bytes, bytearray)):
++            v = v.decode("utf-8", "replace")
++        s = str(v or "").strip()
++        return s if s else str(default)
++    except Exception:
++        return str(default)
++
++
++def _f(v: Any, default: float = float("nan")) -> float:
++    try:
++        if isinstance(v, (bytes, bytearray)):
++            v = v.decode("utf-8", "replace")
++        x = float(v)
++    except Exception:
++        return float(default)
++    if not math.isfinite(x):
++        return float(default)
++    return float(x)
++
++
++def _i(v: Any, default: int = 0) -> int:
++    try:
++        if isinstance(v, (bytes, bytearray)):
++            v = v.decode("utf-8", "replace")
++        return int(float(v))
++    except Exception:
++        return int(default)
++
++
++def _decode(v: Any) -> str:
++    if isinstance(v, (bytes, bytearray)):
++        return v.decode("utf-8", "replace")
++    return str(v)
++
++
++def _side(v: Any) -> str:
++    s = _s(v, "NA").upper()
++    if s in {"BUY", "LONG"}:
++        return "LONG"
++    if s in {"SELL", "SHORT"}:
++        return "SHORT"
++    return s or "NA"
++
++
++def _sess(v: Any) -> str:
++    return _s(v, "na").lower()
++
++
++def _kind(v: Any) -> str:
++    return _s(v, "na").lower()
++
++
++def _tf(v: Any) -> str:
++    return _s(v, "na").lower()
++
++
++@dataclass(frozen=True)
++class InlineExecDims:
++    symbol: str
++    side: str
++    session: str
++    kind: str
++    tf: str
++
++    def norm(self) -> "InlineExecDims":
++        return InlineExecDims(
++            symbol=_s(self.symbol).upper(),
++            side=_side(self.side),
++            session=_sess(self.session),
++            kind=_kind(self.kind),
++            tf=_tf(self.tf),
++        )
++
++
++def make_rollup_key(dims: InlineExecDims, *, include_session: bool = True) -> str:
++    d = dims.norm()
++    if include_session:
++        return f"exec:inline:is:{d.symbol}:{d.side}:{d.session}:{d.kind}:{d.tf}"
++    return f"exec:inline:is:{d.symbol}:{d.side}:{d.kind}:{d.tf}"
++
++
++def make_samples_key(dims: InlineExecDims) -> str:
++    return f"exec:inline:is:samples:{make_rollup_key(dims, include_session=True).split('exec:inline:is:', 1)[1]}"
++
++
++def make_index_key(dims: InlineExecDims) -> str:
++    return f"exec:inline:is:index:{make_rollup_key(dims, include_session=True).split('exec:inline:is:', 1)[1]}"
++
++
++def make_sid_state_key(sid: str) -> str:
++    return f"exec:inline:is:sid:{_s(sid)}"
++
++
++def _percentile(sorted_vals: Sequence[float], q: float) -> float:
++    if not sorted_vals:
++        return float("nan")
++    if len(sorted_vals) == 1:
++        return float(sorted_vals[0])
++    pos = max(0.0, min(1.0, float(q))) * (len(sorted_vals) - 1)
++    lo = int(math.floor(pos))
++    hi = int(math.ceil(pos))
++    if lo == hi:
++        return float(sorted_vals[lo])
++    w = float(pos - lo)
++    return float(sorted_vals[lo] * (1.0 - w) + sorted_vals[hi] * w)
++
++
++def _ema_from_ordered(vals: Sequence[float], *, alpha: float) -> float:
++    if not vals:
++        return float("nan")
++    aa = min(1.0, max(0.001, float(alpha)))
++    ema = float(vals[0])
++    for v in vals[1:]:
++        ema = aa * float(v) + (1.0 - aa) * ema
++    return float(ema)
++
++
++def _json_load(v: Any) -> Dict[str, Any]:
++    try:
++        raw = _decode(v)
++        obj = json.loads(raw)
++        if isinstance(obj, dict):
++            return obj
++    except Exception:
++        pass
++    return {}
++
++
++def _json_dump(v: Dict[str, Any]) -> str:
++    return json.dumps(v, separators=(",", ":"), sort_keys=True)
++
++
++def inline_is_from_cumulative_state(*, decision_mid: float, side: str, cum_notional: float, cum_qty: float, cum_fee_usd: float) -> Optional[float]:
++    """Compute cumulative VWAP-based IS from a partially filled entry order.
++
++    ``implementation_shortfall_bps`` expects fill VWAP and fee_bps. We derive the
++    latter from cumulative fee USD over cumulative notional.
++    """
++    mid0 = _f(decision_mid)
++    qty = _f(cum_qty)
++    notional = _f(cum_notional)
++    fee_usd = _f(cum_fee_usd, 0.0)
++    if not math.isfinite(mid0) or mid0 <= 0:
++        return None
++    if not math.isfinite(qty) or qty <= 0:
++        return None
++    if not math.isfinite(notional) or notional <= 0:
++        return None
++    vwap = float(notional) / float(qty)
++    fee_bps = 0.0
++    if math.isfinite(fee_usd) and fee_usd > 0:
++        fee_bps = float(fee_usd) / float(notional) * 10_000.0
++    v = implementation_shortfall_bps(
++        vwap_fill_px=float(vwap),
++        decision_mid=float(mid0),
++        side=_side(side),
++        fee_bps=float(fee_bps),
++    )
++    if v is None or not math.isfinite(float(v)):
++        return None
++    return float(v)
++
++
++async def update_inline_exec_from_fill(
++    *,
++    redis: Any,
++    sid: str,
++    dims: InlineExecDims,
++    decision_mid: float,
++    fill_px: float,
++    fill_qty: float,
++    fee_bps: float,
++    ts_fill_ms: int,
++    ttl_sec: int = 86_400,
++    max_samples: int = 128,
++    ema_alpha: float = 0.2,
++) -> Dict[str, float]:
++    """Update bounded Redis state from one entry fill and return current rollup.
++
++    The function is safe to call repeatedly for partial fills of the same sid.
++    The latest cumulative IS overwrites the sample for this sid.
++    """
++    if redis is None:
++        return {}
++    sid_s = _s(sid)
++    if not sid_s:
++        return {}
++    d = dims.norm()
++    px = _f(fill_px)
++    qty = _f(fill_qty)
++    fee = _f(fee_bps, 0.0)
++    mid0 = _f(decision_mid)
++    if not (math.isfinite(px) and px > 0 and math.isfinite(qty) and qty > 0 and math.isfinite(mid0) and mid0 > 0):
++        return {}
++
++    sid_key = make_sid_state_key(sid_s)
++    state_raw = await redis.hgetall(sid_key)
++    state: Dict[str, Any] = {_decode(k): _decode(v) for k, v in (state_raw or {}).items()}
++
++    cum_qty = _f(state.get("cum_qty"), 0.0) + float(qty)
++    cum_notional = _f(state.get("cum_notional"), 0.0) + (float(px) * float(qty))
++    cum_fee_usd = _f(state.get("cum_fee_usd"), 0.0) + (max(0.0, float(fee)) * float(px) * float(qty) / 10_000.0)
++    inline_is = inline_is_from_cumulative_state(
++        decision_mid=float(mid0),
++        side=d.side,
++        cum_notional=float(cum_notional),
++        cum_qty=float(cum_qty),
++        cum_fee_usd=float(cum_fee_usd),
++    )
++    if inline_is is None:
++        return {}
++
++    sid_state = {
++        "sid": sid_s,
++        "symbol": d.symbol,
++        "side": d.side,
++        "session": d.session,
++        "kind": d.kind,
++        "tf": d.tf,
++        "decision_mid": float(mid0),
++        "cum_qty": float(cum_qty),
++        "cum_notional": float(cum_notional),
++        "cum_fee_usd": float(cum_fee_usd),
++        "last_fill_ms": int(ts_fill_ms),
++        "last_inline_is_bps": float(inline_is),
++        "updated_at_ms": _now_ms(),
++    }
++    await redis.hset(sid_key, mapping={k: str(v) for k, v in sid_state.items()})
++    await redis.expire(sid_key, int(ttl_sec))
++
++    samples_key = make_samples_key(d)
++    index_key = make_index_key(d)
++    sample_payload = {
++        "sid": sid_s,
++        "is_bps": float(inline_is),
++        "ts_ms": int(ts_fill_ms),
++    }
++    await redis.hset(samples_key, mapping={sid_s: _json_dump(sample_payload)})
++    await redis.expire(samples_key, int(ttl_sec))
++    await redis.zadd(index_key, {sid_s: int(ts_fill_ms)})
++    await redis.expire(index_key, int(ttl_sec))
++
++    try:
++        zcard = int(await redis.zcard(index_key))
++    except Exception:
++        zcard = 0
++    if zcard > int(max_samples):
++        extra = zcard - int(max_samples)
++        try:
++            old = await redis.zrange(index_key, 0, extra - 1)
++        except Exception:
++            old = []
++        if old:
++            await redis.zrem(index_key, *old)
++            await redis.hdel(samples_key, *old)
++
++    ids = await redis.zrange(index_key, 0, -1)
++    series: List[Tuple[int, float]] = []
++    for raw_sid in ids or []:
++        raw = await redis.hget(samples_key, raw_sid)
++        obj = _json_load(raw)
++        v = _f(obj.get("is_bps"))
++        ts = _i(obj.get("ts_ms"), 0)
++        if math.isfinite(v):
++            series.append((int(ts), float(v)))
++
++    series.sort(key=lambda x: x[0])
++    vals = [float(v) for _, v in series]
++    count = len(vals)
++    if count <= 0:
++        return {}
++
++    vals_sorted = sorted(vals)
++    stats = {
++        "ema_bps": float(_ema_from_ordered(vals, alpha=float(ema_alpha))),
++        "p50_bps": float(_percentile(vals_sorted, 0.50)),
++        "p95_bps": float(_percentile(vals_sorted, 0.95)),
++        "count": int(count),
++        "last_is_bps": float(vals[-1]),
++        "last_sid": sid_s,
++        "updated_at_ms": _now_ms(),
++        "last_fill_ms": int(ts_fill_ms),
++        "session": d.session,
++        "kind": d.kind,
++        "tf": d.tf,
++        "side": d.side,
++        "symbol": d.symbol,
++    }
++
++    for key in (make_rollup_key(d, include_session=True), make_rollup_key(d, include_session=False)):
++        await redis.hset(key, mapping={k: str(v) for k, v in stats.items()})
++        await redis.expire(key, int(ttl_sec))
++
++    return {k: float(v) if isinstance(v, (int, float)) else v for k, v in stats.items()}  # type: ignore[return-value]
++
++
++def _try_hash(redis_client: Any, key: str) -> Dict[str, Any]:
++    try:
++        d = redis_client.hgetall(key) or {}
++        return {_decode(k): _decode(v) for k, v in dict(d).items()}
++    except Exception:
++        return {}
++
++
++def read_inline_exec_rollup_sync(
++    redis_client: Any,
++    *,
++    symbol: str,
++    side: str,
++    session: str,
++    kind: str,
++    tf: str,
++    min_count: int = 1,
++) -> Dict[str, float]:
++    """Read latest inline IS rollup using session-aware key with aggregate fallback."""
++    if redis_client is None:
++        return {}
++    dims = InlineExecDims(symbol=symbol, side=side, session=session, kind=kind, tf=tf).norm()
++    keys = [make_rollup_key(dims, include_session=True), make_rollup_key(dims, include_session=False)]
++    for key in keys:
++        d = _try_hash(redis_client, key)
++        if not d:
++            continue
++        cnt = _i(d.get("count"), 0)
++        if cnt < int(min_count):
++            continue
++        p95 = _f(d.get("p95_bps"))
++        p50 = _f(d.get("p50_bps"))
++        ema = _f(d.get("ema_bps"))
++        upd = _i(d.get("updated_at_ms"), 0)
++        out: Dict[str, float] = {}
++        if math.isfinite(ema):
++            out["ema_bps"] = float(ema)
++        if math.isfinite(p50):
++            out["p50_bps"] = float(p50)
++        if math.isfinite(p95):
++            out["p95_bps"] = float(p95)
++        out["count"] = float(cnt)
++        out["updated_at_ms"] = float(upd)
++        out["session_exact"] = 1.0 if key == keys[0] else 0.0
++        return out
++    return {}
++
++
++def read_perm_impact_rollup_sync(
++    redis_client: Any,
++    *,
++    symbol: str,
++    side: str,
++    session: str,
++    kind: str,
++    tf: str,
++    venue: str = "binance",
++    delta_sec: int = 1,
++) -> Optional[float]:
++    """Read post-trade permanent impact p95 from canonical TCA Redis keys."""
++    if redis_client is None:
++        return None
++    sym = _s(symbol).upper()
++    ven = _s(venue, "binance").lower()
++    sess = _sess(session)
++    tfv = _tf(tf)
++    kindv = _kind(kind)
++    sidev = _side(side)
++    keys = [
++        f"tca:perm_impact_p95_bps:{int(delta_sec)}:{sym}:{ven}:{sess}:{tfv}:{kindv}:{sidev}",
++        f"tca:perm_impact_p95_bps:{int(delta_sec)}:{sym}:{ven}:{sess}:{tfv}:all:{sidev}",
++        f"tca:perm_impact_p95_bps:{int(delta_sec)}:{sym}:{ven}:all:all:all:{sidev}",
++    ]
++    for key in keys:
++        try:
++            v = redis_client.get(key)
++        except Exception:
++            v = None
++        fv = _f(v)
++        if math.isfinite(fv):
++            return float(fv)
++    return None
++
++
++@dataclass(frozen=True)
++class InlineExecPolicyDecision:
++    apply: bool
++    veto: bool
++    reason_code: str
++    tighten_add_bps: float = 0.0
++
++
++def resolve_mode(mode: str, *, profile: str) -> str:
++    m = _s(mode, "auto").lower()
++    if m in {"off", "monitor", "tighten", "veto"}:
++        return m
++    p = _s(profile, "default").lower()
++    if p == "hard":
++        return "veto"
++    if p == "strict":
++        return "tighten"
++    return "monitor"
++
++
++def decide_inline_exec_health(*, p95_bps: float, warn_bps: float, crit_bps: float, perm_impact_p95_bps: float, max_perm_impact_p95_bps: float, mode: str) -> InlineExecPolicyDecision:
++    """Pure policy for inline execution-health.
++
++    Rules:
++    - monitor: annotate only
++    - tighten: if p95 > warn => add slippage
++    - veto: if p95 > crit AND perm_impact_p95 is also bad
++    """
++    p95 = _f(p95_bps)
++    warn = max(0.0, _f(warn_bps, 0.0))
++    crit = max(float(warn), _f(crit_bps, warn))
++    perm = _f(perm_impact_p95_bps)
++    perm_thr = max(0.0, _f(max_perm_impact_p95_bps, 0.0))
++    mm = _s(mode, "monitor").lower()
++    if not math.isfinite(p95) or p95 <= 0:
++        return InlineExecPolicyDecision(apply=False, veto=False, reason_code="INLINE_EXEC_NONE")
++    if mm == "off":
++        return InlineExecPolicyDecision(apply=False, veto=False, reason_code="INLINE_EXEC_OFF")
++    if p95 <= warn:
++        return InlineExecPolicyDecision(apply=False, veto=False, reason_code="INLINE_EXEC_OK")
++    if mm == "monitor":
++        return InlineExecPolicyDecision(apply=True, veto=False, reason_code="INLINE_EXEC_MONITOR")
++    sev = 1.0 if warn <= 0 else max(1.0, p95 / max(warn, 1e-9))
++    tighten_add = max(0.0, (sev - 1.0) * 5.0)
++    perm_bad = bool(perm_thr > 0 and math.isfinite(perm) and perm >= perm_thr)
++    if mm == "veto" and p95 >= crit and perm_bad:
++        return InlineExecPolicyDecision(apply=True, veto=True, reason_code="VETO_INLINE_IMPL_SHORTFALL_P95", tighten_add_bps=float(tighten_add))
++    return InlineExecPolicyDecision(apply=True, veto=False, reason_code="INLINE_EXEC_TIGHTEN", tighten_add_bps=float(tighten_add))
+--- /dev/null	2026-03-08 06:00:29.644516684 +0000
++++ services/orderflow/metrics_inline_exec_health.py	2026-03-08 06:03:15.684375917 +0000
+@@ -0,0 +1,64 @@
++from __future__ import annotations
++
++"""Prometheus metrics for inline execution-health (P1).
++
++These metrics are intentionally low-cardinality. ``symbol`` is included because
++P1 rollout is expected to start on 1–2 symbols. If you widen coverage, consider
++sampling or reducing labels.
++"""
++
++from typing import Any
++
++try:  # pragma: no cover - metrics are optional in tests
++    from prometheus_client import Counter, Gauge
++except Exception:  # pragma: no cover
++    Counter = Gauge = None  # type: ignore
++
++
++class _Noop:
++    def labels(self, *args: Any, **kwargs: Any) -> "_Noop":
++        return self
++    def inc(self, *args: Any, **kwargs: Any) -> None:
++        return None
++    def set(self, *args: Any, **kwargs: Any) -> None:
++        return None
++
++
++if Counter is None or Gauge is None:  # pragma: no cover
++    inline_exec_rollup_updates_total = _Noop()
++    inline_exec_rollup_p95_bps = _Noop()
++    inline_exec_rollup_count = _Noop()
++    inline_exec_edge_tighten_total = _Noop()
++    inline_exec_edge_veto_total = _Noop()
++    inline_exec_edge_last_p95_bps = _Noop()
++else:
++    inline_exec_rollup_updates_total = Counter(
++        "inline_exec_rollup_updates_total",
++        "Total inline execution-health rollup updates written by tca_worker.",
++        ["symbol", "side"],
++    )
++    inline_exec_rollup_p95_bps = Gauge(
++        "inline_exec_rollup_p95_bps",
++        "Latest inline implementation shortfall p95 in bps.",
++        ["symbol", "side"],
++    )
++    inline_exec_rollup_count = Gauge(
++        "inline_exec_rollup_count",
++        "Latest bounded sample count for inline execution-health rollup.",
++        ["symbol", "side"],
++    )
++    inline_exec_edge_tighten_total = Counter(
++        "inline_exec_edge_tighten_total",
++        "EdgeCostGate tighten decisions caused by inline execution-health.",
++        ["symbol", "side"],
++    )
++    inline_exec_edge_veto_total = Counter(
++        "inline_exec_edge_veto_total",
++        "EdgeCostGate veto decisions caused by inline execution-health.",
++        ["symbol", "side"],
++    )
++    inline_exec_edge_last_p95_bps = Gauge(
++        "inline_exec_edge_last_p95_bps",
++        "Latest inline execution-health p95 observed by EdgeCostGate.",
++        ["symbol", "side"],
++    )
+--- services/orderflow/signal_pipeline.py	2026-03-07 08:59:30.000000000 +0000
++++ services/orderflow/signal_pipeline.py	2026-03-08 06:03:50.541222679 +0000
+@@ -418,6 +418,32 @@
+         signal.setdefault("delta", delta)
+         signal.setdefault("delta_z", delta_z)
+         indicators.setdefault("tick_qty", signal.get("tick_qty"))
++
++        # ------------------------------------------------------------------
++        # P1 Inline Execution Health hardening
++        # ------------------------------------------------------------------
++        # We freeze a few explicit aliases at EMIT-time so warm-path workers do
++        # not need to guess which field carried the decision anchor.
++        # These aliases are intentionally redundant and backward-compatible.
++        sid0 = str(signal.get("signal_id") or signal.get("sid") or "").strip()
++        if sid0:
++            signal.setdefault("signal_id", sid0)
++            signal.setdefault("sid", sid0)
++        signal.setdefault("ts_emit_ms", int(sig_ts))
++        signal.setdefault(
++            "decision_mid_at_emit",
++            signal.get("decision_mid")
++            or signal.get("decision_price")
++            or indicators.get("decision_mid")
++            or indicators.get("mid")
++            or signal.get("entry"),
++        )
++        signal.setdefault(
++            "expected_slippage_bps_at_emit",
++            signal.get("decision_expected_slippage_bps")
++            or indicators.get("expected_slippage_bps")
++            or signal.get("expected_slippage_bps"),
++        )
+         
+         # A1 Decision Context Enrichment (hot-path, fail-open)
+         #
+@@ -449,7 +475,7 @@
+                 )
+                 await publish_decision_snapshot(
+                     publisher=self.publisher,
+-                    snapshot=snap,
++                    evt=snap,
+                     stream=self.decision_snapshot_stream,
+                     maxlen=int(self.decision_snapshot_stream_maxlen),
+                     symbol=str(symbol),
+--- /dev/null	2026-03-08 06:00:29.644516684 +0000
++++ services/orderflow/tests/test_inline_exec_health_v1.py	2026-03-08 06:07:36.529300792 +0000
+@@ -0,0 +1,161 @@
++from __future__ import annotations
++
++import asyncio
++import json
++import math
++
++from services.orderflow.inline_exec_health import (
++    InlineExecDims,
++    inline_is_from_cumulative_state,
++    make_rollup_key,
++    read_inline_exec_rollup_sync,
++    update_inline_exec_from_fill,
++)
++
++
++class MemStore:
++    def __init__(self):
++        self.hashes = {}
++        self.zsets = {}
++        self.strings = {}
++
++
++class AsyncRedis:
++    def __init__(self, store: MemStore):
++        self.s = store
++
++    async def hgetall(self, key):
++        return dict(self.s.hashes.get(key, {}))
++
++    async def hset(self, key, mapping=None):
++        self.s.hashes.setdefault(key, {})
++        for k, v in (mapping or {}).items():
++            self.s.hashes[key][k] = v
++        return 1
++
++    async def expire(self, key, ttl):
++        return True
++
++    async def zadd(self, key, mapping):
++        self.s.zsets.setdefault(key, {})
++        self.s.zsets[key].update(mapping)
++        return 1
++
++    async def zcard(self, key):
++        return len(self.s.zsets.get(key, {}))
++
++    async def zrange(self, key, start, stop):
++        items = sorted(self.s.zsets.get(key, {}).items(), key=lambda kv: (kv[1], kv[0]))
++        if stop == -1:
++            sliced = items[start:]
++        else:
++            sliced = items[start : stop + 1]
++        return [k for k, _ in sliced]
++
++    async def zrem(self, key, *members):
++        z = self.s.zsets.get(key, {})
++        for m in members:
++            z.pop(m, None)
++        return 1
++
++    async def hdel(self, key, *members):
++        h = self.s.hashes.get(key, {})
++        for m in members:
++            h.pop(m, None)
++        return 1
++
++    async def hget(self, key, member):
++        return self.s.hashes.get(key, {}).get(member)
++
++
++class SyncRedis:
++    def __init__(self, store: MemStore):
++        self.s = store
++
++    def hgetall(self, key):
++        return dict(self.s.hashes.get(key, {}))
++
++    def get(self, key):
++        return self.s.strings.get(key)
++
++
++def test_inline_is_from_cumulative_state_partial_fills():
++    # Two fills: 0.4 @ 100.02 and 0.6 @ 100.04, decision mid 100.00.
++    # VWAP = 100.032. IS ~= 3.2 bps plus fees.
++    v = inline_is_from_cumulative_state(
++        decision_mid=100.0,
++        side="LONG",
++        cum_notional=(0.4 * 100.02) + (0.6 * 100.04),
++        cum_qty=1.0,
++        cum_fee_usd=0.0,
++    )
++    assert v is not None
++    assert 3.19 <= float(v) <= 3.21
++
++
++def test_update_inline_exec_from_fill_overwrites_same_sid_sample_and_sync_read():
++    async def _run():
++        store = MemStore()
++        ar = AsyncRedis(store)
++        dims = InlineExecDims(symbol="BTCUSDT", side="LONG", session="eu", kind="breakout", tf="1m")
++
++        s1 = await update_inline_exec_from_fill(
++            redis=ar,
++            sid="sid-1",
++            dims=dims,
++            decision_mid=100.0,
++            fill_px=100.02,
++            fill_qty=0.4,
++            fee_bps=0.0,
++            ts_fill_ms=1000,
++            max_samples=32,
++        )
++        assert s1["count"] == 1
++        assert 1.9 <= s1["p95_bps"] <= 2.1
++
++        # Same sid partial fill must overwrite/update one sample, not create count=2.
++        s2 = await update_inline_exec_from_fill(
++            redis=ar,
++            sid="sid-1",
++            dims=dims,
++            decision_mid=100.0,
++            fill_px=100.04,
++            fill_qty=0.6,
++            fee_bps=0.0,
++            ts_fill_ms=2000,
++            max_samples=32,
++        )
++        assert s2["count"] == 1
++        assert 3.1 <= s2["p95_bps"] <= 3.3
++
++        # Second trade widens percentile set.
++        s3 = await update_inline_exec_from_fill(
++            redis=ar,
++            sid="sid-2",
++            dims=dims,
++            decision_mid=100.0,
++            fill_px=100.08,
++            fill_qty=1.0,
++            fee_bps=0.0,
++            ts_fill_ms=3000,
++            max_samples=32,
++        )
++        assert s3["count"] == 2
++        sr = SyncRedis(store)
++        out = read_inline_exec_rollup_sync(
++            sr,
++            symbol="BTCUSDT",
++            side="LONG",
++            session="eu",
++            kind="breakout",
++            tf="1m",
++            min_count=1,
++        )
++        assert float(out["count"]) == 2.0
++        assert float(out["p95_bps"]) > 7.0
++        # Session-aware key must exist.
++        assert make_rollup_key(dims, include_session=True) in store.hashes
++        # Compatibility mirror too.
++        assert make_rollup_key(dims, include_session=False) in store.hashes
++
++    asyncio.run(_run())
+--- /dev/null	2026-03-08 06:00:29.644516684 +0000
++++ services/orderflow/tests/test_inline_exec_health_edge_gate_v1.py	2026-03-08 06:11:18.251248543 +0000
+@@ -0,0 +1,219 @@
++from __future__ import annotations
++
++import asyncio
++import importlib.util
++import sys
++import types
++from pathlib import Path
++from types import SimpleNamespace
++
++from services.orderflow.inline_exec_health import InlineExecDims, update_inline_exec_from_fill
++
++
++_ROOT = Path(__file__).resolve().parents[3]
++if str(_ROOT) not in sys.path:
++    sys.path.insert(0, str(_ROOT))
++
++# Minimal dependency stubs required to import the edge gate module directly.
++if "common.decision_trace" not in sys.modules:
++    common_pkg = types.ModuleType("common")
++    decision_trace_mod = types.ModuleType("common.decision_trace")
++
++    class _Span:
++        def __enter__(self):
++            return self
++        def __exit__(self, exc_type, exc, tb):
++            return False
++
++    def _trace_gate(*args, **kwargs):
++        return None
++
++    decision_trace_mod.Span = _Span
++    decision_trace_mod.trace_gate = _trace_gate
++    sys.modules["common"] = common_pkg
++    sys.modules["common.decision_trace"] = decision_trace_mod
++
++if "domain.time_utils" not in sys.modules:
++    domain_pkg = types.ModuleType("domain")
++    time_utils_mod = types.ModuleType("domain.time_utils")
++    gate_profile_mod = types.ModuleType("domain.gate_profile")
++
++    def _normalize_ts_ms(v):
++        return int(float(v)) if v is not None else 0
++
++    def _session_from_ts_ms(v):
++        return "eu"
++
++    def _strict_enabled():
++        return False
++
++    time_utils_mod.normalize_ts_ms = _normalize_ts_ms
++    time_utils_mod.session_from_ts_ms = _session_from_ts_ms
++    gate_profile_mod.strict_enabled = _strict_enabled
++    sys.modules["domain"] = domain_pkg
++    sys.modules["domain.time_utils"] = time_utils_mod
++    sys.modules["domain.gate_profile"] = gate_profile_mod
++
++_EDGE_PATH = Path(__file__).resolve().parents[3] / "tick_flow_full" / "handlers" / "crypto_orderflow" / "utils" / "edge_cost_gate.py"
++_SPEC = importlib.util.spec_from_file_location("edge_cost_gate_test_mod", str(_EDGE_PATH))
++assert _SPEC and _SPEC.loader
++_MOD = importlib.util.module_from_spec(_SPEC)
++sys.modules["edge_cost_gate_test_mod"] = _MOD
++_SPEC.loader.exec_module(_MOD)
++EdgeCostGate = _MOD.EdgeCostGate
++
++
++class MemStore:
++    def __init__(self):
++        self.hashes = {}
++        self.zsets = {}
++        self.strings = {}
++
++
++class AsyncRedis:
++    def __init__(self, store: MemStore):
++        self.s = store
++
++    async def hgetall(self, key):
++        return dict(self.s.hashes.get(key, {}))
++
++    async def hset(self, key, mapping=None):
++        self.s.hashes.setdefault(key, {})
++        for k, v in (mapping or {}).items():
++            self.s.hashes[key][k] = v
++        return 1
++
++    async def expire(self, key, ttl):
++        return True
++
++    async def zadd(self, key, mapping):
++        self.s.zsets.setdefault(key, {})
++        self.s.zsets[key].update(mapping)
++        return 1
++
++    async def zcard(self, key):
++        return len(self.s.zsets.get(key, {}))
++
++    async def zrange(self, key, start, stop):
++        items = sorted(self.s.zsets.get(key, {}).items(), key=lambda kv: (kv[1], kv[0]))
++        if stop == -1:
++            sliced = items[start:]
++        else:
++            sliced = items[start : stop + 1]
++        return [k for k, _ in sliced]
++
++    async def zrem(self, key, *members):
++        z = self.s.zsets.get(key, {})
++        for m in members:
++            z.pop(m, None)
++        return 1
++
++    async def hdel(self, key, *members):
++        h = self.s.hashes.get(key, {})
++        for m in members:
++            h.pop(m, None)
++        return 1
++
++    async def hget(self, key, member):
++        return self.s.hashes.get(key, {}).get(member)
++
++
++class SyncRedis:
++    def __init__(self, store: MemStore):
++        self.s = store
++
++    def hgetall(self, key):
++        return dict(self.s.hashes.get(key, {}))
++
++    def get(self, key):
++        return self.s.strings.get(key)
++
++
++def _mk_gate(redis_client):
++    return EdgeCostGate(
++        enabled=True,
++        mode="tp1",
++        strict_missing_levels=False,
++        apply_kinds=set(),
++        k_default=4.0,
++        k_by_symbol={},
++        fees_bps_default=0.0,
++        slippage_bps_default=1.0,
++        slippage_use_spread_half=False,
++        min_expected_move_bps_default=0.0,
++        min_expected_move_bps_by_symbol={},
++        redis=redis_client,
++        ev_min_trades=40,
++        ev_strict_missing_stats=False,
++        ev_dynamic_k_enabled=False,
++        ev_dynamic_k_atr_mult=0.0,
++        ev_p_min=0.55,
++        ev_p_min_by_kind={},
++        inline_exec_enabled=True,
++        inline_exec_mode="tighten",
++        inline_exec_warn_p95_bps=5.0,
++        inline_exec_crit_p95_bps=10.0,
++        inline_exec_min_count=2,
++        inline_exec_tighten_add_mult=1.0,
++        inline_exec_tighten_add_cap_bps=8.0,
++        inline_exec_max_perm_impact_p95_bps=6.0,
++        inline_exec_tca_delta_sec=1,
++    )
++
++
++def test_edge_cost_gate_tightens_from_inline_exec_health():
++    async def _seed():
++        store = MemStore()
++        ar = AsyncRedis(store)
++        dims = InlineExecDims(symbol="BTCUSDT", side="LONG", session="eu", kind="breakout", tf="1m")
++        await update_inline_exec_from_fill(redis=ar, sid="s1", dims=dims, decision_mid=100.0, fill_px=100.06, fill_qty=1.0, fee_bps=0.0, ts_fill_ms=1000)
++        await update_inline_exec_from_fill(redis=ar, sid="s2", dims=dims, decision_mid=100.0, fill_px=100.07, fill_qty=1.0, fee_bps=0.0, ts_fill_ms=2000)
++        return store
++
++    store = asyncio.run(_seed())
++    gate = _mk_gate(SyncRedis(store))
++    ctx = SimpleNamespace(
++        entry_price=100.0,
++        tp1_price=100.20,
++        sl_price=99.95,
++        side="LONG",
++        session="eu",
++        tf="1m",
++        venue="binance",
++        ts_ms=1700000000000,
++    )
++    dec = gate.evaluate(ctx=ctx, kind="breakout", symbol="BTCUSDT")
++    assert dec.apply is True
++    assert dec.veto is False
++    # Base threshold would be 4.0 bps (K=4 * slip=1). Inline health adds tightening.
++    assert dec.threshold_bps > 4.0
++    assert getattr(ctx, "inline_exec_health_p95_bps", 0.0) > 6.0
++
++
++def test_edge_cost_gate_veto_requires_perm_impact_too():
++    async def _seed():
++        store = MemStore()
++        ar = AsyncRedis(store)
++        dims = InlineExecDims(symbol="BTCUSDT", side="LONG", session="eu", kind="breakout", tf="1m")
++        await update_inline_exec_from_fill(redis=ar, sid="s1", dims=dims, decision_mid=100.0, fill_px=100.11, fill_qty=1.0, fee_bps=0.0, ts_fill_ms=1000)
++        await update_inline_exec_from_fill(redis=ar, sid="s2", dims=dims, decision_mid=100.0, fill_px=100.12, fill_qty=1.0, fee_bps=0.0, ts_fill_ms=2000)
++        # matching TCA perm impact rollup -> required for veto in hard mode
++        store.strings["tca:perm_impact_p95_bps:1:BTCUSDT:binance:eu:1m:breakout:LONG"] = "7.5"
++        return store
++
++    store = asyncio.run(_seed())
++    gate = _mk_gate(SyncRedis(store))
++    gate.inline_exec_mode = "veto"
++    ctx = SimpleNamespace(
++        entry_price=100.0,
++        tp1_price=100.30,
++        sl_price=99.90,
++        side="LONG",
++        session="eu",
++        tf="1m",
++        venue="binance",
++        ts_ms=1700000000000,
++    )
++    dec = gate.evaluate(ctx=ctx, kind="breakout", symbol="BTCUSDT")
++    assert dec.veto is True
++    assert dec.reason_code == gate.REASON_INLINE_EXEC_VETO
+--- services/posttrade/decision_snapshot_writer.py	2026-03-06 20:06:34.000000000 +0000
++++ services/posttrade/decision_snapshot_writer.py	2026-03-08 06:04:07.280585859 +0000
+@@ -205,6 +205,13 @@
+     ts_decision_ms = _to_int(evt.get("decision_ts_ms") or evt.get("ts_emit_ms") or evt.get("ts_event_ms"), 0)
+     sid = str(evt.get("sid") or evt.get("signal_id") or "").strip()
+     symbol = str(evt.get("symbol") or evt.get("sym") or "").strip()
++    # P1: accept explicit EMIT aliases written by SignalPipeline.
++    decision_mid = _to_float(evt.get("decision_mid") if evt.get("decision_mid") is not None else evt.get("decision_mid_at_emit"))
++    decision_exp_slip = _to_float(
++        evt.get("decision_expected_slippage_bps")
++        if evt.get("decision_expected_slippage_bps") is not None
++        else evt.get("expected_slippage_bps_at_emit")
++    )
+ 
+     row: Dict[str, Any] = {
+         "ts_decision_ms": int(ts_decision_ms),
+@@ -218,7 +225,7 @@
+         "direction": str(evt.get("direction") or ""),
+         "decision_bid": _to_float(evt.get("decision_bid")),
+         "decision_ask": _to_float(evt.get("decision_ask")),
+-        "decision_mid": _to_float(evt.get("decision_mid")),
++        "decision_mid": decision_mid,
+         "decision_spread_bps": _to_float(evt.get("decision_spread_bps")),
+         "decision_depth_bid_5": _to_float(evt.get("decision_depth_bid_5")),
+         "decision_depth_ask_5": _to_float(evt.get("decision_depth_ask_5")),
+@@ -228,9 +235,9 @@
+         "decision_book_slope_ask": _to_float(evt.get("decision_book_slope_ask")),
+         "decision_dws_bps": _to_float(evt.get("decision_dws_bps")),
+         "decision_ofi_norm": _to_float(evt.get("decision_ofi_norm")),
+-        "decision_expected_slippage_bps": _to_float(evt.get("decision_expected_slippage_bps")),
++        "decision_expected_slippage_bps": decision_exp_slip,
+         "decision_exec_risk_norm": _to_float(evt.get("decision_exec_risk_norm")),
+-        "decision_price": _to_float(evt.get("decision_price") or evt.get("decision_mid")),
++        "decision_price": _to_float(evt.get("decision_price") or evt.get("decision_mid") or evt.get("decision_mid_at_emit")),
+         "tca_ready": bool(evt.get("tca_ready") or False),
+         "book_sanity_flags": _to_text_array(evt.get("book_sanity_flags")),
+         "schema_version": _to_int(evt.get("schema_version") or evt.get("schema_ver") or 1, 1),
+--- services/posttrade/tca_worker.py	2026-03-07 05:44:02.000000000 +0000
++++ services/posttrade/tca_worker.py	2026-03-08 06:04:36.630076323 +0000
+@@ -58,6 +58,12 @@
+     implementation_shortfall_bps,
+ )
+ from services.posttrade.tca_redis_state import TcaKeyDims, write_rollups
++from services.orderflow.inline_exec_health import InlineExecDims, update_inline_exec_from_fill
++from services.orderflow.metrics_inline_exec_health import (
++    inline_exec_rollup_count,
++    inline_exec_rollup_p95_bps,
++    inline_exec_rollup_updates_total,
++)
+ 
+ 
+ logger = logging.getLogger("tca_worker")
+@@ -293,6 +299,10 @@
+     redis_ttl_sec: int
+     rollups_enable: bool
+     bbo_lookback_ms: int
++    inline_enable: bool
++    inline_ttl_sec: int
++    inline_max_samples: int
++    inline_ema_alpha: float
+ 
+     @staticmethod
+     def from_env() -> "Cfg":
+@@ -306,6 +316,10 @@
+             redis_ttl_sec=_env_int("EXEC_TCA_REDIS_TTL_SEC", "600"),
+             rollups_enable=_env_bool("TCA_ROLLUPS_ENABLE", "1"),
+             bbo_lookback_ms=_env_int("TCA_MAX_BBO_LOOKBACK_MS", "3000"),
++            inline_enable=_env_bool("INLINE_EXEC_HEALTH_ENABLE", "1"),
++            inline_ttl_sec=_env_int("INLINE_EXEC_HEALTH_REDIS_TTL_SEC", "21600"),
++            inline_max_samples=_env_int("INLINE_EXEC_HEALTH_MAX_SAMPLES", "128"),
++            inline_ema_alpha=float(_env("INLINE_EXEC_HEALTH_EMA_ALPHA", "0.2") or 0.2),
+         )
+ 
+ 
+@@ -446,6 +460,43 @@
+                 dims = TcaKeyDims(sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side)
+                 touched_dims[(dims.sym, dims.venue, dims.session, dims.tf, dims.kind, dims.side)] = dims
+ 
++                # ----------------------------------------------------------
++                # P1 Inline execution-health cache.
++                # ----------------------------------------------------------
++                # We update *entry* execution state in Redis immediately after
++                # computing per-fill TCA. This gives the next signal a recent
++                # feedback loop without waiting for large DB rollups.
++                #
++                # Important:
++                # - one rolling sample per sid (latest cumulative VWAP IS)
++                # - partial fills overwrite the sid sample instead of adding a
++                #   second sample, avoiding percentile overweighting
++                # - fail-open: Redis/cache issues must never stop TCA worker
++                if cfg.inline_enable and str(f.get("fill_role") or "").lower() == "entry" and is_bps is not None:
++                    try:
++                        stats = await update_inline_exec_from_fill(
++                            redis=r,
++                            sid=sid,
++                            dims=InlineExecDims(symbol=sym, side=side, session=session, kind=kind, tf=tf),
++                            decision_mid=float(decision_mid),
++                            fill_px=float(f["px"]),
++                            fill_qty=float(f["qty"]),
++                            fee_bps=float(f["fee_bps"]),
++                            ts_fill_ms=int(ts_fill_ms),
++                            ttl_sec=int(cfg.inline_ttl_sec),
++                            max_samples=int(cfg.inline_max_samples),
++                            ema_alpha=float(cfg.inline_ema_alpha),
++                        )
++                        if stats:
++                            side_u = str(side).upper()
++                            inline_exec_rollup_updates_total.labels(symbol=sym, side=side_u).inc()
++                            if "p95_bps" in stats:
++                                inline_exec_rollup_p95_bps.labels(symbol=sym, side=side_u).set(float(stats["p95_bps"]))
++                            if "count" in stats:
++                                inline_exec_rollup_count.labels(symbol=sym, side=side_u).set(float(stats["count"]))
++                    except Exception:
++                        logger.debug("inline_exec_health update failed sid=%s sym=%s", sid, sym, exc_info=True)
++
+             if tca_rows:
+                 pg.upsert_tca_rows(tca_rows)
+ 
+--- /dev/null	2026-03-08 06:00:29.644516684 +0000
++++ services/posttrade/tests/test_decision_snapshot_writer_p1_aliases.py	2026-03-08 06:08:20.529913583 +0000
+@@ -0,0 +1,21 @@
++from __future__ import annotations
++
++from services.posttrade.decision_snapshot_writer import _normalize_row
++
++
++def test_normalize_row_accepts_emit_aliases():
++    row = _normalize_row(
++        {
++            "signal_id": "sid-1",
++            "symbol": "BTCUSDT",
++            "ts_emit_ms": 1700000000000,
++            "decision_mid_at_emit": 101.25,
++            "expected_slippage_bps_at_emit": 3.5,
++            "side": "LONG",
++        }
++    )
++    assert row["sid"] == "sid-1"
++    assert row["ts_decision_ms"] == 1700000000000
++    assert row["decision_mid"] == 101.25
++    assert row["decision_expected_slippage_bps"] == 3.5
++    assert row["decision_price"] == 101.25
+--- tick_flow_full/handlers/crypto_orderflow/utils/edge_cost_gate.py	2026-02-19 20:18:57.000000000 +0000
++++ tick_flow_full/handlers/crypto_orderflow/utils/edge_cost_gate.py	2026-03-08 06:06:49.598508244 +0000
+@@ -107,6 +107,17 @@
+     build_exec_cost_ema_key,
+     read_exec_cost_ema_slippage_bps,
+ )
++from services.orderflow.inline_exec_health import (
++    decide_inline_exec_health,
++    read_inline_exec_rollup_sync,
++    read_perm_impact_rollup_sync,
++    resolve_mode as resolve_inline_exec_mode,
++)
++from services.orderflow.metrics_inline_exec_health import (
++    inline_exec_edge_last_p95_bps,
++    inline_exec_edge_tighten_total,
++    inline_exec_edge_veto_total,
++)
+ 
+ # Single source of truth for epoch-ms normalization (already used in TradeMonitor)
+ from domain.time_utils import normalize_ts_ms
+@@ -765,6 +776,7 @@
+     REASON_EV_INSUFFICIENT_STATS = "edge_cost:ev:insufficient_stats"
+     REASON_EV_PROB = "edge_cost:ev:prob"
+     REASON_EV_BELOW_K = "edge_cost:ev:below_k"
++    REASON_INLINE_EXEC_VETO = "edge_cost:inline_exec:veto"
+ 
+     def passes(self, *, ctx: Any, kind: str, symbol: str) -> bool:
+         """
+@@ -809,6 +821,18 @@
+     # Per-kind probability thresholds (e.g., breakout needs higher p than absorption)
+     ev_p_min_by_kind: Dict[str, float] = None  # type: ignore
+ 
++    # --- Inline execution-health feedback (P1) ---
++    # Warm-path inline IS rollup, updated from freshly observed entry fills.
++    inline_exec_enabled: bool = False
++    inline_exec_mode: str = "auto"
++    inline_exec_warn_p95_bps: float = 0.0
++    inline_exec_crit_p95_bps: float = 0.0
++    inline_exec_min_count: int = 3
++    inline_exec_tighten_add_mult: float = 1.0
++    inline_exec_tighten_add_cap_bps: float = 8.0
++    inline_exec_max_perm_impact_p95_bps: float = 0.0
++    inline_exec_tca_delta_sec: int = 1
++
+     @classmethod
+     def from_env(cls) -> "EdgeCostGate":
+         """Создание gate из переменных окружения."""
+@@ -888,6 +912,24 @@
+         ev_dynamic_k_enabled = _env_bool("EDGE_EV_DYNAMIC_K_ENABLED", False)
+         ev_dynamic_k_atr_mult = _env_float("EDGE_EV_DYNAMIC_K_ATR_MULT", 0.5)
+ 
++        # ------------------------------------------------------------------
++        # P1 Inline execution-health feedback loop.
++        #
++        # ``auto`` follows gate profile:
++        #   default/soft -> monitor
++        #   strict       -> tighten
++        #   hard         -> veto
++        # ------------------------------------------------------------------
++        inline_exec_enabled = _env_bool("INLINE_EXEC_HEALTH_ENABLE", False)
++        inline_exec_mode = str(os.getenv("INLINE_EXEC_HEALTH_MODE", "auto") or "auto").strip().lower()
++        inline_exec_warn_p95_bps = _env_float("INLINE_EXEC_HEALTH_WARN_P95_BPS", 0.0)
++        inline_exec_crit_p95_bps = _env_float("INLINE_EXEC_HEALTH_CRIT_P95_BPS", 0.0)
++        inline_exec_min_count = _env_int("INLINE_EXEC_HEALTH_MIN_COUNT", 3)
++        inline_exec_tighten_add_mult = _env_float("INLINE_EXEC_HEALTH_TIGHTEN_ADD_MULT", 1.0)
++        inline_exec_tighten_add_cap_bps = _env_float("INLINE_EXEC_HEALTH_TIGHTEN_ADD_CAP_BPS", 8.0)
++        inline_exec_max_perm_impact_p95_bps = _env_float("INLINE_EXEC_HEALTH_MAX_PERM_IMPACT_P95_BPS", 0.0)
++        inline_exec_tca_delta_sec = _env_int("INLINE_EXEC_HEALTH_TCA_DELTA_SEC", 1)
++
+         return cls(
+             enabled=enabled,
+             mode=mode,  # type: ignore[arg-type]
+@@ -906,6 +948,15 @@
+             ev_dynamic_k_atr_mult=float(ev_dynamic_k_atr_mult),
+             ev_p_min=float(ev_p_min),
+             ev_p_min_by_kind=ev_p_min_by_kind,
++            inline_exec_enabled=bool(inline_exec_enabled),
++            inline_exec_mode=str(inline_exec_mode or "auto"),
++            inline_exec_warn_p95_bps=float(inline_exec_warn_p95_bps),
++            inline_exec_crit_p95_bps=float(inline_exec_crit_p95_bps),
++            inline_exec_min_count=int(inline_exec_min_count),
++            inline_exec_tighten_add_mult=float(inline_exec_tighten_add_mult),
++            inline_exec_tighten_add_cap_bps=float(inline_exec_tighten_add_cap_bps),
++            inline_exec_max_perm_impact_p95_bps=float(inline_exec_max_perm_impact_p95_bps),
++            inline_exec_tca_delta_sec=int(inline_exec_tca_delta_sec),
+         )
+ 
+     def _k_for(self, symbol: str) -> float:
+@@ -1062,6 +1113,118 @@
+ 
+         return fees_bps, slippage_bps
+ 
++    def _inline_exec_feedback(self, ctx: Any, *, symbol: str, kind: str, tf: Optional[str]) -> Tuple[float, Optional[EdgeCostGateDecision], Dict[str, float]]:
++        """Return (tighten_add_bps, direct_veto_decision, stats).
++
++        The helper is intentionally fail-open and does not mutate business
++        thresholds directly unless we have a warmed-up inline IS cache.
++        """
++        if not bool(self.inline_exec_enabled):
++            return 0.0, None, {}
++        redis_client = getattr(self, "redis", None) or getattr(ctx, "redis", None)
++        if redis_client is None:
++            return 0.0, None, {}
++
++        side = getattr(ctx, "side", None) or getattr(ctx, "direction", None) or "NA"
++        raw_sess = getattr(ctx, "session", None)
++        if not raw_sess:
++            try:
++                tsm = getattr(ctx, "_ts_ms_norm", None)
++                raw_sess = session_from_ts_ms(int(tsm)) if tsm else "na"
++            except Exception:
++                raw_sess = "na"
++        session = str(raw_sess or "na")
++        tfv = str(tf or getattr(ctx, "tf", None) or getattr(ctx, "timeframe", None) or "na")
++        venue = str(getattr(ctx, "venue", None) or "binance")
++
++        stats = read_inline_exec_rollup_sync(
++            redis_client,
++            symbol=str(symbol or ""),
++            side=str(side or "NA"),
++            session=str(session or "na"),
++            kind=str(kind or "na"),
++            tf=str(tfv or "na"),
++            min_count=int(self.inline_exec_min_count),
++        )
++        if not stats:
++            return 0.0, None, {}
++
++        p95 = float(stats.get("p95_bps") or 0.0)
++        side_u = str(side or "NA").upper()
++        if side_u == "BUY":
++            side_u = "LONG"
++        elif side_u == "SELL":
++            side_u = "SHORT"
++        try:
++            inline_exec_edge_last_p95_bps.labels(symbol=str(symbol).upper(), side=side_u).set(float(p95))
++        except Exception:
++            pass
++        try:
++            setattr(ctx, "inline_exec_health_p95_bps", float(p95))
++            setattr(ctx, "inline_exec_health_ema_bps", float(stats.get("ema_bps") or 0.0))
++            setattr(ctx, "inline_exec_health_count", int(float(stats.get("count") or 0.0)))
++        except Exception:
++            pass
++
++        mode = resolve_inline_exec_mode(str(self.inline_exec_mode or "auto"), profile=str(os.getenv("GATE_PROFILE", "default") or "default"))
++        perm_p95 = read_perm_impact_rollup_sync(
++            redis_client,
++            symbol=str(symbol or ""),
++            side=str(side or "NA"),
++            session=str(session or "na"),
++            kind=str(kind or "na"),
++            tf=str(tfv or "na"),
++            venue=str(venue or "binance"),
++            delta_sec=int(self.inline_exec_tca_delta_sec or 1),
++        )
++        dec = decide_inline_exec_health(
++            p95_bps=float(p95),
++            warn_bps=float(self.inline_exec_warn_p95_bps),
++            crit_bps=float(self.inline_exec_crit_p95_bps),
++            perm_impact_p95_bps=float(perm_p95 if perm_p95 is not None else float("nan")),
++            max_perm_impact_p95_bps=float(self.inline_exec_max_perm_impact_p95_bps),
++            mode=str(mode),
++        )
++        try:
++            setattr(ctx, "inline_exec_health_reason", str(dec.reason_code or ""))
++            setattr(ctx, "inline_exec_health_mode", str(mode))
++            setattr(ctx, "inline_exec_health_perm_impact_p95_bps", float(perm_p95) if perm_p95 is not None else float("nan"))
++        except Exception:
++            pass
++
++        tighten_add = 0.0
++        if dec.apply and not dec.veto and float(dec.tighten_add_bps or 0.0) > 0.0:
++            tighten_add = min(
++                float(self.inline_exec_tighten_add_cap_bps),
++                float(self.inline_exec_tighten_add_mult) * float(dec.tighten_add_bps),
++            )
++            try:
++                setattr(ctx, "inline_exec_health_tighten_add_bps", float(tighten_add))
++                inline_exec_edge_tighten_total.labels(symbol=str(symbol).upper(), side=side_u).inc()
++            except Exception:
++                pass
++
++        if dec.veto:
++            try:
++                inline_exec_edge_veto_total.labels(symbol=str(symbol).upper(), side=side_u).inc()
++            except Exception:
++                pass
++            veto_dec = EdgeCostGateDecision(
++                apply=True,
++                veto=True,
++                reason_code=self.REASON_INLINE_EXEC_VETO,
++                expected_move_bps=float("nan"),
++                threshold_bps=float("nan"),
++                fees_bps=0.0,
++                slippage_bps=float(tighten_add),
++                k=float(self._k_for(symbol)),
++                mode=self.mode,
++                notes=f"inline_exec_p95={p95:.4f} perm_impact_p95={(perm_p95 if perm_p95 is not None else float('nan')):.4f}",
++            )
++            return float(tighten_add), veto_dec, stats
++
++        return float(tighten_add), None, stats
++
+     @staticmethod
+     def _bps(a: float, b: float) -> float:
+         """
+@@ -1252,6 +1415,37 @@
+         # we keep that AND take max(base, model) to avoid silently loosening the gate.
+         # ------------------------------------------------------------------
+         fees_bps, slip_bps = self._costs_bps(ctx, kind=str(kind or ""), symbol=str(symbol or ""), tf=getattr(ctx, "tf", None) or getattr(ctx, "timeframe", None))
++
++        # ------------------------------------------------------------------
++        # P1 Inline execution-health feedback.
++        #
++        # This reads the *fresh* inline IS cache written by tca_worker from the
++        # latest entry fills. Monitor/tighten/veto is resolved here so the next
++        # signal on the same bucket sees recent execution degradation quickly.
++        # ------------------------------------------------------------------
++        inline_add_bps, inline_veto_dec, inline_stats = self._inline_exec_feedback(
++            ctx,
++            symbol=str(symbol or ""),
++            kind=str(kind or ""),
++            tf=getattr(ctx, "tf", None) or getattr(ctx, "timeframe", None),
++        )
++        if float(inline_add_bps) > 0.0:
++            slip_bps = float(slip_bps) + float(inline_add_bps)
++        if inline_veto_dec is not None:
++            trace_gate(
++                ctx,
++                stage="gates",
++                name="edge_cost_gate",
++                passed=False,
++                veto=True,
++                reason_code=str(inline_veto_dec.reason_code),
++                metrics={
++                    "inline_exec_p95_bps": float(inline_stats.get("p95_bps") or 0.0),
++                    "inline_exec_count": float(inline_stats.get("count") or 0.0),
++                    "inline_exec_tighten_add_bps": float(inline_add_bps),
++                },
++            )
++            return inline_veto_dec
+         k_base = k
+ 
+         # Apply dynamic K if enabled (adjusts based on volatility)

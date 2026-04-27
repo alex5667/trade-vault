@@ -1,0 +1,78 @@
+groups:
+  - name: trade-execution-safety
+    rules:
+      - alert: TradeExecutionEmergencyFlatten
+        expr: increase(execution_emergency_flatten_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: crit
+        annotations:
+          summary: "Emergency flatten executed"
+          description: "The executor performed an emergency flatten in the last 5 minutes. Inspect execution_order_events and Redis orders:exec."
+
+      - alert: TradeExecutionReconcileBacklog
+        expr: sum(increase(execution_reconcile_pending_total[10m])) > 10
+        for: 5m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Ambiguous execution backlog growing"
+          description: "The executor entered PENDING_RECONCILE too often in the last 10 minutes. Verify WebSocket user stream and REST reconciliation."
+
+      - alert: TradeExecutionJournalWriteFailures
+        expr: increase(trade_execution_journal_write_fail_total[10m]) > 0
+        for: 0m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Execution journal DB writes are failing"
+          description: "Redis stream continues to work fail-open, but durable SQL audit history is being lost."
+
+  - name: trade-data-quality
+    rules:
+      - alert: TradeDQHardVeto
+        expr: max by (symbol) (trade_dq_level) >= 2
+        for: 2m
+        labels:
+          severity: crit
+        annotations:
+          summary: "Hard DQ veto active"
+          description: "Trade publication is blocked by Redis/data-quality hard veto for {{ $labels.symbol }}."
+
+      - alert: TradeDQSoftVetoBurst
+        expr: increase(trade_dq_soft_veto_total[15m]) > 20
+        for: 5m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Soft DQ veto burst"
+          description: "The service is frequently tightening risk because of degraded Redis freshness or queue lag."
+
+  - name: trade-portfolio-risk
+    rules:
+      - alert: TradePortfolioForceFlatten
+        expr: increase(trade_risk_force_flatten_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: crit
+        annotations:
+          summary: "Portfolio risk engine requested force flatten"
+          description: "Daily loss or another hard portfolio rule breached. No new risk should be opened."
+
+      - alert: TradePortfolioExposureHigh
+        expr: trade_portfolio_total_exposure_ratio > 2.0
+        for: 10m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Portfolio total exposure elevated"
+          description: "Total portfolio notional exposure is above the warning threshold."
+
+      - alert: TradePortfolioClusterExposureHigh
+        expr: max by (cluster) (trade_portfolio_cluster_exposure_ratio) > 1.0
+        for: 10m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Cluster exposure elevated"
+          description: "A symbol cluster concentration exceeded the warning threshold."

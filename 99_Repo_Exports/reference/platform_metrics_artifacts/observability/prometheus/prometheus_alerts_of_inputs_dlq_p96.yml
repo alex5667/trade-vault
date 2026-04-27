@@ -1,0 +1,64 @@
+groups:
+  - name: of_inputs_dlq_p96
+    rules:
+      - alert: OFInputsDLQNonZero
+        expr: of_inputs_dlq_len{stream="stream:dlq:of_inputs"} > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: of_inputs
+        annotations:
+          summary: "OFInputs DLQ is non-empty"
+          description: "stream:dlq:of_inputs length={{ $value }}. Use drilldown script to inspect payloads and root-cause publish errors."
+
+      - alert: OFInputsQuarantineNonZero
+        expr: of_inputs_dlq_len{stream="quarantine:signals:of:inputs"} > 0
+        for: 30m
+        labels:
+          severity: info
+          component: of_inputs
+        annotations:
+          summary: "OFInputs quarantine contains entries"
+          description: "Quarantine length={{ $value }} (downgrades/missing LOB fields). Investigate dq_code and book_state quality."
+
+      - alert: OFInputsPublisherErrors
+        expr: increase(of_inputs_publish_error_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: critical
+          component: of_inputs
+        annotations:
+          summary: "OFInputs publish errors detected"
+          description: "increase(of_inputs_publish_error_total[5m])={{ $value }}. DLQ likely growing; check Redis health and payload serialization."
+
+      - alert: OFInputsV3DowngradeRateHigh
+        # Tune this threshold per symbol count / tick rate.
+        expr: increase(of_inputs_downgrade_total{from_version="3",to_version="2"}[15m]) > 100
+        for: 10m
+        labels:
+          severity: warning
+          component: of_inputs
+        annotations:
+          summary: "High OFInputs V3→V2 downgrade rate"
+          description: "increase(of_inputs_downgrade_total{from_version=3,to_version=2}[15m])={{ $value }}. Likely book lag or missing LOB fields."
+
+      - alert: OFInputsDLQReplayNotRunning
+        expr: max(of_inputs_dlq_len{stream="stream:dlq:of_inputs"}) > 0 and (of_inputs_dlq_replay_last_run_ts_ms == 0 or of_inputs_dlq_replay_last_run_age_sec > 7200)
+        for: 15m
+        labels:
+          severity: warning
+          component: of_inputs
+        annotations:
+          summary: "OFInputs DLQ replay is not running"
+          description: "DLQ is non-empty, but replay job has not run recently (or never). Check of_timers_worker ENABLE_OF_INPUTS_DLQ_AUTO_REPLAY and logs."
+
+      - alert: OFInputsDLQReplayFailing
+        expr: max(of_inputs_dlq_len{stream="stream:dlq:of_inputs"}) > 0 and of_inputs_dlq_replay_last_run_ts_ms > 0 and of_inputs_dlq_replay_last_run_ok == 0
+        for: 10m
+        labels:
+          severity: warning
+          component: of_inputs
+        annotations:
+          summary: "OFInputs DLQ replay failing"
+          description: "DLQ is non-empty and last replay run was not OK. Investigate Redis health and publish path."
+

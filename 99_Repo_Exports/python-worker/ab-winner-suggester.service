@@ -1,0 +1,19 @@
+[Unit]
+Description=AB Winner Suggester Service
+After=network.target redis.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/trade/scanner_infra/python-worker
+Environment="PYTHONPATH=/opt/trade/scanner_infra/python-worker"
+Environment="REDIS_URL=redis://redis-worker-1:6379/0"
+Environment="AB_EVENTS_STREAM=events:trades"
+Environment="AB_EVENTS_GROUP=ab-suggester"
+Environment="AB_SUGGEST_EVAL_SEC=60"
+ExecStart=/usr/bin/python3 -m services.ab_winner_suggester_service
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

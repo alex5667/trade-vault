@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/io/_util.py
+# hypothesis_version: 6.148.10
+
+['pyarrow', 'pyarrow_numpy']

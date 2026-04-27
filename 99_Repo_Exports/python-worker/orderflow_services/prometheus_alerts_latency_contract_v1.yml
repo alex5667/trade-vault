@@ -1,0 +1,66 @@
+groups:
+  - name: latency_contract_v1
+    rules:
+
+      # ── Exporter health ─────────────────────────────────────────────────────
+      - alert: LatencyContractExporterScrapeStale
+        expr: time() - latency_contract_exporter_last_scrape_ts > 60
+        for: 2m
+        labels:
+          severity: warning
+          team: sre
+        annotations:
+          summary: "Latency contract exporter scrape is stale"
+          description: >
+            latency_contract_exporter_last_scrape_ts has not been updated for > 60s.
+            The exporter may be down or unable to reach Redis.
+
+      # ── Stage budget breaches (histogram percentile) ─────────────────────────
+      - alert: LatencyContractFeatureToEmitBudgetBreach
+        expr: >
+          histogram_quantile(0.95,
+            rate(latency_contract_stage_ms_bucket{stage="feature_to_emit"}[5m])
+          ) > scalar(
+            max(latency_contract_exporter_stage_budget_ratio{stage="feature_to_emit"}) * 100
+          ) or
+          histogram_quantile(0.95,
+            rate(latency_contract_stage_ms_bucket{stage="feature_to_emit"}[5m])
+          ) > 100
+        for: 5m
+        labels:
+          severity: warning
+          team: sre
+        annotations:
+          summary: "feature_to_emit p95 latency exceeds budget"
+          description: >
+            p95 of latency_contract_stage_ms{stage="feature_to_emit"} has been > budget for 5m.
+            Check Python worker load, GIL contention, or Redis write latency.
+
+      - alert: LatencyContractEndToEndEventBudgetBreach
+        expr: >
+          histogram_quantile(0.95,
+            rate(latency_contract_stage_ms_bucket{stage="end_to_end_event"}[5m])
+          ) > 200
+        for: 5m
+        labels:
+          severity: warning
+          team: sre
+        annotations:
+          summary: "end_to_end_event p95 latency exceeds budget"
+          description: >
+            p95 of latency_contract_stage_ms{stage="end_to_end_event"} has been > 200ms for 5m.
+            This covers the path from raw exchange event to Python emit.
+
+      # ── Stale state hash coverage ────────────────────────────────────────────
+      - alert: LatencyContractStateHashStale
+        expr: latency_contract_exporter_stage_age_ms > 120000
+        for: 5m
+        labels:
+          severity: info
+          team: sre
+        annotations:
+          summary: "Latency contract state hash is stale for {{ $labels.stage }}/{{ $labels.symbol }}"
+          description: >
+            The Redis state hash for {{ $labels.service }}/{{ $labels.stage }}/{{ $labels.symbol }}
+            has not been updated for > 120s. Either no signals are flowing for this symbol,
+            or the Python worker is not running stamp_emit_and_observe_async.

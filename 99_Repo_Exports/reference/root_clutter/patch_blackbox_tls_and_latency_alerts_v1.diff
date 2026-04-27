@@ -1,0 +1,108 @@
+diff --git a/ok_rate_logic/prometheus_alerts_web_uptime_v1.yml b/ok_rate_logic/prometheus_alerts_web_uptime_v1.yml
+index 4314f69..c6c3310 100644
+--- a/ok_rate_logic/prometheus_alerts_web_uptime_v1.yml
++++ b/ok_rate_logic/prometheus_alerts_web_uptime_v1.yml
+@@ -1,7 +1,7 @@
+ groups:
+   - name: web-uptime
+     rules:
+       - alert: WebServiceDownCritical
+         expr: probe_success{job="blackbox_http"} == 0
+         for: 5m
+@@ -37,3 +37,49 @@ groups:
+           summary: "Web service DOWN (public routing/TLS)"
+           description: "Public URL probe failed for {{ $labels.instance }}. Check public-proxy, DNS, TLS, and route-prefix settings."
+           runbook_path: "/web_uptime.md"
+           dashboard_path: "/d/web_uptime/web-uptime-blackbox?orgId=1"
++
++      - alert: WebTlsCertExpiringSoon
++        expr: (probe_ssl_earliest_cert_expiry{job="blackbox_public"} - time()) / 86400 < 14
++        for: 2h
++        labels:
++          severity: warning
++          team: trade
++          component: monitoring
++        annotations:
++          summary: "TLS certificate expiring soon (<14d)"
++          description: "Earliest TLS cert expiry for {{ $labels.instance }} is under 14 days. Renew/validate ACME and public-proxy TLS."
++          runbook_path: "/web_uptime.md"
++          dashboard_path: "/d/web_uptime/web-uptime-blackbox?orgId=1"
++
++      - alert: WebTlsCertExpiringCritical
++        expr: (probe_ssl_earliest_cert_expiry{job="blackbox_public"} - time()) / 86400 < 7
++        for: 30m
++        labels:
++          severity: critical
++          team: trade
++          component: monitoring
++        annotations:
++          summary: "TLS certificate expiring critically (<7d)"
++          description: "Earliest TLS cert expiry for {{ $labels.instance }} is under 7 days. Immediate action required to prevent outage."
++          runbook_path: "/web_uptime.md"
++          dashboard_path: "/d/web_uptime/web-uptime-blackbox?orgId=1"
++
++      - alert: WebProbeLatencyHighPublic
++        expr: max_over_time(probe_duration_seconds{job="blackbox_public"}[10m]) > 5
++        for: 15m
++        labels:
++          severity: warning
++          team: trade
++          component: monitoring
++        annotations:
++          summary: "Public probe latency high (>5s)"
++          description: "Blackbox probe_duration_seconds exceeded 5s for {{ $labels.instance }} (max over 10m). Check public-proxy load, DNS, upstream slowness."
++          runbook_path: "/web_uptime.md"
++          dashboard_path: "/d/web_uptime/web-uptime-blackbox?orgId=1"
+diff --git a/monitoring/runbooks/web_uptime.md b/monitoring/runbooks/web_uptime.md
+index f1696ac..b3537c3 100644
+--- a/monitoring/runbooks/web_uptime.md
++++ b/monitoring/runbooks/web_uptime.md
+@@ -3,10 +3,14 @@
+
+ ## Owner
+ - team: **trade**
+ - component: **monitoring**
+
+ ## Dashboard
+ - `/d/web_uptime/web-uptime-blackbox?orgId=1`
+
+ ## Symptoms
+ - Alert: `WebServiceDownCritical` (internal)
+ - Alert: `WebServiceDownWarningPublic` (public routing/TLS)
++- Alert: `WebTlsCertExpiringSoon` / `WebTlsCertExpiringCritical`
++- Alert: `WebProbeLatencyHighPublic`
+
+ ## Immediate checks (internal)
+ 1) Prometheus Targets:
+    - `trade-blackbox-exporter` is UP
+    - jobs: `blackbox_http` and `blackbox_public`
+@@ -16,3 +20,33 @@
+ 2) Identify failing instance from alert label `instance`:
+    - `http://trade-grafana:3000/api/health`
+    - `http://trade-runbooks-web:8082/healthz`
++
++## Public DOWN (routing/TLS)
++1) Check public-proxy container:
++   - `docker logs -n 200 trade-public-proxy`
++2) Check routing prefixes:
++   - `/grafana/*`, `/runbooks/*`, `/alertmanager/*`, `/prometheus/*`
++3) Check DNS and reachability from outside:
++   - `curl -I https://<your-domain>/grafana/api/health`
++
++## TLS certificate expiring
++1) Inspect expiry in dashboard panel "TLS expiry min (days)".
++2) If using ACME/Let's Encrypt:
++   - ensure port 80/443 reachable from internet
++   - check ACME storage volume permissions
++   - verify domain points to correct IP
++3) If manual certs:
++   - renew and reload public-proxy
++
++## Public probe latency high
++1) Check probe_duration_seconds trend in dashboard.
++2) Verify upstream latency:
++   - `curl -w "%{time_total}\n" -o /dev/null -s https://<your-domain>/grafana/api/health`
++3) If only some routes slow:
++   - check upstream service health (Grafana/Prometheus/Alertmanager)
++4) If all routes slow:
++   - check host CPU/mem/disk and public-proxy saturation

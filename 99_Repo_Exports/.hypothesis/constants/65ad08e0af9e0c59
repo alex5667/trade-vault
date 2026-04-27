@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/transient.py
+# hypothesis_version: 6.148.10
+
+['ask', 'broken pipe', 'busy loading', 'closed', 'connection', 'connection refused', 'connection reset', 'eof', 'failover', 'loading the dataset', 'master is down', 'moved', 'readonly', 'reset by peer', 'timed out', 'timeout', 'try again', 'unreachable']

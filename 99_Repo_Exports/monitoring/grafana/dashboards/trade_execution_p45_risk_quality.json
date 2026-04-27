@@ -1,0 +1,125 @@
+{
+  "title": "Trade Risk Engine Quality P4.4-P4.5",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Risk Decision p95 Latency (ms)",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(trade_risk_decision_latency_ms_bucket[5m])) by (le))"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Risk Clamp Rate",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(trade_risk_clamp_total[5m])) / clamp_min(sum(rate(trade_risk_decision_total[5m])), 1)"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Confidence Denials by Tier",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(trade_risk_confidence_deny_total[5m])) by (tier)"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Decision Volume by Tier/Level",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(trade_risk_decision_total[5m])) by (tier, level)"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Recommended Notional USD",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "avg(trade_risk_recommended_notional_usd) by (symbol)"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Exposure Ratios",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "trade_portfolio_total_exposure_ratio" },
+        { "expr": "avg(trade_portfolio_symbol_exposure_ratio)" },
+        { "expr": "avg(trade_portfolio_cluster_exposure_ratio)" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Risk Audit Write Failures",
+      "gridPos": { "x": 0, "y": 24, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "sum(increase(trade_risk_audit_write_fail_total[1h]))"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Risk Canary Score",
+      "description": "Populated from latest_risk_engine_canary.json by the canary report script.",
+      "gridPos": { "x": 6, "y": 24, "w": 6, "h": 4 },
+      "targets": []
+    },
+    {
+      "type": "stat",
+      "title": "Maker Allowed (avg)",
+      "gridPos": { "x": 12, "y": 24, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "avg(trade_risk_maker_allowed)"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Min Confidence Required (avg)",
+      "gridPos": { "x": 18, "y": 24, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "avg(trade_risk_min_confidence_required)"
+        }
+      ]
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "name": "Risk decision audit annotations",
+        "datasource": "${DS_RISK_AUDIT_SQL}",
+        "enable": true,
+        "iconColor": "rgba(255, 96, 96, 1)",
+        "rawSql": "select to_timestamp(created_ts_ms/1000.0) as time, decision_id as text, level as tags from risk_decisions where created_ts_ms > (extract(epoch from now() - interval '24 hours')*1000) order by created_ts_ms desc limit 500",
+        "type": "dashboard"
+      },
+      {
+        "name": "Risk summary refresh",
+        "datasource": "${DS_RISK_AUDIT_SQL}",
+        "enable": true,
+        "iconColor": "rgba(96, 160, 255, 1)",
+        "rawSql": "select to_timestamp(refreshed_ts_ms/1000.0) as time, window_name || ' ' || tier || '/' || level as text, 'risk_summary' as tags from risk_decision_summary_1h where window_name='24h'",
+        "type": "dashboard"
+      }
+    ]
+  }
+}

@@ -1,0 +1,32 @@
+groups:
+  - name: binance-dust-cleanup-admin-notify
+    rules:
+      - alert: BinanceDustAdminOldDenylistEntry
+        expr: max by (symbol) (execution_dust_admin_old_entry_age_sec{kind="denylist"}) >= 14400
+        for: 10m
+        labels:
+          severity: warning
+          service: dust-cleanup-admin
+        annotations:
+          summary: "Dust cleanup denylist entry is too old"
+          description: "Dynamic dust-cleanup denylist entry for {{ $labels.symbol }} has been active for more than 4 hours. Review whether the symbol still needs to stay excluded from automatic cleanup."
+
+      - alert: BinanceDustAdminCooldownLoop
+        expr: max by (symbol) (execution_dust_admin_old_entry_age_sec{kind="cooldown_loop"}) >= 1800
+        for: 10m
+        labels:
+          severity: warning
+          service: dust-cleanup-admin
+        annotations:
+          summary: "Dust cleanup worker may be stuck in a cooldown loop"
+          description: "Cooldown loop tracking for {{ $labels.symbol }} has been present for more than 30 minutes. The worker may be repeatedly trying to clean a sticky residual tail."
+
+      - alert: BinanceDustAdminReminderFailures
+        expr: increase(execution_dust_admin_notify_total{result="error"}[15m]) > 0 or increase(execution_dust_admin_reminder_total{result="error"}[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: dust-cleanup-admin
+        annotations:
+          summary: "Dust admin notifier/reminder path is failing"
+          description: "The dust cleanup admin notification/reminder worker reported failures when publishing Telegram messages or reminders."

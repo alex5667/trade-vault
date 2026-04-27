@@ -1,0 +1,2047 @@
+--- services/orderflow/exec_health_rollups.py
++++ services/orderflow/exec_health_rollups.py
+@@ -0,0 +1,368 @@
++from __future__ import annotations
++
++"""Canonical execution-health (TCA rollups) reader + policy.
++
++Purpose
++-------
++Keep a *single* interpretation of execution-health thresholds across:
++  - EdgeCostGate (sync hot-path)
++  - SignalPipeline (async pre-publish)
++  - EntryPolicyService (async overlay)
++
++Key design rules
++----------------
++1) Bounded Redis fan-out.
++   We only search the 4 fallback dimensions that can legitimately collapse to
++   ``all``: session / tf / kind / side. That gives at most 2^4 = 16 key
++   candidates per metric.
++2) Deterministic fallback order.
++   Exact key first, then progressively more generic combinations, then all/all.
++3) Worst-case aggregation across delta windows.
++   - perm_impact_p95_bps   -> MAX across configured deltas (worse is larger)
++   - realized_spread_p50_bps -> MIN across configured deltas (worse is smaller)
++4) Fail-open.
++   Missing Redis / bad values / parse issues never create a veto by themselves.
++"""
++
++import math
++import os
++from dataclasses import dataclass, field
++from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
++
++
++ALL = "all"
++_SCOPE_TO_ENV = {
++    "edge": "EDGE_EXEC_HEALTH_MODE",
++    "pipeline": "PIPELINE_EXEC_HEALTH_MODE",
++    "entry_policy": "ENTRY_EXEC_HEALTH_MODE",
++}
++
++
++def _f(x: Any, d: float = 0.0) -> float:
++    try:
++        v = float(x)
++    except Exception:
++        return float(d)
++    if not math.isfinite(v):
++        return float(d)
++    return float(v)
++
++
++def _norm_side(side: Any) -> str:
++    s = str(side or "NA").strip().upper()
++    if s == "BUY":
++        return "LONG"
++    if s == "SELL":
++        return "SHORT"
++    return s or "NA"
++
++
++def _csv_ints(raw: Any, default: Sequence[int]) -> List[int]:
++    vals: List[int] = []
++    for part in str(raw or "").split(','):
++        p = part.strip()
++        if not p:
++            continue
++        try:
++            vals.append(int(float(p)))
++        except Exception:
++            continue
++    out: List[int] = []
++    seen = set()
++    for v in vals or list(default):
++        if int(v) <= 0:
++            continue
++        if int(v) not in seen:
++            seen.add(int(v))
++            out.append(int(v))
++    return out or list(default)
++
++
++@dataclass(frozen=True)
++class ExecHealthThresholds:
++    max_is_p95_bps: float = 0.0
++    max_perm_impact_p95_bps: float = 0.0
++    min_realized_spread_p50_bps: float = -999.0
++    tighten_add_mult: float = 1.0
++    tighten_add_cap_bps: float = 8.0
++    tighten_k_mult: float = 1.0
++    veto_require_both_is_and_impact: bool = True
++    veto_on_adverse: bool = False
++    delta_sec_list: Tuple[int, ...] = (1, 5)
++
++    @staticmethod
++    def from_env(prefix: str = "EXEC_") -> "ExecHealthThresholds":
++        deltas = tuple(_csv_ints(os.getenv(f"{prefix}TCA_DELTA_SEC_LIST", "1,5"), default=(1, 5)))
++        return ExecHealthThresholds(
++            max_is_p95_bps=_f(os.getenv(f"{prefix}MAX_IS_P95_BPS", "0"), 0.0),
++            max_perm_impact_p95_bps=_f(os.getenv(f"{prefix}MAX_PERM_IMPACT_P95_BPS", "0"), 0.0),
++            min_realized_spread_p50_bps=_f(os.getenv(f"{prefix}MIN_REALIZED_SPREAD_P50_BPS", "-999"), -999.0),
++            tighten_add_mult=_f(os.getenv(f"{prefix}TIGHTEN_ADD_MULT", "1.0"), 1.0),
++            tighten_add_cap_bps=_f(os.getenv(f"{prefix}TIGHTEN_ADD_CAP_BPS", "8.0"), 8.0),
++            tighten_k_mult=_f(os.getenv(f"{prefix}TIGHTEN_K_MULT", "1.0"), 1.0),
++            veto_require_both_is_and_impact=str(os.getenv(f"{prefix}VETO_REQUIRE_BOTH_IS_AND_IMPACT", "1") or "1").strip().lower() not in {"0", "false", "no", "off"},
++            veto_on_adverse=str(os.getenv(f"{prefix}VETO_ON_ADVERSE", "0") or "0").strip().lower() in {"1", "true", "yes", "on"},
++            delta_sec_list=deltas,
++        )
++
++
++@dataclass
++class ExecHealthDecision:
++    apply: bool
++    veto: bool
++    mode: str = ""
++    flags: List[str] = field(default_factory=list)
++    reason_code: str = ""
++    tighten_add_bps: float = 0.0
++    tighten_k_mult: float = 1.0
++    scope: str = ""
++    rollups: Dict[str, float] = field(default_factory=dict)
++
++
++
++def build_rollup_keys(
++    *,
++    metric: str,
++    sym: str,
++    venue: str,
++    session: str,
++    tf: str,
++    kind: str,
++    side: str,
++) -> List[str]:
++    """Build bounded fallback keys for a single rollup metric.
++
++    The search space is strictly capped at 16 combinations:
++      session exact|all × tf exact|all × kind exact|all × side exact|all
++    """
++    sym_n = str(sym or "").upper()
++    venue_n = str(venue or "na").lower()
++    dims = [
++        str(session or ALL).lower(),
++        str(tf or ALL).lower(),
++        str(kind or ALL).lower(),
++        _norm_side(side),
++    ]
++
++    out: List[str] = []
++    seen = set()
++    for mask in range(16):
++        vals = []
++        for idx, val in enumerate(dims):
++            vals.append(ALL if ((mask >> idx) & 1) else val)
++        key = f"tca:{metric}:{sym_n}:{venue_n}:{vals[0]}:{vals[1]}:{vals[2]}:{vals[3]}"
++        if key not in seen:
++            seen.add(key)
++            out.append(key)
++    return out
++
++
++def _metric_key_map(*, sym: str, venue: str, session: str, tf: str, kind: str, side: str, deltas: Sequence[int]) -> Dict[str, List[str]]:
++    metric_keys: Dict[str, List[str]] = {
++        "is_p95_bps": build_rollup_keys(metric="is_p95_bps", sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side)
++    }
++    for delta_sec in deltas:
++        metric_keys[f"perm_impact_p95_bps_{int(delta_sec)}"] = build_rollup_keys(
++            metric=f"perm_impact_p95_bps:{int(delta_sec)}", sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side,
++        )
++        metric_keys[f"realized_spread_p50_bps_{int(delta_sec)}"] = build_rollup_keys(
++            metric=f"realized_spread_p50_bps:{int(delta_sec)}", sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side,
++        )
++    return metric_keys
++
++
++def _pick_first_numeric(keys: Sequence[str], values_by_key: Mapping[str, Any]) -> Optional[float]:
++    for key in keys:
++        fv = _f(values_by_key.get(key), float("nan"))
++        if math.isfinite(fv):
++            return float(fv)
++    return None
++
++
++def _aggregate_rollups(metric_values: Mapping[str, Optional[float]], deltas: Sequence[int]) -> Dict[str, float]:
++    out: Dict[str, float] = {}
++    v_is = metric_values.get("is_p95_bps")
++    if v_is is not None and math.isfinite(float(v_is)):
++        out["is_p95_bps"] = float(v_is)
++
++    perm_pairs: List[Tuple[int, float]] = []
++    rs_pairs: List[Tuple[int, float]] = []
++    for delta_sec in deltas:
++        k_pi = f"perm_impact_p95_bps_{int(delta_sec)}"
++        k_rs = f"realized_spread_p50_bps_{int(delta_sec)}"
++        v_pi = metric_values.get(k_pi)
++        v_rs = metric_values.get(k_rs)
++        if v_pi is not None and math.isfinite(float(v_pi)):
++            out[k_pi] = float(v_pi)
++            perm_pairs.append((int(delta_sec), float(v_pi)))
++        if v_rs is not None and math.isfinite(float(v_rs)):
++            out[k_rs] = float(v_rs)
++            rs_pairs.append((int(delta_sec), float(v_rs)))
++
++    if perm_pairs:
++        worst_delta, worst_val = max(perm_pairs, key=lambda kv: kv[1])
++        out["perm_impact_p95_bps"] = float(worst_val)
++        out["perm_impact_p95_bps_delta_sec"] = float(worst_delta)
++    if rs_pairs:
++        worst_delta, worst_val = min(rs_pairs, key=lambda kv: kv[1])
++        out["realized_spread_p50_bps"] = float(worst_val)
++        out["realized_spread_p50_bps_delta_sec"] = float(worst_delta)
++    return out
++
++
++def _sync_mget_values(redis: Any, keys: Sequence[str]) -> Dict[str, Any]:
++    flat = list(keys)
++    if not flat:
++        return {}
++    try:
++        vals = redis.mget(flat)
++        if isinstance(vals, tuple):
++            vals = list(vals)
++        return {k: v for k, v in zip(flat, vals or [])}
++    except Exception:
++        out: Dict[str, Any] = {}
++        for key in flat:
++            try:
++                out[key] = redis.get(key)
++            except Exception:
++                out[key] = None
++        return out
++
++
++async def _async_mget_values(redis: Any, keys: Sequence[str]) -> Dict[str, Any]:
++    flat = list(keys)
++    if not flat:
++        return {}
++    try:
++        vals = await redis.mget(flat)
++        if isinstance(vals, tuple):
++            vals = list(vals)
++        return {k: v for k, v in zip(flat, vals or [])}
++    except Exception:
++        out: Dict[str, Any] = {}
++        for key in flat:
++            try:
++                out[key] = await redis.get(key)
++            except Exception:
++                out[key] = None
++        return out
++
++
++def read_exec_health_rollups_sync(
++    *,
++    redis: Any,
++    sym: str,
++    venue: str,
++    session: str,
++    tf: str,
++    kind: str,
++    side: str,
++    delta_sec_list: Optional[Sequence[int]] = None,
++) -> Dict[str, float]:
++    if redis is None:
++        return {}
++    deltas = tuple(delta_sec_list or ExecHealthThresholds.from_env().delta_sec_list)
++    metric_keys = _metric_key_map(sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side, deltas=deltas)
++    flat = [k for keys in metric_keys.values() for k in keys]
++    values_by_key = _sync_mget_values(redis, flat)
++    metric_values = {metric: _pick_first_numeric(keys, values_by_key) for metric, keys in metric_keys.items()}
++    return _aggregate_rollups(metric_values, deltas)
++
++
++async def aread_exec_health_rollups(
++    *,
++    redis: Any,
++    sym: str,
++    venue: str,
++    session: str,
++    tf: str,
++    kind: str,
++    side: str,
++    delta_sec_list: Optional[Sequence[int]] = None,
++) -> Dict[str, float]:
++    if redis is None:
++        return {}
++    deltas = tuple(delta_sec_list or ExecHealthThresholds.from_env().delta_sec_list)
++    metric_keys = _metric_key_map(sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side, deltas=deltas)
++    flat = [k for keys in metric_keys.values() for k in keys]
++    values_by_key = await _async_mget_values(redis, flat)
++    metric_values = {metric: _pick_first_numeric(keys, values_by_key) for metric, keys in metric_keys.items()}
++    return _aggregate_rollups(metric_values, deltas)
++
++
++
++def _resolve_mode(*, profile: str, scope: str) -> str:
++    env_name = _SCOPE_TO_ENV.get(str(scope or "").strip().lower())
++    raw = str(os.getenv(env_name, os.getenv("EXEC_HEALTH_MODE", "auto")) or "auto").strip().lower() if env_name else str(os.getenv("EXEC_HEALTH_MODE", "auto") or "auto").strip().lower()
++    if raw in {"off", "monitor", "tighten", "veto"}:
++        return raw
++    prof = str(profile or os.getenv("GATE_PROFILE", "default") or "default").strip().lower()
++    if prof == "hard":
++        return "veto"
++    if prof == "strict":
++        return "tighten"
++    return "monitor"
++
++
++
++def decide_exec_health_from_env(*, profile: str, rollups: Mapping[str, Any], scope: str = "edge") -> ExecHealthDecision:
++    thr = ExecHealthThresholds.from_env(prefix="EXEC_")
++    mode = _resolve_mode(profile=profile, scope=scope)
++    if mode == "off":
++        return ExecHealthDecision(apply=False, veto=False, mode=mode, scope=scope, rollups=dict(rollups or {}))
++
++    v_is = _f(rollups.get("is_p95_bps"), float("nan"))
++    v_pi = _f(rollups.get("perm_impact_p95_bps"), float("nan"))
++    v_rs = _f(rollups.get("realized_spread_p50_bps"), float("nan"))
++
++    flags: List[str] = []
++    if math.isfinite(v_is) and thr.max_is_p95_bps > 0.0 and v_is >= thr.max_is_p95_bps:
++        flags.append("is_p95_high")
++    if math.isfinite(v_pi) and thr.max_perm_impact_p95_bps > 0.0 and v_pi >= thr.max_perm_impact_p95_bps:
++        flags.append("perm_impact_p95_high")
++    if math.isfinite(v_rs) and thr.min_realized_spread_p50_bps > -900.0 and v_rs <= thr.min_realized_spread_p50_bps:
++        flags.append("adverse_realized")
++
++    if not flags:
++        return ExecHealthDecision(apply=False, veto=False, mode=mode, scope=scope, rollups=dict(rollups or {}))
++
++    sev = 1.0
++    if "is_p95_high" in flags and thr.max_is_p95_bps > 0.0 and math.isfinite(v_is):
++        sev = max(sev, float(v_is) / max(thr.max_is_p95_bps, 1e-9))
++    if "perm_impact_p95_high" in flags and thr.max_perm_impact_p95_bps > 0.0 and math.isfinite(v_pi):
++        sev = max(sev, float(v_pi) / max(thr.max_perm_impact_p95_bps, 1e-9))
++    if "adverse_realized" in flags and thr.min_realized_spread_p50_bps > -900.0 and math.isfinite(v_rs):
++        denom = max(abs(thr.min_realized_spread_p50_bps), 1.0)
++        sev = max(sev, 1.0 + abs(float(v_rs) - thr.min_realized_spread_p50_bps) / denom)
++
++    tighten_add_bps = 0.0
++    tighten_k_mult = 1.0
++    if mode in {"tighten", "veto"}:
++        tighten_add_bps = min(float(thr.tighten_add_cap_bps), max(0.0, sev - 1.0) * 5.0 * max(0.0, float(thr.tighten_add_mult)))
++        tighten_k_mult = max(1.0, float(thr.tighten_k_mult or 1.0))
++
++    veto = False
++    reason_code = "EXEC_HEALTH_MONITOR" if mode == "monitor" else "EXEC_HEALTH_TIGHTEN"
++    if mode == "veto":
++        hit_core = ("is_p95_high" in flags) and ("perm_impact_p95_high" in flags)
++        hit_adverse = ("adverse_realized" in flags) and bool(thr.veto_on_adverse)
++        veto = bool(hit_adverse or hit_core) if bool(thr.veto_require_both_is_and_impact) else bool(flags)
++        if veto:
++            if hit_core:
++                reason_code = "VETO_IMPL_SHORTFALL_P95"
++            elif hit_adverse:
++                reason_code = "VETO_EXEC_ADVERSE_SELECTION"
++            else:
++                reason_code = "VETO_EXEC_HEALTH"
++
++    return ExecHealthDecision(
++        apply=True,
++        veto=bool(veto),
++        mode=mode,
++        flags=flags,
++        reason_code=str(reason_code),
++        tighten_add_bps=float(tighten_add_bps),
++        tighten_k_mult=float(tighten_k_mult),
++        scope=str(scope),
++        rollups={k: float(v) for k, v in dict(rollups or {}).items() if isinstance(v, (int, float)) and math.isfinite(float(v))},
++    )
+--- tick_flow_full/services/orderflow/exec_health_rollups.py
++++ tick_flow_full/services/orderflow/exec_health_rollups.py
+@@ -0,0 +1,368 @@
++from __future__ import annotations
++
++"""Canonical execution-health (TCA rollups) reader + policy.
++
++Purpose
++-------
++Keep a *single* interpretation of execution-health thresholds across:
++  - EdgeCostGate (sync hot-path)
++  - SignalPipeline (async pre-publish)
++  - EntryPolicyService (async overlay)
++
++Key design rules
++----------------
++1) Bounded Redis fan-out.
++   We only search the 4 fallback dimensions that can legitimately collapse to
++   ``all``: session / tf / kind / side. That gives at most 2^4 = 16 key
++   candidates per metric.
++2) Deterministic fallback order.
++   Exact key first, then progressively more generic combinations, then all/all.
++3) Worst-case aggregation across delta windows.
++   - perm_impact_p95_bps   -> MAX across configured deltas (worse is larger)
++   - realized_spread_p50_bps -> MIN across configured deltas (worse is smaller)
++4) Fail-open.
++   Missing Redis / bad values / parse issues never create a veto by themselves.
++"""
++
++import math
++import os
++from dataclasses import dataclass, field
++from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
++
++
++ALL = "all"
++_SCOPE_TO_ENV = {
++    "edge": "EDGE_EXEC_HEALTH_MODE",
++    "pipeline": "PIPELINE_EXEC_HEALTH_MODE",
++    "entry_policy": "ENTRY_EXEC_HEALTH_MODE",
++}
++
++
++def _f(x: Any, d: float = 0.0) -> float:
++    try:
++        v = float(x)
++    except Exception:
++        return float(d)
++    if not math.isfinite(v):
++        return float(d)
++    return float(v)
++
++
++def _norm_side(side: Any) -> str:
++    s = str(side or "NA").strip().upper()
++    if s == "BUY":
++        return "LONG"
++    if s == "SELL":
++        return "SHORT"
++    return s or "NA"
++
++
++def _csv_ints(raw: Any, default: Sequence[int]) -> List[int]:
++    vals: List[int] = []
++    for part in str(raw or "").split(','):
++        p = part.strip()
++        if not p:
++            continue
++        try:
++            vals.append(int(float(p)))
++        except Exception:
++            continue
++    out: List[int] = []
++    seen = set()
++    for v in vals or list(default):
++        if int(v) <= 0:
++            continue
++        if int(v) not in seen:
++            seen.add(int(v))
++            out.append(int(v))
++    return out or list(default)
++
++
++@dataclass(frozen=True)
++class ExecHealthThresholds:
++    max_is_p95_bps: float = 0.0
++    max_perm_impact_p95_bps: float = 0.0
++    min_realized_spread_p50_bps: float = -999.0
++    tighten_add_mult: float = 1.0
++    tighten_add_cap_bps: float = 8.0
++    tighten_k_mult: float = 1.0
++    veto_require_both_is_and_impact: bool = True
++    veto_on_adverse: bool = False
++    delta_sec_list: Tuple[int, ...] = (1, 5)
++
++    @staticmethod
++    def from_env(prefix: str = "EXEC_") -> "ExecHealthThresholds":
++        deltas = tuple(_csv_ints(os.getenv(f"{prefix}TCA_DELTA_SEC_LIST", "1,5"), default=(1, 5)))
++        return ExecHealthThresholds(
++            max_is_p95_bps=_f(os.getenv(f"{prefix}MAX_IS_P95_BPS", "0"), 0.0),
++            max_perm_impact_p95_bps=_f(os.getenv(f"{prefix}MAX_PERM_IMPACT_P95_BPS", "0"), 0.0),
++            min_realized_spread_p50_bps=_f(os.getenv(f"{prefix}MIN_REALIZED_SPREAD_P50_BPS", "-999"), -999.0),
++            tighten_add_mult=_f(os.getenv(f"{prefix}TIGHTEN_ADD_MULT", "1.0"), 1.0),
++            tighten_add_cap_bps=_f(os.getenv(f"{prefix}TIGHTEN_ADD_CAP_BPS", "8.0"), 8.0),
++            tighten_k_mult=_f(os.getenv(f"{prefix}TIGHTEN_K_MULT", "1.0"), 1.0),
++            veto_require_both_is_and_impact=str(os.getenv(f"{prefix}VETO_REQUIRE_BOTH_IS_AND_IMPACT", "1") or "1").strip().lower() not in {"0", "false", "no", "off"},
++            veto_on_adverse=str(os.getenv(f"{prefix}VETO_ON_ADVERSE", "0") or "0").strip().lower() in {"1", "true", "yes", "on"},
++            delta_sec_list=deltas,
++        )
++
++
++@dataclass
++class ExecHealthDecision:
++    apply: bool
++    veto: bool
++    mode: str = ""
++    flags: List[str] = field(default_factory=list)
++    reason_code: str = ""
++    tighten_add_bps: float = 0.0
++    tighten_k_mult: float = 1.0
++    scope: str = ""
++    rollups: Dict[str, float] = field(default_factory=dict)
++
++
++
++def build_rollup_keys(
++    *,
++    metric: str,
++    sym: str,
++    venue: str,
++    session: str,
++    tf: str,
++    kind: str,
++    side: str,
++) -> List[str]:
++    """Build bounded fallback keys for a single rollup metric.
++
++    The search space is strictly capped at 16 combinations:
++      session exact|all × tf exact|all × kind exact|all × side exact|all
++    """
++    sym_n = str(sym or "").upper()
++    venue_n = str(venue or "na").lower()
++    dims = [
++        str(session or ALL).lower(),
++        str(tf or ALL).lower(),
++        str(kind or ALL).lower(),
++        _norm_side(side),
++    ]
++
++    out: List[str] = []
++    seen = set()
++    for mask in range(16):
++        vals = []
++        for idx, val in enumerate(dims):
++            vals.append(ALL if ((mask >> idx) & 1) else val)
++        key = f"tca:{metric}:{sym_n}:{venue_n}:{vals[0]}:{vals[1]}:{vals[2]}:{vals[3]}"
++        if key not in seen:
++            seen.add(key)
++            out.append(key)
++    return out
++
++
++def _metric_key_map(*, sym: str, venue: str, session: str, tf: str, kind: str, side: str, deltas: Sequence[int]) -> Dict[str, List[str]]:
++    metric_keys: Dict[str, List[str]] = {
++        "is_p95_bps": build_rollup_keys(metric="is_p95_bps", sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side)
++    }
++    for delta_sec in deltas:
++        metric_keys[f"perm_impact_p95_bps_{int(delta_sec)}"] = build_rollup_keys(
++            metric=f"perm_impact_p95_bps:{int(delta_sec)}", sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side,
++        )
++        metric_keys[f"realized_spread_p50_bps_{int(delta_sec)}"] = build_rollup_keys(
++            metric=f"realized_spread_p50_bps:{int(delta_sec)}", sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side,
++        )
++    return metric_keys
++
++
++def _pick_first_numeric(keys: Sequence[str], values_by_key: Mapping[str, Any]) -> Optional[float]:
++    for key in keys:
++        fv = _f(values_by_key.get(key), float("nan"))
++        if math.isfinite(fv):
++            return float(fv)
++    return None
++
++
++def _aggregate_rollups(metric_values: Mapping[str, Optional[float]], deltas: Sequence[int]) -> Dict[str, float]:
++    out: Dict[str, float] = {}
++    v_is = metric_values.get("is_p95_bps")
++    if v_is is not None and math.isfinite(float(v_is)):
++        out["is_p95_bps"] = float(v_is)
++
++    perm_pairs: List[Tuple[int, float]] = []
++    rs_pairs: List[Tuple[int, float]] = []
++    for delta_sec in deltas:
++        k_pi = f"perm_impact_p95_bps_{int(delta_sec)}"
++        k_rs = f"realized_spread_p50_bps_{int(delta_sec)}"
++        v_pi = metric_values.get(k_pi)
++        v_rs = metric_values.get(k_rs)
++        if v_pi is not None and math.isfinite(float(v_pi)):
++            out[k_pi] = float(v_pi)
++            perm_pairs.append((int(delta_sec), float(v_pi)))
++        if v_rs is not None and math.isfinite(float(v_rs)):
++            out[k_rs] = float(v_rs)
++            rs_pairs.append((int(delta_sec), float(v_rs)))
++
++    if perm_pairs:
++        worst_delta, worst_val = max(perm_pairs, key=lambda kv: kv[1])
++        out["perm_impact_p95_bps"] = float(worst_val)
++        out["perm_impact_p95_bps_delta_sec"] = float(worst_delta)
++    if rs_pairs:
++        worst_delta, worst_val = min(rs_pairs, key=lambda kv: kv[1])
++        out["realized_spread_p50_bps"] = float(worst_val)
++        out["realized_spread_p50_bps_delta_sec"] = float(worst_delta)
++    return out
++
++
++def _sync_mget_values(redis: Any, keys: Sequence[str]) -> Dict[str, Any]:
++    flat = list(keys)
++    if not flat:
++        return {}
++    try:
++        vals = redis.mget(flat)
++        if isinstance(vals, tuple):
++            vals = list(vals)
++        return {k: v for k, v in zip(flat, vals or [])}
++    except Exception:
++        out: Dict[str, Any] = {}
++        for key in flat:
++            try:
++                out[key] = redis.get(key)
++            except Exception:
++                out[key] = None
++        return out
++
++
++async def _async_mget_values(redis: Any, keys: Sequence[str]) -> Dict[str, Any]:
++    flat = list(keys)
++    if not flat:
++        return {}
++    try:
++        vals = await redis.mget(flat)
++        if isinstance(vals, tuple):
++            vals = list(vals)
++        return {k: v for k, v in zip(flat, vals or [])}
++    except Exception:
++        out: Dict[str, Any] = {}
++        for key in flat:
++            try:
++                out[key] = await redis.get(key)
++            except Exception:
++                out[key] = None
++        return out
++
++
++def read_exec_health_rollups_sync(
++    *,
++    redis: Any,
++    sym: str,
++    venue: str,
++    session: str,
++    tf: str,
++    kind: str,
++    side: str,
++    delta_sec_list: Optional[Sequence[int]] = None,
++) -> Dict[str, float]:
++    if redis is None:
++        return {}
++    deltas = tuple(delta_sec_list or ExecHealthThresholds.from_env().delta_sec_list)
++    metric_keys = _metric_key_map(sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side, deltas=deltas)
++    flat = [k for keys in metric_keys.values() for k in keys]
++    values_by_key = _sync_mget_values(redis, flat)
++    metric_values = {metric: _pick_first_numeric(keys, values_by_key) for metric, keys in metric_keys.items()}
++    return _aggregate_rollups(metric_values, deltas)
++
++
++async def aread_exec_health_rollups(
++    *,
++    redis: Any,
++    sym: str,
++    venue: str,
++    session: str,
++    tf: str,
++    kind: str,
++    side: str,
++    delta_sec_list: Optional[Sequence[int]] = None,
++) -> Dict[str, float]:
++    if redis is None:
++        return {}
++    deltas = tuple(delta_sec_list or ExecHealthThresholds.from_env().delta_sec_list)
++    metric_keys = _metric_key_map(sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side, deltas=deltas)
++    flat = [k for keys in metric_keys.values() for k in keys]
++    values_by_key = await _async_mget_values(redis, flat)
++    metric_values = {metric: _pick_first_numeric(keys, values_by_key) for metric, keys in metric_keys.items()}
++    return _aggregate_rollups(metric_values, deltas)
++
++
++
++def _resolve_mode(*, profile: str, scope: str) -> str:
++    env_name = _SCOPE_TO_ENV.get(str(scope or "").strip().lower())
++    raw = str(os.getenv(env_name, os.getenv("EXEC_HEALTH_MODE", "auto")) or "auto").strip().lower() if env_name else str(os.getenv("EXEC_HEALTH_MODE", "auto") or "auto").strip().lower()
++    if raw in {"off", "monitor", "tighten", "veto"}:
++        return raw
++    prof = str(profile or os.getenv("GATE_PROFILE", "default") or "default").strip().lower()
++    if prof == "hard":
++        return "veto"
++    if prof == "strict":
++        return "tighten"
++    return "monitor"
++
++
++
++def decide_exec_health_from_env(*, profile: str, rollups: Mapping[str, Any], scope: str = "edge") -> ExecHealthDecision:
++    thr = ExecHealthThresholds.from_env(prefix="EXEC_")
++    mode = _resolve_mode(profile=profile, scope=scope)
++    if mode == "off":
++        return ExecHealthDecision(apply=False, veto=False, mode=mode, scope=scope, rollups=dict(rollups or {}))
++
++    v_is = _f(rollups.get("is_p95_bps"), float("nan"))
++    v_pi = _f(rollups.get("perm_impact_p95_bps"), float("nan"))
++    v_rs = _f(rollups.get("realized_spread_p50_bps"), float("nan"))
++
++    flags: List[str] = []
++    if math.isfinite(v_is) and thr.max_is_p95_bps > 0.0 and v_is >= thr.max_is_p95_bps:
++        flags.append("is_p95_high")
++    if math.isfinite(v_pi) and thr.max_perm_impact_p95_bps > 0.0 and v_pi >= thr.max_perm_impact_p95_bps:
++        flags.append("perm_impact_p95_high")
++    if math.isfinite(v_rs) and thr.min_realized_spread_p50_bps > -900.0 and v_rs <= thr.min_realized_spread_p50_bps:
++        flags.append("adverse_realized")
++
++    if not flags:
++        return ExecHealthDecision(apply=False, veto=False, mode=mode, scope=scope, rollups=dict(rollups or {}))
++
++    sev = 1.0
++    if "is_p95_high" in flags and thr.max_is_p95_bps > 0.0 and math.isfinite(v_is):
++        sev = max(sev, float(v_is) / max(thr.max_is_p95_bps, 1e-9))
++    if "perm_impact_p95_high" in flags and thr.max_perm_impact_p95_bps > 0.0 and math.isfinite(v_pi):
++        sev = max(sev, float(v_pi) / max(thr.max_perm_impact_p95_bps, 1e-9))
++    if "adverse_realized" in flags and thr.min_realized_spread_p50_bps > -900.0 and math.isfinite(v_rs):
++        denom = max(abs(thr.min_realized_spread_p50_bps), 1.0)
++        sev = max(sev, 1.0 + abs(float(v_rs) - thr.min_realized_spread_p50_bps) / denom)
++
++    tighten_add_bps = 0.0
++    tighten_k_mult = 1.0
++    if mode in {"tighten", "veto"}:
++        tighten_add_bps = min(float(thr.tighten_add_cap_bps), max(0.0, sev - 1.0) * 5.0 * max(0.0, float(thr.tighten_add_mult)))
++        tighten_k_mult = max(1.0, float(thr.tighten_k_mult or 1.0))
++
++    veto = False
++    reason_code = "EXEC_HEALTH_MONITOR" if mode == "monitor" else "EXEC_HEALTH_TIGHTEN"
++    if mode == "veto":
++        hit_core = ("is_p95_high" in flags) and ("perm_impact_p95_high" in flags)
++        hit_adverse = ("adverse_realized" in flags) and bool(thr.veto_on_adverse)
++        veto = bool(hit_adverse or hit_core) if bool(thr.veto_require_both_is_and_impact) else bool(flags)
++        if veto:
++            if hit_core:
++                reason_code = "VETO_IMPL_SHORTFALL_P95"
++            elif hit_adverse:
++                reason_code = "VETO_EXEC_ADVERSE_SELECTION"
++            else:
++                reason_code = "VETO_EXEC_HEALTH"
++
++    return ExecHealthDecision(
++        apply=True,
++        veto=bool(veto),
++        mode=mode,
++        flags=flags,
++        reason_code=str(reason_code),
++        tighten_add_bps=float(tighten_add_bps),
++        tighten_k_mult=float(tighten_k_mult),
++        scope=str(scope),
++        rollups={k: float(v) for k, v in dict(rollups or {}).items() if isinstance(v, (int, float)) and math.isfinite(float(v))},
++    )
+--- services/orderflow/execution_health_gate.py
++++ services/orderflow/execution_health_gate.py
+@@ -1,46 +1,21 @@
+ from __future__ import annotations
+ 
+-"""ExecutionHealthGate (P6).
++"""Backward-compatible wrappers around exec_health_rollups.
+ 
+-Purpose
+--------
+-Use *post-trade* execution quality rollups (TCA) to prevent or tighten trades
+-in regimes where paper-edge gets eaten by execution.
+-
+-Inputs
+-------
+-Redis rollups produced by TCA worker (Phase B):
+-  - is_p95_bps
+-  - perm_impact_p95_bps (delta=1s/5s)
+-  - realized_spread_p50_bps (delta=1s/5s) for adverse selection
+-
+-Actions
+--------
+-- default/soft: annotate only
+-- strict: tighten (increase expected_slippage_bps and optionally EDGE_COST_K)
+-- hard: veto when (IS_p95 AND perm_impact_p95) exceed thresholds simultaneously
+-
+-This module is fail-open: if Redis keys are missing, no veto.
+-
+-Notes on dimensions
+--------------------
+-The TCA rollup keys are dimensioned by:
+-  (sym, venue, session, tf, kind, side)
+-In practice we need robust fallbacks because upstream may not always provide
+-all dims consistently. Therefore we attempt keys in this order:
+-  1) exact
+-  2) tf=all
+-  3) kind=all
+-  4) session=all
+-  5) tf=all+kind=all+session=all
+-
+-The last fallback is what EntryPolicy should rely on.
++New code should import from ``exec_health_rollups.py`` directly.
++This module preserves the legacy API used by older tests/callers.
+ """
+ 
+ import math
+ import os
+-from dataclasses import dataclass
+-from typing import Any, Dict, List, Optional, Sequence, Tuple
++from typing import Any, Dict, List, Optional, Sequence
++
++from services.orderflow.exec_health_rollups import (
++    ExecHealthDecision,
++    ExecHealthThresholds,
++    aread_exec_health_rollups,
++    read_exec_health_rollups_sync,
++)
+ 
+ 
+ def _f(x: Any, d: float = 0.0) -> float:
+@@ -58,7 +33,6 @@
+ 
+ 
+ def _mode() -> str:
+-    # explicit override for this gate
+     m = str(os.getenv("EXEC_HEALTH_MODE", "auto") or "auto").strip().lower()
+     if m in ("monitor", "tighten", "veto"):
+         return m
+@@ -70,45 +44,7 @@
+     return "monitor"
+ 
+ 
+-@dataclass
+-class ExecHealthThresholds:
+-    max_is_p95_bps: float = 0.0
+-    max_perm_impact_p95_bps: float = 0.0
+-    min_realized_spread_p50_bps: float = -999.0
+-    tighten_add_mult: float = 1.0
+-    tighten_add_cap_bps: float = 8.0
+-
+-    @staticmethod
+-    def from_env(prefix: str = "EXEC_") -> "ExecHealthThresholds":
+-        return ExecHealthThresholds(
+-            max_is_p95_bps=_f(os.getenv(f"{prefix}MAX_IS_P95_BPS", "0"), 0.0),
+-            max_perm_impact_p95_bps=_f(os.getenv(f"{prefix}MAX_PERM_IMPACT_P95_BPS", "0"), 0.0),
+-            min_realized_spread_p50_bps=_f(os.getenv(f"{prefix}MIN_REALIZED_SPREAD_P50_BPS", "-999"), -999.0),
+-            tighten_add_mult=_f(os.getenv(f"{prefix}TIGHTEN_ADD_MULT", "1.0"), 1.0),
+-            tighten_add_cap_bps=_f(os.getenv(f"{prefix}TIGHTEN_ADD_CAP_BPS", "8.0"), 8.0),
+-        )
+-
+-
+-@dataclass
+-class ExecHealthDecision:
+-    apply: bool
+-    veto: bool
+-    flags: List[str]
+-    reason_code: str = ""
+-    tighten_add_bps: float = 0.0
+-
+-
+-def build_rollup_keys(
+-    *,
+-    metric: str,
+-    sym: str,
+-    venue: str,
+-    session: str,
+-    tf: str,
+-    kind: str,
+-    side: str,
+-) -> List[str]:
+-    """Return fallback key list for one metric."""
++def build_rollup_keys(*, metric: str, sym: str, venue: str, session: str, tf: str, kind: str, side: str) -> List[str]:
+     sym = (sym or "").upper()
+     venue = (venue or "na").lower()
+     session = (session or "na").lower()
+@@ -126,84 +62,29 @@
+         k("all", tf, kind),
+         k("all", "all", "all"),
+     ]
+-    # Deduplicate while preserving order
+     out = []
+     seen = set()
+-    for x in keys:
+-        if x not in seen:
+-            seen.add(x)
+-            out.append(x)
++    for key in keys:
++        if key not in seen:
++            seen.add(key)
++            out.append(key)
+     return out
+ 
+ 
+-async def redis_mget_first(redis, keys: Sequence[str]) -> Optional[float]:
+-    """Return first found numeric value across fallback keys."""
+-    try:
+-        vals = await redis.mget(list(keys))
+-    except Exception:
+-        # fallback to sequential GET
+-        for k in keys:
+-            try:
+-                v = await redis.get(k)
+-            except Exception:
+-                v = None
+-            fv = _f(v, float("nan"))
+-            if math.isfinite(fv):
+-                return float(fv)
+-        return None
+-
+-    for v in vals or []:
+-        fv = _f(v, float("nan"))
+-        if math.isfinite(fv):
+-            return float(fv)
+-    return None
+-
+-
+-async def read_exec_rollups(
+-    *,
+-    redis,
+-    sym: str,
+-    venue: str,
+-    session: str,
+-    tf: str,
+-    kind: str,
+-    side: str,
+-    delta_sec: int = 1,
+-) -> Dict[str, float]:
+-    """Read the minimal set of rollups needed for P6.
+-
+-    Returns empty dict if data is missing.
+-    """
+-    # NOTE: metric naming is fixed in Phase B rollups.
+-    # We keep it strict and provide fallback keys.
+-    out: Dict[str, float] = {}
+-    try:
+-        is_k = build_rollup_keys(metric="is_p95_bps", sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side)
+-        pi_k = build_rollup_keys(metric=f"perm_impact_p95_bps:{int(delta_sec)}", sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side)
+-        rs_k = build_rollup_keys(metric=f"realized_spread_p50_bps:{int(delta_sec)}", sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side)
+-
+-        v_is = await redis_mget_first(redis, is_k)
+-        v_pi = await redis_mget_first(redis, pi_k)
+-        v_rs = await redis_mget_first(redis, rs_k)
+-
+-        if v_is is not None:
+-            out["is_p95_bps"] = float(v_is)
+-        if v_pi is not None:
+-            out[f"perm_impact_p95_bps_{int(delta_sec)}"] = float(v_pi)
+-        if v_rs is not None:
+-            out[f"realized_spread_p50_bps_{int(delta_sec)}"] = float(v_rs)
+-    except Exception:
+-        return {}
+-
+-    return out
++async def read_exec_rollups(*, redis: Any, sym: str, venue: str, session: str, tf: str, kind: str, side: str, delta_sec: int = 1) -> Dict[str, float]:
++    return await aread_exec_health_rollups(
++        redis=redis,
++        sym=sym,
++        venue=venue,
++        session=session,
++        tf=tf,
++        kind=kind,
++        side=side,
++        delta_sec_list=(int(delta_sec),),
++    )
+ 
+ 
+-def decide_execution_health(
+-    *,
+-    rollups: Dict[str, float],
+-    thr: ExecHealthThresholds,
+-) -> ExecHealthDecision:
+-    """Pure policy decision for execution-health gate."""
++def decide_execution_health(*, rollups: Dict[str, float], thr: ExecHealthThresholds) -> ExecHealthDecision:
+     flags: List[str] = []
+ 
+     v_is = _f(rollups.get("is_p95_bps"), float("nan"))
+@@ -219,53 +100,38 @@
+ 
+     mode = _mode()
+     if not flags:
+-        return ExecHealthDecision(apply=False, veto=False, flags=[])
++        return ExecHealthDecision(apply=False, veto=False, flags=[], mode=mode)
+ 
+     if mode == "monitor":
+-        return ExecHealthDecision(apply=True, veto=False, flags=flags, reason_code="EXEC_HEALTH_MONITOR")
++        return ExecHealthDecision(apply=True, veto=False, flags=flags, reason_code="EXEC_HEALTH_MONITOR", mode=mode)
+ 
+-    # tighten: add slippage proportional to severity (bounded)
+-    tighten_add = 0.0
+-    if mode in ("tighten", "veto"):
+-        # simple heuristic: max of offending metrics / thresholds
+-        sev = 0.0
+-        if "is_p95_high" in flags and thr.max_is_p95_bps > 0 and math.isfinite(v_is):
+-            sev = max(sev, v_is / thr.max_is_p95_bps)
+-        if "perm_impact_p95_high" in flags and thr.max_perm_impact_p95_bps > 0 and math.isfinite(v_pi):
+-            sev = max(sev, v_pi / thr.max_perm_impact_p95_bps)
+-        if "adverse_realized" in flags and thr.min_realized_spread_p50_bps > -900 and math.isfinite(v_rs):
+-            # adverse selection: treat as severity 1.0
+-            sev = max(sev, 1.0)
++    sev = 0.0
++    if "is_p95_high" in flags and thr.max_is_p95_bps > 0 and math.isfinite(v_is):
++        sev = max(sev, v_is / thr.max_is_p95_bps)
++    if "perm_impact_p95_high" in flags and thr.max_perm_impact_p95_bps > 0 and math.isfinite(v_pi):
++        sev = max(sev, v_pi / thr.max_perm_impact_p95_bps)
++    if "adverse_realized" in flags and thr.min_realized_spread_p50_bps > -900 and math.isfinite(v_rs):
++        sev = max(sev, 1.0)
+ 
+-        tighten_add = min(float(thr.tighten_add_cap_bps), float(thr.tighten_add_mult) * max(0.0, sev - 1.0) * 5.0)
++    tighten_add = min(float(thr.tighten_add_cap_bps), float(thr.tighten_add_mult) * max(0.0, sev - 1.0) * 5.0)
+ 
+     if mode == "tighten":
+-        return ExecHealthDecision(apply=True, veto=False, flags=flags, reason_code="EXEC_HEALTH_TIGHTEN", tighten_add_bps=float(tighten_add))
++        return ExecHealthDecision(apply=True, veto=False, flags=flags, reason_code="EXEC_HEALTH_TIGHTEN", tighten_add_bps=float(tighten_add), mode=mode)
+ 
+-    # Veto policy (hard): require both IS_p95 and perm_impact_p95 to be bad.
+     do_veto = ("is_p95_high" in flags) and ("perm_impact_p95_high" in flags)
+     if do_veto:
+-        return ExecHealthDecision(
+-            apply=True,
+-            veto=True,
+-            flags=flags,
+-            reason_code="VETO_IMPL_SHORTFALL_P95" if "is_p95_high" in flags else "VETO_EXEC_HEALTH",
+-            tighten_add_bps=float(tighten_add),
+-        )
+-
+-    # Otherwise still tighten (but do not veto)
+-    return ExecHealthDecision(apply=True, veto=False, flags=flags, reason_code="EXEC_HEALTH_TIGHTEN", tighten_add_bps=float(tighten_add))
++        return ExecHealthDecision(apply=True, veto=True, flags=flags, reason_code="VETO_IMPL_SHORTFALL_P95", tighten_add_bps=float(tighten_add), mode=mode)
++    return ExecHealthDecision(apply=True, veto=False, flags=flags, reason_code="EXEC_HEALTH_TIGHTEN", tighten_add_bps=float(tighten_add), mode=mode)
+ 
+ 
+ def apply_exec_health_to_indicators(*, indicators: Dict[str, Any], dec: ExecHealthDecision) -> None:
+-    """Mutate indicators (fail-open)."""
+     try:
+         indicators["exec_health_apply"] = int(1 if dec.apply else 0)
+         indicators["exec_health_veto"] = int(1 if dec.veto else 0)
+         indicators["exec_health_flags"] = ",".join(dec.flags)
+         indicators["exec_health_reason"] = str(dec.reason_code or "")
+         indicators["exec_health_tighten_add_bps"] = float(dec.tighten_add_bps or 0.0)
+-
++        indicators["exec_health_tighten_k"] = float(dec.tighten_k_mult or 1.0)
+         if dec.tighten_add_bps and float(dec.tighten_add_bps) > 0:
+             cur = _f(indicators.get("expected_slippage_bps"), 0.0)
+             indicators["expected_slippage_bps"] = float(cur + float(dec.tighten_add_bps))
+--- tick_flow_full/services/orderflow/execution_health_gate.py
++++ tick_flow_full/services/orderflow/execution_health_gate.py
+@@ -1,46 +1,21 @@
+ from __future__ import annotations
+ 
+-"""ExecutionHealthGate (P6).
++"""Backward-compatible wrappers around exec_health_rollups.
+ 
+-Purpose
+--------
+-Use *post-trade* execution quality rollups (TCA) to prevent or tighten trades
+-in regimes where paper-edge gets eaten by execution.
+-
+-Inputs
+-------
+-Redis rollups produced by TCA worker (Phase B):
+-  - is_p95_bps
+-  - perm_impact_p95_bps (delta=1s/5s)
+-  - realized_spread_p50_bps (delta=1s/5s) for adverse selection
+-
+-Actions
+--------
+-- default/soft: annotate only
+-- strict: tighten (increase expected_slippage_bps and optionally EDGE_COST_K)
+-- hard: veto when (IS_p95 AND perm_impact_p95) exceed thresholds simultaneously
+-
+-This module is fail-open: if Redis keys are missing, no veto.
+-
+-Notes on dimensions
+--------------------
+-The TCA rollup keys are dimensioned by:
+-  (sym, venue, session, tf, kind, side)
+-In practice we need robust fallbacks because upstream may not always provide
+-all dims consistently. Therefore we attempt keys in this order:
+-  1) exact
+-  2) tf=all
+-  3) kind=all
+-  4) session=all
+-  5) tf=all+kind=all+session=all
+-
+-The last fallback is what EntryPolicy should rely on.
++New code should import from ``exec_health_rollups.py`` directly.
++This module preserves the legacy API used by older tests/callers.
+ """
+ 
+ import math
+ import os
+-from dataclasses import dataclass
+-from typing import Any, Dict, List, Optional, Sequence, Tuple
++from typing import Any, Dict, List, Optional, Sequence
++
++from services.orderflow.exec_health_rollups import (
++    ExecHealthDecision,
++    ExecHealthThresholds,
++    aread_exec_health_rollups,
++    read_exec_health_rollups_sync,
++)
+ 
+ 
+ def _f(x: Any, d: float = 0.0) -> float:
+@@ -58,7 +33,6 @@
+ 
+ 
+ def _mode() -> str:
+-    # explicit override for this gate
+     m = str(os.getenv("EXEC_HEALTH_MODE", "auto") or "auto").strip().lower()
+     if m in ("monitor", "tighten", "veto"):
+         return m
+@@ -70,45 +44,7 @@
+     return "monitor"
+ 
+ 
+-@dataclass
+-class ExecHealthThresholds:
+-    max_is_p95_bps: float = 0.0
+-    max_perm_impact_p95_bps: float = 0.0
+-    min_realized_spread_p50_bps: float = -999.0
+-    tighten_add_mult: float = 1.0
+-    tighten_add_cap_bps: float = 8.0
+-
+-    @staticmethod
+-    def from_env(prefix: str = "EXEC_") -> "ExecHealthThresholds":
+-        return ExecHealthThresholds(
+-            max_is_p95_bps=_f(os.getenv(f"{prefix}MAX_IS_P95_BPS", "0"), 0.0),
+-            max_perm_impact_p95_bps=_f(os.getenv(f"{prefix}MAX_PERM_IMPACT_P95_BPS", "0"), 0.0),
+-            min_realized_spread_p50_bps=_f(os.getenv(f"{prefix}MIN_REALIZED_SPREAD_P50_BPS", "-999"), -999.0),
+-            tighten_add_mult=_f(os.getenv(f"{prefix}TIGHTEN_ADD_MULT", "1.0"), 1.0),
+-            tighten_add_cap_bps=_f(os.getenv(f"{prefix}TIGHTEN_ADD_CAP_BPS", "8.0"), 8.0),
+-        )
+-
+-
+-@dataclass
+-class ExecHealthDecision:
+-    apply: bool
+-    veto: bool
+-    flags: List[str]
+-    reason_code: str = ""
+-    tighten_add_bps: float = 0.0
+-
+-
+-def build_rollup_keys(
+-    *,
+-    metric: str,
+-    sym: str,
+-    venue: str,
+-    session: str,
+-    tf: str,
+-    kind: str,
+-    side: str,
+-) -> List[str]:
+-    """Return fallback key list for one metric."""
++def build_rollup_keys(*, metric: str, sym: str, venue: str, session: str, tf: str, kind: str, side: str) -> List[str]:
+     sym = (sym or "").upper()
+     venue = (venue or "na").lower()
+     session = (session or "na").lower()
+@@ -126,84 +62,29 @@
+         k("all", tf, kind),
+         k("all", "all", "all"),
+     ]
+-    # Deduplicate while preserving order
+     out = []
+     seen = set()
+-    for x in keys:
+-        if x not in seen:
+-            seen.add(x)
+-            out.append(x)
++    for key in keys:
++        if key not in seen:
++            seen.add(key)
++            out.append(key)
+     return out
+ 
+ 
+-async def redis_mget_first(redis, keys: Sequence[str]) -> Optional[float]:
+-    """Return first found numeric value across fallback keys."""
+-    try:
+-        vals = await redis.mget(list(keys))
+-    except Exception:
+-        # fallback to sequential GET
+-        for k in keys:
+-            try:
+-                v = await redis.get(k)
+-            except Exception:
+-                v = None
+-            fv = _f(v, float("nan"))
+-            if math.isfinite(fv):
+-                return float(fv)
+-        return None
+-
+-    for v in vals or []:
+-        fv = _f(v, float("nan"))
+-        if math.isfinite(fv):
+-            return float(fv)
+-    return None
+-
+-
+-async def read_exec_rollups(
+-    *,
+-    redis,
+-    sym: str,
+-    venue: str,
+-    session: str,
+-    tf: str,
+-    kind: str,
+-    side: str,
+-    delta_sec: int = 1,
+-) -> Dict[str, float]:
+-    """Read the minimal set of rollups needed for P6.
+-
+-    Returns empty dict if data is missing.
+-    """
+-    # NOTE: metric naming is fixed in Phase B rollups.
+-    # We keep it strict and provide fallback keys.
+-    out: Dict[str, float] = {}
+-    try:
+-        is_k = build_rollup_keys(metric="is_p95_bps", sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side)
+-        pi_k = build_rollup_keys(metric=f"perm_impact_p95_bps:{int(delta_sec)}", sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side)
+-        rs_k = build_rollup_keys(metric=f"realized_spread_p50_bps:{int(delta_sec)}", sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side)
+-
+-        v_is = await redis_mget_first(redis, is_k)
+-        v_pi = await redis_mget_first(redis, pi_k)
+-        v_rs = await redis_mget_first(redis, rs_k)
+-
+-        if v_is is not None:
+-            out["is_p95_bps"] = float(v_is)
+-        if v_pi is not None:
+-            out[f"perm_impact_p95_bps_{int(delta_sec)}"] = float(v_pi)
+-        if v_rs is not None:
+-            out[f"realized_spread_p50_bps_{int(delta_sec)}"] = float(v_rs)
+-    except Exception:
+-        return {}
+-
+-    return out
++async def read_exec_rollups(*, redis: Any, sym: str, venue: str, session: str, tf: str, kind: str, side: str, delta_sec: int = 1) -> Dict[str, float]:
++    return await aread_exec_health_rollups(
++        redis=redis,
++        sym=sym,
++        venue=venue,
++        session=session,
++        tf=tf,
++        kind=kind,
++        side=side,
++        delta_sec_list=(int(delta_sec),),
++    )
+ 
+ 
+-def decide_execution_health(
+-    *,
+-    rollups: Dict[str, float],
+-    thr: ExecHealthThresholds,
+-) -> ExecHealthDecision:
+-    """Pure policy decision for execution-health gate."""
++def decide_execution_health(*, rollups: Dict[str, float], thr: ExecHealthThresholds) -> ExecHealthDecision:
+     flags: List[str] = []
+ 
+     v_is = _f(rollups.get("is_p95_bps"), float("nan"))
+@@ -219,53 +100,38 @@
+ 
+     mode = _mode()
+     if not flags:
+-        return ExecHealthDecision(apply=False, veto=False, flags=[])
++        return ExecHealthDecision(apply=False, veto=False, flags=[], mode=mode)
+ 
+     if mode == "monitor":
+-        return ExecHealthDecision(apply=True, veto=False, flags=flags, reason_code="EXEC_HEALTH_MONITOR")
++        return ExecHealthDecision(apply=True, veto=False, flags=flags, reason_code="EXEC_HEALTH_MONITOR", mode=mode)
+ 
+-    # tighten: add slippage proportional to severity (bounded)
+-    tighten_add = 0.0
+-    if mode in ("tighten", "veto"):
+-        # simple heuristic: max of offending metrics / thresholds
+-        sev = 0.0
+-        if "is_p95_high" in flags and thr.max_is_p95_bps > 0 and math.isfinite(v_is):
+-            sev = max(sev, v_is / thr.max_is_p95_bps)
+-        if "perm_impact_p95_high" in flags and thr.max_perm_impact_p95_bps > 0 and math.isfinite(v_pi):
+-            sev = max(sev, v_pi / thr.max_perm_impact_p95_bps)
+-        if "adverse_realized" in flags and thr.min_realized_spread_p50_bps > -900 and math.isfinite(v_rs):
+-            # adverse selection: treat as severity 1.0
+-            sev = max(sev, 1.0)
++    sev = 0.0
++    if "is_p95_high" in flags and thr.max_is_p95_bps > 0 and math.isfinite(v_is):
++        sev = max(sev, v_is / thr.max_is_p95_bps)
++    if "perm_impact_p95_high" in flags and thr.max_perm_impact_p95_bps > 0 and math.isfinite(v_pi):
++        sev = max(sev, v_pi / thr.max_perm_impact_p95_bps)
++    if "adverse_realized" in flags and thr.min_realized_spread_p50_bps > -900 and math.isfinite(v_rs):
++        sev = max(sev, 1.0)
+ 
+-        tighten_add = min(float(thr.tighten_add_cap_bps), float(thr.tighten_add_mult) * max(0.0, sev - 1.0) * 5.0)
++    tighten_add = min(float(thr.tighten_add_cap_bps), float(thr.tighten_add_mult) * max(0.0, sev - 1.0) * 5.0)
+ 
+     if mode == "tighten":
+-        return ExecHealthDecision(apply=True, veto=False, flags=flags, reason_code="EXEC_HEALTH_TIGHTEN", tighten_add_bps=float(tighten_add))
++        return ExecHealthDecision(apply=True, veto=False, flags=flags, reason_code="EXEC_HEALTH_TIGHTEN", tighten_add_bps=float(tighten_add), mode=mode)
+ 
+-    # Veto policy (hard): require both IS_p95 and perm_impact_p95 to be bad.
+     do_veto = ("is_p95_high" in flags) and ("perm_impact_p95_high" in flags)
+     if do_veto:
+-        return ExecHealthDecision(
+-            apply=True,
+-            veto=True,
+-            flags=flags,
+-            reason_code="VETO_IMPL_SHORTFALL_P95" if "is_p95_high" in flags else "VETO_EXEC_HEALTH",
+-            tighten_add_bps=float(tighten_add),
+-        )
+-
+-    # Otherwise still tighten (but do not veto)
+-    return ExecHealthDecision(apply=True, veto=False, flags=flags, reason_code="EXEC_HEALTH_TIGHTEN", tighten_add_bps=float(tighten_add))
++        return ExecHealthDecision(apply=True, veto=True, flags=flags, reason_code="VETO_IMPL_SHORTFALL_P95", tighten_add_bps=float(tighten_add), mode=mode)
++    return ExecHealthDecision(apply=True, veto=False, flags=flags, reason_code="EXEC_HEALTH_TIGHTEN", tighten_add_bps=float(tighten_add), mode=mode)
+ 
+ 
+ def apply_exec_health_to_indicators(*, indicators: Dict[str, Any], dec: ExecHealthDecision) -> None:
+-    """Mutate indicators (fail-open)."""
+     try:
+         indicators["exec_health_apply"] = int(1 if dec.apply else 0)
+         indicators["exec_health_veto"] = int(1 if dec.veto else 0)
+         indicators["exec_health_flags"] = ",".join(dec.flags)
+         indicators["exec_health_reason"] = str(dec.reason_code or "")
+         indicators["exec_health_tighten_add_bps"] = float(dec.tighten_add_bps or 0.0)
+-
++        indicators["exec_health_tighten_k"] = float(dec.tighten_k_mult or 1.0)
+         if dec.tighten_add_bps and float(dec.tighten_add_bps) > 0:
+             cur = _f(indicators.get("expected_slippage_bps"), 0.0)
+             indicators["expected_slippage_bps"] = float(cur + float(dec.tighten_add_bps))
+--- services/smt_entry_policy_service.py
++++ services/smt_entry_policy_service.py
+@@ -15,7 +15,7 @@
+ 
+ # P6: execution health (TCA rollups) for entry policy
+ from services.orderflow.utils import session_utc
+-from services.orderflow.execution_health_gate import ExecHealthThresholds, read_exec_rollups, decide_execution_health
++from services.orderflow.exec_health_rollups import aread_exec_health_rollups, decide_exec_health_from_env
+ 
+ def _now_ms() -> int:
+     return int(time.time() * 1000)
+@@ -144,9 +144,7 @@
+             self.core_cfg.max_expected_slippage_bps = float(os.getenv("SMT_ENTRY_MAX_EXPECTED_SLIPPAGE_BPS", "0") or 0.0)
+         except Exception:
+             self.core_cfg.max_expected_slippage_bps = 0.0
+-
+-        # P6: execution health thresholds (TCA rollups)
+-        self._exec_thr = ExecHealthThresholds.from_env(prefix="EXEC_")
++        # P6: execution health (TCA rollups) configuration
+         self._exec_entry_policy_enable = bool(int(os.getenv("EXEC_HEALTH_ENTRY_POLICY_ENABLED", "1") or 1))
+         self._exec_venue = str(os.getenv("EXEC_HEALTH_VENUE", "binance") or "binance").lower()
+         self._exec_tf = str(os.getenv("EXEC_HEALTH_TF", "all") or "all").lower()
+@@ -229,27 +227,27 @@
+         d = await self.r.hgetall(f"{self.cfg.bundle_prefix}{bid}")
+         return d or {}
+ 
+-    async def _maybe_attach_exec_health(self, *, now_ms: int, cand: Dict[str, Any], snap: Dict[str, Any], bundle: Dict[str, Any]) -> None:
+-        """Attach execution-health rollups to snap (fail-open).
+ 
+-        This allows EntryPolicyCore to deny or shadow entries when execution
+-        quality is degraded, without relying on hardcoded assumptions.
++    async def _maybe_attach_exec_health(self, *, now_ms: int, cand: Dict[str, Any], snap: Dict[str, Any], bundle: Dict[str, Any]) -> Tuple[bool, str, str]:
++        """Apply the canonical execution-health overlay to entry policy.
++
++        Behaviour is intentionally fail-open:
++          - missing Redis / missing rollups -> allow without mutation
++          - monitor/default/soft -> annotate only
++          - strict/tighten -> annotate + tighten expected_slippage_bps
++          - hard/veto -> annotate + tighten + veto
+         """
+         if not self._exec_entry_policy_enable:
+-            return
+-
+-        thr = self._exec_thr
+-        # If thresholds are not set, keep disabled to avoid surprise behavior.
+-        if float(thr.max_is_p95_bps) <= 0 and float(thr.max_perm_impact_p95_bps) <= 0 and float(thr.min_realized_spread_p50_bps) <= -900:
+-            return
++            return True, "", ""
+ 
+         try:
+             sym = str(cand.get("symbol") or "").upper()
+             side = str(cand.get("side") or "NA").upper()
+-            kind = str(bundle.get("decision") or "all").lower()
++            kind = str(bundle.get("decision") or cand.get("scenario") or "all").lower()
+             sess = str(session_utc(int(now_ms)))
++            profile = str(os.getenv("ENTRY_POLICY_PROFILE", os.getenv("GATE_PROFILE", "default")) or "default").strip().lower()
+ 
+-            roll = await read_exec_rollups(
++            roll = await aread_exec_health_rollups(
+                 redis=self.r,
+                 sym=sym,
+                 venue=self._exec_venue,
+@@ -257,24 +255,43 @@
+                 tf=self._exec_tf,
+                 kind=kind,
+                 side=side,
+-                delta_sec=1,
+             )
+             if not roll:
+-                return
++                return True, "", ""
++
++            dec = decide_exec_health_from_env(profile=profile, rollups=roll, scope="entry_policy")
+ 
+-            # expose into snap for audit/decisions
+             snap["tca_is_p95_bps"] = float(roll.get("is_p95_bps", 0.0) or 0.0)
+-            snap["tca_perm_impact_p95_bps_1"] = float(roll.get("perm_impact_p95_bps_1", 0.0) or 0.0)
+-            snap["tca_realized_spread_p50_bps_1"] = float(roll.get("realized_spread_p50_bps_1", 0.0) or 0.0)
++            snap["tca_perm_impact_p95_bps"] = float(roll.get("perm_impact_p95_bps", 0.0) or 0.0)
++            snap["tca_realized_spread_p50_bps"] = float(roll.get("realized_spread_p50_bps", 0.0) or 0.0)
++            if "perm_impact_p95_bps_delta_sec" in roll:
++                snap["tca_perm_impact_p95_bps_delta_sec"] = int(roll.get("perm_impact_p95_bps_delta_sec", 0) or 0)
++            if "realized_spread_p50_bps_delta_sec" in roll:
++                snap["tca_realized_spread_p50_bps_delta_sec"] = int(roll.get("realized_spread_p50_bps_delta_sec", 0) or 0)
+ 
+-            dec = decide_execution_health(rollups=roll, thr=thr)
+             snap["exec_health_apply"] = int(1 if dec.apply else 0)
+             snap["exec_health_veto"] = int(1 if dec.veto else 0)
++            snap["exec_health_mode"] = str(dec.mode)
+             snap["exec_health_flags"] = ",".join(dec.flags)
+             snap["exec_health_reason"] = str(dec.reason_code or "")
+             snap["exec_health_tighten_add_bps"] = float(dec.tighten_add_bps or 0.0)
++            snap["exec_health_tighten_k"] = float(dec.tighten_k_mult or 1.0)
++
++            if float(dec.tighten_add_bps or 0.0) > 0.0:
++                micro = snap.get("micro") if isinstance(snap.get("micro"), dict) else {}
++                exp0 = _f(snap.get("expected_slippage_bps", micro.get("expected_slippage_bps", 0.0)), 0.0)
++                exp1 = float(exp0 + float(dec.tighten_add_bps))
++                snap["expected_slippage_bps"] = exp1
++                if isinstance(micro, dict):
++                    micro["expected_slippage_bps"] = exp1
++                    snap["micro"] = micro
++
++            if dec.veto:
++                notes = f"flags={snap.get('exec_health_flags','')} is_p95={snap.get('tca_is_p95_bps', 0.0):.2f} perm_impact_p95={snap.get('tca_perm_impact_p95_bps', 0.0):.2f} realized_spread_p50={snap.get('tca_realized_spread_p50_bps', 0.0):.2f}"
++                return False, str(dec.reason_code or "VETO_EXEC_HEALTH"), notes
++            return True, "", ""
+         except Exception:
+-            return
++            return True, "", ""
+ 
+     async def _maybe_poll_overrides(self, now_ms: int, *, cand: Dict[str, Any], snap: Dict[str, Any], bundle: Dict[str, Any]) -> None:
+         """
+@@ -356,7 +373,7 @@
+                     # Liquidity geometry / resiliency (Phase C)
+                     # These fields are *best-effort* and may be missing depending on
+                     # how SMT snapshots are produced.
+-                    \"liq_geom\": {
++                    "liq_geom": {
+                         "profile": str(snap.get("liq_geom_profile", "")),
+                         "flags": str(snap.get("liq_geom_flags", "")),
+                         "slope_min": float(snap.get("liq_geom_slope_min", 0.0) or 0.0),
+@@ -829,11 +846,11 @@
+             await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code=str(manip_rc), notes=str(manip_notes), snap=snap, bundle=bundle, ovr=ovr)
+             return
+ 
+-        # P6: attach execution health rollups (TCA) to snap for core decision
+-        try:
+-            await self._maybe_attach_exec_health(now_ms=now, cand=cand, snap=snap, bundle=bundle)
+-        except Exception:
+-            pass
++        # P6: apply execution health overlay (same SoT reader/policy as EdgeCostGate/Pipeline)
++        ok_exec, exec_rc, exec_notes = await self._maybe_attach_exec_health(now_ms=now, cand=cand, snap=snap, bundle=bundle)
++        if not ok_exec:
++            await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code=str(exec_rc), notes=str(exec_notes), snap=snap, bundle=bundle, ovr=ovr)
++            return
+ 
+         from services.entry_policy_core import evaluate_entry_policy
+         dec = evaluate_entry_policy(now_ms=_now_ms(), cand=cand, snap=snap, bundle=bundle, cfg=self.core_cfg, dedup_state=self._dedup)
+--- services/orderflow/signal_pipeline.py
++++ services/orderflow/signal_pipeline.py
+@@ -38,6 +38,7 @@
+ # P5: book sanity + stream integrity gates (pre-publish, fail-open)
+ from services.orderflow.book_sanity_gate import BookSanityGate
+ from services.orderflow.stream_integrity_gate import StreamIntegrityGate
++from services.orderflow.exec_health_rollups import aread_exec_health_rollups, decide_exec_health_from_env
+ 
+ _book_sanity_gate = BookSanityGate.from_env()
+ _stream_integrity_gate = StreamIntegrityGate.from_env()
+@@ -1303,6 +1304,116 @@
+         except Exception:
+             veto_dec = None
+ 
++        # ------------------------------------------------------------------
++        # PRE-PUBLISH EXECUTION HEALTH (single source of truth with EntryPolicy/EdgeCost)
++        # ------------------------------------------------------------------
++        if veto_dec is None:
++            try:
++                redis_client = getattr(self.publisher, "r", None) if self.publisher is not None else None
++                if redis_client is not None:
++                    exec_profile = str(os.getenv("GATE_PROFILE", "default") or "default").strip().lower()
++                    exec_session = str(session_utc(int(enriched_signal.get("ts_ms") or 0)))
++                    exec_tf = str(indicators.get("tf") or enriched_signal.get("tf") or signal.get("tf") or os.getenv("EXEC_HEALTH_TF", "all") or "all").strip().lower()
++                    exec_kind = str(kind or indicators.get("kind") or signal.get("kind") or "all").strip().lower()
++                    exec_side = str(enriched_signal.get("side") or signal.get("side") or direction or "NA").strip().upper()
++                    exec_venue = str(indicators.get("venue") or enriched_signal.get("venue") or signal.get("venue") or os.getenv("EXEC_HEALTH_VENUE", "binance") or "binance").strip().lower()
++                    exec_roll = await aread_exec_health_rollups(
++                        redis=redis_client,
++                        sym=str(symbol),
++                        venue=exec_venue,
++                        session=exec_session,
++                        tf=exec_tf,
++                        kind=exec_kind,
++                        side=exec_side,
++                    )
++                    if exec_roll:
++                        exec_dec = decide_exec_health_from_env(profile=exec_profile, rollups=exec_roll, scope="pipeline")
++                        indicators["tca_is_p95_bps"] = float(exec_roll.get("is_p95_bps", 0.0) or 0.0)
++                        indicators["tca_perm_impact_p95_bps"] = float(exec_roll.get("perm_impact_p95_bps", 0.0) or 0.0)
++                        indicators["tca_realized_spread_p50_bps"] = float(exec_roll.get("realized_spread_p50_bps", 0.0) or 0.0)
++                        indicators["exec_health_apply"] = int(1 if exec_dec.apply else 0)
++                        indicators["exec_health_veto"] = int(1 if exec_dec.veto else 0)
++                        indicators["exec_health_mode"] = str(exec_dec.mode)
++                        indicators["exec_health_flags"] = ",".join(exec_dec.flags)
++                        indicators["exec_health_reason"] = str(exec_dec.reason_code or "")
++                        indicators["exec_health_tighten_add_bps"] = float(exec_dec.tighten_add_bps or 0.0)
++                        indicators["exec_health_tighten_k"] = float(exec_dec.tighten_k_mult or 1.0)
++                        enriched_signal["exec_health_apply"] = int(1 if exec_dec.apply else 0)
++                        enriched_signal["exec_health_veto"] = int(1 if exec_dec.veto else 0)
++                        enriched_signal["exec_health_mode"] = str(exec_dec.mode)
++                        enriched_signal["exec_health_flags"] = ",".join(exec_dec.flags)
++                        enriched_signal["exec_health_reason"] = str(exec_dec.reason_code or "")
++                        if float(exec_dec.tighten_add_bps or 0.0) > 0.0:
++                            exp0 = float(enriched_signal.get("expected_slippage_bps") or indicators.get("expected_slippage_bps") or 0.0)
++                            exp1 = float(exp0 + float(exec_dec.tighten_add_bps))
++                            enriched_signal["expected_slippage_bps"] = exp1
++                            indicators["expected_slippage_bps"] = exp1
++                        if exec_dec.veto:
++                            veto_dec = SimpleNamespace(
++                                apply=True,
++                                veto=True,
++                                gate="ExecutionHealthGate",
++                                reason_code=str(exec_dec.reason_code or "VETO_EXEC_HEALTH"),
++                                notes=f"flags={','.join(exec_dec.flags)} is_p95={exec_roll.get('is_p95_bps', 0.0)} perm_impact_p95={exec_roll.get('perm_impact_p95_bps', 0.0)} realized_spread_p50={exec_roll.get('realized_spread_p50_bps', 0.0)}",
++                            )
++            except Exception:
++                pass
++
++        # ------------------------------------------------------------------
++        # PRE-PUBLISH EXECUTION HEALTH (single source of truth with EntryPolicy/EdgeCost)
++        # ------------------------------------------------------------------
++        if veto_dec is None:
++            try:
++                redis_client = getattr(self.publisher, "r", None) if self.publisher is not None else None
++                if redis_client is not None:
++                    exec_profile = str(os.getenv("GATE_PROFILE", "default") or "default").strip().lower()
++                    exec_session = str(session_utc(int(enriched_signal.get("ts_ms") or 0)))
++                    exec_tf = str(indicators.get("tf") or enriched_signal.get("tf") or signal.get("tf") or os.getenv("EXEC_HEALTH_TF", "all") or "all").strip().lower()
++                    exec_kind = str(kind or indicators.get("kind") or signal.get("kind") or "all").strip().lower()
++                    exec_side = str(enriched_signal.get("side") or signal.get("side") or direction or "NA").strip().upper()
++                    exec_venue = str(indicators.get("venue") or enriched_signal.get("venue") or signal.get("venue") or os.getenv("EXEC_HEALTH_VENUE", "binance") or "binance").strip().lower()
++                    exec_roll = await aread_exec_health_rollups(
++                        redis=redis_client,
++                        sym=str(symbol),
++                        venue=exec_venue,
++                        session=exec_session,
++                        tf=exec_tf,
++                        kind=exec_kind,
++                        side=exec_side,
++                    )
++                    if exec_roll:
++                        exec_dec = decide_exec_health_from_env(profile=exec_profile, rollups=exec_roll, scope="pipeline")
++                        indicators["tca_is_p95_bps"] = float(exec_roll.get("is_p95_bps", 0.0) or 0.0)
++                        indicators["tca_perm_impact_p95_bps"] = float(exec_roll.get("perm_impact_p95_bps", 0.0) or 0.0)
++                        indicators["tca_realized_spread_p50_bps"] = float(exec_roll.get("realized_spread_p50_bps", 0.0) or 0.0)
++                        indicators["exec_health_apply"] = int(1 if exec_dec.apply else 0)
++                        indicators["exec_health_veto"] = int(1 if exec_dec.veto else 0)
++                        indicators["exec_health_mode"] = str(exec_dec.mode)
++                        indicators["exec_health_flags"] = ",".join(exec_dec.flags)
++                        indicators["exec_health_reason"] = str(exec_dec.reason_code or "")
++                        indicators["exec_health_tighten_add_bps"] = float(exec_dec.tighten_add_bps or 0.0)
++                        indicators["exec_health_tighten_k"] = float(exec_dec.tighten_k_mult or 1.0)
++                        enriched_signal["exec_health_apply"] = int(1 if exec_dec.apply else 0)
++                        enriched_signal["exec_health_veto"] = int(1 if exec_dec.veto else 0)
++                        enriched_signal["exec_health_mode"] = str(exec_dec.mode)
++                        enriched_signal["exec_health_flags"] = ",".join(exec_dec.flags)
++                        enriched_signal["exec_health_reason"] = str(exec_dec.reason_code or "")
++                        if float(exec_dec.tighten_add_bps or 0.0) > 0.0:
++                            exp0 = float(enriched_signal.get("expected_slippage_bps") or indicators.get("expected_slippage_bps") or 0.0)
++                            exp1 = float(exp0 + float(exec_dec.tighten_add_bps))
++                            enriched_signal["expected_slippage_bps"] = exp1
++                            indicators["expected_slippage_bps"] = exp1
++                        if exec_dec.veto:
++                            veto_dec = SimpleNamespace(
++                                apply=True,
++                                veto=True,
++                                gate="ExecutionHealthGate",
++                                reason_code=str(exec_dec.reason_code or "VETO_EXEC_HEALTH"),
++                                notes=f"flags={','.join(exec_dec.flags)} is_p95={exec_roll.get('is_p95_bps', 0.0)} perm_impact_p95={exec_roll.get('perm_impact_p95_bps', 0.0)} realized_spread_p50={exec_roll.get('realized_spread_p50_bps', 0.0)}",
++                            )
++            except Exception:
++                pass
++
+         if veto_dec is not None:
+             # Metrics
+             try:
+--- tick_flow_full/services/orderflow/signal_pipeline.py
++++ tick_flow_full/services/orderflow/signal_pipeline.py
+@@ -38,6 +38,7 @@
+ # P5: book sanity + stream integrity gates (pre-publish, fail-open)
+ from services.orderflow.book_sanity_gate import BookSanityGate
+ from services.orderflow.stream_integrity_gate import StreamIntegrityGate
++from services.orderflow.exec_health_rollups import aread_exec_health_rollups, decide_exec_health_from_env
+ 
+ _book_sanity_gate = BookSanityGate.from_env()
+ _stream_integrity_gate = StreamIntegrityGate.from_env()
+@@ -1303,6 +1304,116 @@
+         except Exception:
+             veto_dec = None
+ 
++        # ------------------------------------------------------------------
++        # PRE-PUBLISH EXECUTION HEALTH (single source of truth with EntryPolicy/EdgeCost)
++        # ------------------------------------------------------------------
++        if veto_dec is None:
++            try:
++                redis_client = getattr(self.publisher, "r", None) if self.publisher is not None else None
++                if redis_client is not None:
++                    exec_profile = str(os.getenv("GATE_PROFILE", "default") or "default").strip().lower()
++                    exec_session = str(session_utc(int(enriched_signal.get("ts_ms") or 0)))
++                    exec_tf = str(indicators.get("tf") or enriched_signal.get("tf") or signal.get("tf") or os.getenv("EXEC_HEALTH_TF", "all") or "all").strip().lower()
++                    exec_kind = str(kind or indicators.get("kind") or signal.get("kind") or "all").strip().lower()
++                    exec_side = str(enriched_signal.get("side") or signal.get("side") or direction or "NA").strip().upper()
++                    exec_venue = str(indicators.get("venue") or enriched_signal.get("venue") or signal.get("venue") or os.getenv("EXEC_HEALTH_VENUE", "binance") or "binance").strip().lower()
++                    exec_roll = await aread_exec_health_rollups(
++                        redis=redis_client,
++                        sym=str(symbol),
++                        venue=exec_venue,
++                        session=exec_session,
++                        tf=exec_tf,
++                        kind=exec_kind,
++                        side=exec_side,
++                    )
++                    if exec_roll:
++                        exec_dec = decide_exec_health_from_env(profile=exec_profile, rollups=exec_roll, scope="pipeline")
++                        indicators["tca_is_p95_bps"] = float(exec_roll.get("is_p95_bps", 0.0) or 0.0)
++                        indicators["tca_perm_impact_p95_bps"] = float(exec_roll.get("perm_impact_p95_bps", 0.0) or 0.0)
++                        indicators["tca_realized_spread_p50_bps"] = float(exec_roll.get("realized_spread_p50_bps", 0.0) or 0.0)
++                        indicators["exec_health_apply"] = int(1 if exec_dec.apply else 0)
++                        indicators["exec_health_veto"] = int(1 if exec_dec.veto else 0)
++                        indicators["exec_health_mode"] = str(exec_dec.mode)
++                        indicators["exec_health_flags"] = ",".join(exec_dec.flags)
++                        indicators["exec_health_reason"] = str(exec_dec.reason_code or "")
++                        indicators["exec_health_tighten_add_bps"] = float(exec_dec.tighten_add_bps or 0.0)
++                        indicators["exec_health_tighten_k"] = float(exec_dec.tighten_k_mult or 1.0)
++                        enriched_signal["exec_health_apply"] = int(1 if exec_dec.apply else 0)
++                        enriched_signal["exec_health_veto"] = int(1 if exec_dec.veto else 0)
++                        enriched_signal["exec_health_mode"] = str(exec_dec.mode)
++                        enriched_signal["exec_health_flags"] = ",".join(exec_dec.flags)
++                        enriched_signal["exec_health_reason"] = str(exec_dec.reason_code or "")
++                        if float(exec_dec.tighten_add_bps or 0.0) > 0.0:
++                            exp0 = float(enriched_signal.get("expected_slippage_bps") or indicators.get("expected_slippage_bps") or 0.0)
++                            exp1 = float(exp0 + float(exec_dec.tighten_add_bps))
++                            enriched_signal["expected_slippage_bps"] = exp1
++                            indicators["expected_slippage_bps"] = exp1
++                        if exec_dec.veto:
++                            veto_dec = SimpleNamespace(
++                                apply=True,
++                                veto=True,
++                                gate="ExecutionHealthGate",
++                                reason_code=str(exec_dec.reason_code or "VETO_EXEC_HEALTH"),
++                                notes=f"flags={','.join(exec_dec.flags)} is_p95={exec_roll.get('is_p95_bps', 0.0)} perm_impact_p95={exec_roll.get('perm_impact_p95_bps', 0.0)} realized_spread_p50={exec_roll.get('realized_spread_p50_bps', 0.0)}",
++                            )
++            except Exception:
++                pass
++
++        # ------------------------------------------------------------------
++        # PRE-PUBLISH EXECUTION HEALTH (single source of truth with EntryPolicy/EdgeCost)
++        # ------------------------------------------------------------------
++        if veto_dec is None:
++            try:
++                redis_client = getattr(self.publisher, "r", None) if self.publisher is not None else None
++                if redis_client is not None:
++                    exec_profile = str(os.getenv("GATE_PROFILE", "default") or "default").strip().lower()
++                    exec_session = str(session_utc(int(enriched_signal.get("ts_ms") or 0)))
++                    exec_tf = str(indicators.get("tf") or enriched_signal.get("tf") or signal.get("tf") or os.getenv("EXEC_HEALTH_TF", "all") or "all").strip().lower()
++                    exec_kind = str(kind or indicators.get("kind") or signal.get("kind") or "all").strip().lower()
++                    exec_side = str(enriched_signal.get("side") or signal.get("side") or direction or "NA").strip().upper()
++                    exec_venue = str(indicators.get("venue") or enriched_signal.get("venue") or signal.get("venue") or os.getenv("EXEC_HEALTH_VENUE", "binance") or "binance").strip().lower()
++                    exec_roll = await aread_exec_health_rollups(
++                        redis=redis_client,
++                        sym=str(symbol),
++                        venue=exec_venue,
++                        session=exec_session,
++                        tf=exec_tf,
++                        kind=exec_kind,
++                        side=exec_side,
++                    )
++                    if exec_roll:
++                        exec_dec = decide_exec_health_from_env(profile=exec_profile, rollups=exec_roll, scope="pipeline")
++                        indicators["tca_is_p95_bps"] = float(exec_roll.get("is_p95_bps", 0.0) or 0.0)
++                        indicators["tca_perm_impact_p95_bps"] = float(exec_roll.get("perm_impact_p95_bps", 0.0) or 0.0)
++                        indicators["tca_realized_spread_p50_bps"] = float(exec_roll.get("realized_spread_p50_bps", 0.0) or 0.0)
++                        indicators["exec_health_apply"] = int(1 if exec_dec.apply else 0)
++                        indicators["exec_health_veto"] = int(1 if exec_dec.veto else 0)
++                        indicators["exec_health_mode"] = str(exec_dec.mode)
++                        indicators["exec_health_flags"] = ",".join(exec_dec.flags)
++                        indicators["exec_health_reason"] = str(exec_dec.reason_code or "")
++                        indicators["exec_health_tighten_add_bps"] = float(exec_dec.tighten_add_bps or 0.0)
++                        indicators["exec_health_tighten_k"] = float(exec_dec.tighten_k_mult or 1.0)
++                        enriched_signal["exec_health_apply"] = int(1 if exec_dec.apply else 0)
++                        enriched_signal["exec_health_veto"] = int(1 if exec_dec.veto else 0)
++                        enriched_signal["exec_health_mode"] = str(exec_dec.mode)
++                        enriched_signal["exec_health_flags"] = ",".join(exec_dec.flags)
++                        enriched_signal["exec_health_reason"] = str(exec_dec.reason_code or "")
++                        if float(exec_dec.tighten_add_bps or 0.0) > 0.0:
++                            exp0 = float(enriched_signal.get("expected_slippage_bps") or indicators.get("expected_slippage_bps") or 0.0)
++                            exp1 = float(exp0 + float(exec_dec.tighten_add_bps))
++                            enriched_signal["expected_slippage_bps"] = exp1
++                            indicators["expected_slippage_bps"] = exp1
++                        if exec_dec.veto:
++                            veto_dec = SimpleNamespace(
++                                apply=True,
++                                veto=True,
++                                gate="ExecutionHealthGate",
++                                reason_code=str(exec_dec.reason_code or "VETO_EXEC_HEALTH"),
++                                notes=f"flags={','.join(exec_dec.flags)} is_p95={exec_roll.get('is_p95_bps', 0.0)} perm_impact_p95={exec_roll.get('perm_impact_p95_bps', 0.0)} realized_spread_p50={exec_roll.get('realized_spread_p50_bps', 0.0)}",
++                            )
++            except Exception:
++                pass
++
+         if veto_dec is not None:
+             # Metrics
+             try:
+--- tick_flow_full/handlers/crypto_orderflow/utils/edge_cost_gate.py
++++ tick_flow_full/handlers/crypto_orderflow/utils/edge_cost_gate.py
+@@ -108,6 +108,11 @@
+     read_exec_cost_ema_slippage_bps,
+ )
+ 
++try:
++    from services.orderflow.exec_health_rollups import read_exec_health_rollups_sync, decide_exec_health_from_env
++except Exception:  # pragma: no cover - mixed deployments may import from mirror path
++    from tick_flow_full.services.orderflow.exec_health_rollups import read_exec_health_rollups_sync, decide_exec_health_from_env
++
+ # Single source of truth for epoch-ms normalization (already used in TradeMonitor)
+ from domain.time_utils import normalize_ts_ms
+ 
+@@ -1332,8 +1337,50 @@
+         except Exception:
+             f2 = 1.0
+         try:
+-            if f1 > 1.0 or f2 > 1.0:
+-                k_eff = float(k_eff) * float(max(1.0, f1)) * float(max(1.0, f2))
++            redis_client = getattr(self, "redis", None) or getattr(ctx, "redis", None)
++            exec_rollups = {}
++            if redis_client is not None:
++                tsm_exec = int(normalize_ts_ms(getattr(ctx, "ts_ms", None) or getattr(ctx, "ts", None) or 0) or 0)
++                sess_exec = str(getattr(ctx, "session", None) or (session_from_ts_ms(int(tsm_exec)) if tsm_exec > 0 else "all") or "all")
++                tf_exec = _canon_tf(getattr(ctx, "tf", None) or getattr(ctx, "timeframe", None) or os.getenv("EXEC_HEALTH_TF", "all"))
++                venue_exec = str(getattr(ctx, "venue", "") or os.getenv("EXEC_HEALTH_VENUE", "binance") or "binance").lower()
++                side_exec = str(getattr(ctx, "side", None) or getattr(ctx, "direction", None) or "NA").upper()
++                exec_rollups = read_exec_health_rollups_sync(
++                    redis=redis_client,
++                    sym=str(symbol or ""),
++                    venue=venue_exec,
++                    session=sess_exec,
++                    tf=tf_exec,
++                    kind=str(kind or "all"),
++                    side=side_exec,
++                )
++            exec_profile = str(os.getenv("GATE_PROFILE", "default") or "default").strip().lower()
++            exec_dec = decide_exec_health_from_env(profile=exec_profile, rollups=exec_rollups, scope="edge") if exec_rollups else None
++            if exec_dec is not None:
++                setattr(ctx, "exec_health_apply", int(1 if exec_dec.apply else 0))
++                setattr(ctx, "exec_health_veto", int(1 if exec_dec.veto else 0))
++                setattr(ctx, "exec_health_flags", list(exec_dec.flags))
++                setattr(ctx, "exec_health_reason", str(exec_dec.reason_code or ""))
++                setattr(ctx, "exec_health_tighten_add_bps", float(exec_dec.tighten_add_bps or 0.0))
++                setattr(ctx, "exec_health_tighten_k", float(exec_dec.tighten_k_mult or 1.0))
++                if float(exec_dec.tighten_add_bps or 0.0) > 0.0:
++                    slip_bps = float(slip_bps) + float(exec_dec.tighten_add_bps)
++            else:
++                setattr(ctx, "exec_health_tighten_k", 1.0)
++        except Exception:
++            exec_dec = None
++            try:
++                setattr(ctx, "exec_health_tighten_k", 1.0)
++            except Exception:
++                pass
++
++        try:
++            f3 = float(getattr(ctx, "exec_health_tighten_k", 1.0) or 1.0)
++        except Exception:
++            f3 = 1.0
++        try:
++            if f1 > 1.0 or f2 > 1.0 or f3 > 1.0:
++                k_eff = float(k_eff) * float(max(1.0, f1)) * float(max(1.0, f2)) * float(max(1.0, f3))
+         except Exception:
+             pass
+ 
+@@ -1341,6 +1388,28 @@
+         buffer_bps = 0.0  # TODO: implement _get_buffer_bps() if needed
+         thr = float(k_eff) * (float(fees_bps) + float(slip_bps) + float(buffer_bps))
+ 
++        if exec_dec is not None and bool(exec_dec.veto):
++            d = EdgeCostGateDecision(
++                apply=True,
++                veto=True,
++                reason_code=str(exec_dec.reason_code or "VETO_EXEC_HEALTH"),
++                expected_move_bps=float("nan"),
++                threshold_bps=float(thr),
++                fees_bps=float(fees_bps),
++                slippage_bps=float(slip_bps),
++                k=float(k_eff),
++                mode=self.mode,
++                notes=",".join(exec_dec.flags),
++                drift_factor=float(drift_factor),
++                drift_score=float(drift_score),
++                drift_feature=str(drift_feat or ""),
++                total_costs_bps=float(fees_bps) + float(slip_bps) + float(buffer_bps),
++                buffer_bps=float(buffer_bps),
++                edge_source="exec_health_veto",
++            )
++            trace_gate(ctx, stage="gates", name="edge_cost_gate", passed=False, veto=True, reason_code=str(d.reason_code), metrics={"thr": d.threshold_bps, "k": d.k, "slippage_bps": d.slippage_bps})
++            return d
++
+         # -------------------------
+         # EV gate (probability-aware)
+         # -------------------------
+--- services/orderflow/tests/test_exec_health_rollups_v1.py
++++ services/orderflow/tests/test_exec_health_rollups_v1.py
+@@ -0,0 +1,121 @@
++from __future__ import annotations
++
++import os
++import unittest
++from unittest import mock
++
++from services.orderflow.exec_health_rollups import (
++    ExecHealthThresholds,
++    aread_exec_health_rollups,
++    build_rollup_keys,
++    decide_exec_health_from_env,
++    read_exec_health_rollups_sync,
++)
++
++
++class _AsyncRedisStub:
++    def __init__(self, store):
++        self.store = dict(store)
++        self.calls = []
++
++    async def mget(self, keys):
++        self.calls.append(list(keys))
++        return [self.store.get(k) for k in keys]
++
++    async def get(self, key):
++        return self.store.get(key)
++
++
++class _SyncRedisStub:
++    def __init__(self, store):
++        self.store = dict(store)
++        self.calls = []
++
++    def mget(self, keys):
++        self.calls.append(list(keys))
++        return [self.store.get(k) for k in keys]
++
++    def get(self, key):
++        return self.store.get(key)
++
++
++class ExecHealthRollupsV1Test(unittest.TestCase):
++    def test_bounded_keyspace_one_metric(self):
++        keys = build_rollup_keys(
++            metric="is_p95_bps",
++            sym="BTCUSDT",
++            venue="binance",
++            session="eu",
++            tf="1m",
++            kind="breakout",
++            side="LONG",
++        )
++        self.assertEqual(len(keys), 16)
++        self.assertEqual(keys[0], "tca:is_p95_bps:BTCUSDT:binance:eu:1m:breakout:LONG")
++        self.assertEqual(keys[-1], "tca:is_p95_bps:BTCUSDT:binance:all:all:all:all")
++
++    def test_sync_reader_aggregates_worst_by_delta(self):
++        store = {
++            "tca:is_p95_bps:BTCUSDT:binance:eu:1m:breakout:LONG": "4.0",
++            "tca:perm_impact_p95_bps:1:BTCUSDT:binance:eu:1m:breakout:LONG": "1.5",
++            "tca:perm_impact_p95_bps:5:BTCUSDT:binance:eu:1m:breakout:LONG": "3.8",
++            "tca:realized_spread_p50_bps:1:BTCUSDT:binance:eu:1m:breakout:LONG": "-0.5",
++            "tca:realized_spread_p50_bps:5:BTCUSDT:binance:eu:1m:breakout:LONG": "-2.2",
++        }
++        redis = _SyncRedisStub(store)
++        roll = read_exec_health_rollups_sync(
++            redis=redis,
++            sym="BTCUSDT",
++            venue="binance",
++            session="eu",
++            tf="1m",
++            kind="breakout",
++            side="LONG",
++            delta_sec_list=(1, 5),
++        )
++        self.assertEqual(roll["perm_impact_p95_bps"], 3.8)
++        self.assertEqual(int(roll["perm_impact_p95_bps_delta_sec"]), 5)
++        self.assertEqual(roll["realized_spread_p50_bps"], -2.2)
++        self.assertEqual(int(roll["realized_spread_p50_bps_delta_sec"]), 5)
++        self.assertEqual(len(redis.calls[0]), 16 * 5)
++
++    def test_auto_profile_mapping(self):
++        roll = {"is_p95_bps": 6.0, "perm_impact_p95_bps": 4.0}
++        with mock.patch.dict(os.environ, {"EXEC_HEALTH_MODE": "auto", "GATE_PROFILE": "default", "EXEC_MAX_IS_P95_BPS": "5", "EXEC_MAX_PERM_IMPACT_P95_BPS": "3"}, clear=False):
++            dec = decide_exec_health_from_env(profile="default", rollups=roll, scope="edge")
++            self.assertEqual(dec.mode, "monitor")
++            self.assertFalse(dec.veto)
++        with mock.patch.dict(os.environ, {"EXEC_HEALTH_MODE": "auto", "GATE_PROFILE": "strict", "EXEC_MAX_IS_P95_BPS": "5", "EXEC_MAX_PERM_IMPACT_P95_BPS": "3", "EXEC_TIGHTEN_K_MULT": "1.2"}, clear=False):
++            dec = decide_exec_health_from_env(profile="strict", rollups=roll, scope="edge")
++            self.assertEqual(dec.mode, "tighten")
++            self.assertGreater(dec.tighten_k_mult, 1.0)
++        with mock.patch.dict(os.environ, {"EXEC_HEALTH_MODE": "auto", "GATE_PROFILE": "hard", "EXEC_MAX_IS_P95_BPS": "5", "EXEC_MAX_PERM_IMPACT_P95_BPS": "3"}, clear=False):
++            dec = decide_exec_health_from_env(profile="hard", rollups=roll, scope="edge")
++            self.assertEqual(dec.mode, "veto")
++            self.assertTrue(dec.veto)
++            self.assertEqual(dec.reason_code, "VETO_IMPL_SHORTFALL_P95")
++
++    def test_async_reader_works(self):
++        store = {
++            "tca:is_p95_bps:ETHUSDT:binance:eu:5m:continuation:SHORT": "2.0",
++            "tca:perm_impact_p95_bps:1:ETHUSDT:binance:eu:5m:continuation:SHORT": "1.0",
++            "tca:realized_spread_p50_bps:1:ETHUSDT:binance:eu:5m:continuation:SHORT": "-0.1",
++        }
++        redis = _AsyncRedisStub(store)
++        import asyncio
++        roll = asyncio.run(aread_exec_health_rollups(
++            redis=redis,
++            sym="ETHUSDT",
++            venue="binance",
++            session="eu",
++            tf="5m",
++            kind="continuation",
++            side="SHORT",
++            delta_sec_list=(1,),
++        ))
++        self.assertEqual(roll["is_p95_bps"], 2.0)
++        self.assertEqual(len(redis.calls[0]), 16 * 3)
++
++
++if __name__ == "__main__":
++    unittest.main()
+--- tick_flow_full/services/orderflow/tests/test_exec_health_rollups_v1.py
++++ tick_flow_full/services/orderflow/tests/test_exec_health_rollups_v1.py
+@@ -0,0 +1,121 @@
++from __future__ import annotations
++
++import os
++import unittest
++from unittest import mock
++
++from services.orderflow.exec_health_rollups import (
++    ExecHealthThresholds,
++    aread_exec_health_rollups,
++    build_rollup_keys,
++    decide_exec_health_from_env,
++    read_exec_health_rollups_sync,
++)
++
++
++class _AsyncRedisStub:
++    def __init__(self, store):
++        self.store = dict(store)
++        self.calls = []
++
++    async def mget(self, keys):
++        self.calls.append(list(keys))
++        return [self.store.get(k) for k in keys]
++
++    async def get(self, key):
++        return self.store.get(key)
++
++
++class _SyncRedisStub:
++    def __init__(self, store):
++        self.store = dict(store)
++        self.calls = []
++
++    def mget(self, keys):
++        self.calls.append(list(keys))
++        return [self.store.get(k) for k in keys]
++
++    def get(self, key):
++        return self.store.get(key)
++
++
++class ExecHealthRollupsV1Test(unittest.TestCase):
++    def test_bounded_keyspace_one_metric(self):
++        keys = build_rollup_keys(
++            metric="is_p95_bps",
++            sym="BTCUSDT",
++            venue="binance",
++            session="eu",
++            tf="1m",
++            kind="breakout",
++            side="LONG",
++        )
++        self.assertEqual(len(keys), 16)
++        self.assertEqual(keys[0], "tca:is_p95_bps:BTCUSDT:binance:eu:1m:breakout:LONG")
++        self.assertEqual(keys[-1], "tca:is_p95_bps:BTCUSDT:binance:all:all:all:all")
++
++    def test_sync_reader_aggregates_worst_by_delta(self):
++        store = {
++            "tca:is_p95_bps:BTCUSDT:binance:eu:1m:breakout:LONG": "4.0",
++            "tca:perm_impact_p95_bps:1:BTCUSDT:binance:eu:1m:breakout:LONG": "1.5",
++            "tca:perm_impact_p95_bps:5:BTCUSDT:binance:eu:1m:breakout:LONG": "3.8",
++            "tca:realized_spread_p50_bps:1:BTCUSDT:binance:eu:1m:breakout:LONG": "-0.5",
++            "tca:realized_spread_p50_bps:5:BTCUSDT:binance:eu:1m:breakout:LONG": "-2.2",
++        }
++        redis = _SyncRedisStub(store)
++        roll = read_exec_health_rollups_sync(
++            redis=redis,
++            sym="BTCUSDT",
++            venue="binance",
++            session="eu",
++            tf="1m",
++            kind="breakout",
++            side="LONG",
++            delta_sec_list=(1, 5),
++        )
++        self.assertEqual(roll["perm_impact_p95_bps"], 3.8)
++        self.assertEqual(int(roll["perm_impact_p95_bps_delta_sec"]), 5)
++        self.assertEqual(roll["realized_spread_p50_bps"], -2.2)
++        self.assertEqual(int(roll["realized_spread_p50_bps_delta_sec"]), 5)
++        self.assertEqual(len(redis.calls[0]), 16 * 5)
++
++    def test_auto_profile_mapping(self):
++        roll = {"is_p95_bps": 6.0, "perm_impact_p95_bps": 4.0}
++        with mock.patch.dict(os.environ, {"EXEC_HEALTH_MODE": "auto", "GATE_PROFILE": "default", "EXEC_MAX_IS_P95_BPS": "5", "EXEC_MAX_PERM_IMPACT_P95_BPS": "3"}, clear=False):
++            dec = decide_exec_health_from_env(profile="default", rollups=roll, scope="edge")
++            self.assertEqual(dec.mode, "monitor")
++            self.assertFalse(dec.veto)
++        with mock.patch.dict(os.environ, {"EXEC_HEALTH_MODE": "auto", "GATE_PROFILE": "strict", "EXEC_MAX_IS_P95_BPS": "5", "EXEC_MAX_PERM_IMPACT_P95_BPS": "3", "EXEC_TIGHTEN_K_MULT": "1.2"}, clear=False):
++            dec = decide_exec_health_from_env(profile="strict", rollups=roll, scope="edge")
++            self.assertEqual(dec.mode, "tighten")
++            self.assertGreater(dec.tighten_k_mult, 1.0)
++        with mock.patch.dict(os.environ, {"EXEC_HEALTH_MODE": "auto", "GATE_PROFILE": "hard", "EXEC_MAX_IS_P95_BPS": "5", "EXEC_MAX_PERM_IMPACT_P95_BPS": "3"}, clear=False):
++            dec = decide_exec_health_from_env(profile="hard", rollups=roll, scope="edge")
++            self.assertEqual(dec.mode, "veto")
++            self.assertTrue(dec.veto)
++            self.assertEqual(dec.reason_code, "VETO_IMPL_SHORTFALL_P95")
++
++    def test_async_reader_works(self):
++        store = {
++            "tca:is_p95_bps:ETHUSDT:binance:eu:5m:continuation:SHORT": "2.0",
++            "tca:perm_impact_p95_bps:1:ETHUSDT:binance:eu:5m:continuation:SHORT": "1.0",
++            "tca:realized_spread_p50_bps:1:ETHUSDT:binance:eu:5m:continuation:SHORT": "-0.1",
++        }
++        redis = _AsyncRedisStub(store)
++        import asyncio
++        roll = asyncio.run(aread_exec_health_rollups(
++            redis=redis,
++            sym="ETHUSDT",
++            venue="binance",
++            session="eu",
++            tf="5m",
++            kind="continuation",
++            side="SHORT",
++            delta_sec_list=(1,),
++        ))
++        self.assertEqual(roll["is_p95_bps"], 2.0)
++        self.assertEqual(len(redis.calls[0]), 16 * 3)
++
++
++if __name__ == "__main__":
++    unittest.main()

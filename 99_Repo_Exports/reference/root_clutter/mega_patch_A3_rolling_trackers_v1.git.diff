@@ -1,0 +1,297 @@
+diff --git a/services/orderflow/components/bar_processor.py b/services/orderflow/components/bar_processor.py
+index fb62402..659501e 100644
+--- a/services/orderflow/components/bar_processor.py
++++ b/services/orderflow/components/bar_processor.py
+@@ -129,6 +129,39 @@ class BarProcessor:
+             except Exception:
+                 pass
+ 
++            # A3: Rolling trackers (VWAP diff, momentum, realized vol) updated on bar close.
++            try:
++                ts_roll = int(getattr(bar, "end_ts_ms", 0) or getattr(bar, "ts_ms", 0) or 0)
++                if ts_roll > 0:
++                    ref_px = float(getattr(bar, "mid_last", 0.0) or 0.0)
++                    if not math.isfinite(ref_px) or ref_px <= 0:
++                        ref_px = float(getattr(bar, "close", 0.0) or 0.0)
++
++                    spread_bps = 0.0
++                    try:
++                        mid_last = float(getattr(bar, "mid_last", 0.0) or 0.0)
++                        sp_abs = float(getattr(bar, "spread_last", 0.0) or 0.0)
++                        if mid_last > 0 and math.isfinite(mid_last) and sp_abs >= 0 and math.isfinite(sp_abs):
++                            spread_bps = (sp_abs / mid_last) * 10_000.0
++                    except Exception:
++                        spread_bps = 0.0
++
++                    if getattr(runtime, "rolling_vwap", None) is not None:
++                        runtime.dynamic_cfg.update(
++                            runtime.rolling_vwap.update(
++                                ts_ms=ts_roll,
++                                vwap=float(getattr(bar, "vwap", 0.0) or 0.0),
++                                vol=float(getattr(bar, "vol", 0.0) or 0.0),
++                                ref_px=ref_px,
++                            )
++                        )
++                    if getattr(runtime, "rolling_momentum", None) is not None:
++                        runtime.dynamic_cfg.update(runtime.rolling_momentum.update(ts_ms=ts_roll, px=ref_px, spread_bps=spread_bps))
++                    if getattr(runtime, "rolling_vol", None) is not None:
++                        runtime.dynamic_cfg.update(runtime.rolling_vol.update(ts_ms=ts_roll, px=ref_px))
++            except Exception:
++                pass
++
+             bars_closed_total.labels(symbol=runtime.symbol, tf=str(getattr(bar, "tf_ms", "0"))).inc()
+ 
+             # 11. Caching & Sanity (Phase C)
+diff --git a/services/orderflow/components/tick_processor.py b/services/orderflow/components/tick_processor.py
+index 6ceb661..2a8b1a9 100644
+--- a/services/orderflow/components/tick_processor.py
++++ b/services/orderflow/components/tick_processor.py
+@@ -1434,6 +1434,24 @@ class TickProcessor:
+         except Exception:
+             pass
+ 
++        # A3: Rolling trackers (VWAP diff, momentum, realized vol)
++        # Updated on microbar close by BarProcessor and stored in runtime.dynamic_cfg.
++        try:
++            indicators["roll_vwap_px"] = float(cfg.get("roll_vwap_px", 0.0) or 0.0)
++            indicators["vwap_roll_diff_bps"] = float(cfg.get("vwap_roll_diff_bps", 0.0) or 0.0)
++            indicators["vwap_roll_no_data"] = int(cfg.get("vwap_roll_no_data", 1) or 0)
++
++            indicators["price_momentum_bps"] = float(cfg.get("price_momentum_bps", 0.0) or 0.0)
++            indicators["price_momentum_no_data"] = int(cfg.get("price_momentum_no_data", 1) or 0)
++
++            indicators["spread_momentum_bps_per_s"] = float(cfg.get("spread_momentum_bps_per_s", 0.0) or 0.0)
++            indicators["spread_momentum_no_data"] = int(cfg.get("spread_momentum_no_data", 1) or 0)
++
++            indicators["realized_vol_bps"] = float(cfg.get("realized_vol_bps", 0.0) or 0.0)
++            indicators["realized_vol_no_data"] = int(cfg.get("realized_vol_no_data", 1) or 0)
++        except Exception:
++            pass
++
+         # Attach resilience snapshot to indicators
+         try:
+             if getattr(runtime, "resilience", None) is not None:
+diff --git a/services/orderflow/runtime.py b/services/orderflow/runtime.py
+index a762096..28abd5e 100644
+--- a/services/orderflow/runtime.py
++++ b/services/orderflow/runtime.py
+@@ -178,6 +178,9 @@ from core.signal_payload import SignalPayload, StrongGateDecision
+ from core.sweep_detector import SweepDetector, SweepEvent
+ from core.vol_regime_tracker import VolRegimeTracker          # realized-vol ratio tracker
+ from core.book_resilience import BookResilienceTracker         # post-sweep depth recovery tracker
++from core.rolling_vwap_tracker import RollingVWAPTracker
++from core.rolling_momentum_tracker import RollingMomentumTracker
++from core.rolling_volatility_tracker import RollingVolatilityTracker
+ from core.footprint_policy import fp_confirmations_from_microbar, is_soft_confirmation
+ from core.strong_of_gate import eval_reversal, eval_continuation, hidden_trend_dir
+ from core.book_evidence import compute_obi_flags, compute_iceberg_flags
+@@ -355,6 +358,12 @@ class SymbolRuntime:
+     # Phase D: volatility regime + book resilience (initialized in __post_init__)
+     vol_regime: VolRegimeTracker = field(init=False)       # short/long realized-vol EWMA ratio + robust-z
+     book_resilience: BookResilienceTracker = field(init=False)  # depth replenishment speed after sweeps
++
++    # Rolling trackers (A3). Updated on microbar close (bar_processor) and
++    # exposed to tick_processor through `runtime.dynamic_cfg`.
++    rolling_vwap: RollingVWAPTracker = field(init=False)
++    rolling_momentum: RollingMomentumTracker = field(init=False)
++    rolling_vol: RollingVolatilityTracker = field(init=False)
+     last_sweep: Optional[SweepEvent] = None
+     # CVD baseline at sweep moment (bar close). Needed for CVD reclaim evidence.
+     last_sweep_ts_ms: int = 0
+@@ -912,6 +921,20 @@ class SymbolRuntime:
+             max_window_ms=int(os.getenv("BOOK_RESILIENCE_MAX_WINDOW_MS", "15000")),
+         )
+ 
++        # Rolling trackers (A3) — deterministic windows by ts_ms (bar-close)
++        # These are updated in BarProcessor and stored into runtime.dynamic_cfg.
++        try:
++            vwap_ms = int(self.config.get("roll_vwap_horizon_ms", self.config.get("rolling_vwap_horizon_ms", 120_000)) or 120_000)
++            mom_ms = int(self.config.get("roll_momentum_horizon_ms", self.config.get("rolling_momentum_horizon_ms", 60_000)) or 60_000)
++            vol_ms = int(self.config.get("roll_vol_horizon_ms", self.config.get("rolling_vol_horizon_ms", 120_000)) or 120_000)
++            maxlen = int(self.config.get("rolling_trackers_maxlen", 512) or 512)
++        except Exception:
++            vwap_ms, mom_ms, vol_ms, maxlen = 120_000, 60_000, 120_000, 512
++
++        self.rolling_vwap = RollingVWAPTracker(horizon_ms=vwap_ms, maxlen=maxlen)
++        self.rolling_momentum = RollingMomentumTracker(horizon_ms=mom_ms, maxlen=maxlen)
++        self.rolling_vol = RollingVolatilityTracker(horizon_ms=vol_ms, maxlen=maxlen)
++
+         from handlers.crypto_orderflow.components.liquidity import CryptoLiquidity
+         self.liquidity = CryptoLiquidity()
+ 
+diff --git a/tick_flow_full/services/orderflow/components/bar_processor.py b/tick_flow_full/services/orderflow/components/bar_processor.py
+index 8822032..c0b238d 100644
+--- a/tick_flow_full/services/orderflow/components/bar_processor.py
++++ b/tick_flow_full/services/orderflow/components/bar_processor.py
+@@ -109,6 +109,54 @@ class BarProcessor:
+                 except Exception:
+                     pass
+ 
++                # --------------------------------------------------------------
++                # Rolling trackers (A3)
++                # Updated on microbar close (event time = bar.end_ts_ms):
++                #   - vwap_roll_diff_bps, roll_vwap_px
++                #   - price_momentum_bps
++                #   - spread_momentum_bps_per_s
++                #   - realized_vol_bps
++                #
++                # Design notes:
++                # - Deterministic: windows are keyed by ts_ms, not wall clock.
++                # - Bounded/guarded: outputs are clipped; no-data emits 0 + *_no_data=1.
++                # - Fail-open: any tracker errors must not break bar close pipeline.
++                # --------------------------------------------------------------
++                try:
++                    ts_roll = int(getattr(bar, "end_ts_ms", 0) or 0)
++                    if ts_roll > 0:
++                        # Prefer mid_last (less noisy for microstructure), fallback to close.
++                        ref_px = float(getattr(bar, "mid_last", 0.0) or 0.0)
++                        if not math.isfinite(ref_px) or ref_px <= 0:
++                            ref_px = float(getattr(bar, "close", 0.0) or 0.0)
++
++                        # Spread bps = spread_last / mid_last * 1e4 (if available)
++                        spread_bps = 0.0
++                        try:
++                            mid_last = float(getattr(bar, "mid_last", 0.0) or 0.0)
++                            sp_abs = float(getattr(bar, "spread_last", 0.0) or 0.0)
++                            if mid_last > 0 and math.isfinite(mid_last) and sp_abs >= 0 and math.isfinite(sp_abs):
++                                spread_bps = (sp_abs / mid_last) * 10_000.0
++                        except Exception:
++                            spread_bps = 0.0
++
++                        if getattr(runtime, "rolling_vwap", None) is not None:
++                            snap_v = runtime.rolling_vwap.update(
++                                ts_ms=ts_roll,
++                                vwap=float(getattr(bar, "vwap", 0.0) or 0.0),
++                                vol=float(getattr(bar, "vol", 0.0) or 0.0),
++                                ref_px=ref_px,
++                            )
++                            runtime.dynamic_cfg.update(snap_v)
++                        if getattr(runtime, "rolling_momentum", None) is not None:
++                            snap_m = runtime.rolling_momentum.update(ts_ms=ts_roll, px=ref_px, spread_bps=spread_bps)
++                            runtime.dynamic_cfg.update(snap_m)
++                        if getattr(runtime, "rolling_vol", None) is not None:
++                            snap_rv = runtime.rolling_vol.update(ts_ms=ts_roll, px=ref_px)
++                            runtime.dynamic_cfg.update(snap_rv)
++                except Exception:
++                    pass
++
+                 # Track staleness + slope for RSI-based bias fallback
+                 ts_ms = int(getattr(bar, "end_ts_ms", 0) or 0)
+                 if ts_ms > 0:
+diff --git a/tick_flow_full/services/orderflow/components/tick_processor.py b/tick_flow_full/services/orderflow/components/tick_processor.py
+index 22ac3e1..36b129b 100644
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -1544,6 +1544,26 @@ class TickProcessor:
+         except Exception:
+             pass
+ 
++        # A3: Rolling trackers (VWAP diff, momentum, realized vol)
++        # These are updated on microbar close by BarProcessor and stored in
++        # runtime.dynamic_cfg (merged into cfg earlier). We keep a strict
++        # no-NaN contract here because JSON payloads may be configured strict.
++        try:
++            indicators["roll_vwap_px"] = float(cfg.get("roll_vwap_px", 0.0) or 0.0)
++            indicators["vwap_roll_diff_bps"] = float(cfg.get("vwap_roll_diff_bps", 0.0) or 0.0)
++            indicators["vwap_roll_no_data"] = int(cfg.get("vwap_roll_no_data", 1) or 0)
++
++            indicators["price_momentum_bps"] = float(cfg.get("price_momentum_bps", 0.0) or 0.0)
++            indicators["price_momentum_no_data"] = int(cfg.get("price_momentum_no_data", 1) or 0)
++
++            indicators["spread_momentum_bps_per_s"] = float(cfg.get("spread_momentum_bps_per_s", 0.0) or 0.0)
++            indicators["spread_momentum_no_data"] = int(cfg.get("spread_momentum_no_data", 1) or 0)
++
++            indicators["realized_vol_bps"] = float(cfg.get("realized_vol_bps", 0.0) or 0.0)
++            indicators["realized_vol_no_data"] = int(cfg.get("realized_vol_no_data", 1) or 0)
++        except Exception:
++            pass
++
+         # Attach resilience snapshot to indicators
+         try:
+             if getattr(runtime, "resilience", None) is not None:
+diff --git a/tick_flow_full/services/orderflow/runtime.py b/tick_flow_full/services/orderflow/runtime.py
+index 8bde547..b0a7c1d 100644
+--- a/tick_flow_full/services/orderflow/runtime.py
++++ b/tick_flow_full/services/orderflow/runtime.py
+@@ -254,6 +254,9 @@ from services.l3_queue_events_proxy import L3QueueEventsProxy
+ from services.l3_lite_tracker import L3LiteTracker
+ from core.vol_regime_tracker import VolRegimeTracker
+ from core.book_resilience import BookResilienceTracker
++from core.rolling_vwap_tracker import RollingVWAPTracker
++from core.rolling_momentum_tracker import RollingMomentumTracker
++from core.rolling_volatility_tracker import RollingVolatilityTracker
+ from core.crypto_signal_formatter import CryptoSignal, CryptoSignalFormatter
+ from services.pnl_math import calculate_position_size, get_symbol_info
+ from services.tp_config import parse_tp_ratio
+@@ -326,6 +329,20 @@ class SymbolRuntime:
+     l3_stats: Optional[Any] = None  # Stores L3BucketStats
+     vol_regime: Any = field(init=False)
+     resilience: Any = field(init=False)
++
++    # ------------------------------------------------------------------
++    # Rolling trackers (A3)
++    # - vwap_roll_diff_bps: ref_px - rolling_vwap (bps)
++    # - price_momentum_bps: short-term drift over the rolling horizon
++    # - spread_momentum_bps_per_s: spread derivative
++    # - realized_vol_bps: std(log-returns)*1e4
++    #
++    # Updated on microbar close by BarProcessor and then exposed to TickProcessor
++    # via `runtime.dynamic_cfg`.
++    # ------------------------------------------------------------------
++    rolling_vwap: RollingVWAPTracker = field(init=False)
++    rolling_momentum: RollingMomentumTracker = field(init=False)
++    rolling_vol: RollingVolatilityTracker = field(init=False)
+     _last_l3_bucket_id: Optional[int] = None
+     
+     # Structure engines (Phase B)
+@@ -934,6 +951,50 @@ class SymbolRuntime:
+         except Exception:
+             self.resilience = BookResilienceTracker()
+ 
++        # ------------------------------------------------------------------
++        # Rolling trackers (A3) — deterministic windows by ts_ms (bar-close).
++        #
++        # Config keys (per-symbol):
++        #   - roll_vwap_horizon_ms / rolling_vwap_horizon_ms (default 120s)
++        #   - roll_momentum_horizon_ms / rolling_momentum_horizon_ms (default 60s)
++        #   - roll_vol_horizon_ms / rolling_vol_horizon_ms (default 120s)
++        #   - rolling_trackers_maxlen (default 512)
++        #
++        # Important: trackers are best-effort stateful but strictly bounded.
++        # Fail-open: on any error we still keep runtime alive.
++        # ------------------------------------------------------------------
++        try:
++            vwap_ms = int(self.config.get("roll_vwap_horizon_ms", self.config.get("rolling_vwap_horizon_ms", 120_000)) or 120_000)
++            mom_ms = int(self.config.get("roll_momentum_horizon_ms", self.config.get("rolling_momentum_horizon_ms", 60_000)) or 60_000)
++            vol_ms = int(self.config.get("roll_vol_horizon_ms", self.config.get("rolling_vol_horizon_ms", 120_000)) or 120_000)
++            maxlen = int(self.config.get("rolling_trackers_maxlen", 512) or 512)
++        except Exception:
++            vwap_ms, mom_ms, vol_ms, maxlen = 120_000, 60_000, 120_000, 512
++
++        try:
++            if getattr(self, "rolling_vwap", None) is None:
++                self.rolling_vwap = RollingVWAPTracker(horizon_ms=vwap_ms, maxlen=maxlen)
++            else:
++                self.rolling_vwap.apply_config(horizon_ms=vwap_ms, maxlen=maxlen)
++        except Exception:
++            self.rolling_vwap = RollingVWAPTracker(horizon_ms=vwap_ms, maxlen=maxlen)
++
++        try:
++            if getattr(self, "rolling_momentum", None) is None:
++                self.rolling_momentum = RollingMomentumTracker(horizon_ms=mom_ms, maxlen=maxlen)
++            else:
++                self.rolling_momentum.apply_config(horizon_ms=mom_ms, maxlen=maxlen)
++        except Exception:
++            self.rolling_momentum = RollingMomentumTracker(horizon_ms=mom_ms, maxlen=maxlen)
++
++        try:
++            if getattr(self, "rolling_vol", None) is None:
++                self.rolling_vol = RollingVolatilityTracker(horizon_ms=vol_ms, maxlen=maxlen)
++            else:
++                self.rolling_vol.apply_config(horizon_ms=vol_ms, maxlen=maxlen)
++        except Exception:
++            self.rolling_vol = RollingVolatilityTracker(horizon_ms=vol_ms, maxlen=maxlen)
++
+         from handlers.crypto_orderflow.components.liquidity import CryptoLiquidity
+         self.liquidity = CryptoLiquidity()
+ 

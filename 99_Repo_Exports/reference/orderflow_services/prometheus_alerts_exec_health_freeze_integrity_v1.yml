@@ -1,0 +1,41 @@
+groups:
+  - name: exec-health-freeze-integrity-v1
+    rules:
+      - alert: OF_ExecHealth_FreezeIntegrity_ExporterStale_Warn
+        expr: exec_health_freeze_integrity_exporter_up == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: ExecHealth freeze integrity exporter is down
+          description: >
+            exec_health_freeze_integrity_exporter_up has been 0 for 10+ minutes.
+            The tamper/bypass detector is not running. Check the
+            exec-health-freeze-integrity-exporter container.
+      - alert: OF_ExecHealth_FreezeIntegrity_TamperDetected_Crit
+        expr: max without(kind) (exec_health_freeze_integrity_violation{kind!="none"}) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: ExecHealth freeze control/state tamper or unsigned thaw detected
+          description: >
+            A freeze integrity violation has been detected for 2+ minutes.
+            Possible causes: control/state key deleted without valid ack-event,
+            thaw recorded without a valid HMAC signature, or an ack event has an
+            invalid signature. Run the exec_health_freeze_override_v1.py status
+            command and check the ops:exec_health:freeze_events:v1 stream.
+      - alert: OF_ExecHealth_FreezeIntegrity_PendingAckStuck_Warn
+        expr: exec_health_freeze_integrity_pending_ack == 1
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: ExecHealth freeze still waits for a valid signed manual ack
+          description: >
+            A pending ack nonce has been waiting for 30+ minutes without a
+            valid signed thaw event. Run:
+            python orderflow_services/exec_health_freeze_override_v1.py status
+            to get the pending_ack_nonce, then:
+            python orderflow_services/exec_health_freeze_override_v1.py thaw
+              --operator <you> --reason <reason> --ticket <ticket> --nonce <nonce>

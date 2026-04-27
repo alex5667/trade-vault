@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/runtime_snapshot.py
+# hypothesis_version: 6.148.10
+
+[0.02, 0.45, 0.5, 10.0, 70.0, 1000, 999999, 'MIN_CONF_', 'MIN_CONF_DEFAULT', 'MIN_CONF_FACTOR_', 'RuntimeRefresher', 'RuntimeSnapshot']

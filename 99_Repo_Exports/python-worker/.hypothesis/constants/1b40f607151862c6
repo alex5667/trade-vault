@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/meta_features_v10.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, ',', 'clip(0,1)', 'continuation', 'data_health', 'direction', 'dz_bypass', 'hidden_div', 'hidden_div_used', 'identity', 'log1p', 'meta_feat_v10', 'of_confirm', 'of_confirm_score', 'regime', 'reversal', 'scenario', 'scenario_dz_bypass', 'scenario_is_reversal', 'spread_bps_missing', 'strong_gate_have', 'strong_gate_need', 'trend_dir_source', 'trend_dir_source_int', 'utf-8']

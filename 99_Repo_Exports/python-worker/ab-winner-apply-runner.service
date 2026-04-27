@@ -1,0 +1,19 @@
+[Unit]
+Description=AB Winner Apply Runner (auto-apply approved entry_policy suggestions)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+Environment=PYTHONPATH=.:..
+Environment=REDIS_URL=redis://redis-worker-1:6379/0
+Environment=AB_APPLY_RUNNER_INTERVAL_SEC=10
+Environment=ENTRY_POLICY_APPROVALS_REQUIRED=2
+Environment=AB_ACTIVE_ARM_LOCK_SEC=21600
+Environment=AB_APPLIED_TTL_SEC=604800
+ExecStart=/usr/bin/python3 -m services.ab_winner_apply_runner
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

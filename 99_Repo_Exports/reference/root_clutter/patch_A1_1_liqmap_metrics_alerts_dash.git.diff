@@ -1,0 +1,659 @@
+diff --git a/tick_flow_full/services/orderflow/metrics.py b/tick_flow_full/services/orderflow/metrics.py
+index fd1d8fe..3281a7a 100644
+--- a/tick_flow_full/services/orderflow/metrics.py
++++ b/tick_flow_full/services/orderflow/metrics.py
+@@ -92,6 +92,31 @@ silent_errors_total = _get_or_create_prom_counter(
+     ["kind", "symbol", "where"]
+ )
+ 
++# -----------------------------------------------------------------------------
++# LiqMap observability (A1.1)
++#
++# These metrics are emitted by TickProcessor._inject_liqmap_features() to track:
++#   - snapshot freshness (age_ms)
++#   - parse/compute failures (fail-open path)
++#
++# Labels:
++#   symbol: market symbol (e.g., BTCUSDT)
++#   window: snapshot window (e.g., 1h, 5m)
++#   where: small enum identifying the failing step (keep low-cardinality)
++# -----------------------------------------------------------------------------
++liqmap_snapshot_age_ms_gauge = _get_or_create_prom_gauge(
++    "liqmap_snapshot_age_ms",
++    "Age of the last parsed LiqMap snapshot (ms). Sentinel values: -1=missing, -2=parse/compute error.",
++    ["symbol", "window"],
++)
++
++liqmap_parse_errors_total = _get_or_create_prom_counter(
++    "liqmap_parse_errors_total",
++    "Total LiqMap snapshot parse/validation/feature-compute errors (fail-open).",
++    ["symbol", "window", "where"],
++)
++
++
+ # Decision record metrics (P45/P48)
+ decision_record_written_total = _get_or_create_prom_counter(
+     "decision_record_written_total",
+
+diff --git a/tick_flow_full/services/orderflow/components/tick_processor.py b/tick_flow_full/services/orderflow/components/tick_processor.py
+index 3af4938..55bca1d 100644
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -62,6 +62,7 @@ from services.orderflow.metrics import (
+     ok_metrics_emitted_total, ok_metrics_skipped_total, ok_metrics_error_total,
+     of_gate_eligible_total, of_gate_ok_hard_total, of_gate_ok_soft_total, of_gate_quarantined_total,
+     log_silent_error, silent_errors_total,
++    liqmap_snapshot_age_ms_gauge, liqmap_parse_errors_total,
+     atr_gate_veto_total, tp1_net_margin_bps_gauge, tp1_zero_pnl_total, signals_total,
+     fp_imb_confirm_total, fp_absorb_confirm_total, fp_buckets_evicted_total,
+     book_calib_ready, dn_calib_ready, book_health_ok, book_rate_hz, dn_usd, calib_persist_total,
+@@ -563,6 +564,13 @@ class TickProcessor:
+                                 feats[f"liqmap_{wnd}_age_ms"] = float(max(0, int(now_ms) - snap_ts_ms))
+                         except Exception:
+                             pass
++
++                        try:
++                            liqmap_snapshot_age_ms_gauge.labels(symbol=sym, window=wnd).set(
++                                float(feats.get(f"liqmap_{wnd}_age_ms", 0.0) or 0.0)
++                            )
++                        except Exception:
++                            pass
+                         indicators.update(feats)
+                     continue
+ 
+@@ -597,6 +605,13 @@ class TickProcessor:
+                                             feats[f"liqmap_{wnd}_age_ms"] = float(max(0, int(now_ms) - snap_ts_ms))
+                                     except Exception:
+                                         pass
++
++                                    try:
++                                        liqmap_snapshot_age_ms_gauge.labels(symbol=sym, window=wnd).set(
++                                            float(feats.get(f"liqmap_{wnd}_age_ms", 0.0) or 0.0)
++                                        )
++                                    except Exception:
++                                        pass
+                                     indicators.update(feats)
+                                     continue
+                         except Exception:
+@@ -605,6 +620,14 @@ class TickProcessor:
+                     # No cache or too stale -> deterministic zeros.
+                     defaults = make_liqmap_default_features([wnd])
+                     indicators.update(defaults)
++
++                    try:
++
++                        liqmap_snapshot_age_ms_gauge.labels(symbol=sym, window=wnd).set(-1.0)
++
++                    except Exception:
++
++                        pass
+                     self._liqmap_cache[ck] = {
+                         "fetch_ms": int(now_ms),
+                         "good_ms": int(cached.get("good_ms", 0) or 0) if isinstance(cached, dict) else 0,
+@@ -636,6 +659,19 @@ class TickProcessor:
+                     for k in liqmap_feature_keys(wnd):
+                         feats.setdefault(k, 0.0)
+ 
++
++                    try:
++
++                        liqmap_snapshot_age_ms_gauge.labels(symbol=sym, window=wnd).set(
++
++                            float(feats.get(f"liqmap_{wnd}_age_ms", 0.0) or 0.0)
++
++                        )
++
++                    except Exception:
++
++                        pass
++
+                     indicators.update(feats)
+                     self._liqmap_cache[ck] = {
+                         "fetch_ms": int(now_ms),
+@@ -644,11 +680,24 @@ class TickProcessor:
+                         "feats": feats,
+                     }
+                 except Exception:
++
+                     try:
++
+                         silent_errors_total.labels(kind="liqmap", symbol=sym, where="parse_or_compute").inc()
++
++                    except Exception:
++
++                        pass
++
++                    try:
++
++                        liqmap_parse_errors_total.labels(symbol=sym, window=wnd, where="parse_or_compute").inc()
++
+                     except Exception:
++
+                         pass
+ 
++
+                     # Parse/compute error -> reuse last-good if allowed.
+                     if isinstance(cached, dict):
+                         try:
+@@ -662,6 +711,13 @@ class TickProcessor:
+                                             feats[f"liqmap_{wnd}_age_ms"] = float(max(0, int(now_ms) - snap_ts_ms))
+                                     except Exception:
+                                         pass
++
++                                    try:
++                                        liqmap_snapshot_age_ms_gauge.labels(symbol=sym, window=wnd).set(
++                                            float(feats.get(f"liqmap_{wnd}_age_ms", 0.0) or 0.0)
++                                        )
++                                    except Exception:
++                                        pass
+                                     indicators.update(feats)
+                                     continue
+                         except Exception:
+@@ -669,6 +725,14 @@ class TickProcessor:
+ 
+                     defaults = make_liqmap_default_features([wnd])
+                     indicators.update(defaults)
++
++                    try:
++
++                        liqmap_snapshot_age_ms_gauge.labels(symbol=sym, window=wnd).set(-2.0)
++
++                    except Exception:
++
++                        pass
+                     self._liqmap_cache[ck] = {
+                         "fetch_ms": int(now_ms),
+                         "good_ms": int(cached.get("good_ms", 0) or 0) if isinstance(cached, dict) else 0,
+
+diff --git a/_b/tick_flow_full/orderflow_services/prometheus_alerts_liqmap_observability_v1.yml b/tick_flow_full/orderflow_services/prometheus_alerts_liqmap_observability_v1.yml
+new file mode 100644
+index 0000000..574c1dc
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_liqmap_observability_v1.yml
+@@ -0,0 +1,42 @@
++groups:
++  - name: liqmap_observability_v1
++    rules:
++      - alert: OF_LiqMap_SnapshotAgeHigh_Warn
++        expr: max by (symbol, window) (liqmap_snapshot_age_ms) > 60000
++        for: 2m
++        labels:
++          severity: warning
++          component: liqmap
++        annotations:
++          summary: "LiqMap snapshot is stale (>60s)"
++          description: "liqmap_snapshot_age_ms={{ $value }}ms for symbol={{ $labels.symbol }}, window={{ $labels.window }}. Check liqmap snapshot writer and Redis latency."
++
++      - alert: OF_LiqMap_SnapshotAgeHigh_Crit
++        expr: max by (symbol, window) (liqmap_snapshot_age_ms) > 180000
++        for: 30s
++        labels:
++          severity: critical
++          component: liqmap
++        annotations:
++          summary: "LiqMap snapshot is very stale (>180s)"
++          description: "liqmap_snapshot_age_ms={{ $value }}ms for symbol={{ $labels.symbol }}, window={{ $labels.window }}. Gate/features likely ineffective; check producer health and Redis."
++
++      - alert: OF_LiqMap_ParseErrorsHigh_Warn
++        expr: increase(liqmap_parse_errors_total[5m]) > 5
++        for: 2m
++        labels:
++          severity: warning
++          component: liqmap
++        annotations:
++          summary: "LiqMap parse/compute errors detected"
++          description: "increase(liqmap_parse_errors_total[5m])={{ $value }}. Fail-open path is being used; inspect logs (silent_errors_total{kind=liqmap,where=parse_or_compute})."
++
++      - alert: OF_LiqMap_ParseErrorsHigh_Crit
++        expr: increase(liqmap_parse_errors_total[5m]) > 25
++        for: 2m
++        labels:
++          severity: critical
++          component: liqmap
++        annotations:
++          summary: "High LiqMap parse/compute error rate"
++          description: "increase(liqmap_parse_errors_total[5m])={{ $value }}. Likely schema drift or corrupt snapshot payloads; investigate liqmap snapshot writer and parser expectations."
+
+diff --git a/_b/orderflow_services/prometheus_alerts_liqmap_observability_v1.yml b/orderflow_services/prometheus_alerts_liqmap_observability_v1.yml
+new file mode 100644
+index 0000000..574c1dc
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_liqmap_observability_v1.yml
+@@ -0,0 +1,42 @@
++groups:
++  - name: liqmap_observability_v1
++    rules:
++      - alert: OF_LiqMap_SnapshotAgeHigh_Warn
++        expr: max by (symbol, window) (liqmap_snapshot_age_ms) > 60000
++        for: 2m
++        labels:
++          severity: warning
++          component: liqmap
++        annotations:
++          summary: "LiqMap snapshot is stale (>60s)"
++          description: "liqmap_snapshot_age_ms={{ $value }}ms for symbol={{ $labels.symbol }}, window={{ $labels.window }}. Check liqmap snapshot writer and Redis latency."
++
++      - alert: OF_LiqMap_SnapshotAgeHigh_Crit
++        expr: max by (symbol, window) (liqmap_snapshot_age_ms) > 180000
++        for: 30s
++        labels:
++          severity: critical
++          component: liqmap
++        annotations:
++          summary: "LiqMap snapshot is very stale (>180s)"
++          description: "liqmap_snapshot_age_ms={{ $value }}ms for symbol={{ $labels.symbol }}, window={{ $labels.window }}. Gate/features likely ineffective; check producer health and Redis."
++
++      - alert: OF_LiqMap_ParseErrorsHigh_Warn
++        expr: increase(liqmap_parse_errors_total[5m]) > 5
++        for: 2m
++        labels:
++          severity: warning
++          component: liqmap
++        annotations:
++          summary: "LiqMap parse/compute errors detected"
++          description: "increase(liqmap_parse_errors_total[5m])={{ $value }}. Fail-open path is being used; inspect logs (silent_errors_total{kind=liqmap,where=parse_or_compute})."
++
++      - alert: OF_LiqMap_ParseErrorsHigh_Crit
++        expr: increase(liqmap_parse_errors_total[5m]) > 25
++        for: 2m
++        labels:
++          severity: critical
++          component: liqmap
++        annotations:
++          summary: "High LiqMap parse/compute error rate"
++          description: "increase(liqmap_parse_errors_total[5m])={{ $value }}. Likely schema drift or corrupt snapshot payloads; investigate liqmap snapshot writer and parser expectations."
+
+diff --git a/_b/tick_flow_full/orderflow_services/grafana_liqmap_observability_v1.json b/tick_flow_full/orderflow_services/grafana_liqmap_observability_v1.json
+new file mode 100644
+index 0000000..6f2f077
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/grafana_liqmap_observability_v1.json
+@@ -0,0 +1,140 @@
++{
++  "annotations": {
++    "list": [
++      {
++        "builtIn": 1,
++        "datasource": {
++          "type": "grafana",
++          "uid": "-- Grafana --"
++        },
++        "enable": true,
++        "hide": true,
++        "iconColor": "rgba(0, 211, 255, 1)",
++        "name": "Annotations & Alerts",
++        "type": "dashboard"
++      }
++    ]
++  },
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "id": null,
++  "links": [],
++  "liveNow": false,
++  "panels": [
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "mappings": [],
++          "thresholds": {
++            "mode": "absolute",
++            "steps": [
++              {"color": "green", "value": null},
++              {"color": "yellow", "value": 60000},
++              {"color": "red", "value": 180000}
++            ]
++          }
++        },
++        "overrides": []
++      },
++      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 0},
++      "id": 1,
++      "options": {
++        "legend": {"displayMode": "list", "placement": "bottom"},
++        "tooltip": {"mode": "single"}
++      },
++      "targets": [
++        {
++          "expr": "max by (symbol, window) (liqmap_snapshot_age_ms{symbol=~\"$symbol\", window=~\"$window\"})",
++          "legendFormat": "{{symbol}}/{{window}}",
++          "refId": "A"
++        }
++      ],
++      "title": "LiqMap snapshot age (ms)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "mappings": [],
++          "thresholds": {
++            "mode": "absolute",
++            "steps": [
++              {"color": "green", "value": null},
++              {"color": "yellow", "value": 1},
++              {"color": "red", "value": 10}
++            ]
++          }
++        },
++        "overrides": []
++      },
++      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 9},
++      "id": 2,
++      "options": {
++        "legend": {"displayMode": "list", "placement": "bottom"},
++        "tooltip": {"mode": "single"}
++      },
++      "targets": [
++        {
++          "expr": "sum by (symbol, window, where) (increase(liqmap_parse_errors_total{symbol=~\"$symbol\", window=~\"$window\"}[5m]))",
++          "legendFormat": "{{symbol}}/{{window}}/{{where}}",
++          "refId": "A"
++        }
++      ],
++      "title": "LiqMap parse/compute errors (5m increase)",
++      "type": "timeseries"
++    }
++  ],
++  "refresh": "10s",
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": ["orderflow", "liqmap"],
++  "templating": {
++    "list": [
++      {
++        "current": {"selected": true, "text": "All", "value": ".*"},
++        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++        "definition": "label_values(liqmap_snapshot_age_ms, symbol)",
++        "hide": 0,
++        "includeAll": true,
++        "multi": false,
++        "name": "symbol",
++        "options": [],
++        "query": {"query": "label_values(liqmap_snapshot_age_ms, symbol)", "refId": "StandardVariableQuery"},
++        "refresh": 2,
++        "regex": "",
++        "skipUrlSync": false,
++        "type": "query"
++      },
++      {
++        "current": {"selected": true, "text": "All", "value": ".*"},
++        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++        "definition": "label_values(liqmap_snapshot_age_ms, window)",
++        "hide": 0,
++        "includeAll": true,
++        "multi": false,
++        "name": "window",
++        "options": [],
++        "query": {"query": "label_values(liqmap_snapshot_age_ms, window)", "refId": "StandardVariableQuery"},
++        "refresh": 2,
++        "regex": "",
++        "skipUrlSync": false,
++        "type": "query"
++      }
++    ]
++  },
++  "time": {"from": "now-6h", "to": "now"},
++  "timepicker": {},
++  "timezone": "utc",
++  "title": "LiqMap Observability (v1)",
++  "uid": "liqmap_obsv_v1",
++  "version": 1
++}
+
+diff --git a/_b/orderflow_services/grafana_liqmap_observability_v1.json b/orderflow_services/grafana_liqmap_observability_v1.json
+new file mode 100644
+index 0000000..6f2f077
+--- /dev/null
++++ b/orderflow_services/grafana_liqmap_observability_v1.json
+@@ -0,0 +1,140 @@
++{
++  "annotations": {
++    "list": [
++      {
++        "builtIn": 1,
++        "datasource": {
++          "type": "grafana",
++          "uid": "-- Grafana --"
++        },
++        "enable": true,
++        "hide": true,
++        "iconColor": "rgba(0, 211, 255, 1)",
++        "name": "Annotations & Alerts",
++        "type": "dashboard"
++      }
++    ]
++  },
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "id": null,
++  "links": [],
++  "liveNow": false,
++  "panels": [
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "mappings": [],
++          "thresholds": {
++            "mode": "absolute",
++            "steps": [
++              {"color": "green", "value": null},
++              {"color": "yellow", "value": 60000},
++              {"color": "red", "value": 180000}
++            ]
++          }
++        },
++        "overrides": []
++      },
++      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 0},
++      "id": 1,
++      "options": {
++        "legend": {"displayMode": "list", "placement": "bottom"},
++        "tooltip": {"mode": "single"}
++      },
++      "targets": [
++        {
++          "expr": "max by (symbol, window) (liqmap_snapshot_age_ms{symbol=~\"$symbol\", window=~\"$window\"})",
++          "legendFormat": "{{symbol}}/{{window}}",
++          "refId": "A"
++        }
++      ],
++      "title": "LiqMap snapshot age (ms)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "mappings": [],
++          "thresholds": {
++            "mode": "absolute",
++            "steps": [
++              {"color": "green", "value": null},
++              {"color": "yellow", "value": 1},
++              {"color": "red", "value": 10}
++            ]
++          }
++        },
++        "overrides": []
++      },
++      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 9},
++      "id": 2,
++      "options": {
++        "legend": {"displayMode": "list", "placement": "bottom"},
++        "tooltip": {"mode": "single"}
++      },
++      "targets": [
++        {
++          "expr": "sum by (symbol, window, where) (increase(liqmap_parse_errors_total{symbol=~\"$symbol\", window=~\"$window\"}[5m]))",
++          "legendFormat": "{{symbol}}/{{window}}/{{where}}",
++          "refId": "A"
++        }
++      ],
++      "title": "LiqMap parse/compute errors (5m increase)",
++      "type": "timeseries"
++    }
++  ],
++  "refresh": "10s",
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": ["orderflow", "liqmap"],
++  "templating": {
++    "list": [
++      {
++        "current": {"selected": true, "text": "All", "value": ".*"},
++        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++        "definition": "label_values(liqmap_snapshot_age_ms, symbol)",
++        "hide": 0,
++        "includeAll": true,
++        "multi": false,
++        "name": "symbol",
++        "options": [],
++        "query": {"query": "label_values(liqmap_snapshot_age_ms, symbol)", "refId": "StandardVariableQuery"},
++        "refresh": 2,
++        "regex": "",
++        "skipUrlSync": false,
++        "type": "query"
++      },
++      {
++        "current": {"selected": true, "text": "All", "value": ".*"},
++        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++        "definition": "label_values(liqmap_snapshot_age_ms, window)",
++        "hide": 0,
++        "includeAll": true,
++        "multi": false,
++        "name": "window",
++        "options": [],
++        "query": {"query": "label_values(liqmap_snapshot_age_ms, window)", "refId": "StandardVariableQuery"},
++        "refresh": 2,
++        "regex": "",
++        "skipUrlSync": false,
++        "type": "query"
++      }
++    ]
++  },
++  "time": {"from": "now-6h", "to": "now"},
++  "timepicker": {},
++  "timezone": "utc",
++  "title": "LiqMap Observability (v1)",
++  "uid": "liqmap_obsv_v1",
++  "version": 1
++}
+
+diff --git a/_b/orderflow_services/tests/test_liqmap_observability_alerts_yaml_v1.py b/orderflow_services/tests/test_liqmap_observability_alerts_yaml_v1.py
+new file mode 100644
+index 0000000..cb78ea8
+--- /dev/null
++++ b/orderflow_services/tests/test_liqmap_observability_alerts_yaml_v1.py
+@@ -0,0 +1,45 @@
++from __future__ import annotations
++
++import os
++import yaml
++import pytest
++
++
++def _alerts_path(tick_flow_full: bool = False) -> str:
++    base = os.path.dirname(__file__)  # python-worker/orderflow_services/tests
++    root = os.path.abspath(os.path.join(base, ".."))
++    if tick_flow_full:
++        # Mirror in tick_flow_full subtree
++        tf_root = os.path.abspath(os.path.join(base, "..", "..", "tick_flow_full", "orderflow_services"))
++        return os.path.join(tf_root, "prometheus_alerts_liqmap_observability_v1.yml")
++    return os.path.join(root, "prometheus_alerts_liqmap_observability_v1.yml")
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_liqmap_observability_alerts_yaml_parses(tick_flow_full: bool):
++    path = _alerts_path(tick_flow_full)
++    assert os.path.isfile(path), f"File not found: {path}"
++    with open(path) as fh:
++        doc = yaml.safe_load(fh)
++    assert isinstance(doc, dict)
++    assert "groups" in doc
++    assert len(doc["groups"]) >= 1
++    rules = doc["groups"][0].get("rules", [])
++    assert len(rules) > 0
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_liqmap_observability_alerts_contains_expected_alerts(tick_flow_full: bool):
++    path = _alerts_path(tick_flow_full)
++    with open(path) as fh:
++        doc = yaml.safe_load(fh)
++    rules = doc["groups"][0]["rules"]
++    names = [r.get("alert") for r in rules if "alert" in r]
++    expected = {
++        "OF_LiqMap_SnapshotAgeHigh_Warn",
++        "OF_LiqMap_SnapshotAgeHigh_Crit",
++        "OF_LiqMap_ParseErrorsHigh_Warn",
++        "OF_LiqMap_ParseErrorsHigh_Crit",
++    }
++    missing = expected - set(names)
++    assert not missing, f"Missing alerts: {sorted(missing)}; found={names}"
+
+diff --git a/_b/orderflow_services/tests/test_liqmap_observability_dashboard_json_v1.py b/orderflow_services/tests/test_liqmap_observability_dashboard_json_v1.py
+new file mode 100644
+index 0000000..34b3191
+--- /dev/null
++++ b/orderflow_services/tests/test_liqmap_observability_dashboard_json_v1.py
+@@ -0,0 +1,41 @@
++from __future__ import annotations
++
++import json
++import os
++import pytest
++
++
++def _dashboard_path(tick_flow_full: bool = False) -> str:
++    base = os.path.dirname(__file__)  # python-worker/orderflow_services/tests
++    root = os.path.abspath(os.path.join(base, ".."))
++    if tick_flow_full:
++        tf_root = os.path.abspath(os.path.join(base, "..", "..", "tick_flow_full", "orderflow_services"))
++        return os.path.join(tf_root, "grafana_liqmap_observability_v1.json")
++    return os.path.join(root, "grafana_liqmap_observability_v1.json")
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_liqmap_dashboard_json_parses(tick_flow_full: bool):
++    path = _dashboard_path(tick_flow_full)
++    assert os.path.isfile(path), f"File not found: {path}"
++    with open(path) as fh:
++        doc = json.load(fh)
++    assert isinstance(doc, dict)
++    assert doc.get("title") == "LiqMap Observability (v1)"
++    panels = doc.get("panels", [])
++    assert len(panels) >= 2
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_liqmap_dashboard_contains_expected_queries(tick_flow_full: bool):
++    path = _dashboard_path(tick_flow_full)
++    with open(path) as fh:
++        doc = json.load(fh)
++    exprs = []
++    for p in doc.get("panels", []):
++        for t in p.get("targets", []) or []:
++            if isinstance(t, dict) and t.get("expr"):
++                exprs.append(t["expr"])
++    joined = "\n".join(exprs)
++    assert "liqmap_snapshot_age_ms" in joined
++    assert "liqmap_parse_errors_total" in joined
+

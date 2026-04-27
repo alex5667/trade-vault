@@ -1,0 +1,1806 @@
+diff -ruN orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
+--- orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example	2026-03-08 11:39:22.795316574 +0000
++++ orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example	2026-03-08 11:57:28.972619891 +0000
+@@ -41,4 +41,6 @@
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_POLICY_DENIED_EXIT_CODE=27
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREFIX=cfg:orderflow:latency_contract:deploy_lint:silence_approval
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_TTL_S=604800
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREPARED_FRESHNESS_S=7200
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_APPROVED_FRESHNESS_S=1800
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DUAL_CONTROL_MINUTES=480
+diff -ruN orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
+--- orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example	2026-03-08 11:39:22.794927571 +0000
++++ orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example	2026-03-08 11:57:28.972256692 +0000
+@@ -41,4 +41,6 @@
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_POLICY_DENIED_EXIT_CODE=27
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREFIX=cfg:orderflow:latency_contract:deploy_lint:silence_approval
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_TTL_S=604800
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREPARED_FRESHNESS_S=7200
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_APPROVED_FRESHNESS_S=1800
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DUAL_CONTROL_MINUTES=480
+diff -ruN orderflow_services/grafana/latency_contract_p411_v1.json orderflow_services/grafana/latency_contract_p411_v1.json
+--- orderflow_services/grafana/latency_contract_p411_v1.json	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/grafana/latency_contract_p411_v1.json	2026-03-08 11:58:51.780500327 +0000
+@@ -0,0 +1,138 @@
++{
++  "title": "Latency Contract P4.11 Approval Freshness",
++  "schemaVersion": 39,
++  "version": 411,
++  "panels": [
++    {
++      "title": "Dual-control approval pending total",
++      "type": "stat",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_summary_dual_control_pending_total"
++        }
++      ]
++    },
++    {
++      "title": "Dual-control approval ready total",
++      "type": "stat",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_summary_dual_control_ready_total"
++        }
++      ]
++    },
++    {
++      "title": "Dual-control override gate active total",
++      "type": "stat",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_summary_dual_control_override_gate_active_total"
++        }
++      ]
++    },
++    {
++      "title": "Approval pending by purpose",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_silence_approval_pending"
++        }
++      ]
++    },
++    {
++      "title": "Approval ready by purpose",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_silence_approval_ready"
++        }
++      ]
++    },
++    {
++      "title": "Approval age seconds",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_silence_approval_age_seconds"
++        }
++      ]
++    },
++    {
++      "title": "Dual-control required by purpose",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_silence_dual_control_required"
++        }
++      ]
++    },
++    {
++      "title": "Dual-control denied total by purpose",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_silence_dual_control_denied_total"
++        }
++      ]
++    },
++    {
++      "title": "Dual-control override active by purpose",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_silence_dual_control_override_active"
++        }
++      ]
++    },
++    {
++      "title": "Approval expired gate active total",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_summary_dual_control_expired_gate_active_total",
++          "legendFormat": "__auto"
++        }
++      ]
++    },
++    {
++      "title": "Approval cancelled gate active total",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_summary_dual_control_cancelled_gate_active_total",
++          "legendFormat": "__auto"
++        }
++      ]
++    },
++    {
++      "title": "Approval expired by purpose",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_silence_approval_expired",
++          "legendFormat": "__auto"
++        }
++      ]
++    },
++    {
++      "title": "Approval cancelled by purpose",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_silence_approval_cancelled",
++          "legendFormat": "__auto"
++        }
++      ]
++    },
++    {
++      "title": "Approval freshness remaining seconds",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_silence_approval_freshness_remaining_seconds",
++          "legendFormat": "__auto"
++        }
++      ]
++    }
++  ]
++}
+diff -ruN orderflow_services/latency_contract_deploy_lint_exporter_v1.py orderflow_services/latency_contract_deploy_lint_exporter_v1.py
+--- orderflow_services/latency_contract_deploy_lint_exporter_v1.py	2026-03-08 11:37:01.136308194 +0000
++++ orderflow_services/latency_contract_deploy_lint_exporter_v1.py	2026-03-08 11:57:08.577967934 +0000
+@@ -1,7 +1,7 @@
+ #!/usr/bin/env python3
+ from __future__ import annotations
+ 
+-"""Prometheus exporter for latency deploy-lint state with P4.10 dual-control visibility."""
++"""Prometheus exporter for latency deploy-lint state with P4.11 approval freshness visibility."""
+ 
+ import os
+ import time
+@@ -60,6 +60,9 @@
+ G_APPROVAL_PENDING = Gauge('latency_contract_deploy_lint_silence_approval_pending', 'latest override approval request is prepared and awaiting second approver', ['purpose'])
+ G_APPROVAL_READY = Gauge('latency_contract_deploy_lint_silence_approval_ready', 'latest override approval request is approved and ready for requester ack', ['purpose'])
+ G_APPROVAL_AGE = Gauge('latency_contract_deploy_lint_silence_approval_age_seconds', 'age of latest override approval request', ['purpose'])
++G_APPROVAL_EXPIRED = Gauge('latency_contract_deploy_lint_silence_approval_expired', 'latest override approval request auto-expired before approval', ['purpose'])
++G_APPROVAL_CANCELLED = Gauge('latency_contract_deploy_lint_silence_approval_cancelled', 'latest override approval request auto-cancelled after approval freshness elapsed', ['purpose'])
++G_APPROVAL_FRESHNESS_REMAINING = Gauge('latency_contract_deploy_lint_silence_approval_freshness_remaining_seconds', 'remaining freshness time for latest override approval request', ['purpose'])
+ G_SUMMARY_FAIL_TOTAL = Gauge('latency_contract_deploy_lint_summary_fail_total', 'number of purposes currently failing deploy lint')
+ G_SUMMARY_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_gate_active_total', 'number of purposes with persistent deploy lint gate active')
+ G_SUMMARY_SILENCED_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_silenced_gate_active_total', 'number of purposes with persistent deploy lint gate active but silenced in notifier')
+@@ -69,6 +72,8 @@
+ G_SUMMARY_POLICY_OVERRIDE_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_policy_override_gate_active_total', 'number of active gate purposes currently silenced via escalation-ticket override')
+ G_SUMMARY_DUAL_CONTROL_PENDING_TOTAL = Gauge('latency_contract_deploy_lint_summary_dual_control_pending_total', 'number of purposes with pending dual-control override approval requests')
+ G_SUMMARY_DUAL_CONTROL_READY_TOTAL = Gauge('latency_contract_deploy_lint_summary_dual_control_ready_total', 'number of purposes with approved dual-control override requests waiting to be consumed')
++G_SUMMARY_DUAL_CONTROL_EXPIRED_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_dual_control_expired_gate_active_total', 'number of active gate purposes whose latest prepared override request auto-expired')
++G_SUMMARY_DUAL_CONTROL_CANCELLED_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_dual_control_cancelled_gate_active_total', 'number of active gate purposes whose latest approved override request auto-cancelled before ack consumption')
+ G_SUMMARY_DUAL_CONTROL_OVERRIDE_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_dual_control_override_gate_active_total', 'number of active gate purposes currently silenced under an approved dual-control exception')
+ G_NOTIFIER_STATE_PRESENT = Gauge('latency_contract_deploy_lint_notifier_state_present', 'deploy lint notifier state present')
+ G_NOTIFIER_LAST_RUN_AGE = Gauge('latency_contract_deploy_lint_notifier_last_run_age_seconds', 'age of deploy lint notifier last run')
+@@ -86,6 +91,9 @@
+     state_prefix: str
+     silence_prefix: str
+     approval_prefix: str
++    approval_ttl_s: int
++    approval_prepared_freshness_s: int
++    approval_approved_freshness_s: int
+     summary_key: str
+ 
+ 
+@@ -98,6 +106,9 @@
+         state_prefix=prefix,
+         silence_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_PREFIX', 'cfg:orderflow:latency_contract:deploy_lint:silence'),
+         approval_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREFIX', 'cfg:orderflow:latency_contract:deploy_lint:silence_approval'),
++        approval_ttl_s=max(3600, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_TTL_S', '604800'), 604800)),
++        approval_prepared_freshness_s=max(60, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREPARED_FRESHNESS_S', '7200'), 7200)),
++        approval_approved_freshness_s=max(60, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_APPROVED_FRESHNESS_S', '1800'), 1800)),
+         summary_key=_env('LATENCY_CONTRACT_DEPLOY_LINT_SUMMARY_KEY', 'metrics:latency_contract:deploy_lint:summary:last'),
+     )
+ 
+@@ -118,6 +129,8 @@
+             policy_override_gate_total = 0
+             dual_control_pending_total = 0
+             dual_control_ready_total = 0
++            dual_control_expired_gate_total = 0
++            dual_control_cancelled_gate_total = 0
+             dual_control_override_gate_total = 0
+             for purpose in purposes:
+                 raw = r.hgetall(state_key(cfg.state_prefix, purpose)) or {}
+@@ -153,16 +166,34 @@
+                 G_DUAL_CONTROL_DENIED_TOTAL.labels(purpose=purpose).set(float(sst.dual_control_denied_total))
+                 dual_override_active = bool(sst.policy_current_override_active and sst.dual_control_required and sst.silence_active)
+                 G_DUAL_CONTROL_OVERRIDE_ACTIVE.labels(purpose=purpose).set(1.0 if dual_override_active else 0.0)
+-                araw = read_latest_approval(r, prefix=cfg.approval_prefix, purpose=purpose)
++                araw = read_latest_approval(
++                    r,
++                    prefix=cfg.approval_prefix,
++                    purpose=purpose,
++                    prepared_freshness_s=cfg.approval_prepared_freshness_s,
++                    approved_freshness_s=cfg.approval_approved_freshness_s,
++                    ttl_s=cfg.approval_ttl_s,
++                    ops_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_OPS_EVENT_STREAM', 'ops:latency_contract:events:v1'),
++                    now_ms=now_ms,
++                )
+                 ast = parse_approval_state(araw)
+-                approval_age_s = max(0.0, now - (ast.prepared_ts_ms / 1000.0)) if ast.prepared_ts_ms > 0 else 0.0
++                approval_ref_ts_ms = ast.approved_ts_ms or ast.prepared_ts_ms
++                approval_age_s = max(0.0, now - (approval_ref_ts_ms / 1000.0)) if approval_ref_ts_ms > 0 else 0.0
++                freshness_remaining_s = max(0.0, (ast.freshness_deadline_ts_ms - now_ms) / 1000.0) if ast.freshness_deadline_ts_ms > now_ms else 0.0
+                 G_APPROVAL_PENDING.labels(purpose=purpose).set(1.0 if ast.status == 'prepared' else 0.0)
+                 G_APPROVAL_READY.labels(purpose=purpose).set(1.0 if ast.status == 'approved' else 0.0)
++                G_APPROVAL_EXPIRED.labels(purpose=purpose).set(1.0 if ast.status == 'expired' else 0.0)
++                G_APPROVAL_CANCELLED.labels(purpose=purpose).set(1.0 if ast.status == 'cancelled' else 0.0)
+                 G_APPROVAL_AGE.labels(purpose=purpose).set(approval_age_s)
++                G_APPROVAL_FRESHNESS_REMAINING.labels(purpose=purpose).set(freshness_remaining_s)
+                 if ast.status == 'prepared':
+                     dual_control_pending_total += 1
+                 if ast.status == 'approved':
+                     dual_control_ready_total += 1
++                if gate > 0 and ast.status == 'expired':
++                    dual_control_expired_gate_total += 1
++                if gate > 0 and ast.status == 'cancelled':
++                    dual_control_cancelled_gate_total += 1
+                 if present > 0 and ok <= 0:
+                     fail_total += 1
+                 if gate > 0:
+@@ -188,9 +219,11 @@
+             G_SUMMARY_POLICY_OVERRIDE_GATE_ACTIVE_TOTAL.set(float(policy_override_gate_total))
+             G_SUMMARY_DUAL_CONTROL_PENDING_TOTAL.set(float(dual_control_pending_total))
+             G_SUMMARY_DUAL_CONTROL_READY_TOTAL.set(float(dual_control_ready_total))
++            G_SUMMARY_DUAL_CONTROL_EXPIRED_GATE_ACTIVE_TOTAL.set(float(dual_control_expired_gate_total))
++            G_SUMMARY_DUAL_CONTROL_CANCELLED_GATE_ACTIVE_TOTAL.set(float(dual_control_cancelled_gate_total))
+             G_SUMMARY_DUAL_CONTROL_OVERRIDE_GATE_ACTIVE_TOTAL.set(float(dual_control_override_gate_total))
+             r.hset(cfg.summary_key, mapping={
+-                'schema_version': '4',
++                'schema_version': '5',
+                 'last_ts_ms': str(now_ms),
+                 'fail_total': str(fail_total),
+                 'gate_active_total': str(gate_total),
+@@ -201,6 +234,8 @@
+                 'policy_override_gate_active_total': str(policy_override_gate_total),
+                 'dual_control_pending_total': str(dual_control_pending_total),
+                 'dual_control_ready_total': str(dual_control_ready_total),
++                'dual_control_expired_gate_active_total': str(dual_control_expired_gate_total),
++                'dual_control_cancelled_gate_active_total': str(dual_control_cancelled_gate_total),
+                 'dual_control_override_gate_active_total': str(dual_control_override_gate_total),
+             })
+             nraw = r.hgetall(notifier_state_key(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_KEY', 'metrics:latency_contract:deploy_lint:notifier:last'))) or {}
+diff -ruN orderflow_services/latency_contract_deploy_lint_silence_v1.py orderflow_services/latency_contract_deploy_lint_silence_v1.py
+--- orderflow_services/latency_contract_deploy_lint_silence_v1.py	2026-03-08 11:40:37.047021552 +0000
++++ orderflow_services/latency_contract_deploy_lint_silence_v1.py	2026-03-08 11:56:08.356682415 +0000
+@@ -11,6 +11,9 @@
+ P4.10 adds dual-control approval for long override windows so an escalation
+  ticket alone is insufficient when the requested suppression duration exceeds a
+ configured threshold.
++
++P4.11 adds freshness windows for prepared/approved approval requests so stale
++requests auto-expire or auto-cancel instead of being reusable indefinitely.
+ """
+ 
+ import argparse
+@@ -25,7 +28,10 @@
+ from services.observability.latency_deploy_lint_silence_approval_state import (
+     approve_override_approval,
+     consume_approval,
++    parse_approval_state,
+     prepare_override_approval,
++    read_latest_approval,
++    refresh_approval_state,
+     validate_approval_for_ack,
+ )
+ from services.observability.latency_deploy_lint_silence_state import (
+@@ -64,6 +70,8 @@
+     policy_denied_exit_code: int
+     approval_prefix: str = 'cfg:orderflow:latency_contract:deploy_lint:silence_approval'
+     approval_ttl_s: int = 604800
++    approval_prepared_freshness_s: int = 7200
++    approval_approved_freshness_s: int = 1800
+     dual_control_minutes: int = 480
+ 
+ 
+@@ -76,6 +84,8 @@
+         ops_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_OPS_EVENT_STREAM', 'ops:latency_contract:events:v1'),
+         silence_ttl_s=max(3600, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_TTL_S', '2592000'), 2592000)),
+         approval_ttl_s=max(3600, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_TTL_S', '604800'), 604800)),
++        approval_prepared_freshness_s=max(60, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREPARED_FRESHNESS_S', '7200'), 7200)),
++        approval_approved_freshness_s=max(60, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_APPROVED_FRESHNESS_S', '1800'), 1800)),
+         default_minutes=max(1, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DEFAULT_MINUTES', '360'), 360)),
+         policy_window_s=max(3600, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_POLICY_WINDOW_HOURS', '168'), 168) * 3600),
+         policy_max_budget_minutes=max(1, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_POLICY_MAX_BUDGET_MINUTES', '1440'), 1440)),
+@@ -89,6 +99,18 @@
+     lint_raw = r.hgetall(lint_state_key(cfg.state_prefix, purpose)) or {}
+     silence_raw = r.hgetall(silence_state_key(cfg.silence_prefix, purpose)) or {}
+     silence = parse_silence_state(silence_raw, now_ms=now_ms)
++    approval_raw = read_latest_approval(
++        r,
++        prefix=cfg.approval_prefix,
++        purpose=purpose,
++        prepared_freshness_s=cfg.approval_prepared_freshness_s,
++        approved_freshness_s=cfg.approval_approved_freshness_s,
++        ttl_s=cfg.approval_ttl_s,
++        ops_stream=cfg.ops_stream,
++        now_ms=now_ms,
++    )
++    approval = parse_approval_state(approval_raw)
++    approval_remaining_s = max(0, int((approval.freshness_deadline_ts_ms - now_ms) / 1000)) if approval.freshness_deadline_ts_ms > 0 else 0
+     return {
+         'purpose': purpose,
+         'gate_active': str(lint_raw.get('gate_active', '0')) == '1',
+@@ -125,13 +147,21 @@
+         'dual_control_approved_ts_ms': silence.dual_control_approved_ts_ms,
+         'dual_control_denied_total': silence.dual_control_denied_total,
+         'dual_control_last_deny_reason': silence.dual_control_last_deny_reason,
++        'latest_approval_request_id': approval.request_id,
++        'latest_approval_status': approval.status,
++        'latest_approval_prepared_by': approval.prepared_by,
++        'latest_approval_approved_by': approval.approved_by,
++        'latest_approval_freshness_deadline_ts_ms': approval.freshness_deadline_ts_ms,
++        'latest_approval_freshness_remaining_s': approval_remaining_s,
++        'latest_approval_expired_reason': approval.expired_reason,
++        'latest_approval_cancelled_reason': approval.cancelled_reason,
+     }
+ 
+ 
+ def cmd_status(r: Any, cfg: Cfg, *, purpose: str | None = None, now_ms: int | None = None) -> dict[str, Any]:
+     now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
+     purposes = [purpose] if purpose else sorted(CONTRACTS.keys())
+-    return {'schema_version': 3, 'ts_ms': now_ms, 'rows': [_read_purpose_status(r, cfg, p, now_ms) for p in purposes]}
++    return {'schema_version': 4, 'ts_ms': now_ms, 'rows': [_read_purpose_status(r, cfg, p, now_ms) for p in purposes]}
+ 
+ 
+ def cmd_prepare_override(
+@@ -159,6 +189,7 @@
+         reason=reason,
+         minutes=minutes,
+         ttl_s=cfg.approval_ttl_s,
++        prepared_freshness_s=cfg.approval_prepared_freshness_s,
+         ops_stream=cfg.ops_stream,
+         now_ms=now_ms,
+     )
+@@ -182,6 +213,8 @@
+         operator=operator,
+         reason=reason,
+         ttl_s=cfg.approval_ttl_s,
++        prepared_freshness_s=cfg.approval_prepared_freshness_s,
++        approved_freshness_s=cfg.approval_approved_freshness_s,
+         ops_stream=cfg.ops_stream,
+         now_ms=now_ms,
+     )
+@@ -218,7 +251,16 @@
+     dual_control_required = bool(cfg.dual_control_minutes > 0 and policy_preview.override_active and minutes >= cfg.dual_control_minutes)
+     approval_state = None
+     if dual_control_required:
+-        approval_raw = r.hgetall(f"{cfg.approval_prefix.rstrip(':')}:req:{approval_request_id}") if approval_request_id else {}
++        approval_raw = refresh_approval_state(
++            r,
++            prefix=cfg.approval_prefix,
++            request_id=approval_request_id,
++            prepared_freshness_s=cfg.approval_prepared_freshness_s,
++            approved_freshness_s=cfg.approval_approved_freshness_s,
++            ttl_s=cfg.approval_ttl_s,
++            ops_stream=cfg.ops_stream,
++            now_ms=now_ms,
++        ) if approval_request_id else {}
+         valid = validate_approval_for_ack(
+             approval_raw,
+             purpose=purpose,
+@@ -226,6 +268,7 @@
+             ticket=ticket,
+             escalation_ticket=escalation_ticket,
+             minutes=minutes,
++            now_ms=now_ms,
+         )
+         if not valid.ok:
+             record_dual_control_denial(
+diff -ruN orderflow_services/prometheus_alerts_latency_contract_p411_v1.yml orderflow_services/prometheus_alerts_latency_contract_p411_v1.yml
+--- orderflow_services/prometheus_alerts_latency_contract_p411_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/prometheus_alerts_latency_contract_p411_v1.yml	2026-03-08 11:58:15.099971879 +0000
+@@ -0,0 +1,17 @@
++groups:
++  - name: latency-contract-p411
++    rules:
++      - alert: OF_LatencyDeployLint_DualControlApprovalExpired_Warn
++        expr: latency_contract_deploy_lint_summary_dual_control_expired_gate_active_total > 0
++        for: 15m
++        labels: {severity: warn}
++        annotations:
++          summary: "Latency deploy-lint override request auto-expired"
++          description: "At least one active deploy-lint gate has a long-override approval request that auto-expired before second approval. Operators must prepare a fresh request before silencing again."
++      - alert: OF_LatencyDeployLint_DualControlApprovalCancelled_Crit
++        expr: latency_contract_deploy_lint_summary_dual_control_cancelled_gate_active_total > 0
++        for: 5m
++        labels: {severity: crit}
++        annotations:
++          summary: "Latency deploy-lint approved override became stale and was cancelled"
++          description: "An already-approved long silence request was not consumed before its freshness window elapsed. The request is now cancelled and the operator must repeat prepare/approve before any new long silence ack."
+diff -ruN orderflow_services/runbook_latency_contract_p411_v1.md orderflow_services/runbook_latency_contract_p411_v1.md
+--- orderflow_services/runbook_latency_contract_p411_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/runbook_latency_contract_p411_v1.md	2026-03-08 11:58:37.330886290 +0000
+@@ -0,0 +1,69 @@
++# P4.11 — latency-contract approval freshness and stale-request invalidation
++
++P4.11 tightens P4.10 so prepared / approved dual-control requests cannot stay usable forever.
++
++## Goal
++
++A long deploy-lint silence override request now has two independent freshness windows:
++
++- `LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREPARED_FRESHNESS_S`
++- `LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_APPROVED_FRESHNESS_S`
++
++If a request stays in `prepared` too long, it becomes `expired` automatically.
++
++If a request stays in `approved` too long without being consumed by the requester, it becomes `cancelled` automatically.
++
++This prevents reuse of stale approvals after conditions have already changed.
++
++## New env
++
++- `LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREPARED_FRESHNESS_S`
++- `LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_APPROVED_FRESHNESS_S`
++
++Suggested initial defaults:
++
++- prepared freshness: `7200`
++- approved freshness: `1800`
++
++## State transitions
++
++- `prepared -> approved -> consumed`
++- `prepared -> expired`
++- `approved -> cancelled`
++
++Freshness transitions are applied automatically by:
++
++- `status`
++- `ack`
++- exporter reads of latest approval state
++
++## Operational effect
++
++When a stale request is encountered:
++
++- the approval request itself is auto-transitioned to `expired` or `cancelled`
++- an audit event is written
++- final `ack` is denied if it references the stale request
++- operator must create a fresh request and repeat the dual-control workflow
++
++## Audit events
++
++- `latency_deploy_lint_override_approval_expired`
++- `latency_deploy_lint_override_approval_cancelled`
++
++## Metrics
++
++- `latency_contract_deploy_lint_silence_approval_expired{purpose}`
++- `latency_contract_deploy_lint_silence_approval_cancelled{purpose}`
++- `latency_contract_deploy_lint_silence_approval_freshness_remaining_seconds{purpose}`
++- `latency_contract_deploy_lint_summary_dual_control_expired_gate_active_total`
++- `latency_contract_deploy_lint_summary_dual_control_cancelled_gate_active_total`
++
++## Example recovery path
++
++1. operator prepares override
++2. second operator approves
++3. if requester does not consume in time and request is auto-cancelled:
++   - prepare again
++   - approve again
++   - perform final `ack` again with the new `request_id`
+diff -ruN orderflow_services/tests/test_latency_contract_p411_alerts_yaml_v1.py orderflow_services/tests/test_latency_contract_p411_alerts_yaml_v1.py
+--- orderflow_services/tests/test_latency_contract_p411_alerts_yaml_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/tests/test_latency_contract_p411_alerts_yaml_v1.py	2026-03-08 11:59:48.445594878 +0000
+@@ -0,0 +1,10 @@
++from pathlib import Path
++ROOT = Path(__file__).resolve().parents[2]
++
++
++def test_alerts_yaml_contains_p411_rules() -> None:
++    txt = (ROOT / 'orderflow_services/prometheus_alerts_latency_contract_p411_v1.yml').read_text(encoding='utf-8')
++    assert 'OF_LatencyDeployLint_DualControlApprovalExpired_Warn' in txt
++    assert 'latency_contract_deploy_lint_summary_dual_control_expired_gate_active_total' in txt
++    assert 'OF_LatencyDeployLint_DualControlApprovalCancelled_Crit' in txt
++    assert 'latency_contract_deploy_lint_summary_dual_control_cancelled_gate_active_total' in txt
+diff -ruN orderflow_services/tests/test_latency_contract_p411_dashboard_json_v1.py orderflow_services/tests/test_latency_contract_p411_dashboard_json_v1.py
+--- orderflow_services/tests/test_latency_contract_p411_dashboard_json_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/tests/test_latency_contract_p411_dashboard_json_v1.py	2026-03-08 11:59:48.451756162 +0000
+@@ -0,0 +1,11 @@
++import json
++from pathlib import Path
++ROOT = Path(__file__).resolve().parents[2]
++
++
++def test_dashboard_json_contains_p411_panels() -> None:
++    data = json.loads((ROOT / 'orderflow_services/grafana/latency_contract_p411_v1.json').read_text(encoding='utf-8'))
++    blob = json.dumps(data, sort_keys=True)
++    assert 'latency_contract_deploy_lint_silence_approval_expired' in blob
++    assert 'latency_contract_deploy_lint_silence_approval_cancelled' in blob
++    assert 'latency_contract_deploy_lint_silence_approval_freshness_remaining_seconds' in blob
+diff -ruN orderflow_services/tests/test_latency_contract_p411_deploy_files_v1.py orderflow_services/tests/test_latency_contract_p411_deploy_files_v1.py
+--- orderflow_services/tests/test_latency_contract_p411_deploy_files_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/tests/test_latency_contract_p411_deploy_files_v1.py	2026-03-08 11:59:48.457820777 +0000
+@@ -0,0 +1,12 @@
++from pathlib import Path
++ROOT = Path(__file__).resolve().parents[2]
++
++
++def test_env_examples_include_p411_freshness_vars() -> None:
++    for rel in [
++        'orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example',
++        'orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example',
++    ]:
++        txt = (ROOT / rel).read_text(encoding='utf-8')
++        assert 'LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREPARED_FRESHNESS_S=' in txt
++        assert 'LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_APPROVED_FRESHNESS_S=' in txt
+diff -ruN orderflow_services/tests/test_latency_contract_p411_exporter_v1.py orderflow_services/tests/test_latency_contract_p411_exporter_v1.py
+--- orderflow_services/tests/test_latency_contract_p411_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/tests/test_latency_contract_p411_exporter_v1.py	2026-03-08 11:59:48.438559552 +0000
+@@ -0,0 +1,9 @@
++from orderflow_services import latency_contract_deploy_lint_exporter_v1 as mod
++
++
++def test_exporter_has_p411_freshness_metrics() -> None:
++    assert hasattr(mod, 'G_APPROVAL_EXPIRED')
++    assert hasattr(mod, 'G_APPROVAL_CANCELLED')
++    assert hasattr(mod, 'G_APPROVAL_FRESHNESS_REMAINING')
++    assert hasattr(mod, 'G_SUMMARY_DUAL_CONTROL_EXPIRED_GATE_ACTIVE_TOTAL')
++    assert hasattr(mod, 'G_SUMMARY_DUAL_CONTROL_CANCELLED_GATE_ACTIVE_TOTAL')
+diff -ruN orderflow_services/tests/test_latency_contract_p411_silence_approval_freshness_v1.py orderflow_services/tests/test_latency_contract_p411_silence_approval_freshness_v1.py
+--- orderflow_services/tests/test_latency_contract_p411_silence_approval_freshness_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/tests/test_latency_contract_p411_silence_approval_freshness_v1.py	2026-03-08 11:59:48.428244643 +0000
+@@ -0,0 +1,106 @@
++from orderflow_services import latency_contract_deploy_lint_silence_v1 as mod
++
++
++class FakeRedis:
++    def __init__(self):
++        self.h = {}
++        self.exp = {}
++        self.stream = []
++        self.kv = {}
++    def hgetall(self, k):
++        return dict(self.h.get(k, {}))
++    def hset(self, k, mapping=None, **kwargs):
++        cur = self.h.setdefault(k, {})
++        cur.update(mapping or kwargs)
++    def expire(self, k, ttl):
++        self.exp[k] = ttl
++    def xadd(self, stream, fields, maxlen=None, approximate=None):
++        self.stream.append((stream, dict(fields)))
++        return f"{len(self.stream)}-0"
++    def get(self, k):
++        return self.kv.get(k)
++    def set(self, k, v, ex=None):
++        self.kv[k] = v
++        if ex is not None:
++            self.exp[k] = ex
++
++
++def _cfg() -> mod.Cfg:
++    return mod.Cfg(
++        redis_url='redis://unused',
++        state_prefix='metrics:latency_contract:deploy_lint:last',
++        silence_prefix='cfg:orderflow:latency_contract:deploy_lint:silence',
++        approval_prefix='cfg:orderflow:latency_contract:deploy_lint:silence_approval',
++        ops_stream='ops:latency_contract:events:v1',
++        silence_ttl_s=3600,
++        approval_ttl_s=3600,
++        approval_prepared_freshness_s=60,
++        approval_approved_freshness_s=30,
++        default_minutes=60,
++        policy_window_s=168 * 3600,
++        policy_max_budget_minutes=60,
++        policy_max_acks=1,
++        policy_denied_exit_code=27,
++        dual_control_minutes=45,
++    )
++
++
++def test_prepared_request_auto_expires_after_freshness_window() -> None:
++    r = FakeRedis()
++    cfg = _cfg()
++    prep = mod.cmd_prepare_override(
++        r,
++        cfg,
++        purpose='meta_cov_rollout_controller',
++        operator='alex',
++        ticket='INC-1',
++        escalation_ticket='SEV-9',
++        reason='need long silence',
++        minutes=45,
++        now_ms=1000,
++    )
++    req_id = prep['request_id']
++    status = mod.cmd_status(r, cfg, purpose='meta_cov_rollout_controller', now_ms=62000)
++    row = status['rows'][0]
++    assert row['latest_approval_request_id'] == req_id
++    assert row['latest_approval_status'] == 'expired'
++    assert row['latest_approval_expired_reason'] == 'prepared_freshness_elapsed'
++    assert any(evt[1]['kind'] == 'latency_deploy_lint_override_approval_expired' for evt in r.stream)
++
++
++def test_approved_request_auto_cancels_and_ack_is_denied() -> None:
++    r = FakeRedis()
++    cfg = _cfg()
++    r.h['metrics:latency_contract:deploy_lint:last:meta_cov_rollout_controller'] = {'gate_active': '1'}
++    mod.cmd_ack(r, cfg, purpose='meta_cov_rollout_controller', operator='alex', ticket='INC-1', reason='known', minutes=30, now_ms=1000)
++    prep = mod.cmd_prepare_override(
++        r,
++        cfg,
++        purpose='meta_cov_rollout_controller',
++        operator='alex',
++        ticket='INC-1',
++        escalation_ticket='SEV-9',
++        reason='need longer silence',
++        minutes=45,
++        now_ms=2000,
++    )
++    req_id = prep['request_id']
++    mod.cmd_approve_override(r, cfg, request_id=req_id, operator='bob', reason='approved', now_ms=3000)
++    out = mod.cmd_ack(
++        r,
++        cfg,
++        purpose='meta_cov_rollout_controller',
++        operator='alex',
++        ticket='INC-1',
++        escalation_ticket='SEV-9',
++        approval_request_id=req_id,
++        reason='bridge approved',
++        minutes=45,
++        now_ms=35000,
++    )
++    assert out['ok'] is False
++    assert out['policy']['dual_control_required'] is True
++    assert out['policy']['denied_reason'] == 'dual_control_approval_cancelled'
++    approval_key = f'cfg:orderflow:latency_contract:deploy_lint:silence_approval:req:{req_id}'
++    assert r.h[approval_key]['status'] == 'cancelled'
++    assert any(evt[1]['kind'] == 'latency_deploy_lint_override_approval_cancelled' for evt in r.stream)
+diff -ruN services/observability/latency_deploy_lint_silence_approval_state.py services/observability/latency_deploy_lint_silence_approval_state.py
+--- services/observability/latency_deploy_lint_silence_approval_state.py	2026-03-08 11:32:35.455281970 +0000
++++ services/observability/latency_deploy_lint_silence_approval_state.py	2026-03-08 11:53:27.901543938 +0000
+@@ -2,11 +2,16 @@
+ 
+ """Redis-backed dual-control approval state for deploy-lint silence overrides.
+ 
+-P4.10 adds second-operator approval for long silence override windows. An
++P4.10 added second-operator approval for long silence override windows. An
+ escalation ticket alone is no longer enough once an override request exceeds the
+ configured long-window threshold; the requesting operator must prepare a request
+ and a different operator must approve it before the final notifier silence ack
+ can be committed.
++
++P4.11 adds timeboxed freshness for prepared/approved requests. Old requests are
++not allowed to linger indefinitely: prepared requests auto-expire after a
++shorter freshness window, while already-approved requests auto-cancel if the
++requester does not consume them quickly enough.
+ """
+ 
+ from dataclasses import dataclass
+@@ -44,6 +49,21 @@
+     approved_ts_ms: int
+     consumed_by: str
+     consumed_ts_ms: int
++    freshness_deadline_ts_ms: int
++    expired_ts_ms: int
++    expired_reason: str
++    cancelled_by: str
++    cancelled_reason: str
++    cancelled_ts_ms: int
++
++    @property
++    def freshness_remaining_s(self) -> int:
++        if self.freshness_deadline_ts_ms <= 0:
++            return 0
++        ref_ts_ms = self.prepared_ts_ms or self.approved_ts_ms or self.consumed_ts_ms or self.cancelled_ts_ms or self.expired_ts_ms
++        if ref_ts_ms <= 0:
++            return 0
++        return max(0, int((self.freshness_deadline_ts_ms - ref_ts_ms) / 1000))
+ 
+ 
+ @dataclass(frozen=True)
+@@ -79,16 +99,15 @@
+         approved_ts_ms=_i(raw.get('approved_ts_ms'), 0),
+         consumed_by=_s(raw.get('consumed_by')),
+         consumed_ts_ms=_i(raw.get('consumed_ts_ms'), 0),
++        freshness_deadline_ts_ms=_i(raw.get('freshness_deadline_ts_ms'), 0),
++        expired_ts_ms=_i(raw.get('expired_ts_ms'), 0),
++        expired_reason=_s(raw.get('expired_reason')),
++        cancelled_by=_s(raw.get('cancelled_by')),
++        cancelled_reason=_s(raw.get('cancelled_reason')),
++        cancelled_ts_ms=_i(raw.get('cancelled_ts_ms'), 0),
+     )
+ 
+ 
+-def read_latest_approval(r: Any, *, prefix: str, purpose: str) -> dict[str, str]:
+-    rid = _s(r.get(latest_key(prefix, purpose)) if hasattr(r, 'get') else '')
+-    if not rid:
+-        return {}
+-    return r.hgetall(state_key(prefix, rid)) or {}
+-
+-
+ def _xadd_best_effort(r: Any, stream: str | None, fields: dict[str, str]) -> str:
+     if not stream:
+         return ''
+@@ -98,6 +117,127 @@
+         return ''
+ 
+ 
++def _deadline_for_status(*, now_ms: int, status: str, prepared_freshness_s: int, approved_freshness_s: int) -> int:
++    if status == 'prepared':
++        return now_ms + max(1, int(prepared_freshness_s)) * 1000
++    if status == 'approved':
++        return now_ms + max(1, int(approved_freshness_s)) * 1000
++    return 0
++
++
++def refresh_approval_state(
++    r: Any,
++    *,
++    prefix: str,
++    request_id: str,
++    prepared_freshness_s: int,
++    approved_freshness_s: int,
++    ttl_s: int,
++    ops_stream: str | None = None,
++    now_ms: int | None = None,
++) -> dict[str, str]:
++    """Auto-transition stale prepared/approved requests to expired/cancelled."""
++    now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
++    skey = state_key(prefix, request_id)
++    prev = r.hgetall(skey) or {}
++    st = parse_approval_state(prev)
++    if not st.present:
++        return {}
++    if st.status not in {'prepared', 'approved'}:
++        return prev
++    deadline_ts_ms = st.freshness_deadline_ts_ms
++    if deadline_ts_ms <= 0:
++        deadline_ts_ms = _deadline_for_status(
++            now_ms=st.prepared_ts_ms if st.status == 'prepared' else st.approved_ts_ms or now_ms,
++            status=st.status,
++            prepared_freshness_s=prepared_freshness_s,
++            approved_freshness_s=approved_freshness_s,
++        )
++        prev = {**prev, 'freshness_deadline_ts_ms': str(deadline_ts_ms)}
++        r.hset(skey, mapping={'freshness_deadline_ts_ms': str(deadline_ts_ms)})
++    if deadline_ts_ms > now_ms:
++        try:
++            r.expire(skey, max(1, int(ttl_s)))
++        except Exception:
++            pass
++        return prev
++    if st.status == 'prepared':
++        mapping = {
++            **prev,
++            'status': 'expired',
++            'expired_ts_ms': str(now_ms),
++            'expired_reason': 'prepared_freshness_elapsed',
++        }
++        event_kind = 'latency_deploy_lint_override_approval_expired'
++        event_fields = {
++            'ts_ms': str(now_ms),
++            'kind': event_kind,
++            'purpose': st.purpose,
++            'request_id': st.request_id,
++            'prepared_by': st.prepared_by,
++            'ticket': st.prepared_ticket,
++            'escalation_ticket': st.escalation_ticket,
++            'requested_minutes': str(st.requested_minutes),
++            'expired_reason': 'prepared_freshness_elapsed',
++        }
++    else:
++        mapping = {
++            **prev,
++            'status': 'cancelled',
++            'cancelled_by': 'system',
++            'cancelled_ts_ms': str(now_ms),
++            'cancelled_reason': 'approved_freshness_elapsed',
++        }
++        event_kind = 'latency_deploy_lint_override_approval_cancelled'
++        event_fields = {
++            'ts_ms': str(now_ms),
++            'kind': event_kind,
++            'purpose': st.purpose,
++            'request_id': st.request_id,
++            'prepared_by': st.prepared_by,
++            'approved_by': st.approved_by,
++            'ticket': st.prepared_ticket,
++            'escalation_ticket': st.escalation_ticket,
++            'requested_minutes': str(st.requested_minutes),
++            'cancelled_reason': 'approved_freshness_elapsed',
++        }
++    r.hset(skey, mapping=mapping)
++    try:
++        r.expire(skey, max(1, int(ttl_s)))
++    except Exception:
++        pass
++    event_id = _xadd_best_effort(r, ops_stream, event_fields)
++    if event_id:
++        r.hset(skey, mapping={'last_event_id': event_id})
++    return r.hgetall(skey) or mapping
++
++
++def read_latest_approval(
++    r: Any,
++    *,
++    prefix: str,
++    purpose: str,
++    prepared_freshness_s: int = 7200,
++    approved_freshness_s: int = 1800,
++    ttl_s: int = 604800,
++    ops_stream: str | None = None,
++    now_ms: int | None = None,
++) -> dict[str, str]:
++    rid = _s(r.get(latest_key(prefix, purpose)) if hasattr(r, 'get') else '')
++    if not rid:
++        return {}
++    return refresh_approval_state(
++        r,
++        prefix=prefix,
++        request_id=rid,
++        prepared_freshness_s=prepared_freshness_s,
++        approved_freshness_s=approved_freshness_s,
++        ttl_s=ttl_s,
++        ops_stream=ops_stream,
++        now_ms=now_ms,
++    )
++
++
+ def prepare_override_approval(
+     r: Any,
+     *,
+@@ -109,14 +249,21 @@
+     reason: str,
+     minutes: int,
+     ttl_s: int,
++    prepared_freshness_s: int,
+     ops_stream: str | None = None,
+     request_id: str = '',
+     now_ms: int | None = None,
+ ) -> dict[str, str]:
+     now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
+     rid = _s(request_id) or uuid.uuid4().hex
++    freshness_deadline_ts_ms = _deadline_for_status(
++        now_ms=now_ms,
++        status='prepared',
++        prepared_freshness_s=prepared_freshness_s,
++        approved_freshness_s=1,
++    )
+     mapping = {
+-        'schema_version': '1',
++        'schema_version': '2',
+         'request_id': rid,
+         'purpose': str(purpose),
+         'status': 'prepared',
+@@ -131,6 +278,12 @@
+         'approved_ts_ms': '0',
+         'consumed_by': '',
+         'consumed_ts_ms': '0',
++        'freshness_deadline_ts_ms': str(freshness_deadline_ts_ms),
++        'expired_ts_ms': '0',
++        'expired_reason': '',
++        'cancelled_by': '',
++        'cancelled_reason': '',
++        'cancelled_ts_ms': '0',
+     }
+     skey = state_key(prefix, rid)
+     r.hset(skey, mapping=mapping)
+@@ -152,6 +305,7 @@
+         'escalation_ticket': str(escalation_ticket),
+         'reason': str(reason),
+         'requested_minutes': str(max(1, int(minutes))),
++        'freshness_deadline_ts_ms': str(freshness_deadline_ts_ms),
+     })
+     if event_id:
+         r.hset(skey, mapping={'last_event_id': event_id})
+@@ -166,25 +320,48 @@
+     operator: str,
+     reason: str,
+     ttl_s: int,
++    prepared_freshness_s: int,
++    approved_freshness_s: int,
+     ops_stream: str | None = None,
+     now_ms: int | None = None,
+ ) -> dict[str, str]:
+     now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
+     skey = state_key(prefix, request_id)
+-    prev = r.hgetall(skey) or {}
++    prev = refresh_approval_state(
++        r,
++        prefix=prefix,
++        request_id=request_id,
++        prepared_freshness_s=prepared_freshness_s,
++        approved_freshness_s=approved_freshness_s,
++        ttl_s=ttl_s,
++        ops_stream=ops_stream,
++        now_ms=now_ms,
++    )
+     st = parse_approval_state(prev)
+     if not st.present:
+         raise ValueError('approval request not found')
++    if st.status == 'expired':
++        raise ValueError('approval request expired; prepare again')
+     if st.status != 'prepared':
+         raise ValueError('approval request is not in prepared state')
+     if operator == st.prepared_by:
+         raise ValueError('second approver must be different from requester')
++    freshness_deadline_ts_ms = _deadline_for_status(
++        now_ms=now_ms,
++        status='approved',
++        prepared_freshness_s=1,
++        approved_freshness_s=approved_freshness_s,
++    )
+     mapping = {
+         **prev,
+         'status': 'approved',
+         'approved_by': str(operator),
+         'approved_reason': str(reason),
+         'approved_ts_ms': str(now_ms),
++        'freshness_deadline_ts_ms': str(freshness_deadline_ts_ms),
++        'cancelled_by': '',
++        'cancelled_reason': '',
++        'cancelled_ts_ms': '0',
+     }
+     r.hset(skey, mapping=mapping)
+     try:
+@@ -202,6 +379,7 @@
+         'escalation_ticket': st.escalation_ticket,
+         'reason': str(reason),
+         'requested_minutes': str(st.requested_minutes),
++        'freshness_deadline_ts_ms': str(freshness_deadline_ts_ms),
+     })
+     if event_id:
+         r.hset(skey, mapping={'last_event_id': event_id})
+@@ -216,12 +394,20 @@
+     ticket: str,
+     escalation_ticket: str,
+     minutes: int,
++    now_ms: int | None = None,
+ ) -> ApprovalValidation:
++    now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
+     st = parse_approval_state(raw)
+     if not st.present:
+         return ApprovalValidation(ok=False, reason='dual_control_approval_missing', state=st)
++    if st.status == 'expired':
++        return ApprovalValidation(ok=False, reason='dual_control_approval_expired', state=st)
++    if st.status == 'cancelled':
++        return ApprovalValidation(ok=False, reason='dual_control_approval_cancelled', state=st)
+     if st.status != 'approved':
+         return ApprovalValidation(ok=False, reason='dual_control_not_approved', state=st)
++    if st.freshness_deadline_ts_ms > 0 and now_ms > st.freshness_deadline_ts_ms:
++        return ApprovalValidation(ok=False, reason='dual_control_approval_stale', state=st)
+     if st.purpose != str(purpose):
+         return ApprovalValidation(ok=False, reason='dual_control_purpose_mismatch', state=st)
+     if st.prepared_by != str(operator):
+diff -ruN tick_flow_full/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example tick_flow_full/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
+--- tick_flow_full/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example	2026-03-08 11:39:41.551139688 +0000
++++ tick_flow_full/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example	2026-03-08 11:57:28.973256914 +0000
+@@ -41,4 +41,6 @@
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_POLICY_DENIED_EXIT_CODE=27
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREFIX=cfg:orderflow:latency_contract:deploy_lint:silence_approval
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_TTL_S=604800
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREPARED_FRESHNESS_S=7200
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_APPROVED_FRESHNESS_S=1800
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DUAL_CONTROL_MINUTES=480
+diff -ruN tick_flow_full/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example tick_flow_full/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
+--- tick_flow_full/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example	2026-03-08 11:39:41.487329268 +0000
++++ tick_flow_full/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example	2026-03-08 11:57:28.972995894 +0000
+@@ -41,4 +41,6 @@
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_POLICY_DENIED_EXIT_CODE=27
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREFIX=cfg:orderflow:latency_contract:deploy_lint:silence_approval
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_TTL_S=604800
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREPARED_FRESHNESS_S=7200
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_APPROVED_FRESHNESS_S=1800
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DUAL_CONTROL_MINUTES=480
+diff -ruN tick_flow_full/orderflow_services/grafana/latency_contract_p411_v1.json tick_flow_full/orderflow_services/grafana/latency_contract_p411_v1.json
+--- tick_flow_full/orderflow_services/grafana/latency_contract_p411_v1.json	1970-01-01 00:00:00.000000000 +0000
++++ tick_flow_full/orderflow_services/grafana/latency_contract_p411_v1.json	2026-03-08 11:58:51.781305879 +0000
+@@ -0,0 +1,138 @@
++{
++  "title": "Latency Contract P4.11 Approval Freshness",
++  "schemaVersion": 39,
++  "version": 411,
++  "panels": [
++    {
++      "title": "Dual-control approval pending total",
++      "type": "stat",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_summary_dual_control_pending_total"
++        }
++      ]
++    },
++    {
++      "title": "Dual-control approval ready total",
++      "type": "stat",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_summary_dual_control_ready_total"
++        }
++      ]
++    },
++    {
++      "title": "Dual-control override gate active total",
++      "type": "stat",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_summary_dual_control_override_gate_active_total"
++        }
++      ]
++    },
++    {
++      "title": "Approval pending by purpose",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_silence_approval_pending"
++        }
++      ]
++    },
++    {
++      "title": "Approval ready by purpose",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_silence_approval_ready"
++        }
++      ]
++    },
++    {
++      "title": "Approval age seconds",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_silence_approval_age_seconds"
++        }
++      ]
++    },
++    {
++      "title": "Dual-control required by purpose",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_silence_dual_control_required"
++        }
++      ]
++    },
++    {
++      "title": "Dual-control denied total by purpose",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_silence_dual_control_denied_total"
++        }
++      ]
++    },
++    {
++      "title": "Dual-control override active by purpose",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_silence_dual_control_override_active"
++        }
++      ]
++    },
++    {
++      "title": "Approval expired gate active total",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_summary_dual_control_expired_gate_active_total",
++          "legendFormat": "__auto"
++        }
++      ]
++    },
++    {
++      "title": "Approval cancelled gate active total",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_summary_dual_control_cancelled_gate_active_total",
++          "legendFormat": "__auto"
++        }
++      ]
++    },
++    {
++      "title": "Approval expired by purpose",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_silence_approval_expired",
++          "legendFormat": "__auto"
++        }
++      ]
++    },
++    {
++      "title": "Approval cancelled by purpose",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_silence_approval_cancelled",
++          "legendFormat": "__auto"
++        }
++      ]
++    },
++    {
++      "title": "Approval freshness remaining seconds",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "latency_contract_deploy_lint_silence_approval_freshness_remaining_seconds",
++          "legendFormat": "__auto"
++        }
++      ]
++    }
++  ]
++}
+diff -ruN tick_flow_full/orderflow_services/latency_contract_deploy_lint_exporter_v1.py tick_flow_full/orderflow_services/latency_contract_deploy_lint_exporter_v1.py
+--- tick_flow_full/orderflow_services/latency_contract_deploy_lint_exporter_v1.py	2026-03-08 11:39:41.325854840 +0000
++++ tick_flow_full/orderflow_services/latency_contract_deploy_lint_exporter_v1.py	2026-03-08 11:59:59.480894932 +0000
+@@ -1,7 +1,7 @@
+ #!/usr/bin/env python3
+ from __future__ import annotations
+ 
+-"""Prometheus exporter for latency deploy-lint state with P4.10 dual-control visibility."""
++"""Prometheus exporter for latency deploy-lint state with P4.11 approval freshness visibility."""
+ 
+ import os
+ import time
+@@ -60,6 +60,9 @@
+ G_APPROVAL_PENDING = Gauge('latency_contract_deploy_lint_silence_approval_pending', 'latest override approval request is prepared and awaiting second approver', ['purpose'])
+ G_APPROVAL_READY = Gauge('latency_contract_deploy_lint_silence_approval_ready', 'latest override approval request is approved and ready for requester ack', ['purpose'])
+ G_APPROVAL_AGE = Gauge('latency_contract_deploy_lint_silence_approval_age_seconds', 'age of latest override approval request', ['purpose'])
++G_APPROVAL_EXPIRED = Gauge('latency_contract_deploy_lint_silence_approval_expired', 'latest override approval request auto-expired before approval', ['purpose'])
++G_APPROVAL_CANCELLED = Gauge('latency_contract_deploy_lint_silence_approval_cancelled', 'latest override approval request auto-cancelled after approval freshness elapsed', ['purpose'])
++G_APPROVAL_FRESHNESS_REMAINING = Gauge('latency_contract_deploy_lint_silence_approval_freshness_remaining_seconds', 'remaining freshness time for latest override approval request', ['purpose'])
+ G_SUMMARY_FAIL_TOTAL = Gauge('latency_contract_deploy_lint_summary_fail_total', 'number of purposes currently failing deploy lint')
+ G_SUMMARY_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_gate_active_total', 'number of purposes with persistent deploy lint gate active')
+ G_SUMMARY_SILENCED_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_silenced_gate_active_total', 'number of purposes with persistent deploy lint gate active but silenced in notifier')
+@@ -69,6 +72,8 @@
+ G_SUMMARY_POLICY_OVERRIDE_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_policy_override_gate_active_total', 'number of active gate purposes currently silenced via escalation-ticket override')
+ G_SUMMARY_DUAL_CONTROL_PENDING_TOTAL = Gauge('latency_contract_deploy_lint_summary_dual_control_pending_total', 'number of purposes with pending dual-control override approval requests')
+ G_SUMMARY_DUAL_CONTROL_READY_TOTAL = Gauge('latency_contract_deploy_lint_summary_dual_control_ready_total', 'number of purposes with approved dual-control override requests waiting to be consumed')
++G_SUMMARY_DUAL_CONTROL_EXPIRED_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_dual_control_expired_gate_active_total', 'number of active gate purposes whose latest prepared override request auto-expired')
++G_SUMMARY_DUAL_CONTROL_CANCELLED_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_dual_control_cancelled_gate_active_total', 'number of active gate purposes whose latest approved override request auto-cancelled before ack consumption')
+ G_SUMMARY_DUAL_CONTROL_OVERRIDE_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_dual_control_override_gate_active_total', 'number of active gate purposes currently silenced under an approved dual-control exception')
+ G_NOTIFIER_STATE_PRESENT = Gauge('latency_contract_deploy_lint_notifier_state_present', 'deploy lint notifier state present')
+ G_NOTIFIER_LAST_RUN_AGE = Gauge('latency_contract_deploy_lint_notifier_last_run_age_seconds', 'age of deploy lint notifier last run')
+@@ -86,6 +91,9 @@
+     state_prefix: str
+     silence_prefix: str
+     approval_prefix: str
++    approval_ttl_s: int
++    approval_prepared_freshness_s: int
++    approval_approved_freshness_s: int
+     summary_key: str
+ 
+ 
+@@ -98,6 +106,9 @@
+         state_prefix=prefix,
+         silence_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_PREFIX', 'cfg:orderflow:latency_contract:deploy_lint:silence'),
+         approval_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREFIX', 'cfg:orderflow:latency_contract:deploy_lint:silence_approval'),
++        approval_ttl_s=max(3600, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_TTL_S', '604800'), 604800)),
++        approval_prepared_freshness_s=max(60, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREPARED_FRESHNESS_S', '7200'), 7200)),
++        approval_approved_freshness_s=max(60, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_APPROVED_FRESHNESS_S', '1800'), 1800)),
+         summary_key=_env('LATENCY_CONTRACT_DEPLOY_LINT_SUMMARY_KEY', 'metrics:latency_contract:deploy_lint:summary:last'),
+     )
+ 
+@@ -118,6 +129,8 @@
+             policy_override_gate_total = 0
+             dual_control_pending_total = 0
+             dual_control_ready_total = 0
++            dual_control_expired_gate_total = 0
++            dual_control_cancelled_gate_total = 0
+             dual_control_override_gate_total = 0
+             for purpose in purposes:
+                 raw = r.hgetall(state_key(cfg.state_prefix, purpose)) or {}
+@@ -153,16 +166,34 @@
+                 G_DUAL_CONTROL_DENIED_TOTAL.labels(purpose=purpose).set(float(sst.dual_control_denied_total))
+                 dual_override_active = bool(sst.policy_current_override_active and sst.dual_control_required and sst.silence_active)
+                 G_DUAL_CONTROL_OVERRIDE_ACTIVE.labels(purpose=purpose).set(1.0 if dual_override_active else 0.0)
+-                araw = read_latest_approval(r, prefix=cfg.approval_prefix, purpose=purpose)
++                araw = read_latest_approval(
++                    r,
++                    prefix=cfg.approval_prefix,
++                    purpose=purpose,
++                    prepared_freshness_s=cfg.approval_prepared_freshness_s,
++                    approved_freshness_s=cfg.approval_approved_freshness_s,
++                    ttl_s=cfg.approval_ttl_s,
++                    ops_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_OPS_EVENT_STREAM', 'ops:latency_contract:events:v1'),
++                    now_ms=now_ms,
++                )
+                 ast = parse_approval_state(araw)
+-                approval_age_s = max(0.0, now - (ast.prepared_ts_ms / 1000.0)) if ast.prepared_ts_ms > 0 else 0.0
++                approval_ref_ts_ms = ast.approved_ts_ms or ast.prepared_ts_ms
++                approval_age_s = max(0.0, now - (approval_ref_ts_ms / 1000.0)) if approval_ref_ts_ms > 0 else 0.0
++                freshness_remaining_s = max(0.0, (ast.freshness_deadline_ts_ms - now_ms) / 1000.0) if ast.freshness_deadline_ts_ms > now_ms else 0.0
+                 G_APPROVAL_PENDING.labels(purpose=purpose).set(1.0 if ast.status == 'prepared' else 0.0)
+                 G_APPROVAL_READY.labels(purpose=purpose).set(1.0 if ast.status == 'approved' else 0.0)
++                G_APPROVAL_EXPIRED.labels(purpose=purpose).set(1.0 if ast.status == 'expired' else 0.0)
++                G_APPROVAL_CANCELLED.labels(purpose=purpose).set(1.0 if ast.status == 'cancelled' else 0.0)
+                 G_APPROVAL_AGE.labels(purpose=purpose).set(approval_age_s)
++                G_APPROVAL_FRESHNESS_REMAINING.labels(purpose=purpose).set(freshness_remaining_s)
+                 if ast.status == 'prepared':
+                     dual_control_pending_total += 1
+                 if ast.status == 'approved':
+                     dual_control_ready_total += 1
++                if gate > 0 and ast.status == 'expired':
++                    dual_control_expired_gate_total += 1
++                if gate > 0 and ast.status == 'cancelled':
++                    dual_control_cancelled_gate_total += 1
+                 if present > 0 and ok <= 0:
+                     fail_total += 1
+                 if gate > 0:
+@@ -188,9 +219,11 @@
+             G_SUMMARY_POLICY_OVERRIDE_GATE_ACTIVE_TOTAL.set(float(policy_override_gate_total))
+             G_SUMMARY_DUAL_CONTROL_PENDING_TOTAL.set(float(dual_control_pending_total))
+             G_SUMMARY_DUAL_CONTROL_READY_TOTAL.set(float(dual_control_ready_total))
++            G_SUMMARY_DUAL_CONTROL_EXPIRED_GATE_ACTIVE_TOTAL.set(float(dual_control_expired_gate_total))
++            G_SUMMARY_DUAL_CONTROL_CANCELLED_GATE_ACTIVE_TOTAL.set(float(dual_control_cancelled_gate_total))
+             G_SUMMARY_DUAL_CONTROL_OVERRIDE_GATE_ACTIVE_TOTAL.set(float(dual_control_override_gate_total))
+             r.hset(cfg.summary_key, mapping={
+-                'schema_version': '4',
++                'schema_version': '5',
+                 'last_ts_ms': str(now_ms),
+                 'fail_total': str(fail_total),
+                 'gate_active_total': str(gate_total),
+@@ -201,6 +234,8 @@
+                 'policy_override_gate_active_total': str(policy_override_gate_total),
+                 'dual_control_pending_total': str(dual_control_pending_total),
+                 'dual_control_ready_total': str(dual_control_ready_total),
++                'dual_control_expired_gate_active_total': str(dual_control_expired_gate_total),
++                'dual_control_cancelled_gate_active_total': str(dual_control_cancelled_gate_total),
+                 'dual_control_override_gate_active_total': str(dual_control_override_gate_total),
+             })
+             nraw = r.hgetall(notifier_state_key(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_KEY', 'metrics:latency_contract:deploy_lint:notifier:last'))) or {}
+diff -ruN tick_flow_full/orderflow_services/latency_contract_deploy_lint_silence_v1.py tick_flow_full/orderflow_services/latency_contract_deploy_lint_silence_v1.py
+--- tick_flow_full/orderflow_services/latency_contract_deploy_lint_silence_v1.py	2026-03-08 11:40:58.464860346 +0000
++++ tick_flow_full/orderflow_services/latency_contract_deploy_lint_silence_v1.py	2026-03-08 11:59:59.474351755 +0000
+@@ -11,6 +11,9 @@
+ P4.10 adds dual-control approval for long override windows so an escalation
+  ticket alone is insufficient when the requested suppression duration exceeds a
+ configured threshold.
++
++P4.11 adds freshness windows for prepared/approved approval requests so stale
++requests auto-expire or auto-cancel instead of being reusable indefinitely.
+ """
+ 
+ import argparse
+@@ -25,7 +28,10 @@
+ from services.observability.latency_deploy_lint_silence_approval_state import (
+     approve_override_approval,
+     consume_approval,
++    parse_approval_state,
+     prepare_override_approval,
++    read_latest_approval,
++    refresh_approval_state,
+     validate_approval_for_ack,
+ )
+ from services.observability.latency_deploy_lint_silence_state import (
+@@ -64,6 +70,8 @@
+     policy_denied_exit_code: int
+     approval_prefix: str = 'cfg:orderflow:latency_contract:deploy_lint:silence_approval'
+     approval_ttl_s: int = 604800
++    approval_prepared_freshness_s: int = 7200
++    approval_approved_freshness_s: int = 1800
+     dual_control_minutes: int = 480
+ 
+ 
+@@ -76,6 +84,8 @@
+         ops_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_OPS_EVENT_STREAM', 'ops:latency_contract:events:v1'),
+         silence_ttl_s=max(3600, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_TTL_S', '2592000'), 2592000)),
+         approval_ttl_s=max(3600, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_TTL_S', '604800'), 604800)),
++        approval_prepared_freshness_s=max(60, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREPARED_FRESHNESS_S', '7200'), 7200)),
++        approval_approved_freshness_s=max(60, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_APPROVED_FRESHNESS_S', '1800'), 1800)),
+         default_minutes=max(1, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DEFAULT_MINUTES', '360'), 360)),
+         policy_window_s=max(3600, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_POLICY_WINDOW_HOURS', '168'), 168) * 3600),
+         policy_max_budget_minutes=max(1, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_POLICY_MAX_BUDGET_MINUTES', '1440'), 1440)),
+@@ -89,6 +99,18 @@
+     lint_raw = r.hgetall(lint_state_key(cfg.state_prefix, purpose)) or {}
+     silence_raw = r.hgetall(silence_state_key(cfg.silence_prefix, purpose)) or {}
+     silence = parse_silence_state(silence_raw, now_ms=now_ms)
++    approval_raw = read_latest_approval(
++        r,
++        prefix=cfg.approval_prefix,
++        purpose=purpose,
++        prepared_freshness_s=cfg.approval_prepared_freshness_s,
++        approved_freshness_s=cfg.approval_approved_freshness_s,
++        ttl_s=cfg.approval_ttl_s,
++        ops_stream=cfg.ops_stream,
++        now_ms=now_ms,
++    )
++    approval = parse_approval_state(approval_raw)
++    approval_remaining_s = max(0, int((approval.freshness_deadline_ts_ms - now_ms) / 1000)) if approval.freshness_deadline_ts_ms > 0 else 0
+     return {
+         'purpose': purpose,
+         'gate_active': str(lint_raw.get('gate_active', '0')) == '1',
+@@ -125,13 +147,21 @@
+         'dual_control_approved_ts_ms': silence.dual_control_approved_ts_ms,
+         'dual_control_denied_total': silence.dual_control_denied_total,
+         'dual_control_last_deny_reason': silence.dual_control_last_deny_reason,
++        'latest_approval_request_id': approval.request_id,
++        'latest_approval_status': approval.status,
++        'latest_approval_prepared_by': approval.prepared_by,
++        'latest_approval_approved_by': approval.approved_by,
++        'latest_approval_freshness_deadline_ts_ms': approval.freshness_deadline_ts_ms,
++        'latest_approval_freshness_remaining_s': approval_remaining_s,
++        'latest_approval_expired_reason': approval.expired_reason,
++        'latest_approval_cancelled_reason': approval.cancelled_reason,
+     }
+ 
+ 
+ def cmd_status(r: Any, cfg: Cfg, *, purpose: str | None = None, now_ms: int | None = None) -> dict[str, Any]:
+     now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
+     purposes = [purpose] if purpose else sorted(CONTRACTS.keys())
+-    return {'schema_version': 3, 'ts_ms': now_ms, 'rows': [_read_purpose_status(r, cfg, p, now_ms) for p in purposes]}
++    return {'schema_version': 4, 'ts_ms': now_ms, 'rows': [_read_purpose_status(r, cfg, p, now_ms) for p in purposes]}
+ 
+ 
+ def cmd_prepare_override(
+@@ -159,6 +189,7 @@
+         reason=reason,
+         minutes=minutes,
+         ttl_s=cfg.approval_ttl_s,
++        prepared_freshness_s=cfg.approval_prepared_freshness_s,
+         ops_stream=cfg.ops_stream,
+         now_ms=now_ms,
+     )
+@@ -182,6 +213,8 @@
+         operator=operator,
+         reason=reason,
+         ttl_s=cfg.approval_ttl_s,
++        prepared_freshness_s=cfg.approval_prepared_freshness_s,
++        approved_freshness_s=cfg.approval_approved_freshness_s,
+         ops_stream=cfg.ops_stream,
+         now_ms=now_ms,
+     )
+@@ -218,7 +251,16 @@
+     dual_control_required = bool(cfg.dual_control_minutes > 0 and policy_preview.override_active and minutes >= cfg.dual_control_minutes)
+     approval_state = None
+     if dual_control_required:
+-        approval_raw = r.hgetall(f"{cfg.approval_prefix.rstrip(':')}:req:{approval_request_id}") if approval_request_id else {}
++        approval_raw = refresh_approval_state(
++            r,
++            prefix=cfg.approval_prefix,
++            request_id=approval_request_id,
++            prepared_freshness_s=cfg.approval_prepared_freshness_s,
++            approved_freshness_s=cfg.approval_approved_freshness_s,
++            ttl_s=cfg.approval_ttl_s,
++            ops_stream=cfg.ops_stream,
++            now_ms=now_ms,
++        ) if approval_request_id else {}
+         valid = validate_approval_for_ack(
+             approval_raw,
+             purpose=purpose,
+@@ -226,6 +268,7 @@
+             ticket=ticket,
+             escalation_ticket=escalation_ticket,
+             minutes=minutes,
++            now_ms=now_ms,
+         )
+         if not valid.ok:
+             record_dual_control_denial(
+diff -ruN tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_p411_v1.yml tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_p411_v1.yml
+--- tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_p411_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_p411_v1.yml	2026-03-08 11:58:15.107246320 +0000
+@@ -0,0 +1,17 @@
++groups:
++  - name: latency-contract-p411
++    rules:
++      - alert: OF_LatencyDeployLint_DualControlApprovalExpired_Warn
++        expr: latency_contract_deploy_lint_summary_dual_control_expired_gate_active_total > 0
++        for: 15m
++        labels: {severity: warn}
++        annotations:
++          summary: "Latency deploy-lint override request auto-expired"
++          description: "At least one active deploy-lint gate has a long-override approval request that auto-expired before second approval. Operators must prepare a fresh request before silencing again."
++      - alert: OF_LatencyDeployLint_DualControlApprovalCancelled_Crit
++        expr: latency_contract_deploy_lint_summary_dual_control_cancelled_gate_active_total > 0
++        for: 5m
++        labels: {severity: crit}
++        annotations:
++          summary: "Latency deploy-lint approved override became stale and was cancelled"
++          description: "An already-approved long silence request was not consumed before its freshness window elapsed. The request is now cancelled and the operator must repeat prepare/approve before any new long silence ack."
+diff -ruN tick_flow_full/orderflow_services/runbook_latency_contract_p411_v1.md tick_flow_full/orderflow_services/runbook_latency_contract_p411_v1.md
+--- tick_flow_full/orderflow_services/runbook_latency_contract_p411_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ tick_flow_full/orderflow_services/runbook_latency_contract_p411_v1.md	2026-03-08 11:58:37.337738450 +0000
+@@ -0,0 +1,69 @@
++# P4.11 — latency-contract approval freshness and stale-request invalidation
++
++P4.11 tightens P4.10 so prepared / approved dual-control requests cannot stay usable forever.
++
++## Goal
++
++A long deploy-lint silence override request now has two independent freshness windows:
++
++- `LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREPARED_FRESHNESS_S`
++- `LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_APPROVED_FRESHNESS_S`
++
++If a request stays in `prepared` too long, it becomes `expired` automatically.
++
++If a request stays in `approved` too long without being consumed by the requester, it becomes `cancelled` automatically.
++
++This prevents reuse of stale approvals after conditions have already changed.
++
++## New env
++
++- `LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREPARED_FRESHNESS_S`
++- `LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_APPROVED_FRESHNESS_S`
++
++Suggested initial defaults:
++
++- prepared freshness: `7200`
++- approved freshness: `1800`
++
++## State transitions
++
++- `prepared -> approved -> consumed`
++- `prepared -> expired`
++- `approved -> cancelled`
++
++Freshness transitions are applied automatically by:
++
++- `status`
++- `ack`
++- exporter reads of latest approval state
++
++## Operational effect
++
++When a stale request is encountered:
++
++- the approval request itself is auto-transitioned to `expired` or `cancelled`
++- an audit event is written
++- final `ack` is denied if it references the stale request
++- operator must create a fresh request and repeat the dual-control workflow
++
++## Audit events
++
++- `latency_deploy_lint_override_approval_expired`
++- `latency_deploy_lint_override_approval_cancelled`
++
++## Metrics
++
++- `latency_contract_deploy_lint_silence_approval_expired{purpose}`
++- `latency_contract_deploy_lint_silence_approval_cancelled{purpose}`
++- `latency_contract_deploy_lint_silence_approval_freshness_remaining_seconds{purpose}`
++- `latency_contract_deploy_lint_summary_dual_control_expired_gate_active_total`
++- `latency_contract_deploy_lint_summary_dual_control_cancelled_gate_active_total`
++
++## Example recovery path
++
++1. operator prepares override
++2. second operator approves
++3. if requester does not consume in time and request is auto-cancelled:
++   - prepare again
++   - approve again
++   - perform final `ack` again with the new `request_id`
+diff -ruN tick_flow_full/services/observability/latency_deploy_lint_silence_approval_state.py tick_flow_full/services/observability/latency_deploy_lint_silence_approval_state.py
+--- tick_flow_full/services/observability/latency_deploy_lint_silence_approval_state.py	2026-03-08 11:32:35.455281970 +0000
++++ tick_flow_full/services/observability/latency_deploy_lint_silence_approval_state.py	2026-03-08 11:53:27.901543938 +0000
+@@ -2,11 +2,16 @@
+ 
+ """Redis-backed dual-control approval state for deploy-lint silence overrides.
+ 
+-P4.10 adds second-operator approval for long silence override windows. An
++P4.10 added second-operator approval for long silence override windows. An
+ escalation ticket alone is no longer enough once an override request exceeds the
+ configured long-window threshold; the requesting operator must prepare a request
+ and a different operator must approve it before the final notifier silence ack
+ can be committed.
++
++P4.11 adds timeboxed freshness for prepared/approved requests. Old requests are
++not allowed to linger indefinitely: prepared requests auto-expire after a
++shorter freshness window, while already-approved requests auto-cancel if the
++requester does not consume them quickly enough.
+ """
+ 
+ from dataclasses import dataclass
+@@ -44,6 +49,21 @@
+     approved_ts_ms: int
+     consumed_by: str
+     consumed_ts_ms: int
++    freshness_deadline_ts_ms: int
++    expired_ts_ms: int
++    expired_reason: str
++    cancelled_by: str
++    cancelled_reason: str
++    cancelled_ts_ms: int
++
++    @property
++    def freshness_remaining_s(self) -> int:
++        if self.freshness_deadline_ts_ms <= 0:
++            return 0
++        ref_ts_ms = self.prepared_ts_ms or self.approved_ts_ms or self.consumed_ts_ms or self.cancelled_ts_ms or self.expired_ts_ms
++        if ref_ts_ms <= 0:
++            return 0
++        return max(0, int((self.freshness_deadline_ts_ms - ref_ts_ms) / 1000))
+ 
+ 
+ @dataclass(frozen=True)
+@@ -79,16 +99,15 @@
+         approved_ts_ms=_i(raw.get('approved_ts_ms'), 0),
+         consumed_by=_s(raw.get('consumed_by')),
+         consumed_ts_ms=_i(raw.get('consumed_ts_ms'), 0),
++        freshness_deadline_ts_ms=_i(raw.get('freshness_deadline_ts_ms'), 0),
++        expired_ts_ms=_i(raw.get('expired_ts_ms'), 0),
++        expired_reason=_s(raw.get('expired_reason')),
++        cancelled_by=_s(raw.get('cancelled_by')),
++        cancelled_reason=_s(raw.get('cancelled_reason')),
++        cancelled_ts_ms=_i(raw.get('cancelled_ts_ms'), 0),
+     )
+ 
+ 
+-def read_latest_approval(r: Any, *, prefix: str, purpose: str) -> dict[str, str]:
+-    rid = _s(r.get(latest_key(prefix, purpose)) if hasattr(r, 'get') else '')
+-    if not rid:
+-        return {}
+-    return r.hgetall(state_key(prefix, rid)) or {}
+-
+-
+ def _xadd_best_effort(r: Any, stream: str | None, fields: dict[str, str]) -> str:
+     if not stream:
+         return ''
+@@ -98,6 +117,127 @@
+         return ''
+ 
+ 
++def _deadline_for_status(*, now_ms: int, status: str, prepared_freshness_s: int, approved_freshness_s: int) -> int:
++    if status == 'prepared':
++        return now_ms + max(1, int(prepared_freshness_s)) * 1000
++    if status == 'approved':
++        return now_ms + max(1, int(approved_freshness_s)) * 1000
++    return 0
++
++
++def refresh_approval_state(
++    r: Any,
++    *,
++    prefix: str,
++    request_id: str,
++    prepared_freshness_s: int,
++    approved_freshness_s: int,
++    ttl_s: int,
++    ops_stream: str | None = None,
++    now_ms: int | None = None,
++) -> dict[str, str]:
++    """Auto-transition stale prepared/approved requests to expired/cancelled."""
++    now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
++    skey = state_key(prefix, request_id)
++    prev = r.hgetall(skey) or {}
++    st = parse_approval_state(prev)
++    if not st.present:
++        return {}
++    if st.status not in {'prepared', 'approved'}:
++        return prev
++    deadline_ts_ms = st.freshness_deadline_ts_ms
++    if deadline_ts_ms <= 0:
++        deadline_ts_ms = _deadline_for_status(
++            now_ms=st.prepared_ts_ms if st.status == 'prepared' else st.approved_ts_ms or now_ms,
++            status=st.status,
++            prepared_freshness_s=prepared_freshness_s,
++            approved_freshness_s=approved_freshness_s,
++        )
++        prev = {**prev, 'freshness_deadline_ts_ms': str(deadline_ts_ms)}
++        r.hset(skey, mapping={'freshness_deadline_ts_ms': str(deadline_ts_ms)})
++    if deadline_ts_ms > now_ms:
++        try:
++            r.expire(skey, max(1, int(ttl_s)))
++        except Exception:
++            pass
++        return prev
++    if st.status == 'prepared':
++        mapping = {
++            **prev,
++            'status': 'expired',
++            'expired_ts_ms': str(now_ms),
++            'expired_reason': 'prepared_freshness_elapsed',
++        }
++        event_kind = 'latency_deploy_lint_override_approval_expired'
++        event_fields = {
++            'ts_ms': str(now_ms),
++            'kind': event_kind,
++            'purpose': st.purpose,
++            'request_id': st.request_id,
++            'prepared_by': st.prepared_by,
++            'ticket': st.prepared_ticket,
++            'escalation_ticket': st.escalation_ticket,
++            'requested_minutes': str(st.requested_minutes),
++            'expired_reason': 'prepared_freshness_elapsed',
++        }
++    else:
++        mapping = {
++            **prev,
++            'status': 'cancelled',
++            'cancelled_by': 'system',
++            'cancelled_ts_ms': str(now_ms),
++            'cancelled_reason': 'approved_freshness_elapsed',
++        }
++        event_kind = 'latency_deploy_lint_override_approval_cancelled'
++        event_fields = {
++            'ts_ms': str(now_ms),
++            'kind': event_kind,
++            'purpose': st.purpose,
++            'request_id': st.request_id,
++            'prepared_by': st.prepared_by,
++            'approved_by': st.approved_by,
++            'ticket': st.prepared_ticket,
++            'escalation_ticket': st.escalation_ticket,
++            'requested_minutes': str(st.requested_minutes),
++            'cancelled_reason': 'approved_freshness_elapsed',
++        }
++    r.hset(skey, mapping=mapping)
++    try:
++        r.expire(skey, max(1, int(ttl_s)))
++    except Exception:
++        pass
++    event_id = _xadd_best_effort(r, ops_stream, event_fields)
++    if event_id:
++        r.hset(skey, mapping={'last_event_id': event_id})
++    return r.hgetall(skey) or mapping
++
++
++def read_latest_approval(
++    r: Any,
++    *,
++    prefix: str,
++    purpose: str,
++    prepared_freshness_s: int = 7200,
++    approved_freshness_s: int = 1800,
++    ttl_s: int = 604800,
++    ops_stream: str | None = None,
++    now_ms: int | None = None,
++) -> dict[str, str]:
++    rid = _s(r.get(latest_key(prefix, purpose)) if hasattr(r, 'get') else '')
++    if not rid:
++        return {}
++    return refresh_approval_state(
++        r,
++        prefix=prefix,
++        request_id=rid,
++        prepared_freshness_s=prepared_freshness_s,
++        approved_freshness_s=approved_freshness_s,
++        ttl_s=ttl_s,
++        ops_stream=ops_stream,
++        now_ms=now_ms,
++    )
++
++
+ def prepare_override_approval(
+     r: Any,
+     *,
+@@ -109,14 +249,21 @@
+     reason: str,
+     minutes: int,
+     ttl_s: int,
++    prepared_freshness_s: int,
+     ops_stream: str | None = None,
+     request_id: str = '',
+     now_ms: int | None = None,
+ ) -> dict[str, str]:
+     now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
+     rid = _s(request_id) or uuid.uuid4().hex
++    freshness_deadline_ts_ms = _deadline_for_status(
++        now_ms=now_ms,
++        status='prepared',
++        prepared_freshness_s=prepared_freshness_s,
++        approved_freshness_s=1,
++    )
+     mapping = {
+-        'schema_version': '1',
++        'schema_version': '2',
+         'request_id': rid,
+         'purpose': str(purpose),
+         'status': 'prepared',
+@@ -131,6 +278,12 @@
+         'approved_ts_ms': '0',
+         'consumed_by': '',
+         'consumed_ts_ms': '0',
++        'freshness_deadline_ts_ms': str(freshness_deadline_ts_ms),
++        'expired_ts_ms': '0',
++        'expired_reason': '',
++        'cancelled_by': '',
++        'cancelled_reason': '',
++        'cancelled_ts_ms': '0',
+     }
+     skey = state_key(prefix, rid)
+     r.hset(skey, mapping=mapping)
+@@ -152,6 +305,7 @@
+         'escalation_ticket': str(escalation_ticket),
+         'reason': str(reason),
+         'requested_minutes': str(max(1, int(minutes))),
++        'freshness_deadline_ts_ms': str(freshness_deadline_ts_ms),
+     })
+     if event_id:
+         r.hset(skey, mapping={'last_event_id': event_id})
+@@ -166,25 +320,48 @@
+     operator: str,
+     reason: str,
+     ttl_s: int,
++    prepared_freshness_s: int,
++    approved_freshness_s: int,
+     ops_stream: str | None = None,
+     now_ms: int | None = None,
+ ) -> dict[str, str]:
+     now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
+     skey = state_key(prefix, request_id)
+-    prev = r.hgetall(skey) or {}
++    prev = refresh_approval_state(
++        r,
++        prefix=prefix,
++        request_id=request_id,
++        prepared_freshness_s=prepared_freshness_s,
++        approved_freshness_s=approved_freshness_s,
++        ttl_s=ttl_s,
++        ops_stream=ops_stream,
++        now_ms=now_ms,
++    )
+     st = parse_approval_state(prev)
+     if not st.present:
+         raise ValueError('approval request not found')
++    if st.status == 'expired':
++        raise ValueError('approval request expired; prepare again')
+     if st.status != 'prepared':
+         raise ValueError('approval request is not in prepared state')
+     if operator == st.prepared_by:
+         raise ValueError('second approver must be different from requester')
++    freshness_deadline_ts_ms = _deadline_for_status(
++        now_ms=now_ms,
++        status='approved',
++        prepared_freshness_s=1,
++        approved_freshness_s=approved_freshness_s,
++    )
+     mapping = {
+         **prev,
+         'status': 'approved',
+         'approved_by': str(operator),
+         'approved_reason': str(reason),
+         'approved_ts_ms': str(now_ms),
++        'freshness_deadline_ts_ms': str(freshness_deadline_ts_ms),
++        'cancelled_by': '',
++        'cancelled_reason': '',
++        'cancelled_ts_ms': '0',
+     }
+     r.hset(skey, mapping=mapping)
+     try:
+@@ -202,6 +379,7 @@
+         'escalation_ticket': st.escalation_ticket,
+         'reason': str(reason),
+         'requested_minutes': str(st.requested_minutes),
++        'freshness_deadline_ts_ms': str(freshness_deadline_ts_ms),
+     })
+     if event_id:
+         r.hset(skey, mapping={'last_event_id': event_id})
+@@ -216,12 +394,20 @@
+     ticket: str,
+     escalation_ticket: str,
+     minutes: int,
++    now_ms: int | None = None,
+ ) -> ApprovalValidation:
++    now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
+     st = parse_approval_state(raw)
+     if not st.present:
+         return ApprovalValidation(ok=False, reason='dual_control_approval_missing', state=st)
++    if st.status == 'expired':
++        return ApprovalValidation(ok=False, reason='dual_control_approval_expired', state=st)
++    if st.status == 'cancelled':
++        return ApprovalValidation(ok=False, reason='dual_control_approval_cancelled', state=st)
+     if st.status != 'approved':
+         return ApprovalValidation(ok=False, reason='dual_control_not_approved', state=st)
++    if st.freshness_deadline_ts_ms > 0 and now_ms > st.freshness_deadline_ts_ms:
++        return ApprovalValidation(ok=False, reason='dual_control_approval_stale', state=st)
+     if st.purpose != str(purpose):
+         return ApprovalValidation(ok=False, reason='dual_control_purpose_mismatch', state=st)
+     if st.prepared_by != str(operator):

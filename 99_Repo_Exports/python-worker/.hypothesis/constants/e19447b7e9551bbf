@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/io/pickle.py
+# hypothesis_version: 6.148.10
+
+['compression_options', 'filepath_or_buffer', 'ignore', 'infer', 'latin-1', 'rb', 'storage_options', 'wb']

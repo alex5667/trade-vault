@@ -1,0 +1,11 @@
+{
+  "title": "Trade Execution P9 Canary",
+  "schemaVersion": 38,
+  "version": 1,
+  "panels": [
+    {"type": "stat", "title": "Canary Score",            "gridPos": {"x": 0,  "y": 0, "w": 6, "h": 4}, "targets": []},
+    {"type": "stat", "title": "Quarantined SIDs",        "gridPos": {"x": 6,  "y": 0, "w": 6, "h": 4}, "targets": []},
+    {"type": "stat", "title": "Auto-unquarantined SIDs", "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4}, "targets": []},
+    {"type": "stat", "title": "Emergency Flatten Count", "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4}, "targets": []}
+  ]
+}

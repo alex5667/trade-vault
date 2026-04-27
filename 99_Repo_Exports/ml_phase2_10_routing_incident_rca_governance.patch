@@ -1,0 +1,908 @@
+diff --git a/orderflow_services/operator_routing_incident_rca_results_persister_v2_10.py b/orderflow_services/operator_routing_incident_rca_results_persister_v2_10.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/operator_routing_incident_rca_results_persister_v2_10.py
+@@ -0,0 +1,277 @@
++from __future__ import annotations
++
++import hashlib
++import json
++import os
++import time
++from typing import Any, Dict, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    import psycopg
++except Exception:  # pragma: no cover
++    psycopg = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++
++APP_NAME = "operator_routing_incident_rca_results_persister_v2_10"
++INPUT_STREAM = os.getenv(
++    "ML_OPERATOR_RCA_ROUTING_RCA_RESULTS_STREAM",
++    "stream:ml:operator_rca_routing_rca_results",
++)
++QUALITY_INPUT_STREAM = os.getenv(
++    "ML_OPERATOR_RCA_ROUTING_RCA_QUALITY_INPUT_STREAM",
++    "stream:ml:operator_rca_routing_rca_quality",
++)
++LAST_HASH = os.getenv(
++    "ML_OPERATOR_RCA_ROUTING_RCA_RESULTS_LAST_HASH",
++    "metrics:ml:operator_rca_routing_rca_results:last",
++)
++GROUP = os.getenv("ML_OPERATOR_RCA_ROUTING_RCA_RESULTS_GROUP", APP_NAME)
++CONSUMER = os.getenv("HOSTNAME", APP_NAME)
++PORT = int(os.getenv("ML_OPERATOR_RCA_ROUTING_RCA_RESULTS_PORT", "9886"))
++MAXLEN = int(os.getenv("ML_OPERATOR_RCA_ROUTING_RCA_RESULTS_MAXLEN", "20000"))
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter(
++    "ml_operator_routing_incident_rca_results_runs_total",
++    "Routing incident RCA results persister runs",
++    ("status",),
++)
++LAT = _hist(
++    "ml_operator_routing_incident_rca_results_latency_seconds",
++    "Routing incident RCA results persister latency seconds",
++)
++UP = _gauge(
++    "ml_operator_routing_incident_rca_results_up",
++    "Routing incident RCA results persister up",
++)
++LAST_RUN_TS = _gauge(
++    "ml_operator_routing_incident_rca_results_last_run_ts_seconds",
++    "Routing incident RCA results persister last run timestamp",
++)
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        if isinstance(v, (bytes, bytearray)):
++            try:
++                out[kk] = v.decode()
++            except Exception:
++                out[kk] = v.hex()
++        else:
++            out[kk] = v
++    return out
++
++
++def stable_json(obj: Any) -> str:
++    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++def maybe_json(value: Any, default: Any = None) -> Any:
++    if value is None:
++        return default
++    if isinstance(value, (dict, list)):
++        return value
++    try:
++        return json.loads(value)
++    except Exception:
++        return default
++
++
++def output_hash_for_result(result_row: Dict[str, Any]) -> str:
++    payload = {
++        "route_change_id": result_row.get("route_change_id", ""),
++        "provider": result_row.get("provider", ""),
++        "model_name": result_row.get("model_name", ""),
++        "prompt_version": result_row.get("prompt_version", ""),
++        "policy_version": result_row.get("policy_version", ""),
++        "result_json": maybe_json(result_row.get("result_json"), {}),
++    }
++    return hashlib.sha256(stable_json(payload).encode("utf-8")).hexdigest()[:16]
++
++
++async def ensure_group(client: Any, stream_key: str, group: str) -> None:
++    try:
++        await client.xgroup_create(stream_key, group, id="$", mkstream=True)
++    except Exception:
++        return
++
++
++async def persist_if_configured(db_url: str, row: Dict[str, Any], output_hash: str) -> None:
++    if not db_url or psycopg is None:
++        return
++    with psycopg.connect(db_url) as conn:  # pragma: no cover
++        with conn.cursor() as cur:
++            cur.execute(
++                """
++                INSERT INTO llm_operator_routing_incident_rca_results (
++                    route_change_id,
++                    ts_ms,
++                    provider,
++                    model_name,
++                    prompt_version,
++                    policy_version,
++                    output_hash,
++                    result_json
++                ) VALUES (
++                    %(route_change_id)s,
++                    %(ts_ms)s,
++                    %(provider)s,
++                    %(model_name)s,
++                    %(prompt_version)s,
++                    %(policy_version)s,
++                    %(output_hash)s,
++                    %(result_json)s
++                )
++                ON CONFLICT (route_change_id, output_hash) DO UPDATE SET
++                    ts_ms = EXCLUDED.ts_ms,
++                    result_json = EXCLUDED.result_json
++                """,
++                {
++                    "route_change_id": row.get("route_change_id", ""),
++                    "ts_ms": int(row.get("ts_ms", now_ms())),
++                    "provider": row.get("provider", ""),
++                    "model_name": row.get("model_name", ""),
++                    "prompt_version": row.get("prompt_version", ""),
++                    "policy_version": row.get("policy_version", ""),
++                    "output_hash": output_hash,
++                    "result_json": json.dumps(maybe_json(row.get("result_json"), {})),
++                },
++            )
++            conn.commit()
++
++
++async def publish_quality_input(client: Any, row: Dict[str, Any], output_hash: str) -> None:
++    result = maybe_json(row.get("result_json"), {})
++    payload = {
++        "schema_version": 1,
++        "route_change_id": row.get("route_change_id", ""),
++        "provider": row.get("provider", ""),
++        "model_name": row.get("model_name", ""),
++        "prompt_version": row.get("prompt_version", ""),
++        "policy_version": row.get("policy_version", ""),
++        "output_hash": output_hash,
++        "payload_json": stable_json(result),
++        "ts_ms": str(now_ms()),
++    }
++    await client.xadd(QUALITY_INPUT_STREAM, payload, maxlen=MAXLEN, approximate=True)
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    await ensure_group(r, INPUT_STREAM, GROUP)
++    db_url = os.getenv("DATABASE_URL", "")
++    while True:
++        rows = await r.xreadgroup(GROUP, CONSUMER, {INPUT_STREAM: ">"}, count=32, block=5000)
++        if not rows:
++            continue
++        for _stream, messages in rows:
++            for msg_id, payload in messages:
++                started = time.perf_counter()
++                status = "ok"
++                try:
++                    row = as_dict(payload)
++                    out_hash = output_hash_for_result(row)
++                    await persist_if_configured(db_url, row, out_hash)
++                    await publish_quality_input(r, row, out_hash)
++                    await r.hset(
++                        LAST_HASH,
++                        mapping={
++                            "route_change_id": row.get("route_change_id", ""),
++                            "provider": row.get("provider", ""),
++                            "model_name": row.get("model_name", ""),
++                            "prompt_version": row.get("prompt_version", ""),
++                            "policy_version": row.get("policy_version", ""),
++                            "output_hash": out_hash,
++                            "ts_ms": str(now_ms()),
++                        },
++                    )
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                    if LAST_RUN_TS:
++                        LAST_RUN_TS.set(time.time())
++                except Exception:
++                    status = "error"
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                finally:
++                    if RUNS:
++                        RUNS.labels(status=status).inc()
++                    if LAT:
++                        LAT.observe(max(time.perf_counter() - started, 0.0))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    import asyncio
++    asyncio.run(main())
+diff --git a/orderflow_services/operator_routing_incident_rca_quality_scorer_v2_10.py b/orderflow_services/operator_routing_incident_rca_quality_scorer_v2_10.py
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/orderflow_services/operator_routing_incident_rca_quality_scorer_v2_10.py
+@@ -0,0 +1,286 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from typing import Any, Dict, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    import psycopg
++except Exception:  # pragma: no cover
++    psycopg = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++
++APP_NAME = "operator_routing_incident_rca_quality_scorer_v2_10"
++INPUT_STREAM = os.getenv(
++    "ML_OPERATOR_RCA_ROUTING_RCA_QUALITY_INPUT_STREAM",
++    "stream:ml:operator_rca_routing_rca_quality",
++)
++RESULTS_STREAM = os.getenv(
++    "ML_OPERATOR_RCA_ROUTING_RCA_QUALITY_RESULTS_STREAM",
++    "stream:ml:operator_rca_routing_rca_quality_results",
++)
++LAST_HASH = os.getenv(
++    "ML_OPERATOR_RCA_ROUTING_RCA_QUALITY_LAST_HASH",
++    "metrics:ml:operator_rca_routing_rca_quality:last",
++)
++GROUP = os.getenv("ML_OPERATOR_RCA_ROUTING_RCA_QUALITY_GROUP", APP_NAME)
++CONSUMER = os.getenv("HOSTNAME", APP_NAME)
++PORT = int(os.getenv("ML_OPERATOR_RCA_ROUTING_RCA_QUALITY_PORT", "9887"))
++MAXLEN = int(os.getenv("ML_OPERATOR_RCA_ROUTING_RCA_QUALITY_MAXLEN", "20000"))
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter(
++    "ml_operator_routing_incident_rca_quality_runs_total",
++    "Routing incident RCA quality scorer runs",
++    ("status",),
++)
++LAT = _hist(
++    "ml_operator_routing_incident_rca_quality_latency_seconds",
++    "Routing incident RCA quality scorer latency seconds",
++)
++UP = _gauge(
++    "ml_operator_routing_incident_rca_quality_up",
++    "Routing incident RCA quality scorer up",
++)
++LAST_RUN_TS = _gauge(
++    "ml_operator_routing_incident_rca_quality_last_run_ts_seconds",
++    "Routing incident RCA quality scorer last run timestamp",
++)
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        if isinstance(v, (bytes, bytearray)):
++            try:
++                out[kk] = v.decode()
++            except Exception:
++                out[kk] = v.hex()
++        else:
++            out[kk] = v
++    return out
++
++
++def maybe_json(value: Any, default: Any = None) -> Any:
++    if value is None:
++        return default
++    if isinstance(value, (dict, list)):
++        return value
++    try:
++        return json.loads(value)
++    except Exception:
++        return default
++
++
++def stable_json(obj: Any) -> str:
++    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++def compute_quality_score(result: Dict[str, Any]) -> float:
++    summary = str(result.get("summary", "") or "")
++    findings = result.get("findings", []) or []
++    recommendations = result.get("recommendations", []) or []
++    evidence_density = 0.0
++    if findings:
++        evidence_density = sum(len(x.get("evidence", []) or []) for x in findings) / max(len(findings), 1)
++
++    score = 0.0
++    if summary.strip():
++        score += 0.20
++    if findings:
++        score += min(0.35, 0.10 * len(findings))
++    if recommendations:
++        score += min(0.25, 0.08 * len(recommendations))
++    score += min(0.20, 0.04 * evidence_density)
++    return round(min(score, 1.0), 4)
++
++
++async def ensure_group(client: Any, stream_key: str, group: str) -> None:
++    try:
++        await client.xgroup_create(stream_key, group, id="$", mkstream=True)
++    except Exception:
++        return
++
++
++async def persist_if_configured(db_url: str, row: Dict[str, Any], quality_score: float) -> None:
++    if not db_url or psycopg is None:
++        return
++    with psycopg.connect(db_url) as conn:  # pragma: no cover
++        with conn.cursor() as cur:
++            cur.execute(
++                """
++                INSERT INTO llm_operator_routing_incident_rca_quality (
++                    route_change_id,
++                    ts_ms,
++                    output_hash,
++                    quality_score,
++                    quality_json
++                ) VALUES (
++                    %(route_change_id)s,
++                    %(ts_ms)s,
++                    %(output_hash)s,
++                    %(quality_score)s,
++                    %(quality_json)s
++                )
++                """,
++                {
++                    "route_change_id": row.get("route_change_id", ""),
++                    "ts_ms": int(row.get("ts_ms", now_ms())),
++                    "output_hash": row.get("output_hash", ""),
++                    "quality_score": quality_score,
++                    "quality_json": json.dumps({"quality_score": quality_score}),
++                },
++            )
++            cur.execute(
++                """
++                UPDATE llm_operator_routing_incident_rca_results
++                SET quality_score = %(quality_score)s
++                WHERE route_change_id = %(route_change_id)s
++                  AND output_hash = %(output_hash)s
++                """,
++                {
++                    "route_change_id": row.get("route_change_id", ""),
++                    "output_hash": row.get("output_hash", ""),
++                    "quality_score": quality_score,
++                },
++            )
++            conn.commit()
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    await ensure_group(r, INPUT_STREAM, GROUP)
++    db_url = os.getenv("DATABASE_URL", "")
++    while True:
++        rows = await r.xreadgroup(GROUP, CONSUMER, {INPUT_STREAM: ">"}, count=32, block=5000)
++        if not rows:
++            continue
++        for _stream, messages in rows:
++            for msg_id, payload in messages:
++                started = time.perf_counter()
++                status = "ok"
++                try:
++                    row = as_dict(payload)
++                    result = maybe_json(row.get("payload_json"), {})
++                    quality_score = compute_quality_score(result)
++                    out = {
++                        "schema_version": 1,
++                        "route_change_id": row.get("route_change_id", ""),
++                        "provider": row.get("provider", ""),
++                        "model_name": row.get("model_name", ""),
++                        "prompt_version": row.get("prompt_version", ""),
++                        "policy_version": row.get("policy_version", ""),
++                        "output_hash": row.get("output_hash", ""),
++                        "quality_score": str(quality_score),
++                        "ts_ms": str(now_ms()),
++                    }
++                    await persist_if_configured(db_url, row, quality_score)
++                    await r.xadd(RESULTS_STREAM, out, maxlen=MAXLEN, approximate=True)
++                    await r.hset(
++                        LAST_HASH,
++                        mapping={
++                            "route_change_id": row.get("route_change_id", ""),
++                            "quality_score": str(quality_score),
++                            "output_hash": row.get("output_hash", ""),
++                            "ts_ms": str(now_ms()),
++                        },
++                    )
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                    if LAST_RUN_TS:
++                        LAST_RUN_TS.set(time.time())
++                except Exception:
++                    status = "error"
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                finally:
++                    if RUNS:
++                        RUNS.labels(status=status).inc()
++                    if LAT:
++                        LAT.observe(max(time.perf_counter() - started, 0.0))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    import asyncio
++    asyncio.run(main())
+diff --git a/orderflow_services/operator_routing_incident_rca_feedback_loop_v2_10.py b/orderflow_services/operator_routing_incident_rca_feedback_loop_v2_10.py
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/orderflow_services/operator_routing_incident_rca_feedback_loop_v2_10.py
+@@ -0,0 +1,306 @@
++from __future__ import annotations
++
++import os
++import time
++from typing import Any, Dict, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    import psycopg
++except Exception:  # pragma: no cover
++    psycopg = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++
++APP_NAME = "operator_routing_incident_rca_feedback_loop_v2_10"
++INPUT_STREAM = os.getenv(
++    "ML_OPERATOR_RCA_ROUTING_RCA_FEEDBACK_STREAM",
++    "stream:ml:operator_rca_routing_rca_feedback",
++)
++SUMMARY_STREAM = os.getenv(
++    "ML_OPERATOR_RCA_ROUTING_RCA_FEEDBACK_SUMMARY_STREAM",
++    "stream:ml:operator_rca_routing_rca_feedback_summary",
++)
++LAST_HASH = os.getenv(
++    "ML_OPERATOR_RCA_ROUTING_RCA_FEEDBACK_LAST_HASH",
++    "metrics:ml:operator_rca_routing_rca_feedback:last",
++)
++GROUP = os.getenv("ML_OPERATOR_RCA_ROUTING_RCA_FEEDBACK_GROUP", APP_NAME)
++CONSUMER = os.getenv("HOSTNAME", APP_NAME)
++PORT = int(os.getenv("ML_OPERATOR_RCA_ROUTING_RCA_FEEDBACK_PORT", "9888"))
++MAXLEN = int(os.getenv("ML_OPERATOR_RCA_ROUTING_RCA_FEEDBACK_MAXLEN", "20000"))
++
++USEFULNESS_MAP = {
++    "VERY_USEFUL": 1.0,
++    "USEFUL": 0.75,
++    "MIXED": 0.50,
++    "NOT_USEFUL": 0.0,
++}
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter(
++    "ml_operator_routing_incident_rca_feedback_runs_total",
++    "Routing incident RCA feedback loop runs",
++    ("status",),
++)
++LAT = _hist(
++    "ml_operator_routing_incident_rca_feedback_latency_seconds",
++    "Routing incident RCA feedback loop latency seconds",
++)
++UP = _gauge(
++    "ml_operator_routing_incident_rca_feedback_up",
++    "Routing incident RCA feedback loop up",
++)
++LAST_RUN_TS = _gauge(
++    "ml_operator_routing_incident_rca_feedback_last_run_ts_seconds",
++    "Routing incident RCA feedback loop last run timestamp",
++)
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        if isinstance(v, (bytes, bytearray)):
++            try:
++                out[kk] = v.decode()
++            except Exception:
++                out[kk] = v.hex()
++        else:
++            out[kk] = v
++    return out
++
++
++async def ensure_group(client: Any, stream_key: str, group: str) -> None:
++    try:
++        await client.xgroup_create(stream_key, group, id="$", mkstream=True)
++    except Exception:
++        return
++
++
++def usefulness_score(decision: str) -> float:
++    return USEFULNESS_MAP.get(str(decision or "").upper(), 0.5)
++
++
++async def persist_if_configured(db_url: str, row: Dict[str, Any], usefulness: float) -> None:
++    if not db_url or psycopg is None:
++        return
++    with psycopg.connect(db_url) as conn:  # pragma: no cover
++        with conn.cursor() as cur:
++            cur.execute(
++                """
++                INSERT INTO llm_operator_routing_incident_rca_feedback (
++                    route_change_id,
++                    ts_ms,
++                    reviewer,
++                    decision,
++                    usefulness_score,
++                    note
++                ) VALUES (
++                    %(route_change_id)s,
++                    %(ts_ms)s,
++                    %(reviewer)s,
++                    %(decision)s,
++                    %(usefulness_score)s,
++                    %(note)s
++                )
++                """,
++                {
++                    "route_change_id": row.get("route_change_id", ""),
++                    "ts_ms": int(row.get("ts_ms", now_ms())),
++                    "reviewer": row.get("reviewer", ""),
++                    "decision": row.get("decision", ""),
++                    "usefulness_score": usefulness,
++                    "note": row.get("note", ""),
++                },
++            )
++            cur.execute(
++                """
++                UPDATE llm_operator_routing_incident_rca_results
++                SET usefulness_score = COALESCE((
++                    SELECT AVG(f.usefulness_score)
++                    FROM llm_operator_routing_incident_rca_feedback f
++                    WHERE f.route_change_id = %(route_change_id)s
++                ), usefulness_score)
++                WHERE route_change_id = %(route_change_id)s
++                """,
++                {"route_change_id": row.get("route_change_id", "")},
++            )
++            conn.commit()
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    await ensure_group(r, INPUT_STREAM, GROUP)
++    db_url = os.getenv("DATABASE_URL", "")
++    while True:
++        rows = await r.xreadgroup(GROUP, CONSUMER, {INPUT_STREAM: ">"}, count=32, block=5000)
++        if not rows:
++            continue
++        for _stream, messages in rows:
++            for msg_id, payload in messages:
++                started = time.perf_counter()
++                status = "ok"
++                try:
++                    row = as_dict(payload)
++                    score = usefulness_score(row.get("decision", ""))
++                    await persist_if_configured(db_url, row, score)
++                    summary_payload = {
++                        "schema_version": 1,
++                        "route_change_id": row.get("route_change_id", ""),
++                        "reviewer": row.get("reviewer", ""),
++                        "decision": row.get("decision", ""),
++                        "usefulness_score": str(score),
++                        "ts_ms": str(now_ms()),
++                    }
++                    await r.xadd(SUMMARY_STREAM, summary_payload, maxlen=MAXLEN, approximate=True)
++                    await r.hset(
++                        LAST_HASH,
++                        mapping={
++                            "route_change_id": row.get("route_change_id", ""),
++                            "decision": row.get("decision", ""),
++                            "usefulness_score": str(score),
++                            "ts_ms": str(now_ms()),
++                        },
++                    )
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                    if LAST_RUN_TS:
++                        LAST_RUN_TS.set(time.time())
++                except Exception:
++                    status = "error"
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                finally:
++                    if RUNS:
++                        RUNS.labels(status=status).inc()
++                    if LAT:
++                        LAT.observe(max(time.perf_counter() - started, 0.0))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    import asyncio
++    asyncio.run(main())
+diff --git a/orderflow_services/sql/ml_phase2_10_v1.sql b/orderflow_services/sql/ml_phase2_10_v1.sql
+new file mode 100644
+index 0000000..4444444
+--- /dev/null
++++ b/orderflow_services/sql/ml_phase2_10_v1.sql
+@@ -0,0 +1,54 @@
++BEGIN;
++
++CREATE TABLE IF NOT EXISTS llm_operator_routing_incident_rca_results (
++    id                bigserial PRIMARY KEY,
++    route_change_id   text NOT NULL,
++    ts_ms             bigint NOT NULL,
++    provider          text NOT NULL,
++    model_name        text NOT NULL,
++    prompt_version    text NOT NULL,
++    policy_version    text NOT NULL,
++    output_hash       text NOT NULL,
++    quality_score     double precision,
++    usefulness_score  double precision,
++    result_json       jsonb NOT NULL,
++    UNIQUE(route_change_id, output_hash)
++);
++
++CREATE INDEX IF NOT EXISTS idx_llm_operator_routing_incident_rca_results_route_change_id
++    ON llm_operator_routing_incident_rca_results(route_change_id);
++
++CREATE INDEX IF NOT EXISTS idx_llm_operator_routing_incident_rca_results_ts_ms
++    ON llm_operator_routing_incident_rca_results(ts_ms DESC);
++
++CREATE TABLE IF NOT EXISTS llm_operator_routing_incident_rca_quality (
++    id               bigserial PRIMARY KEY,
++    route_change_id  text NOT NULL,
++    ts_ms            bigint NOT NULL,
++    output_hash      text NOT NULL,
++    quality_score    double precision NOT NULL,
++    quality_json     jsonb NOT NULL
++);
++
++CREATE TABLE IF NOT EXISTS llm_operator_routing_incident_rca_feedback (
++    id                bigserial PRIMARY KEY,
++    route_change_id   text NOT NULL,
++    ts_ms             bigint NOT NULL,
++    reviewer          text NOT NULL,
++    decision          text NOT NULL,
++    usefulness_score  double precision NOT NULL,
++    note              text
++);
++
++COMMIT;
+diff --git a/orderflow_services/docker_compose_fragment_ml_phase2_10_v1.yml b/orderflow_services/docker_compose_fragment_ml_phase2_10_v1.yml
+new file mode 100644
+index 0000000..5555555
+--- /dev/null
++++ b/orderflow_services/docker_compose_fragment_ml_phase2_10_v1.yml
+@@ -0,0 +1,58 @@
++services:
++  scanner-operator-routing-incident-rca-results-persister-v2-10:
++    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
++    command: ["python", "-m", "orderflow_services.operator_routing_incident_rca_results_persister_v2_10"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_OPERATOR_RCA_ROUTING_RCA_RESULTS_PORT: ${ML_OPERATOR_RCA_ROUTING_RCA_RESULTS_PORT:-9886}
++    ports: ["${ML_OPERATOR_RCA_ROUTING_RCA_RESULTS_PORT:-9886}:9886"]
++    depends_on: [redis-worker-1]
++
++  scanner-operator-routing-incident-rca-quality-scorer-v2-10:
++    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
++    command: ["python", "-m", "orderflow_services.operator_routing_incident_rca_quality_scorer_v2_10"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_OPERATOR_RCA_ROUTING_RCA_QUALITY_PORT: ${ML_OPERATOR_RCA_ROUTING_RCA_QUALITY_PORT:-9887}
++    ports: ["${ML_OPERATOR_RCA_ROUTING_RCA_QUALITY_PORT:-9887}:9887"]
++    depends_on: [redis-worker-1]
++
++  scanner-operator-routing-incident-rca-feedback-loop-v2-10:
++    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
++    command: ["python", "-m", "orderflow_services.operator_routing_incident_rca_feedback_loop_v2_10"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_OPERATOR_RCA_ROUTING_RCA_FEEDBACK_PORT: ${ML_OPERATOR_RCA_ROUTING_RCA_FEEDBACK_PORT:-9888}
++    ports: ["${ML_OPERATOR_RCA_ROUTING_RCA_FEEDBACK_PORT:-9888}:9888"]
++    depends_on: [redis-worker-1]
++diff --git a/orderflow_services/prometheus_alerts_ml_phase2_10_v1.yml b/orderflow_services/prometheus_alerts_ml_phase2_10_v1.yml
+new file mode 100644
+index 0000000..6666666
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_ml_phase2_10_v1.yml
+@@ -0,0 +1,38 @@
++groups:
++  - name: ml_phase2_10_operator_routing_incident_rca_v1
++    rules:
++      - alert: MLOperatorRoutingIncidentRCAResultsPersisterStale
++        expr: time() - ml_operator_routing_incident_rca_results_last_run_ts_seconds > 1800
++        for: 10m
++        labels: { severity: warning }
++        annotations:
++          summary: "operator routing incident RCA results persister is stale"
++
++      - alert: MLOperatorRoutingIncidentRCAQualityScorerStale
++        expr: time() - ml_operator_routing_incident_rca_quality_last_run_ts_seconds > 1800
++        for: 10m
++        labels: { severity: warning }
++        annotations:
++          summary: "operator routing incident RCA quality scorer is stale"
++
++      - alert: MLOperatorRoutingIncidentRCAFeedbackLoopStale
++        expr: time() - ml_operator_routing_incident_rca_feedback_last_run_ts_seconds > 1800
++        for: 10m
++        labels: { severity: warning }
++        annotations:
++          summary: "operator routing incident RCA feedback loop is stale"
++diff --git a/orderflow_services/runbook_ml_phase2_10_v1.md b/orderflow_services/runbook_ml_phase2_10_v1.md
+new file mode 100644
+index 0000000..7777777
+--- /dev/null
++++ b/orderflow_services/runbook_ml_phase2_10_v1.md
+@@ -0,0 +1,43 @@
++# Phase 2.10 — Routing Incident RCA Persistence + Quality/Usefulness Feedback
++
++## Цель
++Дать routing-incident RCA такой же governance-контур, как обычному `operator_rca`:
++- persistence
++- quality scoring
++- usefulness feedback
++
++## Компоненты
++- `operator_routing_incident_rca_results_persister_v2_10.py`
++- `operator_routing_incident_rca_quality_scorer_v2_10.py`
++- `operator_routing_incident_rca_feedback_loop_v2_10.py`
++
++## Потоки
++- input: `stream:ml:operator_rca_routing_rca_results`
++- quality input: `stream:ml:operator_rca_routing_rca_quality`
++- quality result: `stream:ml:operator_rca_routing_rca_quality_results`
++- feedback input: `stream:ml:operator_rca_routing_rca_feedback`
++- feedback summary: `stream:ml:operator_rca_routing_rca_feedback_summary`
++
++## Smoke checks
++```bash
++redis-cli XREVRANGE stream:ml:operator_rca_routing_rca_results + - COUNT 3
++redis-cli XREVRANGE stream:ml:operator_rca_routing_rca_quality_results + - COUNT 3
++redis-cli XREVRANGE stream:ml:operator_rca_routing_rca_feedback_summary + - COUNT 3
++curl -s localhost:9886/metrics | grep '^ml_operator_routing_incident_rca_results_'
++curl -s localhost:9887/metrics | grep '^ml_operator_routing_incident_rca_quality_'
++curl -s localhost:9888/metrics | grep '^ml_operator_routing_incident_rca_feedback_'
++```
++
++## Notes
++- scope только `scanner_infra`
++- hot path не затронут
++- feedback advisory-only
++diff --git a/orderflow_services/tests/test_operator_routing_incident_rca_governance_v2_10.py b/orderflow_services/tests/test_operator_routing_incident_rca_governance_v2_10.py
+new file mode 100644
+index 0000000..8888888
+--- /dev/null
++++ b/orderflow_services/tests/test_operator_routing_incident_rca_governance_v2_10.py
+@@ -0,0 +1,36 @@
++from orderflow_services.operator_routing_incident_rca_results_persister_v2_10 import (
++    output_hash_for_result,
++)
++from orderflow_services.operator_routing_incident_rca_quality_scorer_v2_10 import (
++    compute_quality_score,
++)
++from orderflow_services.operator_routing_incident_rca_feedback_loop_v2_10 import (
++    usefulness_score,
++)
++
++
++def test_output_hash_is_stable():
++    row = {
++        "route_change_id": "rc-42",
++        "provider": "vertex",
++        "model_name": "gemini-2.5-flash-lite",
++        "prompt_version": "routing_incident_rca_v1",
++        "policy_version": "policy_v1",
++        "result_json": '{"summary":"ok","findings":[],"recommendations":[]}',
++    }
++    assert output_hash_for_result(row) == output_hash_for_result(dict(row))
++
++
++def test_compute_quality_score_rewards_summary_findings_and_recommendations():
++    result = {
++        "summary": "incident explained",
++        "findings": [{"evidence": ["a", "b"]}, {"evidence": ["c"]}],
++        "recommendations": [{"action": "open_incident"}],
++    }
++    score = compute_quality_score(result)
++    assert 0.4 <= score <= 1.0
++
++
++def test_usefulness_mapping():
++    assert usefulness_score("VERY_USEFUL") == 1.0
++    assert usefulness_score("USEFUL") == 0.75
++    assert usefulness_score("NOT_USEFUL") == 0.0
++PATCH
+wc -c /mnt/data/ml_phase2_10_routing_incident_rca_governance.patch

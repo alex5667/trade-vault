@@ -1,0 +1,876 @@
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=*.pyo' '--exclude=*.sql' '--exclude=.pytest_cache' a/ml_analysis/tests/test_feature_registry.py b/ml_analysis/tests/test_feature_registry.py
+--- a/ml_analysis/tests/test_feature_registry.py	2026-02-26 09:34:59.000000000 +0000
++++ b/ml_analysis/tests/test_feature_registry.py	2026-02-26 19:00:29.082866378 +0000
+@@ -118,6 +118,20 @@
+         pass  # MLFeatureSchemaV4OF недоступен — тест всё равно прошёл проверку ≥ 100
+ 
+ 
++def test_v5_v6_v7_schema_smoke():
++    """Smoke: feature_registry должен уметь отдавать OF-схемы v5/v6/v7 (+stable)."""
++    reg = _import_registry()
++    for ver in ("v5_of", "v5_of_stable", "v6_of", "v6_of_stable", "v7_of", "v7_of_stable"):
++        info = reg.get_schema_info(ver)
++        assert info.ver in (ver, "v5_of", "v5_of_stable", "v6_of", "v6_of_stable", "v7_of", "v7_of_stable")
++        assert len(info.feature_names) > 0
++        assert len(info.feature_names) == len(info.column_names)
++        assert len(info.schema_hash) == 64
++        # colon-safe columns
++        bad = [c for c in info.column_names if ":" in c]
++        assert not bad, f"column_names содержат ':' для {ver}: {bad[:5]}"
++
++
+ def test_edge_stack_spec_v4_of():
+     """EdgeStackFeatureSpec: feature_cols в формате infer_feature_cols(), хэш корректен."""
+     reg = _import_registry()
+@@ -207,11 +221,11 @@
+ 
+ def test_feature_registry_schema_versions_include_v5_v6():
+     """Smoke: v5_of/v6_of schemas resolve and have deterministic non-empty feature list."""
+-    from core.feature_registry import get_schema_info
++    reg = _import_registry()
+ 
+-    for ver in ("v5_of", "v5_of_stable", "v6_of", "v6_of_stable"):
+-        info = get_schema_info(ver)
+-        assert info.ver == ver
++    for ver in ("v5_of", "v5_of_stable", "v6_of", "v6_of_stable", "v7_of", "v7_of_stable"):
++        info = reg.get_schema_info(ver)
++        assert info.ver in (ver, "v5_of", "v5_of_stable", "v6_of", "v6_of_stable", "v7_of", "v7_of_stable")
+         assert isinstance(info.feature_names, list)
+         assert len(info.feature_names) > 10
+         # must be unique and stable order
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=*.pyo' '--exclude=*.sql' '--exclude=.pytest_cache' a/services/l3_queue_events_proxy.py b/services/l3_queue_events_proxy.py
+--- a/services/l3_queue_events_proxy.py	2026-01-14 04:40:15.000000000 +0000
++++ b/services/l3_queue_events_proxy.py	2026-02-26 18:50:38.015646363 +0000
+@@ -21,6 +21,18 @@
+     cancel_bid_rate_ema: float = 0.0
+     cancel_ask_rate_ema: float = 0.0
+ 
++    # Added liquidity (limit-add) proxy rates (qty/sec)
++    # Computed from top-K reconciliation: added = max(0, end_total - expected_total)
++    limit_add_bid_rate_ema: float = 0.0
++    limit_add_ask_rate_ema: float = 0.0
++    limit_add_total_rate_ema: float = 0.0
++    limit_add_imb: float = 0.0
++
++    # VPIN-like toxicity proxy (0..1) + robust z
++    # tox_raw = |buy - sell| / (buy + sell + eps)
++    vpin_tox_ema: float = 0.0
++    vpin_tox_z: float = 0.0
++
+ 
+ class L3QueueEventsProxy:
+     """
+@@ -56,6 +68,20 @@
+         "_last_added_ask_qty",
+         "_last_exec_overflow_bid",
+         "_last_exec_overflow_ask",
++
++        # --- Added liquidity (limit-add) EMA rates ---
++        "_add_rate_alpha",
++        "_add_bid_rate_ema",
++        "_add_ask_rate_ema",
++
++        # --- VPIN-like toxicity proxy (robust z) ---
++        "_vpin_alpha",
++        "_vpin_mean_alpha",
++        "_vpin_mad_alpha",
++        "_vpin_tox_ema",
++        "_vpin_mean_ema",
++        "_vpin_mad_ema",
++        "_vpin_tox_z",
+     )
+ 
+     def __init__(self, *, bucket_ms: int, alpha: float = 0.12, eps: float = 1e-9) -> None:
+@@ -63,6 +89,12 @@
+         self.alpha = max(0.01, min(0.5, float(alpha)))
+         self.eps = max(1e-12, float(eps))
+         self._cancel_rate_alpha = max(0.01, min(0.9, float(os.getenv("L3_CANCEL_RATE_EMA_ALPHA", "0.15"))))
++        self._add_rate_alpha = max(0.01, min(0.9, float(os.getenv("L3_ADD_RATE_EMA_ALPHA", "0.12"))))
++
++        # VPIN-like toxicity proxy knobs
++        self._vpin_alpha = max(0.01, min(0.9, float(os.getenv("VPIN_TOX_EMA_ALPHA", "0.05"))))
++        self._vpin_mean_alpha = max(0.01, min(0.9, float(os.getenv("VPIN_TOX_MEAN_ALPHA", "0.03"))))
++        self._vpin_mad_alpha = max(0.01, min(0.9, float(os.getenv("VPIN_TOX_MAD_ALPHA", "0.03"))))
+ 
+         self._bucket_buy = 0.0
+         self._bucket_sell = 0.0
+@@ -86,6 +118,16 @@
+         self._last_exec_overflow_bid = 0.0
+         self._last_exec_overflow_ask = 0.0
+ 
++        # Added liquidity EMA rates
++        self._add_bid_rate_ema = 0.0
++        self._add_ask_rate_ema = 0.0
++
++        # VPIN-like toxicity state
++        self._vpin_tox_ema = 0.0
++        self._vpin_mean_ema = 0.0
++        self._vpin_mad_ema = 0.0
++        self._vpin_tox_z = 0.0
++
+     def on_trade(self, *, side: int, qty: float) -> None:
+         """Accumulate qty into the current bucket."""
+         q = float(qty or 0.0)
+@@ -109,7 +151,7 @@
+         if b == self._last_bucket_id:
+             return None
+ 
+-        # --- close previous bucket: update cancel EMAs using internal reconciliation ---
++        # --- close previous bucket: update cancel EMAs + cache reconciliation ---
+         self.on_bucket_close(bucket_ms=self.bucket_ms)
+ 
+         # close previous bucket (note: if gap>1, we still close once with current collected qty)
+@@ -121,6 +163,30 @@
+         self._rate_buy_ema = (1.0 - a) * self._rate_buy_ema + a * buy_rate
+         self._rate_sell_ema = (1.0 - a) * self._rate_sell_ema + a * sell_rate
+ 
++        # limit-add proxy EMA rates (qty/sec) from reconciliation added_{bid,ask}
++        add_bid_rate = float(self._last_added_bid_qty or 0.0) / max(self.eps, sec)
++        add_ask_rate = float(self._last_added_ask_qty or 0.0) / max(self.eps, sec)
++        aa = self._add_rate_alpha
++        self._add_bid_rate_ema = (1.0 - aa) * self._add_bid_rate_ema + aa * add_bid_rate
++        self._add_ask_rate_ema = (1.0 - aa) * self._add_ask_rate_ema + aa * add_ask_rate
++
++        add_total = self._add_bid_rate_ema + self._add_ask_rate_ema
++        add_den = add_total + self.eps
++        add_imb = (self._add_bid_rate_ema - self._add_ask_rate_ema) / add_den
++
++        # VPIN-like toxicity: |buy-sell| / (buy+sell)
++        tox_raw = abs(self._bucket_buy - self._bucket_sell) / (abs(self._bucket_buy) + abs(self._bucket_sell) + self.eps)
++        # EMA of raw toxicity (smoother)
++        va = self._vpin_alpha
++        self._vpin_tox_ema = (1.0 - va) * self._vpin_tox_ema + va * tox_raw
++        # Robust-ish z: EMA mean + EMA abs-dev as MAD proxy
++        vma = self._vpin_mean_alpha
++        self._vpin_mean_ema = (1.0 - vma) * self._vpin_mean_ema + vma * tox_raw
++        dev = abs(tox_raw - self._vpin_mean_ema)
++        vda = self._vpin_mad_alpha
++        self._vpin_mad_ema = (1.0 - vda) * self._vpin_mad_ema + vda * dev
++        self._vpin_tox_z = (tox_raw - self._vpin_mean_ema) / max(self._vpin_mad_ema, 1e-6)
++
+         out = L3BucketStats(
+             taker_buy_qty=self._bucket_buy,
+             taker_sell_qty=self._bucket_sell,
+@@ -128,6 +194,14 @@
+             taker_sell_rate_ema=self._rate_sell_ema,
+             cancel_bid_rate_ema=self.cancel_bid_rate_ema,
+             cancel_ask_rate_ema=self.cancel_ask_rate_ema,
++
++            limit_add_bid_rate_ema=self._add_bid_rate_ema,
++            limit_add_ask_rate_ema=self._add_ask_rate_ema,
++            limit_add_total_rate_ema=float(add_total),
++            limit_add_imb=float(add_imb),
++
++            vpin_tox_ema=float(self._vpin_tox_ema),
++            vpin_tox_z=float(self._vpin_tox_z),
+         )
+ 
+         # reset for new bucket
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=*.pyo' '--exclude=*.sql' '--exclude=.pytest_cache' a/services/ml_confirm_gate_dynamic_v8_stack_schema_v3.py b/services/ml_confirm_gate_dynamic_v8_stack_schema_v3.py
+--- a/services/ml_confirm_gate_dynamic_v8_stack_schema_v3.py	2026-02-26 09:32:45.000000000 +0000
++++ b/services/ml_confirm_gate_dynamic_v8_stack_schema_v3.py	2026-02-26 18:58:03.723248290 +0000
+@@ -31,6 +31,11 @@
+ except Exception:
+     MLFeatureSchemaV6OF = None
+ 
++try:
++    from core.ml_feature_schema_v7_of import MLFeatureSchemaV7OF
++except Exception:
++    MLFeatureSchemaV7OF = None
++
+ from core.confirmations_schema_v1 import apply_confirmations_to_indicators
+ 
+ 
+@@ -116,6 +121,8 @@
+             self._schema = MLFeatureSchemaV5OFStable()
+         elif schema_ver in ("v6_of", "v6", "v6of") and MLFeatureSchemaV6OF is not None:
+             self._schema = MLFeatureSchemaV6OF()
++        elif schema_ver in ("v7_of", "v7", "v7of") and MLFeatureSchemaV7OF is not None:
++            self._schema = MLFeatureSchemaV7OF()
+         else:
+             self._schema = MLFeatureSchemaV3()
+         self._metrics_stream = os.getenv("ML_CONFIRM_METRICS_STREAM", "metrics:ml_confirm")
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=*.pyo' '--exclude=*.sql' '--exclude=.pytest_cache' a/services/orderflow_strategy.py b/services/orderflow_strategy.py
+--- a/services/orderflow_strategy.py	2026-02-24 16:37:07.000000000 +0000
++++ b/services/orderflow_strategy.py	2026-02-26 18:53:36.228330340 +0000
+@@ -857,51 +857,32 @@
+                 # Uses EMA rates from runtime.l3_stats (updated on bucket advance). Cheap O(1) recursion.
+                 try:
+                     if runtime.l3_stats:
+-                        hs = getattr(runtime, "hawkes_state", None)
+-                        if hs is None:
+-                            hs = {"ts_ms": int(tick_ts), "S_taker": 0.0, "S_cancel": 0.0, "S_churn": 0.0}
+-                            runtime.hawkes_state = hs
+-                
++                        from core.hawkes_like_intensity import update_hawkes_like
++
++                        cfg = getattr(runtime, "config", {}) or {}
+                         t_now = int(tick_ts)
+-                        prev_ts = int(hs.get("ts_ms", t_now))
+-                        dt_s = max(0.0, (t_now - prev_ts) / 1000.0)
+-                        hs["ts_ms"] = t_now
+-                
+-                        # EMA rates (events/sec) from L3-lite queue stats
++
+                         tb = float(getattr(runtime.l3_stats, "taker_buy_rate_ema", 0.0) or 0.0)
+                         tsell = float(getattr(runtime.l3_stats, "taker_sell_rate_ema", 0.0) or 0.0)
+                         cb = float(getattr(runtime.l3_stats, "cancel_bid_rate_ema", 0.0) or 0.0)
+                         ca = float(getattr(runtime.l3_stats, "cancel_ask_rate_ema", 0.0) or 0.0)
+-                
+-                        taker_rate = max(0.0, tb + tsell)
+-                        cancel_rate = max(0.0, cb + ca)
+-                        churn_rate = taker_rate + cancel_rate
+-                
+-                        # Params (Hawkes-like): S <- exp(-beta*dt)*S + rate*dt ; lam = mu + alpha*S
+-                        cfg = getattr(runtime, "config", {}) or {}
+-                        beta = float(cfg.get("hawkes_beta", 1.8) or 1.8)
+-                
+-                        alpha_t = float(cfg.get("hawkes_alpha_taker", 0.9) or 0.9)
+-                        mu_t = float(cfg.get("hawkes_mu_taker", 0.1) or 0.1)
+-                
+-                        alpha_c = float(cfg.get("hawkes_alpha_cancel", 0.7) or 0.7)
+-                        mu_c = float(cfg.get("hawkes_mu_cancel", 0.1) or 0.1)
+-                
+-                        alpha_h = float(cfg.get("hawkes_alpha_churn", 0.5) or 0.5)
+-                        mu_h = float(cfg.get("hawkes_mu_churn", 0.1) or 0.1)
+-                
+-                        if dt_s > 0.0:
+-                            decay = math.exp(-beta * dt_s)
+-                            hs["S_taker"] = decay * float(hs.get("S_taker", 0.0)) + taker_rate * dt_s
+-                            hs["S_cancel"] = decay * float(hs.get("S_cancel", 0.0)) + cancel_rate * dt_s
+-                            hs["S_churn"] = decay * float(hs.get("S_churn", 0.0)) + churn_rate * dt_s
+-                
+-                        runtime.hawkes_snapshot = {
+-                            "hawkes_dt_s": float(dt_s),
+-                            "hawkes_taker_lam": float(mu_t + alpha_t * float(hs.get("S_taker", 0.0))),
+-                            "hawkes_cancel_lam": float(mu_c + alpha_c * float(hs.get("S_cancel", 0.0))),
+-                            "hawkes_churn_lam": float(mu_h + alpha_h * float(hs.get("S_churn", 0.0))),
+-                        }
++                        la = float(getattr(runtime.l3_stats, "limit_add_total_rate_ema", 0.0) or 0.0)
++
++                        hs_prev = getattr(runtime, "hawkes_state", None)
++                        hs_new, snap = update_hawkes_like(
++                            hs_prev,
++                            ts_ms=t_now,
++                            rates={
++                                "taker_buy_rate": tb,
++                                "taker_sell_rate": tsell,
++                                "cancel_bid_rate": cb,
++                                "cancel_ask_rate": ca,
++                                "limit_add_rate": la,
++                            },
++                            cfg=cfg,
++                        )
++                        runtime.hawkes_state = hs_new
++                        runtime.hawkes_snapshot = snap
+                 except Exception:
+                     # Fail-open: Hawkes is a feature-only signal for now
+                     pass
+@@ -1178,11 +1159,28 @@
+             
+             # Enrich with L3-lite stats
+             if runtime.l3_stats:
++                _cb = float(runtime.l3_stats.cancel_bid_rate_ema)
++                _ca = float(runtime.l3_stats.cancel_ask_rate_ema)
++                _la = float(getattr(runtime.l3_stats, "limit_add_total_rate_ema", 0.0) or 0.0)
++                _lp_den = _la + (_cb + _ca) + 1e-9
+                 spike_out.update({
+-                    "cancel_bid_rate_ema": float(runtime.l3_stats.cancel_bid_rate_ema),
+-                    "cancel_ask_rate_ema": float(runtime.l3_stats.cancel_ask_rate_ema),
++                    "cancel_bid_rate_ema": _cb,
++                    "cancel_ask_rate_ema": _ca,
+                     "taker_buy_rate_ema": float(runtime.l3_stats.taker_buy_rate_ema),
+                     "taker_sell_rate_ema": float(runtime.l3_stats.taker_sell_rate_ema),
++
++                    "limit_add_total_rate_ema": _la,
++                    "limit_add_imb": float(getattr(runtime.l3_stats, "limit_add_imb", 0.0) or 0.0),
++
++                    "vpin_tox_ema": float(getattr(runtime.l3_stats, "vpin_tox_ema", 0.0) or 0.0),
++                    "vpin_tox_z": float(getattr(runtime.l3_stats, "vpin_tox_z", 0.0) or 0.0),
++
++                    # Aliases for downstream experiments
++                    "lambda_trade_buy": float(runtime.l3_stats.taker_buy_rate_ema),
++                    "lambda_trade_sell": float(runtime.l3_stats.taker_sell_rate_ema),
++                    "lambda_limit_add": _la,
++                    "liquidity_pressure": float((_la - (_cb + _ca)) / _lp_den),
++                    "info_flow": float(getattr(runtime.l3_stats, "vpin_tox_ema", 0.0) or 0.0),
+                 })
+ 
+             asyncio.create_task(
+@@ -1825,6 +1823,23 @@
+                 indicators["taker_buy_rate_ema"] = float(runtime.l3_stats.taker_buy_rate_ema)
+                 indicators["taker_sell_rate_ema"] = float(runtime.l3_stats.taker_sell_rate_ema)
+ 
++                # limit-add + toxicity (VPIN-like) proxies
++                indicators["limit_add_total_rate_ema"] = float(getattr(runtime.l3_stats, "limit_add_total_rate_ema", 0.0) or 0.0)
++                indicators["limit_add_imb"] = float(getattr(runtime.l3_stats, "limit_add_imb", 0.0) or 0.0)
++                indicators["vpin_tox_ema"] = float(getattr(runtime.l3_stats, "vpin_tox_ema", 0.0) or 0.0)
++                indicators["vpin_tox_z"] = float(getattr(runtime.l3_stats, "vpin_tox_z", 0.0) or 0.0)
++
++                # Aliases (experiment-friendly names)
++                indicators["lambda_trade_buy"] = float(runtime.l3_stats.taker_buy_rate_ema)
++                indicators["lambda_trade_sell"] = float(runtime.l3_stats.taker_sell_rate_ema)
++                indicators["lambda_limit_add"] = float(getattr(runtime.l3_stats, "limit_add_total_rate_ema", 0.0) or 0.0)
++                _cb = float(runtime.l3_stats.cancel_bid_rate_ema)
++                _ca = float(runtime.l3_stats.cancel_ask_rate_ema)
++                _la = float(getattr(runtime.l3_stats, "limit_add_total_rate_ema", 0.0) or 0.0)
++                _den = _la + (_cb + _ca) + 1e-9
++                indicators["liquidity_pressure"] = float((_la - (_cb + _ca)) / _den)
++                indicators["info_flow"] = float(getattr(runtime.l3_stats, "vpin_tox_ema", 0.0) or 0.0)
++
+             # Hawkes burst features (computed on bucket advance; fail-open if missing)
+             hsnap = getattr(runtime, "hawkes_snapshot", None)
+             if isinstance(hsnap, dict):
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=*.pyo' '--exclude=*.sql' '--exclude=.pytest_cache' a/tick_flow_full/core/feature_registry.py b/tick_flow_full/core/feature_registry.py
+--- a/tick_flow_full/core/feature_registry.py	2026-02-26 09:32:47.000000000 +0000
++++ b/tick_flow_full/core/feature_registry.py	2026-02-26 18:56:40.726276675 +0000
+@@ -322,6 +322,32 @@
+ 
+ 
+ # ---------------------------------------------------------------------------
++# v7_of schema — v6_of + hawkes split + vpin toxicity + limit-add (MLFeatureSchemaV7OF)
++# ---------------------------------------------------------------------------
++
++def _get_v7_of_keys():
++    """Импортирует num_keys + bool_keys из MLFeatureSchemaV7OF."""
++    try:
++        from core.ml_feature_schema_v7_of import MLFeatureSchemaV7OF  # type: ignore
++        schema = MLFeatureSchemaV7OF()
++        return list(schema.num_keys), list(schema.bool_keys)
++    except ImportError:
++        # fallback: best-effort superset over v6_of
++        return _get_v6_of_keys()
++
++
++def _get_v7_of_stable_keys():
++    """v7_of_stable = v7_of minus denylisted keys."""
++    num_keys, bool_keys = _get_v7_of_keys()
++    dn, db = _load_feature_denylist()
++    if not dn and not db:
++        return num_keys, bool_keys
++    num_f = [k for k in num_keys if str(k) not in dn]
++    bool_f = [k for k in bool_keys if str(k) not in db]
++    return num_f, bool_f
++
++
++# ---------------------------------------------------------------------------
+ # v5_of_stable schema — v5_of minus denylist (feature_denylist_v1.json)
+ # ---------------------------------------------------------------------------
+ 
+@@ -392,7 +418,7 @@
+     """Возвращает FeatureSchemaInfo для заданной версии схемы.
+ 
+     Args:
+-        ver: одно из "v2", "v3", "v4_of", "v5_of", "v5_of_stable", "v6_of", "v6_of_stable"
++        ver: одно из "v2", "v3", "v4_of", "v5_of", "v5_of_stable", "v6_of", "v6_of_stable", "v7_of", "v7_of_stable"
+ 
+     Returns:
+         FeatureSchemaInfo — неизменяемый дескриптор схемы.
+@@ -428,10 +454,18 @@
+         num_keys, bool_keys = _get_v6_of_stable_keys()
+         names = _build_feature_names(num_keys, bool_keys)
+         v = "v6_of_stable"
++    elif v in ("v7_of", "v7"):
++        num_keys, bool_keys = _get_v7_of_keys()
++        names = _build_feature_names(num_keys, bool_keys)
++        v = "v7_of"
++    elif v in ("v7_of_stable", "v7_stable", "v7stable"):
++        num_keys, bool_keys = _get_v7_of_stable_keys()
++        names = _build_feature_names(num_keys, bool_keys)
++        v = "v7_of_stable"
+     else:
+         raise ValueError(
+             f"Unsupported feature schema version: {ver!r}. "
+-            f"Supported: 'v2', 'v3', 'v4_of', 'v5_of', 'v5_of_stable', 'v6_of', 'v6_of_stable'."
++            f"Supported: 'v2', 'v3', 'v4_of', 'v5_of', 'v5_of_stable', 'v6_of', 'v6_of_stable', 'v7_of', 'v7_of_stable'."
+         )
+ 
+     info = _make_schema_info(v, names)
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=*.pyo' '--exclude=*.sql' '--exclude=.pytest_cache' a/tick_flow_full/core/hawkes_like_intensity.py b/tick_flow_full/core/hawkes_like_intensity.py
+--- a/tick_flow_full/core/hawkes_like_intensity.py	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/core/hawkes_like_intensity.py	2026-02-26 18:55:32.779640375 +0000
+@@ -0,0 +1,152 @@
++"""Hawkes-like online intensities (cheap burst features).
++
++Goal
++----
++Provide O(1) recursion that approximates Hawkes clustering without heavyweight event-history.
++We keep an exponentially-decaying accumulator S for each stream:
++
++    S <- exp(-beta*dt) * S + rate * dt
++    lambda <- mu + alpha * S
++
++Where `rate` is an EMA proxy (events/sec) coming from L3-lite / microstructure trackers.
++
++Design constraints
++------------------
++- Deterministic time: caller passes ts_ms.
++- Fail-open: safe to skip on errors.
++- Backward compatible: keep aggregated taker/cancel/churn lambdas.
++"""
++
++from __future__ import annotations
++
++import math
++from typing import Any, Dict, Mapping, Optional, Tuple
++
++
++def _get_float(cfg: Mapping[str, Any], key: str, default: float) -> float:
++    v = cfg.get(key, default)
++    try:
++        return float(v)
++    except Exception:
++        return float(default)
++
++
++def update_hawkes_like(
++    state: Optional[Dict[str, Any]],
++    *,
++    ts_ms: int,
++    rates: Mapping[str, float],
++    cfg: Mapping[str, Any],
++) -> Tuple[Dict[str, Any], Dict[str, float]]:
++    """Update Hawkes-like state and return (state, snapshot).
++
++    Parameters
++    ----------
++    state:
++        Mutable dict stored on runtime (or None for init).
++    ts_ms:
++        Current timestamp in epoch ms.
++    rates:
++        Mapping with keys:
++          - taker_buy_rate
++          - taker_sell_rate
++          - cancel_bid_rate
++          - cancel_ask_rate
++          - limit_add_rate
++        All values are expected to be non-negative (events/sec proxy).
++    cfg:
++        Runtime config mapping. Supports:
++          hawkes_beta
++          hawkes_alpha_taker / hawkes_mu_taker
++          hawkes_alpha_cancel / hawkes_mu_cancel
++          hawkes_alpha_churn / hawkes_mu_churn
++          hawkes_alpha_taker_buy / hawkes_mu_taker_buy
++          hawkes_alpha_taker_sell / hawkes_mu_taker_sell
++          hawkes_alpha_cancel_bid / hawkes_mu_cancel_bid
++          hawkes_alpha_cancel_ask / hawkes_mu_cancel_ask
++          hawkes_alpha_limit_add / hawkes_mu_limit_add
++
++    Returns
++    -------
++    (state, snapshot)
++        snapshot is a flat dict of floats suitable to be merged into indicators.
++    """
++
++    t_now = int(ts_ms)
++    if state is None:
++        state = {"ts_ms": t_now}
++
++    prev_ts = int(state.get("ts_ms", t_now))
++    dt_s = max(0.0, (t_now - prev_ts) / 1000.0)
++    state["ts_ms"] = t_now
++
++    # Rates (proxy events/sec)
++    tb = max(0.0, float(rates.get("taker_buy_rate", 0.0) or 0.0))
++    tsell = max(0.0, float(rates.get("taker_sell_rate", 0.0) or 0.0))
++    cb = max(0.0, float(rates.get("cancel_bid_rate", 0.0) or 0.0))
++    ca = max(0.0, float(rates.get("cancel_ask_rate", 0.0) or 0.0))
++    la = max(0.0, float(rates.get("limit_add_rate", 0.0) or 0.0))
++
++    taker_rate = tb + tsell
++    cancel_rate = cb + ca
++    churn_rate = taker_rate + cancel_rate
++
++    beta = _get_float(cfg, "hawkes_beta", 1.8)
++
++    # Base params (used as fallbacks)
++    alpha_t = _get_float(cfg, "hawkes_alpha_taker", 0.9)
++    mu_t = _get_float(cfg, "hawkes_mu_taker", 0.1)
++
++    alpha_c = _get_float(cfg, "hawkes_alpha_cancel", 0.7)
++    mu_c = _get_float(cfg, "hawkes_mu_cancel", 0.1)
++
++    alpha_h = _get_float(cfg, "hawkes_alpha_churn", 0.5)
++    mu_h = _get_float(cfg, "hawkes_mu_churn", 0.1)
++
++    alpha_tb = _get_float(cfg, "hawkes_alpha_taker_buy", alpha_t)
++    mu_tb = _get_float(cfg, "hawkes_mu_taker_buy", mu_t)
++
++    alpha_ts = _get_float(cfg, "hawkes_alpha_taker_sell", alpha_t)
++    mu_ts = _get_float(cfg, "hawkes_mu_taker_sell", mu_t)
++
++    alpha_cb = _get_float(cfg, "hawkes_alpha_cancel_bid", alpha_c)
++    mu_cb = _get_float(cfg, "hawkes_mu_cancel_bid", mu_c)
++
++    alpha_ca = _get_float(cfg, "hawkes_alpha_cancel_ask", alpha_c)
++    mu_ca = _get_float(cfg, "hawkes_mu_cancel_ask", mu_c)
++
++    alpha_la = _get_float(cfg, "hawkes_alpha_limit_add", 0.6)
++    mu_la = _get_float(cfg, "hawkes_mu_limit_add", 0.05)
++
++    if dt_s > 0.0:
++        decay = math.exp(-beta * dt_s)
++
++        # Keep legacy aggregates
++        state["S_taker"] = decay * float(state.get("S_taker", 0.0)) + taker_rate * dt_s
++        state["S_cancel"] = decay * float(state.get("S_cancel", 0.0)) + cancel_rate * dt_s
++        state["S_churn"] = decay * float(state.get("S_churn", 0.0)) + churn_rate * dt_s
++
++        # Split streams
++        state["S_taker_buy"] = decay * float(state.get("S_taker_buy", 0.0)) + tb * dt_s
++        state["S_taker_sell"] = decay * float(state.get("S_taker_sell", 0.0)) + tsell * dt_s
++        state["S_cancel_bid"] = decay * float(state.get("S_cancel_bid", 0.0)) + cb * dt_s
++        state["S_cancel_ask"] = decay * float(state.get("S_cancel_ask", 0.0)) + ca * dt_s
++        state["S_limit_add"] = decay * float(state.get("S_limit_add", 0.0)) + la * dt_s
++
++    snap: Dict[str, float] = {
++        "hawkes_dt_s": float(dt_s),
++
++        # legacy
++        "hawkes_taker_lam": float(mu_t + alpha_t * float(state.get("S_taker", 0.0))),
++        "hawkes_cancel_lam": float(mu_c + alpha_c * float(state.get("S_cancel", 0.0))),
++        "hawkes_churn_lam": float(mu_h + alpha_h * float(state.get("S_churn", 0.0))),
++
++        # split
++        "hawkes_taker_buy_lam": float(mu_tb + alpha_tb * float(state.get("S_taker_buy", 0.0))),
++        "hawkes_taker_sell_lam": float(mu_ts + alpha_ts * float(state.get("S_taker_sell", 0.0))),
++        "hawkes_cancel_bid_lam": float(mu_cb + alpha_cb * float(state.get("S_cancel_bid", 0.0))),
++        "hawkes_cancel_ask_lam": float(mu_ca + alpha_ca * float(state.get("S_cancel_ask", 0.0))),
++        "hawkes_limit_add_lam": float(mu_la + alpha_la * float(state.get("S_limit_add", 0.0))),
++    }
++
++    return state, snap
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=*.pyo' '--exclude=*.sql' '--exclude=.pytest_cache' a/tick_flow_full/core/ml_feature_schema_v7_of.py b/tick_flow_full/core/ml_feature_schema_v7_of.py
+--- a/tick_flow_full/core/ml_feature_schema_v7_of.py	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/core/ml_feature_schema_v7_of.py	2026-02-26 18:55:55.582441854 +0000
+@@ -0,0 +1,49 @@
++"""ML feature schema v7 (OrderFlow).
++
++v7_of = v6_of + Hawkes-like split intensities + VPIN-like toxicity + limit-add proxies.
++
++Design: keep extensions cheap (O(1) per bucket) and low-latency.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import List
++
++from core.ml_feature_schema_v6_of import MLFeatureSchemaV6OF
++
++
++@dataclass
++class MLFeatureSchemaV7OF(MLFeatureSchemaV6OF):
++    """v7_of = v6_of + Hawkes-like split intensities + VPIN-like toxicity + limit-add proxies."""
++
++    def __post_init__(self) -> None:  # noqa: D401
++        super().__post_init__()
++
++        extra_num: List[str] = [
++            # limit-add (liquidity replenishment proxy)
++            "limit_add_total_rate_ema",
++            "limit_add_imb",
++
++            # VPIN-like toxicity proxy
++            "vpin_tox_ema",
++            "vpin_tox_z",
++
++            # derived aliases (experiment-friendly)
++            "lambda_trade_buy",
++            "lambda_trade_sell",
++            "lambda_limit_add",
++            "liquidity_pressure",
++            "info_flow",
++
++            # Hawkes-like split intensities
++            "hawkes_taker_buy_lam",
++            "hawkes_taker_sell_lam",
++            "hawkes_cancel_bid_lam",
++            "hawkes_cancel_ask_lam",
++            "hawkes_limit_add_lam",
++        ]
++
++        for k in extra_num:
++            if k not in self.num_keys:
++                self.num_keys.append(k)
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=*.pyo' '--exclude=*.sql' '--exclude=.pytest_cache' a/tick_flow_full/services/l3_queue_events_proxy.py b/tick_flow_full/services/l3_queue_events_proxy.py
+--- a/tick_flow_full/services/l3_queue_events_proxy.py	2026-02-19 20:18:57.000000000 +0000
++++ b/tick_flow_full/services/l3_queue_events_proxy.py	2026-02-26 18:51:18.983654367 +0000
+@@ -21,6 +21,16 @@
+     cancel_bid_rate_ema: float = 0.0
+     cancel_ask_rate_ema: float = 0.0
+ 
++    # Added liquidity (limit-add) proxy rates (qty/sec)
++    limit_add_bid_rate_ema: float = 0.0
++    limit_add_ask_rate_ema: float = 0.0
++    limit_add_total_rate_ema: float = 0.0
++    limit_add_imb: float = 0.0
++
++    # VPIN-like toxicity proxy (0..1) + robust z
++    vpin_tox_ema: float = 0.0
++    vpin_tox_z: float = 0.0
++
+ 
+ class L3QueueEventsProxy:
+     """
+@@ -56,6 +66,20 @@
+         "_last_added_ask_qty",
+         "_last_exec_overflow_bid",
+         "_last_exec_overflow_ask",
++
++        # --- Added liquidity (limit-add) EMA rates ---
++        "_add_rate_alpha",
++        "_add_bid_rate_ema",
++        "_add_ask_rate_ema",
++
++        # --- VPIN-like toxicity proxy (robust z) ---
++        "_vpin_alpha",
++        "_vpin_mean_alpha",
++        "_vpin_mad_alpha",
++        "_vpin_tox_ema",
++        "_vpin_mean_ema",
++        "_vpin_mad_ema",
++        "_vpin_tox_z",
+     )
+ 
+     def __init__(self, *, bucket_ms: int, alpha: float = 0.12, eps: float = 1e-9) -> None:
+@@ -63,6 +87,12 @@
+         self.alpha = max(0.01, min(0.5, float(alpha)))
+         self.eps = max(1e-12, float(eps))
+         self._cancel_rate_alpha = max(0.01, min(0.9, float(os.getenv("L3_CANCEL_RATE_EMA_ALPHA", "0.15"))))
++        self._add_rate_alpha = max(0.01, min(0.9, float(os.getenv("L3_ADD_RATE_EMA_ALPHA", "0.12"))))
++
++        # VPIN-like toxicity proxy knobs
++        self._vpin_alpha = max(0.01, min(0.9, float(os.getenv("VPIN_TOX_EMA_ALPHA", "0.05"))))
++        self._vpin_mean_alpha = max(0.01, min(0.9, float(os.getenv("VPIN_TOX_MEAN_ALPHA", "0.03"))))
++        self._vpin_mad_alpha = max(0.01, min(0.9, float(os.getenv("VPIN_TOX_MAD_ALPHA", "0.03"))))
+ 
+         self._bucket_buy = 0.0
+         self._bucket_sell = 0.0
+@@ -86,6 +116,16 @@
+         self._last_exec_overflow_bid = 0.0
+         self._last_exec_overflow_ask = 0.0
+ 
++        # Added liquidity EMA rates
++        self._add_bid_rate_ema = 0.0
++        self._add_ask_rate_ema = 0.0
++
++        # VPIN-like toxicity state
++        self._vpin_tox_ema = 0.0
++        self._vpin_mean_ema = 0.0
++        self._vpin_mad_ema = 0.0
++        self._vpin_tox_z = 0.0
++
+     def on_trade(self, *, side: int, qty: float) -> None:
+         """Accumulate qty into the current bucket."""
+         q = float(qty or 0.0)
+@@ -109,7 +149,7 @@
+         if b == self._last_bucket_id:
+             return None
+ 
+-        # --- close previous bucket: update cancel EMAs using internal reconciliation ---
++        # --- close previous bucket: update cancel EMAs + cache reconciliation ---
+         self.on_bucket_close(bucket_ms=self.bucket_ms)
+ 
+         # close previous bucket (note: if gap>1, we still close once with current collected qty)
+@@ -121,6 +161,28 @@
+         self._rate_buy_ema = (1.0 - a) * self._rate_buy_ema + a * buy_rate
+         self._rate_sell_ema = (1.0 - a) * self._rate_sell_ema + a * sell_rate
+ 
++        # limit-add proxy EMA rates (qty/sec) from reconciliation added_{bid,ask}
++        add_bid_rate = float(self._last_added_bid_qty or 0.0) / max(self.eps, sec)
++        add_ask_rate = float(self._last_added_ask_qty or 0.0) / max(self.eps, sec)
++        aa = self._add_rate_alpha
++        self._add_bid_rate_ema = (1.0 - aa) * self._add_bid_rate_ema + aa * add_bid_rate
++        self._add_ask_rate_ema = (1.0 - aa) * self._add_ask_rate_ema + aa * add_ask_rate
++
++        add_total = self._add_bid_rate_ema + self._add_ask_rate_ema
++        add_den = add_total + self.eps
++        add_imb = (self._add_bid_rate_ema - self._add_ask_rate_ema) / add_den
++
++        # VPIN-like toxicity: |buy-sell| / (buy+sell)
++        tox_raw = abs(self._bucket_buy - self._bucket_sell) / (abs(self._bucket_buy) + abs(self._bucket_sell) + self.eps)
++        va = self._vpin_alpha
++        self._vpin_tox_ema = (1.0 - va) * self._vpin_tox_ema + va * tox_raw
++        vma = self._vpin_mean_alpha
++        self._vpin_mean_ema = (1.0 - vma) * self._vpin_mean_ema + vma * tox_raw
++        dev = abs(tox_raw - self._vpin_mean_ema)
++        vda = self._vpin_mad_alpha
++        self._vpin_mad_ema = (1.0 - vda) * self._vpin_mad_ema + vda * dev
++        self._vpin_tox_z = (tox_raw - self._vpin_mean_ema) / max(self._vpin_mad_ema, 1e-6)
++
+         out = L3BucketStats(
+             taker_buy_qty=self._bucket_buy,
+             taker_sell_qty=self._bucket_sell,
+@@ -128,6 +190,14 @@
+             taker_sell_rate_ema=self._rate_sell_ema,
+             cancel_bid_rate_ema=self.cancel_bid_rate_ema,
+             cancel_ask_rate_ema=self.cancel_ask_rate_ema,
++
++            limit_add_bid_rate_ema=self._add_bid_rate_ema,
++            limit_add_ask_rate_ema=self._add_ask_rate_ema,
++            limit_add_total_rate_ema=float(add_total),
++            limit_add_imb=float(add_imb),
++
++            vpin_tox_ema=float(self._vpin_tox_ema),
++            vpin_tox_z=float(self._vpin_tox_z),
+         )
+ 
+         # reset for new bucket
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=*.pyo' '--exclude=*.sql' '--exclude=.pytest_cache' a/tick_flow_full/services/ml_confirm_gate_dynamic_v8_stack_schema_v3.py b/tick_flow_full/services/ml_confirm_gate_dynamic_v8_stack_schema_v3.py
+--- a/tick_flow_full/services/ml_confirm_gate_dynamic_v8_stack_schema_v3.py	2026-02-26 09:33:05.000000000 +0000
++++ b/tick_flow_full/services/ml_confirm_gate_dynamic_v8_stack_schema_v3.py	2026-02-26 18:58:18.427465709 +0000
+@@ -30,6 +30,11 @@
+ except Exception:
+     MLFeatureSchemaV6OF = None
+ 
++try:
++    from core.ml_feature_schema_v7_of import MLFeatureSchemaV7OF
++except Exception:
++    MLFeatureSchemaV7OF = None
++
+ from core.confirmations_schema_v1 import apply_confirmations_to_indicators
+ 
+ 
+@@ -112,6 +117,8 @@
+             self._schema = MLFeatureSchemaV5OF()
+         elif schema_ver in ("v6_of", "v6", "v6of") and MLFeatureSchemaV6OF is not None:
+             self._schema = MLFeatureSchemaV6OF()
++        elif schema_ver in ("v7_of", "v7", "v7of") and MLFeatureSchemaV7OF is not None:
++            self._schema = MLFeatureSchemaV7OF()
+         else:
+             self._schema = MLFeatureSchemaV3()
+         self._metrics_stream = os.getenv("ML_CONFIRM_METRICS_STREAM", "metrics:ml_confirm")
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=*.pyo' '--exclude=*.sql' '--exclude=.pytest_cache' a/tick_flow_full/services/orderflow_strategy.py b/tick_flow_full/services/orderflow_strategy.py
+--- a/tick_flow_full/services/orderflow_strategy.py	2026-02-24 16:37:07.000000000 +0000
++++ b/tick_flow_full/services/orderflow_strategy.py	2026-02-26 18:54:43.633729192 +0000
+@@ -857,51 +857,32 @@
+                 # Uses EMA rates from runtime.l3_stats (updated on bucket advance). Cheap O(1) recursion.
+                 try:
+                     if runtime.l3_stats:
+-                        hs = getattr(runtime, "hawkes_state", None)
+-                        if hs is None:
+-                            hs = {"ts_ms": int(tick_ts), "S_taker": 0.0, "S_cancel": 0.0, "S_churn": 0.0}
+-                            runtime.hawkes_state = hs
+-                
++                        from core.hawkes_like_intensity import update_hawkes_like
++
++                        cfg = getattr(runtime, "config", {}) or {}
+                         t_now = int(tick_ts)
+-                        prev_ts = int(hs.get("ts_ms", t_now))
+-                        dt_s = max(0.0, (t_now - prev_ts) / 1000.0)
+-                        hs["ts_ms"] = t_now
+-                
+-                        # EMA rates (events/sec) from L3-lite queue stats
++
+                         tb = float(getattr(runtime.l3_stats, "taker_buy_rate_ema", 0.0) or 0.0)
+                         tsell = float(getattr(runtime.l3_stats, "taker_sell_rate_ema", 0.0) or 0.0)
+                         cb = float(getattr(runtime.l3_stats, "cancel_bid_rate_ema", 0.0) or 0.0)
+                         ca = float(getattr(runtime.l3_stats, "cancel_ask_rate_ema", 0.0) or 0.0)
+-                
+-                        taker_rate = max(0.0, tb + tsell)
+-                        cancel_rate = max(0.0, cb + ca)
+-                        churn_rate = taker_rate + cancel_rate
+-                
+-                        # Params (Hawkes-like): S <- exp(-beta*dt)*S + rate*dt ; lam = mu + alpha*S
+-                        cfg = getattr(runtime, "config", {}) or {}
+-                        beta = float(cfg.get("hawkes_beta", 1.8) or 1.8)
+-                
+-                        alpha_t = float(cfg.get("hawkes_alpha_taker", 0.9) or 0.9)
+-                        mu_t = float(cfg.get("hawkes_mu_taker", 0.1) or 0.1)
+-                
+-                        alpha_c = float(cfg.get("hawkes_alpha_cancel", 0.7) or 0.7)
+-                        mu_c = float(cfg.get("hawkes_mu_cancel", 0.1) or 0.1)
+-                
+-                        alpha_h = float(cfg.get("hawkes_alpha_churn", 0.5) or 0.5)
+-                        mu_h = float(cfg.get("hawkes_mu_churn", 0.1) or 0.1)
+-                
+-                        if dt_s > 0.0:
+-                            decay = math.exp(-beta * dt_s)
+-                            hs["S_taker"] = decay * float(hs.get("S_taker", 0.0)) + taker_rate * dt_s
+-                            hs["S_cancel"] = decay * float(hs.get("S_cancel", 0.0)) + cancel_rate * dt_s
+-                            hs["S_churn"] = decay * float(hs.get("S_churn", 0.0)) + churn_rate * dt_s
+-                
+-                        runtime.hawkes_snapshot = {
+-                            "hawkes_dt_s": float(dt_s),
+-                            "hawkes_taker_lam": float(mu_t + alpha_t * float(hs.get("S_taker", 0.0))),
+-                            "hawkes_cancel_lam": float(mu_c + alpha_c * float(hs.get("S_cancel", 0.0))),
+-                            "hawkes_churn_lam": float(mu_h + alpha_h * float(hs.get("S_churn", 0.0))),
+-                        }
++                        la = float(getattr(runtime.l3_stats, "limit_add_total_rate_ema", 0.0) or 0.0)
++
++                        hs_prev = getattr(runtime, "hawkes_state", None)
++                        hs_new, snap = update_hawkes_like(
++                            hs_prev,
++                            ts_ms=t_now,
++                            rates={
++                                "taker_buy_rate": tb,
++                                "taker_sell_rate": tsell,
++                                "cancel_bid_rate": cb,
++                                "cancel_ask_rate": ca,
++                                "limit_add_rate": la,
++                            },
++                            cfg=cfg,
++                        )
++                        runtime.hawkes_state = hs_new
++                        runtime.hawkes_snapshot = snap
+                 except Exception:
+                     # Fail-open: Hawkes is a feature-only signal for now
+                     pass
+@@ -1178,11 +1159,28 @@
+             
+             # Enrich with L3-lite stats
+             if runtime.l3_stats:
++                _cb = float(runtime.l3_stats.cancel_bid_rate_ema)
++                _ca = float(runtime.l3_stats.cancel_ask_rate_ema)
++                _la = float(getattr(runtime.l3_stats, "limit_add_total_rate_ema", 0.0) or 0.0)
++                _lp_den = _la + (_cb + _ca) + 1e-9
+                 spike_out.update({
+-                    "cancel_bid_rate_ema": float(runtime.l3_stats.cancel_bid_rate_ema),
+-                    "cancel_ask_rate_ema": float(runtime.l3_stats.cancel_ask_rate_ema),
++                    "cancel_bid_rate_ema": _cb,
++                    "cancel_ask_rate_ema": _ca,
+                     "taker_buy_rate_ema": float(runtime.l3_stats.taker_buy_rate_ema),
+                     "taker_sell_rate_ema": float(runtime.l3_stats.taker_sell_rate_ema),
++
++                    "limit_add_total_rate_ema": _la,
++                    "limit_add_imb": float(getattr(runtime.l3_stats, "limit_add_imb", 0.0) or 0.0),
++
++                    "vpin_tox_ema": float(getattr(runtime.l3_stats, "vpin_tox_ema", 0.0) or 0.0),
++                    "vpin_tox_z": float(getattr(runtime.l3_stats, "vpin_tox_z", 0.0) or 0.0),
++
++                    # Aliases for downstream experiments
++                    "lambda_trade_buy": float(runtime.l3_stats.taker_buy_rate_ema),
++                    "lambda_trade_sell": float(runtime.l3_stats.taker_sell_rate_ema),
++                    "lambda_limit_add": _la,
++                    "liquidity_pressure": float((_la - (_cb + _ca)) / _lp_den),
++                    "info_flow": float(getattr(runtime.l3_stats, "vpin_tox_ema", 0.0) or 0.0),
+                 })
+ 
+             asyncio.create_task(
+@@ -1827,6 +1825,23 @@
+                 indicators["taker_buy_rate_ema"] = float(runtime.l3_stats.taker_buy_rate_ema)
+                 indicators["taker_sell_rate_ema"] = float(runtime.l3_stats.taker_sell_rate_ema)
+ 
++                # limit-add + toxicity (VPIN-like) proxies
++                indicators["limit_add_total_rate_ema"] = float(getattr(runtime.l3_stats, "limit_add_total_rate_ema", 0.0) or 0.0)
++                indicators["limit_add_imb"] = float(getattr(runtime.l3_stats, "limit_add_imb", 0.0) or 0.0)
++                indicators["vpin_tox_ema"] = float(getattr(runtime.l3_stats, "vpin_tox_ema", 0.0) or 0.0)
++                indicators["vpin_tox_z"] = float(getattr(runtime.l3_stats, "vpin_tox_z", 0.0) or 0.0)
++
++                # Aliases (experiment-friendly names)
++                indicators["lambda_trade_buy"] = float(runtime.l3_stats.taker_buy_rate_ema)
++                indicators["lambda_trade_sell"] = float(runtime.l3_stats.taker_sell_rate_ema)
++                indicators["lambda_limit_add"] = float(getattr(runtime.l3_stats, "limit_add_total_rate_ema", 0.0) or 0.0)
++                _cb = float(runtime.l3_stats.cancel_bid_rate_ema)
++                _ca = float(runtime.l3_stats.cancel_ask_rate_ema)
++                _la = float(getattr(runtime.l3_stats, "limit_add_total_rate_ema", 0.0) or 0.0)
++                _den = _la + (_cb + _ca) + 1e-9
++                indicators["liquidity_pressure"] = float((_la - (_cb + _ca)) / _den)
++                indicators["info_flow"] = float(getattr(runtime.l3_stats, "vpin_tox_ema", 0.0) or 0.0)
++
+             # Hawkes burst features (computed on bucket advance; fail-open if missing)
+             hsnap = getattr(runtime, "hawkes_snapshot", None)
+             if isinstance(hsnap, dict):

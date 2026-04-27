@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/config/handler_config.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.5, 1.0, 2.0, 4.0, 10000.0, 1000, '0', '1', '1000', '2', 'atr', 'atr_1m', 'atr_intraday', 'delta_window_ticks', 'delta_z_threshold', 'dist_atr_threshold', 'entry_price', 'exchange', 'false', 'fee_bps', 'fees_bps', 'iceberg_min_duration', 'kind', 'last_price', 'level_price', 'maybe_refresh', 'no', 'obi_min_duration', 'obi_threshold', 'price', 'realized_spread_bps', 'redis', 'rr', 'rs_ema_bps', 'side', 'sl', 'sl_price', 'spread_bps', 'stop_atr_mult', 'stop_dist', 'stop_mode', 'stop_pct', 'stop_points', 'symbol', 'taker_fee_bps', 'timeframe', 'tp1', 'tp1_price', 'tp_atr_mults', 'tp_mode', 'tp_rr', 'ts', 'utf-8', 'venue', 'weak_progress_atr']

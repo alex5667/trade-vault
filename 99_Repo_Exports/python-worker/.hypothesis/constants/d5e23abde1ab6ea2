@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/microstructure_spike_detector.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-12, 1.0, 2.0, 3.0, 1000.0, 500, '_delta', '_speed', '_vol', 'ask', 'bid', 'extreme', 'last', 'mid', 'ok', 'ts', 'volume', 'z_delta', 'z_speed', 'z_vol']

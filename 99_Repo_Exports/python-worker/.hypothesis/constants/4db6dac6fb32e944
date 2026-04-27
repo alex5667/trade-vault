@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/entry_policy_overrides.py
+# hypothesis_version: 6.148.10
+
+[-1.0, 0.0, 1.0, 2.0, 10.0, 200.0, 1000, ',', ':', 'ENTRY_MAX_SPREAD_Z', 'ENTRY_MIN_OF_SCORE', 'ENTRY_NEAR_ZONE_BP', 'ENTRY_OBI_MIN_SEC', 'appliedAt', 'applied_at', 'applied_ts_ms', 'bad_hold_down_ms', 'bad_hysteresis_impr', 'bad_json', 'bad_ver', 'entry_max_spread_z', 'entry_min_of_score', 'entry_near_zone_bp', 'entry_obi_min_sec', 'extra', 'holdDownMs', 'hold_down_ms', 'hysteresisImpr', 'hysteresis_impr', 'manual', 'not_dict', 'notes', 'sid', 'source', 'src', 'suggestion_id', 'ver', 'version']

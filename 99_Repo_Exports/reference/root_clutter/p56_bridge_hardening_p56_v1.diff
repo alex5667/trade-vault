@@ -1,0 +1,906 @@
+diff --git a/scripts/check_execution_audit_chain.py b/scripts/check_execution_audit_chain.py
+new file mode 100755
+index 0000000..be5b0a9
+--- /dev/null
++++ b/scripts/check_execution_audit_chain.py
+@@ -0,0 +1,435 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Execution audit-chain checker and textfile exporter (P5.6).
++
++Purpose
++-------
++Validate that the P5 audit bridge remains intact across execution orders,
++signal metadata and downstream analytics tables. The script is intentionally
++read-only against the database and fail-fast for operator visibility.
++
++Outputs
++-------
++1. JSON report (`AUDIT_CHAIN_REPORT_PATH`)
++2. Node Exporter textfile metrics (`EXECUTION_AUDIT_CHAIN_TEXTFILE_PATH`)
++
++Default metrics emitted:
++- trade_execution_audit_chain_report_timestamp_seconds
++- trade_execution_audit_chain_report_freshness_seconds
++- trade_execution_audit_chain_report_stale
++- trade_execution_audit_chain_total_broken
++- trade_execution_audit_chain_broken_total{kind="..."}
++
++Database support
++----------------
++- sqlite:///path/to/file.db
++- sqlite:/path/to/file.db
++- /absolute/or/relative/path.db
++- PostgreSQL DSN via psycopg/psycopg2 when available
++
++The checker is designed to be conservative:
++- missing optional tables => skipped, not broken
++- existing analytics tables with missing chain columns => broken schema
++- blank FK values or dangling refs => broken rows counted
++"""
++
++from dataclasses import dataclass, asdict
++from datetime import datetime, timezone
++from pathlib import Path
++from typing import Any, Dict, List, Optional, Sequence
++import argparse
++import json
++import os
++import sqlite3
++import time
++
++try:  # pragma: no cover - optional dependency in prod only
++    import psycopg  # type: ignore
++except Exception:  # pragma: no cover
++    psycopg = None
++    try:
++        import psycopg2 as psycopg  # type: ignore
++    except Exception:  # pragma: no cover
++        psycopg = None
++
++
++DEFAULT_REPORT_PATH = "latest_execution_audit_chain.json"
++DEFAULT_TEXTFILE_PATH = "latest_execution_audit_chain.prom"
++DEFAULT_STALE_AFTER_SECONDS = 900
++DEFAULT_SAMPLE_LIMIT = 25
++
++
++@dataclass
++class AuditCheck:
++    kind: str
++    status: str
++    broken_count: int
++    message: str
++    samples: List[Dict[str, Any]]
++
++
++@dataclass
++class AuditReport:
++    generated_at_ms: int
++    generated_at_iso: str
++    dsn_kind: str
++    stale_after_seconds: int
++    total_broken: int
++    kind_totals: Dict[str, int]
++    category_totals: Dict[str, int]
++    checks: List[AuditCheck]
++
++
++class AuditDB:
++    def __init__(self, dsn: str):
++        self.dsn = (dsn or "").strip()
++        self.kind, self.conn = self._connect(self.dsn)
++
++    @staticmethod
++    def _connect(dsn: str):
++        if not dsn:
++            raise ValueError("execution audit chain DSN is empty")
++        low = dsn.lower()
++        if low.startswith("sqlite:///"):
++            path = dsn[len("sqlite:///"):]
++            return "sqlite", sqlite3.connect(path)
++        if low.startswith("sqlite:/"):
++            path = dsn[len("sqlite:/"):]
++            return "sqlite", sqlite3.connect(path)
++        if dsn.endswith('.db') or dsn.endswith('.sqlite') or dsn.endswith('.sqlite3') or '/' in dsn or dsn.startswith('.'):
++            return "sqlite", sqlite3.connect(dsn)
++        if psycopg is None:
++            raise RuntimeError("PostgreSQL DSN provided but psycopg/psycopg2 is not available")
++        return "postgres", psycopg.connect(dsn)
++
++    def close(self) -> None:
++        try:
++            self.conn.close()
++        except Exception:
++            pass
++
++    def fetchone(self, sql: str) -> Any:
++        cur = self.conn.cursor()
++        try:
++            cur.execute(sql)
++            row = cur.fetchone()
++            return row[0] if row else 0
++        finally:
++            try:
++                cur.close()
++            except Exception:
++                pass
++
++    def fetchall(self, sql: str) -> List[Dict[str, Any]]:
++        cur = self.conn.cursor()
++        try:
++            cur.execute(sql)
++            cols = [d[0] for d in (cur.description or [])]
++            rows = []
++            for row in cur.fetchall() or []:
++                rows.append({cols[i]: row[i] for i in range(len(cols))})
++            return rows
++        finally:
++            try:
++                cur.close()
++            except Exception:
++                pass
++
++    def table_exists(self, table: str) -> bool:
++        if self.kind == 'sqlite':
++            sql = f"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='{table}'"
++            return int(self.fetchone(sql) or 0) > 0
++        sql = f"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = '{table}'"
++        return int(self.fetchone(sql) or 0) > 0
++
++    def columns(self, table: str) -> List[str]:
++        if not self.table_exists(table):
++            return []
++        if self.kind == 'sqlite':
++            return [str(r['name']) for r in self.fetchall(f"PRAGMA table_info({table})")]
++        return [str(r['column_name']) for r in self.fetchall(
++            f"SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='{table}'"
++        )]
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _iso(ms: int) -> str:
++    return datetime.fromtimestamp(ms / 1000.0, tz=timezone.utc).isoformat()
++
++
++def _qident(name: str) -> str:
++    return ''.join(ch for ch in str(name) if ch.isalnum() or ch == '_')
++
++
++def _qexpr(name: str) -> str:
++    parts = [p for p in str(name).split('.') if p]
++    if not parts:
++        return ''
++    return '.'.join(_qident(p) for p in parts)
++
++
++def _blank_sql(col: str) -> str:
++    c = _qexpr(col)
++    return f"COALESCE(TRIM(CAST({c} AS TEXT)), '') = ''"
++
++
++def _cast_text(col: str) -> str:
++    return f"CAST({_qexpr(col)} AS TEXT)"
++
++
++def _limit(n: int) -> int:
++    try:
++        return max(1, int(n))
++    except Exception:
++        return DEFAULT_SAMPLE_LIMIT
++
++
++def _sample_projection(cols: Sequence[str]) -> str:
++    picked = [c for c in cols if c]
++    return ', '.join(_qident(c) for c in picked)
++
++
++def _check_blank_field(db: AuditDB, *, table: str, field: str, kind: str, sample_cols: Sequence[str], sample_limit: int) -> AuditCheck:
++    if not db.table_exists(table):
++        return AuditCheck(kind=kind, status='skipped', broken_count=0, message=f'table {table} is missing', samples=[])
++    cols = set(db.columns(table))
++    if field not in cols:
++        row_count = int(db.fetchone(f"SELECT COUNT(*) FROM {table}") or 0)
++        return AuditCheck(
++            kind=kind,
++            status='broken_schema' if row_count > 0 else 'ok',
++            broken_count=row_count,
++            message=f'table {table} exists but column {field} is missing',
++            samples=[{'table': table, 'missing_column': field}] if row_count > 0 else [],
++        )
++    where = _blank_sql(field)
++    count = int(db.fetchone(f"SELECT COUNT(*) FROM {table} WHERE {where}") or 0)
++    samples: List[Dict[str, Any]] = []
++    if count > 0:
++        proj = _sample_projection([c for c in sample_cols if c in cols]) or _qident(field)
++        samples = db.fetchall(
++            f"SELECT {proj} FROM {table} WHERE {where} ORDER BY ROWID LIMIT {_limit(sample_limit)}"
++            if db.kind == 'sqlite' else
++            f"SELECT {proj} FROM {table} WHERE {where} LIMIT {_limit(sample_limit)}"
++        )
++    return AuditCheck(
++        kind=kind,
++        status='broken' if count > 0 else 'ok',
++        broken_count=count,
++        message=f'{count} rows in {table} have blank {field}',
++        samples=samples,
++    )
++
++
++def _check_fk_gap(
++    db: AuditDB,
++    *,
++    left_table: str,
++    left_field: str,
++    right_table: str,
++    right_field: str,
++    kind: str,
++    sample_cols: Sequence[str],
++    sample_limit: int,
++) -> AuditCheck:
++    if not db.table_exists(left_table):
++        return AuditCheck(kind=kind, status='skipped', broken_count=0, message=f'table {left_table} is missing', samples=[])
++    if not db.table_exists(right_table):
++        return AuditCheck(kind=kind, status='skipped', broken_count=0, message=f'table {right_table} is missing', samples=[])
++    left_cols = set(db.columns(left_table))
++    right_cols = set(db.columns(right_table))
++    missing = [f'{left_table}.{left_field}' for _ in [0] if left_field not in left_cols] + [f'{right_table}.{right_field}' for _ in [0] if right_field not in right_cols]
++    if missing:
++        return AuditCheck(kind=kind, status='skipped', broken_count=0, message='missing columns: ' + ', '.join(missing), samples=[])
++    blank = _blank_sql(f'eo.{left_field}')
++    cond = f"NOT EXISTS (SELECT 1 FROM {right_table} r WHERE {_cast_text(f'r.{right_field}')} = {_cast_text(f'eo.{left_field}')})"
++    where = f"NOT ({blank}) AND {cond}"
++    count = int(db.fetchone(f"SELECT COUNT(*) FROM {left_table} eo WHERE {where}") or 0)
++    samples: List[Dict[str, Any]] = []
++    if count > 0:
++        proj_cols = [c for c in sample_cols if c in left_cols]
++        proj = ', '.join(f"eo.{_qident(c)}" for c in proj_cols) or f"eo.{_qident(left_field)}"
++        samples = db.fetchall(f"SELECT {proj} FROM {left_table} eo WHERE {where} LIMIT {_limit(sample_limit)}")
++    return AuditCheck(
++        kind=kind,
++        status='broken' if count > 0 else 'ok',
++        broken_count=count,
++        message=f'{count} rows in {left_table}.{left_field} do not resolve to {right_table}.{right_field}',
++        samples=samples,
++    )
++
++
++def _check_analytics_chain(
++    db: AuditDB,
++    *,
++    table: str,
++    kind: str,
++    sample_cols: Sequence[str],
++    required: Sequence[str] = ('signal_id', 'execution_plan_id', 'closed_trade_id'),
++    sample_limit: int,
++) -> AuditCheck:
++    if not db.table_exists(table):
++        return AuditCheck(kind=kind, status='skipped', broken_count=0, message=f'table {table} is missing', samples=[])
++    cols = set(db.columns(table))
++    row_count = int(db.fetchone(f"SELECT COUNT(*) FROM {table}") or 0)
++    missing_cols = [c for c in required if c not in cols]
++    if missing_cols:
++        return AuditCheck(
++            kind=f'{kind}_schema',
++            status='broken_schema' if row_count > 0 else 'ok',
++            broken_count=row_count,
++            message=f'table {table} is missing required columns: {", ".join(missing_cols)}',
++            samples=[{'table': table, 'missing_columns': missing_cols, 'row_count': row_count}] if row_count > 0 else [],
++        )
++    blank_expr = ' OR '.join(_blank_sql(c) for c in required)
++    count = int(db.fetchone(f"SELECT COUNT(*) FROM {table} WHERE {blank_expr}") or 0)
++    samples: List[Dict[str, Any]] = []
++    if count > 0:
++        ordered = list(dict.fromkeys([c for c in sample_cols if c in cols] + [c for c in required if c in cols]))
++        proj = _sample_projection(ordered)
++        order_clause = ' ORDER BY ROWID' if db.kind == 'sqlite' else ''
++        samples = db.fetchall(f"SELECT {proj} FROM {table} WHERE {blank_expr}{order_clause} LIMIT {_limit(sample_limit)}")
++    return AuditCheck(
++        kind=kind,
++        status='broken' if count > 0 else 'ok',
++        broken_count=count,
++        message=f'{count} rows in {table} have missing chain fields',
++        samples=samples,
++    )
++
++
++def build_report(*, dsn: str, stale_after_seconds: int = DEFAULT_STALE_AFTER_SECONDS, sample_limit: int = DEFAULT_SAMPLE_LIMIT) -> AuditReport:
++    db = AuditDB(dsn)
++    try:
++        checks = [
++            _check_blank_field(db, table='execution_orders', field='signal_id', kind='missing_signal_id', sample_cols=('sid', 'signal_id', 'execution_plan_id', 'closed_trade_id'), sample_limit=sample_limit),
++            _check_blank_field(db, table='execution_orders', field='execution_plan_id', kind='missing_execution_plan_id', sample_cols=('sid', 'signal_id', 'execution_plan_id', 'closed_trade_id'), sample_limit=sample_limit),
++            _check_fk_gap(db, left_table='execution_orders', left_field='signal_id', right_table='signals', right_field='signal_id', kind='broken_signal_fk', sample_cols=('sid', 'signal_id', 'execution_plan_id', 'closed_trade_id'), sample_limit=sample_limit),
++            _check_fk_gap(db, left_table='execution_orders', left_field='execution_plan_id', right_table='signal_execution_plan', right_field='execution_plan_id', kind='broken_execution_plan_fk', sample_cols=('sid', 'signal_id', 'execution_plan_id', 'closed_trade_id'), sample_limit=sample_limit),
++            _check_fk_gap(db, left_table='execution_orders', left_field='closed_trade_id', right_table='trades_closed', right_field='id', kind='broken_closed_trade_fk', sample_cols=('sid', 'signal_id', 'execution_plan_id', 'closed_trade_id'), sample_limit=sample_limit),
++            _check_analytics_chain(db, table='position_events', kind='missing_position_events_chain', sample_cols=('stream_id', 'position_id', 'sid', 'symbol'), sample_limit=sample_limit),
++            _check_analytics_chain(db, table='trades_closed', kind='missing_trades_closed_chain', sample_cols=('id', 'sid', 'symbol'), sample_limit=sample_limit),
++            _check_analytics_chain(db, table='entry_policy_audit', kind='missing_entry_policy_audit_chain', sample_cols=('stream_id', 'sid', 'symbol', 'tf'), sample_limit=sample_limit),
++            _check_analytics_chain(db, table='decision_snapshot', kind='missing_decision_snapshot_chain', sample_cols=('sid', 'symbol', 'ts_decision_ms'), sample_limit=sample_limit),
++        ]
++        kind_totals = {c.kind: int(c.broken_count) for c in checks if c.status.startswith('broken') or c.broken_count > 0}
++        category_totals = {
++            'signal_plan': sum(kind_totals.get(k, 0) for k in ('missing_signal_id', 'missing_execution_plan_id', 'broken_signal_fk', 'broken_execution_plan_fk')),
++            'trade_link': sum(kind_totals.get(k, 0) for k in ('broken_closed_trade_fk',)),
++            'analytics_link': sum(kind_totals.get(k, 0) for k in (
++                'missing_position_events_chain', 'missing_position_events_chain_schema',
++                'missing_trades_closed_chain', 'missing_trades_closed_chain_schema',
++                'missing_entry_policy_audit_chain', 'missing_entry_policy_audit_chain_schema',
++                'missing_decision_snapshot_chain', 'missing_decision_snapshot_chain_schema',
++            )),
++        }
++        total_broken = sum(kind_totals.values())
++        now_ms = _now_ms()
++        return AuditReport(
++            generated_at_ms=now_ms,
++            generated_at_iso=_iso(now_ms),
++            dsn_kind=db.kind,
++            stale_after_seconds=int(stale_after_seconds),
++            total_broken=total_broken,
++            kind_totals=kind_totals,
++            category_totals=category_totals,
++            checks=checks,
++        )
++    finally:
++        db.close()
++
++
++def flatten_items(report: Dict[str, Any]) -> List[Dict[str, Any]]:
++    items: List[Dict[str, Any]] = []
++    for check in report.get('checks') or []:
++        kind = str(check.get('kind') or '')
++        status = str(check.get('status') or '')
++        for sample in check.get('samples') or []:
++            doc = dict(sample)
++            doc['kind'] = kind
++            doc['status'] = status
++            items.append(doc)
++    return items
++
++
++def report_to_dict(report: AuditReport) -> Dict[str, Any]:
++    out = asdict(report)
++    out['checks'] = [asdict(c) for c in report.checks]
++    out['items'] = flatten_items(out)
++    return out
++
++
++def write_report_json(report: AuditReport, path: str) -> Path:
++    p = Path(path)
++    p.parent.mkdir(parents=True, exist_ok=True)
++    p.write_text(json.dumps(report_to_dict(report), ensure_ascii=False, indent=2, default=str) + "\n", encoding='utf-8')
++    return p
++
++
++def render_textfile(report: AuditReport) -> str:
++    lines = [
++        '# HELP trade_execution_audit_chain_report_timestamp_seconds Last successful audit-chain report generation timestamp.',
++        '# TYPE trade_execution_audit_chain_report_timestamp_seconds gauge',
++        f'trade_execution_audit_chain_report_timestamp_seconds {report.generated_at_ms / 1000.0:.3f}',
++        '# HELP trade_execution_audit_chain_report_freshness_seconds Freshness of the latest successful report at generation time.',
++        '# TYPE trade_execution_audit_chain_report_freshness_seconds gauge',
++        'trade_execution_audit_chain_report_freshness_seconds 0',
++        '# HELP trade_execution_audit_chain_report_stale 1 if the report is already stale at generation time, else 0.',
++        '# TYPE trade_execution_audit_chain_report_stale gauge',
++        'trade_execution_audit_chain_report_stale 0',
++        '# HELP trade_execution_audit_chain_total_broken Total broken audit-chain findings across all checks.',
++        '# TYPE trade_execution_audit_chain_total_broken gauge',
++        f'trade_execution_audit_chain_total_broken {int(report.total_broken)}',
++        '# HELP trade_execution_audit_chain_broken_total Broken findings per audit-chain check kind.',
++        '# TYPE trade_execution_audit_chain_broken_total gauge',
++    ]
++    all_kinds = set(report.kind_totals)
++    for check in report.checks:
++        all_kinds.add(check.kind)
++    for kind in sorted(all_kinds):
++        value = int(report.kind_totals.get(kind, 0))
++        safe_kind = kind.replace('\\', '_').replace('"', '_')
++        lines.append(f'trade_execution_audit_chain_broken_total{{kind="{safe_kind}"}} {value}')
++    return '\n'.join(lines) + '\n'
++
++
++def write_textfile(report: AuditReport, path: str) -> Path:
++    p = Path(path)
++    p.parent.mkdir(parents=True, exist_ok=True)
++    p.write_text(render_textfile(report), encoding='utf-8')
++    return p
++
++
++def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
++    parser = argparse.ArgumentParser(description='Check execution audit-chain integrity and export Prometheus textfile metrics.')
++    parser.add_argument('--dsn', default=os.getenv('EXECUTION_AUDIT_CHAIN_DSN') or os.getenv('EXECUTION_JOURNAL_DSN') or '', help='Database DSN or sqlite path')
++    parser.add_argument('--report-path', default=os.getenv('AUDIT_CHAIN_REPORT_PATH', DEFAULT_REPORT_PATH), help='Path to JSON report')
++    parser.add_argument('--textfile-path', default=os.getenv('EXECUTION_AUDIT_CHAIN_TEXTFILE_PATH', DEFAULT_TEXTFILE_PATH), help='Path to node_exporter textfile output')
++    parser.add_argument('--stale-after-seconds', type=int, default=int(os.getenv('EXECUTION_AUDIT_CHAIN_STALE_AFTER_SECONDS', str(DEFAULT_STALE_AFTER_SECONDS))), help='Desired report freshness SLO for operators')
++    parser.add_argument('--sample-limit', type=int, default=int(os.getenv('EXECUTION_AUDIT_CHAIN_SAMPLE_LIMIT', str(DEFAULT_SAMPLE_LIMIT))), help='Maximum broken samples saved per check')
++    return parser.parse_args(argv)
++
++
++def main(argv: Optional[Sequence[str]] = None) -> int:
++    args = parse_args(argv)
++    if not args.dsn:
++        raise SystemExit('EXECUTION_AUDIT_CHAIN_DSN/EXECUTION_JOURNAL_DSN is required')
++    report = build_report(dsn=args.dsn, stale_after_seconds=args.stale_after_seconds, sample_limit=args.sample_limit)
++    write_report_json(report, args.report_path)
++    write_textfile(report, args.textfile_path)
++    print(json.dumps({
++        'report_path': args.report_path,
++        'textfile_path': args.textfile_path,
++        'total_broken': report.total_broken,
++        'kind_totals': report.kind_totals,
++        'generated_at_iso': report.generated_at_iso,
++    }, ensure_ascii=False))
++    return 0
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+
+diff --git a/runbooks/server/runbook_server.py b/runbooks/server/runbook_server.py
+new file mode 100644
+index 0000000..f8c1aac
+--- /dev/null
++++ b/runbooks/server/runbook_server.py
+@@ -0,0 +1,123 @@
++from __future__ import annotations
++
++"""Minimal runbook server endpoints for execution audit-chain reports (P5.6)."""
++
++from pathlib import Path
++from typing import Any, Dict, List, Optional
++import json
++import os
++
++from fastapi import FastAPI, HTTPException, Query
++
++
++def _env(name: str, default: str) -> str:
++    v = os.getenv(name)
++    return str(v) if v is not None and str(v) != '' else default
++
++
++AUDIT_CHAIN_REPORT_PATH = _env('AUDIT_CHAIN_REPORT_PATH', 'latest_execution_audit_chain.json')
++
++app = FastAPI(
++    title='Trade Runbook Server',
++    description='Operational JSON endpoints for trade execution runbooks.',
++    version='p5.6',
++)
++
++
++def read_latest_audit_chain_report(path: Optional[str] = None) -> Dict[str, Any]:
++    report_path = Path(path or AUDIT_CHAIN_REPORT_PATH)
++    if not report_path.exists():
++        raise FileNotFoundError(f'audit-chain report not found: {report_path}')
++    return json.loads(report_path.read_text(encoding='utf-8'))
++
++
++def _flatten_items(report: Dict[str, Any]) -> List[Dict[str, Any]]:
++    items = report.get('items')
++    if isinstance(items, list):
++        return [dict(x) for x in items if isinstance(x, dict)]
++    flat: List[Dict[str, Any]] = []
++    for check in report.get('checks') or []:
++        if not isinstance(check, dict):
++            continue
++        for sample in check.get('samples') or []:
++            if not isinstance(sample, dict):
++                continue
++            doc = dict(sample)
++            doc['kind'] = check.get('kind')
++            doc['status'] = check.get('status')
++            flat.append(doc)
++    return flat
++
++
++def filter_audit_chain_items(
++    report: Dict[str, Any],
++    *,
++    sid: str = '',
++    signal_id: str = '',
++    closed_trade_id: str = '',
++    kind: str = '',
++    limit: int = 100,
++) -> Dict[str, Any]:
++    sid = str(sid or '').strip()
++    signal_id = str(signal_id or '').strip()
++    closed_trade_id = str(closed_trade_id or '').strip()
++    kind = str(kind or '').strip()
++    limit = max(1, min(int(limit or 100), 1000))
++    items = _flatten_items(report)
++    filtered: List[Dict[str, Any]] = []
++    for item in items:
++        if sid and str(item.get('sid') or '') != sid:
++            continue
++        if signal_id and str(item.get('signal_id') or '') != signal_id:
++            continue
++        if closed_trade_id and str(item.get('closed_trade_id') or '') != closed_trade_id:
++            continue
++        if kind and str(item.get('kind') or '') != kind:
++            continue
++        filtered.append(item)
++        if len(filtered) >= limit:
++            break
++    return {
++        'generated_at_ms': report.get('generated_at_ms'),
++        'generated_at_iso': report.get('generated_at_iso'),
++        'total_broken': report.get('total_broken', 0),
++        'kind_totals': report.get('kind_totals', {}),
++        'category_totals': report.get('category_totals', {}),
++        'filters': {
++            'sid': sid,
++            'signal_id': signal_id,
++            'closed_trade_id': closed_trade_id,
++            'kind': kind,
++            'limit': limit,
++        },
++        'items': filtered,
++    }
++
++
++@app.get('/healthz')
++async def healthz() -> Dict[str, str]:
++    return {'status': 'ok'}
++
++
++@app.get('/api/audit-chain/latest')
++async def api_audit_chain_latest(
++    sid: str = Query('', description='Optional exact SID filter'),
++    signal_id: str = Query('', description='Optional exact signal_id filter'),
++    closed_trade_id: str = Query('', description='Optional exact closed_trade_id filter'),
++    kind: str = Query('', description='Optional exact broken-kind filter'),
++    limit: int = Query(100, ge=1, le=1000),
++) -> Dict[str, Any]:
++    try:
++        report = read_latest_audit_chain_report()
++    except FileNotFoundError as exc:
++        raise HTTPException(status_code=404, detail=str(exc))
++    except json.JSONDecodeError as exc:
++        raise HTTPException(status_code=500, detail=f'invalid audit-chain report json: {exc}')
++    return filter_audit_chain_items(
++        report,
++        sid=sid,
++        signal_id=signal_id,
++        closed_trade_id=closed_trade_id,
++        kind=kind,
++        limit=limit,
++    )
+
+diff --git a/runbooks/P56_AUDIT_CHAIN.md b/runbooks/P56_AUDIT_CHAIN.md
+new file mode 100644
+index 0000000..a91ce86
+--- /dev/null
++++ b/runbooks/P56_AUDIT_CHAIN.md
+@@ -0,0 +1,30 @@
++# P5.6 Audit-chain hardening
++
++## What this layer adds
++- `scripts/check_execution_audit_chain.py` — read-only DB checker + JSON/textfile exporter
++- `runbooks/server/runbook_server.py` — `/api/audit-chain/latest` endpoint with filters by `sid`, `signal_id`, `closed_trade_id`, `kind`
++- `monitoring/prometheus_rules_execution_p56_audit_chain.yml` — stale/broken-chain alerts
++- `monitoring/grafana/dashboards/trade_execution_p56_audit_chain_health.json` — overview dashboard
++
++## Execution
++```bash
++python3 scripts/check_execution_audit_chain.py \
++  --dsn "$EXECUTION_AUDIT_CHAIN_DSN" \
++  --report-path ./latest_execution_audit_chain.json \
++  --textfile-path ./latest_execution_audit_chain.prom
++```
++
++## Runbook endpoint
++- `GET /api/audit-chain/latest`
++- filters:
++  - `sid`
++  - `signal_id`
++  - `closed_trade_id`
++  - `kind`
++  - `limit`
++
++## Investigation flow
++1. Alert fires from Prometheus rule.
++2. Open `/api/audit-chain/latest`.
++3. Narrow by `sid`, `signal_id` or `closed_trade_id`.
++4. Backfill or repair upstream writer only after verifying the missing link kind.
+
+diff --git a/monitoring/prometheus_rules_execution_p56_audit_chain.yml b/monitoring/prometheus_rules_execution_p56_audit_chain.yml
+new file mode 100644
+index 0000000..b157f65
+--- /dev/null
++++ b/monitoring/prometheus_rules_execution_p56_audit_chain.yml
+@@ -0,0 +1,46 @@
++groups:
++  - name: trade_execution_p56_audit_chain
++    rules:
++      - alert: TradeExecutionAuditChainReportStale
++        expr: absent(trade_execution_audit_chain_report_timestamp_seconds) or (time() - trade_execution_audit_chain_report_timestamp_seconds > 900)
++        for: 5m
++        labels:
++          severity: warning
++          domain: execution-audit
++        annotations:
++          summary: Execution audit-chain report is stale
++          description: The latest execution audit-chain report is missing or older than 15 minutes.
++          runbook_path: /api/audit-chain/latest
++
++      - alert: TradeExecutionAuditChainBrokenSignalPlan
++        expr: sum(trade_execution_audit_chain_broken_total{kind=~"missing_signal_id|missing_execution_plan_id|broken_signal_fk|broken_execution_plan_fk"}) > 0
++        for: 10m
++        labels:
++          severity: critical
++          domain: execution-audit
++        annotations:
++          summary: Broken signal/execution-plan audit chain detected
++          description: execution_orders contains broken signal_id or execution_plan_id linkage.
++          runbook_path: /api/audit-chain/latest?kind=broken_signal_fk
++
++      - alert: TradeExecutionAuditChainBrokenTradeLink
++        expr: sum(trade_execution_audit_chain_broken_total{kind=~"broken_closed_trade_fk"}) > 0
++        for: 10m
++        labels:
++          severity: critical
++          domain: execution-audit
++        annotations:
++          summary: Broken closed-trade linkage detected
++          description: execution_orders.closed_trade_id does not resolve into trades_closed.id.
++          runbook_path: /api/audit-chain/latest?kind=broken_closed_trade_fk
++
++      - alert: TradeExecutionAuditChainBrokenAnalyticsLink
++        expr: sum(trade_execution_audit_chain_broken_total{kind=~"missing_position_events_chain|missing_position_events_chain_schema|missing_trades_closed_chain|missing_trades_closed_chain_schema|missing_entry_policy_audit_chain|missing_entry_policy_audit_chain_schema|missing_decision_snapshot_chain|missing_decision_snapshot_chain_schema"}) > 0
++        for: 10m
++        labels:
++          severity: warning
++          domain: execution-audit
++        annotations:
++          summary: Broken analytics-chain propagation detected
++          description: One or more downstream analytics tables are missing signal_id / execution_plan_id / closed_trade_id.
++          runbook_path: /api/audit-chain/latest
+
+diff --git a/monitoring/grafana/dashboards/trade_execution_p56_audit_chain_health.json b/monitoring/grafana/dashboards/trade_execution_p56_audit_chain_health.json
+new file mode 100644
+index 0000000..e5d6be2
+--- /dev/null
++++ b/monitoring/grafana/dashboards/trade_execution_p56_audit_chain_health.json
+@@ -0,0 +1,86 @@
++{
++  "annotations": {"list": []},
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "id": null,
++  "links": [
++    {"title": "Latest audit-chain report", "type": "link", "url": "/api/audit-chain/latest", "targetBlank": true}
++  ],
++  "panels": [
++    {
++      "type": "stat",
++      "title": "Total broken audit-chain links",
++      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "targets": [{"expr": "trade_execution_audit_chain_total_broken", "refId": "A"}],
++      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "values": false}}
++    },
++    {
++      "type": "stat",
++      "title": "Report age (seconds)",
++      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "targets": [{"expr": "time() - trade_execution_audit_chain_report_timestamp_seconds", "refId": "A"}],
++      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "values": false}}
++    },
++    {
++      "type": "stat",
++      "title": "Signal/plan broken",
++      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "targets": [{"expr": "sum(trade_execution_audit_chain_broken_total{kind=~\"missing_signal_id|missing_execution_plan_id|broken_signal_fk|broken_execution_plan_fk\"})", "refId": "A"}],
++      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "values": false}}
++    },
++    {
++      "type": "stat",
++      "title": "Trade/analytics broken",
++      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "targets": [{"expr": "sum(trade_execution_audit_chain_broken_total{kind=~\"broken_closed_trade_fk|missing_position_events_chain|missing_position_events_chain_schema|missing_trades_closed_chain|missing_trades_closed_chain_schema|missing_entry_policy_audit_chain|missing_entry_policy_audit_chain_schema|missing_decision_snapshot_chain|missing_decision_snapshot_chain_schema\"})", "refId": "A"}],
++      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "values": false}}
++    },
++    {
++      "type": "timeseries",
++      "title": "Broken count by kind",
++      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "targets": [{"expr": "trade_execution_audit_chain_broken_total", "legendFormat": "{{kind}}", "refId": "A"}]
++    },
++    {
++      "type": "table",
++      "title": "Current broken counts by kind",
++      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "targets": [{"expr": "trade_execution_audit_chain_broken_total", "format": "table", "instant": true, "refId": "A"}],
++      "options": {"showHeader": true}
++    },
++    {
++      "type": "text",
++      "title": "Runbook drilldown",
++      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 12},
++      "options": {
++        "mode": "markdown",
++        "content": "Use the runbook server for per-entity drilldown.\n\n- Latest report: `/api/audit-chain/latest`\n- By SID: `/api/audit-chain/latest?sid=${sid}`\n- By signal_id: `/api/audit-chain/latest?signal_id=${signal_id}`\n- By closed_trade_id: `/api/audit-chain/latest?closed_trade_id=${closed_trade_id}`\n\nThis dashboard stays low-cardinality on Prometheus. Detailed rows are served by the JSON runbook endpoint."
++      }
++    }
++  ],
++  "refresh": "30s",
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": ["execution", "audit-chain", "p5.6"],
++  "templating": {
++    "list": [
++      {"name": "DS_PROMETHEUS", "type": "datasource", "query": "prometheus", "current": {"text": "Prometheus", "value": "Prometheus"}},
++      {"name": "sid", "type": "textbox", "label": "SID", "query": "", "current": {"text": "", "value": ""}},
++      {"name": "signal_id", "type": "textbox", "label": "signal_id", "query": "", "current": {"text": "", "value": ""}},
++      {"name": "closed_trade_id", "type": "textbox", "label": "closed_trade_id", "query": "", "current": {"text": "", "value": ""}}
++    ]
++  },
++  "time": {"from": "now-24h", "to": "now"},
++  "timezone": "browser",
++  "title": "Trade Execution P5.6 Audit-chain Health",
++  "uid": "trade-exec-p56-audit",
++  "version": 1,
++  "weekStart": ""
++}
+
+diff --git a/services/tests/test_check_execution_audit_chain_p56_v1.py b/services/tests/test_check_execution_audit_chain_p56_v1.py
+new file mode 100644
+index 0000000..9ae0cf1
+--- /dev/null
++++ b/services/tests/test_check_execution_audit_chain_p56_v1.py
+@@ -0,0 +1,73 @@
++from __future__ import annotations
++
++import importlib.util
++import json
++import sqlite3
++import sys
++from pathlib import Path
++
++SCRIPT = Path(__file__).resolve().parents[2] / 'scripts' / 'check_execution_audit_chain.py'
++SPEC = importlib.util.spec_from_file_location('check_execution_audit_chain', SCRIPT)
++mod = importlib.util.module_from_spec(SPEC)
++assert SPEC and SPEC.loader
++sys.modules[SPEC.name] = mod
++SPEC.loader.exec_module(mod)
++
++
++def _setup_db(path: Path) -> str:
++    conn = sqlite3.connect(path)
++    cur = conn.cursor()
++    cur.executescript(
++        '''
++        CREATE TABLE execution_orders (
++            sid TEXT PRIMARY KEY,
++            signal_id TEXT,
++            execution_plan_id TEXT,
++            closed_trade_id TEXT
++        );
++        CREATE TABLE signals (signal_id TEXT PRIMARY KEY);
++        CREATE TABLE signal_execution_plan (execution_plan_id TEXT PRIMARY KEY);
++        CREATE TABLE trades_closed (id INTEGER PRIMARY KEY, sid TEXT, symbol TEXT, signal_id TEXT, execution_plan_id TEXT, closed_trade_id TEXT);
++        CREATE TABLE position_events (stream_id TEXT PRIMARY KEY, position_id TEXT, sid TEXT, symbol TEXT, signal_id TEXT, execution_plan_id TEXT, closed_trade_id TEXT);
++        CREATE TABLE entry_policy_audit (stream_id TEXT PRIMARY KEY, sid TEXT, symbol TEXT, tf TEXT, signal_id TEXT, execution_plan_id TEXT, closed_trade_id TEXT);
++        CREATE TABLE decision_snapshot (sid TEXT PRIMARY KEY, symbol TEXT, ts_decision_ms INTEGER, signal_id TEXT, execution_plan_id TEXT, closed_trade_id TEXT);
++        '''
++    )
++    cur.execute("INSERT INTO signals(signal_id) VALUES ('sig_ok')")
++    cur.execute("INSERT INTO signal_execution_plan(execution_plan_id) VALUES ('plan_ok')")
++    cur.execute("INSERT INTO trades_closed(id, sid, symbol, signal_id, execution_plan_id, closed_trade_id) VALUES (1, 's_ok', 'BTCUSDT', 'sig_ok', 'plan_ok', '1')")
++    cur.execute("INSERT INTO execution_orders(sid, signal_id, execution_plan_id, closed_trade_id) VALUES ('s_ok', 'sig_ok', 'plan_ok', '1')")
++    cur.execute("INSERT INTO execution_orders(sid, signal_id, execution_plan_id, closed_trade_id) VALUES ('s_missing_sig', '', 'plan_ok', '1')")
++    cur.execute("INSERT INTO execution_orders(sid, signal_id, execution_plan_id, closed_trade_id) VALUES ('s_bad_plan', 'sig_ok', 'plan_missing', '999')")
++    cur.execute("INSERT INTO position_events(stream_id, position_id, sid, symbol, signal_id, execution_plan_id, closed_trade_id) VALUES ('1-0', 'p1', 's_ok', 'BTCUSDT', '', 'plan_ok', '1')")
++    cur.execute("INSERT INTO entry_policy_audit(stream_id, sid, symbol, tf, signal_id, execution_plan_id, closed_trade_id) VALUES ('2-0', 's_ok', 'BTCUSDT', '1m', 'sig_ok', '', '1')")
++    cur.execute("INSERT INTO decision_snapshot(sid, symbol, ts_decision_ms, signal_id, execution_plan_id, closed_trade_id) VALUES ('s_ok', 'BTCUSDT', 1000, 'sig_ok', 'plan_ok', '')")
++    conn.commit()
++    conn.close()
++    return f'sqlite:///{path}'
++
++
++def test_build_report_detects_expected_broken_kinds(tmp_path: Path):
++    dsn = _setup_db(tmp_path / 'audit.db')
++    report = mod.build_report(dsn=dsn, sample_limit=5)
++    assert report.total_broken >= 5
++    assert report.kind_totals['missing_signal_id'] == 1
++    assert report.kind_totals['broken_execution_plan_fk'] == 1
++    assert report.kind_totals['broken_closed_trade_fk'] == 1
++    assert report.kind_totals['missing_position_events_chain'] == 1
++    assert report.kind_totals['missing_entry_policy_audit_chain'] == 1
++    assert report.kind_totals['missing_decision_snapshot_chain'] == 1
++
++
++def test_write_report_and_textfile(tmp_path: Path):
++    dsn = _setup_db(tmp_path / 'audit.db')
++    report = mod.build_report(dsn=dsn)
++    report_path = tmp_path / 'latest_execution_audit_chain.json'
++    textfile_path = tmp_path / 'latest_execution_audit_chain.prom'
++    mod.write_report_json(report, str(report_path))
++    mod.write_textfile(report, str(textfile_path))
++    data = json.loads(report_path.read_text(encoding='utf-8'))
++    text = textfile_path.read_text(encoding='utf-8')
++    assert data['total_broken'] == report.total_broken
++    assert 'trade_execution_audit_chain_total_broken' in text
++    assert 'trade_execution_audit_chain_broken_total{kind="missing_signal_id"}' in text
+
+diff --git a/services/tests/test_runbook_server_audit_chain_v1.py b/services/tests/test_runbook_server_audit_chain_v1.py
+new file mode 100644
+index 0000000..41ef06e
+--- /dev/null
++++ b/services/tests/test_runbook_server_audit_chain_v1.py
+@@ -0,0 +1,38 @@
++from __future__ import annotations
++
++import importlib.util
++import json
++import sys
++from pathlib import Path
++
++MODULE = Path(__file__).resolve().parents[2] / 'runbooks' / 'server' / 'runbook_server.py'
++SPEC = importlib.util.spec_from_file_location('runbook_server', MODULE)
++mod = importlib.util.module_from_spec(SPEC)
++assert SPEC and SPEC.loader
++sys.modules[SPEC.name] = mod
++SPEC.loader.exec_module(mod)
++
++
++def test_filter_audit_chain_items_by_sid():
++    report = {
++        'generated_at_ms': 1,
++        'generated_at_iso': '1970-01-01T00:00:00+00:00',
++        'total_broken': 2,
++        'kind_totals': {'broken_signal_fk': 1, 'broken_closed_trade_fk': 1},
++        'category_totals': {'signal_plan': 1, 'trade_link': 1, 'analytics_link': 0},
++        'checks': [
++            {'kind': 'broken_signal_fk', 'status': 'broken', 'samples': [{'sid': 'sid-1', 'signal_id': 'sig-1'}]},
++            {'kind': 'broken_closed_trade_fk', 'status': 'broken', 'samples': [{'sid': 'sid-2', 'closed_trade_id': '42'}]},
++        ],
++    }
++    out = mod.filter_audit_chain_items(report, sid='sid-2')
++    assert len(out['items']) == 1
++    assert out['items'][0]['sid'] == 'sid-2'
++    assert out['items'][0]['kind'] == 'broken_closed_trade_fk'
++
++
++def test_read_latest_audit_chain_report(tmp_path: Path):
++    path = tmp_path / 'latest_execution_audit_chain.json'
++    payload = {'generated_at_ms': 123, 'checks': []}
++    path.write_text(json.dumps(payload), encoding='utf-8')
++    assert mod.read_latest_audit_chain_report(str(path))['generated_at_ms'] == 123
+
+diff --git a/services/tests/test_p56_audit_chain_assets_v1.py b/services/tests/test_p56_audit_chain_assets_v1.py
+new file mode 100644
+index 0000000..68d08ff
+--- /dev/null
++++ b/services/tests/test_p56_audit_chain_assets_v1.py
+@@ -0,0 +1,19 @@
++from __future__ import annotations
++
++import json
++from pathlib import Path
++
++
++def test_p56_assets_exist_and_contain_expected_contract():
++    root = Path(__file__).resolve().parents[2]
++    rules = (root / 'monitoring' / 'prometheus_rules_execution_p56_audit_chain.yml').read_text(encoding='utf-8')
++    dashboard = json.loads((root / 'monitoring' / 'grafana' / 'dashboards' / 'trade_execution_p56_audit_chain_health.json').read_text(encoding='utf-8'))
++    runbook = (root / 'runbooks' / 'P56_AUDIT_CHAIN.md').read_text(encoding='utf-8')
++
++    assert 'TradeExecutionAuditChainReportStale' in rules
++    assert 'TradeExecutionAuditChainBrokenSignalPlan' in rules
++    assert 'TradeExecutionAuditChainBrokenTradeLink' in rules
++    assert 'TradeExecutionAuditChainBrokenAnalyticsLink' in rules
++    assert dashboard['uid'] == 'trade-exec-p56-audit'
++    assert dashboard['title'] == 'Trade Execution P5.6 Audit-chain Health'
++    assert '/api/audit-chain/latest' in runbook
+

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/derivatives_context_gate.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.5, 1.0, ',', 'basis_extreme', 'default', 'deriv_ctx:', 'funding_extreme', 'hard', 'monitor', 'oi_accel', 'soft', 'strict', 'tighten', 'veto']

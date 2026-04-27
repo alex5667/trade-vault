@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/ab_winner_evaluator_core.py
+# hypothesis_version: 6.148.10
+
+[-5.0, 0.0, 0.01, 0.02, 0.05, 0.1, 0.18, 1.281551565545, 1.644853626951, 2.053748910631, 2.326347874041, 5.0, ',', '-inf', ':', 'A', 'A_or_none', 'B', 'C', 'agg', 'alpha', 'arm_ver', 'bucket', 'cont', 'continuation', 'evaluator', 'group', 'hold_down', 'illiquid', 'inf', 'lcb', 'lcb_v1', 'margin_r', 'mean', 'min_edge_lcb', 'min_n', 'mixed', 'mode', 'n', 'na', 'news', 'no_prev', 'no_scenarios', 'pooled', 'range', 'reason', 'regime', 'result', 'rev', 'reversal', 'revert_to_A', 'same_winner', 'scenario_agree', 'schema', 'sid', 'stats', 'std', 'switch_margin_low', 'switch_ok', 'symbol', 'thin', 'trend', 'trending_bear', 'trending_bull', 'ts_ms', 'utf-8', 'window_sec', 'winner', 'winner_arm', 'winners']

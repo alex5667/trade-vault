@@ -1,0 +1,66 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "graphTooltip": 0,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Blocked purposes",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [{"expr": "orchestration_composite_preflight_block_total", "refId": "A"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "values": false, "fields": ""}}
+    },
+    {
+      "type": "stat",
+      "title": "Invalid purposes",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "targets": [{"expr": "orchestration_composite_preflight_invalid_total", "refId": "A"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "values": false, "fields": ""}}
+    },
+    {
+      "type": "stat",
+      "title": "Present state total",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "targets": [{"expr": "orchestration_composite_preflight_present_total", "refId": "A"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "values": false, "fields": ""}}
+    },
+    {
+      "type": "stat",
+      "title": "Exporter Redis OK",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "targets": [{"expr": "orchestration_composite_preflight_exporter_redis_read_ok", "refId": "A"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "values": false, "fields": ""}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Decision status by purpose",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [{"expr": "orchestration_composite_preflight_decision_status", "legendFormat": "{{purpose}} {{status}}", "refId": "A"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Selected source by purpose",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [{"expr": "orchestration_composite_preflight_selected_source", "legendFormat": "{{purpose}} {{source}}", "refId": "A"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Selected reason code by purpose",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 12},
+      "targets": [{"expr": "orchestration_composite_preflight_selected_reason_code", "legendFormat": "{{purpose}} {{reason_code}}", "refId": "A"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "State age seconds",
+      "gridPos": {"h": 7, "w": 24, "x": 0, "y": 20},
+      "targets": [{"expr": "orchestration_composite_preflight_state_age_seconds", "legendFormat": "{{purpose}}", "refId": "A"}]
+    }
+  ],
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["trade", "orchestration", "control-plane", "p54"],
+  "templating": {"list": []},
+  "time": {"from": "now-24h", "to": "now"},
+  "title": "Orchestration Composite Preflight P5.4",
+  "version": 1
+}

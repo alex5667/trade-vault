@@ -1,0 +1,32 @@
+groups:
+  - name: active_symbol_guard_p8
+    rules:
+      - alert: ActiveSymbolGuardCASConflictsSpike
+        expr: sum by (writer, operation, reason) (increase(execution_active_symbol_guard_cas_conflict_total[15m])) > 5
+        for: 10m
+        labels:
+          severity: warning
+          service: execution
+        annotations:
+          summary: "Active-symbol guard CAS conflicts are spiking"
+          description: "execution_active_symbol_guard_cas_conflict_total increased for writer={{ $labels.writer }}, operation={{ $labels.operation }}, reason={{ $labels.reason }}. Competing writers or stale leases may be fighting over orders:active_symbol_sid:{symbol}."
+
+      - alert: ActiveSymbolGuardReleasedTombstoneTooOld
+        expr: max by (symbol) (execution_active_symbol_guard_released_tombstone_age_ms) > 600000
+        for: 10m
+        labels:
+          severity: warning
+          service: execution
+        annotations:
+          summary: "Released active-symbol tombstone is older than expected"
+          description: "Released tombstone for {{ $labels.symbol }} has remained in Redis for more than 10 minutes. This may indicate a reader not respecting tombstone semantics or an unhealthy cleanup cadence."
+
+      - alert: ActiveSymbolGuardResurrectionAttempt
+        expr: sum by (writer, reason) (increase(execution_active_symbol_guard_resurrection_attempt_total[15m])) > 0
+        for: 0m
+        labels:
+          severity: critical
+          service: execution
+        annotations:
+          summary: "Suspicious active-symbol guard resurrection attempt detected"
+          description: "A writer attempted to recreate a released active-symbol guard. writer={{ $labels.writer }}, reason={{ $labels.reason }}. Check replay ordering, stale executor paths, and CAS lease ownership."

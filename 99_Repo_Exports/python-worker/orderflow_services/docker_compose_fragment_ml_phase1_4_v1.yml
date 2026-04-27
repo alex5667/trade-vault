@@ -1,0 +1,22 @@
+services:
+  scanner-ml-recommendation-executor-v1:
+    build:
+      context: ../../
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-ml-recommendation-executor-v1
+    command: ["python", "-m", "orderflow_services.ml_recommendation_executor_v1"]
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      - ML_RECOMMENDATION_EXECUTOR_MODE=${ML_RECOMMENDATION_EXECUTOR_MODE:-DRY_RUN}
+      - ML_RECOMMENDATION_EXECUTOR_METRICS_PORT=9869
+      - PROMETHEUS_MULTIPROC_DIR=/tmp
+    ports:
+      - "9869:9869"
+    networks:
+      - scanner-network
+    restart: unless-stopped
+
+
+networks:
+  scanner-network:
+    external: true

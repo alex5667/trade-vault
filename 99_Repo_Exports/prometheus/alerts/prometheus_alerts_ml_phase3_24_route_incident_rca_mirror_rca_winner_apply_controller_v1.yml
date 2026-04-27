@@ -1,0 +1,30 @@
+groups:
+  - name: ml_phase3_24_route_incident_rca_mirror_rca_winner_apply_controller_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyControllerStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_controller_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror RCA winner apply controller is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyControllerErrors
+        expr: rate(ml_route_incident_rca_mirror_rca_winner_apply_controller_runs_total{status="error"}[5m]) > 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "route incident RCA mirror RCA winner apply controller has errors"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyControllerVertex
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_controller_current_primary_arm{arm="vertex_candidate"} == 1
+        for: 5m
+        labels: { severity: info }
+        annotations:
+          summary: "winner apply contour is running vertex candidate as primary"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyControllerSingleArm
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_controller_current_mode{mode="SINGLE_ARM"} == 1
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "winner apply contour has dropped shadows and is running single arm"

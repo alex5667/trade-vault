@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic trade risk engine canary report
+
+[Timer]
+OnBootSec=5m
+OnUnitActiveSec=20m
+Unit=trade-risk-engine-canary-report.service
+
+[Install]
+WantedBy=timers.target

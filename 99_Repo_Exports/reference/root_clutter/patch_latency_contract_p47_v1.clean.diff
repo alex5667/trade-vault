@@ -1,0 +1,1369 @@
+--- a/services/observability/latency_deploy_lint_notify_state.py	2026-03-08 09:24:43.000000000 +0000
++++ b/services/observability/latency_deploy_lint_notify_state.py	2026-03-08 10:17:09.753787720 +0000
+@@ -32,28 +32,30 @@
+     return prefix.rstrip(':')
+ 
+ 
+-def update_notifier_state(
+-    r: Any,
+-    *,
+-    prefix: str,
+-    active_purposes: list[str],
+-    emitted: bool,
+-    event_kind: str,
+-    ttl_s: int,
+-    now_ms: int | None = None,
+-) -> dict[str, str]:
++def update_notifier_state(r: Any, *, prefix: str, active_purposes: list[str], emitted: bool, event_kind: str, ttl_s: int, now_ms: int | None = None, raw_active_purposes: list[str] | None = None, silenced_purposes: list[str] | None = None, effective_active_purposes: list[str] | None = None) -> dict[str, str]:
+     now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
+     skey = state_key(prefix)
+     prev = r.hgetall(skey) or {}
+-    active_csv = _csv(active_purposes)
+-    active_hash = purposes_hash(active_purposes)
++    raw_active_purposes = list(active_purposes if raw_active_purposes is None else raw_active_purposes)
++    silenced_purposes = list([] if silenced_purposes is None else silenced_purposes)
++    effective_active_purposes = list(active_purposes if effective_active_purposes is None else effective_active_purposes)
++    active_csv = _csv(effective_active_purposes)
++    raw_csv = _csv(raw_active_purposes)
++    silenced_csv = _csv(silenced_purposes)
++    status = 'active' if effective_active_purposes else ('silenced' if raw_active_purposes else 'ok')
+     mapping = {
+         'schema_version': '1',
+         'last_run_ts_ms': str(now_ms),
+         'active_purposes_csv': active_csv or 'none',
+-        'active_purposes_count': str(len([x for x in active_purposes if str(x).strip()])),
+-        'active_hash': active_hash,
+-        'last_status': 'active' if active_purposes else 'ok',
++        'active_purposes_count': str(len([x for x in effective_active_purposes if str(x).strip()])),
++        'active_hash': purposes_hash(effective_active_purposes),
++        'raw_active_purposes_csv': raw_csv or 'none',
++        'raw_active_purposes_count': str(len([x for x in raw_active_purposes if str(x).strip()])),
++        'raw_active_hash': purposes_hash(raw_active_purposes),
++        'silenced_purposes_csv': silenced_csv or 'none',
++        'silenced_purposes_count': str(len([x for x in silenced_purposes if str(x).strip()])),
++        'silenced_hash': purposes_hash(silenced_purposes),
++        'last_status': status,
+         'last_event_kind': str(event_kind or 'noop'),
+         'last_emit_ts_ms': str(now_ms if emitted else _i(prev.get('last_emit_ts_ms'), 0)),
+     }
+--- a/services/observability/latency_deploy_lint_silence_state.py	1970-01-01 00:00:00.000000000 +0000
++++ b/services/observability/latency_deploy_lint_silence_state.py	2026-03-08 10:17:09.753578419 +0000
+@@ -0,0 +1,185 @@
++from __future__ import annotations
++
++"""Redis-backed ack/silence helpers for latency deploy-lint notifier control.
++
++P4.7 adds a notifier-level silence workflow so persistent deploy-lint drift can
++be acknowledged temporarily without disabling the underlying rollout gate.
++"""
++
++from dataclasses import dataclass
++from typing import Any
++import time
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return d
++
++
++def _s(v: Any, d: str = '') -> str:
++    s = str(v if v is not None else '').strip()
++    return s or d
++
++
++@dataclass(frozen=True)
++class DeployLintSilenceState:
++    purpose: str
++    present: bool
++    silence_active: bool
++    silence_until_ts_ms: int
++    remaining_s: int
++    ack_ts_ms: int
++    ack_operator: str
++    ack_ticket: str
++    ack_reason: str
++    unsilence_ts_ms: int
++    unsilence_operator: str
++    unsilence_ticket: str
++    unsilence_reason: str
++    last_action: str
++    last_action_ts_ms: int
++
++
++def state_key(prefix: str, purpose: str) -> str:
++    return f"{prefix.rstrip(':')}:{purpose}"
++
++
++def parse_silence_state(raw: dict[str, str] | None, *, now_ms: int | None = None) -> DeployLintSilenceState:
++    raw = dict(raw or {})
++    now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
++    until_ms = _i(raw.get('silence_until_ts_ms'), 0)
++    active = str(raw.get('silence_active', '0')) == '1' and until_ms > now_ms
++    remaining_s = int(max(0, (until_ms - now_ms) / 1000.0)) if active else 0
++    return DeployLintSilenceState(
++        purpose=_s(raw.get('purpose')),
++        present=bool(raw),
++        silence_active=active,
++        silence_until_ts_ms=until_ms,
++        remaining_s=remaining_s,
++        ack_ts_ms=_i(raw.get('ack_ts_ms'), 0),
++        ack_operator=_s(raw.get('ack_operator')),
++        ack_ticket=_s(raw.get('ack_ticket')),
++        ack_reason=_s(raw.get('ack_reason')),
++        unsilence_ts_ms=_i(raw.get('unsilence_ts_ms'), 0),
++        unsilence_operator=_s(raw.get('unsilence_operator')),
++        unsilence_ticket=_s(raw.get('unsilence_ticket')),
++        unsilence_reason=_s(raw.get('unsilence_reason')),
++        last_action=_s(raw.get('last_action')),
++        last_action_ts_ms=_i(raw.get('last_action_ts_ms'), 0),
++    )
++
++
++def list_silenced_purposes(r: Any, *, prefix: str, purposes: list[str] | tuple[str, ...], now_ms: int | None = None) -> tuple[list[str], dict[str, dict[str, str]]]:
++    now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
++    active: list[str] = []
++    details: dict[str, dict[str, str]] = {}
++    for purpose in sorted({str(x).strip() for x in purposes if str(x).strip()}):
++        raw = r.hgetall(state_key(prefix, purpose)) or {}
++        details[purpose] = raw
++        if parse_silence_state(raw, now_ms=now_ms).silence_active:
++            active.append(purpose)
++    return active, details
++
++
++def _xadd_best_effort(r: Any, stream: str | None, fields: dict[str, str]) -> str:
++    if not stream:
++        return ''
++    try:
++        return str(r.xadd(stream, fields, maxlen=200000, approximate=True) or '')
++    except Exception:
++        return ''
++
++
++def upsert_ack_silence(r: Any, *, prefix: str, purpose: str, operator: str, ticket: str, reason: str, silence_minutes: int, ttl_s: int, ops_stream: str | None = None, gate_active: bool | None = None, now_ms: int | None = None) -> dict[str, str]:
++    now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
++    silence_minutes = max(1, int(silence_minutes))
++    until_ms = now_ms + silence_minutes * 60 * 1000
++    skey = state_key(prefix, purpose)
++    prev = r.hgetall(skey) or {}
++    mapping = {
++        'schema_version': '1',
++        'purpose': str(purpose),
++        'silence_active': '1',
++        'silence_until_ts_ms': str(until_ms),
++        'silence_duration_s': str(silence_minutes * 60),
++        'ack_ts_ms': str(now_ms),
++        'ack_operator': str(operator),
++        'ack_ticket': str(ticket),
++        'ack_reason': str(reason),
++        'ack_count': str(_i(prev.get('ack_count'), 0) + 1),
++        'gate_active_at_ack': '1' if gate_active else '0',
++        'unsilence_ts_ms': str(_i(prev.get('unsilence_ts_ms'), 0)),
++        'unsilence_operator': _s(prev.get('unsilence_operator'), ''),
++        'unsilence_ticket': _s(prev.get('unsilence_ticket'), ''),
++        'unsilence_reason': _s(prev.get('unsilence_reason'), ''),
++        'last_action': 'ack_silence',
++        'last_action_ts_ms': str(now_ms),
++        'last_action_operator': str(operator),
++        'last_action_ticket': str(ticket),
++        'last_action_reason': str(reason),
++    }
++    r.hset(skey, mapping=mapping)
++    try:
++        r.expire(skey, max(int(ttl_s), silence_minutes * 60, 1))
++    except Exception:
++        pass
++    event_id = _xadd_best_effort(r, ops_stream, {
++        'ts_ms': str(now_ms),
++        'kind': 'latency_deploy_lint_ack_silence_set',
++        'purpose': str(purpose),
++        'operator': str(operator),
++        'ticket': str(ticket),
++        'reason': str(reason),
++        'silence_until_ts_ms': str(until_ms),
++        'silence_duration_s': str(silence_minutes * 60),
++        'gate_active': '1' if gate_active else '0',
++    })
++    if event_id:
++        r.hset(skey, mapping={'last_event_id': event_id})
++    return r.hgetall(skey) or mapping
++
++
++def clear_ack_silence(r: Any, *, prefix: str, purpose: str, operator: str, ticket: str, reason: str, ttl_s: int, ops_stream: str | None = None, now_ms: int | None = None) -> dict[str, str]:
++    now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
++    skey = state_key(prefix, purpose)
++    prev = r.hgetall(skey) or {}
++    mapping = {
++        'schema_version': '1',
++        'purpose': str(purpose),
++        'silence_active': '0',
++        'silence_until_ts_ms': '0',
++        'silence_duration_s': str(_i(prev.get('silence_duration_s'), 0)),
++        'ack_ts_ms': str(_i(prev.get('ack_ts_ms'), 0)),
++        'ack_operator': _s(prev.get('ack_operator'), ''),
++        'ack_ticket': _s(prev.get('ack_ticket'), ''),
++        'ack_reason': _s(prev.get('ack_reason'), ''),
++        'ack_count': str(_i(prev.get('ack_count'), 0)),
++        'gate_active_at_ack': _s(prev.get('gate_active_at_ack'), '0'),
++        'unsilence_ts_ms': str(now_ms),
++        'unsilence_operator': str(operator),
++        'unsilence_ticket': str(ticket),
++        'unsilence_reason': str(reason),
++        'last_action': 'unsilence',
++        'last_action_ts_ms': str(now_ms),
++        'last_action_operator': str(operator),
++        'last_action_ticket': str(ticket),
++        'last_action_reason': str(reason),
++    }
++    r.hset(skey, mapping=mapping)
++    try:
++        r.expire(skey, max(1, int(ttl_s)))
++    except Exception:
++        pass
++    event_id = _xadd_best_effort(r, ops_stream, {
++        'ts_ms': str(now_ms),
++        'kind': 'latency_deploy_lint_ack_silence_cleared',
++        'purpose': str(purpose),
++        'operator': str(operator),
++        'ticket': str(ticket),
++        'reason': str(reason),
++    })
++    if event_id:
++        r.hset(skey, mapping={'last_event_id': event_id})
++    return r.hgetall(skey) or mapping
+--- a/orderflow_services/latency_contract_deploy_lint_notifier_v1.py	2026-03-08 09:24:43.000000000 +0000
++++ b/orderflow_services/latency_contract_deploy_lint_notifier_v1.py	2026-03-08 10:20:17.645784564 +0000
+@@ -3,12 +3,9 @@
+ 
+ """Emit ops-event/Telegram summaries for persistent latency deploy-lint drift.
+ 
+-This notifier is intentionally separate from the Prometheus exporter:
+-- exporter => continuous pull-based visibility
+-- notifier => push-based ops summary when persistent config drift remains active
+-
+-It reads the Redis-backed state created by the deploy-lint CLI (P4.5) and emits
+-an event only on status changes or after a reminder cooldown.
++P4.7 adds an operator ack/silence workflow. The rollout gate remains active, but
++individual purposes can be temporarily silenced at the notifier layer using
++operator/ticket/reason metadata, preserving audit trail without pager spam.
+ """
+ 
+ import json
+@@ -19,11 +16,8 @@
+ 
+ from services.observability.latency_deploy_contract import CONTRACTS
+ from services.observability.latency_deploy_lint_state import state_key as lint_state_key
+-from services.observability.latency_deploy_lint_notify_state import (
+-    purposes_hash,
+-    state_key as notify_state_key,
+-    update_notifier_state,
+-)
++from services.observability.latency_deploy_lint_notify_state import purposes_hash, state_key as notify_state_key, update_notifier_state
++from services.observability.latency_deploy_lint_silence_state import list_silenced_purposes, parse_silence_state
+ 
+ 
+ def _env(name: str, default: str = '') -> str:
+@@ -42,6 +36,7 @@
+     redis_url: str
+     state_prefix: str
+     notifier_state_key: str
++    silence_prefix: str
+     ops_stream: str
+     notify_stream: str
+     notify_enable: bool
+@@ -54,6 +49,7 @@
+         redis_url=_env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
+         state_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_STATE_PREFIX', 'metrics:latency_contract:deploy_lint:last'),
+         notifier_state_key=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_KEY', 'metrics:latency_contract:deploy_lint:notifier:last'),
++        silence_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_PREFIX', 'cfg:orderflow:latency_contract:deploy_lint:silence'),
+         ops_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_OPS_EVENT_STREAM', 'ops:latency_contract:events:v1'),
+         notify_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_STREAM', os.getenv('NOTIFY_TELEGRAM_STREAM') or 'notify:telegram'),
+         notify_enable=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_ENABLE', '1').lower() in ('1', 'true', 'yes', 'on'),
+@@ -73,25 +69,42 @@
+     return active, details
+ 
+ 
+-def _summary_text(active: list[str], details: dict[str, dict[str, str]]) -> str:
++def _partition_active_by_silence(r: Any, *, prefix: str, active: list[str], now_ms: int) -> tuple[list[str], list[str], dict[str, dict[str, str]]]:
++    silenced, silence_details = list_silenced_purposes(r, prefix=prefix, purposes=active, now_ms=now_ms)
++    effective_active = [p for p in active if p not in set(silenced)]
++    return effective_active, silenced, silence_details
++
++
++def _summary_text(active: list[str], details: dict[str, dict[str, str]], *, silenced: list[str] | None = None, silence_details: dict[str, dict[str, str]] | None = None) -> str:
++    silenced = list(silenced or [])
++    silence_details = dict(silence_details or {})
+     if not active:
+         return 'Latency deploy-lint persistent drift recovered: no active config-drift gates.'
+     parts: list[str] = []
+     for purpose in active:
+         raw = details.get(purpose) or {}
+-        codes = str(raw.get('error_codes') or 'unknown')[:240]
+-        parts.append(f'{purpose}: {codes}')
++        parts.append(f"{purpose}: {str(raw.get('error_codes') or 'unknown')[:240]}")
++    if silenced:
++        parts.append('silenced on notifier:')
++        for purpose in silenced:
++            st = parse_silence_state(silence_details.get(purpose) or {})
++            meta = [x for x in [st.ack_operator, st.ack_ticket] if x]
++            parts.append(f"- {purpose}{(' (' + '/'.join(meta) + ')') if meta else ''}")
+     return 'Latency deploy-lint persistent config drift active\n' + '\n'.join(parts)
+ 
+ 
+-def _emit_ops_event(r: Any, cfg: Cfg, *, event_kind: str, active: list[str], details: dict[str, dict[str, str]], now_ms: int) -> None:
++def _emit_ops_event(r: Any, cfg: Cfg, *, event_kind: str, raw_active: list[str], active: list[str], silenced: list[str], details: dict[str, dict[str, str]], now_ms: int) -> None:
+     fields = {
+         'ts_ms': str(now_ms),
+         'kind': event_kind,
+         'source': 'latency_contract_deploy_lint_notifier_v1',
++        'raw_active_purposes_csv': ','.join(raw_active) if raw_active else 'none',
++        'raw_active_purposes_count': str(len(raw_active)),
+         'active_purposes_csv': ','.join(active) if active else 'none',
+         'active_purposes_count': str(len(active)),
+         'active_hash': purposes_hash(active),
++        'silenced_purposes_csv': ','.join(silenced) if silenced else 'none',
++        'silenced_purposes_count': str(len(silenced)),
+         'details_json': json.dumps({p: details.get(p) or {} for p in active}, sort_keys=True),
+     }
+     r.xadd(cfg.ops_stream, fields, maxlen=200000, approximate=True)
+@@ -100,52 +113,46 @@
+ def _emit_notify(r: Any, cfg: Cfg, *, event_kind: str, text: str, now_ms: int) -> None:
+     if not cfg.notify_enable:
+         return
+-    fields = {
++    r.xadd(cfg.notify_stream, {
+         'type': 'report',
+         'severity': 'crit' if event_kind == 'latency_deploy_lint_persistent_drift' else 'info',
+         'text': text[:3500],
+         'ts': str(now_ms),
+         'source': 'latency_contract_deploy_lint_notifier_v1',
+-    }
+-    r.xadd(cfg.notify_stream, fields, maxlen=200000, approximate=True)
++    }, maxlen=200000, approximate=True)
++
++
++def _should_emit(*, prev_status: str, prev_hash: str, current_status: str, current_hash: str, raw_active: list[str], last_emit_ts_ms: int, reminder_s: int, now_ms: int) -> tuple[bool, str]:
++    if current_status == 'active':
++        if current_status != prev_status or current_hash != prev_hash:
++            return True, 'latency_deploy_lint_persistent_drift'
++        if raw_active and (now_ms - last_emit_ts_ms) >= reminder_s * 1000:
++            return True, 'latency_deploy_lint_persistent_drift'
++        return False, 'noop'
++    if current_status == 'ok' and prev_status == 'active':
++        return True, 'latency_deploy_lint_recovered'
++    return False, 'noop'
+ 
+ 
+ def main() -> int:
+     cfg = load_cfg()
+     import redis  # type: ignore
+-
+     r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
+     now_ms = int(time.time() * 1000)
+-    active, details = _active_state_payload(r, cfg.state_prefix)
++    raw_active, details = _active_state_payload(r, cfg.state_prefix)
++    active, silenced, silence_details = _partition_active_by_silence(r, prefix=cfg.silence_prefix, active=raw_active, now_ms=now_ms)
+     prev = r.hgetall(notify_state_key(cfg.notifier_state_key)) or {}
+     prev_hash = str(prev.get('active_hash') or '')
+     prev_status = str(prev.get('last_status') or 'unknown')
+     last_emit_ts_ms = _i(prev.get('last_emit_ts_ms'), 0)
+     current_hash = purposes_hash(active)
+-    current_status = 'active' if active else 'ok'
+-
+-    emit = False
+-    event_kind = 'noop'
+-    if current_status != prev_status or current_hash != prev_hash:
+-        emit = True
+-        event_kind = 'latency_deploy_lint_persistent_drift' if active else 'latency_deploy_lint_recovered'
+-    elif active and (now_ms - last_emit_ts_ms) >= cfg.reminder_s * 1000:
+-        emit = True
+-        event_kind = 'latency_deploy_lint_persistent_drift'
+-
++    current_status = 'active' if active else ('silenced' if raw_active else 'ok')
++    emit, event_kind = _should_emit(prev_status=prev_status, prev_hash=prev_hash, current_status=current_status, current_hash=current_hash, raw_active=raw_active, last_emit_ts_ms=last_emit_ts_ms, reminder_s=cfg.reminder_s, now_ms=now_ms)
+     if emit:
+-        text = _summary_text(active, details)
+-        _emit_ops_event(r, cfg, event_kind=event_kind, active=active, details=details, now_ms=now_ms)
++        text = _summary_text(active, details, silenced=silenced, silence_details=silence_details)
++        _emit_ops_event(r, cfg, event_kind=event_kind, raw_active=raw_active, active=active, silenced=silenced, details=details, now_ms=now_ms)
+         _emit_notify(r, cfg, event_kind=event_kind, text=text, now_ms=now_ms)
+-    update_notifier_state(
+-        r,
+-        prefix=cfg.notifier_state_key,
+-        active_purposes=active,
+-        emitted=emit,
+-        event_kind=event_kind,
+-        ttl_s=cfg.state_ttl_s,
+-        now_ms=now_ms,
+-    )
++    update_notifier_state(r, prefix=cfg.notifier_state_key, active_purposes=active, raw_active_purposes=raw_active, silenced_purposes=silenced, effective_active_purposes=active, emitted=emit, event_kind=event_kind, ttl_s=cfg.state_ttl_s, now_ms=now_ms)
+     return 0
+ 
+ 
+--- a/orderflow_services/latency_contract_deploy_lint_exporter_v1.py	2026-03-08 09:24:43.000000000 +0000
++++ b/orderflow_services/latency_contract_deploy_lint_exporter_v1.py	2026-03-08 10:20:17.663985459 +0000
+@@ -1,12 +1,7 @@
+ #!/usr/bin/env python3
+ from __future__ import annotations
+ 
+-"""Prometheus exporter for latency deploy-lint state.
+-
+-The host-side deploy-lint already runs on every sensitive apply/rollout path. This
+-exporter makes the latest lint verdicts visible in Prometheus/Grafana and writes a
+-small summary hash that other automation can inspect.
+-"""
++"""Prometheus exporter for latency deploy-lint state with P4.7 silence visibility."""
+ 
+ import os
+ import time
+@@ -18,6 +13,7 @@
+ from services.observability.latency_deploy_contract import CONTRACTS
+ from services.observability.latency_deploy_lint_state import state_key
+ from services.observability.latency_deploy_lint_notify_state import state_key as notifier_state_key
++from services.observability.latency_deploy_lint_silence_state import parse_silence_state, state_key as silence_state_key
+ 
+ 
+ def _env(name: str, default: str = '') -> str:
+@@ -47,11 +43,18 @@
+ G_LAST_CHECK_AGE = Gauge('latency_contract_deploy_lint_last_checked_age_seconds', 'age of last deploy lint check', ['purpose'])
+ G_FAIL_AGE = Gauge('latency_contract_deploy_lint_fail_age_seconds', 'age of current deploy lint failure streak', ['purpose'])
+ G_GATE_ACTIVE = Gauge('latency_contract_deploy_lint_gate_active', 'persistent deploy lint gate active', ['purpose'])
++G_SILENCE_STATE_PRESENT = Gauge('latency_contract_deploy_lint_silence_state_present', 'deploy lint silence state present', ['purpose'])
++G_SILENCE_ACTIVE = Gauge('latency_contract_deploy_lint_silence_active', 'deploy lint notifier silence active', ['purpose'])
++G_SILENCE_REMAINING = Gauge('latency_contract_deploy_lint_silence_remaining_seconds', 'remaining notifier silence time', ['purpose'])
+ G_SUMMARY_FAIL_TOTAL = Gauge('latency_contract_deploy_lint_summary_fail_total', 'number of purposes currently failing deploy lint')
+ G_SUMMARY_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_gate_active_total', 'number of purposes with persistent deploy lint gate active')
++G_SUMMARY_SILENCED_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_silenced_gate_active_total', 'number of purposes with persistent deploy lint gate active but silenced in notifier')
++G_SUMMARY_UNSILENCED_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_unsilenced_gate_active_total', 'number of purposes with persistent deploy lint gate active and not silenced in notifier')
+ G_NOTIFIER_STATE_PRESENT = Gauge('latency_contract_deploy_lint_notifier_state_present', 'deploy lint notifier state present')
+ G_NOTIFIER_LAST_RUN_AGE = Gauge('latency_contract_deploy_lint_notifier_last_run_age_seconds', 'age of deploy lint notifier last run')
+ G_NOTIFIER_ACTIVE = Gauge('latency_contract_deploy_lint_notifier_active', 'deploy lint notifier sees active persistent drift')
++G_NOTIFIER_SILENCED = Gauge('latency_contract_deploy_lint_notifier_silenced', 'deploy lint notifier currently suppressed by silence workflow')
++G_NOTIFIER_SILENCED_PURPOSES_TOTAL = Gauge('latency_contract_deploy_lint_notifier_silenced_purposes_total', 'count of currently silenced purposes in notifier state')
+ 
+ 
+ @dataclass
+@@ -60,6 +63,7 @@
+     port: int
+     interval_s: float
+     state_prefix: str
++    silence_prefix: str
+     summary_key: str
+ 
+ 
+@@ -70,6 +74,7 @@
+         port=_i(_env('LATENCY_CONTRACT_DEPLOY_LINT_EXPORTER_PORT', '9834'), 9834),
+         interval_s=float(_env('LATENCY_CONTRACT_DEPLOY_LINT_EXPORTER_INTERVAL_S', '15') or 15),
+         state_prefix=prefix,
++        silence_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_PREFIX', 'cfg:orderflow:latency_contract:deploy_lint:silence'),
+         summary_key=_env('LATENCY_CONTRACT_DEPLOY_LINT_SUMMARY_KEY', 'metrics:latency_contract:deploy_lint:summary:last'),
+     )
+ 
+@@ -77,20 +82,18 @@
+ def main() -> int:
+     cfg = load_cfg()
+     import redis  # type: ignore
+-
+     r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
+     start_http_server(cfg.port)
+     purposes = tuple(sorted(CONTRACTS.keys()))
+     while True:
+         G_UP.set(1.0)
+         now = time.time()
++        now_ms = int(now * 1000)
+         try:
+-            fail_total = 0
+-            gate_total = 0
++            fail_total = gate_total = silenced_gate_total = unsilenced_gate_total = 0
+             for purpose in purposes:
+                 raw = r.hgetall(state_key(cfg.state_prefix, purpose)) or {}
+                 present = 1.0 if raw else 0.0
+-                G_STATE_PRESENT.labels(purpose=purpose).set(present)
+                 ok = _f(raw.get('ok'), 0.0)
+                 gate = _f(raw.get('gate_active'), 0.0)
+                 errors = _f(raw.get('errors_count'), 0.0)
+@@ -98,32 +101,39 @@
+                 last_ts_ms = _i(raw.get('last_checked_ts_ms'), 0)
+                 fail_age_s = _f(raw.get('fail_age_s'), 0.0)
+                 age_s = max(0.0, now - (last_ts_ms / 1000.0)) if last_ts_ms > 0 else 0.0
++                G_STATE_PRESENT.labels(purpose=purpose).set(present)
+                 G_OK.labels(purpose=purpose).set(ok)
+                 G_GATE_ACTIVE.labels(purpose=purpose).set(gate)
+                 G_ERRORS.labels(purpose=purpose).set(errors)
+                 G_WARNINGS.labels(purpose=purpose).set(warnings)
+                 G_LAST_CHECK_AGE.labels(purpose=purpose).set(age_s)
+                 G_FAIL_AGE.labels(purpose=purpose).set(fail_age_s)
++                sraw = r.hgetall(silence_state_key(cfg.silence_prefix, purpose)) or {}
++                sst = parse_silence_state(sraw, now_ms=now_ms)
++                G_SILENCE_STATE_PRESENT.labels(purpose=purpose).set(1.0 if sraw else 0.0)
++                G_SILENCE_ACTIVE.labels(purpose=purpose).set(1.0 if sst.silence_active else 0.0)
++                G_SILENCE_REMAINING.labels(purpose=purpose).set(float(sst.remaining_s))
+                 if present > 0 and ok <= 0:
+                     fail_total += 1
+                 if gate > 0:
+                     gate_total += 1
++                    if sst.silence_active:
++                        silenced_gate_total += 1
++                    else:
++                        unsilenced_gate_total += 1
+             G_SUMMARY_FAIL_TOTAL.set(float(fail_total))
+             G_SUMMARY_GATE_ACTIVE_TOTAL.set(float(gate_total))
+-            r.hset(cfg.summary_key, mapping={
+-                'schema_version': '1',
+-                'last_ts_ms': str(int(now * 1000)),
+-                'fail_total': str(fail_total),
+-                'gate_active_total': str(gate_total),
+-            })
++            G_SUMMARY_SILENCED_GATE_ACTIVE_TOTAL.set(float(silenced_gate_total))
++            G_SUMMARY_UNSILENCED_GATE_ACTIVE_TOTAL.set(float(unsilenced_gate_total))
++            r.hset(cfg.summary_key, mapping={'schema_version': '1', 'last_ts_ms': str(now_ms), 'fail_total': str(fail_total), 'gate_active_total': str(gate_total), 'silenced_gate_active_total': str(silenced_gate_total), 'unsilenced_gate_active_total': str(unsilenced_gate_total)})
+             nraw = r.hgetall(notifier_state_key(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_KEY', 'metrics:latency_contract:deploy_lint:notifier:last'))) or {}
+-            npresent = 1.0 if nraw else 0.0
+             nlast_ms = _i(nraw.get('last_run_ts_ms'), 0)
+-            nage = max(0.0, now - (nlast_ms / 1000.0)) if nlast_ms > 0 else 0.0
+-            nactive = 1.0 if str(nraw.get('last_status', 'ok')) == 'active' else 0.0
+-            G_NOTIFIER_STATE_PRESENT.set(npresent)
+-            G_NOTIFIER_LAST_RUN_AGE.set(nage)
+-            G_NOTIFIER_ACTIVE.set(nactive)
++            nstatus = str(nraw.get('last_status', 'ok'))
++            G_NOTIFIER_STATE_PRESENT.set(1.0 if nraw else 0.0)
++            G_NOTIFIER_LAST_RUN_AGE.set(max(0.0, now - (nlast_ms / 1000.0)) if nlast_ms > 0 else 0.0)
++            G_NOTIFIER_ACTIVE.set(1.0 if nstatus == 'active' else 0.0)
++            G_NOTIFIER_SILENCED.set(1.0 if nstatus == 'silenced' else 0.0)
++            G_NOTIFIER_SILENCED_PURPOSES_TOTAL.set(_f(nraw.get('silenced_purposes_count'), 0.0))
+             G_READ_OK.set(1.0)
+         except Exception:
+             G_READ_OK.set(0.0)
+--- a/orderflow_services/latency_contract_deploy_lint_silence_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/latency_contract_deploy_lint_silence_v1.py	2026-03-08 10:22:18.813877044 +0000
+@@ -0,0 +1,116 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Operator ack/silence workflow for latency deploy-lint notifier."""
++
++import argparse, json, os, sys, time
++from dataclasses import dataclass
++from typing import Any
++
++from services.observability.latency_deploy_contract import CONTRACTS
++from services.observability.latency_deploy_lint_silence_state import clear_ack_silence, parse_silence_state, state_key as silence_state_key, upsert_ack_silence
++from services.observability.latency_deploy_lint_state import state_key as lint_state_key
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return d
++
++
++@dataclass(frozen=True)
++class Cfg:
++    redis_url: str
++    state_prefix: str
++    silence_prefix: str
++    ops_stream: str
++    silence_ttl_s: int
++    default_minutes: int
++
++
++def load_cfg() -> Cfg:
++    return Cfg(
++        redis_url=_env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
++        state_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_STATE_PREFIX', 'metrics:latency_contract:deploy_lint:last'),
++        silence_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_PREFIX', 'cfg:orderflow:latency_contract:deploy_lint:silence'),
++        ops_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_OPS_EVENT_STREAM', 'ops:latency_contract:events:v1'),
++        silence_ttl_s=max(3600, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_TTL_S', '2592000'), 2592000)),
++        default_minutes=max(1, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DEFAULT_MINUTES', '360'), 360)),
++    )
++
++
++def _read_purpose_status(r: Any, cfg: Cfg, purpose: str, now_ms: int) -> dict[str, Any]:
++    lint_raw = r.hgetall(lint_state_key(cfg.state_prefix, purpose)) or {}
++    silence_raw = r.hgetall(silence_state_key(cfg.silence_prefix, purpose)) or {}
++    silence = parse_silence_state(silence_raw, now_ms=now_ms)
++    return {
++        'purpose': purpose,
++        'gate_active': str(lint_raw.get('gate_active', '0')) == '1',
++        'gate_reason_code': str(lint_raw.get('gate_reason_code', 'unknown') or 'unknown'),
++        'error_codes': str(lint_raw.get('error_codes', 'ok') or 'ok'),
++        'fail_age_s': _i(lint_raw.get('fail_age_s'), 0),
++        'silence_active': silence.silence_active,
++        'silence_until_ts_ms': silence.silence_until_ts_ms,
++        'silence_remaining_s': silence.remaining_s,
++        'ack_operator': silence.ack_operator,
++        'ack_ticket': silence.ack_ticket,
++        'ack_reason': silence.ack_reason,
++        'unsilence_operator': silence.unsilence_operator,
++        'unsilence_ticket': silence.unsilence_ticket,
++        'unsilence_reason': silence.unsilence_reason,
++        'last_action': silence.last_action,
++        'last_action_ts_ms': silence.last_action_ts_ms,
++    }
++
++
++def cmd_status(r: Any, cfg: Cfg, *, purpose: str | None = None, now_ms: int | None = None) -> dict[str, Any]:
++    now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
++    purposes = [purpose] if purpose else sorted(CONTRACTS.keys())
++    return {'schema_version': 1, 'ts_ms': now_ms, 'rows': [_read_purpose_status(r, cfg, p, now_ms) for p in purposes]}
++
++
++def cmd_ack(r: Any, cfg: Cfg, *, purpose: str, operator: str, ticket: str, reason: str, minutes: int, now_ms: int | None = None) -> dict[str, Any]:
++    now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
++    lint_raw = r.hgetall(lint_state_key(cfg.state_prefix, purpose)) or {}
++    gate_active = str(lint_raw.get('gate_active', '0')) == '1'
++    upsert_ack_silence(r, prefix=cfg.silence_prefix, purpose=purpose, operator=operator, ticket=ticket, reason=reason, silence_minutes=minutes, ttl_s=cfg.silence_ttl_s, ops_stream=cfg.ops_stream, gate_active=gate_active, now_ms=now_ms)
++    return {'ok': True, 'action': 'ack', 'purpose': purpose, 'operator': operator, 'ticket': ticket, 'minutes': int(minutes), 'status': _read_purpose_status(r, cfg, purpose, now_ms)}
++
++
++def cmd_unsilence(r: Any, cfg: Cfg, *, purpose: str, operator: str, ticket: str, reason: str, now_ms: int | None = None) -> dict[str, Any]:
++    now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
++    clear_ack_silence(r, prefix=cfg.silence_prefix, purpose=purpose, operator=operator, ticket=ticket, reason=reason, ttl_s=cfg.silence_ttl_s, ops_stream=cfg.ops_stream, now_ms=now_ms)
++    return {'ok': True, 'action': 'unsilence', 'purpose': purpose, 'operator': operator, 'ticket': ticket, 'status': _read_purpose_status(r, cfg, purpose, now_ms)}
++
++
++def build_parser() -> argparse.ArgumentParser:
++    p = argparse.ArgumentParser(description='Latency deploy-lint notifier ack/silence workflow')
++    sub = p.add_subparsers(dest='cmd', required=True)
++    st = sub.add_parser('status'); st.add_argument('--purpose', choices=sorted(CONTRACTS.keys()), default=None)
++    for name in ('ack', 'silence'):
++        sp = sub.add_parser(name)
++        sp.add_argument('--purpose', required=True, choices=sorted(CONTRACTS.keys())); sp.add_argument('--operator', required=True); sp.add_argument('--ticket', required=True); sp.add_argument('--reason', required=True); sp.add_argument('--minutes', type=int, default=None)
++    un = sub.add_parser('unsilence'); un.add_argument('--purpose', required=True, choices=sorted(CONTRACTS.keys())); un.add_argument('--operator', required=True); un.add_argument('--ticket', required=True); un.add_argument('--reason', required=True)
++    return p
++
++
++def main(argv: list[str] | None = None) -> int:
++    cfg = load_cfg(); args = build_parser().parse_args(argv)
++    import redis  # type: ignore
++    r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
++    if args.cmd == 'status':
++        out = cmd_status(r, cfg, purpose=args.purpose)
++    elif args.cmd in {'ack', 'silence'}:
++        out = cmd_ack(r, cfg, purpose=args.purpose, operator=args.operator, ticket=args.ticket, reason=args.reason, minutes=cfg.default_minutes if args.minutes is None else max(1, int(args.minutes)))
++    else:
++        out = cmd_unsilence(r, cfg, purpose=args.purpose, operator=args.operator, ticket=args.ticket, reason=args.reason)
++    json.dump(out, sys.stdout, indent=2, sort_keys=True); sys.stdout.write('\n'); return 0
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+--- a/orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_silence_v1.sh	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_silence_v1.sh	2026-03-08 10:22:18.838912873 +0000
+@@ -0,0 +1,4 @@
++#!/usr/bin/env bash
++set -euo pipefail
++cd "${TRADE_REPO_ROOT:?}"
++exec python3 -m orderflow_services.latency_contract_deploy_lint_silence_v1 "$@"
+--- a/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example	2026-03-08 09:24:43.000000000 +0000
++++ b/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example	2026-03-08 10:22:20.797777279 +0000
+@@ -29,3 +29,7 @@
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_ENABLE=1
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_STREAM=notify:telegram
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_REMINDER_S=21600
++
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_PREFIX=cfg:orderflow:latency_contract:deploy_lint:silence
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_TTL_S=2592000
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DEFAULT_MINUTES=360
+--- a/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example	2026-03-08 09:24:43.000000000 +0000
++++ b/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example	2026-03-08 10:22:20.798159384 +0000
+@@ -29,3 +29,7 @@
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_ENABLE=1
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_STREAM=notify:telegram
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_REMINDER_S=21600
++
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_PREFIX=cfg:orderflow:latency_contract:deploy_lint:silence
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_TTL_S=2592000
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DEFAULT_MINUTES=360
+--- a/orderflow_services/prometheus_alerts_latency_contract_p47_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/prometheus_alerts_latency_contract_p47_v1.yml	2026-03-08 10:22:20.954403033 +0000
+@@ -0,0 +1,17 @@
++groups:
++  - name: latency-contract-p47
++    rules:
++      - alert: OF_LatencyDeployLint_PersistentDriftUnsilenced_Crit
++        expr: latency_contract_deploy_lint_summary_unsilenced_gate_active_total > 0 and latency_contract_deploy_lint_notifier_active > 0
++        for: 5m
++        labels: {severity: crit}
++        annotations:
++          summary: "Latency deploy-lint persistent drift active and unsilenced"
++          description: "One or more deploy-lint persistent drift gates are still active and not currently silenced at the notifier layer."
++      - alert: OF_LatencyDeployLint_PersistentDriftSilenced_Warn
++        expr: latency_contract_deploy_lint_summary_silenced_gate_active_total > 0
++        for: 24h
++        labels: {severity: warn}
++        annotations:
++          summary: "Latency deploy-lint drift is silenced on notifier"
++          description: "A deploy-lint persistent drift gate has remained silenced for over 24h. Gate enforcement still applies; review ticket/operator context and unsilence or fix the drift."
+--- a/orderflow_services/runbook_latency_contract_p47_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/runbook_latency_contract_p47_v1.md	2026-03-08 10:22:20.973642373 +0000
+@@ -0,0 +1,14 @@
++# P4.7 — latency-contract deploy-lint ack/silence workflow
++
++Gate remains active; only notifier noise is suppressed per `purpose` with `operator` / `ticket` / `reason` audit.
++
++## CLI
++```bash
++./orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_silence_v1.sh status
++./orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_silence_v1.sh ack \
++  --purpose meta_cov_rollout_controller --operator alex --ticket INC-42 \
++  --reason "known config drift during staged rollout" --minutes 360
++./orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_silence_v1.sh unsilence \
++  --purpose meta_cov_rollout_controller --operator alex --ticket INC-42 \
++  --reason "drift fixed and rollout rechecked"
++```
+--- a/orderflow_services/grafana/latency_contract_p47_v1.json	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/grafana/latency_contract_p47_v1.json	2026-03-08 10:22:20.993161472 +0000
+@@ -0,0 +1 @@
++{"title":"Latency Contract Deploy Lint P47","schemaVersion":39,"version":1,"panels":[{"type":"stat","title":"Unsilenced gate active total","targets":[{"expr":"latency_contract_deploy_lint_summary_unsilenced_gate_active_total"}]},{"type":"stat","title":"Silenced gate active total","targets":[{"expr":"latency_contract_deploy_lint_summary_silenced_gate_active_total"}]},{"type":"stat","title":"Notifier silenced","targets":[{"expr":"latency_contract_deploy_lint_notifier_silenced"}]},{"type":"timeseries","title":"Silence active by purpose","targets":[{"expr":"latency_contract_deploy_lint_silence_active"}]},{"type":"timeseries","title":"Silence remaining seconds","targets":[{"expr":"latency_contract_deploy_lint_silence_remaining_seconds"}]}]}
+--- a/orderflow_services/tests/test_latency_contract_p47_notifier_silence_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/tests/test_latency_contract_p47_notifier_silence_v1.py	2026-03-08 10:23:48.163737636 +0000
+@@ -0,0 +1,23 @@
++from orderflow_services import latency_contract_deploy_lint_notifier_v1 as mod
++
++
++class FakeRedis:
++    def __init__(self):
++        self.h = {}
++    def hgetall(self, k):
++        return dict(self.h.get(k, {}))
++
++
++def test_partition_active_by_silence_filters_silenced_purposes() -> None:
++    r = FakeRedis()
++    r.h['cfg:lt:silence:meta_cov_rollout_controller'] = {'purpose': 'meta_cov_rollout_controller', 'silence_active': '1', 'silence_until_ts_ms': '999999', 'ack_operator': 'alex', 'ack_ticket': 'INC-42'}
++    active, silenced, details = mod._partition_active_by_silence(r, prefix='cfg:lt:silence', active=['meta_cov_rollout_controller', 'conf_score_guardrails_apply'], now_ms=1000)
++    assert active == ['conf_score_guardrails_apply']
++    assert silenced == ['meta_cov_rollout_controller']
++    assert details['meta_cov_rollout_controller']['ack_ticket'] == 'INC-42'
++
++
++def test_should_emit_does_not_treat_silence_as_recovery() -> None:
++    emit, kind = mod._should_emit(prev_status='active', prev_hash='abc', current_status='silenced', current_hash='', raw_active=['meta_cov_rollout_controller'], last_emit_ts_ms=0, reminder_s=60, now_ms=1000)
++    assert emit is False
++    assert kind == 'noop'
+--- a/orderflow_services/tests/test_latency_contract_p47_silence_cli_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/tests/test_latency_contract_p47_silence_cli_v1.py	2026-03-08 10:23:48.170540902 +0000
+@@ -0,0 +1,39 @@
++from orderflow_services import latency_contract_deploy_lint_silence_v1 as mod
++
++
++class FakeRedis:
++    def __init__(self):
++        self.h = {}
++        self.exp = {}
++        self.stream = []
++    def hgetall(self, k):
++        return dict(self.h.get(k, {}))
++    def hset(self, k, mapping=None, **kwargs):
++        cur = self.h.setdefault(k, {})
++        cur.update(mapping or kwargs)
++    def expire(self, k, ttl):
++        self.exp[k] = ttl
++    def xadd(self, stream, fields, maxlen=None, approximate=None):
++        self.stream.append((stream, dict(fields)))
++        return f"{len(self.stream)}-0"
++
++
++def _cfg() -> mod.Cfg:
++    return mod.Cfg(redis_url='redis://unused', state_prefix='metrics:latency_contract:deploy_lint:last', silence_prefix='cfg:orderflow:latency_contract:deploy_lint:silence', ops_stream='ops:latency_contract:events:v1', silence_ttl_s=3600, default_minutes=60)
++
++
++def test_cmd_ack_marks_notifier_silence_only() -> None:
++    r = FakeRedis()
++    r.h['metrics:latency_contract:deploy_lint:last:meta_cov_rollout_controller'] = {'gate_active': '1', 'gate_reason_code': 'persistent_config_drift', 'error_codes': 'missing_env', 'fail_age_s': '1200'}
++    out = mod.cmd_ack(r, _cfg(), purpose='meta_cov_rollout_controller', operator='alex', ticket='INC-1', reason='known', minutes=30, now_ms=1000)
++    assert out['status']['gate_active'] is True
++    assert out['status']['silence_active'] is True
++    assert r.stream[-1][1]['kind'] == 'latency_deploy_lint_ack_silence_set'
++
++
++def test_cmd_unsilence_clears_suppression() -> None:
++    r = FakeRedis()
++    mod.cmd_ack(r, _cfg(), purpose='meta_cov_rollout_controller', operator='alex', ticket='INC-1', reason='known', minutes=30, now_ms=1000)
++    out = mod.cmd_unsilence(r, _cfg(), purpose='meta_cov_rollout_controller', operator='alex', ticket='INC-1', reason='fixed', now_ms=2000)
++    assert out['status']['silence_active'] is False
++    assert r.stream[-1][1]['kind'] == 'latency_deploy_lint_ack_silence_cleared'
+--- a/orderflow_services/tests/test_latency_contract_p47_alerts_yaml_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/tests/test_latency_contract_p47_alerts_yaml_v1.py	2026-03-08 10:23:48.177623662 +0000
+@@ -0,0 +1,7 @@
++from pathlib import Path
++
++
++def test_p47_alerts_have_silence_rules() -> None:
++    txt = Path(__file__).resolve().parents[2].joinpath('orderflow_services/prometheus_alerts_latency_contract_p47_v1.yml').read_text(encoding='utf-8')
++    assert 'OF_LatencyDeployLint_PersistentDriftUnsilenced_Crit' in txt
++    assert 'OF_LatencyDeployLint_PersistentDriftSilenced_Warn' in txt
+--- a/orderflow_services/tests/test_latency_contract_p47_dashboard_json_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/tests/test_latency_contract_p47_dashboard_json_v1.py	2026-03-08 10:23:48.184070142 +0000
+@@ -0,0 +1,9 @@
++from pathlib import Path
++import json
++
++
++def test_p47_dashboard_has_silence_panels() -> None:
++    obj = json.loads(Path(__file__).resolve().parents[2].joinpath('orderflow_services/grafana/latency_contract_p47_v1.json').read_text(encoding='utf-8'))
++    titles = [p.get('title', '') for p in obj.get('panels', [])]
++    assert 'Unsilenced gate active total' in titles
++    assert 'Notifier silenced' in titles
+--- a/orderflow_services/tests/test_latency_contract_p47_deploy_files_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/tests/test_latency_contract_p47_deploy_files_v1.py	2026-03-08 10:23:48.190289795 +0000
+@@ -0,0 +1,13 @@
++from pathlib import Path
++ROOT = Path(__file__).resolve().parents[2]
++
++
++def test_env_examples_include_silence_vars() -> None:
++    for rel in ['orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example', 'orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example']:
++        txt = (ROOT / rel).read_text(encoding='utf-8')
++        assert 'LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_PREFIX=' in txt
++        assert 'LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DEFAULT_MINUTES=' in txt
++
++
++def test_wrapper_exists() -> None:
++    assert (ROOT / 'orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_silence_v1.sh').exists()
+--- a/services/tests/test_latency_deploy_lint_silence_state_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/services/tests/test_latency_deploy_lint_silence_state_v1.py	2026-03-08 10:23:48.153059684 +0000
+@@ -0,0 +1,44 @@
++from services.observability import latency_deploy_lint_silence_state as mod
++
++
++class FakeRedis:
++    def __init__(self):
++        self.h = {}
++        self.exp = {}
++        self.stream = []
++    def hgetall(self, k):
++        return dict(self.h.get(k, {}))
++    def hset(self, k, mapping=None, **kwargs):
++        cur = self.h.setdefault(k, {})
++        cur.update(mapping or kwargs)
++    def expire(self, k, ttl):
++        self.exp[k] = ttl
++    def xadd(self, stream, fields, maxlen=None, approximate=None):
++        self.stream.append((stream, dict(fields)))
++        return f"{len(self.stream)}-0"
++
++
++def test_upsert_ack_silence_sets_active_and_audit() -> None:
++    r = FakeRedis()
++    out = mod.upsert_ack_silence(r, prefix='cfg:x:silence', purpose='meta_cov_rollout_controller', operator='alex', ticket='INC-1', reason='known drift', silence_minutes=30, ttl_s=3600, ops_stream='ops:test', gate_active=True, now_ms=1000)
++    st = mod.parse_silence_state(out, now_ms=1001)
++    assert st.silence_active is True
++    assert st.ack_operator == 'alex'
++    assert r.stream[-1][1]['kind'] == 'latency_deploy_lint_ack_silence_set'
++
++
++def test_clear_ack_silence_deactivates_but_preserves_ack_context() -> None:
++    r = FakeRedis()
++    mod.upsert_ack_silence(r, prefix='cfg:x:silence', purpose='p', operator='alex', ticket='INC-1', reason='known drift', silence_minutes=5, ttl_s=3600, now_ms=1000)
++    out = mod.clear_ack_silence(r, prefix='cfg:x:silence', purpose='p', operator='alex', ticket='INC-1', reason='fixed', ttl_s=3600, ops_stream='ops:test', now_ms=2000)
++    st = mod.parse_silence_state(out, now_ms=2001)
++    assert st.silence_active is False
++    assert st.ack_ticket == 'INC-1'
++    assert out['unsilence_reason'] == 'fixed'
++    assert r.stream[-1][1]['kind'] == 'latency_deploy_lint_ack_silence_cleared'
++
++
++def test_parse_silence_state_expires_by_time() -> None:
++    raw = {'purpose': 'p', 'silence_active': '1', 'silence_until_ts_ms': '1500'}
++    assert mod.parse_silence_state(raw, now_ms=1200).silence_active is True
++    assert mod.parse_silence_state(raw, now_ms=1600).silence_active is False
+--- a/tick_flow_full/orderflow_services/latency_contract_deploy_lint_notifier_v1.py	2026-03-08 09:25:13.000000000 +0000
++++ b/tick_flow_full/orderflow_services/latency_contract_deploy_lint_notifier_v1.py	2026-03-08 10:20:17.655733355 +0000
+@@ -3,12 +3,9 @@
+ 
+ """Emit ops-event/Telegram summaries for persistent latency deploy-lint drift.
+ 
+-This notifier is intentionally separate from the Prometheus exporter:
+-- exporter => continuous pull-based visibility
+-- notifier => push-based ops summary when persistent config drift remains active
+-
+-It reads the Redis-backed state created by the deploy-lint CLI (P4.5) and emits
+-an event only on status changes or after a reminder cooldown.
++P4.7 adds an operator ack/silence workflow. The rollout gate remains active, but
++individual purposes can be temporarily silenced at the notifier layer using
++operator/ticket/reason metadata, preserving audit trail without pager spam.
+ """
+ 
+ import json
+@@ -19,11 +16,8 @@
+ 
+ from services.observability.latency_deploy_contract import CONTRACTS
+ from services.observability.latency_deploy_lint_state import state_key as lint_state_key
+-from services.observability.latency_deploy_lint_notify_state import (
+-    purposes_hash,
+-    state_key as notify_state_key,
+-    update_notifier_state,
+-)
++from services.observability.latency_deploy_lint_notify_state import purposes_hash, state_key as notify_state_key, update_notifier_state
++from services.observability.latency_deploy_lint_silence_state import list_silenced_purposes, parse_silence_state
+ 
+ 
+ def _env(name: str, default: str = '') -> str:
+@@ -42,6 +36,7 @@
+     redis_url: str
+     state_prefix: str
+     notifier_state_key: str
++    silence_prefix: str
+     ops_stream: str
+     notify_stream: str
+     notify_enable: bool
+@@ -54,6 +49,7 @@
+         redis_url=_env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
+         state_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_STATE_PREFIX', 'metrics:latency_contract:deploy_lint:last'),
+         notifier_state_key=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_KEY', 'metrics:latency_contract:deploy_lint:notifier:last'),
++        silence_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_PREFIX', 'cfg:orderflow:latency_contract:deploy_lint:silence'),
+         ops_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_OPS_EVENT_STREAM', 'ops:latency_contract:events:v1'),
+         notify_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_STREAM', os.getenv('NOTIFY_TELEGRAM_STREAM') or 'notify:telegram'),
+         notify_enable=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_ENABLE', '1').lower() in ('1', 'true', 'yes', 'on'),
+@@ -73,25 +69,42 @@
+     return active, details
+ 
+ 
+-def _summary_text(active: list[str], details: dict[str, dict[str, str]]) -> str:
++def _partition_active_by_silence(r: Any, *, prefix: str, active: list[str], now_ms: int) -> tuple[list[str], list[str], dict[str, dict[str, str]]]:
++    silenced, silence_details = list_silenced_purposes(r, prefix=prefix, purposes=active, now_ms=now_ms)
++    effective_active = [p for p in active if p not in set(silenced)]
++    return effective_active, silenced, silence_details
++
++
++def _summary_text(active: list[str], details: dict[str, dict[str, str]], *, silenced: list[str] | None = None, silence_details: dict[str, dict[str, str]] | None = None) -> str:
++    silenced = list(silenced or [])
++    silence_details = dict(silence_details or {})
+     if not active:
+         return 'Latency deploy-lint persistent drift recovered: no active config-drift gates.'
+     parts: list[str] = []
+     for purpose in active:
+         raw = details.get(purpose) or {}
+-        codes = str(raw.get('error_codes') or 'unknown')[:240]
+-        parts.append(f'{purpose}: {codes}')
++        parts.append(f"{purpose}: {str(raw.get('error_codes') or 'unknown')[:240]}")
++    if silenced:
++        parts.append('silenced on notifier:')
++        for purpose in silenced:
++            st = parse_silence_state(silence_details.get(purpose) or {})
++            meta = [x for x in [st.ack_operator, st.ack_ticket] if x]
++            parts.append(f"- {purpose}{(' (' + '/'.join(meta) + ')') if meta else ''}")
+     return 'Latency deploy-lint persistent config drift active\n' + '\n'.join(parts)
+ 
+ 
+-def _emit_ops_event(r: Any, cfg: Cfg, *, event_kind: str, active: list[str], details: dict[str, dict[str, str]], now_ms: int) -> None:
++def _emit_ops_event(r: Any, cfg: Cfg, *, event_kind: str, raw_active: list[str], active: list[str], silenced: list[str], details: dict[str, dict[str, str]], now_ms: int) -> None:
+     fields = {
+         'ts_ms': str(now_ms),
+         'kind': event_kind,
+         'source': 'latency_contract_deploy_lint_notifier_v1',
++        'raw_active_purposes_csv': ','.join(raw_active) if raw_active else 'none',
++        'raw_active_purposes_count': str(len(raw_active)),
+         'active_purposes_csv': ','.join(active) if active else 'none',
+         'active_purposes_count': str(len(active)),
+         'active_hash': purposes_hash(active),
++        'silenced_purposes_csv': ','.join(silenced) if silenced else 'none',
++        'silenced_purposes_count': str(len(silenced)),
+         'details_json': json.dumps({p: details.get(p) or {} for p in active}, sort_keys=True),
+     }
+     r.xadd(cfg.ops_stream, fields, maxlen=200000, approximate=True)
+@@ -100,52 +113,46 @@
+ def _emit_notify(r: Any, cfg: Cfg, *, event_kind: str, text: str, now_ms: int) -> None:
+     if not cfg.notify_enable:
+         return
+-    fields = {
++    r.xadd(cfg.notify_stream, {
+         'type': 'report',
+         'severity': 'crit' if event_kind == 'latency_deploy_lint_persistent_drift' else 'info',
+         'text': text[:3500],
+         'ts': str(now_ms),
+         'source': 'latency_contract_deploy_lint_notifier_v1',
+-    }
+-    r.xadd(cfg.notify_stream, fields, maxlen=200000, approximate=True)
++    }, maxlen=200000, approximate=True)
++
++
++def _should_emit(*, prev_status: str, prev_hash: str, current_status: str, current_hash: str, raw_active: list[str], last_emit_ts_ms: int, reminder_s: int, now_ms: int) -> tuple[bool, str]:
++    if current_status == 'active':
++        if current_status != prev_status or current_hash != prev_hash:
++            return True, 'latency_deploy_lint_persistent_drift'
++        if raw_active and (now_ms - last_emit_ts_ms) >= reminder_s * 1000:
++            return True, 'latency_deploy_lint_persistent_drift'
++        return False, 'noop'
++    if current_status == 'ok' and prev_status == 'active':
++        return True, 'latency_deploy_lint_recovered'
++    return False, 'noop'
+ 
+ 
+ def main() -> int:
+     cfg = load_cfg()
+     import redis  # type: ignore
+-
+     r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
+     now_ms = int(time.time() * 1000)
+-    active, details = _active_state_payload(r, cfg.state_prefix)
++    raw_active, details = _active_state_payload(r, cfg.state_prefix)
++    active, silenced, silence_details = _partition_active_by_silence(r, prefix=cfg.silence_prefix, active=raw_active, now_ms=now_ms)
+     prev = r.hgetall(notify_state_key(cfg.notifier_state_key)) or {}
+     prev_hash = str(prev.get('active_hash') or '')
+     prev_status = str(prev.get('last_status') or 'unknown')
+     last_emit_ts_ms = _i(prev.get('last_emit_ts_ms'), 0)
+     current_hash = purposes_hash(active)
+-    current_status = 'active' if active else 'ok'
+-
+-    emit = False
+-    event_kind = 'noop'
+-    if current_status != prev_status or current_hash != prev_hash:
+-        emit = True
+-        event_kind = 'latency_deploy_lint_persistent_drift' if active else 'latency_deploy_lint_recovered'
+-    elif active and (now_ms - last_emit_ts_ms) >= cfg.reminder_s * 1000:
+-        emit = True
+-        event_kind = 'latency_deploy_lint_persistent_drift'
+-
++    current_status = 'active' if active else ('silenced' if raw_active else 'ok')
++    emit, event_kind = _should_emit(prev_status=prev_status, prev_hash=prev_hash, current_status=current_status, current_hash=current_hash, raw_active=raw_active, last_emit_ts_ms=last_emit_ts_ms, reminder_s=cfg.reminder_s, now_ms=now_ms)
+     if emit:
+-        text = _summary_text(active, details)
+-        _emit_ops_event(r, cfg, event_kind=event_kind, active=active, details=details, now_ms=now_ms)
++        text = _summary_text(active, details, silenced=silenced, silence_details=silence_details)
++        _emit_ops_event(r, cfg, event_kind=event_kind, raw_active=raw_active, active=active, silenced=silenced, details=details, now_ms=now_ms)
+         _emit_notify(r, cfg, event_kind=event_kind, text=text, now_ms=now_ms)
+-    update_notifier_state(
+-        r,
+-        prefix=cfg.notifier_state_key,
+-        active_purposes=active,
+-        emitted=emit,
+-        event_kind=event_kind,
+-        ttl_s=cfg.state_ttl_s,
+-        now_ms=now_ms,
+-    )
++    update_notifier_state(r, prefix=cfg.notifier_state_key, active_purposes=active, raw_active_purposes=raw_active, silenced_purposes=silenced, effective_active_purposes=active, emitted=emit, event_kind=event_kind, ttl_s=cfg.state_ttl_s, now_ms=now_ms)
+     return 0
+ 
+ 
+--- a/tick_flow_full/orderflow_services/latency_contract_deploy_lint_exporter_v1.py	2026-03-08 09:24:43.000000000 +0000
++++ b/tick_flow_full/orderflow_services/latency_contract_deploy_lint_exporter_v1.py	2026-03-08 10:20:17.672025361 +0000
+@@ -1,12 +1,7 @@
+ #!/usr/bin/env python3
+ from __future__ import annotations
+ 
+-"""Prometheus exporter for latency deploy-lint state.
+-
+-The host-side deploy-lint already runs on every sensitive apply/rollout path. This
+-exporter makes the latest lint verdicts visible in Prometheus/Grafana and writes a
+-small summary hash that other automation can inspect.
+-"""
++"""Prometheus exporter for latency deploy-lint state with P4.7 silence visibility."""
+ 
+ import os
+ import time
+@@ -18,6 +13,7 @@
+ from services.observability.latency_deploy_contract import CONTRACTS
+ from services.observability.latency_deploy_lint_state import state_key
+ from services.observability.latency_deploy_lint_notify_state import state_key as notifier_state_key
++from services.observability.latency_deploy_lint_silence_state import parse_silence_state, state_key as silence_state_key
+ 
+ 
+ def _env(name: str, default: str = '') -> str:
+@@ -47,11 +43,18 @@
+ G_LAST_CHECK_AGE = Gauge('latency_contract_deploy_lint_last_checked_age_seconds', 'age of last deploy lint check', ['purpose'])
+ G_FAIL_AGE = Gauge('latency_contract_deploy_lint_fail_age_seconds', 'age of current deploy lint failure streak', ['purpose'])
+ G_GATE_ACTIVE = Gauge('latency_contract_deploy_lint_gate_active', 'persistent deploy lint gate active', ['purpose'])
++G_SILENCE_STATE_PRESENT = Gauge('latency_contract_deploy_lint_silence_state_present', 'deploy lint silence state present', ['purpose'])
++G_SILENCE_ACTIVE = Gauge('latency_contract_deploy_lint_silence_active', 'deploy lint notifier silence active', ['purpose'])
++G_SILENCE_REMAINING = Gauge('latency_contract_deploy_lint_silence_remaining_seconds', 'remaining notifier silence time', ['purpose'])
+ G_SUMMARY_FAIL_TOTAL = Gauge('latency_contract_deploy_lint_summary_fail_total', 'number of purposes currently failing deploy lint')
+ G_SUMMARY_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_gate_active_total', 'number of purposes with persistent deploy lint gate active')
++G_SUMMARY_SILENCED_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_silenced_gate_active_total', 'number of purposes with persistent deploy lint gate active but silenced in notifier')
++G_SUMMARY_UNSILENCED_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_unsilenced_gate_active_total', 'number of purposes with persistent deploy lint gate active and not silenced in notifier')
+ G_NOTIFIER_STATE_PRESENT = Gauge('latency_contract_deploy_lint_notifier_state_present', 'deploy lint notifier state present')
+ G_NOTIFIER_LAST_RUN_AGE = Gauge('latency_contract_deploy_lint_notifier_last_run_age_seconds', 'age of deploy lint notifier last run')
+ G_NOTIFIER_ACTIVE = Gauge('latency_contract_deploy_lint_notifier_active', 'deploy lint notifier sees active persistent drift')
++G_NOTIFIER_SILENCED = Gauge('latency_contract_deploy_lint_notifier_silenced', 'deploy lint notifier currently suppressed by silence workflow')
++G_NOTIFIER_SILENCED_PURPOSES_TOTAL = Gauge('latency_contract_deploy_lint_notifier_silenced_purposes_total', 'count of currently silenced purposes in notifier state')
+ 
+ 
+ @dataclass
+@@ -60,6 +63,7 @@
+     port: int
+     interval_s: float
+     state_prefix: str
++    silence_prefix: str
+     summary_key: str
+ 
+ 
+@@ -70,6 +74,7 @@
+         port=_i(_env('LATENCY_CONTRACT_DEPLOY_LINT_EXPORTER_PORT', '9834'), 9834),
+         interval_s=float(_env('LATENCY_CONTRACT_DEPLOY_LINT_EXPORTER_INTERVAL_S', '15') or 15),
+         state_prefix=prefix,
++        silence_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_PREFIX', 'cfg:orderflow:latency_contract:deploy_lint:silence'),
+         summary_key=_env('LATENCY_CONTRACT_DEPLOY_LINT_SUMMARY_KEY', 'metrics:latency_contract:deploy_lint:summary:last'),
+     )
+ 
+@@ -77,20 +82,18 @@
+ def main() -> int:
+     cfg = load_cfg()
+     import redis  # type: ignore
+-
+     r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
+     start_http_server(cfg.port)
+     purposes = tuple(sorted(CONTRACTS.keys()))
+     while True:
+         G_UP.set(1.0)
+         now = time.time()
++        now_ms = int(now * 1000)
+         try:
+-            fail_total = 0
+-            gate_total = 0
++            fail_total = gate_total = silenced_gate_total = unsilenced_gate_total = 0
+             for purpose in purposes:
+                 raw = r.hgetall(state_key(cfg.state_prefix, purpose)) or {}
+                 present = 1.0 if raw else 0.0
+-                G_STATE_PRESENT.labels(purpose=purpose).set(present)
+                 ok = _f(raw.get('ok'), 0.0)
+                 gate = _f(raw.get('gate_active'), 0.0)
+                 errors = _f(raw.get('errors_count'), 0.0)
+@@ -98,32 +101,39 @@
+                 last_ts_ms = _i(raw.get('last_checked_ts_ms'), 0)
+                 fail_age_s = _f(raw.get('fail_age_s'), 0.0)
+                 age_s = max(0.0, now - (last_ts_ms / 1000.0)) if last_ts_ms > 0 else 0.0
++                G_STATE_PRESENT.labels(purpose=purpose).set(present)
+                 G_OK.labels(purpose=purpose).set(ok)
+                 G_GATE_ACTIVE.labels(purpose=purpose).set(gate)
+                 G_ERRORS.labels(purpose=purpose).set(errors)
+                 G_WARNINGS.labels(purpose=purpose).set(warnings)
+                 G_LAST_CHECK_AGE.labels(purpose=purpose).set(age_s)
+                 G_FAIL_AGE.labels(purpose=purpose).set(fail_age_s)
++                sraw = r.hgetall(silence_state_key(cfg.silence_prefix, purpose)) or {}
++                sst = parse_silence_state(sraw, now_ms=now_ms)
++                G_SILENCE_STATE_PRESENT.labels(purpose=purpose).set(1.0 if sraw else 0.0)
++                G_SILENCE_ACTIVE.labels(purpose=purpose).set(1.0 if sst.silence_active else 0.0)
++                G_SILENCE_REMAINING.labels(purpose=purpose).set(float(sst.remaining_s))
+                 if present > 0 and ok <= 0:
+                     fail_total += 1
+                 if gate > 0:
+                     gate_total += 1
++                    if sst.silence_active:
++                        silenced_gate_total += 1
++                    else:
++                        unsilenced_gate_total += 1
+             G_SUMMARY_FAIL_TOTAL.set(float(fail_total))
+             G_SUMMARY_GATE_ACTIVE_TOTAL.set(float(gate_total))
+-            r.hset(cfg.summary_key, mapping={
+-                'schema_version': '1',
+-                'last_ts_ms': str(int(now * 1000)),
+-                'fail_total': str(fail_total),
+-                'gate_active_total': str(gate_total),
+-            })
++            G_SUMMARY_SILENCED_GATE_ACTIVE_TOTAL.set(float(silenced_gate_total))
++            G_SUMMARY_UNSILENCED_GATE_ACTIVE_TOTAL.set(float(unsilenced_gate_total))
++            r.hset(cfg.summary_key, mapping={'schema_version': '1', 'last_ts_ms': str(now_ms), 'fail_total': str(fail_total), 'gate_active_total': str(gate_total), 'silenced_gate_active_total': str(silenced_gate_total), 'unsilenced_gate_active_total': str(unsilenced_gate_total)})
+             nraw = r.hgetall(notifier_state_key(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_KEY', 'metrics:latency_contract:deploy_lint:notifier:last'))) or {}
+-            npresent = 1.0 if nraw else 0.0
+             nlast_ms = _i(nraw.get('last_run_ts_ms'), 0)
+-            nage = max(0.0, now - (nlast_ms / 1000.0)) if nlast_ms > 0 else 0.0
+-            nactive = 1.0 if str(nraw.get('last_status', 'ok')) == 'active' else 0.0
+-            G_NOTIFIER_STATE_PRESENT.set(npresent)
+-            G_NOTIFIER_LAST_RUN_AGE.set(nage)
+-            G_NOTIFIER_ACTIVE.set(nactive)
++            nstatus = str(nraw.get('last_status', 'ok'))
++            G_NOTIFIER_STATE_PRESENT.set(1.0 if nraw else 0.0)
++            G_NOTIFIER_LAST_RUN_AGE.set(max(0.0, now - (nlast_ms / 1000.0)) if nlast_ms > 0 else 0.0)
++            G_NOTIFIER_ACTIVE.set(1.0 if nstatus == 'active' else 0.0)
++            G_NOTIFIER_SILENCED.set(1.0 if nstatus == 'silenced' else 0.0)
++            G_NOTIFIER_SILENCED_PURPOSES_TOTAL.set(_f(nraw.get('silenced_purposes_count'), 0.0))
+             G_READ_OK.set(1.0)
+         except Exception:
+             G_READ_OK.set(0.0)
+--- a/tick_flow_full/orderflow_services/latency_contract_deploy_lint_silence_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/orderflow_services/latency_contract_deploy_lint_silence_v1.py	2026-03-08 10:22:18.823836597 +0000
+@@ -0,0 +1,116 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Operator ack/silence workflow for latency deploy-lint notifier."""
++
++import argparse, json, os, sys, time
++from dataclasses import dataclass
++from typing import Any
++
++from services.observability.latency_deploy_contract import CONTRACTS
++from services.observability.latency_deploy_lint_silence_state import clear_ack_silence, parse_silence_state, state_key as silence_state_key, upsert_ack_silence
++from services.observability.latency_deploy_lint_state import state_key as lint_state_key
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return d
++
++
++@dataclass(frozen=True)
++class Cfg:
++    redis_url: str
++    state_prefix: str
++    silence_prefix: str
++    ops_stream: str
++    silence_ttl_s: int
++    default_minutes: int
++
++
++def load_cfg() -> Cfg:
++    return Cfg(
++        redis_url=_env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
++        state_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_STATE_PREFIX', 'metrics:latency_contract:deploy_lint:last'),
++        silence_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_PREFIX', 'cfg:orderflow:latency_contract:deploy_lint:silence'),
++        ops_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_OPS_EVENT_STREAM', 'ops:latency_contract:events:v1'),
++        silence_ttl_s=max(3600, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_TTL_S', '2592000'), 2592000)),
++        default_minutes=max(1, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DEFAULT_MINUTES', '360'), 360)),
++    )
++
++
++def _read_purpose_status(r: Any, cfg: Cfg, purpose: str, now_ms: int) -> dict[str, Any]:
++    lint_raw = r.hgetall(lint_state_key(cfg.state_prefix, purpose)) or {}
++    silence_raw = r.hgetall(silence_state_key(cfg.silence_prefix, purpose)) or {}
++    silence = parse_silence_state(silence_raw, now_ms=now_ms)
++    return {
++        'purpose': purpose,
++        'gate_active': str(lint_raw.get('gate_active', '0')) == '1',
++        'gate_reason_code': str(lint_raw.get('gate_reason_code', 'unknown') or 'unknown'),
++        'error_codes': str(lint_raw.get('error_codes', 'ok') or 'ok'),
++        'fail_age_s': _i(lint_raw.get('fail_age_s'), 0),
++        'silence_active': silence.silence_active,
++        'silence_until_ts_ms': silence.silence_until_ts_ms,
++        'silence_remaining_s': silence.remaining_s,
++        'ack_operator': silence.ack_operator,
++        'ack_ticket': silence.ack_ticket,
++        'ack_reason': silence.ack_reason,
++        'unsilence_operator': silence.unsilence_operator,
++        'unsilence_ticket': silence.unsilence_ticket,
++        'unsilence_reason': silence.unsilence_reason,
++        'last_action': silence.last_action,
++        'last_action_ts_ms': silence.last_action_ts_ms,
++    }
++
++
++def cmd_status(r: Any, cfg: Cfg, *, purpose: str | None = None, now_ms: int | None = None) -> dict[str, Any]:
++    now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
++    purposes = [purpose] if purpose else sorted(CONTRACTS.keys())
++    return {'schema_version': 1, 'ts_ms': now_ms, 'rows': [_read_purpose_status(r, cfg, p, now_ms) for p in purposes]}
++
++
++def cmd_ack(r: Any, cfg: Cfg, *, purpose: str, operator: str, ticket: str, reason: str, minutes: int, now_ms: int | None = None) -> dict[str, Any]:
++    now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
++    lint_raw = r.hgetall(lint_state_key(cfg.state_prefix, purpose)) or {}
++    gate_active = str(lint_raw.get('gate_active', '0')) == '1'
++    upsert_ack_silence(r, prefix=cfg.silence_prefix, purpose=purpose, operator=operator, ticket=ticket, reason=reason, silence_minutes=minutes, ttl_s=cfg.silence_ttl_s, ops_stream=cfg.ops_stream, gate_active=gate_active, now_ms=now_ms)
++    return {'ok': True, 'action': 'ack', 'purpose': purpose, 'operator': operator, 'ticket': ticket, 'minutes': int(minutes), 'status': _read_purpose_status(r, cfg, purpose, now_ms)}
++
++
++def cmd_unsilence(r: Any, cfg: Cfg, *, purpose: str, operator: str, ticket: str, reason: str, now_ms: int | None = None) -> dict[str, Any]:
++    now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
++    clear_ack_silence(r, prefix=cfg.silence_prefix, purpose=purpose, operator=operator, ticket=ticket, reason=reason, ttl_s=cfg.silence_ttl_s, ops_stream=cfg.ops_stream, now_ms=now_ms)
++    return {'ok': True, 'action': 'unsilence', 'purpose': purpose, 'operator': operator, 'ticket': ticket, 'status': _read_purpose_status(r, cfg, purpose, now_ms)}
++
++
++def build_parser() -> argparse.ArgumentParser:
++    p = argparse.ArgumentParser(description='Latency deploy-lint notifier ack/silence workflow')
++    sub = p.add_subparsers(dest='cmd', required=True)
++    st = sub.add_parser('status'); st.add_argument('--purpose', choices=sorted(CONTRACTS.keys()), default=None)
++    for name in ('ack', 'silence'):
++        sp = sub.add_parser(name)
++        sp.add_argument('--purpose', required=True, choices=sorted(CONTRACTS.keys())); sp.add_argument('--operator', required=True); sp.add_argument('--ticket', required=True); sp.add_argument('--reason', required=True); sp.add_argument('--minutes', type=int, default=None)
++    un = sub.add_parser('unsilence'); un.add_argument('--purpose', required=True, choices=sorted(CONTRACTS.keys())); un.add_argument('--operator', required=True); un.add_argument('--ticket', required=True); un.add_argument('--reason', required=True)
++    return p
++
++
++def main(argv: list[str] | None = None) -> int:
++    cfg = load_cfg(); args = build_parser().parse_args(argv)
++    import redis  # type: ignore
++    r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
++    if args.cmd == 'status':
++        out = cmd_status(r, cfg, purpose=args.purpose)
++    elif args.cmd in {'ack', 'silence'}:
++        out = cmd_ack(r, cfg, purpose=args.purpose, operator=args.operator, ticket=args.ticket, reason=args.reason, minutes=cfg.default_minutes if args.minutes is None else max(1, int(args.minutes)))
++    else:
++        out = cmd_unsilence(r, cfg, purpose=args.purpose, operator=args.operator, ticket=args.ticket, reason=args.reason)
++    json.dump(out, sys.stdout, indent=2, sort_keys=True); sys.stdout.write('\n'); return 0
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+--- a/tick_flow_full/orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_silence_v1.sh	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_silence_v1.sh	2026-03-08 10:22:18.856476996 +0000
+@@ -0,0 +1,4 @@
++#!/usr/bin/env bash
++set -euo pipefail
++cd "${TRADE_REPO_ROOT:?}"
++exec python3 -m orderflow_services.latency_contract_deploy_lint_silence_v1 "$@"
+--- a/tick_flow_full/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example	2026-03-08 08:55:17.000000000 +0000
++++ b/tick_flow_full/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example	2026-03-08 10:22:20.798486483 +0000
+@@ -15,3 +15,7 @@
+ META_COV_ROLLOUT_MIN_HOLD_SEC=600
+ CONF_SCORE_GUARD_AUTOPROMO_APPLY=1
+ LATENCY_CONTRACT_DEPLOY_LINT_REPORT_PATH=/var/lib/trade/reports/latency_contract_deploy_lint.json
++
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_PREFIX=cfg:orderflow:latency_contract:deploy_lint:silence
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_TTL_S=2592000
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DEFAULT_MINUTES=360
+--- a/tick_flow_full/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example	2026-03-08 08:55:17.000000000 +0000
++++ b/tick_flow_full/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example	2026-03-08 10:22:20.798690569 +0000
+@@ -15,3 +15,7 @@
+ META_COV_ROLLOUT_MIN_HOLD_SEC=600
+ CONF_SCORE_GUARD_AUTOPROMO_APPLY=1
+ LATENCY_CONTRACT_DEPLOY_LINT_REPORT_PATH=/var/lib/trade/reports/latency_contract_deploy_lint.json
++
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_PREFIX=cfg:orderflow:latency_contract:deploy_lint:silence
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_TTL_S=2592000
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DEFAULT_MINUTES=360
+--- a/tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_p47_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_p47_v1.yml	2026-03-08 10:22:20.966043484 +0000
+@@ -0,0 +1,17 @@
++groups:
++  - name: latency-contract-p47
++    rules:
++      - alert: OF_LatencyDeployLint_PersistentDriftUnsilenced_Crit
++        expr: latency_contract_deploy_lint_summary_unsilenced_gate_active_total > 0 and latency_contract_deploy_lint_notifier_active > 0
++        for: 5m
++        labels: {severity: crit}
++        annotations:
++          summary: "Latency deploy-lint persistent drift active and unsilenced"
++          description: "One or more deploy-lint persistent drift gates are still active and not currently silenced at the notifier layer."
++      - alert: OF_LatencyDeployLint_PersistentDriftSilenced_Warn
++        expr: latency_contract_deploy_lint_summary_silenced_gate_active_total > 0
++        for: 24h
++        labels: {severity: warn}
++        annotations:
++          summary: "Latency deploy-lint drift is silenced on notifier"
++          description: "A deploy-lint persistent drift gate has remained silenced for over 24h. Gate enforcement still applies; review ticket/operator context and unsilence or fix the drift."
+--- a/tick_flow_full/orderflow_services/runbook_latency_contract_p47_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/orderflow_services/runbook_latency_contract_p47_v1.md	2026-03-08 10:22:20.985660440 +0000
+@@ -0,0 +1,14 @@
++# P4.7 — latency-contract deploy-lint ack/silence workflow
++
++Gate remains active; only notifier noise is suppressed per `purpose` with `operator` / `ticket` / `reason` audit.
++
++## CLI
++```bash
++./orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_silence_v1.sh status
++./orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_silence_v1.sh ack \
++  --purpose meta_cov_rollout_controller --operator alex --ticket INC-42 \
++  --reason "known config drift during staged rollout" --minutes 360
++./orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_silence_v1.sh unsilence \
++  --purpose meta_cov_rollout_controller --operator alex --ticket INC-42 \
++  --reason "drift fixed and rollout rechecked"
++```
+--- a/tick_flow_full/orderflow_services/grafana/latency_contract_p47_v1.json	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/orderflow_services/grafana/latency_contract_p47_v1.json	2026-03-08 10:22:21.040303767 +0000
+@@ -0,0 +1 @@
++{"title":"Latency Contract Deploy Lint P47","schemaVersion":39,"version":1,"panels":[{"type":"stat","title":"Unsilenced gate active total","targets":[{"expr":"latency_contract_deploy_lint_summary_unsilenced_gate_active_total"}]},{"type":"stat","title":"Silenced gate active total","targets":[{"expr":"latency_contract_deploy_lint_summary_silenced_gate_active_total"}]},{"type":"stat","title":"Notifier silenced","targets":[{"expr":"latency_contract_deploy_lint_notifier_silenced"}]},{"type":"timeseries","title":"Silence active by purpose","targets":[{"expr":"latency_contract_deploy_lint_silence_active"}]},{"type":"timeseries","title":"Silence remaining seconds","targets":[{"expr":"latency_contract_deploy_lint_silence_remaining_seconds"}]}]}

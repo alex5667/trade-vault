@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/trade_monitor_actor_runtime.py
+# hypothesis_version: 6.148.10
+
+[0.0, 2.0, '2.0', '20000', '8', 'TMActor', 'TM_ACTOR_QUEUE_MAX', 'TM_ACTOR_SHARDS', 'clear_tp_levels', 'event_id', 'new_sl', 'price', 'profile', 'sid', 'signal_id', 'sl_hit', 'source', 'tp_hit', 'tp_level', 'trailing_started', 'ts', 'unknown']

@@ -1,0 +1,2378 @@
+services:
+  # Tick Gate Metrics Aggregator (Step 23 - v2)
+  # Consumer group-based aggregator with self-diagnostics
+  # Exposes /metrics (port 9112) and /health endpoints
+  tick-gate-aggregator:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: tick-gate-aggregator
+    restart: unless-stopped
+    environment:
+      # Redis connection
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - TICK_GATE_REDIS_STREAM=ops:tick_quality_gate
+      # Consumer group settings
+      - TICK_GATE_CONSUMER_GROUP=tick_gate_agg
+      - TICK_GATE_CONSUMER_NAME=agg_1
+      - TICK_GATE_BLOCK_MS=2000
+      - TICK_GATE_COUNT=200
+      # HTTP server
+      - TICK_GATE_METRICS_ADDR=0.0.0.0
+      - TICK_GATE_METRICS_PORT=9112
+      # Cardinality guard for reason label
+      - TICK_GATE_REASON_LABEL_MODE=collapse
+      - TICK_GATE_REASON_ALLOWLIST=skew,unknown_side,process_p99,e2e_p99,ts_now,ts_stream,insufficient_data,metrics_unavailable
+      # Self-diagnostics cadence (seconds)
+      - TICK_GATE_SELF_DIAG_INTERVAL_S=15
+      - PYTHONPATH=.:/app
+    working_dir: /app
+    ports:
+      - "9112:9112"
+    volumes:
+      - ./python-worker/services:/app/services
+      - ./python-worker/core:/app/core
+      - ./python-worker/infra:/app/infra
+      - ./python-worker/common:/app/common
+      - ./python-worker/persistence:/app/persistence
+      - ./python-worker/risk:/app/risk
+      - ./python-worker/handlers:/app/handlers
+      - ./python-worker/tools:/app/tools
+      - ./python-worker/tests:/app/tests
+    command: ["python", "-m", "tools.tick_gate_metrics_aggregator_v2"]
+    networks:
+      - scanner-network
+
+  # Meta Schema Registry Check (Step 29 - P26)
+  # Smoke test on startup to verify v1-v5 schemas are wired correctly
+  meta-schema-registry-check:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-meta-schema-registry-check
+    restart: "no"
+    environment:
+      - PYTHONPATH=.:/app
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+    command: ["python3", "-u", "tools/test_meta_schema_registry_v6.py"]
+    networks:
+      - scanner-network
+
+  conf-score-tuning-exporter:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-conf-score-tuning-exporter
+    restart: always
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - DYN_CFG_KEY=settings:dynamic_cfg
+      - EXPORTER_ADDR=0.0.0.0
+      - EXPORTER_PORT=9117
+      - PYTHONPATH=.:/app
+    ports:
+      - "9117:9117"
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+    command: ["python3", "-u", "orderflow_services/conf_score_weight_tuning_exporter_v1.py"]
+    networks:
+      - scanner-network
+
+  conf-score-tuning-nightly-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-conf-score-tuning-nightly-timer
+    restart: always
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - DYN_CFG_KEY=settings:dynamic_cfg
+      - REPLAY_INPUTS_ARCHIVE_DIR=/var/lib/trade/replay_inputs_archives
+      - TRADES_DB_DSN=postgresql://trading:trading_password@scanner-postgres:5432/scanner_analytics
+      - CONF_SCORE_TUNING_OUT_DIR=/var/lib/trade/conf_score_weight_tuning
+      - CONF_SCORE_TUNING_DAYS=30
+      - CONF_SCORE_TUNING_MIN_JOINED_ROWS=300
+      - CONF_SCORE_TUNING_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT
+      - CONF_SCORE_TUNING_APPLY=0
+      - CONF_SCORE_TUNING_FIELD=conf_score_weight_tuning_json
+      - CONF_SCORE_TUNING_BACKUP_FIELD=conf_score_weight_tuning_json_prev
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - ./ml_analysis:/app/ml_analysis
+      - /var/lib/trade/replay_inputs_archives:/var/lib/trade/replay_inputs_archives
+      - /var/lib/trade/conf_score_weight_tuning:/var/lib/trade/conf_score_weight_tuning
+    command: >
+      sh -c "sleep 45 && while true; do
+        HOUR=$$(date +%-H);
+        MIN=$$(date +%-M);
+        # Run daily at 22:00 UTC (after NYSE close)
+        if [ \"$$HOUR\" -eq 22 ] && [ \"$$MIN\" -ge 0 ] && [ \"$$MIN\" -lt 15 ]; then
+          echo 'Running Nightly Confidence Scorer Weight Tuning...';
+          python3 -u orderflow_services/nightly_conf_score_weight_tuning_bundle_v1.py;
+          echo 'Tuning done. Sleeping until next day...';
+          sleep 82800;
+        else
+          sleep 60;
+        fi
+      done"
+    networks:
+      - scanner-network
+
+  # Meta Skew Guard Nightly (Stage 4 - v7)
+  # Nightly audit chain: export -> skew audit -> write freeze guard
+  # Prevents unsafe ramps by automatically freezing/capping if drift is detected
+  meta-skew-guard-nightly-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-meta-skew-guard-nightly-timer
+    restart: always
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - META_FREEZE_FILE=/var/lib/trade/meta_guard/meta_freeze.json
+      - META_SKEW_OUT_DIR=/var/lib/trade/meta_guard/reports
+      - META_TRAIN_NDJSON=/var/lib/trade/training/latest_confirm_train_v7.ndjson
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/trade:/var/lib/trade
+    command: >
+      sh -c "sleep 60 && while true; do
+        HOUR=$$(date +%-H);
+        MIN=$$(date +%-M);
+        # Run daily at 22:30 UTC (after conf-score-tuning at 22:00)
+        if [ \"$$HOUR\" -eq 22 ] && [ \"$$MIN\" -ge 30 ] && [ \"$$MIN\" -lt 45 ]; then
+          echo 'Running Nightly Meta Skew Guard (Stage 4)...';
+          python3 -u tools/nightly_meta_skew_guard_v7.py \
+            --train-ndjson \"$$META_TRAIN_NDJSON\" \
+            --out-dir \"$$META_SKEW_OUT_DIR\" \
+            --freeze-json \"$$META_FREEZE_FILE\";
+          echo 'Guard updated. Sleeping until next day...';
+          sleep 82800;
+        else
+          sleep 60;
+        fi
+      done"
+    networks:
+      - scanner-network
+
+  # Stage 4: A/B Winner Evaluator (v1)
+  # Deterministic nightly comparison between champion/challenger models
+  # Automatically ramps meta_ab_challenger_share in Redis based on performance
+  meta-ab-winner-evaluator-v1:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-meta-ab-winner-evaluator-v1
+    restart: always
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - META_P_MIN=0.6
+      - META_MIN_DELTA_EXP_R=0.005
+      - META_TAIL_SLACK=0.1                      # 1.1x ratio
+      - META_RAMP_STEP=0.05
+      - META_SHARE_MAX=0.5
+      - META_TRAIN_NDJSON=/var/lib/trade/training/latest_confirm_train_v7.ndjson
+      - META_MODEL_CHAMPION_PATH=/var/lib/trade/models/meta_model_v7_champion.json
+      - META_MODEL_CHALLENGER_PATH=/var/lib/trade/models/meta_model_v7_challenger.json
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/trade:/var/lib/trade
+    command: >
+      sh -c "sleep 120 && while true; do
+        HOUR=$$(date +%-H);
+        MIN=$$(date +%-M);
+        # Run daily at 23:00 UTC (after meta-skew-guard at 22:30)
+        if [ \"$$HOUR\" -eq 23 ] && [ \"$$MIN\" -ge 0 ] && [ \"$$MIN\" -lt 20 ]; then
+          echo 'Running Stage 4 A/B Winner Evaluator...';
+          python3 -u tools/meta_ab_winner_evaluator_v1.py \
+            --dataset \"$$META_TRAIN_NDJSON\" \
+            --model-champion \"$$META_MODEL_CHAMPION_PATH\" \
+            --model-challenger \"$$META_MODEL_CHALLENGER_PATH\" \
+            --p-min \"$$META_P_MIN\" \
+            --min-delta-exp-r \"$$META_MIN_DELTA_EXP_R\" \
+            --tail-slack \"$$META_TAIL_SLACK\" \
+            --ramp-step \"$$META_RAMP_STEP\" \
+            --share-max \"$$META_SHARE_MAX\" \
+            --apply;
+          echo 'Evaluator done. Sleeping until next day...';
+          sleep 82800;
+        else
+          sleep 60;
+        fi
+      done"
+    networks:
+      - scanner-network
+
+  # Stage 4: A/B Winner Evaluator (v2) — fixed p_min + bootstrap CI + stratified guard
+  # Runs daily at 04:30 UTC (30 min after v1 at 04:00, same dataset/models).
+  # V1 is kept for research (per-model threshold scan); v2 uses the deployable p_min.
+  # Key additions over v1:
+  #   - Fixed p_min: both models scored at the same threshold (no false winner via threshold shift)
+  #   - Bootstrap CI: CI_lo(ΔexpR) > 0 required before declaring challenger winner
+  #   - Stratified worst-case guard: blocks ramp if top-K strata show degradation
+  #   - Freeze cap: respects max_ab_share from meta_freeze_file if present
+  meta-ab-winner-evaluator-v2:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-meta-ab-winner-evaluator-v2
+    restart: always
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      # Fixed deployable threshold — MUST match runtime p_min to avoid false winners
+      - META_P_MIN=0.55
+      # Minimum eligible rows to produce a non-tie result
+      - META_AB_MIN_ELIGIBLE=1000
+      # Minimum expR improvement per candidate to declare challenger winner
+      - META_AB_MIN_DELTA_EXPR=0.002
+      # Tail event: executed and r_mult <= tail_r
+      - META_AB_TAIL_R=-1.0
+      # Max allowed Δ tail_rate_per_candidate
+      - META_AB_TAIL_SLACK=0.01
+      # Bootstrap CI (400 iters, 95% CI, seed=7)
+      - META_AB_BOOTSTRAP=1
+      - META_AB_BOOT_N=400
+      - META_AB_BOOT_ALPHA=0.05
+      - META_AB_BOOT_SEED=7
+      # 1=require CI_lo(ΔexpR) > 0 before declaring challenger winner
+      - META_AB_REQUIRE_CI_POSITIVE=1
+      # Stratification: check top-10 largest strata for worst-case guard
+      - META_AB_STRATA=symbol
+      - META_AB_STRATA_TOPK=10
+      # Ramp config
+      - META_AB_RAMP_STEP=0.05
+      - META_AB_MAX_SHARE=0.50
+      - META_AB_CURRENT_SHARE=0.0
+      # 1=write winner+share to Redis dynamic cfg hash
+      - META_AB_APPLY=1
+      # Paths (same as v1 — compare on same data)
+      - META_TRAIN_NDJSON=/var/lib/trade/training/latest_confirm_train_v7.ndjson
+      - META_MODEL_CHAMPION_PATH=/var/lib/trade/models/meta_model_v7_champion.json
+      - META_MODEL_CHALLENGER_PATH=/var/lib/trade/models/meta_model_v7_challenger.json
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/trade:/var/lib/trade
+    command: >
+      sh -c "sleep 150 && while true; do
+        HOUR=$$(date +%-H);
+        MIN=$$(date +%-M);
+        # Run daily at 23:30 UTC (after v1 at 23:00, after meta-skew-guard at 22:30)
+        if [ \"$$HOUR\" -eq 23 ] && [ \"$$MIN\" -ge 30 ] && [ \"$$MIN\" -lt 50 ]; then
+          echo 'Running Stage 4 A/B Winner Evaluator v2 (fixed p_min + CI + strata)...';
+          python3 -u -m tools.meta_ab_winner_evaluator_v2 \
+            --in-ndjson \"$$META_TRAIN_NDJSON\" \
+            --champion-model \"$$META_MODEL_CHAMPION_PATH\" \
+            --challenger-model \"$$META_MODEL_CHALLENGER_PATH\" \
+            --p-min \"$$META_P_MIN\" \
+            --min-n \"$$META_AB_MIN_ELIGIBLE\" \
+            --min-delta-exp-r \"$$META_AB_MIN_DELTA_EXPR\" \
+            --tail-r \"$$META_AB_TAIL_R\" \
+            --tail-slack \"$$META_AB_TAIL_SLACK\" \
+            --bootstrap \"$$META_AB_BOOTSTRAP\" \
+            --boot-n \"$$META_AB_BOOT_N\" \
+            --strata \"$$META_AB_STRATA\" \
+            --strata-topk \"$$META_AB_STRATA_TOPK\" \
+            --ramp-step \"$$META_AB_RAMP_STEP\" \
+            --max-share \"$$META_AB_MAX_SHARE\" \
+            --current-share \"$$META_AB_CURRENT_SHARE\" \
+            --apply \"$$META_AB_APPLY\";
+          echo 'Evaluator v2 done. Sleeping until next day...';
+          sleep 82800;
+        else
+          sleep 60;
+        fi
+      done"
+    networks:
+      - scanner-network
+
+  # Meta AB v2 Report Exporter (Stage 4)
+  # Exposes metrics regarding policy guardrail block reasons and AB performance
+  meta-ab-v2-report-exporter:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-meta-ab-v2-report-exporter
+    restart: unless-stopped
+    environment:
+      - META_AB_V2_REPORT_JSON=/var/lib/trade/of_reports/meta_ab_v2/ab_v2_report.json
+      - META_AB_V2_EXPORTER_PORT=9634
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    ports:
+      - "9634:9634"
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+    command: ["python3", "-m", "tools.meta_ab_v2_report_exporter_v1", "--port", "9634"]
+    networks:
+      - scanner-network
+
+  # Meta A/B Evaluator v1 — heartbeat worker
+  # Reads trades:closed, computes champion vs challenger arm stats (meta_arm field in evidence).
+  # Writes: meta_ab:last_ts_ms + meta_ab:last_report + metrics:meta_ab stream.
+  # Required by ml_sre_monitor (META_AB_SRE_ENABLE=1): stale check uses meta_ab:last_ts_ms.
+  meta-ab-evaluator-v1-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-meta-ab-evaluator-v1-timer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=.:/app
+      - TRADES_CLOSED_STREAM=trades:closed
+      - META_AB_MIN_N=200
+      - META_AB_MIN_DELTA_MEAN_R=0.05
+      - META_AB_SINCE_MIN=720
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+    command: ["sh", "-c", "sleep 60 && while true; do echo 'Running Meta A/B Evaluator v1...'; python3 tools/meta_ab_evaluator_v1.py --since-min 720 --min-n 200 --min-delta-mean-r 0.05; echo 'Meta A/B evaluation done. Sleeping 30 minutes...'; sleep 1800; done"]
+    networks:
+      - scanner-network
+
+  # Meta Drift Guard v1 — heartbeat worker
+  # Reads trades:closed, checks meta model prediction quality (meta_p field in evidence).
+  # Writes: meta_drift:last_ts_ms + meta_drift:last_report.
+  # Required by ml_sre_monitor (META_AB_SRE_ENABLE=1): stale check uses meta_drift:last_ts_ms.
+  meta-drift-guard-v1-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-meta-drift-guard-v1-timer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=.:/app
+      - TRADES_CLOSED_STREAM=trades:closed
+      - META_DRIFT_SINCE_MIN=180
+      - META_DRIFT_PEDGE_P50_MIN=0.0
+      - META_DRIFT_PEDGE_ZERO_RATE_MAX=1.01
+      - META_DRIFT_MISSING_META_RATE_MAX=1.01
+      - META_DRIFT_COV_P50_MIN=0.0
+      - META_DRIFT_COV_BAD_RATE_MAX=1.01
+      - META_DRIFT_SUGGESTIONS_PREFIX=cfg:suggestions:entry_policy
+      - META_DRIFT_SUGGESTIONS_SCOPE=ALL
+      - META_DRIFT_SUGGESTIONS_TTL_SEC=86400
+      - META_DRIFT_SUGGESTIONS_COOLDOWN_MIN=60
+      - "CFG_HASH_PREFIX=config:orderflow:"
+      - CANARY_SYMBOLS=BTCUSDT,ETHUSDT
+      - META_FREEZE_MODE=OPEN
+      - NOTIFY_TELEGRAM_STREAM=notify:telegram
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+    command: ["sh", "-c", "sleep 90 && while true; do echo 'Running Meta Drift Guard v1...'; python3 tools/meta_drift_guard_v1.py --since-min 180 --emit-suggestion --unfreeze-on-ok --notify; echo 'Meta drift guard done. Sleeping 30 minutes...'; sleep 1800; done"]
+    networks:
+      - scanner-network
+
+  # Confirmations Coverage Exporter (Stage 4 drift guard)
+  confirmations-coverage-exporter:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-confirmations-coverage-exporter
+    restart: unless-stopped
+    environment:
+      - CONFIRMATIONS_COVERAGE_OUT_JSON=/var/lib/trade/of_reports/confirmations_coverage_report.json
+      - CONFIRMATIONS_COVERAGE_EXPORTER_PORT=9628
+      - CONFIRMATIONS_COVERAGE_REPORT_STALE_SEC=129600
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    ports:
+      - "9628:9628"
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+    command: ["python3", "-m", "tools.confirmations_coverage_report_exporter_v1", "--port", "9628"]
+    networks:
+      - scanner-network
+
+
+  # Tick Gate Reaper (Step 24)
+  # PEL safety net - XAUTOCLAIM old pending entries to prevent consumer group stalling
+  # Exposes /metrics (port 9113)
+  tick-gate-reaper:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: tick-gate-reaper
+    restart: unless-stopped
+    environment:
+      # Redis connection
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      # Stream/group to maintain (must match aggregator)
+      - TICK_GATE_REDIS_STREAM=ops:tick_quality_gate
+      - TICK_GATE_REDIS_GROUP=tick_gate_agg
+      # Reaper behavior
+      - TICK_GATE_REAPER_IDLE_MS=300000    # 5 minutes
+      - TICK_GATE_REAPER_CLAIM_COUNT=200
+      - TICK_GATE_REAPER_INTERVAL_S=15
+      - TICK_GATE_REAPER_ACK_ONLY=1         # 1=claim+ack, 0=claim-only
+      # Metrics
+      - TICK_GATE_REAPER_METRICS_PORT=9113
+      - PYTHONPATH=.:/app
+    working_dir: /app
+    ports:
+      - "9113:9113"
+    volumes:
+      - ./python-worker/services:/app/services
+      - ./python-worker/core:/app/core
+      - ./python-worker/infra:/app/infra
+      - ./python-worker/common:/app/common
+      - ./python-worker/persistence:/app/persistence
+      - ./python-worker/risk:/app/risk
+      - ./python-worker/handlers:/app/handlers
+      - ./python-worker/tools:/app/tools
+    command: ["python", "-m", "tools.tick_gate_group_reaper"]
+    networks:
+      - scanner-network
+
+  # Auto-Apply Tick Gate Blocker (Step 25)
+  # Daemon that monitors tick quality gate and blocks auto-apply when quality degrades
+  # Publishes block state to Redis keys, audit events to ops stream, and Prometheus metrics
+  # Exposes /metrics (port 9114)
+  # Step 26: Auto-Apply Tick Gate Blocker v2 (anti-flap)
+  # Интегрировано с infra/systemd/auto-apply-tick-gate-blocker-v2.service
+  # Периодически проверяет tick-quality gate и устанавливает/снимает блокировку auto-apply
+  # Anti-flap logic: min hold time, pass streak, reason pinning
+  auto-apply-tick-gate-blocker-v2:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-auto-apply-tick-gate-blocker-v2
+    restart: unless-stopped
+#     depends_on:
+      # redis-worker-1:
+      #   condition: service_healthy
+#       redis-ticks:
+#         condition: service_healthy
+
+    environment:
+      # Redis connection
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      # Tick gate metrics source (must be reachable from blocker container)
+      - TICK_GATE_METRICS_URL=http://crypto-orderflow-service:8001/metrics
+      - TICK_GATE_WINDOW_S=60
+      - TICK_GATE_SYMBOL=
+      # Blocker behavior: loop interval, anti-flap parameters (v2)
+      - AUTO_APPLY_BLOCKER_INTERVAL_S=30
+      - AUTO_APPLY_BLOCK_MIN_HOLD_S=300
+      - AUTO_APPLY_UNBLOCK_PASS_STREAK=3
+      - AUTO_APPLY_BLOCK_REASON_PIN_S=600
+      - AUTO_APPLY_BLOCKER_INSUFF_MODE=fail_open
+      # Redis keys for block state (prefix + suffix)
+      - AUTO_APPLY_BLOCK_PREFIX=cfg:suggestions:entry_policy:auto_apply_block
+      - AUTO_APPLY_BLOCK_TTL_S=900
+      # Ops stream for audit trail
+      - AUTO_APPLY_TICK_GATE_PUBLISH_REDIS=1
+      - AUTO_APPLY_TICK_GATE_STREAM=ops:auto_apply_tick_gate
+      - AUTO_APPLY_TICK_GATE_STREAM_MAXLEN=20000
+
+      # Python environment
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    ports:
+      - "9114:9114"
+    volumes:
+      - ./python-worker/services:/app/services
+      - ./python-worker/core:/app/core
+      - ./python-worker/infra:/app/infra
+      - ./python-worker/common:/app/common
+      - ./python-worker/persistence:/app/persistence
+      - ./python-worker/risk:/app/risk
+      - ./python-worker/handlers:/app/handlers
+      - ./python-worker/tools:/app/tools
+    command: ["python", "-m", "tools.auto_apply_tick_gate_blocker_v2"]
+    networks:
+      - scanner-network
+#    depends_on:
+#      redis-worker-1:
+#        condition: service_healthy
+
+
+
+  # Auto-Apply Tick Gate Exporter (Step 27)
+  # Prometheus exporter for auto-apply block state
+  # Exposes /metrics (port 9118)
+  auto-apply-tick-gate-exporter:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: auto-apply-tick-gate-exporter
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      # Key prefix used by blocker (Step25/26)
+      - AUTO_APPLY_BLOCK_PREFIX=cfg:suggestions:entry_policy:auto_apply_block
+      # Exporter config
+      - AUTO_APPLY_EXPORTER_PORT=9118
+      - AUTO_APPLY_EXPORTER_POLL_S=5
+      - AUTO_APPLY_REASON_LABEL_MODE=collapse
+      - AUTO_APPLY_REASON_ALLOWLIST=unknown_side,skew,process_p99,e2e_p99,ts_now,ts_stream,fail,pass
+      - PYTHONPATH=.:/app
+    working_dir: /app
+    ports:
+      - "9118:9118"
+    volumes:
+      - ./python-worker/services:/app/services
+      - ./python-worker/core:/app/core
+      - ./python-worker/infra:/app/infra
+      - ./python-worker/common:/app/common
+      - ./python-worker/persistence:/app/persistence
+      - ./python-worker/risk:/app/risk
+      - ./python-worker/handlers:/app/handlers
+      - ./python-worker/tools:/app/tools
+    command: ["python", "-m", "tools.auto_apply_tick_gate_exporter"]
+    networks:
+      - scanner-network
+#    depends_on:
+#      redis-worker-1:
+#        condition: service_healthy
+
+  # Auto-Apply Tick Gate Daily Report Timer (Step 27)
+  # Generates daily report of auto-apply blocking decisions
+  auto-apply-tick-gate-report-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-auto-apply-tick-gate-report-timer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=.:/app
+      - AUTO_APPLY_TICK_GATE_STREAM=ops:auto_apply_tick_gate
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+    command: >
+      sh -c "sleep 60 && while true; do
+        HOUR=$$(date +%-H);
+        MIN=$$(date +%-M);
+        # Run at 07:00 UTC
+        if [ \"$$HOUR\" -eq 7 ] && [ \"$$MIN\" -ge 0 ] && [ \"$$MIN\" -lt 10 ]; then
+          echo 'Running Auto-Apply Tick Gate Daily Report...';
+          python3 -m tools.auto_apply_tick_gate_daily_report --hours 24;
+          echo 'Report done. Sleeping 1 hour...';
+          sleep 3600;
+        else
+          sleep 60;
+        fi
+      done"
+    networks:
+      - scanner-network
+
+  # Auto-Apply Job Timer (Step 28)
+  # Unified orchestrator for auto-apply commands with tick-gate blocking
+  # Runs every 5 minutes, checks tick-gate block before executing
+  # Logs all decisions to ops:auto_apply_runs stream
+  auto-apply-job-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-auto-apply-job-timer
+    restart: unless-stopped
+    environment:
+      # Redis for block keys + ops audit stream
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      # Required: actual apply runner command
+      # Example: replace with your real apply runner
+      - AUTO_APPLY_CMD=python -m tools.nightly_meta_enforce_ramp_or_freeze_bundle
+      # Optional: working directory for command
+      - AUTO_APPLY_WORKDIR=/app
+      # Optional: timeout for apply runner (seconds)
+      - AUTO_APPLY_TIMEOUT_S=600
+      # Where to log attempts (best-effort)
+      - AUTO_APPLY_OPS_STREAM=ops:auto_apply_runs
+      # Block keys namespace (must match Step 25/26 blocker)
+      - AUTO_APPLY_BLOCK_PREFIX=cfg:suggestions:entry_policy:auto_apply_block
+      # If Redis/guard fails: fail_open (default) or fail_closed
+      - AUTO_APPLY_FAIL_MODE=fail_open
+      
+      # P6.11.1 Guard Allowlist & Metrics
+      - AUTO_APPLY_BLOCK_EXISTENCE_BLOCKS=0
+      - AUTO_APPLY_BLOCK_IGNORE_KEY_SUFFIXES=:notes,:last_seen
+      - AUTO_APPLY_GUARD_METRICS_ENABLE=1
+      - AUTO_APPLY_GUARD_METRICS_STREAM=metrics:auto_apply_guard
+      # Block reasons (multi-reason support)
+      - AUTO_APPLY_BLOCK_REASONS=tick_gate,meta_cov
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+    command: >
+      sh -c "sleep 90 && while true; do
+        echo 'Running Auto-Apply Job (Step 28)...';
+        python3 -m tools.auto_apply_job_entrypoint_hardguard_v1;
+        echo 'Job done. Sleeping 5 minutes...';
+        sleep 300;
+      done"
+    networks:
+      - scanner-network
+
+  # Meta Coverage Outcome Guard (Step 42)
+  # Monitors meta coverage outcomes and blocks auto-apply if stale or bad
+  meta-cov-outcome-guard:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-meta-cov-outcome-guard
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - DYN_CFG_KEY=settings:dynamic_cfg
+      - AUTO_APPLY_BLOCK_PREFIX=cfg:suggestions:entry_policy:auto_apply_block
+      - META_COV_GUARD_APPLY=1
+      - META_COV_GUARD_MAX_STALE_MS=21600000        # 6h
+      - META_COV_GUARD_BLOCK_ON_QUARANTINE=1
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+    command: >
+      sh -c "sleep 45 && while true; do
+        echo 'Running Meta Coverage Outcome Guard (P42)...';
+        python3 orderflow_services/meta_cov_outcome_guard_v1.py;
+        echo 'Guard check done. Sleeping 10 minutes...';
+        sleep 600;
+      done"
+    networks:
+      - scanner-network
+#    depends_on:
+#      redis-worker-1:
+#        condition: service_healthy
+
+  trailing-recommender-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-trailing-recommender-timer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONPATH=.:/app
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+    command: >
+      sh -c "sleep 30 && while true; do
+        python3 tools/recommend_trailing_from_redis.py --source CryptoOrderFlow --symbols ETHUSDT,BTCUSDT --auto-write --conf-threshold 0.6;
+        echo 'Waiting 1 hour...';
+        sleep 3600;
+      done"
+    networks:
+      - scanner-network
+
+  xau-aggregator-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-xau-aggregator-timer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONPATH=.:/app
+    working_dir: /app
+    command: >
+      sh -c "sleep 60 && while true; do
+        START=$$(date -d 'today 00:00' -Iseconds);
+        END=$$(date -Iseconds);
+        OUT=/var/log/scanner_infra/exec_$$(date +%Y-%m-%d).parquet;
+        python3 services/aggregate_exec.py --start \"$$START\" --end \"$$END\" --out \"$$OUT\";
+        echo 'Daily aggregation complete. Sleeping until next day...';
+        sleep 86400;
+      done"
+    volumes:
+      - ./python-worker:/app
+      - /var/log/scanner_infra:/var/log/scanner_infra
+    networks:
+      - scanner-network
+
+  ab-winner-lcb-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-ab-winner-lcb-timer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONPATH=.:/app
+      - AB_EVENTS_STREAM=events:trades
+      # Step 2: Cost-aware LCB configuration
+      - LCB_COST_AWARE_ENABLE=${LCB_COST_AWARE_ENABLE:-0}
+      - LCB_Z=${LCB_Z:-1.28}
+      - LCB_MIN_N=${LCB_MIN_N:-40}
+      - LCB_FLOOR_R=${LCB_FLOOR_R:-0.00}
+      - LCB_MIN_DELTA_LCB=${LCB_MIN_DELTA_LCB:-0.05}
+      - LCB_CONFIRM_WINDOWS=${LCB_CONFIRM_WINDOWS:-2}
+      - LCB_LOOKBACK_HOURS=${LCB_LOOKBACK_HOURS:-24}
+      - LCB_FEES_ALREADY_NET=${LCB_FEES_ALREADY_NET:-1}
+      - LCB_SUBTRACT_FEES=${LCB_SUBTRACT_FEES:-0}
+      - LCB_SLIPPAGE_BPS_CAP=${LCB_SLIPPAGE_BPS_CAP:-250}
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+    command: >
+      sh -c "sleep 45 && while true; do
+        python3 services/ab_winner_suggester_service_v2.py --run-once;
+        sleep 3600;
+      done"
+    networks:
+      - scanner-network
+
+  ab-policy-suggester-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-ab-policy-suggester-timer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONPATH=.:/app
+    working_dir: /app
+    env_file: .env
+    volumes:
+      - ./python-worker:/app
+    command: >
+      sh -c "sleep 50 && while true; do
+        python3 -m tools.ab_suggest_entry_policy;
+        sleep 900;
+      done"
+    networks:
+      - scanner-network
+
+  trade-diagnostics-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-trade-diagnostics-timer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONPATH=.:/app
+      - ANALYTICS_DB_DSN=postgresql://trading:trading_password@scanner-postgres:5432/scanner_analytics
+      - REPORT_SEND_TELEGRAM=1
+      - NOTIFY_STREAM=notify:telegram
+      # Default: last 24h. Script handles it if ENV vars are missing/default.
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+    command: >
+      sh -c "sleep 60 && while true; do
+        echo 'Running Trade Diagnostics Report...';
+        python3 tools/trade_diagnostics/report_top_loss_reasons.py;
+        echo 'Report done. Sleeping 24h...';
+        sleep 86400;
+      done"
+    networks:
+      - scanner-network
+
+
+  tick-quality-gate-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-tick-quality-gate-timer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONPATH=.:/app
+      - TICK_GATE_WINDOW_S=60
+      - TICK_GATE_PROCESS_P99_MS=25
+      - TICK_GATE_E2E_P99_MS=5000
+      - TICK_GATE_UNKNOWN_SIDE_EMA=0.10
+      - TICK_GATE_TS_NOW_EMA=0.05
+      - TICK_GATE_TS_STREAM_ID_EMA=0.20
+      - TICK_GATE_SKEW_EMA_MS=30000
+      - TICK_GATE_AGE_EMA_MS=30000
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+    command: >
+      sh -c "sleep 60 && while true; do
+        echo 'Running Tick Quality Gate Check...';
+        python3 -m tools.tick_quality_gate_check --metrics-url http://crypto-orderflow-service:8001/metrics --window-s 60;
+        echo 'Check done. Sleeping 1 hour...';
+        sleep 3600;
+      done"
+#    depends_on:
+#      - python-worker
+    networks:
+      - scanner-network
+
+  # DQ Gate Config Timer
+  # Periodically applies DQ Gate penalty-only configuration to Redis
+  # Ensures configuration persistence even after Redis restarts
+  dq-gate-config-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-dq-gate-config-timer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=.:/app
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+    command: >
+      sh -c "sleep 60 && while true; do
+        echo 'Applying DQ Gate Penalty-Only Config...';
+        python3 -c \"import redis, os; r = redis.from_url(os.environ['REDIS_URL'], decode_responses=True); [r.hset(p[1], p[2], p[3]) for line in open('/app/ops/dynamic_cfg_examples/dq_gate_penalty_only.hset') for p in [line.strip().split()] if line.strip() and not line.startswith('#') and p[0].upper() == 'HSET']\";
+        echo 'DQ Gate config applied. Sleeping 10 minutes...';
+        sleep 600;
+      done"
+    networks:
+      - scanner-network
+
+  # P70: Signal Quality KPI Worker (policy mode breakdown)
+  signal-quality-kpi-worker:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-signal-quality-kpi-worker
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=.:/app
+      - SIGNAL_QUALITY_LOOKBACK_H=24
+    working_dir: /app
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'python' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    volumes:
+      - ./python-worker:/app
+      - ./tools:/app/tools
+    command: >
+      sh -c "sleep 60 && while true; do
+        echo 'Running Signal Quality KPI Worker (P70)...';
+        python3 services/orderflow/signal_quality_kpi_worker_v1.py --once;
+        echo 'KPI compute done. Sleeping 10 minutes...';
+        sleep 600;
+      done"
+    networks:
+      - scanner-network
+
+  # P72: Policy Regime Effectiveness Report (within-cell deltas)
+  policy-regime-effectiveness-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-policy-regime-effectiveness-timer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=.:/app
+      - ENABLE_POLICY_REGIME_EFFECTIVENESS_REPORT=1
+      - POLICY_REGIME_EFF_LOOKBACK_H=24
+      - POLICY_REGIME_EFF_MAX_SCAN=200000
+      - POLICY_REGIME_EFF_TOP_P=0.05
+      - POLICY_REGIME_EFF_ECE_BINS=10
+      - POLICY_REGIME_EFF_MIN_N_OK=20
+      - POLICY_REGIME_EFF_MIN_N_MODE=10
+    working_dir: /app
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'python' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    volumes:
+      - ./python-worker:/app
+      - ./tools:/app/tools
+    command: >
+      sh -c "sleep 70 && while true; do
+        echo 'Running Policy Regime Effectiveness Report (P72)...';
+        python3 tools/policy_regime_effectiveness_report_worker_p72.py --once;
+        echo 'Report done. Sleeping 10 minutes...';
+        sleep 600;
+      done"
+    networks:
+      - scanner-network
+
+  # P74: Policy Calibration Suggester (advisory recommendations)
+  policy-calibration-suggester-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-policy-calibration-suggester-timer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=.:/app
+      - ENABLE_POLICY_EFFECTIVENESS_REPORT=1
+      - ENABLE_POLICY_REGIME_EFFECTIVENESS_REPORT=1
+      - POLICY_CALIBRATION_SUGGEST_INTERVAL_SEC=300
+    working_dir: /app
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'python' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    volumes:
+      - ./python-worker:/app
+      - ./tools:/app/tools
+    command: >
+      sh -c "sleep 80 && while true; do
+        echo 'Running Policy Calibration Suggester (P74)...';
+        python3 tools/policy_calibration_suggester_p74.py --once;
+        echo 'Suggestion done. Sleeping 5 minutes...';
+        sleep 300;
+      done"
+    networks:
+      - scanner-network
+
+  auto-train-conf-calibration-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-auto-train-conf-calibration-timer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONPATH=.:/app
+      - CONF_CAL_PATH=/app/calibration/confidence_calibration.json
+      - CONF_CAL_STATE_PATH=/app/calibration/confidence_calibration.state.json
+      - PG_DSN=postgresql://trading:trading_password@scanner-postgres:5432/scanner_analytics
+      - CONF_CAL_HISTORY_DIR=/app/calibration/history
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - ./calibration:/app/calibration
+    command: ["python3", "-m", "tools.auto_train_conf_calibration", "--loop", "--interval", "21600"]
+    networks:
+      - scanner-network
+
+  # Confidence Drift Monitor (every 3h)
+  confidence-drift-monitor-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-confidence-drift-monitor-timer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONPATH=.:/app
+      - DATA_DIR=/var/lib/trade/ml_models/edge_stack_v1
+      - REPORT_DIR=/var/lib/trade/of_reports/drift
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+      - /var/lib/trade/ml_models:/var/lib/trade/ml_models
+    command: >
+      sh -c "sleep 120 && while true; do
+        echo 'Running Confidence Drift Monitor...';
+        /app/ml_analysis/tools/run_confidence_drift_monitor.sh;
+        echo 'Monitor done. Sleeping 3 hours...';
+        sleep 10800;
+      done"
+    networks:
+      - scanner-network
+
+  conf-score-guard-apply-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-conf-score-guard-apply-timer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=.:/app
+      - DRIFT_REPORT_PATH=/var/lib/trade/of_reports/drift/latest.json
+      - CONF_SCORE_GUARD_STATE_PATH=/var/lib/trade/of_reports/conf_score_guard_state.json
+      - APPLY_GUARDRAILS=1
+      - GUARD_CANARY_SHARE=1.0
+      - GUARD_FREEZE_HOLD_SEC=3600
+      - GUARD_RECOVER_RUNS=3
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+      - /var/lib/trade/conf_score_guard_bundles:/var/lib/trade/conf_score_guard_bundles
+    command: >
+      sh -c "sleep 120 && while true; do
+        if [ -f \"$$DRIFT_REPORT_PATH\" ]; then
+          python3 -m orderflow_services.conf_score_guardrails_apply_v1 --drift-report \"$$DRIFT_REPORT_PATH\" --apply \"$${APPLY_GUARDRAILS:-0}\" --stage 1 --staged-key-prefix \"cfg:crypto_of:overrides_staged:\" --bundle-dir \"/var/lib/trade/conf_score_guard_bundles\" --bundle-enable 1 --bundle-promote 0 --lock-path \"/var/lib/trade/conf_score_guard_bundles/guard.lock\" --canary-share \"$${GUARD_CANARY_SHARE:-1.0}\" --freeze-hold-sec \"$${GUARD_FREEZE_HOLD_SEC:-3600}\" --recover-runs \"$${GUARD_RECOVER_RUNS:-3}\" --state-path \"$$CONF_SCORE_GUARD_STATE_PATH\";
+        else
+          echo 'No drift report found at ' $$DRIFT_REPORT_PATH;
+        fi
+        sleep 300;
+      done"
+    networks:
+      - scanner-network
+
+  conf-score-guard-autopromo-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-conf-score-guard-autopromo-timer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=.:/app
+      - CONF_SCORE_GUARD_BUNDLE_DIR=/var/lib/trade/conf_score_guard_bundles
+      - CONF_SCORE_GUARD_HEALTH_STATE_PATH=/tmp/conf_cal_proof_state.json
+      - CONF_SCORE_GUARD_AUTOPROMO_STATE_PATH=/var/lib/trade/of_reports/conf_score_guard_autopromo_state.json
+      - CONF_SCORE_GUARD_LOCK_PATH=/var/lib/trade/conf_score_guard_bundles/guard.lock
+      - CONF_SCORE_GUARD_CANARY_OBSERVE_SEC=900
+      - CONF_SCORE_GUARD_MAX_DELTA_ECE=0.005
+      - CONF_SCORE_GUARD_MAX_DELTA_BRIER=0.005
+      - CONF_SCORE_GUARD_MAX_ARM_DELTA_ECE=0.003
+      - CONF_SCORE_GUARD_MAX_ARM_DELTA_BRIER=0.003
+      - CONF_SCORE_GUARD_MAX_COHORT_DELTA_ECE_WMEAN=0.002
+      - CONF_SCORE_GUARD_MAX_COHORT_DELTA_BRIER_WMEAN=0.002
+      - CONF_SCORE_GUARD_MAX_COHORT_DELTA_ECE_MAX=0.01
+      - CONF_SCORE_GUARD_MAX_COHORT_DELTA_BRIER_MAX=0.01
+      - CONF_SCORE_GUARD_MIN_N=200
+      - CONF_SCORE_GUARD_AUTOPROMO_APPLY=1
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/trade/conf_score_guard_bundles:/var/lib/trade/conf_score_guard_bundles
+      - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+    command: ["sh", "-c", "sleep 180 && while true; do echo 'Running Confidence Guardrails AUTOPROMO Controller...'; python3 -m orderflow_services.conf_score_guardrails_autopromo_controller_v1 --redis-url \"$$REDIS_URL\" --bundle-dir \"$$CONF_SCORE_GUARD_BUNDLE_DIR\" --health-state-path \"$$CONF_SCORE_GUARD_HEALTH_STATE_PATH\" --state-path \"$$CONF_SCORE_GUARD_AUTOPROMO_STATE_PATH\" --lock-path \"$$CONF_SCORE_GUARD_LOCK_PATH\" --observe-window-sec \"$$CONF_SCORE_GUARD_CANARY_OBSERVE_SEC\" --max-delta-ece \"$$CONF_SCORE_GUARD_MAX_DELTA_ECE\" --max-delta-brier \"$$CONF_SCORE_GUARD_MAX_DELTA_BRIER\" --max-arm-delta-ece \"$$CONF_SCORE_GUARD_MAX_ARM_DELTA_ECE\" --max-arm-delta-brier \"$$CONF_SCORE_GUARD_MAX_ARM_DELTA_BRIER\" --max-cohort-delta-ece-wmean \"$$CONF_SCORE_GUARD_MAX_COHORT_DELTA_ECE_WMEAN\" --max-cohort-delta-brier-wmean \"$$CONF_SCORE_GUARD_MAX_COHORT_DELTA_BRIER_WMEAN\" --max-cohort-delta-ece-max \"$$CONF_SCORE_GUARD_MAX_COHORT_DELTA_ECE_MAX\" --max-cohort-delta-brier-max \"$$CONF_SCORE_GUARD_MAX_COHORT_DELTA_BRIER_MAX\" --min-n \"$$CONF_SCORE_GUARD_MIN_N\" --apply \"$$CONF_SCORE_GUARD_AUTOPROMO_APPLY\"; sleep 300; done"]
+    networks:
+      - scanner-network
+
+  conf-score-guard-exporter:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-conf-score-guard-exporter
+    restart: unless-stopped
+    environment:
+      - CONF_SCORE_GUARD_STATE_PATH=/var/lib/trade/of_reports/conf_score_guard_state.json
+      - CONF_SCORE_GUARD_EXPORTER_PORT=9135
+      - CONF_SCORE_GUARD_EXPORTER_INTERVAL_SEC=15
+      - PYTHONPATH=.:/app
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+    command: ["python3", "-m", "orderflow_services.conf_score_guard_state_exporter_v1"]
+    ports:
+      - "9135:9135"
+    networks:
+      - scanner-network
+
+  auto-train-conf-calibration-v2-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-auto-train-conf-calibration-v2-timer
+    restart: unless-stopped
+    runtime: nvidia
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONPATH=.:/app
+      - PERF_PG_DSN=postgresql://trading:trading_password@scanner-postgres:5432/scanner_analytics
+      # New output path for V2
+      - CONF_CAL_V2_OUT=/app/calibration/confidence_calibration_v2.json
+      - CONF_CAL_V2_METHOD=platt
+      - CONF_CAL_V2_DAYS=60
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - ./calibration:/app/calibration
+    command: >
+      sh -c "sleep 60 && while true; do
+        echo 'Running Auto Train Confidence Calibrator V2...';
+        python3 -m ml_analysis.tools.nightly_confidence_calibrator_bundle_v2 \
+          --lookback_days $${CONF_CAL_V2_DAYS:-60} \
+          --method $${CONF_CAL_V2_METHOD:-platt} \
+          --out_dir /app/calibration \
+          --champion_name confidence_calibration_v2.json;
+        echo 'Run complete. Sleeping 6 hours...';
+        sleep 21600;
+      done"
+    networks:
+      - scanner-network
+
+
+  trade-ml-sre-monitor-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-trade-ml-sre-monitor-timer
+    restart: unless-stopped
+    # depends_on:
+      # redis-worker-1:
+        # condition: service_healthy
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=.:/app
+      - ML_CONFIRM_METRICS_STREAM=metrics:ml_confirm
+      - NOTIFY_TELEGRAM_STREAM=notify:telegram
+      - ML_SRE_WINDOW_MS=600000
+      - ML_SRE_PEDGE_P50_MIN=0.20
+      - ML_SRE_MISSING_RATE_MAX=0.02
+      - ML_SRE_ERR_RATE_MAX=0.01
+      - ML_SRE_LAT_P99_MAX_MS=500
+      # TB Health Monitoring
+      - TB_SRE_ENABLE=1
+      - TB_INPUT_STREAM=signals:of:inputs
+      - OF_INPUTS_GROUP=tb_labeler_v2
+      - TB_LABELS_STREAM=labels:tb
+      - TB_SRE_MAX_INPUT_LAG_MS=120000
+      - TB_SRE_MAX_LABEL_STALE_MS=300000
+      - TB_SRE_MAX_PENDING=5000
+      # ML Confirm Stream Content Health
+      - ML_SRE_MAX_STALE_MS=600000
+      - ML_SRE_PEDGE_ZERO_RATE_MAX=0.05
+      - ML_SRE_REQUIRED_MISS_RATE_MAX=0.01
+      - ML_SRE_REQUIRED_FIELDS=p_edge,latency_ms,status,allow,ts_ms
+      # Meta A/B + Drift checks: enabled now that meta-ab-evaluator-v1-timer and
+      # meta-drift-guard-v1-timer write meta_ab:last_ts_ms / meta_drift:last_ts_ms every 30 min.
+      # MAX_STALE = window_ms (10 min) by default — override to 3600000 (1h) to tolerate 30-min cycle.
+      - META_AB_SRE_ENABLE=1
+      - META_SRE_ENABLE=1
+      - META_AB_MAX_STALE_MS=3600000
+      - META_DRIFT_MAX_STALE_MS=3600000
+      - META_SRE_MAX_TRAIN_STALE_MS=86400000
+      # Optional: enable these when ABSTAIN/conf is live
+      # - ML_SRE_ABSTAIN_RATE_MAX=0.25
+      # - ML_SRE_CONF_P50_MIN=0.15
+      # Config Suggestions Lifecycle (P6.2)
+      - CFG_SUGGESTIONS_SRE_ENABLE=1
+      - CFG_SUGGESTIONS_PREFIX=cfg:suggestions:entry_policy
+      - CFG_SUGGESTIONS_KIND=meta_freeze
+      - CFG_SUGGESTIONS_SCOPES=ALL
+      - CFG_SUGGESTIONS_MAX_CREATED_AGE_MS=3600000
+      - CFG_SUGGESTIONS_MAX_APPROVED_AGE_MS=600000
+      - CFG_SUGGESTIONS_SRE_STRICT=1
+      # Emergency Proposals (P6.4)
+      - CFG_SUGGESTIONS_EMERGENCY_ENABLE=1
+      - CFG_SUGGESTIONS_EMERGENCY_KIND=emergency_apply_stuck
+      - CFG_SUGGESTIONS_EMERGENCY_MIN_MS=1800000
+      - CFG_SUGGESTIONS_EMERGENCY_COOLDOWN_SEC=3600
+      - CFG_SUGGESTIONS_EMERGENCY_TTL_SEC=86400
+    # Severity Routing
+      - NOTIFY_TELEGRAM_STREAM_WARN=notify:telegram
+      - NOTIFY_TELEGRAM_STREAM_CRIT=notify:telegram:crit
+      - NOTIFY_TELEGRAM_STREAM_PAGE=notify:telegram:page
+      # Trade Pause (P6.5)
+      - CFG_SUGGESTIONS_TRADE_PAUSE_ENABLE=1
+      - CFG_SUGGESTIONS_TRADE_PAUSE_KIND=trade_pause
+      - CFG_SUGGESTIONS_TRADE_UNPAUSE_KIND=trade_unpause
+      # Delivery Receipts (P6.5)
+      - NOTIFY_REQUIRE_RECEIPT_PAGE=1
+      - NOTIFY_RECEIPT_RESEND_SEC=300
+      # P6.9 SLO Burn Monitor Suggestions
+      - NOTIFY_SLO_EMIT_SUGGESTIONS=1
+      - NOTIFY_SLO_SUGGESTIONS_SCOPE=ALL
+      - NOTIFY_SLO_SUGGESTION_TTL_SEC=86400
+
+      # Emergency
+      - NOTIFY_SLO_EMIT_EMERGENCY=1
+      - NOTIFY_SLO_EMERGENCY_KIND=emergency_notify_delivery_degraded
+      - NOTIFY_SLO_EMERGENCY_COOLDOWN_SEC=1800
+
+      # Trade Pause
+      - NOTIFY_SLO_EMIT_TRADE_PAUSE=1
+      - NOTIFY_SLO_TRADE_PAUSE_KIND=trade_pause
+      - NOTIFY_SLO_TRADE_PAUSE_SCOPE=ALL
+      - NOTIFY_SLO_TRADE_PAUSE_COOLDOWN_SEC=3600
+      - NOTIFY_SLO_TRADE_UNPAUSE_KIND=trade_unpause
+      - NOTIFY_SLO_TRADE_UNPAUSE_COOLDOWN_SEC=3600
+      - NOTIFY_SLO_UNPAUSE_ON_OK=1
+      
+      # OPS JSON
+      - 'NOTIFY_SLO_TRADE_PAUSE_OPS_JSON=[{"op":"hset","key":"cfg:execution_gate","field":"paused","value":"1"}]'
+      - 'NOTIFY_SLO_TRADE_UNPAUSE_OPS_JSON=[{"op":"hset","key":"cfg:execution_gate","field":"paused","value":"0"}]'
+      - NOTIFY_SLO_ALLOW_NOOP_SUGGESTIONS=0
+      # P32 Meta Coverage Outcome Guard
+      - ENABLE_META_COV_OUTCOME_GUARD=1
+      - META_COV_OUTCOME_EMIT_SUGGESTION=1
+      # P33 Meta Coverage Auto-Downgrade
+      - ENABLE_META_COV_OUTCOME_AUTO_APPLY=1
+      - TRADE_EVENTS_STREAM=trades:closed
+      - ENABLE_LOB_PRESSURE_SMOKE=1
+      - META_ENFORCE_COV_AUTO_APPROVE=1
+      - META_ENFORCE_COV_APPROVALS_REQUIRED=2
+      # P40 Producer Contract Check
+      - ENABLE_OF_GATE_CONTRACT_CHECK=1
+      # P71 Policy Effectiveness Report
+      - ENABLE_POLICY_EFFECTIVENESS_REPORT=1
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+    command: >
+      sh -c "sleep 30 && while true; do\
+        NF=/tmp/.sre_notify_ts;\
+        if [ ! -f $$NF ] || find $$NF -mmin +60 | grep -q .; then\
+          echo 'Running SRE Monitors WITH notify (1h gate)...';\
+          python3 -m tools.sre_monitor_all_v3 --emit-metrics --notify --emit-suggestions;\
+          touch $$NF;\
+        else\
+          echo 'Running SRE Monitors metrics-only (notify suppressed)...';\
+          python3 -m tools.sre_monitor_all_v3 --emit-metrics --emit-suggestions;\
+        fi;\
+        echo 'Monitor done. Sleeping 10 minutes...';\
+        sleep 600;\
+      done"
+    networks:
+      - scanner-network
+
+#  trade-ml-calibration-health-timer:
+#    build:
+#      context: .
+#      dockerfile: python-worker/Dockerfile.gpu
+#    container_name: scanner-trade-ml-calibration-health-timer
+#    restart: unless-stopped
+#    environment:
+#      - REDIS_URL=redis://redis-worker-1:6379/0
+#      - PYTHONPATH=.:/app
+#      - ML_CFG_CHAMPION_KEY=cfg:ml_confirm:champion
+#      - NOTIFY_TELEGRAM_STREAM=notify:telegram
+#      - ML_CALIB_ECE_MAX=${ML_CALIB_ECE_MAX:-0.06}
+#      - ML_CALIB_BRIER_MAX=${ML_CALIB_BRIER_MAX:-0.22}
+#      - ML_CALIB_LOGLOSS_MAX=${ML_CALIB_LOGLOSS_MAX:-0.65}
+#    working_dir: /app
+#    volumes:
+#      - ./python-worker:/app
+#    command: >
+#      sh -c "sleep 60 && while true; do
+#        HOUR=$$(date +%-H);
+#        MIN=$$(date +%-M);
+#        if [ \"$$HOUR\" -eq 5 ] && [ \"$$MIN\" -ge 20 ] && [ \"$$MIN\" -lt 30 ]; then
+#          echo 'Running ML Calibration Health Monitor...';
+#          python3 -m tools.ml_calibration_health_monitor;
+#          echo 'Health monitor done. Sleeping 1 hour...';
+#          sleep 3600;
+#        else
+#          sleep 60;
+#        fi
+#      done"
+#    networks:
+#      - scanner-network
+
+  of-nightly-calibrate-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-of-nightly-calibrate-timer
+    restart: unless-stopped
+    runtime: nvidia
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONPATH=.:/app
+      - OF_INPUTS_STREAM=signals:of:inputs
+      - OF_INPUTS_STREAM_FIELD=payload
+      - TRADE_EVENTS_STREAM=events:trades
+      - ANALYTICS_DB_DSN=postgresql://trading:trading_password@scanner-postgres:5432/scanner_analytics
+      - NOTIFY_TELEGRAM_STREAM=notify:telegram
+      - CANARY_SYMBOLS=BTCUSDT,ETHUSDT
+      # P25: Signature
+      - META_MODEL_REQUIRE_SIGNATURE=${META_MODEL_REQUIRE_SIGNATURE:-0}
+      - META_MODEL_ENFORCE_REQUIRES_SCHEMA=${META_MODEL_ENFORCE_REQUIRES_SCHEMA:-0}
+      - META_MODEL_SCHEMA=
+      - META_MODEL_SCHEMA_HASH=
+      - OUT_DIR=/var/lib/trade/of_reports/out
+      - STATE_FILE=/var/lib/trade/of_reports/out/of_inputs.state
+      - RECS_HMAC_SECRET=${RECS_HMAC_SECRET:-CHANGE_ME_LONG_RANDOM}
+      - RECS_TTL_SEC=86400
+      - TRADES_SINCE_HOURS=72
+      - GPU_ENABLED=true
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    working_dir: /app
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+    command: >
+      sh -c "sleep 120 && while true; do
+        HOUR=$$(date +%-H);
+        MIN=$$(date +%-M);
+        if [ \"$$HOUR\" = \"01\" ] && [ \"$$MIN\" -ge \"0\" ] && [ \"$$MIN\" -lt \"20\" ]; then
+          echo 'Running Nightly Gate Calibrate Bundle...';
+          python3 -m tools.nightly_gate_calibrate_bundle;
+          echo 'Calibration done. Sleeping 1 hour...';
+          sleep 3600;
+        else
+          sleep 60;
+        fi
+      done"
+    networks:
+      - scanner-network
+
+  confidence-calibrator-nightly-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-confidence-calibrator-nightly-timer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONPATH=.:/app
+      - NOTIFY_TELEGRAM_STREAM=notify:telegram
+      # Additional conf
+      - CONF_CAL_OUT_DIR=/var/lib/trade/of_calibrators
+      - CONF_CAL_REPORTS_DIR=/var/lib/trade/of_reports/out/confidence_cal
+      - CONF_CAL_METHOD=auto
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - ./ml_analysis:/app/ml_analysis
+      - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+      - /var/lib/trade/of_calibrators:/var/lib/trade/of_calibrators
+    command: >
+      sh -c "sleep 180 && while true; do
+        HOUR=$$(date +%-H);
+        MIN=$$(date +%-M);
+        # Run at 06:15 UTC (after OF nightly?)
+        if [ \"$$HOUR\" = \"01\" ] && [ \"$$MIN\" -ge \"30\" ] && [ \"$$MIN\" -lt \"50\" ]; then
+          echo 'Running Nightly Confidence Calibrator V2...';
+          python3 -m ml_analysis.tools.nightly_confidence_calibrator_v1 --method auto;
+          echo 'Done. Sleeping 1 hour...';
+          sleep 3600;
+        else
+          sleep 60;
+        fi
+      done"
+    networks:
+      - scanner-network
+
+  # Edge Stack Shadow Exporter (P60)
+  # Exposes metrics from metrics:edge_stack_shadow:last
+  # scanner-edge-stack-shadow-exporter:
+  #   build:
+  #     context: .
+  #     dockerfile: python-worker/Dockerfile.gpu
+  #   container_name: scanner-edge-stack-shadow-exporter
+  #   restart: unless-stopped
+  #   environment:
+  #     - REDIS_URL=redis://redis-worker-1:6379/0
+  #     - EDGE_STACK_SHADOW_EXPORTER_PORT=9814
+  #     - PYTHONPATH=.:/app
+  #   working_dir: /app
+  #   ports:
+  #     - "9814:9814"
+  #   volumes:
+  #     - ./python-worker:/app
+  #   command: ["python", "-m", "tools.edge_stack_shadow_exporter_v1"]
+  #   networks:
+  #     - scanner-network
+
+  # Conf Cal Live Status Exporter (v1)
+  # Exposes metrics from conf_cal_live_status.json
+  # Port: 9134
+  # Health Loop (P100)
+  # Reads signals.jsonl -> updates live_status.json -> triggers rollback
+  conf-cal-health-loop:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-conf-cal-health-loop
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - CONF_CAL_LIVE_INPUT_JSONL=/var/log/trade/signals.jsonl
+      - CONF_CAL_LIVE_STATUS_PATH=/shared/conf_cal/live_status.json
+      - CONF_CAL_LATEST_PATH=/app/calibration/confidence_calibration.json
+      - CONF_CAL_VERSIONS_DIR=/app/calibration/history
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - conf-cal-status:/shared/conf_cal
+      - ./calibration:/app/calibration
+      - /var/log/trade:/var/log/trade:ro
+    command: >
+      sh -c "sleep 60 && while true; do
+        echo 'Running Confidence Cal Live Health Loop...';
+        python3 -m ml_analysis.tools.confidence_cal_live_health_loop_v1;
+        echo 'Done. Sleeping 1 hour...';
+        sleep 3600;
+      done"
+    networks:
+      - scanner-network
+
+  conf-cal-live-exporter:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-conf-cal-live-exporter
+    restart: unless-stopped
+    environment:
+      - CONF_CAL_LIVE_REPORTS_DIR=/var/lib/trade/of_reports/out/conf_cal/live
+      - CONF_CAL_LIVE_EXPORTER_PORT=9134
+      - CONF_CAL_LIVE_STATUS_PATH=/shared/conf_cal/live_status.json
+      - PYTHONPATH=.:/app
+    working_dir: /app
+    ports:
+      - "9134:9134"
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+      - conf-cal-status:/shared/conf_cal
+    command: ["python3", "orderflow_services/conf_cal_live_status_exporter_v1.py"]
+    networks:
+      - scanner-network
+
+  conf-cal-rollback-watcher:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-conf-cal-rollback-watcher
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONPATH=.:/app
+      - CONF_CAL_LIVE_STATUS_PATH=/shared/conf_cal/live_status.json
+      - EVENTS_STREAM_KEY=events:conf_cal
+      - EVENTS_PUBSUB_CH=events:conf_cal
+      # Optional: Grafana URL/Token can be added here or via .env
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - conf-cal-status:/shared/conf_cal
+    command: ["python3", "-u", "services/orderflow/conf_cal_rollback_event_watcher_v1.py"]
+    networks:
+      - scanner-network
+
+#  of-nightly-meta-enforce-ramp-timer:
+#    build:
+#      context: .
+#      dockerfile: python-worker/Dockerfile.gpu
+#    container_name: scanner-of-nightly-meta-enforce-ramp-timer
+#    restart: unless-stopped
+#    environment:
+#      - REDIS_URL=redis://redis-worker-1:6379/0
+#      - PYTHONPATH=.:/app
+#      - TRADE_EVENTS_STREAM=events:trades
+#      - NOTIFY_TELEGRAM_STREAM=notify:telegram
+#      - CANARY_SYMBOLS=${CANARY_SYMBOLS:-BTCUSDT,ETHUSDT}
+#      - META_ENFORCE_SHARE_SCHEDULE=${META_ENFORCE_SHARE_SCHEDULE:-0.10,0.25,0.50,1.00}
+#      - META_RAMP_DID_WINDOW_HOURS=${META_RAMP_DID_WINDOW_HOURS:-72}
+#      - META_RAMP_EXPORT_HOURS=${META_RAMP_EXPORT_HOURS:-180}
+#      - META_ENFORCE_MIN_STREAK=${META_ENFORCE_MIN_STREAK:-3}
+#      - META_ENFORCE_RAMP_NOTIFY_ON_SKIP=${META_ENFORCE_RAMP_NOTIFY_ON_SKIP:-1}
+#      - META_ENFORCE_RAMP_MIN_HOURS_SINCE_LAST_EMERG=${META_ENFORCE_RAMP_MIN_HOURS_SINCE_LAST_EMERG:-24}
+#      - META_RAMP_LAST_APPLIED_MS_KEY=${META_RAMP_LAST_APPLIED_MS_KEY:-meta:ramp:last_applied_ms}
+#      - META_RAMP_LAST_SHARE_KEY=${META_RAMP_LAST_SHARE_KEY:-meta:ramp:last_share}
+#      - META_RAMP_LAST_BUNDLE_ID_KEY=${META_RAMP_LAST_BUNDLE_ID_KEY:-meta:ramp:last_bundle_id}
+#      - OUT_DIR=/var/lib/trade/of_reports/out
+#      - "CFG_HASH_PREFIX=config:orderflow:"
+#      - RECS_HMAC_SECRET=${RECS_HMAC_SECRET:-CHANGE_ME_LONG_RANDOM}
+#      - RECS_TTL_SEC=${RECS_TTL_SEC:-86400}
+#      - TRADES_MAX_SCAN=${TRADES_MAX_SCAN:-500000}
+#      - META_ENFORCE_SALT=${META_ENFORCE_SALT:-enf_v1}
+#      - REGRESS_PASS_STREAK_KEY=sre:regress:pass_streak
+#      - REGRESS_LAST_STATUS_KEY=sre:regress:last_status
+#      - REGRESS_LAST_TS_KEY=sre:regress:last_ts_ms
+#      - BASELINE_PROPOSE_MAX_AGE_HOURS=${BASELINE_PROPOSE_MAX_AGE_HOURS:-30}
+#      - EMERG_COOLDOWN_KEY=sre:of_gate:emergency:last_ms
+#      # Per-regime shares (recommended)
+#      - META_ENFORCE_PER_REGIME=${META_ENFORCE_PER_REGIME:-1}
+#      # Stratified DiD thresholds
+#      - META_RAMP_MIN_N_PER_CELL=${META_RAMP_MIN_N_PER_CELL:-120}
+#      - META_RAMP_MIN_CELLS=${META_RAMP_MIN_CELLS:-3}
+#      - META_RAMP_AFTER_TAIL_ENF_MAX=${META_RAMP_AFTER_TAIL_ENF_MAX:-0.18}
+#      - META_RAMP_DID_TAIL_P95_MAX=${META_RAMP_DID_TAIL_P95_MAX:-0.0}
+#      - META_RAMP_DID_MEAN_P05_MIN=${META_RAMP_DID_MEAN_P05_MIN:--0.03}
+#      # Freeze policy
+#      - META_FREEZE_TO_SHARE=${META_FREEZE_TO_SHARE:-0.00}
+#      - META_FREEZE_MAX_CELLS=${META_FREEZE_MAX_CELLS:-3}
+#      # Tick Quality Gate
+#      - TICK_GATE_PUBLISH_REDIS=1
+#      - TICK_GATE_REDIS_STREAM=ops:tick_quality_gate
+#      # Gate thresholds
+#      - TICK_GATE_WINDOW_S=60
+#      - TICK_GATE_PROCESS_P99_MS=25
+#      - TICK_GATE_E2E_P99_MS=5000
+#    working_dir: /app
+#    volumes:
+#      - ./python-worker:/app
+#      - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+#    command: >
+#      sh -c "sleep 60 && while true; do
+#        HOUR=$$(date +%-H);
+#        MIN=$$(date +%-M);
+#        if [ \"$$HOUR\" -eq 6 ] && [ \"$$MIN\" -ge 20 ] && [ \"$$MIN\" -lt 30 ]; then
+#          echo 'Running nightly meta ENFORCE ramp-or-freeze (stratified worst-case DiD)...';
+#          # P9b: schema=meta_feat_v4 shadow testing
+#          python3 -m tools.run_tick_quality_gated_command --metrics-url http://python-worker:8000/metrics --window-s 60 --fail-mode fail_closed -- python3 -m tools.nightly_meta_enforce_ramp_or_freeze_bundle --schema ${META_SCHEMA:-meta_feat_v3};
+#          echo 'Ramp/freeze proposal done. Sleeping 1 hour...';
+#          sleep 3600;
+#        else
+#          sleep 60;
+#        fi
+#      done"
+#    networks:
+#      - scanner-network
+
+#  of-nightly-meta-self-heal-timer:
+#    build:
+#      context: .
+#      dockerfile: python-worker/Dockerfile.gpu
+#    container_name: scanner-of-nightly-meta-self-heal-timer
+#    restart: unless-stopped
+#    environment:
+#      - REDIS_URL=redis://redis-worker-1:6379/0
+#      - PYTHONPATH=.:/app
+#      - TRADE_EVENTS_STREAM=events:trades
+#      - NOTIFY_TELEGRAM_STREAM=notify:telegram
+#      - OUT_DIR=/var/lib/trade/of_reports/out
+#      - "CFG_HASH_PREFIX=config:orderflow:"
+#      - RECS_HMAC_SECRET=${RECS_HMAC_SECRET:-CHANGE_ME_LONG_RANDOM}
+#      - RECS_TTL_SEC=${RECS_TTL_SEC:-86400}
+#      - TRADES_MAX_SCAN=${TRADES_MAX_SCAN:-500000}
+#      # Freeze floor and registries
+#      - META_FREEZE_FLOOR=${META_FREEZE_FLOOR:-0.05}
+#      - META_FREEZE_REGISTRY_KEY=${META_FREEZE_REGISTRY_KEY:-meta:freeze:cells}
+#      - META_UNFREEZE_REGISTRY_KEY=${META_UNFREEZE_REGISTRY_KEY:-meta:unfreeze:cells}
+#      # Staged unfreeze policy
+#      - META_UNFREEZE_MIN_DAYS=${META_UNFREEZE_MIN_DAYS:-7}
+#      - META_UNFREEZE_STAGE1_SHARE=${META_UNFREEZE_STAGE1_SHARE:-0.10}
+#      - META_UNFREEZE_MAX_CELLS=${META_UNFREEZE_MAX_CELLS:-5}
+#      # Stage1 evaluation window + delay
+#      - META_STAGE1_EVAL_HOURS=${META_STAGE1_EVAL_HOURS:-48}
+#      - META_STAGE1_EVAL_DELAY_HOURS=${META_STAGE1_EVAL_DELAY_HOURS:-24}
+#      # Health gates (cell-level)
+#      - META_CELL_MIN_ENF_N=${META_CELL_MIN_ENF_N:-50}
+#      - META_CELL_MIN_CTL_N=${META_CELL_MIN_CTL_N:-50}
+#      - META_CELL_TAIL_ENF_MAX=${META_CELL_TAIL_ENF_MAX:-0.18}
+#      - META_CELL_TAIL_IMPROVE_MIN=${META_CELL_TAIL_IMPROVE_MIN:-0.01}
+#      - META_CELL_MEAN_DELTA_MIN=${META_CELL_MEAN_DELTA_MIN:--0.02}
+#      - META_CELL_BOOT_ITERS=${META_CELL_BOOT_ITERS:-800}
+#      - META_CELL_BOOT_SEED=${META_CELL_BOOT_SEED:-42}
+#      # Per-regime shares ON (needed for cell freeze/unfreeze)
+#      - META_ENFORCE_PER_REGIME=${META_ENFORCE_PER_REGIME:-1}
+#      # Restore reference (for staged unfreeze final target)
+#      - META_RAMP_LAST_SHARE_KEY=${META_RAMP_LAST_SHARE_KEY:-meta:ramp:last_share}
+#      - META_RAMP_LAST_SHARE_TREND_KEY=${META_RAMP_LAST_SHARE_TREND_KEY:-meta:ramp:last_share_trend}
+#      - META_RAMP_LAST_SHARE_RANGE_KEY=${META_RAMP_LAST_SHARE_RANGE_KEY:-meta:ramp:last_share_range}
+#      # Safety auto-refreeze cooldown
+#      - META_REFREEZE_COOLDOWN_SEC=${META_REFREEZE_COOLDOWN_SEC:-21600}
+#      - META_REFREEZE_COOLDOWN_KEY=${META_REFREEZE_COOLDOWN_KEY:-meta:refreeze:last_ms}
+#      # Self-heal export window
+#      - META_SELF_HEAL_EXPORT_HOURS=${META_SELF_HEAL_EXPORT_HOURS:-170}
+#      - META_STAGE2_MAX_CELLS=${META_STAGE2_MAX_CELLS:-5}
+#    working_dir: /app
+#    volumes:
+#      - ./python-worker:/app
+#      - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+#    command: >
+#      sh -c "sleep 60 && while true; do
+#        HOUR=$$(date +%-H);
+#        MIN=$$(date +%-M);
+#        if [ \"$$HOUR\" -eq 7 ] && [ \"$$MIN\" -ge 10 ] && [ \"$$MIN\" -lt 20 ]; then
+#          echo 'Running nightly meta cells self-heal (staged unfreeze + auto-refreeze)...';
+#          python3 -m tools.nightly_meta_cells_self_heal;
+#          echo 'Self-heal done. Sleeping 1 hour...';
+#          sleep 3600;
+#        else
+#          sleep 60;
+#        fi
+#      done"
+#    networks:
+#      - scanner-network
+
+#  code-audit-timer:
+#    build:
+#      context: .
+#      dockerfile: python-worker/Dockerfile.gpu
+#    container_name: scanner-code-audit-timer
+#    restart: unless-stopped
+#    environment:
+#      - REDIS_URL=redis://redis-worker-1:6379/0
+#      - PYTHONPATH=.:/app
+#    working_dir: /app
+#    volumes:
+#      - ./python-worker:/app
+#      - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+#    command: >
+#      sh -c "sleep 60 && while true; do
+#        HOUR=$$(date +%-H);
+#        MIN=$$(date +%-M);
+#        if [ \"$$HOUR\" -eq 4 ] && [ \"$$MIN\" -ge 50 ]; then
+#          echo 'Running code integrity audit...';
+#          python3 -m tools.audit_code_integrity --root . --out /var/lib/trade/of_reports/out/code_audit.json --fail-on-dup 1;
+#          echo 'Audit done. Sleeping 1 hour...';
+#          sleep 3600;
+#        else
+#          sleep 60;
+#        fi
+#      done"
+#    networks:
+#      - scanner-network
+
+  #  of-nightly-meta-stage2-opt-timer:
+  #    build:
+  #      context: .
+  #      dockerfile: python-worker/Dockerfile.gpu
+  #    container_name: scanner-of-nightly-meta-stage2-opt-timer
+  #    restart: unless-stopped
+  #    environment:
+  #      - REDIS_URL=redis://redis-worker-1:6379/0
+  #      - PYTHONPATH=.:/app
+  #      - TRADE_EVENTS_STREAM=events:trades
+  #      - NOTIFY_TELEGRAM_STREAM=notify:telegram
+  #      - OUT_DIR=/var/lib/trade/of_reports/out
+  #      - "CFG_HASH_PREFIX=config:orderflow:"
+  #      - RECS_HMAC_SECRET=${RECS_HMAC_SECRET:-CHANGE_ME_LONG_RANDOM}
+  #      - RECS_TTL_SEC=${RECS_TTL_SEC:-86400}
+  #      - TRADES_MAX_SCAN=${TRADES_MAX_SCAN:-500000}
+  #      # Registries
+  #      - META_UNFREEZE_REGISTRY_KEY=${META_UNFREEZE_REGISTRY_KEY:-meta:unfreeze:cells}
+  #      # Stage1 evaluation window + delay
+  #      - META_STAGE1_EVAL_HOURS=${META_STAGE1_EVAL_HOURS:-48}
+  #      - META_STAGE1_EVAL_DELAY_HOURS=${META_STAGE1_EVAL_DELAY_HOURS:-24}
+  #      # Stage2 v4 optimization parameters (adaptive budgets + global budget)
+  #      - META_OPT_EXPORT_HOURS=${META_OPT_EXPORT_HOURS:-336}
+  #      - META_OPT_MAX_CELLS=${META_OPT_MAX_CELLS:-6}
+  #      # Separate grids for trend and range buckets
+  #      - META_OPT_SHARE_GRID_TREND=${META_OPT_SHARE_GRID_TREND:-0.10,0.25,0.35,0.50,0.75,1.00}
+  #      - META_OPT_SHARE_GRID_RANGE=${META_OPT_SHARE_GRID_RANGE:-0.10,0.15,0.25,0.35,0.50}
+  #      # Step regularization: maximum allowed step up/down
+  #      - META_OPT_MAX_UP_STEP=${META_OPT_MAX_UP_STEP:-0.25}
+  #      - META_OPT_MAX_DOWN_STEP=${META_OPT_MAX_DOWN_STEP:-0.00}
+  #      # Turnover proxy constraints: minimum exec_rate and maximum drop relative to current
+  #      - META_OPT_MIN_EXEC_RATE=${META_OPT_MIN_EXEC_RATE:-0.30}
+  #      - META_OPT_MAX_EXEC_RATE_DROP=${META_OPT_MAX_EXEC_RATE_DROP:-0.20}
+  #      # Risk caps + objective weights (multi-objective)
+  #      - META_OPT_TAIL_EXEC_MAX=${META_OPT_TAIL_EXEC_MAX:-0.18}
+  #      - META_OPT_LAM_TAIL=${META_OPT_LAM_TAIL:-0.50}
+  #      - META_OPT_LAM_P05=${META_OPT_LAM_P05:-0.10}
+  #      - META_OPT_LAM_TURN=${META_OPT_LAM_TURN:-0.30}
+  #      - META_OPT_LAM_STEP=${META_OPT_LAM_STEP:-0.05}
+  #      # Group caps (v4 safety layer)
+  #      - META_BUCKET_CAP_TREND=${META_BUCKET_CAP_TREND:-1.00}
+  #      - META_BUCKET_CAP_RANGE=${META_BUCKET_CAP_RANGE:-0.50}
+  #      # Optional coupling: if trend share < threshold -> range must be <= cap
+  #      - META_RANGE_CAP_IF_TREND_LT=${META_RANGE_CAP_IF_TREND_LT:-}
+  #      - META_RANGE_CAP_WHEN_TREND_LT=${META_RANGE_CAP_WHEN_TREND_LT:-}
+  #      # Top-K options per cell to enumerate
+  #      - META_OPT_TOPK_PER_CELL=${META_OPT_TOPK_PER_CELL:-8}
+  #      # Top-M combos per symbol to enumerate (for global budget selection)
+  #      - META_OPT_TOPM_PER_SYMBOL=${META_OPT_TOPM_PER_SYMBOL:-10}
+  #      # Metrics health window for adaptive budgets
+  #      - OF_GATE_METRICS_STREAM=${OF_GATE_METRICS_STREAM:-metrics:of_gate}
+  #      - META_BUDGET_HEALTH_WINDOW_HOURS=${META_BUDGET_HEALTH_WINDOW_HOURS:-24}
+  #      - META_BUDGET_METRICS_MAX_SCAN=${META_BUDGET_METRICS_MAX_SCAN:-400000}
+  #      - META_BUDGET_SYM_MIN_N=${META_BUDGET_SYM_MIN_N:-200}
+  #      # Base budgets (scaled by health factor)
+  #      - META_SYMBOL_EXEC_DROP_BUDGET_BASE=${META_SYMBOL_EXEC_DROP_BUDGET_BASE:-0.25}
+  #      - META_GLOBAL_EXEC_DROP_BUDGET_BASE=${META_GLOBAL_EXEC_DROP_BUDGET_BASE:-1.00}
+  #      # Health factor clamp
+  #      - META_BUDGET_FACTOR_FLOOR=${META_BUDGET_FACTOR_FLOOR:-0.35}
+  #      - META_BUDGET_FACTOR_CAP=${META_BUDGET_FACTOR_CAP:-1.00}
+  #      # Health targets/spans
+  #      - META_HEALTH_EXEC_TARGET=${META_HEALTH_EXEC_TARGET:-0.75}
+  #      - META_HEALTH_EXEC_SPAN=${META_HEALTH_EXEC_SPAN:-0.25}
+  #      - META_HEALTH_LAT_TARGET_US=${META_HEALTH_LAT_TARGET_US:-4000}
+  #      - META_HEALTH_LAT_SPAN_US=${META_HEALTH_LAT_SPAN_US:-6000}
+  #      - META_HEALTH_SOFT_TARGET=${META_HEALTH_SOFT_TARGET:-0.35}
+  #      - META_HEALTH_SOFT_SPAN=${META_HEALTH_SOFT_SPAN:-0.35}
+  #      - META_HEALTH_OK_TARGET=${META_HEALTH_OK_TARGET:-0.20}
+  #      - META_HEALTH_OK_SPAN=${META_HEALTH_OK_SPAN:-0.20}
+  #      # Weights for penalty
+  #      - META_HEALTH_W_EXEC=${META_HEALTH_W_EXEC:-0.35}
+  #      - META_HEALTH_W_LAT=${META_HEALTH_W_LAT:-0.25}
+  #      - META_HEALTH_W_SOFT=${META_HEALTH_W_SOFT:-0.25}
+  #      - META_HEALTH_W_OK=${META_HEALTH_W_OK:-0.15}
+  #    working_dir: /app
+  #    volumes:
+  #      - ./python-worker:/app
+  #      - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+  #    command: >
+  #      sh -c "sleep 60 && while true; do
+  #        HOUR=$$(date +%-H);
+  #        MIN=$$(date +%-M);
+  #        if [ \"$$HOUR\" -eq 7 ] && [ \"$$MIN\" -ge 25 ] && [ \"$$MIN\" -lt 35 ]; then
+  #          echo 'Running nightly meta Stage2 optimize share (v4 adaptive budgets + global budget)...';
+  #          python3 -m tools.nightly_meta_stage2_optimize_share_bundle_v4;
+  #          echo 'Stage2 optimize v4 done. Sleeping 1 hour...';
+  #          sleep 3600;
+  #        else
+  #          sleep 60;
+  #        fi
+  #      done"
+  #    networks:
+#      - scanner-network
+
+
+
+  scanner-feature-drift-exporter:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-feature-drift-exporter
+    restart: always
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - DYN_CFG_KEY=settings:dynamic_cfg
+      - DRIFT_EXPORTER_PORT=9136
+      - DRIFT_EXPORTER_POLL_SEC=15
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    ports:
+      - "9136:9136"
+    volumes:
+      - ./python-worker:/app
+    command: ["python3", "-m", "tools.feature_drift_exporter_v1"]
+    networks:
+      - scanner-network
+#     depends_on:
+#       - redis-worker-1
+
+  scanner-decision-coverage-exporter:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-decision-coverage-exporter
+    restart: always
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - DECISION_COVERAGE_OUT_HASH=metrics:decision_coverage:24h
+      - DECISION_COVERAGE_EXPORTER_PORT=9820
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    ports:
+      - "9820:9820"
+    volumes:
+      - ./python-worker:/app
+    command: ["python3", "-m", "tools.decision_coverage_exporter_v1"]
+    networks:
+      - scanner-network
+  ml-nightly-edge-stack-train-bundle:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-ml-nightly-edge-stack-train-bundle
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+      # Dataset build guardrail: lowered from default 2000 to match actual Redis volume
+      - EDGE_STACK_MIN_JOINED=300
+      # v9_of: pinned snapshot of infer_feature_cols() from 2026-03-03 run 20260303_175837
+      # Coverage: 128 numeric keys = 100% of actual signals:of:inputs indicators
+      # Created in core/ml_feature_schema_v9_of.py, registered in feature_registry.py
+      - ML_FEATURE_SCHEMA_VER=v9_of
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/trade:/var/lib/trade
+    command: >
+      sh -c "sleep 60 && while true; do
+        HOUR=$$(date +%-H);
+        MIN=$$(date +%-M);
+        if [ \"$$HOUR\" -eq 0 ] && [ \"$$MIN\" -ge 0 ] && [ \"$$MIN\" -lt 20 ]; then
+          echo 'Running Nightly Edge Stack v1 Train Bundle...';
+          python3 -m ml_analysis.tools.nightly_edge_stack_v1_train_bundle;
+          echo 'Done. Sleeping until next day...';
+          sleep 82800;
+        else
+          sleep 60;
+        fi
+      done"
+    networks:
+      - scanner-network
+
+  ml-nightly-feature-selection-bundle:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-ml-nightly-feature-selection-bundle
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONPATH=.:/app
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/trade:/var/lib/trade
+    command: >
+      sh -c "sleep 60 && while true; do
+        HOUR=$$(date +%-H);
+        MIN=$$(date +%-M);
+        if [ \"$$HOUR\" -eq 22 ] && [ \"$$MIN\" -ge 30 ] && [ \"$$MIN\" -lt 50 ]; then
+          echo 'Running Nightly Feature Selection Loop Bundle...';
+          python3 -m ml_analysis.tools.nightly_feature_selection_loop_bundle_v1;
+          echo 'Done. Sleeping until next day...';
+          sleep 82800;
+        else
+          sleep 60;
+        fi
+      done"
+    networks:
+      - scanner-network
+
+  # FGH Offline Edge Stack Dataset Builder Timer
+  # Runs daily at 01:30 UTC to build dataset from Redis streams / archives
+  fgh-dataset-builder-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-fgh-dataset-builder-timer
+    restart: always
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+      - ML_REPLAY_STREAM=signals:of:inputs
+      - TRADES_CLOSED_STREAM=trades:closed
+      - ML_FEATURE_SCHEMA_VER=v7_of
+      - SIGNALS_ARCHIVE_DIR=/var/lib/trade/archives/signals
+      - TRADES_CLOSED_ARCHIVE_DIR=/var/lib/trade/archives/trades
+      - ARCHIVE_LOOKBACK_DAYS=7
+      - FILE_FALLBACK=1
+      - FGH_BUILDER_OUT_JSONL=/var/lib/trade/training/latest_edge_stack_fgh.ndjson
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/trade:/var/lib/trade
+    command: >
+      sh -c "sleep 60 && while true; do
+        HOUR=$$(date +%-H);
+        MIN=$$(date +%-M);
+        if [ \"$$HOUR\" -eq 21 ] && [ \"$$MIN\" -ge 30 ] && [ \"$$MIN\" -lt 45 ]; then
+          echo '[fgh-builder] Running Offline Builder for Edge Stack (FGH)...';
+          python3 -m ml_analysis.tools.build_edge_stack_dataset_from_redis \
+            --out_jsonl \"$$FGH_BUILDER_OUT_JSONL\" \
+            --feature_schema_ver \"$$ML_FEATURE_SCHEMA_VER\";
+          echo '[fgh-builder] Done. Outputs: '\"$$FGH_BUILDER_OUT_JSONL\";
+          sleep 82800;
+        else
+          sleep 60;
+        fi
+      done"
+    networks:
+      - scanner-network
+
+  # Ablation E-block + Denylist Auto-Generator Timer
+  # Offline only: drop-group retrain for Hawkes/VPIN/limit-add features.
+  # Runs daily at 05:30 UTC after nightly edge-stack training is done.
+  # Outputs: ablation_overall.csv, ablation_by_regime.csv,
+  #          importance_e_features.csv, denylist_autogen.json/.txt
+  # To activate auto-denylist at runtime set ML_FEATURE_DENYLIST_PATH=$$ABLATION_E_OUT_DIR/denylist_autogen.json
+  ablation-e-denylist-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-ablation-e-denylist-timer
+    restart: always
+    environment:
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+      # Dataset produced by nightly edge-stack training (v7 schema)
+      - ABLATION_E_DATA_PATH=/var/lib/trade/training/edge_train_latest.parquet
+      - ABLATION_E_META_JSON=/var/lib/trade/training/edge_train_latest.parquet.meta.json
+      - ABLATION_E_OUT_DIR=/var/lib/trade/ablation/e_block
+      # Model & CV config (conservative defaults, offline safe)
+      - ABLATION_E_MODEL=gbdt          # gbdt | lr
+      - ABLATION_E_N_SPLITS=5
+      - ABLATION_E_PURGE_MS=60000      # 1-min embargo between train/test
+      - ABLATION_E_MIN_TRAIN_ROWS=10000
+      # Auto-denylist threshold: features with perm AUC-drop <= this go to denylist
+      - ABLATION_E_DENY_MIN_AUC_DROP=0.0005
+      - ABLATION_E_DENY_MAX_FEATURES=64
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - ./python-worker/ml_analysis:/app/ml_analysis
+      - /var/lib/trade/training:/var/lib/trade/training
+      - /var/lib/trade/ablation:/var/lib/trade/ablation
+    command: >
+      sh -c "sleep 90 && while true; do
+        HOUR=$$(date +%-H);
+        MIN=$$(date +%-M);
+        # Run daily at 05:30 UTC (after nightly edge-stack train at ~04:30)
+        if [ \"$$HOUR\" -eq 0 ] && [ \"$$MIN\" -ge 30 ] && [ \"$$MIN\" -lt 55 ]; then
+          if [ ! -f \"$$ABLATION_E_DATA_PATH\" ]; then
+            echo '[ablation-e] Dataset not found, skipping: '\"$$ABLATION_E_DATA_PATH\";
+            sleep 82800;
+            continue;
+          fi;
+          if [ ! -f \"$$ABLATION_E_META_JSON\" ]; then
+            echo '[ablation-e] Meta JSON not found, skipping: '\"$$ABLATION_E_META_JSON\";
+            sleep 82800;
+            continue;
+          fi;
+          echo '[ablation-e] Running E-block drop-group ablation + denylist gen...';
+          python3 -m ml_analysis.tools.ablation_groups_e_v1 \
+            --data_path \"$$ABLATION_E_DATA_PATH\" \
+            --meta_json \"$$ABLATION_E_META_JSON\" \
+            --out_dir \"$$ABLATION_E_OUT_DIR\" \
+            --model \"$$ABLATION_E_MODEL\" \
+            --n_splits \"$$ABLATION_E_N_SPLITS\" \
+            --purge_ms \"$$ABLATION_E_PURGE_MS\" \
+            --min_train_rows \"$$ABLATION_E_MIN_TRAIN_ROWS\" \
+            --deny_min_perm_auc_drop \"$$ABLATION_E_DENY_MIN_AUC_DROP\" \
+            --deny_max_features \"$$ABLATION_E_DENY_MAX_FEATURES\";
+          echo '[ablation-e] Done. Outputs: '\"$$ABLATION_E_OUT_DIR\";
+          echo '[ablation-e] Sleeping until next day...';
+          sleep 82800;
+        else
+          sleep 60;
+        fi
+      done"
+    networks:
+      - scanner-network
+
+  liquidation-map-service:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-liquidation-map-service
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - LIQ_EVT_STREAM=stream:liq_evt
+      - LIQMAP_GROUP=liqmap_group
+      - LIQMAP_WINDOWS=5m,1h,4h,24h
+      - LIQMAP_BUCKET_MODE=log_bps
+      - LIQMAP_BUCKET_BPS=50
+      - LIQMAP_SNAPSHOT_KEY_PREFIX=liqmap:snapshot
+      - LIQMAP_SNAPSHOT_TTL_SEC=30
+      - LIQMAP_METRICS_PORT=9122
+      - LIQMAP_PUBLISH_STREAM_ENABLED=1
+      - LIQMAP_SNAPSHOT_STREAM_PREFIX=stream:liqmap_snapshot
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    ports:
+      - "9122:9122"
+    volumes:
+      - ./python-worker:/app
+    command: ["python3", "-m", "services.liquidation_map_service"]
+    networks:
+      - scanner-network
+
+  train-meta-model-lr-v1-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-train-meta-model-lr-v1-timer
+    restart: always
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - META_MODEL_OUT_DIR=/var/lib/trade/models
+      - META_TRAIN_NDJSON=/var/lib/trade/training/latest_confirm_train_v8.ndjson
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/trade:/var/lib/trade
+    command: >
+      sh -c "sleep 120 && while true; do
+        HOUR=$$(date +%-H);
+        MIN=$$(date +%-M);
+        if [ \"$$HOUR\" -eq 23 ] && [ \"$$MIN\" -ge 30 ] && [ \"$$MIN\" -lt 50 ]; then
+          echo 'Running Nightly Meta Model LR v1 Training...';
+          python3 -m ml_analysis.tools.train_meta_model_lr_v1 --parquet \"$$META_TRAIN_NDJSON\" --schema meta_feat_v8 --y-col y_util_pos_60000 --out \"$$META_MODEL_OUT_DIR/meta_model_lr_v8.json\";
+          echo 'Training done. Sleeping until next day...';
+          sleep 82800;
+        else
+          sleep 60;
+        fi
+      done"
+    networks:
+      - scanner-network
+
+  train-meta-model-lr-v9-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-train-meta-model-lr-v9-timer
+    restart: always
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - META_MODEL_OUT_DIR=/var/lib/trade/models
+      - META_TRAIN_NDJSON=/var/lib/trade/training/latest_confirm_train_v8.ndjson
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/trade:/var/lib/trade
+    command: >
+      sh -c "sleep 150 && while true; do
+        HOUR=$$(date +%-H);
+        MIN=$$(date +%-M);
+        if [ \"$$HOUR\" -eq 23 ] && [ \"$$MIN\" -ge 45 ] && [ \"$$MIN\" -lt 59 ]; then
+          echo 'Running Nightly Meta Model LR v9 Training...';
+          python3 -m ml_analysis.tools.train_meta_model_lr_v1 --parquet \"$$META_TRAIN_NDJSON\" --schema meta_feat_v9 --y-col y_util_pos_60000 --out \"$$META_MODEL_OUT_DIR/meta_model_lr_v9.json\";
+          echo 'Training v9 done. Sleeping until next day...';
+          sleep 82800;
+        else
+          sleep 60;
+        fi
+      done"
+    networks:
+      - scanner-network
+
+  # LiqMap Snapshot Service (patch A1)
+  # Continuously consumes stream:liq_evt and writes liqmap:snapshot:{SYMBOL}:{WINDOW}
+  # keys to Redis, used by _inject_liqmap_features in tick_processor.
+  # Restart on exit (services.liquidation_map_service has its own run_forever loop;
+  # the outer sh -c restarts it if the process crashes).
+  liqmap-snapshot-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-liqmap-snapshot-timer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      # Key prefix where snapshots are written (must match tick_processor LIQMAP_SNAPSHOT_KEY_PREFIX)
+      - LIQMAP_SNAPSHOT_KEY_PREFIX=liqmap:snapshot
+      # Windows to build snapshots for
+      - LIQMAP_WINDOWS=5m,1h
+      # Liquidation event stream (written by Go worker)
+      - LIQ_EVT_STREAM=stream:liq_evt
+      - LIQMAP_GROUP=liqmap_group
+      - LIQMAP_CONSUMER=liqmap_snap_1
+      # Snapshot TTL in seconds (must be > max refresh interval)
+      - LIQMAP_SNAPSHOT_TTL_SEC=300
+      # Publish cycle interval in seconds
+      - LIQMAP_PUBLISH_INTERVAL_S=5
+      # Optional: publish snapshots to a stream for WS push (disabled by default)
+      - LIQMAP_PUBLISH_STREAM_ENABLED=0
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+    command: >
+      sh -c "sleep 10 && while true; do
+        echo '[liqmap-snapshot-timer] Starting liquidation_map_service...';
+        python3 -u services/liquidation_map_service.py;
+        echo '[liqmap-snapshot-timer] Service exited, restarting in 5s...';
+        sleep 5;
+      done"
+    networks:
+      - scanner-network
+
+  preflight-baseline-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-preflight-baseline-timer
+    restart: unless-stopped
+    environment:
+      - PREFLIGHT_METRICS_URL=http://crypto-orderflow-service:8001/metrics
+      - PREFLIGHT_PROM_URL=http://trade-prometheus:9090
+      - PREFLIGHT_COMPOSE=/app/docker-compose-crypto-orderflow.yml
+      - PREFLIGHT_OUT=/var/lib/trade/of_reports/preflight_baseline.json
+      - PYTHONPATH=.:/app
+    working_dir: /app
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'sh' || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    volumes:
+      - .:/app
+      - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+    command: >
+      sh -c "sleep 30 && while true; do
+        echo '[preflight-baseline-timer] Running preflight baseline...';
+        python3 -u tools/preflight_baseline_v1.py;
+        echo '[preflight-baseline-timer] Done. Sleeping 24h...';
+        sleep 86400;
+      done"
+    networks:
+      - scanner-network
+
+
+  # Added for patch_H2_liqmap_kpi_storage.git.diff
+  trade-kpi-liqmap-archiver-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-trade-kpi-liqmap-archiver-timer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - TRADES_DB_DSN=postgresql://trading:trading_password@scanner-postgres:5432/scanner_analytics
+      - POST_SL_LIQMAP_KPI_ARCHIVE_ENABLED=1
+      - POST_SL_LIQMAP_KPI_AUTO_MIGRATE=1
+      - ENTRY_AUDIT_ARCHIVE_ENABLED=0
+      - POSITION_EVENTS_ARCHIVE_ENABLED=0
+      - CONFIDENCE_SCORES_ARCHIVE_ENABLED=0
+      - OF_GATE_METRICS_ARCHIVE_ENABLED=0
+      - OF_GATE_QUARANTINE_ARCHIVE_ENABLED=0
+    command: ["python", "-u", "services/archivers/stream_archiver.py"]
+    volumes:
+      - ./python-worker/services:/app/services
+      - ./python-worker/core:/app/core
+      - ./python-worker/utils:/app/utils
+    networks:
+      - scanner-network
+  # B5 Golden Replay parity check timer
+  ml-golden-replay-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-ml-golden-replay-timer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - ./ml_analysis:/app/ml_analysis
+      - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+      - /var/lib/trade/training:/var/lib/trade/training
+    command: >
+      sh -c "sleep 60 && while true; do
+        HOUR=$$(date +%-H);
+        MIN=$$(date +%-M);
+        # Run daily at 05:05 UTC
+        if [ \"$$HOUR\" -eq 23 ] && [ \"$$MIN\" -ge 15 ] && [ \"$$MIN\" -lt 30 ]; then
+          echo 'Running ML Golden Replay Parity Check...';
+          python3 -m ml_analysis.tools.golden_replay_parity_v1 --input /var/lib/trade/training/latest_confirm_train_v7.ndjson --outdir /var/lib/trade/of_reports/out_gr --limit 5000 --compare-meta-features --evidence lite;
+          echo 'Golden Replay Done. Sleeping until next day...';
+          sleep 82800;
+        else
+          sleep 60;
+        fi
+      done"
+    networks:
+      - scanner-network
+
+  scanner-golden-replay-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-golden-replay-timer
+    restart: unless-stopped
+    environment:
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+      - OFC_CAPTURE_DIR=/var/lib/scanner/ofc_capture
+      - GOLDEN_REPLAY_OUTDIR=/var/lib/scanner/golden_replay_reports
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/scanner/ofc_capture:/var/lib/scanner/ofc_capture
+      - /var/lib/scanner/golden_replay_reports:/var/lib/scanner/golden_replay_reports
+      - ./ml_analysis:/app/ml_analysis
+    command: >
+      sh -c "sleep 60 && while true; do
+        HOUR=$$(date +%-H);
+        MIN=$$(date +%-M);
+        # Run daily at 22:30 UTC (after NYSE close)
+        if [ \"$$HOUR\" -eq 22 ] && [ \"$$MIN\" -ge 30 ] && [ \"$$MIN\" -lt 45 ]; then
+          echo 'Running scanner golden replay parity nightly...';
+          python3 -m ml_analysis.tools.nightly_golden_replay_job_v1 --fail-on-mismatch;
+          echo 'Done. Sleeping until next day...';
+          sleep 82800;
+        else
+          sleep 60;
+        fi
+      done"
+    networks:
+      - scanner-network
+
+  scanner-gr-capture-exporter:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-gr-capture-exporter
+    restart: always
+    environment:
+      - OFC_CAPTURE_DIR=/var/lib/scanner/ofc_capture
+      - GOLDEN_REPLAY_OUTDIR=/var/lib/scanner/golden_replay
+      - GR_CAPTURE_EXPORTER_PORT=9206
+      - GR_CAPTURE_EXPORTER_SCRAPE_SEC=5
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    ports:
+      - "9206:9206"
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/scanner:/var/lib/scanner
+    command: ["python3", "-u", "orderflow_services/golden_replay_capture_exporter_p112.py"]
+    networks:
+      - scanner-network
+
+
+  # Soak DQ Level Share Timer (Step 5)
+  soak-dq-level-share-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-soak-dq-level-share-timer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - SOAK_CAPTURE_NDJSON=/var/lib/trade/training/latest_confirm_train_v7.ndjson
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - ./ml_analysis:/app/ml_analysis
+      - /var/lib/trade:/var/lib/trade
+    command: >
+      sh -c "sleep 120 && while true; do
+        # Run 24h soak stats
+        echo 'Running Soak DQ Level Share Analysis...';
+        python3 ml_analysis/tools/soak_dq_level_share_v1.py \"\$$SOAK_CAPTURE_NDJSON\" --max-points 20000;
+        sleep 86400;
+      done"
+    networks:
+      - scanner-network
+
+
+  # Binance USDT-M Futures Hourly Account Reporter (P0)
+  # Fetches real account state from Binance and sends a Telegram report 1x/hour.
+  # Reports: wallet balance, margin, available, uPnL, initial/maint margin,
+  #          open positions (all), top-N positions by notional, open orders count.
+  # Optional: Redis snapshot (account:snapshot:binance_usdtm), Prometheus metrics.
+  # Required env: BINANCE_API_KEY, BINANCE_API_SECRET
+  # Optional env: BINANCE_FUTURES_BASE_URL (default fapi.binance.com, testnet: testnet.binancefuture.com)
+  #               REPORT_INTERVAL_SEC=3600, REPORT_ALIGN_TO_HOUR=1, REPORT_TOPN_POSITIONS=5
+  #               ACCOUNT_SNAPSHOT_KEY, ACCOUNT_SNAPSHOT_TTL_SEC, ACCOUNT_REPORT_METRICS_ENABLE
+  binance-account-reporter-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-binance-account-reporter-timer
+    restart: unless-stopped
+    environment:
+      # --- Required: Binance API credentials (read-only keys sufficient for P0) ---
+      - BINANCE_API_KEY=${BINANCE_API_KEY:-}
+      - BINANCE_API_SECRET=${BINANCE_API_SECRET:-}
+      # --- Binance endpoint (comment out to use mainnet default) ---
+      - BINANCE_FUTURES_BASE_URL=${BINANCE_FUTURES_BASE_URL:-https://fapi.binance.com}
+      # --- Telegram (preferred names; legacy BOT_TOKEN/CHAT_ID also supported) ---
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      # --- Redis snapshot (optional) ---
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - ACCOUNT_SNAPSHOT_KEY=account:snapshot:binance_usdtm
+      - ACCOUNT_SNAPSHOT_TTL_SEC=7200
+      # --- Reporter schedule ---
+      - REPORT_INTERVAL_SEC=3600
+      - REPORT_ALIGN_TO_HOUR=1   # align to UTC hour boundary
+      - REPORT_TOPN_POSITIONS=5
+      - REPORT_INCLUDE_OPEN_ORDERS=1
+      # --- Prometheus metrics (disabled by default to avoid port conflicts) ---
+      - ACCOUNT_REPORT_METRICS_ENABLE=0
+      - ACCOUNT_REPORT_METRICS_PORT=9133
+      - ACCOUNT_REPORT_METRICS_ADDR=0.0.0.0
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+    command: ["python3", "-u", "-m", "services.binance_account_reporter"]
+    networks:
+      - scanner-network
+
+  # NOTE: binance-executor-service is defined in docker-compose-binance.yml
+  # (included via docker-compose.yml). Removed here to avoid duplicate container_name conflict.
+
+  # Nightly engine regression: replay baseline inputs through current engine and diff vs baseline output.
+  # Runs at 04:30 UTC daily (after training timers complete). Auto-disables ENFORCE on mismatch.
+  nightly-regress-engine-timer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-nightly-regress-engine-timer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONPATH=.:/app
+      - NOTIFY_TELEGRAM_STREAM=notify:telegram
+      - CANARY_SYMBOLS=BTCUSDT,ETHUSDT
+      - BASELINE_DIR=/var/lib/trade/of_reports/baselines
+      - BASELINE_INPUTS=/var/lib/trade/of_reports/baselines/inputs_canary.ndjson
+      - BASELINE_OUTPUT=/var/lib/trade/of_reports/baselines/baseline.ndjson
+      - OUT_DIR=/var/lib/trade/of_reports/out
+      # 0 = all mismatches fail, set higher for tolerance
+      - REGRESS_MAX_MISMATCHES=0
+      # 1 = auto-disable ENFORCE (set meta_model_mode=SHADOW) on fail
+      - REGRESS_FAIL_DISABLE_ENFORCE=1
+      - REGRESS_TARGET_SYMBOLS=BTCUSDT,ETHUSDT
+      - REGRESS_PASS_STREAK_KEY=sre:regress:pass_streak
+      - REGRESS_LAST_STATUS_KEY=sre:regress:last_status
+      - REGRESS_LAST_TS_KEY=sre:regress:last_ts_ms
+      - RECS_HMAC_SECRET=${RECS_HMAC_SECRET:-CHANGE_ME_LONG_RANDOM}
+      - RECS_TTL_SEC=86400
+      - 'CFG_HASH_PREFIX=config:orderflow:'
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/trade/of_reports:/var/lib/trade/of_reports
+    command: >
+      sh -c "sleep 90 && while true; do
+        HOUR=$$(date +%-H);
+        MIN=$$(date +%-M);
+        if [ \"$$HOUR\" = \"04\" ] && [ \"$$MIN\" -ge \"30\" ] && [ \"$$MIN\" -lt \"50\" ]; then
+          echo 'Running nightly engine regress (safe)...';
+          python3 -m tools.nightly_regress_engine_replay_safe || true;
+          echo 'Regress done. Sleeping 1 hour...';
+          sleep 3600;
+        else
+          sleep 60;
+        fi
+      done"
+    networks:
+      - scanner-network
+
+volumes:
+  conf-cal-status:
+
+networks:
+  scanner-network:
+    external: true

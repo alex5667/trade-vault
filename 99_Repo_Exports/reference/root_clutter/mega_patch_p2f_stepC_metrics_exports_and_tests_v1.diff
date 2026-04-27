@@ -1,0 +1,394 @@
+diff --git a/services/orderflow/metrics.py b/services/orderflow/metrics.py
+index 1886538..723d43f 100644
+--- a/services/orderflow/metrics.py
++++ b/services/orderflow/metrics.py
+@@ -118,13 +118,6 @@ decision_record_sampled_out_total = _get_or_create_prom_counter(
+ )
+ 
+ 
+-decision_record_sampled_out_total = _get_or_create_prom_counter(
+-    "decision_record_sampled_out_total",
+-    "Total decision records skipped due to sampling",
+-    ["symbol", "stage"]
+-)
+-
+-
+ decision_record_error_total = _get_or_create_prom_counter(
+     "decision_record_error_total",
+     "Total decision record write errors",
+@@ -531,6 +524,76 @@ burst_flush_total = _get_or_create_prom_counter('burst_flush_total', 'Total burs
+ signals_emitted_total = _get_or_create_prom_counter('signals_emitted_total', 'Total signals actually emitted', ['symbol'])
+ burst_window_ms_gauge = _get_or_create_prom_gauge('burst_window_ms', 'Current burst window (ms)', ['symbol'])
+ tick_gap_p50_ms_gauge = _get_or_create_prom_gauge('tick_gap_p50_ms', 'Tick gap p50 (ms)', ['symbol'])
++# ---------------------------------------------------------------------------
++# P2/F — Strict Data Quality (DQ) metrics
++#
++# These metrics are intentionally low-cardinality (per-symbol only) so they can
++# be safely scraped at high frequency without exploding TS count.
++#
++# Semantics:
++#   - tick_gap_* come from TickGapTracker snapshotting (p50/p95) and sample count (n).
++#   - *_missing_seq_ema are [0..1] EMAs of continuity violations:
++#       * tick_missing_seq_ema: based on trade_id continuity (aggTrade "a")
++#       * book_missing_seq_ema: based on diff-depth continuity (U/u/pu → first_id/final_id/prev_final)
++#   - dq_level: 0 ok, 1 soft-penalty, 2 hard-veto-capable (policy v2 in core/dq_gate_v1.py)
++#   - dq_veto_total: hard-veto events emitted by the gate (bucket = gap_p95|tick_seq|book_seq|data_health|other)
++# ---------------------------------------------------------------------------
++
++tick_gap_p95_ms_gauge = _get_or_create_prom_gauge(
++    "tick_gap_p95_ms",
++    "Tick gap p95 (ms) snapshot over recent window",
++    ["symbol"],
++)
++
++tick_gap_n_gauge = _get_or_create_prom_gauge(
++    "tick_gap_n",
++    "Sample count used for tick gap percentile snapshot",
++    ["symbol"],
++)
++
++tick_missing_seq_ema_gauge = _get_or_create_prom_gauge(
++    "tick_missing_seq_ema",
++    "EMA of tick trade_id continuity violations (0..1; higher=worse)",
++    ["symbol"],
++)
++
++book_missing_seq_ema_gauge = _get_or_create_prom_gauge(
++    "book_missing_seq_ema",
++    "EMA of book diff-depth continuity violations (0..1; higher=worse)",
++    ["symbol"],
++)
++
++# Trade stream continuity diagnostics (trade_id based)
++tick_id_gap_events_total = _get_or_create_prom_counter(
++    "tick_id_gap_events_total",
++    "Total tick trade_id gaps detected (tid > last_tid + 1)",
++    ["symbol"],
++)
++
++tick_id_dup_events_total = _get_or_create_prom_counter(
++    "tick_id_dup_events_total",
++    "Total tick trade_id duplicates detected (tid == last_tid)",
++    ["symbol"],
++)
++
++tick_id_reorder_events_total = _get_or_create_prom_counter(
++    "tick_id_reorder_events_total",
++    "Total tick trade_id reorders detected (tid < last_tid)",
++    ["symbol"],
++)
++
++# DQ gate decision surface (policy v2)
++dq_level_gauge = _get_or_create_prom_gauge(
++    "dq_level",
++    "Data Quality gate level: 0 ok, 1 soft-penalty, 2 hard-veto-capable",
++    ["symbol"],
++)
++
++dq_veto_total = _get_or_create_prom_counter(
++    "dq_veto_total",
++    "Total DQ hard-veto events (policy v2)",
++    ["symbol", "bucket"],
++)
+ 
+ # --- Drain Mode Metrics ---
+ drain_forced_cancel_total = _get_or_create_prom_counter(
+@@ -758,15 +821,20 @@ veto_low_conf_total = _get_or_create_prom_counter(
+ )
+ 
+ # Delta-notional gate pass-rate telemetry by session
+-dn_gate_events_total = Counter(
++# NOTE: We keep legacy metric names for backwards compatibility, but must create
++# them via _get_or_create_prom_* helpers because SoT and mirror trees can be
++# imported in the same Python process (CI/replay), and Prometheus registry must
++# not see duplicate collectors.
++
++dn_gate_events_total_legacy = _get_or_create_prom_counter(
+     "dn_gate_events_total",
+-    "Delta-notional tier gate events (pass/veto) segmented by session",
++    "Delta-notional tier gate events (pass/veto) segmented by session (legacy name)",
+     ["symbol", "tier", "session", "result"],
+ )
+ 
+-dn_how_scale_gauge = Gauge(
++dn_how_scale_gauge_legacy = _get_or_create_prom_gauge(
+     "dn_how_scale",
+-    "Hour-of-week liquidity scale factor (telemetry-only)",
++    "Hour-of-week liquidity scale factor (telemetry-only; legacy name)",
+     ["symbol", "regime"],
+ )
+ 
+@@ -1787,38 +1855,38 @@ trade_dw_obi_stable = _get_or_create_prom_gauge(
+ # World-practice: adverse selection (realized drift) v1
+ # ----------------------------
+ 
+-adverse_rd_eval_total = Counter(
++adverse_rd_eval_total = _get_or_create_prom_counter(
+     "adverse_rd_eval_total",
+     "Number of realized-drift horizon evaluations processed (world-practice adverse selection tracker).",
+     ["sym", "bucket"],
+ )
+ 
+-trade_adverse_rd_mean_bps = Gauge(
++trade_adverse_rd_mean_bps = _get_or_create_prom_gauge(
+     "trade_adverse_rd_mean_bps",
+     "EWMA mean realized drift in bps (positive=favorable, negative=adverse) over horizon.",
+     ["sym", "bucket"],
+ )
+-trade_adverse_rd_sigma_bps = Gauge(
++trade_adverse_rd_sigma_bps = _get_or_create_prom_gauge(
+     "trade_adverse_rd_sigma_bps",
+     "EWMA sigma of realized drift in bps over horizon.",
+     ["sym", "bucket"],
+ )
+-trade_adverse_rd_z = Gauge(
++trade_adverse_rd_z = _get_or_create_prom_gauge(
+     "trade_adverse_rd_z",
+     "Realized drift z-score (mean/sigma) over horizon.",
+     ["sym", "bucket"],
+ )
+-trade_adverse_rd_bad_share = Gauge(
++trade_adverse_rd_bad_share = _get_or_create_prom_gauge(
+     "trade_adverse_rd_bad_share",
+     "EWMA share of adverse outcomes (realized drift < 0) over horizon.",
+     ["sym", "bucket"],
+ )
+-trade_adverse_rd_n = Gauge(
++trade_adverse_rd_n = _get_or_create_prom_gauge(
+     "trade_adverse_rd_n",
+     "Number of realized drift samples processed (not EWMA).",
+     ["sym", "bucket"],
+ )
+-trade_adverse_rd_veto = Gauge(
++trade_adverse_rd_veto = _get_or_create_prom_gauge(
+     "trade_adverse_rd_veto",
+     "Adverse selection veto bit computed from realized drift stats (0/1).",
+     ["sym", "bucket"],
+diff --git a/tick_flow_full/services/orderflow/metrics.py b/tick_flow_full/services/orderflow/metrics.py
+index dccc0db..1f7d5f1 100644
+--- a/tick_flow_full/services/orderflow/metrics.py
++++ b/tick_flow_full/services/orderflow/metrics.py
+@@ -106,13 +106,6 @@ decision_record_sampled_out_total = _get_or_create_prom_counter(
+ )
+ 
+ 
+-decision_record_sampled_out_total = _get_or_create_prom_counter(
+-    "decision_record_sampled_out_total",
+-    "Total decision records skipped due to sampling",
+-    ["symbol", "stage"]
+-)
+-
+-
+ decision_record_error_total = _get_or_create_prom_counter(
+     "decision_record_error_total",
+     "Total decision record write errors",
+@@ -494,6 +487,76 @@ burst_flush_total = _get_or_create_prom_counter('burst_flush_total', 'Total burs
+ signals_emitted_total = _get_or_create_prom_counter('signals_emitted_total', 'Total signals actually emitted', ['symbol'])
+ burst_window_ms_gauge = _get_or_create_prom_gauge('burst_window_ms', 'Current burst window (ms)', ['symbol'])
+ tick_gap_p50_ms_gauge = _get_or_create_prom_gauge('tick_gap_p50_ms', 'Tick gap p50 (ms)', ['symbol'])
++# ---------------------------------------------------------------------------
++# P2/F — Strict Data Quality (DQ) metrics
++#
++# These metrics are intentionally low-cardinality (per-symbol only) so they can
++# be safely scraped at high frequency without exploding TS count.
++#
++# Semantics:
++#   - tick_gap_* come from TickGapTracker snapshotting (p50/p95) and sample count (n).
++#   - *_missing_seq_ema are [0..1] EMAs of continuity violations:
++#       * tick_missing_seq_ema: based on trade_id continuity (aggTrade "a")
++#       * book_missing_seq_ema: based on diff-depth continuity (U/u/pu → first_id/final_id/prev_final)
++#   - dq_level: 0 ok, 1 soft-penalty, 2 hard-veto-capable (policy v2 in core/dq_gate_v1.py)
++#   - dq_veto_total: hard-veto events emitted by the gate (bucket = gap_p95|tick_seq|book_seq|data_health|other)
++# ---------------------------------------------------------------------------
++
++tick_gap_p95_ms_gauge = _get_or_create_prom_gauge(
++    "tick_gap_p95_ms",
++    "Tick gap p95 (ms) snapshot over recent window",
++    ["symbol"],
++)
++
++tick_gap_n_gauge = _get_or_create_prom_gauge(
++    "tick_gap_n",
++    "Sample count used for tick gap percentile snapshot",
++    ["symbol"],
++)
++
++tick_missing_seq_ema_gauge = _get_or_create_prom_gauge(
++    "tick_missing_seq_ema",
++    "EMA of tick trade_id continuity violations (0..1; higher=worse)",
++    ["symbol"],
++)
++
++book_missing_seq_ema_gauge = _get_or_create_prom_gauge(
++    "book_missing_seq_ema",
++    "EMA of book diff-depth continuity violations (0..1; higher=worse)",
++    ["symbol"],
++)
++
++# Trade stream continuity diagnostics (trade_id based)
++tick_id_gap_events_total = _get_or_create_prom_counter(
++    "tick_id_gap_events_total",
++    "Total tick trade_id gaps detected (tid > last_tid + 1)",
++    ["symbol"],
++)
++
++tick_id_dup_events_total = _get_or_create_prom_counter(
++    "tick_id_dup_events_total",
++    "Total tick trade_id duplicates detected (tid == last_tid)",
++    ["symbol"],
++)
++
++tick_id_reorder_events_total = _get_or_create_prom_counter(
++    "tick_id_reorder_events_total",
++    "Total tick trade_id reorders detected (tid < last_tid)",
++    ["symbol"],
++)
++
++# DQ gate decision surface (policy v2)
++dq_level_gauge = _get_or_create_prom_gauge(
++    "dq_level",
++    "Data Quality gate level: 0 ok, 1 soft-penalty, 2 hard-veto-capable",
++    ["symbol"],
++)
++
++dq_veto_total = _get_or_create_prom_counter(
++    "dq_veto_total",
++    "Total DQ hard-veto events (policy v2)",
++    ["symbol", "bucket"],
++)
+ 
+ # --- Drain Mode Metrics ---
+ drain_forced_cancel_total = _get_or_create_prom_counter(
+@@ -721,15 +784,20 @@ veto_low_conf_total = _get_or_create_prom_counter(
+ )
+ 
+ # Delta-notional gate pass-rate telemetry by session
+-dn_gate_events_total = Counter(
++# NOTE: We keep legacy metric names for backwards compatibility, but must create
++# them via _get_or_create_prom_* helpers because SoT and mirror trees can be
++# imported in the same Python process (CI/replay), and Prometheus registry must
++# not see duplicate collectors.
++
++dn_gate_events_total_legacy = _get_or_create_prom_counter(
+     "dn_gate_events_total",
+-    "Delta-notional tier gate events (pass/veto) segmented by session",
++    "Delta-notional tier gate events (pass/veto) segmented by session (legacy name)",
+     ["symbol", "tier", "session", "result"],
+ )
+ 
+-dn_how_scale_gauge = Gauge(
++dn_how_scale_gauge_legacy = _get_or_create_prom_gauge(
+     "dn_how_scale",
+-    "Hour-of-week liquidity scale factor (telemetry-only)",
++    "Hour-of-week liquidity scale factor (telemetry-only; legacy name)",
+     ["symbol", "regime"],
+ )
+ 
+@@ -1619,38 +1687,38 @@ trade_dw_obi_stable = _get_or_create_prom_gauge(
+ # World-practice: adverse selection (realized drift) v1
+ # ----------------------------
+ 
+-adverse_rd_eval_total = Counter(
++adverse_rd_eval_total = _get_or_create_prom_counter(
+     "adverse_rd_eval_total",
+     "Number of realized-drift horizon evaluations processed (world-practice adverse selection tracker).",
+     ["sym", "bucket"],
+ )
+ 
+-trade_adverse_rd_mean_bps = Gauge(
++trade_adverse_rd_mean_bps = _get_or_create_prom_gauge(
+     "trade_adverse_rd_mean_bps",
+     "EWMA mean realized drift in bps (positive=favorable, negative=adverse) over horizon.",
+     ["sym", "bucket"],
+ )
+-trade_adverse_rd_sigma_bps = Gauge(
++trade_adverse_rd_sigma_bps = _get_or_create_prom_gauge(
+     "trade_adverse_rd_sigma_bps",
+     "EWMA sigma of realized drift in bps over horizon.",
+     ["sym", "bucket"],
+ )
+-trade_adverse_rd_z = Gauge(
++trade_adverse_rd_z = _get_or_create_prom_gauge(
+     "trade_adverse_rd_z",
+     "Realized drift z-score (mean/sigma) over horizon.",
+     ["sym", "bucket"],
+ )
+-trade_adverse_rd_bad_share = Gauge(
++trade_adverse_rd_bad_share = _get_or_create_prom_gauge(
+     "trade_adverse_rd_bad_share",
+     "EWMA share of adverse outcomes (realized drift < 0) over horizon.",
+     ["sym", "bucket"],
+ )
+-trade_adverse_rd_n = Gauge(
++trade_adverse_rd_n = _get_or_create_prom_gauge(
+     "trade_adverse_rd_n",
+     "Number of realized drift samples processed (not EWMA).",
+     ["sym", "bucket"],
+ )
+-trade_adverse_rd_veto = Gauge(
++trade_adverse_rd_veto = _get_or_create_prom_gauge(
+     "trade_adverse_rd_veto",
+     "Adverse selection veto bit computed from realized drift stats (0/1).",
+     ["sym", "bucket"],
+diff --git a/tick_flow_full/services/orderflow/tests/test_dq_metrics_exports_v1.py b/tick_flow_full/services/orderflow/tests/test_dq_metrics_exports_v1.py
+new file mode 100644
+index 0000000..c9f1f4e
+--- /dev/null
++++ b/tick_flow_full/services/orderflow/tests/test_dq_metrics_exports_v1.py
+@@ -0,0 +1,56 @@
++from __future__ import annotations
++
++import importlib.util
++from pathlib import Path
++
++
++def _load_module_from_path(mod_name: str, path: Path):
++    spec = importlib.util.spec_from_file_location(mod_name, str(path))
++    assert spec is not None
++    assert spec.loader is not None
++    m = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(m)  # type: ignore[attr-defined]
++    return m
++
++
++def test_metrics_modules_import_and_expose_dq_symbols() -> None:
++    """Step C contract:
++
++    - Mirror metrics module is importable as a normal python package (services.*).
++    - SoT metrics module is loadable from its file path.
++    - Both can be loaded in the same process without Prometheus registration
++      collisions (helpers must de-dupe by metric name).
++    """
++
++    from services.orderflow import metrics as mir
++
++    sot_path = Path(__file__).resolve().parents[1] / "metrics.py"  # .../orderflow/metrics.py
++    sot = _load_module_from_path("tick_flow_full_sot_metrics", sot_path)
++
++    required = [
++        # tick gap stats
++        "tick_gap_p95_ms_gauge",
++        "tick_gap_n_gauge",
++        # continuity EMAs
++        "tick_missing_seq_ema_gauge",
++        "book_missing_seq_ema_gauge",
++        # trade_id diagnostics
++        "tick_id_gap_events_total",
++        "tick_id_dup_events_total",
++        "tick_id_reorder_events_total",
++        # gate surface
++        "dq_level_gauge",
++        "dq_veto_total",
++    ]
++
++    for name in required:
++        assert hasattr(sot, name), f"SoT metrics missing: {name}"
++        assert hasattr(mir, name), f"Mirror metrics missing: {name}"
++
++    # Minimal sanity: the objects are usable and have expected metric names.
++    assert sot.tick_gap_p95_ms_gauge._name == "tick_gap_p95_ms"
++    assert sot.tick_missing_seq_ema_gauge._name == "tick_missing_seq_ema"
++    assert sot.book_missing_seq_ema_gauge._name == "book_missing_seq_ema"
++    assert sot.dq_level_gauge._name == "dq_level"
++    assert sot.dq_veto_total._name == "dq_veto"
++

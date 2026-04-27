@@ -1,0 +1,117 @@
+services:
+  grafana:
+    image: grafana/grafana:latest
+    container_name: scanner-grafana
+    profiles:
+    - disabled
+    ports:
+    - 3001:3000
+    environment:
+    - GF_SECURITY_ADMIN_PASSWORD=admin
+    - GF_LOG_LEVEL=warn
+    - TZ=UTC
+    volumes:
+    - grafana-data:/var/lib/grafana
+    networks:
+    - scanner-ops
+    - scanner-infra
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          memory: 24M
+  alertmanager-telegram-webhook:
+    build:
+      context: ./monitoring/alertmanager/telegram_webhook
+      dockerfile: Dockerfile
+    container_name: alertmanager-telegram-webhook
+    restart: unless-stopped
+    env_file:
+    - .env
+    environment:
+    - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+    - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+    - TELEGRAM_MESSAGE_THREAD_ID=${TELEGRAM_MESSAGE_THREAD_ID:-}
+    - WEBHOOK_PORT=8081
+    - LOG_LEVEL=${ALERT_WEBHOOK_LOG_LEVEL:-INFO}
+    - RUNBOOKS_BASE_URL=${RUNBOOKS_BASE_URL:-http://127.0.0.1:8082}
+    - GRAFANA_BASE_URL=${GRAFANA_BASE_URL:-http://127.0.0.1:3000}
+    - ALERTMANAGER_BASE_URL=${ALERTMANAGER_BASE_URL:-http://127.0.0.1:9093}
+    - PYTHONUNBUFFERED=1
+    - ALERT_DEDUPE_TTL_S=${ALERT_DEDUPE_TTL_S:-180}
+    - ALERT_RATE_LIMIT_PER_MIN=${ALERT_RATE_LIMIT_PER_MIN:-30}
+    - TELEGRAM_ROUTING_JSON=${TELEGRAM_ROUTING_JSON:-}
+    - TZ=UTC
+    ports:
+    - ${ALERT_WEBHOOK_PORT_HOST:-8081}:8081
+    networks:
+    - scanner-ops
+    - scanner-infra
+    deploy:
+      resources:
+        reservations:
+          memory: 24M
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: scanner-alertmanager
+    profiles:
+    - disabled
+    restart: unless-stopped
+    volumes:
+    - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    - alertmanager-data:/alertmanager
+    ports:
+    - 9093:9093
+    command:
+    - --config.file=/etc/alertmanager/alertmanager.yml
+    - --storage.path=/alertmanager
+    depends_on:
+    - alertmanager-telegram-webhook
+    networks:
+    - scanner-ops
+    - scanner-infra
+    deploy:
+      resources:
+        reservations:
+          memory: 24M
+    environment:
+    - TZ=UTC
+  feature-registry-contract-exporter:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-feature-registry-contract-exporter
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - FEATURE_SCHEMA_VER=${FEATURE_SCHEMA_VER:-v10_of}
+    - FEATURE_REGISTRY_CONTRACT_EXPORTER_PORT=9822
+    - FEATURE_REGISTRY_CONTRACT_EXPORTER_INTERVAL_S=30
+    - FEATURE_REGISTRY_CONTRACT_METRICS_KEY=metrics:feature_registry_contract:last
+    - PYTHONPATH=/app
+    - TZ=UTC
+    volumes:
+    - ./python-worker:/app
+    ports:
+    - 9822:9822
+    command:
+    - python3
+    - -m
+    - orderflow_services.feature_registry_contract_exporter_v1
+    networks:
+    - scanner-ops
+    - scanner-infra
+    deploy:
+      resources:
+        reservations:
+          memory: 24M
+networks:
+  scanner-ops:
+    external: true
+  scanner-infra:
+    external: true
+volumes:
+  alertmanager-data:
+    driver: local
+  grafana-data:
+    driver: local

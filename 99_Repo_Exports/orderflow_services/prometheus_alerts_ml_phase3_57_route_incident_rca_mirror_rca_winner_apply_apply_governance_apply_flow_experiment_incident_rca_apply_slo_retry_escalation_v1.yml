@@ -1,0 +1,42 @@
+groups:
+  - name: ml_phase3_57_incident_rca_apply_slo_retry_escalation
+    rules:
+      - alert: MLApplyFlowExperimentIncidentRCAApplySLORollupStale
+        expr: time() - ml_phase3_57_slo_rollup_last_run_ts_seconds > 1800
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Incident RCA apply SLO rollup stale"
+
+      - alert: MLApplyFlowExperimentIncidentRCAApplyRetryControllerStale
+        expr: time() - ml_phase3_57_retry_escalation_last_run_ts_seconds > 1800
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Incident RCA apply retry/escalation controller stale"
+
+      - alert: MLApplyFlowExperimentIncidentRCAApplyRollbackMTTRHigh
+        expr: ml_phase3_57_slo_rollup_rollback_mttr_p95_sec > 900
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Incident RCA apply rollback MTTR p95 above SLO"
+
+      - alert: MLApplyFlowExperimentIncidentRCAApplyEscalationsPresent
+        expr: increase(ml_phase3_57_retry_escalation_escalations_total[30m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Incident RCA apply escalation emitted"
+
+      - alert: MLApplyFlowExperimentIncidentRCAApplyRetriesSpike
+        expr: increase(ml_phase3_57_retry_escalation_retries_total[30m]) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Incident RCA apply retries spike"

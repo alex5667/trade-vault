@@ -1,0 +1,85 @@
+{
+  "is_obsidian_vault": true,
+  "smart_blocks": {
+    "embed_blocks": true,
+    "min_chars": 200
+  },
+  "smart_sources": {
+    "min_chars": 200,
+    "embed_model": {
+      "adapter": "transformers",
+      "transformers": {
+        "model_key": "TaylorAI/bge-micro-v2"
+      }
+    },
+    "excluded_headings": "",
+    "file_exclusions": "Untitled,99_Repo_Exports/orderflow_services/docker_compose_fragment_ml_phase3_56_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_verification_rollback_v1.yml,99_Repo_Exports/orderflow_services/prometheus_alerts_ml_phase3_57_4_1_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_replay_gate_persist_dashboard_v1.yml,99_Repo_Exports/reference/ml_analysis_llm_vertex/patches/ml_phase3_56_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_verification_rollback_v1 (1).patch,99_Repo_Exports/reference/ml_analysis_llm_vertex/patches/ml_phase3_56_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_verification_rollback_v1.patch,99_Repo_Exports/reference/ml_analysis_llm_vertex/scripts/orderflow_services/docker_compose_fragment_ml_phase3_46_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_usefulness_v1.yml,99_Repo_Exports/reference/ml_analysis_llm_vertex/scripts/orderflow_services/docker_compose_fragment_ml_phase3_47_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_v1.yml,99_Repo_Exports/reference/ml_analysis_llm_vertex/scripts/orderflow_services/docker_compose_fragment_ml_phase3_48_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_results_v1.yml,99_Repo_Exports/reference/ml_analysis_llm_vertex/scripts/orderflow_services/docker_compose_fragment_ml_phase3_51_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_retry_escalation_v1.yml,99_Repo_Exports/reference/ml_analysis_llm_vertex/scripts/orderflow_services/docker_compose_fragment_ml_phase3_52_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_bundle_builder_v1.yml,99_Repo_Exports/reference/ml_analysis_llm_vertex/scripts/orderflow_services/prometheus_alerts_ml_phase3_48_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_results_v1.yml,99_Repo_Exports/reference/ml_analysis_llm_vertex/scripts/orderflow_services/prometheus_alerts_ml_phase3_51_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_retry_escalation_v1.yml,99_Repo_Exports/reference/ml_analysis_llm_vertex/scripts/orderflow_services/prometheus_alerts_ml_phase3_52_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_bundle_builder_v1.yml,99_Repo_Exports/reference/ml_analysis_llm_vertex/scripts/orderflow_services/runbook_ml_phase3_49_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_apply_controller_v1.md,99_Repo_Exports/reference/ml_analysis_llm_vertex/scripts/orderflow_services/runbook_ml_phase3_50_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_verification_rollback_v1.md,99_Repo_Exports/reference/ml_analysis_llm_vertex/scripts/orderflow_services/runbook_ml_phase3_51_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_retry_escalation_v1.md,99_Repo_Exports/reference/ml_analysis_llm_vertex/scripts/orderflow_services/runbook_ml_phase3_52_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_bundle_builder_v1.md,99_Repo_Exports/reference/ml_analysis_llm_vertex/scripts/orderflow_services/sql/ml_phase3_51_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_retry_escalation_v1.sql,99_Repo_Exports/reference/ml_analysis_llm_vertex/scripts/orderflow_services/sql/ml_phase3_52_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_bundle_builder_v1.sql,99_Repo_Exports/reference/ml_analysis_llm_vertex/scripts/orderflow_services/tests/test_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_bundle_builder_v3_52.py",
+    "folder_exclusions": ""
+  },
+  "language": "en",
+  "re_import_wait_time": 13,
+  "smart_chat_threads": {
+    "chat_model": {
+      "adapter": "ollama",
+      "ollama": {}
+    }
+  },
+  "smart_notices": {},
+  "smart_view_filter": {
+    "expanded_view": false,
+    "render_markdown": true,
+    "show_full_path": false
+  },
+  "version": "",
+  "new_user": true,
+  "models": {
+    "embedding_platform": "transformers",
+    "chat_completion_platform": "open_router"
+  },
+  "connections_lists": {
+    "results_collection_key": "smart_sources",
+    "score_algo_key": "similarity",
+    "connections_post_process": "none",
+    "results_limit": 20,
+    "connections_view_location": "right",
+    "exclude_frontmatter_blocks": true,
+    "connections_list_component_key": "connections_list_v4",
+    "connections_list_item_component_key": "connections_list_item_v3",
+    "frontmatter_filter_include": "",
+    "frontmatter_filter_exclude": "",
+    "components": {
+      "connections_list_v4": {
+        "show_graph": true
+      },
+      "connections_list_item_v3": {
+        "render_markdown": true,
+        "show_full_path": false
+      }
+    }
+  },
+  "context_items": {
+    "template_preset": "xml_structured",
+    "template_before": "<item loc=\"{{KEY}}\" at=\"{{TIME_AGO}}\">",
+    "template_after": "</item>"
+  },
+  "event_logs": {
+    "native_notice_info": true,
+    "native_notice_warning": true,
+    "native_notice_error": true,
+    "native_notice_attention": true,
+    "native_notice_milestone": true
+  },
+  "lookup_lists": {
+    "results_collection_key": "smart_blocks",
+    "score_algo_key": "similarity",
+    "results_limit": 20
+  },
+  "smart_contexts": {
+    "template_preset": "xml_structured",
+    "template_before": "<context>\n{{FILE_TREE}}",
+    "template_after": "</context>"
+  },
+  "embedding_models": {
+    "default_model_key": "transformers#1776530422167"
+  }
+}

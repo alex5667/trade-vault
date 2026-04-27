@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/sparse/linalg/_isolve/_gcrotmk.py
+# hypothesis_version: 6.148.10
+
+[1e-12, 1e-05, 1.0, 1000, 'F', 'axpy', 'col', 'dot', 'economic', 'gcrotmk', 'ignore', 'nrm2', 'oldest', 'scal', 'smallest']

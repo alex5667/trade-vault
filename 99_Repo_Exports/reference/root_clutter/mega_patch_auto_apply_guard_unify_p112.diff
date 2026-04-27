@@ -1,0 +1,323 @@
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=20260224_of_gate_metrics_rollups_p78.sql' a/orderflow_services/auto_apply_guard.py b/orderflow_services/auto_apply_guard.py
+--- a/orderflow_services/auto_apply_guard.py	2026-02-25 14:55:22.000000000 +0000
++++ b/orderflow_services/auto_apply_guard.py	2026-02-26 06:56:22.776311347 +0000
+@@ -12,7 +12,7 @@
+   ts_ms  = {prefix}:{reason}:ts_ms
+ 
+ Default reasons (AUTO_APPLY_BLOCK_REASONS):
+-  tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe
++  tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke,of_gate_exporters_smoke
+ """
+ 
+ from __future__ import annotations
+@@ -25,7 +25,9 @@
+ 
+ 
+ DEFAULT_PREFIX = "cfg:suggestions:entry_policy:auto_apply_block"
+-DEFAULT_REASONS = "tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe"
++OF_INPUTS_V3_GLOBAL_PREFIX = "cfg:of_inputs_v3:auto_apply_block_global"
++OF_INPUTS_V3_SYMBOL_PREFIX = "cfg:of_inputs_v3:auto_apply_block"
++DEFAULT_REASONS = "tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke,of_gate_exporters_smoke"
+ 
+ 
+ def _now_ms() -> int:
+@@ -63,7 +65,7 @@
+     """Return (blocked, meta).
+ 
+     Supports multiple reasons via AUTO_APPLY_BLOCK_REASONS env var.
+-    Default: tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe
++    Default: tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke,of_gate_exporters_smoke
+     """
+     rurl = redis_url or os.getenv("REDIS_URL") or os.getenv("CRYPTO_NOTIFY_REDIS_URL") or ""
+     if not rurl:
+@@ -74,24 +76,66 @@
+     reasons = [r.strip() for r in reasons_str.split(",") if r.strip()]
+ 
+     cli = _connect_redis(rurl)
+-    pipe = cli.pipeline(transaction=False)
+-    
+-    # We check each reason's block, meta, and ts_ms keys
++    of_global = _get_env("OF_INPUTS_V3_AUTO_APPLY_BLOCK_GLOBAL_PREFIX", OF_INPUTS_V3_GLOBAL_PREFIX)
++    of_sym_pfx = _get_env("OF_INPUTS_V3_AUTO_APPLY_BLOCK_SYMBOL_PREFIX", OF_INPUTS_V3_SYMBOL_PREFIX)
++    symbol = os.getenv("AUTO_APPLY_BLOCK_SYMBOL") or os.getenv("SYMBOL")
++
++    # One RTT via MGET: legacy {block,meta,ts} + of_inputs_v3 global + (optional) per-symbol.
++    keys = []
++    idx = {}  # rsn -> dict of indices
+     for rsn in reasons:
+-        pipe.get(f"{pfx}:{rsn}")
+-        pipe.get(f"{pfx}:{rsn}:meta")
+-        pipe.get(f"{pfx}:{rsn}:ts_ms")
+-    
+-    results = pipe.execute()
++        legacy_block = f"{pfx}:{rsn}"
++        legacy_meta = f"{pfx}:{rsn}:meta"
++        legacy_ts = f"{pfx}:{rsn}:ts_ms"
++        v3_global = f"{of_global}:{rsn}"
++        keys.extend([legacy_block, legacy_meta, legacy_ts, v3_global])
++        idx[rsn] = {
++            "legacy_block": len(keys) - 4,
++            "legacy_meta": len(keys) - 3,
++            "legacy_ts": len(keys) - 2,
++            "v3_global": len(keys) - 1,
++        }
++        if symbol:
++            v3_sym = f"{of_sym_pfx}:{symbol}:{rsn}"
++            keys.append(v3_sym)
++            idx[rsn]["v3_sym"] = len(keys) - 1
++
++    results = cli.mget(keys) if keys else []
+     now_ms = _now_ms()
+     
+     combined_meta: Dict[str, Any] = {"reasons_checked": reasons}
+     
+-    for i, rsn in enumerate(reasons):
+-        offset = i * 3
+-        block_val = results[offset]
+-        meta_raw = results[offset + 1]
+-        ts_raw = results[offset + 2]
++    for rsn in reasons:
++        j = idx.get(rsn) or {}
++
++        # v3 global hard block (preferred)
++        v3g = results[j.get("v3_global", -1)] if j.get("v3_global", -1) >= 0 else None
++        if v3g is not None:
++            meta = _load_json(v3g)
++            meta.setdefault("status", "blocked")
++            meta.setdefault("reason", rsn)
++            meta["block_key"] = f"{of_global}:{rsn}"
++            meta["scope"] = "global"
++            combined_meta.update(meta)
++            return (True, combined_meta)
++
++        # v3 per-symbol hard block
++        v3s_idx = j.get("v3_sym", -1)
++        v3s = results[v3s_idx] if v3s_idx >= 0 else None
++        if v3s is not None:
++            meta = _load_json(v3s)
++            meta.setdefault("status", "blocked")
++            meta.setdefault("reason", rsn)
++            meta["block_key"] = f"{of_sym_pfx}:{symbol}:{rsn}"
++            meta["scope"] = "symbol"
++            combined_meta.update(meta)
++            return (True, combined_meta)
++
++        # legacy keys
++        block_val = results[j.get("legacy_block", -1)] if j.get("legacy_block", -1) >= 0 else None
++        meta_raw = results[j.get("legacy_meta", -1)] if j.get("legacy_meta", -1) >= 0 else None
++        ts_raw = results[j.get("legacy_ts", -1)] if j.get("legacy_ts", -1) >= 0 else None
++
+         
+         meta = _load_json(meta_raw)
+         
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=20260224_of_gate_metrics_rollups_p78.sql' a/orderflow_services/tests/test_auto_apply_guard_default_reasons_v1.py b/orderflow_services/tests/test_auto_apply_guard_default_reasons_v1.py
+--- a/orderflow_services/tests/test_auto_apply_guard_default_reasons_v1.py	2026-02-25 14:55:22.000000000 +0000
++++ b/orderflow_services/tests/test_auto_apply_guard_default_reasons_v1.py	2026-02-26 06:56:22.776939999 +0000
+@@ -17,10 +17,13 @@
+ def test_default_reasons_include_multi_sources() -> None:
+     from orderflow_services import auto_apply_guard as a
+     from services.orderflow import auto_apply_guard as b
++    from tick_flow_full.orderflow_services import auto_apply_guard as c
++    from tick_flow_full.services.orderflow import auto_apply_guard as d
+ 
+-    required = {"tick_gate", "enforce_bucket_promoter", "meta_cov", "prom_rules_bundle_smoke", "prom_rules_loaded_probe"}
+ 
+-    for mod in (a, b):
++    required = {"tick_gate", "enforce_bucket_promoter", "meta_cov", "prom_rules_bundle_smoke", "prom_rules_loaded_probe", "of_inputs_v3", "of_inputs_exporters_smoke", "of_gate_exporters_smoke"}
++
++    for mod in (a, b, c, d):
+         reasons = {x.strip() for x in mod.DEFAULT_REASONS.split(",") if x.strip()}
+         missing = required - reasons
+         assert not missing, (
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=20260224_of_gate_metrics_rollups_p78.sql' a/services/orderflow/auto_apply_guard.py b/services/orderflow/auto_apply_guard.py
+--- a/services/orderflow/auto_apply_guard.py	2026-02-26 06:55:11.473102835 +0000
++++ b/services/orderflow/auto_apply_guard.py	2026-02-26 06:56:22.775337924 +0000
+@@ -12,7 +12,7 @@
+   ts_ms  = {prefix}:{reason}:ts_ms
+ 
+ Default reasons (AUTO_APPLY_BLOCK_REASONS):
+-  tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe
++  tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke,of_gate_exporters_smoke
+ """
+ 
+ from __future__ import annotations
+@@ -27,7 +27,7 @@
+ DEFAULT_PREFIX = "cfg:suggestions:entry_policy:auto_apply_block"
+ OF_INPUTS_V3_GLOBAL_PREFIX = "cfg:of_inputs_v3:auto_apply_block_global"
+ OF_INPUTS_V3_SYMBOL_PREFIX = "cfg:of_inputs_v3:auto_apply_block"
+-DEFAULT_REASONS = "tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3"
++DEFAULT_REASONS = "tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke,of_gate_exporters_smoke"
+ 
+ 
+ def _now_ms() -> int:
+@@ -65,14 +65,14 @@
+     """Return (blocked, meta).
+ 
+     Supports multiple reasons via AUTO_APPLY_BLOCK_REASONS env var.
+-    Default: "tick_gate"
++    Default: tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke,of_gate_exporters_smoke
+     """
+     rurl = redis_url or os.getenv("REDIS_URL") or os.getenv("CRYPTO_NOTIFY_REDIS_URL") or ""
+     if not rurl:
+         return (False, {"status": "no_redis_url"})
+     
+     pfx = prefix or _get_env("AUTO_APPLY_BLOCK_PREFIX", DEFAULT_PREFIX)
+-    reasons_str = _get_env("AUTO_APPLY_BLOCK_REASONS", "tick_gate")
++    reasons_str = _get_env("AUTO_APPLY_BLOCK_REASONS", DEFAULT_REASONS)
+     reasons = [r.strip() for r in reasons_str.split(",") if r.strip()]
+ 
+     cli = _connect_redis(rurl)
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=20260224_of_gate_metrics_rollups_p78.sql' a/tick_flow_full/orderflow_services/auto_apply_guard.py b/tick_flow_full/orderflow_services/auto_apply_guard.py
+--- a/tick_flow_full/orderflow_services/auto_apply_guard.py	2026-02-25 14:55:22.000000000 +0000
++++ b/tick_flow_full/orderflow_services/auto_apply_guard.py	2026-02-26 06:56:22.776439828 +0000
+@@ -12,7 +12,7 @@
+   ts_ms  = {prefix}:{reason}:ts_ms
+ 
+ Default reasons (AUTO_APPLY_BLOCK_REASONS):
+-  tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke
++  tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke,of_gate_exporters_smoke
+ """
+ 
+ from __future__ import annotations
+@@ -25,7 +25,9 @@
+ 
+ 
+ DEFAULT_PREFIX = "cfg:suggestions:entry_policy:auto_apply_block"
+-DEFAULT_REASONS = "tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke"
++OF_INPUTS_V3_GLOBAL_PREFIX = "cfg:of_inputs_v3:auto_apply_block_global"
++OF_INPUTS_V3_SYMBOL_PREFIX = "cfg:of_inputs_v3:auto_apply_block"
++DEFAULT_REASONS = "tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke,of_gate_exporters_smoke"
+ 
+ 
+ def _now_ms() -> int:
+@@ -63,35 +65,77 @@
+     """Return (blocked, meta).
+ 
+     Supports multiple reasons via AUTO_APPLY_BLOCK_REASONS env var.
+-    Default: "tick_gate"
++    Default: tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke,of_gate_exporters_smoke
+     """
+     rurl = redis_url or os.getenv("REDIS_URL") or os.getenv("CRYPTO_NOTIFY_REDIS_URL") or ""
+     if not rurl:
+         return (False, {"status": "no_redis_url"})
+     
+     pfx = prefix or _get_env("AUTO_APPLY_BLOCK_PREFIX", DEFAULT_PREFIX)
+-    reasons_str = _get_env("AUTO_APPLY_BLOCK_REASONS", "tick_gate")
++    reasons_str = _get_env("AUTO_APPLY_BLOCK_REASONS", DEFAULT_REASONS)
+     reasons = [r.strip() for r in reasons_str.split(",") if r.strip()]
+ 
+     cli = _connect_redis(rurl)
+-    pipe = cli.pipeline(transaction=False)
+-    
+-    # We check each reason's block, meta, and ts_ms keys
++    of_global = _get_env("OF_INPUTS_V3_AUTO_APPLY_BLOCK_GLOBAL_PREFIX", OF_INPUTS_V3_GLOBAL_PREFIX)
++    of_sym_pfx = _get_env("OF_INPUTS_V3_AUTO_APPLY_BLOCK_SYMBOL_PREFIX", OF_INPUTS_V3_SYMBOL_PREFIX)
++    symbol = os.getenv("AUTO_APPLY_BLOCK_SYMBOL") or os.getenv("SYMBOL")
++
++    # One RTT via MGET: legacy {block,meta,ts} + of_inputs_v3 global + (optional) per-symbol.
++    keys = []
++    idx = {}  # rsn -> dict of indices
+     for rsn in reasons:
+-        pipe.get(f"{pfx}:{rsn}")
+-        pipe.get(f"{pfx}:{rsn}:meta")
+-        pipe.get(f"{pfx}:{rsn}:ts_ms")
+-    
+-    results = pipe.execute()
++        legacy_block = f"{pfx}:{rsn}"
++        legacy_meta = f"{pfx}:{rsn}:meta"
++        legacy_ts = f"{pfx}:{rsn}:ts_ms"
++        v3_global = f"{of_global}:{rsn}"
++        keys.extend([legacy_block, legacy_meta, legacy_ts, v3_global])
++        idx[rsn] = {
++            "legacy_block": len(keys) - 4,
++            "legacy_meta": len(keys) - 3,
++            "legacy_ts": len(keys) - 2,
++            "v3_global": len(keys) - 1,
++        }
++        if symbol:
++            v3_sym = f"{of_sym_pfx}:{symbol}:{rsn}"
++            keys.append(v3_sym)
++            idx[rsn]["v3_sym"] = len(keys) - 1
++
++    results = cli.mget(keys) if keys else []
+     now_ms = _now_ms()
+     
+     combined_meta: Dict[str, Any] = {"reasons_checked": reasons}
+     
+-    for i, rsn in enumerate(reasons):
+-        offset = i * 3
+-        block_val = results[offset]
+-        meta_raw = results[offset + 1]
+-        ts_raw = results[offset + 2]
++    for rsn in reasons:
++        j = idx.get(rsn) or {}
++
++        # v3 global hard block (preferred)
++        v3g = results[j.get("v3_global", -1)] if j.get("v3_global", -1) >= 0 else None
++        if v3g is not None:
++            meta = _load_json(v3g)
++            meta.setdefault("status", "blocked")
++            meta.setdefault("reason", rsn)
++            meta["block_key"] = f"{of_global}:{rsn}"
++            meta["scope"] = "global"
++            combined_meta.update(meta)
++            return (True, combined_meta)
++
++        # v3 per-symbol hard block
++        v3s_idx = j.get("v3_sym", -1)
++        v3s = results[v3s_idx] if v3s_idx >= 0 else None
++        if v3s is not None:
++            meta = _load_json(v3s)
++            meta.setdefault("status", "blocked")
++            meta.setdefault("reason", rsn)
++            meta["block_key"] = f"{of_sym_pfx}:{symbol}:{rsn}"
++            meta["scope"] = "symbol"
++            combined_meta.update(meta)
++            return (True, combined_meta)
++
++        # legacy keys
++        block_val = results[j.get("legacy_block", -1)] if j.get("legacy_block", -1) >= 0 else None
++        meta_raw = results[j.get("legacy_meta", -1)] if j.get("legacy_meta", -1) >= 0 else None
++        ts_raw = results[j.get("legacy_ts", -1)] if j.get("legacy_ts", -1) >= 0 else None
++
+         
+         meta = _load_json(meta_raw)
+         
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=20260224_of_gate_metrics_rollups_p78.sql' a/tick_flow_full/services/orderflow/auto_apply_guard.py b/tick_flow_full/services/orderflow/auto_apply_guard.py
+--- a/tick_flow_full/services/orderflow/auto_apply_guard.py	2026-02-26 06:55:11.487099664 +0000
++++ b/tick_flow_full/services/orderflow/auto_apply_guard.py	2026-02-26 06:56:22.775817874 +0000
+@@ -12,7 +12,7 @@
+   ts_ms  = {prefix}:{reason}:ts_ms
+ 
+ Default reasons (AUTO_APPLY_BLOCK_REASONS):
+-  tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe
++  tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke,of_gate_exporters_smoke
+ """
+ 
+ from __future__ import annotations
+@@ -27,7 +27,7 @@
+ DEFAULT_PREFIX = "cfg:suggestions:entry_policy:auto_apply_block"
+ OF_INPUTS_V3_GLOBAL_PREFIX = "cfg:of_inputs_v3:auto_apply_block_global"
+ OF_INPUTS_V3_SYMBOL_PREFIX = "cfg:of_inputs_v3:auto_apply_block"
+-DEFAULT_REASONS = "tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3"
++DEFAULT_REASONS = "tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke,of_gate_exporters_smoke"
+ 
+ 
+ def _now_ms() -> int:
+@@ -65,14 +65,14 @@
+     """Return (blocked, meta).
+ 
+     Supports multiple reasons via AUTO_APPLY_BLOCK_REASONS env var.
+-    Default: "tick_gate"
++    Default: tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke,of_gate_exporters_smoke
+     """
+     rurl = redis_url or os.getenv("REDIS_URL") or os.getenv("CRYPTO_NOTIFY_REDIS_URL") or ""
+     if not rurl:
+         return (False, {"status": "no_redis_url"})
+     
+     pfx = prefix or _get_env("AUTO_APPLY_BLOCK_PREFIX", DEFAULT_PREFIX)
+-    reasons_str = _get_env("AUTO_APPLY_BLOCK_REASONS", "tick_gate")
++    reasons_str = _get_env("AUTO_APPLY_BLOCK_REASONS", DEFAULT_REASONS)
+     reasons = [r.strip() for r in reasons_str.split(",") if r.strip()]
+ 
+     cli = _connect_redis(rurl)

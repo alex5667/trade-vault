@@ -1,0 +1,53 @@
+# Systemd unit для OFConfirm Golden Replay
+# Интегрировано с docker-compose-timers.yml: trade-of-confirm-golden-replay-timer
+# 
+# Использование:
+#   sudo cp systemd/trade-of-confirm-golden-replay.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable trade-of-confirm-golden-replay.service
+#   sudo systemctl start trade-of-confirm-golden-replay.service
+#
+# Проверка:
+#   sudo systemctl status trade-of-confirm-golden-replay.service
+#   journalctl -u trade-of-confirm-golden-replay.service -f
+#
+# Для Docker используйте docker-compose-timers.yml (рекомендуется)
+
+[Unit]
+Description=Trade OFConfirm golden replay (signals:of:inputs -> replay -> diff)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/home/alex/front/trade/scanner_infra/python-worker/.env
+
+Environment="OF_INPUTS_STREAM=signals:of:inputs"
+Environment="OF_INPUTS_STREAM_FIELD=payload"
+Environment="OF_INPUTS_SINCE_HOURS=24"
+Environment="OF_INPUTS_MAX_RECORDS=200000"
+Environment="OF_INPUTS_STATE_FILE=/var/lib/trade/of_replay/of_inputs.state"
+Environment="OF_INPUTS_RESUME=1"
+
+Environment="OF_REPLAY_OUT_DIR=/var/lib/trade/of_replay"
+Environment="OF_REPLAY_BASELINE=/var/lib/trade/of_replay/baseline.ndjson"
+Environment="OF_REPLAY_FAIL_ON_MISMATCH=1"
+Environment="OF_REPLAY_NOTIFY=1"
+Environment="NOTIFY_TELEGRAM_STREAM=notify:telegram"
+
+ExecStart=/usr/bin/python3 -m tools.golden_replay_of_confirm_from_redis \
+  --redis-url ${REDIS_URL} \
+  --out-dir ${OF_REPLAY_OUT_DIR} \
+  --stream ${OF_INPUTS_STREAM} \
+  --field ${OF_INPUTS_STREAM_FIELD} \
+  --since-hours ${OF_INPUTS_SINCE_HOURS} \
+  --max-records ${OF_INPUTS_MAX_RECORDS} \
+  --state-file ${OF_INPUTS_STATE_FILE} \
+  --resume ${OF_INPUTS_RESUME} \
+  --baseline ${OF_REPLAY_BASELINE} \
+  --fail-on-mismatch ${OF_REPLAY_FAIL_ON_MISMATCH} \
+  --notify ${OF_REPLAY_NOTIFY} \
+  --notify-stream ${NOTIFY_TELEGRAM_STREAM}
+

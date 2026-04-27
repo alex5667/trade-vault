@@ -1,0 +1,88 @@
+services:
+  scanner-operator-routing-incident-rca-results-persister-v2-10:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    command: ["python", "-m", "orderflow_services.operator_routing_incident_rca_results_persister_v2_10"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://trading:${TRADING_PASSWORD}@scanner-pgbouncer:5432/scanner_analytics?sslmode=disable}
+      ML_OPERATOR_RCA_ROUTING_RCA_PERSISTER_PORT: ${ML_OPERATOR_RCA_ROUTING_RCA_PERSISTER_PORT:-9886}
+    ports:
+      - "${ML_OPERATOR_RCA_ROUTING_RCA_PERSISTER_PORT:-9886}:9886"
+    networks:
+      - scanner-network
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9886/metrics >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
+
+  scanner-operator-routing-incident-rca-quality-scorer-v2-10:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    command: ["python", "-m", "orderflow_services.operator_routing_incident_rca_quality_scorer_v2_10"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://trading:${TRADING_PASSWORD}@scanner-pgbouncer:5432/scanner_analytics?sslmode=disable}
+      ML_OPERATOR_RCA_ROUTING_RCA_QUALITY_PORT: ${ML_OPERATOR_RCA_ROUTING_RCA_QUALITY_PORT:-9887}
+    ports:
+      - "${ML_OPERATOR_RCA_ROUTING_RCA_QUALITY_PORT:-9887}:9887"
+    networks:
+      - scanner-network
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9887/metrics >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
+
+  scanner-operator-routing-incident-rca-feedback-loop-v2-10:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    command: ["python", "-m", "orderflow_services.operator_routing_incident_rca_feedback_loop_v2_10"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://trading:${TRADING_PASSWORD}@scanner-pgbouncer:5432/scanner_analytics?sslmode=disable}
+      ML_OPERATOR_RCA_ROUTING_RCA_FEEDBACK_PORT: ${ML_OPERATOR_RCA_ROUTING_RCA_FEEDBACK_PORT:-9888}
+    ports:
+      - "${ML_OPERATOR_RCA_ROUTING_RCA_FEEDBACK_PORT:-9888}:9888"
+    networks:
+      - scanner-network
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9888/metrics >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
+
+networks:
+  scanner-network:
+    external: true

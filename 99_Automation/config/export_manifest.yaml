@@ -1,0 +1,24 @@
+repo_root: /home/alex/front/trade/scanner_infra
+
+include:
+  - "python-worker/**/*.py"
+  - "python-worker/**/*.md"
+  - "mt5/**/*.mq5"
+  - "tools/**/*.py"
+  - "tools/**/*.md"
+  - "docker-compose*.yml"
+  - "docker-compose*.yaml"
+  - "**/*.sql"
+  - "reference/**/*.md"
+
+exclude:
+  - "**/.git/**"
+  - "**/.pytest_cache/**"
+  - "**/__pycache__/**"
+  - "**/node_modules/**"
+  - "**/.venv/**"
+  - "**/venv/**"
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/.next/**"
+  - "**/coverage/**"

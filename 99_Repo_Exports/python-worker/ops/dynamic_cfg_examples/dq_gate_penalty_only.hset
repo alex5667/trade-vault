@@ -1,0 +1,34 @@
+# DQ gate STRICT+enforce runtime config.
+# Migrated from penalty+safe → enforce+strict on 2026-03-14.
+# Harness validation: n_with_gap_samples=0, dq_level=0 on all symbols.
+# tick_gap_p50: BTC=492ms ETH=395ms ARB=2284ms APT=1802ms (well below soft=3000ms)
+#
+# Usage:
+#   redis-cli < python-worker/ops/dynamic_cfg_examples/dq_gate_penalty_only.hset
+#
+# Rollback:
+#   HSET settings:dynamic_cfg dq_gate_mode penalty
+#   HSET settings:dynamic_cfg dq_mode safe
+#   (and remove the explicit threshold keys below)
+
+HSET settings:dynamic_cfg dq_gate_enable 1
+HSET settings:dynamic_cfg dq_gate_mode enforce
+HSET settings:dynamic_cfg dq_mode strict
+HSET settings:dynamic_cfg dq_pen_max 0.10
+
+# Strict thresholds (from harness suggested.strict)
+HSET settings:dynamic_cfg dq_tick_gap_p95_soft_ms 3000
+HSET settings:dynamic_cfg dq_tick_gap_p95_hard_ms 4500
+HSET settings:dynamic_cfg dq_tick_gap_p95_extreme_ms 9000
+HSET settings:dynamic_cfg dq_tick_missing_seq_soft 0.05
+HSET settings:dynamic_cfg dq_tick_missing_seq_hard 0.15
+HSET settings:dynamic_cfg dq_book_missing_seq_soft 0.03
+HSET settings:dynamic_cfg dq_book_missing_seq_hard 0.10
+
+# Data health and latency (conservative tight values)
+HSET settings:dynamic_cfg dq_data_health_min 0.85
+HSET settings:dynamic_cfg dq_data_health_hard_min 0.70
+HSET settings:dynamic_cfg dq_tick_age_ms_max 5000
+HSET settings:dynamic_cfg dq_tick_age_ms_hard 15000
+HSET settings:dynamic_cfg dq_skew_ema_ms_max 1000
+HSET settings:dynamic_cfg dq_skew_ema_ms_hard 5000

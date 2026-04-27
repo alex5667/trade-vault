@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/indexers/objects.py
+# hypothesis_version: 6.148.10
+
+['both', 'int64', 'left', 'neither', 'right', 'window_size']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/winner_hysteresis.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1000, '0.05', '2', '604800', 'LCB_CONFIRM_WINDOWS', 'LCB_MIN_DELTA_LCB', 'confirmed', 'delta_too_small', 'ignore', 'init', 'pending', 'pending_count', 'same', 'utf-8', 'winner', 'winner_lcb', 'winner_ts_ms']

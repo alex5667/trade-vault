@@ -1,0 +1,30 @@
+--- train_ml_scorer_v3.py
++++ train_ml_scorer_v3.py
+@@ -432,6 +432,10 @@
+ 
+     import lightgbm as lgb
+ 
++    from sklearn.linear_model import LogisticRegression
++    
++    lr = LogisticRegression(max_iter=1000, class_weight="balanced", random_state=42)
++
+     # Prepare parameters
+     params = {
+         "objective": "binary",
+@@ -491,11 +487,10 @@
+         except ValueError:
+             pass
+ 
+-    train_data = lgb.Dataset(X_fin, label=y_fin)
+-    final_model = lgb.train(
+-        params,
+-        train_data,
+-        num_boost_round=150,
+-    )
++    from sklearn.linear_model import LogisticRegression
++    final_model = LogisticRegression(max_iter=1000, class_weight="balanced", random_state=42)
++    final_model.fit(X_fin, y_fin)
++    # Monkey patch for predict
++    final_model.predict = lambda X: final_model.predict_proba(X)[:, 1]
+ 
+     # OOF metrics

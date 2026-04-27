@@ -1,0 +1,67 @@
+groups:
+- name: signal-quality-policy-mode-p70
+  rules:
+  - alert: SignalQualityPolicyModeDataMissing
+    expr: signal_quality_n_24h > 50 and 
+      signal_quality_n_24h_by_policy_mode{mode="ok"} == 0
+    for: 30m
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "policy_mode breakdown missing (ok=0)"
+      description: "There are trades in the last 24h, but none have policy_effective_mode=ok.
+        Likely missing field propagation into trades:closed."
+      runbook: "orderflow_services/runbook_signal_quality_policy_mode_p70.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: SignalQualityPolicyModeWarnMuchWorseThanOk
+    expr: signal_quality_n_24h_by_policy_mode{mode="ok"} >= 50 and 
+      signal_quality_n_24h_by_policy_mode{mode="warn"} >= 30 and 
+      (signal_quality_expectancy_r_24h_by_policy_mode{mode="ok"} - 
+      signal_quality_expectancy_r_24h_by_policy_mode{mode="warn"}) > 0.25
+    for: 2h
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "warn-mode expectancy much worse than ok"
+      description: "Quality under policy_effective_mode=warn is significantly worse
+        than ok (delta > 0.25R). Validate breaker logic, data drift, and calibration."
+      runbook: "orderflow_services/runbook_signal_quality_policy_mode_p70.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: SignalQualityPolicyModeBlockWorseThanOk
+    expr: signal_quality_n_24h_by_policy_mode{mode="ok"} >= 50 and 
+      signal_quality_n_24h_by_policy_mode{mode="block"} >= 30 and 
+      (signal_quality_expectancy_r_24h_by_policy_mode{mode="ok"} - 
+      signal_quality_expectancy_r_24h_by_policy_mode{mode="block"}) > 0.10
+    for: 2h
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "block-mode expectancy worse than ok"
+      description: "Trades executed under policy_effective_mode=block are worse than
+        ok (delta > 0.10R). This may indicate missing enforcement, wrong mode labeling,
+        or regime mismatch."
+      runbook: "orderflow_services/runbook_signal_quality_policy_mode_p70.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: SignalQualityPolicyModeEceOkHigh
+    expr: signal_quality_n_24h_by_policy_mode{mode="ok"} >= 50 and 
+      signal_quality_ece_24h_by_policy_mode{mode="ok"} > 0.10
+    for: 2h
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "ok-mode calibration degraded (ECE > 0.10)"
+      description: "Expected Calibration Error is high in policy_effective_mode=ok.
+        Probabilities may be miscalibrated; check drift PSI/robust-z and retraining/calibration."
+      runbook: "orderflow_services/runbook_signal_quality_policy_mode_p70.md"
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd

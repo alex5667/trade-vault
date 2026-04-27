@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signal_execution/setup_config.py
+# hypothesis_version: 6.148.10
+
+[0.4, 0.5, 0.7, 0.85, 1.0, 1.5, 2.0, 'BTCUSDT', 'XAUUSD', 'breakout_R1', 'fade_PDH']

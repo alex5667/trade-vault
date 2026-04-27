@@ -1,0 +1,84 @@
+# DecisionSnapshotWriter (A4) — alerts + recording rules
+# Notes:
+# - We record p95 from histogram buckets to provide a stable metric name.
+# - Alerts are written to avoid depending on a specific scrape job label.
+
+groups:
+  - name: decision_snapshot_writer_recording_v1
+    interval: 30s
+    rules:
+      - record: decision_snapshot_writer_redis_lag_ms_p95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(decision_snapshot_writer_redis_lag_ms_bucket[5m])) by (le)
+          )
+
+  - name: decision_snapshot_writer_alerts_v1
+    interval: 30s
+    rules:
+      - alert: DecisionSnapshotWriterMetricsAbsent
+        expr: absent(decision_snapshot_writer_processed_total)
+        for: 2m
+        labels:
+          severity: critical
+          component: decision_snapshot_writer
+        annotations:
+          summary: "DecisionSnapshotWriter metrics are absent (writer down or not scraped)"
+          runbook: |
+            1) Check container: docker ps | grep decision-snapshot-writer
+            2) Check /metrics: curl http://<writer>:9825/metrics
+            3) Check Redis connectivity: redis-cli -h redis-worker-1 ping
+            4) Check Timescale: pg_isready -h postgres -U postgres -d trade
+
+      - alert: DecisionSnapshotWriterDBFailing
+        expr: rate(decision_snapshot_writer_db_fail_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: critical
+          component: decision_snapshot_writer
+        annotations:
+          summary: "DecisionSnapshotWriter DB upserts are failing"
+          runbook: |
+            1) Check Timescale connectivity and credentials (TIMESCALE_DSN)
+            2) Check DB health: pg_isready; look for disk full / locks
+            3) Inspect logs: docker logs scanner-decision-snapshot-writer --tail=200
+
+      - alert: DecisionSnapshotWriterRedisLagP95High
+        expr: decision_snapshot_writer_redis_lag_ms_p95 > 5000
+        for: 5m
+        labels:
+          severity: warning
+          component: decision_snapshot_writer
+        annotations:
+          summary: "DecisionSnapshotWriter redis lag p95 is high (>5s)"
+          runbook: |
+            1) Check backlog in consumer group (XPENDING/XINFO GROUPS)
+            2) Check DB latency (write stalls)
+            3) If lag rising with db_fail_total: fix DB first
+
+      - alert: DecisionSnapshotWriterRedisLagP95Extreme
+        expr: decision_snapshot_writer_redis_lag_ms_p95 > 30000
+        for: 2m
+        labels:
+          severity: critical
+          component: decision_snapshot_writer
+        annotations:
+          summary: "DecisionSnapshotWriter redis lag p95 is extreme (>30s)"
+          runbook: |
+            1) Verify writer running and scraping OK
+            2) Check DB health (locks, disk, CPU)
+            3) Consider temporarily increasing batch_size/upsert_chunk
+
+      - alert: DecisionSnapshotWriterDLQSpiking
+        expr: rate(decision_snapshot_writer_dlq_total[5m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: decision_snapshot_writer
+        annotations:
+          summary: "DecisionSnapshotWriter DLQ is receiving bad payloads"
+          runbook: |
+            1) Inspect DLQ stream: XREVRANGE stream:decision_snapshot:dlq + - COUNT 20
+            2) Identify producer/version producing malformed payload
+            3) Fix contract mismatch (payload JSON / required keys sid/decision_ts_ms)

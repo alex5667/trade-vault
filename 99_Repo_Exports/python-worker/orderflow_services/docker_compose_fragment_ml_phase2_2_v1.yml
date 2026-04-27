@@ -1,0 +1,49 @@
+services:
+  scanner-ml-operator-rca-usefulness-governor-v2-2:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    command: ["python", "-m", "orderflow_services.operator_rca_usefulness_governor_v2_2"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      DATABASE_URL: ${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD}@scanner-pgbouncer:5432/scanner_analytics?sslmode=disable}
+      ML_OPERATOR_RCA_GOVERNOR_METRICS_PORT: "9873"
+      ML_OPERATOR_RCA_GOVERNOR_WINDOW_MIN: "1440"
+      ML_OPERATOR_RCA_GOVERNOR_MIN_SAMPLE: "12"
+      ML_OPERATOR_RCA_GOVERNOR_SUPPRESS_SCORE_MAX: "0.45"
+      ML_OPERATOR_RCA_GOVERNOR_PROMOTE_SCORE_MIN: "0.72"
+      ML_OPERATOR_RCA_GOVERNOR_SUPPRESS_ACTION_RATE_MIN: "0.55"
+      ML_OPERATOR_RCA_GOVERNOR_PROMOTE_ACTION_RATE_MIN: "0.55"
+      ML_OPERATOR_RCA_GOVERNOR_ADVISORY_ONLY: "1"
+      ML_OPERATOR_RCA_POLICY_KEY_PREFIX: cfg:ml:operator_rca_governor
+    ports:
+      - "9873:9873"
+    networks:
+      - scanner-network
+
+  scanner-ml-operator-rca-governor-persister-v2-2:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        python - <<'PY'
+        import os, json, time
+        print('Phase 2.2 persister hook is advisory-only placeholder; wire to your SQL sink if needed.')
+        while True:
+          time.sleep(3600)
+        PY
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD}@scanner-pgbouncer:5432/scanner_analytics?sslmode=disable}
+    profiles: ["phase2_2_optional"]
+    networks:
+      - scanner-network
+
+networks:
+  scanner-network:
+    external: true
+

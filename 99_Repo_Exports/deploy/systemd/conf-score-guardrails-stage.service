@@ -1,0 +1,26 @@
+[Unit]
+Description=Trade Confidence Score Guardrails (Stage Mode)
+After=network.target redis.service
+
+[Service]
+Type=oneshot
+User=alex
+Group=alex
+WorkingDirectory=/home/alex/front/trade/scanner_infra
+EnvironmentFile=/home/alex/front/trade/scanner_infra/.env
+EnvironmentFile=-/home/alex/front/trade/scanner_infra/deploy/systemd/conf-score-guardrails.env
+
+# Run in STAGE mode
+# Writes to staged.json and staged Redis keys
+ExecStart=/usr/bin/python3 -m orderflow_services.conf_score_guardrails_apply_v1 \
+    --drift-report ${CONF_SCORE_DRIFT_REPORT:-/tmp/confidence_parts_drift.json} \
+    --apply 1 \
+    --stage 1 \
+    --staged-key-prefix "cfg:crypto_of:overrides_staged:" \
+    --bundle-dir ${CONF_SCORE_GUARD_BUNDLE_DIR:-/var/lib/trade/conf_score_guard_bundles} \
+    --bundle-enable 1 \
+    --bundle-promote 0 \
+    --state-path ${CONF_SCORE_GUARD_STATE_PATH:-/tmp/conf_score_guard_state.json}
+
+[Install]
+WantedBy=multi-user.target

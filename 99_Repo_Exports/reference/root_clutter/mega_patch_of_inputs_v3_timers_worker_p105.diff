@@ -1,0 +1,82 @@
+diff -ruN proj_p104/confidence_calculation/docker-compose-crypto-orderflow.yml proj_p105/confidence_calculation/docker-compose-crypto-orderflow.yml
+--- proj_p104/confidence_calculation/docker-compose-crypto-orderflow.yml	2026-02-25 19:29:13.352590846 +0000
++++ proj_p105/confidence_calculation/docker-compose-crypto-orderflow.yml	2026-02-25 20:01:35.038725809 +0000
+@@ -2905,8 +2905,8 @@
+     restart: unless-stopped
+     environment:
+       - REDIS_URL=redis://redis-worker-1:6379/0
+-      - PYTHONPATH=.:/app
+-      - OF_INPUTS_V3_EXPORTER_POLL_SEC=5
++      - PYTHONPATH=/app
++      - OF_INPUTS_V3_CIRCUIT_EXPORTER_REFRESH_SEC=5
+     depends_on: *id003
+     networks: *id004
+     volumes:
+@@ -2919,6 +2919,7 @@
+     profiles: ["default"]
+ 
+   # Prometheus rules bundle validator smoke timer (P102)
++  # NOTE: prefer running via services.of_timers_worker (hourly :09). Keep this as an optional fallback.
+   prom-rules-bundle-smoke-timer:
+     build: *id001
+     container_name: scanner-prom-rules-bundle-smoke-timer
+@@ -2949,6 +2950,36 @@
+         python3 -m services.prom_rules_bundle_smoke_runner_v1 || echo 'PROM RULES BUNDLE SMOKE failed';
+         sleep 300;
+       done"
++    profiles: ["manual"]
++
++
++  # Consolidated timers worker (preferred) — runs prom rules bundle smoke (:09) + rules loaded probe (:10)
++  of-timers-worker:
++    build: *id001
++    container_name: scanner-of-timers-worker
++    restart: unless-stopped
++    environment:
++      - PYTHONPATH=/app
++      - REDIS_URL=redis://redis-worker-1:6379/0
++      # Prometheus API endpoint for rules-loaded probe
++      # Override via env/compose if your Prometheus is elsewhere
++      - PROMETHEUS_URL=http://prometheus:9090
++
++      # Enable only the relevant monitors here (others can be enabled separately)
++      - ENABLE_PROM_RULES_BUNDLE_SMOKE=1
++      - ENABLE_PROM_RULES_LOADED_PROBE=1
++
++      # Anti-flap / dedup defaults
++      - PROM_RULES_BUNDLE_SMOKE_COOLDOWN_S=21600
++      - PROM_RULES_LOADED_PROBE_COOLDOWN_S=21600
++
++
++    depends_on: *id003
++    networks: *id004
++    volumes:
++      - .:/app
++    working_dir: /app
++    command: ["python", "-m", "services.of_timers_worker"]
+     profiles: ["default"]
+ 
+ networks:
+diff -ruN proj_p104/orderflow_services/runbook_of_inputs_v3_circuit_p100.md proj_p105/orderflow_services/runbook_of_inputs_v3_circuit_p100.md
+--- proj_p104/orderflow_services/runbook_of_inputs_v3_circuit_p100.md	2026-02-25 18:05:58.609784788 +0000
++++ proj_p105/orderflow_services/runbook_of_inputs_v3_circuit_p100.md	2026-02-25 19:58:42.127005289 +0000
+@@ -85,6 +85,19 @@
+ - Dashboard: `orderflow_services/grafana/of_inputs_v3_circuit_p100.json`.
+ - Alerts: `orderflow_services/prometheus_alerts_of_inputs_v3_circuit_p100.yml`.
+ 
++
++
++### Prometheus scrape target (exporter)
++
++If you use the standalone exporter `of-inputs-v3-circuit-exporter` (port 9164), add a scrape job:
++
++```yaml
++scrape_configs:
++  - job_name: of_inputs_v3_circuit
++    static_configs:
++      - targets: ['of-inputs-v3-circuit-exporter:9164']
++```
++
+ ## 6) Контракты и детерминизм
+ 
+ - Disable state хранится в `cfg:` (а не `state:`), чтобы survive любые reset'ы стейта.

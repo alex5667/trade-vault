@@ -1,0 +1,273 @@
+diff --git a/services/README_LIQUIDATION_MAP.md b/services/README_LIQUIDATION_MAP.md
+index 7221eca..51679de 100644
+--- a/services/README_LIQUIDATION_MAP.md
++++ b/services/README_LIQUIDATION_MAP.md
+@@ -50,7 +50,7 @@ Bad/poison messages are sent to DLQ:
+ 
+ ### Windows / publish
+ 
+-- `LIQMAP_WINDOWS=1h,4h,24h`
++- `LIQMAP_WINDOWS=5m,1h,4h,24h`
+ - `LIQMAP_PUBLISH_INTERVAL_MS=1000`
+ 
+ ### Buckets
+diff --git a/services/liquidation_map_service.py b/services/liquidation_map_service.py
+index 974bac1..a9cb22a 100644
+--- a/services/liquidation_map_service.py
++++ b/services/liquidation_map_service.py
+@@ -21,7 +21,7 @@ ENV (минимум):
+   LIQMAP_GROUP=liqmap_group
+ 
+   # windows
+-  LIQMAP_WINDOWS=1h,4h,24h
++  LIQMAP_WINDOWS=5m,1h,4h,24h
+   LIQMAP_PUBLISH_INTERVAL_MS=1000
+ 
+   # bucket
+@@ -174,7 +174,7 @@ class LiquidationMapService:
+         self.max_event_age_ms = int(os.getenv("LIQMAP_MAX_EVENT_AGE_MS", str(26 * 3600 * 1000)))
+ 
+         # Windows
+-        self.windows = _parse_windows(os.getenv("LIQMAP_WINDOWS", "1h,4h,24h"))
++        self.windows = _parse_windows(os.getenv("LIQMAP_WINDOWS", "5m,1h,4h,24h"))
+         self.max_window_ms = max(ms for _, ms in self.windows)
+ 
+         # Publish cadence
+diff --git a/services/orderflow/signal_pipeline.py b/services/orderflow/signal_pipeline.py
+index 6dd96f7..d4469e7 100644
+--- a/services/orderflow/signal_pipeline.py
++++ b/services/orderflow/signal_pipeline.py
+@@ -1526,6 +1526,36 @@ class SignalPipeline:
+             except Exception:
+                 pass
+ 
++        # ------------------------------------------------------------------
++        # LIQMAP risk diagnostic: would we need to WIDEN SL to be beyond an
++        # adverse liquidation cluster? (Risk discipline: widening => hard veto.)
++        #
++        # We do NOT change SL here. We only compute diagnostics/flags so that
++        # publish_signal() can optionally hard-veto the trade before publishing.
++        # ------------------------------------------------------------------
++        try:
++            base_sl_bps = (float(stop_dist) / float(entry)) * 10000.0 if float(entry) > 0.0 else 0.0
++            indicators['liqmap_sl_base_bps'] = float(base_sl_bps)
++
++            side_u = str(side).upper()
++            if side_u == 'LONG':
++                reco_bps = float(indicators.get('liqmap_sl_reco_bps_long') or indicators.get('liqmap_sl_reco_bps') or 0.0)
++            else:
++                reco_bps = float(indicators.get('liqmap_sl_reco_bps_short') or indicators.get('liqmap_sl_reco_bps') or 0.0)
++
++            indicators['liqmap_sl_reco_bps'] = float(reco_bps)
++
++            if base_sl_bps > 0.0 and reco_bps > 0.0:
++                ratio = float(reco_bps) / float(base_sl_bps)
++                indicators['liqmap_sl_widen_ratio'] = float(ratio)
++                cap = float(os.getenv('LIQMAP_SL_WIDEN_CAP', '1.25') or 1.25)
++                indicators['liqmap_sl_widen_needed'] = 1 if ratio > cap else 0
++            else:
++                indicators['liqmap_sl_widen_ratio'] = 0.0
++                indicators['liqmap_sl_widen_needed'] = 0
++        except Exception:
++            pass
++
+         # Для rocket_v1: TP1 = MULT * ATR, остальные TP через RR
+         rocket_mult = self._get_rocket_multiplier(runtime.symbol)
+         is_rocket_v1 = (trail_profile == "rocket_v1")
+diff --git a/services/orderflow/strategy.py b/services/orderflow/strategy.py
+index 96b480d..2e5b954 100644
+--- a/services/orderflow/strategy.py
++++ b/services/orderflow/strategy.py
+@@ -268,6 +268,25 @@ class OrderFlowStrategy:
+         self._pbatch = PrometheusBatcher(interval=1.0)
+         self._pbatch_task = None
+ 
++        # ------------------------------------------------------------------
++        # Liquidation Map (liqmap) feature enrichment (best-effort, fail-open)
++        # ------------------------------------------------------------------
++        # This consumes compact snapshots produced by `services/liquidation_map_service.py`
++        # and stored under Redis keys like: liqmap:snapshot:<SYMBOL>:<WINDOW>.
++        #
++        # IMPORTANT risk discipline:
++        #  - We do NOT widen SL to 'fit' a liquidation cluster (that should be a hard veto).
++        #  - This layer only provides features/anchors; enforcement happens in gates/risk.
++        self.liqmap_features_enable = bool(int(os.getenv("LIQMAP_FEATURES_ENABLE", "1") or 0))
++        self.liqmap_snapshot_key_prefix = os.getenv("LIQMAP_SNAPSHOT_KEY_PREFIX", "liqmap:snapshot")
++        self.liqmap_feature_windows = [w.strip() for w in os.getenv("LIQMAP_FEATURE_WINDOWS", "5m,1h").split(',') if w.strip()]
++        self.liqmap_feature_cache_ms = int(os.getenv("LIQMAP_FEATURE_CACHE_MS", "400") or 400)
++        self.liqmap_feature_redis_timeout_s = float(os.getenv("LIQMAP_FEATURE_REDIS_TIMEOUT_S", "0.02") or 0.02)
++        self.liqmap_feature_max_stale_ms = int(os.getenv("LIQMAP_FEATURE_MAX_STALE_MS", "3500") or 3500)
++        self.liqmap_feature_peak_range_bps = float(os.getenv("LIQMAP_FEATURE_PEAK_RANGE_BPS", "600") or 600)
++        self.liqmap_feature_front_run_bps = float(os.getenv("LIQMAP_FEATURE_FRONT_RUN_BPS", "20") or 20)
++        self.liqmap_feature_sl_buffer_bps = float(os.getenv("LIQMAP_FEATURE_SL_BUFFER_BPS", "15") or 15)
++
+     def start_batcher(self):
+         """Запустить фоновые воркеры MetricsBatcher и PrometheusBatcher."""
+         if self._mbatch_task is None:
+@@ -275,6 +294,91 @@ class OrderFlowStrategy:
+         if self._pbatch_task is None:
+             self._pbatch_task = asyncio.create_task(self._pbatch.run())
+ 
++    def _liqmap_snapshot_key(self, *, symbol: str, window: str) -> str:
++        return f"{self.liqmap_snapshot_key_prefix}:{str(symbol).upper()}:{str(window)}"
++
++    async def _maybe_add_liqmap_features(self, *, runtime, indicators: dict, mid_px: float, now_ms: int) -> None:
++        """Enrich indicators with liqmap-derived features (best-effort).
++
++        This is intentionally fail-open and short-timeout to keep the hot path safe.
++        Caching is per-symbol (stored on runtime object).
++        """
++        if not self.liqmap_features_enable:
++            return
++        if not (isinstance(mid_px, (int, float)) and float(mid_px) > 0.0):
++            return
++
++        # Per-symbol cache state
++        cache = getattr(runtime, 'liqmap_snapshot_cache', None)
++        if cache is None or not isinstance(cache, dict):
++            cache = {}
++            setattr(runtime, 'liqmap_snapshot_cache', cache)
++
++        primary_window = None
++        for w in self.liqmap_feature_windows:
++            if not primary_window:
++                primary_window = w
++            key = self._liqmap_snapshot_key(symbol=runtime.symbol, window=w)
++
++            # cache entry: { 'fetch_ms': int, 'raw': bytes|str }
++            ent = cache.get(w) if isinstance(cache, dict) else None
++            fetch_ms = int(ent.get('fetch_ms', 0) or 0) if isinstance(ent, dict) else 0
++            raw = ent.get('raw') if isinstance(ent, dict) else None
++
++            if (now_ms - fetch_ms) >= int(self.liqmap_feature_cache_ms) or raw is None:
++                try:
++                    raw = await asyncio.wait_for(self.redis.get(key), timeout=float(self.liqmap_feature_redis_timeout_s))
++                    cache[w] = {'fetch_ms': int(now_ms), 'raw': raw}
++                except Exception:
++                    # Keep old cache on timeout / redis error
++                    raw = raw
++
++            payload = try_parse_liqmap_snapshot_json(raw)
++            if payload is None:
++                continue
++
++            feats = compute_liqmap_features_from_snapshot(
++                payload=payload,
++                mid_px=float(mid_px),
++                now_ms=int(now_ms),
++                max_stale_ms=int(self.liqmap_feature_max_stale_ms),
++                peak_range_bps=float(self.liqmap_feature_peak_range_bps),
++                front_run_bps=float(self.liqmap_feature_front_run_bps),
++                sl_buffer_bps=float(self.liqmap_feature_sl_buffer_bps),
++            )
++
++            # Write per-window features
++            for k, v in (feats or {}).items():
++                try:
++                    indicators[f'liqmap_{w}_{k}'] = float(v)
++                except Exception:
++                    continue
++
++            # Promote directional anchors from the primary window to generic keys for downstream logic
++            if primary_window and w == primary_window and feats:
++                for k in (
++                    'tp1_anchor_bps_long',
++                    'tp1_anchor_bps_short',
++                    'sl_reco_bps_long',
++                    'sl_reco_bps_short',
++                    'squeeze_bias',
++                    'is_stale',
++                    'stale_ms',
++                    'levels_n',
++                ):
++                    if k in feats:
++                        try:
++                            indicators[f'liqmap_{k}'] = float(feats[k])
++                        except Exception:
++                            pass
++
++        # Convenience flag: did we produce anything meaningful?
++        if 'liqmap_levels_n' in indicators and float(indicators.get('liqmap_levels_n') or 0.0) > 0.0:
++            indicators['liqmap_ok'] = 1
++        else:
++            indicators['liqmap_ok'] = 0
++
++
+     async def _maybe_poll_symbol_overrides(self, runtime, now_ms: int) -> None:
+         """
+         Pull cfg:crypto_of:overrides:{SYMBOL} (JSON) and merge selected keys into runtime.config.
+@@ -486,6 +590,11 @@ class OrderFlowStrategy:
+ 
+         # Runtime overrides (cooldown/pressure tuning) — throttled, fail-open
+         now_ms = int(tick_ts)
++        # Liquidation map feature enrichment (best-effort, fail-open, short-timeout)
++        try:
++            await self._maybe_add_liqmap_features(runtime=runtime, indicators=indicators, mid_px=float(price), now_ms=int(now_ms))
++        except Exception:
++            pass
+         # Legacy override poll (cfg:crypto_of:overrides)
+         ov_gap = int(getattr(runtime, "_ov_poll_gap_ms", 2500) or 2500)
+         ov_ts0 = int(getattr(runtime, "_ov_ts_ms", 0) or 0)
+diff --git a/tick_flow_full/services/liquidation_map_service.py b/tick_flow_full/services/liquidation_map_service.py
+index 974bac1..a9cb22a 100644
+--- a/tick_flow_full/services/liquidation_map_service.py
++++ b/tick_flow_full/services/liquidation_map_service.py
+@@ -21,7 +21,7 @@ ENV (минимум):
+   LIQMAP_GROUP=liqmap_group
+ 
+   # windows
+-  LIQMAP_WINDOWS=1h,4h,24h
++  LIQMAP_WINDOWS=5m,1h,4h,24h
+   LIQMAP_PUBLISH_INTERVAL_MS=1000
+ 
+   # bucket
+@@ -174,7 +174,7 @@ class LiquidationMapService:
+         self.max_event_age_ms = int(os.getenv("LIQMAP_MAX_EVENT_AGE_MS", str(26 * 3600 * 1000)))
+ 
+         # Windows
+-        self.windows = _parse_windows(os.getenv("LIQMAP_WINDOWS", "1h,4h,24h"))
++        self.windows = _parse_windows(os.getenv("LIQMAP_WINDOWS", "5m,1h,4h,24h"))
+         self.max_window_ms = max(ms for _, ms in self.windows)
+ 
+         # Publish cadence
+diff --git a/tick_flow_full/services/orderflow/signal_pipeline.py b/tick_flow_full/services/orderflow/signal_pipeline.py
+index 6167fe0..6d1ddb2 100644
+--- a/tick_flow_full/services/orderflow/signal_pipeline.py
++++ b/tick_flow_full/services/orderflow/signal_pipeline.py
+@@ -1697,6 +1697,36 @@ class SignalPipeline:
+             except Exception:
+                 pass
+ 
++        # ------------------------------------------------------------------
++        # LIQMAP risk diagnostic: would we need to WIDEN SL to be beyond an
++        # adverse liquidation cluster? (Risk discipline: widening => hard veto.)
++        #
++        # We do NOT change SL here. We only compute diagnostics/flags so that
++        # publish_signal() can optionally hard-veto the trade before publishing.
++        # ------------------------------------------------------------------
++        try:
++            base_sl_bps = (float(stop_dist) / float(entry)) * 10000.0 if float(entry) > 0.0 else 0.0
++            indicators['liqmap_sl_base_bps'] = float(base_sl_bps)
++
++            side_u = str(side).upper()
++            if side_u == 'LONG':
++                reco_bps = float(indicators.get('liqmap_sl_reco_bps_long') or indicators.get('liqmap_sl_reco_bps') or 0.0)
++            else:
++                reco_bps = float(indicators.get('liqmap_sl_reco_bps_short') or indicators.get('liqmap_sl_reco_bps') or 0.0)
++
++            indicators['liqmap_sl_reco_bps'] = float(reco_bps)
++
++            if base_sl_bps > 0.0 and reco_bps > 0.0:
++                ratio = float(reco_bps) / float(base_sl_bps)
++                indicators['liqmap_sl_widen_ratio'] = float(ratio)
++                cap = float(os.getenv('LIQMAP_SL_WIDEN_CAP', '1.25') or 1.25)
++                indicators['liqmap_sl_widen_needed'] = 1 if ratio > cap else 0
++            else:
++                indicators['liqmap_sl_widen_ratio'] = 0.0
++                indicators['liqmap_sl_widen_needed'] = 0
++        except Exception:
++            pass
++
+         # Для rocket_v1: TP1 = MULT * ATR, остальные TP через RR
+         rocket_mult = self._get_rocket_multiplier(runtime.symbol)
+         is_rocket_v1 = (trail_profile == "rocket_v1")

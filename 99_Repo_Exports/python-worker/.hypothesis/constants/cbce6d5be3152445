@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/detector/rules/obi_spike.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.8, '0.10', '1.8', 'DET_MIN_RAW_SCORE', 'DET_OBI_SPIKE_MIN', 'obi', 'obi_spike', 'obi_sustained', 'price']

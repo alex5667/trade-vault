@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/spatial/_spherical_voronoi.py
+# hypothesis_version: 6.148.10
+
+[1e-06, 'SphericalVoronoi', 'ij,ij->i', 'mergesort']

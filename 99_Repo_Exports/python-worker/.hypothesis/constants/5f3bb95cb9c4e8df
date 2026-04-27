@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/matplotlib/mlab.py
+# hypothesis_version: 6.148.10
+
+[-1.0, 0.0, 1.0, 2.0, 4.0, 128, 256, '3.6', '_data_inv_cov', 'angle', 'complex', 'constant', 'default', 'linear', 'magnitude', 'mean', 'none', 'onesided', 'phase', 'psd', 'scott', 'silverman', 'sliding_window_view', 'twosided', 'use constant']

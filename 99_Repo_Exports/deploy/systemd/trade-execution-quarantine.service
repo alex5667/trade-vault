@@ -1,0 +1,15 @@
+[Unit]
+Description=Trade execution sid quarantine from consistency mismatches
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=trade
+Group=trade
+WorkingDirectory=/opt/trade
+EnvironmentFile=-/etc/trade/trade-execution.env
+# Soft-quarantines sids with critical (or $EXEC_QUARANTINE_MIN_SEVERITY) mismatches.
+# Does not touch positions or Binance. Use --dry-run for preview.
+ExecStart=/usr/bin/python3 /opt/trade/python-worker/scripts/quarantine_inconsistent_sid.py --severity ${EXEC_QUARANTINE_MIN_SEVERITY:-critical}
+SuccessExitStatus=0

@@ -1,0 +1,5 @@
+services:
+  test:
+    image: alpine
+    env_file:
+      - ${TRADE_REPO_ROOT:?}/config/crypto-of-common.env

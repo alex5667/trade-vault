@@ -1,0 +1,32 @@
+groups:
+- name: of_inputs_dlq_db_p99
+  rules:
+  # NOTE: These alerts assume the exporter lookback window is configured sensibly
+  # (e.g. 1h via OF_INPUTS_DLQ_DB_EXPORTER_LOOKBACK_H=1) to avoid paging on stale 24h totals.
+
+  - alert: OFInputsDLQDBAnyEvents
+    expr: sum(of_inputs_dlq_db_events_lookback_total{kind="dlq"}) > 0
+    for: 20m
+    labels:
+      severity: warning
+    annotations:
+      summary: "OFInputs DLQ has events (DB rollup)"
+      description: "DLQ has >0 events in lookback window. Use DB drilldown for reasons and samples."
+
+  - alert: OFInputsDLQDBMissingLOBFieldsSpike
+    expr: of_inputs_dlq_db_events_lookback_total{kind="dlq",reason="missing_lob_fields"} > 50
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "OFInputs DLQ: missing_lob_fields spike"
+      description: "High rate of missing LOB fields. Check book_state inputs, downgrade path, and data quality."
+
+  - alert: OFInputsDLQDBLargeBacklog
+    expr: sum(of_inputs_dlq_db_events_lookback_total{kind="dlq"}) > 500
+    for: 10m
+    labels:
+      severity: critical
+    annotations:
+      summary: "OFInputs DLQ backlog is large (DB rollup)"
+      description: "Large DLQ volume in lookback window. Likely ongoing incident affecting OFInputs publishing."

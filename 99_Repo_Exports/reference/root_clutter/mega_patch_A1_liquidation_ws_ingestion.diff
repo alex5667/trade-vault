@@ -1,0 +1,1496 @@
+diff --git a/.env.example b/.env.example
+new file mode 100644
+index 0000000..81077a4
+--- /dev/null
++++ b/.env.example
+@@ -0,0 +1,34 @@
++# --- Core WS (ticks / book / futures) ---
++# FUTURES_WS_ENABLED=true
++# FUTURES_SYMBOLS=BTCUSDT,ETHUSDT
++
++# --- A1: Liquidations (SAFE defaults) ---
++# Enable ingestion:
++# LIQ_WS_ENABLED=true
++
++# Allowlist symbols (fallback = FUTURES_SYMBOLS):
++# LIQ_SYMBOLS=BTCUSDT,ETHUSDT
++
++# Binance (рекомендуется all-market stream):
++# LIQ_BINANCE_ENABLED=true
++# LIQ_BINANCE_WS_URL=wss://fstream.binance.com/ws/!forceOrder@arr
++
++# Bybit (subscribe per symbol):
++# LIQ_BYBIT_ENABLED=false
++# LIQ_BYBIT_WS_URL=wss://stream.bybit.com/v5/public/linear
++# LIQ_BYBIT_PING_MS=20000
++
++# Redis Streams:
++# LIQ_STREAM=stream:liq_evt
++# LIQ_QUARANTINE_STREAM=stream:liq_evt_quarantine
++# LIQ_STREAM_MAXLEN=200000
++
++# Batching:
++# LIQ_BATCH_SIZE=200
++# LIQ_FLUSH_MS=20
++
++# Data Quality (SAFE):
++# LIQ_MAX_EVENT_AGE_MS=10000
++# LIQ_MAX_FUTURE_SKEW_MS=2000
++# LIQ_MAX_OOO_MS=2000
++# LIQ_ENABLE_QUARANTINE=true
+diff --git a/cmd/worker/main.go b/cmd/worker/main.go
+index e4aa1f1..1e5ca11 100644
+--- a/cmd/worker/main.go
++++ b/cmd/worker/main.go
+@@ -17,6 +17,7 @@ import (
+ 	"go-worker/internal/app"
+ 	internalbinance "go-worker/internal/binance"
+ 	"go-worker/internal/connections"
++	"go-worker/internal/liquidation"
+ 	"go-worker/internal/logging"
+ 	"go-worker/internal/metrics"
+ 	"go-worker/internal/monitoring"
+@@ -72,7 +73,7 @@ func ensureDefaultCryptoSymbols(ctx context.Context, client *extRedis.Client) {
+ 
+ 	// Список обязательных символов (по дефолту или из ENV)
+ 	var requiredSymbols []string
+-	
++
+ 	envSymbols := os.Getenv("REQUIRED_SYMBOLS")
+ 	if envSymbols != "" {
+ 		parts := strings.Split(envSymbols, ",")
+@@ -149,20 +150,20 @@ func main() {
+ 			logsDir = "logs"
+ 		}
+ 	}
+-	
++
+ 	// Создаем абсолютный путь
+ 	absLogsDir, err := filepath.Abs(logsDir)
+ 	if err != nil {
+ 		absLogsDir = logsDir
+ 	}
+-	
++
+ 	// Инициализируем файловый логгер
+ 	if err := logging.SetupGlobalFileLogger(absLogsDir); err != nil {
+ 		log.Printf("⚠️ Не удалось инициализировать файловый логгер: %v (продолжаем с консольным логированием)", err)
+ 	} else {
+ 		log.Printf("📁 Логи будут записываться в: %s", absLogsDir)
+ 	}
+-	
++
+ 	// Закрываем файловый логгер при завершении
+ 	defer func() {
+ 		if fl := logging.GetGlobalFileLogger(); fl != nil {
+@@ -171,7 +172,7 @@ func main() {
+ 			}
+ 		}
+ 	}()
+-	
++
+ 	app.PrintStartupMessage()
+ 	app.StartPrometheusMetrics()
+ 	redis.WaitForRedis()
+@@ -213,7 +214,6 @@ func main() {
+ 	binance.SetGlobalCandlePublisher(connManager)
+ 	connManager.InitializeInitialConnections()
+ 
+-
+ 	if enableDataCollection {
+ 		app.StartDataCollection()
+ 	}
+@@ -221,6 +221,23 @@ func main() {
+ 	futuresSymbols := parseFuturesSymbols(os.Getenv("FUTURES_SYMBOLS"))
+ 	isFuturesEnabled := parseFuturesEnabled(os.Getenv("FUTURES_WS_ENABLED"))
+ 
++	// --- A1: Liquidation WS ingestion (forceOrder / allLiquidation) ---
++	//
++	// Поток ликвидаций включается отдельно от тик/книги, чтобы можно было безопасно
++	// раскатывать feature без влияния на core pipeline.
++	//
++	// Включение:
++	//   LIQ_WS_ENABLED=true
++	//   LIQ_SYMBOLS=BTCUSDT,ETHUSDT (fallback = FUTURES_SYMBOLS)
++	//
++	// Рекомендация (A1):
++	//   * Binance: !forceOrder@arr (all-market) + локальный allowlist
++	//   * Bybit: allLiquidation.{symbol} по allowlist
++	liqCfg := liquidation.LoadConfigFromEnv(futuresSymbols)
++	liqLogger := log.New(os.Stdout, "[liq] ", log.LstdFlags|log.Lmicroseconds)
++	liqController := liquidation.NewController(redisclient.Client, liqCfg, liqLogger)
++	liqController.Start(ctx)
++
+ 	var futuresController *internalbinance.FuturesStreamController
+ 	var batchPublisher *redis.BatchTickPublisher
+ 
+@@ -228,14 +245,14 @@ func main() {
+ 		log.Printf("✅ Binance Futures WS включён для символов: %v", futuresSymbols)
+ 
+ 		futuresLogger := log.New(os.Stdout, "[futures] ", log.LstdFlags|log.Lmicroseconds)
+-		
++
+ 		// Priority 2: Используем BatchTickPublisher для мультиплексных Futures (высокая нагрузка)
+ 		batchPublisher = redis.NewBatchTickPublisher(redisclient.ClientTicks, 100, 10*time.Millisecond)
+ 		batchPublisher.Start(ctx)
+ 
+ 		// Configure staleness thresholds
+ 		stalenessConfig := orderflow.StalenessConfig{
+-			MaxAgeTickMs: 150, // 150ms for signal gating (relative to tick)
++			MaxAgeTickMs: 150,  // 150ms for signal gating (relative to tick)
+ 			MaxAgeNowMs:  1000, // 1sec for SRE alerts (relative to now)
+ 		}
+ 
+@@ -312,6 +329,11 @@ func main() {
+ 		futuresController.Stop()
+ 	}
+ 
++	// Stop liquidation ingestion (best-effort flush)
++	if liqController != nil {
++		liqController.Stop(2 * time.Second)
++	}
++
+ 	if batchPublisher != nil {
+ 		_ = batchPublisher.Close(2 * time.Second)
+ 	}
+diff --git a/internal/liquidation/binance_forceorder.go b/internal/liquidation/binance_forceorder.go
+new file mode 100644
+index 0000000..7250d15
+--- /dev/null
++++ b/internal/liquidation/binance_forceorder.go
+@@ -0,0 +1,94 @@
++package liquidation
++
++import (
++	"encoding/json"
++	"errors"
++	"strings"
++	"time"
++)
++
++// Binance USDT-M Force Order Stream.
++//
++// Для all-market stream используется endpoint:
++//
++//	wss://fstream.binance.com/ws/!forceOrder@arr
++//
++// Формат сообщения совпадает с обычным <symbol>@forceOrder.
++//
++// Семантика стороны:
++//
++//	В payload Binance поле o.S — сторона ордера (BUY/SELL).
++//	Для force liquidation это обычно означает:
++//	  * SELL ордер закрывает LONG позицию (т.е. ликвидирован LONG)
++//	  * BUY  ордер закрывает SHORT позицию (т.е. ликвидирован SHORT)
++type binanceForceOrderMsg struct {
++	EventTime int64                `json:"E"`
++	Order     binanceForceOrderObj `json:"o"`
++}
++
++type binanceForceOrderObj struct {
++	Symbol    string `json:"s"`
++	Side      string `json:"S"`  // BUY/SELL
++	Price     string `json:"p"`  // order price
++	AvgPrice  string `json:"ap"` // average price
++	Qty       string `json:"q"`  // orig qty
++	FilledQty string `json:"z"`  // filled qty
++	TradeTime int64  `json:"T"`  // trade time
++}
++
++// ParseBinanceForceOrder нормализует одно Binance сообщение.
++func ParseBinanceForceOrder(raw []byte, recvTsMs int64) (NormalizedEvent, error) {
++	var msg binanceForceOrderMsg
++	if err := json.Unmarshal(raw, &msg); err != nil {
++		return NormalizedEvent{}, err
++	}
++
++	sym := strings.ToUpper(strings.TrimSpace(msg.Order.Symbol))
++	if sym == "" {
++		return NormalizedEvent{}, errors.New("missing symbol")
++	}
++
++	side := strings.ToUpper(strings.TrimSpace(msg.Order.Side))
++	liqSide := ""
++	switch side {
++	case "SELL":
++		liqSide = "long"
++	case "BUY":
++		liqSide = "short"
++	default:
++		return NormalizedEvent{}, errors.New("unknown side")
++	}
++
++	// Предпочитаем average price (ap), если она есть.
++	price := strings.TrimSpace(msg.Order.AvgPrice)
++	if price == "" || price == "0" {
++		price = strings.TrimSpace(msg.Order.Price)
++	}
++	qty := strings.TrimSpace(msg.Order.FilledQty)
++	if qty == "" || qty == "0" {
++		qty = strings.TrimSpace(msg.Order.Qty)
++	}
++
++	// TradeTime обычно точнее для позиционирования в heatmap.
++	ts := msg.Order.TradeTime
++	if ts <= 0 {
++		ts = msg.EventTime
++	}
++	if ts <= 0 {
++		ts = time.Now().UnixMilli()
++	}
++
++	notional, _ := mulDecimalStrings(price, qty)
++
++	return NormalizedEvent{
++		Source:      "binance_usdm",
++		Symbol:      sym,
++		EventTsMs:   ts,
++		RecvTsMs:    recvTsMs,
++		Price:       price,
++		Qty:         qty,
++		NotionalUsd: notional,
++		LiqSide:     liqSide,
++		RawSide:     side,
++	}, nil
++}
+diff --git a/internal/liquidation/binance_forceorder_test.go b/internal/liquidation/binance_forceorder_test.go
+new file mode 100644
+index 0000000..d2f67ba
+--- /dev/null
++++ b/internal/liquidation/binance_forceorder_test.go
+@@ -0,0 +1,27 @@
++package liquidation
++
++import "testing"
++
++func TestParseBinanceForceOrder(t *testing.T) {
++	// минимальный пример, приближенный к реальному payload (часть полей опущена).
++	raw := []byte(`{"e":"forceOrder","E":1710000000123,"o":{"s":"BTCUSDT","S":"SELL","p":"50000","ap":"50010","q":"0.10","z":"0.08","T":1710000000456}}`)
++	ev, err := ParseBinanceForceOrder(raw, 1710000000999)
++	if err != nil {
++		t.Fatalf("unexpected err: %v", err)
++	}
++	if ev.Symbol != "BTCUSDT" {
++		t.Fatalf("bad symbol: %q", ev.Symbol)
++	}
++	if ev.LiqSide != "long" {
++		t.Fatalf("expected liqSide=long, got %q", ev.LiqSide)
++	}
++	if ev.Price != "50010" {
++		t.Fatalf("expected avg price, got %q", ev.Price)
++	}
++	if ev.Qty != "0.08" {
++		t.Fatalf("expected filled qty, got %q", ev.Qty)
++	}
++	if ev.EventTsMs != 1710000000456 {
++		t.Fatalf("expected trade time, got %d", ev.EventTsMs)
++	}
++}
+diff --git a/internal/liquidation/bybit_all_liquidation.go b/internal/liquidation/bybit_all_liquidation.go
+new file mode 100644
+index 0000000..c4a7f8b
+--- /dev/null
++++ b/internal/liquidation/bybit_all_liquidation.go
+@@ -0,0 +1,100 @@
++package liquidation
++
++import (
++	"encoding/json"
++	"errors"
++	"strings"
++	"time"
++)
++
++// Bybit V5 Public allLiquidation stream.
++// Topic: allLiquidation.{symbol}
++// Endpoint (USDT perpetual / futures): wss://stream.bybit.com/v5/public/linear
++//
++// Нюанс:
++//
++//	поле data[].p в документации называется "Bankruptcy price".
++//	Heatmap сервисы часто используют именно bankruptcy price как уровень.
++//	Мы сохраняем его как Price.
++//
++// Сторона (data[].S):
++//   - Buy  => long liquidation
++//   - Sell => short liquidation
++type bybitAllLiqMsg struct {
++	Topic string           `json:"topic"`
++	Ts    int64            `json:"ts"`
++	Data  []bybitAllLiqRow `json:"data"`
++
++	// служебные поля (pong/subscribe responses)
++	Op      string `json:"op"`
++	Success *bool  `json:"success"`
++	RetMsg  string `json:"ret_msg"`
++}
++
++type bybitAllLiqRow struct {
++	T  int64  `json:"T"` // timestamp (ms)
++	S  string `json:"S"` // Buy/Sell
++	Sx string `json:"s"` // symbol
++
++	V string `json:"v"` // size
++	P string `json:"p"` // bankruptcy price
++}
++
++// ParseBybitAllLiquidation может вернуть несколько событий (data array).
++func ParseBybitAllLiquidation(raw []byte, recvTsMs int64) ([]NormalizedEvent, error) {
++	var msg bybitAllLiqMsg
++	if err := json.Unmarshal(raw, &msg); err != nil {
++		return nil, err
++	}
++
++	// Серверные ответы (pong/subscribe) не содержат topic/data.
++	if msg.Op != "" {
++		return nil, nil
++	}
++	if len(msg.Data) == 0 {
++		return nil, nil
++	}
++
++	out := make([]NormalizedEvent, 0, len(msg.Data))
++	for _, row := range msg.Data {
++		sym := strings.ToUpper(strings.TrimSpace(row.Sx))
++		if sym == "" {
++			return nil, errors.New("missing symbol")
++		}
++		rawSide := strings.TrimSpace(row.S)
++		liqSide := ""
++		switch strings.ToLower(rawSide) {
++		case "buy":
++			liqSide = "long"
++		case "sell":
++			liqSide = "short"
++		default:
++			return nil, errors.New("unknown side")
++		}
++
++		price := strings.TrimSpace(row.P)
++		qty := strings.TrimSpace(row.V)
++		ts := row.T
++		if ts <= 0 {
++			ts = msg.Ts
++		}
++		if ts <= 0 {
++			ts = time.Now().UnixMilli()
++		}
++
++		notional, _ := mulDecimalStrings(price, qty)
++
++		out = append(out, NormalizedEvent{
++			Source:      "bybit_linear",
++			Symbol:      sym,
++			EventTsMs:   ts,
++			RecvTsMs:    recvTsMs,
++			Price:       price,
++			Qty:         qty,
++			NotionalUsd: notional,
++			LiqSide:     liqSide,
++			RawSide:     rawSide,
++		})
++	}
++	return out, nil
++}
+diff --git a/internal/liquidation/bybit_all_liquidation_test.go b/internal/liquidation/bybit_all_liquidation_test.go
+new file mode 100644
+index 0000000..befc665
+--- /dev/null
++++ b/internal/liquidation/bybit_all_liquidation_test.go
+@@ -0,0 +1,31 @@
++package liquidation
++
++import "testing"
++
++func TestParseBybitAllLiquidation(t *testing.T) {
++	raw := []byte(`{"topic":"allLiquidation.BTCUSDT","ts":1710000000100,"data":[{"T":1710000000100,"S":"Buy","s":"BTCUSDT","v":"0.05","p":"49999.5"},{"T":1710000000200,"S":"Sell","s":"BTCUSDT","v":"0.07","p":"50010"}]}`)
++	evs, err := ParseBybitAllLiquidation(raw, 1710000000999)
++	if err != nil {
++		t.Fatalf("unexpected err: %v", err)
++	}
++	if len(evs) != 2 {
++		t.Fatalf("expected 2 events, got %d", len(evs))
++	}
++	if evs[0].LiqSide != "long" {
++		t.Fatalf("expected liqSide=long, got %q", evs[0].LiqSide)
++	}
++	if evs[1].LiqSide != "short" {
++		t.Fatalf("expected liqSide=short, got %q", evs[1].LiqSide)
++	}
++}
++
++func TestParseBybitAllLiquidation_IgnoresOpMessages(t *testing.T) {
++	raw := []byte(`{"op":"pong"}`)
++	evs, err := ParseBybitAllLiquidation(raw, 0)
++	if err != nil {
++		t.Fatalf("unexpected err: %v", err)
++	}
++	if len(evs) != 0 {
++		t.Fatalf("expected 0 events, got %d", len(evs))
++	}
++}
+diff --git a/internal/liquidation/config.go b/internal/liquidation/config.go
+new file mode 100644
+index 0000000..233b66c
+--- /dev/null
++++ b/internal/liquidation/config.go
+@@ -0,0 +1,168 @@
++package liquidation
++
++import (
++	"os"
++	"strconv"
++	"strings"
++	"time"
++)
++
++// Config — конфигурация ingestion сервиса ликвидаций.
++//
++// ENV ключи:
++//
++//	LIQ_WS_ENABLED=true|false
++//	LIQ_SYMBOLS=BTCUSDT,ETHUSDT
++//
++//	LIQ_BINANCE_ENABLED=true|false
++//	LIQ_BINANCE_WS_URL=wss://fstream.binance.com/ws/!forceOrder@arr
++//
++//	LIQ_BYBIT_ENABLED=true|false
++//	LIQ_BYBIT_WS_URL=wss://stream.bybit.com/v5/public/linear
++//	LIQ_BYBIT_PING_MS=20000
++//
++//	LIQ_STREAM=stream:liq_evt
++//	LIQ_QUARANTINE_STREAM=stream:liq_evt_quarantine
++//
++//	LIQ_BATCH_SIZE=200
++//	LIQ_FLUSH_MS=20
++//	LIQ_STREAM_MAXLEN=200000
++//
++//	LIQ_MAX_EVENT_AGE_MS=10000
++//	LIQ_MAX_FUTURE_SKEW_MS=2000
++//	LIQ_MAX_OOO_MS=2000
++//	LIQ_ENABLE_QUARANTINE=true|false
++type Config struct {
++	Enabled bool
++
++	Symbols []string
++
++	BinanceEnabled bool
++	BinanceWSURL   string
++
++	BybitEnabled bool
++	BybitWSURL   string
++
++	Stream           string
++	QuarantineStream string
++
++	BatchSize     int
++	FlushInterval time.Duration
++	StreamMaxLen  int64
++
++	DQ DQPolicy
++
++	BybitPingPeriod time.Duration
++}
++
++func parseBoolEnv(key string, def bool) bool {
++	v := strings.TrimSpace(os.Getenv(key))
++	if v == "" {
++		return def
++	}
++	switch strings.ToLower(v) {
++	case "0", "false", "off", "no":
++		return false
++	case "1", "true", "on", "yes":
++		return true
++	default:
++		return def
++	}
++}
++
++func parseIntEnv(key string, def int) int {
++	v := strings.TrimSpace(os.Getenv(key))
++	if v == "" {
++		return def
++	}
++	i, err := strconv.Atoi(v)
++	if err != nil {
++		return def
++	}
++	return i
++}
++
++func parseInt64Env(key string, def int64) int64 {
++	v := strings.TrimSpace(os.Getenv(key))
++	if v == "" {
++		return def
++	}
++	i, err := strconv.ParseInt(v, 10, 64)
++	if err != nil {
++		return def
++	}
++	return i
++}
++
++func parseDurationMsEnv(key string, def time.Duration) time.Duration {
++	v := strings.TrimSpace(os.Getenv(key))
++	if v == "" {
++		return def
++	}
++	ms, err := strconv.ParseInt(v, 10, 64)
++	if err != nil || ms <= 0 {
++		return def
++	}
++	return time.Duration(ms) * time.Millisecond
++}
++
++func parseSymbolsEnv(key string, fallback []string) []string {
++	raw := strings.TrimSpace(os.Getenv(key))
++	if raw == "" {
++		return fallback
++	}
++	parts := strings.Split(raw, ",")
++	out := make([]string, 0, len(parts))
++	for _, p := range parts {
++		s := strings.ToUpper(strings.TrimSpace(p))
++		if s != "" {
++			out = append(out, s)
++		}
++	}
++	if len(out) == 0 {
++		return fallback
++	}
++	return out
++}
++
++// LoadConfigFromEnv выставляет безопасные дефолты (SAFE режим).
++func LoadConfigFromEnv(fallbackSymbols []string) Config {
++	symbols := parseSymbolsEnv("LIQ_SYMBOLS", fallbackSymbols)
++
++	cfg := Config{
++		Enabled:          parseBoolEnv("LIQ_WS_ENABLED", false),
++		Symbols:          symbols,
++		BinanceEnabled:   parseBoolEnv("LIQ_BINANCE_ENABLED", true),
++		BinanceWSURL:     strings.TrimSpace(os.Getenv("LIQ_BINANCE_WS_URL")),
++		BybitEnabled:     parseBoolEnv("LIQ_BYBIT_ENABLED", false),
++		BybitWSURL:       strings.TrimSpace(os.Getenv("LIQ_BYBIT_WS_URL")),
++		Stream:           strings.TrimSpace(os.Getenv("LIQ_STREAM")),
++		QuarantineStream: strings.TrimSpace(os.Getenv("LIQ_QUARANTINE_STREAM")),
++		BatchSize:        parseIntEnv("LIQ_BATCH_SIZE", 200),
++		FlushInterval:    parseDurationMsEnv("LIQ_FLUSH_MS", 20*time.Millisecond),
++		StreamMaxLen:     parseInt64Env("LIQ_STREAM_MAXLEN", 200_000),
++		BybitPingPeriod:  parseDurationMsEnv("LIQ_BYBIT_PING_MS", 20*time.Second),
++	}
++
++	if cfg.BinanceWSURL == "" {
++		cfg.BinanceWSURL = "wss://fstream.binance.com/ws/!forceOrder@arr"
++	}
++	if cfg.BybitWSURL == "" {
++		cfg.BybitWSURL = "wss://stream.bybit.com/v5/public/linear"
++	}
++	if cfg.Stream == "" {
++		cfg.Stream = "stream:liq_evt"
++	}
++	if cfg.QuarantineStream == "" {
++		cfg.QuarantineStream = "stream:liq_evt_quarantine"
++	}
++
++	dq := DefaultDQPolicy(symbols)
++	dq.MaxEventAge = parseDurationMsEnv("LIQ_MAX_EVENT_AGE_MS", 10*time.Second)
++	dq.MaxFutureSkew = parseDurationMsEnv("LIQ_MAX_FUTURE_SKEW_MS", 2*time.Second)
++	dq.MaxOutOfOrder = parseDurationMsEnv("LIQ_MAX_OOO_MS", 2*time.Second)
++	dq.EnableQuarantine = parseBoolEnv("LIQ_ENABLE_QUARANTINE", true)
++	cfg.DQ = dq
++
++	return cfg
++}
+diff --git a/internal/liquidation/controller.go b/internal/liquidation/controller.go
+new file mode 100644
+index 0000000..71bc687
+--- /dev/null
++++ b/internal/liquidation/controller.go
+@@ -0,0 +1,327 @@
++package liquidation
++
++import (
++	"context"
++	"log"
++	"math"
++	"os"
++	"sync"
++	"time"
++
++	goredis "github.com/go-redis/redis/v8"
++	"github.com/gorilla/websocket"
++
++	"go-worker/internal/monitoring"
++	"go-worker/internal/redis"
++	"go-worker/internal/wsconn"
++)
++
++// Controller отвечает за получение liquidation feeds из WS и публикацию в Redis Streams.
++//
++// Граница ответственности:
++//   - ingestion + нормализация + базовая DQ фильтрация
++//   - публикация нормализованных событий (плоский DTO) в Redis Stream
++//
++// НЕ делает:
++//   - построение heatmap/кластеров (это Python worker)
++//   - хранение истории (это Timescale/ETL)
++type Controller struct {
++	cfg Config
++
++	rdb *goredis.Client
++
++	pub  *redis.BatchStreamPublisher
++	qpub *redis.BatchStreamPublisher
++
++	logger  *log.Logger
++	metrics *monitoring.LiquidationMetrics
++
++	wg sync.WaitGroup
++}
++
++func NewController(rdb *goredis.Client, cfg Config, logger *log.Logger) *Controller {
++	if logger == nil {
++		logger = log.New(os.Stdout, "[liq] ", log.LstdFlags|log.Lmicroseconds)
++	}
++	pub := redis.NewBatchStreamPublisher(rdb, cfg.Stream, cfg.StreamMaxLen, cfg.BatchSize, cfg.FlushInterval)
++	var qpub *redis.BatchStreamPublisher
++	if cfg.DQ.EnableQuarantine {
++		// quarantine держим короче (чтобы не забивать Redis).
++		qpub = redis.NewBatchStreamPublisher(rdb, cfg.QuarantineStream, 50_000, 200, 50*time.Millisecond)
++	}
++	return &Controller{
++		cfg:     cfg,
++		rdb:     rdb,
++		pub:     pub,
++		qpub:    qpub,
++		logger:  logger,
++		metrics: monitoring.NewLiquidationMetrics(),
++	}
++}
++
++func (c *Controller) Start(ctx context.Context) {
++	c.pub.Start(ctx)
++	if c.qpub != nil {
++		c.qpub.Start(ctx)
++	}
++
++	if !c.cfg.Enabled {
++		c.logger.Printf("liquidation WS disabled (LIQ_WS_ENABLED=false)")
++		return
++	}
++
++	if c.cfg.BinanceEnabled {
++		c.wg.Add(1)
++		go func() {
++			defer c.wg.Done()
++			c.runBinance(ctx)
++		}()
++	}
++	if c.cfg.BybitEnabled {
++		c.wg.Add(1)
++		go func() {
++			defer c.wg.Done()
++			c.runBybit(ctx)
++		}()
++	}
++}
++
++func (c *Controller) Stop(timeout time.Duration) {
++	done := make(chan struct{})
++	go func() {
++		c.wg.Wait()
++		close(done)
++	}()
++	select {
++	case <-done:
++	case <-time.After(timeout):
++	}
++
++	_ = c.pub.Close(2 * time.Second)
++	if c.qpub != nil {
++		_ = c.qpub.Close(2 * time.Second)
++	}
++}
++
++func (c *Controller) publishNormalized(ev NormalizedEvent) bool {
++	values := map[string]interface{}{
++		"src":          ev.Source,
++		"symbol":       ev.Symbol,
++		"ts_ms":        ev.EventTsMs,
++		"recv_ts_ms":   ev.RecvTsMs,
++		"price":        ev.Price,
++		"qty":          ev.Qty,
++		"notional_usd": ev.NotionalUsd,
++		"liq_side":     ev.LiqSide,
++		"raw_side":     ev.RawSide,
++	}
++	return c.pub.Enqueue(values)
++}
++
++func (c *Controller) quarantine(ev NormalizedEvent, reason string) {
++	if c.qpub == nil {
++		return
++	}
++	values := map[string]interface{}{
++		"src":          ev.Source,
++		"symbol":       ev.Symbol,
++		"ts_ms":        ev.EventTsMs,
++		"recv_ts_ms":   ev.RecvTsMs,
++		"price":        ev.Price,
++		"qty":          ev.Qty,
++		"notional_usd": ev.NotionalUsd,
++		"liq_side":     ev.LiqSide,
++		"raw_side":     ev.RawSide,
++		"reason":       reason,
++	}
++	_ = c.qpub.Enqueue(values)
++}
++
++func (c *Controller) runBinance(ctx context.Context) {
++	source := "binance_usdm"
++	backoff := time.Second
++
++	wsCfg := wsconn.DefaultConfig
++	wsCfg.ReadTimeout = 60 * time.Second
++
++	for {
++		select {
++		case <-ctx.Done():
++			c.metrics.SetConnected(source, false)
++			return
++		default:
++		}
++
++		conn, err := wsconn.Dial(ctx, c.cfg.BinanceWSURL, wsCfg)
++		if err != nil {
++			c.metrics.SetConnected(source, false)
++			c.logger.Printf("binance dial error: %v", err)
++			time.Sleep(backoff)
++			backoff = time.Duration(math.Min(float64(15*time.Second), float64(backoff*2)))
++			continue
++		}
++		backoff = time.Second
++		c.metrics.SetConnected(source, true)
++		c.logger.Printf("binance connected: %s", c.cfg.BinanceWSURL)
++
++		_ = conn.SetReadDeadline(time.Now().Add(wsCfg.ReadTimeout))
++		conn.SetPongHandler(func(appData string) error {
++			_ = conn.SetReadDeadline(time.Now().Add(wsCfg.ReadTimeout))
++			return nil
++		})
++
++		for {
++			select {
++			case <-ctx.Done():
++				_ = conn.Close()
++				c.metrics.SetConnected(source, false)
++				return
++			default:
++			}
++
++			_, msg, err := conn.ReadMessage()
++			if err != nil {
++				c.metrics.SetConnected(source, false)
++				c.logger.Printf("binance read error: %v", err)
++				_ = conn.Close()
++				break
++			}
++			nowMs := time.Now().UnixMilli()
++			c.metrics.IncIn(source, 1)
++
++			ev, err := ParseBinanceForceOrder(msg, nowMs)
++			if err != nil {
++				c.metrics.ParseErr(source)
++				continue
++			}
++
++			ok, reason := c.cfg.DQ.Validate(ev, nowMs)
++			if !ok {
++				c.metrics.Drop(source, reason, 1)
++				c.quarantine(ev, reason)
++				continue
++			}
++			c.metrics.ObserveLag(source, nowMs-ev.EventTsMs)
++
++			if !c.publishNormalized(ev) {
++				c.metrics.Drop(source, "queue_full", 1)
++				c.quarantine(ev, "queue_full")
++				continue
++			}
++			c.metrics.IncPublished(source, 1)
++		}
++	}
++}
++
++func (c *Controller) runBybit(ctx context.Context) {
++	source := "bybit_linear"
++	backoff := time.Second
++
++	wsCfg := wsconn.DefaultConfig
++	wsCfg.ReadTimeout = 90 * time.Second
++
++	topics := make([]string, 0, len(c.cfg.Symbols))
++	for _, s := range c.cfg.Symbols {
++		topics = append(topics, "allLiquidation."+s)
++	}
++	subscribeMsg := map[string]interface{}{
++		"op":   "subscribe",
++		"args": topics,
++	}
++
++	for {
++		select {
++		case <-ctx.Done():
++			c.metrics.SetConnected(source, false)
++			return
++		default:
++		}
++
++		conn, err := wsconn.Dial(ctx, c.cfg.BybitWSURL, wsCfg)
++		if err != nil {
++			c.metrics.SetConnected(source, false)
++			c.logger.Printf("bybit dial error: %v", err)
++			time.Sleep(backoff)
++			backoff = time.Duration(math.Min(float64(15*time.Second), float64(backoff*2)))
++			continue
++		}
++		backoff = time.Second
++		c.metrics.SetConnected(source, true)
++		c.logger.Printf("bybit connected: %s", c.cfg.BybitWSURL)
++
++		if err := conn.WriteJSON(subscribeMsg); err != nil {
++			c.logger.Printf("bybit subscribe write error: %v", err)
++			_ = conn.Close()
++			c.metrics.SetConnected(source, false)
++			continue
++		}
++
++		// Heartbeat (op:ping) — Bybit V5 требует application-level ping.
++		pingStop := make(chan struct{})
++		go func() {
++			ticker := time.NewTicker(c.cfg.BybitPingPeriod)
++			defer ticker.Stop()
++			for {
++				select {
++				case <-pingStop:
++					return
++				case <-ctx.Done():
++					return
++				case <-ticker.C:
++					_ = conn.WriteJSON(map[string]interface{}{"op": "ping"})
++				}
++			}
++		}()
++
++		for {
++			select {
++			case <-ctx.Done():
++				close(pingStop)
++				_ = conn.Close()
++				c.metrics.SetConnected(source, false)
++				return
++			default:
++			}
++
++			mt, msg, err := conn.ReadMessage()
++			if err != nil {
++				close(pingStop)
++				c.metrics.SetConnected(source, false)
++				c.logger.Printf("bybit read error: %v", err)
++				_ = conn.Close()
++				break
++			}
++			if mt != websocket.TextMessage && mt != websocket.BinaryMessage {
++				continue
++			}
++
++			nowMs := time.Now().UnixMilli()
++			evs, err := ParseBybitAllLiquidation(msg, nowMs)
++			if err != nil {
++				c.metrics.ParseErr(source)
++				continue
++			}
++			if len(evs) == 0 {
++				continue
++			}
++			c.metrics.IncIn(source, len(evs))
++			for _, ev := range evs {
++				ok, reason := c.cfg.DQ.Validate(ev, nowMs)
++				if !ok {
++					c.metrics.Drop(source, reason, 1)
++					c.quarantine(ev, reason)
++					continue
++				}
++				c.metrics.ObserveLag(source, nowMs-ev.EventTsMs)
++
++				if !c.publishNormalized(ev) {
++					c.metrics.Drop(source, "queue_full", 1)
++					c.quarantine(ev, "queue_full")
++					continue
++				}
++				c.metrics.IncPublished(source, 1)
++			}
++			c.metrics.TickRate(source, len(evs))
++		}
++	}
++}
+diff --git a/internal/liquidation/decimal.go b/internal/liquidation/decimal.go
+new file mode 100644
+index 0000000..970c7b5
+--- /dev/null
++++ b/internal/liquidation/decimal.go
+@@ -0,0 +1,32 @@
++package liquidation
++
++import (
++	"errors"
++	"math/big"
++	"strings"
++)
++
++// mulDecimalStrings перемножает два десятичных числа (строки) и возвращает строку.
++//
++// Используем big.Rat вместо float64, чтобы:
++//   - избежать накопления ошибок округления
++//   - обеспечить детерминизм
++//
++// Форматируем результат с 8 знаками после запятой.
++func mulDecimalStrings(a, b string) (string, error) {
++	a = strings.TrimSpace(a)
++	b = strings.TrimSpace(b)
++	if a == "" || b == "" {
++		return "", errors.New("empty operand")
++	}
++	ra, ok := new(big.Rat).SetString(a)
++	if !ok {
++		return "", errors.New("bad decimal a")
++	}
++	rb, ok := new(big.Rat).SetString(b)
++	if !ok {
++		return "", errors.New("bad decimal b")
++	}
++	out := new(big.Rat).Mul(ra, rb)
++	return out.FloatString(8), nil
++}
+diff --git a/internal/liquidation/decimal_test.go b/internal/liquidation/decimal_test.go
+new file mode 100644
+index 0000000..fc96a62
+--- /dev/null
++++ b/internal/liquidation/decimal_test.go
+@@ -0,0 +1,14 @@
++package liquidation
++
++import "testing"
++
++func TestMulDecimalStrings(t *testing.T) {
++	out, err := mulDecimalStrings("50000", "0.08")
++	if err != nil {
++		t.Fatalf("unexpected err: %v", err)
++	}
++	// 50000 * 0.08 = 4000
++	if out != "4000.00000000" {
++		t.Fatalf("unexpected out: %s", out)
++	}
++}
+diff --git a/internal/liquidation/dq.go b/internal/liquidation/dq.go
+new file mode 100644
+index 0000000..ea90d30
+--- /dev/null
++++ b/internal/liquidation/dq.go
+@@ -0,0 +1,93 @@
++package liquidation
++
++import (
++	"strings"
++	"sync"
++	"time"
++)
++
++// DQPolicy — правила качества данных для liquidation events.
++//
++// Цели:
++//   - отбрасывать stale/future-skew
++//   - обеспечивать монотонность времени по символу (в пределах MaxOutOfOrder)
++//   - фильтровать по allowlist
++type DQPolicy struct {
++	MaxEventAge   time.Duration
++	MaxFutureSkew time.Duration
++	MaxOutOfOrder time.Duration
++
++	AllowSymbols map[string]struct{} // uppercase
++
++	EnableQuarantine bool
++
++	mu       sync.Mutex
++	lastTsMs map[string]int64
++}
++
++func DefaultDQPolicy(allowSymbols []string) DQPolicy {
++	m := map[string]struct{}{}
++	for _, s := range allowSymbols {
++		s = strings.ToUpper(strings.TrimSpace(s))
++		if s != "" {
++			m[s] = struct{}{}
++		}
++	}
++	return DQPolicy{
++		MaxEventAge:      10 * time.Second,
++		MaxFutureSkew:    2 * time.Second,
++		MaxOutOfOrder:    2 * time.Second,
++		AllowSymbols:     m,
++		EnableQuarantine: true,
++		lastTsMs:         map[string]int64{},
++	}
++}
++
++// Validate возвращает (ok, reason).
++func (p *DQPolicy) Validate(ev NormalizedEvent, nowMs int64) (bool, string) {
++	if ev.Symbol == "" {
++		return false, "missing_symbol"
++	}
++	if len(p.AllowSymbols) > 0 {
++		if _, ok := p.AllowSymbols[ev.Symbol]; !ok {
++			return false, "filtered_symbol"
++		}
++	}
++	if ev.EventTsMs <= 0 {
++		return false, "bad_ts"
++	}
++	if strings.TrimSpace(ev.Price) == "" {
++		return false, "missing_price"
++	}
++	if strings.TrimSpace(ev.Qty) == "" {
++		return false, "missing_qty"
++	}
++
++	if p.MaxEventAge > 0 {
++		if nowMs-ev.EventTsMs > p.MaxEventAge.Milliseconds() {
++			return false, "stale"
++		}
++	}
++	if p.MaxFutureSkew > 0 {
++		if ev.EventTsMs-nowMs > p.MaxFutureSkew.Milliseconds() {
++			return false, "future_skew"
++		}
++	}
++	if p.MaxOutOfOrder > 0 {
++		p.mu.Lock()
++		last, ok := p.lastTsMs[ev.Symbol]
++		if !ok || ev.EventTsMs >= last {
++			p.lastTsMs[ev.Symbol] = ev.EventTsMs
++			p.mu.Unlock()
++			return true, ""
++		}
++		// allow small OOO window
++		if last-ev.EventTsMs <= p.MaxOutOfOrder.Milliseconds() {
++			p.mu.Unlock()
++			return true, ""
++		}
++		p.mu.Unlock()
++		return false, "out_of_order"
++	}
++	return true, ""
++}
+diff --git a/internal/liquidation/dq_test.go b/internal/liquidation/dq_test.go
+new file mode 100644
+index 0000000..b778840
+--- /dev/null
++++ b/internal/liquidation/dq_test.go
+@@ -0,0 +1,33 @@
++package liquidation
++
++import "testing"
++
++func TestDQPolicy_StaleAndOOO(t *testing.T) {
++	p := DefaultDQPolicy([]string{"BTCUSDT"})
++	now := int64(1_000_000)
++
++	// ok
++	ev1 := NormalizedEvent{Symbol: "BTCUSDT", EventTsMs: now - 1000, Price: "1", Qty: "1"}
++	ok, reason := p.Validate(ev1, now)
++	if !ok {
++		t.Fatalf("expected ok, got %v (%s)", ok, reason)
++	}
++
++	// out-of-order beyond window
++	ev2 := NormalizedEvent{Symbol: "BTCUSDT", EventTsMs: now - 10_000, Price: "1", Qty: "1"}
++	ok, reason = p.Validate(ev2, now)
++	if ok {
++		t.Fatalf("expected not ok")
++	}
++	if reason != "out_of_order" && reason != "stale" {
++		// depending on MaxEventAge
++		t.Fatalf("unexpected reason: %s", reason)
++	}
++
++	// filtered symbol
++	ev3 := NormalizedEvent{Symbol: "ETHUSDT", EventTsMs: now - 1000, Price: "1", Qty: "1"}
++	ok, reason = p.Validate(ev3, now)
++	if ok || reason != "filtered_symbol" {
++		t.Fatalf("expected filtered_symbol, got ok=%v reason=%s", ok, reason)
++	}
++}
+diff --git a/internal/liquidation/types.go b/internal/liquidation/types.go
+new file mode 100644
+index 0000000..f271c92
+--- /dev/null
++++ b/internal/liquidation/types.go
+@@ -0,0 +1,24 @@
++package liquidation
++
++// NormalizedEvent — унифицированное liquidation событие.
++//
++// Контракт:
++//   - все времена — epoch milliseconds (UTC)
++//   - price/qty/notionalUsd — строки (Decimal-as-string), чтобы избежать float rounding
++//   - LiqSide — сторона ликвидируемой позиции: "long" или "short"
++type NormalizedEvent struct {
++	Source string // e.g. "binance_usdm", "bybit_linear"
++
++	Symbol string // "BTCUSDT"
++
++	EventTsMs int64 // timestamp биржи (trade time, если доступно)
++	RecvTsMs  int64 // timestamp приёма/нормализации
++
++	Price string // bankruptcy/mark/exec price depending on venue
++	Qty   string // executed size (обычно в базовой валюте)
++
++	NotionalUsd string // Price * Qty
++
++	LiqSide string // "long" | "short" — позиция, которую ликвидировали
++	RawSide string // исходная сторона из payload
++}
+diff --git a/internal/monitoring/liquidation_metrics.go b/internal/monitoring/liquidation_metrics.go
+new file mode 100644
+index 0000000..a83e54b
+--- /dev/null
++++ b/internal/monitoring/liquidation_metrics.go
+@@ -0,0 +1,138 @@
++package monitoring
++
++import (
++	"time"
++
++	"github.com/prometheus/client_golang/prometheus"
++	"github.com/prometheus/client_golang/prometheus/promauto"
++)
++
++// Метрики для ingestion потока ликвидаций.
++//
++// Важно разделять:
++//   - parse/validation ошибки (плохой формат)
++//   - DQ-отбросы (stale/out-of-order/unknown symbol)
++//   - задержки (end-to-end)
++var (
++	liqWsConnections = promauto.NewGaugeVec(
++		prometheus.GaugeOpts{
++			Name: "liq_ws_connected",
++			Help: "Статус WS соединения по источнику (1 = connected, 0 = disconnected)",
++		},
++		[]string{"source"},
++	)
++
++	liqEventsInTotal = promauto.NewCounterVec(
++		prometheus.CounterOpts{
++			Name: "liq_events_in_total",
++			Help: "Сколько liquidation событий пришло из WS (до фильтрации)",
++		},
++		[]string{"source"},
++	)
++
++	liqEventsPublishedTotal = promauto.NewCounterVec(
++		prometheus.CounterOpts{
++			Name: "liq_events_published_total",
++			Help: "Сколько liquidation событий опубликовано в Redis Stream",
++		},
++		[]string{"source"},
++	)
++
++	liqEventsDroppedTotal = promauto.NewCounterVec(
++		prometheus.CounterOpts{
++			Name: "liq_events_dropped_total",
++			Help: "Сколько liquidation событий было отброшено (DQ/фильтр/очередь)",
++		},
++		[]string{"source", "reason"},
++	)
++
++	liqParseErrorsTotal = promauto.NewCounterVec(
++		prometheus.CounterOpts{
++			Name: "liq_parse_errors_total",
++			Help: "Ошибки парсинга WS payload",
++		},
++		[]string{"source"},
++	)
++
++	liqEventLagMs = promauto.NewHistogramVec(
++		prometheus.HistogramOpts{
++			Name:    "liq_event_lag_ms",
++			Help:    "Лаг события (now_ms - event_ts_ms)",
++			Buckets: []float64{0, 25, 50, 100, 250, 500, 1000, 2000, 5000, 10000},
++		},
++		[]string{"source"},
++	)
++
++	liqEventsRate = promauto.NewGaugeVec(
++		prometheus.GaugeOpts{
++			Name: "liq_events_rate_eps",
++			Help: "Оценка входного потока событий (events/sec)",
++		},
++		[]string{"source"},
++	)
++)
++
++type LiquidationMetrics struct {
++	lastTick map[string]time.Time
++}
++
++func NewLiquidationMetrics() *LiquidationMetrics {
++	return &LiquidationMetrics{lastTick: map[string]time.Time{}}
++}
++
++func (m *LiquidationMetrics) SetConnected(source string, ok bool) {
++	if ok {
++		liqWsConnections.WithLabelValues(source).Set(1)
++		return
++	}
++	liqWsConnections.WithLabelValues(source).Set(0)
++}
++
++func (m *LiquidationMetrics) IncIn(source string, n int) {
++	if n <= 0 {
++		return
++	}
++	liqEventsInTotal.WithLabelValues(source).Add(float64(n))
++}
++
++func (m *LiquidationMetrics) IncPublished(source string, n int) {
++	if n <= 0 {
++		return
++	}
++	liqEventsPublishedTotal.WithLabelValues(source).Add(float64(n))
++}
++
++func (m *LiquidationMetrics) Drop(source, reason string, n int) {
++	if n <= 0 {
++		return
++	}
++	liqEventsDroppedTotal.WithLabelValues(source, reason).Add(float64(n))
++}
++
++func (m *LiquidationMetrics) ParseErr(source string) {
++	liqParseErrorsTotal.WithLabelValues(source).Inc()
++}
++
++func (m *LiquidationMetrics) ObserveLag(source string, lagMs int64) {
++	if lagMs < 0 {
++		lagMs = 0
++	}
++	liqEventLagMs.WithLabelValues(source).Observe(float64(lagMs))
++}
++
++// TickRate обновляет gauge EPS (примерная оценка).
++// Вызывайте не чаще, чем раз в ~1s.
++func (m *LiquidationMetrics) TickRate(source string, events int) {
++	now := time.Now()
++	prev, ok := m.lastTick[source]
++	if !ok {
++		m.lastTick[source] = now
++		return
++	}
++	dt := now.Sub(prev).Seconds()
++	if dt <= 0 {
++		return
++	}
++	liqEventsRate.WithLabelValues(source).Set(float64(events) / dt)
++	m.lastTick[source] = now
++}
+diff --git a/internal/redis/batch_stream_publisher.go b/internal/redis/batch_stream_publisher.go
+new file mode 100644
+index 0000000..47b0b8a
+--- /dev/null
++++ b/internal/redis/batch_stream_publisher.go
+@@ -0,0 +1,182 @@
++package redis
++
++import (
++	"context"
++	"log"
++	"sync"
++	"time"
++
++	goredis "github.com/go-redis/redis/v8"
++
++	"go-worker/infra/redisclient"
++)
++
++// BatchStreamPublisher — батч-паблишер для Redis Streams.
++//
++// Зачем:
++//   - liquidation events (forceOrder / allLiquidation) часто приходят пачками во время резких движений;
++//     XADD на каждое событие создаёт лишнюю нагрузку и увеличивает tail-latency.
++//   - батч стабилизирует задержку и снижает RPS на Redis.
++//
++// Поведение:
++//   - Enqueue() кладёт запись в буфер.
++//   - Фоновый флашер пишет в Redis каждые flushInterval или при достижении maxBatch.
++//   - При переполнении буфера событие отбрасывается (fail-open), но caller обязан зафиксировать это метрикой.
++//
++// Важно:
++//   - Это best-effort доставка. Если вам нужна гарантия без потерь, используйте consumer groups + durable
++//     ingestion слой и/или отдельный брокер.
++type BatchStreamPublisher struct {
++	client        *goredis.Client
++	stream        string
++	maxLenApprox  int64
++	maxBatch      int
++	flushInterval time.Duration
++
++	mu     sync.Mutex
++	buffer []goredis.XAddArgs
++
++	// maxBuffer — hard cap на размер буфера (в записях).
++	// Если Redis недоступен, flush не сможет выгрузить данные, и буфер начнёт расти.
++	// Чтобы не съесть всю память контейнера, вводим жёсткий предел.
++	maxBuffer int
++
++	triggerCh chan struct{}
++	stopCh    chan struct{}
++	once      sync.Once
++}
++
++// NewBatchStreamPublisher создаёт publisher для конкретного stream.
++// maxLenApprox — примерный MAXLEN (~) для XADD.
++func NewBatchStreamPublisher(client *goredis.Client, stream string, maxLenApprox int64, maxBatch int, flushInterval time.Duration) *BatchStreamPublisher {
++	if maxBatch <= 0 {
++		maxBatch = 100
++	}
++	if flushInterval <= 0 {
++		flushInterval = 10 * time.Millisecond
++	}
++	if maxLenApprox <= 0 {
++		maxLenApprox = 200_000
++	}
++	return &BatchStreamPublisher{
++		client:        client,
++		stream:        stream,
++		maxLenApprox:  maxLenApprox,
++		maxBatch:      maxBatch,
++		flushInterval: flushInterval,
++		buffer:        make([]goredis.XAddArgs, 0, maxBatch),
++		maxBuffer:     maxBatch * 20,
++		triggerCh:     make(chan struct{}, 1),
++		stopCh:        make(chan struct{}),
++	}
++}
++
++func (p *BatchStreamPublisher) Start(ctx context.Context) {
++	go func() {
++		ticker := time.NewTicker(p.flushInterval)
++		defer ticker.Stop()
++		for {
++			select {
++			case <-ctx.Done():
++				_ = p.Close(2 * time.Second)
++				return
++			case <-p.stopCh:
++				return
++			case <-p.triggerCh:
++				if err := p.Flush(); err != nil {
++					log.Printf("[batch_stream_publisher] Flush error: %v", err)
++				}
++			case <-ticker.C:
++				if err := p.Flush(); err != nil {
++					log.Printf("[batch_stream_publisher] Flush error: %v", err)
++				}
++			}
++		}
++	}()
++}
++
++// Enqueue добавляет запись в буфер.
++// Возвращает false, если буфер переполнен.
++func (p *BatchStreamPublisher) Enqueue(values map[string]interface{}) bool {
++	p.mu.Lock()
++	defer p.mu.Unlock()
++
++	if p.maxBuffer > 0 && len(p.buffer) >= p.maxBuffer {
++		return false
++	}
++
++	args := goredis.XAddArgs{
++		Stream:       p.stream,
++		Values:       values,
++		MaxLenApprox: p.maxLenApprox,
++	}
++	p.buffer = append(p.buffer, args)
++	if len(p.buffer) >= p.maxBatch {
++		select {
++		case p.triggerCh <- struct{}{}:
++		default:
++		}
++	}
++	return true
++}
++
++// Flush публикует текущий буфер в Redis.
++func (p *BatchStreamPublisher) Flush() error {
++	p.mu.Lock()
++	if len(p.buffer) == 0 {
++		p.mu.Unlock()
++		return nil
++	}
++	batch := make([]goredis.XAddArgs, len(p.buffer))
++	copy(batch, p.buffer)
++	p.buffer = p.buffer[:0]
++	p.mu.Unlock()
++
++	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
++	defer cancel()
++
++	pipe := p.client.Pipeline()
++	for i := range batch {
++		args := batch[i]
++		pipe.XAdd(ctx, &args)
++	}
++	_, err := pipe.Exec(ctx)
++	if err == nil {
++		return nil
++	}
++
++	// Fallback по одному (дороже, но лучше, чем потерять весь батч).
++	var first error
++	for i := range batch {
++		args := batch[i]
++		_, e := redisclient.XAddWithRetry(ctx, p.client, &args)
++		if e != nil && first == nil {
++			first = e
++		}
++	}
++	if first != nil {
++		return first
++	}
++	return err
++}
++
++// Close останавливает publisher и делает финальный Flush.
++func (p *BatchStreamPublisher) Close(timeout time.Duration) error {
++	var err error
++	p.once.Do(func() {
++		close(p.stopCh)
++
++		done := make(chan struct{})
++		go func() {
++			err = p.Flush()
++			close(done)
++		}()
++
++		select {
++		case <-done:
++		case <-time.After(timeout):
++			// best-effort
++		}
++	})
++	return err
++}

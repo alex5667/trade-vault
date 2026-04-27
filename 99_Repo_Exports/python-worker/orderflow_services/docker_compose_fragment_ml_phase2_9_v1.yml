@@ -1,0 +1,64 @@
+services:
+  scanner-operator-rca-routing-incident-to-vertex-bridge-v2-9:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    command: ["python", "-m", "orderflow_services.operator_rca_routing_incident_to_vertex_bridge_v2_9"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      ML_OPERATOR_RCA_ROUTING_RCA_BRIDGE_PORT: ${ML_OPERATOR_RCA_ROUTING_RCA_BRIDGE_PORT:-9884}
+    ports:
+      - "${ML_OPERATOR_RCA_ROUTING_RCA_BRIDGE_PORT:-9884}:9884"
+    networks:
+      - scanner-network
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9884/metrics >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
+
+  scanner-operator-rca-routing-incident-rca-orchestrator-v2-9:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    command: ["python", "-m", "orderflow_services.ml_operator_routing_incident_rca_orchestrator_v2_9"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://trading:${TRADING_PASSWORD}@scanner-pgbouncer:5432/scanner_analytics?sslmode=disable}
+      VERTEX_PROJECT_ID: ${VERTEX_PROJECT_ID:-test-project}
+      VERTEX_LOCATION: ${VERTEX_LOCATION:-global}
+      VERTEX_ROUTING_INCIDENT_RCA_MODEL: ${VERTEX_ROUTING_INCIDENT_RCA_MODEL:-gemini-2.5-flash-lite}
+      VERTEX_ROUTING_INCIDENT_RCA_DRY_RUN: ${VERTEX_ROUTING_INCIDENT_RCA_DRY_RUN:-1}
+      ML_OPERATOR_RCA_ROUTING_RCA_PORT: ${ML_OPERATOR_RCA_ROUTING_RCA_PORT:-9885}
+    ports:
+      - "${ML_OPERATOR_RCA_ROUTING_RCA_PORT:-9885}:9885"
+    networks:
+      - scanner-network
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9885/metrics >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
+
+networks:
+  scanner-network:
+    external: true
+

@@ -1,0 +1,1103 @@
+diff --git a/Makefile b/Makefile
+index 5043dd6..67eecfa 100644
+--- a/Makefile
++++ b/Makefile
+@@ -196,6 +196,36 @@ help:
+ 	@echo "  make emergency-fix     # Быстрое исправление проблем"
+ 	@echo ""
+ 
++# ═══════════════════════════════════════════════════════════════
++# A/B Entry Policy Testing
++# ═══════════════════════════════════════════════════════════════
++
++entry-policy-ab-setup:
++	@echo "🧪 Настройка A/B/C тестирования Entry Policy..."
++	@echo ""
++	@echo "1. Запись конфига A (Control/Enforce)..."
++	@docker exec scanner-redis-worker-1 redis-cli SET cfg:entry_policy:overrides:A '{"version":1,"overrides":{"ENTRY_POLICY_SHADOW":"0"}}'
++	@echo "2. Запись конфига B (Experiment/Shadow/Relaxed)..."
++	@docker exec scanner-redis-worker-1 redis-cli SET cfg:entry_policy:overrides:B '{"version":1,"overrides":{"ENTRY_POLICY_SHADOW":"1","SMT_COH_THRESHOLD":"0.68","SMT_LEADER_CONF_MIN_SCORE":"0.68"}}'
++	@echo "3. Запись конфига C (Experiment/Shadow/Strict)..."
++	@docker exec scanner-redis-worker-1 redis-cli SET cfg:entry_policy:overrides:C '{"version":1,"overrides":{"ENTRY_POLICY_SHADOW":"1","SMT_COH_THRESHOLD":"0.75","SMT_LEADER_CONF_MIN_SCORE":"0.75"}}'
++	@echo "4. Включение роутинга (A=34%, B=33%, C=33%)..."
++	@docker exec scanner-redis-worker-1 redis-cli SET cfg:entry_policy:ab:config '{"version":1,"enabled":1,"split_pct_b":33,"split_pct_c":33,"key_a":"cfg:entry_policy:overrides:A","key_b":"cfg:entry_policy:overrides:B","key_c":"cfg:entry_policy:overrides:C","poll_ms":2000}'
++	@echo ""
++	@echo "✅ A/B/C тестирование настроено и включено (A=34%, B=33%, C=33%)"
++
++entry-policy-ab-status:
++	@echo "📊 Статус A/B тестирования..."
++	@echo ""
++	@echo "AB Config:"
++	@docker exec scanner-redis-worker-1 redis-cli GET cfg:entry_policy:ab:config
++	@echo ""
++	@echo "Config A:"
++	@docker exec scanner-redis-worker-1 redis-cli GET cfg:entry_policy:overrides:A
++	@echo ""
++	@echo "Config B:"
++	@docker exec scanner-redis-worker-1 redis-cli GET cfg:entry_policy:overrides:B
++
+ # ═══════════════════════════════════════════════════════════════
+ # Основные команды Docker Compose
+ # ═══════════════════════════════════════════════════════════════
+diff --git a/python-worker/services/ab_router.py b/python-worker/services/ab_router.py
+new file mode 100644
+index 0000000..d633ed5
+--- /dev/null
++++ b/python-worker/services/ab_router.py
+@@ -0,0 +1,129 @@
++from __future__ import annotations
++
++import hashlib
++from dataclasses import dataclass
++from typing import Any, Dict, Tuple
++
++
++def stable_bucket_0_99(key: str) -> int:
++    """
++    Deterministic mapping to [0..99].
++    MUST be stable across processes for reproducible A/B routing.
++    """
++    h = hashlib.sha1(key.encode("utf-8", errors="ignore")).digest()
++    # take first 2 bytes -> 0..65535
++    v = (h[0] << 8) | h[1]
++    return int(v % 100)
++
++
++
++def choose_arm_abc(*, symbol: str, zone_id: str, side: str, split_pct_b: int, split_pct_c: int) -> str:
++    """
++    split_pct_b/split_pct_c: 0..100, total (B+C) must be <= 100.
++    Routing:
++      bucket < split_b              => B
++      bucket < split_b + split_c    => C
++      else                          => A
++    """
++    s = (symbol or "").upper()
++    z = (zone_id or "").upper()
++    d = (side or "").upper()
++    key = f"{s}|{z}|{d}"
++    b = stable_bucket_0_99(key)
++    sb = max(0, min(100, int(split_pct_b)))
++    sc = max(0, min(100, int(split_pct_c)))
++    if sb + sc > 100:
++        # clamp conservatively: keep A majority
++        sc = max(0, 100 - sb)
++    if b < sb:
++        return "B"
++    if b < (sb + sc):
++        return "C"
++    return "A"
++
++
++def choose_arm(*, symbol: str, zone_id: str, side: str, split_pct_b: int) -> str:
++    """
++    Backward-compatible A/B router: C split = 0.
++    """
++    return choose_arm_abc(symbol=symbol, zone_id=zone_id, side=side, split_pct_b=split_pct_b, split_pct_c=0)
++
++
++@dataclass
++class ABConfig:
++    """
++    A/B/C routing config.
++    - enabled: enable routing (otherwise single-arm)
++    - split_pct_b/c: global splits
++    - split_by_regime: optional override splits by regime group:
++        {
++          "default": {"b":10,"c":10},
++          "thin": {"b":15,"c":15}
++        }
++      thin group includes: thin/news/illiquid
++    """
++    enabled: bool = False
++    split_pct_b: int = 10
++    split_pct_c: int = 10
++    key_a: str = "cfg:entry_policy:overrides:A"
++    key_b: str = "cfg:entry_policy:overrides:B"
++    key_c: str = "cfg:entry_policy:overrides:C"
++    poll_ms: int = 2000
++    split_by_regime: Dict[str, Dict[str, int]] = None  # type: ignore
++
++    @staticmethod
++    def from_dict(d: Dict[str, Any]) -> "ABConfig":
++        try:
++            en = bool(int(d.get("enabled", 0)))
++        except Exception:
++            en = False
++        try:
++            sp = int(d.get("split_pct_b", 10))
++        except Exception:
++            sp = 10
++        try:
++            sc = int(d.get("split_pct_c", 10))
++        except Exception:
++            sc = 10
++        sbr = d.get("split_by_regime", None)
++        if not isinstance(sbr, dict):
++            sbr = None
++        return ABConfig(
++            enabled=en,
++            split_pct_b=max(0, min(100, sp)),
++            split_pct_c=max(0, min(100, sc)),
++            key_a=str(d.get("key_a") or "cfg:entry_policy:overrides:A"),
++            key_b=str(d.get("key_b") or "cfg:entry_policy:overrides:B"),
++            key_c=str(d.get("key_c") or "cfg:entry_policy:overrides:C"),
++            poll_ms=int(d.get("poll_ms", 2000) or 2000),
++            split_by_regime=sbr,
++        )
++
++    @staticmethod
++    def _is_thin(regime: str) -> bool:
++        rg = (regime or "na").strip().lower()
++        return rg in ("thin", "news", "illiquid")
++
++    def splits_for_regime(self, regime: str) -> Tuple[int, int]:
++        """
++        Returns (split_b, split_c) for this regime group, with safe clamping.
++        """
++        sb = int(self.split_pct_b)
++        sc = int(self.split_pct_c)
++        if isinstance(self.split_by_regime, dict):
++            grp = "thin" if self._is_thin(regime) else "default"
++            dd = self.split_by_regime.get(grp) or {}
++            if isinstance(dd, dict):
++                try:
++                    sb = int(dd.get("b", sb))
++                except Exception:
++                    pass
++                try:
++                    sc = int(dd.get("c", sc))
++                except Exception:
++                    pass
++        sb = max(0, min(100, sb))
++        sc = max(0, min(100, sc))
++        if sb + sc > 100:
++            sc = max(0, 100 - sb)
++        return sb, sc
+diff --git a/python-worker/services/smt_entry_policy_service.py b/python-worker/services/smt_entry_policy_service.py
+new file mode 100644
+index 0000000..22adaae
+--- /dev/null
++++ b/python-worker/services/smt_entry_policy_service.py
+@@ -0,0 +1,534 @@
++from __future__ import annotations
++
++import asyncio
++import json
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, Optional
++
++import redis.asyncio as aioredis
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(x)
++    except Exception:
++        return d
++
++
++def _f(x: Any, d: float = 0.0) -> float:
++    try:
++        return float(x)
++    except Exception:
++        return d
++
++
++def _s(x: Any, d: str = "") -> str:
++    try:
++        return str(x) if x is not None else d
++    except Exception:
++        return d
++
++
++def _b(x: Any) -> bool:
++    try:
++        return int(x) == 1
++    except Exception:
++        return False
++
++
++def _sha1(s: str) -> str:
++    import hashlib
++    return hashlib.sha1(s.encode("utf-8", errors="ignore")).hexdigest()
++
++
++@dataclass
++class PolicyCfg:
++    # Streams
++    in_stream: str
++    out_stream: str
++    audit_stream: str
++    group: str
++    consumer: str
++
++    # Redis keys
++    snap_prefix: str
++    bundle_prefix: str
++
++    # Thresholds
++    coh_thr: float
++    leader_conf_min: float
++    min_of_score: float
++    max_zone_bp: float
++    max_zone_bp_thin: float
++    obi_min_sec: float
++
++    # Behavior
++    shadow: bool
++    dedup_ms: int
++    poll_ms: int
++    max_age_ms: int
++    allow_zone_id_change_if_near: bool
++
++    @staticmethod
++    def from_env() -> "PolicyCfg":
++        return PolicyCfg(
++            in_stream=os.getenv("SMT_ENTRY_STREAM", "stream:trade:entry_candidate"),
++            out_stream=os.getenv("TRADE_ENTRY_STREAM", "stream:trade:entry"),
++            audit_stream=os.getenv("TRADE_ENTRY_AUDIT_STREAM", "stream:trade:entry_audit"),
++            group=os.getenv("ENTRY_POLICY_GROUP", "entry-policy"),
++            consumer=os.getenv("ENTRY_POLICY_CONSUMER", "c1"),
++            snap_prefix=os.getenv("SMT_SNAP_PREFIX", "smt:snap:"),
++            bundle_prefix=os.getenv("SMT_BUNDLE_PREFIX", "smt:bundle:v1:"),
++            coh_thr=float(os.getenv("SMT_COH_THRESHOLD", "0.65")),
++            leader_conf_min=float(os.getenv("SMT_LEADER_CONF_MIN_SCORE", "0.65")),
++            min_of_score=float(os.getenv("SMT_ENTRY_MIN_OF_SCORE", "1.0")),
++            max_zone_bp=float(os.getenv("SMT_ENTRY_MAX_ZONE_BP", "15.0")),
++            max_zone_bp_thin=float(os.getenv("SMT_ENTRY_MAX_ZONE_BP_THIN", "10.0")),
++            obi_min_sec=float(os.getenv("SMT_ENTRY_OBI_MIN_SEC", "1.5")),
++            shadow=bool(int(os.getenv("ENTRY_POLICY_SHADOW", "0"))),
++            dedup_ms=int(os.getenv("SMT_ENTRY_DEDUP_MS", "60000")),
++            poll_ms=int(os.getenv("ENTRY_POLICY_POLL_MS", "100")),
++            max_age_ms=int(os.getenv("ENTRY_POLICY_MAX_CANDIDATE_AGE_MS", "120000")),
++            allow_zone_id_change_if_near=bool(int(os.getenv("ENTRY_POLICY_ALLOW_ZONE_CHANGE_IF_NEAR", "0"))),
++        )
++
++
++class EntryPolicyService:
++    """
++    Final gate after policy-FSM:
++      stream:trade:entry_candidate  ->  stream:trade:entry (+ audit always)
++
++    Key design:
++      - Deterministic decisions based on event ts_ms (from candidate).
++      - Fail-open vs fail-closed:
++          * If Redis read fails -> DENY (safer) unless shadow mode. We still audit.
++      - Always audit with reason_code.
++    """
++
++    def __init__(self) -> None:
++        redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++        self.r: aioredis.Redis = aioredis.from_url(redis_url, decode_responses=True)
++        self.cfg = PolicyCfg.from_env()
++        self._dedup: Dict[str, int] = {}
++        self.use_event_ts = bool(int(os.getenv("ENTRY_POLICY_USE_EVENT_TS", "0")))
++        # dynamic overrides polling (Redis)
++        self.overrides_key = os.getenv("CFG_ENTRY_POLICY_OVERRIDES_KEY", "cfg:entry_policy:overrides")
++        self.overrides_poll_ms = int(os.getenv("CFG_ENTRY_POLICY_POLL_MS", "1000"))
++        self._last_overrides_poll_ms: int = 0
++        self._over_ver: int = 0
++        # --- AB routing ---
++        self.ab_key = os.getenv("CFG_ENTRY_POLICY_AB_KEY", "cfg:entry_policy:ab:config")
++        self._ab_ver: int = 0
++        self._ab_cfg = None
++        self._ab_last_poll_ms: int = 0
++        self._over_a_ver: int = 0
++        self._over_b_ver: int = 0
++        self._over_c_ver: int = 0
++        self._shadow_a: bool = False
++        self._shadow_b: bool = False
++        self._shadow_c: bool = False
++        self.core_cfg_a = None
++        self.core_cfg_b = None
++        self.core_cfg_c = None
++
++        # core cfg for deterministic replay/golden
++        from services.entry_policy_core import EntryPolicyCfg  # local import to avoid cycles
++        self.core_cfg = EntryPolicyCfg(
++            coh_thr=float(self.cfg.coh_thr),
++            leader_conf_min=float(self.cfg.leader_conf_min),
++            min_of_score=float(self.cfg.min_of_score),
++            max_zone_bp=float(self.cfg.max_zone_bp),
++            max_zone_bp_thin=float(self.cfg.max_zone_bp_thin),
++            obi_min_sec=float(self.cfg.obi_min_sec),
++            dedup_ms=int(self.cfg.dedup_ms),
++            allow_zone_id_change_if_near=bool(self.cfg.allow_zone_id_change_if_near),
++        )
++        # default AB cfg copies
++        self.core_cfg_a = EntryPolicyCfg(**self.core_cfg.__dict__)
++        self.core_cfg_b = EntryPolicyCfg(**self.core_cfg.__dict__)
++        self.core_cfg_c = EntryPolicyCfg(**self.core_cfg.__dict__)
++
++    async def _maybe_poll_ab(self, now_ms: int) -> None:
++        """
++        Poll AB config and variant overrides.
++        Keys:
++          cfg:entry_policy:ab:config -> {"enabled":1,"split_pct_b":50,"key_a":"...:A","key_b":"...:B","poll_ms":2000}
++          overrides keys are the same JSON as cfg:entry_policy:overrides (version + overrides)
++        """
++        try:
++            from services.ab_router import ABConfig
++            # poll AB config
++            if (now_ms - self._ab_last_poll_ms) < int(getattr(self._ab_cfg, "poll_ms", 2000) if self._ab_cfg else 2000):
++                return
++            self._ab_last_poll_ms = now_ms
++            raw = await self.r.get(self.ab_key)
++            if raw:
++                d = json.loads(raw)
++                if isinstance(d, dict):
++                    ver = int(d.get("version", 0) or 0)
++                    if ver > int(self._ab_ver):
++                        self._ab_ver = ver
++                        self._ab_cfg = ABConfig.from_dict(d)
++            # if AB enabled, poll both override docs
++            if self._ab_cfg and getattr(self._ab_cfg, "enabled", False):
++                from services.config_overrides import fetch_overrides
++                ver_a, ov_a = await fetch_overrides(r=self.r, key=str(self._ab_cfg.key_a))
++                ver_b, ov_b = await fetch_overrides(r=self.r, key=str(self._ab_cfg.key_b))
++                if ver_a > int(self._over_a_ver):
++                    self._over_a_ver = int(ver_a)
++                    self._shadow_a = bool(int(str(ov_a.get("ENTRY_POLICY_SHADOW", "0"))))
++                    self._apply_ov_to_core_cfg(self.core_cfg_a, ov_a)
++                if ver_b > int(self._over_b_ver):
++                    self._over_b_ver = int(ver_b)
++                    self._shadow_b = bool(int(str(ov_b.get("ENTRY_POLICY_SHADOW", "0"))))
++                    self._apply_ov_to_core_cfg(self.core_cfg_b, ov_b)
++
++                ver_c, ov_c = await fetch_overrides(r=self.r, key=str(self._ab_cfg.key_c))
++                if ver_c > int(self._over_c_ver):
++                    self._over_c_ver = int(ver_c)
++                    self._shadow_c = bool(int(str(ov_c.get("ENTRY_POLICY_SHADOW", "0"))))
++                    self._apply_ov_to_core_cfg(self.core_cfg_c, ov_c)
++        except Exception:
++            return
++
++    def _apply_ov_to_core_cfg(self, cfg_obj, ov: Dict[str, str]) -> None:
++        # apply numeric overrides only (strings in Redis)
++        def _f(x, d=0.0):
++            try:
++                return float(x)
++            except Exception:
++                return float(d)
++        if "SMT_COH_THRESHOLD" in ov:
++            cfg_obj.coh_thr = _f(ov.get("SMT_COH_THRESHOLD"), cfg_obj.coh_thr)
++        if "SMT_LEADER_CONF_MIN_SCORE" in ov:
++            cfg_obj.leader_conf_min = _f(ov.get("SMT_LEADER_CONF_MIN_SCORE"), cfg_obj.leader_conf_min)
++        if "SMT_ENTRY_MIN_OF_SCORE" in ov:
++            cfg_obj.min_of_score = _f(ov.get("SMT_ENTRY_MIN_OF_SCORE"), cfg_obj.min_of_score)
++        if "SMT_ENTRY_MAX_ZONE_BP" in ov:
++            cfg_obj.max_zone_bp = _f(ov.get("SMT_ENTRY_MAX_ZONE_BP"), cfg_obj.max_zone_bp)
++        if "SMT_ENTRY_MAX_ZONE_BP_THIN" in ov:
++            cfg_obj.max_zone_bp_thin = _f(ov.get("SMT_ENTRY_MAX_ZONE_BP_THIN"), cfg_obj.max_zone_bp_thin)
++        if "SMT_ENTRY_OBI_MIN_SEC" in ov:
++            cfg_obj.obi_min_sec = _f(ov.get("SMT_ENTRY_OBI_MIN_SEC"), cfg_obj.obi_min_sec)
++
++    async def _maybe_poll_overrides(self, now_ms: int) -> None:
++        """
++        Periodically reads overrides from Redis and applies:
++          - ENTRY_POLICY_SHADOW
++          - SMT_* thresholds used by core_cfg
++        Fail-open: if read fails -> keep previous.
++        """
++        if self.overrides_poll_ms <= 0:
++            return
++        if (now_ms - self._last_overrides_poll_ms) < int(self.overrides_poll_ms):
++            return
++        self._last_overrides_poll_ms = now_ms
++        try:
++            from services.config_overrides import fetch_overrides
++            ver, ov = await fetch_overrides(r=self.r, key=self.overrides_key)
++            if ver <= int(self._over_ver):
++                return
++            self._over_ver = int(ver)
++            # Apply shadow
++            if "ENTRY_POLICY_SHADOW" in ov:
++                try:
++                    self.cfg.shadow = bool(int(str(ov.get("ENTRY_POLICY_SHADOW") or "0")))
++                except Exception:
++                    pass
++            # Apply thresholds to core_cfg
++            def _f(x, d=0.0):
++                try:
++                    return float(x)
++                except Exception:
++                    return float(d)
++            if "SMT_COH_THRESHOLD" in ov:
++                self.core_cfg.coh_thr = _f(ov.get("SMT_COH_THRESHOLD"), self.core_cfg.coh_thr)
++            if "SMT_LEADER_CONF_MIN_SCORE" in ov:
++                self.core_cfg.leader_conf_min = _f(ov.get("SMT_LEADER_CONF_MIN_SCORE"), self.core_cfg.leader_conf_min)
++            if "SMT_ENTRY_MIN_OF_SCORE" in ov:
++                self.core_cfg.min_of_score = _f(ov.get("SMT_ENTRY_MIN_OF_SCORE"), self.core_cfg.min_of_score)
++            if "SMT_ENTRY_MAX_ZONE_BP" in ov:
++                self.core_cfg.max_zone_bp = _f(ov.get("SMT_ENTRY_MAX_ZONE_BP"), self.core_cfg.max_zone_bp)
++            if "SMT_ENTRY_MAX_ZONE_BP_THIN" in ov:
++                self.core_cfg.max_zone_bp_thin = _f(ov.get("SMT_ENTRY_MAX_ZONE_BP_THIN"), self.core_cfg.max_zone_bp_thin)
++            if "SMT_ENTRY_OBI_MIN_SEC" in ov:
++                self.core_cfg.obi_min_sec = _f(ov.get("SMT_ENTRY_OBI_MIN_SEC"), self.core_cfg.obi_min_sec)
++        except Exception:
++            return
++
++    async def _ensure_group(self) -> None:
++        try:
++            await self.r.xgroup_create(self.cfg.in_stream, self.cfg.group, id="0", mkstream=True)
++        except Exception:
++            pass
++
++    async def _get_snap(self, sym: str) -> Dict[str, Any]:
++        try:
++            raw = await self.r.get(f"{self.cfg.snap_prefix}{sym}")
++            if not raw:
++                return {}
++            return json.loads(raw)
++        except Exception:
++            return {}
++
++    async def _get_bundle(self, bundle_id: str) -> Dict[str, Any]:
++        try:
++            key = f"{self.cfg.bundle_prefix}{bundle_id}"
++            d = await self.r.hgetall(key)
++            return d or {}
++        except Exception:
++            return {}
++
++    def _parse_candidate(self, fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
++        try:
++            if str(fields.get("type", "") or "") != "entry_candidate":
++                return None
++            sym = _s(fields.get("symbol", "")).upper()
++            if not sym:
++                return None
++            ts_ms = _i(fields.get("ts_ms", 0), 0)
++            if ts_ms <= 0:
++                return None
++            side = _s(fields.get("side", "NONE")).upper()
++            bundle = _s(fields.get("bundle", ""))
++            zid = _s(fields.get("zone_id", ""))
++            setup_ts_ms = _i(fields.get("setup_ts_ms", 0), 0)
++            payload_raw = fields.get("payload")
++            payload = json.loads(payload_raw) if isinstance(payload_raw, str) and payload_raw else {}
++            return {
++                "symbol": sym,
++                "ts_ms": ts_ms,
++                "side": side,
++                "bundle": bundle,
++                "zone_id": zid,
++                "setup_ts_ms": setup_ts_ms,
++                "payload": payload if isinstance(payload, dict) else {},
++                "raw": fields,
++            }
++        except Exception:
++            return None
++
++    async def _audit(self, *, now_ms: int, cand: Dict[str, Any], ok: bool, reason_code: str, notes: str, snap: Dict[str, Any], bundle: Dict[str, Any], arm: str = "NA", arm_ver: int = 0) -> None:
++        try:
++            payload = {
++                "ts_ms": now_ms,
++                "ok": 1 if ok else 0,
++                "reason_code": str(reason_code),
++                "notes": str(notes or ""),
++                "regime": str(snap.get("regime", "na") or "na"),
++                "zone_dist_bp": float(snap.get("zone_dist_bp", 0.0) or 0.0),
++                "obi_stable_sec": float(snap.get("obi_stable_sec", 0.0) or 0.0),
++                "iceberg_strict": int(snap.get("iceberg_strict", 0) or 0),
++                "of_confirm_score": float(snap.get("of_confirm_score", 0.0) or 0.0),
++                "coh": float(bundle.get("coh", 0.0) or 0.0),
++                "leader_conf_score": float(bundle.get("leader_conf_score", 0.0) or 0.0),
++                "decision": str(bundle.get("decision", "") or ""),
++                "pick": str(bundle.get("pick", "") or ""),
++                "symbol": cand.get("symbol"),
++                "side": cand.get("side"),
++                "bundle": cand.get("bundle"),
++                "zone_id": cand.get("zone_id"),
++                "setup_ts_ms": cand.get("setup_ts_ms"),
++                "snap": {
++                    "ts_ms": snap.get("ts_ms"),
++                    "close_px": snap.get("close_px"),
++                    "zone_id": snap.get("zone_id"),
++                    "zone_side": snap.get("zone_side"),
++                    "zone_dist_bp": snap.get("zone_dist_bp"),
++                    "regime": snap.get("regime"),
++                    "abs_lvl_th_unstable": snap.get("abs_lvl_th_unstable"),
++                    "of_strong": snap.get("of_strong"),
++                    "of_dir": snap.get("of_dir"),
++                    "of_confirm_score": snap.get("of_confirm_score"),
++                    "obi_stable_sec": snap.get("obi_stable_sec"),
++                    "iceberg_strict": snap.get("iceberg_strict"),
++                },
++                "bundle_state": {
++                    "decision": bundle.get("decision"),
++                    "pick": bundle.get("pick"),
++                    "coh": bundle.get("coh"),
++                    "leader": bundle.get("leader"),
++                    "leader_conf_score": bundle.get("leader_conf_score"),
++                    "news_blocked": bundle.get("news_blocked"),
++                    "news_until_ts_ms": bundle.get("news_until_ts_ms"),
++                },
++            }
++            msg = {
++                "type": "entry_policy_audit",
++                "ts_ms": str(now_ms),
++                "symbol": str(cand.get("symbol") or ""),
++                "bundle": str(cand.get("bundle") or ""),
++                "zone_id": str(snap.get("zone_id", cand.get("zone_id", "")) or ""),
++                "side": str(cand.get("side") or ""),
++                "arm": str(arm),
++                "arm_ver": int(arm_ver),
++                "ok": 1 if ok else 0,
++                "payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
++                "hash": _sha1(json.dumps({"ok": payload["ok"], "reason": reason_code, "sym": payload["symbol"], "z": payload["zone_id"], "side": payload["side"]}, separators=(",", ":"))),
++            }
++            await self.r.xadd(self.cfg.audit_stream, msg, maxlen=50000, approximate=True)
++        except Exception:
++            pass
++
++    async def _emit_entry(self, *, now_ms: int, cand: Dict[str, Any], snap: Dict[str, Any], bundle: Dict[str, Any]) -> None:
++        # Minimal payload; your NestJS can translate it into orders:queue.
++        out_payload = {
++            "ts_ms": now_ms,
++            "symbol": cand["symbol"],
++            "side": cand["side"],
++            "bundle": cand.get("bundle", ""),
++            "leader": _s(bundle.get("leader", "")),
++            "decision": _s(bundle.get("decision", "")),
++            "zone": {
++                "id": _s(snap.get("zone_id", "")),
++                "type": _s(snap.get("zone_type", "")),
++                "src": _s(snap.get("zone_src", "")),
++                "side": _s(snap.get("zone_side", "")),
++                "px_lo": _f(snap.get("zone_px_lo", 0.0), 0.0),
++                "px_hi": _f(snap.get("zone_px_hi", 0.0), 0.0),
++                "dist_bp": _f(snap.get("zone_dist_bp", 0.0), 0.0),
++            },
++            "of": {
++                "of_strong": int(_b(snap.get("of_strong", 0))),
++                "of_dir": _s(snap.get("of_dir", "")),
++                "of_confirm_score": _f(snap.get("of_confirm_score", 0.0), 0.0),
++                "strong_have": _i(snap.get("strong_gate_have", 0), 0),
++                "strong_need": _i(snap.get("strong_gate_need", 0), 0),
++                "strong_scn": _s(snap.get("strong_gate_scn", "")),
++            },
++            "ctx": {
++                "regime": _s(snap.get("regime", "na")),
++                "atr": _f(snap.get("atr", 0.0), 0.0),
++                "coh": _f(bundle.get("coh", 0.0), 0.0),
++                "leader_conf_score": _f(bundle.get("leader_conf_score", 0.0), 0.0),
++            },
++            "source": "smt_entry_policy",
++        }
++        msg = {
++            "type": "trade_entry",
++            "ts_ms": str(now_ms),
++            "symbol": cand["symbol"],
++            "side": cand["side"],
++            "payload": json.dumps(out_payload, ensure_ascii=False, separators=(",", ":")),
++        }
++        await self.r.xadd(self.cfg.out_stream, msg, maxlen=20000, approximate=True)
++
++    async def process_one(self, fields: Dict[str, Any]) -> None:
++        # Deterministic time for replay/golden: optionally use candidate event ts.
++        now_wall = _now_ms()
++        cand = self._parse_candidate(fields)
++        if cand is None:
++            return
++        # Apply overrides before decision (best-effort)
++        await self._maybe_poll_overrides(int(cand["ts_ms"]) if self.use_event_ts else _now_ms())
++        await self._maybe_poll_ab(int(cand["ts_ms"]) if self.use_event_ts else _now_ms())
++        now = int(cand["ts_ms"]) if self.use_event_ts else now_wall
++
++        # age gate (still applies in live mode using wall time mainly, but we check against 'now' which might be spoofed in replay)
++        # In replay mode, age check might be weird if we spoof 'now'.
++        # Assuming in replay we don't care about age check or 'now' matches candidate.
++        if (now - int(cand["ts_ms"])) > int(self.cfg.max_age_ms):
++             # For replay with use_event_ts=1, now == ts_ms, so diff is 0.
++             # For live, if lag is huge, we reject.
++             await self._audit(now_ms=now, cand=cand, ok=False, reason_code="STALE_CANDIDATE", notes="", snap={}, bundle={})
++             return
++
++        snap = await self._get_snap(cand["symbol"])
++        bundle = await self._get_bundle(str(cand.get("bundle") or ""))
++
++        # Determine arm + cfg to use
++        arm = "NA"
++        cfg_obj = self.core_cfg
++        arm_shadow = bool(self.cfg.shadow)
++        arm_ver = int(self._over_ver)
++        if self._ab_cfg and getattr(self._ab_cfg, "enabled", False):
++            from services.ab_router import choose_arm_abc
++            zid = str(snap.get("zone_id", cand.get("zone_id", "")) or "")
++            regime = str(snap.get("regime", "na") or "na")
++            sb, sc = self._ab_cfg.splits_for_regime(regime)
++            arm = choose_arm_abc(
++                symbol=str(cand["symbol"]),
++                zone_id=zid,
++                side=str(cand["side"]),
++                split_pct_b=int(sb),
++                split_pct_c=int(sc),
++            )
++            if arm == "A":
++                cfg_obj = self.core_cfg_a
++                arm_shadow = bool(self._shadow_a)
++                arm_ver = int(self._over_a_ver)
++            elif arm == "B":
++                cfg_obj = self.core_cfg_b
++                arm_shadow = bool(self._shadow_b)
++                arm_ver = int(self._over_b_ver)
++            elif arm == "C":
++                cfg_obj = self.core_cfg_c
++                arm_shadow = bool(self._shadow_c)
++                arm_ver = int(self._over_c_ver)
++
++        from services.entry_policy_core import evaluate_entry_policy
++        dec = evaluate_entry_policy(
++            now_ms=int(now),
++            cand=cand,
++            snap=snap,
++            bundle=bundle,
++            cfg=cfg_obj,
++            dedup_state=self._dedup,
++        )
++
++        if arm_shadow:
++            # shadow: never emit, but audit ALLOW_SHADOW when core would allow
++            if dec.ok:
++                await self._audit(now_ms=now, cand=cand, ok=True, reason_code="ALLOW_SHADOW", notes=dec.notes, snap=snap, bundle=bundle, arm=arm, arm_ver=arm_ver)
++            else:
++                await self._audit(now_ms=now, cand=cand, ok=False, reason_code=dec.reason_code, notes=dec.notes, snap=snap, bundle=bundle, arm=arm, arm_ver=arm_ver)
++            return
++
++        if dec.ok and dec.emit:
++            await self._emit_entry(now_ms=now, cand=cand, snap=snap, bundle=bundle)
++            await self._audit(now_ms=now, cand=cand, ok=True, reason_code="ALLOW", notes=dec.notes, snap=snap, bundle=bundle, arm=arm, arm_ver=arm_ver)
++        else:
++            await self._audit(now_ms=now, cand=cand, ok=False, reason_code=dec.reason_code, notes=dec.notes, snap=snap, bundle=bundle, arm=arm, arm_ver=arm_ver)
++
++    async def run_forever(self) -> None:
++        await self._ensure_group()
++        while True:
++            try:
++                msgs = await self.r.xreadgroup(
++                    self.cfg.group,
++                    self.cfg.consumer,
++                    streams={self.cfg.in_stream: ">"},
++                    count=200,
++                    block=1000,
++                )
++            except Exception:
++                msgs = []
++            if not msgs:
++                # also poll overrides on idle (wall-time)
++                await self._maybe_poll_overrides(_now_ms())
++                await asyncio.sleep(max(0.05, self.cfg.poll_ms / 1000.0))
++                continue
++            for _stream, entries in msgs:
++                for msg_id, fields in entries:
++                    try:
++                        await self.process_one(fields)
++                    finally:
++                        try:
++                            await self.r.xack(self.cfg.in_stream, self.cfg.group, msg_id)
++                        except Exception:
++                            pass
++
++
++async def _amain() -> None:
++    svc = EntryPolicyService()
++    await svc.run_forever()
++
++
++if __name__ == "__main__":
++    asyncio.run(_amain())
+diff --git a/python-worker/tests/test_entry_policy_abc.py b/python-worker/tests/test_entry_policy_abc.py
+new file mode 100644
+index 0000000..53e78cc
+--- /dev/null
++++ b/python-worker/tests/test_entry_policy_abc.py
+@@ -0,0 +1,43 @@
++from __future__ import annotations
++
++
++def test_choose_arm_abc_clamps_sum():
++    from services.ab_router import choose_arm_abc
++    # if sb+sc>100 => clamp sc
++    arm = choose_arm_abc(symbol="BTC", zone_id="Z", side="LONG", split_pct_b=90, split_pct_c=90)
++    assert arm in ("A", "B", "C")
++
++
++def test_choose_arm_abc_extremes():
++    from services.ab_router import choose_arm_abc
++    # 100% B
++    assert choose_arm_abc(symbol="BTC", zone_id="Z", side="LONG", split_pct_b=100, split_pct_c=0) == "B"
++    # 100% C (achieved via B=0 C=100)
++    assert choose_arm_abc(symbol="BTC", zone_id="Z", side="LONG", split_pct_b=0, split_pct_c=100) == "C"
++    # 0% B/C => A
++    assert choose_arm_abc(symbol="BTC", zone_id="Z", side="LONG", split_pct_b=0, split_pct_c=0) == "A"
++
++
++def test_abconfig_splits_by_regime():
++    from services.ab_router import ABConfig
++    cfg = ABConfig.from_dict({
++        "enabled": 1,
++        "split_pct_b": 10,
++        "split_pct_c": 10,
++        "split_by_regime": {"default": {"b": 8, "c": 8}, "thin": {"b": 15, "c": 15}},
++    })
++    sb, sc = cfg.splits_for_regime("range")
++    assert (sb, sc) == (8, 8)
++    sb, sc = cfg.splits_for_regime("thin")
++    assert (sb, sc) == (15, 15)
++
++
++def test_pick_winner_any():
++    from tools.entry_policy_ab_report import pick_winner_any
++    s = {
++        "A": {"total": 200, "allow_rate": 5.0, "avg_coh_allow": 0.70, "avg_leader_conf_allow": 0.70},
++        "B": {"total": 200, "allow_rate": 6.0, "avg_coh_allow": 0.75, "avg_leader_conf_allow": 0.75},
++        "C": {"total": 200, "allow_rate": 4.0, "avg_coh_allow": 0.72, "avg_leader_conf_allow": 0.72},
++    }
++    w, _ = pick_winner_any(s, min_n=100, arms=["A","B","C"])
++    assert w == "B"
+diff --git a/python-worker/tools/entry_policy_ab_report.py b/python-worker/tools/entry_policy_ab_report.py
+new file mode 100644
+index 0000000..fa9617d
+--- /dev/null
++++ b/python-worker/tools/entry_policy_ab_report.py
+@@ -0,0 +1,332 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from collections import Counter, defaultdict
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any, Dict, List, Tuple
++
++import redis.asyncio as aioredis
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _day_utc() -> str:
++    return time.strftime("%Y-%m-%d", time.gmtime())
++
++
++def _f(x: Any, d: float = 0.0) -> float:
++    try:
++        return float(x)
++    except Exception:
++        return d
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(x)
++    except Exception:
++        return d
++
++
++def _s(x: Any, d: str = "") -> str:
++    try:
++        return str(x) if x is not None else d
++    except Exception:
++        return d
++
++
++@dataclass
++class ABReportCfg:
++    audit_stream: str = "stream:trade:entry_audit"
++    out_dir: str = "/var/log/trade"
++    lookback_sec: int = 24 * 3600
++    limit: int = 5000
++    min_n: int = 100
++    publish_winner_suggestion: bool = False
++    suggestion_key: str = "cfg:suggestions:entry_policy:latest"
++    suggestions_ttl_sec: int = 7 * 24 * 3600
++
++    @staticmethod
++    def from_env() -> "ABReportCfg":
++        return ABReportCfg(
++            audit_stream=os.getenv("TRADE_ENTRY_AUDIT_STREAM", "stream:trade:entry_audit"),
++            out_dir=os.getenv("EP_REPORT_DIR", "/var/log/trade"),
++            lookback_sec=int(os.getenv("EP_AB_LOOKBACK_SEC", str(24 * 3600))),
++            limit=int(os.getenv("EP_AB_AUDIT_LIMIT", "5000")),
++            min_n=int(os.getenv("EP_AB_MIN_N", "100")),
++            publish_winner_suggestion=bool(int(os.getenv("EP_AB_PUBLISH_WINNER_SUGG", "0"))),
++            suggestion_key=os.getenv("EP_SUGGESTIONS_REDIS_KEY", "cfg:suggestions:entry_policy:latest"),
++            suggestions_ttl_sec=int(os.getenv("EP_SUGGESTIONS_TTL_SEC", str(7 * 24 * 3600))),
++        )
++
++
++async def read_audits(r: aioredis.Redis, stream: str, since_ms: int, limit: int) -> List[Dict[str, Any]]:
++    out: List[Dict[str, Any]] = []
++    try:
++        entries = await r.xrevrange(stream, max="+", min="-", count=int(limit))
++    except Exception:
++        return out
++    for _msg_id, fields in entries:
++        try:
++            payload = json.loads(fields.get("payload", "") or "{}")
++            if not isinstance(payload, dict):
++                continue
++            ts = int(payload.get("ts_ms") or 0)
++            if ts < since_ms:
++                break
++            if payload.get("type") != "entry_policy_audit":
++                continue
++            out.append(payload)
++        except Exception:
++            continue
++    return out
++
++
++def summarize_by_arm(audits: List[Dict[str, Any]]) -> Dict[str, Any]:
++    by_arm: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
++    for a in audits:
++        arm = str(a.get("arm", "NA") or "NA").upper()
++        by_arm[arm].append(a)
++
++    def _sum(xs: List[Dict[str, Any]]) -> Dict[str, Any]:
++        total = len(xs)
++        allow = sum(1 for x in xs if int(x.get("ok", 0) or 0) == 1)
++        deny = total - allow
++        allow_rate = (allow / max(total, 1)) * 100.0
++        by_reason = Counter(str(x.get("reason_code", "na")) for x in xs)
++        by_regime = Counter(str(x.get("regime", "na")) for x in xs)
++        # quality proxies (averages on allowed only)
++        allowed = [x for x in xs if int(x.get("ok", 0) or 0) == 1]
++        avg_of = sum(_f(x.get("of_confirm_score", 0.0)) for x in allowed) / max(len(allowed), 1)
++        avg_coh = sum(_f(x.get("coh", 0.0)) for x in allowed) / max(len(allowed), 1)
++        avg_lcs = sum(_f(x.get("leader_conf_score", 0.0)) for x in allowed) / max(len(allowed), 1)
++        return {
++            "total": total,
++            "allow": allow,
++            "deny": deny,
++            "allow_rate": allow_rate,
++            "top_reason": by_reason.most_common(10),
++            "top_regime": by_regime.most_common(10),
++            "avg_of_confirm_score_allow": avg_of,
++            "avg_coh_allow": avg_coh,
++            "avg_leader_conf_allow": avg_lcs,
++        }
++
++    out = {arm: _sum(xs) for arm, xs in by_arm.items()}
++    return out
++
++
++def pick_winner_any(summary: Dict[str, Any], min_n: int, arms: List[str]) -> Tuple[str, str]:
++    """
++    Conservative winner selection among arms.
++    Requirements:
++      - each candidate arm must have >= min_n samples
++    Score:
++      score = pen * (avg_coh_allow + avg_leader_conf_allow)
++      pen reduces if allow_rate is wildly higher than median (too permissive).
++    """
++    candidates: List[Tuple[str, float, str]] = []
++    ars: List[float] = []
++    for arm in arms:
++        s = summary.get(arm) or {}
++        if int(s.get("total", 0) or 0) < min_n:
++            continue
++        ars.append(float(s.get("allow_rate", 0.0) or 0.0))
++    if len(ars) < 2:
++        return "NA", "insufficient_samples"
++    ars_sorted = sorted(ars)
++    med_ar = ars_sorted[len(ars_sorted)//2]
++    for arm in arms:
++        s = summary.get(arm) or {}
++        if int(s.get("total", 0) or 0) < min_n:
++            continue
++        ar = float(s.get("allow_rate", 0.0) or 0.0)
++        pen = 1.0
++        if med_ar > 0 and ar > 2.0 * med_ar:
++            pen = 0.85
++        score = pen * (float(s.get("avg_coh_allow", 0.0) or 0.0) + float(s.get("avg_leader_conf_allow", 0.0) or 0.0))
++        candidates.append((arm, float(score), f"score={score:.4f} pen={pen:.2f} ar={ar:.2f}% med_ar={med_ar:.2f}%"))
++    if not candidates:
++        return "NA", "insufficient_samples"
++    candidates.sort(key=lambda x: x[1], reverse=True)
++    return candidates[0][0], candidates[0][2]
++
++
++def _is_thin(regime: str) -> bool:
++    rg = (regime or "na").strip().lower()
++    return rg in ("thin", "news", "illiquid")
++
++
++def split_by_group(audits: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
++    out: Dict[str, List[Dict[str, Any]]] = {"thin": [], "default": []}
++    for a in audits:
++        rg = str(a.get("regime", "na") or "na")
++        out["thin" if _is_thin(rg) else "default"].append(a)
++    return out
++
++
++def render_md(day: str, since_ms: int, until_ms: int, by_arm: Dict[str, Any], winner: Tuple[str, str]) -> str:
++    lines: List[str] = []
++    lines.append(f"# Entry Policy A/B Report — {day}")
++    lines.append("")
++    lines.append(f"- window: {since_ms} .. {until_ms} (ms)")
++    lines.append(f"- winner: **{winner[0]}** — {winner[1]}")
++    lines.append("")
++    for arm in ("A", "B", "C"):
++        s = by_arm.get(arm) or {}
++        if not s:
++            continue
++        lines.append(f"## Arm {arm}")
++        lines.append(f"- total: **{int(s.get('total',0) or 0)}**")
++        lines.append(f"- allow_rate: **{float(s.get('allow_rate',0.0) or 0.0):.2f}%**")
++        lines.append(f"- avg_coh_allow: **{float(s.get('avg_coh_allow',0.0) or 0.0):.4f}**")
++        lines.append(f"- avg_leader_conf_allow: **{float(s.get('avg_leader_conf_allow',0.0) or 0.0):.4f}**")
++        lines.append(f"- avg_of_confirm_score_allow: **{float(s.get('avg_of_confirm_score_allow',0.0) or 0.0):.4f}**")
++        lines.append("")
++        def _tbl(title: str, items: List[Tuple[str, int]]) -> None:
++            lines.append(f"### {title}")
++            lines.append("| key | count |")
++            lines.append("|---|---:|")
++            for k, c in items:
++                lines.append(f"| {k} | {c} |")
++            lines.append("")
++        _tbl("Top reason_code", list(s.get("top_reason", [])))
++        _tbl("Top regimes", list(s.get("top_regime", [])))
++    return "\n".join(lines)
++
++
++async def main() -> int:
++    cfg = ABReportCfg.from_env()
++    redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++    r: aioredis.Redis = aioredis.from_url(redis_url, decode_responses=True)
++
++    day = _day_utc()
++    until = _now_ms()
++    since = until - int(cfg.lookback_sec) * 1000
++
++    audits = await read_audits(r, cfg.audit_stream, since_ms=since, limit=int(cfg.limit))
++    by_arm = summarize_by_arm(audits)
++    arms = ["A", "B", "C"]
++    winner = pick_winner_any(by_arm, min_n=int(cfg.min_n), arms=arms)
++
++    # per-regime-group winners
++    groups = split_by_group(audits)
++    by_arm_thin = summarize_by_arm(groups["thin"])
++    by_arm_def = summarize_by_arm(groups["default"])
++    win_thin = pick_winner_any(by_arm_thin, min_n=max(30, int(cfg.min_n // 3)), arms=arms)
++    win_def = pick_winner_any(by_arm_def, min_n=max(50, int(cfg.min_n // 2)), arms=arms)
++
++    md = render_md(day, since, until, by_arm, winner)
++    # Append group winners
++    md += "\n\n## Winners by regime group\n"
++    md += f"- default: **{win_def[0]}** — {win_def[1]}\n"
++    md += f"- thin/news/illiquid: **{win_thin[0]}** — {win_thin[1]}\n"
++
++    md_path = out_dir / f"entry_policy_ab_report_{day}.md"
++    js_path = out_dir / f"entry_policy_ab_summary_{day}.json"
++    md_path.write_text(md, encoding="utf-8")
++    js_path.write_text(json.dumps({
++        "day": day,
++        "since_ms": since,
++        "until_ms": until,
++        "by_arm": by_arm,
++        "winner": winner,
++        "winner_default": win_def,
++        "winner_thin": win_thin,
++        "by_arm_default": by_arm_def,
++        "by_arm_thin": by_arm_thin,
++    }, ensure_ascii=False, indent=2), encoding="utf-8")
++
++    # Optional: publish winner suggestion (writes into cfg:suggestions:entry_policy:latest)
++    # NOTE: this is still gated by your 2-man approval flow.
++    if cfg.publish_winner_suggestion and winner[0] in ("A", "B"):
++        key = cfg.suggestion_key
++        # read overrides of winner from Redis
++        from services.config_overrides import fetch_overrides
++        # Determine keys from AB config if present; else defaults
++        ab_raw = await r.get(os.getenv("CFG_ENTRY_POLICY_AB_KEY", "cfg:entry_policy:ab:config"))
++        ab_cfg = None
++        if ab_raw:
++            try:
++                from services.ab_router import ABConfig
++                d = json.loads(ab_raw)
++                if isinstance(d, dict):
++                    ab_cfg = ABConfig.from_dict(d)
++            except Exception:
++                ab_cfg = None
++        key_a = (ab_cfg.key_a if ab_cfg else "cfg:entry_policy:overrides:A")
++        key_b = (ab_cfg.key_b if ab_cfg else "cfg:entry_policy:overrides:B")
++        key_c = (ab_cfg.key_c if ab_cfg else "cfg:entry_policy:overrides:C")
++
++        # choose base winner globally, and optionally merge thin knobs from thin-winner if stricter
++        def _key_for_arm(a: str) -> str:
++            if a == "A":
++                return str(key_a)
++            if a == "B":
++                return str(key_b)
++            return str(key_c)
++
++        base_arm = winner[0]
++        base_key = _key_for_arm(base_arm)
++        base_ver, base_ov = await fetch_overrides(r=r, key=base_key)
++
++        # optional merge
++        merged_ov = dict(base_ov)
++        merge_note = ""
++        thin_arm = win_thin[0]
++        if thin_arm in ("A","B","C") and thin_arm != base_arm:
++            thin_key = _key_for_arm(thin_arm)
++            thin_ver, thin_ov = await fetch_overrides(r=r, key=thin_key)
++            # Merge only thin knobs if they tighten risk:
++            # - MAX_ZONE_BP_THIN: lower is stricter
++            # - OBI_MIN_SEC: higher is stricter
++            try:
++                z_base = float(merged_ov.get("SMT_ENTRY_MAX_ZONE_BP_THIN", "0") or 0)
++                z_thin = float(thin_ov.get("SMT_ENTRY_MAX_ZONE_BP_THIN", "0") or 0)
++                if z_base > 0 and z_thin > 0 and z_thin < z_base:
++                    merged_ov["SMT_ENTRY_MAX_ZONE_BP_THIN"] = str(z_thin)
++                obi_base = float(merged_ov.get("SMT_ENTRY_OBI_MIN_SEC", "0") or 0)
++                obi_thin = float(thin_ov.get("SMT_ENTRY_OBI_MIN_SEC", "0") or 0)
++                if obi_base > 0 and obi_thin > 0 and obi_thin > obi_base:
++                    merged_ov["SMT_ENTRY_OBI_MIN_SEC"] = str(obi_thin)
++                merge_note = f"merged thin knobs from thin_winner={thin_arm} key={thin_key} ver={thin_ver}"
++            except Exception:
++                merge_note = ""
++
++        # build suggestion doc compatible with approval/apply pipeline
++        sugg = {
++            "ts_ms": _now_ms(),
++            "enable": 1,
++            "safe_to_apply": 1,
++            "current": {},
++            "proposed": {k: v for k, v in merged_ov.items() if k != "ENTRY_POLICY_SHADOW"},
++            "changes": [{"key": k, "from": None, "to": v, "why": f"promote ABC winner={winner[0]}"} for k, v in merged_ov.items() if k != "ENTRY_POLICY_SHADOW"],
++            "rationales": [
++                f"ABC winner={winner[0]} {winner[1]}",
++                f"default_winner={win_def[0]} {win_def[1]}",
++                f"thin_winner={win_thin[0]} {win_thin[1]}",
++                f"source_key={base_key} ver={base_ver}",
++                merge_note if merge_note else "",
++            ],
++            "stats": {
++                "abc_winner": winner[0],
++                "abc_reason": winner[1],
++                "winner_default": win_def,
++                "winner_thin": win_thin,
++                "by_arm": by_arm,
++                "by_arm_default": by_arm_def,
++                "by_arm_thin": by_arm_thin,
++            },
++        }
++        await r.set(key, json.dumps(sugg, ensure_ascii=False, separators=(",", ":")), ex=int(cfg.suggestions_ttl_sec))
++
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(__import__("asyncio").run(main()))

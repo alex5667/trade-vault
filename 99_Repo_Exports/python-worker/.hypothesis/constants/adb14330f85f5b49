@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signals/ev_gate.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.55, 1.0, 8.0, 10000.0, '0', '1', 'EV_GATE_COSTS_BPS', 'EV_GATE_ENABLED', 'EV_GATE_K_COST', 'EV_GATE_LOG_VETO', 'EV_GATE_P_MIN', 'EvGateConfig', 'USDT', 'costs_bps', 'on', 'total_costs_bps', 'true', 'yes']

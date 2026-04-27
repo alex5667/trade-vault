@@ -1,0 +1,1878 @@
+diff --git a/orderflow_services/feature_registry_contract_check_v1.py b/orderflow_services/feature_registry_contract_check_v1.py
+--- a/orderflow_services/feature_registry_contract_check_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/feature_registry_contract_check_v1.py	2026-02-25 04:19:13.631142000 +0000
+@@ -0,0 +1,366 @@
++#!/usr/bin/env python3
++# -*- coding: utf-8 -*-
++"""P94 — Feature Registry contract smoke-check (v1)
++
++Goal
++-----
++Detect accidental changes in Feature Registry outputs (schema_hash / feature_cols_hash)
++without an explicit schema version bump.
++
++Mechanics
++---------
++- Computes:
++    - schema_hash  : sha256(feature_names list) from core.feature_registry.get_schema_info()
++    - feature_cols_hash : sha256(feature_cols list) from core.feature_registry.get_edge_stack_feature_spec()
++- Compares them to *pinned* expected values stored in Redis hash (cfg key).
++- Writes the last status to Redis hash (metrics key) for Prometheus exporter/alerts.
++
++Exit codes
++----------
++  0  OK
++  2  ALERT (pins missing or mismatch)
++  1  ERROR (exception, redis unavailable, registry import failure)
++
++ENV (defaults)
++--------------
++  REDIS_URL                                  redis://redis-worker-1:6379/0
++  FEATURE_REGISTRY_PIN_KEY                   cfg:feature_registry:edge_stack
++  FEATURE_REGISTRY_CONTRACT_METRICS_KEY      metrics:feature_registry_contract:last
++
++  FEATURE_SCHEMA_VER                         v4_of
++  FEATURE_MAX_NUMERIC                        128
++  FEATURE_SCENARIO_PREFIX                    bucket:
++  FEATURE_INCLUDE_TIME_ONEHOT                (auto, registry default)
++  FEATURE_INCLUDE_DIRECTION                  1
++  FEATURE_INCLUDE_SCENARIO                   1
++  FEATURE_STRICT_FEATURE_COLS                0
++  FEATURE_FORBID_SCENARIO_V4_ONEHOT          1
++
++  FEATURE_REGISTRY_REQUIRE_PINS              1
++
++CLI
++---
++  python -m orderflow_services.feature_registry_contract_check_v1
++  python orderflow_services/feature_registry_contract_check_v1.py
++
++Optional:
++  --seed-pin 1   (one-time: writes current hashes into cfg hash)
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import logging
++import os
++import sys
++import time
++from dataclasses import asdict
++from typing import Any, Dict, Optional, Tuple
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++logger = logging.getLogger("feature_registry_contract_check")
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _ensure_import_paths() -> None:
++    """Make core.feature_registry importable when running from different working dirs."""
++    here = os.path.abspath(os.path.dirname(__file__))
++    repo_root = os.path.abspath(os.path.join(here, ".."))
++    tick_root = os.path.join(repo_root, "tick_flow_full")
++
++    # Prefer tick_flow_full on sys.path so `import core.*` resolves correctly.
++    if os.path.isdir(tick_root) and tick_root not in sys.path:
++        sys.path.insert(0, tick_root)
++    if repo_root not in sys.path:
++        sys.path.insert(0, repo_root)
++
++
++def _as_int(v: Any, default: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return int(default)
++
++
++def _as_str(v: Any, default: str = "") -> str:
++    try:
++        s = "" if v is None else str(v)
++        return s
++    except Exception:
++        return default
++
++
++def _connect_redis(url: str):
++    if redis is None:
++        raise RuntimeError("redis dependency is missing")
++    return redis.Redis.from_url(url, decode_responses=True)
++
++
++def _hgetall_safe(r, key: str) -> Dict[str, str]:
++    try:
++        d = r.hgetall(key) or {}
++        if not isinstance(d, dict):
++            return {}
++        return {str(k): str(v) for k, v in d.items()}
++    except Exception:
++        return {}
++
++
++def _hset_safe(r, key: str, mapping: Dict[str, Any]) -> None:
++    m = {str(k): str(v) for k, v in (mapping or {}).items()}
++    if not m:
++        return
++    try:
++        r.hset(key, mapping=m)
++    except Exception:
++        # best-effort only
++        pass
++
++
++def _compute_current(schema_ver: str,
++                     *,
++                     max_numeric: int,
++                     scenario_prefix: str,
++                     include_time_onehot: Optional[bool],
++                     include_direction: bool,
++                     include_scenario: bool,
++                     strict_feature_cols: bool,
++                     forbid_scenario_v4_onehot: bool) -> Tuple[Dict[str, Any], Dict[str, Any]]:
++    _ensure_import_paths()
++
++    from core import feature_registry as fr  # type: ignore
++
++    info = fr.get_schema_info(schema_ver)
++    spec = fr.get_edge_stack_feature_spec(
++        schema_ver,
++        max_numeric=int(max_numeric),
++        scenario_prefix=str(scenario_prefix),
++        include_time_onehot=include_time_onehot,
++        include_direction=bool(include_direction),
++        include_scenario=bool(include_scenario),
++        strict_feature_cols=bool(strict_feature_cols),
++        forbid_scenario_v4_onehot=bool(forbid_scenario_v4_onehot),
++    )
++
++    current = {
++        "schema_ver": str(info.ver),
++        "schema_hash": str(info.schema_hash),
++        "n_schema_features": int(len(info.feature_names or [])),
++        "feature_cols_hash": str(spec.feature_cols_hash),
++        "n_feature_cols": int(len(spec.feature_cols or [])),
++        "params": {
++            "max_numeric": int(max_numeric),
++            "scenario_prefix": str(scenario_prefix),
++            "include_time_onehot": None if include_time_onehot is None else (1 if include_time_onehot else 0),
++            "include_direction": 1 if include_direction else 0,
++            "include_scenario": 1 if include_scenario else 0,
++            "strict_feature_cols": 1 if strict_feature_cols else 0,
++            "forbid_scenario_v4_onehot": 1 if forbid_scenario_v4_onehot else 0,
++        },
++    }
++
++    # Provide also the raw dataclasses payload for debugging (bounded)
++    dbg = {
++        "schema_info": asdict(info),
++        "feature_spec": asdict(spec),
++    }
++    return current, dbg
++
++
++def _compare_pins(pins: Dict[str, str], current: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
++    """Return (ok, details)."""
++    want_ver = _as_str(pins.get("schema_ver") or pins.get("feature_schema_ver") or "").strip()
++    want_schema_hash = _as_str(pins.get("schema_hash") or "").strip()
++    want_cols_hash = _as_str(pins.get("feature_cols_hash") or "").strip()
++
++    got_ver = _as_str(current.get("schema_ver") or "").strip()
++    got_schema_hash = _as_str(current.get("schema_hash") or "").strip()
++    got_cols_hash = _as_str(current.get("feature_cols_hash") or "").strip()
++
++    mismatch_ver = 1 if (want_ver and got_ver and want_ver != got_ver) else 0
++    mismatch_schema = 1 if (want_schema_hash and got_schema_hash and want_schema_hash != got_schema_hash) else 0
++    mismatch_cols = 1 if (want_cols_hash and got_cols_hash and want_cols_hash != got_cols_hash) else 0
++
++    ok = (mismatch_ver == 0) and (mismatch_schema == 0) and (mismatch_cols == 0)
++
++    details = {
++        "expected_schema_ver": want_ver,
++        "expected_schema_hash": want_schema_hash,
++        "expected_feature_cols_hash": want_cols_hash,
++        "mismatch_schema_ver": mismatch_ver,
++        "mismatch_schema_hash": mismatch_schema,
++        "mismatch_feature_cols_hash": mismatch_cols,
++    }
++    return ok, details
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--schema-ver", default=os.getenv("FEATURE_SCHEMA_VER", "v4_of"))
++    ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
++    ap.add_argument("--pin-key", default=os.getenv("FEATURE_REGISTRY_PIN_KEY", "cfg:feature_registry:edge_stack"))
++    ap.add_argument("--metrics-key", default=os.getenv("FEATURE_REGISTRY_CONTRACT_METRICS_KEY", "metrics:feature_registry_contract:last"))
++    ap.add_argument("--require-pins", type=int, default=_as_int(os.getenv("FEATURE_REGISTRY_REQUIRE_PINS", "1"), 1))
++    ap.add_argument("--seed-pin", type=int, default=0, help="Write current hashes to pin-key (one-time).")
++    ap.add_argument("--emit-debug", type=int, default=0, help="Include debug payload (schema_info/spec) in stdout JSON.")
++
++    ap.add_argument("--max-numeric", type=int, default=_as_int(os.getenv("FEATURE_MAX_NUMERIC", "128"), 128))
++    ap.add_argument("--scenario-prefix", default=os.getenv("FEATURE_SCENARIO_PREFIX", "bucket:"))
++    ap.add_argument("--include-time-onehot", default=os.getenv("FEATURE_INCLUDE_TIME_ONEHOT", ""))
++    ap.add_argument("--include-direction", type=int, default=_as_int(os.getenv("FEATURE_INCLUDE_DIRECTION", "1"), 1))
++    ap.add_argument("--include-scenario", type=int, default=_as_int(os.getenv("FEATURE_INCLUDE_SCENARIO", "1"), 1))
++    ap.add_argument("--strict-feature-cols", type=int, default=_as_int(os.getenv("FEATURE_STRICT_FEATURE_COLS", "0"), 0))
++    ap.add_argument("--forbid-scenario-v4-onehot", type=int, default=_as_int(os.getenv("FEATURE_FORBID_SCENARIO_V4_ONEHOT", "1"), 1))
++
++    args = ap.parse_args()
++
++    include_time_onehot: Optional[bool]
++    it = str(args.include_time_onehot or "").strip().lower()
++    if it in ("1", "true", "yes", "on"):
++        include_time_onehot = True
++    elif it in ("0", "false", "no", "off"):
++        include_time_onehot = False
++    else:
++        include_time_onehot = None
++
++    out: Dict[str, Any] = {
++        "tool": "feature_registry_contract_check_v1",
++        "ts_ms": _now_ms(),
++        "pin_key": str(args.pin_key),
++        "metrics_key": str(args.metrics_key),
++        "require_pins": int(args.require_pins),
++    }
++
++    rc = 0
++    try:
++        current, dbg = _compute_current(
++            str(args.schema_ver),
++            max_numeric=int(args.max_numeric),
++            scenario_prefix=str(args.scenario_prefix),
++            include_time_onehot=include_time_onehot,
++            include_direction=bool(int(args.include_direction)),
++            include_scenario=bool(int(args.include_scenario)),
++            strict_feature_cols=bool(int(args.strict_feature_cols)),
++            forbid_scenario_v4_onehot=bool(int(args.forbid_scenario_v4_onehot)),
++        )
++        out.update({"current": current})
++        if int(args.emit_debug) == 1:
++            # Debug payload may be large; keep it bounded.
++            out["debug"] = {
++                "schema_info": {
++                    "ver": dbg.get("schema_info", {}).get("ver"),
++                    "schema_hash": dbg.get("schema_info", {}).get("schema_hash"),
++                    "n": len(dbg.get("schema_info", {}).get("feature_names") or []),
++                },
++                "feature_spec": {
++                    "ver": dbg.get("feature_spec", {}).get("ver"),
++                    "feature_cols_hash": dbg.get("feature_spec", {}).get("feature_cols_hash"),
++                    "n": len(dbg.get("feature_spec", {}).get("feature_cols") or []),
++                },
++            }
++
++        # Redis I/O (pins + metrics)
++        r = _connect_redis(str(args.redis_url))
++        pins = _hgetall_safe(r, str(args.pin_key))
++
++        if not pins:
++            out["pins_present"] = 0
++            if int(args.seed_pin) == 1:
++                seed = {
++                    "schema_ver": str(current.get("schema_ver") or ""),
++                    "schema_hash": str(current.get("schema_hash") or ""),
++                    "feature_cols_hash": str(current.get("feature_cols_hash") or ""),
++                    "updated_ts_ms": str(_now_ms()),
++                }
++                _hset_safe(r, str(args.pin_key), seed)
++                out["seeded_pin"] = 1
++                out["status"] = "ok"
++                out["reason"] = "pins_seeded"
++                rc = 0
++            else:
++                out["seeded_pin"] = 0
++                out["status"] = "alert" if int(args.require_pins) == 1 else "ok"
++                out["reason"] = "pins_missing"
++                rc = 2 if int(args.require_pins) == 1 else 0
++                out["mismatch_schema_ver"] = 0
++                out["mismatch_schema_hash"] = 0
++                out["mismatch_feature_cols_hash"] = 0
++                out["expected_schema_ver"] = ""
++                out["expected_schema_hash"] = ""
++                out["expected_feature_cols_hash"] = ""
++        else:
++            out["pins_present"] = 1
++            ok, details = _compare_pins(pins, current)
++            out.update(details)
++
++            if ok:
++                out["status"] = "ok"
++                out["reason"] = "ok"
++                rc = 0
++            else:
++                # Prefer the most specific reason.
++                if int(details.get("mismatch_schema_ver", 0)) == 1:
++                    reason = "schema_ver_mismatch"
++                elif int(details.get("mismatch_schema_hash", 0)) == 1 and int(details.get("mismatch_feature_cols_hash", 0)) == 1:
++                    reason = "schema_and_feature_hash_mismatch"
++                elif int(details.get("mismatch_schema_hash", 0)) == 1:
++                    reason = "schema_hash_mismatch"
++                else:
++                    reason = "feature_cols_hash_mismatch"
++
++                out["status"] = "alert"
++                out["reason"] = reason
++                rc = 2
++
++        # Persist last metrics (best-effort)
++        metrics = {
++            "status": out.get("status", ""),
++            "reason": out.get("reason", ""),
++            "success": 1 if rc == 0 else 0,
++            "pins_present": int(out.get("pins_present", 0)),
++            "mismatch_schema_ver": int(out.get("mismatch_schema_ver", 0)),
++            "mismatch_schema_hash": int(out.get("mismatch_schema_hash", 0)),
++            "mismatch_feature_cols_hash": int(out.get("mismatch_feature_cols_hash", 0)),
++            "schema_ver": str(current.get("schema_ver") or ""),
++            "schema_hash": str(current.get("schema_hash") or ""),
++            "feature_cols_hash": str(current.get("feature_cols_hash") or ""),
++            "expected_schema_ver": str(out.get("expected_schema_ver") or ""),
++            "expected_schema_hash": str(out.get("expected_schema_hash") or ""),
++            "expected_feature_cols_hash": str(out.get("expected_feature_cols_hash") or ""),
++            "updated_ts_ms": str(_now_ms()),
++        }
++        # keep params to help debugging (low-cardinality)
++        params = current.get("params") or {}
++        if isinstance(params, dict):
++            for k in ("max_numeric", "scenario_prefix", "include_time_onehot", "include_direction", "include_scenario"):
++                if k in params:
++                    metrics[f"param_{k}"] = str(params.get(k))
++
++        _hset_safe(r, str(args.metrics_key), metrics)
++
++    except Exception as e:
++        out["status"] = "error"
++        out["reason"] = f"exception:{type(e).__name__}"
++        out["error"] = str(e)[:300]
++        rc = 1
++
++    # Print a single JSON line for orchestration parsers.
++    try:
++        print(json.dumps(out, ensure_ascii=False, sort_keys=True))
++    except Exception:
++        print(str(out))
++
++    return int(rc)
++
++
++if __name__ == "__main__":
++    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
++    raise SystemExit(main())
+diff --git a/orderflow_services/feature_registry_contract_exporter_v1.py b/orderflow_services/feature_registry_contract_exporter_v1.py
+--- a/orderflow_services/feature_registry_contract_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/feature_registry_contract_exporter_v1.py	2026-02-25 04:19:37.248326387 +0000
+@@ -0,0 +1,107 @@
++#!/usr/bin/env python3
++# -*- coding: utf-8 -*-
++"""Prometheus exporter for Feature Registry contract status (P94).
++
++Reads Redis hash `metrics:feature_registry_contract:last` and exposes gauges:
++  - feature_registry_contract_exporter_up
++  - feature_registry_contract_last_success
++  - feature_registry_contract_last_updated_ts_ms
++  - feature_registry_contract_last_age_seconds
++  - feature_registry_contract_last_pins_present
++  - feature_registry_contract_last_schema_ver_mismatch
++  - feature_registry_contract_last_schema_hash_mismatch
++  - feature_registry_contract_last_feature_cols_hash_mismatch
++
++Resilience:
++  - if Redis is unavailable -> exporter_up=0 (no crash)
++  - if record is stale -> last_success forced to 0
++
++ENV:
++  REDIS_URL                                 (default: redis://redis-worker-1:6379/0)
++  FEATURE_REGISTRY_CONTRACT_METRICS_KEY     (default: metrics:feature_registry_contract:last)
++  FEATURE_REGISTRY_CONTRACT_EXPORTER_PORT   (default: 9817)
++  FEATURE_REGISTRY_CONTRACT_EXPORTER_INTERVAL_S (default: 10)
++  FEATURE_REGISTRY_CONTRACT_EXPORTER_STALE_S    (default: 21600 = 6h)
++"""
++
++from __future__ import annotations
++
++import os
++import time
++from typing import Any, Dict
++
++import redis  # type: ignore
++from prometheus_client import Gauge, start_http_server
++
++
++def _now_s() -> float:
++    return time.time()
++
++
++def _as_float(v: Any, d: float = 0.0) -> float:
++    try:
++        if v is None:
++            return float(d)
++        return float(v)
++    except Exception:
++        return float(d)
++
++
++def _as_int(v: Any, d: int = 0) -> int:
++    try:
++        if v is None:
++            return int(d)
++        return int(float(v))
++    except Exception:
++        return int(d)
++
++
++UP = Gauge("feature_registry_contract_exporter_up", "1 if exporter can read Redis metrics")
++LAST_SUCCESS = Gauge("feature_registry_contract_last_success", "1 if last contract check is ok")
++LAST_UPDATED_MS = Gauge("feature_registry_contract_last_updated_ts_ms", "updated_ts_ms from Redis hash")
++AGE_S = Gauge("feature_registry_contract_last_age_seconds", "Age of metrics record in seconds")
++PINS_PRESENT = Gauge("feature_registry_contract_last_pins_present", "1 if pins are present in cfg hash")
++MM_VER = Gauge("feature_registry_contract_last_schema_ver_mismatch", "1 if schema_ver mismatches pinned")
++MM_SCHEMA = Gauge("feature_registry_contract_last_schema_hash_mismatch", "1 if schema_hash mismatches pinned")
++MM_COLS = Gauge("feature_registry_contract_last_feature_cols_hash_mismatch", "1 if feature_cols_hash mismatches pinned")
++
++
++def main() -> None:
++    redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++    metrics_key = os.getenv("FEATURE_REGISTRY_CONTRACT_METRICS_KEY", "metrics:feature_registry_contract:last")
++    port = int(os.getenv("FEATURE_REGISTRY_CONTRACT_EXPORTER_PORT", "9817"))
++    interval_s = float(os.getenv("FEATURE_REGISTRY_CONTRACT_EXPORTER_INTERVAL_S", "10"))
++    stale_s = float(os.getenv("FEATURE_REGISTRY_CONTRACT_EXPORTER_STALE_S", "21600"))  # 6h
++
++    r = redis.Redis.from_url(redis_url, decode_responses=True)
++    start_http_server(port)
++
++    while True:
++        try:
++            m: Dict[str, Any] = r.hgetall(metrics_key) or {}
++            UP.set(1)
++
++            status = str(m.get("status", "") or "")
++            success = 1.0 if status == "ok" else 0.0
++            LAST_SUCCESS.set(success)
++
++            updated_ms = _as_int(m.get("updated_ts_ms", 0), 0)
++            LAST_UPDATED_MS.set(float(updated_ms))
++            PINS_PRESENT.set(float(_as_int(m.get("pins_present", 0), 0)))
++            MM_VER.set(float(_as_int(m.get("mismatch_schema_ver", 0), 0)))
++            MM_SCHEMA.set(float(_as_int(m.get("mismatch_schema_hash", 0), 0)))
++            MM_COLS.set(float(_as_int(m.get("mismatch_feature_cols_hash", 0), 0)))
++
++            age = max(0.0, _now_s() - (float(updated_ms) / 1000.0 if updated_ms > 0 else 0.0))
++            AGE_S.set(age)
++
++            if age > stale_s:
++                LAST_SUCCESS.set(0.0)
++        except Exception:
++            UP.set(0)
++            LAST_SUCCESS.set(0)
++        time.sleep(interval_s)
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/orderflow_services/grafana/feature_registry_contract_p94.json b/orderflow_services/grafana/feature_registry_contract_p94.json
+--- a/orderflow_services/grafana/feature_registry_contract_p94.json	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/grafana/feature_registry_contract_p94.json	2026-02-25 04:21:00.409676009 +0000
+@@ -0,0 +1,308 @@
++{
++  "annotations": {
++    "list": [
++      {
++        "builtIn": 1,
++        "datasource": {
++          "type": "grafana",
++          "uid": "-- Grafana --"
++        },
++        "enable": true,
++        "hide": true,
++        "iconColor": "rgba(0, 211, 255, 1)",
++        "name": "Annotations & Alerts",
++        "type": "dashboard"
++      }
++    ]
++  },
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "id": null,
++  "links": [],
++  "liveNow": false,
++  "panels": [
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "color": {
++            "mode": "thresholds"
++          },
++          "mappings": [],
++          "thresholds": {
++            "mode": "absolute",
++            "steps": [
++              {
++                "color": "red",
++                "value": null
++              },
++              {
++                "color": "green",
++                "value": 1
++              }
++            ]
++          },
++          "unit": "none"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 6,
++        "w": 6,
++        "x": 0,
++        "y": 0
++      },
++      "id": 1,
++      "options": {
++        "colorMode": "value",
++        "graphMode": "none",
++        "justifyMode": "center",
++        "orientation": "auto",
++        "reduceOptions": {
++          "calcs": [
++            "lastNotNull"
++          ],
++          "fields": "",
++          "values": false
++        },
++        "textMode": "auto"
++      },
++      "pluginVersion": "10.4.0",
++      "targets": [
++        {
++          "expr": "feature_registry_contract_last_success",
++          "legendFormat": "success",
++          "refId": "A"
++        }
++      ],
++      "title": "Contract OK",
++      "type": "stat"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "color": {
++            "mode": "thresholds"
++          },
++          "mappings": [],
++          "thresholds": {
++            "mode": "absolute",
++            "steps": [
++              {
++                "color": "green",
++                "value": null
++              },
++              {
++                "color": "yellow",
++                "value": 2
++              },
++              {
++                "color": "red",
++                "value": 6
++              }
++            ]
++          },
++          "unit": "h"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 6,
++        "w": 6,
++        "x": 6,
++        "y": 0
++      },
++      "id": 2,
++      "options": {
++        "colorMode": "value",
++        "graphMode": "none",
++        "justifyMode": "center",
++        "orientation": "auto",
++        "reduceOptions": {
++          "calcs": [
++            "lastNotNull"
++          ],
++          "fields": "",
++          "values": false
++        },
++        "textMode": "auto"
++      },
++      "pluginVersion": "10.4.0",
++      "targets": [
++        {
++          "expr": "feature_registry_contract_last_age_seconds / 3600",
++          "legendFormat": "age_h",
++          "refId": "A"
++        }
++      ],
++      "title": "Age (hours)",
++      "type": "stat"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "color": {
++            "mode": "thresholds"
++          },
++          "mappings": [],
++          "thresholds": {
++            "mode": "absolute",
++            "steps": [
++              {
++                "color": "green",
++                "value": null
++              },
++              {
++                "color": "red",
++                "value": 1
++              }
++            ]
++          },
++          "unit": "none"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 6,
++        "w": 6,
++        "x": 12,
++        "y": 0
++      },
++      "id": 3,
++      "options": {
++        "colorMode": "value",
++        "graphMode": "none",
++        "justifyMode": "center",
++        "orientation": "auto",
++        "reduceOptions": {
++          "calcs": [
++            "lastNotNull"
++          ],
++          "fields": "",
++          "values": false
++        },
++        "textMode": "auto"
++      },
++      "pluginVersion": "10.4.0",
++      "targets": [
++        {
++          "expr": "feature_registry_contract_last_schema_hash_mismatch",
++          "legendFormat": "schema_hash_mismatch",
++          "refId": "A"
++        }
++      ],
++      "title": "Schema hash mismatch",
++      "type": "stat"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "color": {
++            "mode": "thresholds"
++          },
++          "mappings": [],
++          "thresholds": {
++            "mode": "absolute",
++            "steps": [
++              {
++                "color": "green",
++                "value": null
++              },
++              {
++                "color": "red",
++                "value": 1
++              }
++            ]
++          },
++          "unit": "none"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 6,
++        "w": 6,
++        "x": 18,
++        "y": 0
++      },
++      "id": 4,
++      "options": {
++        "colorMode": "value",
++        "graphMode": "none",
++        "justifyMode": "center",
++        "orientation": "auto",
++        "reduceOptions": {
++          "calcs": [
++            "lastNotNull"
++          ],
++          "fields": "",
++          "values": false
++        },
++        "textMode": "auto"
++      },
++      "pluginVersion": "10.4.0",
++      "targets": [
++        {
++          "expr": "feature_registry_contract_last_feature_cols_hash_mismatch",
++          "legendFormat": "feature_cols_hash_mismatch",
++          "refId": "A"
++        }
++      ],
++      "title": "Feature cols hash mismatch",
++      "type": "stat"
++    }
++  ],
++  "refresh": "10s",
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": [
++    "trade",
++    "p94",
++    "feature_registry"
++  ],
++  "templating": {
++    "list": [
++      {
++        "current": {
++          "selected": false,
++          "text": "Prometheus",
++          "value": "${DS_PROMETHEUS}"
++        },
++        "hide": 0,
++        "includeAll": false,
++        "label": "Datasource",
++        "multi": false,
++        "name": "DS_PROMETHEUS",
++        "options": [],
++        "query": "prometheus",
++        "refresh": 1,
++        "regex": "",
++        "type": "datasource"
++      }
++    ]
++  },
++  "time": {
++    "from": "now-6h",
++    "to": "now"
++  },
++  "timepicker": {},
++  "timezone": "browser",
++  "title": "Feature Registry Contract (P94)",
++  "uid": "feature_registry_contract",
++  "version": 1
++}
+diff --git a/orderflow_services/prometheus_alerts_feature_registry_p94.yml b/orderflow_services/prometheus_alerts_feature_registry_p94.yml
+--- a/orderflow_services/prometheus_alerts_feature_registry_p94.yml	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/prometheus_alerts_feature_registry_p94.yml	2026-02-25 04:20:15.580806378 +0000
+@@ -0,0 +1,42 @@
++groups:
++  - name: feature_registry_contract_p94
++    rules:
++      - alert: FeatureRegistryContractFailed
++        expr: feature_registry_contract_last_success == 0
++        for: 20m
++        labels:
++          severity: critical
++          team: trade
++          component: feature_registry
++          service: of-timers
++        annotations:
++          summary: "Feature Registry contract failed (hash mismatch / pins missing)"
++          description: "Feature Registry contract check reports failure. Investigate pins vs current schema_hash/feature_cols_hash; accidental change without schema bump is likely."
++          runbook_path: "/runbook_feature_registry_p94.md"
++          dashboard_path: "/d/feature_registry_contract/feature-registry-contract?orgId=1"
++
++      - alert: FeatureRegistryContractStale
++        expr: feature_registry_contract_last_age_seconds > 6 * 3600
++        for: 30m
++        labels:
++          severity: warning
++          team: trade
++          component: feature_registry
++          service: of-timers
++        annotations:
++          summary: "Feature Registry contract status stale (>6h)"
++          description: "No recent update in metrics:feature_registry_contract:last. Check of-timers worker schedule and Redis connectivity."
++          runbook_path: "/runbook_feature_registry_p94.md"
++
++      - alert: FeatureRegistryContractExporterDown
++        expr: feature_registry_contract_exporter_up == 0
++        for: 10m
++        labels:
++          severity: warning
++          team: trade
++          component: feature_registry
++          service: exporter
++        annotations:
++          summary: "Feature Registry contract exporter down"
++          description: "Prometheus exporter cannot read Redis metrics. Check exporter container/service and Redis URL."
++          runbook_path: "/runbook_feature_registry_p94.md"
+diff --git a/orderflow_services/runbook_feature_registry_p94.md b/orderflow_services/runbook_feature_registry_p94.md
+--- a/orderflow_services/runbook_feature_registry_p94.md	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/runbook_feature_registry_p94.md	2026-02-25 04:20:01.580232512 +0000
+@@ -0,0 +1,94 @@
++# Runbook: Feature Registry contract / schema pinning (P94)
++
++## What it is
++
++Feature Registry defines *training/runtime feature columns* for edge-stack and related ML components.
++P94 adds a **contract smoke-check** that ensures:
++
++- `schema_hash` and `feature_cols_hash` are stable and match **pinned** expected values.
++- Any code change that alters the registry outputs triggers alert **unless you explicitly update pins**.
++
++This protects you from silent feature drift caused by accidental edits/reorders.
++
++## Where it lives
++
++- Check tool: `orderflow_services.feature_registry_contract_check_v1`
++- Exporter: `orderflow_services.feature_registry_contract_exporter_v1`
++- Redis metrics: `metrics:feature_registry_contract:last`
++- Redis pins (cfg): `cfg:feature_registry:edge_stack`
++
++## Normal state
++
++- Prometheus: `feature_registry_contract_last_success == 1`
++- Redis metrics: `status=ok reason=ok`
++
++## Alert: FeatureRegistryContractFailed
++
++### 1) Read last record
++
++```
++redis-cli HGETALL metrics:feature_registry_contract:last
++```
++
++Check:
++- `reason`
++- `pins_present`
++- `mismatch_schema_hash`, `mismatch_feature_cols_hash`
++- `expected_*` vs current `schema_hash` / `feature_cols_hash`
++
++### 2) Decide: expected change or accidental
++
++**Accidental** (most common):
++- someone edited `core/feature_registry.py` without version bump
++- changed ordering / filtering / time-onehot / scenario onehot flags
++
++**Expected**:
++- you intentionally changed feature set for a schema version
++
++### 3) If accidental: rollback / hotfix
++
++- Revert the commit that changed registry outputs.
++- Redeploy.
++- Confirm `feature_registry_contract_last_success` returns to 1.
++
++### 4) If expected: bump schema version + update pins
++
++Recommended workflow:
++
++1) Bump schema version (e.g. `v4_of` -> `v5_of`) in Feature Registry (explicit new entry).
++2) Deploy.
++3) Update pins (one-time) **after** the new version is intentionally adopted:
++
++```
++python -m orderflow_services.feature_registry_contract_check_v1 --schema-ver v5_of --seed-pin 1
++```
++
++Pins are stored in:
++
++```
++redis-cli HGETALL cfg:feature_registry:edge_stack
++```
++
++### 5) If pins missing
++
++If `pins_present=0` and `reason=pins_missing`:
++
++- Seed pins once (after verifying the current registry is correct):
++
++```
++python -m orderflow_services.feature_registry_contract_check_v1 --seed-pin 1
++```
++
++Then ensure the hourly smoke-check runs (timers worker / sre_monitor).
++
++## Stale alert
++
++If `feature_registry_contract_last_age_seconds` is too high:
++
++- Ensure the check is running hourly in `services.of_timers_worker`.
++- Ensure Redis is reachable for the worker.
++
++## Notes
++
++- Default policy is **require pins** (fail/alert if pins are missing).
++- Hashes are full sha256 hex (64 chars) for deterministic detection.
+diff --git a/orderflow_services/sre_monitor_all_v3.py b/orderflow_services/sre_monitor_all_v3.py
+--- a/orderflow_services/sre_monitor_all_v3.py	2026-02-19 20:18:31.000000000 +0000
++++ b/orderflow_services/sre_monitor_all_v3.py	2026-02-25 04:24:24.228062171 +0000
+@@ -108,6 +108,11 @@
+     if os.getenv("ENABLE_OF_GATE_CONTRACT_CHECK", "0") == "1":
+         tools.append(["of_gate_metrics_contract_check_v1.py", []])
+ 
++
++    # P94: Feature Registry contract check (schema_hash / feature_cols_hash pinning)
++    if os.getenv("ENABLE_FEATURE_REGISTRY_CONTRACT_CHECK", "0") == "1":
++        tools.append(["feature_registry_contract_check_v1.py", []])
++
+     exit_codes = []
+     for tool_def in tools:
+         tool_script = tool_def[0]
+diff --git a/orderflow_services/tests/test_p94_feature_registry_contract_compile_v1.py b/orderflow_services/tests/test_p94_feature_registry_contract_compile_v1.py
+--- a/orderflow_services/tests/test_p94_feature_registry_contract_compile_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/tests/test_p94_feature_registry_contract_compile_v1.py	2026-02-25 04:29:07.838630753 +0000
+@@ -0,0 +1,6 @@
++import py_compile
++
++
++def test_compile_feature_registry_contract_tools_p94():
++    py_compile.compile('orderflow_services/feature_registry_contract_check_v1.py', doraise=True)
++    py_compile.compile('orderflow_services/feature_registry_contract_exporter_v1.py', doraise=True)
+diff --git a/services/of_timers_worker.py b/services/of_timers_worker.py
+--- a/services/of_timers_worker.py	2026-02-24 11:41:34.000000000 +0000
++++ b/services/of_timers_worker.py	2026-02-25 04:23:44.734631344 +0000
+@@ -3,6 +3,7 @@
+ Runs periodic tasks:
+   - Config drift monitor: hourly at :15 minutes
+   - OF gate contract smoke-check: hourly at :08 minutes
++  - Feature Registry contract smoke-check: hourly at :12 minutes
+   - Weekly latency bench: Sunday at 06:40
+   - Nightly regression safe: daily at 04:20
+   - Code audit: daily at 04:50
+@@ -98,7 +99,7 @@
+         return True
+ 
+ 
+-def _notify_stream(text: str, severity: str = "crit", sid: str = None) -> None:
++def _notify_stream(text: str, severity: str = "crit", sid: str = None, source: str = None) -> None:
+     """Best-effort notification to Redis Stream (handled by telegram notifier worker)."""
+     stream = (
+         os.getenv("TELEGRAM_NOTIFY_STREAM")
+@@ -113,7 +114,7 @@
+ 
+     payload = {
+         "message": text,
+-        "source": "of_gate_contract_smoke",
++        "source": source or "of_gate_contract_smoke",
+         "ts_ms": str(int(time.time() * 1000)),
+         "severity": severity,
+     }
+@@ -264,6 +265,108 @@
+     return False
+ 
+ 
++def run_feature_registry_contract_smoke_check() -> bool:
++    """Run Feature Registry contract smoke-check (P94).
++
++    Behavior:
++      - exit=0 -> ok
++      - exit=2 -> alert (pins missing or hash mismatch)
++      - other  -> error
++
++    Dedup/cooldown:
++      - suppress identical alerts for N seconds (default 6h)
++        by signature = reason + expected/current hashes (shortened).
++    """
++    enabled = os.getenv("ENABLE_FEATURE_REGISTRY_CONTRACT_SMOKE")
++    if enabled is None:
++        # default: enable if edge-stack ML is enabled, otherwise off
++        enabled = "1" if os.getenv("ENABLE_NIGHTLY_EDGE_STACK_TRAIN", "0") == "1" else "0"
++    if str(enabled).lower() not in ("1", "true", "yes", "on"):
++        return True
++
++    py = os.getenv("PYTHON", sys.executable)
++
++    script = os.getenv("FEATURE_REGISTRY_CONTRACT_SMOKE_SCRIPT")
++    if not script:
++        candidates = [
++            "/app/orderflow_services/feature_registry_contract_check_v1.py",
++            "/app/tick_flow_full/orderflow_services/feature_registry_contract_check_v1.py",
++        ]
++        for c in candidates:
++            if os.path.exists(c):
++                script = c
++                break
++
++    if script:
++        cmd = [py, script]
++    else:
++        module = os.getenv(
++            "FEATURE_REGISTRY_CONTRACT_SMOKE_MODULE",
++            "orderflow_services.feature_registry_contract_check_v1",
++        )
++        cmd = [py, "-m", module]
++
++    timeout_s = float(os.getenv("FEATURE_REGISTRY_CONTRACT_SMOKE_TIMEOUT_S", "120"))
++    cooldown_s = int(os.getenv("FEATURE_REGISTRY_CONTRACT_SMOKE_COOLDOWN_S", "21600"))  # 6h
++
++    try:
++        p = subprocess.run(
++            cmd,
++            stdout=subprocess.PIPE,
++            stderr=subprocess.PIPE,
++            text=True,
++            timeout=timeout_s,
++            env=os.environ.copy(),
++        )
++        d = _parse_smoke_output(p.stdout, p.stderr) or {}
++        rc = int(p.returncode)
++
++        if rc == 0:
++            return True
++
++        if rc == 2:
++            reason = str(d.get("reason") or "alert")
++            cur = (d.get("current") or {}) if isinstance(d.get("current"), dict) else {}
++            exp_schema = str(d.get("expected_schema_hash") or "")
++            exp_cols = str(d.get("expected_feature_cols_hash") or "")
++            cur_schema = str(cur.get("schema_hash") or d.get("schema_hash") or "")
++            cur_cols = str(cur.get("feature_cols_hash") or d.get("feature_cols_hash") or "")
++
++            sig = (
++                f"reason={reason}|exp_schema={exp_schema[:16]}|exp_cols={exp_cols[:16]}|"
++                f"cur_schema={cur_schema[:16]}|cur_cols={cur_cols[:16]}"
++            )
++            if _dedup_allow(sig, cooldown_s=cooldown_s, prefix="dedup:feature_registry_contract:"):
++                pin_key = str(d.get("pin_key") or os.getenv("FEATURE_REGISTRY_PIN_KEY", "cfg:feature_registry:edge_stack"))
++                msg = (
++                    "[P94] Feature Registry contract ALERT\n"
++                    f"reason={reason}\n"
++                    f"pin_key={pin_key}\n"
++                    f"expected schema_hash={exp_schema[:16]}…\n"
++                    f"expected feature_cols_hash={exp_cols[:16]}…\n"
++                    f"current  schema_hash={cur_schema[:16]}…\n"
++                    f"current  feature_cols_hash={cur_cols[:16]}…\n"
++                    "Action: rollback accidental change OR bump schema ver + seed pins."
++                )
++                _notify_stream(msg, severity="crit", source="feature_registry_contract_smoke")
++            return False
++
++        raw = str(d.get("raw") or "")[:600]
++        msg = (
++            "[P94] Feature Registry contract ERROR\n"
++            f"rc={rc}\n"
++            f"cmd={' '.join(cmd)}\n"
++            f"raw={raw}"
++        )
++        _notify_stream(msg, severity="warning", source="feature_registry_contract_smoke")
++        return False
++
++    except Exception as e:
++        msg = f"[P94] Feature Registry contract EXCEPTION: {type(e).__name__}: {e}"
++        _notify_stream(msg, severity="warning", source="feature_registry_contract_smoke")
++        return False
++
++
+ def run_tool(module: str = None, args: List[str] = None, timeout: int = 3600, env_override: dict = None, **kwargs) -> bool:
+     """Run python module in a subprocess.
+ 
+diff --git a/tick_flow_full/orderflow_services/feature_registry_contract_check_v1.py b/tick_flow_full/orderflow_services/feature_registry_contract_check_v1.py
+--- a/tick_flow_full/orderflow_services/feature_registry_contract_check_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/orderflow_services/feature_registry_contract_check_v1.py	2026-02-25 04:27:41.021539620 +0000
+@@ -0,0 +1,366 @@
++#!/usr/bin/env python3
++# -*- coding: utf-8 -*-
++"""P94 — Feature Registry contract smoke-check (v1)
++
++Goal
++-----
++Detect accidental changes in Feature Registry outputs (schema_hash / feature_cols_hash)
++without an explicit schema version bump.
++
++Mechanics
++---------
++- Computes:
++    - schema_hash  : sha256(feature_names list) from core.feature_registry.get_schema_info()
++    - feature_cols_hash : sha256(feature_cols list) from core.feature_registry.get_edge_stack_feature_spec()
++- Compares them to *pinned* expected values stored in Redis hash (cfg key).
++- Writes the last status to Redis hash (metrics key) for Prometheus exporter/alerts.
++
++Exit codes
++----------
++  0  OK
++  2  ALERT (pins missing or mismatch)
++  1  ERROR (exception, redis unavailable, registry import failure)
++
++ENV (defaults)
++--------------
++  REDIS_URL                                  redis://redis-worker-1:6379/0
++  FEATURE_REGISTRY_PIN_KEY                   cfg:feature_registry:edge_stack
++  FEATURE_REGISTRY_CONTRACT_METRICS_KEY      metrics:feature_registry_contract:last
++
++  FEATURE_SCHEMA_VER                         v4_of
++  FEATURE_MAX_NUMERIC                        128
++  FEATURE_SCENARIO_PREFIX                    bucket:
++  FEATURE_INCLUDE_TIME_ONEHOT                (auto, registry default)
++  FEATURE_INCLUDE_DIRECTION                  1
++  FEATURE_INCLUDE_SCENARIO                   1
++  FEATURE_STRICT_FEATURE_COLS                0
++  FEATURE_FORBID_SCENARIO_V4_ONEHOT          1
++
++  FEATURE_REGISTRY_REQUIRE_PINS              1
++
++CLI
++---
++  python -m orderflow_services.feature_registry_contract_check_v1
++  python orderflow_services/feature_registry_contract_check_v1.py
++
++Optional:
++  --seed-pin 1   (one-time: writes current hashes into cfg hash)
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import logging
++import os
++import sys
++import time
++from dataclasses import asdict
++from typing import Any, Dict, Optional, Tuple
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++logger = logging.getLogger("feature_registry_contract_check")
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _ensure_import_paths() -> None:
++    """Make core.feature_registry importable when running from different working dirs."""
++    here = os.path.abspath(os.path.dirname(__file__))
++    repo_root = os.path.abspath(os.path.join(here, ".."))
++    tick_root = os.path.join(repo_root, "tick_flow_full")
++
++    # Prefer tick_flow_full on sys.path so `import core.*` resolves correctly.
++    if os.path.isdir(tick_root) and tick_root not in sys.path:
++        sys.path.insert(0, tick_root)
++    if repo_root not in sys.path:
++        sys.path.insert(0, repo_root)
++
++
++def _as_int(v: Any, default: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return int(default)
++
++
++def _as_str(v: Any, default: str = "") -> str:
++    try:
++        s = "" if v is None else str(v)
++        return s
++    except Exception:
++        return default
++
++
++def _connect_redis(url: str):
++    if redis is None:
++        raise RuntimeError("redis dependency is missing")
++    return redis.Redis.from_url(url, decode_responses=True)
++
++
++def _hgetall_safe(r, key: str) -> Dict[str, str]:
++    try:
++        d = r.hgetall(key) or {}
++        if not isinstance(d, dict):
++            return {}
++        return {str(k): str(v) for k, v in d.items()}
++    except Exception:
++        return {}
++
++
++def _hset_safe(r, key: str, mapping: Dict[str, Any]) -> None:
++    m = {str(k): str(v) for k, v in (mapping or {}).items()}
++    if not m:
++        return
++    try:
++        r.hset(key, mapping=m)
++    except Exception:
++        # best-effort only
++        pass
++
++
++def _compute_current(schema_ver: str,
++                     *,
++                     max_numeric: int,
++                     scenario_prefix: str,
++                     include_time_onehot: Optional[bool],
++                     include_direction: bool,
++                     include_scenario: bool,
++                     strict_feature_cols: bool,
++                     forbid_scenario_v4_onehot: bool) -> Tuple[Dict[str, Any], Dict[str, Any]]:
++    _ensure_import_paths()
++
++    from core import feature_registry as fr  # type: ignore
++
++    info = fr.get_schema_info(schema_ver)
++    spec = fr.get_edge_stack_feature_spec(
++        schema_ver,
++        max_numeric=int(max_numeric),
++        scenario_prefix=str(scenario_prefix),
++        include_time_onehot=include_time_onehot,
++        include_direction=bool(include_direction),
++        include_scenario=bool(include_scenario),
++        strict_feature_cols=bool(strict_feature_cols),
++        forbid_scenario_v4_onehot=bool(forbid_scenario_v4_onehot),
++    )
++
++    current = {
++        "schema_ver": str(info.ver),
++        "schema_hash": str(info.schema_hash),
++        "n_schema_features": int(len(info.feature_names or [])),
++        "feature_cols_hash": str(spec.feature_cols_hash),
++        "n_feature_cols": int(len(spec.feature_cols or [])),
++        "params": {
++            "max_numeric": int(max_numeric),
++            "scenario_prefix": str(scenario_prefix),
++            "include_time_onehot": None if include_time_onehot is None else (1 if include_time_onehot else 0),
++            "include_direction": 1 if include_direction else 0,
++            "include_scenario": 1 if include_scenario else 0,
++            "strict_feature_cols": 1 if strict_feature_cols else 0,
++            "forbid_scenario_v4_onehot": 1 if forbid_scenario_v4_onehot else 0,
++        },
++    }
++
++    # Provide also the raw dataclasses payload for debugging (bounded)
++    dbg = {
++        "schema_info": asdict(info),
++        "feature_spec": asdict(spec),
++    }
++    return current, dbg
++
++
++def _compare_pins(pins: Dict[str, str], current: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
++    """Return (ok, details)."""
++    want_ver = _as_str(pins.get("schema_ver") or pins.get("feature_schema_ver") or "").strip()
++    want_schema_hash = _as_str(pins.get("schema_hash") or "").strip()
++    want_cols_hash = _as_str(pins.get("feature_cols_hash") or "").strip()
++
++    got_ver = _as_str(current.get("schema_ver") or "").strip()
++    got_schema_hash = _as_str(current.get("schema_hash") or "").strip()
++    got_cols_hash = _as_str(current.get("feature_cols_hash") or "").strip()
++
++    mismatch_ver = 1 if (want_ver and got_ver and want_ver != got_ver) else 0
++    mismatch_schema = 1 if (want_schema_hash and got_schema_hash and want_schema_hash != got_schema_hash) else 0
++    mismatch_cols = 1 if (want_cols_hash and got_cols_hash and want_cols_hash != got_cols_hash) else 0
++
++    ok = (mismatch_ver == 0) and (mismatch_schema == 0) and (mismatch_cols == 0)
++
++    details = {
++        "expected_schema_ver": want_ver,
++        "expected_schema_hash": want_schema_hash,
++        "expected_feature_cols_hash": want_cols_hash,
++        "mismatch_schema_ver": mismatch_ver,
++        "mismatch_schema_hash": mismatch_schema,
++        "mismatch_feature_cols_hash": mismatch_cols,
++    }
++    return ok, details
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--schema-ver", default=os.getenv("FEATURE_SCHEMA_VER", "v4_of"))
++    ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
++    ap.add_argument("--pin-key", default=os.getenv("FEATURE_REGISTRY_PIN_KEY", "cfg:feature_registry:edge_stack"))
++    ap.add_argument("--metrics-key", default=os.getenv("FEATURE_REGISTRY_CONTRACT_METRICS_KEY", "metrics:feature_registry_contract:last"))
++    ap.add_argument("--require-pins", type=int, default=_as_int(os.getenv("FEATURE_REGISTRY_REQUIRE_PINS", "1"), 1))
++    ap.add_argument("--seed-pin", type=int, default=0, help="Write current hashes to pin-key (one-time).")
++    ap.add_argument("--emit-debug", type=int, default=0, help="Include debug payload (schema_info/spec) in stdout JSON.")
++
++    ap.add_argument("--max-numeric", type=int, default=_as_int(os.getenv("FEATURE_MAX_NUMERIC", "128"), 128))
++    ap.add_argument("--scenario-prefix", default=os.getenv("FEATURE_SCENARIO_PREFIX", "bucket:"))
++    ap.add_argument("--include-time-onehot", default=os.getenv("FEATURE_INCLUDE_TIME_ONEHOT", ""))
++    ap.add_argument("--include-direction", type=int, default=_as_int(os.getenv("FEATURE_INCLUDE_DIRECTION", "1"), 1))
++    ap.add_argument("--include-scenario", type=int, default=_as_int(os.getenv("FEATURE_INCLUDE_SCENARIO", "1"), 1))
++    ap.add_argument("--strict-feature-cols", type=int, default=_as_int(os.getenv("FEATURE_STRICT_FEATURE_COLS", "0"), 0))
++    ap.add_argument("--forbid-scenario-v4-onehot", type=int, default=_as_int(os.getenv("FEATURE_FORBID_SCENARIO_V4_ONEHOT", "1"), 1))
++
++    args = ap.parse_args()
++
++    include_time_onehot: Optional[bool]
++    it = str(args.include_time_onehot or "").strip().lower()
++    if it in ("1", "true", "yes", "on"):
++        include_time_onehot = True
++    elif it in ("0", "false", "no", "off"):
++        include_time_onehot = False
++    else:
++        include_time_onehot = None
++
++    out: Dict[str, Any] = {
++        "tool": "feature_registry_contract_check_v1",
++        "ts_ms": _now_ms(),
++        "pin_key": str(args.pin_key),
++        "metrics_key": str(args.metrics_key),
++        "require_pins": int(args.require_pins),
++    }
++
++    rc = 0
++    try:
++        current, dbg = _compute_current(
++            str(args.schema_ver),
++            max_numeric=int(args.max_numeric),
++            scenario_prefix=str(args.scenario_prefix),
++            include_time_onehot=include_time_onehot,
++            include_direction=bool(int(args.include_direction)),
++            include_scenario=bool(int(args.include_scenario)),
++            strict_feature_cols=bool(int(args.strict_feature_cols)),
++            forbid_scenario_v4_onehot=bool(int(args.forbid_scenario_v4_onehot)),
++        )
++        out.update({"current": current})
++        if int(args.emit_debug) == 1:
++            # Debug payload may be large; keep it bounded.
++            out["debug"] = {
++                "schema_info": {
++                    "ver": dbg.get("schema_info", {}).get("ver"),
++                    "schema_hash": dbg.get("schema_info", {}).get("schema_hash"),
++                    "n": len(dbg.get("schema_info", {}).get("feature_names") or []),
++                },
++                "feature_spec": {
++                    "ver": dbg.get("feature_spec", {}).get("ver"),
++                    "feature_cols_hash": dbg.get("feature_spec", {}).get("feature_cols_hash"),
++                    "n": len(dbg.get("feature_spec", {}).get("feature_cols") or []),
++                },
++            }
++
++        # Redis I/O (pins + metrics)
++        r = _connect_redis(str(args.redis_url))
++        pins = _hgetall_safe(r, str(args.pin_key))
++
++        if not pins:
++            out["pins_present"] = 0
++            if int(args.seed_pin) == 1:
++                seed = {
++                    "schema_ver": str(current.get("schema_ver") or ""),
++                    "schema_hash": str(current.get("schema_hash") or ""),
++                    "feature_cols_hash": str(current.get("feature_cols_hash") or ""),
++                    "updated_ts_ms": str(_now_ms()),
++                }
++                _hset_safe(r, str(args.pin_key), seed)
++                out["seeded_pin"] = 1
++                out["status"] = "ok"
++                out["reason"] = "pins_seeded"
++                rc = 0
++            else:
++                out["seeded_pin"] = 0
++                out["status"] = "alert" if int(args.require_pins) == 1 else "ok"
++                out["reason"] = "pins_missing"
++                rc = 2 if int(args.require_pins) == 1 else 0
++                out["mismatch_schema_ver"] = 0
++                out["mismatch_schema_hash"] = 0
++                out["mismatch_feature_cols_hash"] = 0
++                out["expected_schema_ver"] = ""
++                out["expected_schema_hash"] = ""
++                out["expected_feature_cols_hash"] = ""
++        else:
++            out["pins_present"] = 1
++            ok, details = _compare_pins(pins, current)
++            out.update(details)
++
++            if ok:
++                out["status"] = "ok"
++                out["reason"] = "ok"
++                rc = 0
++            else:
++                # Prefer the most specific reason.
++                if int(details.get("mismatch_schema_ver", 0)) == 1:
++                    reason = "schema_ver_mismatch"
++                elif int(details.get("mismatch_schema_hash", 0)) == 1 and int(details.get("mismatch_feature_cols_hash", 0)) == 1:
++                    reason = "schema_and_feature_hash_mismatch"
++                elif int(details.get("mismatch_schema_hash", 0)) == 1:
++                    reason = "schema_hash_mismatch"
++                else:
++                    reason = "feature_cols_hash_mismatch"
++
++                out["status"] = "alert"
++                out["reason"] = reason
++                rc = 2
++
++        # Persist last metrics (best-effort)
++        metrics = {
++            "status": out.get("status", ""),
++            "reason": out.get("reason", ""),
++            "success": 1 if rc == 0 else 0,
++            "pins_present": int(out.get("pins_present", 0)),
++            "mismatch_schema_ver": int(out.get("mismatch_schema_ver", 0)),
++            "mismatch_schema_hash": int(out.get("mismatch_schema_hash", 0)),
++            "mismatch_feature_cols_hash": int(out.get("mismatch_feature_cols_hash", 0)),
++            "schema_ver": str(current.get("schema_ver") or ""),
++            "schema_hash": str(current.get("schema_hash") or ""),
++            "feature_cols_hash": str(current.get("feature_cols_hash") or ""),
++            "expected_schema_ver": str(out.get("expected_schema_ver") or ""),
++            "expected_schema_hash": str(out.get("expected_schema_hash") or ""),
++            "expected_feature_cols_hash": str(out.get("expected_feature_cols_hash") or ""),
++            "updated_ts_ms": str(_now_ms()),
++        }
++        # keep params to help debugging (low-cardinality)
++        params = current.get("params") or {}
++        if isinstance(params, dict):
++            for k in ("max_numeric", "scenario_prefix", "include_time_onehot", "include_direction", "include_scenario"):
++                if k in params:
++                    metrics[f"param_{k}"] = str(params.get(k))
++
++        _hset_safe(r, str(args.metrics_key), metrics)
++
++    except Exception as e:
++        out["status"] = "error"
++        out["reason"] = f"exception:{type(e).__name__}"
++        out["error"] = str(e)[:300]
++        rc = 1
++
++    # Print a single JSON line for orchestration parsers.
++    try:
++        print(json.dumps(out, ensure_ascii=False, sort_keys=True))
++    except Exception:
++        print(str(out))
++
++    return int(rc)
++
++
++if __name__ == "__main__":
++    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
++    raise SystemExit(main())
+diff --git a/tick_flow_full/orderflow_services/feature_registry_contract_exporter_v1.py b/tick_flow_full/orderflow_services/feature_registry_contract_exporter_v1.py
+--- a/tick_flow_full/orderflow_services/feature_registry_contract_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/orderflow_services/feature_registry_contract_exporter_v1.py	2026-02-25 04:27:41.032261231 +0000
+@@ -0,0 +1,107 @@
++#!/usr/bin/env python3
++# -*- coding: utf-8 -*-
++"""Prometheus exporter for Feature Registry contract status (P94).
++
++Reads Redis hash `metrics:feature_registry_contract:last` and exposes gauges:
++  - feature_registry_contract_exporter_up
++  - feature_registry_contract_last_success
++  - feature_registry_contract_last_updated_ts_ms
++  - feature_registry_contract_last_age_seconds
++  - feature_registry_contract_last_pins_present
++  - feature_registry_contract_last_schema_ver_mismatch
++  - feature_registry_contract_last_schema_hash_mismatch
++  - feature_registry_contract_last_feature_cols_hash_mismatch
++
++Resilience:
++  - if Redis is unavailable -> exporter_up=0 (no crash)
++  - if record is stale -> last_success forced to 0
++
++ENV:
++  REDIS_URL                                 (default: redis://redis-worker-1:6379/0)
++  FEATURE_REGISTRY_CONTRACT_METRICS_KEY     (default: metrics:feature_registry_contract:last)
++  FEATURE_REGISTRY_CONTRACT_EXPORTER_PORT   (default: 9817)
++  FEATURE_REGISTRY_CONTRACT_EXPORTER_INTERVAL_S (default: 10)
++  FEATURE_REGISTRY_CONTRACT_EXPORTER_STALE_S    (default: 21600 = 6h)
++"""
++
++from __future__ import annotations
++
++import os
++import time
++from typing import Any, Dict
++
++import redis  # type: ignore
++from prometheus_client import Gauge, start_http_server
++
++
++def _now_s() -> float:
++    return time.time()
++
++
++def _as_float(v: Any, d: float = 0.0) -> float:
++    try:
++        if v is None:
++            return float(d)
++        return float(v)
++    except Exception:
++        return float(d)
++
++
++def _as_int(v: Any, d: int = 0) -> int:
++    try:
++        if v is None:
++            return int(d)
++        return int(float(v))
++    except Exception:
++        return int(d)
++
++
++UP = Gauge("feature_registry_contract_exporter_up", "1 if exporter can read Redis metrics")
++LAST_SUCCESS = Gauge("feature_registry_contract_last_success", "1 if last contract check is ok")
++LAST_UPDATED_MS = Gauge("feature_registry_contract_last_updated_ts_ms", "updated_ts_ms from Redis hash")
++AGE_S = Gauge("feature_registry_contract_last_age_seconds", "Age of metrics record in seconds")
++PINS_PRESENT = Gauge("feature_registry_contract_last_pins_present", "1 if pins are present in cfg hash")
++MM_VER = Gauge("feature_registry_contract_last_schema_ver_mismatch", "1 if schema_ver mismatches pinned")
++MM_SCHEMA = Gauge("feature_registry_contract_last_schema_hash_mismatch", "1 if schema_hash mismatches pinned")
++MM_COLS = Gauge("feature_registry_contract_last_feature_cols_hash_mismatch", "1 if feature_cols_hash mismatches pinned")
++
++
++def main() -> None:
++    redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++    metrics_key = os.getenv("FEATURE_REGISTRY_CONTRACT_METRICS_KEY", "metrics:feature_registry_contract:last")
++    port = int(os.getenv("FEATURE_REGISTRY_CONTRACT_EXPORTER_PORT", "9817"))
++    interval_s = float(os.getenv("FEATURE_REGISTRY_CONTRACT_EXPORTER_INTERVAL_S", "10"))
++    stale_s = float(os.getenv("FEATURE_REGISTRY_CONTRACT_EXPORTER_STALE_S", "21600"))  # 6h
++
++    r = redis.Redis.from_url(redis_url, decode_responses=True)
++    start_http_server(port)
++
++    while True:
++        try:
++            m: Dict[str, Any] = r.hgetall(metrics_key) or {}
++            UP.set(1)
++
++            status = str(m.get("status", "") or "")
++            success = 1.0 if status == "ok" else 0.0
++            LAST_SUCCESS.set(success)
++
++            updated_ms = _as_int(m.get("updated_ts_ms", 0), 0)
++            LAST_UPDATED_MS.set(float(updated_ms))
++            PINS_PRESENT.set(float(_as_int(m.get("pins_present", 0), 0)))
++            MM_VER.set(float(_as_int(m.get("mismatch_schema_ver", 0), 0)))
++            MM_SCHEMA.set(float(_as_int(m.get("mismatch_schema_hash", 0), 0)))
++            MM_COLS.set(float(_as_int(m.get("mismatch_feature_cols_hash", 0), 0)))
++
++            age = max(0.0, _now_s() - (float(updated_ms) / 1000.0 if updated_ms > 0 else 0.0))
++            AGE_S.set(age)
++
++            if age > stale_s:
++                LAST_SUCCESS.set(0.0)
++        except Exception:
++            UP.set(0)
++            LAST_SUCCESS.set(0)
++        time.sleep(interval_s)
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/tick_flow_full/orderflow_services/prometheus_alerts_feature_registry_p94.yml b/tick_flow_full/orderflow_services/prometheus_alerts_feature_registry_p94.yml
+--- a/tick_flow_full/orderflow_services/prometheus_alerts_feature_registry_p94.yml	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_feature_registry_p94.yml	2026-02-25 04:27:41.042299130 +0000
+@@ -0,0 +1,42 @@
++groups:
++  - name: feature_registry_contract_p94
++    rules:
++      - alert: FeatureRegistryContractFailed
++        expr: feature_registry_contract_last_success == 0
++        for: 20m
++        labels:
++          severity: critical
++          team: trade
++          component: feature_registry
++          service: of-timers
++        annotations:
++          summary: "Feature Registry contract failed (hash mismatch / pins missing)"
++          description: "Feature Registry contract check reports failure. Investigate pins vs current schema_hash/feature_cols_hash; accidental change without schema bump is likely."
++          runbook_path: "/runbook_feature_registry_p94.md"
++          dashboard_path: "/d/feature_registry_contract/feature-registry-contract?orgId=1"
++
++      - alert: FeatureRegistryContractStale
++        expr: feature_registry_contract_last_age_seconds > 6 * 3600
++        for: 30m
++        labels:
++          severity: warning
++          team: trade
++          component: feature_registry
++          service: of-timers
++        annotations:
++          summary: "Feature Registry contract status stale (>6h)"
++          description: "No recent update in metrics:feature_registry_contract:last. Check of-timers worker schedule and Redis connectivity."
++          runbook_path: "/runbook_feature_registry_p94.md"
++
++      - alert: FeatureRegistryContractExporterDown
++        expr: feature_registry_contract_exporter_up == 0
++        for: 10m
++        labels:
++          severity: warning
++          team: trade
++          component: feature_registry
++          service: exporter
++        annotations:
++          summary: "Feature Registry contract exporter down"
++          description: "Prometheus exporter cannot read Redis metrics. Check exporter container/service and Redis URL."
++          runbook_path: "/runbook_feature_registry_p94.md"
+diff --git a/tick_flow_full/orderflow_services/runbook_feature_registry_p94.md b/tick_flow_full/orderflow_services/runbook_feature_registry_p94.md
+--- a/tick_flow_full/orderflow_services/runbook_feature_registry_p94.md	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/orderflow_services/runbook_feature_registry_p94.md	2026-02-25 04:27:41.050326113 +0000
+@@ -0,0 +1,94 @@
++# Runbook: Feature Registry contract / schema pinning (P94)
++
++## What it is
++
++Feature Registry defines *training/runtime feature columns* for edge-stack and related ML components.
++P94 adds a **contract smoke-check** that ensures:
++
++- `schema_hash` and `feature_cols_hash` are stable and match **pinned** expected values.
++- Any code change that alters the registry outputs triggers alert **unless you explicitly update pins**.
++
++This protects you from silent feature drift caused by accidental edits/reorders.
++
++## Where it lives
++
++- Check tool: `orderflow_services.feature_registry_contract_check_v1`
++- Exporter: `orderflow_services.feature_registry_contract_exporter_v1`
++- Redis metrics: `metrics:feature_registry_contract:last`
++- Redis pins (cfg): `cfg:feature_registry:edge_stack`
++
++## Normal state
++
++- Prometheus: `feature_registry_contract_last_success == 1`
++- Redis metrics: `status=ok reason=ok`
++
++## Alert: FeatureRegistryContractFailed
++
++### 1) Read last record
++
++```
++redis-cli HGETALL metrics:feature_registry_contract:last
++```
++
++Check:
++- `reason`
++- `pins_present`
++- `mismatch_schema_hash`, `mismatch_feature_cols_hash`
++- `expected_*` vs current `schema_hash` / `feature_cols_hash`
++
++### 2) Decide: expected change or accidental
++
++**Accidental** (most common):
++- someone edited `core/feature_registry.py` without version bump
++- changed ordering / filtering / time-onehot / scenario onehot flags
++
++**Expected**:
++- you intentionally changed feature set for a schema version
++
++### 3) If accidental: rollback / hotfix
++
++- Revert the commit that changed registry outputs.
++- Redeploy.
++- Confirm `feature_registry_contract_last_success` returns to 1.
++
++### 4) If expected: bump schema version + update pins
++
++Recommended workflow:
++
++1) Bump schema version (e.g. `v4_of` -> `v5_of`) in Feature Registry (explicit new entry).
++2) Deploy.
++3) Update pins (one-time) **after** the new version is intentionally adopted:
++
++```
++python -m orderflow_services.feature_registry_contract_check_v1 --schema-ver v5_of --seed-pin 1
++```
++
++Pins are stored in:
++
++```
++redis-cli HGETALL cfg:feature_registry:edge_stack
++```
++
++### 5) If pins missing
++
++If `pins_present=0` and `reason=pins_missing`:
++
++- Seed pins once (after verifying the current registry is correct):
++
++```
++python -m orderflow_services.feature_registry_contract_check_v1 --seed-pin 1
++```
++
++Then ensure the hourly smoke-check runs (timers worker / sre_monitor).
++
++## Stale alert
++
++If `feature_registry_contract_last_age_seconds` is too high:
++
++- Ensure the check is running hourly in `services.of_timers_worker`.
++- Ensure Redis is reachable for the worker.
++
++## Notes
++
++- Default policy is **require pins** (fail/alert if pins are missing).
++- Hashes are full sha256 hex (64 chars) for deterministic detection.
+diff --git a/tick_flow_full/orderflow_services/sre_monitor_all_v3.py b/tick_flow_full/orderflow_services/sre_monitor_all_v3.py
+--- a/tick_flow_full/orderflow_services/sre_monitor_all_v3.py	2026-02-19 20:18:57.000000000 +0000
++++ b/tick_flow_full/orderflow_services/sre_monitor_all_v3.py	2026-02-25 04:24:24.228514044 +0000
+@@ -82,6 +82,11 @@
+     if os.getenv("ENABLE_OF_GATE_CONTRACT_CHECK", "0") == "1":
+         tools.append(["of_gate_metrics_contract_check_v1.py", []])
+ 
++
++    # P94: Feature Registry contract check (schema_hash / feature_cols_hash pinning)
++    if os.getenv("ENABLE_FEATURE_REGISTRY_CONTRACT_CHECK", "0") == "1":
++        tools.append(["feature_registry_contract_check_v1.py", []])
++
+     exit_codes = []
+     for tool_def in tools:
+         tool_script = tool_def[0]
+diff --git a/tick_flow_full/services/of_timers_worker.py b/tick_flow_full/services/of_timers_worker.py
+--- a/tick_flow_full/services/of_timers_worker.py	2026-02-24 09:13:12.000000000 +0000
++++ b/tick_flow_full/services/of_timers_worker.py	2026-02-25 04:23:44.737272752 +0000
+@@ -3,6 +3,7 @@
+ Runs periodic tasks:
+   - Config drift monitor: hourly at :15 minutes
+   - OF gate contract smoke-check: hourly at :08 minutes
++  - Feature Registry contract smoke-check: hourly at :12 minutes
+   - Weekly latency bench: Sunday at 06:40
+   - Nightly regression safe: daily at 04:20
+   - Code audit: daily at 04:50
+@@ -98,7 +99,7 @@
+         return True
+ 
+ 
+-def _notify_stream(text: str, severity: str = "crit", sid: str = None) -> None:
++def _notify_stream(text: str, severity: str = "crit", sid: str = None, source: str = None) -> None:
+     """Best-effort notification to Redis Stream (handled by telegram notifier worker)."""
+     stream = (
+         os.getenv("TELEGRAM_NOTIFY_STREAM")
+@@ -113,7 +114,7 @@
+ 
+     payload = {
+         "message": text,
+-        "source": "of_gate_contract_smoke",
++        "source": source or "of_gate_contract_smoke",
+         "ts_ms": str(int(time.time() * 1000)),
+         "severity": severity,
+     }
+@@ -264,6 +265,108 @@
+     return False
+ 
+ 
++def run_feature_registry_contract_smoke_check() -> bool:
++    """Run Feature Registry contract smoke-check (P94).
++
++    Behavior:
++      - exit=0 -> ok
++      - exit=2 -> alert (pins missing or hash mismatch)
++      - other  -> error
++
++    Dedup/cooldown:
++      - suppress identical alerts for N seconds (default 6h)
++        by signature = reason + expected/current hashes (shortened).
++    """
++    enabled = os.getenv("ENABLE_FEATURE_REGISTRY_CONTRACT_SMOKE")
++    if enabled is None:
++        # default: enable if edge-stack ML is enabled, otherwise off
++        enabled = "1" if os.getenv("ENABLE_NIGHTLY_EDGE_STACK_TRAIN", "0") == "1" else "0"
++    if str(enabled).lower() not in ("1", "true", "yes", "on"):
++        return True
++
++    py = os.getenv("PYTHON", sys.executable)
++
++    script = os.getenv("FEATURE_REGISTRY_CONTRACT_SMOKE_SCRIPT")
++    if not script:
++        candidates = [
++            "/app/orderflow_services/feature_registry_contract_check_v1.py",
++            "/app/tick_flow_full/orderflow_services/feature_registry_contract_check_v1.py",
++        ]
++        for c in candidates:
++            if os.path.exists(c):
++                script = c
++                break
++
++    if script:
++        cmd = [py, script]
++    else:
++        module = os.getenv(
++            "FEATURE_REGISTRY_CONTRACT_SMOKE_MODULE",
++            "orderflow_services.feature_registry_contract_check_v1",
++        )
++        cmd = [py, "-m", module]
++
++    timeout_s = float(os.getenv("FEATURE_REGISTRY_CONTRACT_SMOKE_TIMEOUT_S", "120"))
++    cooldown_s = int(os.getenv("FEATURE_REGISTRY_CONTRACT_SMOKE_COOLDOWN_S", "21600"))  # 6h
++
++    try:
++        p = subprocess.run(
++            cmd,
++            stdout=subprocess.PIPE,
++            stderr=subprocess.PIPE,
++            text=True,
++            timeout=timeout_s,
++            env=os.environ.copy(),
++        )
++        d = _parse_smoke_output(p.stdout, p.stderr) or {}
++        rc = int(p.returncode)
++
++        if rc == 0:
++            return True
++
++        if rc == 2:
++            reason = str(d.get("reason") or "alert")
++            cur = (d.get("current") or {}) if isinstance(d.get("current"), dict) else {}
++            exp_schema = str(d.get("expected_schema_hash") or "")
++            exp_cols = str(d.get("expected_feature_cols_hash") or "")
++            cur_schema = str(cur.get("schema_hash") or d.get("schema_hash") or "")
++            cur_cols = str(cur.get("feature_cols_hash") or d.get("feature_cols_hash") or "")
++
++            sig = (
++                f"reason={reason}|exp_schema={exp_schema[:16]}|exp_cols={exp_cols[:16]}|"
++                f"cur_schema={cur_schema[:16]}|cur_cols={cur_cols[:16]}"
++            )
++            if _dedup_allow(sig, cooldown_s=cooldown_s, prefix="dedup:feature_registry_contract:"):
++                pin_key = str(d.get("pin_key") or os.getenv("FEATURE_REGISTRY_PIN_KEY", "cfg:feature_registry:edge_stack"))
++                msg = (
++                    "[P94] Feature Registry contract ALERT\n"
++                    f"reason={reason}\n"
++                    f"pin_key={pin_key}\n"
++                    f"expected schema_hash={exp_schema[:16]}…\n"
++                    f"expected feature_cols_hash={exp_cols[:16]}…\n"
++                    f"current  schema_hash={cur_schema[:16]}…\n"
++                    f"current  feature_cols_hash={cur_cols[:16]}…\n"
++                    "Action: rollback accidental change OR bump schema ver + seed pins."
++                )
++                _notify_stream(msg, severity="crit", source="feature_registry_contract_smoke")
++            return False
++
++        raw = str(d.get("raw") or "")[:600]
++        msg = (
++            "[P94] Feature Registry contract ERROR\n"
++            f"rc={rc}\n"
++            f"cmd={' '.join(cmd)}\n"
++            f"raw={raw}"
++        )
++        _notify_stream(msg, severity="warning", source="feature_registry_contract_smoke")
++        return False
++
++    except Exception as e:
++        msg = f"[P94] Feature Registry contract EXCEPTION: {type(e).__name__}: {e}"
++        _notify_stream(msg, severity="warning", source="feature_registry_contract_smoke")
++        return False
++
++
+ def run_tool(module: str = None, args: List[str] = None, timeout: int = 3600, env_override: dict = None, **kwargs) -> bool:
+     """Run python module in a subprocess.
+ 

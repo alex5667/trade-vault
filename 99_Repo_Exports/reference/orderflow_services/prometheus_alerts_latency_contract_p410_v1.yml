@@ -1,0 +1,17 @@
+groups:
+  - name: latency-contract-p410
+    rules:
+      - alert: OF_LatencyDeployLint_DualControlApprovalPending_Warn
+        expr: latency_contract_deploy_lint_silence_approval_pending > 0 and latency_contract_deploy_lint_silence_approval_age_seconds > 1800
+        for: 15m
+        labels: {severity: warn}
+        annotations:
+          summary: "Latency deploy-lint override approval is waiting for second approver"
+          description: "A long deploy-lint silence override request is still pending second-operator approval. The notifier suppression cannot be committed until another operator approves it."
+      - alert: OF_LatencyDeployLint_DualControlOverrideActive_Warn
+        expr: latency_contract_deploy_lint_summary_dual_control_override_gate_active_total > 0
+        for: 24h
+        labels: {severity: warn}
+        annotations:
+          summary: "Latency deploy-lint notifier is silenced under dual-control override"
+          description: "At least one persistent deploy-lint gate is currently silenced under an approved dual-control exception. Gate enforcement still applies; fix the drift and clear the silence promptly."

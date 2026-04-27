@@ -1,0 +1,33 @@
+groups:
+  - name: of_prom_rules_bundle_health_v1
+    interval: 1m
+    rules:
+      - alert: OF_PromRulesBundleValidationFailed
+        expr: of_prom_rules_bundle_last_ok == 0
+        for: 10m
+        labels:
+          severity: page
+          component: observability
+        annotations:
+          summary: "Prometheus rules bundle validation failing"
+          description: "Nightly/orchestrated validator did not record a successful run. Inspect state:prom_rules_bundle:* (last_error_head, last_errors_json), and run tools/validate_prometheus_rules_bundle_v1.sh locally or in-container."
+
+      - alert: OF_PromRulesBundleValidationStale
+        expr: of_prom_rules_bundle_last_ok_age_sec > 36 * 3600
+        for: 15m
+        labels:
+          severity: warn
+          component: observability
+        annotations:
+          summary: "Prometheus rules bundle validation stale"
+          description: "No successful rules bundle validation recorded for >36h. Check of_timers_worker schedule (:09) and state:prom_rules_bundle:last_ok_ts_ms."
+
+      - alert: OF_PromRulesBundleValidationErrorsPresent
+        expr: of_prom_rules_bundle_last_error_n > 0
+        for: 10m
+        labels:
+          severity: warn
+          component: observability
+        annotations:
+          summary: "Prometheus rules bundle validator reported errors"
+          description: "Validator recorded one or more errors in last run. Inspect state:prom_rules_bundle:last_error_head / last_errors_json."

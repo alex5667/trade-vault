@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/fp_edge_evidence.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 30000, 'bias', 'fp_edge_absorb', 'fp_edge_age_ms', 'fp_edge_bias', 'fp_edge_dir_ok', 'fp_edge_min_strength', 'fp_edge_strength', 'fp_edge_valid_ms', 'p90', 'range_expansion', 'strength', 'ts_ms', 'value']

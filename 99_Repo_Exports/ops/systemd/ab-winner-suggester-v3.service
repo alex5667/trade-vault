@@ -1,0 +1,26 @@
+[Unit]
+Description=AB Winner Suggester V3 (LCB-based)
+After=network.target redis.service
+
+[Service]
+Type=simple
+User=alex
+Group=alex
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+Environment=PYTHONPATH=/home/alex/front/trade/scanner_infra/python-worker
+Environment=REDIS_URL=redis://redis-worker-1:6379/0
+Environment=WINNER_MIN_N=30
+Environment=WINNER_LCB_MARGIN=0.05
+Environment=WINNER_HOLD_DOWN_MS=21600000
+Environment=WINNER_MATRIX=BTCUSDT,ETHUSDT,SOLUSDT|range,trend,thin|default|reversal,continuation
+Environment=AB_WINNER_LATEST_PREFIX=cfg:suggestions:entry_policy:latest:ab_winner
+Environment=AB_WINNER_META_PREFIX=cfg:suggestions:entry_policy:meta
+Environment=AB_WINNER_APPROVALS_PREFIX=cfg:suggestions:entry_policy:approvals
+Environment=AB_WINNER_APPLIED_PREFIX=cfg:suggestions:entry_policy:applied
+Environment=AB_LCB_PREFIX=cfg:entry_policy:lcb:v1:snap
+ExecStart=/home/alex/front/trade/scanner_infra/python-worker/venv/bin/python3 /home/alex/front/trade/scanner_infra/python-worker/services/ab_winner_suggester_service_v3.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/stats/_binomtest.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-07, 0.5, 0.95, 1.0, 'exact', 'greater', 'k', 'less', 'n', 'two-sided', 'wilson', 'wilsoncc']

@@ -1,0 +1,19 @@
+groups:
+  - name: ml_phase3_28_route_incident_rca_mirror_rca_winner_apply_apply_rca_bridge_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyRCABridgeStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_rca_bridge_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyRCABridgeErrors
+        expr: rate(ml_route_incident_rca_mirror_rca_winner_apply_apply_rca_bridge_runs_total{status="error"}[5m]) > 0
+        for: 2m
+        labels: { severity: critical }
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyRCABridgeLocalRouting
+        expr: rate(ml_route_incident_rca_mirror_rca_winner_apply_apply_rca_bridge_routed_total{route="local"}[10m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Winner Apply Governance RCA bridge is routing to local fallback (Vertex degraded?)"

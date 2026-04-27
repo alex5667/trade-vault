@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/cost_edge_adapter.py
+# hypothesis_version: 6.148.10
+
+['apply', 'burst_flip_ratio', 'cancel_to_trade', 'delay_ms', 'expected_move_bps', 'fees_bps', 'k', 'mode', 'notes', 'reason_code', 'slippage_bps', 'spread_bps', 'spread_ema_bps', 'threshold_bps', 'veto', 'veto_fees_bps', 'veto_k', 'veto_mode', 'veto_notes', 'veto_reason_code', 'veto_slippage_bps', 'veto_threshold_bps']

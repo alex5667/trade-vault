@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/enricher_zero_rtt.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.01, 1.0, 1000.0, 250, 256, 512, 1000, 2000, 30000, 'GLOBAL', 'asof_ts_ms', 'asset_class', 'confidence', 'event_grade_id', 'event_tminus_sec', 'horizon_sec', 'news-agg-cache', 'news_cache_miss', 'news_cache_stale', 'news_grade_id', 'primary_tag_id', 'ref', 'risk_ema', 'surprise_ema', 'tags_mask']

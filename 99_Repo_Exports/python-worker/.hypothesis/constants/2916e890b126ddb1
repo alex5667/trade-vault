@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/v13_of_features.py
+# hypothesis_version: 6.148.10
+
+[-1.0, 0.0, 1e-12, 0.2, 0.3, 1.0, 2.0, 50.0, 'adf_pvalue_50', 'adverse_drift_ms', 'amihud_illiquidity', 'amihud_x_oi_delta', 'depth_resil_x_sweep', 'entropy_x_spread', 'funding_rate_bps', 'garman_klass_vol', 'hasbrouck_info_share', 'hurst_exp_50', 'hurst_x_vol_regime', 'info_flow', 'kyle_lambda_buy', 'kyle_lambda_sell', 'lambda_asym', 'last_book_mid', 'long_short_ratio', 'mid_vwap_diff_std', 'oi_weighted_funding', 'open_interest_delta', 'order_size_gini', 'parkinson_vol', 'pin_estimate', 'price_entropy_50', 'roll_vwap_px', 'spread_bps', 'vol_of_vol', 'vol_regime_code', 'vpin_rolling', 'vpin_x_funding', 'yang_zhang_vol', 'zscore_mid_to_vwap']

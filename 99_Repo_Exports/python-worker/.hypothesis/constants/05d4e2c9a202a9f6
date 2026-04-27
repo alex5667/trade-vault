@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/sparse/csgraph/_laplacian.py
+# hypothesis_version: 6.148.10
+
+[1.0, 'array', 'dia', 'dok', 'function', 'lil', 'lo']

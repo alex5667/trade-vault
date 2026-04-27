@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/liqmap_features.py
+# hypothesis_version: 6.148.10
+
+[-1.0, 0.0, 1e-12, 1.0, 5.0, 25.0, 10000.0, 250000.0, '-inf', '1h', 'BUY', 'LONG', 'SELL', 'SHORT', '_num_levels', '_tot_long_usd', '_tot_short_usd', 'cap_sl_widen', 'dn', 'inf', 'is_stale', 'levels', 'levels_n', 'liqmap_levels_reason', 'liqmap_sl_adj_bps', 'liqmap_sl_anchor_usd', 'liqmap_tp1_adj_bps', 'long_peak_price', 'long_peak_usd', 'long_usd', 'no_peak', 'price', 'short_peak_price', 'short_peak_usd', 'short_usd', 'sl_behind_peak', 'sl_reco_bps_long', 'sl_reco_bps_short', 'squeeze_bias', 'stale_ms', 'tp1_after_peak', 'tp1_anchor_bps_long', 'tp1_anchor_bps_short', 'tp1_before_peak', 'tp1_sl', 'ts_ms', 'up']

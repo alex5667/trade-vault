@@ -1,0 +1,11 @@
+[Unit]
+Description=Trade ML rollout guard v2 (dual-window health, freeze floor, auto-unfreeze proposal)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/trade/of_reports.env
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+ExecStart=/usr/bin/python3 -m tools.ml_rollout_guard_v2
+

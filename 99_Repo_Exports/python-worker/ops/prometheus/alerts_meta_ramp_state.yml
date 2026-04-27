@@ -1,0 +1,46 @@
+groups:
+  - name: meta_ramp_alerts
+    rules:
+      # 1. Ramp evaluation staleness: alert if not evaluated for > 2 hours
+      - alert: MetaRampStale
+        expr: (time() - meta_status_ramp_last_eval_ts) > 7200
+        for: 5m
+        labels:
+          severity: warning
+          component: meta_ramp
+        annotations:
+          summary: "Meta ramp evaluation is stale"
+          description: "No meta-ramp evaluation for {{ $labels.instance }} since {{ $value | humanizeDuration }} ago. Check meta-ramp timer logs."
+
+      # 2. Prolonged blockage: alert if blocked (trend or cooldown) for > 48 hours
+      - alert: MetaRampBlocked
+        expr: meta_status_ramp_block_reason_code > 0
+        for: 48h
+        labels:
+          severity: warning
+          component: meta_ramp
+        annotations:
+          summary: "Meta ramp has been blocked for > 48h"
+          description: "Meta-ramp for {{ $labels.instance }} is blocked (code {{ $value }}). Prolonged blockage may indicate underlying data or model issues."
+
+      # 3. Model degradation: alert if PR-AUC drops from baseline significantly
+      - alert: MetaModelDegradation
+        expr: meta_status_ramp_delta_pr_auc < -0.05
+        for: 30m
+        labels:
+          severity: warning
+          component: meta_ramp
+        annotations:
+          summary: "Significant meta-model degradation detected"
+          description: "Meta-model for {{ $labels.instance }} PR-AUC dropped by {{ $value }} vs baseline. Consider freezing or retraining."
+
+      # 4. DQ degradation: alert if DQ health mean drops significantly
+      - alert: MetaDQDegradation
+        expr: meta_status_ramp_delta_dq_health_mean < -0.10
+        for: 30m
+        labels:
+          severity: warning
+          component: meta_ramp
+        annotations:
+          summary: "Significant Data Quality degradation detected"
+          description: "Data quality health for {{ $labels.instance }} dropped by {{ $value }} vs baseline."

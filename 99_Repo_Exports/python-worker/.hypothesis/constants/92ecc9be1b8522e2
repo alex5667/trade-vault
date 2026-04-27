@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/sparse/linalg/_norm.py
+# hypothesis_version: 6.148.10
+
+['A', 'f', 'fro', 'lobpcg', 'norm', 'toarray']

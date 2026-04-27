@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/internals/concat.py
+# hypothesis_version: 6.148.10
+
+['K', 'NaN', 'NaT', 'O', 'V', 'b', 'fc', 'iu', 'iub', 'mM', 'object']

@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/_pytest/assertion/util.py
+# hypothesis_version: 6.148.10
+
+[' != ', ' +', '%s%s: %r != %r', '(', ')', '+ ', ',', '- ', '<string>', '==', '>', 'BUILD_NUMBER', 'CI', 'Common items:', 'Differing items:', 'Full diff:', 'Left', 'Matching attributes:', 'NFD', 'Right', 'Skipping', '[', '\\n', ']', '__attrs_attrs__', '__code__', '__dataclass_fields__', '_fields', 'and   ', 'attrs generated eq', 'co_filename', 'eq', 'not in', 's', 'verbose', 'where ', '{', '}', '~']

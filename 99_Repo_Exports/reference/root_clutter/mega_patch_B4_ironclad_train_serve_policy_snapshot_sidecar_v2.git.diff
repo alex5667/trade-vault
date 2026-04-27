@@ -1,0 +1,530 @@
+diff --git a/core/of_confirm_engine.py b/core/of_confirm_engine.py
+index 9df1f8e..c6245f6 100644
+--- a/core/of_confirm_engine.py
++++ b/core/of_confirm_engine.py
+@@ -8,6 +8,8 @@ import os
+ import time
+ from types import SimpleNamespace
+ 
++from core_snapshot.policy_snapshot_v1 import build_dq_policy_snapshot, build_feature_manifest_v1, to_public_dict
++
+ from core.book_evidence import compute_obi_flags, compute_iceberg_flags, compute_ofi_flags
+ from core.meta_model_lr import MetaModelLR
+ from core.meta_feature_coverage import compute_meta_feature_coverage, apply_meta_coverage_guard
+@@ -1308,6 +1310,41 @@ class OFConfirmEngine:
+         indicators["dq_reason"] = dq_reason
+         indicators["dq_health_score"] = dq_health
+         indicators["dq_reason_bucket"] = dq_bucket
++
++# ------------------------------------------------------------------
++# Train==Serve "ironclad" metadata:
++#  - policy snapshot (SAFE/STRICT thresholds + book alpha + observe-only knobs)
++#  - manifest binds schema + policy via stable hashes
++# IMPORTANT: offline builders must treat these as *metadata*, not model features.
++# ------------------------------------------------------------------
++try:
++    dq_snap, dq_hash = build_dq_policy_snapshot(dict(cfg2 or {}))
++    indicators["dq_policy_snapshot_v1"] = to_public_dict(dq_snap)
++    indicators["dq_policy_hash"] = str(dq_hash)
++
++    # Bind meta-schema + cols ordering to policy via manifest.
++    meta_name = str(cfg2.get("meta_schema_name", "meta_feat_v8"))
++    reg = globals().get("META_SCHEMA_REGISTRY", {})
++    ver, h = (0, "")
++    try:
++        ver, h = reg.get(meta_name, (0, ""))
++    except Exception:
++        ver, h = (0, "")
++
++    cols = tuple(globals().get("META_FEAT_V8_COLS", ()))
++    man, man_hash = build_feature_manifest_v1(
++        meta_schema_name=meta_name,
++        meta_schema_version=int(ver),
++        meta_schema_hash=str(h),
++        meta_cols=cols,
++        dq_policy_hash=str(dq_hash),
++        thr=dq_snap.thresholds,
++    )
++    indicators["dq_policy_feature_manifest_v1"] = to_public_dict(man)
++    indicators["dq_policy_feature_manifest_hash_v1"] = str(man_hash)
++except Exception:
++    # Fail-open: decisions must not depend on metadata presence.
++    pass
+         indicators["of_base_score"] = float(base_score)
+         indicators["of_score_final_raw"] = float(final_score_raw)
+         indicators["of_score_final"] = float(score)
+diff --git a/core_snapshot/policy_snapshot_v1.py b/core_snapshot/policy_snapshot_v1.py
+new file mode 100644
+index 0000000..adbba39
+--- /dev/null
++++ b/core_snapshot/policy_snapshot_v1.py
+@@ -0,0 +1,270 @@
++"""Policy snapshot for Train==Serve determinism.
++
++Why this file exists:
++  - Runtime DQ-gate / trackers use *effective* thresholds and alpha values.
++  - Offline builders must record the same effective policy (SAFE/STRICT, alpha, thresholds)
++    as *metadata*, not as features.
++
++Design:
++  - Snapshot is JSON-serializable, stable-ordered, and produces a stable hash.
++  - The snapshot intentionally includes only policy knobs that affect decisions/features.
++  - Runtime/uptime values are NOT included here (they go to decision record separately).
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass, asdict
++from typing import Any, Dict, Optional, Tuple
++import hashlib
++import json
++import os
++
++
++def _as_bool(x: Any, default: bool = False) -> bool:
++    try:
++        if isinstance(x, bool):
++            return x
++        if x is None:
++            return default
++        s = str(x).strip().lower()
++        if s in ("1", "true", "yes", "y", "on"):
++            return True
++        if s in ("0", "false", "no", "n", "off"):
++            return False
++    except Exception:
++        pass
++    return default
++
++
++def _as_int(x: Any, default: int) -> int:
++    try:
++        return int(x)
++    except Exception:
++        return default
++
++
++def _as_float(x: Any, default: float) -> float:
++    try:
++        return float(x)
++    except Exception:
++        return default
++
++
++def _stable_json(obj: Any) -> str:
++    """Stable JSON string for hashing/persistence."""
++    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
++
++
++def stable_hash(obj: Any) -> str:
++    """sha256 over stable-json."""
++    b = _stable_json(obj).encode("utf-8")
++    return hashlib.sha256(b).hexdigest()
++
++
++def _derive_book_alpha(book_stream_interval_ms: int) -> float:
++    """Map stream interval to EMA alpha.
++
++    Matches rollout guidance (deterministic default picks):
++      ~100ms (~10Hz): 0.10
++      250ms: 0.20
++      500ms: 0.30
++      1Hz+:  0.40 (mid of 0.30..0.50)
++    """
++    ms = int(book_stream_interval_ms)
++    if ms <= 120:
++        return 0.10
++    if ms <= 300:
++        return 0.20
++    if ms <= 700:
++        return 0.30
++    return 0.40
++
++
++@dataclass(frozen=True)
++class DQThresholdsV1:
++    """Effective thresholds (resolved after SAFE/STRICT + interval mapping + overrides)."""
++
++    dq_mode: str
++    book_stream_interval_ms: int
++
++    # gap
++    dq_gap_soft_ms: int
++    dq_gap_hard_ms: int
++    dq_gap_extreme_ms: int
++    dq_gap_min_samples: int
++
++    # tick missing seq
++    dq_tick_missing_seq_soft: float
++    dq_tick_missing_seq_hard: float
++
++    # book missing seq
++    dq_book_missing_seq_soft: float
++    dq_book_missing_seq_hard: float
++
++    # alpha
++    dq_book_seq_ema_alpha: float
++
++
++def resolve_dq_thresholds(cfg2: Dict[str, Any]) -> DQThresholdsV1:
++    """Resolve effective thresholds.
++
++    If project already has core_snapshot.dq_thresholds, prefer it.
++    Otherwise use local deterministic defaults.
++    """
++    try:
++        from core_snapshot.dq_thresholds import resolve_effective_thresholds  # type: ignore
++
++        eff = resolve_effective_thresholds(cfg2)
++        return DQThresholdsV1(
++            dq_mode=str(eff.get("dq_mode", "safe")),
++            book_stream_interval_ms=int(eff.get("book_stream_interval_ms", 100)),
++            dq_gap_soft_ms=int(eff.get("dq_gap_soft_ms", 3000)),
++            dq_gap_hard_ms=int(eff.get("dq_gap_hard_ms", 10000)),
++            dq_gap_extreme_ms=int(eff.get("dq_gap_extreme_ms", 30000)),
++            dq_gap_min_samples=int(eff.get("dq_gap_min_samples", 20)),
++            dq_tick_missing_seq_soft=float(eff.get("dq_tick_missing_seq_soft", 2.0)),
++            dq_tick_missing_seq_hard=float(eff.get("dq_tick_missing_seq_hard", 10.0)),
++            dq_book_missing_seq_soft=float(eff.get("dq_book_missing_seq_soft", 10.0)),
++            dq_book_missing_seq_hard=float(eff.get("dq_book_missing_seq_hard", 30.0)),
++            dq_book_seq_ema_alpha=float(eff.get("dq_book_seq_ema_alpha", _derive_book_alpha(int(eff.get("book_stream_interval_ms", 100))))),
++        )
++    except Exception:
++        pass
++
++    dq_mode = str(cfg2.get("dq_mode", cfg2.get("DQ_MODE", "safe")) or "safe").lower()
++    if dq_mode not in ("safe", "strict"):
++        dq_mode = "safe"
++
++    book_ms = _as_int(cfg2.get("book_stream_interval_ms", cfg2.get("BOOK_STREAM_INTERVAL_MS", 100)), 100)
++
++    if dq_mode == "strict":
++        gap_soft, gap_hard, gap_ext = 1500, 3000, 10000
++        tick_soft, tick_hard = 1.0, 3.0
++    else:
++        gap_soft, gap_hard, gap_ext = 3000, 10000, 30000
++        tick_soft, tick_hard = 2.0, 10.0
++
++    gap_soft = _as_int(cfg2.get("dq_gap_soft_ms", cfg2.get("DQ_GAP_SOFT_MS", gap_soft)), gap_soft)
++    gap_hard = _as_int(cfg2.get("dq_gap_hard_ms", cfg2.get("DQ_GAP_HARD_MS", gap_hard)), gap_hard)
++    gap_ext = _as_int(cfg2.get("dq_gap_extreme_ms", cfg2.get("DQ_GAP_EXTREME_MS", gap_ext)), gap_ext)
++    gap_min_samples = _as_int(cfg2.get("dq_gap_min_samples", cfg2.get("DQ_GAP_MIN_SAMPLES", 20)), 20)
++
++    tick_soft = _as_float(cfg2.get("dq_tick_missing_seq_soft", cfg2.get("DQ_TICK_MISSING_SEQ_SOFT", tick_soft)), tick_soft)
++    tick_hard = _as_float(cfg2.get("dq_tick_missing_seq_hard", cfg2.get("DQ_TICK_MISSING_SEQ_HARD", tick_hard)), tick_hard)
++
++    base_book_soft = 10.0
++    base_book_hard = 30.0
++    if book_ms >= 900:
++        base_book_hard = 60.0
++    elif book_ms >= 450:
++        base_book_hard = 45.0
++    elif book_ms >= 200:
++        base_book_hard = 35.0
++
++    book_soft = _as_float(cfg2.get("dq_book_missing_seq_soft", cfg2.get("DQ_BOOK_MISSING_SEQ_SOFT", base_book_soft)), base_book_soft)
++    book_hard = _as_float(cfg2.get("dq_book_missing_seq_hard", cfg2.get("DQ_BOOK_MISSING_SEQ_HARD", cfg2.get("book_hard", base_book_hard))), base_book_hard)
++
++    alpha = cfg2.get("dq_book_seq_ema_alpha")
++    if alpha is None:
++        alpha = cfg2.get("DQ_BOOK_SEQ_EMA_ALPHA")
++    if alpha is None:
++        alpha = cfg2.get("BOOK_MISSING_SEQ_EMA_ALPHA")
++    a = _as_float(alpha, _derive_book_alpha(book_ms))
++    if a < 0.01:
++        a = 0.01
++    if a > 0.95:
++        a = 0.95
++
++    return DQThresholdsV1(
++        dq_mode=dq_mode,
++        book_stream_interval_ms=int(book_ms),
++        dq_gap_soft_ms=int(gap_soft),
++        dq_gap_hard_ms=int(gap_hard),
++        dq_gap_extreme_ms=int(gap_ext),
++        dq_gap_min_samples=int(gap_min_samples),
++        dq_tick_missing_seq_soft=float(tick_soft),
++        dq_tick_missing_seq_hard=float(tick_hard),
++        dq_book_missing_seq_soft=float(book_soft),
++        dq_book_missing_seq_hard=float(book_hard),
++        dq_book_seq_ema_alpha=float(a),
++    )
++
++
++@dataclass(frozen=True)
++class DQPolicySnapshotV1:
++    snapshot_version: int
++    thresholds: DQThresholdsV1
++    dq_book_veto_enabled: bool
++    dq_observe_only_sec: int
++    dq_gate_mode: str
++
++
++def build_dq_policy_snapshot(cfg2: Dict[str, Any]) -> Tuple[DQPolicySnapshotV1, str]:
++    thr = resolve_dq_thresholds(cfg2)
++    dq_book_veto_enabled = _as_bool(cfg2.get("dq_book_veto_enabled", cfg2.get("DQ_BOOK_VETO_ENABLED", False)), False)
++    dq_observe_only_sec = _as_int(cfg2.get("dq_observe_only_sec", cfg2.get("DQ_OBSERVE_ONLY_SEC", 86400)), 86400)
++    dq_gate_mode = str(cfg2.get("dq_gate_mode", cfg2.get("DQ_GATE_MODE", "off")) or "off").lower()
++
++    snap = DQPolicySnapshotV1(
++        snapshot_version=1,
++        thresholds=thr,
++        dq_book_veto_enabled=bool(dq_book_veto_enabled),
++        dq_observe_only_sec=int(dq_observe_only_sec),
++        dq_gate_mode=str(dq_gate_mode),
++    )
++    return snap, stable_hash(asdict(snap))
++
++
++def env_git_sha() -> str:
++    for k in ("GIT_SHA", "GIT_COMMIT", "SOURCE_VERSION"):
++        v = os.environ.get(k)
++        if v:
++            return str(v)
++    return ""
++
++
++@dataclass(frozen=True)
++class FeatureManifestV1:
++    manifest_version: int
++    meta_schema_name: str
++    meta_schema_version: int
++    meta_schema_hash: str
++    meta_cols_hash: str
++    dq_policy_hash: str
++    dq_mode: str
++    book_stream_interval_ms: int
++    dq_book_seq_ema_alpha: float
++    git_sha: str
++
++
++def build_feature_manifest_v1(
++    *,
++    meta_schema_name: str,
++    meta_schema_version: int,
++    meta_schema_hash: str,
++    meta_cols: Tuple[str, ...],
++    dq_policy_hash: str,
++    thr: DQThresholdsV1,
++) -> Tuple[FeatureManifestV1, str]:
++    cols_hash = stable_hash(list(meta_cols))
++    man = FeatureManifestV1(
++        manifest_version=1,
++        meta_schema_name=str(meta_schema_name),
++        meta_schema_version=int(meta_schema_version),
++        meta_schema_hash=str(meta_schema_hash),
++        meta_cols_hash=str(cols_hash),
++        dq_policy_hash=str(dq_policy_hash),
++        dq_mode=str(thr.dq_mode),
++        book_stream_interval_ms=int(thr.book_stream_interval_ms),
++        dq_book_seq_ema_alpha=float(thr.dq_book_seq_ema_alpha),
++        git_sha=env_git_sha(),
++    )
++    return man, stable_hash(asdict(man))
++
++
++def to_public_dict(obj: Any) -> Dict[str, Any]:
++    if hasattr(obj, "__dataclass_fields__"):
++        return asdict(obj)
++    if isinstance(obj, dict):
++        return dict(obj)
++    return {"value": str(obj)}
+diff --git a/ml_analysis/tools/extract_policy_snapshot_v1.py b/ml_analysis/tools/extract_policy_snapshot_v1.py
+new file mode 100644
+index 0000000..f5d5fdf
+--- /dev/null
++++ b/ml_analysis/tools/extract_policy_snapshot_v1.py
+@@ -0,0 +1,88 @@
++"""Extract policy snapshot + feature manifest from decision records (NDJSON).
++
++Usage:
++  python -m ml_analysis.tools.extract_policy_snapshot_v1 --input decisions.ndjson --outdir out_meta
++
++This tool is standalone: it does NOT assume a particular dataset builder.
++It enables an "ironclad" Train==Serve contract by persisting the runtime policy snapshot
++used to create the training dataset.
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++from pathlib import Path
++from typing import Dict
++
++
++def _read_ndjson(path: Path):
++    with path.open("r", encoding="utf-8") as f:
++        for line in f:
++            line = line.strip()
++            if not line:
++                continue
++            try:
++                yield json.loads(line)
++            except Exception:
++                continue
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--input", required=True, help="NDJSON file with decision records")
++    ap.add_argument("--outdir", required=True, help="Output directory for meta")
++    ap.add_argument("--allow-multiple", action="store_true", help="Do not fail if multiple policy hashes exist")
++    args = ap.parse_args()
++
++    inp = Path(args.input)
++    outdir = Path(args.outdir)
++    outdir.mkdir(parents=True, exist_ok=True)
++
++    policy_counts: Dict[str, int] = {}
++    manifest_counts: Dict[str, int] = {}
++    any_policy = None
++    any_manifest = None
++
++    n = 0
++    for rec in _read_ndjson(inp):
++        n += 1
++        ind = rec.get("indicators") if isinstance(rec, dict) else None
++        if not isinstance(ind, dict):
++            continue
++
++        ph = ind.get("dq_policy_hash")
++        if isinstance(ph, str) and ph:
++            policy_counts[ph] = policy_counts.get(ph, 0) + 1
++            if any_policy is None:
++                any_policy = ind.get("dq_policy_snapshot_v1")
++
++        mh = ind.get("dq_policy_feature_manifest_hash_v1")
++        if isinstance(mh, str) and mh:
++            manifest_counts[mh] = manifest_counts.get(mh, 0) + 1
++            if any_manifest is None:
++                any_manifest = ind.get("dq_policy_feature_manifest_v1")
++
++    meta = {
++        "records_seen": int(n),
++        "dq_policy_hash_counts": dict(sorted(policy_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
++        "dq_policy_feature_manifest_hash_counts": dict(sorted(manifest_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
++    }
++    (outdir / "policy_counts.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
++
++    if not args.allow_multiple and len(policy_counts) > 1:
++        raise SystemExit(
++            f"Multiple dq_policy_hash values found: {list(policy_counts.keys())}. "
++            f"Split dataset by policy or set --allow-multiple."
++        )
++
++    if any_policy is not None:
++        (outdir / "dq_policy_snapshot_v1.json").write_text(json.dumps(any_policy, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
++    if any_manifest is not None:
++        (outdir / "dq_policy_feature_manifest_v1.json").write_text(json.dumps(any_manifest, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
++
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/orderflow_services/tests/test_policy_snapshot_determinism_v1.py b/orderflow_services/tests/test_policy_snapshot_determinism_v1.py
+new file mode 100644
+index 0000000..d3879c9
+--- /dev/null
++++ b/orderflow_services/tests/test_policy_snapshot_determinism_v1.py
+@@ -0,0 +1,44 @@
++from core_snapshot.policy_snapshot_v1 import build_dq_policy_snapshot
++
++
++def test_policy_snapshot_hash_is_order_invariant_v1() -> None:
++    cfg_a = {
++        "dq_mode": "safe",
++        "dq_gate_mode": "enforce",
++        "dq_gap_soft_ms": 3000,
++        "dq_gap_hard_ms": 10000,
++        "BOOK_STREAM_INTERVAL_MS": 100,
++        "dq_book_veto_enabled": False,
++        "dq_observe_only_sec": 86400,
++        # noise keys (must not affect hash)
++        "irrelevant": "x",
++        "another": 123,
++    }
++    cfg_b = {
++        "another": 123,
++        "irrelevant": "x",
++        "dq_observe_only_sec": 86400,
++        "dq_book_veto_enabled": False,
++        "BOOK_STREAM_INTERVAL_MS": 100,
++        "dq_gap_hard_ms": 10000,
++        "dq_gap_soft_ms": 3000,
++        "dq_gate_mode": "enforce",
++        "dq_mode": "safe",
++    }
++
++    snap_a, h_a = build_dq_policy_snapshot(cfg_a)
++    snap_b, h_b = build_dq_policy_snapshot(cfg_b)
++
++    assert h_a == h_b
++    assert snap_a.thresholds.dq_book_seq_ema_alpha == snap_b.thresholds.dq_book_seq_ema_alpha
++
++
++def test_policy_snapshot_alpha_mapping_v1() -> None:
++    snap_100, _ = build_dq_policy_snapshot({"BOOK_STREAM_INTERVAL_MS": 100})
++    snap_250, _ = build_dq_policy_snapshot({"BOOK_STREAM_INTERVAL_MS": 250})
++    snap_500, _ = build_dq_policy_snapshot({"BOOK_STREAM_INTERVAL_MS": 500})
++    snap_1000, _ = build_dq_policy_snapshot({"BOOK_STREAM_INTERVAL_MS": 1000})
++    assert abs(snap_100.thresholds.dq_book_seq_ema_alpha - 0.10) < 1e-9
++    assert abs(snap_250.thresholds.dq_book_seq_ema_alpha - 0.20) < 1e-9
++    assert abs(snap_500.thresholds.dq_book_seq_ema_alpha - 0.30) < 1e-9
++    assert abs(snap_1000.thresholds.dq_book_seq_ema_alpha - 0.40) < 1e-9
+diff --git a/tick_flow_full/core/of_confirm_engine.py b/tick_flow_full/core/of_confirm_engine.py
+index 9df1f8e..c6245f6 100644
+--- a/tick_flow_full/core/of_confirm_engine.py
++++ b/tick_flow_full/core/of_confirm_engine.py
+@@ -8,6 +8,8 @@ import os
+ import time
+ from types import SimpleNamespace
+ 
++from core_snapshot.policy_snapshot_v1 import build_dq_policy_snapshot, build_feature_manifest_v1, to_public_dict
++
+ from core.book_evidence import compute_obi_flags, compute_iceberg_flags, compute_ofi_flags
+ from core.meta_model_lr import MetaModelLR
+ from core.meta_feature_coverage import compute_meta_feature_coverage, apply_meta_coverage_guard
+@@ -1308,6 +1310,41 @@ class OFConfirmEngine:
+         indicators["dq_reason"] = dq_reason
+         indicators["dq_health_score"] = dq_health
+         indicators["dq_reason_bucket"] = dq_bucket
++
++# ------------------------------------------------------------------
++# Train==Serve "ironclad" metadata:
++#  - policy snapshot (SAFE/STRICT thresholds + book alpha + observe-only knobs)
++#  - manifest binds schema + policy via stable hashes
++# IMPORTANT: offline builders must treat these as *metadata*, not model features.
++# ------------------------------------------------------------------
++try:
++    dq_snap, dq_hash = build_dq_policy_snapshot(dict(cfg2 or {}))
++    indicators["dq_policy_snapshot_v1"] = to_public_dict(dq_snap)
++    indicators["dq_policy_hash"] = str(dq_hash)
++
++    # Bind meta-schema + cols ordering to policy via manifest.
++    meta_name = str(cfg2.get("meta_schema_name", "meta_feat_v8"))
++    reg = globals().get("META_SCHEMA_REGISTRY", {})
++    ver, h = (0, "")
++    try:
++        ver, h = reg.get(meta_name, (0, ""))
++    except Exception:
++        ver, h = (0, "")
++
++    cols = tuple(globals().get("META_FEAT_V8_COLS", ()))
++    man, man_hash = build_feature_manifest_v1(
++        meta_schema_name=meta_name,
++        meta_schema_version=int(ver),
++        meta_schema_hash=str(h),
++        meta_cols=cols,
++        dq_policy_hash=str(dq_hash),
++        thr=dq_snap.thresholds,
++    )
++    indicators["dq_policy_feature_manifest_v1"] = to_public_dict(man)
++    indicators["dq_policy_feature_manifest_hash_v1"] = str(man_hash)
++except Exception:
++    # Fail-open: decisions must not depend on metadata presence.
++    pass
+         indicators["of_base_score"] = float(base_score)
+         indicators["of_score_final_raw"] = float(final_score_raw)
+         indicators["of_score_final"] = float(score)

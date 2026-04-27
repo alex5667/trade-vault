@@ -1,0 +1,20 @@
+groups:
+  - name: auto_apply_tick_gate
+    rules:
+      - alert: AutoApplyTickGateExporterDown
+        expr: up{job="auto-apply-tick-gate-exporter"} == 0
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "auto-apply tick-gate exporter is down"
+          description: "Prom scrape failed for job=auto-apply-tick-gate-exporter"
+
+      - alert: AutoApplyBlockedTooLong
+        expr: auto_apply_tick_gate_blocked > 0 and auto_apply_tick_gate_block_meta_age_seconds > 1800
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "auto-apply blocked by tick gate too long"
+          description: "auto_apply_tick_gate_blocked=1 and meta age > 30 minutes"

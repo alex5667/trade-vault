@@ -1,0 +1,38 @@
+# P82 — OF gate DLQ exporter additional alerts (size-based).
+#
+# Requires: of_gate_dlq_exporter_v1.py (port 9154)
+# Dashboard: orderflow_services/grafana/of_gate_dlq_p82.json
+# Runbook: orderflow_services/runbook_of_gate_dlq_exporter_p82.md
+
+groups:
+  - name: of_gate_dlq_exporter_p82
+    rules:
+      - alert: OF_Gate_DLQ_NonZero
+        expr: sum(of_gate_dlq_len) > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: of_gate
+          p_ref: P82
+        annotations:
+          summary: "OF-gate DLQ is non-empty"
+          description: >-
+            DLQ length is > 0 for 10 minutes.
+            Check the DLQ stream and decide whether to triage or replay.
+          runbook_path: orderflow_services/runbook_of_gate_dlq_exporter_p82.md
+          dashboard_path: orderflow_services/grafana/of_gate_dlq_p82.json
+
+      - alert: OF_Gate_DLQ_Large
+        expr: sum(of_gate_dlq_len) > 1000
+        for: 10m
+        labels:
+          severity: critical
+          component: of_gate
+          p_ref: P82
+        annotations:
+          summary: "OF-gate DLQ is large (>1000 entries)"
+          description: >-
+            DLQ length exceeded 1000 for >10 minutes.
+            Treat as production incident: investigate archiver errors and DB health.
+          runbook_path: orderflow_services/runbook_of_gate_dlq_exporter_p82.md
+          dashboard_path: orderflow_services/grafana/of_gate_dlq_p82.json

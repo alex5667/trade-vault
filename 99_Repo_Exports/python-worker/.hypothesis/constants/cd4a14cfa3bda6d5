@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/reports/health_reporter.py
+# hypothesis_version: 6.148.10
+
+[0.0, 500, 1000, 2000, '0', '1', '10', '15', '20', '200', '3600', '600', 'ATR bad:', 'ATR report', 'ATR: ok (no issues)', 'ATR_REPORT_TOP_N', 'CVD_REPORT_TOP_N', 'MICROBAR_SYMBOLS_SET', 'REDIS_URL', 'REPORTS_ENABLE', 'REPORTS_PERIOD_SEC', 'REPORTS_REDIS_URL', 'REPORTS_TOP_N', 'REPORT_ATR_ENABLE', 'REPORT_CVD_ENABLE', 'REPORT_MAX_SYMBOLS', 'REPORT_SPIKE_ATR_BAD', 'REPORT_SPIKE_CVD_Q', 'SPIKE ALERT\n\n', 'STREAMS_REPORT_TOP_N', 'Streams health:', 'Streams: no data', '__main__', 'age_ms', 'cfg:atr_bad:symbols', 'cfg:atr_jump:symbols', 'ignore', 'mode', 'na', 'raw', 'reason', 'scard symbols_set', 'true', 'until_ms', 'utf-8', 'yes', '{sym}']

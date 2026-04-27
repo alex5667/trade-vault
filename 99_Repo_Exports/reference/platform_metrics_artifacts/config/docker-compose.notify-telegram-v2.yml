@@ -1,0 +1,80 @@
+services:
+  telegram-notifier-v2:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - NOTIFY_TELEGRAM_CHAT_ID_CRIT=${NOTIFY_TELEGRAM_CHAT_ID_CRIT:-}
+      - NOTIFY_TELEGRAM_CHAT_ID_PAGE=${NOTIFY_TELEGRAM_CHAT_ID_PAGE:-}
+      - NOTIFY_RECEIPT_KEY_PREFIX=${NOTIFY_RECEIPT_KEY_PREFIX:-notify:receipt:}
+      - NOTIFY_RECEIPT_TTL_SEC=${NOTIFY_RECEIPT_TTL_SEC:-3600}
+
+      - NOTIFY_METRICS_ENABLE=1
+      - NOTIFY_METRICS_PORT=${NOTIFY_METRICS_PORT:-9125}
+      - NOTIFY_METRICS_ADDR=0.0.0.0
+    ports:
+      - "${NOTIFY_METRICS_PORT:-9125}:${NOTIFY_METRICS_PORT:-9125}"
+    command: python python-worker/services/telegram_notifier_worker_v2.py
+    # Ensure it starts after redis
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-network
+
+  page-receipts-sre-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - NOTIFY_RECEIPT_KEY_PREFIX=${NOTIFY_RECEIPT_KEY_PREFIX:-notify:receipt:}
+      - NOTIFY_RECEIPT_RESEND_SEC=${NOTIFY_RECEIPT_RESEND_SEC:-300}
+    # Run every 5 minutes (using sleep loop or cron, here simple loop for docker simplicity or just the script if it had loop)
+    # The script `page_receipts_sre_monitor.py` does ONE check. We need a runner.
+    # We can use a simple shell loop or just rely on an external scheduler.
+    # But usually we want self-contained. 
+    # Let's start it as a loop in checking mode? 
+    # Or strict timer pattern from other monitors?
+    # I'll make it a loop here using shell for simplicity, or modify the python script to loop?
+    # The request says "Monitor (cron каждые 5 минут)".
+    # In Docker, we can use a loop:
+    command: sh -c "while true; do python python-worker/tools/page_receipts_sre_monitor.py --notify; sleep 300; done"
+    # depends_on:
+    #   redis:
+    #     condition: service_healthy
+    networks:
+      - scanner-network
+
+  notify-delivery-sre-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - NOTIFY_TELEGRAM_MIRROR_BASE=1
+    command: sh -c "while true; do python python-worker/tools/notify_delivery_sre_monitor.py; sleep 300; done"
+    # depends_on:
+    #   redis:
+    #     condition: service_healthy
+    networks:
+      - scanner-network
+
+networks:
+  scanner-network:
+    external: true

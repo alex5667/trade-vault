@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/run_tick_quality_gated_command.py
+# hypothesis_version: 6.148.10
+
+[5.0, 50000, '%Y-%m-%d %H:%M:%S', '--', '--fail-mode', '--metrics-url', '--symbol', '--timeout-s', '--window-s', '1', 'ERROR', 'FAIL', 'PASS', 'REDIS_URL', 'Scrape timeout', 'UNKNOWN', '__main__', 'command', 'fail_closed', 'fail_mode', 'fail_open', 'gate_duration_s', 'gate_exit_code', 'gate_status', 'hostname', 'json', 'target_command', 'ts', 'window_s']

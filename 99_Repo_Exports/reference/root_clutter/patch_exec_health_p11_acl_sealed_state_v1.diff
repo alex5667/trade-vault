@@ -1,0 +1,1617 @@
+--- services/orderflow/exec_health_freeze_sealed_state.py
++++ services/orderflow/exec_health_freeze_sealed_state.py
+@@ -0,0 +1,304 @@
++from __future__ import annotations
++
++"""Redis-side sealed-state helpers for ExecHealth freeze control.
++
++P11 hardens mutable freeze-control/state hashes in two ways:
++1. services no longer write the projection with direct HSET/HDEL/DEL paths
++2. trusted writers go through a whitelist Redis Function (FCALL) that replaces the
++   whole hash and updates a deterministic seal/version chain
++
++The seal is not meant to be a public cryptographic signature. It is an
++operator/service-side tamper-evidence digest over the materialized projection.
++Unauthorized direct hash edits should be blocked by Redis ACL. Authorized but
++non-entrypoint edits will fail seal verification and be escalated by integrity
++checks / tamper-guard.
++"""
++
++import hashlib
++import os
++import time
++from typing import Any, Dict, Iterable, Mapping, Sequence
++
++SEAL_SECRET_ENV = "EXEC_HEALTH_FREEZE_SEAL_SECRET"
++SEAL_ENFORCE_ENV = "EXEC_HEALTH_FREEZE_SEAL_ENFORCE"
++SEAL_BOOTSTRAP_ENV = "EXEC_HEALTH_FREEZE_SEAL_ALLOW_UNSEALED_BOOTSTRAP"
++LIBRARY_NAME = "exec_health_freeze_sealed_v1"
++FN_SET = "exec_health_freeze_sealed_set"
++FN_FORCE_SET = "exec_health_freeze_sealed_force_set"
++
++_SEAL_META_FIELDS = {
++    "seal_digest",
++    "seal_algorithm",
++    "seal_version",
++    "seal_prev_digest",
++    "seal_entrypoint",
++    "sealed_at_ts_ms",
++    "seal_force_reason",
++}
++
++# Redis Functions are available since Redis 7.0, and loaded libraries are then
++# callable via FCALL. ACL rules can separately constrain key patterns and the
++# allowed command surface, while ACL LOG reports denied attempts. See the
++# official Redis docs for FUNCTION LOAD / FCALL / ACL rules / ACL LOG.
++REDIS_FUNCTION_LIBRARY = r'''
++#!lua name=exec_health_freeze_sealed_v1
++local function _sealed_write(keys, args, force)
++  local key = keys[1]
++  local expected_prev_seal = args[1] or ''
++  local expected_prev_version = tonumber(args[2] or '0') or 0
++  local ttl_s = tonumber(args[3] or '0') or 0
++  local n = tonumber(args[4] or '0') or 0
++  local cur_seal = redis.call('HGET', key, 'seal_digest') or ''
++  local cur_ver = tonumber(redis.call('HGET', key, 'seal_version') or '0') or 0
++  if not force then
++    if cur_seal ~= expected_prev_seal then
++      return 0
++    end
++    if cur_ver ~= expected_prev_version then
++      return -2
++    end
++  end
++  redis.call('DEL', key)
++  local idx = 5
++  for i=1,n do
++    local field = args[idx]
++    local value = args[idx+1]
++    idx = idx + 2
++    redis.call('HSET', key, field, value)
++  end
++  if ttl_s > 0 then
++    redis.call('EXPIRE', key, ttl_s)
++  end
++  return 1
++end
++
++redis.register_function('exec_health_freeze_sealed_set', function(keys, args)
++  return _sealed_write(keys, args, false)
++end)
++
++redis.register_function('exec_health_freeze_sealed_force_set', function(keys, args)
++  return _sealed_write(keys, args, true)
++end)
++'''
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++def _s(x: Any, d: str = "") -> str:
++    try:
++        return str(x) if x is not None else str(d)
++    except Exception:
++        return str(d)
++
++
++def _secret(explicit: str | None = None) -> str:
++    return str(explicit if explicit is not None else os.getenv(SEAL_SECRET_ENV, "") or "")
++
++
++def seal_enforced() -> bool:
++    raw = str(os.getenv(SEAL_ENFORCE_ENV, "1") or "1").strip().lower()
++    return raw not in {"0", "false", "off", "no"}
++
++
++def allow_unsealed_bootstrap() -> bool:
++    raw = str(os.getenv(SEAL_BOOTSTRAP_ENV, "1") or "1").strip().lower()
++    return raw not in {"0", "false", "off", "no"}
++
++
++def _canonical_items(mapping: Mapping[str, Any]) -> Sequence[tuple[str, str]]:
++    pairs = []
++    for k, v in dict(mapping or {}).items():
++        if str(k) in _SEAL_META_FIELDS:
++            continue
++        pairs.append((str(k), _s(v)))
++    pairs.sort(key=lambda kv: kv[0])
++    return pairs
++
++
++def build_seal_payload(mapping: Mapping[str, Any]) -> str:
++    return "|".join(f"{k}={v}" for k, v in _canonical_items(mapping))
++
++
++def compute_seal_digest(mapping: Mapping[str, Any], *, secret: str | None = None) -> str:
++    sec = _secret(secret)
++    if not sec:
++        return ""
++    payload = build_seal_payload(mapping)
++    msg = f"exec_health_freeze_sealed_v1|{sec}|{payload}".encode("utf-8")
++    return hashlib.sha1(msg).hexdigest()
++
++
++def verify_sealed_hash(raw: Mapping[str, Any] | None, *, secret: str | None = None) -> bool:
++    obj = dict(raw or {})
++    if not obj:
++        return True
++    digest = _s(obj.get("seal_digest"), "")
++    version = _i(obj.get("seal_version"), 0)
++    if version <= 0 or not digest:
++        return False
++    exp = compute_seal_digest(obj, secret=secret)
++    if not exp:
++        return False
++    return digest == exp
++
++
++def prepare_sealed_mapping(
++    *,
++    prev_raw: Mapping[str, Any] | None,
++    mapping: Mapping[str, Any],
++    entrypoint: str,
++    now_ms: int | None = None,
++    secret: str | None = None,
++    force_reason: str = "",
++) -> Dict[str, Any]:
++    sec = _secret(secret)
++    prev = dict(prev_raw or {})
++    prev_valid = verify_sealed_hash(prev, secret=sec) if prev else True
++    version = (_i(prev.get("seal_version"), 0) + 1) if prev_valid else 1
++    out = dict(mapping)
++    out.update(
++        {
++            "seal_algorithm": "sha1_v1",
++            "seal_version": int(version),
++            "seal_prev_digest": _s(prev.get("seal_digest"), "") if prev_valid else "",
++            "seal_entrypoint": str(entrypoint or ""),
++            "sealed_at_ts_ms": int(now_ms or _now_ms()),
++            "seal_force_reason": str(force_reason or ""),
++        }
++    )
++    out["seal_digest"] = compute_seal_digest(out, secret=secret)
++    return out
++
++
++def _flat_pairs(mapping: Mapping[str, Any]) -> list[str]:
++    flat: list[str] = []
++    for k, v in dict(mapping).items():
++        flat.extend([str(k), _s(v)])
++    return flat
++
++
++def ensure_sealed_functions_loaded(redis_client: Any, *, replace: bool = False) -> bool:
++    try:
++        argv = ["FUNCTION", "LOAD"]
++        if replace:
++            argv.append("REPLACE")
++        argv.append(REDIS_FUNCTION_LIBRARY)
++        redis_client.execute_command(*argv)
++        return True
++    except Exception as exc:
++        msg = str(exc).lower()
++        if "already exists" in msg or "library name is already taken" in msg or "busy" in msg:
++            return True
++        return False
++
++
++def _call_function(redis_client: Any, fn: str, key: str, args: Sequence[Any]) -> int:
++    if hasattr(redis_client, "execute_command"):
++        try:
++            return int(redis_client.execute_command("FCALL", fn, 1, key, *list(args)))
++        except Exception as exc:
++            msg = str(exc).lower()
++            if ("unknown function" in msg or "function not found" in msg) and ensure_sealed_functions_loaded(redis_client):
++                return int(redis_client.execute_command("FCALL", fn, 1, key, *list(args)))
++    if hasattr(redis_client, "fcall"):
++        try:
++            return int(redis_client.fcall(fn, 1, key, *list(args)))
++        except Exception:
++            pass
++    raise RuntimeError("Redis client does not support FCALL/execute_command")
++
++
++def sealed_set_sync(
++    redis_client: Any,
++    *,
++    key: str,
++    prev_raw: Mapping[str, Any] | None,
++    mapping: Mapping[str, Any],
++    entrypoint: str,
++    ttl_s: int,
++    force: bool = False,
++    secret: str | None = None,
++    force_reason: str = "",
++) -> Dict[str, Any]:
++    sec = _secret(secret)
++    if not sec and seal_enforced():
++        return {"ok": False, "rc": -93, "error": "missing_seal_secret", "mapping": dict(mapping)}
++    prev = dict(prev_raw or {})
++    prev_valid = verify_sealed_hash(prev, secret=sec) if prev else True
++    prev_missing_seal = bool(prev) and (not _s(prev.get("seal_digest")) or _i(prev.get("seal_version"), 0) <= 0)
++    if prev and not prev_valid and prev_missing_seal and allow_unsealed_bootstrap():
++        prev_valid = False
++    elif prev and not prev_valid and not force and seal_enforced():
++        return {"ok": False, "rc": -91, "error": "invalid_prev_seal", "mapping": dict(mapping)}
++    sealed = prepare_sealed_mapping(prev_raw=prev if (prev_valid and not prev_missing_seal) else {}, mapping=mapping, entrypoint=entrypoint, now_ms=_now_ms(), secret=sec, force_reason=force_reason)
++    args = [
++        _s(prev.get("seal_digest"), "") if (prev_valid and not prev_missing_seal) else "",
++        _i(prev.get("seal_version"), 0) if (prev_valid and not prev_missing_seal) else 0,
++        int(ttl_s or 0),
++        len(sealed),
++        *_flat_pairs(sealed),
++    ]
++    fn = FN_FORCE_SET if force else FN_SET
++    rc = int(_call_function(redis_client, fn, key, args))
++    return {"ok": rc == 1, "rc": rc, "mapping": sealed}
++
++
++
++
++async def _aensure_loaded(redis_client: Any) -> bool:
++    try:
++        await redis_client.execute_command("FUNCTION", "LOAD", REDIS_FUNCTION_LIBRARY)
++        return True
++    except Exception as exc:
++        msg = str(exc).lower()
++        return "already exists" in msg or "library name is already taken" in msg or "busy" in msg
++
++async def asealed_set(
++    redis_client: Any,
++    *,
++    key: str,
++    prev_raw: Mapping[str, Any] | None,
++    mapping: Mapping[str, Any],
++    entrypoint: str,
++    ttl_s: int,
++    force: bool = False,
++    secret: str | None = None,
++    force_reason: str = "",
++) -> Dict[str, Any]:
++    sec = _secret(secret)
++    if not sec and seal_enforced():
++        return {"ok": False, "rc": -93, "error": "missing_seal_secret", "mapping": dict(mapping)}
++    prev = dict(prev_raw or {})
++    prev_valid = verify_sealed_hash(prev, secret=sec) if prev else True
++    prev_missing_seal = bool(prev) and (not _s(prev.get("seal_digest")) or _i(prev.get("seal_version"), 0) <= 0)
++    if prev and not prev_valid and prev_missing_seal and allow_unsealed_bootstrap():
++        prev_valid = False
++    elif prev and not prev_valid and not force and seal_enforced():
++        return {"ok": False, "rc": -91, "error": "invalid_prev_seal", "mapping": dict(mapping)}
++    sealed = prepare_sealed_mapping(prev_raw=prev if (prev_valid and not prev_missing_seal) else {}, mapping=mapping, entrypoint=entrypoint, now_ms=_now_ms(), secret=sec, force_reason=force_reason)
++    args = [
++        _s(prev.get("seal_digest"), "") if (prev_valid and not prev_missing_seal) else "",
++        _i(prev.get("seal_version"), 0) if (prev_valid and not prev_missing_seal) else 0,
++        int(ttl_s or 0),
++        len(sealed),
++        *_flat_pairs(sealed),
++    ]
++    fn = FN_FORCE_SET if force else FN_SET
++    try:
++        rc = int(await redis_client.execute_command("FCALL", fn, 1, key, *list(args)))
++    except Exception as exc:
++        msg = str(exc).lower()
++        if ("unknown function" in msg or "function not found" in msg) and await _aensure_loaded(redis_client):
++            rc = int(await redis_client.execute_command("FCALL", fn, 1, key, *list(args)))
++        else:
++            return {"ok": False, "rc": -92, "error": "function_load_failed", "mapping": dict(mapping)}
++    return {"ok": rc == 1, "rc": rc, "mapping": sealed}
+--- services/orderflow/exec_health_freeze_request_log.py
++++ services/orderflow/exec_health_freeze_request_log.py
+@@ -19,6 +19,101 @@
+ 
+ REQUEST_STREAM_ENV = "EXEC_HEALTH_FREEZE_REQUEST_STREAM"
+ DEFAULT_REQUEST_STREAM = "ops:exec_health:freeze_requests:v1"
++
++
++REQUEST_LIBRARY_NAME = "exec_health_freeze_requestlog_v1"
++FN_PREPARE_CAS = "exec_health_freeze_prepare_cas"
++FN_APPROVE_CAS = "exec_health_freeze_approve_cas"
++FN_COMMIT_CAS = "exec_health_freeze_commit_cas"
++
++REQUEST_FUNCTION_LIBRARY = r'''#!lua name=exec_health_freeze_requestlog_v1
++redis.register_function('exec_health_freeze_prepare_cas', function(keys, args)
++  local ctl=keys[1]
++  local st=keys[2]
++  local expected_nonce=args[1] or ''
++  local request_id=args[2] or ''
++  local n=tonumber(args[3] or '0') or 0
++  local cur_expected=redis.call('HGET', ctl, 'expected_ack_nonce') or ''
++  if cur_expected == '' then cur_expected = redis.call('HGET', st, 'expected_ack_nonce') or '' end
++  if cur_expected ~= '' and expected_nonce ~= cur_expected then return 0 end
++  local active_id=redis.call('HGET', ctl, 'active_thaw_request_id') or ''
++  local active_status=redis.call('HGET', ctl, 'thaw_request_status') or ''
++  if active_id ~= '' and active_id ~= request_id and (active_status == 'prepared' or active_status == 'approved') then return -2 end
++  local idx = 4
++  for i=1,n do
++    local field=args[idx]
++    local value=args[idx+1]
++    idx = idx + 2
++    redis.call('HSET', ctl, field, value)
++    redis.call('HSET', st, field, value)
++  end
++  return 1
++end)
++redis.register_function('exec_health_freeze_approve_cas', function(keys, args)
++  local ctl=keys[1]
++  local st=keys[2]
++  local request_id=args[1] or ''
++  local approver=args[2] or ''
++  local n=tonumber(args[3] or '0') or 0
++  local active_id=redis.call('HGET', ctl, 'active_thaw_request_id') or ''
++  local active_status=redis.call('HGET', ctl, 'thaw_request_status') or ''
++  local prepared_by=redis.call('HGET', ctl, 'thaw_prepared_by') or ''
++  if active_id ~= request_id then return 0 end
++  if active_status ~= 'prepared' then return -2 end
++  if prepared_by ~= '' and prepared_by == approver then return -3 end
++  local idx = 4
++  for i=1,n do
++    local field=args[idx]
++    local value=args[idx+1]
++    idx = idx + 2
++    redis.call('HSET', ctl, field, value)
++    redis.call('HSET', st, field, value)
++  end
++  return 1
++end)
++redis.register_function('exec_health_freeze_commit_cas', function(keys, args)
++  local ctl=keys[1]
++  local st=keys[2]
++  local request_id=args[1] or ''
++  local operator=args[2] or ''
++  local n=tonumber(args[3] or '0') or 0
++  local active_id=redis.call('HGET', ctl, 'active_thaw_request_id') or ''
++  local active_status=redis.call('HGET', ctl, 'thaw_request_status') or ''
++  local approved_by=redis.call('HGET', ctl, 'thaw_approved_by') or ''
++  if active_id ~= request_id then return 0 end
++  if active_status ~= 'approved' then return -2 end
++  if approved_by == '' or approved_by ~= operator then return -3 end
++  local idx = 4
++  for i=1,n do
++    local field=args[idx]
++    local value=args[idx+1]
++    idx = idx + 2
++    redis.call('HSET', ctl, field, value)
++    redis.call('HSET', st, field, value)
++  end
++  return 1
++end)
++'''
++
++
++def ensure_request_log_functions_loaded(redis_client: Any) -> bool:
++    try:
++        redis_client.execute_command('FUNCTION', 'LOAD', REQUEST_FUNCTION_LIBRARY)
++        return True
++    except Exception as exc:
++        msg = str(exc).lower()
++        return 'already exists' in msg or 'library name is already taken' in msg or 'busy' in msg
++
++
++def _call_request_function(redis_client: Any, fn: str, control_key: str, state_key: str, argv: Sequence[Any]) -> int:
++    if hasattr(redis_client, 'execute_command'):
++        try:
++            return int(redis_client.execute_command('FCALL', fn, 2, control_key, state_key, *list(argv)))
++        except Exception as exc:
++            msg = str(exc).lower()
++            if ('unknown function' in msg or 'function not found' in msg) and ensure_request_log_functions_loaded(redis_client):
++                return int(redis_client.execute_command('FCALL', fn, 2, control_key, state_key, *list(argv)))
++    return -999
+ 
+ REQUEST_LOG_VIOLATION_KINDS = [
+     "none",
+@@ -287,14 +382,23 @@
+ 
+ def eval_prepare_cas(redis_client: Any, *, control_key: str, state_key: str, expected_nonce: str, request_id: str, mapping: Mapping[str, Any]) -> int:
+     argv = [str(expected_nonce), str(request_id), str(len(dict(mapping)))] + mapping_to_argv(mapping)
++    rc = _call_request_function(redis_client, FN_PREPARE_CAS, control_key, state_key, argv)
++    if rc != -999:
++        return _eval_status(rc)
+     return _eval_status(redis_client.eval(PREPARE_CAS_LUA, 2, control_key, state_key, *argv))
+ 
+ 
+ def eval_approve_cas(redis_client: Any, *, control_key: str, state_key: str, request_id: str, approver: str, mapping: Mapping[str, Any]) -> int:
+     argv = [str(request_id), str(approver), str(len(dict(mapping)))] + mapping_to_argv(mapping)
++    rc = _call_request_function(redis_client, FN_APPROVE_CAS, control_key, state_key, argv)
++    if rc != -999:
++        return _eval_status(rc)
+     return _eval_status(redis_client.eval(APPROVE_CAS_LUA, 2, control_key, state_key, *argv))
+ 
+ 
+ def eval_commit_cas(redis_client: Any, *, control_key: str, state_key: str, request_id: str, operator: str, mapping: Mapping[str, Any]) -> int:
+     argv = [str(request_id), str(operator), str(len(dict(mapping)))] + mapping_to_argv(mapping)
++    rc = _call_request_function(redis_client, FN_COMMIT_CAS, control_key, state_key, argv)
++    if rc != -999:
++        return _eval_status(rc)
+     return _eval_status(redis_client.eval(COMMIT_CAS_LUA, 2, control_key, state_key, *argv))
+--- services/orderflow/exec_health_freeze_integrity.py
++++ services/orderflow/exec_health_freeze_integrity.py
+@@ -5,6 +5,7 @@
+ from typing import Any, Dict, List, Mapping, Sequence, Tuple
+ 
+ from services.orderflow.exec_health_freeze_control import parse_exec_health_freeze_control, verify_manual_ack_signature, verify_thaw_release_signature
++from services.orderflow.exec_health_freeze_sealed_state import verify_sealed_hash
+ from services.orderflow.exec_health_freeze_request_log import REQUEST_LOG_VIOLATION_KINDS, evaluate_request_log_sequence
+ 
+ 
+@@ -16,6 +17,10 @@
+     "thaw_without_valid_ack_event",
+     "invalid_ack_event_signature",
+     "invalid_control_ack_signature",
++    "control_seal_missing",
++    "control_seal_invalid",
++    "state_seal_missing",
++    "state_seal_invalid",
+     *[k for k in REQUEST_LOG_VIOLATION_KINDS if k != "none"],
+ ]
+ 
+@@ -135,6 +140,13 @@
+     control_present = bool(getattr(control, 'raw_payload', None))
+     state_present = bool(getattr(state, 'raw_payload', None))
+ 
++    control_seal_valid = False
++    state_seal_valid = False
++    if control_present:
++        control_seal_valid = verify_sealed_hash(control.raw_payload)
++    if state_present:
++        state_seal_valid = verify_sealed_hash(state.raw_payload)
++
+     pending_ack_nonce = control.expected_ack_nonce or state.expected_ack_nonce
+     pending_trigger_ts_ms = _i(control.raw_payload.get('last_trigger_ts_ms'), 0) or _i(state.raw_payload.get('last_trigger_ts_ms'), 0)
+ 
+@@ -168,6 +180,17 @@
+     )
+ 
+     violations: List[str] = []
++    if control_present:
++        if not _s(control.raw_payload.get('seal_digest')) or _i(control.raw_payload.get('seal_version'), 0) <= 0:
++            violations.append('control_seal_missing')
++        elif not control_seal_valid:
++            violations.append('control_seal_invalid')
++    if state_present:
++        if not _s(state.raw_payload.get('seal_digest')) or _i(state.raw_payload.get('seal_version'), 0) <= 0:
++            violations.append('state_seal_missing')
++        elif not state_seal_valid:
++            violations.append('state_seal_invalid')
++
+     if control_present and control.manual_override_action == 'thaw' and control.manual_override_active:
+         if not verify_thaw_release_signature(control.raw_payload):
+             violations.append('invalid_control_ack_signature')
+--- services/orderflow/exec_health_freeze_hook.py
++++ services/orderflow/exec_health_freeze_hook.py
+@@ -24,6 +24,7 @@
+ from typing import Any, Dict, Optional, Tuple
+ 
+ from services.orderflow.exec_health_freeze_control import parse_exec_health_freeze_control, verify_thaw_release_signature
++from services.orderflow.exec_health_freeze_sealed_state import verify_sealed_hash
+ from services.orderflow.metrics_exec_health_p6 import (
+     exec_health_freeze_hook_active,
+     exec_health_freeze_hook_block_total,
+@@ -196,7 +197,9 @@
+         ctl = parse_exec_health_freeze_control(ctl_raw, now_ms=now)
+         if getattr(ctl, "raw_payload", None):
+             raw_payload = dict(getattr(ctl, "raw_payload", {}) or {})
+-            if getattr(ctl, "manual_override_action", "") == "thaw" and getattr(ctl, "manual_override_active", False):
++            if not verify_sealed_hash(raw_payload):
++                record_exec_health_freeze_reader_error(scope=str(scope), where="invalid_control_seal")
++            elif getattr(ctl, "manual_override_action", "") == "thaw" and getattr(ctl, "manual_override_active", False):
+                 if verify_thaw_release_signature(raw_payload):
+                     state = _state_from_control(str(scope), ctl)
+                     _ASYNC_CACHE[cache_key] = (now + max(100, cache_ms), state)
+@@ -218,7 +221,9 @@
+         ctl = parse_exec_health_freeze_control(st_raw, now_ms=now)
+         if getattr(ctl, "raw_payload", None):
+             raw_payload = dict(getattr(ctl, "raw_payload", {}) or {})
+-            if getattr(ctl, "manual_override_action", "") == "thaw" and getattr(ctl, "manual_override_active", False):
++            if not verify_sealed_hash(raw_payload):
++                record_exec_health_freeze_reader_error(scope=str(scope), where="invalid_state_seal")
++            elif getattr(ctl, "manual_override_action", "") == "thaw" and getattr(ctl, "manual_override_active", False):
+                 if verify_thaw_release_signature(raw_payload):
+                     state = _state_from_control(str(scope), ctl)
+                     _ASYNC_CACHE[cache_key] = (now + max(100, cache_ms), state)
+--- services/orderflow/tests/test_exec_health_freeze_sealed_state_v1.py
++++ services/orderflow/tests/test_exec_health_freeze_sealed_state_v1.py
+@@ -0,0 +1,60 @@
++from __future__ import annotations
++
++import os
++
++from services.orderflow.exec_health_freeze_sealed_state import prepare_sealed_mapping, sealed_set_sync, verify_sealed_hash
++
++
++class FakeRedis:
++    def __init__(self):
++        self.hashes = {}
++
++    def execute_command(self, *args):
++        if args[:2] == ('FUNCTION', 'LOAD'):
++            return 'ok'
++        if args and args[0] == 'FCALL':
++            _, fn, numkeys, key, *argv = args
++            cur = self.hashes.setdefault(key, {})
++            if fn.endswith('sealed_set'):
++                expected_seal = str(argv[0])
++                expected_ver = int(argv[1])
++                cur_seal = str(cur.get('seal_digest', ''))
++                cur_ver = int(cur.get('seal_version', 0) or 0)
++                if cur_seal != expected_seal:
++                    return 0
++                if cur_ver != expected_ver:
++                    return -2
++            flat = argv[4:]
++            cur.clear()
++            for i in range(0, len(flat), 2):
++                cur[str(flat[i])] = str(flat[i + 1])
++            return 1
++        raise AssertionError(f'unexpected command {args}')
++
++
++def test_prepare_and_verify_sealed_mapping() -> None:
++    os.environ['EXEC_HEALTH_FREEZE_SEAL_SECRET'] = 'seal-secret'
++    obj = prepare_sealed_mapping(prev_raw={}, mapping={'effective_freeze_active': '1', 'control_source': 'autoguard'}, entrypoint='test', secret='seal-secret')
++    assert obj['seal_digest']
++    assert verify_sealed_hash(obj, secret='seal-secret') is True
++
++
++def test_bootstrap_from_unsealed_prev_hash() -> None:
++    os.environ['EXEC_HEALTH_FREEZE_SEAL_SECRET'] = 'seal-secret'
++    r = FakeRedis()
++    r.hashes['k'] = {'effective_freeze_active': '1', 'control_source': 'autoguard'}
++    out = sealed_set_sync(r, key='k', prev_raw=r.hashes['k'], mapping={'effective_freeze_active': '1', 'control_source': 'autoguard'}, entrypoint='bootstrap', ttl_s=60)
++    assert out['ok'] is True
++    assert r.hashes['k']['seal_digest']
++    assert verify_sealed_hash(r.hashes['k'], secret='seal-secret') is True
++
++
++def test_invalid_prev_seal_is_rejected_without_force() -> None:
++    os.environ['EXEC_HEALTH_FREEZE_SEAL_SECRET'] = 'seal-secret'
++    r = FakeRedis()
++    bad = prepare_sealed_mapping(prev_raw={}, mapping={'effective_freeze_active': '1'}, entrypoint='test', secret='seal-secret')
++    bad['effective_freeze_active'] = '0'
++    r.hashes['k'] = bad
++    out = sealed_set_sync(r, key='k', prev_raw=r.hashes['k'], mapping={'effective_freeze_active': '1'}, entrypoint='test', ttl_s=60)
++    assert out['ok'] is False
++    assert out['error'] == 'invalid_prev_seal'
+--- services/orderflow/tests/test_exec_health_freeze_hook_control_v1.py
++++ services/orderflow/tests/test_exec_health_freeze_hook_control_v1.py
+@@ -5,6 +5,7 @@
+ import os
+ 
+ from services.orderflow.exec_health_freeze_control import sign_dual_control_commit
++from services.orderflow.exec_health_freeze_sealed_state import prepare_sealed_mapping
+ from services.orderflow.exec_health_freeze_hook import aread_exec_health_auto_freeze
+ 
+ 
+@@ -28,6 +29,7 @@
+ 
+ 
+ def test_control_latch_blocks_even_if_raw_key_missing() -> None:
++    os.environ['EXEC_HEALTH_FREEZE_SEAL_SECRET'] = 'seal-secret'
+     control = {
+         'effective_freeze_active': '1',
+         'control_source': 'autoguard',
+@@ -38,6 +40,7 @@
+         'schema_version': '3',
+         'expected_ack_nonce': 'n1',
+     }
++    control = prepare_sealed_mapping(prev_raw={}, mapping=control, entrypoint='test', secret='seal-secret')
+     r = FakeRedis(control=control, raw=None)
+ 
+     async def _run():
+@@ -51,6 +54,7 @@
+ 
+ def test_dual_control_commit_wins_over_raw_freeze_key_only_with_valid_signature() -> None:
+     os.environ['EXEC_HEALTH_ACK_SIGNING_SECRET'] = 'test-secret'
++    os.environ['EXEC_HEALTH_FREEZE_SEAL_SECRET'] = 'seal-secret'
+     sig = sign_dual_control_commit(secret='test-secret', request_id='r1', ack_nonce='n1', prepared_by='alice', approved_by='bob', commit_by='bob', reason='validated', ticket='INC-1', trigger_ts_ms=12000, prepared_ts_ms=13000, approved_ts_ms=14000, commit_ts_ms=15000)
+     control = {
+         'effective_freeze_active': '0',
+@@ -77,6 +81,7 @@
+         'manual_commit_ts_ms': '15000',
+         'manual_commit_sig': sig,
+     }
++    control = prepare_sealed_mapping(prev_raw={}, mapping=control, entrypoint='test', secret='seal-secret')
+     raw = json.dumps({'freeze_active': 1, 'freeze_reason': 'drift', 'freeze_until_ts_ms': 60_000, 'ts_ms': 12_000})
+     r = FakeRedis(control=control, raw=raw)
+ 
+@@ -89,6 +94,7 @@
+ 
+ 
+ def test_invalid_dual_control_commit_falls_back_to_raw_freeze() -> None:
++    os.environ['EXEC_HEALTH_FREEZE_SEAL_SECRET'] = 'seal-secret'
+     control = {
+         'effective_freeze_active': '0',
+         'control_source': 'manual_override_thaw',
+@@ -112,6 +118,7 @@
+         'manual_commit_ts_ms': '15000',
+         'manual_commit_sig': 'bad',
+     }
++    control = prepare_sealed_mapping(prev_raw={}, mapping=control, entrypoint='test', secret='seal-secret')
+     raw = json.dumps({'freeze_active': 1, 'freeze_reason': 'drift', 'freeze_until_ts_ms': 60_000, 'ts_ms': 12_000})
+     r = FakeRedis(control=control, raw=raw)
+ 
+--- services/orderflow/tests/test_exec_health_freeze_integrity_v1.py
++++ services/orderflow/tests/test_exec_health_freeze_integrity_v1.py
+@@ -3,6 +3,7 @@
+ import os
+ 
+ from services.orderflow.exec_health_freeze_control import sign_dual_control_commit
++from services.orderflow.exec_health_freeze_sealed_state import prepare_sealed_mapping
+ from services.orderflow.exec_health_freeze_integrity import evaluate_freeze_integrity
+ 
+ 
+@@ -16,6 +17,7 @@
+ 
+ def test_valid_signed_commit_event_clears_pending_violation() -> None:
+     os.environ['EXEC_HEALTH_ACK_SIGNING_SECRET'] = 'test-secret'
++    os.environ['EXEC_HEALTH_FREEZE_SEAL_SECRET'] = 'seal-secret'
+     sig = sign_dual_control_commit(secret='test-secret', request_id='r1', ack_nonce='n1', prepared_by='alice', approved_by='bob', commit_by='bob', reason='validated', ticket='INC-1', trigger_ts_ms=10000, prepared_ts_ms=10500, approved_ts_ms=10800, commit_ts_ms=11000)
+     request_events = [
+         ('4-0', {'kind': 'manual_ack_thaw_prepare', 'request_id': 'r1', 'ack_nonce': 'n1', 'operator': 'alice'}),
+@@ -23,13 +25,15 @@
+         ('6-0', {'kind': 'manual_ack_thaw_commit', 'request_id': 'r1', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000', 'prepared_ts_ms': '10500', 'approved_ts_ms': '10800', 'ts_ms': '11000', 'operator': 'bob', 'prepared_by': 'alice', 'approved_by': 'bob', 'reason': 'validated', 'ticket': 'INC-1', 'commit_sig': sig}),
+     ]
+     events = [('2-0', {'kind': 'autoguard_freeze_latch', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000'})]
+-    res = evaluate_freeze_integrity(control_raw={'expected_ack_nonce': 'n1', 'active_thaw_request_id': 'r1'}, state_raw={}, events=events, request_events=request_events)
++    control = prepare_sealed_mapping(prev_raw={}, mapping={'expected_ack_nonce': 'n1', 'active_thaw_request_id': 'r1'}, entrypoint='test', secret='seal-secret')
++    res = evaluate_freeze_integrity(control_raw=control, state_raw={}, events=events, request_events=request_events)
+     assert res.valid_ack_event_present is True
+     assert res.request_log_valid_sequence is True
+     assert res.violation_kinds == ['none']
+ 
+ 
+ def test_detects_invalid_control_commit_signature() -> None:
++    os.environ['EXEC_HEALTH_FREEZE_SEAL_SECRET'] = 'seal-secret'
+     control = {
+         'manual_override_active': '1',
+         'manual_override_action': 'thaw',
+@@ -49,6 +53,7 @@
+         'last_trigger_ts_ms': '10000',
+     }
+     events = [('2-0', {'kind': 'autoguard_freeze_latch', 'ack_nonce': 'n1', 'trigger_ts_ms': '10000'})]
++    control = prepare_sealed_mapping(prev_raw={}, mapping=control, entrypoint='test', secret='seal-secret')
+     res = evaluate_freeze_integrity(control_raw=control, state_raw={}, events=events, request_events=[])
+     assert 'invalid_control_ack_signature' in res.violation_kinds
+     assert 'request_log_prepare_missing' in res.violation_kinds
+--- orderflow_services/exec_health_slo_autoguard_v1.py
++++ orderflow_services/exec_health_slo_autoguard_v1.py
+@@ -13,6 +13,7 @@
+     build_autoguard_latch_update,
+     stringify_mapping,
+ )
++from services.orderflow.exec_health_freeze_sealed_state import asealed_set
+ 
+ try:
+     import redis.asyncio as aioredis  # type: ignore
+@@ -163,8 +164,18 @@
+ 
+     async def _set_state(self, state: Dict[str, Any]) -> None:
+         payload = {str(k): str(v) for k, v in state.items()}
+-        await self.r.hset(self.cfg.state_key, mapping=payload)
+-        await self.r.expire(self.cfg.state_key, max(300, self.cfg.cooldown_minutes * 180))
++        prev = await self._read_hash(self.cfg.state_key)
++        res = await asealed_set(
++            self.r,
++            key=self.cfg.state_key,
++            prev_raw=prev,
++            mapping=payload,
++            entrypoint='autoguard_state',
++            ttl_s=max(300, self.cfg.cooldown_minutes * 180),
++            force=False,
++        )
++        if not res.get('ok'):
++            raise RuntimeError(f"autoguard state sealed write failed: {res.get('error') or res.get('rc')}")
+ 
+ 
+     async def _set_control_latch(self, *, now_ms: int, reasons: List[str], freeze_until_ts_ms: int, ack_nonce: str, trigger_event_id: str = "") -> None:
+@@ -177,8 +188,17 @@
+             ack_nonce=str(ack_nonce),
+             trigger_event_id=str(trigger_event_id or ""),
+         )
+-        await self.r.hset(self.cfg.control_key, mapping=stringify_mapping(payload))
+-        await self.r.expire(self.cfg.control_key, max(86400, self.cfg.freeze_minutes * 86400))
++        res = await asealed_set(
++            self.r,
++            key=self.cfg.control_key,
++            prev_raw=prev,
++            mapping=stringify_mapping(payload),
++            entrypoint='autoguard_latch',
++            ttl_s=max(86400, self.cfg.freeze_minutes * 86400),
++            force=False,
++        )
++        if not res.get('ok'):
++            raise RuntimeError(f"autoguard control sealed write failed: {res.get('error') or res.get('rc')}")
+ 
+     async def _set_freeze(self, *, now_ms: int, reasons: List[str]) -> None:
+         until = now_ms + int(self.cfg.freeze_minutes * 60 * 1000)
+--- orderflow_services/exec_health_freeze_override_v1.py
++++ orderflow_services/exec_health_freeze_override_v1.py
+@@ -24,6 +24,7 @@
+     sign_dual_control_commit,
+     stringify_mapping,
+ )
++from services.orderflow.exec_health_freeze_sealed_state import sealed_set_sync
+ from services.orderflow.exec_health_freeze_request_log import (
+     DEFAULT_REQUEST_STREAM,
+     eval_approve_cas,
+@@ -79,9 +80,20 @@
+             "raw_freeze": json.loads(raw) if raw else {},
+         }
+ 
+-    def _write_hash(self, key: str, payload: Dict[str, Any]) -> None:
+-        self.r.hset(key, mapping=stringify_mapping(payload))
+-        self.r.expire(key, 86400 * 30)
++    def _write_hash(self, key: str, payload: Dict[str, Any], *, entrypoint: str, force: bool = False, force_reason: str = '') -> None:
++        prev = self._read_hash(key)
++        res = sealed_set_sync(
++            self.r,
++            key=key,
++            prev_raw=prev,
++            mapping=stringify_mapping(payload),
++            entrypoint=entrypoint,
++            ttl_s=86400 * 30,
++            force=force,
++            force_reason=force_reason,
++        )
++        if not res.get('ok'):
++            raise ValueError(f"sealed write failed for {key}: {res.get('error') or res.get('rc')}")
+ 
+     def _emit_event(self, payload: Dict[str, Any]) -> str:
+         try:
+@@ -255,13 +267,13 @@
+         until = now + mins * 60 * 1000
+         prev_ctl = self._read_hash(self.control_key)
+         upd = build_manual_freeze_update(prev=prev_ctl, now_ms=now, operator=operator, reason=reason, ticket=ticket, until_ts_ms=until)
+-        self._write_hash(self.control_key, upd)
++        self._write_hash(self.control_key, upd, entrypoint='manual_freeze_control', force=True, force_reason='manual_freeze')
+ 
+         prev_state = self._read_hash(self.state_key)
+         state_upd = dict(prev_state)
+         state_upd.update(upd)
+         state_upd["state_manual_freeze_written_ts_ms"] = int(now)
+-        self._write_hash(self.state_key, state_upd)
++        self._write_hash(self.state_key, state_upd, entrypoint='manual_freeze_state', force=True, force_reason='manual_freeze')
+ 
+         raw = {
+             "schema_name": "exec_health_auto_freeze",
+--- orderflow_services/exec_health_freeze_tamper_guard_v1.py
++++ orderflow_services/exec_health_freeze_tamper_guard_v1.py
+@@ -14,6 +14,7 @@
+ from prometheus_client import Counter, Gauge, start_http_server
+ 
+ from services.orderflow.exec_health_freeze_control import build_autoguard_latch_update, stringify_mapping
++from services.orderflow.exec_health_freeze_sealed_state import sealed_set_sync
+ from services.orderflow.exec_health_freeze_integrity import evaluate_freeze_integrity
+ from services.orderflow.exec_health_freeze_request_log import DEFAULT_REQUEST_STREAM
+ 
+@@ -41,6 +42,8 @@
+     'control_state_missing_without_valid_ack',
+     'thaw_without_valid_ack_event',
+     'invalid_control_ack_signature',
++    'control_seal_invalid',
++    'state_seal_invalid',
+     'request_log_prepare_missing',
+     'request_log_approve_missing',
+     'request_log_commit_missing',
+@@ -88,9 +91,24 @@
+         except Exception:
+             return {}
+ 
+-    def _write_hash(self, key: str, payload: Dict[str, Any]) -> None:
+-        self.r.hset(key, mapping=stringify_mapping(payload))
+-        self.r.expire(key, 86400 * 7)
++    def _write_hash(self, key: str, payload: Dict[str, Any], *, entrypoint: str, force: bool = False, force_reason: str = '') -> None:
++        if key == self.guard_state_key:
++            self.r.hset(key, mapping=stringify_mapping(payload))
++            self.r.expire(key, 86400 * 7)
++            return
++        prev = self._read_hash(key)
++        res = sealed_set_sync(
++            self.r,
++            key=key,
++            prev_raw=prev,
++            mapping=stringify_mapping(payload),
++            entrypoint=entrypoint,
++            ttl_s=86400 * 7,
++            force=force,
++            force_reason=force_reason,
++        )
++        if not res.get('ok'):
++            raise RuntimeError(f"tamper guard sealed write failed for {key}: {res.get('error') or res.get('rc')}")
+ 
+     def _emit_event(self, payload: Dict[str, Any]) -> str:
+         try:
+@@ -147,11 +165,11 @@
+             self.r.set(self.freeze_key, json.dumps(raw, separators=(',', ':')))
+             self.r.pexpire(self.freeze_key, self.freeze_minutes * 60 * 1000)
+             latch = build_autoguard_latch_update(prev=control, now_ms=now, reasons=reasons, freeze_until_ts_ms=freeze_until_ts_ms, ack_nonce=ack_nonce, trigger_event_id=trigger_event_id)
+-            self._write_hash(self.control_key, latch)
++            self._write_hash(self.control_key, latch, entrypoint='tamper_refreeze_control', force=True, force_reason='tamper_refreeze')
+             state_upd = dict(state)
+             state_upd.update(latch)
+             state_upd['state_tamper_refreeze_written_ts_ms'] = int(now)
+-            self._write_hash(self.state_key, state_upd)
++            self._write_hash(self.state_key, state_upd, entrypoint='tamper_refreeze_state', force=True, force_reason='tamper_refreeze')
+             guard_state.update({
+                 'schema_name': 'exec_health_freeze_tamper_guard_state',
+                 'schema_version': 1,
+@@ -162,7 +180,7 @@
+                 'request_id': str(integ.request_log_request_id or ''),
+                 'refreeze_total': _i(guard_state.get('refreeze_total'), 0) + 1,
+             })
+-            self._write_hash(self.guard_state_key, guard_state)
++            self._write_hash(self.guard_state_key, guard_state, entrypoint='guard_state')
+             self._notify(f'ExecHealth tamper detected -> auto re-freeze: {", ".join(reasons)}')
+             REFREEZE_TOTAL.labels(reason='freeze_control_tamper').inc()
+             out.update({'refreeze_performed': 1, 'last_refreeze_ts_ms': int(now), 'cooldown_until_ts_ms': int(now + self.cooldown_s * 1000)})
+@@ -177,7 +195,7 @@
+                 'request_id': str(integ.request_log_request_id or guard_state.get('request_id', '')),
+                 'refreeze_total': _i(guard_state.get('refreeze_total'), 0),
+             })
+-            self._write_hash(self.guard_state_key, guard_state)
++            self._write_hash(self.guard_state_key, guard_state, entrypoint='guard_state')
+             out['refreeze_performed'] = 0
+ 
+         UP.set(1.0)
+--- orderflow_services/exec_health_freeze_acl_bootstrap_v1.py
++++ orderflow_services/exec_health_freeze_acl_bootstrap_v1.py
+@@ -0,0 +1,81 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import json
++import os
++import sys
++from typing import Dict, List
++
++from services.orderflow.exec_health_freeze_sealed_state import FN_FORCE_SET, FN_SET, LIBRARY_NAME, SEAL_SECRET_ENV
++from services.orderflow.exec_health_freeze_request_log import FN_APPROVE_CAS, FN_COMMIT_CAS, FN_PREPARE_CAS, REQUEST_LIBRARY_NAME
++
++
++FREEZE_KEYS = [
++    "cfg:orderflow:exec_health:freeze_control:v1",
++    "cfg:orderflow:exec_health:auto_freeze:v1",
++    "metrics:exec_health:slo:autoguard:state",
++    "metrics:exec_health:freeze_tamper_guard:last",
++    "ops:exec_health:freeze_events:v1",
++    "ops:exec_health:freeze_requests:v1",
++]
++
++
++def build_acl_profiles() -> Dict[str, List[str]]:
++    reader_rules = [
++        "reset", "on", ">%REPLACE_ME_READER_PASS",
++        "%R~cfg:orderflow:exec_health:*",
++        "%R~metrics:exec_health:slo:autoguard:state",
++        "%R~metrics:exec_health:freeze_tamper_guard:last",
++        "%R~ops:exec_health:freeze_*",
++        "+get", "+hgetall", "+xrevrange", "+xrange", "+ping",
++        "-hset", "-hdel", "-del", "-unlink", "-eval", "-evalsha",
++    ]
++    writer_rules = [
++        "reset", "on", ">%REPLACE_ME_WRITER_PASS",
++        "%R~cfg:orderflow:exec_health:*", "%W~cfg:orderflow:exec_health:*",
++        "%R~metrics:exec_health:*", "%W~metrics:exec_health:*",
++        "%R~ops:exec_health:freeze_*", "%W~ops:exec_health:freeze_*",
++        "%W~notify:telegram",
++        "+get", "+set", "+expire", "+pexpire", "+hgetall", "+xadd", "+xrevrange", "+xrange", "+fcall", "+ping",
++        "-hset", "-hdel", "-del", "-unlink", "-eval", "-evalsha",
++    ]
++    bootstrap_rules = [
++        "reset", "on", ">%REPLACE_ME_BOOTSTRAP_PASS",
++        "allkeys",
++        "+fcall", "+function", "+get", "+hgetall", "+set", "+expire", "+pexpire", "+xadd", "+xrevrange", "+xrange", "+ping",
++        "-hset", "-hdel", "-del", "-unlink", "-eval", "-evalsha",
++    ]
++    return {
++        "exec_health_freeze_reader": reader_rules,
++        "exec_health_freeze_writer": writer_rules,
++        "exec_health_freeze_bootstrap": bootstrap_rules,
++    }
++
++
++def render_acl_commands() -> List[str]:
++    out: List[str] = []
++    for user, rules in build_acl_profiles().items():
++        out.append("ACL SETUSER " + user + " " + " ".join(rules))
++    return out
++
++
++def main(argv: List[str] | None = None) -> int:
++    _ = argv or sys.argv[1:]
++    doc = {
++        "library_names": [LIBRARY_NAME, REQUEST_LIBRARY_NAME],
++        "function_names": [FN_SET, FN_FORCE_SET, FN_PREPARE_CAS, FN_APPROVE_CAS, FN_COMMIT_CAS],
++        "freeze_keys": list(FREEZE_KEYS),
++        "seal_secret_env": SEAL_SECRET_ENV,
++        "acl_commands": render_acl_commands(),
++        "recommended_env": {
++            "EXEC_HEALTH_FREEZE_SEAL_SECRET": "<strong-random-secret>",
++            "EXEC_HEALTH_FREEZE_SEAL_ENFORCE": "1",
++            "EXEC_HEALTH_FREEZE_SEAL_ALLOW_UNSEALED_BOOTSTRAP": "1",
++        },
++    }
++    print(json.dumps(doc, ensure_ascii=False, indent=2, sort_keys=True))
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+--- orderflow_services/exec_health_freeze_acl_audit_exporter_v1.py
++++ orderflow_services/exec_health_freeze_acl_audit_exporter_v1.py
+@@ -0,0 +1,134 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import os
++import time
++from typing import Any, Dict, Iterable, List
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++from prometheus_client import Counter, Gauge, start_http_server
++
++FREEZE_KEYS = (
++    'cfg:orderflow:exec_health:freeze_control:v1',
++    'cfg:orderflow:exec_health:auto_freeze:v1',
++    'metrics:exec_health:slo:autoguard:state',
++)
++WATCH_CMDS = {'HSET', 'HDEL', 'DEL', 'UNLINK', 'EVAL', 'EVALSHA'}
++
++UP = Gauge('exec_health_freeze_acl_audit_up', '1 if ExecHealth ACL audit exporter loop is healthy')
++STATE_AGE_S = Gauge('exec_health_freeze_acl_audit_state_age_seconds', 'Age of ACL audit exporter state in seconds')
++LAST_TS_MS = Gauge('exec_health_freeze_acl_audit_last_event_ts_ms', 'Last matching ACL violation timestamp in epoch ms')
++VIOLATION_TOTAL = Counter('exec_health_freeze_acl_violation_total', 'Redis ACL violations for ExecHealth freeze-control surfaces', ['user', 'reason', 'command'])
++ACTIVE = Gauge('exec_health_freeze_acl_violation_active', 'One-hot recent ACL violation by command', ['command'])
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _s(x: Any, d: str = '') -> str:
++    try:
++        return str(x) if x is not None else str(d)
++    except Exception:
++        return str(d)
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++def _norm_entry(raw: Any) -> Dict[str, Any]:
++    if isinstance(raw, dict):
++        return {str(k): v for k, v in raw.items()}
++    if isinstance(raw, (list, tuple)):
++        out: Dict[str, Any] = {}
++        flat = list(raw)
++        for i in range(0, len(flat) - 1, 2):
++            out[str(flat[i])] = flat[i + 1]
++        return out
++    return {}
++
++
++def _matches(entry: Dict[str, Any]) -> bool:
++    cmd = _s(entry.get('command') or entry.get('cmd')).upper()
++    obj = _s(entry.get('object'))
++    key = _s(entry.get('key'))
++    username = _s(entry.get('username'))
++    target = '|'.join([obj, key, username])
++    return cmd in WATCH_CMDS and any(k in target for k in FREEZE_KEYS)
++
++
++class Exporter:
++    def __init__(self) -> None:
++        if redis is None:
++            raise RuntimeError('redis dependency missing')
++        self.redis_url = os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0')
++        self.state_key = os.getenv('EXEC_HEALTH_FREEZE_ACL_AUDIT_STATE_KEY', 'metrics:exec_health:freeze_acl_audit:last')
++        self.loop_s = max(5, int(os.getenv('EXEC_HEALTH_FREEZE_ACL_AUDIT_INTERVAL_S', '30') or 30))
++        self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
++        self._seen_ids: set[str] = set()
++
++    def _read_state(self) -> Dict[str, Any]:
++        try:
++            return self.r.hgetall(self.state_key) or {}
++        except Exception:
++            return {}
++
++    def _write_state(self, mapping: Dict[str, Any]) -> None:
++        try:
++            self.r.hset(self.state_key, mapping={str(k): str(v) for k, v in mapping.items()})
++            self.r.expire(self.state_key, 86400 * 7)
++        except Exception:
++            pass
++
++    def run_once(self) -> Dict[str, Any]:
++        now = _now_ms()
++        rows = self.r.execute_command('ACL', 'LOG', 64) or []
++        matches: List[Dict[str, Any]] = []
++        active_cmds = set()
++        last_ts_ms = 0
++        for raw in rows:
++            e = _norm_entry(raw)
++            if not _matches(e):
++                continue
++            entry_id = _s(e.get('entry-id') or e.get('id') or '')
++            if entry_id and entry_id in self._seen_ids:
++                continue
++            if entry_id:
++                self._seen_ids.add(entry_id)
++            matches.append(e)
++            cmd = _s(e.get('command') or e.get('cmd')).upper()
++            active_cmds.add(cmd)
++            last_ts_ms = max(last_ts_ms, _i(e.get('timestamp-created') or e.get('ts_ms') or now, now))
++            VIOLATION_TOTAL.labels(user=_s(e.get('username') or 'unknown'), reason=_s(e.get('reason') or 'acl'), command=cmd or 'UNKNOWN').inc()
++        for cmd in sorted(WATCH_CMDS):
++            ACTIVE.labels(command=cmd).set(1.0 if cmd in active_cmds else 0.0)
++        LAST_TS_MS.set(float(last_ts_ms))
++        st = self._read_state()
++        st.update({'updated_ts_ms': int(now), 'last_event_ts_ms': int(last_ts_ms), 'match_count': int(_i(st.get('match_count'), 0) + len(matches))})
++        self._write_state(st)
++        age = max(0.0, float(now - _i(st.get('updated_ts_ms'), now)) / 1000.0)
++        STATE_AGE_S.set(age)
++        UP.set(1.0)
++        return {'ok': True, 'match_count': len(matches), 'last_event_ts_ms': int(last_ts_ms)}
++
++
++def main() -> None:
++    ex = Exporter()
++    start_http_server(int(os.getenv('EXEC_HEALTH_FREEZE_ACL_AUDIT_EXPORTER_PORT', '9831')))
++    while True:
++        try:
++            ex.run_once()
++        except Exception:
++            UP.set(0.0)
++        time.sleep(ex.loop_s)
++
++
++if __name__ == '__main__':
++    main()
+--- orderflow_services/prometheus_alerts_exec_health_freeze_acl_v1.yml
++++ orderflow_services/prometheus_alerts_exec_health_freeze_acl_v1.yml
+@@ -0,0 +1,21 @@
++groups:
++- name: exec_health_freeze_acl_v1
++  rules:
++  - alert: OF_ExecHealth_FreezeACLViolation_Crit
++    expr: increase(exec_health_freeze_acl_violation_total[15m]) > 0
++    for: 1m
++    labels:
++      severity: critical
++      service: orderflow
++    annotations:
++      summary: ExecHealth freeze-control ACL violation detected
++      description: Redis ACL denied a direct write/scripting command on freeze-control surfaces.
++  - alert: OF_ExecHealth_FreezeACLAuditExporter_Stale_Warn
++    expr: exec_health_freeze_acl_audit_up == 0 or exec_health_freeze_acl_audit_state_age_seconds > 300
++    for: 5m
++    labels:
++      severity: warning
++      service: orderflow
++    annotations:
++      summary: ExecHealth ACL audit exporter stale
++      description: Freeze-control ACL audit exporter is not updating.
+--- orderflow_services/runbook_exec_health_freeze_acl_v1.md
++++ orderflow_services/runbook_exec_health_freeze_acl_v1.md
+@@ -0,0 +1,21 @@
++# ExecHealth Freeze ACL / sealed-state (v1)
++
++Purpose:
++- deny direct `HSET/HDEL/DEL/UNLINK/EVAL/EVALSHA` against freeze-control/state surfaces via Redis ACL
++- allow trusted services to mutate projections only through Redis Function entrypoints (`FCALL`)
++- monitor denied attempts with `ACL LOG`
++
++Keys:
++- `cfg:orderflow:exec_health:freeze_control:v1`
++- `metrics:exec_health:slo:autoguard:state`
++- `cfg:orderflow:exec_health:auto_freeze:v1`
++
++Bootstrap:
++- run `python orderflow_services/exec_health_freeze_acl_bootstrap_v1.py`
++- provision dedicated Redis ACL users for reader / writer / bootstrap roles
++- set `EXEC_HEALTH_FREEZE_SEAL_SECRET` on trusted writers
++
++Expected behavior:
++- direct manual hash edits are denied at Redis ACL layer and appear in `ACL LOG`
++- trusted writers update control/state only through sealed Redis Functions
++- if a hash is somehow modified outside entrypoints, seal verification fails and tamper-guard re-freezes
+--- orderflow_services/grafana/exec_health_freeze_acl_v1.json
++++ orderflow_services/grafana/exec_health_freeze_acl_v1.json
+@@ -0,0 +1,21 @@
++{
++  "title": "ExecHealth Freeze ACL / Sealed State (v1)",
++  "panels": [
++    {
++      "title": "ACL violations",
++      "type": "timeseries",
++      "targets": [
++        {"expr": "sum by (command) (increase(exec_health_freeze_acl_violation_total[$__rate_interval]))"}
++      ]
++    },
++    {
++      "title": "ACL audit exporter state age",
++      "type": "stat",
++      "targets": [
++        {"expr": "max(exec_health_freeze_acl_audit_state_age_seconds)"}
++      ]
++    }
++  ],
++  "schemaVersion": 39,
++  "version": 1
++}
+--- orderflow_services/tests/test_exec_health_slo_autoguard_control_v1.py
++++ orderflow_services/tests/test_exec_health_slo_autoguard_control_v1.py
+@@ -1,6 +1,7 @@
+ from __future__ import annotations
+ 
+ import asyncio
++import os
+ 
+ from orderflow_services.exec_health_slo_autoguard_v1 import AutoGuard, GuardCfg
+ 
+@@ -43,8 +44,27 @@
+         arr.append((eid, dict(mapping)))
+         return eid
+ 
++    async def execute_command(self, *args):
++        if args[:2] == ('FUNCTION', 'LOAD'):
++            return 'ok'
++        if args[:2] == ('FUNCTION', 'LOAD',):
++            return 'ok'
++        if args and args[0] == 'FCALL':
++            _, fn, numkeys, key, *argv = args
++            if fn.endswith('sealed_set') or fn.endswith('sealed_force_set'):
++                n = int(argv[3])
++                flat = argv[4:]
++                d = self.hashes.setdefault(key, {})
++                d.clear()
++                for i in range(0, len(flat), 2):
++                    d[str(flat[i])] = str(flat[i+1])
++                return 1
++            raise AssertionError(f'unexpected function {fn}')
++        raise AssertionError(f'unexpected command {args}')
++
+ 
+ def test_autoguard_writes_latched_control_state_and_pending_nonce() -> None:
++    os.environ['EXEC_HEALTH_FREEZE_SEAL_SECRET'] = 'seal-secret'
+     cfg = GuardCfg(
+         redis_url='redis://test/0',
+         summary_key='metrics:exec_health:slo:last',
+--- orderflow_services/tests/test_exec_health_freeze_tamper_guard_v1.py
++++ orderflow_services/tests/test_exec_health_freeze_tamper_guard_v1.py
+@@ -1,4 +1,6 @@
+ from __future__ import annotations
++
++import os
+ 
+ from orderflow_services.exec_health_freeze_tamper_guard_v1 import Guard, should_refreeze
+ 
+@@ -52,6 +54,21 @@
+         self.stream.append((key, eid, {str(k): str(v) for k, v in dict(mapping).items()}))
+         return eid
+ 
++    def execute_command(self, *args):
++        if args[:2] == ('FUNCTION', 'LOAD'):
++            return 'ok'
++        if args and args[0] == 'FCALL':
++            _, fn, numkeys, key, *argv = args
++            if fn.endswith('sealed_set') or fn.endswith('sealed_force_set'):
++                flat = argv[4:]
++                d = self.hashes.setdefault(key, {})
++                d.clear()
++                for i in range(0, len(flat), 2):
++                    d[str(flat[i])] = str(flat[i+1])
++                return 1
++            raise AssertionError(f'unexpected function {fn}')
++        raise AssertionError(f'unexpected command {args}')
++
+ 
+ def _guard() -> Guard:
+     g = Guard.__new__(Guard)
+@@ -77,6 +94,7 @@
+ 
+ 
+ def test_guard_refreezes_on_direct_hash_edit_without_request_log() -> None:
++    os.environ['EXEC_HEALTH_FREEZE_SEAL_SECRET'] = 'seal-secret'
+     g = _guard()
+     out = g.run_once()
+     assert out['tamper_active'] == 1
+--- orderflow_services/tests/test_exec_health_freeze_acl_bootstrap_v1.py
++++ orderflow_services/tests/test_exec_health_freeze_acl_bootstrap_v1.py
+@@ -0,0 +1,15 @@
++from __future__ import annotations
++
++import json
++
++from orderflow_services.exec_health_freeze_acl_bootstrap_v1 import main
++
++
++def test_acl_bootstrap_contains_writer_reader_and_denies_direct_hash_writes(capsys) -> None:
++    assert main([]) == 0
++    out = json.loads(capsys.readouterr().out)
++    cmds = '\n'.join(out['acl_commands'])
++    assert 'ACL SETUSER exec_health_freeze_writer' in cmds
++    assert 'ACL SETUSER exec_health_freeze_reader' in cmds
++    assert '-hset' in cmds.lower()
++    assert '+fcall' in cmds.lower()
+--- orderflow_services/tests/test_exec_health_freeze_acl_audit_exporter_v1.py
++++ orderflow_services/tests/test_exec_health_freeze_acl_audit_exporter_v1.py
+@@ -0,0 +1,38 @@
++from __future__ import annotations
++
++from orderflow_services.exec_health_freeze_acl_audit_exporter_v1 import Exporter
++
++
++class FakeRedis:
++    def __init__(self):
++        self.hashes = {'metrics:exec_health:freeze_acl_audit:last': {}}
++        self.events = [
++            {'entry-id': '1', 'username': 'unknown', 'reason': 'command', 'command': 'HSET', 'object': 'cfg:orderflow:exec_health:freeze_control:v1'},
++            {'entry-id': '2', 'username': 'other', 'reason': 'command', 'command': 'GET', 'object': 'foo'},
++        ]
++
++    def execute_command(self, *args):
++        if args[:2] == ('ACL', 'LOG'):
++            return list(self.events)
++        raise AssertionError(args)
++
++    def hgetall(self, key: str):
++        return dict(self.hashes.get(key, {}))
++
++    def hset(self, key: str, mapping):
++        self.hashes.setdefault(key, {}).update({str(k): str(v) for k, v in dict(mapping).items()})
++
++    def expire(self, key: str, ttl: int):
++        return True
++
++
++def test_acl_audit_exporter_counts_matching_acl_log_entries() -> None:
++    ex = Exporter.__new__(Exporter)
++    ex.state_key = 'metrics:exec_health:freeze_acl_audit:last'
++    ex.loop_s = 30
++    ex.r = FakeRedis()
++    ex._seen_ids = set()
++    out = ex.run_once()
++    assert out['match_count'] == 1
++    st = ex.r.hashes[ex.state_key]
++    assert int(st['match_count']) == 1
+--- orderflow_services/tests/test_exec_health_freeze_acl_alerts_yaml_v1.py
++++ orderflow_services/tests/test_exec_health_freeze_acl_alerts_yaml_v1.py
+@@ -0,0 +1,12 @@
++from __future__ import annotations
++
++from pathlib import Path
++import yaml
++
++
++def test_exec_health_freeze_acl_alerts_yaml_contains_expected_rules() -> None:
++    p = Path('orderflow_services/prometheus_alerts_exec_health_freeze_acl_v1.yml')
++    obj = yaml.safe_load(p.read_text())
++    rules = [r['alert'] for g in obj['groups'] for r in g['rules']]
++    assert 'OF_ExecHealth_FreezeACLViolation_Crit' in rules
++    assert 'OF_ExecHealth_FreezeACLAuditExporter_Stale_Warn' in rules
+--- orderflow_services/tests/test_exec_health_freeze_acl_dashboard_json_v1.py
++++ orderflow_services/tests/test_exec_health_freeze_acl_dashboard_json_v1.py
+@@ -0,0 +1,13 @@
++from __future__ import annotations
++
++from pathlib import Path
++import json
++
++
++def test_exec_health_freeze_acl_dashboard_json_title_and_queries() -> None:
++    p = Path('orderflow_services/grafana/exec_health_freeze_acl_v1.json')
++    obj = json.loads(p.read_text())
++    assert obj['title'] == 'ExecHealth Freeze ACL / Sealed State (v1)'
++    joined = json.dumps(obj)
++    assert 'exec_health_freeze_acl_violation_total' in joined
++    assert 'exec_health_freeze_acl_audit_state_age_seconds' in joined
+--- tick_flow_full/orderflow_services/exec_health_freeze_acl_bootstrap_v1.py
++++ tick_flow_full/orderflow_services/exec_health_freeze_acl_bootstrap_v1.py
+@@ -0,0 +1,81 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import json
++import os
++import sys
++from typing import Dict, List
++
++from services.orderflow.exec_health_freeze_sealed_state import FN_FORCE_SET, FN_SET, LIBRARY_NAME, SEAL_SECRET_ENV
++from services.orderflow.exec_health_freeze_request_log import FN_APPROVE_CAS, FN_COMMIT_CAS, FN_PREPARE_CAS, REQUEST_LIBRARY_NAME
++
++
++FREEZE_KEYS = [
++    "cfg:orderflow:exec_health:freeze_control:v1",
++    "cfg:orderflow:exec_health:auto_freeze:v1",
++    "metrics:exec_health:slo:autoguard:state",
++    "metrics:exec_health:freeze_tamper_guard:last",
++    "ops:exec_health:freeze_events:v1",
++    "ops:exec_health:freeze_requests:v1",
++]
++
++
++def build_acl_profiles() -> Dict[str, List[str]]:
++    reader_rules = [
++        "reset", "on", ">%REPLACE_ME_READER_PASS",
++        "%R~cfg:orderflow:exec_health:*",
++        "%R~metrics:exec_health:slo:autoguard:state",
++        "%R~metrics:exec_health:freeze_tamper_guard:last",
++        "%R~ops:exec_health:freeze_*",
++        "+get", "+hgetall", "+xrevrange", "+xrange", "+ping",
++        "-hset", "-hdel", "-del", "-unlink", "-eval", "-evalsha",
++    ]
++    writer_rules = [
++        "reset", "on", ">%REPLACE_ME_WRITER_PASS",
++        "%R~cfg:orderflow:exec_health:*", "%W~cfg:orderflow:exec_health:*",
++        "%R~metrics:exec_health:*", "%W~metrics:exec_health:*",
++        "%R~ops:exec_health:freeze_*", "%W~ops:exec_health:freeze_*",
++        "%W~notify:telegram",
++        "+get", "+set", "+expire", "+pexpire", "+hgetall", "+xadd", "+xrevrange", "+xrange", "+fcall", "+ping",
++        "-hset", "-hdel", "-del", "-unlink", "-eval", "-evalsha",
++    ]
++    bootstrap_rules = [
++        "reset", "on", ">%REPLACE_ME_BOOTSTRAP_PASS",
++        "allkeys",
++        "+fcall", "+function", "+get", "+hgetall", "+set", "+expire", "+pexpire", "+xadd", "+xrevrange", "+xrange", "+ping",
++        "-hset", "-hdel", "-del", "-unlink", "-eval", "-evalsha",
++    ]
++    return {
++        "exec_health_freeze_reader": reader_rules,
++        "exec_health_freeze_writer": writer_rules,
++        "exec_health_freeze_bootstrap": bootstrap_rules,
++    }
++
++
++def render_acl_commands() -> List[str]:
++    out: List[str] = []
++    for user, rules in build_acl_profiles().items():
++        out.append("ACL SETUSER " + user + " " + " ".join(rules))
++    return out
++
++
++def main(argv: List[str] | None = None) -> int:
++    _ = argv or sys.argv[1:]
++    doc = {
++        "library_names": [LIBRARY_NAME, REQUEST_LIBRARY_NAME],
++        "function_names": [FN_SET, FN_FORCE_SET, FN_PREPARE_CAS, FN_APPROVE_CAS, FN_COMMIT_CAS],
++        "freeze_keys": list(FREEZE_KEYS),
++        "seal_secret_env": SEAL_SECRET_ENV,
++        "acl_commands": render_acl_commands(),
++        "recommended_env": {
++            "EXEC_HEALTH_FREEZE_SEAL_SECRET": "<strong-random-secret>",
++            "EXEC_HEALTH_FREEZE_SEAL_ENFORCE": "1",
++            "EXEC_HEALTH_FREEZE_SEAL_ALLOW_UNSEALED_BOOTSTRAP": "1",
++        },
++    }
++    print(json.dumps(doc, ensure_ascii=False, indent=2, sort_keys=True))
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+--- tick_flow_full/orderflow_services/exec_health_freeze_acl_audit_exporter_v1.py
++++ tick_flow_full/orderflow_services/exec_health_freeze_acl_audit_exporter_v1.py
+@@ -0,0 +1,134 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import os
++import time
++from typing import Any, Dict, Iterable, List
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++from prometheus_client import Counter, Gauge, start_http_server
++
++FREEZE_KEYS = (
++    'cfg:orderflow:exec_health:freeze_control:v1',
++    'cfg:orderflow:exec_health:auto_freeze:v1',
++    'metrics:exec_health:slo:autoguard:state',
++)
++WATCH_CMDS = {'HSET', 'HDEL', 'DEL', 'UNLINK', 'EVAL', 'EVALSHA'}
++
++UP = Gauge('exec_health_freeze_acl_audit_up', '1 if ExecHealth ACL audit exporter loop is healthy')
++STATE_AGE_S = Gauge('exec_health_freeze_acl_audit_state_age_seconds', 'Age of ACL audit exporter state in seconds')
++LAST_TS_MS = Gauge('exec_health_freeze_acl_audit_last_event_ts_ms', 'Last matching ACL violation timestamp in epoch ms')
++VIOLATION_TOTAL = Counter('exec_health_freeze_acl_violation_total', 'Redis ACL violations for ExecHealth freeze-control surfaces', ['user', 'reason', 'command'])
++ACTIVE = Gauge('exec_health_freeze_acl_violation_active', 'One-hot recent ACL violation by command', ['command'])
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _s(x: Any, d: str = '') -> str:
++    try:
++        return str(x) if x is not None else str(d)
++    except Exception:
++        return str(d)
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++def _norm_entry(raw: Any) -> Dict[str, Any]:
++    if isinstance(raw, dict):
++        return {str(k): v for k, v in raw.items()}
++    if isinstance(raw, (list, tuple)):
++        out: Dict[str, Any] = {}
++        flat = list(raw)
++        for i in range(0, len(flat) - 1, 2):
++            out[str(flat[i])] = flat[i + 1]
++        return out
++    return {}
++
++
++def _matches(entry: Dict[str, Any]) -> bool:
++    cmd = _s(entry.get('command') or entry.get('cmd')).upper()
++    obj = _s(entry.get('object'))
++    key = _s(entry.get('key'))
++    username = _s(entry.get('username'))
++    target = '|'.join([obj, key, username])
++    return cmd in WATCH_CMDS and any(k in target for k in FREEZE_KEYS)
++
++
++class Exporter:
++    def __init__(self) -> None:
++        if redis is None:
++            raise RuntimeError('redis dependency missing')
++        self.redis_url = os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0')
++        self.state_key = os.getenv('EXEC_HEALTH_FREEZE_ACL_AUDIT_STATE_KEY', 'metrics:exec_health:freeze_acl_audit:last')
++        self.loop_s = max(5, int(os.getenv('EXEC_HEALTH_FREEZE_ACL_AUDIT_INTERVAL_S', '30') or 30))
++        self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
++        self._seen_ids: set[str] = set()
++
++    def _read_state(self) -> Dict[str, Any]:
++        try:
++            return self.r.hgetall(self.state_key) or {}
++        except Exception:
++            return {}
++
++    def _write_state(self, mapping: Dict[str, Any]) -> None:
++        try:
++            self.r.hset(self.state_key, mapping={str(k): str(v) for k, v in mapping.items()})
++            self.r.expire(self.state_key, 86400 * 7)
++        except Exception:
++            pass
++
++    def run_once(self) -> Dict[str, Any]:
++        now = _now_ms()
++        rows = self.r.execute_command('ACL', 'LOG', 64) or []
++        matches: List[Dict[str, Any]] = []
++        active_cmds = set()
++        last_ts_ms = 0
++        for raw in rows:
++            e = _norm_entry(raw)
++            if not _matches(e):
++                continue
++            entry_id = _s(e.get('entry-id') or e.get('id') or '')
++            if entry_id and entry_id in self._seen_ids:
++                continue
++            if entry_id:
++                self._seen_ids.add(entry_id)
++            matches.append(e)
++            cmd = _s(e.get('command') or e.get('cmd')).upper()
++            active_cmds.add(cmd)
++            last_ts_ms = max(last_ts_ms, _i(e.get('timestamp-created') or e.get('ts_ms') or now, now))
++            VIOLATION_TOTAL.labels(user=_s(e.get('username') or 'unknown'), reason=_s(e.get('reason') or 'acl'), command=cmd or 'UNKNOWN').inc()
++        for cmd in sorted(WATCH_CMDS):
++            ACTIVE.labels(command=cmd).set(1.0 if cmd in active_cmds else 0.0)
++        LAST_TS_MS.set(float(last_ts_ms))
++        st = self._read_state()
++        st.update({'updated_ts_ms': int(now), 'last_event_ts_ms': int(last_ts_ms), 'match_count': int(_i(st.get('match_count'), 0) + len(matches))})
++        self._write_state(st)
++        age = max(0.0, float(now - _i(st.get('updated_ts_ms'), now)) / 1000.0)
++        STATE_AGE_S.set(age)
++        UP.set(1.0)
++        return {'ok': True, 'match_count': len(matches), 'last_event_ts_ms': int(last_ts_ms)}
++
++
++def main() -> None:
++    ex = Exporter()
++    start_http_server(int(os.getenv('EXEC_HEALTH_FREEZE_ACL_AUDIT_EXPORTER_PORT', '9831')))
++    while True:
++        try:
++            ex.run_once()
++        except Exception:
++            UP.set(0.0)
++        time.sleep(ex.loop_s)
++
++
++if __name__ == '__main__':
++    main()
+--- tick_flow_full/orderflow_services/prometheus_alerts_exec_health_freeze_acl_v1.yml
++++ tick_flow_full/orderflow_services/prometheus_alerts_exec_health_freeze_acl_v1.yml
+@@ -0,0 +1,21 @@
++groups:
++- name: exec_health_freeze_acl_v1
++  rules:
++  - alert: OF_ExecHealth_FreezeACLViolation_Crit
++    expr: increase(exec_health_freeze_acl_violation_total[15m]) > 0
++    for: 1m
++    labels:
++      severity: critical
++      service: orderflow
++    annotations:
++      summary: ExecHealth freeze-control ACL violation detected
++      description: Redis ACL denied a direct write/scripting command on freeze-control surfaces.
++  - alert: OF_ExecHealth_FreezeACLAuditExporter_Stale_Warn
++    expr: exec_health_freeze_acl_audit_up == 0 or exec_health_freeze_acl_audit_state_age_seconds > 300
++    for: 5m
++    labels:
++      severity: warning
++      service: orderflow
++    annotations:
++      summary: ExecHealth ACL audit exporter stale
++      description: Freeze-control ACL audit exporter is not updating.
+--- tick_flow_full/orderflow_services/runbook_exec_health_freeze_acl_v1.md
++++ tick_flow_full/orderflow_services/runbook_exec_health_freeze_acl_v1.md
+@@ -0,0 +1,21 @@
++# ExecHealth Freeze ACL / sealed-state (v1)
++
++Purpose:
++- deny direct `HSET/HDEL/DEL/UNLINK/EVAL/EVALSHA` against freeze-control/state surfaces via Redis ACL
++- allow trusted services to mutate projections only through Redis Function entrypoints (`FCALL`)
++- monitor denied attempts with `ACL LOG`
++
++Keys:
++- `cfg:orderflow:exec_health:freeze_control:v1`
++- `metrics:exec_health:slo:autoguard:state`
++- `cfg:orderflow:exec_health:auto_freeze:v1`
++
++Bootstrap:
++- run `python orderflow_services/exec_health_freeze_acl_bootstrap_v1.py`
++- provision dedicated Redis ACL users for reader / writer / bootstrap roles
++- set `EXEC_HEALTH_FREEZE_SEAL_SECRET` on trusted writers
++
++Expected behavior:
++- direct manual hash edits are denied at Redis ACL layer and appear in `ACL LOG`
++- trusted writers update control/state only through sealed Redis Functions
++- if a hash is somehow modified outside entrypoints, seal verification fails and tamper-guard re-freezes
+--- tick_flow_full/orderflow_services/grafana/exec_health_freeze_acl_v1.json
++++ tick_flow_full/orderflow_services/grafana/exec_health_freeze_acl_v1.json
+@@ -0,0 +1,21 @@
++{
++  "title": "ExecHealth Freeze ACL / Sealed State (v1)",
++  "panels": [
++    {
++      "title": "ACL violations",
++      "type": "timeseries",
++      "targets": [
++        {"expr": "sum by (command) (increase(exec_health_freeze_acl_violation_total[$__rate_interval]))"}
++      ]
++    },
++    {
++      "title": "ACL audit exporter state age",
++      "type": "stat",
++      "targets": [
++        {"expr": "max(exec_health_freeze_acl_audit_state_age_seconds)"}
++      ]
++    }
++  ],
++  "schemaVersion": 39,
++  "version": 1
++}

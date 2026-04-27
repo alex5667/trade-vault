@@ -1,0 +1,30 @@
+groups:
+  - name: ml_phase3_55_apply_flow_experiment_incident_rca_apply_controller_v1
+    rules:
+      - alert: MLApplyFlowExperimentIncidentRCAApplyControllerStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_controller_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "apply-flow experiment incident RCA apply-controller is stale"
+
+      - alert: MLApplyFlowExperimentIncidentRCAApplyControllerErrors
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_controller_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "apply-flow experiment incident RCA apply-controller has errors"
+
+      - alert: MLApplyFlowExperimentIncidentRCAApplyPlanVertex
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_applies_total{target_mode="VERTEX_ONLY"}[30m]) > 0
+        for: 5m
+        labels: { severity: info }
+        annotations:
+          summary: "apply-flow experiment incident RCA apply-controller produced a vertex-only apply plan"
+
+      - alert: MLApplyFlowExperimentIncidentRCAApplyPlanLocal
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_applies_total{target_mode="LOCAL_ONLY"}[30m]) > 0
+        for: 5m
+        labels: { severity: info }
+        annotations:
+          summary: "apply-flow experiment incident RCA apply-controller produced a local-only apply plan"

@@ -1,0 +1,906 @@
+--- a/ml_analysis/tools/build_edge_stack_dataset_from_redis.py
++++ b/ml_analysis/tools/build_edge_stack_dataset_from_redis.py
+@@ -69,6 +69,36 @@
+     _get_edge_stack_spec = None  # type: ignore
+ 
+ 
++# ---------------------------------------------------------------------------
++# Offline-only derived features (F/G/H) for ablation without touching runtime pipeline.
++# ---------------------------------------------------------------------------
++try:
++    from ml_analysis.common.derived_fgh import derive_fgh_rows  # type: ignore
++    _DERIVE_FGH_AVAILABLE = True
++except Exception:
++    _DERIVE_FGH_AVAILABLE = False
++    derive_fgh_rows = None  # type: ignore
++
++
++FGH_NUMERIC_KEYS: List[str] = [
++    # F) leader-relative
++    "rel_ofi_ml_norm_btc",
++    "rel_lob_micro_shift_bps_btc",
++    # G) replenishment imbalance
++    "ask_replenish_imb",
++    "bid_replenish_imb",
++    "lob_replenishment_pressure",
++    "replenish_ratio_ask",
++    "replenish_ratio_bid",
++    "replenish_ratio_diff",
++    # H) acceleration / velocity
++    "ofi_ml_wsum_vel",
++    "micro_shift_bps_vel",
++    "ofi_ml_wsum_vel_z_ema",
++    "micro_shift_bps_vel_z_ema",
++]
++
++
+ def _now_ms() -> int:
+     return int(time.time() * 1000)
+ 
+@@ -1559,6 +1589,31 @@
+     ap.add_argument("--include_scenario", type=int, default=int(os.environ.get("INCLUDE_SCENARIO", "1")))
+     ap.add_argument("--scenario_prefix", default=os.environ.get("SCENARIO_PREFIX", "bucket:"))
+     ap.add_argument("--include_time_onehot", type=int, default=int(os.environ.get("INCLUDE_TIME_ONEHOT", "1")))
++
++    # Offline-only derived features (F/G/H) for ablation; does NOT touch runtime pipeline.
++    ap.add_argument("--derive_fgh", type=int, default=int(os.environ.get("DERIVE_FGH", "0")))
++    ap.add_argument("--fgh_leader_symbol", default=os.environ.get("FGH_LEADER_SYMBOL", "BTCUSDT"))
++    ap.add_argument(
++        "--fgh_leader_max_lag_ms",
++        type=int,
++        default=int(os.environ.get("FGH_LEADER_MAX_LAG_MS", "2000")),
++    )
++    ap.add_argument(
++        "--fgh_vel_z_alpha",
++        type=float,
++        default=float(os.environ.get("FGH_VEL_Z_ALPHA", "0.06")),
++    )
++    ap.add_argument(
++        "--fgh_store_debug_flags",
++        type=int,
++        default=int(os.environ.get("FGH_STORE_DEBUG_FLAGS", "0")),
++    )
++    ap.add_argument(
++        "--fgh_append_feature_cols",
++        type=int,
++        default=int(os.environ.get("FGH_APPEND_FEATURE_COLS", "1")),
++        help="If --emit_feature_cols_json is used, append F/G/H columns to feature_cols (for offline ablation).",
++    )
+     # Strict feature schema: forbid scenario_v4_* one-hots to guarantee bounded cardinality
+     ap.add_argument(
+         "--strict_feature_cols",
+@@ -1733,6 +1788,22 @@
+         tb_util_min_r=float(args.tb_util_min_r),
+         closed_stream=str(args.closed_stream),
+     )
++
++    derived_fgh: Dict[str, Any] = {}
++    if int(getattr(args, "derive_fgh", 0) or 0) == 1:
++        if not _DERIVE_FGH_AVAILABLE or derive_fgh_rows is None:
++            print("[WARN] derive_fgh requested but ml_analysis.common.derived_fgh is unavailable")
++        else:
++            derived_fgh = derive_fgh_rows(
++                rows,
++                leader_symbol=str(getattr(args, "fgh_leader_symbol", "BTCUSDT") or "BTCUSDT"),
++                leader_max_lag_ms=int(getattr(args, "fgh_leader_max_lag_ms", 2000) or 2000),
++                vel_z_alpha=float(getattr(args, "fgh_vel_z_alpha", 0.06) or 0.06),
++                store_debug_flags=int(getattr(args, "fgh_store_debug_flags", 0) or 0) == 1,
++            )
++            if isinstance(derived_fgh, dict) and derived_fgh.get("ok"):
++                print(f"[derive_fgh] ok stats={derived_fgh.get('stats', {})}")
++
+     _write_jsonl(args.out_jsonl, rows)
+ 
+     mismatch: Dict[str, Any] = {}
+@@ -1761,6 +1832,9 @@
+         "drop": drop.to_dict(),
+     }
+ 
++    if 'derived_fgh' in locals() and isinstance(derived_fgh, dict) and derived_fgh:
++        stats["derived_fgh"] = derived_fgh
++
+     # archive fallback diagnostics
+     if 'file_stats' in locals() and isinstance(file_stats, dict) and file_stats:
+         stats["file_fallback"] = {
+@@ -1844,6 +1918,16 @@
+                 strict_feature_cols=bool(strict_feature_cols),
+                 forbid_scenario_v4_onehot=bool(forbid_scenario_v4_onehot),
+             )
++
++        # If derived F/G/H is enabled, append those numeric keys to feature_cols
++        # to allow offline ablation (does not imply runtime support).
++        if int(getattr(args, "derive_fgh", 0) or 0) == 1 and int(getattr(args, "fgh_append_feature_cols", 1) or 0) == 1:
++            for k in FGH_NUMERIC_KEYS:
++                c = "f_" + str(k)
++                if c not in cols:
++                    cols.append(c)
++            stats["derived_fgh_feature_cols_added"] = ["f_" + k for k in FGH_NUMERIC_KEYS]
++
+         os.makedirs(os.path.dirname(os.path.abspath(args.emit_feature_cols_json)) or ".", exist_ok=True)
+         with open(args.emit_feature_cols_json, "w", encoding="utf-8") as f:
+             json.dump(cols, f, ensure_ascii=False, indent=2)
+
+--- a/ml_analysis/tools/build_dataset_from_inputs_outcomes_v2.py
++++ b/ml_analysis/tools/build_dataset_from_inputs_outcomes_v2.py
+@@ -21,6 +21,15 @@
+     _get_schema_info = None  # type: ignore
+ 
+ 
++# Offline-only derived features (F/G/H) for ablation without touching runtime pipeline.
++try:
++    from ml_analysis.common.derived_fgh import derive_fgh_rows  # type: ignore
++    _DERIVE_FGH_AVAILABLE = True
++except Exception:
++    _DERIVE_FGH_AVAILABLE = False
++    derive_fgh_rows = None  # type: ignore
++
++
+ def _read_ndjson(path: str) -> Iterable[Dict[str, Any]]:
+     with open(path, "r", encoding="utf-8") as f:
+         for line in f:
+@@ -275,6 +284,25 @@
+         help="путь к .meta.json с schema_hash и column_map (default: <out>.meta.json при emit-wide-cols=1)",
+     )
+ 
++    # Offline-only derived features (F/G/H) for ablation; does NOT touch runtime pipeline.
++    ap.add_argument("--derive-fgh", type=int, default=int(os.environ.get("DERIVE_FGH", "0")))
++    ap.add_argument("--fgh-leader-symbol", default=os.environ.get("FGH_LEADER_SYMBOL", "BTCUSDT"))
++    ap.add_argument(
++        "--fgh-leader-max-lag-ms",
++        type=int,
++        default=int(os.environ.get("FGH_LEADER_MAX_LAG_MS", "2000")),
++    )
++    ap.add_argument(
++        "--fgh-vel-z-alpha",
++        type=float,
++        default=float(os.environ.get("FGH_VEL_Z_ALPHA", "0.06")),
++    )
++    ap.add_argument(
++        "--fgh-store-debug-flags",
++        type=int,
++        default=int(os.environ.get("FGH_STORE_DEBUG_FLAGS", "0")),
++    )
++
+     args = ap.parse_args()
+ 
+     tb_by_sid: Dict[str, Dict[str, Any]] = {}
+@@ -414,6 +442,19 @@
+ 
+         rows.append(row)
+ 
++    if int(getattr(args, "derive_fgh", 0) or 0) == 1:
++        if not _DERIVE_FGH_AVAILABLE or derive_fgh_rows is None:
++            print("[WARN] derive-fgh requested but ml_analysis.common.derived_fgh is unavailable")
++        else:
++            rep = derive_fgh_rows(
++                rows,
++                leader_symbol=str(getattr(args, "fgh_leader_symbol", "BTCUSDT") or "BTCUSDT"),
++                leader_max_lag_ms=int(getattr(args, "fgh_leader_max_lag_ms", 2000) or 2000),
++                vel_z_alpha=float(getattr(args, "fgh_vel_z_alpha", 0.06) or 0.06),
++                store_debug_flags=int(getattr(args, "fgh_store_debug_flags", 0) or 0) == 1,
++            )
++            print(f"[derive_fgh] ok stats={rep.get('stats', {}) if isinstance(rep, dict) else {}}")
++
+     # Feature Registry: wide cols — добавляем если запрошено
+     if int(args.emit_wide_cols) == 1:
+         # определить путь к .meta.json
+
+--- a/ml_analysis/common/__init__.py
++++ b/ml_analysis/common/__init__.py
+@@ -0,0 +1 @@
++# Shared helpers for offline analysis tools.
+
+--- a/ml_analysis/common/derived_fgh.py
++++ b/ml_analysis/common/derived_fgh.py
+@@ -0,0 +1,289 @@
++from __future__ import annotations
++
++import bisect
++import math
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional, Sequence, Tuple
++
++
++def _f(x: Any, default: float = 0.0) -> float:
++    try:
++        v = float(x)
++        if not math.isfinite(v):
++            return float(default)
++        return v
++    except Exception:
++        return float(default)
++
++
++def _pick(ind: Dict[str, Any], keys: Sequence[str]) -> Tuple[Optional[str], float]:
++    for k in keys:
++        if k in ind:
++            v = _f(ind.get(k), float("nan"))
++            if math.isfinite(v):
++                return str(k), float(v)
++    return None, float("nan")
++
++
++@dataclass
++class DerivedFGHStats:
++    n_rows: int = 0
++    n_rel_ok: int = 0
++    n_rel_missing_leader: int = 0
++    n_rel_lagged: int = 0
++    n_replen_ok: int = 0
++    n_vel_ok: int = 0
++
++    def to_dict(self) -> Dict[str, Any]:
++        return {
++            "n_rows": int(self.n_rows),
++            "n_rel_ok": int(self.n_rel_ok),
++            "n_rel_missing_leader": int(self.n_rel_missing_leader),
++            "n_rel_lagged": int(self.n_rel_lagged),
++            "n_replen_ok": int(self.n_replen_ok),
++            "n_vel_ok": int(self.n_vel_ok),
++        }
++
++
++def derive_fgh_rows(
++    rows: List[Dict[str, Any]],
++    *,
++    leader_symbol: str = "BTCUSDT",
++    leader_max_lag_ms: int = 2000,
++    eps: float = 1e-9,
++    vel_z_alpha: float = 0.06,
++    store_debug_flags: bool = False,
++) -> Dict[str, Any]:
++    """Derive ROI-dense offline-only features F/G/H.
++
++    This is runtime-agnostic: it mutates dataset rows produced by offline builders
++    by appending extra numeric keys into `row['indicators']`.
++
++    F) Relative strength vs leader (default BTCUSDT):
++      - rel_ofi_ml_norm_btc
++      - rel_lob_micro_shift_bps_btc
++
++    G) Replenishment imbalance (taker vs limit-add / added liquidity):
++      - ask_replenish_imb
++      - bid_replenish_imb
++      - lob_replenishment_pressure
++      - replenish_ratio_ask
++      - replenish_ratio_bid
++      - replenish_ratio_diff
++
++    H) Velocity (first derivative, per-second):
++      - ofi_ml_wsum_vel
++      - micro_shift_bps_vel
++      - ofi_ml_wsum_vel_z_ema
++      - micro_shift_bps_vel_z_ema
++
++    Notes:
++      - Missing inputs => derived keys omitted (not forced to 0).
++      - Leader matching: nearest timestamp within `leader_max_lag_ms`.
++      - z_ema uses EMA(mean) + EMA(abs deviation), cheap O(1) per step.
++    """
++    stats = DerivedFGHStats(n_rows=len(rows))
++    if not rows:
++        return {"ok": True, "stats": stats.to_dict()}
++
++    leader = str(leader_symbol or "BTCUSDT").upper()
++    leader_ts: List[int] = []
++    leader_ind: List[Dict[str, Any]] = []
++
++    # Normalize indicators to dict and collect leader index.
++    for r in rows:
++        ind = r.get("indicators")
++        if not isinstance(ind, dict):
++            # be tolerant: sometimes builders store indicators as JSON string
++            try:
++                if isinstance(ind, str) and ind.strip().startswith("{"):
++                    import json
++
++                    ind2 = json.loads(ind)
++                    ind = ind2 if isinstance(ind2, dict) else {}
++                else:
++                    ind = {}
++            except Exception:
++                ind = {}
++            r["indicators"] = ind
++
++        sym = str(r.get("symbol") or ind.get("symbol") or "").upper()
++        try:
++            ts_ms = int(r.get("ts_ms") or ind.get("ts_ms") or 0)
++        except Exception:
++            ts_ms = 0
++        if sym == leader and ts_ms > 0:
++            leader_ts.append(ts_ms)
++            leader_ind.append(ind)
++
++    # Leader index must be sorted for bisect.
++    if leader_ts:
++        paired = sorted(zip(leader_ts, leader_ind), key=lambda x: int(x[0]))
++        leader_ts = [int(x[0]) for x in paired]
++        leader_ind = [x[1] for x in paired]
++
++    # -----------------------------
++    # H) per-symbol velocities
++    # -----------------------------
++    by_sym: Dict[str, List[Tuple[int, Dict[str, Any]]]] = {}
++    for r in rows:
++        ind = r.get("indicators") if isinstance(r.get("indicators"), dict) else {}
++        sym = str(r.get("symbol") or ind.get("symbol") or "").upper()
++        try:
++            ts_ms = int(r.get("ts_ms") or ind.get("ts_ms") or 0)
++        except Exception:
++            ts_ms = 0
++        if sym and ts_ms > 0:
++            by_sym.setdefault(sym, []).append((ts_ms, ind))
++
++    for _, seq in by_sym.items():
++        seq.sort(key=lambda x: int(x[0]))
++        prev_ts: Optional[int] = None
++        prev_ofi_wsum: Optional[float] = None
++        prev_micro_shift: Optional[float] = None
++
++        m_ofi = 0.0
++        d_ofi = 0.0
++        m_mp = 0.0
++        d_mp = 0.0
++        a = max(0.001, min(0.5, float(vel_z_alpha)))
++
++        for ts_ms, ind in seq:
++            _, cur_ofi_wsum = _pick(ind, ["ofi_ml_wsum", "ofi_wsum", "ofi"]) 
++            _, cur_micro_shift = _pick(ind, ["lob_micro_shift_bps", "mp_shift_bps", "mp_shift", "mp_shift_bps"]) 
++
++            if prev_ts is not None:
++                dt_ms = int(ts_ms) - int(prev_ts)
++                dt_s = float(dt_ms) / 1000.0
++                if dt_s > 0.0 and dt_s <= 60.0:
++                    if prev_ofi_wsum is not None and math.isfinite(cur_ofi_wsum) and math.isfinite(prev_ofi_wsum):
++                        v = (float(cur_ofi_wsum) - float(prev_ofi_wsum)) / max(float(eps), dt_s)
++                        ind["ofi_ml_wsum_vel"] = float(v)
++                        m_ofi = m_ofi + a * (v - m_ofi)
++                        d_ofi = d_ofi + a * (abs(v - m_ofi) - d_ofi)
++                        ind["ofi_ml_wsum_vel_z_ema"] = float((v - m_ofi) / max(float(eps), d_ofi))
++                        stats.n_vel_ok += 1
++
++                    if prev_micro_shift is not None and math.isfinite(cur_micro_shift) and math.isfinite(prev_micro_shift):
++                        v2 = (float(cur_micro_shift) - float(prev_micro_shift)) / max(float(eps), dt_s)
++                        ind["micro_shift_bps_vel"] = float(v2)
++                        m_mp = m_mp + a * (v2 - m_mp)
++                        d_mp = d_mp + a * (abs(v2 - m_mp) - d_mp)
++                        ind["micro_shift_bps_vel_z_ema"] = float((v2 - m_mp) / max(float(eps), d_mp))
++                        stats.n_vel_ok += 1
++                elif store_debug_flags:
++                    ind["fgh_bad_time"] = 1.0
++
++            prev_ts = int(ts_ms)
++            prev_ofi_wsum = float(cur_ofi_wsum) if math.isfinite(cur_ofi_wsum) else prev_ofi_wsum
++            prev_micro_shift = float(cur_micro_shift) if math.isfinite(cur_micro_shift) else prev_micro_shift
++
++    # -----------------------------
++    # F) leader-relative
++    # -----------------------------
++    if not leader_ts:
++        stats.n_rel_missing_leader = len(rows)
++        if store_debug_flags:
++            for r in rows:
++                ind = r.get("indicators") if isinstance(r.get("indicators"), dict) else {}
++                ind["fgh_no_leader"] = 1.0
++    else:
++        max_lag = max(0, int(leader_max_lag_ms))
++        for r in rows:
++            ind = r.get("indicators") if isinstance(r.get("indicators"), dict) else {}
++            sym = str(r.get("symbol") or ind.get("symbol") or "").upper()
++            try:
++                ts_ms = int(r.get("ts_ms") or ind.get("ts_ms") or 0)
++            except Exception:
++                ts_ms = 0
++            if not sym or ts_ms <= 0:
++                continue
++
++            j = bisect.bisect_left(leader_ts, ts_ms)
++            cand: List[int] = []
++            if 0 <= j < len(leader_ts):
++                cand.append(j)
++            if j - 1 >= 0:
++                cand.append(j - 1)
++            best_i: Optional[int] = None
++            best_lag: Optional[int] = None
++            for i in cand:
++                lag = abs(int(leader_ts[i]) - int(ts_ms))
++                if best_lag is None or lag < best_lag:
++                    best_lag = lag
++                    best_i = i
++
++            if best_i is None or best_lag is None:
++                continue
++            if best_lag > max_lag:
++                stats.n_rel_lagged += 1
++                if store_debug_flags:
++                    ind["fgh_leader_lagged"] = 1.0
++                continue
++
++            lind = leader_ind[int(best_i)]
++
++            # rel OFI
++            k1, v1 = _pick(ind, ["ofi_ml_norm"])
++            k2, v2 = _pick(lind, ["ofi_ml_norm"])
++            if k1 and k2 and math.isfinite(v1) and math.isfinite(v2):
++                ind["rel_ofi_ml_norm_btc"] = float(v1 - v2)
++
++            # rel micro shift
++            k1, v1 = _pick(ind, ["lob_micro_shift_bps", "mp_shift_bps", "mp_shift"])
++            k2, v2 = _pick(lind, ["lob_micro_shift_bps", "mp_shift_bps", "mp_shift"])
++            if k1 and k2 and math.isfinite(v1) and math.isfinite(v2):
++                ind["rel_lob_micro_shift_bps_btc"] = float(v1 - v2)
++
++            stats.n_rel_ok += 1
++
++    # -----------------------------
++    # G) replenishment imbalance
++    # -----------------------------
++    tb_keys = ["hawkes_taker_buy_lam", "lambda_trade_buy", "taker_buy_rate_ema", "taker_buy_rate"]
++    ts_keys = ["hawkes_taker_sell_lam", "lambda_trade_sell", "taker_sell_rate_ema", "taker_sell_rate"]
++    la_ask_keys = [
++        "hawkes_limit_add_ask_lam",
++        "lambda_limit_add_ask",
++        "limit_add_ask_rate_ema",
++        "added_ask_rate_ema",
++        "l2_added_ask_rate_ema",
++    ]
++    la_bid_keys = [
++        "hawkes_limit_add_bid_lam",
++        "lambda_limit_add_bid",
++        "limit_add_bid_rate_ema",
++        "added_bid_rate_ema",
++        "l2_added_bid_rate_ema",
++    ]
++
++    for r in rows:
++        ind = r.get("indicators") if isinstance(r.get("indicators"), dict) else {}
++        _, tb = _pick(ind, tb_keys)
++        _, ts_ = _pick(ind, ts_keys)
++        _, laa = _pick(ind, la_ask_keys)
++        _, lab = _pick(ind, la_bid_keys)
++
++        ok = False
++        if math.isfinite(tb) and math.isfinite(laa) and (tb > 0.0 or laa > 0.0):
++            ask_imb = (tb - laa) / max(float(eps), (tb + laa + float(eps)))
++            ind["ask_replenish_imb"] = float(ask_imb)
++            ind["replenish_ratio_ask"] = float(laa / max(float(eps), (tb + float(eps))))
++            ok = True
++        if math.isfinite(ts_) and math.isfinite(lab) and (ts_ > 0.0 or lab > 0.0):
++            bid_imb = (ts_ - lab) / max(float(eps), (ts_ + lab + float(eps)))
++            ind["bid_replenish_imb"] = float(bid_imb)
++            ind["replenish_ratio_bid"] = float(lab / max(float(eps), (ts_ + float(eps))))
++            ok = True
++
++        if "ask_replenish_imb" in ind and "bid_replenish_imb" in ind:
++            ind["lob_replenishment_pressure"] = float(ind.get("ask_replenish_imb", 0.0)) - float(ind.get("bid_replenish_imb", 0.0))
++            ind["replenish_ratio_diff"] = float(ind.get("replenish_ratio_ask", 0.0)) - float(ind.get("replenish_ratio_bid", 0.0))
++            ok = True
++
++        if ok:
++            stats.n_replen_ok += 1
++        elif store_debug_flags:
++            ind["fgh_replen_missing"] = 1.0
++
++    return {"ok": True, "stats": stats.to_dict(), "leader": leader, "leader_max_lag_ms": int(leader_max_lag_ms)}
+
+--- a/ml_analysis/tools/ablation_report_fgh_v1.py
++++ b/ml_analysis/tools/ablation_report_fgh_v1.py
+@@ -0,0 +1,357 @@
++#!/usr/bin/env python3
++
++"""Offline ablation report for derived ROI features F/G/H.
++
++Goal:
++  Compare baseline feature set vs +F / +G / +H / +FGH variants WITHOUT touching runtime.
++
++Inputs:
++  --data_jsonl: dataset built by ml_analysis/tools/build_edge_stack_dataset_from_redis.py
++  --feature_cols_json: baseline feature cols (from --emit_feature_cols_json)
++
++Output:
++  Prints a per-regime (bucket) table with deltas vs baseline.
++  Optionally writes JSON report (--out_json).
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import math
++from typing import Any, Dict, List
++
++
++def _topk_precision(y: List[int], p: List[float], frac: float) -> float:
++    if not y:
++        return float("nan")
++    n = max(1, int(round(len(y) * float(frac))))
++    idx = sorted(range(len(y)), key=lambda i: float(p[i]), reverse=True)[:n]
++    if not idx:
++        return float("nan")
++    return float(sum(int(y[i]) for i in idx)) / float(len(idx))
++
++
++def _safe_auc_roc(y: List[int], p: List[float]) -> float:
++    # Minimal AUC implementation to avoid hard dependency on sklearn metrics.
++    # If labels are all the same, return NaN.
++    n_pos = sum(1 for v in y if int(v) == 1)
++    n_neg = len(y) - n_pos
++    if n_pos == 0 or n_neg == 0:
++        return float("nan")
++    # Rank-based (Mann–Whitney U)
++    pairs = sorted(zip(p, y), key=lambda x: float(x[0]))
++    rank_sum_pos = 0.0
++    for i, (_pi, yi) in enumerate(pairs, start=1):
++        if int(yi) == 1:
++            rank_sum_pos += float(i)
++    u = rank_sum_pos - (n_pos * (n_pos + 1) / 2.0)
++    return float(u / (n_pos * n_neg))
++
++
++def _fmt(x: Any) -> str:
++    try:
++        v = float(x)
++        if not math.isfinite(v):
++            return "nan"
++        return f"{v:.4f}"
++    except Exception:
++        return "nan"
++
++
++FGH_NUMERIC_KEYS: List[str] = [
++    "rel_ofi_ml_norm_btc",
++    "rel_lob_micro_shift_bps_btc",
++    "ask_replenish_imb",
++    "bid_replenish_imb",
++    "lob_replenishment_pressure",
++    "replenish_ratio_ask",
++    "replenish_ratio_bid",
++    "replenish_ratio_diff",
++    "ofi_ml_wsum_vel",
++    "micro_shift_bps_vel",
++    "ofi_ml_wsum_vel_z_ema",
++    "micro_shift_bps_vel_z_ema",
++]
++
++
++def _variant_feature_cols(base_cols: List[str]) -> Dict[str, List[str]]:
++    base = list(base_cols)
++    add_f = ["f_rel_ofi_ml_norm_btc", "f_rel_lob_micro_shift_bps_btc"]
++    add_g = [
++        "f_ask_replenish_imb",
++        "f_bid_replenish_imb",
++        "f_lob_replenishment_pressure",
++        "f_replenish_ratio_ask",
++        "f_replenish_ratio_bid",
++        "f_replenish_ratio_diff",
++    ]
++    add_h = [
++        "f_ofi_ml_wsum_vel",
++        "f_micro_shift_bps_vel",
++        "f_ofi_ml_wsum_vel_z_ema",
++        "f_micro_shift_bps_vel_z_ema",
++    ]
++
++    def merge(extra: List[str]) -> List[str]:
++        out = list(base)
++        for c in extra:
++            if c not in out:
++                out.append(c)
++        return out
++
++    return {
++        "base": base,
++        "base+F": merge(add_f),
++        "base+G": merge(add_g),
++        "base+H": merge(add_h),
++        "base+FGH": merge(add_f + add_g + add_h),
++    }
++
++
++def _get_bucket(mod, ex: Dict[str, Any]) -> str:
++    scen = ex.get("scenario")
++    scen = mod._scenario_norm(str(scen or ""))
++    return str(mod._bucket_from_scenario(scen) or "unknown")
++
++
++def _fit_predict_oof(mod, ex: List[Dict[str, Any]], feature_cols: List[str], args) -> Dict[str, Any]:
++    # Mirrors train_edge_stack_v1_oof.py main() training loop,
++    # but returns OOF predictions for ablation slicing.
++    base_feature_names = mod._collect_base_feature_names(feature_cols)
++
++    # Load feature transforms (same contract as train_edge_stack_v1_oof.py)
++    transforms = args._feature_transforms or {}
++
++    # Fit / load robust scaler
++    scaler: Dict[str, Any] = {}
++    if int(args.with_robust_scaler) == 1:
++        scaler = mod._fit_robust_scaler(ex, base_feature_names, feature_cols)
++
++    # Build X, y, ts
++    X: List[List[float]] = []
++    y: List[int] = []
++    ts: List[int] = []
++    buckets: List[str] = []
++    for r in ex:
++        X.append(mod.build_feature_row(r, base_feature_names, feature_cols, transforms, scaler, strict=int(args.strict) == 1))
++        y.append(int(mod._get_label(r)))
++        ts.append(int(r.get("ts_ms") or 0))
++        buckets.append(_get_bucket(mod, r))
++
++    # OOF base
++    splitter = mod.PurgedEmbargoTimeSeriesSplit(
++        n_splits=int(args.n_splits),
++        purge_ms=int(args.purge_ms),
++        embargo_ms=int(args.embargo_ms),
++    )
++
++    import numpy as np
++    from sklearn.ensemble import HistGradientBoostingClassifier
++    from sklearn.linear_model import LogisticRegression
++
++    X_np = np.asarray(X, dtype=np.float32)
++    y_np = np.asarray(y, dtype=np.int32)
++
++    oof_lr = np.zeros(len(ex), dtype=np.float32)
++    oof_gbdt = np.zeros(len(ex), dtype=np.float32)
++    for fold, (tr, te) in enumerate(splitter.split(ts)):
++        tr = list(tr)
++        te = list(te)
++
++        X_tr = X_np[tr]
++        y_tr = y_np[tr]
++        X_te = X_np[te]
++
++        lr = LogisticRegression(
++            max_iter=500,
++            C=float(args.lr_C),
++            solver="lbfgs",
++            class_weight="balanced" if int(args.lr_class_weight_balanced) == 1 else None,
++            random_state=int(args.seed) + fold,
++        )
++        lr.fit(X_tr, y_tr)
++        p_lr = lr.predict_proba(X_te)[:, 1]
++
++        gbdt = HistGradientBoostingClassifier(
++            learning_rate=float(args.gbdt_lr),
++            max_depth=int(args.gbdt_max_depth),
++            max_leaf_nodes=int(args.gbdt_max_leaf_nodes),
++            min_samples_leaf=int(args.gbdt_min_samples_leaf),
++            l2_regularization=float(args.gbdt_l2),
++            max_iter=int(args.gbdt_max_iter),
++            random_state=int(args.seed) + 1000 + fold,
++        )
++        gbdt.fit(X_tr, y_tr)
++        p_gbdt = gbdt.predict_proba(X_te)[:, 1]
++
++        oof_lr[te] = p_lr.astype(np.float32)
++        oof_gbdt[te] = p_gbdt.astype(np.float32)
++
++    # Meta fit on OOF
++    Z = np.stack([oof_lr, oof_gbdt], axis=1)
++    meta = LogisticRegression(
++        max_iter=500,
++        C=float(args.meta_C),
++        solver="lbfgs",
++        class_weight="balanced" if int(args.meta_class_weight_balanced) == 1 else None,
++        random_state=int(args.seed) + 4242,
++    )
++    meta.fit(Z, y_np)
++    p_meta = meta.predict_proba(Z)[:, 1]
++
++    return {
++        "y": y,
++        "p_lr": [float(x) for x in oof_lr.tolist()],
++        "p_gbdt": [float(x) for x in oof_gbdt.tolist()],
++        "p_meta": [float(x) for x in p_meta.tolist()],
++        "ts_ms": ts,
++        "bucket": buckets,
++        "feature_cols_n": int(len(feature_cols)),
++        "derived_present": {k: any((k in (r.get("indicators") or {})) for r in ex) for k in FGH_NUMERIC_KEYS},
++    }
++
++
++def _slice_metrics(y: List[int], p: List[float]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {
++        "n": int(len(y)),
++        "pos_rate": float(sum(int(v) for v in y)) / float(len(y) or 1),
++        "auc_roc": _safe_auc_roc(y, p),
++        "p_mean": float(sum(float(x) for x in p)) / float(len(p) or 1),
++        "prec_top_1pct": _topk_precision(y, p, 0.01),
++        "prec_top_5pct": _topk_precision(y, p, 0.05),
++    }
++    return out
++
++
++def _per_bucket_report(res: Dict[str, Any]) -> Dict[str, Any]:
++    y = res["y"]
++    p = res["p_meta"]
++    b = res["bucket"]
++    buckets = sorted(set(b))
++    rep: Dict[str, Any] = {"overall": _slice_metrics(y, p), "by_bucket": {}}
++    for bb in buckets:
++        idx = [i for i in range(len(b)) if b[i] == bb]
++        rep["by_bucket"][bb] = _slice_metrics([y[i] for i in idx], [p[i] for i in idx])
++    return rep
++
++
++def main() -> None:
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--data_jsonl", required=True)
++    ap.add_argument("--feature_cols_json", required=True)
++    ap.add_argument("--out_json", default="")
++    ap.add_argument("--n_splits", type=int, default=5)
++    ap.add_argument("--purge_ms", type=int, default=0)
++    ap.add_argument("--embargo_ms", type=int, default=0)
++    ap.add_argument("--seed", type=int, default=1337)
++    ap.add_argument("--p_min", type=float, default=0.55)
++    ap.add_argument("--strict", type=int, default=0)
++    ap.add_argument("--max_abs_clip", type=float, default=30.0)
++
++    # Match train_edge_stack_v1_oof.py knobs for comparable deltas
++    ap.add_argument("--with_robust_scaler", type=int, default=1)
++    ap.add_argument("--feature_transforms_json", default="")
++
++    ap.add_argument("--lr_C", type=float, default=1.0)
++    ap.add_argument("--lr_class_weight_balanced", type=int, default=1)
++
++    ap.add_argument("--gbdt_lr", type=float, default=0.08)
++    ap.add_argument("--gbdt_max_depth", type=int, default=4)
++    ap.add_argument("--gbdt_max_leaf_nodes", type=int, default=31)
++    ap.add_argument("--gbdt_min_samples_leaf", type=int, default=120)
++    ap.add_argument("--gbdt_l2", type=float, default=2.0)
++    ap.add_argument("--gbdt_max_iter", type=int, default=260)
++
++    ap.add_argument("--meta_C", type=float, default=0.8)
++    ap.add_argument("--meta_class_weight_balanced", type=int, default=1)
++    args = ap.parse_args()
++
++    from ml_analysis.tools import train_edge_stack_v1_oof as mod
++
++    # Load transforms once (optional)
++    args._feature_transforms = {}
++    if args.feature_transforms_json:
++        with open(args.feature_transforms_json, "r", encoding="utf-8") as f:
++            ft = json.load(f)
++        if isinstance(ft, dict):
++            args._feature_transforms = ft
++
++    rows = mod._load_jsonl(args.data_jsonl)
++    with open(args.feature_cols_json, "r", encoding="utf-8") as f:
++        base_cols = json.load(f)
++    if not isinstance(base_cols, list) or not all(isinstance(x, str) for x in base_cols):
++        raise SystemExit("feature_cols_json must be a JSON array of strings")
++
++    # build examples with the same filtering logic as training
++    ex: List[Dict[str, Any]] = []
++    for r in rows:
++        try:
++            p = float(r.get("p") or 0.0)
++        except Exception:
++            p = 0.0
++        try:
++            _ = int(r.get("ts_ms") or 0)
++        except Exception:
++            continue
++        y = mod._get_label(r)
++        if y is None:
++            continue
++        if p < float(args.p_min):
++            continue
++        ex.append(r)
++    ex.sort(key=lambda rr: int(rr.get("ts_ms") or 0))
++
++    variants = _variant_feature_cols([str(x) for x in base_cols])
++
++    results: Dict[str, Any] = {"meta": {"p_min": float(args.p_min), "n": int(len(ex))}, "variants": {}}
++    for name, cols in variants.items():
++        res = _fit_predict_oof(mod, ex, cols, args)
++        rep = _per_bucket_report(res)
++        results["variants"][name] = {"oof": res, "report": rep}
++
++    # Print delta table vs base
++    base_rep = results["variants"]["base"]["report"]
++    base_over = base_rep["overall"]
++    base_by = base_rep["by_bucket"]
++
++    # Collect union of buckets
++    bucket_set = set(base_by.keys())
++    for v in results["variants"].values():
++        bucket_set |= set(v["report"]["by_bucket"].keys())
++    buckets = sorted(bucket_set)
++
++    print("\n# Ablation: F/G/H (meta OOF) — deltas vs baseline\n")
++    print(f"Samples used (after p_min): n={results['meta']['n']}")
++    print("\n## Overall\n")
++    print("variant | auc_roc | Δauc | prec@5% | Δprec@5%")
++    print("---|---:|---:|---:|---:")
++    for name, v in results["variants"].items():
++        over = v["report"]["overall"]
++        dau = float(over.get("auc_roc", float("nan"))) - float(base_over.get("auc_roc", float("nan")))
++        dpk = float(over.get("prec_top_5pct", float("nan"))) - float(base_over.get("prec_top_5pct", float("nan")))
++        print(f"{name} | {_fmt(over.get('auc_roc'))} | {_fmt(dau)} | {_fmt(over.get('prec_top_5pct'))} | {_fmt(dpk)}")
++
++    print("\n## By bucket (trend/range/other)\n")
++    print("bucket | variant | auc_roc | Δauc | prec@5% | Δprec@5% | n")
++    print("---|---|---:|---:|---:|---:|---:")
++    for bb in buckets:
++        b0 = base_by.get(bb, {})
++        for name, v in results["variants"].items():
++            cur = v["report"]["by_bucket"].get(bb, {})
++            if not cur:
++                continue
++            dau = float(cur.get("auc_roc", float("nan"))) - float(b0.get("auc_roc", float("nan")))
++            dpk = float(cur.get("prec_top_5pct", float("nan"))) - float(b0.get("prec_top_5pct", float("nan")))
++            print(
++                f"{bb} | {name} | {_fmt(cur.get('auc_roc'))} | {_fmt(dau)} | {_fmt(cur.get('prec_top_5pct'))} | {_fmt(dpk)} | {int(cur.get('n') or 0)}"
++            )
++
++    if args.out_json:
++        with open(args.out_json, "w", encoding="utf-8") as f:
++            json.dump(results, f, ensure_ascii=False, indent=2)
++        print(f"\n[OK] wrote {args.out_json}")
++
++
++if __name__ == "__main__":
++    main()
+
+--- a/ml_analysis/tests/test_derived_fgh_offline_features_v1.py
++++ b/ml_analysis/tests/test_derived_fgh_offline_features_v1.py
+@@ -0,0 +1,56 @@
++from __future__ import annotations
++
++
++def test_derive_fgh_rows_relative_velocity_replenishment():
++    from ml_analysis.common.derived_fgh import derive_fgh_rows
++
++    rows = [
++        {
++            "symbol": "BTCUSDT",
++            "ts_ms": 1_000,
++            "indicators": {"ofi_ml_norm": 0.25, "lob_micro_shift_bps": 1.5},
++        },
++        {
++            "symbol": "ETHUSDT",
++            "ts_ms": 1_000,
++            "indicators": {
++                "ofi_ml_norm": 0.10,
++                "lob_micro_shift_bps": 2.0,
++                "hawkes_taker_buy_lam": 9.0,
++                "hawkes_limit_add_ask_lam": 6.0,
++                "hawkes_taker_sell_lam": 7.0,
++                "hawkes_limit_add_bid_lam": 10.0,
++            },
++        },
++        {
++            "symbol": "ETHUSDT",
++            "ts_ms": 2_000,
++            "indicators": {"ofi_ml_wsum": 12.0, "lob_micro_shift_bps": 2.2},
++        },
++        {
++            "symbol": "ETHUSDT",
++            "ts_ms": 3_000,
++            "indicators": {"ofi_ml_wsum": 18.0, "lob_micro_shift_bps": 2.5},
++        },
++    ]
++
++    rep = derive_fgh_rows(rows, leader_symbol="BTCUSDT", leader_max_lag_ms=10_000)
++    assert rep.get("ok") is True
++
++    eth0 = rows[1]["indicators"]
++    # F) relative vs BTC
++    assert abs(eth0.get("rel_ofi_ml_norm_btc") - (0.10 - 0.25)) < 1e-9
++    assert abs(eth0.get("rel_lob_micro_shift_bps_btc") - (2.0 - 1.5)) < 1e-9
++
++    # G) replenishment imbalance exists
++    assert "ask_replenish_imb" in eth0
++    assert "bid_replenish_imb" in eth0
++    assert "lob_replenishment_pressure" in eth0
++
++    # H) velocities exist on subsequent rows
++    eth1 = rows[2]["indicators"]
++    eth2 = rows[3]["indicators"]
++    assert "ofi_ml_wsum_vel" in eth2  # needs prev
++    assert "micro_shift_bps_vel" in eth2
++    assert "ofi_ml_wsum_vel_z_ema" in eth2
++    assert "micro_shift_bps_vel_z_ema" in eth2
+

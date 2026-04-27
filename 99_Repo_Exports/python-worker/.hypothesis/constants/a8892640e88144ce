@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/cfg_suggestions_lifecycle.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1000, 600000, 3600000, '1', 'age_s', 'approved', 'approved_not_applied', 'created_at_ms', 'get_latest_sid', 'hash', 'kind', 'min_approvals', 'n_applied', 'n_approved', 'n_pending', 'ok', 'oldest_pending_ms', 'pending_too_long', 'ready', 'reason', 'scopes', 'sid', 'status', 'stuck_sids', 'true', 'ts_ms', 'yes']

@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly trade execution retention purge
+
+[Timer]
+OnCalendar=*-*-* 03:20:00
+Persistent=true
+Unit=trade-execution-retention.service
+
+[Install]
+WantedBy=timers.target

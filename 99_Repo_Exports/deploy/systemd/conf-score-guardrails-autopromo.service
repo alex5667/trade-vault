@@ -1,0 +1,35 @@
+[Unit]
+Description=Conf score guardrails AUTOPROMO (canary observe -> full promote or rollback)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/scanner-infra
+EnvironmentFile=-/etc/conf-score-guardrails.env
+
+ExecStart=/bin/bash -lc 'set -euo pipefail; \
+  python -m orderflow_services.conf_score_guardrails_autopromo_controller_v1 \
+    --bundle-dir "${CONF_SCORE_GUARD_BUNDLE_DIR:-/tmp/conf_score_guard_bundles}" \
+    --redis-url "$REDIS_URL" \
+    --key-prefix "${CONF_SCORE_GUARD_KEY_PREFIX:-cfg:crypto_of:overrides:}" \
+    --staged-key-prefix "${CONF_SCORE_GUARD_STAGED_KEY_PREFIX:-cfg:crypto_of:overrides_staged:}" \
+    --health-state-path "${CONF_SCORE_GUARD_HEALTH_STATE_PATH:-/tmp/conf_cal_proof_state.json}" \
+    --staged-pointer-path "${CONF_SCORE_GUARD_BUNDLE_STAGED_POINTER:-}" \
+    --pointer-path "${CONF_SCORE_GUARD_BUNDLE_POINTER:-}" \
+    --promote-state-path "${CONF_SCORE_GUARD_PROMOTE_STATE_PATH:-/tmp/conf_score_guard_promote_state.json}" \
+    --state-path "${CONF_SCORE_GUARD_AUTOPROMO_STATE_PATH:-/tmp/conf_score_guard_autopromo_state.json}" \
+    --lock-path "${CONF_SCORE_GUARD_LOCK_PATH:-/tmp/conf_score_guardrails.lock}" \
+    --observe-window-sec "${CONF_SCORE_GUARD_CANARY_OBSERVE_SEC:-900}" \
+    --max-health-age-sec "${CONF_SCORE_GUARD_MAX_HEALTH_AGE_SEC:-600}" \
+    --min-n "${CONF_SCORE_GUARD_MIN_N:-200}" \
+    --max-delta-ece "${CONF_SCORE_GUARD_MAX_DELTA_ECE:-0.005}" \
+    --max-delta-brier "${CONF_SCORE_GUARD_MAX_DELTA_BRIER:-0.005}" \
+    --allow-missing "${CONF_SCORE_GUARD_ALLOW_MISSING:-0}" \
+    --apply "${CONF_SCORE_GUARD_AUTOPROMO_APPLY:-1}" \
+    --clear-staged-on-success "${CONF_SCORE_GUARD_AUTOPROMO_CLEAR_STAGED:-1}" \
+    --promote-pointer-on-success "${CONF_SCORE_GUARD_AUTOPROMO_PROMOTE_POINTER:-1}" \
+    --rollback-on-fail "${CONF_SCORE_GUARD_AUTOPROMO_ROLLBACK_ON_FAIL:-1}";'
+
+[Install]
+WantedBy=multi-user.target

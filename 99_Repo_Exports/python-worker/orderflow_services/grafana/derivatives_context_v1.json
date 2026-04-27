@@ -1,0 +1,60 @@
+{
+  "title": "Derivatives Context (v1)",
+  "schemaVersion": 39,
+  "version": 1,
+  "templating": {
+    "list": [
+      {
+        "name": "symbol",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(deriv_ctx_exporter_snapshot_age_ms, symbol)",
+        "refresh": 1,
+        "includeAll": true,
+        "multi": true
+      }
+    ]
+  },
+  "panels": [
+    {
+      "title": "Funding rate z-score",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "deriv_ctx_exporter_funding_rate_z{symbol=~\"$symbol\"}",
+          "legendFormat": "{{symbol}}"
+        }
+      ]
+    },
+    {
+      "title": "Basis bps",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "deriv_ctx_exporter_basis_bps{symbol=~\"$symbol\"}",
+          "legendFormat": "{{symbol}}"
+        }
+      ]
+    },
+    {
+      "title": "OI notional USD",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "deriv_ctx_exporter_oi_notional_usd{symbol=~\"$symbol\"}",
+          "legendFormat": "{{symbol}}"
+        }
+      ]
+    },
+    {
+      "title": "Snapshot age ms",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "deriv_ctx_exporter_snapshot_age_ms{symbol=~\"$symbol\"}",
+          "legendFormat": "{{symbol}}"
+        }
+      ]
+    }
+  ]
+}

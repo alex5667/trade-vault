@@ -1,0 +1,15 @@
+[Unit]
+Description=Trade ML outcome joiner v2 (events:trades -> metrics:ml_outcome, bucket-aware)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Restart=always
+RestartSec=2
+EnvironmentFile=/etc/trade/of_reports.env
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+ExecStart=/usr/bin/python3 -m services.ml_outcome_joiner_worker_v2
+
+[Install]
+WantedBy=multi-user.target
+

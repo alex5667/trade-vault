@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/absorption_level_score.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.002, 0.1, 0.2, 0.3, 0.6, 1.0, 2.0, 3.0, 'LONG', 'NONE', 'SHORT', 'abs_lvl_eff_quote_th', 'abs_lvl_ladder_norm', 'abs_lvl_score_th', 'abs_lvl_w1', 'abs_lvl_w2', 'abs_lvl_w3', 'abs_lvl_w4', 'abs_lvl_w5', 'abs_lvl_z_th', 'fp_absorption_bias', 'fp_eff_delta', 'fp_eff_quote', 'fp_ladder_high_len', 'fp_ladder_low_len', 'fp_poc_on_edge', 'fp_quote_delta', 's1_z_wp_eff', 's2_ladder', 's3_iceberg', 's4_reclaim', 's5_poc_edge']

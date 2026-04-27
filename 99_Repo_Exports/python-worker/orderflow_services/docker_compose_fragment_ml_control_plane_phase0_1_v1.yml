@@ -1,0 +1,51 @@
+
+services:
+  scanner-ml-training-runs-writer-v1:
+    container_name: scanner-ml-training-runs-writer-v1
+    build:
+      context: ../../
+      dockerfile: python-worker/Dockerfile
+    working_dir: /app
+    command: ["python", "-u", "-m", "orderflow_services.ml_training_runs_writer_v1"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0
+      TRADES_DB_DSN: ${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD}@scanner-pgbouncer:5432/scanner_analytics?sslmode=disable}
+      ML_TRAINING_RUNS_DB_ENABLE: ${ML_TRAINING_RUNS_DB_ENABLE:-1}
+      ML_TRAINING_RUNS_STREAM: ${ML_TRAINING_RUNS_STREAM:-stream:ml:training_runs}
+      ML_TRAINING_RUNS_SUMMARY_KEY: ${ML_TRAINING_RUNS_SUMMARY_KEY:-metrics:ml:training_runs:last}
+      ML_TRAINING_RUNS_EXPORTER_PORT: ${ML_TRAINING_RUNS_EXPORTER_PORT:-9854}
+      ML_TRAINING_RUNS_INTERVAL_S: ${ML_TRAINING_RUNS_INTERVAL_S:-60}
+    ports:
+      - "9854:9854"
+    networks:
+      - scanner-network
+
+  scanner-ml-health-enricher-v1:
+    container_name: scanner-ml-health-enricher-v1
+    build:
+      context: ../../
+      dockerfile: python-worker/Dockerfile
+    working_dir: /app
+    command: ["python", "-u", "-m", "orderflow_services.ml_health_enricher_v1"]
+    restart: unless-stopped
+    volumes:
+      - /var/lib/trade/of_reports:/var/lib/trade/of_reports:ro
+      - /var/lib/trade/ml_models:/var/lib/trade/ml_models:ro
+    environment:
+      REDIS_URL: redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0
+      TRADES_DB_DSN: ${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD}@scanner-pgbouncer:5432/scanner_analytics?sslmode=disable}
+      ML_HEALTH_ENRICH_DB_ENABLE: ${ML_HEALTH_ENRICH_DB_ENABLE:-1}
+      FEATURE_DRIFT_BATCH_METRICS_KEY: ${FEATURE_DRIFT_BATCH_METRICS_KEY:-metrics:feature_drift_batch:last}
+      EDGE_STACK_SHADOW_STATUS_FILE: ${EDGE_STACK_SHADOW_STATUS_FILE:-/var/lib/trade/of_reports/out/edge_stack/shadow_status.json}
+      ML_HEALTH_ENRICH_EXPORTER_PORT: ${ML_HEALTH_ENRICH_EXPORTER_PORT:-9855}
+      ML_HEALTH_ENRICH_INTERVAL_S: ${ML_HEALTH_ENRICH_INTERVAL_S:-120}
+      ML_HEALTH_ENRICH_LOOKBACK_MIN: ${ML_HEALTH_ENRICH_LOOKBACK_MIN:-15}
+    ports:
+      - "9855:9855"
+    networks:
+      - scanner-network
+
+networks:
+  scanner-network:
+    name: scanner-network

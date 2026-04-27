@@ -1,0 +1,739 @@
+--- services/execution_metrics.py
++++ services/execution_metrics.py
+@@ -55,6 +55,25 @@
+     ["symbol"],
+ )
+ 
++EXECUTION_FORCE_FLAT_VERIFY_TOTAL = _metric(
++    Counter,
++    "execution_force_flat_verify_total",
++    "Verification outcomes for exact reduce-only flatten / dust cleanup.",
++    ["symbol", "result"],
++)
++EXECUTION_DUST_CLEANUP_TOTAL = _metric(
++    Counter,
++    "execution_dust_cleanup_total",
++    "Dust/tail cleanup attempts after close / flatten paths.",
++    ["symbol", "result"],
++)
++EXECUTION_DUST_RESIDUAL_QTY = _metric(
++    Gauge,
++    "execution_dust_residual_qty",
++    "Residual absolute position quantity seen after a close/flatten verification pass.",
++    ["symbol"],
++)
++
+ MARK_CONTRACT_SPREAD_BPS = _metric(
+     Gauge,
+     "mark_contract_spread_bps",
+--- services/binance_futures_client.py
++++ services/binance_futures_client.py
+@@ -688,6 +688,30 @@
+     def get_position_risk(self) -> Any:
+         return self._request("GET", "/fapi/v2/positionRisk", signed=True)
+ 
++    def get_symbol_position_risk(
++        self,
++        symbol: str,
++        *,
++        position_side: Optional[str] = None,
++    ) -> Dict[str, Any]:
++        """Return the matching positionRisk row for a symbol.
++
++        Executor close/flatten paths should size exits from live exchange qty,
++        not from local state snapshots. This helper centralises the matching
++        logic so all callers use the same source of truth.
++        """
++        target_symbol = str(symbol or "").upper().strip()
++        target_side = str(position_side or "").upper().strip()
++        for row in self.get_position_risk() or []:
++            if str(row.get("symbol") or "").upper().strip() != target_symbol:
++                continue
++            if target_side:
++                row_side = str(row.get("positionSide") or "").upper().strip()
++                if row_side and row_side != target_side:
++                    continue
++            return dict(row)
++        return {}
++
+     def get_open_orders(self, symbol: Optional[str] = None) -> Any:
+         """List open plain orders. Pass symbol to narrow the result."""
+         params: Dict[str, Any] = {}
+@@ -709,11 +733,33 @@
+ 
+     # --- signed trading endpoints ---
+ 
++    def cancel_all_algo_orders(self, symbol: str) -> Dict[str, Any]:
++        """Best-effort cancel of all open Algo Service orders for a symbol."""
++        canceled = 0
++        last_error = ""
++        try:
++            self._request("DELETE", "/fapi/v1/algoOpenOrders", params={"symbol": symbol}, signed=True)
++        except Exception as exc:
++            last_error = str(exc)
++        try:
++            for row in self.get_open_algo_orders(symbol) or []:
++                algo_id = row.get("algoId")
++                client_algo_id = row.get("clientAlgoId")
++                try:
++                    self.cancel_algo_order(symbol, algo_id=int(algo_id) if algo_id not in (None, "") else None, client_algo_id=str(client_algo_id) if client_algo_id not in (None, "") else None)
++                    canceled += 1
++                except Exception as exc:
++                    last_error = str(exc)
++        except Exception as exc:
++            if not last_error:
++                last_error = str(exc)
++        return {"symbol": symbol, "algo_canceled": canceled, "error": last_error}
++
+     def cancel_all_orders(self, symbol: str) -> Any:
+         """Cancel all active regular and conditional orders for the symbol."""
+         res_regular = self._request("DELETE", "/fapi/v1/allOpenOrders", params={"symbol": symbol}, signed=True)
+         try:
+-            self._request("DELETE", "/fapi/v1/algoOpenOrders", params={"symbol": symbol}, signed=True)
++            self.cancel_all_algo_orders(symbol)
+         except Exception:
+             pass
+         return res_regular
+--- services/binance_executor.py
++++ services/binance_executor.py
+@@ -131,8 +131,11 @@
+     from services.execution_metrics import (
+         BINANCE_ALGO_RECONCILE_TOTAL,
+         EXECUTION_DUPLICATE_PREVENTED_TOTAL,
++        EXECUTION_DUST_CLEANUP_TOTAL,
++        EXECUTION_DUST_RESIDUAL_QTY,
+         EXECUTION_ENTRY_FILLED_TOTAL,
+         EXECUTION_ENTRY_SUBMITTED_TOTAL,
++        EXECUTION_FORCE_FLAT_VERIFY_TOTAL,
+         EXECUTION_POSITION_UNPROTECTED_SECONDS,
+         EXECUTION_PROTECTION_ARM_TIMEOUT_TOTAL,
+         FEE_BPS_SAVED_ESTIMATE,
+@@ -150,8 +153,11 @@
+         from execution_metrics import (
+             BINANCE_ALGO_RECONCILE_TOTAL,
+             EXECUTION_DUPLICATE_PREVENTED_TOTAL,
++            EXECUTION_DUST_CLEANUP_TOTAL,
++            EXECUTION_DUST_RESIDUAL_QTY,
+             EXECUTION_ENTRY_FILLED_TOTAL,
+             EXECUTION_ENTRY_SUBMITTED_TOTAL,
++            EXECUTION_FORCE_FLAT_VERIFY_TOTAL,
+             EXECUTION_POSITION_UNPROTECTED_SECONDS,
+             EXECUTION_PROTECTION_ARM_TIMEOUT_TOTAL,
+             FEE_BPS_SAVED_ESTIMATE,
+@@ -166,7 +172,9 @@
+         )
+     except Exception:  # pragma: no cover
+         BINANCE_ALGO_RECONCILE_TOTAL = EXECUTION_DUPLICATE_PREVENTED_TOTAL = None  # type: ignore
++        EXECUTION_DUST_CLEANUP_TOTAL = EXECUTION_DUST_RESIDUAL_QTY = None  # type: ignore
+         EXECUTION_ENTRY_FILLED_TOTAL = EXECUTION_ENTRY_SUBMITTED_TOTAL = None  # type: ignore
++        EXECUTION_FORCE_FLAT_VERIFY_TOTAL = None  # type: ignore
+         EXECUTION_POSITION_UNPROTECTED_SECONDS = EXECUTION_PROTECTION_ARM_TIMEOUT_TOTAL = None  # type: ignore
+         FEE_BPS_SAVED_ESTIMATE = MAKER_FILL_RATIO = MARK_CONTRACT_SPREAD_BPS = None  # type: ignore
+         SL_TRIGGER_MARK_MINUS_CONTRACT_BPS = TP_LIMIT_FILLED_TOTAL = TP_LIMIT_TRIGGERED_TOTAL = None  # type: ignore
+@@ -751,6 +759,15 @@
+         self.protection_fee_buffer_bps = float(os.getenv("PROTECTION_FEE_BUFFER_BPS", "8.0"))
+         self.protection_slippage_buffer_bps = float(os.getenv("PROTECTION_SLIPPAGE_BUFFER_BPS", "15.0"))
+         self.account_available_floor_usd = float(os.getenv("ACCOUNT_AVAILABLE_FLOOR_USD", "25.0"))
++
++        # Post-close dust/tail cleanup. Binance can leave tiny residual positions
++        # when close qty was computed from local intent rather than live positionRisk,
++        # or when reduceOnly closes race against lingering plain/algo orders.
++        self.dust_notional_usdt = float(os.getenv("BINANCE_DUST_NOTIONAL_USDT", "3.0"))
++        self.dust_margin_usdt = float(os.getenv("BINANCE_DUST_MARGIN_USDT", "1.0"))
++        self.dust_close_retries = max(1, int(os.getenv("BINANCE_DUST_CLOSE_RETRIES", "3")))
++        self.dust_verify_timeout_ms = max(250, int(os.getenv("BINANCE_DUST_VERIFY_TIMEOUT_MS", "3000")))
++        self.dust_verify_poll_ms = max(100, int(os.getenv("BINANCE_DUST_VERIFY_POLL_MS", "250")))
+ 
+         # --- Explicit trigger/workingType policy ---
+         # Binance defaults workingType to CONTRACT_PRICE; we require explicit
+@@ -2287,7 +2304,14 @@
+         }
+ 
+     def _emergency_flatten_position(self, *, sid: str, symbol: str, logical_side: str, qty: float, client: "BinanceFuturesClient", filters: "FiltersCache") -> dict:
+-        close = self._submit_reduce_only_market_exit(sid=sid, symbol=symbol, logical_side=logical_side, qty=qty, reason_tag="emerg", client=client, filters=filters)
++        close = self._force_flatten_symbol_exact(
++            sid=sid,
++            symbol=symbol,
++            client=client,
++            filters=filters,
++            logical_side=logical_side,
++            reason_tag="emerg",
++        )
+         if EXECUTION_EMERGENCY_FLATTEN_TOTAL:
+             EXECUTION_EMERGENCY_FLATTEN_TOTAL.labels(symbol=symbol, reason="emerg").inc()
+         self._transition_state(sid, symbol=symbol, action="emergency_flatten", next_state=FSM_EMERGENCY_FLATTENED, details=close)
+@@ -2296,9 +2320,14 @@
+         return {
+             "emergency_order_id": close.get("close_order_id"),
+             "emergency_client_id": close.get("close_client_id"),
++            "emergency_reason": close.get("close_reason_tag") or close.get("status"),
+             "exit_order_ref": exit_order_ref,
+             "closed_trade_id": self._new_closed_trade_id(sid, exit_order_ref=exit_order_ref) if exit_order_ref else '',
++            "residual_qty": close.get("residual_qty"),
++            "residual_notional_usdt": close.get("residual_notional_usdt"),
++            "residual_margin_usdt": close.get("residual_margin_usdt"),
+         }
++
+ 
+ 
+     def _place_protective(
+@@ -2571,6 +2600,267 @@
+         qty, _, _lev = self._get_position_info(symbol, logical_side, client=client)
+         return qty
+ 
++    def _get_live_symbol_exposure(
++        self,
++        symbol: str,
++        *,
++        client: "BinanceFuturesClient",
++        filters: "FiltersCache",
++        logical_side: Optional[str] = None,
++    ) -> Dict[str, Any]:
++        """Read live exchange truth for a symbol.
++
++        Returns the current signed/absolute qty, logical side, notional, margin,
++        plus open plain/algo order counts. This is the source of truth for exact
++        flatten / dust cleanup; callers must not infer close qty from local state.
++        """
++        qty = 0.0
++        signed_qty = 0.0
++        side = logical_side.upper() if logical_side else None
++        margin = 0.0
++        notional = 0.0
++        leverage = 0
++        risks = client.get_position_risk() or []
++        for pos in risks:
++            if str(pos.get("symbol") or "").upper() != symbol.upper():
++                continue
++            signed_qty = _f(pos.get("positionAmt"), 0.0)
++            qty = abs(float(signed_qty))
++            if signed_qty > 0:
++                side = "LONG"
++            elif signed_qty < 0:
++                side = "SHORT"
++            margin = _f(pos.get("isolatedMargin"), 0.0) or _f(pos.get("initialMargin"), 0.0)
++            notional = abs(_f(pos.get("notional"), 0.0))
++            leverage = _i(pos.get("leverage"), 0)
++            break
++        plain_orders: List[Dict[str, Any]] = []
++        algo_orders: List[Dict[str, Any]] = []
++        plain_err = ""
++        algo_err = ""
++        try:
++            plain_orders = list(client.get_open_orders(symbol) or [])
++        except Exception as exc:
++            plain_err = str(exc)
++        try:
++            algo_orders = list(client.get_open_algo_orders(symbol) or [])
++        except Exception as exc:
++            algo_err = str(exc)
++        tol = self._position_qty_tolerance(symbol, filters=filters)
++        is_flat_qty = math.isclose(qty, 0.0, abs_tol=tol)
++        return {
++            "symbol": symbol,
++            "signed_qty": signed_qty,
++            "abs_qty": qty,
++            "logical_side": side,
++            "notional_usdt": notional,
++            "margin_usdt": margin,
++            "leverage": leverage,
++            "open_plain_orders": len(plain_orders),
++            "open_algo_orders": len(algo_orders),
++            "plain_order_refs": plain_orders,
++            "algo_order_refs": algo_orders,
++            "plain_orders_error": plain_err,
++            "algo_orders_error": algo_err,
++            "qty_tolerance": tol,
++            "is_flat_qty": bool(is_flat_qty),
++            "is_flat": bool(is_flat_qty and len(plain_orders) == 0 and len(algo_orders) == 0),
++        }
++
++    def _is_dust_position_snapshot(self, snapshot: Dict[str, Any]) -> bool:
++        qty = abs(_f(snapshot.get("abs_qty"), 0.0))
++        if qty <= 0.0:
++            return False
++        margin = abs(_f(snapshot.get("margin_usdt"), 0.0))
++        notional = abs(_f(snapshot.get("notional_usdt"), 0.0))
++        return bool(
++            (margin > 0.0 and margin <= float(self.dust_margin_usdt))
++            or (notional > 0.0 and notional <= float(self.dust_notional_usdt))
++        )
++
++    def _cancel_all_symbol_orders_best_effort(
++        self,
++        *,
++        symbol: str,
++        client: "BinanceFuturesClient",
++    ) -> Dict[str, Any]:
++        """Cancel plain + algo orders for the symbol and report observed counts."""
++        plain_orders: List[Dict[str, Any]] = []
++        algo_orders: List[Dict[str, Any]] = []
++        try:
++            plain_orders = list(client.get_open_orders(symbol) or [])
++        except Exception:
++            plain_orders = []
++        try:
++            algo_orders = list(client.get_open_algo_orders(symbol) or [])
++        except Exception:
++            algo_orders = []
++        canceled_plain = 0
++        canceled_algo = 0
++        try:
++            client.cancel_all_orders(symbol)
++        except Exception:
++            pass
++        for row in plain_orders:
++            try:
++                oid = _i(row.get("orderId"), 0)
++                cid = str(row.get("clientOrderId") or row.get("origClientOrderId") or "").strip() or None
++                if oid:
++                    client.cancel_plain_order(symbol, order_id=oid)
++                    canceled_plain += 1
++                elif cid:
++                    client.cancel_plain_order(symbol, client_order_id=cid)
++                    canceled_plain += 1
++            except Exception:
++                continue
++        for row in algo_orders:
++            try:
++                oid = _i(row.get("algoId"), 0)
++                cid = str(row.get("clientAlgoId") or "").strip() or None
++                if oid:
++                    client.cancel_algo_order(symbol, algo_id=oid)
++                    canceled_algo += 1
++                elif cid:
++                    client.cancel_algo_order(symbol, client_algo_id=cid)
++                    canceled_algo += 1
++            except Exception:
++                continue
++        return {
++            "plain_seen": len(plain_orders),
++            "algo_seen": len(algo_orders),
++            "plain_canceled": canceled_plain,
++            "algo_canceled": canceled_algo,
++        }
++
++    def _verify_symbol_flat(
++        self,
++        *,
++        symbol: str,
++        client: "BinanceFuturesClient",
++        filters: "FiltersCache",
++        timeout_ms: Optional[int] = None,
++        logical_side: Optional[str] = None,
++    ) -> Dict[str, Any]:
++        """Poll exchange truth until symbol is flat and unprotected/open-order free."""
++        timeout_ms = int(timeout_ms or self.dust_verify_timeout_ms)
++        deadline = time.time() + max(timeout_ms, 0) / 1000.0
++        last = self._get_live_symbol_exposure(symbol, client=client, filters=filters, logical_side=logical_side)
++        while time.time() <= deadline:
++            last = self._get_live_symbol_exposure(symbol, client=client, filters=filters, logical_side=logical_side)
++            if EXECUTION_DUST_RESIDUAL_QTY is not None:
++                try:
++                    EXECUTION_DUST_RESIDUAL_QTY.labels(symbol=symbol).set(float(last.get("abs_qty") or 0.0))
++                except Exception:
++                    pass
++            if last.get("is_flat"):
++                if EXECUTION_FORCE_FLAT_VERIFY_TOTAL is not None:
++                    try:
++                        EXECUTION_FORCE_FLAT_VERIFY_TOTAL.labels(symbol=symbol, result="flat").inc()
++                    except Exception:
++                        pass
++                return last
++            time.sleep(max(float(self.dust_verify_poll_ms), 100.0) / 1000.0)
++        if EXECUTION_FORCE_FLAT_VERIFY_TOTAL is not None:
++            try:
++                result = "dust" if self._is_dust_position_snapshot(last) else "residual"
++                EXECUTION_FORCE_FLAT_VERIFY_TOTAL.labels(symbol=symbol, result=result).inc()
++            except Exception:
++                pass
++        return last
++
++    def _force_flatten_symbol_exact(
++        self,
++        *,
++        sid: str,
++        symbol: str,
++        client: "BinanceFuturesClient",
++        filters: "FiltersCache",
++        logical_side: Optional[str] = None,
++        reason_tag: str,
++        max_attempts: Optional[int] = None,
++    ) -> Dict[str, Any]:
++        """Exact close path using live positionRisk quantity and post-close verify loop.
++
++        Used for cancel / emergency flatten / dirty reversal / dust cleanup.
++        Every attempt reads the current exchange qty, cancels all plain+algo orders,
++        submits reduce-only on the exact live exposure, then verifies flatness.
++        """
++        attempts: List[Dict[str, Any]] = []
++        max_attempts = max(1, int(max_attempts or self.dust_close_retries))
++        initial = self._get_live_symbol_exposure(symbol, client=client, filters=filters, logical_side=logical_side)
++        if initial.get("is_flat"):
++            return {
++                "status": "already_flat",
++                "attempts": attempts,
++                "residual_qty": 0.0,
++                "residual_notional_usdt": 0.0,
++                "residual_margin_usdt": 0.0,
++                "verify": initial,
++            }
++        verify = initial
++        last_close: Dict[str, Any] = {}
++        for attempt in range(1, max_attempts + 1):
++            live = self._get_live_symbol_exposure(symbol, client=client, filters=filters, logical_side=logical_side)
++            verify = live
++            if live.get("is_flat"):
++                break
++            live_qty = float(live.get("abs_qty") or 0.0)
++            live_side = str(live.get("logical_side") or logical_side or "").upper().strip() or None
++            if live_qty <= 0.0 or live_side not in {"LONG", "SHORT"}:
++                break
++            canceled = self._cancel_all_symbol_orders_best_effort(symbol=symbol, client=client)
++            close = self._submit_reduce_only_market_exit(
++                sid=sid,
++                symbol=symbol,
++                logical_side=live_side,
++                qty=live_qty,
++                reason_tag=reason_tag if attempt == 1 else f"{reason_tag}{attempt}",
++                client=client,
++                filters=filters,
++            )
++            verify = self._verify_symbol_flat(
++                symbol=symbol,
++                client=client,
++                filters=filters,
++                logical_side=live_side,
++            )
++            attempt_doc = {
++                "attempt": attempt,
++                "live_qty": live_qty,
++                "live_side": live_side,
++                "is_dust_before": self._is_dust_position_snapshot(live),
++                "canceled": canceled,
++                "close": close,
++                "verify": {
++                    "abs_qty": float(verify.get("abs_qty") or 0.0),
++                    "notional_usdt": float(verify.get("notional_usdt") or 0.0),
++                    "margin_usdt": float(verify.get("margin_usdt") or 0.0),
++                    "open_plain_orders": int(verify.get("open_plain_orders") or 0),
++                    "open_algo_orders": int(verify.get("open_algo_orders") or 0),
++                    "is_flat": bool(verify.get("is_flat")),
++                    "is_dust": self._is_dust_position_snapshot(verify),
++                },
++            }
++            attempts.append(attempt_doc)
++            last_close = close
++            if verify.get("is_flat"):
++                break
++        status = "closed" if verify.get("is_flat") else ("dust_remaining" if self._is_dust_position_snapshot(verify) else "residual_position")
++        if EXECUTION_DUST_CLEANUP_TOTAL is not None:
++            try:
++                EXECUTION_DUST_CLEANUP_TOTAL.labels(symbol=symbol, result=status).inc()
++            except Exception:
++                pass
++        return {
++            "status": status,
++            "attempts": attempts,
++            "residual_qty": float(verify.get("abs_qty") or 0.0),
++            "residual_notional_usdt": float(verify.get("notional_usdt") or 0.0),
++            "residual_margin_usdt": float(verify.get("margin_usdt") or 0.0),
++            "verify": verify,
++            **last_close,
++        }
++
+     # --- Trailing stop placement / maker TP watchdog ---
+ 
+     def _cancel_algo_order_best_effort(
+@@ -3137,27 +3427,21 @@
+                 if current_logical != logical:
+                     is_opposing = True
+ 
+-            # 2. If it's an opposing position (dirty reversal), cancel all orders and close it.
++            # 2. If it's an opposing position (dirty reversal), force-flat the live
++            # exchange position using exact positionRisk qty and strict post-close verify.
+             if is_opposing:
+-                # Cancel all orders (including Algo orders)
+-                self._cancel_by_token(symbol, "", client=client) # passing empty token cancels all orders for symbol via Binance API (if we implemented it/if we just use API wrapper)
+-                # Actually, _cancel_by_token filters by token. We should just cancel all.
+-                client.cancel_all_orders(symbol)
+-                
+-                # Market close the opposing position
+-                exit_side = "SELL" if current_amt > 0 else "BUY"
+-                close_qty = abs(current_amt)
+-                q_close, _ = self._quantize(symbol, close_qty, None, filters=filters)
+-                close_params: Dict[str, Any] = {
+-                    "symbol": symbol,
+-                    "side": exit_side,
+-                    "type": "MARKET",
+-                    "quantity": q_close,
+-                    "reduceOnly": True,
+-                    "newClientOrderId": _make_cid(sid, "rev_close"),
+-                }
+-                client.post_order(close_params)
+-                
++                current_logical = "LONG" if current_amt > 0 else "SHORT"
++                reversal = self._force_flatten_symbol_exact(
++                    sid=sid,
++                    symbol=symbol,
++                    client=client,
++                    filters=filters,
++                    logical_side=current_logical,
++                    reason_tag="rev_close",
++                )
++                verify = reversal.get("verify") or {}
++                current_amt = _f(verify.get("signed_qty"), 0.0)
++
+             # 3. If position is 0 (or just became 0), clean up any lingering Algo orders
+             # that might be stuck as orphans.
+             if current_amt == 0.0 or is_opposing:
+@@ -3533,15 +3817,20 @@
+         close_order_id: Optional[int] = None
+         logical: Optional[str] = None
+         qty = 0.0
++        close: Dict[str, Any] = {}
+         if amt != 0.0:
+             logical = "LONG" if amt > 0 else "SHORT"
+             qty = abs(amt)
+-            close = self._submit_reduce_only_market_exit(
+-                sid=sid, symbol=symbol, logical_side=logical, qty=qty,
+-                reason_tag="close", client=client, filters=filters,
++            close = self._force_flatten_symbol_exact(
++                sid=sid,
++                symbol=symbol,
++                client=client,
++                filters=filters,
++                logical_side=logical,
++                reason_tag="close",
+             )
+             close_order_id = _i(close.get("close_order_id"), 0) or None
+-            closed = True
++            closed = bool((close.get("status") in {"closed", "already_flat"}) or _f(close.get("residual_qty"), 0.0) <= 0.0)
+ 
+         # P5: build exit_order_ref and closed_trade_id for chain linkage
+         exit_order_ref = ''
+@@ -3554,12 +3843,15 @@
+             )
+         result = {
+             "sid": sid, "symbol": symbol, "action": "cancel",
+-            "status": "ok", "side": logical or "",
++            "status": "ok" if closed or not close else str(close.get("status") or "residual_position"), "side": logical or "",
+             "qty": qty, "canceled_orders": canceled,
+             "close_order_id": close_order_id or "",
+             "exit_order_ref": exit_order_ref,
+             "closed_trade_id": closed_trade_id,
+             "closed": str(closed).lower(),
++            "residual_qty": _f(close.get("residual_qty"), 0.0) if close else 0.0,
++            "residual_notional_usdt": _f(close.get("residual_notional_usdt"), 0.0) if close else 0.0,
++            "residual_margin_usdt": _f(close.get("residual_margin_usdt"), 0.0) if close else 0.0,
+             **audit_chain,
+         }
+         # Update orders:state:{sid}: mark position as closed
+@@ -3573,6 +3865,9 @@
+                 "exit_order_ref": exit_order_ref,
+                 "closed_trade_id": closed_trade_id,
+                 "closed": True,
++                "residual_qty": _f(close.get("residual_qty"), 0.0) if close else 0.0,
++                "residual_notional_usdt": _f(close.get("residual_notional_usdt"), 0.0) if close else 0.0,
++                "residual_margin_usdt": _f(close.get("residual_margin_usdt"), 0.0) if close else 0.0,
+                 **audit_chain,
+             })
+         return result
+@@ -3680,12 +3975,25 @@
+                 sid=sid, symbol=symbol, logical_side=logical, qty=reduce_qty,
+                 reason_tag="resize", client=client, filters=filters,
+             )
+-        # Cancel existing protective orders before re-arming
++        # Cancel existing protective orders before re-arming / final flat verify.
+         try:
+             client.cancel_all_orders(symbol)
+         except Exception:
+             pass
+-        final_qty = max(0.0, target_qty)
++        tol = self._position_qty_tolerance(symbol, filters=filters)
++        live_after_resize = self._get_live_symbol_exposure(symbol, client=client, filters=filters, logical_side=logical)
++        resize_cleanup: Dict[str, Any] = {}
++        if target_qty <= tol and not live_after_resize.get("is_flat"):
++            resize_cleanup = self._force_flatten_symbol_exact(
++                sid=sid,
++                symbol=symbol,
++                client=client,
++                filters=filters,
++                logical_side=logical,
++                reason_tag="resize_flat",
++            )
++            live_after_resize = dict(resize_cleanup.get("verify") or live_after_resize)
++        final_qty = 0.0 if live_after_resize.get("is_flat") else float(live_after_resize.get("abs_qty") or max(0.0, target_qty))
+         sl = _f(payload.get("sl"), 0.0) if payload.get("sl") is not None else None
+         sl = sl if sl and sl > 0 else None
+         tps = [
+@@ -3728,12 +4036,19 @@
+             "resize_mode": resize_mode,
+             "resize_delta_qty": delta_qty,
+             "resize_target_qty": target_qty,
++            "residual_qty": _f(resize_cleanup.get("residual_qty"), 0.0) if resize_cleanup else 0.0,
++            "residual_notional_usdt": _f(resize_cleanup.get("residual_notional_usdt"), 0.0) if resize_cleanup else 0.0,
++            "residual_margin_usdt": _f(resize_cleanup.get("residual_margin_usdt"), 0.0) if resize_cleanup else 0.0,
+             **prot, **trail,
+         })
+         return {
+             "sid": sid, "symbol": symbol, "action": "resize", "status": "ok",
+             "side": logical, "current_qty": current_qty, "target_qty": target_qty,
+-            "delta_qty": delta_qty, "resize_order": j_resize, **prot, **trail,
++            "delta_qty": delta_qty, "resize_order": j_resize,
++            "residual_qty": _f(resize_cleanup.get("residual_qty"), 0.0) if resize_cleanup else 0.0,
++            "residual_notional_usdt": _f(resize_cleanup.get("residual_notional_usdt"), 0.0) if resize_cleanup else 0.0,
++            "residual_margin_usdt": _f(resize_cleanup.get("residual_margin_usdt"), 0.0) if resize_cleanup else 0.0,
++            **prot, **trail,
+         }
+ 
+     # --- Main processing loop ---
+--- services/tests/test_binance_executor_dust_cleanup_v1.py
++++ services/tests/test_binance_executor_dust_cleanup_v1.py
+@@ -0,0 +1,146 @@
++from types import SimpleNamespace
++
++from services.binance_executor import BinanceExecutor
++from services.binance_futures_client import BinanceFuturesClient
++
++
++class DummyClient:
++    def __init__(self):
++        self.cancel_all_calls = []
++        self.cancel_plain_calls = []
++        self.cancel_algo_calls = []
++        self.open_orders = [{"orderId": 101, "clientOrderId": "cid-1"}]
++        self.algo_orders = [{"algoId": 202, "clientAlgoId": "acid-1"}]
++
++    def get_open_orders(self, symbol=None):
++        return list(self.open_orders)
++
++    def get_open_algo_orders(self, symbol=None):
++        return list(self.algo_orders)
++
++    def cancel_all_orders(self, symbol):
++        self.cancel_all_calls.append(symbol)
++        self.open_orders = []
++        self.algo_orders = []
++        return {"symbol": symbol}
++
++    def cancel_plain_order(self, symbol, order_id=None, client_order_id=None):
++        self.cancel_plain_calls.append((symbol, order_id, client_order_id))
++        return {"symbol": symbol, "orderId": order_id, "clientOrderId": client_order_id}
++
++    def cancel_algo_order(self, symbol, algo_id=None, client_algo_id=None):
++        self.cancel_algo_calls.append((symbol, algo_id, client_algo_id))
++        return {"symbol": symbol, "algoId": algo_id, "clientAlgoId": client_algo_id}
++
++
++
++def _make_exec():
++    ex = BinanceExecutor.__new__(BinanceExecutor)
++    ex.position_mode = "oneway"
++    ex.dust_notional_usdt = 3.0
++    ex.dust_margin_usdt = 1.0
++    ex.dust_close_retries = 3
++    ex.dust_verify_timeout_ms = 100
++    ex.dust_verify_poll_ms = 10
++    ex._position_qty_tolerance = lambda symbol, *, filters: 0.0001
++    ex._save_order_state = lambda *args, **kwargs: None
++    ex._derive_audit_chain_fields = lambda payload, sid: {}
++    ex._new_closed_trade_id = lambda sid, exit_order_ref='': f'closed::{sid}'
++    ex._format_order_ref = lambda venue, kind, order_id=None, client_id=None: f'{venue}:{kind}:{order_id or client_id}'
++    return ex
++
++
++def test_force_flatten_symbol_exact_retries_dust_tail():
++    ex = _make_exec()
++    client = DummyClient()
++    filters = SimpleNamespace()
++
++    live_sequence = [
++        {"abs_qty": 0.1, "logical_side": "LONG", "notional_usdt": 0.12, "margin_usdt": 0.01, "is_flat": False},
++        {"abs_qty": 0.1, "logical_side": "LONG", "notional_usdt": 0.12, "margin_usdt": 0.01, "is_flat": False},
++        {"abs_qty": 0.1, "logical_side": "LONG", "notional_usdt": 0.12, "margin_usdt": 0.01, "is_flat": False},
++    ]
++    verify_sequence = [
++        {"abs_qty": 0.1, "logical_side": "LONG", "notional_usdt": 0.12, "margin_usdt": 0.01, "open_plain_orders": 0, "open_algo_orders": 0, "is_flat": False},
++        {"abs_qty": 0.0, "logical_side": "LONG", "notional_usdt": 0.0, "margin_usdt": 0.0, "open_plain_orders": 0, "open_algo_orders": 0, "is_flat": True},
++    ]
++    submitted_qty = []
++
++    ex._get_live_symbol_exposure = lambda *args, **kwargs: live_sequence.pop(0)
++    ex._verify_symbol_flat = lambda *args, **kwargs: verify_sequence.pop(0)
++    ex._cancel_all_symbol_orders_best_effort = lambda **kwargs: {"plain_canceled": 1, "algo_canceled": 1}
++    ex._submit_reduce_only_market_exit = lambda **kwargs: submitted_qty.append(kwargs["qty"]) or {
++        "close_order_id": 900 + len(submitted_qty),
++        "close_client_id": f"close-{len(submitted_qty)}",
++        "close_reason_tag": kwargs["reason_tag"],
++        "exit_order_ref": f"binance:close:{len(submitted_qty)}",
++    }
++
++    out = ex._force_flatten_symbol_exact(
++        sid="sid-1",
++        symbol="APTUSDT",
++        client=client,
++        filters=filters,
++        logical_side="LONG",
++        reason_tag="close",
++    )
++
++    assert submitted_qty == [0.1, 0.1]
++    assert out["status"] == "closed"
++    assert out["residual_qty"] == 0.0
++    assert len(out["attempts"]) == 2
++    assert out["attempts"][0]["verify"]["is_dust"] is True
++
++
++def test_handle_cancel_uses_exact_flatten_and_surfaces_residuals():
++    ex = _make_exec()
++    client = DummyClient()
++    filters = SimpleNamespace()
++    ex._resolve_client = lambda payload: (client, filters)
++    ex.allowlist = set()
++    ex._cancel_by_token = lambda symbol, sid, *, client: 3
++    ex._force_flatten_symbol_exact = lambda **kwargs: {
++        "status": "closed",
++        "close_order_id": 501,
++        "close_client_id": "cid-close",
++        "exit_order_ref": "binance:close_market:501",
++        "residual_qty": 0.0,
++        "residual_notional_usdt": 0.0,
++        "residual_margin_usdt": 0.0,
++    }
++    saved = {}
++    ex._save_order_state = lambda sid, state: saved.update(state)
++
++    class RiskClient(DummyClient):
++        def get_position_risk(self):
++            return [{"symbol": "APTUSDT", "positionAmt": "0.1"}]
++
++    risk_client = RiskClient()
++    ex._resolve_client = lambda payload: (risk_client, filters)
++
++    out = ex.handle_cancel({"sid": "sid-1", "symbol": "APTUSDT"})
++
++    assert out["closed"] == "true"
++    assert out["close_order_id"] == 501
++    assert out["residual_qty"] == 0.0
++    assert saved["status"] == "closed"
++    assert saved["residual_margin_usdt"] == 0.0
++
++
++class ClientForRisk(BinanceFuturesClient):
++    def __init__(self):
++        pass
++
++
++def test_get_symbol_position_risk_matches_symbol_and_side():
++    client = ClientForRisk.__new__(ClientForRisk)
++    client.get_position_risk = lambda: [
++        {"symbol": "BTCUSDT", "positionAmt": "0.01", "positionSide": "LONG"},
++        {"symbol": "BTCUSDT", "positionAmt": "-0.02", "positionSide": "SHORT"},
++    ]
++
++    long_row = client.get_symbol_position_risk("BTCUSDT", position_side="LONG")
++    short_row = client.get_symbol_position_risk("BTCUSDT", position_side="SHORT")
++
++    assert long_row["positionAmt"] == "0.01"
++    assert short_row["positionAmt"] == "-0.02"

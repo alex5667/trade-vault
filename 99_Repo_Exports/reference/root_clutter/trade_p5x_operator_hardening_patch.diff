@@ -1,0 +1,867 @@
+diff -ruN p49/.pytest_cache/.gitignore p5x/.pytest_cache/.gitignore
+--- p49/.pytest_cache/.gitignore	1970-01-01 00:00:00.000000000 +0000
++++ p5x/.pytest_cache/.gitignore	2026-03-07 08:36:45.866137448 +0000
+@@ -0,0 +1,2 @@
++# Created by pytest automatically.
++*
+diff -ruN p49/.pytest_cache/CACHEDIR.TAG p5x/.pytest_cache/CACHEDIR.TAG
+--- p49/.pytest_cache/CACHEDIR.TAG	1970-01-01 00:00:00.000000000 +0000
++++ p5x/.pytest_cache/CACHEDIR.TAG	2026-03-07 08:36:45.866257300 +0000
+@@ -0,0 +1,4 @@
++Signature: 8a477f597d28d172789f06886806bc55
++# This file is a cache directory tag created by pytest.
++# For information about cache directory tags, see:
++#	https://bford.info/cachedir/spec.html
+diff -ruN p49/.pytest_cache/README.md p5x/.pytest_cache/README.md
+--- p49/.pytest_cache/README.md	1970-01-01 00:00:00.000000000 +0000
++++ p5x/.pytest_cache/README.md	2026-03-07 08:36:45.865877601 +0000
+@@ -0,0 +1,8 @@
++# pytest cache directory #
++
++This directory contains data from the pytest's cache plugin,
++which provides the `--lf` and `--ff` options, as well as the `cache` fixture.
++
++**Do not** commit this to version control.
++
++See [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.
+diff -ruN p49/.pytest_cache/v/cache/nodeids p5x/.pytest_cache/v/cache/nodeids
+--- p49/.pytest_cache/v/cache/nodeids	1970-01-01 00:00:00.000000000 +0000
++++ p5x/.pytest_cache/v/cache/nodeids	2026-03-07 08:36:45.867365668 +0000
+@@ -0,0 +1,9 @@
++[
++  "binance_execution/test_p5x_operator_hardening_assets_v1.py::test_alertmanager_route_split_present",
++  "binance_execution/test_p5x_operator_hardening_assets_v1.py::test_new_scripts_exist",
++  "binance_execution/test_runbook_server_p5x_v1.py::test_runbook_server_has_new_endpoints",
++  "scripts/test_auto_silence_risk_drift_storm_v1.py::test_decide_autosilence_below_threshold",
++  "scripts/test_auto_silence_risk_drift_storm_v1.py::test_decide_autosilence_triggers_on_rate",
++  "scripts/test_check_risk_mismatch_summary_archive_consistency_v1.py::test_render_textfile_contains_metrics",
++  "scripts/test_purge_risk_mismatch_hot_tables_p5x_v1.py::test_retention_textfile_contains_freshness"
++]
+\ No newline at end of file
+Binary files p49/audit_code/__pycache__/crypto_orderflow_service.cpython-313.pyc and p5x/audit_code/__pycache__/crypto_orderflow_service.cpython-313.pyc differ
+Binary files p49/audit_code/__pycache__/quarantine_denylist.cpython-313.pyc and p5x/audit_code/__pycache__/quarantine_denylist.cpython-313.pyc differ
+Binary files p49/audit_code/__pycache__/redis_dq_policy.cpython-313.pyc and p5x/audit_code/__pycache__/redis_dq_policy.cpython-313.pyc differ
+Binary files p49/audit_code/__pycache__/test_crypto_orderflow_service_p45_risk_audit_v1.cpython-313.pyc and p5x/audit_code/__pycache__/test_crypto_orderflow_service_p45_risk_audit_v1.cpython-313.pyc differ
+Binary files p49/audit_code/__pycache__/test_crypto_orderflow_service_p4_contract_v1.cpython-313.pyc and p5x/audit_code/__pycache__/test_crypto_orderflow_service_p4_contract_v1.cpython-313.pyc differ
+Binary files p49/audit_code/__pycache__/test_p4_risk_assets_v1.cpython-313.pyc and p5x/audit_code/__pycache__/test_p4_risk_assets_v1.cpython-313.pyc differ
+Binary files p49/audit_code/__pycache__/test_quarantine_denylist_v1.cpython-313.pyc and p5x/audit_code/__pycache__/test_quarantine_denylist_v1.cpython-313.pyc differ
+Binary files p49/audit_code/__pycache__/test_redis_dq_policy_v1.cpython-313.pyc and p5x/audit_code/__pycache__/test_redis_dq_policy_v1.cpython-313.pyc differ
+Binary files p49/audit_code/outbox/__pycache__/atomic_outbox.cpython-313.pyc and p5x/audit_code/outbox/__pycache__/atomic_outbox.cpython-313.pyc differ
+Binary files p49/audit_code/outbox/__pycache__/envelope_builder.cpython-313.pyc and p5x/audit_code/outbox/__pycache__/envelope_builder.cpython-313.pyc differ
+Binary files p49/audit_code/outbox/__pycache__/time_contract.cpython-313.pyc and p5x/audit_code/outbox/__pycache__/time_contract.cpython-313.pyc differ
+Binary files p49/audit_code/risk/__pycache__/portfolio_risk_engine.cpython-313.pyc and p5x/audit_code/risk/__pycache__/portfolio_risk_engine.cpython-313.pyc differ
+Binary files p49/audit_code/risk/__pycache__/risk_audit_sql.cpython-313.pyc and p5x/audit_code/risk/__pycache__/risk_audit_sql.cpython-313.pyc differ
+Binary files p49/audit_code/risk/__pycache__/risk_drift_sql.cpython-313.pyc and p5x/audit_code/risk/__pycache__/risk_drift_sql.cpython-313.pyc differ
+Binary files p49/audit_code/risk/__pycache__/risk_policy_engine.cpython-313.pyc and p5x/audit_code/risk/__pycache__/risk_policy_engine.cpython-313.pyc differ
+Binary files p49/audit_code/risk/__pycache__/test_p47_risk_retention_assets_v1.cpython-313.pyc and p5x/audit_code/risk/__pycache__/test_p47_risk_retention_assets_v1.cpython-313.pyc differ
+Binary files p49/audit_code/risk/__pycache__/test_p48_risk_drift_assets_v1.cpython-313.pyc and p5x/audit_code/risk/__pycache__/test_p48_risk_drift_assets_v1.cpython-313.pyc differ
+Binary files p49/audit_code/risk/__pycache__/test_p49_risk_mismatch_summary_assets_v1.cpython-313.pyc and p5x/audit_code/risk/__pycache__/test_p49_risk_mismatch_summary_assets_v1.cpython-313.pyc differ
+Binary files p49/audit_code/risk/__pycache__/test_portfolio_risk_engine_v1.cpython-313.pyc and p5x/audit_code/risk/__pycache__/test_portfolio_risk_engine_v1.cpython-313.pyc differ
+Binary files p49/audit_code/risk/__pycache__/test_risk_audit_sql_v1.cpython-313.pyc and p5x/audit_code/risk/__pycache__/test_risk_audit_sql_v1.cpython-313.pyc differ
+Binary files p49/audit_code/risk/__pycache__/test_risk_policy_engine_metrics_pack_v1.cpython-313.pyc and p5x/audit_code/risk/__pycache__/test_risk_policy_engine_metrics_pack_v1.cpython-313.pyc differ
+Binary files p49/audit_code/risk/__pycache__/test_risk_policy_engine_v1.cpython-313.pyc and p5x/audit_code/risk/__pycache__/test_risk_policy_engine_v1.cpython-313.pyc differ
+Binary files p49/audit_code/risk/__pycache__/test_risk_summary_assets_v1.cpython-313.pyc and p5x/audit_code/risk/__pycache__/test_risk_summary_assets_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/binance_account_reporter.cpython-313.pyc and p5x/binance_execution/__pycache__/binance_account_reporter.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/binance_executor.cpython-313.pyc and p5x/binance_execution/__pycache__/binance_executor.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/binance_futures_client.cpython-313.pyc and p5x/binance_execution/__pycache__/binance_futures_client.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/binance_iceberg_detector.cpython-313.pyc and p5x/binance_execution/__pycache__/binance_iceberg_detector.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/binance_user_stream_worker.cpython-313.pyc and p5x/binance_execution/__pycache__/binance_user_stream_worker.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/execution_intent_validator.cpython-313.pyc and p5x/binance_execution/__pycache__/execution_intent_validator.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/execution_journal.cpython-313.pyc and p5x/binance_execution/__pycache__/execution_journal.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/execution_policy.cpython-313.pyc and p5x/binance_execution/__pycache__/execution_policy.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/execution_state_replay.cpython-313.pyc and p5x/binance_execution/__pycache__/execution_state_replay.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/quarantine_ledger.cpython-313.pyc and p5x/binance_execution/__pycache__/quarantine_ledger.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/rollout_flags.cpython-313.pyc and p5x/binance_execution/__pycache__/rollout_flags.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_alertmanager_risk_deeplinks_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_alertmanager_risk_deeplinks_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_alertmanager_risk_drift_deeplinks_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_alertmanager_risk_drift_deeplinks_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_automated_execution_repair_policy_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_automated_execution_repair_policy_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_backfill_execution_journal_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_backfill_execution_journal_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_binance_account_reporter_p0_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_binance_account_reporter_p0_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_binance_algo_client_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_binance_algo_client_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_binance_executor_p1_policy_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_binance_executor_p1_policy_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_binance_executor_p2_state_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_binance_executor_p2_state_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_binance_executor_p33_rehydrate_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_binance_executor_p33_rehydrate_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_binance_executor_p34_journal_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_binance_executor_p34_journal_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_binance_futures_client_p2_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_binance_futures_client_p2_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_binance_trailing_unit_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_binance_trailing_unit_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_binance_user_stream_worker_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_binance_user_stream_worker_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_check_execution_replay_consistency_hardening_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_check_execution_replay_consistency_hardening_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_execution_consistency_checker_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_execution_consistency_checker_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_execution_healthcheck_textfile_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_execution_healthcheck_textfile_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_execution_intent_validator_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_execution_intent_validator_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_execution_journal_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_execution_journal_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_execution_policy_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_execution_policy_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_execution_replay_consistency_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_execution_replay_consistency_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_execution_state_replay_hardening_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_execution_state_replay_hardening_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_execution_state_replay_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_execution_state_replay_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_executor_p33_hardening_contract_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_executor_p33_hardening_contract_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_grafana_p7_dashboard_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_grafana_p7_dashboard_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_grafana_p8_annotations_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_grafana_p8_annotations_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_grafana_risk_annotations_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_grafana_risk_annotations_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_grafana_risk_drift_assets_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_grafana_risk_drift_assets_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_p33_autonomy_assets_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_p33_autonomy_assets_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_p33_autonomy_decision_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_p33_autonomy_decision_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_p33_autonomy_retention_quarantine_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_p33_autonomy_retention_quarantine_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_p33_autonomy_runbook_server_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_p33_autonomy_runbook_server_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_p33_hardening_ops_assets_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_p33_hardening_ops_assets_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_p33_ops_complete_assets_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_p33_ops_complete_assets_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_p33_ops_complete_quarantine_ledger_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_p33_ops_complete_quarantine_ledger_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_p33_ops_complete_retention_guard_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_p33_ops_complete_retention_guard_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_p33_ops_complete_runbook_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_p33_ops_complete_runbook_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_p48_unified_dashboard_assets_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_p48_unified_dashboard_assets_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_p49_risk_drift_drilldown_assets_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_p49_risk_drift_drilldown_assets_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_p5x_operator_hardening_assets_v1.cpython-313-pytest-9.0.2.pyc and p5x/binance_execution/__pycache__/test_p5x_operator_hardening_assets_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p49/binance_execution/__pycache__/test_p5x_operator_hardening_assets_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_p5x_operator_hardening_assets_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_quarantine_inconsistent_sid_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_quarantine_inconsistent_sid_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_quarantine_ledger_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_quarantine_ledger_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_repair_execution_inconsistencies_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_repair_execution_inconsistencies_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_risk_engine_canary_assets_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_risk_engine_canary_assets_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_rollout_flags_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_rollout_flags_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_runbook_server_operator_score_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_runbook_server_operator_score_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_runbook_server_p5x_v1.cpython-313-pytest-9.0.2.pyc and p5x/binance_execution/__pycache__/test_runbook_server_p5x_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p49/binance_execution/__pycache__/test_runbook_server_p5x_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_runbook_server_p5x_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_runbook_server_risk_canary_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_runbook_server_risk_canary_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_runbook_server_risk_mismatch_summary_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_runbook_server_risk_mismatch_summary_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_runbook_server_risk_mismatch_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_runbook_server_risk_mismatch_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_runbook_server_risk_summary_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_runbook_server_risk_summary_v1.cpython-313.pyc differ
+Binary files p49/binance_execution/__pycache__/test_runbook_server_v1.cpython-313.pyc and p5x/binance_execution/__pycache__/test_runbook_server_v1.cpython-313.pyc differ
+diff -ruN p49/binance_execution/test_p5x_operator_hardening_assets_v1.py p5x/binance_execution/test_p5x_operator_hardening_assets_v1.py
+--- p49/binance_execution/test_p5x_operator_hardening_assets_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p5x/binance_execution/test_p5x_operator_hardening_assets_v1.py	2026-03-07 08:36:37.037026896 +0000
+@@ -0,0 +1,13 @@
++from pathlib import Path
++
++
++def test_alertmanager_route_split_present():
++    src = (Path(__file__).resolve().parents[1] / 'monitoring' / 'alertmanager' / 'trade_execution_alertmanager.yml').read_text(encoding='utf-8')
++    assert 'domain="risk-drift"' in src
++    assert 'trade-risk-drift' in src
++
++
++def test_new_scripts_exist():
++    root = Path(__file__).resolve().parents[1]
++    assert (root / 'scripts' / 'auto_silence_risk_drift_storm.py').exists()
++    assert (root / 'scripts' / 'check_risk_mismatch_summary_archive_consistency.py').exists()
+diff -ruN p49/binance_execution/test_runbook_server_p5x_v1.py p5x/binance_execution/test_runbook_server_p5x_v1.py
+--- p49/binance_execution/test_runbook_server_p5x_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p5x/binance_execution/test_runbook_server_p5x_v1.py	2026-03-07 08:36:37.087849803 +0000
+@@ -0,0 +1,7 @@
++from pathlib import Path
++
++
++def test_runbook_server_has_new_endpoints():
++    src = (Path(__file__).resolve().parents[1] / 'runbooks' / 'server' / 'runbook_server.py').read_text(encoding='utf-8')
++    assert '/api/risk-mismatch-archive-consistency/latest' in src
++    assert '/api/risk-drift-autosilence/latest' in src
+diff -ruN p49/config/docker-compose.execution-p5x-operator-hardening.override.yml p5x/config/docker-compose.execution-p5x-operator-hardening.override.yml
+--- p49/config/docker-compose.execution-p5x-operator-hardening.override.yml	1970-01-01 00:00:00.000000000 +0000
++++ p5x/config/docker-compose.execution-p5x-operator-hardening.override.yml	2026-03-07 08:36:36.883635696 +0000
+@@ -0,0 +1,13 @@
++services:
++  trade-risk-drift-autosilence:
++    command: ["python3", "/opt/trade/scripts/auto_silence_risk_drift_storm.py"]
++    environment:
++      - ALERTMANAGER_EXTERNAL_URL=http://alertmanager:9093
++  trade-risk-mismatch-archive-consistency:
++    command: ["python3", "/opt/trade/scripts/check_risk_mismatch_summary_archive_consistency.py"]
++    environment:
++      - RISK_MISMATCH_ARCHIVE_CONSISTENCY_TEXTFILE_PATH=/var/lib/node_exporter/textfile_collector/risk_mismatch_archive_consistency.prom
++  trade-risk-mismatch-retention:
++    command: ["python3", "/opt/trade/scripts/purge_risk_mismatch_hot_tables.py"]
++    environment:
++      - RISK_MISMATCH_RETENTION_TEXTFILE_PATH=/var/lib/node_exporter/textfile_collector/risk_mismatch_retention.prom
+diff -ruN p49/config/env.execution-p5x-operator-hardening.example p5x/config/env.execution-p5x-operator-hardening.example
+--- p49/config/env.execution-p5x-operator-hardening.example	1970-01-01 00:00:00.000000000 +0000
++++ p5x/config/env.execution-p5x-operator-hardening.example	2026-03-07 08:36:36.871217089 +0000
+@@ -0,0 +1,8 @@
++ALERTMANAGER_EXTERNAL_URL=http://alertmanager:9093
++RISK_DRIFT_AUTOSILENCE_DRY_RUN=1
++RISK_DRIFT_AUTOSILENCE_QUARANTINE_THRESHOLD=10
++RISK_DRIFT_AUTOSILENCE_MISMATCH_RATE_THRESHOLD=0.20
++RISK_DRIFT_AUTOSILENCE_DURATION_SEC=3600
++RISK_DRIFT_AUTOSILENCE_REPORT_PATH=/var/lib/trade-runbook/reports/latest_risk_drift_autosilence.json
++RISK_MISMATCH_ARCHIVE_CONSISTENCY_TEXTFILE_PATH=/var/lib/node_exporter/textfile_collector/risk_mismatch_archive_consistency.prom
++RISK_MISMATCH_RETENTION_TEXTFILE_PATH=/var/lib/node_exporter/textfile_collector/risk_mismatch_retention.prom
+diff -ruN p49/deploy/systemd/trade-risk-drift-autosilence.service p5x/deploy/systemd/trade-risk-drift-autosilence.service
+--- p49/deploy/systemd/trade-risk-drift-autosilence.service	1970-01-01 00:00:00.000000000 +0000
++++ p5x/deploy/systemd/trade-risk-drift-autosilence.service	2026-03-07 08:36:36.894717619 +0000
+@@ -0,0 +1,9 @@
++[Unit]
++Description=trade risk drift autosilence
++After=network-online.target
++
++[Service]
++Type=oneshot
++WorkingDirectory=/opt/trade
++EnvironmentFile=-/etc/default/trade-operator-hardening
++ExecStart=/usr/bin/python3 /opt/trade/scripts/auto_silence_risk_drift_storm.py
+diff -ruN p49/deploy/systemd/trade-risk-drift-autosilence.timer p5x/deploy/systemd/trade-risk-drift-autosilence.timer
+--- p49/deploy/systemd/trade-risk-drift-autosilence.timer	1970-01-01 00:00:00.000000000 +0000
++++ p5x/deploy/systemd/trade-risk-drift-autosilence.timer	2026-03-07 08:36:36.944927062 +0000
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Periodic trade risk drift autosilence
++
++[Timer]
++OnBootSec=5m
++OnUnitActiveSec=20m
++Unit=trade-risk-drift-autosilence.service
++
++[Install]
++WantedBy=timers.target
+diff -ruN p49/deploy/systemd/trade-risk-mismatch-archive-consistency.service p5x/deploy/systemd/trade-risk-mismatch-archive-consistency.service
+--- p49/deploy/systemd/trade-risk-mismatch-archive-consistency.service	1970-01-01 00:00:00.000000000 +0000
++++ p5x/deploy/systemd/trade-risk-mismatch-archive-consistency.service	2026-03-07 08:36:36.960011650 +0000
+@@ -0,0 +1,9 @@
++[Unit]
++Description=trade risk mismatch archive consistency
++After=network-online.target
++
++[Service]
++Type=oneshot
++WorkingDirectory=/opt/trade
++EnvironmentFile=-/etc/default/trade-operator-hardening
++ExecStart=/usr/bin/python3 /opt/trade/scripts/check_risk_mismatch_summary_archive_consistency.py
+diff -ruN p49/deploy/systemd/trade-risk-mismatch-archive-consistency.timer p5x/deploy/systemd/trade-risk-mismatch-archive-consistency.timer
+--- p49/deploy/systemd/trade-risk-mismatch-archive-consistency.timer	1970-01-01 00:00:00.000000000 +0000
++++ p5x/deploy/systemd/trade-risk-mismatch-archive-consistency.timer	2026-03-07 08:36:36.973669876 +0000
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Periodic trade risk mismatch archive consistency
++
++[Timer]
++OnBootSec=5m
++OnUnitActiveSec=30m
++Unit=trade-risk-mismatch-archive-consistency.service
++
++[Install]
++WantedBy=timers.target
+diff -ruN p49/monitoring/alertmanager/templates/trade_execution.tmpl p5x/monitoring/alertmanager/templates/trade_execution.tmpl
+--- p49/monitoring/alertmanager/templates/trade_execution.tmpl	2026-03-07 08:24:33.000000000 +0000
++++ p5x/monitoring/alertmanager/templates/trade_execution.tmpl	2026-03-07 08:36:34.241300555 +0000
+@@ -27,6 +27,9 @@
+ Risk Drift Drilldown: http://grafana:3000/d/trade-execution-p49-risk-drift-drilldown/trade-execution-p49-risk-drift-drilldown
+ Unified Ops Dashboard: http://grafana:3000/d/trade-execution-p48-unified/trade-execution-p48-unified
+ Silence: {{ .ExternalURL }}/#/silences/new?filter=%7Balertname%3D%22{{ .CommonLabels.alertname }}%22%7D
++Auto Silence (Risk Drift): {{ .ExternalURL }}/#/silences/new?filter=%7Bdomain%3D%22risk-drift%22%7D
++Risk Drift Summary: http://trade-runbook-server:18080/api/risk-mismatch-summary/latest
++Risk Drift Archive Consistency: http://trade-runbook-server:18080/api/risk-mismatch-archive-consistency/latest
+ {{- end }}
+ 
+ {{ define "trade.html" -}}
+diff -ruN p49/monitoring/alertmanager/trade_execution_alertmanager.yml p5x/monitoring/alertmanager/trade_execution_alertmanager.yml
+--- p49/monitoring/alertmanager/trade_execution_alertmanager.yml	2026-03-07 08:13:08.000000000 +0000
++++ p5x/monitoring/alertmanager/trade_execution_alertmanager.yml	2026-03-07 08:36:34.240660295 +0000
+@@ -18,6 +18,10 @@
+       receiver: trade-critical
+       continue: false
+     - matchers:
++        - domain="risk-drift"
++      receiver: trade-risk-drift
++      continue: false
++    - matchers:
+         - alertname=~"TradeDQ.*|TradeExecutionJournalWriteFailures|TradeExecutionReconcileBacklog"
+       receiver: trade-ops
+       continue: false
+@@ -63,3 +67,9 @@
+     webhook_configs:
+       - url: http://alert-router.default.svc.cluster.local/risk
+         send_resolved: true
++
++
++  - name: trade-risk-drift
++    webhook_configs:
++      - url: http://alert-router.default.svc.cluster.local/risk-drift
++        send_resolved: true
+diff -ruN p49/monitoring/grafana/dashboards/trade_execution_p5x_operator_hardening.json p5x/monitoring/grafana/dashboards/trade_execution_p5x_operator_hardening.json
+--- p49/monitoring/grafana/dashboards/trade_execution_p5x_operator_hardening.json	1970-01-01 00:00:00.000000000 +0000
++++ p5x/monitoring/grafana/dashboards/trade_execution_p5x_operator_hardening.json	2026-03-07 08:36:36.845386489 +0000
+@@ -0,0 +1,26 @@
++{
++  "title": "Trade Execution P5x Operator Hardening",
++  "schemaVersion": 38,
++  "version": 1,
++  "templating": {
++    "list": [
++      {"name": "sid", "type": "textbox", "current": {"text": "", "value": ""}},
++      {"name": "decision_id", "type": "textbox", "current": {"text": "", "value": ""}}
++    ]
++  },
++  "annotations": {
++    "list": [
++      {"name": "Risk Drift Summary", "datasource": "-- Grafana --", "enable": true, "hide": false, "iconColor": "red", "type": "dashboard"},
++      {"name": "Risk Drift Autosilence", "datasource": "-- Grafana --", "enable": true, "hide": false, "iconColor": "orange", "type": "dashboard"}
++    ]
++  },
++  "panels": [
++    {"type": "stat", "title": "Operator Score", "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4}, "targets": []},
++    {"type": "stat", "title": "Mismatch Summary Stale", "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4}, "targets": []},
++    {"type": "stat", "title": "Archive Consistency Mismatch Count", "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4}, "targets": []},
++    {"type": "stat", "title": "Risk Drift Autosilence Trigger", "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4}, "targets": []},
++    {"type": "timeseries", "title": "Mismatch Rate by Window/Tier", "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8}, "targets": []},
++    {"type": "timeseries", "title": "Mismatch Quarantine Count by Window/Tier", "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8}, "targets": []},
++    {"type": "logs", "title": "Risk Drift Drilldown by sid/decision_id", "gridPos": {"x": 0, "y": 12, "w": 24, "h": 10}, "targets": []}
++  ]
++}
+diff -ruN p49/monitoring/grafana/provisioning/dashboards/trade_execution_p5.yml p5x/monitoring/grafana/provisioning/dashboards/trade_execution_p5.yml
+--- p49/monitoring/grafana/provisioning/dashboards/trade_execution_p5.yml	2026-03-06 19:55:26.000000000 +0000
++++ p5x/monitoring/grafana/provisioning/dashboards/trade_execution_p5.yml	2026-03-07 08:36:31.854945836 +0000
+@@ -1,12 +1,21 @@
+ apiVersion: 1
+ 
+ providers:
+-  - name: trade-execution-p5
++  - name: trade-execution-unified
+     orgId: 1
+     folder: Trade Execution
+     type: file
+     disableDeletion: false
+     editable: true
++    updateIntervalSeconds: 30
++    options:
++      path: /etc/grafana/provisioning/dashboards-json
++  - name: trade-risk-drift-drilldown
++    orgId: 1
++    folder: Trade Risk Drift
++    type: file
++    disableDeletion: false
++    editable: true
+     updateIntervalSeconds: 30
+     options:
+       path: /etc/grafana/provisioning/dashboards-json
+diff -ruN p49/monitoring/prometheus_rules_execution_p49_risk_mismatch.yml p5x/monitoring/prometheus_rules_execution_p49_risk_mismatch.yml
+--- p49/monitoring/prometheus_rules_execution_p49_risk_mismatch.yml	2026-03-07 08:24:33.000000000 +0000
++++ p5x/monitoring/prometheus_rules_execution_p49_risk_mismatch.yml	2026-03-07 08:36:34.250271968 +0000
+@@ -6,7 +6,7 @@
+         for: 15m
+         labels:
+           severity: warning
+-          domain: risk
++          domain: risk-drift
+         annotations:
+           summary: Risk mismatch materialized summary is stale.
+           description: risk_mismatch_summary_mv refresh report has exceeded freshness threshold.
+@@ -15,7 +15,7 @@
+         for: 20m
+         labels:
+           severity: warning
+-          domain: risk
++          domain: risk-drift
+         annotations:
+           summary: Risk mismatch rate is high over 24h.
+           description: Materialized mismatch summary shows sustained elevated avg mismatch rate.
+@@ -24,7 +24,7 @@
+         for: 10m
+         labels:
+           severity: critical
+-          domain: risk
++          domain: risk-drift
+         annotations:
+           summary: Risk mismatch quarantine spike detected.
+           description: Materialized mismatch summary reports too many quarantined sid in the last 24h.
+diff -ruN p49/monitoring/prometheus_rules_execution_p5x_operator_hardening.yml p5x/monitoring/prometheus_rules_execution_p5x_operator_hardening.yml
+--- p49/monitoring/prometheus_rules_execution_p5x_operator_hardening.yml	1970-01-01 00:00:00.000000000 +0000
++++ p5x/monitoring/prometheus_rules_execution_p5x_operator_hardening.yml	2026-03-07 08:36:36.858636323 +0000
+@@ -0,0 +1,30 @@
++groups:
++  - name: trade-risk-drift-operator-hardening
++    rules:
++      - alert: TradeRiskMismatchArchiveConsistencyStale
++        expr: trade_risk_mismatch_archive_consistency_stale > 0
++        for: 15m
++        labels:
++          severity: warning
++          domain: risk-drift
++        annotations:
++          summary: Risk mismatch archive consistency report is stale.
++          description: Archive consistency checker report has exceeded freshness threshold.
++      - alert: TradeRiskMismatchArchiveConsistencyMismatch
++        expr: trade_risk_mismatch_archive_consistency_mismatch_total > 0
++        for: 10m
++        labels:
++          severity: warning
++          domain: risk-drift
++        annotations:
++          summary: Risk mismatch materialized summary diverges from hot+archive ledger.
++          description: risk_mismatch_summary_mv is inconsistent with recomputed hot+archive aggregate.
++      - alert: TradeRiskMismatchRetentionStale
++        expr: trade_risk_mismatch_retention_stale > 0
++        for: 6h
++        labels:
++          severity: warning
++          domain: risk-drift
++        annotations:
++          summary: Risk mismatch retention purge report is stale.
++          description: The archive purge freshness/reporting pipeline is stale.
+diff -ruN p49/runbooks/P5X_OPERATOR_HARDENING.md p5x/runbooks/P5X_OPERATOR_HARDENING.md
+--- p49/runbooks/P5X_OPERATOR_HARDENING.md	1970-01-01 00:00:00.000000000 +0000
++++ p5x/runbooks/P5X_OPERATOR_HARDENING.md	2026-03-07 08:36:36.987393639 +0000
+@@ -0,0 +1,16 @@
++# P5/Px Operator Hardening
++
++## Added operator hardening controls
++
++- unified Grafana provisioning update for unified ops and risk-drift drilldown dashboards
++- Alertmanager route split for `domain=risk-drift`
++- auto-silence helper for repeated mismatch storms
++- SQL consistency check between `risk_mismatch_summary_mv` and `risk_mismatch_quarantine_ledger_archive`
++- retention freshness/textfile export for archive purge
++
++## Recommended rollout
++
++1. Enable new Alertmanager route split first.
++2. Run archive consistency checker in dry observation mode.
++3. Keep auto-silence helper in `DRY_RUN=1` for at least several alert cycles.
++4. After validation, wire systemd timers and compose helpers.
+Binary files p49/runbooks/server/__pycache__/runbook_server.cpython-313.pyc and p5x/runbooks/server/__pycache__/runbook_server.cpython-313.pyc differ
+diff -ruN p49/runbooks/server/runbook_server.py p5x/runbooks/server/runbook_server.py
+--- p49/runbooks/server/runbook_server.py	2026-03-07 08:24:33.000000000 +0000
++++ p5x/runbooks/server/runbook_server.py	2026-03-07 08:36:36.603444529 +0000
+@@ -43,7 +43,7 @@
+ <style>body{{font-family:sans-serif;margin:2rem;max-width:1100px}}code{{background:#f4f4f4;padding:.1rem .3rem}}.badge{{padding:.15rem .5rem;border-radius:4px;background:#eee}}.ok{{background:#d1fae5}}.warning{{background:#fef3c7}}.critical{{background:#fee2e2}}</style>
+ </head><body>
+ <h1>Trade Execution Runbooks</h1>
+-<p>Latest health: <span class="badge {badge}">{html.escape(badge)}</span> — <a href="/api/health/latest">Health JSON</a> | <a href="/api/rebuild/latest">Rebuild JSON</a> | <a href="/api/autonomy/latest">Autonomy JSON</a> | <a href="/api/replay-slo/latest">Replay SLO JSON</a> | <a href="/api/risk-canary/latest">Risk Canary JSON</a> | <a href="/api/risk-summary/latest">Risk Summary JSON</a> | <a href="/api/operator-score/latest">Operator Score JSON</a> | <a href="/api/risk-mismatch/latest">Risk Drift JSON</a> | <a href="/api/risk-mismatch-summary/latest">Risk Drift Summary JSON</a></p>
++<p>Latest health: <span class="badge {badge}">{html.escape(badge)}</span> — <a href="/api/health/latest">Health JSON</a> | <a href="/api/rebuild/latest">Rebuild JSON</a> | <a href="/api/autonomy/latest">Autonomy JSON</a> | <a href="/api/replay-slo/latest">Replay SLO JSON</a> | <a href="/api/risk-canary/latest">Risk Canary JSON</a> | <a href="/api/risk-summary/latest">Risk Summary JSON</a> | <a href="/api/operator-score/latest">Operator Score JSON</a> | <a href="/api/risk-mismatch/latest">Risk Drift JSON</a> | <a href="/api/risk-mismatch-summary/latest">Risk Drift Summary JSON</a> | <a href="/api/risk-mismatch-archive-consistency/latest">Risk Drift Archive Consistency JSON</a> | <a href="/api/risk-drift-autosilence/latest">Risk Drift Auto-Silence JSON</a></p>
+ <h2>Runbooks</h2><ul>{''.join(items) or '<li>no runbooks found</li>'}</ul>
+ <h2>Reports</h2><ul>{''.join(report_items) or '<li>no reports found</li>'}</ul>
+ <p><code>/healthz</code> returns 200 if the server process is alive.</p>
+@@ -112,6 +112,30 @@
+                 return
+             self.send_error(404, 'risk canary report not found')
+             return
++        if parsed.path == '/api/risk-drift-autosilence/latest':
++            latest = self.report_root / 'latest_risk_drift_autosilence.json'
++            if latest.exists():
++                body = latest.read_bytes()
++                self.send_response(200)
++                self.send_header('Content-Type', 'application/json; charset=utf-8')
++                self.send_header('Content-Length', str(len(body)))
++                self.end_headers()
++                self.wfile.write(body)
++                return
++            self.send_error(404, 'risk drift autosilence report not found')
++            return
++        if parsed.path == '/api/risk-mismatch-archive-consistency/latest':
++            latest = self.report_root / 'latest_risk_mismatch_archive_consistency.json'
++            if latest.exists():
++                body = latest.read_bytes()
++                self.send_response(200)
++                self.send_header('Content-Type', 'application/json; charset=utf-8')
++                self.send_header('Content-Length', str(len(body)))
++                self.end_headers()
++                self.wfile.write(body)
++                return
++            self.send_error(404, 'risk mismatch archive consistency report not found')
++            return
+         if parsed.path == '/api/risk-mismatch-summary/latest':
+             latest = self.report_root / 'latest_risk_mismatch_summary.json'
+             if latest.exists():
+Binary files p49/scripts/__pycache__/apply_retention_guard_quarantine.cpython-313.pyc and p5x/scripts/__pycache__/apply_retention_guard_quarantine.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/auto_silence_risk_drift_storm.cpython-313.pyc and p5x/scripts/__pycache__/auto_silence_risk_drift_storm.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/auto_trigger_checkpoint_scrubber.cpython-313.pyc and p5x/scripts/__pycache__/auto_trigger_checkpoint_scrubber.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/automated_execution_repair_policy.cpython-313.pyc and p5x/scripts/__pycache__/automated_execution_repair_policy.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/backfill_execution_journal_from_orders_exec.cpython-313.pyc and p5x/scripts/__pycache__/backfill_execution_journal_from_orders_exec.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/build_operator_score_report.cpython-313.pyc and p5x/scripts/__pycache__/build_operator_score_report.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/build_risk_engine_canary_report.cpython-313.pyc and p5x/scripts/__pycache__/build_risk_engine_canary_report.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/check_execution_consistency.cpython-313.pyc and p5x/scripts/__pycache__/check_execution_consistency.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/check_execution_replay_consistency.cpython-313.pyc and p5x/scripts/__pycache__/check_execution_replay_consistency.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/check_risk_mismatch_summary_archive_consistency.cpython-313.pyc and p5x/scripts/__pycache__/check_risk_mismatch_summary_archive_consistency.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/check_risk_signal_snapshot_consistency.cpython-313.pyc and p5x/scripts/__pycache__/check_risk_signal_snapshot_consistency.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/execution_healthcheck.cpython-313.pyc and p5x/scripts/__pycache__/execution_healthcheck.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/purge_risk_audit_hot_tables.cpython-313.pyc and p5x/scripts/__pycache__/purge_risk_audit_hot_tables.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/purge_risk_mismatch_hot_tables.cpython-313.pyc and p5x/scripts/__pycache__/purge_risk_mismatch_hot_tables.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/quarantine_inconsistent_sid.cpython-313.pyc and p5x/scripts/__pycache__/quarantine_inconsistent_sid.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/rebuild_orders_state_from_exec.cpython-313.pyc and p5x/scripts/__pycache__/rebuild_orders_state_from_exec.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/refresh_execution_replay_slo_summary.cpython-313.pyc and p5x/scripts/__pycache__/refresh_execution_replay_slo_summary.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/refresh_risk_decision_summary.cpython-313.pyc and p5x/scripts/__pycache__/refresh_risk_decision_summary.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/refresh_risk_mismatch_summary.cpython-313.pyc and p5x/scripts/__pycache__/refresh_risk_mismatch_summary.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/repair_execution_inconsistencies.cpython-313.pyc and p5x/scripts/__pycache__/repair_execution_inconsistencies.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/scrub_replay_checkpoints.cpython-313.pyc and p5x/scripts/__pycache__/scrub_replay_checkpoints.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/test_auto_silence_risk_drift_storm_v1.cpython-313-pytest-9.0.2.pyc and p5x/scripts/__pycache__/test_auto_silence_risk_drift_storm_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p49/scripts/__pycache__/test_auto_silence_risk_drift_storm_v1.cpython-313.pyc and p5x/scripts/__pycache__/test_auto_silence_risk_drift_storm_v1.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/test_build_operator_score_report_p49_v1.cpython-313.pyc and p5x/scripts/__pycache__/test_build_operator_score_report_p49_v1.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/test_build_operator_score_report_v1.cpython-313.pyc and p5x/scripts/__pycache__/test_build_operator_score_report_v1.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/test_build_risk_engine_canary_report_v1.cpython-313.pyc and p5x/scripts/__pycache__/test_build_risk_engine_canary_report_v1.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/test_check_risk_mismatch_summary_archive_consistency_v1.cpython-313-pytest-9.0.2.pyc and p5x/scripts/__pycache__/test_check_risk_mismatch_summary_archive_consistency_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p49/scripts/__pycache__/test_check_risk_mismatch_summary_archive_consistency_v1.cpython-313.pyc and p5x/scripts/__pycache__/test_check_risk_mismatch_summary_archive_consistency_v1.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/test_check_risk_signal_snapshot_consistency_p47_v1.cpython-313.pyc and p5x/scripts/__pycache__/test_check_risk_signal_snapshot_consistency_p47_v1.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/test_check_risk_signal_snapshot_consistency_p48_v1.cpython-313.pyc and p5x/scripts/__pycache__/test_check_risk_signal_snapshot_consistency_p48_v1.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/test_purge_risk_mismatch_hot_tables_p5x_v1.cpython-313-pytest-9.0.2.pyc and p5x/scripts/__pycache__/test_purge_risk_mismatch_hot_tables_p5x_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p49/scripts/__pycache__/test_purge_risk_mismatch_hot_tables_p5x_v1.cpython-313.pyc and p5x/scripts/__pycache__/test_purge_risk_mismatch_hot_tables_p5x_v1.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/test_refresh_risk_decision_summary_v1.cpython-313.pyc and p5x/scripts/__pycache__/test_refresh_risk_decision_summary_v1.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/test_refresh_risk_mismatch_summary_p49_v1.cpython-313.pyc and p5x/scripts/__pycache__/test_refresh_risk_mismatch_summary_p49_v1.cpython-313.pyc differ
+Binary files p49/scripts/__pycache__/test_refresh_risk_mismatch_summary_v1.cpython-313.pyc and p5x/scripts/__pycache__/test_refresh_risk_mismatch_summary_v1.cpython-313.pyc differ
+diff -ruN p49/scripts/auto_silence_risk_drift_storm.py p5x/scripts/auto_silence_risk_drift_storm.py
+--- p49/scripts/auto_silence_risk_drift_storm.py	1970-01-01 00:00:00.000000000 +0000
++++ p5x/scripts/auto_silence_risk_drift_storm.py	2026-03-07 08:36:34.452151605 +0000
+@@ -0,0 +1,85 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import time
++from pathlib import Path
++from typing import Any, Dict
++from urllib import request
++
++
++def _load_json(path: Path) -> Dict[str, Any]:
++    if not path.exists():
++        return {}
++    try:
++        return json.loads(path.read_text(encoding='utf-8'))
++    except Exception:
++        return {}
++
++
++def _write_atomic(path: Path, payload: str) -> None:
++    path.parent.mkdir(parents=True, exist_ok=True)
++    tmp = path.with_suffix(path.suffix + '.tmp')
++    tmp.write_text(payload, encoding='utf-8')
++    tmp.replace(path)
++
++
++def decide_autosilence(summary: Dict[str, Any], *, quarantine_threshold: int, mismatch_rate_threshold: float) -> Dict[str, Any]:
++    rows = list(summary.get('rows') or [])
++    rows24 = [r for r in rows if str(r.get('window_name')) == '24h']
++    quarantine_count = sum(int(r.get('quarantine_count') or 0) for r in rows24)
++    max_avg_rate = max([float(r.get('avg_mismatch_rate') or 0.0) for r in rows24] or [0.0])
++    should = quarantine_count >= quarantine_threshold or max_avg_rate >= mismatch_rate_threshold
++    return {
++        'should_silence': should,
++        'quarantine_count_24h': quarantine_count,
++        'max_avg_mismatch_rate_24h': max_avg_rate,
++        'reason': 'storm' if should else 'below_threshold',
++    }
++
++
++def create_silence(base_url: str, duration_sec: int, created_by: str, comment: str) -> Dict[str, Any]:
++    starts = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
++    ends = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() + duration_sec))
++    payload = {
++        'matchers': [
++            {'name': 'domain', 'value': 'risk-drift', 'isRegex': False},
++        ],
++        'startsAt': starts,
++        'endsAt': ends,
++        'createdBy': created_by,
++        'comment': comment,
++    }
++    req = request.Request(base_url.rstrip('/') + '/api/v2/silences', data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json'})
++    with request.urlopen(req, timeout=10) as resp:  # nosec
++        body = resp.read().decode('utf-8')
++    return {'request': payload, 'response': json.loads(body) if body else {}}
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description='Auto-silence repeated risk-drift mismatch storms in Alertmanager.')
++    parser.add_argument('--report-dir', default=os.getenv('RUNBOOK_REPORT_DIR', '/var/lib/trade-runbook/reports'))
++    parser.add_argument('--alertmanager-url', default=os.getenv('ALERTMANAGER_EXTERNAL_URL', 'http://alertmanager:9093'))
++    parser.add_argument('--quarantine-threshold', type=int, default=int(os.getenv('RISK_DRIFT_AUTOSILENCE_QUARANTINE_THRESHOLD', '10')))
++    parser.add_argument('--mismatch-rate-threshold', type=float, default=float(os.getenv('RISK_DRIFT_AUTOSILENCE_MISMATCH_RATE_THRESHOLD', '0.20')))
++    parser.add_argument('--duration-sec', type=int, default=int(os.getenv('RISK_DRIFT_AUTOSILENCE_DURATION_SEC', '3600')))
++    parser.add_argument('--dry-run', action='store_true', default=os.getenv('RISK_DRIFT_AUTOSILENCE_DRY_RUN', '1') not in {'0','false','False'})
++    parser.add_argument('--out', default=os.getenv('RISK_DRIFT_AUTOSILENCE_REPORT_PATH', '/var/lib/trade-runbook/reports/latest_risk_drift_autosilence.json'))
++    args = parser.parse_args()
++    summary = _load_json(Path(args.report_dir) / 'latest_risk_mismatch_summary.json')
++    decision = decide_autosilence(summary, quarantine_threshold=args.quarantine_threshold, mismatch_rate_threshold=args.mismatch_rate_threshold)
++    out = {'generated_at_ms': int(time.time()*1000), **decision, 'dry_run': bool(args.dry_run)}
++    if decision['should_silence'] and not args.dry_run:
++        try:
++            out['silence'] = create_silence(args.alertmanager_url, args.duration_sec, 'trade-risk-drift-autosilence', 'Auto silence for repeated risk-drift mismatch storm')
++        except Exception as exc:
++            out['silence_error'] = str(exc)
++    _write_atomic(Path(args.out), json.dumps(out, ensure_ascii=False, indent=2) + '\n')
++    print(json.dumps(out, ensure_ascii=False, indent=2))
++    return 0
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+diff -ruN p49/scripts/build_operator_score_report.py p5x/scripts/build_operator_score_report.py
+--- p49/scripts/build_operator_score_report.py	2026-03-07 08:24:31.000000000 +0000
++++ p5x/scripts/build_operator_score_report.py	2026-03-07 08:36:36.603964018 +0000
+@@ -71,14 +71,17 @@
+     health = _load_json(report_dir / 'latest_execution_health.json')
+     risk_consistency = _load_json(report_dir / 'latest_risk_signal_consistency.json')
+     mismatch_summary = _load_json(report_dir / 'latest_risk_mismatch_summary.json')
++    archive_consistency = _load_json(report_dir / 'latest_risk_mismatch_archive_consistency.json')
+     execution_score = float(execution.get('score') or 50.0)
+     replay_score = _replay_score(replay)
+     risk_score = float(risk.get('score') or 50.0)
+     mismatch_rate = float(risk_consistency.get('mismatch_rate') or 0.0)
+     summary = _extract_mismatch_penalty(mismatch_summary)
++    archive_mismatch_penalty = min(float(archive_consistency.get('mismatch_count') or 0.0) * 2.5, 10.0)
+     score = execution_score * 0.40 + replay_score * 0.30 + risk_score * 0.30
+     score -= min(mismatch_rate * 100.0, 10.0)
+     score -= float(summary.get('mismatch_penalty') or 0.0)
++    score -= archive_mismatch_penalty
+     status = str(health.get('overall_status') or 'ok')
+     if status == 'warning':
+         score -= 5.0
+@@ -92,6 +95,8 @@
+         'risk_mismatch_rate': mismatch_rate,
+         'health_status': status,
+         **summary,
++        'archive_consistency_mismatch_count': int(archive_consistency.get('mismatch_count') or 0),
++        'archive_consistency_penalty': round(archive_mismatch_penalty, 2),
+         'score': round(score, 2),
+         'bucket': _bucket(score),
+     }
+diff -ruN p49/scripts/check_risk_mismatch_summary_archive_consistency.py p5x/scripts/check_risk_mismatch_summary_archive_consistency.py
+--- p49/scripts/check_risk_mismatch_summary_archive_consistency.py	1970-01-01 00:00:00.000000000 +0000
++++ p5x/scripts/check_risk_mismatch_summary_archive_consistency.py	2026-03-07 08:36:34.464788744 +0000
+@@ -0,0 +1,117 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import time
++from pathlib import Path
++
++try:
++    import psycopg  # type: ignore
++except Exception:  # pragma: no cover
++    psycopg = None  # type: ignore
++
++
++def _write_atomic(path: Path, payload: str) -> None:
++    path.parent.mkdir(parents=True, exist_ok=True)
++    tmp = path.with_suffix(path.suffix + '.tmp')
++    tmp.write_text(payload, encoding='utf-8')
++    tmp.replace(path)
++
++
++def render_textfile(report: dict) -> str:
++    gen = int(report.get('generated_at_ms') or 0)
++    freshness = max(0.0, (time.time()*1000 - gen)/1000.0) if gen else 0.0
++    stale_threshold = int(report.get('freshness_stale_threshold_sec') or 1800)
++    lines = [
++        '# HELP trade_risk_mismatch_archive_consistency_freshness_seconds Freshness of archive consistency report.',
++        '# TYPE trade_risk_mismatch_archive_consistency_freshness_seconds gauge',
++        f'trade_risk_mismatch_archive_consistency_freshness_seconds {freshness}',
++        '# HELP trade_risk_mismatch_archive_consistency_stale Whether archive consistency report is stale.',
++        '# TYPE trade_risk_mismatch_archive_consistency_stale gauge',
++        f"trade_risk_mismatch_archive_consistency_stale {1 if freshness > float(stale_threshold) else 0}",
++        '# HELP trade_risk_mismatch_archive_consistency_mismatch_total Number of mismatching summary rows.',
++        '# TYPE trade_risk_mismatch_archive_consistency_mismatch_total gauge',
++        f"trade_risk_mismatch_archive_consistency_mismatch_total {int(report.get('mismatch_count') or 0)}",
++    ]
++    return '\n'.join(lines) + '\n'
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description='Check consistency between risk_mismatch_summary_mv and hot+archive mismatch ledger.')
++    parser.add_argument('--dsn', default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')))
++    parser.add_argument('--out', default=os.getenv('RISK_MISMATCH_ARCHIVE_CONSISTENCY_REPORT_PATH', '/var/lib/trade-runbook/reports/latest_risk_mismatch_archive_consistency.json'))
++    parser.add_argument('--textfile-output', default=os.getenv('RISK_MISMATCH_ARCHIVE_CONSISTENCY_TEXTFILE_PATH', ''))
++    parser.add_argument('--freshness-stale-threshold-sec', type=int, default=int(os.getenv('RISK_MISMATCH_ARCHIVE_CONSISTENCY_STALE_SEC', '1800')))
++    args = parser.parse_args()
++    if not args.dsn or psycopg is None:
++        raise RuntimeError('psycopg + DSN required')
++    report = {'generated_at_ms': int(time.time()*1000), 'freshness_stale_threshold_sec': int(args.freshness_stale_threshold_sec), 'rows': []}
++    query = """
++    with unioned as (
++      select * from risk_mismatch_quarantine_ledger
++      union all
++      select * from risk_mismatch_quarantine_ledger_archive
++    ), base as (
++      select '1h'::text as window_name, * from unioned where created_ts_ms >= (extract(epoch from now() - interval '1 hour')*1000)::bigint
++      union all
++      select '24h'::text as window_name, * from unioned where created_ts_ms >= (extract(epoch from now() - interval '24 hours')*1000)::bigint
++      union all
++      select '7d'::text as window_name, * from unioned where created_ts_ms >= (extract(epoch from now() - interval '7 days')*1000)::bigint
++    ), expected as (
++      select window_name,
++             coalesce(nullif(tier,''), 'UNKNOWN') as tier,
++             count(*)::bigint as quarantine_count,
++             count(distinct sid)::bigint as distinct_sid_count,
++             avg(repeated_count)::double precision as avg_repeated_count,
++             max(repeated_count)::integer as max_repeated_count,
++             avg(mismatch_rate)::double precision as avg_mismatch_rate
++      from base
++      group by window_name, coalesce(nullif(tier,''), 'UNKNOWN')
++    )
++    select 
++      coalesce(mv.window_name, ex.window_name) as window_name,
++      coalesce(mv.tier, ex.tier) as tier,
++      mv.quarantine_count as mv_quarantine_count,
++      ex.quarantine_count as expected_quarantine_count,
++      mv.distinct_sid_count as mv_distinct_sid_count,
++      ex.distinct_sid_count as expected_distinct_sid_count,
++      mv.avg_repeated_count as mv_avg_repeated_count,
++      ex.avg_repeated_count as expected_avg_repeated_count,
++      mv.max_repeated_count as mv_max_repeated_count,
++      ex.max_repeated_count as expected_max_repeated_count,
++      mv.avg_mismatch_rate as mv_avg_mismatch_rate,
++      ex.avg_mismatch_rate as expected_avg_mismatch_rate
++    from risk_mismatch_summary_mv mv
++    full outer join expected ex using(window_name, tier)
++    order by 1,2
++    """
++    with psycopg.connect(args.dsn) as conn:
++        with conn.cursor() as cur:
++            cur.execute(query)
++            cols = [d.name for d in cur.description]
++            for row in cur.fetchall():
++                item = {k: row[i] for i, k in enumerate(cols)}
++                mismatch = False
++                for key in ('quarantine_count', 'distinct_sid_count', 'max_repeated_count'):
++                    if (item.get(f'mv_{key}') or 0) != (item.get(f'expected_{key}') or 0):
++                        mismatch = True
++                for key in ('avg_repeated_count', 'avg_mismatch_rate'):
++                    a = float(item.get(f'mv_{key}') or 0.0)
++                    b = float(item.get(f'expected_{key}') or 0.0)
++                    if abs(a - b) > 1e-6:
++                        mismatch = True
++                item['mismatch'] = mismatch
++                report['rows'].append(item)
++    report['row_count'] = len(report['rows'])
++    report['mismatch_count'] = sum(1 for row in report['rows'] if row.get('mismatch'))
++    _write_atomic(Path(args.out), json.dumps(report, ensure_ascii=False, indent=2) + '\n')
++    if args.textfile_output:
++        _write_atomic(Path(args.textfile_output), render_textfile(report))
++    print(json.dumps({'row_count': report['row_count'], 'mismatch_count': report['mismatch_count']}, ensure_ascii=False))
++    return 0
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+diff -ruN p49/scripts/purge_risk_mismatch_hot_tables.py p5x/scripts/purge_risk_mismatch_hot_tables.py
+--- p49/scripts/purge_risk_mismatch_hot_tables.py	2026-03-07 08:24:33.000000000 +0000
++++ p5x/scripts/purge_risk_mismatch_hot_tables.py	2026-03-07 08:36:36.791401095 +0000
+@@ -5,6 +5,7 @@
+ import json
+ import os
+ import time
++from pathlib import Path
+ 
+ try:
+     import psycopg  # type: ignore
+@@ -12,16 +13,44 @@
+     psycopg = None  # type: ignore
+ 
+ 
++def _write_atomic(path: Path, payload: str) -> None:
++    path.parent.mkdir(parents=True, exist_ok=True)
++    tmp = path.with_suffix(path.suffix + '.tmp')
++    tmp.write_text(payload, encoding='utf-8')
++    tmp.replace(path)
++
++
++def render_textfile(report: dict) -> str:
++    generated_at_ms = int(report.get('generated_at_ms') or 0)
++    freshness_seconds = max(0.0, (time.time() * 1000.0 - generated_at_ms) / 1000.0) if generated_at_ms else 0.0
++    stale_threshold = int(report.get('freshness_stale_threshold_sec') or 1800)
++    lines = [
++        '# HELP trade_risk_mismatch_retention_freshness_seconds Freshness of latest mismatch retention purge report.',
++        '# TYPE trade_risk_mismatch_retention_freshness_seconds gauge',
++        f'trade_risk_mismatch_retention_freshness_seconds {freshness_seconds}',
++        '# HELP trade_risk_mismatch_retention_stale Whether mismatch retention purge report is stale.',
++        '# TYPE trade_risk_mismatch_retention_stale gauge',
++        f"trade_risk_mismatch_retention_stale {1 if freshness_seconds > float(stale_threshold) else 0}",
++        '# HELP trade_risk_mismatch_retention_last_purged_quarantine Rows purged in latest mismatch retention run.',
++        '# TYPE trade_risk_mismatch_retention_last_purged_quarantine gauge',
++        f"trade_risk_mismatch_retention_last_purged_quarantine {int(report.get('purged_quarantine') or 0)}",
++    ]
++    return '\n'.join(lines) + '\n'
++
++
+ def main() -> int:
+     parser = argparse.ArgumentParser(description='Archive and purge risk mismatch quarantine ledger rows older than retention window.')
+     parser.add_argument('--dsn', default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')))
+     parser.add_argument('--retention-days', type=int, default=int(os.getenv('RISK_MISMATCH_RETENTION_DAYS', '30')))
+     parser.add_argument('--dry-run', action='store_true')
++    parser.add_argument('--out', default=os.getenv('RISK_MISMATCH_RETENTION_REPORT_PATH', '/var/lib/trade-runbook/reports/latest_risk_mismatch_retention.json'))
++    parser.add_argument('--textfile-output', default=os.getenv('RISK_MISMATCH_RETENTION_TEXTFILE_PATH', ''))
++    parser.add_argument('--freshness-stale-threshold-sec', type=int, default=int(os.getenv('RISK_MISMATCH_RETENTION_STALE_SEC', '86400')))
+     args = parser.parse_args()
+     if not args.dsn or psycopg is None:
+         raise RuntimeError('psycopg + DSN required')
+     cutoff_ms = int((time.time() - args.retention_days * 86400) * 1000)
+-    out = {'cutoff_ts_ms': cutoff_ms, 'dry_run': bool(args.dry_run)}
++    out = {'cutoff_ts_ms': cutoff_ms, 'dry_run': bool(args.dry_run), 'generated_at_ms': int(time.time()*1000), 'freshness_stale_threshold_sec': int(args.freshness_stale_threshold_sec)}
+     with psycopg.connect(args.dsn) as conn:
+         with conn.cursor() as cur:
+             if args.dry_run:
+@@ -33,9 +62,12 @@
+                 out['purged_quarantine'] = int(row[0])
+         if not args.dry_run:
+             conn.commit()
++    _write_atomic(Path(args.out), json.dumps(out, ensure_ascii=False, indent=2) + '\n')
++    if args.textfile_output:
++        _write_atomic(Path(args.textfile_output), render_textfile(out))
+     print(json.dumps(out, ensure_ascii=False, indent=2))
+     return 0
+ 
+ 
+-if __name__ == '__main__':  # pragma: no cover
++if __name__ == '__main__':
+     raise SystemExit(main())
+diff -ruN p49/scripts/test_auto_silence_risk_drift_storm_v1.py p5x/scripts/test_auto_silence_risk_drift_storm_v1.py
+--- p49/scripts/test_auto_silence_risk_drift_storm_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p5x/scripts/test_auto_silence_risk_drift_storm_v1.py	2026-03-07 08:36:37.049482325 +0000
+@@ -0,0 +1,21 @@
++import importlib.util
++import sys
++from pathlib import Path
++
++p = Path(__file__).resolve().parents[0] / 'auto_silence_risk_drift_storm.py'
++spec = importlib.util.spec_from_file_location('auto_silence_risk_drift_storm', p)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++spec.loader.exec_module(mod)
++
++
++def test_decide_autosilence_triggers_on_rate():
++    summary = {'rows':[{'window_name':'24h','quarantine_count':2,'avg_mismatch_rate':0.25}]}
++    dec = mod.decide_autosilence(summary, quarantine_threshold=10, mismatch_rate_threshold=0.2)
++    assert dec['should_silence'] is True
++
++
++def test_decide_autosilence_below_threshold():
++    summary = {'rows':[{'window_name':'24h','quarantine_count':1,'avg_mismatch_rate':0.01}]}
++    dec = mod.decide_autosilence(summary, quarantine_threshold=10, mismatch_rate_threshold=0.2)
++    assert dec['should_silence'] is False
+diff -ruN p49/scripts/test_check_risk_mismatch_summary_archive_consistency_v1.py p5x/scripts/test_check_risk_mismatch_summary_archive_consistency_v1.py
+--- p49/scripts/test_check_risk_mismatch_summary_archive_consistency_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p5x/scripts/test_check_risk_mismatch_summary_archive_consistency_v1.py	2026-03-07 08:36:37.064939490 +0000
+@@ -0,0 +1,14 @@
++import importlib.util
++import sys
++from pathlib import Path
++
++p = Path(__file__).resolve().parents[0] / 'check_risk_mismatch_summary_archive_consistency.py'
++spec = importlib.util.spec_from_file_location('check_risk_mismatch_summary_archive_consistency', p)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++spec.loader.exec_module(mod)
++
++
++def test_render_textfile_contains_metrics():
++    txt = mod.render_textfile({'generated_at_ms': 0, 'freshness_stale_threshold_sec': 10, 'mismatch_count': 2})
++    assert 'trade_risk_mismatch_archive_consistency_mismatch_total' in txt
+diff -ruN p49/scripts/test_purge_risk_mismatch_hot_tables_p5x_v1.py p5x/scripts/test_purge_risk_mismatch_hot_tables_p5x_v1.py
+--- p49/scripts/test_purge_risk_mismatch_hot_tables_p5x_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p5x/scripts/test_purge_risk_mismatch_hot_tables_p5x_v1.py	2026-03-07 08:36:37.077563226 +0000
+@@ -0,0 +1,15 @@
++import importlib.util
++import sys
++from pathlib import Path
++
++p = Path(__file__).resolve().parents[0] / 'purge_risk_mismatch_hot_tables.py'
++spec = importlib.util.spec_from_file_location('purge_risk_mismatch_hot_tables', p)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++spec.loader.exec_module(mod)
++
++
++def test_retention_textfile_contains_freshness():
++    txt = mod.render_textfile({'generated_at_ms': 0, 'freshness_stale_threshold_sec': 10, 'purged_quarantine': 3})
++    assert 'trade_risk_mismatch_retention_freshness_seconds' in txt
++    assert 'trade_risk_mismatch_retention_last_purged_quarantine' in txt

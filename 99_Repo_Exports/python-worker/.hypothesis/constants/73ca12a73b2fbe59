@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/ab_winner_approval.py
+# hypothesis_version: 6.148.10
+
+[0.0, 'A', 'B', 'C', 'arms', 'bad_winner_arm', 'default', 'mean_r', 'missing_winner_stats', 'n', 'na', 'ok(usd_only)', 'winner_arm']

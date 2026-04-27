@@ -1,0 +1,80 @@
+# Runtime rules-loaded probe alerts (v18)
+#
+# These alerts rely on exporter gauges populated from Redis keys written by:
+#   orderflow_services/prom_rules_loaded_probe_v1.py
+#
+# Gauge sources (enforce_bucket_state_exporter_v1.py):
+#   rules_loaded_probe_last_ok       (state:prom_rules_loaded:last_ok)
+#   rules_loaded_probe_last_ok_age_sec
+#   rules_loaded_probe_last_run_age_sec
+#   rules_files_expected             (state:prom_rules_loaded:files_expected)
+#   rules_files_loaded               (state:prom_rules_loaded:files_loaded)
+#   rules_files_missing              (state:prom_rules_loaded:missing_n)
+#
+# Runbook: orderflow_services/runbook_world_practice_trackers_v1.md  §P91
+
+groups:
+  - name: of_prom_rules_loaded_probe
+    rules:
+      # Alert P91-A: expected files NOT loaded by Prometheus (mount/rule_files glob issue)
+      - alert: OF_PromRulesFilesMissing_Crit
+        expr: rules_files_missing > 0
+        for: 10m
+        labels:
+          severity: crit
+          component: observability
+          p_ref: P91
+        annotations:
+          summary: "Prometheus rules bundle: expected files are NOT loaded"
+          description: >-
+            rules_files_missing > 0. Prometheus has not picked up one or more expected
+            rule files from rule_files: include-list (mount or glob mismatch).
+            Check: volume mounts, prometheus.yml rule_files globs, then reload Prometheus.
+            Expected={{ $labels.rules_files_expected }} Loaded={{ $labels.rules_files_loaded }}
+
+      # Alert P91-B: runtime probe itself failing or stale → can't detect missing files
+      - alert: OF_PromRulesLoadedProbeFailing_Warn
+        expr: rules_loaded_probe_last_ok == 0
+        for: 15m
+        labels:
+          severity: warn
+          component: observability
+          p_ref: P91
+        annotations:
+          summary: "Prometheus rules-loaded probe last run FAILED"
+          description: >-
+            rules_loaded_probe_last_ok == 0. The probe returned non-zero (files missing or
+            Prometheus unreachable). Check prom_rules_loaded_probe_v1 logs, PROMETHEUS_URL,
+            and Redis state:prom_rules_loaded:error_head key.
+
+      # Alert P91-C: probe is stale — scheduled run has not fired in >3h
+      - alert: OF_PromRulesLoadedProbeStale_Warn
+        expr: rules_loaded_probe_last_run_age_sec > 10800
+        for: 10m
+        labels:
+          severity: warn
+          component: observability
+          p_ref: P91
+        annotations:
+          summary: "Prometheus rules-loaded probe is stale"
+          description: >-
+            No probe run in >3h. Check of_timers_worker schedule (hourly :10) and
+            prom_rules_loaded_probe_v1 logs. Ensure ENABLE_PROM_RULES_LOADED_PROBE=1.
+
+      # Alert P91-D: Prometheus rule group evaluation is stalling
+      # Uses native prometheus_rule_group_last_evaluation_timestamp_seconds metric.
+      # A stalled group means alerts are not evaluated even if rules are loaded.
+      - alert: OF_PromRuleGroupEvalStall_Warn
+        expr: >-
+          (time() - prometheus_rule_group_last_evaluation_timestamp_seconds) > 300
+        for: 5m
+        labels:
+          severity: warn
+          component: observability
+          p_ref: P91
+        annotations:
+          summary: "Prometheus rule group evaluation is stalling"
+          description: >-
+            Rule group {{ $labels.rule_group }} in file {{ $labels.file }} has not been
+            evaluated for >5min. This means alerts in that group are effectively disabled
+            even if the rule file is loaded. Check Prometheus scrape health and resource usage.

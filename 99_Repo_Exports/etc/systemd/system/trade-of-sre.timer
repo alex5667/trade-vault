@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Trade OF Gate SRE monitor every 10 minutes
+
+[Timer]
+OnCalendar=*:0/10
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/meta_features_v4.py
+# hypothesis_version: 6.148.10
+
+[0.0, ',', 'book_convex_ask', 'book_convex_bid', 'book_slope_ask', 'book_slope_bid', 'depth_ask_5', 'depth_bid_5', 'indicators', 'log1p', 'meta_feat_v4', 'mp_mid_bps', 'mp_shift_bps', 'name', 'obi_dw', 'utf-8', 'v4']

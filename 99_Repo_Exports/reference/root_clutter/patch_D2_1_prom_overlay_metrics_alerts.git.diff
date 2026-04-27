@@ -1,0 +1,541 @@
+diff --git a/orderflow_services/prometheus_alerts_liqmap_levels_overlay_v1.yml b/orderflow_services/prometheus_alerts_liqmap_levels_overlay_v1.yml
+new file mode 100644
+index 0000000..8af0c49
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_liqmap_levels_overlay_v1.yml
+@@ -0,0 +1,34 @@
++groups:
++  - name: liqmap_levels_overlay_v1
++    rules:
++      - alert: LiqMapLevelsOverlayEnabledButNeverAppliedWarn
++        expr: |
++          (max_over_time(liqmap_levels_overlay_enabled[30m]) == 1)
++          and on(symbol, window)
++          (sum by(symbol, window) (increase(liqmap_levels_attempt_total[30m])) > 0)
++          and on(symbol, window)
++          (max_over_time(liqmap_levels_applied_last[30m]) == 0)
++        for: 10m
++        labels:
++          severity: warn
++        annotations:
++          summary: "LiqMap levels overlay enabled but never applied (warn)"
++          description: |
++            LiqMap TP/SL overlay is enabled (D2) and code-path is executed, but applied flag stayed 0 for 30m.
++            Usually indicates mismatch between liqmap_* keys, missing injection, or missing apply function wiring.
++
++      - alert: LiqMapLevelsOverlayEnabledButNeverAppliedCrit
++        expr: |
++          (max_over_time(liqmap_levels_overlay_enabled[120m]) == 1)
++          and on(symbol, window)
++          (sum by(symbol, window) (increase(liqmap_levels_attempt_total[120m])) > 0)
++          and on(symbol, window)
++          (max_over_time(liqmap_levels_applied_last[120m]) == 0)
++        for: 30m
++        labels:
++          severity: crit
++        annotations:
++          summary: "LiqMap levels overlay enabled but never applied (crit)"
++          description: |
++            LiqMap TP/SL overlay is enabled and code-path is executed, but applied flag stayed 0 for 2h.
++            Treat as miswire: injection keys mismatch, Redis snapshot not parsed, or overlay config too strict (min_usd/buffer).
+diff --git a/orderflow_services/tests/test_liqmap_levels_overlay_alerts_yaml_v1.py b/orderflow_services/tests/test_liqmap_levels_overlay_alerts_yaml_v1.py
+new file mode 100644
+index 0000000..f15a33f
+--- /dev/null
++++ b/orderflow_services/tests/test_liqmap_levels_overlay_alerts_yaml_v1.py
+@@ -0,0 +1,26 @@
++from pathlib import Path
++
++import yaml
++
++
++def _load_yaml(p: Path) -> dict:
++    txt = p.read_text("utf-8", errors="ignore")
++    data = yaml.safe_load(txt)
++    assert isinstance(data, dict)
++    return data
++
++
++def test_liqmap_levels_overlay_alerts_yaml_v1_exists_and_parses():
++    root = Path(__file__).resolve().parents[1]  # orderflow_services/
++    for p in [
++        root / "prometheus_alerts_liqmap_levels_overlay_v1.yml",
++        root.parent / "tick_flow_full" / "orderflow_services" / "prometheus_alerts_liqmap_levels_overlay_v1.yml",
++    ]:
++        assert p.exists(), f"missing {p}"
++        data = _load_yaml(p)
++        assert "groups" in data and isinstance(data["groups"], list)
++        assert data["groups"][0]["name"] == "liqmap_levels_overlay_v1"
++        rules = data["groups"][0]["rules"]
++        names = {r.get("alert") for r in rules}
++        assert "LiqMapLevelsOverlayEnabledButNeverAppliedWarn" in names
++        assert "LiqMapLevelsOverlayEnabledButNeverAppliedCrit" in names
+diff --git a/../repo_base/services/orderflow/components/tick_processor.py b/services/orderflow/components/tick_processor.py
+index 0c8e80d..7f34dd3 100644
+--- a/../repo_base/services/orderflow/components/tick_processor.py
++++ b/services/orderflow/components/tick_processor.py
+@@ -120,6 +120,9 @@ from services.orderflow.metrics import (
+     trade_adverse_rd_bad_share,
+     trade_adverse_rd_n,
+     trade_adverse_rd_veto,
++    # D2.1: LiqMap TP/SL overlay metrics
++    liqmap_levels_overlay_enabled_gauge, liqmap_levels_attempt_total, liqmap_levels_applied_gauge, liqmap_levels_applied_total, liqmap_levels_cap_sl_widen_total, liqmap_tp1_adj_bps_hist, liqmap_sl_adj_bps_hist,
++
+ )
+ 
+ # D2: LiqMap TP/SL anchoring overlay helper (feature-flagged, fail-open).
+@@ -3450,42 +3453,74 @@ class TickProcessor:
+                 and len(tps) >= 1
+                 and float(entry or 0.0) > 0
+             ):
++                sym = str(getattr(runtime, "symbol", "") or "")
++                win = str(getattr(self, "liqmap_levels_window", "1h") or "1h")
++                try:
++                    liqmap_levels_overlay_enabled_gauge.labels(symbol=sym, window=win).set(1.0)
++                    liqmap_levels_attempt_total.labels(symbol=sym, window=win).inc()
++                    # default: last-applied flag is 0 until we prove otherwise
++                    liqmap_levels_applied_gauge.labels(symbol=sym, window=win).set(0.0)
++                except Exception:
++                    pass
++
+                 if apply_liqmap_tp_sl_adjustment is None:
+                     # Misconfiguration / missing patch: surface it in indicators (only when explicitly enabled).
+                     indicators.setdefault("liqmap_levels_applied", 0)
+                     indicators.setdefault("liqmap_levels_reason", "missing_apply_fn")
+-                    pass
++                    # skip overlay when apply fn is missing
+ 
+-                base_tp1 = float(tps[0])
+-                new_sl, new_tp1, patch = apply_liqmap_tp_sl_adjustment(
+-                    entry=float(entry),
+-                    side=str(side).upper(),
+-                    base_sl=float(sl),
+-                    base_tp1=float(base_tp1),
+-                    indicators=indicators,
+-                    window=str(getattr(self, "liqmap_levels_window", "1h") or "1h"),
+-                    min_usd=float(getattr(self, "liqmap_levels_min_usd", 0.0) or 0.0),
+-                    buffer_bps=float(getattr(self, "liqmap_levels_buffer_bps", 0.0) or 0.0),
+-                    max_sl_widen_bps=float(getattr(self, "liqmap_levels_max_sl_widen_bps", 0.0) or 0.0),
+-                    enable_tp1=bool(getattr(self, "liqmap_levels_enable_tp1", True)),
+-                    enable_sl=bool(getattr(self, "liqmap_levels_enable_sl", False)),
+-                )
++                else:
++                    base_tp1 = float(tps[0])
++                    new_sl, new_tp1, patch = apply_liqmap_tp_sl_adjustment(
++                        entry=float(entry),
++                        side=str(side).upper(),
++                        base_sl=float(sl),
++                        base_tp1=float(base_tp1),
++                        indicators=indicators,
++                        window=win,
++                        min_usd=float(getattr(self, "liqmap_levels_min_usd", 0.0) or 0.0),
++                        buffer_bps=float(getattr(self, "liqmap_levels_buffer_bps", 0.0) or 0.0),
++                        max_sl_widen_bps=float(getattr(self, "liqmap_levels_max_sl_widen_bps", 0.0) or 0.0),
++                        enable_tp1=bool(getattr(self, "liqmap_levels_enable_tp1", True)),
++                        enable_sl=bool(getattr(self, "liqmap_levels_enable_sl", False)),
++                    )
++
++                    if isinstance(patch, dict):
++                        indicators.update(patch)
++
++                        # D2.1: Prometheus emission for overlay result (low-cardinality)
++                        try:
++                            _p = patch if isinstance(patch, dict) else {}
++                            _applied = int(_p.get("liqmap_levels_applied") or 0)
++                            liqmap_levels_applied_gauge.labels(symbol=sym, window=win).set(1.0 if _applied else 0.0)
++                            if _applied:
++                                _r = str(_p.get("liqmap_levels_reason") or "unknown")
++                                _allowed = {"tp1_before_peak", "tp1_after_peak", "sl_behind_peak", "cap_sl_widen", "no_peak", "missing_apply_fn", "other", "unknown"}
++                                reason = _r if _r in _allowed else "other"
++                                liqmap_levels_applied_total.labels(symbol=sym, window=win, reason=reason).inc()
++                                if reason == "cap_sl_widen":
++                                    liqmap_levels_cap_sl_widen_total.labels(symbol=sym, window=win).inc()
++                                tp_adj = float(_p.get("liqmap_tp1_adj_bps", 0.0) or 0.0)
++                                sl_adj = float(_p.get("liqmap_sl_adj_bps", 0.0) or 0.0)
++                                if tp_adj != 0.0:
++                                    liqmap_tp1_adj_bps_hist.labels(symbol=sym, window=win).observe(tp_adj)
++                                if sl_adj != 0.0:
++                                    liqmap_sl_adj_bps_hist.labels(symbol=sym, window=win).observe(sl_adj)
++                        except Exception:
++                            pass
+ 
+-                if isinstance(patch, dict):
+-                    indicators.update(patch)
+-
+-                s = str(side).upper()
+-                # Apply only if sane and on the correct side of entry.
+-                if s == "LONG":
+-                    if isinstance(new_tp1, (int, float)) and float(new_tp1) > float(entry):
+-                        tps[0] = float(new_tp1)
+-                    if isinstance(new_sl, (int, float)) and float(new_sl) < float(entry):
+-                        sl = float(new_sl)
+-                else:  # SHORT
+-                    if isinstance(new_tp1, (int, float)) and float(new_tp1) < float(entry):
+-                        tps[0] = float(new_tp1)
+-                    if isinstance(new_sl, (int, float)) and float(new_sl) > float(entry):
+-                        sl = float(new_sl)
++                    s = str(side).upper()
++                    # Apply only if sane and on the correct side of entry.
++                    if s == "LONG":
++                        if isinstance(new_tp1, (int, float)) and float(new_tp1) > float(entry):
++                            tps[0] = float(new_tp1)
++                        if isinstance(new_sl, (int, float)) and float(new_sl) < float(entry):
++                            sl = float(new_sl)
++                    else:  # SHORT
++                        if isinstance(new_tp1, (int, float)) and float(new_tp1) < float(entry):
++                            tps[0] = float(new_tp1)
++                        if isinstance(new_sl, (int, float)) and float(new_sl) > float(entry):
++                            sl = float(new_sl)
+         except Exception:
+             # Fail-open: never block signal building due to overlay issues.
+             pass
+diff --git a/../repo_base/services/orderflow/metrics.py b/services/orderflow/metrics.py
+index a588af4..86bf679 100644
+--- a/../repo_base/services/orderflow/metrics.py
++++ b/services/orderflow/metrics.py
+@@ -1800,3 +1800,63 @@ metrics_queue_dropped_total = _get_or_create_prom_counter(
+ 
+ # pre_publish_veto_total → pre_publish_gate_veto_total
+ pre_publish_veto_total = pre_publish_gate_veto_total  # noqa: F811
++
++# -----------------------------------------------------------------------------
++# D2.1: LiqMap levels overlay (TP/SL anchoring) — Prometheus metrics
++# -----------------------------------------------------------------------------
++# These metrics are emitted from TickProcessor._calculate_levels() overlay block.
++# They are intentionally low-cardinality: labels are (symbol, window, [reason]).
++# - overlay_enabled: gauge (1 when overlay enabled and code-path is executed)
++# - attempt_total: counter (how many times overlay logic ran)
++# - applied: gauge (last observed applied flag: 0/1)
++# - applied_total: counter (how many times overlay actually modified TP1/SL)
++# - cap_sl_widen_total: counter (how many times SL widening was capped)
++# - tp1/sl adj bps histograms: distribution of signed adjustments in bps
++# -----------------------------------------------------------------------------
++
++liqmap_levels_overlay_enabled_gauge = _get_or_create_prom_gauge(
++    "liqmap_levels_overlay_enabled",
++    "LiqMap TP/SL overlay enabled on tick path (1 when executed)",
++    ["symbol", "window"],
++)
++liqmap_levels_attempt_total = _get_or_create_prom_counter(
++    "liqmap_levels_attempt",
++    "Total attempts to apply LiqMap TP/SL overlay (executed code-path)",
++    ["symbol", "window"],
++)
++liqmap_levels_applied_gauge = _get_or_create_prom_gauge(
++    "liqmap_levels_applied_last",
++    "LiqMap TP/SL overlay applied flag (last observed 0/1)",
++    ["symbol", "window"],
++)
++liqmap_levels_applied_total = _get_or_create_prom_counter(
++    "liqmap_levels_applied",
++    "Total successful LiqMap TP/SL overlay applications (TP1/SL modified)",
++    ["symbol", "window", "reason"],
++)
++liqmap_levels_cap_sl_widen_total = _get_or_create_prom_counter(
++    "liqmap_levels_cap_sl_widen",
++    "Total times SL widening was capped by max_sl_widen_bps",
++    ["symbol", "window"],
++)
++
++# Signed bps histograms (include negative buckets for SHORT/LONG symmetry).
++# Keep buckets coarse to avoid memory bloat; values are typically in [-50..50] bps.
++_LIQMAP_ADJ_BPS_BUCKETS = [
++    -200.0, -100.0, -50.0, -30.0, -20.0, -10.0, -5.0, -2.0, -1.0,
++    0.0,
++    1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 50.0, 100.0, 200.0,
++]
++
++liqmap_tp1_adj_bps_hist = _get_or_create_prom_histogram(
++    "liqmap_tp1_adj_bps",
++    "Distribution of TP1 adjustment from LiqMap overlay (signed bps)",
++    ["symbol", "window"],
++    buckets=_LIQMAP_ADJ_BPS_BUCKETS,
++)
++liqmap_sl_adj_bps_hist = _get_or_create_prom_histogram(
++    "liqmap_sl_adj_bps",
++    "Distribution of SL adjustment from LiqMap overlay (signed bps)",
++    ["symbol", "window"],
++    buckets=_LIQMAP_ADJ_BPS_BUCKETS,
++)
+diff --git a/services/orderflow/tests/test_liqmap_levels_overlay_metrics_exports_d21.py b/services/orderflow/tests/test_liqmap_levels_overlay_metrics_exports_d21.py
+new file mode 100644
+index 0000000..98de76d
+--- /dev/null
++++ b/services/orderflow/tests/test_liqmap_levels_overlay_metrics_exports_d21.py
+@@ -0,0 +1,49 @@
++from __future__ import annotations
++
++import importlib.util
++from pathlib import Path
++
++
++def _load_module_from_path(mod_name: str, path: Path):
++    spec = importlib.util.spec_from_file_location(mod_name, str(path))
++    assert spec is not None
++    assert spec.loader is not None
++    m = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(m)  # type: ignore[attr-defined]
++    return m
++
++
++def test_liqmap_levels_overlay_metrics_exports_d21():
++    root = Path(__file__).resolve().parents[3]  # repo root
++
++    # Import only SoT metrics to avoid default-registry collisions from the mirror module.
++    sot = _load_module_from_path(
++        "tick_flow_full_sot_metrics_d21",
++        root / "tick_flow_full" / "services" / "orderflow" / "metrics.py",
++    )
++
++    expected = [
++        "liqmap_levels_overlay_enabled_gauge",
++        "liqmap_levels_attempt_total",
++        "liqmap_levels_applied_gauge",
++        "liqmap_levels_applied_total",
++        "liqmap_levels_cap_sl_widen_total",
++        "liqmap_tp1_adj_bps_hist",
++        "liqmap_sl_adj_bps_hist",
++    ]
++    for name in expected:
++        assert hasattr(sot, name), f"SoT metrics missing {name}"
++
++    # label contracts (low cardinality)
++    assert tuple(sot.liqmap_levels_overlay_enabled_gauge._labelnames) == ("symbol", "window")
++    assert tuple(sot.liqmap_levels_attempt_total._labelnames) == ("symbol", "window")
++    assert tuple(sot.liqmap_levels_applied_gauge._labelnames) == ("symbol", "window")
++    assert tuple(sot.liqmap_levels_applied_total._labelnames) == ("symbol", "window", "reason")
++    assert tuple(sot.liqmap_levels_cap_sl_widen_total._labelnames) == ("symbol", "window")
++    assert tuple(sot.liqmap_tp1_adj_bps_hist._labelnames) == ("symbol", "window")
++    assert tuple(sot.liqmap_sl_adj_bps_hist._labelnames) == ("symbol", "window")
++
++    # Mirror: static check (avoid registry collisions on import)
++    mir_text = (root / "services" / "orderflow" / "metrics.py").read_text("utf-8", errors="ignore")
++    for name in expected:
++        assert name in mir_text, f"Mirror metrics code missing {name}"
+diff --git a/tick_flow_full/orderflow_services/prometheus_alerts_liqmap_levels_overlay_v1.yml b/tick_flow_full/orderflow_services/prometheus_alerts_liqmap_levels_overlay_v1.yml
+new file mode 100644
+index 0000000..8af0c49
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_liqmap_levels_overlay_v1.yml
+@@ -0,0 +1,34 @@
++groups:
++  - name: liqmap_levels_overlay_v1
++    rules:
++      - alert: LiqMapLevelsOverlayEnabledButNeverAppliedWarn
++        expr: |
++          (max_over_time(liqmap_levels_overlay_enabled[30m]) == 1)
++          and on(symbol, window)
++          (sum by(symbol, window) (increase(liqmap_levels_attempt_total[30m])) > 0)
++          and on(symbol, window)
++          (max_over_time(liqmap_levels_applied_last[30m]) == 0)
++        for: 10m
++        labels:
++          severity: warn
++        annotations:
++          summary: "LiqMap levels overlay enabled but never applied (warn)"
++          description: |
++            LiqMap TP/SL overlay is enabled (D2) and code-path is executed, but applied flag stayed 0 for 30m.
++            Usually indicates mismatch between liqmap_* keys, missing injection, or missing apply function wiring.
++
++      - alert: LiqMapLevelsOverlayEnabledButNeverAppliedCrit
++        expr: |
++          (max_over_time(liqmap_levels_overlay_enabled[120m]) == 1)
++          and on(symbol, window)
++          (sum by(symbol, window) (increase(liqmap_levels_attempt_total[120m])) > 0)
++          and on(symbol, window)
++          (max_over_time(liqmap_levels_applied_last[120m]) == 0)
++        for: 30m
++        labels:
++          severity: crit
++        annotations:
++          summary: "LiqMap levels overlay enabled but never applied (crit)"
++          description: |
++            LiqMap TP/SL overlay is enabled and code-path is executed, but applied flag stayed 0 for 2h.
++            Treat as miswire: injection keys mismatch, Redis snapshot not parsed, or overlay config too strict (min_usd/buffer).
+diff --git a/../repo_base/tick_flow_full/services/orderflow/components/tick_processor.py b/tick_flow_full/services/orderflow/components/tick_processor.py
+index a542ddb..506a4c6 100644
+--- a/../repo_base/tick_flow_full/services/orderflow/components/tick_processor.py
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -118,6 +118,9 @@ from services.orderflow.metrics import (
+     trade_adverse_rd_bad_share,
+     trade_adverse_rd_n,
+     trade_adverse_rd_veto,
++    # D2.1: LiqMap TP/SL overlay metrics
++    liqmap_levels_overlay_enabled_gauge, liqmap_levels_attempt_total, liqmap_levels_applied_gauge, liqmap_levels_applied_total, liqmap_levels_cap_sl_widen_total, liqmap_tp1_adj_bps_hist, liqmap_sl_adj_bps_hist,
++
+ )
+ 
+ # D2: LiqMap TP/SL anchoring overlay helper (feature-flagged, fail-open).
+@@ -3312,42 +3315,74 @@ class TickProcessor:
+                 and len(tps) >= 1
+                 and float(entry or 0.0) > 0
+             ):
++                sym = str(getattr(runtime, "symbol", "") or "")
++                win = str(getattr(self, "liqmap_levels_window", "1h") or "1h")
++                try:
++                    liqmap_levels_overlay_enabled_gauge.labels(symbol=sym, window=win).set(1.0)
++                    liqmap_levels_attempt_total.labels(symbol=sym, window=win).inc()
++                    # default: last-applied flag is 0 until we prove otherwise
++                    liqmap_levels_applied_gauge.labels(symbol=sym, window=win).set(0.0)
++                except Exception:
++                    pass
++
+                 if apply_liqmap_tp_sl_adjustment is None:
+                     # Misconfiguration / missing patch: surface it in indicators (only when explicitly enabled).
+                     indicators.setdefault("liqmap_levels_applied", 0)
+                     indicators.setdefault("liqmap_levels_reason", "missing_apply_fn")
+-                    pass
++                    # skip overlay when apply fn is missing
+ 
+-                base_tp1 = float(tps[0])
+-                new_sl, new_tp1, patch = apply_liqmap_tp_sl_adjustment(
+-                    entry=float(entry),
+-                    side=str(side).upper(),
+-                    base_sl=float(sl),
+-                    base_tp1=float(base_tp1),
+-                    indicators=indicators,
+-                    window=str(getattr(self, "liqmap_levels_window", "1h") or "1h"),
+-                    min_usd=float(getattr(self, "liqmap_levels_min_usd", 0.0) or 0.0),
+-                    buffer_bps=float(getattr(self, "liqmap_levels_buffer_bps", 0.0) or 0.0),
+-                    max_sl_widen_bps=float(getattr(self, "liqmap_levels_max_sl_widen_bps", 0.0) or 0.0),
+-                    enable_tp1=bool(getattr(self, "liqmap_levels_enable_tp1", True)),
+-                    enable_sl=bool(getattr(self, "liqmap_levels_enable_sl", False)),
+-                )
++                else:
++                    base_tp1 = float(tps[0])
++                    new_sl, new_tp1, patch = apply_liqmap_tp_sl_adjustment(
++                        entry=float(entry),
++                        side=str(side).upper(),
++                        base_sl=float(sl),
++                        base_tp1=float(base_tp1),
++                        indicators=indicators,
++                        window=win,
++                        min_usd=float(getattr(self, "liqmap_levels_min_usd", 0.0) or 0.0),
++                        buffer_bps=float(getattr(self, "liqmap_levels_buffer_bps", 0.0) or 0.0),
++                        max_sl_widen_bps=float(getattr(self, "liqmap_levels_max_sl_widen_bps", 0.0) or 0.0),
++                        enable_tp1=bool(getattr(self, "liqmap_levels_enable_tp1", True)),
++                        enable_sl=bool(getattr(self, "liqmap_levels_enable_sl", False)),
++                    )
++
++                    if isinstance(patch, dict):
++                        indicators.update(patch)
++
++                        # D2.1: Prometheus emission for overlay result (low-cardinality)
++                        try:
++                            _p = patch if isinstance(patch, dict) else {}
++                            _applied = int(_p.get("liqmap_levels_applied") or 0)
++                            liqmap_levels_applied_gauge.labels(symbol=sym, window=win).set(1.0 if _applied else 0.0)
++                            if _applied:
++                                _r = str(_p.get("liqmap_levels_reason") or "unknown")
++                                _allowed = {"tp1_before_peak", "tp1_after_peak", "sl_behind_peak", "cap_sl_widen", "no_peak", "missing_apply_fn", "other", "unknown"}
++                                reason = _r if _r in _allowed else "other"
++                                liqmap_levels_applied_total.labels(symbol=sym, window=win, reason=reason).inc()
++                                if reason == "cap_sl_widen":
++                                    liqmap_levels_cap_sl_widen_total.labels(symbol=sym, window=win).inc()
++                                tp_adj = float(_p.get("liqmap_tp1_adj_bps", 0.0) or 0.0)
++                                sl_adj = float(_p.get("liqmap_sl_adj_bps", 0.0) or 0.0)
++                                if tp_adj != 0.0:
++                                    liqmap_tp1_adj_bps_hist.labels(symbol=sym, window=win).observe(tp_adj)
++                                if sl_adj != 0.0:
++                                    liqmap_sl_adj_bps_hist.labels(symbol=sym, window=win).observe(sl_adj)
++                        except Exception:
++                            pass
+ 
+-                if isinstance(patch, dict):
+-                    indicators.update(patch)
+-
+-                s = str(side).upper()
+-                # Apply only if sane and on the correct side of entry.
+-                if s == "LONG":
+-                    if isinstance(new_tp1, (int, float)) and float(new_tp1) > float(entry):
+-                        tps[0] = float(new_tp1)
+-                    if isinstance(new_sl, (int, float)) and float(new_sl) < float(entry):
+-                        sl = float(new_sl)
+-                else:  # SHORT
+-                    if isinstance(new_tp1, (int, float)) and float(new_tp1) < float(entry):
+-                        tps[0] = float(new_tp1)
+-                    if isinstance(new_sl, (int, float)) and float(new_sl) > float(entry):
+-                        sl = float(new_sl)
++                    s = str(side).upper()
++                    # Apply only if sane and on the correct side of entry.
++                    if s == "LONG":
++                        if isinstance(new_tp1, (int, float)) and float(new_tp1) > float(entry):
++                            tps[0] = float(new_tp1)
++                        if isinstance(new_sl, (int, float)) and float(new_sl) < float(entry):
++                            sl = float(new_sl)
++                    else:  # SHORT
++                        if isinstance(new_tp1, (int, float)) and float(new_tp1) < float(entry):
++                            tps[0] = float(new_tp1)
++                        if isinstance(new_sl, (int, float)) and float(new_sl) > float(entry):
++                            sl = float(new_sl)
+         except Exception:
+             # Fail-open: never block signal building due to overlay issues.
+             pass
+diff --git a/../repo_base/tick_flow_full/services/orderflow/metrics.py b/tick_flow_full/services/orderflow/metrics.py
+index fd1d8fe..39adcfc 100644
+--- a/../repo_base/tick_flow_full/services/orderflow/metrics.py
++++ b/tick_flow_full/services/orderflow/metrics.py
+@@ -1685,3 +1685,63 @@ trade_adverse_rd_veto = Gauge(
+     "Adverse selection veto bit computed from realized drift stats (0/1).",
+     ["sym", "bucket"],
+ )
++
++# -----------------------------------------------------------------------------
++# D2.1: LiqMap levels overlay (TP/SL anchoring) — Prometheus metrics
++# -----------------------------------------------------------------------------
++# These metrics are emitted from TickProcessor._calculate_levels() overlay block.
++# They are intentionally low-cardinality: labels are (symbol, window, [reason]).
++# - overlay_enabled: gauge (1 when overlay enabled and code-path is executed)
++# - attempt_total: counter (how many times overlay logic ran)
++# - applied: gauge (last observed applied flag: 0/1)
++# - applied_total: counter (how many times overlay actually modified TP1/SL)
++# - cap_sl_widen_total: counter (how many times SL widening was capped)
++# - tp1/sl adj bps histograms: distribution of signed adjustments in bps
++# -----------------------------------------------------------------------------
++
++liqmap_levels_overlay_enabled_gauge = _get_or_create_prom_gauge(
++    "liqmap_levels_overlay_enabled",
++    "LiqMap TP/SL overlay enabled on tick path (1 when executed)",
++    ["symbol", "window"],
++)
++liqmap_levels_attempt_total = _get_or_create_prom_counter(
++    "liqmap_levels_attempt",
++    "Total attempts to apply LiqMap TP/SL overlay (executed code-path)",
++    ["symbol", "window"],
++)
++liqmap_levels_applied_gauge = _get_or_create_prom_gauge(
++    "liqmap_levels_applied_last",
++    "LiqMap TP/SL overlay applied flag (last observed 0/1)",
++    ["symbol", "window"],
++)
++liqmap_levels_applied_total = _get_or_create_prom_counter(
++    "liqmap_levels_applied",
++    "Total successful LiqMap TP/SL overlay applications (TP1/SL modified)",
++    ["symbol", "window", "reason"],
++)
++liqmap_levels_cap_sl_widen_total = _get_or_create_prom_counter(
++    "liqmap_levels_cap_sl_widen",
++    "Total times SL widening was capped by max_sl_widen_bps",
++    ["symbol", "window"],
++)
++
++# Signed bps histograms (include negative buckets for SHORT/LONG symmetry).
++# Keep buckets coarse to avoid memory bloat; values are typically in [-50..50] bps.
++_LIQMAP_ADJ_BPS_BUCKETS = [
++    -200.0, -100.0, -50.0, -30.0, -20.0, -10.0, -5.0, -2.0, -1.0,
++    0.0,
++    1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 50.0, 100.0, 200.0,
++]
++
++liqmap_tp1_adj_bps_hist = _get_or_create_prom_histogram(
++    "liqmap_tp1_adj_bps",
++    "Distribution of TP1 adjustment from LiqMap overlay (signed bps)",
++    ["symbol", "window"],
++    buckets=_LIQMAP_ADJ_BPS_BUCKETS,
++)
++liqmap_sl_adj_bps_hist = _get_or_create_prom_histogram(
++    "liqmap_sl_adj_bps",
++    "Distribution of SL adjustment from LiqMap overlay (signed bps)",
++    ["symbol", "window"],
++    buckets=_LIQMAP_ADJ_BPS_BUCKETS,
++)

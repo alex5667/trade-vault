@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/regime_gate.py
+# hypothesis_version: 6.148.10
+
+[0.0, 'absorption', 'breakout', 'extreme', 'obi_spike', 'sweep', 'unknown']

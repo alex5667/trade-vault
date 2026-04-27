@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/core/crypto_orderflow_confirmations.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 1.0, 1.15, 1.2, 15.0, 1000000000.0, 1200, 'L2ConfirmCfg', 'L2_TOP_N', 'OBI_TOP_N', 'age_ms', 'ask_topN_notional', 'ask_wall_near', 'asks', 'bid_topN_notional', 'bid_wall_near', 'bids', 'book', 'book_ts_ms', 'dir_up', 'imbalance', 'imbalance_low', 'imbalance_min', 'l2', 'l2_snapshot', 'l2_ts_ms', 'no_l2_snapshot', 'notional', 'ok', 'orderbook', 'orderbook_ts_ms', 'reason', 'size', 'stale_l2', 'too_thin_book', 'topN_total_notional', 'ts', 'ts_ms', 'wall_ask', 'wall_ask_dist_bps', 'wall_bid', 'wall_bid_dist_bps']

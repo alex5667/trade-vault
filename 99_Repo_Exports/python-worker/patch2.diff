@@ -1,0 +1,453 @@
+--- /mnt/data/orig_stage/python-worker/core/ok_fields.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/stage/python-worker/core/ok_fields.py	2026-02-21 07:46:42.040082006 +0000
+@@ -0,0 +1,227 @@
++from __future__ import annotations
++
++import json
++from typing import Any, Dict, Optional, Tuple
++
++
++def _to_str(v: Any) -> str:
++    if v is None:
++        return ""
++    if isinstance(v, (bytes, bytearray)):
++        try:
++            return v.decode("utf-8", errors="replace")
++        except Exception:
++            return str(v)
++    return str(v)
++
++
++def _int01(v: Any, default: int = 0) -> int:
++    """Best-effort convert to 0/1. Accepts bool/int/float/str/bytes."""
++    try:
++        if v is None:
++            return int(default)
++        if isinstance(v, bool):
++            return 1 if v else 0
++        if isinstance(v, (bytes, bytearray)):
++            v = _to_str(v)
++        if isinstance(v, (int, float)):
++            return 1 if int(v) != 0 else 0
++        s = str(v).strip().lower()
++        if s in ("1", "true", "yes", "y", "on", "ok", "pass", "allow", "allowed"):
++            return 1
++        if s in ("0", "false", "no", "n", "off", "fail", "deny", "denied"):
++            return 0
++        # Numeric string?
++        return 1 if int(float(s)) != 0 else 0
++    except Exception:
++        return int(default)
++
++
++def _try_json(v: Any) -> Optional[Any]:
++    if v is None:
++        return None
++    if isinstance(v, (bytes, bytearray)):
++        v = _to_str(v)
++    if not isinstance(v, str):
++        return None
++    s = v.strip()
++    if not s:
++        return None
++    if s[0] not in ("{", "["):
++        return None
++    try:
++        return json.loads(s)
++    except Exception:
++        return None
++
++
++def _row_get(row: Dict[str, Any], key: str) -> Any:
++    """Dict get that is tolerant to bytes keys and case differences."""
++    if key in row:
++        return row.get(key)
++    lk = key.lower()
++    for k, v in row.items():
++        try:
++            ks = k.decode("utf-8", errors="replace") if isinstance(k, (bytes, bytearray)) else str(k)
++        except Exception:
++            ks = str(k)
++        if ks == key or ks.lower() == lk:
++            return v
++    return None
++
++
++def _payload_dict(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
++    for k in ("payload", "data", "json", "decision", "decision_json", "event", "evidence"):
++        v = _row_get(row, k)
++        obj = _try_json(v)
++        if isinstance(obj, dict):
++            return obj
++    return None
++
++
++def parse_ok_fields_ex(row: Dict[str, Any]) -> Tuple[int, int, int, Dict[str, str]]:
++    """Parse ok / ok_soft / ok_rule from a stream row.
++
++    Returns: (ok, ok_soft, ok_rule, meta)
++      meta contains sources for each field: ok_src, ok_soft_src, ok_rule_src, payload_decoded.
++    """
++    meta: Dict[str, str] = {"ok_src": "", "ok_soft_src": "", "ok_rule_src": "", "payload_decoded": "0"}
++
++    # 1) Direct fields (preferred)
++    ok_v = _row_get(row, "ok")
++    if ok_v is not None:
++        ok = _int01(ok_v, 0)
++        meta["ok_src"] = "row.ok"
++    else:
++        ok = 0
++
++    ok_soft_v = _row_get(row, "ok_soft")
++    if ok_soft_v is not None:
++        ok_soft = _int01(ok_soft_v, 0)
++        meta["ok_soft_src"] = "row.ok_soft"
++    else:
++        ok_soft = 0
++
++    ok_rule_v = _row_get(row, "ok_rule")
++    if ok_rule_v is not None:
++        ok_rule = _int01(ok_rule_v, 0)
++        meta["ok_rule_src"] = "row.ok_rule"
++    else:
++        ok_rule = -1  # unknown for now
++
++    # 2) Aliases (row)
++    if meta["ok_src"] == "":
++        for alias in ("ok_final", "allow", "decision_ok", "rule_ok", "ok_strict"):
++            v = _row_get(row, alias)
++            if v is not None:
++                ok = _int01(v, 0)
++                meta["ok_src"] = f"row.{alias}"
++                break
++
++    if meta["ok_soft_src"] == "":
++        for alias in ("soft_ok", "okSoft", "soft_fail", "is_soft"):
++            v = _row_get(row, alias)
++            if v is not None:
++                ok_soft = _int01(v, 0)
++                meta["ok_soft_src"] = f"row.{alias}"
++                break
++
++    if meta["ok_rule_src"] == "":
++        for alias in ("rule_ok", "ok_strict", "heur_ok", "ok_heur"):
++            v = _row_get(row, alias)
++            if v is not None:
++                ok_rule = _int01(v, 0)
++                meta["ok_rule_src"] = f"row.{alias}"
++                break
++
++    # 3) Payload JSON
++    payload = _payload_dict(row)
++    if isinstance(payload, dict):
++        meta["payload_decoded"] = "1"
++
++        if meta["ok_src"] == "":
++            for k in ("ok", "ok_final", "allow", "decision_ok"):
++                if k in payload:
++                    ok = _int01(payload.get(k), 0)
++                    meta["ok_src"] = f"payload.{k}"
++                    break
++
++        if meta["ok_soft_src"] == "":
++            for k in ("ok_soft", "soft_ok", "okSoft", "soft_fail", "is_soft"):
++                if k in payload:
++                    ok_soft = _int01(payload.get(k), 0)
++                    meta["ok_soft_src"] = f"payload.{k}"
++                    break
++
++        if meta["ok_rule_src"] == "":
++            for k in ("ok_rule", "rule_ok", "ok_strict", "heur_ok", "ok_heur"):
++                if k in payload:
++                    ok_rule = _int01(payload.get(k), 0)
++                    meta["ok_rule_src"] = f"payload.{k}"
++                    break
++
++        # Some producers place nested dicts
++        if meta["ok_src"] == "" and isinstance(payload.get("decision"), dict):
++            d = payload["decision"]
++            for k in ("ok", "allow", "ok_final"):
++                if k in d:
++                    ok = _int01(d.get(k), 0)
++                    meta["ok_src"] = f"payload.decision.{k}"
++                    break
++
++    # 4) Fallback: if ok missing but ok_rule known -> use ok_rule as ok (keeps ok_rate meaningful)
++    if meta["ok_src"] == "":
++        if ok_rule in (0, 1):
++            ok = int(ok_rule)
++            meta["ok_src"] = "fallback.ok_rule"
++        else:
++            ok = 0
++            meta["ok_src"] = "missing"
++
++    if meta["ok_soft_src"] == "":
++        meta["ok_soft_src"] = "missing"
++
++    if meta["ok_rule_src"] == "":
++        if ok_rule in (0, 1):
++            meta["ok_rule_src"] = "inferred"
++        else:
++            # infer from ok if nothing else
++            ok_rule = int(ok)
++            meta["ok_rule_src"] = "fallback.ok"
++    if ok_rule not in (0, 1):
++        ok_rule = int(ok)
++
++    return int(ok), int(ok_soft), int(ok_rule), meta
++
++
++def parse_ok_fields(row: Dict[str, Any]) -> Tuple[int, int]:
++    ok, ok_soft, _ok_rule, _meta = parse_ok_fields_ex(row)
++    return ok, ok_soft
++
++
++def derive_ok_fields_from_ofc(ofc: Any, evidence: Optional[Dict[str, Any]] = None) -> Tuple[int, int, int, str]:
++    """Derive (ok, ok_soft, ok_rule, ok_src) from OFConfirm-like object + evidence dict.
++
++    Motivation: in some branches OFConfirm exposes ok_rule/allow but not ok, which made ok_rate always 0.
++    """
++    e = evidence if isinstance(evidence, dict) else {}
++    if not e:
++        try:
++            ev = getattr(ofc, "evidence", None)
++            if isinstance(ev, dict):
++                e = ev
++        except Exception:
++            e = {}
++
++    # ok_soft
++    ok_soft_v = e.get("ok_soft", None)
++    if ok_soft_v is not None:
++        ok_soft = _int01(ok_soft_v, 0)
++    else:
++        v = getattr(ofc, "ok_soft", None)
++        ok_soft = _int01(v, 0)
++
++    # ok_rule (heuristic)
++    v = getattr(ofc, "ok_rule", None)
++    if v is not None:
++        ok_rule = _int01(v, 0)
++    elif "ok_rule" in e:
++        ok_rule = _int01(e.get("ok_rule"), 0)
++    elif "rule_ok" in e:
++        ok_rule = _int01(e.get("rule_ok"), 0)
++    else:
++        ok_rule = -1
++
++    # ok (final)
++    ok_src = "missing"
++    v = getattr(ofc, "ok", None)
++    if v is not None:
++        ok = _int01(v, 0)
++        ok_src = "ofc.ok"
++    else:
++        v = getattr(ofc, "allow", None)
++        if v is not None:
++            ok = _int01(v, 0)
++            ok_src = "ofc.allow"
++        elif "ok" in e:
++            ok = _int01(e.get("ok"), 0)
++            ok_src = "evidence.ok"
++        else:
++            ok = -1
++
++    # fallback
++    if ok not in (0, 1):
++        if ok_rule in (0, 1):
++            ok = int(ok_rule)
++            ok_src = "fallback.ok_rule"
++        else:
++            ok = 0
++            ok_src = "fallback.0"
++
++    if ok_rule not in (0, 1):
++        ok_rule = int(ok)
++
++    return int(ok), int(ok_soft), int(ok_rule), str(ok_src)
+--- /mnt/data/orig_stage/python-worker/tools/of_gate_sre_monitor.py	2026-02-21 07:45:06.083355041 +0000
++++ /mnt/data/stage/python-worker/tools/of_gate_sre_monitor.py	2026-02-21 08:07:35.987304677 +0000
+@@ -12,6 +12,7 @@
+ from common.redis_errors import retry_redis_operation
++from core.ok_fields import parse_ok_fields_ex
+ 
+ 
+ def _now_ms() -> int:
+@@ -111,7 +112,7 @@
+     return d
+ 
+ 
+-def compute_stats(rows: List[Dict[str, Any]], prev: Optional[Dict[str, Any]], *, dh_bad_th: float) -> Dict[str, Any]:
++def compute_stats(rows: List[Dict[str, Any]], prev: Optional[Dict[str, Any]], *, dh_bad_th: float = 0.70, data_health_bad_th: Optional[float] = None) -> Dict[str, Any]:
+     n_total = len(rows)
+     valid_rows = [r for r in rows if _scenario_key(r) != "dn_veto"]
+     n = len(valid_rows)
+     dn_veto_count = n_total - n
++
++    # Backward-compatible alias
++    if data_health_bad_th is not None:
++        dh_bad_th = float(data_health_bad_th)
+ 
+     ok = 0
+     soft = 0
+@@ -125,6 +126,11 @@
+     miss = Counter()
+     scen = Counter()
+ 
++    ok_missing = 0
++    ok_from_payload = 0
++    ok_from_fallback = 0
++    ok_src_ctr = Counter()
++
+     # Process ALL rows for system-wide health and infra metrics
+     for r in rows:
+         lu = _f(r.get("latency_us", 0.0), 0.0)
+@@ -165,8 +171,20 @@
+ 
+     # Process valid_rows for business logical rates
+     for r in valid_rows:
+-        ok += 1 if _i(r.get("ok", 0), 0) == 1 else 0
+-        soft += 1 if _i(r.get("ok_soft", 0), 0) == 1 else 0
++        ok_i, soft_i, _ok_rule_i, meta = parse_ok_fields_ex(r)
++        ok += 1 if ok_i == 1 else 0
++        soft += 1 if soft_i == 1 else 0
+         meta_veto += 1 if _i(r.get("meta_veto", 0), 0) == 1 else 0
+         scen[_scenario_key(r)] += 1
++
++        src = str(meta.get("ok_src", ""))
++        if src == "missing":
++            ok_missing += 1
++        if src.startswith("payload"):
++            ok_from_payload += 1
++        if src.startswith("fallback"):
++            ok_from_fallback += 1
++        if src:
++            ok_src_ctr[src] += 1
+ 
+     ok_rate = (ok / n) if n > 0 else 0.0
+     soft_rate = (soft / n) if n > 0 else 0.0
+@@ -197,6 +215,10 @@
+         "dn_veto_rate": float(dn_veto_count / n_total) if n_total > 0 else 0.0,
+         "ok_rate": float(ok_rate),
+         "soft_rate": float(soft_rate),
++        "ok_missing_rate": float(ok_missing / n) if n > 0 else 0.0,
++        "ok_from_payload_rate": float(ok_from_payload / n) if n > 0 else 0.0,
++        "ok_from_fallback_rate": float(ok_from_fallback / n) if n > 0 else 0.0,
++        "ok_src_top": ok_src_ctr.most_common(5),
+         "lat_p50_us": float(pctl(lat, 0.50)),
+         "lat_p95_us": float(pctl(lat, 0.95)),
+         "lat_p99_us": float(pctl(lat, 0.99)),
+@@ -250,6 +272,8 @@
+     exec_p99_max = float(cfg.get("exec_p99_max", 0.60))
+     book_bad_max = float(cfg.get("book_bad_max", 0.05))
+     source_bad_max = float(cfg.get("source_bad_max", 0.05))
+     dh_bad_max = float(cfg.get("dh_bad_max", 0.10))
++    ok_missing_max = float(cfg.get("ok_missing_max", 0.01))
++    ok_fallback_max = float(cfg.get("ok_fallback_max", 0.05))
+ 
+     # Infra alerts
+     if stats["n_total"] >= min_n:
+@@ -270,6 +294,14 @@
+         if _f(stats.get("data_health_bad_rate", 0.0), 0.0) > dh_bad_max:
+             alerts.append({"code": "data_health_bad_high", "sev": "warn", "msg": f"dh_bad>{dh_bad_max:.3f}"})
++
++        # Contract / parsing alerts (over valid rows)
++        if _f(stats.get("ok_missing_rate", 0.0), 0.0) > ok_missing_max:
++            alerts.append({"code": "ok_field_missing", "sev": "warn", "msg": f"ok_missing>{ok_missing_max:.3f}"})
++        if _f(stats.get("ok_from_fallback_rate", 0.0), 0.0) > ok_fallback_max:
++            alerts.append({"code": "ok_field_fallback_high", "sev": "warn", "msg": f"ok_fallback>{ok_fallback_max:.3f}"})
+--- /mnt/data/orig_stage/python-worker/services/orderflow/tick_processor.py	2026-02-21 07:45:06.083623940 +0000
++++ /mnt/data/stage/python-worker/services/orderflow/tick_processor.py	2026-02-21 07:46:27.712524658 +0000
+@@ -58,6 +58,7 @@
+ from core.slippage_model import expected_slippage_bps
+ from core.of_inputs_contract import OFInputsV1, OFInputsV2
+ from core.instrument_config import get_default_delta_tiers
++from core.ok_fields import derive_ok_fields_from_ofc
+ 
+ from handlers.crypto_orderflow.utils.log_sampler import sampled_info, sampled_warning, sampled_debug, LogSamplerFactory
+ 
+@@ -1920,12 +1921,15 @@
+             meta_model_schema_ver = e.get("meta_model_schema_version")
+ 
+             of_build_us = _i(indicators.get("of_build_us"), 0)
+-            ok = _i(getattr(ofc, "ok", 0), 0)
++            ok, ok_soft, ok_rule, ok_src = derive_ok_fields_from_ofc(ofc, e)
+ 
+             payload = {
+                 "ts_ms": _i(tick_ts, 0),
+                 "symbol": getattr(runtime, "symbol", ""),
+                 "ok": ok,
++                "ok_rule": ok_rule,
++                "ok_soft": ok_soft,
++                "ok_src": ok_src,
+                 "of_build_us": of_build_us,
+                 "meta_feature_coverage": cov,
+                 "meta_model_feature_total": tot,
+@@ -1948,9 +1952,11 @@
+                 "ts_ms": str(payload["ts_ms"]),
+                 "symbol": str(payload["symbol"]),
+                 "ok": str(ok),
++                "ok_rule": str(ok_rule),
++                "ok_src": str(ok_src),
+                 "of_build_us": str(of_build_us),
+                 # Compatibility fields for of_gate_sre_monitor:
+-                "ok_soft": str(_i(e.get("ok_soft"), 0)),
++                "ok_soft": str(ok_soft),
+                 "meta_veto": str(_i(e.get("meta_veto"), 0)),
+                 "latency_us": str(of_build_us),
+                 "ml_latency_us": str(_i(e.get("ml_latency_us"), 0)),
+--- /mnt/data/orig_stage/python-worker/tests/test_of_gate_sre_monitor.py	2026-02-21 07:45:06.084149310 +0000
++++ /mnt/data/stage/python-worker/tests/test_of_gate_sre_monitor.py	2026-02-21 07:52:30.474101699 +0000
+@@ -215,3 +215,20 @@
+     assert _i("123", 0) == 123
+     assert _i("invalid", 0) == 0
+     assert _i(None, 42) == 42
++
++
++def test_compute_stats_ok_sources_and_rates():
++    rows = [
++        {"ok": "1", "ok_soft": "0", "scenario": "baseline"},
++        {"payload": "{\"ok\": 1, \"ok_soft\": 1}", "scenario": "baseline"},
++        {"ok_rule": "1", "ok_soft": "0", "scenario": "baseline"},
++    ]
++
++    stats = compute_stats(rows, prev=None, dh_bad_th=0.70)
++
++    assert abs(stats["ok_rate"] - 1.0) < 1e-9
++    # 1 row uses payload.ok
++    assert abs(stats["ok_from_payload_rate"] - (1.0 / 3.0)) < 1e-9
++    # 1 row uses fallback.ok_rule
++    assert abs(stats["ok_from_fallback_rate"] - (1.0 / 3.0)) < 1e-9
++    assert "ok_src_top" in stats
+--- /mnt/data/orig_stage/python-worker/tests/test_ok_fields.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/stage/python-worker/tests/test_ok_fields.py	2026-02-21 07:53:17.346779678 +0000
+@@ -0,0 +1,38 @@
++import json
++
++from core.ok_fields import parse_ok_fields_ex, derive_ok_fields_from_ofc
++
++
++def test_parse_ok_fields_ex_direct_and_bytes():
++    row = {b"ok": b"1", b"ok_soft": b"0", b"ok_rule": b"1"}
++    ok, ok_soft, ok_rule, meta = parse_ok_fields_ex(row)
++    assert (ok, ok_soft, ok_rule) == (1, 0, 1)
++    assert meta["ok_src"] == "row.ok"
++
++
++def test_parse_ok_fields_ex_payload_ok_rule_fallback():
++    row = {"payload": json.dumps({"ok_rule": 1, "ok_soft": 0})}
++    ok, ok_soft, ok_rule, meta = parse_ok_fields_ex(row)
++    assert (ok, ok_soft, ok_rule) == (1, 0, 1)
++    assert meta["ok_src"] == "fallback.ok_rule"
++
++
++def test_derive_ok_fields_from_ofc_prefers_ok_over_ok_rule():
++    class Dummy:
++        ok = 1
++        ok_rule = 0
++        allow = False
++        ok_soft = 0
++
++    ok, ok_soft, ok_rule, ok_src = derive_ok_fields_from_ofc(Dummy(), {})
++    assert (ok, ok_soft, ok_rule) == (1, 0, 1)
++    assert ok_src == "ofc.ok"

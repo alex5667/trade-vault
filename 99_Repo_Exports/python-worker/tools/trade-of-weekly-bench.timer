@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Trade OF weekly latency bench
+
+[Timer]
+OnCalendar=Sun *-*-* 06:40:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+

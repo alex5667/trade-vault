@@ -1,0 +1,10 @@
+[Unit]
+Description=Run trade execution automated repair policy periodically
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+Unit=trade-execution-auto-repair.service
+
+[Install]
+WantedBy=timers.target

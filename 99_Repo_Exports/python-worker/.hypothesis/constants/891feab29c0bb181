@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/gpu/l2_processor.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.1, 0.5, 4.0, 1000, 'ask', 'ask_depth', 'asks', 'avg_batch_size', 'batch_count', 'batch_size', 'best_ask', 'best_bid', 'bid', 'bid_depth', 'bids', 'buffer_size', 'buffer_timeout_ms', 'flushed', 'gpu_available', 'gpu_initialized', 'gpu_used', 'imbalance', 'inf', 'microprice', 'price', 'processed_count', 'processing_time_ms', 'side', 'size', 'spread', 'symbol', 'wall_ask_price', 'wall_ask_size', 'wall_bid_price', 'wall_bid_size']

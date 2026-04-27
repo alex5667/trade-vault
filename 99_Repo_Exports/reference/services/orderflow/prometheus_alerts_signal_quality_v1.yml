@@ -1,0 +1,82 @@
+groups:
+- name: SignalQualityContract
+  rules:
+  - alert: SweepContractBreak
+    expr: |
+      (
+        increase(confirmation_incomplete_total{kind="sweep_side_mismatch"}[5m]) > 0
+      )
+      OR
+      (
+        (sum by(symbol) (increase(sweep_detected_total[15m])) > 0)
+        and on(symbol)
+        (
+          (
+            (sum by(symbol) (increase(evidence_used_total{key="sweep"}[15m])))
+            or on(symbol) (0 * sum by(symbol) (increase(sweep_detected_total[15m])))
+          ) < 1
+        )
+      )
+    for: 1m
+    labels:
+      severity: critical
+      team: orderflow
+    annotations:
+      summary: "Sweep contract broken"
+      description: "Either sweep side mismatch is being emitted, or sweeps are detected
+        but sweep evidence is not being counted (metrics/contract regression)."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: SweepSideMissingHigh
+    expr: rate(sweep_side_missing_total[5m]) > 0.1
+    for: 5m
+    labels:
+      severity: warning
+      team: orderflow
+    annotations:
+      summary: "High Rate of Missing Sweep Sides"
+      description: "Symbol {{ $labels.symbol }} has a high rate of sweeps with unknown
+        side (neither EQH nor EQL). Check detector logic."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: IcebergStrictMissing
+    expr: 
+      increase(confirmation_incomplete_total{kind="iceberg_strict_missing"}[15m])
+      > 0
+    for: 1m
+    labels:
+      severity: warning
+      team: orderflow
+    annotations:
+      summary: "Iceberg Strict Mismatch"
+      description: "Symbol {{ $labels.symbol }} has legacy iceberg confirmation but
+        missing strict iceberg confirmation. Check signal consistency."
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+
+- name: LiqMapSnapshot
+  rules:
+  - alert: LiqMapSnapshotStale
+    expr: max_over_time(liqmap_snapshot_age_ms{window=~"5m|1h"}[5m]) > 60000
+    for: 5m
+    labels:
+      severity: warning
+      team: orderflow
+    annotations:
+      summary: "LiqMap snapshot is stale"
+      description: "Symbol {{ $labels.symbol }} window={{ $labels.window }} liqmap snapshot age exceeded 60s for 5m (likely liqmap builder stalled or Redis key missing updates)."
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: LiqMapSnapshotMissing
+    expr: max_over_time(liqmap_snapshot_age_ms{window=~"5m|1h"}[5m]) < 0
+    for: 5m
+    labels:
+      severity: warning
+      team: orderflow
+    annotations:
+      summary: "LiqMap snapshot missing"
+      description: "Symbol {{ $labels.symbol }} window={{ $labels.window }} liqmap snapshot appears missing/invalid for 5m (age metric stays negative)."
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd

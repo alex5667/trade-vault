@@ -1,0 +1,70 @@
+# GPU-enabled Dockerfile for signal-generator
+ARG CUDA_VERSION=12.1.0
+ARG PYTHON_VERSION=3.12
+ARG PIP_INDEX_URL=https://pypi.org/simple
+ARG PIP_EXTRA_INDEX_URL=
+
+FROM nvidia/cuda:${CUDA_VERSION}-cudnn8-runtime-ubuntu22.04 AS runtime
+
+ARG PIP_INDEX_URL
+ARG PIP_EXTRA_INDEX_URL
+
+ENV PYTHONUNBUFFERED=1
+ENV PIP_INDEX_URL=${PIP_INDEX_URL}
+ENV PIP_EXTRA_INDEX_URL=${PIP_EXTRA_INDEX_URL}
+
+# Install Python 3.12 via deadsnakes PPA
+# ✅ Fix: заменяем HTTP на HTTPS в apt sources для надежности
+ENV DEBIAN_FRONTEND=noninteractive
+RUN sed -i 's|http://archive.ubuntu.com|https://archive.ubuntu.com|g' /etc/apt/sources.list && \
+    sed -i 's|http://security.ubuntu.com|https://security.ubuntu.com|g' /etc/apt/sources.list && \
+    sed -i 's|http://ports.ubuntu.com|https://ports.ubuntu.com|g' /etc/apt/sources.list.d/*.list 2>/dev/null || true && \
+    apt-get update --allow-releaseinfo-change || \
+    (sleep 5 && apt-get update --allow-releaseinfo-change) || \
+    (sleep 10 && apt-get update --allow-releaseinfo-change) && \
+    apt-get install -y --no-install-recommends \
+      software-properties-common \
+      ca-certificates \
+      gnupg2 && \
+    add-apt-repository -y ppa:deadsnakes/ppa && \
+    apt-get update --allow-releaseinfo-change || \
+    (sleep 5 && apt-get update --allow-releaseinfo-change) || \
+    (sleep 10 && apt-get update --allow-releaseinfo-change) && \
+    apt-get install -y --no-install-recommends \
+      python3.12 \
+      python3.12-venv \
+      python3.12-dev \
+      python3-pip \
+      libopenblas-dev \
+      liblapack-dev \
+      libgomp1 && \
+    rm -rf /var/lib/apt/lists/* && \
+    ln -sf /usr/bin/python3.12 /usr/bin/python3 && \
+    ln -sf /usr/bin/python3 /usr/bin/python
+
+ENV VIRTUAL_ENV=/opt/venv
+RUN python3 -m venv "${VIRTUAL_ENV}"
+ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
+
+# GPU Support Environment
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+ENV GPU_ENABLED=true
+ENV LD_LIBRARY_PATH=/usr/local/cuda-12.1/lib64:/usr/local/cuda-12.1/targets/x86_64-linux/lib:${LD_LIBRARY_PATH}
+
+WORKDIR /app
+
+# Install pip dependencies
+COPY signal-generator/requirements.txt .
+RUN pip install --upgrade pip wheel setuptools && \
+    pip install --default-timeout=100 --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY signal-generator/signal_generator.py .
+COPY signal-generator/xauusd_signal_formatter.py .
+
+# Run as non-root
+RUN useradd -m -u 1000 scanner && chown -R scanner:scanner /app
+USER scanner
+
+CMD ["python", "-u", "signal_generator.py"]

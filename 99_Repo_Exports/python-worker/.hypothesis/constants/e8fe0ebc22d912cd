@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/of_gate_metrics_contract.py
+# hypothesis_version: 6.148.10
+
+['missing', 'na', 'of_gate', 'of_gate_metrics_v1', 'ok', 'ok_soft', 'ok_soft_src', 'ok_src', 'parse_error', 'type']

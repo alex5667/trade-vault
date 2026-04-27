@@ -1,0 +1,302 @@
+diff --git a/services/orderflow/metrics.py b/services/orderflow/metrics.py
+index 540006c..a2724b0 100644
+--- a/services/orderflow/metrics.py
++++ b/services/orderflow/metrics.py
+@@ -311,6 +311,13 @@ trade_expected_slippage_bps = _get_or_create_prom_histogram(
+     buckets=(0.5, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377)
+ )
+ 
++trade_spread_bps = _get_or_create_prom_histogram(
++    "trade_spread_bps",
++    "Bid/ask spread (bps) at decision time",
++    ["sym", "bucket"],
++    buckets=(0.05, 0.1, 0.2, 0.3, 0.5, 0.8, 1, 1.5, 2, 3, 5, 8, 13, 21, 34)
++)
++
+ trade_impact_proxy = _get_or_create_prom_histogram(
+     "trade_impact_proxy",
+     "Impact proxy (dimensionless), typically |dn_usd|/depth_min_5_usd",
+@@ -332,6 +339,34 @@ trade_slippage_decomp_coeff_bps = _get_or_create_prom_histogram(
+     buckets=(0.5, 1, 2, 3, 5, 8, 13, 21, 34, 55)
+ )
+ 
++trade_exec_risk_ref_bps = _get_or_create_prom_histogram(
++    "trade_exec_risk_ref_bps",
++    "Execution-risk reference (bps) used for normalization",
++    ["sym", "bucket"],
++    buckets=(0.5, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377)
++)
++
++trade_exec_risk_bps = _get_or_create_prom_histogram(
++    "trade_exec_risk_bps",
++    "Execution-risk (bps) implied by expected slippage / liquidity state",
++    ["sym", "bucket"],
++    buckets=(0.5, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377)
++)
++
++trade_exec_risk_norm = _get_or_create_prom_histogram(
++    "trade_exec_risk_norm",
++    "Execution-risk normalized to [0..1] (soft-capped)",
++    ["sym", "bucket"],
++    buckets=(0.0, 0.02, 0.05, 0.08, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50, 0.60, 0.80, 1.0, 1.2)
++)
++
++trade_exec_pen = _get_or_create_prom_histogram(
++    "trade_exec_pen",
++    "Execution penalty used by gate (combines risk + fill)",
++    ["sym", "bucket"],
++    buckets=(0.0, 0.02, 0.05, 0.08, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50, 0.60, 0.80, 1.0, 1.2)
++)
++
+ # --- Taker-flow contra gate (P9c) ---
+ trade_taker_flow_gate_shadow_veto_total = _get_or_create_prom_counter(
+     "trade_taker_flow_gate_shadow_veto_total",
+
+diff --git a/tick_flow_full/services/orderflow/metrics.py b/tick_flow_full/services/orderflow/metrics.py
+index 2806d57..e4e6d50 100644
+--- a/tick_flow_full/services/orderflow/metrics.py
++++ b/tick_flow_full/services/orderflow/metrics.py
+@@ -302,6 +302,41 @@ trade_expected_slippage_ratio = _get_or_create_prom_histogram(
+     buckets=[0.1, 0.5, 0.8, 0.9, 0.95, 1.0, 1.05, 1.1, 1.5, 2.0]
+ )
+ 
++trade_spread_bps = _get_or_create_prom_histogram(
++    "trade_spread_bps",
++    "Bid/ask spread (bps) at decision time",
++    ["sym", "bucket"],
++    buckets=[0.05, 0.1, 0.2, 0.3, 0.5, 0.8, 1, 1.5, 2, 3, 5, 8, 13, 21, 34]
++)
++
++trade_exec_risk_ref_bps = _get_or_create_prom_histogram(
++    "trade_exec_risk_ref_bps",
++    "Execution-risk reference (bps) used for normalization",
++    ["sym", "bucket"],
++    buckets=[0.5, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377]
++)
++
++trade_exec_risk_bps = _get_or_create_prom_histogram(
++    "trade_exec_risk_bps",
++    "Execution-risk (bps) implied by expected slippage / liquidity state",
++    ["sym", "bucket"],
++    buckets=[0.5, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377]
++)
++
++trade_exec_risk_norm = _get_or_create_prom_histogram(
++    "trade_exec_risk_norm",
++    "Execution-risk normalized to [0..1] (soft-capped)",
++    ["sym", "bucket"],
++    buckets=[0.0, 0.02, 0.05, 0.08, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50, 0.60, 0.80, 1.0, 1.2]
++)
++
++trade_exec_pen = _get_or_create_prom_histogram(
++    "trade_exec_pen",
++    "Execution penalty used by gate (combines risk + fill)",
++    ["sym", "bucket"],
++    buckets=[0.0, 0.02, 0.05, 0.08, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50, 0.60, 0.80, 1.0, 1.2]
++)
++
+ # --- Taker-flow contra gate (P9c) ---
+ trade_taker_flow_gate_shadow_veto_total = _get_or_create_prom_counter(
+     "trade_taker_flow_gate_shadow_veto_total",
+
+diff --git a/services/orderflow/components/tick_processor.py b/services/orderflow/components/tick_processor.py
+index 5b861d6..9707478 100644
+--- a/services/orderflow/components/tick_processor.py
++++ b/services/orderflow/components/tick_processor.py
+@@ -51,6 +51,11 @@ from services.orderflow.metrics import (
+     impact_proxy_hist, expected_slippage_decomp_bps_hist, of_gate_veto_top1_total,
+     trade_impact_proxy, trade_taker_flow_imb_z_abs, trade_slippage_decomp_coeff_bps,
+     trade_expected_slippage_bps as _m_slip_bps,
++    trade_spread_bps,
++    trade_exec_risk_ref_bps,
++    trade_exec_risk_bps,
++    trade_exec_risk_norm,
++    trade_exec_pen,
+     trade_expected_slippage_limit_exceed_total,
+ )
+ from services.orderflow.side_policy import is_unknown_side_tick
+@@ -1051,7 +1056,9 @@ class TickProcessor:
+                 atr_bps=atr_bps,
+                 cfg=cfg
+             )
++            # Preserve legacy expected slippage (pre-decomp) for drift/regression.
+             indicators["expected_slippage_bps"] = float(est.expected_bps)
++            indicators["expected_slippage_bps_legacy"] = float(est.expected_bps)
+             indicators["slippage_reason"] = str(est.reason)
+         except Exception:
+             pass
+@@ -1104,6 +1111,19 @@ class TickProcessor:
+             if mid_px_submit <= 0:
+                 mid_px_submit = float(price) if float(price) > 0 else 0.0
+             indicators.setdefault("mid_px_submit", mid_px_submit)
++
++            # World-practice distributions: (legacy) expected slippage + spread at decision time.
++            try:
++                _sym = str(runtime.symbol)
++                _bk = str(bucket)
++                _m_slip_bps.labels(sym=_sym, bucket=_bk, model="legacy").observe(
++                    float(indicators.get("expected_slippage_bps_legacy") or indicators.get("expected_slippage_bps") or 0.0)
++                )
++                trade_spread_bps.labels(sym=_sym, bucket=_bk).observe(
++                    float(indicators.get("spread_bps_submit") or 0.0)
++                )
++            except Exception:
++                pass
+         except Exception:
+             pass
+ 
+@@ -1396,6 +1416,26 @@ class TickProcessor:
+                 trade_max_expected_slippage_bps_eff.labels(sym=_sym, bucket=_bk).set(
+                     float(indicators.get("max_expected_slippage_bps_eff", 0.0) or 0.0)
+                 )
++
++            # Histograms (P95/P99-ready): effective slippage + execution risk/penalty.
++            try:
++                _m_slip_bps.labels(sym=_sym, bucket=_bk, model="eff").observe(
++                    float(indicators.get("expected_slippage_bps", 0.0) or 0.0)
++                )
++                trade_exec_risk_ref_bps.labels(sym=_sym, bucket=_bk).observe(
++                    float(indicators.get("exec_risk_ref_bps", 0.0) or 0.0)
++                )
++                trade_exec_risk_bps.labels(sym=_sym, bucket=_bk).observe(
++                    float(indicators.get("exec_risk_bps", 0.0) or 0.0)
++                )
++                trade_exec_risk_norm.labels(sym=_sym, bucket=_bk).observe(
++                    float(indicators.get("exec_risk_norm", 0.0) or 0.0)
++                )
++                trade_exec_pen.labels(sym=_sym, bucket=_bk).observe(
++                    float(indicators.get("exec_pen", 0.0) or 0.0)
++                )
++            except Exception:
++                pass
+         except Exception:
+             pass
+ 
+@@ -2370,7 +2410,35 @@ class TickProcessor:
+                 "fill_prob_proxy": str(float(indicators.get("fill_prob_proxy", 0.0) or 0.0)),
+                 "eta_fill_sec": str(float(indicators.get("eta_fill_sec", 0.0) or 0.0)),
+                 "exec_fill_pen": str(float(indicators.get("exec_fill_pen", 0.0) or 0.0)),
++                "lob_qi_mean": str(float(indicators.get("lob_qi_mean", 0.0) or 0.0)),
++                "lob_qi_max_abs": str(float(indicators.get("lob_qi_max_abs", 0.0) or 0.0)),
++                "lob_qi_slope": str(float(indicators.get("lob_qi_slope", 0.0) or 0.0)),
++                "lob_micro_mid_div_bps": str(float(indicators.get("lob_micro_mid_div_bps", 0.0) or 0.0)),
++                "lob_micro_shift_bps": str(float(indicators.get("lob_micro_shift_bps", 0.0) or 0.0)),
++                "lob_depth_slope_imb": str(float(indicators.get("lob_depth_slope_imb", 0.0) or 0.0)),
++                "lob_depth_convexity_imb": str(float(indicators.get("lob_depth_convexity_imb", 0.0) or 0.0)),
++                "lob_dw_obi": str(float(indicators.get("lob_dw_obi", 0.0) or 0.0)),
++                "lob_dw_obi_z": str(float(indicators.get("lob_dw_obi_z", 0.0) or 0.0)),
++                "lob_dw_obi_stability_score": str(float(indicators.get("lob_dw_obi_stability_score", 0.0) or 0.0)),
++                "lob_dw_obi_stable_secs": str(float(indicators.get("lob_dw_obi_stable_secs", 0.0) or 0.0)),
++                "lob_dw_obi_stable": str(int(indicators.get("lob_dw_obi_stable", 0) or 0)),
++
+                 "max_expected_slippage_bps_eff": str(float(indicators.get("max_expected_slippage_bps_eff", 0.0) or 0.0)),
++
++                # Execution risk & slippage (world-practice trackers)
++                "spread_bps_submit": str(float(indicators.get("spread_bps_submit", indicators.get("spread_bps", 0.0)) or 0.0)),
++                "impact_proxy": str(float(indicators.get("impact_proxy", 0.0) or 0.0)),
++                "liq_score": str(float(indicators.get("liq_score", 0.0) or 0.0)),
++                "expected_slippage_bps": str(float(indicators.get("expected_slippage_bps", 0.0) or 0.0)),
++                "expected_slippage_bps_legacy": str(float(indicators.get("expected_slippage_bps_legacy", indicators.get("expected_slippage_bps", 0.0)) or 0.0)),
++                "expected_slippage_decomp_bps": str(float(indicators.get("expected_slippage_decomp_bps", 0.0) or 0.0)),
++                "slip_decomp_spread_bps": str(float(indicators.get("slip_decomp_spread_bps", 0.0) or 0.0)),
++                "slip_decomp_impact_bps": str(float(indicators.get("slip_decomp_impact_bps", 0.0) or 0.0)),
++                "slip_decomp_coeff_bps": str(float(indicators.get("slip_decomp_coeff_bps", 0.0) or 0.0)),
++                "exec_risk_ref_bps": str(float(indicators.get("exec_risk_ref_bps", 0.0) or 0.0)),
++                "exec_risk_bps": str(float(indicators.get("exec_risk_bps", 0.0) or 0.0)),
++                "exec_risk_norm": str(float(indicators.get("exec_risk_norm", 0.0) or 0.0)),
++                "exec_pen": str(float(indicators.get("exec_pen", 0.0) or 0.0)),
+                 "reason_code_top1": str(reason_top1),  # sanitized by enrich_schema_fields
+                 "meta_feature_coverage": str(float(meta_cov)),
+                 "meta_enforce_mode": meta_enforce,
+
+diff --git a/orderflow_services/world_practice_gauges_smoke_check_v1.py b/orderflow_services/world_practice_gauges_smoke_check_v1.py
+index d3886ad..938c12d 100644
+--- a/orderflow_services/world_practice_gauges_smoke_check_v1.py
++++ b/orderflow_services/world_practice_gauges_smoke_check_v1.py
+@@ -137,6 +137,10 @@ def main() -> int:
+     max_vol_slow = 0.0
+     max_eta_fill = 0.0
+     max_fill_prob = 0.0
++    max_exec_risk_norm = 0.0
++    max_exec_pen = 0.0
++    max_spread_bps = 0.0
++    max_expected_slip_eff = 0.0
+ 
+     # What we expect to be present when pipeline is wired end-to-end
+     key_fields = [
+@@ -149,6 +153,16 @@ def main() -> int:
+         "vol_ratio_z",
+         "res_recovered",
+         "res_recovery_ms",
++
++        # Execution-risk / slippage trackers
++        "spread_bps_submit",
++        "impact_proxy",
++        "liq_score",
++        "expected_slippage_bps",
++        "expected_slippage_decomp_bps",
++        "exec_risk_norm",
++        "exec_pen",
++
+         "fill_prob_proxy",
+         "eta_fill_sec",
+         "exec_fill_pen",
+@@ -208,6 +222,19 @@ def main() -> int:
+         if fp > max_fill_prob:
+             max_fill_prob = fp
+ 
++        er = _safe_float(f.get("exec_risk_norm"), 0.0)
++        if er > max_exec_risk_norm:
++            max_exec_risk_norm = er
++        ep = _safe_float(f.get("exec_pen"), 0.0)
++        if ep > max_exec_pen:
++            max_exec_pen = ep
++        sp = _safe_float(f.get("spread_bps_submit"), 0.0)
++        if sp > max_spread_bps:
++            max_spread_bps = sp
++        es = _safe_float(f.get("expected_slippage_bps"), 0.0)
++        if es > max_expected_slip_eff:
++            max_expected_slip_eff = es
++
+     def _share(x: int, n: int) -> float:
+         return (float(x) / float(n)) if n > 0 else 0.0
+ 
+@@ -219,12 +246,16 @@ def main() -> int:
+     # "stuck" heuristics: require enough recent points to avoid startup false positives
+     stuck_vol = 0
+     stuck_fill = 0
++    stuck_exec = 0
+     if n_recent >= int(args.min_recent):
+         if max_vol_fast <= 0.0 and max_vol_slow <= 0.0 and max_abs_vol_ratio_z <= 0.01:
+             stuck_vol = 1
+         # fill: eta indicates L3-lite is producing, but fill_prob never moves from 0
+         if max_eta_fill > 0.0 and max_fill_prob <= 0.001:
+             stuck_fill = 1
++        # exec: if exec risk is non-trivial but exec_pen never moves from 0
++        if max_exec_risk_norm >= 0.10 and max_exec_pen <= 1e-6:
++            stuck_exec = 1
+ 
+     alert = 0
+     issues: List[str] = []
+@@ -247,6 +278,8 @@ def main() -> int:
+             issues.append("stuck_vol_all_zero")
+         if stuck_fill == 1:
+             issues.append("stuck_fill_prob_zero")
++        if stuck_exec == 1:
++            issues.append("stuck_exec_pen_zero")
+ 
+         if issues:
+             alert = 1
+@@ -275,6 +308,10 @@ def main() -> int:
+         "max_vol_slow_bps": f"{max_vol_slow:.4f}",
+         "max_eta_fill_sec": f"{max_eta_fill:.4f}",
+         "max_fill_prob": f"{max_fill_prob:.4f}",
++        "max_exec_risk_norm": f"{max_exec_risk_norm:.4f}",
++        "max_exec_pen": f"{max_exec_pen:.4f}",
++        "max_spread_bps": f"{max_spread_bps:.4f}",
++        "max_expected_slip_eff_bps": f"{max_expected_slip_eff:.4f}",
+     }
+ 
+     # write to out stream (best-effort)
+
+

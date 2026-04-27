@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/confirmations/l2_confirm_absorption.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.62, 1.5, 10000.0, 30000.0, 1500, 'adverse_ratio_ema', 'asks', 'bad_level', 'bids', 'book', 'down', 'l2', 'l2_missing', 'l2_snapshot', 'l2_stale', 'l2_ts_ms', 'micro_proxy', 'microprice_shift', 'microprice_shift_bps', 'mp_contra', 'notional', 'price', 'refill', 'sell', 'short', 'size', 'ts_ms', 'wall_here', 'wall_notional_here']

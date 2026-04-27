@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/analytics/metrics.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.5, 1.0, 2.0, 'INFO', 'Metrics', 'auc', 'f1', 'fpr', 'score', 'src', 'thresholds', 'tpr', 'where', 'why', 'youden', 'youden_j']

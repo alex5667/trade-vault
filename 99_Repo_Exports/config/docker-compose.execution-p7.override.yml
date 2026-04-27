@@ -1,0 +1,66 @@
+version: '3.9'
+
+# P7 override: repair tooling, quarantine tooling, and Grafana dashboard mount.
+# Usage:
+#   docker compose -f docker-compose-timers.yml -f config/docker-compose.execution-p7.override.yml up -d
+# To run repair ops (dry-run by default):
+#   docker compose -f ... --profile ops run --rm trade-execution-repair
+#   docker compose -f ... --profile ops run --rm trade-execution-quarantine
+
+services:
+
+  # Mount the P7 Grafana panel pack into the provisioning directory
+  grafana:
+    volumes:
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards-json:ro
+
+  trade-runbook-server:
+    environment:
+      - RUNBOOK_ROOT=/srv/runbooks
+      - RUNBOOK_REPORT_DIR=/var/lib/trade-runbook/reports
+    volumes:
+      - ./python-worker/runbooks:/srv/runbooks:ro
+      - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
+
+  # Optional helper container to run repair tooling on demand.
+  # Runs with --dry-run by default; omit it for apply mode.
+  # Operators typically prefer the systemd unit: trade-execution-repair.service
+  trade-execution-repair:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    profiles: ["ops"]
+    working_dir: /app
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+      - EXEC_STREAM=${EXEC_STREAM:-orders:exec}
+      - EXECUTION_JOURNAL_DSN=${EXECUTION_JOURNAL_DSN:-}
+      - PYTHONPATH=/app
+    volumes:
+      - ./python-worker:/app
+    command: ["python", "/app/scripts/repair_execution_inconsistencies.py", "--dry-run"]
+    networks:
+      - scanner-network
+
+  # Optional helper container to quarantine inconsistent sids on demand.
+  # Runs with --dry-run by default; omit it for apply mode.
+  # Operators typically prefer the systemd unit: trade-execution-quarantine.service
+  trade-execution-quarantine:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    profiles: ["ops"]
+    working_dir: /app
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+      - EXEC_STREAM=${EXEC_STREAM:-orders:exec}
+      - EXECUTION_JOURNAL_DSN=${EXECUTION_JOURNAL_DSN:-}
+      - EXEC_QUARANTINE_MIN_SEVERITY=${EXEC_QUARANTINE_MIN_SEVERITY:-critical}
+      - PYTHONPATH=/app
+    volumes:
+      - ./python-worker:/app
+    command: ["python", "/app/scripts/quarantine_inconsistent_sid.py", "--dry-run"]
+    networks:
+      - scanner-network

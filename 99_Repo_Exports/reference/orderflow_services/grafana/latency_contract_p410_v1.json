@@ -1,0 +1,16 @@
+{
+  "title": "Latency Contract P4.10 Dual Control",
+  "schemaVersion": 39,
+  "version": 410,
+  "panels": [
+    {"title": "Dual-control approval pending total", "type": "stat", "targets": [{"expr": "latency_contract_deploy_lint_summary_dual_control_pending_total"}]},
+    {"title": "Dual-control approval ready total", "type": "stat", "targets": [{"expr": "latency_contract_deploy_lint_summary_dual_control_ready_total"}]},
+    {"title": "Dual-control override gate active total", "type": "stat", "targets": [{"expr": "latency_contract_deploy_lint_summary_dual_control_override_gate_active_total"}]},
+    {"title": "Approval pending by purpose", "type": "timeseries", "targets": [{"expr": "latency_contract_deploy_lint_silence_approval_pending"}]},
+    {"title": "Approval ready by purpose", "type": "timeseries", "targets": [{"expr": "latency_contract_deploy_lint_silence_approval_ready"}]},
+    {"title": "Approval age seconds", "type": "timeseries", "targets": [{"expr": "latency_contract_deploy_lint_silence_approval_age_seconds"}]},
+    {"title": "Dual-control required by purpose", "type": "timeseries", "targets": [{"expr": "latency_contract_deploy_lint_silence_dual_control_required"}]},
+    {"title": "Dual-control denied total by purpose", "type": "timeseries", "targets": [{"expr": "latency_contract_deploy_lint_silence_dual_control_denied_total"}]},
+    {"title": "Dual-control override active by purpose", "type": "timeseries", "targets": [{"expr": "latency_contract_deploy_lint_silence_dual_control_override_active"}]}
+  ]
+}

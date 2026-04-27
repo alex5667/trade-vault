@@ -1,0 +1,10 @@
+{
+  "title": "Calibration Extended (v1)",
+  "templating": {"list": [{"name": "instance", "type": "query", "datasource": "Prometheus", "query": "label_values(conf_cal_extended_exporter_up, instance)"}]},
+  "panels": [
+    {"title": "Active MCE / ECE", "type": "timeseries", "targets": [{"expr": "conf_cal_extended_metric{arm=\"active\",metric=\"mce_cal\",instance=~\"$instance\"}"}, {"expr": "conf_cal_extended_metric{arm=\"active\",metric=\"ece_cal\",instance=~\"$instance\"}"}]},
+    {"title": "Active Slope / Intercept", "type": "timeseries", "targets": [{"expr": "conf_cal_extended_metric{arm=\"active\",metric=\"calibration_slope\",instance=~\"$instance\"}"}, {"expr": "conf_cal_extended_metric{arm=\"active\",metric=\"calibration_intercept\",instance=~\"$instance\"}"}]},
+    {"title": "Active Sharpness", "type": "timeseries", "targets": [{"expr": "conf_cal_extended_metric{arm=\"active\",metric=\"sharpness_mean\",instance=~\"$instance\"}"}, {"expr": "conf_cal_extended_metric{arm=\"active\",metric=\"prob_mass_near_half\",instance=~\"$instance\"}"}]},
+    {"title": "Champion vs Challenger Deltas", "type": "timeseries", "targets": [{"expr": "conf_cal_extended_delta{metric=\"mce_cal\",instance=~\"$instance\"}"}, {"expr": "conf_cal_extended_delta{metric=\"sharpness_mean\",instance=~\"$instance\"}"}]}
+  ]
+}

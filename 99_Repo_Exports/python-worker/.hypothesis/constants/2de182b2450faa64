@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/fill_prob_proxy.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 1.0, 2.0, 'LONG', 'cancel_to_trade_side', 'eta_fill_sec', 'fill_prob', 'fill_prob_proxy', 'p_base', 'p_fill', 'p_wait']

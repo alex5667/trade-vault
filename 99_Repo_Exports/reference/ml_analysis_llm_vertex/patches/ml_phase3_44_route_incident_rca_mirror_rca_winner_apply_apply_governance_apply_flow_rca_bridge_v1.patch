@@ -1,0 +1,652 @@
+diff --git a/orderflow_services/route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_bundle_rca_bridge_v3_44.py b/orderflow_services/route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_bundle_rca_bridge_v3_44.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_bundle_rca_bridge_v3_44.py
+@@ -0,0 +1,519 @@
++from __future__ import annotations
++
++import asyncio
++import json
++import os
++import time
++from typing import Any, Dict, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    import psycopg
++except Exception:  # pragma: no cover
++    psycopg = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++
++APP_NAME = "route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_bundle_rca_bridge_v3_44"
++INPUT_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_INCIDENT_BUNDLES_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_incident_bundles",
++)
++VERTEX_OUTPUT_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_VERTEX_RCA_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_vertex_rca_requests",
++)
++LOCAL_OUTPUT_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_LOCAL_RCA_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_local_rca_requests",
++)
++DECISIONS_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_DECISIONS_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_decisions",
++)
++AUDIT_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_AUDIT_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_audit",
++)
++LAST_HASH = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_LAST_HASH",
++    "metrics:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge:last",
++)
++GLOBAL_POLICY_KEY = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_GLOBAL_POLICY_KEY",
++    "cfg:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge:global",
++)
++VERTEX_HEALTH_HASH = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_VERTEX_HEALTH_HASH",
++    "metrics:ml:vertex_health:last",
++)
++GROUP = os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_GROUP", APP_NAME)
++CONSUMER = os.getenv("HOSTNAME", APP_NAME)
++PORT = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_PORT", "9974"))
++MAXLEN = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_MAXLEN", "20000"))
++
++DEFAULT_MODE = os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_MODE", "AUTO").upper()
++DEFAULT_REQUIRE_VERTEX_DEGRADED_FOR_LOCAL = int(
++    os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_REQUIRE_VERTEX_DEGRADED_FOR_LOCAL", "1")
++)
++DEFAULT_MAX_BUNDLE_BYTES = int(
++    os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_MAX_BUNDLE_BYTES", "196608")
++)
++DEFAULT_MAX_PROMPT_CHARS = int(
++    os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_MAX_PROMPT_CHARS", "12000")
++)
++ALLOWED_MODES = {"AUTO", "VERTEX_ONLY", "LOCAL_ONLY", "DISABLED"}
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter(
++    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_runs_total",
++    "Winner-apply apply governance apply-flow RCA bridge runs",
++    ("status", "decision"),
++)
++LAT = _hist(
++    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_latency_seconds",
++    "Winner-apply apply governance apply-flow RCA bridge latency seconds",
++)
++UP = _gauge(
++    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_up",
++    "Winner-apply apply governance apply-flow RCA bridge up",
++)
++LAST_RUN_TS = _gauge(
++    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_last_run_ts_seconds",
++    "Winner-apply apply governance apply-flow RCA bridge last run timestamp",
++)
++ROUTED = _counter(
++    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_routed_total",
++    "Winner-apply apply governance apply-flow RCA bridge routed total",
++    ("route", "severity"),
++)
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def parse_int(value: Any, default: int = 0) -> int:
++    try:
++        return int(float(value))
++    except Exception:
++        return default
++
++
++def stable_json(obj: Any) -> str:
++    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        if isinstance(v, (bytes, bytearray)):
++            try:
++                out[kk] = v.decode()
++            except Exception:
++                out[kk] = v.hex()
++        else:
++            out[kk] = v
++    return out
++
++
++def maybe_json(value: Any, default: Any = None) -> Any:
++    if value is None:
++        return default
++    if isinstance(value, (dict, list)):
++        return value
++    try:
++        return json.loads(value)
++    except Exception:
++        return default
++
++
++def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
++    mode = str(raw.get("mode") or DEFAULT_MODE).upper()
++    if mode not in ALLOWED_MODES:
++        mode = DEFAULT_MODE
++    allow_severities = maybe_json(raw.get("allow_severities_json"), ["warning", "critical"])
++    if not isinstance(allow_severities, list):
++        allow_severities = ["warning", "critical"]
++    return {
++        "enabled": parse_int(raw.get("enabled"), 1),
++        "kill_switch": parse_int(raw.get("kill_switch"), 0),
++        "mode": mode,
++        "require_vertex_degraded_for_local": parse_int(
++            raw.get("require_vertex_degraded_for_local"),
++            DEFAULT_REQUIRE_VERTEX_DEGRADED_FOR_LOCAL,
++        ),
++        "allow_severities": {str(x).lower() for x in allow_severities},
++        "max_bundle_bytes": parse_int(raw.get("max_bundle_bytes"), DEFAULT_MAX_BUNDLE_BYTES),
++        "max_prompt_chars": parse_int(raw.get("max_prompt_chars"), DEFAULT_MAX_PROMPT_CHARS),
++    }
++
++
++def vertex_degraded_from_hash(raw: Dict[str, Any]) -> bool:
++    status = str(raw.get("status") or "").lower()
++    degraded = parse_int(raw.get("degraded"), 0)
++    if degraded == 1:
++        return True
++    if status in {"degraded", "down", "error", "unavailable"}:
++        return True
++    err_rate = raw.get("err_rate")
++    if err_rate is not None:
++        try:
++            if float(err_rate) >= 0.5:
++                return True
++        except Exception:
++            pass
++    return False
++
++
++def build_vertex_prompt(bundle: Dict[str, Any]) -> str:
++    return (
++        "Analyze this route_incident_rca mirror RCA winner-apply apply governance apply-flow incident bundle. "
++        "Focus on apply-controller intent, live policy mismatch, verification outcomes, rollback causes, "
++        "retry exhaustion, SLO and MTTR pressure, escalation severity, and bounded next actions."
++    )
++
++
++def build_local_prompt(bundle: Dict[str, Any]) -> str:
++    return (
++        "Vertex primary path is unavailable or degraded. "
++        "Perform bounded RCA summarization for this route_incident_rca mirror RCA winner-apply apply governance apply-flow incident bundle. "
++        "Focus on apply-controller intent, live policy mismatch, verification outcomes, rollback causes, "
++        "retry exhaustion, SLO and MTTR pressure, escalation severity, and bounded next checks."
++    )
++
++
++def evaluate_route(bundle: Dict[str, Any], policy: Dict[str, Any], vertex_degraded: bool) -> Dict[str, Any]:
++    severity = str(bundle.get("trigger_severity") or "").lower()
++    bundle_json = stable_json(bundle)
++    out = {
++        "decision": "REJECT",
++        "reason_code": "REJECTED",
++        "route": "reject",
++        "severity": severity,
++    }
++    if policy["kill_switch"] == 1:
++        out["reason_code"] = "KILL_SWITCH"
++        return out
++    if policy["enabled"] != 1:
++        out["reason_code"] = "DISABLED"
++        return out
++    if policy["mode"] == "DISABLED":
++        out["reason_code"] = "MODE_DISABLED"
++        return out
++    if severity not in policy["allow_severities"]:
++        out["reason_code"] = "SEVERITY_NOT_ALLOWED"
++        return out
++    if len(bundle_json.encode("utf-8")) > policy["max_bundle_bytes"]:
++        out["reason_code"] = "BUNDLE_TOO_LARGE"
++        return out
++    if policy["mode"] == "VERTEX_ONLY":
++        out["decision"] = "ROUTE_VERTEX"
++        out["reason_code"] = "MODE_VERTEX_ONLY"
++        out["route"] = "vertex"
++        return out
++    if policy["mode"] == "LOCAL_ONLY":
++        out["decision"] = "ROUTE_LOCAL"
++        out["reason_code"] = "MODE_LOCAL_ONLY"
++        out["route"] = "local"
++        return out
++    if vertex_degraded:
++        out["decision"] = "ROUTE_LOCAL"
++        out["reason_code"] = "VERTEX_DEGRADED"
++        out["route"] = "local"
++        return out
++    out["decision"] = "ROUTE_VERTEX"
++    out["reason_code"] = "PRIMARY_VERTEX"
++    out["route"] = "vertex"
++    return out
++
++
++def build_vertex_request(bundle: Dict[str, Any]) -> Dict[str, Any]:
++    return {
++        "schema_version": 1,
++        "request_id": str(bundle.get("bundle_id") or ""),
++        "task_family": "route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca",
++        "task_type": "route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca",
++        "severity": str(bundle.get("trigger_severity") or "warning"),
++        "source": APP_NAME,
++        "prompt": build_vertex_prompt(bundle),
++        "bundle_json": stable_json(bundle),
++        "ts_ms": str(now_ms()),
++    }
++
++
++def build_local_request(bundle: Dict[str, Any]) -> Dict[str, Any]:
++    return {
++        "schema_version": 1,
++        "request_id": str(bundle.get("bundle_id") or ""),
++        "task_family": "route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca",
++        "task_type": "vertex_unavailable_fallback",
++        "severity": str(bundle.get("trigger_severity") or "warning"),
++        "source": APP_NAME,
++        "vertex_unavailable": "1",
++        "force_local": "1",
++        "prompt": build_local_prompt(bundle),
++        "input_json": stable_json(bundle),
++        "ts_ms": str(now_ms()),
++    }
++
++
++async def ensure_group(client: Any, stream_key: str, group: str) -> None:
++    try:
++        await client.xgroup_create(stream_key, group, id="$", mkstream=True)
++    except Exception:
++        return
++
++
++async def read_hash(r: Any, key: str) -> Dict[str, Any]:
++    raw = await r.hgetall(key)
++    return as_dict(raw)
++
++
++async def persist_if_configured(
++    db_url: str,
++    bundle: Dict[str, Any],
++    decision: Dict[str, Any],
++    destination_stream: str,
++) -> None:
++    if not db_url or psycopg is None:
++        return
++    with psycopg.connect(db_url) as conn:  # pragma: no cover
++        with conn.cursor() as cur:
++            cur.execute(
++                """
++                INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_decisions (
++                    bundle_id,
++                    ts_ms,
++                    trigger_type,
++                    trigger_severity,
++                    decision,
++                    reason_code,
++                    route,
++                    destination_stream,
++                    bundle_json
++                ) VALUES (
++                    %(bundle_id)s,
++                    %(ts_ms)s,
++                    %(trigger_type)s,
++                    %(trigger_severity)s,
++                    %(decision)s,
++                    %(reason_code)s,
++                    %(route)s,
++                    %(destination_stream)s,
++                    %(bundle_json)s
++                )
++                """,
++                {
++                    "bundle_id": bundle.get("bundle_id", ""),
++                    "ts_ms": now_ms(),
++                    "trigger_type": bundle.get("trigger_type", ""),
++                    "trigger_severity": bundle.get("trigger_severity", ""),
++                    "decision": decision["decision"],
++                    "reason_code": decision["reason_code"],
++                    "route": decision["route"],
++                    "destination_stream": destination_stream,
++                    "bundle_json": json.dumps(bundle),
++                },
++            )
++            conn.commit()
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    await ensure_group(r, INPUT_STREAM, GROUP)
++    db_url = os.getenv("DATABASE_URL", "")
++
++    while True:
++        rows = await r.xreadgroup(GROUP, CONSUMER, {INPUT_STREAM: ">"}, count=32, block=5000)
++        if not rows:
++            continue
++        for _stream, messages in rows:
++            for msg_id, payload in messages:
++                started = time.perf_counter()
++                status = "ok"
++                decision_label = "REJECT"
++                try:
++                    row = as_dict(payload)
++                    bundle = maybe_json(row.get("bundle_json"), {})
++                    if not isinstance(bundle, dict):
++                        bundle = {}
++                    if not bundle and row.get("bundle_id"):
++                        bundle = {
++                            "bundle_id": row.get("bundle_id", ""),
++                            "trigger_type": row.get("trigger_type", ""),
++                            "trigger_severity": row.get("trigger_severity", ""),
++                        }
++                    policy = policy_from_hash(await read_hash(r, GLOBAL_POLICY_KEY))
++                    vertex_health = await read_hash(r, VERTEX_HEALTH_HASH)
++                    vertex_degraded = vertex_degraded_from_hash(vertex_health)
++                    decision = evaluate_route(bundle, policy, vertex_degraded)
++                    decision_label = decision["decision"]
++                    destination_stream = ""
++
++                    if decision["decision"] == "ROUTE_VERTEX":
++                        destination_stream = VERTEX_OUTPUT_STREAM
++                        await r.xadd(VERTEX_OUTPUT_STREAM, build_vertex_request(bundle), maxlen=MAXLEN, approximate=True)
++                    elif decision["decision"] == "ROUTE_LOCAL":
++                        destination_stream = LOCAL_OUTPUT_STREAM
++                        await r.xadd(LOCAL_OUTPUT_STREAM, build_local_request(bundle), maxlen=MAXLEN, approximate=True)
++
++                    await persist_if_configured(db_url, bundle, decision, destination_stream)
++                    out = {
++                        "schema_version": 1,
++                        "bundle_id": str(bundle.get("bundle_id") or ""),
++                        "trigger_type": str(bundle.get("trigger_type") or ""),
++                        "trigger_severity": str(bundle.get("trigger_severity") or ""),
++                        "decision": decision["decision"],
++                        "reason_code": decision["reason_code"],
++                        "route": decision["route"],
++                        "destination_stream": destination_stream,
++                        "vertex_degraded": "1" if vertex_degraded else "0",
++                        "ts_ms": str(now_ms()),
++                    }
++                    await r.xadd(DECISIONS_STREAM, out, maxlen=MAXLEN, approximate=True)
++                    await r.xadd(
++                        AUDIT_STREAM,
++                        {"event_type": "ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_DECIDED", **out},
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.hset(
++                        LAST_HASH,
++                        mapping={
++                            "bundle_id": str(bundle.get("bundle_id") or ""),
++                            "decision": decision["decision"],
++                            "reason_code": decision["reason_code"],
++                            "route": decision["route"],
++                            "destination_stream": destination_stream,
++                            "vertex_degraded": "1" if vertex_degraded else "0",
++                            "ts_ms": str(now_ms()),
++                        },
++                    )
++                    if ROUTED:
++                        ROUTED.labels(route=decision["route"], severity=decision["severity"] or "unknown").inc()
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                    if LAST_RUN_TS:
++                        LAST_RUN_TS.set(time.time())
++                except Exception as exc:
++                    status = "error"
++                    await r.xadd(
++                        AUDIT_STREAM,
++                        {
++                            "event_type": "ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_FAILED",
++                            "error": str(exc),
++                            "ts_ms": str(now_ms()),
++                        },
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                finally:
++                    if RUNS:
++                        RUNS.labels(status=status, decision=decision_label).inc()
++                    if LAT:
++                        LAT.observe(max(time.perf_counter() - started, 0.0))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    asyncio.run(main())
+diff --git a/orderflow_services/sql/ml_phase3_44_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_v1.sql b/orderflow_services/sql/ml_phase3_44_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_v1.sql
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/orderflow_services/sql/ml_phase3_44_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_v1.sql
+@@ -0,0 +1,22 @@
++BEGIN;
++
++CREATE TABLE IF NOT EXISTS llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_decisions (
++    id                  bigserial PRIMARY KEY,
++    bundle_id           text NOT NULL,
++    ts_ms               bigint NOT NULL,
++    trigger_type        text NOT NULL,
++    trigger_severity    text NOT NULL,
++    decision            text NOT NULL,
++    reason_code         text NOT NULL,
++    route               text NOT NULL,
++    destination_stream  text NOT NULL,
++    bundle_json         jsonb NOT NULL
++);
++
++CREATE INDEX IF NOT EXISTS idx_llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_decisions_ts
++    ON llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_decisions(ts_ms DESC);
++
++CREATE INDEX IF NOT EXISTS idx_llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_decisions_bundle_id
++    ON llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_decisions(bundle_id);
++
++COMMIT;
+diff --git a/orderflow_services/docker_compose_fragment_ml_phase3_44_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_v1.yml b/orderflow_services/docker_compose_fragment_ml_phase3_44_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_v1.yml
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/orderflow_services/docker_compose_fragment_ml_phase3_44_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_v1.yml
+@@ -0,0 +1,24 @@
++services:
++  scanner-route-incident-rca-mirror-rca-winner-apply-apply-governance-apply-flow-rca-bridge-v3-44:
++    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
++    command: ["python", "-m", "orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_bundle_rca_bridge_v3_44"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_PORT: ${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_PORT:-9974}
++      ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_MODE: ${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_MODE:-AUTO}
++      ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_REQUIRE_VERTEX_DEGRADED_FOR_LOCAL: ${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_REQUIRE_VERTEX_DEGRADED_FOR_LOCAL:-1}
++      ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_MAX_BUNDLE_BYTES: ${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_MAX_BUNDLE_BYTES:-196608}
++      ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_MAX_PROMPT_CHARS: ${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_MAX_PROMPT_CHARS:-12000}
++      ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_VERTEX_RCA_STREAM: ${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_VERTEX_RCA_STREAM:-stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_vertex_rca_requests}
++      ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_LOCAL_RCA_STREAM: ${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_LOCAL_RCA_STREAM:-stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_local_rca_requests}
++      ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_VERTEX_HEALTH_HASH: ${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_VERTEX_HEALTH_HASH:-metrics:ml:vertex_health:last}
++    ports: ["${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_PORT:-9974}:9974"]
++    depends_on: [redis-worker-1]
+diff --git a/orderflow_services/prometheus_alerts_ml_phase3_44_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_v1.yml b/orderflow_services/prometheus_alerts_ml_phase3_44_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_v1.yml
+new file mode 100644
+index 0000000..4444444
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_ml_phase3_44_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_v1.yml
+@@ -0,0 +1,31 @@
++groups:
++  - name: ml_phase3_44_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_v1
++    rules:
++      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowRCABridgeStale
++        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_last_run_ts_seconds > 1800
++        for: 10m
++        labels: { severity: warning }
++        annotations:
++          summary: "route incident RCA mirror winner-apply apply governance apply-flow RCA bridge is stale"
++
++      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowRCABridgeErrors
++        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_runs_total{status="error"}[30m]) > 0
++        for: 5m
++        labels: { severity: warning }
++        annotations:
++          summary: "route incident RCA mirror winner-apply apply governance apply-flow RCA bridge has errors"
++
++      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowRCABridgeLocalRouting
++        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_routed_total{route="local"}[30m]) > 0
++        for: 5m
++        labels: { severity: info }
++        annotations:
++          summary: "route incident RCA mirror winner-apply apply governance apply-flow RCA bridge is routing bundles to local fallback"
+diff --git a/orderflow_services/runbook_ml_phase3_44_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_v1.md b/orderflow_services/runbook_ml_phase3_44_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_v1.md
+new file mode 100644
+index 0000000..5555555
+--- /dev/null
++++ b/orderflow_services/runbook_ml_phase3_44_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_v1.md
+@@ -0,0 +1,83 @@
++# Phase 3.44 — Route Incident RCA Mirror RCA Winner-Apply Apply Governance Apply-Flow Bundle -> Vertex/Local RCA Bridge
++
++## Цель
++Дать новому `route_incident_rca mirror RCA winner-apply apply governance apply-flow incident bundle` contour
++собственный RCA flow, не смешанный с `Phase 3.36/3.37`.
++
++## Что делает
++- читает bundles из:
++  - `stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_incident_bundles`
++- читает Vertex health из:
++  - `metrics:ml:vertex_health:last`
++- принимает routing decision:
++  - `ROUTE_VERTEX`
++  - `ROUTE_LOCAL`
++  - `REJECT`
++
++## Routing policy
++- `AUTO`
++- `VERTEX_ONLY`
++- `LOCAL_ONLY`
++- `DISABLED`
++
++## Куда пишет
++- dedicated Vertex RCA stream:
++  - `stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_vertex_rca_requests`
++- dedicated local RCA stream:
++  - `stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_local_rca_requests`
++- bridge decisions:
++  - `stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_decisions`
++
++## Safe start
++```bash
++export ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_MODE=AUTO
++export ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_REQUIRE_VERTEX_DEGRADED_FOR_LOCAL=1
++export ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_MAX_BUNDLE_BYTES=196608
++export ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_BRIDGE_MAX_PROMPT_CHARS=12000
++```
++
++## Smoke checks
++```bash
++curl -s localhost:9974/metrics | grep '^ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_'
++redis-cli HGETALL metrics:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge:last
++redis-cli XREVRANGE stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_decisions + - COUNT 5
++redis-cli XREVRANGE stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_vertex_rca_requests + - COUNT 5
++redis-cli XREVRANGE stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_local_rca_requests + - COUNT 5
++```
++
++## Notes
++- scope только `scanner_infra`
++- hot path не затронут
++- dedicated streams separate this contour from previous governance bridge
++- next step: dedicated apply-flow RCA consumer + feedback loop
+diff --git a/orderflow_services/tests/test_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_v3_44.py b/orderflow_services/tests/test_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_v3_44.py
+new file mode 100644
+index 0000000..6666666
+--- /dev/null
++++ b/orderflow_services/tests/test_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_bridge_v3_44.py
+@@ -0,0 +1,75 @@
++from orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_bundle_rca_bridge_v3_44 import (
++    build_local_request,
++    build_vertex_request,
++    evaluate_route,
++    vertex_degraded_from_hash,
++)
++
++
++def _policy(mode: str = "AUTO"):
++    return {
++        "enabled": 1,
++        "kill_switch": 0,
++        "mode": mode,
++        "require_vertex_degraded_for_local": 1,
++        "allow_severities": {"warning", "critical"},
++        "max_bundle_bytes": 196608,
++        "max_prompt_chars": 12000,
++    }
++
++
++def _bundle():
++    return {
++        "bundle_id": "winner-apply-apply-governance-apply-flow-bundle:rollback:1",
++        "trigger_type": "verification",
++        "trigger_severity": "critical",
++        "summary": {"verification_events_n": 3},
++    }
++
++
++def test_vertex_degraded_from_hash():
++    assert vertex_degraded_from_hash({"degraded": "1"}) is True
++    assert vertex_degraded_from_hash({"status": "down"}) is True
++    assert vertex_degraded_from_hash({"status": "ok", "err_rate": "0.1"}) is False
++
++
++def test_auto_routes_vertex_when_healthy():
++    out = evaluate_route(_bundle(), _policy("AUTO"), vertex_degraded=False)
++    assert out["decision"] == "ROUTE_VERTEX"
++    assert out["route"] == "vertex"
++
++
++def test_auto_routes_local_when_vertex_degraded():
++    out = evaluate_route(_bundle(), _policy("AUTO"), vertex_degraded=True)
++    assert out["decision"] == "ROUTE_LOCAL"
++    assert out["route"] == "local"
++
++
++def test_build_requests_have_expected_shape():
++    vertex_req = build_vertex_request(_bundle())
++    local_req = build_local_request(_bundle())
++    assert vertex_req["task_family"] == "route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca"
++    assert local_req["task_type"] == "vertex_unavailable_fallback"
++    assert local_req["force_local"] == "1"

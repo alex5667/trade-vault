@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/telegram/telegram_client.py
+# hypothesis_version: 6.148.10
+
+[4.0, 'POST', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'TelegramClient', 'chat_id', 'text', 'utf-8']

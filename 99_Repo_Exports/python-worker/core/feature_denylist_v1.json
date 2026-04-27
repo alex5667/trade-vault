@@ -1,0 +1,7 @@
+{
+  "ver": "v1",
+  "updated_utc": "",
+  "deny_num": [],
+  "deny_bool": [],
+  "notes": "Auto-managed denylist for v5_of_stable. This file is intentionally small and low-cardinality.\n\nWorkflow:\n  1) nightly feature_selection_loop produces stability_table.csv\n  2) autogen_feature_denylist_proposal_v1.py generates a candidate unified diff for this file\n  3) human approves via replay/AB before applying\n"
+}

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/orderflow_services/of_gate_timescale_policy_probe_v1.py
+# hypothesis_version: 6.148.10
+
+[1800, ',', '0', '1', 'DATABASE_URL', 'PG_DSN', 'REDIS_URL', 'TRADES_DB_DSN', '__main__', 'config', 'details_json', 'disabled', 'disabled_count', 'disabled_policies', 'error', 'expect_timescale', 'f', 'false', 'hypertable_name', 'hypertable_schema', 'job_id', 'jobs', 'last_run_ts_ms', 'mat_1h', 'mat_5m', 'missing', 'missing_count', 'missing_policies', 'n', 'no', 'of_gate_metrics', 'of_gate_ok_rate_1h', 'of_gate_ok_rate_5m', 'off', 'ok', 'on', 'policy_retention', 'proc_name', 'proc_schema', 'replace', 'scheduled', 't', 'timescale_present', 'true', 'utf-8', 'view_name', 'y', 'yes']

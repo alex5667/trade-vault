@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/tb_sre_checks.py
+# hypothesis_version: 6.148.10
+
+[1000, 5000, 120000, 300000, '-', 'GROUPS', 'OF_INPUTS_GROUP', 'REDIS_URL', 'TB_REDIS_URL', 'XINFO', 'ignore', 'labels:tb', 'last-delivered-id', 'name', 'ok', 'pending', 'redis_import_error', 'redis_loading', 'signals:of:inputs', 'tb:last_err_ts_ms', 'tb:last_label_ts_ms', 'tb:last_ts_ms', 'utf-8']

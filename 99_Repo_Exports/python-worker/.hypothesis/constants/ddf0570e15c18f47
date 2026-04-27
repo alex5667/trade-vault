@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/reason_codes.py
+# hypothesis_version: 6.148.10
+
+['OK', 'VETO_BAD_NUMERIC', 'VETO_CONF_BELOW_MIN', 'VETO_COOLDOWN', 'VETO_INTERNAL_ERROR', 'VETO_L2_MISSING', 'VETO_L2_STALE', 'VETO_L3_SPOOF_RISK', 'VETO_MP_CONTRA', 'VETO_SPREAD_WIDE', 'VETO_TAKER_RATE_LOW', 'VETO_WALL_NEAR']

@@ -1,0 +1,30 @@
+groups:
+  - name: ml_phase3_49_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_apply_controller_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowExperimentApplyControllerStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_apply_controller_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance apply-flow experiment apply-controller is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowExperimentApplyControllerErrors
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_apply_controller_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance apply-flow experiment apply-controller has errors"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowExperimentLocalApplyPlan
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_apply_controller_applies_total{target_profile="local_profile"}[30m]) > 0
+        for: 5m
+        labels: { severity: info }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance apply-flow experiment apply-controller produced a local apply plan"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowExperimentCompactApplyPlan
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_apply_controller_applies_total{target_profile="vertex_compact_profile"}[30m]) > 0
+        for: 5m
+        labels: { severity: info }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance apply-flow experiment apply-controller produced a compact-vertex apply plan"

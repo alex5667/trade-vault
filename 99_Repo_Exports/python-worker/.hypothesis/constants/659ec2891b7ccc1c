@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/reliability_curves.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.65, 1.0, 100.0, 100, 1000, '*', ',', '1', 'DOWN', 'LONG', 'NA', 'RELIABILITY_TARGETS', 'SHORT', 'SL', 'UP', '[^a-z0-9_\\-]+', '_', 'all', 'close_reason', 'close_reason_raw', 'conf', 'confidence', 'ctx', 'direction', 'entry_regime', 'exit_ts_ms', 'final_score', 'hits', 'ignore', 'kind', 'last_ts_ms', 'na', 'nan', 'on', 'p', 'pnl', 'pnl_net', 'prob', 'regime', 'regime_label', 'samples', 'score', 'signal_payload', 'smt_coh', 'smt_leader_confirm', 'smt_leader_dir', 'strategy', 'symbol', 'tf', 'tp1', 'tp1_hit', 'tp1_no_sl', 'tp1_not_sl', 'tp1nosl', 'tp2', 'tp2_hit', 'true', 'unknown', 'utf-8', 'venue', 'win', 'yes', '|']

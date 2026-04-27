@@ -1,0 +1,661 @@
+--- services/orderflow/exec_health_freeze_service_identity.py
++++ services/orderflow/exec_health_freeze_service_identity.py
+@@ -52,6 +52,7 @@
+         ServiceIdentity('exec_health_freeze_tamper_guard_v1', 'writer', WRITER_USER, 'exec-health-freeze-tamper-guard-v1', 'exec-health-freeze-writer', 'REDIS_URL'),
+         ServiceIdentity('exec_health_freeze_acl_audit_exporter_v1', 'audit', AUDIT_USER, 'exec-health-freeze-acl-audit-exporter-v1', 'exec-health-freeze-audit', 'EXEC_HEALTH_REDIS_AUDIT_URL'),
+         ServiceIdentity('exec_health_freeze_acl_drift_exporter_v1', 'audit', AUDIT_USER, 'exec-health-freeze-acl-drift-exporter-v1', 'exec-health-freeze-audit', 'EXEC_HEALTH_REDIS_AUDIT_URL'),
++        ServiceIdentity('exec_health_freeze_client_name_audit_exporter_v1', 'audit', AUDIT_USER, 'exec-health-freeze-client-name-audit-exporter-v1', 'exec-health-freeze-audit', 'EXEC_HEALTH_REDIS_AUDIT_URL'),
+         ServiceIdentity('exec_health_freeze_acl_policy_v1', 'bootstrap', BOOTSTRAP_USER, 'exec-health-freeze-acl-policy-v1', 'exec-health-freeze-bootstrap', 'EXEC_HEALTH_REDIS_BOOTSTRAP_URL'),
+     ]
+     return {r.service: r for r in rows}
+--- services/orderflow/exec_health_freeze_client_name_policy.py
++++ services/orderflow/exec_health_freeze_client_name_policy.py
+@@ -0,0 +1,118 @@
++from __future__ import annotations
++
++"""Redis-side client-name policy for ExecHealth freeze-control services.
++
++P14 complements the P13 service identity checks. P13 validates the expected
++service contract for known required clients, but operationally we also need a
++Redis-side audit that catches: unnamed trusted clients, wrong lib-name after
++reconnect, and duplicate trusted client names across hosts/deploys. This module
++uses CLIENT LIST as the source of truth and centralizes the policy so exporters,
++alerts, and rollout blockers do not diverge.
++"""
++
++from collections import defaultdict
++from typing import Any, Dict, List, Mapping, Sequence
++
++from services.orderflow.exec_health_freeze_acl_contract import AUDIT_USER, BOOTSTRAP_USER, WRITER_USER
++from services.orderflow.exec_health_freeze_service_identity import (
++    build_service_identity_contract,
++    parse_client_list,
++)
++
++TRUSTED_USERS = {WRITER_USER, AUDIT_USER, BOOTSTRAP_USER}
++
++
++def _s(x: Any, d: str = '') -> str:
++    try:
++        return str(x) if x is not None else str(d)
++    except Exception:
++        return str(d)
++
++
++def _entry_addr(ent: Mapping[str, Any]) -> str:
++    addr = _s(ent.get('addr'))
++    if addr:
++        return addr
++    return _s(ent.get('laddr'))
++
++
++def _service_by_name() -> Dict[str, str]:
++    out: Dict[str, str] = {}
++    for svc, exp in build_service_identity_contract().items():
++        out[exp.client_name] = svc
++    return out
++
++
++def evaluate_client_name_policy(raw_client_list: Any, *, required_services: Sequence[str] | None = None) -> Dict[str, Any]:
++    contract = build_service_identity_contract()
++    service_by_name = _service_by_name()
++    known_names = set(service_by_name.keys())
++    required = list(required_services or contract.keys())
++    entries = parse_client_list(raw_client_list)
++    trusted_entries = [e for e in entries if _s(e.get('user')) in TRUSTED_USERS or _s(e.get('name')).startswith('exec-health-freeze-')]
++    by_name: Dict[str, List[Dict[str, str]]] = defaultdict(list)
++    violations: List[Dict[str, str]] = []
++    services: Dict[str, Dict[str, Any]] = {}
++
++    for ent in trusted_entries:
++        name = _s(ent.get('name'))
++        if not name:
++            violations.append({
++                'kind': 'service_started_unnamed_client',
++                'service': 'unknown',
++                'user': _s(ent.get('user') or 'unknown'),
++                'addr': _entry_addr(ent),
++            })
++            continue
++        by_name[name].append({str(k): _s(v) for k, v in ent.items()})
++        if name not in known_names:
++            violations.append({
++                'kind': 'unexpected_trusted_client_name',
++                'service': name,
++                'user': _s(ent.get('user') or 'unknown'),
++                'addr': _entry_addr(ent),
++            })
++
++    for service in required:
++        exp = contract[service]
++        rows = list(by_name.get(exp.client_name, []))
++        addrs = sorted({_entry_addr(r) for r in rows if _entry_addr(r)})
++        lib_names = sorted({_s(r.get('lib-name')) for r in rows})
++        row = rows[0] if rows else {}
++        lib_ok = bool(rows) and all(_s(r.get('lib-name')) == exp.lib_name for r in rows)
++        services[service] = {
++            'seen': len(rows),
++            'expected_client_name': exp.client_name,
++            'expected_lib_name': exp.lib_name,
++            'name_match': 1 if len(rows) >= 1 else 0,
++            'lib_name_match': 1 if lib_ok else 0,
++            'distinct_addrs': len(addrs),
++            'lib_names_seen': ','.join(lib_names),
++            'first_addr': addrs[0] if addrs else '',
++        }
++        if len(rows) > 1:
++            violations.append({
++                'kind': 'duplicate_trusted_client_name',
++                'service': service,
++                'client_name': exp.client_name,
++                'distinct_addrs': str(len(addrs)),
++            })
++        for r in rows:
++            got_lib = _s(r.get('lib-name'))
++            if got_lib != exp.lib_name:
++                violations.append({
++                    'kind': 'wrong_lib_name_after_reconnect',
++                    'service': service,
++                    'client_name': exp.client_name,
++                    'addr': _entry_addr(r),
++                    'expected_lib_name': exp.lib_name,
++                    'got_lib_name': got_lib,
++                })
++
++    return {
++        'ok': not violations,
++        'services': services,
++        'violations': violations,
++        'trusted_connection_count': len(trusted_entries),
++        'required_services': required,
++    }
+--- services/orderflow/tests/test_exec_health_freeze_client_name_policy_v1.py
++++ services/orderflow/tests/test_exec_health_freeze_client_name_policy_v1.py
+@@ -0,0 +1,25 @@
++from services.orderflow.exec_health_freeze_client_name_policy import evaluate_client_name_policy
++
++
++def test_client_name_policy_ok_subset():
++    raw = "\n".join([
++        'id=1 user=exec_health_freeze_writer addr=10.0.0.1:1111 name=exec-health-freeze-override-v1 lib-name=exec-health-freeze-writer',
++        'id=2 user=exec_health_freeze_audit addr=10.0.0.2:2222 name=exec-health-freeze-acl-drift-exporter-v1 lib-name=exec-health-freeze-audit',
++        'id=3 user=exec_health_freeze_audit addr=10.0.0.3:3333 name=exec-health-freeze-client-name-audit-exporter-v1 lib-name=exec-health-freeze-audit',
++    ])
++    res = evaluate_client_name_policy(raw, required_services=['exec_health_freeze_override_v1', 'exec_health_freeze_acl_drift_exporter_v1', 'exec_health_freeze_client_name_audit_exporter_v1'])
++    assert res['ok'] is True
++    assert res['services']['exec_health_freeze_override_v1']['lib_name_match'] == 1
++
++
++def test_client_name_policy_detects_unnamed_wrong_lib_and_duplicate():
++    raw = "\n".join([
++        'id=1 user=exec_health_freeze_writer addr=10.0.0.1:1111 name=exec-health-freeze-override-v1 lib-name=wrong-lib',
++        'id=2 user=exec_health_freeze_writer addr=10.0.0.2:2222 name=exec-health-freeze-override-v1 lib-name=exec-health-freeze-writer',
++        'id=3 user=exec_health_freeze_writer addr=10.0.0.3:3333 name= lib-name=exec-health-freeze-writer',
++    ])
++    res = evaluate_client_name_policy(raw, required_services=['exec_health_freeze_override_v1'])
++    kinds = [v['kind'] for v in res['violations']]
++    assert 'wrong_lib_name_after_reconnect' in kinds
++    assert 'duplicate_trusted_client_name' in kinds
++    assert 'service_started_unnamed_client' in kinds
+--- orderflow_services/exec_health_freeze_client_name_audit_exporter_v1.py
++++ orderflow_services/exec_health_freeze_client_name_audit_exporter_v1.py
+@@ -0,0 +1,110 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import os
++import time
++from typing import Any, Dict
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++from prometheus_client import Gauge, start_http_server
++
++from services.orderflow.exec_health_freeze_client_name_policy import evaluate_client_name_policy
++from services.orderflow.exec_health_freeze_service_identity import build_service_identity_contract, ensure_service_identity_sync
++
++UP = Gauge('exec_health_freeze_client_name_policy_up', '1 if Redis-side ExecHealth client-name policy exporter loop is healthy')
++STATE_AGE_S = Gauge('exec_health_freeze_client_name_policy_state_age_seconds', 'Age of ExecHealth client-name policy exporter state in seconds')
++LAST_TS_MS = Gauge('exec_health_freeze_client_name_policy_last_check_ts_ms', 'Last client-name policy check timestamp in epoch ms')
++MATCH = Gauge('exec_health_freeze_client_name_match', '1 if trusted client-name/lib-name field matches the ExecHealth contract', ['service', 'field'])
++ACTIVE_CONNECTIONS = Gauge('exec_health_freeze_client_name_active_connections', 'Current CLIENT LIST connections per trusted ExecHealth client name', ['service'])
++DISTINCT_ADDRS = Gauge('exec_health_freeze_client_name_distinct_addrs', 'Distinct addr count per trusted ExecHealth client name', ['service'])
++VIOLATION = Gauge('exec_health_freeze_client_name_violation', 'One-hot Redis-side client-name policy violation', ['kind', 'service'])
++
++KNOWN_KINDS = [
++    'service_started_unnamed_client',
++    'wrong_lib_name_after_reconnect',
++    'duplicate_trusted_client_name',
++    'unexpected_trusted_client_name',
++]
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++class Exporter:
++    def __init__(self) -> None:
++        if redis is None:
++            raise RuntimeError('redis dependency missing')
++        self.redis_url = os.getenv('EXEC_HEALTH_REDIS_AUDIT_URL') or os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0')
++        self.state_key = os.getenv('EXEC_HEALTH_FREEZE_CLIENT_NAME_POLICY_STATE_KEY', 'metrics:exec_health:freeze_client_name_audit:last')
++        self.loop_s = max(5, int(os.getenv('EXEC_HEALTH_FREEZE_CLIENT_NAME_POLICY_INTERVAL_S', '30') or 30))
++        self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
++        ensure_service_identity_sync(self.r, 'exec_health_freeze_client_name_audit_exporter_v1')
++
++    def _read_state(self) -> Dict[str, Any]:
++        try:
++            return self.r.hgetall(self.state_key) or {}
++        except Exception:
++            return {}
++
++    def _write_state(self, payload: Dict[str, Any]) -> None:
++        try:
++            self.r.hset(self.state_key, mapping={str(k): str(v) for k, v in payload.items()})
++            self.r.expire(self.state_key, 86400 * 7)
++        except Exception:
++            pass
++
++    def run_once(self) -> Dict[str, Any]:
++        now = _now_ms()
++        raw = self.r.execute_command('CLIENT', 'LIST') or ''
++        res = evaluate_client_name_policy(raw)
++        contract = build_service_identity_contract()
++        for service in contract.keys():
++            row = dict(res.get('services', {}).get(service) or {})
++            ACTIVE_CONNECTIONS.labels(service=service).set(float(int(row.get('seen', 0) or 0)))
++            MATCH.labels(service=service, field='name').set(float(int(row.get('name_match', 0) or 0)))
++            MATCH.labels(service=service, field='lib_name').set(float(int(row.get('lib_name_match', 0) or 0)))
++            DISTINCT_ADDRS.labels(service=service).set(float(int(row.get('distinct_addrs', 0) or 0)))
++        active = {(str(v.get('kind')), str(v.get('service'))): 1 for v in list(res.get('violations', []) or [])}
++        for kind in KNOWN_KINDS:
++            for service in list(contract.keys()) + ['unknown']:
++                VIOLATION.labels(kind=kind, service=service).set(1.0 if (kind, service) in active else 0.0)
++        st = self._read_state()
++        st.update({
++            'updated_ts_ms': int(now),
++            'last_check_ts_ms': int(now),
++            'violation_count': int(len(list(res.get('violations', []) or []))),
++            'ok': 1 if res.get('ok') else 0,
++            'trusted_connection_count': int(res.get('trusted_connection_count', 0) or 0),
++        })
++        prev = _i(st.get('updated_ts_ms'), now)
++        self._write_state(st)
++        LAST_TS_MS.set(float(now))
++        STATE_AGE_S.set(max(0.0, float(now - prev) / 1000.0))
++        UP.set(1.0)
++        return {'ok': bool(res.get('ok')), 'violation_count': int(len(list(res.get('violations', []) or []))), 'services': res.get('services', {})}
++
++
++def main() -> None:
++    ex = Exporter()
++    start_http_server(int(os.getenv('EXEC_HEALTH_FREEZE_CLIENT_NAME_POLICY_EXPORTER_PORT', '9834')))
++    while True:
++        try:
++            ex.run_once()
++        except Exception:
++            UP.set(0.0)
++        time.sleep(ex.loop_s)
++
++
++if __name__ == '__main__':
++    main()
+--- orderflow_services/prometheus_alerts_exec_health_freeze_client_name_v1.yml
++++ orderflow_services/prometheus_alerts_exec_health_freeze_client_name_v1.yml
+@@ -0,0 +1,34 @@
++groups:
++  - name: exec_health_freeze_client_name_v1
++    rules:
++      - alert: OF_ExecHealth_FreezeClientNameAudit_ExporterStale_Warn
++        expr: time() - (exec_health_freeze_client_name_policy_last_check_ts_ms / 1000) > 120
++        for: 5m
++        labels:
++          severity: warn
++        annotations:
++          summary: ExecHealth client-name audit exporter stale
++
++      - alert: OF_ExecHealth_FreezeClientNameAudit_UnnamedClient_Crit
++        expr: exec_health_freeze_client_name_violation{kind="service_started_unnamed_client"} > 0
++        for: 2m
++        labels:
++          severity: crit
++        annotations:
++          summary: Trusted ExecHealth Redis client started without CLIENT SETNAME
++
++      - alert: OF_ExecHealth_FreezeClientNameAudit_WrongLibNameAfterReconnect_Crit
++        expr: exec_health_freeze_client_name_violation{kind="wrong_lib_name_after_reconnect"} > 0
++        for: 2m
++        labels:
++          severity: crit
++        annotations:
++          summary: ExecHealth trusted Redis client has wrong lib-name after reconnect
++
++      - alert: OF_ExecHealth_FreezeClientNameAudit_DuplicateTrustedName_Crit
++        expr: exec_health_freeze_client_name_violation{kind="duplicate_trusted_client_name"} > 0
++        for: 2m
++        labels:
++          severity: crit
++        annotations:
++          summary: Duplicate trusted ExecHealth Redis client name across hosts or deploys
+--- orderflow_services/grafana/exec_health_freeze_client_name_v1.json
++++ orderflow_services/grafana/exec_health_freeze_client_name_v1.json
+@@ -0,0 +1,25 @@
++{
++  "title": "ExecHealth Freeze Client Name Audit (v1)",
++  "panels": [
++    {
++      "type": "timeseries",
++      "title": "Client-name policy violations",
++      "targets": [{"expr": "exec_health_freeze_client_name_violation"}]
++    },
++    {
++      "type": "timeseries",
++      "title": "Trusted client field match",
++      "targets": [{"expr": "exec_health_freeze_client_name_match"}]
++    },
++    {
++      "type": "timeseries",
++      "title": "Trusted client connections and origins",
++      "targets": [
++        {"expr": "exec_health_freeze_client_name_active_connections"},
++        {"expr": "exec_health_freeze_client_name_distinct_addrs"}
++      ]
++    }
++  ],
++  "schemaVersion": 39,
++  "version": 1
++}
+--- orderflow_services/runbook_exec_health_freeze_client_name_v1.md
++++ orderflow_services/runbook_exec_health_freeze_client_name_v1.md
+@@ -0,0 +1,23 @@
++# ExecHealth Freeze Client Name Audit (v1)
++
++## Purpose
++
++Detect Redis-side client identity regressions that are visible only from `CLIENT LIST`:
++
++- trusted service started without `CLIENT SETNAME`
++- wrong `lib-name` after reconnect
++- duplicate trusted client names across hosts/deploys
++
++## Signals
++
++- `exec_health_freeze_client_name_violation{kind=...}`
++- `exec_health_freeze_client_name_match{service,field}`
++- `exec_health_freeze_client_name_active_connections{service}`
++- `exec_health_freeze_client_name_distinct_addrs{service}`
++
++## Triage
++
++1. Check `CLIENT LIST` for the affected service name.
++2. Verify Redis user, `CLIENT SETNAME`, and `CLIENT SETINFO LIB-NAME` in the service startup path.
++3. If duplicates exist, correlate `addr`/host with the rollout/deploy that introduced the extra connection.
++4. If `lib-name` is wrong after reconnect, inspect the reconnect code path for missing `CLIENT SETINFO LIB-NAME`.
+--- orderflow_services/tests/test_exec_health_freeze_service_identity_exporter_v1.py
++++ orderflow_services/tests/test_exec_health_freeze_service_identity_exporter_v1.py
+@@ -33,7 +33,8 @@
+                 'id=3 user=exec_health_freeze_writer name=exec-health-freeze-tamper-guard-v1 lib-name=exec-health-freeze-writer',
+                 'id=4 user=exec_health_freeze_audit name=exec-health-freeze-acl-audit-exporter-v1 lib-name=exec-health-freeze-audit',
+                 'id=5 user=exec_health_freeze_audit name=exec-health-freeze-acl-drift-exporter-v1 lib-name=exec-health-freeze-audit',
+-                'id=6 user=exec_health_freeze_bootstrap name=exec-health-freeze-acl-policy-v1 lib-name=exec-health-freeze-bootstrap',
++                'id=6 user=exec_health_freeze_audit name=exec-health-freeze-client-name-audit-exporter-v1 lib-name=exec-health-freeze-audit',
++                'id=7 user=exec_health_freeze_bootstrap name=exec-health-freeze-acl-policy-v1 lib-name=exec-health-freeze-bootstrap',
+             ])
+         raise AssertionError(cmd)
+ 
+--- orderflow_services/tests/test_exec_health_freeze_client_name_exporter_v1.py
++++ orderflow_services/tests/test_exec_health_freeze_client_name_exporter_v1.py
+@@ -0,0 +1,59 @@
++from types import SimpleNamespace
++
++import orderflow_services.exec_health_freeze_client_name_audit_exporter_v1 as exp_mod
++from orderflow_services.exec_health_freeze_client_name_audit_exporter_v1 import Exporter
++
++
++class FakeRedis:
++    def __init__(self):
++        self.hashes = {}
++        self.client_name = ''
++        self.lib_name = ''
++        self.client_id = 88
++
++    def execute_command(self, *argv):
++        cmd = tuple(str(x) for x in argv)
++        if cmd[:2] == ('CLIENT', 'SETNAME'):
++            self.client_name = cmd[2]
++            return 'OK'
++        if cmd[:3] == ('CLIENT', 'SETINFO', 'LIB-NAME'):
++            self.lib_name = cmd[3]
++            return 'OK'
++        if cmd[:2] == ('CLIENT', 'ID'):
++            return self.client_id
++        if cmd[:2] == ('CLIENT', 'LIST') and len(cmd) >= 4 and cmd[2] == 'ID':
++            return f'id={self.client_id} user=exec_health_freeze_audit addr=10.0.0.9:9999 name={self.client_name} lib-name={self.lib_name}'
++        if cmd[:2] == ('CLIENT', 'LIST'):
++            return "\n".join([
++                'id=1 user=exec_health_freeze_writer addr=10.0.0.1:1111 name=exec-health-freeze-override-v1 lib-name=exec-health-freeze-writer',
++                'id=2 user=exec_health_freeze_writer addr=10.0.0.2:2222 name=exec-health-slo-autoguard-v1 lib-name=exec-health-freeze-writer',
++                'id=3 user=exec_health_freeze_writer addr=10.0.0.3:3333 name=exec-health-freeze-tamper-guard-v1 lib-name=exec-health-freeze-writer',
++                'id=4 user=exec_health_freeze_audit addr=10.0.0.4:4444 name=exec-health-freeze-acl-audit-exporter-v1 lib-name=exec-health-freeze-audit',
++                'id=5 user=exec_health_freeze_audit addr=10.0.0.5:5555 name=exec-health-freeze-acl-drift-exporter-v1 lib-name=exec-health-freeze-audit',
++                'id=6 user=exec_health_freeze_audit addr=10.0.0.6:6666 name=exec-health-freeze-client-name-audit-exporter-v1 lib-name=exec-health-freeze-audit',
++                'id=7 user=exec_health_freeze_bootstrap addr=10.0.0.7:7777 name=exec-health-freeze-acl-policy-v1 lib-name=exec-health-freeze-bootstrap',
++            ])
++        raise AssertionError(cmd)
++
++    def hgetall(self, key):
++        return dict(self.hashes.get(key, {}))
++
++    def hset(self, key, mapping=None):
++        self.hashes.setdefault(key, {}).update({str(k): str(v) for k, v in (mapping or {}).items()})
++        return 1
++
++    def expire(self, key, ttl):
++        return 1
++
++
++def _redis_ns(fake):
++    return SimpleNamespace(Redis=SimpleNamespace(from_url=staticmethod(lambda *a, **k: fake)))
++
++
++def test_exporter_run_once(monkeypatch):
++    fake = FakeRedis()
++    monkeypatch.setattr(exp_mod, 'redis', _redis_ns(fake))
++    ex = Exporter()
++    out = ex.run_once()
++    assert out['ok'] is True
++    assert int(fake.hashes[ex.state_key]['violation_count']) == 0
+--- orderflow_services/tests/test_exec_health_freeze_client_name_alerts_yaml_v1.py
++++ orderflow_services/tests/test_exec_health_freeze_client_name_alerts_yaml_v1.py
+@@ -0,0 +1,7 @@
++from pathlib import Path
++import yaml
++
++
++def test_alerts_yaml_valid():
++    data = yaml.safe_load(Path('orderflow_services/prometheus_alerts_exec_health_freeze_client_name_v1.yml').read_text())
++    assert data['groups'][0]['name'] == 'exec_health_freeze_client_name_v1'
+--- orderflow_services/tests/test_exec_health_freeze_client_name_dashboard_json_v1.py
++++ orderflow_services/tests/test_exec_health_freeze_client_name_dashboard_json_v1.py
+@@ -0,0 +1,7 @@
++from pathlib import Path
++import json
++
++
++def test_dashboard_json_valid():
++    data = json.loads(Path('orderflow_services/grafana/exec_health_freeze_client_name_v1.json').read_text())
++    assert data['title'] == 'ExecHealth Freeze Client Name Audit (v1)'
+--- tick_flow_full/orderflow_services/exec_health_freeze_client_name_audit_exporter_v1.py
++++ tick_flow_full/orderflow_services/exec_health_freeze_client_name_audit_exporter_v1.py
+@@ -0,0 +1,110 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import os
++import time
++from typing import Any, Dict
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++from prometheus_client import Gauge, start_http_server
++
++from services.orderflow.exec_health_freeze_client_name_policy import evaluate_client_name_policy
++from services.orderflow.exec_health_freeze_service_identity import build_service_identity_contract, ensure_service_identity_sync
++
++UP = Gauge('exec_health_freeze_client_name_policy_up', '1 if Redis-side ExecHealth client-name policy exporter loop is healthy')
++STATE_AGE_S = Gauge('exec_health_freeze_client_name_policy_state_age_seconds', 'Age of ExecHealth client-name policy exporter state in seconds')
++LAST_TS_MS = Gauge('exec_health_freeze_client_name_policy_last_check_ts_ms', 'Last client-name policy check timestamp in epoch ms')
++MATCH = Gauge('exec_health_freeze_client_name_match', '1 if trusted client-name/lib-name field matches the ExecHealth contract', ['service', 'field'])
++ACTIVE_CONNECTIONS = Gauge('exec_health_freeze_client_name_active_connections', 'Current CLIENT LIST connections per trusted ExecHealth client name', ['service'])
++DISTINCT_ADDRS = Gauge('exec_health_freeze_client_name_distinct_addrs', 'Distinct addr count per trusted ExecHealth client name', ['service'])
++VIOLATION = Gauge('exec_health_freeze_client_name_violation', 'One-hot Redis-side client-name policy violation', ['kind', 'service'])
++
++KNOWN_KINDS = [
++    'service_started_unnamed_client',
++    'wrong_lib_name_after_reconnect',
++    'duplicate_trusted_client_name',
++    'unexpected_trusted_client_name',
++]
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++class Exporter:
++    def __init__(self) -> None:
++        if redis is None:
++            raise RuntimeError('redis dependency missing')
++        self.redis_url = os.getenv('EXEC_HEALTH_REDIS_AUDIT_URL') or os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0')
++        self.state_key = os.getenv('EXEC_HEALTH_FREEZE_CLIENT_NAME_POLICY_STATE_KEY', 'metrics:exec_health:freeze_client_name_audit:last')
++        self.loop_s = max(5, int(os.getenv('EXEC_HEALTH_FREEZE_CLIENT_NAME_POLICY_INTERVAL_S', '30') or 30))
++        self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
++        ensure_service_identity_sync(self.r, 'exec_health_freeze_client_name_audit_exporter_v1')
++
++    def _read_state(self) -> Dict[str, Any]:
++        try:
++            return self.r.hgetall(self.state_key) or {}
++        except Exception:
++            return {}
++
++    def _write_state(self, payload: Dict[str, Any]) -> None:
++        try:
++            self.r.hset(self.state_key, mapping={str(k): str(v) for k, v in payload.items()})
++            self.r.expire(self.state_key, 86400 * 7)
++        except Exception:
++            pass
++
++    def run_once(self) -> Dict[str, Any]:
++        now = _now_ms()
++        raw = self.r.execute_command('CLIENT', 'LIST') or ''
++        res = evaluate_client_name_policy(raw)
++        contract = build_service_identity_contract()
++        for service in contract.keys():
++            row = dict(res.get('services', {}).get(service) or {})
++            ACTIVE_CONNECTIONS.labels(service=service).set(float(int(row.get('seen', 0) or 0)))
++            MATCH.labels(service=service, field='name').set(float(int(row.get('name_match', 0) or 0)))
++            MATCH.labels(service=service, field='lib_name').set(float(int(row.get('lib_name_match', 0) or 0)))
++            DISTINCT_ADDRS.labels(service=service).set(float(int(row.get('distinct_addrs', 0) or 0)))
++        active = {(str(v.get('kind')), str(v.get('service'))): 1 for v in list(res.get('violations', []) or [])}
++        for kind in KNOWN_KINDS:
++            for service in list(contract.keys()) + ['unknown']:
++                VIOLATION.labels(kind=kind, service=service).set(1.0 if (kind, service) in active else 0.0)
++        st = self._read_state()
++        st.update({
++            'updated_ts_ms': int(now),
++            'last_check_ts_ms': int(now),
++            'violation_count': int(len(list(res.get('violations', []) or []))),
++            'ok': 1 if res.get('ok') else 0,
++            'trusted_connection_count': int(res.get('trusted_connection_count', 0) or 0),
++        })
++        prev = _i(st.get('updated_ts_ms'), now)
++        self._write_state(st)
++        LAST_TS_MS.set(float(now))
++        STATE_AGE_S.set(max(0.0, float(now - prev) / 1000.0))
++        UP.set(1.0)
++        return {'ok': bool(res.get('ok')), 'violation_count': int(len(list(res.get('violations', []) or []))), 'services': res.get('services', {})}
++
++
++def main() -> None:
++    ex = Exporter()
++    start_http_server(int(os.getenv('EXEC_HEALTH_FREEZE_CLIENT_NAME_POLICY_EXPORTER_PORT', '9834')))
++    while True:
++        try:
++            ex.run_once()
++        except Exception:
++            UP.set(0.0)
++        time.sleep(ex.loop_s)
++
++
++if __name__ == '__main__':
++    main()
+--- tick_flow_full/orderflow_services/prometheus_alerts_exec_health_freeze_client_name_v1.yml
++++ tick_flow_full/orderflow_services/prometheus_alerts_exec_health_freeze_client_name_v1.yml
+@@ -0,0 +1,34 @@
++groups:
++  - name: exec_health_freeze_client_name_v1
++    rules:
++      - alert: OF_ExecHealth_FreezeClientNameAudit_ExporterStale_Warn
++        expr: time() - (exec_health_freeze_client_name_policy_last_check_ts_ms / 1000) > 120
++        for: 5m
++        labels:
++          severity: warn
++        annotations:
++          summary: ExecHealth client-name audit exporter stale
++
++      - alert: OF_ExecHealth_FreezeClientNameAudit_UnnamedClient_Crit
++        expr: exec_health_freeze_client_name_violation{kind="service_started_unnamed_client"} > 0
++        for: 2m
++        labels:
++          severity: crit
++        annotations:
++          summary: Trusted ExecHealth Redis client started without CLIENT SETNAME
++
++      - alert: OF_ExecHealth_FreezeClientNameAudit_WrongLibNameAfterReconnect_Crit
++        expr: exec_health_freeze_client_name_violation{kind="wrong_lib_name_after_reconnect"} > 0
++        for: 2m
++        labels:
++          severity: crit
++        annotations:
++          summary: ExecHealth trusted Redis client has wrong lib-name after reconnect
++
++      - alert: OF_ExecHealth_FreezeClientNameAudit_DuplicateTrustedName_Crit
++        expr: exec_health_freeze_client_name_violation{kind="duplicate_trusted_client_name"} > 0
++        for: 2m
++        labels:
++          severity: crit
++        annotations:
++          summary: Duplicate trusted ExecHealth Redis client name across hosts or deploys
+--- tick_flow_full/orderflow_services/grafana/exec_health_freeze_client_name_v1.json
++++ tick_flow_full/orderflow_services/grafana/exec_health_freeze_client_name_v1.json
+@@ -0,0 +1,25 @@
++{
++  "title": "ExecHealth Freeze Client Name Audit (v1)",
++  "panels": [
++    {
++      "type": "timeseries",
++      "title": "Client-name policy violations",
++      "targets": [{"expr": "exec_health_freeze_client_name_violation"}]
++    },
++    {
++      "type": "timeseries",
++      "title": "Trusted client field match",
++      "targets": [{"expr": "exec_health_freeze_client_name_match"}]
++    },
++    {
++      "type": "timeseries",
++      "title": "Trusted client connections and origins",
++      "targets": [
++        {"expr": "exec_health_freeze_client_name_active_connections"},
++        {"expr": "exec_health_freeze_client_name_distinct_addrs"}
++      ]
++    }
++  ],
++  "schemaVersion": 39,
++  "version": 1
++}
+--- tick_flow_full/orderflow_services/runbook_exec_health_freeze_client_name_v1.md
++++ tick_flow_full/orderflow_services/runbook_exec_health_freeze_client_name_v1.md
+@@ -0,0 +1,23 @@
++# ExecHealth Freeze Client Name Audit (v1)
++
++## Purpose
++
++Detect Redis-side client identity regressions that are visible only from `CLIENT LIST`:
++
++- trusted service started without `CLIENT SETNAME`
++- wrong `lib-name` after reconnect
++- duplicate trusted client names across hosts/deploys
++
++## Signals
++
++- `exec_health_freeze_client_name_violation{kind=...}`
++- `exec_health_freeze_client_name_match{service,field}`
++- `exec_health_freeze_client_name_active_connections{service}`
++- `exec_health_freeze_client_name_distinct_addrs{service}`
++
++## Triage
++
++1. Check `CLIENT LIST` for the affected service name.
++2. Verify Redis user, `CLIENT SETNAME`, and `CLIENT SETINFO LIB-NAME` in the service startup path.
++3. If duplicates exist, correlate `addr`/host with the rollout/deploy that introduced the extra connection.
++4. If `lib-name` is wrong after reconnect, inspect the reconnect code path for missing `CLIENT SETINFO LIB-NAME`.

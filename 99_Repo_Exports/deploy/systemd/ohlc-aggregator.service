@@ -1,0 +1,63 @@
+# Systemd unit для OHLC Aggregator (Daily H/L/C из тиков)
+# Установка:
+#   sudo cp deploy/systemd/ohlc-aggregator.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable ohlc-aggregator.service
+#   sudo systemctl start ohlc-aggregator.service
+#
+# Проверка:
+#   sudo systemctl status ohlc-aggregator.service
+#   journalctl -u ohlc-aggregator.service -f
+#   redis-cli GET pivots:latest
+
+[Unit]
+Description=XAUUSD OHLC Aggregator (Ticks to Daily H/L/C)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=%h/front/trade/scanner_infra/python-worker
+Environment=PYTHONUNBUFFERED=1
+Environment=REDIS_URL=redis://scanner-redis:6379/0
+Environment=XAU_TICK_STREAM=stream:tick_XAUUSD
+Environment=XAU_OHLC_GROUP=xauusd-ohlc-group
+Environment=XAU_OHLC_CONSUMER=ohlc-aggregator-systemd
+
+# Торговая сессия
+Environment=SESSION_CLOSE_TZ=UTC
+Environment=SESSION_CLOSE_HOUR=0
+Environment=SESSION_CLOSE_MIN=0
+
+# Для NY close (опционально раскомментируйте):
+# Environment=SESSION_CLOSE_TZ=America/New_York
+# Environment=SESSION_CLOSE_HOUR=17
+# Environment=SESSION_CLOSE_MIN=0
+
+# Запуск aggregator
+ExecStart=/usr/bin/python3 -u services/ohlc_aggregator.py
+
+# Автоматический перезапуск
+Restart=always
+RestartSec=5
+StartLimitInterval=300
+StartLimitBurst=10
+
+# Логирование
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ohlc-aggregator
+
+# Ресурсы
+MemoryLimit=512M
+CPUQuota=50%
+
+# Безопасность
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+

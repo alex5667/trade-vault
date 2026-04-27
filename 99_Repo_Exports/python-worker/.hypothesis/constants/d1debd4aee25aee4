@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/json_safe.py
+# hypothesis_version: 6.148.10
+
+[500, 4096, '...', 'JsonType', '__truncated__', 'ascii', 'depth_limit', 'ignore', 'recursion', 'replace', 'truncated', 'utf-8']

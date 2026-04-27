@@ -1,0 +1,73 @@
+# Alerts for nightly slippage decomp calibrator (impact coeff k) and its freshness.
+# V10: prometheus_alerts_slippage_calibrator_health_v1.yml
+#
+# Requires exporter gauges from enforce_bucket_state_exporter_v1:
+#  - of_slippage_calib_last_ok_age_sec
+#  - of_slippage_calib_last_updated_groups
+#  - of_slippage_calib_last_groups_total      (V10)
+#  - of_slippage_decomp_impact_coeff_age_sec{sym,bucket}
+#  - of_exec_slippage_eval_rows_24h_age_sec   (V10 — written by exec_slippage_eval_rowcount_probe_p77_v1)
+#  - of_exec_slippage_eval_rows_24h{bucket}   (V10)
+#
+# All state:slippage_calib:* gauges are written from Redis keys
+# published by tick_flow_full.tools.nightly_slippage_calibrator_v1.
+# All state:exec_slippage_eval:* gauges are written by
+# exec_slippage_eval_rowcount_probe_p77_v1 (hourly at :13 via of_timers_worker).
+
+groups:
+  - name: of_slippage_calib_v1
+    rules:
+      # Critical: calibrator has not run OK in 48 h.
+      - alert: OF_SlippageCalibratorStale_Crit
+        expr: of_slippage_calib_last_ok_age_sec > 172800
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Nightly slippage calibrator is stale (>48h)"
+          description: "No successful slippage calibrator run recently. Check tick_flow_full.tools.nightly_slippage_calibrator_v1 and DB view v_exec_slippage_eval."
+          runbook: "orderflow_services/runbook_slippage_qa_p77.md"
+
+      # Warning: calibrator ran recently but updated 0 groups.
+      - alert: OF_SlippageCalibratorNoUpdates_Warn
+        expr: (of_slippage_calib_last_ok_age_sec < 14400) and (of_slippage_calib_last_updated_groups == 0)
+        for: 2h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slippage calibrator ran but updated 0 groups"
+          description: "Likely insufficient samples (CALIB_MIN_SAMPLES) or view/data issues. Check v_exec_slippage_eval row counts by sym/bucket."
+          runbook: "orderflow_services/runbook_slippage_qa_p77.md"
+
+      # Warning: HIGH_VOL_LOW_LIQ coefficient is stale 48 h+ (individual sym).
+      - alert: OF_SlippageCoeffStaleHVLL_Warn
+        expr: max by (sym) (of_slippage_decomp_impact_coeff_age_sec{bucket="HIGH_VOL_LOW_LIQ"}) > 172800
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Impact coeff for HVLL bucket is stale (>48h)"
+          description: "Coeff timestamp key cfg:slippage_decomp_impact_coeff_bps_ts_ms:*:HIGH_VOL_LOW_LIQ is stale. Calibrator or Redis write path is broken."
+          runbook: "orderflow_services/runbook_slippage_qa_p77.md"
+
+      # V10: Critical — rowcount probe has not updated in 2 h.
+      - alert: OF_ExecSlippageEvalRowcountProbeStale_Crit
+        expr: of_exec_slippage_eval_rows_24h_age_sec > 7200
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "exec_slippage_eval rowcount probe is stale (>2h)"
+          description: "state:exec_slippage_eval:rows_24h_ts_ms was not updated for >2h. Check of_timers_worker :13 job and exec_slippage_eval_rowcount_probe_p77_v1."
+          runbook: "orderflow_services/runbook_slippage_qa_p77.md"
+
+      # V10: Warning — total row count is below minimum acceptable.
+      - alert: OF_ExecSlippageEvalRowsLow_Warn
+        expr: sum(of_exec_slippage_eval_rows_24h) < 30
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "v_exec_slippage_eval has fewer than 30 rows in last 24h"
+          description: "Total exec evaluated rows are low — calibrator may not have sufficient data. Check DB ingestion and v_exec_slippage_eval."
+          runbook: "orderflow_services/runbook_slippage_qa_p77.md"

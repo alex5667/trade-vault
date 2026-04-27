@@ -1,0 +1,124 @@
+version: '3.8'
+
+networks:
+  scanner-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg15
+    container_name: scanner-postgres-archiver
+    environment:
+      - POSTGRES_USER=trading
+      - POSTGRES_PASSWORD=trading_password
+      - POSTGRES_DB=scanner_analytics
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - scanner-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trading"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis-worker-1:
+    image: redis:7-alpine
+    container_name: scanner-redis-worker-1
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - scanner-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru
+
+  smt-entry-policy:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-smt-entry-policy
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - TRADE_ENTRY_AUDIT_STREAM=stream:trade:entry_audit
+      - TRADE_ENTRY_AUDIT_MAXLEN=200000
+      - TRADE_ENTRY_MAXLEN=20000
+      - ENTRY_POLICY_SHADOW=1
+      - SMT_ENTRY_STREAM=stream:trade:entry_candidate
+      - TRADE_ENTRY_STREAM=stream:trade:entry
+      - ENTRY_POLICY_GROUP=entry-policy
+      - ENTRY_POLICY_CONSUMER=c1
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    command: ["python", "-u", "services/smt_entry_policy_service.py"]
+
+  stream-exporter:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-stream-exporter
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - TRADE_ENTRY_AUDIT_STREAM=stream:trade:entry_audit
+      - TRADE_EVENTS_STREAM=events:trades
+      - STREAM_EXPORT_ENABLED=1
+      - STREAM_EXPORT_DIR=/var/log/trade/exports
+      - STREAM_EXPORT_KEEP_DAYS=90
+      - STREAM_EXPORT_INTERVAL_SEC=300
+    volumes:
+      - /var/log/trade:/var/log/trade
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    command: ["python", "-u", "tools/stream_exporter.py"]
+
+  entry-audit-archiver:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-entry-audit-archiver
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - ANALYTICS_DB_DSN=postgresql://trading:trading_password@postgres:5432/scanner_analytics
+      - PG_DSN=postgresql://trading:trading_password@postgres:5432/scanner_analytics
+      - TRADE_ENTRY_AUDIT_STREAM=stream:trade:entry_audit
+      - TRADE_EVENTS_STREAM=events:trades
+      - ENTRY_AUDIT_ARCHIVE_ENABLED=1
+      - ENTRY_AUDIT_CG=entry_audit_archiver
+      - ENTRY_AUDIT_CONSUMER=archiver_1
+      - ENTRY_AUDIT_BATCH=500
+      - ENTRY_AUDIT_BLOCK_MS=2000
+      - ENTRY_AUDIT_DLQ_STREAM=stream:dlq:entry_audit
+      - POSITION_EVENTS_ARCHIVE_ENABLED=1
+      - POSITION_EVENTS_CG=position_events_archiver
+      - POSITION_EVENTS_CONSUMER=archiver_1
+      - POSITION_EVENTS_BATCH=500
+      - POSITION_EVENTS_BLOCK_MS=2000
+      - POSITION_EVENTS_DLQ_STREAM=stream:dlq:position_events
+      - POSITION_EVENTS_TYPES=TP_HIT,TRAILING_MOVE,SL_ADJUST
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    command: ["sh", "-c", "sleep 30 && python -u services/archivers/stream_archiver.py"]
+

@@ -1,0 +1,42 @@
+{
+  "title": "Latency Contract Rollout Gate (p4.2)",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Rollout gate active",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [{"expr": "latency_contract_rollout_gate_active"}]
+    },
+    {
+      "type": "stat",
+      "title": "External missing total",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "targets": [{"expr": "latency_contract_rollout_gate_external_missing_total"}]
+    },
+    {
+      "type": "stat",
+      "title": "Budget breach total",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "targets": [{"expr": "latency_contract_rollout_gate_budget_breach_total"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Budget hold seconds",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [{"expr": "latency_contract_rollout_gate_budget_hold_seconds"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "SLO gate components",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [
+        {"expr": "latency_contract_slo_missing_total", "legendFormat": "missing_total"},
+        {"expr": "latency_contract_slo_budget_breach_total", "legendFormat": "budget_breach_total"},
+        {"expr": "latency_contract_required_stage_present{service=~\"go_ingest|nest_gateway\"}", "legendFormat": "{{service}}/{{stage}}/{{symbol}} present"}
+      ]
+    }
+  ]
+}

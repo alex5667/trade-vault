@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signals/publishers.py
+# hypothesis_version: 6.148.10
+
+[300, 'funding', 'gainers', 'losers', 'payload', 'signal:funding', 'signal:volume', 'size', 'timestamp', 'top:gainers', 'top:losers', 'type', 'volume']

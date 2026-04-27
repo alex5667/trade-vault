@@ -1,0 +1,13 @@
+groups:
+  - name: python_workers_memory_alerts
+    rules:
+      - alert: PythonWorkerMemoryHigh
+        expr: container_memory_usage_bytes{name=~"scanner-.*|python-worker.*|signal-.*|ohlc-aggregator.*|multi-symbol-orderflow"} > 1.7 * 1024 * 1024 * 1024
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+          team: sre
+        annotations:
+          summary: "Python Worker Memory Exceeds 85%"
+          description: "Container {{ $labels.name }} on instance {{ $labels.instance }} is using {{ $value | humanize }} of memory, exceeding the 1.7G warning threshold. This approaches the 2G OOM limit."

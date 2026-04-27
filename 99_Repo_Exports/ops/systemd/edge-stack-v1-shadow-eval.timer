@@ -1,0 +1,10 @@
+[Unit]
+Description=Edge Stack v1 shadow evaluation bundle timer
+
+[Timer]
+OnCalendar=*:0/30
+Persistent=true
+RandomizedDelaySec=90
+
+[Install]
+WantedBy=timers.target

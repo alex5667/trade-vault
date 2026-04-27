@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/ml_drift_monitor_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 1000, 2000, 3600, '+', '-', '--baseline-hours', '--emit', '--max-scan', '--window-hours', '0-0', '168', '40000', '6', 'ML_DRIFT_MAX_SCAN', 'ML_DRIFT_STREAM_OUT', 'ML_DRIFT_STREAM_PRED', 'REDIS_URL', '__main__', 'abs_gap', 'base', 'base_mean', 'baseline_hours', 'bins', 'bucket', 'by_bucket', 'chop', 'counts', 'cur', 'cur_mean', 'ece', 'ece_drift', 'exec_risk_norm', 'hi', 'joined_base', 'joined_cur', 'ks', 'lo', 'meanrev', 'metrics:ml_confirm', 'metrics:ml_drift', 'n', 'n_pred_base', 'n_pred_cur', 'other', 'p_edge', 'p_edge_cal', 'p_mean', 'payload', 'pred', 'pred_base', 'pred_cur', 'present', 'psi', 'r_mult', 'range', 'regime', 'regime_group', 'reliability', 'sid', 'store_true', 'streams', 'trades', 'trades:closed', 'trades_base', 'trades_cur', 'trend', 'ts_ms', 'window_hours', 'y_rate', '{}']

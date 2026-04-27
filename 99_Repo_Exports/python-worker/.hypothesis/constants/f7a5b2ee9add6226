@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tick_flow_full/common/of_gate_metrics_contract.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1500000000000, 2400000000000, '-', '[^a-z0-9_]+', '_', '_+', 'bad_reason_code', 'bad_scenario_v4', 'bad_ts_ms', 'block', 'dq', 'dq_fail', 'dq_state', 'drift_block', 'drift_state', 'fail', 'missing_legs', 'na', 'of_gate_metrics', 'ok', 'ok_hard', 'ok_soft', 'reason_code', 'reason_code_top1', 'row_not_dict', 'scenario', 'scenario_v4', 'schema_name', 'schema_version', 'symbol', 'ts_ms', 'veto']

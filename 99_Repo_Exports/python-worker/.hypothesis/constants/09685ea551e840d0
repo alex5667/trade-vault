@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/indicator_keys.py
+# hypothesis_version: 6.148.10
+
+['book_health_ok', 'cooldown_hit_rate', 'data_health', 'data_health_reasons', 'delta_notional_usd', 'dn_tier_active', 'dn_tier_threshold', 'liq_depth_usd_min_5', 'liq_regime', 'liq_score', 'liq_spread_bps', 'pressure_hi_flag', 'pressure_per_min', 'strong_need_reason']

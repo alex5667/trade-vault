@@ -1,0 +1,97 @@
+{
+  "title": "Latency Contract P4.9 Policy Controls",
+  "schemaVersion": 39,
+  "version": 49,
+  "panels": [
+    {
+      "title": "Expired gate active total",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "latency_contract_deploy_lint_summary_expired_gate_active_total"
+        }
+      ]
+    },
+    {
+      "title": "Notifier escalated",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "latency_contract_deploy_lint_notifier_escalated"
+        }
+      ]
+    },
+    {
+      "title": "Silence TTL expired by purpose",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "latency_contract_deploy_lint_silence_ttl_expired"
+        }
+      ]
+    },
+    {
+      "title": "TTL expired age seconds",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "latency_contract_deploy_lint_silence_ttl_expired_age_seconds"
+        }
+      ]
+    },
+    {
+      "title": "Notifier silenced",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "latency_contract_deploy_lint_notifier_silenced"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Policy blocked gate active total",
+      "targets": [
+        {
+          "expr": "latency_contract_deploy_lint_summary_policy_blocked_gate_active_total"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Policy override gate active total",
+      "targets": [
+        {
+          "expr": "latency_contract_deploy_lint_summary_policy_override_gate_active_total"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Policy limit hits by purpose",
+      "targets": [
+        {
+          "expr": "latency_contract_deploy_lint_silence_policy_limit_hit_total"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Policy denied total by purpose",
+      "targets": [
+        {
+          "expr": "latency_contract_deploy_lint_silence_policy_denied_total"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Policy budget minutes used",
+      "targets": [
+        {
+          "expr": "latency_contract_deploy_lint_silence_policy_window_budget_minutes_used"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/metrics_exec_health_p6.py
+# hypothesis_version: 6.148.10
+
+[0.5, 'Collector', 'TCollector', '_names_to_collectors', 'flag', 'metric', 'mode', 'outcome', 'reason', 'scope', 'symbol', 'where']

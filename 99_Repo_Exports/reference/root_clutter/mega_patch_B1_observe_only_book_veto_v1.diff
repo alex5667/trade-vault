@@ -1,0 +1,312 @@
+diff --git a/tick_flow_full/core/runtime_clock.py b/tick_flow_full/core/runtime_clock.py
+new file mode 100644
+index 0000000..c5f6e19
+--- /dev/null
++++ b/tick_flow_full/core/runtime_clock.py
+@@ -0,0 +1,122 @@
++"""tick_flow_full.core.runtime_clock
++
++Monotonic runtime clock helpers.
++
++Why this exists
++---------------
++For rollout guards like "observe-only 24–48h" we must NOT use wall-clock time.
++Wall-clock can jump (NTP, VM resume, clock skew), which makes "uptime" non-
++deterministic and can accidentally enable veto too early (or never).
++
++We therefore base uptime on time.monotonic().
++
++We also optionally expose runtime_start_ts_ms as an *estimate* of process start
++in epoch-ms derived from an *event time* (preferred) minus monotonic uptime.
++This makes the value deterministic with respect to the input event timeline.
++If you do not have an event timestamp, prefer leaving runtime_start_ts_ms=None.
++"""
++
++from __future__ import annotations
++
++import time
++from dataclasses import dataclass
++from typing import Optional
++
++
++_MONO_START = time.monotonic()
++
++
++def uptime_sec() -> float:
++    """Process uptime in seconds, based on a monotonic clock."""
++    u = time.monotonic() - _MONO_START
++    # Defensive guard: monotonic should not go backwards, but do not let
++    # negative values leak into rollout logic.
++    return 0.0 if u < 0.0 else float(u)
++
++
++def runtime_start_ts_ms(event_ts_ms: Optional[int] = None) -> Optional[int]:
++    """Best-effort epoch-ms process start timestamp.
++
++    Preferred usage: pass an *event timestamp* (e.g., current tick ts in ms)
++    so the result is deterministic against the input stream timeline.
++
++    If event_ts_ms is not provided, returns None by design, because using
++    wall-clock for start time reintroduces NTP/jump risk.
++    """
++    if event_ts_ms is None:
++        return None
++    # NOTE: uptime_sec() is monotonic; deriving start_ts from event time makes
++    # the value stable even if wall-clock changes.
++    return int(int(event_ts_ms) - uptime_sec() * 1000.0)
++
++
++@dataclass(frozen=True)
++class RuntimeClockSnapshot:
++    """Convenience bundle for downstream code (DQ gate, decision records)."""
++
++    uptime_sec: float
++    runtime_start_ts_ms: Optional[int]
++
++
++def snapshot(event_ts_ms: Optional[int] = None) -> RuntimeClockSnapshot:
++    """Return (uptime_sec, runtime_start_ts_ms) in one call."""
++    return RuntimeClockSnapshot(
++        uptime_sec=uptime_sec(),
++        runtime_start_ts_ms=runtime_start_ts_ms(event_ts_ms=event_ts_ms),
++    )
++
+
+diff --git a/tick_flow_full/core/dq_observe_only.py b/tick_flow_full/core/dq_observe_only.py
+new file mode 100644
+index 0000000..70f6a28
+--- /dev/null
++++ b/tick_flow_full/core/dq_observe_only.py
+@@ -0,0 +1,214 @@
++"""tick_flow_full.core.dq_observe_only
++
++Observe-only rollout guard for DQ hard-veto on BOOK sequence degradation.
++
++Spec (from the implementation plan)
++----------------------------------
++* dq_level is always computed (0/1/2)
++* dq_veto may be suppressed for the first 24–48h after process start to avoid
++  the system "dying" on book-gap during warmup / initial deploy.
++
++Suppression rule:
++    if dq_level == 2 and the reason is book_seq (or includes book_hard)
++    and dq_book_veto_enabled is True
++    and uptime_sec >= dq_observe_only_sec
++    -> dq_veto = 1
++    else -> dq_veto = 0 (dq_level stays 2)
++
++This module is intentionally self-contained and only depends on a monotonic
++uptime value supplied by the caller.
++
++Integration point (expected)
++----------------------------
++Call apply_observe_only_book_veto() inside tick_flow_full/core/dq_gate_v1.py
++*after* policy v2 has decided dq_level/reasons and computed dq_veto.
++
++Because the full code for dq_gate_v1.py was not present in the uploaded archive,
++we keep integration as a small, well-documented insertion.
++"""
++
++from __future__ import annotations
++
++import os
++from dataclasses import dataclass
++from typing import Any, Iterable, Mapping, Optional, Sequence, Tuple
++
++
++def _cfg_get(cfg: Any, key: str, default: Any) -> Any:
++    """Get cfg value from dict-like or object-like configs.
++
++    Order:
++      1) cfg[key] if cfg is Mapping
++      2) getattr(cfg, key)
++      3) environment fallbacks (for backward compatibility)
++      4) default
++    """
++    if cfg is not None:
++        if isinstance(cfg, Mapping):
++            if key in cfg:
++                return cfg[key]
++        else:
++            v = getattr(cfg, key, None)
++            if v is not None:
++                return v
++
++    # Backward-compatible env fallbacks.
++    # New names:
++    if key == "dq_book_veto_enabled":
++        env = os.getenv("DQ_BOOK_VETO_ENABLED")
++        if env is not None:
++            return env.strip().lower() in ("1", "true", "yes", "y", "on")
++    if key == "dq_observe_only_sec":
++        # Prefer explicit observe-only env; fall back to older warmup var if used.
++        for env_key in ("DQ_OBSERVE_ONLY_SEC", "DQ_BOOK_VETO_WARMUP_S"):
++            env = os.getenv(env_key)
++            if env is not None:
++                try:
++                    return int(env)
++                except ValueError:
++                    # Ignore malformed env and fall through.
++                    break
++
++    return default
++
++
++def _reason_is_book_seq(reason: str) -> bool:
++    r = (reason or "").lower()
++    # Support multiple naming conventions.
++    return (
++        "book_seq" in r
++        or "book_missing_seq" in r
++        or "book_hard" in r
++        or "book-gap" in r
++        or "book_gap" in r
++    )
++
++
++def is_book_veto_case(
++    dq_reason_bucket: Optional[str],
++    dq_reasons: Optional[Sequence[str]],
++) -> bool:
++    """Return True if the current hard-veto came from book-seq degradation."""
++    if (dq_reason_bucket or "").lower() in ("book_seq", "book", "bookseq"):
++        return True
++    if not dq_reasons:
++        return False
++    return any(_reason_is_book_seq(r) for r in dq_reasons)
++
++
++@dataclass(frozen=True)
++class ObserveOnlyDecision:
++    dq_veto: int
++    suppressed: bool
++    suppress_reason: Optional[str]
++
++
++def apply_observe_only_book_veto(
++    *,
++    dq_level: int,
++    dq_veto: int,
++    dq_reason_bucket: Optional[str],
++    dq_reasons: Optional[Sequence[str]],
++    uptime_sec: float,
++    cfg: Any = None,
++) -> ObserveOnlyDecision:
++    """Apply observe-only gating to book-seq hard-veto.
++
++    This function never changes dq_level or dq_reasons. It only decides whether
++    dq_veto should remain 1 or be suppressed to 0.
++    """
++
++    # Only meaningful when policy says this is a HARD event AND wants to veto.
++    if int(dq_level) != 2 or int(dq_veto) != 1:
++        return ObserveOnlyDecision(dq_veto=int(dq_veto), suppressed=False, suppress_reason=None)
++
++    if not is_book_veto_case(dq_reason_bucket, dq_reasons):
++        # Never suppress non-book vetoes (tick_seq/gap_p95/data_health).
++        return ObserveOnlyDecision(dq_veto=1, suppressed=False, suppress_reason=None)
++
++    enabled = bool(_cfg_get(cfg, "dq_book_veto_enabled", False))
++    observe_only_sec = int(_cfg_get(cfg, "dq_observe_only_sec", 86400))
++    if observe_only_sec < 0:
++        observe_only_sec = 0
++
++    if not enabled:
++        return ObserveOnlyDecision(dq_veto=0, suppressed=True, suppress_reason="book_veto_disabled")
++
++    # uptime_sec must be monotonic-proc-time (caller responsibility).
++    if float(uptime_sec) < float(observe_only_sec):
++        return ObserveOnlyDecision(dq_veto=0, suppressed=True, suppress_reason="observe_only")
++
++    return ObserveOnlyDecision(dq_veto=1, suppressed=False, suppress_reason=None)
++
+
+diff --git a/tick_flow_full/tests/core/test_dq_observe_only_book_veto_v1.py b/tick_flow_full/tests/core/test_dq_observe_only_book_veto_v1.py
+new file mode 100644
+index 0000000..c2cf0b7
+--- /dev/null
++++ b/tick_flow_full/tests/core/test_dq_observe_only_book_veto_v1.py
+@@ -0,0 +1,112 @@
++from __future__ import annotations
++
++
++from tick_flow_full.core.dq_observe_only import apply_observe_only_book_veto
++
++
++def test_observe_only_blocks_when_disabled():
++    out = apply_observe_only_book_veto(
++        dq_level=2,
++        dq_veto=1,
++        dq_reason_bucket="book_seq",
++        dq_reasons=["book_seq_hard"],
++        uptime_sec=999999.0,
++        cfg={"dq_book_veto_enabled": False, "dq_observe_only_sec": 86400},
++    )
++    assert out.dq_veto == 0
++    assert out.suppressed is True
++    assert out.suppress_reason == "book_veto_disabled"
++
++
++def test_observe_only_blocks_before_window_even_if_enabled():
++    out = apply_observe_only_book_veto(
++        dq_level=2,
++        dq_veto=1,
++        dq_reason_bucket="book_seq",
++        dq_reasons=["book_missing_seq_hard"],
++        uptime_sec=100.0,
++        cfg={"dq_book_veto_enabled": True, "dq_observe_only_sec": 86400},
++    )
++    assert out.dq_veto == 0
++    assert out.suppressed is True
++    assert out.suppress_reason == "observe_only"
++
++
++def test_veto_enabled_after_window():
++    out = apply_observe_only_book_veto(
++        dq_level=2,
++        dq_veto=1,
++        dq_reason_bucket="book_seq",
++        dq_reasons=["book_seq"],
++        uptime_sec=86400.0,
++        cfg={"dq_book_veto_enabled": True, "dq_observe_only_sec": 86400},
++    )
++    assert out.dq_veto == 1
++    assert out.suppressed is False
++
++
++def test_non_book_veto_is_never_suppressed():
++    out = apply_observe_only_book_veto(
++        dq_level=2,
++        dq_veto=1,
++        dq_reason_bucket="tick_seq",
++        dq_reasons=["tick_seq_hard"],
++        uptime_sec=0.0,
++        cfg={"dq_book_veto_enabled": False, "dq_observe_only_sec": 86400},
++    )
++    assert out.dq_veto == 1
++    assert out.suppressed is False
++
++
++def test_soft_or_no_veto_is_unchanged():
++    out1 = apply_observe_only_book_veto(
++        dq_level=1,
++        dq_veto=0,
++        dq_reason_bucket="book_seq",
++        dq_reasons=["book_seq_soft"],
++        uptime_sec=0.0,
++        cfg={"dq_book_veto_enabled": True, "dq_observe_only_sec": 86400},
++    )
++    assert out1.dq_veto == 0
++    assert out1.suppressed is False
++
++    out2 = apply_observe_only_book_veto(
++        dq_level=2,
++        dq_veto=0,
++        dq_reason_bucket="book_seq",
++        dq_reasons=["book_seq_hard"],
++        uptime_sec=0.0,
++        cfg={"dq_book_veto_enabled": True, "dq_observe_only_sec": 86400},
++    )
++    assert out2.dq_veto == 0
++    assert out2.suppressed is False
++

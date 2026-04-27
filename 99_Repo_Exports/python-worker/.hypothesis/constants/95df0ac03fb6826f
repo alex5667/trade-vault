@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/redis_async_cache.py
+# hypothesis_version: 6.148.10
+
+[1000, ':ts_ms', 'ignore', 'utf-8']

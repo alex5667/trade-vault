@@ -1,0 +1,92 @@
+# Стабильная конфигурация Redis для scanner_infra
+# Исправлена проблема с подключением trade_back после перезапуска
+
+# Основные настройки
+port 6379
+bind 0.0.0.0
+protected-mode no
+tcp-keepalive 60
+timeout 0
+
+# Память и производительность
+maxmemory 256mb
+maxmemory-policy allkeys-lru
+maxmemory-samples 5
+
+# Persistence настройки для торговых данных
+save 900 1
+save 300 10
+save 60 10000
+stop-writes-on-bgsave-error yes
+rdbcompression yes
+rdbchecksum yes
+dbfilename dump.rdb
+
+# AOF для надежности торговых сигналов
+appendonly yes
+appendfilename "appendonly.aof"
+appendfsync everysec
+no-appendfsync-on-rewrite no
+auto-aof-rewrite-percentage 100
+auto-aof-rewrite-min-size 64mb
+aof-load-truncated yes
+
+# Logging
+loglevel notice
+logfile ""
+syslog-enabled no
+
+# Client настройки для высокой нагрузки
+tcp-backlog 511
+databases 16
+
+# Slow log для мониторинга
+slowlog-log-slower-than 10000
+slowlog-max-len 128
+
+# Latency мониторинг
+latency-monitor-threshold 100
+
+# Security
+requirepass ""
+
+# Streams настройки для торговых сигналов
+stream-node-max-bytes 4096
+stream-node-max-entries 100
+
+# Memory оптимизация для trading data
+hash-max-ziplist-entries 512
+hash-max-ziplist-value 64
+list-max-ziplist-size -2
+list-compress-depth 0
+set-max-intset-entries 512
+zset-max-ziplist-entries 128
+zset-max-ziplist-value 64
+
+# HyperLogLog оптимизация
+hll-sparse-max-bytes 3000
+
+# Активация уведомлений для мониторинга
+notify-keyspace-events ""
+
+# Replica настройки (если понадобятся)
+replica-serve-stale-data yes
+replica-read-only yes
+repl-diskless-sync no
+repl-diskless-sync-delay 5
+
+# Security
+rename-command FLUSHDB ""
+rename-command FLUSHALL ""
+rename-command CONFIG ""
+
+# Client output buffer limits
+client-output-buffer-limit normal 0 0 0
+client-output-buffer-limit replica 256mb 64mb 60
+client-output-buffer-limit pubsub 32mb 8mb 60
+
+# Client query buffer limit
+client-query-buffer-limit 1gb
+
+# Protocol max bulk length
+proto-max-bulk-len 512mb

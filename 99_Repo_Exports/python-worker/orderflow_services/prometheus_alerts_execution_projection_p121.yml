@@ -1,0 +1,24 @@
+groups:
+  - name: execution_projection_p121
+    rules:
+      - alert: TradeExecutionProjectionLagHigh
+        expr: trade_execution_projection_lag_ms > 15000
+        for: 2m
+        labels:
+          severity: warning
+          domain: execution
+          component: execution-projection-worker
+        annotations:
+          summary: "execution projection lag is high"
+          description: "Derived orders:state cache is lagging behind orders:exec by more than 15s."
+
+      - alert: TradeExecutionProjectionCursorStalled
+        expr: (time() * 1000 - trade_execution_projection_cursor_ts_ms) > 60000
+        for: 5m
+        labels:
+          severity: critical
+          domain: execution
+          component: execution-projection-worker
+        annotations:
+          summary: "execution projection cursor is stale"
+          description: "Projection worker has not advanced its cursor for more than 60s."

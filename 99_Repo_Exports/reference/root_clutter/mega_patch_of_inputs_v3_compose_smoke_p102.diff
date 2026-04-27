@@ -1,0 +1,112 @@
+diff -ruN /mnt/data/proj_base/confidence_calculation/docker-compose-crypto-orderflow.yml /mnt/data/proj/confidence_calculation/docker-compose-crypto-orderflow.yml
+--- /mnt/data/proj_base/confidence_calculation/docker-compose-crypto-orderflow.yml	2026-02-25 14:55:22.000000000 +0000
++++ /mnt/data/proj/confidence_calculation/docker-compose-crypto-orderflow.yml	2026-02-25 18:44:19.048095514 +0000
+@@ -1056,6 +1056,25 @@
+       - trade-network
+       - scanner-network
+ 
++  of-inputs-v3-circuit-exporter:
++    build: *id001
++    runtime: nvidia
++    container_name: scanner-of-inputs-v3-circuit-exporter
++    command: python -m orderflow_services.of_inputs_v3_circuit_state_exporter_p100
++    restart: unless-stopped
++    volumes:
++      - ./python-worker:/app
++    environment:
++      - REDIS_URL=redis://redis-worker-1:6379/0
++      - PYTHONPATH=.:/app
++      - OF_INPUTS_V3_CIRCUIT_EXPORTER_PORT=9164
++    ports:
++      - "9164:9164"
++    networks:
++      - trade-network
++      - scanner-network
++
++
+   crypto-orderflow-service-2:
+     build: *id001
+     runtime: nvidia
+@@ -2119,6 +2138,29 @@
+       done"
+     profiles: ["default"]
+ 
++  prom-rules-bundle-smoke-timer:
++    build: *id001
++    runtime: nvidia
++    container_name: scanner-prom-rules-bundle-smoke-timer
++    restart: unless-stopped
++    environment:
++      - REDIS_URL=redis://redis-worker-1:6379/0
++      - PYTHONPATH=.:/app
++      - ENABLE_PROM_RULES_BUNDLE_SMOKE=1
++      - PROM_RULES_BUNDLE_SMOKE_PROMTOOL=auto
++    depends_on: *id003
++    networks: *id004
++    volumes:
++      - ./python-worker:/app
++    working_dir: /app
++    command: >
++      sh -c "sleep 120 && while true; do
++        python3 -m services.prom_rules_bundle_smoke_runner_v1 || true;
++        sleep 3600;
++      done"
++    profiles: ["default"]
++
++
+   ofc-fill-expected-timer:
+     build: *id001
+     runtime: nvidia
+diff -ruN /mnt/data/proj_base/services/prom_rules_bundle_smoke_runner_v1.py /mnt/data/proj/services/prom_rules_bundle_smoke_runner_v1.py
+--- /mnt/data/proj_base/services/prom_rules_bundle_smoke_runner_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj/services/prom_rules_bundle_smoke_runner_v1.py	2026-02-25 18:43:53.761948952 +0000
+@@ -0,0 +1,24 @@
++"""Minimal entry-point to run only the Prometheus rules bundle smoke-check.
++
++Rationale
++- In prod you may not run the full `services.of_timers_worker` loop in this compose.
++- This runner reuses the already-prod-hardened logic (dedup/cooldown + auto-apply block) from `of_timers_worker`.
++
++Exit codes
++- 0: OK
++- 2: FAILED (and side-effects already applied: notify + block keys)
++"""
++
++from __future__ import annotations
++
++
++def main() -> int:
++    # Import lazily to avoid side effects during module import.
++    from services.of_timers_worker import run_prom_rules_bundle_smoke_check
++
++    ok = bool(run_prom_rules_bundle_smoke_check())
++    return 0 if ok else 2
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff -ruN /mnt/data/proj_base/tick_flow_full/services/prom_rules_bundle_smoke_runner_v1.py /mnt/data/proj/tick_flow_full/services/prom_rules_bundle_smoke_runner_v1.py
+--- /mnt/data/proj_base/tick_flow_full/services/prom_rules_bundle_smoke_runner_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj/tick_flow_full/services/prom_rules_bundle_smoke_runner_v1.py	2026-02-25 18:43:53.769344213 +0000
+@@ -0,0 +1,21 @@
++"""Minimal entry-point to run only the Prometheus rules bundle smoke-check.
++
++Kept in both trees (services/ and tick_flow_full/services/) to match mixed-prod import paths.
++
++Exit codes
++- 0: OK
++- 2: FAILED
++"""
++
++from __future__ import annotations
++
++
++def main() -> int:
++    from tick_flow_full.services.of_timers_worker import run_prom_rules_bundle_smoke_check
++
++    ok = bool(run_prom_rules_bundle_smoke_check())
++    return 0 if ok else 2
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())

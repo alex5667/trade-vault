@@ -1,0 +1,69 @@
+diff --git a/tick_flow_full/core/meta_schema_registry.py b/tick_flow_full/core/meta_schema_registry.py
+index 2e5f269..810e208 100644
+--- a/tick_flow_full/core/meta_schema_registry.py
++++ b/tick_flow_full/core/meta_schema_registry.py
+@@ -33,6 +33,25 @@ from core.meta_features_v5 import (
+     META_FEAT_V5_HASH,
+ )
+ 
++from core.meta_features_v6 import (
++    META_FEAT_V6_NAME,
++    META_FEAT_V6_VERSION,
++    META_FEAT_V6_COLS,
++    META_FEAT_V6_HASH,
++)
++from core.meta_features_v7 import (
++    META_FEAT_V7_NAME,
++    META_FEAT_V7_VERSION,
++    META_FEAT_V7_COLS,
++    META_FEAT_V7_HASH,
++)
++from core.meta_features_v8 import (
++    META_FEAT_V8_NAME,
++    META_FEAT_V8_VERSION,
++    META_FEAT_V8_COLS,
++    META_FEAT_V8_HASH,
++)
++
+ # Registry: name -> (version, cols, hash)
+ META_SCHEMA_REGISTRY: Dict[str, Tuple[int, List[str], str]] = {
+     META_FEAT_V1_NAME: (META_FEAT_V1_VERSION, META_FEAT_V1_COLS, META_FEAT_V1_HASH),
+@@ -40,6 +59,9 @@ META_SCHEMA_REGISTRY: Dict[str, Tuple[int, List[str], str]] = {
+     META_FEAT_V3_NAME: (META_FEAT_V3_VERSION, META_FEAT_V3_COLS, META_FEAT_V3_HASH),
+     META_FEAT_V4_NAME: (META_FEAT_V4_VERSION, META_FEAT_V4_COLS, META_FEAT_V4_HASH),
+     META_FEAT_V5_NAME: (META_FEAT_V5_VERSION, META_FEAT_V5_COLS, META_FEAT_V5_HASH),
++    META_FEAT_V6_NAME: (META_FEAT_V6_VERSION, META_FEAT_V6_COLS, META_FEAT_V6_HASH),
++    META_FEAT_V7_NAME: (META_FEAT_V7_VERSION, META_FEAT_V7_COLS, META_FEAT_V7_HASH),
++    META_FEAT_V8_NAME: (META_FEAT_V8_VERSION, META_FEAT_V8_COLS, META_FEAT_V8_HASH),
+ }
+ 
+ def get_schema_info(name: str) -> Tuple[int, List[str], str]:
+diff --git a/tick_flow_full/core/of_confirm_engine.py b/tick_flow_full/core/of_confirm_engine.py
+index 5ae7831..5401527 100644
+--- a/tick_flow_full/core/of_confirm_engine.py
++++ b/tick_flow_full/core/of_confirm_engine.py
+@@ -85,6 +85,16 @@ from core.meta_features_v7 import (
+     build_meta_features_v7,
+ )
+ 
++
++from core.meta_features_v8 import (
++    META_FEAT_V8_NAME,
++    META_FEAT_V8_VERSION,
++    META_FEAT_V8_HASH,
++    META_FEAT_V8_COLS,
++    META_FEAT_V8_TRANSFORMS,
++    build_meta_features_v8,
++)
++
+ # Optional gates (may live in the full repo). Keep engine importable even in
+ # partial archives; engine remains functional with graceful degradation.
+ try:
+@@ -2160,6 +2170,7 @@ class OFConfirmEngine:
+                         META_FEAT_V5_NAME: dict(name=META_FEAT_V5_NAME, version=META_FEAT_V5_VERSION, hash=META_FEAT_V5_HASH, builder=build_meta_features_v5),
+                         META_FEAT_V6_NAME: dict(name=META_FEAT_V6_NAME, version=META_FEAT_V6_VERSION, hash=META_FEAT_V6_HASH, builder=build_meta_features_v6),
+                         META_FEAT_V7_NAME: dict(name=META_FEAT_V7_NAME, version=META_FEAT_V7_VERSION, hash=META_FEAT_V7_HASH, builder=build_meta_features_v7),
++                        META_FEAT_V8_NAME: dict(name=META_FEAT_V8_NAME, version=META_FEAT_V8_VERSION, hash=META_FEAT_V8_HASH, builder=build_meta_features_v8),
+                     }
+ 
+                     schema_cfg = SCHEMAS.get(model_schema_name)

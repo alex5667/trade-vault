@@ -1,0 +1,1990 @@
+diff --git a/services/orderflow/bbo_store.py b/services/orderflow/bbo_store.py
+new file mode 100644
+index 0000000..9690727
+--- /dev/null
++++ b/services/orderflow/bbo_store.py
+@@ -0,0 +1,207 @@
++from __future__ import annotations
++
++"""BBO time-series publisher (Phase B1).
++
++Why this module exists
++----------------------
++TCA metrics (effective/realized spread, price impact, implementation shortfall)
++require a reliable mid/bid/ask at:
++
++  - fill time  (t)
++  - fill+Δ     (t+Δ), typically 1s and 5s
++
++In a streaming system you must NOT rely on "whatever the book is now" when
++post-trade workers run; you need an auditable time-series store.
++
++Design goals
++------------
++* Hot-path safe: bounded CPU/RAM; never blocks book/tick processing.
++* Low-cardinality storage: only BBO + derived mid.
++* Deterministic timestamps: uses book event-time (epoch ms, UTC).
++* Fail-open: any publish error is ignored (telemetry only).
++
++Implementation choice
++---------------------
++We publish compact snapshots into Redis Stream `events:bbo_ts`.
++Warm-path writer (services/posttrade/bbo_ts_writer.py) persists to Timescale.
++
++This pattern keeps the trading hot-path independent from DB latency.
++"""
++
++import json
++import math
++import os
++from dataclasses import dataclass
++from typing import Any, Dict, Optional, TYPE_CHECKING
++
++# Import is optional to keep unit tests runnable in minimal environments.
++if TYPE_CHECKING:  # pragma: no cover
++    from services.async_signal_publisher import AsyncSignalPublisher  # noqa: F401
++    from services.async_signal_publisher import StreamSink  # noqa: F401
++
++
++def _safe_float(v: Any) -> Optional[float]:
++    try:
++        f = float(v)
++    except Exception:
++        return None
++    if not math.isfinite(f):
++        return None
++    return float(f)
++
++
++def _safe_int(v: Any) -> Optional[int]:
++    try:
++        i = int(float(v))
++    except Exception:
++        return None
++    return int(i)
++
++
++def _calc_mid(bid: Optional[float], ask: Optional[float]) -> Optional[float]:
++    if bid is None or ask is None:
++        return None
++    if bid <= 0 or ask <= 0:
++        return None
++    return (bid + ask) / 2.0
++
++
++@dataclass
++class BBOStoreCfg:
++    enabled: bool
++    stream: str
++    stream_maxlen: int
++    schema_version: int
++    min_interval_ms: int
++    # Optional allowlist (upper-case symbols). Empty => allow all.
++    symbols_allow: set[str]
++    venue_default: str
++
++    @staticmethod
++    def from_env() -> "BBOStoreCfg":
++        enabled = bool(int(os.getenv("BBO_TS_PUBLISH_ENABLED", "1") or 1))
++        stream = os.getenv("BBO_TS_STREAM", "events:bbo_ts")
++        stream_maxlen = int(os.getenv("BBO_TS_STREAM_MAXLEN", "500000") or 500000)
++        schema_version = int(os.getenv("BBO_TS_SCHEMA_VERSION", "1") or 1)
++        # 100ms => 10Hz upper bound per symbol (sane default for TCA joins).
++        min_interval_ms = int(os.getenv("BBO_TS_MIN_INTERVAL_MS", "100") or 100)
++        raw_allow = os.getenv("BBO_TS_SYMBOLS_ALLOW", "").strip()
++        allow = {s.strip().upper() for s in raw_allow.split(",") if s.strip()} if raw_allow else set()
++        venue_default = os.getenv("BBO_TS_VENUE_DEFAULT", "binance")
++        return BBOStoreCfg(
++            enabled=enabled,
++            stream=stream,
++            stream_maxlen=stream_maxlen,
++            schema_version=schema_version,
++            min_interval_ms=min_interval_ms,
++            symbols_allow=allow,
++            venue_default=venue_default,
++        )
++
++
++async def maybe_publish_bbo(
++    *,
++    publisher: Any,
++    cfg: BBOStoreCfg,
++    runtime: Any,
++    book_ts_ms: int,
++) -> None:
++    """Publish a compact BBO snapshot into `events:bbo_ts`.
++
++    Throttling:
++      - per symbol, do not publish more frequently than cfg.min_interval_ms
++      - optional allowlist by symbol
++
++    Event payload is JSON under field `payload`.
++    """
++
++    if not cfg.enabled:
++        return
++
++    symbol = str(getattr(runtime, "symbol", "") or "").upper()
++    if not symbol:
++        return
++    if cfg.symbols_allow and symbol not in cfg.symbols_allow:
++        return
++
++    ts_ms = _safe_int(book_ts_ms)
++    if ts_ms is None or ts_ms <= 0:
++        return
++
++    # per-symbol throttle state lives on runtime (hot-path, no globals)
++    last_ts = int(getattr(runtime, "bbo_ts_last_publish_ms", 0) or 0)
++    if last_ts and (ts_ms - last_ts) < int(cfg.min_interval_ms):
++        return
++
++    # Extract BBO from runtime.book_state or runtime.last_book.
++    bid = ask = None
++    try:
++        bs = getattr(runtime, "book_state", None)
++        snap = getattr(bs, "snap", None) if bs is not None else None
++        if snap is not None:
++            bid = _safe_float(getattr(snap, "best_bid_px", None))
++            ask = _safe_float(getattr(snap, "best_ask_px", None))
++        if bid is None or ask is None:
++            snap2 = getattr(runtime, "last_book", None)
++            if snap2 is not None:
++                bid = bid if bid is not None else _safe_float(getattr(snap2, "best_bid_px", None))
++                ask = ask if ask is not None else _safe_float(getattr(snap2, "best_ask_px", None))
++                if (bid is None or ask is None) and isinstance(snap2, dict):
++                    bids = snap2.get("bids") or []
++                    asks = snap2.get("asks") or []
++                    if bid is None and bids:
++                        bid = _safe_float(bids[0][0])
++                    if ask is None and asks:
++                        ask = _safe_float(asks[0][0])
++    except Exception:
++        return
++
++    mid = _calc_mid(bid, ask)
++    if bid is None or ask is None or mid is None:
++        return
++
++    venue = ""
++    try:
++        venue = str(getattr(runtime, "venue", None) or (runtime.config.get("venue") if hasattr(runtime, "config") else "") or "")
++    except Exception:
++        venue = ""
++    venue = (venue or cfg.venue_default or "binance").strip().lower()
++
++    payload: Dict[str, Any] = {
++        "schema_version": int(cfg.schema_version),
++        "producer": str(os.getenv("SERVICE_NAME", "python-worker")),
++        "ts_ms": int(ts_ms),
++        "symbol": symbol,
++        "venue": venue,
++        "bid": float(bid),
++        "ask": float(ask),
++        "mid": float(mid),
++    }
++
++    # Persist throttle state only after payload is built.
++    runtime.bbo_ts_last_publish_ms = int(ts_ms)
++
++    try:
++        # Keep stream contract consistent with other services: JSON in field `payload`.
++        try:
++            from services.async_signal_publisher import StreamSink  # type: ignore
++
++            sink = StreamSink(name=str(cfg.stream), maxlen=int(cfg.stream_maxlen))
++        except Exception:
++            # Unit-test / minimal env fallback.
++            class _Sink:
++                def __init__(self, name: str, maxlen: int):
++                    self.name = name
++                    self.maxlen = maxlen
++
++            sink = _Sink(str(cfg.stream), int(cfg.stream_maxlen))
++
++        await publisher.xadd_json(
++            sink=sink,
++            payload={"payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))},
++            symbol=symbol,
++            approximate=True,
++        )
++    except Exception:
++        # Fail-open: BBO storage must never block trading.
++        return
+diff --git a/services/orderflow/strategy.py b/services/orderflow/strategy.py
+index a9c0705..dcd0e16 100644
+--- a/services/orderflow/strategy.py
++++ b/services/orderflow/strategy.py
+@@ -101,6 +101,9 @@ from core.data_health import compute_data_health, apply_book_evidence_policy, ap
+ from core.slippage_model import expected_slippage_bps
+ from services.orderflow.components.book_processor import BookProcessor
+ 
++# Phase B1: BBO time-series publisher (hot-path safe)
++from services.orderflow.bbo_store import BBOStoreCfg, maybe_publish_bbo
++
+ 
+ # ──────────────────────────────────────────────────────────────────────────────
+ # Настройки по умолчанию
+@@ -188,6 +191,18 @@ class OrderFlowStrategy:
+         self.atr_cache: ATRCache = get_atr_cache()
+         self.market_state = MarketStateService(redis_client=self.redis, atr_cache=self.atr_cache)
+         self.signal_pipeline = SignalPipeline(publisher=self.publisher, atr_cache=self.atr_cache)
++
++        # ------------------------------------------------------------------
++        # Phase B1 — BBO time-series
++        # ------------------------------------------------------------------
++        # We publish compact BBO snapshots to Redis Stream `events:bbo_ts`.
++        # Post-trade workers use this data to compute realized spread / impact.
++        #
++        # IMPORTANT: This is hot-path code. It MUST be:
++        # - throttled (per symbol)
++        # - bounded (no top-of-book arrays)
++        # - fail-open (never blocks)
++        self._bbo_cfg = BBOStoreCfg.from_env()
+         self.low_conf_counters = {}
+         self.strong_gate_counters = {}
+         self.dn_gate_relaxed_counters = {}  # Counter for [DN-GATE] RELAXED messages
+@@ -256,7 +271,26 @@ class OrderFlowStrategy:
+         so the call-site can uniformly use `await`.
+         """
+         try:
+-            return self._book_processor.process_book(runtime, payload, ingest_ts_ms)
++            ok = self._book_processor.process_book(runtime, payload, ingest_ts_ms)
++
++            # Hot-path best-effort: publish BBO snapshot after book is parsed.
++            # We use book event time from runtime.book_state.ts_ms (deterministic).
++            try:
++                if ok and self._bbo_cfg.enabled:
++                    bs = getattr(runtime, "book_state", None)
++                    ts_ms = int(getattr(bs, "ts_ms", 0) or 0) if bs is not None else 0
++                    if ts_ms > 0:
++                        await maybe_publish_bbo(
++                            publisher=self.publisher,
++                            cfg=self._bbo_cfg,
++                            runtime=runtime,
++                            book_ts_ms=ts_ms,
++                        )
++            except Exception:
++                # Never break book processing.
++                pass
++
++            return ok
+         except Exception as exc:
+             from services.orderflow.metrics import log_silent_error
+             log_silent_error(exc, 'strategy_process_book', getattr(runtime, 'symbol', 'unknown'), 'OrderFlowStrategy.process_book')
+diff --git a/services/orderflow/tests/test_bbo_store.py b/services/orderflow/tests/test_bbo_store.py
+new file mode 100644
+index 0000000..ccc063c
+--- /dev/null
++++ b/services/orderflow/tests/test_bbo_store.py
+@@ -0,0 +1,64 @@
++import asyncio
++import unittest
++
++
++class DummyPublisher:
++    def __init__(self):
++        self.calls = []
++
++    async def xadd_json(self, *, sink, payload, symbol, approximate=True):
++        self.calls.append((sink.name, payload, symbol))
++        # mimic AsyncPublishResult
++        class R:
++            ok = True
++            busy_loading = False
++        return R()
++
++
++class DummySnap:
++    def __init__(self, bid, ask):
++        self.best_bid_px = bid
++        self.best_ask_px = ask
++
++
++class DummyBookState:
++    def __init__(self, ts_ms, bid, ask):
++        self.ts_ms = ts_ms
++        self.snap = DummySnap(bid, ask)
++
++
++class DummyRuntime:
++    def __init__(self):
++        self.symbol = "BTCUSDT"
++        self.config = {"venue": "binance"}
++        self.book_state = DummyBookState(1000, 99.0, 101.0)
++        self.bbo_ts_last_publish_ms = 0
++
++
++class TestBBOStore(unittest.TestCase):
++    def test_publish_and_throttle(self):
++        from services.orderflow.bbo_store import BBOStoreCfg, maybe_publish_bbo
++
++        pub = DummyPublisher()
++        rt = DummyRuntime()
++        cfg = BBOStoreCfg(
++            enabled=True,
++            stream="events:bbo_ts",
++            stream_maxlen=100,
++            schema_version=1,
++            min_interval_ms=100,
++            symbols_allow=set(),
++            venue_default="binance",
++        )
++
++        async def run():
++            await maybe_publish_bbo(publisher=pub, cfg=cfg, runtime=rt, book_ts_ms=1000)
++            await maybe_publish_bbo(publisher=pub, cfg=cfg, runtime=rt, book_ts_ms=1050)  # throttled
++            await maybe_publish_bbo(publisher=pub, cfg=cfg, runtime=rt, book_ts_ms=1200)
++
++        asyncio.run(run())
++        self.assertEqual(len(pub.calls), 2)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/services/posttrade/bbo_ts_writer.py b/services/posttrade/bbo_ts_writer.py
+new file mode 100644
+index 0000000..97d2b71
+--- /dev/null
++++ b/services/posttrade/bbo_ts_writer.py
+@@ -0,0 +1,331 @@
++from __future__ import annotations
++
++"""bbo_ts_writer — Redis Stream → Timescale bbo_ts table (Phase B1).
++
++This is the warm-path component for BBO time-series.
++
++Hot-path publishes compact snapshots to `events:bbo_ts` (see services/orderflow/bbo_store.py).
++This writer persists them to Timescale/PG to support TCA joins.
++
++Operational requirements
++------------------------
++* at-least-once: consumer group + XACK after successful DB write
++* idempotent: DB primary key (sym,venue,ts_ms) with ON CONFLICT DO NOTHING
++* fail-open: invalid payloads go to DLQ and are ACK'ed
++* bounded: batch writes
++
++ENV
++---
++REDIS_URL=redis://redis-worker-1:6379/0
++TRADES_DB_DSN=postgresql://trading:...@postgres:5432/scanner_analytics
++
++BBO_TS_STREAM=events:bbo_ts
++BBO_TS_CG=bbo_ts_writer
++BBO_TS_CONSUMER=<hostname:pid>
++BBO_TS_BLOCK_MS=5000
++BBO_TS_COUNT=256
++
++BBO_TS_DLQ_STREAM=events:bbo_ts:dlq
++BBO_TS_DLQ_MAXLEN=200000
++
++BBO_TS_WRITER_BATCH_SIZE=500
++BBO_TS_WRITER_METRICS_PORT=9826
++
++Schema management
++-----------------
++Apply services/posttrade/sql/tca_timescale_v1.sql via migrations/psql.
++"""
++
++import asyncio
++import json
++import logging
++import os
++import socket
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional, Tuple
++
++try:
++    import redis.asyncio as aioredis  # type: ignore
++except Exception:  # pragma: no cover
++    aioredis = None
++
++from services.posttrade.redis_stream_dlq import publish_dlq
++from services.posttrade.bbo_ts_writer_metrics import build_metrics, start_metrics_server
++
++
++logger = logging.getLogger("bbo_ts_writer")
++
++
++def _env(name: str, default: str) -> str:
++    v = os.getenv(name)
++    return v if v is not None and v != "" else default
++
++
++def _env_int(name: str, default: str) -> int:
++    try:
++        return int(float(_env(name, default)))
++    except Exception:
++        return int(float(default))
++
++
++def pick_dsn() -> str:
++    return (
++        os.getenv("TRADES_DB_DSN")
++        or os.getenv("TIMESCALE_DSN")
++        or os.getenv("ANALYTICS_DB_DSN")
++        or os.getenv("ANALYTICS_DSN")
++        or os.getenv("PG_DSN")
++        or os.getenv("DATABASE_URL")
++        or ""
++    )
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _loads_json(v: Any) -> Optional[dict]:
++    if v is None:
++        return None
++    if isinstance(v, dict):
++        return v
++    if isinstance(v, (bytes, bytearray)):
++        v = v.decode("utf-8", "replace")
++    if not isinstance(v, str):
++        v = str(v)
++    s = v.strip()
++    if not s:
++        return None
++    try:
++        obj = json.loads(s)
++        return obj if isinstance(obj, dict) else None
++    except Exception:
++        return None
++
++
++def _parse_stream_fields(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    # Standard contract: JSON in field `payload`.
++    if b"payload" in fields:
++        obj = _loads_json(fields.get(b"payload"))
++        return obj or {}
++    if "payload" in fields:
++        obj = _loads_json(fields.get("payload"))
++        return obj or {}
++    # Fallback: treat fields as raw
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        try:
++            kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++            out[kk] = v.decode() if isinstance(v, (bytes, bytearray)) else v
++        except Exception:
++            continue
++    return out
++
++
++def _validate_payload(p: Dict[str, Any]) -> Tuple[bool, str]:
++    for k in ("ts_ms", "symbol", "venue", "bid", "ask", "mid"):
++        if k not in p or p.get(k) in (None, ""):
++            return False, f"missing:{k}"
++    try:
++        if int(p.get("ts_ms")) <= 0:
++            return False, "bad:ts_ms"
++    except Exception:
++        return False, "bad:ts_ms"
++    return True, ""
++
++
++class PgWriter:
++    def __init__(self, dsn: str):
++        self.dsn = dsn
++
++    def _connect(self):
++        try:
++            import psycopg  # type: ignore
++            return psycopg.connect(self.dsn)
++        except Exception:
++            import psycopg2  # type: ignore
++            return psycopg2.connect(self.dsn)
++
++    def insert_rows(self, rows: List[Dict[str, Any]]) -> int:
++        if not rows:
++            return 0
++        conn = self._connect()
++        try:
++            cur = conn.cursor()
++            # ON CONFLICT DO NOTHING keeps idempotency cheap.
++            sql = (
++                "INSERT INTO bbo_ts (ts, ts_ms, sym, venue, bid, ask, mid, producer, schema_version, stream_id) "
++                "VALUES (to_timestamp(%(ts_ms)s/1000.0), %(ts_ms)s, %(sym)s, %(venue)s, %(bid)s, %(ask)s, %(mid)s, %(producer)s, %(schema_version)s, %(stream_id)s) "
++                "ON CONFLICT (sym, venue, ts_ms) DO NOTHING"
++            )
++            params = []
++            for r in rows:
++                params.append(
++                    {
++                        "ts_ms": int(r["ts_ms"]),
++                        "sym": str(r["sym"]),
++                        "venue": str(r["venue"]),
++                        "bid": float(r["bid"]),
++                        "ask": float(r["ask"]),
++                        "mid": float(r["mid"]),
++                        "producer": str(r.get("producer") or ""),
++                        "schema_version": int(r.get("schema_version") or 1),
++                        "stream_id": str(r.get("stream_id") or ""),
++                    }
++                )
++            cur.executemany(sql, params)
++            conn.commit()
++            return len(rows)
++        finally:
++            conn.close()
++
++
++@dataclass
++class Cfg:
++    redis_url: str
++    stream: str
++    group: str
++    consumer: str
++    block_ms: int
++    count: int
++    dlq_stream: str
++    dlq_maxlen: int
++    batch_size: int
++    metrics_port: int
++
++    @staticmethod
++    def from_env() -> "Cfg":
++        host = socket.gethostname()
++        return Cfg(
++            redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
++            stream=_env("BBO_TS_STREAM", "events:bbo_ts"),
++            group=_env("BBO_TS_CG", "bbo_ts_writer"),
++            consumer=_env("BBO_TS_CONSUMER", f"{host}:{os.getpid()}"),
++            block_ms=_env_int("BBO_TS_BLOCK_MS", "5000"),
++            count=_env_int("BBO_TS_COUNT", "256"),
++            dlq_stream=_env("BBO_TS_DLQ_STREAM", "events:bbo_ts:dlq"),
++            dlq_maxlen=_env_int("BBO_TS_DLQ_MAXLEN", "200000"),
++            batch_size=_env_int("BBO_TS_WRITER_BATCH_SIZE", "500"),
++            metrics_port=_env_int("BBO_TS_WRITER_METRICS_PORT", "9826"),
++        )
++
++
++async def _ensure_group(r: Any, *, stream: str, group: str) -> None:
++    while True:
++        try:
++            await r.xgroup_create(stream, group, id="$", mkstream=True)
++            return
++        except Exception as e:
++            if "BUSYGROUP" in str(e).upper():
++                return
++            if "LOADING" in str(e).upper():
++                await asyncio.sleep(1.0)
++                continue
++            raise
++
++
++async def main() -> None:
++    if aioredis is None:
++        raise RuntimeError("redis-py is required")
++    dsn = pick_dsn()
++    if not dsn:
++        raise RuntimeError("TRADES_DB_DSN (or TIMESCALE_DSN) must be set")
++
++    cfg = Cfg.from_env()
++    metrics = build_metrics()
++    start_metrics_server(cfg.metrics_port)
++
++    r = aioredis.from_url(cfg.redis_url, decode_responses=False)
++    await _ensure_group(r, stream=cfg.stream, group=cfg.group)
++
++    pg = PgWriter(dsn)
++
++    logger.info("bbo_ts_writer started: stream=%s group=%s", cfg.stream, cfg.group)
++
++    while True:
++        try:
++            res = await r.xreadgroup(
++                groupname=cfg.group,
++                consumername=cfg.consumer,
++                streams={cfg.stream: ">"},
++                count=cfg.count,
++                block=cfg.block_ms,
++            )
++            if not res:
++                # pending gauge (best-effort)
++                try:
++                    if metrics.get("pending_count") is not None:
++                        pend = await r.xpending(cfg.stream, cfg.group)
++                        metrics["pending_count"].set(int(pend["pending"] if isinstance(pend, dict) else pend[0]))
++                except Exception:
++                    pass
++                continue
++
++            rows: List[Dict[str, Any]] = []
++            ack_ids: List[str] = []
++            for _stream, msgs in res:
++                for mid, fields in msgs:
++                    mid_s = mid.decode() if isinstance(mid, (bytes, bytearray)) else str(mid)
++                    if metrics.get("seen_total") is not None:
++                        metrics["seen_total"].inc()
++                    payload = _parse_stream_fields(fields)
++                    ok, reason = _validate_payload(payload)
++                    if not ok:
++                        if metrics.get("dlq_total") is not None:
++                            metrics["dlq_total"].inc()
++                        await publish_dlq(
++                            r,
++                            dlq_stream=cfg.dlq_stream,
++                            reason=reason,
++                            error="invalid_bbo_payload",
++                            stream=cfg.stream,
++                            entry_id=mid_s,
++                            payload=payload,
++                            maxlen=cfg.dlq_maxlen,
++                        )
++                        # ACK poison pill to avoid blocking the group.
++                        await r.xack(cfg.stream, cfg.group, mid)
++                        continue
++
++                    ts_ms = int(payload["ts_ms"])
++                    now_ms = _now_ms()
++                    if metrics.get("redis_lag_ms") is not None:
++                        metrics["redis_lag_ms"].observe(max(0.0, float(now_ms - ts_ms)))
++
++                    rows.append(
++                        {
++                            "ts_ms": ts_ms,
++                            "sym": str(payload.get("symbol") or "").upper(),
++                            "venue": str(payload.get("venue") or "binance").lower(),
++                            "bid": float(payload.get("bid")),
++                            "ask": float(payload.get("ask")),
++                            "mid": float(payload.get("mid")),
++                            "producer": str(payload.get("producer") or ""),
++                            "schema_version": int(payload.get("schema_version") or 1),
++                            "stream_id": mid_s,
++                        }
++                    )
++                    ack_ids.append(mid_s)
++
++            # DB write batch
++            if rows:
++                try:
++                    pg.insert_rows(rows)
++                    if metrics.get("written_total") is not None:
++                        metrics["written_total"].inc(len(rows))
++                    # ACK after DB commit
++                    await r.xack(cfg.stream, cfg.group, *ack_ids)
++                except Exception:
++                    if metrics.get("db_fail_total") is not None:
++                        metrics["db_fail_total"].inc()
++                    logger.exception("DB write failed; will retry (no ACK)")
++
++        except Exception:
++            logger.exception("bbo_ts_writer loop error")
++            await asyncio.sleep(1.0)
++
++
++if __name__ == "__main__":
++    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
++    asyncio.run(main())
+diff --git a/services/posttrade/bbo_ts_writer_metrics.py b/services/posttrade/bbo_ts_writer_metrics.py
+new file mode 100644
+index 0000000..ff3a950
+--- /dev/null
++++ b/services/posttrade/bbo_ts_writer_metrics.py
+@@ -0,0 +1,61 @@
++from __future__ import annotations
++
++"""Prometheus metrics for bbo_ts_writer.
++
++We keep this small and low-cardinality.
++"""
++
++import logging
++from typing import Any, Dict
++
++try:
++    from prometheus_client import Counter, Histogram, Gauge, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Histogram = Gauge = None  # type: ignore
++    start_http_server = None  # type: ignore
++
++
++logger = logging.getLogger("bbo_ts_writer.metrics")
++
++
++def build_metrics() -> Dict[str, Any]:
++    if Counter is None:
++        return {}
++
++    return {
++        "seen_total": Counter(
++            "bbo_ts_writer_seen_total",
++            "Total stream entries seen by bbo_ts_writer",
++        ),
++        "written_total": Counter(
++            "bbo_ts_writer_written_total",
++            "Total bbo_ts rows written",
++        ),
++        "db_fail_total": Counter(
++            "bbo_ts_writer_db_fail_total",
++            "DB write failures",
++        ),
++        "dlq_total": Counter(
++            "bbo_ts_writer_dlq_total",
++            "Invalid payloads moved to DLQ",
++        ),
++        "redis_lag_ms": Histogram(
++            "bbo_ts_writer_redis_lag_ms",
++            "Redis stream lag in ms (now_ms - payload.ts_ms)",
++            buckets=(50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000),
++        ),
++        "pending_count": Gauge(
++            "bbo_ts_writer_pending_count",
++            "Pending (PEL) size for the consumer group",
++        ),
++    }
++
++
++def start_metrics_server(port: int) -> None:
++    if start_http_server is None:
++        return
++    try:
++        start_http_server(int(port))
++        logger.info("bbo_ts_writer metrics server started on :%s", port)
++    except Exception:
++        logger.exception("Failed to start metrics server")
+diff --git a/services/posttrade/fills_writer.py b/services/posttrade/fills_writer.py
+new file mode 100644
+index 0000000..baca3b1
+--- /dev/null
++++ b/services/posttrade/fills_writer.py
+@@ -0,0 +1,327 @@
++from __future__ import annotations
++
++"""fills_writer — events:trades → fills table (Phase B).
++
++Why this service exists
++-----------------------
++TCA worker needs a canonical, joinable fill stream:
++  sid + ts_fill_ms + px + qty + fee_bps + side + venue + symbol
++
++In the current system, fills are embedded inside `events:trades` events
++(POSITION_OPENED / POSITION_CLOSED) with heterogeneous keys.
++This writer normalizes them into the `fills` table.
++
++Important constraints
++---------------------
++* Fail-open: broken events must not block the stream. They go to DLQ.
++* Deterministic time: ts_fill_ms must be epoch ms.
++* Idempotent: upsert by (sid, ts_fill_ms, fill_role).
++
++ENV
++---
++REDIS_URL=redis://redis-worker-1:6379/0
++TRADE_EVENTS_STREAM=events:trades
++TRADE_EVENTS_GROUP=fills_writer_v1
++TRADE_EVENTS_CONSUMER=<hostname:pid>
++
++FILLS_DLQ_STREAM=events:fills:dlq
++FILLS_DB_DSN=<TRADES_DB_DSN fallback chain>
++
++FILLS_WRITER_BATCH_SIZE=256
++FILLS_WRITER_BLOCK_MS=5000
++"""
++
++import asyncio
++import json
++import logging
++import os
++import socket
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional, Tuple
++
++try:
++    import redis.asyncio as aioredis  # type: ignore
++except Exception:  # pragma: no cover
++    aioredis = None
++
++from services.posttrade.fill_event_contract import normalize_fill_event, validate_fill_event
++from services.posttrade.redis_stream_dlq import publish_dlq
++
++
++logger = logging.getLogger("fills_writer")
++
++
++def _env(name: str, default: str) -> str:
++    v = os.getenv(name)
++    return v if v is not None and v != "" else default
++
++
++def _env_int(name: str, default: str) -> int:
++    try:
++        return int(float(_env(name, default)))
++    except Exception:
++        return int(float(default))
++
++
++def pick_dsn() -> str:
++    return (
++        os.getenv("FILLS_DB_DSN")
++        or os.getenv("TRADES_DB_DSN")
++        or os.getenv("TIMESCALE_DSN")
++        or os.getenv("ANALYTICS_DB_DSN")
++        or os.getenv("ANALYTICS_DSN")
++        or os.getenv("PG_DSN")
++        or os.getenv("DATABASE_URL")
++        or ""
++    )
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _decode_fields(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        if isinstance(v, (bytes, bytearray)):
++            out[kk] = v.decode("utf-8", "replace")
++        else:
++            out[kk] = v
++    return out
++
++
++def _event_type(ev: Dict[str, Any]) -> str:
++    return str(ev.get("event_type") or ev.get("type") or ev.get("event") or "").upper().strip()
++
++
++def _fill_role(et: str) -> Optional[str]:
++    if et == "POSITION_OPENED":
++        return "entry"
++    if et == "POSITION_CLOSED":
++        return "exit"
++    return None
++
++
++def _best_effort_fee_bps(ev: Dict[str, Any]) -> Optional[float]:
++    # Prefer explicit fee_bps
++    for k in ("fee_bps", "fees_bps"):
++        if k in ev and ev.get(k) not in (None, ""):
++            try:
++                return float(ev.get(k))
++            except Exception:
++                pass
++    # Derive from fees_usd and turnover_roundtrip (if present)
++    fees_usd = ev.get("fees_usd")
++    turnover = ev.get("turnover_roundtrip") or ev.get("turnover_usd")
++    try:
++        if fees_usd is not None and turnover is not None:
++            f = float(fees_usd)
++            t = float(turnover)
++            if t > 0:
++                return float(f / t * 10_000.0)
++    except Exception:
++        pass
++    return None
++
++
++class PgWriter:
++    def __init__(self, dsn: str):
++        self.dsn = dsn
++
++    def _connect(self):
++        try:
++            import psycopg  # type: ignore
++            return psycopg.connect(self.dsn)
++        except Exception:
++            import psycopg2  # type: ignore
++            return psycopg2.connect(self.dsn)
++
++    def upsert_fills(self, rows: List[Dict[str, Any]]) -> int:
++        if not rows:
++            return 0
++        conn = self._connect()
++        try:
++            cur = conn.cursor()
++            sql = (
++                "INSERT INTO fills (ts, ts_fill_ms, sid, order_id, sym, venue, side, fill_role, px, qty, fee_bps, "
++                "bid_at_fill, ask_at_fill, mid_at_fill, event_type, event_id, stream_id, ts_insert_ms) "
++                "VALUES (to_timestamp(%(ts_fill_ms)s/1000.0), %(ts_fill_ms)s, %(sid)s, %(order_id)s, %(sym)s, %(venue)s, %(side)s, %(fill_role)s, %(px)s, %(qty)s, %(fee_bps)s, "
++                "%(bid_at_fill)s, %(ask_at_fill)s, %(mid_at_fill)s, %(event_type)s, %(event_id)s, %(stream_id)s, %(ts_insert_ms)s) "
++                "ON CONFLICT (sid, ts_fill_ms, fill_role) DO UPDATE SET "
++                "order_id=excluded.order_id, sym=excluded.sym, venue=excluded.venue, side=excluded.side, px=excluded.px, qty=excluded.qty, fee_bps=excluded.fee_bps, "
++                "bid_at_fill=excluded.bid_at_fill, ask_at_fill=excluded.ask_at_fill, mid_at_fill=excluded.mid_at_fill, "
++                "event_type=excluded.event_type, event_id=excluded.event_id, stream_id=excluded.stream_id, ts_insert_ms=excluded.ts_insert_ms"
++            )
++            cur.executemany(sql, rows)
++            conn.commit()
++            return len(rows)
++        finally:
++            conn.close()
++
++
++@dataclass
++class Cfg:
++    redis_url: str
++    stream: str
++    group: str
++    consumer: str
++    block_ms: int
++    count: int
++    dlq_stream: str
++    dlq_maxlen: int
++    batch_size: int
++
++    @staticmethod
++    def from_env() -> "Cfg":
++        host = socket.gethostname()
++        return Cfg(
++            redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
++            stream=_env("TRADE_EVENTS_STREAM", "events:trades"),
++            group=_env("TRADE_EVENTS_GROUP", "fills_writer_v1"),
++            consumer=_env("TRADE_EVENTS_CONSUMER", f"{host}:{os.getpid()}"),
++            block_ms=_env_int("FILLS_WRITER_BLOCK_MS", "5000"),
++            count=_env_int("FILLS_WRITER_COUNT", "256"),
++            dlq_stream=_env("FILLS_DLQ_STREAM", "events:fills:dlq"),
++            dlq_maxlen=_env_int("FILLS_DLQ_MAXLEN", "200000"),
++            batch_size=_env_int("FILLS_WRITER_BATCH_SIZE", "256"),
++        )
++
++
++async def _ensure_group(r: Any, *, stream: str, group: str) -> None:
++    while True:
++        try:
++            await r.xgroup_create(stream, group, id="$", mkstream=True)
++            return
++        except Exception as e:
++            if "BUSYGROUP" in str(e).upper():
++                return
++            if "LOADING" in str(e).upper():
++                await asyncio.sleep(1.0)
++                continue
++            raise
++
++
++def _to_fill_row(ev: Dict[str, Any], *, stream_id: str) -> Tuple[Optional[Dict[str, Any]], str]:
++    et = _event_type(ev)
++    role = _fill_role(et)
++    if role is None:
++        return None, "skip:not_fill"
++
++    # Map trade events to canonical fill event keys
++    evt: Dict[str, Any] = {
++        "sid": ev.get("sid") or ev.get("signal_id"),
++        "order_id": ev.get("order_id") or ev.get("exit_order_id") or ev.get("position_id") or ev.get("event_id") or "",
++        "ts_fill_ms": ev.get("ts_fill_ms") or ev.get("exit_ts_ms") or ev.get("ts") or ev.get("ts_ms"),
++        "px": ev.get("px") or ev.get("price"),
++        "qty": ev.get("qty") or ev.get("lot"),
++        "fee_bps": _best_effort_fee_bps(ev),
++        "venue": ev.get("venue") or ev.get("source"),
++        "symbol": ev.get("symbol"),
++        "side": ev.get("side") or ev.get("direction"),
++        "bid_at_fill": ev.get("bid_at_fill"),
++        "ask_at_fill": ev.get("ask_at_fill"),
++        "mid_at_fill": ev.get("mid_at_fill"),
++    }
++
++    norm = normalize_fill_event(evt)
++    # fee_bps is required by contract; allow default 0.0 if unknown.
++    if norm.get("fee_bps") is None:
++        norm["fee_bps"] = float(os.getenv("FILL_FEE_BPS_DEFAULT", "0") or 0)
++
++    ok, missing = validate_fill_event(norm)
++    if not ok:
++        return None, "missing:" + ",".join(missing)
++
++    row = {
++        "ts_fill_ms": int(norm["ts_fill_ms"]),
++        "sid": str(norm["sid"]),
++        "order_id": str(norm["order_id"]),
++        "sym": str(norm["symbol"]).upper(),
++        "venue": str(norm["venue"]).lower(),
++        "side": str(norm["side"]).upper(),
++        "fill_role": role,
++        "px": float(norm["px"]),
++        "qty": float(norm["qty"]),
++        "fee_bps": float(norm["fee_bps"]),
++        "bid_at_fill": norm.get("bid_at_fill"),
++        "ask_at_fill": norm.get("ask_at_fill"),
++        "mid_at_fill": norm.get("mid_at_fill"),
++        "event_type": et,
++        "event_id": str(ev.get("event_id") or ""),
++        "stream_id": stream_id,
++        "ts_insert_ms": _now_ms(),
++    }
++    return row, ""
++
++
++async def main() -> None:
++    if aioredis is None:
++        raise RuntimeError("redis-py is required")
++
++    dsn = pick_dsn()
++    if not dsn:
++        raise RuntimeError("FILLS_DB_DSN/TRADES_DB_DSN must be set")
++
++    cfg = Cfg.from_env()
++    r = aioredis.from_url(cfg.redis_url, decode_responses=False)
++    await _ensure_group(r, stream=cfg.stream, group=cfg.group)
++
++    pg = PgWriter(dsn)
++    logger.info("fills_writer started: stream=%s group=%s", cfg.stream, cfg.group)
++
++    while True:
++        try:
++            res = await r.xreadgroup(
++                groupname=cfg.group,
++                consumername=cfg.consumer,
++                streams={cfg.stream: ">"},
++                count=cfg.count,
++                block=cfg.block_ms,
++            )
++            if not res:
++                continue
++
++            rows: List[Dict[str, Any]] = []
++            ack_ids: List[Any] = []
++            for _stream, msgs in res:
++                for mid, fields in msgs:
++                    mid_s = mid.decode() if isinstance(mid, (bytes, bytearray)) else str(mid)
++                    ev = _decode_fields(fields)
++                    row, reason = _to_fill_row(ev, stream_id=mid_s)
++                    if row is None:
++                        if not reason.startswith("skip:"):
++                            await publish_dlq(
++                                r,
++                                dlq_stream=cfg.dlq_stream,
++                                reason=reason,
++                                error="invalid_fill_event",
++                                stream=cfg.stream,
++                                entry_id=mid_s,
++                                payload=ev,
++                                maxlen=cfg.dlq_maxlen,
++                            )
++                        # Always ACK so the group doesn't get stuck.
++                        await r.xack(cfg.stream, cfg.group, mid)
++                        continue
++                    rows.append(row)
++                    ack_ids.append(mid)
++
++                    if len(rows) >= cfg.batch_size:
++                        pg.upsert_fills(rows)
++                        await r.xack(cfg.stream, cfg.group, *ack_ids)
++                        rows.clear(); ack_ids.clear()
++
++            if rows:
++                pg.upsert_fills(rows)
++                await r.xack(cfg.stream, cfg.group, *ack_ids)
++
++        except Exception:
++            logger.exception("fills_writer loop error")
++            await asyncio.sleep(1.0)
++
++
++if __name__ == "__main__":
++    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
++    asyncio.run(main())
+diff --git a/services/posttrade/sql/tca_timescale_v1.sql b/services/posttrade/sql/tca_timescale_v1.sql
+new file mode 100644
+index 0000000..da4121f
+--- /dev/null
++++ b/services/posttrade/sql/tca_timescale_v1.sql
+@@ -0,0 +1,150 @@
++-- Phase B (P1) — TCA storage schema for Timescale/Postgres
++--
++-- Tables:
++--   - bbo_ts           : BBO time-series snapshots (for mid_{t+Δ})
++--   - fills            : normalized fills (entry/exit) joinable by sid
++--   - tca_fill_metrics : per-fill TCA metrics (effective/realized spread, impact, IS)
++--
++-- Conventions:
++--   - event-time columns are epoch-ms BIGINT for deterministic joins
++--   - a `ts TIMESTAMPTZ` companion is stored for Timescale hypertables
++--
++-- NOTE: decision_snapshot table is created by decision_snapshot_timescale.sql (A3).
++
++CREATE EXTENSION IF NOT EXISTS timescaledb;
++
++-- ---------------------------------------------------------------------
++-- bbo_ts: best bid/ask + mid at time ts
++-- ---------------------------------------------------------------------
++CREATE TABLE IF NOT EXISTS bbo_ts (
++  ts          TIMESTAMPTZ NOT NULL,
++  ts_ms       BIGINT NOT NULL,
++  sym         TEXT NOT NULL,
++  venue       TEXT NOT NULL,
++  bid         DOUBLE PRECISION NOT NULL,
++  ask         DOUBLE PRECISION NOT NULL,
++  mid         DOUBLE PRECISION NOT NULL,
++  producer    TEXT NOT NULL DEFAULT '',
++  schema_version INT NOT NULL DEFAULT 1,
++  stream_id   TEXT NULL,
++  PRIMARY KEY (sym, venue, ts_ms)
++);
++
++SELECT create_hypertable('bbo_ts', 'ts', if_not_exists => TRUE);
++
++CREATE INDEX IF NOT EXISTS bbo_ts_sym_venue_ts_idx
++  ON bbo_ts (sym, venue, ts DESC);
++
++-- Compression: keep recent uncompressed for fast writes
++ALTER TABLE bbo_ts SET (
++  timescaledb.compress,
++  timescaledb.compress_segmentby = 'sym,venue'
++);
++
++-- Optional policy (safe if Timescale installed). Adjust via migrations.
++DO $$
++BEGIN
++  PERFORM add_compression_policy('bbo_ts', INTERVAL '3 days');
++EXCEPTION WHEN OTHERS THEN
++  -- Fail-open: policy may already exist or Timescale not enabled.
++END $$;
++
++-- ---------------------------------------------------------------------
++-- fills: normalized execution fills (entry/exit)
++-- ---------------------------------------------------------------------
++CREATE TABLE IF NOT EXISTS fills (
++  ts          TIMESTAMPTZ NOT NULL,
++  ts_fill_ms  BIGINT NOT NULL,
++  sid         TEXT NOT NULL,
++  order_id    TEXT NOT NULL,
++  sym         TEXT NOT NULL,
++  venue       TEXT NOT NULL,
++  side        TEXT NOT NULL,  -- LONG|SHORT
++  fill_role   TEXT NOT NULL,  -- entry|exit
++  px          DOUBLE PRECISION NOT NULL,
++  qty         DOUBLE PRECISION NOT NULL,
++  fee_bps     DOUBLE PRECISION NOT NULL,
++
++  bid_at_fill DOUBLE PRECISION NULL,
++  ask_at_fill DOUBLE PRECISION NULL,
++  mid_at_fill DOUBLE PRECISION NULL,
++
++  event_type  TEXT NOT NULL DEFAULT '',
++  event_id    TEXT NULL,
++  stream_id   TEXT NULL,
++  ts_insert_ms BIGINT NOT NULL DEFAULT 0,
++
++  PRIMARY KEY (sid, ts_fill_ms, fill_role)
++);
++
++SELECT create_hypertable('fills', 'ts', if_not_exists => TRUE);
++
++CREATE INDEX IF NOT EXISTS fills_sym_venue_ts_idx
++  ON fills (sym, venue, ts DESC);
++CREATE INDEX IF NOT EXISTS fills_sid_ts_idx
++  ON fills (sid, ts DESC);
++
++-- ---------------------------------------------------------------------
++-- tca_fill_metrics: per-fill TCA metrics
++-- ---------------------------------------------------------------------
++CREATE TABLE IF NOT EXISTS tca_fill_metrics (
++  ts            TIMESTAMPTZ NOT NULL,
++  ts_fill_ms    BIGINT NOT NULL,
++  sid           TEXT NOT NULL,
++  sym           TEXT NOT NULL,
++  venue         TEXT NOT NULL,
++  side          TEXT NOT NULL,
++  fill_role     TEXT NOT NULL,
++
++  -- decision context (from decision_snapshot)
++  decision_ts_ms BIGINT NOT NULL,
++  session       TEXT NOT NULL,
++  tf            TEXT NOT NULL,
++  kind          TEXT NOT NULL,
++  decision_mid  DOUBLE PRECISION NULL,
++
++  -- mid/bbo at fill (from bbo_ts join)
++  mid_t         DOUBLE PRECISION NULL,
++  bid_t         DOUBLE PRECISION NULL,
++  ask_t         DOUBLE PRECISION NULL,
++
++  -- mid at t+Δ
++  mid_t_1s      DOUBLE PRECISION NULL,
++  mid_t_5s      DOUBLE PRECISION NULL,
++
++  -- core metrics (bps)
++  eff_spread_bps DOUBLE PRECISION NULL,
++  realized_spread_1s_bps DOUBLE PRECISION NULL,
++  realized_spread_5s_bps DOUBLE PRECISION NULL,
++  perm_impact_1s_bps DOUBLE PRECISION NULL,
++  perm_impact_5s_bps DOUBLE PRECISION NULL,
++  is_bps        DOUBLE PRECISION NULL,
++
++  -- raw execution
++  px            DOUBLE PRECISION NOT NULL,
++  qty           DOUBLE PRECISION NOT NULL,
++  fee_bps       DOUBLE PRECISION NOT NULL,
++
++  ts_insert_ms  BIGINT NOT NULL DEFAULT 0,
++  PRIMARY KEY (sid, ts_fill_ms, fill_role)
++);
++
++SELECT create_hypertable('tca_fill_metrics', 'ts', if_not_exists => TRUE);
++
++CREATE INDEX IF NOT EXISTS tca_fill_metrics_sym_venue_ts_idx
++  ON tca_fill_metrics (sym, venue, ts DESC);
++CREATE INDEX IF NOT EXISTS tca_fill_metrics_sid_ts_idx
++  ON tca_fill_metrics (sid, ts DESC);
++
++-- Optional CAGG example (1m rollups) — keep commented until you confirm volume.
++-- CREATE MATERIALIZED VIEW IF NOT EXISTS tca_rollups_1m
++-- WITH (timescaledb.continuous) AS
++-- SELECT
++--   time_bucket('1 minute', ts) AS bucket,
++--   sym, venue, session, tf, kind, side,
++--   percentile_cont(0.50) WITHIN GROUP (ORDER BY is_bps) AS is_p50_bps,
++--   percentile_cont(0.95) WITHIN GROUP (ORDER BY is_bps) AS is_p95_bps,
++--   percentile_cont(0.99) WITHIN GROUP (ORDER BY is_bps) AS is_p99_bps
++-- FROM tca_fill_metrics
++-- WHERE is_bps IS NOT NULL
++-- GROUP BY bucket, sym, venue, session, tf, kind, side;
+diff --git a/services/posttrade/tca_math.py b/services/posttrade/tca_math.py
+new file mode 100644
+index 0000000..38917c9
+--- /dev/null
++++ b/services/posttrade/tca_math.py
+@@ -0,0 +1,106 @@
++from __future__ import annotations
++
++"""TCA math primitives (Phase B).
++
++We isolate formulas from IO so they are:
++  - unit-testable
++  - deterministic
++  - reusable in both online gates and post-trade workers
++
++All functions return values in **basis points (bps)**.
++"""
++
++import math
++from typing import Optional
++
++
++def _finite(x: Optional[float]) -> Optional[float]:
++    if x is None:
++        return None
++    try:
++        f = float(x)
++    except Exception:
++        return None
++    if not math.isfinite(f):
++        return None
++    return float(f)
++
++
++def side_sign(side: str) -> int:
++    """Map side/direction to sign.
++
++    +1: BUY/LONG
++    -1: SELL/SHORT
++    """
++    s = (side or "").strip().upper()
++    if s in {"LONG", "BUY"}:
++        return +1
++    if s in {"SHORT", "SELL"}:
++        return -1
++    # Unknown side -> neutral; caller should handle.
++    return 0
++
++
++def effective_spread_bps(*, trade_px: float, mid_t: float, side: str) -> Optional[float]:
++    """Effective spread in bps.
++
++    Standard microstructure proxy: 2*(P_trade - mid_t)/mid_t for buys;
++    2*(mid_t - P_trade)/mid_t for sells.
++    """
++    px = _finite(trade_px)
++    mid = _finite(mid_t)
++    ss = side_sign(side)
++    if px is None or mid is None or mid <= 0 or ss == 0:
++        return None
++    return float(2.0 * ss * (px - mid) / mid * 10_000.0)
++
++
++def realized_spread_bps(*, trade_px: float, mid_t: float, mid_t_delta: float, side: str) -> Optional[float]:
++    """Realized spread in bps for horizon Δ.
++
++    Uses mid at t+Δ; denominator is mid_t to keep scale consistent.
++    """
++    px = _finite(trade_px)
++    mid = _finite(mid_t)
++    mid_d = _finite(mid_t_delta)
++    ss = side_sign(side)
++    if px is None or mid is None or mid <= 0 or mid_d is None or ss == 0:
++        return None
++    return float(2.0 * ss * (px - mid_d) / mid * 10_000.0)
++
++
++def permanent_impact_bps(*, mid_t: float, mid_t_delta: float, side: str) -> Optional[float]:
++    """Permanent (price) impact proxy in bps.
++
++    Positive means mid moved in the direction of the trade and persisted.
++    """
++    mid = _finite(mid_t)
++    mid_d = _finite(mid_t_delta)
++    ss = side_sign(side)
++    if mid is None or mid <= 0 or mid_d is None or ss == 0:
++        return None
++    return float(ss * (mid_d - mid) / mid * 10_000.0)
++
++
++def implementation_shortfall_bps(
++    *,
++    vwap_fill_px: float,
++    decision_mid: float,
++    side: str,
++    fee_bps: float = 0.0,
++) -> Optional[float]:
++    """Implementation Shortfall (IS) in bps.
++
++    Simplified version (full fill):
++      IS = side_sign * (VWAP_fill - decision_mid) / decision_mid * 1e4 + fee_bps
++
++    fee_bps should reflect *execution fees* for the fill (best-effort).
++    """
++    px = _finite(vwap_fill_px)
++    mid0 = _finite(decision_mid)
++    fee = _finite(fee_bps)
++    ss = side_sign(side)
++    if px is None or mid0 is None or mid0 <= 0 or ss == 0:
++        return None
++    fee = fee if fee is not None else 0.0
++    return float(ss * (px - mid0) / mid0 * 10_000.0 + float(fee))
+diff --git a/services/posttrade/tca_redis_state.py b/services/posttrade/tca_redis_state.py
+new file mode 100644
+index 0000000..c0cbab9
+--- /dev/null
++++ b/services/posttrade/tca_redis_state.py
+@@ -0,0 +1,81 @@
++from __future__ import annotations
++
++"""Redis state writer for TCA rollups (Phase B3).
++
++We keep Redis as an *online cache* for gates. Source of truth is Timescale.
++
++Key format (stable):
++  tca:<metric>_<stat>_bps[:<delta_sec>]:<sym>:<venue>:<session>:<tf>:<kind>:<side>
++
++Examples:
++  tca:is_p95_bps:BTCUSDT:binance:eu:1m:breakout:LONG
++  tca:perm_impact_p95_bps:1:BTCUSDT:binance:eu:1m:breakout:LONG
++
++All values are stored as strings (Redis convention), TTL bounded.
++"""
++
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, Optional
++
++
++@dataclass(frozen=True)
++class TcaKeyDims:
++    sym: str
++    venue: str
++    session: str
++    tf: str
++    kind: str
++    side: str
++
++    def norm(self) -> "TcaKeyDims":
++        return TcaKeyDims(
++            sym=str(self.sym).upper(),
++            venue=str(self.venue).lower(),
++            session=str(self.session),
++            tf=str(self.tf),
++            kind=str(self.kind),
++            side=str(self.side).upper(),
++        )
++
++
++def make_key(metric: str, stat: str, dims: TcaKeyDims, *, delta_sec: Optional[int] = None) -> str:
++    d = dims.norm()
++    if delta_sec is None:
++        return f"tca:{metric}_{stat}_bps:{d.sym}:{d.venue}:{d.session}:{d.tf}:{d.kind}:{d.side}"
++    return f"tca:{metric}_{stat}_bps:{int(delta_sec)}:{d.sym}:{d.venue}:{d.session}:{d.tf}:{d.kind}:{d.side}"
++
++
++async def write_rollups(
++    *,
++    redis: Any,
++    dims: TcaKeyDims,
++    rollups: Dict[str, float],
++    ttl_sec: int,
++    delta_sec: Optional[int] = None,
++) -> None:
++    """Write a small set of rollups into Redis.
++
++    rollups keys:
++      - is_p95, eff_spread_p95, perm_impact_p95, realized_spread_p50, ...
++    """
++    exp_at = int(time.time()) + int(ttl_sec)
++    d = dims.norm()
++    pipe = redis.pipeline()
++    try:
++        for k, v in rollups.items():
++            # k is already metric_stat style: e.g. "is_p95".
++            if "_" not in k:
++                continue
++            metric, stat = k.split("_", 1)
++            key = make_key(metric, stat, d, delta_sec=delta_sec)
++            pipe.set(key, str(float(v)), ex=int(ttl_sec))
++        # Also keep a heartbeat key for quick "is writer alive" checks.
++        pipe.set(f"tca:rollups:last_write_ts:{d.sym}:{d.venue}", str(exp_at), ex=int(ttl_sec))
++        await pipe.execute()
++    except Exception:
++        # Fail-open: Redis cache is optional.
++        try:
++            await pipe.reset()
++        except Exception:
++            pass
+diff --git a/services/posttrade/tca_worker.py b/services/posttrade/tca_worker.py
+new file mode 100644
+index 0000000..8398cfc
+--- /dev/null
++++ b/services/posttrade/tca_worker.py
+@@ -0,0 +1,479 @@
++from __future__ import annotations
++
++"""tca_worker — compute TCA metrics and publish Redis rollups (Phase B2/B3).
++
++Data flow
++---------
++fills_writer            → fills (Timescale)
++decision_snapshot_writer→ decision_snapshot (Timescale)
++bbo_ts_writer           → bbo_ts (Timescale)
++
++tca_worker reads those tables and writes:
++  - tca_fill_metrics (Timescale)
++  - Redis rollups keys for online gates (B3)
++
++Why not compute directly on streams?
++-----------------------------------
++Post-trade analytics requires stable, queryable joins.
++DB is the source of truth. Redis is only a cache for online gating.
++
++Safety
++------
++* at-least-once: idempotent upsert into tca_fill_metrics
++* fail-open: missing BBO/decision rows cause skip/partial metrics, not crashes
++* bounded: batch processing with cursor
++
++ENV
++---
++REDIS_URL=redis://redis-worker-1:6379/0
++TRADES_DB_DSN=postgresql://trading:...@postgres:5432/scanner_analytics
++
++TCA_WORKER_BATCH_SIZE=200
++TCA_WORKER_POLL_SEC=2
++TCA_CURSOR_KEY=tca_worker:cursor_v1
++
++EXEC_TCA_DELTA_SEC_LIST=1,5
++EXEC_TCA_ROLLUP_WINDOW_MIN=60
++EXEC_TCA_REDIS_TTL_SEC=600
++TCA_ROLLUPS_ENABLE=1
++"""
++
++import asyncio
++import json
++import logging
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
++
++try:
++    import redis.asyncio as aioredis  # type: ignore
++except Exception:  # pragma: no cover
++    aioredis = None
++
++from services.posttrade.tca_math import (
++    effective_spread_bps,
++    realized_spread_bps,
++    permanent_impact_bps,
++    implementation_shortfall_bps,
++)
++from services.posttrade.tca_redis_state import TcaKeyDims, write_rollups
++
++
++logger = logging.getLogger("tca_worker")
++
++
++def _env(name: str, default: str) -> str:
++    v = os.getenv(name)
++    return v if v is not None and v != "" else default
++
++
++def _env_int(name: str, default: str) -> int:
++    try:
++        return int(float(_env(name, default)))
++    except Exception:
++        return int(float(default))
++
++
++def _env_bool(name: str, default: str) -> bool:
++    return str(_env(name, default)).strip().lower() in {"1", "true", "yes", "on"}
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def pick_dsn() -> str:
++    return (
++        os.getenv("TCA_DB_DSN")
++        or os.getenv("TRADES_DB_DSN")
++        or os.getenv("TIMESCALE_DSN")
++        or os.getenv("ANALYTICS_DB_DSN")
++        or os.getenv("ANALYTICS_DSN")
++        or os.getenv("PG_DSN")
++        or os.getenv("DATABASE_URL")
++        or ""
++    )
++
++
++def _parse_delta_list(s: str) -> List[int]:
++    out: List[int] = []
++    for p in str(s or "").split(","):
++        p = p.strip()
++        if not p:
++            continue
++        try:
++            out.append(int(p))
++        except Exception:
++            continue
++    return out or [1, 5]
++
++
++class Pg:
++    def __init__(self, dsn: str):
++        self.dsn = dsn
++
++    def _connect(self):
++        try:
++            import psycopg  # type: ignore
++            return psycopg.connect(self.dsn)
++        except Exception:
++            import psycopg2  # type: ignore
++            return psycopg2.connect(self.dsn)
++
++    def fetch_fills_after(self, *, cursor_ts_ms: int, cursor_sid: str, limit: int) -> List[Dict[str, Any]]:
++        q = (
++            "SELECT ts_fill_ms, sid, sym, venue, side, fill_role, px, qty, fee_bps "
++            "FROM fills WHERE (ts_fill_ms, sid) > (%s, %s) "
++            "ORDER BY ts_fill_ms ASC, sid ASC LIMIT %s"
++        )
++        conn = self._connect()
++        try:
++            cur = conn.cursor()
++            cur.execute(q, (int(cursor_ts_ms), str(cursor_sid), int(limit)))
++            out = []
++            for row in cur.fetchall() or []:
++                out.append(
++                    {
++                        "ts_fill_ms": int(row[0]),
++                        "sid": str(row[1]),
++                        "sym": str(row[2]),
++                        "venue": str(row[3]),
++                        "side": str(row[4]),
++                        "fill_role": str(row[5]),
++                        "px": float(row[6]),
++                        "qty": float(row[7]),
++                        "fee_bps": float(row[8]),
++                    }
++                )
++            return out
++        finally:
++            conn.close()
++
++    def fetch_decision_for_fill(self, *, sid: str, ts_fill_ms: int) -> Optional[Dict[str, Any]]:
++        q = (
++            "SELECT ts_decision_ms, session, tf, kind, side, venue, decision_mid "
++            "FROM decision_snapshot WHERE sid=%s AND ts_decision_ms <= %s "
++            "ORDER BY ts_decision_ms DESC LIMIT 1"
++        )
++        conn = self._connect()
++        try:
++            cur = conn.cursor()
++            cur.execute(q, (str(sid), int(ts_fill_ms)))
++            row = cur.fetchone()
++            if not row:
++                return None
++            return {
++                "decision_ts_ms": int(row[0]),
++                "session": str(row[1]),
++                "tf": str(row[2]),
++                "kind": str(row[3]),
++                "side": str(row[4]),
++                "venue": str(row[5]),
++                "decision_mid": float(row[6]) if row[6] is not None else None,
++            }
++        finally:
++            conn.close()
++
++    def fetch_bbo_mid(self, *, sym: str, venue: str, ts_ms: int, lookback_ms: int) -> Optional[Dict[str, float]]:
++        # nearest <= ts within lookback
++        q = (
++            "SELECT bid, ask, mid, ts_ms FROM bbo_ts "
++            "WHERE sym=%s AND venue=%s AND ts <= to_timestamp(%s/1000.0) "
++            "  AND ts >= to_timestamp(%s/1000.0) "
++            "ORDER BY ts DESC LIMIT 1"
++        )
++        conn = self._connect()
++        try:
++            cur = conn.cursor()
++            cur.execute(q, (str(sym).upper(), str(venue).lower(), int(ts_ms), int(ts_ms - lookback_ms)))
++            row = cur.fetchone()
++            if not row:
++                return None
++            return {
++                "bid": float(row[0]),
++                "ask": float(row[1]),
++                "mid": float(row[2]),
++                "ts_ms": int(row[3]),
++            }
++        finally:
++            conn.close()
++
++    def upsert_tca_rows(self, rows: List[Dict[str, Any]]) -> int:
++        if not rows:
++            return 0
++        conn = self._connect()
++        try:
++            cur = conn.cursor()
++            sql = (
++                "INSERT INTO tca_fill_metrics (ts, ts_fill_ms, sid, sym, venue, side, fill_role, "
++                "decision_ts_ms, session, tf, kind, decision_mid, "
++                "mid_t, bid_t, ask_t, mid_t_1s, mid_t_5s, "
++                "eff_spread_bps, realized_spread_1s_bps, realized_spread_5s_bps, perm_impact_1s_bps, perm_impact_5s_bps, is_bps, "
++                "px, qty, fee_bps, ts_insert_ms) "
++                "VALUES (to_timestamp(%(ts_fill_ms)s/1000.0), %(ts_fill_ms)s, %(sid)s, %(sym)s, %(venue)s, %(side)s, %(fill_role)s, "
++                "%(decision_ts_ms)s, %(session)s, %(tf)s, %(kind)s, %(decision_mid)s, "
++                "%(mid_t)s, %(bid_t)s, %(ask_t)s, %(mid_t_1s)s, %(mid_t_5s)s, "
++                "%(eff_spread_bps)s, %(realized_spread_1s_bps)s, %(realized_spread_5s_bps)s, %(perm_impact_1s_bps)s, %(perm_impact_5s_bps)s, %(is_bps)s, "
++                "%(px)s, %(qty)s, %(fee_bps)s, %(ts_insert_ms)s) "
++                "ON CONFLICT (sid, ts_fill_ms, fill_role) DO UPDATE SET "
++                "decision_ts_ms=excluded.decision_ts_ms, session=excluded.session, tf=excluded.tf, kind=excluded.kind, decision_mid=excluded.decision_mid, "
++                "mid_t=excluded.mid_t, bid_t=excluded.bid_t, ask_t=excluded.ask_t, mid_t_1s=excluded.mid_t_1s, mid_t_5s=excluded.mid_t_5s, "
++                "eff_spread_bps=excluded.eff_spread_bps, realized_spread_1s_bps=excluded.realized_spread_1s_bps, realized_spread_5s_bps=excluded.realized_spread_5s_bps, "
++                "perm_impact_1s_bps=excluded.perm_impact_1s_bps, perm_impact_5s_bps=excluded.perm_impact_5s_bps, is_bps=excluded.is_bps, "
++                "px=excluded.px, qty=excluded.qty, fee_bps=excluded.fee_bps, ts_insert_ms=excluded.ts_insert_ms"
++            )
++            cur.executemany(sql, rows)
++            conn.commit()
++            return len(rows)
++        finally:
++            conn.close()
++
++    def compute_rollups(self, *, dims: TcaKeyDims, window_min: int, delta_sec: int) -> Dict[str, float]:
++        # For P1 we compute only the minimal set used by ExecutionHealthGate.
++        # NOTE: percentile_cont ignores NULL.
++        col = "1s" if int(delta_sec) == 1 else "5s" if int(delta_sec) == 5 else f"{int(delta_sec)}s"
++        # We only support columns 1s and 5s at P1; other deltas are ignored.
++        if col not in {"1s", "5s"}:
++            return {}
++
++        # Column names are derived from a controlled allowlist (col in {1s,5s}).
++        col_imp = f"perm_impact_{col}_bps"
++        col_rs = f"realized_spread_{col}_bps"
++        q2 = (
++            "SELECT "
++            "  percentile_cont(0.95) WITHIN GROUP (ORDER BY is_bps) AS is_p95, "
++            "  percentile_cont(0.95) WITHIN GROUP (ORDER BY eff_spread_bps) AS eff_p95, "
++            f"  percentile_cont(0.95) WITHIN GROUP (ORDER BY {col_imp}) AS imp_p95, "
++            f"  percentile_cont(0.50) WITHIN GROUP (ORDER BY {col_rs}) AS rs_p50 "
++            "FROM tca_fill_metrics "
++            "WHERE ts > now() - (%s || ' minutes')::interval "
++            "  AND sym=%s AND venue=%s AND session=%s AND tf=%s AND kind=%s AND side=%s"
++        )
++        conn = self._connect()
++        try:
++            cur = conn.cursor()
++            cur.execute(
++                q2,
++                (
++                    int(window_min),
++                    dims.sym.upper(),
++                    dims.venue.lower(),
++                    dims.session,
++                    dims.tf,
++                    dims.kind,
++                    dims.side.upper(),
++                ),
++            )
++            row = cur.fetchone()
++            if not row:
++                return {}
++            out: Dict[str, float] = {}
++            if row[0] is not None:
++                out["is_p95"] = float(row[0])
++            if row[1] is not None:
++                out["eff_spread_p95"] = float(row[1])
++            if row[2] is not None:
++                out["perm_impact_p95"] = float(row[2])
++            if row[3] is not None:
++                out["realized_spread_p50"] = float(row[3])
++            return out
++        finally:
++            conn.close()
++
++
++@dataclass
++class Cfg:
++    redis_url: str
++    batch_size: int
++    poll_sec: float
++    cursor_key: str
++    deltas: List[int]
++    rollup_window_min: int
++    redis_ttl_sec: int
++    rollups_enable: bool
++    bbo_lookback_ms: int
++
++    @staticmethod
++    def from_env() -> "Cfg":
++        return Cfg(
++            redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
++            batch_size=_env_int("TCA_WORKER_BATCH_SIZE", "200"),
++            poll_sec=float(_env("TCA_WORKER_POLL_SEC", "2") or 2),
++            cursor_key=_env("TCA_CURSOR_KEY", "tca_worker:cursor_v1"),
++            deltas=_parse_delta_list(_env("EXEC_TCA_DELTA_SEC_LIST", "1,5")),
++            rollup_window_min=_env_int("EXEC_TCA_ROLLUP_WINDOW_MIN", "60"),
++            redis_ttl_sec=_env_int("EXEC_TCA_REDIS_TTL_SEC", "600"),
++            rollups_enable=_env_bool("TCA_ROLLUPS_ENABLE", "1"),
++            bbo_lookback_ms=_env_int("TCA_MAX_BBO_LOOKBACK_MS", "3000"),
++        )
++
++
++async def _load_cursor(r: Any, key: str) -> Tuple[int, str]:
++    try:
++        raw = await r.get(key)
++        if raw is None:
++            return 0, ""
++        if isinstance(raw, (bytes, bytearray)):
++            raw = raw.decode("utf-8", "replace")
++        obj = json.loads(str(raw))
++        return int(obj.get("ts_fill_ms", 0) or 0), str(obj.get("sid", "") or "")
++    except Exception:
++        return 0, ""
++
++
++async def _save_cursor(r: Any, key: str, ts_fill_ms: int, sid: str) -> None:
++    try:
++        await r.set(key, json.dumps({"ts_fill_ms": int(ts_fill_ms), "sid": str(sid)}, separators=(",", ":")))
++    except Exception:
++        return
++
++
++async def main() -> None:
++    if aioredis is None:
++        raise RuntimeError("redis-py is required")
++
++    dsn = pick_dsn()
++    if not dsn:
++        raise RuntimeError("TRADES_DB_DSN must be set")
++
++    cfg = Cfg.from_env()
++    r = aioredis.from_url(cfg.redis_url, decode_responses=False)
++    pg = Pg(dsn)
++
++    logger.info("tca_worker started")
++
++    while True:
++        try:
++            cur_ts, cur_sid = await _load_cursor(r, cfg.cursor_key)
++            fills = pg.fetch_fills_after(cursor_ts_ms=cur_ts, cursor_sid=cur_sid, limit=cfg.batch_size)
++            if not fills:
++                await asyncio.sleep(cfg.poll_sec)
++                continue
++
++            tca_rows: List[Dict[str, Any]] = []
++            touched_dims: Dict[Tuple[str, str, str, str, str, str], TcaKeyDims] = {}
++            last = (cur_ts, cur_sid)
++
++            for f in fills:
++                last = (int(f["ts_fill_ms"]), str(f["sid"]))
++                sid = str(f["sid"])
++                sym = str(f["sym"]).upper()
++                venue = str(f["venue"]).lower()
++                side = str(f["side"]).upper()
++                ts_fill_ms = int(f["ts_fill_ms"])
++
++                dec = pg.fetch_decision_for_fill(sid=sid, ts_fill_ms=ts_fill_ms)
++                if dec is None:
++                    # No decision snapshot yet (race): skip; next iteration will retry.
++                    continue
++
++                # Trust decision snapshot for venue/side/session/tf/kind if fill lacks.
++                session = str(dec.get("session") or "na")
++                tf = str(dec.get("tf") or "na")
++                kind = str(dec.get("kind") or "na")
++                if not venue or venue == "none":
++                    venue = str(dec.get("venue") or venue or "binance").lower()
++                if not side or side == "NONE":
++                    side = str(dec.get("side") or side or "na").upper()
++
++                decision_mid = dec.get("decision_mid")
++
++                bbo_t = pg.fetch_bbo_mid(sym=sym, venue=venue, ts_ms=ts_fill_ms, lookback_ms=cfg.bbo_lookback_ms)
++                mid_t = bbo_t.get("mid") if bbo_t else None
++                bid_t = bbo_t.get("bid") if bbo_t else None
++                ask_t = bbo_t.get("ask") if bbo_t else None
++
++                # Δ mids
++                mid_1s = mid_5s = None
++                for d in cfg.deltas:
++                    ts_d = ts_fill_ms + int(d) * 1000
++                    bbo_d = pg.fetch_bbo_mid(sym=sym, venue=venue, ts_ms=ts_d, lookback_ms=max(cfg.bbo_lookback_ms, int(d) * 1000 + 500))
++                    if bbo_d is None:
++                        continue
++                    if int(d) == 1:
++                        mid_1s = bbo_d.get("mid")
++                    if int(d) == 5:
++                        mid_5s = bbo_d.get("mid")
++
++                # TCA formulas
++                eff = effective_spread_bps(trade_px=float(f["px"]), mid_t=float(mid_t) if mid_t is not None else 0.0, side=side) if mid_t is not None else None
++                rs_1 = realized_spread_bps(trade_px=float(f["px"]), mid_t=float(mid_t), mid_t_delta=float(mid_1s), side=side) if (mid_t is not None and mid_1s is not None) else None
++                rs_5 = realized_spread_bps(trade_px=float(f["px"]), mid_t=float(mid_t), mid_t_delta=float(mid_5s), side=side) if (mid_t is not None and mid_5s is not None) else None
++                imp_1 = permanent_impact_bps(mid_t=float(mid_t), mid_t_delta=float(mid_1s), side=side) if (mid_t is not None and mid_1s is not None) else None
++                imp_5 = permanent_impact_bps(mid_t=float(mid_t), mid_t_delta=float(mid_5s), side=side) if (mid_t is not None and mid_5s is not None) else None
++
++                is_bps = None
++                if decision_mid is not None:
++                    is_bps = implementation_shortfall_bps(
++                        vwap_fill_px=float(f["px"]),
++                        decision_mid=float(decision_mid),
++                        side=side,
++                        fee_bps=float(f["fee_bps"]),
++                    )
++
++                tca_rows.append(
++                    {
++                        "ts_fill_ms": ts_fill_ms,
++                        "sid": sid,
++                        "sym": sym,
++                        "venue": venue,
++                        "side": side,
++                        "fill_role": str(f.get("fill_role") or "entry"),
++                        "decision_ts_ms": int(dec["decision_ts_ms"]),
++                        "session": session,
++                        "tf": tf,
++                        "kind": kind,
++                        "decision_mid": float(decision_mid) if decision_mid is not None else None,
++                        "mid_t": float(mid_t) if mid_t is not None else None,
++                        "bid_t": float(bid_t) if bid_t is not None else None,
++                        "ask_t": float(ask_t) if ask_t is not None else None,
++                        "mid_t_1s": float(mid_1s) if mid_1s is not None else None,
++                        "mid_t_5s": float(mid_5s) if mid_5s is not None else None,
++                        "eff_spread_bps": float(eff) if eff is not None else None,
++                        "realized_spread_1s_bps": float(rs_1) if rs_1 is not None else None,
++                        "realized_spread_5s_bps": float(rs_5) if rs_5 is not None else None,
++                        "perm_impact_1s_bps": float(imp_1) if imp_1 is not None else None,
++                        "perm_impact_5s_bps": float(imp_5) if imp_5 is not None else None,
++                        "is_bps": float(is_bps) if is_bps is not None else None,
++                        "px": float(f["px"]),
++                        "qty": float(f["qty"]),
++                        "fee_bps": float(f["fee_bps"]),
++                        "ts_insert_ms": _now_ms(),
++                    }
++                )
++
++                dims = TcaKeyDims(sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side)
++                touched_dims[(dims.sym, dims.venue, dims.session, dims.tf, dims.kind, dims.side)] = dims
++
++            if tca_rows:
++                pg.upsert_tca_rows(tca_rows)
++
++            # Update cursor even if some rows were skipped (monotonic scan).
++            await _save_cursor(r, cfg.cursor_key, last[0], last[1])
++
++            # Redis rollups for online gates
++            if cfg.rollups_enable and touched_dims:
++                for dims in touched_dims.values():
++                    # Compute rollups for Δ=1s only (P1 minimal). Δ=5s can be added later.
++                    try:
++                        roll = pg.compute_rollups(dims=dims, window_min=cfg.rollup_window_min, delta_sec=1)
++                        if roll:
++                            await write_rollups(
++                                redis=r,
++                                dims=dims,
++                                rollups=roll,
++                                ttl_sec=cfg.redis_ttl_sec,
++                                delta_sec=1,
++                            )
++                    except Exception:
++                        continue
++
++        except Exception:
++            logger.exception("tca_worker loop error")
++            await asyncio.sleep(1.0)
++
++
++if __name__ == "__main__":
++    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
++    asyncio.run(main())
+diff --git a/services/posttrade/tests/test_tca_math.py b/services/posttrade/tests/test_tca_math.py
+new file mode 100644
+index 0000000..c46f14d
+--- /dev/null
++++ b/services/posttrade/tests/test_tca_math.py
+@@ -0,0 +1,40 @@
++import unittest
++
++
++class TestTCAMath(unittest.TestCase):
++    def test_effective_spread_buy(self):
++        from services.posttrade.tca_math import effective_spread_bps
++
++        # mid=100, trade_px=100.01 => buy eff spread = 2*(0.01)/100*1e4 = 2 bps
++        v = effective_spread_bps(trade_px=100.01, mid_t=100.0, side="LONG")
++        self.assertAlmostEqual(v, 2.0, places=6)
++
++    def test_effective_spread_sell(self):
++        from services.posttrade.tca_math import effective_spread_bps
++
++        # sell at 99.99 vs mid=100 => 2*(100-99.99)/100*1e4 = 2 bps
++        v = effective_spread_bps(trade_px=99.99, mid_t=100.0, side="SHORT")
++        self.assertAlmostEqual(v, 2.0, places=6)
++
++    def test_realized_spread_and_impact(self):
++        from services.posttrade.tca_math import realized_spread_bps, permanent_impact_bps
++
++        # Buy at px 100.01, mid_t=100, mid_t+Δ=100.02
++        # realized = 2*(100.01-100.02)/100*1e4 = -2 bps
++        rs = realized_spread_bps(trade_px=100.01, mid_t=100.0, mid_t_delta=100.02, side="BUY")
++        self.assertAlmostEqual(rs, -2.0, places=6)
++
++        # impact = (100.02-100.0)/100*1e4 = 2 bps
++        imp = permanent_impact_bps(mid_t=100.0, mid_t_delta=100.02, side="BUY")
++        self.assertAlmostEqual(imp, 2.0, places=6)
++
++    def test_implementation_shortfall(self):
++        from services.posttrade.tca_math import implementation_shortfall_bps
++
++        # Buy: decision_mid=100, fill=100.03 => 3 bps + fee 0.5 => 3.5
++        is_bps = implementation_shortfall_bps(vwap_fill_px=100.03, decision_mid=100.0, side="LONG", fee_bps=0.5)
++        self.assertAlmostEqual(is_bps, 3.5, places=6)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/services/posttrade/tests/test_tca_redis_state.py b/services/posttrade/tests/test_tca_redis_state.py
+new file mode 100644
+index 0000000..afacd20
+--- /dev/null
++++ b/services/posttrade/tests/test_tca_redis_state.py
+@@ -0,0 +1,17 @@
++import unittest
++
++
++class TestTcaRedisState(unittest.TestCase):
++    def test_make_key(self):
++        from services.posttrade.tca_redis_state import TcaKeyDims, make_key
++
++        dims = TcaKeyDims(sym="btcusdt", venue="BINANCE", session="eu", tf="1m", kind="breakout", side="long")
++        k = make_key("is", "p95", dims)
++        self.assertEqual(k, "tca:is_p95_bps:BTCUSDT:binance:eu:1m:breakout:LONG")
++
++        k2 = make_key("perm_impact", "p95", dims, delta_sec=1)
++        self.assertEqual(k2, "tca:perm_impact_p95_bps:1:BTCUSDT:binance:eu:1m:breakout:LONG")
++
++
++if __name__ == "__main__":
++    unittest.main()

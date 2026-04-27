@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/outbox_writer.py
+# hypothesis_version: 6.148.10
+
+[1000.0, 'PENDING', 'counter', 'inc', 'outbox.duplicate', 'outbox.redis_missing', 'outbox.written', 'outbox.xadd_error', 'signals:outbox']

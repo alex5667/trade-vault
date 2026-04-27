@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/replay_diff_report.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-06, 100, '--base', '--cand', '--max-samples', '--out', '--score-eps', '--symbol-filter', '__main__', 'base', 'cand', 'diffs', 'evidence', 'have', 'key', 'mismatch', 'mismatch_by_field', 'mismatch_by_reason', 'mismatch_by_type', 'mismatch_rate', 'missing_in_base', 'missing_in_cand', 'n_base', 'n_cand', 'n_keys', 'need', 'need_reason', 'ok', 'r', 'reason', 'samples', 'scenario', 'scenario_v4', 'score', 'sid', 'symbol', 'utf-8']

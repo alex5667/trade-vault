@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signals/sorting.py
+# hypothesis_version: 6.148.10
+
+[1000, 10000, 'change_percent', 'closeTime', 'close_time', 'data', 'priceChangePercent', 'symbol']

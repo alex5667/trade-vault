@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/matplotlib/axes/_subplots.py
+# hypothesis_version: 6.148.10
+
+['_axes_class', 'both', 'bottom', 'datalim', 'left', 'right', 'sharex', 'sharey', 'top', '{}Subplot']

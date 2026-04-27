@@ -1,0 +1,516 @@
+diff --git a/services/orderflow/configuration.py b/services/orderflow/configuration.py
+index ca4fc48..ebcf489 100644
+--- a/services/orderflow/configuration.py
++++ b/services/orderflow/configuration.py
+@@ -4,7 +4,12 @@ import os
+ import json
+ import logging
+ from copy import deepcopy
+-from redis.exceptions import RedisError
++try:
++    from redis.exceptions import RedisError  # type: ignore
++except Exception:  # pragma: no cover
++    # Optional dependency for unit-test environment / minimal installs.
++    class RedisError(Exception):
++        pass
+ 
+ from core.instrument_config import OrderFlowConfig, get_config
+ from services.pnl_math import get_symbol_info
+@@ -84,6 +89,35 @@ DEFAULT_CONFIG: Dict[str, Any] = {
+     "weak_progress_atr": 0.15,
+     "signal_cooldown_sec":3,
+     "tick_buffer": 500,
++    "tick_gap_snapshot_every_n": 500,
++
++    # --- P2/F: Data Quality Gate (DQ) -----------------------------------
++    # Rollout recommendation:
++    #   1) DQ_GATE_ENABLE=1, DQ_GATE_MODE=penalty, DQ_MODE=safe
++    #   2) Observe dq_level/dq_veto metrics for 24h
++    #   3) Switch to DQ_MODE=strict; then DQ_GATE_MODE=enforce
++    "dq_gate_enable": _safe_int(os.getenv("DQ_GATE_ENABLE", "0"), 0),
++    "dq_gate_mode": str(os.getenv("DQ_GATE_MODE", "penalty")).lower(),  # off|penalty|enforce|both
++    "dq_mode": str(os.getenv("DQ_MODE", "safe")).lower(),
++    "dq_pen_max": _safe_float(os.getenv("DQ_PEN_MAX", "0.10"), 0.10),
++    "dq_tick_gap_min_samples": _safe_int(os.getenv("DQ_TICK_GAP_MIN_SAMPLES", "50"), 50),
++
++    # Policy v2 thresholds (optional overrides). If None/empty, dq_gate_v1
++    # will apply defaults based on dq_mode (safe/strict).
++    "dq_tick_gap_p95_ms_soft": _safe_float(os.getenv("DQ_TICK_GAP_P95_MS_SOFT", "0"), 0.0) or None,
++    "dq_tick_gap_p95_ms_hard": _safe_float(os.getenv("DQ_TICK_GAP_P95_MS_HARD", "0"), 0.0) or None,
++    "dq_tick_gap_p95_ms_extreme": _safe_float(os.getenv("DQ_TICK_GAP_P95_MS_EXTREME", "0"), 0.0) or None,
++    "dq_tick_gap_requires_seq": _safe_int(os.getenv("DQ_TICK_GAP_REQUIRES_SEQ", "1"), 1),
++
++    "dq_tick_missing_seq_ema_soft": _safe_float(os.getenv("DQ_TICK_MISSING_SEQ_EMA_SOFT", "0"), 0.0) or None,
++    "dq_tick_missing_seq_ema_hard": _safe_float(os.getenv("DQ_TICK_MISSING_SEQ_EMA_HARD", "0"), 0.0) or None,
++    "dq_book_missing_seq_ema_soft": _safe_float(os.getenv("DQ_BOOK_MISSING_SEQ_EMA_SOFT", "0"), 0.0) or None,
++    "dq_book_missing_seq_ema_hard": _safe_float(os.getenv("DQ_BOOK_MISSING_SEQ_EMA_HARD", "0"), 0.0) or None,
++
++    "dq_data_health_min": _safe_float(os.getenv("DQ_DATA_HEALTH_MIN", "0.85"), 0.85),
++    "dq_data_health_hard_min": _safe_float(os.getenv("DQ_DATA_HEALTH_HARD_MIN", "0.70"), 0.70),
++    "dq_tick_age_ms_max": _safe_float(os.getenv("DQ_TICK_AGE_MS_MAX", "5000"), 5000.0),
++    "dq_skew_ema_ms_max": _safe_float(os.getenv("DQ_SKEW_EMA_MS_MAX", "1000"), 1000.0) or 1000.0,
+     "orders_queue_enabled": False,
+     "orders_queue_type": "market",
+     "orders_queue_profile": "",
+diff --git a/tick_flow_full/core/dq_gate_v1.py b/tick_flow_full/core/dq_gate_v1.py
+index 10c3406..9d04321 100644
+--- a/tick_flow_full/core/dq_gate_v1.py
++++ b/tick_flow_full/core/dq_gate_v1.py
+@@ -1,12 +1,28 @@
+ import math
+ from typing import Dict, Any, Optional
+ 
++
+ def eval_dq_gate(indicators: Dict[str, Any], cfg2: Dict[str, Any]) -> Dict[str, Any]:
++    """P14 / P2-F: Data Quality (DQ) gate.
++
++    Returns:
++        {
++          dq_pen: float,               # penalty to subtract from score (>=0)
++          dq_veto: int,                # 1 when hard-veto condition met
++          dq_reason: str,              # human-readable reason (single best)
++          dq_reason_bucket: str,       # short reason bucket for metrics/alerts
++          dq_health_score: float,      # 0..1 (lower = worse)
++          dq_components: Dict[str,Any] # raw components
++        }
++
++    Notes
++    - Gate is opt-in via cfg2['dq_gate_enable'].
++    - Hard veto is only *enforced* by OFConfirmEngine when cfg2['dq_gate_mode']
++      is one of: enforce/both/veto/hard.
++    - This function still computes dq_veto even if mode is "penalty".
+     """
+-    P14 DQ / time-determinism gate.
+-    Returns {dq_pen, dq_veto, dq_reason, dq_reason_bucket, dq_health_score, dq_components}.
+-    """
+-    enable = int(cfg2.get("dq_gate_enable", 0))
++
++    enable = int(cfg2.get("dq_gate_enable", 0) or 0)
+     if not enable:
+         return {
+             "dq_pen": 0.0,
+@@ -14,10 +30,9 @@ def eval_dq_gate(indicators: Dict[str, Any], cfg2: Dict[str, Any]) -> Dict[str,
+             "dq_reason": "disabled",
+             "dq_reason_bucket": "ok",
+             "dq_health_score": 1.0,
+-            "dq_components": {}
++            "dq_components": {},
+         }
+ 
+-    # Extract indicators with default fail-open values (NaN/Inf -> fail open)
+     def _get(k: str, default: float = 0.0, aliases: Optional[list] = None) -> float:
+         val = indicators.get(k)
+         if val is None and aliases:
+@@ -25,7 +40,6 @@ def eval_dq_gate(indicators: Dict[str, Any], cfg2: Dict[str, Any]) -> Dict[str,
+                 val = indicators.get(al)
+                 if val is not None:
+                     break
+-        
+         if val is None:
+             return default
+         try:
+@@ -33,88 +47,280 @@ def eval_dq_gate(indicators: Dict[str, Any], cfg2: Dict[str, Any]) -> Dict[str,
+             if math.isnan(fval) or math.isinf(fval):
+                 return default
+             return fval
+-        except (ValueError, TypeError):
++        except Exception:
++            return default
++
++    def _get_i(k: str, default: int = 0, aliases: Optional[list] = None) -> int:
++        v = indicators.get(k)
++        if v is None and aliases:
++            for al in aliases:
++                v = indicators.get(al)
++                if v is not None:
++                    break
++        if v is None:
+             return default
++        try:
++            return int(v)
++        except Exception:
++            return default
++
++    # --- Modes / Defaults -------------------------------------------------
++    dq_mode = str(cfg2.get("dq_mode", "safe") or "safe").lower()
++    if dq_mode not in ("safe", "strict"):
++        dq_mode = "safe"
++
++    mode = str(cfg2.get("dq_gate_mode", "penalty") or "penalty").lower()
++    pen_max = float(cfg2.get("dq_pen_max", 0.10) or 0.10)
+ 
+-    # DQ features (v5 meta)
+-    data_health = _get("data_health", 1.0)
++    # --- Base quality inputs (already present in runtime) -----------------
++    data_health = _get("data_health", 1.0, aliases=["health_score"])
+     book_health_ok = _get("book_health_ok", 1.0)
+     tick_time_age_ms = _get("tick_time_age_ms", 0.0)
+-    
+-    # Skew/Desync EMAs (higher is worse)
++
+     tick_ts_source_now_ema = _get("tick_ts_source_now_ema", 0.0)
+     tick_ts_source_stream_id_ema = _get("tick_ts_source_stream_id_ema", 0.0)
+-    tick_event_age_abs_ema_ms = _get("tick_event_age_abs_ema_ms", 0.0)
+-    tick_event_stream_skew_abs_ema_ms = _get("tick_event_stream_skew_abs_ema_ms", 0.0)
+-    
+-    # Other quality flags
+     tick_unknown_side_ema = _get("tick_unknown_side_ema", 0.0)
+ 
+-    # Thresholds from cfg2
+-    mode = str(cfg2.get("dq_gate_mode", "penalty")).lower()
+-    pen_max = float(cfg2.get("dq_pen_max", 0.10))
+-    
+-    # 1. Basic Health Check
++    # --- P2/F strict signals (must be wired by runtime) -------------------
++    # tick_gap_* are derived from TickGapTracker snapshots.
++    tick_gap_p95_ms = _get("tick_gap_p95_ms", 0.0)
++    tick_gap_n = _get_i("tick_gap_n", 0)
++
++    # missing_seq_* are EMA rates (0..1) computed by runtime trackers.
++    # IMPORTANT: tick_missing_seq_ema is driven ONLY by true GAPs in trade_id
++    # continuity (tid > last_tid + 1). Duplicates/reorders are tracked
++    # separately and should NOT hard-veto the system.
++    tick_missing_seq_ema = _get("tick_missing_seq_ema", 0.0)
++    book_missing_seq_ema = _get("book_missing_seq_ema", 0.0)
++
++    # Thresholds (safe vs strict defaults)
++    data_health_min = float(cfg2.get("dq_data_health_min", 0.85) or 0.85)
++    data_health_hard_min = float(cfg2.get("dq_data_health_hard_min", 0.70) or 0.70)
++
++    age_limit_ms = float(cfg2.get("dq_tick_age_ms_max", 5000) or 5000)
++    skew_max_ms = float(cfg2.get("dq_skew_ema_ms_max", 1000) or 1000)
++
++    tick_gap_min_samples = int(cfg2.get("dq_tick_gap_min_samples", 50) or 50)
++
++    # --- DQ policy v2: explicit soft vs hard thresholds -------------------
++    # We keep the interface backwards-compatible:
++    # - dq_tick_gap_p95_ms_max acts as "soft" by default.
++    # - dq_missing_seq_ema_{soft,hard} are accepted as global fallbacks.
++    # New recommended keys (separate tick/book):
++    #   dq_tick_gap_p95_ms_soft / dq_tick_gap_p95_ms_hard / dq_tick_gap_p95_ms_extreme
++    #   dq_tick_missing_seq_ema_soft / dq_tick_missing_seq_ema_hard
++    #   dq_book_missing_seq_ema_soft / dq_book_missing_seq_ema_hard
++    #   dq_tick_gap_requires_seq (default 1): require seq degradation to hard-veto on tick gap
++
++    gap_soft_ms = float(
++        cfg2.get(
++            "dq_tick_gap_p95_ms_soft",
++            cfg2.get("dq_tick_gap_p95_ms_max", 5000 if dq_mode == "safe" else 3000),
++        )
++        or (5000 if dq_mode == "safe" else 3000)
++    )
++    gap_hard_ms = float(cfg2.get("dq_tick_gap_p95_ms_hard", 8000 if dq_mode == "safe" else 4500) or (8000 if dq_mode == "safe" else 4500))
++    gap_extreme_ms = float(cfg2.get("dq_tick_gap_p95_ms_extreme", max(gap_hard_ms * 2.0, 12_000.0 if dq_mode == "safe" else 8_000.0)) or max(gap_hard_ms * 2.0, 12_000.0 if dq_mode == "safe" else 8_000.0))
++
++    # Global fallback keys (legacy)
++    legacy_hard = float(cfg2.get("dq_missing_seq_ema_hard", 0.25 if dq_mode == "safe" else 0.10) or (0.25 if dq_mode == "safe" else 0.10))
++    legacy_soft = float(cfg2.get("dq_missing_seq_ema_soft", max(0.02, legacy_hard * 0.5)) or max(0.02, legacy_hard * 0.5))
++
++    tick_seq_hard = float(cfg2.get("dq_tick_missing_seq_ema_hard", legacy_hard) or legacy_hard)
++    tick_seq_soft = float(cfg2.get("dq_tick_missing_seq_ema_soft", max(0.02, tick_seq_hard * 0.5, legacy_soft)) or max(0.02, tick_seq_hard * 0.5, legacy_soft))
++    book_seq_hard = float(cfg2.get("dq_book_missing_seq_ema_hard", legacy_hard) or legacy_hard)
++    book_seq_soft = float(cfg2.get("dq_book_missing_seq_ema_soft", max(0.02, book_seq_hard * 0.5, legacy_soft)) or max(0.02, book_seq_hard * 0.5, legacy_soft))
++
++    # NOTE: 0 is a valid value here (allow hard-veto without seq evidence).
++    # Do NOT use `or 1` because it would coerce 0 -> 1.
++    _req = cfg2.get("dq_tick_gap_requires_seq", 1)
++    tick_gap_requires_seq = 1 if _req is None else int(_req)
++
++    # --- Scoring ----------------------------------------------------------
+     health_score = 1.0
+     reason = "ok"
+-    
+-    # Penalize low data health
+-    if data_health < float(cfg2.get("dq_data_health_min", 0.85)):
+-        health_score *= max(0.0, data_health)
++    components: Dict[str, Any] = {}
++
++    # 1) Data health baseline
++    if data_health < data_health_min:
++        health_score *= max(0.0, min(1.0, data_health))
+         reason = "low_data_health"
+-        
+-    # Penalize stale book
++
+     if book_health_ok < 0.5:
+         health_score *= 0.5
+         reason = "book_stale"
+ 
+-    # 2. Latency/Skew Veto/Penalty
+-    latency_pen = 0.0
+-    age_limit = float(cfg2.get("dq_tick_age_ms_max", 5000))
+-    if tick_time_age_ms > age_limit:
++    # 2) Latency / skew
++    if tick_time_age_ms > age_limit_ms:
+         health_score *= 0.1
+         reason = "latency_spike"
+ 
+-    # Skew penalties
+-    skew_max = float(cfg2.get("dq_skew_ema_ms_max", 1000))
+-    if tick_ts_source_now_ema > skew_max:
++    if tick_ts_source_now_ema > skew_max_ms:
+         health_score *= 0.7
+         reason = "clock_skew_now"
+-    
+-    if tick_ts_source_stream_id_ema > skew_max:
++
++    if tick_ts_source_stream_id_ema > skew_max_ms:
+         health_score *= 0.8
+         reason = "stream_id_skew"
+ 
+-    # 3. Calculate final penalty
+-    # Formula: dq_pen = (1.0 - health_score) * pen_max
+-    dq_pen = (1.0 - health_score) * pen_max
+-    dq_pen = max(0.0, min(pen_max, dq_pen))
++    # 3) Policy v2: classify into SOFT vs HARD vs EXTREME states.
++    # We return dq_level: 0=OK, 1=SOFT (penalty), 2=HARD (veto-capable).
++    dq_level = 0
++
++    # Tick gap classification
++    tick_gap_soft = bool(tick_gap_n >= tick_gap_min_samples and tick_gap_p95_ms >= gap_soft_ms)
++    tick_gap_hard = bool(tick_gap_n >= tick_gap_min_samples and tick_gap_p95_ms >= gap_hard_ms)
++    tick_gap_extreme = bool(tick_gap_n >= tick_gap_min_samples and tick_gap_p95_ms >= gap_extreme_ms)
++
++    # Missing-seq classification (separate tick vs book)
++    tick_seq_soft_bad = bool(tick_missing_seq_ema >= tick_seq_soft)
++    tick_seq_hard_bad = bool(tick_missing_seq_ema >= tick_seq_hard)
++    book_seq_soft_bad = bool(book_missing_seq_ema >= book_seq_soft)
++    book_seq_hard_bad = bool(book_missing_seq_ema >= book_seq_hard)
++
++    any_seq_soft = bool(tick_seq_soft_bad or book_seq_soft_bad)
++    any_seq_hard = bool(tick_seq_hard_bad or book_seq_hard_bad)
++    miss_seq_level = float(max(float(tick_missing_seq_ema), float(book_missing_seq_ema)))
++
++    # SOFT: any of these should degrade score (penalty), but not necessarily veto.
++    # HARD: implies "stop trusting" runtime (veto-capable), especially for orderbook.
++    if any_seq_soft or tick_gap_soft:
++        dq_level = max(dq_level, 1)
++
++    # Hard by missing seq
++    if any_seq_hard:
++        dq_level = 2
++
++    # Hard by extreme tick gap: always hard-veto capable (freeze symptoms)
++    if tick_gap_extreme:
++        dq_level = 2
+ 
+-    # 4. Veto Logic
++    # Hard by tick gap: only if (a) hard gap and (b) either seq degradation
++    # exists OR policy allows hard-veto without seq evidence.
++    if tick_gap_hard:
++        if (tick_gap_requires_seq == 0) or any_seq_soft or (data_health < data_health_min):
++            dq_level = 2
++        else:
++            dq_level = max(dq_level, 1)
++
++    # Apply health multipliers according to severity; keep it interpretable.
++    if dq_level >= 1:
++        # Base hit for any soft DQ issue.
++        health_score *= 0.85
++    if tick_gap_soft:
++        # Tick-gap alone implies staleness/freeze; stronger hit.
++        health_score *= 0.75
++        reason = "tick_gap_p95"
++    if any_seq_soft:
++        # Missing-seq is more dangerous than pure latency.
++        # Progressive hit: soft -> hard.
++        denom = max(1e-9, float(max(tick_seq_hard, book_seq_hard)))
++        scale = min(1.0, float(miss_seq_level) / denom)
++        health_score *= max(0.10, 1.0 - 0.70 * scale)
++        reason = "missing_seq"
++    if dq_level >= 2:
++        # Hard state: reduce health close to floor to make penalty visible in score.
++        health_score *= 0.25
++
++    # Optional: unknown-side quality (weak penalty)
++    if tick_unknown_side_ema > float(cfg2.get("dq_unknown_side_ema_soft", 0.25) or 0.25):
++        health_score *= 0.95
++        if reason == "ok":
++            reason = "unknown_side"
++
++    health_score = float(max(0.0, min(1.0, health_score)))
++
++    dq_pen = (1.0 - health_score) * float(pen_max)
++    dq_pen = float(max(0.0, min(float(pen_max), dq_pen)))
++
++    # Hard veto conditions (computed always, enforced by engine depending on cfg)
+     dq_veto = 0
+-    if mode in ("enforce", "both", "veto"):
+-        hard_min = float(cfg2.get("dq_data_health_hard_min", 0.70))
+-        if health_score < hard_min:
+-            dq_veto = 1
++    veto_reason = ""
+ 
+-    return {
+-        "dq_pen": float(dq_pen),
+-        "dq_veto": int(dq_veto),
+-        "dq_reason": str(reason),
+-        "dq_reason_bucket": _reason_bucket(reason),
+-        "dq_health_score": float(health_score),
+-        "dq_components": {
++    # Baseline hard health veto: only the raw health metric should trigger this,
++    # not the composed health_score (which includes latency/seq multipliers).
++    if data_health < data_health_hard_min:
++        dq_veto = 1
++        veto_reason = "health_hard"
++
++    # Policy v2 hard veto: dq_level==2
++    if dq_level >= 2:
++        dq_veto = 1
++        if any_seq_hard:
++            veto_reason = "missing_seq_hard"
++        elif tick_gap_extreme:
++            veto_reason = "tick_gap_p95_extreme"
++        elif tick_gap_hard:
++            veto_reason = "tick_gap_p95_hard"
++        else:
++            veto_reason = "dq_hard"
++
++    # Prefer veto reason if any
++    if dq_veto:
++        if "missing_seq" in veto_reason:
++            reason = "missing_seq"
++        elif "tick_gap" in veto_reason:
++            reason = "tick_gap_p95"
++        elif "health" in veto_reason:
++            # keep the best existing health reason
++            reason = reason if reason != "ok" else "low_data_health"
++
++    components.update(
++        {
+             "data_health": data_health,
+             "book_health_ok": book_health_ok,
+             "tick_time_age_ms": tick_time_age_ms,
+             "skew_now": tick_ts_source_now_ema,
+-            "skew_stream": tick_ts_source_stream_id_ema
++            "skew_stream": tick_ts_source_stream_id_ema,
++            "tick_gap_p95_ms": tick_gap_p95_ms,
++            "tick_gap_n": tick_gap_n,
++            "tick_missing_seq_ema": tick_missing_seq_ema,
++            "book_missing_seq_ema": book_missing_seq_ema,
++            "missing_seq_level": miss_seq_level,
++            "dq_level": int(dq_level),
++            "tick_gap_soft": int(tick_gap_soft),
++            "tick_gap_hard": int(tick_gap_hard),
++            "tick_gap_extreme": int(tick_gap_extreme),
++            "tick_seq_soft": int(tick_seq_soft_bad),
++            "tick_seq_hard": int(tick_seq_hard_bad),
++            "book_seq_soft": int(book_seq_soft_bad),
++            "book_seq_hard": int(book_seq_hard_bad),
++            "dq_tick_gap_p95_ms_soft": float(gap_soft_ms),
++            "dq_tick_gap_p95_ms_hard": float(gap_hard_ms),
++            "dq_tick_gap_p95_ms_extreme": float(gap_extreme_ms),
++            "dq_tick_missing_seq_ema_soft": float(tick_seq_soft),
++            "dq_tick_missing_seq_ema_hard": float(tick_seq_hard),
++            "dq_book_missing_seq_ema_soft": float(book_seq_soft),
++            "dq_book_missing_seq_ema_hard": float(book_seq_hard),
++            "dq_tick_gap_requires_seq": int(tick_gap_requires_seq),
++            "dq_mode": dq_mode,
++            "dq_gate_mode": mode,
++            "veto_reason": veto_reason,
+         }
++    )
++
++    return {
++        "dq_pen": float(dq_pen),
++        "dq_veto": int(dq_veto),
++        "dq_reason": str(reason),
++        "dq_reason_bucket": _reason_bucket(str(reason)),
++        "dq_health_score": float(health_score),
++        "dq_level": int(dq_level),
++        "dq_components": components,
+     }
+ 
++
+ def _reason_bucket(reason: str) -> str:
+-    if reason == "ok": return "ok"
+-    if "latency" in reason or "skew" in reason: return "latency"
+-    if "health" in reason: return "data_health"
+-    if "book" in reason: return "stale"
++    if reason in ("ok", "disabled"):
++        return "ok"
++    if reason in ("tick_gap_p95", "latency_spike", "clock_skew_now", "stream_id_skew"):
++        return "latency"
++    if reason in ("low_data_health", "health_hard"):
++        return "data_health"
++    if reason in ("book_stale",):
++        return "stale"
++    if reason in ("missing_seq",):
++        return "missing_seq"
++    if reason in ("unknown_side",):
++        return "quality"
+     return "other"
+diff --git a/tick_flow_full/core/of_confirm_engine.py b/tick_flow_full/core/of_confirm_engine.py
+index 9df1f8e..f943fa5 100644
+--- a/tick_flow_full/core/of_confirm_engine.py
++++ b/tick_flow_full/core/of_confirm_engine.py
+@@ -1270,6 +1270,7 @@ class OFConfirmEngine:
+         dq_reason = str(dq_meta.get("dq_reason", "ok"))
+         dq_health = float(dq_meta.get("dq_health_score", 1.0))
+         dq_bucket = str(dq_meta.get("dq_reason_bucket", "ok"))
++        dq_level = int(dq_meta.get("dq_level", 0) or 0)
+         
+         # 5. Apply to Score
+         # User spec: "final_score_raw = base - exec_pen - burst_pen + liq_boost - liq_pen"
+@@ -1308,6 +1309,7 @@ class OFConfirmEngine:
+         indicators["dq_reason"] = dq_reason
+         indicators["dq_health_score"] = dq_health
+         indicators["dq_reason_bucket"] = dq_bucket
++        indicators["dq_level"] = dq_level
+         indicators["of_base_score"] = float(base_score)
+         indicators["of_score_final_raw"] = float(final_score_raw)
+         indicators["of_score_final"] = float(score)
+diff --git a/tick_flow_full/services/orderflow/configuration.py b/tick_flow_full/services/orderflow/configuration.py
+index d0b4a38..1aff024 100644
+--- a/tick_flow_full/services/orderflow/configuration.py
++++ b/tick_flow_full/services/orderflow/configuration.py
+@@ -4,7 +4,12 @@ import os
+ import json
+ import logging
+ from copy import deepcopy
+-from redis.exceptions import RedisError
++try:
++    from redis.exceptions import RedisError  # type: ignore
++except Exception:  # pragma: no cover
++    # Optional dependency for unit-test environment / minimal installs.
++    class RedisError(Exception):
++        pass
+ 
+ from core.instrument_config import OrderFlowConfig, get_config
+ from services.pnl_math import get_symbol_info
+@@ -84,6 +89,35 @@ DEFAULT_CONFIG: Dict[str, Any] = {
+     "weak_progress_atr": 0.15,
+     "signal_cooldown_sec":3,
+     "tick_buffer": 500,
++    "tick_gap_snapshot_every_n": 500,
++
++    # --- P2/F: Data Quality Gate (DQ) -----------------------------------
++    # Rollout recommendation:
++    #   1) DQ_GATE_ENABLE=1, DQ_GATE_MODE=penalty, DQ_MODE=safe
++    #   2) Observe dq_level/dq_veto metrics for 24h
++    #   3) Switch to DQ_MODE=strict; then DQ_GATE_MODE=enforce
++    "dq_gate_enable": _safe_int(os.getenv("DQ_GATE_ENABLE", "0"), 0),
++    "dq_gate_mode": str(os.getenv("DQ_GATE_MODE", "penalty")).lower(),  # off|penalty|enforce|both
++    "dq_mode": str(os.getenv("DQ_MODE", "safe")).lower(),
++    "dq_pen_max": _safe_float(os.getenv("DQ_PEN_MAX", "0.10"), 0.10),
++    "dq_tick_gap_min_samples": _safe_int(os.getenv("DQ_TICK_GAP_MIN_SAMPLES", "50"), 50),
++
++    # Policy v2 thresholds (optional overrides). If None/empty, dq_gate_v1
++    # will apply defaults based on dq_mode (safe/strict).
++    "dq_tick_gap_p95_ms_soft": _safe_float(os.getenv("DQ_TICK_GAP_P95_MS_SOFT", "0"), 0.0) or None,
++    "dq_tick_gap_p95_ms_hard": _safe_float(os.getenv("DQ_TICK_GAP_P95_MS_HARD", "0"), 0.0) or None,
++    "dq_tick_gap_p95_ms_extreme": _safe_float(os.getenv("DQ_TICK_GAP_P95_MS_EXTREME", "0"), 0.0) or None,
++    "dq_tick_gap_requires_seq": _safe_int(os.getenv("DQ_TICK_GAP_REQUIRES_SEQ", "1"), 1),
++
++    "dq_tick_missing_seq_ema_soft": _safe_float(os.getenv("DQ_TICK_MISSING_SEQ_EMA_SOFT", "0"), 0.0) or None,
++    "dq_tick_missing_seq_ema_hard": _safe_float(os.getenv("DQ_TICK_MISSING_SEQ_EMA_HARD", "0"), 0.0) or None,
++    "dq_book_missing_seq_ema_soft": _safe_float(os.getenv("DQ_BOOK_MISSING_SEQ_EMA_SOFT", "0"), 0.0) or None,
++    "dq_book_missing_seq_ema_hard": _safe_float(os.getenv("DQ_BOOK_MISSING_SEQ_EMA_HARD", "0"), 0.0) or None,
++
++    "dq_data_health_min": _safe_float(os.getenv("DQ_DATA_HEALTH_MIN", "0.85"), 0.85),
++    "dq_data_health_hard_min": _safe_float(os.getenv("DQ_DATA_HEALTH_HARD_MIN", "0.70"), 0.70),
++    "dq_tick_age_ms_max": _safe_float(os.getenv("DQ_TICK_AGE_MS_MAX", "5000"), 5000.0),
++    "dq_skew_ema_ms_max": _safe_float(os.getenv("DQ_SKEW_EMA_MS_MAX", "1000"), 1000.0),
+     "orders_queue_enabled": False,
+     "orders_queue_type": "market",
+     "orders_queue_profile": "",

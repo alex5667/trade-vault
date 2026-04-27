@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/l3_queue_events_proxy.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-12, 1e-09, 1e-06, 0.01, 0.12, 0.5, 0.9, 1.0, 1000.0, '0.15', '_bucket_buy', '_bucket_sell', '_cancel_rate_alpha', '_last_bucket_id', '_rate_buy_ema', '_rate_sell_ema', 'alpha', 'bucket_ms', 'cancel_ask_rate_ema', 'cancel_bid_rate_ema', 'eps', 'taker_buy_qty_bucket', 'taker_buy_rate_ema', 'taker_sell_rate_ema']

@@ -1,0 +1,22 @@
+[Unit]
+Description=Redis Memory Monitor для scanner-infra
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=alex
+Group=alex
+WorkingDirectory=/home/alex/front/trade/scanner_infra
+ExecStart=/home/alex/front/trade/scanner_infra/redis-memory-monitor-v2.sh daemon
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Ограничения ресурсов
+MemoryLimit=100M
+CPUQuota=50%
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,34 @@
+groups:
+  - name: scanner_ml_phase1_v1
+    rules:
+      - alert: MLAnalysisPackBuilderStale
+        expr: time() - ml_analysis_pack_builder_last_run_ts_seconds > 900
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ML analysis pack builder stale"
+
+      - alert: MLVertexTriageStale
+        expr: time() - ml_vertex_triage_last_run_ts_seconds > 900
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ML Vertex triage worker stale"
+
+      - alert: MLAnalysisQueueLagHigh
+        expr: ml_analysis_queue_lag_ms > 300000
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ML analysis queue lag high"
+
+      - alert: MLAnalysisParseFailures
+        expr: increase(ml_analysis_parse_fail_total[30m]) > 5
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "ML analysis parse/guard failures elevated"

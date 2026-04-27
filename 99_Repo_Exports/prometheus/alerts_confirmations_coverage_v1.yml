@@ -1,0 +1,38 @@
+groups:
+  - name: confirmations_coverage_v1
+    rules:
+      - alert: ConfirmationsCoverageReportMissing
+        expr: confirmations_coverage_report_present == 0 or confirmations_coverage_report_parsed_ok == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Confirmations coverage report missing or unparsable"
+          description: "confirmations_coverage_report_present/parsing failed. Check coverage job and volume/path."
+
+      - alert: ConfirmationsCoverageReportStale
+        expr: confirmations_coverage_report_stale == 1
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Confirmations coverage report stale"
+          description: "Coverage report is older than threshold. Check timers and filesystem."
+
+      - alert: ConfirmationsCoverageAllZero
+        expr: confirmations_coverage_conf_bad_all_zero == 1
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "All conf_* features are zero in offline dataset"
+          description: "This likely indicates train/serve drift or dataset builder missing confirmations. Policy should HOLD ramp."
+
+      - alert: ConfirmationsCoverageColumnsMissing
+        expr: confirmations_coverage_reason{reason="conf_cols_missing"} == 1
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "conf_* columns missing in offline dataset"
+          description: "Dataset builder did not include conf_* columns. Update schema/ETL before enabling ML schema v2."

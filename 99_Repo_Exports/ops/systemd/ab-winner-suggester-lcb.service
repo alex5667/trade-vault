@@ -1,0 +1,18 @@
+[Unit]
+Description=Trade AB Winner LCB Suggester
+After=network.target redis-worker-1.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+ExecStart=/usr/bin/python3 services/ab_winner_suggester_lcb_service.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+Environment=REDIS_URL=redis://redis-worker-1:6379/0
+Environment=AB_EVENTS_GROUP=ab-winner-lcb
+Environment=AB_EVENTS_CONSUMER=c1
+
+[Install]
+WantedBy=mixed.target

@@ -1,0 +1,686 @@
+--- tradep5_p4/services/execution_metrics.py	2026-03-16 12:46:28.957597396 +0000
++++ tradep5/services/execution_metrics.py	2026-03-16 12:45:05.238100434 +0000
+@@ -86,6 +86,25 @@
+     ["venue"],
+ )
+ 
++EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASE_TOTAL = _metric(
++    Counter,
++    "execution_active_symbol_guard_release_total",
++    "Active-symbol guards released after validating exchange truth.",
++    ["symbol", "reason"],
++)
++EXECUTION_ACTIVE_SYMBOL_GUARD_STUCK_TOTAL = _metric(
++    Counter,
++    "execution_active_symbol_guard_stuck_total",
++    "Active-symbol guards that remained blocked because exchange truth still showed exposure or live orders.",
++    ["symbol", "reason"],
++)
++EXECUTION_ACTIVE_SYMBOL_GUARD_EXCHANGE_CHECK_TOTAL = _metric(
++    Counter,
++    "execution_active_symbol_guard_exchange_check_total",
++    "Exchange-truth checks performed while deciding whether an active-symbol guard can be released.",
++    ["symbol", "result"],
++)
++
+ MARK_CONTRACT_SPREAD_BPS = _metric(
+     Gauge,
+     "mark_contract_spread_bps",
+--- tradep5_p4/services/binance_executor.py	2026-03-16 12:46:28.977758135 +0000
++++ tradep5/services/binance_executor.py	2026-03-16 12:45:05.245313697 +0000
+@@ -133,6 +133,9 @@
+         EXECUTION_DUPLICATE_PREVENTED_TOTAL,
+         EXECUTION_ENTRY_FILLED_TOTAL,
+         EXECUTION_ENTRY_SUBMITTED_TOTAL,
++        EXECUTION_ACTIVE_SYMBOL_GUARD_EXCHANGE_CHECK_TOTAL,
++        EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASE_TOTAL,
++        EXECUTION_ACTIVE_SYMBOL_GUARD_STUCK_TOTAL,
+         EXECUTION_OPERATION_BLOCKED_TOTAL,
+         EXECUTION_POSITION_UNPROTECTED_SECONDS,
+         EXECUTION_PROTECTION_ARM_TIMEOUT_TOTAL,
+@@ -158,6 +161,9 @@
+             EXECUTION_DUPLICATE_PREVENTED_TOTAL,
+             EXECUTION_ENTRY_FILLED_TOTAL,
+             EXECUTION_ENTRY_SUBMITTED_TOTAL,
++            EXECUTION_ACTIVE_SYMBOL_GUARD_EXCHANGE_CHECK_TOTAL,
++            EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASE_TOTAL,
++            EXECUTION_ACTIVE_SYMBOL_GUARD_STUCK_TOTAL,
+             EXECUTION_OPERATION_BLOCKED_TOTAL,
+             EXECUTION_POSITION_UNPROTECTED_SECONDS,
+             EXECUTION_PROTECTION_ARM_TIMEOUT_TOTAL,
+@@ -861,7 +867,12 @@
+         self.exec_single_active_position_per_symbol = _bool_env("EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL", False)
+         self.exec_single_active_position_release_on_terminal = _bool_env("EXEC_SINGLE_ACTIVE_POSITION_RELEASE_ON_TERMINAL", True)
+         self.exec_single_active_position_stale_timeout_ms = int(os.getenv("EXEC_SINGLE_ACTIVE_POSITION_STALE_TIMEOUT_MS", "900000"))
++        self.exec_single_active_position_exchange_truth_release = _bool_env("EXEC_SINGLE_ACTIVE_POSITION_EXCHANGE_TRUTH_RELEASE", True)
++        self.exec_single_active_position_guard_repair_enable = _bool_env("EXEC_SINGLE_ACTIVE_POSITION_GUARD_REPAIR_ENABLE", True)
++        self.exec_single_active_position_require_flat_no_orders = _bool_env("EXEC_SINGLE_ACTIVE_POSITION_REQUIRE_FLAT_NO_ORDERS", True)
++        self.exec_active_symbol_user_stream_stale_ms = int(os.getenv("EXEC_ACTIVE_SYMBOL_USER_STREAM_STALE_MS", "30000"))
+         self.active_symbol_key_prefix = (os.getenv("ORDERS_ACTIVE_SYMBOL_KEY_PREFIX") or "orders:active_symbol_sid:").rstrip(":") + ":"
++        self.user_stream_status_key = os.getenv("USER_STREAM_STATUS_KEY", "orders:user_stream:status")
+         self.exec_reconcile_on_503_unknown = _bool_env("EXEC_RECONCILE_ON_503_UNKNOWN", True)
+         self.exec_reconcile_prefer_user_stream = _bool_env("EXEC_RECONCILE_PREFER_USER_STREAM", True)
+         self.user_stream_cache_prefix = (os.getenv("USER_STREAM_CACHE_PREFIX") or "orders:user_stream:").rstrip(":") + ":"
+@@ -1132,7 +1143,120 @@
+         except Exception:
+             return
+ 
+-    def _guard_single_active_symbol_open(self, *, sid: str, symbol: str) -> None:
++    def _load_user_stream_status_doc(self) -> Dict[str, Any]:
++        try:
++            raw = self.r.get(getattr(self, "user_stream_status_key", "orders:user_stream:status"))
++            doc = json.loads(raw) if raw else {}
++            return doc if isinstance(doc, dict) else {}
++        except Exception:
++            return {}
++
++    def _user_stream_is_stale_for_active_guard(self) -> bool:
++        threshold_ms = int(getattr(self, "exec_active_symbol_user_stream_stale_ms", 30000) or 30000)
++        if threshold_ms <= 0:
++            return False
++        doc = self._load_user_stream_status_doc()
++        if not doc:
++            return True
++        if not bool(doc.get("connected", False)):
++            return True
++        last_ms = _i(doc.get("last_event_ms") or doc.get("last_ingest_ms") or doc.get("updated_at_ms"), 0)
++        if last_ms <= 0:
++            return True
++        return max(0, _ms_now() - int(last_ms)) > threshold_ms
++
++    def _read_active_symbol_exchange_truth(self, *, symbol: str, client: Optional["BinanceFuturesClient"]) -> Dict[str, Any]:
++        truth: Dict[str, Any] = {
++            "symbol": str(symbol or "").strip().upper(),
++            "checked_at_ms": _ms_now(),
++            "position_amt": 0.0,
++            "has_live_position": False,
++            "open_plain_orders": 0,
++            "open_algo_orders": 0,
++            "has_open_orders": False,
++            "is_flat": False,
++            "is_reliable": False,
++            "errors": [],
++        }
++        if client is None:
++            truth["errors"] = ["client_missing"]
++            return truth
++        errors: List[str] = []
++        try:
++            risks = client.get_position_risk() or []
++            for pos in risks:
++                if str((pos or {}).get("symbol") or "").upper() != truth["symbol"]:
++                    continue
++                amt = _f((pos or {}).get("positionAmt"), 0.0)
++                truth["position_amt"] = amt
++                truth["has_live_position"] = not math.isclose(float(amt), 0.0, abs_tol=1e-12)
++                break
++        except Exception as exc:
++            errors.append(f"position_risk:{exc.__class__.__name__}")
++        try:
++            plain = client.get_open_orders(truth["symbol"]) or []
++            truth["open_plain_orders"] = len(list(plain))
++        except Exception as exc:
++            errors.append(f"open_orders:{exc.__class__.__name__}")
++        try:
++            algo = client.get_open_algo_orders(truth["symbol"]) or []
++            truth["open_algo_orders"] = len(list(algo))
++        except Exception as exc:
++            errors.append(f"open_algo_orders:{exc.__class__.__name__}")
++        truth["has_open_orders"] = int(truth["open_plain_orders"]) > 0 or int(truth["open_algo_orders"]) > 0
++        truth["errors"] = list(errors)
++        require_flat_no_orders = bool(getattr(self, "exec_single_active_position_require_flat_no_orders", True))
++        truth["is_reliable"] = not errors
++        truth["is_flat"] = (not truth["has_live_position"] and (not truth["has_open_orders"] if require_flat_no_orders else True) and truth["is_reliable"])
++        try:
++            if EXECUTION_ACTIVE_SYMBOL_GUARD_EXCHANGE_CHECK_TOTAL is not None:
++                result = "flat" if truth["is_flat"] else ("active" if truth["is_reliable"] else "error")
++                EXECUTION_ACTIVE_SYMBOL_GUARD_EXCHANGE_CHECK_TOTAL.labels(symbol=truth["symbol"], result=result).inc()
++        except Exception:
++            pass
++        return truth
++
++    def _refresh_active_symbol_guard_from_exchange(
++        self,
++        *,
++        symbol: str,
++        blocked_by_sid: str,
++        guard: Dict[str, Any],
++        blocked_state_doc: Dict[str, Any],
++        exchange_truth: Dict[str, Any],
++        reason: str,
++    ) -> None:
++        if not bool(getattr(self, "exec_single_active_position_guard_repair_enable", True)):
++            return
++        try:
++            updated = dict(guard or {})
++            updated.update({
++                "symbol": str(symbol or "").strip().upper(),
++                "sid": blocked_by_sid,
++                "fsm_state": str((blocked_state_doc or {}).get("fsm_state") or updated.get("fsm_state") or updated.get("state") or ""),
++                "state": str((blocked_state_doc or {}).get("fsm_state") or updated.get("state") or updated.get("fsm_state") or ""),
++                "updated_at_ms": _ms_now(),
++                "exchange_truth_checked_at_ms": int(exchange_truth.get("checked_at_ms") or _ms_now()),
++                "exchange_position_amt": float(exchange_truth.get("position_amt") or 0.0),
++                "exchange_open_plain_orders": int(exchange_truth.get("open_plain_orders") or 0),
++                "exchange_open_algo_orders": int(exchange_truth.get("open_algo_orders") or 0),
++                "exchange_guard_reason": str(reason or "exchange_truth_active"),
++                "user_stream_stale": bool(self._user_stream_is_stale_for_active_guard()),
++            })
++            self.r.set(
++                self._active_symbol_state_key(symbol),
++                json.dumps(updated, ensure_ascii=False, default=str),
++                ex=self.state_ttl if getattr(self, "state_ttl", 0) > 0 else None,
++            )
++        except Exception:
++            pass
++        try:
++            if EXECUTION_ACTIVE_SYMBOL_GUARD_STUCK_TOTAL is not None:
++                EXECUTION_ACTIVE_SYMBOL_GUARD_STUCK_TOTAL.labels(symbol=str(symbol or "").strip().upper(), reason=str(reason or "exchange_truth_active")).inc()
++        except Exception:
++            pass
++
++    def _guard_single_active_symbol_open(self, *, sid: str, symbol: str, client: Optional["BinanceFuturesClient"] = None) -> None:
+         if not self.exec_single_active_position_per_symbol:
+             return
+         guard = self._load_active_symbol_guard(symbol)
+@@ -1143,6 +1267,60 @@
+         updated_at_ms = _i(guard.get("updated_at_ms") or guard.get("ts_state_commit_ms") or guard.get("ts_event_ms"), 0)
+         age_ms = max(0, _ms_now() - int(updated_at_ms or 0)) if updated_at_ms else 0
+         blocked_state_doc = self._load_order_state(blocked_by_sid) if blocked_by_sid else {}
++        user_stream_stale = self._user_stream_is_stale_for_active_guard()
++
++        # P5: do not release on terminal/stale cache alone when exchange-truth release is enabled.
++        if bool(getattr(self, "exec_single_active_position_exchange_truth_release", True)) and client is not None:
++            exchange_truth = self._read_active_symbol_exchange_truth(symbol=symbol, client=client)
++            if bool(exchange_truth.get("is_flat")):
++                self._clear_active_symbol_guard(symbol, expected_sid=blocked_by_sid)
++                try:
++                    if EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASE_TOTAL is not None:
++                        EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASE_TOTAL.labels(symbol=symbol, reason="exchange_flat_no_orders").inc()
++                except Exception:
++                    pass
++                return
++            repair_reason = "exchange_truth_active"
++            if exchange_truth.get("errors"):
++                repair_reason = "exchange_check_error"
++            elif exchange_truth.get("has_live_position"):
++                repair_reason = "exchange_open_position"
++            elif exchange_truth.get("has_open_orders"):
++                repair_reason = "exchange_open_orders"
++            elif self._state_is_terminalish(blocked_state_doc):
++                repair_reason = "terminal_state_but_exchange_not_flat"
++            elif age_ms > int(getattr(self, "exec_single_active_position_stale_timeout_ms", 900000) or 0) and not blocked_state_doc:
++                repair_reason = "stale_guard_but_exchange_not_flat"
++            self._refresh_active_symbol_guard_from_exchange(
++                symbol=symbol,
++                blocked_by_sid=blocked_by_sid,
++                guard=guard,
++                blocked_state_doc=blocked_state_doc,
++                exchange_truth=exchange_truth,
++                reason=repair_reason,
++            )
++            final_state = blocked_state or str((blocked_state_doc or {}).get("fsm_state") or "") or "unknown"
++            details = {
++                "sid": sid,
++                "symbol": symbol,
++                "action": "open",
++                "event_type": "open_blocked_by_active_symbol_position",
++                "status": "blocked",
++                "severity": "warning",
++                "reason": "single_active_position_per_symbol",
++                "blocked_by_sid": blocked_by_sid,
++                "blocked_by_state": final_state,
++                "active_symbol_guard_age_ms": age_ms,
++                "exchange_position_amt": float(exchange_truth.get("position_amt") or 0.0),
++                "exchange_open_plain_orders": int(exchange_truth.get("open_plain_orders") or 0),
++                "exchange_open_algo_orders": int(exchange_truth.get("open_algo_orders") or 0),
++                "exchange_truth_errors": list(exchange_truth.get("errors") or []),
++                "user_stream_stale": bool(user_stream_stale),
++            }
++            if EXECUTION_OPEN_BLOCKED_ACTIVE_SYMBOL_TOTAL:
++                EXECUTION_OPEN_BLOCKED_ACTIVE_SYMBOL_TOTAL.labels(symbol=symbol, blocked_state=final_state).inc()
++            raise OpenBlockedByActiveSymbolError(details)
++
+         if self.exec_single_active_position_release_on_terminal and self._state_is_terminalish(blocked_state_doc):
+             self._clear_active_symbol_guard(symbol, expected_sid=blocked_by_sid)
+             return
+@@ -1161,6 +1339,7 @@
+             "blocked_by_sid": blocked_by_sid,
+             "blocked_by_state": final_state,
+             "active_symbol_guard_age_ms": age_ms,
++            "user_stream_stale": bool(user_stream_stale),
+         }
+         if EXECUTION_OPEN_BLOCKED_ACTIVE_SYMBOL_TOTAL:
+             EXECUTION_OPEN_BLOCKED_ACTIVE_SYMBOL_TOTAL.labels(symbol=symbol, blocked_state=final_state).inc()
+@@ -1207,7 +1386,7 @@
+                         except Exception:
+                             pass
+                     else:
+-                        if self.exec_single_active_position_release_on_terminal:
++                        if self.exec_single_active_position_release_on_terminal and not bool(getattr(self, "exec_single_active_position_exchange_truth_release", True)):
+                             self._clear_active_symbol_guard(symbol, expected_sid=sid)
+             try:
+                 sink = getattr(self, "execution_journal", None)
+@@ -3125,7 +3304,7 @@
+         self._guard_sid_not_quarantined(sid, symbol=symbol, action='open')
+         if self.allowlist and symbol not in self.allowlist:
+             raise ValueError(f"symbol not in allowlist: {symbol}")
+-        self._guard_single_active_symbol_open(sid=sid, symbol=symbol)
++        self._guard_single_active_symbol_open(sid=sid, symbol=symbol, client=client)
+ 
+         recovered = self._resume_open_from_state(sid, symbol=symbol, client=client)
+         if recovered is not None:
+@@ -4810,7 +4989,7 @@
+         self._guard_sid_not_quarantined(sid, symbol=symbol, action='open')
+         if self.allowlist and symbol not in self.allowlist:
+             raise ValueError(f"symbol not in allowlist: {symbol}")
+-        self._guard_single_active_symbol_open(sid=sid, symbol=symbol)
++        self._guard_single_active_symbol_open(sid=sid, symbol=symbol, client=client)
+ 
+         recovered = self._resume_open_from_state(sid, symbol=symbol, client=client, filters=filters, payload=payload)
+         if recovered is not None:
+--- tradep5_p4/services/binance_active_symbol_guard_repair_worker.py	1970-01-01 00:00:00.000000000 +0000
++++ tradep5/services/binance_active_symbol_guard_repair_worker.py	2026-03-16 12:45:05.245652895 +0000
+@@ -0,0 +1,210 @@
++from __future__ import annotations
++
++import json
++import math
++import os
++import time
++from typing import Any, Dict, Optional
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++try:
++    from services.binance_futures_client import BinanceFuturesClient
++except Exception:  # pragma: no cover
++    from binance_futures_client import BinanceFuturesClient  # type: ignore
++
++try:
++    from services.execution_metrics import (
++        EXECUTION_ACTIVE_SYMBOL_GUARD_EXCHANGE_CHECK_TOTAL,
++        EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASE_TOTAL,
++        EXECUTION_ACTIVE_SYMBOL_GUARD_STUCK_TOTAL,
++    )
++except Exception:  # pragma: no cover
++    from execution_metrics import (  # type: ignore
++        EXECUTION_ACTIVE_SYMBOL_GUARD_EXCHANGE_CHECK_TOTAL,
++        EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASE_TOTAL,
++        EXECUTION_ACTIVE_SYMBOL_GUARD_STUCK_TOTAL,
++    )
++
++
++def _ms_now() -> int:
++    return int(time.time() * 1000)
++
++
++def _i(v: Any, default: int = 0) -> int:
++    try:
++        return int(v)
++    except Exception:
++        return int(default)
++
++
++def _f(v: Any, default: float = 0.0) -> float:
++    try:
++        return float(v)
++    except Exception:
++        return float(default)
++
++
++class BinanceActiveSymbolGuardRepairWorker:
++    def __init__(self, redis_client=None, client: Optional[BinanceFuturesClient] = None):
++        if redis_client is None and redis is None:
++            raise RuntimeError("redis-py is required")
++        self.redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++        self.r = redis_client if redis_client is not None else redis.from_url(self.redis_url, decode_responses=True)
++        self.client = client if client is not None else BinanceFuturesClient.from_env(prefix=(os.getenv("BINANCE_PREFIX") or "BINANCE_"))
++        self.active_symbol_key_prefix = (os.getenv("ORDERS_ACTIVE_SYMBOL_KEY_PREFIX") or "orders:active_symbol_sid:").rstrip(":") + ":"
++        self.state_key_prefix = (os.getenv("ORDERS_STATE_KEY_PREFIX") or "orders:state:").rstrip(":") + ":"
++        self.user_stream_status_key = os.getenv("USER_STREAM_STATUS_KEY", "orders:user_stream:status")
++        self.interval_sec = float(os.getenv("ACTIVE_SYMBOL_GUARD_REPAIR_INTERVAL_SEC", "5"))
++        self.require_flat_no_orders = str(os.getenv("EXEC_SINGLE_ACTIVE_POSITION_REQUIRE_FLAT_NO_ORDERS", "1")).strip().lower() not in {"0", "false", "no", "off"}
++        self.dry_run = str(os.getenv("ACTIVE_SYMBOL_GUARD_REPAIR_DRY_RUN", "0")).strip().lower() in {"1", "true", "yes", "on"}
++        self.state_ttl_sec = int(os.getenv("ORDERS_STATE_TTL_SEC", "86400"))
++
++    def _state_is_terminalish(self, state: Optional[Dict[str, Any]]) -> bool:
++        doc = dict(state or {})
++        fsm_state = str(doc.get("fsm_state") or "").strip().upper()
++        if fsm_state in {"CANCELLED", "CANCELED", "FAILED", "EXIT_FILLED", "EMERGENCY_FLATTENED"}:
++            return True
++        status = str(doc.get("status") or "").strip().lower()
++        if status in {"closed", "cancelled", "canceled", "failed", "exited", "exit_filled", "emergency_flattened"}:
++            return True
++        return bool(doc.get("closed"))
++
++    def _load_json(self, key: str) -> Dict[str, Any]:
++        try:
++            raw = self.r.get(key)
++            doc = json.loads(raw) if raw else {}
++            return doc if isinstance(doc, dict) else {}
++        except Exception:
++            return {}
++
++    def _read_exchange_truth(self, symbol: str) -> Dict[str, Any]:
++        symbol = str(symbol or "").strip().upper()
++        out: Dict[str, Any] = {
++            "symbol": symbol,
++            "checked_at_ms": _ms_now(),
++            "position_amt": 0.0,
++            "has_live_position": False,
++            "open_plain_orders": 0,
++            "open_algo_orders": 0,
++            "has_open_orders": False,
++            "errors": [],
++            "is_reliable": False,
++            "is_flat": False,
++        }
++        errors = []
++        try:
++            for pos in self.client.get_position_risk() or []:
++                if str((pos or {}).get("symbol") or "").upper() != symbol:
++                    continue
++                amt = _f((pos or {}).get("positionAmt"), 0.0)
++                out["position_amt"] = amt
++                out["has_live_position"] = not math.isclose(float(amt), 0.0, abs_tol=1e-12)
++                break
++        except Exception as exc:
++            errors.append(f"position_risk:{exc.__class__.__name__}")
++        try:
++            out["open_plain_orders"] = len(list(self.client.get_open_orders(symbol) or []))
++        except Exception as exc:
++            errors.append(f"open_orders:{exc.__class__.__name__}")
++        try:
++            out["open_algo_orders"] = len(list(self.client.get_open_algo_orders(symbol) or []))
++        except Exception as exc:
++            errors.append(f"open_algo_orders:{exc.__class__.__name__}")
++        out["has_open_orders"] = int(out["open_plain_orders"]) > 0 or int(out["open_algo_orders"]) > 0
++        out["errors"] = errors
++        out["is_reliable"] = not errors
++        out["is_flat"] = (not out["has_live_position"] and (not out["has_open_orders"] if self.require_flat_no_orders else True) and out["is_reliable"])
++        try:
++            if EXECUTION_ACTIVE_SYMBOL_GUARD_EXCHANGE_CHECK_TOTAL is not None:
++                result = "flat" if out["is_flat"] else ("active" if out["is_reliable"] else "error")
++                EXECUTION_ACTIVE_SYMBOL_GUARD_EXCHANGE_CHECK_TOTAL.labels(symbol=symbol, result=result).inc()
++        except Exception:
++            pass
++        return out
++
++    def _clear_guard(self, symbol: str, expected_sid: str = "") -> bool:
++        key = f"{self.active_symbol_key_prefix}{str(symbol or '').strip().upper()}"
++        try:
++            raw = self.r.get(key)
++            if not raw:
++                return False
++            doc = json.loads(raw)
++            if not isinstance(doc, dict):
++                return False
++            if expected_sid and str(doc.get("sid") or "").strip() != str(expected_sid or "").strip():
++                return False
++            if not self.dry_run:
++                self.r.delete(key)
++            return True
++        except Exception:
++            return False
++
++    def repair_one(self, symbol: str) -> Dict[str, Any]:
++        symbol = str(symbol or "").strip().upper()
++        key = f"{self.active_symbol_key_prefix}{symbol}"
++        guard = self._load_json(key)
++        sid = str(guard.get("sid") or "").strip()
++        state = self._load_json(f"{self.state_key_prefix}{sid}") if sid else {}
++        truth = self._read_exchange_truth(symbol)
++        if truth.get("is_flat"):
++            cleared = self._clear_guard(symbol, expected_sid=sid)
++            reason = "exchange_flat_no_orders"
++            try:
++                if cleared and EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASE_TOTAL is not None:
++                    EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASE_TOTAL.labels(symbol=symbol, reason=reason).inc()
++            except Exception:
++                pass
++            return {"symbol": symbol, "sid": sid, "status": "released" if cleared else "noop", "reason": reason, "exchange_truth": truth}
++        reason = "exchange_truth_active"
++        if truth.get("errors"):
++            reason = "exchange_check_error"
++        elif truth.get("has_live_position"):
++            reason = "exchange_open_position"
++        elif truth.get("has_open_orders"):
++            reason = "exchange_open_orders"
++        elif self._state_is_terminalish(state):
++            reason = "terminal_state_but_exchange_not_flat"
++        updated = dict(guard or {})
++        updated.update({
++            "symbol": symbol,
++            "sid": sid,
++            "updated_at_ms": _ms_now(),
++            "exchange_truth_checked_at_ms": int(truth.get("checked_at_ms") or _ms_now()),
++            "exchange_position_amt": float(truth.get("position_amt") or 0.0),
++            "exchange_open_plain_orders": int(truth.get("open_plain_orders") or 0),
++            "exchange_open_algo_orders": int(truth.get("open_algo_orders") or 0),
++            "exchange_guard_reason": reason,
++        })
++        try:
++            if not self.dry_run:
++                self.r.set(key, json.dumps(updated, ensure_ascii=False, default=str), ex=self.state_ttl_sec if self.state_ttl_sec > 0 else None)
++            if EXECUTION_ACTIVE_SYMBOL_GUARD_STUCK_TOTAL is not None:
++                EXECUTION_ACTIVE_SYMBOL_GUARD_STUCK_TOTAL.labels(symbol=symbol, reason=reason).inc()
++        except Exception:
++            pass
++        return {"symbol": symbol, "sid": sid, "status": "blocked", "reason": reason, "exchange_truth": truth, "state_terminalish": self._state_is_terminalish(state)}
++
++    def run_once(self):
++        out = []
++        prefix = f"{self.active_symbol_key_prefix}*"
++        for key in list(self.r.scan_iter(match=prefix)):
++            symbol = str(key).replace(self.active_symbol_key_prefix, "", 1).strip().upper()
++            if symbol:
++                out.append(self.repair_one(symbol))
++        return out
++
++    def run_forever(self):  # pragma: no cover
++        while True:
++            try:
++                self.run_once()
++            except Exception:
++                pass
++            time.sleep(max(0.25, self.interval_sec))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    BinanceActiveSymbolGuardRepairWorker().run_forever()
+--- tradep5_p4/services/prometheus_alerts_active_symbol_guard_p5.yml	1970-01-01 00:00:00.000000000 +0000
++++ tradep5/services/prometheus_alerts_active_symbol_guard_p5.yml	2026-03-16 12:45:05.245986042 +0000
+@@ -0,0 +1,19 @@
++groups:
++  - name: active-symbol-guard-p5
++    rules:
++      - alert: ActiveSymbolGuardStuckHigh
++        expr: increase(execution_active_symbol_guard_stuck_total[10m]) > 3
++        for: 5m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Active symbol guard remains blocked by exchange truth"
++          description: "single_active_position_per_symbol guard could not be released because Binance still reports live position or open orders."
++      - alert: ActiveSymbolGuardExchangeCheckErrors
++        expr: increase(execution_active_symbol_guard_exchange_check_total{result="error"}[10m]) > 0
++        for: 2m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Active symbol guard exchange checks are failing"
++          description: "Executor/repair worker could not confirm flat/no-orders state while deciding whether to release a per-symbol execution guard."
+--- tradep5_p4/services/tests/test_binance_executor_p5_active_symbol_release_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ tradep5/services/tests/test_binance_executor_p5_active_symbol_release_v1.py	2026-03-16 12:45:05.246228330 +0000
+@@ -0,0 +1,95 @@
++from pathlib import Path
++import importlib.util
++import json
++import sys
++
++root = Path(__file__).resolve().parents[2]
++if str(root) not in sys.path:
++    sys.path.insert(0, str(root))
++
++mod_path = root / "services" / "binance_executor.py"
++spec = importlib.util.spec_from_file_location("services.binance_executor_p5", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++class FakeRedis:
++    def __init__(self):
++        self.kv = {}
++    def get(self, key):
++        return self.kv.get(key)
++    def set(self, key, value, ex=None):
++        self.kv[key] = value
++    def delete(self, key):
++        self.kv.pop(key, None)
++
++
++class FlatClient:
++    def get_position_risk(self):
++        return [{"symbol": "BTCUSDT", "positionAmt": "0"}]
++    def get_open_orders(self, symbol=None):
++        return []
++    def get_open_algo_orders(self, symbol=None):
++        return []
++
++
++class LiveClient:
++    def get_position_risk(self):
++        return [{"symbol": "ETHUSDT", "positionAmt": "2"}]
++    def get_open_orders(self, symbol=None):
++        return []
++    def get_open_algo_orders(self, symbol=None):
++        return []
++
++
++def _mk_exec(r):
++    ex = mod.BinanceExecutor.__new__(mod.BinanceExecutor)
++    ex.r = r
++    ex.exec_single_active_position_per_symbol = True
++    ex.exec_single_active_position_release_on_terminal = True
++    ex.exec_single_active_position_stale_timeout_ms = 900000
++    ex.exec_single_active_position_exchange_truth_release = True
++    ex.exec_single_active_position_guard_repair_enable = True
++    ex.exec_single_active_position_require_flat_no_orders = True
++    ex.exec_active_symbol_user_stream_stale_ms = 30000
++    ex.active_symbol_key_prefix = 'orders:active_symbol_sid:'
++    ex.user_stream_status_key = 'orders:user_stream:status'
++    ex.exec_journal_primary = True
++    ex.exec_state_derived_view = True
++    ex.exec_inline_state_projection = False
++    ex.state_key_prefix = 'orders:state:'
++    ex.state_ttl = 86400
++    return ex
++
++
++def test_active_symbol_guard_released_when_exchange_flat_and_no_orders():
++    r = FakeRedis()
++    r.set('orders:active_symbol_sid:BTCUSDT', json.dumps({
++        'symbol': 'BTCUSDT', 'sid': 'sid-old', 'fsm_state': 'PROTECTED', 'updated_at_ms': 1700000000000,
++    }))
++    r.set('orders:user_stream:status', json.dumps({'connected': False, 'updated_at_ms': 1700000000000}))
++    ex = _mk_exec(r)
++    ex._load_order_state = lambda sid: {'sid': sid, 'fsm_state': 'EXIT_FILLED', 'status': 'closed', 'closed': True}
++    ex._guard_single_active_symbol_open(sid='sid-new', symbol='BTCUSDT', client=FlatClient())
++    assert r.get('orders:active_symbol_sid:BTCUSDT') in (None, '')
++
++
++def test_active_symbol_guard_stays_and_repairs_metadata_when_exchange_still_open():
++    r = FakeRedis()
++    r.set('orders:active_symbol_sid:ETHUSDT', json.dumps({
++        'symbol': 'ETHUSDT', 'sid': 'sid-old', 'fsm_state': 'EXIT_FILLED', 'updated_at_ms': 1700000000000,
++    }))
++    r.set('orders:user_stream:status', json.dumps({'connected': False, 'updated_at_ms': 1700000000000}))
++    ex = _mk_exec(r)
++    ex._load_order_state = lambda sid: {'sid': sid, 'fsm_state': 'EXIT_FILLED', 'status': 'closed', 'closed': True}
++    try:
++        ex._guard_single_active_symbol_open(sid='sid-new', symbol='ETHUSDT', client=LiveClient())
++        assert False, 'expected block'
++    except mod.OpenBlockedByActiveSymbolError as err:
++        assert err.details['blocked_by_sid'] == 'sid-old'
++        assert err.details['exchange_position_amt'] == 2.0
++        guard = json.loads(r.get('orders:active_symbol_sid:ETHUSDT'))
++        assert guard['exchange_guard_reason'] == 'exchange_open_position'
++        assert guard['exchange_position_amt'] == 2.0
+--- tradep5_p4/services/tests/test_binance_active_symbol_guard_repair_worker_p5_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ tradep5/services/tests/test_binance_active_symbol_guard_repair_worker_p5_v1.py	2026-03-16 12:45:05.246358004 +0000
+@@ -0,0 +1,69 @@
++from pathlib import Path
++import importlib.util
++import json
++import sys
++
++root = Path(__file__).resolve().parents[2]
++if str(root) not in sys.path:
++    sys.path.insert(0, str(root))
++
++mod_path = root / "services" / "binance_active_symbol_guard_repair_worker.py"
++spec = importlib.util.spec_from_file_location("services.binance_guard_repair_p5", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++class FakeRedis:
++    def __init__(self):
++        self.kv = {}
++    def get(self, key):
++        return self.kv.get(key)
++    def set(self, key, value, ex=None):
++        self.kv[key] = value
++    def delete(self, key):
++        self.kv.pop(key, None)
++    def scan_iter(self, match=None):
++        prefix = str(match or '').rstrip('*')
++        for key in list(self.kv.keys()):
++            if key.startswith(prefix):
++                yield key
++
++
++class FlatClient:
++    def get_position_risk(self):
++        return [{'symbol': 'SOLUSDT', 'positionAmt': '0'}]
++    def get_open_orders(self, symbol=None):
++        return []
++    def get_open_algo_orders(self, symbol=None):
++        return []
++
++
++class OpenOrdersClient:
++    def get_position_risk(self):
++        return [{'symbol': 'ADAUSDT', 'positionAmt': '0'}]
++    def get_open_orders(self, symbol=None):
++        return [{'symbol': 'ADAUSDT', 'orderId': 1}]
++    def get_open_algo_orders(self, symbol=None):
++        return []
++
++
++def test_guard_repair_worker_releases_flat_guard():
++    r = FakeRedis()
++    r.set('orders:active_symbol_sid:SOLUSDT', json.dumps({'symbol': 'SOLUSDT', 'sid': 'sid-flat'}))
++    worker = mod.BinanceActiveSymbolGuardRepairWorker(redis_client=r, client=FlatClient())
++    out = worker.run_once()
++    assert out[0]['status'] == 'released'
++    assert r.get('orders:active_symbol_sid:SOLUSDT') in (None, '')
++
++
++def test_guard_repair_worker_keeps_guard_when_open_orders_exist():
++    r = FakeRedis()
++    r.set('orders:active_symbol_sid:ADAUSDT', json.dumps({'symbol': 'ADAUSDT', 'sid': 'sid-ada'}))
++    worker = mod.BinanceActiveSymbolGuardRepairWorker(redis_client=r, client=OpenOrdersClient())
++    out = worker.run_once()
++    assert out[0]['status'] == 'blocked'
++    guard = json.loads(r.get('orders:active_symbol_sid:ADAUSDT'))
++    assert guard['exchange_guard_reason'] == 'exchange_open_orders'
++    assert guard['exchange_open_plain_orders'] == 1

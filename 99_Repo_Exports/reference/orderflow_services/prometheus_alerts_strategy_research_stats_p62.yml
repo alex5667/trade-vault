@@ -1,0 +1,59 @@
+groups:
+  - name: strategy_research_stats_p62
+    rules:
+      - alert: TradeStrategyResearchStatsExporterDown
+        expr: strategy_research_stats_exporter_up == 0
+        for: 10m
+        labels:
+          severity: crit
+        annotations:
+          summary: Strategy research stats exporter is down
+          description: strategy_research_stats exporter has not reported up=1 for 10 minutes.
+      - alert: TradeStrategyResearchStatsBlockerActive
+        expr: strategy_research_stats_blocker_active == 1
+        for: 15m
+        labels:
+          severity: crit
+        annotations:
+          summary: Strategy research stats hard blocker is active
+          description: Promotion/apply rollout is blocked by strategy research stats gate.
+      - alert: TradeStrategyResearchStatsInvalidState
+        expr: strategy_research_stats_invalid_state == 1
+        for: 15m
+        labels:
+          severity: warn
+        annotations:
+          summary: Strategy research stats gate is invalid
+          description: Strategy research stats gate is in invalid state.
+      - alert: TradeStrategyResearchStatsReportStale
+        expr: strategy_research_stats_report_age_seconds > 129600
+        for: 30m
+        labels:
+          severity: warn
+        annotations:
+          summary: Strategy research stats report is stale
+          description: Nightly strategy research stats bundle has not refreshed for more than 36 hours.
+      - alert: TradeStrategyResearchStatsPBOHigh
+        expr: strategy_research_stats_pbo > 0.20
+        for: 30m
+        labels:
+          severity: warn
+        annotations:
+          summary: Strategy research stats PBO is high
+          description: PBO exceeded 0.20. Research selection bias risk increased.
+      - alert: TradeStrategyResearchStatsPSRLow
+        expr: strategy_research_stats_psr < 0.55
+        for: 30m
+        labels:
+          severity: warn
+        annotations:
+          summary: Strategy research stats PSR is low
+          description: PSR dropped below 0.55.
+      - alert: TradeStrategyResearchStatsDSRLow
+        expr: strategy_research_stats_dsr < 0.50
+        for: 30m
+        labels:
+          severity: warn
+        annotations:
+          summary: Strategy research stats DSR is low
+          description: DSR dropped below 0.50.

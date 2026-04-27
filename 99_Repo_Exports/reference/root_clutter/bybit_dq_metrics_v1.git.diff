@@ -1,0 +1,802 @@
+diff --git a/.env.example b/.env.example
+index 04d61d1..83acc03 100644
+--- a/.env.example
++++ b/.env.example
+@@ -36,6 +36,21 @@
+ # BYBIT_WS_TCP_KEEPALIVE=60s
+ # BYBIT_MSG_CHAN_CAP=5000
+ 
++# --- Bybit DQ metrics (Prometheus) ---
++# Примечание: это ТОЛЬКО метрики (Prometheus). На EvidenceContract Python эти поля не влияют.
++#
++# Включить/выключить DQ трекер:
++# BYBIT_DQ_ENABLED=true
++#
++# Tick gaps (event-time): окно, минимум сэмплов и частота пересчёта p95:
++# BYBIT_TICK_GAP_WINDOW=512
++# BYBIT_TICK_GAP_MIN_SAMPLES=50
++# BYBIT_TICK_GAP_P95_INTERVAL=2s
++#
++# Book missing seq EMA: time-constant (tau) для EMA пропусков update-id (u).
++# На snapshot (reconnect/first sync) пропуски НЕ штрафуются, счётчик reset увеличивается.
++# BYBIT_BOOK_MISSING_SEQ_EMA_TAU=30s
++
+ # --- A1: Liquidations (SAFE defaults) ---
+ # Enable ingestion:
+ # LIQ_WS_ENABLED=true
+diff --git a/internal/bybit/dq_tracker.go b/internal/bybit/dq_tracker.go
+new file mode 100644
+index 0000000..480403d
+--- /dev/null
++++ b/internal/bybit/dq_tracker.go
+@@ -0,0 +1,379 @@
++package bybit
++
++import (
++	"math"
++	"sort"
++	"strconv"
++	"strings"
++	"sync"
++	"time"
++
++	"go-worker/internal/monitoring"
++	"go-worker/pkg/timeutil"
++)
++
++// DQTracker computes lightweight in-process data-quality metrics for Bybit.
++//
++// It is intentionally decoupled from the Python EvidenceContract layer:
++// - We only observe raw market data (ticks/books) and export Prometheus metrics.
++// - Any extra fields we add to Redis values are safe for Python raw-ingestion
++//   (extra keys are ignored there).
++//
++// Metrics emitted (with venue="bybit"):
++// - tick_gap_p95_ms{venue,symbol}
++// - tick_gap_n{venue,symbol}
++// - book_missing_seq_ema{venue,symbol}
++// - book_missing_seq_events_total{venue,symbol}
++// plus OOO/reset counters.
++
++type DQTracker struct {
++	enabled bool
++	venue   string
++
++	tickCfg tickGapConfig
++	bookCfg bookSeqConfig
++
++	muTicks sync.Mutex
++	ticks   map[string]*tickGapWindow
++
++	muBooks sync.Mutex
++	books   map[string]*bookSeqEMA
++}
++
++type tickGapConfig struct {
++	windowSize      int
++	minSamples      int
++	computeInterval time.Duration
++}
++
++type bookSeqConfig struct {
++	emaTau time.Duration
++}
++
++func NewDQTracker() *DQTracker {
++	enabled := getEnvBool("BYBIT_DQ_ENABLED", true)
++	t := &DQTracker{
++		enabled: enabled,
++		venue:   "bybit",
++		tickCfg: tickGapConfig{
++			windowSize:      getEnvInt("BYBIT_TICK_GAP_WINDOW", 512),
++			minSamples:      getEnvInt("BYBIT_TICK_GAP_MIN_SAMPLES", 50),
++			computeInterval: getEnvDuration("BYBIT_TICK_GAP_P95_INTERVAL", 2*time.Second),
++		},
++		bookCfg: bookSeqConfig{
++			emaTau: getEnvDuration("BYBIT_BOOK_MISSING_SEQ_EMA_TAU", 30*time.Second),
++		},
++		ticks: map[string]*tickGapWindow{},
++		books: map[string]*bookSeqEMA{},
++	}
++	// Guard rails.
++	if t.tickCfg.windowSize < 64 {
++		t.tickCfg.windowSize = 64
++	}
++	if t.tickCfg.minSamples < 10 {
++		t.tickCfg.minSamples = 10
++	}
++	if t.tickCfg.minSamples > t.tickCfg.windowSize {
++		t.tickCfg.minSamples = t.tickCfg.windowSize
++	}
++	if t.tickCfg.computeInterval <= 0 {
++		t.tickCfg.computeInterval = 2 * time.Second
++	}
++	if t.bookCfg.emaTau <= 0 {
++		t.bookCfg.emaTau = 30 * time.Second
++	}
++	return t
++}
++
++func (t *DQTracker) ObserveTick(symbol string, values map[string]any) {
++	if !t.enabled {
++		return
++	}
++	ts, ok := getInt64(values["ts"])
++	if !ok || ts <= 0 {
++		return
++	}
++	sym := strings.ToUpper(strings.TrimSpace(symbol))
++	if sym == "" {
++		sym = strings.ToUpper(strings.TrimSpace(getString(values["symbol"])))
++	}
++	if sym == "" {
++		return
++	}
++
++	t.muTicks.Lock()
++	w := t.ticks[sym]
++	if w == nil {
++		w = newTickGapWindow(t.tickCfg.windowSize, t.tickCfg.minSamples, t.tickCfg.computeInterval)
++		t.ticks[sym] = w
++	}
++	t.muTicks.Unlock()
++
++	nowMs := timeutil.GetCurrentTimestampMs()
++	gap, p95, computed, ooo := w.observe(ts, nowMs)
++	if ooo {
++		monitoring.RecordTickGapOutOfOrder(t.venue, sym)
++		return
++	}
++	if gap <= 0 {
++		return
++	}
++	monitoring.RecordTickGapSample(t.venue, sym)
++	if computed {
++		monitoring.SetTickGapP95Ms(t.venue, sym, p95)
++	}
++}
++
++func (t *DQTracker) ObserveBook(symbol string, values map[string]any) {
++	if !t.enabled {
++		return
++	}
++	sym := strings.ToUpper(strings.TrimSpace(symbol))
++	if sym == "" {
++		sym = strings.ToUpper(strings.TrimSpace(getString(values["symbol"])))
++	}
++	if sym == "" {
++		return
++	}
++
++	finalID, ok := getInt64(values["final_id"])
++	if !ok || finalID <= 0 {
++		return
++	}
++	prevID, _ := getInt64(values["prev_final"])
++	isSnapshot := getBool(values["is_snapshot"])
++
++	t.muBooks.Lock()
++	b := t.books[sym]
++	if b == nil {
++		b = newBookSeqEMA(t.bookCfg.emaTau)
++		t.books[sym] = b
++	}
++	t.muBooks.Unlock()
++
++	nowMs := timeutil.GetCurrentTimestampMs()
++	ema, missing, reason := b.observe(nowMs, prevID, finalID, isSnapshot)
++	switch reason {
++	case "reset":
++		monitoring.RecordBookSeqReset(t.venue, sym)
++		monitoring.SetBookMissingSeqEMA(t.venue, sym, ema)
++		return
++	case "ooo":
++		monitoring.RecordBookSeqOutOfOrder(t.venue, sym)
++		monitoring.SetBookMissingSeqEMA(t.venue, sym, ema)
++		return
++	default:
++	}
++
++	if missing > 0 {
++		monitoring.RecordBookMissingSeqEvent(t.venue, sym)
++	}
++	monitoring.SetBookMissingSeqEMA(t.venue, sym, ema)
++}
++
++// --- internals ---
++
++type tickGapWindow struct {
++	mu sync.Mutex
++
++	lastTs int64
++
++	buf  []int64
++	idx  int
++	full bool
++
++	minSamples int
++
++	lastComputeMs     int64
++	computeIntervalMs int64
++}
++
++func newTickGapWindow(windowSize, minSamples int, computeInterval time.Duration) *tickGapWindow {
++	return &tickGapWindow{
++		buf:               make([]int64, windowSize),
++		minSamples:        minSamples,
++		computeIntervalMs: computeInterval.Milliseconds(),
++	}
++}
++
++// observe returns: gapMs, p95Ms, computed, outOfOrder.
++func (w *tickGapWindow) observe(tsMs, nowMs int64) (int64, float64, bool, bool) {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++
++	if w.lastTs == 0 {
++		w.lastTs = tsMs
++		return 0, 0, false, false
++	}
++	gap := tsMs - w.lastTs
++	if gap <= 0 {
++		// duplicates / out-of-order ticks
++		w.lastTs = max64(w.lastTs, tsMs)
++		return 0, 0, false, true
++	}
++	w.lastTs = tsMs
++
++	w.buf[w.idx] = gap
++	w.idx++
++	if w.idx >= len(w.buf) {
++		w.idx = 0
++		w.full = true
++	}
++
++	// Compute p95 not more often than computeInterval.
++	if w.computeIntervalMs > 0 && w.lastComputeMs > 0 && nowMs-w.lastComputeMs < w.computeIntervalMs {
++		return gap, 0, false, false
++	}
++	samples := w.samplesUnsafe()
++	if len(samples) < w.minSamples {
++		return gap, 0, false, false
++	}
++	p95 := p95Int64(samples)
++	w.lastComputeMs = nowMs
++	return gap, p95, true, false
++}
++
++func (w *tickGapWindow) samplesUnsafe() []int64 {
++	if w.full {
++		out := make([]int64, 0, len(w.buf))
++		for _, v := range w.buf {
++			if v > 0 {
++				out = append(out, v)
++			}
++		}
++		return out
++	}
++	out := make([]int64, 0, w.idx)
++	for i := 0; i < w.idx; i++ {
++		if w.buf[i] > 0 {
++			out = append(out, w.buf[i])
++		}
++	}
++	return out
++}
++
++func p95Int64(samples []int64) float64 {
++	if len(samples) == 0 {
++		return 0
++	}
++	tmp := make([]int64, len(samples))
++	copy(tmp, samples)
++	sort.Slice(tmp, func(i, j int) bool { return tmp[i] < tmp[j] })
++	// p95 index: ceil(0.95*n)-1
++	idx := int(math.Ceil(0.95*float64(len(tmp)))) - 1
++	if idx < 0 {
++		idx = 0
++	}
++	if idx >= len(tmp) {
++		idx = len(tmp) - 1
++	}
++	return float64(tmp[idx])
++}
++
++type bookSeqEMA struct {
++	mu sync.Mutex
++
++	ema        float64
++	lastUpdate int64
++	tauMs      float64
++}
++
++func newBookSeqEMA(tau time.Duration) *bookSeqEMA {
++	return &bookSeqEMA{tauMs: float64(tau.Milliseconds())}
++}
++
++// observe returns: ema, missingCount, reason ("reset"|"ooo"|"").
++func (b *bookSeqEMA) observe(nowMs, prevID, finalID int64, isSnapshot bool) (float64, int64, string) {
++	b.mu.Lock()
++	defer b.mu.Unlock()
++
++	if isSnapshot || prevID <= 0 {
++		b.lastUpdate = nowMs
++		// Do not penalize missing on snapshots (reconnects / first sync).
++		return b.ema, 0, "reset"
++	}
++	if finalID <= prevID {
++		// Duplicates / OOO.
++		return b.ema, 0, "ooo"
++	}
++	missing := finalID - prevID - 1
++	if missing < 0 {
++		missing = 0
++	}
++
++	// Time-based EMA: alpha = 1-exp(-dt/tau).
++	dt := float64(nowMs - b.lastUpdate)
++	if dt < 0 {
++		dt = 0
++	}
++	alpha := 1.0
++	if b.tauMs > 0 {
++		alpha = 1 - math.Exp(-dt/b.tauMs)
++		if alpha < 0 {
++			alpha = 0
++		}
++		if alpha > 1 {
++			alpha = 1
++		}
++	}
++	b.ema = b.ema*(1-alpha) + float64(missing)*alpha
++	b.lastUpdate = nowMs
++	return b.ema, missing, ""
++}
++
++func getInt64(v any) (int64, bool) {
++	switch t := v.(type) {
++	case int64:
++		return t, true
++	case int:
++		return int64(t), true
++	case float64:
++		return int64(t), true
++	case string:
++		s := strings.TrimSpace(t)
++		if s == "" {
++			return 0, false
++		}
++		n, err := strconv.ParseInt(s, 10, 64)
++		if err != nil {
++			return 0, false
++		}
++		return n, true
++	default:
++		return 0, false
++	}
++}
++
++func getString(v any) string {
++	switch t := v.(type) {
++	case string:
++		return t
++	default:
++		return ""
++	}
++}
++
++func getBool(v any) bool {
++	switch t := v.(type) {
++	case bool:
++		return t
++	case string:
++		s := strings.ToLower(strings.TrimSpace(t))
++		return s == "1" || s == "true" || s == "yes" || s == "on"
++	case int:
++		return t != 0
++	case int64:
++		return t != 0
++	case float64:
++		return t != 0
++	default:
++		return false
++	}
++}
++
++func max64(a, b int64) int64 {
++	if a > b {
++		return a
++	}
++	return b
++}
+diff --git a/internal/bybit/dq_tracker_test.go b/internal/bybit/dq_tracker_test.go
+new file mode 100644
+index 0000000..eadb1d5
+--- /dev/null
++++ b/internal/bybit/dq_tracker_test.go
+@@ -0,0 +1,58 @@
++package bybit
++
++import (
++	"testing"
++	"time"
++)
++
++func TestBookSeqEMA_SnapshotDoesNotPenalize(t *testing.T) {
++	// Small tau to keep the math stable in tests.
++	b := newBookSeqEMA(1000 * time.Millisecond)
++
++	ema, missing, reason := b.observe(1000, 0, 10, true)
++	if reason != "reset" {
++		t.Fatalf("expected reset, got %q", reason)
++	}
++	if missing != 0 {
++		t.Fatalf("expected missing=0 on reset, got %d", missing)
++	}
++	if ema != 0 {
++		t.Fatalf("expected ema=0 on first reset, got %v", ema)
++	}
++
++	// Next delta: prev=10 final=15 => missing=4
++	ema, missing, reason = b.observe(2000, 10, 15, false)
++	if reason != "" {
++		t.Fatalf("expected no reason, got %q", reason)
++	}
++	if missing != 4 {
++		t.Fatalf("expected missing=4, got %d", missing)
++	}
++	if ema <= 0 {
++		t.Fatalf("expected ema>0, got %v", ema)
++	}
++}
++
++func TestTickGapWindow_P95(t *testing.T) {
++	w := newTickGapWindow(10, 5, 0)
++
++	// First tick sets lastTs.
++	_, _, computed, _ := w.observe(1000, 1000)
++	if computed {
++		t.Fatalf("unexpected computed on first tick")
++	}
++
++	// Gaps: 1,2,3,4,5 ms
++	for i := int64(1); i <= 5; i++ {
++		_, _, _, _ = w.observe(1000+i, 1000+i)
++	}
++
++	// After enough samples, compute should happen.
++	_, p95, computed, _ := w.observe(1010, 1010)
++	if !computed {
++		t.Fatalf("expected computed=true")
++	}
++	if p95 <= 0 {
++		t.Fatalf("expected p95>0")
++	}
++}
+diff --git a/internal/bybit/futures_normalizer.go b/internal/bybit/futures_normalizer.go
+index 831b4c9..e89a1f4 100644
+--- a/internal/bybit/futures_normalizer.go
++++ b/internal/bybit/futures_normalizer.go
+@@ -277,7 +277,13 @@ func (bs *BookStore) state(symbol string) *BookState {
+ 	return st
+ }
+ 
+-func NormalizeMessage(raw []byte, mapping map[string]string, store *BookStore, bookMaxLevels int) (ticks []struct{ Symbol string; Values map[string]any }, books []struct{ Symbol string; Values map[string]any }, err error) {
++func NormalizeMessage(raw []byte, mapping map[string]string, store *BookStore, bookMaxLevels int) (ticks []struct {
++	Symbol string
++	Values map[string]any
++}, books []struct {
++	Symbol string
++	Values map[string]any
++}, err error) {
+ 	if len(raw) == 0 {
+ 		return nil, nil, errEmptyPayload
+ 	}
+@@ -310,7 +316,10 @@ func NormalizeMessage(raw []byte, mapping map[string]string, store *BookStore, b
+ 				extras["trade_id_raw"] = tradeIDRaw
+ 			}
+ 			vals := NormalizedTickValues(sym, ts, it.P, it.V, side, "bybit-linear", "USDT-M", tradeID, extras)
+-			ticks = append(ticks, struct{ Symbol string; Values map[string]any }{Symbol: sym, Values: vals})
++			ticks = append(ticks, struct {
++				Symbol string
++				Values map[string]any
++			}{Symbol: sym, Values: vals})
+ 		}
+ 		return ticks, nil, nil
+ 	}
+@@ -329,7 +338,8 @@ func NormalizeMessage(raw []byte, mapping map[string]string, store *BookStore, b
+ 		defer st.mu.Unlock()
+ 		u := ob.U.OrDefault(0)
+ 		prev := st.lastU
+-		if strings.EqualFold(strings.TrimSpace(env.Type), "snapshot") || prev == 0 {
++		isSnapshot := strings.EqualFold(strings.TrimSpace(env.Type), "snapshot") || prev == 0
++		if isSnapshot {
+ 			st.resetFromSnapshot(ob.B, ob.A, u)
+ 		} else {
+ 			st.applyDelta(st.bids, ob.B)
+@@ -338,8 +348,26 @@ func NormalizeMessage(raw []byte, mapping map[string]string, store *BookStore, b
+ 		}
+ 		bids, asks := st.snapshotTopN(bookMaxLevels)
+ 		ts := env.Ts.OrDefault(timeutil.GetCurrentTimestampMs())
+-		vals := NormalizedBookValues(sym, ts, u, u, prev, bids, asks, "bybit-linear", "USDT-M", map[string]any{"seq": ob.Seq.OrDefault(0)})
+-		books = append(books, struct{ Symbol string; Values map[string]any }{Symbol: sym, Values: vals})
++		vals := NormalizedBookValues(
++			sym,
++			ts,
++			u,
++			u,
++			prev,
++			bids,
++			asks,
++			"bybit-linear",
++			"USDT-M",
++			map[string]any{
++				"seq":         ob.Seq.OrDefault(0),
++				"book_type":   strings.TrimSpace(env.Type),
++				"is_snapshot": isSnapshot,
++			},
++		)
++		books = append(books, struct {
++			Symbol string
++			Values map[string]any
++		}{Symbol: sym, Values: vals})
+ 		return nil, books, nil
+ 	}
+ 
+diff --git a/internal/bybit/futures_normalizer_test.go b/internal/bybit/futures_normalizer_test.go
+index 054d940..edba5e1 100644
+--- a/internal/bybit/futures_normalizer_test.go
++++ b/internal/bybit/futures_normalizer_test.go
+@@ -34,6 +34,9 @@ func TestNormalizeOrderbook_SnapshotThenDelta(t *testing.T) {
+ 	if len(books1) != 1 {
+ 		t.Fatalf("expected 1 book, got %d", len(books1))
+ 	}
++	if books1[0].Values["is_snapshot"].(bool) != true {
++		t.Fatalf("expected is_snapshot=true on snapshot")
++	}
+ 	_, books2, err := NormalizeMessage(delta, nil, store, 10)
+ 	if err != nil {
+ 		t.Fatalf("err: %v", err)
+@@ -41,6 +44,9 @@ func TestNormalizeOrderbook_SnapshotThenDelta(t *testing.T) {
+ 	if len(books2) != 1 {
+ 		t.Fatalf("expected 1 book, got %d", len(books2))
+ 	}
++	if books2[0].Values["is_snapshot"].(bool) != false {
++		t.Fatalf("expected is_snapshot=false on delta")
++	}
+ 	bids := books2[0].Values["bids"].(string)
+ 	if !contains(bids, "\"99\"") || !contains(bids, "\"98\"") {
+ 		t.Fatalf("unexpected bids json: %s", bids)
+diff --git a/internal/bybit/futures_streams.go b/internal/bybit/futures_streams.go
+index afc60ab..93fc0bd 100644
+--- a/internal/bybit/futures_streams.go
++++ b/internal/bybit/futures_streams.go
+@@ -35,10 +35,11 @@ type FuturesWSManager struct {
+ 	cfg     wsconn.Config
+ 	url     string
+ 
+-	subs           map[string]struct{}
+-	bookStore      *BookStore
+-	symbolMap      map[string]string
+-	bookMaxLevels  int
++	subs          map[string]struct{}
++	bookStore     *BookStore
++	symbolMap     map[string]string
++	bookMaxLevels int
++	dq            *DQTracker
+ }
+ 
+ func NewFuturesWSManager(url string, cfg wsconn.Config, logger *log.Logger, symbolMap map[string]string, bookMaxLevels int) *FuturesWSManager {
+@@ -46,13 +47,14 @@ func NewFuturesWSManager(url string, cfg wsconn.Config, logger *log.Logger, symb
+ 		logger = log.New(os.Stdout, "[bybit] ", log.LstdFlags|log.Lmicroseconds)
+ 	}
+ 	return &FuturesWSManager{
+-		log:          logger,
+-		cfg:          cfg,
+-		url:          url,
+-		subs:         make(map[string]struct{}),
+-		bookStore:    NewBookStore(),
+-		symbolMap:    symbolMap,
++		log:           logger,
++		cfg:           cfg,
++		url:           url,
++		subs:          make(map[string]struct{}),
++		bookStore:     NewBookStore(),
++		symbolMap:     symbolMap,
+ 		bookMaxLevels: bookMaxLevels,
++		dq:            NewDQTracker(),
+ 	}
+ }
+ 
+@@ -144,10 +146,16 @@ func (m *FuturesWSManager) ReadLoop(ctx context.Context, publisher internalredis
+ 				continue
+ 			}
+ 			for _, t := range ticks {
++				if m.dq != nil {
++					m.dq.ObserveTick(t.Symbol, t.Values)
++				}
+ 				_ = publisher.PublishTick(ctx, t.Symbol, t.Values)
+ 				monitoring.RecordBybitMessage(t.Symbol, "trade")
+ 			}
+ 			for _, b := range books {
++				if m.dq != nil {
++					m.dq.ObserveBook(b.Symbol, b.Values)
++				}
+ 				_ = publisher.PublishBook(ctx, b.Symbol, b.Values)
+ 				monitoring.RecordBybitMessage(b.Symbol, "book")
+ 			}
+@@ -220,15 +228,15 @@ type FuturesStreamController struct {
+ 	symbolsKey      string
+ 	refreshInterval time.Duration
+ 
+-	mu            sync.Mutex
++	mu             sync.Mutex
+ 	currentSymbols []string
+-	cancel        context.CancelFunc
+-	manager       *FuturesWSManager
++	cancel         context.CancelFunc
++	manager        *FuturesWSManager
+ 
+-	cfg          wsconn.Config
+-	wsURL        string
+-	symbolMap    map[string]string
+-	bookDepth    int
++	cfg           wsconn.Config
++	wsURL         string
++	symbolMap     map[string]string
++	bookDepth     int
+ 	bookMaxLevels int
+ 	tradesEnabled bool
+ 	bookEnabled   bool
+diff --git a/internal/monitoring/dq_metrics.go b/internal/monitoring/dq_metrics.go
+new file mode 100644
+index 0000000..541c426
+--- /dev/null
++++ b/internal/monitoring/dq_metrics.go
+@@ -0,0 +1,146 @@
++package monitoring
++
++import (
++	"strings"
++
++	"github.com/prometheus/client_golang/prometheus"
++	"github.com/prometheus/client_golang/prometheus/promauto"
++)
++
++// DQ metrics (shared naming across venues).
++//
++// IMPORTANT:
++// - Metric names intentionally match the stack's dashboards/alerts:
++//   tick_gap_p95_ms, tick_gap_n, book_missing_seq_ema, ...
++// - To avoid ambiguity across exchanges, metrics include the `venue` label.
++
++const (
++	dqLabelVenue  = "venue"
++	dqLabelSymbol = "symbol"
++)
++
++var (
++	// tick_gap_p95_ms — p95 по гэпам между соседними тиками (event-time), миллисекунды.
++	TickGapP95MsGauge = promauto.NewGaugeVec(
++		prometheus.GaugeOpts{
++			Name: "tick_gap_p95_ms",
++			Help: "p95 gap between consecutive ticks (event-time), milliseconds",
++		},
++		[]string{dqLabelVenue, dqLabelSymbol},
++	)
++
++	// tick_gap_n — количество samples (gap>0).
++	TickGapNSamplesTotal = promauto.NewCounterVec(
++		prometheus.CounterOpts{
++			Name: "tick_gap_n",
++			Help: "number of tick gap samples (gap>0) observed",
++		},
++		[]string{dqLabelVenue, dqLabelSymbol},
++	)
++
++	TickGapOutOfOrderTotal = promauto.NewCounterVec(
++		prometheus.CounterOpts{
++			Name: "tick_gap_out_of_order_total",
++			Help: "number of ticks with non-increasing event-time (out-of-order or duplicates)",
++		},
++		[]string{dqLabelVenue, dqLabelSymbol},
++	)
++
++	// book_missing_seq_ema — EMA количества пропущенных update-id в стакане.
++	BookMissingSeqEMAGauge = promauto.NewGaugeVec(
++		prometheus.GaugeOpts{
++			Name: "book_missing_seq_ema",
++			Help: "EMA of missing orderbook update ids (per symbol)",
++		},
++		[]string{dqLabelVenue, dqLabelSymbol},
++	)
++
++	BookMissingSeqEventsTotal = promauto.NewCounterVec(
++		prometheus.CounterOpts{
++			Name: "book_missing_seq_events_total",
++			Help: "number of orderbook messages where missing update ids were detected",
++		},
++		[]string{dqLabelVenue, dqLabelSymbol},
++	)
++
++	BookSeqResetsTotal = promauto.NewCounterVec(
++		prometheus.CounterOpts{
++			Name: "book_seq_resets_total",
++			Help: "number of orderbook sequence resets (snapshots/reconnects/first event)",
++		},
++		[]string{dqLabelVenue, dqLabelSymbol},
++	)
++
++	BookSeqOutOfOrderTotal = promauto.NewCounterVec(
++		prometheus.CounterOpts{
++			Name: "book_seq_out_of_order_total",
++			Help: "number of orderbook messages with non-increasing update id",
++		},
++		[]string{dqLabelVenue, dqLabelSymbol},
++	)
++)
++
++func normVenueSymbol(venue, symbol string) (string, string) {
++	v := strings.ToLower(strings.TrimSpace(venue))
++	if v == "" {
++		v = "unknown"
++	}
++	s := strings.ToUpper(strings.TrimSpace(symbol))
++	return v, s
++}
++
++func RecordTickGapSample(venue, symbol string) {
++	v, s := normVenueSymbol(venue, symbol)
++	if s == "" {
++		return
++	}
++	TickGapNSamplesTotal.WithLabelValues(v, s).Inc()
++}
++
++func RecordTickGapOutOfOrder(venue, symbol string) {
++	v, s := normVenueSymbol(venue, symbol)
++	if s == "" {
++		return
++	}
++	TickGapOutOfOrderTotal.WithLabelValues(v, s).Inc()
++}
++
++func SetTickGapP95Ms(venue, symbol string, p95Ms float64) {
++	v, s := normVenueSymbol(venue, symbol)
++	if s == "" {
++		return
++	}
++	TickGapP95MsGauge.WithLabelValues(v, s).Set(p95Ms)
++}
++
++func RecordBookMissingSeqEvent(venue, symbol string) {
++	v, s := normVenueSymbol(venue, symbol)
++	if s == "" {
++		return
++	}
++	BookMissingSeqEventsTotal.WithLabelValues(v, s).Inc()
++}
++
++func SetBookMissingSeqEMA(venue, symbol string, ema float64) {
++	v, s := normVenueSymbol(venue, symbol)
++	if s == "" {
++		return
++	}
++	BookMissingSeqEMAGauge.WithLabelValues(v, s).Set(ema)
++}
++
++func RecordBookSeqReset(venue, symbol string) {
++	v, s := normVenueSymbol(venue, symbol)
++	if s == "" {
++		return
++	}
++	BookSeqResetsTotal.WithLabelValues(v, s).Inc()
++}
++
++func RecordBookSeqOutOfOrder(venue, symbol string) {
++	v, s := normVenueSymbol(venue, symbol)
++	if s == "" {
++		return
++	}
++	BookSeqOutOfOrderTotal.WithLabelValues(v, s).Inc()
++}

@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/matplotlib/hatch.py
+# hypothesis_version: 6.148.10
+
+[-0.5, 0.0, 0.1, 0.2, 0.35, 0.5, 0.9, 1.0, 2.0, 3.0, '*', '+', '-', '-+|/\\xXoO.*', '.', '/', '3.4', '3.7', 'O', 'X', '\\', 'o', 'x', '|']

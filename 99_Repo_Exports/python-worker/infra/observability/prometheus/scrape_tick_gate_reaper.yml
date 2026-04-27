@@ -1,0 +1,8 @@
+# Prometheus scrape config snippet for tick-gate-reaper (autoclaim/PEL maintenance)
+- job_name: 'tick-gate-reaper'
+  metrics_path: /metrics
+  static_configs:
+    - targets:
+        - 'tick-gate-reaper:9113'
+      labels:
+        app: 'tick-gate-reaper'

@@ -1,0 +1,30 @@
+version: '3.9'
+services:
+  postgres:
+    image: timescale/timescaledb-ha:pg16-latest
+    container_name: postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: trade_back
+      TZ: UTC
+    ports:
+    - 5432:5432
+    volumes:
+    - pgdata:/var/lib/postgresql/data
+  trade_back:
+    build: ./trade_back
+    environment:
+      DATABASE_URL: postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+      TZ: UTC
+    depends_on:
+    - postgres
+  scanner_infra:
+    build: .
+    environment:
+      TRADES_DB_DSN: postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+      TZ: UTC
+    depends_on:
+    - postgres
+volumes:
+  pgdata: null

@@ -1,0 +1,727 @@
+--- tradeproj_orig/services/execution_metrics.py	2026-03-07 16:37:03.000000000 +0000
++++ tradeproj/services/execution_metrics.py	2026-03-16 05:37:48.462319745 +0000
+@@ -55,6 +55,37 @@
+     ["symbol"],
+ )
+ 
++EXECUTION_OPERATION_BLOCKED_TOTAL = _metric(
++    Counter,
++    "execution_operation_blocked_total",
++    "Execution actions blocked by operator feature flags or runtime safety gates.",
++    ["action", "reason"],
++)
++EXECUTION_PROTECTION_AUDIT_FINDING_TOTAL = _metric(
++    Counter,
++    "execution_protection_audit_finding_total",
++    "Protection auditor findings emitted from live Binance account state.",
++    ["venue", "finding", "mode"],
++)
++EXECUTION_PROTECTION_AUDIT_OPEN_FINDINGS = _metric(
++    Gauge,
++    "execution_protection_audit_open_findings",
++    "Current open protection-audit findings per symbol and venue.",
++    ["venue", "symbol", "finding"],
++)
++EXECUTION_PROTECTION_AUDIT_FLATTEN_TOTAL = _metric(
++    Counter,
++    "execution_protection_audit_flatten_total",
++    "Emergency flatten operations initiated by the protection auditor.",
++    ["venue", "finding"],
++)
++EXECUTION_PROTECTION_AUDIT_LAST_RUN_TS = _metric(
++    Gauge,
++    "execution_protection_audit_last_run_ts",
++    "Unix timestamp of the last completed protection-auditor scan.",
++    ["venue"],
++)
++
+ MARK_CONTRACT_SPREAD_BPS = _metric(
+     Gauge,
+     "mark_contract_spread_bps",
+--- tradeproj_orig/services/binance_executor.py	2026-03-12 04:02:04.000000000 +0000
++++ tradeproj/services/binance_executor.py	2026-03-16 05:37:48.468778354 +0000
+@@ -133,6 +133,7 @@
+         EXECUTION_DUPLICATE_PREVENTED_TOTAL,
+         EXECUTION_ENTRY_FILLED_TOTAL,
+         EXECUTION_ENTRY_SUBMITTED_TOTAL,
++        EXECUTION_OPERATION_BLOCKED_TOTAL,
+         EXECUTION_POSITION_UNPROTECTED_SECONDS,
+         EXECUTION_PROTECTION_ARM_TIMEOUT_TOTAL,
+         FEE_BPS_SAVED_ESTIMATE,
+@@ -152,6 +153,7 @@
+             EXECUTION_DUPLICATE_PREVENTED_TOTAL,
+             EXECUTION_ENTRY_FILLED_TOTAL,
+             EXECUTION_ENTRY_SUBMITTED_TOTAL,
++            EXECUTION_OPERATION_BLOCKED_TOTAL,
+             EXECUTION_POSITION_UNPROTECTED_SECONDS,
+             EXECUTION_PROTECTION_ARM_TIMEOUT_TOTAL,
+             FEE_BPS_SAVED_ESTIMATE,
+@@ -166,7 +168,7 @@
+         )
+     except Exception:  # pragma: no cover
+         BINANCE_ALGO_RECONCILE_TOTAL = EXECUTION_DUPLICATE_PREVENTED_TOTAL = None  # type: ignore
+-        EXECUTION_ENTRY_FILLED_TOTAL = EXECUTION_ENTRY_SUBMITTED_TOTAL = None  # type: ignore
++        EXECUTION_ENTRY_FILLED_TOTAL = EXECUTION_ENTRY_SUBMITTED_TOTAL = EXECUTION_OPERATION_BLOCKED_TOTAL = None  # type: ignore
+         EXECUTION_POSITION_UNPROTECTED_SECONDS = EXECUTION_PROTECTION_ARM_TIMEOUT_TOTAL = None  # type: ignore
+         FEE_BPS_SAVED_ESTIMATE = MAKER_FILL_RATIO = MARK_CONTRACT_SPREAD_BPS = None  # type: ignore
+         SL_TRIGGER_MARK_MINUS_CONTRACT_BPS = TP_LIMIT_FILLED_TOTAL = TP_LIMIT_TRIGGERED_TOTAL = None  # type: ignore
+@@ -233,6 +235,14 @@
+         self.details = dict(details or {})
+ 
+ 
++class ExecutionActionBlockedError(RuntimeError):
++    """Raised when operator feature flags intentionally block a mutation path."""
++
++    def __init__(self, details: Dict[str, Any]):
++        super().__init__(str((details or {}).get("reason") or "execution_action_blocked"))
++        self.details = dict(details or {})
++
++
+ 
+ # ---------------------------------------------------------------------------
+ # Helpers
+@@ -825,6 +835,10 @@
+         self.exec_bootstrap_require_ready = _bool_env("EXEC_BOOTSTRAP_REQUIRE_READY", False)
+         self.exec_bootstrap_timeout_ms = int(os.getenv("EXEC_BOOTSTRAP_TIMEOUT_MS", "0"))
+         self.exec_bootstrap_poll_ms = int(os.getenv("EXEC_BOOTSTRAP_POLL_MS", "500"))
++        self.exec_disable_modify_on_binance = _bool_env("EXEC_BINANCE_DISABLE_MODIFY", False)
++        self.exec_disable_resize_on_binance = _bool_env("EXEC_BINANCE_DISABLE_RESIZE", False)
++        self.exec_blocked_action_state_write = _bool_env("EXEC_BLOCKED_ACTION_STATE_WRITE", True)
++        self.exec_blocked_action_reason = (os.getenv("EXEC_BLOCKED_ACTION_REASON") or "operator_risk_hold").strip() or "operator_risk_hold"
+         self.exec_single_active_position_per_symbol = _bool_env("EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL", False)
+         self.exec_single_active_position_release_on_terminal = _bool_env("EXEC_SINGLE_ACTIVE_POSITION_RELEASE_ON_TERMINAL", True)
+         self.exec_single_active_position_stale_timeout_ms = int(os.getenv("EXEC_SINGLE_ACTIVE_POSITION_STALE_TIMEOUT_MS", "900000"))
+@@ -3402,15 +3416,56 @@
+         })
+         return result
+ 
++    def _guard_binance_action_enabled(self, *, action: str, sid: str, symbol: str) -> None:
++        """Hard block unsafe mutation paths during incident containment.
++
++        P0 risk containment: operators can disable `modify` and/or `resize` while
++        the protection-placement / reconcile path is being hardened.  The block
++        is explicit, observable, and ack-safe (handled in process_one without
++        retry/DLQ noise).
++        """
++        act = str(action or "").strip().lower()
++        blocked = (act == "modify" and bool(getattr(self, "exec_disable_modify_on_binance", False))) or (
++            act == "resize" and bool(getattr(self, "exec_disable_resize_on_binance", False))
++        )
++        if not blocked:
++            return
++        reason = str(getattr(self, "exec_blocked_action_reason", "operator_risk_hold") or "operator_risk_hold")
++        details = {
++            "sid": sid,
++            "symbol": symbol,
++            "action": act,
++            "status": "blocked",
++            "severity": "warning",
++            "event_type": "execution_action_blocked",
++            "reason": reason,
++            "blocked_by_feature_flag": True,
++        }
++        try:
++            if EXECUTION_OPERATION_BLOCKED_TOTAL is not None:
++                EXECUTION_OPERATION_BLOCKED_TOTAL.labels(action=act, reason=reason).inc()
++        except Exception:
++            pass
++        if sid and bool(getattr(self, "exec_blocked_action_state_write", True)):
++            self._save_order_state(sid, {
++                "symbol": symbol,
++                "last_blocked_action": act,
++                "last_blocked_reason": reason,
++                "last_blocked_at_ms": _ms_now(),
++            })
++        raise ExecutionActionBlockedError(details)
++
++
+     def handle_modify(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+         """Modify existing position: cancel all our orders → re-place SL/TP → trailing arming."""
+-        client, filters = self._resolve_client(payload)
+-        self._sync_client_clock(client)
+-
+         sid = str(payload.get("sid") or "").strip()
+         symbol = str(payload.get("symbol") or "").strip().upper()
+         if not sid or not symbol:
+             raise ValueError("sid/symbol required")
++        self._guard_binance_action_enabled(action="modify", sid=sid, symbol=symbol)
++        client, filters = self._resolve_client(payload)
++        self._sync_client_clock(client)
++
+         self._guard_sid_not_quarantined(sid, symbol=symbol, action='modify')
+         if self.allowlist and symbol not in self.allowlist:
+             raise ValueError(f"symbol not in allowlist: {symbol}")
+@@ -3617,12 +3672,13 @@
+         - re-arms SL/TP/trailing at new size with provided levels
+         - forbidden in unsafe FSM states (PROTECTION_ARMING, PENDING_RECONCILE, terminals)
+         """
+-        client, filters = self._resolve_client(payload)
+-        self._sync_client_clock(client)
+         sid = str(payload.get("sid") or "").strip()
+         symbol = str(payload.get("symbol") or "").strip().upper()
+         if not sid or not symbol:
+             raise ValueError("sid/symbol required")
++        self._guard_binance_action_enabled(action="resize", sid=sid, symbol=symbol)
++        client, filters = self._resolve_client(payload)
++        self._sync_client_clock(client)
+         self._guard_sid_not_quarantined(sid, symbol=symbol, action='resize')
+         state = self._load_order_state(sid)
+         fsm_state = str(state.get("fsm_state") or "")
+@@ -3785,6 +3841,10 @@
+             self._exec_event(e.details)
+             self._ack_processing(raw)
+             return
++        except ExecutionActionBlockedError as e:
++            self._exec_event(e.details)
++            self._ack_processing(raw)
++            return
+         except Exception as e:
+             cls = _classify_error(e)
+             msg = str(e)
+--- tradeproj_orig/services/binance_protection_auditor.py	1970-01-01 00:00:00.000000000 +0000
++++ tradeproj/services/binance_protection_auditor.py	2026-03-16 05:38:48.858460803 +0000
+@@ -0,0 +1,323 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Independent Binance protection-audit loop.
++
++P0 risk containment:
++  * scans live positionRisk + openAlgoOrders
++  * alerts on naked / partially protected positions
++  * optionally flattens a position when operator enables flatten mode
++
++The auditor is intentionally independent from the main executor.  It provides a
++second control plane: even if the executor loses state or a reconcile path
++misbehaves, the auditor still sees the exchange truth and can page / flatten.
++"""
++
++import hashlib
++import json
++import os
++import time
++from typing import Any, Dict, Iterable, List, Optional, Tuple
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++try:
++    from services.binance_futures_client import BinanceFuturesClient
++    from services.telegram.telegram_client import TelegramClient
++    from services.execution_metrics import (
++        EXECUTION_PROTECTION_AUDIT_FINDING_TOTAL,
++        EXECUTION_PROTECTION_AUDIT_FLATTEN_TOTAL,
++        EXECUTION_PROTECTION_AUDIT_LAST_RUN_TS,
++        EXECUTION_PROTECTION_AUDIT_OPEN_FINDINGS,
++    )
++except Exception:  # pragma: no cover
++    from binance_futures_client import BinanceFuturesClient  # type: ignore
++    from telegram.telegram_client import TelegramClient  # type: ignore
++    try:
++        from execution_metrics import (
++            EXECUTION_PROTECTION_AUDIT_FINDING_TOTAL,
++            EXECUTION_PROTECTION_AUDIT_FLATTEN_TOTAL,
++            EXECUTION_PROTECTION_AUDIT_LAST_RUN_TS,
++            EXECUTION_PROTECTION_AUDIT_OPEN_FINDINGS,
++        )
++    except Exception:  # pragma: no cover
++        EXECUTION_PROTECTION_AUDIT_FINDING_TOTAL = None  # type: ignore
++        EXECUTION_PROTECTION_AUDIT_FLATTEN_TOTAL = None  # type: ignore
++        EXECUTION_PROTECTION_AUDIT_LAST_RUN_TS = None  # type: ignore
++        EXECUTION_PROTECTION_AUDIT_OPEN_FINDINGS = None  # type: ignore
++
++
++def _bool_env(name: str, default: bool = False) -> bool:
++    v = (os.getenv(name) or "").strip().lower()
++    if not v:
++        return bool(default)
++    return v in {"1", "true", "yes", "on"}
++
++
++def _ms_now() -> int:
++    return int(time.time() * 1000)
++
++
++def _f(value: Any, default: float = 0.0) -> float:
++    try:
++        return float(value)
++    except Exception:
++        return float(default)
++
++
++class BinanceProtectionAuditor:
++    def __init__(
++        self,
++        *,
++        redis_client: Any | None = None,
++        prod_client: Optional[BinanceFuturesClient] = None,
++        demo_client: Optional[BinanceFuturesClient] = None,
++        telegram_client: Any | None = None,
++    ) -> None:
++        if redis_client is None and redis is None:
++            raise RuntimeError("redis-py is required (pip install redis)")
++        self.redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++        self.r = redis_client if redis_client is not None else redis.from_url(self.redis_url, decode_responses=True)
++        self.exec_stream = os.getenv("EXEC_STREAM", "orders:exec")
++        self.mode = (os.getenv("BINANCE_PROTECTION_AUDITOR_MODE") or "alert").strip().lower()
++        if self.mode not in {"alert", "flatten"}:
++            self.mode = "alert"
++        self.interval_ms = int(os.getenv("BINANCE_PROTECTION_AUDITOR_INTERVAL_MS", "5000"))
++        self.alert_dedupe_sec = int(os.getenv("BINANCE_PROTECTION_AUDITOR_ALERT_DEDUPE_SEC", "60"))
++        self.orphan_cancel_enable = _bool_env("BINANCE_PROTECTION_AUDITOR_CANCEL_ORPHAN_ALGOS", False)
++        self.position_eps = float(os.getenv("BINANCE_PROTECTION_AUDITOR_POSITION_EPS", "1e-12"))
++        self.tg = telegram_client if telegram_client is not None else TelegramClient.from_env()
++
++        self.prod_client = prod_client
++        if self.prod_client is None and (os.getenv("BINANCE_API_KEY") or "").strip():
++            self.prod_client = BinanceFuturesClient.from_env(prefix="BINANCE_")
++        self.demo_client = demo_client
++        if self.demo_client is None and (os.getenv("BINANCE_DEMO_API_KEY") or "").strip():
++            self.demo_client = BinanceFuturesClient.from_env(prefix="BINANCE_DEMO_")
++        if self.prod_client is None and self.demo_client is None:
++            raise RuntimeError("At least one of BINANCE_API_KEY or BINANCE_DEMO_API_KEY must be set")
++
++    def _iter_clients(self) -> Iterable[Tuple[str, BinanceFuturesClient]]:
++        if self.prod_client is not None:
++            yield "prod", self.prod_client
++        if self.demo_client is not None:
++            yield "demo", self.demo_client
++
++    def _algo_kind(self, order: Dict[str, Any]) -> str:
++        typ = str(order.get("type") or order.get("algoType") or "").upper()
++        cid = str(order.get("clientAlgoId") or "").lower()
++        if typ == "TRAILING_STOP_MARKET" or cid.endswith("-trail"):
++            return "trail"
++        if typ in {"STOP_MARKET", "STOP"} or cid.endswith("-sl"):
++            return "sl"
++        if typ in {"TAKE_PROFIT_MARKET", "TAKE_PROFIT"} or "-tp" in cid:
++            return "tp"
++        return "other"
++
++    def _token_from_cid(self, client_algo_id: str) -> str:
++        cid = str(client_algo_id or "").strip()
++        if not cid:
++            return ""
++        parts = cid.split("-")
++        if len(parts) < 3:
++            return ""
++        return parts[-2]
++
++    def _positions_by_symbol(self, client: BinanceFuturesClient) -> Dict[str, Dict[str, Any]]:
++        out: Dict[str, Dict[str, Any]] = {}
++        for row in list(client.get_position_risk() or []):
++            symbol = str(row.get("symbol") or "").strip().upper()
++            if not symbol:
++                continue
++            amt = _f(row.get("positionAmt"), 0.0)
++            if abs(amt) <= self.position_eps:
++                continue
++            current = out.get(symbol) or {"qty": 0.0, "amt": 0.0}
++            current["qty"] = max(float(current.get("qty") or 0.0), abs(float(amt)))
++            current["amt"] = float(amt)
++            current["logical_side"] = "LONG" if float(amt) > 0 else "SHORT"
++            out[symbol] = current
++        return out
++
++    def _algos_by_symbol(self, client: BinanceFuturesClient) -> Dict[str, Dict[str, Any]]:
++        out: Dict[str, Dict[str, Any]] = {}
++        for row in list(client.get_open_algo_orders() or []):
++            symbol = str(row.get("symbol") or "").strip().upper()
++            if not symbol:
++                continue
++            entry = out.setdefault(symbol, {"sl": 0, "tp": 0, "trail": 0, "other": 0, "orders": []})
++            kind = self._algo_kind(row)
++            entry[kind] = int(entry.get(kind, 0)) + 1
++            entry["orders"].append(dict(row))
++        return out
++
++    def _emit_event(self, event: Dict[str, Any]) -> None:
++        try:
++            fields = {k: json.dumps(v, ensure_ascii=False, default=str) if isinstance(v, (dict, list)) else str(v) for k, v in dict(event or {}).items()}
++            self.r.xadd(self.exec_stream, fields)
++        except Exception:
++            return
++
++    def _dedupe_key(self, venue: str, symbol: str, finding: str) -> str:
++        return f"orders:protection_audit:dedupe:{venue}:{symbol}:{finding}"
++
++    def _notify_once(self, *, venue: str, symbol: str, finding: str, text: str) -> None:
++        if self.tg is None:
++            return
++        key = self._dedupe_key(venue, symbol, finding)
++        try:
++            if self.r.get(key):
++                return
++            self.r.set(key, "1", ex=max(1, self.alert_dedupe_sec))
++        except Exception:
++            pass
++        try:
++            self.tg.send_text(text)
++        except Exception:
++            return
++
++    def _cancel_orphan_algos(self, *, client: BinanceFuturesClient, symbol: str, orders: List[Dict[str, Any]]) -> int:
++        canceled = 0
++        for order in list(orders or []):
++            try:
++                algo_id = int(order.get("algoId"))
++            except Exception:
++                continue
++            try:
++                client.cancel_algo_order(symbol, algo_id=algo_id)
++                canceled += 1
++            except Exception:
++                continue
++        return canceled
++
++    def _flatten_position(self, *, client: BinanceFuturesClient, symbol: str, logical_side: str, qty: float, finding: str, venue: str) -> Dict[str, Any]:
++        close_side = "SELL" if str(logical_side).upper() == "LONG" else "BUY"
++        try:
++            client.cancel_all_orders(symbol)
++        except Exception:
++            pass
++        order = client.post_plain_order({
++            "symbol": symbol,
++            "side": close_side,
++            "type": "MARKET",
++            "quantity": str(qty),
++            "reduceOnly": True,
++            "newClientOrderId": f"audit-{venue}-{symbol.lower()}-{_ms_now()}",
++        })
++        try:
++            if EXECUTION_PROTECTION_AUDIT_FLATTEN_TOTAL is not None:
++                EXECUTION_PROTECTION_AUDIT_FLATTEN_TOTAL.labels(venue=venue, finding=finding).inc()
++        except Exception:
++            pass
++        return {
++            "flatten_order_id": order.get("orderId"),
++            "flatten_client_order_id": order.get("clientOrderId") or order.get("newClientOrderId"),
++        }
++
++    def _finding_event(self, *, venue: str, symbol: str, finding: str, details: Dict[str, Any]) -> Dict[str, Any]:
++        return {
++            "sid": "",
++            "symbol": symbol,
++            "action": "protection_audit",
++            "event_type": "protection_audit_finding",
++            "venue": venue,
++            "status": "warning",
++            "finding": finding,
++            "mode": self.mode,
++            "details": details,
++            "ts_event_ms": _ms_now(),
++        }
++
++    def scan_once(self) -> List[Dict[str, Any]]:
++        findings: List[Dict[str, Any]] = []
++        for venue, client in self._iter_clients():
++            positions = self._positions_by_symbol(client)
++            algos = self._algos_by_symbol(client)
++            symbols = sorted(set(positions.keys()) | set(algos.keys()))
++            for symbol in symbols:
++                pos = positions.get(symbol) or {}
++                algo = algos.get(symbol) or {"sl": 0, "tp": 0, "trail": 0, "other": 0, "orders": []}
++                pos_qty = float(pos.get("qty") or 0.0)
++                total_protection = int(algo.get("sl", 0)) + int(algo.get("tp", 0)) + int(algo.get("trail", 0))
++                if pos_qty > self.position_eps and int(algo.get("sl", 0)) == 0:
++                    findings.append(self._finding_event(venue=venue, symbol=symbol, finding="position_without_sl", details={"position_qty": pos_qty, "algo_summary": algo}))
++                if pos_qty > self.position_eps and int(algo.get("tp", 0)) == 0:
++                    findings.append(self._finding_event(venue=venue, symbol=symbol, finding="position_without_any_tp", details={"position_qty": pos_qty, "algo_summary": algo}))
++                if pos_qty > self.position_eps and total_protection == 0:
++                    findings.append(self._finding_event(venue=venue, symbol=symbol, finding="position_without_any_protection", details={"position_qty": pos_qty, "algo_summary": algo}))
++                if pos_qty <= self.position_eps and list(algo.get("orders") or []):
++                    findings.append(self._finding_event(venue=venue, symbol=symbol, finding="orphan_algo_without_position", details={"algo_summary": algo}))
++        return findings
++
++    def execute_findings(self, findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
++        out: List[Dict[str, Any]] = []
++        indexed = {(venue, client): client for venue, client in self._iter_clients()}
++        for finding in list(findings or []):
++            venue = str(finding.get("venue") or "")
++            symbol = str(finding.get("symbol") or "")
++            finding_name = str(finding.get("finding") or "")
++            details = dict(finding.get("details") or {})
++            client = self.prod_client if venue == "prod" else self.demo_client
++            if client is None:
++                continue
++            try:
++                if EXECUTION_PROTECTION_AUDIT_FINDING_TOTAL is not None:
++                    EXECUTION_PROTECTION_AUDIT_FINDING_TOTAL.labels(venue=venue, finding=finding_name, mode=self.mode).inc()
++                if EXECUTION_PROTECTION_AUDIT_OPEN_FINDINGS is not None:
++                    EXECUTION_PROTECTION_AUDIT_OPEN_FINDINGS.labels(venue=venue, symbol=symbol, finding=finding_name).set(1.0)
++            except Exception:
++                pass
++            event = dict(finding)
++            if self.mode == "flatten" and finding_name in {"position_without_sl", "position_without_any_protection"}:
++                position_qty = _f(details.get("position_qty"), 0.0)
++                algo_summary = details.get("algo_summary") or {}
++                if position_qty > self.position_eps:
++                    logical_side = "LONG"
++                    try:
++                        # Re-read positions to avoid flattening stale state from a previous scan.
++                        positions = self._positions_by_symbol(client)
++                        pos = positions.get(symbol) or {}
++                        position_qty = _f(pos.get("qty"), position_qty)
++                        logical_side = str(pos.get("logical_side") or logical_side)
++                    except Exception:
++                        pass
++                    flatten_info = self._flatten_position(client=client, symbol=symbol, logical_side=logical_side, qty=position_qty, finding=finding_name, venue=venue)
++                    event["status"] = "flattened"
++                    event["flatten"] = flatten_info
++            elif self.mode == "flatten" and finding_name == "orphan_algo_without_position" and self.orphan_cancel_enable:
++                canceled = self._cancel_orphan_algos(client=client, symbol=symbol, orders=list((details.get("algo_summary") or {}).get("orders") or []))
++                event["status"] = "orphan_algos_canceled" if canceled else event.get("status")
++                event["canceled_orphan_algos"] = canceled
++            self._emit_event(event)
++            self._notify_once(venue=venue, symbol=symbol, finding=finding_name, text=(
++                f"🛑 Binance protection audit\nvenue={venue} symbol={symbol}\nfinding={finding_name} mode={self.mode}\nstatus={event.get('status')}"
++            ))
++            out.append(event)
++        # Clear gauges for symbols that were not found in this scan is intentionally omitted;
++        # Prometheus staleness handles disappeared series and the counter remains authoritative.
++        for venue, _ in self._iter_clients():
++            try:
++                if EXECUTION_PROTECTION_AUDIT_LAST_RUN_TS is not None:
++                    EXECUTION_PROTECTION_AUDIT_LAST_RUN_TS.labels(venue=venue).set(time.time())
++            except Exception:
++                pass
++        return out
++
++    def run_once(self) -> List[Dict[str, Any]]:
++        findings = self.scan_once()
++        return self.execute_findings(findings)
++
++    def run_forever(self) -> None:
++        print("🚨 BinanceProtectionAuditor starting")
++        print(f"   exec_stream={self.exec_stream}")
++        print(f"   mode={self.mode}")
++        while True:
++            self.run_once()
++            time.sleep(max(0.25, float(self.interval_ms) / 1000.0))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    BinanceProtectionAuditor().run_forever()
+--- tradeproj_orig/services/tests/test_binance_executor_p0_risk_containment_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ tradeproj/services/tests/test_binance_executor_p0_risk_containment_v1.py	2026-03-16 05:38:13.127409075 +0000
+@@ -0,0 +1,71 @@
++from __future__ import annotations
++
++import json
++from pathlib import Path
++import importlib.util
++import sys
++ROOT = Path(__file__).resolve().parents[2]
++if str(ROOT) not in sys.path:
++    sys.path.insert(0, str(ROOT))
++import pytest
++
++mod_path = Path(__file__).parent.parent / 'binance_executor.py'
++spec = importlib.util.spec_from_file_location('binance_executor_p0_risk_containment', mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++class FakeRedis:
++    def __init__(self):
++        self.stream = []
++
++    def xadd(self, key, fields, maxlen=None, approximate=True):
++        self.stream.append((key, dict(fields)))
++
++
++def _mk_exec():
++    ex = mod.BinanceExecutor.__new__(mod.BinanceExecutor)
++    ex.exec_disable_modify_on_binance = True
++    ex.exec_disable_resize_on_binance = True
++    ex.exec_blocked_action_reason = 'operator_risk_hold'
++    ex.exec_blocked_action_state_write = True
++    ex.r = FakeRedis()
++    ex.exec_stream = 'orders:exec'
++    ex.allowlist = set()
++    ex.saved = []
++    ex.acked = []
++    ex._save_order_state = lambda sid, state: ex.saved.append((sid, dict(state)))
++    ex._exec_event = lambda event: ex.r.xadd(ex.exec_stream, event)
++    ex._ack_processing = lambda raw: ex.acked.append(raw)
++    return ex
++
++
++def test_handle_modify_blocked_by_feature_flag_before_client_resolution():
++    ex = _mk_exec()
++    with pytest.raises(mod.ExecutionActionBlockedError) as ei:
++        ex.handle_modify({'sid': 'sid-1', 'symbol': 'BTCUSDT'})
++    assert ei.value.details['action'] == 'modify'
++    assert ei.value.details['status'] == 'blocked'
++    assert ex.saved[0][1]['last_blocked_action'] == 'modify'
++
++
++def test_handle_resize_blocked_by_feature_flag_before_client_resolution():
++    ex = _mk_exec()
++    with pytest.raises(mod.ExecutionActionBlockedError) as ei:
++        ex.handle_resize({'sid': 'sid-2', 'symbol': 'ETHUSDT'})
++    assert ei.value.details['action'] == 'resize'
++    assert ex.saved[0][1]['last_blocked_action'] == 'resize'
++
++
++def test_process_one_acknowledges_blocked_modify_without_dlq():
++    ex = _mk_exec()
++    raw = json.dumps({'action': 'modify', 'sid': 'sid-3', 'symbol': 'BTCUSDT'})
++    ex.process_one(raw)
++    assert ex.acked == [raw]
++    assert ex.r.stream
++    key, event = ex.r.stream[-1]
++    assert key == 'orders:exec'
++    assert event['status'] == 'blocked'
++    assert event['action'] == 'modify'
+--- tradeproj_orig/services/tests/test_binance_protection_auditor_p0_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ tradeproj/services/tests/test_binance_protection_auditor_p0_v1.py	2026-03-16 05:38:13.128085558 +0000
+@@ -0,0 +1,109 @@
++from __future__ import annotations
++
++from pathlib import Path
++import importlib.util
++import sys
++ROOT = Path(__file__).resolve().parents[2]
++if str(ROOT) not in sys.path:
++    sys.path.insert(0, str(ROOT))
++
++mod_path = Path(__file__).parent.parent / 'binance_protection_auditor.py'
++spec = importlib.util.spec_from_file_location('binance_protection_auditor_p0', mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++class FakeRedis:
++    def __init__(self):
++        self.kv = {}
++        self.stream = []
++
++    def get(self, key):
++        return self.kv.get(key)
++
++    def set(self, key, value, ex=None):
++        self.kv[key] = value
++
++    def xadd(self, key, fields):
++        self.stream.append((key, dict(fields)))
++
++
++class DummyClient:
++    def __init__(self, positions=None, algos=None):
++        self._positions = list(positions or [])
++        self._algos = list(algos or [])
++        self.cancel_all_calls = []
++        self.post_plain_calls = []
++        self.cancel_algo_calls = []
++
++    def get_position_risk(self):
++        return list(self._positions)
++
++    def get_open_algo_orders(self):
++        return list(self._algos)
++
++    def cancel_all_orders(self, symbol):
++        self.cancel_all_calls.append(symbol)
++        return {'ok': True}
++
++    def post_plain_order(self, params):
++        self.post_plain_calls.append(dict(params))
++        return {'orderId': 991, 'clientOrderId': params.get('newClientOrderId')}
++
++    def cancel_algo_order(self, symbol, algo_id=None, client_algo_id=None):
++        self.cancel_algo_calls.append((symbol, algo_id, client_algo_id))
++        return {'ok': True}
++
++
++class DummyTelegram:
++    def __init__(self):
++        self.msgs = []
++
++    def send_text(self, text):
++        self.msgs.append(text)
++
++
++def test_scan_once_detects_naked_position_and_orphan_algos(monkeypatch):
++    monkeypatch.setenv('BINANCE_PROTECTION_AUDITOR_MODE', 'alert')
++    auditor = mod.BinanceProtectionAuditor(
++        redis_client=FakeRedis(),
++        prod_client=DummyClient(
++            positions=[{'symbol': 'BTCUSDT', 'positionAmt': '0.5'}],
++            algos=[{'symbol': 'ETHUSDT', 'algoId': 10, 'clientAlgoId': 'sig-abcd1234-tp1', 'type': 'TAKE_PROFIT_MARKET'}],
++        ),
++        telegram_client=DummyTelegram(),
++    )
++    findings = auditor.scan_once()
++    names = {(f['symbol'], f['finding']) for f in findings}
++    assert ('BTCUSDT', 'position_without_sl') in names
++    assert ('BTCUSDT', 'position_without_any_tp') in names
++    assert ('BTCUSDT', 'position_without_any_protection') in names
++    assert ('ETHUSDT', 'orphan_algo_without_position') in names
++
++
++def test_run_once_flatten_mode_closes_position_without_any_protection(monkeypatch):
++    monkeypatch.setenv('BINANCE_PROTECTION_AUDITOR_MODE', 'flatten')
++    client = DummyClient(positions=[{'symbol': 'BTCUSDT', 'positionAmt': '0.25'}], algos=[])
++    tg = DummyTelegram()
++    auditor = mod.BinanceProtectionAuditor(redis_client=FakeRedis(), prod_client=client, telegram_client=tg)
++    out = auditor.run_once()
++    assert client.cancel_all_calls == ['BTCUSDT', 'BTCUSDT'] or client.cancel_all_calls == ['BTCUSDT']
++    assert client.post_plain_calls
++    params = client.post_plain_calls[0]
++    assert params['symbol'] == 'BTCUSDT'
++    assert params['side'] == 'SELL'
++    flattened = [row for row in out if row['symbol'] == 'BTCUSDT' and row['finding'] in {'position_without_sl', 'position_without_any_protection'}]
++    assert any(row.get('status') == 'flattened' for row in flattened)
++
++
++def test_run_once_can_cancel_orphan_algos_when_enabled(monkeypatch):
++    monkeypatch.setenv('BINANCE_PROTECTION_AUDITOR_MODE', 'flatten')
++    monkeypatch.setenv('BINANCE_PROTECTION_AUDITOR_CANCEL_ORPHAN_ALGOS', '1')
++    client = DummyClient(positions=[], algos=[{'symbol': 'SOLUSDT', 'algoId': 55, 'clientAlgoId': 'sig-abcd1234-sl', 'type': 'STOP_MARKET'}])
++    auditor = mod.BinanceProtectionAuditor(redis_client=FakeRedis(), prod_client=client, telegram_client=DummyTelegram())
++    out = auditor.run_once()
++    assert client.cancel_algo_calls == [('SOLUSDT', 55, None)]
++    orphan = [row for row in out if row['symbol'] == 'SOLUSDT' and row['finding'] == 'orphan_algo_without_position']
++    assert orphan and orphan[0]['canceled_orphan_algos'] == 1
+--- tradeproj_orig/services/prometheus_alerts_binance_protection_auditor_p0.yml	1970-01-01 00:00:00.000000000 +0000
++++ tradeproj/services/prometheus_alerts_binance_protection_auditor_p0.yml	2026-03-16 05:37:48.470299375 +0000
+@@ -0,0 +1,32 @@
++groups:
++  - name: binance-protection-auditor-p0
++    rules:
++      - alert: BinancePositionWithoutStop
++        expr: sum by (venue, symbol) (execution_protection_audit_open_findings{finding="position_without_sl"}) > 0
++        for: 10s
++        labels:
++          severity: critical
++          team: trade
++        annotations:
++          summary: "Binance position without stop protection"
++          description: "Protection auditor sees an open Binance position with no SL algo order for venue={{ $labels.venue }} symbol={{ $labels.symbol }}."
++
++      - alert: BinancePositionWithoutAnyProtection
++        expr: sum by (venue, symbol) (execution_protection_audit_open_findings{finding="position_without_any_protection"}) > 0
++        for: 5s
++        labels:
++          severity: critical
++          team: trade
++        annotations:
++          summary: "Binance position is completely naked"
++          description: "No SL/TP/trailing protection is visible on the exchange for venue={{ $labels.venue }} symbol={{ $labels.symbol }}."
++
++      - alert: BinanceProtectionAuditorNotRunning
++        expr: time() - execution_protection_audit_last_run_ts > 30
++        for: 1m
++        labels:
++          severity: warning
++          team: trade
++        annotations:
++          summary: "Binance protection auditor stale"
++          description: "The external Binance protection auditor has not completed a scan for more than 30 seconds."

@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/common.py
+# hypothesis_version: 6.148.10
+
+['__array__', '__name__', 'all', 'any', 'cumprod', 'cumsum', 'ignore', 'max', 'mean', 'median', 'min', 'np.maximum.reduce', 'np.minimum.reduce', 'np.sum', 'prod', 'std', 'sum', 'var']

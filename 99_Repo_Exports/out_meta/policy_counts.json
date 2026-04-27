@@ -1,0 +1,9 @@
+{
+  "dq_policy_feature_manifest_hash_counts": {
+    "dummy_man_hash_1": 2
+  },
+  "dq_policy_hash_counts": {
+    "dummy_hash_1": 2
+  },
+  "records_seen": 2
+}

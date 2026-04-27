@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/matplotlib/axes/_secondary_axes.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-10, 0.0001, 0.5, 1.0, 'bottom', 'function', 'functionlog', 'left', 'log', 'none', 'right', 'top', 'x', 'y']

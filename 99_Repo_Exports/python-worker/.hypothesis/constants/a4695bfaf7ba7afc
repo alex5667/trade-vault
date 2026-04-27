@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/champion_cfg_validator.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 'CANARY', 'ENFORCE', 'SHADOW', 'calibrator_path', 'checksum', 'created_ms', 'defaulted_fields', 'enforce_share', 'feature_version', 'kind', 'max_data_ts_ms', 'min_data_ts_ms', 'mode', 'model_path', 'model_type', 'run_id', 'schema_version']

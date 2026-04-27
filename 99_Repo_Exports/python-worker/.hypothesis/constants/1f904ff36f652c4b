@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/entry_policy_freeze.py
+# hypothesis_version: 6.148.10
+
+[',', ':', 'DATA_BAD', 'EntryPolicyFreezeV1', 'bad_json', 'bad_mode', 'bad_scenario', 'bad_until', 'bad_ver', 'cb_v1', 'continuation', 'created_ts_ms', 'default', 'group', 'hard', 'metrics', 'mode', 'no_symbol', 'not_dict', 'notes', 'promoted_reason', 'promoted_ts_ms', 'reason_code', 'reversal', 'scenario', 'shadow', 'src', 'symbol', 'until_ts_ms', 'ver']

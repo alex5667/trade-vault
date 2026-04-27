@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/legacy_emit_pipeline.py
+# hypothesis_version: 6.148.10
+
+['candidate', 'cost_edge_gate', 'ctx_enrich_failed', 'emit_failed', 'entry_policy', 'ev_gate', 'kind_key', 'kind_str', 'min_conf', 'min_conf_factor', 'payload_build_failed', 'regime_gate', 'side_int', 'side_raw']

@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: "trade-dashboards"
+    orgId: 1
+    folder: "Trade"
+    type: file
+    disableDeletion: true
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards

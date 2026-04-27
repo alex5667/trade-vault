@@ -1,0 +1,29 @@
+groups:
+  - name: exec_health_freeze_reconnect_nightly_v1
+    rules:
+      - alert: OF_ExecHealth_ReconnectNightly_Failed_Crit
+        expr: exec_health_freeze_reconnect_smoke_last_run_ok == 0
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ExecHealth nightly reconnect chaos smoke failed"
+          description: "Last reconnect chaos smoke run reported failure. Check latest JSON report and systemd logs."
+
+      - alert: OF_ExecHealth_ReconnectNightly_Stale_Warn
+        expr: (time() * 1000 - exec_health_freeze_reconnect_smoke_last_success_ts_ms) > 36 * 3600 * 1000
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "ExecHealth nightly reconnect chaos smoke is stale"
+          description: "No successful reconnect chaos smoke run has been observed within the last 36 hours."
+
+      - alert: OF_ExecHealth_ReconnectNightly_RolloutGate_Crit
+        expr: exec_health_freeze_reconnect_rollout_gate_active == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ExecHealth rollout/apply gate is latched ACTIVE"
+          description: "Nightly reconnect smoke failed and latched the rollout gate. Manual ACL apply and thaws are BLOCKED. Check runbook for manual ack."

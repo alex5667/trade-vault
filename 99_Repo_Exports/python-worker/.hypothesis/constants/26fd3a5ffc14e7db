@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/entry_policy_core.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.65, 1.0, 1.5, 10.0, 15.0, 60000, 'ALLOW', 'ALLOW_SHADOW_QUALITY', 'BUNDLE_FAIL', 'DEDUP', 'DENY_SLIPPAGE', 'EXTRA_CONFIRM_FAIL', 'LONG', 'MID', 'NA', 'NONE', 'OF_FAIL', 'RES', 'SHORT', 'SUP', 'ZONE_FAIL', 'ZONE_SIDE_MISMATCH', 'abs_lvl_th_unstable', 'bundle_ok', 'coh', 'continuation', 'decision', 'iceberg_strict', 'illiquid', 'inside_zone', 'leader_conf_score', 'micro', 'na', 'news', 'news_blocked', 'news_until_ts_ms', 'no_bundle_state', 'none', 'obi_stable_sec', 'of_confirm_score', 'of_dir', 'of_ok', 'of_strong', 'of_strong=0', 'pick', 'regime', 'reversal', 'shadow_only', 'side', 'slippage_shadow_only', 'symbol', 'thin', 'zone_dist_bp', 'zone_id', 'zone_id_changed', 'zone_ok', 'zone_side']

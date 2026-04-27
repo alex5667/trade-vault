@@ -1,0 +1,22 @@
+groups:
+  - name: exec_health_freeze_hook_v1
+    rules:
+      - alert: OF_ExecHealth_FreezeHook_Blocks_Warn
+        expr: increase(exec_health_freeze_hook_block_total[15m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+          team: trade
+        annotations:
+          summary: "ExecHealth hard consumer hook is blocking publish/entry"
+          description: "Auto-freeze hard hook blocked at least one publish/entry attempt in the last 15 minutes. Check autoguard state and rollout drift before unfreezing."
+
+      - alert: OF_ExecHealth_FreezeHook_ReaderErrors_Warn
+        expr: increase(exec_health_freeze_hook_reader_errors_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          team: trade
+        annotations:
+          summary: "ExecHealth freeze hook cannot read Redis key reliably"
+          description: "Hard freeze hook is fail-open, but reader errors mean active freeze may not be enforced consistently."

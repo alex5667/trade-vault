@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/stream_worker.py
+# hypothesis_version: 6.148.10
+
+[0.0, 100, 200, 2000, 3600, 5000, 50000, 60000, '$', '0', '0-0', '>', 'BUSYGROUP', 'DLQ write failed: %s', 'NOGROUP', 'Worker %s stopped', '[%s] loop error: %s', '[%s] redis error: %s', 'attempts', 'batch', 'consumer', 'data', 'dlq:stream_worker', 'error', 'group', 'lossless', 'max_attempts', 'msg_id', 'ok', 'realtime', 'reason', 'stream', 'streams', 'ts', 'worker']

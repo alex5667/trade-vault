@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/book_microstructure_v2.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 1.0, 'ask', 'asks', 'bid', 'bids', 'depth_top5_sum', 'ofi_ml', 'ofi_ml_norm', 'ofi_ml_wsum', 'price', 'px', 'q', 'qimb_wmean', 'qty', 'size']

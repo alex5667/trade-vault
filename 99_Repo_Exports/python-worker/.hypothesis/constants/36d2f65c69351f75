@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/mpl_toolkits/mplot3d/art3d.py
+# hypothesis_version: 6.148.10
+
+[0.7, 72.0, 1000000000.0, 180, 360, '-', '-x', '-y', '_edgecolors2d', '_facecolors2d', 'average', 'face', 'max', 'min', 'x', 'y', 'z']

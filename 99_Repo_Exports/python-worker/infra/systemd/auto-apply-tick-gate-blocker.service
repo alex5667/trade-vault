@@ -1,0 +1,15 @@
+[Unit]
+Description=Auto-apply blocker driven by tick-quality gate (Redis keys + metrics)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+EnvironmentFile=-/etc/default/auto-apply-tick-gate-blocker
+ExecStart=/usr/bin/python3 -m tools.auto_apply_tick_gate_blocker
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

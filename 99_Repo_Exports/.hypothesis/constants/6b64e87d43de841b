@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/enricher_sync.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1000, 1500, 'GLOBAL', 'asof_ts_ms', 'confidence', 'data_quality_flags', 'event_grade_id', 'event_ts_ms', 'forex', 'fx', 'horizon_sec', 'news:analysis:', 'news_grade_id', 'next_ts_ms', 'primary_tag_id', 'ref', 'risk_ema', 'surprise_ema', 'symbol', 'tags_mask']

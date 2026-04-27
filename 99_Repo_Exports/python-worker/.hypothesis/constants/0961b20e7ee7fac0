@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/metrics/health_tracker.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.95, 60.0, 100, 120, 'avg', 'error_count', 'error_rate', 'l2_freshness_ms', 'max', 'min', 'p50', 'p95', 'symbol', 'tick_latency_ms', 'timestamp', 'total_ticks']

@@ -1,0 +1,35 @@
+groups:
+  - name: minik-advanced-alerts
+    rules:
+      - alert: MinikExchangeLatencySpike
+        expr: histogram_quantile(0.95, rate(probe_http_duration_seconds_bucket{job="blackbox", target="https://fapi.binance.com"}[5m])) > 0.5
+        labels:
+          severity: warning
+        annotations:
+          summary: "95p задержки до Binance API превышает 500мс"
+          description: "Возможны проблемы у провайдера или загружен DNS."
+
+      # Flapping: порог поднят до >15 за 15мин (ранее >5).
+      # При make up перезапускаются 100+ контейнеров за <1мин — это штатное поведение,
+      # а не OOM/crash-loop. for: 5m дополнительно debounce-ит одноразовые рестарты.
+      - alert: MinikDockerContainerFlapping
+        expr: changes(engine_daemon_container_states_containers{state="running"}[15m]) > 15
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Контейнеры флапают на {{ $labels.instance }}"
+          description: |
+            Кол-во изменений состояния running-контейнеров > 12 за 3 мин (устойчиво более 5 мин).
+            Всплески от make up отфильтрованы, так как длятся < 5 мин.
+            Возможен OOM, crash-loop или синтаксическая ошибка.
+            docker events --filter event=die --filter event=oom --since 30m
+
+      - alert: MinikDnsResolutionSlow
+        expr: probe_dns_lookup_time_seconds > 0.15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Медленный резолв DNS"
+          description: "Резолв адреса стабильно занимает более 150мс на протяжении 5 минут. Сигналы могут опаздывать."

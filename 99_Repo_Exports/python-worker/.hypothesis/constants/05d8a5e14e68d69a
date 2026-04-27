@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/quantile_p2.py
+# hypothesis_version: 6.148.10
+
+[-1.0, 0.0, 0.5, 1.0, 2.0, 4.0, 'P2Quantile', 'count', 'dn', 'init', 'n', 'np', 'p', 'q']

@@ -1,0 +1,30 @@
+groups:
+  - name: ml_phase3_40_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_controller_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyControllerStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_controller_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance apply-controller is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyControllerErrors
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_controller_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance apply-controller has errors"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyControllerVertex
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_controller_runs_total{decision="APPLY_PRIMARY_ARM_SHADOW"}[30m]) > 0
+        for: 5m
+        labels: { severity: info }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance apply-controller recommends shadow-primary apply"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyControllerSingleArm
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_controller_runs_total{decision="APPLY_SINGLE_ARM"}[30m]) > 0
+        for: 5m
+        labels: { severity: info }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance apply-controller recommends single-arm apply"

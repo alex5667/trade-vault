@@ -1,0 +1,956 @@
+services:
+  go-worker-1m:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile
+    container_name: scanner-go-worker-1m
+    environment:
+    - REDIS_HOST=redis-worker-1
+    - REDIS_PORT=6379
+    - REDIS_DB=0
+    - REDIS_POOL_SIZE=500
+    - REDIS_MIN_IDLE_CONNS=15
+    - REDIS_MAX_RETRIES=5
+    - REDIS_RETRY_MIN_BACKOFF=100ms
+    - REDIS_RETRY_MAX_BACKOFF=3s
+    - REDIS_DIAL_TIMEOUT=10s
+    - REDIS_READ_TIMEOUT=30s
+    - REDIS_WRITE_TIMEOUT=30s
+    - REDIS_POOL_TIMEOUT=10s
+    - BINANCE_WS_TIMEFRAME=kline_1m
+    - REDIS_CANDLES_HOST=redis-worker-1
+    - REDIS_CANDLES_PORT=6379
+    - REDIS_CANDLES_HOST_2=redis-worker-2
+    - REDIS_CANDLES_PORT_2=6379
+    - REDIS_TICKS_HOST=redis-ticks
+    - REDIS_TICKS_PORT=6379
+    - PROMETHEUS_PORT=2112
+    - BINANCE_MAX_PAIRS_TO_FETCH=300
+    - ENABLE_BINANCE_TOP_SYMBOLS=false
+    - REQUIRED_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,1000PEPEUSDT,DOGEUSDT,1000SHIBUSDT,1000FLOKIUSDT,1000BONKUSDT,WIFUSDT,SUIUSDT,APTUSDT,ARBUSDT,XAUUSDT
+    - BINANCE_MIN_SYMBOLS_REQUIRED=15
+    - BINANCE_MAX_PAIRS_TO_ADD=300
+    - BINANCE_MIN_TRADES_24H=1000
+    - USE_UNIFIED_PIPELINE=safe
+    - REDIS_WORKER_HOST=redis-worker-1
+    - REDIS_WORKER_PORT=6379
+    - FUTURES_WS_ENABLED=true
+    - HYPERLIQUID_WS_ENABLED=${HYPERLIQUID_WS_ENABLED:-false}
+    - HYPERLIQUID_COINS=${HYPERLIQUID_COINS:-BTC,ETH}
+    - HYPERLIQUID_WS_READ_TIMEOUT=90s
+    - HYPERLIQUID_WS_PING_PERIOD=20s
+    - HYPERLIQUID_WS_WRITE_WAIT=5s
+    - HYPERLIQUID_WS_MSG_CHAN_CAP=5000
+    - ENABLE_DATA_COLLECTION=true
+    - BYBIT_DATA_COLLECTION_ENABLED=false
+    - BYBIT_FUTURES_WS_ENABLED=false
+    - BYBIT_WS_PING_PERIOD=20s
+    - BYBIT_WS_READ_TIMEOUT=90s
+    - BYBIT_WS_HANDSHAKE_TIMEOUT=45s
+    - BYBIT_WS_DIAL_TIMEOUT=30s
+    - BYBIT_WS_TCP_KEEPALIVE=60s
+    - BYBIT_WS_WRITE_WAIT=5s
+    - BYBIT_FUNDING_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,1000PEPEUSDT,DOGEUSDT,1000SHIBUSDT,1000FLOKIUSDT,1000BONKUSDT,WIFUSDT,SUIUSDT,APTUSDT,ARBUSDT,XAUUSDT
+    - FUTURES_SYMBOLS=BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT,1000PEPEUSDT,DOGEUSDT,1000SHIBUSDT,1000FLOKIUSDT,1000BONKUSDT,WIFUSDT,SUIUSDT,APTUSDT,ARBUSDT,XAUUSDT
+    - REST_CANDLE_TIMEOUT=60s
+    - API_CLIENT_TIMEOUT=30s
+    - WS_HANDSHAKE_TIMEOUT=45s
+    - WS_DIAL_TIMEOUT=30s
+    - WS_TCP_KEEPALIVE=15s
+    - FUTURES_WS_READ_TIMEOUT=300s
+    - FUTURES_WS_PING_PERIOD=10s
+    - FUTURES_WS_WRITE_WAIT=10s
+    - LIQ_WS_ENABLED=true
+    - LIQ_SOURCES=binance
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    networks:
+    - scanner-network
+    restart: unless-stopped
+    command:
+    - sh
+    - -c
+    - "echo \"\u23F3 \u041E\u0436\u0438\u0434\u0430\u043D\u0438\u0435 Redis (\u0443\u0432\u0435\u043B\u0438\u0447\u0435\u043D\
+      \u043D\u043E\u0435 \u0432\u0440\u0435\u043C\u044F)...\"\nsleep 5\necho \"\U0001F680 \u0417\u0430\u043F\u0443\u0441\u043A\
+      \ go-worker-1m...\"\n./main\n"
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G
+          cpus: '1.5'
+        reservations:
+          memory: 384M
+    dns:
+    - 8.8.8.8
+    - 8.8.4.4
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+    - ./logs:/app/logs
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:2112/metrics
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+  go-worker-5m:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile
+    container_name: scanner-go-worker-5m
+    environment:
+    - REDIS_HOST=redis-worker-2
+    - REDIS_PORT=6379
+    - REDIS_DB=0
+    - REDIS_POOL_SIZE=500
+    - REDIS_MIN_IDLE_CONNS=15
+    - REDIS_MAX_RETRIES=5
+    - REDIS_RETRY_MIN_BACKOFF=100ms
+    - REDIS_RETRY_MAX_BACKOFF=3s
+    - REDIS_DIAL_TIMEOUT=10s
+    - REDIS_READ_TIMEOUT=30s
+    - REDIS_WRITE_TIMEOUT=30s
+    - REDIS_POOL_TIMEOUT=10s
+    - BINANCE_WS_TIMEFRAME=kline_5m
+    - REDIS_CANDLES_HOST=redis-worker-1
+    - REDIS_CANDLES_PORT=6379
+    - REDIS_CANDLES_HOST_2=redis-worker-2
+    - REDIS_CANDLES_PORT_2=6379
+    - REDIS_TICKS_HOST=redis-ticks
+    - REDIS_TICKS_PORT=6379
+    - PROMETHEUS_PORT=2113
+    - FUTURES_WS_READ_TIMEOUT=300s
+    - FUTURES_WS_PING_PERIOD=20s
+    - FUTURES_WS_WRITE_WAIT=10s
+    - BINANCE_MAX_PAIRS_TO_FETCH=300
+    - ENABLE_BINANCE_TOP_SYMBOLS=false
+    - REQUIRED_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,1000PEPEUSDT,DOGEUSDT,1000SHIBUSDT,1000FLOKIUSDT,1000BONKUSDT,WIFUSDT,SUIUSDT,APTUSDT,ARBUSDT,XAUUSDT
+    - BINANCE_MIN_SYMBOLS_REQUIRED=15
+    - BINANCE_MAX_PAIRS_TO_ADD=300
+    - BINANCE_MIN_TRADES_24H=1000
+    - USE_UNIFIED_PIPELINE=safe
+    - REDIS_WORKER_HOST=redis-worker-1
+    - REDIS_WORKER_PORT=6379
+    - FUTURES_WS_ENABLED=false
+    - HYPERLIQUID_WS_ENABLED=${HYPERLIQUID_WS_ENABLED:-false}
+    - HYPERLIQUID_WS_READ_TIMEOUT=90s
+    - HYPERLIQUID_WS_PING_PERIOD=20s
+    - HYPERLIQUID_WS_WRITE_WAIT=5s
+    - HYPERLIQUID_WS_MSG_CHAN_CAP=5000
+    - ENABLE_DATA_COLLECTION=false
+    - REST_CANDLE_TIMEOUT=60s
+    - API_CLIENT_TIMEOUT=30s
+    - WS_HANDSHAKE_TIMEOUT=45s
+    - WS_DIAL_TIMEOUT=30s
+    - WS_TCP_KEEPALIVE=60s
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    networks:
+    - scanner-network
+    restart: unless-stopped
+    command:
+    - sh
+    - -c
+    - sleep 15 && ./main
+    deploy:
+      resources:
+        limits:
+          memory: 1.2G
+          cpus: '1.0'
+        reservations:
+          memory: 320M
+    dns:
+    - 8.8.8.8
+    - 8.8.4.4
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+    - ./logs:/app/logs
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:2113/metrics
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+  go-worker-15m:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile
+    container_name: scanner-go-worker-15m
+    environment:
+    - REDIS_HOST=redis-worker-1
+    - REDIS_PORT=6379
+    - REDIS_DB=0
+    - REDIS_POOL_SIZE=500
+    - REDIS_MIN_IDLE_CONNS=15
+    - REDIS_MAX_RETRIES=5
+    - REDIS_RETRY_MIN_BACKOFF=100ms
+    - REDIS_RETRY_MAX_BACKOFF=3s
+    - REDIS_DIAL_TIMEOUT=10s
+    - REDIS_READ_TIMEOUT=30s
+    - REDIS_WRITE_TIMEOUT=30s
+    - REDIS_POOL_TIMEOUT=10s
+    - BINANCE_WS_TIMEFRAME=kline_15m
+    - REDIS_CANDLES_HOST=redis-worker-1
+    - REDIS_CANDLES_PORT=6379
+    - REDIS_CANDLES_HOST_2=redis-worker-2
+    - REDIS_CANDLES_PORT_2=6379
+    - REDIS_TICKS_HOST=redis-ticks
+    - REDIS_TICKS_PORT=6379
+    - PROMETHEUS_PORT=2114
+    - FUTURES_WS_READ_TIMEOUT=300s
+    - FUTURES_WS_PING_PERIOD=20s
+    - FUTURES_WS_WRITE_WAIT=10s
+    - BINANCE_MAX_PAIRS_TO_FETCH=300
+    - ENABLE_BINANCE_TOP_SYMBOLS=false
+    - REQUIRED_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,1000PEPEUSDT,DOGEUSDT,1000SHIBUSDT,1000FLOKIUSDT,1000BONKUSDT,WIFUSDT,SUIUSDT,APTUSDT,ARBUSDT,XAUUSDT
+    - BINANCE_MIN_SYMBOLS_REQUIRED=15
+    - BINANCE_MAX_PAIRS_TO_ADD=300
+    - BINANCE_MIN_TRADES_24H=1000
+    - USE_UNIFIED_PIPELINE=safe
+    - REDIS_WORKER_HOST=redis-worker-1
+    - REDIS_WORKER_PORT=6379
+    - FUTURES_WS_ENABLED=false
+    - HYPERLIQUID_WS_ENABLED=${HYPERLIQUID_WS_ENABLED:-false}
+    - HYPERLIQUID_WS_READ_TIMEOUT=90s
+    - HYPERLIQUID_WS_PING_PERIOD=20s
+    - HYPERLIQUID_WS_WRITE_WAIT=5s
+    - HYPERLIQUID_WS_MSG_CHAN_CAP=5000
+    - ENABLE_DATA_COLLECTION=false
+    - REST_CANDLE_TIMEOUT=60s
+    - API_CLIENT_TIMEOUT=30s
+    - WS_HANDSHAKE_TIMEOUT=45s
+    - WS_DIAL_TIMEOUT=30s
+    - WS_TCP_KEEPALIVE=60s
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    networks:
+    - scanner-network
+    restart: unless-stopped
+    command:
+    - sh
+    - -c
+    - sleep 25 && ./main
+    deploy:
+      resources:
+        limits:
+          memory: 1.0G
+          cpus: '0.8'
+        reservations:
+          memory: 256M
+    dns:
+    - 8.8.8.8
+    - 8.8.4.4
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+    - ./logs:/app/logs
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:2114/metrics
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 270s
+  go-worker-1h:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile
+    container_name: scanner-go-worker-1h
+    environment:
+    - REDIS_HOST=redis-worker-2
+    - REDIS_PORT=6379
+    - REDIS_DB=0
+    - REDIS_POOL_SIZE=500
+    - REDIS_MIN_IDLE_CONNS=15
+    - REDIS_MAX_RETRIES=5
+    - REDIS_RETRY_MIN_BACKOFF=100ms
+    - REDIS_RETRY_MAX_BACKOFF=3s
+    - REDIS_DIAL_TIMEOUT=10s
+    - REDIS_READ_TIMEOUT=30s
+    - REDIS_WRITE_TIMEOUT=30s
+    - REDIS_POOL_TIMEOUT=10s
+    - BINANCE_WS_TIMEFRAME=kline_1h
+    - REDIS_CANDLES_HOST=redis-worker-1
+    - REDIS_CANDLES_PORT=6379
+    - REDIS_CANDLES_HOST_2=redis-worker-2
+    - REDIS_CANDLES_PORT_2=6379
+    - REDIS_TICKS_HOST=redis-ticks
+    - REDIS_TICKS_PORT=6379
+    - PROMETHEUS_PORT=2115
+    - FUTURES_WS_READ_TIMEOUT=300s
+    - FUTURES_WS_PING_PERIOD=20s
+    - FUTURES_WS_WRITE_WAIT=10s
+    - BINANCE_MAX_PAIRS_TO_FETCH=300
+    - ENABLE_BINANCE_TOP_SYMBOLS=false
+    - REQUIRED_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,1000PEPEUSDT,DOGEUSDT,1000SHIBUSDT,1000FLOKIUSDT,1000BONKUSDT,WIFUSDT,SUIUSDT,APTUSDT,ARBUSDT,XAUUSDT
+    - BINANCE_MIN_SYMBOLS_REQUIRED=15
+    - BINANCE_MAX_PAIRS_TO_ADD=300
+    - BINANCE_MIN_TRADES_24H=1000
+    - USE_UNIFIED_PIPELINE=safe
+    - REDIS_WORKER_HOST=redis-worker-1
+    - REDIS_WORKER_PORT=6379
+    - FUTURES_WS_ENABLED=false
+    - HYPERLIQUID_WS_ENABLED=${HYPERLIQUID_WS_ENABLED:-false}
+    - HYPERLIQUID_WS_READ_TIMEOUT=90s
+    - HYPERLIQUID_WS_PING_PERIOD=20s
+    - HYPERLIQUID_WS_WRITE_WAIT=5s
+    - HYPERLIQUID_WS_MSG_CHAN_CAP=5000
+    - ENABLE_DATA_COLLECTION=false
+    - REST_CANDLE_TIMEOUT=60s
+    - API_CLIENT_TIMEOUT=30s
+    - WS_HANDSHAKE_TIMEOUT=45s
+    - WS_DIAL_TIMEOUT=30s
+    - WS_TCP_KEEPALIVE=60s
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    networks:
+    - scanner-network
+    restart: unless-stopped
+    command:
+    - sh
+    - -c
+    - sleep 35 && ./main
+    deploy:
+      resources:
+        limits:
+          memory: 800M
+          cpus: '0.6'
+        reservations:
+          memory: 256M
+    dns:
+    - 8.8.8.8
+    - 8.8.4.4
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+    - ./logs:/app/logs
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:2115/metrics
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 360s
+  go-worker-4h:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile
+    container_name: scanner-go-worker-4h
+    environment:
+    - REDIS_HOST=redis-worker-1
+    - REDIS_PORT=6379
+    - REDIS_DB=0
+    - REDIS_POOL_SIZE=500
+    - REDIS_MIN_IDLE_CONNS=15
+    - REDIS_MAX_RETRIES=5
+    - REDIS_RETRY_MIN_BACKOFF=100ms
+    - REDIS_RETRY_MAX_BACKOFF=3s
+    - REDIS_DIAL_TIMEOUT=10s
+    - REDIS_READ_TIMEOUT=30s
+    - REDIS_WRITE_TIMEOUT=30s
+    - REDIS_POOL_TIMEOUT=10s
+    - BINANCE_WS_TIMEFRAME=kline_4h
+    - REDIS_CANDLES_HOST=redis-worker-1
+    - REDIS_CANDLES_PORT=6379
+    - REDIS_CANDLES_HOST_2=redis-worker-2
+    - REDIS_CANDLES_PORT_2=6379
+    - REDIS_TICKS_HOST=redis-ticks
+    - REDIS_TICKS_PORT=6379
+    - PROMETHEUS_PORT=2116
+    - FUTURES_WS_READ_TIMEOUT=300s
+    - FUTURES_WS_PING_PERIOD=20s
+    - FUTURES_WS_WRITE_WAIT=10s
+    - BINANCE_MAX_PAIRS_TO_FETCH=300
+    - ENABLE_BINANCE_TOP_SYMBOLS=false
+    - REQUIRED_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,1000PEPEUSDT,DOGEUSDT,1000SHIBUSDT,1000FLOKIUSDT,1000BONKUSDT,WIFUSDT,SUIUSDT,APTUSDT,ARBUSDT,XAUUSDT
+    - BINANCE_MIN_SYMBOLS_REQUIRED=15
+    - BINANCE_MAX_PAIRS_TO_ADD=300
+    - BINANCE_MIN_TRADES_24H=1000
+    - USE_UNIFIED_PIPELINE=safe
+    - REDIS_WORKER_HOST=redis-worker-1
+    - REDIS_WORKER_PORT=6379
+    - FUTURES_WS_ENABLED=false
+    - HYPERLIQUID_WS_ENABLED=${HYPERLIQUID_WS_ENABLED:-false}
+    - HYPERLIQUID_WS_READ_TIMEOUT=90s
+    - HYPERLIQUID_WS_PING_PERIOD=20s
+    - HYPERLIQUID_WS_WRITE_WAIT=5s
+    - HYPERLIQUID_WS_MSG_CHAN_CAP=5000
+    - ENABLE_DATA_COLLECTION=false
+    - REST_CANDLE_TIMEOUT=60s
+    - API_CLIENT_TIMEOUT=30s
+    - WS_HANDSHAKE_TIMEOUT=45s
+    - WS_DIAL_TIMEOUT=30s
+    - WS_TCP_KEEPALIVE=60s
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    networks:
+    - scanner-network
+    restart: unless-stopped
+    command:
+    - sh
+    - -c
+    - sleep 45 && ./main
+    deploy:
+      resources:
+        limits:
+          memory: 700M
+          cpus: '0.5'
+        reservations:
+          memory: 192M
+    dns:
+    - 8.8.8.8
+    - 8.8.4.4
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+    - ./logs:/app/logs
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:2116/metrics
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 450s
+  go-worker-1d:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile
+    container_name: scanner-go-worker-1d
+    environment:
+    - REDIS_HOST=redis-worker-2
+    - REDIS_PORT=6379
+    - REDIS_DB=0
+    - REDIS_POOL_SIZE=500
+    - REDIS_MIN_IDLE_CONNS=15
+    - REDIS_MAX_RETRIES=5
+    - REDIS_RETRY_MIN_BACKOFF=100ms
+    - REDIS_RETRY_MAX_BACKOFF=3s
+    - REDIS_DIAL_TIMEOUT=10s
+    - REDIS_READ_TIMEOUT=30s
+    - REDIS_WRITE_TIMEOUT=30s
+    - REDIS_POOL_TIMEOUT=10s
+    - BINANCE_WS_TIMEFRAME=kline_1d
+    - REDIS_CANDLES_HOST=redis-worker-1
+    - REDIS_CANDLES_PORT=6379
+    - REDIS_CANDLES_HOST_2=redis-worker-2
+    - REDIS_CANDLES_PORT_2=6379
+    - REDIS_TICKS_HOST=redis-ticks
+    - REDIS_TICKS_PORT=6379
+    - PROMETHEUS_PORT=2117
+    - FUTURES_WS_READ_TIMEOUT=300s
+    - FUTURES_WS_PING_PERIOD=20s
+    - FUTURES_WS_WRITE_WAIT=10s
+    - BINANCE_MAX_PAIRS_TO_FETCH=300
+    - ENABLE_BINANCE_TOP_SYMBOLS=false
+    - REQUIRED_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,1000PEPEUSDT,DOGEUSDT,1000SHIBUSDT,1000FLOKIUSDT,1000BONKUSDT,WIFUSDT,SUIUSDT,APTUSDT,ARBUSDT,XAUUSDT
+    - BINANCE_MIN_SYMBOLS_REQUIRED=15
+    - BINANCE_MAX_PAIRS_TO_ADD=300
+    - BINANCE_MIN_TRADES_24H=1000
+    - USE_UNIFIED_PIPELINE=safe
+    - REDIS_WORKER_HOST=redis-worker-1
+    - REDIS_WORKER_PORT=6379
+    - FUTURES_WS_ENABLED=false
+    - HYPERLIQUID_WS_ENABLED=${HYPERLIQUID_WS_ENABLED:-false}
+    - HYPERLIQUID_WS_READ_TIMEOUT=90s
+    - HYPERLIQUID_WS_PING_PERIOD=20s
+    - HYPERLIQUID_WS_WRITE_WAIT=5s
+    - HYPERLIQUID_WS_MSG_CHAN_CAP=5000
+    - ENABLE_DATA_COLLECTION=false
+    - REST_CANDLE_TIMEOUT=60s
+    - API_CLIENT_TIMEOUT=30s
+    - WS_HANDSHAKE_TIMEOUT=45s
+    - WS_DIAL_TIMEOUT=30s
+    - WS_TCP_KEEPALIVE=60s
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    networks:
+    - scanner-network
+    restart: unless-stopped
+    command:
+    - sh
+    - -c
+    - sleep 55 && ./main
+    deploy:
+      resources:
+        limits:
+          memory: 600M
+          cpus: '0.4'
+        reservations:
+          memory: 192M
+    dns:
+    - 8.8.8.8
+    - 8.8.4.4
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+    - ./logs:/app/logs
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:2117/metrics
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 540s
+  go-worker-1w:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile
+    container_name: scanner-go-worker-1w
+    environment:
+    - REDIS_HOST=redis-worker-1
+    - REDIS_PORT=6379
+    - REDIS_DB=0
+    - REDIS_POOL_SIZE=500
+    - REDIS_MIN_IDLE_CONNS=15
+    - REDIS_MAX_RETRIES=5
+    - REDIS_RETRY_MIN_BACKOFF=100ms
+    - REDIS_RETRY_MAX_BACKOFF=3s
+    - REDIS_DIAL_TIMEOUT=10s
+    - REDIS_READ_TIMEOUT=30s
+    - REDIS_WRITE_TIMEOUT=30s
+    - REDIS_POOL_TIMEOUT=10s
+    - BINANCE_WS_TIMEFRAME=kline_1w
+    - REDIS_CANDLES_HOST=redis-worker-1
+    - REDIS_CANDLES_PORT=6379
+    - REDIS_CANDLES_HOST_2=redis-worker-2
+    - REDIS_CANDLES_PORT_2=6379
+    - REDIS_TICKS_HOST=redis-ticks
+    - REDIS_TICKS_PORT=6379
+    - PROMETHEUS_PORT=2118
+    - FUTURES_WS_READ_TIMEOUT=300s
+    - FUTURES_WS_PING_PERIOD=20s
+    - FUTURES_WS_WRITE_WAIT=10s
+    - BINANCE_MAX_PAIRS_TO_FETCH=300
+    - ENABLE_BINANCE_TOP_SYMBOLS=false
+    - REQUIRED_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,1000PEPEUSDT,DOGEUSDT,1000SHIBUSDT,1000FLOKIUSDT,1000BONKUSDT,WIFUSDT,SUIUSDT,APTUSDT,ARBUSDT,XAUUSDT
+    - BINANCE_MIN_SYMBOLS_REQUIRED=15
+    - BINANCE_MAX_PAIRS_TO_ADD=300
+    - BINANCE_MIN_TRADES_24H=1000
+    - USE_UNIFIED_PIPELINE=safe
+    - REDIS_WORKER_HOST=redis-worker-1
+    - REDIS_WORKER_PORT=6379
+    - FUTURES_WS_ENABLED=false
+    - HYPERLIQUID_WS_ENABLED=${HYPERLIQUID_WS_ENABLED:-false}
+    - HYPERLIQUID_WS_READ_TIMEOUT=90s
+    - HYPERLIQUID_WS_PING_PERIOD=20s
+    - HYPERLIQUID_WS_WRITE_WAIT=5s
+    - HYPERLIQUID_WS_MSG_CHAN_CAP=5000
+    - ENABLE_DATA_COLLECTION=false
+    - REST_CANDLE_TIMEOUT=60s
+    - API_CLIENT_TIMEOUT=30s
+    - WS_HANDSHAKE_TIMEOUT=45s
+    - WS_DIAL_TIMEOUT=30s
+    - WS_TCP_KEEPALIVE=60s
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    networks:
+    - scanner-network
+    restart: unless-stopped
+    command:
+    - sh
+    - -c
+    - sleep 65 && ./main
+    deploy:
+      resources:
+        limits:
+          memory: 500M
+          cpus: '0.3'
+        reservations:
+          memory: 128M
+    dns:
+    - 8.8.8.8
+    - 8.8.4.4
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+    - ./logs:/app/logs
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:2118/metrics
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 630s
+  go-worker-1month:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile
+    container_name: scanner-go-worker-1month
+    environment:
+    - REDIS_HOST=redis-worker-2
+    - REDIS_PORT=6379
+    - REDIS_DB=0
+    - REDIS_POOL_SIZE=500
+    - REDIS_MIN_IDLE_CONNS=15
+    - REDIS_MAX_RETRIES=5
+    - REDIS_RETRY_MIN_BACKOFF=100ms
+    - REDIS_RETRY_MAX_BACKOFF=3s
+    - REDIS_DIAL_TIMEOUT=10s
+    - REDIS_READ_TIMEOUT=30s
+    - REDIS_WRITE_TIMEOUT=30s
+    - REDIS_POOL_TIMEOUT=10s
+    - BINANCE_WS_TIMEFRAME=kline_1M
+    - REDIS_CANDLES_HOST=redis-worker-1
+    - REDIS_CANDLES_PORT=6379
+    - REDIS_CANDLES_HOST_2=redis-worker-2
+    - REDIS_CANDLES_PORT_2=6379
+    - REDIS_TICKS_HOST=redis-ticks
+    - REDIS_TICKS_PORT=6379
+    - PROMETHEUS_PORT=2119
+    - FUTURES_WS_READ_TIMEOUT=300s
+    - FUTURES_WS_PING_PERIOD=20s
+    - FUTURES_WS_WRITE_WAIT=10s
+    - BINANCE_MAX_PAIRS_TO_FETCH=300
+    - ENABLE_BINANCE_TOP_SYMBOLS=false
+    - REQUIRED_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,1000PEPEUSDT,DOGEUSDT,1000SHIBUSDT,1000FLOKIUSDT,1000BONKUSDT,WIFUSDT,SUIUSDT,APTUSDT,ARBUSDT,XAUUSDT
+    - BINANCE_MIN_SYMBOLS_REQUIRED=15
+    - BINANCE_MAX_PAIRS_TO_ADD=300
+    - BINANCE_MIN_TRADES_24H=1000
+    - USE_UNIFIED_PIPELINE=safe
+    - REDIS_WORKER_HOST=redis-worker-1
+    - REDIS_WORKER_PORT=6379
+    - FUTURES_WS_ENABLED=false
+    - HYPERLIQUID_WS_ENABLED=${HYPERLIQUID_WS_ENABLED:-false}
+    - HYPERLIQUID_WS_READ_TIMEOUT=90s
+    - HYPERLIQUID_WS_PING_PERIOD=20s
+    - HYPERLIQUID_WS_WRITE_WAIT=5s
+    - HYPERLIQUID_WS_MSG_CHAN_CAP=5000
+    - ENABLE_DATA_COLLECTION=false
+    - REST_CANDLE_TIMEOUT=60s
+    - API_CLIENT_TIMEOUT=30s
+    - WS_HANDSHAKE_TIMEOUT=45s
+    - WS_DIAL_TIMEOUT=30s
+    - WS_TCP_KEEPALIVE=60s
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    networks:
+    - scanner-network
+    restart: unless-stopped
+    command:
+    - sh
+    - -c
+    - sleep 75 && ./main
+    deploy:
+      resources:
+        limits:
+          memory: 500M
+          cpus: '0.3'
+        reservations:
+          memory: 128M
+    dns:
+    - 8.8.8.8
+    - 8.8.4.4
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+    - ./logs:/app/logs
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:2119/metrics
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 720s
+  go-worker-3month:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile
+    container_name: scanner-go-worker-3month
+    environment:
+    - REDIS_HOST=redis-worker-1
+    - REDIS_PORT=6379
+    - REDIS_DB=0
+    - REDIS_POOL_SIZE=500
+    - REDIS_MIN_IDLE_CONNS=15
+    - REDIS_MAX_RETRIES=5
+    - REDIS_RETRY_MIN_BACKOFF=100ms
+    - REDIS_RETRY_MAX_BACKOFF=3s
+    - REDIS_DIAL_TIMEOUT=10s
+    - REDIS_READ_TIMEOUT=30s
+    - REDIS_WRITE_TIMEOUT=30s
+    - REDIS_POOL_TIMEOUT=10s
+    - BINANCE_WS_TIMEFRAME=kline_3M
+    - REDIS_CANDLES_HOST=redis-worker-1
+    - REDIS_CANDLES_PORT=6379
+    - REDIS_CANDLES_HOST_2=redis-worker-2
+    - REDIS_CANDLES_PORT_2=6379
+    - REDIS_TICKS_HOST=redis-ticks
+    - REDIS_TICKS_PORT=6379
+    - PROMETHEUS_PORT=2120
+    - FUTURES_WS_READ_TIMEOUT=300s
+    - FUTURES_WS_PING_PERIOD=20s
+    - FUTURES_WS_WRITE_WAIT=10s
+    - BINANCE_MAX_PAIRS_TO_FETCH=300
+    - ENABLE_BINANCE_TOP_SYMBOLS=false
+    - REQUIRED_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,1000PEPEUSDT,DOGEUSDT,1000SHIBUSDT,1000FLOKIUSDT,1000BONKUSDT,WIFUSDT,SUIUSDT,APTUSDT,ARBUSDT,XAUUSDT
+    - BINANCE_MIN_SYMBOLS_REQUIRED=15
+    - BINANCE_MAX_PAIRS_TO_ADD=300
+    - BINANCE_MIN_TRADES_24H=1000
+    - USE_UNIFIED_PIPELINE=safe
+    - REDIS_WORKER_HOST=redis-worker-1
+    - REDIS_WORKER_PORT=6379
+    - FUTURES_WS_ENABLED=false
+    - HYPERLIQUID_WS_ENABLED=${HYPERLIQUID_WS_ENABLED:-false}
+    - HYPERLIQUID_WS_READ_TIMEOUT=90s
+    - HYPERLIQUID_WS_PING_PERIOD=20s
+    - HYPERLIQUID_WS_WRITE_WAIT=5s
+    - HYPERLIQUID_WS_MSG_CHAN_CAP=5000
+    - ENABLE_DATA_COLLECTION=false
+    - REST_CANDLE_TIMEOUT=60s
+    - API_CLIENT_TIMEOUT=30s
+    - WS_HANDSHAKE_TIMEOUT=45s
+    - WS_DIAL_TIMEOUT=30s
+    - WS_TCP_KEEPALIVE=60s
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    networks:
+    - scanner-network
+    restart: unless-stopped
+    command:
+    - sh
+    - -c
+    - sleep 85 && ./main
+    deploy:
+      resources:
+        limits:
+          memory: 400M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+    dns:
+    - 8.8.8.8
+    - 8.8.4.4
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+    - ./logs:/app/logs
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:2120/metrics
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 810s
+  go-worker-1y:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile
+    container_name: scanner-go-worker-1y
+    environment:
+    - REDIS_HOST=redis-worker-2
+    - REDIS_PORT=6379
+    - REDIS_DB=0
+    - REDIS_POOL_SIZE=500
+    - REDIS_MIN_IDLE_CONNS=15
+    - REDIS_MAX_RETRIES=5
+    - REDIS_RETRY_MIN_BACKOFF=100ms
+    - REDIS_RETRY_MAX_BACKOFF=3s
+    - REDIS_DIAL_TIMEOUT=10s
+    - REDIS_READ_TIMEOUT=30s
+    - REDIS_WRITE_TIMEOUT=30s
+    - REDIS_POOL_TIMEOUT=10s
+    - BINANCE_WS_TIMEFRAME=kline_1y
+    - REDIS_CANDLES_HOST=redis-worker-1
+    - REDIS_CANDLES_PORT=6379
+    - REDIS_CANDLES_HOST_2=redis-worker-2
+    - REDIS_CANDLES_PORT_2=6379
+    - REDIS_TICKS_HOST=redis-ticks
+    - REDIS_TICKS_PORT=6379
+    - PROMETHEUS_PORT=2121
+    - FUTURES_WS_READ_TIMEOUT=300s
+    - FUTURES_WS_PING_PERIOD=20s
+    - FUTURES_WS_WRITE_WAIT=10s
+    - BINANCE_MAX_PAIRS_TO_FETCH=300
+    - ENABLE_BINANCE_TOP_SYMBOLS=false
+    - REQUIRED_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,1000PEPEUSDT,DOGEUSDT,1000SHIBUSDT,1000FLOKIUSDT,1000BONKUSDT,WIFUSDT,SUIUSDT,APTUSDT,ARBUSDT,XAUUSDT
+    - BINANCE_MIN_SYMBOLS_REQUIRED=15
+    - BINANCE_MAX_PAIRS_TO_ADD=300
+    - BINANCE_MIN_TRADES_24H=1000
+    - USE_UNIFIED_PIPELINE=safe
+    - REDIS_WORKER_HOST=redis-worker-1
+    - REDIS_WORKER_PORT=6379
+    - FUTURES_WS_ENABLED=false
+    - HYPERLIQUID_WS_ENABLED=${HYPERLIQUID_WS_ENABLED:-false}
+    - HYPERLIQUID_WS_READ_TIMEOUT=90s
+    - HYPERLIQUID_WS_PING_PERIOD=20s
+    - HYPERLIQUID_WS_WRITE_WAIT=5s
+    - HYPERLIQUID_WS_MSG_CHAN_CAP=5000
+    - ENABLE_DATA_COLLECTION=false
+    - REST_CANDLE_TIMEOUT=60s
+    - API_CLIENT_TIMEOUT=30s
+    - WS_HANDSHAKE_TIMEOUT=45s
+    - WS_DIAL_TIMEOUT=30s
+    - WS_TCP_KEEPALIVE=60s
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+      redis-ticks:
+        condition: service_healthy
+    networks:
+    - scanner-network
+    restart: unless-stopped
+    command:
+    - sh
+    - -c
+    - sleep 95 && ./main
+    deploy:
+      resources:
+        limits:
+          memory: 400M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+    dns:
+    - 8.8.8.8
+    - 8.8.4.4
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+    - ./logs:/app/logs
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:2121/metrics
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 900s

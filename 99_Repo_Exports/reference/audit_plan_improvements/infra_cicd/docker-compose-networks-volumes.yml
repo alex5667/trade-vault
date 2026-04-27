@@ -1,0 +1,28 @@
+networks:
+  scanner-network:
+    external: true
+volumes:
+  redis-data:
+    driver: local
+  redis-ticks-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  tg-sessions:
+    driver: local
+  backtest-data:
+    driver: local
+  postgres-data:
+    driver: local
+  redis-worker-1-data:
+    driver: local
+  redis-worker-2-data:
+    driver: local
+  redis-worker-1b-data:
+    driver: local
+  redis-worker-2b-data:
+    driver: local
+  mt5-data:
+    driver: local

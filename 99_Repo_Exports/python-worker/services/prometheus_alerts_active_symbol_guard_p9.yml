@@ -1,0 +1,12 @@
+groups:
+  - name: active_symbol_guard_p9
+    rules:
+      - alert: ActiveSymbolGuardStaleTombstonesPresent
+        expr: execution_active_symbol_guard_snapshot_total{status="stale_tombstone"} > 0
+        for: 10m
+        labels:
+          severity: warning
+          service: execution
+        annotations:
+          summary: "Active-symbol guard stale tombstones present"
+          description: "Snapshot exporter reports one or more stale released tombstones. Check /api/active-symbol-guard/health and the diagnostic CLI for the affected symbols."

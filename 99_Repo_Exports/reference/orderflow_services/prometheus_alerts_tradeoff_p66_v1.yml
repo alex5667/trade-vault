@@ -1,0 +1,123 @@
+groups:
+  - name: tradeoff-p66
+    rules:
+      # Decision stream staleness — critical SLO
+      # Fires if no new decisions observed for >30 minutes.
+      # Check producer (scanner-crypto-orderflow-service), Redis decisions:final, consumer group lag.
+      - alert: DecisionFinalStaleSLO
+        expr: (time() - (decision_last_ts_ms / 1000)) > 1800
+        for: 5m
+        labels:
+          severity: critical
+          team: trade
+          component: decision_coverage
+        annotations:
+          summary: "decisions:final is stale (>30m)"
+          description: "No new decisions observed for >30m. Check crypto-orderflow-service, Redis, consumer-group lag."
+          runbook_path: "/orderflow_services/runbook_tradeoff_dashboard_p66.md"
+          dashboard_path: "/d/tradeoff_p66/tradeoff-coverage-vs-quality"
+
+      # Unknown regime share high — dq_state/drift_state fields missing or schema mismatch
+      # Requires decision_n_24h > 200 to avoid alert noise during startup / low-volume windows.
+      - alert: DecisionRegimeUnknownShareHighSLO
+        expr: decision_regime_share_24h{regime="unknown"} > 0.05 and decision_n_24h > 200
+        for: 30m
+        labels:
+          severity: warning
+          team: trade
+          component: decision_coverage
+        annotations:
+          summary: "Unknown regime share high (>5%)"
+          description: "Too many decisions have unknown dq/drift regime. Likely missing dq_state/drift_state in payload or parser mismatch."
+          runbook_path: "/orderflow_services/runbook_tradeoff_dashboard_p66.md"
+          dashboard_path: "/d/tradeoff_p66/tradeoff-coverage-vs-quality"
+
+      # Block regime share high — DQ/Drift gates blocking too many signals
+      # Could indicate false-positive gating, noisy thresholds, or real market shift.
+      - alert: DecisionRegimeBlockShareHighSLO
+        expr: decision_regime_share_24h{regime="block"} > 0.15 and decision_n_24h > 200
+        for: 30m
+        labels:
+          severity: warning
+          team: trade
+          component: decision_coverage
+        annotations:
+          summary: "Block regime share high (>15%)"
+          description: "A large share of decisions are in block regime. Check DQ/Drift gates and market conditions; consider shadow mode for ML rollout."
+          runbook_path: "/orderflow_services/runbook_tradeoff_dashboard_p66.md"
+          dashboard_path: "/d/tradeoff_p66/tradeoff-coverage-vs-quality"
+
+      # ok-regime expectancy negative — means strategy is losing money in the "safe" regime
+      # Fires only with sufficient N to avoid noise during low-volume windows.
+      - alert: SignalQualityOkRegimeExpectancyNegativeSLO
+        expr: signal_quality_n_24h_by_regime{regime="ok"} >= 50 and signal_quality_expectancy_r_24h_by_regime{regime="ok"} < 0.0
+        for: 30m
+        labels:
+          severity: warning
+          team: trade
+          component: signal_quality
+        annotations:
+          summary: "Signal quality degraded in ok regime (expectancy < 0)"
+          description: "Expectancy (mean R) for regime=ok is negative with sufficient N. Investigate scoring changes, slippage, and label drift."
+          runbook_path: "/tradeoff_p66.md"
+          dashboard_path: "/d/tradeoff_p66/tradeoff-coverage-vs-quality?orgId=1"
+
+      # warn-regime ECE high — calibration drift: ML probabilities not matching outcomes
+      # ECE > 0.10 with sufficient N means recalibration is needed.
+      - alert: SignalQualityWarnRegimeEceHighSLO
+        expr: signal_quality_n_24h_by_regime{regime="warn"} >= 30 and signal_quality_ece_24h_by_regime{regime="warn"} > 0.10
+        for: 30m
+        labels:
+          severity: warning
+          team: trade
+          component: signal_quality
+        annotations:
+          summary: "Calibration degraded in warn regime (ECE > 0.10)"
+          description: "ECE for regime=warn is high with sufficient N. Consider recalibration, check feature drift, and ensure p-calibration pipeline is healthy."
+          runbook_path: "/tradeoff_p66.md"
+          dashboard_path: "/d/tradeoff_p66/tradeoff-coverage-vs-quality?orgId=1"
+
+      # block-regime still trading — DQ/Drift gates should be blocking these decisions
+      # Any significant N in block regime means policy enforcement has a gap.
+      - alert: SignalQualityBlockRegimeStillTradingSLO
+        expr: signal_quality_n_24h_by_regime{regime="block"} >= 20
+        for: 1h
+        labels:
+          severity: warning
+          team: trade
+          component: signal_quality
+        annotations:
+          summary: "Block regime has executed trades (unexpected)"
+          description: "There are many closed trades in regime=block in last 24h. Verify that DQ/Drift gates correctly block/route decisions and policy modes are enforced."
+          runbook_path: "/tradeoff_p66.md"
+          dashboard_path: "/d/tradeoff_p66/tradeoff-coverage-vs-quality?orgId=1"
+
+      # block regime must always have effective_mode=block (fail-closed policy enforcement).
+      # mismatch >1% with at least 200 decisions means enforcement gap or pipeline wiring bug.
+      - alert: PolicyModeBlockRegimeNotBlockedSLO
+        expr: policy_mode_n_24h_total > 200 and policy_mode_mismatch_share_24h{kind="block_regime_effective_not_block"} > 0.01
+        for: 30m
+        labels:
+          severity: critical
+          team: trade
+          component: policy_mode
+        annotations:
+          summary: "Policy mismatch: block regime not blocked (>1%)"
+          description: "Some decisions are in block regime but effective_mode is not block. This indicates a policy enforcement bug or missing fields in decisions:final. Inspect policy_effective_mode/effective_mode/policy_mode fields."
+          runbook_path: "/tradeoff_p66.md"
+          dashboard_path: "/d/tradeoff_p66/tradeoff-coverage-vs-quality?orgId=1"
+
+      # warn regime with active mode means strategy is trading despite degraded data quality.
+      # mismatch >5% with at least 200 decisions warrants review of warn thresholds or shadow enforcement.
+      - alert: PolicyModeWarnRegimeActiveShareHighSLO
+        expr: policy_mode_n_24h_total > 200 and policy_mode_mismatch_share_24h{kind="warn_regime_effective_active"} > 0.05
+        for: 30m
+        labels:
+          severity: warning
+          team: trade
+          component: policy_mode
+        annotations:
+          summary: "Policy mismatch: warn regime still active (>5%)"
+          description: "A high share of warn-regime decisions have effective_mode=active. Consider enforcing shadow mode on warn or review warn thresholds."
+          runbook_path: "/tradeoff_p66.md"
+          dashboard_path: "/d/tradeoff_p66/tradeoff-coverage-vs-quality?orgId=1"

@@ -1,0 +1,28 @@
+groups:
+  - name: ml_phase3_57_1_incident_rca_apply_persisters
+    rules:
+      - alert: MLIncidentRCAApplySLORollupsPersisterStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_slo_rollups_persister_v3_57_1_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "Incident RCA apply SLO rollups persister stale" }
+
+      - alert: MLIncidentRCAApplyRetryResultsPersisterStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_retry_results_persister_v3_57_1_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "Incident RCA apply retry results persister stale" }
+
+      - alert: MLIncidentRCAApplyEscalationsPersisterStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_escalations_persister_v3_57_1_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "Incident RCA apply escalations persister stale" }
+
+      - alert: MLIncidentRCAApplyPersisterDLQPresent
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_slo_rollups_persister_v3_57_1_dlq_total[30m]) > 0
+          or increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_retry_results_persister_v3_57_1_dlq_total[30m]) > 0
+          or increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_escalations_persister_v3_57_1_dlq_total[30m]) > 0
+        for: 5m
+        labels: { severity: critical }
+        annotations: { summary: "Incident RCA apply persister DLQ has new entries" }

@@ -1,0 +1,285 @@
+diff --git a/tick_flow_full/services/orderflow/components/tick_processor.py b/tick_flow_full/services/orderflow/components/tick_processor.py
+index ae7621c..22ac3e1 100644
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -106,6 +106,7 @@ from core.of_evidence import compute_sweep_recent, compute_reclaim_recent, compu
+ from core.footprint_policy import fp_confirmations_from_microbar, is_soft_confirmation
+ from core.data_health import compute_data_health, apply_book_evidence_policy, apply_shadow_only_policy
+ from core.book_microstructure_v4 import compute_microstructure_v4
++from core.book_derivatives_v1 import compute_book_imbalance_rate_10
+ from core.confirmations_schema_v1 import parse_confirmations_v1
+ from core.slippage_model import expected_slippage_bps
+ from core.bucket_allowlist_v1 import bucket_allowed
+@@ -147,6 +148,8 @@ def _sample_uid_symbol_ts(symbol: str, ts_ms: int) -> int:
+     h = hashlib.sha1(b).digest()
+     return int.from_bytes(h[:8], byteorder="big", signed=False)
+ 
++
++
+ class TickProcessor:
+     """
+     Handles individual tick processing:
+@@ -1088,6 +1091,45 @@ class TickProcessor:
+                         ms = compute_microstructure_v4(bs.raw, prev_raw)
+                         # v4.2 extras: top-10 depth aggregates + depth-Gini + absolute micro_price (train==serve parity)
+                         #   depth_total_10, depth_imbalance_10, gini_depth_10, micro_price, micro_price_diff_bps
++                        # --- A2: book derivative feature (rate of depth_imbalance_10) ---
++                        # book_imbalance_rate_10 = Δdepth_imbalance_10 / Δt_sec
++                        # Guard: if Δt_ms <= 0 (out-of-order book snapshots) -> rate=0 and increment bad_time.
++                        try:
++                            cur_imb10 = float(ms.get("depth_imbalance_10", 0.0) or 0.0)
++                            prev_imb10 = getattr(runtime, "_ms_v4_prev_depth_imbalance_10", None)
++                            prev_book_ts_ms = getattr(runtime, "_ms_v4_prev_book_ts_ms", None)
++
++                            rate10, bad_dt = compute_book_imbalance_rate_10(
++                                prev_imb10=prev_imb10,
++                                prev_ts_ms=prev_book_ts_ms,
++                                cur_imb=cur_imb10,
++                                cur_ts_ms=book_ts,
++                            )
++                            ms["book_imbalance_rate_10"] = float(rate10)
++
++                            if prev_book_ts_ms is None:
++                                # First observation: initialize derivative state.
++                                setattr(runtime, "_ms_v4_prev_book_ts_ms", int(book_ts))
++                                setattr(runtime, "_ms_v4_prev_depth_imbalance_10", float(cur_imb10))
++                            else:
++                                if bad_dt:
++                                    # Out-of-order/non-monotonic book_ts_ms: do NOT advance prev state.
++                                    # Count it for later SRE export (A8), but keep runtime deterministic.
++                                    setattr(
++                                        runtime,
++                                        "_ms_v4_book_deriv_bad_time_total",
++                                        int(getattr(runtime, "_ms_v4_book_deriv_bad_time_total", 0) or 0) + 1,
++                                    )
++                                else:
++                                    # Happy path: advance prev state.
++                                    setattr(runtime, "_ms_v4_prev_book_ts_ms", int(book_ts))
++                                    setattr(runtime, "_ms_v4_prev_depth_imbalance_10", float(cur_imb10))
++                        except Exception:
++                            # Fail-open: keep feature present and bounded even on unexpected raw shapes.
++                            try:
++                                ms.setdefault("book_imbalance_rate_10", 0.0)
++                            except Exception:
++                                pass
+                         setattr(runtime, "_ms_v4_cache_book_ts", book_ts)
+                         setattr(runtime, "_ms_v4_prev_raw", bs.raw)
+                         setattr(runtime, "_ms_v4_cache", ms)
+diff --git a/services/orderflow/components/tick_processor.py b/services/orderflow/components/tick_processor.py
+index 2bdf8f6..6ceb661 100644
+--- a/services/orderflow/components/tick_processor.py
++++ b/services/orderflow/components/tick_processor.py
+@@ -116,12 +116,14 @@ from core.of_evidence import compute_sweep_recent, compute_reclaim_recent, compu
+ from core.footprint_policy import fp_confirmations_from_microbar, is_soft_confirmation
+ from core.data_health import compute_data_health, apply_book_evidence_policy, apply_shadow_only_policy
+ from core.book_microstructure_v4 import compute_microstructure_v4
++from core.book_derivatives_v1 import compute_book_imbalance_rate_10
+ from core.confirmations_schema_v1 import parse_confirmations_v1
+ from core.slippage_model import expected_slippage_bps
+ from core.expected_slippage_decomp_v1 import expected_slippage_decomp_bps
+ from core.bucket_allowlist_v1 import bucket_allowed
+ # Commit 3: book microstructure features (top-N snapshot for v4 schema)
+ from core.book_microstructure_v4 import compute_microstructure_v4
++from core.book_derivatives_v1 import compute_book_imbalance_rate_10
+ # Commit 2 / Commit 1: materialize confirmations as first-class ML features (train==serve parity)
+ from core.confirmations_schema_v1 import apply_confirmations_to_indicators
+ from core.of_inputs_contract import OFInputsV1, OFInputsV2
+@@ -162,6 +164,8 @@ def _sample_uid_symbol_ts(symbol: str, ts_ms: int) -> int:
+     h = hashlib.sha1(b).digest()
+     return int.from_bytes(h[:8], byteorder="big", signed=False)
+ 
++
++
+ class TickProcessor:
+     """
+     Handles individual tick processing:
+@@ -1043,6 +1047,45 @@ class TickProcessor:
+                         ms = compute_microstructure_v4(bs.raw, prev_raw)
+                         # v4.2 extras: top-10 depth aggregates + depth-Gini + absolute micro_price (train==serve parity)
+                         #   depth_total_10, depth_imbalance_10, gini_depth_10, micro_price, micro_price_diff_bps
++                        # --- A2: book derivative feature (rate of depth_imbalance_10) ---
++                        # book_imbalance_rate_10 = Δdepth_imbalance_10 / Δt_sec
++                        # Guard: if Δt_ms <= 0 (out-of-order book snapshots) -> rate=0 and increment bad_time.
++                        try:
++                            cur_imb10 = float(ms.get("depth_imbalance_10", 0.0) or 0.0)
++                            prev_imb10 = getattr(runtime, "_ms_v4_prev_depth_imbalance_10", None)
++                            prev_book_ts_ms = getattr(runtime, "_ms_v4_prev_book_ts_ms", None)
++
++                            rate10, bad_dt = compute_book_imbalance_rate_10(
++                                prev_imb10=prev_imb10,
++                                prev_ts_ms=prev_book_ts_ms,
++                                cur_imb=cur_imb10,
++                                cur_ts_ms=book_ts,
++                            )
++                            ms["book_imbalance_rate_10"] = float(rate10)
++
++                            if prev_book_ts_ms is None:
++                                # First observation: initialize derivative state.
++                                setattr(runtime, "_ms_v4_prev_book_ts_ms", int(book_ts))
++                                setattr(runtime, "_ms_v4_prev_depth_imbalance_10", float(cur_imb10))
++                            else:
++                                if bad_dt:
++                                    # Out-of-order/non-monotonic book_ts_ms: do NOT advance prev state.
++                                    # Count it for later SRE export (A8), but keep runtime deterministic.
++                                    setattr(
++                                        runtime,
++                                        "_ms_v4_book_deriv_bad_time_total",
++                                        int(getattr(runtime, "_ms_v4_book_deriv_bad_time_total", 0) or 0) + 1,
++                                    )
++                                else:
++                                    # Happy path: advance prev state.
++                                    setattr(runtime, "_ms_v4_prev_book_ts_ms", int(book_ts))
++                                    setattr(runtime, "_ms_v4_prev_depth_imbalance_10", float(cur_imb10))
++                        except Exception:
++                            # Fail-open: keep feature present and bounded even on unexpected raw shapes.
++                            try:
++                                ms.setdefault("book_imbalance_rate_10", 0.0)
++                            except Exception:
++                                pass
+                         setattr(runtime, "_ms_v4_cache_book_ts", book_ts)
+                         setattr(runtime, "_ms_v4_prev_raw", bs.raw)
+                         setattr(runtime, "_ms_v4_cache", ms)
+diff --git a/tick_flow_full/core/book_derivatives_v1.py b/tick_flow_full/core/book_derivatives_v1.py
+new file mode 100644
+index 0000000..83aa78b
+--- /dev/null
++++ b/tick_flow_full/core/book_derivatives_v1.py
+@@ -0,0 +1,79 @@
++from __future__ import annotations
++
++"""Book derivative features.
++
++These helpers are intentionally dependency-free so they can be unit-tested without
++bringing up the full runtime stack (redis/asyncpg/etc.).
++
++Naming:
++  - `*_rate_*` features are expressed in 1/sec.
++
++Time determinism:
++  - `*_ts_ms` are epoch milliseconds.
++  - dt guards must treat non-monotonic timestamps as bad_time (fail-open).
++"""
++
++import math
++from typing import Optional
++
++
++def compute_book_imbalance_rate_10(
++    prev_imb10: Optional[float],
++    prev_ts_ms: Optional[int],
++    cur_imb10: float,
++    cur_ts_ms: int,
++    *,
++    clip_abs_per_s: float = 50.0,
++) -> tuple[float, int]:
++    """Compute book_imbalance_rate_10 = d(depth_imbalance_10)/dt (1/sec), guarded.
++
++    Args:
++        prev_imb10: Previous depth_imbalance_10 snapshot value.
++        prev_ts_ms: Previous book timestamp (epoch ms) for that snapshot.
++        cur_imb10: Current depth_imbalance_10 snapshot value.
++        cur_ts_ms: Current book timestamp (epoch ms).
++        clip_abs_per_s: Hard safety clip for the derivative, absolute units of 1/sec.
++
++    Returns:
++        (rate_per_s, bad_dt_flag)
++
++    Guard policy:
++        - If there is no previous value -> rate=0.0, bad_dt=0.
++        - If dt_ms <= 0 (out-of-order / non-monotonic book_ts_ms) -> rate=0.0, bad_dt=1.
++        - Otherwise rate = (cur_imb10 - prev_imb10)/dt_sec, clipped to [-clip_abs_per_s, +clip_abs_per_s].
++
++    Rationale:
++        Book timestamps can be non-monotonic in real systems (reconnects, partial snapshots,
++        exchange quirks). We must fail-open and avoid exploding derivatives that would
++        pollute ML inputs and SRE dashboards.
++    """
++
++    if prev_ts_ms is None or prev_imb10 is None:
++        return 0.0, 0
++
++    try:
++        dt_ms = int(cur_ts_ms) - int(prev_ts_ms)
++    except Exception:
++        return 0.0, 1
++
++    if dt_ms <= 0:
++        return 0.0, 1
++
++    dt_sec = float(dt_ms) / 1000.0
++    if dt_sec <= 0.0:
++        return 0.0, 1
++
++    try:
++        rate = (float(cur_imb10) - float(prev_imb10)) / dt_sec
++    except Exception:
++        return 0.0, 0
++
++    if not math.isfinite(rate):
++        return 0.0, 0
++
++    if rate > clip_abs_per_s:
++        rate = clip_abs_per_s
++    elif rate < -clip_abs_per_s:
++        rate = -clip_abs_per_s
++
++    return float(rate), 0
+diff --git a/tick_flow_full/services/orderflow/tests/test_book_imbalance_rate_dt_v1.py b/tick_flow_full/services/orderflow/tests/test_book_imbalance_rate_dt_v1.py
+new file mode 100644
+index 0000000..56a3afe
+--- /dev/null
++++ b/tick_flow_full/services/orderflow/tests/test_book_imbalance_rate_dt_v1.py
+@@ -0,0 +1,53 @@
++# -*- coding: utf-8 -*-
++"""Unit tests for book_imbalance_rate_10 dt guards (A2).
++
++We validate the dependency-free helper in `core.book_derivatives_v1`.
++
++DoD coverage:
++  - dt_ms > 0: derivative computed correctly
++  - dt_ms <= 0 (out-of-order / non-monotonic timestamps): rate is 0 and bad_dt=1
++  - first observation (no prev): rate is 0 and bad_dt=0
++  - safety clip prevents explosions on tiny dt
++"""
++
++from __future__ import annotations
++
++import sys
++from pathlib import Path
++
++# Ensure we import SoT (tick_flow_full/...) as top-level packages: core.*, services.*
++sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # .../tick_flow_full
++
++from core.book_derivatives_v1 import compute_book_imbalance_rate_10
++
++
++def test_first_observation_no_prev_is_safe():
++    rate, bad = compute_book_imbalance_rate_10(prev_imb10=None, prev_ts_ms=None, cur_imb10=0.1, cur_ts_ms=1_000)
++    assert rate == 0.0
++    assert bad == 0
++
++
++def test_dt_positive_computes_derivative():
++    # Δimb=0.20 over 1s => 0.20 1/s
++    rate, bad = compute_book_imbalance_rate_10(prev_imb10=0.20, prev_ts_ms=1_000, cur_imb10=0.40, cur_ts_ms=2_000)
++    assert abs(rate - 0.20) < 1e-12
++    assert bad == 0
++
++
++def test_dt_zero_is_bad_time_guarded():
++    rate, bad = compute_book_imbalance_rate_10(prev_imb10=0.10, prev_ts_ms=1_000, cur_imb10=0.20, cur_ts_ms=1_000)
++    assert rate == 0.0
++    assert bad == 1
++
++
++def test_dt_negative_is_bad_time_guarded():
++    rate, bad = compute_book_imbalance_rate_10(prev_imb10=0.10, prev_ts_ms=1_000, cur_imb10=0.20, cur_ts_ms=900)
++    assert rate == 0.0
++    assert bad == 1
++
++
++def test_clip_prevents_explosions_on_tiny_dt():
++    # Δimb=1.0 over 1ms => 1000 1/s, but default clip is 50.0
++    rate, bad = compute_book_imbalance_rate_10(prev_imb10=0.0, prev_ts_ms=1_000, cur_imb10=1.0, cur_ts_ms=1_001)
++    assert rate == 50.0
++    assert bad == 0

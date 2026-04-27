@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/risk/risk_audit_sql.py
+# hypothesis_version: 6.148.10
+
+[0.0, ',', '1', ':', 'B', 'RISK_AUDIT_SQL_DSN', 'RiskAuditSqlSink', 'SAFETY_FIRST', 'UNKNOWN', '_names_to_collectors', 'allow_trade_publish', 'clamp_ratio', 'cluster', 'decision_latency_ms', 'execution_policy', 'id', 'level', 'leverage_cap', 'name', 'on', 'planned_notional_usd', 'reasons', 'record_decision', 'risk_cluster', 'risk_decisions', 'risk_level', 'risk_leverage_cap', 'risk_multiplier', 'risk_snapshot', 'risk_tier', 'sid', 'signal_id', 'snapshot', 'stage', 'symbol', 'symbol_tier', 'table', 'tier_policy', 'true', 'ts_event_ms', 'ts_publish_ms', 'yes']

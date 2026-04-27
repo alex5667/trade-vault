@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/ab_winner_apply_lib.py
+# hypothesis_version: 6.148.10
+
+[1000, 50000, ',', ':', 'A', 'B', 'C', 'active_arm_key', 'applied', 'applied_by_lua', 'apply_runner', 'approvals_n', 'arm', 'bad_eval_result', 'bad_meta_json', 'by', 'cfg_apply_active_arm', 'default', 'group', 'key', 'lock_key', 'meta_key', 'meta_missing_fields', 'na', 'no_meta', 'no_sid', 'note', 'payload', 'regime', 'sid', 'skipped', 'symbol', 'ts_ms', 'type', 'winner_arm']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/analytics_db.py
+# hypothesis_version: 6.148.10
+
+[0.0, 365, 1000, ' AND ', 'TRADES_DB_DSN', 'WHERE ', 'analytics_db', 'baseline_exit_price', 'baseline_exit_reason', 'baseline_exit_ts_ms', 'close_reason_raw', 'closed', 'date = %s', 'entry_tag', 'entry_tag = %s', 'health_avg_l2_age_ms', 'health_dlq_rate', 'is_final_close', 'max_favorable_price', 'max_favorable_ts', 'remaining_qty', 'source = %s', 'status', 'symbol = %s', 'trailing_profile']

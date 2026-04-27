@@ -1,0 +1,57 @@
+{
+  "title": "Orchestration Composite Preflight — Strategy Research Stats Drilldown (P6.4)",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "title": "Current strategy_research_stats reason family by purpose",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "orchestration_composite_preflight_strategy_research_stats_reason_family{family!~\"ok|other\"}",
+          "legendFormat": "{{purpose}} · {{family}}"
+        }
+      ]
+    },
+    {
+      "title": "Current source status for strategy_research_stats",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "orchestration_composite_preflight_source_status{source=\"strategy_research_stats\"}",
+          "legendFormat": "{{purpose}} · {{status}}"
+        }
+      ]
+    },
+    {
+      "title": "24h selected strategy_research_stats stop families",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "orchestration_composite_preflight_history_strategy_research_stats_reason_family_summary{window=\"24h\",decision_status=~\"block|invalid\",family!~\"ok|other\"}",
+          "legendFormat": "24h · {{family}} · {{decision_status}}"
+        }
+      ]
+    },
+    {
+      "title": "7d selected strategy_research_stats stop families by purpose",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window=\"7d\",decision_status=~\"block|invalid\",family!~\"ok|other\"}",
+          "legendFormat": "{{purpose}} · {{family}} · {{decision_status}}"
+        }
+      ]
+    },
+    {
+      "title": "Selected composite reason code (reference)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "orchestration_composite_preflight_selected_reason_code{reason_code=~\"strategy_research_stats:.*\"}",
+          "legendFormat": "{{purpose}} · {{reason_code}}"
+        }
+      ]
+    }
+  ]
+}

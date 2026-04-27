@@ -1,0 +1,43 @@
+{
+  "title": "ExecHealth Reconnect Nightly Smoke (v1)",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Last Run OK",
+      "targets": [
+        {
+          "expr": "exec_health_freeze_reconnect_smoke_last_run_ok"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Hours Since Success",
+      "targets": [
+        {
+          "expr": "(time()*1000 - exec_health_freeze_reconnect_smoke_last_success_ts_ms) / 1000 / 3600"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Case OK by Service/Scenario",
+      "targets": [
+        {
+          "expr": "exec_health_freeze_reconnect_smoke_case_ok"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Recovery Total by Service/Scenario",
+      "targets": [
+        {
+          "expr": "exec_health_freeze_reconnect_smoke_case_recovery_total"
+        }
+      ]
+    }
+  ]
+}

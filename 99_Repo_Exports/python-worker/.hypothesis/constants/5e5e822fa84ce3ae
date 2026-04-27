@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/ab_winner_suggester_service.py
+# hypothesis_version: 6.148.10
+
+[0.0, 100, 1000, '0', '10', '3600', '60', '86400000', '>', 'A', 'AB_EVENTS_CONSUMER', 'AB_EVENTS_GROUP', 'AB_EVENTS_STREAM', 'AB_SUGGEST_EVAL_SEC', 'AB_SUGGEST_TTL_SEC', 'BUSYGROUP', 'POSITION_CLOSED', 'REDIS_URL', '__main__', 'ab-suggester', 'ab_arm', 'ab_group', 'ab_winner_suggester', 'default', 'event_type', 'events:trades', 'meta', 'metadata', 'na', 'pnl', 'pnl_net', 'regime']

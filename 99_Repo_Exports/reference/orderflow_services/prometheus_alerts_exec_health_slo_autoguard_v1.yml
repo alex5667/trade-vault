@@ -1,0 +1,32 @@
+groups:
+  - name: exec_health_slo_autoguard_v1
+    rules:
+      - alert: OF_ExecHealth_AutoGuard_ExporterStale_Warn
+        expr: exec_health_slo_autoguard_exporter_up < 1
+        for: 5m
+        labels:
+          severity: warning
+          team: trade
+        annotations:
+          summary: "ExecHealth autoguard exporter stale"
+          description: "Autoguard exporter cannot read state or state is stale."
+
+      - alert: OF_ExecHealth_AutoGuard_FreezeActive_Warn
+        expr: exec_health_slo_autoguard_freeze_active > 0
+        for: 2m
+        labels:
+          severity: warning
+          team: trade
+        annotations:
+          summary: "ExecHealth autoguard freeze is active"
+          description: "Autoguard latched a freeze due to mode mismatch or rollout drift."
+
+      - alert: OF_ExecHealth_AutoGuard_RollbackPerformed_Warn
+        expr: increase(exec_health_slo_autoguard_rollback_total[15m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          team: trade
+        annotations:
+          summary: "ExecHealth autoguard performed rollback"
+          description: "Autoguard switched active_sid back to prev_sid due to sustained rollout mismatch/drift."

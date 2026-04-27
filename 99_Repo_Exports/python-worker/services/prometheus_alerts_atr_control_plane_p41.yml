@@ -1,0 +1,43 @@
+groups:
+- name: atr_control_plane_graph_alerts
+  rules:
+  
+  - alert: ATRControlPlaneProjectionLag
+    expr: atr_control_plane_projection_lag_sec > 1.0
+    for: 1m
+    labels:
+      severity: warning
+      service: atr_projection
+    annotations:
+      summary: "Control Plane Projection Lag"
+      description: "Serving state in Redis is lagging behind SQL Graph Event Journal by more than 1 second."
+
+  - alert: ATRControlPlaneProjectionDrift
+    expr: rate(atr_control_plane_projection_drift_total[5m]) > 0
+    for: 1m
+    labels:
+      severity: critical
+      service: atr_projection
+    annotations:
+      summary: "Control Plane Projection Drift Detected"
+      description: "Mismatch between authoritative Graph state and Redis Serving state for active scopes."
+
+  - alert: ATRIllegalTransitionAttempt
+    expr: rate(atr_control_plane_illegal_transition_total[5m]) > 0.05
+    for: 2m
+    labels:
+      severity: warning
+      service: atr_graph_service
+    annotations:
+      summary: "High rate of illegal transition attempts"
+      description: "Multiple rejected transitions (e.g., missing certs, out-of-order stages)."
+
+  - alert: ATRGraphConsistencyFailed
+    expr: atr_control_plane_cert_total{cert_kind="graph_consistency_cert",status="failed"} > 0
+    for: 0m
+    labels:
+      severity: critical
+      service: atr_cert_service
+    annotations:
+      summary: "Graph Consistency Certification Failed"
+      description: "Severe violations detected in graph topology: orphan live scopes, expired active overrides, or blocked releases advancing."

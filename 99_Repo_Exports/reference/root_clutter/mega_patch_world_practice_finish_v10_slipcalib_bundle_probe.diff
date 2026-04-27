@@ -1,0 +1,980 @@
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' /mnt/data/proj_base/ml_analysis/tools/nightly_slippage_calibrator_v1.py /mnt/data/proj/ml_analysis/tools/nightly_slippage_calibrator_v1.py
+--- /mnt/data/proj_base/ml_analysis/tools/nightly_slippage_calibrator_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj/ml_analysis/tools/nightly_slippage_calibrator_v1.py	2026-02-24 20:58:46.053794557 +0000
+@@ -0,0 +1,23 @@
++from __future__ import annotations
++
++"""Nightly slippage calibrator entrypoint (compat wrapper).
++
++`services/of_timers_worker.py` expects this module path:
++  ml_analysis.tools.nightly_slippage_calibrator_v1
++
++Implementation lives in:
++  tick_flow_full.tools.nightly_slippage_calibrator_v1
++"""
++
++import asyncio
++
++from tick_flow_full.tools.nightly_slippage_calibrator_v1 import run
++
++
++def main() -> int:
++    ok = asyncio.run(run())
++    return 0 if ok else 2
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' /mnt/data/proj_base/orderflow_services/enforce_bucket_state_exporter_v1.py /mnt/data/proj/orderflow_services/enforce_bucket_state_exporter_v1.py
+--- /mnt/data/proj_base/orderflow_services/enforce_bucket_state_exporter_v1.py	2026-02-24 10:40:30.000000000 +0000
++++ /mnt/data/proj/orderflow_services/enforce_bucket_state_exporter_v1.py	2026-02-24 20:53:45.232204035 +0000
+@@ -34,6 +34,15 @@
+   cfg:slippage_decomp_enforce_buckets:{sym} (optional)
+   cfg:taker_flow_gate_enforce_buckets:{sym} (optional)
+   cfg:slippage_decomp_impact_coeff_bps:{sym}:{bucket} (optional)
++  cfg:slippage_decomp_impact_coeff_bps_ts_ms:{sym}:{bucket} (optional)
++
++  state:slippage_calib:last_run_ts_ms
++  state:slippage_calib:last_ok_ts_ms
++  state:slippage_calib:last_updated_groups
++  state:slippage_calib:last_groups_total
++
++  state:exec_slippage_eval:rows_24h_ts_ms
++  state:exec_slippage_eval:rows_24h (hash: bucket->n, total->n)
+ 
+   proposal:enforce_bucket_promotion_report (fallback if status file missing)
+ 
+@@ -44,6 +53,14 @@
+ Outputs:
+   of_enforce_bucket_flag{component,sym,bucket} = 0/1
+   of_slippage_decomp_impact_coeff_bps{sym,bucket} = coeff (only if present)
++  of_slippage_decomp_impact_coeff_age_sec{sym,bucket} = age seconds since coeff update (if ts key present)
++
++  of_slippage_calib_last_ok_age_sec
++  of_slippage_calib_last_updated_groups
++  of_slippage_calib_last_groups_total
++
++  of_exec_slippage_eval_rows_24h{bucket}
++  of_exec_slippage_eval_rows_24h_age_sec
+ 
+   of_enforce_promoter_report_age_sec
+   of_enforce_promoter_apply_enabled
+@@ -173,6 +190,38 @@
+     ["sym", "bucket"],
+ )
+ 
++of_slippage_decomp_impact_coeff_age_sec = Gauge(
++    "of_slippage_decomp_impact_coeff_age_sec",
++    "age seconds since slippage decomp impact coefficient was last updated",
++    ["sym", "bucket"],
++)
++
++of_slippage_calib_last_ok_age_sec = Gauge(
++    "of_slippage_calib_last_ok_age_sec",
++    "age seconds since nightly slippage calibrator last OK",
++)
++
++of_slippage_calib_last_updated_groups = Gauge(
++    "of_slippage_calib_last_updated_groups",
++    "number of (sym,bucket) groups updated by last slippage calibrator run",
++)
++
++of_slippage_calib_last_groups_total = Gauge(
++    "of_slippage_calib_last_groups_total",
++    "number of (sym,bucket) groups discovered in last slippage calibrator run",
++)
++
++of_exec_slippage_eval_rows_24h = Gauge(
++    "of_exec_slippage_eval_rows_24h",
++    "rowcount of v_exec_slippage_eval in last 24 hours by exec_regime_bucket",
++    ["bucket"],
++)
++
++of_exec_slippage_eval_rows_24h_age_sec = Gauge(
++    "of_exec_slippage_eval_rows_24h_age_sec",
++    "age seconds since exec slippage eval rowcount probe last updated",
++)
++
+ of_enforce_promoter_report_age_sec = Gauge(
+     "of_enforce_promoter_report_age_sec", "age of last promoter report in seconds"
+ )
+@@ -324,6 +373,7 @@
+     def _export_coeffs(self) -> None:
+         if not self.redis or not self.symbols:
+             return
++        now_ms = _now_ms()
+         for sym in self.symbols:
+             for b in self.buckets:
+                 k = f"cfg:slippage_decomp_impact_coeff_bps:{sym}:{b}"
+@@ -332,9 +382,41 @@
+                     if v is None or str(v).strip() == "":
+                         continue
+                     of_slippage_decomp_impact_coeff_bps.labels(sym=sym, bucket=b).set(_as_float(v, 0.0))
++
++                    # Optional ts key: expose age for staleness alerting
++                    ts = _as_int(self.redis.get(f"cfg:slippage_decomp_impact_coeff_bps_ts_ms:{sym}:{b}"), 0)
++                    of_slippage_decomp_impact_coeff_age_sec.labels(sym=sym, bucket=b).set(
++                        (now_ms - ts) / 1000.0 if ts > 0 else float("nan")
++                    )
+                 except Exception:
+                     continue
+ 
++    def _export_slippage_calib_state(self) -> None:
++        if not self.redis:
++            return
++        try:
++            now_ms = _now_ms()
++            ok_ts = _as_int(self.redis.get("state:slippage_calib:last_ok_ts_ms"), 0)
++            of_slippage_calib_last_ok_age_sec.set((now_ms - ok_ts) / 1000.0 if ok_ts > 0 else float("nan"))
++            of_slippage_calib_last_updated_groups.set(float(_as_int(self.redis.get("state:slippage_calib:last_updated_groups"), 0)))
++            of_slippage_calib_last_groups_total.set(float(_as_int(self.redis.get("state:slippage_calib:last_groups_total"), 0)))
++        except Exception:
++            return
++
++    def _export_exec_slippage_eval_rows_probe(self) -> None:
++        if not self.redis:
++            return
++        try:
++            now_ms = _now_ms()
++            ts_ms = _as_int(self.redis.get("state:exec_slippage_eval:rows_24h_ts_ms"), 0)
++            of_exec_slippage_eval_rows_24h_age_sec.set((now_ms - ts_ms) / 1000.0 if ts_ms > 0 else float("nan"))
++            raw = self.redis.hgetall("state:exec_slippage_eval:rows_24h")
++            if isinstance(raw, dict):
++                for b in self.buckets:
++                    of_exec_slippage_eval_rows_24h.labels(bucket=b).set(float(_as_int(raw.get(b, 0), 0)))
++        except Exception:
++            return
++
+     def _read_promoter_report(self) -> Optional[Dict[str, Any]]:
+         # Prefer file (cheap), fallback to redis report key
+         obj = _load_json(self.promoter_status_path)
+@@ -485,6 +567,8 @@
+                 self._set_allow_flags(component="taker_flow", sym=sym, allow=t)
+ 
+         self._export_coeffs()
++        self._export_slippage_calib_state()
++        self._export_exec_slippage_eval_rows_probe()
+         self._export_promoter()
+         self._export_exec_slip_stats_refresh()
+         self._export_auto_apply_block()
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' /mnt/data/proj_base/orderflow_services/exec_slippage_eval_rowcount_probe_p77_v1.py /mnt/data/proj/orderflow_services/exec_slippage_eval_rowcount_probe_p77_v1.py
+--- /mnt/data/proj_base/orderflow_services/exec_slippage_eval_rowcount_probe_p77_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj/orderflow_services/exec_slippage_eval_rowcount_probe_p77_v1.py	2026-02-24 20:54:34.923061302 +0000
+@@ -0,0 +1,155 @@
++from __future__ import annotations
++
++"""Exec slippage eval rowcount probe (P77).
++
++Purpose
++  - Query `v_exec_slippage_eval` rowcount by `exec_regime_bucket` for last 24h.
++  - Store results into Redis state keys so exporter + alerts can detect staleness.
++
++Redis keys
++  - state:exec_slippage_eval:rows_24h_ts_ms
++  - state:exec_slippage_eval:rows_24h (hash: bucket->n, total->n)
++  - state:exec_slippage_eval:probe_last_rc
++  - state:exec_slippage_eval:probe_last_msg
++
++Exit codes
++  - 0: OK
++  - 2: soft issue (low rows)
++  - 1: hard fail (DB/Redis error)
++"""
++
++import asyncio
++import os
++import time
++from typing import Dict, List, Tuple
++
++import asyncpg
++
++
++def _buckets() -> List[str]:
++    raw = os.getenv("ENFORCE_STATE_EXPORTER_BUCKETS", "NORMAL,LOW_LIQ,HIGH_VOL,HIGH_VOL_LOW_LIQ")
++    xs: List[str] = []
++    for p in str(raw).replace(";", ",").split(","):
++        s = p.strip().upper()
++        if s and s not in xs:
++            xs.append(s)
++    return xs or ["NORMAL", "LOW_LIQ", "HIGH_VOL", "HIGH_VOL_LOW_LIQ"]
++
++
++def _db_url() -> str:
++    return (
++        os.getenv("DATABASE_URL")
++        or os.getenv("ANALYTICS_DB_DSN")
++        or "postgresql://trading:trading@scanner-postgres:5432/scanner_analytics"
++    )
++
++
++def _redis_url() -> str:
++    return os.getenv("REDIS_URL") or os.getenv("CRYPTO_NOTIFY_REDIS_URL") or "redis://redis-worker-1:6379/0"
++
++
++async def _connect_redis():
++    try:
++        import redis.asyncio as aioredis  # type: ignore
++
++        return aioredis.Redis.from_url(_redis_url(), decode_responses=True)
++    except Exception:
++        return None
++
++
++async def run() -> Tuple[int, str]:
++    r = await _connect_redis()
++    if r is None:
++        return 1, "redis.asyncio unavailable"
++
++    now_ms = int(time.time() * 1000)
++    buckets = _buckets()
++
++    min_total = int(os.getenv("EXEC_SLIP_EVAL_PROBE_MIN_TOTAL_24H", "30") or "30")
++    min_hvll = int(os.getenv("EXEC_SLIP_EVAL_PROBE_MIN_HVLL_24H", "5") or "5")
++
++    conn = None
++    try:
++        conn = await asyncpg.connect(_db_url())
++        rows = await conn.fetch(
++            """
++            select exec_regime_bucket, count(*)::bigint as n
++            from v_exec_slippage_eval
++            where ts >= now() - interval '24 hours'
++            group by 1
++            """
++        )
++    except Exception as e:
++        try:
++            await r.set("state:exec_slippage_eval:probe_last_rc", "1")
++            await r.set("state:exec_slippage_eval:probe_last_msg", f"db_error:{e}"[:500])
++        except Exception:
++            pass
++        try:
++            await r.aclose()
++        except Exception:
++            pass
++        if conn is not None:
++            try:
++                await conn.close()
++            except Exception:
++                pass
++        return 1, f"db_error:{e}"
++
++    counts: Dict[str, int] = {b: 0 for b in buckets}
++    total = 0
++    for row in rows:
++        b = str(row.get("exec_regime_bucket") or "NORMAL").strip().upper() or "NORMAL"
++        n = int(row.get("n") or 0)
++        if b not in counts:
++            counts[b] = 0
++        counts[b] += n
++        total += n
++
++    # Persist state for exporter
++    try:
++        await r.set("state:exec_slippage_eval:rows_24h_ts_ms", str(now_ms))
++        h = {"total": str(total)}
++        for b in buckets:
++            h[b] = str(int(counts.get(b, 0)))
++        await r.hset("state:exec_slippage_eval:rows_24h", mapping=h)
++    except Exception:
++        pass
++
++    # Decide rc for orchestration notifications
++    rc = 0
++    msg = f"rows_24h_total={total} " + " ".join([f"{b}={counts.get(b,0)}" for b in buckets])
++    if total < min_total:
++        rc = 2
++        msg = f"LOW_TOTAL(min={min_total}) " + msg
++    if int(counts.get("HIGH_VOL_LOW_LIQ", 0)) < min_hvll:
++        # HVLL can be rare; keep as soft signal only
++        rc = max(rc, 2)
++        msg = f"LOW_HVLL(min={min_hvll}) " + msg
++
++    try:
++        await r.set("state:exec_slippage_eval:probe_last_rc", str(rc))
++        await r.set("state:exec_slippage_eval:probe_last_msg", msg[:500])
++    except Exception:
++        pass
++
++    try:
++        await r.aclose()
++    except Exception:
++        pass
++    try:
++        await conn.close()
++    except Exception:
++        pass
++
++    return rc, msg
++
++
++def main() -> int:
++    rc, msg = asyncio.run(run())
++    print({"rc": rc, "msg": msg})
++    return int(rc)
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' /mnt/data/proj_base/orderflow_services/prometheus_alerts_slippage_calibrator_health_v1.yml /mnt/data/proj/orderflow_services/prometheus_alerts_slippage_calibrator_health_v1.yml
+--- /mnt/data/proj_base/orderflow_services/prometheus_alerts_slippage_calibrator_health_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj/orderflow_services/prometheus_alerts_slippage_calibrator_health_v1.yml	2026-02-24 20:56:48.219214558 +0000
+@@ -0,0 +1,68 @@
++groups:
++
++- name: of_slippage_calibrator_health_v1
++  interval: 60s
++  rules:
++
++  - alert: OF_SlippageCalibratorStale_Crit
++    expr: of_slippage_calib_last_ok_age_sec > 172800
++    for: 30m
++    labels:
++      severity: critical
++    annotations:
++      summary: "Slippage calibrator stale (last OK > 48h)"
++      description: |
++        Nightly slippage calibrator hasn't reported OK within 48 hours.
++        Check timers (of_timers_worker), DB view v_exec_slippage_eval, and Redis connectivity.
++      runbook_path: /runbooks/runbook_slippage_qa_p77.md
++
++  - alert: OF_SlippageCalibratorNoUpdates_Warn
++    expr: |
++      (of_slippage_calib_last_ok_age_sec < 7200)
++      and (of_slippage_calib_last_groups_total > 0)
++      and (of_slippage_calib_last_updated_groups == 0)
++    for: 15m
++    labels:
++      severity: warning
++    annotations:
++      summary: "Slippage calibrator ran but updated 0 groups"
++      description: |
++        Calibrator OK is recent, but updated_groups==0 despite groups_total>0.
++        Likely ratio/x_min filtering too strict or view returned degenerate rows.
++      runbook_path: /runbooks/runbook_slippage_qa_p77.md
++
++  - alert: OF_SlippageCoeffStaleHVLL_Warn
++    expr: max by (sym) (of_slippage_decomp_impact_coeff_age_sec{bucket="HIGH_VOL_LOW_LIQ"}) > 172800
++    for: 30m
++    labels:
++      severity: warning
++    annotations:
++      summary: "Impact coeff stale for HVLL bucket (>48h)"
++      description: |
++        slippage_decomp_impact_coeff_bps timestamp for HIGH_VOL_LOW_LIQ is stale.
++        Check calibrator state keys and whether v_exec_slippage_eval has sufficient HVLL samples.
++      runbook_path: /runbooks/runbook_slippage_qa_p77.md
++
++  - alert: OF_ExecSlippageEvalRowcountProbeStale_Crit
++    expr: of_exec_slippage_eval_rows_24h_age_sec > 7200
++    for: 30m
++    labels:
++      severity: critical
++    annotations:
++      summary: "Exec slippage eval rowcount probe stale (>2h)"
++      description: |
++        The hourly probe that writes rowcounts for v_exec_slippage_eval is stale.
++        Check of_timers_worker schedule (hourly :13) and DB connectivity.
++      runbook_path: /runbooks/runbook_slippage_qa_p77.md
++
++  - alert: OF_ExecSlippageEvalRowsLow_Warn
++    expr: sum(of_exec_slippage_eval_rows_24h) < 30
++    for: 1h
++    labels:
++      severity: warning
++    annotations:
++      summary: "v_exec_slippage_eval low rows in last 24h"
++      description: |
++        Total rows in v_exec_slippage_eval for last 24h is below threshold.
++        Could indicate: no closed trades, view broken, or ingestion lag.
++      runbook_path: /runbooks/runbook_slippage_qa_p77.md
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' /mnt/data/proj_base/orderflow_services/runbook_slippage_qa_p77.md /mnt/data/proj/orderflow_services/runbook_slippage_qa_p77.md
+--- /mnt/data/proj_base/orderflow_services/runbook_slippage_qa_p77.md	2026-02-24 10:39:48.000000000 +0000
++++ /mnt/data/proj/orderflow_services/runbook_slippage_qa_p77.md	2026-02-24 20:57:17.022158469 +0000
+@@ -28,6 +28,7 @@
+ ### Prometheus alerts
+ - `prometheus_alerts_slippage_qa_v1.yml`
+ - `prometheus_alerts_enforce_bucket_promoter_v1.yml`
++- `prometheus_alerts_slippage_calibrator_health_v1.yml`
+ 
+ ### Exporter metrics (port 9142)
+ - `of_enforce_bucket_flag{component="slippage|taker_flow", sym="global", bucket}`
+@@ -38,8 +39,30 @@
+ ## Triage
+ ### Alert: Promoter report stale
+ 1) Check timers: `of_timers_worker` logs around 06:10 UTC.
+-2) Check DB: `v_exec_slippage_eval` exists and returns rows for last 24h.
+-3) Check Redis: stream `metrics:of_gate` is populated (lookback 24h).
++2) Quick DB check (rowcount by bucket, last 24h):
++
++```sql
++select exec_regime_bucket, count(*)::bigint as n
++from v_exec_slippage_eval
++where ts >= now() - interval '24 hours'
++group by 1
++order by n desc;
++```
++
++3) Calibrator state keys (Redis):
++
++```bash
++redis-cli GET state:slippage_calib:last_ok_ts_ms
++redis-cli GET state:slippage_calib:last_run_ts_ms
++redis-cli GET state:slippage_calib:last_updated_groups
++redis-cli GET state:slippage_calib:last_groups_total
++redis-cli --scan --pattern 'state:slippage_calib:last:*' | head
++
++# per sym/bucket coefficient timestamp
++redis-cli GET cfg:slippage_decomp_impact_coeff_bps_ts_ms:BTCUSDT:HIGH_VOL_LOW_LIQ
++```
++
++4) Check Redis: stream `metrics:of_gate` is populated (lookback 24h).
+ 
+ ### Alert: Residual high while enforced
+ 1) Narrow enforcement to safest bucket:
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' /mnt/data/proj_base/services/of_timers_worker.py /mnt/data/proj/services/of_timers_worker.py
+--- /mnt/data/proj_base/services/of_timers_worker.py	2026-02-24 11:41:34.000000000 +0000
++++ /mnt/data/proj/services/of_timers_worker.py	2026-02-24 20:55:41.404880226 +0000
+@@ -98,7 +98,7 @@
+         return True
+ 
+ 
+-def _notify_stream(text: str, severity: str = "crit", sid: str = None) -> None:
++def _notify_stream(text: str, severity: str = "crit", sid: str = None, source: str = "of_gate_contract_smoke") -> None:
+     """Best-effort notification to Redis Stream (handled by telegram notifier worker)."""
+     stream = (
+         os.getenv("TELEGRAM_NOTIFY_STREAM")
+@@ -113,7 +113,7 @@
+ 
+     payload = {
+         "message": text,
+-        "source": "of_gate_contract_smoke",
++        "source": source,
+         "ts_ms": str(int(time.time() * 1000)),
+         "severity": severity,
+     }
+@@ -785,6 +785,45 @@
+     return run_tool("ml_analysis.tools.nightly_slippage_calibrator_v1", timeout=timeout_s)
+ 
+ 
++def run_exec_slippage_eval_rowcount_probe() -> bool:
++    """Hourly probe: v_exec_slippage_eval rowcount by bucket (P77).
++
++    Writes Redis state for exporter + alerts.
++    Alerts (via notify stream) only on soft/hard failure with cooldown.
++    """
++    if os.getenv("ENABLE_EXEC_SLIP_EVAL_ROWCOUNT_PROBE", "1") != "1":
++        return True
++    try:
++        rc, out, err = run_tool_rc(
++            "orderflow_services.exec_slippage_eval_rowcount_probe_p77_v1",
++            timeout=int(os.getenv("EXEC_SLIP_EVAL_ROWCOUNT_PROBE_TIMEOUT_S", "120")),
++        )
++    except Exception as e:
++        _notify_stream(
++            f"EXEC_SLIP_EVAL_ROWCOUNT_PROBE exception: {e}",
++            severity="crit",
++            sid="exec_slip_eval_rowcount_probe:exc",
++            source="exec_slip_eval_rowcount_probe",
++        )
++        return False
++
++    if int(rc) == 0:
++        return True
++
++    signature = f"rc={rc}|out={(out or '').strip()[:240]}|err={(err or '').strip()[:240]}"
++    cooldown_s = int(os.getenv("EXEC_SLIP_EVAL_ROWCOUNT_PROBE_COOLDOWN_S", str(6 * 3600)))
++    prefix = os.getenv("EXEC_SLIP_EVAL_ROWCOUNT_PROBE_DEDUP_PREFIX", "dedup:alert:exec_slip_eval_rowcount_probe:")
++    if _dedup_allow(signature, cooldown_s=cooldown_s, prefix=prefix):
++        sev = "warning" if int(rc) == 2 else "crit"
++        _notify_stream(
++            f"EXEC_SLIP_EVAL_ROWCOUNT_PROBE rc={rc} :: {signature}",
++            severity=sev,
++            sid="exec_slip_eval_rowcount_probe",
++            source="exec_slip_eval_rowcount_probe",
++        )
++    return False
++
++
+ def run_nightly_enforce_bucket_promoter() -> bool:
+     """Nightly proposer/applicator for bucket-aware enforcement.
+ 
+@@ -1599,6 +1638,13 @@
+                    run_decision_coverage_kpi()
+                    last_run["decision_coverage"] = now.timestamp()
+ 
++            # P77: Hourly:13 Exec slippage eval rowcount probe (v_exec_slippage_eval)
++            if minute >= 13 and minute < 14:
++                last = last_run.get("exec_slip_eval_rowcount_probe", 0)
++                if now.timestamp() - last > 3500:
++                    run_exec_slippage_eval_rowcount_probe()
++                    last_run["exec_slip_eval_rowcount_probe"] = now.timestamp()
++
+             # Sunday
+             if should_run("weekly_bench", 6, 40, wd=6):
+                 run_weekly_bench()
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' /mnt/data/proj_base/services/orderflow/tests/test_slippage_calibrator_health_rules_v1.py /mnt/data/proj/services/orderflow/tests/test_slippage_calibrator_health_rules_v1.py
+--- /mnt/data/proj_base/services/orderflow/tests/test_slippage_calibrator_health_rules_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj/services/orderflow/tests/test_slippage_calibrator_health_rules_v1.py	2026-02-24 20:57:44.814771422 +0000
+@@ -0,0 +1,57 @@
++from __future__ import annotations
++
++import os
++
++import pytest
++import yaml
++
++
++def _alerts_path(tick_flow_full: bool) -> str:
++    base = os.path.dirname(__file__)  # services/orderflow/tests
++    root = os.path.abspath(os.path.join(base, "..", "..", ".."))
++    if tick_flow_full:
++        return os.path.join(
++            root,
++            "tick_flow_full",
++            "orderflow_services",
++            "prometheus_alerts_slippage_calibrator_health_v1.yml",
++        )
++    return os.path.join(
++        root,
++        "orderflow_services",
++        "prometheus_alerts_slippage_calibrator_health_v1.yml",
++    )
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_slippage_calib_health_rules_yaml_parses(tick_flow_full: bool) -> None:
++    path = _alerts_path(tick_flow_full)
++    assert os.path.isfile(path), f"missing alerts file: {path}"
++    with open(path, "r", encoding="utf-8") as f:
++        doc = yaml.safe_load(f)
++    assert isinstance(doc, dict)
++    assert "groups" in doc
++    assert isinstance(doc["groups"], list) and len(doc["groups"]) >= 1
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_slippage_calib_health_rules_have_expected_alerts(tick_flow_full: bool) -> None:
++    path = _alerts_path(tick_flow_full)
++    with open(path, "r", encoding="utf-8") as f:
++        doc = yaml.safe_load(f)
++
++    groups = doc["groups"]
++    rules = []
++    for g in groups:
++        rs = g.get("rules", [])
++        if isinstance(rs, list):
++            rules.extend(rs)
++
++    alert_names = {r.get("alert") for r in rules if isinstance(r, dict) and r.get("alert")}
++    expected = {
++        "OF_SlippageCalibratorStale_Crit",
++        "OF_SlippageCoeffStaleHVLL_Warn",
++        "OF_ExecSlippageEvalRowcountProbeStale_Crit",
++    }
++    missing = expected - alert_names
++    assert not missing, f"missing alerts: {missing}; have={sorted(alert_names)}"
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' /mnt/data/proj_base/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py /mnt/data/proj/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py
+--- /mnt/data/proj_base/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py	2026-02-24 10:40:55.000000000 +0000
++++ /mnt/data/proj/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py	2026-02-24 20:54:02.617889100 +0000
+@@ -34,6 +34,15 @@
+   cfg:slippage_decomp_enforce_buckets:{sym} (optional)
+   cfg:taker_flow_gate_enforce_buckets:{sym} (optional)
+   cfg:slippage_decomp_impact_coeff_bps:{sym}:{bucket} (optional)
++  cfg:slippage_decomp_impact_coeff_bps_ts_ms:{sym}:{bucket} (optional)
++
++  state:slippage_calib:last_run_ts_ms
++  state:slippage_calib:last_ok_ts_ms
++  state:slippage_calib:last_updated_groups
++  state:slippage_calib:last_groups_total
++
++  state:exec_slippage_eval:rows_24h_ts_ms
++  state:exec_slippage_eval:rows_24h (hash: bucket->n, total->n)
+ 
+   proposal:enforce_bucket_promotion_report (fallback if status file missing)
+ 
+@@ -44,6 +53,14 @@
+ Outputs:
+   of_enforce_bucket_flag{component,sym,bucket} = 0/1
+   of_slippage_decomp_impact_coeff_bps{sym,bucket} = coeff (only if present)
++  of_slippage_decomp_impact_coeff_age_sec{sym,bucket} = age seconds since coeff update (if ts key present)
++
++  of_slippage_calib_last_ok_age_sec
++  of_slippage_calib_last_updated_groups
++  of_slippage_calib_last_groups_total
++
++  of_exec_slippage_eval_rows_24h{bucket}
++  of_exec_slippage_eval_rows_24h_age_sec
+ 
+   of_enforce_promoter_report_age_sec
+   of_enforce_promoter_apply_enabled
+@@ -173,6 +190,38 @@
+     ["sym", "bucket"],
+ )
+ 
++of_slippage_decomp_impact_coeff_age_sec = Gauge(
++    "of_slippage_decomp_impact_coeff_age_sec",
++    "age seconds since slippage decomp impact coefficient was last updated",
++    ["sym", "bucket"],
++)
++
++of_slippage_calib_last_ok_age_sec = Gauge(
++    "of_slippage_calib_last_ok_age_sec",
++    "age seconds since nightly slippage calibrator last OK",
++)
++
++of_slippage_calib_last_updated_groups = Gauge(
++    "of_slippage_calib_last_updated_groups",
++    "number of (sym,bucket) groups updated by last slippage calibrator run",
++)
++
++of_slippage_calib_last_groups_total = Gauge(
++    "of_slippage_calib_last_groups_total",
++    "number of (sym,bucket) groups discovered in last slippage calibrator run",
++)
++
++of_exec_slippage_eval_rows_24h = Gauge(
++    "of_exec_slippage_eval_rows_24h",
++    "rowcount of v_exec_slippage_eval in last 24 hours by exec_regime_bucket",
++    ["bucket"],
++)
++
++of_exec_slippage_eval_rows_24h_age_sec = Gauge(
++    "of_exec_slippage_eval_rows_24h_age_sec",
++    "age seconds since exec slippage eval rowcount probe last updated",
++)
++
+ of_enforce_promoter_report_age_sec = Gauge(
+     "of_enforce_promoter_report_age_sec", "age of last promoter report in seconds"
+ )
+@@ -324,6 +373,7 @@
+     def _export_coeffs(self) -> None:
+         if not self.redis or not self.symbols:
+             return
++        now_ms = _now_ms()
+         for sym in self.symbols:
+             for b in self.buckets:
+                 k = f"cfg:slippage_decomp_impact_coeff_bps:{sym}:{b}"
+@@ -332,9 +382,40 @@
+                     if v is None or str(v).strip() == "":
+                         continue
+                     of_slippage_decomp_impact_coeff_bps.labels(sym=sym, bucket=b).set(_as_float(v, 0.0))
++
++                    ts = _as_int(self.redis.get(f"cfg:slippage_decomp_impact_coeff_bps_ts_ms:{sym}:{b}"), 0)
++                    of_slippage_decomp_impact_coeff_age_sec.labels(sym=sym, bucket=b).set(
++                        (now_ms - ts) / 1000.0 if ts > 0 else float("nan")
++                    )
+                 except Exception:
+                     continue
+ 
++    def _export_slippage_calib_state(self) -> None:
++        if not self.redis:
++            return
++        try:
++            now_ms = _now_ms()
++            ok_ts = _as_int(self.redis.get("state:slippage_calib:last_ok_ts_ms"), 0)
++            of_slippage_calib_last_ok_age_sec.set((now_ms - ok_ts) / 1000.0 if ok_ts > 0 else float("nan"))
++            of_slippage_calib_last_updated_groups.set(float(_as_int(self.redis.get("state:slippage_calib:last_updated_groups"), 0)))
++            of_slippage_calib_last_groups_total.set(float(_as_int(self.redis.get("state:slippage_calib:last_groups_total"), 0)))
++        except Exception:
++            return
++
++    def _export_exec_slippage_eval_rows_probe(self) -> None:
++        if not self.redis:
++            return
++        try:
++            now_ms = _now_ms()
++            ts_ms = _as_int(self.redis.get("state:exec_slippage_eval:rows_24h_ts_ms"), 0)
++            of_exec_slippage_eval_rows_24h_age_sec.set((now_ms - ts_ms) / 1000.0 if ts_ms > 0 else float("nan"))
++            raw = self.redis.hgetall("state:exec_slippage_eval:rows_24h")
++            if isinstance(raw, dict):
++                for b in self.buckets:
++                    of_exec_slippage_eval_rows_24h.labels(bucket=b).set(float(_as_int(raw.get(b, 0), 0)))
++        except Exception:
++            return
++
+     def _read_promoter_report(self) -> Optional[Dict[str, Any]]:
+         # Prefer file (cheap), fallback to redis report key
+         obj = _load_json(self.promoter_status_path)
+@@ -485,6 +566,8 @@
+                 self._set_allow_flags(component="taker_flow", sym=sym, allow=t)
+ 
+         self._export_coeffs()
++        self._export_slippage_calib_state()
++        self._export_exec_slippage_eval_rows_probe()
+         self._export_promoter()
+         self._export_exec_slip_stats_refresh()
+         self._export_auto_apply_block()
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' /mnt/data/proj_base/tick_flow_full/orderflow_services/exec_slippage_eval_rowcount_probe_p77_v1.py /mnt/data/proj/tick_flow_full/orderflow_services/exec_slippage_eval_rowcount_probe_p77_v1.py
+--- /mnt/data/proj_base/tick_flow_full/orderflow_services/exec_slippage_eval_rowcount_probe_p77_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj/tick_flow_full/orderflow_services/exec_slippage_eval_rowcount_probe_p77_v1.py	2026-02-24 20:54:42.753056627 +0000
+@@ -0,0 +1,12 @@
++from __future__ import annotations
++
++"""Exec slippage eval rowcount probe (P77) — tick_flow_full mirror.
++
++See: orderflow_services/exec_slippage_eval_rowcount_probe_p77_v1.py
++"""
++
++from orderflow_services.exec_slippage_eval_rowcount_probe_p77_v1 import main
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' /mnt/data/proj_base/tick_flow_full/orderflow_services/prometheus_alerts_slippage_calibrator_health_v1.yml /mnt/data/proj/tick_flow_full/orderflow_services/prometheus_alerts_slippage_calibrator_health_v1.yml
+--- /mnt/data/proj_base/tick_flow_full/orderflow_services/prometheus_alerts_slippage_calibrator_health_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj/tick_flow_full/orderflow_services/prometheus_alerts_slippage_calibrator_health_v1.yml	2026-02-24 20:57:04.645393699 +0000
+@@ -0,0 +1,68 @@
++groups:
++
++- name: of_slippage_calibrator_health_v1
++  interval: 60s
++  rules:
++
++  - alert: OF_SlippageCalibratorStale_Crit
++    expr: of_slippage_calib_last_ok_age_sec > 172800
++    for: 30m
++    labels:
++      severity: critical
++    annotations:
++      summary: "Slippage calibrator stale (last OK > 48h)"
++      description: |
++        Nightly slippage calibrator hasn't reported OK within 48 hours.
++        Check timers (of_timers_worker), DB view v_exec_slippage_eval, and Redis connectivity.
++      runbook_path: /runbooks/runbook_slippage_qa_p77.md
++
++  - alert: OF_SlippageCalibratorNoUpdates_Warn
++    expr: |
++      (of_slippage_calib_last_ok_age_sec < 7200)
++      and (of_slippage_calib_last_groups_total > 0)
++      and (of_slippage_calib_last_updated_groups == 0)
++    for: 15m
++    labels:
++      severity: warning
++    annotations:
++      summary: "Slippage calibrator ran but updated 0 groups"
++      description: |
++        Calibrator OK is recent, but updated_groups==0 despite groups_total>0.
++        Likely ratio/x_min filtering too strict or view returned degenerate rows.
++      runbook_path: /runbooks/runbook_slippage_qa_p77.md
++
++  - alert: OF_SlippageCoeffStaleHVLL_Warn
++    expr: max by (sym) (of_slippage_decomp_impact_coeff_age_sec{bucket="HIGH_VOL_LOW_LIQ"}) > 172800
++    for: 30m
++    labels:
++      severity: warning
++    annotations:
++      summary: "Impact coeff stale for HVLL bucket (>48h)"
++      description: |
++        slippage_decomp_impact_coeff_bps timestamp for HIGH_VOL_LOW_LIQ is stale.
++        Check calibrator state keys and whether v_exec_slippage_eval has sufficient HVLL samples.
++      runbook_path: /runbooks/runbook_slippage_qa_p77.md
++
++  - alert: OF_ExecSlippageEvalRowcountProbeStale_Crit
++    expr: of_exec_slippage_eval_rows_24h_age_sec > 7200
++    for: 30m
++    labels:
++      severity: critical
++    annotations:
++      summary: "Exec slippage eval rowcount probe stale (>2h)"
++      description: |
++        The hourly probe that writes rowcounts for v_exec_slippage_eval is stale.
++        Check of_timers_worker schedule (hourly :13) and DB connectivity.
++      runbook_path: /runbooks/runbook_slippage_qa_p77.md
++
++  - alert: OF_ExecSlippageEvalRowsLow_Warn
++    expr: sum(of_exec_slippage_eval_rows_24h) < 30
++    for: 1h
++    labels:
++      severity: warning
++    annotations:
++      summary: "v_exec_slippage_eval low rows in last 24h"
++      description: |
++        Total rows in v_exec_slippage_eval for last 24h is below threshold.
++        Could indicate: no closed trades, view broken, or ingestion lag.
++      runbook_path: /runbooks/runbook_slippage_qa_p77.md
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' /mnt/data/proj_base/tick_flow_full/orderflow_services/runbook_slippage_qa_p77.md /mnt/data/proj/tick_flow_full/orderflow_services/runbook_slippage_qa_p77.md
+--- /mnt/data/proj_base/tick_flow_full/orderflow_services/runbook_slippage_qa_p77.md	2026-02-24 10:39:48.000000000 +0000
++++ /mnt/data/proj/tick_flow_full/orderflow_services/runbook_slippage_qa_p77.md	2026-02-24 20:57:28.222283274 +0000
+@@ -28,6 +28,7 @@
+ ### Prometheus alerts
+ - `prometheus_alerts_slippage_qa_v1.yml`
+ - `prometheus_alerts_enforce_bucket_promoter_v1.yml`
++- `prometheus_alerts_slippage_calibrator_health_v1.yml`
+ 
+ ### Exporter metrics (port 9142)
+ - `of_enforce_bucket_flag{component="slippage|taker_flow", sym="global", bucket}`
+@@ -38,8 +39,30 @@
+ ## Triage
+ ### Alert: Promoter report stale
+ 1) Check timers: `of_timers_worker` logs around 06:10 UTC.
+-2) Check DB: `v_exec_slippage_eval` exists and returns rows for last 24h.
+-3) Check Redis: stream `metrics:of_gate` is populated (lookback 24h).
++2) Quick DB check (rowcount by bucket, last 24h):
++
++```sql
++select exec_regime_bucket, count(*)::bigint as n
++from v_exec_slippage_eval
++where ts >= now() - interval '24 hours'
++group by 1
++order by n desc;
++```
++
++3) Calibrator state keys (Redis):
++
++```bash
++redis-cli GET state:slippage_calib:last_ok_ts_ms
++redis-cli GET state:slippage_calib:last_run_ts_ms
++redis-cli GET state:slippage_calib:last_updated_groups
++redis-cli GET state:slippage_calib:last_groups_total
++redis-cli --scan --pattern 'state:slippage_calib:last:*' | head
++
++# per sym/bucket coefficient timestamp
++redis-cli GET cfg:slippage_decomp_impact_coeff_bps_ts_ms:BTCUSDT:HIGH_VOL_LOW_LIQ
++```
++
++4) Check Redis: stream `metrics:of_gate` is populated (lookback 24h).
+ 
+ ### Alert: Residual high while enforced
+ 1) Narrow enforcement to safest bucket:
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' /mnt/data/proj_base/tick_flow_full/services/of_timers_worker.py /mnt/data/proj/tick_flow_full/services/of_timers_worker.py
+--- /mnt/data/proj_base/tick_flow_full/services/of_timers_worker.py	2026-02-24 09:13:12.000000000 +0000
++++ /mnt/data/proj/tick_flow_full/services/of_timers_worker.py	2026-02-24 20:56:25.424044648 +0000
+@@ -98,7 +98,7 @@
+         return True
+ 
+ 
+-def _notify_stream(text: str, severity: str = "crit", sid: str = None) -> None:
++def _notify_stream(text: str, severity: str = "crit", sid: str = None, source: str = "of_gate_contract_smoke") -> None:
+     """Best-effort notification to Redis Stream (handled by telegram notifier worker)."""
+     stream = (
+         os.getenv("TELEGRAM_NOTIFY_STREAM")
+@@ -113,7 +113,7 @@
+ 
+     payload = {
+         "message": text,
+-        "source": "of_gate_contract_smoke",
++        "source": source,
+         "ts_ms": str(int(time.time() * 1000)),
+         "severity": severity,
+     }
+@@ -741,6 +741,41 @@
+     return run_tool("ml_analysis.tools.nightly_slippage_calibrator_v1", timeout=timeout_s)
+ 
+ 
++def run_exec_slippage_eval_rowcount_probe() -> bool:
++    """Hourly probe: v_exec_slippage_eval rowcount by bucket (P77)."""
++    if os.getenv("ENABLE_EXEC_SLIP_EVAL_ROWCOUNT_PROBE", "1") != "1":
++        return True
++    try:
++        rc, out, err = run_tool_rc(
++            "orderflow_services.exec_slippage_eval_rowcount_probe_p77_v1",
++            timeout=int(os.getenv("EXEC_SLIP_EVAL_ROWCOUNT_PROBE_TIMEOUT_S", "120")),
++        )
++    except Exception as e:
++        _notify_stream(
++            f"EXEC_SLIP_EVAL_ROWCOUNT_PROBE exception: {e}",
++            severity="crit",
++            sid="exec_slip_eval_rowcount_probe:exc",
++            source="exec_slip_eval_rowcount_probe",
++        )
++        return False
++
++    if int(rc) == 0:
++        return True
++
++    signature = f"rc={rc}|out={(out or '').strip()[:240]}|err={(err or '').strip()[:240]}"
++    cooldown_s = int(os.getenv("EXEC_SLIP_EVAL_ROWCOUNT_PROBE_COOLDOWN_S", str(6 * 3600)))
++    prefix = os.getenv("EXEC_SLIP_EVAL_ROWCOUNT_PROBE_DEDUP_PREFIX", "dedup:alert:exec_slip_eval_rowcount_probe:")
++    if _dedup_allow(signature, cooldown_s=cooldown_s, prefix=prefix):
++        sev = "warning" if int(rc) == 2 else "crit"
++        _notify_stream(
++            f"EXEC_SLIP_EVAL_ROWCOUNT_PROBE rc={rc} :: {signature}",
++            severity=sev,
++            sid="exec_slip_eval_rowcount_probe",
++            source="exec_slip_eval_rowcount_probe",
++        )
++    return False
++
++
+ def run_nightly_enforce_bucket_promoter() -> bool:
+     """Nightly proposer/applicator for bucket-aware enforcement.
+ 
+@@ -1542,6 +1577,13 @@
+                    run_decision_coverage_kpi()
+                    last_run["decision_coverage"] = now.timestamp()
+ 
++            # P77: Hourly:13 Exec slippage eval rowcount probe (v_exec_slippage_eval)
++            if minute >= 13 and minute < 14:
++                last = last_run.get("exec_slip_eval_rowcount_probe", 0)
++                if now.timestamp() - last > 3500:
++                    run_exec_slippage_eval_rowcount_probe()
++                    last_run["exec_slip_eval_rowcount_probe"] = now.timestamp()
++
+             # Sunday
+             if should_run("weekly_bench", 6, 40, wd=6):
+                 run_weekly_bench()
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' /mnt/data/proj_base/tick_flow_full/tools/nightly_slippage_calibrator_v1.py /mnt/data/proj/tick_flow_full/tools/nightly_slippage_calibrator_v1.py
+--- /mnt/data/proj_base/tick_flow_full/tools/nightly_slippage_calibrator_v1.py	2026-02-24 04:26:19.000000000 +0000
++++ /mnt/data/proj/tick_flow_full/tools/nightly_slippage_calibrator_v1.py	2026-02-24 20:52:52.041563268 +0000
+@@ -3,6 +3,7 @@
+ import os
+ import logging
+ import asyncio
++import time
+ from typing import Dict, List, Tuple, Any, Optional
+ 
+ import asyncpg
+@@ -79,6 +80,13 @@
+             pass
+         return False
+ 
++    now_wall_ms = int(time.time() * 1000)
++    # State keys for orchestration + exporters
++    try:
++        await r.set("state:slippage_calib:last_run_ts_ms", str(now_wall_ms))
++    except Exception:
++        pass
++
+     # Calibration hyperparameters (all tunable via ENV)
+     m_spread     = _env_float("CALIB_SPREAD_MULT",    "0.5")
+     size_ref     = _env_float("CALIB_SIZE_REF_USD",   "10000.0")
+@@ -137,6 +145,11 @@
+ 
+     logger.info("Groups found: %d", len(groups))
+ 
++    try:
++        await r.set("state:slippage_calib:last_groups_total", str(len(groups)))
++    except Exception:
++        pass
++
+     updated = 0
+     for (sym, bucket), ratios in sorted(groups.items()):
+         n = len(ratios)
+@@ -161,6 +174,12 @@
+ 
+         c_new = max(c_min, min(c_max, c_new))
+         await r.set(key, f"{c_new:.2f}")
++        # Per-key timestamp (used by exporter/alerts)
++        try:
++            await r.set(f"cfg:slippage_decomp_impact_coeff_bps_ts_ms:{sym}:{bucket}", str(now_wall_ms))
++            await r.set(f"state:slippage_calib:last:{sym}:{bucket}", str(now_wall_ms))
++        except Exception:
++            pass
+         updated += 1
+ 
+         logger.info("[%s|%s] n=%d q=%.2f fit=%.2f -> new=%.2f (old=%s)",
+@@ -172,6 +191,13 @@
+     except Exception:
+         pass
+ 
++    try:
++        await r.set("state:slippage_calib:last_updated_groups", str(updated))
++        await r.set("state:slippage_calib:last_ok_ts_ms", str(now_wall_ms))
++        await r.set("state:slippage_calib:last_ok", "1")
++    except Exception:
++        pass
++
+     logger.info("done: updated=%d", updated)
+     return True
+ 

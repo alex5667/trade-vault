@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/spatial/transform/_rotation_spline.py
+# hypothesis_version: 6.148.10
+
+[1e-09, 0.0001, 0.5, 120, 180, 720, 12604, 'ijk,ik->ij', 'right']

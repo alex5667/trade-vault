@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signals/exec_filters.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 50.0, 500.0, 1000, 3570, 3600, 10000, 'asia', 'atr', 'europe', 'liquidity_score_norm', 'spread_bps', 'us']

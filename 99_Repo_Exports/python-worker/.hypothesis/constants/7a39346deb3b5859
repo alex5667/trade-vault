@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/scoring/confidence_scorer.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.02, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.7, 0.9, 0.95, 0.98, 1.0, 1.2, 1.5, 1.8, 2.0, 2.5, 4.0, 12.0, 'OBI_windowLevels', 'SignalContext', 'absorb', 'absorption', 'atrQ', 'atr_q', 'atr_q_lookback', 'atr_q_main', 'atr_quantile', 'atr_regime', 'book_quality', 'breakout', 'cluster_z', 'confidence_0_1', 'deltaSpikeZ', 'hard_penalty_atr', 'hard_penalty_total', 'l2_is_stale_now', 'l2_stale', 'main_z', 'market_mode', 'mean', 'meanrev', 'momentum', 'obi_persist', 'obi_windowLevels', 'obi_window_levels', 'obi_z', 'progress_score', 'range_vs_atr', 'revert', 'spread_bps', 'w_atr', 'w_book', 'w_obi', 'w_progress', 'w_z', 'weakProgress', 'weakProgress_ratio', 'weak_flag', 'weak_ratio', 'z_core']

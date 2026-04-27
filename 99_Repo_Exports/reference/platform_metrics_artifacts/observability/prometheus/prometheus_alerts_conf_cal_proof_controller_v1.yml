@@ -1,0 +1,45 @@
+groups:
+- name: conf-cal-proof-controller-v1
+  rules:
+  - alert: ConfCalProofReadFailed
+    expr: conf_cal_proof_read_ok == 0
+    for: 10m
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "cannot read proof state JSON"
+      description: "Exporter cannot read/parse proof state JSON. Check CONF_CAL_PROOF_STATE_PATH,
+        permissions, and controller schedule."
+      runbook: "orderflow_services/runbook_conf_cal_proof_state_controller_v1.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: ConfCalProofStale
+    expr: (conf_cal_proof_valid == 1) and (conf_cal_proof_evidence_age_sec > 
+      21600)
+    for: 30m
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "proof evidence is stale"
+      description: "valid proof exists but evidence_ts is older than 6h. Strategy
+        will stop calibrated gating in cal_after_proof mode."
+      runbook: "orderflow_services/runbook_conf_cal_proof_state_controller_v1.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: ConfCalProofValidButLiveDegrade
+    expr: (conf_cal_proof_valid == 1) and (conf_cal_live_degrade == 1)
+    for: 30m
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "proof valid while live guard degrades"
+      description: "Live health loop indicates degradation while proof remains valid.
+        Investigate drift, bundle version, and rollback behavior."
+      runbook: "orderflow_services/runbook_conf_cal_proof_state_controller_v1.md"
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd

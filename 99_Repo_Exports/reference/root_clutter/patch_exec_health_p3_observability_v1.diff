@@ -1,0 +1,1401 @@
+--- a/services/orderflow/exec_health_rollups.py	2026-03-07 10:24:16.665724246 +0000
++++ b/services/orderflow/exec_health_rollups.py	2026-03-07 10:48:33.378725884 +0000
+@@ -119,6 +119,14 @@
+     rollups: Dict[str, float] = field(default_factory=dict)
+ 
+ 
++@dataclass(frozen=True)
++class ExecHealthPolicySnapshot:
++    profile: str
++    scope: str
++    mode: str
++    thresholds: ExecHealthThresholds
++
++
+ 
+ def build_rollup_keys(
+     *,
+@@ -304,10 +312,17 @@
+     return "monitor"
+ 
+ 
++def get_exec_health_policy_from_env(*, profile: str, scope: str = "edge") -> ExecHealthPolicySnapshot:
++    prof = str(profile or os.getenv("GATE_PROFILE", "default") or "default").strip().lower()
++    thr = ExecHealthThresholds.from_env(prefix="EXEC_")
++    mode = _resolve_mode(profile=prof, scope=scope)
++    return ExecHealthPolicySnapshot(profile=prof, scope=str(scope), mode=mode, thresholds=thr)
++
+ 
+ def decide_exec_health_from_env(*, profile: str, rollups: Mapping[str, Any], scope: str = "edge") -> ExecHealthDecision:
+-    thr = ExecHealthThresholds.from_env(prefix="EXEC_")
+-    mode = _resolve_mode(profile=profile, scope=scope)
++    pol = get_exec_health_policy_from_env(profile=profile, scope=scope)
++    thr = pol.thresholds
++    mode = pol.mode
+     if mode == "off":
+         return ExecHealthDecision(apply=False, veto=False, mode=mode, scope=scope, rollups=dict(rollups or {}))
+ 
+--- a/services/orderflow/metrics_exec_health_p6.py	2026-03-07 08:55:01.000000000 +0000
++++ b/services/orderflow/metrics_exec_health_p6.py	2026-03-07 10:49:19.093385377 +0000
+@@ -1,8 +1,10 @@
+-"""Prometheus metrics for P6 ExecutionHealthGate.
++"""Prometheus metrics registry for ExecHealth observability.
+ 
+-Cardinality policy:
+-- Prefer {symbol} only.
+-- Reason label is a finite set.
++Design goals
++------------
++- One registry module shared by all ExecHealth consumers.
++- Low-cardinality labels only: {scope, symbol, metric, mode, reason, flag, where}.
++- Backward-compatible legacy counters/histogram kept for existing queries.
+ """
+ 
+ from __future__ import annotations
+@@ -42,24 +44,109 @@
+         return None
+ 
+ 
++# ---------------------------------------------------------------------------
++# Legacy metrics (keep names stable for backward compatibility).
++# ---------------------------------------------------------------------------
+ exec_health_apply_total = _get_or_create(
+     "exec_health_apply_total",
+     Counter,
+-    "ExecutionHealthGate applied (monitor/tighten/veto)",
++    "ExecutionHealthGate applied (legacy aggregate without scope)",
+     labelnames=("symbol", "mode"),
+ )
+ 
+ exec_health_veto_total = _get_or_create(
+     "exec_health_veto_total",
+     Counter,
+-    "ExecutionHealthGate veto count",
++    "ExecutionHealthGate veto count (legacy aggregate without scope)",
+     labelnames=("symbol", "reason"),
+ )
+ 
+ exec_health_tighten_add_bps = _get_or_create(
+     "exec_health_tighten_add_bps",
+     Histogram,
+-    "Added slippage (bps) due to execution health tighten",
++    "Added slippage (bps) due to execution health tighten (legacy aggregate without scope)",
+     labelnames=("symbol",),
+     buckets=(0.5, 1, 2, 3, 4, 6, 8, 10, 15),
+ )
++
++
++# ---------------------------------------------------------------------------
++# Scoped SoT observability metrics.
++# ---------------------------------------------------------------------------
++exec_health_decision_total = _get_or_create(
++    "exec_health_decision_total",
++    Counter,
++    "ExecHealth decisions by scope/mode/outcome/reason",
++    labelnames=("scope", "symbol", "mode", "outcome", "reason"),
++)
++
++exec_health_flag_total = _get_or_create(
++    "exec_health_flag_total",
++    Counter,
++    "ExecHealth flag hits by scope/symbol/flag",
++    labelnames=("scope", "symbol", "flag"),
++)
++
++exec_health_reader_errors_total = _get_or_create(
++    "exec_health_reader_errors_total",
++    Counter,
++    "ExecHealth rollup/telemetry read errors",
++    labelnames=("scope", "where"),
++)
++
++exec_health_rollup_value_bps = _get_or_create(
++    "exec_health_rollup_value_bps",
++    Gauge,
++    "Latest ExecHealth rollup value in bps",
++    labelnames=("scope", "symbol", "metric"),
++)
++
++exec_health_rollup_present = _get_or_create(
++    "exec_health_rollup_present",
++    Gauge,
++    "Whether a given ExecHealth rollup metric was present (1/0)",
++    labelnames=("scope", "symbol", "metric"),
++)
++
++exec_health_rollup_worst_delta_sec = _get_or_create(
++    "exec_health_rollup_worst_delta_sec",
++    Gauge,
++    "Delta window (sec) that produced the worst-case multi-delta rollup",
++    labelnames=("scope", "symbol", "metric"),
++)
++
++exec_health_policy_threshold_bps = _get_or_create(
++    "exec_health_policy_threshold_bps",
++    Gauge,
++    "Configured ExecHealth threshold in bps by scope/metric",
++    labelnames=("scope", "metric"),
++)
++
++exec_health_policy_mode = _get_or_create(
++    "exec_health_policy_mode",
++    Gauge,
++    "ExecHealth effective mode one-hot by scope/mode",
++    labelnames=("scope", "mode"),
++)
++
++exec_health_tighten_add_bps_scoped = _get_or_create(
++    "exec_health_tighten_add_bps_scoped",
++    Histogram,
++    "Added slippage (bps) due to execution health tighten by scope",
++    labelnames=("scope", "symbol"),
++    buckets=(0.5, 1, 2, 3, 4, 6, 8, 10, 15),
++)
++
++exec_health_tighten_k = _get_or_create(
++    "exec_health_tighten_k",
++    Gauge,
++    "Current ExecHealth tighten_k multiplier",
++    labelnames=("scope", "symbol"),
++)
++
++exec_health_last_event_ts_ms = _get_or_create(
++    "exec_health_last_event_ts_ms",
++    Gauge,
++    "Last ExecHealth event timestamp in epoch ms",
++    labelnames=("scope", "symbol"),
++)
+--- a/services/orderflow/exec_health_observability.py	1970-01-01 00:00:00.000000000 +0000
++++ b/services/orderflow/exec_health_observability.py	2026-03-07 10:50:00.100089975 +0000
+@@ -0,0 +1,168 @@
++from __future__ import annotations
++
++"""Single-writer observability helpers for ExecHealth.
++
++This module is intentionally side-effect free unless the caller explicitly passes
++rollups/decision from the already computed SoT path. It never re-reads Redis.
++That keeps observability aligned with the exact data/decision used by:
++  - EdgeCostGate
++  - EntryPolicyService
++  - SignalPipeline
++"""
++
++import time
++from typing import Any, Mapping, Optional
++
++from services.orderflow.exec_health_rollups import (
++    ExecHealthDecision,
++    get_exec_health_policy_from_env,
++)
++from services.orderflow.metrics_exec_health_p6 import (
++    exec_health_apply_total,
++    exec_health_decision_total,
++    exec_health_flag_total,
++    exec_health_last_event_ts_ms,
++    exec_health_policy_mode,
++    exec_health_policy_threshold_bps,
++    exec_health_reader_errors_total,
++    exec_health_rollup_present,
++    exec_health_rollup_value_bps,
++    exec_health_rollup_worst_delta_sec,
++    exec_health_tighten_add_bps,
++    exec_health_tighten_add_bps_scoped,
++    exec_health_tighten_k,
++    exec_health_veto_total,
++)
++
++_MODE_SET = ("off", "monitor", "tighten", "veto")
++_THRESHOLD_METRICS = (
++    ("is_p95_bps", "max_is_p95_bps"),
++    ("perm_impact_p95_bps", "max_perm_impact_p95_bps"),
++    ("realized_spread_p50_bps", "min_realized_spread_p50_bps"),
++)
++_ROLLUP_METRICS = ("is_p95_bps", "perm_impact_p95_bps", "realized_spread_p50_bps")
++_DELTA_METRICS = (
++    ("perm_impact_p95_bps", "perm_impact_p95_bps_delta_sec"),
++    ("realized_spread_p50_bps", "realized_spread_p50_bps_delta_sec"),
++)
++
++
++def _f(x: Any, d: float = 0.0) -> float:
++    try:
++        v = float(x)
++    except Exception:
++        return float(d)
++    if v != v or v in (float("inf"), float("-inf")):
++        return float(d)
++    return float(v)
++
++
++def _safe_set(metric: Any, *, labels: dict[str, Any], value: float) -> None:
++    try:
++        if metric is not None:
++            metric.labels(**labels).set(float(value))
++    except Exception:
++        pass
++
++
++def _safe_inc(metric: Any, *, labels: dict[str, Any], value: float = 1.0) -> None:
++    try:
++        if metric is not None:
++            metric.labels(**labels).inc(float(value))
++    except Exception:
++        pass
++
++
++def _safe_observe(metric: Any, *, labels: dict[str, Any], value: float) -> None:
++    try:
++        if metric is not None:
++            metric.labels(**labels).observe(float(value))
++    except Exception:
++        pass
++
++
++def record_exec_health_reader_error(*, scope: str, where: str) -> None:
++    _safe_inc(exec_health_reader_errors_total, labels={"scope": str(scope or "unknown"), "where": str(where or "unknown")})
++
++
++def record_exec_health_observability(
++    *,
++    symbol: str,
++    scope: str,
++    profile: str,
++    rollups: Optional[Mapping[str, Any]] = None,
++    decision: Optional[ExecHealthDecision] = None,
++    now_ms: Optional[int] = None,
++) -> None:
++    """Publish a single canonical ExecHealth telemetry sample.
++
++    Inputs must come from the already evaluated SoT path. The function only emits
++    Prometheus metrics; it does not mutate trading payloads and does not access Redis.
++    """
++    sym = str(symbol or "UNKNOWN").upper()
++    sc = str(scope or "unknown")
++    pol = get_exec_health_policy_from_env(profile=profile, scope=sc)
++    thr = pol.thresholds
++    ts_ms = int(now_ms or round(time.time() * 1000.0))
++
++    _safe_set(exec_health_last_event_ts_ms, labels={"scope": sc, "symbol": sym}, value=ts_ms)
++
++    for mode in _MODE_SET:
++        _safe_set(exec_health_policy_mode, labels={"scope": sc, "mode": mode}, value=1.0 if pol.mode == mode else 0.0)
++
++    for metric_name, attr_name in _THRESHOLD_METRICS:
++        _safe_set(
++            exec_health_policy_threshold_bps,
++            labels={"scope": sc, "metric": metric_name},
++            value=_f(getattr(thr, attr_name, 0.0), 0.0),
++        )
++
++    roll = dict(rollups or {})
++    for metric_name in _ROLLUP_METRICS:
++        present = 1.0 if metric_name in roll else 0.0
++        _safe_set(exec_health_rollup_present, labels={"scope": sc, "symbol": sym, "metric": metric_name}, value=present)
++        if present:
++            _safe_set(
++                exec_health_rollup_value_bps,
++                labels={"scope": sc, "symbol": sym, "metric": metric_name},
++                value=_f(roll.get(metric_name), 0.0),
++            )
++
++    for metric_name, delta_key in _DELTA_METRICS:
++        val = roll.get(delta_key)
++        if val is not None:
++            _safe_set(
++                exec_health_rollup_worst_delta_sec,
++                labels={"scope": sc, "symbol": sym, "metric": metric_name},
++                value=_f(val, 0.0),
++            )
++
++    if decision is None:
++        return
++
++    outcome = "veto" if bool(decision.veto) else ("apply" if bool(decision.apply) else "pass")
++    reason = str(decision.reason_code or "NONE")
++    mode = str(decision.mode or pol.mode or "unknown")
++    _safe_inc(
++        exec_health_decision_total,
++        labels={"scope": sc, "symbol": sym, "mode": mode, "outcome": outcome, "reason": reason},
++    )
++
++    if bool(decision.apply):
++        _safe_inc(exec_health_apply_total, labels={"symbol": sym, "mode": mode})
++    if bool(decision.veto):
++        _safe_inc(exec_health_veto_total, labels={"symbol": sym, "reason": reason})
++
++    for flag in list(decision.flags or []):
++        _safe_inc(exec_health_flag_total, labels={"scope": sc, "symbol": sym, "flag": str(flag)})
++
++    add_bps = _f(getattr(decision, "tighten_add_bps", 0.0), 0.0)
++    if add_bps > 0.0:
++        _safe_observe(exec_health_tighten_add_bps_scoped, labels={"scope": sc, "symbol": sym}, value=add_bps)
++        _safe_observe(exec_health_tighten_add_bps, labels={"symbol": sym}, value=add_bps)
++
++    _safe_set(
++        exec_health_tighten_k,
++        labels={"scope": sc, "symbol": sym},
++        value=_f(getattr(decision, "tighten_k_mult", 1.0), 1.0),
++    )
+--- a/services/orderflow/tests/test_exec_health_observability_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/services/orderflow/tests/test_exec_health_observability_v1.py	2026-03-07 10:53:55.088955976 +0000
+@@ -0,0 +1,117 @@
++from __future__ import annotations
++
++import os
++from contextlib import contextmanager
++from pathlib import Path
++
++from services.orderflow.exec_health_observability import (
++    record_exec_health_observability,
++    record_exec_health_reader_error,
++)
++from services.orderflow.exec_health_rollups import decide_exec_health_from_env
++from services.orderflow.metrics_exec_health_p6 import (
++    exec_health_decision_total,
++    exec_health_policy_mode,
++    exec_health_policy_threshold_bps,
++    exec_health_reader_errors_total,
++    exec_health_rollup_present,
++    exec_health_rollup_value_bps,
++    exec_health_rollup_worst_delta_sec,
++)
++
++
++@contextmanager
++def _env(**kwargs):
++    old = {k: os.environ.get(k) for k in kwargs}
++    try:
++        for k, v in kwargs.items():
++            os.environ[k] = str(v)
++        yield
++    finally:
++        for k, v in old.items():
++            if v is None:
++                os.environ.pop(k, None)
++            else:
++                os.environ[k] = v
++
++
++def _sample_value(metric, labels: dict[str, str], suffix: str | None = None) -> float | None:
++    wanted = metric._name + (suffix or "")
++    for fam in metric.collect():
++        for s in fam.samples:
++            if s.name == wanted and all(s.labels.get(k) == v for k, v in labels.items()):
++                return float(s.value)
++    return None
++
++
++def test_exec_health_observability_emits_policy_mode_and_thresholds() -> None:
++    with _env(EXEC_HEALTH_MODE="auto", EXEC_MAX_IS_P95_BPS="5.5"):
++        record_exec_health_observability(
++            symbol="TESTOBS_A",
++            scope="edge",
++            profile="strict",
++            rollups={},
++            decision=None,
++            now_ms=123456,
++        )
++
++    assert _sample_value(exec_health_policy_mode, {"scope": "edge", "mode": "tighten"}) == 1.0
++    assert _sample_value(exec_health_policy_threshold_bps, {"scope": "edge", "metric": "is_p95_bps"}) == 5.5
++    assert _sample_value(exec_health_rollup_present, {"scope": "edge", "symbol": "TESTOBS_A", "metric": "is_p95_bps"}) == 0.0
++
++
++def test_exec_health_observability_emits_rollups_and_veto_decision() -> None:
++    rollups = {
++        "is_p95_bps": 8.0,
++        "perm_impact_p95_bps": 4.0,
++        "perm_impact_p95_bps_delta_sec": 5,
++        "realized_spread_p50_bps": -1.5,
++        "realized_spread_p50_bps_delta_sec": 1,
++    }
++    with _env(
++        EXEC_HEALTH_MODE="auto",
++        EXEC_MAX_IS_P95_BPS="5",
++        EXEC_MAX_PERM_IMPACT_P95_BPS="3",
++        EXEC_MIN_REALIZED_SPREAD_P50_BPS="-999",
++        EXEC_VETO_REQUIRE_BOTH_IS_AND_IMPACT="1",
++    ):
++        dec = decide_exec_health_from_env(profile="hard", rollups=rollups, scope="pipeline")
++        record_exec_health_observability(
++            symbol="TESTOBS_B",
++            scope="pipeline",
++            profile="hard",
++            rollups=rollups,
++            decision=dec,
++            now_ms=222222,
++        )
++
++    assert dec.veto is True
++    assert _sample_value(exec_health_rollup_present, {"scope": "pipeline", "symbol": "TESTOBS_B", "metric": "is_p95_bps"}) == 1.0
++    assert _sample_value(exec_health_rollup_value_bps, {"scope": "pipeline", "symbol": "TESTOBS_B", "metric": "perm_impact_p95_bps"}) == 4.0
++    assert _sample_value(exec_health_rollup_worst_delta_sec, {"scope": "pipeline", "symbol": "TESTOBS_B", "metric": "perm_impact_p95_bps"}) == 5.0
++    assert _sample_value(
++        exec_health_decision_total,
++        {
++            "scope": "pipeline",
++            "symbol": "TESTOBS_B",
++            "mode": "veto",
++            "outcome": "veto",
++            "reason": "VETO_IMPL_SHORTFALL_P95",
++        },
++        suffix="_total",
++    ) == 1.0
++
++
++def test_exec_health_reader_error_counter_increments() -> None:
++    before = _sample_value(exec_health_reader_errors_total, {"scope": "entry_policy", "where": "read_rollups"}, suffix="_total") or 0.0
++    record_exec_health_reader_error(scope="entry_policy", where="read_rollups")
++    after = _sample_value(exec_health_reader_errors_total, {"scope": "entry_policy", "where": "read_rollups"}, suffix="_total") or 0.0
++    assert after >= before + 1.0
++
++
++def test_signal_pipeline_has_single_exec_health_overlay_block() -> None:
++    main_path = Path(__file__).resolve().parents[1] / "signal_pipeline.py"
++    mirror_path = Path(__file__).resolve().parents[3] / "tick_flow_full" / "services" / "orderflow" / "signal_pipeline.py"
++    needle = "PRE-PUBLISH EXECUTION HEALTH (single source of truth with EntryPolicy/EdgeCost)"
++    assert main_path.read_text().count(needle) == 1
++    assert mirror_path.read_text().count(needle) == 1
+--- a/services/orderflow/signal_pipeline.py	2026-03-07 10:22:40.106718047 +0000
++++ b/services/orderflow/signal_pipeline.py	2026-03-07 10:52:17.575387006 +0000
+@@ -39,6 +39,7 @@
+ from services.orderflow.book_sanity_gate import BookSanityGate
+ from services.orderflow.stream_integrity_gate import StreamIntegrityGate
+ from services.orderflow.exec_health_rollups import aread_exec_health_rollups, decide_exec_health_from_env
++from services.orderflow.exec_health_observability import record_exec_health_observability, record_exec_health_reader_error
+ 
+ _book_sanity_gate = BookSanityGate.from_env()
+ _stream_integrity_gate = StreamIntegrityGate.from_env()
+@@ -1310,107 +1311,65 @@
+         if veto_dec is None:
+             try:
+                 redis_client = getattr(self.publisher, "r", None) if self.publisher is not None else None
++                exec_profile = str(os.getenv("GATE_PROFILE", "default") or "default").strip().lower()
++                exec_session = str(session_utc(int(enriched_signal.get("ts_ms") or 0)))
++                exec_tf = str(indicators.get("tf") or enriched_signal.get("tf") or signal.get("tf") or os.getenv("EXEC_HEALTH_TF", "all") or "all").strip().lower()
++                exec_kind = str(kind or indicators.get("kind") or signal.get("kind") or "all").strip().lower()
++                exec_side = str(enriched_signal.get("side") or signal.get("side") or direction or "NA").strip().upper()
++                exec_venue = str(indicators.get("venue") or enriched_signal.get("venue") or signal.get("venue") or os.getenv("EXEC_HEALTH_VENUE", "binance") or "binance").strip().lower()
++                exec_roll = {}
+                 if redis_client is not None:
+-                    exec_profile = str(os.getenv("GATE_PROFILE", "default") or "default").strip().lower()
+-                    exec_session = str(session_utc(int(enriched_signal.get("ts_ms") or 0)))
+-                    exec_tf = str(indicators.get("tf") or enriched_signal.get("tf") or signal.get("tf") or os.getenv("EXEC_HEALTH_TF", "all") or "all").strip().lower()
+-                    exec_kind = str(kind or indicators.get("kind") or signal.get("kind") or "all").strip().lower()
+-                    exec_side = str(enriched_signal.get("side") or signal.get("side") or direction or "NA").strip().upper()
+-                    exec_venue = str(indicators.get("venue") or enriched_signal.get("venue") or signal.get("venue") or os.getenv("EXEC_HEALTH_VENUE", "binance") or "binance").strip().lower()
+-                    exec_roll = await aread_exec_health_rollups(
+-                        redis=redis_client,
+-                        sym=str(symbol),
+-                        venue=exec_venue,
+-                        session=exec_session,
+-                        tf=exec_tf,
+-                        kind=exec_kind,
+-                        side=exec_side,
+-                    )
+-                    if exec_roll:
+-                        exec_dec = decide_exec_health_from_env(profile=exec_profile, rollups=exec_roll, scope="pipeline")
+-                        indicators["tca_is_p95_bps"] = float(exec_roll.get("is_p95_bps", 0.0) or 0.0)
+-                        indicators["tca_perm_impact_p95_bps"] = float(exec_roll.get("perm_impact_p95_bps", 0.0) or 0.0)
+-                        indicators["tca_realized_spread_p50_bps"] = float(exec_roll.get("realized_spread_p50_bps", 0.0) or 0.0)
+-                        indicators["exec_health_apply"] = int(1 if exec_dec.apply else 0)
+-                        indicators["exec_health_veto"] = int(1 if exec_dec.veto else 0)
+-                        indicators["exec_health_mode"] = str(exec_dec.mode)
+-                        indicators["exec_health_flags"] = ",".join(exec_dec.flags)
+-                        indicators["exec_health_reason"] = str(exec_dec.reason_code or "")
+-                        indicators["exec_health_tighten_add_bps"] = float(exec_dec.tighten_add_bps or 0.0)
+-                        indicators["exec_health_tighten_k"] = float(exec_dec.tighten_k_mult or 1.0)
+-                        enriched_signal["exec_health_apply"] = int(1 if exec_dec.apply else 0)
+-                        enriched_signal["exec_health_veto"] = int(1 if exec_dec.veto else 0)
+-                        enriched_signal["exec_health_mode"] = str(exec_dec.mode)
+-                        enriched_signal["exec_health_flags"] = ",".join(exec_dec.flags)
+-                        enriched_signal["exec_health_reason"] = str(exec_dec.reason_code or "")
+-                        if float(exec_dec.tighten_add_bps or 0.0) > 0.0:
+-                            exp0 = float(enriched_signal.get("expected_slippage_bps") or indicators.get("expected_slippage_bps") or 0.0)
+-                            exp1 = float(exp0 + float(exec_dec.tighten_add_bps))
+-                            enriched_signal["expected_slippage_bps"] = exp1
+-                            indicators["expected_slippage_bps"] = exp1
+-                        if exec_dec.veto:
+-                            veto_dec = SimpleNamespace(
+-                                apply=True,
+-                                veto=True,
+-                                gate="ExecutionHealthGate",
+-                                reason_code=str(exec_dec.reason_code or "VETO_EXEC_HEALTH"),
+-                                notes=f"flags={','.join(exec_dec.flags)} is_p95={exec_roll.get('is_p95_bps', 0.0)} perm_impact_p95={exec_roll.get('perm_impact_p95_bps', 0.0)} realized_spread_p50={exec_roll.get('realized_spread_p50_bps', 0.0)}",
+-                            )
+-            except Exception:
+-                pass
+-
+-        # ------------------------------------------------------------------
+-        # PRE-PUBLISH EXECUTION HEALTH (single source of truth with EntryPolicy/EdgeCost)
+-        # ------------------------------------------------------------------
+-        if veto_dec is None:
+-            try:
+-                redis_client = getattr(self.publisher, "r", None) if self.publisher is not None else None
+-                if redis_client is not None:
+-                    exec_profile = str(os.getenv("GATE_PROFILE", "default") or "default").strip().lower()
+-                    exec_session = str(session_utc(int(enriched_signal.get("ts_ms") or 0)))
+-                    exec_tf = str(indicators.get("tf") or enriched_signal.get("tf") or signal.get("tf") or os.getenv("EXEC_HEALTH_TF", "all") or "all").strip().lower()
+-                    exec_kind = str(kind or indicators.get("kind") or signal.get("kind") or "all").strip().lower()
+-                    exec_side = str(enriched_signal.get("side") or signal.get("side") or direction or "NA").strip().upper()
+-                    exec_venue = str(indicators.get("venue") or enriched_signal.get("venue") or signal.get("venue") or os.getenv("EXEC_HEALTH_VENUE", "binance") or "binance").strip().lower()
+-                    exec_roll = await aread_exec_health_rollups(
+-                        redis=redis_client,
+-                        sym=str(symbol),
+-                        venue=exec_venue,
+-                        session=exec_session,
+-                        tf=exec_tf,
+-                        kind=exec_kind,
+-                        side=exec_side,
+-                    )
+-                    if exec_roll:
+-                        exec_dec = decide_exec_health_from_env(profile=exec_profile, rollups=exec_roll, scope="pipeline")
+-                        indicators["tca_is_p95_bps"] = float(exec_roll.get("is_p95_bps", 0.0) or 0.0)
+-                        indicators["tca_perm_impact_p95_bps"] = float(exec_roll.get("perm_impact_p95_bps", 0.0) or 0.0)
+-                        indicators["tca_realized_spread_p50_bps"] = float(exec_roll.get("realized_spread_p50_bps", 0.0) or 0.0)
+-                        indicators["exec_health_apply"] = int(1 if exec_dec.apply else 0)
+-                        indicators["exec_health_veto"] = int(1 if exec_dec.veto else 0)
+-                        indicators["exec_health_mode"] = str(exec_dec.mode)
+-                        indicators["exec_health_flags"] = ",".join(exec_dec.flags)
+-                        indicators["exec_health_reason"] = str(exec_dec.reason_code or "")
+-                        indicators["exec_health_tighten_add_bps"] = float(exec_dec.tighten_add_bps or 0.0)
+-                        indicators["exec_health_tighten_k"] = float(exec_dec.tighten_k_mult or 1.0)
+-                        enriched_signal["exec_health_apply"] = int(1 if exec_dec.apply else 0)
+-                        enriched_signal["exec_health_veto"] = int(1 if exec_dec.veto else 0)
+-                        enriched_signal["exec_health_mode"] = str(exec_dec.mode)
+-                        enriched_signal["exec_health_flags"] = ",".join(exec_dec.flags)
+-                        enriched_signal["exec_health_reason"] = str(exec_dec.reason_code or "")
+-                        if float(exec_dec.tighten_add_bps or 0.0) > 0.0:
+-                            exp0 = float(enriched_signal.get("expected_slippage_bps") or indicators.get("expected_slippage_bps") or 0.0)
+-                            exp1 = float(exp0 + float(exec_dec.tighten_add_bps))
+-                            enriched_signal["expected_slippage_bps"] = exp1
+-                            indicators["expected_slippage_bps"] = exp1
+-                        if exec_dec.veto:
+-                            veto_dec = SimpleNamespace(
+-                                apply=True,
+-                                veto=True,
+-                                gate="ExecutionHealthGate",
+-                                reason_code=str(exec_dec.reason_code or "VETO_EXEC_HEALTH"),
+-                                notes=f"flags={','.join(exec_dec.flags)} is_p95={exec_roll.get('is_p95_bps', 0.0)} perm_impact_p95={exec_roll.get('perm_impact_p95_bps', 0.0)} realized_spread_p50={exec_roll.get('realized_spread_p50_bps', 0.0)}",
+-                            )
++                    try:
++                        exec_roll = await aread_exec_health_rollups(
++                            redis=redis_client,
++                            sym=str(symbol),
++                            venue=exec_venue,
++                            session=exec_session,
++                            tf=exec_tf,
++                            kind=exec_kind,
++                            side=exec_side,
++                        )
++                    except Exception:
++                        record_exec_health_reader_error(scope="pipeline", where="read_rollups")
++                        raise
++                exec_dec = decide_exec_health_from_env(profile=exec_profile, rollups=exec_roll, scope="pipeline") if exec_roll else None
++                record_exec_health_observability(
++                    symbol=str(symbol),
++                    scope="pipeline",
++                    profile=exec_profile,
++                    rollups=exec_roll,
++                    decision=exec_dec,
++                    now_ms=int(enriched_signal.get("ts_ms") or 0),
++                )
++                if exec_roll and exec_dec is not None:
++                    indicators["tca_is_p95_bps"] = float(exec_roll.get("is_p95_bps", 0.0) or 0.0)
++                    indicators["tca_perm_impact_p95_bps"] = float(exec_roll.get("perm_impact_p95_bps", 0.0) or 0.0)
++                    indicators["tca_realized_spread_p50_bps"] = float(exec_roll.get("realized_spread_p50_bps", 0.0) or 0.0)
++                    indicators["exec_health_apply"] = int(1 if exec_dec.apply else 0)
++                    indicators["exec_health_veto"] = int(1 if exec_dec.veto else 0)
++                    indicators["exec_health_mode"] = str(exec_dec.mode)
++                    indicators["exec_health_flags"] = ",".join(exec_dec.flags)
++                    indicators["exec_health_reason"] = str(exec_dec.reason_code or "")
++                    indicators["exec_health_tighten_add_bps"] = float(exec_dec.tighten_add_bps or 0.0)
++                    indicators["exec_health_tighten_k"] = float(exec_dec.tighten_k_mult or 1.0)
++                    enriched_signal["exec_health_apply"] = int(1 if exec_dec.apply else 0)
++                    enriched_signal["exec_health_veto"] = int(1 if exec_dec.veto else 0)
++                    enriched_signal["exec_health_mode"] = str(exec_dec.mode)
++                    enriched_signal["exec_health_flags"] = ",".join(exec_dec.flags)
++                    enriched_signal["exec_health_reason"] = str(exec_dec.reason_code or "")
++                    if float(exec_dec.tighten_add_bps or 0.0) > 0.0:
++                        exp0 = float(enriched_signal.get("expected_slippage_bps") or indicators.get("expected_slippage_bps") or 0.0)
++                        exp1 = float(exp0 + float(exec_dec.tighten_add_bps))
++                        enriched_signal["expected_slippage_bps"] = exp1
++                        indicators["expected_slippage_bps"] = exp1
++                    if exec_dec.veto:
++                        veto_dec = SimpleNamespace(
++                            apply=True,
++                            veto=True,
++                            gate="ExecutionHealthGate",
++                            reason_code=str(exec_dec.reason_code or "VETO_EXEC_HEALTH"),
++                            notes=f"flags={','.join(exec_dec.flags)} is_p95={exec_roll.get('is_p95_bps', 0.0)} perm_impact_p95={exec_roll.get('perm_impact_p95_bps', 0.0)} realized_spread_p50={exec_roll.get('realized_spread_p50_bps', 0.0)}",
++                        )
+             except Exception:
+                 pass
+ 
+--- a/services/smt_entry_policy_service.py	2026-03-07 10:25:10.216070112 +0000
++++ b/services/smt_entry_policy_service.py	2026-03-07 10:50:29.852688870 +0000
+@@ -16,6 +16,7 @@
+ # P6: execution health (TCA rollups) for entry policy
+ from services.orderflow.utils import session_utc
+ from services.orderflow.exec_health_rollups import aread_exec_health_rollups, decide_exec_health_from_env
++from services.orderflow.exec_health_observability import record_exec_health_observability, record_exec_health_reader_error
+ 
+ def _now_ms() -> int:
+     return int(time.time() * 1000)
+@@ -247,20 +248,32 @@
+             sess = str(session_utc(int(now_ms)))
+             profile = str(os.getenv("ENTRY_POLICY_PROFILE", os.getenv("GATE_PROFILE", "default")) or "default").strip().lower()
+ 
+-            roll = await aread_exec_health_rollups(
+-                redis=self.r,
+-                sym=sym,
+-                venue=self._exec_venue,
+-                session=sess,
+-                tf=self._exec_tf,
+-                kind=kind,
+-                side=side,
++            try:
++                roll = await aread_exec_health_rollups(
++                    redis=self.r,
++                    sym=sym,
++                    venue=self._exec_venue,
++                    session=sess,
++                    tf=self._exec_tf,
++                    kind=kind,
++                    side=side,
++                )
++            except Exception:
++                record_exec_health_reader_error(scope="entry_policy", where="read_rollups")
++                raise
++
++            dec = decide_exec_health_from_env(profile=profile, rollups=roll, scope="entry_policy") if roll else None
++            record_exec_health_observability(
++                symbol=sym,
++                scope="entry_policy",
++                profile=profile,
++                rollups=roll,
++                decision=dec,
++                now_ms=int(now_ms),
+             )
+-            if not roll:
++            if not roll or dec is None:
+                 return True, "", ""
+ 
+-            dec = decide_exec_health_from_env(profile=profile, rollups=roll, scope="entry_policy")
+-
+             snap["tca_is_p95_bps"] = float(roll.get("is_p95_bps", 0.0) or 0.0)
+             snap["tca_perm_impact_p95_bps"] = float(roll.get("perm_impact_p95_bps", 0.0) or 0.0)
+             snap["tca_realized_spread_p50_bps"] = float(roll.get("realized_spread_p50_bps", 0.0) or 0.0)
+--- a/orderflow_services/prometheus_alerts_exec_health_observability_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/prometheus_alerts_exec_health_observability_v1.yml	2026-03-07 10:54:59.053572467 +0000
+@@ -0,0 +1,62 @@
++groups:
++  - name: exec_health_observability_v1
++    rules:
++      - alert: OF_ExecHealth_ReaderErrors_Warn
++        expr: sum by (scope, where) (increase(exec_health_reader_errors_total[5m])) > 1
++        for: 2m
++        labels:
++          severity: warning
++          component: exec_health
++        annotations:
++          summary: "ExecHealth reader errors detected"
++          description: "increase(exec_health_reader_errors_total[5m])={{ $value }} for scope={{ $labels.scope }}, where={{ $labels.where }}. Check Redis reachability, key format compatibility, and fail-open logs."
++
++      - alert: OF_ExecHealth_ReaderErrors_Crit
++        expr: sum by (scope, where) (increase(exec_health_reader_errors_total[5m])) > 10
++        for: 2m
++        labels:
++          severity: critical
++          component: exec_health
++        annotations:
++          summary: "High ExecHealth reader error rate"
++          description: "increase(exec_health_reader_errors_total[5m])={{ $value }} for scope={{ $labels.scope }}, where={{ $labels.where }}. Telemetry and policy overlays may be stale or absent."
++
++      - alert: OF_ExecHealth_VetoStorm_Warn
++        expr: sum by (scope, symbol) (increase(exec_health_decision_total{outcome="veto"}[15m])) > 20
++        for: 5m
++        labels:
++          severity: warning
++          component: exec_health
++        annotations:
++          summary: "ExecHealth veto burst detected"
++          description: "increase(exec_health_decision_total{outcome='veto'}[15m])={{ $value }} for scope={{ $labels.scope }}, symbol={{ $labels.symbol }}. Review thresholds, rollups, and recent market regime shifts."
++
++      - alert: OF_ExecHealth_VetoStorm_Crit
++        expr: sum by (scope, symbol) (increase(exec_health_decision_total{outcome="veto"}[15m])) > 50
++        for: 5m
++        labels:
++          severity: critical
++          component: exec_health
++        annotations:
++          summary: "Severe ExecHealth veto storm"
++          description: "increase(exec_health_decision_total{outcome='veto'}[15m])={{ $value }} for scope={{ $labels.scope }}, symbol={{ $labels.symbol }}. Trading entry path may be effectively shut; verify TCA rollups and threshold alignment."
++
++      - alert: OF_ExecHealth_RollupsMissing_Warn
++        expr: (((time() * 1000) - max by (scope, symbol) (exec_health_last_event_ts_ms)) < 300000) and on (scope, symbol) (max by (scope, symbol) (exec_health_rollup_present{metric="is_p95_bps"}) == 0)
++        for: 10m
++        labels:
++          severity: warning
++          component: exec_health
++        annotations:
++          summary: "ExecHealth active traffic without rollups"
++          description: "Recent ExecHealth traffic exists for scope={{ $labels.scope }}, symbol={{ $labels.symbol }}, but rollup presence for is_p95_bps stayed at 0. Check TCA writer freshness and key namespace compatibility."
++
++      - alert: OF_ExecHealth_RollupsMissing_Crit
++        expr: (((time() * 1000) - max by (scope, symbol) (exec_health_last_event_ts_ms)) < 300000) and on (scope, symbol) (max by (scope, symbol) (exec_health_rollup_present{metric="is_p95_bps"}) == 0)
++        for: 20m
++        labels:
++          severity: critical
++          component: exec_health
++        annotations:
++          summary: "ExecHealth rollups missing for active flow"
++          description: "ExecHealth saw live traffic for scope={{ $labels.scope }}, symbol={{ $labels.symbol }}, but no is_p95_bps rollups were present for 20m. Alerts/dashboards may show fail-open masking."
+--- a/orderflow_services/grafana/exec_health_observability_v1.json	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/grafana/exec_health_observability_v1.json	2026-03-07 10:54:59.165967102 +0000
+@@ -0,0 +1,143 @@
++{
++  "annotations": {
++    "list": [
++      {
++        "builtIn": 1,
++        "datasource": {"type": "grafana", "uid": "-- Grafana --"},
++        "enable": true,
++        "hide": true,
++        "iconColor": "rgba(0, 211, 255, 1)",
++        "name": "Annotations & Alerts",
++        "type": "dashboard"
++      }
++    ]
++  },
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "id": null,
++  "links": [],
++  "liveNow": false,
++  "panels": [
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {"mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 5}]}}, "overrides": []},
++      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 0},
++      "id": 1,
++      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}},
++      "targets": [
++        {"expr": "max by (scope, symbol, metric) (exec_health_rollup_value_bps{scope=~\"$scope\", symbol=~\"$symbol\", metric=~\"$metric\"})", "legendFormat": "{{scope}}/{{symbol}}/{{metric}}", "refId": "A"},
++        {"expr": "max by (scope, metric) (exec_health_policy_threshold_bps{scope=~\"$scope\", metric=~\"$metric\"})", "legendFormat": "thr/{{scope}}/{{metric}}", "refId": "B"}
++      ],
++      "title": "ExecHealth rollups vs thresholds (bps)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {"mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 10}]}}, "overrides": []},
++      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 9},
++      "id": 2,
++      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}},
++      "targets": [
++        {"expr": "sum by (scope, symbol, mode, outcome) (increase(exec_health_decision_total{scope=~\"$scope\", symbol=~\"$symbol\"}[15m]))", "legendFormat": "{{scope}}/{{symbol}}/{{mode}}/{{outcome}}", "refId": "A"}
++      ],
++      "title": "ExecHealth decisions (15m increase)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {"mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 5}]}}, "overrides": []},
++      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 18},
++      "id": 3,
++      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}},
++      "targets": [
++        {"expr": "sum by (scope, symbol, flag) (increase(exec_health_flag_total{scope=~\"$scope\", symbol=~\"$symbol\"}[15m]))", "legendFormat": "{{scope}}/{{symbol}}/{{flag}}", "refId": "A"}
++      ],
++      "title": "ExecHealth flags (15m increase)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {"mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 10}]}}, "overrides": []},
++      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 18},
++      "id": 4,
++      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}},
++      "targets": [
++        {"expr": "sum by (scope, where) (increase(exec_health_reader_errors_total{scope=~\"$scope\"}[5m]))", "legendFormat": "{{scope}}/{{where}}", "refId": "A"}
++      ],
++      "title": "ExecHealth reader errors (5m increase)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {"mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}, "overrides": []},
++      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 27},
++      "id": 5,
++      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}},
++      "targets": [
++        {"expr": "max by (scope, symbol, metric) (exec_health_rollup_present{scope=~\"$scope\", symbol=~\"$symbol\", metric=~\"$metric\"})", "legendFormat": "{{scope}}/{{symbol}}/{{metric}}", "refId": "A"}
++      ],
++      "title": "ExecHealth rollup presence (1/0)",
++      "type": "timeseries"
++    }
++  ],
++  "refresh": "10s",
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": ["orderflow", "exec_health"],
++  "templating": {
++    "list": [
++      {
++        "current": {"selected": true, "text": "All", "value": ".*"},
++        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++        "definition": "label_values(exec_health_rollup_value_bps, scope)",
++        "hide": 0,
++        "includeAll": true,
++        "multi": false,
++        "name": "scope",
++        "options": [],
++        "query": {"query": "label_values(exec_health_rollup_value_bps, scope)", "refId": "StandardVariableQuery"},
++        "refresh": 2,
++        "regex": "",
++        "skipUrlSync": false,
++        "type": "query"
++      },
++      {
++        "current": {"selected": true, "text": "All", "value": ".*"},
++        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++        "definition": "label_values(exec_health_rollup_value_bps, symbol)",
++        "hide": 0,
++        "includeAll": true,
++        "multi": false,
++        "name": "symbol",
++        "options": [],
++        "query": {"query": "label_values(exec_health_rollup_value_bps, symbol)", "refId": "StandardVariableQuery"},
++        "refresh": 2,
++        "regex": "",
++        "skipUrlSync": false,
++        "type": "query"
++      },
++      {
++        "current": {"selected": true, "text": "All", "value": ".*"},
++        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++        "definition": "label_values(exec_health_rollup_value_bps, metric)",
++        "hide": 0,
++        "includeAll": true,
++        "multi": false,
++        "name": "metric",
++        "options": [],
++        "query": {"query": "label_values(exec_health_rollup_value_bps, metric)", "refId": "StandardVariableQuery"},
++        "refresh": 2,
++        "regex": "",
++        "skipUrlSync": false,
++        "type": "query"
++      }
++    ]
++  },
++  "time": {"from": "now-6h", "to": "now"},
++  "timepicker": {},
++  "timezone": "utc",
++  "title": "ExecHealth Observability (v1)",
++  "uid": "exec_health_obsv_v1",
++  "version": 1
++}
+--- a/orderflow_services/tests/test_exec_health_observability_alerts_yaml_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/tests/test_exec_health_observability_alerts_yaml_v1.py	2026-03-07 10:55:22.993815668 +0000
+@@ -0,0 +1,58 @@
++from __future__ import annotations
++
++import os
++import yaml
++import pytest
++
++
++def _alerts_path(tick_flow_full: bool = False) -> str:
++    base = os.path.dirname(__file__)
++    root = os.path.abspath(os.path.join(base, ".."))
++    if tick_flow_full:
++        tf_root = os.path.abspath(os.path.join(base, "..", "..", "tick_flow_full", "orderflow_services"))
++        return os.path.join(tf_root, "prometheus_alerts_exec_health_observability_v1.yml")
++    return os.path.join(root, "prometheus_alerts_exec_health_observability_v1.yml")
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_exec_health_observability_alerts_yaml_parses(tick_flow_full: bool):
++    path = _alerts_path(tick_flow_full)
++    assert os.path.isfile(path), f"File not found: {path}"
++    with open(path) as fh:
++        doc = yaml.safe_load(fh)
++    assert isinstance(doc, dict)
++    assert "groups" in doc
++    assert len(doc["groups"]) >= 1
++    rules = doc["groups"][0].get("rules", [])
++    assert len(rules) > 0
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_exec_health_observability_alerts_contains_expected_alerts(tick_flow_full: bool):
++    path = _alerts_path(tick_flow_full)
++    with open(path) as fh:
++        doc = yaml.safe_load(fh)
++    names = [r.get("alert") for r in doc["groups"][0].get("rules", []) if "alert" in r]
++    expected = {
++        "OF_ExecHealth_ReaderErrors_Warn",
++        "OF_ExecHealth_ReaderErrors_Crit",
++        "OF_ExecHealth_VetoStorm_Warn",
++        "OF_ExecHealth_VetoStorm_Crit",
++        "OF_ExecHealth_RollupsMissing_Warn",
++        "OF_ExecHealth_RollupsMissing_Crit",
++    }
++    assert expected.issubset(set(names)), f"Missing alerts: {sorted(expected - set(names))}"
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_exec_health_observability_alerts_have_required_fields(tick_flow_full: bool):
++    path = _alerts_path(tick_flow_full)
++    with open(path) as fh:
++        doc = yaml.safe_load(fh)
++    rules = doc["groups"][0].get("rules", [])
++    for rule in rules:
++        assert "expr" in rule
++        assert "for" in rule
++        assert "labels" in rule
++        assert "annotations" in rule
++        assert rule["labels"].get("severity") in ("warning", "critical")
+--- a/orderflow_services/tests/test_exec_health_observability_dashboard_json_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/tests/test_exec_health_observability_dashboard_json_v1.py	2026-03-07 10:55:23.014780809 +0000
+@@ -0,0 +1,53 @@
++from __future__ import annotations
++
++import json
++import os
++import pytest
++
++
++def _dashboard_path(tick_flow_full: bool = False) -> str:
++    base = os.path.dirname(__file__)
++    root = os.path.abspath(os.path.join(base, ".."))
++    if tick_flow_full:
++        tf_root = os.path.abspath(os.path.join(base, "..", "..", "tick_flow_full", "orderflow_services", "grafana"))
++        return os.path.join(tf_root, "exec_health_observability_v1.json")
++    return os.path.join(root, "grafana", "exec_health_observability_v1.json")
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_exec_health_dashboard_json_parses(tick_flow_full: bool):
++    path = _dashboard_path(tick_flow_full)
++    assert os.path.isfile(path), f"File not found: {path}"
++    with open(path) as fh:
++        doc = json.load(fh)
++    assert isinstance(doc, dict)
++    assert doc.get("title") == "ExecHealth Observability (v1)"
++    assert len(doc.get("panels", [])) >= 4
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_exec_health_dashboard_contains_expected_queries(tick_flow_full: bool):
++    path = _dashboard_path(tick_flow_full)
++    with open(path) as fh:
++        doc = json.load(fh)
++    exprs = []
++    for panel in doc.get("panels", []):
++        for target in panel.get("targets", []) or []:
++            if isinstance(target, dict) and target.get("expr"):
++                exprs.append(target["expr"])
++    joined = "\n".join(exprs)
++    assert "exec_health_rollup_value_bps" in joined
++    assert "exec_health_policy_threshold_bps" in joined
++    assert "exec_health_decision_total" in joined
++    assert "exec_health_reader_errors_total" in joined
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_exec_health_dashboard_has_template_variables(tick_flow_full: bool):
++    path = _dashboard_path(tick_flow_full)
++    with open(path) as fh:
++        doc = json.load(fh)
++    var_names = {v.get("name") for v in doc.get("templating", {}).get("list", [])}
++    assert "scope" in var_names
++    assert "symbol" in var_names
++    assert "metric" in var_names
+--- a/orderflow_services/runbook_exec_health_observability_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/runbook_exec_health_observability_v1.md	2026-03-07 10:55:49.882999513 +0000
+@@ -0,0 +1,52 @@
++# ExecHealth Observability Runbook (v1)
++
++Files:
++- `orderflow_services/prometheus_alerts_exec_health_observability_v1.yml`
++- `orderflow_services/grafana/exec_health_observability_v1.json`
++
++## What is the source of truth
++
++Policy/threshold semantics come from:
++- `services/orderflow/exec_health_rollups.py`
++
++Metrics are emitted only from the already-evaluated SoT path via:
++- `services/orderflow/exec_health_observability.py`
++
++This means dashboards/alerts observe the same `rollups + decision` that were used by:
++- `SignalPipeline`
++- `EntryPolicyService`
++- `EdgeCostGate`
++
++## Fast triage
++
++Check effective policy mode and thresholds:
++- `exec_health_policy_mode`
++- `exec_health_policy_threshold_bps`
++
++Check whether rollups are actually present:
++- `exec_health_rollup_present`
++- `exec_health_rollup_value_bps`
++- `exec_health_rollup_worst_delta_sec`
++
++Check if fail-open is masking read issues:
++- `increase(exec_health_reader_errors_total[5m])`
++
++Check path outcomes:
++- `increase(exec_health_decision_total[15m])`
++- `increase(exec_health_flag_total[15m])`
++
++## Typical failure modes
++
++1. `exec_health_reader_errors_total` increases
++   - Redis unavailable / wrong DB / wrong key namespace
++   - TCA writer lagging or absent
++   - mixed deployment with stale key contracts
++
++2. `exec_health_rollup_present == 0` while `exec_health_last_event_ts_ms` is fresh
++   - live traffic exists, but no TCA rollups are matching fallback keys
++   - check `venue/session/tf/kind/side` normalization
++
++3. Veto storm
++   - thresholds too tight for current regime
++   - stale/incorrect TCA rollups
++   - recent microstructure regime shift
+--- a/tick_flow_full/handlers/crypto_orderflow/utils/edge_cost_gate.py	2026-03-07 10:22:40.108233488 +0000
++++ b/tick_flow_full/handlers/crypto_orderflow/utils/edge_cost_gate.py	2026-03-07 10:51:18.679673448 +0000
+@@ -110,8 +110,10 @@
+ 
+ try:
+     from services.orderflow.exec_health_rollups import read_exec_health_rollups_sync, decide_exec_health_from_env
++    from services.orderflow.exec_health_observability import record_exec_health_observability, record_exec_health_reader_error
+ except Exception:  # pragma: no cover - mixed deployments may import from mirror path
+     from tick_flow_full.services.orderflow.exec_health_rollups import read_exec_health_rollups_sync, decide_exec_health_from_env
++    from tick_flow_full.services.orderflow.exec_health_observability import record_exec_health_observability, record_exec_health_reader_error
+ 
+ # Single source of truth for epoch-ms normalization (already used in TradeMonitor)
+ from domain.time_utils import normalize_ts_ms
+@@ -1339,23 +1341,35 @@
+         try:
+             redis_client = getattr(self, "redis", None) or getattr(ctx, "redis", None)
+             exec_rollups = {}
+-            if redis_client is not None:
+-                tsm_exec = int(normalize_ts_ms(getattr(ctx, "ts_ms", None) or getattr(ctx, "ts", None) or 0) or 0)
+-                sess_exec = str(getattr(ctx, "session", None) or (session_from_ts_ms(int(tsm_exec)) if tsm_exec > 0 else "all") or "all")
+-                tf_exec = _canon_tf(getattr(ctx, "tf", None) or getattr(ctx, "timeframe", None) or os.getenv("EXEC_HEALTH_TF", "all"))
+-                venue_exec = str(getattr(ctx, "venue", "") or os.getenv("EXEC_HEALTH_VENUE", "binance") or "binance").lower()
+-                side_exec = str(getattr(ctx, "side", None) or getattr(ctx, "direction", None) or "NA").upper()
+-                exec_rollups = read_exec_health_rollups_sync(
+-                    redis=redis_client,
+-                    sym=str(symbol or ""),
+-                    venue=venue_exec,
+-                    session=sess_exec,
+-                    tf=tf_exec,
+-                    kind=str(kind or "all"),
+-                    side=side_exec,
+-                )
++            tsm_exec = int(normalize_ts_ms(getattr(ctx, "ts_ms", None) or getattr(ctx, "ts", None) or 0) or 0)
++            sess_exec = str(getattr(ctx, "session", None) or (session_from_ts_ms(int(tsm_exec)) if tsm_exec > 0 else "all") or "all")
++            tf_exec = _canon_tf(getattr(ctx, "tf", None) or getattr(ctx, "timeframe", None) or os.getenv("EXEC_HEALTH_TF", "all"))
++            venue_exec = str(getattr(ctx, "venue", "") or os.getenv("EXEC_HEALTH_VENUE", "binance") or "binance").lower()
++            side_exec = str(getattr(ctx, "side", None) or getattr(ctx, "direction", None) or "NA").upper()
+             exec_profile = str(os.getenv("GATE_PROFILE", "default") or "default").strip().lower()
++            if redis_client is not None:
++                try:
++                    exec_rollups = read_exec_health_rollups_sync(
++                        redis=redis_client,
++                        sym=str(symbol or ""),
++                        venue=venue_exec,
++                        session=sess_exec,
++                        tf=tf_exec,
++                        kind=str(kind or "all"),
++                        side=side_exec,
++                    )
++                except Exception:
++                    record_exec_health_reader_error(scope="edge", where="read_rollups")
++                    raise
+             exec_dec = decide_exec_health_from_env(profile=exec_profile, rollups=exec_rollups, scope="edge") if exec_rollups else None
++            record_exec_health_observability(
++                symbol=str(symbol or ""),
++                scope="edge",
++                profile=exec_profile,
++                rollups=exec_rollups,
++                decision=exec_dec,
++                now_ms=int(tsm_exec or 0),
++            )
+             if exec_dec is not None:
+                 setattr(ctx, "exec_health_apply", int(1 if exec_dec.apply else 0))
+                 setattr(ctx, "exec_health_veto", int(1 if exec_dec.veto else 0))
+--- a/tick_flow_full/orderflow_services/prometheus_alerts_exec_health_observability_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_exec_health_observability_v1.yml	2026-03-07 10:54:59.081624200 +0000
+@@ -0,0 +1,62 @@
++groups:
++  - name: exec_health_observability_v1
++    rules:
++      - alert: OF_ExecHealth_ReaderErrors_Warn
++        expr: sum by (scope, where) (increase(exec_health_reader_errors_total[5m])) > 1
++        for: 2m
++        labels:
++          severity: warning
++          component: exec_health
++        annotations:
++          summary: "ExecHealth reader errors detected"
++          description: "increase(exec_health_reader_errors_total[5m])={{ $value }} for scope={{ $labels.scope }}, where={{ $labels.where }}. Check Redis reachability, key format compatibility, and fail-open logs."
++
++      - alert: OF_ExecHealth_ReaderErrors_Crit
++        expr: sum by (scope, where) (increase(exec_health_reader_errors_total[5m])) > 10
++        for: 2m
++        labels:
++          severity: critical
++          component: exec_health
++        annotations:
++          summary: "High ExecHealth reader error rate"
++          description: "increase(exec_health_reader_errors_total[5m])={{ $value }} for scope={{ $labels.scope }}, where={{ $labels.where }}. Telemetry and policy overlays may be stale or absent."
++
++      - alert: OF_ExecHealth_VetoStorm_Warn
++        expr: sum by (scope, symbol) (increase(exec_health_decision_total{outcome="veto"}[15m])) > 20
++        for: 5m
++        labels:
++          severity: warning
++          component: exec_health
++        annotations:
++          summary: "ExecHealth veto burst detected"
++          description: "increase(exec_health_decision_total{outcome='veto'}[15m])={{ $value }} for scope={{ $labels.scope }}, symbol={{ $labels.symbol }}. Review thresholds, rollups, and recent market regime shifts."
++
++      - alert: OF_ExecHealth_VetoStorm_Crit
++        expr: sum by (scope, symbol) (increase(exec_health_decision_total{outcome="veto"}[15m])) > 50
++        for: 5m
++        labels:
++          severity: critical
++          component: exec_health
++        annotations:
++          summary: "Severe ExecHealth veto storm"
++          description: "increase(exec_health_decision_total{outcome='veto'}[15m])={{ $value }} for scope={{ $labels.scope }}, symbol={{ $labels.symbol }}. Trading entry path may be effectively shut; verify TCA rollups and threshold alignment."
++
++      - alert: OF_ExecHealth_RollupsMissing_Warn
++        expr: (((time() * 1000) - max by (scope, symbol) (exec_health_last_event_ts_ms)) < 300000) and on (scope, symbol) (max by (scope, symbol) (exec_health_rollup_present{metric="is_p95_bps"}) == 0)
++        for: 10m
++        labels:
++          severity: warning
++          component: exec_health
++        annotations:
++          summary: "ExecHealth active traffic without rollups"
++          description: "Recent ExecHealth traffic exists for scope={{ $labels.scope }}, symbol={{ $labels.symbol }}, but rollup presence for is_p95_bps stayed at 0. Check TCA writer freshness and key namespace compatibility."
++
++      - alert: OF_ExecHealth_RollupsMissing_Crit
++        expr: (((time() * 1000) - max by (scope, symbol) (exec_health_last_event_ts_ms)) < 300000) and on (scope, symbol) (max by (scope, symbol) (exec_health_rollup_present{metric="is_p95_bps"}) == 0)
++        for: 20m
++        labels:
++          severity: critical
++          component: exec_health
++        annotations:
++          summary: "ExecHealth rollups missing for active flow"
++          description: "ExecHealth saw live traffic for scope={{ $labels.scope }}, symbol={{ $labels.symbol }}, but no is_p95_bps rollups were present for 20m. Alerts/dashboards may show fail-open masking."
+--- a/tick_flow_full/orderflow_services/grafana/exec_health_observability_v1.json	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/orderflow_services/grafana/exec_health_observability_v1.json	2026-03-07 10:54:59.194573313 +0000
+@@ -0,0 +1,143 @@
++{
++  "annotations": {
++    "list": [
++      {
++        "builtIn": 1,
++        "datasource": {"type": "grafana", "uid": "-- Grafana --"},
++        "enable": true,
++        "hide": true,
++        "iconColor": "rgba(0, 211, 255, 1)",
++        "name": "Annotations & Alerts",
++        "type": "dashboard"
++      }
++    ]
++  },
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "id": null,
++  "links": [],
++  "liveNow": false,
++  "panels": [
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {"mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 5}]}}, "overrides": []},
++      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 0},
++      "id": 1,
++      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}},
++      "targets": [
++        {"expr": "max by (scope, symbol, metric) (exec_health_rollup_value_bps{scope=~\"$scope\", symbol=~\"$symbol\", metric=~\"$metric\"})", "legendFormat": "{{scope}}/{{symbol}}/{{metric}}", "refId": "A"},
++        {"expr": "max by (scope, metric) (exec_health_policy_threshold_bps{scope=~\"$scope\", metric=~\"$metric\"})", "legendFormat": "thr/{{scope}}/{{metric}}", "refId": "B"}
++      ],
++      "title": "ExecHealth rollups vs thresholds (bps)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {"mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 10}]}}, "overrides": []},
++      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 9},
++      "id": 2,
++      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}},
++      "targets": [
++        {"expr": "sum by (scope, symbol, mode, outcome) (increase(exec_health_decision_total{scope=~\"$scope\", symbol=~\"$symbol\"}[15m]))", "legendFormat": "{{scope}}/{{symbol}}/{{mode}}/{{outcome}}", "refId": "A"}
++      ],
++      "title": "ExecHealth decisions (15m increase)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {"mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 5}]}}, "overrides": []},
++      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 18},
++      "id": 3,
++      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}},
++      "targets": [
++        {"expr": "sum by (scope, symbol, flag) (increase(exec_health_flag_total{scope=~\"$scope\", symbol=~\"$symbol\"}[15m]))", "legendFormat": "{{scope}}/{{symbol}}/{{flag}}", "refId": "A"}
++      ],
++      "title": "ExecHealth flags (15m increase)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {"mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 10}]}}, "overrides": []},
++      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 18},
++      "id": 4,
++      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}},
++      "targets": [
++        {"expr": "sum by (scope, where) (increase(exec_health_reader_errors_total{scope=~\"$scope\"}[5m]))", "legendFormat": "{{scope}}/{{where}}", "refId": "A"}
++      ],
++      "title": "ExecHealth reader errors (5m increase)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {"mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}, "overrides": []},
++      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 27},
++      "id": 5,
++      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}},
++      "targets": [
++        {"expr": "max by (scope, symbol, metric) (exec_health_rollup_present{scope=~\"$scope\", symbol=~\"$symbol\", metric=~\"$metric\"})", "legendFormat": "{{scope}}/{{symbol}}/{{metric}}", "refId": "A"}
++      ],
++      "title": "ExecHealth rollup presence (1/0)",
++      "type": "timeseries"
++    }
++  ],
++  "refresh": "10s",
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": ["orderflow", "exec_health"],
++  "templating": {
++    "list": [
++      {
++        "current": {"selected": true, "text": "All", "value": ".*"},
++        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++        "definition": "label_values(exec_health_rollup_value_bps, scope)",
++        "hide": 0,
++        "includeAll": true,
++        "multi": false,
++        "name": "scope",
++        "options": [],
++        "query": {"query": "label_values(exec_health_rollup_value_bps, scope)", "refId": "StandardVariableQuery"},
++        "refresh": 2,
++        "regex": "",
++        "skipUrlSync": false,
++        "type": "query"
++      },
++      {
++        "current": {"selected": true, "text": "All", "value": ".*"},
++        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++        "definition": "label_values(exec_health_rollup_value_bps, symbol)",
++        "hide": 0,
++        "includeAll": true,
++        "multi": false,
++        "name": "symbol",
++        "options": [],
++        "query": {"query": "label_values(exec_health_rollup_value_bps, symbol)", "refId": "StandardVariableQuery"},
++        "refresh": 2,
++        "regex": "",
++        "skipUrlSync": false,
++        "type": "query"
++      },
++      {
++        "current": {"selected": true, "text": "All", "value": ".*"},
++        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++        "definition": "label_values(exec_health_rollup_value_bps, metric)",
++        "hide": 0,
++        "includeAll": true,
++        "multi": false,
++        "name": "metric",
++        "options": [],
++        "query": {"query": "label_values(exec_health_rollup_value_bps, metric)", "refId": "StandardVariableQuery"},
++        "refresh": 2,
++        "regex": "",
++        "skipUrlSync": false,
++        "type": "query"
++      }
++    ]
++  },
++  "time": {"from": "now-6h", "to": "now"},
++  "timepicker": {},
++  "timezone": "utc",
++  "title": "ExecHealth Observability (v1)",
++  "uid": "exec_health_obsv_v1",
++  "version": 1
++}
+--- a/tick_flow_full/orderflow_services/runbook_exec_health_observability_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/orderflow_services/runbook_exec_health_observability_v1.md	2026-03-07 10:55:49.908136185 +0000
+@@ -0,0 +1,52 @@
++# ExecHealth Observability Runbook (v1)
++
++Files:
++- `orderflow_services/prometheus_alerts_exec_health_observability_v1.yml`
++- `orderflow_services/grafana/exec_health_observability_v1.json`
++
++## What is the source of truth
++
++Policy/threshold semantics come from:
++- `services/orderflow/exec_health_rollups.py`
++
++Metrics are emitted only from the already-evaluated SoT path via:
++- `services/orderflow/exec_health_observability.py`
++
++This means dashboards/alerts observe the same `rollups + decision` that were used by:
++- `SignalPipeline`
++- `EntryPolicyService`
++- `EdgeCostGate`
++
++## Fast triage
++
++Check effective policy mode and thresholds:
++- `exec_health_policy_mode`
++- `exec_health_policy_threshold_bps`
++
++Check whether rollups are actually present:
++- `exec_health_rollup_present`
++- `exec_health_rollup_value_bps`
++- `exec_health_rollup_worst_delta_sec`
++
++Check if fail-open is masking read issues:
++- `increase(exec_health_reader_errors_total[5m])`
++
++Check path outcomes:
++- `increase(exec_health_decision_total[15m])`
++- `increase(exec_health_flag_total[15m])`
++
++## Typical failure modes
++
++1. `exec_health_reader_errors_total` increases
++   - Redis unavailable / wrong DB / wrong key namespace
++   - TCA writer lagging or absent
++   - mixed deployment with stale key contracts
++
++2. `exec_health_rollup_present == 0` while `exec_health_last_event_ts_ms` is fresh
++   - live traffic exists, but no TCA rollups are matching fallback keys
++   - check `venue/session/tf/kind/side` normalization
++
++3. Veto storm
++   - thresholds too tight for current regime
++   - stale/incorrect TCA rollups
++   - recent microstructure regime shift

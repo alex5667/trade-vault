@@ -1,0 +1,30 @@
+groups:
+  - name: ml_phase3_47_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowExperimentStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance apply-flow experiment harness is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowExperimentErrors
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance apply-flow experiment harness has errors"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowExperimentLocalExposure
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_exposures_total{arm="local_candidate"}[30m]) > 0
+        for: 5m
+        labels: { severity: info }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance apply-flow experiment is exposing local candidate arm"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowExperimentVertexCompactExposure
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_exposures_total{arm="vertex_compact_candidate"}[30m]) > 0
+        for: 5m
+        labels: { severity: info }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance apply-flow experiment is exposing vertex compact candidate arm"

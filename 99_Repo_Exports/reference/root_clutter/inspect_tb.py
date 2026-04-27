@@ -1,0 +1,13 @@
+import redis, time
+r = redis.Redis.from_url('redis://localhost:6379/0', decode_responses=True)
+now = int(time.time() * 1000)
+due = r.zrangebyscore('tb:jobs:due', min=0, max=now, start=0, num=10)
+jobs_in_set = r.zcard('tb:jobs:due')
+print("Jobs in ZSET:", jobs_in_set)
+print("Due now (first 10):", due)
+last_err = r.get('tb:last_err_ts_ms')
+last_lbl = r.get('tb:last_label_ts_ms')
+last_inp = r.get('tb:last_ts_ms')
+print("Last Err:", last_err, "(", now - int(last_err) if last_err else 'None', "ms ago)")
+print("Last Lbl:", last_lbl, "(", now - int(last_lbl) if last_lbl else 'None', "ms ago)")
+print("Last Inp:", last_inp, "(", now - int(last_inp) if last_inp else 'None', "ms ago)")

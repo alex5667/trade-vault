@@ -1,0 +1,23 @@
+groups:
+  - name: ml_phase2_7_operator_rca_routing_governance
+    rules:
+      - alert: MLOperatorRCARoutingSLOLow
+        expr: ml_operator_rca_routing_slo_success_rate < 0.80
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "operator_rca routing SLO success rate low"
+
+      - alert: MLOperatorRCARoutingMTTRHigh
+        expr: ml_operator_rca_routing_slo_mttr_p95_seconds > 900
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "operator_rca routing MTTR p95 high"
+
+      - alert: MLOperatorRCARoutingEscalationCritical
+        expr: ml_operator_rca_routing_escalation_critical_items >= 5
+        for: 10m
+        labels: {severity: critical}
+        annotations:
+          summary: "operator_rca routing escalation critical"

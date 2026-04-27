@@ -1,0 +1,30 @@
+groups:
+  - name: ml_phase3_8_route_incident_rca_mirror_verification_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorVerificationStale
+        expr: time() - ml_route_incident_rca_mirror_verification_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror verification loop is stale"
+
+      - alert: MLRouteIncidentRCAMirrorVerificationErrors
+        expr: increase(ml_route_incident_rca_mirror_verification_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror verification loop has errors"
+
+      - alert: MLRouteIncidentRCAMirrorVerificationMismatchRateHigh
+        expr: ml_route_incident_rca_mirror_verification_mismatch_rate > 0
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror verification sees non-zero mismatch rate"
+
+      - alert: MLRouteIncidentRCAMirrorVerificationPendingHigh
+        expr: ml_route_incident_rca_mirror_verification_pending_total > 10
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror verification sees elevated pending comparator rows"

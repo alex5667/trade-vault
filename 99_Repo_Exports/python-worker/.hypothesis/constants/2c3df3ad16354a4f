@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/signal_scoring/score_model.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 100.0, '0.10', '2.4', '99.0', 'CONF_CAL_B', 'CONF_CAL_K', 'CONF_PCT_CAP', 'conf_factor01', 'confidence_pct', 'final_score', 'raw_score']

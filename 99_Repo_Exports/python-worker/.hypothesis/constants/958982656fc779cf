@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/calibrate_gate_params.py
+# hypothesis_version: 6.148.10
+
+[-1000000000.0, -1.0, 0.0, 0.15, 0.18, 1.0, ',', '--dataset', '--exec-ref-grid', '--out', '--pass-min', '--score-min-grid', '--tail-max', '--w-exec-grid', '0.14,0.18,0.22,0.26', '0.62,0.65,0.68,0.70', '8,10,12', '__main__', 'base_score', 'best', 'best_obj', 'exec_risk_bps', 'exec_risk_ref_bps', 'meanR_all', 'meanR_pass', 'metrics', 'n', 'of_score_min', 'ok', 'pass_rate', 'r', 'r_mult', 'score', 'tail_all', 'tail_pass', 'utf-8', 'w', 'w_exec_risk']

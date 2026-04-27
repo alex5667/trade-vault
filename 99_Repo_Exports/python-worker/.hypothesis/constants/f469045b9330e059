@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/emitter/outbox_writer.py
+# hypothesis_version: 6.148.10
+
+[1000.0, 200, 1000, ',', '0', '1', '1000', '100000', '15000', '2', '65000', '86400', ':', 'OUTBOX_DEDUP_PREFIX', 'OUTBOX_META_PREFIX', 'OUTBOX_META_TTL_SEC', 'OUTBOX_SEM_DEDUP', 'OUTBOX_STREAM_MAXLEN', 'PENDING', '__none__', '_redis', 'atomic_xadd_failed', 'client', 'corr_id', 'correlation_id', 'decision_trace', 'direction', 'kind', 'labels', 'level', 'level_price', 'on', 'outbox:dedup:', 'outbox:sdup:', 'outbox_sidecar:v2', 'parts_full', 'payload_meta', 'redis', 'schema', 'side', 'signal:meta:', 'signal_id', 'stream', 'stream_name', 'symbol', 'to_dict', 'trace', 'trace_id', 'trace_summary', 'true', 'ts', 'updated_ms', 'utf-8', 'yes']

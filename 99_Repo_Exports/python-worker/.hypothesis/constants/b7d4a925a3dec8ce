@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/matplotlib/tri/tripcolor.py
+# hypothesis_version: 6.148.10
+
+[0.25, 1.0, '3.6', 'antialiased', 'antialiaseds', 'edgecolor', 'edgecolors', 'flat', 'gouraud', 'linewidth', 'linewidths', 'none']

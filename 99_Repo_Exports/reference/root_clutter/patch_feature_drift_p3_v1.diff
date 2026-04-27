@@ -1,0 +1,1907 @@
+--- a/orderflow_services/feature_drift_batch_exporter_v1.py	2026-03-08 06:28:23.688966500 +0000
++++ b/orderflow_services/feature_drift_batch_exporter_v1.py	2026-03-08 07:06:18.685719240 +0000
+@@ -0,0 +1,148 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Prometheus exporter for nightly feature drift batch report (PSI/KS).
++
++Source of truth:
++- Redis hash `metrics:feature_drift_batch:last`
++- report JSON path recorded in Redis field `report_json`
++
++Low-cardinality summary metrics are always exported. Per-feature metrics are
++exported only for the features present in the report JSON (expected Tier-1 set).
++"""
++
++import json
++import os
++import time
++from typing import Any, Dict, Iterable, List, Mapping
++
++import redis  # type: ignore
++from prometheus_client import Gauge, start_http_server
++
++
++def _now_s() -> float:
++    return time.time()
++
++
++def _as_float(v: Any, d: float = 0.0) -> float:
++    try:
++        if v is None:
++            return float(d)
++        return float(v)
++    except Exception:
++        return float(d)
++
++
++def _as_int(v: Any, d: int = 0) -> int:
++    try:
++        if v is None:
++            return int(d)
++        return int(float(v))
++    except Exception:
++        return int(d)
++
++
++def _read_report(path: str) -> Dict[str, Any]:
++    try:
++        with open(path, "r", encoding="utf-8") as f:
++            obj = json.load(f)
++        return obj if isinstance(obj, dict) else {}
++    except Exception:
++        return {}
++
++
++UP = Gauge("feature_drift_batch_exporter_up", "1 if exporter can read Redis summary")
++LAST_SUCCESS = Gauge("feature_drift_batch_last_success", "1 if latest drift batch status is ok")
++LAST_UPDATED_MS = Gauge("feature_drift_batch_last_updated_ts_ms", "updated_ts_ms from Redis hash")
++AGE_S = Gauge("feature_drift_batch_last_age_seconds", "Age of latest drift-batch summary")
++FEATURES_TOTAL = Gauge("feature_drift_batch_features_total", "Total features considered")
++FEATURES_EVAL = Gauge("feature_drift_batch_features_evaluated", "Features evaluated")
++WARN_N = Gauge("feature_drift_batch_warn_n", "Warn-level feature drift count")
++CRIT_N = Gauge("feature_drift_batch_crit_n", "Crit-level feature drift count")
++DENY_N = Gauge("feature_drift_batch_denylist_suggest_n", "Features suggested for denylist AB")
++SHADOW_N = Gauge("feature_drift_batch_shadow_disable_suggest_n", "Features suggested for shadow disable")
++WORST_PSI = Gauge("feature_drift_batch_worst_psi", "Worst PSI in latest report")
++WORST_KS = Gauge("feature_drift_batch_worst_ks_stat", "Worst KS stat in latest report")
++
++FEATURE_PSI = Gauge("feature_drift_batch_feature_psi", "Per-feature PSI", ["feature"])
++FEATURE_KS = Gauge("feature_drift_batch_feature_ks_stat", "Per-feature KS statistic", ["feature"])
++FEATURE_KS_P = Gauge("feature_drift_batch_feature_ks_pvalue", "Per-feature KS p-value", ["feature"])
++FEATURE_FLAG = Gauge("feature_drift_batch_feature_flag", "Per-feature drift flags", ["feature", "kind"])
++FEATURE_DELTA = Gauge("feature_drift_batch_feature_delta", "Per-feature missing/zero/clip deltas", ["feature", "kind"])
++
++
++def _clear_features(features: Iterable[str]) -> None:
++    for f in features:
++        for kind in ("warn", "crit", "denylist", "shadow_disable"):
++            FEATURE_FLAG.labels(feature=f, kind=kind).set(0)
++        for kind in ("missing_rate", "zero_rate", "clip_rate"):
++            FEATURE_DELTA.labels(feature=f, kind=kind).set(0.0)
++        FEATURE_PSI.labels(feature=f).set(0.0)
++        FEATURE_KS.labels(feature=f).set(0.0)
++        FEATURE_KS_P.labels(feature=f).set(1.0)
++
++
++def main() -> None:
++    redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++    metrics_key = os.getenv("FEATURE_DRIFT_BATCH_METRICS_KEY", "metrics:feature_drift_batch:last")
++    port = int(os.getenv("FEATURE_DRIFT_BATCH_EXPORTER_PORT", "9832"))
++    interval_s = float(os.getenv("FEATURE_DRIFT_BATCH_EXPORTER_INTERVAL_S", "10"))
++    stale_s = float(os.getenv("FEATURE_DRIFT_BATCH_EXPORTER_STALE_S", str(36 * 3600)))
++
++    r = redis.Redis.from_url(redis_url, decode_responses=True)
++    start_http_server(port)
++
++    seen_features: List[str] = []
++    while True:
++        try:
++            m: Dict[str, Any] = r.hgetall(metrics_key) or {}
++            UP.set(1)
++
++            status = str(m.get("status", "") or "")
++            LAST_SUCCESS.set(1.0 if status == "ok" else 0.0)
++            updated_ms = _as_int(m.get("updated_ts_ms", 0), 0)
++            LAST_UPDATED_MS.set(float(updated_ms))
++            age = max(0.0, _now_s() - (float(updated_ms) / 1000.0 if updated_ms > 0 else 0.0))
++            AGE_S.set(age)
++            if age > stale_s:
++                LAST_SUCCESS.set(0.0)
++
++            FEATURES_TOTAL.set(float(_as_int(m.get("features_total", 0), 0)))
++            FEATURES_EVAL.set(float(_as_int(m.get("features_evaluated", 0), 0)))
++            WARN_N.set(float(_as_int(m.get("warn_n", 0), 0)))
++            CRIT_N.set(float(_as_int(m.get("crit_n", 0), 0)))
++            DENY_N.set(float(_as_int(m.get("denylist_suggest_n", 0), 0)))
++            SHADOW_N.set(float(_as_int(m.get("shadow_disable_suggest_n", 0), 0)))
++            WORST_PSI.set(float(_as_float(m.get("worst_psi", 0.0), 0.0)))
++            WORST_KS.set(float(_as_float(m.get("worst_ks_stat", 0.0), 0.0)))
++
++            rep = _read_report(str(m.get("report_json", "") or ""))
++            rows = rep.get("features") if isinstance(rep.get("features"), list) else []
++            current_features: List[str] = []
++            _clear_features(seen_features)
++            for row in rows:
++                if not isinstance(row, Mapping):
++                    continue
++                f = str(row.get("feature", "") or "")
++                if not f:
++                    continue
++                current_features.append(f)
++                FEATURE_PSI.labels(feature=f).set(float(_as_float(row.get("psi", 0.0), 0.0)))
++                FEATURE_KS.labels(feature=f).set(float(_as_float(row.get("ks_stat", 0.0), 0.0)))
++                FEATURE_KS_P.labels(feature=f).set(float(_as_float(row.get("ks_pvalue", 1.0), 1.0)))
++                FEATURE_FLAG.labels(feature=f, kind="warn").set(float(_as_int(row.get("flag_warn", 0), 0)))
++                FEATURE_FLAG.labels(feature=f, kind="crit").set(float(_as_int(row.get("flag_crit", 0), 0)))
++                FEATURE_FLAG.labels(feature=f, kind="denylist").set(float(_as_int(row.get("denylist_suggested", 0), 0)))
++                FEATURE_FLAG.labels(feature=f, kind="shadow_disable").set(float(_as_int(row.get("shadow_disable_suggested", 0), 0)))
++                FEATURE_DELTA.labels(feature=f, kind="missing_rate").set(float(_as_float(row.get("missing_rate_delta", 0.0), 0.0)))
++                FEATURE_DELTA.labels(feature=f, kind="zero_rate").set(float(_as_float(row.get("zero_rate_delta", 0.0), 0.0)))
++                FEATURE_DELTA.labels(feature=f, kind="clip_rate").set(float(_as_float(row.get("clip_rate_delta", 0.0), 0.0)))
++            seen_features = current_features
++        except Exception:
++            UP.set(0)
++            LAST_SUCCESS.set(0)
++        time.sleep(interval_s)
++
++
++if __name__ == "__main__":
++    main()
+--- a/orderflow_services/prometheus_alerts_feature_drift_batch_v1.yml	2026-03-08 06:28:23.688966500 +0000
++++ b/orderflow_services/prometheus_alerts_feature_drift_batch_v1.yml	2026-03-08 07:06:18.691937638 +0000
+@@ -0,0 +1,54 @@
++groups:
++  - name: feature_drift_batch_v1
++    rules:
++      - alert: FeatureDriftBatchExporterDown
++        expr: feature_drift_batch_exporter_up == 0
++        for: 10m
++        labels:
++          severity: warning
++          team: trade
++          component: feature_drift_batch
++          service: exporter
++        annotations:
++          summary: "Feature drift batch exporter down"
++          description: "Exporter cannot read latest nightly feature drift batch summary/report. Check Redis URL and exporter service."
++          runbook_path: "/runbook_feature_drift_batch_v1.md"
++
++      - alert: FeatureDriftBatchStale
++        expr: feature_drift_batch_last_age_seconds > 36 * 3600
++        for: 30m
++        labels:
++          severity: warning
++          team: trade
++          component: feature_drift_batch
++          service: nightly
++        annotations:
++          summary: "Nightly feature drift batch report stale (>36h)"
++          description: "No fresh PSI/KS drift report found. Check nightly feature selection/drift timers and baseline/current data paths."
++          runbook_path: "/runbook_feature_drift_batch_v1.md"
++
++      - alert: FeatureDriftBatchCriticalFeatures
++        expr: feature_drift_batch_crit_n > 0
++        for: 30m
++        labels:
++          severity: critical
++          team: trade
++          component: feature_drift_batch
++          service: nightly
++        annotations:
++          summary: "Critical feature drift detected in nightly PSI/KS report"
++          description: "At least one Tier-1 feature breached critical PSI/KS drift thresholds. Review report JSON/CSV and consider shadow-disable or denylist AB."
++          runbook_path: "/runbook_feature_drift_batch_v1.md"
++
++      - alert: FeatureDriftBatchDenylistSuggestionsHigh
++        expr: feature_drift_batch_denylist_suggest_n >= 3
++        for: 1h
++        labels:
++          severity: warning
++          team: trade
++          component: feature_drift_batch
++          service: nightly
++        annotations:
++          summary: "Multiple features suggested for denylist AB"
++          description: "Nightly drift report suggests several features for denylist/shadow-disable workflow. Review feature selection loop and autogen proposal inputs."
++          runbook_path: "/runbook_feature_drift_batch_v1.md"
+--- a/orderflow_services/runbook_feature_drift_batch_v1.md	2026-03-08 06:28:23.688966500 +0000
++++ b/orderflow_services/runbook_feature_drift_batch_v1.md	2026-03-08 07:06:18.705208792 +0000
+@@ -0,0 +1,45 @@
++# Runbook: Feature Drift Batch (PSI / KS)
++
++## Goal
++Explain *which* Tier-1 features drifted between a stable reference window and the
++current 24h/7d window.
++
++## Signals
++- `feature_drift_batch_warn_n`
++- `feature_drift_batch_crit_n`
++- `feature_drift_batch_denylist_suggest_n`
++- `feature_drift_batch_feature_psi{feature=...}`
++- `feature_drift_batch_feature_ks_stat{feature=...}`
++
++## Source of truth
++Redis hash:
++```bash
++redis-cli HGETALL metrics:feature_drift_batch:last
++```
++
++The hash points to the JSON report via `report_json`.
++
++## Triage
++1. Open the report JSON/CSV and identify whether drift is:
++   - true distribution shift (`psi`, `ks_stat`)
++   - missing-rate shift
++   - zero-inflation shift
++   - clipping / outlier-rate shift
++2. Cross-check the feature against:
++   - feature selection loop
++   - denylist proposal workflow
++   - live EMA/z drift and DQ metrics
++3. If drift is critical and recent, prefer **shadow-disable** before hard denylist.
++4. If drift persists across several days and feature is not core-protected, run denylist AB workflow.
++
++## Manual rerun
++```bash
++python -m services.nightly.feature_drift_report_v1 \
++  --reference_path /path/to/reference.jsonl \
++  --current_path /path/to/current.jsonl \
++  --out_json /tmp/feature_drift_batch.json
++```
++
++## Suggested next action
++If the report sets `denylist_suggested=1` for several features, feed the JSON to
++`autogen_feature_denylist_proposal_v1 --drift_report_json ...`.
+--- a/ml_analysis/tests/test_feature_drift_autogen_integration_v1.py	2026-03-08 06:28:23.688966500 +0000
++++ b/ml_analysis/tests/test_feature_drift_autogen_integration_v1.py	2026-03-08 07:09:02.441853588 +0000
+@@ -0,0 +1,38 @@
++from __future__ import annotations
++
++import json
++from pathlib import Path
++
++from ml_analysis.tools.autogen_feature_denylist_proposal_v1 import _load_drift_hints, _select_candidates
++
++
++def test_load_drift_hints_and_boost_candidates(tmp_path: Path) -> None:
++    rep = {
++        'features': [
++            {
++                'feature': 'n_depth_slope_bid',
++                'flag_warn': 1,
++                'flag_crit': 1,
++                'denylist_suggested': 1,
++                'shadow_disable_suggested': 1,
++                'psi': 0.5,
++                'ks_stat': 0.4,
++            }
++        ]
++    }
++    path = tmp_path / 'drift.json'
++    path.write_text(json.dumps(rep), encoding='utf-8')
++    hints = _load_drift_hints(path)
++    cands = _select_candidates(
++        rows=[{'feature': 'n:depth_slope_bid', 'global_perm_auc_drop': '0.0', 'regime_cv': '1.0'}],
++        extras_num={'depth_slope_bid'},
++        extras_bool=set(),
++        v5_num={'depth_slope_bid'},
++        v5_bool=set(),
++        max_features=5,
++        min_importance=0.01,
++        max_cv=0.5,
++        drift_hints=hints,
++    )
++    assert cands
++    assert 'drift_denylist_suggested=1' in cands[0].reason
+--- a/ml_analysis/tools/autogen_feature_denylist_proposal_v1.py	2026-02-26 04:22:14.000000000 +0000
++++ b/ml_analysis/tools/autogen_feature_denylist_proposal_v1.py	2026-03-08 07:09:40.151573720 +0000
+@@ -186,6 +186,41 @@
+     return out
+ 
+ 
++def _load_drift_hints(path: Optional[Path]) -> Dict[Tuple[str, str], Dict[str, object]]:
++    """Load feature drift hints keyed by (kind, key).
++
++    The report is advisory only: it never auto-applies a denylist, it only boosts
++    the candidate score/reason for already-noisy or strongly drifted features.
++    """
++    if path is None or not path.exists():
++        return {}
++    try:
++        obj = json.loads(path.read_text(encoding="utf-8"))
++    except Exception:
++        return {}
++    rows = obj.get("features") if isinstance(obj, dict) else None
++    if not isinstance(rows, list):
++        return {}
++    out: Dict[Tuple[str, str], Dict[str, object]] = {}
++    for r in rows:
++        if not isinstance(r, dict):
++            continue
++        feat = str(r.get("feature") or "").strip()
++        if not feat:
++            continue
++        key, kind_hint = _parse_feature_name(feat)
++        kind = kind_hint or ("bool" if str(feat).startswith(("b:", "b_")) else "num")
++        out[(kind, key)] = {
++            "flag_crit": int(bool(r.get("flag_crit"))),
++            "flag_warn": int(bool(r.get("flag_warn"))),
++            "denylist_suggested": int(bool(r.get("denylist_suggested"))),
++            "shadow_disable_suggested": int(bool(r.get("shadow_disable_suggested"))),
++            "psi": _try_float(r.get("psi"), 0.0),
++            "ks_stat": _try_float(r.get("ks_stat"), 0.0),
++        }
++    return out
++
++
+ def _select_candidates(
+     rows: List[Dict[str, str]],
+     extras_num: Set[str],
+@@ -195,6 +230,7 @@
+     max_features: int,
+     min_importance: float,
+     max_cv: float,
++    drift_hints: Optional[Dict[Tuple[str, str], Dict[str, object]]] = None,
+ ) -> List[Candidate]:
+     cands: List[Candidate] = []
+ 
+@@ -226,14 +262,34 @@
+         cv_hour = _try_float(r.get("hour_cv") or r.get("cv_hour") or 0.0)
+         cv = max(cv_reg, cv_hour)
+ 
+-        # Conservative defaults: require either explicit flag or (low importance + high instability)
+-        is_noise = bool(flag_noise) or (imp <= min_importance and cv >= max_cv)
++        hint = (drift_hints or {}).get((kind, key), {})
++        drift_crit = int(bool(hint.get("flag_crit")))
++        drift_warn = int(bool(hint.get("flag_warn")))
++        drift_deny = int(bool(hint.get("denylist_suggested")))
++        drift_shadow = int(bool(hint.get("shadow_disable_suggested")))
++
++        # Conservative defaults: require either explicit flag, (low importance + high instability),
++        # or strong P3 drift hints for the same extra feature.
++        is_noise = bool(flag_noise) or (imp <= min_importance and cv >= max_cv) or bool(drift_deny)
+         if not is_noise:
+             continue
+ 
+-        # score: prioritize by instability first, then tiny importance
++        # score: prioritize instability, then tiny importance, then strong drift hints.
+         score = (cv * 10.0) + (min_importance - imp)
++        if drift_warn:
++            score += 1.0
++        if drift_shadow:
++            score += 2.0
++        if drift_crit:
++            score += 4.0
++        if drift_deny:
++            score += 5.0
++
+         reason = "flag_noise" if flag_noise else f"imp<= {min_importance:.4g} & cv>= {max_cv:.3g}"
++        if drift_deny:
++            reason += "; drift_denylist_suggested=1"
++        elif drift_crit:
++            reason += "; drift_crit=1"
+ 
+         cands.append(Candidate(key=key, kind=kind, score=float(score), reason=reason))
+ 
+@@ -279,6 +335,7 @@
+     ap.add_argument("--max-features", type=int, default=int(os.environ.get("FEATURE_DENYLIST_MAX", "12")))
+     ap.add_argument("--min-importance", type=float, default=float(os.environ.get("FEATURE_DENYLIST_MIN_IMPORTANCE", "0.0001")))
+     ap.add_argument("--max-cv", type=float, default=float(os.environ.get("FEATURE_DENYLIST_MIN_CV", "0.25")))
++    ap.add_argument("--drift_report_json", default=os.environ.get("FEATURE_DRIFT_REPORT_JSON", ""), help="Optional P3 feature drift report JSON; boosts denylist candidate ranking.")
+ 
+     args = ap.parse_args()
+ 
+@@ -315,6 +372,7 @@
+             elif feat.startswith("b:") or feat.startswith("b_"):
+                 extras_bool.add(_parse_feature_name(feat)[0])
+ 
++    drift_hints = _load_drift_hints(Path(args.drift_report_json)) if str(args.drift_report_json or "").strip() else {}
+     cands = _select_candidates(
+         rows=rows,
+         extras_num=extras_num,
+@@ -324,6 +382,7 @@
+         max_features=int(args.max_features),
+         min_importance=float(args.min_importance),
+         max_cv=float(args.max_cv),
++        drift_hints=drift_hints,
+     )
+ 
+     if not cands:
+@@ -423,6 +482,7 @@
+             "max_cv": float(args.max_cv),
+             "max_features": int(args.max_features),
+         },
++        "drift_report_json": str(args.drift_report_json or ""),
+         "required_confirmation": {
+             "type": "replay_ab",
+             "must": [
+--- a/ml_analysis/tools/nightly_feature_selection_loop_bundle_v1.py	2026-02-27 05:19:01.000000000 +0000
++++ b/ml_analysis/tools/nightly_feature_selection_loop_bundle_v1.py	2026-03-08 07:08:08.011276317 +0000
+@@ -130,6 +130,12 @@
+     ap.add_argument("--max_features", type=int, default=int(os.environ.get("FEATURE_SELECTION_LOOP_MAX_FEATURES", "0")))
+     ap.add_argument("--seed", type=int, default=int(os.environ.get("FEATURE_SELECTION_LOOP_SEED", "7")))
+ 
++    ap.add_argument("--feature_drift_enable", type=int, default=int(os.environ.get("FEATURE_DRIFT_BATCH_ENABLE", "0")))
++    ap.add_argument("--feature_drift_reference_path", default=os.environ.get("FEATURE_DRIFT_BATCH_REFERENCE_PATH", ""))
++    ap.add_argument("--feature_drift_features_csv", default=os.environ.get("FEATURE_DRIFT_BATCH_FEATURES_CSV", ""))
++    ap.add_argument("--feature_drift_extra_patterns_csv", default=os.environ.get("FEATURE_DRIFT_BATCH_EXTRA_PATTERNS_CSV", ""))
++    ap.add_argument("--feature_drift_protect_patterns_csv", default=os.environ.get("FEATURE_DRIFT_BATCH_PROTECT_PATTERNS_CSV", ""))
++
+     args = ap.parse_args(argv)
+ 
+     feature_schema_ver = _norm_schema_ver(str(args.feature_schema_ver or "").strip())
+@@ -259,6 +265,33 @@
+     summary = _load_json(summary_path)
+     noise_n = int(len(summary.get("noise_examples") or []))
+ 
++    drift_report_path = os.path.join(fs_dir, "feature_drift_batch.json")
++    drift_summary: Dict[str, Any] = {}
++    if int(args.feature_drift_enable) == 1 and str(args.feature_drift_reference_path or "").strip():
++        drift_args = [
++            "--reference_path",
++            str(args.feature_drift_reference_path),
++            "--current_path",
++            dataset_jsonl,
++            "--out_json",
++            drift_report_path,
++            "--redis_url",
++            str(args.redis_url),
++        ]
++        if str(args.feature_drift_features_csv or "").strip():
++            drift_args += ["--features_csv", str(args.feature_drift_features_csv)]
++        if str(args.feature_drift_extra_patterns_csv or "").strip():
++            drift_args += ["--extra_patterns_csv", str(args.feature_drift_extra_patterns_csv)]
++        if str(args.feature_drift_protect_patterns_csv or "").strip():
++            drift_args += ["--protect_patterns_csv", str(args.feature_drift_protect_patterns_csv)]
++        ok_drift, rc_drift = _run("services.nightly.feature_drift_report_v1", drift_args, timeout=3600)
++        if ok_drift and os.path.exists(drift_report_path):
++            drift_rep = _load_json(drift_report_path)
++            drift_summary = dict(drift_rep.get("summary") or {})
++            drift_summary["status"] = str(drift_summary.get("status") or "ok")
++        else:
++            drift_summary = {"status": f"error_rc_{int(rc_drift)}"}
++
+     mapping: Dict[str, Any] = {
+         "status": "ok",
+         "reason": "",
+@@ -277,6 +310,10 @@
+         "run_dir": str(run_dir),
+         "summary_path": str(summary_path),
+         "report_path": str(os.path.join(fs_dir, "report.md")),
++        "drift_status": str(drift_summary.get("status", "")),
++        "drift_warn_n": int(drift_summary.get("warn_n", 0) or 0),
++        "drift_crit_n": int(drift_summary.get("crit_n", 0) or 0),
++        "drift_report_path": str(drift_report_path if drift_summary else ""),
+     }
+     _write_metrics(str(args.redis_url), str(args.metrics_key), mapping)
+     atomic_write_json(version_json, mapping)
+--- a/tick_flow_full/orderflow_services/feature_drift_batch_exporter_v1.py	2026-03-08 06:28:23.688966500 +0000
++++ b/tick_flow_full/orderflow_services/feature_drift_batch_exporter_v1.py	2026-03-08 07:06:27.816862012 +0000
+@@ -0,0 +1,148 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Prometheus exporter for nightly feature drift batch report (PSI/KS).
++
++Source of truth:
++- Redis hash `metrics:feature_drift_batch:last`
++- report JSON path recorded in Redis field `report_json`
++
++Low-cardinality summary metrics are always exported. Per-feature metrics are
++exported only for the features present in the report JSON (expected Tier-1 set).
++"""
++
++import json
++import os
++import time
++from typing import Any, Dict, Iterable, List, Mapping
++
++import redis  # type: ignore
++from prometheus_client import Gauge, start_http_server
++
++
++def _now_s() -> float:
++    return time.time()
++
++
++def _as_float(v: Any, d: float = 0.0) -> float:
++    try:
++        if v is None:
++            return float(d)
++        return float(v)
++    except Exception:
++        return float(d)
++
++
++def _as_int(v: Any, d: int = 0) -> int:
++    try:
++        if v is None:
++            return int(d)
++        return int(float(v))
++    except Exception:
++        return int(d)
++
++
++def _read_report(path: str) -> Dict[str, Any]:
++    try:
++        with open(path, "r", encoding="utf-8") as f:
++            obj = json.load(f)
++        return obj if isinstance(obj, dict) else {}
++    except Exception:
++        return {}
++
++
++UP = Gauge("feature_drift_batch_exporter_up", "1 if exporter can read Redis summary")
++LAST_SUCCESS = Gauge("feature_drift_batch_last_success", "1 if latest drift batch status is ok")
++LAST_UPDATED_MS = Gauge("feature_drift_batch_last_updated_ts_ms", "updated_ts_ms from Redis hash")
++AGE_S = Gauge("feature_drift_batch_last_age_seconds", "Age of latest drift-batch summary")
++FEATURES_TOTAL = Gauge("feature_drift_batch_features_total", "Total features considered")
++FEATURES_EVAL = Gauge("feature_drift_batch_features_evaluated", "Features evaluated")
++WARN_N = Gauge("feature_drift_batch_warn_n", "Warn-level feature drift count")
++CRIT_N = Gauge("feature_drift_batch_crit_n", "Crit-level feature drift count")
++DENY_N = Gauge("feature_drift_batch_denylist_suggest_n", "Features suggested for denylist AB")
++SHADOW_N = Gauge("feature_drift_batch_shadow_disable_suggest_n", "Features suggested for shadow disable")
++WORST_PSI = Gauge("feature_drift_batch_worst_psi", "Worst PSI in latest report")
++WORST_KS = Gauge("feature_drift_batch_worst_ks_stat", "Worst KS stat in latest report")
++
++FEATURE_PSI = Gauge("feature_drift_batch_feature_psi", "Per-feature PSI", ["feature"])
++FEATURE_KS = Gauge("feature_drift_batch_feature_ks_stat", "Per-feature KS statistic", ["feature"])
++FEATURE_KS_P = Gauge("feature_drift_batch_feature_ks_pvalue", "Per-feature KS p-value", ["feature"])
++FEATURE_FLAG = Gauge("feature_drift_batch_feature_flag", "Per-feature drift flags", ["feature", "kind"])
++FEATURE_DELTA = Gauge("feature_drift_batch_feature_delta", "Per-feature missing/zero/clip deltas", ["feature", "kind"])
++
++
++def _clear_features(features: Iterable[str]) -> None:
++    for f in features:
++        for kind in ("warn", "crit", "denylist", "shadow_disable"):
++            FEATURE_FLAG.labels(feature=f, kind=kind).set(0)
++        for kind in ("missing_rate", "zero_rate", "clip_rate"):
++            FEATURE_DELTA.labels(feature=f, kind=kind).set(0.0)
++        FEATURE_PSI.labels(feature=f).set(0.0)
++        FEATURE_KS.labels(feature=f).set(0.0)
++        FEATURE_KS_P.labels(feature=f).set(1.0)
++
++
++def main() -> None:
++    redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++    metrics_key = os.getenv("FEATURE_DRIFT_BATCH_METRICS_KEY", "metrics:feature_drift_batch:last")
++    port = int(os.getenv("FEATURE_DRIFT_BATCH_EXPORTER_PORT", "9832"))
++    interval_s = float(os.getenv("FEATURE_DRIFT_BATCH_EXPORTER_INTERVAL_S", "10"))
++    stale_s = float(os.getenv("FEATURE_DRIFT_BATCH_EXPORTER_STALE_S", str(36 * 3600)))
++
++    r = redis.Redis.from_url(redis_url, decode_responses=True)
++    start_http_server(port)
++
++    seen_features: List[str] = []
++    while True:
++        try:
++            m: Dict[str, Any] = r.hgetall(metrics_key) or {}
++            UP.set(1)
++
++            status = str(m.get("status", "") or "")
++            LAST_SUCCESS.set(1.0 if status == "ok" else 0.0)
++            updated_ms = _as_int(m.get("updated_ts_ms", 0), 0)
++            LAST_UPDATED_MS.set(float(updated_ms))
++            age = max(0.0, _now_s() - (float(updated_ms) / 1000.0 if updated_ms > 0 else 0.0))
++            AGE_S.set(age)
++            if age > stale_s:
++                LAST_SUCCESS.set(0.0)
++
++            FEATURES_TOTAL.set(float(_as_int(m.get("features_total", 0), 0)))
++            FEATURES_EVAL.set(float(_as_int(m.get("features_evaluated", 0), 0)))
++            WARN_N.set(float(_as_int(m.get("warn_n", 0), 0)))
++            CRIT_N.set(float(_as_int(m.get("crit_n", 0), 0)))
++            DENY_N.set(float(_as_int(m.get("denylist_suggest_n", 0), 0)))
++            SHADOW_N.set(float(_as_int(m.get("shadow_disable_suggest_n", 0), 0)))
++            WORST_PSI.set(float(_as_float(m.get("worst_psi", 0.0), 0.0)))
++            WORST_KS.set(float(_as_float(m.get("worst_ks_stat", 0.0), 0.0)))
++
++            rep = _read_report(str(m.get("report_json", "") or ""))
++            rows = rep.get("features") if isinstance(rep.get("features"), list) else []
++            current_features: List[str] = []
++            _clear_features(seen_features)
++            for row in rows:
++                if not isinstance(row, Mapping):
++                    continue
++                f = str(row.get("feature", "") or "")
++                if not f:
++                    continue
++                current_features.append(f)
++                FEATURE_PSI.labels(feature=f).set(float(_as_float(row.get("psi", 0.0), 0.0)))
++                FEATURE_KS.labels(feature=f).set(float(_as_float(row.get("ks_stat", 0.0), 0.0)))
++                FEATURE_KS_P.labels(feature=f).set(float(_as_float(row.get("ks_pvalue", 1.0), 1.0)))
++                FEATURE_FLAG.labels(feature=f, kind="warn").set(float(_as_int(row.get("flag_warn", 0), 0)))
++                FEATURE_FLAG.labels(feature=f, kind="crit").set(float(_as_int(row.get("flag_crit", 0), 0)))
++                FEATURE_FLAG.labels(feature=f, kind="denylist").set(float(_as_int(row.get("denylist_suggested", 0), 0)))
++                FEATURE_FLAG.labels(feature=f, kind="shadow_disable").set(float(_as_int(row.get("shadow_disable_suggested", 0), 0)))
++                FEATURE_DELTA.labels(feature=f, kind="missing_rate").set(float(_as_float(row.get("missing_rate_delta", 0.0), 0.0)))
++                FEATURE_DELTA.labels(feature=f, kind="zero_rate").set(float(_as_float(row.get("zero_rate_delta", 0.0), 0.0)))
++                FEATURE_DELTA.labels(feature=f, kind="clip_rate").set(float(_as_float(row.get("clip_rate_delta", 0.0), 0.0)))
++            seen_features = current_features
++        except Exception:
++            UP.set(0)
++            LAST_SUCCESS.set(0)
++        time.sleep(interval_s)
++
++
++if __name__ == "__main__":
++    main()
+--- a/tick_flow_full/orderflow_services/prometheus_alerts_feature_drift_batch_v1.yml	2026-03-08 06:28:23.688966500 +0000
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_feature_drift_batch_v1.yml	2026-03-08 07:06:27.824323312 +0000
+@@ -0,0 +1,54 @@
++groups:
++  - name: feature_drift_batch_v1
++    rules:
++      - alert: FeatureDriftBatchExporterDown
++        expr: feature_drift_batch_exporter_up == 0
++        for: 10m
++        labels:
++          severity: warning
++          team: trade
++          component: feature_drift_batch
++          service: exporter
++        annotations:
++          summary: "Feature drift batch exporter down"
++          description: "Exporter cannot read latest nightly feature drift batch summary/report. Check Redis URL and exporter service."
++          runbook_path: "/runbook_feature_drift_batch_v1.md"
++
++      - alert: FeatureDriftBatchStale
++        expr: feature_drift_batch_last_age_seconds > 36 * 3600
++        for: 30m
++        labels:
++          severity: warning
++          team: trade
++          component: feature_drift_batch
++          service: nightly
++        annotations:
++          summary: "Nightly feature drift batch report stale (>36h)"
++          description: "No fresh PSI/KS drift report found. Check nightly feature selection/drift timers and baseline/current data paths."
++          runbook_path: "/runbook_feature_drift_batch_v1.md"
++
++      - alert: FeatureDriftBatchCriticalFeatures
++        expr: feature_drift_batch_crit_n > 0
++        for: 30m
++        labels:
++          severity: critical
++          team: trade
++          component: feature_drift_batch
++          service: nightly
++        annotations:
++          summary: "Critical feature drift detected in nightly PSI/KS report"
++          description: "At least one Tier-1 feature breached critical PSI/KS drift thresholds. Review report JSON/CSV and consider shadow-disable or denylist AB."
++          runbook_path: "/runbook_feature_drift_batch_v1.md"
++
++      - alert: FeatureDriftBatchDenylistSuggestionsHigh
++        expr: feature_drift_batch_denylist_suggest_n >= 3
++        for: 1h
++        labels:
++          severity: warning
++          team: trade
++          component: feature_drift_batch
++          service: nightly
++        annotations:
++          summary: "Multiple features suggested for denylist AB"
++          description: "Nightly drift report suggests several features for denylist/shadow-disable workflow. Review feature selection loop and autogen proposal inputs."
++          runbook_path: "/runbook_feature_drift_batch_v1.md"
+--- a/tick_flow_full/orderflow_services/runbook_feature_drift_batch_v1.md	2026-03-08 06:28:23.688966500 +0000
++++ b/tick_flow_full/orderflow_services/runbook_feature_drift_batch_v1.md	2026-03-08 07:06:27.880024688 +0000
+@@ -0,0 +1,45 @@
++# Runbook: Feature Drift Batch (PSI / KS)
++
++## Goal
++Explain *which* Tier-1 features drifted between a stable reference window and the
++current 24h/7d window.
++
++## Signals
++- `feature_drift_batch_warn_n`
++- `feature_drift_batch_crit_n`
++- `feature_drift_batch_denylist_suggest_n`
++- `feature_drift_batch_feature_psi{feature=...}`
++- `feature_drift_batch_feature_ks_stat{feature=...}`
++
++## Source of truth
++Redis hash:
++```bash
++redis-cli HGETALL metrics:feature_drift_batch:last
++```
++
++The hash points to the JSON report via `report_json`.
++
++## Triage
++1. Open the report JSON/CSV and identify whether drift is:
++   - true distribution shift (`psi`, `ks_stat`)
++   - missing-rate shift
++   - zero-inflation shift
++   - clipping / outlier-rate shift
++2. Cross-check the feature against:
++   - feature selection loop
++   - denylist proposal workflow
++   - live EMA/z drift and DQ metrics
++3. If drift is critical and recent, prefer **shadow-disable** before hard denylist.
++4. If drift persists across several days and feature is not core-protected, run denylist AB workflow.
++
++## Manual rerun
++```bash
++python -m services.nightly.feature_drift_report_v1 \
++  --reference_path /path/to/reference.jsonl \
++  --current_path /path/to/current.jsonl \
++  --out_json /tmp/feature_drift_batch.json
++```
++
++## Suggested next action
++If the report sets `denylist_suggested=1` for several features, feed the JSON to
++`autogen_feature_denylist_proposal_v1 --drift_report_json ...`.
+--- a/tick_flow_full/orderflow_services/grafana/feature_drift_batch_v1.json	2026-03-08 06:28:23.688966500 +0000
++++ b/tick_flow_full/orderflow_services/grafana/feature_drift_batch_v1.json	2026-03-08 07:06:27.831986762 +0000
+@@ -0,0 +1,57 @@
++{
++  "annotations": {"list": []},
++  "editable": true,
++  "panels": [
++    {
++      "type": "stat",
++      "title": "Critical drift features",
++      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
++      "targets": [{"expr": "feature_drift_batch_crit_n", "refId": "A"}]
++    },
++    {
++      "type": "stat",
++      "title": "Warn drift features",
++      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
++      "targets": [{"expr": "feature_drift_batch_warn_n", "refId": "A"}]
++    },
++    {
++      "type": "stat",
++      "title": "Denylist suggestions",
++      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
++      "targets": [{"expr": "feature_drift_batch_denylist_suggest_n", "refId": "A"}]
++    },
++    {
++      "type": "stat",
++      "title": "Report age (s)",
++      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
++      "targets": [{"expr": "feature_drift_batch_last_age_seconds", "refId": "A"}]
++    },
++    {
++      "type": "timeseries",
++      "title": "Per-feature PSI",
++      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
++      "targets": [{"expr": "feature_drift_batch_feature_psi", "legendFormat": "{{feature}}", "refId": "A"}]
++    },
++    {
++      "type": "timeseries",
++      "title": "Per-feature KS statistic",
++      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
++      "targets": [{"expr": "feature_drift_batch_feature_ks_stat", "legendFormat": "{{feature}}", "refId": "A"}]
++    },
++    {
++      "type": "timeseries",
++      "title": "Per-feature rate deltas",
++      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 12},
++      "targets": [
++        {"expr": "feature_drift_batch_feature_delta{kind=\"missing_rate\"}", "legendFormat": "missing {{feature}}", "refId": "A"},
++        {"expr": "feature_drift_batch_feature_delta{kind=\"zero_rate\"}", "legendFormat": "zero {{feature}}", "refId": "B"},
++        {"expr": "feature_drift_batch_feature_delta{kind=\"clip_rate\"}", "legendFormat": "clip {{feature}}", "refId": "C"}
++      ]
++    }
++  ],
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": ["trade", "feature-drift", "batch"],
++  "title": "Feature Drift Batch (v1)",
++  "version": 1
++}
+--- a/orderflow_services/grafana/feature_drift_batch_v1.json	2026-03-08 06:28:23.688966500 +0000
++++ b/orderflow_services/grafana/feature_drift_batch_v1.json	2026-03-08 07:06:18.699649523 +0000
+@@ -0,0 +1,57 @@
++{
++  "annotations": {"list": []},
++  "editable": true,
++  "panels": [
++    {
++      "type": "stat",
++      "title": "Critical drift features",
++      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
++      "targets": [{"expr": "feature_drift_batch_crit_n", "refId": "A"}]
++    },
++    {
++      "type": "stat",
++      "title": "Warn drift features",
++      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
++      "targets": [{"expr": "feature_drift_batch_warn_n", "refId": "A"}]
++    },
++    {
++      "type": "stat",
++      "title": "Denylist suggestions",
++      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
++      "targets": [{"expr": "feature_drift_batch_denylist_suggest_n", "refId": "A"}]
++    },
++    {
++      "type": "stat",
++      "title": "Report age (s)",
++      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
++      "targets": [{"expr": "feature_drift_batch_last_age_seconds", "refId": "A"}]
++    },
++    {
++      "type": "timeseries",
++      "title": "Per-feature PSI",
++      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
++      "targets": [{"expr": "feature_drift_batch_feature_psi", "legendFormat": "{{feature}}", "refId": "A"}]
++    },
++    {
++      "type": "timeseries",
++      "title": "Per-feature KS statistic",
++      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
++      "targets": [{"expr": "feature_drift_batch_feature_ks_stat", "legendFormat": "{{feature}}", "refId": "A"}]
++    },
++    {
++      "type": "timeseries",
++      "title": "Per-feature rate deltas",
++      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 12},
++      "targets": [
++        {"expr": "feature_drift_batch_feature_delta{kind=\"missing_rate\"}", "legendFormat": "missing {{feature}}", "refId": "A"},
++        {"expr": "feature_drift_batch_feature_delta{kind=\"zero_rate\"}", "legendFormat": "zero {{feature}}", "refId": "B"},
++        {"expr": "feature_drift_batch_feature_delta{kind=\"clip_rate\"}", "legendFormat": "clip {{feature}}", "refId": "C"}
++      ]
++    }
++  ],
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": ["trade", "feature-drift", "batch"],
++  "title": "Feature Drift Batch (v1)",
++  "version": 1
++}
+--- a/orderflow_services/tests/test_feature_drift_batch_exporter_v1.py	2026-03-08 06:28:23.688966500 +0000
++++ b/orderflow_services/tests/test_feature_drift_batch_exporter_v1.py	2026-03-08 07:09:02.486897580 +0000
+@@ -0,0 +1,17 @@
++from __future__ import annotations
++
++import json
++import py_compile
++from pathlib import Path
++
++
++def test_feature_drift_batch_exporter_compiles() -> None:
++    p = Path(__file__).resolve().parents[1] / 'feature_drift_batch_exporter_v1.py'
++    py_compile.compile(str(p), doraise=True)
++
++
++def test_feature_drift_batch_dashboard_exists_and_parses() -> None:
++    p = Path(__file__).resolve().parents[1] / 'grafana' / 'feature_drift_batch_v1.json'
++    obj = json.loads(p.read_text(encoding='utf-8'))
++    assert obj['title'] == 'Feature Drift Batch (v1)'
++    assert isinstance(obj.get('panels'), list) and obj['panels']
+--- a/orderflow_services/tests/test_feature_drift_batch_alerts_yaml_v1.py	2026-03-08 06:28:23.688966500 +0000
++++ b/orderflow_services/tests/test_feature_drift_batch_alerts_yaml_v1.py	2026-03-08 07:09:02.584142330 +0000
+@@ -0,0 +1,26 @@
++from __future__ import annotations
++
++import os
++import yaml
++import pytest
++
++
++def _alerts_path(tick_flow_full: bool = False) -> str:
++    base = os.path.dirname(__file__)
++    root = os.path.abspath(os.path.join(base, '..'))
++    if tick_flow_full:
++        tf_root = os.path.abspath(os.path.join(base, '..', '..', 'tick_flow_full', 'orderflow_services'))
++        return os.path.join(tf_root, 'prometheus_alerts_feature_drift_batch_v1.yml')
++    return os.path.join(root, 'prometheus_alerts_feature_drift_batch_v1.yml')
++
++
++@pytest.mark.parametrize('tick_flow_full', [False, True])
++def test_feature_drift_batch_alerts_yaml_parses(tick_flow_full: bool) -> None:
++    path = _alerts_path(tick_flow_full)
++    with open(path, 'r', encoding='utf-8') as f:
++        doc = yaml.safe_load(f)
++    assert 'groups' in doc and doc['groups']
++    rules = doc['groups'][0].get('rules', [])
++    names = {r.get('alert') for r in rules}
++    assert 'FeatureDriftBatchCriticalFeatures' in names
++    assert 'FeatureDriftBatchExporterDown' in names
+--- a/services/tests/test_feature_drift_psi_ks_v1.py	2026-03-08 06:28:23.688966500 +0000
++++ b/services/tests/test_feature_drift_psi_ks_v1.py	2026-03-08 07:10:48.594155006 +0000
+@@ -0,0 +1,31 @@
++from __future__ import annotations
++
++import math
++
++from services.nightly.feature_drift_ks import ks_report
++from services.nightly.feature_drift_psi import psi_report
++
++
++def test_psi_stable_vs_stable_small() -> None:
++    ref = [0.0, 0.1, 0.2, 0.3, 0.4] * 40
++    cur = [0.0, 0.1, 0.2, 0.3, 0.4] * 40
++    rep = psi_report(ref, cur)
++    assert rep.psi < 0.02
++    assert abs(rep.zero_rate_delta) < 1e-9
++
++
++def test_ks_location_shift_detected() -> None:
++    ref = [float(i) for i in range(200)]
++    cur = [float(i) + 80.0 for i in range(200)]
++    rep = ks_report(ref, cur)
++    assert rep.ks_stat > 0.09
++    assert rep.ks_pvalue < 0.05
++
++
++def test_psi_sparse_zero_inflated_feature() -> None:
++    ref = [0.0] * 190 + [1.0] * 10
++    cur = [0.0] * 120 + [1.0] * 80
++    rep = psi_report(ref, cur)
++    assert rep.psi > 0.10
++    assert rep.zero_rate_delta < 0.0
++    assert math.isfinite(rep.clip_rate_delta)
+--- a/services/tests/test_feature_drift_report_v1.py	2026-03-08 06:28:23.688966500 +0000
++++ b/services/tests/test_feature_drift_report_v1.py	2026-03-08 07:09:02.434210595 +0000
+@@ -0,0 +1,56 @@
++from __future__ import annotations
++
++import csv
++import json
++from pathlib import Path
++
++from services.nightly.feature_drift_report_v1 import build_feature_drift_report, main
++
++
++def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
++    cols = list(rows[0].keys())
++    with path.open('w', encoding='utf-8', newline='') as f:
++        w = csv.DictWriter(f, fieldnames=cols)
++        w.writeheader()
++        for r in rows:
++            w.writerow(r)
++
++
++def test_feature_drift_report_stable_vs_shift(tmp_path: Path) -> None:
++    ref = tmp_path / 'ref.csv'
++    cur = tmp_path / 'cur.csv'
++    _write_csv(ref, [
++        {'ofi_norm': 0.1, 'dw_obi': 0.2, 'spread_bps': 5.0, 'depth_slope_bid': 1.0},
++        {'ofi_norm': 0.2, 'dw_obi': 0.1, 'spread_bps': 4.9, 'depth_slope_bid': 1.1},
++        {'ofi_norm': 0.0, 'dw_obi': 0.2, 'spread_bps': 5.1, 'depth_slope_bid': 1.0},
++    ] * 100)
++    _write_csv(cur, [
++        {'ofi_norm': 2.0, 'dw_obi': 0.1, 'spread_bps': 9.0, 'depth_slope_bid': 0.1},
++        {'ofi_norm': 2.1, 'dw_obi': 0.2, 'spread_bps': 9.2, 'depth_slope_bid': 0.2},
++        {'ofi_norm': 1.9, 'dw_obi': 0.0, 'spread_bps': 8.8, 'depth_slope_bid': 0.1},
++    ] * 100)
++
++    rep = build_feature_drift_report(reference_path=str(ref), current_path=str(cur))
++    assert rep['summary']['features_evaluated'] >= 3
++    feats = {r['feature']: r for r in rep['features']}
++    assert feats['ofi_norm']['flag_crit'] == 1
++    assert feats['spread_bps']['flag_warn'] == 1
++
++
++def test_feature_drift_report_cli_writes_json_and_csv(tmp_path: Path) -> None:
++    ref = tmp_path / 'ref.csv'
++    cur = tmp_path / 'cur.csv'
++    _write_csv(ref, [{'ofi_norm': 0.0, 'dw_obi': 0.1}] * 100)
++    _write_csv(cur, [{'ofi_norm': 0.0, 'dw_obi': 0.1}] * 100)
++    out_json = tmp_path / 'report.json'
++    out_csv = tmp_path / 'report.csv'
++    rc = main([
++        '--reference_path', str(ref),
++        '--current_path', str(cur),
++        '--out_json', str(out_json),
++        '--out_csv', str(out_csv),
++    ])
++    assert rc == 0
++    obj = json.loads(out_json.read_text(encoding='utf-8'))
++    assert obj['tool'] == 'feature_drift_report_v1'
++    assert out_csv.exists()
+--- a/services/tests/test_feature_drift_compile_v1.py	2026-03-08 06:28:23.688966500 +0000
++++ b/services/tests/test_feature_drift_compile_v1.py	2026-03-08 07:09:15.802696392 +0000
+@@ -0,0 +1,23 @@
++from __future__ import annotations
++
++import py_compile
++from pathlib import Path
++
++
++def test_feature_drift_modules_compile() -> None:
++    root = Path(__file__).resolve().parents[1]
++    for rel in [
++        'nightly/feature_drift_psi.py',
++        'nightly/feature_drift_ks.py',
++        'nightly/feature_drift_report_v1.py',
++    ]:
++        py_compile.compile(str(root / rel), doraise=True)
++
++
++def test_bundle_and_autogen_compile_after_p3_changes() -> None:
++    repo = Path(__file__).resolve().parents[2]
++    for rel in [
++        'ml_analysis/tools/nightly_feature_selection_loop_bundle_v1.py',
++        'ml_analysis/tools/autogen_feature_denylist_proposal_v1.py',
++    ]:
++        py_compile.compile(str(repo / rel), doraise=True)
+--- a/services/nightly/__init__.py	2026-03-08 06:28:23.688966500 +0000
++++ b/services/nightly/__init__.py	2026-03-08 07:03:12.815158865 +0000
+@@ -0,0 +1 @@
++"""Nightly batch analytics helpers for orderflow/ML governance."""
+--- a/services/nightly/feature_drift_psi.py	2026-03-08 06:28:23.688966500 +0000
++++ b/services/nightly/feature_drift_psi.py	2026-03-08 07:10:48.593813476 +0000
+@@ -0,0 +1,240 @@
++from __future__ import annotations
++
++"""Population Stability Index (PSI) helpers for nightly feature-drift analysis.
++
++Design goals
++------------
++- deterministic, dependency-light implementation
++- robust against sparse / zero-inflated features
++- explicit support for missing/zero/clip deltas so report consumers can
++  distinguish *distribution drift* from *data-quality drift*
++
++References / conventions
++------------------------
++PSI is computed on reference-vs-current binned distributions:
++    PSI = Σ (p_i - q_i) * ln(p_i / q_i)
++where p_i is reference share in bin i, q_i is current share in bin i.
++
++We intentionally derive bins from the *reference* window and keep them fixed for
++current. That makes the metric interpretable as "how much the current window
++moved away from baseline".
++"""
++
++import math
++from dataclasses import dataclass
++from typing import Iterable, List, Sequence, Tuple
++
++import numpy as np
++
++
++@dataclass(frozen=True)
++class PsiResult:
++    psi: float
++    n_ref: int
++    n_cur: int
++    missing_rate_ref: float
++    missing_rate_cur: float
++    missing_rate_delta: float
++    zero_rate_ref: float
++    zero_rate_cur: float
++    zero_rate_delta: float
++    clip_rate_ref: float
++    clip_rate_cur: float
++    clip_rate_delta: float
++    clip_lo: float
++    clip_hi: float
++    bins: int
++
++
++def _as_float_array(xs: Iterable[float | int | None]) -> np.ndarray:
++    vals: List[float] = []
++    for x in xs:
++        try:
++            if x is None:
++                continue
++            v = float(x)
++            if math.isfinite(v):
++                vals.append(v)
++        except Exception:
++            continue
++    if not vals:
++        return np.asarray([], dtype=np.float64)
++    return np.asarray(vals, dtype=np.float64)
++
++
++def _sanitize_bins(edges: Sequence[float]) -> np.ndarray:
++    arr = np.asarray(list(edges), dtype=np.float64)
++    arr = arr[np.isfinite(arr)]
++    if arr.size == 0:
++        return np.asarray([0.0, 1.0], dtype=np.float64)
++    arr = np.unique(arr)
++    if arr.size < 2:
++        x = float(arr[0])
++        return np.asarray([x - 1e-9, x + 1e-9], dtype=np.float64)
++    return arr
++
++
++def quantile_bins(
++    ref: Sequence[float | int | None],
++    *,
++    n_bins: int = 10,
++    clip_q_lo: float = 0.005,
++    clip_q_hi: float = 0.995,
++) -> Tuple[np.ndarray, float, float]:
++    """Build stable reference bins and clip bounds.
++
++    The clip bounds are returned separately because clip deltas are often more
++    actionable than PSI itself for heavy-tailed features.
++    """
++    a = _as_float_array(ref)
++    if a.size == 0:
++        return np.asarray([0.0, 1.0], dtype=np.float64), 0.0, 0.0
++
++    lo = float(np.quantile(a, clip_q_lo))
++    hi = float(np.quantile(a, clip_q_hi))
++    if not math.isfinite(lo):
++        lo = float(np.min(a))
++    if not math.isfinite(hi):
++        hi = float(np.max(a))
++    if hi < lo:
++        lo, hi = hi, lo
++    if hi == lo:
++        hi = lo + 1e-9
++
++    uniq = np.unique(a)
++    if uniq.size > 1 and uniq.size <= max(16, int(n_bins)):
++        mids = ((uniq[:-1] + uniq[1:]) / 2.0).astype(np.float64)
++        left = float(uniq[0] - max(1e-9, abs(uniq[0]) * 1e-9 + 1e-9))
++        right = float(uniq[-1] + max(1e-9, abs(uniq[-1]) * 1e-9 + 1e-9))
++        edges = np.concatenate([[left], mids, [right]])
++    else:
++        qs = np.linspace(0.0, 1.0, max(2, int(n_bins) + 1))
++        edges = np.quantile(a, qs)
++    edges = _sanitize_bins(edges)
++    edges[0] = min(float(edges[0]), lo)
++    edges[-1] = max(float(edges[-1]), hi)
++    return edges, float(lo), float(hi)
++
++
++def distribution_from_bins(
++    xs: Sequence[float | int | None],
++    edges: Sequence[float],
++    *,
++    epsilon: float = 1e-6,
++) -> np.ndarray:
++    a = _as_float_array(xs)
++    if a.size == 0:
++        # uniform tiny distribution avoids singularities and makes PSI bounded.
++        m = max(1, len(edges) - 1)
++        return np.full((m,), 1.0 / float(m), dtype=np.float64)
++
++    e = _sanitize_bins(edges)
++    counts, _ = np.histogram(a, bins=e)
++    probs = counts.astype(np.float64)
++    probs = probs + float(epsilon)
++    s = float(np.sum(probs))
++    if s <= 0:
++        return np.full((len(probs),), 1.0 / float(len(probs)), dtype=np.float64)
++    return probs / s
++
++
++def psi_from_distributions(ref_p: Sequence[float], cur_p: Sequence[float], *, epsilon: float = 1e-12) -> float:
++    p = np.asarray(ref_p, dtype=np.float64)
++    q = np.asarray(cur_p, dtype=np.float64)
++    if p.size != q.size:
++        raise ValueError("ref/current distributions must have same shape")
++    p = np.clip(p, epsilon, None)
++    q = np.clip(q, epsilon, None)
++    return float(np.sum((p - q) * np.log(p / q)))
++
++
++def missing_rate(xs: Sequence[float | int | None], *, total_n: int | None = None) -> float:
++    if total_n is None:
++        total_n = len(list(xs)) if not isinstance(xs, np.ndarray) else int(xs.shape[0])
++    if total_n <= 0:
++        return 0.0
++    miss = 0
++    for x in xs:
++        try:
++            if x is None or not math.isfinite(float(x)):
++                miss += 1
++        except Exception:
++            miss += 1
++    return float(miss) / float(total_n)
++
++
++def zero_rate(xs: Sequence[float | int | None], *, tol: float = 1e-12) -> float:
++    n = 0
++    z = 0
++    for x in xs:
++        try:
++            v = float(x)
++            if not math.isfinite(v):
++                continue
++            n += 1
++            if abs(v) <= tol:
++                z += 1
++        except Exception:
++            continue
++    return 0.0 if n <= 0 else float(z) / float(n)
++
++
++def clip_rate(xs: Sequence[float | int | None], *, lo: float, hi: float) -> float:
++    n = 0
++    c = 0
++    for x in xs:
++        try:
++            v = float(x)
++            if not math.isfinite(v):
++                continue
++            n += 1
++            if v < lo or v > hi:
++                c += 1
++        except Exception:
++            continue
++    return 0.0 if n <= 0 else float(c) / float(n)
++
++
++def psi_report(
++    ref: Sequence[float | int | None],
++    cur: Sequence[float | int | None],
++    *,
++    n_bins: int = 10,
++    clip_q_lo: float = 0.005,
++    clip_q_hi: float = 0.995,
++    epsilon: float = 1e-6,
++    total_ref_n: int | None = None,
++    total_cur_n: int | None = None,
++) -> PsiResult:
++    edges, clip_lo, clip_hi = quantile_bins(ref, n_bins=n_bins, clip_q_lo=clip_q_lo, clip_q_hi=clip_q_hi)
++    ref_p = distribution_from_bins(ref, edges, epsilon=epsilon)
++    cur_p = distribution_from_bins(cur, edges, epsilon=epsilon)
++    psi = psi_from_distributions(ref_p, cur_p, epsilon=epsilon)
++
++    n_ref = len(ref) if total_ref_n is None else int(total_ref_n)
++    n_cur = len(cur) if total_cur_n is None else int(total_cur_n)
++
++    mr_ref = missing_rate(ref, total_n=n_ref)
++    mr_cur = missing_rate(cur, total_n=n_cur)
++    zr_ref = zero_rate(ref)
++    zr_cur = zero_rate(cur)
++    cr_ref = clip_rate(ref, lo=clip_lo, hi=clip_hi)
++    cr_cur = clip_rate(cur, lo=clip_lo, hi=clip_hi)
++
++    return PsiResult(
++        psi=float(psi),
++        n_ref=int(n_ref),
++        n_cur=int(n_cur),
++        missing_rate_ref=float(mr_ref),
++        missing_rate_cur=float(mr_cur),
++        missing_rate_delta=float(mr_cur - mr_ref),
++        zero_rate_ref=float(zr_ref),
++        zero_rate_cur=float(zr_cur),
++        zero_rate_delta=float(zr_cur - zr_ref),
++        clip_rate_ref=float(cr_ref),
++        clip_rate_cur=float(cr_cur),
++        clip_rate_delta=float(cr_cur - cr_ref),
++        clip_lo=float(clip_lo),
++        clip_hi=float(clip_hi),
++        bins=max(1, len(edges) - 1),
++    )
+--- a/services/nightly/feature_drift_ks.py	2026-03-08 06:28:23.688966500 +0000
++++ b/services/nightly/feature_drift_ks.py	2026-03-08 07:03:12.830434553 +0000
+@@ -0,0 +1,83 @@
++from __future__ import annotations
++
++"""Two-sample KS helpers for nightly feature-drift analysis.
++
++We intentionally implement a small dependency-light approximation instead of
++requiring scipy in production timers/exporters.
++"""
++
++import math
++from dataclasses import dataclass
++from typing import Iterable, List, Sequence
++
++import numpy as np
++
++
++@dataclass(frozen=True)
++class KsResult:
++    ks_stat: float
++    ks_pvalue: float
++    n_ref: int
++    n_cur: int
++
++
++def _as_float_array(xs: Iterable[float | int | None]) -> np.ndarray:
++    vals: List[float] = []
++    for x in xs:
++        try:
++            if x is None:
++                continue
++            v = float(x)
++            if math.isfinite(v):
++                vals.append(v)
++        except Exception:
++            continue
++    return np.asarray(vals, dtype=np.float64)
++
++
++def ks_statistic(ref: Sequence[float | int | None], cur: Sequence[float | int | None]) -> float:
++    x = np.sort(_as_float_array(ref))
++    y = np.sort(_as_float_array(cur))
++    nx = int(x.size)
++    ny = int(y.size)
++    if nx <= 0 or ny <= 0:
++        return 0.0
++    values = np.concatenate([x, y])
++    cdf_x = np.searchsorted(x, values, side="right") / float(nx)
++    cdf_y = np.searchsorted(y, values, side="right") / float(ny)
++    return float(np.max(np.abs(cdf_x - cdf_y)))
++
++
++def _kolmogorov_q(lmbd: float) -> float:
++    """Asymptotic survival function for Kolmogorov distribution.
++
++    Good enough for batch drift triage; not intended for scientific publication.
++    """
++    if lmbd <= 0.0:
++        return 1.0
++    s = 0.0
++    # 100 terms is plenty for our value range.
++    for k in range(1, 101):
++        term = (-1.0) ** (k - 1) * math.exp(-2.0 * (k * k) * (lmbd * lmbd))
++        s += term
++        if abs(term) < 1e-12:
++            break
++    return float(max(0.0, min(1.0, 2.0 * s)))
++
++
++def ks_pvalue_from_stat(ks_stat: float, n_ref: int, n_cur: int) -> float:
++    if ks_stat <= 0.0:
++        return 1.0
++    if n_ref <= 0 or n_cur <= 0:
++        return 1.0
++    n_eff = float(n_ref * n_cur) / float(n_ref + n_cur)
++    lmbd = (math.sqrt(n_eff) + 0.12 + 0.11 / max(math.sqrt(n_eff), 1e-9)) * float(ks_stat)
++    return _kolmogorov_q(lmbd)
++
++
++def ks_report(ref: Sequence[float | int | None], cur: Sequence[float | int | None]) -> KsResult:
++    x = _as_float_array(ref)
++    y = _as_float_array(cur)
++    stat = ks_statistic(x, y)
++    pvalue = ks_pvalue_from_stat(stat, int(x.size), int(y.size))
++    return KsResult(ks_stat=float(stat), ks_pvalue=float(pvalue), n_ref=int(x.size), n_cur=int(y.size))
+--- a/services/nightly/feature_drift_report_v1.py	2026-03-08 06:28:23.688966500 +0000
++++ b/services/nightly/feature_drift_report_v1.py	2026-03-08 07:05:01.274618651 +0000
+@@ -0,0 +1,548 @@
++from __future__ import annotations
++
++"""Nightly feature drift report (PSI + KS) for key online features.
++
++Purpose
++-------
++Add an *explainable* batch-drift layer on top of online EMA/z-score drift. The
++report intentionally focuses on a small Tier-1 feature set so Prometheus labels
++and operator workflows stay manageable.
++
++Outputs
++-------
++- report JSON with per-feature drift metrics and low-cardinality summary
++- CSV with the same per-feature rows for analyst inspection
++- optional Redis hash summary (metrics:feature_drift_batch:last)
++
++Optional integration hooks
++--------------------------
++- `denylist_suggested`: strong candidate for feature-denylist AB loop
++- `shadow_disable_suggested`: strong candidate for temporary shadow-disable
++
++Data assumptions
++----------------
++Works with:
++- CSV / parquet wide datasets (preferred)
++- JSONL/NDJSON with either top-level numeric fields or `indicators.{feature}`
++
++This module is intentionally independent from train bundles so it can run on any
++stable baseline/current window pair.
++"""
++
++import argparse
++import csv
++import fnmatch
++import json
++import math
++import os
++import time
++from dataclasses import asdict, dataclass
++from pathlib import Path
++from typing import Any, Dict, Iterable, Iterator, List, Mapping, MutableMapping, Optional, Sequence, Tuple
++
++import numpy as np
++
++from services.nightly.feature_drift_ks import ks_report
++from services.nightly.feature_drift_psi import psi_report
++
++try:
++    import pandas as pd  # type: ignore
++except Exception:  # pragma: no cover - pandas is optional at import time
++    pd = None  # type: ignore
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++
++_TIER1_PATTERNS: Tuple[str, ...] = (
++    "ofi_norm",
++    "dw_obi",
++    "depth_slope_*",
++    "spread_bps",
++    "liq_resiliency_*",
++    "tca_*",
++    "funding_*",
++    "basis_bps",
++    "open_interest",
++    "delta_oi_*",
++    "oi_notional_usd",
++)
++
++
++@dataclass(frozen=True)
++class FeatureDriftRow:
++    feature: str
++    n_ref: int
++    n_cur: int
++    psi: float
++    ks_stat: float
++    ks_pvalue: float
++    missing_rate_delta: float
++    zero_rate_delta: float
++    clip_rate_delta: float
++    missing_rate_ref: float
++    missing_rate_cur: float
++    zero_rate_ref: float
++    zero_rate_cur: float
++    clip_rate_ref: float
++    clip_rate_cur: float
++    flag_warn: int
++    flag_crit: int
++    denylist_suggested: int
++    shadow_disable_suggested: int
++    reasons: List[str]
++
++
++@dataclass(frozen=True)
++class FeatureDriftSummary:
++    status: str
++    features_total: int
++    features_evaluated: int
++    warn_n: int
++    crit_n: int
++    denylist_suggest_n: int
++    shadow_disable_suggest_n: int
++    worst_feature: str
++    worst_psi: float
++    worst_ks_stat: float
++
++
++# ---------------------------------------------------------------------------
++# helpers
++# ---------------------------------------------------------------------------
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _safe_float(x: Any, d: float = 0.0) -> float:
++    try:
++        if x is None:
++            return float(d)
++        v = float(x)
++        if not math.isfinite(v):
++            return float(d)
++        return float(v)
++    except Exception:
++        return float(d)
++
++
++def _safe_int(x: Any, d: int = 0) -> int:
++    try:
++        if x is None:
++            return int(d)
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++def _json_default(x: Any) -> Any:
++    if isinstance(x, (np.integer,)):
++        return int(x)
++    if isinstance(x, (np.floating,)):
++        v = float(x)
++        if math.isfinite(v):
++            return v
++        return None
++    raise TypeError(f"unsupported type: {type(x)!r}")
++
++
++def _match_any(name: str, patterns: Sequence[str]) -> bool:
++    return any(fnmatch.fnmatch(name, p) for p in patterns)
++
++
++def _candidate_feature_names(columns: Iterable[str], patterns: Sequence[str]) -> List[str]:
++    out: List[str] = []
++    for c in columns:
++        if _match_any(str(c), patterns):
++            out.append(str(c))
++    return sorted(set(out))
++
++
++def _iter_jsonl(path: str) -> Iterator[Dict[str, Any]]:
++    with open(path, "r", encoding="utf-8") as f:
++        for line in f:
++            s = line.strip()
++            if not s:
++                continue
++            try:
++                obj = json.loads(s)
++            except Exception:
++                continue
++            if isinstance(obj, dict):
++                yield obj
++
++
++def _maybe_nested_feature(row: Mapping[str, Any], feature: str) -> Any:
++    if feature in row:
++        return row.get(feature)
++    ind = row.get("indicators")
++    if isinstance(ind, Mapping) and feature in ind:
++        return ind.get(feature)
++    return None
++
++
++def _gather_from_jsonl(path: str, selected_features: Sequence[str]) -> Dict[str, List[float | None]]:
++    out: Dict[str, List[float | None]] = {f: [] for f in selected_features}
++    for row in _iter_jsonl(path):
++        for f in selected_features:
++            v = _maybe_nested_feature(row, f)
++            try:
++                if v is None:
++                    out[f].append(None)
++                else:
++                    out[f].append(float(v))
++            except Exception:
++                out[f].append(None)
++    return out
++
++
++def _infer_jsonl_features(path: str, patterns: Sequence[str], max_rows: int = 1024) -> List[str]:
++    seen: set[str] = set()
++    n = 0
++    for row in _iter_jsonl(path):
++        n += 1
++        for k in row.keys():
++            if isinstance(k, str) and _match_any(k, patterns):
++                seen.add(k)
++        ind = row.get("indicators")
++        if isinstance(ind, Mapping):
++            for k in ind.keys():
++                if isinstance(k, str) and _match_any(k, patterns):
++                    seen.add(k)
++        if n >= max_rows:
++            break
++    return sorted(seen)
++
++
++def _load_wide_table(path: str) -> "pd.DataFrame":
++    if pd is None:
++        raise RuntimeError("pandas is required for csv/parquet feature drift inputs")
++    p = str(path).lower()
++    if p.endswith(".parquet") or p.endswith(".pq"):
++        return pd.read_parquet(path)
++    if p.endswith(".csv"):
++        return pd.read_csv(path)
++    raise RuntimeError(f"unsupported tabular format: {path}")
++
++
++def _load_feature_vectors(path: str, selected_features: Sequence[str], patterns: Sequence[str]) -> Tuple[Dict[str, List[float | None]], List[str]]:
++    p = str(path).lower()
++    if p.endswith(".jsonl") or p.endswith(".ndjson"):
++        feats = list(selected_features) if selected_features else _infer_jsonl_features(path, patterns)
++        return _gather_from_jsonl(path, feats), feats
++
++    df = _load_wide_table(path)
++    feats = list(selected_features) if selected_features else _candidate_feature_names(df.columns, patterns)
++    out: Dict[str, List[float | None]] = {}
++    for f in feats:
++        if f not in df.columns:
++            out[f] = [None] * int(len(df))
++        else:
++            vals = []
++            for x in df[f].tolist():
++                try:
++                    vals.append(None if x is None else float(x))
++                except Exception:
++                    vals.append(None)
++            out[f] = vals
++    return out, feats
++
++
++def _score_feature(
++    feature: str,
++    ref_vals: Sequence[float | None],
++    cur_vals: Sequence[float | None],
++    *,
++    psi_warn: float,
++    psi_crit: float,
++    ks_warn: float,
++    ks_crit: float,
++    ks_pvalue_max: float,
++    missing_delta_warn: float,
++    zero_delta_warn: float,
++    clip_delta_warn: float,
++    min_samples: int,
++    protect_patterns: Sequence[str],
++) -> FeatureDriftRow:
++    psi_res = psi_report(ref_vals, cur_vals)
++    ks_res = ks_report(ref_vals, cur_vals)
++
++    reasons: List[str] = []
++    warn = 0
++    crit = 0
++
++    if min(psi_res.n_ref, psi_res.n_cur) < int(min_samples):
++        reasons.append(f"insufficient_samples<{int(min_samples)}")
++
++    if psi_res.psi >= float(psi_warn):
++        warn = 1
++        reasons.append(f"psi>={float(psi_warn):.3f}")
++    if psi_res.psi >= float(psi_crit):
++        crit = 1
++        reasons.append(f"psi>={float(psi_crit):.3f}")
++
++    if ks_res.ks_stat >= float(ks_warn) and ks_res.ks_pvalue <= float(ks_pvalue_max):
++        warn = 1
++        reasons.append(f"ks_warn(stat>={float(ks_warn):.3f},p<={float(ks_pvalue_max):.3f})")
++    if ks_res.ks_stat >= float(ks_crit) and ks_res.ks_pvalue <= float(ks_pvalue_max):
++        crit = 1
++        reasons.append(f"ks_crit(stat>={float(ks_crit):.3f},p<={float(ks_pvalue_max):.3f})")
++
++    if abs(psi_res.missing_rate_delta) >= float(missing_delta_warn):
++        warn = 1
++        reasons.append(f"missing_delta>={float(missing_delta_warn):.3f}")
++    if abs(psi_res.zero_rate_delta) >= float(zero_delta_warn):
++        warn = 1
++        reasons.append(f"zero_delta>={float(zero_delta_warn):.3f}")
++    if abs(psi_res.clip_rate_delta) >= float(clip_delta_warn):
++        warn = 1
++        reasons.append(f"clip_delta>={float(clip_delta_warn):.3f}")
++
++    shadow_disable = 1 if (crit == 1 or abs(psi_res.missing_rate_delta) >= 2.0 * float(missing_delta_warn)) else 0
++    protected = _match_any(feature, protect_patterns)
++    denylist_suggested = 1 if (crit == 1 and shadow_disable == 1 and not protected) else 0
++
++    return FeatureDriftRow(
++        feature=str(feature),
++        n_ref=int(psi_res.n_ref),
++        n_cur=int(psi_res.n_cur),
++        psi=float(psi_res.psi),
++        ks_stat=float(ks_res.ks_stat),
++        ks_pvalue=float(ks_res.ks_pvalue),
++        missing_rate_delta=float(psi_res.missing_rate_delta),
++        zero_rate_delta=float(psi_res.zero_rate_delta),
++        clip_rate_delta=float(psi_res.clip_rate_delta),
++        missing_rate_ref=float(psi_res.missing_rate_ref),
++        missing_rate_cur=float(psi_res.missing_rate_cur),
++        zero_rate_ref=float(psi_res.zero_rate_ref),
++        zero_rate_cur=float(psi_res.zero_rate_cur),
++        clip_rate_ref=float(psi_res.clip_rate_ref),
++        clip_rate_cur=float(psi_res.clip_rate_cur),
++        flag_warn=int(warn),
++        flag_crit=int(crit),
++        denylist_suggested=int(denylist_suggested),
++        shadow_disable_suggested=int(shadow_disable),
++        reasons=sorted(set(reasons)),
++    )
++
++
++def build_feature_drift_report(
++    *,
++    reference_path: str,
++    current_path: str,
++    features_csv: str = "",
++    tier1_only: int = 1,
++    extra_patterns_csv: str = "",
++    protect_patterns_csv: str = "",
++    psi_warn: float = 0.10,
++    psi_crit: float = 0.25,
++    ks_warn: float = 0.12,
++    ks_crit: float = 0.20,
++    ks_pvalue_max: float = 0.05,
++    missing_delta_warn: float = 0.05,
++    zero_delta_warn: float = 0.10,
++    clip_delta_warn: float = 0.05,
++    min_samples: int = 64,
++) -> Dict[str, Any]:
++    selected_features = [s.strip() for s in str(features_csv or "").split(",") if s.strip()]
++    patterns = list(_TIER1_PATTERNS if int(tier1_only) == 1 else ())
++    patterns.extend([s.strip() for s in str(extra_patterns_csv or "").split(",") if s.strip()])
++    if not selected_features and not patterns:
++        patterns = list(_TIER1_PATTERNS)
++
++    ref_vectors, ref_feats = _load_feature_vectors(reference_path, selected_features, patterns)
++    cur_vectors, cur_feats = _load_feature_vectors(current_path, selected_features, patterns)
++
++    if selected_features:
++        features = sorted(set(selected_features))
++    else:
++        features = sorted(set(ref_feats) | set(cur_feats))
++
++    protect_patterns = [s.strip() for s in str(protect_patterns_csv or "").split(",") if s.strip()]
++
++    rows: List[FeatureDriftRow] = []
++    for f in features:
++        row = _score_feature(
++            f,
++            ref_vectors.get(f, []),
++            cur_vectors.get(f, []),
++            psi_warn=float(psi_warn),
++            psi_crit=float(psi_crit),
++            ks_warn=float(ks_warn),
++            ks_crit=float(ks_crit),
++            ks_pvalue_max=float(ks_pvalue_max),
++            missing_delta_warn=float(missing_delta_warn),
++            zero_delta_warn=float(zero_delta_warn),
++            clip_delta_warn=float(clip_delta_warn),
++            min_samples=int(min_samples),
++            protect_patterns=protect_patterns,
++        )
++        rows.append(row)
++
++    rows.sort(key=lambda r: (int(r.flag_crit), float(r.psi), float(r.ks_stat)), reverse=True)
++
++    warn_n = sum(int(r.flag_warn) for r in rows)
++    crit_n = sum(int(r.flag_crit) for r in rows)
++    deny_n = sum(int(r.denylist_suggested) for r in rows)
++    shadow_n = sum(int(r.shadow_disable_suggested) for r in rows)
++    worst = rows[0] if rows else None
++
++    status = "ok"
++    if crit_n > 0:
++        status = "crit"
++    elif warn_n > 0:
++        status = "warn"
++
++    summary = FeatureDriftSummary(
++        status=status,
++        features_total=int(len(features)),
++        features_evaluated=int(len(rows)),
++        warn_n=int(warn_n),
++        crit_n=int(crit_n),
++        denylist_suggest_n=int(deny_n),
++        shadow_disable_suggest_n=int(shadow_n),
++        worst_feature=str(worst.feature if worst else ""),
++        worst_psi=float(worst.psi if worst else 0.0),
++        worst_ks_stat=float(worst.ks_stat if worst else 0.0),
++    )
++
++    return {
++        "tool": "feature_drift_report_v1",
++        "ts_ms": _now_ms(),
++        "reference_path": str(reference_path),
++        "current_path": str(current_path),
++        "patterns": list(patterns),
++        "summary": asdict(summary),
++        "features": [asdict(r) for r in rows],
++        "top_features": [asdict(r) for r in rows[: min(20, len(rows))]],
++    }
++
++
++# ---------------------------------------------------------------------------
++# Redis / IO helpers
++# ---------------------------------------------------------------------------
++
++def _write_json(path: str, obj: Any) -> None:
++    Path(path).parent.mkdir(parents=True, exist_ok=True)
++    with open(path, "w", encoding="utf-8") as f:
++        json.dump(obj, f, ensure_ascii=False, indent=2, sort_keys=True, default=_json_default)
++
++
++def _write_csv(path: str, rows: Sequence[Mapping[str, Any]]) -> None:
++    Path(path).parent.mkdir(parents=True, exist_ok=True)
++    cols: List[str] = []
++    for r in rows:
++        for k in r.keys():
++            if k not in cols:
++                cols.append(str(k))
++    with open(path, "w", encoding="utf-8", newline="") as f:
++        w = csv.DictWriter(f, fieldnames=cols)
++        w.writeheader()
++        for r in rows:
++            rec = dict(r)
++            if isinstance(rec.get("reasons"), list):
++                rec["reasons"] = "|".join(str(x) for x in rec["reasons"])
++            w.writerow(rec)
++
++
++def _write_metrics_hash(redis_url: str, metrics_key: str, report_json: str, rep: Mapping[str, Any]) -> None:
++    if not redis_url or redis is None:
++        return
++    try:
++        r = redis.Redis.from_url(redis_url, decode_responses=True)
++        s = dict(rep.get("summary") or {})
++        mapping = {
++            "status": str(s.get("status", "")),
++            "updated_ts_ms": int(rep.get("ts_ms", 0) or 0),
++            "features_total": int(s.get("features_total", 0) or 0),
++            "features_evaluated": int(s.get("features_evaluated", 0) or 0),
++            "warn_n": int(s.get("warn_n", 0) or 0),
++            "crit_n": int(s.get("crit_n", 0) or 0),
++            "denylist_suggest_n": int(s.get("denylist_suggest_n", 0) or 0),
++            "shadow_disable_suggest_n": int(s.get("shadow_disable_suggest_n", 0) or 0),
++            "worst_feature": str(s.get("worst_feature", "")),
++            "worst_psi": float(s.get("worst_psi", 0.0) or 0.0),
++            "worst_ks_stat": float(s.get("worst_ks_stat", 0.0) or 0.0),
++            "report_json": str(report_json),
++            "reference_path": str(rep.get("reference_path", "")),
++            "current_path": str(rep.get("current_path", "")),
++        }
++        r.hset(metrics_key, mapping={str(k): str(v) for k, v in mapping.items()})
++    except Exception:
++        return
++
++
++# ---------------------------------------------------------------------------
++# CLI
++# ---------------------------------------------------------------------------
++
++def main(argv: Optional[Sequence[str]] = None) -> int:
++    ap = argparse.ArgumentParser(description="Nightly feature drift batch report (PSI/KS)")
++    ap.add_argument("--reference_path", required=True)
++    ap.add_argument("--current_path", required=True)
++    ap.add_argument("--out_json", required=True)
++    ap.add_argument("--out_csv", default="")
++    ap.add_argument("--redis_url", default=os.getenv("REDIS_URL", ""))
++    ap.add_argument("--metrics_key", default=os.getenv("FEATURE_DRIFT_BATCH_METRICS_KEY", "metrics:feature_drift_batch:last"))
++
++    ap.add_argument("--features_csv", default=os.getenv("FEATURE_DRIFT_BATCH_FEATURES_CSV", ""))
++    ap.add_argument("--tier1_only", type=int, default=_safe_int(os.getenv("FEATURE_DRIFT_BATCH_TIER1_ONLY", "1"), 1))
++    ap.add_argument("--extra_patterns_csv", default=os.getenv("FEATURE_DRIFT_BATCH_EXTRA_PATTERNS_CSV", ""))
++    ap.add_argument("--protect_patterns_csv", default=os.getenv("FEATURE_DRIFT_BATCH_PROTECT_PATTERNS_CSV", ""))
++
++    ap.add_argument("--psi_warn", type=float, default=_safe_float(os.getenv("FEATURE_DRIFT_BATCH_PSI_WARN", "0.10"), 0.10))
++    ap.add_argument("--psi_crit", type=float, default=_safe_float(os.getenv("FEATURE_DRIFT_BATCH_PSI_CRIT", "0.25"), 0.25))
++    ap.add_argument("--ks_warn", type=float, default=_safe_float(os.getenv("FEATURE_DRIFT_BATCH_KS_WARN", "0.12"), 0.12))
++    ap.add_argument("--ks_crit", type=float, default=_safe_float(os.getenv("FEATURE_DRIFT_BATCH_KS_CRIT", "0.20"), 0.20))
++    ap.add_argument("--ks_pvalue_max", type=float, default=_safe_float(os.getenv("FEATURE_DRIFT_BATCH_KS_PVALUE_MAX", "0.05"), 0.05))
++    ap.add_argument("--missing_delta_warn", type=float, default=_safe_float(os.getenv("FEATURE_DRIFT_BATCH_MISSING_DELTA_WARN", "0.05"), 0.05))
++    ap.add_argument("--zero_delta_warn", type=float, default=_safe_float(os.getenv("FEATURE_DRIFT_BATCH_ZERO_DELTA_WARN", "0.10"), 0.10))
++    ap.add_argument("--clip_delta_warn", type=float, default=_safe_float(os.getenv("FEATURE_DRIFT_BATCH_CLIP_DELTA_WARN", "0.05"), 0.05))
++    ap.add_argument("--min_samples", type=int, default=_safe_int(os.getenv("FEATURE_DRIFT_BATCH_MIN_SAMPLES", "64"), 64))
++
++    args = ap.parse_args(list(argv) if argv is not None else None)
++
++    try:
++        rep = build_feature_drift_report(
++            reference_path=str(args.reference_path),
++            current_path=str(args.current_path),
++            features_csv=str(args.features_csv),
++            tier1_only=int(args.tier1_only),
++            extra_patterns_csv=str(args.extra_patterns_csv),
++            protect_patterns_csv=str(args.protect_patterns_csv),
++            psi_warn=float(args.psi_warn),
++            psi_crit=float(args.psi_crit),
++            ks_warn=float(args.ks_warn),
++            ks_crit=float(args.ks_crit),
++            ks_pvalue_max=float(args.ks_pvalue_max),
++            missing_delta_warn=float(args.missing_delta_warn),
++            zero_delta_warn=float(args.zero_delta_warn),
++            clip_delta_warn=float(args.clip_delta_warn),
++            min_samples=int(args.min_samples),
++        )
++        _write_json(str(args.out_json), rep)
++        out_csv = str(args.out_csv or "").strip() or (str(args.out_json) + ".csv")
++        _write_csv(out_csv, rep.get("features") or [])
++        _write_metrics_hash(str(args.redis_url), str(args.metrics_key), str(args.out_json), rep)
++        return 0
++    except Exception as e:
++        err = {
++            "tool": "feature_drift_report_v1",
++            "ts_ms": _now_ms(),
++            "status": "error",
++            "error": str(e),
++            "reference_path": str(args.reference_path),
++            "current_path": str(args.current_path),
++        }
++        try:
++            _write_json(str(args.out_json), err)
++        except Exception:
++            pass
++        return 1
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())

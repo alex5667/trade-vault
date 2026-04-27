@@ -1,0 +1,49 @@
+services:
+  scanner-ml-operator-rca-results-persist-v2-1:
+    build:
+      context: ../../
+      dockerfile: python-worker/Dockerfile
+    restart: unless-stopped
+    command: ["python", "-m", "orderflow_services.operator_rca_results_persister_v2_1"]
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      DATABASE_URL: ${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD}@scanner-pgbouncer:5432/scanner_analytics?sslmode=disable}
+      ML_OPERATOR_RCA_RESULTS_PERSISTER_PORT: "9870"
+    ports:
+      - "9870:9870"
+    networks:
+      - scanner-network
+
+  scanner-ml-operator-rca-quality-v2-1:
+    build:
+      context: ../../
+      dockerfile: python-worker/Dockerfile
+    restart: unless-stopped
+    command: ["python", "-m", "orderflow_services.operator_rca_quality_scorer_v2_1"]
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      DATABASE_URL: ${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD}@scanner-pgbouncer:5432/scanner_analytics?sslmode=disable}
+      ML_OPERATOR_RCA_QUALITY_PORT: "9871"
+    ports:
+      - "9871:9871"
+    networks:
+      - scanner-network
+
+  scanner-ml-operator-rca-feedback-v2-1:
+    build:
+      context: ../../
+      dockerfile: python-worker/Dockerfile
+    restart: unless-stopped
+    command: ["python", "-m", "orderflow_services.operator_rca_feedback_loop_v2_1"]
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      DATABASE_URL: ${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD}@scanner-pgbouncer:5432/scanner_analytics?sslmode=disable}
+      ML_OPERATOR_RCA_FEEDBACK_PORT: "9872"
+    ports:
+      - "9872:9872"
+    networks:
+      - scanner-network
+
+networks:
+  scanner-network:
+    external: true

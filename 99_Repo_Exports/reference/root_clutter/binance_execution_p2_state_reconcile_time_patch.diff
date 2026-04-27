@@ -1,0 +1,3441 @@
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p1/audit_code/crypto_orderflow_service.py p2/audit_code/crypto_orderflow_service.py
+--- p1/audit_code/crypto_orderflow_service.py	1970-01-01 00:00:00.000000000 +0000
++++ p2/audit_code/crypto_orderflow_service.py	2026-03-06 18:04:03.393618100 +0000
+@@ -0,0 +1,1915 @@
++"""
++Универсальный сервис ордерфлоу для крипто‑фьючерсов Binance USDT-M.
++
++Задачи:
++- Читает тики и книги заявок из Redis Streams (`stream:tick_<symbol>` / `stream:book_<symbol>`).
++- Поддерживает динамический список символов (set `crypto:symbols`) + базовые `BTCUSDT`, `ETHUSDT`.
++- Берёт настройки из `config:orderflow:<symbol>` (Hash) и пресетов `OrderFlowConfig`.
++- Использует готовые детекторы из `core.crypto_orderflow_detectors`.
++- Публикует сигналы в `notify:telegram`, `signals:crypto:raw` и (опционально) `orders:queue`.
++
++Сервис асинхронный, построен на redis.asyncio.
++"""
++
++from __future__ import annotations
++
++import json
++import os
++from services.orderflow.metric_labels import TickMetricLimiter, _parse_allowlist, should_emit
++
++import time
++import asyncio
++import logging
++import traceback
++import random
++from typing import Any, Dict, List, Optional, Tuple, Set
++from collections import deque
++
++from services.orderflow.configuration import (
++    OrderFlowConfigLoader, _safe_int, DEFAULT_SYMBOLS
++)
++from prometheus_client import start_http_server
++
++from services.orderflow.metrics import (
++    log_silent_error, burst_active_gauge, burst_flush_total, signals_emitted_total,
++    ticks_read_total, ticks_processed_total, signals_published_total,
++    drain_forced_cancel_total,
++    worker_lag_ms_gauge, worker_lag_ms_p50_gauge, worker_lag_ms_p95_gauge, worker_lag_ms_p99_gauge,
++    processing_time_us, redis_errors_total,
++    ticks_dropped_total, pel_autoclaim_total, tick_dedup_drop_total,
++    ticks_unknown_side_policy_total, ticks_unknown_side_quarantine_published_total,
++    ticks_ts_source_total,
++    tick_unknown_side_ema_gauge, tick_ts_source_now_ema_gauge, tick_ts_source_stream_id_ema_gauge,
++    tick_event_stream_skew_abs_ema_ms_gauge, tick_event_age_abs_ema_ms_gauge,
++    tick_ingest_process_ms, tick_ingest_e2e_delay_ms
++)
++from services.orderflow.tick_quality_ema import TickQualityEMA
++from services.orderflow.utils import (
++    _fields_to_dict, _parse_tick_payload, _compute_tick_uid
++)
++from services.orderflow.side_policy import (
++    normalize_unknown_side_policy, is_unknown_side_tick, deterministic_sample
++)
++from handlers.crypto_orderflow.utils.log_sampler import sampled_info, LogSamplerFactory
++from services.orderflow.runtime import SymbolRuntime
++from services.orderflow.strategy import OrderFlowStrategy
++from services.signal_preprocess import preprocess_signal_for_publish
++from services.persistence_manager import get_persistence_manager
++from services.orderflow.calibration_repo import CalibrationRepository
++from services.orderflow.calibration_service import CalibrationService
++from common.metrics2 import LagTracker
++from health_metrics import HealthMetrics
++import time as _time
++
++try:
++    # Step 16 (optional): collapse label cardinality
++    from services.orderflow.metric_labels import symbol_label as _symbol_label
++except Exception:
++    _symbol_label = None
++
++
++from core.of_confirm_engine import OFConfirmEngine
++
++from services.async_signal_publisher import AsyncSignalPublisher
++from common.backoff import Backoff
++from common.redis_errors import is_transient_error as is_transient_redis_error
++from core.redis_stream_consumer import AsyncRedisStreamHelper
++from redis.exceptions import ResponseError, RedisError, ConnectionError
++import redis.asyncio as aioredis
++
++
++
++# ──────────────────────────────────────────────────────────────────────────────
++# Настройки по умолчанию /default_settings.py
++# ──────────────────────────────────────────────────────────────────────────────
++
++logger = logging.getLogger("crypto_orderflow_service")
++# Настройка логирования
++log_level = os.getenv("CRYPTO_OF_LOG_LEVEL", "INFO")
++logging.basicConfig(
++    level=log_level,
++    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
++)
++# Доп. флаг: подробный DEBUG по дельте (по умолчанию выключен, чтобы не шуметь)
++# Доп. флаг: подробный DEBUG по дельте (по умолчанию выключен, чтобы не шуметь)
++DEBUG_DELTAS = os.getenv("CRYPTO_OF_DEBUG_DELTAS", "false").strip().lower() in ("1", "true", "yes", "on")
++
++
++
++
++
++
++# Счетчик для уменьшения логов добавления символов
++_symbols_added_counter = 0
++
++
++
++
++
++def _utc_epoch_ms() -> int:
++    """Canonical wall-clock timestamp for emitted payloads (epoch ms, UTC)."""
++    return int(time.time() * 1000)
++
++
++def _mono_ms() -> int:
++    """Monotonic timestamp used only for local latency deltas."""
++    return int(_time.monotonic() * 1000)
++
++
++def _safe_latency_delta_ms(start_mono_ms: int, end_mono_ms: int) -> int:
++    try:
++        return max(0, int(end_mono_ms) - int(start_mono_ms))
++    except Exception:
++        return 0
++
++
++# ──────────────────────────────────────────────────────────────────────────────
++# Runtime для одного символа
++# ──────────────────────────────────────────────────────────────────────────────
++
++
++class CryptoOrderflowService:
++    def __init__(self, redis_dsn: str, ticks_dsn: Optional[str] = None) -> None:
++        self.redis_dsn = redis_dsn
++        self.logger = logger
++        
++        # Redis connection placeholders
++        self.ticks_dsn = ticks_dsn or redis_dsn
++        self.main: Optional[aioredis.Redis] = None
++        self.ticks: Optional[aioredis.Redis] = None
++
++        # Lifecycle control — asyncio.Event must be created inside a running loop.
++        # Initialized lazily in run_forever() to allow __init__ to be called from a plain Thread.
++        self._stop_event: Optional[asyncio.Event] = None
++        self.tasks: List[asyncio.Task] = []
++        self.active_symbols: Set[str] = set()
++        self.symbol_contexts: Dict[str, SymbolRuntime] = {}
++        
++        self.consumer_id = f"worker-{os.getpid()}-{int(time.time())}"
++        
++        # Async publisher
++        self.publisher = AsyncSignalPublisher(
++            redis_client=None, # set in run_forever
++            source="CryptoOrderFlow"  # ✅ FIX: Use canonical source name
++        )
++
++        # Engines
++        self.of_engine = OFConfirmEngine()
++        self.config_loader = OrderFlowConfigLoader(redis_client=None) # updated in run_forever
++        
++        self.strategy: Optional[OrderFlowStrategy] = None
++
++        # ✅ ИСПРАВЛЕНИЕ: Параметризация и оптимизация пула соединений
++        # Each symbol uses 2 blocking xreadgroup calls (ticks + books) that hold connections
++        # Formula: min_connections = (symbols_count * 2) + overhead (config, publish, etc)
++        # Defaults increased to handle 15+ symbols (15*2=30 + overhead ~50-100 = safe margin at 512/1024)
++        # Increased further to handle Redis LOADING state where connections may be held longer
++        self.main_max = int(os.getenv("REDIS_MAIN_MAX_CONNECTIONS", "1024"))
++        self.ticks_max = int(os.getenv("REDIS_TICKS_MAX_CONNECTIONS", "2048"))
++        notify_max = int(os.getenv("REDIS_NOTIFY_MAX_CONNECTIONS", "64"))
++        conn_to = float(os.getenv("REDIS_SOCKET_CONNECT_TIMEOUT", "5"))
++        sock_to = float(os.getenv("REDIS_SOCKET_TIMEOUT", "15"))
++        hc_iv = int(os.getenv("REDIS_HEALTHCHECK_INTERVAL", "30"))
++
++        self.main: aioredis.Redis = aioredis.from_url(
++            self.redis_dsn,
++            decode_responses=True,
++            socket_connect_timeout=conn_to,
++            socket_timeout=sock_to,
++            socket_keepalive=True,
++            health_check_interval=0,  # ✅ Disable to prevent additional connections
++            max_connections=self.main_max,
++        )
++
++        # Если стримы на одном Redis, используем один пул для экономии соединений
++        if str(self.ticks_dsn) == str(self.redis_dsn):
++            self.ticks = self.main
++            logger.info(
++                "🔗 Using shared Redis client for main and ticks (max_conn=%d). "
++                "Each symbol uses ~2 blocking connections (ticks+books), plan accordingly.",
++                self.main_max
++            )
++        else:
++            self.ticks: aioredis.Redis = aioredis.from_url(
++                self.ticks_dsn,
++                decode_responses=True,
++                socket_connect_timeout=conn_to,
++                socket_timeout=sock_to,
++                socket_keepalive=True,
++                health_check_interval=0,  # ✅ Disable to prevent additional connections
++                max_connections=self.ticks_max,
++            )
++            logger.info(
++                "🔗 Using separate Redis clients: main (max=%d), ticks (max=%d). "
++                "Each symbol uses ~2 blocking connections (ticks+books), plan accordingly.",
++                self.main_max, self.ticks_max
++            )
++        
++        # ✅ WARNING: Validate connection pool size
++        # Each symbol needs 2 connections (ticks + books), plus overhead for config, publish, etc.
++        # Estimate max symbols: (ticks_max - overhead) / 2
++        overhead = 50  # Config, publish, metrics, etc.
++        max_supported_symbols = max(0, (self.ticks_max - overhead) // 2)
++        if max_supported_symbols < 10:
++            logger.warning(
++                "⚠️ Connection pool may be too small: ticks_max=%d supports ~%d symbols. "
++                "Consider increasing REDIS_TICKS_MAX_CONNECTIONS if you plan to run more symbols.",
++                self.ticks_max, max_supported_symbols
++            )
++        else:
++            logger.info(
++                "✅ Connection pool configured: ticks_max=%d supports ~%d symbols (with %d overhead). "
++                "Health check disabled to prevent additional connections.",
++                self.ticks_max, max_supported_symbols, overhead
++            )
++
++        self.config_loader = OrderFlowConfigLoader(self.main)
++
++        # PersistenceManager (PG) injectable into SymbolRuntime for testability
++        try:
++            self.pm = get_persistence_manager()
++        except Exception as exc:
++            logger.error("Failed to init PersistenceManager: %s", exc, exc_info=True)
++            self.pm = None
++
++        # Calibration Service (SRP Phase A)
++        self.calib_repo = CalibrationRepository(redis_ticks=self.ticks, pm=self.pm)
++        self.calib_svc = CalibrationService(repo=self.calib_repo)
++
++        self.health_metrics = HealthMetrics(redis_url=self.redis_dsn, window_sec=5)
++
++        # --- Local caches for snapshot publisher (avoid Redis GET per tick) ---
++        # regime:q:{symbol}:1m is slow-changing -> cache 60s
++        self._rq_cache: Dict[str, Tuple[int, Dict[str, Any]]] = {}
++        # adx:{symbol} is fast-changing -> cache 300ms
++        self._adx_cache: Dict[str, Tuple[int, float]] = {}
++
++        self.symbol_contexts: Dict[str, SymbolRuntime] = {}
++        self.symbol_tasks: Dict[str, Tuple[asyncio.Task, asyncio.Task]] = {}
++        self.refresh_interval = _safe_int(os.getenv("CRYPTO_OF_REFRESH_SEC", "30"), 30)
++        
++        # Lag trackers per symbol for worker_lag_ms percentiles
++        self._lag_trackers: Dict[str, LagTracker] = {}
++        # Counters for periodic percentile export (per symbol)
++        self._lag_export_counters: Dict[str, int] = {}
++
++        rnd = random.randint(1000, 9999)
++        self.consumer_id_ticks = f"crypto-of-ticks-{os.getpid()}-{rnd}"
++        self.consumer_id_books = f"crypto-of-books-{os.getpid()}-{rnd}"
++        
++        # Helper caches for Redis Stream consumption (Expert P4/P5)
++        self.tick_helpers: Dict[str, Any] = {}
++        self.book_helpers: Dict[str, Any] = {}
++        
++        # Quarantine for persistent message failures
++        self.poison_pill_counts: Dict[str, int] = {}
++        self.quarantine_stream = os.getenv("SIGNAL_QUARANTINE_STREAM", "stream:of:quarantine")
++
++        # Unknown-side tick policy (prevents implicit BUY/SELL bias)
++        self._unknown_side_policy = normalize_unknown_side_policy(os.getenv("CRYPTO_OF_UNKNOWN_SIDE_POLICY"))
++        self._unknown_side_quarantine_stream = os.getenv("TICK_SIDE_QUARANTINE_STREAM", "stream:tick_side:quarantine")
++        self._unknown_side_quarantine_sample = float(os.getenv("TICK_SIDE_QUARANTINE_SAMPLE", "0.01"))
++        self._unknown_side_quarantine_maxlen = int(os.getenv("TICK_SIDE_QUARANTINE_MAXLEN", "20000"))
++
++        self.notify_stream = os.getenv("CRYPTO_NOTIFY_STREAM", "notify:telegram")
++        self.raw_signal_stream = os.getenv("CRYPTO_RAW_STREAM", "signals:crypto:raw")
++        # MT5 orders queue. Binance uses orders:queue:binance (binance_executor).
++        self.orders_queue = os.getenv("ORDERS_QUEUE_MT5") or os.getenv("ORDERS_QUEUE") or "orders:queue:mt5"
++        # 🎯 Stream для structured signals (для periodic_reporter и других downstream сервисов)
++        # Tickers & Streams
++        self.cryptoorderflow_signal_stream_template = os.getenv("CRYPTO_ORDERFLOW_SIGNAL_STREAM", "signals:cryptoorderflow:{symbol}")
++        # Burst audit stream (optional)
++        self.burst_audit_stream = os.getenv("BURST_AUDIT_STREAM", "stream:of:burst_audit")
++        
++        # Engines
++        from services.ml_confirm_gate import MLConfirmGate
++        self.of_engine = OFConfirmEngine(
++            version=int(os.getenv("OF_CONFIRM_VERSION", "2")),
++            ml_gate=MLConfirmGate.from_env()
++        )
++        
++        self.config_loader = OrderFlowConfigLoader(redis_client=None) # updated in run_forever
++
++        notify_url = os.getenv("CRYPTO_NOTIFY_REDIS_URL", os.getenv("REDIS_URL"))
++        if notify_url:
++            # ✅ FIX: Set max_connections to prevent connection pool exhaustion
++            self.notify_client = aioredis.from_url(
++                notify_url,
++                encoding="utf-8",
++                decode_responses=True,
++                socket_connect_timeout=conn_to,
++                socket_timeout=sock_to,
++                socket_keepalive=True,
++                health_check_interval=0,  # ✅ Disable to prevent additional connections
++                max_connections=notify_max,
++            )
++            logger.info("🔗 Using separate notify Redis client (max_conn=%d)", notify_max)
++        else:
++            self.notify_client = self.main
++            logger.info("🔗 Using main Redis client for notifications")
++
++        self._refresh_task: Optional[asyncio.Task] = None
++        self._ml_gate_bg_task: Optional[asyncio.Task] = None
++        self._burst_task: Optional[asyncio.Task] = None
++        self._supervisor_task: Optional[asyncio.Task] = None
++        # (symbol, kind) -> deque[timestamps] for restart storm protection
++        self._task_restart_hist: Dict[Tuple[str, str], deque] = {}
++        self._shutdown = False
++        
++        # Global bounded concurrency (do NOT create Semaphore per symbol)
++        self._bootstrap_sem = asyncio.Semaphore(int(os.getenv("CRYPTO_OF_BOOTSTRAP_MAX_CONC", "10")))
++
++        # Throughput / determinism controls
++        self._ack_batch = int(os.getenv("CRYPTO_OF_ACK_BATCH", "200"))
++        self._max_lag_ms = int(os.getenv("CRYPTO_OF_MAX_LAG_MS", "500"))
++        # Safe default: OFF (enable explicitly once you are confident)
++        self._drop_on_lag = self._env_bool("CRYPTO_OF_DROP_ON_LAG", "false")
++        # If tick.ts_ms looks poisoned (too far from wall), fall back to Redis msg_id ms
++        self._max_ts_skew_ms = int(os.getenv("CRYPTO_OF_MAX_TS_SKEW_MS", str(6 * 3600_000)))
++
++        # PEL sweep state (optional)
++        self._pel_cursor: Dict[Tuple[str, str], str] = {}
++        self._pel_sweeper_task: Optional[asyncio.Task] = None
++
++        # Глобальный флаг трейлинга после TP1: по умолчанию ВЫКЛ, включаем только если явно задан env=true
++        self.force_trail_after_tp1: Optional[bool] = self._env_bool("FORCE_TRAIL_AFTER_TP1")
++
++        logger.info("✅ CryptoOrderflowService инициализирован")
++        logger.info("   Main Redis:  %s", self.redis_dsn)
++        logger.info("   Ticks Redis: %s", self.ticks_dsn)
++        logger.info("   Telegram stream: %s (Redis: %s)", self.notify_stream, notify_url or "main")
++        logger.info("   Telegram every_n: %s", os.getenv("CRYPTO_NOTIFY_SIGNAL_EVERY_N", os.getenv("NOTIFY_SIGNAL_EVERY_N", "1")))
++        logger.info("   Signal min confidence: %s%%", os.getenv("CRYPTO_SIGNAL_MIN_CONF", os.getenv("SIGNAL_MIN_CONF", "80")))
++
++    def _env_bool(self, name: str, default: Optional[str] = None) -> bool:
++        val = os.getenv(name, default)
++        if not val:
++            return False
++        return str(val).lower() in ("1", "true", "yes", "on")
++
++    async def run_forever(self) -> None:
++        """
++        Основной цикл сервиса. Останавливается по сигналу отмены.
++        """
++        # Connect publisher and start retry worker (must be inside event loop)
++        self._stop_event = asyncio.Event()  # lazy init inside running event loop
++        self.publisher.r = self.main
++        self.publisher.start()
++        self.config_loader.redis = self.main
++        
++        # Init Strategy
++        self.strategy = OrderFlowStrategy(
++            redis=self.main,
++            ticks=self.ticks,
++            publisher=self.publisher,
++            of_engine=self.of_engine,
++            calib_svc=self.calib_svc,
++            notify_client=self.notify_client,
++            notify_stream=self.notify_stream
++        )
++
++        # Start metrics server — respects PROMETHEUS_PORT env var (fallback: METRICS_PORT, then 8000)
++        try:
++            port = int(os.getenv("PROMETHEUS_PORT") or os.getenv("METRICS_PORT") or "8000")
++            start_http_server(port)
++            logger.info("✅ Metrics server started on port %d", port)
++        except Exception as e:
++            logger.error("❌ Failed to start metrics server on port %d: %s", port, e)
++
++        # Initial ML config/model load (async) before blocking fast-path
++        # Must run BEFORE load_dynamic_symbols so that backlog ticks don't hit ERR_NO_CFG
++        if self.of_engine and getattr(self.of_engine, "ml_gate", None) and hasattr(self.of_engine.ml_gate, "refresh_async"):
++            # Retry loop for resilience against DB/Redis startup race conditions
++            for _ in range(5):
++                try:
++                    await self.of_engine.ml_gate.refresh_async(self.main)
++                    if getattr(self.of_engine.ml_gate, "_cfg", None):
++                        logger.info("✅ ML_CONFIRM_GATE successfully loaded config on startup")
++                        break
++                    logger.warning("ML_CONFIRM_GATE config not found yet (raw_payload possibly None), retrying in 2s...")
++                    await asyncio.sleep(2.0)
++                except Exception as e:
++                    logger.error(f"Failed to async refresh ml_confirm_gate on startup: {e}")
++                    await asyncio.sleep(2.0)
++
++        if hasattr(self, 'health_metrics') and self.health_metrics:
++            self.health_metrics.start_background_loop()
++
++        await self.load_dynamic_symbols()
++        self._refresh_task = asyncio.create_task(self._refresh_loop(), name="crypto-of-refresh")
++        self._ml_gate_bg_task = asyncio.create_task(self._maintain_ml_gate_loop(), name="crypto-of-ml-gate-bg")
++        self._burst_task = asyncio.create_task(self._burst_flush_loop(), name="crypto-of-burst-flush")
++        if self._env_bool("CRYPTO_OF_SUPERVISOR", "true"):
++            self._supervisor_task = asyncio.create_task(self._supervisor_loop(), name="crypto-of-supervisor")
++
++        if self._env_bool("CRYPTO_OF_PEL_SWEEP", "false"):
++            self._pel_sweeper_task = asyncio.create_task(self._pel_sweeper_loop(), name="crypto-of-pel-sweep")
++
++        try:
++            while True:
++                await asyncio.sleep(3600)
++        except asyncio.CancelledError:
++            logger.info("🛑 Получен сигнал остановки run_forever")
++            raise
++        finally:
++            if hasattr(self, "_burst_task") and self._burst_task:
++                self._burst_task.cancel()
++            await self.shutdown()
++
++    async def shutdown(self) -> None:
++        """
++        Корректное завершение работы (отмена задач, закрытие Redis).
++        """
++        if self._shutdown:
++            return
++        self._shutdown = True
++
++        logger.info("🔻 Останавливаем CryptoOrderflowService...")
++
++        if self._supervisor_task:
++            self._supervisor_task.cancel()
++            await asyncio.gather(self._supervisor_task, return_exceptions=True)
++
++        if getattr(self, "_pel_sweeper_task", None):
++            self._pel_sweeper_task.cancel()
++            await asyncio.gather(self._pel_sweeper_task, return_exceptions=True)
++
++        if self._refresh_task:
++            self._refresh_task.cancel()
++            await asyncio.gather(self._refresh_task, return_exceptions=True)
++
++        if getattr(self, "_ml_gate_bg_task", None):
++            self._ml_gate_bg_task.cancel()
++            await asyncio.gather(self._ml_gate_bg_task, return_exceptions=True)
++
++        if hasattr(self, "_burst_task") and self._burst_task:
++            self._burst_task.cancel()
++            await asyncio.gather(self._burst_task, return_exceptions=True)
++        
++        # ✅ P0: Stop PEL sweeper
++        if self._pel_sweeper_task:
++            self._pel_sweeper_task.cancel()
++            await asyncio.gather(self._pel_sweeper_task, return_exceptions=True)
++
++        if hasattr(self, 'health_metrics') and self.health_metrics:
++            self.health_metrics.stop()
++
++        # Drain mode: let workers finish current iteration to reduce PEL growth
++        drain_timeout = float(os.getenv("CRYPTO_OF_DRAIN_TIMEOUT_SEC", "10"))
++        logger.info("🔻 Draining symbol workers (timeout=%.1fs)...", drain_timeout)
++
++        # Track tasks with their metadata for reporting
++        task_to_meta = {}
++        for symbol, (t_tick, t_book) in list(self.symbol_tasks.items()):
++            if t_tick and not t_tick.done():
++                task_to_meta[t_tick] = (symbol, "ticks")
++            if t_book and not t_book.done():
++                task_to_meta[t_book] = (symbol, "books")
++
++        if task_to_meta:
++            all_tasks = list(task_to_meta.keys())
++            done, pending = await asyncio.wait(all_tasks, timeout=drain_timeout)
++            
++            if pending:
++                logger.warning("⚠️ Drain timeout: forcing cancel of %d task(s)", len(pending))
++                for t in pending:
++                    t.cancel()
++                    sym, kind = task_to_meta[t]
++                    if drain_forced_cancel_total:
++                        drain_forced_cancel_total.labels(symbol=sym, kind=kind).inc()
++                
++                await asyncio.gather(*pending, return_exceptions=True)
++
++        self.symbol_tasks.clear()
++
++        # ✅ FIX: Close notify_client if it's separate from main
++        if hasattr(self, 'notify_client') and self.notify_client is not None:
++            if self.notify_client is not self.main:
++                await self._close_redis(self.notify_client)
++            self.notify_client = None
++
++        if self.ticks is not None:
++            if self.ticks is self.main:
++                await self._close_redis(self.main)
++                self.main = None
++                self.ticks = None
++            else:
++                await self._close_redis(self.ticks)
++                await self._close_redis(self.main)
++                self.main = None
++                self.ticks = None
++        elif self.main is not None:
++             await self._close_redis(self.main)
++             self.main = None
++        logger.info("✅ Завершено")
++
++
++    # ── Динамическая загрузка символов ────────────────────────────────────────
++
++    async def load_dynamic_symbols(self) -> None:
++        """
++        Загружает список символов и их конфиг из Redis, запускает новые задачи.
++        """
++        if self._shutdown:
++            return
++            
++        use_default_symbols = self._env_bool("CRYPTO_DEFAULT_SYMBOLS_ENABLED", "true")
++        symbols = set(sym.upper() for sym in DEFAULT_SYMBOLS) if use_default_symbols else set()
++        
++        symbols_key = os.getenv("CRYPTO_SYMBOLS_SET_KEY", "crypto:symbols")
++        try:
++            redis_symbols = await self.main.smembers(symbols_key)
++            symbols.update(sym.upper() for sym in redis_symbols)
++        except RedisError as exc:
++            log_silent_error(exc, 'redis_read_failure', 'global', 'load_dynamic_symbols:smembers')
++
++        # Обновляем/создаём контексты
++        current_symbols = set(self.symbol_contexts.keys())
++        
++        # Log connection pool usage estimate
++        symbols_count = len(symbols)
++        estimated_connections = symbols_count * 2  # ticks + books per symbol
++        if symbols_count > 0 and estimated_connections > (self.ticks_max * 0.8):
++            logger.warning(
++                "⚠️ High connection pool usage estimate: %d symbols will use ~%d connections "
++                "(ticks_max=%d). Consider increasing REDIS_TICKS_MAX_CONNECTIONS if you see 'Too many connections' errors.",
++                symbols_count, estimated_connections, self.ticks_max
++            )
++        elif symbols_count > 0:
++            logger.debug(
++                "ℹ️ Connection pool estimate: %d symbols will use ~%d connections (ticks_max=%d, utilization=%.1f%%)",
++                symbols_count, estimated_connections, self.ticks_max, (estimated_connections / self.ticks_max * 100) if self.ticks_max > 0 else 0
++            )
++
++        for symbol in sorted(symbols):
++            try:
++                cfg = await self.config_loader.build_symbol_config(symbol)
++            except Exception as ex:
++                logger.error("Failed to load config for %s: %s", symbol, ex)
++                continue
++            tick_stream, book_stream = await self._resolve_streams(symbol)
++
++            runtime = self.symbol_contexts.get(symbol)
++            if runtime is None:
++                runtime = SymbolRuntime(symbol=symbol, config=cfg)
++                runtime.pm = getattr(self, 'pm', None)
++                # Inject Redis client for metrics (best-effort, safe if None)
++                runtime.redis_client = getattr(self, 'main', None)
++                self.symbol_contexts[symbol] = runtime
++                # Initialize lag tracker for percentiles
++                self._lag_trackers[symbol] = LagTracker(
++                    window=2048,
++                    export_every_n=200,
++                    metric_p50="worker_lag_ms_p50",
++                    metric_p95="worker_lag_ms_p95",
++                    metric_p99="worker_lag_ms_p99",
++                    tags={"symbol": symbol}
++                )
++                self._lag_export_counters[symbol] = 0
++                # Логируем только каждое 10000-е подобное сообщение
++                global _symbols_added_counter
++                _symbols_added_counter += 1
++                if _symbols_added_counter % 10000 == 0:
++                    logger.info("🆕 Добавлен новый символ %s (добавлений: %d)", symbol, _symbols_added_counter)
++            
++            # Конфиг должен применяться всегда, а не только при создании
++            runtime.apply_config(cfg)
++
++            runtime.tick_stream = tick_stream
++            runtime.book_stream = book_stream
++            runtime.tick_group = f"crypto-of:{symbol}"
++            runtime.book_group = f"crypto-of-book:{symbol}"
++
++            # Запуск задач, если ещё не запущены (или упали)
++            tasks = self.symbol_tasks.get(symbol)
++            if not tasks:
++                # ✅ P1: EAGER BOOTSTRAP: Load calibrations BEFORE starting tasks
++                # Используем общий семафор на сервис вместо создания нового на каждый символ
++                try:
++                    async def bootstrap_task():
++                        async with self._bootstrap_sem:
++                            try:
++                                await asyncio.wait_for(self.calib_svc.ensure_loaded(runtime), timeout=2.0)
++                            except Exception as exc:
++                                log_silent_error(exc, 'bootstrap_timeout', symbol, 'load_dynamic_symbols:bootstrap')
++                            runtime.ready = True
++                    
++                    asyncio.create_task(bootstrap_task())
++                except Exception:
++                    runtime.ready = True # fail-open
++
++                tick_task = asyncio.create_task(self.consume_ticks(symbol), name=f"crypto-of-ticks-{symbol}")
++                book_task = asyncio.create_task(self.consume_books(symbol), name=f"crypto-of-book-{symbol}")
++                self.symbol_tasks[symbol] = (tick_task, book_task)
++            else:
++                t_tick, t_book = tasks
++                if (t_tick and t_tick.done()) or (t_book and t_book.done()):
++                    logger.error("❌ (%s) Detected dead tasks in load_dynamic_symbols; will restart via supervisor", symbol)
++                # Throttled worker start log (every 10000th)
++                sampled_info(
++                    logger,
++                    "WORKER_INIT",
++                    "🚀 (%s) воркеры запущены: k=%s, delta_z_threshold=%.2f, min_conf=%.2f%%, every_n=%s",
++                    symbol, runtime.book_stream,
++                    float(cfg.get("delta_z_threshold") or 3.10),
++                    float(os.getenv("CRYPTO_SIGNAL_MIN_CONF", os.getenv("SIGNAL_MIN_CONF", "70"))),
++                    os.getenv("CRYPTO_NOTIFY_SIGNAL_EVERY_N", os.getenv("NOTIFY_SIGNAL_EVERY_N", "30"))
++                )
++
++        # Выключаем символы, которые ушли из набора (кроме базовых)
++        symbols_to_stop = current_symbols - symbols
++        for symbol in symbols_to_stop:
++            await self._stop_symbol(symbol)
++
++    async def _refresh_loop(self) -> None:
++        """
++        Периодическая перезагрузка конфигурации и списка символов.
++        """
++        try:
++            while not self._shutdown:
++                await asyncio.sleep(self.refresh_interval)
++                await self.load_dynamic_symbols()
++        except asyncio.CancelledError:
++            logger.debug("Refresh loop cancelled")
++
++    async def _maintain_ml_gate_loop(self) -> None:
++        """
++        Periodically refresh MLConfirmGate configuration asynchronously.
++        This prevents blocking Redis calls on the main loop during tick processing.
++        """
++        # Default TTL is 60s, so refresh every 30s to constitute a cache hit
++        interval = 30.0
++        logger.info("Starting ML Gate background refresh loop (interval=%.1fs)", interval)
++        
++        while not self._shutdown:
++            try:
++                gate = getattr(self.of_engine, "ml_gate", None)
++                # Fast retry interval if config has not been successfully loaded
++                cur_interval = 5.0 if gate and not getattr(gate, "_cfg", None) else interval
++                
++                # Wait first (gate is lazy-loaded, so might be None initially)
++                await asyncio.sleep(cur_interval)
++                
++                if self._shutdown:
++                     break
++                
++                # Access exposed property from OFConfirmEngine
++                # Note: of_engine might not have ml_gate initialized if no build() calls happened yet,
++                # or if ML_GATE is disabled.
++                if gate and hasattr(gate, "refresh_async"):
++                    t0 = time.time()
++                    # Use self.main (AsyncRedis)
++                    await gate.refresh_async(self.main)
++                    dt = time.time() - t0
++                    if dt > 0.5:
++                        logger.warning("⚠️ ML gate async refresh took %.1fms", dt * 1000)
++            except asyncio.CancelledError:
++                break
++            except Exception as e:
++                logger.error("Error in ML gate refresh loop: %s", e)
++                # Don't crash loop, just sleep and retry
++                await asyncio.sleep(5.0)
++
++    async def _supervisor_loop(self) -> None:
++        """
++        Supervisor for per-symbol tasks (ticks/books).
++        Restarts crashed tasks to avoid silent stalls.
++        """
++        interval = float(os.getenv("CRYPTO_OF_SUPERVISOR_INTERVAL_SEC", "5"))
++        max_restarts = int(os.getenv("CRYPTO_OF_SUPERVISOR_MAX_RESTARTS", "10"))
++        window_sec = float(os.getenv("CRYPTO_OF_SUPERVISOR_WINDOW_SEC", "300"))
++        logger.info(
++            "👮 Supervisor loop started (interval=%.1fs max_restarts=%d window=%.0fs)",
++            interval, max_restarts, window_sec,
++        )
++        try:
++            while not self._shutdown:
++                await asyncio.sleep(interval)
++                if self._shutdown:
++                    break
++                # snapshot: dictionaries can mutate from refresh/stop_symbol
++                for symbol, (t_tick, t_book) in list(self.symbol_tasks.items()):
++                    if self._shutdown:
++                        break
++                    # If symbol already unloaded, skip
++                    if symbol not in self.symbol_contexts:
++                        continue
++
++                    t_tick2 = await self._maybe_restart_symbol_task(
++                        symbol=symbol,
++                        kind="ticks",
++                        task=t_tick,
++                        coro_factory=(lambda s=symbol: self.consume_ticks(s)),
++                        task_name=f"crypto-of-ticks-{symbol}",
++                        max_restarts=max_restarts,
++                        window_sec=window_sec,
++                    )
++                    t_book2 = await self._maybe_restart_symbol_task(
++                        symbol=symbol,
++                        kind="books",
++                        task=t_book,
++                        coro_factory=(lambda s=symbol: self.consume_books(s)),
++                        task_name=f"crypto-of-book-{symbol}",
++                        max_restarts=max_restarts,
++                        window_sec=window_sec,
++                    )
++
++                    if symbol in self.symbol_tasks:
++                        self.symbol_tasks[symbol] = (t_tick2, t_book2)
++        except asyncio.CancelledError:
++            logger.debug("Supervisor loop cancelled")
++            raise
++        except Exception as exc:
++            logger.error("Supervisor critical error: %s", exc, exc_info=True)
++
++    async def _maybe_restart_symbol_task(
++        self,
++        *,
++        symbol: str,
++        kind: str,
++        task: asyncio.Task,
++        coro_factory: Any,
++        task_name: str,
++        max_restarts: int,
++        window_sec: float,
++    ) -> asyncio.Task:
++        if task is not None and not task.done():
++            return task
++        if self._shutdown:
++            return task
++        if symbol not in self.symbol_contexts:
++            return task
++
++        # restart-storm protection
++        key = (symbol, kind)
++        now = time.time()
++        dq = self._task_restart_hist.get(key)
++        if dq is None:
++            dq = deque()
++            self._task_restart_hist[key] = dq
++        while dq and (now - dq[0]) > window_sec:
++            dq.popleft()
++        dq.append(now)
++        if len(dq) > max_restarts:
++            logger.error(
++                "❌ (%s) %s task restart storm: %d restarts in %.0fs. Stopping symbol.",
++                symbol, kind, len(dq), window_sec,
++            )
++            await self._stop_symbol(symbol)
++            return task
++
++        exc: Optional[BaseException] = None
++        try:
++            if task is not None and task.cancelled():
++                exc = asyncio.CancelledError()
++            elif task is not None:
++                exc = task.exception()
++        except asyncio.CancelledError as e:
++            exc = e
++        except Exception as e:
++            exc = e
++
++        if exc and not isinstance(exc, asyncio.CancelledError):
++            try:
++                log_silent_error(exc, 'task_crash', symbol, f'supervisor:{kind}', sample_rate=1)
++            except Exception:
++                pass
++            tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
++            logger.error("❌ (%s) %s task died. Restarting. err=%r\n%s", symbol, kind, exc, tb)
++        else:
++            logger.error("❌ (%s) %s task ended/cancelled. Restarting.", symbol, kind)
++
++        new_task = asyncio.create_task(coro_factory(), name=task_name)
++        return new_task
++
++
++    async def _stop_symbol(self, symbol: str) -> None:
++        """
++        Останавливает обработку конкретного символа.
++        """
++        # Mark symbol as unloaded first to prevent supervisor restarts during cancellation
++        self.symbol_contexts.pop(symbol, None)
++
++        # Cleanup caches to prevent leaks for unloaded symbols
++        sym = str(symbol or "").upper()
++        self.tick_helpers.pop(sym, None)
++        self.book_helpers.pop(sym, None)
++        self.poison_pill_counts.pop(sym, None)
++        self._rq_cache.pop(sym, None)
++        self._adx_cache.pop(sym, None)
++        for kind in ("ticks", "books"):
++            self._task_restart_hist.pop((sym, kind), None)
++            self._pel_cursor.pop((sym, kind), None)
++
++        tasks = self.symbol_tasks.pop(symbol, None)
++        if tasks:
++            tick_task, book_task = tasks
++            tick_task.cancel()
++            book_task.cancel()
++            await asyncio.gather(tick_task, book_task, return_exceptions=True)
++            logger.info("🛑 Символ %s остановлен и выгружен", symbol)
++
++
++    async def _burst_flush_loop(self):
++        """
++        Background loop to ensure burst signals are flushed via wall-time if no ticks arrive.
++        Controlled by BURST_FLUSH_MODE (wall|tick|off).
++        """
++        mode = str(os.getenv("BURST_FLUSH_MODE", "wall")).lower()
++        if mode == "off":
++            logger.info("ℹ️ Burst wall-flush loop is OFF")
++            return
++            
++        interval_ms = int(os.getenv("BURST_FLUSH_INTERVAL_MS", "200"))
++        logger.info("🚀 Starting burst wall-flush loop (mode=%s, interval=%dms)", mode, interval_ms)
++
++        last_alive_log = 0.0
++        while not self._shutdown:
++            try:
++                await asyncio.sleep(max(0.05, interval_ms / 1000.0))
++                now_s = time.time()
++                if now_s - last_alive_log > 60:
++                    # Sample every 10000th message
++                    burst_loop_sampler = LogSamplerFactory.get_sampler("BURST_LOOP_ALIVE", 10000)
++                    if burst_loop_sampler.should_log("burst_loop_alive"):
++                        logger.info("💓 Burst flush loop alive. Active symbols=%d mode=%s", len(self.symbol_contexts), mode)
++                    last_alive_log = now_s
++
++                now_wall = int(time.time() * 1000)
++                # symbol_contexts might change during iteration
++                runtimes = list(self.symbol_contexts.values())
++                
++                for runtime in runtimes:
++                    if not hasattr(runtime, "burst"):
++                        continue
++                    
++                    try:
++                        # source of 'now' depends on mode
++                        # ...
++                        # Skip if connection closed
++                        if self.main is None:
++                             break
++
++                        if mode == "tick":
++                            now_ms = int(getattr(runtime, "last_ts_ms", 0) or 0)
++                        else:
++                            now_ms = now_wall
++
++                        if now_ms <= 0:
++                            continue
++
++                        # Используем общий метод для обработки burst.
++                        # Внутри _process_burst_flush уже вызывается maybe_flush под блокировкой
++                        # и обновляются соответствующие метрики (gauge).
++                        await self._process_burst_flush(runtime, "wall", now_ms, do_publish=True)
++
++                        # NEW (P4): Periodic maintenance (overrides, etc.) moved from tick-path
++                        if self.strategy:
++                            await self.strategy.maintain_symbol(runtime)
++
++                    except RedisError:
++                        # Quietly exit symbol check if redis died (shutdown)
++                        pass
++                    except Exception as e:
++                        # Do not crash the entire loop if one symbol fails
++                        if random.random() < 0.01:
++                            log_silent_error(e, 'burst_flush_failure', getattr(runtime, 'symbol', 'unknown'), '_burst_flush_loop:inner')
++                        continue
++
++            except asyncio.CancelledError:
++                break
++            except Exception as e:
++                log_silent_error(e, 'burst_flush_failure', 'global', '_burst_flush_loop:critical')
++                await asyncio.sleep(1)
++
++    # ──────────────────────────────────────────────────────────────────────────
++    # NEW: Shared Burst Processing Logic (DRY + Low Latency)
++    # ──────────────────────────────────────────────────────────────────────────
++    async def _process_burst_flush(self, runtime: SymbolRuntime, trigger_source: str,
++                                   ts_ms: int, do_publish: bool = True) -> Optional[Dict]:
++        """
++        Единая точка проверки Burst-сигнала.
++        Вызывается и при получении тика (для мгновенной реакции),
++        и по таймеру (для закрытия burst при остановке торгов).
++
++        Args:
++            do_publish: Если False, возвращает сигнал без отправки в Redis/Telegram
++                        (используется, когда вызывающий код сам обрабатывает публикацию).
++        """
++        if not hasattr(runtime, "burst"):
++            return None
++
++        out = None
++        # 1. Thread-safe check & update
++        async with runtime.burst_mu:
++            # Если активен, логируем для дебага (сэмпплинг)
++            if runtime.burst.st.active and runtime.loop_log_sampler.should_log("burst_check"):
++                 # ... logic log ...
++                 pass
++
++            out = runtime.burst.maybe_flush(now_ts_ms=ts_ms)
++
++            # Обновляем метрику состояния под локом
++            is_active = getattr(runtime.burst.st, "active", False)
++            if burst_active_gauge:
++                burst_active_gauge.labels(symbol=runtime.symbol).set(1 if is_active else 0)
++
++        # 2. Publish & Metrics (вне лока)
++        if out:
++            # Важно: обновляем время последнего сигнала в рантайме, чтобы pressure-filter знал об этом
++            runtime.last_signal_ts = int(ts_ms)
++            try:
++                runtime.pressure.record_emit(int(ts_ms))
++            except Exception as exc:
++                log_silent_error(exc, 'pressure_record_failure', runtime.symbol, '_process_burst_flush:record_emit')
++
++            # Metrics
++            if burst_flush_total:
++                burst_flush_total.labels(symbol=runtime.symbol, mode=trigger_source).inc()
++            if signals_emitted_total:
++                signals_emitted_total.labels(symbol=runtime.symbol).inc()
++
++            # Sample every 10000th message
++            burst_flush_sampler = LogSamplerFactory.get_sampler("BURST_FLUSH", 10000)
++            if burst_flush_sampler.should_log(f"burst_flush_{runtime.symbol}"):
++                logger.info("🔥 (%s) Burst flushed via %s: dir=%s p=%.2f score=%.2f",
++                            runtime.symbol, trigger_source, out.get("direction"),
++                            out.get("entry"), out.get("burst_best_score"))
++
++            # --- PUBLISH LOGIC ---
++            if do_publish:
++                # Этот блок выполняется только для фонового цикла
++                try:
++                    preprocess_signal_for_publish(
++                        out,
++                        symbol=runtime.symbol,
++                        source="crypto_orderflow_service",
++                        logger=logger,
++                    )
++                except Exception:
++                    pass
++
++                if self.strategy:
++                    await self.strategy.publish_signal(runtime, out)
++                    if signals_published_total:
++                        signals_published_total.labels(symbol=runtime.symbol).inc()
++
++            return out
++        return None
++
++    async def _get_adx_cached(self, *, symbol: str, now_ms: int) -> float:
++        """
++        Read ADX14 from Redis:
++          key = adx:{SYMBOL}
++        Cache in-memory for adx_cache_ms (default 300ms).
++        Fail-open: returns 0.0.
++        """
++        sym = str(symbol or "").upper()
++        if not sym:
++            return 0.0
++        cache_ms = int(os.getenv("ADX_CACHE_MS", "300"))
++        cur = self._adx_cache.get(sym)
++        if cur is not None:
++            ts0, v0 = cur
++            if 0 <= now_ms - int(ts0) <= cache_ms:
++                return float(v0 or 0.0)
++        try:
++            raw = await self.main.get(f"adx:{sym}")
++            v = float(raw) if raw is not None else 0.0
++            if v < 0:
++                v = 0.0
++            self._adx_cache[sym] = (now_ms, float(v))
++            return float(v)
++        except Exception as exc:
++            log_silent_error(exc, 'redis_read_failure', sym, '_get_adx_cached')
++            return float(self._adx_cache.get(sym, (0, 0.0))[1] or 0.0)
++
++
++    # ── Основные рабочие циклы ────────────────────────────────────────────────
++
++    async def consume_ticks(self, symbol: str) -> None:
++        """
++        Читает тики для указанного символа, запускает детекторы и публикует сигналы.
++        """
++        sampled_info(logger, "LOOP_DIAGNOSTIC", "🔄 (%s) Запуск цикла чтения тиков", symbol)
++        backoff = Backoff(
++            base_delay=float(os.getenv("REDIS_BACKOFF_BASE", "0.25")),
++            multiplier=2.0,
++            max_delay=float(os.getenv("REDIS_BACKOFF_CAP", "5.0")),
++            jitter=bool(int(os.getenv("REDIS_BACKOFF_JITTER_ENABLED", "1"))),
++        )
++        idle_sleep = float(os.getenv("REDIS_IDLE_SLEEP_SEC", "0.05"))
++        msg_counter = 0
++        
++        # Initialize stream, group, and helper once before the loop
++        stream = None
++        group = None
++        helper = None
++        
++        while not self._shutdown:
++            runtime = self.symbol_contexts.get(symbol)
++            if runtime is None:
++                logger.warning("⚠️ (%s) Runtime не найден, ожидание...", symbol)
++                await asyncio.sleep(1)
++                continue
++            
++            if runtime.loop_log_sampler.should_log("loop_start"):
++                logger.debug("🔄 (%s) Loop iteration start", symbol)
++            
++            # Initialize helper on first iteration or if runtime changed (Expert P4/P5)
++            stream = runtime.tick_stream
++            group = runtime.tick_group
++            helper = self.tick_helpers.get(symbol)
++            if helper is None:
++                helper = AsyncRedisStreamHelper(self.ticks, group, self.consumer_id_ticks)
++                self.tick_helpers[symbol] = helper
++                try:
++                    await helper.ensure_group(stream)
++                    sampled_info(logger, "TICK_HELPER_INIT", "✅ (%s) tick-helper initialized: stream=%s group=%s", symbol, stream, group)
++                except RedisError as exc:
++                    delay = backoff.get_delay()
++                    logger.error("❌ (%s) ошибка создания tick-группы %s: %s (backoff=%.2fs)", symbol, group, exc, delay)
++                    await asyncio.sleep(delay)
++                    continue
++
++            # 1. Calibration loading (SRP Phase A - Service-based)
++            await self.calib_svc.ensure_loaded(runtime)
++            
++            # 2. Daily candle warmup (TODO: move to service later)
++
++            # NEW: Periodically refresh specs (calibrated SL, etc) from MAIN redis
++            try:
++                await runtime.ensure_specs_fresh(self.main)
++            except Exception as exc:
++                log_silent_error(exc, 'config_update_failure', symbol, 'consume_ticks:specs_refresh_wrapper')
++                pass
++
++            tick_sample_rate = float(os.getenv("TICK_SAMPLE_RATE", "1.0"))
++
++            # --- Corrected consume_ticks logic (Expert Fix) ---
++            block_ms = int(runtime.config.get("read_block_ms", 250))
++            count = int(runtime.config.get("read_count", 200))
++            messages = []
++
++            try:
++                # One authoritative read call
++                if runtime.loop_log_sampler.should_log("helper_read_call"):
++                    logger.debug("🔍 (%s) Calling helper.read (block=%dms, count=%d)", symbol, block_ms, count)
++                messages = await helper.read(
++                    {stream: ">"},
++                    count=count,
++                    block=block_ms,
++                )
++                if runtime.loop_log_sampler.should_log("helper_read_result"):
++                    logger.debug("🔍 (%s) helper.read returned %d stream entries", symbol, len(messages) if messages else 0)
++            except (ConnectionError, TimeoutError) as exc:
++                # ✅ FIX: Handle connection pool exhaustion and timeouts
++                error_str = str(exc)
++                is_pool_exhausted = "Too many connections" in error_str or "Name or service not known" in error_str
++                is_timeout = isinstance(exc, TimeoutError) or "Timeout" in error_str
++                
++                if is_pool_exhausted:
++                    if redis_errors_total:
++                        redis_errors_total.labels(op="read_ticks_pool_exhausted", symbol=symbol).inc()
++                    # More aggressive backoff for pool exhaustion (min 3s, max 20s)
++                    delay = max(3.0, min(backoff.get_delay() * 2.5, 20.0))
++                    active_count = len(self.active_symbols)
++                    # Calculate estimated connections needed
++                    estimated_connections = active_count * 2  # ticks + books per symbol
++                    # Calculate pool usage
++                    pool_usage_pct = (estimated_connections / self.ticks_max * 100) if self.ticks_max > 0 else 0
++                    logger.error(
++                        "❌ (%s) Redis connection pool exhausted (main_max=%d, ticks_max=%d, active_symbols=%d, "
++                        "estimated_connections=%d, pool_usage=%.1f%%). Error: %s. Retrying in %.2fs. "
++                        "Consider increasing REDIS_TICKS_MAX_CONNECTIONS or reducing symbol count.",
++                        symbol, self.main_max, self.ticks_max, active_count, estimated_connections, pool_usage_pct, error_str, delay
++                    )
++                    # Longer delay to allow connections to be released
++                    await asyncio.sleep(delay)
++                    # Reset backoff after pool exhaustion to avoid exponential growth
++                    backoff.reset()
++                    # Try to release any stale connections
++                    try:
++                        if hasattr(self.ticks, 'connection_pool'):
++                            pool = self.ticks.connection_pool
++                            if hasattr(pool, 'reset'):
++                                pool.reset()
++                    except Exception:
++                        pass
++                    continue
++                elif is_timeout:
++                    if redis_errors_total:
++                        redis_errors_total.labels(op="read_ticks_timeout", symbol=symbol).inc()
++                    delay = backoff.get_delay()
++                    logger.warning("⚠️ (%s) Redis timeout reading ticks: %s (backoff=%.2fs)", symbol, error_str, delay)
++                    await asyncio.sleep(delay)
++                    continue
++                else:
++                    if redis_errors_total:
++                        redis_errors_total.labels(op="read_ticks_connection", symbol=symbol).inc()
++                    if is_transient_redis_error(exc):
++                        delay = backoff.get_delay()
++                        logger.warning("⚠️ (%s) Transient connection error: %s (backoff=%.2fs)", symbol, exc, delay)
++                        await asyncio.sleep(delay)
++                        continue
++                    else:
++                        logger.error("❌ (%s) Connection error: %s", symbol, exc)
++                        delay = backoff.get_delay()
++                        await asyncio.sleep(delay)
++                        continue
++            except ResponseError as exc:
++                if redis_errors_total: redis_errors_total.labels(op="read_ticks", symbol=symbol).inc()
++                if "NOGROUP" in str(exc):
++                    logger.warning("ℹ️ (%s) Tick-группа %s потеряна, пересоздаем", symbol, group)
++                    try:
++                        await helper.ensure_group(stream, recreate=True)
++                        messages = await helper.read(
++                            {stream: ">"},
++                            count=count,
++                            block=block_ms,
++                        )
++                    except Exception as e:
++                        delay = backoff.get_delay()
++                        logger.error("❌ (%s) Не удалось пересоздать группу: %s", symbol, e)
++                        await asyncio.sleep(delay)
++                        continue
++                else:
++                    if is_transient_redis_error(exc):
++                        delay = backoff.get_delay()
++                        logger.warning("⚠️ (%s) Transient ошибка чтения стрима %s: %s (backoff=%.2fs)", symbol, stream, exc, delay)
++                        await asyncio.sleep(delay)
++                        continue
++                    else:
++                        logger.error("❌ (%s) Ошибка чтения стрима %s: %s", symbol, stream, exc)
++                        delay = backoff.get_delay()
++                        await asyncio.sleep(delay)
++                        continue
++            except Exception as exc:
++                if redis_errors_total: redis_errors_total.labels(op="read_ticks", symbol=symbol).inc()
++                if is_transient_redis_error(exc):
++                    delay = backoff.get_delay()
++                    logger.warning("⚠️ (%s) Transient ошибка чтения стрима %s: %s (backoff=%.2fs)", symbol, str(exc), delay)
++                    await asyncio.sleep(delay)
++                    continue
++                else:
++                    logger.error("❌ (%s) Критическая ошибка чтения стрима %s: %s", symbol, stream, exc)
++                    delay = backoff.get_delay()
++                    await asyncio.sleep(delay)
++                    continue
++
++            # --- empty read => idle flush ---
++            # --- empty read => idle flush ---
++            if not messages:
++                # Removed redundant idle flush (dup of _burst_flush_loop)
++                # Just sleep if needed and continue
++                if idle_sleep > 0:
++                    await asyncio.sleep(idle_sleep)
++                continue
++
++            # --- Обработка батча тиков ---
++            if messages:  # Log all batches for debugging
++                sampled_info(logger, "LOOP_DIAGNOSTIC", "📥 (%s) Read %d messages from stream", symbol, sum(len(entries) for _, entries in messages))
++                if runtime.throttle_log_sampler.should_log("stream_processing"):
++                    logger.debug("🔍 (%s) Processing %d stream entries", symbol, len(messages))
++            
++            sampled_ticks_dropped = 0
++            for stream_name, entries in messages:
++                ack_ids: List[str] = []
++                entry_idx = 0
++                for msg_id, fields in entries:
++                    processed_ok = False
++                    tick = None
++                    
++                    entry_idx += 1
++                    if tick_sample_rate < 1.0:
++                        if not deterministic_sample(entry_idx, tick_sample_rate):
++                            # Drop tick due to sampling
++                            ack_ids.append(msg_id)
++                            sampled_ticks_dropped += 1
++                            if ticks_dropped_total:
++                                ticks_dropped_total.labels(symbol=symbol, reason="sampled").inc()
++                            continue
++                    
++                    _t0 = _time.perf_counter()
++                    try:
++                        ticks_read_total.labels(symbol=symbol).inc()
++                        raw = _fields_to_dict(fields)
++                        tick = _parse_tick_payload(raw)
++
++                        if not tick:
++                            processed_ok = True
++                            continue
++
++                        # Единая модель времени (event/ingest/process)
++                        ingest_ts_ms = _utc_epoch_ms()
++                        tick["ingest_ts_ms"] = ingest_ts_ms
++                        
++                        # Deterministic event-time (prefer tick.ts_ms if sane; else Redis msg_id ms)
++                        now_ms = ingest_ts_ms
++                        payload_ts_ms = 0
++                        try:
++                            payload_ts_ms = _safe_int(tick.get("ts_ms") or tick.get("event_ts_ms") or 0)
++                        except Exception:
++                            payload_ts_ms = 0
++                        event_ts_ms, ts_source = self._coerce_event_ts_ms(msg_id=msg_id, payload_ts_ms=payload_ts_ms, now_ms=now_ms)
++                        tick["event_ts_ms"] = int(event_ts_ms)
++                        tick["ts_ms"] = int(event_ts_ms)  # legacy compatibility
++                        tick["ts_source"] = str(ts_source)
++
++                        # ts_source observability: payload vs stream_id vs now
++                        try:
++                            if ticks_ts_source_total:
++                                ticks_ts_source_total.labels(symbol=str(symbol), ts_source=str(ts_source)).inc()
++                        except Exception:
++                            pass
++
++                        # Tick-quality EMAs (fast detection; complements rate()-based alerts).
++                        # NOTE: deterministic: update by now_ms (monotonic per process).
++                        unknown_side = False
++                        try:
++                            unknown_side = bool(is_unknown_side_tick(tick))
++                        except Exception:
++                            unknown_side = False
++
++                        try:
++                            if not hasattr(self, "_tick_quality_ema") or self._tick_quality_ema is None:
++                                tau_ms = int(os.getenv("TICK_QUALITY_EMA_TAU_MS", "300000"))
++                                self._tick_quality_ema = TickQualityEMA(tau_ms=tau_ms)
++
++                            stream_ms = _safe_int(tick.get("stream_ms") or 0)
++                            ev_ms = int(event_ts_ms or 0)
++                            abs_skew_ms = abs(ev_ms - stream_ms) if stream_ms and ev_ms else 0
++                            abs_age_ms = abs(int(now_ms) - ev_ms) if ev_ms else 0
++
++                            ema = self._tick_quality_ema.update(
++                                symbol=str(symbol),
++                                ts_ms=int(now_ms),
++                                unknown_side=1.0 if unknown_side else 0.0,
++                                ts_source=str(ts_source),
++                                abs_skew_ms=float(abs_skew_ms),
++                                abs_age_ms=float(abs_age_ms),
++                            )
++
++                            # Step16: limit cardinality + throttle gauge emission (per label)
++                            limiter = getattr(self, "_tick_metric_limiter", None)
++                            if limiter is None:
++                                allow = _parse_allowlist(os.getenv("TICK_QUALITY_SYMBOL_ALLOWLIST"))
++                                mode = os.getenv("TICK_QUALITY_SYMBOL_LABEL_MODE", "collapse")
++                                ema_min = int(os.getenv("TICK_QUALITY_EMA_UPDATE_MIN_MS", "250"))
++                                self._tick_metric_limiter = TickMetricLimiter(allowlist=allow, mode=mode, ema_min_update_ms=ema_min)
++                                self._tick_metric_last_emit_ms = {}
++                                limiter = self._tick_metric_limiter
++
++                            sym_label = limiter.label(str(symbol))
++                            if sym_label is not None:
++                                now_ms_int = int(now_ms)
++                                last_ms = int(self._tick_metric_last_emit_ms.get(sym_label, 0))
++                                if should_emit(now_ms_int, last_ms, int(limiter.ema_min_update_ms)):
++                                    self._tick_metric_last_emit_ms[sym_label] = now_ms_int
++                                    tick_unknown_side_ema_gauge.labels(symbol=sym_label).set(float(ema["unknown"]))
++                                    tick_ts_source_now_ema_gauge.labels(symbol=sym_label).set(float(ema["ts_now"]))
++                                    tick_ts_source_stream_id_ema_gauge.labels(symbol=sym_label).set(float(ema["ts_stream_id"]))
++                                    tick_event_stream_skew_abs_ema_ms_gauge.labels(symbol=sym_label).set(float(ema["skew_abs_ms"]))
++                                    tick_event_age_abs_ema_ms_gauge.labels(symbol=sym_label).set(float(ema["age_abs_ms"]))
++
++                        except Exception:
++                            pass
++                        
++                        # process_ts_ms перед фактическим process_tick
++                        process_ts_ms = _utc_epoch_ms()
++                        tick["process_ts_ms"] = process_ts_ms
++                        
++                        runtime.last_ts_ms = int(event_ts_ms)
++
++                        # worker_lag_ms observability (+ pressure drop)
++                        lag_ms = 0
++                        try:
++                            lag_ms = int(now_ms - int(event_ts_ms))
++                            if lag_ms < 0:
++                                lag_ms = 0
++                            if worker_lag_ms_gauge:
++                                worker_lag_ms_gauge.labels(symbol=symbol).set(float(lag_ms))
++                            
++                            # Update lag tracker for percentiles
++                            lag_tracker = self._lag_trackers.get(symbol)
++                            if lag_tracker:
++                                lag_tracker.update(lag_ms)
++                                # Export percentiles periodically (every 200 ticks)
++                                export_counter = self._lag_export_counters.get(symbol, 0)
++                                export_counter += 1
++                                self._lag_export_counters[symbol] = export_counter
++                                
++                                if export_counter % 200 == 0:
++                                    snap = lag_tracker.snapshot()
++                                    if snap:
++                                        try:
++                                            if worker_lag_ms_p50_gauge:
++                                                worker_lag_ms_p50_gauge.labels(symbol=symbol).set(snap.p50)
++                                            if worker_lag_ms_p95_gauge:
++                                                worker_lag_ms_p95_gauge.labels(symbol=symbol).set(snap.p95)
++                                            if worker_lag_ms_p99_gauge:
++                                                worker_lag_ms_p99_gauge.labels(symbol=symbol).set(snap.p99)
++                                        except Exception:
++                                            pass  # fail-open
++                        except Exception:
++                            lag_ms = 0
++
++                        # Explicit pressure control: drop stale ticks to preserve real-time latency.
++                        if self._drop_on_lag and int(lag_ms) > int(self._max_lag_ms):
++                            if ticks_dropped_total:
++                                ticks_dropped_total.labels(symbol=symbol, reason="lag").inc()
++                            processed_ok = True
++                            continue
++
++                        # Tick dedup (best-effort). Drop duplicates to avoid double-counting delta/volume.
++                        try:
++                            uid = str(tick.get("tick_uid") or "")
++                            if not uid:
++                                uid = _compute_tick_uid(
++                                    symbol=str(tick.get("symbol") or symbol),
++                                    trade_id=tick.get("trade_id"),
++                                    ts_ms=_safe_int(tick.get("ts_ms") or 0),
++                                    price_src=raw.get("price") or raw.get("last") or raw.get("mid"),
++                                    qty_src=raw.get("qty") or raw.get("volume"),
++                                    side=str(tick.get("side") or ""),
++                                    is_buyer_maker=tick.get("is_buyer_maker"),
++                                )
++                                tick["tick_uid"] = uid
++                            if uid and runtime.is_duplicate_tick_uid(uid):
++                                if tick_dedup_drop_total:
++                                    tick_dedup_drop_total.labels(symbol=symbol).inc()
++                                processed_ok = True
++                                continue
++                        except Exception:
++                            pass
++
++                        # Unknown-side policy: prevent implicit BUY/SELL bias at ingestion-time.
++                        try:
++                            if unknown_side:
++                                try:
++                                    ticks_unknown_side_policy_total.labels(symbol=str(symbol), policy=str(self._unknown_side_policy)).inc()
++                                except Exception:
++                                    pass
++
++                                pol = str(self._unknown_side_policy or 'ignore_delta')
++                                if pol in ('drop', 'quarantine'):
++                                    try:
++                                        if ticks_dropped_total:
++                                            ticks_dropped_total.labels(symbol=symbol, reason=f'unknown_side_{pol}').inc()
++                                    except Exception:
++                                        pass
++
++                                    if pol == 'quarantine':
++                                        await self._quarantine_unknown_side_tick(
++                                            symbol=str(symbol),
++                                            msg_id=str(msg_id),
++                                            tick=tick,
++                                            raw_fields=raw,
++                                            reason='unknown_side',
++                                        )
++                                    processed_ok = True
++                                    continue
++
++                                # For ignore_delta policy: zero-out signed qty downstream (deterministic)
++                                if pol == 'ignore_delta':
++                                    try:
++                                        tick['qty_signed'] = 0.0
++                                    except Exception:
++                                        pass
++                        except Exception:
++                            pass
++
++                        ticks_processed_total.labels(symbol=symbol).inc()
++
++                        # Feed HealthMetrics for downstream periodic_reporter
++                        try:
++                            if hasattr(self, "health_metrics") and self.health_metrics:
++                                book = runtime.get_book_snapshot()
++                                if book and book.timestamp_ms:
++                                    t_l2_age = max(0, event_ts_ms - book.timestamp_ms)
++                                    self.health_metrics.on_tick(
++                                        symbol=str(symbol),
++                                        l2_age_ms=float(t_l2_age),
++                                        l2_age_ms_tick=float(t_l2_age),
++                                        l2_is_stale=(t_l2_age > 1500),
++                                        l2_is_stale_now=(max(0, now_ms - book.timestamp_ms) > 1500)
++                                    )
++                        except Exception:
++                            pass
++
++                        if self.strategy:
++                            t0 = time.perf_counter_ns()
++                            signal = await self.strategy.process_tick(runtime, tick)
++                            try:
++                                if processing_time_us:
++                                    dt_us = (time.perf_counter_ns() - t0) / 1000.0
++                                    processing_time_us.labels(symbol=symbol).observe(float(dt_us))
++                            except Exception:
++                                pass
++                        else:
++                            signal = None
++
++                        try:
++                            if signal and hasattr(self, "health_metrics") and self.health_metrics:
++                                self.health_metrics.on_signal_emit(symbol=str(symbol))
++                        except Exception:
++                            pass
++
++                        # Burst Processing (IMMEDIATE CHECK for Low Latency)
++                        if not signal:
++                            tick_ts = int(event_ts_ms)
++                            burst_signal = await self._process_burst_flush(
++                                runtime, "tick", tick_ts, do_publish=False
++                            )
++                            if burst_signal:
++                                signal = burst_signal
++
++                        if signal:
++                            try:
++                                preprocess_signal_for_publish(
++                                    signal,
++                                    symbol=str(getattr(runtime, "symbol", "") or symbol),
++                                    source="CryptoOrderFlow",
++                                    logger=logger,
++                                )
++                            except Exception:
++                                pass
++                            if self.strategy:
++                                await self.strategy.publish_signal(runtime, signal)
++                                signals_published_total.labels(symbol=symbol).inc()
++                        processed_ok = True
++
++                    except Exception as exc:  # noqa: BLE001
++                        logger.error("❌ (%s) Crash processing tick %s: %s", symbol, msg_id, exc)
++
++                        # Poison pill => quarantine + ACK (fail-open)
++                        try:
++                            await self.ticks.xadd(self.quarantine_stream, {
++                                "symbol": symbol,
++                                "msg_id": msg_id,
++                                "error": str(exc)[:200],
++                                "payload": json.dumps(fields, default=str)[:1000]
++                            }, maxlen=5000)
++                            logger.warning("☣️ (%s) Message %s quarantined", symbol, msg_id)
++                            processed_ok = True
++                        except Exception as q_err:
++                            logger.error("Critical: Failed to quarantine: %s", q_err)
++                            processed_ok = False
++
++                    finally:
++                        # ✅ Step 17: sampled ingest latency histograms
++                        try:
++                            if processed_ok and tick:
++                                sample = getattr(self, "_tick_ingest_latency_sample", None)
++                                if sample is None:
++                                    sample = float(os.getenv("TICK_INGEST_LATENCY_SAMPLE", "0.02"))
++                                    self._tick_ingest_latency_sample = sample
++                                # deterministic sample key: prefer event_ts_ms else stream ms
++                                key_ms = 0
++                                try:
++                                    key_ms = _safe_int(tick.get("event_ts_ms") or tick.get("ts_ms") or 0)
++                                except Exception:
++                                    key_ms = 0
++                                if not key_ms:
++                                    try:
++                                        key_ms = int(str(msg_id).split("-")[0])
++                                    except Exception:
++                                        key_ms = int(time.time() * 1000)
++                                if deterministic_sample(key_ms, float(sample)):
++                                    sym_lbl = str(symbol)
++                                    if _symbol_label:
++                                        try:
++                                            sym_lbl = _symbol_label(symbol)
++                                        except Exception:
++                                            sym_lbl = str(symbol)
++                                    dt_ms = (_time.perf_counter() - _t0) * 1000.0
++                                    tick_ingest_process_ms.labels(symbol=sym_lbl).observe(float(dt_ms))
++                                    # e2e delay uses coerced event_ts_ms if present
++                                    try:
++                                        ev = _safe_int(tick.get("event_ts_ms") or tick.get("ts_ms") or 0)
++                                    except Exception:
++                                        ev = 0
++                                    if ev:
++                                        e2e = _safe_int(tick.get("ingest_ts_ms") or 0) - _safe_int(ev)
++                                        if e2e < 0:
++                                            e2e = 0
++                                        tick_ingest_e2e_delay_ms.labels(symbol=sym_lbl).observe(float(e2e))
++                        except Exception:
++                            pass
++                        if processed_ok:
++                            ack_ids.append(msg_id)
++
++                if sampled_ticks_dropped > 0 and runtime.throttle_log_sampler.should_log("tick_sampling"):
++                    logger.info("🔪 (%s) Sampled and dropped %d ticks (rate=%.2f)", symbol, sampled_ticks_dropped, tick_sample_rate)
++
++                # Batch ACK for throughput (XACK via pipeline)
++                if ack_ids:
++                    await self._xack_pipeline(stream=stream_name, group=group, ids=ack_ids, symbol=symbol, op="ack_ticks")
++            backoff.reset()
++
++    async def consume_books(self, symbol: str) -> None:
++        """
++        Читает книги заявок и обновляет состояния детекторов OBI/Iceberg.
++        """
++        backoff = Backoff(
++            base_delay=float(os.getenv("REDIS_BACKOFF_BASE", "0.25")),
++            multiplier=2.0,
++            max_delay=float(os.getenv("REDIS_BACKOFF_CAP", "5.0")),
++            jitter=bool(int(os.getenv("REDIS_BACKOFF_JITTER_ENABLED", "1"))),
++        )
++        idle_sleep = float(os.getenv("REDIS_IDLE_SLEEP_SEC", "0.05"))
++        while not self._shutdown:
++            runtime = self.symbol_contexts.get(symbol)
++            if runtime is None:
++                await asyncio.sleep(1)
++                continue
++
++            # Initialize/Cache helper (Expert P4)
++            stream = runtime.book_stream
++            group = runtime.book_group
++            helper = self.book_helpers.get(symbol)
++            if helper is None:
++                helper = AsyncRedisStreamHelper(self.ticks, group, self.consumer_id_books)
++                self.book_helpers[symbol] = helper
++                try:
++                    await helper.ensure_group(stream)
++                    sampled_info(logger, "BOOK_HELPER_INIT", "✅ (%s) book-helper initialized: stream=%s group=%s", symbol, stream, group)
++                except RedisError as exc:
++                    delay = backoff.get_delay()
++                    logger.error("❌ (%s) ошибка создания book-группы %s: %s (backoff=%.2fs)", symbol, group, exc, delay)
++                    await asyncio.sleep(delay)
++                    continue
++
++            try:
++                messages = await helper.read(
++                    {stream: ">"},
++                    count=runtime.config.get("read_count", 200),
++                    block=runtime.config.get("read_block_ms", 1000),
++                )
++            except (ConnectionError, TimeoutError) as exc:
++                # ✅ FIX: Handle connection pool exhaustion and timeouts
++                error_str = str(exc)
++                is_pool_exhausted = "Too many connections" in error_str or "Name or service not known" in error_str
++                is_timeout = isinstance(exc, TimeoutError) or "Timeout" in error_str
++                
++                if is_pool_exhausted:
++                    if redis_errors_total:
++                        redis_errors_total.labels(op="read_books_pool_exhausted", symbol=symbol).inc()
++                    # More aggressive backoff for pool exhaustion (min 3s, max 20s)
++                    delay = max(3.0, min(backoff.get_delay() * 2.5, 20.0))
++                    active_count = len(self.active_symbols)
++                    estimated_connections = active_count * 2  # ticks + books per symbol
++                    # Calculate pool usage
++                    pool_usage_pct = (estimated_connections / self.ticks_max * 100) if self.ticks_max > 0 else 0
++                    logger.error(
++                        "❌ (%s) Redis connection pool exhausted reading books (main_max=%d, ticks_max=%d, "
++                        "active_symbols=%d, estimated_connections=%d, pool_usage=%.1f%%). Error: %s. "
++                        "Retrying in %.2fs. Consider increasing REDIS_TICKS_MAX_CONNECTIONS or reducing symbol count.",
++                        symbol, self.main_max, self.ticks_max, active_count, estimated_connections, pool_usage_pct, error_str, delay
++                    )
++                    # Longer delay to allow connections to be released
++                    await asyncio.sleep(delay)
++                    # Reset backoff to prevent exponential growth
++                    backoff.reset()
++                    continue
++                elif is_timeout:
++                    if redis_errors_total:
++                        redis_errors_total.labels(op="read_books_timeout", symbol=symbol).inc()
++                    delay = backoff.get_delay()
++                    logger.warning("⚠️ (%s) Redis timeout reading books: %s (backoff=%.2fs)", symbol, error_str, delay)
++                    await asyncio.sleep(delay)
++                    continue
++                else:
++                    if redis_errors_total:
++                        redis_errors_total.labels(op="read_books_connection", symbol=symbol).inc()
++                    if is_transient_redis_error(exc):
++                        delay = backoff.get_delay()
++                        logger.warning("⚠️ (%s) Transient connection error reading books: %s (backoff=%.2fs)", symbol, exc, delay)
++                        await asyncio.sleep(delay)
++                        continue
++                    else:
++                        logger.error("❌ (%s) Connection error reading books: %s", symbol, exc)
++                        delay = backoff.get_delay()
++                        await asyncio.sleep(delay)
++                        continue
++            except ResponseError as exc:
++                if "NOGROUP" in str(exc):
++                    logger.warning("ℹ️ (%s) Book-группа %s потеряна, пересоздаем", symbol, group)
++                    try:
++                        await helper.ensure_group(stream, recreate=True)
++                    except RedisError as err:
++                        logger.error("❌ (%s) Ошибка повторного создания book-группы: %s", symbol, err)
++                    await asyncio.sleep(min(0.5, backoff.cap))
++                    continue
++                if is_transient_redis_error(exc):
++                    delay = backoff.get_delay()
++                    logger.warning("⚠️ (%s) Transient ошибка чтения книги: %s (backoff=%.2fs)", symbol, exc, delay)
++                else:
++                    logger.error("❌ (%s) Ошибка чтения книги: %s", symbol, exc)
++                    await asyncio.sleep(1)
++                    continue
++            except RedisError as exc:
++                if is_transient_redis_error(exc):
++                    delay = backoff.get_delay()
++                    logger.warning("⚠️ (%s) Redis transient при чтении книги: %s (backoff=%.2fs)", symbol, exc, delay)
++                    await asyncio.sleep(delay)
++                else:
++                    logger.error("❌ (%s) Redis ошибка при чтении книги: %s", symbol, exc)
++                    await asyncio.sleep(1)
++                    continue
++
++            if not messages:
++                # --- Burst selection (Phase D): background flush on idle/books ---
++                # Removed redundant book/idle flush (dup of _burst_flush_loop)
++                backoff.reset()
++                if idle_sleep > 0:
++                    await asyncio.sleep(idle_sleep)
++                continue
++
++            for stream_name, entries in messages:
++                ack_ids: List[str] = []
++                for msg_id, payload in entries:
++                    try:
++                        # Extract timestamp from msg_id for ingest_ts_ms
++                        ingest_ts_ms = 0
++                        try:
++                            ingest_ts_ms = int(msg_id.split("-")[0])
++                        except Exception:
++                            ingest_ts_ms = int(time.time() * 1000)
++
++                        await self.strategy.process_book(runtime, payload, ingest_ts_ms)
++                    except Exception as exc:  # noqa: BLE001
++                        logger.exception("❌ (%s) Ошибка обработки книги %s: %s", symbol, msg_id, exc)
++                    finally:
++                        ack_ids.append(msg_id)
++                # Batch ACK for throughput (XACK via pipeline)
++                if ack_ids:
++                    await self._xack_pipeline(stream=stream_name, group=group, ids=ack_ids, symbol=symbol, op="ack_books")
++            backoff.reset()
++
++    # ── Обработка тиков и генерация сигналов ──────────────────────────────────
++
++    def _should_sample_unknown_side(self, key_ms: int) -> bool:
++        try:
++            return deterministic_sample(int(key_ms), float(self._unknown_side_quarantine_sample))
++        except Exception:
++            return False
++
++    async def _quarantine_unknown_side_tick(self, *, symbol: str, msg_id: str, tick: dict, raw_fields: dict, reason: str = 'unknown_side') -> None:
++        """Publish a sampled unknown-side tick snapshot to a dedicated quarantine stream."""
++        try:
++            if not self.ticks:
++                return
++            key_ms = _safe_int(tick.get('event_ts_ms') or tick.get('ts_ms') or 0)
++            if not self._should_sample_unknown_side(key_ms):
++                return
++
++            payload = {
++                'symbol': str(symbol),
++                'reason': str(reason),
++                'policy': str(self._unknown_side_policy),
++                'msg_id': str(msg_id),
++                'tick_uid': str(tick.get('tick_uid') or ''),
++                'event_ts_ms': str(_safe_int(tick.get('event_ts_ms') or 0)),
++                'ts_source': str(tick.get('ts_source') or ''),
++                'side': str(tick.get('side') or ''),
++                'side_conf': str(tick.get('side_conf') or ''),
++                'side_raw': str(tick.get('side_raw') or ''),
++                'is_buyer_maker': str(tick.get('is_buyer_maker') if tick.get('is_buyer_maker') is not None else ''),
++                'trade_id': str(tick.get('trade_id') or ''),
++                'price': str(tick.get('price') or ''),
++                'qty': str(tick.get('qty') or tick.get('volume') or ''),
++            }
++            try:
++                raw_keys = sorted(list(raw_fields.keys()))
++                payload['raw_keys'] = ','.join(raw_keys[:32])
++            except Exception:
++                pass
++
++            await self.ticks.xadd(
++                self._unknown_side_quarantine_stream,
++                payload,
++                maxlen=int(self._unknown_side_quarantine_maxlen),
++                approximate=True,
++            )
++            try:
++                ticks_unknown_side_quarantine_published_total.labels(symbol=str(symbol), reason=str(reason)).inc()
++            except Exception:
++                pass
++        except Exception:
++            return
++
++    async def _resolve_streams(self, symbol: str) -> Tuple[str, str]:
++        """
++        Определяет реальные имена стримов (поддерживает и ':' и '_').
++        """
++        candidates_tick = [f"stream:tick_{symbol}", f"ticks:{symbol}", f"stream:tick:{symbol}"]
++        candidates_book = [f"stream:book_{symbol}", f"book:{symbol}", f"stream:book:{symbol}"]
++
++        # 1. Check direct ENV overrides first
++        env_tick = os.getenv(f"{symbol}_TICK_STREAM")
++        if env_tick:
++             candidates_tick.insert(0, env_tick)
++        
++        env_book = os.getenv(f"{symbol}_BOOK_STREAM")
++        if env_book:
++             candidates_book.insert(0, env_book)
++
++        tick_stream = await self._first_existing_stream(candidates_tick)
++        book_stream = await self._first_existing_stream(candidates_book)
++
++        if tick_stream is None:
++            tick_stream = candidates_tick[0]  # предпочтительный формат stream:tick_{symbol}
++        if book_stream is None:
++            book_stream = candidates_book[0]
++
++        return tick_stream, book_stream
++
++    async def _first_existing_stream(self, candidates: List[str]) -> Optional[str]:
++        for name in candidates:
++            try:
++                exists = await self.ticks.exists(name)
++            except RedisError:
++                exists = 0
++            if exists:
++                return name
++        return None
++
++
++    @staticmethod
++    def _msgid_ms(msg_id: str) -> int:
++        # Redis stream id format: <ms>-<seq>
++        try:
++            return int(str(msg_id).split("-", 1)[0])
++        except Exception:
++            return 0
++
++    def _coerce_event_ts_ms(self, *, msg_id: str, payload_ts_ms: int, now_ms: int) -> Tuple[int, str]:
++        """Choose deterministic event time:
++        1) tick.ts_ms (if sane)
++        2) Redis msg_id ms
++        3) wall clock (last resort)
++        """
++        ts = _safe_int(payload_ts_ms or 0)
++        if ts > 0 and abs(int(now_ms) - ts) <= int(self._max_ts_skew_ms):
++            return ts, "payload"
++        mid = self._msgid_ms(msg_id)
++        if mid > 0:
++            return mid, "stream_id"
++        return int(now_ms), "now"
++
++    async def _xack_pipeline(self, *, stream: str, group: str, ids: List[str], symbol: str, op: str) -> None:
++        """Ack many ids using pipeline, chunked."""
++        if not ids:
++            return
++        batch = int(self._ack_batch or 0)
++        if batch <= 0:
++            batch = 200
++        try:
++            for i in range(0, len(ids), batch):
++                chunk = ids[i:i + batch]
++                pipe = self.ticks.pipeline(transaction=False)
++                for mid in chunk:
++                    pipe.xack(stream, group, mid)
++                await pipe.execute()
++        except Exception as exc:
++            if redis_errors_total:
++                redis_errors_total.labels(op=op, symbol=symbol).inc()
++            logger.warning("⚠️ (%s) XACK pipeline failed (stream=%s group=%s n=%d): %s",
++                           symbol, stream, group, len(ids), exc)
++
++    async def _pel_sweeper_loop(self) -> None:
++        """Optionally drains PEL to avoid 'black-hole' pending messages.
++        Default behavior: XAUTOCLAIM + ACK (optionally quarantine), without reprocessing.
++        """
++        interval = float(os.getenv("CRYPTO_OF_PEL_SWEEP_INTERVAL_SEC", "10"))
++        min_idle_ms = int(os.getenv("CRYPTO_OF_PEL_MIN_IDLE_MS", "60000"))
++        count = int(os.getenv("CRYPTO_OF_PEL_COUNT", "200"))
++        quarantine = self._env_bool("CRYPTO_OF_PEL_QUARANTINE", "false")
++
++        while not self._shutdown:
++            try:
++                await asyncio.sleep(interval)
++                runtimes = list(self.symbol_contexts.values())
++                now_ms = int(time.time() * 1000)
++
++                for rt in runtimes:
++                    if self._shutdown:
++                        break
++                    sym = str(getattr(rt, "symbol", "") or "").upper()
++                    if not sym:
++                        continue
++
++                    for kind in ("ticks", "books"):
++                        if kind == "ticks":
++                            stream = getattr(rt, "tick_stream", None)
++                            group = getattr(rt, "tick_group", None)
++                            consumer = self.consumer_id_ticks
++                        else:
++                            stream = getattr(rt, "book_stream", None)
++                            group = getattr(rt, "book_group", None)
++                            consumer = self.consumer_id_books
++
++                        if not stream or not group:
++                            continue
++
++                        key = (sym, kind)
++                        start_id = self._pel_cursor.get(key, "0-0")
++
++                        try:
++                            res = await self.ticks.xautoclaim(
++                                stream, group, consumer,
++                                min_idle_ms, start_id, count=count
++                            )
++                        except Exception:
++                            continue
++
++                        if not res:
++                            continue
++
++                        # redis-py: (next_start_id, messages, deleted_ids)
++                        next_id = res[0] if isinstance(res, (list, tuple)) and len(res) > 0 else start_id
++                        msgs = res[1] if isinstance(res, (list, tuple)) and len(res) > 1 else []
++                        self._pel_cursor[key] = next_id or start_id
++
++                        if not msgs:
++                            continue
++
++                        if pel_autoclaim_total:
++                            pel_autoclaim_total.labels(symbol=sym, kind=kind).inc(len(msgs))
++
++                        ack_ids: List[str] = []
++                        for msg_id, fields in msgs:
++                            ack_ids.append(str(msg_id))
++                            if quarantine:
++                                try:
++                                    await self.ticks.xadd(self.quarantine_stream, {
++                                        "symbol": sym,
++                                        "msg_id": str(msg_id),
++                                        "reason": f"pel_autoclaim:{kind}",
++                                        "payload": json.dumps(fields, default=str)[:1000],
++                                        "ts_ms": str(self._msgid_ms(msg_id) or now_ms),
++                                    }, maxlen=5000)
++                                except Exception:
++                                    pass
++
++                        await self._xack_pipeline(stream=stream, group=group, ids=ack_ids, symbol=sym, op=f"ack_pel_{kind}")
++
++            except asyncio.CancelledError:
++                break
++            except Exception as exc:
++                log_silent_error(exc, 'pel_sweep_failure', 'global', '_pel_sweeper_loop')
++                await asyncio.sleep(1)
++
++    async def _close_redis(self, client: aioredis.Redis) -> None:
++        if client is None:
++            return
++        try:
++            await client.aclose()
++        except AttributeError:
++            # Fallback for older redis versions
++            try:
++                client.close()
++                await client.wait_closed()
++            except AttributeError:
++                pass
++
++
++# ──────────────────────────────────────────────────────────────────────────────
++# Точка входа
++# ──────────────────────────────────────────────────────────────────────────────
++
++
++async def _async_main() -> None:
++    # Auto-initialize ML Confirm config if needed
++    try:
++        from tools.init_ml_confirm_on_startup import ensure_ml_confirm_config
++        success = ensure_ml_confirm_config()
++        if success:
++            logger.info("✅ ML Confirm config initialized successfully")
++        else:
++            logger.warning("⚠️ ML Confirm config initialization failed or skipped (check logs for details)")
++    except Exception as e:
++        logger.warning(f"⚠️ ML Confirm auto-init error: {e}", exc_info=True)
++    
++    # NOTE: Prometheus metrics server is started inside run_forever() using PROMETHEUS_PORT env var.
++    # Do NOT start it here — double start causes [Errno 98] Address already in use.
++
++    redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++    ticks_url = os.getenv("REDIS_TICKS_URL") or os.getenv("REDIS_URL_TICKS")
++
++    service = CryptoOrderflowService(redis_dsn=redis_url, ticks_dsn=ticks_url)
++    try:
++        await service.run_forever()
++    except asyncio.CancelledError:
++        pass
++    finally:
++        await service.shutdown()
++
++
++if __name__ == "__main__":
++    try:
++        asyncio.run(_async_main())
++    except KeyboardInterrupt:
++        logger.info("🛑 CryptoOrderflowService остановлен по Ctrl+C")
++
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p1/audit_code/outbox/atomic_outbox.py p2/audit_code/outbox/atomic_outbox.py
+--- p1/audit_code/outbox/atomic_outbox.py	1970-01-01 00:00:00.000000000 +0000
++++ p2/audit_code/outbox/atomic_outbox.py	2026-03-06 18:04:03.390676611 +0000
+@@ -0,0 +1,259 @@
++from __future__ import annotations
++
++"""
++AtomicOutboxXADD
++===============
++Единая атомарная запись в Redis Stream + meta sidecar (trace) без зависимости от OutboxWriter.
++
++Нужно для сервисов, которые сейчас делают прямой xadd(... {"data": env_json} ...),
++и из-за этого НЕ создают meta sidecar (OUTBOX_META_PREFIX + sid).
++
++Поддерживаем:
++  - sync redis.Redis (binance_iceberg_detector.py)
++  - async aioredis.Redis (crypto_orderflow_service.py)
++
++Важно:
++  - Поле в stream пишем как 'payload' (dispatcher уже умеет fields['payload']).
++    Это нормализует формат и позволяет переиспользовать Lua контракт OutboxWriter.
++  - Meta sidecar пишем только после успешного XADD.
++"""
++
++import os
++
++try:
++    from .time_contract import utc_epoch_ms, monotonic_ms
++except Exception:
++    from time_contract import utc_epoch_ms, monotonic_ms
++import json
++from typing import Any, Dict, Optional
++
++
++_LUA_ATOMIC_XADD = r"""
++-- KEYS[1] = dedup_key (signal_id)
++-- KEYS[2] = semantic_key (or "__none__" to disable)
++-- KEYS[3] = stream_key
++-- KEYS[4] = meta_key (or "__none__" to disable)
++-- ARGV[1] = dedup_ttl_sec
++-- ARGV[2] = pending_ttl_sec
++-- ARGV[3] = signal_id
++-- ARGV[4] = kind
++-- ARGV[5] = symbol
++-- ARGV[6] = ts
++-- ARGV[7] = payload_json
++-- ARGV[8] = maxlen (0 disables)
++-- ARGV[9] = sem_ttl_sec
++-- ARGV[10] = sem_pending_ttl_sec
++-- ARGV[11] = meta_json
++-- ARGV[12] = meta_ttl_sec
++-- returns: {1, entry_id} on success
++--          {0, entry_id} on dedup hit (already sent)
++--          {2, err} on xadd failure (dedup key is rolled back)
++--          {3, err} on concurrent write (PENDING lock held)
++
++local sem_enabled = (KEYS[2] ~= '__none__')
++local maxlen = tonumber(ARGV[8]) or 0
++
++-- 1. Проверяем существование (Уже успешно отправлено)
++local current_dedup = redis.call('GET', KEYS[1])
++if current_dedup and current_dedup ~= 'PENDING' then
++  return {0, current_dedup} -- Уже отправлено, возвращаем старый ID
++end
++
++-- 2. Если висит PENDING, значит другой процесс/ретрай прямо сейчас это пишет
++if current_dedup == 'PENDING' then
++  return {3, "CONCURRENT_WRITE"} -- Ошибка конкуренции, клиент должен сделать backoff и ретрай
++end
++
++-- 3. Захватываем блокировку PENDING
++local ok = redis.call('SET', KEYS[1], 'PENDING', 'NX', 'EX', tonumber(ARGV[2]))
++if not ok then return {3, "CONCURRENT_WRITE"} end
++
++if sem_enabled then
++  local ok2 = redis.call('SET', KEYS[2], 'PENDING', 'NX', 'EX', tonumber(ARGV[10]))
++  if not ok2 then
++    redis.call('DEL', KEYS[1])
++    return {3, "CONCURRENT_WRITE_SEM"}
++  end
++end
++
++-- 4. Выполняем XADD
++local xadd_ok, entry_id
++if maxlen > 0 then
++  xadd_ok, entry_id = pcall(redis.call, 'XADD', KEYS[3], 'MAXLEN', '~', maxlen, '*',
++    'signal_id', ARGV[3],
++    'kind',      ARGV[4],
++    'symbol',    ARGV[5],
++    'ts',        ARGV[6],
++    'payload',   ARGV[7],
++    'data',      ARGV[7]
++  )
++else
++  xadd_ok, entry_id = pcall(redis.call, 'XADD', KEYS[3], '*',
++    'signal_id', ARGV[3],
++    'kind',      ARGV[4],
++    'symbol',    ARGV[5],
++    'ts',        ARGV[6],
++    'payload',   ARGV[7],
++    'data',      ARGV[7]
++  )
++end
++
++-- 5. Обработка ошибки XADD
++if not xadd_ok then
++  -- КРИТИЧНО: Освобождаем блокировку PENDING, чтобы ретрай мог сработать немедленно!
++  redis.call('DEL', KEYS[1])
++  if sem_enabled then redis.call('DEL', KEYS[2]) end
++  return {2, tostring(entry_id)}
++end
++
++-- 6. Фиксируем успех
++redis.call('SET', KEYS[1], entry_id, 'XX', 'EX', tonumber(ARGV[1]))
++if sem_enabled then redis.call('SET', KEYS[2], entry_id, 'XX', 'EX', tonumber(ARGV[9])) end
++
++-- 7. Пишем Meta Sidecar (если есть)
++local meta_json = ARGV[11]
++local meta_ttl  = tonumber(ARGV[12]) or 0
++if KEYS[4] ~= '__none__' and meta_ttl > 0 and meta_json ~= nil and meta_json ~= '' then
++  redis.call('SET', KEYS[4], meta_json, 'NX', 'EX', meta_ttl)
++end
++
++return {1, entry_id}
++"""
++
++
++def _dumps(obj: Any) -> str:
++    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
++
++
++def _dedup_key(signal_id: str) -> str:
++    p = os.getenv("OUTBOX_DEDUP_PREFIX", "outbox:dedup:")
++    return f"{p}{signal_id}"
++
++
++def _meta_key(signal_id: str) -> str:
++    p = os.getenv("OUTBOX_META_PREFIX", "signal:meta:")
++    return f"{p}{signal_id}"
++
++
++def _defaults() -> Dict[str, int]:
++    # align with UnifiedSignalEmitter defaults
++    dedup_ttl_sec = max(1, int(int(os.getenv("EMIT_DEDUP_TTL_MS", "60000")) / 1000))
++    pending_ttl_sec = max(1, int(int(os.getenv("EMIT_DEDUP_PENDING_TTL_MS", "60000")) / 1000))
++    maxlen = int(os.getenv("OUTBOX_STREAM_MAXLEN", "100000"))
++    meta_ttl_sec = int(os.getenv("OUTBOX_META_TTL_SEC", str(dedup_ttl_sec)) or dedup_ttl_sec)
++    return {
++        "dedup_ttl_sec": int(dedup_ttl_sec),
++        "pending_ttl_sec": int(pending_ttl_sec),
++        "maxlen": int(maxlen),
++        "meta_ttl_sec": int(meta_ttl_sec),
++    }
++
++
++def atomic_xadd_sync(
++    redis: Any,
++    *,
++    stream_key: str,
++    signal_id: str,
++    payload_obj: Dict[str, Any],
++    kind: str = "",
++    symbol: str = "",
++    ts: str = "",
++    meta_obj: Optional[Dict[str, Any]] = None,
++) -> Optional[str]:
++    """
++    Возвращает entry_id:
++      - str => success
++      - None => dedup hit
++    """
++    d = _defaults()
++    payload_json = _dumps(payload_obj)
++    # P2 time contract: envelopes are expected to carry epoch-ms wall clock
++    # plus a monotonic timestamp for local latency calculations. We do not
++    # mutate the payload here, but centralizing helpers keeps callers aligned.
++    _ = utc_epoch_ms(), monotonic_ms()
++    meta_json = _dumps(meta_obj) if isinstance(meta_obj, dict) and meta_obj else ""
++    meta_key = _meta_key(signal_id) if meta_json else "__none__"
++    res = redis.eval(
++        _LUA_ATOMIC_XADD,
++        4,
++        _dedup_key(signal_id),
++        "__none__",  # semantic dedup disabled here (can be added later)
++        stream_key,
++        meta_key,
++        int(d["dedup_ttl_sec"]),
++        int(d["pending_ttl_sec"]),
++        str(signal_id),
++        str(kind or ""),
++        str(symbol or ""),
++        str(ts or ""),
++        payload_json,
++        int(d["maxlen"]),
++        1,
++        1,
++        meta_json,
++        int(d["meta_ttl_sec"] if meta_json else 0),
++    )
++    if isinstance(res, (list, tuple)) and res:
++        code = int(res[0])
++        if code == 0:
++            return str(res[1]) if len(res) > 1 else None # Return old ID if exists
++        if code == 1 and len(res) >= 2:
++            return str(res[1])
++        if code == 2:
++            raise RuntimeError(f"atomic_xadd_failed_redis:{res[1] if len(res)>1 else 'unknown'}")
++        if code == 3:
++            # Concurrent write error. Raising so high-level retry logic can handle it.
++            raise RuntimeError(f"atomic_xadd_concurrent_lock:{res[1] if len(res)>1 else 'unknown'}")
++    raise RuntimeError("atomic_xadd_bad_response")
++
++
++async def atomic_xadd_async(
++    redis: Any,
++    *,
++    stream_key: str,
++    signal_id: str,
++    payload_obj: Dict[str, Any],
++    kind: str = "",
++    symbol: str = "",
++    ts: str = "",
++    meta_obj: Optional[Dict[str, Any]] = None,
++) -> Optional[str]:
++    """
++    Async версия для aioredis.Redis
++    """
++    d = _defaults()
++    payload_json = _dumps(payload_obj)
++    meta_json = _dumps(meta_obj) if isinstance(meta_obj, dict) and meta_obj else ""
++    meta_key = _meta_key(signal_id) if meta_json else "__none__"
++    res = await redis.eval(
++        _LUA_ATOMIC_XADD,
++        4,
++        _dedup_key(signal_id),
++        "__none__",
++        stream_key,
++        meta_key,
++        int(d["dedup_ttl_sec"]),
++        int(d["pending_ttl_sec"]),
++        str(signal_id),
++        str(kind or ""),
++        str(symbol or ""),
++        str(ts or ""),
++        payload_json,
++        int(d["maxlen"]),
++        1,
++        1,
++        meta_json,
++        int(d["meta_ttl_sec"] if meta_json else 0),
++    )
++    if isinstance(res, (list, tuple)) and res:
++        code = int(res[0])
++        if code == 0:
++            return str(res[1]) if len(res) > 1 else None # Return old ID if exists
++        if code == 1 and len(res) >= 2:
++            return str(res[1])
++        if code == 2:
++            raise RuntimeError(f"atomic_xadd_failed_redis:{res[1] if len(res)>1 else 'unknown'}")
++        if code == 3:
++            # Concurrent write error. Raising so high-level retry logic can handle it.
++            raise RuntimeError(f"atomic_xadd_concurrent_lock:{res[1] if len(res)>1 else 'unknown'}")
++    raise RuntimeError("atomic_xadd_bad_response")
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p1/audit_code/outbox/envelope_builder.py p2/audit_code/outbox/envelope_builder.py
+--- p1/audit_code/outbox/envelope_builder.py	1970-01-01 00:00:00.000000000 +0000
++++ p2/audit_code/outbox/envelope_builder.py	2026-03-06 18:04:03.390043415 +0000
+@@ -0,0 +1,358 @@
++from __future__ import annotations
++
++import logging
++import os
++import time
++
++try:
++    from .time_contract import utc_epoch_ms, monotonic_ms
++except Exception:
++    from time_contract import utc_epoch_ms, monotonic_ms
++from typing import Any, Dict, Optional
++
++from common.json_fast import dumps1
++from common.json_safe import to_json_safe
++from common.decision_trace import DecisionTrace, ensure_trace, set_summary_fields, trace_enabled, build_sidecar_meta
++from common.outbox_contract import contract_check_best_effort, strip_forbidden_keys, FORBIDDEN_TARGET_KEYS
++from common.payload_fingerprint import fingerprint_tradeable_payload
++
++# Alias for external consumers
++dumps_env = dumps1
++
++# IMPORTANT CONTRACT:
++#  - tradeable envelope MUST NOT contain full trace/events
++#  - envelope contains only trace_id + trace_summary (short)
++#  - full trace stored in sidecar OUTBOX_META_PREFIX+sid (via OutboxWriter)
++OUTBOX_META_PREFIX = os.getenv("OUTBOX_META_PREFIX", "signal:meta:")
++
++logger = logging.getLogger(__name__)
++
++
++def _sanitize_meta(meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
++    """
++    Trade-safe: drop diagnostics/heavy keys no matter what caller passes.
++    This prevents accidental "trace/events/parts_full/payload_meta" leaks into tradeable envelope.
++    """
++    deny = {"trace", "events", "parts_full", "payload_meta", "raw_trace", "decision_trace"}
++    out: Dict[str, Any] = {}
++    if not isinstance(meta, dict):
++        return out
++    for k, v in meta.items():
++        ks = str(k)
++        if ks in deny:
++            continue
++        out[ks] = v
++    return out
++
++
++def build_outbox_envelope(
++    *,
++    sid: str,
++    ctx: Any = None,
++    kind: str = "",
++    symbol: str = "",
++    notify_payload: Optional[Dict[str, Any]] = None,
++    signal_stream: Optional[str] = None,
++    signal_stream_payload: Optional[Dict[str, Any]] = None,
++    audit_stream: Optional[str] = None,
++    audit_payload: Optional[Dict[str, Any]] = None,
++    mt5_payload: Optional[Dict[str, Any]] = None,
++    meta: Optional[Dict[str, Any]] = None,
++    trace: Optional[DecisionTrace] = None,
++) -> Dict[str, Any]:
++    """
++    Build outbox envelope v2.
++
++    SECURITY/SAFETY:
++      - tradeable envelope MUST NOT contain full trace/events
++      - envelope contains only trace_id + trace_summary (short)
++      - full trace stored in sidecar OUTBOX_META_PREFIX+sid (written by OutboxWriter)
++    """
++    sid_s = str(sid or "").strip()
++    env: Dict[str, Any] = {
++        "sid": sid_s,
++        "ts_ms": int(time.time() * 1000),
++        "targets": {},
++        "meta": {},
++    }
++    if symbol:
++        env["symbol"] = str(symbol)
++    if kind:
++        env["kind"] = str(kind)
++
++    # meta (json-safe + trade-safe)
++    try:
++        env["meta"] = to_json_safe(_sanitize_meta(meta))
++    except Exception:
++        env["meta"] = {}
++
++    targets: Dict[str, Any] = {}
++
++    # notify
++    if isinstance(notify_payload, dict):
++        try:
++            targets["notify"] = strip_forbidden_keys(to_json_safe(notify_payload), FORBIDDEN_TARGET_KEYS)
++        except Exception:
++            targets["notify"] = {}
++
++    # signal stream
++    if signal_stream and isinstance(signal_stream_payload, dict):
++        env["meta"]["signal_stream"] = str(signal_stream)
++        try:
++            targets["signal_stream_payload"] = strip_forbidden_keys(to_json_safe(signal_stream_payload), FORBIDDEN_TARGET_KEYS)
++        except Exception:
++            targets["signal_stream_payload"] = {}
++
++    # audit
++    if audit_stream and isinstance(audit_payload, dict):
++        env["meta"]["audit_stream"] = str(audit_stream)
++        try:
++            targets["audit_payload"] = strip_forbidden_keys(to_json_safe(audit_payload), FORBIDDEN_TARGET_KEYS)
++        except Exception:
++            targets["audit_payload"] = {}
++
++    # mt5 plan
++    if isinstance(mt5_payload, dict):
++        try:
++            targets["mt5_plan"] = strip_forbidden_keys(to_json_safe(mt5_payload), FORBIDDEN_TARGET_KEYS)
++        except Exception:
++            targets["mt5_plan"] = {}
++
++    env["targets"] = targets
++
++    # TRACE (summary only in env; full trace lives in sidecar)
++    try:
++        tr: Optional[DecisionTrace] = trace
++        if tr is None and ctx is not None and trace_enabled():
++            # create/restore trace on ctx (fail-open)
++            tr = ensure_trace(ctx, sid=sid_s)
++        if tr is not None:
++            set_summary_fields(env, tr)
++            env["meta"]["trace_meta_key"] = f"{OUTBOX_META_PREFIX}{sid_s}"
++    except Exception:
++        pass
++
++    # Final contract enforcement (warn/raise/off inside outbox_contract).
++    env_safe = to_json_safe(env)
++    contract_check_best_effort(
++        kind="envelope",
++        obj=env_safe,
++        where="build_outbox_envelope",
++        sid=sid_s,
++        logger=logger,
++    )
++
++    # Mutation guard (dispatcher can detect accidental mutations/regressions).
++    try:
++        sha1, nbytes = fingerprint_tradeable_payload(env_safe)
++        m = env_safe.get("meta")
++        if isinstance(m, dict):
++            m["payload_sha1"] = str(sha1)
++            m["payload_bytes"] = int(nbytes)
++            m["payload_schema"] = m.get("payload_schema") or "outbox_envelope:v2"
++    except Exception:
++        pass
++
++    print(f"DEBUG_BUILD_OUTBOX_ENV: sid={sid_s} keys={list(env_safe.keys())} targets={'targets' in env_safe}")
++    return env_safe
++
++
++def build_trace_sidecar_meta(*, sid: str, trace: DecisionTrace) -> Dict[str, Any]:
++    """
++    Canonical sidecar payload stored by OutboxWriter into OUTBOX_META_PREFIX+sid.
++    Keep this as a thin wrapper for call sites/tests.
++    """
++    from common.decision_trace import build_sidecar_meta
++
++    return build_sidecar_meta(trace)
++
++
++def outbox_stream_record(env: Dict[str, Any]) -> Dict[str, str]:
++    """
++    SignalDispatcher._parse_envelope() expects fields["data"] to be JSON string.
++    Use centralized compact serializer for hot-path.
++    """
++    return {"data": dumps1(env)}
++
++
++# New functions from fixes patch
++
++def _now_ms() -> int:
++    return utc_epoch_ms()
++
++
++def _derive_req_targets(targets_obj: Dict[str, Any]) -> List[str]:
++    """Derive dispatcher target names from targets payload dict (best-effort)."""
++    from typing import List
++    t = targets_obj or {}
++    out: List[str] = []
++    if t.get("notify"):
++        out.append("notify")
++    if t.get("signal_stream_payload") is not None:
++        out.append("signal_stream")
++    if t.get("audit_payload") is not None:
++        out.append("audit")
++    if t.get("manual_payload") is not None:
++        out.append("manual")
++    if t.get("snapshot_payload") is not None or t.get("snapshot"):
++        out.append("snapshot")
++    if t.get("mt5_plan") is not None:
++        out.append("mt5_plan")
++    return out
++
++
++def build_trace_sidecar_meta_from_ctx(*, ctx: Any, sid: str) -> Dict[str, Any]:
++    """Build sidecar meta for DecisionTrace (stored outside tradeable payload)."""
++    try:
++        trace: DecisionTrace = ensure_trace(ctx, sid=sid)
++    except Exception:
++        trace = DecisionTrace(trace_id=str(sid), sid=str(sid))
++    try:
++        set_summary_fields(trace)
++    except Exception:
++        pass
++    side = build_sidecar_meta(trace)
++    # Backward-compat: some components expect key 'trace' instead of 'decision_trace'.
++    try:
++        if isinstance(side, dict) and isinstance(side.get("decision_trace"), dict) and "trace" not in side:
++            side["trace"] = side.get("decision_trace")
++    except Exception:
++        pass
++    return side if isinstance(side, dict) else {}
++
++
++def build_envelope(
++    *,
++    sid: str,
++    payload: Dict[str, Any],
++    targets_obj: Optional[Dict[str, Any]] = None,
++    meta: Optional[Dict[str, Any]] = None,
++    ctx: Any = None,
++) -> Dict[str, Any]:
++    """Build outbox envelope (tradeable payload + routing meta/targets).
++
++    Hard guarantees:
++    - env contains 'targets' dict and 'meta' dict.
++    - env does NOT include full trace object; trace goes to sidecar only.
++    - meta always contains:
++        * trace_meta_key
++        * req_targets
++        * payload_sha1 + payload_bytes (fingerprint of envelope excluding those keys)
++    """
++    env: Dict[str, Any] = {}
++    # Tradeable payload fields at top-level
++    if isinstance(payload, dict):
++        env.update(payload)
++    env["sid"] = str(sid)
++    env["ts_ms"] = _now_ms()
++    env.setdefault("ts_event_ms", env["ts_ms"])
++    env.setdefault("ts_publish_ms", env["ts_ms"])
++    env.setdefault("mono_ms", monotonic_ms())
++
++    t_obj: Dict[str, Any] = targets_obj if isinstance(targets_obj, dict) else {}
++    m_obj: Dict[str, Any] = meta if isinstance(meta, dict) else {}
++
++    # Ensure required targets set survives retries (dispatcher relies on meta.req_targets).
++    try:
++        m_obj.setdefault("req_targets", _derive_req_targets(t_obj))
++    except Exception:
++        pass
++
++    # Always publish the expected trace sidecar key for dispatcher.
++    try:
++        m_obj.setdefault("trace_meta_key", OUTBOX_META_PREFIX + str(sid))
++    except Exception:
++        pass
++
++    env["targets"] = t_obj
++    env["meta"] = m_obj
++
++    # Fingerprint (after json-safe normalization; excludes meta fp keys).
++    sha, nbytes = fingerprint_tradeable_payload(to_json_safe(env))
++    try:
++        m_obj["payload_sha1"] = sha
++        m_obj["payload_bytes"] = int(nbytes)
++        m_obj["payload_fp_v"] = 1
++    except Exception:
++        pass
++
++    # Optional: best-effort attach trace_id for correlation (string only).
++    try:
++        if ctx is not None:
++            tr = getattr(ctx, "trace", None)
++            if isinstance(tr, DecisionTrace):
++                env["trace_id"] = str(tr.trace_id or sid)
++    except Exception:
++        pass
++
++    return env
++
++
++# ---------------------------------------------------------------------------
++# Diagnostics-only outbox (ENTRY_POLICY_DIAG_STREAM)
++# ---------------------------------------------------------------------------
++
++
++def build_entry_policy_diag_event(
++    *,
++    sid: str,
++    trace_id: str,
++    kind: str,
++    symbol: str,
++    stage: str,
++    name: str,
++    reason_code: str,
++    metrics: Optional[Dict[str, Any]] = None,
++    extra: Optional[Dict[str, Any]] = None,
++) -> Dict[str, Any]:
++    """Create a bounded diagnostics-only event.
++
++    This is explicitly NOT a tradeable signal envelope.
++    """
++
++    return {
++        "v": 1,
++        "type": "entry_policy_diag",
++        "ts_ms": _now_ms(),
++        "sid": sid,
++        "trace_id": trace_id,
++        "kind": kind,
++        "symbol": symbol,
++        "stage": stage,
++        "name": name,
++        "reason_code": reason_code,
++        "metrics": metrics or {},
++        "extra": extra or {},
++    }
++
++
++def emit_entry_policy_diag_best_effort(
++    redis: Any,
++    event: Dict[str, Any],
++    *,
++    stream: Optional[str] = None,
++    maxlen: int = 100_000,
++) -> bool:
++    """Best-effort emit to diagnostics stream.
++
++    Never raises. Returns True if XADD attempted.
++    """
++
++    try:
++        stream_name = (stream or os.getenv("ENTRY_POLICY_DIAG_STREAM", "") or "").strip()
++        if not stream_name:
++            return False
++        if redis is None:
++            return False
++
++        payload = _safe_json_dumps(event)
++
++        # Use approximate trimming to keep XADD cheap.
++        try:
++            redis.xadd(stream_name, {"sid": str(event.get("sid", "")), "data": payload}, maxlen=maxlen, approximate=True)
++        except TypeError:
++            # Some redis clients use different argument names.
++            redis.xadd(stream_name, {"sid": str(event.get("sid", "")), "data": payload})
++        return True
++    except Exception:
++        return False
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p1/audit_code/outbox/time_contract.py p2/audit_code/outbox/time_contract.py
+--- p1/audit_code/outbox/time_contract.py	1970-01-01 00:00:00.000000000 +0000
++++ p2/audit_code/outbox/time_contract.py	2026-03-06 18:04:01.285465160 +0000
+@@ -0,0 +1,25 @@
++from __future__ import annotations
++
++import time
++from typing import Any
++
++
++def utc_epoch_ms(value: Any = None) -> int:
++    if value is None:
++        return int(time.time() * 1000)
++    try:
++        return int(float(value))
++    except Exception:
++        return int(time.time() * 1000)
++
++
++def monotonic_ms() -> int:
++    return int(time.monotonic() * 1000)
++
++
++def clamp_non_negative_ms(value: Any) -> int:
++    try:
++        v = int(float(value))
++    except Exception:
++        return 0
++    return v if v >= 0 else 0
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p1/binance_execution/binance_executor.py p2/binance_execution/binance_executor.py
+--- p1/binance_execution/binance_executor.py	2026-03-06 17:42:34.000000000 +0000
++++ p2/binance_execution/binance_executor.py	2026-03-06 18:02:02.112046948 +0000
+@@ -120,6 +120,28 @@
+     return int(time.time() * 1000)
+ 
+ 
++def _mono_ms() -> int:
++    return int(time.monotonic() * 1000)
++
++
++# Explicit executor finite-state machine. Each state transition is persisted to
++# Redis state and mirrored into the execution stream so the worker can recover
++# idempotently after a restart.
++FSM_PENDING_RECONCILE = "PENDING_RECONCILE"
++FSM_RECEIVED = "RECEIVED"
++FSM_VALIDATED = "VALIDATED"
++FSM_ENTRY_SUBMITTED = "ENTRY_SUBMITTED"
++FSM_ENTRY_ACKED = "ENTRY_ACKED"
++FSM_ENTRY_PARTIAL = "ENTRY_PARTIAL"
++FSM_ENTRY_FILLED = "ENTRY_FILLED"
++FSM_PROTECTION_ARMING = "PROTECTION_ARMING"
++FSM_PROTECTED = "PROTECTED"
++FSM_TP_POLICY_ARMED = "TP_POLICY_ARMED"
++FSM_TRAIL_ARMED = "TRAIL_ARMED"
++FSM_EXIT_FILLED = "EXIT_FILLED"
++FSM_EMERGENCY_FLATTENED = "EMERGENCY_FLATTENED"
++FSM_FAILED = "FAILED"
++TERMINAL_FSM_STATES = {FSM_EXIT_FILLED, FSM_EMERGENCY_FLATTENED, FSM_FAILED}
+ def _f(x: Any, default: float = 0.0) -> float:
+     try:
+         if x is None:
+@@ -589,6 +611,17 @@
+         self.state_key_prefix = (os.getenv("ORDERS_STATE_KEY_PREFIX") or "orders:state:").rstrip(":") + ":"
+         self.state_ttl = int(os.getenv("ORDERS_STATE_TTL_SEC", "86400"))  # default 24h
+ 
++        # Reconcile + user-stream integration. The worker stores the latest
++        # normalized ORDER_TRADE_UPDATE / ALGO_UPDATE payloads in Redis so the
++        # executor can verify ambiguous submissions before attempting a retry.
++        self.reconcile_enable = _bool_env("EXEC_RECONCILE_ENABLE", True)
++        self.user_stream_cache_prefix = (os.getenv("USER_STREAM_CACHE_PREFIX") or "orders:user_stream:").rstrip(":") + ":"
++        self.user_stream_stream = os.getenv("USER_STREAM_STREAM", "orders:user_stream")
++        self.binance_recv_window_ms = int(os.getenv("BINANCE_RECV_WINDOW_MS", os.getenv("BINANCE_RECV_WINDOW", "5000")))
++        self.binance_time_sync_interval_ms = int(os.getenv("BINANCE_TIME_SYNC_INTERVAL_MS", "30000"))
++        self.max_clock_drift_ms = int(os.getenv("MAX_CLOCK_DRIFT_MS", "250"))
++        self._next_time_sync_due_ms = 0
++
+     def _resolve_client(
+         self, payload: Dict[str, Any]
+     ) -> Tuple["BinanceFuturesClient", "FiltersCache"]:
+@@ -628,6 +661,7 @@
+         """Write an execution fact to orders:exec stream (fail-open)."""
+         fields = dict(fields)
+         fields.setdefault("ts_ms", str(_ms_now()))
++        fields.setdefault("mono_ms", str(_mono_ms()))
+         fields.setdefault("venue", "binance")
+         try:
+             self.r.xadd(self.exec_stream, {k: str(v) for k, v in fields.items() if v is not None})
+@@ -691,6 +725,148 @@
+         except Exception:
+             pass  # fail-open: state is best-effort; exec stream is authoritative
+ 
++    def _load_order_state(self, sid: str) -> Dict[str, Any]:
++        """Load persisted orders:state:{sid} document.
++
++        The executor treats this key as a fast materialized view. It is used to
++        recover a previously-submitted order path after a worker restart and to
++        enforce idempotent state transitions for the same signal id.
++        """
++        try:
++            raw = self.r.get(f"{self.state_key_prefix}{sid}")
++            if not raw:
++                return {}
++            doc = json.loads(raw)
++            return doc if isinstance(doc, dict) else {}
++        except Exception:
++            return {}
++
++    def _transition_state(
++        self,
++        sid: str,
++        *,
++        symbol: str,
++        action: str,
++        next_state: str,
++        details: Optional[Dict[str, Any]] = None,
++    ) -> Dict[str, Any]:
++        """Persist one idempotent FSM transition and mirror it into orders:exec."""
++        prev = self._load_order_state(sid)
++        prev_state = str(prev.get("fsm_state") or "")
++        if prev_state == next_state:
++            return prev
++        doc = dict(prev)
++        doc.update(details or {})
++        doc["sid"] = sid
++        doc["symbol"] = symbol
++        doc["action"] = action
++        doc["fsm_prev_state"] = prev_state
++        doc["fsm_state"] = next_state
++        doc["fsm_ts_ms"] = _ms_now()
++        doc["fsm_mono_ms"] = _mono_ms()
++        self._save_order_state(sid, doc)
++        self._exec_event({
++            "sid": sid,
++            "symbol": symbol,
++            "action": action,
++            "event_type": "state_transition",
++            "prev_state": prev_state,
++            "fsm_state": next_state,
++            **(details or {}),
++        })
++        return doc
++
++    def _mark_pending_reconcile(self, sid: str, *, symbol: str, action: str, reason: str) -> None:
++        self._transition_state(
++            sid,
++            symbol=symbol,
++            action=action,
++            next_state=FSM_PENDING_RECONCILE,
++            details={"reconcile_reason": reason},
++        )
++
++    def _user_stream_cache_key(self, ref_kind: str, ref_value: str) -> str:
++        return f"{self.user_stream_cache_prefix}{ref_kind}:{ref_value}"
++
++    def _lookup_user_stream_event(self, *, plain_client_id: Optional[str] = None, algo_client_id: Optional[str] = None) -> Dict[str, Any]:
++        keys = []
++        if plain_client_id:
++            keys.append(self._user_stream_cache_key("order", plain_client_id))
++        if algo_client_id:
++            keys.append(self._user_stream_cache_key("algo", algo_client_id))
++        for k in keys:
++            try:
++                raw = self.r.get(k)
++                if raw:
++                    doc = json.loads(raw)
++                    if isinstance(doc, dict):
++                        return doc
++            except Exception:
++                continue
++        return {}
++
++    def _sync_client_clock_if_due(self, client: "BinanceFuturesClient") -> None:
++        now_ms = _ms_now()
++        if now_ms < self._next_time_sync_due_ms:
++            return
++        try:
++            client.sync_time()
++        except Exception:
++            return
++        self._next_time_sync_due_ms = now_ms + max(1000, self.binance_time_sync_interval_ms)
++
++    def _sync_client_clock(self, client: "BinanceFuturesClient") -> None:
++        self._sync_client_clock_if_due(client)
++        if abs(int(getattr(client, "timestamp_offset_ms", 0))) > int(self.max_clock_drift_ms):
++            client.sync_time()
++            self._next_time_sync_due_ms = _ms_now() + max(1000, self.binance_time_sync_interval_ms)
++
++    def _submit_plain_order_with_reconcile(self, *, sid: str, symbol: str, action: str, params: Dict[str, Any], client: "BinanceFuturesClient") -> Dict[str, Any]:
++        try:
++            return client.post_plain_order(params)
++        except Exception as exc:
++            if not self.reconcile_enable or not client.is_ambiguous_execution_error(exc):
++                raise
++            self._mark_pending_reconcile(sid, symbol=symbol, action=action, reason=str(exc))
++            client_id = str(params.get("newClientOrderId") or "").strip() or None
++            event_doc = self._lookup_user_stream_event(plain_client_id=client_id)
++            if event_doc:
++                return dict(event_doc.get("order") or event_doc)
++            if client_id:
++                return client.query_plain_order(symbol, client_order_id=client_id)
++            raise
++
++    def _submit_algo_order_with_reconcile(self, *, sid: str, symbol: str, action: str, params: Dict[str, Any], client: "BinanceFuturesClient") -> Dict[str, Any]:
++        try:
++            return client.post_algo_order(params)
++        except Exception as exc:
++            if not self.reconcile_enable or not client.is_ambiguous_execution_error(exc):
++                raise
++            self._mark_pending_reconcile(sid, symbol=symbol, action=action, reason=str(exc))
++            client_algo_id = str(params.get("clientAlgoId") or params.get("newClientOrderId") or "").strip() or None
++            event_doc = self._lookup_user_stream_event(algo_client_id=client_algo_id)
++            if event_doc:
++                return dict(event_doc.get("algo") or event_doc)
++            if client_algo_id:
++                return client.query_algo_order(symbol, client_algo_id=client_algo_id)
++            raise
++
++    def _resume_open_from_state(
++        self, sid: str, *, symbol: str, client: "BinanceFuturesClient"
++    ) -> Optional[Dict[str, Any]]:
++        state = self._load_order_state(sid)
++        if not state or str(state.get("symbol") or "").upper() != str(symbol).upper():
++            return None
++        fsm_state = str(state.get("fsm_state") or "")
++        if fsm_state in {FSM_PROTECTED, FSM_TP_POLICY_ARMED, FSM_TRAIL_ARMED, FSM_EXIT_FILLED, FSM_EMERGENCY_FLATTENED}:
++            return dict(state, recovered_from_state=True)
++        order_id = _i(state.get("binance_order_id"), 0)
++        client_order_id = str(state.get("entry_client_order_id") or "").strip() or None
++        if order_id or client_order_id:
++            q = client.query_plain_order(symbol, order_id=order_id or None, client_order_id=client_order_id)
++            return {"recovered_order": q, **state}
++        return None
++
+     # --- Symbol initialisation ---
+ 
+     def _ensure_symbol_settings(
+@@ -878,6 +1054,14 @@
+         for k, v in extra.items():
+             state_doc[f"tp{int(level)}_{k}"] = v
+         self._save_order_state(sid, state_doc)
++        if str(state).upper() in {"TRIGGERED", "PARTIAL", "FILLED", "WATCHDOG_MARKET_FALLBACK", "MONITOR_TIMEOUT", "ERROR"}:
++            self._transition_state(
++                sid,
++                symbol=symbol,
++                action="tp_state",
++                next_state=tp_state,
++                details={"tp_level": int(level)},
++            )
+ 
+     def _submit_reduce_only_market_exit(
+         self,
+@@ -930,7 +1114,9 @@
+                 working_type=None,
+                 is_algo=False,
+             )
+-        j = client.post_plain_order(params)
++        j = self._submit_plain_order_with_reconcile(
++            sid=sid, symbol=symbol, action="emergency_flatten", params=params, client=client
++        )
+         return {
+             "close_order_id": j.get("orderId"),
+             "close_client_id": params["newClientOrderId"],
+@@ -984,6 +1170,7 @@
+             client=client,
+             filters=filters,
+         )
++        self._transition_state(sid, symbol=symbol, action="emergency_flatten", next_state=FSM_EMERGENCY_FLATTENED, details=close)
+         return {
+             "emergency_order_id": close.get("close_order_id"),
+             "emergency_client_id": close.get("close_client_id"),
+@@ -1054,7 +1241,9 @@
+                     working_type=self.sl_working_type,
+                     is_algo=True,
+                 )
+-            j = client.post_algo_order(p)
++            j = self._submit_algo_order_with_reconcile(
++                sid=sid, symbol=symbol, action="place_sl", params=p, client=client
++            )
+             out["sl_algo_id"] = j.get("algoId")
+             out["sl_client_algo_id"] = p["clientAlgoId"]
+             out["sl_working_type"] = p["workingType"]
+@@ -1112,7 +1301,9 @@
+                             working_type=policy.tp_working_type,
+                             is_algo=True,
+                         )
+-                    j = client.post_algo_order(p)
++                    j = self._submit_algo_order_with_reconcile(
++                        sid=sid, symbol=symbol, action=f"place_tp{idx}", params=p, client=client
++                    )
+                     out[f"tp{idx}_algo_id"] = j.get("algoId")
+                     out[f"tp{idx}_client_algo_id"] = p["clientAlgoId"]
+                     out[f"tp{idx}_working_type"] = p["workingType"]
+@@ -1176,7 +1367,9 @@
+                                 working_type=policy.tp_working_type,
+                                 is_algo=True,
+                             )
+-                    j = client.post_algo_order(p)
++                    j = self._submit_algo_order_with_reconcile(
++                        sid=sid, symbol=symbol, action=f"place_tp{idx}", params=p, client=client
++                    )
+                     out[f"tp{idx}_algo_id"] = j.get("algoId")
+                     out[f"tp{idx}_client_algo_id"] = p["clientAlgoId"]
+                     out[f"tp{idx}_working_type"] = p["workingType"]
+@@ -1297,6 +1490,7 @@
+             "sid": sid, "symbol": symbol, "action": "trail_arm", "status": "armed",
+             "side": logical_side, "qty": qty, "trail_callback_rate_pct": callback_rate_pct, **trail,
+         })
++        self._transition_state(sid, symbol=symbol, action="trail_arm", next_state=FSM_TRAIL_ARMED, details=trail)
+         self._save_order_state(sid, {
+             "action": "trail_arm", "status": "armed", "symbol": symbol, "side": logical_side,
+             "trail_pending": False, **trail,
+@@ -1531,7 +1725,9 @@
+         if pos_side:
+             p["positionSide"] = pos_side
+ 
+-        j = client.post_algo_order(p)
++        j = self._submit_algo_order_with_reconcile(
++            sid=sid, symbol=symbol, action="place_trailing", params=p, client=client
++        )
+         return {
+             "trail_algo_id": j.get("algoId"),
+             "trail_client_id": p["clientAlgoId"],
+@@ -1739,6 +1935,10 @@
+         order_type = "MARKET" if order_type in {"MARKET", "MKT"} else "LIMIT"
+ 
+         q, p = self._quantize(symbol, qty, price, filters=filters)
++        self._transition_state(
++            sid, symbol=symbol, action="open", next_state=FSM_VALIDATED,
++            details={"execution_policy": policy.name, "logical_side": logical}
++        )
+         if float(q) <= 0:
+             raise ValueError("qty <= 0 after quantisation")
+ 
+@@ -1760,10 +1960,20 @@
+             params["price"] = p
+             params["timeInForce"] = self.safety_entry_time_in_force if policy.name == SAFETY_FIRST else "GTC"
+ 
+-        j_entry = client.post_plain_order(params)
++        self._transition_state(
++            sid, symbol=symbol, action="open", next_state=FSM_ENTRY_SUBMITTED,
++            details={"entry_client_order_id": params["newClientOrderId"], "entry_type": order_type}
++        )
++        j_entry = self._submit_plain_order_with_reconcile(
++            sid=sid, symbol=symbol, action="open_entry", params=params, client=client
++        )
+         order_id = _i(j_entry.get("orderId"), 0)
+         if not order_id:
+             raise RuntimeError(f"no orderId in response: {j_entry}")
++        self._transition_state(
++            sid, symbol=symbol, action="open", next_state=FSM_ENTRY_ACKED,
++            details={"binance_order_id": order_id, "entry_client_order_id": params["newClientOrderId"]}
++        )
+ 
+         j_final = self._wait_fill(symbol, order_id, timeout_s=self.fill_timeout_s, client=client)
+         status = str(j_final.get("status") or "").upper()
+@@ -1773,6 +1983,11 @@
+             raise RuntimeError(f"entry not filled: status={status} order={j_final}")
+         if filled_qty <= 0:
+             raise RuntimeError(f"filled_qty=0: order={j_final}")
++        entry_fsm = FSM_ENTRY_PARTIAL if status == "PARTIALLY_FILLED" else FSM_ENTRY_FILLED
++        self._transition_state(
++            sid, symbol=symbol, action="open", next_state=entry_fsm,
++            details={"filled_qty": filled_qty, "avg_price": avg_price, "entry_status": status}
++        )
+ 
+         sl = _f(payload.get("sl"), 0.0) if payload.get("sl") is not None else None
+         sl = sl if sl and sl > 0 else None
+@@ -1780,6 +1995,7 @@
+         tps = [float(x) for x in tps_raw if x not in (None, "")]
+         tps = [tp for tp in tps if tp > 0]
+ 
++        self._transition_state(sid, symbol=symbol, action="open", next_state=FSM_PROTECTION_ARMING)
+         prot = self._place_protective(
+             sid=sid, symbol=symbol, logical_side=logical,
+             qty=filled_qty, sl=sl, tps=tps, policy=policy,
+@@ -1798,6 +2014,9 @@
+             prot=prot, tps=tps, client=client, filters=filters,
+         )
+ 
++        self._transition_state(sid, symbol=symbol, action="open", next_state=FSM_PROTECTED, details={**prot, **trail})
++        if tps:
++            self._transition_state(sid, symbol=symbol, action="open", next_state=FSM_TP_POLICY_ARMED, details={"tp_levels_count": len(tps)})
+ 
+         # Anti-blowup invariant: a filled entry must not remain naked. We treat
+         # missing protection refs as a critical incident and immediately flatten.
+@@ -1808,6 +2027,7 @@
+                 sid=sid, symbol=symbol, logical_side=logical, qty=filled_qty,
+                 client=client, filters=filters,
+             )
++            self._transition_state(sid, symbol=symbol, action="open", next_state=FSM_EMERGENCY_FLATTENED, details=emerg)
+             prot = {**prot, **emerg, "protection_invariant_failed": True}
+         result = {
+             "sid": sid, "symbol": symbol, "action": "open",
+@@ -1843,6 +2063,7 @@
+     def handle_modify(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+         """Modify existing position: cancel all our orders → re-place SL/TP → trailing arming."""
+         client, filters = self._resolve_client(payload)
++        self._sync_client_clock(client)
+ 
+         sid = str(payload.get("sid") or "").strip()
+         symbol = str(payload.get("symbol") or "").strip().upper()
+@@ -2065,6 +2286,7 @@
+                     return
+ 
+             # Fatal OR max retries exceeded
++            self._transition_state(sid, symbol=symbol, action=action, next_state=FSM_FAILED, details={"failure_reason": msg})
+             self._dlq(raw, f"{cls}:{msg}")
+             self._ack_processing(raw)
+ 
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p1/binance_execution/binance_futures_client.py p2/binance_execution/binance_futures_client.py
+--- p1/binance_execution/binance_futures_client.py	2026-03-06 17:31:25.000000000 +0000
++++ p2/binance_execution/binance_futures_client.py	2026-03-06 17:57:11.831705297 +0000
+@@ -40,6 +40,7 @@
+ import hmac
+ import json
+ import os
++import socket
+ import time
+ import urllib.error
+ import urllib.parse
+@@ -291,7 +292,7 @@
+             or "https://fapi.binance.com"
+         ).strip()
+         timeout_s = float(os.getenv("BINANCE_HTTP_TIMEOUT_S", "8.0"))
+-        recv_window = int(os.getenv("BINANCE_RECV_WINDOW", "5000"))
++        recv_window = int(os.getenv("BINANCE_RECV_WINDOW_MS", os.getenv("BINANCE_RECV_WINDOW", "5000")))
+         c = BinanceFuturesClient(
+             api_key=key, api_secret=sec,
+             base_url=base, timeout_s=timeout_s, recv_window=recv_window,
+@@ -351,6 +352,17 @@
+             raw = e.read() if hasattr(e, "read") else b""
+             payload = _safe_json_loads(raw) if raw else {"_error": str(e)}
+             raise BinanceAPIError(getattr(e, "code", 0) or 0, payload)
++        except (urllib.error.URLError, socket.timeout, TimeoutError) as e:
++            # Transport-level timeouts are ambiguous for trading flows: the
++            # request may have reached Binance while the client timed out
++            # waiting for the response. The executor treats these as
++            # reconcile-first conditions instead of naive retry failures.
++            payload = {
++                "code": "transport_timeout",
++                "msg": str(e),
++                "ambiguous": True,
++            }
++            raise BinanceAPIError(0, payload, "Binance transport timeout / ambiguous request state")
+ 
+     # --- public endpoints (no signature) ---
+ 
+@@ -415,6 +427,35 @@
+             return self.get_ticker_price(symbol)
+         return self.get_mark_price(symbol)
+ 
++    # --- user data stream management ---
++
++    def start_user_stream(self) -> str:
++        """Start or refresh a listenKey for the USDⓈ-M user stream."""
++        j = self._request("POST", "/fapi/v1/listenKey")
++        return str(j.get("listenKey") or "")
++
++    def keepalive_user_stream(self, listen_key: str) -> Any:
++        return self._request("PUT", "/fapi/v1/listenKey", params={"listenKey": str(listen_key)})
++
++    def close_user_stream(self, listen_key: str) -> Any:
++        return self._request("DELETE", "/fapi/v1/listenKey", params={"listenKey": str(listen_key)})
++
++    def is_ambiguous_execution_error(self, exc: Exception) -> bool:
++        """Return True when the request outcome could be unknown and must be reconciled.
++
++        Binance explicitly documents HTTP 503 "Unknown error" as execution-status
++        unknown. We extend the same treatment to transport timeouts.
++        """
++        if not isinstance(exc, BinanceAPIError):
++            return False
++        payload = exc.payload if isinstance(exc.payload, dict) else {}
++        msg = str(payload.get("msg") or payload.get("_error") or exc).lower()
++        if exc.status == 503 and "unknown" in msg:
++            return True
++        if payload.get("ambiguous") is True:
++            return True
++        return False
++
+     # --- signed account endpoints ---
+ 
+     def get_account(self) -> Any:
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p1/binance_execution/binance_user_stream_worker.py p2/binance_execution/binance_user_stream_worker.py
+--- p1/binance_execution/binance_user_stream_worker.py	1970-01-01 00:00:00.000000000 +0000
++++ p2/binance_execution/binance_user_stream_worker.py	2026-03-06 18:03:28.431708512 +0000
+@@ -0,0 +1,209 @@
++from __future__ import annotations
++
++"""Binance USDⓈ-M User Data Stream worker.
++
++Purpose
++-------
++This worker turns Binance WebSocket user-stream events into normalized Redis
++artifacts that the executor can use for reconcile-first flows:
++
++- a Redis stream `orders:user_stream` for audit / replay
++- point-in-time cache keys for `clientOrderId` and `clientAlgoId`
++
++The worker is intentionally conservative:
++- listenKey lifecycle is handled explicitly (POST / PUT / DELETE)
++- event ordering is based on Binance event time `E`
++- stale / out-of-order updates are ignored in the point cache
++- networking is optional at import time to keep local tests dependency-light
++"""
++
++import json
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, Optional
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++try:
++    import websocket  # type: ignore
++except Exception:  # pragma: no cover
++    websocket = None  # type: ignore
++
++try:
++    from services.binance_futures_client import BinanceFuturesClient
++except Exception:  # pragma: no cover
++    from binance_futures_client import BinanceFuturesClient
++
++
++def _ms_now() -> int:
++    return int(time.time() * 1000)
++
++
++def _mono_ms() -> int:
++    return int(time.monotonic() * 1000)
++
++
++@dataclass(frozen=True)
++class NormalizedUserStreamEvent:
++    event_type: str
++    event_time_ms: int
++    symbol: str
++    side: str
++    status: str
++    execution_type: str
++    order_id: Optional[int]
++    client_order_id: Optional[str]
++    algo_id: Optional[int]
++    client_algo_id: Optional[str]
++    raw: Dict[str, Any]
++
++    def to_redis_fields(self) -> Dict[str, str]:
++        return {
++            "event_type": str(self.event_type),
++            "event_time_ms": str(self.event_time_ms),
++            "symbol": str(self.symbol),
++            "side": str(self.side),
++            "status": str(self.status),
++            "execution_type": str(self.execution_type),
++            "order_id": "" if self.order_id is None else str(self.order_id),
++            "client_order_id": self.client_order_id or "",
++            "algo_id": "" if self.algo_id is None else str(self.algo_id),
++            "client_algo_id": self.client_algo_id or "",
++            "raw_json": json.dumps(self.raw, ensure_ascii=False, default=str),
++        }
++
++
++class BinanceUserStreamWorker:
++    def __init__(self) -> None:
++        if redis is None:
++            raise RuntimeError("redis-py is required")
++        self.redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++        self.stream_key = os.getenv("USER_STREAM_STREAM", "orders:user_stream")
++        self.cache_prefix = (os.getenv("USER_STREAM_CACHE_PREFIX") or "orders:user_stream:").rstrip(":") + ":"
++        self.cache_ttl_sec = int(os.getenv("USER_STREAM_CACHE_TTL_SEC", "86400"))
++        self.keepalive_interval_sec = int(os.getenv("USER_STREAM_KEEPALIVE_SEC", "1800"))
++        self.ws_base_url = (os.getenv("BINANCE_FSTREAM_BASE_URL") or "wss://fstream.binance.com").rstrip("/")
++        self.r = redis.from_url(self.redis_url, decode_responses=True)
++        self.client = BinanceFuturesClient.from_env(prefix=(os.getenv("BINANCE_USER_STREAM_PREFIX") or "BINANCE_"))
++        self.listen_key: Optional[str] = None
++        self._last_event_time_ms: int = 0
++
++    def _cache_key(self, kind: str, ref: str) -> str:
++        return f"{self.cache_prefix}{kind}:{ref}"
++
++    def _normalise(self, payload: Dict[str, Any]) -> Optional[NormalizedUserStreamEvent]:
++        e = str(payload.get("e") or "").upper()
++        event_time_ms = int(payload.get("E") or 0)
++        if e == "ORDER_TRADE_UPDATE":
++            order = payload.get("o") or {}
++            return NormalizedUserStreamEvent(
++                event_type=e,
++                event_time_ms=event_time_ms,
++                symbol=str(order.get("s") or ""),
++                side=str(order.get("S") or ""),
++                status=str(order.get("X") or ""),
++                execution_type=str(order.get("x") or ""),
++                order_id=int(order.get("i")) if order.get("i") not in (None, "") else None,
++                client_order_id=str(order.get("c") or "") or None,
++                algo_id=None,
++                client_algo_id=None,
++                raw=payload,
++            )
++        if e == "ALGO_UPDATE":
++            algo = payload.get("ao") or payload.get("a") or payload.get("o") or {}
++            return NormalizedUserStreamEvent(
++                event_type=e,
++                event_time_ms=event_time_ms,
++                symbol=str(algo.get("s") or payload.get("s") or ""),
++                side=str(algo.get("S") or ""),
++                status=str(algo.get("X") or algo.get("x") or ""),
++                execution_type=str(algo.get("x") or payload.get("x") or ""),
++                order_id=None,
++                client_order_id=None,
++                algo_id=int(algo.get("algoId")) if algo.get("algoId") not in (None, "") else None,
++                client_algo_id=str(algo.get("clientAlgoId") or "") or None,
++                raw=payload,
++            )
++        return None
++
++    def _apply_event(self, event: NormalizedUserStreamEvent) -> bool:
++        if int(event.event_time_ms) < int(self._last_event_time_ms):
++            return False
++        self._last_event_time_ms = int(event.event_time_ms)
++        fields = event.to_redis_fields()
++        fields["ingest_ts_ms"] = str(_ms_now())
++        fields["ingest_mono_ms"] = str(_mono_ms())
++        try:
++            self.r.xadd(self.stream_key, fields)
++            if event.client_order_id:
++                self.r.set(self._cache_key("order", event.client_order_id), json.dumps({"event": fields, "order": event.raw.get("o") or {}}, ensure_ascii=False), ex=self.cache_ttl_sec)
++            if event.client_algo_id:
++                self.r.set(self._cache_key("algo", event.client_algo_id), json.dumps({"event": fields, "algo": event.raw.get("ao") or event.raw.get("a") or event.raw.get("o") or {}}, ensure_ascii=False), ex=self.cache_ttl_sec)
++            return True
++        except Exception:
++            return False
++
++    def handle_message(self, raw_message: str) -> bool:
++        payload = json.loads(raw_message)
++        event = self._normalise(payload)
++        if event is None:
++            return False
++        return self._apply_event(event)
++
++    def start_listen_key(self) -> str:
++        self.listen_key = self.client.start_user_stream()
++        if not self.listen_key:
++            raise RuntimeError("empty listenKey")
++        return self.listen_key
++
++    def keepalive_listen_key(self) -> None:
++        if not self.listen_key:
++            return
++        self.client.keepalive_user_stream(self.listen_key)
++
++    def close_listen_key(self) -> None:
++        if not self.listen_key:
++            return
++        try:
++            self.client.close_user_stream(self.listen_key)
++        finally:
++            self.listen_key = None
++
++    def run_forever(self) -> None:
++        if websocket is None:
++            raise RuntimeError("websocket-client package is required for BinanceUserStreamWorker")
++        listen_key = self.start_listen_key()
++        ws_url = f"{self.ws_base_url}/ws/{listen_key}"
++        last_keepalive = time.time()
++        while True:
++            ws = websocket.create_connection(ws_url, timeout=30)
++            try:
++                while True:
++                    if time.time() - last_keepalive >= self.keepalive_interval_sec:
++                        self.keepalive_listen_key()
++                        last_keepalive = time.time()
++                    message = ws.recv()
++                    if not message:
++                        continue
++                    self.handle_message(message)
++            finally:
++                try:
++                    ws.close()
++                except Exception:
++                    pass
++                # Binance disconnects after 24h, reconnect with a fresh or renewed listenKey.
++                listen_key = self.start_listen_key()
++                ws_url = f"{self.ws_base_url}/ws/{listen_key}"
++
++
++def main() -> None:
++    worker = BinanceUserStreamWorker()
++    worker.run_forever()
++
++
++if __name__ == "__main__":  # pragma: no cover
++    main()
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p1/binance_execution/test_binance_executor_p2_state_v1.py p2/binance_execution/test_binance_executor_p2_state_v1.py
+--- p1/binance_execution/test_binance_executor_p2_state_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p2/binance_execution/test_binance_executor_p2_state_v1.py	2026-03-06 18:05:07.899782180 +0000
+@@ -0,0 +1,64 @@
++from pathlib import Path
++import importlib.util
++import sys
++import json
++
++mod_path = Path(__file__).with_name("binance_executor.py")
++spec = importlib.util.spec_from_file_location("binance_executor", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++class DummyRedis:
++    def __init__(self):
++        self.kv = {}
++        self.stream = []
++
++    def get(self, key):
++        return self.kv.get(key)
++
++    def set(self, key, value, ex=None):
++        self.kv[key] = value
++        return True
++
++    def xadd(self, key, fields):
++        self.stream.append((key, dict(fields)))
++        return "1-0"
++
++
++class DummyClient:
++    def query_plain_order(self, symbol, order_id=None, client_order_id=None):
++        return {"symbol": symbol, "orderId": order_id, "clientOrderId": client_order_id, "status": "FILLED"}
++
++
++def _make_exec():
++    ex = mod.BinanceExecutor.__new__(mod.BinanceExecutor)
++    ex.r = DummyRedis()
++    ex.exec_stream = "orders:exec"
++    ex.state_key_prefix = "orders:state:"
++    ex.state_ttl = 60
++    ex.user_stream_cache_prefix = "orders:user_stream:"
++    ex.reconcile_enable = True
++    ex._next_time_sync_due_ms = 0
++    ex.binance_time_sync_interval_ms = 30000
++    ex.max_clock_drift_ms = 250
++    return ex
++
++
++def test_transition_state_is_idempotent():
++    ex = _make_exec()
++    ex._transition_state("sid-1", symbol="BTCUSDT", action="open", next_state=mod.FSM_RECEIVED)
++    ex._transition_state("sid-1", symbol="BTCUSDT", action="open", next_state=mod.FSM_RECEIVED)
++    assert len(ex.r.stream) == 1
++    state = json.loads(ex.r.kv["orders:state:sid-1"])
++    assert state["fsm_state"] == mod.FSM_RECEIVED
++
++
++def test_resume_open_from_state_returns_terminal_snapshot():
++    ex = _make_exec()
++    ex._save_order_state("sid-2", {"symbol": "BTCUSDT", "fsm_state": mod.FSM_PROTECTED, "binance_order_id": 10})
++    out = ex._resume_open_from_state("sid-2", symbol="BTCUSDT", client=DummyClient())
++    assert out["recovered_from_state"] is True
++    assert out["fsm_state"] == mod.FSM_PROTECTED
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p1/binance_execution/test_binance_futures_client_p2_v1.py p2/binance_execution/test_binance_futures_client_p2_v1.py
+--- p1/binance_execution/test_binance_futures_client_p2_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p2/binance_execution/test_binance_futures_client_p2_v1.py	2026-03-06 18:05:07.980973748 +0000
+@@ -0,0 +1,33 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++mod_path = Path(__file__).with_name("binance_futures_client.py")
++spec = importlib.util.spec_from_file_location("binance_futures_client", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++def test_user_stream_methods_route_to_listenkey_endpoints():
++    client = mod.BinanceFuturesClient(api_key="k", api_secret="s")
++    calls = []
++    def fake_request(method, path, params=None, signed=False):
++        calls.append((method, path, params, signed))
++        return {"listenKey": "lk-1"} if method == "POST" else {}
++    client._request = fake_request
++    assert client.start_user_stream() == "lk-1"
++    client.keepalive_user_stream("lk-1")
++    client.close_user_stream("lk-1")
++    assert calls[0][1] == "/fapi/v1/listenKey"
++    assert calls[1][0] == "PUT"
++    assert calls[2][0] == "DELETE"
++
++
++def test_ambiguous_execution_error_detection():
++    client = mod.BinanceFuturesClient(api_key="k", api_secret="s")
++    exc = mod.BinanceAPIError(503, {"msg": "Unknown error, please check your request or try again later."})
++    assert client.is_ambiguous_execution_error(exc) is True
++    exc2 = mod.BinanceAPIError(0, {"ambiguous": True, "msg": "timed out"})
++    assert client.is_ambiguous_execution_error(exc2) is True
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p1/binance_execution/test_binance_user_stream_worker_v1.py p2/binance_execution/test_binance_user_stream_worker_v1.py
+--- p1/binance_execution/test_binance_user_stream_worker_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p2/binance_execution/test_binance_user_stream_worker_v1.py	2026-03-06 18:05:07.888582402 +0000
+@@ -0,0 +1,92 @@
++from pathlib import Path
++import importlib.util
++import sys
++import json
++
++mod_path = Path(__file__).with_name("binance_user_stream_worker.py")
++spec = importlib.util.spec_from_file_location("binance_user_stream_worker", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++class DummyRedis:
++    def __init__(self):
++        self.stream = []
++        self.kv = {}
++
++    def xadd(self, key, fields):
++        self.stream.append((key, dict(fields)))
++        return "1-0"
++
++    def set(self, key, value, ex=None):
++        self.kv[key] = value
++        return True
++
++
++def _make_worker():
++    w = mod.BinanceUserStreamWorker.__new__(mod.BinanceUserStreamWorker)
++    w.stream_key = "orders:user_stream"
++    w.cache_prefix = "orders:user_stream:"
++    w.cache_ttl_sec = 60
++    w.r = DummyRedis()
++    w._last_event_time_ms = 0
++    return w
++
++
++def test_normalize_order_trade_update():
++    w = _make_worker()
++    event = w._normalise({
++        "e": "ORDER_TRADE_UPDATE",
++        "E": 1234,
++        "o": {"s": "BTCUSDT", "S": "BUY", "X": "FILLED", "x": "TRADE", "i": 55, "c": "cid-1"},
++    })
++    assert event is not None
++    assert event.event_type == "ORDER_TRADE_UPDATE"
++    assert event.client_order_id == "cid-1"
++    assert event.order_id == 55
++
++
++def test_apply_event_orders_by_event_time():
++    w = _make_worker()
++    newer = mod.NormalizedUserStreamEvent(
++        event_type="ORDER_TRADE_UPDATE",
++        event_time_ms=2000,
++        symbol="BTCUSDT",
++        side="BUY",
++        status="FILLED",
++        execution_type="TRADE",
++        order_id=1,
++        client_order_id="cid-1",
++        algo_id=None,
++        client_algo_id=None,
++        raw={"o": {"i": 1, "c": "cid-1"}},
++    )
++    older = mod.NormalizedUserStreamEvent(
++        event_type="ORDER_TRADE_UPDATE",
++        event_time_ms=1000,
++        symbol="BTCUSDT",
++        side="BUY",
++        status="NEW",
++        execution_type="NEW",
++        order_id=1,
++        client_order_id="cid-1",
++        algo_id=None,
++        client_algo_id=None,
++        raw={"o": {"i": 1, "c": "cid-1"}},
++    )
++    assert w._apply_event(newer) is True
++    assert w._apply_event(older) is False
++    assert len(w.r.stream) == 1
++
++
++def test_handle_message_caches_algo_event():
++    w = _make_worker()
++    raw = json.dumps({
++        "e": "ALGO_UPDATE",
++        "E": 3000,
++        "ao": {"s": "ETHUSDT", "S": "SELL", "X": "TRIGGERED", "x": "TRIGGERED", "algoId": 77, "clientAlgoId": "algo-1"},
++    })
++    assert w.handle_message(raw) is True
++    assert "orders:user_stream:algo:algo-1" in w.r.kv

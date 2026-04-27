@@ -1,0 +1,847 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+    - 127.0.0.1:6379:6379
+    volumes:
+    - redis-data:/data
+    - ./redis-external-access.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf --appendonly yes
+    networks:
+    - scanner-infra
+    - scanner-network
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - redis-cli -h localhost -p 6379 --raw ping 2>&1 | grep -qE 'PONG|LOADING'
+      interval: 15s
+      timeout: 10s
+      retries: 30
+      start_period: 180s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+          cpus: '4.0'
+        reservations:
+          memory: 4G
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+      memlock:
+        soft: -1
+        hard: -1
+    shm_size: 2gb
+    sysctls:
+      net.core.somaxconn: 65535
+    environment:
+    - TZ=UTC
+  redis-worker-1:
+    image: redis:7-alpine
+    container_name: redis-worker-1
+    ports:
+    - 127.0.0.1:63791:6379
+    expose:
+    - '6379'
+    volumes:
+    - redis-worker-1-data:/data
+    - ./redis-worker-stable.conf:/usr/local/etc/redis/redis-worker-stable.conf:ro
+    - ./redis-worker-1.conf:/usr/local/etc/redis/redis.conf:ro
+    - ./redis-worker-1-acl.conf:/usr/local/etc/redis/redis-worker-1-acl.conf:ro
+    - ./redis-worker-entrypoint.sh:/usr/local/bin/redis-worker-entrypoint.sh:ro
+    entrypoint:
+    - /bin/sh
+    - /usr/local/bin/redis-worker-entrypoint.sh
+    networks:
+      scanner-infra:
+        aliases:
+        - redis-worker-1
+        - scanner-redis-worker-1
+      scanner-network:
+        aliases:
+        - redis-worker-1
+        - scanner-redis-worker-1
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+    - REDIS_HEALTHCHECK_URL=redis://exec_health_freeze_audit:${EXEC_HEALTH_FREEZE_AUDIT_PASS}@localhost:6379/0
+    - ACL_FILENAME=redis-worker-1-acl.conf
+    - TZ=UTC
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - redis-cli -u $$REDIS_HEALTHCHECK_URL ping 2>&1 | grep -qE 'PONG|LOADING' ||
+        redis-cli ping 2>&1 | grep -qE 'PONG|LOADING'
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 300s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 14GB
+          cpus: '2.0'
+        reservations:
+          memory: 3G
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    shm_size: 512mb
+    sysctls:
+      net.core.somaxconn: 4096
+  redis-worker-1b:
+    image: redis:7-alpine
+    container_name: redis-worker-1b
+    expose:
+    - '6379'
+    volumes:
+    - redis-worker-1b-data:/data
+    - ./redis-worker-stable.conf:/usr/local/etc/redis/redis-worker-stable.conf
+    - ./redis-worker-1b.conf:/usr/local/etc/redis/redis.conf
+    - ./redis-worker-1-acl.conf:/usr/local/etc/redis/redis-worker-1-acl.conf:ro
+    - ./redis-worker-entrypoint.sh:/usr/local/bin/redis-worker-entrypoint.sh:ro
+    entrypoint:
+    - /bin/sh
+    - /usr/local/bin/redis-worker-entrypoint.sh
+    networks:
+      scanner-infra:
+        aliases:
+        - redis-worker-1b
+      scanner-network:
+        aliases:
+        - redis-worker-1b
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+    - REDIS_HEALTHCHECK_URL=redis://exec_health_freeze_audit:${EXEC_HEALTH_FREEZE_AUDIT_PASS}@localhost:6379/0
+    - ACL_FILENAME=redis-worker-1-acl.conf
+    - TZ=UTC
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - redis-cli -u $$REDIS_HEALTHCHECK_URL ping 2>&1 | grep -qE 'PONG|LOADING' ||
+        redis-cli ping 2>&1 | grep -qE 'PONG|LOADING'
+      interval: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 90s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 12GB
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    shm_size: 512mb
+    sysctls:
+      net.core.somaxconn: 4096
+  redis-worker-2:
+    image: redis:7-alpine
+    container_name: redis-worker-2
+    expose:
+    - '6379'
+    volumes:
+    - redis-worker-2-data:/data
+    - ./redis-worker-stable.conf:/usr/local/etc/redis/redis-worker-stable.conf:ro
+    - ./redis-worker-2.conf:/usr/local/etc/redis/redis.conf:ro
+    - ./redis-worker-2-acl.conf:/usr/local/etc/redis/redis-worker-2-acl.conf:ro
+    - ./redis-worker-entrypoint.sh:/usr/local/bin/redis-worker-entrypoint.sh:ro
+    entrypoint:
+    - /bin/sh
+    - /usr/local/bin/redis-worker-entrypoint.sh
+    networks:
+      scanner-infra:
+        aliases:
+        - redis-worker-2
+        - scanner-redis-worker-2
+      scanner-network:
+        aliases:
+        - redis-worker-2
+        - scanner-redis-worker-2
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+    - REDIS_HEALTHCHECK_URL=redis://exec_health_freeze_audit:${EXEC_HEALTH_FREEZE_AUDIT_PASS}@localhost:6379/0
+    - ACL_FILENAME=redis-worker-2-acl.conf
+    - TZ=UTC
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - redis-cli -u $$REDIS_HEALTHCHECK_URL ping 2>&1 | grep -qE 'PONG|LOADING' ||
+        redis-cli ping 2>&1 | grep -qE 'PONG|LOADING'
+      interval: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 90s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 14GB
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    shm_size: 512mb
+    sysctls:
+      net.core.somaxconn: 4096
+  redis-worker-2b:
+    image: redis:7-alpine
+    container_name: redis-worker-2b
+    expose:
+    - '6379'
+    volumes:
+    - redis-worker-2b-data:/data
+    - ./redis-worker-stable.conf:/usr/local/etc/redis/redis-worker-stable.conf
+    - ./redis-worker-2b.conf:/usr/local/etc/redis/redis.conf
+    - ./redis-worker-2-acl.conf:/usr/local/etc/redis/redis-worker-2-acl.conf:ro
+    - ./redis-worker-entrypoint.sh:/usr/local/bin/redis-worker-entrypoint.sh:ro
+    entrypoint:
+    - /bin/sh
+    - /usr/local/bin/redis-worker-entrypoint.sh
+    networks:
+      scanner-infra:
+        aliases:
+        - redis-worker-2b
+      scanner-network:
+        aliases:
+        - redis-worker-2b
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+    - REDIS_HEALTHCHECK_URL=redis://exec_health_freeze_audit:${EXEC_HEALTH_FREEZE_AUDIT_PASS}@localhost:6379/0
+    - ACL_FILENAME=redis-worker-2-acl.conf
+    - TZ=UTC
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - redis-cli -u $$REDIS_HEALTHCHECK_URL ping 2>&1 | grep -qE 'PONG|LOADING' ||
+        redis-cli ping 2>&1 | grep -qE 'PONG|LOADING'
+      interval: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 90s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 12GB
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    shm_size: 512mb
+    sysctls:
+      net.core.somaxconn: 4096
+  redis-worker-3:
+    image: redis:7-alpine
+    container_name: redis-worker-3
+    expose:
+    - '6379'
+    ports:
+    - 127.0.0.1:63793:6379
+    volumes:
+    - redis-worker-3-data:/data
+    - ./redis-worker-stable.conf:/usr/local/etc/redis/redis-worker-stable.conf:ro
+    - ./redis-worker-3.conf:/usr/local/etc/redis/redis.conf:ro
+    - ./redis-worker-3-acl.conf:/usr/local/etc/redis/redis-worker-3-acl.conf:ro
+    - ./redis-worker-entrypoint.sh:/usr/local/bin/redis-worker-entrypoint.sh:ro
+    entrypoint:
+    - /bin/sh
+    - /usr/local/bin/redis-worker-entrypoint.sh
+    networks:
+      scanner-infra:
+        aliases:
+        - redis-worker-3
+        - scanner-redis-worker-3
+      scanner-network:
+        aliases:
+        - redis-worker-3
+        - scanner-redis-worker-3
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+    - REDIS_HEALTHCHECK_URL=redis://exec_health_freeze_audit:${EXEC_HEALTH_FREEZE_AUDIT_PASS}@localhost:6379/0
+    - ACL_FILENAME=redis-worker-3-acl.conf
+    - TZ=UTC
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - redis-cli -u $$REDIS_HEALTHCHECK_URL ping 2>&1 | grep -qE 'PONG|LOADING' ||
+        redis-cli ping 2>&1 | grep -qE 'PONG|LOADING'
+      interval: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 90s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 14GB
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    shm_size: 512mb
+    sysctls:
+      net.core.somaxconn: 4096
+  redis-worker-3b:
+    image: redis:7-alpine
+    container_name: redis-worker-3b
+    expose:
+    - '6379'
+    volumes:
+    - redis-worker-3b-data:/data
+    - ./redis-worker-stable.conf:/usr/local/etc/redis/redis-worker-stable.conf
+    - ./redis-worker-3b.conf:/usr/local/etc/redis/redis.conf
+    - ./redis-worker-3-acl.conf:/usr/local/etc/redis/redis-worker-3-acl.conf:ro
+    - ./redis-worker-entrypoint.sh:/usr/local/bin/redis-worker-entrypoint.sh:ro
+    entrypoint:
+    - /bin/sh
+    - /usr/local/bin/redis-worker-entrypoint.sh
+    networks:
+      scanner-infra:
+        aliases:
+        - redis-worker-3b
+      scanner-network:
+        aliases:
+        - redis-worker-3b
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+    - REDIS_HEALTHCHECK_URL=redis://exec_health_freeze_audit:${EXEC_HEALTH_FREEZE_AUDIT_PASS}@localhost:6379/0
+    - ACL_FILENAME=redis-worker-3-acl.conf
+    - TZ=UTC
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - redis-cli -u $$REDIS_HEALTHCHECK_URL ping 2>&1 | grep -qE 'PONG|LOADING' ||
+        redis-cli ping 2>&1 | grep -qE 'PONG|LOADING'
+      interval: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 90s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 12GB
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    shm_size: 512mb
+    sysctls:
+      net.core.somaxconn: 4096
+  redis-ticks:
+    image: redis:7-alpine
+    container_name: redis-ticks
+    expose:
+    - '6379'
+    volumes:
+    - redis-ticks-data:/data
+    - ./redis-ticks.conf:/usr/local/etc/redis/redis.conf
+    - ./redis-ticks-acl.conf:/usr/local/etc/redis/redis-ticks-acl.conf:ro
+    command: 'redis-server /usr/local/etc/redis/redis.conf --maxmemory 16gb --maxmemory-policy
+      noeviction --aclfile /usr/local/etc/redis/redis-ticks-acl.conf '
+    networks:
+      scanner-infra:
+        aliases:
+        - redis-ticks
+      scanner-network:
+        aliases:
+        - redis-ticks
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+    - REDIS_HEALTHCHECK_URL=redis://exec_health_freeze_audit:${EXEC_HEALTH_FREEZE_AUDIT_PASS}@localhost:6379/0
+    - TZ=UTC
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - redis-cli -u $$REDIS_HEALTHCHECK_URL ping 2>&1 | grep -qE 'PONG|LOADING' ||
+        redis-cli ping 2>&1 | grep -qE 'PONG|LOADING'
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 300s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+          cpus: '4.0'
+        reservations:
+          memory: 4G
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    shm_size: 1gb
+    sysctls:
+      net.core.somaxconn: 8192
+  redis-ticks-b:
+    image: redis:7-alpine
+    container_name: redis-ticks-b
+    expose:
+    - '6379'
+    volumes:
+    - redis-ticks-b-data:/data
+    - ./redis-ticks.conf:/usr/local/etc/redis/redis-ticks.conf
+    - ./redis-ticks-b.conf:/usr/local/etc/redis/redis.conf
+    - ./redis-ticks-acl.conf:/usr/local/etc/redis/redis-ticks-acl.conf:ro
+    command: 'redis-server /usr/local/etc/redis/redis.conf --maxmemory 10gb --maxmemory-policy
+      noeviction --aclfile /usr/local/etc/redis/redis-ticks-acl.conf '
+    networks:
+      scanner-infra:
+        aliases:
+        - redis-ticks-b
+      scanner-network:
+        aliases:
+        - redis-ticks-b
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+    - REDIS_HEALTHCHECK_URL=redis://exec_health_freeze_audit:${EXEC_HEALTH_FREEZE_AUDIT_PASS}@localhost:6379/0
+    - TZ=UTC
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - redis-cli -u $$REDIS_HEALTHCHECK_URL ping 2>&1 | grep -qE 'PONG|LOADING' ||
+        redis-cli ping 2>&1 | grep -qE 'PONG|LOADING'
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 300s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 12G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    shm_size: 1gb
+    sysctls:
+      net.core.somaxconn: 8192
+  postgres:
+    image: timescale/timescaledb-ha:pg15.15-ts2.24.0
+    container_name: scanner-postgres
+    environment:
+    - POSTGRES_USER=postgres
+    - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    - TRADING_PASSWORD=${TRADING_PASSWORD}
+    - SCANNER_PASSWORD=${SCANNER_PASSWORD}
+    - TRADE_USER_PASSWORD=${TRADE_USER_PASSWORD}
+    - POSTGRES_DB=trade
+    - POSTGRES_PORT=5432
+    - TZ=UTC
+    ports:
+    - 5434:5432
+    volumes:
+    - postgres-data:/home/postgres/pgdata/data
+    - ./00-init-users.sh:/docker-entrypoint-initdb.d/00-init-users.sh
+    - ./init-postgres.sql:/docker-entrypoint-initdb.d/01-init-postgres.sql
+    - ./postgresql.conf:/etc/postgresql/postgresql.conf
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf -c max_connections=1000
+    networks:
+    - scanner-infra
+    - scanner-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+          cpus: '8.0'
+        reservations:
+          memory: 4G
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U postgres -d trade
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: scanner-postgres-exporter
+    environment:
+    - DATA_SOURCE_NAME=postgresql://postgres:${POSTGRES_PASSWORD}@scanner-postgres:5432/trade?sslmode=disable
+    - TZ=UTC
+    ports:
+    - 9187:9187
+    networks:
+    - scanner-infra
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9187/metrics >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: scanner-pgbouncer
+    environment:
+    - DB_USER=trading
+    - DB_PASSWORD=${PGBOUNCER_DB_PASSWORD}
+    - DB_HOST=scanner-postgres
+    - DB_PORT=5432
+    - POOL_MODE=transaction
+    - MAX_CLIENT_CONN=2000
+    - DEFAULT_POOL_SIZE=100
+    - RESERVE_POOL_SIZE=50
+    - IGNORE_STARTUP_PARAMETERS=extra_float_digits
+    - AUTH_TYPE=scram-sha-256
+    # AUTH_USER + AUTH_QUERY: pgbouncer выполняет auth_query под пользователем pgbouncer,
+    # который имеет доступ к функции-обёртке public.pgbouncer_get_auth (SECURITY DEFINER).
+    # Это стандартное решение для scram-sha-256: pg_authid недоступна непривилегированным ролям.
+    - AUTH_USER=pgbouncer
+    - AUTH_PASSWORD=${PGBOUNCER_AUTH_PASSWORD}
+    - AUTH_QUERY=SELECT usename, passwd FROM public.pgbouncer_get_auth($1)
+    - LOG_CONNECTIONS=0
+    - LOG_DISCONNECTIONS=0
+    - TZ=UTC
+    ports:
+    - 16432:5432
+    networks:
+    - scanner-infra
+    - scanner-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+    healthcheck:
+      test:
+      - CMD
+      - pg_isready
+      - -h
+      - localhost
+      - -p
+      - "5432"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+  metrics-proxy:
+    image: nginx:1.27-alpine
+    container_name: metrics-proxy
+    restart: unless-stopped
+    volumes:
+    - ./metrics-proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+    - 192.168.0.168:9200:9200
+    networks:
+    - scanner-infra
+    - scanner-core
+    - scanner-timers
+    - scanner-ops
+    - trade-network
+    - default
+    - scanner-network
+    environment:
+    - TZ=UTC
+  monitoring-smoke-exporter:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-monitoring-smoke-exporter
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - MONITORING_SMOKE_METRICS_KEY=metrics:monitoring_smoke:last
+    - MONITORING_SMOKE_EXPORTER_PORT=9814
+    - PYTHONPATH=.:/app
+    - TZ=UTC
+    volumes:
+    - ./python-worker:/app
+    command:
+    - python
+    - -m
+    - ml_analysis.tools.monitoring_smoke_exporter_v1
+    ports:
+    - 9814:9814
+    networks:
+    - scanner-infra
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python -c "import urllib.request; urllib.request.urlopen('http://localhost:9814/metrics',
+        timeout=2).read()" >/dev/null 2>&1 || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+  redis-exporter-main:
+    image: oliver006/redis_exporter:v1.66.0
+    container_name: redis-exporter-main
+    restart: unless-stopped
+    environment:
+    - REDIS_ADDR=redis://redis:6379
+    - REDIS_EXPORTER_LOG_FORMAT=txt
+    - REDIS_EXPORTER_CHECK_SINGLE_STREAMS=candles:data
+    - REDIS_EXPORTER_STREAMS_GROUPS_LIST=candles:data::candles-consumer-group
+    - TZ=UTC
+    expose:
+    - '9121'
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+    - scanner-infra
+    healthcheck:
+      test: ["NONE"]
+      # NOTE: scratch image has no shell/wget — Prometheus scrapes /metrics directly
+  redis-exporter-worker-1:
+    image: oliver006/redis_exporter:v1.66.0
+    container_name: redis-exporter-worker-1
+    restart: unless-stopped
+    environment:
+    - REDIS_ADDR=redis://redis-worker-1:6379
+    - REDIS_EXPORTER_LOG_FORMAT=txt
+    - REDIS_EXPORTER_CHECK_SINGLE_STREAMS=stream:signals:outbox,stream:signals:dlq,stream:trade:entry_audit,stream:trade:entry_candidate,stream:ab:suggestions,stream:smt:setup,stream:diag:edge_gate_events,events:decision_snapshot,stream:signals_news
+    - REDIS_EXPORTER_STREAMS_GROUPS_LIST=stream:signals:outbox::nestjs-consumer,stream:signals:outbox::python-dispatcher,stream:of:quarantine::quarantine-consumer,stream:trade:entry_candidate::execution-consumer
+    - TZ=UTC
+    expose:
+    - '9121'
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-infra
+    healthcheck:
+      test: ["NONE"]
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+  redis-exporter-worker-2:
+    image: oliver006/redis_exporter:v1.66.0
+    container_name: redis-exporter-worker-2
+    restart: unless-stopped
+    environment:
+    - REDIS_ADDR=redis://redis-worker-2:6379
+    - REDIS_EXPORTER_LOG_FORMAT=txt
+    - REDIS_EXPORTER_CHECK_SINGLE_STREAMS=orders:exec,orders:queue:binance,orders:queue:binance:dlq,dlq:signals,dlq:ticks,dlq:events,dlq:book_deltas
+    - REDIS_EXPORTER_STREAMS_GROUPS_LIST=orders:exec::execution-worker,orders:queue:binance::binance-executor
+    - TZ=UTC
+    expose:
+    - '9121'
+    depends_on:
+      redis-worker-2:
+        condition: service_healthy
+    networks:
+    - scanner-infra
+    healthcheck:
+      test: ["NONE"]
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+  redis-exporter-worker-1b:
+    image: oliver006/redis_exporter:v1.66.0
+    container_name: redis-exporter-worker-1b
+    restart: unless-stopped
+    environment:
+    - REDIS_ADDR=redis://redis-worker-1b:6379
+    - REDIS_EXPORTER_LOG_FORMAT=txt
+    - REDIS_EXPORTER_CHECK_SINGLE_STREAMS=stream:signals:outbox,stream:signals:dlq,stream:trade:entry_audit,stream:trade:entry_candidate
+    - REDIS_EXPORTER_STREAMS_GROUPS_LIST=stream:signals:outbox::nestjs-consumer,stream:signals:outbox::python-dispatcher,stream:trade:entry_candidate::execution-consumer
+    - TZ=UTC
+    expose:
+    - '9121'
+    depends_on:
+      redis-worker-1b:
+        condition: service_healthy
+    networks:
+    - scanner-infra
+    healthcheck:
+      test: ["NONE"]
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+  redis-exporter-worker-2b:
+    image: oliver006/redis_exporter:v1.66.0
+    container_name: redis-exporter-worker-2b
+    restart: unless-stopped
+    environment:
+    - REDIS_ADDR=redis://redis-worker-2b:6379
+    - REDIS_EXPORTER_LOG_FORMAT=txt
+    - REDIS_EXPORTER_CHECK_SINGLE_STREAMS=orders:exec,orders:queue:binance,orders:queue:binance:dlq,dlq:signals,dlq:ticks,dlq:events,dlq:book_deltas
+    - REDIS_EXPORTER_STREAMS_GROUPS_LIST=orders:exec::execution-worker,orders:queue:binance::binance-executor
+    - TZ=UTC
+    expose:
+    - '9121'
+    depends_on:
+      redis-worker-2b:
+        condition: service_healthy
+    networks:
+    - scanner-infra
+    healthcheck:
+      test: ["NONE"]
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+  redis-exporter-worker-3:
+    image: oliver006/redis_exporter:v1.66.0
+    container_name: redis-exporter-worker-3
+    restart: unless-stopped
+    environment:
+    - REDIS_ADDR=redis://redis-worker-3:6379
+    - REDIS_EXPORTER_LOG_FORMAT=txt
+    - REDIS_EXPORTER_CHECK_SINGLE_STREAMS=stream:signals:outbox,stream:signals:dlq,stream:trade:entry_audit,stream:trade:entry_candidate
+    - REDIS_EXPORTER_STREAMS_GROUPS_LIST=stream:signals:outbox::nestjs-consumer,stream:signals:outbox::python-dispatcher,stream:trade:entry_candidate::execution-consumer
+    - TZ=UTC
+    expose:
+    - '9121'
+    depends_on:
+      redis-worker-3:
+        condition: service_healthy
+    networks:
+    - scanner-infra
+    healthcheck:
+      test: ["NONE"]
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+  redis-exporter-worker-3b:
+    image: oliver006/redis_exporter:v1.66.0
+    container_name: redis-exporter-worker-3b
+    restart: unless-stopped
+    environment:
+    - REDIS_ADDR=redis://redis-worker-3b:6379
+    - REDIS_EXPORTER_LOG_FORMAT=txt
+    - REDIS_EXPORTER_CHECK_SINGLE_STREAMS=stream:signals:outbox,stream:signals:dlq,stream:trade:entry_audit,stream:trade:entry_candidate
+    - REDIS_EXPORTER_STREAMS_GROUPS_LIST=stream:signals:outbox::nestjs-consumer,stream:signals:outbox::python-dispatcher,stream:trade:entry_candidate::execution-consumer
+    - TZ=UTC
+    expose:
+    - '9121'
+    depends_on:
+      redis-worker-3b:
+        condition: service_healthy
+    networks:
+    - scanner-infra
+    healthcheck:
+      test: ["NONE"]
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+  redis-exporter-ticks:
+    image: oliver006/redis_exporter:v1.66.0
+    container_name: redis-exporter-ticks
+    restart: unless-stopped
+    environment:
+    - REDIS_ADDR=redis://redis-ticks:6379
+    - REDIS_EXPORTER_LOG_FORMAT=txt
+    - REDIS_EXPORTER_CHECK_SINGLE_STREAMS=stream:liq_evt,stream:liq_evt_quarantine,stream:ticker-24h,stream:funding-rates,stream:symbols,stream:volatility,stream:volatilityRange,stream:top-gainers,stream:top-losers,stream:bybit:ticker-24h,stream:bybit:funding-rate,stream:ws-new-pairs
+    - TZ=UTC
+    expose:
+    - 9121
+    depends_on:
+      redis-ticks:
+        condition: service_healthy
+    networks:
+    - scanner-infra
+    healthcheck:
+      test: ["NONE"]
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+  redis-exporter-ticks-b:
+    image: oliver006/redis_exporter:v1.66.0
+    container_name: redis-exporter-ticks-b
+    restart: unless-stopped
+    environment:
+    - REDIS_ADDR=redis://redis-ticks-b:6379
+    - REDIS_EXPORTER_LOG_FORMAT=txt
+    - REDIS_EXPORTER_CHECK_SINGLE_STREAMS=stream:liq_evt,stream:liq_evt_quarantine,stream:ticker-24h,stream:funding-rates,stream:symbols,stream:volatility,stream:volatilityRange,stream:top-gainers,stream:top-losers,stream:bybit:ticker-24h,stream:bybit:funding-rate,stream:ws-new-pairs
+    - TZ=UTC
+    expose:
+    - 9121
+    depends_on:
+      redis-ticks-b:
+        condition: service_healthy
+    networks:
+    - scanner-infra
+    healthcheck:
+      test: ["NONE"]
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+networks:
+  scanner-infra:
+    external: true
+  scanner-core:
+    external: true
+  scanner-timers:
+    external: true
+  scanner-ops:
+    external: true
+  trade-network:
+    external: true
+  scanner-network:
+    name: scanner-network
+    external: true
+  default:
+    name: scanner_infra_default
+    external: true
+volumes:
+  redis-data: null
+  redis-worker-1-data: null
+  redis-worker-1b-data: null
+  redis-worker-2-data: null
+  redis-worker-2b-data: null
+  redis-worker-3-data: null
+  redis-worker-3b-data: null
+  redis-ticks-data: null
+  redis-ticks-b-data: null
+  postgres-data: null

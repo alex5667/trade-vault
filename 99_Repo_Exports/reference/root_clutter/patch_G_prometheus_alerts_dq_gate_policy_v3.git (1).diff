@@ -1,0 +1,206 @@
+diff --git a/orderflow_services/prometheus_alerts_dq_gate_policy_v3.yml b/orderflow_services/prometheus_alerts_dq_gate_policy_v3.yml
+new file mode 100644
+index 0000000..a3f7d12
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_dq_gate_policy_v3.yml
+@@ -0,0 +1,120 @@
++# DQ Gate policy alerts (v3)
++# -------------------------------------------------------------------
++# These alerts are aligned to runtime indicator gauges produced by TickProcessor:
++#   - tick_gap_p95_ms
++#   - tick_missing_seq_ema
++#   - book_missing_seq_ema
++#
++# Start thresholds (SAFE defaults used below):
++#   gap_soft_ms=250
++#   gap_hard_ms=1000
++#   gap_extreme_ms=5000
++#   tick_soft=0.25
++#   tick_hard=0.6
++#   book_hard=0.35
++#
++# STRICT suggestion (edit numbers if switching to strict):
++#   gap_soft_ms=100, gap_hard_ms=300, gap_extreme_ms=1000,
++#   tick_soft=0.10, tick_hard=0.35, book_hard=0.25
++#
++# NOTE: Prometheus rules don't support per-alert "OR with different for:" durations.
++# We implement the requested "hard 30s OR extreme 10s" as two crit alerts.
++
++groups:
++  - name: dq_gate_policy_v3
++    rules:
++      # tick_gap_p95_ms
++      - alert: DQ_TickGapP95_Warn
++        expr: tick_gap_p95_ms > 250
++        for: 2m
++        labels:
++          severity: warn
++          subsystem: dq
++          metric: tick_gap_p95_ms
++        annotations:
++          summary: "DQ: tick_gap_p95_ms high (warn)"
++          description: "tick_gap_p95_ms={$value}ms > 250ms for 2m. Potential staleness / WS gaps / ingestion lag."
++
++      - alert: DQ_TickGapP95_Hard_Crit
++        expr: tick_gap_p95_ms > 1000
++        for: 30s
++        labels:
++          severity: crit
++          subsystem: dq
++          metric: tick_gap_p95_ms
++          class: hard
++        annotations:
++          summary: "DQ: tick_gap_p95_ms high (crit hard)"
++          description: "tick_gap_p95_ms={$value}ms > 1000ms for 30s. Sustained gaps: likely feed/redis/ws instability."
++
++      - alert: DQ_TickGapP95_Extreme_Crit
++        expr: tick_gap_p95_ms > 5000
++        for: 10s
++        labels:
++          severity: crit
++          subsystem: dq
++          metric: tick_gap_p95_ms
++          class: extreme
++        annotations:
++          summary: "DQ: tick_gap_p95_ms extreme (crit)"
++          description: "tick_gap_p95_ms={$value}ms > 5000ms for 10s. Extreme gaps: treat as incident (data invalid tail-risk)."
++
++      # book_missing_seq_ema
++      - alert: DQ_BookMissingSeqEMA_Crit
++        expr: book_missing_seq_ema > 0.35
++        for: 30s
++        labels:
++          severity: crit
++          subsystem: dq
++          metric: book_missing_seq_ema
++        annotations:
++          summary: "DQ: book_missing_seq_ema high (crit)"
++          description: "book_missing_seq_ema={$value} > 0.35 for 30s. Orderbook sequence gaps likely; consider fail-closed on book-derived features."
++
++      # tick_missing_seq_ema
++      - alert: DQ_TickMissingSeqEMA_Warn
++        expr: tick_missing_seq_ema > 0.25
++        for: 2m
++        labels:
++          severity: warn
++          subsystem: dq
++          metric: tick_missing_seq_ema
++        annotations:
++          summary: "DQ: tick_missing_seq_ema elevated (warn)"
++          description: "tick_missing_seq_ema={$value} > 0.25 for 2m. Elevated tick sequence gaps; monitor before enforcing."
++
++      # Optional crit threshold (enabled by default; tune or remove if too noisy)
++      - alert: DQ_TickMissingSeqEMA_Crit
++        expr: tick_missing_seq_ema > 0.6
++        for: 30s
++        labels:
++          severity: crit
++          subsystem: dq
++          metric: tick_missing_seq_ema
++        annotations:
++          summary: "DQ: tick_missing_seq_ema high (crit)"
++          description: "tick_missing_seq_ema={$value} > 0.6 for 30s. Sustained missing ticks; data quality tail-risk."
+
+diff --git a/tick_flow_full/orderflow_services/prometheus_alerts_dq_gate_policy_v3.yml b/tick_flow_full/orderflow_services/prometheus_alerts_dq_gate_policy_v3.yml
+new file mode 100644
+index 0000000..a3f7d12
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_dq_gate_policy_v3.yml
+@@ -0,0 +1,120 @@
++# DQ Gate policy alerts (v3)
++# -------------------------------------------------------------------
++# These alerts are aligned to runtime indicator gauges produced by TickProcessor:
++#   - tick_gap_p95_ms
++#   - tick_missing_seq_ema
++#   - book_missing_seq_ema
++#
++# Start thresholds (SAFE defaults used below):
++#   gap_soft_ms=250
++#   gap_hard_ms=1000
++#   gap_extreme_ms=5000
++#   tick_soft=0.25
++#   tick_hard=0.6
++#   book_hard=0.35
++#
++# STRICT suggestion (edit numbers if switching to strict):
++#   gap_soft_ms=100, gap_hard_ms=300, gap_extreme_ms=1000,
++#   tick_soft=0.10, tick_hard=0.35, book_hard=0.25
++#
++# NOTE: Prometheus rules don't support per-alert "OR with different for:" durations.
++# We implement the requested "hard 30s OR extreme 10s" as two crit alerts.
++
++groups:
++  - name: dq_gate_policy_v3
++    rules:
++      # tick_gap_p95_ms
++      - alert: DQ_TickGapP95_Warn
++        expr: tick_gap_p95_ms > 250
++        for: 2m
++        labels:
++          severity: warn
++          subsystem: dq
++          metric: tick_gap_p95_ms
++        annotations:
++          summary: "DQ: tick_gap_p95_ms high (warn)"
++          description: "tick_gap_p95_ms={$value}ms > 250ms for 2m. Potential staleness / WS gaps / ingestion lag."
++
++      - alert: DQ_TickGapP95_Hard_Crit
++        expr: tick_gap_p95_ms > 1000
++        for: 30s
++        labels:
++          severity: crit
++          subsystem: dq
++          metric: tick_gap_p95_ms
++          class: hard
++        annotations:
++          summary: "DQ: tick_gap_p95_ms high (crit hard)"
++          description: "tick_gap_p95_ms={$value}ms > 1000ms for 30s. Sustained gaps: likely feed/redis/ws instability."
++
++      - alert: DQ_TickGapP95_Extreme_Crit
++        expr: tick_gap_p95_ms > 5000
++        for: 10s
++        labels:
++          severity: crit
++          subsystem: dq
++          metric: tick_gap_p95_ms
++          class: extreme
++        annotations:
++          summary: "DQ: tick_gap_p95_ms extreme (crit)"
++          description: "tick_gap_p95_ms={$value}ms > 5000ms for 10s. Extreme gaps: treat as incident (data invalid tail-risk)."
++
++      # book_missing_seq_ema
++      - alert: DQ_BookMissingSeqEMA_Crit
++        expr: book_missing_seq_ema > 0.35
++        for: 30s
++        labels:
++          severity: crit
++          subsystem: dq
++          metric: book_missing_seq_ema
++        annotations:
++          summary: "DQ: book_missing_seq_ema high (crit)"
++          description: "book_missing_seq_ema={$value} > 0.35 for 30s. Orderbook sequence gaps likely; consider fail-closed on book-derived features."
++
++      # tick_missing_seq_ema
++      - alert: DQ_TickMissingSeqEMA_Warn
++        expr: tick_missing_seq_ema > 0.25
++        for: 2m
++        labels:
++          severity: warn
++          subsystem: dq
++          metric: tick_missing_seq_ema
++        annotations:
++          summary: "DQ: tick_missing_seq_ema elevated (warn)"
++          description: "tick_missing_seq_ema={$value} > 0.25 for 2m. Elevated tick sequence gaps; monitor before enforcing."
++
++      # Optional crit threshold (enabled by default; tune or remove if too noisy)
++      - alert: DQ_TickMissingSeqEMA_Crit
++        expr: tick_missing_seq_ema > 0.6
++        for: 30s
++        labels:
++          severity: crit
++          subsystem: dq
++          metric: tick_missing_seq_ema
++        annotations:
++          summary: "DQ: tick_missing_seq_ema high (crit)"
++          description: "tick_missing_seq_ema={$value} > 0.6 for 30s. Sustained missing ticks; data quality tail-risk."
+

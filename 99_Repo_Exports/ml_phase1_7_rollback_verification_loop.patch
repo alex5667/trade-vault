@@ -1,0 +1,900 @@
+
+diff --git a/orderflow_services/rollback_state_machine_v1.py b/orderflow_services/rollback_state_machine_v1.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/rollback_state_machine_v1.py
+@@ -0,0 +1,167 @@
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Dict, List, Optional, Tuple
++
++
++STATE_REQUESTED = "REQUESTED"
++STATE_EXECUTED = "EXECUTED"
++STATE_VERIFY_PENDING = "VERIFY_PENDING"
++STATE_ROLLBACK_SUCCESS = "ROLLBACK_SUCCESS"
++STATE_ROLLBACK_FAILED = "ROLLBACK_FAILED"
++STATE_MANUAL_REVIEW = "MANUAL_REVIEW"
++
++EVENT_REQUEST_CREATED = "REQUEST_CREATED"
++EVENT_ROLLBACK_EXECUTED = "ROLLBACK_EXECUTED"
++EVENT_VERIFY_START = "VERIFY_START"
++EVENT_VERIFY_PASS = "VERIFY_PASS"
++EVENT_VERIFY_FAIL = "VERIFY_FAIL"
++EVENT_VERIFY_INCONCLUSIVE = "VERIFY_INCONCLUSIVE"
++EVENT_ROLLBACK_ERROR = "ROLLBACK_ERROR"
++EVENT_MANUAL_ESCALATE = "MANUAL_ESCALATE"
++
++TERMINAL_STATES = {
++    STATE_ROLLBACK_SUCCESS,
++    STATE_ROLLBACK_FAILED,
++    STATE_MANUAL_REVIEW,
++}
++
++_ALLOWED_TRANSITIONS: Dict[Optional[str], Dict[str, str]] = {
++    None: {
++        EVENT_REQUEST_CREATED: STATE_REQUESTED,
++    },
++    STATE_REQUESTED: {
++        EVENT_ROLLBACK_EXECUTED: STATE_EXECUTED,
++        EVENT_ROLLBACK_ERROR: STATE_ROLLBACK_FAILED,
++        EVENT_MANUAL_ESCALATE: STATE_MANUAL_REVIEW,
++    },
++    STATE_EXECUTED: {
++        EVENT_VERIFY_START: STATE_VERIFY_PENDING,
++        EVENT_VERIFY_PASS: STATE_ROLLBACK_SUCCESS,
++        EVENT_VERIFY_FAIL: STATE_ROLLBACK_FAILED,
++        EVENT_VERIFY_INCONCLUSIVE: STATE_MANUAL_REVIEW,
++        EVENT_MANUAL_ESCALATE: STATE_MANUAL_REVIEW,
++    },
++    STATE_VERIFY_PENDING: {
++        EVENT_VERIFY_PASS: STATE_ROLLBACK_SUCCESS,
++        EVENT_VERIFY_FAIL: STATE_ROLLBACK_FAILED,
++        EVENT_VERIFY_INCONCLUSIVE: STATE_MANUAL_REVIEW,
++        EVENT_MANUAL_ESCALATE: STATE_MANUAL_REVIEW,
++    },
++}
++
++
++@dataclass(frozen=True)
++class Transition:
++    prev_state: Optional[str]
++    event: str
++    next_state: str
++    changed: bool
++
++
++def is_terminal(state: Optional[str]) -> bool:
++    return bool(state in TERMINAL_STATES)
++
++
++def next_state_for_event(prev_state: Optional[str], event: str) -> str:
++    if is_terminal(prev_state):
++        raise ValueError(f"terminal state has no outgoing transitions: {prev_state}")
++    try:
++        return _ALLOWED_TRANSITIONS[prev_state][event]
++    except KeyError as exc:
++        raise ValueError(f"invalid rollback transition: {prev_state!r} + {event!r}") from exc
++
++
++def apply_event(prev_state: Optional[str], event: str) -> Transition:
++    ns = next_state_for_event(prev_state, event)
++    return Transition(prev_state=prev_state, event=event, next_state=ns, changed=(ns != prev_state))
++
++
++def infer_event_from_result_payload(payload: Dict[str, str]) -> str:
++    status = str(payload.get("status", "") or "").upper()
++    if status in {"OK", "EXECUTED", "DONE", "SUCCESS"}:
++        return EVENT_ROLLBACK_EXECUTED
++    return EVENT_ROLLBACK_ERROR
++
++
++def infer_event_from_verification_payload(payload: Dict[str, str]) -> str:
++    status = str(payload.get("verification_status", "") or payload.get("status", "")).upper()
++    if status in {"PASS", "ROLLBACK_SUCCESS"}:
++        return EVENT_VERIFY_PASS
++    if status in {"FAIL", "ROLLBACK_FAILED"}:
++        return EVENT_VERIFY_FAIL
++    return EVENT_VERIFY_INCONCLUSIVE
++
++
++def bounded_reason_codes(state: str, reason_codes: List[str]) -> List[str]:
++    reason_codes = [str(x) for x in (reason_codes or []) if str(x)]
++    if state == STATE_ROLLBACK_SUCCESS:
++        return reason_codes[:4]
++    if state == STATE_MANUAL_REVIEW:
++        return reason_codes[:8]
++    if state == STATE_ROLLBACK_FAILED:
++        return reason_codes[:8]
++    return reason_codes[:6]
+diff --git a/orderflow_services/rollback_executor_verifier_v1.py b/orderflow_services/rollback_executor_verifier_v1.py
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/orderflow_services/rollback_executor_verifier_v1.py
+@@ -0,0 +1,353 @@
++from __future__ import annotations
++
++import asyncio
++import json
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional, Tuple
++
++from prometheus_client import Counter, Gauge, Histogram, start_http_server
++
++
++VERIFIER_UP = Gauge("ml_rollback_verifier_up", "Rollback verifier liveness")
++VERIFIER_LAST_RUN_TS = Gauge("ml_rollback_verifier_last_run_ts_seconds", "Last verifier loop time")
++VERIFIER_EVENTS = Counter("ml_rollback_verifier_events_total", "Verification outcomes", ["status"])
++VERIFIER_LOOP_SECONDS = Histogram("ml_rollback_verifier_loop_seconds", "Verifier loop latency")
++VERIFIER_QUEUE_LAG_MS = Gauge("ml_rollback_verifier_queue_lag_ms", "Verifier queue lag")
++
++
++def _safe_float(x: Any, d: float = 0.0) -> float:
++    try:
++        return float(x)
++    except Exception:
++        return d
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++@dataclass
++class VerificationDecision:
++    verification_status: str
++    reason_codes: List[str]
++    details: Dict[str, Any]
++
++
++def compute_rollback_verification(
++    baseline_snapshot: Dict[str, Any],
++    post_rollback_snapshot: Dict[str, Any],
++    cfg: Dict[str, Any],
++) -> VerificationDecision:
++    reasons: List[str] = []
++    details: Dict[str, Any] = {}
++
++    if not baseline_snapshot:
++        return VerificationDecision(
++            verification_status="INCONCLUSIVE",
++            reason_codes=["MISSING_BASELINE_SNAPSHOT"],
++            details={},
++        )
++    if not post_rollback_snapshot:
++        return VerificationDecision(
++            verification_status="INCONCLUSIVE",
++            reason_codes=["MISSING_POST_ROLLBACK_SNAPSHOT"],
++            details={},
++        )
++
++    max_err_delta = _safe_float(cfg.get("ROLLBACK_VERIFY_MAX_ERROR_RATE_DELTA", 0.01))
++    max_lat_p95_delta = _safe_float(cfg.get("ROLLBACK_VERIFY_MAX_LATENCY_P95_DELTA_MS", 1.5))
++    max_missing_delta = _safe_float(cfg.get("ROLLBACK_VERIFY_MAX_MISSING_CRITICAL_DELTA", 0.01))
++    max_allow_drop = _safe_float(cfg.get("ROLLBACK_VERIFY_MAX_ALLOW_RATE_DROP", 0.08))
++
++    baseline_error = _safe_float(baseline_snapshot.get("error_rate_max"))
++    after_error = _safe_float(post_rollback_snapshot.get("error_rate_max"))
++    baseline_p95 = _safe_float(baseline_snapshot.get("latency_p95_max_ms"))
++    after_p95 = _safe_float(post_rollback_snapshot.get("latency_p95_max_ms"))
++    baseline_missing = _safe_float(baseline_snapshot.get("missing_critical_rate_max"))
++    after_missing = _safe_float(post_rollback_snapshot.get("missing_critical_rate_max"))
++    baseline_allow = _safe_float(baseline_snapshot.get("allow_rate_avg"))
++    after_allow = _safe_float(post_rollback_snapshot.get("allow_rate_avg"))
++
++    details.update(
++        baseline_error_rate_max=baseline_error,
++        after_error_rate_max=after_error,
++        baseline_latency_p95_max_ms=baseline_p95,
++        after_latency_p95_max_ms=after_p95,
++        baseline_missing_critical_rate_max=baseline_missing,
++        after_missing_critical_rate_max=after_missing,
++        baseline_allow_rate_avg=baseline_allow,
++        after_allow_rate_avg=after_allow,
++    )
++
++    if after_error > baseline_error + max_err_delta:
++        reasons.append("ERROR_RATE_SPIKE")
++    if after_p95 > baseline_p95 + max_lat_p95_delta:
++        reasons.append("LATENCY_P95_REGRESSION")
++    if after_missing > baseline_missing + max_missing_delta:
++        reasons.append("MISSING_CRITICAL_REGRESSION")
++    if after_allow < max(0.0, baseline_allow - max_allow_drop):
++        reasons.append("ALLOW_RATE_DROP")
++
++    hard = {"ERROR_RATE_SPIKE", "LATENCY_P95_REGRESSION"}
++    if not reasons:
++        return VerificationDecision("PASS", [], details)
++    if any(r in hard for r in reasons):
++        return VerificationDecision("FAIL", reasons, details)
++    return VerificationDecision("INCONCLUSIVE", reasons, details)
++
++
++async def _persist_pg(database_url: str, payload: Dict[str, Any]) -> None:
++    import asyncpg  # type: ignore
++
++    conn = await asyncpg.connect(database_url)
++    try:
++        await conn.execute(
++            """
++            INSERT INTO llm_rollback_verifications (
++                recommendation_id, verification_ts_ms, verification_status,
++                reason_codes_json, details_json
++            ) VALUES ($1, $2, $3, $4::jsonb, $5::jsonb)
++            """,
++            payload["recommendation_id"],
++            int(payload["verification_ts_ms"]),
++            payload["verification_status"],
++            json.dumps(payload.get("reason_codes", [])),
++            json.dumps(payload.get("details", {})),
++        )
++        await conn.execute(
++            """
++            UPDATE llm_recommendations
++               SET rollback_verification_status = $2,
++                   rollback_verified_at_ms = $3,
++                   rollback_failure_reason = $4
++             WHERE recommendation_id = $1
++            """,
++            payload["recommendation_id"],
++            payload["verification_status"],
++            int(payload["verification_ts_ms"]),
++            ",".join(payload.get("reason_codes", [])),
++        )
++    finally:
++        await conn.close()
++
++
++async def main() -> None:
++    try:
++        import redis.asyncio as redis  # type: ignore
++    except Exception as exc:  # pragma: no cover
++        raise SystemExit(f"redis.asyncio is required: {exc}")
++
++    port = int(os.getenv("ML_ROLLBACK_VERIFIER_METRICS_PORT", "9862"))
++    start_http_server(port)
++
++    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
++    r = redis.from_url(redis_url, decode_responses=True)
++
++    stream_results = os.getenv("ML_ROLLBACK_RESULTS_STREAM", "stream:ml:recommendation_rollback_results")
++    stream_verify = os.getenv("ML_ROLLBACK_VERIFY_RESULTS_STREAM", "stream:ml:recommendation_rollback_verification_results")
++    stream_audit = os.getenv("ML_RECOMMENDATION_AUDIT_STREAM", "stream:ml:recommendation_audit")
++    stream_snapshot_prefix = os.getenv("ML_MODEL_SNAPSHOT_PREFIX", "metrics:ml:model_snapshot:")
++    rollback_requests_stream = os.getenv("ML_ROLLBACK_REQUESTS_STREAM", "stream:ml:recommendation_rollback_requests")
++    group = os.getenv("ML_ROLLBACK_VERIFIER_GROUP", "cg:ml_rollback_verifier")
++    consumer = os.getenv("ML_ROLLBACK_VERIFIER_CONSUMER", os.getenv("HOSTNAME", "ml-rollback-verifier-1"))
++    database_url = os.getenv("DATABASE_URL", "")
++
++    try:
++        await r.xgroup_create(stream_results, group, id="0", mkstream=True)
++    except Exception:
++        pass
++
++    cfg = {
++        "ROLLBACK_VERIFY_MAX_ERROR_RATE_DELTA": os.getenv("ROLLBACK_VERIFY_MAX_ERROR_RATE_DELTA", "0.01"),
++        "ROLLBACK_VERIFY_MAX_LATENCY_P95_DELTA_MS": os.getenv("ROLLBACK_VERIFY_MAX_LATENCY_P95_DELTA_MS", "1.5"),
++        "ROLLBACK_VERIFY_MAX_MISSING_CRITICAL_DELTA": os.getenv("ROLLBACK_VERIFY_MAX_MISSING_CRITICAL_DELTA", "0.01"),
++        "ROLLBACK_VERIFY_MAX_ALLOW_RATE_DROP": os.getenv("ROLLBACK_VERIFY_MAX_ALLOW_RATE_DROP", "0.08"),
++    }
++
++    while True:
++        VERIFIER_UP.set(1)
++        t0 = time.perf_counter()
++        rows = await r.xreadgroup(group, consumer, {stream_results: ">"}, count=50, block=5000)
++        now_ms = _now_ms()
++        VERIFIER_LAST_RUN_TS.set(time.time())
++        for _stream, msgs in rows:
++            for msg_id, payload in msgs:
++                try:
++                    ts_ms = int(payload.get("ts_ms", now_ms))
++                    VERIFIER_QUEUE_LAG_MS.set(max(0, now_ms - ts_ms))
++
++                    recommendation_id = str(payload.get("recommendation_id", "") or "")
++                    model_id = str(payload.get("target_ref", "") or payload.get("model_id", "") or "")
++                    baseline_snapshot_json = payload.get("baseline_snapshot_json", "") or ""
++                    if baseline_snapshot_json:
++                        baseline = json.loads(baseline_snapshot_json)
++                    else:
++                        baseline = {}
++
++                    post = {}
++                    if model_id:
++                        post = await r.hgetall(f"{stream_snapshot_prefix}{model_id}")
++
++                    decision = compute_rollback_verification(baseline, post, cfg)
++
++                    verify_payload = {
++                        "recommendation_id": recommendation_id,
++                        "model_id": model_id,
++                        "verification_ts_ms": _now_ms(),
++                        "verification_status": decision.verification_status,
++                        "reason_codes": json.dumps(decision.reason_codes, ensure_ascii=False),
++                        "details": json.dumps(decision.details, ensure_ascii=False),
++                    }
++                    await r.xadd(stream_verify, verify_payload, maxlen=200_000, approximate=True)
++                    await r.xadd(
++                        stream_audit,
++                        {
++                            "event": "ROLLBACK_VERIFIED",
++                            "recommendation_id": recommendation_id,
++                            "model_id": model_id,
++                            "verification_status": decision.verification_status,
++                            "reason_codes": json.dumps(decision.reason_codes, ensure_ascii=False),
++                            "ts_ms": _now_ms(),
++                        },
++                        maxlen=500_000,
++                        approximate=True,
++                    )
++
++                    if decision.verification_status == "FAIL":
++                        hard = [x for x in decision.reason_codes if x in {"ERROR_RATE_SPIKE", "LATENCY_P95_REGRESSION"}]
++                        if hard:
++                            await r.xadd(
++                                rollback_requests_stream,
++                                {
++                                    "recommendation_id": recommendation_id,
++                                    "target_ref": model_id,
++                                    "reason": "POST_ROLLBACK_VERIFY_FAIL",
++                                    "replay_status": "PASS",
++                                    "ts_ms": _now_ms(),
++                                },
++                                maxlen=100_000,
++                                approximate=True,
++                            )
++
++                    if database_url and recommendation_id:
++                        await _persist_pg(database_url, verify_payload)
++
++                    VERIFIER_EVENTS.labels(decision.verification_status).inc()
++                finally:
++                    await r.xack(stream_results, group, msg_id)
++        VERIFIER_LOOP_SECONDS.observe(time.perf_counter() - t0)
++        await asyncio.sleep(float(os.getenv("ML_ROLLBACK_VERIFIER_IDLE_SLEEP_SEC", "0.5")))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    asyncio.run(main())
+diff --git a/orderflow_services/ml_rollback_state_machine_worker_v1.py b/orderflow_services/ml_rollback_state_machine_worker_v1.py
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/orderflow_services/ml_rollback_state_machine_worker_v1.py
+@@ -0,0 +1,324 @@
++from __future__ import annotations
++
++import asyncio
++import json
++import os
++import time
++from typing import Any, Dict, Optional, Tuple
++
++from prometheus_client import Counter, Gauge, Histogram, start_http_server
++
++from orderflow_services.rollback_state_machine_v1 import (
++    EVENT_MANUAL_ESCALATE,
++    EVENT_REQUEST_CREATED,
++    EVENT_ROLLBACK_EXECUTED,
++    EVENT_ROLLBACK_ERROR,
++    EVENT_VERIFY_FAIL,
++    EVENT_VERIFY_INCONCLUSIVE,
++    EVENT_VERIFY_PASS,
++    STATE_MANUAL_REVIEW,
++    STATE_REQUESTED,
++    apply_event,
++)
++
++
++SM_UP = Gauge("ml_rollback_state_machine_up", "Rollback state machine liveness")
++SM_LAST_RUN_TS = Gauge("ml_rollback_state_machine_last_run_ts_seconds", "Last state machine loop time")
++SM_TRANSITIONS = Counter("ml_rollback_state_machine_transitions_total", "Rollback transitions", ["event", "state"])
++SM_INVALID = Counter("ml_rollback_state_machine_invalid_total", "Invalid rollback transitions", ["event"])
++SM_LOOP_SECONDS = Histogram("ml_rollback_state_machine_loop_seconds", "Rollback state loop latency")
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _state_key(prefix: str, recommendation_id: str) -> str:
++    return f"{prefix}:{recommendation_id}"
++
++
++def _reason_codes(payload: Dict[str, Any]) -> str:
++    if "reason_codes" in payload:
++        return str(payload.get("reason_codes", "") or "")
++    if "reason_codes_json" in payload:
++        return str(payload.get("reason_codes_json", "") or "")
++    return ""
++
++
++def _event_from_request(_payload: Dict[str, Any]) -> str:
++    return EVENT_REQUEST_CREATED
++
++
++def _event_from_result(payload: Dict[str, Any]) -> str:
++    status = str(payload.get("status", "") or "").upper()
++    if status in {"OK", "SUCCESS", "DONE", "EXECUTED"}:
++        return EVENT_ROLLBACK_EXECUTED
++    return EVENT_ROLLBACK_ERROR
++
++
++def _event_from_verify(payload: Dict[str, Any]) -> str:
++    status = str(payload.get("verification_status", "") or payload.get("status", "")).upper()
++    if status in {"PASS", "ROLLBACK_SUCCESS"}:
++        return EVENT_VERIFY_PASS
++    if status in {"FAIL", "ROLLBACK_FAILED"}:
++        return EVENT_VERIFY_FAIL
++    return EVENT_VERIFY_INCONCLUSIVE
++
++
++async def _persist_pg(database_url: str, payload: Dict[str, Any]) -> None:
++    import asyncpg  # type: ignore
++
++    conn = await asyncpg.connect(database_url)
++    try:
++        await conn.execute(
++            """
++            INSERT INTO llm_rollback_state_history (
++                recommendation_id, ts_ms, prev_state, event, next_state, reason_codes_json
++            ) VALUES ($1, $2, $3, $4, $5, $6::jsonb)
++            """,
++            payload["recommendation_id"],
++            int(payload["ts_ms"]),
++            payload.get("prev_state"),
++            payload["event"],
++            payload["next_state"],
++            json.dumps(payload.get("reason_codes", [])),
++        )
++        await conn.execute(
++            """
++            UPDATE llm_recommendations
++               SET rollback_state = $2
++             WHERE recommendation_id = $1
++            """,
++            payload["recommendation_id"],
++            payload["next_state"],
++        )
++    finally:
++        await conn.close()
++
++
++async def _transition(
++    r: Any,
++    *,
++    database_url: str,
++    audit_stream: str,
++    state_stream: str,
++    state_prefix: str,
++    recommendation_id: str,
++    model_id: str,
++    event: str,
++    reason_codes: str,
++) -> None:
++    skey = _state_key(state_prefix, recommendation_id)
++    current = await r.hgetall(skey)
++    prev_state = current.get("rollback_state")
++    try:
++        tr = apply_event(prev_state, event)
++    except ValueError:
++        SM_INVALID.labels(event).inc()
++        await r.xadd(
++            audit_stream,
++            {
++                "event": "ROLLBACK_STATE_INVALID",
++                "recommendation_id": recommendation_id,
++                "model_id": model_id,
++                "prev_state": prev_state or "",
++                "attempted_event": event,
++                "reason_codes": reason_codes,
++                "ts_ms": _now_ms(),
++            },
++            maxlen=500_000,
++            approximate=True,
++        )
++        return
++
++    ts_ms = _now_ms()
++    body = {
++        "recommendation_id": recommendation_id,
++        "model_id": model_id,
++        "prev_state": tr.prev_state or "",
++        "event": tr.event,
++        "next_state": tr.next_state,
++        "reason_codes": reason_codes,
++        "ts_ms": ts_ms,
++    }
++
++    await r.hset(
++        skey,
++        mapping={
++            "recommendation_id": recommendation_id,
++            "model_id": model_id,
++            "rollback_state": tr.next_state,
++            "last_event": tr.event,
++            "updated_at_ms": ts_ms,
++            "reason_codes": reason_codes,
++        },
++    )
++    await r.expire(skey, int(os.getenv("ML_ROLLBACK_STATE_TTL_SEC", "604800")))
++    await r.xadd(state_stream, body, maxlen=200_000, approximate=True)
++    await r.xadd(
++        audit_stream,
++        {
++            "event": "ROLLBACK_STATE_TRANSITION",
++            **body,
++        },
++        maxlen=500_000,
++        approximate=True,
++    )
++    SM_TRANSITIONS.labels(event=tr.event, state=tr.next_state).inc()
++
++    if database_url:
++        await _persist_pg(
++            database_url,
++            {
++                "recommendation_id": recommendation_id,
++                "ts_ms": ts_ms,
++                "prev_state": tr.prev_state,
++                "event": tr.event,
++                "next_state": tr.next_state,
++                "reason_codes": [x.strip() for x in reason_codes.split(",") if x.strip()],
++            },
++        )
++
++
++async def _ensure_group(r: Any, stream_name: str, group: str) -> None:
++    try:
++        await r.xgroup_create(stream_name, group, id="0", mkstream=True)
++    except Exception:
++        pass
++
++
++async def main() -> None:
++    try:
++        import redis.asyncio as redis  # type: ignore
++    except Exception as exc:  # pragma: no cover
++        raise SystemExit(f"redis.asyncio is required: {exc}")
++
++    port = int(os.getenv("ML_ROLLBACK_STATE_MACHINE_METRICS_PORT", "9863"))
++    start_http_server(port)
++
++    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
++    r = redis.from_url(redis_url, decode_responses=True)
++    database_url = os.getenv("DATABASE_URL", "")
++
++    request_stream = os.getenv("ML_ROLLBACK_REQUESTS_STREAM", "stream:ml:recommendation_rollback_requests")
++    result_stream = os.getenv("ML_ROLLBACK_RESULTS_STREAM", "stream:ml:recommendation_rollback_results")
++    verify_stream = os.getenv("ML_ROLLBACK_VERIFY_RESULTS_STREAM", "stream:ml:recommendation_rollback_verification_results")
++    audit_stream = os.getenv("ML_RECOMMENDATION_AUDIT_STREAM", "stream:ml:recommendation_audit")
++    state_stream = os.getenv("ML_ROLLBACK_STATE_STREAM", "stream:ml:recommendation_rollback_state")
++    state_prefix = os.getenv("ML_ROLLBACK_STATE_PREFIX", "ml:rollback_state")
++    group = os.getenv("ML_ROLLBACK_STATE_GROUP", "cg:ml_rollback_state_machine")
++    consumer = os.getenv("ML_ROLLBACK_STATE_CONSUMER", os.getenv("HOSTNAME", "ml-rollback-state-machine-1"))
++
++    for s in (request_stream, result_stream, verify_stream):
++        await _ensure_group(r, s, group)
++
++    while True:
++        SM_UP.set(1)
++        t0 = time.perf_counter()
++        SM_LAST_RUN_TS.set(time.time())
++        rows = await r.xreadgroup(
++            group,
++            consumer,
++            {request_stream: ">", result_stream: ">", verify_stream: ">"},
++            count=100,
++            block=5000,
++        )
++        for stream_name, msgs in rows:
++            for msg_id, payload in msgs:
++                try:
++                    recommendation_id = str(payload.get("recommendation_id", "") or "")
++                    model_id = str(payload.get("target_ref", "") or payload.get("model_id", "") or "")
++                    if not recommendation_id:
++                        continue
++                    if stream_name == request_stream:
++                        event = _event_from_request(payload)
++                    elif stream_name == result_stream:
++                        event = _event_from_result(payload)
++                    else:
++                        event = _event_from_verify(payload)
++                    await _transition(
++                        r,
++                        database_url=database_url,
++                        audit_stream=audit_stream,
++                        state_stream=state_stream,
++                        state_prefix=state_prefix,
++                        recommendation_id=recommendation_id,
++                        model_id=model_id,
++                        event=event,
++                        reason_codes=_reason_codes(payload),
++                    )
++                finally:
++                    await r.xack(stream_name, group, msg_id)
++        SM_LOOP_SECONDS.observe(time.perf_counter() - t0)
++        await asyncio.sleep(float(os.getenv("ML_ROLLBACK_STATE_IDLE_SLEEP_SEC", "0.5")))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    asyncio.run(main())
+diff --git a/orderflow_services/sql/ml_phase1_7_v1.sql b/orderflow_services/sql/ml_phase1_7_v1.sql
+new file mode 100644
+index 0000000..4444444
+--- /dev/null
++++ b/orderflow_services/sql/ml_phase1_7_v1.sql
+@@ -0,0 +1,56 @@
++ALTER TABLE llm_recommendations
++    ADD COLUMN IF NOT EXISTS rollback_state text,
++    ADD COLUMN IF NOT EXISTS rollback_verification_status text,
++    ADD COLUMN IF NOT EXISTS rollback_verified_at_ms bigint,
++    ADD COLUMN IF NOT EXISTS rollback_failure_reason text;
++
++CREATE TABLE IF NOT EXISTS llm_rollback_verifications (
++    id bigserial PRIMARY KEY,
++    recommendation_id text NOT NULL,
++    verification_ts_ms bigint NOT NULL,
++    verification_status text NOT NULL,
++    reason_codes_json jsonb NOT NULL DEFAULT '[]'::jsonb,
++    details_json jsonb NOT NULL DEFAULT '{}'::jsonb
++);
++
++CREATE INDEX IF NOT EXISTS idx_llm_rollback_verifications_rec_ts
++    ON llm_rollback_verifications (recommendation_id, verification_ts_ms DESC);
++
++CREATE TABLE IF NOT EXISTS llm_rollback_state_history (
++    id bigserial PRIMARY KEY,
++    recommendation_id text NOT NULL,
++    ts_ms bigint NOT NULL,
++    prev_state text,
++    event text NOT NULL,
++    next_state text NOT NULL,
++    reason_codes_json jsonb NOT NULL DEFAULT '[]'::jsonb
++);
++
++CREATE INDEX IF NOT EXISTS idx_llm_rollback_state_history_rec_ts
++    ON llm_rollback_state_history (recommendation_id, ts_ms DESC);
+diff --git a/orderflow_services/docker_compose_fragment_ml_phase1_7_v1.yml b/orderflow_services/docker_compose_fragment_ml_phase1_7_v1.yml
+new file mode 100644
+index 0000000..5555555
+--- /dev/null
++++ b/orderflow_services/docker_compose_fragment_ml_phase1_7_v1.yml
+@@ -0,0 +1,44 @@
++version: "3.9"
++
++services:
++  scanner-ml-rollback-verifier-v1:
++    build:
++      context: ..
++      dockerfile: python-worker/Dockerfile
++    command: python -m orderflow_services.rollback_executor_verifier_v1
++    environment:
++      REDIS_URL: ${REDIS_URL}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_ROLLBACK_VERIFIER_METRICS_PORT: 9862
++      ROLLBACK_VERIFY_MAX_ERROR_RATE_DELTA: ${ROLLBACK_VERIFY_MAX_ERROR_RATE_DELTA:-0.01}
++      ROLLBACK_VERIFY_MAX_LATENCY_P95_DELTA_MS: ${ROLLBACK_VERIFY_MAX_LATENCY_P95_DELTA_MS:-1.5}
++      ROLLBACK_VERIFY_MAX_MISSING_CRITICAL_DELTA: ${ROLLBACK_VERIFY_MAX_MISSING_CRITICAL_DELTA:-0.01}
++      ROLLBACK_VERIFY_MAX_ALLOW_RATE_DROP: ${ROLLBACK_VERIFY_MAX_ALLOW_RATE_DROP:-0.08}
++    ports:
++      - "9862:9862"
++    restart: unless-stopped
++
++  scanner-ml-rollback-state-machine-v1:
++    build:
++      context: ..
++      dockerfile: python-worker/Dockerfile
++    command: python -m orderflow_services.ml_rollback_state_machine_worker_v1
++    environment:
++      REDIS_URL: ${REDIS_URL}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_ROLLBACK_STATE_MACHINE_METRICS_PORT: 9863
++      ML_ROLLBACK_STATE_TTL_SEC: ${ML_ROLLBACK_STATE_TTL_SEC:-604800}
++    ports:
++      - "9863:9863"
++    restart: unless-stopped
+diff --git a/orderflow_services/prometheus_alerts_ml_phase1_7_v1.yml b/orderflow_services/prometheus_alerts_ml_phase1_7_v1.yml
+new file mode 100644
+index 0000000..6666666
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_ml_phase1_7_v1.yml
+@@ -0,0 +1,32 @@
++groups:
++  - name: ml_phase1_7_rollback_loop
++    rules:
++      - alert: MLRollbackVerifierStale
++        expr: time() - ml_rollback_verifier_last_run_ts_seconds > 900
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Rollback verifier is stale"
++
++      - alert: MLRollbackStateMachineStale
++        expr: time() - ml_rollback_state_machine_last_run_ts_seconds > 900
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Rollback state machine worker is stale"
++
++      - alert: MLRollbackVerificationFailures
++        expr: increase(ml_rollback_verifier_events_total{status="FAIL"}[30m]) > 3
++        for: 10m
++        labels:
++          severity: critical
++        annotations:
++          summary: "Repeated rollback verification failures detected"
++
++      - alert: MLRollbackStateInvalidTransitions
++        expr: increase(ml_rollback_state_machine_invalid_total[30m]) > 0
++        for: 5m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Invalid rollback state transitions detected"
+diff --git a/orderflow_services/runbook_ml_phase1_7_v1.md b/orderflow_services/runbook_ml_phase1_7_v1.md
+new file mode 100644
+index 0000000..7777777
+--- /dev/null
++++ b/orderflow_services/runbook_ml_phase1_7_v1.md
+@@ -0,0 +1,47 @@
++# ML Phase 1.7 — Rollback Verification Loop
++
++## Scope
++- scanner_infra only
++- no UI / Nest / Next
++- hot path untouched
++
++## Components
++- `rollback_executor_verifier_v1.py`
++- `ml_rollback_state_machine_worker_v1.py`
++
++## Streams
++- input:
++  - `stream:ml:recommendation_rollback_requests`
++  - `stream:ml:recommendation_rollback_results`
++  - `stream:ml:recommendation_rollback_verification_results`
++- output:
++  - `stream:ml:recommendation_rollback_state`
++  - `stream:ml:recommendation_audit`
++
++## State machine
++- `REQUESTED`
++- `EXECUTED`
++- `VERIFY_PENDING`
++- `ROLLBACK_SUCCESS`
++- `ROLLBACK_FAILED`
++- `MANUAL_REVIEW`
++
++Terminal:
++- `ROLLBACK_SUCCESS`
++- `ROLLBACK_FAILED`
++- `MANUAL_REVIEW`
++
++## Smoke checks
++```bash
++redis-cli XREVRANGE stream:ml:recommendation_rollback_results + - COUNT 5
++redis-cli XREVRANGE stream:ml:recommendation_rollback_verification_results + - COUNT 5
++redis-cli XREVRANGE stream:ml:recommendation_rollback_state + - COUNT 10
++redis-cli XREVRANGE stream:ml:recommendation_audit + - COUNT 20
++curl -s localhost:9862/metrics | grep '^ml_rollback_'
++curl -s localhost:9863/metrics | grep '^ml_rollback_'
++```
++
++## Rollback
++- stop `scanner-ml-rollback-verifier-v1`
++- stop `scanner-ml-rollback-state-machine-v1`
++- leave SQL tables and streams in place
+diff --git a/orderflow_services/tests/test_rollback_state_machine_v1.py b/orderflow_services/tests/test_rollback_state_machine_v1.py
+new file mode 100644
+index 0000000..8888888
+--- /dev/null
++++ b/orderflow_services/tests/test_rollback_state_machine_v1.py
+@@ -0,0 +1,52 @@
++from orderflow_services.rollback_state_machine_v1 import (
++    EVENT_REQUEST_CREATED,
++    EVENT_ROLLBACK_EXECUTED,
++    EVENT_VERIFY_PASS,
++    EVENT_VERIFY_FAIL,
++    EVENT_VERIFY_INCONCLUSIVE,
++    EVENT_ROLLBACK_ERROR,
++    STATE_REQUESTED,
++    STATE_EXECUTED,
++    STATE_ROLLBACK_SUCCESS,
++    STATE_ROLLBACK_FAILED,
++    STATE_MANUAL_REVIEW,
++    apply_event,
++)
++
++
++def test_happy_path_transitions():
++    t1 = apply_event(None, EVENT_REQUEST_CREATED)
++    assert t1.next_state == STATE_REQUESTED
++
++    t2 = apply_event(t1.next_state, EVENT_ROLLBACK_EXECUTED)
++    assert t2.next_state == STATE_EXECUTED
++
++    t3 = apply_event(t2.next_state, EVENT_VERIFY_PASS)
++    assert t3.next_state == STATE_ROLLBACK_SUCCESS
++
++
++def test_fail_path_transitions():
++    t1 = apply_event(None, EVENT_REQUEST_CREATED)
++    t2 = apply_event(t1.next_state, EVENT_ROLLBACK_ERROR)
++    assert t2.next_state == STATE_ROLLBACK_FAILED
++
++
++def test_inconclusive_goes_manual_review():
++    t1 = apply_event(None, EVENT_REQUEST_CREATED)
++    t2 = apply_event(t1.next_state, EVENT_ROLLBACK_EXECUTED)
++    t3 = apply_event(t2.next_state, EVENT_VERIFY_INCONCLUSIVE)
++    assert t3.next_state == STATE_MANUAL_REVIEW
++
++
++def test_invalid_terminal_transition_raises():
++    t1 = apply_event(None, EVENT_REQUEST_CREATED)
++    t2 = apply_event(t1.next_state, EVENT_ROLLBACK_EXECUTED)
++    t3 = apply_event(t2.next_state, EVENT_VERIFY_FAIL)
++    assert t3.next_state == STATE_ROLLBACK_FAILED
++    try:
++        apply_event(t3.next_state, EVENT_VERIFY_PASS)
++    except ValueError:
++        assert True
++    else:
++        assert False
+diff --git a/orderflow_services/tests/test_rollback_executor_verifier_v1.py b/orderflow_services/tests/test_rollback_executor_verifier_v1.py
+new file mode 100644
+index 0000000..9999999
+--- /dev/null
++++ b/orderflow_services/tests/test_rollback_executor_verifier_v1.py
+@@ -0,0 +1,44 @@
++from orderflow_services.rollback_executor_verifier_v1 import compute_rollback_verification
++
++
++def test_verification_pass_when_metrics_recovered():
++    baseline = {
++        "error_rate_max": 0.01,
++        "latency_p95_max_ms": 3.0,
++        "missing_critical_rate_max": 0.01,
++        "allow_rate_avg": 0.25,
++    }
++    after = {
++        "error_rate_max": 0.011,
++        "latency_p95_max_ms": 3.5,
++        "missing_critical_rate_max": 0.01,
++        "allow_rate_avg": 0.22,
++    }
++    d = compute_rollback_verification(baseline, after, {})
++    assert d.verification_status == "PASS"
++    assert d.reason_codes == []
++
++
++def test_verification_fail_on_error_rate_or_latency_spike():
++    baseline = {
++        "error_rate_max": 0.01,
++        "latency_p95_max_ms": 3.0,
++        "missing_critical_rate_max": 0.01,
++        "allow_rate_avg": 0.25,
++    }
++    after = {
++        "error_rate_max": 0.05,
++        "latency_p95_max_ms": 6.0,
++        "missing_critical_rate_max": 0.01,
++        "allow_rate_avg": 0.25,
++    }
++    d = compute_rollback_verification(baseline, after, {})
++    assert d.verification_status == "FAIL"
++    assert "ERROR_RATE_SPIKE" in d.reason_codes
++    assert "LATENCY_P95_REGRESSION" in d.reason_codes
++
++
++def test_verification_inconclusive_on_missing_baseline():
++    d = compute_rollback_verification({}, {"error_rate_max": 0.01}, {})
++    assert d.verification_status == "INCONCLUSIVE"
++    assert "MISSING_BASELINE_SNAPSHOT" in d.reason_codes

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/orderflow_overrides_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 500.0, 200, 2500, 5000, 'OrderflowOverridesV1', 'abs_lvl_tier_range', 'abs_lvl_tier_thin', 'abs_lvl_tier_trend', 'atr_floor_t0_bps', 'atr_floor_t1_bps', 'atr_floor_t2_bps', 'burst_window_max_ms', 'burst_window_min_ms', 'canary', 'canary_share', 'canary_symbols', 'enabled', 'full', 'json_error', 'mode', 'not_dict', 'ok', 'promote_after_hours', 'rollout', 'rollout.mode', 'strong_need_reversal', 'updated_ts_ms', 'v']

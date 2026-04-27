@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/contextual_bundle_store_v1.py
+# hypothesis_version: 6.148.10
+
+[1000, 'bundle_version', 'created_ts_ms', 'empty bundle path', 'exec_cost_model.json', 'gate_cfg.json', 'manifest.json', 'r', 'sha256', 'utf-8']

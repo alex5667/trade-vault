@@ -1,0 +1,80 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {"type": "grafana", "uid": "-- Grafana --"},
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+        "enable": true,
+        "expr": "changes(trade_execution_rebuild_last_status_code[10m]) > 0",
+        "iconColor": "rgba(255, 191, 0, 1)",
+        "name": "Rebuild report updated",
+        "textFormat": "rebuild report refreshed",
+        "titleFormat": "rebuild"
+      },
+      {
+        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+        "enable": true,
+        "expr": "increase(execution_quarantine_events_total{action=\"RETENTION_GUARD_QUARANTINED\"}[10m]) > 0",
+        "iconColor": "rgba(255, 96, 96, 1)",
+        "name": "Retention-guard quarantine",
+        "textFormat": "retention guard quarantine triggered",
+        "titleFormat": "retention-guard"
+      },
+      {
+        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+        "enable": true,
+        "expr": "changes(trade_execution_autonomy_trigger_checkpoint_scrubber[10m]) > 0",
+        "iconColor": "rgba(80, 180, 255, 1)",
+        "name": "Autonomy scrubber trigger",
+        "textFormat": "health-based scrubber trigger changed",
+        "titleFormat": "auto-scrubber"
+      }
+    ]
+  },
+  "editable": true,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Rebuild latency p95",
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"expr": "trade_execution_rebuild_last_replay_latency_p95_ms", "refId": "A"}]
+    },
+    {
+      "type": "stat",
+      "title": "Rebuild retention guard count",
+      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"expr": "trade_execution_rebuild_last_retention_guard_count", "refId": "A"}]
+    },
+    {
+      "type": "stat",
+      "title": "Autonomy trigger scrubber",
+      "gridPos": {"h": 6, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"expr": "trade_execution_autonomy_trigger_checkpoint_scrubber", "refId": "A"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Replay latency histogram",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 6},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le) (rate(trade_execution_replay_latency_ms_bucket[5m])))", "refId": "A"}]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "title": "Trade Execution P3.3 Autonomy",
+  "uid": "trade-exec-p33-autonomy",
+  "version": 1,
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "utc"
+}

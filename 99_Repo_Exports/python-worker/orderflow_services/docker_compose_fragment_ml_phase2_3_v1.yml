@@ -1,0 +1,35 @@
+services:
+  scanner-ml-operator-rca-routing-v2-3:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    command: ["python", "-m", "orderflow_services.operator_rca_routing_controller_v2_3"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      ML_OPERATOR_RCA_ROUTING_MODE: ${ML_OPERATOR_RCA_ROUTING_MODE:-DRY_RUN}
+      ML_OPERATOR_RCA_DEFAULT_PROVIDER: ${ML_OPERATOR_RCA_DEFAULT_PROVIDER:-vertex}
+      ML_OPERATOR_RCA_DEFAULT_MODEL: ${ML_OPERATOR_RCA_DEFAULT_MODEL:-gemini-2.5-flash-lite}
+      ML_OPERATOR_RCA_DEFAULT_PROMPT_VERSION: ${ML_OPERATOR_RCA_DEFAULT_PROMPT_VERSION:-ml_triage_v1}
+      ML_OPERATOR_RCA_DEFAULT_POLICY_VERSION: ${ML_OPERATOR_RCA_DEFAULT_POLICY_VERSION:-policy_v1}
+      ML_OPERATOR_RCA_ROUTING_ALLOW_PROMOTE: ${ML_OPERATOR_RCA_ROUTING_ALLOW_PROMOTE:-1}
+      ML_OPERATOR_RCA_ROUTING_ALLOW_SUPPRESS: ${ML_OPERATOR_RCA_ROUTING_ALLOW_SUPPRESS:-1}
+      ML_OPERATOR_RCA_ROUTING_METRICS_PORT: ${ML_OPERATOR_RCA_ROUTING_METRICS_PORT:-9874}
+    ports:
+      - "9874:9874"
+    networks:
+      - scanner-network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "python", "-c", "print('ok')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+networks:
+  scanner-network:
+    external: true

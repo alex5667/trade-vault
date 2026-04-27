@@ -1,0 +1,33 @@
+services:
+  ofc-contextual-rollout-controller:
+    image: ${TRADE_ORDERFLOW_IMAGE:?}
+    working_dir: /app
+    environment:
+      PYTHONPATH: /app
+      REDIS_URL: ${REDIS_URL:?}
+      OFC_CTX_EXPORTER_SUMMARY_KEY: ${OFC_CTX_EXPORTER_SUMMARY_KEY:-metrics:ofc_contextual_exporter:last}
+      OFC_CTX_WRITER_SUMMARY_KEY: ${OFC_CTX_WRITER_SUMMARY_KEY:-metrics:ofc_contextual_writer:last}
+      OFC_CTX_NIGHTLY_SUMMARY_KEY: ${OFC_CTX_NIGHTLY_SUMMARY_KEY:-metrics:ofc_contextual_nightly:last}
+      OFC_CTX_ROLLOUT_STATE_KEY: ${OFC_CTX_ROLLOUT_STATE_KEY:-cfg:ofc_contextual:rollout:v1}
+      OFC_CTX_ROLLOUT_SUMMARY_KEY: ${OFC_CTX_ROLLOUT_SUMMARY_KEY:-metrics:ofc_contextual_rollout:last}
+      OFC_CTX_OVERLAY_ENV_PATH: ${OFC_CTX_OVERLAY_ENV_PATH:-/var/lib/trade/ofc_contextual_runtime_overlay.env}
+      OFC_CTX_ROLLBACK_FLAG_PATH: ${OFC_CTX_ROLLBACK_FLAG_PATH:-/var/lib/trade/ofc_contextual.rollback.flag}
+      OFC_CTX_CANARY_SYMBOLS: ${OFC_CTX_CANARY_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT}
+      OFC_CTX_ROLLOUT_APPLY: ${OFC_CTX_ROLLOUT_APPLY:-1}
+      OFC_CTX_CURRENT_MODE: ${OFC_CTX_CURRENT_MODE:-shadow}
+      OFC_CTX_ROLLOUT_MIN_OBSERVATIONS: ${OFC_CTX_ROLLOUT_MIN_OBSERVATIONS:-300}
+      OFC_CTX_MAX_SHADOW_DISAGREE_RATE: ${OFC_CTX_MAX_SHADOW_DISAGREE_RATE:-0.15}
+      OFC_CTX_MAX_FAIL_OPEN_RATE: ${OFC_CTX_MAX_FAIL_OPEN_RATE:-0.02}
+      OFC_CTX_MAX_FALLBACK_RATE: ${OFC_CTX_MAX_FALLBACK_RATE:-0.25}
+      OFC_CTX_MAX_BUNDLE_AGE_SEC: ${OFC_CTX_MAX_BUNDLE_AGE_SEC:-21600}
+      OFC_CTX_MAX_WRITER_LAG_SEC: ${OFC_CTX_MAX_WRITER_LAG_SEC:-120}
+      OFC_CTX_ROLLOUT_MIN_HOLD_SEC: ${OFC_CTX_ROLLOUT_MIN_HOLD_SEC:-1800}
+    volumes:
+      - ${TRADE_REPO_ROOT:?}:/app:ro
+      - /var/lib/trade:/var/lib/trade
+    command:
+      - python3
+      - -m
+      - orderflow_services.ofc_contextual_rollout_controller_v1
+      - --apply
+      - "${OFC_CTX_ROLLOUT_APPLY:-1}"

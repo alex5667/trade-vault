@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signals/volatility.py
+# hypothesis_version: 6.148.10
+
+[0.0, 100, 'h', 'high', 'high_24h', 'interval', 'l', 'low', 'low_24h', 'o', 'open', 'price_change_percent', 's', 'symbol', 't', 'threshold', 'timestamp', 'type', 'v', 'volatility', 'volatilityChange', 'volatilitySpike', 'volatility_24h', 'volume', 'x']

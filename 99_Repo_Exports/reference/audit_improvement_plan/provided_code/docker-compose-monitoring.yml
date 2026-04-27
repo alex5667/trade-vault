@@ -1,0 +1,130 @@
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: scanner-prometheus
+    profiles: ["monitoring"]
+    ports:
+    - 19090:9090
+    volumes:
+    - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    - ./prometheus:/etc/prometheus/prometheus
+    - ./websocket_alerts.yml:/etc/prometheus/websocket_alerts.yml
+    - ./regime_alerts.yml:/etc/prometheus/regime_alerts.yml
+    - ./orderflow_services:/etc/prometheus/orderflow_services
+    - prometheus-data:/prometheus
+    command:
+    - --config.file=/etc/prometheus/prometheus.yml
+    - --storage.tsdb.path=/prometheus
+    - --web.console.libraries=/etc/prometheus/console_libraries
+    - --web.console.templates=/etc/prometheus/consoles
+    - --storage.tsdb.retention.time=200h
+    - --web.enable-lifecycle
+    depends_on:
+    - go-worker-1m
+    - go-worker-5m
+    - go-worker-15m
+    - go-worker-1h
+    - go-worker-4h
+    - go-worker-1d
+    - go-worker-1w
+    - go-worker-1month
+    - go-worker-3month
+    - go-worker-1y
+    networks:
+    - scanner-network
+    restart: unless-stopped
+  grafana:
+    image: grafana/grafana:latest
+    container_name: scanner-grafana
+    profiles: ["monitoring"]
+    ports:
+    - 3001:3000
+    environment:
+    - GF_SECURITY_ADMIN_PASSWORD=admin
+    - GF_LOG_LEVEL=warn
+    volumes:
+    - grafana-data:/var/lib/grafana
+    depends_on:
+    - prometheus
+    networks:
+    - scanner-network
+    restart: unless-stopped
+
+  # ── Alertmanager Telegram Integration ──────────────────────────────────────
+  #
+  # alertmanager-telegram-webhook: internal FastAPI bridge that converts
+  # Alertmanager webhook payloads into Telegram Bot API messages.
+  # Alertmanager routes by severity → this webhook → Telegram.
+  #
+  # Required env vars (set in .env):
+  #   TELEGRAM_BOT_TOKEN    — Bot token from @BotFather
+  #   TELEGRAM_CHAT_ID      — Target chat/group/channel ID
+  # Optional:
+  #   TELEGRAM_MESSAGE_THREAD_ID — Forum topic ID (for supergroup topics)
+  #   ALERT_WEBHOOK_LOG_LEVEL    — Logging level (default: INFO)
+  #   ALERT_WEBHOOK_PORT_HOST    — Host-side port binding (default: 8081)
+  # ───────────────────────────────────────────────────────────────────────────
+  alertmanager-telegram-webhook:
+    build:
+      context: ./monitoring/alertmanager/telegram_webhook
+      dockerfile: Dockerfile
+    container_name: alertmanager-telegram-webhook
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - TELEGRAM_MESSAGE_THREAD_ID=${TELEGRAM_MESSAGE_THREAD_ID:-}
+      - WEBHOOK_PORT=8081
+      - LOG_LEVEL=${ALERT_WEBHOOK_LOG_LEVEL:-INFO}
+      # Public URLs for clickable links in Telegram (set to your domain/https)
+      - RUNBOOKS_BASE_URL=${RUNBOOKS_BASE_URL:-http://127.0.0.1:8082}
+      - GRAFANA_BASE_URL=${GRAFANA_BASE_URL:-http://127.0.0.1:3000}
+      - ALERTMANAGER_BASE_URL=${ALERTMANAGER_BASE_URL:-http://127.0.0.1:9093}
+      - PYTHONUNBUFFERED=1
+      # Anti-spam
+      - ALERT_DEDUPE_TTL_S=${ALERT_DEDUPE_TTL_S:-180}
+      - ALERT_RATE_LIMIT_PER_MIN=${ALERT_RATE_LIMIT_PER_MIN:-30}
+      # Routing
+      - TELEGRAM_ROUTING_JSON=${TELEGRAM_ROUTING_JSON:-}
+    ports:
+      - "${ALERT_WEBHOOK_PORT_HOST:-8081}:8081"
+    networks:
+      - scanner-network
+
+  # Alertmanager: receives fired alerts from Prometheus and routes by severity.
+  # UI: http://127.0.0.1:9093
+  # Config: ./monitoring/alertmanager/alertmanager.yml
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: scanner-alertmanager
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    volumes:
+      # Main config: routes and receivers (Telegram webhook wiring)
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - alertmanager-data:/alertmanager
+    ports:
+      - "9093:9093"
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    # Webhook must be reachable before alertmanager starts processing
+    depends_on:
+      - alertmanager-telegram-webhook
+    networks:
+      - scanner-network
+
+networks:
+  scanner-network:
+    external: true
+
+volumes:
+  alertmanager-data:
+    driver: local
+  grafana-data:
+    driver: local
+  prometheus-data:
+    driver: local

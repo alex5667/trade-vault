@@ -1,0 +1,1907 @@
+diff -ruN --no-dereference a/orderflow_services/grafana/README_p100_of_inputs_v3_circuit.md b/orderflow_services/grafana/README_p100_of_inputs_v3_circuit.md
+--- a/orderflow_services/grafana/README_p100_of_inputs_v3_circuit.md	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/grafana/README_p100_of_inputs_v3_circuit.md	2026-02-25 18:07:28.063498459 +0000
+@@ -0,0 +1,14 @@
++# Grafana: OFInputs V3 Circuit (P100)
++
++Dashboard JSON: `of_inputs_v3_circuit_p100.json`
++
++Что показывает:
++- Сколько символов сейчас отключены для V3 (Redis cfg:of_inputs:v3_disabled:*).
++- Суммарные даунгрейды в текущем окне по причинам (ZSET state:of_inputs:v3_downgrades:{reason}:{sym}).
++- Возраст последнего poll exporter's state (health сигнал, чтобы не потерять наблюдаемость).
++
++Источник метрик:
++- `orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py`
++
++Рекомендация:
++- В Prometheus лучше скрапить exporter отдельным job'ом (например job="of_inputs_v3_circuit").
+diff -ruN --no-dereference a/orderflow_services/grafana/of_inputs_v3_circuit_p100.json b/orderflow_services/grafana/of_inputs_v3_circuit_p100.json
+--- a/orderflow_services/grafana/of_inputs_v3_circuit_p100.json	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/grafana/of_inputs_v3_circuit_p100.json	2026-02-25 18:07:04.427623037 +0000
+@@ -0,0 +1,318 @@
++{
++  "annotations": {
++    "list": [
++      {
++        "builtIn": 1,
++        "datasource": {
++          "type": "grafana",
++          "uid": "-- Grafana --"
++        },
++        "enable": true,
++        "hide": true,
++        "iconColor": "rgba(0, 211, 255, 1)",
++        "name": "Annotations & Alerts",
++        "type": "dashboard"
++      }
++    ]
++  },
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "id": null,
++  "links": [],
++  "liveNow": false,
++  "panels": [
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "axisBorderShow": false,
++            "axisCenteredZero": false,
++            "axisColorMode": "text",
++            "axisLabel": "",
++            "axisPlacement": "auto",
++            "barAlignment": 0,
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "gradientMode": "none",
++            "hideFrom": {
++              "legend": false,
++              "tooltip": false,
++              "viz": false
++            },
++            "insertNulls": false,
++            "lineInterpolation": "linear",
++            "lineWidth": 1,
++            "pointSize": 5,
++            "scaleDistribution": {
++              "type": "linear"
++            },
++            "showPoints": "never",
++            "spanNulls": true,
++            "stacking": {
++              "group": "A",
++              "mode": "none"
++            },
++            "thresholdsStyle": {
++              "mode": "off"
++            }
++          },
++          "mappings": [],
++          "thresholds": {
++            "mode": "absolute",
++            "steps": [
++              {
++                "color": "green",
++                "value": null
++              },
++              {
++                "color": "red",
++                "value": 1
++              }
++            ]
++          }
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 0
++      },
++      "id": 1,
++      "options": {
++        "legend": {
++          "calcs": [
++            "lastNotNull",
++            "max"
++          ],
++          "displayMode": "table",
++          "placement": "right",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "expr": "sum(of_inputs_v3_circuit_cfg_disabled)",
++          "legendFormat": "disabled_symbols",
++          "refId": "A"
++        }
++      ],
++      "title": "OFInputs V3 circuit: disabled symbols (count)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "axisBorderShow": false,
++            "axisCenteredZero": false,
++            "axisColorMode": "text",
++            "axisLabel": "",
++            "axisPlacement": "auto",
++            "barAlignment": 0,
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "gradientMode": "none",
++            "hideFrom": {
++              "legend": false,
++              "tooltip": false,
++              "viz": false
++            },
++            "insertNulls": false,
++            "lineInterpolation": "linear",
++            "lineWidth": 1,
++            "pointSize": 5,
++            "scaleDistribution": {
++              "type": "linear"
++            },
++            "showPoints": "never",
++            "spanNulls": true,
++            "stacking": {
++              "group": "A",
++              "mode": "none"
++            },
++            "thresholdsStyle": {
++              "mode": "off"
++            }
++          },
++          "mappings": [],
++          "unit": "s"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 8
++      },
++      "id": 2,
++      "options": {
++        "legend": {
++          "calcs": [
++            "lastNotNull",
++            "max"
++          ],
++          "displayMode": "table",
++          "placement": "right",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "expr": "sum by (reason) (of_inputs_v3_circuit_downgrades_window)",
++          "legendFormat": "{{reason}}",
++          "refId": "A"
++        }
++      ],
++      "title": "OFInputs V3 circuit: downgrades in window (sum by reason)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "axisBorderShow": false,
++            "axisCenteredZero": false,
++            "axisColorMode": "text",
++            "axisLabel": "",
++            "axisPlacement": "auto",
++            "barAlignment": 0,
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "gradientMode": "none",
++            "hideFrom": {
++              "legend": false,
++              "tooltip": false,
++              "viz": false
++            },
++            "insertNulls": false,
++            "lineInterpolation": "linear",
++            "lineWidth": 1,
++            "pointSize": 5,
++            "scaleDistribution": {
++              "type": "linear"
++            },
++            "showPoints": "never",
++            "spanNulls": true,
++            "stacking": {
++              "group": "A",
++              "mode": "none"
++            },
++            "thresholdsStyle": {
++              "mode": "off"
++            }
++          },
++          "mappings": [],
++          "thresholds": {
++            "mode": "absolute",
++            "steps": [
++              {
++                "color": "green",
++                "value": null
++              },
++              {
++                "color": "red",
++                "value": 1
++              }
++            ]
++          }
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 16
++      },
++      "id": 3,
++      "options": {
++        "legend": {
++          "calcs": [
++            "lastNotNull",
++            "max"
++          ],
++          "displayMode": "table",
++          "placement": "right",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "expr": "(time()*1000 - max(of_inputs_v3_circuit_state_exporter_poll_ts_ms))/1000",
++          "legendFormat": "poll_age_sec",
++          "refId": "A"
++        }
++      ],
++      "title": "OFInputs V3 circuit exporter: poll age (sec)",
++      "type": "timeseries"
++    }
++  ],
++  "refresh": "10s",
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": [
++    "of_inputs",
++    "circuit",
++    "p100"
++  ],
++  "templating": {
++    "list": [
++      {
++        "current": {
++          "selected": false,
++          "text": "Prometheus",
++          "value": "Prometheus"
++        },
++        "hide": 0,
++        "includeAll": false,
++        "label": "Datasource",
++        "multi": false,
++        "name": "DS_PROMETHEUS",
++        "options": [],
++        "query": "prometheus",
++        "refresh": 1,
++        "regex": "",
++        "skipUrlSync": false,
++        "type": "datasource"
++      }
++    ]
++  },
++  "time": {
++    "from": "now-6h",
++    "to": "now"
++  },
++  "timepicker": {},
++  "timezone": "browser",
++  "title": "OFInputs V3 Circuit (P100)",
++  "uid": null,
++  "version": 1,
++  "weekStart": ""
++}
+\ No newline at end of file
+diff -ruN --no-dereference a/orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py b/orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py
+--- a/orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py	2026-02-25 18:04:38.744857182 +0000
+@@ -0,0 +1,439 @@
++"""OFInputs V3 circuit state exporter (P100).
++
++Purpose
++- Export Redis-backed circuit breaker state for deterministic V3->V2 fallback.
++- Use Redis cfg/state keys as the source-of-truth (survives worker restarts).
++
++Keys read
++- cfg:of_inputs:v3_disabled:{sym} (JSON + TTL)
++- state:of_inputs:v3_downgrades:{reason}:{sym} (ZSET windowed)
++- cfg:of_inputs_v3:auto_apply_block_global:{reason} (optional)
++- cfg:of_inputs_v3:auto_apply_block:{sym}:{reason} (optional)
++
++Outputs (Prometheus)
++- of_inputs_v3_circuit_state_exporter_up
++- of_inputs_v3_circuit_state_exporter_poll_ts_ms
++- of_inputs_v3_circuit_state_exporter_errors_total
++
++- of_inputs_v3_circuit_cfg_disabled{symbol,reason} = 1
++- of_inputs_v3_circuit_cfg_disabled_until_ms{symbol,reason}
++- of_inputs_v3_circuit_cfg_disabled_ttl_ms{symbol,reason}
++- of_inputs_v3_circuit_disabled_symbols
++- of_inputs_v3_circuit_disabled_symbols_by_reason{reason}
++
++- of_inputs_v3_circuit_downgrades_window{symbol,reason}  (ZCARD)
++- of_inputs_v3_circuit_downgrades_window_sum{reason}
++
++- of_inputs_v3_circuit_auto_apply_block_global_active{reason}
++- of_inputs_v3_circuit_auto_apply_block_global_ttl_ms{reason}
++- of_inputs_v3_circuit_auto_apply_block_symbol_active{symbol,reason}
++- of_inputs_v3_circuit_auto_apply_block_symbol_ttl_ms{symbol,reason}
++
++ENV
++- REDIS_URL or CRYPTO_NOTIFY_REDIS_URL (required)
++- OF_INPUTS_V3_CIRCUIT_EXPORTER_PORT (default: 9164)
++- OF_INPUTS_V3_CIRCUIT_EXPORTER_REFRESH_SEC (default: 10)
++
++Cardinality control
++- By default the exporter emits per-symbol series only for symbols that currently
++  have circuit keys present (disabled keys, downgrade zsets, auto-apply block keys).
++- Optional allowlist envs:
++    OF_INPUTS_V3_CIRCUIT_EXPORTER_SYMBOLS="BTCUSDT,ETHUSDT"
++    OF_INPUTS_V3_CIRCUIT_EXPORTER_REASONS="seq_gap,missing_lob_fields,latency"
++
++Run
++  python -m orderflow_services.of_inputs_v3_circuit_state_exporter_p100
++"""
++
++from __future__ import annotations
++
++import json
++import os
++import time
++from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
++
++from prometheus_client import Gauge, start_http_server  # type: ignore
++
++
++# ---- helpers
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _as_str(x: Any, default: str = "") -> str:
++    try:
++        if x is None:
++            return default
++        if isinstance(x, (bytes, bytearray)):
++            return x.decode("utf-8", "ignore")
++        return str(x)
++    except Exception:
++        return default
++
++
++def _as_int(x: Any, default: int = 0) -> int:
++    try:
++        if x is None or isinstance(x, bool):
++            return int(default)
++        if isinstance(x, (int, float)):
++            return int(x)
++        s = _as_str(x).strip()
++        return int(float(s)) if s else int(default)
++    except Exception:
++        return int(default)
++
++
++def _json_loads(s: Optional[str]) -> Dict[str, Any]:
++    if not s:
++        return {}
++    try:
++        obj = json.loads(s)
++        return obj if isinstance(obj, dict) else {}
++    except Exception:
++        return {}
++
++
++def _parse_csv(raw: str, upper: bool = True) -> List[str]:
++    raw = str(raw or "").strip()
++    if not raw:
++        return []
++    xs: List[str] = []
++    for p in raw.replace(";", ",").split(","):
++        s = p.strip()
++        s = s.upper() if upper else s
++        if s and s not in xs:
++            xs.append(s)
++    return xs
++
++
++def _connect_redis():
++    rurl = os.getenv("REDIS_URL") or os.getenv("CRYPTO_NOTIFY_REDIS_URL") or ""
++    if not str(rurl).strip():
++        return None
++    try:
++        import redis  # type: ignore
++
++        return redis.Redis.from_url(rurl, decode_responses=True)
++    except Exception:
++        return None
++
++
++def _remove_stale(g: Gauge, prev: Set[Tuple[str, ...]], cur: Set[Tuple[str, ...]]) -> Set[Tuple[str, ...]]:
++    stale = prev - cur
++    for lv in stale:
++        try:
++            g.remove(*lv)
++        except Exception:
++            # best-effort
++            pass
++    return cur
++
++
++# ---- metrics
++
++G_UP = Gauge("of_inputs_v3_circuit_state_exporter_up", "1 if exporter loop is running")
++G_POLL_TS_MS = Gauge("of_inputs_v3_circuit_state_exporter_poll_ts_ms", "Last poll timestamp (ms)")
++G_ERRORS_TOTAL = Gauge("of_inputs_v3_circuit_state_exporter_errors_total", "Cumulative exporter loop errors")
++
++G_DISABLED = Gauge(
++    "of_inputs_v3_circuit_cfg_disabled",
++    "1 if cfg disables V3 inputs for symbol",
++    ["symbol", "reason"],
++)
++G_DISABLED_UNTIL_MS = Gauge(
++    "of_inputs_v3_circuit_cfg_disabled_until_ms",
++    "Disable until timestamp (ms) derived from cfg disable key",
++    ["symbol", "reason"],
++)
++G_DISABLED_TTL_MS = Gauge(
++    "of_inputs_v3_circuit_cfg_disabled_ttl_ms",
++    "Redis PTTL for cfg disable key (ms)",
++    ["symbol", "reason"],
++)
++G_DISABLED_SYMBOLS = Gauge(
++    "of_inputs_v3_circuit_disabled_symbols",
++    "Count of currently disabled symbols",
++)
++G_DISABLED_BY_REASON = Gauge(
++    "of_inputs_v3_circuit_disabled_symbols_by_reason",
++    "Count of currently disabled symbols by reason",
++    ["reason"],
++)
++
++G_DG = Gauge(
++    "of_inputs_v3_circuit_downgrades_window",
++    "Downgrades in sliding window (ZSET cardinality)",
++    ["symbol", "reason"],
++)
++G_DG_SUM = Gauge(
++    "of_inputs_v3_circuit_downgrades_window_sum",
++    "Sum of downgrades across symbols in current window",
++    ["reason"],
++)
++
++G_AP_GLOB = Gauge(
++    "of_inputs_v3_circuit_auto_apply_block_global_active",
++    "1 if global auto-apply block key is present",
++    ["reason"],
++)
++G_AP_GLOB_TTL_MS = Gauge(
++    "of_inputs_v3_circuit_auto_apply_block_global_ttl_ms",
++    "TTL ms for global auto-apply block",
++    ["reason"],
++)
++G_AP_SYM = Gauge(
++    "of_inputs_v3_circuit_auto_apply_block_symbol_active",
++    "1 if per-symbol auto-apply block key is present",
++    ["symbol", "reason"],
++)
++G_AP_SYM_TTL_MS = Gauge(
++    "of_inputs_v3_circuit_auto_apply_block_symbol_ttl_ms",
++    "TTL ms for per-symbol auto-apply block",
++    ["symbol", "reason"],
++)
++
++
++# ---- key parsing
++
++CFG_DISABLED_PREFIX = "cfg:of_inputs:v3_disabled:"
++STATE_DG_PREFIX = "state:of_inputs:v3_downgrades:"
++AP_GLOB_PREFIX = "cfg:of_inputs_v3:auto_apply_block_global:"
++AP_SYM_PREFIX = "cfg:of_inputs_v3:auto_apply_block:"
++
++
++def _sym_from_cfg_disabled_key(key: str) -> str:
++    if not key.startswith(CFG_DISABLED_PREFIX):
++        return ""
++    return key[len(CFG_DISABLED_PREFIX) :].strip().upper()
++
++
++def _reason_sym_from_dg_key(key: str) -> Tuple[str, str]:
++    if not key.startswith(STATE_DG_PREFIX):
++        return ("", "")
++    rest = key[len(STATE_DG_PREFIX) :]
++    if ":" not in rest:
++        return ("", "")
++    reason, sym = rest.split(":", 1)
++    return (reason.strip().lower() or "unknown", sym.strip().upper())
++
++
++def _reason_from_ap_glob_key(key: str) -> str:
++    if not key.startswith(AP_GLOB_PREFIX):
++        return ""
++    return key[len(AP_GLOB_PREFIX) :].strip().lower() or "unknown"
++
++
++def _sym_reason_from_ap_sym_key(key: str) -> Tuple[str, str]:
++    if not key.startswith(AP_SYM_PREFIX):
++        return ("", "")
++    rest = key[len(AP_SYM_PREFIX) :]
++    if ":" not in rest:
++        return ("", "")
++    sym, reason = rest.split(":", 1)
++    return (sym.strip().upper(), reason.strip().lower() or "unknown")
++
++
++def _iter_scan(r, pattern: str) -> Iterable[str]:
++    try:
++        # scan_iter is available on redis-py
++        yield from r.scan_iter(match=pattern, count=1000)
++    except Exception:
++        return
++
++
++def _derive_until_ms(meta: Dict[str, Any], now_ms: int, pttl_ms: int) -> Tuple[int, str]:
++    # Mirror services.orderflow.of_inputs_v3_circuit.refresh_disabled_state semantics.
++    until_ms = _as_int(meta.get("until_ms"), 0)
++    reason = _as_str(meta.get("reason") or meta.get("dq_code") or "cfg", "cfg")
++
++    if until_ms <= 0:
++        if pttl_ms < 0:
++            # No TTL (manual) => represent as far future.
++            until_ms = now_ms + 10 * 365 * 24 * 3600 * 1000
++            reason = reason or "manual_no_ttl"
++        else:
++            until_ms = now_ms + max(0, int(pttl_ms))
++            reason = reason or "cfg_ttl"
++
++    return int(until_ms), str(reason or "cfg")
++
++
++def main() -> None:
++    port = int(os.environ.get("OF_INPUTS_V3_CIRCUIT_EXPORTER_PORT", "9164"))
++    refresh = float(os.environ.get("OF_INPUTS_V3_CIRCUIT_EXPORTER_REFRESH_SEC", "10"))
++
++    symbols_allow = _parse_csv(os.environ.get("OF_INPUTS_V3_CIRCUIT_EXPORTER_SYMBOLS", ""), upper=True)
++    reasons_allow = _parse_csv(os.environ.get("OF_INPUTS_V3_CIRCUIT_EXPORTER_REASONS", ""), upper=False)
++
++    r = _connect_redis()
++    if r is None:
++        raise SystemExit("REDIS_URL (or CRYPTO_NOTIFY_REDIS_URL) is required")
++
++    start_http_server(port)
++
++    prev_disabled: Set[Tuple[str, ...]] = set()
++    prev_until: Set[Tuple[str, ...]] = set()
++    prev_ttl: Set[Tuple[str, ...]] = set()
++    prev_dg: Set[Tuple[str, ...]] = set()
++    prev_ap_glob: Set[Tuple[str, ...]] = set()
++    prev_ap_glob_ttl: Set[Tuple[str, ...]] = set()
++    prev_ap_sym: Set[Tuple[str, ...]] = set()
++    prev_ap_sym_ttl: Set[Tuple[str, ...]] = set()
++
++    while True:
++        now_ms = _now_ms()
++        G_UP.set(1)
++        G_POLL_TS_MS.set(now_ms)
++
++        cur_disabled: Set[Tuple[str, ...]] = set()
++        cur_until: Set[Tuple[str, ...]] = set()
++        cur_ttl: Set[Tuple[str, ...]] = set()
++        cur_dg: Set[Tuple[str, ...]] = set()
++        cur_ap_glob: Set[Tuple[str, ...]] = set()
++        cur_ap_glob_ttl: Set[Tuple[str, ...]] = set()
++        cur_ap_sym: Set[Tuple[str, ...]] = set()
++        cur_ap_sym_ttl: Set[Tuple[str, ...]] = set()
++
++        disabled_by_reason: Dict[str, int] = {}
++        dg_sum: Dict[str, int] = {}
++
++        try:
++            # ---- cfg disabled
++            disabled_keys = list(_iter_scan(r, CFG_DISABLED_PREFIX + "*"))
++            if symbols_allow:
++                # ensure we also check allowlisted symbols even when key missing (for removal correctness)
++                disabled_keys = disabled_keys + [CFG_DISABLED_PREFIX + s for s in symbols_allow]
++
++            # Pipeline GET+PTTL for all unique keys.
++            uniq_keys = []
++            seen_k = set()
++            for k in disabled_keys:
++                if k in seen_k:
++                    continue
++                seen_k.add(k)
++                uniq_keys.append(k)
++
++            if uniq_keys:
++                pipe = r.pipeline(transaction=False)
++                for k in uniq_keys:
++                    pipe.get(k)
++                    pipe.pttl(k)
++                raw = pipe.execute()
++
++                # raw is [get1, pttl1, get2, pttl2, ...]
++                for i in range(0, len(raw), 2):
++                    k = uniq_keys[i // 2]
++                    v = raw[i]
++                    pttl = _as_int(raw[i + 1], -2)
++                    sym = _sym_from_cfg_disabled_key(k)
++                    if not sym:
++                        continue
++
++                    if v is None:
++                        # no key => nothing to emit for this sym
++                        continue
++
++                    meta = _json_loads(v)
++                    until_ms, reason = _derive_until_ms(meta, now_ms=now_ms, pttl_ms=pttl)
++                    active = 1 if until_ms > now_ms else 0
++
++                    lv = (sym, reason)
++                    G_DISABLED.labels(symbol=sym, reason=reason).set(active)
++                    G_DISABLED_UNTIL_MS.labels(symbol=sym, reason=reason).set(until_ms)
++                    G_DISABLED_TTL_MS.labels(symbol=sym, reason=reason).set(max(-2, pttl))
++
++                    cur_disabled.add(lv)
++                    cur_until.add(lv)
++                    cur_ttl.add(lv)
++
++                    if active:
++                        disabled_by_reason[reason] = disabled_by_reason.get(reason, 0) + 1
++
++            # disabled aggregates
++            disabled_n = sum(disabled_by_reason.values())
++            G_DISABLED_SYMBOLS.set(disabled_n)
++
++            # Keep stable 0 series for allowlisted reasons if provided.
++            reasons_for_zero = set(reasons_allow) if reasons_allow else set(disabled_by_reason.keys())
++            for rsn in reasons_for_zero:
++                rsn_s = str(rsn or "unknown").lower()
++                G_DISABLED_BY_REASON.labels(reason=rsn_s).set(int(disabled_by_reason.get(rsn_s, 0)))
++
++            # ---- downgrades zsets
++            dg_keys = list(_iter_scan(r, STATE_DG_PREFIX + "*"))
++            # Optionally constrain to allowlisted symbols/reasons.
++            for k in dg_keys:
++                reason, sym = _reason_sym_from_dg_key(k)
++                if not reason or not sym:
++                    continue
++                if symbols_allow and sym not in symbols_allow:
++                    continue
++                if reasons_allow and reason not in [x.lower() for x in reasons_allow]:
++                    continue
++
++                try:
++                    c = _as_int(r.zcard(k), 0)
++                except Exception:
++                    c = 0
++
++                lv = (sym, reason)
++                G_DG.labels(symbol=sym, reason=reason).set(c)
++                cur_dg.add(lv)
++
++                dg_sum[reason] = dg_sum.get(reason, 0) + int(c)
++
++            # dg sum series
++            reasons_for_zero = set(reasons_allow) if reasons_allow else set(dg_sum.keys())
++            for rsn in reasons_for_zero:
++                rsn_s = str(rsn or "unknown").lower()
++                G_DG_SUM.labels(reason=rsn_s).set(int(dg_sum.get(rsn_s, 0)))
++
++            # ---- auto-apply blocks (global)
++            for k in _iter_scan(r, AP_GLOB_PREFIX + "*"):
++                rsn = _reason_from_ap_glob_key(k)
++                if not rsn:
++                    continue
++                if reasons_allow and rsn not in [x.lower() for x in reasons_allow]:
++                    continue
++
++                ttl = _as_int(r.pttl(k), -2)
++                G_AP_GLOB.labels(reason=rsn).set(1)
++                G_AP_GLOB_TTL_MS.labels(reason=rsn).set(max(-2, ttl))
++                cur_ap_glob.add((rsn,))
++                cur_ap_glob_ttl.add((rsn,))
++
++            # ---- auto-apply blocks (per-symbol)
++            for k in _iter_scan(r, AP_SYM_PREFIX + "*"):
++                sym, rsn = _sym_reason_from_ap_sym_key(k)
++                if not sym or not rsn:
++                    continue
++                if symbols_allow and sym not in symbols_allow:
++                    continue
++                if reasons_allow and rsn not in [x.lower() for x in reasons_allow]:
++                    continue
++
++                ttl = _as_int(r.pttl(k), -2)
++                G_AP_SYM.labels(symbol=sym, reason=rsn).set(1)
++                G_AP_SYM_TTL_MS.labels(symbol=sym, reason=rsn).set(max(-2, ttl))
++                cur_ap_sym.add((sym, rsn))
++                cur_ap_sym_ttl.add((sym, rsn))
++
++        except Exception:
++            G_ERRORS_TOTAL.inc()
++
++        # prune stale labels
++        prev_disabled = _remove_stale(G_DISABLED, prev_disabled, cur_disabled)
++        prev_until = _remove_stale(G_DISABLED_UNTIL_MS, prev_until, cur_until)
++        prev_ttl = _remove_stale(G_DISABLED_TTL_MS, prev_ttl, cur_ttl)
++        prev_dg = _remove_stale(G_DG, prev_dg, cur_dg)
++        prev_ap_glob = _remove_stale(G_AP_GLOB, prev_ap_glob, cur_ap_glob)
++        prev_ap_glob_ttl = _remove_stale(G_AP_GLOB_TTL_MS, prev_ap_glob_ttl, cur_ap_glob_ttl)
++        prev_ap_sym = _remove_stale(G_AP_SYM, prev_ap_sym, cur_ap_sym)
++        prev_ap_sym_ttl = _remove_stale(G_AP_SYM_TTL_MS, prev_ap_sym_ttl, cur_ap_sym_ttl)
++
++        time.sleep(max(1.0, float(refresh)))
++
++
++if __name__ == "__main__":
++    main()
+diff -ruN --no-dereference a/orderflow_services/prometheus_alerts_of_inputs_v3_circuit_p100.yml b/orderflow_services/prometheus_alerts_of_inputs_v3_circuit_p100.yml
+--- a/orderflow_services/prometheus_alerts_of_inputs_v3_circuit_p100.yml	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/prometheus_alerts_of_inputs_v3_circuit_p100.yml	2026-02-25 18:05:15.306285717 +0000
+@@ -0,0 +1,54 @@
++groups:
++  - name: of_inputs_v3_circuit_p100
++    rules:
++      - alert: OFInputsV3CircuitExporterStale
++        expr: (time() * 1000) - max(of_inputs_v3_circuit_state_exporter_poll_ts_ms) > 60000
++        for: 5m
++        labels:
++          severity: critical
++          component: of_inputs
++        annotations:
++          summary: "OFInputs V3 circuit exporter is stale"
++          description: "Exporter loop has not updated poll_ts_ms for >60s. Circuit state may be invisible to Prometheus. Check exporter process and Redis connectivity."
++
++      - alert: OFInputsV3CircuitDisabledAny
++        expr: sum(of_inputs_v3_circuit_cfg_disabled) > 0
++        for: 2m
++        labels:
++          severity: warning
++          component: of_inputs
++        annotations:
++          summary: "OFInputs V3 circuit disabled for at least one symbol"
++          description: "Circuit breaker disabled V3 inputs for {{ $value }} symbol(s). Use runbook_of_inputs_v3_circuit_p100.md to drill down (cfg:of_inputs:v3_disabled:*)."
++
++      - alert: OFInputsV3CircuitDisabledMany
++        expr: sum(of_inputs_v3_circuit_cfg_disabled) > 5
++        for: 2m
++        labels:
++          severity: critical
++          component: of_inputs
++        annotations:
++          summary: "OFInputs V3 circuit disabled for many symbols"
++          description: "Circuit breaker disabled V3 inputs for {{ $value }} symbol(s). Likely systemic V3 inputs degradation (book lag / missing LOB fields / Redis issues)."
++
++      - alert: OFInputsV3CircuitPreTripDowngrades
++        # Pre-trip signal: if any symbol accumulates 2+ downgrades within the sliding window,
++        # it is close to tripping (defaults: max_downgrades_in_window=3, window_ms=60000).
++        expr: max by (symbol, reason) (of_inputs_v3_circuit_downgrades_window) >= 2
++        for: 2m
++        labels:
++          severity: info
++          component: of_inputs
++        annotations:
++          summary: "OFInputs V3 downgrades approaching circuit trip"
++          description: "Symbol {{ $labels.symbol }} reason={{ $labels.reason }} has {{ $value }} downgrades within the window; if it reaches the trip threshold it will be disabled and fallback to V2."
++
++      - alert: OFInputsV3CircuitAutoApplyBlockedGlobal
++        expr: max(of_inputs_v3_circuit_auto_apply_block_global_active) > 0
++        for: 2m
++        labels:
++          severity: warning
++          component: of_inputs
++        annotations:
++          summary: "Global auto-apply blocked by OFInputs V3 circuit"
++          description: "Global auto-apply block key is present (cfg:of_inputs_v3:auto_apply_block_global:*). This is fail-closed to prevent automated promotions during inputs degradation."
+diff -ruN --no-dereference a/orderflow_services/runbook_of_inputs_v3_circuit_p100.md b/orderflow_services/runbook_of_inputs_v3_circuit_p100.md
+--- a/orderflow_services/runbook_of_inputs_v3_circuit_p100.md	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/runbook_of_inputs_v3_circuit_p100.md	2026-02-25 18:05:58.609784788 +0000
+@@ -0,0 +1,91 @@
++# Runbook: OFInputs V3 circuit breaker (P100)
++
++## 1) Симптомы
++
++- Prometheus alert `OFInputsV3CircuitDisabledAny|Many`.
++- В логе tick path / of_inputs пайплайна увеличивается V3→V2 fallback.
++- Auto-apply блокируется (fail-closed) ключами `cfg:of_inputs_v3:auto_apply_block_*`.
++
++## 2) Быстрый triage (Redis)
++
++### 2.1 Список отключённых символов
++
++```bash
++redis-cli --scan --pattern 'cfg:of_inputs:v3_disabled:*'
++```
++
++### 2.2 Посмотреть причину и until_ms
++
++```bash
++# пример
++redis-cli GET 'cfg:of_inputs:v3_disabled:BTCUSDT'
++redis-cli PTTL 'cfg:of_inputs:v3_disabled:BTCUSDT'
++```
++
++Ожидаемый JSON (пример):
++
++```json
++{"until_ms":1700000000000,"reason":"seq_gap","trip_ts_ms":1699999999000,"count":3,"window_ms":60000}
++```
++
++### 2.3 Проверить счётчики даунгрейдов по причинам
++
++ZSET ключи windowed (старые элементы удаляются при записи):
++
++```bash
++# Все причины/символы, по которым были даунгрейды
++redis-cli --scan --pattern 'state:of_inputs:v3_downgrades:*'
++
++# Для конкретного символа/причины
++redis-cli ZCARD 'state:of_inputs:v3_downgrades:seq_gap:BTCUSDT'
++redis-cli ZRANGE 'state:of_inputs:v3_downgrades:seq_gap:BTCUSDT' 0 -1
++```
++
++## 3) Проверка auto-apply блоков
++
++Глобальный блок:
++
++```bash
++redis-cli --scan --pattern 'cfg:of_inputs_v3:auto_apply_block_global:*'
++redis-cli GET  'cfg:of_inputs_v3:auto_apply_block_global:of_inputs_v3'
++redis-cli PTTL 'cfg:of_inputs_v3:auto_apply_block_global:of_inputs_v3'
++```
++
++Per-symbol блок:
++
++```bash
++redis-cli --scan --pattern 'cfg:of_inputs_v3:auto_apply_block:*'
++redis-cli GET  'cfg:of_inputs_v3:auto_apply_block:BTCUSDT:of_inputs_v3'
++redis-cli PTTL 'cfg:of_inputs_v3:auto_apply_block:BTCUSDT:of_inputs_v3'
++```
++
++## 4) Что делать
++
++### 4.1 Если это кратковременный спайк
++
++Ничего не делать: ключ `cfg:of_inputs:v3_disabled:{sym}` истечёт сам (TTL по `disable_ms`, default 5 минут).
++
++### 4.2 Если нужно досрочно включить V3 (осознанно)
++
++```bash
++redis-cli DEL 'cfg:of_inputs:v3_disabled:BTCUSDT'
++```
++
++Важно: включать досрочно только после устранения причины (book lag / missing fields / seq gaps), иначе символ снова отключится.
++
++### 4.3 Если это системная деградация
++
++- Сохранить fail-closed: оставить global auto-apply block.
++- Проверить качество/свежесть V3 LOB snapshot в источнике, сетевые лаги, и publish path.
++- Проверить Redis latency/CPU и ошибки сериализации.
++
++## 5) Prometheus/Grafana
++
++- Экспортёр состояния: `orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py`.
++- Dashboard: `orderflow_services/grafana/of_inputs_v3_circuit_p100.json`.
++- Alerts: `orderflow_services/prometheus_alerts_of_inputs_v3_circuit_p100.yml`.
++
++## 6) Контракты и детерминизм
++
++- Disable state хранится в `cfg:` (а не `state:`), чтобы survive любые reset'ы стейта.
++- Downgrades ZSET разнесены по `reason`, чтобы агрегации были O(1) через `ZCARD/ZCOUNT`.
+diff -ruN --no-dereference a/orderflow_services/tests/test_of_inputs_v3_circuit_state_exporter_p100.py b/orderflow_services/tests/test_of_inputs_v3_circuit_state_exporter_p100.py
+--- a/orderflow_services/tests/test_of_inputs_v3_circuit_state_exporter_p100.py	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/tests/test_of_inputs_v3_circuit_state_exporter_p100.py	2026-02-25 18:07:48.681842279 +0000
+@@ -0,0 +1,29 @@
++import importlib
++
++
++def test_import_and_key_parsing_helpers():
++    m = importlib.import_module("orderflow_services.of_inputs_v3_circuit_state_exporter_p100")
++
++    assert m._sym_from_cfg_disabled_key("cfg:of_inputs:v3_disabled:BTCUSDT") == "BTCUSDT"
++
++    reason, sym = m._reason_sym_from_dg_key("state:of_inputs:v3_downgrades:seq_gap:ETHUSDT")
++    assert (reason, sym) == ("seq_gap", "ETHUSDT")
++
++    assert m._reason_from_ap_glob_key("cfg:of_inputs_v3:auto_apply_block_global:of_inputs_v3") == "of_inputs_v3"
++
++    sym2, rsn2 = m._sym_reason_from_ap_sym_key("cfg:of_inputs_v3:auto_apply_block:BTCUSDT:of_inputs_v3")
++    assert (sym2, rsn2) == ("BTCUSDT", "of_inputs_v3")
++
++
++def test_derive_until_ms_fallbacks():
++    m = importlib.import_module("orderflow_services.of_inputs_v3_circuit_state_exporter_p100")
++
++    now = 1_700_000_000_000
++    until, reason = m._derive_until_ms({"until_ms": now + 5000, "reason": "seq_gap"}, now_ms=now, pttl_ms=4000)
++    assert until == now + 5000
++    assert reason == "seq_gap"
++
++    # until_ms missing => derive from pttl
++    until2, reason2 = m._derive_until_ms({"reason": "missing_lob_fields"}, now_ms=now, pttl_ms=10_000)
++    assert until2 == now + 10_000
++    assert reason2 == "missing_lob_fields"
+diff -ruN --no-dereference a/tick_flow_full/orderflow_services/grafana/README_p100_of_inputs_v3_circuit.md b/tick_flow_full/orderflow_services/grafana/README_p100_of_inputs_v3_circuit.md
+--- a/tick_flow_full/orderflow_services/grafana/README_p100_of_inputs_v3_circuit.md	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/orderflow_services/grafana/README_p100_of_inputs_v3_circuit.md	2026-02-25 18:07:28.063498459 +0000
+@@ -0,0 +1,14 @@
++# Grafana: OFInputs V3 Circuit (P100)
++
++Dashboard JSON: `of_inputs_v3_circuit_p100.json`
++
++Что показывает:
++- Сколько символов сейчас отключены для V3 (Redis cfg:of_inputs:v3_disabled:*).
++- Суммарные даунгрейды в текущем окне по причинам (ZSET state:of_inputs:v3_downgrades:{reason}:{sym}).
++- Возраст последнего poll exporter's state (health сигнал, чтобы не потерять наблюдаемость).
++
++Источник метрик:
++- `orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py`
++
++Рекомендация:
++- В Prometheus лучше скрапить exporter отдельным job'ом (например job="of_inputs_v3_circuit").
+diff -ruN --no-dereference a/tick_flow_full/orderflow_services/grafana/of_inputs_v3_circuit_p100.json b/tick_flow_full/orderflow_services/grafana/of_inputs_v3_circuit_p100.json
+--- a/tick_flow_full/orderflow_services/grafana/of_inputs_v3_circuit_p100.json	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/orderflow_services/grafana/of_inputs_v3_circuit_p100.json	2026-02-25 18:07:04.427623037 +0000
+@@ -0,0 +1,318 @@
++{
++  "annotations": {
++    "list": [
++      {
++        "builtIn": 1,
++        "datasource": {
++          "type": "grafana",
++          "uid": "-- Grafana --"
++        },
++        "enable": true,
++        "hide": true,
++        "iconColor": "rgba(0, 211, 255, 1)",
++        "name": "Annotations & Alerts",
++        "type": "dashboard"
++      }
++    ]
++  },
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "id": null,
++  "links": [],
++  "liveNow": false,
++  "panels": [
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "axisBorderShow": false,
++            "axisCenteredZero": false,
++            "axisColorMode": "text",
++            "axisLabel": "",
++            "axisPlacement": "auto",
++            "barAlignment": 0,
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "gradientMode": "none",
++            "hideFrom": {
++              "legend": false,
++              "tooltip": false,
++              "viz": false
++            },
++            "insertNulls": false,
++            "lineInterpolation": "linear",
++            "lineWidth": 1,
++            "pointSize": 5,
++            "scaleDistribution": {
++              "type": "linear"
++            },
++            "showPoints": "never",
++            "spanNulls": true,
++            "stacking": {
++              "group": "A",
++              "mode": "none"
++            },
++            "thresholdsStyle": {
++              "mode": "off"
++            }
++          },
++          "mappings": [],
++          "thresholds": {
++            "mode": "absolute",
++            "steps": [
++              {
++                "color": "green",
++                "value": null
++              },
++              {
++                "color": "red",
++                "value": 1
++              }
++            ]
++          }
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 0
++      },
++      "id": 1,
++      "options": {
++        "legend": {
++          "calcs": [
++            "lastNotNull",
++            "max"
++          ],
++          "displayMode": "table",
++          "placement": "right",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "expr": "sum(of_inputs_v3_circuit_cfg_disabled)",
++          "legendFormat": "disabled_symbols",
++          "refId": "A"
++        }
++      ],
++      "title": "OFInputs V3 circuit: disabled symbols (count)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "axisBorderShow": false,
++            "axisCenteredZero": false,
++            "axisColorMode": "text",
++            "axisLabel": "",
++            "axisPlacement": "auto",
++            "barAlignment": 0,
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "gradientMode": "none",
++            "hideFrom": {
++              "legend": false,
++              "tooltip": false,
++              "viz": false
++            },
++            "insertNulls": false,
++            "lineInterpolation": "linear",
++            "lineWidth": 1,
++            "pointSize": 5,
++            "scaleDistribution": {
++              "type": "linear"
++            },
++            "showPoints": "never",
++            "spanNulls": true,
++            "stacking": {
++              "group": "A",
++              "mode": "none"
++            },
++            "thresholdsStyle": {
++              "mode": "off"
++            }
++          },
++          "mappings": [],
++          "unit": "s"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 8
++      },
++      "id": 2,
++      "options": {
++        "legend": {
++          "calcs": [
++            "lastNotNull",
++            "max"
++          ],
++          "displayMode": "table",
++          "placement": "right",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "expr": "sum by (reason) (of_inputs_v3_circuit_downgrades_window)",
++          "legendFormat": "{{reason}}",
++          "refId": "A"
++        }
++      ],
++      "title": "OFInputs V3 circuit: downgrades in window (sum by reason)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "axisBorderShow": false,
++            "axisCenteredZero": false,
++            "axisColorMode": "text",
++            "axisLabel": "",
++            "axisPlacement": "auto",
++            "barAlignment": 0,
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "gradientMode": "none",
++            "hideFrom": {
++              "legend": false,
++              "tooltip": false,
++              "viz": false
++            },
++            "insertNulls": false,
++            "lineInterpolation": "linear",
++            "lineWidth": 1,
++            "pointSize": 5,
++            "scaleDistribution": {
++              "type": "linear"
++            },
++            "showPoints": "never",
++            "spanNulls": true,
++            "stacking": {
++              "group": "A",
++              "mode": "none"
++            },
++            "thresholdsStyle": {
++              "mode": "off"
++            }
++          },
++          "mappings": [],
++          "thresholds": {
++            "mode": "absolute",
++            "steps": [
++              {
++                "color": "green",
++                "value": null
++              },
++              {
++                "color": "red",
++                "value": 1
++              }
++            ]
++          }
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 16
++      },
++      "id": 3,
++      "options": {
++        "legend": {
++          "calcs": [
++            "lastNotNull",
++            "max"
++          ],
++          "displayMode": "table",
++          "placement": "right",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "expr": "(time()*1000 - max(of_inputs_v3_circuit_state_exporter_poll_ts_ms))/1000",
++          "legendFormat": "poll_age_sec",
++          "refId": "A"
++        }
++      ],
++      "title": "OFInputs V3 circuit exporter: poll age (sec)",
++      "type": "timeseries"
++    }
++  ],
++  "refresh": "10s",
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": [
++    "of_inputs",
++    "circuit",
++    "p100"
++  ],
++  "templating": {
++    "list": [
++      {
++        "current": {
++          "selected": false,
++          "text": "Prometheus",
++          "value": "Prometheus"
++        },
++        "hide": 0,
++        "includeAll": false,
++        "label": "Datasource",
++        "multi": false,
++        "name": "DS_PROMETHEUS",
++        "options": [],
++        "query": "prometheus",
++        "refresh": 1,
++        "regex": "",
++        "skipUrlSync": false,
++        "type": "datasource"
++      }
++    ]
++  },
++  "time": {
++    "from": "now-6h",
++    "to": "now"
++  },
++  "timepicker": {},
++  "timezone": "browser",
++  "title": "OFInputs V3 Circuit (P100)",
++  "uid": null,
++  "version": 1,
++  "weekStart": ""
++}
+\ No newline at end of file
+diff -ruN --no-dereference a/tick_flow_full/orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py b/tick_flow_full/orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py
+--- a/tick_flow_full/orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py	2026-02-25 18:04:38.744857182 +0000
+@@ -0,0 +1,439 @@
++"""OFInputs V3 circuit state exporter (P100).
++
++Purpose
++- Export Redis-backed circuit breaker state for deterministic V3->V2 fallback.
++- Use Redis cfg/state keys as the source-of-truth (survives worker restarts).
++
++Keys read
++- cfg:of_inputs:v3_disabled:{sym} (JSON + TTL)
++- state:of_inputs:v3_downgrades:{reason}:{sym} (ZSET windowed)
++- cfg:of_inputs_v3:auto_apply_block_global:{reason} (optional)
++- cfg:of_inputs_v3:auto_apply_block:{sym}:{reason} (optional)
++
++Outputs (Prometheus)
++- of_inputs_v3_circuit_state_exporter_up
++- of_inputs_v3_circuit_state_exporter_poll_ts_ms
++- of_inputs_v3_circuit_state_exporter_errors_total
++
++- of_inputs_v3_circuit_cfg_disabled{symbol,reason} = 1
++- of_inputs_v3_circuit_cfg_disabled_until_ms{symbol,reason}
++- of_inputs_v3_circuit_cfg_disabled_ttl_ms{symbol,reason}
++- of_inputs_v3_circuit_disabled_symbols
++- of_inputs_v3_circuit_disabled_symbols_by_reason{reason}
++
++- of_inputs_v3_circuit_downgrades_window{symbol,reason}  (ZCARD)
++- of_inputs_v3_circuit_downgrades_window_sum{reason}
++
++- of_inputs_v3_circuit_auto_apply_block_global_active{reason}
++- of_inputs_v3_circuit_auto_apply_block_global_ttl_ms{reason}
++- of_inputs_v3_circuit_auto_apply_block_symbol_active{symbol,reason}
++- of_inputs_v3_circuit_auto_apply_block_symbol_ttl_ms{symbol,reason}
++
++ENV
++- REDIS_URL or CRYPTO_NOTIFY_REDIS_URL (required)
++- OF_INPUTS_V3_CIRCUIT_EXPORTER_PORT (default: 9164)
++- OF_INPUTS_V3_CIRCUIT_EXPORTER_REFRESH_SEC (default: 10)
++
++Cardinality control
++- By default the exporter emits per-symbol series only for symbols that currently
++  have circuit keys present (disabled keys, downgrade zsets, auto-apply block keys).
++- Optional allowlist envs:
++    OF_INPUTS_V3_CIRCUIT_EXPORTER_SYMBOLS="BTCUSDT,ETHUSDT"
++    OF_INPUTS_V3_CIRCUIT_EXPORTER_REASONS="seq_gap,missing_lob_fields,latency"
++
++Run
++  python -m orderflow_services.of_inputs_v3_circuit_state_exporter_p100
++"""
++
++from __future__ import annotations
++
++import json
++import os
++import time
++from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
++
++from prometheus_client import Gauge, start_http_server  # type: ignore
++
++
++# ---- helpers
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _as_str(x: Any, default: str = "") -> str:
++    try:
++        if x is None:
++            return default
++        if isinstance(x, (bytes, bytearray)):
++            return x.decode("utf-8", "ignore")
++        return str(x)
++    except Exception:
++        return default
++
++
++def _as_int(x: Any, default: int = 0) -> int:
++    try:
++        if x is None or isinstance(x, bool):
++            return int(default)
++        if isinstance(x, (int, float)):
++            return int(x)
++        s = _as_str(x).strip()
++        return int(float(s)) if s else int(default)
++    except Exception:
++        return int(default)
++
++
++def _json_loads(s: Optional[str]) -> Dict[str, Any]:
++    if not s:
++        return {}
++    try:
++        obj = json.loads(s)
++        return obj if isinstance(obj, dict) else {}
++    except Exception:
++        return {}
++
++
++def _parse_csv(raw: str, upper: bool = True) -> List[str]:
++    raw = str(raw or "").strip()
++    if not raw:
++        return []
++    xs: List[str] = []
++    for p in raw.replace(";", ",").split(","):
++        s = p.strip()
++        s = s.upper() if upper else s
++        if s and s not in xs:
++            xs.append(s)
++    return xs
++
++
++def _connect_redis():
++    rurl = os.getenv("REDIS_URL") or os.getenv("CRYPTO_NOTIFY_REDIS_URL") or ""
++    if not str(rurl).strip():
++        return None
++    try:
++        import redis  # type: ignore
++
++        return redis.Redis.from_url(rurl, decode_responses=True)
++    except Exception:
++        return None
++
++
++def _remove_stale(g: Gauge, prev: Set[Tuple[str, ...]], cur: Set[Tuple[str, ...]]) -> Set[Tuple[str, ...]]:
++    stale = prev - cur
++    for lv in stale:
++        try:
++            g.remove(*lv)
++        except Exception:
++            # best-effort
++            pass
++    return cur
++
++
++# ---- metrics
++
++G_UP = Gauge("of_inputs_v3_circuit_state_exporter_up", "1 if exporter loop is running")
++G_POLL_TS_MS = Gauge("of_inputs_v3_circuit_state_exporter_poll_ts_ms", "Last poll timestamp (ms)")
++G_ERRORS_TOTAL = Gauge("of_inputs_v3_circuit_state_exporter_errors_total", "Cumulative exporter loop errors")
++
++G_DISABLED = Gauge(
++    "of_inputs_v3_circuit_cfg_disabled",
++    "1 if cfg disables V3 inputs for symbol",
++    ["symbol", "reason"],
++)
++G_DISABLED_UNTIL_MS = Gauge(
++    "of_inputs_v3_circuit_cfg_disabled_until_ms",
++    "Disable until timestamp (ms) derived from cfg disable key",
++    ["symbol", "reason"],
++)
++G_DISABLED_TTL_MS = Gauge(
++    "of_inputs_v3_circuit_cfg_disabled_ttl_ms",
++    "Redis PTTL for cfg disable key (ms)",
++    ["symbol", "reason"],
++)
++G_DISABLED_SYMBOLS = Gauge(
++    "of_inputs_v3_circuit_disabled_symbols",
++    "Count of currently disabled symbols",
++)
++G_DISABLED_BY_REASON = Gauge(
++    "of_inputs_v3_circuit_disabled_symbols_by_reason",
++    "Count of currently disabled symbols by reason",
++    ["reason"],
++)
++
++G_DG = Gauge(
++    "of_inputs_v3_circuit_downgrades_window",
++    "Downgrades in sliding window (ZSET cardinality)",
++    ["symbol", "reason"],
++)
++G_DG_SUM = Gauge(
++    "of_inputs_v3_circuit_downgrades_window_sum",
++    "Sum of downgrades across symbols in current window",
++    ["reason"],
++)
++
++G_AP_GLOB = Gauge(
++    "of_inputs_v3_circuit_auto_apply_block_global_active",
++    "1 if global auto-apply block key is present",
++    ["reason"],
++)
++G_AP_GLOB_TTL_MS = Gauge(
++    "of_inputs_v3_circuit_auto_apply_block_global_ttl_ms",
++    "TTL ms for global auto-apply block",
++    ["reason"],
++)
++G_AP_SYM = Gauge(
++    "of_inputs_v3_circuit_auto_apply_block_symbol_active",
++    "1 if per-symbol auto-apply block key is present",
++    ["symbol", "reason"],
++)
++G_AP_SYM_TTL_MS = Gauge(
++    "of_inputs_v3_circuit_auto_apply_block_symbol_ttl_ms",
++    "TTL ms for per-symbol auto-apply block",
++    ["symbol", "reason"],
++)
++
++
++# ---- key parsing
++
++CFG_DISABLED_PREFIX = "cfg:of_inputs:v3_disabled:"
++STATE_DG_PREFIX = "state:of_inputs:v3_downgrades:"
++AP_GLOB_PREFIX = "cfg:of_inputs_v3:auto_apply_block_global:"
++AP_SYM_PREFIX = "cfg:of_inputs_v3:auto_apply_block:"
++
++
++def _sym_from_cfg_disabled_key(key: str) -> str:
++    if not key.startswith(CFG_DISABLED_PREFIX):
++        return ""
++    return key[len(CFG_DISABLED_PREFIX) :].strip().upper()
++
++
++def _reason_sym_from_dg_key(key: str) -> Tuple[str, str]:
++    if not key.startswith(STATE_DG_PREFIX):
++        return ("", "")
++    rest = key[len(STATE_DG_PREFIX) :]
++    if ":" not in rest:
++        return ("", "")
++    reason, sym = rest.split(":", 1)
++    return (reason.strip().lower() or "unknown", sym.strip().upper())
++
++
++def _reason_from_ap_glob_key(key: str) -> str:
++    if not key.startswith(AP_GLOB_PREFIX):
++        return ""
++    return key[len(AP_GLOB_PREFIX) :].strip().lower() or "unknown"
++
++
++def _sym_reason_from_ap_sym_key(key: str) -> Tuple[str, str]:
++    if not key.startswith(AP_SYM_PREFIX):
++        return ("", "")
++    rest = key[len(AP_SYM_PREFIX) :]
++    if ":" not in rest:
++        return ("", "")
++    sym, reason = rest.split(":", 1)
++    return (sym.strip().upper(), reason.strip().lower() or "unknown")
++
++
++def _iter_scan(r, pattern: str) -> Iterable[str]:
++    try:
++        # scan_iter is available on redis-py
++        yield from r.scan_iter(match=pattern, count=1000)
++    except Exception:
++        return
++
++
++def _derive_until_ms(meta: Dict[str, Any], now_ms: int, pttl_ms: int) -> Tuple[int, str]:
++    # Mirror services.orderflow.of_inputs_v3_circuit.refresh_disabled_state semantics.
++    until_ms = _as_int(meta.get("until_ms"), 0)
++    reason = _as_str(meta.get("reason") or meta.get("dq_code") or "cfg", "cfg")
++
++    if until_ms <= 0:
++        if pttl_ms < 0:
++            # No TTL (manual) => represent as far future.
++            until_ms = now_ms + 10 * 365 * 24 * 3600 * 1000
++            reason = reason or "manual_no_ttl"
++        else:
++            until_ms = now_ms + max(0, int(pttl_ms))
++            reason = reason or "cfg_ttl"
++
++    return int(until_ms), str(reason or "cfg")
++
++
++def main() -> None:
++    port = int(os.environ.get("OF_INPUTS_V3_CIRCUIT_EXPORTER_PORT", "9164"))
++    refresh = float(os.environ.get("OF_INPUTS_V3_CIRCUIT_EXPORTER_REFRESH_SEC", "10"))
++
++    symbols_allow = _parse_csv(os.environ.get("OF_INPUTS_V3_CIRCUIT_EXPORTER_SYMBOLS", ""), upper=True)
++    reasons_allow = _parse_csv(os.environ.get("OF_INPUTS_V3_CIRCUIT_EXPORTER_REASONS", ""), upper=False)
++
++    r = _connect_redis()
++    if r is None:
++        raise SystemExit("REDIS_URL (or CRYPTO_NOTIFY_REDIS_URL) is required")
++
++    start_http_server(port)
++
++    prev_disabled: Set[Tuple[str, ...]] = set()
++    prev_until: Set[Tuple[str, ...]] = set()
++    prev_ttl: Set[Tuple[str, ...]] = set()
++    prev_dg: Set[Tuple[str, ...]] = set()
++    prev_ap_glob: Set[Tuple[str, ...]] = set()
++    prev_ap_glob_ttl: Set[Tuple[str, ...]] = set()
++    prev_ap_sym: Set[Tuple[str, ...]] = set()
++    prev_ap_sym_ttl: Set[Tuple[str, ...]] = set()
++
++    while True:
++        now_ms = _now_ms()
++        G_UP.set(1)
++        G_POLL_TS_MS.set(now_ms)
++
++        cur_disabled: Set[Tuple[str, ...]] = set()
++        cur_until: Set[Tuple[str, ...]] = set()
++        cur_ttl: Set[Tuple[str, ...]] = set()
++        cur_dg: Set[Tuple[str, ...]] = set()
++        cur_ap_glob: Set[Tuple[str, ...]] = set()
++        cur_ap_glob_ttl: Set[Tuple[str, ...]] = set()
++        cur_ap_sym: Set[Tuple[str, ...]] = set()
++        cur_ap_sym_ttl: Set[Tuple[str, ...]] = set()
++
++        disabled_by_reason: Dict[str, int] = {}
++        dg_sum: Dict[str, int] = {}
++
++        try:
++            # ---- cfg disabled
++            disabled_keys = list(_iter_scan(r, CFG_DISABLED_PREFIX + "*"))
++            if symbols_allow:
++                # ensure we also check allowlisted symbols even when key missing (for removal correctness)
++                disabled_keys = disabled_keys + [CFG_DISABLED_PREFIX + s for s in symbols_allow]
++
++            # Pipeline GET+PTTL for all unique keys.
++            uniq_keys = []
++            seen_k = set()
++            for k in disabled_keys:
++                if k in seen_k:
++                    continue
++                seen_k.add(k)
++                uniq_keys.append(k)
++
++            if uniq_keys:
++                pipe = r.pipeline(transaction=False)
++                for k in uniq_keys:
++                    pipe.get(k)
++                    pipe.pttl(k)
++                raw = pipe.execute()
++
++                # raw is [get1, pttl1, get2, pttl2, ...]
++                for i in range(0, len(raw), 2):
++                    k = uniq_keys[i // 2]
++                    v = raw[i]
++                    pttl = _as_int(raw[i + 1], -2)
++                    sym = _sym_from_cfg_disabled_key(k)
++                    if not sym:
++                        continue
++
++                    if v is None:
++                        # no key => nothing to emit for this sym
++                        continue
++
++                    meta = _json_loads(v)
++                    until_ms, reason = _derive_until_ms(meta, now_ms=now_ms, pttl_ms=pttl)
++                    active = 1 if until_ms > now_ms else 0
++
++                    lv = (sym, reason)
++                    G_DISABLED.labels(symbol=sym, reason=reason).set(active)
++                    G_DISABLED_UNTIL_MS.labels(symbol=sym, reason=reason).set(until_ms)
++                    G_DISABLED_TTL_MS.labels(symbol=sym, reason=reason).set(max(-2, pttl))
++
++                    cur_disabled.add(lv)
++                    cur_until.add(lv)
++                    cur_ttl.add(lv)
++
++                    if active:
++                        disabled_by_reason[reason] = disabled_by_reason.get(reason, 0) + 1
++
++            # disabled aggregates
++            disabled_n = sum(disabled_by_reason.values())
++            G_DISABLED_SYMBOLS.set(disabled_n)
++
++            # Keep stable 0 series for allowlisted reasons if provided.
++            reasons_for_zero = set(reasons_allow) if reasons_allow else set(disabled_by_reason.keys())
++            for rsn in reasons_for_zero:
++                rsn_s = str(rsn or "unknown").lower()
++                G_DISABLED_BY_REASON.labels(reason=rsn_s).set(int(disabled_by_reason.get(rsn_s, 0)))
++
++            # ---- downgrades zsets
++            dg_keys = list(_iter_scan(r, STATE_DG_PREFIX + "*"))
++            # Optionally constrain to allowlisted symbols/reasons.
++            for k in dg_keys:
++                reason, sym = _reason_sym_from_dg_key(k)
++                if not reason or not sym:
++                    continue
++                if symbols_allow and sym not in symbols_allow:
++                    continue
++                if reasons_allow and reason not in [x.lower() for x in reasons_allow]:
++                    continue
++
++                try:
++                    c = _as_int(r.zcard(k), 0)
++                except Exception:
++                    c = 0
++
++                lv = (sym, reason)
++                G_DG.labels(symbol=sym, reason=reason).set(c)
++                cur_dg.add(lv)
++
++                dg_sum[reason] = dg_sum.get(reason, 0) + int(c)
++
++            # dg sum series
++            reasons_for_zero = set(reasons_allow) if reasons_allow else set(dg_sum.keys())
++            for rsn in reasons_for_zero:
++                rsn_s = str(rsn or "unknown").lower()
++                G_DG_SUM.labels(reason=rsn_s).set(int(dg_sum.get(rsn_s, 0)))
++
++            # ---- auto-apply blocks (global)
++            for k in _iter_scan(r, AP_GLOB_PREFIX + "*"):
++                rsn = _reason_from_ap_glob_key(k)
++                if not rsn:
++                    continue
++                if reasons_allow and rsn not in [x.lower() for x in reasons_allow]:
++                    continue
++
++                ttl = _as_int(r.pttl(k), -2)
++                G_AP_GLOB.labels(reason=rsn).set(1)
++                G_AP_GLOB_TTL_MS.labels(reason=rsn).set(max(-2, ttl))
++                cur_ap_glob.add((rsn,))
++                cur_ap_glob_ttl.add((rsn,))
++
++            # ---- auto-apply blocks (per-symbol)
++            for k in _iter_scan(r, AP_SYM_PREFIX + "*"):
++                sym, rsn = _sym_reason_from_ap_sym_key(k)
++                if not sym or not rsn:
++                    continue
++                if symbols_allow and sym not in symbols_allow:
++                    continue
++                if reasons_allow and rsn not in [x.lower() for x in reasons_allow]:
++                    continue
++
++                ttl = _as_int(r.pttl(k), -2)
++                G_AP_SYM.labels(symbol=sym, reason=rsn).set(1)
++                G_AP_SYM_TTL_MS.labels(symbol=sym, reason=rsn).set(max(-2, ttl))
++                cur_ap_sym.add((sym, rsn))
++                cur_ap_sym_ttl.add((sym, rsn))
++
++        except Exception:
++            G_ERRORS_TOTAL.inc()
++
++        # prune stale labels
++        prev_disabled = _remove_stale(G_DISABLED, prev_disabled, cur_disabled)
++        prev_until = _remove_stale(G_DISABLED_UNTIL_MS, prev_until, cur_until)
++        prev_ttl = _remove_stale(G_DISABLED_TTL_MS, prev_ttl, cur_ttl)
++        prev_dg = _remove_stale(G_DG, prev_dg, cur_dg)
++        prev_ap_glob = _remove_stale(G_AP_GLOB, prev_ap_glob, cur_ap_glob)
++        prev_ap_glob_ttl = _remove_stale(G_AP_GLOB_TTL_MS, prev_ap_glob_ttl, cur_ap_glob_ttl)
++        prev_ap_sym = _remove_stale(G_AP_SYM, prev_ap_sym, cur_ap_sym)
++        prev_ap_sym_ttl = _remove_stale(G_AP_SYM_TTL_MS, prev_ap_sym_ttl, cur_ap_sym_ttl)
++
++        time.sleep(max(1.0, float(refresh)))
++
++
++if __name__ == "__main__":
++    main()
+diff -ruN --no-dereference a/tick_flow_full/orderflow_services/prometheus_alerts_of_inputs_v3_circuit_p100.yml b/tick_flow_full/orderflow_services/prometheus_alerts_of_inputs_v3_circuit_p100.yml
+--- a/tick_flow_full/orderflow_services/prometheus_alerts_of_inputs_v3_circuit_p100.yml	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_of_inputs_v3_circuit_p100.yml	2026-02-25 18:05:15.306285717 +0000
+@@ -0,0 +1,54 @@
++groups:
++  - name: of_inputs_v3_circuit_p100
++    rules:
++      - alert: OFInputsV3CircuitExporterStale
++        expr: (time() * 1000) - max(of_inputs_v3_circuit_state_exporter_poll_ts_ms) > 60000
++        for: 5m
++        labels:
++          severity: critical
++          component: of_inputs
++        annotations:
++          summary: "OFInputs V3 circuit exporter is stale"
++          description: "Exporter loop has not updated poll_ts_ms for >60s. Circuit state may be invisible to Prometheus. Check exporter process and Redis connectivity."
++
++      - alert: OFInputsV3CircuitDisabledAny
++        expr: sum(of_inputs_v3_circuit_cfg_disabled) > 0
++        for: 2m
++        labels:
++          severity: warning
++          component: of_inputs
++        annotations:
++          summary: "OFInputs V3 circuit disabled for at least one symbol"
++          description: "Circuit breaker disabled V3 inputs for {{ $value }} symbol(s). Use runbook_of_inputs_v3_circuit_p100.md to drill down (cfg:of_inputs:v3_disabled:*)."
++
++      - alert: OFInputsV3CircuitDisabledMany
++        expr: sum(of_inputs_v3_circuit_cfg_disabled) > 5
++        for: 2m
++        labels:
++          severity: critical
++          component: of_inputs
++        annotations:
++          summary: "OFInputs V3 circuit disabled for many symbols"
++          description: "Circuit breaker disabled V3 inputs for {{ $value }} symbol(s). Likely systemic V3 inputs degradation (book lag / missing LOB fields / Redis issues)."
++
++      - alert: OFInputsV3CircuitPreTripDowngrades
++        # Pre-trip signal: if any symbol accumulates 2+ downgrades within the sliding window,
++        # it is close to tripping (defaults: max_downgrades_in_window=3, window_ms=60000).
++        expr: max by (symbol, reason) (of_inputs_v3_circuit_downgrades_window) >= 2
++        for: 2m
++        labels:
++          severity: info
++          component: of_inputs
++        annotations:
++          summary: "OFInputs V3 downgrades approaching circuit trip"
++          description: "Symbol {{ $labels.symbol }} reason={{ $labels.reason }} has {{ $value }} downgrades within the window; if it reaches the trip threshold it will be disabled and fallback to V2."
++
++      - alert: OFInputsV3CircuitAutoApplyBlockedGlobal
++        expr: max(of_inputs_v3_circuit_auto_apply_block_global_active) > 0
++        for: 2m
++        labels:
++          severity: warning
++          component: of_inputs
++        annotations:
++          summary: "Global auto-apply blocked by OFInputs V3 circuit"
++          description: "Global auto-apply block key is present (cfg:of_inputs_v3:auto_apply_block_global:*). This is fail-closed to prevent automated promotions during inputs degradation."
+diff -ruN --no-dereference a/tick_flow_full/orderflow_services/runbook_of_inputs_v3_circuit_p100.md b/tick_flow_full/orderflow_services/runbook_of_inputs_v3_circuit_p100.md
+--- a/tick_flow_full/orderflow_services/runbook_of_inputs_v3_circuit_p100.md	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/orderflow_services/runbook_of_inputs_v3_circuit_p100.md	2026-02-25 18:05:58.609784788 +0000
+@@ -0,0 +1,91 @@
++# Runbook: OFInputs V3 circuit breaker (P100)
++
++## 1) Симптомы
++
++- Prometheus alert `OFInputsV3CircuitDisabledAny|Many`.
++- В логе tick path / of_inputs пайплайна увеличивается V3→V2 fallback.
++- Auto-apply блокируется (fail-closed) ключами `cfg:of_inputs_v3:auto_apply_block_*`.
++
++## 2) Быстрый triage (Redis)
++
++### 2.1 Список отключённых символов
++
++```bash
++redis-cli --scan --pattern 'cfg:of_inputs:v3_disabled:*'
++```
++
++### 2.2 Посмотреть причину и until_ms
++
++```bash
++# пример
++redis-cli GET 'cfg:of_inputs:v3_disabled:BTCUSDT'
++redis-cli PTTL 'cfg:of_inputs:v3_disabled:BTCUSDT'
++```
++
++Ожидаемый JSON (пример):
++
++```json
++{"until_ms":1700000000000,"reason":"seq_gap","trip_ts_ms":1699999999000,"count":3,"window_ms":60000}
++```
++
++### 2.3 Проверить счётчики даунгрейдов по причинам
++
++ZSET ключи windowed (старые элементы удаляются при записи):
++
++```bash
++# Все причины/символы, по которым были даунгрейды
++redis-cli --scan --pattern 'state:of_inputs:v3_downgrades:*'
++
++# Для конкретного символа/причины
++redis-cli ZCARD 'state:of_inputs:v3_downgrades:seq_gap:BTCUSDT'
++redis-cli ZRANGE 'state:of_inputs:v3_downgrades:seq_gap:BTCUSDT' 0 -1
++```
++
++## 3) Проверка auto-apply блоков
++
++Глобальный блок:
++
++```bash
++redis-cli --scan --pattern 'cfg:of_inputs_v3:auto_apply_block_global:*'
++redis-cli GET  'cfg:of_inputs_v3:auto_apply_block_global:of_inputs_v3'
++redis-cli PTTL 'cfg:of_inputs_v3:auto_apply_block_global:of_inputs_v3'
++```
++
++Per-symbol блок:
++
++```bash
++redis-cli --scan --pattern 'cfg:of_inputs_v3:auto_apply_block:*'
++redis-cli GET  'cfg:of_inputs_v3:auto_apply_block:BTCUSDT:of_inputs_v3'
++redis-cli PTTL 'cfg:of_inputs_v3:auto_apply_block:BTCUSDT:of_inputs_v3'
++```
++
++## 4) Что делать
++
++### 4.1 Если это кратковременный спайк
++
++Ничего не делать: ключ `cfg:of_inputs:v3_disabled:{sym}` истечёт сам (TTL по `disable_ms`, default 5 минут).
++
++### 4.2 Если нужно досрочно включить V3 (осознанно)
++
++```bash
++redis-cli DEL 'cfg:of_inputs:v3_disabled:BTCUSDT'
++```
++
++Важно: включать досрочно только после устранения причины (book lag / missing fields / seq gaps), иначе символ снова отключится.
++
++### 4.3 Если это системная деградация
++
++- Сохранить fail-closed: оставить global auto-apply block.
++- Проверить качество/свежесть V3 LOB snapshot в источнике, сетевые лаги, и publish path.
++- Проверить Redis latency/CPU и ошибки сериализации.
++
++## 5) Prometheus/Grafana
++
++- Экспортёр состояния: `orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py`.
++- Dashboard: `orderflow_services/grafana/of_inputs_v3_circuit_p100.json`.
++- Alerts: `orderflow_services/prometheus_alerts_of_inputs_v3_circuit_p100.yml`.
++
++## 6) Контракты и детерминизм
++
++- Disable state хранится в `cfg:` (а не `state:`), чтобы survive любые reset'ы стейта.
++- Downgrades ZSET разнесены по `reason`, чтобы агрегации были O(1) через `ZCARD/ZCOUNT`.

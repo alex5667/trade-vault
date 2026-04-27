@@ -1,0 +1,36 @@
+services:
+  scanner-ml-operator-rca-routing-apply-v2-5:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    command: ["python", "-m", "orderflow_services.operator_rca_winner_routing_apply_controller_v2_5"]
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      ML_OPERATOR_RCA_WINNER_ROUTING_PORT: ${ML_OPERATOR_RCA_WINNER_ROUTING_PORT:-9877}
+      ML_OPERATOR_RCA_ROUTING_APPLY_ADVISORY_ONLY: ${ML_OPERATOR_RCA_ROUTING_APPLY_ADVISORY_ONLY:-1}
+      ML_OPERATOR_RCA_ROUTING_APPLY_MIN_SAMPLE: ${ML_OPERATOR_RCA_ROUTING_APPLY_MIN_SAMPLE:-12}
+      ML_OPERATOR_RCA_ROUTING_APPLY_MIN_UPLIFT: ${ML_OPERATOR_RCA_ROUTING_APPLY_MIN_UPLIFT:-0.05}
+      ML_OPERATOR_RCA_ROUTING_APPLY_MIN_CONFIDENCE: ${ML_OPERATOR_RCA_ROUTING_APPLY_MIN_CONFIDENCE:-0.60}
+      ML_OPERATOR_RCA_ROUTING_APPLY_COOLDOWN_SEC: ${ML_OPERATOR_RCA_ROUTING_APPLY_COOLDOWN_SEC:-21600}
+      ML_OPERATOR_RCA_ROUTING_ALLOWED_PROVIDERS: ${ML_OPERATOR_RCA_ROUTING_ALLOWED_PROVIDERS:-vertex}
+      ML_OPERATOR_RCA_ROUTING_ALLOWED_MODELS: ${ML_OPERATOR_RCA_ROUTING_ALLOWED_MODELS:-gemini-2.5-flash-lite,gemini-2.5-flash}
+      ML_OPERATOR_RCA_ROUTING_ALLOWED_PROMPTS: ${ML_OPERATOR_RCA_ROUTING_ALLOWED_PROMPTS:-ml_triage_v1,ml_triage_v2}
+    ports:
+      - "9877:9877"
+    restart: unless-stopped
+    networks:
+      - scanner-network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "python", "-c", "print('ok')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+networks:
+  scanner-network:
+    external: true

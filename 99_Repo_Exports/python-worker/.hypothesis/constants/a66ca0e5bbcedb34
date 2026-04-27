@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/scenario_v4.py
+# hypothesis_version: 6.148.10
+
+[0.35, 8.0, 'churn_hi', 'continuation', 'continuation_trend', 'exec_risk_bps', 'illiquid', 'liq_regime', 'liq_score', 'news', 'no_sweep_no_trend', 'opp_pulled', 'pressure_hi', 'pull_without_aggr', 'range', 'range_meanrev', 'ready', 'reversal', 'reversal_sweep', 'saw_chop_spoof_proxy', 'support_pulled', 'sweep_recent', 'trend_dir', 'veto_kind', 'vol_shock_news_proxy']

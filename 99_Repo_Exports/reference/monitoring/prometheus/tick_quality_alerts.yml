@@ -1,0 +1,82 @@
+# Tick quality alerts (template)
+#
+# Prefer generating a tuned version from live data:
+#   python -m tools.smoke_tick_side_quality --hours 6 --output json > /tmp/smoke.json
+#   python -m tools.recommend_tick_quality_policy --smoke /tmp/smoke.json --format yaml --out /tmp/tick_quality_alerts.yml
+#
+# Default thresholds below are conservative.
+
+groups:
+- name: tick-quality
+  rules:
+  - alert: TickTimeSourceNowHigh
+    expr: (sum by(symbol) (rate(ticks_ts_source_total{ts_source="now"}[5m])) / clamp_min(sum by(symbol) (rate(ticks_processed_total[5m])), 1)) > 0.020000
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: Event time is frequently sourced from wall/now
+      description: High share of event_ts sourced from now. Upstream timestamps may be missing or invalid.
+
+  - alert: TickTimeSourceStreamIdHigh
+    expr: (sum by(symbol) (rate(ticks_ts_source_total{ts_source="stream_id"}[5m])) / clamp_min(sum by(symbol) (rate(ticks_processed_total[5m])), 1)) > 0.050000
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: Event time is frequently sourced from stream_id
+      description: High share of event_ts derived from Redis stream id. Payload timestamps likely skewed.
+
+  - alert: TickUnknownSideEMAHigh
+    expr: max by(symbol) (tick_unknown_side_ema) > 0.050000
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: Unknown-side EMA is elevated
+      description: Unknown-side EMA > threshold. Consider quarantine policy and inspect upstream side fields.
+
+  - alert: TickSkewAbsEMAHigh
+    expr: max by(symbol) (tick_event_stream_skew_abs_ema_ms) > 30000
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: Event-stream skew EMA is high
+      description: EMA of abs(event_ts_ms - stream_ms) is high. Check clock sync and upstream timestamps.
+
+  - alert: TickUnknownSideHigh
+    expr: (sum by(symbol) (rate(ticks_unknown_side_policy_total[5m])) / clamp_min(sum by(symbol) (rate(ticks_processed_total[5m])), 1)) > 0.050000
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: Unknown-side share is elevated
+      description: UNKNOWN side share > threshold. Check upstream side_conf and side-quarantine stream.
+
+  - alert: TickTimeHardDropsHigh
+    expr: (sum by(symbol) (rate(tick_time_hard_drop_total[5m])) / clamp_min(sum by(symbol) (rate(ticks_read_total[5m])), 1)) > 0.001000
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: Tick time hard drops are elevated
+      description: Hard drops due to bad time. Check tick_time policy and upstream timestamps.
+
+  - alert: TickTimeQuarantineActive
+    expr: max by(symbol) (tick_time_quarantine_active) > 0
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: Bad time quarantine active
+      description: Quarantine is active for a prolonged period. Inspect stream:tick_time:quarantine.
+
+  - alert: TickDedupDropHigh
+    expr: (sum by(symbol) (rate(tick_dedup_drop_total[5m])) / clamp_min(sum by(symbol) (rate(ticks_read_total[5m])), 1)) > 0.010000
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: Duplicate tick drops are elevated
+      description: Dedup drops > threshold. Upstream may be replaying/duplicating ticks.

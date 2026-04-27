@@ -1,0 +1,24 @@
+[Unit]
+Description=Scanner Go Gateway (Orders + Notify → Telegram) for %i
+After=network-online.target redis.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/home/%i/front/trade/scanner_infra/go-gateway
+Environment=PORT=8088
+Environment=OBI_HOST=http://127.0.0.1:8090
+
+# Required: Set your Telegram credentials
+Environment=TELEGRAM_BOT_TOKEN=YOUR_BOT_TOKEN_HERE
+Environment=TELEGRAM_CHAT_ID=YOUR_CHAT_ID_HERE
+
+ExecStart=/home/%i/front/trade/scanner_infra/go-gateway/scanner-gw
+
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+

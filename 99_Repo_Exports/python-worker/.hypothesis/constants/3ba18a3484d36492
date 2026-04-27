@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/reshape/concat.py
+# hypothesis_version: 6.148.10
+
+['DataFrame', 'Series', 'columns', 'concat', 'dtype', 'index', 'inner', 'name', 'names', 'outer']

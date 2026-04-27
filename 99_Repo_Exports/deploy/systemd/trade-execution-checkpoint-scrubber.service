@@ -1,0 +1,9 @@
+[Unit]
+Description=Trade execution replay checkpoint scrubber
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/trade
+EnvironmentFile=-/etc/default/trade-execution-p33-ops-complete
+ExecStart=/usr/bin/python3 /opt/trade/scripts/scrub_replay_checkpoints.py

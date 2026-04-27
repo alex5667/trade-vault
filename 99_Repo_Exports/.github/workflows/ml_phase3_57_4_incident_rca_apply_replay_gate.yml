@@ -1,0 +1,29 @@
+name: ml_phase3_57_4_incident_rca_apply_replay_gate
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "25 2 * * *"
+
+jobs:
+  replay-gate:
+    runs-on: self-hosted
+    timeout-minutes: 30
+    env:
+      REDIS_URL: ${{ secrets.REDIS_URL }}
+      TIMESCALE_DSN: ${{ secrets.TIMESCALE_DSN }}
+      LOG_LEVEL: INFO
+      ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_GATE_RUNNER_WINDOW_MIN: "60"
+      ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_GATE_RUNNER_LAG_MIN: "15"
+      ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_ALIASES: "slo,retry,escalation"
+      ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_GATE_REQUIRED_ALIASES: "slo,retry,escalation"
+      ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_GATE_MAX_REPORT_AGE_SEC: "7200"
+      ML_ROUTE_INCIDENT_RCA_APPLY_REPLAY_MAX_ROWS: "5000"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: pytest -q orderflow_services/tests/test_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_replay_gate_v3_57_4.py
+      - run: python orderflow_services/tools/check_phase3_57_4_replay_gate.py

@@ -1,0 +1,1279 @@
+--- a/core/__init__.py
++++ b/core/__init__.py
+@@ -0,0 +1 @@
++# Core helpers package for hot-path deterministic trackers.
+--- a/core/seq_gap_tracker_v1.py
++++ b/core/seq_gap_tracker_v1.py
+@@ -0,0 +1,26 @@
++from __future__ import annotations
++
++"""Minimal EMA tracker for sparse stream-integrity events."""
++
++from dataclasses import dataclass
++
++
++@dataclass
++class GapEmaTracker:
++    tau_ms: int = 10_000
++    ema: float = 0.0
++    last_ts_ms: int = 0
++
++    def update(self, *, is_gap: bool, ts_ms: int) -> float:
++        t = int(ts_ms)
++        if self.last_ts_ms <= 0:
++            self.last_ts_ms = t
++            self.ema = 1.0 if bool(is_gap) else 0.0
++            return float(self.ema)
++        dt = max(1, t - int(self.last_ts_ms))
++        tau = max(1, int(self.tau_ms))
++        alpha = min(1.0, dt / float(tau))
++        x = 1.0 if bool(is_gap) else 0.0
++        self.ema = float((1.0 - alpha) * float(self.ema) + alpha * x)
++        self.last_ts_ms = t
++        return float(self.ema)
+--- a/core/robust_stats.py
++++ b/core/robust_stats.py
+@@ -0,0 +1,31 @@
++from __future__ import annotations
++
++"""Deterministic rolling robust z-score tracker (median/MAD)."""
++
++from collections import deque
++from typing import Deque
++import math
++import numpy as np
++
++
++class RollingRobustZ:
++    def __init__(self, window: int = 120) -> None:
++        self.window = max(3, int(window))
++        self.values: Deque[float] = deque(maxlen=self.window)
++
++    def update(self, value: float) -> float:
++        try:
++            v = float(value)
++        except Exception:
++            v = 0.0
++        if not math.isfinite(v):
++            v = 0.0
++        self.values.append(v)
++        if len(self.values) < 3:
++            return 0.0
++        a = np.asarray(list(self.values), dtype=np.float64)
++        med = float(np.median(a))
++        mad = float(np.median(np.abs(a - med)))
++        if mad <= 0.0 or not math.isfinite(mad):
++            return 0.0
++        return float((v - med) / (1.4826 * mad))
+--- a/services/orderflow/metrics_stream_integrity_p5.py
++++ b/services/orderflow/metrics_stream_integrity_p5.py
+@@ -88,6 +88,51 @@
+ )
+ 
+ 
++stream_event_lag_ms = _get_or_create(
++    "stream_event_lag_ms",
++    Histogram,
++    "Observed event-time lag in milliseconds (processing_time - ts_event_ms)",
++    labelnames=("symbol", "stream"),
++    buckets=(1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000),
++)
++
++stream_late_events_total = _get_or_create(
++    "stream_late_events_total",
++    Counter,
++    "Count of events that exceeded configured event-lag budget",
++    labelnames=("symbol", "stream"),
++)
++
++stream_future_ts_total = _get_or_create(
++    "stream_future_ts_total",
++    Counter,
++    "Count of events that arrived with future timestamps beyond skew tolerance",
++    labelnames=("symbol", "stream"),
++)
++
++stream_out_of_order_total = _get_or_create(
++    "stream_out_of_order_total",
++    Counter,
++    "Count of out-of-order events beyond configured tolerance",
++    labelnames=("symbol", "stream"),
++)
++
++stream_book_staleness_ms = _get_or_create(
++    "stream_book_staleness_ms",
++    Gauge,
++    "Best-book staleness observed on the tick path (ms)",
++    labelnames=("symbol",),
++)
++
++stream_book_staleness_hist_ms = _get_or_create(
++    "stream_book_staleness_hist_ms",
++    Histogram,
++    "Distribution of best-book staleness observed on the tick path (ms)",
++    labelnames=("symbol",),
++    buckets=(1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000),
++)
++
++
+ def _hash_to_int(h: str) -> float:
+     try:
+         return float(int(str(h or "0"), 16))
+@@ -116,3 +161,32 @@
+             stream_schema_hash.labels(symbol=sym, stream=st).set(_hash_to_int(getattr(snap, "schema_hash", "") or ""))
+     except Exception:
+         pass
++
++
++def emit_event_time_metrics(*, symbol: str, stream: str, event_lag_ms: float, late: bool = False, future: bool = False, out_of_order: bool = False) -> None:
++    sym = str(symbol)
++    st = str(stream)
++    try:
++        lag = float(max(0.0, float(event_lag_ms or 0.0)))
++        if stream_event_lag_ms is not None:
++            stream_event_lag_ms.labels(symbol=sym, stream=st).observe(lag)
++        if late and stream_late_events_total is not None:
++            stream_late_events_total.labels(symbol=sym, stream=st).inc()
++        if future and stream_future_ts_total is not None:
++            stream_future_ts_total.labels(symbol=sym, stream=st).inc()
++        if out_of_order and stream_out_of_order_total is not None:
++            stream_out_of_order_total.labels(symbol=sym, stream=st).inc()
++    except Exception:
++        pass
++
++
++def emit_book_staleness_metrics(*, symbol: str, staleness_ms: float) -> None:
++    sym = str(symbol)
++    try:
++        val = float(max(0.0, float(staleness_ms or 0.0)))
++        if stream_book_staleness_ms is not None:
++            stream_book_staleness_ms.labels(symbol=sym).set(val)
++        if stream_book_staleness_hist_ms is not None:
++            stream_book_staleness_hist_ms.labels(symbol=sym).observe(val)
++    except Exception:
++        pass
+--- a/services/orderflow/stream_integrity_gate.py
++++ b/services/orderflow/stream_integrity_gate.py
+@@ -57,12 +57,14 @@
+         enabled: bool,
+         mode: str,
+         max_gap_rate_ema: float,
++        max_dup_rate_ema: float,
+         max_gap_window: int,
+         veto_on_schema_change: bool,
+     ) -> None:
+         self.enabled = bool(enabled)
+         self.mode = str(mode or "auto").strip().lower()
+         self.max_gap_rate_ema = float(max_gap_rate_ema)
++        self.max_dup_rate_ema = float(max_dup_rate_ema)
+         self.max_gap_window = int(max_gap_window)
+         self.veto_on_schema_change = bool(veto_on_schema_change)
+ 
+@@ -70,10 +72,13 @@
+     def from_env() -> "StreamIntegrityGate":
+         enabled = bool(int(os.getenv("STREAM_INTEGRITY_GATE_ENABLED", "1") or 1))
+         mode = os.getenv("STREAM_INTEGRITY_MODE", "auto")
++        gap_rate_env = os.getenv("DATA_MAX_SEQ_GAP_RATE_EMA", os.getenv("DATA_MAX_SEQ_GAP_RATE", "0"))
++        dup_rate_env = os.getenv("DATA_MAX_DUP_RATE_EMA", os.getenv("DATA_MAX_DUP_RATE", "0"))
+         return StreamIntegrityGate(
+             enabled=enabled,
+             mode=str(mode),
+-            max_gap_rate_ema=_f(os.getenv("DATA_MAX_SEQ_GAP_RATE_EMA", "0"), 0.0),
++            max_gap_rate_ema=_f(gap_rate_env, 0.0),
++            max_dup_rate_ema=_f(dup_rate_env, 0.0),
+             max_gap_window=_i(os.getenv("DATA_MAX_SEQ_GAP_WINDOW", "0"), 0),
+             veto_on_schema_change=bool(int(os.getenv("DATA_VETO_ON_SCHEMA_CHANGE", "0") or 0)),
+         )
+@@ -98,12 +103,20 @@
+         # Inputs
+         tg = _f(indicators.get("tick_seq_gap_rate_ema", 0.0), 0.0)
+         bg = _f(indicators.get("book_seq_gap_rate_ema", 0.0), 0.0)
++        td = _f(indicators.get("tick_seq_dup_rate_ema", 0.0), 0.0)
++        bd = _f(indicators.get("book_seq_dup_rate_ema", 0.0), 0.0)
++        td = _f(indicators.get("tick_seq_dup_rate_ema", 0.0), 0.0)
++        bd = _f(indicators.get("book_seq_dup_rate_ema", 0.0), 0.0)
+         tmax = _i(indicators.get("tick_seq_max_gap_window", 0), 0)
+         bmax = _i(indicators.get("book_seq_max_gap_window", 0), 0)
+         schema_tick = _i(indicators.get("tick_schema_changed", 0), 0)
+ 
+         if self.max_gap_rate_ema > 0 and max(tg, bg) >= self.max_gap_rate_ema:
+             flags.append("gap_rate_ema_high")
++        if self.max_dup_rate_ema > 0 and max(td, bd) >= self.max_dup_rate_ema:
++            flags.append("dup_rate_ema_high")
++        if self.max_dup_rate_ema > 0 and max(td, bd) >= self.max_dup_rate_ema:
++            flags.append("dup_rate_ema_high")
+         if self.max_gap_window > 0 and max(tmax, bmax) >= self.max_gap_window:
+             flags.append("gap_window_high")
+         if self.veto_on_schema_change and schema_tick == 1:
+@@ -123,5 +136,9 @@
+             reason = "VETO_SEQ_GAP_WINDOW"
+         elif "gap_rate_ema_high" in flags:
+             reason = "VETO_SEQ_GAP_RATE"
++        elif "dup_rate_ema_high" in flags:
++            reason = "VETO_DUP_RATE"
++        elif "dup_rate_ema_high" in flags:
++            reason = "VETO_DUP_RATE"
+ 
+         return StreamIntegrityDecision(apply=True, veto=True, gate="StreamIntegrityGate", reason_code=reason, flags=flags, notes=f"symbol={symbol}")
+--- a/services/orderflow/book_sanity_gate.py
++++ b/services/orderflow/book_sanity_gate.py
+@@ -41,15 +41,24 @@
+         *,
+         enabled: bool,
+         mode: str,
++        veto_trade_outside_bbo: bool = False,
++        outside_bbo_max_dist_bps: float = 0.0,
+     ) -> None:
+         self.enabled = bool(enabled)
+         self.mode = str(mode or "auto").strip().lower()
++        self.veto_trade_outside_bbo = bool(veto_trade_outside_bbo)
++        self.outside_bbo_max_dist_bps = float(max(0.0, float(outside_bbo_max_dist_bps or 0.0)))
+ 
+     @staticmethod
+     def from_env() -> "BookSanityGate":
+         enabled = bool(int(os.getenv("BOOK_SANITY_GATE_ENABLED", "1") or 1))
+         mode = os.getenv("BOOK_SANITY_MODE", "auto")
+-        return BookSanityGate(enabled=enabled, mode=str(mode))
++        return BookSanityGate(
++            enabled=enabled,
++            mode=str(mode),
++            veto_trade_outside_bbo=bool(int(os.getenv("BOOK_SANITY_VETO_TRADE_OUTSIDE_BBO", "0") or 0)),
++            outside_bbo_max_dist_bps=float(os.getenv("BOOK_SANITY_OUTSIDE_BBO_MAX_DIST_BPS", "0") or 0.0),
++        )
+ 
+     def _effective_mode(self) -> str:
+         if self.mode in ("monitor", "tighten", "veto"):
+@@ -75,15 +84,23 @@
+         except Exception:
+             flags = []
+ 
++        outside_bbo = bool(int(indicators.get("trade_outside_bbo", 0) or 0)) or ("trade_outside_bbo" in flags)
++        try:
++            outside_bbo_dist_bps = float(indicators.get("trade_outside_bbo_dist_bps", 0.0) or 0.0)
++        except Exception:
++            outside_bbo_dist_bps = 0.0
++
+         mode = self._effective_mode()
+ 
+-        # default behavior: annotate only if any flags exist
+-        if not flags:
++        # default behavior: annotate only if any sanity symptom exists
++        if not flags and not outside_bbo:
+             return BookSanityDecision(apply=False, veto=False, gate="BookSanityGate", reason_code="", flags=[])
+ 
+         # Veto conditions (finite set)
+         veto_flags = {"crossed_bbo", "nan_px", "nan_depth", "neg_qty"}
+         do_veto = any(f in veto_flags for f in flags)
++        do_trade_outside_veto = bool(outside_bbo and self.veto_trade_outside_bbo and (self.outside_bbo_max_dist_bps <= 0.0 or outside_bbo_dist_bps >= self.outside_bbo_max_dist_bps))
++        do_trade_outside_veto = bool(outside_bbo and self.veto_trade_outside_bbo and (self.outside_bbo_max_dist_bps <= 0.0 or outside_bbo_dist_bps >= self.outside_bbo_max_dist_bps))
+ 
+         if mode != "veto":
+             return BookSanityDecision(
+@@ -95,7 +112,7 @@
+                 notes=f"mode={mode}",
+             )
+ 
+-        if do_veto:
++        if do_veto or do_trade_outside_veto:
+             # Deterministic reason (first match)
+             reason = "VETO_BOOK_SANITY"
+             if "crossed_bbo" in flags:
+@@ -104,14 +121,16 @@
+                 reason = "VETO_BOOK_NAN"
+             elif "neg_qty" in flags:
+                 reason = "VETO_BOOK_NEG_QTY"
++            elif do_trade_outside_veto:
++                reason = "VETO_TRADE_OUTSIDE_BBO"
+ 
+             return BookSanityDecision(
+                 apply=True,
+                 veto=True,
+                 gate="BookSanityGate",
+                 reason_code=str(reason),
+-                flags=flags,
+-                notes=f"symbol={symbol}",
++                flags=flags + (["trade_outside_bbo"] if outside_bbo and "trade_outside_bbo" not in flags else []),
++                notes=f"symbol={symbol} dist_bps={outside_bbo_dist_bps:.4f}",
+             )
+ 
+         return BookSanityDecision(
+--- a/services/orderflow/signal_pipeline.py
++++ b/services/orderflow/signal_pipeline.py
+@@ -980,10 +980,13 @@
+             # Populate book_sanity_flags indicator from runtime (set by BookProcessor)
+             indicators.setdefault("book_sanity_ok", int(getattr(runtime, "book_sanity_ok", 1) or 1))
+             bsf = str(getattr(runtime, "book_sanity_flags", "") or "")
+-            if bsf:
+-                indicators.setdefault("book_sanity_flags", bsf)
++            parsed_bsf = [s.strip() for s in bsf.split(",") if s.strip()] if bsf else []
++            if int(indicators.get("trade_outside_bbo", 0) or 0) == 1 and "trade_outside_bbo" not in parsed_bsf:
++                parsed_bsf.append("trade_outside_bbo")
++            if parsed_bsf:
++                indicators["book_sanity_flags"] = ",".join(parsed_bsf)
+                 # Parse into a list for the gate
+-                indicators["book_sanity_flags_list"] = [s.strip() for s in bsf.split(",") if s.strip()]
++                indicators["book_sanity_flags_list"] = parsed_bsf
+             bsg_dec = _book_sanity_gate.evaluate(indicators=indicators, symbol=str(symbol))
+             indicators["book_sanity_gate_veto"] = int(1 if bsg_dec.veto else 0)
+             indicators["book_sanity_gate_reason"] = str(bsg_dec.reason_code or "")
+--- a/services/orderflow/components/tick_processor.py
++++ b/services/orderflow/components/tick_processor.py
+@@ -45,6 +45,9 @@
+ from typing import Any, Dict, List, Optional
+ 
+ from services.orderflow.configuration import _safe_int
++from services.orderflow.book_sanity import trade_outside_bbo
++from services.orderflow.metrics_book_sanity_p5 import trade_outside_bbo_total, trade_outside_bbo_dist_bps as trade_outside_bbo_dist_bps_hist
++from services.orderflow.metrics_stream_integrity_p5 import emit_book_staleness_metrics
+ from typing import TYPE_CHECKING
+ 
+ if TYPE_CHECKING:  # pragma: no cover
+@@ -1951,6 +1954,34 @@
+ 
+             # Schema v2/v3 compatibility aliases (used by ML feature schemas)
+             indicators["book_staleness_ms"] = int(indicators.get("book_ts_gap_ms", 0) or 0)
++            try:
++                emit_book_staleness_metrics(symbol=str(runtime.symbol), staleness_ms=float(indicators.get("book_staleness_ms", 0) or 0))
++            except Exception:
++                pass
++
++            # Tick-to-book consistency: trade printed outside current BBO.
++            # This is monitor-first; BookSanityGate may optionally veto via ENV.
++            try:
++                last_book = getattr(runtime, "last_book", None)
++                bb = float(getattr(last_book, "best_bid_px", 0.0) or 0.0) if last_book is not None else 0.0
++                ba = float(getattr(last_book, "best_ask_px", 0.0) or 0.0) if last_book is not None else 0.0
++                outside_bbo, dist_bps = trade_outside_bbo(trade_px=float(price), best_bid=bb, best_ask=ba)
++                indicators["trade_outside_bbo"] = int(1 if outside_bbo else 0)
++                indicators["trade_outside_bbo_dist_bps"] = float(dist_bps if outside_bbo else 0.0)
++                if outside_bbo:
++                    if trade_outside_bbo_total is not None:
++                        trade_outside_bbo_total.labels(symbol=str(runtime.symbol)).inc()
++                    if trade_outside_bbo_dist_bps_hist is not None:
++                        trade_outside_bbo_dist_bps_hist.labels(symbol=str(runtime.symbol)).observe(float(max(0.0, dist_bps)))
++                    # If current book_ts_gap is missing/underestimated, the stale-book symptom is still observable.
++                    if int(indicators.get("book_staleness_ms", 0) or 0) <= 0:
++                        last_book_ts = int(getattr(runtime, "last_book_ts_ms", 0) or 0)
++                        if last_book_ts > 0 and int(tick_ts) >= last_book_ts:
++                            indicators["book_staleness_ms"] = max(int(indicators.get("book_staleness_ms", 0) or 0), int(tick_ts) - last_book_ts)
++            except Exception:
++                indicators.setdefault("trade_outside_bbo", 0)
++                indicators.setdefault("trade_outside_bbo_dist_bps", 0.0)
++
+             indicators["liq_score"] = float(
+                 getattr(runtime, "last_liq_score", 0.0)
+                 or runtime.dynamic_cfg.get("liq_score", 0.0)
+--- a/handlers/crypto_orderflow/utils/quality_gates.py
++++ b/handlers/crypto_orderflow/utils/quality_gates.py
+@@ -5,6 +5,12 @@
+ from dataclasses import dataclass
+ from typing import Any, Optional, Set, Tuple
+ 
++try:
++    from services.orderflow.metrics_stream_integrity_p5 import emit_event_time_metrics
++except Exception:  # pragma: no cover
++    emit_event_time_metrics = None  # type: ignore
++
++
+ # =============================================================================
+ # Quality gates for CryptoOrderFlow
+ #
+@@ -325,13 +331,29 @@
+ 
+         # Lag and future skew checks
+         lag = int(now_ms) - int(ts_i)
++        stream_name = str(getattr(ctx, "stream_type", None) or getattr(ctx, "source_stage", None) or "tick")
++        try:
++            if emit_event_time_metrics is not None:
++                emit_event_time_metrics(symbol=str(symbol), stream=stream_name, event_lag_ms=max(0, lag))
++        except Exception:
++            pass
+         if lag > int(self.max_event_lag_ms):
++            try:
++                if emit_event_time_metrics is not None:
++                    emit_event_time_metrics(symbol=str(symbol), stream=stream_name, event_lag_ms=max(0, lag), late=True)
++            except Exception:
++                pass
+             return DataQualityGateDecision(
+                 apply=True, veto=True, reason_code="VETO_EVENT_LAG",
+                 notes=f"lag_ms={lag} max={self.max_event_lag_ms} ts={ts_i} now={now_ms}",
+                 updated_last_ts_ms=last_ts_ms,
+             )
+         if int(ts_i) > int(now_ms) + int(self.max_future_skew_ms):
++            try:
++                if emit_event_time_metrics is not None:
++                    emit_event_time_metrics(symbol=str(symbol), stream=stream_name, event_lag_ms=0.0, future=True)
++            except Exception:
++                pass
+             return DataQualityGateDecision(
+                 apply=True, veto=True, reason_code="VETO_FUTURE_TS",
+                 notes=f"ts={ts_i} now={now_ms} skew_max={self.max_future_skew_ms}",
+@@ -342,6 +364,11 @@
+         updated_last = last_ts_ms
+         if last_ts_ms is not None and int(ts_i) + int(self.out_of_order_tolerance_ms) < int(last_ts_ms):
+             # We DO NOT update last_ts here to avoid moving the watermark backwards.
++            try:
++                if emit_event_time_metrics is not None:
++                    emit_event_time_metrics(symbol=str(symbol), stream=stream_name, event_lag_ms=max(0, lag), out_of_order=True)
++            except Exception:
++                pass
+             return DataQualityGateDecision(
+                 apply=True, veto=True, reason_code="VETO_OUT_OF_ORDER",
+                 notes=f"ts={ts_i} last={last_ts_ms} tol={self.out_of_order_tolerance_ms}",
+--- a/services/orderflow/tests/test_stream_integrity_p5.py
++++ b/services/orderflow/tests/test_stream_integrity_p5.py
+@@ -88,6 +88,7 @@
+             enabled=True,
+             mode=mode,
+             max_gap_rate_ema=max_gap_rate,
++            max_dup_rate_ema=0.0,
+             max_gap_window=max_gap_window,
+             veto_on_schema_change=False,
+         )
+@@ -99,7 +100,7 @@
+         assert not dec.veto
+ 
+     def test_monitor_mode_no_veto(self):
+-        g = StreamIntegrityGate(enabled=True, mode="monitor", max_gap_rate_ema=0.05, max_gap_window=10, veto_on_schema_change=False)
++        g = StreamIntegrityGate(enabled=True, mode="monitor", max_gap_rate_ema=0.05, max_dup_rate_ema=0.0, max_gap_window=10, veto_on_schema_change=False)
+         dec = g.evaluate(indicators={"tick_seq_gap_rate_ema": 0.9}, symbol="BTCUSDT")
+         assert dec.apply
+         assert not dec.veto
+@@ -111,13 +112,27 @@
+         assert dec.veto
+ 
+     def test_schema_change_veto(self):
+-        g = StreamIntegrityGate(enabled=True, mode="veto", max_gap_rate_ema=0.0, max_gap_window=0, veto_on_schema_change=True)
++        g = StreamIntegrityGate(enabled=True, mode="veto", max_gap_rate_ema=0.0, max_dup_rate_ema=0.0, max_gap_window=0, veto_on_schema_change=True)
+         dec = g.evaluate(indicators={"tick_schema_changed": 1}, symbol="BTCUSDT")
+         assert dec.veto
+         assert "schema_changed" in dec.flags
+ 
+     def test_disabled_gate_no_action(self):
+-        g = StreamIntegrityGate(enabled=False, mode="veto", max_gap_rate_ema=0.01, max_gap_window=1, veto_on_schema_change=True)
++        g = StreamIntegrityGate(enabled=False, mode="veto", max_gap_rate_ema=0.01, max_dup_rate_ema=0.0, max_gap_window=1, veto_on_schema_change=True)
+         dec = g.evaluate(indicators={"tick_seq_gap_rate_ema": 1.0, "tick_schema_changed": 1}, symbol="X")
+         assert not dec.apply
+         assert not dec.veto
++
++
++    def test_veto_on_dup_rate(self):
++        g = StreamIntegrityGate(enabled=True, mode="veto", max_gap_rate_ema=0.0, max_dup_rate_ema=0.05, max_gap_window=0, veto_on_schema_change=False)
++        dec = g.evaluate(indicators={"tick_seq_dup_rate_ema": 0.9}, symbol="BTCUSDT")
++        assert dec.veto
++        assert dec.reason_code == "VETO_DUP_RATE"
++
++    def test_from_env_aliases_gap_and_dup_rate(self, monkeypatch):
++        monkeypatch.setenv("DATA_MAX_SEQ_GAP_RATE", "0.15")
++        monkeypatch.setenv("DATA_MAX_DUP_RATE", "0.07")
++        g = StreamIntegrityGate.from_env()
++        assert g.max_gap_rate_ema == pytest.approx(0.15)
++        assert g.max_dup_rate_ema == pytest.approx(0.07)
+--- a/services/orderflow/tests/test_book_sanity_p5.py
++++ b/services/orderflow/tests/test_book_sanity_p5.py
+@@ -96,8 +96,8 @@
+ 
+ 
+ class TestBookSanityGate:
+-    def _gate(self, mode: str = "veto") -> BookSanityGate:
+-        return BookSanityGate(enabled=True, mode=mode)
++    def _gate(self, mode: str = "veto", **kwargs) -> BookSanityGate:
++        return BookSanityGate(enabled=True, mode=mode, **kwargs)
+ 
+     def test_no_flags_no_action(self):
+         g = self._gate()
+@@ -123,10 +123,19 @@
+         assert dec.veto
+ 
+     def test_non_veto_flags_in_veto_mode(self):
+-        # trade_outside_bbo is NOT in veto_flags set
+         g = self._gate(mode="veto")
+         dec = g.evaluate(indicators={"book_sanity_flags": ["trade_outside_bbo"]}, symbol="BTCUSDT")
+-        # trade_outside_bbo is not in _ALLOWED_FLAGS, so it gets filtered
++        assert not dec.veto
++
++    def test_trade_outside_bbo_optional_veto(self):
++        g = self._gate(mode="veto", veto_trade_outside_bbo=True, outside_bbo_max_dist_bps=5.0)
++        dec = g.evaluate(indicators={"trade_outside_bbo": 1, "trade_outside_bbo_dist_bps": 7.5}, symbol="BTCUSDT")
++        assert dec.veto
++        assert dec.reason_code == "VETO_TRADE_OUTSIDE_BBO"
++
++    def test_trade_outside_bbo_below_threshold_no_veto(self):
++        g = self._gate(mode="veto", veto_trade_outside_bbo=True, outside_bbo_max_dist_bps=10.0)
++        dec = g.evaluate(indicators={"trade_outside_bbo": 1, "trade_outside_bbo_dist_bps": 7.5}, symbol="BTCUSDT")
+         assert not dec.veto
+ 
+     def test_csv_flags_parsing(self):
+--- a/orderflow_services/confidence_cal_metrics.py
++++ b/orderflow_services/confidence_cal_metrics.py
+@@ -126,6 +126,90 @@
+     ["symbol"],
+ )
+ 
++confidence_cal_train_mce_raw_gauge = _get_or_create(
++    "confidence_cal_train_mce_raw",
++    "gauge",
++    "Train-time MCE of raw confidence used to fit calibrator" ,
++    ["symbol"],
++)
++
++confidence_cal_train_mce_cal_gauge = _get_or_create(
++    "confidence_cal_train_mce_cal",
++    "gauge",
++    "Train-time MCE after calibration" ,
++    ["symbol"],
++)
++
++confidence_cal_train_slope_raw_gauge = _get_or_create(
++    "confidence_cal_train_slope_raw",
++    "gauge",
++    "Train-time calibration slope for raw confidence" ,
++    ["symbol"],
++)
++
++confidence_cal_train_slope_cal_gauge = _get_or_create(
++    "confidence_cal_train_slope_cal",
++    "gauge",
++    "Train-time calibration slope after calibration" ,
++    ["symbol"],
++)
++
++confidence_cal_train_intercept_raw_gauge = _get_or_create(
++    "confidence_cal_train_intercept_raw",
++    "gauge",
++    "Train-time calibration intercept for raw confidence" ,
++    ["symbol"],
++)
++
++confidence_cal_train_intercept_cal_gauge = _get_or_create(
++    "confidence_cal_train_intercept_cal",
++    "gauge",
++    "Train-time calibration intercept after calibration" ,
++    ["symbol"],
++)
++
++confidence_cal_train_sharpness_mean_raw_gauge = _get_or_create(
++    "confidence_cal_train_sharpness_mean_raw",
++    "gauge",
++    "Train-time sharpness mean for raw confidence" ,
++    ["symbol"],
++)
++
++confidence_cal_train_sharpness_mean_cal_gauge = _get_or_create(
++    "confidence_cal_train_sharpness_mean_cal",
++    "gauge",
++    "Train-time sharpness mean after calibration" ,
++    ["symbol"],
++)
++
++confidence_cal_train_sharpness_entropy_raw_gauge = _get_or_create(
++    "confidence_cal_train_sharpness_entropy_raw",
++    "gauge",
++    "Train-time sharpness entropy for raw confidence" ,
++    ["symbol"],
++)
++
++confidence_cal_train_sharpness_entropy_cal_gauge = _get_or_create(
++    "confidence_cal_train_sharpness_entropy_cal",
++    "gauge",
++    "Train-time sharpness entropy after calibration" ,
++    ["symbol"],
++)
++
++confidence_cal_train_prob_mass_near_half_raw_gauge = _get_or_create(
++    "confidence_cal_train_prob_mass_near_half_raw",
++    "gauge",
++    "Train-time probability mass near 0.5 for raw confidence" ,
++    ["symbol"],
++)
++
++confidence_cal_train_prob_mass_near_half_cal_gauge = _get_or_create(
++    "confidence_cal_train_prob_mass_near_half_cal",
++    "gauge",
++    "Train-time probability mass near 0.5 after calibration" ,
++    ["symbol"],
++)
++
+ confidence_cal_info_gauge = _get_or_create(
+     "confidence_cal_info",
+     "gauge",
+@@ -154,7 +238,18 @@
+         pass
+ 
+ 
+-def emit_train_report(symbol: str, cal_type: str, schema_version: int, raw_ece: float, cal_ece: float, raw_brier: float, cal_brier: float) -> None:
++def _set_optional_gauge(metric, *, symbol: str, value) -> None:
++    try:
++        if value is None:
++            return
++        m = _safe_labels(metric, symbol=symbol)
++        if m is not None:
++            m.set(float(value))
++    except Exception:
++        pass
++
++
++def emit_train_report(symbol: str, cal_type: str, schema_version: int, raw_ece: float, cal_ece: float, raw_brier: float, cal_brier: float, raw_metrics: Optional[dict] = None, cal_metrics: Optional[dict] = None) -> None:
+     try:
+         s = symbol or "unknown"
+         m = _safe_labels(confidence_cal_train_ece_raw_gauge, symbol=s)
+@@ -165,6 +260,22 @@
+         if m is not None: m.set(float(raw_brier))
+         m = _safe_labels(confidence_cal_train_brier_cal_gauge, symbol=s)
+         if m is not None: m.set(float(cal_brier))
++
++        raw_metrics = dict(raw_metrics or {})
++        cal_metrics = dict(cal_metrics or {})
++        _set_optional_gauge(confidence_cal_train_mce_raw_gauge, symbol=s, value=raw_metrics.get("mce"))
++        _set_optional_gauge(confidence_cal_train_mce_cal_gauge, symbol=s, value=cal_metrics.get("mce"))
++        _set_optional_gauge(confidence_cal_train_slope_raw_gauge, symbol=s, value=raw_metrics.get("calibration_slope"))
++        _set_optional_gauge(confidence_cal_train_slope_cal_gauge, symbol=s, value=cal_metrics.get("calibration_slope"))
++        _set_optional_gauge(confidence_cal_train_intercept_raw_gauge, symbol=s, value=raw_metrics.get("calibration_intercept"))
++        _set_optional_gauge(confidence_cal_train_intercept_cal_gauge, symbol=s, value=cal_metrics.get("calibration_intercept"))
++        _set_optional_gauge(confidence_cal_train_sharpness_mean_raw_gauge, symbol=s, value=raw_metrics.get("sharpness_mean"))
++        _set_optional_gauge(confidence_cal_train_sharpness_mean_cal_gauge, symbol=s, value=cal_metrics.get("sharpness_mean"))
++        _set_optional_gauge(confidence_cal_train_sharpness_entropy_raw_gauge, symbol=s, value=raw_metrics.get("sharpness_entropy"))
++        _set_optional_gauge(confidence_cal_train_sharpness_entropy_cal_gauge, symbol=s, value=cal_metrics.get("sharpness_entropy"))
++        _set_optional_gauge(confidence_cal_train_prob_mass_near_half_raw_gauge, symbol=s, value=raw_metrics.get("prob_mass_near_half"))
++        _set_optional_gauge(confidence_cal_train_prob_mass_near_half_cal_gauge, symbol=s, value=cal_metrics.get("prob_mass_near_half"))
++
+         m = _safe_labels(confidence_cal_info_gauge, symbol=s, type=str(cal_type or "unknown"), schema_version=str(int(schema_version)))
+         if m is not None: m.set(1.0)
+     except Exception:
+--- a/orderflow_services/confidence_calibrator.py
++++ b/orderflow_services/confidence_calibrator.py
+@@ -257,6 +257,8 @@
+                         cal_ece=float(cc.get("ece", 0.0) or 0.0),
+                         raw_brier=float(raw.get("brier", 0.0) or 0.0),
+                         cal_brier=float(cc.get("brier", 0.0) or 0.0),
++                        raw_metrics=raw,
++                        cal_metrics=cc,
+                     )
+                 except Exception:
+                     pass
+--- a/orderflow_services/tests/test_confidence_cal_metrics_extended_v1.py
++++ b/orderflow_services/tests/test_confidence_cal_metrics_extended_v1.py
+@@ -0,0 +1,48 @@
++from __future__ import annotations
++
++from orderflow_services.confidence_cal_metrics import (
++    emit_train_report,
++    confidence_cal_train_mce_raw_gauge,
++    confidence_cal_train_slope_raw_gauge,
++    confidence_cal_train_intercept_cal_gauge,
++    confidence_cal_train_sharpness_entropy_cal_gauge,
++    confidence_cal_train_prob_mass_near_half_raw_gauge,
++)
++
++
++def _sample_value(metric, symbol: str) -> float | None:
++    if metric is None:
++        return None
++    target = str(symbol)
++    for mf in metric.collect():
++        for sample in mf.samples:
++            if sample.labels.get("symbol") == target:
++                return float(sample.value)
++    return None
++
++
++def test_emit_train_report_surfaces_extended_metrics() -> None:
++    emit_train_report(
++        "BTCUSDT",
++        cal_type="isotonic",
++        schema_version=2,
++        raw_ece=0.11,
++        cal_ece=0.07,
++        raw_brier=0.20,
++        cal_brier=0.16,
++        raw_metrics={
++            "mce": 0.31,
++            "calibration_slope": 0.84,
++            "prob_mass_near_half": 0.41,
++        },
++        cal_metrics={
++            "calibration_intercept": -0.03,
++            "sharpness_entropy": 0.72,
++        },
++    )
++
++    assert _sample_value(confidence_cal_train_mce_raw_gauge, "BTCUSDT") == 0.31
++    assert _sample_value(confidence_cal_train_slope_raw_gauge, "BTCUSDT") == 0.84
++    assert _sample_value(confidence_cal_train_intercept_cal_gauge, "BTCUSDT") == -0.03
++    assert _sample_value(confidence_cal_train_sharpness_entropy_cal_gauge, "BTCUSDT") == 0.72
++    assert _sample_value(confidence_cal_train_prob_mass_near_half_raw_gauge, "BTCUSDT") == 0.41
+--- a/ml_analysis/psr_dsr.py
++++ b/ml_analysis/psr_dsr.py
+@@ -0,0 +1,136 @@
++from __future__ import annotations
++
++"""Probabilistic / Deflated Sharpe helpers.
++
++Dependency-light implementation suitable for nightly research jobs.
++The formulas follow the Bailey/de Prado style approximation and intentionally
++stay deterministic / fail-open for sparse inputs.
++"""
++
++import math
++from dataclasses import dataclass
++from typing import Iterable, Sequence
++
++import numpy as np
++
++
++def _norm_cdf(x: float) -> float:
++    return 0.5 * (1.0 + math.erf(float(x) / math.sqrt(2.0)))
++
++
++def _as_returns(xs: Iterable[float | int | None]) -> np.ndarray:
++    vals = []
++    for x in xs:
++        try:
++            if x is None:
++                continue
++            v = float(x)
++            if math.isfinite(v):
++                vals.append(v)
++        except Exception:
++            continue
++    return np.asarray(vals, dtype=np.float64)
++
++
++def sample_moments(xs: Sequence[float | int | None]) -> dict[str, float]:
++    a = _as_returns(xs)
++    n = int(a.size)
++    if n <= 1:
++        return {"n": n, "mean": float("nan"), "std": float("nan"), "skew": 0.0, "kurtosis": 3.0, "sharpe": float("nan")}
++    mean = float(np.mean(a))
++    std = float(np.std(a, ddof=1))
++    if not math.isfinite(std) or std <= 0.0:
++        sr = 0.0
++    else:
++        sr = float(mean / std)
++    centered = a - mean
++    m2 = float(np.mean(centered ** 2)) if n > 0 else 0.0
++    if m2 <= 0.0:
++        skew = 0.0
++        kurt = 3.0
++    else:
++        m3 = float(np.mean(centered ** 3))
++        m4 = float(np.mean(centered ** 4))
++        skew = float(m3 / (m2 ** 1.5)) if m2 > 0 else 0.0
++        kurt = float(m4 / (m2 ** 2)) if m2 > 0 else 3.0
++    return {"n": n, "mean": mean, "std": std, "skew": skew, "kurtosis": kurt, "sharpe": sr}
++
++
++def probabilistic_sharpe_ratio(*, observed_sr: float, benchmark_sr: float = 0.0, n: int, skew: float = 0.0, kurtosis: float = 3.0) -> float:
++    n_i = int(n)
++    if n_i <= 1 or not math.isfinite(observed_sr):
++        return float("nan")
++    denom = 1.0 - float(skew) * float(observed_sr) + ((float(kurtosis) - 1.0) / 4.0) * (float(observed_sr) ** 2)
++    denom = max(denom, 1e-12)
++    z = ((float(observed_sr) - float(benchmark_sr)) * math.sqrt(max(n_i - 1, 1))) / math.sqrt(denom)
++    return float(_norm_cdf(z))
++
++
++def expected_max_sr(*, trials: int) -> float:
++    """Approximate expected maximum standard-normal SR across many trials."""
++    m = max(1, int(trials))
++    if m == 1:
++        return 0.0
++    p = 1.0 - 1.0 / float(m)
++    # Acklam-style light approximation not required here; erf^-1 unavailable.
++    # Use a bounded rational approximation via normal quantile from numpy.
++    return float(np.quantile(np.random.default_rng(0).standard_normal(200000), p))
++
++
++def deflated_sharpe_ratio(*, observed_sr: float, n: int, trials: int, skew: float = 0.0, kurtosis: float = 3.0) -> float:
++    # Deterministic approximation of selection-bias benchmark. We avoid random draws.
++    m = max(1, int(trials))
++    if m == 1:
++        benchmark = 0.0
++    else:
++        # Extreme-value approximation for max of standard normal.
++        benchmark = math.sqrt(2.0 * math.log(m)) - (math.log(math.log(m)) + math.log(4.0 * math.pi)) / (2.0 * math.sqrt(2.0 * math.log(m)))
++    return probabilistic_sharpe_ratio(
++        observed_sr=float(observed_sr),
++        benchmark_sr=float(benchmark),
++        n=int(n),
++        skew=float(skew),
++        kurtosis=float(kurtosis),
++    )
++
++
++@dataclass(frozen=True)
++class SharpeReport:
++    n: int
++    mean: float
++    std: float
++    sharpe: float
++    skew: float
++    kurtosis: float
++    psr: float
++    dsr: float
++
++
++def sharpe_report(xs: Sequence[float | int | None], *, benchmark_sr: float = 0.0, trials: int = 1) -> SharpeReport:
++    mom = sample_moments(xs)
++    n = int(mom["n"])
++    sr = float(mom["sharpe"])
++    psr = probabilistic_sharpe_ratio(
++        observed_sr=sr,
++        benchmark_sr=float(benchmark_sr),
++        n=n,
++        skew=float(mom["skew"]),
++        kurtosis=float(mom["kurtosis"]),
++    )
++    dsr = deflated_sharpe_ratio(
++        observed_sr=sr,
++        n=n,
++        trials=max(1, int(trials)),
++        skew=float(mom["skew"]),
++        kurtosis=float(mom["kurtosis"]),
++    )
++    return SharpeReport(
++        n=n,
++        mean=float(mom["mean"]),
++        std=float(mom["std"]),
++        sharpe=sr,
++        skew=float(mom["skew"]),
++        kurtosis=float(mom["kurtosis"]),
++        psr=float(psr),
++        dsr=float(dsr),
++    )
+--- a/ml_analysis/pbo_cscv.py
++++ b/ml_analysis/pbo_cscv.py
+@@ -0,0 +1,81 @@
++from __future__ import annotations
++
++"""PBO / CSCV helpers for strategy-selection over many variants.
++
++Input format is intentionally simple: a matrix-like mapping variant -> list of
++per-period scores. Scores can be Sharpe, expectancy, precision@topX, mean R, or
++any metric where higher is better.
++"""
++
++import itertools
++import math
++from dataclasses import dataclass
++from typing import Dict, Iterable, Mapping, Sequence
++
++import numpy as np
++
++
++def _to_matrix(scores_by_variant: Mapping[str, Sequence[float | int | None]]) -> tuple[list[str], np.ndarray]:
++    variants = sorted(str(k) for k in scores_by_variant.keys())
++    rows = []
++    for v in variants:
++        vals = []
++        for x in scores_by_variant[v]:
++            try:
++                vals.append(float(x))
++            except Exception:
++                vals.append(float("nan"))
++        rows.append(vals)
++    mat = np.asarray(rows, dtype=np.float64)
++    if mat.ndim != 2:
++        raise ValueError("scores_by_variant must form a 2D matrix")
++    return variants, mat
++
++
++def _mean_ignore_nan(a: np.ndarray, axis: int) -> np.ndarray:
++    with np.errstate(all="ignore"):
++        out = np.nanmean(a, axis=axis)
++    return np.where(np.isfinite(out), out, -np.inf)
++
++
++@dataclass(frozen=True)
++class CscvResult:
++    n_variants: int
++    n_periods: int
++    n_splits: int
++    pbo: float
++    lambda_logits_mean: float
++    chosen_variant_unique: int
++
++
++def compute_pbo_cscv(scores_by_variant: Mapping[str, Sequence[float | int | None]]) -> CscvResult:
++    variants, mat = _to_matrix(scores_by_variant)
++    n_variants, n_periods = mat.shape
++    if n_variants < 2 or n_periods < 4 or n_periods % 2 != 0:
++        raise ValueError("need >=2 variants and an even number of periods >=4")
++    half = n_periods // 2
++    splits = list(itertools.combinations(range(n_periods), half))
++    lambda_logits = []
++    chosen = []
++    for ins_idx in splits:
++        ins = np.array(sorted(ins_idx), dtype=int)
++        oos = np.array(sorted(set(range(n_periods)) - set(ins_idx)), dtype=int)
++        ins_mean = _mean_ignore_nan(mat[:, ins], axis=1)
++        best_idx = int(np.argmax(ins_mean))
++        chosen.append(best_idx)
++        oos_mean = _mean_ignore_nan(mat[:, oos], axis=1)
++        order = np.argsort(oos_mean)
++        rank = int(np.where(order == best_idx)[0][0]) + 1  # 1..M, lower = worse
++        lam = rank / float(max(1, n_variants + 1))
++        lam = min(max(lam, 1e-6), 1.0 - 1e-6)
++        lambda_logits.append(math.log(lam / (1.0 - lam)))
++    lambda_arr = np.asarray(lambda_logits, dtype=np.float64)
++    pbo = float(np.mean(lambda_arr <= 0.0))
++    return CscvResult(
++        n_variants=n_variants,
++        n_periods=n_periods,
++        n_splits=len(splits),
++        pbo=pbo,
++        lambda_logits_mean=float(np.mean(lambda_arr)) if lambda_arr.size else float("nan"),
++        chosen_variant_unique=int(len(set(chosen))),
++    )
+--- a/ml_analysis/reality_check.py
++++ b/ml_analysis/reality_check.py
+@@ -0,0 +1,66 @@
++from __future__ import annotations
++
++"""Universal evaluator helpers for research / promotion gates."""
++
++import math
++from typing import Iterable, Sequence
++
++import numpy as np
++
++
++def _as_float_array(xs: Iterable[float | int | None]) -> np.ndarray:
++    vals = []
++    for x in xs:
++        try:
++            if x is None:
++                continue
++            v = float(x)
++            if math.isfinite(v):
++                vals.append(v)
++        except Exception:
++            continue
++    return np.asarray(vals, dtype=np.float64)
++
++
++def net_expectancy(pnl_r: Sequence[float | int | None]) -> float:
++    a = _as_float_array(pnl_r)
++    return float(np.mean(a)) if a.size else float("nan")
++
++
++def mean_r(r_multiples: Sequence[float | int | None]) -> float:
++    return net_expectancy(r_multiples)
++
++
++def downside_adjusted_return(returns: Sequence[float | int | None]) -> float:
++    a = _as_float_array(returns)
++    if a.size == 0:
++        return float("nan")
++    downside = np.minimum(a, 0.0)
++    dd = float(np.sqrt(np.mean(downside ** 2)))
++    if dd <= 0.0:
++        return float(np.mean(a))
++    return float(np.mean(a) / dd)
++
++
++def precision_at_top_x(labels: Sequence[int | float | None], scores: Sequence[float | int | None], *, x_frac: float = 0.05) -> float:
++    y = _as_float_array(labels)
++    s = _as_float_array(scores)
++    n = int(min(y.size, s.size))
++    if n <= 0:
++        return float("nan")
++    y = y[:n]
++    s = s[:n]
++    k = max(1, int(math.ceil(float(x_frac) * n)))
++    idx = np.argsort(-s)[:k]
++    return float(np.mean(y[idx] > 0.0))
++
++
++def hit_rate_conditioned_on_cost(pnl: Sequence[float | int | None], costs_bps: Sequence[float | int | None]) -> float:
++    p = _as_float_array(pnl)
++    c = _as_float_array(costs_bps)
++    n = int(min(p.size, c.size))
++    if n <= 0:
++        return float("nan")
++    p = p[:n]
++    c = c[:n]
++    return float(np.mean((p - c) > 0.0))
+--- a/ml_analysis/tests/test_psr_dsr.py
++++ b/ml_analysis/tests/test_psr_dsr.py
+@@ -0,0 +1,22 @@
++from __future__ import annotations
++
++from ml_analysis.psr_dsr import sharpe_report, probabilistic_sharpe_ratio, deflated_sharpe_ratio
++
++
++def test_psr_high_for_positive_clean_track() -> None:
++    xs = [0.01] * 20 + [0.02] * 20 + [0.0] * 5
++    rep = sharpe_report(xs, benchmark_sr=0.0, trials=4)
++    assert rep.psr > 0.8
++    assert 0.0 <= rep.dsr <= 1.0
++
++
++def test_dsr_penalizes_many_trials() -> None:
++    sr = 0.9
++    low = deflated_sharpe_ratio(observed_sr=sr, n=120, trials=2)
++    high = deflated_sharpe_ratio(observed_sr=sr, n=120, trials=200)
++    assert high < low
++
++
++def test_psr_nan_for_too_short_track() -> None:
++    out = probabilistic_sharpe_ratio(observed_sr=1.0, benchmark_sr=0.0, n=1)
++    assert out != out
+--- a/ml_analysis/tests/test_pbo_cscv.py
++++ b/ml_analysis/tests/test_pbo_cscv.py
+@@ -0,0 +1,23 @@
++from __future__ import annotations
++
++from ml_analysis.pbo_cscv import compute_pbo_cscv
++from ml_analysis.reality_check import net_expectancy, precision_at_top_x, mean_r, downside_adjusted_return, hit_rate_conditioned_on_cost
++
++
++def test_pbo_low_when_single_variant_is_consistently_best() -> None:
++    scores = {
++        'a': [0.9, 0.8, 1.0, 0.95],
++        'b': [0.2, 0.1, 0.3, 0.25],
++        'c': [-0.1, -0.2, 0.0, -0.1],
++    }
++    rep = compute_pbo_cscv(scores)
++    assert rep.pbo < 0.5
++    assert rep.n_splits > 0
++
++
++def test_universal_evaluators_smoke() -> None:
++    assert net_expectancy([1.0, -0.5, 0.5]) == 1.0 / 3.0
++    assert mean_r([1.0, -0.5, 0.5]) == 1.0 / 3.0
++    assert precision_at_top_x([1, 0, 1, 1], [0.9, 0.1, 0.8, 0.2], x_frac=0.5) == 1.0
++    assert downside_adjusted_return([1.0, -0.5, 0.5]) > 0.0
++    assert hit_rate_conditioned_on_cost([5.0, 2.0, -1.0], [1.0, 1.5, 0.5]) == 2.0 / 3.0
+--- a/services/posttrade/sql/metrics_raw_timescale_p6.sql
++++ b/services/posttrade/sql/metrics_raw_timescale_p6.sql
+@@ -0,0 +1,38 @@
++CREATE TABLE IF NOT EXISTS metrics_raw (
++  ts              timestamptz NOT NULL,
++  sym             text        NOT NULL,
++  venue           text        NOT NULL,
++  session         text        NOT NULL,
++  tf              text        NOT NULL,
++  kind            text        NOT NULL,
++  side            text        NOT NULL,
++  metric_name     text        NOT NULL,
++  metric_value    double precision NOT NULL,
++  source_stage    text        NOT NULL,
++  run_id          text        NULL,
++  extra           jsonb       NULL
++);
++
++SELECT create_hypertable('metrics_raw', 'ts', if_not_exists => TRUE);
++
++ALTER TABLE metrics_raw SET (
++  timescaledb.compress,
++  timescaledb.compress_segmentby = 'sym,venue,metric_name,source_stage',
++  timescaledb.compress_orderby = 'ts DESC'
++);
++
++SELECT add_compression_policy('metrics_raw', INTERVAL '7 days', if_not_exists => TRUE);
++
++CREATE MATERIALIZED VIEW IF NOT EXISTS metrics_raw_5m
++WITH (timescaledb.continuous) AS
++SELECT
++  time_bucket(INTERVAL '5 minutes', ts) AS bucket,
++  sym,
++  venue,
++  source_stage,
++  metric_name,
++  avg(metric_value) AS metric_avg,
++  min(metric_value) AS metric_min,
++  max(metric_value) AS metric_max
++FROM metrics_raw
++GROUP BY 1,2,3,4,5;
+--- a/tick_flow_full/handlers/crypto_orderflow/utils/quality_gates.py
++++ b/tick_flow_full/handlers/crypto_orderflow/utils/quality_gates.py
+@@ -325,13 +325,29 @@
+ 
+         # Lag and future skew checks
+         lag = int(now_ms) - int(ts_i)
++        stream_name = str(getattr(ctx, "stream_type", None) or getattr(ctx, "source_stage", None) or "tick")
++        try:
++            if emit_event_time_metrics is not None:
++                emit_event_time_metrics(symbol=str(symbol), stream=stream_name, event_lag_ms=max(0, lag))
++        except Exception:
++            pass
+         if lag > int(self.max_event_lag_ms):
++            try:
++                if emit_event_time_metrics is not None:
++                    emit_event_time_metrics(symbol=str(symbol), stream=stream_name, event_lag_ms=max(0, lag), late=True)
++            except Exception:
++                pass
+             return DataQualityGateDecision(
+                 apply=True, veto=True, reason_code="VETO_EVENT_LAG",
+                 notes=f"lag_ms={lag} max={self.max_event_lag_ms} ts={ts_i} now={now_ms}",
+                 updated_last_ts_ms=last_ts_ms,
+             )
+         if int(ts_i) > int(now_ms) + int(self.max_future_skew_ms):
++            try:
++                if emit_event_time_metrics is not None:
++                    emit_event_time_metrics(symbol=str(symbol), stream=stream_name, event_lag_ms=0.0, future=True)
++            except Exception:
++                pass
+             return DataQualityGateDecision(
+                 apply=True, veto=True, reason_code="VETO_FUTURE_TS",
+                 notes=f"ts={ts_i} now={now_ms} skew_max={self.max_future_skew_ms}",
+@@ -342,6 +358,11 @@
+         updated_last = last_ts_ms
+         if last_ts_ms is not None and int(ts_i) + int(self.out_of_order_tolerance_ms) < int(last_ts_ms):
+             # We DO NOT update last_ts here to avoid moving the watermark backwards.
++            try:
++                if emit_event_time_metrics is not None:
++                    emit_event_time_metrics(symbol=str(symbol), stream=stream_name, event_lag_ms=max(0, lag), out_of_order=True)
++            except Exception:
++                pass
+             return DataQualityGateDecision(
+                 apply=True, veto=True, reason_code="VETO_OUT_OF_ORDER",
+                 notes=f"ts={ts_i} last={last_ts_ms} tol={self.out_of_order_tolerance_ms}",
+--- a/tick_flow_full/orderflow_services/confidence_cal_metrics.py
++++ b/tick_flow_full/orderflow_services/confidence_cal_metrics.py
+@@ -126,6 +126,90 @@
+     ["symbol"],
+ )
+ 
++confidence_cal_train_mce_raw_gauge = _get_or_create(
++    "confidence_cal_train_mce_raw",
++    "gauge",
++    "Train-time MCE of raw confidence used to fit calibrator" ,
++    ["symbol"],
++)
++
++confidence_cal_train_mce_cal_gauge = _get_or_create(
++    "confidence_cal_train_mce_cal",
++    "gauge",
++    "Train-time MCE after calibration" ,
++    ["symbol"],
++)
++
++confidence_cal_train_slope_raw_gauge = _get_or_create(
++    "confidence_cal_train_slope_raw",
++    "gauge",
++    "Train-time calibration slope for raw confidence" ,
++    ["symbol"],
++)
++
++confidence_cal_train_slope_cal_gauge = _get_or_create(
++    "confidence_cal_train_slope_cal",
++    "gauge",
++    "Train-time calibration slope after calibration" ,
++    ["symbol"],
++)
++
++confidence_cal_train_intercept_raw_gauge = _get_or_create(
++    "confidence_cal_train_intercept_raw",
++    "gauge",
++    "Train-time calibration intercept for raw confidence" ,
++    ["symbol"],
++)
++
++confidence_cal_train_intercept_cal_gauge = _get_or_create(
++    "confidence_cal_train_intercept_cal",
++    "gauge",
++    "Train-time calibration intercept after calibration" ,
++    ["symbol"],
++)
++
++confidence_cal_train_sharpness_mean_raw_gauge = _get_or_create(
++    "confidence_cal_train_sharpness_mean_raw",
++    "gauge",
++    "Train-time sharpness mean for raw confidence" ,
++    ["symbol"],
++)
++
++confidence_cal_train_sharpness_mean_cal_gauge = _get_or_create(
++    "confidence_cal_train_sharpness_mean_cal",
++    "gauge",
++    "Train-time sharpness mean after calibration" ,
++    ["symbol"],
++)
++
++confidence_cal_train_sharpness_entropy_raw_gauge = _get_or_create(
++    "confidence_cal_train_sharpness_entropy_raw",
++    "gauge",
++    "Train-time sharpness entropy for raw confidence" ,
++    ["symbol"],
++)
++
++confidence_cal_train_sharpness_entropy_cal_gauge = _get_or_create(
++    "confidence_cal_train_sharpness_entropy_cal",
++    "gauge",
++    "Train-time sharpness entropy after calibration" ,
++    ["symbol"],
++)
++
++confidence_cal_train_prob_mass_near_half_raw_gauge = _get_or_create(
++    "confidence_cal_train_prob_mass_near_half_raw",
++    "gauge",
++    "Train-time probability mass near 0.5 for raw confidence" ,
++    ["symbol"],
++)
++
++confidence_cal_train_prob_mass_near_half_cal_gauge = _get_or_create(
++    "confidence_cal_train_prob_mass_near_half_cal",
++    "gauge",
++    "Train-time probability mass near 0.5 after calibration" ,
++    ["symbol"],
++)
++
+ confidence_cal_info_gauge = _get_or_create(
+     "confidence_cal_info",
+     "gauge",
+@@ -154,7 +238,18 @@
+         pass
+ 
+ 
+-def emit_train_report(symbol: str, cal_type: str, schema_version: int, raw_ece: float, cal_ece: float, raw_brier: float, cal_brier: float) -> None:
++def _set_optional_gauge(metric, *, symbol: str, value) -> None:
++    try:
++        if value is None:
++            return
++        m = _safe_labels(metric, symbol=symbol)
++        if m is not None:
++            m.set(float(value))
++    except Exception:
++        pass
++
++
++def emit_train_report(symbol: str, cal_type: str, schema_version: int, raw_ece: float, cal_ece: float, raw_brier: float, cal_brier: float, raw_metrics: Optional[dict] = None, cal_metrics: Optional[dict] = None) -> None:
+     try:
+         s = symbol or "unknown"
+         m = _safe_labels(confidence_cal_train_ece_raw_gauge, symbol=s)
+@@ -165,6 +260,22 @@
+         if m is not None: m.set(float(raw_brier))
+         m = _safe_labels(confidence_cal_train_brier_cal_gauge, symbol=s)
+         if m is not None: m.set(float(cal_brier))
++
++        raw_metrics = dict(raw_metrics or {})
++        cal_metrics = dict(cal_metrics or {})
++        _set_optional_gauge(confidence_cal_train_mce_raw_gauge, symbol=s, value=raw_metrics.get("mce"))
++        _set_optional_gauge(confidence_cal_train_mce_cal_gauge, symbol=s, value=cal_metrics.get("mce"))
++        _set_optional_gauge(confidence_cal_train_slope_raw_gauge, symbol=s, value=raw_metrics.get("calibration_slope"))
++        _set_optional_gauge(confidence_cal_train_slope_cal_gauge, symbol=s, value=cal_metrics.get("calibration_slope"))
++        _set_optional_gauge(confidence_cal_train_intercept_raw_gauge, symbol=s, value=raw_metrics.get("calibration_intercept"))
++        _set_optional_gauge(confidence_cal_train_intercept_cal_gauge, symbol=s, value=cal_metrics.get("calibration_intercept"))
++        _set_optional_gauge(confidence_cal_train_sharpness_mean_raw_gauge, symbol=s, value=raw_metrics.get("sharpness_mean"))
++        _set_optional_gauge(confidence_cal_train_sharpness_mean_cal_gauge, symbol=s, value=cal_metrics.get("sharpness_mean"))
++        _set_optional_gauge(confidence_cal_train_sharpness_entropy_raw_gauge, symbol=s, value=raw_metrics.get("sharpness_entropy"))
++        _set_optional_gauge(confidence_cal_train_sharpness_entropy_cal_gauge, symbol=s, value=cal_metrics.get("sharpness_entropy"))
++        _set_optional_gauge(confidence_cal_train_prob_mass_near_half_raw_gauge, symbol=s, value=raw_metrics.get("prob_mass_near_half"))
++        _set_optional_gauge(confidence_cal_train_prob_mass_near_half_cal_gauge, symbol=s, value=cal_metrics.get("prob_mass_near_half"))
++
+         m = _safe_labels(confidence_cal_info_gauge, symbol=s, type=str(cal_type or "unknown"), schema_version=str(int(schema_version)))
+         if m is not None: m.set(1.0)
+     except Exception:
+--- a/tick_flow_full/orderflow_services/confidence_calibrator.py
++++ b/tick_flow_full/orderflow_services/confidence_calibrator.py
+@@ -257,6 +257,8 @@
+                         cal_ece=float(cc.get("ece", 0.0) or 0.0),
+                         raw_brier=float(raw.get("brier", 0.0) or 0.0),
+                         cal_brier=float(cc.get("brier", 0.0) or 0.0),
++                        raw_metrics=raw,
++                        cal_metrics=cc,
+                     )
+                 except Exception:
+                     pass

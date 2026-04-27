@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/market_state.py
+# hypothesis_version: 6.148.10
+
+[0.0, '1m', '300', '60000', 'ADX_CACHE_MS', 'RQ_CACHE_MS', 'market_state.get_adx', 'of_market_state', 'redis_read_failure']

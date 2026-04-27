@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/price_latest_cache.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.5, 10000.0, 1000, '0', '1', 'PRICE_LATEST_ENABLED', 'PRICE_LATEST_TTL_MS', 'ask', 'bid', 'expire', 'false', 'last', 'mid', 'na', 'no', 'off', 'pexpire', 'spread_bps', 'ts_ms', 'venue']

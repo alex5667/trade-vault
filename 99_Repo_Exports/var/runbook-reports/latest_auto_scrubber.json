@@ -1,0 +1,25 @@
+{
+  "checked_at_ms": 1776522209747,
+  "health_report": "/var/lib/trade-runbook/reports/latest_execution_health.json",
+  "decision": {
+    "trigger": true,
+    "reasons": [
+      "overall_warning"
+    ]
+  },
+  "scrub_report": {
+    "checked": 2,
+    "deleted": 0,
+    "retention_guard": {
+      "exec_stream": "orders:exec",
+      "checkpoint_prefix": "orders:exec:replay:cursor:",
+      "oldest_stream_id": "1775777279314-0",
+      "checked_checkpoint_keys": 2,
+      "breached_checkpoints": 0,
+      "breached_examples": [],
+      "status": "ok"
+    },
+    "items": []
+  },
+  "retention_quarantine_report": null
+}

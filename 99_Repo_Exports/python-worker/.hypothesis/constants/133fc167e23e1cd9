@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/_pytest/reports.py
+# hypothesis_version: 6.148.10
+
+[100, '$report_type', '%s.%s.%s', '-', '::', 'BaseReport', 'CallInfo[None]', 'Captured log', 'Captured stderr', 'Captured stdout', 'CollectReport', 'ReprEntry', 'ReprEntryNative', 'TestReport', '_R', '__dict__', 'auto', 'call', 'chain', 'collect', 'data', 'executable', 'failed', 'id', 'lines', 'longrepr', 'node', 'passed', 'report_name: %s', 'reprcrash', 'reprentries', 'reprfileloc', 'reprfuncargs', 'reprlocals', 'reprtraceback', 'result', 'sections', 'skipped', 'style', 'sysplatform', 'tbstyle', 'toterminal', 'type', 'version_info']

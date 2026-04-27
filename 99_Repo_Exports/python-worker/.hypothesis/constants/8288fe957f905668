@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/util/_validators.py
+# hypothesis_version: 6.148.10
+
+['BoolishNoneT', 'BoolishT', 'argument', 'arguments', 'ascending', 'both', 'int_allowed', 'left', 'neither', 'none_allowed', 'numpy_nullable', 'pyarrow', 'right']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signal_scoring/geometry.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.35, 1.0, 25.0, 100.0, 10000.0, 'kind', 'level', 'meta', 'price', 'score', 'source', 'strength', 'type', 'unknown', 'zone_price', 'zone_strength', 'zone_type']

@@ -1,0 +1,165 @@
+diff -ruN '--exclude=20260224_of_gate_metrics_rollups_p78.sql' a/confidence_calculation/docker-compose-crypto-orderflow.yml b/confidence_calculation/docker-compose-crypto-orderflow.yml
+--- a/confidence_calculation/docker-compose-crypto-orderflow.yml	2026-02-25 14:55:22.000000000 +0000
++++ b/confidence_calculation/docker-compose-crypto-orderflow.yml	2026-02-25 19:11:39.511191784 +0000
+@@ -2898,6 +2898,56 @@
+       - trade-network
+       - scanner-network
+ 
++  # OFInputs V3 circuit breaker state exporter (P100/P102)
++  of-inputs-v3-circuit-exporter:
++    build: *id001
++    container_name: scanner-of-inputs-v3-circuit-exporter
++    restart: unless-stopped
++    environment:
++      - REDIS_URL=redis://redis-worker-1:6379/0
++      - PYTHONPATH=.:/app
++      - OF_INPUTS_V3_EXPORTER_POLL_SEC=5
++    depends_on: *id003
++    networks: *id004
++    volumes:
++      - .:/app
++    working_dir: /app
++    ports:
++      - '9164:9164'
++    command: >
++      sh -c "python3 -m orderflow_services.of_inputs_v3_circuit_state_exporter_p100 --port 9164"
++    profiles: ["default"]
++
++  # Prometheus rules bundle validator smoke timer (P102)
++  prom-rules-bundle-smoke-timer:
++    build: *id001
++    container_name: scanner-prom-rules-bundle-smoke-timer
++    image: scanner-python-worker-gpu
++    entrypoint: '/bin/bash -c "trap : TERM INT; sleep infinity & wait"'
++    restart: unless-stopped
++    labels:
++      - "com.centurylinklabs.watchtower.enable=true"
++    volumes:
++      - .:/app
++    environment:
++      - PYTHONPATH=/app
++      - REDIS_URL=redis://redis-worker-1:6379/0
++      - DYN_CFG_KEY=settings:dynamic_cfg
++      # Fail-closed hold (align with other anti-flap defaults)
++      - AUTO_APPLY_BLOCK_HOLD_S=300
++      # Orchestrated module
++      - ENABLE_PROM_RULES_BUNDLE_SMOKE=1
++    depends_on: *id003
++    networks: *id004
++    working_dir: /app
++    command: >
++      sh -c "sleep 60 && while true; do
++        echo 'Running PROM RULES BUNDLE SMOKE...';
++        python3 -m services.prom_rules_bundle_smoke_runner_v1 || echo 'PROM RULES BUNDLE SMOKE failed';
++        sleep 300;
++      done"
++    profiles: ["default"]
++
+ networks:
+   scanner-network:
+     external: true
+diff -ruN '--exclude=20260224_of_gate_metrics_rollups_p78.sql' a/services/prom_rules_bundle_smoke_runner_v1.py b/services/prom_rules_bundle_smoke_runner_v1.py
+--- a/services/prom_rules_bundle_smoke_runner_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/services/prom_rules_bundle_smoke_runner_v1.py	2026-02-25 19:11:39.414701397 +0000
+@@ -0,0 +1,84 @@
++"""Prometheus rules bundle repo validator smoke runner (P102).
++
++Goal:
++- Validate that all Prometheus rule files referenced by the repository bundle are parseable.
++- Fail-closed by setting a global auto-apply block key when validation fails.
++
++This is designed to be executed from an orchestrator (docker-compose timer / systemd).
++
++Exit codes:
++- 0: OK
++- 2: Validation failed (intentional signal for orchestrator/alerts)
++- 1: Unexpected error
++"""
++
++from __future__ import annotations
++
++import os
++import sys
++import time
++import traceback
++
++from orderflow_services.validate_prometheus_rules_bundle_v1 import validate_prometheus_rules_bundle
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++AUTO_APPLY_BLOCK_PREFIX = "cfg:suggestions:entry_policy:auto_apply_block"
++
++
++def _redis_client():
++    if redis is None:
++        raise RuntimeError("redis python package is required")
++
++    redis_url = os.environ.get("REDIS_URL")
++    if not redis_url:
++        raise RuntimeError("REDIS_URL is required")
++
++    # decode_responses=True so values are strings and logs are readable
++    return redis.Redis.from_url(redis_url, decode_responses=True)
++
++
++def _set_global_block(reason: str, hold_s: int = 300) -> None:
++    """Set a global fail-closed auto-apply block for the entry-policy promoter."""
++    r = _redis_client()
++    key = f"{AUTO_APPLY_BLOCK_PREFIX}:prom_rules_bundle:{reason}"
++    ts_ms = int(time.time() * 1000)
++    r.set(key, str(ts_ms), ex=max(60, int(hold_s)))
++
++
++def main() -> int:
++    repo_root = os.environ.get("PROM_RULES_REPO_ROOT", ".")
++    promtool = os.environ.get("PROMTOOL_PATH")  # optional
++    hold_s = int(os.environ.get("AUTO_APPLY_BLOCK_HOLD_S", "300"))
++
++    try:
++        ok, report = validate_prometheus_rules_bundle(
++            repo_root=repo_root,
++            promtool_path=promtool,
++        )
++        if ok:
++            print("OK: prom rules bundle validation")
++            return 0
++
++        # Fail-closed: set global auto-apply block so nothing is promoted automatically.
++        print("FAIL: prom rules bundle validation")
++        print(report)
++        _set_global_block(reason="invalid_rules", hold_s=hold_s)
++        return 2
++
++    except Exception:
++        print("ERROR: prom rules bundle smoke runner crashed")
++        traceback.print_exc()
++        try:
++            _set_global_block(reason="runner_crash", hold_s=hold_s)
++        except Exception:
++            # Don't mask original error
++            pass
++        return 1
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff -ruN '--exclude=20260224_of_gate_metrics_rollups_p78.sql' a/tick_flow_full/services/prom_rules_bundle_smoke_runner_v1.py b/tick_flow_full/services/prom_rules_bundle_smoke_runner_v1.py
+--- a/tick_flow_full/services/prom_rules_bundle_smoke_runner_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/services/prom_rules_bundle_smoke_runner_v1.py	2026-02-25 19:11:39.430687714 +0000
+@@ -0,0 +1,13 @@
++"""Thin wrapper for legacy tick_flow_full imports (P102).
++
++Keeps both contours working: tick_flow_full.services.prom_rules_bundle_smoke_runner_v1
++executes the canonical implementation in services.prom_rules_bundle_smoke_runner_v1.
++"""
++
++from __future__ import annotations
++
++from services.prom_rules_bundle_smoke_runner_v1 import main
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())

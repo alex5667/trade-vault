@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/scoring/score_model.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 1.0, 100.0, '1.0', '3.5', '98.0', 'CONF_CALIB_MAX_PCT', 'CONF_CALIB_MIN_PCT', 'CONF_CALIB_SCALE', 'x']

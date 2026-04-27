@@ -1,0 +1,17 @@
+[Unit]
+Description=Trade ML confirm SRE monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/trade/of_reports.env
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+Environment="REDIS_URL=redis://redis-worker-1:6379/0"
+Environment="ML_CONFIRM_METRICS_STREAM=metrics:ml_confirm"
+Environment="NOTIFY_TELEGRAM_STREAM=notify:telegram"
+Environment="ML_SRE_PEDGE_P50_MIN=0.20"
+Environment="ML_SRE_MISSING_RATE_MAX=0.02"
+Environment="ML_SRE_ERR_RATE_MAX=0.01"
+Environment="ML_SRE_LAT_P99_MAX_MS=300.0"
+ExecStart=/usr/bin/python3 -m tools.ml_sre_monitor --since-min 60

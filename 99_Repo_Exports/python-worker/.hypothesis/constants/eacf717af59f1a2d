@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/entry_policy_ab_gate.py
+# hypothesis_version: 6.148.10
+
+['A', 'B', 'C', 'INACTIVE_ARM', 'NA', 'NO_ACTIVE_ARM_KEY', 'OK', 'default', 'illiquid', 'na', 'news', 'thin']

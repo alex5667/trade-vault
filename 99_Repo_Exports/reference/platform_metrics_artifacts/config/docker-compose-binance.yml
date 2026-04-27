@@ -1,0 +1,183 @@
+# Binance Execution Services
+# ===========================
+#
+# Two isolated services:
+#   binance-executor         — reads orders:queue:binance → executes on Binance Futures
+#   binance-account-reporter — hourly account state → Telegram + Redis snapshot
+#
+# Keys: uses BINANCE_API_KEY / BINANCE_API_SECRET from .env
+# For testnet: set BINANCE_FUTURES_BASE_URL=https://testnet.binancefuture.com in .env
+#              and use testnet keys (separate from production keys)
+#
+# To start services only:
+#   docker compose up binance-executor binance-account-reporter -d
+#
+# Redis queue for orders:
+#   RPUSH orders:queue:binance '{"action":"open","sid":"test-1","symbol":"BTCUSDT","side":"BUY","qty":0.001,"type":"MARKET","sl":50000.0,"tp_levels":[120000.0]}'
+#
+# Read exec stream:
+#   XREAD COUNT 10 STREAMS orders:exec 0-0
+
+services:
+  binance-executor:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-binance-executor
+    restart: on-failure:5
+    environment:
+      # --- Redis ---
+      - REDIS_URL=redis://redis-worker-1:6379/0
+
+      # --- Binance REST — demo/testnet account (virtual trades) ---
+      - BINANCE_DEMO_API_KEY=${BINANCE_DEMO_API_KEY}
+      - BINANCE_DEMO_API_SECRET=${BINANCE_DEMO_API_SECRET}
+      - BINANCE_DEMO_FUTURES_BASE_URL=${BINANCE_DEMO_FUTURES_BASE_URL:-https://testnet.binancefuture.com}
+
+      # --- Binance REST — production account (real trades) ---
+      # Leave BINANCE_API_KEY blank to disable prod trades (demo-only mode)
+      - BINANCE_API_KEY=${BINANCE_API_KEY:-}
+      - BINANCE_API_SECRET=${BINANCE_API_SECRET:-}
+      - BINANCE_FUTURES_BASE_URL=${BINANCE_FUTURES_BASE_URL:-https://fapi.binance.com}
+
+      # --- Client routing ---
+      # auto: is_virtual=true -> demo; else -> prod
+      # demo: all trades -> demo (safe default for testing)
+      # real: all trades -> prod (disable demo entirely)
+      - BINANCE_CLIENT_MODE=${BINANCE_CLIENT_MODE:-auto}
+
+      - BINANCE_HTTP_TIMEOUT_S=${BINANCE_HTTP_TIMEOUT_S:-8.0}
+      - BINANCE_RECV_WINDOW=${BINANCE_RECV_WINDOW:-5000}
+      - BINANCE_TIME_SYNC=${BINANCE_TIME_SYNC:-1}
+
+      # --- Execution config ---
+      - BINANCE_POSITION_MODE=${BINANCE_POSITION_MODE:-oneway}
+      - BINANCE_SYMBOL_ALLOWLIST=${BINANCE_SYMBOL_ALLOWLIST:-BTCUSDT}
+      - BINANCE_INIT_SYMBOL_SETTINGS=${BINANCE_INIT_SYMBOL_SETTINGS:-1}
+      - BINANCE_MARGIN_TYPE=${BINANCE_MARGIN_TYPE:-ISOLATED}
+      - BINANCE_DEFAULT_LEVERAGE=${BINANCE_DEFAULT_LEVERAGE:-100}
+      - BINANCE_MAX_RETRY=${BINANCE_MAX_RETRY:-3}
+      - BINANCE_FILL_TIMEOUT_S=${BINANCE_FILL_TIMEOUT_S:-10.0}
+      - BINANCE_FILL_POLL_S=${BINANCE_FILL_POLL_S:-0.25}
+      - BINANCE_ASSUME_LOT_IS_QTY=${BINANCE_ASSUME_LOT_IS_QTY:-0}
+
+      # --- Queue names ---
+      - ORDERS_QUEUE_BINANCE=${ORDERS_QUEUE_BINANCE:-orders:queue:binance}
+      - ORDERS_QUEUE_BINANCE_PROCESSING=${ORDERS_QUEUE_BINANCE_PROCESSING:-orders:queue:binance:processing}
+      - ORDERS_QUEUE_BINANCE_DLQ=${ORDERS_QUEUE_BINANCE_DLQ:-orders:queue:binance:dlq}
+      - EXEC_STREAM=${EXEC_STREAM:-orders:exec}
+      - ORDERS_STATE_KEY_PREFIX=${ORDERS_STATE_KEY_PREFIX:-orders:state:}
+      - ORDERS_STATE_TTL_SEC=${ORDERS_STATE_TTL_SEC:-86400}
+
+      # --- Trailing stop ---
+      - BINANCE_TRAIL_CALLBACK_MIN=${BINANCE_TRAIL_CALLBACK_MIN:-0.1}
+      - BINANCE_TRAIL_CALLBACK_MAX=${BINANCE_TRAIL_CALLBACK_MAX:-5.0}
+      - BINANCE_TRAIL_CALLBACK_DEFAULT=${BINANCE_TRAIL_CALLBACK_DEFAULT:-0.3}
+      - BINANCE_TRAIL_ATR_MULT=${BINANCE_TRAIL_ATR_MULT:-1.0}
+      - BINANCE_TRAIL_ARM_POLL_S=${BINANCE_TRAIL_ARM_POLL_S:-1.0}
+      - BINANCE_TRAIL_ARM_TIMEOUT_S=${BINANCE_TRAIL_ARM_TIMEOUT_S:-7200}
+      - BINANCE_TRAIL_NOTIFY=${BINANCE_TRAIL_NOTIFY:-1}
+
+      # --- Position sizing / risk limits ---
+      # risk_usd = ACCOUNT_DEPOSIT_USD * RISK_PERCENT / 100 = 100 * 5% = 5 USD
+      # margin_cap = risk_usd (вычисляется в коде, без лишних ENV)
+      # max_notional = risk_usd * ACCOUNT_LEVERAGE = 5 * 100 = 500 USDT
+      - ACCOUNT_DEPOSIT_USD=${ACCOUNT_DEPOSIT_USD:-100}
+      - ACCOUNT_LEVERAGE=${ACCOUNT_LEVERAGE:-100}
+      - RISK_PERCENT=${RISK_PERCENT:-5.0}
+      # Fallback static qty cap
+      - RISK_MAX_QTY=${RISK_MAX_QTY:-0.5}
+      - TP_MODE=${TP_MODE:-RR}
+
+      # --- Telegram (errors + trailing notifications) ---
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+
+      # --- Logging ---
+      - LOG_LEVEL=INFO
+
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+
+    networks:
+      - scanner-network
+
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.3'
+        reservations:
+          memory: 64M
+
+    volumes:
+      - ./python-worker:/app
+
+    command:
+      - sh
+      - -c
+      - sleep 20 && python -m services.binance_executor
+
+
+  # ---------------------------------------------------------------------------
+
+  binance-account-reporter:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-binance-account-reporter
+    restart: on-failure:5
+    environment:
+      # --- Redis ---
+      - REDIS_URL=redis://redis-worker-1:6379/0
+
+      # --- Binance REST — reads from demo/testnet account ---
+      - BINANCE_DEMO_API_KEY=${BINANCE_DEMO_API_KEY}
+      - BINANCE_DEMO_API_SECRET=${BINANCE_DEMO_API_SECRET}
+      - BINANCE_DEMO_FUTURES_BASE_URL=${BINANCE_DEMO_FUTURES_BASE_URL:-https://testnet.binancefuture.com}
+      - BINANCE_HTTP_TIMEOUT_S=${BINANCE_HTTP_TIMEOUT_S:-8.0}
+
+      # --- Report config ---
+      - REPORT_INTERVAL_SEC=${REPORT_INTERVAL_SEC:-3600}
+      - REPORT_ALIGN_TO_HOUR=${REPORT_ALIGN_TO_HOUR:-1}
+      - REPORT_TOPN_POSITIONS=${REPORT_TOPN_POSITIONS:-5}
+      - REPORT_INCLUDE_OPEN_ORDERS=${REPORT_INCLUDE_OPEN_ORDERS:-1}
+
+      # --- Snapshot storage ---
+      - ACCOUNT_SNAPSHOT_KEY=${ACCOUNT_SNAPSHOT_KEY:-account:snapshot:binance_usdtm}
+      - ACCOUNT_SNAPSHOT_TTL_SEC=${ACCOUNT_SNAPSHOT_TTL_SEC:-7200}
+      - ACCOUNT_HISTORY_KEY=${ACCOUNT_HISTORY_KEY:-account:snapshot:binance_usdtm:history}
+      - ACCOUNT_HISTORY_TTL_SEC=${ACCOUNT_HISTORY_TTL_SEC:-90000}
+
+      # --- Telegram ---
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+
+      # --- Logging ---
+      - LOG_LEVEL=INFO
+
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+
+    networks:
+      - scanner-network
+
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.1'
+        reservations:
+          memory: 32M
+
+    volumes:
+      - ./python-worker:/app
+
+    command:
+      - python
+      - -m
+      - services.binance_account_reporter

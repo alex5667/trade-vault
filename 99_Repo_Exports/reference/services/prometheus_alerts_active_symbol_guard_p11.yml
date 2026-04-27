@@ -1,0 +1,32 @@
+groups:
+  - name: active_symbol_guard_p11
+    rules:
+      - alert: ActiveSymbolGuardCriticalIncidents
+        expr: sum by (classification) (increase(execution_active_symbol_guard_incident_total{severity="critical",decision="notify"}[15m])) > 0
+        for: 2m
+        labels:
+          severity: page
+          service: trade-execution
+        annotations:
+          summary: "Critical active_symbol incidents require triage"
+          description: "Active-symbol incident policy engine produced notify-worthy critical incidents. classification={{ $labels.classification }}"
+
+      - alert: ActiveSymbolGuardSuppressionSpike
+        expr: sum(increase(execution_active_symbol_guard_suppression_total{result=~"suppressed|deduped"}[15m])) > 20
+        for: 5m
+        labels:
+          severity: warning
+          service: trade-execution
+        annotations:
+          summary: "Active_symbol incident suppression/dedupe spike"
+          description: "Suppressed or deduped incidents spiked. This can hide repeated races if policy thresholds are too wide."
+
+      - alert: ActiveSymbolGuardNotifierFailures
+        expr: sum by (channel) (increase(execution_active_symbol_guard_notify_total{result="failed"}[15m])) > 0
+        for: 5m
+        labels:
+          severity: page
+          service: trade-execution
+        annotations:
+          summary: "Active_symbol incident notifier failures"
+          description: "Notifier channel={{ $labels.channel }} failed to deliver active_symbol incident payloads."

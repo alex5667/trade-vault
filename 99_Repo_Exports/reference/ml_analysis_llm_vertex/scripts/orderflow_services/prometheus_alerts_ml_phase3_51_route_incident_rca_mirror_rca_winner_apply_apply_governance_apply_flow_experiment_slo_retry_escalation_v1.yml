@@ -1,0 +1,32 @@
+groups:
+  - name: ml_phase3_51_apply_flow_experiment_slo_retry_escalation_v1
+    rules:
+      - alert: MLApplyFlowExperimentSLOStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "apply-flow experiment SLO rollup is stale" }
+
+      - alert: MLApplyFlowExperimentRetryStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "apply-flow experiment retry controller is stale" }
+
+      - alert: MLApplyFlowExperimentVerifyKeepLow
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_verify_keep_rate < 0.60
+        for: 15m
+        labels: { severity: warning }
+        annotations: { summary: "apply-flow experiment verify keep rate is low" }
+
+      - alert: MLApplyFlowExperimentRollbackMTTRHigh
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_rollback_mttr_p95_sec > 900
+        for: 15m
+        labels: { severity: warning }
+        annotations: { summary: "apply-flow experiment rollback mttr p95 is high" }
+
+      - alert: MLApplyFlowExperimentEscalationsPresent
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_escalations_total[30m]) > 0
+        for: 5m
+        labels: { severity: info }
+        annotations: { summary: "apply-flow experiment escalations were produced" }

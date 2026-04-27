@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/sparse/linalg/_isolve/iterative.py
+# hypothesis_version: 6.148.10
+
+[1e-16, 1e-05, 0.25, 1.0, 1.5, '0', 'D', 'F', 'bicg', 'bicgrevcom', 'bicgstab', 'bicgstabrevcom', 'c', 'cg', 'cgrevcom', 'cgs', 'cgsrevcom', 'd', 'exit', 'f', 'gmres', 'gmresrevcom', 'left', 'legacy', 'none', 'pr_norm', 'psolve', 'qmr', 'qmrrevcom', 'right', 's', 'x', 'z']

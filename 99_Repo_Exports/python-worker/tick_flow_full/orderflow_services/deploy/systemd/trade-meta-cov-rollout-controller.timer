@@ -1,0 +1,10 @@
+[Unit]
+Description=Run trade meta-cov rollout controller every 10 minutes (latency-contract gated)
+
+[Timer]
+OnCalendar=*:0/10
+Persistent=true
+Unit=trade-meta-cov-rollout-controller.service
+
+[Install]
+WantedBy=timers.target

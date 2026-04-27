@@ -1,0 +1,52 @@
+services:
+  scanner-ml-context-pack-compactor-v1:
+    build:
+      context: ../../
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-ml-context-pack-compactor-v1
+    command: ["python", "-u", "-m", "orderflow_services.ml_context_pack_compactor_v1"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0
+      ML_CONTEXT_PACK_COMPACTOR_PORT: 9859
+      ML_ANALYSIS_REQUESTS_STREAM: stream:ml:analysis_requests
+      ML_ANALYSIS_REQUESTS_COMPACT_STREAM: stream:ml:analysis_requests_compact
+      ML_TRIAGE_PROMPT_VERSION: ml_triage_v1
+      ML_TRIAGE_POLICY_VERSION: policy_v1
+    ports:
+      - "9859:9859"
+    networks:
+      - scanner-network
+
+  scanner-ml-vertex-triage-v1_1:
+    build:
+      context: ../../
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-ml-vertex-triage-v1-1
+    command: ["python", "-u", "-m", "orderflow_services.ml_vertex_triage_orchestrator_v1_1"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0
+      DATABASE_URL: ${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD}@scanner-pgbouncer:5432/scanner_analytics?sslmode=disable}
+      ML_VERTEX_TRIAGE_ORCH_PORT: 9860
+      VERTEX_PROJECT_ID: ${VERTEX_PROJECT_ID:-trade-agent-ml}
+      VERTEX_LOCATION: ${VERTEX_LOCATION:-global}
+      VERTEX_TRIAGE_MODEL: ${VERTEX_TRIAGE_MODEL:-gemini-2.5-flash-lite}
+      VERTEX_TIMEOUT_MS: ${VERTEX_TIMEOUT_MS:-45000}
+      VERTEX_RETRY_MAX: ${VERTEX_RETRY_MAX:-5}
+      VERTEX_RETRY_BASE_MS: ${VERTEX_RETRY_BASE_MS:-500}
+      VERTEX_MAX_DAILY_USD: ${VERTEX_MAX_DAILY_USD:-25}
+      VERTEX_MAX_CALLS_PER_HOUR: ${VERTEX_MAX_CALLS_PER_HOUR:-300}
+      VERTEX_BUDGET_FAIL_POLICY: ${VERTEX_BUDGET_FAIL_POLICY:-OPEN}
+      ML_ANALYSIS_REQUESTS_COMPACT_STREAM: stream:ml:analysis_requests_compact
+      ML_ANALYSIS_RESULTS_STREAM: stream:ml:analysis_results
+      ML_RECOMMENDATION_PROPOSALS_STREAM: stream:ml:recommendation_proposals
+      ML_ANALYSIS_DLQ_STREAM: stream:ml:analysis_dlq
+    ports:
+      - "9860:9860"
+    networks:
+      - scanner-network
+
+networks:
+  scanner-network:
+    external: true

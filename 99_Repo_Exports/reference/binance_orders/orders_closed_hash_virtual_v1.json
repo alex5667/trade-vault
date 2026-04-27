@@ -1,0 +1,16 @@
+{
+  "symbol": "BTCUSDT",
+  "orderId": "123456789_virtual",
+  "clientOrderId": "VIRTUAL_123456",
+  "type": "MARKET",
+  "side": "BUY",
+  "status": "FILLED",
+  "origQty": "1.5",
+  "executedQty": "1.5",
+  "price": "0",
+  "avgPrice": "50000.0",
+  "is_virtual": "1",
+  "updateTime": "1672531200000",
+  "pnl_net": "50.0",
+  "one_r_money": "100.0"
+}

@@ -1,0 +1,6 @@
+services:
+  trade-runbook-server:
+    environment:
+      RUNBOOK_REPORT_DIR: /var/lib/trade-runbook/reports
+    volumes:
+      - ./var/runbook-reports:/var/lib/trade-runbook/reports

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/dispatcher/delivery_helpers.py
+# hypothesis_version: 6.148.10
+
+[250, 1000, 15000, 50000, 'audit', 'data', 'env', 'error', 'manual', 'notify', 'reason', 'sid', 'signal_stream', 'snapshot', 'target', 'ts']

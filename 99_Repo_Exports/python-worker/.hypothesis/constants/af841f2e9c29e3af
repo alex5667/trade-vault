@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/calendar_store_worker.py
+# hypothesis_version: 6.148.10
+
+[200, 256, 1000, 2000, 3600, 60000, ',', '0', '1', '3600', 'AUD', 'CAD', 'CALENDAR_AGG_TTL_SEC', 'CALENDAR_CONSUMER', 'CALENDAR_DLQ', 'CALENDAR_GROUP', 'CHF', 'CNY', 'EUR', 'GBP', 'HOSTNAME', 'INFO', 'JPY', 'LOG_LEVEL', 'NZD', 'PG_ENABLED', 'REDIS_URL', 'USD', '__main__', 'calendar-store-1', 'calendar:events', 'calendar:events:dlq', 'calendar_store', 'country', 'crypto', 'currency', 'equities', 'event_grade_id', 'event_ref', 'event_tminus_sec', 'event_ts_ms', 'false', 'forecast', 'forex', 'fx', 'importance', 'ingested_ts_ms', 'metals', 'next_ts_ms', 'no', 'payload', 'previous', 'source', 'title', 'uid', 'unit', 'unknown', 'updated_ts_ms']

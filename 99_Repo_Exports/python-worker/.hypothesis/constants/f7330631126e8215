@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/slippage_model.py
+# hypothesis_version: 6.148.10
+
+[-2.0, 0.0, 1e-09, 0.15, 0.25, 0.5, 0.6, 1.0, 2.0, 6.0, 8.0, 10.0, 12.0, 18.0, 'OK', 'SLIPPAGE_SHADOW_ONLY', 'SLIPPAGE_TOO_HIGH', 'slippage_churn_scale', 'slippage_churn_w', 'slippage_max_bps', 'slippage_press_w', 'slippage_spread_w']

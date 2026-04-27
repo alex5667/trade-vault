@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/integrate/_ode.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-12, 1e-06, 0.2, 0.3, 0.9, 6.0, 10.0, 500, 'Unexpected jt=%s', 'Unexpected mf=%s', 'adams', 'bdf', 'choose another one', 'complex_ode', 'dop853', 'dopri5', 'dvode', 'float', 'lband', 'lsoda', 'ml', 'mu', 'ode', 'uband', 'zvode', '{:s}: {:s}']

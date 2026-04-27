@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/numpy/lib/arraysetops.py
+# hypothesis_version: 6.148.10
+
+[0.145, 'b', 'c', 'cfmM', 'ediff1d', 'f{i}', 'i', 'in1d', 'intersect1d', 'isin', 'left', 'mergesort', 'numpy', 'quicksort', 'same_kind', 'setdiff1d', 'setxor1d', 'sort', 'table', 'u', 'union1d', 'unique']

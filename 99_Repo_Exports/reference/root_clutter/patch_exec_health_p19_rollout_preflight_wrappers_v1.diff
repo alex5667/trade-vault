@@ -1,0 +1,612 @@
+--- services/orderflow/exec_health_freeze_service_identity.py
++++ services/orderflow/exec_health_freeze_service_identity.py
+@@ -55,6 +55,7 @@
+         ServiceIdentity('exec_health_freeze_client_name_audit_exporter_v1', 'audit', AUDIT_USER, 'exec-health-freeze-client-name-audit-exporter-v1', 'exec-health-freeze-audit', 'EXEC_HEALTH_REDIS_AUDIT_URL'),
+         ServiceIdentity('exec_health_freeze_acl_policy_v1', 'bootstrap', BOOTSTRAP_USER, 'exec-health-freeze-acl-policy-v1', 'exec-health-freeze-bootstrap', 'EXEC_HEALTH_REDIS_BOOTSTRAP_URL'),
+         ServiceIdentity('exec_health_freeze_reconnect_rollout_gate_v1', 'bootstrap', BOOTSTRAP_USER, 'exec-health-freeze-reconnect-rollout-gate-v1', 'exec-health-freeze-bootstrap', 'EXEC_HEALTH_REDIS_BOOTSTRAP_URL'),
++        ServiceIdentity('exec_health_freeze_rollout_preflight_v1', 'audit', AUDIT_USER, 'exec-health-freeze-rollout-preflight-v1', 'exec-health-freeze-audit', 'EXEC_HEALTH_REDIS_AUDIT_URL'),
+     ]
+     return {r.service: r for r in rows}
+ 
+--- orderflow_services/exec_health_freeze_rollout_preflight_v1.py
++++ orderflow_services/exec_health_freeze_rollout_preflight_v1.py
+@@ -0,0 +1,75 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++from typing import Any, Dict, List
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
++from services.orderflow.exec_health_freeze_rollout_gate import assert_rollout_gate_open, get_rollout_gate_state
++from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
++
++SERVICE = 'exec_health_freeze_rollout_preflight_v1'
++DEFAULT_EXIT_CODE = 24
++
++
++def _redis_url() -> str:
++    return (
++        os.getenv('EXEC_HEALTH_REDIS_AUDIT_URL')
++        or os.getenv('EXEC_HEALTH_REDIS_BOOTSTRAP_URL')
++        or os.getenv('REDIS_URL')
++        or 'redis://redis-worker-1:6379/0'
++    )
++
++
++def _jprint(obj: Dict[str, Any]) -> None:
++    print(json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True))
++
++
++class PreflightController:
++    def __init__(self, redis_url: str | None = None) -> None:
++        if redis is None:
++            raise RuntimeError('redis dependency missing')
++        self.redis_url = redis_url or _redis_url()
++        self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
++        ensure_service_identity_sync(self.r, SERVICE)
++        heal_service_identity_sync(self.r, SERVICE, force=True)
++
++    def check(self, *, purpose: str, exit_code: int = DEFAULT_EXIT_CODE) -> Dict[str, Any]:
++        heal_service_identity_sync(self.r, SERVICE)
++        assert_rollout_gate_open(self.r, purpose=purpose, exit_code=exit_code)
++        st = get_rollout_gate_state(self.r)
++        return {
++            'ok': True,
++            'service': SERVICE,
++            'purpose': purpose,
++            'gate_active': bool(st.get('active')),
++            'redis_url': self.redis_url,
++        }
++
++
++def build_arg_parser() -> argparse.ArgumentParser:
++    ap = argparse.ArgumentParser(description='ExecHealth rollout preflight guard')
++    ap.add_argument('--purpose', required=True)
++    ap.add_argument('--exit-code', type=int, default=int(os.getenv('EXEC_HEALTH_ROLLOUT_PREFLIGHT_EXIT_CODE', str(DEFAULT_EXIT_CODE)) or DEFAULT_EXIT_CODE))
++    ap.add_argument('--quiet', action='store_true')
++    return ap
++
++
++def main(argv: List[str] | None = None) -> int:
++    ns = build_arg_parser().parse_args(argv)
++    ctl = PreflightController()
++    out = ctl.check(purpose=ns.purpose, exit_code=int(ns.exit_code))
++    if not ns.quiet:
++        _jprint(out)
++    return 0
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+--- orderflow_services/deploy/systemd/run-exec-health-freeze-with-rollout-preflight-v1.sh
++++ orderflow_services/deploy/systemd/run-exec-health-freeze-with-rollout-preflight-v1.sh
+@@ -0,0 +1,19 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++REPO_ROOT="${EXEC_HEALTH_REPO_ROOT:-/opt/scanner_infra}"
++PYTHON_BIN="${EXEC_HEALTH_PYTHON_BIN:-python3}"
++PURPOSE="${EXEC_HEALTH_ROLLOUT_PREFLIGHT_PURPOSE:-}"
++
++if [[ -z "${PURPOSE}" ]]; then
++  echo "EXEC_HEALTH_ROLLOUT_PREFLIGHT_PURPOSE is required" >&2
++  exit 64
++fi
++if [[ $# -lt 1 ]]; then
++  echo "usage: run-exec-health-freeze-with-rollout-preflight-v1.sh <command> [args...]" >&2
++  exit 64
++fi
++
++cd "${REPO_ROOT}"
++"${PYTHON_BIN}" -m orderflow_services.exec_health_freeze_rollout_preflight_v1 --purpose "${PURPOSE}" --quiet
++exec "$@"
+--- orderflow_services/deploy/systemd/run-exec-health-freeze-acl-policy-apply-v1.sh
++++ orderflow_services/deploy/systemd/run-exec-health-freeze-acl-policy-apply-v1.sh
+@@ -0,0 +1,10 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++REPO_ROOT="${EXEC_HEALTH_REPO_ROOT:-/opt/scanner_infra}"
++COMPOSE_FILE="${EXEC_HEALTH_ACL_POLICY_APPLY_COMPOSE_FILE:-${REPO_ROOT}/orderflow_services/deploy/docker-compose.exec-health-freeze-acl-policy-apply-v1.yml}"
++SERVICE_NAME="${EXEC_HEALTH_ACL_POLICY_APPLY_SERVICE_NAME:-exec-health-freeze-acl-policy-apply}"
++export EXEC_HEALTH_ROLLOUT_PREFLIGHT_PURPOSE="exec_health_freeze_acl_policy_apply"
++
++exec "${REPO_ROOT}/orderflow_services/deploy/systemd/run-exec-health-freeze-with-rollout-preflight-v1.sh" \
++  docker compose -f "${COMPOSE_FILE}" run --rm "${SERVICE_NAME}" "$@"
+--- orderflow_services/deploy/systemd/run-exec-health-freeze-override-commit-thaw-v1.sh
++++ orderflow_services/deploy/systemd/run-exec-health-freeze-override-commit-thaw-v1.sh
+@@ -0,0 +1,10 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++REPO_ROOT="${EXEC_HEALTH_REPO_ROOT:-/opt/scanner_infra}"
++COMPOSE_FILE="${EXEC_HEALTH_OVERRIDE_COMMIT_THAW_COMPOSE_FILE:-${REPO_ROOT}/orderflow_services/deploy/docker-compose.exec-health-freeze-override-commit-thaw-v1.yml}"
++SERVICE_NAME="${EXEC_HEALTH_OVERRIDE_COMMIT_THAW_SERVICE_NAME:-exec-health-freeze-override-commit-thaw}"
++export EXEC_HEALTH_ROLLOUT_PREFLIGHT_PURPOSE="exec_health_freeze_override_commit_thaw"
++
++exec "${REPO_ROOT}/orderflow_services/deploy/systemd/run-exec-health-freeze-with-rollout-preflight-v1.sh" \
++  docker compose -f "${COMPOSE_FILE}" run --rm "${SERVICE_NAME}" "$@"
+--- orderflow_services/deploy/systemd/exec-health-freeze-acl-policy-apply.service
++++ orderflow_services/deploy/systemd/exec-health-freeze-acl-policy-apply.service
+@@ -0,0 +1,16 @@
++[Unit]
++Description=ExecHealth ACL policy apply with rollout preflight guard
++After=network-online.target docker.service
++Wants=network-online.target
++Requires=docker.service
++
++[Service]
++Type=oneshot
++EnvironmentFile=-/etc/default/exec-health-freeze-acl-policy-apply
++WorkingDirectory=/opt/scanner_infra
++ExecStart=/opt/scanner_infra/orderflow_services/deploy/systemd/run-exec-health-freeze-acl-policy-apply-v1.sh
++Nice=10
++TimeoutStartSec=1800
++
++[Install]
++WantedBy=multi-user.target
+--- orderflow_services/deploy/systemd/exec-health-freeze-override-commit-thaw.service
++++ orderflow_services/deploy/systemd/exec-health-freeze-override-commit-thaw.service
+@@ -0,0 +1,16 @@
++[Unit]
++Description=ExecHealth override commit-thaw with rollout preflight guard
++After=network-online.target docker.service
++Wants=network-online.target
++Requires=docker.service
++
++[Service]
++Type=oneshot
++EnvironmentFile=-/etc/default/exec-health-freeze-override-commit-thaw
++WorkingDirectory=/opt/scanner_infra
++ExecStart=/opt/scanner_infra/orderflow_services/deploy/systemd/run-exec-health-freeze-override-commit-thaw-v1.sh
++Nice=10
++TimeoutStartSec=1800
++
++[Install]
++WantedBy=multi-user.target
+--- orderflow_services/deploy/docker-compose.exec-health-freeze-acl-policy-apply-v1.yml
++++ orderflow_services/deploy/docker-compose.exec-health-freeze-acl-policy-apply-v1.yml
+@@ -0,0 +1,21 @@
++services:
++  exec-health-freeze-acl-policy-apply:
++    image: ${EXEC_HEALTH_ACL_POLICY_APPLY_IMAGE:-python:3.13-slim}
++    working_dir: /repo
++    volumes:
++      - ${EXEC_HEALTH_REPO_ROOT:-.}:/repo
++    environment:
++      PYTHONPATH: /repo
++      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
++      EXEC_HEALTH_REDIS_AUDIT_URL: ${EXEC_HEALTH_REDIS_AUDIT_URL:-}
++      EXEC_HEALTH_REDIS_BOOTSTRAP_URL: ${EXEC_HEALTH_REDIS_BOOTSTRAP_URL:?EXEC_HEALTH_REDIS_BOOTSTRAP_URL is required}
++      EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE: ${EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE:-1}
++      EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME: ${EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME:-1}
++      EXEC_HEALTH_FREEZE_ACL_POLICY_APPLY_ARGS: ${EXEC_HEALTH_FREEZE_ACL_POLICY_APPLY_ARGS:-}
++    command:
++      - /bin/bash
++      - -lc
++      - >-
++        python -m pip install --no-cache-dir redis >/tmp/exec_health_acl_policy_apply_pip.log 2>&1 &&
++        python -m orderflow_services.exec_health_freeze_acl_policy_v1 apply ${EXEC_HEALTH_FREEZE_ACL_POLICY_APPLY_ARGS:-}
++    restart: "no"
+--- orderflow_services/deploy/docker-compose.exec-health-freeze-override-commit-thaw-v1.yml
++++ orderflow_services/deploy/docker-compose.exec-health-freeze-override-commit-thaw-v1.yml
+@@ -0,0 +1,23 @@
++services:
++  exec-health-freeze-override-commit-thaw:
++    image: ${EXEC_HEALTH_OVERRIDE_COMMIT_THAW_IMAGE:-python:3.13-slim}
++    working_dir: /repo
++    volumes:
++      - ${EXEC_HEALTH_REPO_ROOT:-.}:/repo
++    environment:
++      PYTHONPATH: /repo
++      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
++      EXEC_HEALTH_REDIS_AUDIT_URL: ${EXEC_HEALTH_REDIS_AUDIT_URL:-}
++      EXEC_HEALTH_REDIS_BOOTSTRAP_URL: ${EXEC_HEALTH_REDIS_BOOTSTRAP_URL:?EXEC_HEALTH_REDIS_BOOTSTRAP_URL is required}
++      EXEC_HEALTH_ACK_SIGNING_SECRET: ${EXEC_HEALTH_ACK_SIGNING_SECRET:?EXEC_HEALTH_ACK_SIGNING_SECRET is required}
++      EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE: ${EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE:-1}
++      EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME: ${EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME:-1}
++      OPERATOR: ${OPERATOR:?OPERATOR is required}
++      REQUEST_ID: ${REQUEST_ID:?REQUEST_ID is required}
++    command:
++      - /bin/bash
++      - -lc
++      - >-
++        python -m pip install --no-cache-dir redis >/tmp/exec_health_override_commit_thaw_pip.log 2>&1 &&
++        python -m orderflow_services.exec_health_freeze_override_v1 commit-thaw
++    restart: "no"
+--- orderflow_services/runbook_exec_health_freeze_rollout_preflight_v1.md
++++ orderflow_services/runbook_exec_health_freeze_rollout_preflight_v1.md
+@@ -0,0 +1,50 @@
++# ExecHealth rollout preflight wrappers (v1)
++
++P19 moves rollout-gate enforcement one layer earlier: sensitive ops jobs call a small preflight guard **before** the containerized Python entrypoint starts.
++
++## Guarded jobs
++
++- ACL policy apply
++- override commit-thaw
++
++## Generic preflight
++
++```bash
++python -m orderflow_services.exec_health_freeze_rollout_preflight_v1 --purpose exec_health_freeze_acl_policy_apply
++```
++
++Exit codes:
++- `0` — gate open
++- `24` — rollout gate active
++- non-zero other — Redis / identity / bootstrap failure
++
++## systemd wrappers
++
++```bash
++/opt/scanner_infra/orderflow_services/deploy/systemd/run-exec-health-freeze-acl-policy-apply-v1.sh
++/opt/scanner_infra/orderflow_services/deploy/systemd/run-exec-health-freeze-override-commit-thaw-v1.sh
++```
++
++Both wrappers first run:
++- `exec_health_freeze_rollout_preflight_v1`
++- then `docker compose run --rm ...` for the sensitive job
++
++## Manual usage
++
++ACL apply:
++
++```bash
++sudo systemctl start exec-health-freeze-acl-policy-apply.service
++```
++
++Commit thaw:
++
++```bash
++OPERATOR=alice REQUEST_ID=req-123 sudo systemctl start exec-health-freeze-override-commit-thaw.service
++```
++
++## Notes
++
++- this does **not** replace the in-process Python guard from P18; it adds an earlier gate
++- preflight uses the audit Redis identity contract (`exec_health_freeze_rollout_preflight_v1`)
++- if the rollout gate is latched, the compose container is not started at all
+--- orderflow_services/tests/test_exec_health_freeze_service_identity_exporter_v1.py
++++ orderflow_services/tests/test_exec_health_freeze_service_identity_exporter_v1.py
+@@ -36,6 +36,7 @@
+                 'id=6 user=exec_health_freeze_audit name=exec-health-freeze-client-name-audit-exporter-v1 lib-name=exec-health-freeze-audit',
+                 'id=7 user=exec_health_freeze_bootstrap name=exec-health-freeze-acl-policy-v1 lib-name=exec-health-freeze-bootstrap',
+                 'id=8 user=exec_health_freeze_bootstrap name=exec-health-freeze-reconnect-rollout-gate-v1 lib-name=exec-health-freeze-bootstrap',
++                'id=9 user=exec_health_freeze_audit name=exec-health-freeze-rollout-preflight-v1 lib-name=exec-health-freeze-audit',
+             ])
+         raise AssertionError(cmd)
+ 
+--- orderflow_services/tests/test_exec_health_freeze_override_v1.py
++++ orderflow_services/tests/test_exec_health_freeze_override_v1.py
+@@ -23,6 +23,23 @@
+         }
+         self.values = {}
+         self.stream = []
++        self.client_id = 71
++        self.client_name = 'exec-health-freeze-override-v1'
++        self.lib_name = 'exec-health-freeze-writer'
++
++    def execute_command(self, *argv):
++        cmd = tuple(str(x) for x in argv)
++        if cmd[:2] == ('CLIENT', 'ID'):
++            return self.client_id
++        if cmd[:2] == ('CLIENT', 'SETNAME'):
++            self.client_name = cmd[2]
++            return 'OK'
++        if cmd[:3] == ('CLIENT', 'SETINFO', 'LIB-NAME'):
++            self.lib_name = cmd[3]
++            return 'OK'
++        if cmd[:2] == ('CLIENT', 'LIST') and len(cmd) >= 4 and cmd[2] == 'ID':
++            return f'id={self.client_id} user=exec_health_freeze_writer name={self.client_name} lib-name={self.lib_name}'
++        raise AssertionError(cmd)
+ 
+     def hgetall(self, key: str):
+         return dict(self.hashes.get(key, {}))
+--- orderflow_services/tests/test_exec_health_freeze_rollout_preflight_deploy_v1.py
++++ orderflow_services/tests/test_exec_health_freeze_rollout_preflight_deploy_v1.py
+@@ -0,0 +1,23 @@
++from pathlib import Path
++
++
++def test_sensitive_compose_wrappers_reference_preflight():
++    compose_apply = Path('orderflow_services/deploy/docker-compose.exec-health-freeze-acl-policy-apply-v1.yml').read_text()
++    compose_commit = Path('orderflow_services/deploy/docker-compose.exec-health-freeze-override-commit-thaw-v1.yml').read_text()
++    wrapper_apply = Path('orderflow_services/deploy/systemd/run-exec-health-freeze-acl-policy-apply-v1.sh').read_text()
++    wrapper_commit = Path('orderflow_services/deploy/systemd/run-exec-health-freeze-override-commit-thaw-v1.sh').read_text()
++    wrapper_generic = Path('orderflow_services/deploy/systemd/run-exec-health-freeze-with-rollout-preflight-v1.sh').read_text()
++
++    assert 'exec_health_freeze_acl_policy_v1 apply' in compose_apply
++    assert 'exec_health_freeze_override_v1 commit-thaw' in compose_commit
++    assert 'EXEC_HEALTH_ROLLOUT_PREFLIGHT_PURPOSE="exec_health_freeze_acl_policy_apply"' in wrapper_apply
++    assert 'EXEC_HEALTH_ROLLOUT_PREFLIGHT_PURPOSE="exec_health_freeze_override_commit_thaw"' in wrapper_commit
++    assert 'exec_health_freeze_rollout_preflight_v1' in wrapper_generic
++
++
++def test_sensitive_systemd_units_use_guarded_wrappers():
++    svc_apply = Path('orderflow_services/deploy/systemd/exec-health-freeze-acl-policy-apply.service').read_text()
++    svc_commit = Path('orderflow_services/deploy/systemd/exec-health-freeze-override-commit-thaw.service').read_text()
++
++    assert 'run-exec-health-freeze-acl-policy-apply-v1.sh' in svc_apply
++    assert 'run-exec-health-freeze-override-commit-thaw-v1.sh' in svc_commit
+--- services/orderflow/tests/test_exec_health_freeze_service_identity_v1.py
++++ services/orderflow/tests/test_exec_health_freeze_service_identity_v1.py
+@@ -5,6 +5,8 @@
+     c = build_service_identity_contract()
+     assert 'exec_health_freeze_override_v1' in c
+     assert c['exec_health_freeze_override_v1'].redis_user == 'exec_health_freeze_writer'
++    assert 'exec_health_freeze_rollout_preflight_v1' in c
++    assert c['exec_health_freeze_rollout_preflight_v1'].redis_user == 'exec_health_freeze_audit'
+ 
+ 
+ def test_evaluate_client_list_against_contract_ok_subset():
+--- services/orderflow/tests/test_exec_health_freeze_rollout_preflight_v1.py
++++ services/orderflow/tests/test_exec_health_freeze_rollout_preflight_v1.py
+@@ -0,0 +1,70 @@
++from types import SimpleNamespace
++
++import orderflow_services.exec_health_freeze_rollout_preflight_v1 as mod
++
++
++class FakeRedis:
++    def __init__(self):
++        self.kv = {}
++        self.hashes = {}
++        self.client_id = 51
++        self.client_name = ''
++        self.lib_name = ''
++
++    def execute_command(self, *argv):
++        cmd = tuple(str(x) for x in argv)
++        if cmd[:2] == ('CLIENT', 'SETNAME'):
++            self.client_name = cmd[2]
++            return 'OK'
++        if cmd[:3] == ('CLIENT', 'SETINFO', 'LIB-NAME'):
++            self.lib_name = cmd[3]
++            return 'OK'
++        if cmd[:2] == ('CLIENT', 'ID'):
++            return self.client_id
++        if cmd[:2] == ('CLIENT', 'LIST') and len(cmd) >= 4 and cmd[2] == 'ID':
++            return f'id={self.client_id} user=exec_health_freeze_audit name={self.client_name} lib-name={self.lib_name}'
++        raise AssertionError(cmd)
++
++    def get(self, key):
++        return self.kv.get(key)
++
++    def set(self, key, value):
++        self.kv[key] = str(value)
++        return 'OK'
++
++    def hgetall(self, key):
++        return dict(self.hashes.get(key, {}))
++
++    def hset(self, key, mapping=None):
++        self.hashes.setdefault(key, {}).update({str(k): str(v) for k, v in (mapping or {}).items()})
++        return 1
++
++    def expire(self, key, ttl):
++        return 1
++
++    def xadd(self, key, mapping, maxlen=None):
++        return '1-0'
++
++
++def _redis_ns(fake):
++    return SimpleNamespace(Redis=SimpleNamespace(from_url=staticmethod(lambda *a, **k: fake)))
++
++
++def test_preflight_main_ok(monkeypatch):
++    fake = FakeRedis()
++    monkeypatch.setattr(mod, 'redis', _redis_ns(fake))
++    assert mod.main(['--purpose', 'acl-policy-apply']) == 0
++    assert fake.client_name == 'exec-health-freeze-rollout-preflight-v1'
++    assert fake.lib_name == 'exec-health-freeze-audit'
++
++
++def test_preflight_main_blocked(monkeypatch):
++    fake = FakeRedis()
++    fake.kv['cfg:orderflow:exec_health:reconnect_smoke:rollout_gate:v1'] = '{"reason":"nightly_reconnect_smoke_failed","ts_ms":1}'
++    monkeypatch.setattr(mod, 'redis', _redis_ns(fake))
++    try:
++        mod.main(['--purpose', 'acl-policy-apply'])
++    except SystemExit as exc:
++        assert int(exc.code) == 24
++    else:
++        raise AssertionError('expected SystemExit(24)')
+--- tick_flow_full/orderflow_services/deploy/systemd/run-exec-health-freeze-with-rollout-preflight-v1.sh
++++ tick_flow_full/orderflow_services/deploy/systemd/run-exec-health-freeze-with-rollout-preflight-v1.sh
+@@ -0,0 +1,19 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++REPO_ROOT="${EXEC_HEALTH_REPO_ROOT:-/opt/scanner_infra}"
++PYTHON_BIN="${EXEC_HEALTH_PYTHON_BIN:-python3}"
++PURPOSE="${EXEC_HEALTH_ROLLOUT_PREFLIGHT_PURPOSE:-}"
++
++if [[ -z "${PURPOSE}" ]]; then
++  echo "EXEC_HEALTH_ROLLOUT_PREFLIGHT_PURPOSE is required" >&2
++  exit 64
++fi
++if [[ $# -lt 1 ]]; then
++  echo "usage: run-exec-health-freeze-with-rollout-preflight-v1.sh <command> [args...]" >&2
++  exit 64
++fi
++
++cd "${REPO_ROOT}"
++"${PYTHON_BIN}" -m orderflow_services.exec_health_freeze_rollout_preflight_v1 --purpose "${PURPOSE}" --quiet
++exec "$@"
+--- tick_flow_full/orderflow_services/deploy/systemd/run-exec-health-freeze-acl-policy-apply-v1.sh
++++ tick_flow_full/orderflow_services/deploy/systemd/run-exec-health-freeze-acl-policy-apply-v1.sh
+@@ -0,0 +1,10 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++REPO_ROOT="${EXEC_HEALTH_REPO_ROOT:-/opt/scanner_infra}"
++COMPOSE_FILE="${EXEC_HEALTH_ACL_POLICY_APPLY_COMPOSE_FILE:-${REPO_ROOT}/orderflow_services/deploy/docker-compose.exec-health-freeze-acl-policy-apply-v1.yml}"
++SERVICE_NAME="${EXEC_HEALTH_ACL_POLICY_APPLY_SERVICE_NAME:-exec-health-freeze-acl-policy-apply}"
++export EXEC_HEALTH_ROLLOUT_PREFLIGHT_PURPOSE="exec_health_freeze_acl_policy_apply"
++
++exec "${REPO_ROOT}/orderflow_services/deploy/systemd/run-exec-health-freeze-with-rollout-preflight-v1.sh" \
++  docker compose -f "${COMPOSE_FILE}" run --rm "${SERVICE_NAME}" "$@"
+--- tick_flow_full/orderflow_services/deploy/systemd/run-exec-health-freeze-override-commit-thaw-v1.sh
++++ tick_flow_full/orderflow_services/deploy/systemd/run-exec-health-freeze-override-commit-thaw-v1.sh
+@@ -0,0 +1,10 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++REPO_ROOT="${EXEC_HEALTH_REPO_ROOT:-/opt/scanner_infra}"
++COMPOSE_FILE="${EXEC_HEALTH_OVERRIDE_COMMIT_THAW_COMPOSE_FILE:-${REPO_ROOT}/orderflow_services/deploy/docker-compose.exec-health-freeze-override-commit-thaw-v1.yml}"
++SERVICE_NAME="${EXEC_HEALTH_OVERRIDE_COMMIT_THAW_SERVICE_NAME:-exec-health-freeze-override-commit-thaw}"
++export EXEC_HEALTH_ROLLOUT_PREFLIGHT_PURPOSE="exec_health_freeze_override_commit_thaw"
++
++exec "${REPO_ROOT}/orderflow_services/deploy/systemd/run-exec-health-freeze-with-rollout-preflight-v1.sh" \
++  docker compose -f "${COMPOSE_FILE}" run --rm "${SERVICE_NAME}" "$@"
+--- tick_flow_full/orderflow_services/deploy/systemd/exec-health-freeze-acl-policy-apply.service
++++ tick_flow_full/orderflow_services/deploy/systemd/exec-health-freeze-acl-policy-apply.service
+@@ -0,0 +1,16 @@
++[Unit]
++Description=ExecHealth ACL policy apply with rollout preflight guard
++After=network-online.target docker.service
++Wants=network-online.target
++Requires=docker.service
++
++[Service]
++Type=oneshot
++EnvironmentFile=-/etc/default/exec-health-freeze-acl-policy-apply
++WorkingDirectory=/opt/scanner_infra
++ExecStart=/opt/scanner_infra/orderflow_services/deploy/systemd/run-exec-health-freeze-acl-policy-apply-v1.sh
++Nice=10
++TimeoutStartSec=1800
++
++[Install]
++WantedBy=multi-user.target
+--- tick_flow_full/orderflow_services/deploy/systemd/exec-health-freeze-override-commit-thaw.service
++++ tick_flow_full/orderflow_services/deploy/systemd/exec-health-freeze-override-commit-thaw.service
+@@ -0,0 +1,16 @@
++[Unit]
++Description=ExecHealth override commit-thaw with rollout preflight guard
++After=network-online.target docker.service
++Wants=network-online.target
++Requires=docker.service
++
++[Service]
++Type=oneshot
++EnvironmentFile=-/etc/default/exec-health-freeze-override-commit-thaw
++WorkingDirectory=/opt/scanner_infra
++ExecStart=/opt/scanner_infra/orderflow_services/deploy/systemd/run-exec-health-freeze-override-commit-thaw-v1.sh
++Nice=10
++TimeoutStartSec=1800
++
++[Install]
++WantedBy=multi-user.target
+--- tick_flow_full/orderflow_services/deploy/docker-compose.exec-health-freeze-acl-policy-apply-v1.yml
++++ tick_flow_full/orderflow_services/deploy/docker-compose.exec-health-freeze-acl-policy-apply-v1.yml
+@@ -0,0 +1,21 @@
++services:
++  exec-health-freeze-acl-policy-apply:
++    image: ${EXEC_HEALTH_ACL_POLICY_APPLY_IMAGE:-python:3.13-slim}
++    working_dir: /repo
++    volumes:
++      - ${EXEC_HEALTH_REPO_ROOT:-.}:/repo
++    environment:
++      PYTHONPATH: /repo
++      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
++      EXEC_HEALTH_REDIS_AUDIT_URL: ${EXEC_HEALTH_REDIS_AUDIT_URL:-}
++      EXEC_HEALTH_REDIS_BOOTSTRAP_URL: ${EXEC_HEALTH_REDIS_BOOTSTRAP_URL:?EXEC_HEALTH_REDIS_BOOTSTRAP_URL is required}
++      EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE: ${EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE:-1}
++      EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME: ${EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME:-1}
++      EXEC_HEALTH_FREEZE_ACL_POLICY_APPLY_ARGS: ${EXEC_HEALTH_FREEZE_ACL_POLICY_APPLY_ARGS:-}
++    command:
++      - /bin/bash
++      - -lc
++      - >-
++        python -m pip install --no-cache-dir redis >/tmp/exec_health_acl_policy_apply_pip.log 2>&1 &&
++        python -m orderflow_services.exec_health_freeze_acl_policy_v1 apply ${EXEC_HEALTH_FREEZE_ACL_POLICY_APPLY_ARGS:-}
++    restart: "no"
+--- tick_flow_full/orderflow_services/deploy/docker-compose.exec-health-freeze-override-commit-thaw-v1.yml
++++ tick_flow_full/orderflow_services/deploy/docker-compose.exec-health-freeze-override-commit-thaw-v1.yml
+@@ -0,0 +1,23 @@
++services:
++  exec-health-freeze-override-commit-thaw:
++    image: ${EXEC_HEALTH_OVERRIDE_COMMIT_THAW_IMAGE:-python:3.13-slim}
++    working_dir: /repo
++    volumes:
++      - ${EXEC_HEALTH_REPO_ROOT:-.}:/repo
++    environment:
++      PYTHONPATH: /repo
++      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
++      EXEC_HEALTH_REDIS_AUDIT_URL: ${EXEC_HEALTH_REDIS_AUDIT_URL:-}
++      EXEC_HEALTH_REDIS_BOOTSTRAP_URL: ${EXEC_HEALTH_REDIS_BOOTSTRAP_URL:?EXEC_HEALTH_REDIS_BOOTSTRAP_URL is required}
++      EXEC_HEALTH_ACK_SIGNING_SECRET: ${EXEC_HEALTH_ACK_SIGNING_SECRET:?EXEC_HEALTH_ACK_SIGNING_SECRET is required}
++      EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE: ${EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE:-1}
++      EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME: ${EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME:-1}
++      OPERATOR: ${OPERATOR:?OPERATOR is required}
++      REQUEST_ID: ${REQUEST_ID:?REQUEST_ID is required}
++    command:
++      - /bin/bash
++      - -lc
++      - >-
++        python -m pip install --no-cache-dir redis >/tmp/exec_health_override_commit_thaw_pip.log 2>&1 &&
++        python -m orderflow_services.exec_health_freeze_override_v1 commit-thaw
++    restart: "no"
+--- tick_flow_full/orderflow_services/runbook_exec_health_freeze_rollout_preflight_v1.md
++++ tick_flow_full/orderflow_services/runbook_exec_health_freeze_rollout_preflight_v1.md
+@@ -0,0 +1,50 @@
++# ExecHealth rollout preflight wrappers (v1)
++
++P19 moves rollout-gate enforcement one layer earlier: sensitive ops jobs call a small preflight guard **before** the containerized Python entrypoint starts.
++
++## Guarded jobs
++
++- ACL policy apply
++- override commit-thaw
++
++## Generic preflight
++
++```bash
++python -m orderflow_services.exec_health_freeze_rollout_preflight_v1 --purpose exec_health_freeze_acl_policy_apply
++```
++
++Exit codes:
++- `0` — gate open
++- `24` — rollout gate active
++- non-zero other — Redis / identity / bootstrap failure
++
++## systemd wrappers
++
++```bash
++/opt/scanner_infra/orderflow_services/deploy/systemd/run-exec-health-freeze-acl-policy-apply-v1.sh
++/opt/scanner_infra/orderflow_services/deploy/systemd/run-exec-health-freeze-override-commit-thaw-v1.sh
++```
++
++Both wrappers first run:
++- `exec_health_freeze_rollout_preflight_v1`
++- then `docker compose run --rm ...` for the sensitive job
++
++## Manual usage
++
++ACL apply:
++
++```bash
++sudo systemctl start exec-health-freeze-acl-policy-apply.service
++```
++
++Commit thaw:
++
++```bash
++OPERATOR=alice REQUEST_ID=req-123 sudo systemctl start exec-health-freeze-override-commit-thaw.service
++```
++
++## Notes
++
++- this does **not** replace the in-process Python guard from P18; it adds an earlier gate
++- preflight uses the audit Redis identity contract (`exec_health_freeze_rollout_preflight_v1`)
++- if the rollout gate is latched, the compose container is not started at all

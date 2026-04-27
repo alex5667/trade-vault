@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/util/_decorators.py
+# hypothesis_version: 6.148.10
+
+["'", ', ', 'Appender', 'Substitution', 'cache_readonly', 'deprecate', 'deprecate_kwarg', 'doc', 'future_version_msg', 'get', 'self']

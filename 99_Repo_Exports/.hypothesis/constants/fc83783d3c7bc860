@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/context_helpers/context_utils.py
+# hypothesis_version: 6.148.10
+
+[0.0, '+1', '-1', '1', 'LONG', 'SHORT', '_levels_attached', 'ask', 'b', 'bid', 'buy', 'entry', 'entry_price', 'l', 'last_price', 'levels_missing_price', 'long', 'name', 'nan', 'of', 'price', 's', 'sell', 'short', 'side', 'side_int', 'sl', 'sl_level', 'sl_price', 'stop', 'stop_level', 'stop_price', 'take_profits', 'targets', 'tp1', 'tp1_price', 'tp_levels', 'tp_prices', 'value']

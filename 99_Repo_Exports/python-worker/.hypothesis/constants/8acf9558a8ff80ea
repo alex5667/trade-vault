@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/atr_candidate_provider.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1000, 5000, 15000, 30000, 60000, 120000, 180000, 300000, 900000, ',', '1', '15m', '15s', '1m', '300000', '30s', '3m', '5m', 'REDIS_URL', 'atr', 'indicators', 'meta', 'payload', 'redis_atr_json', 'redis_ta_last', 'source', 'ta:last:atr:', 'tf_ms', 'ts_ms']

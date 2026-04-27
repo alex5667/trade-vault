@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/signal_metrics.py
+# hypothesis_version: 6.148.10
+
+['candidates_total', 'conf_factor_hist', 'cooldown', 'cooldown_drops', 'family', 'final_score_hist', 'inc', 'kind', 'observe', 'reason', 'reason_family', 'signals_veto', 'spread', 'spread_filter_drops', 'symbol', 'timeframe', 'touch', 'unknown', 'unknown_veto', 'venue']

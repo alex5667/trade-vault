@@ -1,0 +1,20 @@
+[Unit]
+Description=Scanner Entry Policy LCB Guard Service
+After=network.target redis.service
+
+[Service]
+Type=simple
+User=alex
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+EnvironmentFile=/home/alex/front/trade/scanner_infra/.env
+ExecStart=/usr/bin/python3 services/entry_policy_lcb_guard_service.py
+Restart=always
+RestartSec=5
+
+# LCB Guard configuration overrides (optional)
+# Environment=LCB_GUARD_Z=2.0
+# Environment=LCB_GUARD_MIN_SAMPLES=30
+# Environment=LCB_GUARD_STREAK=3
+
+[Install]
+WantedBy=multi-user.target

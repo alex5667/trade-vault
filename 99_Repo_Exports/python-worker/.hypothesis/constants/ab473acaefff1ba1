@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signal_quality/bucketing.py
+# hypothesis_version: 6.148.10
+
+[0.15, 0.3, 0.5, 0.7, 0.9, 1.0, 1.5, 2.0, 3.0, ' | ', ':', '<', '<0.15', '<0.3', '<0.7', '<0.9', 'Delta Z: unknown', 'OBI: unknown', 'Progress: strong', 'Progress: unknown', 'Progress: very weak', 'Progress: weak', 'Volatility: extreme', 'Volatility: high', 'Volatility: low', 'Volatility: medium', 'Volatility: unknown', 'atr', 'dz', 'na', 'obi', 'wp', '|']

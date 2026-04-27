@@ -1,0 +1,2352 @@
+diff --git a/core/meta_features_v1.py b/core/meta_features_v1.py
+new file mode 100644
+index 0000000..96cbee2
+--- /dev/null
++++ b/core/meta_features_v1.py
+@@ -0,0 +1,193 @@
++from __future__ import annotations
++
++import hashlib
++import math
++from typing import Any, Dict, List, Tuple, Optional
++
++META_FEAT_V1_NAME = "meta_feat_v1"
++META_FEAT_V1_VERSION = 1
++
++# Fixed list of columns for Train == Serve consistency (canonical inventory).
++META_FEAT_V1_COLS = [
++    "have",
++    "need",
++    "ok_soft",
++    "rule_score",
++    "exec_risk_norm",
++    "exec_risk_bps",
++    "age_ms",
++    "is_weekend",
++    "is_eu_hours",
++    "is_us_hours",
++    "is_asia_hours",
++    "lag1_pnl_15m",
++    "lag1_win_15m",
++    "lag1_pnl_1h",
++    "lag1_win_1h",
++    "lag1_pnl_4h",
++    "lag1_win_4h",
++    "lag1_pnl_24h",
++    "lag1_win_24h",
++    "lag2_pnl_15m",
++    "lag2_win_15m",
++    "lag2_pnl_1h",
++    "lag2_win_1h",
++    "lag2_pnl_4h",
++    "lag2_win_4h",
++    "lag2_pnl_24h",
++    "lag2_win_24h",
++    "spread_bps",
++    "volatility_15m_bps",
++    "ofi_15m",
++    "book_churn_15m",
++    "liq_imbal_15m",
++    "trade_imbal_15m",
++    "volatility_1h_bps",
++    "ofi_1h",
++    "book_churn_1h",
++    "liq_imbal_1h",
++    "trade_imbal_1h",
++    "volatility_4h_bps",
++    "ofi_4h",
++    "book_churn_4h",
++    "liq_imbal_4h",
++    "trade_imbal_4h",
++    "volatility_24h_bps",
++    "ofi_24h",
++    "book_churn_24h",
++    "liq_imbal_24h",
++    "trade_imbal_24h",
++    "delta_z",
++    "obi_z",
++    "ofi_z",
++    "scn_is_trend",
++    "scn_is_range",
++]
++
++META_FEAT_V1_HASH = hashlib.sha256(
++    (",".join(META_FEAT_V1_COLS)).encode("utf-8")
++).hexdigest()[:16]
++
++# Default transforms for meta_feat_v1.
++# Stored in the model JSON and applied at runtime by MetaModelLR.
++META_FEAT_V1_TRANSFORMS: Dict[str, Dict[str, Any]] = {
++    # Ages / staleness (ms): log1p(max(0, x))
++    "age_ms": {"type": "log1p"},
++    
++    # z-scores: clip
++    "delta_z": {"type": "clip", "lo": -8.0, "hi": 8.0},
++    "obi_z": {"type": "clip", "lo": -8.0, "hi": 8.0},
++    "ofi_z": {"type": "clip", "lo": -8.0, "hi": 8.0},
++
++    # bps-like: clip
++    "spread_bps": {"type": "clip", "lo": 0.0, "hi": 500.0},
++    "exec_risk_bps": {"type": "clip", "lo": 0.0, "hi": 2000.0},
++}
++
++def build_meta_features_v1(
++    evidence: Dict[str, Any],
++    indicators: Dict[str, Any],
++    indicators_with_v4: Optional[Dict[str, Any]] = None,
++    legs: Optional[Dict[str, Any]] = None,
++    have: int = 0,
++    need: int = 0,
++    ok_soft: int = 0,
++    rule_score: float = 0.0,
++    exec_risk_norm: float = 0.0,
++    exec_risk_bps: float = 0.0,
++    ml_scenario: str = "",
++) -> Tuple[Dict[str, float], List[str]]:
++    """
++    Builds a flat feature dictionary for MetaModelLR.
++    Standardized across training/serving for Train == Serve parity.
++    """
++    feat: Dict[str, float] = {}
++    missing: List[str] = []
++
++    def _get(src: Optional[Dict[str, Any]], k: str) -> Tuple[bool, Any]:
++        if not src: return False, None
++        return k in src, src.get(k)
++
++    def _to_float(v: Any, default: float = 0.0) -> float:
++        try:
++            val = float(v) if v is not None else default
++            return val if math.isfinite(val) else default
++        except (ValueError, TypeError):
++            return default
++
++    def _is_finite(v: float) -> bool:
++        return math.isfinite(v)
++
++    def _age(src: Optional[Dict[str, Any]], k: str, miss_name: str) -> float:
++        present, val = _get(src, k)
++        v = _to_float(val, 0.0)
++        bad = (not present) or (val is None) or (not _is_finite(v)) or (v < 0.0)
++        if bad:
++            missing.append(miss_name)
++            return 0.0
++        return float(v)
++
++    # Simple scalar fields
++    feat["have"] = float(have)
++    feat["need"] = float(need)
++    feat["ok_soft"] = float(ok_soft)
++    feat["rule_score"] = float(rule_score)
++    feat["exec_risk_norm"] = float(exec_risk_norm)
++    feat["exec_risk_bps"] = float(exec_risk_bps)
++
++    # Scenario (Unified)
++    scn = (ml_scenario or "").lower()
++    if not scn and indicators_with_v4:
++        scn = str(indicators_with_v4.get("scenario_v4", "")).lower()
++    
++    feat["scn_is_trend"] = 1.0 if "trend" in scn else 0.0
++    feat["scn_is_range"] = 1.0 if "range" in scn else 0.0
++
++    # Age / Context
++    meta_ctx = evidence.get("meta_context", {}) if isinstance(evidence, dict) else {}
++    feat["age_ms"] = _age(evidence, "age_ms", "age_ms") if "age_ms" in evidence else _age(meta_ctx, "age_ms", "age_ms")
++    
++    feat["is_weekend"] = _to_float(meta_ctx.get("is_weekend", 0.0))
++    feat["is_eu_hours"] = _to_float(meta_ctx.get("is_eu_hours", 0.0))
++    feat["is_us_hours"] = _to_float(meta_ctx.get("is_us_hours", 0.0))
++    feat["is_asia_hours"] = _to_float(meta_ctx.get("is_asia_hours", 0.0))
++
++    # Lags
++    for lag in [1, 2]:
++        for win in ["15m", "1h", "4h", "24h"]:
++            for suffix in ["pnl", "win"]:
++                k = f"lag{lag}_{suffix}_{win}"
++                present, val = _get(indicators, k)
++                feat[k] = _to_float(val)
++                if not present:
++                    missing.append(k)
++
++    # Market State
++    feat["spread_bps"] = _to_float(indicators.get("spread_bps"))
++    if "spread_bps" not in indicators: missing.append("spread_bps")
++    
++    for w in ["15m", "1h", "4h", "24h"]:
++        k_vol = f"volatility_{w}_bps"
++        feat[k_vol] = _to_float(indicators.get(k_vol))
++        if k_vol not in indicators: missing.append(k_vol)
++        
++        for prefix in ["ofi", "book_churn", "liq_imbal", "trade_imbal"]:
++            k = f"{prefix}_{w}"
++            feat[k] = _to_float(indicators.get(k))
++            if k not in indicators: missing.append(k)
++
++    # Specialized (legs/z-scores)
++    for k in ["delta_z", "obi_z", "ofi_z"]:
++        # Try indicators_with_v4 first, then legs, then evidence
++        found = False
++        for src in [indicators_with_v4, legs, evidence]:
++            present, val = _get(src, k)
++            if present:
++                feat[k] = _to_float(val)
++                found = True
++                break
++        if not found:
++            feat[k] = 0.0
++            missing.append(k)
++
++    return feat, missing
+diff --git a/core/meta_features_v2.py b/core/meta_features_v2.py
+new file mode 100644
+index 0000000..25a1833
+--- /dev/null
++++ b/core/meta_features_v2.py
+@@ -0,0 +1,142 @@
++from __future__ import annotations
++
++import hashlib
++from typing import Any, Dict, List, Tuple, Optional
++
++from core.meta_features_v1 import META_FEAT_V1_COLS, build_meta_features_v1
++from core.book_microstructure_v2 import compute_queue_imbalance_topn, compute_ofi_multilevel_topn
++
++META_FEAT_V2_NAME = "meta_feat_v2"
++META_FEAT_V2_VERSION = 2
++
++# New columns in V2
++META_FEAT_V2_NEW_COLS = [
++    # Queue Imbalance
++    "qimb_l1", "qimb_l2", "qimb_l3", "qimb_l4", "qimb_l5",
++    "qimb_wmean",
++    # Multi-level OFI
++    "ofi_ml",
++    "ofi_ml_wsum",
++    "ofi_ml_norm",
++]
++
++# Full canonical inventory for V2
++META_FEAT_V2_COLS = META_FEAT_V1_COLS + META_FEAT_V2_NEW_COLS
++
++META_FEAT_V2_HASH = hashlib.sha256(
++    (",".join(META_FEAT_V2_COLS)).encode("utf-8")
++).hexdigest()
++
++# Default transforms (extending V1)
++META_FEAT_V2_TRANSFORMS: Dict[str, Dict[str, Any]] = {
++    # No specific transforms for [-1, 1] range features like qimb/ofi_norm for now
++    # scaler usually handles centering
++}
++
++def _build_meta_features_v2_impl(
++    evidence: Dict[str, Any],
++    indicators: Dict[str, Any],
++    runtime_snap: Optional[Any] = None, # book_state.snap or runtime.last_book
++    runtime_prev_snap: Optional[Any] = None, # book_state.prev_snap or runtime.prev_book
++    indicators_with_v4: Optional[Dict[str, Any]] = None,
++    legs: Optional[Dict[str, Any]] = None,
++    have: int = 0,
++    need: int = 0,
++    ok_soft: int = 0,
++    rule_score: float = 0.0,
++    exec_risk_norm: float = 0.0,
++    exec_risk_bps: float = 0.0,
++    ml_scenario: str = "",
++) -> Tuple[Dict[str, float], List[str]]:
++    """
++    Internal implementation of meta_feat_v2 features.
++    Delegates to v1 for base features, then adds microstructure v2.
++    """
++    
++    # 1. Base V1
++    feat, missing = build_meta_features_v1(
++        evidence=evidence,
++        indicators=indicators,
++        indicators_with_v4=indicators_with_v4,
++        legs=legs,
++        have=have,
++        need=need,
++        ok_soft=ok_soft,
++        rule_score=rule_score,
++        exec_risk_norm=exec_risk_norm,
++        exec_risk_bps=exec_risk_bps,
++        ml_scenario=ml_scenario,
++    )
++    
++    # 2. Add V2 Microstructure
++    
++    # QIMB
++    # Only if snap is available
++    if runtime_snap:
++        qimb = compute_queue_imbalance_topn(runtime_snap, levels=5)
++        for k in ["qimb_l1", "qimb_l2", "qimb_l3", "qimb_l4", "qimb_l5", "qimb_wmean"]:
++            if k in qimb:
++                feat[k] = float(qimb[k])
++            else:
++                missing.append(k)
++    else:
++        # Snap missing -> adding to missing list
++        for k in ["qimb_l1", "qimb_l2", "qimb_l3", "qimb_l4", "qimb_l5", "qimb_wmean"]:
++            missing.append(k)
++
++    # OFI ML
++    # Only if snap AND prev_snap available
++    if runtime_snap and runtime_prev_snap:
++        ofi = compute_ofi_multilevel_topn(runtime_prev_snap, runtime_snap, levels=5)
++        for k in ["ofi_ml", "ofi_ml_wsum", "ofi_ml_norm"]:
++            if k in ofi:
++                feat[k] = float(ofi[k])
++            else:
++                missing.append(k)
++    else:
++        for k in ["ofi_ml", "ofi_ml_wsum", "ofi_ml_norm"]:
++            missing.append(k)
++            
++    return feat, missing
++
++def build_meta_features_v2(
++    evidence: Dict[str, Any],
++    indicators: Dict[str, Any],
++    cfg2: Optional[Dict[str, Any]] = None,
++    **kwargs: Any
++) -> Tuple[Dict[str, float], List[str]]:
++    """
++    Universal wrapper for V2 feature builder.
++    Supports both:
++      - Old signature: (evidence, indicators, runtime_snap=..., ...)
++      - New signature: (evidence, indicators, cfg2, ...)
++    """
++    
++    # Extract args from kwargs or use defaults
++    runtime_snap = kwargs.get("runtime_snap")
++    runtime_prev_snap = kwargs.get("runtime_prev_snap")
++    indicators_with_v4 = kwargs.get("indicators_with_v4")
++    legs = kwargs.get("legs")
++    have = int(kwargs.get("have", 0))
++    need = int(kwargs.get("need", 0))
++    ok_soft = int(kwargs.get("ok_soft", 0))
++    rule_score = float(kwargs.get("rule_score", 0.0))
++    exec_risk_norm = float(kwargs.get("exec_risk_norm", 0.0))
++    exec_risk_bps = float(kwargs.get("exec_risk_bps", 0.0))
++    ml_scenario = str(kwargs.get("ml_scenario", ""))
++    
++    return _build_meta_features_v2_impl(
++        evidence=evidence,
++        indicators=indicators,
++        runtime_snap=runtime_snap,
++        runtime_prev_snap=runtime_prev_snap,
++        indicators_with_v4=indicators_with_v4,
++        legs=legs,
++        have=have,
++        need=need,
++        ok_soft=ok_soft,
++        rule_score=rule_score,
++        exec_risk_norm=exec_risk_norm,
++        exec_risk_bps=exec_risk_bps,
++        ml_scenario=ml_scenario,
++    )
+diff --git a/core/meta_features_v3.py b/core/meta_features_v3.py
+new file mode 100644
+index 0000000..eb9678c
+--- /dev/null
++++ b/core/meta_features_v3.py
+@@ -0,0 +1,115 @@
++from __future__ import annotations
++
++import hashlib
++from typing import Any, Dict, List, Tuple, Optional
++
++from core.meta_features_v1 import META_FEAT_V1_COLS
++from core.meta_features_v2 import META_FEAT_V2_NEW_COLS, build_meta_features_v2
++
++META_FEAT_V3_NAME = "meta_feat_v3"
++META_FEAT_V3_VERSION = 3
++
++# New columns in V3 (Burst / Hawkes / Churn)
++META_FEAT_V3_NEW_COLS = [
++    # Burst / Hawkes Logic
++    "burst_pen",
++    "burst_ctr",    # Cancel-to-Trade Ratio
++    "burst_exc",    # Hawkes Excess
++    "burst_churn",  # Book Churn Score
++    "burst_z",      # Book Rate Z
++    "burst_tr_ema", # Trade Rate EMA
++    "burst_cr_ema", # Cancel Rate EMA
++    "burst_ha_lam", # Hawkes Combined Lam
++    # Extra robustness
++    "burst_veto_flag", # 0 or 1
++]
++
++# Full canonical inventory for V3
++META_FEAT_V3_COLS = META_FEAT_V1_COLS + META_FEAT_V2_NEW_COLS + META_FEAT_V3_NEW_COLS
++
++META_FEAT_V3_HASH = hashlib.sha256(
++    (",".join(META_FEAT_V3_COLS)).encode("utf-8")
++).hexdigest()[:16]
++
++# Default transforms (extending V2)
++META_FEAT_V3_TRANSFORMS: Dict[str, Dict[str, Any]] = {
++    # Rates/Excess are strictly positive, log1p is usually good
++    "burst_ctr": {"name": "log1p"},
++    "burst_exc": {"name": "log1p"},
++    "burst_churn": {"name": "log1p"},
++    "burst_tr_ema": {"name": "log1p"},
++    "burst_cr_ema": {"name": "log1p"},
++    "burst_ha_lam": {"name": "log1p"},
++    # Pen/Veto are bounded/binary, no transform needed
++}
++
++def build_meta_features_v3(
++    evidence: Dict[str, Any],
++    indicators: Dict[str, Any],
++    runtime_snap: Optional[Any] = None, # book_state.snap
++    runtime_prev_snap: Optional[Any] = None, # book_state.prev_snap
++    indicators_with_v4: Optional[Dict[str, Any]] = None,
++    legs: Optional[Dict[str, Any]] = None,
++    have: int = 0,
++    need: int = 0,
++    ok_soft: int = 0,
++    rule_score: float = 0.0,
++    exec_risk_norm: float = 0.0,
++    exec_risk_bps: float = 0.0,
++    ml_scenario: str = "",
++) -> Tuple[Dict[str, float], List[str]]:
++    """
++    Builds meta_feat_v3 features.
++    Delegates to v2 for base features, then adds burst/hawkes v3 features.
++    """
++    
++    # 1. Base V2 (which calls V1)
++    feat, missing = build_meta_features_v2(
++        evidence=evidence,
++        indicators=indicators,
++        runtime_snap=runtime_snap,
++        runtime_prev_snap=runtime_prev_snap,
++        indicators_with_v4=indicators_with_v4,
++        legs=legs,
++        have=have,
++        need=need,
++        ok_soft=ok_soft,
++        rule_score=rule_score,
++        exec_risk_norm=exec_risk_norm,
++        exec_risk_bps=exec_risk_bps,
++        ml_scenario=ml_scenario,
++    )
++    
++    # 2. Add V3 Burst Features
++    # Expectation: 'evidence' contains keys from eval_burst_gate() snapshot
++    # If not present (e.g. old logs), we set 0.0 and mark missing
++    
++    for k in META_FEAT_V3_NEW_COLS:
++        # Check evidence first (where we put them in engine)
++        if k == "burst_veto_flag":
++             # Special mapping: burst_veto -> burst_veto_flag
++             val = evidence.get("burst_veto")
++             if val is not None:
++                 feat[k] = float(val)
++             else:
++                 feat[k] = 0.0
++                 missing.append(k)
++        elif k in evidence:
++            try:
++                feat[k] = float(evidence[k])
++            except (ValueError, TypeError):
++                feat[k] = 0.0
++                missing.append(k)
++        else:
++            # Fallback to indicators if not in evidence (some fields might be redundant)
++            if k in indicators:
++                 try:
++                    feat[k] = float(indicators[k])
++                 except (ValueError, TypeError):
++                    feat[k] = 0.0
++                    missing.append(k)
++            else:
++                feat[k] = 0.0
++                missing.append(k)
++                
++    return feat, missing
+diff --git a/core/meta_features_v4.py b/core/meta_features_v4.py
+new file mode 100644
+index 0000000..1adb9b5
+--- /dev/null
++++ b/core/meta_features_v4.py
+@@ -0,0 +1,122 @@
++from __future__ import annotations
++
++import hashlib
++from typing import Any, Dict, List, Tuple, Optional
++
++from core.meta_features_v3 import META_FEAT_V3_COLS, build_meta_features_v3
++from core.book_microstructure_v4 import compute_microstructure_v4
++
++META_FEAT_V4_NAME = "meta_feat_v4"
++META_FEAT_V4_VERSION = 4
++META_FEAT_V4_VERSION_STR = "v4"
++
++# New columns in V4
++META_FEAT_V4_NEW_COLS = [
++    "mp_mid_bps",
++    "mp_shift_bps",
++    "depth_bid_5",
++    "depth_ask_5",
++    "book_slope_bid",
++    "book_slope_ask",
++    "book_convex_bid",
++    "book_convex_ask",
++    "obi_dw"
++]
++
++# Full canonical inventory for V4
++META_FEAT_V4_COLS = META_FEAT_V3_COLS + META_FEAT_V4_NEW_COLS
++
++META_FEAT_V4_HASH = hashlib.sha256(
++    (",".join(META_FEAT_V4_COLS)).encode("utf-8")
++).hexdigest()[:16]
++
++# Default transforms
++META_FEAT_V4_TRANSFORMS: Dict[str, Dict[str, Any]] = {
++    # Depths are strictly positive, log1p
++    "depth_bid_5": {"name": "log1p"},
++    "depth_ask_5": {"name": "log1p"},
++    # Bps / Slopes / Convexity can be negative or positive, maybe clip or robust scaler?
++    # Standard scaler (z-score) is usually applied later.
++    # No Log1p for these signed values.
++}
++
++def build_meta_features_v4(
++    evidence: Dict[str, Any],
++    indicators: Dict[str, Any],
++    runtime_snap: Optional[Any] = None, # book_state.snap
++    runtime_prev_snap: Optional[Any] = None, # book_state.prev_snap
++    indicators_with_v4: Optional[Dict[str, Any]] = None,
++    legs: Optional[Dict[str, Any]] = None,
++    have: int = 0,
++    need: int = 0,
++    ok_soft: int = 0,
++    rule_score: float = 0.0,
++    exec_risk_norm: float = 0.0,
++    exec_risk_bps: float = 0.0,
++    ml_scenario: str = "",
++) -> Tuple[Dict[str, float], List[str]]:
++    """
++    Builds meta_feat_v4 features.
++    Delegates to v3 for base features, then adds microprice/slope v4 features.
++    """
++    
++    # 1. Base V3 (which calls V2->V1)
++    feat, missing = build_meta_features_v3(
++        evidence=evidence,
++        indicators=indicators,
++        runtime_snap=runtime_snap,
++        runtime_prev_snap=runtime_prev_snap,
++        indicators_with_v4=indicators_with_v4,
++        legs=legs,
++        have=have,
++        need=need,
++        ok_soft=ok_soft,
++        rule_score=rule_score,
++        exec_risk_norm=exec_risk_norm,
++        exec_risk_bps=exec_risk_bps,
++        ml_scenario=ml_scenario,
++    )
++    
++    # 2. Add V4 Microstructure Features
++    # We compute these on-the-fly from snaps if available
++    
++    micro_v4 = {}
++    if runtime_snap is not None:
++         # Compute V4 features
++         micro_v4 = compute_microstructure_v4(runtime_snap, runtime_prev_snap, levels=5)
++    
++    # 3. Merge into feat
++    for k in META_FEAT_V4_NEW_COLS:
++        if k in micro_v4:
++             feat[k] = float(micro_v4[k])
++        
++        # Fallback 1: Direct availability in evidence
++        elif k in evidence:
++             try:
++                 feat[k] = float(evidence[k])
++             except (ValueError, TypeError):
++                 feat[k] = 0.0
++                 missing.append(k)
++
++        # Fallback 2: Indicators argument (explicit)
++        elif k in indicators:
++             try:
++                 feat[k] = float(indicators[k])
++             except (ValueError, TypeError):
++                 feat[k] = 0.0
++                 missing.append(k)
++
++        # Fallback 3: Nested in evidence['indicators'] (nightly dataset common case)
++        elif "indicators" in evidence and isinstance(evidence["indicators"], dict) and k in evidence["indicators"]:
++             try:
++                 feat[k] = float(evidence["indicators"][k])
++             except (ValueError, TypeError):
++                 feat[k] = 0.0
++                 missing.append(k)
++
++        else:
++             # Missing
++             feat[k] = 0.0
++             missing.append(k)
++             
++    return feat, missing
+diff --git a/core/meta_features_v5.py b/core/meta_features_v5.py
+new file mode 100644
+index 0000000..56dc529
+--- /dev/null
++++ b/core/meta_features_v5.py
+@@ -0,0 +1,117 @@
++from __future__ import annotations
++
++import hashlib
++from typing import Any, Dict, List, Tuple, Optional
++
++from core.meta_features_v4 import META_FEAT_V4_COLS, build_meta_features_v4
++
++META_FEAT_V5_NAME = "meta_feat_v5"
++META_FEAT_V5_VERSION = 5
++META_FEAT_V5_VERSION_STR = "v5"
++
++# New columns in V5 (DQ / Time Determinism)
++META_FEAT_V5_NEW_COLS = [
++    "tick_time_age_ms",
++    "tick_event_age_abs_ema_ms",  # Canonical name (was tick_time_age_abs_ema_ms)
++    "tick_event_stream_skew_abs_ema_ms",
++    "tick_ts_source_now_ema",
++    "tick_ts_source_stream_id_ema",
++    "data_health",
++    "book_health_ok",
++    "tick_unknown_side_ema",
++]
++
++# Full canonical inventory for V5
++META_FEAT_V5_COLS = META_FEAT_V4_COLS + META_FEAT_V5_NEW_COLS
++
++META_FEAT_V5_HASH = hashlib.sha256(
++    (",".join(META_FEAT_V5_COLS)).encode("utf-8")
++).hexdigest()[:16]
++
++# Default transforms
++META_FEAT_V5_TRANSFORMS: Dict[str, Dict[str, Any]] = {
++    # Most DQ metrics are non-negative.
++    # We might want log1p for large time deltas, but for now linear is fine or we can add later.
++    # book_health_ok is binary (0/1).
++    # tick_time_age_ms can be negative? usually positive lag.
++}
++
++def build_meta_features_v5(
++    evidence: Dict[str, Any],
++    indicators: Dict[str, Any],
++    runtime_snap: Optional[Any] = None, # book_state.snap
++    runtime_prev_snap: Optional[Any] = None, # book_state.prev_snap
++    indicators_with_v4: Optional[Dict[str, Any]] = None,
++    legs: Optional[Dict[str, Any]] = None,
++    have: int = 0,
++    need: int = 0,
++    ok_soft: int = 0,
++    rule_score: float = 0.0,
++    exec_risk_norm: float = 0.0,
++    exec_risk_bps: float = 0.0,
++    ml_scenario: str = "",
++) -> Tuple[Dict[str, float], List[str]]:
++    """
++    Builds meta_feat_v5 features.
++    Delegates to v4 for base features, then adds DQ/Time features.
++    """
++    
++    # 1. Base V4
++    feat, missing = build_meta_features_v4(
++        evidence=evidence,
++        indicators=indicators,
++        runtime_snap=runtime_snap,
++        runtime_prev_snap=runtime_prev_snap,
++        indicators_with_v4=indicators_with_v4,
++        legs=legs,
++        have=have,
++        need=need,
++        ok_soft=ok_soft,
++        rule_score=rule_score,
++        exec_risk_norm=exec_risk_norm,
++        exec_risk_bps=exec_risk_bps,
++        ml_scenario=ml_scenario,
++    )
++    
++    # 2. Add V5 DQ Features
++    # Source: evidence (primary), indicators, or evidence['indicators']
++    
++    for k in META_FEAT_V5_NEW_COLS:
++        # Priority 1: Direct availability in evidence
++        if k in evidence:
++             try:
++                 feat[k] = float(evidence[k])
++             except (ValueError, TypeError):
++                 feat[k] = 0.0
++                 missing.append(k)
++        
++        # Priority 1b: Alias for canonical tick_event_age_abs_ema_ms
++        elif k == "tick_event_age_abs_ema_ms" and "tick_time_age_abs_ema_ms" in evidence:
++             try:
++                 feat[k] = float(evidence["tick_time_age_abs_ema_ms"])
++             except (ValueError, TypeError):
++                 feat[k] = 0.0
++                 missing.append(k)
++
++        # Priority 2: Indicators argument
++        elif k in indicators:
++             try:
++                 feat[k] = float(indicators[k])
++             except (ValueError, TypeError):
++                 feat[k] = 0.0
++                 missing.append(k)
++
++        # Priority 3: Nested in evidence['indicators']
++        elif "indicators" in evidence and isinstance(evidence["indicators"], dict) and k in evidence["indicators"]:
++             try:
++                 feat[k] = float(evidence["indicators"][k])
++             except (ValueError, TypeError):
++                 feat[k] = 0.0
++                 missing.append(k)
++
++        else:
++             # Missing
++             feat[k] = 0.0
++             missing.append(k)
++             
++    return feat, missing
+diff --git a/core/meta_features_v6.py b/core/meta_features_v6.py
+new file mode 100644
+index 0000000..7209a44
+--- /dev/null
++++ b/core/meta_features_v6.py
+@@ -0,0 +1,180 @@
++import hashlib
++from typing import Any, Dict, List, Optional, Tuple
++
++from core.meta_features_v5 import (
++    META_FEAT_V5_COLS,
++    META_FEAT_V5_HASH,
++    META_FEAT_V5_NAME,
++    META_FEAT_V5_VERSION,
++    build_meta_features_v5,
++)
++
++# ---------------------------------------------------------------------
++# META-FEATURE SCHEMA V6
++#
++# Goal (P1): Expand schema using already-computed runtime indicators
++# (no new detectors), so Train == Serve and we avoid silent feature drift.
++# ---------------------------------------------------------------------
++
++META_FEAT_V6_NAME = "meta_feat_v6"
++META_FEAT_V6_VERSION = 6
++
++# New fields (already computed in runtime / strategy / evidence):
++# - Execution / scoring
++# - Staleness / health
++# - Runtime micro stability
++# - L3-lite + Hawkes-like online intensities
++META_FEAT_V6_NEW_COLS: List[str] = [
++    # Execution + score core
++    "exec_risk_ref_bps",
++    "exec_pen",
++    "of_base_score",
++    "of_score_final_raw",
++    "have_need_ratio",
++
++    # Staleness / health
++    "book_staleness_ms",
++    "obi_age_ms",
++    "ofi_age_ms",
++    "iceberg_age_ms",
++    "fp_edge_age_ms",
++    "sweep_age_ms",
++    "reclaim_age_ms",
++    "source_consistency_ok",
++
++    # Runtime stability
++    "last_spread_z",
++    "book_rate_z",
++    "book_churn_score",
++    "pressure_sps",
++    "cooldown_hit_rate_ema",
++
++    # L3-lite EMA rates
++    "taker_buy_rate_ema",
++    "taker_sell_rate_ema",
++    "cancel_bid_rate_ema",
++    "cancel_ask_rate_ema",
++
++    # Hawkes-like online intensities
++    "hawkes_taker_lam",
++    "hawkes_cancel_lam",
++    "hawkes_churn_lam",
++]
++
++META_FEAT_V6_COLS: List[str] = list(META_FEAT_V5_COLS) + list(META_FEAT_V6_NEW_COLS)
++META_FEAT_V6_HASH: str = hashlib.sha1(",".join(META_FEAT_V6_COLS).encode("utf-8")).hexdigest()
++
++# Transform specs are applied by core.feature_engineering.apply_transform.
++# NOTE: v3/v4 currently use 'name' key; apply_transform has a backwards-compatible alias.
++META_FEAT_V6_TRANSFORMS: Dict[str, Dict[str, Any]] = {
++    # Age / staleness: log1p (non-negative, but can be large)
++    "book_staleness_ms": {"type": "log1p"},
++    "obi_age_ms": {"type": "log1p"},
++    "ofi_age_ms": {"type": "log1p"},
++    "iceberg_age_ms": {"type": "log1p"},
++    "fp_edge_age_ms": {"type": "log1p"},
++    "sweep_age_ms": {"type": "log1p"},
++    "reclaim_age_ms": {"type": "log1p"},
++
++    # Execution: bps / penalties
++    "exec_risk_ref_bps": {"type": "log1p"},
++    "exec_pen": {"type": "clip", "lo": 0.0, "hi": 1.5},
++
++    # Scores: mostly bounded-ish, but clip for stability
++    "of_base_score": {"type": "clip", "lo": -5.0, "hi": 5.0},
++    "of_score_final_raw": {"type": "clip", "lo": -5.0, "hi": 5.0},
++    "have_need_ratio": {"type": "clip", "lo": 0.0, "hi": 5.0},
++
++    # Z-like: clip
++    "last_spread_z": {"type": "clip", "lo": -8.0, "hi": 8.0},
++    "book_rate_z": {"type": "clip", "lo": -8.0, "hi": 8.0},
++
++    # Non-negative rates: log1p
++    "pressure_sps": {"type": "log1p"},
++    "taker_buy_rate_ema": {"type": "log1p"},
++    "taker_sell_rate_ema": {"type": "log1p"},
++    "cancel_bid_rate_ema": {"type": "log1p"},
++    "cancel_ask_rate_ema": {"type": "log1p"},
++    "hawkes_taker_lam": {"type": "log1p"},
++    "hawkes_cancel_lam": {"type": "log1p"},
++    "hawkes_churn_lam": {"type": "log1p"},
++}
++
++
++def _try_get_float(x: Any) -> Optional[float]:
++    try:
++        if x is None:
++            return None
++        return float(x)
++    except Exception:
++        return None
++
++
++def build_meta_features_v6(
++    evidence: Dict[str, Any],
++    indicators: Dict[str, Any],
++    runtime_snap: Optional[Any] = None,  # book_state.snap
++    runtime_prev_snap: Optional[Any] = None,  # book_state.prev_snap
++    indicators_with_v4: Optional[Dict[str, Any]] = None,
++    legs: Optional[Dict[str, Any]] = None,
++    have: int = 0,
++    need: int = 0,
++    ok_soft: int = 0,
++    rule_score: float = 0.0,
++    exec_risk_norm: float = 0.0,
++    exec_risk_bps: float = 0.0,
++    ml_scenario: str = "",
++) -> Tuple[Dict[str, float], List[str]]:
++    """Build meta_feat_v6 (v5 base + expanded runtime indicators)."""
++
++    feat, missing = build_meta_features_v5(
++        evidence=evidence,
++        indicators=indicators,
++        runtime_snap=runtime_snap,
++        runtime_prev_snap=runtime_prev_snap,
++        indicators_with_v4=indicators_with_v4,
++        legs=legs,
++        have=have,
++        need=need,
++        ok_soft=ok_soft,
++        rule_score=rule_score,
++        exec_risk_norm=exec_risk_norm,
++        exec_risk_bps=exec_risk_bps,
++        ml_scenario=ml_scenario,
++    )
++
++    src = indicators_with_v4 if isinstance(indicators_with_v4, dict) else {}
++    nested_ind = evidence.get("indicators") if isinstance(evidence, dict) else None
++    if not isinstance(nested_ind, dict):
++        nested_ind = {}
++
++    # Derived / canonical fallbacks
++    hn = _try_get_float(src.get("have_need_ratio"))
++    if hn is None:
++        try:
++            hn = float(have) / float(need) if need > 0 else 0.0
++        except Exception:
++            hn = 0.0
++
++    # Fill new columns with priority: evidence -> indicators_with_v4 -> indicators -> evidence['indicators']
++    for k in META_FEAT_V6_NEW_COLS:
++        v = None
++
++        if k == "have_need_ratio":
++            v = hn
++        elif k in evidence:
++            v = _try_get_float(evidence.get(k))
++        elif k in src:
++            v = _try_get_float(src.get(k))
++        elif k in indicators:
++            v = _try_get_float(indicators.get(k))
++        elif k in nested_ind:
++            v = _try_get_float(nested_ind.get(k))
++
++        if v is None:
++            feat[k] = 0.0
++            missing.append(k)
++        else:
++            feat[k] = float(v)
++
++    return feat, missing
+diff --git a/core/meta_features_v7.py b/core/meta_features_v7.py
+new file mode 100644
+index 0000000..bdea0d1
+--- /dev/null
++++ b/core/meta_features_v7.py
+@@ -0,0 +1,58 @@
++from __future__ import annotations
++import hashlib
++from typing import Any, Dict, List, Tuple
++
++from core.meta_features_v6 import (
++    META_FEAT_V6_COLS,
++    META_FEAT_V6_TRANSFORMS,
++    build_meta_features_v6,
++)
++
++META_FEAT_V7_NAME = "meta_feat_v7"
++META_FEAT_V7_VERSION = 7
++
++META_FEAT_V7_NEW_COLS: List[str] = [
++    "conf_rsi_agree",
++    "conf_div_match",
++    "conf_sweep_eqh",
++    "conf_sweep_eql",
++    "conf_sweep_any",
++    "conf_iceberg_strict",
++    "conf_obi_stable",
++    "conf_reclaim",
++    "conf_weak_progress",
++]
++
++META_FEAT_V7_COLS: List[str] = list(META_FEAT_V6_COLS) + META_FEAT_V7_NEW_COLS
++META_FEAT_V7_HASH: str = hashlib.sha1(",".join(META_FEAT_V7_COLS).encode("utf-8")).hexdigest()
++
++META_FEAT_V7_TRANSFORMS = dict(META_FEAT_V6_TRANSFORMS)
++for k in META_FEAT_V7_NEW_COLS:
++    META_FEAT_V7_TRANSFORMS.setdefault(k, {"type": "clip", "lo": 0.0, "hi": 1.0})
++
++
++def build_meta_features_v7(
++    evidence: Dict[str, Any],
++    indicators: Dict[str, Any],
++    **kwargs,
++) -> Tuple[Dict[str, float], List[str]]:
++    feat, missing = build_meta_features_v6(evidence=evidence, indicators=indicators, **kwargs)
++
++    for col in META_FEAT_V7_NEW_COLS:
++        v = None
++        if isinstance(indicators, dict) and col in indicators:
++            v = indicators.get(col)
++        if v is None and isinstance(evidence, dict) and col in evidence:
++            v = evidence.get(col)
++
++        if v is None:
++            feat[col] = 0.0
++            missing.append(col)
++        else:
++            try:
++                feat[col] = float(v)
++            except Exception:
++                feat[col] = 0.0
++                missing.append(col)
++
++    return feat, missing
+diff --git a/core/meta_features_v8.py b/core/meta_features_v8.py
+new file mode 100644
+index 0000000..731a492
+--- /dev/null
++++ b/core/meta_features_v8.py
+@@ -0,0 +1,121 @@
++import hashlib
++from typing import Any, Dict, List, Optional, Tuple
++
++from core.meta_features_v7 import (
++    META_FEAT_V7_COLS,
++    META_FEAT_V7_HASH,
++    META_FEAT_V7_NAME,
++    META_FEAT_V7_TRANSFORMS,
++    META_FEAT_V7_VERSION,
++    build_meta_features_v7,
++)
++
++# ---------------------------------------------------------------------
++# META-FEATURE SCHEMA V8
++#
++# Goal (P2/F): Add *strict DQ / stream integrity* features that are:
++# - Cheap to compute
++# - Deterministic
++# - Low-cardinality for observability
++#
++# These features are populated in runtime.indicators by the processors.
++# ---------------------------------------------------------------------
++
++META_FEAT_V8_NAME = "meta_feat_v8"
++META_FEAT_V8_VERSION = 8
++
++META_FEAT_V8_NEW_COLS: List[str] = [
++    # Stream integrity
++    "dq_tick_gap_p95_ms",
++    "dq_tick_missing_seq_ema",
++    "dq_book_missing_seq_ema",
++
++    # Gate behavior (EWMA)
++    "dq_hard_veto_rate",
++]
++
++META_FEAT_V8_COLS: List[str] = list(META_FEAT_V7_COLS) + list(META_FEAT_V8_NEW_COLS)
++META_FEAT_V8_HASH: str = hashlib.sha1(",".join(META_FEAT_V8_COLS).encode("utf-8")
++).hexdigest()
++
++# Transform specs are applied by core.feature_engineering.apply_transform.
++META_FEAT_V8_TRANSFORMS: Dict[str, Dict[str, Any]] = {
++    **META_FEAT_V7_TRANSFORMS,
++
++    # Tick gap can be heavy-tailed
++    "dq_tick_gap_p95_ms": {"type": "log1p"},
++
++    # Missing seq EMA should be near 0; clip to reduce effect of resync bursts
++    "dq_tick_missing_seq_ema": {"type": "clip", "lo": 0.0, "hi": 50.0},
++    "dq_book_missing_seq_ema": {"type": "clip", "lo": 0.0, "hi": 50.0},
++
++    # Rate in [0,1]
++    "dq_hard_veto_rate": {"type": "clip", "lo": 0.0, "hi": 1.0},
++}
++
++
++def _try_get_float(x: Any) -> Optional[float]:
++    try:
++        if x is None:
++            return None
++        return float(x)
++    except Exception:
++        return None
++
++
++def build_meta_features_v8(
++    evidence: Dict[str, Any],
++    indicators: Dict[str, Any],
++    runtime_snap: Optional[Any] = None,
++    runtime_prev_snap: Optional[Any] = None,
++    indicators_with_v4: Optional[Dict[str, Any]] = None,
++    legs: Optional[Dict[str, Any]] = None,
++    have: int = 0,
++    need: int = 0,
++    ok_soft: int = 0,
++    rule_score: float = 0.0,
++    exec_risk_norm: float = 0.0,
++    exec_risk_bps: float = 0.0,
++    ml_scenario: str = "",
++	) -> Tuple[Dict[str, float], List[str]]:
++    """Build meta_feat_v8 = v7 + strict DQ features."""
++
++    feat, missing = build_meta_features_v7(
++        evidence=evidence,
++        indicators=indicators,
++        runtime_snap=runtime_snap,
++        runtime_prev_snap=runtime_prev_snap,
++        indicators_with_v4=indicators_with_v4,
++        legs=legs,
++        have=have,
++        need=need,
++        ok_soft=ok_soft,
++        rule_score=rule_score,
++        exec_risk_norm=exec_risk_norm,
++        exec_risk_bps=exec_risk_bps,
++        ml_scenario=ml_scenario,
++    )
++
++    nested_ind = evidence.get("indicators") if isinstance(evidence, dict) else None
++    if not isinstance(nested_ind, dict):
++        nested_ind = {}
++
++    for k in META_FEAT_V8_NEW_COLS:
++        v = None
++
++        # Prefer explicit DQ-prefixed indicators
++        if k in indicators:
++            v = _try_get_float(indicators.get(k))
++        elif k in nested_ind:
++            v = _try_get_float(nested_ind.get(k))
++        elif k == "dq_hard_veto_rate":
++            # Compatibility: allow runtime to store this under dq_hard_veto_rate_ema
++            v = _try_get_float(indicators.get("dq_hard_veto_rate_ema"))
++
++        if v is None:
++            feat[k] = 0.0
++            missing.append(k)
++        else:
++            feat[k] = float(v)
++
++    return feat, missing
+diff --git a/core/meta_model_lr.py b/core/meta_model_lr.py
+index 74ef37a..4f1504a 100644
+--- a/core/meta_model_lr.py
++++ b/core/meta_model_lr.py
+@@ -1,63 +1,87 @@
+-# python-worker/core/meta_model_lr.py
++"""MetaModelLR
++
++Lightweight, production-friendly logistic-regression meta model for OFConfirmEngine.
++
++Key requirements:
++- Deterministic, dependency-light inference (pure Python).
++- Train==Serve contract via:
++  * fixed ordered `features` list,
++  * per-feature `transforms`,
++  * per-feature robust scaling (median/MAD),
++  * `feature_cols_hash` + `schema_*` identifiers,
++  * `model_signature` to detect accidental corruption.
++
++JSON format (dump):
++{
++  "features": ["delta_z", ...],
++  "intercept": -0.12,
++  "coef": [0.1, ...],
++  "threshold": 0.5,
++  "transforms": {"delta_z": {"op": "clip", "lo": -8, "hi": 8}, ...},
++  "robust_scaler": {"delta_z": {"median": 0.0, "mad": 1.0, "eps": 1e-9}, ...},
++  "schema_name": "meta_feat_v8",
++  "schema_version": 8,
++  "schema_hash": "...",
++  "feature_cols_hash": "...",
++  "created_ms": 1700000000000,
++  "model_signature": "..."
++}
++
++Notes:
++- We accept a few legacy aliases on load (signature keys, coef keys).
++- We auto-align coef length to features (pad/truncate) to prevent runtime crashes.
++"""
++
+ from __future__ import annotations
+ 
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional
+ import hashlib
+ import json
+-import math
+ import time
+-from dataclasses import dataclass, field
+-from typing import Any, Dict, List, Optional
+ 
+ from core.feature_engineering import RobustScalerPack, apply_transform
+ 
+ 
+-def _sha256_hex(s: str) -> str:
+-    return hashlib.sha256(s.encode("utf-8")).hexdigest()
++def _sigmoid(x: float) -> float:
++    """Logistic sigmoid with basic overflow protection."""
++    import math
+ 
++    try:
++        if x >= 0:
++            z = math.exp(-x)
++            return float(1.0 / (1.0 + z))
++        z = math.exp(x)
++        return float(z / (1.0 + z))
++    except OverflowError:
++        return 0.0 if x < 0 else 1.0
++    except Exception:
++        return 0.0
+ 
+-def _sigmoid(x: float) -> float:
+-    # stable sigmoid
+-    if x >= 0:
+-        z = math.exp(-x)
+-        return 1.0 / (1.0 + z)
+-    z = math.exp(x)
+-    return z / (1.0 + z)
+ 
+ 
+-def _f(x: Any, d: float = 0.0) -> float:
++def _f(v: Any, default: float = 0.0) -> float:
+     try:
+-        if x is None:
+-            return d
+-        v = float(x)
+-        if not math.isfinite(v):
+-            return d
+-        return v
++        if v is None:
++            return float(default)
++        # bool is a subclass of int in Python; keep explicit.
++        if isinstance(v, bool):
++            return 1.0 if v else 0.0
++        return float(v)
+     except Exception:
+-        return d
++        return float(default)
+ 
+ 
+ @dataclass
+ class MetaModelLR:
+-    """Portable logistic regression model.
+-
+-    JSON format (backward compatible):
+-      {
+-        "features": [...],
+-        "intercept": ...,
+-        "coef": [...],
+-        "threshold": 0.5,
+-
+-        # optional:
+-        "transforms": { "f1": {"type":"log1p"}, "f2": {"type":"clip","lo":0,"hi":50} },
+-        "robust_scaler": { "f1": {"center": 1.23, "scale": 0.45}, ... }
+-      }
+-    """
+-
+     features: List[str]
+     intercept: float
+     coef: List[float]
+     threshold: float = 0.5
+ 
++    transforms: Optional[Dict[str, Any]] = None
++    robust_scaler: Optional[RobustScalerPack] = None
++
+     schema_name: str = "legacy"
+     schema_version: int = 0
+     schema_hash: str = ""
+@@ -66,87 +90,113 @@ class MetaModelLR:
+     created_ms: int = 0
+     model_signature: str = ""
+ 
+-    transforms: Dict[str, Any] = field(default_factory=dict)
+-    robust_scaler: Optional[RobustScalerPack] = None
++    def _align_params(self) -> None:
++        """Ensure len(coef) matches len(features).
++
++        We prefer padding with zeros (effectively ignoring extra features) over
++        raising, because inference must be fail-safe.
++        """
++        n = int(len(self.features))
++        if n <= 0:
++            self.coef = []
++            return
++        if len(self.coef) < n:
++            self.coef = list(self.coef) + [0.0] * (n - len(self.coef))
++        elif len(self.coef) > n:
++            self.coef = list(self.coef)[:n]
++
++    @staticmethod
++    def default(*, reason: str = "no_artifact") -> "MetaModelLR":
++        """Safe default model: always predicts ~0.
++
++        Intended only as a last-resort fallback if the artifact is missing.
++        Prefer running the engine in SHADOW mode on schema mismatch.
++        """
++        # sigmoid(-40) ~ 4e-18
++        m = MetaModelLR(features=[], intercept=-40.0, coef=[], threshold=0.5)
++        m.schema_name = f"default:{reason}"
++        m.schema_version = 0
++        m.created_ms = int(time.time() * 1000)
++        m.model_signature = ""
++        return m
+ 
+     @staticmethod
+-    def compute_feature_cols_hash(cols: List[str]) -> str:
+-        return _sha256_hex(",".join([str(x) for x in cols]))[:16]
++    def compute_feature_cols_hash(feature_cols: List[str]) -> str:
++        h = hashlib.sha256()
++        h.update("|".join([str(x) for x in feature_cols]).encode("utf-8"))
++        return h.hexdigest()[:16]
+ 
+     @staticmethod
+     def compute_signature(d: Dict[str, Any]) -> str:
+-        # Exclude signature itself
+-        dd = dict(d)
+-        dd.pop("model_signature", None)
+-        s = json.dumps(dd, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+-        return _sha256_hex(s)[:16]
++        """Compute a stable signature for artifact integrity.
++
++        The signature must be independent of formatting / key ordering.
++        """
++        # Exclude the signature field itself.
++        d2 = dict(d)
++        d2.pop("model_signature", None)
++        d2.pop("signature", None)
++        s = json.dumps(d2, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
++        h = hashlib.sha256()
++        h.update(s.encode("utf-8"))
++        return h.hexdigest()[:24]
+ 
+     @staticmethod
+     def load(path: str) -> "MetaModelLR":
+-        d = json.loads(open(path, "r", encoding="utf-8").read())
+-        tf = d.get("transforms") if isinstance(d.get("transforms"), dict) else {}
+-        rs = d.get("robust_scaler") if isinstance(d.get("robust_scaler"), dict) else {}
+-
+-        features = list(d.get("features", []) or [])
+-        schema_name = str(d.get("schema_name") or d.get("feature_schema") or "")
+-        schema_version = int(d.get("schema_version") or d.get("feature_schema_version") or 0)
+-
+-        # Backward compatibility:
+-        # - older artifacts sometimes stored schema_hash in feature_cols_hash
+-        cols_hash = str(d.get("feature_cols_hash") or d.get("schema_hash") or d.get("schema_cols_hash") or "")
+-        schema_hash = str(d.get("schema_hash") or d.get("feature_cols_hash") or d.get("schema_cols_hash") or cols_hash or "")
+-        
+-        # Ensure feature_cols_hash is set if features are present and it's missing
+-        if not cols_hash and features:
+-            cols_hash = MetaModelLR.compute_feature_cols_hash(features)
+-
+-        created_ms = int(d.get("created_ms") or 0)
+-        model_signature = str(d.get("model_signature") or "")
+-        
+-        rs_pack = None
+-        if rs:
+-            params: Dict[str, Dict[str, float]] = {}
+-            for k, v in rs.items():
+-                if not isinstance(v, dict):
+-                    continue
+-                try:
+-                    params[str(k)] = {
+-                        "center": float(v.get("center", 0.0)),
+-                        "scale": float(v.get("scale", 1.0)),
+-                    }
+-                except Exception:
+-                    continue
+-            rs_pack = RobustScalerPack(params=params)
+-
+-        return MetaModelLR(
++        with open(path, "r", encoding="utf-8") as f:
++            d = json.load(f)
++
++        features = list(d.get("features") or [])
++        intercept = float(d.get("intercept") or 0.0)
++
++        # Legacy aliases
++        coef = d.get("coef")
++        if coef is None:
++            coef = d.get("weights")
++        coef_list = [float(x) for x in (coef or [])]
++
++        threshold = float(d.get("threshold") or 0.5)
++        transforms = d.get("transforms") or None
++
++        rs_raw = d.get("robust_scaler") or None
++        rs_pack: Optional[RobustScalerPack] = None
++        if isinstance(rs_raw, dict):
++            # RobustScalerPack expects {name: {median, mad, eps}}
++            rs_pack = RobustScalerPack(params=rs_raw)
++
++        m = MetaModelLR(
+             features=features,
+-            intercept=float(d.get("intercept", 0.0)),
+-            coef=[float(x) for x in (d.get("coef", []) or [])],
+-            threshold=float(d.get("threshold", 0.5)),
+-            schema_name=schema_name or "legacy",
+-            schema_version=schema_version,
+-            schema_hash=schema_hash,
+-            feature_cols_hash=cols_hash,
+-            created_ms=created_ms,
+-            model_signature=model_signature,
+-            transforms={str(k): v for k, v in tf.items()},
++            intercept=intercept,
++            coef=coef_list,
++            threshold=threshold,
++            transforms=transforms,
+             robust_scaler=rs_pack,
++            schema_name=str(d.get("schema_name") or "legacy"),
++            schema_version=int(d.get("schema_version") or 0),
++            schema_hash=str(d.get("schema_hash") or ""),
++            feature_cols_hash=str(d.get("feature_cols_hash") or ""),
++            created_ms=int(d.get("created_ms") or 0),
++            model_signature=str(d.get("model_signature") or d.get("signature") or ""),
+         )
++        m._align_params()
++
++        # Backfill hash if missing (older artifacts)
++        if not m.feature_cols_hash and m.features:
++            m.feature_cols_hash = MetaModelLR.compute_feature_cols_hash(m.features)
++
++        return m
+ 
+     def to_dict(self) -> Dict[str, Any]:
+-        """Export to JSON-compatible dict."""
+-        rs_dict = {}
+-        if self.robust_scaler and hasattr(self.robust_scaler, "params"):
+-            # Reconstruct robust scaler dict
+-            for k, p in self.robust_scaler.params.items():
+-                rs_dict[k] = {"center": float(p.get("center", 0.0)), "scale": float(p.get("scale", 1.0))}
++        rs_dict = None
++        if self.robust_scaler is not None:
++            rs_dict = self.robust_scaler.to_dict()
+ 
+         return {
+-            "features": list(self.features),
++            "features": list(self.features or []),
+             "intercept": float(self.intercept),
+-            "coef": [float(x) for x in self.coef],
++            "coef": [float(x) for x in (self.coef or [])],
+             "threshold": float(self.threshold),
+-            "transforms": dict(self.transforms or {}),
++            "transforms": self.transforms or {},
+             "robust_scaler": rs_dict,
+             "schema_name": str(self.schema_name or "legacy"),
+             "schema_version": int(self.schema_version or 0),
+@@ -164,7 +214,6 @@ class MetaModelLR:
+             self.feature_cols_hash = MetaModelLR.compute_feature_cols_hash(self.features)
+ 
+         d = self.to_dict()
+-        # compute signature over canonical dict (excluding signature)
+         sig = MetaModelLR.compute_signature(d)
+         self.model_signature = sig
+         d["model_signature"] = sig
+diff --git a/core/meta_schema_registry.py b/core/meta_schema_registry.py
+new file mode 100644
+index 0000000..8dc7634
+--- /dev/null
++++ b/core/meta_schema_registry.py
+@@ -0,0 +1,83 @@
++from __future__ import annotations
++
++from typing import Dict, List, Tuple
++
++from core.meta_features_v1 import (
++    META_FEAT_V1_NAME,
++    META_FEAT_V1_VERSION,
++    META_FEAT_V1_COLS,
++    META_FEAT_V1_HASH,
++)
++from core.meta_features_v2 import (
++    META_FEAT_V2_NAME,
++    META_FEAT_V2_VERSION,
++    META_FEAT_V2_COLS,
++    META_FEAT_V2_HASH,
++)
++from core.meta_features_v3 import (
++    META_FEAT_V3_NAME,
++    META_FEAT_V3_VERSION,
++    META_FEAT_V3_COLS,
++    META_FEAT_V3_HASH,
++)
++from core.meta_features_v4 import (
++    META_FEAT_V4_NAME,
++    META_FEAT_V4_VERSION,
++    META_FEAT_V4_COLS,
++    META_FEAT_V4_HASH,
++)
++from core.meta_features_v5 import (
++    META_FEAT_V5_NAME,
++    META_FEAT_V5_VERSION,
++    META_FEAT_V5_COLS,
++    META_FEAT_V5_HASH,
++)
++from core.meta_features_v6 import (
++    META_FEAT_V6_NAME,
++    META_FEAT_V6_VERSION,
++    META_FEAT_V6_COLS,
++    META_FEAT_V6_HASH,
++)
++from core.meta_features_v7 import (
++    META_FEAT_V7_NAME,
++    META_FEAT_V7_VERSION,
++    META_FEAT_V7_COLS,
++    META_FEAT_V7_HASH,
++)
++
++try:
++    from core.meta_features_v8 import (
++        META_FEAT_V8_NAME,
++        META_FEAT_V8_VERSION,
++        META_FEAT_V8_COLS,
++        META_FEAT_V8_HASH,
++    )
++except Exception:  # optional
++    META_FEAT_V8_NAME = None  # type: ignore
++    META_FEAT_V8_VERSION = None  # type: ignore
++    META_FEAT_V8_COLS = None  # type: ignore
++    META_FEAT_V8_HASH = None  # type: ignore
++
++# Registry: name -> (version, cols, hash)
++META_SCHEMA_REGISTRY: Dict[str, Tuple[int, List[str], str]] = {
++    META_FEAT_V1_NAME: (META_FEAT_V1_VERSION, META_FEAT_V1_COLS, META_FEAT_V1_HASH),
++    META_FEAT_V2_NAME: (META_FEAT_V2_VERSION, META_FEAT_V2_COLS, META_FEAT_V2_HASH),
++    META_FEAT_V3_NAME: (META_FEAT_V3_VERSION, META_FEAT_V3_COLS, META_FEAT_V3_HASH),
++    META_FEAT_V4_NAME: (META_FEAT_V4_VERSION, META_FEAT_V4_COLS, META_FEAT_V4_HASH),
++    META_FEAT_V5_NAME: (META_FEAT_V5_VERSION, META_FEAT_V5_COLS, META_FEAT_V5_HASH),
++    META_FEAT_V6_NAME: (META_FEAT_V6_VERSION, META_FEAT_V6_COLS, META_FEAT_V6_HASH),
++    META_FEAT_V7_NAME: (META_FEAT_V7_VERSION, META_FEAT_V7_COLS, META_FEAT_V7_HASH),
++}
++
++if isinstance(META_FEAT_V8_NAME, str):
++    META_SCHEMA_REGISTRY[META_FEAT_V8_NAME] = (  # type: ignore
++        int(META_FEAT_V8_VERSION),
++        list(META_FEAT_V8_COLS),
++        str(META_FEAT_V8_HASH),
++    )
++
++def get_schema_info(name: str) -> Tuple[int, List[str], str]:
++    """Return (version, cols, hash) for a given schema name, or raises KeyError."""
++    if name not in META_SCHEMA_REGISTRY:
++        raise KeyError(f"Unknown meta schema: {name}")
++    return META_SCHEMA_REGISTRY[name]
+diff --git a/core/purged_embargo_split_v2.py b/core/purged_embargo_split_v2.py
+new file mode 100644
+index 0000000..4804422
+--- /dev/null
++++ b/core/purged_embargo_split_v2.py
+@@ -0,0 +1,52 @@
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Iterator, Tuple
++import numpy as np
++
++
++@dataclass(frozen=True)
++class PurgedEmbargoTimeSeriesSplitV2:
++    """Sequential time split with purge and embargo (ms-based).
++
++    ts_ms must be sorted ascending.
++    - Test windows are contiguous partitions.
++    - Train excludes:
++        * test interval itself
++        * purge_ms around [test_start, test_end]
++        * embargo_ms after test_end
++    """
++
++    n_splits: int = 5
++    purge_ms: int = 180_000
++    embargo_ms: int = 60_000
++
++    def split(self, ts_ms: np.ndarray) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
++        n = len(ts_ms)
++        if n < self.n_splits + 2:
++            return
++        test_size = max(1, n // (self.n_splits + 1))
++        for k in range(1, self.n_splits + 1):
++            te0 = k * test_size
++            te1 = min(n, (k + 1) * test_size)
++            if te1 <= te0:
++                continue
++
++            test_idx = np.arange(te0, te1, dtype=int)
++            t0 = int(ts_ms[te0])
++            t1 = int(ts_ms[te1 - 1])
++
++            purge_lo = t0 - int(self.purge_ms)
++            purge_hi = t1 + int(self.purge_ms)
++            embargo_hi = t1 + int(self.embargo_ms)
++
++            mask = np.ones(n, dtype=bool)
++            mask[test_idx] = False
++            mask &= ~((ts_ms >= purge_lo) & (ts_ms <= purge_hi))
++            mask &= ~((ts_ms > t1) & (ts_ms <= embargo_hi))
++
++            train_idx = np.where(mask)[0]
++            if len(train_idx) == 0:
++                continue
++            yield train_idx, test_idx
++
+diff --git a/ml_analysis/__pycache__/__init__.cpython-312.pyc b/ml_analysis/__pycache__/__init__.cpython-312.pyc
+deleted file mode 100644
+index f3b3fbe..0000000
+Binary files a/ml_analysis/__pycache__/__init__.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/common/__pycache__/__init__.cpython-312.pyc b/ml_analysis/common/__pycache__/__init__.cpython-312.pyc
+deleted file mode 100644
+index 4ede19d..0000000
+Binary files a/ml_analysis/common/__pycache__/__init__.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/common/__pycache__/derived_fgh.cpython-312.pyc b/ml_analysis/common/__pycache__/derived_fgh.cpython-312.pyc
+deleted file mode 100644
+index 48407ed..0000000
+Binary files a/ml_analysis/common/__pycache__/derived_fgh.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/common/__pycache__/feature_groups_e_v1.cpython-312.pyc b/ml_analysis/common/__pycache__/feature_groups_e_v1.cpython-312.pyc
+deleted file mode 100644
+index 705fbf4..0000000
+Binary files a/ml_analysis/common/__pycache__/feature_groups_e_v1.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/__init__.cpython-312.pyc b/ml_analysis/tests/__pycache__/__init__.cpython-312.pyc
+deleted file mode 100644
+index 1d5abd6..0000000
+Binary files a/ml_analysis/tests/__pycache__/__init__.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/conftest.cpython-312-pytest-8.3.3.pyc b/ml_analysis/tests/__pycache__/conftest.cpython-312-pytest-8.3.3.pyc
+deleted file mode 100644
+index 18075b0..0000000
+Binary files a/ml_analysis/tests/__pycache__/conftest.cpython-312-pytest-8.3.3.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/conftest.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/conftest.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index 4b68b8d..0000000
+Binary files a/ml_analysis/tests/__pycache__/conftest.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_ablation_groups_e_v1_smoke.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_ablation_groups_e_v1_smoke.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index 95e7c50..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_ablation_groups_e_v1_smoke.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_build_edge_stack_dataset_from_redis.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_build_edge_stack_dataset_from_redis.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index f009d43..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_build_edge_stack_dataset_from_redis.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_build_edge_stack_dataset_from_redis_v2.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_build_edge_stack_dataset_from_redis_v2.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index ac1de87..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_build_edge_stack_dataset_from_redis_v2.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_conf_score_guardrails_apply_v1.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_conf_score_guardrails_apply_v1.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index 8f68d52..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_conf_score_guardrails_apply_v1.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_conf_score_guardrails_autopromo_v1.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_conf_score_guardrails_autopromo_v1.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index 8a454cf..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_conf_score_guardrails_autopromo_v1.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_conf_score_guardrails_promote_v1.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_conf_score_guardrails_promote_v1.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index b569329..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_conf_score_guardrails_promote_v1.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_confidence_cal_live_health_loop_v1.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_confidence_cal_live_health_loop_v1.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index ebae8e3..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_confidence_cal_live_health_loop_v1.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_confidence_calibrator_bundle_runtime_v1.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_confidence_calibrator_bundle_runtime_v1.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index 5061453..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_confidence_calibrator_bundle_runtime_v1.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_confidence_calibrator_bundle_runtime_v2_hier.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_confidence_calibrator_bundle_runtime_v2_hier.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index 5e2368d..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_confidence_calibrator_bundle_runtime_v2_hier.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_confidence_conformal_v1.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_confidence_conformal_v1.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index 8697d77..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_confidence_conformal_v1.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_confidence_parts_drift_report_v1.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_confidence_parts_drift_report_v1.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index 51e653d..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_confidence_parts_drift_report_v1.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_derived_fgh_offline_features_v1.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_derived_fgh_offline_features_v1.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index 6301ac8..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_derived_fgh_offline_features_v1.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_dr_uplift_eval_v1.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_dr_uplift_eval_v1.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index 2f19d78..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_dr_uplift_eval_v1.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_edge_stack_dict_pack_view.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_edge_stack_dict_pack_view.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index a6001dc..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_edge_stack_dict_pack_view.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_edge_stack_oof_split.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_edge_stack_oof_split.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index 8cff023..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_edge_stack_oof_split.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_edge_stack_shadow_metrics_p60.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_edge_stack_shadow_metrics_p60.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index 9d60f6d..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_edge_stack_shadow_metrics_p60.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_edge_stack_timer_integration.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_edge_stack_timer_integration.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index cc9be11..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_edge_stack_timer_integration.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_edge_stack_train_bundle_utils_p59.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_edge_stack_train_bundle_utils_p59.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index e5d7805..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_edge_stack_train_bundle_utils_p59.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_enforce_bucket_promoter_compile_v1.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_enforce_bucket_promoter_compile_v1.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index 655ab41..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_enforce_bucket_promoter_compile_v1.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_enforce_bucket_promoter_logic_v1.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_enforce_bucket_promoter_logic_v1.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index 5c519c5..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_enforce_bucket_promoter_logic_v1.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_enforce_bucket_promoter_rollback_logic_v1.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_enforce_bucket_promoter_rollback_logic_v1.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index 4cbd11e..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_enforce_bucket_promoter_rollback_logic_v1.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_feature_denylist_apply_v1.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_feature_denylist_apply_v1.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index fe0cf55..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_feature_denylist_apply_v1.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_feature_denylist_proposal_v1.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_feature_denylist_proposal_v1.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index 77d7fcd..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_feature_denylist_proposal_v1.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_feature_denylist_replay_ab_v1.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_feature_denylist_replay_ab_v1.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index fb94860..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_feature_denylist_replay_ab_v1.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_feature_registry.cpython-312-pytest-8.3.3.pyc b/ml_analysis/tests/__pycache__/test_feature_registry.cpython-312-pytest-8.3.3.pyc
+deleted file mode 100644
+index c459310..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_feature_registry.cpython-312-pytest-8.3.3.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_feature_registry.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_feature_registry.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index 3ae9c9d..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_feature_registry.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_feature_selection_loop_v1.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_feature_selection_loop_v1.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index 24caf0f..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_feature_selection_loop_v1.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_monitoring_smoke_gate_utils.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_monitoring_smoke_gate_utils.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index 7a34fd4..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_monitoring_smoke_gate_utils.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_nightly_confidence_calibrator.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_nightly_confidence_calibrator.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index be8d669..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_nightly_confidence_calibrator.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_policy_calibration_suggester_p74.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_policy_calibration_suggester_p74.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index 7920ff8..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_policy_calibration_suggester_p74.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_promote_freeze_ctl_v1.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_promote_freeze_ctl_v1.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index ca3a396..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_promote_freeze_ctl_v1.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_replay_inputs_archiver_p56_utils.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_replay_inputs_archiver_p56_utils.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index 016bf97..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_replay_inputs_archiver_p56_utils.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_replay_inputs_reader_v1.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_replay_inputs_reader_v1.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index eb91caa..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_replay_inputs_reader_v1.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_slippage_calibrator_compile_v1.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_slippage_calibrator_compile_v1.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index cfa08a8..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_slippage_calibrator_compile_v1.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_slippage_calibrator_wrapper_compile_v1.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_slippage_calibrator_wrapper_compile_v1.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index 670791b..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_slippage_calibrator_wrapper_compile_v1.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_train_confidence_calibrator_v2.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_train_confidence_calibrator_v2.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index 232fdf2..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_train_confidence_calibrator_v2.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_train_registry_integration_v1.cpython-312-pytest-8.3.3.pyc b/ml_analysis/tests/__pycache__/test_train_registry_integration_v1.cpython-312-pytest-8.3.3.pyc
+deleted file mode 100644
+index 2db3a18..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_train_registry_integration_v1.cpython-312-pytest-8.3.3.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_train_registry_integration_v1.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_train_registry_integration_v1.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index c294fcd..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_train_registry_integration_v1.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/__pycache__/test_train_tools_v7_schema_smoke.cpython-312-pytest-9.0.2.pyc b/ml_analysis/tests/__pycache__/test_train_tools_v7_schema_smoke.cpython-312-pytest-9.0.2.pyc
+deleted file mode 100644
+index a0b028b..0000000
+Binary files a/ml_analysis/tests/__pycache__/test_train_tools_v7_schema_smoke.cpython-312-pytest-9.0.2.pyc and /dev/null differ
+diff --git a/ml_analysis/tests/test_train_meta_model_lr_v1_smoke.py b/ml_analysis/tests/test_train_meta_model_lr_v1_smoke.py
+new file mode 100644
+index 0000000..7ec8140
+--- /dev/null
++++ b/ml_analysis/tests/test_train_meta_model_lr_v1_smoke.py
+@@ -0,0 +1,81 @@
++import sys
++from pathlib import Path
++
++import numpy as np
++import pandas as pd
++import pytest
++
++
++def _ensure_repo_root_first() -> None:
++    # conftest.py puts tick_flow_full/ ahead of the repo root. For production code
++    # we want to test imports from the repo-root `core/`.
++    repo_root = Path(__file__).resolve().parents[2]
++    rp = str(repo_root)
++    if sys.path and sys.path[0] != rp:
++        sys.path.insert(0, rp)
++
++
++def test_train_meta_model_lr_from_df_smoke(tmp_path: Path):
++    _ensure_repo_root_first()
++
++    from tools.train_meta_model_lr_v1 import train_meta_model_lr_from_df
++    from core.meta_model_lr import MetaModelLR
++
++    n = 240
++    ts0 = 1_700_000_000_000
++    df = pd.DataFrame(
++        {
++            "sid": np.arange(n, dtype=np.int64),
++            "ts_ms": ts0 + np.arange(n, dtype=np.int64) * 1000,
++            "symbol": ["BTCUSDT"] * n,
++            # A few typical flattened indicator columns (parquet uses f_*).
++            "f_delta_z": np.random.normal(size=n),
++            "f_ofi": np.random.normal(size=n),
++            "f_spread_bps": np.abs(np.random.normal(size=n) * 2.0),
++            "f_liq_score": np.clip(np.random.normal(loc=1.0, scale=0.3, size=n), 0.0, 10.0),
++            # One-hot scenarios (trainer decodes scenario_v4_* keys).
++            "scenario_v4_trend": [1.0] * n,
++            # Label (example: horizon 60s)
++            "y_util_pos_60000": (np.arange(n) % 5 == 0).astype(int),
++        }
++    )
++
++    model, summary = train_meta_model_lr_from_df(
++        df,
++        schema_name="meta_feat_v8",
++        y_col="y_util_pos_60000",
++        n_splits=4,
++        purge_ms=10_000,
++        embargo_ms=10_000,
++        C=1.0,
++        max_iter=200,
++        threshold=0.5,
++    )
++
++    assert isinstance(model, MetaModelLR)
++    assert len(model.features) > 10  # schema has many features
++    assert len(model.coef) == len(model.features)
++    assert isinstance(summary, dict)
++    assert summary.get("y_col") == "y_util_pos_60000"
++
++    out = tmp_path / "meta_lr.json"
++    model.dump(str(out))
++    m2 = MetaModelLR.load(str(out))
++    assert m2.signature_ok()
++
++    # Deterministic prediction parity after load
++    feat = {k: 0.0 for k in m2.features}
++    p1 = float(m2.predict_proba(feat))
++    p2 = float(MetaModelLR.load(str(out)).predict_proba(feat))
++    assert abs(p1 - p2) < 1e-12
++
++
++def test_train_meta_model_lr_cli_help_smoke(monkeypatch):
++    _ensure_repo_root_first()
++
++    import tools.train_meta_model_lr_v1 as m
++
++    monkeypatch.setattr(sys, "argv", ["train_meta_model_lr_v1", "--help"])
++    with pytest.raises(SystemExit) as e:
++        m.main()
++    assert e.value.code == 0
+diff --git a/ml_analysis/tools/__pycache__/__init__.cpython-312.pyc b/ml_analysis/tools/__pycache__/__init__.cpython-312.pyc
+deleted file mode 100644
+index e3f8383..0000000
+Binary files a/ml_analysis/tools/__pycache__/__init__.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/apply_feature_denylist_proposal_v1.cpython-312.pyc b/ml_analysis/tools/__pycache__/apply_feature_denylist_proposal_v1.cpython-312.pyc
+deleted file mode 100644
+index 5af8c56..0000000
+Binary files a/ml_analysis/tools/__pycache__/apply_feature_denylist_proposal_v1.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/approve_feature_denylist_proposal_v1.cpython-312.pyc b/ml_analysis/tools/__pycache__/approve_feature_denylist_proposal_v1.cpython-312.pyc
+deleted file mode 100644
+index 34f9cd8..0000000
+Binary files a/ml_analysis/tools/__pycache__/approve_feature_denylist_proposal_v1.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/autogen_feature_denylist_proposal_v1.cpython-312.pyc b/ml_analysis/tools/__pycache__/autogen_feature_denylist_proposal_v1.cpython-312.pyc
+deleted file mode 100644
+index 5ff1494..0000000
+Binary files a/ml_analysis/tools/__pycache__/autogen_feature_denylist_proposal_v1.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/build_dataset_from_inputs_outcomes_v2.cpython-312.pyc b/ml_analysis/tools/__pycache__/build_dataset_from_inputs_outcomes_v2.cpython-312.pyc
+deleted file mode 100644
+index 0a4b0d5..0000000
+Binary files a/ml_analysis/tools/__pycache__/build_dataset_from_inputs_outcomes_v2.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/build_edge_stack_dataset_from_redis.cpython-312.pyc b/ml_analysis/tools/__pycache__/build_edge_stack_dataset_from_redis.cpython-312.pyc
+deleted file mode 100644
+index 62eccc9..0000000
+Binary files a/ml_analysis/tools/__pycache__/build_edge_stack_dataset_from_redis.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/confidence_cal_live_health_loop_v1.cpython-312.pyc b/ml_analysis/tools/__pycache__/confidence_cal_live_health_loop_v1.cpython-312.pyc
+deleted file mode 100644
+index 814f809..0000000
+Binary files a/ml_analysis/tools/__pycache__/confidence_cal_live_health_loop_v1.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/confidence_parts_drift_report_v1.cpython-312.pyc b/ml_analysis/tools/__pycache__/confidence_parts_drift_report_v1.cpython-312.pyc
+deleted file mode 100644
+index e5cb39e..0000000
+Binary files a/ml_analysis/tools/__pycache__/confidence_parts_drift_report_v1.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/dr_uplift_eval_v1.cpython-312.pyc b/ml_analysis/tools/__pycache__/dr_uplift_eval_v1.cpython-312.pyc
+deleted file mode 100644
+index 0d454b7..0000000
+Binary files a/ml_analysis/tools/__pycache__/dr_uplift_eval_v1.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/edge_stack_shadow_metrics_p60.cpython-312.pyc b/ml_analysis/tools/__pycache__/edge_stack_shadow_metrics_p60.cpython-312.pyc
+deleted file mode 100644
+index 2170621..0000000
+Binary files a/ml_analysis/tools/__pycache__/edge_stack_shadow_metrics_p60.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/edge_stack_train_bundle_utils_p59.cpython-312.pyc b/ml_analysis/tools/__pycache__/edge_stack_train_bundle_utils_p59.cpython-312.pyc
+deleted file mode 100644
+index ddf4d8b..0000000
+Binary files a/ml_analysis/tools/__pycache__/edge_stack_train_bundle_utils_p59.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/edge_stack_train_exporter_v1.cpython-312.pyc b/ml_analysis/tools/__pycache__/edge_stack_train_exporter_v1.cpython-312.pyc
+deleted file mode 100644
+index a8d29be..0000000
+Binary files a/ml_analysis/tools/__pycache__/edge_stack_train_exporter_v1.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/feature_denylist_proposal_exporter_v1.cpython-312.pyc b/ml_analysis/tools/__pycache__/feature_denylist_proposal_exporter_v1.cpython-312.pyc
+deleted file mode 100644
+index 1521feb..0000000
+Binary files a/ml_analysis/tools/__pycache__/feature_denylist_proposal_exporter_v1.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/feature_denylist_replay_ab_v1.cpython-312.pyc b/ml_analysis/tools/__pycache__/feature_denylist_replay_ab_v1.cpython-312.pyc
+deleted file mode 100644
+index efbf2f0..0000000
+Binary files a/ml_analysis/tools/__pycache__/feature_denylist_replay_ab_v1.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/feature_selection_loop_exporter_v1.cpython-312.pyc b/ml_analysis/tools/__pycache__/feature_selection_loop_exporter_v1.cpython-312.pyc
+deleted file mode 100644
+index 9d50d60..0000000
+Binary files a/ml_analysis/tools/__pycache__/feature_selection_loop_exporter_v1.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/feature_selection_loop_v1.cpython-312.pyc b/ml_analysis/tools/__pycache__/feature_selection_loop_v1.cpython-312.pyc
+deleted file mode 100644
+index 4fb2cfd..0000000
+Binary files a/ml_analysis/tools/__pycache__/feature_selection_loop_v1.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/fit_confidence_bonus_weights_v1.cpython-312.pyc b/ml_analysis/tools/__pycache__/fit_confidence_bonus_weights_v1.cpython-312.pyc
+deleted file mode 100644
+index 793fdea..0000000
+Binary files a/ml_analysis/tools/__pycache__/fit_confidence_bonus_weights_v1.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/nightly_confidence_calibrator_bundle_v2.cpython-312.pyc b/ml_analysis/tools/__pycache__/nightly_confidence_calibrator_bundle_v2.cpython-312.pyc
+deleted file mode 100644
+index 2f54824..0000000
+Binary files a/ml_analysis/tools/__pycache__/nightly_confidence_calibrator_bundle_v2.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/nightly_confidence_calibrator_v1.cpython-312.pyc b/ml_analysis/tools/__pycache__/nightly_confidence_calibrator_v1.cpython-312.pyc
+deleted file mode 100644
+index ff61261..0000000
+Binary files a/ml_analysis/tools/__pycache__/nightly_confidence_calibrator_v1.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/nightly_edge_stack_v1_train_bundle.cpython-312.pyc b/ml_analysis/tools/__pycache__/nightly_edge_stack_v1_train_bundle.cpython-312.pyc
+deleted file mode 100644
+index 3e1dc2a..0000000
+Binary files a/ml_analysis/tools/__pycache__/nightly_edge_stack_v1_train_bundle.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/nightly_enforce_bucket_promoter_v1.cpython-312.pyc b/ml_analysis/tools/__pycache__/nightly_enforce_bucket_promoter_v1.cpython-312.pyc
+deleted file mode 100644
+index 03cbf2a..0000000
+Binary files a/ml_analysis/tools/__pycache__/nightly_enforce_bucket_promoter_v1.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/nightly_feature_denylist_ab_runner_v1.cpython-312.pyc b/ml_analysis/tools/__pycache__/nightly_feature_denylist_ab_runner_v1.cpython-312.pyc
+deleted file mode 100644
+index 23291b5..0000000
+Binary files a/ml_analysis/tools/__pycache__/nightly_feature_denylist_ab_runner_v1.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/nightly_feature_selection_loop_bundle_v1.cpython-312.pyc b/ml_analysis/tools/__pycache__/nightly_feature_selection_loop_bundle_v1.cpython-312.pyc
+deleted file mode 100644
+index fd797b8..0000000
+Binary files a/ml_analysis/tools/__pycache__/nightly_feature_selection_loop_bundle_v1.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/nightly_slippage_calibrator_v1.cpython-312.pyc b/ml_analysis/tools/__pycache__/nightly_slippage_calibrator_v1.cpython-312.pyc
+deleted file mode 100644
+index b22afdc..0000000
+Binary files a/ml_analysis/tools/__pycache__/nightly_slippage_calibrator_v1.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/promote_freeze_ctl.cpython-312.pyc b/ml_analysis/tools/__pycache__/promote_freeze_ctl.cpython-312.pyc
+deleted file mode 100644
+index acb9d93..0000000
+Binary files a/ml_analysis/tools/__pycache__/promote_freeze_ctl.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/replay_inputs_archiver.cpython-312.pyc b/ml_analysis/tools/__pycache__/replay_inputs_archiver.cpython-312.pyc
+deleted file mode 100644
+index caeb7b3..0000000
+Binary files a/ml_analysis/tools/__pycache__/replay_inputs_archiver.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/replay_inputs_reader_v1.cpython-312.pyc b/ml_analysis/tools/__pycache__/replay_inputs_reader_v1.cpython-312.pyc
+deleted file mode 100644
+index 885a782..0000000
+Binary files a/ml_analysis/tools/__pycache__/replay_inputs_reader_v1.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/schema_choices_v1.cpython-312.pyc b/ml_analysis/tools/__pycache__/schema_choices_v1.cpython-312.pyc
+deleted file mode 100644
+index 59e7b3f..0000000
+Binary files a/ml_analysis/tools/__pycache__/schema_choices_v1.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/train_confidence_calibrator_v2.cpython-312.pyc b/ml_analysis/tools/__pycache__/train_confidence_calibrator_v2.cpython-312.pyc
+deleted file mode 100644
+index 3456925..0000000
+Binary files a/ml_analysis/tools/__pycache__/train_confidence_calibrator_v2.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/train_edge_stack_v1_oof.cpython-312.pyc b/ml_analysis/tools/__pycache__/train_edge_stack_v1_oof.cpython-312.pyc
+deleted file mode 100644
+index fdbb5eb..0000000
+Binary files a/ml_analysis/tools/__pycache__/train_edge_stack_v1_oof.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/__pycache__/tune_conf_score_weights_v1.cpython-312.pyc b/ml_analysis/tools/__pycache__/tune_conf_score_weights_v1.cpython-312.pyc
+deleted file mode 100644
+index fe4f1d4..0000000
+Binary files a/ml_analysis/tools/__pycache__/tune_conf_score_weights_v1.cpython-312.pyc and /dev/null differ
+diff --git a/ml_analysis/tools/train_meta_model_lr_v1.py b/ml_analysis/tools/train_meta_model_lr_v1.py
+new file mode 100644
+index 0000000..2551f65
+--- /dev/null
++++ b/ml_analysis/tools/train_meta_model_lr_v1.py
+@@ -0,0 +1,394 @@
++"""Train MetaModelLR (portable JSON LR) from a dataset parquet.
++
++Train==Serve contract:
++  - Feature construction uses the same meta feature builder as runtime
++    (build_meta_features_v6/v7/v8).
++  - The same per-feature transforms are applied (clip/log1p/etc).
++  - Robust scaling is fitted as median/MAD and applied after transforms.
++  - LogisticRegression is trained on the scaled features.
++  - Time-series CV uses PurgedEmbargoTimeSeriesSplitV2 (purge/embargo by ts_ms).
++
++Dataset expectations:
++  - Only flat scalar columns (no nested payload/indicators/blob columns).
++  - Indicator fields are stored as scalars, typically with prefix "f_".
++  - Base columns: sid, ts_ms, symbol.
++  - Labels: y_util_pos_{horizon_ms} (binary), util_r_{horizon_ms}, y_edge_{horizon_ms}, etc.
++
++Usage:
++  python -m tools.train_meta_model_lr_v1 \
++    --parquet /data/dataset.parquet \
++    --schema meta_feat_v8 \
++    --horizon-ms 60000 \
++    --out /data/meta_lr_v8.json
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import time
++from dataclasses import asdict
++from typing import Any, Dict, List, Tuple
++
++import numpy as np
++import pandas as pd
++from sklearn.linear_model import LogisticRegression
++from sklearn.metrics import log_loss, roc_auc_score
++
++from core.feature_engineering import RobustScalerPack, apply_transform
++from core.meta_model_lr import MetaModelLR
++from core.meta_schema_registry import get_schema_info
++from core.purged_embargo_split_v2 import PurgedEmbargoTimeSeriesSplitV2
++
++
++def _safe_float(x: Any, default: float = 0.0) -> float:
++    try:
++        v = float(x)
++        if not np.isfinite(v):
++            return float(default)
++        return v
++    except Exception:
++        return float(default)
++
++
++def _safe_int(x: Any, default: int = 0) -> int:
++    try:
++        return int(x)
++    except Exception:
++        return int(default)
++
++
++def _decode_scenario_from_onehot(row: Dict[str, Any]) -> str:
++    # e.g. scenario_v4_trend == 1 -> "trend"
++    for k, v in row.items():
++        if not k.startswith("scenario_v4_"):
++            continue
++        try:
++            if float(v) >= 0.5:
++                return k[len("scenario_v4_") :]
++        except Exception:
++            continue
++    return ""
++
++
++def _get_any(row: Dict[str, Any], keys: List[str], default: Any = 0.0) -> Any:
++    for k in keys:
++        if k in row and row[k] is not None:
++            return row[k]
++    return default
++
++
++def _get_meta_builder(schema_name: str):
++    """Return (build_fn, cols, transforms) for schema_name."""
++    s = str(schema_name)
++    if s == "meta_feat_v8":
++        from core.meta_features_v8 import build_meta_features_v8, META_FEAT_V8_COLS, META_FEAT_V8_TRANSFORMS
++
++        return build_meta_features_v8, list(META_FEAT_V8_COLS), dict(META_FEAT_V8_TRANSFORMS)
++    if s == "meta_feat_v7":
++        from core.meta_features_v7 import build_meta_features_v7, META_FEAT_V7_COLS, META_FEAT_V7_TRANSFORMS
++
++        return build_meta_features_v7, list(META_FEAT_V7_COLS), dict(META_FEAT_V7_TRANSFORMS)
++    if s == "meta_feat_v6":
++        from core.meta_features_v6 import build_meta_features_v6, META_FEAT_V6_COLS, META_FEAT_V6_TRANSFORMS
++
++        return build_meta_features_v6, list(META_FEAT_V6_COLS), dict(META_FEAT_V6_TRANSFORMS)
++
++    raise ValueError(f"unknown_meta_schema: {schema_name}")
++
++
++def _build_xy_from_df(
++    df: pd.DataFrame,
++    schema_name: str,
++    y_col: str,
++) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[str], Dict[str, Any]]:
++    """Build X_raw, y, ts_ms, feature_cols, transforms.
++
++    X_raw is built by calling the runtime meta feature builder for each row.
++    """
++
++    if y_col not in df.columns:
++        raise KeyError(f"missing label column: {y_col}")
++    if "ts_ms" not in df.columns:
++        raise KeyError("missing required column: ts_ms")
++
++    build_fn, feature_cols, transforms = _get_meta_builder(schema_name)
++
++    # stable, deterministic ordering
++    df = df.sort_values("ts_ms", kind="mergesort").reset_index(drop=True)
++    rows = df.to_dict(orient="records")
++
++    X = np.zeros((len(rows), len(feature_cols)), dtype=np.float64)
++
++    for i, row in enumerate(rows):
++        indicators: Dict[str, Any] = {}
++        for k, v in row.items():
++            if k.startswith("f_"):
++                indicators[k[2:]] = _safe_float(v, 0.0)
++
++        # Common scalars may exist both as standalone columns or inside f_*.
++        have = _safe_int(_get_any(row, ["have", "f_have"], indicators.get("have", 0)), 0)
++        need = _safe_int(_get_any(row, ["need", "f_need"], indicators.get("need", 0)), 0)
++        ok_soft = _safe_int(_get_any(row, ["ok_soft", "f_ok_soft"], indicators.get("ok_soft", 0)), 0)
++
++        rule_score = _safe_float(
++            _get_any(row, ["rule_score", "score", "f_rule_score", "f_score"], indicators.get("rule_score", 0.0)),
++            0.0,
++        )
++        exec_risk_norm = _safe_float(
++            _get_any(row, ["exec_risk_norm", "f_exec_risk_norm"], indicators.get("exec_risk_norm", 0.0)),
++            0.0,
++        )
++        exec_risk_bps = _safe_float(
++            _get_any(row, ["exec_risk_bps", "f_exec_risk_bps"], indicators.get("exec_risk_bps", 0.0)),
++            0.0,
++        )
++
++        ml_scenario = str(_get_any(row, ["scenario_v4", "f_scenario_v4"], indicators.get("scenario_v4", "")))
++        if not ml_scenario:
++            ml_scenario = _decode_scenario_from_onehot(row)
++        if ml_scenario:
++            indicators["scenario_v4"] = ml_scenario
++
++        evidence = {"indicators": indicators}
++
++        feat_out = build_fn(
++            evidence=evidence,
++            indicators=indicators,
++            indicators_with_v4=indicators,
++            legs={},
++            runtime_snap=None,
++            runtime_prev_snap=None,
++            have=have,
++            need=need,
++            ok_soft=ok_soft,
++            rule_score=rule_score,
++            exec_risk_norm=exec_risk_norm,
++            exec_risk_bps=exec_risk_bps,
++            ml_scenario=ml_scenario,
++        )
++
++        feat = feat_out[0] if isinstance(feat_out, (tuple, list)) and feat_out else feat_out
++
++        for j, name in enumerate(feature_cols):
++            X[i, j] = _safe_float(feat.get(name, 0.0) if isinstance(feat, dict) else 0.0, 0.0)
++
++    y = pd.to_numeric(df[y_col], errors="coerce").fillna(0).astype(int).values
++    y = np.clip(y, 0, 1).astype(int)
++
++    ts_ms = pd.to_numeric(df["ts_ms"], errors="coerce").fillna(0).astype(np.int64).values
++    return X, y, ts_ms, feature_cols, transforms
++
++
++def _apply_transforms(X_raw: np.ndarray, feature_cols: List[str], transforms: Dict[str, Any]) -> np.ndarray:
++    X_tf = np.asarray(X_raw, dtype=np.float64).copy()
++    for j, name in enumerate(feature_cols):
++        t = transforms.get(name)
++        if not t:
++            continue
++        for i in range(X_tf.shape[0]):
++            X_tf[i, j] = float(apply_transform(X_tf[i, j], t))
++    return X_tf
++
++
++def _fit_lr(
++    X_scaled: np.ndarray,
++    y: np.ndarray,
++    C: float,
++    max_iter: int,
++) -> LogisticRegression:
++    lr = LogisticRegression(
++        penalty="l2",
++        C=float(C),
++        class_weight="balanced",
++        solver="lbfgs",
++        max_iter=int(max_iter),
++        n_jobs=1,
++    )
++    lr.fit(X_scaled, y)
++    return lr
++
++
++def _brier(y_true: np.ndarray, p: np.ndarray) -> float:
++    y = y_true.astype(np.float64)
++    return float(np.mean((p - y) ** 2))
++
++
++def train_meta_model_lr_from_df(
++    df: pd.DataFrame,
++    *,
++    schema_name: str,
++    y_col: str,
++    n_splits: int,
++    purge_ms: int,
++    embargo_ms: int,
++    C: float,
++    max_iter: int,
++    threshold: float,
++) -> Tuple[MetaModelLR, Dict[str, Any]]:
++    """Core training routine used by both CLI and tests."""
++
++    X_raw, y, ts_ms, feature_cols, transforms = _build_xy_from_df(df, schema_name=schema_name, y_col=y_col)
++
++    X_tf_full = _apply_transforms(X_raw, feature_cols, transforms)
++
++    pos_rate = float(np.mean(y)) if len(y) else 0.0
++
++    # CV (purged/embargoed): fit scaler+lr per fold to avoid leakage.
++    fold_metrics: List[Dict[str, Any]] = []
++    if int(n_splits) > 1 and len(y) >= 50:
++        splitter = PurgedEmbargoTimeSeriesSplitV2(
++            n_splits=int(n_splits),
++            purge_ms=int(purge_ms),
++            embargo_ms=int(embargo_ms),
++        )
++
++        for k, (tr_idx, te_idx) in enumerate(splitter.split(ts_ms), 1):
++            tr = np.asarray(tr_idx, dtype=np.int64)
++            te = np.asarray(te_idx, dtype=np.int64)
++            if len(te) == 0 or len(tr) == 0:
++                continue
++
++            rs = RobustScalerPack.fit(X_tf_full[tr], feature_cols)
++            X_tr = rs.transform(X_tf_full[tr], feature_cols)
++            X_te = rs.transform(X_tf_full[te], feature_cols)
++
++            lr = _fit_lr(X_tr, y[tr], C=C, max_iter=max_iter)
++            p_te = lr.predict_proba(X_te)[:, 1]
++
++            try:
++                auc = float(roc_auc_score(y[te], p_te))
++            except Exception:
++                auc = float("nan")
++            try:
++                ll = float(log_loss(y[te], p_te, labels=[0, 1]))
++            except Exception:
++                ll = float("nan")
++
++            fold_metrics.append(
++                {
++                    "fold": int(k),
++                    "train_n": int(len(tr)),
++                    "test_n": int(len(te)),
++                    "auc": auc,
++                    "logloss": ll,
++                    "brier": _brier(y[te], p_te),
++                }
++            )
++
++    # Final fit on full dataset
++    rs_full = RobustScalerPack.fit(X_tf_full, feature_cols)
++    X_scaled = rs_full.transform(X_tf_full, feature_cols)
++    lr_full = _fit_lr(X_scaled, y, C=C, max_iter=max_iter)
++
++    p_full = lr_full.predict_proba(X_scaled)[:, 1]
++    try:
++        auc_full = float(roc_auc_score(y, p_full))
++    except Exception:
++        auc_full = float("nan")
++    try:
++        ll_full = float(log_loss(y, p_full, labels=[0, 1]))
++    except Exception:
++        ll_full = float("nan")
++
++    ver, cols, schema_hash = get_schema_info(str(schema_name))
++    cols_hash = MetaModelLR.compute_feature_cols_hash(feature_cols)
++
++    model = MetaModelLR(
++        features=list(feature_cols),
++        intercept=float(lr_full.intercept_[0]),
++        coef=[float(x) for x in lr_full.coef_[0].tolist()],
++        threshold=float(threshold),
++        schema_name=str(schema_name),
++        schema_version=int(ver),
++        schema_hash=str(schema_hash),
++        feature_cols_hash=str(cols_hash),
++        transforms=transforms,
++        robust_scaler=rs_full,
++    )
++
++    summary: Dict[str, Any] = {
++        "y_col": str(y_col),
++        "n_rows": int(len(df)),
++        "pos_rate": float(pos_rate),
++        "cv": fold_metrics,
++        "cv_mean": {
++            "auc": float(np.nanmean([m["auc"] for m in fold_metrics])) if fold_metrics else None,
++            "logloss": float(np.nanmean([m["logloss"] for m in fold_metrics])) if fold_metrics else None,
++            "brier": float(np.nanmean([m["brier"] for m in fold_metrics])) if fold_metrics else None,
++        },
++        "train_full": {"auc": float(auc_full), "logloss": float(ll_full), "brier": _brier(y, p_full)},
++        "splits": {"n_splits": int(n_splits), "purge_ms": int(purge_ms), "embargo_ms": int(embargo_ms)},
++        "lr": {"C": float(C), "max_iter": int(max_iter), "class_weight": "balanced", "solver": "lbfgs"},
++    }
++
++    return model, summary
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser()
++
++    ap.add_argument("--parquet", "--input", dest="parquet", required=True, help="Dataset parquet path")
++    ap.add_argument("--out", "--output", dest="out", required=True, help="Output JSON path")
++
++    ap.add_argument("--schema", default="meta_feat_v8", help="Meta schema name")
++    ap.add_argument("--horizon-ms", type=int, default=60000, help="Label horizon in ms")
++    ap.add_argument("--y-col", default="", help="Override label column (default: y_util_pos_{horizon_ms})")
++
++    ap.add_argument("--n-splits", type=int, default=5, help="CV folds")
++    ap.add_argument("--purge-ms", type=int, default=60_000, help="Purging window in ms")
++    ap.add_argument("--embargo-ms", type=int, default=30_000, help="Embargo window in ms")
++
++    ap.add_argument("--C", type=float, default=1.0, help="LR inverse regularization")
++    ap.add_argument("--max-iter", type=int, default=200, help="LR max_iter")
++    ap.add_argument("--threshold", type=float, default=0.5, help="Decision threshold stored in artifact")
++
++    ap.add_argument("--max-rows", type=int, default=0, help="Optional cap for quick experiments")
++
++    args = ap.parse_args()
++
++    y_col = str(args.y_col or "").strip() or f"y_util_pos_{int(args.horizon_ms)}"
++
++    df = pd.read_parquet(str(args.parquet))
++    if int(args.max_rows) > 0:
++        df = df.head(int(args.max_rows)).copy()
++
++    if y_col not in df.columns:
++        print(f"ERROR: label column not found: {y_col}")
++        return 2
++
++    # Train
++    model, summary = train_meta_model_lr_from_df(
++        df,
++        schema_name=str(args.schema),
++        y_col=y_col,
++        n_splits=int(args.n_splits),
++        purge_ms=int(args.purge_ms),
++        embargo_ms=int(args.embargo_ms),
++        C=float(args.C),
++        max_iter=int(args.max_iter),
++        threshold=float(args.threshold),
++    )
++
++    # Export (signature stable)
++    model.dump(str(args.out))
++
++    # Attach training summary (not part of signature)
++    try:
++        d = json.loads(open(str(args.out), "r", encoding="utf-8").read())
++        d["training_summary"] = {
++            **summary,
++            "parquet": str(args.parquet),
++            "created_ms": int(time.time() * 1000),
++        }
++        with open(str(args.out), "w", encoding="utf-8") as f:
++            json.dump(d, f, indent=2, ensure_ascii=False)
++    except Exception:
++        pass
++
++    print(f"Saved: {args.out}")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())

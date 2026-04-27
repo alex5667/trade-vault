@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/gpu_compute_service.py
+# hypothesis_version: 6.148.10
+
+['GpuComputeService', 'get_gpu_device_count', 'get_gpu_service', 'is_gpu_available']

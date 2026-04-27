@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/ofc_rule_success_model_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.6, 1.0, 'artifact_version', 'global', 'groups', 'legacy_of_score_min', 'model_version', 'of_score_final', 'raw_score', 'rsm_v1', 'score_add', 'score_min_ctx', 'score_mult']

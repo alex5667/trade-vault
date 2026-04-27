@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/tags.py
+# hypothesis_version: 6.148.10
+
+['cpi', 'crypto_reg', 'earnings', 'etf', 'exchange', 'fed_speech', 'fomc', 'geopolitics', 'hack', 'inflation', 'liquidation', 'macro', 'nfp', 'ppi', 'rates', 'risk_off', 'risk_on']

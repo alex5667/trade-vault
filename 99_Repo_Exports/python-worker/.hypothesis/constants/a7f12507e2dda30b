@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/calib_replay_from_inputs.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.002, 300, 1000, '--count', '--inputs', '--max_batches', '--min_samples', '--out', '--redis_stream', '--redis_url', '--start_id', '--symbols_set', '0-0', 'MICROBAR_SYMBOLS_SET', 'REDIS_URL', '[', '__main__', '_single_', 'abs_lvl_eff_quote_th', 'cfg', 'eff_quote_th', 'fp_eff_quote', 'fp_quote_delta', 'ignore', 'min_quote_delta', 'n', 'na', 'payload', 'r', 'regime', 'scenario', 'src', 'symbol', 'ts_ms', 'utf-8', 'v', 'w', '{', '{sym}']

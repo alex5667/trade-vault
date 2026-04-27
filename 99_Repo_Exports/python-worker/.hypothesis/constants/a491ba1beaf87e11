@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/backtest_hooks.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1000.0, 300, 1000, 1000000, 10000000000000, 10000000000000000, '100.0', '1000', '10000', '2000', 'REPLAY_DRIFT_WARN_MS', 'REPLAY_GAP_SEVERE_MS', 'REPLAY_GAP_WARN_MS', 'REPLAY_LOG_SAMPLE_N', 'ask', 'backtest_hooks', 'bid', 'cluster', 'datetime64[ns]', 'flags', 'int64', 'last', 'log', 'micro', 'mid', 'ms', 'ns', 'raise', 'tick_stream_cur', 'ticks_xauusd', 'ts', 'ts_ms', 'us', 'volume']

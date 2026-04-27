@@ -1,0 +1,47 @@
+groups:
+- name: cont_ctx_window_calibrator_v1
+  rules:
+  - alert: ContCtxCalibratorStale
+    expr: time() - cont_ctx_calib_last_run_ts_seconds > 1800
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "cont_ctx_window_calibrator appears stale"
+      description: "No successful recommendation loop for more than 30 minutes. Check worker logs and Redis connectivity."
+
+  - alert: ContCtxCalibratorLowSample
+    expr: sum by (symbol) (cont_ctx_calib_sample_n{window_ms="180000"}) < 20
+    for: 2h
+    labels:
+      severity: warning
+    annotations:
+      summary: "Low closed-trade sample for cont_ctx calibrator"
+      description: "Window 180000 has insufficient sample. Recommendation confidence may be unstable."
+
+  - alert: ContCtxCalibratorExpectancyNegative
+    expr: cont_ctx_calib_expectancy_r < 0
+    for: 30m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Negative expectancy on recommended cont_ctx window"
+      description: "Recommended continuation context window has negative expectancy. Freeze auto-apply and rollback to baseline."
+
+  - alert: ContCtxCalibratorFalseBreakoutTooHigh
+    expr: cont_ctx_calib_false_breakout_rate > 0.22
+    for: 30m
+    labels:
+      severity: critical
+    annotations:
+      summary: "False breakout rate too high for cont_ctx window"
+      description: "Rescued continuation cohort is degrading. Consider reducing cont_ctx_valid_ms and inspect shadow outcomes."
+
+  - alert: ContCtxCalibratorExecTailWorse
+    expr: cont_ctx_calib_exec_p95_norm > 0.75
+    for: 30m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Execution tail worsened after cont_ctx widening"
+      description: "exec_risk_norm p95 exceeds bounded limit for recommended window."

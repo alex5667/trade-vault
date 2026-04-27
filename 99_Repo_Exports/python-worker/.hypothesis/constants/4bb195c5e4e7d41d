@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/entry_policy_tuner_suggest.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.03, 0.2, 0.3, 0.5, 0.55, 0.6, 0.8, 0.9, 1.0, 3.0, 5.0, 6.0, 25.0, 30.0, 1000, '0.03', '0.20', '0.30', '0.60', '0.65', '0.80', '0.90', '1', '1.5', '10', '15', '3.0', '50', 'EP_TUNER_ENABLE', 'EP_TUNER_MIN_ALLOW', 'EP_TUNER_MIN_TOTAL', 'EP_TUNER_Q_COH', 'EP_TUNER_Q_OBI_THIN', 'EP_TUNER_Q_ZONE_BP', 'EP_TUNER_STEP_COH', 'EP_TUNER_STEP_OBI', 'IN', 'SMT_COH_THRESHOLD', 'TunerCfg', '__main__', 'allow', 'allow_norm', 'allow_thin', 'changes', 'coh', 'current', 'down', 'enable', 'from', 'iceberg_strict', 'illiquid', 'key', 'leader_conf_score', 'na', 'news', 'obi_stable_sec', 'ok', 'proposed', 'q_coh_val', 'q_leader_conf_val', 'q_obi_thin_val', 'q_zone_norm_val', 'q_zone_thin_val', 'r', 'rationales', 'regime', 'safe_to_apply', 'stats', 'thin', 'to', 'total', 'ts_ms', 'up', 'utf-8', 'why', 'zone_dist_bp']

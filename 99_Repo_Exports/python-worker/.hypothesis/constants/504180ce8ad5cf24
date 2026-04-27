@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/tick_parser.py
+# hypothesis_version: 6.148.10
+
+[0.0, 2.0, 1000, 1000000000000, '0', '1', 'E', 'T', '[', ']', 'a', 'amount', 'ask', 'b', 'bid', 'data', 'false', 'flags', 'is_buyer_maker', 'last', 'm', 'no', 'p', 'price', 'q', 'qty', 'tick', 'time', 'timestamp', 'true', 'ts', 'volume', 'yes', '{', '}']

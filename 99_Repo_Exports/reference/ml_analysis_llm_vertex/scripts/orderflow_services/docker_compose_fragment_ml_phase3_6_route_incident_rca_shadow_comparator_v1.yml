@@ -1,0 +1,17 @@
+services:
+  scanner-route-incident-rca-shadow-comparator-v3-6:
+    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
+    command: ["python", "-m", "orderflow_services.route_incident_rca_shadow_comparator_v3_6"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
+      ANALYTICS_DB_DSN: ${ANALYTICS_DB_DSN:-}
+      ML_ROUTE_INCIDENT_RCA_SHADOW_COMPARATOR_PORT: ${ML_ROUTE_INCIDENT_RCA_SHADOW_COMPARATOR_PORT:-9922}
+      ML_ROUTE_INCIDENT_RCA_HANDOFF_SHADOW_STREAM: ${ML_ROUTE_INCIDENT_RCA_HANDOFF_SHADOW_STREAM:-stream:ml:vertex_local_handoff_shadow_requests}
+      ML_ROUTE_INCIDENT_RCA_LEGACY_SHADOW_STREAM: ${ML_ROUTE_INCIDENT_RCA_LEGACY_SHADOW_STREAM:-stream:ml:route_incident_rca_legacy_shadow_requests}
+      ML_ROUTE_INCIDENT_RCA_SHADOW_COMPARATOR_PENDING_TTL_SEC: ${ML_ROUTE_INCIDENT_RCA_SHADOW_COMPARATOR_PENDING_TTL_SEC:-86400}
+    ports: ["${ML_ROUTE_INCIDENT_RCA_SHADOW_COMPARATOR_PORT:-9922}:9922"]
+    depends_on: [redis-worker-1]
+    networks:
+      - scanner-timers
+      - scanner-infra

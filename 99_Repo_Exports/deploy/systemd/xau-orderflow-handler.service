@@ -1,0 +1,69 @@
+# Systemd unit для XAU OrderFlow Handler
+# Установка:
+#   sudo cp deploy/systemd/xau-orderflow-handler.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable xau-orderflow-handler.service
+#   sudo systemctl start xau-orderflow-handler.service
+#
+# Проверка:
+#   sudo systemctl status xau-orderflow-handler.service
+#   journalctl -u xau-orderflow-handler.service -f
+
+[Unit]
+Description=XAUUSD OrderFlow Signal Handler
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=%h/front/trade/scanner_infra/python-worker
+Environment=PYTHONUNBUFFERED=1
+Environment=REDIS_URL=redis://scanner-redis:6379/0
+Environment=XAU_TICK_STREAM=stream:tick_XAUUSD
+Environment=XAU_GROUP=xauusd-tick-group
+Environment=XAU_CONSUMER=xau-handler-systemd
+
+# Параметры обработчика
+Environment=DELTA_Z_THRESHOLD=3.0
+Environment=WEAK_PROGRESS_ATR=0.10
+Environment=OBI_THRESHOLD=0.5
+Environment=OBI_MIN_DURATION=2.0
+Environment=ICEBERG_REFRESH_COUNT=2
+Environment=ICEBERG_MIN_DURATION=1.5
+Environment=DIST_ATR_THRESHOLD=0.5
+Environment=MIN_SIGNAL_INTERVAL_SEC=600
+
+# Параметры счета
+Environment=ACCOUNT_DEPOSIT_USD=10000
+Environment=ACCOUNT_LEVERAGE=100
+Environment=RISK_PERCENT=5.0
+Environment=XAU_CONTRACT_SIZE=100
+Environment=XAU_LOT_STEP=0.01
+
+# Запуск handler
+ExecStart=/usr/bin/python3 -u handlers/xau_orderflow_handler.py
+
+# Автоматический перезапуск
+Restart=always
+RestartSec=5
+StartLimitInterval=300
+StartLimitBurst=10
+
+# Логирование
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=xau-handler
+
+# Ресурсы
+MemoryLimit=1G
+CPUQuota=100%
+
+# Безопасность
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+

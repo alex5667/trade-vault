@@ -1,0 +1,284 @@
+diff --git a/ml_analysis/tools/build_smoke_contract_targets_from_alerts_v1.py b/ml_analysis/tools/build_smoke_contract_targets_from_alerts_v1.py
+new file mode 100644
+index 0000000..0a3a8a8
+--- /dev/null
++++ b/ml_analysis/tools/build_smoke_contract_targets_from_alerts_v1.py
+@@ -0,0 +1,227 @@
++from __future__ import annotations
++
++import glob
++import json
++import os
++import re
++import time
++from typing import Any, Dict, List, Set, Tuple
++
++import yaml
++
++
++def _env(name: str, default: str = "") -> str:
++    return (os.getenv(name) or default).strip()
++
++
++REQUIRED_FOR = {"critical", "warning"}
++
++
++def _as_list(x: Any) -> List[Any]:
++    if x is None:
++        return []
++    if isinstance(x, list):
++        return x
++    return [x]
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _load_yaml(path: str) -> Any:
++    with open(path, "r", encoding="utf-8") as f:
++        return yaml.safe_load(f)
++
++
++def _extract_uid_from_dashboard_path(dashboard_path: str) -> str:
++    p = (dashboard_path or "").strip()
++    if not p:
++        return ""
++    p = p.split("?", 1)[0]
++    m = re.match(r"^/(d|d-solo)/([^/]+)/", p)
++    if not m:
++        return ""
++    return m.group(2)
++
++
++def _normalize_runbook_path(runbook_path: str) -> str:
++    """Convert alert runbook_path (e.g., '/web_uptime.md') to public-proxy path '/runbooks/web_uptime.md'."""
++    rb = (runbook_path or "").strip()
++    if not rb:
++        return ""
++    if not rb.startswith("/"):
++        rb = "/" + rb
++    if rb.startswith("/runbooks/"):
++        return rb
++    return "/runbooks" + rb
++
++
++def _normalize_dashboard_path(dashboard_path: str) -> str:
++    """Convert alert dashboard_path (e.g., '/d/<uid>/<slug>?orgId=1') to public-proxy path '/grafana/d/<uid>/<slug>?orgId=1'."""
++    dp = (dashboard_path or "").strip()
++    if not dp:
++        return ""
++    if not dp.startswith("/"):
++        dp = "/" + dp
++    if dp.startswith("/grafana/"):
++        return dp
++    if dp.startswith("/d/") or dp.startswith("/d-solo/"):
++        return "/grafana" + dp
++    return dp
++
++
++def build_targets_from_alerts(alerts_glob: str = "ok_rate_logic/prometheus_alerts_*.yml") -> Tuple[List[str], List[str]]:
++    runbooks: Set[str] = set()
++    dashboards: Set[str] = set()
++
++    files = sorted(glob.glob(alerts_glob))
++    for fp in files:
++        doc = _load_yaml(fp) or {}
++        groups = _as_list(doc.get("groups"))
++        for g in groups:
++            rules = _as_list((g or {}).get("rules"))
++            for r in rules:
++                labels: Dict[str, Any] = (r or {}).get("labels") or {}
++                ann: Dict[str, Any] = (r or {}).get("annotations") or {}
++                sev = str(labels.get("severity") or "").strip().lower()
++                if sev not in REQUIRED_FOR:
++                    continue
++
++                rb = str(ann.get("runbook_path") or "").strip()
++                dp = str(ann.get("dashboard_path") or "").strip()
++
++                rb2 = _normalize_runbook_path(rb)
++                if rb2:
++                    runbooks.add(rb2)
++
++                dp2 = _normalize_dashboard_path(dp)
++                if dp2:
++                    dashboards.add(dp2)
++
++    return sorted(runbooks), sorted(dashboards)
++
++
++def write_targets_to_redis(runbooks: List[str], dashboards: List[str]) -> Dict[str, Any]:
++    redis_url = _env("REDIS_URL", "")
++    key = _env("MONITORING_SMOKE_TARGETS_KEY", "cfg:monitoring_smoke:targets")
++    ttl_s = int(_env("MONITORING_SMOKE_TARGETS_TTL_S", "604800"))  # 7d
++    if not redis_url:
++        return {"ok": False, "error": "REDIS_URL not set"}
++    try:
++        import redis  # type: ignore
++
++        r = redis.Redis.from_url(redis_url, decode_responses=True)
++        payload = {
++            "updated_ts_ms": str(_now_ms()),
++            "runbook_paths": ",".join(runbooks),
++            "dashboard_paths": ",".join(dashboards),
++            "source": "alerts_annotations",
++        }
++        r.hset(key, mapping=payload)
++        r.expire(key, ttl_s)
++        return {"ok": True, "key": key, "runbooks": len(runbooks), "dashboards": len(dashboards)}
++    except Exception as e:
++        return {"ok": False, "error": f"{type(e).__name__}"}
++
++
++def main() -> int:
++    alerts_glob = _env("ALERTS_GLOB", "ok_rate_logic/prometheus_alerts_*.yml")
++    runbooks, dashboards = build_targets_from_alerts(alerts_glob=alerts_glob)
++    res = write_targets_to_redis(runbooks, dashboards) if _env("WRITE_TO_REDIS", "1") in ("1", "true", "yes", "on") else {"ok": True, "write": "disabled"}
++    out = {"runbooks": runbooks, "dashboards": dashboards, "redis": res}
++    print(json.dumps(out, ensure_ascii=False))
++    return 0 if res.get("ok") else 2
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py b/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py
+index a1cc1b8..4b5d8c3 100644
+--- a/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py
++++ b/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py
+@@ -46,6 +46,41 @@ def _mk_url(base: str, path: str) -> str:
+     return b + p
+ 
+ 
++def _targets_from_redis() -> Tuple[List[str], List[str]]:
++    """Read runbook/dashboard PATHS from Redis cfg (best-effort).
++
++    Expected hash key: cfg:monitoring_smoke:targets
++    Fields: runbook_paths, dashboard_paths (CSV)
++    """
++    redis_url = _env("REDIS_URL", "")
++    key = _env("MONITORING_SMOKE_TARGETS_KEY", "cfg:monitoring_smoke:targets")
++    if not redis_url:
++        return [], []
++    try:
++        import redis  # type: ignore
++
++        r = redis.Redis.from_url(redis_url, decode_responses=True)
++        d = r.hgetall(key) or {}
++        rb = _split_csv(str(d.get("runbook_paths", "") or ""))
++        dp = _split_csv(str(d.get("dashboard_paths", "") or ""))
++        return rb, dp
++    except Exception:
++        return [], []
++
++
+ def _smoke_contract_targets(public_base: str) -> Tuple[List[str], List[str]]:
+     """Return (runbooks_urls, dashboards_urls) for contract checks."""
+     # Defaults cover the monitoring contract pieces:
+     # - runbooks must serve markdown files
+     # - grafana must route dashboards (redirect to login is ok because we follow redirects; final is 200)
+-    runbooks = _split_csv(_env("SMOKE_RUNBOOK_PATHS", "/runbooks/web_uptime.md,/runbooks/promote_freeze.md,/runbooks/chatops_security.md"))
++    runbooks_default = "/runbooks/web_uptime.md,/runbooks/promote_freeze.md,/runbooks/chatops_security.md"
+     # IMPORTANT: include dashboards referenced by alert annotations (dashboard_path) to avoid false "green" smoke.
+-    dashboards = _split_csv(
+-        _env(
+-            "SMOKE_DASHBOARD_PATHS",
+-            "/grafana/d/edge_stack_overview/edge-stack-overview?orgId=1,"
+-            "/grafana/d/chatops_security/chatops-security?orgId=1,"
+-            "/grafana/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1",
+-        )
+-    )
++    dashboards_default = (
++        "/grafana/d/edge_stack_overview/edge-stack-overview?orgId=1,"
++        "/grafana/d/chatops_security/chatops-security?orgId=1,"
++        "/grafana/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1"
++    )
++
++    # precedence:
++    # 1) explicit env overrides
++    # 2) redis cfg generated from alert annotations
++    # 3) defaults
++    runbooks_env = _env("SMOKE_RUNBOOK_PATHS", "")
++    dashboards_env = _env("SMOKE_DASHBOARD_PATHS", "")
++    runbooks: List[str] = _split_csv(runbooks_env) if runbooks_env else []
++    dashboards: List[str] = _split_csv(dashboards_env) if dashboards_env else []
++
++    if (not runbooks) or (not dashboards):
++        if _env("SMOKE_TARGETS_FROM_REDIS", "1") in ("1", "true", "yes", "on"):
++            rb2, dp2 = _targets_from_redis()
++            if (not runbooks) and rb2:
++                runbooks = rb2
++            if (not dashboards) and dp2:
++                dashboards = dp2
++
++    if not runbooks:
++        runbooks = _split_csv(runbooks_default)
++    if not dashboards:
++        dashboards = _split_csv(dashboards_default)
+ 
+     runbook_urls = [_mk_url(public_base, p) for p in runbooks]
+     dash_urls = [_mk_url(public_base, p) for p in dashboards]
+     return runbook_urls, dash_urls
+diff --git a/services/of_timers_worker.py b/services/of_timers_worker.py
+index 7d617b8..d6b9e2d 100644
+--- a/services/of_timers_worker.py
++++ b/services/of_timers_worker.py
+@@ -533,9 +533,23 @@ def run_monitoring_smoke_tests() -> bool:
+     if os.getenv("ENABLE_MONITORING_SMOKE_NIGHTLY", "1") not in ("1", "true", "yes", "on"):
+         return True
+ 
+-     # The tool reads envs PUBLIC_BASE_URL/RUNBOOKS_BASE_URL/GRAFANA_BASE_URL and writes metrics:monitoring_smoke:last
++    # 0) Refresh contract targets from alert annotations (writes cfg:monitoring_smoke:targets)
++    if os.getenv("ENABLE_MONITORING_SMOKE_TARGETS_REFRESH", "1") in ("1", "true", "yes", "on"):
++        run_tool("ml_analysis.tools.build_smoke_contract_targets_from_alerts_v1", timeout=int(os.getenv("MONITORING_SMOKE_TARGETS_REFRESH_TIMEOUT_S", "45")))
++
++    # 1) The smoke tool reads envs PUBLIC_BASE_URL/RUNBOOKS_BASE_URL/GRAFANA_BASE_URL and writes metrics:monitoring_smoke:last
++    #    Contract targets are taken from:
++    #      - SMOKE_RUNBOOK_PATHS / SMOKE_DASHBOARD_PATHS (env)
++    #      - cfg:monitoring_smoke:targets (redis), if SMOKE_TARGETS_FROM_REDIS=1 (default)
+     ok = run_tool("ml_analysis.tools.nightly_monitoring_smoke_tests_v1", timeout=int(os.getenv("MONITORING_SMOKE_TIMEOUT_S", "240")))
+     # Apply safety freeze on failure (fail-closed by default).
+     r = _get_redis_sync()
+     if r is None:
+         return ok
+diff --git a/monitoring/README_smoke_tests.md b/monitoring/README_smoke_tests.md
+index f5e8730..93e5e7e 100644
+--- a/monitoring/README_smoke_tests.md
++++ b/monitoring/README_smoke_tests.md
+@@ -28,6 +28,18 @@
+ 2) Telegram webhook link building (dry_run per-request):
+ - ensures returned links start with RUNBOOKS_BASE_URL and GRAFANA_BASE_URL.
+ 
++## Contract targets source of truth (recommended)
++Targets can be auto-generated from alert annotations (`runbook_path`, `dashboard_path`) and stored in Redis:
++- key: `cfg:monitoring_smoke:targets` (override: `MONITORING_SMOKE_TARGETS_KEY`)
++  - `runbook_paths` (CSV)
++  - `dashboard_paths` (CSV)
++
++Refresh tool:
++```bash
++python -m ml_analysis.tools.build_smoke_contract_targets_from_alerts_v1
++```
++
+ ## Run manually
+ ```bash
+ export PUBLIC_BASE_URL="https://localhost"
+ export SMOKE_VERIFY_TLS=0
+@@ -35,6 +47,12 @@
+ 
+ export PYTHONPATH=./tick_flow_full:./ml_analysis
+ export REDIS_URL="redis://redis-worker-1:6379/0"
+ python -m ml_analysis.tools.nightly_monitoring_smoke_tests_v1
++
++Disable redis targets:
++```bash
++export SMOKE_TARGETS_FROM_REDIS=0
++```
++
+ 
+ Override targets
+ 
+@@ -43,4 +61,5 @@
+ export SMOKE_RUNBOOK_PATHS="/runbooks/web_uptime.md,/runbooks/promote_freeze.md"
+ export SMOKE_DASHBOARD_PATHS="/grafana/d/chatops_security/chatops-security?orgId=1,/grafana/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1"
+ ```

@@ -1,0 +1,18 @@
+groups:
+  - name: ml_phase2_8_operator_rca_routing_incident_bundle_v1
+    rules:
+      - alert: MLOperatorRCARoutingIncidentBundleBuilderDown
+        expr: ml_operator_rca_routing_incident_bundle_up == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "operator_rca routing incident bundle builder is down"
+
+      - alert: MLOperatorRCARoutingIncidentBundleBuilderStale
+        expr: time() - ml_operator_rca_routing_incident_bundle_last_run_ts_seconds > 1800
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "operator_rca routing incident bundle builder is stale"

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/kline_data_handler.py
+# hypothesis_version: 6.148.10
+
+['$', '+', ', ', '-', '>', 'BUSYGROUP', 'NOGROUP', 'data', 'k', 'message_id', 's']

@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/sparse/linalg/_dsolve/_add_newdocs.py
+# hypothesis_version: 6.148.10
+
+['L', 'SuperLU', 'U', 'nnz', 'perm_c', 'perm_r', 'shape', 'solve']

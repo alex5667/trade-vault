@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic trade risk drift auto-silence (P5X operator hardening)
+
+[Timer]
+OnBootSec=5m
+OnUnitActiveSec=20m
+Unit=trade-risk-drift-autosilence.service
+
+[Install]
+WantedBy=timers.target

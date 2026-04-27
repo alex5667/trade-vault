@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/internals/blocks.py
+# hypothesis_version: 6.148.10
+
+[' x ', "'value.closed' is", '.', 'Mm', 'O', 'U1', 'asfreq', 'backward', 'both', 'f', 'fciub', 'forward', 'infer', 'inplace', 'inside', 'iub', 'linear', 'nan', 'need to split', 'object', 'outside', 'raise']

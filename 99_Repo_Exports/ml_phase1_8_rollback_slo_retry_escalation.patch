@@ -1,0 +1,415 @@
+--- orderflow_services/rollback_slo_analytics_v1.py
++++ orderflow_services/rollback_slo_analytics_v1.py
+@@ -0,0 +1,99 @@
++from __future__ import annotations
++
++from dataclasses import dataclass, asdict
++from statistics import median
++from typing import Any, Dict, Iterable, List, Optional
++
++
++def _f(x: Any, d: float = 0.0) -> float:
++    try:
++        v = float(x)
++        return v
++    except Exception:
++        return d
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return d
++
++
++TERMINAL_SUCCESS = {"ROLLBACK_SUCCESS"}
++TERMINAL_FAIL = {"ROLLBACK_FAILED", "MANUAL_REVIEW"}
++
++
++@dataclass
++class RollbackSLOSummary:
++    total: int
++    success: int
++    failed: int
++    success_rate: float
++    mttr_sec_p50: float
++    mttr_sec_p95: float
++    breach_n: int
++
++    def to_dict(self) -> Dict[str, Any]:
++        return asdict(self)
++
++
++def _percentile_sorted(values: List[float], p: float) -> float:
++    if not values:
++        return 0.0
++    if len(values) == 1:
++        return float(values[0])
++    idx = max(0, min(len(values) - 1, round((len(values) - 1) * p)))
++    return float(values[idx])
++
++
++def summarize_rollback_slo(
++    rows: Iterable[Dict[str, Any]],
++    *,
++    mttr_slo_sec: float = 900.0,
++) -> RollbackSLOSummary:
++    total = 0
++    success = 0
++    failed = 0
++    mttr_values: List[float] = []
++    breach_n = 0
++
++    for row in rows:
++        total += 1
++        state = str(row.get("final_state", "") or "")
++        req_ts = _i(row.get("requested_ts_ms"), 0)
++        done_ts = _i(row.get("terminal_ts_ms"), 0)
++        if state in TERMINAL_SUCCESS:
++            success += 1
++        elif state in TERMINAL_FAIL:
++            failed += 1
++        if req_ts > 0 and done_ts >= req_ts and state in TERMINAL_SUCCESS | TERMINAL_FAIL:
++            mttr_sec = (done_ts - req_ts) / 1000.0
++            mttr_values.append(mttr_sec)
++            if mttr_sec > float(mttr_slo_sec):
++                breach_n += 1
++
++    mttr_values.sort()
++    return RollbackSLOSummary(
++        total=total,
++        success=success,
++        failed=failed,
++        success_rate=(success / total) if total else 0.0,
++        mttr_sec_p50=_percentile_sorted(mttr_values, 0.50),
++        mttr_sec_p95=_percentile_sorted(mttr_values, 0.95),
++        breach_n=breach_n,
++    )
++
++
++def build_slo_reason_codes(summary: RollbackSLOSummary, *, success_rate_floor: float = 0.90, mttr_p95_ceiling_sec: float = 900.0) -> List[str]:
++    out: List[str] = []
++    if summary.total == 0:
++        out.append("NO_ROLLBACK_DATA")
++        return out
++    if summary.success_rate < float(success_rate_floor):
++        out.append("ROLLBACK_SUCCESS_RATE_LOW")
++    if summary.mttr_sec_p95 > float(mttr_p95_ceiling_sec):
++        out.append("ROLLBACK_MTTR_P95_HIGH")
++    if summary.breach_n > 0:
++        out.append("ROLLBACK_MTTR_SLO_BREACH")
++    return out
+--- orderflow_services/rollback_retry_controller_v1.py
++++ orderflow_services/rollback_retry_controller_v1.py
+@@ -0,0 +1,68 @@
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Any, Dict, Tuple
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return d
++
++
++def _s(x: Any, d: str = "") -> str:
++    try:
++        return str(x)
++    except Exception:
++        return d
++
++
++RETRYABLE_REASONS = {
++    "ROLLBACK_EXECUTOR_TIMEOUT",
++    "ROLLBACK_EXECUTOR_UNAVAILABLE",
++    "ROLLBACK_VERIFY_INCONCLUSIVE",
++    "ROLLBACK_STATE_RACE",
++}
++
++HARD_STOP_REASONS = {
++    "ROLLBACK_TARGET_MISSING",
++    "ROLLBACK_BASELINE_MISSING",
++    "ROLLBACK_POLICY_DENIED",
++}
++
++
++@dataclass
++class RetryDecision:
++    should_retry: bool
++    next_attempt: int
++    backoff_sec: int
++    reason_code: str
++
++    def to_dict(self) -> Dict[str, Any]:
++        return {
++            "should_retry": int(self.should_retry),
++            "next_attempt": self.next_attempt,
++            "backoff_sec": self.backoff_sec,
++            "reason_code": self.reason_code,
++        }
++
++
++def compute_retry_decision(
++    event: Dict[str, Any],
++    *,
++    max_attempts: int = 2,
++    base_backoff_sec: int = 300,
++    max_backoff_sec: int = 3600,
++) -> RetryDecision:
++    attempt = _i(event.get("attempt"), 0)
++    reason = _s(event.get("failure_reason"))
++    if reason in HARD_STOP_REASONS:
++        return RetryDecision(False, attempt, 0, "ROLLBACK_RETRY_HARD_STOP")
++    if reason not in RETRYABLE_REASONS:
++        return RetryDecision(False, attempt, 0, "ROLLBACK_RETRY_NOT_ELIGIBLE")
++    if attempt >= int(max_attempts):
++        return RetryDecision(False, attempt, 0, "ROLLBACK_RETRY_LIMIT_REACHED")
++    next_attempt = attempt + 1
++    backoff = min(int(max_backoff_sec), int(base_backoff_sec) * (2 ** max(0, attempt)))
++    return RetryDecision(True, next_attempt, backoff, "ROLLBACK_RETRY_SCHEDULED")
+--- orderflow_services/rollback_auto_escalation_summarizer_v1.py
++++ orderflow_services/rollback_auto_escalation_summarizer_v1.py
+@@ -0,0 +1,59 @@
++from __future__ import annotations
++
++from dataclasses import dataclass, asdict
++from typing import Any, Dict, Iterable, List
++
++from orderflow_services.rollback_slo_analytics_v1 import summarize_rollback_slo, build_slo_reason_codes
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return d
++
++
++def _s(x: Any, d: str = "") -> str:
++    try:
++        return str(x)
++    except Exception:
++        return d
++
++
++@dataclass
++class EscalationSummary:
++    severity: str
++    summary: str
++    reason_codes: List[str]
++    failed_ids: List[str]
++
++    def to_dict(self) -> Dict[str, Any]:
++        return asdict(self)
++
++
++def build_auto_escalation_summary(
++    rows: Iterable[Dict[str, Any]],
++    *,
++    mttr_slo_sec: float = 900.0,
++    success_rate_floor: float = 0.90,
++) -> EscalationSummary:
++    materialized = list(rows)
++    slo = summarize_rollback_slo(materialized, mttr_slo_sec=mttr_slo_sec)
++    reason_codes = build_slo_reason_codes(slo, success_rate_floor=success_rate_floor, mttr_p95_ceiling_sec=mttr_slo_sec)
++    failed_ids = [
++        _s(r.get("recommendation_id"))
++        for r in materialized
++        if _s(r.get("final_state")) in {"ROLLBACK_FAILED", "MANUAL_REVIEW"}
++    ]
++    severity = "info"
++    if any(rc in {"ROLLBACK_SUCCESS_RATE_LOW", "ROLLBACK_MTTR_P95_HIGH", "ROLLBACK_MTTR_SLO_BREACH"} for rc in reason_codes):
++        severity = "warning"
++    if len(failed_ids) >= 3:
++        severity = "critical"
++    summary = (
++        f"rollback_slo total={slo.total} success={slo.success} failed={slo.failed} "
++        f"success_rate={slo.success_rate:.3f} mttr_p95_sec={slo.mttr_sec_p95:.1f}"
++    )
++    if failed_ids:
++        summary += f" failed_ids={','.join(failed_ids[:5])}"
++    return EscalationSummary(severity=severity, summary=summary, reason_codes=reason_codes, failed_ids=failed_ids)
+--- orderflow_services/sql/ml_phase1_8_v1.sql
++++ orderflow_services/sql/ml_phase1_8_v1.sql
+@@ -0,0 +1,34 @@
++ALTER TABLE IF EXISTS llm_recommendations
++    ADD COLUMN IF NOT EXISTS rollback_retry_attempts integer NOT NULL DEFAULT 0,
++    ADD COLUMN IF NOT EXISTS rollback_retry_state text,
++    ADD COLUMN IF NOT EXISTS rollback_escalation_state text,
++    ADD COLUMN IF NOT EXISTS rollback_last_escalated_ts_ms bigint;
++
++CREATE TABLE IF NOT EXISTS llm_rollback_slo_rollups (
++    ts_ms bigint NOT NULL,
++    total integer NOT NULL,
++    success integer NOT NULL,
++    failed integer NOT NULL,
++    success_rate double precision NOT NULL,
++    mttr_sec_p50 double precision NOT NULL,
++    mttr_sec_p95 double precision NOT NULL,
++    breach_n integer NOT NULL,
++    reason_codes_json jsonb NOT NULL DEFAULT '[]'::jsonb,
++    PRIMARY KEY (ts_ms)
++);
++
++CREATE TABLE IF NOT EXISTS llm_rollback_retry_events (
++    recommendation_id text NOT NULL,
++    ts_ms bigint NOT NULL,
++    attempt integer NOT NULL,
++    decision_json jsonb NOT NULL,
++    PRIMARY KEY (recommendation_id, ts_ms)
++);
++
++CREATE TABLE IF NOT EXISTS llm_rollback_escalations (
++    escalation_id text PRIMARY KEY,
++    ts_ms bigint NOT NULL,
++    severity text NOT NULL,
++    summary text NOT NULL,
++    payload_json jsonb NOT NULL
++);
+--- orderflow_services/docker_compose_fragment_ml_phase1_8_v1.yml
++++ orderflow_services/docker_compose_fragment_ml_phase1_8_v1.yml
+@@ -0,0 +1,25 @@
++services:
++  scanner-rollback-slo-analytics-v1:
++    command: python -m orderflow_services.rollback_slo_analytics_v1
++    environment:
++      ROLLBACK_SLO_WINDOW_HOURS: "24"
++      ROLLBACK_MTTR_SLO_SEC: "900"
++    ports:
++      - "9864:9864"
++
++  scanner-rollback-retry-controller-v1:
++    command: python -m orderflow_services.rollback_retry_controller_v1
++    environment:
++      ROLLBACK_RETRY_MAX_ATTEMPTS: "2"
++      ROLLBACK_RETRY_BASE_BACKOFF_SEC: "300"
++      ROLLBACK_RETRY_MAX_BACKOFF_SEC: "3600"
++    ports:
++      - "9865:9865"
++
++  scanner-rollback-auto-escalation-v1:
++    command: python -m orderflow_services.rollback_auto_escalation_summarizer_v1
++    environment:
++      ROLLBACK_ESCALATION_WINDOW_HOURS: "24"
++      ROLLBACK_ESCALATION_FAIL_THRESHOLD: "3"
++    ports:
++      - "9866:9866"
+--- orderflow_services/prometheus_alerts_ml_phase1_8_v1.yml
++++ orderflow_services/prometheus_alerts_ml_phase1_8_v1.yml
+@@ -0,0 +1,24 @@
++groups:
++  - name: ml-phase1-8-rollback
++    rules:
++      - alert: RollbackSuccessRateLow
++        expr: ml_rollback_slo_success_rate < 0.90
++        for: 15m
++        labels:
++          severity: warning
++        annotations:
++          summary: rollback success rate below floor
++      - alert: RollbackMTTRP95High
++        expr: ml_rollback_slo_mttr_p95_sec > 900
++        for: 15m
++        labels:
++          severity: warning
++        annotations:
++          summary: rollback MTTR p95 above SLO
++      - alert: RollbackEscalationCritical
++        expr: increase(ml_rollback_escalations_total{severity="critical"}[30m]) > 0
++        for: 0m
++        labels:
++          severity: critical
++        annotations:
++          summary: critical rollback escalation emitted
+--- orderflow_services/runbook_ml_phase1_8_v1.md
++++ orderflow_services/runbook_ml_phase1_8_v1.md
+@@ -0,0 +1,20 @@
++# Phase 1.8 — Rollback SLO / Retry / Escalation
++
++## Scope
++Only `scanner_infra`. No UI. No hot-path changes.
++
++## Components
++- rollback_slo_analytics_v1
++- rollback_retry_controller_v1
++- rollback_auto_escalation_summarizer_v1
++
++## Safety
++- Retry is bounded by attempts and backoff.
++- Escalation is advisory and audit-friendly.
++- Hard-stop reasons never auto-retry.
++
++## Smoke checks
++- `stream:ml:recommendation_rollback_state`
++- `stream:ml:recommendation_rollback_verification_results`
++- `stream:ml:recommendation_rollback_retry_requests`
++- `stream:ml:recommendation_escalations`
+--- orderflow_services/tests/test_rollback_slo_analytics_v1.py
++++ orderflow_services/tests/test_rollback_slo_analytics_v1.py
+@@ -0,0 +1,21 @@
++from orderflow_services.rollback_slo_analytics_v1 import summarize_rollback_slo, build_slo_reason_codes
++
++
++def test_summarize_rollback_slo_basic():
++    rows = [
++        {"final_state": "ROLLBACK_SUCCESS", "requested_ts_ms": 0, "terminal_ts_ms": 0},
++        {"final_state": "ROLLBACK_SUCCESS", "requested_ts_ms": 1000, "terminal_ts_ms": 101000},
++        {"final_state": "ROLLBACK_FAILED", "requested_ts_ms": 2000, "terminal_ts_ms": 1402000},
++    ]
++    out = summarize_rollback_slo(rows, mttr_slo_sec=900)
++    assert out.total == 3
++    assert out.success == 2
++    assert out.failed == 1
++    assert out.breach_n == 1
++
++
++def test_build_reason_codes():
++    rows = [{"final_state": "ROLLBACK_FAILED", "requested_ts_ms": 0, "terminal_ts_ms": 1000000}]
++    out = summarize_rollback_slo(rows, mttr_slo_sec=900)
++    codes = build_slo_reason_codes(out, success_rate_floor=0.95, mttr_p95_ceiling_sec=900)
++    assert "ROLLBACK_SUCCESS_RATE_LOW" in codes
+--- orderflow_services/tests/test_rollback_retry_controller_v1.py
++++ orderflow_services/tests/test_rollback_retry_controller_v1.py
+@@ -0,0 +1,14 @@
++from orderflow_services.rollback_retry_controller_v1 import compute_retry_decision
++
++
++def test_retry_eligible_timeout():
++    out = compute_retry_decision({"attempt": 0, "failure_reason": "ROLLBACK_EXECUTOR_TIMEOUT"}, max_attempts=2, base_backoff_sec=300)
++    assert out.should_retry is True
++    assert out.next_attempt == 1
++    assert out.backoff_sec == 300
++
++
++def test_retry_hard_stop():
++    out = compute_retry_decision({"attempt": 0, "failure_reason": "ROLLBACK_TARGET_MISSING"})
++    assert out.should_retry is False
++    assert out.reason_code == "ROLLBACK_RETRY_HARD_STOP"
+--- orderflow_services/tests/test_rollback_auto_escalation_summarizer_v1.py
++++ orderflow_services/tests/test_rollback_auto_escalation_summarizer_v1.py
+@@ -0,0 +1,21 @@
++from orderflow_services.rollback_auto_escalation_summarizer_v1 import build_auto_escalation_summary
++
++
++def test_escalation_warning_for_slo_breach():
++    rows = [
++        {"recommendation_id": "r1", "final_state": "ROLLBACK_FAILED", "requested_ts_ms": 0, "terminal_ts_ms": 1000000},
++        {"recommendation_id": "r2", "final_state": "ROLLBACK_SUCCESS", "requested_ts_ms": 0, "terminal_ts_ms": 1000000},
++    ]
++    out = build_auto_escalation_summary(rows, mttr_slo_sec=900, success_rate_floor=0.95)
++    assert out.severity in {"warning", "critical"}
++    assert "ROLLBACK_SUCCESS_RATE_LOW" in out.reason_codes
++
++
++def test_escalation_critical_on_many_failed_ids():
++    rows = [
++        {"recommendation_id": "r1", "final_state": "ROLLBACK_FAILED", "requested_ts_ms": 0, "terminal_ts_ms": 10},
++        {"recommendation_id": "r2", "final_state": "ROLLBACK_FAILED", "requested_ts_ms": 0, "terminal_ts_ms": 10},
++        {"recommendation_id": "r3", "final_state": "MANUAL_REVIEW", "requested_ts_ms": 0, "terminal_ts_ms": 10},
++    ]
++    out = build_auto_escalation_summary(rows)
++    assert out.severity == "critical"

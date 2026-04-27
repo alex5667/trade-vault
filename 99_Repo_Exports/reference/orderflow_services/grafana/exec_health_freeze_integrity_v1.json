@@ -1,0 +1,36 @@
+{
+  "title": "ExecHealth Freeze Integrity (v1)",
+  "description": "P8 tamper/unsigned-thaw detector. Monitors freeze control/state and signed ack event consistency.",
+  "panels": [
+    {
+      "title": "Violations (one-hot)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "exec_health_freeze_integrity_violation", "legendFormat": "{{kind}}"}
+      ]
+    },
+    {
+      "title": "Ack state",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "exec_health_freeze_integrity_pending_ack", "legendFormat": "pending_ack"},
+        {"expr": "exec_health_freeze_integrity_valid_ack_event_present", "legendFormat": "valid_ack_event"}
+      ]
+    },
+    {
+      "title": "Control / State presence",
+      "type": "stat",
+      "targets": [
+        {"expr": "exec_health_freeze_integrity_control_present", "legendFormat": "control_present"},
+        {"expr": "exec_health_freeze_integrity_state_present", "legendFormat": "state_present"}
+      ]
+    },
+    {
+      "title": "Exporter up",
+      "type": "stat",
+      "targets": [
+        {"expr": "exec_health_freeze_integrity_exporter_up"}
+      ]
+    }
+  ]
+}

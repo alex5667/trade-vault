@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/bottleneck/slow/move.py
+# hypothesis_version: 6.148.10
+
+[0.5, 1.0, 2.0, 'ignore', 'move_argmax', 'move_argmin', 'move_max', 'move_mean', 'move_median', 'move_min', 'move_rank', 'move_std', 'move_sum', 'move_var']

@@ -1,0 +1,45 @@
+groups:
+  - name: latency-contract-p41-v1
+    rules:
+      - alert: OF_LatencyContract_MissingExternalStage_Crit
+        expr: latency_contract_slo_missing_total > 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Latency contract has missing required stages"
+          description: >
+            One or more required service-stage pairs (go_ingest/ingest_to_redis,
+            nest_gateway/emit_to_ws, nest_gateway/end_to_end_event, or Python stages)
+            have not written a Redis hash yet. External writers may be down or not integrated.
+      - alert: OF_LatencyContract_StaleExternalStage_Warn
+        expr: latency_contract_slo_stale_total > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Latency contract has stale required stages"
+          description: >
+            At least one required stage hash has not been updated within
+            LATENCY_CONTRACT_SLO_STAGE_STALE_S seconds. Check the corresponding writer.
+      - alert: OF_LatencyContract_BudgetBreach_Warn
+        expr: latency_contract_slo_budget_breach_total > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Latency contract budget breached on at least one required stage"
+          description: >
+            last_duration_ms exceeded the configured budget for at least one
+            required stage. Review LATENCY_BUDGET_* environment variables.
+      - alert: OF_LatencyContract_SLOGateOpen_Crit
+        expr: latency_contract_slo_gate_ok == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Latency contract SLO gate is open (missing or stale coverage)"
+          description: >
+            The cross-service SLO gate is not OK. Either missing_total > 0 or
+            stale_total > 0 for required stage owners. See SLO gate summary key
+            metrics:latency_contract:slo:last for details.

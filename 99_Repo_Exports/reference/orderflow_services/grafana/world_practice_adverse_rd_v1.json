@@ -1,0 +1,38 @@
+{
+  "annotations": {"list": [{"builtIn": 1, "datasource": {"type": "grafana", "uid": "-- Grafana --"}, "enable": true, "hide": true, "iconColor": "rgba(0, 211, 255, 1)", "name": "Annotations & Alerts", "type": "dashboard"}]},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "fieldConfig": {"defaults": {"mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 0}]}, "unit": "bps"}, "overrides": []}, "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0}, "id": 1, "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}, "targets": [{"expr": "trade_adverse_rd_mean_bps{sym=~\"$sym\",bucket=~\"$bucket\"}", "interval": "", "legendFormat": "{{sym}}/{{bucket}}", "refId": "A"}], "title": "Adverse realized drift: mean (bps)", "type": "timeseries"},
+
+    {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "fieldConfig": {"defaults": {"mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}, "unit": "bps"}, "overrides": []}, "gridPos": {"h": 7, "w": 12, "x": 0, "y": 8}, "id": 2, "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}, "targets": [{"expr": "trade_adverse_rd_sigma_bps{sym=~\"$sym\",bucket=~\"$bucket\"}", "interval": "", "legendFormat": "{{sym}}/{{bucket}}", "refId": "A"}], "title": "Adverse realized drift: sigma (bps)", "type": "timeseries"},
+
+    {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "fieldConfig": {"defaults": {"mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": -1.5}]}, "unit": "none"}, "overrides": []}, "gridPos": {"h": 7, "w": 12, "x": 12, "y": 8}, "id": 3, "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}, "targets": [{"expr": "trade_adverse_rd_z{sym=~\"$sym\",bucket=~\"$bucket\"}", "interval": "", "legendFormat": "{{sym}}/{{bucket}}", "refId": "A"}], "title": "Adverse realized drift: z-score (mean/sigma)", "type": "timeseries"},
+
+    {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "fieldConfig": {"defaults": {"mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 0.6}]}, "unit": "percentunit"}, "overrides": []}, "gridPos": {"h": 7, "w": 12, "x": 0, "y": 15}, "id": 4, "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}, "targets": [{"expr": "trade_adverse_rd_bad_share{sym=~\"$sym\",bucket=~\"$bucket\"}", "interval": "", "legendFormat": "{{sym}}/{{bucket}}", "refId": "A"}], "title": "Adverse realized drift: bad share (EW)", "type": "timeseries"},
+
+    {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "fieldConfig": {"defaults": {"mappings": [{"options": {"0": {"text": "OK"}, "1": {"text": "VETO"}}, "type": "value"}], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}, "unit": "none"}, "overrides": []}, "gridPos": {"h": 7, "w": 6, "x": 12, "y": 15}, "id": 5, "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "center", "orientation": "horizontal", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "value"}, "targets": [{"expr": "max_over_time(trade_adverse_rd_veto{sym=~\"$sym\",bucket=~\"$bucket\"}[5m])", "interval": "", "legendFormat": "{{sym}}/{{bucket}}", "refId": "A"}], "title": "Adverse selection veto (last 5m)", "type": "stat"},
+
+    {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "fieldConfig": {"defaults": {"mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}, "unit": "ops"}, "overrides": []}, "gridPos": {"h": 7, "w": 6, "x": 18, "y": 15}, "id": 6, "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}, "targets": [{"expr": "rate(adverse_rd_eval_total{sym=~\"$sym\",bucket=~\"$bucket\"}[5m])", "interval": "", "legendFormat": "{{sym}}/{{bucket}}", "refId": "A"}], "title": "Adverse realized drift: eval rate (5m)", "type": "timeseries"}
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["world_practice", "orderflow"],
+  "templating": {"list": [
+    {"name": "DS_PROMETHEUS", "type": "datasource", "query": "prometheus", "current": {"selected": false, "text": "Prometheus", "value": "Prometheus"}},
+    {"name": "sym", "type": "query", "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "definition": "label_values(trade_adverse_rd_mean_bps, sym)", "query": {"query": "label_values(trade_adverse_rd_mean_bps, sym)", "refId": "PromSym"}, "current": {"selected": false, "text": ".*", "value": ".*"}},
+    {"name": "bucket", "type": "query", "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "definition": "label_values(trade_adverse_rd_mean_bps, bucket)", "query": {"query": "label_values(trade_adverse_rd_mean_bps, bucket)", "refId": "PromBucket"}, "current": {"selected": false, "text": ".*", "value": ".*"}}
+  ]},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "World Practice - Adverse Realized Drift v1",
+  "uid": "wp_adverse_rd_v1",
+  "version": 1,
+  "weekStart": ""
+}

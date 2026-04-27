@@ -1,0 +1,981 @@
+--- services/orderflow/exec_health_freeze_service_identity.py	1970-01-01 00:00:00.000000000 +0000
++++ services/orderflow/exec_health_freeze_service_identity.py	2026-03-07 18:54:11.743228637 +0000
+@@ -0,0 +1,264 @@
++from __future__ import annotations
++
++"""ExecHealth Redis service identity contract.
++
++P13 closes the last deployment gap after ACL drift checks. Redis users alone are
++not enough: rollout should also pin each trusted process to an expected
++CLIENT LIST identity (user + name + lib-name). This module centralizes that
++contract and provides helpers both for startup blockers and live drift export.
++"""
++
++from dataclasses import dataclass
++import os
++from typing import Any, Dict, Iterable, List, Mapping, Sequence
++from urllib.parse import urlsplit
++
++from services.orderflow.exec_health_freeze_acl_contract import AUDIT_USER, BOOTSTRAP_USER, DEFAULT_USER, WRITER_USER
++
++IDENTITY_ENFORCE_ENV = 'EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE'
++IDENTITY_REQUIRE_LIBNAME_ENV = 'EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME'
++
++
++@dataclass(frozen=True)
++class ServiceIdentity:
++    service: str
++    role: str
++    redis_user: str
++    client_name: str
++    lib_name: str
++    redis_url_env: str
++
++
++def _b(x: Any, default: bool = False) -> bool:
++    try:
++        if isinstance(x, str):
++            return x.strip().lower() in {'1', 'true', 'yes', 'on'}
++        return bool(int(x))
++    except Exception:
++        return bool(default)
++
++
++def _s(x: Any, d: str = '') -> str:
++    try:
++        return str(x) if x is not None else str(d)
++    except Exception:
++        return str(d)
++
++
++def build_service_identity_contract() -> Dict[str, ServiceIdentity]:
++    rows = [
++        ServiceIdentity('exec_health_freeze_override_v1', 'writer', WRITER_USER, 'exec-health-freeze-override-v1', 'exec-health-freeze-writer', 'REDIS_URL'),
++        ServiceIdentity('exec_health_slo_autoguard_v1', 'writer', WRITER_USER, 'exec-health-slo-autoguard-v1', 'exec-health-freeze-writer', 'REDIS_URL'),
++        ServiceIdentity('exec_health_freeze_tamper_guard_v1', 'writer', WRITER_USER, 'exec-health-freeze-tamper-guard-v1', 'exec-health-freeze-writer', 'REDIS_URL'),
++        ServiceIdentity('exec_health_freeze_acl_audit_exporter_v1', 'audit', AUDIT_USER, 'exec-health-freeze-acl-audit-exporter-v1', 'exec-health-freeze-audit', 'EXEC_HEALTH_REDIS_AUDIT_URL'),
++        ServiceIdentity('exec_health_freeze_acl_drift_exporter_v1', 'audit', AUDIT_USER, 'exec-health-freeze-acl-drift-exporter-v1', 'exec-health-freeze-audit', 'EXEC_HEALTH_REDIS_AUDIT_URL'),
++        ServiceIdentity('exec_health_freeze_acl_policy_v1', 'bootstrap', BOOTSTRAP_USER, 'exec-health-freeze-acl-policy-v1', 'exec-health-freeze-bootstrap', 'EXEC_HEALTH_REDIS_BOOTSTRAP_URL'),
++    ]
++    return {r.service: r for r in rows}
++
++
++def render_service_identity_env_templates(host: str = 'redis-worker-1', port: int = 6379, db: int = 0) -> Dict[str, Dict[str, str]]:
++    out: Dict[str, Dict[str, str]] = {}
++    for s in build_service_identity_contract().values():
++        out[s.service] = {
++            s.redis_url_env: f'redis://{s.redis_user}:<password>@{host}:{port}/{db}',
++            'EXEC_HEALTH_EXPECTED_REDIS_USER': s.redis_user,
++            'EXEC_HEALTH_REDIS_CLIENT_NAME': s.client_name,
++            'EXEC_HEALTH_REDIS_LIB_NAME': s.lib_name,
++            'EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE': '1',
++            'EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME': '1',
++        }
++    return out
++
++
++def parse_redis_url_username(redis_url: str) -> str:
++    raw = _s(redis_url).strip()
++    if not raw:
++        return ''
++    try:
++        u = urlsplit(raw)
++        return _s(u.username)
++    except Exception:
++        return ''
++
++
++def normalize_client_entry(raw: Any) -> Dict[str, str]:
++    out: Dict[str, str] = {}
++    if isinstance(raw, dict):
++        for k, v in raw.items():
++            out[_s(k)] = _s(v)
++        return out
++    txt = _s(raw).strip()
++    if not txt:
++        return out
++    # CLIENT LIST returns a single line with key=value pairs.
++    line = txt.splitlines()[0]
++    for part in line.split():
++        if '=' not in part:
++            continue
++        k, v = part.split('=', 1)
++        out[_s(k)] = _s(v)
++    return out
++
++
++def parse_client_list(raw: Any) -> List[Dict[str, str]]:
++    if isinstance(raw, (list, tuple)):
++        return [normalize_client_entry(x) for x in raw if normalize_client_entry(x)]
++    txt = _s(raw).strip()
++    if not txt:
++        return []
++    out: List[Dict[str, str]] = []
++    for line in txt.splitlines():
++        ent = normalize_client_entry(line)
++        if ent:
++            out.append(ent)
++    return out
++
++
++def _match_entry_to_service(entry: Mapping[str, Any], expected: ServiceIdentity) -> Dict[str, str]:
++    got_user = _s(entry.get('user'))
++    got_name = _s(entry.get('name'))
++    got_lib_name = _s(entry.get('lib-name'))
++    return {
++        'user': got_user,
++        'name': got_name,
++        'lib_name': got_lib_name,
++        'user_match': '1' if got_user == expected.redis_user else '0',
++        'name_match': '1' if got_name == expected.client_name else '0',
++        'lib_name_match': '1' if got_lib_name == expected.lib_name else '0',
++    }
++
++
++def evaluate_client_list_against_contract(raw_client_list: Any, *, required_services: Sequence[str] | None = None) -> Dict[str, Any]:
++    contract = build_service_identity_contract()
++    required = list(required_services or contract.keys())
++    entries = parse_client_list(raw_client_list)
++    by_name: Dict[str, List[Dict[str, str]]] = {}
++    for ent in entries:
++        name = _s(ent.get('name'))
++        by_name.setdefault(name, []).append(ent)
++    violations: List[Dict[str, str]] = []
++    services: Dict[str, Dict[str, Any]] = {}
++    known_names = {v.client_name for v in contract.values()}
++    for service in required:
++        exp = contract[service]
++        rows = list(by_name.get(exp.client_name, []))
++        if not rows:
++            violations.append({'kind': 'service_missing', 'service': service})
++            services[service] = {'seen': 0, 'user_match': 0, 'name_match': 0, 'lib_name_match': 0, 'role': exp.role, 'expected_user': exp.redis_user, 'expected_name': exp.client_name, 'expected_lib_name': exp.lib_name}
++            continue
++        if len(rows) > 1:
++            violations.append({'kind': 'duplicate_service_connection', 'service': service})
++        match = _match_entry_to_service(rows[0], exp)
++        if match['user_match'] != '1':
++            violations.append({'kind': 'wrong_user', 'service': service})
++        if match['name_match'] != '1':
++            violations.append({'kind': 'wrong_name', 'service': service})
++        if match['lib_name_match'] != '1':
++            violations.append({'kind': 'wrong_lib_name', 'service': service})
++        services[service] = {
++            'seen': len(rows),
++            'role': exp.role,
++            'expected_user': exp.redis_user,
++            'expected_name': exp.client_name,
++            'expected_lib_name': exp.lib_name,
++            **{k: (int(v) if v in {'0','1'} else v) for k, v in match.items()},
++        }
++    for ent in entries:
++        name = _s(ent.get('name'))
++        if name.startswith('exec-health-freeze-') and name not in known_names:
++            violations.append({'kind': 'unexpected_exec_health_client', 'service': name})
++    return {'ok': not violations, 'services': services, 'violations': violations, 'required_services': required}
++
++
++def get_expected_service(service: str) -> ServiceIdentity:
++    try:
++        return build_service_identity_contract()[service]
++    except KeyError as exc:
++        raise KeyError(f'unknown ExecHealth service identity contract: {service}') from exc
++
++
++def _read_current_client_line_sync(r: Any) -> str:
++    cid = int(r.execute_command('CLIENT', 'ID'))
++    try:
++        raw = r.execute_command('CLIENT', 'LIST', 'ID', cid)
++    except Exception:
++        raw = r.execute_command('CLIENT', 'LIST')
++        for line in _s(raw).splitlines():
++            ent = normalize_client_entry(line)
++            if _s(ent.get('id')) == str(cid):
++                return line
++        raise
++    return _s(raw)
++
++
++async def _read_current_client_line_async(r: Any) -> str:
++    cid = int(await r.execute_command('CLIENT', 'ID'))
++    try:
++        raw = await r.execute_command('CLIENT', 'LIST', 'ID', cid)
++    except Exception:
++        raw = await r.execute_command('CLIENT', 'LIST')
++        for line in _s(raw).splitlines():
++            ent = normalize_client_entry(line)
++            if _s(ent.get('id')) == str(cid):
++                return line
++        raise
++    return _s(raw)
++
++
++def verify_entry_against_expected(entry: Mapping[str, Any], expected: ServiceIdentity, *, require_lib_name: bool | None = None) -> Dict[str, Any]:
++    require_lib_name = _b(os.getenv(IDENTITY_REQUIRE_LIBNAME_ENV, '1'), True) if require_lib_name is None else bool(require_lib_name)
++    ent = normalize_client_entry(entry)
++    got_user = _s(ent.get('user'))
++    got_name = _s(ent.get('name'))
++    got_lib_name = _s(ent.get('lib-name'))
++    violations: List[str] = []
++    if got_user != expected.redis_user:
++        violations.append('wrong_user')
++    if got_name != expected.client_name:
++        violations.append('wrong_name')
++    if require_lib_name and got_lib_name != expected.lib_name:
++        violations.append('wrong_lib_name')
++    return {'ok': not violations, 'entry': ent, 'violations': violations, 'expected': expected}
++
++
++def ensure_service_identity_sync(r: Any, service: str, *, enforce: bool | None = None) -> Dict[str, Any]:
++    expected = get_expected_service(service)
++    enforce = _b(os.getenv(IDENTITY_ENFORCE_ENV, '1'), True) if enforce is None else bool(enforce)
++    try:
++        r.execute_command('CLIENT', 'SETNAME', expected.client_name)
++    except Exception:
++        if enforce:
++            raise
++    require_lib_name = _b(os.getenv(IDENTITY_REQUIRE_LIBNAME_ENV, '1'), True)
++    try:
++        r.execute_command('CLIENT', 'SETINFO', 'LIB-NAME', expected.lib_name)
++    except Exception:
++        if enforce and require_lib_name:
++            raise
++    entry = normalize_client_entry(_read_current_client_line_sync(r))
++    chk = verify_entry_against_expected(entry, expected, require_lib_name=require_lib_name)
++    if enforce and not chk['ok']:
++        raise RuntimeError(f'ExecHealth Redis service identity mismatch for {service}: {chk["violations"]}; entry={chk["entry"]}')
++    return chk
++
++
++async def ensure_service_identity_async(r: Any, service: str, *, enforce: bool | None = None) -> Dict[str, Any]:
++    expected = get_expected_service(service)
++    enforce = _b(os.getenv(IDENTITY_ENFORCE_ENV, '1'), True) if enforce is None else bool(enforce)
++    try:
++        await r.execute_command('CLIENT', 'SETNAME', expected.client_name)
++    except Exception:
++        if enforce:
++            raise
++    require_lib_name = _b(os.getenv(IDENTITY_REQUIRE_LIBNAME_ENV, '1'), True)
++    try:
++        await r.execute_command('CLIENT', 'SETINFO', 'LIB-NAME', expected.lib_name)
++    except Exception:
++        if enforce and require_lib_name:
++            raise
++    entry = normalize_client_entry(await _read_current_client_line_async(r))
++    chk = verify_entry_against_expected(entry, expected, require_lib_name=require_lib_name)
++    if enforce and not chk['ok']:
++        raise RuntimeError(f'ExecHealth Redis service identity mismatch for {service}: {chk["violations"]}; entry={chk["entry"]}')
++    return chk
+--- services/orderflow/tests/test_exec_health_freeze_service_identity_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ services/orderflow/tests/test_exec_health_freeze_service_identity_v1.py	2026-03-07 18:54:11.743392939 +0000
+@@ -0,0 +1,31 @@
++from services.orderflow.exec_health_freeze_service_identity import build_service_identity_contract, evaluate_client_list_against_contract, normalize_client_entry, verify_entry_against_expected
++
++
++def test_contract_contains_expected_services():
++    c = build_service_identity_contract()
++    assert 'exec_health_freeze_override_v1' in c
++    assert c['exec_health_freeze_override_v1'].redis_user == 'exec_health_freeze_writer'
++
++
++def test_evaluate_client_list_against_contract_ok_subset():
++    raw = "\n".join([
++        'id=1 user=exec_health_freeze_writer name=exec-health-freeze-override-v1 lib-name=exec-health-freeze-writer',
++        'id=2 user=exec_health_freeze_audit name=exec-health-freeze-acl-drift-exporter-v1 lib-name=exec-health-freeze-audit',
++    ])
++    res = evaluate_client_list_against_contract(raw, required_services=['exec_health_freeze_override_v1', 'exec_health_freeze_acl_drift_exporter_v1'])
++    assert res['ok'] is True
++    assert res['services']['exec_health_freeze_override_v1']['user_match'] == 1
++
++
++def test_evaluate_client_list_against_contract_detects_wrong_user_and_missing():
++    raw = 'id=1 user=default name=exec-health-freeze-override-v1 lib-name=exec-health-freeze-writer'
++    res = evaluate_client_list_against_contract(raw, required_services=['exec_health_freeze_override_v1', 'exec_health_freeze_acl_drift_exporter_v1'])
++    kinds = {(v['kind'], v['service']) for v in res['violations']}
++    assert ('wrong_user', 'exec_health_freeze_override_v1') in kinds
++    assert ('service_missing', 'exec_health_freeze_acl_drift_exporter_v1') in kinds
++
++
++def test_verify_entry_against_expected():
++    expected = build_service_identity_contract()['exec_health_freeze_override_v1']
++    chk = verify_entry_against_expected(normalize_client_entry('id=1 user=exec_health_freeze_writer name=exec-health-freeze-override-v1 lib-name=exec-health-freeze-writer'), expected)
++    assert chk['ok'] is True
+--- orderflow_services/exec_health_freeze_override_v1.py	2026-03-07 18:26:35.879508135 +0000
++++ orderflow_services/exec_health_freeze_override_v1.py	2026-03-07 18:54:11.740453175 +0000
+@@ -14,6 +14,7 @@
+ except Exception:  # pragma: no cover
+     redis = None
+ 
++from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
+ from services.orderflow.exec_health_freeze_control import (
+     ACK_SIGNING_SECRET_ENV,
+     build_dual_control_commit_thaw_update,
+@@ -52,6 +53,7 @@
+         self.event_stream = os.getenv("EXEC_HEALTH_FREEZE_EVENT_STREAM", "ops:exec_health:freeze_events:v1")
+         self.request_stream = os.getenv("EXEC_HEALTH_FREEZE_REQUEST_STREAM", DEFAULT_REQUEST_STREAM)
+         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
++        ensure_service_identity_sync(self.r, "exec_health_freeze_override_v1")
+ 
+     def _read_hash(self, key: str) -> Dict[str, Any]:
+         try:
+--- orderflow_services/exec_health_slo_autoguard_v1.py	2026-03-07 18:15:20.067892678 +0000
++++ orderflow_services/exec_health_slo_autoguard_v1.py	2026-03-07 18:54:11.741828937 +0000
+@@ -14,6 +14,7 @@
+     stringify_mapping,
+ )
+ from services.orderflow.exec_health_freeze_sealed_state import asealed_set
++from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_async
+ 
+ try:
+     import redis.asyncio as aioredis  # type: ignore
+@@ -143,6 +144,7 @@
+         if aioredis is None:
+             raise RuntimeError("redis dependency missing")
+         self.r = aioredis.from_url(self.cfg.redis_url, decode_responses=True)
++        self._identity_checked = False
+ 
+     async def _read_hash(self, key: str) -> Dict[str, Any]:
+         try:
+@@ -234,6 +236,9 @@
+     async def run_once(self) -> None:
+         if not self.cfg.enabled:
+             return
++        if not self._identity_checked:
++            await ensure_service_identity_async(self.r, "exec_health_slo_autoguard_v1")
++            self._identity_checked = True
+         now = _now_ms()
+         summary = await self._read_hash(self.cfg.summary_key)
+         if not summary:
+--- orderflow_services/exec_health_freeze_tamper_guard_v1.py	2026-03-07 18:19:56.956446232 +0000
++++ orderflow_services/exec_health_freeze_tamper_guard_v1.py	2026-03-07 18:54:11.741372660 +0000
+@@ -17,6 +17,7 @@
+ from services.orderflow.exec_health_freeze_sealed_state import sealed_set_sync
+ from services.orderflow.exec_health_freeze_integrity import evaluate_freeze_integrity
+ from services.orderflow.exec_health_freeze_request_log import DEFAULT_REQUEST_STREAM
++from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
+ 
+ 
+ def _now_ms() -> int:
+@@ -84,6 +85,7 @@
+         self.event_count = max(10, int(os.getenv('EXEC_HEALTH_FREEZE_INTEGRITY_EVENT_COUNT', '100') or 100))
+         self.request_count = max(10, int(os.getenv('EXEC_HEALTH_FREEZE_REQUEST_EVENT_COUNT', '200') or 200))
+         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
++        ensure_service_identity_sync(self.r, "exec_health_freeze_tamper_guard_v1")
+ 
+     def _read_hash(self, key: str) -> Dict[str, Any]:
+         try:
+--- orderflow_services/exec_health_freeze_acl_audit_exporter_v1.py	2026-03-07 18:19:21.798602306 +0000
++++ orderflow_services/exec_health_freeze_acl_audit_exporter_v1.py	2026-03-07 18:54:11.692269860 +0000
+@@ -1,5 +1,6 @@
+ #!/usr/bin/env python3
+ from __future__ import annotations
++from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
+ 
+ import os
+ import time
+@@ -72,6 +73,7 @@
+         self.state_key = os.getenv('EXEC_HEALTH_FREEZE_ACL_AUDIT_STATE_KEY', 'metrics:exec_health:freeze_acl_audit:last')
+         self.loop_s = max(5, int(os.getenv('EXEC_HEALTH_FREEZE_ACL_AUDIT_INTERVAL_S', '30') or 30))
+         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
++        ensure_service_identity_sync(self.r, "exec_health_freeze_acl_audit_exporter_v1")
+         self._seen_ids: set[str] = set()
+ 
+     def _read_state(self) -> Dict[str, Any]:
+--- orderflow_services/exec_health_freeze_acl_drift_exporter_v1.py	2026-03-07 18:41:01.557097186 +0000
++++ orderflow_services/exec_health_freeze_acl_drift_exporter_v1.py	2026-03-07 18:54:11.739386294 +0000
+@@ -11,6 +11,7 @@
+     redis = None
+ from prometheus_client import Counter, Gauge, start_http_server
+ 
++from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
+ from services.orderflow.exec_health_freeze_acl_contract import (
+     AUDIT_USER,
+     BOOTSTRAP_USER,
+@@ -59,6 +60,7 @@
+         self.state_key = os.getenv('EXEC_HEALTH_FREEZE_ACL_DRIFT_STATE_KEY', 'metrics:exec_health:freeze_acl_drift:last')
+         self.loop_s = max(5, int(os.getenv('EXEC_HEALTH_FREEZE_ACL_DRIFT_INTERVAL_S', '30') or 30))
+         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
++        ensure_service_identity_sync(self.r, "exec_health_freeze_acl_drift_exporter_v1")
+ 
+     def _read_state(self) -> Dict[str, Any]:
+         try:
+--- orderflow_services/exec_health_freeze_acl_policy_v1.py	2026-03-07 18:41:01.556649608 +0000
++++ orderflow_services/exec_health_freeze_acl_policy_v1.py	2026-03-07 18:54:11.739853992 +0000
+@@ -13,6 +13,7 @@
+     redis = None
+ 
+ from services.orderflow.exec_health_freeze_acl_contract import compare_acl_contract, render_acl_save_load_commands, render_acl_setuser_commands, render_auth_dsn_templates
++from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync, render_service_identity_env_templates
+ 
+ 
+ def _jprint(obj: Dict[str, Any]) -> None:
+@@ -23,12 +24,15 @@
+     def __init__(self, redis_url: str | None = None) -> None:
+         self.redis_url = redis_url or os.getenv('EXEC_HEALTH_REDIS_BOOTSTRAP_URL') or os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0')
+         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True) if redis is not None else None
++        if self.r is not None:
++            ensure_service_identity_sync(self.r, "exec_health_freeze_acl_policy_v1")
+ 
+     def render(self) -> Dict[str, Any]:
+         return {
+             'acl_commands': render_acl_setuser_commands(),
+             'acl_save_load_commands': render_acl_save_load_commands(),
+             'mandatory_auth_dsn_templates': render_auth_dsn_templates(),
++            'service_identity_env_templates': render_service_identity_env_templates(),
+         }
+ 
+     def apply(self, *, save: bool = True, reload_check: bool = False) -> Dict[str, Any]:
+--- orderflow_services/exec_health_freeze_acl_bootstrap_v1.py	2026-03-07 18:41:01.555965054 +0000
++++ orderflow_services/exec_health_freeze_acl_bootstrap_v1.py	2026-03-07 18:54:11.738705662 +0000
+@@ -1,5 +1,6 @@
+ #!/usr/bin/env python3
+ from __future__ import annotations
++from services.orderflow.exec_health_freeze_service_identity import render_service_identity_env_templates
+ 
+ import json
+ import sys
+@@ -45,6 +46,7 @@
+         "acl_commands": render_acl_setuser_commands(),
+         "acl_save_load_commands": render_acl_save_load_commands(),
+         "mandatory_auth_dsn_templates": render_auth_dsn_templates(),
++        "service_identity_env_templates": render_service_identity_env_templates(),
+         "deployment_policy": {
+             "disable_default_user": True,
+             "mandatory_auth_username_password": True,
+--- orderflow_services/exec_health_freeze_service_identity_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/exec_health_freeze_service_identity_exporter_v1.py	2026-03-07 18:54:11.741141952 +0000
+@@ -0,0 +1,88 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import os
++import time
++from typing import Any, Dict, List
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++from prometheus_client import Gauge, start_http_server
++
++from services.orderflow.exec_health_freeze_service_identity import build_service_identity_contract, evaluate_client_list_against_contract, ensure_service_identity_sync
++
++UP = Gauge('exec_health_freeze_service_identity_up', '1 if service identity exporter loop is healthy')
++STATE_AGE_S = Gauge('exec_health_freeze_service_identity_state_age_seconds', 'Age of service identity exporter state in seconds')
++LAST_TS_MS = Gauge('exec_health_freeze_service_identity_last_check_ts_ms', 'Last service identity check timestamp in epoch ms')
++MATCH = Gauge('exec_health_freeze_service_identity_match', '1 if live CLIENT LIST matches expected identity field', ['service', 'field'])
++ACTIVE_CONNECTIONS = Gauge('exec_health_freeze_service_identity_active_connections', 'Current CLIENT LIST connections for expected ExecHealth service', ['service'])
++VIOLATION = Gauge('exec_health_freeze_service_identity_violation', 'One-hot service identity violation', ['kind', 'service'])
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++class Exporter:
++    def __init__(self) -> None:
++        if redis is None:
++            raise RuntimeError('redis dependency missing')
++        self.redis_url = os.getenv('EXEC_HEALTH_REDIS_AUDIT_URL') or os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0')
++        self.state_key = os.getenv('EXEC_HEALTH_FREEZE_SERVICE_IDENTITY_STATE_KEY', 'metrics:exec_health:freeze_service_identity:last')
++        self.loop_s = max(5, int(os.getenv('EXEC_HEALTH_FREEZE_SERVICE_IDENTITY_INTERVAL_S', '30') or 30))
++        self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
++        ensure_service_identity_sync(self.r, 'exec_health_freeze_acl_drift_exporter_v1')
++
++    def _read_state(self) -> Dict[str, Any]:
++        try:
++            return self.r.hgetall(self.state_key) or {}
++        except Exception:
++            return {}
++
++    def _write_state(self, payload: Dict[str, Any]) -> None:
++        try:
++            self.r.hset(self.state_key, mapping={str(k): str(v) for k, v in payload.items()})
++            self.r.expire(self.state_key, 86400 * 7)
++        except Exception:
++            pass
++
++    def run_once(self) -> Dict[str, Any]:
++        now = _now_ms()
++        raw = self.r.execute_command('CLIENT', 'LIST') or ''
++        res = evaluate_client_list_against_contract(raw)
++        contract = build_service_identity_contract()
++        for service in contract.keys():
++            row = dict(res.get('services', {}).get(service) or {})
++            ACTIVE_CONNECTIONS.labels(service=service).set(float(int(row.get('seen', 0) or 0)))
++            MATCH.labels(service=service, field='user').set(float(int(row.get('user_match', 0) or 0)))
++            MATCH.labels(service=service, field='name').set(float(int(row.get('name_match', 0) or 0)))
++            MATCH.labels(service=service, field='lib_name').set(float(int(row.get('lib_name_match', 0) or 0)))
++        active = {(str(v.get('kind')), str(v.get('service'))): 1 for v in list(res.get('violations', []) or [])}
++        known_kinds = ['service_missing', 'duplicate_service_connection', 'wrong_user', 'wrong_name', 'wrong_lib_name', 'unexpected_exec_health_client']
++        for kind in known_kinds:
++            for service in list(contract.keys()) + ['unknown']:
++                VIOLATION.labels(kind=kind, service=service).set(1.0 if (kind, service) in active else 0.0)
++        st = self._read_state()
++        st.update({'updated_ts_ms': int(now), 'last_check_ts_ms': int(now), 'violation_count': int(len(list(res.get('violations', []) or []))), 'ok': 1 if res.get('ok') else 0})
++        self._write_state(st)
++        LAST_TS_MS.set(float(now))
++        STATE_AGE_S.set(0.0)
++        UP.set(1.0)
++        return {'ok': bool(res.get('ok')), 'violation_count': int(len(list(res.get('violations', []) or []))), 'services': res.get('services', {})}
++
++
++def main() -> None:
++    ex = Exporter()
++    start_http_server(int(os.getenv('EXEC_HEALTH_FREEZE_SERVICE_IDENTITY_EXPORTER_PORT', '9833')))
++    while True:
++        try:
++            ex.run_once()
++        except Exception:
++            UP.set(0.0)
++        time.sleep(ex.loop_s)
++
++
++if __name__ == '__main__':
++    main()
+--- orderflow_services/exec_health_freeze_service_identity_blocker_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/exec_health_freeze_service_identity_blocker_v1.py	2026-03-07 18:54:11.740823771 +0000
+@@ -0,0 +1,37 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++from typing import List
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++from services.orderflow.exec_health_freeze_service_identity import evaluate_client_list_against_contract, ensure_service_identity_sync
++
++
++def _jprint(obj):
++    print(json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True))
++
++
++def main(argv: List[str] | None = None) -> int:
++    ap = argparse.ArgumentParser(description='ExecHealth Redis service identity rollout blocker')
++    ap.add_argument('--redis-url', default=os.getenv('EXEC_HEALTH_REDIS_AUDIT_URL') or os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0'))
++    ap.add_argument('--services', nargs='*', default=[])
++    ns = ap.parse_args(argv)
++    if redis is None:
++        raise RuntimeError('redis dependency missing')
++    r = redis.Redis.from_url(ns.redis_url, decode_responses=True)
++    ensure_service_identity_sync(r, 'exec_health_freeze_acl_drift_exporter_v1')
++    raw = r.execute_command('CLIENT', 'LIST') or ''
++    res = evaluate_client_list_against_contract(raw, required_services=list(ns.services or []))
++    _jprint(res)
++    return 0 if res.get('ok') else 1
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+--- orderflow_services/prometheus_alerts_exec_health_freeze_service_identity_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/prometheus_alerts_exec_health_freeze_service_identity_v1.yml	2026-03-07 18:54:11.742282034 +0000
+@@ -0,0 +1,21 @@
++groups:
++- name: exec_health_freeze_service_identity_v1
++  rules:
++  - alert: OF_ExecHealth_FreezeServiceIdentityDrift_Crit
++    expr: max(exec_health_freeze_service_identity_violation) > 0
++    for: 2m
++    labels:
++      severity: critical
++      layer: exec_health
++    annotations:
++      summary: ExecHealth Redis service identity drift detected
++      description: CLIENT LIST no longer matches the expected user/name/lib-name contract for one or more trusted services.
++  - alert: OF_ExecHealth_FreezeServiceIdentityExporter_Stale_Warn
++    expr: time() - (exec_health_freeze_service_identity_last_check_ts_ms / 1000) > 180
++    for: 5m
++    labels:
++      severity: warning
++      layer: exec_health
++    annotations:
++      summary: ExecHealth service identity exporter stale
++      description: The service identity exporter has not refreshed recently.
+--- orderflow_services/runbook_exec_health_freeze_service_identity_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/runbook_exec_health_freeze_service_identity_v1.md	2026-03-07 18:54:11.742418393 +0000
+@@ -0,0 +1,28 @@
++# ExecHealth Freeze Service Identity (v1)
++
++## Goal
++Ensure trusted ExecHealth Redis clients start only with the expected Redis user, CLIENT NAME and lib-name.
++
++## Contract
++- writer services -> `exec_health_freeze_writer`
++- audit services -> `exec_health_freeze_audit`
++- bootstrap services -> `exec_health_freeze_bootstrap`
++
++Each trusted process must set:
++- `CLIENT SETNAME <expected>`
++- `CLIENT SETINFO LIB-NAME <expected>`
++
++## Rollout blocker
++```bash
++python orderflow_services/exec_health_freeze_service_identity_blocker_v1.py
++```
++
++## Exporter
++```bash
++python orderflow_services/exec_health_freeze_service_identity_exporter_v1.py
++```
++
++## What to inspect
++- `CLIENT LIST`
++- service env with named-user DSNs
++- alerts `OF_ExecHealth_FreezeServiceIdentityDrift_Crit`
+--- orderflow_services/grafana/exec_health_freeze_service_identity_v1.json	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/grafana/exec_health_freeze_service_identity_v1.json	2026-03-07 18:54:11.742129056 +0000
+@@ -0,0 +1,34 @@
++{
++  "title": "ExecHealth Freeze Service Identity (v1)",
++  "panels": [
++    {
++      "type": "timeseries",
++      "title": "Identity violations",
++      "targets": [
++        {
++          "expr": "exec_health_freeze_service_identity_violation"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Identity field match",
++      "targets": [
++        {
++          "expr": "exec_health_freeze_service_identity_match"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Active service connections",
++      "targets": [
++        {
++          "expr": "exec_health_freeze_service_identity_active_connections"
++        }
++      ]
++    }
++  ],
++  "schemaVersion": 39,
++  "version": 1
++}
+\ No newline at end of file
+--- orderflow_services/tests/test_exec_health_freeze_service_identity_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/tests/test_exec_health_freeze_service_identity_exporter_v1.py	2026-03-07 18:54:11.742896751 +0000
+@@ -0,0 +1,67 @@
++from types import SimpleNamespace
++
++import orderflow_services.exec_health_freeze_service_identity_exporter_v1 as exp_mod
++import orderflow_services.exec_health_freeze_service_identity_blocker_v1 as block_mod
++
++from orderflow_services.exec_health_freeze_service_identity_exporter_v1 import Exporter
++from orderflow_services.exec_health_freeze_service_identity_blocker_v1 import main as blocker_main
++
++
++class FakeRedis:
++    def __init__(self):
++        self.hashes = {}
++        self.client_name = ''
++        self.lib_name = ''
++        self.client_id = 77
++
++    def execute_command(self, *argv):
++        cmd = tuple(str(x) for x in argv)
++        if cmd[:2] == ('CLIENT', 'SETNAME'):
++            self.client_name = cmd[2]
++            return 'OK'
++        if cmd[:3] == ('CLIENT', 'SETINFO', 'LIB-NAME'):
++            self.lib_name = cmd[3]
++            return 'OK'
++        if cmd[:2] == ('CLIENT', 'ID'):
++            return self.client_id
++        if cmd[:2] == ('CLIENT', 'LIST') and len(cmd) >= 4 and cmd[2] == 'ID':
++            return f'id={self.client_id} user=exec_health_freeze_audit name={self.client_name} lib-name={self.lib_name}'
++        if cmd[:2] == ('CLIENT', 'LIST'):
++            return "\n".join([
++                'id=1 user=exec_health_freeze_writer name=exec-health-freeze-override-v1 lib-name=exec-health-freeze-writer',
++                'id=2 user=exec_health_freeze_writer name=exec-health-slo-autoguard-v1 lib-name=exec-health-freeze-writer',
++                'id=3 user=exec_health_freeze_writer name=exec-health-freeze-tamper-guard-v1 lib-name=exec-health-freeze-writer',
++                'id=4 user=exec_health_freeze_audit name=exec-health-freeze-acl-audit-exporter-v1 lib-name=exec-health-freeze-audit',
++                'id=5 user=exec_health_freeze_audit name=exec-health-freeze-acl-drift-exporter-v1 lib-name=exec-health-freeze-audit',
++                'id=6 user=exec_health_freeze_bootstrap name=exec-health-freeze-acl-policy-v1 lib-name=exec-health-freeze-bootstrap',
++            ])
++        raise AssertionError(cmd)
++
++    def hgetall(self, key):
++        return dict(self.hashes.get(key, {}))
++
++    def hset(self, key, mapping=None):
++        self.hashes.setdefault(key, {}).update({str(k): str(v) for k, v in (mapping or {}).items()})
++        return 1
++
++    def expire(self, key, ttl):
++        return 1
++
++
++def _redis_ns(fake):
++    return SimpleNamespace(Redis=SimpleNamespace(from_url=staticmethod(lambda *a, **k: fake)))
++
++
++def test_exporter_run_once(monkeypatch):
++    fake = FakeRedis()
++    monkeypatch.setattr(exp_mod, 'redis', _redis_ns(fake))
++    ex = Exporter()
++    out = ex.run_once()
++    assert out['ok'] is True
++    assert int(fake.hashes[ex.state_key]['violation_count']) == 0
++
++
++def test_blocker_main_ok(monkeypatch):
++    fake = FakeRedis()
++    monkeypatch.setattr(block_mod, 'redis', _redis_ns(fake))
++    assert blocker_main([]) == 0
+--- orderflow_services/tests/test_exec_health_freeze_service_identity_alerts_yaml_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/tests/test_exec_health_freeze_service_identity_alerts_yaml_v1.py	2026-03-07 18:54:11.742586406 +0000
+@@ -0,0 +1,7 @@
++from pathlib import Path
++import yaml
++
++
++def test_alerts_yaml_valid():
++    data = yaml.safe_load(Path('orderflow_services/prometheus_alerts_exec_health_freeze_service_identity_v1.yml').read_text())
++    assert data['groups'][0]['name'] == 'exec_health_freeze_service_identity_v1'
+--- orderflow_services/tests/test_exec_health_freeze_service_identity_dashboard_json_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/tests/test_exec_health_freeze_service_identity_dashboard_json_v1.py	2026-03-07 18:54:11.742724133 +0000
+@@ -0,0 +1,7 @@
++from pathlib import Path
++import json
++
++
++def test_dashboard_json_valid():
++    data = json.loads(Path('orderflow_services/grafana/exec_health_freeze_service_identity_v1.json').read_text())
++    assert data['title'] == 'ExecHealth Freeze Service Identity (v1)'
+--- tick_flow_full/orderflow_services/exec_health_freeze_service_identity_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ tick_flow_full/orderflow_services/exec_health_freeze_service_identity_exporter_v1.py	2026-03-07 18:54:11.743766318 +0000
+@@ -0,0 +1,88 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import os
++import time
++from typing import Any, Dict, List
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++from prometheus_client import Gauge, start_http_server
++
++from services.orderflow.exec_health_freeze_service_identity import build_service_identity_contract, evaluate_client_list_against_contract, ensure_service_identity_sync
++
++UP = Gauge('exec_health_freeze_service_identity_up', '1 if service identity exporter loop is healthy')
++STATE_AGE_S = Gauge('exec_health_freeze_service_identity_state_age_seconds', 'Age of service identity exporter state in seconds')
++LAST_TS_MS = Gauge('exec_health_freeze_service_identity_last_check_ts_ms', 'Last service identity check timestamp in epoch ms')
++MATCH = Gauge('exec_health_freeze_service_identity_match', '1 if live CLIENT LIST matches expected identity field', ['service', 'field'])
++ACTIVE_CONNECTIONS = Gauge('exec_health_freeze_service_identity_active_connections', 'Current CLIENT LIST connections for expected ExecHealth service', ['service'])
++VIOLATION = Gauge('exec_health_freeze_service_identity_violation', 'One-hot service identity violation', ['kind', 'service'])
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++class Exporter:
++    def __init__(self) -> None:
++        if redis is None:
++            raise RuntimeError('redis dependency missing')
++        self.redis_url = os.getenv('EXEC_HEALTH_REDIS_AUDIT_URL') or os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0')
++        self.state_key = os.getenv('EXEC_HEALTH_FREEZE_SERVICE_IDENTITY_STATE_KEY', 'metrics:exec_health:freeze_service_identity:last')
++        self.loop_s = max(5, int(os.getenv('EXEC_HEALTH_FREEZE_SERVICE_IDENTITY_INTERVAL_S', '30') or 30))
++        self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
++        ensure_service_identity_sync(self.r, 'exec_health_freeze_acl_drift_exporter_v1')
++
++    def _read_state(self) -> Dict[str, Any]:
++        try:
++            return self.r.hgetall(self.state_key) or {}
++        except Exception:
++            return {}
++
++    def _write_state(self, payload: Dict[str, Any]) -> None:
++        try:
++            self.r.hset(self.state_key, mapping={str(k): str(v) for k, v in payload.items()})
++            self.r.expire(self.state_key, 86400 * 7)
++        except Exception:
++            pass
++
++    def run_once(self) -> Dict[str, Any]:
++        now = _now_ms()
++        raw = self.r.execute_command('CLIENT', 'LIST') or ''
++        res = evaluate_client_list_against_contract(raw)
++        contract = build_service_identity_contract()
++        for service in contract.keys():
++            row = dict(res.get('services', {}).get(service) or {})
++            ACTIVE_CONNECTIONS.labels(service=service).set(float(int(row.get('seen', 0) or 0)))
++            MATCH.labels(service=service, field='user').set(float(int(row.get('user_match', 0) or 0)))
++            MATCH.labels(service=service, field='name').set(float(int(row.get('name_match', 0) or 0)))
++            MATCH.labels(service=service, field='lib_name').set(float(int(row.get('lib_name_match', 0) or 0)))
++        active = {(str(v.get('kind')), str(v.get('service'))): 1 for v in list(res.get('violations', []) or [])}
++        known_kinds = ['service_missing', 'duplicate_service_connection', 'wrong_user', 'wrong_name', 'wrong_lib_name', 'unexpected_exec_health_client']
++        for kind in known_kinds:
++            for service in list(contract.keys()) + ['unknown']:
++                VIOLATION.labels(kind=kind, service=service).set(1.0 if (kind, service) in active else 0.0)
++        st = self._read_state()
++        st.update({'updated_ts_ms': int(now), 'last_check_ts_ms': int(now), 'violation_count': int(len(list(res.get('violations', []) or []))), 'ok': 1 if res.get('ok') else 0})
++        self._write_state(st)
++        LAST_TS_MS.set(float(now))
++        STATE_AGE_S.set(0.0)
++        UP.set(1.0)
++        return {'ok': bool(res.get('ok')), 'violation_count': int(len(list(res.get('violations', []) or []))), 'services': res.get('services', {})}
++
++
++def main() -> None:
++    ex = Exporter()
++    start_http_server(int(os.getenv('EXEC_HEALTH_FREEZE_SERVICE_IDENTITY_EXPORTER_PORT', '9833')))
++    while True:
++        try:
++            ex.run_once()
++        except Exception:
++            UP.set(0.0)
++        time.sleep(ex.loop_s)
++
++
++if __name__ == '__main__':
++    main()
+--- tick_flow_full/orderflow_services/exec_health_freeze_service_identity_blocker_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ tick_flow_full/orderflow_services/exec_health_freeze_service_identity_blocker_v1.py	2026-03-07 18:54:11.743577296 +0000
+@@ -0,0 +1,37 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++from typing import List
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++from services.orderflow.exec_health_freeze_service_identity import evaluate_client_list_against_contract, ensure_service_identity_sync
++
++
++def _jprint(obj):
++    print(json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True))
++
++
++def main(argv: List[str] | None = None) -> int:
++    ap = argparse.ArgumentParser(description='ExecHealth Redis service identity rollout blocker')
++    ap.add_argument('--redis-url', default=os.getenv('EXEC_HEALTH_REDIS_AUDIT_URL') or os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0'))
++    ap.add_argument('--services', nargs='*', default=[])
++    ns = ap.parse_args(argv)
++    if redis is None:
++        raise RuntimeError('redis dependency missing')
++    r = redis.Redis.from_url(ns.redis_url, decode_responses=True)
++    ensure_service_identity_sync(r, 'exec_health_freeze_acl_drift_exporter_v1')
++    raw = r.execute_command('CLIENT', 'LIST') or ''
++    res = evaluate_client_list_against_contract(raw, required_services=list(ns.services or []))
++    _jprint(res)
++    return 0 if res.get('ok') else 1
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+--- tick_flow_full/orderflow_services/prometheus_alerts_exec_health_freeze_service_identity_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ tick_flow_full/orderflow_services/prometheus_alerts_exec_health_freeze_service_identity_v1.yml	2026-03-07 18:54:11.744051394 +0000
+@@ -0,0 +1,21 @@
++groups:
++- name: exec_health_freeze_service_identity_v1
++  rules:
++  - alert: OF_ExecHealth_FreezeServiceIdentityDrift_Crit
++    expr: max(exec_health_freeze_service_identity_violation) > 0
++    for: 2m
++    labels:
++      severity: critical
++      layer: exec_health
++    annotations:
++      summary: ExecHealth Redis service identity drift detected
++      description: CLIENT LIST no longer matches the expected user/name/lib-name contract for one or more trusted services.
++  - alert: OF_ExecHealth_FreezeServiceIdentityExporter_Stale_Warn
++    expr: time() - (exec_health_freeze_service_identity_last_check_ts_ms / 1000) > 180
++    for: 5m
++    labels:
++      severity: warning
++      layer: exec_health
++    annotations:
++      summary: ExecHealth service identity exporter stale
++      description: The service identity exporter has not refreshed recently.
+--- tick_flow_full/orderflow_services/runbook_exec_health_freeze_service_identity_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ tick_flow_full/orderflow_services/runbook_exec_health_freeze_service_identity_v1.md	2026-03-07 18:54:11.744181601 +0000
+@@ -0,0 +1,28 @@
++# ExecHealth Freeze Service Identity (v1)
++
++## Goal
++Ensure trusted ExecHealth Redis clients start only with the expected Redis user, CLIENT NAME and lib-name.
++
++## Contract
++- writer services -> `exec_health_freeze_writer`
++- audit services -> `exec_health_freeze_audit`
++- bootstrap services -> `exec_health_freeze_bootstrap`
++
++Each trusted process must set:
++- `CLIENT SETNAME <expected>`
++- `CLIENT SETINFO LIB-NAME <expected>`
++
++## Rollout blocker
++```bash
++python orderflow_services/exec_health_freeze_service_identity_blocker_v1.py
++```
++
++## Exporter
++```bash
++python orderflow_services/exec_health_freeze_service_identity_exporter_v1.py
++```
++
++## What to inspect
++- `CLIENT LIST`
++- service env with named-user DSNs
++- alerts `OF_ExecHealth_FreezeServiceIdentityDrift_Crit`
+--- tick_flow_full/orderflow_services/grafana/exec_health_freeze_service_identity_v1.json	1970-01-01 00:00:00.000000000 +0000
++++ tick_flow_full/orderflow_services/grafana/exec_health_freeze_service_identity_v1.json	2026-03-07 18:54:11.743915478 +0000
+@@ -0,0 +1,34 @@
++{
++  "title": "ExecHealth Freeze Service Identity (v1)",
++  "panels": [
++    {
++      "type": "timeseries",
++      "title": "Identity violations",
++      "targets": [
++        {
++          "expr": "exec_health_freeze_service_identity_violation"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Identity field match",
++      "targets": [
++        {
++          "expr": "exec_health_freeze_service_identity_match"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Active service connections",
++      "targets": [
++        {
++          "expr": "exec_health_freeze_service_identity_active_connections"
++        }
++      ]
++    }
++  ],
++  "schemaVersion": 39,
++  "version": 1
++}
+\ No newline at end of file

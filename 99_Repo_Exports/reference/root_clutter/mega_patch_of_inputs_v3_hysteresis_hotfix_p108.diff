@@ -1,0 +1,619 @@
+diff -ruN --no-dereference a/orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py b/orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py
+--- a/orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py	2026-02-26 04:35:08.508142987 +0000
++++ b/orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py	2026-02-26 04:34:43.567890445 +0000
+@@ -18,6 +18,9 @@
+ - of_inputs_v3_circuit_cfg_disabled{symbol,reason} = 1
+ - of_inputs_v3_circuit_cfg_disabled_until_ms{symbol,reason}
+ - of_inputs_v3_circuit_cfg_disabled_ttl_ms{symbol,reason}
++- of_inputs_v3_circuit_cfg_disabled_hard{symbol,reason} = 1
++- of_inputs_v3_circuit_cfg_disabled_cooldown{symbol,reason} = 1
++- of_inputs_v3_circuit_cfg_disabled_hard_until_ms{symbol,reason}
+ - of_inputs_v3_circuit_disabled_symbols
+ - of_inputs_v3_circuit_disabled_symbols_by_reason{reason}
+ 
+@@ -151,6 +154,21 @@
+     "Redis PTTL for cfg disable key (ms)",
+     ["symbol", "reason"],
+ )
++G_DISABLED_HARD = Gauge(
++    "of_inputs_v3_circuit_cfg_disabled_hard",
++    "1 if cfg disables V3 inputs for symbol (hard-disable phase)",
++    ["symbol", "reason"],
++)
++G_DISABLED_COOLDOWN = Gauge(
++    "of_inputs_v3_circuit_cfg_disabled_cooldown",
++    "1 if cfg disables V3 inputs for symbol (cooldown/anti-flap phase)",
++    ["symbol", "reason"],
++)
++G_DISABLED_HARD_UNTIL_MS = Gauge(
++    "of_inputs_v3_circuit_cfg_disabled_hard_until_ms",
++    "Hard-disable until timestamp (ms) derived from cfg disable key",
++    ["symbol", "reason"],
++)
+ G_DISABLED_SYMBOLS = Gauge(
+     "of_inputs_v3_circuit_disabled_symbols",
+     "Count of currently disabled symbols",
+@@ -259,6 +277,13 @@
+     return int(until_ms), str(reason or "cfg")
+ 
+ 
++def _derive_hard_until_ms(meta: Dict[str, Any], until_ms: int) -> int:
++    hu = _as_int(meta.get("hard_until_ms"), 0)
++    if hu <= 0:
++        return int(until_ms or 0)
++    return int(hu)
++
++
+ def main() -> None:
+     port = int(os.environ.get("OF_INPUTS_V3_CIRCUIT_EXPORTER_PORT", "9164"))
+     refresh = float(os.environ.get("OF_INPUTS_V3_CIRCUIT_EXPORTER_REFRESH_SEC", "10"))
+@@ -275,6 +300,9 @@
+     prev_disabled: Set[Tuple[str, ...]] = set()
+     prev_until: Set[Tuple[str, ...]] = set()
+     prev_ttl: Set[Tuple[str, ...]] = set()
++    prev_hard: Set[Tuple[str, ...]] = set()
++    prev_cooldown: Set[Tuple[str, ...]] = set()
++    prev_hard_until: Set[Tuple[str, ...]] = set()
+     prev_dg: Set[Tuple[str, ...]] = set()
+     prev_ap_glob: Set[Tuple[str, ...]] = set()
+     prev_ap_glob_ttl: Set[Tuple[str, ...]] = set()
+@@ -289,6 +317,9 @@
+         cur_disabled: Set[Tuple[str, ...]] = set()
+         cur_until: Set[Tuple[str, ...]] = set()
+         cur_ttl: Set[Tuple[str, ...]] = set()
++        cur_hard: Set[Tuple[str, ...]] = set()
++        cur_cooldown: Set[Tuple[str, ...]] = set()
++        cur_hard_until: Set[Tuple[str, ...]] = set()
+         cur_dg: Set[Tuple[str, ...]] = set()
+         cur_ap_glob: Set[Tuple[str, ...]] = set()
+         cur_ap_glob_ttl: Set[Tuple[str, ...]] = set()
+@@ -336,16 +367,25 @@
+ 
+                     meta = _json_loads(v)
+                     until_ms, reason = _derive_until_ms(meta, now_ms=now_ms, pttl_ms=pttl)
++                    hard_until_ms = _derive_hard_until_ms(meta, until_ms=until_ms)
+                     active = 1 if until_ms > now_ms else 0
++                    hard_active = 1 if (active and hard_until_ms > 0 and now_ms < hard_until_ms) else 0
++                    cooldown_active = 1 if (active and hard_active == 0 and hard_until_ms > 0 and hard_until_ms < until_ms and now_ms < until_ms) else 0
+ 
+                     lv = (sym, reason)
+                     G_DISABLED.labels(symbol=sym, reason=reason).set(active)
+                     G_DISABLED_UNTIL_MS.labels(symbol=sym, reason=reason).set(until_ms)
+                     G_DISABLED_TTL_MS.labels(symbol=sym, reason=reason).set(max(-2, pttl))
++                    G_DISABLED_HARD.labels(symbol=sym, reason=reason).set(hard_active)
++                    G_DISABLED_COOLDOWN.labels(symbol=sym, reason=reason).set(cooldown_active)
++                    G_DISABLED_HARD_UNTIL_MS.labels(symbol=sym, reason=reason).set(hard_until_ms)
+ 
+                     cur_disabled.add(lv)
+                     cur_until.add(lv)
+                     cur_ttl.add(lv)
++                    cur_hard.add(lv)
++                    cur_cooldown.add(lv)
++                    cur_hard_until.add(lv)
+ 
+                     if active:
+                         disabled_by_reason[reason] = disabled_by_reason.get(reason, 0) + 1
+@@ -426,6 +466,9 @@
+         prev_disabled = _remove_stale(G_DISABLED, prev_disabled, cur_disabled)
+         prev_until = _remove_stale(G_DISABLED_UNTIL_MS, prev_until, cur_until)
+         prev_ttl = _remove_stale(G_DISABLED_TTL_MS, prev_ttl, cur_ttl)
++        prev_hard = _remove_stale(G_DISABLED_HARD, prev_hard, cur_hard)
++        prev_cooldown = _remove_stale(G_DISABLED_COOLDOWN, prev_cooldown, cur_cooldown)
++        prev_hard_until = _remove_stale(G_DISABLED_HARD_UNTIL_MS, prev_hard_until, cur_hard_until)
+         prev_dg = _remove_stale(G_DG, prev_dg, cur_dg)
+         prev_ap_glob = _remove_stale(G_AP_GLOB, prev_ap_glob, cur_ap_glob)
+         prev_ap_glob_ttl = _remove_stale(G_AP_GLOB_TTL_MS, prev_ap_glob_ttl, cur_ap_glob_ttl)
+diff -ruN --no-dereference a/orderflow_services/runbook_of_inputs_v3_circuit_p100.md b/orderflow_services/runbook_of_inputs_v3_circuit_p100.md
+--- a/orderflow_services/runbook_of_inputs_v3_circuit_p100.md	2026-02-26 04:35:08.666836853 +0000
++++ b/orderflow_services/runbook_of_inputs_v3_circuit_p100.md	2026-02-26 04:33:08.284056338 +0000
+@@ -25,7 +25,11 @@
+ Ожидаемый JSON (пример):
+ 
+ ```json
+-{"until_ms":1700000000000,"reason":"seq_gap","trip_ts_ms":1699999999000,"count":3,"window_ms":60000}
++{"until_ms":1700000000000,"hard_until_ms":1699999999000,"cooldown_ms":60000,"reason":"seq_gap","trip_ts_ms":1699999999000,"count":3,"window_ms":60000}
++
++`hard_until_ms` — конец “жёсткого” периода (обычно `disable_ms`).
++
++`until_ms` — конец полного периода отключения (`disable_ms + cooldown_ms`). Весь этот период пайплайн детерминированно делает V3→V2 fallback.
+ ```
+ 
+ ### 2.3 Проверить счётчики даунгрейдов по причинам
+@@ -63,7 +67,7 @@
+ 
+ ### 4.1 Если это кратковременный спайк
+ 
+-Ничего не делать: ключ `cfg:of_inputs:v3_disabled:{sym}` истечёт сам (TTL по `disable_ms`, default 5 минут).
++Ничего не делать: ключ `cfg:of_inputs:v3_disabled:{sym}` истечёт сам (TTL по `disable_ms + cooldown_ms`, default 5 минут + 60 секунд).
+ 
+ ### 4.2 Если нужно досрочно включить V3 (осознанно)
+ 
+diff -ruN --no-dereference a/services/orderflow/components/tick_processor.py b/services/orderflow/components/tick_processor.py
+--- a/services/orderflow/components/tick_processor.py	2026-02-26 04:35:08.498553250 +0000
++++ b/services/orderflow/components/tick_processor.py	2026-02-26 04:29:31.714535593 +0000
+@@ -2069,6 +2069,7 @@
+                         cb_window_ms = int(runtime.config.get("of_inputs_v3_circuit_window_ms", 60_000))
+                         cb_max_downgrades = int(runtime.config.get("of_inputs_v3_circuit_max_downgrades_in_window", 3))
+                         cb_disable_ms = int(runtime.config.get("of_inputs_v3_circuit_disable_ms", 300_000))
++                        cb_cooldown_ms = int(runtime.config.get("of_inputs_v3_circuit_cooldown_ms", 60_000))
+                         cb_block_auto_apply = bool(_i(runtime.config.get("of_inputs_v3_circuit_block_auto_apply", 1), 1))
+                         cb_auto_apply_reason = str(runtime.config.get("of_inputs_v3_auto_apply_reason", "of_inputs_v3") or "of_inputs_v3")
+ 
+@@ -2149,6 +2150,7 @@
+                                             window_ms=int(cb_window_ms),
+                                             max_downgrades_in_window=int(cb_max_downgrades),
+                                             disable_ms=int(cb_disable_ms),
++                                            cooldown_ms=int(cb_cooldown_ms),
+                                             block_auto_apply=bool(cb_block_auto_apply),
+                                             auto_apply_reason=str(cb_auto_apply_reason),
+                                         ),
+@@ -2165,8 +2167,11 @@
+ 
+                                         try:
+                                             until_ms = int(res2.get("disabled_until_ms") or 0)
++                                            hard_until_ms = int(res2.get("hard_until_ms") or 0)
+                                             if until_ms > 0:
+                                                 setattr(runtime, "of_inputs_v3_disabled_until_ms", int(until_ms))
++                                                if hard_until_ms > 0:
++                                                    setattr(runtime, "of_inputs_v3_disabled_hard_until_ms", int(hard_until_ms))
+                                                 setattr(runtime, "of_inputs_v3_disabled_reason", str(downgrade_reason))
+                                                 try:
+                                                     of_inputs_v3_circuit_disabled.labels(symbol=str(runtime.symbol)).set(1)
+diff -ruN --no-dereference a/services/orderflow/of_inputs_v3_circuit.py b/services/orderflow/of_inputs_v3_circuit.py
+--- a/services/orderflow/of_inputs_v3_circuit.py	2026-02-26 04:35:08.499424470 +0000
++++ b/services/orderflow/of_inputs_v3_circuit.py	2026-02-26 04:34:04.367948354 +0000
+@@ -129,6 +129,7 @@
+         raw, pttl = await pipe.execute()
+ 
+         until_ms = 0
++        hard_until_ms = 0
+         rsn = ""
+ 
+         if raw is not None:
+@@ -137,6 +138,10 @@
+                 until_ms = int(meta.get("until_ms") or 0)
+             except Exception:
+                 until_ms = 0
++            try:
++                hard_until_ms = int(meta.get("hard_until_ms") or 0)
++            except Exception:
++                hard_until_ms = 0
+             rsn = str(meta.get("reason") or meta.get("dq_code") or "cfg")
+ 
+             # If no until_ms in value, derive from TTL.
+@@ -153,13 +158,31 @@
+                     until_ms = now_ms + max(0, pttl_i)
+                     rsn = rsn or "cfg_ttl"
+ 
++            if hard_until_ms <= 0:
++                # If not present, treat hard_until as until.
++                hard_until_ms = int(until_ms)
++
+         else:
+             # No key.
+             until_ms = 0
+             rsn = ""
+ 
+         setattr(runtime, "of_inputs_v3_disabled_until_ms", int(until_ms))
++        setattr(runtime, "of_inputs_v3_disabled_hard_until_ms", int(hard_until_ms or until_ms or 0))
+         setattr(runtime, "of_inputs_v3_disabled_reason", str(rsn or ""))
++
++        # Phase: hard vs cooldown. We remain disabled until `until_ms`.
++        phase = ""
++        try:
++            hu = int(hard_until_ms or until_ms or 0)
++            if hu > 0 and int(now_ms) < hu:
++                phase = "hard"
++            elif int(until_ms or 0) > 0 and hu > 0 and int(now_ms) < int(until_ms) and hu < int(until_ms):
++                phase = "cooldown"
++        except Exception:
++            phase = ""
++        setattr(runtime, "of_inputs_v3_disabled_phase", phase)
++
+         return (int(until_ms) > now_ms, int(until_ms), str(rsn or ""))
+ 
+     except Exception:
+@@ -174,7 +197,8 @@
+     window_ms: int,
+     max_downgrades_in_window: int,
+     disable_ms: int,
+-    block_auto_apply: bool,
++    cooldown_ms: int = 0,
++    block_auto_apply: bool = True,
+     auto_apply_reason: str = "of_inputs_v3",
+ ) -> Dict[str, Any]:
+     """Record a V3->V2 downgrade and trip circuit if threshold exceeded.
+@@ -213,28 +237,43 @@
+         if c < int(max_downgrades_in_window):
+             return {"tripped": 0, "count": c, "disabled_until_ms": 0}
+ 
+-        # Trip
+-        until_ms = int(now_ms) + int(disable_ms)
++        # Trip (+ optional cooldown/anti-flap)
++        cd_ms = int(cooldown_ms or 0)
++        if cd_ms < 0:
++            cd_ms = 0
++
++        hard_until_ms = int(now_ms) + int(disable_ms)
++        until_ms = int(hard_until_ms) + int(cd_ms)
+         disable_key = _cfg_disabled_key(sym_s)
+         payload = {
+             "until_ms": int(until_ms),
++            "hard_until_ms": int(hard_until_ms),
++            "cooldown_ms": int(cd_ms),
+             "reason": str(rsn),
+             "trip_ts_ms": int(now_ms),
+             "count": int(c),
+             "window_ms": int(window_ms),
+         }
+ 
++        total_ttl_ms = int(disable_ms) + int(cd_ms)
++
+         pipe2 = redis.pipeline(transaction=False)
+-        pipe2.set(disable_key, _json_dumps(payload), px=int(disable_ms))
++        pipe2.set(disable_key, _json_dumps(payload), px=int(total_ttl_ms))
+ 
+         if bool(block_auto_apply):
+             gk = _auto_apply_global_key(auto_apply_reason)
+             sk = _auto_apply_sym_key(sym_s, auto_apply_reason)
+-            pipe2.set(gk, _json_dumps({"ts_ms": int(now_ms), "reason": str(auto_apply_reason), "src": "of_inputs_v3_circuit"}), px=int(disable_ms))
+-            pipe2.set(sk, _json_dumps({"ts_ms": int(now_ms), "symbol": sym_s, "reason": str(auto_apply_reason), "src": "of_inputs_v3_circuit"}), px=int(disable_ms))
++            pipe2.set(gk, _json_dumps({"ts_ms": int(now_ms), "reason": str(auto_apply_reason), "src": "of_inputs_v3_circuit"}), px=int(total_ttl_ms))
++            pipe2.set(sk, _json_dumps({"ts_ms": int(now_ms), "symbol": sym_s, "reason": str(auto_apply_reason), "src": "of_inputs_v3_circuit"}), px=int(total_ttl_ms))
+ 
+         await pipe2.execute()
+-        return {"tripped": 1, "count": c, "disabled_until_ms": int(until_ms)}
++        return {
++            "tripped": 1,
++            "count": c,
++            "disabled_until_ms": int(until_ms),
++            "hard_until_ms": int(hard_until_ms),
++            "cooldown_ms": int(cd_ms),
++        }
+ 
+     except Exception:
+         return {"tripped": 0, "count": 0, "disabled_until_ms": 0}
+diff -ruN --no-dereference a/services/orderflow/tests/test_of_inputs_v3_circuit_p100.py b/services/orderflow/tests/test_of_inputs_v3_circuit_p100.py
+--- a/services/orderflow/tests/test_of_inputs_v3_circuit_p100.py	2026-02-26 04:35:08.499957878 +0000
++++ b/services/orderflow/tests/test_of_inputs_v3_circuit_p100.py	2026-02-26 04:32:40.230356631 +0000
+@@ -169,11 +169,15 @@
+     )
+     assert res3["tripped"] == 1
+     assert res3["disabled_until_ms"] == (now + 20_000 + 300_000)
++    assert res3["hard_until_ms"] == (now + 20_000 + 300_000)
++    assert res3["cooldown_ms"] == 0
+ 
+     disable_key = f"cfg:of_inputs:v3_disabled:{sym}"
+     val = await r.get(disable_key)
+     meta = json.loads(val)
+     assert meta["until_ms"] == res3["disabled_until_ms"]
++    assert meta["hard_until_ms"] == res3["hard_until_ms"]
++    assert meta["cooldown_ms"] == 0
+     assert meta["reason"] == "book_stale"
+ 
+     gk = "cfg:of_inputs_v3:auto_apply_block_global:of_inputs_v3"
+@@ -199,6 +203,8 @@
+     assert disabled is True
+     assert until_ms == now + 50_000
+     assert reason == "missing_lob_fields"
++    assert getattr(rt, "of_inputs_v3_disabled_hard_until_ms") == until_ms
++    assert getattr(rt, "of_inputs_v3_disabled_phase") in ("hard", "")
+ 
+     # Cache hit
+     r.set_now_ms(now + 1_000)
+@@ -224,3 +230,40 @@
+     assert disabled is True
+     assert until_ms == now + 100_000
+     assert reason in ("cfg_ttl", "cfg")
++    assert getattr(rt, "of_inputs_v3_disabled_hard_until_ms") == until_ms
++
++
++@pytest.mark.asyncio
++async def test_refresh_disabled_state_sets_phase_hard_then_cooldown():
++    r = FakeAsyncRedis()
++    sym = "SOLUSDT"
++    rt = DummyRuntime(sym)
++
++    now = 4_000_000
++    r.set_now_ms(now)
++
++    disable_key = f"cfg:of_inputs:v3_disabled:{sym}"
++    payload = {
++        "until_ms": now + 300_000 + 60_000,
++        "hard_until_ms": now + 300_000,
++        "cooldown_ms": 60_000,
++        "reason": "book_stale",
++    }
++    await r.set(disable_key, json.dumps(payload), px=360_000)
++
++    disabled, until_ms, reason = await refresh_disabled_state(r, rt, now_ms=now, refresh_every_ms=1)
++    assert disabled is True
++    assert until_ms == payload["until_ms"]
++    assert reason == "book_stale"
++    assert getattr(rt, "of_inputs_v3_disabled_phase") == "hard"
++
++    # into cooldown
++    r.set_now_ms(now + 300_001)
++    disabled2, _, _ = await refresh_disabled_state(r, rt, now_ms=now + 300_001, refresh_every_ms=1)
++    assert disabled2 is True
++    assert getattr(rt, "of_inputs_v3_disabled_phase") == "cooldown"
++
++    # expired
++    r.set_now_ms(now + 360_001)
++    disabled3, _, _ = await refresh_disabled_state(r, rt, now_ms=now + 360_001, refresh_every_ms=1)
++    assert disabled3 is False
+diff -ruN --no-dereference a/tick_flow_full/orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py b/tick_flow_full/orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py
+--- a/tick_flow_full/orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py	2026-02-26 04:35:08.508988288 +0000
++++ b/tick_flow_full/orderflow_services/of_inputs_v3_circuit_state_exporter_p100.py	2026-02-26 04:34:49.508120302 +0000
+@@ -18,6 +18,9 @@
+ - of_inputs_v3_circuit_cfg_disabled{symbol,reason} = 1
+ - of_inputs_v3_circuit_cfg_disabled_until_ms{symbol,reason}
+ - of_inputs_v3_circuit_cfg_disabled_ttl_ms{symbol,reason}
++- of_inputs_v3_circuit_cfg_disabled_hard{symbol,reason} = 1
++- of_inputs_v3_circuit_cfg_disabled_cooldown{symbol,reason} = 1
++- of_inputs_v3_circuit_cfg_disabled_hard_until_ms{symbol,reason}
+ - of_inputs_v3_circuit_disabled_symbols
+ - of_inputs_v3_circuit_disabled_symbols_by_reason{reason}
+ 
+@@ -151,6 +154,21 @@
+     "Redis PTTL for cfg disable key (ms)",
+     ["symbol", "reason"],
+ )
++G_DISABLED_HARD = Gauge(
++    "of_inputs_v3_circuit_cfg_disabled_hard",
++    "1 if cfg disables V3 inputs for symbol (hard-disable phase)",
++    ["symbol", "reason"],
++)
++G_DISABLED_COOLDOWN = Gauge(
++    "of_inputs_v3_circuit_cfg_disabled_cooldown",
++    "1 if cfg disables V3 inputs for symbol (cooldown/anti-flap phase)",
++    ["symbol", "reason"],
++)
++G_DISABLED_HARD_UNTIL_MS = Gauge(
++    "of_inputs_v3_circuit_cfg_disabled_hard_until_ms",
++    "Hard-disable until timestamp (ms) derived from cfg disable key",
++    ["symbol", "reason"],
++)
+ G_DISABLED_SYMBOLS = Gauge(
+     "of_inputs_v3_circuit_disabled_symbols",
+     "Count of currently disabled symbols",
+@@ -259,6 +277,13 @@
+     return int(until_ms), str(reason or "cfg")
+ 
+ 
++def _derive_hard_until_ms(meta: Dict[str, Any], until_ms: int) -> int:
++    hu = _as_int(meta.get("hard_until_ms"), 0)
++    if hu <= 0:
++        return int(until_ms or 0)
++    return int(hu)
++
++
+ def main() -> None:
+     port = int(os.environ.get("OF_INPUTS_V3_CIRCUIT_EXPORTER_PORT", "9164"))
+     refresh = float(os.environ.get("OF_INPUTS_V3_CIRCUIT_EXPORTER_REFRESH_SEC", "10"))
+@@ -275,6 +300,9 @@
+     prev_disabled: Set[Tuple[str, ...]] = set()
+     prev_until: Set[Tuple[str, ...]] = set()
+     prev_ttl: Set[Tuple[str, ...]] = set()
++    prev_hard: Set[Tuple[str, ...]] = set()
++    prev_cooldown: Set[Tuple[str, ...]] = set()
++    prev_hard_until: Set[Tuple[str, ...]] = set()
+     prev_dg: Set[Tuple[str, ...]] = set()
+     prev_ap_glob: Set[Tuple[str, ...]] = set()
+     prev_ap_glob_ttl: Set[Tuple[str, ...]] = set()
+@@ -289,6 +317,9 @@
+         cur_disabled: Set[Tuple[str, ...]] = set()
+         cur_until: Set[Tuple[str, ...]] = set()
+         cur_ttl: Set[Tuple[str, ...]] = set()
++        cur_hard: Set[Tuple[str, ...]] = set()
++        cur_cooldown: Set[Tuple[str, ...]] = set()
++        cur_hard_until: Set[Tuple[str, ...]] = set()
+         cur_dg: Set[Tuple[str, ...]] = set()
+         cur_ap_glob: Set[Tuple[str, ...]] = set()
+         cur_ap_glob_ttl: Set[Tuple[str, ...]] = set()
+@@ -336,16 +367,25 @@
+ 
+                     meta = _json_loads(v)
+                     until_ms, reason = _derive_until_ms(meta, now_ms=now_ms, pttl_ms=pttl)
++                    hard_until_ms = _derive_hard_until_ms(meta, until_ms=until_ms)
+                     active = 1 if until_ms > now_ms else 0
++                    hard_active = 1 if (active and hard_until_ms > 0 and now_ms < hard_until_ms) else 0
++                    cooldown_active = 1 if (active and hard_active == 0 and hard_until_ms > 0 and hard_until_ms < until_ms and now_ms < until_ms) else 0
+ 
+                     lv = (sym, reason)
+                     G_DISABLED.labels(symbol=sym, reason=reason).set(active)
+                     G_DISABLED_UNTIL_MS.labels(symbol=sym, reason=reason).set(until_ms)
+                     G_DISABLED_TTL_MS.labels(symbol=sym, reason=reason).set(max(-2, pttl))
++                    G_DISABLED_HARD.labels(symbol=sym, reason=reason).set(hard_active)
++                    G_DISABLED_COOLDOWN.labels(symbol=sym, reason=reason).set(cooldown_active)
++                    G_DISABLED_HARD_UNTIL_MS.labels(symbol=sym, reason=reason).set(hard_until_ms)
+ 
+                     cur_disabled.add(lv)
+                     cur_until.add(lv)
+                     cur_ttl.add(lv)
++                    cur_hard.add(lv)
++                    cur_cooldown.add(lv)
++                    cur_hard_until.add(lv)
+ 
+                     if active:
+                         disabled_by_reason[reason] = disabled_by_reason.get(reason, 0) + 1
+@@ -426,6 +466,9 @@
+         prev_disabled = _remove_stale(G_DISABLED, prev_disabled, cur_disabled)
+         prev_until = _remove_stale(G_DISABLED_UNTIL_MS, prev_until, cur_until)
+         prev_ttl = _remove_stale(G_DISABLED_TTL_MS, prev_ttl, cur_ttl)
++        prev_hard = _remove_stale(G_DISABLED_HARD, prev_hard, cur_hard)
++        prev_cooldown = _remove_stale(G_DISABLED_COOLDOWN, prev_cooldown, cur_cooldown)
++        prev_hard_until = _remove_stale(G_DISABLED_HARD_UNTIL_MS, prev_hard_until, cur_hard_until)
+         prev_dg = _remove_stale(G_DG, prev_dg, cur_dg)
+         prev_ap_glob = _remove_stale(G_AP_GLOB, prev_ap_glob, cur_ap_glob)
+         prev_ap_glob_ttl = _remove_stale(G_AP_GLOB_TTL_MS, prev_ap_glob_ttl, cur_ap_glob_ttl)
+diff -ruN --no-dereference a/tick_flow_full/orderflow_services/runbook_of_inputs_v3_circuit_p100.md b/tick_flow_full/orderflow_services/runbook_of_inputs_v3_circuit_p100.md
+--- a/tick_flow_full/orderflow_services/runbook_of_inputs_v3_circuit_p100.md	2026-02-26 04:35:08.509279316 +0000
++++ b/tick_flow_full/orderflow_services/runbook_of_inputs_v3_circuit_p100.md	2026-02-26 04:33:15.369935579 +0000
+@@ -25,7 +25,11 @@
+ Ожидаемый JSON (пример):
+ 
+ ```json
+-{"until_ms":1700000000000,"reason":"seq_gap","trip_ts_ms":1699999999000,"count":3,"window_ms":60000}
++{"until_ms":1700000000000,"hard_until_ms":1699999999000,"cooldown_ms":60000,"reason":"seq_gap","trip_ts_ms":1699999999000,"count":3,"window_ms":60000}
++
++`hard_until_ms` — конец “жёсткого” периода (обычно `disable_ms`).
++
++`until_ms` — конец полного периода отключения (`disable_ms + cooldown_ms`). Весь этот период пайплайн детерминированно делает V3→V2 fallback.
+ ```
+ 
+ ### 2.3 Проверить счётчики даунгрейдов по причинам
+@@ -63,7 +67,7 @@
+ 
+ ### 4.1 Если это кратковременный спайк
+ 
+-Ничего не делать: ключ `cfg:of_inputs:v3_disabled:{sym}` истечёт сам (TTL по `disable_ms`, default 5 минут).
++Ничего не делать: ключ `cfg:of_inputs:v3_disabled:{sym}` истечёт сам (TTL по `disable_ms + cooldown_ms`, default 5 минут + 60 секунд).
+ 
+ ### 4.2 Если нужно досрочно включить V3 (осознанно)
+ 
+diff -ruN --no-dereference a/tick_flow_full/services/orderflow/components/tick_processor.py b/tick_flow_full/services/orderflow/components/tick_processor.py
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py	2026-02-26 04:35:08.500954562 +0000
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py	2026-02-26 04:29:41.162717852 +0000
+@@ -2162,6 +2162,7 @@
+                         cb_window_ms = int(runtime.config.get("of_inputs_v3_circuit_window_ms", 60_000))
+                         cb_max_downgrades = int(runtime.config.get("of_inputs_v3_circuit_max_downgrades_in_window", 3))
+                         cb_disable_ms = int(runtime.config.get("of_inputs_v3_circuit_disable_ms", 300_000))
++                        cb_cooldown_ms = int(runtime.config.get("of_inputs_v3_circuit_cooldown_ms", 60_000))
+                         cb_block_auto_apply = bool(_i(runtime.config.get("of_inputs_v3_circuit_block_auto_apply", 1), 1))
+                         cb_auto_apply_reason = str(runtime.config.get("of_inputs_v3_auto_apply_reason", "of_inputs_v3") or "of_inputs_v3")
+ 
+@@ -2242,6 +2243,7 @@
+                                             window_ms=int(cb_window_ms),
+                                             max_downgrades_in_window=int(cb_max_downgrades),
+                                             disable_ms=int(cb_disable_ms),
++                                            cooldown_ms=int(cb_cooldown_ms),
+                                             block_auto_apply=bool(cb_block_auto_apply),
+                                             auto_apply_reason=str(cb_auto_apply_reason),
+                                         ),
+@@ -2258,8 +2260,11 @@
+ 
+                                         try:
+                                             until_ms = int(res2.get("disabled_until_ms") or 0)
++                                            hard_until_ms = int(res2.get("hard_until_ms") or 0)
+                                             if until_ms > 0:
+                                                 setattr(runtime, "of_inputs_v3_disabled_until_ms", int(until_ms))
++                                                if hard_until_ms > 0:
++                                                    setattr(runtime, "of_inputs_v3_disabled_hard_until_ms", int(hard_until_ms))
+                                                 setattr(runtime, "of_inputs_v3_disabled_reason", str(downgrade_reason))
+                                                 try:
+                                                     of_inputs_v3_circuit_disabled.labels(symbol=str(runtime.symbol)).set(1)
+diff -ruN --no-dereference a/tick_flow_full/services/orderflow/of_inputs_v3_circuit.py b/tick_flow_full/services/orderflow/of_inputs_v3_circuit.py
+--- a/tick_flow_full/services/orderflow/of_inputs_v3_circuit.py	2026-02-26 04:35:08.501542005 +0000
++++ b/tick_flow_full/services/orderflow/of_inputs_v3_circuit.py	2026-02-26 04:34:09.404077043 +0000
+@@ -129,6 +129,7 @@
+         raw, pttl = await pipe.execute()
+ 
+         until_ms = 0
++        hard_until_ms = 0
+         rsn = ""
+ 
+         if raw is not None:
+@@ -137,6 +138,10 @@
+                 until_ms = int(meta.get("until_ms") or 0)
+             except Exception:
+                 until_ms = 0
++            try:
++                hard_until_ms = int(meta.get("hard_until_ms") or 0)
++            except Exception:
++                hard_until_ms = 0
+             rsn = str(meta.get("reason") or meta.get("dq_code") or "cfg")
+ 
+             # If no until_ms in value, derive from TTL.
+@@ -153,13 +158,31 @@
+                     until_ms = now_ms + max(0, pttl_i)
+                     rsn = rsn or "cfg_ttl"
+ 
++            if hard_until_ms <= 0:
++                # If not present, treat hard_until as until.
++                hard_until_ms = int(until_ms)
++
+         else:
+             # No key.
+             until_ms = 0
+             rsn = ""
+ 
+         setattr(runtime, "of_inputs_v3_disabled_until_ms", int(until_ms))
++        setattr(runtime, "of_inputs_v3_disabled_hard_until_ms", int(hard_until_ms or until_ms or 0))
+         setattr(runtime, "of_inputs_v3_disabled_reason", str(rsn or ""))
++
++        # Phase: hard vs cooldown. We remain disabled until `until_ms`.
++        phase = ""
++        try:
++            hu = int(hard_until_ms or until_ms or 0)
++            if hu > 0 and int(now_ms) < hu:
++                phase = "hard"
++            elif int(until_ms or 0) > 0 and hu > 0 and int(now_ms) < int(until_ms) and hu < int(until_ms):
++                phase = "cooldown"
++        except Exception:
++            phase = ""
++        setattr(runtime, "of_inputs_v3_disabled_phase", phase)
++
+         return (int(until_ms) > now_ms, int(until_ms), str(rsn or ""))
+ 
+     except Exception:
+@@ -174,7 +197,8 @@
+     window_ms: int,
+     max_downgrades_in_window: int,
+     disable_ms: int,
+-    block_auto_apply: bool,
++    cooldown_ms: int = 0,
++    block_auto_apply: bool = True,
+     auto_apply_reason: str = "of_inputs_v3",
+ ) -> Dict[str, Any]:
+     """Record a V3->V2 downgrade and trip circuit if threshold exceeded.
+@@ -213,28 +237,43 @@
+         if c < int(max_downgrades_in_window):
+             return {"tripped": 0, "count": c, "disabled_until_ms": 0}
+ 
+-        # Trip
+-        until_ms = int(now_ms) + int(disable_ms)
++        # Trip (+ optional cooldown/anti-flap)
++        cd_ms = int(cooldown_ms or 0)
++        if cd_ms < 0:
++            cd_ms = 0
++
++        hard_until_ms = int(now_ms) + int(disable_ms)
++        until_ms = int(hard_until_ms) + int(cd_ms)
+         disable_key = _cfg_disabled_key(sym_s)
+         payload = {
+             "until_ms": int(until_ms),
++            "hard_until_ms": int(hard_until_ms),
++            "cooldown_ms": int(cd_ms),
+             "reason": str(rsn),
+             "trip_ts_ms": int(now_ms),
+             "count": int(c),
+             "window_ms": int(window_ms),
+         }
+ 
++        total_ttl_ms = int(disable_ms) + int(cd_ms)
++
+         pipe2 = redis.pipeline(transaction=False)
+-        pipe2.set(disable_key, _json_dumps(payload), px=int(disable_ms))
++        pipe2.set(disable_key, _json_dumps(payload), px=int(total_ttl_ms))
+ 
+         if bool(block_auto_apply):
+             gk = _auto_apply_global_key(auto_apply_reason)
+             sk = _auto_apply_sym_key(sym_s, auto_apply_reason)
+-            pipe2.set(gk, _json_dumps({"ts_ms": int(now_ms), "reason": str(auto_apply_reason), "src": "of_inputs_v3_circuit"}), px=int(disable_ms))
+-            pipe2.set(sk, _json_dumps({"ts_ms": int(now_ms), "symbol": sym_s, "reason": str(auto_apply_reason), "src": "of_inputs_v3_circuit"}), px=int(disable_ms))
++            pipe2.set(gk, _json_dumps({"ts_ms": int(now_ms), "reason": str(auto_apply_reason), "src": "of_inputs_v3_circuit"}), px=int(total_ttl_ms))
++            pipe2.set(sk, _json_dumps({"ts_ms": int(now_ms), "symbol": sym_s, "reason": str(auto_apply_reason), "src": "of_inputs_v3_circuit"}), px=int(total_ttl_ms))
+ 
+         await pipe2.execute()
+-        return {"tripped": 1, "count": c, "disabled_until_ms": int(until_ms)}
++        return {
++            "tripped": 1,
++            "count": c,
++            "disabled_until_ms": int(until_ms),
++            "hard_until_ms": int(hard_until_ms),
++            "cooldown_ms": int(cd_ms),
++        }
+ 
+     except Exception:
+         return {"tripped": 0, "count": 0, "disabled_until_ms": 0}

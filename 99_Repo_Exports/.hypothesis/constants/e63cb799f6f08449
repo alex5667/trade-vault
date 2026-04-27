@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/numpy/lib/_iotools.py
+# hypothesis_version: 6.148.10
+
+['"', '#', ',', '0', '1', '???', 'FALSE', 'Invalid boolean', 'TRUE', '_', '_%d', '__call__', '__iter__', 'bool', 'f%i', 'file', 'l', 'latin1', 'print', 'restructuredtext en', 'return', 'u']

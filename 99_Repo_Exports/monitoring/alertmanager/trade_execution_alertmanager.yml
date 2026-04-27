@@ -1,0 +1,81 @@
+global:
+  resolve_timeout: 5m
+
+external_url: http://alertmanager:9093
+
+templates:
+  - /etc/alertmanager/templates/*.tmpl
+
+
+route:
+  group_by: ['alertname', 'symbol', 'cluster', 'severity']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 2h
+  receiver: trade-default
+  routes:
+    # Critical severity → dedicated pager / email channel
+    - matchers:
+        - severity="crit"
+      receiver: trade-critical
+      continue: false
+    # DQ and execution journal alerts → ops channel
+    - matchers:
+        - alertname=~"TradeDQ.*|TradeExecutionJournalWriteFailures|TradeExecutionReconcileBacklog"
+      receiver: trade-ops
+      continue: false
+    # Risk-drift domain (mismatch storms) → dedicated risk-drift channel
+    - matchers:
+        - domain="risk-drift"
+      receiver: trade-risk-drift
+      continue: false
+    # Portfolio / risk alerts → risk channel
+    - matchers:
+        - alertname=~"TradePortfolio.*"
+      receiver: trade-risk
+      continue: false
+
+# Suppress warning-level alerts when a critical fires for the same alertname/symbol
+inhibit_rules:
+  - source_matchers:
+      - severity="crit"
+    target_matchers:
+      - severity="warn"
+    equal: ['alertname', 'symbol', 'cluster']
+
+receivers:
+  - name: trade-default
+    webhook_configs:
+      - url: http://alert-router.default.svc.cluster.local/default
+        send_resolved: true
+
+  - name: trade-critical
+    webhook_configs:
+      - url: http://alert-router.default.svc.cluster.local/critical
+        send_resolved: true
+    email_configs:
+      - to: trade-critical@example.invalid
+        from: alertmanager@example.invalid
+        smarthost: smtp.example.invalid:587
+        auth_username: alertmanager
+        auth_password: change-me
+        require_tls: true
+        headers:
+          Subject: '{{ template "trade.subject" . }}'
+        html: '{{ template "trade.html" . }}'
+
+  - name: trade-ops
+    webhook_configs:
+      - url: http://alert-router.default.svc.cluster.local/ops
+        send_resolved: true
+
+  - name: trade-risk
+    webhook_configs:
+      - url: http://alert-router.default.svc.cluster.local/risk
+        send_resolved: true
+
+  # P5X: dedicated receiver for risk-drift domain alerts (mismatch storms, archive staleness)
+  - name: trade-risk-drift
+    webhook_configs:
+      - url: http://alert-router.default.svc.cluster.local/risk-drift
+        send_resolved: true

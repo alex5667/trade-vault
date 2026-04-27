@@ -1,0 +1,61 @@
+{
+	"enabled": false,
+	"redis_url": "redis://scanner-redis:6379/0",
+	"events_stream": "events:trades",
+	"consumer_group": "tp1-trailing-group",
+	"batch_size": 50,
+	"block_ms": 5000,
+	"stats_interval_sec": 300,
+	"default_profile": "rocket_v1",
+	"profiles": {
+		"lock_and_trail": {
+			"name": "lock_and_trail",
+			"mode": "ATR",
+			"atr_mult": 0.8,
+			"hard_min_lock": 0.0,
+			"comment": "Lock profit and trail with ATR 0.8"
+		},
+		"rocket_v1": {
+			"name": "rocket_v1",
+			"mode": "ATR",
+			"atr_mult": 0.6,
+			"hard_min_lock": 0.0,
+			"comment": "ATR 0.6 trailing, TP1=0.78 ATR (default for crypto and XAUUSD)"
+		},
+		"wide_swing": {
+			"name": "wide_swing",
+			"mode": "ATR",
+			"atr_mult": 1.2,
+			"hard_min_lock": 0.0,
+			"comment": "Wider ATR trail for choppy regime"
+		},
+		"points_200": {
+			"name": "points_200",
+			"mode": "POINTS",
+			"points": 200.0,
+			"comment": "200 pts trailing (fallback if ATR unavailable)"
+		},
+		"crypto_tight": {
+			"name": "crypto_tight",
+			"mode": "ATR",
+			"atr_mult": 0.5,
+			"hard_min_lock": 0.0,
+			"comment": "Very tight ATR trail for crypto volatility"
+		}
+	},
+	"gateway": {
+		"url": "http://scanner-go-gateway:8090",
+		"timeout_sec": 3.0,
+		"max_retries": 3
+	},
+	"signal_key_prefix": "signals:",
+	"health_check": {
+		"enabled": true,
+		"port": 8091,
+		"path": "/health"
+	},
+	"logging": {
+		"level": "INFO",
+		"format": "json"
+	}
+}

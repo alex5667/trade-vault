@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/qf_codes.py
+# hypothesis_version: 6.148.10
+
+[100, 101, 102, 103, 110, 120, 130, 200, 201, 202, 210, 211, 300, 301, 302, 400, 401, 500, 501, 600, 601, 900, 60999, 61000, 65535, '<H', 'ab.low_taker.veto', 'ab.need_2of2.veto', 'ascii', 'bo.l2.fail_closed', 'conf.below_min.veto', 'geo.missing_neutral', 'hlc.fallback', 'l2.bad_top', 'l2.empty', 'l2.missing', 'l2.stale', 'l3.missing_neutral', 'reason.kind_mismatch', 'reason.legacy_mapped', 'spread.hard_veto', 'spread.soft_penalty', 'spread.too_wide', 'wall.none', 'wall.too_far']

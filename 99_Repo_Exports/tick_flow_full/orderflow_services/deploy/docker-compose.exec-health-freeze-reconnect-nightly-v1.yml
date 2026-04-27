@@ -1,0 +1,28 @@
+services:
+  exec-health-freeze-reconnect-nightly:
+    image: ${EXEC_HEALTH_RECONNECT_SMOKE_IMAGE:-python:3.13-slim}
+    working_dir: /repo
+    volumes:
+      - ${EXEC_HEALTH_REPO_ROOT:-.}:/repo
+      - ${EXEC_HEALTH_RECONNECT_SMOKE_REPORT_DIR:-/var/lib/trade/exec_health_reconnect_smoke}:/var/lib/trade/exec_health_reconnect_smoke
+      - ${EXEC_HEALTH_RECONNECT_SMOKE_TEXTFILE_DIR:-/var/lib/node_exporter/textfile_collector}:/var/lib/node_exporter/textfile_collector
+    environment:
+      PYTHONPATH: /repo
+      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
+      EXEC_HEALTH_REDIS_AUDIT_URL: ${EXEC_HEALTH_REDIS_AUDIT_URL:-}
+      EXEC_HEALTH_REDIS_BOOTSTRAP_URL: ${EXEC_HEALTH_REDIS_BOOTSTRAP_URL:-}
+      EXEC_HEALTH_REDIS_WRONG_USER_URL: ${EXEC_HEALTH_REDIS_WRONG_USER_URL:-}
+      EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_REPORT_PATH: /var/lib/trade/exec_health_reconnect_smoke/latest_report.json
+      EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_TEXTFILE_PATH: /var/lib/node_exporter/textfile_collector/exec_health_freeze_reconnect_smoke.prom
+      EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_INCLUDE_BOOTSTRAP: ${EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_INCLUDE_BOOTSTRAP:-1}
+      EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_INCLUDE_WRONG_USER: ${EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_INCLUDE_WRONG_USER:-1}
+      EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE: ${EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE:-1}
+      EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME: ${EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME:-1}
+      EXEC_HEALTH_FREEZE_CLIENT_HEAL_CHECK_MS: ${EXEC_HEALTH_FREEZE_CLIENT_HEAL_CHECK_MS:-0}
+    command:
+      - /bin/bash
+      - -lc
+      - >-
+        python -m pip install --no-cache-dir redis >/tmp/exec_health_reconnect_smoke_pip.log 2>&1 &&
+        python -m orderflow_services.exec_health_freeze_reconnect_nightly_smoke_v1
+    restart: "no"

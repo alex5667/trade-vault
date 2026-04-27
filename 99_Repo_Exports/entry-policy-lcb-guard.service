@@ -1,0 +1,27 @@
+[Unit]
+Description=Scanner Entry Policy LCB Guard Service (Unfreeze-by-Proof)
+After=network.target redis.service
+
+[Service]
+Type=simple
+User=alex
+Group=alex
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+Environment=PYTHONPATH=/home/alex/front/trade/scanner_infra/python-worker
+Environment=REDIS_URL=redis://localhost:6379/0
+Environment=LCB_EVENTS_STREAM=events:trades
+Environment=LCB_GROUP=lcb_guard_v1
+Environment=LCB_CONSUMER=lcb_guard_node_1
+Environment=LCB_MIN_N=5
+Environment=LCB_OK_MIN=0.0
+Environment=LCB_OK_STREAK=3
+Environment=LCB_FREEZE_MIN_HOLD_MS=300000
+Environment=LCB_Z_TREND=1.645
+Environment=LCB_Z_RANGE=1.96
+Environment=LCB_Z_THIN=2.326
+ExecStart=/usr/bin/python3 services/entry_policy_lcb_guard_service.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

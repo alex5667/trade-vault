@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/entry_policy_overrides_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 5.0, 100, 1000, 3600, 10000, 60000, 10000000, ',', ':', 'A', 'B', 'C', 'ab_salt', 'ab_split_b', 'ab_split_c', 'ab_split_range', 'ab_split_sum_ge_100', 'abs_lvl_tier_mode', 'abs_lvl_tier_range', 'abs_lvl_tier_thin', 'abs_lvl_tier_trend', 'bad_coh_thr', 'bad_force_active_arm', 'bad_freeze_mode', 'bad_hold_down', 'bad_kind', 'bad_max_book_age_ms', 'bad_max_spread_bp', 'bad_min_of_score', 'bad_scenario', 'bad_v', 'coh_thr', 'continuation', 'default', 'enabled', 'enabled_not_0_1', 'exact', 'extra', 'force_active_arm', 'freeze_active', 'freeze_mode', 'freeze_reason', 'freeze_until_ts_ms', 'group', 'hard', 'kind', 'max_book_age_ms', 'max_spread_bp', 'min', 'min_of_score', 'na', 'not_dict', 'ok', 'override', 'overrides_v1', 'range', 'regime', 'reversal', 'scenario', 'shadow', 'symbol', 'thin', 'trend', 'updated_ts_ms', 'v', 'v1']

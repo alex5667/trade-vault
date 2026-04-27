@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/matplotlib/table.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-15, 0.02, 0.1, 0.5, 1.0, 1.2, 2.0, 72.0, ', ', '3.6', 'BRTL', 'BT', 'No renderer defined', 'RL', 'best', 'bottom', 'bottom left', 'bottom right', 'center', 'center left', 'center right', 'closed', 'edgecolor', 'horizontal', 'k', 'left', 'lower center', 'lower left', 'lower right', 'open', 'right', 'table', 'top', 'top left', 'top right', 'upper center', 'upper left', 'upper right', 'vertical', 'w']

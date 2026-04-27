@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/assert_latency_budget.py
+# hypothesis_version: 6.148.10
+
+[0.0, 2000, 3000, '--bench-json', '--p99-us-max', '--throughput-min', '2000', '3000', 'LAT_P99_US_MAX', 'THROUGHPUT_MIN', '__main__', 'p99_us', 'r', 'utf-8']

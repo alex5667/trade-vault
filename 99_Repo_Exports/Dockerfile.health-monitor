@@ -1,0 +1,18 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install redis client
+RUN pip install --no-cache-dir redis
+
+# Copy health monitor script
+COPY ops/health_monitor.py /app/health_monitor.py
+
+# Copy core module so EntryPolicyOverridesV1 can be imported
+COPY python-worker/core/__init__.py /app/python-worker/core/__init__.py
+COPY python-worker/core/entry_policy_overrides_v1.py /app/python-worker/core/entry_policy_overrides_v1.py
+
+# Make executable
+RUN chmod +x /app/health_monitor.py
+
+CMD ["python3", "/app/health_monitor.py"]

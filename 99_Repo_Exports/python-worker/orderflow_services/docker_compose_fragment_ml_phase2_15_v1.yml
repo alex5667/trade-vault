@@ -1,0 +1,57 @@
+services:
+  scanner-operator-routing-incident-rca-routing-post-apply-verifier-v2-15:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    command: ["python", "-m", "orderflow_services.operator_routing_incident_rca_routing_post_apply_verifier_v2_15"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      ML_OPERATOR_ROUTING_INCIDENT_RCA_VERIFY_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_VERIFY_PORT:-9894}
+      ML_OPERATOR_ROUTING_INCIDENT_RCA_VERIFY_MIN_USEFULNESS: "0.50"
+      ML_OPERATOR_ROUTING_INCIDENT_RCA_VERIFY_MIN_EXPOSURE: "3"
+    ports:
+      - "${ML_OPERATOR_ROUTING_INCIDENT_RCA_VERIFY_PORT:-9894}:9894"
+    networks:
+      - scanner-network
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9894/metrics >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 384M
+
+  scanner-operator-routing-incident-rca-routing-rollback-executor-v2-15:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    command: ["python", "-m", "orderflow_services.operator_routing_incident_rca_routing_rollback_executor_v2_15"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      ML_OPERATOR_ROUTING_INCIDENT_RCA_ROLLBACK_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_ROLLBACK_PORT:-9895}
+      ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_ROLLBACK_MODE: "DRY_RUN"
+    ports:
+      - "${ML_OPERATOR_ROUTING_INCIDENT_RCA_ROLLBACK_PORT:-9895}:9895"
+    networks:
+      - scanner-network
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9895/metrics >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 384M

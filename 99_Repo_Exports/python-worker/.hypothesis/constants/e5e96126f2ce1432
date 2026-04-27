@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/regime_engine.py
+# hypothesis_version: 6.148.10
+
+[-1.0, -0.35, 0.0, 0.05, 0.1, 0.2, 0.25, 0.3, 0.35, 0.5, 0.7, 1.0, 240, 60000, 86400000, 'mixed', 'range', 'regime_atr_hi_q', 'regime_atr_hist', 'regime_atr_lo_q', 'regime_atr_n', 'regime_cross_hist', 'regime_delta_thr', 'regime_label_hi', 'regime_label_lo', 'regime_w_atr', 'regime_w_delta', 'regime_w_hold', 'regime_w_ping', 'trend']

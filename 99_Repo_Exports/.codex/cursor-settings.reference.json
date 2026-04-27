@@ -1,0 +1,29 @@
+{
+	"editor.gotoLocation.multiple": "goto",
+	"editor.definitionLinkOpensInPeek": false,
+	"go.useLanguageServer": true,
+	"go.languageServerExperimentalFeatures": {
+		"diagnostics": true
+	},
+	"go.toolsManagement.autoUpdate": true,
+	"go.buildOnSave": "package",
+	"go.lintOnSave": "package",
+	"go.vetOnSave": "package",
+	"go.formatTool": "goimports",
+	"go.gopath": "${env:HOME}/go",
+	"go.goroot": "",
+	"go.trace.server": "verbose",
+	"python.analysis.typeCheckingMode": "basic",
+	"python.analysis.autoImportCompletions": true,
+	"python.languageServer": "Pylance",
+	"window.restoreWindows": "none",
+	"jest.autoRun": "off",
+	"jest.runMode": "on-demand",
+	"jest.showCoverageOnLoad": false,
+	"files.watcherExclude": {
+		"**/node_modules/**": true,
+		"**/.git/**": true,
+		"**/dist/**": true,
+		"**/.next/**": true
+	}
+}

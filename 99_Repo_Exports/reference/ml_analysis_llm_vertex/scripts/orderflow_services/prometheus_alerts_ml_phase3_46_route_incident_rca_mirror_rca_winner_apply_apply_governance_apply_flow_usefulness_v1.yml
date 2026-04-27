@@ -1,0 +1,30 @@
+groups:
+  - name: ml_phase3_46_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_usefulness_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowUsefulnessStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_usefulness_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance apply-flow usefulness governor is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowUsefulnessVertexLow
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_usefulness_vertex_avg_usefulness < 0.58
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance apply-flow vertex usefulness is low"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowUsefulnessLocalHigh
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_usefulness_local_avg_usefulness > 0.78
+        for: 15m
+        labels: { severity: info }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance apply-flow local usefulness is strong"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowUsefulnessErrors
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_usefulness_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance apply-flow usefulness governor has errors"

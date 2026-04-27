@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/atr_source_selector_v2.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.1, 0.2, 0.3, 0.7, 1.0, 10.0, 10000.0, 1000, 3600, ',', '0', '0.05', '1', '1.2', '1800000', '1m,5m,15m', '2', '3600', '800', '86400', '900000', 'ATR_BPS_MAX_SANITY', 'ATR_BPS_MIN_SANITY', 'ATR_HASH', 'ATR_JUMP_MAX_REL', 'ATR_SELECTOR_ENABLE', 'ATR_SELECTOR_TFS', 'age_ms', 'atr', 'atr_bps', 'atr_json', 'atr_string', 'ignore', 'na', 'picked_key', 'picked_src', 'picked_tf', 'reason', 'score', 'ta_last', 'ts_ms', 'utf-8', '|fallback_penalty', '|no_ts_penalty']

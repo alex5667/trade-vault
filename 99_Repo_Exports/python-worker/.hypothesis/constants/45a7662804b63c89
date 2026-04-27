@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/mixins/crypto_orderflow_l2_staleness.py
+# hypothesis_version: 6.148.10
+
+[1000, '1500', 'L2_MAX_STALE_MS', '_extract_ts_ms', '_is_stale', '_l2_stale', '_m2', 'book', 'data_quality_flags', 'l2', 'l2_age_ms', 'l2_book', 'l2_missing', 'l2_snapshot', 'l2_stale', 'orderbook']

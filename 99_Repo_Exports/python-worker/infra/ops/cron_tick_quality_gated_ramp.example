@@ -1,0 +1,10 @@
+# Example cron entry (Step 20)
+#
+# 1) Copy env example:
+#    cp python-worker/infra/ops/tick_quality_gate.env.example /etc/default/tick-quality-gated-ramp
+# 2) Edit /etc/default/tick-quality-gated-ramp for your endpoints/thresholds
+# 3) Install cron entry like below (runs daily 02:15):
+#
+# 15 2 * * * cd /home/alex/front/trade/scanner_infra && \
+#   set -a && . /etc/default/tick-quality-gated-ramp && set +a && \
+#   bash python-worker/infra/ops/run_tick_quality_gated_ramp.sh >> /var/log/tick-gated-ramp.log 2>&1

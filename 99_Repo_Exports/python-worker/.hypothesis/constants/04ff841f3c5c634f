@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/ofc_golden_replay.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 100.0, 100, 200, '--capture-path', '--emit-mismatches', '--fail-on-mismatch', '--limit', '--max-lines', '--path', '--write-golden', 'OFC_CAPTURE_PATH', '__main__', 'absorption', 'book_churn_hi', 'bucket_id', 'cancel_gate_state', 'capture_path', 'cfg', 'computed_dec', 'computed_ofc', 'cont_ctx_ts_ms', 'delta_z', 'diffs', 'direction', 'dynamic_cfg', 'err', 'expected_dec', 'expected_ofc', 'gate_bits', 'have', 'indicators', 'last_bar', 'last_div', 'last_fp_edge', 'last_iceberg_event', 'last_obi_event', 'last_ofi_event', 'last_reclaim', 'last_regime', 'last_sweep', 'last_wp', 'liq_regime', 'micro_tf', 'mismatches', 'n', 'n_mismatch', 'n_ok', 'need', 'ok', 'pressure_hi', 'price', 'r', 'runtime_snapshot', 'scenario', 'score', 'store_true', 'symbol', 'tf', 'tick_ts_ms', 'to_dict', 'traceback', 'ts_ms', 'utf-8', 'v', 'w']

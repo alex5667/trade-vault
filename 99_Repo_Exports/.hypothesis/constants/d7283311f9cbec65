@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/regime_quantiles_redis.py
+# hypothesis_version: 6.148.10
+
+[0.0, '1m', 'adx_p40', 'adx_p60', 'adx_p75', 'atrp_p25', 'atrp_p50', 'atrp_p75', 'sampleSize', 'sample_size', 'symbol', 'timeframe', 'updatedAtMs']

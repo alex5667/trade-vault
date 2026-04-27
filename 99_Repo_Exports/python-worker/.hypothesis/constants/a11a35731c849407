@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/recs_callback_worker_v2.py
+# hypothesis_version: 6.148.10
+
+[0.5, 1000, 5000, 86400, 200000, '(no ops)', ',', '...', '... (truncated)', '0', '86400', ':', '>', 'APPLIED', 'BOT_CALLBACKS_GROUP', 'BOT_CALLBACKS_STREAM', 'CHANGE_ME', 'HDEL', 'HSET', 'NOGROUP', 'PREVIEWED', 'RECS_HMAC_SECRET', 'RECS_TTL_SEC', 'REDIS_URL', 'REJECTED', 'ROLLED_BACK', 'SET', '__main__', 'actor', 'bot:callbacks', 'buttons', 'c1', 'callback', 'chat_id', 'confirm', 'field', 'id', 'key', 'new', 'notify:telegram', 'old', 'old_null', 'op', 'ops', 'preview2', 'recs', 'reject', 'report', 'rollback', 'text', 'timestamp', 'ts', 'ts_ms', 'type', 'user_id', 'username', 'utf-8', 'value', 'who']

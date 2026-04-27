@@ -1,0 +1,679 @@
+diff --git a/ml_analysis/golden_replay/__init__.py b/ml_analysis/golden_replay/__init__.py
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/ml_analysis/golden_replay/__init__.py
+@@ -0,0 +1,1 @@
++# Namespace for golden-replay / train==serve parity tools.
+diff --git a/ml_analysis/golden_replay/compare.py b/ml_analysis/golden_replay/compare.py
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/ml_analysis/golden_replay/compare.py
+@@ -0,0 +1,176 @@
++from __future__ import annotations
++
++import dataclasses
++import hashlib
++import json
++import math
++from typing import Any, Dict, Iterable, List, Optional, Tuple
++
++
++def stable_json_dumps(obj: Any) -> str:
++    """Deterministic JSON for hashing / manifests."""
++    return json.dumps(obj, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
++
++
++def stable_hash(obj: Any, *, algo: str = "sha256") -> str:
++    payload = stable_json_dumps(obj).encode("utf-8")
++    h = hashlib.new(algo)
++    h.update(payload)
++    return h.hexdigest()
++
++
++def _is_number(x: Any) -> bool:
++    return isinstance(x, (int, float)) and not isinstance(x, bool)
++
++
++def _as_float(x: Any) -> Optional[float]:
++    if x is None:
++        return None
++    if _is_number(x):
++        try:
++            f = float(x)
++            if math.isnan(f) or math.isinf(f):
++                return None
++            return f
++        except Exception:
++            return None
++    try:
++        f = float(x)
++        if math.isnan(f) or math.isinf(f):
++            return None
++        return f
++    except Exception:
++        return None
++
++
++def float_close(a: Any, b: Any, *, abs_tol: float = 1e-6, rel_tol: float = 1e-6) -> bool:
++    fa = _as_float(a)
++    fb = _as_float(b)
++    if fa is None or fb is None:
++        return a == b
++    diff = abs(fa - fb)
++    if diff <= abs_tol:
++        return True
++    denom = max(abs(fa), abs(fb), 1e-12)
++    return (diff / denom) <= rel_tol
++
++
++@dataclasses.dataclass
++class DiffItem:
++    path: str
++    a: Any
++    b: Any
++    kind: str
++
++
++def _to_plain(obj: Any) -> Any:
++    if dataclasses.is_dataclass(obj):
++        return dataclasses.asdict(obj)
++    return obj
++
++
++def diff_objects(
++    a: Any,
++    b: Any,
++    *,
++    abs_tol: float = 1e-6,
++    rel_tol: float = 1e-6,
++    ignore_paths: Optional[Iterable[str]] = None,
++    max_diffs: int = 200,
++    _path: str = "",
++    _out: Optional[List[DiffItem]] = None,
++) -> List[DiffItem]:
++    """Recursive diff with float tolerance and path-based ignore."""
++    if _out is None:
++        _out = []
++    if len(_out) >= max_diffs:
++        return _out
++
++    a = _to_plain(a)
++    b = _to_plain(b)
++
++    if ignore_paths:
++        for p in ignore_paths:
++            if _path == p or (_path.startswith(p) and (len(_path) == len(p) or _path[len(p)] == ".")):
++                return _out
++
++    if _is_number(a) or _is_number(b):
++        if not float_close(a, b, abs_tol=abs_tol, rel_tol=rel_tol):
++            _out.append(DiffItem(path=_path, a=a, b=b, kind="number"))
++        return _out
++
++    if isinstance(a, (str, bool)) or a is None:
++        if a != b:
++            _out.append(DiffItem(path=_path, a=a, b=b, kind="value"))
++        return _out
++
++    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
++        if len(a) != len(b):
++            _out.append(DiffItem(path=_path + ".__len__", a=len(a), b=len(b), kind="len"))
++            return _out
++        for i, (ai, bi) in enumerate(zip(a, b)):
++            diff_objects(
++                ai, bi,
++                abs_tol=abs_tol, rel_tol=rel_tol,
++                ignore_paths=ignore_paths,
++                max_diffs=max_diffs,
++                _path=f"{_path}[{i}]" if _path else f"[{i}]",
++                _out=_out,
++            )
++            if len(_out) >= max_diffs:
++                break
++        return _out
++
++    if isinstance(a, dict) and isinstance(b, dict):
++        akeys = set(a.keys())
++        bkeys = set(b.keys())
++        if akeys != bkeys:
++            miss_a = sorted(list(bkeys - akeys))[:50]
++            miss_b = sorted(list(akeys - bkeys))[:50]
++            _out.append(DiffItem(path=_path + ".__keys__", a=miss_b, b=miss_a, kind="keys"))
++        for k in sorted(list(akeys & bkeys)):
++            diff_objects(
++                a.get(k), b.get(k),
++                abs_tol=abs_tol, rel_tol=rel_tol,
++                ignore_paths=ignore_paths,
++                max_diffs=max_diffs,
++                _path=f"{_path}.{k}" if _path else str(k),
++                _out=_out,
++            )
++            if len(_out) >= max_diffs:
++                break
++        return _out
++
++    if a != b:
++        _out.append(DiffItem(path=_path, a=a, b=b, kind="type_or_value"))
++    return _out
++
++
++def extract_policy_keys(rec: Dict[str, Any]) -> Tuple[str, str]:
++    ind = rec.get("indicators") if isinstance(rec.get("indicators"), dict) else rec
++    ph = str(ind.get("dq_policy_hash") or "")
++    mh = str(ind.get("dq_policy_feature_manifest_hash_v1") or ind.get("dq_policy_feature_manifest_hash") or "")
++    return ph, mh
++
++
++def extract_expected_ofc(rec: Dict[str, Any]) -> Optional[Dict[str, Any]]:
++    for k in ("of_confirm", "ofc", "confirm", "of_confirm_v3"):
++        v = rec.get(k)
++        if isinstance(v, dict):
++            return v
++    d = rec.get("decision")
++    if isinstance(d, dict):
++        for k in ("of_confirm", "ofc", "confirm", "of_confirm_v3"):
++            v = d.get(k)
++            if isinstance(v, dict):
++                return v
++    return None
++
++
++def summarize_diffs(diffs: List[DiffItem]) -> Dict[str, Any]:
++    by_kind: Dict[str, int] = {}
++    top = []
++    for it in diffs[:50]:
++        by_kind[it.kind] = by_kind.get(it.kind, 0) + 1
++        top.append({"path": it.path, "kind": it.kind, "a": it.a, "b": it.b})
++    return {"count": len(diffs), "by_kind": by_kind, "top": top}
+diff --git a/ml_analysis/tools/golden_replay_parity_v1.py b/ml_analysis/tools/golden_replay_parity_v1.py
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/ml_analysis/tools/golden_replay_parity_v1.py
+@@ -0,0 +1,278 @@
++from __future__ import annotations
++
++"""Golden replay parity harness (B5).
++
++Reads captured decision records (NDJSON), re-runs OFConfirmEngine.build() deterministically
++(from captured inputs + runtime snapshot) and compares with stored OFConfirmV3.
++
++Policy guard:
++  - refuse mixed dq_policy_hash / manifest_hash within one replay run (unless --allow-mixed-policy)
++"""
++
++import argparse
++import json
++from pathlib import Path
++from types import SimpleNamespace
++from typing import Any, Dict, Iterable, Optional, Tuple
++
++from ml_analysis.golden_replay.compare import (
++    diff_objects,
++    extract_expected_ofc,
++    extract_policy_keys,
++    summarize_diffs,
++)
++
++
++def _read_ndjson(path: Path, *, limit: int = 0) -> Iterable[Dict[str, Any]]:
++    n = 0
++    with path.open("r", encoding="utf-8") as f:
++        for line in f:
++            line = line.strip()
++            if not line:
++                continue
++            try:
++                obj = json.loads(line)
++            except Exception:
++                continue
++            if isinstance(obj, dict):
++                yield obj
++                n += 1
++            if limit and n >= limit:
++                break
++
++
++def _pick(rec: Dict[str, Any], *keys: str) -> Optional[Any]:
++    for k in keys:
++        v = rec.get(k)
++        if v is not None:
++            return v
++    return None
++
++
++def _resolve_inputs(rec: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
++    inputs = rec.get("inputs") if isinstance(rec.get("inputs"), dict) else rec
++    indicators = rec.get("indicators")
++    if not isinstance(indicators, dict):
++        indicators = inputs.get("indicators") if isinstance(inputs.get("indicators"), dict) else {}
++    snap = _pick(rec, "runtime_snapshot", "runtime", "runtime_snap", "runtime_state")
++    if not isinstance(snap, dict):
++        snap = inputs.get("runtime_snapshot") if isinstance(inputs.get("runtime_snapshot"), dict) else {}
++    return inputs, indicators, snap
++
++
++def _build_runtime(engine: Any, snap: Dict[str, Any]) -> Any:
++    fn = getattr(engine, "build_runtime_from_snapshot", None)
++    if callable(fn) and snap:
++        try:
++            return fn(snap)
++        except Exception:
++            pass
++    return SimpleNamespace(**{k: v for k, v in snap.items() if isinstance(k, str)})
++
++
++def _engine_import() -> Any:
++    for mod in (
++        "tick_flow_full.core.of_confirm_engine",
++        "core.of_confirm_engine",
++        "of_confirm_engine",
++    ):
++        try:
++            m = __import__(mod, fromlist=["OFConfirmEngine"])
++            return getattr(m, "OFConfirmEngine")
++        except Exception:
++            continue
++    raise RuntimeError("Cannot import OFConfirmEngine (check PYTHONPATH / repo layout).")
++
++
++def _as_dict(obj: Any) -> Any:
++    if obj is None:
++        return None
++    try:
++        import dataclasses
++        if dataclasses.is_dataclass(obj):
++            return dataclasses.asdict(obj)
++    except Exception:
++        pass
++    if isinstance(obj, dict):
++        return obj
++    try:
++        return dict(obj.__dict__)
++    except Exception:
++        return obj
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--input", required=True, help="NDJSON decision records path")
++    ap.add_argument("--outdir", default="out_golden_replay", help="Output directory")
++    ap.add_argument("--limit", type=int, default=0, help="Max rows (0 = all)")
++    ap.add_argument("--abs-tol", type=float, default=1e-6)
++    ap.add_argument("--rel-tol", type=float, default=1e-6)
++    ap.add_argument("--evidence", default="lite", choices=("none", "lite", "all"))
++    ap.add_argument("--fail-on-mismatch", action="store_true")
++    ap.add_argument("--allow-mixed-policy", action="store_true")
++    ap.add_argument("--compare-meta-features", action="store_true")
++    args = ap.parse_args()
++
++    in_path = Path(args.input)
++    outdir = Path(args.outdir)
++    outdir.mkdir(parents=True, exist_ok=True)
++
++    OFConfirmEngine = _engine_import()
++    engine = OFConfirmEngine()
++
++    policy_seen = None
++    manifest_seen = None
++
++    total = 0
++    mism = 0
++    mismatch_samples = []
++
++    evidence_keys_lite = {
++        "meta_enable", "meta_mode", "meta_p_min", "meta_p", "meta_veto", "meta_reason",
++        "meta_schema_name", "meta_schema_version", "meta_schema_hash",
++        "meta_model_schema_name", "meta_model_schema_version", "meta_model_schema_hash",
++        "hard_veto", "ok_soft", "scenario_v4", "need_reason", "policy_reason",
++    }
++
++    for rec in _read_ndjson(in_path, limit=args.limit):
++        total += 1
++        inputs, indicators, snap = _resolve_inputs(rec)
++        ph, mh = extract_policy_keys(rec)
++
++        if not args.allow_mixed_policy:
++            if policy_seen is None and ph:
++                policy_seen = ph
++            if manifest_seen is None and mh:
++                manifest_seen = mh
++            if policy_seen and ph and ph != policy_seen:
++                raise SystemExit(f"Mixed dq_policy_hash: seen={policy_seen} got={ph} row={total}")
++            if manifest_seen and mh and mh != manifest_seen:
++                raise SystemExit(f"Mixed manifest hash: seen={manifest_seen} got={mh} row={total}")
++
++        exp_ofc = extract_expected_ofc(rec)
++        if not isinstance(exp_ofc, dict):
++            continue
++
++        cap = None
++        try:
++            ev = exp_ofc.get("evidence") if isinstance(exp_ofc.get("evidence"), dict) else {}
++            cap = ev.get("golden_replay_inputs_v1") if isinstance(ev.get("golden_replay_inputs_v1"), dict) else None
++        except Exception:
++            cap = None
++
++        if (not snap) and isinstance(cap, dict) and isinstance(cap.get("runtime_snapshot"), dict):
++            snap = cap.get("runtime_snapshot") or {}
++
++        symbol = str(
++            _pick(inputs, "symbol", "sym")
++            or (cap.get("symbol") if isinstance(cap, dict) else None)
++            or exp_ofc.get("symbol")
++            or indicators.get("symbol")
++            or ""
++        )
++        tf = str(_pick(inputs, "tf", "timeframe") or (cap.get("tf") if isinstance(cap, dict) else None) or "1m")
++        direction = str(
++            _pick(inputs, "direction", "dir")
++            or (cap.get("direction") if isinstance(cap, dict) else None)
++            or exp_ofc.get("direction")
++            or indicators.get("direction")
++            or indicators.get("side")
++            or ""
++        )
++        tick_ts_ms = int(float(
++            _pick(inputs, "tick_ts_ms", "ts_ms", "tick_ts", "event_ts_ms")
++            or (cap.get("tick_ts_ms") if isinstance(cap, dict) else None)
++            or indicators.get("tick_ts_ms")
++            or indicators.get("event_ts_ms")
++            or exp_ofc.get("ts_ms")
++            or 0
++        ))
++        price = float(
++            _pick(inputs, "price", "mid", "last")
++            or (cap.get("price") if isinstance(cap, dict) else None)
++            or indicators.get("price")
++            or indicators.get("mid")
++            or 0.0
++        )
++        delta_z = float(_pick(inputs, "delta_z", "dz") or (cap.get("delta_z") if isinstance(cap, dict) else None) or indicators.get("delta_z") or 0.0)
++
++        cfg = _pick(inputs, "cfg", "cfg2", "config") or rec.get("cfg2") or {}
++        if not isinstance(cfg, dict):
++            cfg = {}
++
++        runtime = _build_runtime(engine, snap)
++
++        try:
++            ofc, _dec = engine.build(
++                symbol=symbol,
++                tf=tf,
++                direction=direction,
++                tick_ts_ms=tick_ts_ms,
++                price=price,
++                delta_z=delta_z,
++                snap_t0=None,
++                snap_prev=None,
++                runtime=runtime,
++                cfg=cfg,
++                indicators=dict(indicators),
++                absorption=inputs.get("absorption") if isinstance(inputs.get("absorption"), dict) else None,
++            )
++        except Exception as e:
++            mism += 1
++            mismatch_samples.append({"row": total, "kind": "engine_error", "error": str(e)[:300]})
++            continue
++
++        got = _as_dict(ofc) if ofc is not None else None
++        exp = exp_ofc
++        if got is None:
++            mism += 1
++            mismatch_samples.append({"row": total, "kind": "missing_output"})
++            continue
++
++        if args.evidence != "all":
++            if isinstance(got.get("evidence"), dict):
++                got["evidence"] = {} if args.evidence == "none" else {k: got["evidence"].get(k) for k in evidence_keys_lite if k in got["evidence"]}
++            if isinstance(exp.get("evidence"), dict):
++                exp["evidence"] = {} if args.evidence == "none" else {k: exp["evidence"].get(k) for k in evidence_keys_lite if k in exp["evidence"]}
++
++        if args.compare_meta_features:
++            ge = got.get("evidence") if isinstance(got.get("evidence"), dict) else {}
++            ee = exp.get("evidence") if isinstance(exp.get("evidence"), dict) else {}
++            if not (isinstance(ge.get("meta_features_export"), dict) and isinstance(ee.get("meta_features_export"), dict)):
++                mism += 1
++                mismatch_samples.append({"row": total, "kind": "meta_features_missing"})
++                continue
++
++        diffs = diff_objects(exp, got, abs_tol=float(args.abs_tol), rel_tol=float(args.rel_tol), max_diffs=200)
++        if diffs:
++            mism += 1
++            mismatch_samples.append({
++                "row": total,
++                "kind": "diff",
++                "summary": summarize_diffs(diffs),
++                "policy_hash": ph,
++                "manifest_hash": mh,
++            })
++
++    report = {
++        "input": str(in_path),
++        "total_rows": total,
++        "mismatched_rows": mism,
++        "policy_hash": policy_seen,
++        "manifest_hash": manifest_seen,
++        "abs_tol": float(args.abs_tol),
++        "rel_tol": float(args.rel_tol),
++        "evidence_mode": args.evidence,
++        "compare_meta_features": bool(args.compare_meta_features),
++        "samples": mismatch_samples[:50],
++    }
++    (outdir / "golden_replay_report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
++
++    if mism and args.fail_on_mismatch:
++        return 2
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/ml_analysis/tests/test_golden_replay_compare_v1.py b/ml_analysis/tests/test_golden_replay_compare_v1.py
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/ml_analysis/tests/test_golden_replay_compare_v1.py
+@@ -0,0 +1,20 @@
++from ml_analysis.golden_replay.compare import float_close, diff_objects, stable_hash
++
++
++def test_float_close_abs_rel_v1():
++    assert float_close(1.0, 1.0 + 1e-7, abs_tol=1e-6, rel_tol=1e-6)
++    assert not float_close(1.0, 1.0 + 1e-3, abs_tol=1e-6, rel_tol=1e-6)
++    assert float_close(1000.0, 1000.0 + 1e-3, abs_tol=1e-6, rel_tol=1e-6)
++
++
++def test_diff_objects_numeric_and_nested_v1():
++    a = {"x": 1.0, "y": {"z": [1, 2, 3]}}
++    b = {"x": 1.0 + 1e-7, "y": {"z": [1, 2, 4]}}
++    diffs = diff_objects(a, b, abs_tol=1e-6, rel_tol=1e-6)
++    assert any(d.path.endswith("[2]") for d in diffs)
++
++
++def test_stable_hash_determinism_v1():
++    a = {"b": 1, "a": {"z": 2, "y": 3}}
++    b = {"a": {"y": 3, "z": 2}, "b": 1}
++    assert stable_hash(a) == stable_hash(b)
+diff --git a/RUNBOOK_GOLDEN_REPLAY.md b/RUNBOOK_GOLDEN_REPLAY.md
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/RUNBOOK_GOLDEN_REPLAY.md
+@@ -0,0 +1,32 @@
++# Golden Replay (B5): train==serve parity
++
++## Цель
++Детерминированный replay: decision records (NDJSON) → повторный прогон `OFConfirmEngine.build()` → сравнение `OFConfirmV3` (+ опционально экспорт вектора meta-фич).
++
++## Что даёт
++- 100% фиксация «train==serve» на уровне runtime (поймает любые расхождения после рефакторов).
++- Явный guard от «смешанных» SAFE/STRICT порогов внутри одного файла (policy hash).
++
++## Prereqs
++- B4 уже пишет `dq_policy_hash` и `dq_policy_feature_manifest_hash_v1` в indicators/decision record.
++- Для сравнения meta-вектора включить экспорт на capture:
++  - `GOLDEN_REPLAY_EXPORT_META_FEATURES=1`
++  - `GOLDEN_REPLAY_EXPORT_META_FEATURES_MAX=256` (опционально)
++- Чтобы replay мог работать даже если outer logger хранит только OFConfirmV3:
++  - `GOLDEN_REPLAY_CAPTURE_ENABLE=1` (добавит `golden_replay_inputs_v1` в evidence)
++
++## Run
++```bash
++python -m ml_analysis.tools.golden_replay_parity_v1 --input decisions.ndjson --outdir out_gr --limit 5000
++cat out_gr/golden_replay_report.json | head
++```
++
++CI-режим:
++```bash
++python -m ml_analysis.tools.golden_replay_parity_v1 --input decisions.ndjson --fail-on-mismatch --evidence lite
++```
++
++Сравнение meta-фич:
++```bash
++python -m ml_analysis.tools.golden_replay_parity_v1 --input decisions.ndjson --compare-meta-features --evidence all
++```
+diff --git a/core/of_confirm_engine.py b/core/of_confirm_engine.py
+--- a/core/of_confirm_engine.py
++++ b/core/of_confirm_engine.py
+@@ -2230,2 +2230,36 @@
+                         ml_scenario=str(ml_scenario),
+                     )
++
++                    # --------------------------------------------------------------
++                    # B5 Golden Replay: optional export of the exact feature vector
++                    # used by MetaModelLR (train==serve parity checks).
++                    #
++                    # Default OFF (payload size). Enable only for sampled captures.
++                    # --------------------------------------------------------------
++                    try:
++                        export_meta = bool(int(cfg2.get(
++                            "golden_replay_export_meta_features",
++                            int(os.getenv("GOLDEN_REPLAY_EXPORT_META_FEATURES", "0"))
++                        )))
++                    except Exception:
++                        export_meta = False
++                    if export_meta:
++                        try:
++                            max_k = int(cfg2.get(
++                                "golden_replay_export_meta_features_max",
++                                int(os.getenv("GOLDEN_REPLAY_EXPORT_META_FEATURES_MAX", "256"))
++                            ))
++                        except Exception:
++                            max_k = 256
++                        try:
++                            mm_feats = list(getattr(mm_champ, "features", []) or [])
++                            export_cols = mm_feats[:max(0, max_k)]
++                            export_vec = {k: float(feat.get(k, 0.0) or 0.0) for k in export_cols}
++                            evidence["meta_features_export"] = export_vec
++                            evidence["meta_features_export_n"] = int(len(export_vec))
++                            evidence["meta_features_export_cols_hash"] = hashlib.sha1(
++                                (",".join(mm_feats)).encode("utf-8")
++                            ).hexdigest()
++                            evidence["meta_features_export_schema"] = str(local_schema_name)
++                            evidence["meta_features_export_schema_hash"] = str(local_schema_hash)
++                        except Exception:
++                            pass
+@@ -2400,1 +2434,28 @@
++        # --------------------------------------------------------------
++        # B5 Golden Replay: optional capture sidecar (inputs + runtime snapshot)
++        # so replay harness can run even if outer logger only stores OFConfirmV3.
++        # Default OFF (payload size). Enable only on sampled captures.
++        # --------------------------------------------------------------
++        try:
++            cap_enable = bool(int(cfg2.get(
++                "golden_replay_capture_enable",
++                int(os.getenv("GOLDEN_REPLAY_CAPTURE_ENABLE", "0"))
++            )))
++        except Exception:
++            cap_enable = False
++        if cap_enable:
++            try:
++                evidence["golden_replay_inputs_v1"] = {
++                    "symbol": str(symbol),
++                    "tf": str(tf),
++                    "direction": str(direction),
++                    "tick_ts_ms": int(tick_ts_ms),
++                    "price": float(price),
++                    "delta_z": float(delta_z),
++                    "dq_policy_hash": str(indicators.get("dq_policy_hash") or ""),
++                    "dq_policy_feature_manifest_hash_v1": str(indicators.get("dq_policy_feature_manifest_hash_v1") or ""),
++                    "runtime_snapshot": OFConfirmEngine.export_runtime_snapshot(runtime, indicators),
++                }
++            except Exception:
++                pass
++
+         ofc = OFConfirmV3(
+diff --git a/tick_flow_full/core/of_confirm_engine.py b/tick_flow_full/core/of_confirm_engine.py
+--- a/tick_flow_full/core/of_confirm_engine.py
++++ b/tick_flow_full/core/of_confirm_engine.py
+@@ -2230,2 +2230,36 @@
+                         ml_scenario=str(ml_scenario),
+                     )
++
++                    # --------------------------------------------------------------
++                    # B5 Golden Replay: optional export of the exact feature vector
++                    # used by MetaModelLR (train==serve parity checks).
++                    #
++                    # Default OFF (payload size). Enable only for sampled captures.
++                    # --------------------------------------------------------------
++                    try:
++                        export_meta = bool(int(cfg2.get(
++                            "golden_replay_export_meta_features",
++                            int(os.getenv("GOLDEN_REPLAY_EXPORT_META_FEATURES", "0"))
++                        )))
++                    except Exception:
++                        export_meta = False
++                    if export_meta:
++                        try:
++                            max_k = int(cfg2.get(
++                                "golden_replay_export_meta_features_max",
++                                int(os.getenv("GOLDEN_REPLAY_EXPORT_META_FEATURES_MAX", "256"))
++                            ))
++                        except Exception:
++                            max_k = 256
++                        try:
++                            mm_feats = list(getattr(mm_champ, "features", []) or [])
++                            export_cols = mm_feats[:max(0, max_k)]
++                            export_vec = {k: float(feat.get(k, 0.0) or 0.0) for k in export_cols}
++                            evidence["meta_features_export"] = export_vec
++                            evidence["meta_features_export_n"] = int(len(export_vec))
++                            evidence["meta_features_export_cols_hash"] = hashlib.sha1(
++                                (",".join(mm_feats)).encode("utf-8")
++                            ).hexdigest()
++                            evidence["meta_features_export_schema"] = str(local_schema_name)
++                            evidence["meta_features_export_schema_hash"] = str(local_schema_hash)
++                        except Exception:
++                            pass
+@@ -2400,1 +2434,28 @@
++        # --------------------------------------------------------------
++        # B5 Golden Replay: optional capture sidecar (inputs + runtime snapshot)
++        # so replay harness can run even if outer logger only stores OFConfirmV3.
++        # Default OFF (payload size). Enable only on sampled captures.
++        # --------------------------------------------------------------
++        try:
++            cap_enable = bool(int(cfg2.get(
++                "golden_replay_capture_enable",
++                int(os.getenv("GOLDEN_REPLAY_CAPTURE_ENABLE", "0"))
++            )))
++        except Exception:
++            cap_enable = False
++        if cap_enable:
++            try:
++                evidence["golden_replay_inputs_v1"] = {
++                    "symbol": str(symbol),
++                    "tf": str(tf),
++                    "direction": str(direction),
++                    "tick_ts_ms": int(tick_ts_ms),
++                    "price": float(price),
++                    "delta_z": float(delta_z),
++                    "dq_policy_hash": str(indicators.get("dq_policy_hash") or ""),
++                    "dq_policy_feature_manifest_hash_v1": str(indicators.get("dq_policy_feature_manifest_hash_v1") or ""),
++                    "runtime_snapshot": OFConfirmEngine.export_runtime_snapshot(runtime, indicators),
++                }
++            except Exception:
++                pass
++
+         ofc = OFConfirmV3(

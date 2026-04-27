@@ -1,0 +1,120 @@
+groups:
+  - name: orchestration_composite_preflight_strategy_research_stats_p65
+    rules:
+      # P6.5 — reason-family alerting for strategy_research_stats in composite preflight.
+      # All three rules consume P6.4 drilldown metrics already emitted by
+      # orchestration_composite_preflight_history_exporter_v1 and
+      # orchestration_composite_preflight_exporter_v1.
+      # No exporter changes are required; this is a pure alerting layer.
+
+      # -------------------------------------------------------------------
+      # Alert 1: sustained pbo_high blocks over a 24 h window
+      # -------------------------------------------------------------------
+      # Fires when a given rollout purpose accumulates ≥ 3 block/invalid
+      # decisions attributed to family=pbo_high within the latest 24 h
+      # gauge snapshot, sustained for 1 h.
+      # Likely cause: PBO/CSCV thresholds too tight or research bundle
+      # producing inflated PBO estimates.
+      - alert: TradeStrategyResearchStatsPboHighSustained24h
+        expr: |
+          sum by (purpose) (
+            orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window="24h",decision_status=~"block|invalid",family="pbo_high"}
+          ) >= 3
+        for: 1h
+        labels:
+          severity: warning
+          team: trade
+          component: orchestration_composite_preflight
+          source: strategy_research_stats
+        annotations:
+          summary: "Sustained strategy_research_stats pbo_high blocks over 24h"
+          description: "The composite preflight history shows repeated rollout blocks/invalid decisions driven by strategy_research_stats family=pbo_high for purpose={{ $labels.purpose }} in the last 24h. Review nightly research stats bundle, CSCV/PBO inputs and current promote thresholds before allowing rollout."
+
+      # -------------------------------------------------------------------
+      # Alert 2: recurring report_stale blocks over a 7 d window
+      # -------------------------------------------------------------------
+      # Fires when a given purpose accumulates ≥ 5 block/invalid decisions
+      # attributed to family=report_stale within the 7 d gauge snapshot,
+      # sustained for 30 m.
+      # Likely cause: nightly timer not firing, exporter freshness issue,
+      # or Redis summary/blocker state not refreshed.
+      - alert: TradeStrategyResearchStatsReportStaleRecurring7d
+        expr: |
+          sum by (purpose) (
+            orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window="7d",decision_status=~"block|invalid",family="report_stale"}
+          ) >= 5
+        for: 30m
+        labels:
+          severity: warning
+          team: trade
+          component: orchestration_composite_preflight
+          source: strategy_research_stats
+        annotations:
+          summary: "Recurring strategy_research_stats report_stale over 7d"
+          description: "Composite preflight has repeatedly blocked or invalidated rollout for purpose={{ $labels.purpose }} because strategy_research_stats reports were stale. Check nightly timer wiring, exporter freshness and Redis summary/blocker state."
+
+      # -------------------------------------------------------------------
+      # Alert 3: rising PSR/DSR-low share 24 h vs 7 d baseline
+      # -------------------------------------------------------------------
+      # Fires when ALL three conditions hold simultaneously for 1 h:
+      #   (a) share of psr_low|dsr_low among all strategy_research_stats
+      #       block/invalid decisions in 24h > 0.60
+      #   (b) at least 4 such events in 24h (volume guard)
+      #   (c) 24h share exceeds 7d baseline by > 0.15 (trend guard)
+      # Likely cause: degraded research dataset quality, PSR/DSR threshold
+      # regression, or model drift affecting probability-of-success estimates.
+      - alert: TradeStrategyResearchStatsPsrDsrLowShareRising24hVs7d
+        expr: |
+          (
+            sum by (purpose) (
+              orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window="24h",decision_status=~"block|invalid",family=~"psr_low|dsr_low"}
+            )
+            /
+            clamp_min(
+              sum by (purpose) (
+                orchestration_composite_preflight_history_events_total{window="24h",selected_source="strategy_research_stats",decision_status=~"block|invalid"}
+              ),
+              1
+            )
+          ) > 0.60
+          and
+          sum by (purpose) (
+            orchestration_composite_preflight_history_events_total{window="24h",selected_source="strategy_research_stats",decision_status=~"block|invalid"}
+          ) >= 4
+          and
+          (
+            (
+              sum by (purpose) (
+                orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window="24h",decision_status=~"block|invalid",family=~"psr_low|dsr_low"}
+              )
+              /
+              clamp_min(
+                sum by (purpose) (
+                  orchestration_composite_preflight_history_events_total{window="24h",selected_source="strategy_research_stats",decision_status=~"block|invalid"}
+                ),
+                1
+              )
+            )
+            -
+            (
+              sum by (purpose) (
+                orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window="7d",decision_status=~"block|invalid",family=~"psr_low|dsr_low"}
+              )
+              /
+              clamp_min(
+                sum by (purpose) (
+                  orchestration_composite_preflight_history_events_total{window="7d",selected_source="strategy_research_stats",decision_status=~"block|invalid"}
+                ),
+                1
+              )
+            )
+          ) > 0.15
+        for: 1h
+        labels:
+          severity: warning
+          team: trade
+          component: orchestration_composite_preflight
+          source: strategy_research_stats
+        annotations:
+          summary: "Rising PSR/DSR low share in strategy_research_stats rollout stops"
+          description: "For purpose={{ $labels.purpose }}, the share of strategy_research_stats-driven block/invalid decisions attributed to psr_low or dsr_low is materially higher in 24h than in 7d baseline. Review probability-of-success assumptions, DSR/PSR thresholds and recent research dataset quality."

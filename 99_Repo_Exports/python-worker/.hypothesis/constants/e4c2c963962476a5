@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/confirmations/l3_quality.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.25, 0.35, 0.55, 1.0, 30.0, '0.35', '0.50', '4.0', '700', 'L3_MAX_STALE_MS', 'L3_MISSING_SCORE01', 'L3_STALE_SCORE01', 'data_quality_flags', 'l3_missing', 'l3_missing_neutral', 'l3_no_ts', 'l3_no_ts_neutral', 'l3_ok', 'l3_stale', 'l3_stale_penalty', 'spread_bps', 'ts', 'ts_ms']

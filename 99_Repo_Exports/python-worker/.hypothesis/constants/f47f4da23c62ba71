@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/ndimage/morphology.py
+# hypothesis_version: 6.148.10
+
+['binary_closing', 'binary_dilation', 'binary_erosion', 'binary_fill_holes', 'binary_hit_or_miss', 'binary_opening', 'binary_propagation', 'black_tophat', 'grey_closing', 'grey_dilation', 'grey_erosion', 'grey_opening', 'iterate_structure', 'white_tophat']

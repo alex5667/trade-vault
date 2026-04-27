@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/optimize/_spectral.py
+# hypothesis_version: 6.148.10
+
+[1e-300, 1e-10, 1e-08, 1.0, 1000, 'cheng', 'cruz']

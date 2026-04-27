@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signals/orderbook_l2_tracker.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.5, 3.0, 15.0, 'asks', 'best_ask', 'best_bid', 'bids', 'depth_ask_20', 'depth_ask_3', 'depth_ask_5', 'depth_bid_20', 'depth_bid_3', 'depth_bid_5', 'microprice_20', 'mid', 'obi_20', 'obi_5', 'slope_ask_20', 'slope_bid_20', 'spread_bps', 'ts', 'wall_ask', 'wall_ask_dist_bps', 'wall_bid', 'wall_bid_dist_bps']

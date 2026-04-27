@@ -1,0 +1,26 @@
+groups:
+  - name: ml_phase2_19_operator_routing_incident_route_governance_v1
+    rules:
+      - alert: MLOperatorRoutingIncidentRouteRCAResultsStale
+        expr: time() - ml_operator_routing_incident_route_rca_results_last_run_ts_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Routing incident Route RCA Results persister is stale"
+      
+      - alert: MLOperatorRoutingIncidentRouteRCAQualityStale
+        expr: time() - ml_operator_routing_incident_route_rca_quality_last_run_ts_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Routing incident Route RCA Quality Scorer is stale"
+
+      - alert: MLOperatorRoutingIncidentRouteRCAFeedbackStale
+        expr: time() - ml_operator_routing_incident_route_rca_feedback_last_run_ts_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Routing incident Route RCA Feedback loop is stale"

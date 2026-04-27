@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/footprint_lite.py
+# hypothesis_version: 6.148.10
+
+[-1.0, 0.0, 1e-09, 0.3, 0.5, 1.0, 2.0, 3.0, 5.0, 10000.0, 200, 'DOWN', 'FLAT', 'LONG', 'NONE', 'SHORT', 'UP', 'buy', 'fp_eff_delta', 'fp_eff_quote', 'fp_eff_vol', 'fp_ladder_high_len', 'fp_ladder_low_len', 'fp_max_imb_ratio', 'fp_move_bp', 'fp_poc_bucket_px', 'fp_poc_edge_side', 'fp_poc_on_edge', 'fp_poc_total', 'fp_quote_delta', 'imb_frac', 'imb_ratio', 'ladder_edge_buckets', 'ladder_ratio_th', 'poc_edge_tol_buckets', 'sell']

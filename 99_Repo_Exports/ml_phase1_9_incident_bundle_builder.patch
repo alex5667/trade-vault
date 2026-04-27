@@ -1,0 +1,471 @@
+diff -urN empty_clean/orderflow_services/docker_compose_fragment_ml_phase1_9_v1.yml phase19_clean/orderflow_services/docker_compose_fragment_ml_phase1_9_v1.yml
+--- empty_clean/orderflow_services/docker_compose_fragment_ml_phase1_9_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ phase19_clean/orderflow_services/docker_compose_fragment_ml_phase1_9_v1.yml	2026-04-05 14:05:25.350570381 +0000
+@@ -0,0 +1,17 @@
++services:
++  scanner-ml-incident-bundle-builder-v1:
++    build:
++      context: .
++      dockerfile: python-worker/Dockerfile.gpu
++    command: ["python", "-m", "orderflow_services.incident_bundle_builder_v1"]
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_INCIDENT_BUNDLE_REQUEST_STREAM: ${ML_INCIDENT_BUNDLE_REQUEST_STREAM:-stream:ml:incident_bundle_requests}
++      ML_INCIDENT_BUNDLE_RESULT_STREAM: ${ML_INCIDENT_BUNDLE_RESULT_STREAM:-stream:ml:incident_bundle_results}
++      ML_AUDIT_STREAM: ${ML_AUDIT_STREAM:-stream:ml:recommendation_audit}
++      ML_INCIDENT_BUNDLE_METRICS_PORT: ${ML_INCIDENT_BUNDLE_METRICS_PORT:-9867}
++      ML_INCIDENT_BUNDLE_MAX_TIMELINE_EVENTS: ${ML_INCIDENT_BUNDLE_MAX_TIMELINE_EVENTS:-200}
++    ports:
++      - "9867:9867"
++    restart: unless-stopped
+diff -urN empty_clean/orderflow_services/incident_bundle_builder_v1.py phase19_clean/orderflow_services/incident_bundle_builder_v1.py
+--- empty_clean/orderflow_services/incident_bundle_builder_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ phase19_clean/orderflow_services/incident_bundle_builder_v1.py	2026-04-05 14:05:25.299246837 +0000
+@@ -0,0 +1,316 @@
++from __future__ import annotations
++
++import asyncio
++import json
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++try:  # pragma: no cover
++    import psycopg  # type: ignore
++except Exception:  # pragma: no cover
++    psycopg = None  # type: ignore
++
++from prometheus_client import Counter, Gauge, Histogram, start_http_server
++
++REQUESTS_TOTAL = Counter("ml_incident_bundle_requests_total", "Incident bundle requests", ["status"])
++BUNDLES_TOTAL = Counter("ml_incident_bundle_bundles_total", "Incident bundles produced", ["severity"])
++ERRORS_TOTAL = Counter("ml_incident_bundle_errors_total", "Incident bundle builder errors", ["stage"])
++LATENCY = Histogram("ml_incident_bundle_build_seconds", "Incident bundle build latency seconds")
++LAST_RUN_TS = Gauge("ml_incident_bundle_last_run_ts_seconds", "Last successful run timestamp")
++QUEUE_LAG_MS = Gauge("ml_incident_bundle_queue_lag_ms", "Lag from request ts to processing ts in milliseconds")
++
++
++@dataclass(frozen=True)
++class SeverityRule:
++    code: str
++    severity: str
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _loads_maybe(value: Any, default: Any) -> Any:
++    if value is None:
++        return default
++    if isinstance(value, (dict, list)):
++        return value
++    try:
++        return json.loads(value)
++    except Exception:
++        return default
++
++
++def _stream_fields(raw: Dict[Any, Any]) -> Dict[str, str]:
++    out: Dict[str, str] = {}
++    for k, v in raw.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        vv = v.decode() if isinstance(v, (bytes, bytearray)) else str(v)
++        out[kk] = vv
++    return out
++
++
++def compute_snapshot_diff(before: Optional[Dict[str, Any]], after: Optional[Dict[str, Any]], *, metrics: Optional[List[str]] = None) -> Dict[str, Dict[str, Any]]:
++    keys = metrics or [
++        "latency_p95_max_ms",
++        "latency_p99_max_ms",
++        "error_rate_max",
++        "missing_critical_rate_max",
++        "allow_rate_avg",
++        "ece_max",
++        "brier_max",
++        "status",
++    ]
++    b = before or {}
++    a = after or {}
++    diff: Dict[str, Dict[str, Any]] = {}
++    for key in keys:
++        bv = b.get(key)
++        av = a.get(key)
++        if bv == av:
++            continue
++        row: Dict[str, Any] = {"before": bv, "after": av}
++        try:
++            if bv is not None and av is not None:
++                row["delta"] = round(float(av) - float(bv), 12)
++        except Exception:
++            pass
++        diff[key] = row
++    return diff
++
++
++def summarize_reason_codes(codes: List[str]) -> Tuple[str, List[str]]:
++    order = [
++        SeverityRule("ROLLBACK_MTTR_SLO_BREACH", "critical"),
++        SeverityRule("ROLLBACK_MTTR_P95_HIGH", "warning"),
++        SeverityRule("ROLLBACK_SUCCESS_RATE_LOW", "critical"),
++        SeverityRule("ERROR_RATE_SPIKE", "critical"),
++        SeverityRule("LATENCY_P95_REGRESSION", "critical"),
++        SeverityRule("ROLLBACK_FAILED", "warning"),
++        SeverityRule("ROLLBACK_VERIFY_INCONCLUSIVE", "warning"),
++        SeverityRule("RECOMMENDATION_APPLY_REJECTED", "warning"),
++    ]
++    normalized = [str(x) for x in codes if str(x)]
++    hit = {c for c in normalized}
++    severity = "info"
++    primary: List[str] = []
++    for rule in order:
++        if rule.code in hit:
++            primary.append(rule.code)
++            if rule.severity == "critical":
++                severity = "critical"
++            elif severity != "critical":
++                severity = "warning"
++    if not primary:
++        primary = normalized[:3]
++    return severity, primary
++
++
++def build_incident_bundle(*, recommendation: Dict[str, Any], reviews: List[Dict[str, Any]], audit_events: List[Dict[str, Any]], apply_results: List[Dict[str, Any]], rollback_events: List[Dict[str, Any]], rollback_verifications: List[Dict[str, Any]], escalations: List[Dict[str, Any]], before_snapshot: Optional[Dict[str, Any]], after_snapshot: Optional[Dict[str, Any]], request_meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
++    reason_codes: List[str] = []
++    for source in (audit_events, apply_results, rollback_events, rollback_verifications, escalations):
++        for ev in source:
++            for field in ("reason_code", "reason", "reason_codes_json"):
++                raw = ev.get(field)
++                if field == "reason_codes_json":
++                    vals = _loads_maybe(raw, [])
++                    if isinstance(vals, list):
++                        reason_codes.extend(str(x) for x in vals)
++                elif raw:
++                    reason_codes.append(str(raw))
++    severity, primary_codes = summarize_reason_codes(reason_codes)
++    timeline: List[Dict[str, Any]] = []
++    for category, rows in (("review", reviews), ("audit", audit_events), ("apply", apply_results), ("rollback", rollback_events), ("rollback_verification", rollback_verifications), ("escalation", escalations)):
++        for row in rows:
++            timeline.append({"category": category, "ts_ms": int(row.get("ts_ms", 0) or 0), "event": row.get("event") or row.get("state") or row.get("decision") or row.get("status") or category, "payload": row})
++    timeline.sort(key=lambda x: (int(x.get("ts_ms", 0)), x.get("category", "")))
++    snapshot_diff = compute_snapshot_diff(before_snapshot, after_snapshot)
++    model_id = recommendation.get("target_ref") or recommendation.get("model_id") or "unknown"
++    return {
++        "schema_version": 1,
++        "bundle_type": "recommendation_incident_bundle",
++        "bundle_id": f"ib:{recommendation.get('recommendation_id', 'unknown')}",
++        "recommendation_id": recommendation.get("recommendation_id"),
++        "ts_ms": _now_ms(),
++        "severity": severity,
++        "primary_reason_codes": primary_codes,
++        "model_id": model_id,
++        "action_type": recommendation.get("action_type"),
++        "target_kind": recommendation.get("target_kind"),
++        "target_ref": recommendation.get("target_ref"),
++        "review_summary": {"review_count": len(reviews), "approved_n": sum(1 for r in reviews if str(r.get("decision", "")).upper() == "APPROVE"), "rejected_n": sum(1 for r in reviews if str(r.get("decision", "")).upper() == "REJECT")},
++        "apply_summary": {"apply_events_n": len(apply_results), "last_apply_status": apply_results[-1].get("status") if apply_results else None},
++        "rollback_summary": {"rollback_events_n": len(rollback_events), "rollback_verifications_n": len(rollback_verifications), "last_rollback_status": rollback_events[-1].get("status") if rollback_events else None, "last_verification_status": rollback_verifications[-1].get("verification_status") if rollback_verifications else None},
++        "escalation_summary": {"escalation_n": len(escalations), "last_severity": escalations[-1].get("severity") if escalations else None},
++        "before_snapshot": before_snapshot,
++        "after_snapshot": after_snapshot,
++        "snapshot_diff": snapshot_diff,
++        "timeline": timeline,
++        "request_meta": request_meta or {},
++    }
++
++
++class IncidentBundleBuilderWorker:
++    def __init__(self) -> None:
++        self.redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
++        self.request_stream = os.getenv("ML_INCIDENT_BUNDLE_REQUEST_STREAM", "stream:ml:incident_bundle_requests")
++        self.result_stream = os.getenv("ML_INCIDENT_BUNDLE_RESULT_STREAM", "stream:ml:incident_bundle_results")
++        self.audit_stream = os.getenv("ML_AUDIT_STREAM", "stream:ml:recommendation_audit")
++        self.group = os.getenv("ML_INCIDENT_BUNDLE_GROUP", "cg:ml_incident_bundle_builder_v1")
++        self.consumer = os.getenv("HOSTNAME", "ml-incident-bundle-builder-v1")
++        self.max_timeline_events = int(os.getenv("ML_INCIDENT_BUNDLE_MAX_TIMELINE_EVENTS", "200"))
++        self.metrics_port = int(os.getenv("ML_INCIDENT_BUNDLE_METRICS_PORT", "9867"))
++        self.database_url = os.getenv("DATABASE_URL", "")
++        self._started_metrics = False
++
++    async def _ensure_metrics(self) -> None:
++        if not self._started_metrics:
++            start_http_server(self.metrics_port)
++            self._started_metrics = True
++
++    async def _redis(self):
++        if redis is None:
++            raise RuntimeError("redis.asyncio is not installed")
++        return redis.from_url(self.redis_url, decode_responses=False)
++
++    async def _ensure_group(self, r) -> None:
++        try:
++            await r.xgroup_create(self.request_stream, self.group, id="0", mkstream=True)
++        except Exception:
++            pass
++
++    async def _fetch_recent_stream_rows(self, r, stream: str, recommendation_id: str, count: int = 200) -> List[Dict[str, Any]]:
++        rows: List[Dict[str, Any]] = []
++        try:
++            events = await r.xrevrange(stream, "+", "-", count=count)
++            for _id, raw in events:
++                data = _stream_fields(raw)
++                if str(data.get("recommendation_id", "")) == recommendation_id:
++                    rows.append(data)
++            rows.reverse()
++        except Exception:
++            ERRORS_TOTAL.labels("fetch_stream_rows").inc()
++        return rows
++
++    async def _fetch_hash_json(self, r, key: str) -> Optional[Dict[str, Any]]:
++        try:
++            raw = await r.hgetall(key)
++            if not raw:
++                return None
++            data = _stream_fields(raw)
++            if "snapshot_json" in data:
++                return _loads_maybe(data["snapshot_json"], {})
++            if "bundle_json" in data:
++                return _loads_maybe(data["bundle_json"], {})
++            return data
++        except Exception:
++            return None
++
++    async def _load_recommendation(self, recommendation_id: str) -> Optional[Dict[str, Any]]:
++        if not self.database_url or psycopg is None:
++            return {"recommendation_id": recommendation_id, "action_type": "unknown", "target_kind": "unknown", "target_ref": "unknown"}
++        try:
++            with psycopg.connect(self.database_url) as conn:
++                with conn.cursor() as cur:
++                    cur.execute("SELECT recommendation_id, action_type, target_kind, target_ref, risk_level, recommendation_json::text, apply_status FROM llm_recommendations WHERE recommendation_id = %s", (recommendation_id,))
++                    row = cur.fetchone()
++                    if not row:
++                        return None
++                    return {"recommendation_id": row[0], "action_type": row[1], "target_kind": row[2], "target_ref": row[3], "risk_level": row[4], "recommendation_json": _loads_maybe(row[5], {}), "apply_status": row[6]}
++        except Exception:
++            ERRORS_TOTAL.labels("load_recommendation").inc()
++            return None
++
++    async def _load_reviews(self, recommendation_id: str) -> List[Dict[str, Any]]:
++        if not self.database_url or psycopg is None:
++            return []
++        try:
++            with psycopg.connect(self.database_url) as conn:
++                with conn.cursor() as cur:
++                    cur.execute("SELECT ts_ms, reviewer, decision, replay_status FROM llm_recommendation_reviews WHERE recommendation_id = %s ORDER BY ts_ms ASC", (recommendation_id,))
++                    return [{"ts_ms": row[0], "reviewer": row[1], "decision": row[2], "replay_status": row[3]} for row in cur.fetchall()]
++        except Exception:
++            ERRORS_TOTAL.labels("load_reviews").inc()
++            return []
++
++    async def _persist_bundle(self, bundle: Dict[str, Any]) -> None:
++        if not self.database_url or psycopg is None:
++            return
++        try:
++            with psycopg.connect(self.database_url) as conn:
++                with conn.cursor() as cur:
++                    cur.execute(
++                        "INSERT INTO llm_incident_bundles (bundle_id, recommendation_id, ts_ms, severity, model_id, bundle_json, snapshot_diff_json) VALUES (%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb) ON CONFLICT (bundle_id) DO UPDATE SET ts_ms = EXCLUDED.ts_ms, severity = EXCLUDED.severity, model_id = EXCLUDED.model_id, bundle_json = EXCLUDED.bundle_json, snapshot_diff_json = EXCLUDED.snapshot_diff_json",
++                        (bundle["bundle_id"], bundle["recommendation_id"], bundle["ts_ms"], bundle["severity"], bundle["model_id"], json.dumps(bundle, ensure_ascii=False), json.dumps(bundle.get("snapshot_diff", {}), ensure_ascii=False)),
++                    )
++                conn.commit()
++        except Exception:
++            ERRORS_TOTAL.labels("persist_bundle").inc()
++
++    async def process_message(self, r, msg_id: str, raw_fields: Dict[Any, Any]) -> Optional[Dict[str, Any]]:
++        fields = _stream_fields(raw_fields)
++        recommendation_id = fields.get("recommendation_id", "").strip()
++        if not recommendation_id:
++            REQUESTS_TOTAL.labels("missing_recommendation_id").inc()
++            return None
++        req_ts_ms = int(fields.get("ts_ms", 0) or 0)
++        if req_ts_ms > 0:
++            QUEUE_LAG_MS.set(max(0, _now_ms() - req_ts_ms))
++        recommendation = await self._load_recommendation(recommendation_id)
++        if not recommendation:
++            REQUESTS_TOTAL.labels("recommendation_not_found").inc()
++            return None
++        model_id = recommendation.get("target_ref") or fields.get("model_id") or "unknown"
++        before_snapshot = await self._fetch_hash_json(r, f"metrics:ml:model_snapshot_before:{recommendation_id}")
++        after_snapshot = await self._fetch_hash_json(r, f"metrics:ml:model_snapshot:{model_id}")
++        reviews = await self._load_reviews(recommendation_id)
++        audit_events = await self._fetch_recent_stream_rows(r, self.audit_stream, recommendation_id, self.max_timeline_events)
++        apply_results = await self._fetch_recent_stream_rows(r, "stream:ml:recommendation_apply_results", recommendation_id, self.max_timeline_events)
++        rollback_events = await self._fetch_recent_stream_rows(r, "stream:ml:recommendation_rollback_results", recommendation_id, self.max_timeline_events)
++        rollback_verifications = await self._fetch_recent_stream_rows(r, "stream:ml:recommendation_rollback_verification_results", recommendation_id, self.max_timeline_events)
++        escalations = await self._fetch_recent_stream_rows(r, "stream:ml:recommendation_escalations", recommendation_id, self.max_timeline_events)
++        with LATENCY.time():
++            bundle = build_incident_bundle(recommendation=recommendation, reviews=reviews, audit_events=audit_events, apply_results=apply_results, rollback_events=rollback_events, rollback_verifications=rollback_verifications, escalations=escalations, before_snapshot=before_snapshot, after_snapshot=after_snapshot, request_meta=fields)
++        await self._persist_bundle(bundle)
++        await r.hset(f"metrics:ml:incident_bundle:{recommendation_id}", mapping={"bundle_id": bundle["bundle_id"], "recommendation_id": recommendation_id, "severity": bundle["severity"], "model_id": bundle["model_id"], "bundle_json": json.dumps(bundle, ensure_ascii=False), "updated_at_ms": _now_ms()})
++        await r.hset("metrics:ml:incident_bundle:last", mapping={"bundle_id": bundle["bundle_id"], "recommendation_id": recommendation_id, "severity": bundle["severity"], "updated_at_ms": _now_ms()})
++        await r.xadd(self.result_stream, {"recommendation_id": recommendation_id, "bundle_id": bundle["bundle_id"], "severity": bundle["severity"], "model_id": bundle["model_id"], "bundle_json": json.dumps(bundle, ensure_ascii=False), "ts_ms": _now_ms()}, maxlen=50000, approximate=True)
++        BUNDLES_TOTAL.labels(bundle["severity"]).inc()
++        REQUESTS_TOTAL.labels("ok").inc()
++        LAST_RUN_TS.set(time.time())
++        return bundle
++
++    async def run_forever(self) -> None:  # pragma: no cover
++        await self._ensure_metrics()
++        r = await self._redis()
++        await self._ensure_group(r)
++        while True:
++            try:
++                rows = await r.xreadgroup(self.group, self.consumer, {self.request_stream: ">"}, count=10, block=5000)
++                if not rows:
++                    continue
++                for _stream, messages in rows:
++                    for msg_id, raw in messages:
++                        try:
++                            await self.process_message(r, msg_id, raw)
++                        except Exception:
++                            ERRORS_TOTAL.labels("process_message").inc()
++                        finally:
++                            try:
++                                await r.xack(self.request_stream, self.group, msg_id)
++                            except Exception:
++                                ERRORS_TOTAL.labels("ack").inc()
++            except Exception:
++                ERRORS_TOTAL.labels("run_loop").inc()
++                await asyncio.sleep(1)
++
++
++if __name__ == "__main__":  # pragma: no cover
++    asyncio.run(IncidentBundleBuilderWorker().run_forever())
+diff -urN empty_clean/orderflow_services/prometheus_alerts_ml_phase1_9_v1.yml phase19_clean/orderflow_services/prometheus_alerts_ml_phase1_9_v1.yml
+--- empty_clean/orderflow_services/prometheus_alerts_ml_phase1_9_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ phase19_clean/orderflow_services/prometheus_alerts_ml_phase1_9_v1.yml	2026-04-05 14:05:25.364806158 +0000
+@@ -0,0 +1,26 @@
++groups:
++  - name: ml_phase1_9_incident_bundle_builder
++    rules:
++      - alert: MLIncidentBundleBuilderStale
++        expr: (time() - ml_incident_bundle_last_run_ts_seconds) > 1800
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: "ML incident bundle builder stale"
++
++      - alert: MLIncidentBundleQueueLagHigh
++        expr: ml_incident_bundle_queue_lag_ms > 300000
++        for: 15m
++        labels:
++          severity: warning
++        annotations:
++          summary: "ML incident bundle builder queue lag high"
++
++      - alert: MLIncidentBundleBuildErrors
++        expr: increase(ml_incident_bundle_errors_total[15m]) > 5
++        for: 5m
++        labels:
++          severity: warning
++        annotations:
++          summary: "ML incident bundle builder errors exceeded threshold"
+diff -urN empty_clean/orderflow_services/runbook_ml_phase1_9_v1.md phase19_clean/orderflow_services/runbook_ml_phase1_9_v1.md
+--- empty_clean/orderflow_services/runbook_ml_phase1_9_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ phase19_clean/orderflow_services/runbook_ml_phase1_9_v1.md	2026-04-05 14:05:25.378816728 +0000
+@@ -0,0 +1,36 @@
++# Phase 1.9 — Incident Bundle Builder (scanner_infra)
++
++## Purpose
++Build a compact forensic bundle per `recommendation_id` for operator review.
++
++## Inputs
++- `stream:ml:incident_bundle_requests`
++- `stream:ml:recommendation_audit`
++- `stream:ml:recommendation_apply_results`
++- `stream:ml:recommendation_rollback_results`
++- `stream:ml:recommendation_rollback_verification_results`
++- `stream:ml:recommendation_escalations`
++- `metrics:ml:model_snapshot_before:<recommendation_id>`
++- `metrics:ml:model_snapshot:<model_id>`
++
++## Outputs
++- `stream:ml:incident_bundle_results`
++- `metrics:ml:incident_bundle:last`
++- `metrics:ml:incident_bundle:<recommendation_id>`
++- `llm_incident_bundles`
++
++## Smoke checks
++```bash
++redis-cli XADD stream:ml:incident_bundle_requests '*' recommendation_id rec-1 ts_ms $(python - <<'PY'
++import time
++print(int(time.time()*1000))
++PY
++)
++redis-cli XREVRANGE stream:ml:incident_bundle_results + - COUNT 3
++redis-cli HGETALL metrics:ml:incident_bundle:last
++curl -s localhost:9867/metrics | grep '^ml_incident_bundle_'
++```
++
++## Rollback
++- stop `scanner-ml-incident-bundle-builder-v1`
++- keep SQL and streams in place
+diff -urN empty_clean/orderflow_services/sql/ml_phase1_9_v1.sql phase19_clean/orderflow_services/sql/ml_phase1_9_v1.sql
+--- empty_clean/orderflow_services/sql/ml_phase1_9_v1.sql	1970-01-01 00:00:00.000000000 +0000
++++ phase19_clean/orderflow_services/sql/ml_phase1_9_v1.sql	2026-04-05 14:05:25.336000969 +0000
+@@ -0,0 +1,16 @@
++CREATE TABLE IF NOT EXISTS llm_incident_bundles (
++  bundle_id               text PRIMARY KEY,
++  recommendation_id       text NOT NULL,
++  ts_ms                   bigint NOT NULL,
++  severity                text NOT NULL,
++  model_id                text NOT NULL,
++  bundle_json             jsonb NOT NULL,
++  snapshot_diff_json      jsonb,
++  created_at              timestamptz NOT NULL DEFAULT now()
++);
++
++CREATE INDEX IF NOT EXISTS idx_llm_incident_bundles_rec_ts
++  ON llm_incident_bundles (recommendation_id, ts_ms DESC);
++
++CREATE INDEX IF NOT EXISTS idx_llm_incident_bundles_model_ts
++  ON llm_incident_bundles (model_id, ts_ms DESC);
+diff -urN empty_clean/orderflow_services/tests/test_incident_bundle_builder_v1.py phase19_clean/orderflow_services/tests/test_incident_bundle_builder_v1.py
+--- empty_clean/orderflow_services/tests/test_incident_bundle_builder_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ phase19_clean/orderflow_services/tests/test_incident_bundle_builder_v1.py	2026-04-05 14:05:25.320188228 +0000
+@@ -0,0 +1,36 @@
++from orderflow_services.incident_bundle_builder_v1 import build_incident_bundle, compute_snapshot_diff, summarize_reason_codes
++
++
++def test_compute_snapshot_diff_numeric_and_status_changes():
++    before = {'latency_p95_max_ms': 2.0, 'error_rate_max': 0.01, 'status': 'ok'}
++    after = {'latency_p95_max_ms': 4.5, 'error_rate_max': 0.04, 'status': 'critical'}
++    diff = compute_snapshot_diff(before, after)
++    assert diff['latency_p95_max_ms']['delta'] == 2.5
++    assert diff['error_rate_max']['delta'] == 0.03
++    assert diff['status']['before'] == 'ok'
++    assert diff['status']['after'] == 'critical'
++
++
++def test_summarize_reason_codes_picks_critical_first():
++    severity, primary = summarize_reason_codes(['ROLLBACK_VERIFY_INCONCLUSIVE', 'ERROR_RATE_SPIKE'])
++    assert severity == 'critical'
++    assert 'ERROR_RATE_SPIKE' in primary
++
++
++def test_build_incident_bundle_produces_timeline_and_snapshot_diff():
++    recommendation = {'recommendation_id': 'rec-1', 'action_type': 'propose_threshold_canary', 'target_kind': 'edge_stack_v1', 'target_ref': 'edge_stack_v1:BTCUSDT'}
++    reviews = [{'ts_ms': 10, 'decision': 'APPROVE'}]
++    audit = [{'ts_ms': 20, 'event': 'AUDIT', 'reason_code': 'ERROR_RATE_SPIKE'}]
++    apply_results = [{'ts_ms': 30, 'status': 'COMMIT_OK'}]
++    rollback_events = [{'ts_ms': 40, 'status': 'ROLLBACK_REQUESTED'}]
++    rollback_verifications = [{'ts_ms': 50, 'verification_status': 'PASS'}]
++    escalations = [{'ts_ms': 60, 'severity': 'critical', 'reason_codes_json': '["ERROR_RATE_SPIKE"]'}]
++    before_snapshot = {'error_rate_max': 0.01, 'allow_rate_avg': 0.33, 'status': 'ok'}
++    after_snapshot = {'error_rate_max': 0.06, 'allow_rate_avg': 0.28, 'status': 'critical'}
++    bundle = build_incident_bundle(recommendation=recommendation, reviews=reviews, audit_events=audit, apply_results=apply_results, rollback_events=rollback_events, rollback_verifications=rollback_verifications, escalations=escalations, before_snapshot=before_snapshot, after_snapshot=after_snapshot, request_meta={'requested_by': 'ops'})
++    assert bundle['recommendation_id'] == 'rec-1'
++    assert bundle['severity'] == 'critical'
++    assert bundle['snapshot_diff']['error_rate_max']['delta'] == 0.05
++    assert len(bundle['timeline']) == 6
++    assert bundle['timeline'][0]['category'] == 'review'
++    assert bundle['timeline'][-1]['category'] == 'escalation'

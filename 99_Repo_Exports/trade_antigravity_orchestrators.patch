@@ -1,0 +1,265 @@
+--- a/.agent/workflows/trade-parallel-investigation.md
++++ b/.agent/workflows/trade-parallel-investigation.md
+@@ -0,0 +1,75 @@
++---
++description: Parallel multi-specialist investigation for ambiguous cross-service issues, regressions, or design questions in the trade system
++---
++
++When the user types `/trade-parallel-investigation <issue>` or asks to investigate an ambiguous cross-service problem, orchestrate a parallel investigation and merge the findings into one decision-ready report.
++
++## Mission
++Investigate `<issue>` across the relevant subsystems in parallel, minimize blind spots, and return one consolidated answer with explicit contradictions, confidence, and next actions.
++
++## Use this workflow when
++- the root cause is unclear
++- more than one subsystem may be involved
++- multiple specialists can investigate independently
++- you need a fast map of risks before implementation or escalation
++
++## Execution sequence
++1. Act as **@trade-lead** and restate the issue, current impact, confidence level, and success criteria.
++2. Load **trade-project-core**.
++3. Select the minimum relevant specialist lanes from this list and investigate them in parallel:
++   - **@go-ingest-engineer** + `trade-go-redis-ingest`
++   - **@python-signal-engineer** + `trade-python-signal-engine`
++   - **@platform-api-ui-engineer** + `trade-api-ui-contracts`
++   - **@timeseries-dba** + `trade-timescale-postgres`
++   - **@contract-governor** + `trade-contract-regression`
++   - **@latency-benchmarker** + `trade-latency-benchmarking`
++   - **@exchange-adapter-engineer** + `trade-exchange-adapter`
++   - **@storage-retention-governor** + `trade-storage-retention`
++   - **@backtest-validity-reviewer** + `trade-backtest-validity`
++   - **@execution-risk-analyst** + `trade-execution-risk`
++   - **@resilience-drillmaster** + `trade-resilience-failure-drills`
++   - **@ml-replay-engineer** + `trade-ml-replay-gating`
++   - **@sre-rollout** + `trade-observability-rollout`
++4. Each selected lane must return only:
++   - facts found
++   - assumptions made
++   - risks in its own domain
++   - exact files / contracts / metrics that matter
++   - confidence level: high / medium / low
++5. Act as **@trade-lead** and merge the lane outputs into:
++   - confirmed facts
++   - open questions
++   - conflicting interpretations
++   - most probable causes or decisions
++   - exact next step
++6. If implementation is requested, convert the merged result into a file-by-file patch plan.
++
++## Required output
++1. Goal
++2. Facts
++3. Assumptions
++4. Risks
++5. Findings by lane
++6. Conflicts / uncertainty
++7. Recommended next action
++8. File changes or investigation plan
++9. Tests
++10. Metrics / alerts
++11. Rollout / rollback if production-facing
++
++## Investigation rules
++- Keep each lane scoped and avoid repository-wide scans unless a trigger fires.
++- Do not let one lane silently overwrite another lane's conclusions.
++- Explicitly mark unresolved contradictions.
++- Prefer evidence over speculation.
++
++## Model lane
++- Start with **Gemini Flash + Fast** if the issue is still bounded.
++- Escalate to a premium reasoning model in **Planning** mode if:
++  - more than 2 subsystems are implicated,
++  - conclusions conflict,
++  - the root cause remains ambiguous,
++  - rollout or capital-risk decisions depend on the answer.
++
++# Language Preferences
++**CRITICAL REQUIREMENT:** You must always communicate and respond to the user in Russian (на русском языке), regardless of the language of the prompt or standard instructions. All explanations, plans, and output text must be in Russian.
+--- a/.agent/workflows/trade-release-gate.md
++++ b/.agent/workflows/trade-release-gate.md
+@@ -0,0 +1,78 @@
++---
++description: Final production release gate for trade changes with explicit pass/fail criteria, stop conditions, and rollback readiness
++---
++
++When the user types `/trade-release-gate <change>` or asks whether a trade change is ready for merge, canary, or production, orchestrate a formal release-gate review.
++
++## Mission
++Decide whether `<change>` is ready for merge, canary, or production using explicit pass/fail evidence.
++
++## Use this workflow when
++- code or config is about to be merged
++- canary or production rollout is planned
++- a change needs a formal go / no-go decision
++
++## Execution sequence
++1. Act as **@trade-lead** and identify the target stage:
++   - merge
++   - canary
++   - production
++2. Load **trade-project-core**, **trade-quality-gates**, and **trade-observability-rollout**.
++3. Pull in the minimum additional reviewers required by the change:
++   - **@contract-governor** if contracts may have changed
++   - **@latency-benchmarker** if hot paths may have changed
++   - **@execution-risk-analyst** if entry quality, spread, slippage, or execution costs may change
++   - **@resilience-drillmaster** if failure behavior or kill switches matter
++   - **@timeseries-dba** / **@storage-retention-governor** if storage or retention changed
++   - **@ml-replay-engineer** / **@backtest-validity-reviewer** if replay, ML, labels, or offline evaluation changed
++4. Evaluate the release gate by evidence only:
++   - implementation completeness
++   - tests status
++   - regression status
++   - contract compatibility
++   - latency budgets
++   - observability readiness
++   - rollback readiness
++   - operational stop conditions
++5. Produce one stage-specific verdict:
++   - PASS
++   - PASS WITH CONDITIONS
++   - FAIL
++6. If the verdict is not PASS, return the smallest set of actions needed to reach PASS.
++
++## Required output
++1. Goal
++2. Target stage
++3. Facts
++4. Assumptions
++5. Risks
++6. Gate checklist by category
++7. Verdict: PASS / PASS WITH CONDITIONS / FAIL
++8. Blocking issues
++9. Required file changes or missing artifacts
++10. Metrics / alerts
++11. Stop conditions
++12. Rollout / rollback
++
++## Gate categories
++- Functional correctness
++- Contract safety
++- Latency / throughput
++- Execution-risk safety
++- Replay / regression validity
++- Observability and alerting
++- Resilience / kill switch / degraded mode
++- Rollback readiness
++
++## Release rules
++- No generic “looks good”. Every gate must map to evidence.
++- Do not recommend canary or prod without rollback steps and stop conditions.
++- If contracts changed, backward compatibility must be stated explicitly.
++- If latency changed, budgets and measurement method must be shown explicitly.
++
++## Model lane
++Default to a **premium reasoning model + Planning** mode for canary/prod decisions.
++For merge-only bounded changes, **Gemini Flash + Fast** is acceptable if no premium trigger fires.
++
++# Language Preferences
++**CRITICAL REQUIREMENT:** You must always communicate and respond to the user in Russian (на русском языке), regardless of the language of the prompt or standard instructions. All explanations, plans, and output text must be in Russian.
+--- a/.agent/workflows/trade-sequential-review.md
++++ b/.agent/workflows/trade-sequential-review.md
+@@ -0,0 +1,72 @@
++---
++description: Sequential specialist review workflow for bounded but high-safety trade changes that require ordered validation
++---
++
++When the user types `/trade-sequential-review <change>` or asks for a safe ordered review of a non-trivial change, orchestrate a sequential multi-role review where each specialist builds on the previous result.
++
++## Mission
++Turn `<change>` into a reviewed, implementation-ready, production-safe plan with ordered validation and minimal rework.
++
++## Use this workflow when
++- the change is non-trivial but not fully ambiguous
++- each review step depends on the previous one
++- you want one clean chain: design -> contracts -> performance -> quality -> rollout
++
++## Execution sequence
++1. Act as **@trade-lead** and restate the change, scope, assumptions, and success criteria.
++2. Load **trade-project-core**.
++3. Route domain review in order, selecting only the needed steps:
++   - design / domain logic:
++     - **@microstructure-analyst**
++     - **@python-signal-engineer** + `trade-python-signal-engine`
++     - **@exchange-adapter-engineer** + `trade-exchange-adapter`
++     - **@backtest-validity-reviewer** + `trade-backtest-validity`
++   - transport / contract layer:
++     - **@contract-governor** + `trade-contract-regression`
++     - **@platform-api-ui-engineer** + `trade-api-ui-contracts`
++   - storage / lifecycle layer:
++     - **@timeseries-dba** + `trade-timescale-postgres`
++     - **@storage-retention-governor** + `trade-storage-retention`
++   - performance / risk layer:
++     - **@latency-benchmarker** + `trade-latency-benchmarking`
++     - **@execution-risk-analyst** + `trade-execution-risk`
++   - release safety layer:
++     - **@quality-gatekeeper** + `trade-quality-gates`
++     - **@resilience-drillmaster** + `trade-resilience-failure-drills`
++     - **@sre-rollout** + `trade-observability-rollout`
++4. Each step must explicitly state whether it is:
++   - approved
++   - approved with conditions
++   - blocked
++5. If a step blocks the change, downstream steps must treat that block as a constraint rather than ignoring it.
++6. Act as **@trade-lead** and return one merged verdict.
++
++## Required output
++1. Goal
++2. Facts
++3. Assumptions
++4. Risks
++5. Sequential review log
++6. Blocking issues
++7. Final verdict
++8. Exact file changes
++9. Tests
++10. Metrics / alerts
++11. Rollout / rollback
++12. Prod checklist
++
++## Review rules
++- Do not parallelize this workflow conceptually; later steps must consume earlier conclusions.
++- Prefer additive and backward-compatible changes unless the user explicitly allows breaking changes.
++- If blocked, return the smallest viable path to unblock.
++
++## Model lane
++- Default to **Gemini Flash + Fast** for bounded sequential review.
++- Escalate to a premium reasoning model in **Planning** mode if:
++  - architecture redesign is required,
++  - the review crosses more than 2 subsystems,
++  - the change is non-backward-compatible,
++  - strategy / ML / retention policy must be redesigned.
++
++# Language Preferences
++**CRITICAL REQUIREMENT:** You must always communicate and respond to the user in Russian (на русском языке), regardless of the language of the prompt or standard instructions. All explanations, plans, and output text must be in Russian.
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -333,6 +333,13 @@
+ 9. `@sre-rollout` validates production safety.
+ 10. If ML or replay is involved, `@ml-replay-engineer` must validate before rollout is considered complete.
+ 
++
++## Orchestration workflows
++Use these workflows when delegation structure matters more than a single specialist lane.
++- `/trade-parallel-investigation <issue>` for ambiguous cross-service investigation where several specialists should inspect in parallel and `@trade-lead` must merge conflicting findings.
++- `/trade-sequential-review <change>` for ordered validation where each specialist depends on the previous result.
++- `/trade-release-gate <change>` for formal merge / canary / prod go-no-go decisions with explicit pass/fail criteria.
++
+ ## Output quality bar
+ - Prefer repository-ready content over abstract advice.
+ - Name exact files to change.
+--- a/ORCHESTRATION_WORKFLOWS_README.md
++++ b/ORCHESTRATION_WORKFLOWS_README.md
+@@ -0,0 +1,12 @@
++# Orchestration Workflows
++
++Добавлены три orchestration-workflow для делегирования между ролями:
++
++- `/trade-parallel-investigation` — параллельное расследование неочевидной проблемы
++- `/trade-sequential-review` — последовательный review, где каждый шаг зависит от предыдущего
++- `/trade-release-gate` — формальный gate для merge / canary / prod
++
++Когда использовать:
++- проблема неясна и может быть в нескольких подсистемах -> `parallel`
++- change понятен, но нужен ordered validation chain -> `sequential`
++- нужно решение go / no-go перед выпуском -> `release-gate`

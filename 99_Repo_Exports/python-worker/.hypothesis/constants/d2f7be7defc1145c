@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/interpolate/_polyint.py
+# hypothesis_version: 6.148.10
+
+[1.0, 4.0, 'KroghInterpolator', '_y_axis', '_y_extra_shape', 'dtype', 'ignore', 'krogh_interpolate', 'shape', '{!r} + (N,) + {!r}']

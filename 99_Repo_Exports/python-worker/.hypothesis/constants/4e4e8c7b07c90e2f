@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/confirmations/l2_confirmations.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.05, 0.1, 0.15, 0.25, 0.3, 0.5, 1.0, 1.5, 2.0, 6.0, 8.0, 100.0, 50000.0, 75000.0, 1500, 'buy', 'cfg', 'l2_stale_ms', 'level_price', 'micro_proxy', 'mp_contra', 'no_blocking_confirm', 'no_wall_or_refill', 'ok', 'refill_ratio', 'score01', 'spread_bps', 'spread_wide', 'src_a_wall_or_refill', 'src_b_mp_or_proxy', 'taker_rate', 'taker_rate_ema', 'taker_rate_low', 'veto', 'wall_here']

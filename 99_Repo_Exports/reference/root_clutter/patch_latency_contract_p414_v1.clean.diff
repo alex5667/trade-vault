@@ -1,0 +1,1161 @@
+--- a/services/observability/latency_deploy_lint_silence_approval_state.py
++++ b/services/observability/latency_deploy_lint_silence_approval_state.py
+@@ -6,6 +6,8 @@
+ P4.11 added freshness windows for prepared/approved requests.
+ P4.12 bound approvals to coarse drift snapshot hashes.
+ P4.13 extended the binding to semantic drift state.
++P4.14 adds warning-policy / notifier-route binding so approvals invalidate when
++operational escalation class changes even if the raw drift body stays similar.
+ """
+ 
+ from dataclasses import dataclass
+@@ -95,6 +97,10 @@
+     bound_errors_count: int
+     bound_details_json: str
+     bound_details_fingerprint: str
++    bound_warning_codes: str
++    bound_warning_codes_hash: str
++    bound_warning_severity_policy: str
++    bound_notifier_route_class: str
+     invalidated_ts_ms: int
+     invalidated_reason: str
+     invalidated_stage: str
+@@ -106,6 +112,10 @@
+     invalidated_errors_count: int
+     invalidated_details_json: str
+     invalidated_details_fingerprint: str
++    invalidated_warning_codes: str
++    invalidated_warning_codes_hash: str
++    invalidated_warning_severity_policy: str
++    invalidated_notifier_route_class: str
+ 
+ 
+ @dataclass(frozen=True)
+@@ -157,6 +167,10 @@
+         bound_errors_count=_i(raw.get('bound_errors_count'), 0),
+         bound_details_json=_s(raw.get('bound_details_json'), '{}'),
+         bound_details_fingerprint=_s(raw.get('bound_details_fingerprint')),
++        bound_warning_codes=_s(raw.get('bound_warning_codes'), 'none'),
++        bound_warning_codes_hash=_s(raw.get('bound_warning_codes_hash')),
++        bound_warning_severity_policy=_s(raw.get('bound_warning_severity_policy'), 'none'),
++        bound_notifier_route_class=_s(raw.get('bound_notifier_route_class'), 'notify'),
+         invalidated_ts_ms=_i(raw.get('invalidated_ts_ms'), 0),
+         invalidated_reason=_s(raw.get('invalidated_reason')),
+         invalidated_stage=_s(raw.get('invalidated_stage')),
+@@ -168,6 +182,10 @@
+         invalidated_errors_count=_i(raw.get('invalidated_errors_count'), 0),
+         invalidated_details_json=_s(raw.get('invalidated_details_json'), '{}'),
+         invalidated_details_fingerprint=_s(raw.get('invalidated_details_fingerprint')),
++        invalidated_warning_codes=_s(raw.get('invalidated_warning_codes'), 'none'),
++        invalidated_warning_codes_hash=_s(raw.get('invalidated_warning_codes_hash')),
++        invalidated_warning_severity_policy=_s(raw.get('invalidated_warning_severity_policy'), 'none'),
++        invalidated_notifier_route_class=_s(raw.get('invalidated_notifier_route_class'), 'notify'),
+     )
+ 
+ 
+@@ -188,7 +206,28 @@
+     return 0
+ 
+ 
+-def build_drift_binding(r: Any, *, state_prefix: str, purpose: str, now_ms: int | None = None) -> dict[str, str]:
++def _policy_set(raw: str) -> set[str]:
++    return {x.strip() for x in str(raw or '').split(',') if x.strip()}
++
++
++def resolve_warning_severity_policy(warning_codes_csv: str, *, warn_codes_warn_csv: str = '', warn_codes_crit_csv: str = '', warn_codes_page_csv: str = '') -> str:
++    codes = set(_split_csv(warning_codes_csv))
++    if not codes:
++        return 'none'
++    if codes & _policy_set(warn_codes_page_csv):
++        return 'page'
++    if codes & _policy_set(warn_codes_crit_csv):
++        return 'crit'
++    if codes & _policy_set(warn_codes_warn_csv):
++        return 'warn'
++    return 'warn'
++
++
++def resolve_notifier_route_class(*, warning_severity_policy: str) -> str:
++    return 'page' if str(warning_severity_policy or 'none') == 'page' else 'notify'
++
++
++def build_drift_binding(r: Any, *, state_prefix: str, purpose: str, now_ms: int | None = None, warn_codes_warn_csv: str = '', warn_codes_crit_csv: str = '', warn_codes_page_csv: str = '') -> dict[str, str]:
+     now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
+     raw = r.hgetall(lint_state_key(state_prefix, purpose)) or {}
+     active = []
+@@ -199,6 +238,9 @@
+     active_csv = _csv(active)
+     error_codes = _s(raw.get('error_codes'), 'ok')
+     details_json = json.dumps(_canonical_details(raw), sort_keys=True, separators=(',', ':'))
++    warning_codes_csv = _csv(_split_csv(raw.get('warning_codes')))
++    warning_policy = resolve_warning_severity_policy(warning_codes_csv, warn_codes_warn_csv=warn_codes_warn_csv, warn_codes_crit_csv=warn_codes_crit_csv, warn_codes_page_csv=warn_codes_page_csv)
++    notifier_route_class = resolve_notifier_route_class(warning_severity_policy=warning_policy)
+     return {
+         'bound_snapshot_ts_ms': str(now_ms),
+         'bound_error_codes': error_codes,
+@@ -210,6 +252,10 @@
+         'bound_errors_count': str(_i(raw.get('errors_count'), 0)),
+         'bound_details_json': details_json,
+         'bound_details_fingerprint': _hash_text(details_json),
++        'bound_warning_codes': warning_codes_csv,
++        'bound_warning_codes_hash': _hash_text(warning_codes_csv),
++        'bound_warning_severity_policy': warning_policy,
++        'bound_notifier_route_class': notifier_route_class,
+     }
+ 
+ 
+@@ -225,6 +271,12 @@
+         fields.append('errors_count')
+     if state.bound_details_fingerprint and state.bound_details_fingerprint != _s(current_binding.get('bound_details_fingerprint')):
+         fields.append('details_fingerprint')
++    if state.bound_warning_codes_hash and state.bound_warning_codes_hash != _s(current_binding.get('bound_warning_codes_hash')):
++        fields.append('warning_codes')
++    if state.bound_warning_severity_policy and state.bound_warning_severity_policy != _s(current_binding.get('bound_warning_severity_policy')):
++        fields.append('warning_severity_policy')
++    if state.bound_notifier_route_class and state.bound_notifier_route_class != _s(current_binding.get('bound_notifier_route_class')):
++        fields.append('notifier_route_class')
+     return fields
+ 
+ 
+@@ -278,7 +330,7 @@
+     freshness_deadline_ts_ms = _deadline_for_status(now_ms=now_ms, status='prepared', prepared_freshness_s=prepared_freshness_s, approved_freshness_s=1)
+     binding = dict(drift_binding or {})
+     mapping = {
+-        'schema_version': '4', 'request_id': rid, 'purpose': str(purpose), 'status': 'prepared', 'prepared_by': str(operator), 'prepared_ticket': str(ticket), 'prepared_reason': str(reason), 'escalation_ticket': str(escalation_ticket), 'requested_minutes': str(max(1, int(minutes))), 'prepared_ts_ms': str(now_ms), 'approved_by': '', 'approved_reason': '', 'approved_ts_ms': '0', 'consumed_by': '', 'consumed_ts_ms': '0', 'freshness_deadline_ts_ms': str(freshness_deadline_ts_ms), 'expired_ts_ms': '0', 'expired_reason': '', 'cancelled_by': '', 'cancelled_reason': '', 'cancelled_ts_ms': '0', 'invalidated_ts_ms': '0', 'invalidated_reason': '', 'invalidated_stage': '', 'invalidated_error_codes': 'ok', 'invalidated_error_codes_hash': '', 'invalidated_active_purposes_csv': 'none', 'invalidated_active_purposes_hash': '', 'invalidated_gate_reason_code': 'unknown', 'invalidated_errors_count': '0', 'invalidated_details_json': '{}', 'invalidated_details_fingerprint': '', **binding,
++        'schema_version': '5', 'request_id': rid, 'purpose': str(purpose), 'status': 'prepared', 'prepared_by': str(operator), 'prepared_ticket': str(ticket), 'prepared_reason': str(reason), 'escalation_ticket': str(escalation_ticket), 'requested_minutes': str(max(1, int(minutes))), 'prepared_ts_ms': str(now_ms), 'approved_by': '', 'approved_reason': '', 'approved_ts_ms': '0', 'consumed_by': '', 'consumed_ts_ms': '0', 'freshness_deadline_ts_ms': str(freshness_deadline_ts_ms), 'expired_ts_ms': '0', 'expired_reason': '', 'cancelled_by': '', 'cancelled_reason': '', 'cancelled_ts_ms': '0', 'invalidated_ts_ms': '0', 'invalidated_reason': '', 'invalidated_stage': '', 'invalidated_error_codes': 'ok', 'invalidated_error_codes_hash': '', 'invalidated_active_purposes_csv': 'none', 'invalidated_active_purposes_hash': '', 'invalidated_gate_reason_code': 'unknown', 'invalidated_errors_count': '0', 'invalidated_details_json': '{}', 'invalidated_details_fingerprint': '', 'invalidated_warning_codes': 'none', 'invalidated_warning_codes_hash': '', 'invalidated_warning_severity_policy': 'none', 'invalidated_notifier_route_class': 'notify', **binding,
+     }
+     skey = state_key(prefix, rid)
+     r.hset(skey, mapping=mapping)
+@@ -290,7 +342,7 @@
+         r.set(latest_key(prefix, purpose), rid, ex=max(1, int(ttl_s)))
+     except Exception:
+         pass
+-    event_id = _xadd_best_effort(r, ops_stream, {'ts_ms': str(now_ms), 'kind': 'latency_deploy_lint_override_approval_prepared', 'purpose': str(purpose), 'request_id': rid, 'operator': str(operator), 'ticket': str(ticket), 'escalation_ticket': str(escalation_ticket), 'reason': str(reason), 'requested_minutes': str(max(1, int(minutes))), 'freshness_deadline_ts_ms': str(freshness_deadline_ts_ms), 'bound_error_codes_hash': _s(binding.get('bound_error_codes_hash')), 'bound_active_purposes_hash': _s(binding.get('bound_active_purposes_hash')), 'bound_gate_reason_code': _s(binding.get('bound_gate_reason_code')), 'bound_details_fingerprint': _s(binding.get('bound_details_fingerprint'))})
++    event_id = _xadd_best_effort(r, ops_stream, {'ts_ms': str(now_ms), 'kind': 'latency_deploy_lint_override_approval_prepared', 'purpose': str(purpose), 'request_id': rid, 'operator': str(operator), 'ticket': str(ticket), 'escalation_ticket': str(escalation_ticket), 'reason': str(reason), 'requested_minutes': str(max(1, int(minutes))), 'freshness_deadline_ts_ms': str(freshness_deadline_ts_ms), 'bound_error_codes_hash': _s(binding.get('bound_error_codes_hash')), 'bound_active_purposes_hash': _s(binding.get('bound_active_purposes_hash')), 'bound_gate_reason_code': _s(binding.get('bound_gate_reason_code')), 'bound_details_fingerprint': _s(binding.get('bound_details_fingerprint')), 'bound_warning_severity_policy': _s(binding.get('bound_warning_severity_policy')), 'bound_notifier_route_class': _s(binding.get('bound_notifier_route_class'))})
+     if event_id:
+         r.hset(skey, mapping={'last_event_id': event_id})
+     return r.hgetall(skey) or mapping
+@@ -359,13 +411,13 @@
+     st = parse_approval_state(prev)
+     if not st.present:
+         return {}
+-    mapping = {**prev, 'status': 'invalidated', 'invalidated_ts_ms': str(now_ms), 'invalidated_reason': str(reason), 'invalidated_stage': str(stage), 'invalidated_error_codes': _s(current_binding.get('bound_error_codes'), 'ok'), 'invalidated_error_codes_hash': _s(current_binding.get('bound_error_codes_hash')), 'invalidated_active_purposes_csv': _s(current_binding.get('bound_active_purposes_csv'), 'none'), 'invalidated_active_purposes_hash': _s(current_binding.get('bound_active_purposes_hash')), 'invalidated_gate_reason_code': _s(current_binding.get('bound_gate_reason_code'), 'unknown'), 'invalidated_errors_count': _s(current_binding.get('bound_errors_count'), '0'), 'invalidated_details_json': _s(current_binding.get('bound_details_json'), '{}'), 'invalidated_details_fingerprint': _s(current_binding.get('bound_details_fingerprint'))}
++    mapping = {**prev, 'status': 'invalidated', 'invalidated_ts_ms': str(now_ms), 'invalidated_reason': str(reason), 'invalidated_stage': str(stage), 'invalidated_error_codes': _s(current_binding.get('bound_error_codes'), 'ok'), 'invalidated_error_codes_hash': _s(current_binding.get('bound_error_codes_hash')), 'invalidated_active_purposes_csv': _s(current_binding.get('bound_active_purposes_csv'), 'none'), 'invalidated_active_purposes_hash': _s(current_binding.get('bound_active_purposes_hash')), 'invalidated_gate_reason_code': _s(current_binding.get('bound_gate_reason_code'), 'unknown'), 'invalidated_errors_count': _s(current_binding.get('bound_errors_count'), '0'), 'invalidated_details_json': _s(current_binding.get('bound_details_json'), '{}'), 'invalidated_details_fingerprint': _s(current_binding.get('bound_details_fingerprint')), 'invalidated_warning_codes': _s(current_binding.get('bound_warning_codes'), 'none'), 'invalidated_warning_codes_hash': _s(current_binding.get('bound_warning_codes_hash')), 'invalidated_warning_severity_policy': _s(current_binding.get('bound_warning_severity_policy'), 'none'), 'invalidated_notifier_route_class': _s(current_binding.get('bound_notifier_route_class'), 'notify')}
+     r.hset(skey, mapping=mapping)
+     try:
+         r.expire(skey, max(1, int(ttl_s)))
+     except Exception:
+         pass
+-    event_id = _xadd_best_effort(r, ops_stream, {'ts_ms': str(now_ms), 'kind': 'latency_deploy_lint_override_approval_invalidated', 'purpose': st.purpose, 'request_id': st.request_id, 'reason': str(reason), 'stage': str(stage), 'prepared_by': st.prepared_by, 'approved_by': st.approved_by, 'ticket': st.prepared_ticket, 'escalation_ticket': st.escalation_ticket, 'bound_error_codes_hash': st.bound_error_codes_hash, 'invalidated_error_codes_hash': _s(current_binding.get('bound_error_codes_hash')), 'bound_active_purposes_hash': st.bound_active_purposes_hash, 'invalidated_active_purposes_hash': _s(current_binding.get('bound_active_purposes_hash')), 'bound_details_fingerprint': st.bound_details_fingerprint, 'invalidated_details_fingerprint': _s(current_binding.get('bound_details_fingerprint'))})
++    event_id = _xadd_best_effort(r, ops_stream, {'ts_ms': str(now_ms), 'kind': 'latency_deploy_lint_override_approval_invalidated', 'purpose': st.purpose, 'request_id': st.request_id, 'reason': str(reason), 'stage': str(stage), 'prepared_by': st.prepared_by, 'approved_by': st.approved_by, 'ticket': st.prepared_ticket, 'escalation_ticket': st.escalation_ticket, 'bound_error_codes_hash': st.bound_error_codes_hash, 'invalidated_error_codes_hash': _s(current_binding.get('bound_error_codes_hash')), 'bound_active_purposes_hash': st.bound_active_purposes_hash, 'invalidated_active_purposes_hash': _s(current_binding.get('bound_active_purposes_hash')), 'bound_details_fingerprint': st.bound_details_fingerprint, 'invalidated_details_fingerprint': _s(current_binding.get('bound_details_fingerprint')), 'bound_warning_severity_policy': st.bound_warning_severity_policy, 'invalidated_warning_severity_policy': _s(current_binding.get('bound_warning_severity_policy')), 'bound_notifier_route_class': st.bound_notifier_route_class, 'invalidated_notifier_route_class': _s(current_binding.get('bound_notifier_route_class'))})
+     if event_id:
+         r.hset(skey, mapping={'last_event_id': event_id})
+     return r.hgetall(skey) or mapping
+--- a/orderflow_services/latency_contract_deploy_lint_silence_v1.py
++++ b/orderflow_services/latency_contract_deploy_lint_silence_v1.py
+@@ -8,6 +8,7 @@
+ P4.11 adds freshness windows for prepared/approved approval requests.
+ P4.12 binds approval to coarse drift snapshot.
+ P4.13 extends approval binding to semantic drift state.
++P4.14 also binds approval to warning severity policy and notifier route class.
+ """
+ 
+ import argparse
+@@ -70,6 +71,9 @@
+     approval_prepared_freshness_s: int = 7200
+     approval_approved_freshness_s: int = 1800
+     dual_control_minutes: int = 480
++    notify_warn_codes_warn_csv: str = ''
++    notify_warn_codes_crit_csv: str = ''
++    notify_warn_codes_page_csv: str = ''
+ 
+ 
+ def load_cfg() -> Cfg:
+@@ -89,6 +93,9 @@
+         policy_max_acks=max(1, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_POLICY_MAX_ACKS', '3'), 3)),
+         policy_denied_exit_code=max(1, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_POLICY_DENIED_EXIT_CODE', '27'), 27)),
+         dual_control_minutes=max(0, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DUAL_CONTROL_MINUTES', '480'), 480)),
++        notify_warn_codes_warn_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_WARN_CSV', ''),
++        notify_warn_codes_crit_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_CRIT_CSV', ''),
++        notify_warn_codes_page_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_PAGE_CSV', ''),
+     )
+ 
+ 
+@@ -108,7 +115,7 @@
+     )
+     approval = parse_approval_state(approval_raw)
+     approval_remaining_s = max(0, int((approval.freshness_deadline_ts_ms - now_ms) / 1000)) if approval.freshness_deadline_ts_ms > 0 else 0
+-    current_binding = build_drift_binding(r, state_prefix=cfg.state_prefix, purpose=purpose, now_ms=now_ms)
++    current_binding = build_drift_binding(r, state_prefix=cfg.state_prefix, purpose=purpose, now_ms=now_ms, warn_codes_warn_csv=cfg.notify_warn_codes_warn_csv, warn_codes_crit_csv=cfg.notify_warn_codes_crit_csv, warn_codes_page_csv=cfg.notify_warn_codes_page_csv)
+     mismatch_fields = binding_mismatch_fields(approval, current_binding) if approval.present else []
+     approval_binding_match = approval.present and not mismatch_fields
+     return {
+@@ -160,11 +167,17 @@
+         'latest_approval_bound_gate_reason_code': approval.bound_gate_reason_code,
+         'latest_approval_bound_errors_count': approval.bound_errors_count,
+         'latest_approval_bound_details_fingerprint': approval.bound_details_fingerprint,
++        'latest_approval_bound_warning_codes_hash': approval.bound_warning_codes_hash,
++        'latest_approval_bound_warning_severity_policy': approval.bound_warning_severity_policy,
++        'latest_approval_bound_notifier_route_class': approval.bound_notifier_route_class,
+         'latest_approval_current_error_codes_hash': current_binding.get('bound_error_codes_hash', ''),
+         'latest_approval_current_active_purposes_hash': current_binding.get('bound_active_purposes_hash', ''),
+         'latest_approval_current_gate_reason_code': current_binding.get('bound_gate_reason_code', ''),
+         'latest_approval_current_errors_count': _i(current_binding.get('bound_errors_count'), 0),
+         'latest_approval_current_details_fingerprint': current_binding.get('bound_details_fingerprint', ''),
++        'latest_approval_current_warning_codes_hash': current_binding.get('bound_warning_codes_hash', ''),
++        'latest_approval_current_warning_severity_policy': current_binding.get('bound_warning_severity_policy', ''),
++        'latest_approval_current_notifier_route_class': current_binding.get('bound_notifier_route_class', ''),
+         'latest_approval_binding_match': approval_binding_match,
+         'latest_approval_binding_mismatch_fields': ','.join(mismatch_fields) if mismatch_fields else 'none',
+         'latest_approval_invalidated_reason': approval.invalidated_reason,
+@@ -195,7 +208,7 @@
+         prepared_freshness_s=cfg.approval_prepared_freshness_s,
+         ops_stream=cfg.ops_stream,
+         now_ms=now_ms,
+-        drift_binding=build_drift_binding(r, state_prefix=cfg.state_prefix, purpose=purpose, now_ms=now_ms),
++        drift_binding=build_drift_binding(r, state_prefix=cfg.state_prefix, purpose=purpose, now_ms=now_ms, warn_codes_warn_csv=cfg.notify_warn_codes_warn_csv, warn_codes_crit_csv=cfg.notify_warn_codes_crit_csv, warn_codes_page_csv=cfg.notify_warn_codes_page_csv),
+     )
+     return {'ok': True, 'action': 'prepare-override', 'purpose': purpose, 'request_id': raw.get('request_id', ''), 'status': raw}
+ 
+@@ -222,7 +235,7 @@
+             status = _read_purpose_status(r, cfg, purpose, now_ms)
+             return {'ok': False, 'action': 'ack', 'purpose': purpose, 'operator': operator, 'ticket': ticket, 'minutes': int(minutes), 'escalation_ticket': str(escalation_ticket or ''), 'approval_request_id': str(approval_request_id or ''), 'policy': {'window_hours': int(cfg.policy_window_s / 3600), 'max_budget_minutes': cfg.policy_max_budget_minutes, 'max_acks': cfg.policy_max_acks, 'denied': True, 'requires_escalation': bool(policy_preview.requires_escalation), 'limit_kind': policy_preview.limit_kind, 'denied_reason': valid.reason, 'override_active': False, 'dual_control_required': True}, 'status': status}
+         approval_state = valid.state
+-        current_binding = build_drift_binding(r, state_prefix=cfg.state_prefix, purpose=purpose, now_ms=now_ms)
++        current_binding = build_drift_binding(r, state_prefix=cfg.state_prefix, purpose=purpose, now_ms=now_ms, warn_codes_warn_csv=cfg.notify_warn_codes_warn_csv, warn_codes_crit_csv=cfg.notify_warn_codes_crit_csv, warn_codes_page_csv=cfg.notify_warn_codes_page_csv)
+         mismatch_fields = binding_mismatch_fields(approval_state, current_binding)
+         if mismatch_fields:
+             deny_reason = f"dual_control_drift_binding_mismatch:{','.join(mismatch_fields)}"
+--- a/tick_flow_full/orderflow_services/latency_contract_deploy_lint_silence_v1.py
++++ b/tick_flow_full/orderflow_services/latency_contract_deploy_lint_silence_v1.py
+@@ -8,6 +8,7 @@
+ P4.11 adds freshness windows for prepared/approved approval requests.
+ P4.12 binds approval to coarse drift snapshot.
+ P4.13 extends approval binding to semantic drift state.
++P4.14 also binds approval to warning severity policy and notifier route class.
+ """
+ 
+ import argparse
+@@ -70,6 +71,9 @@
+     approval_prepared_freshness_s: int = 7200
+     approval_approved_freshness_s: int = 1800
+     dual_control_minutes: int = 480
++    notify_warn_codes_warn_csv: str = ''
++    notify_warn_codes_crit_csv: str = ''
++    notify_warn_codes_page_csv: str = ''
+ 
+ 
+ def load_cfg() -> Cfg:
+@@ -89,6 +93,9 @@
+         policy_max_acks=max(1, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_POLICY_MAX_ACKS', '3'), 3)),
+         policy_denied_exit_code=max(1, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_POLICY_DENIED_EXIT_CODE', '27'), 27)),
+         dual_control_minutes=max(0, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DUAL_CONTROL_MINUTES', '480'), 480)),
++        notify_warn_codes_warn_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_WARN_CSV', ''),
++        notify_warn_codes_crit_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_CRIT_CSV', ''),
++        notify_warn_codes_page_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_PAGE_CSV', ''),
+     )
+ 
+ 
+@@ -108,7 +115,7 @@
+     )
+     approval = parse_approval_state(approval_raw)
+     approval_remaining_s = max(0, int((approval.freshness_deadline_ts_ms - now_ms) / 1000)) if approval.freshness_deadline_ts_ms > 0 else 0
+-    current_binding = build_drift_binding(r, state_prefix=cfg.state_prefix, purpose=purpose, now_ms=now_ms)
++    current_binding = build_drift_binding(r, state_prefix=cfg.state_prefix, purpose=purpose, now_ms=now_ms, warn_codes_warn_csv=cfg.notify_warn_codes_warn_csv, warn_codes_crit_csv=cfg.notify_warn_codes_crit_csv, warn_codes_page_csv=cfg.notify_warn_codes_page_csv)
+     mismatch_fields = binding_mismatch_fields(approval, current_binding) if approval.present else []
+     approval_binding_match = approval.present and not mismatch_fields
+     return {
+@@ -160,11 +167,17 @@
+         'latest_approval_bound_gate_reason_code': approval.bound_gate_reason_code,
+         'latest_approval_bound_errors_count': approval.bound_errors_count,
+         'latest_approval_bound_details_fingerprint': approval.bound_details_fingerprint,
++        'latest_approval_bound_warning_codes_hash': approval.bound_warning_codes_hash,
++        'latest_approval_bound_warning_severity_policy': approval.bound_warning_severity_policy,
++        'latest_approval_bound_notifier_route_class': approval.bound_notifier_route_class,
+         'latest_approval_current_error_codes_hash': current_binding.get('bound_error_codes_hash', ''),
+         'latest_approval_current_active_purposes_hash': current_binding.get('bound_active_purposes_hash', ''),
+         'latest_approval_current_gate_reason_code': current_binding.get('bound_gate_reason_code', ''),
+         'latest_approval_current_errors_count': _i(current_binding.get('bound_errors_count'), 0),
+         'latest_approval_current_details_fingerprint': current_binding.get('bound_details_fingerprint', ''),
++        'latest_approval_current_warning_codes_hash': current_binding.get('bound_warning_codes_hash', ''),
++        'latest_approval_current_warning_severity_policy': current_binding.get('bound_warning_severity_policy', ''),
++        'latest_approval_current_notifier_route_class': current_binding.get('bound_notifier_route_class', ''),
+         'latest_approval_binding_match': approval_binding_match,
+         'latest_approval_binding_mismatch_fields': ','.join(mismatch_fields) if mismatch_fields else 'none',
+         'latest_approval_invalidated_reason': approval.invalidated_reason,
+@@ -195,7 +208,7 @@
+         prepared_freshness_s=cfg.approval_prepared_freshness_s,
+         ops_stream=cfg.ops_stream,
+         now_ms=now_ms,
+-        drift_binding=build_drift_binding(r, state_prefix=cfg.state_prefix, purpose=purpose, now_ms=now_ms),
++        drift_binding=build_drift_binding(r, state_prefix=cfg.state_prefix, purpose=purpose, now_ms=now_ms, warn_codes_warn_csv=cfg.notify_warn_codes_warn_csv, warn_codes_crit_csv=cfg.notify_warn_codes_crit_csv, warn_codes_page_csv=cfg.notify_warn_codes_page_csv),
+     )
+     return {'ok': True, 'action': 'prepare-override', 'purpose': purpose, 'request_id': raw.get('request_id', ''), 'status': raw}
+ 
+@@ -222,7 +235,7 @@
+             status = _read_purpose_status(r, cfg, purpose, now_ms)
+             return {'ok': False, 'action': 'ack', 'purpose': purpose, 'operator': operator, 'ticket': ticket, 'minutes': int(minutes), 'escalation_ticket': str(escalation_ticket or ''), 'approval_request_id': str(approval_request_id or ''), 'policy': {'window_hours': int(cfg.policy_window_s / 3600), 'max_budget_minutes': cfg.policy_max_budget_minutes, 'max_acks': cfg.policy_max_acks, 'denied': True, 'requires_escalation': bool(policy_preview.requires_escalation), 'limit_kind': policy_preview.limit_kind, 'denied_reason': valid.reason, 'override_active': False, 'dual_control_required': True}, 'status': status}
+         approval_state = valid.state
+-        current_binding = build_drift_binding(r, state_prefix=cfg.state_prefix, purpose=purpose, now_ms=now_ms)
++        current_binding = build_drift_binding(r, state_prefix=cfg.state_prefix, purpose=purpose, now_ms=now_ms, warn_codes_warn_csv=cfg.notify_warn_codes_warn_csv, warn_codes_crit_csv=cfg.notify_warn_codes_crit_csv, warn_codes_page_csv=cfg.notify_warn_codes_page_csv)
+         mismatch_fields = binding_mismatch_fields(approval_state, current_binding)
+         if mismatch_fields:
+             deny_reason = f"dual_control_drift_binding_mismatch:{','.join(mismatch_fields)}"
+--- a/orderflow_services/latency_contract_deploy_lint_exporter_v1.py
++++ b/orderflow_services/latency_contract_deploy_lint_exporter_v1.py
+@@ -1,7 +1,7 @@
+ #!/usr/bin/env python3
+ from __future__ import annotations
+ 
+-"""Prometheus exporter for latency deploy-lint state with P4.13 semantic approval drift binding visibility."""
++"""Prometheus exporter for latency deploy-lint state with P4.14 warning-policy / notifier-route approval binding visibility."""
+ 
+ import os
+ import time
+@@ -66,6 +66,8 @@
+ G_APPROVAL_BINDING_MATCH = Gauge('latency_contract_deploy_lint_silence_approval_binding_match', 'latest override approval request semantic drift binding still matches current state', ['purpose'])
+ G_APPROVAL_DETAILS_FINGERPRINT_MATCH = Gauge('latency_contract_deploy_lint_silence_approval_details_fingerprint_match', 'latest override approval request details fingerprint still matches current state', ['purpose'])
+ G_APPROVAL_SCHEMA_VERSION = Gauge('latency_contract_deploy_lint_silence_approval_binding_schema_version', 'schema version of approval drift binding', ['purpose'])
++G_APPROVAL_WARNING_POLICY_MATCH = Gauge('latency_contract_deploy_lint_silence_approval_warning_policy_match', 'latest override approval request warning severity policy still matches current state', ['purpose'])
++G_APPROVAL_NOTIFIER_ROUTE_CLASS_MATCH = Gauge('latency_contract_deploy_lint_silence_approval_notifier_route_class_match', 'latest override approval request notifier route class still matches current state', ['purpose'])
+ G_APPROVAL_FRESHNESS_REMAINING = Gauge('latency_contract_deploy_lint_silence_approval_freshness_remaining_seconds', 'remaining freshness time for latest override approval request', ['purpose'])
+ G_SUMMARY_FAIL_TOTAL = Gauge('latency_contract_deploy_lint_summary_fail_total', 'number of purposes currently failing deploy lint')
+ G_SUMMARY_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_gate_active_total', 'number of purposes with persistent deploy lint gate active')
+@@ -81,6 +83,7 @@
+ G_SUMMARY_DUAL_CONTROL_INVALIDATED_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_dual_control_invalidated_gate_active_total', 'number of active gate purposes whose latest approval was invalidated by binding mismatch')
+ G_SUMMARY_DUAL_CONTROL_BINDING_MISMATCH_TOTAL = Gauge('latency_contract_deploy_lint_summary_dual_control_binding_mismatch_total', 'number of active gate purposes whose latest approval no longer matches current drift binding')
+ G_SUMMARY_DUAL_CONTROL_SEMANTIC_BINDING_MISMATCH_TOTAL = Gauge('latency_contract_deploy_lint_summary_dual_control_semantic_binding_mismatch_total', 'number of active gate purposes whose semantic binding fields changed')
++G_SUMMARY_DUAL_CONTROL_ROUTE_BINDING_MISMATCH_TOTAL = Gauge('latency_contract_deploy_lint_summary_dual_control_route_binding_mismatch_total', 'number of active gate purposes whose warning policy or notifier route class changed')
+ G_SUMMARY_DUAL_CONTROL_OVERRIDE_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_dual_control_override_gate_active_total', 'number of active gate purposes currently silenced under an approved dual-control exception')
+ G_NOTIFIER_STATE_PRESENT = Gauge('latency_contract_deploy_lint_notifier_state_present', 'deploy lint notifier state present')
+ G_NOTIFIER_LAST_RUN_AGE = Gauge('latency_contract_deploy_lint_notifier_last_run_age_seconds', 'age of deploy lint notifier last run')
+@@ -102,6 +105,9 @@
+     approval_prepared_freshness_s: int
+     approval_approved_freshness_s: int
+     summary_key: str
++    notify_warn_codes_warn_csv: str
++    notify_warn_codes_crit_csv: str
++    notify_warn_codes_page_csv: str
+ 
+ 
+ def load_cfg() -> Cfg:
+@@ -117,6 +123,9 @@
+         approval_prepared_freshness_s=max(60, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREPARED_FRESHNESS_S', '7200'), 7200)),
+         approval_approved_freshness_s=max(60, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_APPROVED_FRESHNESS_S', '1800'), 1800)),
+         summary_key=_env('LATENCY_CONTRACT_DEPLOY_LINT_SUMMARY_KEY', 'metrics:latency_contract:deploy_lint:summary:last'),
++        notify_warn_codes_warn_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_WARN_CSV', ''),
++        notify_warn_codes_crit_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_CRIT_CSV', ''),
++        notify_warn_codes_page_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_PAGE_CSV', ''),
+     )
+ 
+ 
+@@ -141,6 +150,7 @@
+             dual_control_invalidated_gate_total = 0
+             dual_control_binding_mismatch_total = 0
+             dual_control_semantic_binding_mismatch_total = 0
++            dual_control_route_binding_mismatch_total = 0
+             dual_control_override_gate_total = 0
+             for purpose in purposes:
+                 raw = r.hgetall(state_key(cfg.state_prefix, purpose)) or {}
+@@ -178,7 +188,7 @@
+                 G_DUAL_CONTROL_OVERRIDE_ACTIVE.labels(purpose=purpose).set(1.0 if dual_override_active else 0.0)
+                 araw = read_latest_approval(r, prefix=cfg.approval_prefix, purpose=purpose, prepared_freshness_s=cfg.approval_prepared_freshness_s, approved_freshness_s=cfg.approval_approved_freshness_s, ttl_s=cfg.approval_ttl_s, ops_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_OPS_EVENT_STREAM', 'ops:latency_contract:events:v1'), now_ms=now_ms)
+                 ast = parse_approval_state(araw)
+-                current_binding = build_drift_binding(r, state_prefix=cfg.state_prefix, purpose=purpose, now_ms=now_ms)
++                current_binding = build_drift_binding(r, state_prefix=cfg.state_prefix, purpose=purpose, now_ms=now_ms, warn_codes_warn_csv=cfg.notify_warn_codes_warn_csv, warn_codes_crit_csv=cfg.notify_warn_codes_crit_csv, warn_codes_page_csv=cfg.notify_warn_codes_page_csv)
+                 mismatch_fields = binding_mismatch_fields(ast, current_binding) if ast.present else []
+                 approval_ref_ts_ms = ast.approved_ts_ms or ast.prepared_ts_ms
+                 approval_age_s = max(0.0, now - (approval_ref_ts_ms / 1000.0)) if approval_ref_ts_ms > 0 else 0.0
+@@ -191,6 +201,8 @@
+                 G_APPROVAL_BINDING_MATCH.labels(purpose=purpose).set(1.0 if ast.present and not mismatch_fields else 0.0)
+                 G_APPROVAL_DETAILS_FINGERPRINT_MATCH.labels(purpose=purpose).set(0.0 if 'details_fingerprint' in mismatch_fields else (1.0 if ast.present else 0.0))
+                 G_APPROVAL_SCHEMA_VERSION.labels(purpose=purpose).set(float(ast.binding_schema_version or 0))
++                G_APPROVAL_WARNING_POLICY_MATCH.labels(purpose=purpose).set(0.0 if 'warning_severity_policy' in mismatch_fields else (1.0 if ast.present else 0.0))
++                G_APPROVAL_NOTIFIER_ROUTE_CLASS_MATCH.labels(purpose=purpose).set(0.0 if 'notifier_route_class' in mismatch_fields else (1.0 if ast.present else 0.0))
+                 G_APPROVAL_AGE.labels(purpose=purpose).set(approval_age_s)
+                 G_APPROVAL_FRESHNESS_REMAINING.labels(purpose=purpose).set(freshness_remaining_s)
+                 if ast.status == 'prepared':
+@@ -207,6 +219,8 @@
+                     dual_control_binding_mismatch_total += 1
+                     if any(x in mismatch_fields for x in ('gate_reason_code', 'errors_count', 'details_fingerprint')):
+                         dual_control_semantic_binding_mismatch_total += 1
++                    if any(x in mismatch_fields for x in ('warning_codes', 'warning_severity_policy', 'notifier_route_class')):
++                        dual_control_route_binding_mismatch_total += 1
+                 if present > 0 and ok <= 0:
+                     fail_total += 1
+                 if gate > 0:
+@@ -237,8 +251,9 @@
+             G_SUMMARY_DUAL_CONTROL_INVALIDATED_GATE_ACTIVE_TOTAL.set(float(dual_control_invalidated_gate_total))
+             G_SUMMARY_DUAL_CONTROL_BINDING_MISMATCH_TOTAL.set(float(dual_control_binding_mismatch_total))
+             G_SUMMARY_DUAL_CONTROL_SEMANTIC_BINDING_MISMATCH_TOTAL.set(float(dual_control_semantic_binding_mismatch_total))
++            G_SUMMARY_DUAL_CONTROL_ROUTE_BINDING_MISMATCH_TOTAL.set(float(dual_control_route_binding_mismatch_total))
+             G_SUMMARY_DUAL_CONTROL_OVERRIDE_GATE_ACTIVE_TOTAL.set(float(dual_control_override_gate_total))
+-            r.hset(cfg.summary_key, mapping={'schema_version': '6', 'last_ts_ms': str(now_ms), 'fail_total': str(fail_total), 'gate_active_total': str(gate_total), 'silenced_gate_active_total': str(silenced_gate_total), 'unsilenced_gate_active_total': str(unsilenced_gate_total), 'expired_gate_active_total': str(expired_gate_total), 'policy_blocked_gate_active_total': str(policy_blocked_gate_total), 'policy_override_gate_active_total': str(policy_override_gate_total), 'dual_control_pending_total': str(dual_control_pending_total), 'dual_control_ready_total': str(dual_control_ready_total), 'dual_control_expired_gate_active_total': str(dual_control_expired_gate_total), 'dual_control_cancelled_gate_active_total': str(dual_control_cancelled_gate_total), 'dual_control_invalidated_gate_active_total': str(dual_control_invalidated_gate_total), 'dual_control_binding_mismatch_total': str(dual_control_binding_mismatch_total), 'dual_control_semantic_binding_mismatch_total': str(dual_control_semantic_binding_mismatch_total), 'dual_control_override_gate_active_total': str(dual_control_override_gate_total)})
++            r.hset(cfg.summary_key, mapping={'schema_version': '6', 'last_ts_ms': str(now_ms), 'fail_total': str(fail_total), 'gate_active_total': str(gate_total), 'silenced_gate_active_total': str(silenced_gate_total), 'unsilenced_gate_active_total': str(unsilenced_gate_total), 'expired_gate_active_total': str(expired_gate_total), 'policy_blocked_gate_active_total': str(policy_blocked_gate_total), 'policy_override_gate_active_total': str(policy_override_gate_total), 'dual_control_pending_total': str(dual_control_pending_total), 'dual_control_ready_total': str(dual_control_ready_total), 'dual_control_expired_gate_active_total': str(dual_control_expired_gate_total), 'dual_control_cancelled_gate_active_total': str(dual_control_cancelled_gate_total), 'dual_control_invalidated_gate_active_total': str(dual_control_invalidated_gate_total), 'dual_control_binding_mismatch_total': str(dual_control_binding_mismatch_total), 'dual_control_semantic_binding_mismatch_total': str(dual_control_semantic_binding_mismatch_total), 'dual_control_route_binding_mismatch_total': str(dual_control_route_binding_mismatch_total), 'dual_control_override_gate_active_total': str(dual_control_override_gate_total)})
+             nraw = r.hgetall(notifier_state_key(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_KEY', 'metrics:latency_contract:deploy_lint:notifier:last'))) or {}
+             nlast_ms = _i(nraw.get('last_run_ts_ms'), 0)
+             nstatus = str(nraw.get('last_status', 'ok'))
+--- a/tick_flow_full/orderflow_services/latency_contract_deploy_lint_exporter_v1.py
++++ b/tick_flow_full/orderflow_services/latency_contract_deploy_lint_exporter_v1.py
+@@ -1,7 +1,7 @@
+ #!/usr/bin/env python3
+ from __future__ import annotations
+ 
+-"""Prometheus exporter for latency deploy-lint state with P4.13 semantic approval drift binding visibility."""
++"""Prometheus exporter for latency deploy-lint state with P4.14 warning-policy / notifier-route approval binding visibility."""
+ 
+ import os
+ import time
+@@ -66,6 +66,8 @@
+ G_APPROVAL_BINDING_MATCH = Gauge('latency_contract_deploy_lint_silence_approval_binding_match', 'latest override approval request semantic drift binding still matches current state', ['purpose'])
+ G_APPROVAL_DETAILS_FINGERPRINT_MATCH = Gauge('latency_contract_deploy_lint_silence_approval_details_fingerprint_match', 'latest override approval request details fingerprint still matches current state', ['purpose'])
+ G_APPROVAL_SCHEMA_VERSION = Gauge('latency_contract_deploy_lint_silence_approval_binding_schema_version', 'schema version of approval drift binding', ['purpose'])
++G_APPROVAL_WARNING_POLICY_MATCH = Gauge('latency_contract_deploy_lint_silence_approval_warning_policy_match', 'latest override approval request warning severity policy still matches current state', ['purpose'])
++G_APPROVAL_NOTIFIER_ROUTE_CLASS_MATCH = Gauge('latency_contract_deploy_lint_silence_approval_notifier_route_class_match', 'latest override approval request notifier route class still matches current state', ['purpose'])
+ G_APPROVAL_FRESHNESS_REMAINING = Gauge('latency_contract_deploy_lint_silence_approval_freshness_remaining_seconds', 'remaining freshness time for latest override approval request', ['purpose'])
+ G_SUMMARY_FAIL_TOTAL = Gauge('latency_contract_deploy_lint_summary_fail_total', 'number of purposes currently failing deploy lint')
+ G_SUMMARY_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_gate_active_total', 'number of purposes with persistent deploy lint gate active')
+@@ -81,6 +83,7 @@
+ G_SUMMARY_DUAL_CONTROL_INVALIDATED_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_dual_control_invalidated_gate_active_total', 'number of active gate purposes whose latest approval was invalidated by binding mismatch')
+ G_SUMMARY_DUAL_CONTROL_BINDING_MISMATCH_TOTAL = Gauge('latency_contract_deploy_lint_summary_dual_control_binding_mismatch_total', 'number of active gate purposes whose latest approval no longer matches current drift binding')
+ G_SUMMARY_DUAL_CONTROL_SEMANTIC_BINDING_MISMATCH_TOTAL = Gauge('latency_contract_deploy_lint_summary_dual_control_semantic_binding_mismatch_total', 'number of active gate purposes whose semantic binding fields changed')
++G_SUMMARY_DUAL_CONTROL_ROUTE_BINDING_MISMATCH_TOTAL = Gauge('latency_contract_deploy_lint_summary_dual_control_route_binding_mismatch_total', 'number of active gate purposes whose warning policy or notifier route class changed')
+ G_SUMMARY_DUAL_CONTROL_OVERRIDE_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_dual_control_override_gate_active_total', 'number of active gate purposes currently silenced under an approved dual-control exception')
+ G_NOTIFIER_STATE_PRESENT = Gauge('latency_contract_deploy_lint_notifier_state_present', 'deploy lint notifier state present')
+ G_NOTIFIER_LAST_RUN_AGE = Gauge('latency_contract_deploy_lint_notifier_last_run_age_seconds', 'age of deploy lint notifier last run')
+@@ -102,6 +105,9 @@
+     approval_prepared_freshness_s: int
+     approval_approved_freshness_s: int
+     summary_key: str
++    notify_warn_codes_warn_csv: str
++    notify_warn_codes_crit_csv: str
++    notify_warn_codes_page_csv: str
+ 
+ 
+ def load_cfg() -> Cfg:
+@@ -117,6 +123,9 @@
+         approval_prepared_freshness_s=max(60, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREPARED_FRESHNESS_S', '7200'), 7200)),
+         approval_approved_freshness_s=max(60, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_APPROVED_FRESHNESS_S', '1800'), 1800)),
+         summary_key=_env('LATENCY_CONTRACT_DEPLOY_LINT_SUMMARY_KEY', 'metrics:latency_contract:deploy_lint:summary:last'),
++        notify_warn_codes_warn_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_WARN_CSV', ''),
++        notify_warn_codes_crit_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_CRIT_CSV', ''),
++        notify_warn_codes_page_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_PAGE_CSV', ''),
+     )
+ 
+ 
+@@ -141,6 +150,7 @@
+             dual_control_invalidated_gate_total = 0
+             dual_control_binding_mismatch_total = 0
+             dual_control_semantic_binding_mismatch_total = 0
++            dual_control_route_binding_mismatch_total = 0
+             dual_control_override_gate_total = 0
+             for purpose in purposes:
+                 raw = r.hgetall(state_key(cfg.state_prefix, purpose)) or {}
+@@ -178,7 +188,7 @@
+                 G_DUAL_CONTROL_OVERRIDE_ACTIVE.labels(purpose=purpose).set(1.0 if dual_override_active else 0.0)
+                 araw = read_latest_approval(r, prefix=cfg.approval_prefix, purpose=purpose, prepared_freshness_s=cfg.approval_prepared_freshness_s, approved_freshness_s=cfg.approval_approved_freshness_s, ttl_s=cfg.approval_ttl_s, ops_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_OPS_EVENT_STREAM', 'ops:latency_contract:events:v1'), now_ms=now_ms)
+                 ast = parse_approval_state(araw)
+-                current_binding = build_drift_binding(r, state_prefix=cfg.state_prefix, purpose=purpose, now_ms=now_ms)
++                current_binding = build_drift_binding(r, state_prefix=cfg.state_prefix, purpose=purpose, now_ms=now_ms, warn_codes_warn_csv=cfg.notify_warn_codes_warn_csv, warn_codes_crit_csv=cfg.notify_warn_codes_crit_csv, warn_codes_page_csv=cfg.notify_warn_codes_page_csv)
+                 mismatch_fields = binding_mismatch_fields(ast, current_binding) if ast.present else []
+                 approval_ref_ts_ms = ast.approved_ts_ms or ast.prepared_ts_ms
+                 approval_age_s = max(0.0, now - (approval_ref_ts_ms / 1000.0)) if approval_ref_ts_ms > 0 else 0.0
+@@ -191,6 +201,8 @@
+                 G_APPROVAL_BINDING_MATCH.labels(purpose=purpose).set(1.0 if ast.present and not mismatch_fields else 0.0)
+                 G_APPROVAL_DETAILS_FINGERPRINT_MATCH.labels(purpose=purpose).set(0.0 if 'details_fingerprint' in mismatch_fields else (1.0 if ast.present else 0.0))
+                 G_APPROVAL_SCHEMA_VERSION.labels(purpose=purpose).set(float(ast.binding_schema_version or 0))
++                G_APPROVAL_WARNING_POLICY_MATCH.labels(purpose=purpose).set(0.0 if 'warning_severity_policy' in mismatch_fields else (1.0 if ast.present else 0.0))
++                G_APPROVAL_NOTIFIER_ROUTE_CLASS_MATCH.labels(purpose=purpose).set(0.0 if 'notifier_route_class' in mismatch_fields else (1.0 if ast.present else 0.0))
+                 G_APPROVAL_AGE.labels(purpose=purpose).set(approval_age_s)
+                 G_APPROVAL_FRESHNESS_REMAINING.labels(purpose=purpose).set(freshness_remaining_s)
+                 if ast.status == 'prepared':
+@@ -207,6 +219,8 @@
+                     dual_control_binding_mismatch_total += 1
+                     if any(x in mismatch_fields for x in ('gate_reason_code', 'errors_count', 'details_fingerprint')):
+                         dual_control_semantic_binding_mismatch_total += 1
++                    if any(x in mismatch_fields for x in ('warning_codes', 'warning_severity_policy', 'notifier_route_class')):
++                        dual_control_route_binding_mismatch_total += 1
+                 if present > 0 and ok <= 0:
+                     fail_total += 1
+                 if gate > 0:
+@@ -237,8 +251,9 @@
+             G_SUMMARY_DUAL_CONTROL_INVALIDATED_GATE_ACTIVE_TOTAL.set(float(dual_control_invalidated_gate_total))
+             G_SUMMARY_DUAL_CONTROL_BINDING_MISMATCH_TOTAL.set(float(dual_control_binding_mismatch_total))
+             G_SUMMARY_DUAL_CONTROL_SEMANTIC_BINDING_MISMATCH_TOTAL.set(float(dual_control_semantic_binding_mismatch_total))
++            G_SUMMARY_DUAL_CONTROL_ROUTE_BINDING_MISMATCH_TOTAL.set(float(dual_control_route_binding_mismatch_total))
+             G_SUMMARY_DUAL_CONTROL_OVERRIDE_GATE_ACTIVE_TOTAL.set(float(dual_control_override_gate_total))
+-            r.hset(cfg.summary_key, mapping={'schema_version': '6', 'last_ts_ms': str(now_ms), 'fail_total': str(fail_total), 'gate_active_total': str(gate_total), 'silenced_gate_active_total': str(silenced_gate_total), 'unsilenced_gate_active_total': str(unsilenced_gate_total), 'expired_gate_active_total': str(expired_gate_total), 'policy_blocked_gate_active_total': str(policy_blocked_gate_total), 'policy_override_gate_active_total': str(policy_override_gate_total), 'dual_control_pending_total': str(dual_control_pending_total), 'dual_control_ready_total': str(dual_control_ready_total), 'dual_control_expired_gate_active_total': str(dual_control_expired_gate_total), 'dual_control_cancelled_gate_active_total': str(dual_control_cancelled_gate_total), 'dual_control_invalidated_gate_active_total': str(dual_control_invalidated_gate_total), 'dual_control_binding_mismatch_total': str(dual_control_binding_mismatch_total), 'dual_control_semantic_binding_mismatch_total': str(dual_control_semantic_binding_mismatch_total), 'dual_control_override_gate_active_total': str(dual_control_override_gate_total)})
++            r.hset(cfg.summary_key, mapping={'schema_version': '6', 'last_ts_ms': str(now_ms), 'fail_total': str(fail_total), 'gate_active_total': str(gate_total), 'silenced_gate_active_total': str(silenced_gate_total), 'unsilenced_gate_active_total': str(unsilenced_gate_total), 'expired_gate_active_total': str(expired_gate_total), 'policy_blocked_gate_active_total': str(policy_blocked_gate_total), 'policy_override_gate_active_total': str(policy_override_gate_total), 'dual_control_pending_total': str(dual_control_pending_total), 'dual_control_ready_total': str(dual_control_ready_total), 'dual_control_expired_gate_active_total': str(dual_control_expired_gate_total), 'dual_control_cancelled_gate_active_total': str(dual_control_cancelled_gate_total), 'dual_control_invalidated_gate_active_total': str(dual_control_invalidated_gate_total), 'dual_control_binding_mismatch_total': str(dual_control_binding_mismatch_total), 'dual_control_semantic_binding_mismatch_total': str(dual_control_semantic_binding_mismatch_total), 'dual_control_route_binding_mismatch_total': str(dual_control_route_binding_mismatch_total), 'dual_control_override_gate_active_total': str(dual_control_override_gate_total)})
+             nraw = r.hgetall(notifier_state_key(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_KEY', 'metrics:latency_contract:deploy_lint:notifier:last'))) or {}
+             nlast_ms = _i(nraw.get('last_run_ts_ms'), 0)
+             nstatus = str(nraw.get('last_status', 'ok'))
+--- a/orderflow_services/latency_contract_deploy_lint_notifier_v1.py
++++ b/orderflow_services/latency_contract_deploy_lint_notifier_v1.py
+@@ -10,6 +10,9 @@
+ P4.8 adds TTL-expiry handling: if a silence window lapses and the underlying
+ gate is still active, notifier converts that state into an explicit
+ `ttl_expired` audit record and re-notifies with escalated severity.
++
++P4.14 adds warning-code policy aware notifier route selection so operational
++class changes are deterministic and visible to approval binding.
+ """
+ 
+ import json
+@@ -55,6 +58,9 @@
+     reminder_s: int
+     escalated_reminder_s: int
+     state_ttl_s: int
++    warn_codes_warn_csv: str
++    warn_codes_crit_csv: str
++    warn_codes_page_csv: str
+ 
+ 
+ def load_cfg() -> Cfg:
+@@ -71,6 +77,9 @@
+         reminder_s=max(60, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_REMINDER_S', '21600'), 21600)),
+         escalated_reminder_s=max(60, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_ESCALATED_REMINDER_S', '3600'), 3600)),
+         state_ttl_s=max(600, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_TTL_S', '172800'), 172800)),
++        warn_codes_warn_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_WARN_CSV', ''),
++        warn_codes_crit_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_CRIT_CSV', ''),
++        warn_codes_page_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_PAGE_CSV', ''),
+     )
+ 
+ 
+@@ -91,6 +100,35 @@
+     return effective_active, silenced, silence_details
+ 
+ 
++
++
++def _split_codes(raw: Any) -> set[str]:
++    return {x.strip() for x in str(raw or '').split(',') if x.strip() and x.strip() != 'none'}
++
++
++def _warning_policy_for_active(cfg: Cfg, details: dict[str, dict[str, str]], active: list[str]) -> str:
++    codes: set[str] = set()
++    for purpose in active:
++        codes |= _split_codes((details.get(purpose) or {}).get('warning_codes'))
++    if not codes:
++        return 'none'
++    page = _split_codes(cfg.warn_codes_page_csv)
++    crit = _split_codes(cfg.warn_codes_crit_csv)
++    warn = _split_codes(cfg.warn_codes_warn_csv)
++    if codes & page:
++        return 'page'
++    if codes & crit:
++        return 'crit'
++    if codes & warn:
++        return 'warn'
++    return 'warn'
++
++
++def _route_class_for_event(event_kind: str, warning_policy: str) -> str:
++    if event_kind == 'latency_deploy_lint_silence_ttl_expired_reactivated':
++        return 'page'
++    return 'page' if warning_policy == 'page' else 'notify'
++
+ def _collect_expired_purposes(r: Any, cfg: Cfg, *, active: list[str], now_ms: int) -> tuple[list[str], dict[str, dict[str, str]]]:
+     expired: list[str] = []
+     details: dict[str, dict[str, str]] = {}
+@@ -160,6 +198,8 @@
+     *,
+     event_kind: str,
+     severity: str,
++    warning_policy: str,
++    route_class: str,
+     raw_active: list[str],
+     active: list[str],
+     silenced: list[str],
+@@ -171,6 +211,8 @@
+         'ts_ms': str(now_ms),
+         'kind': event_kind,
+         'severity': severity,
++        'warning_severity_policy': warning_policy,
++        'notifier_route_class': route_class,
+         'source': 'latency_contract_deploy_lint_notifier_v1',
+         'raw_active_purposes_csv': ','.join(raw_active) if raw_active else 'none',
+         'raw_active_purposes_count': str(len(raw_active)),
+@@ -187,25 +229,30 @@
+     r.xadd(cfg.ops_stream, fields, maxlen=200000, approximate=True)
+ 
+ 
+-def _severity_for_event(event_kind: str) -> str:
++def _severity_for_event(event_kind: str, warning_policy: str) -> str:
++    if event_kind == 'latency_deploy_lint_recovered':
++        return 'info'
+     if event_kind == 'latency_deploy_lint_silence_ttl_expired_reactivated':
+         return 'page'
+-    if event_kind == 'latency_deploy_lint_persistent_drift':
+-        return 'crit'
+-    return 'info'
++    if warning_policy == 'page':
++        return 'page'
++    return 'crit'
+ 
+ 
+-def _notify_stream_for_event(cfg: Cfg, event_kind: str) -> str:
+-    return cfg.notify_page_stream if event_kind == 'latency_deploy_lint_silence_ttl_expired_reactivated' else cfg.notify_stream
++def _notify_stream_for_event(cfg: Cfg, event_kind: str, warning_policy: str) -> str:
++    return cfg.notify_page_stream if _route_class_for_event(event_kind, warning_policy) == 'page' else cfg.notify_stream
+ 
+ 
+-def _emit_notify(r: Any, cfg: Cfg, *, event_kind: str, text: str, now_ms: int) -> None:
++def _emit_notify(r: Any, cfg: Cfg, *, event_kind: str, warning_policy: str, text: str, now_ms: int) -> None:
+     if not cfg.notify_enable:
+         return
+-    severity = _severity_for_event(event_kind)
+-    r.xadd(_notify_stream_for_event(cfg, event_kind), {
++    severity = _severity_for_event(event_kind, warning_policy)
++    route_class = _route_class_for_event(event_kind, warning_policy)
++    r.xadd(_notify_stream_for_event(cfg, event_kind, warning_policy), {
+         'type': 'report',
+         'severity': severity,
++        'warning_severity_policy': warning_policy,
++        'notifier_route_class': route_class,
+         'text': text[:3500],
+         'ts': str(now_ms),
+         'source': 'latency_contract_deploy_lint_notifier_v1',
+@@ -265,11 +312,13 @@
+         escalated_reminder_s=cfg.escalated_reminder_s,
+         now_ms=now_ms,
+     )
+-    emit_severity = _severity_for_event(event_kind) if emit else str(prev.get('last_emit_severity') or '')
++    warning_policy = _warning_policy_for_active(cfg, details, active)
++    emit_severity = _severity_for_event(event_kind, warning_policy) if emit else str(prev.get('last_emit_severity') or '')
+     if emit:
+         text = _summary_text(active, details, silenced=silenced, silence_details=silence_details, expired=expired, expired_details=expired_details)
+-        _emit_ops_event(r, cfg, event_kind=event_kind, severity=emit_severity, raw_active=raw_active, active=active, silenced=silenced, expired=expired, details=details, now_ms=now_ms)
+-        _emit_notify(r, cfg, event_kind=event_kind, text=text, now_ms=now_ms)
++        route_class = _route_class_for_event(event_kind, warning_policy)
++        _emit_ops_event(r, cfg, event_kind=event_kind, severity=emit_severity, warning_policy=warning_policy, route_class=route_class, raw_active=raw_active, active=active, silenced=silenced, expired=expired, details=details, now_ms=now_ms)
++        _emit_notify(r, cfg, event_kind=event_kind, warning_policy=warning_policy, text=text, now_ms=now_ms)
+     update_notifier_state(
+         r,
+         prefix=cfg.notifier_state_key,
+--- a/tick_flow_full/orderflow_services/latency_contract_deploy_lint_notifier_v1.py
++++ b/tick_flow_full/orderflow_services/latency_contract_deploy_lint_notifier_v1.py
+@@ -10,6 +10,9 @@
+ P4.8 adds TTL-expiry handling: if a silence window lapses and the underlying
+ gate is still active, notifier converts that state into an explicit
+ `ttl_expired` audit record and re-notifies with escalated severity.
++
++P4.14 adds warning-code policy aware notifier route selection so operational
++class changes are deterministic and visible to approval binding.
+ """
+ 
+ import json
+@@ -55,6 +58,9 @@
+     reminder_s: int
+     escalated_reminder_s: int
+     state_ttl_s: int
++    warn_codes_warn_csv: str
++    warn_codes_crit_csv: str
++    warn_codes_page_csv: str
+ 
+ 
+ def load_cfg() -> Cfg:
+@@ -71,6 +77,9 @@
+         reminder_s=max(60, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_REMINDER_S', '21600'), 21600)),
+         escalated_reminder_s=max(60, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_ESCALATED_REMINDER_S', '3600'), 3600)),
+         state_ttl_s=max(600, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_TTL_S', '172800'), 172800)),
++        warn_codes_warn_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_WARN_CSV', ''),
++        warn_codes_crit_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_CRIT_CSV', ''),
++        warn_codes_page_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_PAGE_CSV', ''),
+     )
+ 
+ 
+@@ -91,6 +100,35 @@
+     return effective_active, silenced, silence_details
+ 
+ 
++
++
++def _split_codes(raw: Any) -> set[str]:
++    return {x.strip() for x in str(raw or '').split(',') if x.strip() and x.strip() != 'none'}
++
++
++def _warning_policy_for_active(cfg: Cfg, details: dict[str, dict[str, str]], active: list[str]) -> str:
++    codes: set[str] = set()
++    for purpose in active:
++        codes |= _split_codes((details.get(purpose) or {}).get('warning_codes'))
++    if not codes:
++        return 'none'
++    page = _split_codes(cfg.warn_codes_page_csv)
++    crit = _split_codes(cfg.warn_codes_crit_csv)
++    warn = _split_codes(cfg.warn_codes_warn_csv)
++    if codes & page:
++        return 'page'
++    if codes & crit:
++        return 'crit'
++    if codes & warn:
++        return 'warn'
++    return 'warn'
++
++
++def _route_class_for_event(event_kind: str, warning_policy: str) -> str:
++    if event_kind == 'latency_deploy_lint_silence_ttl_expired_reactivated':
++        return 'page'
++    return 'page' if warning_policy == 'page' else 'notify'
++
+ def _collect_expired_purposes(r: Any, cfg: Cfg, *, active: list[str], now_ms: int) -> tuple[list[str], dict[str, dict[str, str]]]:
+     expired: list[str] = []
+     details: dict[str, dict[str, str]] = {}
+@@ -160,6 +198,8 @@
+     *,
+     event_kind: str,
+     severity: str,
++    warning_policy: str,
++    route_class: str,
+     raw_active: list[str],
+     active: list[str],
+     silenced: list[str],
+@@ -171,6 +211,8 @@
+         'ts_ms': str(now_ms),
+         'kind': event_kind,
+         'severity': severity,
++        'warning_severity_policy': warning_policy,
++        'notifier_route_class': route_class,
+         'source': 'latency_contract_deploy_lint_notifier_v1',
+         'raw_active_purposes_csv': ','.join(raw_active) if raw_active else 'none',
+         'raw_active_purposes_count': str(len(raw_active)),
+@@ -187,25 +229,30 @@
+     r.xadd(cfg.ops_stream, fields, maxlen=200000, approximate=True)
+ 
+ 
+-def _severity_for_event(event_kind: str) -> str:
++def _severity_for_event(event_kind: str, warning_policy: str) -> str:
++    if event_kind == 'latency_deploy_lint_recovered':
++        return 'info'
+     if event_kind == 'latency_deploy_lint_silence_ttl_expired_reactivated':
+         return 'page'
+-    if event_kind == 'latency_deploy_lint_persistent_drift':
+-        return 'crit'
+-    return 'info'
++    if warning_policy == 'page':
++        return 'page'
++    return 'crit'
+ 
+ 
+-def _notify_stream_for_event(cfg: Cfg, event_kind: str) -> str:
+-    return cfg.notify_page_stream if event_kind == 'latency_deploy_lint_silence_ttl_expired_reactivated' else cfg.notify_stream
++def _notify_stream_for_event(cfg: Cfg, event_kind: str, warning_policy: str) -> str:
++    return cfg.notify_page_stream if _route_class_for_event(event_kind, warning_policy) == 'page' else cfg.notify_stream
+ 
+ 
+-def _emit_notify(r: Any, cfg: Cfg, *, event_kind: str, text: str, now_ms: int) -> None:
++def _emit_notify(r: Any, cfg: Cfg, *, event_kind: str, warning_policy: str, text: str, now_ms: int) -> None:
+     if not cfg.notify_enable:
+         return
+-    severity = _severity_for_event(event_kind)
+-    r.xadd(_notify_stream_for_event(cfg, event_kind), {
++    severity = _severity_for_event(event_kind, warning_policy)
++    route_class = _route_class_for_event(event_kind, warning_policy)
++    r.xadd(_notify_stream_for_event(cfg, event_kind, warning_policy), {
+         'type': 'report',
+         'severity': severity,
++        'warning_severity_policy': warning_policy,
++        'notifier_route_class': route_class,
+         'text': text[:3500],
+         'ts': str(now_ms),
+         'source': 'latency_contract_deploy_lint_notifier_v1',
+@@ -265,11 +312,13 @@
+         escalated_reminder_s=cfg.escalated_reminder_s,
+         now_ms=now_ms,
+     )
+-    emit_severity = _severity_for_event(event_kind) if emit else str(prev.get('last_emit_severity') or '')
++    warning_policy = _warning_policy_for_active(cfg, details, active)
++    emit_severity = _severity_for_event(event_kind, warning_policy) if emit else str(prev.get('last_emit_severity') or '')
+     if emit:
+         text = _summary_text(active, details, silenced=silenced, silence_details=silence_details, expired=expired, expired_details=expired_details)
+-        _emit_ops_event(r, cfg, event_kind=event_kind, severity=emit_severity, raw_active=raw_active, active=active, silenced=silenced, expired=expired, details=details, now_ms=now_ms)
+-        _emit_notify(r, cfg, event_kind=event_kind, text=text, now_ms=now_ms)
++        route_class = _route_class_for_event(event_kind, warning_policy)
++        _emit_ops_event(r, cfg, event_kind=event_kind, severity=emit_severity, warning_policy=warning_policy, route_class=route_class, raw_active=raw_active, active=active, silenced=silenced, expired=expired, details=details, now_ms=now_ms)
++        _emit_notify(r, cfg, event_kind=event_kind, warning_policy=warning_policy, text=text, now_ms=now_ms)
+     update_notifier_state(
+         r,
+         prefix=cfg.notifier_state_key,
+--- a/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
++++ b/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
+@@ -44,3 +44,7 @@
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREPARED_FRESHNESS_S=7200
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_APPROVED_FRESHNESS_S=1800
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DUAL_CONTROL_MINUTES=480
++
++LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_WARN_CSV=unexpected_environmentfile
++LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_CRIT_CSV=
++LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_PAGE_CSV=
+--- a/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
++++ b/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
+@@ -44,3 +44,7 @@
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREPARED_FRESHNESS_S=7200
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_APPROVED_FRESHNESS_S=1800
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DUAL_CONTROL_MINUTES=480
++
++LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_WARN_CSV=unexpected_environmentfile
++LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_CRIT_CSV=
++LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_PAGE_CSV=
+--- a/tick_flow_full/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
++++ b/tick_flow_full/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
+@@ -44,3 +44,7 @@
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREPARED_FRESHNESS_S=7200
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_APPROVED_FRESHNESS_S=1800
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DUAL_CONTROL_MINUTES=480
++
++LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_WARN_CSV=unexpected_environmentfile
++LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_CRIT_CSV=
++LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_PAGE_CSV=
+--- a/tick_flow_full/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
++++ b/tick_flow_full/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
+@@ -44,3 +44,7 @@
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREPARED_FRESHNESS_S=7200
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_APPROVED_FRESHNESS_S=1800
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DUAL_CONTROL_MINUTES=480
++
++LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_WARN_CSV=unexpected_environmentfile
++LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_CRIT_CSV=
++LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_PAGE_CSV=
+--- a/orderflow_services/prometheus_alerts_latency_contract_p414_v1.yml
++++ b/orderflow_services/prometheus_alerts_latency_contract_p414_v1.yml
+@@ -0,0 +1,17 @@
++groups:
++  - name: latency-contract-p414-warning-policy-binding
++    rules:
++      - alert: LatencyContractDeployLintApprovalRouteBindingMismatch
++        expr: latency_contract_deploy_lint_summary_dual_control_route_binding_mismatch_total > 0
++        for: 10m
++        labels: {severity: warn}
++        annotations:
++          summary: "Deploy-lint approval route binding mismatch"
++          description: "A dual-control approval no longer matches warning policy or notifier route class."
++      - alert: LatencyContractDeployLintApprovalNotifierRoutePageDrift
++        expr: latency_contract_deploy_lint_silence_approval_notifier_route_class_match == 0
++        for: 5m
++        labels: {severity: crit}
++        annotations:
++          summary: "Deploy-lint notifier route class changed after approval"
++          description: "The approval was prepared for a different notifier route class than the current drift state."
+--- a/tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_p414_v1.yml
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_p414_v1.yml
+@@ -0,0 +1,17 @@
++groups:
++  - name: latency-contract-p414-warning-policy-binding
++    rules:
++      - alert: LatencyContractDeployLintApprovalRouteBindingMismatch
++        expr: latency_contract_deploy_lint_summary_dual_control_route_binding_mismatch_total > 0
++        for: 10m
++        labels: {severity: warn}
++        annotations:
++          summary: "Deploy-lint approval route binding mismatch"
++          description: "A dual-control approval no longer matches warning policy or notifier route class."
++      - alert: LatencyContractDeployLintApprovalNotifierRoutePageDrift
++        expr: latency_contract_deploy_lint_silence_approval_notifier_route_class_match == 0
++        for: 5m
++        labels: {severity: crit}
++        annotations:
++          summary: "Deploy-lint notifier route class changed after approval"
++          description: "The approval was prepared for a different notifier route class than the current drift state."
+--- a/orderflow_services/grafana/latency_contract_p414_v1.json
++++ b/orderflow_services/grafana/latency_contract_p414_v1.json
+@@ -0,0 +1,28 @@
++{
++  "title": "Latency Contract P4.14 Warning Policy Binding",
++  "schemaVersion": 39,
++  "version": 1,
++  "panels": [
++    {
++      "title": "Route binding mismatch total",
++      "type": "timeseries",
++      "targets": [
++        {"expr": "latency_contract_deploy_lint_summary_dual_control_route_binding_mismatch_total"}
++      ]
++    },
++    {
++      "title": "Approval notifier route class match",
++      "type": "timeseries",
++      "targets": [
++        {"expr": "latency_contract_deploy_lint_silence_approval_notifier_route_class_match"}
++      ]
++    },
++    {
++      "title": "Approval warning policy match",
++      "type": "timeseries",
++      "targets": [
++        {"expr": "latency_contract_deploy_lint_silence_approval_warning_policy_match"}
++      ]
++    }
++  ]
++}
+--- a/tick_flow_full/orderflow_services/grafana/latency_contract_p414_v1.json
++++ b/tick_flow_full/orderflow_services/grafana/latency_contract_p414_v1.json
+@@ -0,0 +1,28 @@
++{
++  "title": "Latency Contract P4.14 Warning Policy Binding",
++  "schemaVersion": 39,
++  "version": 1,
++  "panels": [
++    {
++      "title": "Route binding mismatch total",
++      "type": "timeseries",
++      "targets": [
++        {"expr": "latency_contract_deploy_lint_summary_dual_control_route_binding_mismatch_total"}
++      ]
++    },
++    {
++      "title": "Approval notifier route class match",
++      "type": "timeseries",
++      "targets": [
++        {"expr": "latency_contract_deploy_lint_silence_approval_notifier_route_class_match"}
++      ]
++    },
++    {
++      "title": "Approval warning policy match",
++      "type": "timeseries",
++      "targets": [
++        {"expr": "latency_contract_deploy_lint_silence_approval_warning_policy_match"}
++      ]
++    }
++  ]
++}
+--- a/orderflow_services/runbook_latency_contract_p414_v1.md
++++ b/orderflow_services/runbook_latency_contract_p414_v1.md
+@@ -0,0 +1,29 @@
++# P4.14 — warning policy / notifier route binding
++
++## Goal
++
++Invalidate a dual-control silence approval when the operational class of the incident changes even if the core drift body remains broadly similar.
++
++## What is now bound
++
++- `warning_codes`
++- `warning_severity_policy`
++- `notifier_route_class`
++
++## Policy env
++
++- `LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_WARN_CSV`
++- `LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_CRIT_CSV`
++- `LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_PAGE_CSV`
++
++## Effects
++
++- `prepare-override` stores route-aware binding.
++- final `ack` invalidates approval if warning policy or notifier route class changed.
++- notifier emits `warning_severity_policy` and `notifier_route_class` in ops/notify payloads.
++
++## Key metrics
++
++- `latency_contract_deploy_lint_silence_approval_warning_policy_match`
++- `latency_contract_deploy_lint_silence_approval_notifier_route_class_match`
++- `latency_contract_deploy_lint_summary_dual_control_route_binding_mismatch_total`
+--- a/tick_flow_full/orderflow_services/runbook_latency_contract_p414_v1.md
++++ b/tick_flow_full/orderflow_services/runbook_latency_contract_p414_v1.md
+@@ -0,0 +1,29 @@
++# P4.14 — warning policy / notifier route binding
++
++## Goal
++
++Invalidate a dual-control silence approval when the operational class of the incident changes even if the core drift body remains broadly similar.
++
++## What is now bound
++
++- `warning_codes`
++- `warning_severity_policy`
++- `notifier_route_class`
++
++## Policy env
++
++- `LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_WARN_CSV`
++- `LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_CRIT_CSV`
++- `LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_PAGE_CSV`
++
++## Effects
++
++- `prepare-override` stores route-aware binding.
++- final `ack` invalidates approval if warning policy or notifier route class changed.
++- notifier emits `warning_severity_policy` and `notifier_route_class` in ops/notify payloads.
++
++## Key metrics
++
++- `latency_contract_deploy_lint_silence_approval_warning_policy_match`
++- `latency_contract_deploy_lint_silence_approval_notifier_route_class_match`
++- `latency_contract_deploy_lint_summary_dual_control_route_binding_mismatch_total`
+--- a/orderflow_services/tests/test_latency_contract_p414_warning_route_binding_v1.py
++++ b/orderflow_services/tests/test_latency_contract_p414_warning_route_binding_v1.py
+@@ -0,0 +1,109 @@
++from orderflow_services import latency_contract_deploy_lint_silence_v1 as mod
++
++
++class FakeRedis:
++    def __init__(self):
++        self.h = {}
++        self.exp = {}
++        self.stream = []
++        self.kv = {}
++    def hgetall(self, k):
++        return dict(self.h.get(k, {}))
++    def hset(self, k, mapping=None, **kwargs):
++        cur = self.h.setdefault(k, {})
++        cur.update(mapping or kwargs)
++    def expire(self, k, ttl):
++        self.exp[k] = ttl
++    def xadd(self, stream, fields, maxlen=None, approximate=None):
++        self.stream.append((stream, dict(fields)))
++        return f"{len(self.stream)}-0"
++    def get(self, k):
++        return self.kv.get(k)
++    def set(self, k, v, ex=None):
++        self.kv[k] = v
++        if ex is not None:
++            self.exp[k] = ex
++
++
++def _cfg(*, warn_csv: str = '', crit_csv: str = '', page_csv: str = '') -> mod.Cfg:
++    return mod.Cfg(
++        redis_url='redis://unused',
++        state_prefix='metrics:latency_contract:deploy_lint:last',
++        silence_prefix='cfg:orderflow:latency_contract:deploy_lint:silence',
++        approval_prefix='cfg:orderflow:latency_contract:deploy_lint:silence_approval',
++        ops_stream='ops:latency_contract:events:v1',
++        silence_ttl_s=3600,
++        approval_ttl_s=3600,
++        approval_prepared_freshness_s=60,
++        approval_approved_freshness_s=60,
++        default_minutes=60,
++        policy_window_s=168 * 3600,
++        policy_max_budget_minutes=60,
++        policy_max_acks=1,
++        policy_denied_exit_code=27,
++        dual_control_minutes=45,
++        notify_warn_codes_warn_csv=warn_csv,
++        notify_warn_codes_crit_csv=crit_csv,
++        notify_warn_codes_page_csv=page_csv,
++    )
++
++
++def test_ack_invalidates_when_warning_policy_changes_without_core_drift_change() -> None:
++    r = FakeRedis()
++    key = 'metrics:latency_contract:deploy_lint:last:meta_cov_rollout_controller'
++    r.h[key] = {
++        'gate_active': '1',
++        'gate_reason_code': 'persistent_config_drift',
++        'error_codes': 'compose_wrong_service',
++        'errors_count': '1',
++        'warning_codes': 'unexpected_environmentfile',
++        'warnings_count': '1',
++        'compose_file': '/tmp/a.yml',
++        'wrapper_file': '/tmp/b.sh',
++        'unit_file': '/tmp/c.service',
++        'env_file': '/tmp/d.env',
++        'missing_runtime_env': 'none',
++        'missing_env_file_vars': 'none',
++    }
++    cfg_prepare = _cfg(warn_csv='unexpected_environmentfile')
++    cfg_ack = _cfg(page_csv='unexpected_environmentfile')
++    mod.cmd_ack(r, cfg_prepare, purpose='meta_cov_rollout_controller', operator='alex', ticket='INC-1', reason='known drift', minutes=30, now_ms=1000)
++    prep = mod.cmd_prepare_override(
++        r, cfg_prepare, purpose='meta_cov_rollout_controller', operator='alex', ticket='INC-1',
++        escalation_ticket='SEV-1', reason='need long silence', minutes=45, now_ms=2000,
++    )
++    req_id = prep['request_id']
++    mod.cmd_approve_override(r, cfg_prepare, request_id=req_id, operator='bob', reason='approved', now_ms=3000)
++    out = mod.cmd_ack(
++        r, cfg_ack, purpose='meta_cov_rollout_controller', operator='alex', ticket='INC-1',
++        escalation_ticket='SEV-1', approval_request_id=req_id, reason='final ack', minutes=45, now_ms=4000,
++    )
++    assert out['ok'] is False
++    assert 'warning_severity_policy' in out['policy']['denied_reason']
++    assert 'notifier_route_class' in out['policy']['denied_reason']
++    approval_key = f'cfg:orderflow:latency_contract:deploy_lint:silence_approval:req:{req_id}'
++    assert r.h[approval_key]['status'] == 'invalidated'
++
++
++def test_status_exposes_warning_policy_binding_fields() -> None:
++    r = FakeRedis()
++    key = 'metrics:latency_contract:deploy_lint:last:meta_cov_rollout_controller'
++    r.h[key] = {
++        'gate_active': '1',
++        'gate_reason_code': 'persistent_config_drift',
++        'error_codes': 'compose_wrong_service',
++        'errors_count': '1',
++        'warning_codes': 'unexpected_environmentfile',
++        'warnings_count': '1',
++    }
++    cfg = _cfg(warn_csv='unexpected_environmentfile')
++    prep = mod.cmd_prepare_override(
++        r, cfg, purpose='meta_cov_rollout_controller', operator='alex', ticket='INC-1',
++        escalation_ticket='SEV-1', reason='need long silence', minutes=45, now_ms=2000,
++    )
++    mod.cmd_approve_override(r, cfg, request_id=prep['request_id'], operator='bob', reason='approved', now_ms=3000)
++    row = mod.cmd_status(r, cfg, purpose='meta_cov_rollout_controller', now_ms=3500)['rows'][0]
++    assert row['latest_approval_bound_warning_severity_policy'] == 'warn'
++    assert row['latest_approval_bound_notifier_route_class'] == 'notify'
++    assert row['latest_approval_current_warning_severity_policy'] == 'warn'
++    assert row['latest_approval_current_notifier_route_class'] == 'notify'
+--- a/orderflow_services/tests/test_latency_contract_p414_notifier_policy_v1.py
++++ b/orderflow_services/tests/test_latency_contract_p414_notifier_policy_v1.py
+@@ -0,0 +1,26 @@
++from orderflow_services import latency_contract_deploy_lint_notifier_v1 as mod
++
++
++def test_page_warning_policy_routes_to_page_stream() -> None:
++    cfg = mod.Cfg(
++        redis_url='redis://unused',
++        state_prefix='metrics:latency_contract:deploy_lint:last',
++        notifier_state_key='metrics:latency_contract:deploy_lint:notifier:last',
++        silence_prefix='cfg:orderflow:latency_contract:deploy_lint:silence',
++        silence_ttl_s=3600,
++        ops_stream='ops:latency_contract:events:v1',
++        notify_stream='notify:telegram',
++        notify_page_stream='notify:telegram:page',
++        notify_enable=True,
++        reminder_s=60,
++        escalated_reminder_s=60,
++        state_ttl_s=3600,
++        warn_codes_warn_csv='unexpected_environmentfile',
++        warn_codes_crit_csv='',
++        warn_codes_page_csv='unexpected_environmentfile',
++    )
++    details = {'meta_cov_rollout_controller': {'warning_codes': 'unexpected_environmentfile'}}
++    policy = mod._warning_policy_for_active(cfg, details, ['meta_cov_rollout_controller'])
++    assert policy == 'page'
++    assert mod._route_class_for_event('latency_deploy_lint_persistent_drift', policy) == 'page'
++    assert mod._notify_stream_for_event(cfg, 'latency_deploy_lint_persistent_drift', policy) == 'notify:telegram:page'
+--- a/orderflow_services/tests/test_latency_contract_p414_alerts_yaml_v1.py
++++ b/orderflow_services/tests/test_latency_contract_p414_alerts_yaml_v1.py
+@@ -0,0 +1,7 @@
++from pathlib import Path
++
++
++def test_p414_alerts_reference_route_binding_metrics() -> None:
++    text = Path('orderflow_services/prometheus_alerts_latency_contract_p414_v1.yml').read_text(encoding='utf-8')
++    assert 'latency_contract_deploy_lint_summary_dual_control_route_binding_mismatch_total' in text
++    assert 'latency_contract_deploy_lint_silence_approval_notifier_route_class_match' in text
+--- a/orderflow_services/tests/test_latency_contract_p414_dashboard_json_v1.py
++++ b/orderflow_services/tests/test_latency_contract_p414_dashboard_json_v1.py
+@@ -0,0 +1,9 @@
++import json
++from pathlib import Path
++
++
++def test_p414_dashboard_contains_warning_route_panels() -> None:
++    data = json.loads(Path('orderflow_services/grafana/latency_contract_p414_v1.json').read_text(encoding='utf-8'))
++    exprs = [t.get('expr', '') for p in data.get('panels', []) for t in p.get('targets', [])]
++    assert 'latency_contract_deploy_lint_summary_dual_control_route_binding_mismatch_total' in exprs
++    assert 'latency_contract_deploy_lint_silence_approval_warning_policy_match' in exprs
+--- a/orderflow_services/tests/test_latency_contract_p414_deploy_files_v1.py
++++ b/orderflow_services/tests/test_latency_contract_p414_deploy_files_v1.py
+@@ -0,0 +1,12 @@
++from pathlib import Path
++
++
++def test_p414_env_examples_include_warning_policy_vars() -> None:
++    for rel in [
++        'orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example',
++        'orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example',
++    ]:
++        text = Path(rel).read_text(encoding='utf-8')
++        assert 'LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_WARN_CSV' in text
++        assert 'LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_CRIT_CSV' in text
++        assert 'LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_PAGE_CSV' in text

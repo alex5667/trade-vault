@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/tp_event_emulator.py
+# hypothesis_version: 6.148.10
+
+[2758.7, 2769.9, 2773.1, 2776.3, 1000, '--scenario', '--sid', '--symbol', '1234567', '=', 'REDIS_URL', 'SID: %s', 'SL_HIT', 'Scenario: %s', 'Signal ID', 'Symbol: %s', 'TP Event Emulator', 'TP1_HIT', 'TP2_HIT', 'TP3_HIT', 'TP_EVENTS_STREAM', 'Test scenario', 'XAUUSD', '__main__', 'direct_sl', 'emulator', 'event_type', 'events:trades', 'position_id', 'price', 'sid', 'source', 'symbol', 'ticket', 'tp1_only', 'tp1_then_sl', 'tp1_then_tp2', 'tp_event_emulator', 'ts']

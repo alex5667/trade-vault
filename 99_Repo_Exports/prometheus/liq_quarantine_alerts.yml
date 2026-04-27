@@ -1,0 +1,95 @@
+---
+# Prometheus alert rules: Liquidation DQ Quarantine Rate
+# Task: P1-5 — LiqQuarantineRateHigh
+#
+# Проблема: DQPolicy.MaxEventAge = 10s — при GC-паузе >10s ВСЕ
+# входящие liquidation events уходят в quarantine (reason=stale).
+# Без алерта инфраструктура деградирует молча.
+#
+# Метрики (источник: go-worker/internal/monitoring/liquidation_metrics.go):
+#   liq_events_in_total{source}         — всего пришло из WS
+#   liq_events_quarantined_total{source,reason} — реально ушло в quarantine stream
+#
+# Quarantine rate = sum(rate(quarantined[5m])) / sum(rate(in[5m]))
+# Знаменатель защищён by() clamp: если in=0, алерт не срабатывает ложно.
+
+groups:
+  - name: liq_quarantine
+    interval: 30s
+    rules:
+
+      # ──────────────────────────────────────────────────────────────────────
+      # WARNING: quarantine rate > 5% за 5 минут
+      # Типичные причины: кратковременная GC-пауза, всплеск задержки WS-чтения
+      # ──────────────────────────────────────────────────────────────────────
+      - alert: LiqQuarantineRateHigh
+        expr: |
+          (
+            sum by (source) (rate(liq_events_quarantined_total[5m]))
+            /
+            sum by (source) (rate(liq_events_in_total[5m]) > 0)
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+          team: sre
+          component: go-worker-liquidation
+        annotations:
+          summary: "Liq quarantine rate > 5% (source={{ $labels.source }})"
+          description: |
+            Liquidation quarantine rate = {{ $value | humanizePercentage }} за последние 5 минут
+            (source={{ $labels.source }}).
+            DQPolicy.MaxEventAge = 10s. Возможные причины:
+              • GC-пауза Go worker > 10s
+              • Перегрузка consumer: очередь батчей растёт быстрее, чем обрабатывается
+              • Рассинхрон системного времени контейнера
+            Action: проверить liq_event_lag_ms p99, GC stats (go_gc_duration_seconds),
+            системное время (chronyc tracking). Исходный файл: dq.go:57 MaxEventAge.
+
+      # ──────────────────────────────────────────────────────────────────────
+      # PAGE: quarantine rate > 15% — критично, данные о ликвидациях потеряны
+      # severity: page → Alertmanager должен маршрутизировать в PagerDuty/TG
+      # ──────────────────────────────────────────────────────────────────────
+      - alert: LiqQuarantineRateCritical
+        expr: |
+          (
+            sum by (source) (rate(liq_events_quarantined_total[5m]))
+            /
+            sum by (source) (rate(liq_events_in_total[5m]) > 0)
+          ) > 0.15
+        for: 1m
+        labels:
+          severity: page
+          team: sre
+          component: go-worker-liquidation
+        annotations:
+          summary: "CRITICAL: Liq quarantine > 15% — liquidation data LOSS (source={{ $labels.source }})"
+          description: |
+            Liquidation quarantine rate = {{ $value | humanizePercentage }}
+            (source={{ $labels.source }}).
+            Более 15% событий ликвидаций уходят в quarantine — сигнал о ликвидациях
+            недостоверен. Немедленное вмешательство.
+            Action: перезапустить go-worker, проверить system clock drift,
+            увеличить DQPolicy.MaxEventAge через ENV LIQ_MAX_EVENT_AGE_SEC.
+
+      # ──────────────────────────────────────────────────────────────────────
+      # Абсолютный рост quarantined при нулевом потоке in
+      # (edge-case: WS feed мёртв, но quarantine всё равно растёт — anomaly)
+      # ──────────────────────────────────────────────────────────────────────
+      - alert: LiqQuarantinedWithNoInput
+        expr: |
+          rate(liq_events_quarantined_total[5m]) > 0
+          and
+          rate(liq_events_in_total[5m]) == 0
+        for: 3m
+        labels:
+          severity: warning
+          team: sre
+          component: go-worker-liquidation
+        annotations:
+          summary: "Liq quarantine растёт без входящего потока (source={{ $labels.source }})"
+          description: |
+            liq_events_in_total не растёт (WS feed мёртв?), но
+            liq_events_quarantined_total продолжает увеличиваться.
+            Возможная ошибка в логике инициализации или старый cached batch.
+            Action: проверить liq_ws_connected{source="{{ $labels.source }}"}.

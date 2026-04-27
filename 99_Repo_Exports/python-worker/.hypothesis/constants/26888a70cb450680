@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/sync_signal_publisher.py
+# hypothesis_version: 6.148.10
+
+[10000, ',', ':', 'na', 'payload', 'signals_publish_sync']

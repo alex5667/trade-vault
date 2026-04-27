@@ -1,0 +1,37 @@
+groups:
+  - name: ml_phase3_54_apply_flow_experiment_incident_rca_results_usefulness_v1
+    rules:
+      - alert: MLApplyFlowExperimentIncidentRCAResultsStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_results_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "apply-flow experiment incident RCA result consumer is stale"
+
+      - alert: MLApplyFlowExperimentIncidentRCAUsefulnessStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_usefulness_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "apply-flow experiment incident RCA usefulness governor is stale"
+
+      - alert: MLApplyFlowExperimentIncidentRCAResultsErrors
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_results_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "apply-flow experiment incident RCA result consumer has errors"
+
+      - alert: MLApplyFlowExperimentIncidentRCAUsefulnessVertexLow
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_vertex_avg_usefulness < 0.60
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "apply-flow experiment incident vertex RCA usefulness is low"
+
+      - alert: MLApplyFlowExperimentIncidentRCAUsefulnessLocalLow
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_local_avg_usefulness < 0.60
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "apply-flow experiment incident local RCA usefulness is low"

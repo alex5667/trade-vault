@@ -1,0 +1,2 @@
+create index if not exists risk_mismatch_quarantine_ledger_archive_sid_idx on risk_mismatch_quarantine_ledger_archive (sid, created_ts_ms desc);
+create index if not exists risk_mismatch_quarantine_ledger_archive_decision_idx on risk_mismatch_quarantine_ledger_archive (decision_id, created_ts_ms desc);

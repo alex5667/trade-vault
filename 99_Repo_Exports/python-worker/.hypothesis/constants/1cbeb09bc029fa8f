@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/kiwisolver/__init__.py
+# hypothesis_version: 6.148.10
+
+['BadRequiredStrength', 'Constraint', 'DuplicateConstraint', 'Expression', 'Solver', 'Term', 'UnknownConstraint', 'UnknownEditVariable', 'Variable', '__kiwi_version__', '__version__', 'strength']

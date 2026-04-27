@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/optimize/minpack2.py
+# hypothesis_version: 6.148.10
+
+['dcsrch', 'dcstep']

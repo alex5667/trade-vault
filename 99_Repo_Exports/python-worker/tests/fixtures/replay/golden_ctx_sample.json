@@ -1,0 +1,44 @@
+{
+  "counts_by_kind": {
+    "breakout": 3,
+    "obi_spike": 2
+  },
+  "score_p50_by_kind": {
+    "breakout": 0.84,
+    "obi_spike": 0.66
+  },
+  "score_p95_by_kind": {
+    "breakout": 1.1199999999999999,
+    "obi_spike": 0.7200000000000001
+  },
+  "samples": [
+    {
+      "index": 0,
+      "payload_norm": {
+        "kind": "breakout",
+        "side": "buy",
+        "symbol": "BTCUSDT",
+        "ts": 1700000000000,
+        "price": 43000.0,
+        "level_price": 42950.0,
+        "raw_score": 1.2,
+        "final_score": 0.84,
+        "confidence": 42.0
+      }
+    },
+    {
+      "index": 2,
+      "payload_norm": {
+        "kind": "breakout",
+        "side": "sell",
+        "symbol": "BTCUSDT",
+        "ts": 1700000001500,
+        "price": 42960.0,
+        "level_price": 42970.0,
+        "raw_score": 1.4,
+        "final_score": 1.1199999999999999,
+        "confidence": 55.99999999999999
+      }
+    }
+  ]
+}

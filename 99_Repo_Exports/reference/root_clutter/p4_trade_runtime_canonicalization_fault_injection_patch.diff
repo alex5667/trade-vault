@@ -1,0 +1,476 @@
+--- a/services/binance_executor.py	2026-03-16 12:29:45.551137512 +0000
++++ b/services/binance_executor.py	2026-03-16 12:28:27.270011642 +0000
+@@ -1565,7 +1565,7 @@
+                 return q
+             raise
+ 
+-    def _resume_open_from_state(
++    def _legacy__resume_open_from_state__dedupe_1(
+         self, sid: str, *, symbol: str, client: "BinanceFuturesClient"
+     ) -> Optional[Dict[str, Any]]:
+         state = self._load_order_state(sid)
+@@ -1913,7 +1913,7 @@
+         except Exception:
+             return {}
+ 
+-    def _attempt_reconcile_after_exception(
++    def _legacy__attempt_reconcile_after_exception__dedupe_1(
+         self, *, payload: Dict[str, Any], action: str, symbol: str, client: "BinanceFuturesClient"
+     ) -> Dict[str, Any]:
+         """Best-effort reconcile after an ambiguous 503/timeout error.
+@@ -1986,7 +1986,7 @@
+         except Exception:
+             return max(1, int(self.default_leverage))
+ 
+-    def _emergency_flatten_position(
++    def _legacy__emergency_flatten_position__dedupe_1(
+         self,
+         *,
+         sid: str,
+@@ -2623,7 +2623,7 @@
+         except Exception:
+             return
+ 
+-    def _cancel_plain_order_best_effort(
++    def _legacy__cancel_plain_order_best_effort__dedupe_1(
+         self,
+         *,
+         symbol: str,
+@@ -2640,7 +2640,7 @@
+         except Exception:
+             return
+ 
+-    def _cancel_plain_order_best_effort(
++    def _legacy__cancel_plain_order_best_effort__dedupe_2(
+         self,
+         *,
+         symbol: str,
+@@ -2657,7 +2657,7 @@
+         except Exception:
+             return
+ 
+-    def _cancel_plain_order_best_effort(
++    def _legacy__cancel_plain_order_best_effort__dedupe_3(
+         self,
+         *,
+         symbol: str,
+@@ -3110,7 +3110,7 @@
+ 
+     # --- Action handlers ---
+ 
+-    def handle_open(self, payload: Dict[str, Any]) -> Dict[str, Any]:
++    def _legacy_handle_open__dedupe_1(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+         """Open a new position: entry order → wait fill → SL/TP → trailing arming.
+ 
+         Routing: payload[is_virtual]=true → demo/testnet client; else → prod client.
+@@ -4599,6 +4599,7 @@
+             "explicit_cancelled_protection_refs": explicit_cancelled,
+         }
+ 
++    # P4 canonical source-of-truth for repairable open-flow resume.
+     def _resume_open_from_state(
+         self,
+         sid: str,
+@@ -4705,6 +4706,7 @@
+             return {"recovered_order": q, **state, "recovered_from_state": True}
+         return None
+ 
++    # P4 canonical source-of-truth for strict reconcile gating.
+     def _attempt_reconcile_after_exception(
+         self, *, payload: Dict[str, Any], action: str, symbol: str, client: "BinanceFuturesClient"
+     ) -> Dict[str, Any]:
+@@ -4795,6 +4797,7 @@
+             resolved["reconciled_protection"] = json.dumps(protection, ensure_ascii=False, default=str)
+         return resolved
+ 
++    # P4 canonical source-of-truth for entry→protective orchestration.
+     def handle_open(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+         """Open a new position with repairable protection arming and strict verification."""
+         client, filters = self._resolve_client(payload)
+--- a/services/binance_futures_client.py	2026-03-16 12:29:45.552878406 +0000
++++ b/services/binance_futures_client.py	2026-03-16 12:28:27.270898965 +0000
+@@ -293,7 +293,7 @@
+     timeout_s: float = 8.0
+     recv_window_ms: int = 5000
+ 
+-    def _request(
++    def _legacy__request__dedupe_1(
+         self,
+         *,
+         method: str,
+@@ -340,20 +340,20 @@
+ 
+     # --- Read APIs ---
+ 
+-    def get_account(self) -> Dict[str, Any]:
++    def _legacy_get_account__dedupe_1(self) -> Dict[str, Any]:
+         return self._request(method="GET", path="/fapi/v2/account", signed=True)
+ 
+-    def get_position_risk(self) -> Any:
++    def _legacy_get_position_risk__dedupe_1(self) -> Any:
+         return self._request(method="GET", path="/fapi/v2/positionRisk", signed=True)
+ 
+-    def get_open_orders(self, *, symbol: Optional[str] = None) -> Any:
++    def _legacy_get_open_orders__dedupe_1(self, *, symbol: Optional[str] = None) -> Any:
+         params: Dict[str, Any] = {}
+         if symbol:
+             params["symbol"] = symbol
+         return self._request(method="GET", path="/fapi/v1/openOrders", params=params, signed=True)
+ 
+     @staticmethod
+-    def from_env(prefix: str = "BINANCE_") -> "BinanceFuturesREST":
++    def _legacy_from_env__dedupe_1(prefix: str = "BINANCE_") -> "BinanceFuturesREST":
+         """Construct from ENV vars.
+ 
+         Default prefix ``BINANCE_`` reads BINANCE_API_KEY / BINANCE_API_SECRET.
+@@ -400,7 +400,7 @@
+     _max_retries: int = 3
+     _retry_base_delay_s: float = 1.0
+ 
+-    def _request(self, *, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
++    def _legacy__request__dedupe_2(self, *, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
+         import logging as _logging
+         _log = _logging.getLogger(__name__)
+         qs = urllib.parse.urlencode(sorted((params or {}).items()), doseq=True)
+@@ -426,7 +426,7 @@
+                     time.sleep(delay)
+         raise urllib.error.URLError(last_err)  # re-raise after all retries exhausted
+ 
+-    def get_premium_index(self, symbol: str) -> Any:
++    def _legacy_get_premium_index__dedupe_1(self, symbol: str) -> Any:
+         return self._request(path="/fapi/v1/premiumIndex", params={"symbol": str(symbol).upper()})
+ 
+     def get_open_interest(self, symbol: str) -> Any:
+@@ -872,7 +872,7 @@
+             return self.cancel_algo_order(symbol, algo_id=order_id, client_algo_id=client_order_id)
+         return self.cancel_plain_order(symbol, order_id=order_id, client_order_id=client_order_id)
+ 
+-    def reconcile_entry_by_client_id(self, symbol: str, client_order_id: str) -> Any:
++    def _legacy_reconcile_entry_by_client_id__dedupe_1(self, symbol: str, client_order_id: str) -> Any:
+         """Reconcile plain entry order by clientOrderId with REST fallbacks."""
+         try:
+             return self.query_plain_order(symbol, client_order_id=client_order_id)
+@@ -886,7 +886,7 @@
+             pass
+         raise RuntimeError(f'plain order not found for clientOrderId={client_order_id}')
+ 
+-    def reconcile_protection_by_sid(self, symbol: str, refs: Dict[str, Any]) -> Dict[str, Any]:
++    def _legacy_reconcile_protection_by_sid__dedupe_1(self, symbol: str, refs: Dict[str, Any]) -> Dict[str, Any]:
+         """Resolve SL/TP/TRAIL algo refs using query endpoint first, open list second."""
+         out: Dict[str, Any] = {}
+         sl_cid = str(refs.get('sl_client_algo_id') or '').strip()
+@@ -917,12 +917,12 @@
+                 out['trail'] = row
+         return out
+ 
+-    def replace_untriggered_algo_order(self, symbol: str, *, algo_id: Optional[int] = None, client_algo_id: Optional[str] = None, new_params: Dict[str, Any]) -> Any:
++    def _legacy_replace_untriggered_algo_order__dedupe_1(self, symbol: str, *, algo_id: Optional[int] = None, client_algo_id: Optional[str] = None, new_params: Dict[str, Any]) -> Any:
+         """Cancel an existing untriggered algo order and submit a replacement."""
+         self.cancel_algo_order(symbol, algo_id=algo_id, client_algo_id=client_algo_id)
+         return self.post_algo_order(new_params)
+ 
+-    def reconcile_entry_by_client_id(self, symbol: str, client_order_id: str) -> Any:
++    def _legacy_reconcile_entry_by_client_id__dedupe_2(self, symbol: str, client_order_id: str) -> Any:
+         """Reconcile plain entry order by clientOrderId with REST fallbacks."""
+         try:
+             return self.query_plain_order(symbol, client_order_id=client_order_id)
+@@ -936,7 +936,7 @@
+             pass
+         raise RuntimeError(f'plain order not found for clientOrderId={client_order_id}')
+ 
+-    def reconcile_protection_by_sid(self, symbol: str, refs: Dict[str, Any]) -> Dict[str, Any]:
++    def _legacy_reconcile_protection_by_sid__dedupe_2(self, symbol: str, refs: Dict[str, Any]) -> Dict[str, Any]:
+         """Resolve SL/TP/TRAIL algo refs using query endpoint first, open list second."""
+         out: Dict[str, Any] = {}
+         sl_cid = str(refs.get('sl_client_algo_id') or '').strip()
+@@ -967,12 +967,12 @@
+                 out['trail'] = row
+         return out
+ 
+-    def replace_untriggered_algo_order(self, symbol: str, *, algo_id: Optional[int] = None, client_algo_id: Optional[str] = None, new_params: Dict[str, Any]) -> Any:
++    def _legacy_replace_untriggered_algo_order__dedupe_2(self, symbol: str, *, algo_id: Optional[int] = None, client_algo_id: Optional[str] = None, new_params: Dict[str, Any]) -> Any:
+         """Cancel an existing untriggered algo order and submit a replacement."""
+         self.cancel_algo_order(symbol, algo_id=algo_id, client_algo_id=client_algo_id)
+         return self.post_algo_order(new_params)
+ 
+-    def reconcile_entry_by_client_id(self, symbol: str, client_order_id: str) -> Any:
++    def _legacy_reconcile_entry_by_client_id__dedupe_3(self, symbol: str, client_order_id: str) -> Any:
+         """Reconcile plain entry order by clientOrderId with REST fallbacks."""
+         try:
+             return self.query_plain_order(symbol, client_order_id=client_order_id)
+@@ -986,7 +986,7 @@
+             pass
+         raise RuntimeError(f'plain order not found for clientOrderId={client_order_id}')
+ 
+-    def reconcile_protection_by_sid(self, symbol: str, refs: Dict[str, Any]) -> Dict[str, Any]:
++    def _legacy_reconcile_protection_by_sid__dedupe_3(self, symbol: str, refs: Dict[str, Any]) -> Dict[str, Any]:
+         """Resolve SL/TP/TRAIL algo refs using query endpoint first, open list second."""
+         out: Dict[str, Any] = {}
+         sl_cid = str(refs.get('sl_client_algo_id') or '').strip()
+@@ -1017,12 +1017,12 @@
+                 out['trail'] = row
+         return out
+ 
+-    def replace_untriggered_algo_order(self, symbol: str, *, algo_id: Optional[int] = None, client_algo_id: Optional[str] = None, new_params: Dict[str, Any]) -> Any:
++    def _legacy_replace_untriggered_algo_order__dedupe_3(self, symbol: str, *, algo_id: Optional[int] = None, client_algo_id: Optional[str] = None, new_params: Dict[str, Any]) -> Any:
+         """Cancel an existing untriggered algo order and submit a replacement."""
+         self.cancel_algo_order(symbol, algo_id=algo_id, client_algo_id=client_algo_id)
+         return self.post_algo_order(new_params)
+ 
+-    def reconcile_entry_by_client_id(self, symbol: str, client_order_id: str) -> Any:
++    def _legacy_reconcile_entry_by_client_id__dedupe_4(self, symbol: str, client_order_id: str) -> Any:
+         """Reconcile plain entry order by clientOrderId with REST fallbacks."""
+         try:
+             return self.query_plain_order(symbol, client_order_id=client_order_id)
+@@ -1036,7 +1036,7 @@
+             pass
+         raise RuntimeError(f'plain order not found for clientOrderId={client_order_id}')
+ 
+-    def reconcile_protection_by_sid(self, symbol: str, refs: Dict[str, Any]) -> Dict[str, Any]:
++    def _legacy_reconcile_protection_by_sid__dedupe_4(self, symbol: str, refs: Dict[str, Any]) -> Dict[str, Any]:
+         """Resolve SL/TP/TRAIL algo refs using query endpoint first, open list second."""
+         out: Dict[str, Any] = {}
+         sl_cid = str(refs.get('sl_client_algo_id') or '').strip()
+@@ -1067,7 +1067,7 @@
+                 out['trail'] = row
+         return out
+ 
+-    def replace_untriggered_algo_order(self, symbol: str, *, algo_id: Optional[int] = None, client_algo_id: Optional[str] = None, new_params: Dict[str, Any]) -> Any:
++    def _legacy_replace_untriggered_algo_order__dedupe_4(self, symbol: str, *, algo_id: Optional[int] = None, client_algo_id: Optional[str] = None, new_params: Dict[str, Any]) -> Any:
+         """Cancel an existing untriggered algo order and submit a replacement."""
+         self.cancel_algo_order(symbol, algo_id=algo_id, client_algo_id=client_algo_id)
+         return self.post_algo_order(new_params)
+@@ -1076,7 +1076,7 @@
+         """Look up an entry order by its clientOrderId (reconcile after ambiguous error)."""
+         return self.query_plain_order(symbol, client_order_id=str(client_order_id))
+ 
+-    def reconcile_protection_by_sid(self, symbol: str, sid: str) -> Dict[str, Any]:
++    def _legacy_reconcile_protection_by_sid__dedupe_5(self, symbol: str, sid: str) -> Dict[str, Any]:
+         """Scan open algo orders to reconstruct protection refs for a given sid.
+ 
+         Uses a sha1 token embedded in clientAlgoId to identify orders that
+@@ -1140,6 +1140,7 @@
+         cid = f"{base}-{token}-{tag}"
+         return cid[:36]
+ 
++    # P4 canonical source-of-truth for protection inspection/reconcile.
+     def inspect_protection_set(
+         self,
+         symbol: str,
+@@ -1175,7 +1176,7 @@
+         def _price_matches(row: Dict[str, Any], expected: Optional[float]) -> bool:
+             if expected in (None, 0, "", "0"):
+                 return True
+-            actual = _f(row.get("triggerPrice") or row.get("stopPrice") or row.get("activatePrice"), 0.0)
++            actual = _float_or_none(row.get("triggerPrice") or row.get("stopPrice") or row.get("activatePrice")) or 0.0
+             if actual <= 0:
+                 return False
+             tol = max(1e-9, abs(float(expected)) * 1e-9)
+--- a/services/binance_runtime_integrity_check.py	2026-03-16 12:21:29.880187543 +0000
++++ b/services/binance_runtime_integrity_check.py	2026-03-16 12:29:02.367335148 +0000
+@@ -0,0 +1,78 @@
++from __future__ import annotations
++
++import re
++from pathlib import Path
++from typing import Dict, Iterable, List, Tuple
++
++CRITICAL_METHODS: Dict[str, List[str]] = {
++    "binance_futures_client.py": [
++        "_request",
++        "get_account",
++        "get_position_risk",
++        "get_open_orders",
++        "from_env",
++        "get_premium_index",
++        "reconcile_entry_by_client_id",
++        "reconcile_protection_by_sid",
++        "replace_untriggered_algo_order",
++        "inspect_protection_set",
++    ],
++    "binance_executor.py": [
++        "_resume_open_from_state",
++        "_attempt_reconcile_after_exception",
++        "_emergency_flatten_position",
++        "_cancel_plain_order_best_effort",
++        "handle_open",
++        "handle_modify",
++        "handle_resize",
++        "_replace_position_protection",
++        "_verify_protection_on_exchange",
++    ],
++}
++
++
++def scan_duplicate_method_defs(path: Path, method_names: Iterable[str]) -> Dict[str, List[int]]:
++    names = set(method_names)
++    hits: Dict[str, List[int]] = {}
++    for lineno, line in enumerate(path.read_text().splitlines(), start=1):
++        m = re.match(r"^\s*def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", line)
++        if not m:
++            continue
++        name = m.group(1)
++        if name in names:
++            hits.setdefault(name, []).append(lineno)
++    return {name: lines for name, lines in hits.items() if len(lines) > 1}
++
++
++def list_runtime_artifact_files(base_dir: Path) -> List[Path]:
++    return sorted(
++        p for p in base_dir.iterdir()
++        if p.is_file() and p.name.endswith((".orig", ".rej", ".bak"))
++    )
++
++
++def main() -> int:
++    base_dir = Path(__file__).resolve().parent
++    failures: List[Tuple[Path, Dict[str, List[int]]]] = []
++    for filename, method_names in CRITICAL_METHODS.items():
++        path = base_dir / filename
++        duplicates = scan_duplicate_method_defs(path, method_names)
++        if duplicates:
++            failures.append((path, duplicates))
++    if failures:
++        for path, duplicates in failures:
++            print(f"DUPLICATE METHODS: {path}")
++            for name, lines in sorted(duplicates.items()):
++                print(f"  {name}: {lines}")
++        return 1
++    print("binance runtime integrity OK")
++    artifact_files = list_runtime_artifact_files(base_dir)
++    if artifact_files:
++        print("WARN runtime artifacts present:")
++        for item in artifact_files:
++            print(f"  {item.name}")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+--- a/services/tests/test_binance_runtime_integrity_check_p4_v1.py	2026-03-16 12:21:29.880187543 +0000
++++ b/services/tests/test_binance_runtime_integrity_check_p4_v1.py	2026-03-16 12:25:50.655628242 +0000
+@@ -0,0 +1,25 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++root = Path(__file__).resolve().parents[2]
++if str(root) not in sys.path:
++    sys.path.insert(0, str(root))
++
++mod_path = root / "services" / "binance_runtime_integrity_check.py"
++spec = importlib.util.spec_from_file_location("services.binance_runtime_integrity_check_p4", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++def test_runtime_source_has_no_duplicate_critical_defs():
++    base = root / "services"
++    for filename, method_names in mod.CRITICAL_METHODS.items():
++        duplicates = mod.scan_duplicate_method_defs(base / filename, method_names)
++        assert duplicates == {}, f"{filename} duplicates: {duplicates}"
++
++
++def test_runtime_integrity_cli_returns_success():
++    assert mod.main() == 0
+--- a/services/tests/test_binance_futures_client_p4_canonical_contract_v1.py	2026-03-16 12:21:29.880187543 +0000
++++ b/services/tests/test_binance_futures_client_p4_canonical_contract_v1.py	2026-03-16 12:25:50.668228715 +0000
+@@ -0,0 +1,51 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++root = Path(__file__).resolve().parents[2]
++if str(root) not in sys.path:
++    sys.path.insert(0, str(root))
++
++mod_path = root / "services" / "binance_futures_client.py"
++spec = importlib.util.spec_from_file_location("services.binance_futures_client_p4", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++def test_inspect_protection_set_flags_mismatched_prices_even_when_ids_exist():
++    client = mod.BinanceFuturesClient.__new__(mod.BinanceFuturesClient)
++    sid = "sid-mismatch-1"
++    client.get_open_algo_orders = lambda symbol: [
++        {"clientAlgoId": client._build_client_algo_id(sid, "sl"), "triggerPrice": "95.0"},
++        {"clientAlgoId": client._build_client_algo_id(sid, "tp1"), "triggerPrice": "110.0"},
++        {"clientAlgoId": client._build_client_algo_id(sid, "tp2"), "triggerPrice": "120.0"},
++    ]
++    out = client.inspect_protection_set(
++        "BTCUSDT",
++        sid=sid,
++        expected_tp_count=2,
++        expect_sl=True,
++        expected_sl_price=94.0,
++        expected_tp_prices=[110.0, 121.0],
++    )
++    assert out["is_complete"] is False
++    assert set(out["mismatched"]) == {"sl", "tp2"}
++    assert out["missing"] == []
++
++
++def test_reconcile_protection_by_sid_returns_canonical_contract_shape():
++    client = mod.BinanceFuturesClient.__new__(mod.BinanceFuturesClient)
++    sid = "sid-canonical-1"
++    client.get_open_algo_orders = lambda symbol: [
++        {"clientAlgoId": client._build_client_algo_id(sid, "sl"), "triggerPrice": "95.0"},
++        {"clientAlgoId": client._build_client_algo_id(sid, "tp1"), "triggerPrice": "110.0"},
++    ]
++    out = client.reconcile_protection_by_sid("BTCUSDT", sid)
++    assert out["sid"] == sid
++    assert out["symbol"] == "BTCUSDT"
++    assert "by_client_algo_id" in out
++    assert "missing" in out
++    assert out["expect_sl"] is False
++    assert out["expected_tp_count"] == 0
+--- a/services/tests/test_binance_executor_p4_verify_mismatch_v1.py	2026-03-16 12:21:29.880187543 +0000
++++ b/services/tests/test_binance_executor_p4_verify_mismatch_v1.py	2026-03-16 12:25:50.681352896 +0000
+@@ -0,0 +1,42 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++root = Path(__file__).resolve().parents[2]
++if str(root) not in sys.path:
++    sys.path.insert(0, str(root))
++
++mod_path = root / "services" / "binance_executor.py"
++spec = importlib.util.spec_from_file_location("services.binance_executor_p4", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++class DummyClient:
++    def inspect_protection_set(self, symbol, **kwargs):
++        return {
++            "sid": kwargs["sid"],
++            "symbol": symbol,
++            "is_complete": False,
++            "missing": [],
++            "mismatched": ["tp1"],
++            "tp_by_index": {1: {"algoId": 21, "clientAlgoId": mod._make_cid(kwargs["sid"], "tp1"), "triggerPrice": "111.0"}},
++            "by_client_algo_id": {mod._make_cid(kwargs["sid"], "tp1"): {"algoId": 21, "triggerPrice": "111.0"}},
++        }
++
++
++def test_verify_protection_on_exchange_rejects_stale_prices():
++    ex = mod.BinanceExecutor.__new__(mod.BinanceExecutor)
++    out = ex._verify_protection_on_exchange(
++        sid="sid-stale-p4",
++        symbol="BTCUSDT",
++        client=DummyClient(),
++        expect_sl=False,
++        tps=[110.0],
++        expect_trail=False,
++        sl=None,
++    )
++    assert out["is_complete"] is False
++    assert out["mismatched"] == ["tp1"]

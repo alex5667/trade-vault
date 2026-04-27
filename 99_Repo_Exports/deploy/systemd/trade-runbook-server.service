@@ -1,0 +1,18 @@
+[Unit]
+Description=Static trade runbook server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=trade
+Group=trade
+WorkingDirectory=/opt/trade
+EnvironmentFile=-/etc/trade/trade-execution.env
+# Serves runbooks and health reports at http://<host>:18080/
+ExecStart=/usr/bin/python3 /opt/trade/python-worker/runbooks/server/runbook_server.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

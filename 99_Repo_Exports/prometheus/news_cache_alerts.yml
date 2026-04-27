@@ -1,0 +1,46 @@
+groups:
+  - name: trade_news_reco_alerts
+    rules:
+      - alert: NewsRecoCacheStale
+        expr: (time() * 1000) - trade_news_reco_reader_last_ok_ts_ms > 300000
+        for: 2m
+        labels:
+          severity: warning
+          service: crypto_orderflow
+          team: trade
+        annotations:
+          summary: "News Recommendation Cache is stale"
+          description: "The trade_news_reco_reader has not received a valid update from Redis in over 5 minutes. News risk protections may fail-open."
+
+      - alert: NewsRecoHighLag
+        expr: trade_news_reco_reader_lag_ms > 60000
+        for: 2m
+        labels:
+          severity: warning
+          service: crypto_orderflow
+          team: trade
+        annotations:
+          summary: "News Recommendation payload is lagging"
+          description: "The generated news reco payload in Redis is older than 60 seconds. The news-agent pipeline may be delayed."
+
+      - alert: NewsRecoCriticallyStale
+        expr: trade_news_reco_reader_stale_seconds > 1800
+        for: 5m
+        labels:
+          severity: critical
+          service: crypto_orderflow
+          team: trade
+        annotations:
+          summary: "News Recommendation Cache is critically stale (30m+)"
+          description: "NewsRecoReader cache has not been updated for {{ $value }} seconds. Critical risk protections are effectively disabled."
+
+      - alert: NewsRecoRedisErrors
+        expr: rate(trade_news_reco_reader_redis_errors_total[5m]) > 0.1
+        for: 1m
+        labels:
+          severity: critical
+          service: crypto_orderflow
+          team: trade
+        annotations:
+          summary: "News reco reader Redis errors"
+          description: "The background task reading trade:cache:news_reco_map is experiencing a high rate of Redis errors."

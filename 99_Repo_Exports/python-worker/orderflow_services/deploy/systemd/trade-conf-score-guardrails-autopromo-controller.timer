@@ -1,0 +1,10 @@
+[Unit]
+Description=Run trade conf-score guardrails autopromo every 15 minutes (latency-contract gated)
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+Unit=trade-conf-score-guardrails-autopromo-controller.service
+
+[Install]
+WantedBy=timers.target

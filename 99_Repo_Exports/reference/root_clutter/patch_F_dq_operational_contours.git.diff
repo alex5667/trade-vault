@@ -1,0 +1,1538 @@
+diff --git a/orderflow_services/runbook_dq_gate_policy_v2.md b/orderflow_services/runbook_dq_gate_policy_v2.md
+new file mode 100644
+index 0000000..f0b3f2c
+--- /dev/null
++++ b/orderflow_services/runbook_dq_gate_policy_v2.md
+@@ -0,0 +1,168 @@
++# Runbook: DQ Gate Policy (v2)
++
++Purpose
++- Make DQ (data-quality) degradation observable and operationally actionable.
++- Keep production risk low by starting in SAFE+penalty, then tightening to STRICT+enforce based on measured distributions.
++
++Scope
++- Runtime metrics produced by tick_processor strict-DQ trackers:
++  - tick_gap_p95_ms (gauge, ms)
++  - tick_missing_seq_ema (gauge, 0..1)
++  - book_missing_seq_ema (gauge, 0..1)
++- DQ decision logic in tick_flow_full/core/dq_gate_v1.py.
++
++Key concepts
++
++1) What the metrics mean
++
++- tick_gap_p95_ms
++  - Per-symbol p95 of inter-tick gaps over the recent snapshot window.
++  - Interpreting spikes:
++    - Short spikes: feed hiccup / Redis / websocket jitter.
++    - Sustained > soft: data gets stale → confirmation decisions become noisy.
++    - Sustained > hard/extreme: treat as hard DQ event (potential veto in enforce mode).
++
++- tick_missing_seq_ema / book_missing_seq_ema
++  - EMA of missing-sequence events (0..1), where 0 means “no gaps observed recently”.
++  - These are “risk multipliers” for DQ: a high gap p95 without missing-seq might be benign (quiet market / low prints), but gap p95 + missing-seq strongly indicates feed loss or ordering faults.
++
++2) SAFE vs STRICT
++
++DQ_MODE controls defaults in dq_gate_v1 (unless overridden by explicit DQ_* thresholds):
++
++- SAFE
++  - Intended for rollout and noisy environments.
++  - Defaults (approx):
++    - tick_gap_p95_ms_soft ≈ 5000
++    - tick_gap_p95_ms_hard ≈ 8000
++    - tick_gap_p95_ms_extreme ≈ 12000
++    - tick_missing_seq_ema_hard ≈ 0.25 (soft ≈ 0.125)
++    - book_missing_seq_ema_hard ≈ 0.25 (soft ≈ 0.125)
++
++- STRICT
++  - Intended once you have baseline distributions from replay/AB.
++  - Defaults (approx):
++    - tick_gap_p95_ms_soft ≈ 3000
++    - tick_gap_p95_ms_hard ≈ 4500
++    - tick_gap_p95_ms_extreme ≈ 9000
++    - tick_missing_seq_ema_hard ≈ 0.15 (soft ≈ 0.05)
++    - book_missing_seq_ema_hard ≈ 0.10 (soft ≈ 0.03)
++
++Note
++- These defaults are deliberately conservative; you should calibrate them on real replay inputs.
++
++3) DQ gate modes
++
++DQ_GATE_MODE controls the action:
++
++- off
++  - No penalty/veto; only metrics.
++- penalty
++  - Apply soft penalty to final score; do not hard-veto.
++- enforce
++  - Hard-veto when dq_gate_v1 returns veto.
++- both
++  - Apply penalty and allow hard-veto.
++
++Recommended rollout
++
++Stage 0 (observe-only)
++- DQ_GATE_ENABLE=0
++- Ensure gauges exist and are non-zero in Grafana.
++
++Stage 1 (SAFE+penalty)
++- DQ_GATE_ENABLE=1
++- DQ_GATE_MODE=penalty
++- DQ_MODE=safe
++- Run for 24h; review distributions and alert noise.
++
++Stage 2 (STRICT+penalty)
++- Keep DQ_GATE_MODE=penalty
++- Switch DQ_MODE=strict
++- Run for 24h; confirm the “quarantine share” and veto candidates are acceptable.
++
++Stage 3 (STRICT+enforce)
++- DQ_GATE_MODE=enforce (or both)
++- Apply canary first (BTCUSDT only) before broad rollout.
++
++Environment variables
++
++Enable/mode
++- DQ_GATE_ENABLE=0|1
++- DQ_GATE_MODE=off|penalty|enforce|both
++- DQ_MODE=safe|strict
++
++Threshold overrides (optional; if unset → dq_gate_v1 defaults by DQ_MODE)
++- DQ_TICK_GAP_P95_MS_SOFT
++- DQ_TICK_GAP_P95_MS_HARD
++- DQ_TICK_GAP_P95_MS_EXTREME
++- DQ_TICK_GAP_REQUIRES_SEQ (1 recommended)
++
++- DQ_TICK_MISSING_SEQ_EMA_SOFT
++- DQ_TICK_MISSING_SEQ_EMA_HARD
++- DQ_BOOK_MISSING_SEQ_EMA_SOFT
++- DQ_BOOK_MISSING_SEQ_EMA_HARD
++
++Also used by dq_gate_v1
++- DQ_TICK_GAP_MIN_SAMPLES (default 50)
++- DQ_PEN_MAX (default 0.10)
++
++Alerting
++
++This repo ships SAFE-default alerts in:
++- orderflow_services/prometheus_alerts_dq_gate_policy_v2.yml
++
++If you run STRICT, consider tightening alert thresholds accordingly (or add a STRICT rule group).
++
++How to calibrate thresholds on real data (recommended)
++
++Prereq
++- You already archive replay inputs (signals:of:inputs) via replay_inputs_archiver.
++
++Option A: evaluate directly from archive directory
++
++Example:
++  python3 orderflow_services/dq_threshold_eval_harness_p112.py \
++    --archive-dir /var/lib/trade/archives/ml_replay_inputs_v1 \
++    --start-ts-ms 1700000000000 --end-ts-ms 1700086400000 \
++    --out-json /tmp/dq_eval.json --out-md /tmp/dq_eval.md
++
++Option B: evaluate from an exported NDJSON slice
++
++1) Export inputs:
++  python3 ml_analysis/tools/export_replay_inputs_ndjson_v1.py \
++    --archive-dir /var/lib/trade/archives/ml_replay_inputs_v1 \
++    --start-ts-ms ... --end-ts-ms ... \
++    --out /tmp/inputs.ndjson
++
++2) Run harness:
++  python3 orderflow_services/dq_threshold_eval_harness_p112.py \
++    --inputs /tmp/inputs.ndjson --out-json /tmp/dq_eval.json
++
++Interpreting the harness output
++- Focus on p95/p99 of tick_gap_p95_ms and p99 of missing_seq_ema.
++- Recommended heuristic for initial thresholds:
++  - soft ≈ max(default_soft, p99)
++  - hard ≈ max(default_hard, p99 * 1.2)
++  - extreme ≈ max(default_extreme, p99 * 1.5)
++- Validate changes via replay/AB before enforce.
++
++On-call triage checklist (when DQ alerts fire)
++
++1) Confirm the problem is real
++- Check if multiple symbols fire simultaneously (infra issue) or isolated (symbol feed issue).
++- Correlate with:
++  - tick_time quarantine alerts (bad time)
++  - redis latency / CPU / packet loss
++
++2) Identify whether it’s “gap” or “seq”
++- tick_gap_p95_ms high but missing_seq_ema near 0:
++  - likely low activity or transient jitter; consider SAFE-only action.
++- missing_seq_ema rising:
++  - sequence gaps or ordering issues; treat as production risk.
++
++3) Action
++- If widespread: switch DQ_GATE_MODE to penalty (or off) temporarily to avoid mass veto.
++- If isolated symbol: canary-disable symbol or move to quarantine.
++- Preserve evidence:
++  - capture 5–10 minutes of inputs from the replay archive around incident.
+diff --git a/tick_flow_full/orderflow_services/runbook_dq_gate_policy_v2.md b/tick_flow_full/orderflow_services/runbook_dq_gate_policy_v2.md
+new file mode 100644
+index 0000000..5ccf47c
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/runbook_dq_gate_policy_v2.md
+@@ -0,0 +1,168 @@
++# Runbook: DQ Gate Policy (v2)
++
++Purpose
++- Make DQ (data-quality) degradation observable and operationally actionable.
++- Keep production risk low by starting in SAFE+penalty, then tightening to STRICT+enforce based on measured distributions.
++
++Scope
++- Runtime metrics produced by tick_processor strict-DQ trackers:
++  - tick_gap_p95_ms (gauge, ms)
++  - tick_missing_seq_ema (gauge, 0..1)
++  - book_missing_seq_ema (gauge, 0..1)
++- DQ decision logic in tick_flow_full/core/dq_gate_v1.py.
++
++Key concepts
++
++1) What the metrics mean
++
++- tick_gap_p95_ms
++  - Per-symbol p95 of inter-tick gaps over the recent snapshot window.
++  - Interpreting spikes:
++    - Short spikes: feed hiccup / Redis / websocket jitter.
++    - Sustained > soft: data gets stale → confirmation decisions become noisy.
++    - Sustained > hard/extreme: treat as hard DQ event (potential veto in enforce mode).
++
++- tick_missing_seq_ema / book_missing_seq_ema
++  - EMA of missing-sequence events (0..1), where 0 means “no gaps observed recently”.
++  - These are “risk multipliers” for DQ: a high gap p95 without missing-seq might be benign (quiet market / low prints), but gap p95 + missing-seq strongly indicates feed loss or ordering faults.
++
++2) SAFE vs STRICT
++
++DQ_MODE controls defaults in dq_gate_v1 (unless overridden by explicit DQ_* thresholds):
++
++- SAFE
++  - Intended for rollout and noisy environments.
++  - Defaults (approx):
++    - tick_gap_p95_ms_soft ≈ 5000
++    - tick_gap_p95_ms_hard ≈ 8000
++    - tick_gap_p95_ms_extreme ≈ 12000
++    - tick_missing_seq_ema_hard ≈ 0.25 (soft ≈ 0.125)
++    - book_missing_seq_ema_hard ≈ 0.25 (soft ≈ 0.125)
++
++- STRICT
++  - Intended once you have baseline distributions from replay/AB.
++  - Defaults (approx):
++    - tick_gap_p95_ms_soft ≈ 3000
++    - tick_gap_p95_ms_hard ≈ 4500
++    - tick_gap_p95_ms_extreme ≈ 9000
++    - tick_missing_seq_ema_hard ≈ 0.15 (soft ≈ 0.05)
++    - book_missing_seq_ema_hard ≈ 0.10 (soft ≈ 0.03)
++
++Note
++- These defaults are deliberately conservative; you should calibrate them on real replay inputs.
++
++3) DQ gate modes
++
++DQ_GATE_MODE controls the action:
++
++- off
++  - No penalty/veto; only metrics.
++- penalty
++  - Apply soft penalty to final score; do not hard-veto.
++- enforce
++  - Hard-veto when dq_gate_v1 returns veto.
++- both
++  - Apply penalty and allow hard-veto.
++
++Recommended rollout
++
++Stage 0 (observe-only)
++- DQ_GATE_ENABLE=0
++- Ensure gauges exist and are non-zero in Grafana.
++
++Stage 1 (SAFE+penalty)
++- DQ_GATE_ENABLE=1
++- DQ_GATE_MODE=penalty
++- DQ_MODE=safe
++- Run for 24h; review distributions and alert noise.
++
++Stage 2 (STRICT+penalty)
++- Keep DQ_GATE_MODE=penalty
++- Switch DQ_MODE=strict
++- Run for 24h; confirm the “quarantine share” and veto candidates are acceptable.
++
++Stage 3 (STRICT+enforce)
++- DQ_GATE_MODE=enforce (or both)
++- Apply canary first (BTCUSDT only) before broad rollout.
++
++Environment variables
++
++Enable/mode
++- DQ_GATE_ENABLE=0|1
++- DQ_GATE_MODE=off|penalty|enforce|both
++- DQ_MODE=safe|strict
++
++Threshold overrides (optional; if unset → dq_gate_v1 defaults by DQ_MODE)
++- DQ_TICK_GAP_P95_MS_SOFT
++- DQ_TICK_GAP_P95_MS_HARD
++- DQ_TICK_GAP_P95_MS_EXTREME
++- DQ_TICK_GAP_REQUIRES_SEQ (1 recommended)
++
++- DQ_TICK_MISSING_SEQ_EMA_SOFT
++- DQ_TICK_MISSING_SEQ_EMA_HARD
++- DQ_BOOK_MISSING_SEQ_EMA_SOFT
++- DQ_BOOK_MISSING_SEQ_EMA_HARD
++
++Also used by dq_gate_v1
++- DQ_TICK_GAP_MIN_SAMPLES (default 50)
++- DQ_PEN_MAX (default 0.10)
++
++Alerting
++
++This repo ships SAFE-default alerts in:
++- tick_flow_full/orderflow_services/prometheus_alerts_dq_gate_policy_v2.yml
++
++If you run STRICT, consider tightening alert thresholds accordingly (or add a STRICT rule group).
++
++How to calibrate thresholds on real data (recommended)
++
++Prereq
++- You already archive replay inputs (signals:of:inputs) via replay_inputs_archiver.
++
++Option A: evaluate directly from archive directory
++
++Example:
++  python3 tick_flow_full/orderflow_services/dq_threshold_eval_harness_p112.py \
++    --archive-dir /var/lib/trade/archives/ml_replay_inputs_v1 \
++    --start-ts-ms 1700000000000 --end-ts-ms 1700086400000 \
++    --out-json /tmp/dq_eval.json --out-md /tmp/dq_eval.md
++
++Option B: evaluate from an exported NDJSON slice
++
++1) Export inputs:
++  python3 ml_analysis/tools/export_replay_inputs_ndjson_v1.py \
++    --archive-dir /var/lib/trade/archives/ml_replay_inputs_v1 \
++    --start-ts-ms ... --end-ts-ms ... \
++    --out /tmp/inputs.ndjson
++
++2) Run harness:
++  python3 tick_flow_full/orderflow_services/dq_threshold_eval_harness_p112.py \
++    --inputs /tmp/inputs.ndjson --out-json /tmp/dq_eval.json
++
++Interpreting the harness output
++- Focus on p95/p99 of tick_gap_p95_ms and p99 of missing_seq_ema.
++- Recommended heuristic for initial thresholds:
++  - soft ≈ max(default_soft, p99)
++  - hard ≈ max(default_hard, p99 * 1.2)
++  - extreme ≈ max(default_extreme, p99 * 1.5)
++- Validate changes via replay/AB before enforce.
++
++On-call triage checklist (when DQ alerts fire)
++
++1) Confirm the problem is real
++- Check if multiple symbols fire simultaneously (infra issue) or isolated (symbol feed issue).
++- Correlate with:
++  - tick_time quarantine alerts (bad time)
++  - redis latency / CPU / packet loss
++
++2) Identify whether it’s “gap” or “seq”
++- tick_gap_p95_ms high but missing_seq_ema near 0:
++  - likely low activity or transient jitter; consider SAFE-only action.
++- missing_seq_ema rising:
++  - sequence gaps or ordering issues; treat as production risk.
++
++3) Action
++- If widespread: switch DQ_GATE_MODE to penalty (or off) temporarily to avoid mass veto.
++- If isolated symbol: canary-disable symbol or move to quarantine.
++- Preserve evidence:
++  - capture 5–10 minutes of inputs from the replay archive around incident.
+diff --git a/orderflow_services/prometheus_alerts_dq_gate_policy_v2.yml b/orderflow_services/prometheus_alerts_dq_gate_policy_v2.yml
+new file mode 100644
+index 0000000..ec8f23b
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_dq_gate_policy_v2.yml
+@@ -0,0 +1,75 @@
++groups:
++  - name: orderflow.dq.gate.policy.v2
++    rules:
++      # NOTE: These alerts assume SAFE defaults (DQ_MODE=safe).
++      # If you run STRICT, adjust thresholds (see runbook_dq_gate_policy_v2.md).
++
++      - alert: OF_DQ_TickGapP95High_Warn
++        expr: tick_gap_p95_ms > 5000
++        for: 2m
++        labels:
++          severity: warn
++          component: data-quality
++        annotations:
++          summary: "tick_gap_p95_ms is elevated (SAFE soft)"
++          description: "tick_gap_p95_ms > 5000ms for 2m. If sustained + missing_seq rises, consider DQ actions. See runbook_dq_gate_policy_v2.md"
++
++      - alert: OF_DQ_TickGapP95High_Crit
++        expr: tick_gap_p95_ms > 8000
++        for: 30s
++        labels:
++          severity: crit
++          component: data-quality
++        annotations:
++          summary: "tick_gap_p95_ms is high (SAFE hard)"
++          description: "tick_gap_p95_ms > 8000ms for 30s. Strong indicator of stale feed; consider DQ_GATE_MODE penalty/off or isolate symbol. See runbook_dq_gate_policy_v2.md"
++
++      - alert: OF_DQ_TickGapP95Extreme_Crit
++        expr: tick_gap_p95_ms > 12000
++        for: 10s
++        labels:
++          severity: crit
++          component: data-quality
++        annotations:
++          summary: "tick_gap_p95_ms is extreme (SAFE extreme)"
++          description: "tick_gap_p95_ms > 12000ms for 10s. Treat as acute feed failure. See runbook_dq_gate_policy_v2.md"
++
++      - alert: OF_DQ_TickMissingSeqEmaHigh_Warn
++        expr: tick_missing_seq_ema > 0.125
++        for: 2m
++        labels:
++          severity: warn
++          component: data-quality
++        annotations:
++          summary: "tick_missing_seq_ema is elevated (SAFE soft)"
++          description: "tick_missing_seq_ema > 0.125 for 2m. Indicates repeated tick sequence gaps. See runbook_dq_gate_policy_v2.md"
++
++      - alert: OF_DQ_TickMissingSeqEmaHigh_Crit
++        expr: tick_missing_seq_ema > 0.25
++        for: 30s
++        labels:
++          severity: crit
++          component: data-quality
++        annotations:
++          summary: "tick_missing_seq_ema is high (SAFE hard)"
++          description: "tick_missing_seq_ema > 0.25 for 30s. Consider enforcing DQ quarantine or isolate symbol. See runbook_dq_gate_policy_v2.md"
++
++      - alert: OF_DQ_BookMissingSeqEmaHigh_Warn
++        expr: book_missing_seq_ema > 0.125
++        for: 2m
++        labels:
++          severity: warn
++          component: data-quality
++        annotations:
++          summary: "book_missing_seq_ema is elevated (SAFE soft)"
++          description: "book_missing_seq_ema > 0.125 for 2m. Indicates repeated book update gaps / lastUpdateId issues. See runbook_dq_gate_policy_v2.md"
++
++      - alert: OF_DQ_BookMissingSeqEmaHigh_Crit
++        expr: book_missing_seq_ema > 0.25
++        for: 30s
++        labels:
++          severity: crit
++          component: data-quality
++        annotations:
++          summary: "book_missing_seq_ema is high (SAFE hard)"
++          description: "book_missing_seq_ema > 0.25 for 30s. Consider isolating symbol or switching DQ to enforce if calibrated. See runbook_dq_gate_policy_v2.md"
+diff --git a/tick_flow_full/orderflow_services/prometheus_alerts_dq_gate_policy_v2.yml b/tick_flow_full/orderflow_services/prometheus_alerts_dq_gate_policy_v2.yml
+new file mode 100644
+index 0000000..ec8f23b
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_dq_gate_policy_v2.yml
+@@ -0,0 +1,75 @@
++groups:
++  - name: orderflow.dq.gate.policy.v2
++    rules:
++      # NOTE: These alerts assume SAFE defaults (DQ_MODE=safe).
++      # If you run STRICT, adjust thresholds (see runbook_dq_gate_policy_v2.md).
++
++      - alert: OF_DQ_TickGapP95High_Warn
++        expr: tick_gap_p95_ms > 5000
++        for: 2m
++        labels:
++          severity: warn
++          component: data-quality
++        annotations:
++          summary: "tick_gap_p95_ms is elevated (SAFE soft)"
++          description: "tick_gap_p95_ms > 5000ms for 2m. If sustained + missing_seq rises, consider DQ actions. See runbook_dq_gate_policy_v2.md"
++
++      - alert: OF_DQ_TickGapP95High_Crit
++        expr: tick_gap_p95_ms > 8000
++        for: 30s
++        labels:
++          severity: crit
++          component: data-quality
++        annotations:
++          summary: "tick_gap_p95_ms is high (SAFE hard)"
++          description: "tick_gap_p95_ms > 8000ms for 30s. Strong indicator of stale feed; consider DQ_GATE_MODE penalty/off or isolate symbol. See runbook_dq_gate_policy_v2.md"
++
++      - alert: OF_DQ_TickGapP95Extreme_Crit
++        expr: tick_gap_p95_ms > 12000
++        for: 10s
++        labels:
++          severity: crit
++          component: data-quality
++        annotations:
++          summary: "tick_gap_p95_ms is extreme (SAFE extreme)"
++          description: "tick_gap_p95_ms > 12000ms for 10s. Treat as acute feed failure. See runbook_dq_gate_policy_v2.md"
++
++      - alert: OF_DQ_TickMissingSeqEmaHigh_Warn
++        expr: tick_missing_seq_ema > 0.125
++        for: 2m
++        labels:
++          severity: warn
++          component: data-quality
++        annotations:
++          summary: "tick_missing_seq_ema is elevated (SAFE soft)"
++          description: "tick_missing_seq_ema > 0.125 for 2m. Indicates repeated tick sequence gaps. See runbook_dq_gate_policy_v2.md"
++
++      - alert: OF_DQ_TickMissingSeqEmaHigh_Crit
++        expr: tick_missing_seq_ema > 0.25
++        for: 30s
++        labels:
++          severity: crit
++          component: data-quality
++        annotations:
++          summary: "tick_missing_seq_ema is high (SAFE hard)"
++          description: "tick_missing_seq_ema > 0.25 for 30s. Consider enforcing DQ quarantine or isolate symbol. See runbook_dq_gate_policy_v2.md"
++
++      - alert: OF_DQ_BookMissingSeqEmaHigh_Warn
++        expr: book_missing_seq_ema > 0.125
++        for: 2m
++        labels:
++          severity: warn
++          component: data-quality
++        annotations:
++          summary: "book_missing_seq_ema is elevated (SAFE soft)"
++          description: "book_missing_seq_ema > 0.125 for 2m. Indicates repeated book update gaps / lastUpdateId issues. See runbook_dq_gate_policy_v2.md"
++
++      - alert: OF_DQ_BookMissingSeqEmaHigh_Crit
++        expr: book_missing_seq_ema > 0.25
++        for: 30s
++        labels:
++          severity: crit
++          component: data-quality
++        annotations:
++          summary: "book_missing_seq_ema is high (SAFE hard)"
++          description: "book_missing_seq_ema > 0.25 for 30s. Consider isolating symbol or switching DQ to enforce if calibrated. See runbook_dq_gate_policy_v2.md"
+diff --git a/orderflow_services/dq_threshold_eval_harness_p112.py b/orderflow_services/dq_threshold_eval_harness_p112.py
+new file mode 100644
+index 0000000..af40b77
+--- /dev/null
++++ b/orderflow_services/dq_threshold_eval_harness_p112.py
+@@ -0,0 +1,494 @@
++#!/usr/bin/env python3
++"""dq_threshold_eval_harness_p112.py
++
++Goal
++  Compute empirical distributions for strict-DQ runtime metrics from replay inputs.
++
++Why
++  dq_gate_v1 defaults (SAFE/STRICT) are intentionally conservative.
++  This harness provides a data-driven way to pick initial thresholds:
++    - tick_gap_p95_ms
++    - tick_missing_seq_ema
++    - book_missing_seq_ema
++
++Input
++  Either:
++    A) archive directory from replay_inputs_archiver (ml_replay_inputs_v1)
++    B) an exported payload NDJSON slice (each line is a payload dict)
++
++Output
++  JSON summary (stdout and/or --out-json) and optional Markdown report (--out-md).
++
++Notes
++  - All time bucketing is in UTC.
++  - This tool does NOT modify any runtime config; it only reports.
++
++Usage (archive)
++  python3 orderflow_services/dq_threshold_eval_harness_p112.py \
++    --archive-dir /var/lib/trade/archives/ml_replay_inputs_v1 \
++    --start-ts-ms 1700000000000 --end-ts-ms 1700086400000 \
++    --out-json /tmp/dq_eval.json --out-md /tmp/dq_eval.md
++
++Usage (ndjson)
++  python3 orderflow_services/dq_threshold_eval_harness_p112.py \
++    --inputs /tmp/inputs.ndjson --out-json /tmp/dq_eval.json
++"""
++
++from __future__ import annotations
++
++import argparse
++import gzip
++import io
++import json
++import math
++import os
++from dataclasses import dataclass
++from datetime import datetime, timezone
++from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
++
++
++def _utc_hour(ts_ms: int) -> int:
++    dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
++    return int(dt.hour)
++
++
++def _open_text(path: str) -> io.TextIOBase:
++    if path.endswith(".gz"):
++        return gzip.open(path, "rt", encoding="utf-8")
++    return open(path, "r", encoding="utf-8")
++
++
++def _as_payload(obj: Dict[str, Any]) -> Dict[str, Any]:
++    """Normalize record to a payload dict.
++
++    Some archives store {payload: <dict>} or {payload: "{...}"}.
++    Exported NDJSON slices typically store the payload dict directly.
++    """
++
++    v = obj.get("payload")
++    if isinstance(v, dict):
++        return v
++    if isinstance(v, str) and v.lstrip().startswith("{"):
++        try:
++            d = json.loads(v)
++            return d if isinstance(d, dict) else obj
++        except Exception:
++            return obj
++    return obj
++
++
++def _pick_ts_ms(p: Dict[str, Any]) -> int:
++    for k in ("ts_ms", "timestamp_ms", "t_ms"):
++        v = p.get(k)
++        if isinstance(v, (int, float)) and v > 0:
++            return int(v)
++    # last fallback: sometimes close blob has close_ts_ms
++    close = p.get("close")
++    if isinstance(close, dict):
++        v = close.get("close_ts_ms")
++        if isinstance(v, (int, float)) and v > 0:
++            return int(v)
++    return 0
++
++
++def _sym(p: Dict[str, Any]) -> str:
++    return str(p.get("symbol") or "").upper().strip()
++
++
++def _indicators(p: Dict[str, Any]) -> Dict[str, Any]:
++    ind = p.get("indicators") or {}
++    if isinstance(ind, str) and ind.strip().startswith("{"):
++        try:
++            d = json.loads(ind)
++            return d if isinstance(d, dict) else {}
++        except Exception:
++            return {}
++    return ind if isinstance(ind, dict) else {}
++
++
++@dataclass
++class HistCfg:
++    min_v: float
++    max_v: float
++    step: float
++
++
++class Hist:
++    """Fixed-bin histogram with basic quantiles.
++
++    Deterministic, small-memory, and robust to large inputs.
++    """
++
++    def __init__(self, cfg: HistCfg):
++        self.cfg = cfg
++        n_bins = int(math.ceil((cfg.max_v - cfg.min_v) / cfg.step))
++        self.bins: List[int] = [0] * max(1, n_bins)
++        self.n: int = 0
++        self.sum: float = 0.0
++        self.min_seen: Optional[float] = None
++        self.max_seen: Optional[float] = None
++
++    def add(self, x: float) -> None:
++        if not math.isfinite(x):
++            return
++        self.n += 1
++        self.sum += float(x)
++        self.min_seen = x if self.min_seen is None else min(self.min_seen, x)
++        self.max_seen = x if self.max_seen is None else max(self.max_seen, x)
++        # clamp into bins
++        xx = min(max(x, self.cfg.min_v), self.cfg.max_v - 1e-12)
++        idx = int((xx - self.cfg.min_v) / self.cfg.step)
++        idx = max(0, min(idx, len(self.bins) - 1))
++        self.bins[idx] += 1
++
++    def mean(self) -> float:
++        return (self.sum / self.n) if self.n else 0.0
++
++    def q(self, q: float) -> float:
++        if self.n <= 0:
++            return 0.0
++        q = max(0.0, min(1.0, float(q)))
++        target = q * (self.n - 1)
++        cum = 0
++        for i, c in enumerate(self.bins):
++            if c <= 0:
++                continue
++            prev = cum
++            cum += c
++            if target < cum:
++                # return bin midpoint; deterministic and sufficient for thresholding
++                return self.cfg.min_v + (i + 0.5) * self.cfg.step
++        return float(self.cfg.max_v)
++
++    def as_dict(self) -> Dict[str, Any]:
++        return {
++            "n": int(self.n),
++            "min": float(self.min_seen) if self.min_seen is not None else None,
++            "max": float(self.max_seen) if self.max_seen is not None else None,
++            "mean": float(self.mean()),
++            "p50": float(self.q(0.50)),
++            "p90": float(self.q(0.90)),
++            "p95": float(self.q(0.95)),
++            "p99": float(self.q(0.99)),
++        }
++
++
++@dataclass
++class SymAgg:
++    gap: Hist
++    tick_seq: Hist
++    book_seq: Hist
++    n_rows: int = 0
++    n_with_gap_samples: int = 0
++
++
++def _iter_payloads_from_ndjson(path: str, max_records: int = 0) -> Iterator[Dict[str, Any]]:
++    n = 0
++    with _open_text(path) as f:
++        for line in f:
++            line = line.strip()
++            if not line:
++                continue
++            try:
++                obj = json.loads(line)
++            except Exception:
++                continue
++            if not isinstance(obj, dict):
++                continue
++            yield _as_payload(obj)
++            n += 1
++            if max_records and n >= max_records:
++                break
++
++
++def _iter_payloads_from_archive(
++    archive_dir: str,
++    start_ts_ms: int,
++    end_ts_ms: int,
++    max_records: int = 0,
++) -> Iterator[Dict[str, Any]]:
++    try:
++        from ml_analysis.tools.replay_inputs_reader_v1 import ReplayInputsReader  # type: ignore
++    except Exception as e:
++        raise SystemExit(f"ReplayInputsReader import failed: {e}")
++
++    reader = ReplayInputsReader(archive_dir=archive_dir)
++    n = 0
++    for rec in reader.read_records(start_ts_ms=int(start_ts_ms), end_ts_ms=int(end_ts_ms)):
++        if not isinstance(rec, dict):
++            continue
++        yield _as_payload(rec)
++        n += 1
++        if max_records and n >= max_records:
++            break
++
++
++def _suggest_thresholds_from_p99(p99: float, default_soft: float, default_hard: float, default_extreme: float) -> Dict[str, Any]:
++    """Heuristic suggestions based on p99.
++
++    Rationale
++      p99 approximates the tail where risk becomes non-negligible.
++      We keep defaults as a floor to avoid overfitting small samples.
++    """
++
++    soft = max(default_soft, p99)
++    hard = max(default_hard, p99 * 1.2)
++    extreme = max(default_extreme, p99 * 1.5)
++    return {
++        "soft": float(round(soft)),
++        "hard": float(round(hard)),
++        "extreme": float(round(extreme)),
++    }
++
++
++def _write_text(path: str, content: str) -> None:
++    os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
++    with open(path, "w", encoding="utf-8") as f:
++        f.write(content)
++
++
++def _render_md(report: Dict[str, Any]) -> str:
++    lines: List[str] = []
++    lines.append("# DQ threshold eval (p112)")
++    lines.append("")
++    params = report.get("params", {})
++    lines.append("## Params")
++    lines.append("```json")
++    lines.append(json.dumps(params, ensure_ascii=False, indent=2))
++    lines.append("```")
++    lines.append("")
++
++    lines.append("## Global")
++    lines.append("```json")
++    lines.append(json.dumps(report.get("global", {}), ensure_ascii=False, indent=2))
++    lines.append("```")
++    lines.append("")
++
++    lines.append("## Suggested overrides (heuristic)")
++    lines.append("```json")
++    lines.append(json.dumps(report.get("suggested", {}), ensure_ascii=False, indent=2))
++    lines.append("```")
++    lines.append("")
++
++    by_sym = report.get("by_symbol", {})
++    if isinstance(by_sym, dict) and by_sym:
++        lines.append("## Per-symbol summary")
++        lines.append("(p50/p90/p95/p99; n = records with the metric present)")
++        lines.append("")
++        lines.append("| symbol | gap_p99_ms | tick_seq_p99 | book_seq_p99 | n |")
++        lines.append("|---|---:|---:|---:|---:|")
++        for sym in sorted(by_sym.keys()):
++            s = by_sym[sym]
++            gap_p99 = (((s.get("gap") or {}).get("p99")) or 0)
++            tick_p99 = (((s.get("tick_missing_seq_ema") or {}).get("p99")) or 0)
++            book_p99 = (((s.get("book_missing_seq_ema") or {}).get("p99")) or 0)
++            n = int((s.get("gap") or {}).get("n") or 0)
++            lines.append(f"| {sym} | {gap_p99:.0f} | {tick_p99:.3f} | {book_p99:.3f} | {n} |")
++        lines.append("")
++
++    by_hour = report.get("by_hour_utc", {})
++    if isinstance(by_hour, dict) and by_hour:
++        lines.append("## Hourly (UTC) summary")
++        lines.append("| hour | gap_p99_ms | tick_seq_p99 | book_seq_p99 | n |")
++        lines.append("|---:|---:|---:|---:|---:|")
++        for h in range(24):
++            hh = str(h)
++            s = by_hour.get(hh) or {}
++            gap_p99 = (((s.get("gap") or {}).get("p99")) or 0)
++            tick_p99 = (((s.get("tick_missing_seq_ema") or {}).get("p99")) or 0)
++            book_p99 = (((s.get("book_missing_seq_ema") or {}).get("p99")) or 0)
++            n = int((s.get("gap") or {}).get("n") or 0)
++            lines.append(f"| {h:02d} | {gap_p99:.0f} | {tick_p99:.3f} | {book_p99:.3f} | {n} |")
++        lines.append("")
++
++    return "\n".join(lines) + "\n"
++
++
++def main() -> None:
++    ap = argparse.ArgumentParser(description="DQ distributions & threshold calibration harness (p112)")
++
++    src = ap.add_mutually_exclusive_group(required=True)
++    src.add_argument("--inputs", default="", help="payload NDJSON slice (optionally .gz)")
++    src.add_argument("--archive-dir", default="", help="archive dir from replay_inputs_archiver")
++
++    ap.add_argument("--start-ts-ms", type=int, default=0, help="archive start ts (ms, inclusive)")
++    ap.add_argument("--end-ts-ms", type=int, default=0, help="archive end ts (ms, exclusive)")
++
++    ap.add_argument("--symbol", default="", help="optional symbol filter (e.g. BTCUSDT)")
++    ap.add_argument("--max-records", type=int, default=0, help="optional cap (0=unlimited)")
++
++    ap.add_argument("--min-gap-samples", type=int, default=50, help="min tick_gap_n to treat tick_gap_p95_ms as valid")
++
++    ap.add_argument("--gap-max-ms", type=float, default=20000.0)
++    ap.add_argument("--gap-step-ms", type=float, default=250.0)
++    ap.add_argument("--ema-step", type=float, default=0.01)
++
++    ap.add_argument("--out-json", default="", help="optional output json file")
++    ap.add_argument("--out-md", default="", help="optional output markdown report")
++
++    args = ap.parse_args()
++
++    sym_filter = str(args.symbol or "").upper().strip()
++    min_gap_samples = int(args.min_gap_samples)
++
++    gap_cfg = HistCfg(min_v=0.0, max_v=float(args.gap_max_ms), step=float(args.gap_step_ms))
++    ema_cfg = HistCfg(min_v=0.0, max_v=1.0, step=float(args.ema_step))
++
++    def _new_agg() -> SymAgg:
++        return SymAgg(gap=Hist(gap_cfg), tick_seq=Hist(ema_cfg), book_seq=Hist(ema_cfg))
++
++    by_symbol: Dict[str, SymAgg] = {}
++    by_hour: Dict[int, SymAgg] = {h: _new_agg() for h in range(24)}
++    global_agg = _new_agg()
++
++    if args.inputs:
++        it = _iter_payloads_from_ndjson(str(args.inputs), max_records=int(args.max_records))
++    else:
++        if not args.start_ts_ms or not args.end_ts_ms:
++            raise SystemExit("--start-ts-ms and --end-ts-ms are required with --archive-dir")
++        it = _iter_payloads_from_archive(
++            archive_dir=str(args.archive_dir),
++            start_ts_ms=int(args.start_ts_ms),
++            end_ts_ms=int(args.end_ts_ms),
++            max_records=int(args.max_records),
++        )
++
++    n_scanned = 0
++    for p in it:
++        if not isinstance(p, dict):
++            continue
++        n_scanned += 1
++        sym = _sym(p)
++        if not sym:
++            continue
++        if sym_filter and sym != sym_filter:
++            continue
++        ts_ms = _pick_ts_ms(p)
++        if ts_ms <= 0:
++            continue
++        h = _utc_hour(ts_ms)
++        ind = _indicators(p)
++
++        gap_p95 = ind.get("tick_gap_p95_ms")
++        gap_n = ind.get("tick_gap_n")
++        tick_seq = ind.get("tick_missing_seq_ema")
++        book_seq = ind.get("book_missing_seq_ema")
++
++        agg = by_symbol.get(sym)
++        if agg is None:
++            agg = _new_agg()
++            by_symbol[sym] = agg
++        agg.n_rows += 1
++        by_hour[h].n_rows += 1
++        global_agg.n_rows += 1
++
++        # tick_gap_p95_ms is meaningful only when the estimator has enough samples.
++        if isinstance(gap_p95, (int, float)) and isinstance(gap_n, (int, float)):
++            if int(gap_n) >= min_gap_samples:
++                agg.gap.add(float(gap_p95))
++                by_hour[h].gap.add(float(gap_p95))
++                global_agg.gap.add(float(gap_p95))
++                agg.n_with_gap_samples += 1
++                by_hour[h].n_with_gap_samples += 1
++                global_agg.n_with_gap_samples += 1
++
++        if isinstance(tick_seq, (int, float)):
++            agg.tick_seq.add(float(tick_seq))
++            by_hour[h].tick_seq.add(float(tick_seq))
++            global_agg.tick_seq.add(float(tick_seq))
++
++        if isinstance(book_seq, (int, float)):
++            agg.book_seq.add(float(book_seq))
++            by_hour[h].book_seq.add(float(book_seq))
++            global_agg.book_seq.add(float(book_seq))
++
++    # suggestions (heuristic)
++    # SAFE defaults from dq_gate_v1 (floors)
++    SAFE_GAP = (5000.0, 8000.0, 12000.0)
++    STRICT_GAP = (3000.0, 4500.0, 9000.0)
++    SAFE_TICK_SEQ = (0.125, 0.25)
++    STRICT_TICK_SEQ = (0.05, 0.15)
++    SAFE_BOOK_SEQ = (0.125, 0.25)
++    STRICT_BOOK_SEQ = (0.03, 0.10)
++
++    g_gap_p99 = float(global_agg.gap.q(0.99))
++    g_tick_p99 = float(global_agg.tick_seq.q(0.99))
++    g_book_p99 = float(global_agg.book_seq.q(0.99))
++
++    suggested = {
++        "safe": {
++            "DQ_TICK_GAP_P95_MS_SOFT": _suggest_thresholds_from_p99(g_gap_p99, *SAFE_GAP)["soft"],
++            "DQ_TICK_GAP_P95_MS_HARD": _suggest_thresholds_from_p99(g_gap_p99, *SAFE_GAP)["hard"],
++            "DQ_TICK_GAP_P95_MS_EXTREME": _suggest_thresholds_from_p99(g_gap_p99, *SAFE_GAP)["extreme"],
++            "DQ_TICK_MISSING_SEQ_EMA_SOFT": float(max(SAFE_TICK_SEQ[0], g_tick_p99)),
++            "DQ_TICK_MISSING_SEQ_EMA_HARD": float(max(SAFE_TICK_SEQ[1], g_tick_p99 * 1.2)),
++            "DQ_BOOK_MISSING_SEQ_EMA_SOFT": float(max(SAFE_BOOK_SEQ[0], g_book_p99)),
++            "DQ_BOOK_MISSING_SEQ_EMA_HARD": float(max(SAFE_BOOK_SEQ[1], g_book_p99 * 1.2)),
++        },
++        "strict": {
++            "DQ_TICK_GAP_P95_MS_SOFT": _suggest_thresholds_from_p99(g_gap_p99, *STRICT_GAP)["soft"],
++            "DQ_TICK_GAP_P95_MS_HARD": _suggest_thresholds_from_p99(g_gap_p99, *STRICT_GAP)["hard"],
++            "DQ_TICK_GAP_P95_MS_EXTREME": _suggest_thresholds_from_p99(g_gap_p99, *STRICT_GAP)["extreme"],
++            "DQ_TICK_MISSING_SEQ_EMA_SOFT": float(max(STRICT_TICK_SEQ[0], g_tick_p99)),
++            "DQ_TICK_MISSING_SEQ_EMA_HARD": float(max(STRICT_TICK_SEQ[1], g_tick_p99 * 1.2)),
++            "DQ_BOOK_MISSING_SEQ_EMA_SOFT": float(max(STRICT_BOOK_SEQ[0], g_book_p99)),
++            "DQ_BOOK_MISSING_SEQ_EMA_HARD": float(max(STRICT_BOOK_SEQ[1], g_book_p99 * 1.2)),
++        },
++    }
++
++    report: Dict[str, Any] = {
++        "params": {
++            "inputs": str(args.inputs or ""),
++            "archive_dir": str(args.archive_dir or ""),
++            "start_ts_ms": int(args.start_ts_ms or 0),
++            "end_ts_ms": int(args.end_ts_ms or 0),
++            "symbol": sym_filter,
++            "max_records": int(args.max_records or 0),
++            "min_gap_samples": int(min_gap_samples),
++            "gap_hist": {"max_ms": float(gap_cfg.max_v), "step_ms": float(gap_cfg.step)},
++            "ema_hist": {"step": float(ema_cfg.step)},
++        },
++        "scanned": int(n_scanned),
++        "global": {
++            "gap": global_agg.gap.as_dict(),
++            "tick_missing_seq_ema": global_agg.tick_seq.as_dict(),
++            "book_missing_seq_ema": global_agg.book_seq.as_dict(),
++            "n_rows": int(global_agg.n_rows),
++            "n_with_gap_samples": int(global_agg.n_with_gap_samples),
++        },
++        "by_symbol": {},
++        "by_hour_utc": {},
++        "suggested": suggested,
++    }
++
++    for sym, agg in sorted(by_symbol.items()):
++        report["by_symbol"][sym] = {
++            "gap": agg.gap.as_dict(),
++            "tick_missing_seq_ema": agg.tick_seq.as_dict(),
++            "book_missing_seq_ema": agg.book_seq.as_dict(),
++            "n_rows": int(agg.n_rows),
++            "n_with_gap_samples": int(agg.n_with_gap_samples),
++        }
++
++    for h in range(24):
++        agg = by_hour[h]
++        report["by_hour_utc"][str(h)] = {
++            "gap": agg.gap.as_dict(),
++            "tick_missing_seq_ema": agg.tick_seq.as_dict(),
++            "book_missing_seq_ema": agg.book_seq.as_dict(),
++            "n_rows": int(agg.n_rows),
++            "n_with_gap_samples": int(agg.n_with_gap_samples),
++        }
++
++    out = json.dumps(report, ensure_ascii=False, indent=2)
++    print(out)
++
++    if args.out_json:
++        _write_text(str(args.out_json), out + "\n")
++
++    if args.out_md:
++        _write_text(str(args.out_md), _render_md(report))
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/tick_flow_full/orderflow_services/dq_threshold_eval_harness_p112.py b/tick_flow_full/orderflow_services/dq_threshold_eval_harness_p112.py
+new file mode 100644
+index 0000000..60a0a64
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/dq_threshold_eval_harness_p112.py
+@@ -0,0 +1,494 @@
++#!/usr/bin/env python3
++"""dq_threshold_eval_harness_p112.py
++
++Goal
++  Compute empirical distributions for strict-DQ runtime metrics from replay inputs.
++
++Why
++  dq_gate_v1 defaults (SAFE/STRICT) are intentionally conservative.
++  This harness provides a data-driven way to pick initial thresholds:
++    - tick_gap_p95_ms
++    - tick_missing_seq_ema
++    - book_missing_seq_ema
++
++Input
++  Either:
++    A) archive directory from replay_inputs_archiver (ml_replay_inputs_v1)
++    B) an exported payload NDJSON slice (each line is a payload dict)
++
++Output
++  JSON summary (stdout and/or --out-json) and optional Markdown report (--out-md).
++
++Notes
++  - All time bucketing is in UTC.
++  - This tool does NOT modify any runtime config; it only reports.
++
++Usage (archive)
++  python3 tick_flow_full/orderflow_services/dq_threshold_eval_harness_p112.py \
++    --archive-dir /var/lib/trade/archives/ml_replay_inputs_v1 \
++    --start-ts-ms 1700000000000 --end-ts-ms 1700086400000 \
++    --out-json /tmp/dq_eval.json --out-md /tmp/dq_eval.md
++
++Usage (ndjson)
++  python3 tick_flow_full/orderflow_services/dq_threshold_eval_harness_p112.py \
++    --inputs /tmp/inputs.ndjson --out-json /tmp/dq_eval.json
++"""
++
++from __future__ import annotations
++
++import argparse
++import gzip
++import io
++import json
++import math
++import os
++from dataclasses import dataclass
++from datetime import datetime, timezone
++from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
++
++
++def _utc_hour(ts_ms: int) -> int:
++    dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
++    return int(dt.hour)
++
++
++def _open_text(path: str) -> io.TextIOBase:
++    if path.endswith(".gz"):
++        return gzip.open(path, "rt", encoding="utf-8")
++    return open(path, "r", encoding="utf-8")
++
++
++def _as_payload(obj: Dict[str, Any]) -> Dict[str, Any]:
++    """Normalize record to a payload dict.
++
++    Some archives store {payload: <dict>} or {payload: "{...}"}.
++    Exported NDJSON slices typically store the payload dict directly.
++    """
++
++    v = obj.get("payload")
++    if isinstance(v, dict):
++        return v
++    if isinstance(v, str) and v.lstrip().startswith("{"):
++        try:
++            d = json.loads(v)
++            return d if isinstance(d, dict) else obj
++        except Exception:
++            return obj
++    return obj
++
++
++def _pick_ts_ms(p: Dict[str, Any]) -> int:
++    for k in ("ts_ms", "timestamp_ms", "t_ms"):
++        v = p.get(k)
++        if isinstance(v, (int, float)) and v > 0:
++            return int(v)
++    # last fallback: sometimes close blob has close_ts_ms
++    close = p.get("close")
++    if isinstance(close, dict):
++        v = close.get("close_ts_ms")
++        if isinstance(v, (int, float)) and v > 0:
++            return int(v)
++    return 0
++
++
++def _sym(p: Dict[str, Any]) -> str:
++    return str(p.get("symbol") or "").upper().strip()
++
++
++def _indicators(p: Dict[str, Any]) -> Dict[str, Any]:
++    ind = p.get("indicators") or {}
++    if isinstance(ind, str) and ind.strip().startswith("{"):
++        try:
++            d = json.loads(ind)
++            return d if isinstance(d, dict) else {}
++        except Exception:
++            return {}
++    return ind if isinstance(ind, dict) else {}
++
++
++@dataclass
++class HistCfg:
++    min_v: float
++    max_v: float
++    step: float
++
++
++class Hist:
++    """Fixed-bin histogram with basic quantiles.
++
++    Deterministic, small-memory, and robust to large inputs.
++    """
++
++    def __init__(self, cfg: HistCfg):
++        self.cfg = cfg
++        n_bins = int(math.ceil((cfg.max_v - cfg.min_v) / cfg.step))
++        self.bins: List[int] = [0] * max(1, n_bins)
++        self.n: int = 0
++        self.sum: float = 0.0
++        self.min_seen: Optional[float] = None
++        self.max_seen: Optional[float] = None
++
++    def add(self, x: float) -> None:
++        if not math.isfinite(x):
++            return
++        self.n += 1
++        self.sum += float(x)
++        self.min_seen = x if self.min_seen is None else min(self.min_seen, x)
++        self.max_seen = x if self.max_seen is None else max(self.max_seen, x)
++        # clamp into bins
++        xx = min(max(x, self.cfg.min_v), self.cfg.max_v - 1e-12)
++        idx = int((xx - self.cfg.min_v) / self.cfg.step)
++        idx = max(0, min(idx, len(self.bins) - 1))
++        self.bins[idx] += 1
++
++    def mean(self) -> float:
++        return (self.sum / self.n) if self.n else 0.0
++
++    def q(self, q: float) -> float:
++        if self.n <= 0:
++            return 0.0
++        q = max(0.0, min(1.0, float(q)))
++        target = q * (self.n - 1)
++        cum = 0
++        for i, c in enumerate(self.bins):
++            if c <= 0:
++                continue
++            prev = cum
++            cum += c
++            if target < cum:
++                # return bin midpoint; deterministic and sufficient for thresholding
++                return self.cfg.min_v + (i + 0.5) * self.cfg.step
++        return float(self.cfg.max_v)
++
++    def as_dict(self) -> Dict[str, Any]:
++        return {
++            "n": int(self.n),
++            "min": float(self.min_seen) if self.min_seen is not None else None,
++            "max": float(self.max_seen) if self.max_seen is not None else None,
++            "mean": float(self.mean()),
++            "p50": float(self.q(0.50)),
++            "p90": float(self.q(0.90)),
++            "p95": float(self.q(0.95)),
++            "p99": float(self.q(0.99)),
++        }
++
++
++@dataclass
++class SymAgg:
++    gap: Hist
++    tick_seq: Hist
++    book_seq: Hist
++    n_rows: int = 0
++    n_with_gap_samples: int = 0
++
++
++def _iter_payloads_from_ndjson(path: str, max_records: int = 0) -> Iterator[Dict[str, Any]]:
++    n = 0
++    with _open_text(path) as f:
++        for line in f:
++            line = line.strip()
++            if not line:
++                continue
++            try:
++                obj = json.loads(line)
++            except Exception:
++                continue
++            if not isinstance(obj, dict):
++                continue
++            yield _as_payload(obj)
++            n += 1
++            if max_records and n >= max_records:
++                break
++
++
++def _iter_payloads_from_archive(
++    archive_dir: str,
++    start_ts_ms: int,
++    end_ts_ms: int,
++    max_records: int = 0,
++) -> Iterator[Dict[str, Any]]:
++    try:
++        from ml_analysis.tools.replay_inputs_reader_v1 import ReplayInputsReader  # type: ignore
++    except Exception as e:
++        raise SystemExit(f"ReplayInputsReader import failed: {e}")
++
++    reader = ReplayInputsReader(archive_dir=archive_dir)
++    n = 0
++    for rec in reader.read_records(start_ts_ms=int(start_ts_ms), end_ts_ms=int(end_ts_ms)):
++        if not isinstance(rec, dict):
++            continue
++        yield _as_payload(rec)
++        n += 1
++        if max_records and n >= max_records:
++            break
++
++
++def _suggest_thresholds_from_p99(p99: float, default_soft: float, default_hard: float, default_extreme: float) -> Dict[str, Any]:
++    """Heuristic suggestions based on p99.
++
++    Rationale
++      p99 approximates the tail where risk becomes non-negligible.
++      We keep defaults as a floor to avoid overfitting small samples.
++    """
++
++    soft = max(default_soft, p99)
++    hard = max(default_hard, p99 * 1.2)
++    extreme = max(default_extreme, p99 * 1.5)
++    return {
++        "soft": float(round(soft)),
++        "hard": float(round(hard)),
++        "extreme": float(round(extreme)),
++    }
++
++
++def _write_text(path: str, content: str) -> None:
++    os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
++    with open(path, "w", encoding="utf-8") as f:
++        f.write(content)
++
++
++def _render_md(report: Dict[str, Any]) -> str:
++    lines: List[str] = []
++    lines.append("# DQ threshold eval (p112)")
++    lines.append("")
++    params = report.get("params", {})
++    lines.append("## Params")
++    lines.append("```json")
++    lines.append(json.dumps(params, ensure_ascii=False, indent=2))
++    lines.append("```")
++    lines.append("")
++
++    lines.append("## Global")
++    lines.append("```json")
++    lines.append(json.dumps(report.get("global", {}), ensure_ascii=False, indent=2))
++    lines.append("```")
++    lines.append("")
++
++    lines.append("## Suggested overrides (heuristic)")
++    lines.append("```json")
++    lines.append(json.dumps(report.get("suggested", {}), ensure_ascii=False, indent=2))
++    lines.append("```")
++    lines.append("")
++
++    by_sym = report.get("by_symbol", {})
++    if isinstance(by_sym, dict) and by_sym:
++        lines.append("## Per-symbol summary")
++        lines.append("(p50/p90/p95/p99; n = records with the metric present)")
++        lines.append("")
++        lines.append("| symbol | gap_p99_ms | tick_seq_p99 | book_seq_p99 | n |")
++        lines.append("|---|---:|---:|---:|---:|")
++        for sym in sorted(by_sym.keys()):
++            s = by_sym[sym]
++            gap_p99 = (((s.get("gap") or {}).get("p99")) or 0)
++            tick_p99 = (((s.get("tick_missing_seq_ema") or {}).get("p99")) or 0)
++            book_p99 = (((s.get("book_missing_seq_ema") or {}).get("p99")) or 0)
++            n = int((s.get("gap") or {}).get("n") or 0)
++            lines.append(f"| {sym} | {gap_p99:.0f} | {tick_p99:.3f} | {book_p99:.3f} | {n} |")
++        lines.append("")
++
++    by_hour = report.get("by_hour_utc", {})
++    if isinstance(by_hour, dict) and by_hour:
++        lines.append("## Hourly (UTC) summary")
++        lines.append("| hour | gap_p99_ms | tick_seq_p99 | book_seq_p99 | n |")
++        lines.append("|---:|---:|---:|---:|---:|")
++        for h in range(24):
++            hh = str(h)
++            s = by_hour.get(hh) or {}
++            gap_p99 = (((s.get("gap") or {}).get("p99")) or 0)
++            tick_p99 = (((s.get("tick_missing_seq_ema") or {}).get("p99")) or 0)
++            book_p99 = (((s.get("book_missing_seq_ema") or {}).get("p99")) or 0)
++            n = int((s.get("gap") or {}).get("n") or 0)
++            lines.append(f"| {h:02d} | {gap_p99:.0f} | {tick_p99:.3f} | {book_p99:.3f} | {n} |")
++        lines.append("")
++
++    return "\n".join(lines) + "\n"
++
++
++def main() -> None:
++    ap = argparse.ArgumentParser(description="DQ distributions & threshold calibration harness (p112)")
++
++    src = ap.add_mutually_exclusive_group(required=True)
++    src.add_argument("--inputs", default="", help="payload NDJSON slice (optionally .gz)")
++    src.add_argument("--archive-dir", default="", help="archive dir from replay_inputs_archiver")
++
++    ap.add_argument("--start-ts-ms", type=int, default=0, help="archive start ts (ms, inclusive)")
++    ap.add_argument("--end-ts-ms", type=int, default=0, help="archive end ts (ms, exclusive)")
++
++    ap.add_argument("--symbol", default="", help="optional symbol filter (e.g. BTCUSDT)")
++    ap.add_argument("--max-records", type=int, default=0, help="optional cap (0=unlimited)")
++
++    ap.add_argument("--min-gap-samples", type=int, default=50, help="min tick_gap_n to treat tick_gap_p95_ms as valid")
++
++    ap.add_argument("--gap-max-ms", type=float, default=20000.0)
++    ap.add_argument("--gap-step-ms", type=float, default=250.0)
++    ap.add_argument("--ema-step", type=float, default=0.01)
++
++    ap.add_argument("--out-json", default="", help="optional output json file")
++    ap.add_argument("--out-md", default="", help="optional output markdown report")
++
++    args = ap.parse_args()
++
++    sym_filter = str(args.symbol or "").upper().strip()
++    min_gap_samples = int(args.min_gap_samples)
++
++    gap_cfg = HistCfg(min_v=0.0, max_v=float(args.gap_max_ms), step=float(args.gap_step_ms))
++    ema_cfg = HistCfg(min_v=0.0, max_v=1.0, step=float(args.ema_step))
++
++    def _new_agg() -> SymAgg:
++        return SymAgg(gap=Hist(gap_cfg), tick_seq=Hist(ema_cfg), book_seq=Hist(ema_cfg))
++
++    by_symbol: Dict[str, SymAgg] = {}
++    by_hour: Dict[int, SymAgg] = {h: _new_agg() for h in range(24)}
++    global_agg = _new_agg()
++
++    if args.inputs:
++        it = _iter_payloads_from_ndjson(str(args.inputs), max_records=int(args.max_records))
++    else:
++        if not args.start_ts_ms or not args.end_ts_ms:
++            raise SystemExit("--start-ts-ms and --end-ts-ms are required with --archive-dir")
++        it = _iter_payloads_from_archive(
++            archive_dir=str(args.archive_dir),
++            start_ts_ms=int(args.start_ts_ms),
++            end_ts_ms=int(args.end_ts_ms),
++            max_records=int(args.max_records),
++        )
++
++    n_scanned = 0
++    for p in it:
++        if not isinstance(p, dict):
++            continue
++        n_scanned += 1
++        sym = _sym(p)
++        if not sym:
++            continue
++        if sym_filter and sym != sym_filter:
++            continue
++        ts_ms = _pick_ts_ms(p)
++        if ts_ms <= 0:
++            continue
++        h = _utc_hour(ts_ms)
++        ind = _indicators(p)
++
++        gap_p95 = ind.get("tick_gap_p95_ms")
++        gap_n = ind.get("tick_gap_n")
++        tick_seq = ind.get("tick_missing_seq_ema")
++        book_seq = ind.get("book_missing_seq_ema")
++
++        agg = by_symbol.get(sym)
++        if agg is None:
++            agg = _new_agg()
++            by_symbol[sym] = agg
++        agg.n_rows += 1
++        by_hour[h].n_rows += 1
++        global_agg.n_rows += 1
++
++        # tick_gap_p95_ms is meaningful only when the estimator has enough samples.
++        if isinstance(gap_p95, (int, float)) and isinstance(gap_n, (int, float)):
++            if int(gap_n) >= min_gap_samples:
++                agg.gap.add(float(gap_p95))
++                by_hour[h].gap.add(float(gap_p95))
++                global_agg.gap.add(float(gap_p95))
++                agg.n_with_gap_samples += 1
++                by_hour[h].n_with_gap_samples += 1
++                global_agg.n_with_gap_samples += 1
++
++        if isinstance(tick_seq, (int, float)):
++            agg.tick_seq.add(float(tick_seq))
++            by_hour[h].tick_seq.add(float(tick_seq))
++            global_agg.tick_seq.add(float(tick_seq))
++
++        if isinstance(book_seq, (int, float)):
++            agg.book_seq.add(float(book_seq))
++            by_hour[h].book_seq.add(float(book_seq))
++            global_agg.book_seq.add(float(book_seq))
++
++    # suggestions (heuristic)
++    # SAFE defaults from dq_gate_v1 (floors)
++    SAFE_GAP = (5000.0, 8000.0, 12000.0)
++    STRICT_GAP = (3000.0, 4500.0, 9000.0)
++    SAFE_TICK_SEQ = (0.125, 0.25)
++    STRICT_TICK_SEQ = (0.05, 0.15)
++    SAFE_BOOK_SEQ = (0.125, 0.25)
++    STRICT_BOOK_SEQ = (0.03, 0.10)
++
++    g_gap_p99 = float(global_agg.gap.q(0.99))
++    g_tick_p99 = float(global_agg.tick_seq.q(0.99))
++    g_book_p99 = float(global_agg.book_seq.q(0.99))
++
++    suggested = {
++        "safe": {
++            "DQ_TICK_GAP_P95_MS_SOFT": _suggest_thresholds_from_p99(g_gap_p99, *SAFE_GAP)["soft"],
++            "DQ_TICK_GAP_P95_MS_HARD": _suggest_thresholds_from_p99(g_gap_p99, *SAFE_GAP)["hard"],
++            "DQ_TICK_GAP_P95_MS_EXTREME": _suggest_thresholds_from_p99(g_gap_p99, *SAFE_GAP)["extreme"],
++            "DQ_TICK_MISSING_SEQ_EMA_SOFT": float(max(SAFE_TICK_SEQ[0], g_tick_p99)),
++            "DQ_TICK_MISSING_SEQ_EMA_HARD": float(max(SAFE_TICK_SEQ[1], g_tick_p99 * 1.2)),
++            "DQ_BOOK_MISSING_SEQ_EMA_SOFT": float(max(SAFE_BOOK_SEQ[0], g_book_p99)),
++            "DQ_BOOK_MISSING_SEQ_EMA_HARD": float(max(SAFE_BOOK_SEQ[1], g_book_p99 * 1.2)),
++        },
++        "strict": {
++            "DQ_TICK_GAP_P95_MS_SOFT": _suggest_thresholds_from_p99(g_gap_p99, *STRICT_GAP)["soft"],
++            "DQ_TICK_GAP_P95_MS_HARD": _suggest_thresholds_from_p99(g_gap_p99, *STRICT_GAP)["hard"],
++            "DQ_TICK_GAP_P95_MS_EXTREME": _suggest_thresholds_from_p99(g_gap_p99, *STRICT_GAP)["extreme"],
++            "DQ_TICK_MISSING_SEQ_EMA_SOFT": float(max(STRICT_TICK_SEQ[0], g_tick_p99)),
++            "DQ_TICK_MISSING_SEQ_EMA_HARD": float(max(STRICT_TICK_SEQ[1], g_tick_p99 * 1.2)),
++            "DQ_BOOK_MISSING_SEQ_EMA_SOFT": float(max(STRICT_BOOK_SEQ[0], g_book_p99)),
++            "DQ_BOOK_MISSING_SEQ_EMA_HARD": float(max(STRICT_BOOK_SEQ[1], g_book_p99 * 1.2)),
++        },
++    }
++
++    report: Dict[str, Any] = {
++        "params": {
++            "inputs": str(args.inputs or ""),
++            "archive_dir": str(args.archive_dir or ""),
++            "start_ts_ms": int(args.start_ts_ms or 0),
++            "end_ts_ms": int(args.end_ts_ms or 0),
++            "symbol": sym_filter,
++            "max_records": int(args.max_records or 0),
++            "min_gap_samples": int(min_gap_samples),
++            "gap_hist": {"max_ms": float(gap_cfg.max_v), "step_ms": float(gap_cfg.step)},
++            "ema_hist": {"step": float(ema_cfg.step)},
++        },
++        "scanned": int(n_scanned),
++        "global": {
++            "gap": global_agg.gap.as_dict(),
++            "tick_missing_seq_ema": global_agg.tick_seq.as_dict(),
++            "book_missing_seq_ema": global_agg.book_seq.as_dict(),
++            "n_rows": int(global_agg.n_rows),
++            "n_with_gap_samples": int(global_agg.n_with_gap_samples),
++        },
++        "by_symbol": {},
++        "by_hour_utc": {},
++        "suggested": suggested,
++    }
++
++    for sym, agg in sorted(by_symbol.items()):
++        report["by_symbol"][sym] = {
++            "gap": agg.gap.as_dict(),
++            "tick_missing_seq_ema": agg.tick_seq.as_dict(),
++            "book_missing_seq_ema": agg.book_seq.as_dict(),
++            "n_rows": int(agg.n_rows),
++            "n_with_gap_samples": int(agg.n_with_gap_samples),
++        }
++
++    for h in range(24):
++        agg = by_hour[h]
++        report["by_hour_utc"][str(h)] = {
++            "gap": agg.gap.as_dict(),
++            "tick_missing_seq_ema": agg.tick_seq.as_dict(),
++            "book_missing_seq_ema": agg.book_seq.as_dict(),
++            "n_rows": int(agg.n_rows),
++            "n_with_gap_samples": int(agg.n_with_gap_samples),
++        }
++
++    out = json.dumps(report, ensure_ascii=False, indent=2)
++    print(out)
++
++    if args.out_json:
++        _write_text(str(args.out_json), out + "\n")
++
++    if args.out_md:
++        _write_text(str(args.out_md), _render_md(report))
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/orderflow_services/tests/test_p112_dq_eval_harness_compile_v1.py b/orderflow_services/tests/test_p112_dq_eval_harness_compile_v1.py
+new file mode 100644
+index 0000000..e1cbfdc
+--- /dev/null
++++ b/orderflow_services/tests/test_p112_dq_eval_harness_compile_v1.py
+@@ -0,0 +1,8 @@
++import py_compile
++
++
++def test_p112_dq_eval_harness_compile_v1():
++    py_compile.compile(
++        "orderflow_services/dq_threshold_eval_harness_p112.py",
++        doraise=True,
++    )
+diff --git a/tick_flow_full/orderflow_services/tests/test_p112_dq_eval_harness_compile_v1.py b/tick_flow_full/orderflow_services/tests/test_p112_dq_eval_harness_compile_v1.py
+new file mode 100644
+index 0000000..c95cbef
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/tests/test_p112_dq_eval_harness_compile_v1.py
+@@ -0,0 +1,8 @@
++import py_compile
++
++
++def test_p112_dq_eval_harness_compile_v1():
++    py_compile.compile(
++        "tick_flow_full/orderflow_services/dq_threshold_eval_harness_p112.py",
++        doraise=True,
++    )

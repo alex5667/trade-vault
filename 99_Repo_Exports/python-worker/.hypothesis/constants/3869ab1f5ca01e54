@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/matplotlib/_fontconfig_pattern.py
+# hypothesis_version: 6.148.10
+
+['([%s])', '([^%s]|(\\\\[%s]))*', ',', '-', ':', ':%s=%s', '=', '[a-z]+', '\\1', '\\\\([%s])', '\\\\=_:,', '\\\\\\-:,', '\\\\\\1', 'black', 'bold', 'book', 'condensed', 'demibold', 'expanded', 'extra bold', 'extra-condensed', 'extra-expanded', 'extrabold', 'extracondensed', 'extraexpanded', 'extralight', 'family', 'file', 'get_', 'heavy', 'italic', 'light', 'medium', 'normal', 'oblique', 'regular', 'roman', 'semi-condensed', 'semibold', 'semicondensed', 'size', 'slant', 'stretch', 'style', 'thin', 'ultra-condensed', 'ultra-expanded', 'ultracondensed', 'ultraexpanded', 'ultralight', 'variant', 'weight', 'width']

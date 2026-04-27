@@ -1,0 +1,1364 @@
+diff --git a/orderflow_services/grafana/README_p82.md b/orderflow_services/grafana/README_p82.md
+index fb5288a..49b3066 100644
+--- a/orderflow_services/grafana/README_p82.md
++++ b/orderflow_services/grafana/README_p82.md
+@@ -5,6 +5,16 @@ File: `of_gate_dlq_p82.json`
+ 
+ Requires Prometheus metrics from `orderflow_services/of_gate_dlq_exporter_v1.py`:
+ - `of_gate_dlq_len{stream=...}`
+-- `of_gate_dlq_age_sec{stream=...}`
++- `of_gate_dlq_oldest_age_sec{stream=...}` (backlog age)
++- `of_gate_dlq_age_sec{stream=...}` (newest age; kept for compatibility)
++- `of_gate_dlq_err_prefix_total{stream=..., err_prefix=...}` (top-k from sampled window)
+ 
+ Import JSON into Grafana and select datasource `${DS_PROMETHEUS}`.
++
++Exporter env (optional):
++- `OF_GATE_DLQ_EXPORTER_SAMPLE_LIMIT=2000`
++- `OF_GATE_DLQ_EXPORTER_TOPK=10`
++
++Optional Prometheus alerts file:
++- `orderflow_services/prometheus_alerts_of_gate_dlq_p82.yml`
++
+diff --git a/orderflow_services/grafana/of_gate_dlq_p82.json b/orderflow_services/grafana/of_gate_dlq_p82.json
+index c360df1..61e00b0 100644
+--- a/orderflow_services/grafana/of_gate_dlq_p82.json
++++ b/orderflow_services/grafana/of_gate_dlq_p82.json
+@@ -129,12 +129,12 @@
+       },
+       "targets": [
+         {
+-          "expr": "of_gate_dlq_age_sec",
++          "expr": "of_gate_dlq_oldest_age_sec",
+           "legendFormat": "{{stream}}",
+           "refId": "A"
+         }
+       ],
+-      "title": "Age of last DLQ entry (sec)",
++      "title": "Age of oldest DLQ entry (sec)",
+       "type": "timeseries"
+     },
+     {
+@@ -206,12 +206,47 @@
+       },
+       "targets": [
+         {
+-          "expr": "max(of_gate_dlq_age_sec)",
++          "expr": "max(of_gate_dlq_oldest_age_sec)",
+           "refId": "A"
+         }
+       ],
+-      "title": "Max DLQ age (sec)",
++      "title": "Max DLQ oldest age (sec)",
+       "type": "stat"
++    },
++    {
++      "type": "table",
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {},
++        "overrides": []
++      },
++      "options": {
++        "showHeader": true
++      },
++      "pluginVersion": "10.2.0",
++      "targets": [
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "topk(10, sum by (stream, err_prefix) (of_gate_dlq_err_prefix_total))",
++          "format": "table",
++          "instant": true,
++          "refId": "A"
++        }
++      ],
++      "title": "Top err_prefix in DLQ (sample)",
++      "gridPos": {
++        "h": 9,
++        "w": 12,
++        "x": 12,
++        "y": 9
++      },
++      "id": 6
+     }
+   ],
+   "refresh": "30s",
+@@ -252,5 +287,5 @@
+   "timezone": "",
+   "title": "OF-gate DLQ (P82)",
+   "uid": "of_gate_dlq_p82",
+-  "version": 1
+-}
++  "version": 2
++}
+\ No newline at end of file
+diff --git a/orderflow_services/of_gate_dlq_exporter_v1.py b/orderflow_services/of_gate_dlq_exporter_v1.py
+index bb4593e..8c8fb5d 100755
+--- a/orderflow_services/of_gate_dlq_exporter_v1.py
++++ b/orderflow_services/of_gate_dlq_exporter_v1.py
+@@ -12,8 +12,13 @@ Reads Redis Streams:
+ 
+ Exports (labels: stream)
+ - of_gate_dlq_len
+-- of_gate_dlq_last_id_ms (Redis stream id prefix)
+-- of_gate_dlq_age_sec (now - last_id_ms)
++- of_gate_dlq_first_id_ms           (oldest entry id prefix)
++- of_gate_dlq_last_id_ms            (newest entry id prefix)
++- of_gate_dlq_oldest_age_sec        (now - first_id_ms)
++- of_gate_dlq_age_sec               (now - last_id_ms)  [kept for backward compatibility]
++
++Top-K diagnostics (labels: stream, err_prefix)
++- of_gate_dlq_err_prefix_total      (count within the sampled window)
+ 
+ Also exports:
+ - of_gate_dlq_exporter_up
+@@ -26,9 +31,15 @@ ENV
+   OF_GATE_DLQ_EXPORTER_REFRESH_SEC (default 10)
+   OF_GATE_DLQ_STREAMS (default "stream:dlq:of_gate_metrics,stream:dlq:of_gate_quarantine")
+ 
++  # top err_prefix sampling
++  OF_GATE_DLQ_EXPORTER_SAMPLE_LIMIT (default 2000)
++  OF_GATE_DLQ_EXPORTER_TOPK (default 10)
++  OF_GATE_DLQ_EXPORTER_ERR_PREFIX_MAXLEN (default 64)
++
+ Notes
+ - Missing stream is treated as len=0.
+-- last_id_ms=0 for empty/missing stream.
++- first_id_ms/last_id_ms=0 for empty/missing stream.
++- DLQ oldest age is more useful than newest age for backlog health.
+ """
+ 
+ from __future__ import annotations
+@@ -36,9 +47,10 @@ from __future__ import annotations
+ import os
+ import signal
+ import time
+-from typing import Dict, List, Tuple
++from collections import Counter
++from typing import Dict, List, Set, Tuple
+ 
+-from prometheus_client import Counter, Gauge, start_http_server  # type: ignore
++from prometheus_client import Counter as PromCounter, Gauge, start_http_server  # type: ignore
+ 
+ 
+ def _now_ms() -> int:
+@@ -59,22 +71,49 @@ def _id_to_ms(stream_id: str) -> int:
+         return 0
+ 
+ 
++def _err_prefix(err: str, maxlen: int) -> str:
++    s = (err or "").strip()
++    if not s:
++        return "(empty)"
++    # prefer a stable prefix: "parse_error" / "pg_batch_error" / etc
++    p = s.split(":", 1)[0].strip()
++    if not p:
++        p = s.split(" ", 1)[0].strip()
++    if not p:
++        return "(empty)"
++    return p[:maxlen]
++
++
+ # Gauges
+ of_gate_dlq_exporter_up = Gauge("of_gate_dlq_exporter_up", "DLQ exporter loop running (1/0)")
+ of_gate_dlq_exporter_poll_ts_ms = Gauge(
+     "of_gate_dlq_exporter_poll_ts_ms", "last successful poll time (epoch ms)"
+ )
+ 
+-of_gate_dlq_len = Gauge("of_gate_dlq_len", "DLQ stream length", ["stream"]) 
++of_gate_dlq_len = Gauge("of_gate_dlq_len", "DLQ stream length", ["stream"])
++of_gate_dlq_first_id_ms = Gauge(
++    "of_gate_dlq_first_id_ms", "DLQ stream oldest entry id prefix (epoch ms)", ["stream"]
++)
+ of_gate_dlq_last_id_ms = Gauge(
+-    "of_gate_dlq_last_id_ms", "DLQ stream last entry id prefix (epoch ms)", ["stream"]
++    "of_gate_dlq_last_id_ms", "DLQ stream newest entry id prefix (epoch ms)", ["stream"]
+ )
++
++# Backward-compatibility: this is newest age, not backlog age
+ of_gate_dlq_age_sec = Gauge(
+-    "of_gate_dlq_age_sec", "age of the last DLQ entry in seconds", ["stream"]
++    "of_gate_dlq_age_sec", "age of the newest DLQ entry in seconds", ["stream"]
++)
++
++of_gate_dlq_oldest_age_sec = Gauge(
++    "of_gate_dlq_oldest_age_sec", "age of the oldest DLQ entry in seconds", ["stream"]
++)
++
++# Top err_prefix from sampled window
++of_gate_dlq_err_prefix_total = Gauge(
++    "of_gate_dlq_err_prefix_total", "DLQ err_prefix counts in sampled window", ["stream", "err_prefix"]
+ )
+ 
+ # Errors
+-of_gate_dlq_exporter_errors_total = Counter(
++of_gate_dlq_exporter_errors_total = PromCounter(
+     "of_gate_dlq_exporter_errors_total", "DLQ exporter errors"
+ )
+ 
+@@ -100,6 +139,13 @@ class Exporter:
+ 
+         self.refresh_sec = int(os.getenv("OF_GATE_DLQ_EXPORTER_REFRESH_SEC", "10"))
+ 
++        self.sample_limit = int(os.getenv("OF_GATE_DLQ_EXPORTER_SAMPLE_LIMIT", "2000"))
++        self.topk = int(os.getenv("OF_GATE_DLQ_EXPORTER_TOPK", "10"))
++        self.err_prefix_maxlen = int(os.getenv("OF_GATE_DLQ_EXPORTER_ERR_PREFIX_MAXLEN", "64"))
++
++        # Track last label-sets to remove stale topK series
++        self._last_err_labels: Set[Tuple[str, str]] = set()
++
+         # Lazy import to avoid hard dependency in unit environments
+         import redis  # type: ignore
+ 
+@@ -114,46 +160,95 @@ class Exporter:
+     def _stop(self, *_args) -> None:
+         self.running = False
+ 
+-    def _poll_one(self, key: str) -> Tuple[int, int]:
+-        # Returns (len, last_id_ms)
++    def _poll_one(self, key: str) -> Tuple[int, int, int, Counter]:
++        """Returns (len, first_id_ms, last_id_ms, err_prefix_counter)."""
+         try:
+             n = int(self.redis.xlen(key) or 0)
+         except Exception:
+-            # missing stream or other error
+             n = 0
+ 
++        first_ms = 0
+         last_ms = 0
++        err_counter: Counter = Counter()
++
+         if n > 0:
+             try:
+-                # XREVRANGE key + - COUNT 1
++                # Oldest
++                rows = self.redis.xrange(key, min="-", max="+", count=1)
++                if rows:
++                    sid = rows[0][0]
++                    first_ms = _id_to_ms(str(sid))
++            except Exception:
++                first_ms = 0
++            try:
++                # Newest
+                 rows = self.redis.xrevrange(key, max="+", min="-", count=1)
+                 if rows:
+                     sid = rows[0][0]
+-                    last_ms = _id_to_ms(sid)
++                    last_ms = _id_to_ms(str(sid))
+             except Exception:
+                 last_ms = 0
+-        return n, last_ms
++
++            # Sample newest N entries to compute top err_prefix
++            try:
++                lim = max(0, min(self.sample_limit, n))
++                if lim > 0 and self.topk > 0:
++                    rows = self.redis.xrevrange(key, max="+", min="-", count=lim)
++                    for _sid, fields in rows:
++                        if not isinstance(fields, dict):
++                            continue
++                        err = str(fields.get("err") or fields.get("error") or "")
++                        p = _err_prefix(err, self.err_prefix_maxlen)
++                        err_counter[p] += 1
++            except Exception:
++                # ignore sampling errors
++                pass
++
++        return n, first_ms, last_ms, err_counter
++
++    def _set_top_err_prefix(self, stream: str, err_counter: Counter) -> None:
++        new_labels: Set[Tuple[str, str]] = set()
++        # emit only topK
++        for prefix, cnt in err_counter.most_common(max(0, self.topk)):
++            lbl = (stream, str(prefix))
++            new_labels.add(lbl)
++            of_gate_dlq_err_prefix_total.labels(stream=stream, err_prefix=str(prefix)).set(float(cnt))
++
++        # remove stale labels from previous iterations
++        for old in list(self._last_err_labels):
++            if old[0] == stream and old not in new_labels:
++                try:
++                    of_gate_dlq_err_prefix_total.remove(old[0], old[1])
++                except Exception:
++                    pass
++
++        # update global label-set
++        self._last_err_labels = {x for x in self._last_err_labels if x[0] != stream} | new_labels
+ 
+     def loop(self) -> None:
+         while self.running:
+             of_gate_dlq_exporter_up.set(1.0)
+             now_ms = _now_ms()
+             try:
+-                total_ok = True
+                 for s in self.streams:
+-                    n, last_ms = self._poll_one(s)
++                    n, first_ms, last_ms, err_counter = self._poll_one(s)
+                     of_gate_dlq_len.labels(stream=s).set(float(n))
++                    of_gate_dlq_first_id_ms.labels(stream=s).set(float(first_ms))
+                     of_gate_dlq_last_id_ms.labels(stream=s).set(float(last_ms))
++
+                     if last_ms > 0:
+                         of_gate_dlq_age_sec.labels(stream=s).set(float(max(0, now_ms - last_ms) / 1000.0))
+                     else:
+                         of_gate_dlq_age_sec.labels(stream=s).set(float("nan"))
+ 
+-                # Mark successful poll
+-                of_gate_dlq_exporter_poll_ts_ms.set(float(now_ms))
++                    if first_ms > 0:
++                        of_gate_dlq_oldest_age_sec.labels(stream=s).set(float(max(0, now_ms - first_ms) / 1000.0))
++                    else:
++                        of_gate_dlq_oldest_age_sec.labels(stream=s).set(float("nan"))
++
++                    self._set_top_err_prefix(s, err_counter)
+ 
+-                if not total_ok:
+-                    of_gate_dlq_exporter_errors_total.inc()
++                of_gate_dlq_exporter_poll_ts_ms.set(float(now_ms))
+ 
+             except Exception:
+                 of_gate_dlq_exporter_errors_total.inc()
+diff --git a/orderflow_services/of_gate_dlq_fixed_replay_p84.py b/orderflow_services/of_gate_dlq_fixed_replay_p84.py
+index 8e807d2..75be010 100644
+--- a/orderflow_services/of_gate_dlq_fixed_replay_p84.py
++++ b/orderflow_services/of_gate_dlq_fixed_replay_p84.py
+@@ -1,10 +1,11 @@
+ """P84: OF-Gate DLQ fixed-then-replay pipeline (operator tool).
+ 
+ What it does
+-- Reads DLQ streams produced by stream_archiver.dlq (fields: stream, stream_id, err, payload).
++- Reads DLQ streams produced by stream_archiver.dlq() (fields: stream, stream_id, err, payload).
+ - Parses payload JSON.
+-- Applies safe, conservative fixes (schema markers, ts_ms normalization, reason_code derivation,
+-  ok/ok_soft integerization, missing_legs default when absent).
++- For parse_error DLQ entries, attempts to recover original payload from stored "fields".
++- Applies safe, conservative fixes (schema markers, schema_version coercion, ts_ms normalization,
++  missing_legs default/sanitization).
+ - Validates using the canonical OF-gate contract validator.
+ - Optionally replays fixed rows back to their original stream.
+ 
+@@ -12,6 +13,7 @@ Safety
+ - Default is DRY RUN (no writes).
+ - Replay requires --commit.
+ - Deleting from DLQ requires BOTH --commit and --delete-after-replay.
++- For automation, you should restrict fixes via --allow-fixes (default: allow all).
+ 
+ Usage
+   # Triage only (summary, top causes, hints)
+@@ -22,17 +24,22 @@ Usage
+ 
+   # Replay fixable (commit) and delete from DLQ after success
+   python -m orderflow_services.of_gate_dlq_fixed_replay_p84 replay --commit --delete-after-replay --max 500
++
++  # Automation-style: triage + safe replay (restricted fixes)
++  python -m orderflow_services.of_gate_dlq_fixed_replay_p84 auto --commit --delete-after-replay \
++    --allow-fixes add_schema_name,add_schema_version,coerce_schema_version_int,normalize_ts_ms,ts_from_stream_id,default_missing_legs_empty,coerce_missing_legs_to_json,stringify_missing_legs \
++    --require-fix
+ """
+ 
+ from __future__ import annotations
+ 
+ import argparse
+-import datetime as dt
+ import json
+ import os
+ import time
++from collections import Counter
+ from dataclasses import dataclass
+-from typing import Any, Dict, Iterable, List, Optional, Tuple
++from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+ 
+ from orderflow_services.of_gate_dlq_fix_hints_registry_p84 import FixHint, hint_for
+ 
+@@ -91,6 +98,16 @@ def _ts_ms_from_stream_id(stream_id: str) -> int:
+         return 0
+ 
+ 
++def _err_prefix(err: str) -> str:
++    s = (err or "").strip()
++    if not s:
++        return "(empty)"
++    p = s.split(":", 1)[0].strip()
++    if not p:
++        p = s.split(" ", 1)[0].strip()
++    return p[:64] if p else "(empty)"
++
++
+ # Contract imports (canonical)
+ def _load_contract():
+     # Prefer canonical location
+@@ -132,20 +149,18 @@ class DLQEntry:
+     src_stream: str
+     src_stream_id: str
+     err: str
+-    payload: Dict[str, Any]
++    payload: Any
+ 
+ 
+ def _parse_dlq_entry(dlq_id: Any, fields: Dict[Any, Any]) -> Optional[DLQEntry]:
+     dlq_id_s = str(_decode(dlq_id))
+-    f = {str(_decode(k)): _decode(v) for k, v in fields.items()}
++    f = {str(_decode(k)): _decode(v) for k, v in (fields or {}).items()}
+ 
+-    src_stream = str(_decode(f.get("stream") or ""))
+-    src_stream_id = str(_decode(f.get("stream_id") or ""))
+-    err = str(_decode(f.get("err") or ""))
++    src_stream = str(_decode(f.get("stream") or f.get("src_stream") or ""))
++    src_stream_id = str(_decode(f.get("stream_id") or f.get("src_stream_id") or ""))
++    err = str(_decode(f.get("err") or f.get("error") or ""))
+     payload_raw = f.get("payload")
+     payload = _json_loads_maybe(payload_raw)
+-    if not isinstance(payload, dict):
+-        return DLQEntry(dlq_id_s, src_stream, src_stream_id, err, {"_raw_payload": payload})
+     return DLQEntry(dlq_id_s, src_stream, src_stream_id, err, payload)
+ 
+ 
+@@ -184,6 +199,54 @@ def _normalize_ts_ms(v: Any) -> Optional[int]:
+     return x
+ 
+ 
++def _parse_stream_payload_from_fields(fields: Dict[str, Any]) -> Dict[str, Any]:
++    """Best-effort parse of original stream payload from message fields."""
++    raw = fields.get("data")
++    if raw is None:
++        raw = fields.get("payload")
++    if raw is None:
++        return dict(fields)
++    raw = _decode(raw)
++    if isinstance(raw, str):
++        try:
++            j = json.loads(raw)
++            return j if isinstance(j, dict) else {"_raw_payload": j}
++        except Exception:
++            # fallback to raw fields
++            return dict(fields)
++    if isinstance(raw, dict):
++        return raw
++    return dict(fields)
++
++
++def _payload_for_fix(entry: DLQEntry) -> Dict[str, Any]:
++    """Return a dict payload suitable for fix+validate.
++
++    Handles parse_error DLQ entries where payload is {"fields": {...}}.
++    """
++    p = entry.payload
++    if isinstance(p, dict) and "fields" in p and isinstance(p.get("fields"), dict):
++        try:
++            return _parse_stream_payload_from_fields(p["fields"])  # type: ignore[index]
++        except Exception:
++            return {"_raw_payload": p}
++    if isinstance(p, dict):
++        return p
++    return {"_raw_payload": p}
++
++
++def _coerce_schema_version(v: Any) -> Optional[int]:
++    if v is None:
++        return None
++    try:
++        return int(v)
++    except Exception:
++        try:
++            return int(float(str(v).strip()))
++        except Exception:
++            return None
++
++
+ def _safe_fix_payload(payload: Dict[str, Any], stream_id_hint: str) -> Tuple[Dict[str, Any], List[str]]:
+     """Apply conservative fixes. Returns (new_payload, fixes_applied)."""
+     p = dict(payload)
+@@ -193,9 +256,16 @@ def _safe_fix_payload(payload: Dict[str, Any], stream_id_hint: str) -> Tuple[Dic
+     if not p.get("schema_name"):
+         p["schema_name"] = "of_gate_metrics"
+         fixes.append("add_schema_name")
+-    if p.get("schema_version") is None:
++
++    sv0 = p.get("schema_version")
++    sv1 = _coerce_schema_version(sv0)
++    if sv1 is None:
+         p["schema_version"] = 2
+         fixes.append("add_schema_version")
++    else:
++        if sv1 != sv0:
++            p["schema_version"] = sv1
++            fixes.append("coerce_schema_version_int")
+ 
+     # ts_ms
+     ts0 = p.get("ts_ms")
+@@ -210,7 +280,7 @@ def _safe_fix_payload(payload: Dict[str, Any], stream_id_hint: str) -> Tuple[Dic
+             p["ts_ms"] = ts1
+             fixes.append("normalize_ts_ms")
+ 
+-    # ok / ok_soft
++    # ok / ok_soft (sanitize only if present)
+     ok = _coerce_int01(p.get("ok"))
+     if ok is not None:
+         p["ok"] = ok
+@@ -218,15 +288,6 @@ def _safe_fix_payload(payload: Dict[str, Any], stream_id_hint: str) -> Tuple[Dic
+     if ok_soft is not None:
+         p["ok_soft"] = ok_soft
+ 
+-    if p.get("ok") is not None and p.get("ok_soft") is not None:
+-        try:
+-            if int(p["ok_soft"]) == 1 and int(p["ok"]) == 1:
+-                # Conservative: treat as soft only
+-                p["ok"] = 0
+-                fixes.append("enforce_ok_soft_implies_not_ok")
+-        except Exception:
+-            pass
+-
+     # missing_legs: allow dict/list or valid JSON string
+     if "missing_legs" not in p:
+         p["missing_legs"] = "[]"
+@@ -240,21 +301,12 @@ def _safe_fix_payload(payload: Dict[str, Any], stream_id_hint: str) -> Tuple[Dic
+             try:
+                 json.loads(ml)
+             except Exception:
+-                # try to stringify as JSON list with one item
+                 p["missing_legs"] = json.dumps([ml], ensure_ascii=False)
+                 fixes.append("coerce_missing_legs_to_json")
+         else:
+-            # unknown type -> stringify
+             p["missing_legs"] = json.dumps([str(ml)], ensure_ascii=False)
+             fixes.append("stringify_missing_legs")
+ 
+-    # reason_code
+-    if not p.get("reason_code"):
+-        rc = derive_reason_code(p)
+-        if rc:
+-            p["reason_code"] = rc
+-            fixes.append("derive_reason_code")
+-
+     # Let contract normalizer do low-card normalization
+     try:
+         p = enrich_schema_fields(p)
+@@ -274,11 +326,10 @@ def _validate(payload: Dict[str, Any]) -> Tuple[bool, str]:
+ 
+ 
+ def _iter_dlq(r, dlq_stream: str, start: str, count: int) -> Iterable[DLQEntry]:
+-    # XRANGE is forward; use XREVRANGE for latest
++    # newest first
+     try:
+         rows = r.xrevrange(dlq_stream, max=start, min="-", count=count)
+     except TypeError:
+-        # older redis-py signature
+         rows = r.xrevrange(dlq_stream, start, "-", count=count)
+     for dlq_id, fields in rows:
+         e = _parse_dlq_entry(dlq_id, fields)
+@@ -296,13 +347,34 @@ def _notify_stream_name() -> str:
+ 
+ 
+ def _xadd_best_effort(r, stream: str, fields: Dict[str, Any], maxlen: int = 200000) -> None:
+-    payload = {k: (v if isinstance(v, (str, bytes, bytearray, int, float)) else json.dumps(v, ensure_ascii=False)) for k, v in fields.items()}
++    payload = {
++        k: (v if isinstance(v, (str, bytes, bytearray, int, float)) else json.dumps(v, ensure_ascii=False))
++        for k, v in fields.items()
++    }
+     r.xadd(stream, payload, maxlen=maxlen, approximate=True)
+ 
+ 
++def _parse_allow_fixes(s: str) -> Set[str]:
++    items = [x.strip() for x in (s or "").split(",")]
++    return {x for x in items if x}
++
++
++def _fixes_allowed(fixes: List[str], allow: Set[str]) -> bool:
++    if not allow:
++        return True
++    return all(f in allow for f in fixes)
++
++
+ def triage(args: argparse.Namespace) -> int:
+     r = _connect_redis()
+-    streams = [s.strip() for s in (args.streams or env("OF_GATE_DLQ_STREAMS", "stream:dlq:of_gate_metrics,stream:dlq:of_gate_quarantine")).split(",") if s.strip()]
++    streams = [
++        s.strip()
++        for s in (
++            args.streams
++            or env("OF_GATE_DLQ_STREAMS", "stream:dlq:of_gate_metrics,stream:dlq:of_gate_quarantine")
++        ).split(",")
++        if s.strip()
++    ]
+     limit = int(args.limit)
+ 
+     total = 0
+@@ -310,13 +382,16 @@ def triage(args: argparse.Namespace) -> int:
+     by_dq: Dict[str, int] = {}
+     by_hint: Dict[str, int] = {}
+     by_stream: Dict[str, int] = {}
++    by_err: Dict[str, int] = {}
+ 
+     for s in streams:
+         by_stream.setdefault(s, 0)
+         for e in _iter_dlq(r, s, "+", limit):
+             total += 1
+             by_stream[s] += 1
+-            fixed, _fixes = _safe_fix_payload(e.payload, e.src_stream_id or e.dlq_id)
++            by_err[_err_prefix(e.err)] = by_err.get(_err_prefix(e.err), 0) + 1
++            base = _payload_for_fix(e)
++            fixed, _fixes = _safe_fix_payload(base, e.src_stream_id or e.dlq_id)
+             ok, dq_code = _validate(fixed)
+             dq_code = dq_code or "dq_unknown"
+             by_dq[dq_code] = by_dq.get(dq_code, 0) + (0 if ok else 1)
+@@ -329,9 +404,14 @@ def triage(args: argparse.Namespace) -> int:
+                 by_hint[h.hint_code] = by_hint.get(h.hint_code, 0) + 1
+ 
+     lines = []
+-    lines.append(f"OF-Gate DLQ triage (P84): total={total} fixable={fixable} fixable_share={(fixable/total if total else 0):.3f}")
++    lines.append(
++        f"OF-Gate DLQ triage (P84): total={total} fixable={fixable} fixable_share={(fixable/total if total else 0):.3f}"
++    )
+     for s, n in sorted(by_stream.items(), key=lambda x: -x[1]):
+         lines.append(f"  {s}: {n}")
++    lines.append("Top err_prefix:")
++    for k, v in sorted(by_err.items(), key=lambda x: -x[1])[:10]:
++        lines.append(f"  {k}: {v}")
+     lines.append("Top dq_code (non-fixable counts):")
+     for k, v in sorted(by_dq.items(), key=lambda x: -x[1])[:10]:
+         lines.append(f"  {k}: {v}")
+@@ -367,33 +447,64 @@ def replay(args: argparse.Namespace) -> int:
+     commit = bool(args.commit)
+     delete_after = bool(args.delete_after_replay)
+     target_override = args.target
++
++    allow_fixes = _parse_allow_fixes(args.allow_fixes or env("OF_GATE_DLQ_REPLAY_ALLOW_FIXES", ""))
++    require_fix = bool(args.require_fix) or env_bool("OF_GATE_DLQ_REPLAY_REQUIRE_FIX", False)
++
+     out_stream_unfixable = env("OF_GATE_DLQ_UNFIXABLE_STREAM", "stream:dlq:of_gate_unfixable")
+     move_unfixable = env_bool("OF_GATE_DLQ_MOVE_UNFIXABLE", False)
+ 
+     seen = 0
+     ok_replayed = 0
++    skipped_disallowed = 0
++    skipped_no_fix = 0
+     still_bad = 0
+ 
+     for e in _iter_dlq(r, source, "+", max_n):
+         seen += 1
+-        fixed, fixes = _safe_fix_payload(e.payload, e.src_stream_id or e.dlq_id)
++        base = _payload_for_fix(e)
++        fixed, fixes = _safe_fix_payload(base, e.src_stream_id or e.dlq_id)
+         ok, dq_code = _validate(fixed)
++
+         if ok:
++            if require_fix and not fixes:
++                skipped_no_fix += 1
++                continue
++            if not _fixes_allowed(fixes, allow_fixes):
++                skipped_disallowed += 1
++                continue
++
+             ok_replayed += 1
+             tgt = target_override or (e.src_stream or "")
+             if not tgt:
+                 tgt = "metrics:of_gate"
++
+             if commit:
+                 fields = dict(fixed)
++                fields["replay"] = 1
++                fields["replay_src_dlq_stream"] = source
+                 fields["replay_src_dlq_id"] = e.dlq_id
+                 fields["replay_src_stream_id"] = e.src_stream_id
+-                fields["replay_fixes"] = ",".join(fixes)[:500]
++                fields["replay_src_err_prefix"] = _err_prefix(e.err)
++                fields["replay_fix_tags"] = ",".join(fixes)[:500]
++
+                 try:
+-                    r.xadd(tgt, {k: json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else str(v) for k, v in fields.items()}, maxlen=2000000, approximate=True)
++                    r.xadd(
++                        tgt,
++                        {
++                            k: json.dumps(v, ensure_ascii=False)
++                            if isinstance(v, (dict, list))
++                            else str(v)
++                            for k, v in fields.items()
++                        },
++                        maxlen=2000000,
++                        approximate=True,
++                    )
+                 except Exception as ex:
+                     still_bad += 1
+                     print(f"replay write failed: dlq_id={e.dlq_id} err={type(ex).__name__}:{ex}")
+                     continue
++
+                 if delete_after:
+                     try:
+                         r.xdel(source, e.dlq_id)
+@@ -426,11 +537,135 @@ def replay(args: argparse.Namespace) -> int:
+             if not commit:
+                 print(f"DRYRUN still bad: dlq_id={e.dlq_id} dq_code={dq_code} hint={h.hint_code}")
+ 
+-    print(f"Replay summary: source={source} seen={seen} replay_ok={ok_replayed} still_bad={still_bad} commit={int(commit)} delete_after={int(delete_after)}")
++    print(
++        "Replay summary: "
++        f"source={source} seen={seen} replay_ok={ok_replayed} "
++        f"skipped_no_fix={skipped_no_fix} skipped_disallowed={skipped_disallowed} "
++        f"still_bad={still_bad} commit={int(commit)} delete_after={int(delete_after)}"
++    )
+     # Exit code 2 if any still bad (useful for automations)
+     return 2 if still_bad > 0 else 0
+ 
+ 
++def auto(args: argparse.Namespace) -> int:
++    """Automation: triage + safe replay across streams."""
++    r = _connect_redis()
++    streams = [s.strip() for s in (args.streams or env("OF_GATE_DLQ_STREAMS", "stream:dlq:of_gate_metrics,stream:dlq:of_gate_quarantine")).split(",") if s.strip()]
++
++    max_per_stream = int(args.max_per_stream)
++    commit = bool(args.commit)
++    delete_after = bool(args.delete_after_replay)
++    notify = bool(args.notify)
++    target_override = args.target
++
++    allow_fixes = _parse_allow_fixes(args.allow_fixes or env(
++        "OF_GATE_DLQ_AUTO_ALLOW_FIXES",
++        "add_schema_name,add_schema_version,coerce_schema_version_int,normalize_ts_ms,ts_from_stream_id,default_missing_legs_empty,coerce_missing_legs_to_json,stringify_missing_legs",
++    ))
++    require_fix = bool(args.require_fix) or env_bool("OF_GATE_DLQ_AUTO_REQUIRE_FIX", True)
++
++    totals = Counter()
++    by_err = Counter()
++    by_stream = Counter()
++    by_fix = Counter()
++
++    for s in streams:
++        by_stream[s] = 0
++        for e in _iter_dlq(r, s, "+", max_per_stream):
++            totals["seen"] += 1
++            by_stream[s] += 1
++            by_err[_err_prefix(e.err)] += 1
++
++            base = _payload_for_fix(e)
++            fixed, fixes = _safe_fix_payload(base, e.src_stream_id or e.dlq_id)
++            ok, dq_code = _validate(fixed)
++
++            if not ok:
++                totals["still_bad"] += 1
++                continue
++
++            if require_fix and not fixes:
++                totals["skipped_no_fix"] += 1
++                continue
++
++            if not _fixes_allowed(fixes, allow_fixes):
++                totals["skipped_disallowed"] += 1
++                continue
++
++            for fx in fixes:
++                by_fix[fx] += 1
++
++            totals["eligible"] += 1
++
++            if not commit:
++                totals["dryrun_ok"] += 1
++                continue
++
++            # Replay to original stream by default
++            tgt = target_override or (e.src_stream or "")
++            if not tgt:
++                tgt = "metrics:of_gate"
++
++            fields = dict(fixed)
++            fields["replay"] = 1
++            fields["replay_src_dlq_stream"] = s
++            fields["replay_src_dlq_id"] = e.dlq_id
++            fields["replay_src_stream_id"] = e.src_stream_id
++            fields["replay_src_err_prefix"] = _err_prefix(e.err)
++            fields["replay_fix_tags"] = ",".join(fixes)[:500]
++
++            try:
++                r.xadd(
++                    tgt,
++                    {k: json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else str(v) for k, v in fields.items()},
++                    maxlen=2000000,
++                    approximate=True,
++                )
++                totals["replayed"] += 1
++                if delete_after:
++                    try:
++                        r.xdel(s, e.dlq_id)
++                        totals["deleted"] += 1
++                    except Exception:
++                        totals["delete_failed"] += 1
++            except Exception:
++                totals["replay_write_failed"] += 1
++
++    # Build summary
++    def top(counter: Counter, k: int = 8) -> str:
++        return ", ".join([f"{a}:{b}" for a, b in counter.most_common(k)])
++
++    out_lines = [
++        "OF-Gate DLQ auto-replay (P3):",
++        f"  streams={len(streams)} seen={totals['seen']} eligible={totals['eligible']} replayed={totals['replayed']} deleted={totals['deleted']}",
++        f"  skipped_no_fix={totals['skipped_no_fix']} skipped_disallowed={totals['skipped_disallowed']} still_bad={totals['still_bad']} replay_write_failed={totals['replay_write_failed']}",
++        f"  allow_fixes={','.join(sorted(allow_fixes))}",
++        "  by_stream: " + ", ".join([f"{k}:{v}" for k, v in by_stream.most_common()]),
++        "  top_err_prefix: " + top(by_err, 10),
++        "  top_fix_tags: " + top(by_fix, 10),
++    ]
++    out = "\n".join(out_lines)
++    print(out)
++
++    if notify:
++        try:
++            _xadd_best_effort(
++                r,
++                _notify_stream_name(),
++                {
++                    "ts_ms": int(time.time() * 1000),
++                    "source": "of_gate_dlq_auto_replay_p3",
++                    "message": out[:3500],
++                    "severity": "warn" if totals["seen"] else "info",
++                },
++            )
++        except Exception:
++            pass
++
++    # Exit 2 if anything still bad (useful for cron/timers)
++    return 2 if totals["still_bad"] or totals["replay_write_failed"] else 0
++
++
+ def main() -> None:
+     ap = argparse.ArgumentParser(prog="of_gate_dlq_fixed_replay_p84")
+     sub = ap.add_subparsers(dest="cmd", required=True)
+@@ -447,8 +682,21 @@ def main() -> None:
+     ap_r.add_argument("--max", type=int, default=500)
+     ap_r.add_argument("--commit", action="store_true")
+     ap_r.add_argument("--delete-after-replay", action="store_true")
++    ap_r.add_argument("--allow-fixes", default="", help="Comma-separated allowlist of fix tags (empty=allow all)")
++    ap_r.add_argument("--require-fix", action="store_true", help="Only replay entries that required at least one fix")
+     ap_r.set_defaults(fn=replay)
+ 
++    ap_a = sub.add_parser("auto", help="Automation: triage + safe replay across streams")
++    ap_a.add_argument("--streams", default="", help="Comma-separated DLQ streams")
++    ap_a.add_argument("--target", default="", help="Override target stream")
++    ap_a.add_argument("--max-per-stream", type=int, default=env_int("OF_GATE_DLQ_AUTO_MAX_PER_STREAM", 2000))
++    ap_a.add_argument("--commit", action="store_true")
++    ap_a.add_argument("--delete-after-replay", action="store_true")
++    ap_a.add_argument("--notify", action="store_true")
++    ap_a.add_argument("--allow-fixes", default="", help="Comma-separated allowlist of fix tags")
++    ap_a.add_argument("--require-fix", action="store_true")
++    ap_a.set_defaults(fn=auto)
++
+     args = ap.parse_args()
+     rc = int(args.fn(args))
+     raise SystemExit(rc)
+@@ -456,4 +704,3 @@ def main() -> None:
+ 
+ if __name__ == "__main__":
+     main()
+-
+diff --git a/orderflow_services/prometheus_alerts_of_gate_dlq_p82.yml b/orderflow_services/prometheus_alerts_of_gate_dlq_p82.yml
+new file mode 100644
+index 0000000..92c244f
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_of_gate_dlq_p82.yml
+@@ -0,0 +1,39 @@
++groups:
++- name: of_gate_dlq_p82
++  rules:
++  - alert: OF_Gate_DLQ_ExporterDown
++    expr: of_gate_dlq_exporter_up == 0
++    for: 5m
++    labels:
++      severity: warn
++    annotations:
++      summary: of_gate DLQ exporter is down
++      description: >
++        Prometheus cannot observe DLQ streams. Check exporter container logs.
++        Expected: python -m orderflow_services.of_gate_dlq_exporter_v1 (port 9154).
++
++  - alert: OF_Gate_DLQ_NonZero15m
++    expr: sum(of_gate_dlq_len) > 0
++    for: 15m
++    labels:
++      severity: warn
++    annotations:
++      summary: of_gate DLQ is non-empty
++      description: >
++        DLQ length is > 0 for 15m.
++        Inspect with: python -m orderflow_services.of_gate_dlq_drilldown_p83 top --limit 5000
++        If fixes are safe: enable auto replay timer (ENABLE_OF_GATE_DLQ_AUTO_REPLAY_TIMER=1).
++
++  - alert: OF_Gate_DLQ_OldestAgeHigh
++    expr: max(of_gate_dlq_oldest_age_sec) > 3600
++    for: 10m
++    labels:
++      severity: page
++    annotations:
++      summary: of_gate DLQ backlog is old
++      description: >
++        Oldest DLQ entry is older than 1 hour.
++        This usually indicates a stuck archiver, persistent parse errors, or DB issues.
++        1) Check archiver alerts/logs
++        2) Drilldown: python -m orderflow_services.of_gate_dlq_drilldown_p83 stats
++        3) Safe replay: python -m orderflow_services.of_gate_dlq_fixed_replay_p84 auto --commit --delete-after-replay
+diff --git a/orderflow_services/runbook_of_gate_dlq_fixed_replay_p84.md b/orderflow_services/runbook_of_gate_dlq_fixed_replay_p84.md
+index 84b1d6e..01d1057 100644
+--- a/orderflow_services/runbook_of_gate_dlq_fixed_replay_p84.md
++++ b/orderflow_services/runbook_of_gate_dlq_fixed_replay_p84.md
+@@ -5,7 +5,7 @@ DLQ streams may accumulate due to transient failures or mixed schema/producers.
+ This tool helps you:
+ - quantify fixable share,
+ - see top causes and stable hint codes,
+-- safely replay fixable rows back into their original streams.
++- safely replay *fixable* rows back into their original streams.
+ 
+ ## Preconditions
+ - `REDIS_URL` reachable from the host/container.
+@@ -19,7 +19,7 @@ REDIS_URL=redis://redis-worker-1:6379/0 \
+ python -m orderflow_services.of_gate_dlq_fixed_replay_p84 triage --limit 5000
+ ```
+ 
+-To notify to telegram notify-stream:
++To notify via Redis notify-stream:
+ ```bash
+ REDIS_URL=... NOTIFY_TELEGRAM_STREAM=notify:telegram \
+ python -m orderflow_services.of_gate_dlq_fixed_replay_p84 triage --limit 5000 --notify
+@@ -47,26 +47,33 @@ python -m orderflow_services.of_gate_dlq_fixed_replay_p84 replay \
+   --source stream:dlq:of_gate_metrics --max 200 --commit --delete-after-replay
+ ```
+ 
++### 5) Automation-style (triage + safe replay across streams)
++Recommended defaults (restrict to *fixable classes*: `ts_ms`, `schema_version`, `missing_legs`).
++```bash
++REDIS_URL=... \
++python -m orderflow_services.of_gate_dlq_fixed_replay_p84 auto \
++  --commit --delete-after-replay --notify --require-fix \
++  --allow-fixes add_schema_name,add_schema_version,coerce_schema_version_int,normalize_ts_ms,ts_from_stream_id,default_missing_legs_empty,coerce_missing_legs_to_json,stringify_missing_legs
++```
++
+ ## Fix policy (conservative)
+-Applied fixes:
++The tool only applies *additive / deterministic* fixes:
+ - add schema markers (schema_name/schema_version)
+-- normalize ts_ms, fallback to stream_id ms-part
+-- coerce ok/ok_soft to {0,1}
+-- enforce ok_soft => ok=0 (conservative)
+-- set missing_legs to "[]" if absent (only if missing)
+-- derive reason_code if absent
++- coerce schema_version to int
++- normalize ts_ms (sec/us/ns → ms), fallback to stream_id ms-part
++- missing_legs: ensure present and valid JSON (defaults to "[]" only when missing)
++- low-card normalization via `enrich_schema_fields()`
+ 
+-If row still fails validation, it is not replayed.
++For `parse_error:*` DLQ entries, tool tries to recover original payload from stored `{"fields": ...}`.
+ 
+-## Interpreting triage output
+-- `fixable_share`: fraction that becomes valid after safe fixes.
+-- `Top dq_code`: validator codes for remaining invalid rows.
+-- `Top hint_code`: stable hints to drive remediation.
++## Safety notes
++- Replay writes include markers: `replay=1`, `replay_src_dlq_id`, `replay_fix_tags`.
++- For automation, use `--require-fix` to avoid replaying entries that need no fixes.
++- Use `--allow-fixes` to prevent accidental broad sanitization.
+ 
+ ## Rollback
+-Tool is operator-only and additive.
++Tool is additive.
+ If replay caused issues:
+-- stop running the tool,
+-- consumers can ignore `replay_*` fields,
+-- optionally purge replays using `replay_src_dlq_id` markers.
+-
++- stop running the tool or disable timers,
++- consumers can ignore rows with `replay=1`,
++- optionally purge replays by filtering on `replay_src_dlq_id` markers.
+diff --git a/services/of_timers_worker.py b/services/of_timers_worker.py
+index 3aac6bc..1a1e95e 100644
+--- a/services/of_timers_worker.py
++++ b/services/of_timers_worker.py
+@@ -1424,11 +1424,112 @@ def run_of_gate_dlq_triage() -> bool:
+     ]
+     return run_tool("orderflow_services.of_gate_dlq_fixed_replay_p84", args, timeout=600)
+ 
++
++def run_of_gate_dlq_auto_replay() -> bool:
++    """Run OF-Gate DLQ auto triage+safe replay (P3) (Hourly).
++
++    Enabled by: ENABLE_OF_GATE_DLQ_AUTO_REPLAY_TIMER=1
++
++    Safety controls:
++      - OF_GATE_DLQ_AUTO_REPLAY_SAFE_START_UTC / _SAFE_END_UTC (optional guard)
++      - Redis/file lock to avoid concurrent runs
++      - Restricted fix allowlist (OF_GATE_DLQ_AUTO_ALLOW_FIXES)
++      - require-fix enabled by default (skip entries that need no fixes)
++
++    Writes a short summary to notify:telegram when --notify is enabled.
++    """
++    if os.getenv("ENABLE_OF_GATE_DLQ_AUTO_REPLAY_TIMER", "0") != "1":
++        return True
++
++    # Optional safe-window (UTC)
++    safe_start = os.getenv("OF_GATE_DLQ_AUTO_REPLAY_SAFE_START_UTC", "")
++    safe_end = os.getenv("OF_GATE_DLQ_AUTO_REPLAY_SAFE_END_UTC", "")
++    if safe_start and safe_end:
++        try:
++            now = datetime.utcnow()
++            sh, sm = [int(x) for x in safe_start.split(":", 1)]
++            eh, em = [int(x) for x in safe_end.split(":", 1)]
++            cur = now.hour * 60 + now.minute
++            a = sh * 60 + sm
++            b = eh * 60 + em
++            in_win = (a <= cur <= b) if a <= b else (cur >= a or cur <= b)
++            if not in_win:
++                logger.info("DLQ auto replay: outside safe-window, skipping")
++                return True
++        except Exception:
++            pass
++
++    timeout_s = int(os.getenv("OF_GATE_DLQ_AUTO_REPLAY_TIMEOUT_S", "900"))
++
++    # Best-effort lock (Redis SET NX EX; fallback file lock)
++    lock_key = os.getenv("OF_GATE_DLQ_AUTO_REPLAY_LOCK_KEY", "lock:of_gate_dlq_auto_replay")
++    lock_ttl = int(os.getenv("OF_GATE_DLQ_AUTO_REPLAY_LOCK_TTL_S", str(timeout_s + 60)))
++    got_lock = False
++    lock_file = os.getenv("OF_GATE_DLQ_AUTO_REPLAY_LOCK_FILE", "/tmp/of_gate_dlq_auto_replay.lock")
++    try:
++        import redis  # type: ignore
++        r = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++        got_lock = bool(r.set(lock_key, str(int(time.time())), nx=True, ex=lock_ttl))
++    except Exception:
++        try:
++            fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
++            os.write(fd, str(int(time.time())).encode("utf-8"))
++            os.close(fd)
++            got_lock = True
++        except Exception:
++            got_lock = False
++
++    if not got_lock:
++        logger.info("DLQ auto replay: lock busy, skipping")
++        return True
++
++    args = [
++        "auto",
++        "--max-per-stream", os.getenv("OF_GATE_DLQ_AUTO_MAX_PER_STREAM", "2000"),
++        "--allow-fixes", os.getenv(
++            "OF_GATE_DLQ_AUTO_ALLOW_FIXES",
++            "add_schema_name,add_schema_version,coerce_schema_version_int,normalize_ts_ms,ts_from_stream_id,default_missing_legs_empty,coerce_missing_legs_to_json,stringify_missing_legs",
++        ),
++    ]
++
++    streams = os.getenv("OF_GATE_DLQ_STREAMS", "")
++    if streams.strip():
++        args += ["--streams", streams]
++
++    target = os.getenv("OF_GATE_DLQ_AUTO_TARGET_STREAM", "")
++    if target.strip():
++        args += ["--target", target]
++
++    if os.getenv("OF_GATE_DLQ_AUTO_REPLAY_REQUIRE_FIX", "1") == "1":
++        args += ["--require-fix"]
++
++    if os.getenv("OF_GATE_DLQ_AUTO_REPLAY_COMMIT", "1") == "1":
++        args += ["--commit"]
++
++    if os.getenv("OF_GATE_DLQ_AUTO_REPLAY_DELETE_AFTER", "1") == "1":
++        args += ["--delete-after-replay"]
++
++    if os.getenv("OF_GATE_DLQ_AUTO_REPLAY_NOTIFY", "1") == "1":
++        args += ["--notify"]
++
++    ok = run_tool("orderflow_services.of_gate_dlq_fixed_replay_p84", args, timeout=timeout_s)
++
++    # Release file lock (Redis lock expires by TTL)
++    try:
++        if os.path.exists(lock_file):
++            os.remove(lock_file)
++    except Exception:
++        pass
++
++    return ok
++
++
+ def main() -> None:
+     """Main loop."""
+     logger.info("OF Timers Worker starting...")
+     logger.info("Monitors: Config drift (hourly :15)")
+     logger.info("Monitors: OF Gate contract smoke-check (hourly :08)")
++    logger.info("Monitors: OF Gate DLQ auto replay (hourly :44)")
+     logger.info("Monitors: Confidence cal live health (hourly :45)")
+     logger.info("Weekly: Latency bench (Sun 06:40)")
+     logger.info("Nightly:")
+@@ -1691,6 +1792,14 @@ def main() -> None:
+                 if now.timestamp() - last > 3500:
+                     run_of_gate_dlq_triage()
+                     last_run["of_gate_dlq_triage"] = now.timestamp()
++
++
++            # P3: Hourly:44 OF Gate DLQ Auto Replay (safe, restricted)
++            if minute >= 44 and minute < 45:
++                last = last_run.get("of_gate_dlq_auto_replay", 0)
++                if now.timestamp() - last > 3500:
++                    run_of_gate_dlq_auto_replay()
++                    last_run["of_gate_dlq_auto_replay"] = now.timestamp()
+             time.sleep(30)
+             
+         except KeyboardInterrupt:
+diff --git a/services/orderflow/tests/test_of_gate_dlq_fixed_replay_p84.py b/services/orderflow/tests/test_of_gate_dlq_fixed_replay_p84.py
+index 8844f39..089b782 100644
+--- a/services/orderflow/tests/test_of_gate_dlq_fixed_replay_p84.py
++++ b/services/orderflow/tests/test_of_gate_dlq_fixed_replay_p84.py
+@@ -1,12 +1,19 @@
+ import pytest
++
+ from orderflow_services.of_gate_dlq_fix_hints_registry_p84 import hint_for, known_dq_codes
+-from orderflow_services.of_gate_dlq_fixed_replay_p84 import _safe_fix_payload, _coerce_int01, _normalize_ts_ms
++from orderflow_services.of_gate_dlq_fixed_replay_p84 import (
++    _safe_fix_payload,
++    _coerce_int01,
++    _normalize_ts_ms,
++    _parse_stream_payload_from_fields,
++)
++
+ 
+ def test_fix_hints_registry():
+     codes = known_dq_codes()
+     assert "dq_schema_missing" in codes
+     assert "dq_ok_invariant" in codes
+-    
++
+     # Known dq_code
+     hint1 = hint_for("dq_schema_missing", "Some random err")
+     assert hint1.hint_code == "schema_missing"
+@@ -34,10 +41,10 @@ def test_coerce_int01():
+     assert _coerce_int01("0") == 0
+     assert _coerce_int01(1.0) == 1
+     assert _coerce_int01(0.0) == 0
+-    assert _coerce_int01(2) == 1  # coercing any bool(2) as 1? Let's check the code:
+-    # Actually, we don't know exact coercion logic without viewing _coerce_int01
+-    # But let's verify typical behaviour.
+-    pass
++    assert _coerce_int01(2) == 1
++    assert _coerce_int01("yes") == 1
++    assert _coerce_int01("no") == 0
++
+ 
+ def test_normalize_ts_ms():
+     # seconds
+@@ -49,15 +56,47 @@ def test_normalize_ts_ms():
+     # str
+     assert _normalize_ts_ms("1700000000000") == 1700000000000
+ 
+-def test_safe_fix_payload():
++
++def test_parse_stream_payload_from_fields_payload_key():
++    fields = {"payload": '{"symbol":"BTCUSDT","ok":1,"ok_soft":0,"ts_ms":1700000000000}'}
++    p = _parse_stream_payload_from_fields(fields)
++    assert p["symbol"] == "BTCUSDT"
++    assert p["ok"] == 1
++
++
++def test_safe_fix_payload_schema_ts_missing_legs():
+     payload = {
+         "symbol": "BTCUSDT",
+         "ok": 1,
+-        "ok_soft": 1,
+-        "ts_ms": 1700000000 # seconds
++        "ok_soft": 0,
++        "ts_ms": 1700000000,  # seconds
+     }
+     new_p, fixes = _safe_fix_payload(payload.copy(), "1700000000000-0")
+-    assert "add_schema_name" in fixes or "add_schema_version" in fixes or "normalize_ts_ms" in fixes
++
++    assert new_p["schema_name"] == "of_gate_metrics"
++    assert int(new_p["schema_version"]) == 2
+     assert new_p["ts_ms"] == 1700000000000
+     assert new_p["missing_legs"] == "[]"
+-    assert new_p["ok"] == 0 # ok_soft => ok=0 invariant? The specs: enforce ok_soft => ok=0 (консервативно)
++
++    assert "add_schema_name" in fixes
++    assert "add_schema_version" in fixes
++    assert "normalize_ts_ms" in fixes
++    assert "default_missing_legs_empty" in fixes
++
++
++def test_safe_fix_payload_missing_legs_coerce():
++    payload = {
++        "symbol": "BTCUSDT",
++        "schema_name": "of_gate_metrics",
++        "schema_version": "2",
++        "ok": 0,
++        "ok_soft": 0,
++        "ts_ms": 1700000000000,
++        "missing_legs": "not_json",
++    }
++    new_p, fixes = _safe_fix_payload(payload.copy(), "1700000000000-0")
++    assert "coerce_schema_version_int" in fixes
++    assert "coerce_missing_legs_to_json" in fixes
++    # should be a JSON list string
++    assert isinstance(new_p["missing_legs"], str)
++    assert new_p["missing_legs"].startswith("[")
+diff --git a/tick_flow_full/orderflow_services/grafana/README_p82.md b/tick_flow_full/orderflow_services/grafana/README_p82.md
+new file mode 120000
+index 0000000..ce850e8
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/grafana/README_p82.md
+@@ -0,0 +1 @@
++../../../orderflow_services/grafana/README_p82.md
+\ No newline at end of file
+diff --git a/tick_flow_full/orderflow_services/grafana/of_gate_dlq_p82.json b/tick_flow_full/orderflow_services/grafana/of_gate_dlq_p82.json
+new file mode 120000
+index 0000000..8cd355c
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/grafana/of_gate_dlq_p82.json
+@@ -0,0 +1 @@
++../../../orderflow_services/grafana/of_gate_dlq_p82.json
+\ No newline at end of file
+diff --git a/tick_flow_full/orderflow_services/of_gate_dlq_exporter_v1.py b/tick_flow_full/orderflow_services/of_gate_dlq_exporter_v1.py
+new file mode 120000
+index 0000000..96d7ac8
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/of_gate_dlq_exporter_v1.py
+@@ -0,0 +1 @@
++../../orderflow_services/of_gate_dlq_exporter_v1.py
+\ No newline at end of file
+diff --git a/tick_flow_full/orderflow_services/prometheus_alerts_of_gate_dlq_p82.yml b/tick_flow_full/orderflow_services/prometheus_alerts_of_gate_dlq_p82.yml
+new file mode 120000
+index 0000000..8d0f039
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_of_gate_dlq_p82.yml
+@@ -0,0 +1 @@
++../../orderflow_services/prometheus_alerts_of_gate_dlq_p82.yml
+\ No newline at end of file
+diff --git a/tick_flow_full/services/of_timers_worker.py b/tick_flow_full/services/of_timers_worker.py
+index d3ac441..4e0d888 100644
+--- a/tick_flow_full/services/of_timers_worker.py
++++ b/tick_flow_full/services/of_timers_worker.py
+@@ -1368,11 +1368,112 @@ def run_of_gate_dlq_triage() -> bool:
+     ]
+     return run_tool("orderflow_services.of_gate_dlq_fixed_replay_p84", args, timeout=600)
+ 
++
++def run_of_gate_dlq_auto_replay() -> bool:
++    """Run OF-Gate DLQ auto triage+safe replay (P3) (Hourly).
++
++    Enabled by: ENABLE_OF_GATE_DLQ_AUTO_REPLAY_TIMER=1
++
++    Safety controls:
++      - OF_GATE_DLQ_AUTO_REPLAY_SAFE_START_UTC / _SAFE_END_UTC (optional guard)
++      - Redis/file lock to avoid concurrent runs
++      - Restricted fix allowlist (OF_GATE_DLQ_AUTO_ALLOW_FIXES)
++      - require-fix enabled by default (skip entries that need no fixes)
++
++    Writes a short summary to notify:telegram when --notify is enabled.
++    """
++    if os.getenv("ENABLE_OF_GATE_DLQ_AUTO_REPLAY_TIMER", "0") != "1":
++        return True
++
++    # Optional safe-window (UTC)
++    safe_start = os.getenv("OF_GATE_DLQ_AUTO_REPLAY_SAFE_START_UTC", "")
++    safe_end = os.getenv("OF_GATE_DLQ_AUTO_REPLAY_SAFE_END_UTC", "")
++    if safe_start and safe_end:
++        try:
++            now = datetime.utcnow()
++            sh, sm = [int(x) for x in safe_start.split(":", 1)]
++            eh, em = [int(x) for x in safe_end.split(":", 1)]
++            cur = now.hour * 60 + now.minute
++            a = sh * 60 + sm
++            b = eh * 60 + em
++            in_win = (a <= cur <= b) if a <= b else (cur >= a or cur <= b)
++            if not in_win:
++                logger.info("DLQ auto replay: outside safe-window, skipping")
++                return True
++        except Exception:
++            pass
++
++    timeout_s = int(os.getenv("OF_GATE_DLQ_AUTO_REPLAY_TIMEOUT_S", "900"))
++
++    # Best-effort lock (Redis SET NX EX; fallback file lock)
++    lock_key = os.getenv("OF_GATE_DLQ_AUTO_REPLAY_LOCK_KEY", "lock:of_gate_dlq_auto_replay")
++    lock_ttl = int(os.getenv("OF_GATE_DLQ_AUTO_REPLAY_LOCK_TTL_S", str(timeout_s + 60)))
++    got_lock = False
++    lock_file = os.getenv("OF_GATE_DLQ_AUTO_REPLAY_LOCK_FILE", "/tmp/of_gate_dlq_auto_replay.lock")
++    try:
++        import redis  # type: ignore
++        r = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++        got_lock = bool(r.set(lock_key, str(int(time.time())), nx=True, ex=lock_ttl))
++    except Exception:
++        try:
++            fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
++            os.write(fd, str(int(time.time())).encode("utf-8"))
++            os.close(fd)
++            got_lock = True
++        except Exception:
++            got_lock = False
++
++    if not got_lock:
++        logger.info("DLQ auto replay: lock busy, skipping")
++        return True
++
++    args = [
++        "auto",
++        "--max-per-stream", os.getenv("OF_GATE_DLQ_AUTO_MAX_PER_STREAM", "2000"),
++        "--allow-fixes", os.getenv(
++            "OF_GATE_DLQ_AUTO_ALLOW_FIXES",
++            "add_schema_name,add_schema_version,coerce_schema_version_int,normalize_ts_ms,ts_from_stream_id,default_missing_legs_empty,coerce_missing_legs_to_json,stringify_missing_legs",
++        ),
++    ]
++
++    streams = os.getenv("OF_GATE_DLQ_STREAMS", "")
++    if streams.strip():
++        args += ["--streams", streams]
++
++    target = os.getenv("OF_GATE_DLQ_AUTO_TARGET_STREAM", "")
++    if target.strip():
++        args += ["--target", target]
++
++    if os.getenv("OF_GATE_DLQ_AUTO_REPLAY_REQUIRE_FIX", "1") == "1":
++        args += ["--require-fix"]
++
++    if os.getenv("OF_GATE_DLQ_AUTO_REPLAY_COMMIT", "1") == "1":
++        args += ["--commit"]
++
++    if os.getenv("OF_GATE_DLQ_AUTO_REPLAY_DELETE_AFTER", "1") == "1":
++        args += ["--delete-after-replay"]
++
++    if os.getenv("OF_GATE_DLQ_AUTO_REPLAY_NOTIFY", "1") == "1":
++        args += ["--notify"]
++
++    ok = run_tool("orderflow_services.of_gate_dlq_fixed_replay_p84", args, timeout=timeout_s)
++
++    # Release file lock (Redis lock expires by TTL)
++    try:
++        if os.path.exists(lock_file):
++            os.remove(lock_file)
++    except Exception:
++        pass
++
++    return ok
++
++
+ def main() -> None:
+     """Main loop."""
+     logger.info("OF Timers Worker starting...")
+     logger.info("Monitors: Config drift (hourly :15)")
+     logger.info("Monitors: OF Gate contract smoke-check (hourly :08)")
++    logger.info("Monitors: OF Gate DLQ auto replay (hourly :44)")
+     logger.info("Monitors: Confidence cal live health (hourly :45)")
+     logger.info("Weekly: Latency bench (Sun 06:40)")
+     logger.info("Nightly:")
+@@ -1633,6 +1734,14 @@ def main() -> None:
+                 if now.timestamp() - last > 3500:
+                     run_of_gate_dlq_triage()
+                     last_run["of_gate_dlq_triage"] = now.timestamp()
++
++
++            # P3: Hourly:44 OF Gate DLQ Auto Replay (safe, restricted)
++            if minute >= 44 and minute < 45:
++                last = last_run.get("of_gate_dlq_auto_replay", 0)
++                if now.timestamp() - last > 3500:
++                    run_of_gate_dlq_auto_replay()
++                    last_run["of_gate_dlq_auto_replay"] = now.timestamp()
+             time.sleep(30)
+             
+         except KeyboardInterrupt:

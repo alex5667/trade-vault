@@ -1,0 +1,106 @@
+groups:
+  - name: web-uptime
+    rules:
+      - alert: BlackboxExporterScrapeDownCritical
+        expr: min(up{job=~"blackbox_http|blackbox_public"}) == 0
+        for: 5m
+        labels:
+          severity: critical
+          team: trade
+          component: monitoring
+        annotations:
+          summary: "Blackbox exporter scrape DOWN"
+          description: "Prometheus cannot scrape blackbox jobs (blackbox_http/blackbox_public). This can mute uptime alerts. Check blackbox-exporter container and Prometheus->blackbox connectivity."
+          runbook_path: "/web_uptime.md"
+          dashboard_path: "/d/web_uptime/web-uptime-blackbox?orgId=1"
+
+      - alert: BlackboxProbeMetricsMissingInternal
+        expr: absent(probe_success{job="blackbox_http"})
+        for: 20m
+        labels:
+          severity: warning
+          team: trade
+          component: monitoring
+        annotations:
+          summary: "Blackbox probe metrics missing (internal job)"
+          description: "probe_success{job=\"blackbox_http\"} is absent for 20m. Uptime coverage may be broken. Check Prometheus config/relabel and blackbox-exporter."
+          runbook_path: "/web_uptime.md"
+          dashboard_path: "/d/web_uptime/web-uptime-blackbox?orgId=1"
+
+      - alert: BlackboxProbeMetricsMissingPublic
+        expr: absent(probe_success{job="blackbox_public"})
+        for: 20m
+        labels:
+          severity: warning
+          team: trade
+          component: monitoring
+        annotations:
+          summary: "Blackbox probe metrics missing (public job)"
+          description: "probe_success{job=\"blackbox_public\"} is absent for 20m. Public routing/TLS coverage may be broken. Check Prometheus config/relabel and blackbox-exporter."
+          runbook_path: "/web_uptime.md"
+          dashboard_path: "/d/web_uptime/web-uptime-blackbox?orgId=1"
+
+      - alert: WebServiceDownCritical
+        expr: probe_success{job="blackbox_http"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          team: trade
+          component: monitoring
+        annotations:
+          summary: "Web service DOWN (internal)"
+          description: "Blackbox probe failed for {{ $labels.instance }}. Check service/container health and networking."
+          runbook_path: "/web_uptime.md"
+          dashboard_path: "/d/edge_stack_overview/edge-stack-overview?orgId=1"
+
+      - alert: WebServiceDownWarningPublic
+        expr: probe_success{job="blackbox_public"} == 0
+        for: 10m
+        labels:
+          severity: warning
+          team: trade
+          component: monitoring
+        annotations:
+          summary: "Web service DOWN (public routing/TLS)"
+          description: "Public URL probe failed for {{ $labels.instance }}. Check public-proxy, DNS, TLS, and route-prefix settings."
+          runbook_path: "/web_uptime.md"
+          dashboard_path: "/d/web_uptime/web-uptime-blackbox?orgId=1"
+
+      - alert: WebTlsCertExpiringSoon
+        expr: (probe_ssl_earliest_cert_expiry{job="blackbox_public"} - time()) / 86400 < 14
+        for: 2h
+        labels:
+          severity: warning
+          team: trade
+          component: monitoring
+        annotations:
+          summary: "TLS certificate expiring soon (<14d)"
+          description: "Earliest TLS cert expiry for {{ $labels.instance }} is under 14 days. Renew/validate ACME and public-proxy TLS."
+          runbook_path: "/web_uptime.md"
+          dashboard_path: "/d/web_uptime/web-uptime-blackbox?orgId=1"
+
+      - alert: WebTlsCertExpiringCritical
+        expr: (probe_ssl_earliest_cert_expiry{job="blackbox_public"} - time()) / 86400 < 7
+        for: 30m
+        labels:
+          severity: critical
+          team: trade
+          component: monitoring
+        annotations:
+          summary: "TLS certificate expiring critically (<7d)"
+          description: "Earliest TLS cert expiry for {{ $labels.instance }} is under 7 days. Immediate action required to prevent outage."
+          runbook_path: "/web_uptime.md"
+          dashboard_path: "/d/web_uptime/web-uptime-blackbox?orgId=1"
+
+      - alert: WebProbeLatencyHighPublic
+        expr: max_over_time(probe_duration_seconds{job="blackbox_public"}[10m]) > 5
+        for: 15m
+        labels:
+          severity: warning
+          team: trade
+          component: monitoring
+        annotations:
+          summary: "Public probe latency high (>5s)"
+          description: "Blackbox probe_duration_seconds exceeded 5s for {{ $labels.instance }} (max over 10m). Check public-proxy load, DNS, upstream slowness."
+          runbook_path: "/web_uptime.md"
+          dashboard_path: "/d/web_uptime/web-uptime-blackbox?orgId=1"

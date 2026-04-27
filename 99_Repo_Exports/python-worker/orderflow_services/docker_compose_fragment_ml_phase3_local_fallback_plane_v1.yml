@@ -1,0 +1,35 @@
+services:
+  scanner-local-fallback-plane-v3-0:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    command: ["python", "-m", "orderflow_services.local_fallback_plane_gateway_v3_0"]
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      ANALYTICS_DB_DSN: ${ANALYTICS_DB_DSN:-postgres://trading:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@scanner-pgbouncer:6432/analytics}
+      LOCAL_FALLBACK_OLLAMA_BASE_URL: ${LOCAL_FALLBACK_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      LOCAL_FALLBACK_OLLAMA_MODEL: ${LOCAL_FALLBACK_OLLAMA_MODEL:-deepseek-r1:14b}
+      LOCAL_FALLBACK_OLLAMA_CODE_MODEL: ${LOCAL_FALLBACK_OLLAMA_CODE_MODEL:-deepseek-r1:14b}
+      ML_LOCAL_FALLBACK_PORT: ${ML_LOCAL_FALLBACK_PORT:-9916}
+      ML_LOCAL_FALLBACK_MODE: ${ML_LOCAL_FALLBACK_MODE:-FALLBACK_ONLY}
+      ML_LOCAL_FALLBACK_REQUIRE_VERTEX_DEGRADED: ${ML_LOCAL_FALLBACK_REQUIRE_VERTEX_DEGRADED:-1}
+    ports:
+      - "${ML_LOCAL_FALLBACK_PORT:-9916}:9916"
+    networks:
+      - scanner-network
+    depends_on:
+      - redis
+      - pgbouncer
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9916/metrics >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.40'
+          memory: 384M

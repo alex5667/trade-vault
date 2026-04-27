@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/telegram_notify.py
+# hypothesis_version: 6.148.10
+
+['POST', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'chat_id', 'text', 'utf-8']

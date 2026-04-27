@@ -1,0 +1,2308 @@
+diff -ruN /mnt/data/proj/.pytest_cache/.gitignore /mnt/data/proj_lob_p92/.pytest_cache/.gitignore
+--- /mnt/data/proj/.pytest_cache/.gitignore	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj_lob_p92/.pytest_cache/.gitignore	2026-02-24 21:06:12.053882016 +0000
+@@ -0,0 +1,2 @@
++# Created by pytest automatically.
++*
+diff -ruN /mnt/data/proj/.pytest_cache/CACHEDIR.TAG /mnt/data/proj_lob_p92/.pytest_cache/CACHEDIR.TAG
+--- /mnt/data/proj/.pytest_cache/CACHEDIR.TAG	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj_lob_p92/.pytest_cache/CACHEDIR.TAG	2026-02-24 21:06:12.053938511 +0000
+@@ -0,0 +1,4 @@
++Signature: 8a477f597d28d172789f06886806bc55
++# This file is a cache directory tag created by pytest.
++# For information about cache directory tags, see:
++#	https://bford.info/cachedir/spec.html
+diff -ruN /mnt/data/proj/.pytest_cache/README.md /mnt/data/proj_lob_p92/.pytest_cache/README.md
+--- /mnt/data/proj/.pytest_cache/README.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj_lob_p92/.pytest_cache/README.md	2026-02-24 21:06:12.053815171 +0000
+@@ -0,0 +1,8 @@
++# pytest cache directory #
++
++This directory contains data from the pytest's cache plugin,
++which provides the `--lf` and `--ff` options, as well as the `cache` fixture.
++
++**Do not** commit this to version control.
++
++See [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.
+diff -ruN /mnt/data/proj/.pytest_cache/v/cache/nodeids /mnt/data/proj_lob_p92/.pytest_cache/v/cache/nodeids
+--- /mnt/data/proj/.pytest_cache/v/cache/nodeids	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj_lob_p92/.pytest_cache/v/cache/nodeids	2026-02-24 21:06:12.054211349 +0000
+@@ -0,0 +1,4 @@
++[
++  "services/orderflow/tests/test_lob_pressure_v1.py::test_basic_queue_imbalance_and_microprice",
++  "services/orderflow/tests/test_lob_pressure_v1.py::test_micro_shift_uses_prev_when_available"
++]
+\ No newline at end of file
+diff -ruN /mnt/data/proj/.pytest_cache/v/cache/stepwise /mnt/data/proj_lob_p92/.pytest_cache/v/cache/stepwise
+--- /mnt/data/proj/.pytest_cache/v/cache/stepwise	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj_lob_p92/.pytest_cache/v/cache/stepwise	2026-02-24 21:06:12.054344210 +0000
+@@ -0,0 +1 @@
++[]
+\ No newline at end of file
+diff -ruN /mnt/data/proj/orderflow_services/grafana/README_p92_lob_pressure.md /mnt/data/proj_lob_p92/orderflow_services/grafana/README_p92_lob_pressure.md
+--- /mnt/data/proj/orderflow_services/grafana/README_p92_lob_pressure.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj_lob_p92/orderflow_services/grafana/README_p92_lob_pressure.md	2026-02-24 21:03:55.912708606 +0000
+@@ -0,0 +1,27 @@
++# LOB Pressure Dashboard (P92)
++
++Files:
++- `lob_pressure_p92.json` — Grafana dashboard (Prometheus datasource `${DS_PROMETHEUS}`).
++
++## Required metrics (Prometheus)
++Produced by `BookProcessor`:
++- `of_lob_queue_imbalance{symbol,level}`
++- `of_lob_queue_imbalance_mean{symbol}`
++- `of_lob_queue_imbalance_max_abs{symbol}`
++- `of_lob_queue_imbalance_slope{symbol}`
++- `of_lob_micro_mid_div_bps{symbol}`
++- `of_lob_micro_shift_bps{symbol}`
++- `of_lob_depth_slope{symbol,side}`  (side: bid|ask|imb)
++- `of_lob_depth_convexity{symbol,side}` (side: bid|ask|imb)
++- `of_lob_dw_obi{symbol}`
++- `of_lob_dw_obi_z{symbol}`
++- `of_lob_dw_obi_stability_score{symbol}`
++- `of_lob_dw_obi_stable_secs{symbol}`
++- `of_lob_dw_obi_stable{symbol}`
++
++## Import
++Grafana → Dashboards → Import → upload `lob_pressure_p92.json`.
++
++## Notes
++- `micro_mid_div_bps` and `micro_shift_bps` are signed; positive values imply bid-side pressure (microprice above mid), negative values imply ask-side pressure.
++- `dw_obi_z` is a rolling robust z-score; it is meant for **relative** anomaly detection and should be tuned per-symbol.
+diff -ruN /mnt/data/proj/orderflow_services/grafana/lob_pressure_p92.json /mnt/data/proj_lob_p92/orderflow_services/grafana/lob_pressure_p92.json
+--- /mnt/data/proj/orderflow_services/grafana/lob_pressure_p92.json	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj_lob_p92/orderflow_services/grafana/lob_pressure_p92.json	2026-02-24 21:03:30.889189763 +0000
+@@ -0,0 +1,500 @@
++{
++  "annotations": {
++    "list": [
++      {
++        "builtIn": 1,
++        "datasource": {
++          "type": "grafana",
++          "uid": "-- Grafana --"
++        },
++        "enable": true,
++        "hide": true,
++        "iconColor": "rgba(0, 211, 255, 1)",
++        "name": "Annotations & Alerts",
++        "type": "dashboard"
++      }
++    ]
++  },
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "id": null,
++  "links": [],
++  "liveNow": false,
++  "panels": [
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {}
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 0,
++        "y": 0
++      },
++      "id": 1,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "pluginVersion": "10.4.0",
++      "targets": [
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_queue_imbalance_mean{symbol=~\"$symbol\"}",
++          "interval": "",
++          "legendFormat": "mean",
++          "refId": "A"
++        },
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_queue_imbalance_max_abs{symbol=~\"$symbol\"}",
++          "interval": "",
++          "legendFormat": "max_abs",
++          "refId": "B"
++        }
++      ],
++      "title": "Queue imbalance: mean / max_abs",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {}
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 12,
++        "y": 0
++      },
++      "id": 2,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "pluginVersion": "10.4.0",
++      "targets": [
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_queue_imbalance{symbol=~\"$symbol\",level=~\"$level\"}",
++          "interval": "",
++          "legendFormat": "L{{level}}",
++          "refId": "A"
++        }
++      ],
++      "title": "Queue imbalance by level (L1..L5)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {}
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 0,
++        "y": 8
++      },
++      "id": 3,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "pluginVersion": "10.4.0",
++      "targets": [
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_micro_mid_div_bps{symbol=~\"$symbol\"}",
++          "interval": "",
++          "legendFormat": "micro-mid",
++          "refId": "A"
++        }
++      ],
++      "title": "Microprice divergence vs mid (bps)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {}
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 12,
++        "y": 8
++      },
++      "id": 4,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "pluginVersion": "10.4.0",
++      "targets": [
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_micro_shift_bps{symbol=~\"$symbol\"}",
++          "interval": "",
++          "legendFormat": "micro-shift",
++          "refId": "A"
++        }
++      ],
++      "title": "Microprice shift (bps)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {}
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 0,
++        "y": 16
++      },
++      "id": 5,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "pluginVersion": "10.4.0",
++      "targets": [
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_depth_slope{symbol=~\"$symbol\",side=\"bid\"}",
++          "interval": "",
++          "legendFormat": "bid",
++          "refId": "A"
++        },
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_depth_slope{symbol=~\"$symbol\",side=\"ask\"}",
++          "interval": "",
++          "legendFormat": "ask",
++          "refId": "B"
++        },
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_depth_slope{symbol=~\"$symbol\",side=\"imb\"}",
++          "interval": "",
++          "legendFormat": "imb",
++          "refId": "C"
++        }
++      ],
++      "title": "Depth slope proxy (qty per bps)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {}
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 12,
++        "y": 16
++      },
++      "id": 6,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "pluginVersion": "10.4.0",
++      "targets": [
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_depth_convexity{symbol=~\"$symbol\",side=\"bid\"}",
++          "interval": "",
++          "legendFormat": "bid",
++          "refId": "A"
++        },
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_depth_convexity{symbol=~\"$symbol\",side=\"ask\"}",
++          "interval": "",
++          "legendFormat": "ask",
++          "refId": "B"
++        },
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_depth_convexity{symbol=~\"$symbol\",side=\"imb\"}",
++          "interval": "",
++          "legendFormat": "imb",
++          "refId": "C"
++        }
++      ],
++      "title": "Depth convexity proxy (far/near - 1)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {}
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 0,
++        "y": 24
++      },
++      "id": 7,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "pluginVersion": "10.4.0",
++      "targets": [
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_dw_obi{symbol=~\"$symbol\"}",
++          "interval": "",
++          "legendFormat": "dw_obi",
++          "refId": "A"
++        },
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_dw_obi_z{symbol=~\"$symbol\"}",
++          "interval": "",
++          "legendFormat": "dw_obi_z",
++          "refId": "B"
++        }
++      ],
++      "title": "Depth-weighted OBI / z",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {}
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 12,
++        "y": 24
++      },
++      "id": 8,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "pluginVersion": "10.4.0",
++      "targets": [
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_dw_obi_stability_score{symbol=~\"$symbol\"}",
++          "interval": "",
++          "legendFormat": "score",
++          "refId": "A"
++        },
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_dw_obi_stable_secs{symbol=~\"$symbol\"}",
++          "interval": "",
++          "legendFormat": "stable_secs",
++          "refId": "B"
++        },
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_dw_obi_stable{symbol=~\"$symbol\"}",
++          "interval": "",
++          "legendFormat": "stable",
++          "refId": "C"
++        }
++      ],
++      "title": "DW OBI stability",
++      "type": "timeseries"
++    }
++  ],
++  "refresh": "10s",
++  "schemaVersion": 38,
++  "style": "dark",
++  "tags": [
++    "orderflow",
++    "lob",
++    "p92"
++  ],
++  "templating": {
++    "list": [
++      {
++        "name": "symbol",
++        "label": "symbol",
++        "type": "query",
++        "datasource": {
++          "type": "prometheus",
++          "uid": "${DS_PROMETHEUS}"
++        },
++        "query": {
++          "query": "label_values(of_lob_micro_mid_div_bps, symbol)",
++          "refId": "StandardVariableQuery"
++        },
++        "refresh": 1,
++        "multi": true,
++        "includeAll": true,
++        "allValue": ".*",
++        "current": {
++          "selected": false,
++          "text": "All",
++          "value": "$__all"
++        }
++      },
++      {
++        "name": "level",
++        "label": "level",
++        "type": "query",
++        "datasource": {
++          "type": "prometheus",
++          "uid": "${DS_PROMETHEUS}"
++        },
++        "query": {
++          "query": "label_values(of_lob_queue_imbalance, level)",
++          "refId": "StandardVariableQuery"
++        },
++        "refresh": 1,
++        "multi": true,
++        "includeAll": true,
++        "allValue": ".*",
++        "current": {
++          "selected": true,
++          "text": "All",
++          "value": "$__all"
++        }
++      }
++    ]
++  },
++  "time": {
++    "from": "now-24h",
++    "to": "now"
++  },
++  "timepicker": {},
++  "timezone": "utc",
++  "title": "LOB Pressure (P92)",
++  "uid": "lob_pressure_p92",
++  "version": 1,
++  "weekStart": ""
++}
+\ No newline at end of file
+diff -ruN /mnt/data/proj/orderflow_services/prometheus_alerts_lob_pressure_p92.yml /mnt/data/proj_lob_p92/orderflow_services/prometheus_alerts_lob_pressure_p92.yml
+--- /mnt/data/proj/orderflow_services/prometheus_alerts_lob_pressure_p92.yml	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj_lob_p92/orderflow_services/prometheus_alerts_lob_pressure_p92.yml	2026-02-24 21:04:39.579404946 +0000
+@@ -0,0 +1,119 @@
++groups:
++- name: lob_pressure_p92
++  interval: 30s
++  rules:
++      # ─────────────────────────────
++      # Recording rules (P92)
++      # ─────────────────────────────
++  - record: of_lob:micro_mid_div_p99_10m
++    expr: quantile_over_time(0.99, of_lob_micro_mid_div_bps[10m])
++  - record: of_lob:micro_mid_div_p01_10m
++    expr: quantile_over_time(0.01, of_lob_micro_mid_div_bps[10m])
++
++  - record: of_lob:micro_shift_p99_10m
++    expr: quantile_over_time(0.99, of_lob_micro_shift_bps[10m])
++  - record: of_lob:micro_shift_p01_10m
++    expr: quantile_over_time(0.01, of_lob_micro_shift_bps[10m])
++
++  - record: of_lob:queue_imb_max_abs_p95_10m
++    expr: quantile_over_time(0.95, of_lob_queue_imbalance_max_abs[10m])
++
++  - record: of_lob:dw_obi_z_p99_30m
++    expr: quantile_over_time(0.99, of_lob_dw_obi_z[30m])
++  - record: of_lob:dw_obi_z_p01_30m
++    expr: quantile_over_time(0.01, of_lob_dw_obi_z[30m])
++
++      # ─────────────────────────────
++      # Alerts (P92)
++      # ─────────────────────────────
++  - alert: OF_LOB_MicroMidDivExtreme_Warn
++    expr: (of_lob:micro_mid_div_p99_10m > 12) or (of_lob:micro_mid_div_p01_10m < -12)
++    for: 10m
++    labels:
++      severity: warning
++    annotations:
++      summary: "LOB: microprice divergence extreme (p99/p01)"
++      description: "Microprice divergence vs mid is extreme (p99>12bps or p01<-12bps) for 10m. Can be regime shift or stale/partial book feed."
++
++      runbook_path: /runbooks/runbook_lob_pressure_p92.md
++      dashboard_path: /d/lob_pressure_p92
++  - alert: OF_LOB_MicroMidDivExtreme_Crit
++    expr: (of_lob:micro_mid_div_p99_10m > 20) or (of_lob:micro_mid_div_p01_10m < -20)
++    for: 10m
++    labels:
++      severity: critical
++    annotations:
++      summary: "LOB: microprice divergence extreme (crit)"
++      description: "Microprice divergence vs mid is very extreme (p99>20bps or p01<-20bps) for 10m."
++
++      runbook_path: /runbooks/runbook_lob_pressure_p92.md
++      dashboard_path: /d/lob_pressure_p92
++
++  - alert: OF_LOB_MicroShiftExtreme_Warn
++    expr: (of_lob:micro_shift_p99_10m > 15) or (of_lob:micro_shift_p01_10m < -15)
++    for: 5m
++    labels:
++      severity: warning
++    annotations:
++      summary: "LOB: microprice shift extreme (p99/p01)"
++      description: "Microprice shift is extreme (p99>15bps or p01<-15bps) for 5m. Often signals fast pressure / thin liquidity."
++
++      runbook_path: /runbooks/runbook_lob_pressure_p92.md
++      dashboard_path: /d/lob_pressure_p92
++  - alert: OF_LOB_MicroShiftExtreme_Crit
++    expr: (of_lob:micro_shift_p99_10m > 25) or (of_lob:micro_shift_p01_10m < -25)
++    for: 5m
++    labels:
++      severity: critical
++    annotations:
++      summary: "LOB: microprice shift extreme (crit)"
++      description: "Microprice shift is very extreme (p99>25bps or p01<-25bps) for 5m."
++
++      runbook_path: /runbooks/runbook_lob_pressure_p92.md
++      dashboard_path: /d/lob_pressure_p92
++
++  - alert: OF_LOB_QueueImbalancePersistent_Warn
++    expr: of_lob:queue_imb_max_abs_p95_10m > 0.75
++    for: 15m
++    labels:
++      severity: warning
++    annotations:
++      summary: "LOB: queue imbalance persistent (p95)"
++      description: "Queue imbalance max_abs p95 over 10m is >0.75 for 15m. Persistent skew or partial book."
++
++      runbook_path: /runbooks/runbook_lob_pressure_p92.md
++      dashboard_path: /d/lob_pressure_p92
++  - alert: OF_LOB_QueueImbalancePersistent_Crit
++    expr: of_lob:queue_imb_max_abs_p95_10m > 0.90
++    for: 10m
++    labels:
++      severity: critical
++    annotations:
++      summary: "LOB: queue imbalance persistent (crit)"
++      description: "Queue imbalance max_abs p95 over 10m is >0.90 for 10m."
++
++      runbook_path: /runbooks/runbook_lob_pressure_p92.md
++      dashboard_path: /d/lob_pressure_p92
++
++  - alert: OF_LOB_DWOBI_UnstableUnderPressure_Warn
++    expr: (((of_lob_dw_obi > 0.25) or (of_lob_dw_obi < -0.25)) and (of_lob_dw_obi_stability_score < 0.20))
++    for: 10m
++    labels:
++      severity: warning
++    annotations:
++      summary: "LOB: DW OBI unstable under pressure"
++      description: "Depth-weighted OBI magnitude is high but stability_score is low for 10m. Pressure is not persistent (risk of false pressure / whipsaw)."
++
++      runbook_path: /runbooks/runbook_lob_pressure_p92.md
++      dashboard_path: /d/lob_pressure_p92
++  - alert: OF_LOB_DWOBI_UnstableUnderPressure_Crit
++    expr: (((of_lob_dw_obi > 0.35) or (of_lob_dw_obi < -0.35)) and (of_lob_dw_obi_stability_score < 0.20))
++    for: 15m
++    labels:
++      severity: critical
++    annotations:
++      summary: "LOB: DW OBI unstable under pressure (crit)"
++      description: "Depth-weighted OBI magnitude is very high but stability_score is low for 15m."
++
++      runbook_path: /runbooks/runbook_lob_pressure_p92.md
++      dashboard_path: /d/lob_pressure_p92
+diff -ruN /mnt/data/proj/orderflow_services/runbook_lob_pressure_p92.md /mnt/data/proj_lob_p92/orderflow_services/runbook_lob_pressure_p92.md
+--- /mnt/data/proj/orderflow_services/runbook_lob_pressure_p92.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj_lob_p92/orderflow_services/runbook_lob_pressure_p92.md	2026-02-24 21:03:55.913344630 +0000
+@@ -0,0 +1,42 @@
++# Runbook: LOB Pressure (P92)
++
++## What it means
++This dashboard surfaces *order book pressure* proxies from top-5 L2 snapshots:
++
++- Queue imbalance (L1..L5): how much more size sits on bid vs ask (qty-only).
++- Microprice divergence vs mid (bps): hidden pressure signal (microprice != mid).
++- Depth slope / convexity: impact-resilience proxies (how fast depth accumulates away from mid).
++- Depth-weighted OBI + stability: weighted imbalance and its persistence.
++
++## When to care (triage)
++1) **Micro-mid divergence spikes**
++- Symptom: `of_lob_micro_mid_div_bps` large magnitude for multiple minutes.
++- Causes:
++  - market regime change (thin book / pressure),
++  - stale/partial book snapshots (data feed issue).
++- Checks:
++  - Compare with spread (`spread_bps`) and book rate / gaps.
++  - If divergence is extreme *and* book rate is low → suspect feed staleness.
++
++2) **Queue imbalance persistent**
++- Symptom: `of_lob_queue_imbalance_max_abs` stays > 0.8.
++- Causes:
++  - real pressure regime,
++  - one side missing levels (parser/data provider).
++- Checks:
++  - validate top5 bids/asks non-empty, quantities > 0.
++  - correlate with `of_lob_queue_imbalance{level="1"}` vs deeper levels.
++
++3) **DW OBI unstable while |DW OBI| high**
++- Symptom: `|of_lob_dw_obi|` high, but `of_lob_dw_obi_stability_score` low.
++- Interpretation:
++  - pressure exists but not persistent → avoid overconfidence (risk).
++
++## Tuning thresholds
++Initial defaults for alerts are conservative. After 24–72h of data:
++- compute typical p95/p99 per symbol,
++- tighten thresholds per symbol family (BTC/ETH vs alts).
++
++## Rollback
++- Disable by removing/ignoring the new alert file and dashboard.
++- Code rollback: revert the LOB patch (P91).
+Binary files /mnt/data/proj/services/__pycache__/__init__.cpython-311.pyc and /mnt/data/proj_lob_p92/services/__pycache__/__init__.cpython-311.pyc differ
+Binary files /mnt/data/proj/services/orderflow/__pycache__/__init__.cpython-311.pyc and /mnt/data/proj_lob_p92/services/orderflow/__pycache__/__init__.cpython-311.pyc differ
+Binary files /mnt/data/proj/services/orderflow/__pycache__/metrics.cpython-311.pyc and /mnt/data/proj_lob_p92/services/orderflow/__pycache__/metrics.cpython-311.pyc differ
+Binary files /mnt/data/proj/services/orderflow/__pycache__/runtime.cpython-311.pyc and /mnt/data/proj_lob_p92/services/orderflow/__pycache__/runtime.cpython-311.pyc differ
+Binary files /mnt/data/proj/services/orderflow/components/__pycache__/book_processor.cpython-311.pyc and /mnt/data/proj_lob_p92/services/orderflow/components/__pycache__/book_processor.cpython-311.pyc differ
+Binary files /mnt/data/proj/services/orderflow/components/__pycache__/tick_processor.cpython-311.pyc and /mnt/data/proj_lob_p92/services/orderflow/components/__pycache__/tick_processor.cpython-311.pyc differ
+diff -ruN /mnt/data/proj/services/orderflow/components/book_processor.py /mnt/data/proj_lob_p92/services/orderflow/components/book_processor.py
+--- /mnt/data/proj/services/orderflow/components/book_processor.py	2026-02-24 20:42:41.105017004 +0000
++++ /mnt/data/proj_lob_p92/services/orderflow/components/book_processor.py	2026-02-24 21:00:38.088026842 +0000
+@@ -7,11 +7,16 @@
+ from services.orderflow.runtime import SymbolRuntime, BookSnapshot, BookState
+ from services.orderflow.configuration import _safe_int, _safe_float
+ from services.orderflow.metrics import (
+-    log_silent_error, book_rate_ema_gauge, book_rate_z_gauge
++    log_silent_error, book_rate_ema_gauge, book_rate_z_gauge,
++    of_lob_queue_imbalance_gauge, of_lob_queue_imbalance_mean_gauge, of_lob_queue_imbalance_max_abs_gauge, of_lob_queue_imbalance_slope_gauge,
++    of_lob_micro_mid_div_bps_gauge, of_lob_micro_shift_bps_gauge,
++    of_lob_depth_slope_gauge, of_lob_depth_convexity_gauge,
++    of_lob_dw_obi_gauge, of_lob_dw_obi_z_gauge, of_lob_dw_obi_stability_score_gauge, of_lob_dw_obi_stable_secs_gauge, of_lob_dw_obi_stable_gauge,
+ )
+ from services.orderflow.utils import _fields_to_dict
+ from services.orderflow.components.parsing import OrderFlowParsing
+ from core.book_churn import compute_churn_from_z
++from core.lob_pressure import compute_lob_pressure
+ from core.cvd_reclaim import compute_cvd_reclaim
+ from core.ofi_tracker import OFIEvent
+ 
+@@ -69,6 +74,82 @@
+             runtime.prev_book = prev_snap
+             runtime.last_book = snap
+ 
++            # 2b. LOB pressure features (P91)
++            try:
++                lp = compute_lob_pressure(
++                    bids=list(snap.top5_bids or []),
++                    asks=list(snap.top5_asks or []),
++                    prev_bids=list(prev_snap.top5_bids) if prev_snap else None,
++                    prev_asks=list(prev_snap.top5_asks) if prev_snap else None,
++                )
++
++                runtime.lob_qi_levels = tuple(lp.qi_levels)
++                runtime.lob_qi_mean = float(lp.qi_mean)
++                runtime.lob_qi_max_abs = float(lp.qi_max_abs)
++                runtime.lob_qi_slope = float(lp.qi_slope)
++
++                runtime.lob_micro_mid_div_bps = float(lp.micro_mid_div_bps)
++                runtime.lob_micro_shift_bps = float(lp.micro_shift_bps)
++
++                runtime.lob_depth_slope_bid = float(lp.depth_slope_bid)
++                runtime.lob_depth_slope_ask = float(lp.depth_slope_ask)
++                runtime.lob_depth_slope_imb = float(lp.depth_slope_imb)
++
++                runtime.lob_depth_convexity_bid = float(lp.depth_convexity_bid)
++                runtime.lob_depth_convexity_ask = float(lp.depth_convexity_ask)
++                runtime.lob_depth_convexity_imb = float(lp.depth_convexity_imb)
++
++                runtime.lob_dw_obi = float(lp.dw_obi)
++
++                # z-score + stability
++                try:
++                    runtime.dw_obi_stats.update(float(lp.dw_obi))
++                    runtime.lob_dw_obi_z = float(runtime.dw_obi_stats.z(float(lp.dw_obi)))
++                except Exception:
++                    runtime.lob_dw_obi_z = 0.0
++
++                try:
++                    st_score, st_secs = runtime.dw_obi_tracker.update(ts_ms=int(book_ts_ms), obi=float(lp.dw_obi))
++                    runtime.lob_dw_obi_stability_score = float(st_score)
++                    runtime.lob_dw_obi_stable_secs = float(st_secs)
++                    score_min = float(runtime.config.get("dw_obi_stable_score_min", 0.6))
++                    secs_min = float(runtime.config.get("dw_obi_stable_secs_min", 1.0))
++                    runtime.lob_dw_obi_stable = 1 if (st_score >= score_min and st_secs >= secs_min) else 0
++                except Exception:
++                    runtime.lob_dw_obi_stability_score = 0.0
++                    runtime.lob_dw_obi_stable_secs = 0.0
++                    runtime.lob_dw_obi_stable = 0
++
++                runtime.last_lob_ts_ms = int(book_ts_ms)
++
++                # Prometheus (low cardinality)
++                sym = str(runtime.symbol)
++                for i, val in enumerate(runtime.lob_qi_levels, 1):
++                    of_lob_queue_imbalance_gauge.labels(symbol=sym, level=str(i)).set(float(val))
++                of_lob_queue_imbalance_mean_gauge.labels(symbol=sym).set(float(runtime.lob_qi_mean))
++                of_lob_queue_imbalance_max_abs_gauge.labels(symbol=sym).set(float(runtime.lob_qi_max_abs))
++                of_lob_queue_imbalance_slope_gauge.labels(symbol=sym).set(float(runtime.lob_qi_slope))
++
++                of_lob_micro_mid_div_bps_gauge.labels(symbol=sym).set(float(runtime.lob_micro_mid_div_bps))
++                of_lob_micro_shift_bps_gauge.labels(symbol=sym).set(float(runtime.lob_micro_shift_bps))
++
++                of_lob_depth_slope_gauge.labels(symbol=sym, side="bid").set(float(runtime.lob_depth_slope_bid))
++                of_lob_depth_slope_gauge.labels(symbol=sym, side="ask").set(float(runtime.lob_depth_slope_ask))
++                of_lob_depth_slope_gauge.labels(symbol=sym, side="imb").set(float(runtime.lob_depth_slope_imb))
++
++                of_lob_depth_convexity_gauge.labels(symbol=sym, side="bid").set(float(runtime.lob_depth_convexity_bid))
++                of_lob_depth_convexity_gauge.labels(symbol=sym, side="ask").set(float(runtime.lob_depth_convexity_ask))
++                of_lob_depth_convexity_gauge.labels(symbol=sym, side="imb").set(float(runtime.lob_depth_convexity_imb))
++
++                of_lob_dw_obi_gauge.labels(symbol=sym).set(float(runtime.lob_dw_obi))
++                of_lob_dw_obi_z_gauge.labels(symbol=sym).set(float(runtime.lob_dw_obi_z))
++                of_lob_dw_obi_stability_score_gauge.labels(symbol=sym).set(float(runtime.lob_dw_obi_stability_score))
++                of_lob_dw_obi_stable_secs_gauge.labels(symbol=sym).set(float(runtime.lob_dw_obi_stable_secs))
++                of_lob_dw_obi_stable_gauge.labels(symbol=sym).set(float(runtime.lob_dw_obi_stable))
++
++            except Exception as exc:
++                log_silent_error(exc, 'lob_pressure_failure', runtime.symbol, 'BookProcessor:lob_pressure')
++
+             # 3. Book Rate & Churn Metrics
+             if book_ts_ms > 0:
+                 prev = _safe_int(prev_ts_ms)
+diff -ruN /mnt/data/proj/services/orderflow/components/tick_processor.py /mnt/data/proj_lob_p92/services/orderflow/components/tick_processor.py
+--- /mnt/data/proj/services/orderflow/components/tick_processor.py	2026-02-24 20:42:41.104756748 +0000
++++ /mnt/data/proj_lob_p92/services/orderflow/components/tick_processor.py	2026-02-24 21:01:25.728570371 +0000
+@@ -1800,6 +1800,23 @@
+                     emit_v2_cfg = runtime.config.get("of_inputs_emit_v2", 1)
+                     emit_v2 = bool(_i(emit_v2_cfg, 1))
+ 
++                    # LOB pressure (P91) - sourced from BookProcessor (top-5 book)
++                    try:
++                        indicators["lob_qi_mean"] = float(getattr(runtime, "lob_qi_mean", 0.0) or 0.0)
++                        indicators["lob_qi_max_abs"] = float(getattr(runtime, "lob_qi_max_abs", 0.0) or 0.0)
++                        indicators["lob_qi_slope"] = float(getattr(runtime, "lob_qi_slope", 0.0) or 0.0)
++                        indicators["lob_micro_mid_div_bps"] = float(getattr(runtime, "lob_micro_mid_div_bps", 0.0) or 0.0)
++                        indicators["lob_micro_shift_bps"] = float(getattr(runtime, "lob_micro_shift_bps", 0.0) or 0.0)
++                        indicators["lob_depth_slope_imb"] = float(getattr(runtime, "lob_depth_slope_imb", 0.0) or 0.0)
++                        indicators["lob_depth_convexity_imb"] = float(getattr(runtime, "lob_depth_convexity_imb", 0.0) or 0.0)
++                        indicators["lob_dw_obi"] = float(getattr(runtime, "lob_dw_obi", 0.0) or 0.0)
++                        indicators["lob_dw_obi_z"] = float(getattr(runtime, "lob_dw_obi_z", 0.0) or 0.0)
++                        indicators["lob_dw_obi_stability_score"] = float(getattr(runtime, "lob_dw_obi_stability_score", 0.0) or 0.0)
++                        indicators["lob_dw_obi_stable_secs"] = float(getattr(runtime, "lob_dw_obi_stable_secs", 0.0) or 0.0)
++                        indicators["lob_dw_obi_stable"] = int(getattr(runtime, "lob_dw_obi_stable", 0) or 0)
++                    except Exception:
++                        pass
++
+                     ofi_kwargs = {
+                         "v": 2 if emit_v2 else 1,
+                         "symbol": _s(runtime.symbol),
+@@ -1829,6 +1846,20 @@
+                         ofi_kwargs["ofi_dir_ok"] = _i(indicators.get("ofi_dir_ok", 0), 0)
+                         ofi_kwargs["ofi_stable_secs"] = _f(indicators.get("ofi_stable_secs", 0.0), 0.0)
+ 
++                        # LOB pressure (P91)
++                        ofi_kwargs["lob_qi_mean"] = _f(indicators.get("lob_qi_mean", 0.0), 0.0)
++                        ofi_kwargs["lob_qi_max_abs"] = _f(indicators.get("lob_qi_max_abs", 0.0), 0.0)
++                        ofi_kwargs["lob_qi_slope"] = _f(indicators.get("lob_qi_slope", 0.0), 0.0)
++                        ofi_kwargs["lob_micro_mid_div_bps"] = _f(indicators.get("lob_micro_mid_div_bps", 0.0), 0.0)
++                        ofi_kwargs["lob_micro_shift_bps"] = _f(indicators.get("lob_micro_shift_bps", 0.0), 0.0)
++                        ofi_kwargs["lob_depth_slope_imb"] = _f(indicators.get("lob_depth_slope_imb", 0.0), 0.0)
++                        ofi_kwargs["lob_depth_convexity_imb"] = _f(indicators.get("lob_depth_convexity_imb", 0.0), 0.0)
++                        ofi_kwargs["lob_dw_obi"] = _f(indicators.get("lob_dw_obi", 0.0), 0.0)
++                        ofi_kwargs["lob_dw_obi_z"] = _f(indicators.get("lob_dw_obi_z", 0.0), 0.0)
++                        ofi_kwargs["lob_dw_obi_stability_score"] = _f(indicators.get("lob_dw_obi_stability_score", 0.0), 0.0)
++                        ofi_kwargs["lob_dw_obi_stable_secs"] = _f(indicators.get("lob_dw_obi_stable_secs", 0.0), 0.0)
++                        ofi_kwargs["lob_dw_obi_stable"] = _i(indicators.get("lob_dw_obi_stable", 0), 0)
++
+                     inputs_obj = OFInputsV2(**ofi_kwargs) if emit_v2 else OFInputsV1(**ofi_kwargs)
+                     
+                     stream_inputs = str(runtime.config.get("of_inputs_stream", "metrics:ml_inputs"))
+diff -ruN /mnt/data/proj/services/orderflow/metrics.py /mnt/data/proj_lob_p92/services/orderflow/metrics.py
+--- /mnt/data/proj/services/orderflow/metrics.py	2026-02-24 20:42:41.095518344 +0000
++++ /mnt/data/proj_lob_p92/services/orderflow/metrics.py	2026-02-24 20:57:26.641800731 +0000
+@@ -249,6 +249,24 @@
+ 
+ book_rate_ema_gauge = _get_or_create_prom_gauge("book_rate_ema_hz", "Per-symbol book update rate EMA (Hz)", ["symbol"])
+ book_rate_z_gauge = _get_or_create_prom_gauge("book_rate_z", "Per-symbol book update rate robust z", ["symbol"])
++
++# --- LOB pressure (P91) ---
++of_lob_queue_imbalance_gauge = _get_or_create_prom_gauge("of_lob_queue_imbalance", "Queue imbalance (bid_qty-ask_qty)/(bid_qty+ask_qty) by level", ["symbol", "level"])
++of_lob_queue_imbalance_mean_gauge = _get_or_create_prom_gauge("of_lob_queue_imbalance_mean", "Queue imbalance mean across L1..L5", ["symbol"])
++of_lob_queue_imbalance_max_abs_gauge = _get_or_create_prom_gauge("of_lob_queue_imbalance_max_abs", "Queue imbalance max abs across L1..L5", ["symbol"])
++of_lob_queue_imbalance_slope_gauge = _get_or_create_prom_gauge("of_lob_queue_imbalance_slope", "Queue imbalance slope across levels (linear fit)", ["symbol"])
++
++of_lob_micro_mid_div_bps_gauge = _get_or_create_prom_gauge("of_lob_micro_mid_div_bps", "Microprice divergence vs mid (bps)", ["symbol"])
++of_lob_micro_shift_bps_gauge = _get_or_create_prom_gauge("of_lob_micro_shift_bps", "Microprice shift vs previous (bps)", ["symbol"])
++
++of_lob_depth_slope_gauge = _get_or_create_prom_gauge("of_lob_depth_slope", "Depth slope proxy (cum_qty vs distance from mid, qty per bps)", ["symbol", "side"])
++of_lob_depth_convexity_gauge = _get_or_create_prom_gauge("of_lob_depth_convexity", "Depth convexity proxy (far/near slope - 1)", ["symbol", "side"])
++
++of_lob_dw_obi_gauge = _get_or_create_prom_gauge("of_lob_dw_obi", "Depth-weighted OBI using weights 1/level", ["symbol"])
++of_lob_dw_obi_z_gauge = _get_or_create_prom_gauge("of_lob_dw_obi_z", "Depth-weighted OBI robust z-score (rolling median/MAD)", ["symbol"])
++of_lob_dw_obi_stability_score_gauge = _get_or_create_prom_gauge("of_lob_dw_obi_stability_score", "Depth-weighted OBI stability score (0..1)", ["symbol"])
++of_lob_dw_obi_stable_secs_gauge = _get_or_create_prom_gauge("of_lob_dw_obi_stable_secs", "Depth-weighted OBI stable secs (continuous)", ["symbol"])
++of_lob_dw_obi_stable_gauge = _get_or_create_prom_gauge("of_lob_dw_obi_stable", "Depth-weighted OBI stable flag (1/0)", ["symbol"])
+ book_stale_ms_gauge = _get_or_create_prom_gauge("book_stale_ms", "Per-symbol book staleness vs tick ts (ms)", ["symbol"])
+ 
+ # ATR Sanity & Floors metrics
+diff -ruN /mnt/data/proj/services/orderflow/runtime.py /mnt/data/proj_lob_p92/services/orderflow/runtime.py
+--- /mnt/data/proj/services/orderflow/runtime.py	2026-02-24 20:42:41.098101142 +0000
++++ /mnt/data/proj_lob_p92/services/orderflow/runtime.py	2026-02-24 20:58:47.635476292 +0000
+@@ -583,6 +583,27 @@
+     obi_stable_secs: float = 0.0
+     obi_stability_score: float = 0.0
+ 
++    # LOB pressure (P91)
++    lob_qi_levels: Tuple[float, float, float, float, float] = (0.0, 0.0, 0.0, 0.0, 0.0)
++    lob_qi_mean: float = 0.0
++    lob_qi_max_abs: float = 0.0
++    lob_qi_slope: float = 0.0
++    lob_micro_mid_div_bps: float = 0.0
++    lob_micro_shift_bps: float = 0.0
++    lob_depth_slope_bid: float = 0.0
++    lob_depth_slope_ask: float = 0.0
++    lob_depth_slope_imb: float = 0.0
++    lob_depth_convexity_bid: float = 0.0
++    lob_depth_convexity_ask: float = 0.0
++    lob_depth_convexity_imb: float = 0.0
++    lob_dw_obi: float = 0.0
++    lob_dw_obi_z: float = 0.0
++    lob_dw_obi_stability_score: float = 0.0
++    lob_dw_obi_stable_secs: float = 0.0
++    lob_dw_obi_stable: int = 0
++    last_lob_ts_ms: int = 0
++
++
+     # Pressure / Burst instruments (initialized in __post_init__)
+     burst: BurstCandidateSelector = field(init=False)
+     tick_gaps: TickGapTracker = field(init=False)
+@@ -609,6 +630,8 @@
+ 
+     # OBI / Weak-progress / OFI analytics (initialized in __post_init__)
+     obi_tracker: OBIStabilityTracker = field(init=False)
++    dw_obi_tracker: OBIStabilityTracker = field(init=False)
++    dw_obi_stats: RollingRobustZ = field(init=False)
+     weak_progress_det: WeakProgressDetector = field(init=False)
+     ofi_tracker: OFIStabilityTracker = field(init=False)
+ 
+@@ -706,6 +729,8 @@
+         # Spread robust stats
+         sw = int(self.config.get("spread_stats_window", 300))
+         self.spread_stats = RollingRobustZ(window=max(32, sw))
++        dw = int(self.config.get("dw_obi_stats_window", 300))
++        self.dw_obi_stats = RollingRobustZ(window=max(32, dw))
+         
+         # Daily Candle Tracker
+         self.daily_tracker = DailyCandleTracker(self.symbol)
+@@ -784,6 +809,18 @@
+         self.obi_stable_secs = 0.0
+         self.obi_stability_score = 0.0
+         self.obi_stable = False
++
++        # Depth-weighted OBI stability tracker (LOB pressure)
++        self.dw_obi_tracker = OBIStabilityTracker(
++            window_ms=int(self.config.get("dw_obi_stable_window_ms", 3000)),
++            threshold=float(self.config.get("dw_obi_threshold", 0.18)),
++            deadband=float(self.config.get("dw_obi_deadband", 0.03)),
++            grace_ms=int(self.config.get("dw_obi_grace_ms", 250)),
++        )
++        self.lob_dw_obi_stable_secs = 0.0
++        self.lob_dw_obi_stability_score = 0.0
++        self.lob_dw_obi_stable = 0
++
+         
+         # --------------------------------------
+         # Weak Progress Detector (History) - Absorption Mode
+Binary files /mnt/data/proj/services/orderflow/tests/__pycache__/__init__.cpython-311.pyc and /mnt/data/proj_lob_p92/services/orderflow/tests/__pycache__/__init__.cpython-311.pyc differ
+Binary files /mnt/data/proj/services/orderflow/tests/__pycache__/test_lob_pressure_v1.cpython-311-pytest-8.2.2.pyc and /mnt/data/proj_lob_p92/services/orderflow/tests/__pycache__/test_lob_pressure_v1.cpython-311-pytest-8.2.2.pyc differ
+diff -ruN /mnt/data/proj/services/orderflow/tests/test_lob_pressure_v1.py /mnt/data/proj_lob_p92/services/orderflow/tests/test_lob_pressure_v1.py
+--- /mnt/data/proj/services/orderflow/tests/test_lob_pressure_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj_lob_p92/services/orderflow/tests/test_lob_pressure_v1.py	2026-02-24 21:05:53.114368770 +0000
+@@ -0,0 +1,54 @@
++"""
++Unit tests for core.lob_pressure (P91).
++
++Covers:
++- queue imbalance per level
++- microprice vs mid divergence (bps)
++- depth-weighted OBI sign and magnitude
++"""
++
++import os
++import sys
++import math
++
++import pytest
++
++# Ensure tick_flow_full/ is on PYTHONPATH so `import core.*` works in pytest environments.
++REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
++TICK_FLOW_FULL = os.path.join(REPO_ROOT, "tick_flow_full")
++if TICK_FLOW_FULL not in sys.path:
++    sys.path.insert(0, TICK_FLOW_FULL)
++
++from core.lob_pressure import compute_lob_pressure
++
++
++def test_basic_queue_imbalance_and_microprice():
++    bids = [(100.0, 10.0), (99.0, 9.0), (98.0, 8.0), (97.0, 7.0), (96.0, 6.0)]
++    asks = [(101.0, 5.0), (102.0, 4.0), (103.0, 3.0), (104.0, 2.0), (105.0, 1.0)]
++
++    lp = compute_lob_pressure(bids=bids, asks=asks)
++
++    # L1 queue imbalance: (10-5)/(10+5)=1/3
++    assert lp.qi_levels[0] == pytest.approx(1.0 / 3.0, rel=1e-6)
++
++    # Mean should be positive (more bid qty overall by construction)
++    assert lp.qi_mean > 0.0
++
++    # Microprice should be between best bid and best ask => divergence sign should be positive
++    assert lp.micro_mid_div_bps > 0.0
++
++    # Depth-weighted OBI should be positive
++    assert lp.dw_obi > 0.0
++
++
++def test_micro_shift_uses_prev_when_available():
++    bids1 = [(100.0, 10.0), (99.0, 9.0), (98.0, 8.0), (97.0, 7.0), (96.0, 6.0)]
++    asks1 = [(101.0, 5.0), (102.0, 4.0), (103.0, 3.0), (104.0, 2.0), (105.0, 1.0)]
++
++    bids0 = [(100.0, 5.0), (99.0, 5.0), (98.0, 5.0), (97.0, 5.0), (96.0, 5.0)]
++    asks0 = [(101.0, 10.0), (102.0, 10.0), (103.0, 10.0), (104.0, 10.0), (105.0, 10.0)]
++
++    lp = compute_lob_pressure(bids=bids1, asks=asks1, prev_bids=bids0, prev_asks=asks0)
++
++    # shift should be non-zero because prev micro differs (qtys swapped)
++    assert abs(lp.micro_shift_bps) > 0.0
+Binary files /mnt/data/proj/tick_flow_full/core/__pycache__/__init__.cpython-311.pyc and /mnt/data/proj_lob_p92/tick_flow_full/core/__pycache__/__init__.cpython-311.pyc differ
+Binary files /mnt/data/proj/tick_flow_full/core/__pycache__/book_resilience.cpython-311.pyc and /mnt/data/proj_lob_p92/tick_flow_full/core/__pycache__/book_resilience.cpython-311.pyc differ
+Binary files /mnt/data/proj/tick_flow_full/core/__pycache__/fill_prob_proxy.cpython-311.pyc and /mnt/data/proj_lob_p92/tick_flow_full/core/__pycache__/fill_prob_proxy.cpython-311.pyc differ
+Binary files /mnt/data/proj/tick_flow_full/core/__pycache__/lob_pressure.cpython-311.pyc and /mnt/data/proj_lob_p92/tick_flow_full/core/__pycache__/lob_pressure.cpython-311.pyc differ
+Binary files /mnt/data/proj/tick_flow_full/core/__pycache__/of_inputs_contract.cpython-311.pyc and /mnt/data/proj_lob_p92/tick_flow_full/core/__pycache__/of_inputs_contract.cpython-311.pyc differ
+Binary files /mnt/data/proj/tick_flow_full/core/__pycache__/robust_stats.cpython-311.pyc and /mnt/data/proj_lob_p92/tick_flow_full/core/__pycache__/robust_stats.cpython-311.pyc differ
+Binary files /mnt/data/proj/tick_flow_full/core/__pycache__/vol_regime_tracker.cpython-311.pyc and /mnt/data/proj_lob_p92/tick_flow_full/core/__pycache__/vol_regime_tracker.cpython-311.pyc differ
+diff -ruN /mnt/data/proj/tick_flow_full/core/lob_pressure.py /mnt/data/proj_lob_p92/tick_flow_full/core/lob_pressure.py
+--- /mnt/data/proj/tick_flow_full/core/lob_pressure.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj_lob_p92/tick_flow_full/core/lob_pressure.py	2026-02-24 20:56:37.132717478 +0000
+@@ -0,0 +1,209 @@
++from __future__ import annotations
++
++import math
++from dataclasses import dataclass
++from typing import Dict, List, Optional, Tuple
++
++
++def _f(x: object, default: float = 0.0) -> float:
++    try:
++        v = float(x)  # type: ignore[arg-type]
++        if not math.isfinite(v):
++            return float(default)
++        return float(v)
++    except Exception:
++        return float(default)
++
++
++def _bps(delta: float, ref: float) -> float:
++    ref = float(ref)
++    if ref == 0.0 or not math.isfinite(ref):
++        return 0.0
++    return float(delta) / ref * 1e4
++
++
++@dataclass(slots=True)
++class LOBPressure:
++    # Queue imbalance
++    qi_levels: Tuple[float, float, float, float, float]
++    qi_mean: float
++    qi_max_abs: float
++    qi_slope: float
++
++    # Microprice vs mid
++    micro_mid_div_bps: float
++    micro_shift_bps: float
++
++    # Depth slope / convexity (impact-resilience proxies)
++    depth_slope_bid: float
++    depth_slope_ask: float
++    depth_slope_imb: float
++
++    depth_convexity_bid: float
++    depth_convexity_ask: float
++    depth_convexity_imb: float
++
++    # Depth-weighted OBI
++    dw_obi: float
++
++
++def _queue_imbalance(bq: float, aq: float) -> float:
++    denom = float(bq) + float(aq)
++    if denom <= 0.0 or not math.isfinite(denom):
++        return 0.0
++    return float((float(bq) - float(aq)) / denom)
++
++
++def _linreg_slope(xs: List[float], ys: List[float]) -> float:
++    n = min(len(xs), len(ys))
++    if n < 2:
++        return 0.0
++    x = xs[:n]
++    y = ys[:n]
++    mx = sum(x) / n
++    my = sum(y) / n
++    num = 0.0
++    den = 0.0
++    for i in range(n):
++        dx = x[i] - mx
++        num += dx * (y[i] - my)
++        den += dx * dx
++    if den == 0.0 or not math.isfinite(den):
++        return 0.0
++    return float(num / den)
++
++
++def _depth_xy(
++    *, side_levels: List[Tuple[float, float]], mid: float, max_levels: int = 5
++) -> Tuple[List[float], List[float]]:
++    """Return x (distance in bps from mid) and y (cumulative qty) for up to max_levels."""
++    xs: List[float] = []
++    ys: List[float] = []
++    cum = 0.0
++    for px, qty in (side_levels or [])[:max_levels]:
++        px = _f(px, 0.0)
++        qty = _f(qty, 0.0)
++        if qty <= 0.0:
++            continue
++        x = abs(px - mid)
++        xb = _bps(x, mid)
++        cum += qty
++        xs.append(float(xb))
++        ys.append(float(cum))
++    return xs, ys
++
++
++def _convexity(xs: List[float], ys: List[float]) -> float:
++    """Simple curvature proxy: compare far vs near depth slopes."""
++    if len(xs) < 3 or len(ys) < 3:
++        return 0.0
++    # near: first 2 points
++    dn = xs[1] - xs[0]
++    if dn == 0.0:
++        return 0.0
++    slope_near = (ys[1] - ys[0]) / dn
++    # far: last 2 points
++    df = xs[-1] - xs[-2]
++    if df == 0.0:
++        return 0.0
++    slope_far = (ys[-1] - ys[-2]) / df
++    eps = 1e-9
++    if not math.isfinite(slope_near) or not math.isfinite(slope_far):
++        return 0.0
++    return float((slope_far / (slope_near + eps)) - 1.0)
++
++
++def compute_lob_pressure(
++    *,
++    bids: List[Tuple[float, float]],
++    asks: List[Tuple[float, float]],
++    prev_bids: Optional[List[Tuple[float, float]]] = None,
++    prev_asks: Optional[List[Tuple[float, float]]] = None,
++) -> LOBPressure:
++    """
++    Deterministic LOB pressure features from top-5 book snapshots.
++
++    - Queue imbalance (L1..L5) based on qty at each level.
++    - Microprice divergence vs mid (bps) and microprice shift (bps).
++    - Depth slope/convexity proxies based on cumulative depth vs distance from mid.
++    - Depth-weighted OBI using weights 1/level.
++
++    All features are robust to partial books: if a level is missing, its imbalance contributes as 0.
++    """
++    bids = list(bids or [])
++    asks = list(asks or [])
++
++    bb = _f(bids[0][0], 0.0) if bids else 0.0
++    ba = _f(asks[0][0], 0.0) if asks else 0.0
++    mid = 0.5 * (bb + ba) if (bb > 0.0 and ba > 0.0) else 0.0
++
++    # 1) Queue imbalance per level (qty-only)
++    qi: List[float] = []
++    max_levels = 5
++    for i in range(max_levels):
++        bq = _f(bids[i][1], 0.0) if i < len(bids) else 0.0
++        aq = _f(asks[i][1], 0.0) if i < len(asks) else 0.0
++        qi.append(_queue_imbalance(bq, aq))
++    qi_levels = (qi[0], qi[1], qi[2], qi[3], qi[4])
++    qi_mean = float(sum(qi) / max_levels) if max_levels > 0 else 0.0
++    qi_max_abs = float(max(abs(x) for x in qi)) if qi else 0.0
++    qi_slope = _linreg_slope([1.0, 2.0, 3.0, 4.0, 5.0], qi)
++
++    # 2) Microprice
++    bq1 = _f(bids[0][1], 0.0) if bids else 0.0
++    aq1 = _f(asks[0][1], 0.0) if asks else 0.0
++    denom = bq1 + aq1
++    micro = 0.0
++    if denom > 0.0 and bb > 0.0 and ba > 0.0:
++        micro = (bb * aq1 + ba * bq1) / denom
++    micro_mid_div_bps = _bps(micro - mid, mid) if mid > 0.0 else 0.0
++
++    # shift vs previous microprice
++    micro_prev = 0.0
++    if prev_bids and prev_asks and len(prev_bids) > 0 and len(prev_asks) > 0:
++        pbb = _f(prev_bids[0][0], 0.0)
++        pba = _f(prev_asks[0][0], 0.0)
++        pbq1 = _f(prev_bids[0][1], 0.0)
++        paq1 = _f(prev_asks[0][1], 0.0)
++        pden = pbq1 + paq1
++        if pden > 0.0 and pbb > 0.0 and pba > 0.0:
++            micro_prev = (pbb * paq1 + pba * pbq1) / pden
++    micro_shift_bps = _bps(micro - micro_prev, mid) if (mid > 0.0 and micro_prev > 0.0) else 0.0
++
++    # 3) Depth slope / convexity
++    xs_b, ys_b = _depth_xy(side_levels=bids, mid=mid, max_levels=max_levels)
++    xs_a, ys_a = _depth_xy(side_levels=asks, mid=mid, max_levels=max_levels)
++
++    slope_b = _linreg_slope(xs_b, ys_b)
++    slope_a = _linreg_slope(xs_a, ys_a)
++    eps = 1e-9
++    slope_imb = (slope_b - slope_a) / (abs(slope_b) + abs(slope_a) + eps) if (slope_b or slope_a) else 0.0
++
++    conv_b = _convexity(xs_b, ys_b)
++    conv_a = _convexity(xs_a, ys_a)
++    conv_imb = (conv_b - conv_a) / (abs(conv_b) + abs(conv_a) + eps) if (conv_b or conv_a) else 0.0
++
++    # 4) Depth-weighted OBI
++    wb = 0.0
++    wa = 0.0
++    for i in range(max_levels):
++        w = 1.0 / float(i + 1)
++        wb += w * (_f(bids[i][1], 0.0) if i < len(bids) else 0.0)
++        wa += w * (_f(asks[i][1], 0.0) if i < len(asks) else 0.0)
++    dw_obi = _queue_imbalance(wb, wa)
++
++    return LOBPressure(
++        qi_levels=qi_levels,
++        qi_mean=float(qi_mean),
++        qi_max_abs=float(qi_max_abs),
++        qi_slope=float(qi_slope),
++        micro_mid_div_bps=float(micro_mid_div_bps),
++        micro_shift_bps=float(micro_shift_bps),
++        depth_slope_bid=float(slope_b),
++        depth_slope_ask=float(slope_a),
++        depth_slope_imb=float(slope_imb),
++        depth_convexity_bid=float(conv_b),
++        depth_convexity_ask=float(conv_a),
++        depth_convexity_imb=float(conv_imb),
++        dw_obi=float(dw_obi),
++    )
+diff -ruN /mnt/data/proj/tick_flow_full/core/of_inputs_contract.py /mnt/data/proj_lob_p92/tick_flow_full/core/of_inputs_contract.py
+--- /mnt/data/proj/tick_flow_full/core/of_inputs_contract.py	2026-02-24 20:42:41.775102161 +0000
++++ /mnt/data/proj_lob_p92/tick_flow_full/core/of_inputs_contract.py	2026-02-24 20:57:05.899236243 +0000
+@@ -88,5 +88,19 @@
+     sweep_eqh: int = 0
+     sweep_eql: int = 0
+ 
++    # --- LOB pressure (P91) ---
++    lob_qi_mean: float = 0.0
++    lob_qi_max_abs: float = 0.0
++    lob_qi_slope: float = 0.0
++    lob_micro_mid_div_bps: float = 0.0
++    lob_micro_shift_bps: float = 0.0
++    lob_depth_slope_imb: float = 0.0
++    lob_depth_convexity_imb: float = 0.0
++    lob_dw_obi: float = 0.0
++    lob_dw_obi_z: float = 0.0
++    lob_dw_obi_stability_score: float = 0.0
++    lob_dw_obi_stable_secs: float = 0.0
++    lob_dw_obi_stable: int = 0
++
+     def to_dict(self) -> Dict[str, Any]:
+         return asdict(self)
+diff -ruN /mnt/data/proj/tick_flow_full/orderflow_services/grafana/README_p92_lob_pressure.md /mnt/data/proj_lob_p92/tick_flow_full/orderflow_services/grafana/README_p92_lob_pressure.md
+--- /mnt/data/proj/tick_flow_full/orderflow_services/grafana/README_p92_lob_pressure.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj_lob_p92/tick_flow_full/orderflow_services/grafana/README_p92_lob_pressure.md	2026-02-24 21:03:55.913134530 +0000
+@@ -0,0 +1,27 @@
++# LOB Pressure Dashboard (P92)
++
++Files:
++- `lob_pressure_p92.json` — Grafana dashboard (Prometheus datasource `${DS_PROMETHEUS}`).
++
++## Required metrics (Prometheus)
++Produced by `BookProcessor`:
++- `of_lob_queue_imbalance{symbol,level}`
++- `of_lob_queue_imbalance_mean{symbol}`
++- `of_lob_queue_imbalance_max_abs{symbol}`
++- `of_lob_queue_imbalance_slope{symbol}`
++- `of_lob_micro_mid_div_bps{symbol}`
++- `of_lob_micro_shift_bps{symbol}`
++- `of_lob_depth_slope{symbol,side}`  (side: bid|ask|imb)
++- `of_lob_depth_convexity{symbol,side}` (side: bid|ask|imb)
++- `of_lob_dw_obi{symbol}`
++- `of_lob_dw_obi_z{symbol}`
++- `of_lob_dw_obi_stability_score{symbol}`
++- `of_lob_dw_obi_stable_secs{symbol}`
++- `of_lob_dw_obi_stable{symbol}`
++
++## Import
++Grafana → Dashboards → Import → upload `lob_pressure_p92.json`.
++
++## Notes
++- `micro_mid_div_bps` and `micro_shift_bps` are signed; positive values imply bid-side pressure (microprice above mid), negative values imply ask-side pressure.
++- `dw_obi_z` is a rolling robust z-score; it is meant for **relative** anomaly detection and should be tuned per-symbol.
+diff -ruN /mnt/data/proj/tick_flow_full/orderflow_services/grafana/lob_pressure_p92.json /mnt/data/proj_lob_p92/tick_flow_full/orderflow_services/grafana/lob_pressure_p92.json
+--- /mnt/data/proj/tick_flow_full/orderflow_services/grafana/lob_pressure_p92.json	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj_lob_p92/tick_flow_full/orderflow_services/grafana/lob_pressure_p92.json	2026-02-24 21:03:30.889968800 +0000
+@@ -0,0 +1,500 @@
++{
++  "annotations": {
++    "list": [
++      {
++        "builtIn": 1,
++        "datasource": {
++          "type": "grafana",
++          "uid": "-- Grafana --"
++        },
++        "enable": true,
++        "hide": true,
++        "iconColor": "rgba(0, 211, 255, 1)",
++        "name": "Annotations & Alerts",
++        "type": "dashboard"
++      }
++    ]
++  },
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "id": null,
++  "links": [],
++  "liveNow": false,
++  "panels": [
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {}
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 0,
++        "y": 0
++      },
++      "id": 1,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "pluginVersion": "10.4.0",
++      "targets": [
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_queue_imbalance_mean{symbol=~\"$symbol\"}",
++          "interval": "",
++          "legendFormat": "mean",
++          "refId": "A"
++        },
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_queue_imbalance_max_abs{symbol=~\"$symbol\"}",
++          "interval": "",
++          "legendFormat": "max_abs",
++          "refId": "B"
++        }
++      ],
++      "title": "Queue imbalance: mean / max_abs",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {}
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 12,
++        "y": 0
++      },
++      "id": 2,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "pluginVersion": "10.4.0",
++      "targets": [
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_queue_imbalance{symbol=~\"$symbol\",level=~\"$level\"}",
++          "interval": "",
++          "legendFormat": "L{{level}}",
++          "refId": "A"
++        }
++      ],
++      "title": "Queue imbalance by level (L1..L5)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {}
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 0,
++        "y": 8
++      },
++      "id": 3,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "pluginVersion": "10.4.0",
++      "targets": [
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_micro_mid_div_bps{symbol=~\"$symbol\"}",
++          "interval": "",
++          "legendFormat": "micro-mid",
++          "refId": "A"
++        }
++      ],
++      "title": "Microprice divergence vs mid (bps)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {}
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 12,
++        "y": 8
++      },
++      "id": 4,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "pluginVersion": "10.4.0",
++      "targets": [
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_micro_shift_bps{symbol=~\"$symbol\"}",
++          "interval": "",
++          "legendFormat": "micro-shift",
++          "refId": "A"
++        }
++      ],
++      "title": "Microprice shift (bps)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {}
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 0,
++        "y": 16
++      },
++      "id": 5,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "pluginVersion": "10.4.0",
++      "targets": [
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_depth_slope{symbol=~\"$symbol\",side=\"bid\"}",
++          "interval": "",
++          "legendFormat": "bid",
++          "refId": "A"
++        },
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_depth_slope{symbol=~\"$symbol\",side=\"ask\"}",
++          "interval": "",
++          "legendFormat": "ask",
++          "refId": "B"
++        },
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_depth_slope{symbol=~\"$symbol\",side=\"imb\"}",
++          "interval": "",
++          "legendFormat": "imb",
++          "refId": "C"
++        }
++      ],
++      "title": "Depth slope proxy (qty per bps)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {}
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 12,
++        "y": 16
++      },
++      "id": 6,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "pluginVersion": "10.4.0",
++      "targets": [
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_depth_convexity{symbol=~\"$symbol\",side=\"bid\"}",
++          "interval": "",
++          "legendFormat": "bid",
++          "refId": "A"
++        },
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_depth_convexity{symbol=~\"$symbol\",side=\"ask\"}",
++          "interval": "",
++          "legendFormat": "ask",
++          "refId": "B"
++        },
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_depth_convexity{symbol=~\"$symbol\",side=\"imb\"}",
++          "interval": "",
++          "legendFormat": "imb",
++          "refId": "C"
++        }
++      ],
++      "title": "Depth convexity proxy (far/near - 1)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {}
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 0,
++        "y": 24
++      },
++      "id": 7,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "pluginVersion": "10.4.0",
++      "targets": [
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_dw_obi{symbol=~\"$symbol\"}",
++          "interval": "",
++          "legendFormat": "dw_obi",
++          "refId": "A"
++        },
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_dw_obi_z{symbol=~\"$symbol\"}",
++          "interval": "",
++          "legendFormat": "dw_obi_z",
++          "refId": "B"
++        }
++      ],
++      "title": "Depth-weighted OBI / z",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {}
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 12,
++        "y": 24
++      },
++      "id": 8,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "pluginVersion": "10.4.0",
++      "targets": [
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_dw_obi_stability_score{symbol=~\"$symbol\"}",
++          "interval": "",
++          "legendFormat": "score",
++          "refId": "A"
++        },
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_dw_obi_stable_secs{symbol=~\"$symbol\"}",
++          "interval": "",
++          "legendFormat": "stable_secs",
++          "refId": "B"
++        },
++        {
++          "datasource": {
++            "type": "prometheus",
++            "uid": "${DS_PROMETHEUS}"
++          },
++          "expr": "of_lob_dw_obi_stable{symbol=~\"$symbol\"}",
++          "interval": "",
++          "legendFormat": "stable",
++          "refId": "C"
++        }
++      ],
++      "title": "DW OBI stability",
++      "type": "timeseries"
++    }
++  ],
++  "refresh": "10s",
++  "schemaVersion": 38,
++  "style": "dark",
++  "tags": [
++    "orderflow",
++    "lob",
++    "p92"
++  ],
++  "templating": {
++    "list": [
++      {
++        "name": "symbol",
++        "label": "symbol",
++        "type": "query",
++        "datasource": {
++          "type": "prometheus",
++          "uid": "${DS_PROMETHEUS}"
++        },
++        "query": {
++          "query": "label_values(of_lob_micro_mid_div_bps, symbol)",
++          "refId": "StandardVariableQuery"
++        },
++        "refresh": 1,
++        "multi": true,
++        "includeAll": true,
++        "allValue": ".*",
++        "current": {
++          "selected": false,
++          "text": "All",
++          "value": "$__all"
++        }
++      },
++      {
++        "name": "level",
++        "label": "level",
++        "type": "query",
++        "datasource": {
++          "type": "prometheus",
++          "uid": "${DS_PROMETHEUS}"
++        },
++        "query": {
++          "query": "label_values(of_lob_queue_imbalance, level)",
++          "refId": "StandardVariableQuery"
++        },
++        "refresh": 1,
++        "multi": true,
++        "includeAll": true,
++        "allValue": ".*",
++        "current": {
++          "selected": true,
++          "text": "All",
++          "value": "$__all"
++        }
++      }
++    ]
++  },
++  "time": {
++    "from": "now-24h",
++    "to": "now"
++  },
++  "timepicker": {},
++  "timezone": "utc",
++  "title": "LOB Pressure (P92)",
++  "uid": "lob_pressure_p92",
++  "version": 1,
++  "weekStart": ""
++}
+\ No newline at end of file
+diff -ruN /mnt/data/proj/tick_flow_full/orderflow_services/prometheus_alerts_lob_pressure_p92.yml /mnt/data/proj_lob_p92/tick_flow_full/orderflow_services/prometheus_alerts_lob_pressure_p92.yml
+--- /mnt/data/proj/tick_flow_full/orderflow_services/prometheus_alerts_lob_pressure_p92.yml	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj_lob_p92/tick_flow_full/orderflow_services/prometheus_alerts_lob_pressure_p92.yml	2026-02-24 21:04:39.579990400 +0000
+@@ -0,0 +1,119 @@
++groups:
++- name: lob_pressure_p92
++  interval: 30s
++  rules:
++      # ─────────────────────────────
++      # Recording rules (P92)
++      # ─────────────────────────────
++  - record: of_lob:micro_mid_div_p99_10m
++    expr: quantile_over_time(0.99, of_lob_micro_mid_div_bps[10m])
++  - record: of_lob:micro_mid_div_p01_10m
++    expr: quantile_over_time(0.01, of_lob_micro_mid_div_bps[10m])
++
++  - record: of_lob:micro_shift_p99_10m
++    expr: quantile_over_time(0.99, of_lob_micro_shift_bps[10m])
++  - record: of_lob:micro_shift_p01_10m
++    expr: quantile_over_time(0.01, of_lob_micro_shift_bps[10m])
++
++  - record: of_lob:queue_imb_max_abs_p95_10m
++    expr: quantile_over_time(0.95, of_lob_queue_imbalance_max_abs[10m])
++
++  - record: of_lob:dw_obi_z_p99_30m
++    expr: quantile_over_time(0.99, of_lob_dw_obi_z[30m])
++  - record: of_lob:dw_obi_z_p01_30m
++    expr: quantile_over_time(0.01, of_lob_dw_obi_z[30m])
++
++      # ─────────────────────────────
++      # Alerts (P92)
++      # ─────────────────────────────
++  - alert: OF_LOB_MicroMidDivExtreme_Warn
++    expr: (of_lob:micro_mid_div_p99_10m > 12) or (of_lob:micro_mid_div_p01_10m < -12)
++    for: 10m
++    labels:
++      severity: warning
++    annotations:
++      summary: "LOB: microprice divergence extreme (p99/p01)"
++      description: "Microprice divergence vs mid is extreme (p99>12bps or p01<-12bps) for 10m. Can be regime shift or stale/partial book feed."
++
++      runbook_path: /runbooks/runbook_lob_pressure_p92.md
++      dashboard_path: /d/lob_pressure_p92
++  - alert: OF_LOB_MicroMidDivExtreme_Crit
++    expr: (of_lob:micro_mid_div_p99_10m > 20) or (of_lob:micro_mid_div_p01_10m < -20)
++    for: 10m
++    labels:
++      severity: critical
++    annotations:
++      summary: "LOB: microprice divergence extreme (crit)"
++      description: "Microprice divergence vs mid is very extreme (p99>20bps or p01<-20bps) for 10m."
++
++      runbook_path: /runbooks/runbook_lob_pressure_p92.md
++      dashboard_path: /d/lob_pressure_p92
++
++  - alert: OF_LOB_MicroShiftExtreme_Warn
++    expr: (of_lob:micro_shift_p99_10m > 15) or (of_lob:micro_shift_p01_10m < -15)
++    for: 5m
++    labels:
++      severity: warning
++    annotations:
++      summary: "LOB: microprice shift extreme (p99/p01)"
++      description: "Microprice shift is extreme (p99>15bps or p01<-15bps) for 5m. Often signals fast pressure / thin liquidity."
++
++      runbook_path: /runbooks/runbook_lob_pressure_p92.md
++      dashboard_path: /d/lob_pressure_p92
++  - alert: OF_LOB_MicroShiftExtreme_Crit
++    expr: (of_lob:micro_shift_p99_10m > 25) or (of_lob:micro_shift_p01_10m < -25)
++    for: 5m
++    labels:
++      severity: critical
++    annotations:
++      summary: "LOB: microprice shift extreme (crit)"
++      description: "Microprice shift is very extreme (p99>25bps or p01<-25bps) for 5m."
++
++      runbook_path: /runbooks/runbook_lob_pressure_p92.md
++      dashboard_path: /d/lob_pressure_p92
++
++  - alert: OF_LOB_QueueImbalancePersistent_Warn
++    expr: of_lob:queue_imb_max_abs_p95_10m > 0.75
++    for: 15m
++    labels:
++      severity: warning
++    annotations:
++      summary: "LOB: queue imbalance persistent (p95)"
++      description: "Queue imbalance max_abs p95 over 10m is >0.75 for 15m. Persistent skew or partial book."
++
++      runbook_path: /runbooks/runbook_lob_pressure_p92.md
++      dashboard_path: /d/lob_pressure_p92
++  - alert: OF_LOB_QueueImbalancePersistent_Crit
++    expr: of_lob:queue_imb_max_abs_p95_10m > 0.90
++    for: 10m
++    labels:
++      severity: critical
++    annotations:
++      summary: "LOB: queue imbalance persistent (crit)"
++      description: "Queue imbalance max_abs p95 over 10m is >0.90 for 10m."
++
++      runbook_path: /runbooks/runbook_lob_pressure_p92.md
++      dashboard_path: /d/lob_pressure_p92
++
++  - alert: OF_LOB_DWOBI_UnstableUnderPressure_Warn
++    expr: (((of_lob_dw_obi > 0.25) or (of_lob_dw_obi < -0.25)) and (of_lob_dw_obi_stability_score < 0.20))
++    for: 10m
++    labels:
++      severity: warning
++    annotations:
++      summary: "LOB: DW OBI unstable under pressure"
++      description: "Depth-weighted OBI magnitude is high but stability_score is low for 10m. Pressure is not persistent (risk of false pressure / whipsaw)."
++
++      runbook_path: /runbooks/runbook_lob_pressure_p92.md
++      dashboard_path: /d/lob_pressure_p92
++  - alert: OF_LOB_DWOBI_UnstableUnderPressure_Crit
++    expr: (((of_lob_dw_obi > 0.35) or (of_lob_dw_obi < -0.35)) and (of_lob_dw_obi_stability_score < 0.20))
++    for: 15m
++    labels:
++      severity: critical
++    annotations:
++      summary: "LOB: DW OBI unstable under pressure (crit)"
++      description: "Depth-weighted OBI magnitude is very high but stability_score is low for 15m."
++
++      runbook_path: /runbooks/runbook_lob_pressure_p92.md
++      dashboard_path: /d/lob_pressure_p92
+diff -ruN /mnt/data/proj/tick_flow_full/orderflow_services/runbook_lob_pressure_p92.md /mnt/data/proj_lob_p92/tick_flow_full/orderflow_services/runbook_lob_pressure_p92.md
+--- /mnt/data/proj/tick_flow_full/orderflow_services/runbook_lob_pressure_p92.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj_lob_p92/tick_flow_full/orderflow_services/runbook_lob_pressure_p92.md	2026-02-24 21:03:55.913543560 +0000
+@@ -0,0 +1,42 @@
++# Runbook: LOB Pressure (P92)
++
++## What it means
++This dashboard surfaces *order book pressure* proxies from top-5 L2 snapshots:
++
++- Queue imbalance (L1..L5): how much more size sits on bid vs ask (qty-only).
++- Microprice divergence vs mid (bps): hidden pressure signal (microprice != mid).
++- Depth slope / convexity: impact-resilience proxies (how fast depth accumulates away from mid).
++- Depth-weighted OBI + stability: weighted imbalance and its persistence.
++
++## When to care (triage)
++1) **Micro-mid divergence spikes**
++- Symptom: `of_lob_micro_mid_div_bps` large magnitude for multiple minutes.
++- Causes:
++  - market regime change (thin book / pressure),
++  - stale/partial book snapshots (data feed issue).
++- Checks:
++  - Compare with spread (`spread_bps`) and book rate / gaps.
++  - If divergence is extreme *and* book rate is low → suspect feed staleness.
++
++2) **Queue imbalance persistent**
++- Symptom: `of_lob_queue_imbalance_max_abs` stays > 0.8.
++- Causes:
++  - real pressure regime,
++  - one side missing levels (parser/data provider).
++- Checks:
++  - validate top5 bids/asks non-empty, quantities > 0.
++  - correlate with `of_lob_queue_imbalance{level="1"}` vs deeper levels.
++
++3) **DW OBI unstable while |DW OBI| high**
++- Symptom: `|of_lob_dw_obi|` high, but `of_lob_dw_obi_stability_score` low.
++- Interpretation:
++  - pressure exists but not persistent → avoid overconfidence (risk).
++
++## Tuning thresholds
++Initial defaults for alerts are conservative. After 24–72h of data:
++- compute typical p95/p99 per symbol,
++- tighten thresholds per symbol family (BTC/ETH vs alts).
++
++## Rollback
++- Disable by removing/ignoring the new alert file and dashboard.
++- Code rollback: revert the LOB patch (P91).
+diff -ruN /mnt/data/proj/tick_flow_full/services/orderflow/components/book_processor.py /mnt/data/proj_lob_p92/tick_flow_full/services/orderflow/components/book_processor.py
+--- /mnt/data/proj/tick_flow_full/services/orderflow/components/book_processor.py	2026-02-24 20:42:41.278542774 +0000
++++ /mnt/data/proj_lob_p92/tick_flow_full/services/orderflow/components/book_processor.py	2026-02-24 21:00:38.089280522 +0000
+@@ -7,11 +7,16 @@
+ from services.orderflow.runtime import SymbolRuntime, BookSnapshot, BookState
+ from services.orderflow.configuration import _safe_int, _safe_float
+ from services.orderflow.metrics import (
+-    log_silent_error, book_rate_ema_gauge, book_rate_z_gauge
++    log_silent_error, book_rate_ema_gauge, book_rate_z_gauge,
++    of_lob_queue_imbalance_gauge, of_lob_queue_imbalance_mean_gauge, of_lob_queue_imbalance_max_abs_gauge, of_lob_queue_imbalance_slope_gauge,
++    of_lob_micro_mid_div_bps_gauge, of_lob_micro_shift_bps_gauge,
++    of_lob_depth_slope_gauge, of_lob_depth_convexity_gauge,
++    of_lob_dw_obi_gauge, of_lob_dw_obi_z_gauge, of_lob_dw_obi_stability_score_gauge, of_lob_dw_obi_stable_secs_gauge, of_lob_dw_obi_stable_gauge,
+ )
+ from services.orderflow.utils import _fields_to_dict
+ from services.orderflow.components.parsing import OrderFlowParsing
+ from core.book_churn import compute_churn_from_z
++from core.lob_pressure import compute_lob_pressure
+ from core.cvd_reclaim import compute_cvd_reclaim
+ from core.ofi_tracker import OFIEvent
+ 
+@@ -79,6 +84,82 @@
+             runtime.prev_book = prev_snap
+             runtime.last_book = snap
+ 
++            # 2b. LOB pressure features (P91)
++            try:
++                lp = compute_lob_pressure(
++                    bids=list(snap.top5_bids or []),
++                    asks=list(snap.top5_asks or []),
++                    prev_bids=list(prev_snap.top5_bids) if prev_snap else None,
++                    prev_asks=list(prev_snap.top5_asks) if prev_snap else None,
++                )
++
++                runtime.lob_qi_levels = tuple(lp.qi_levels)
++                runtime.lob_qi_mean = float(lp.qi_mean)
++                runtime.lob_qi_max_abs = float(lp.qi_max_abs)
++                runtime.lob_qi_slope = float(lp.qi_slope)
++
++                runtime.lob_micro_mid_div_bps = float(lp.micro_mid_div_bps)
++                runtime.lob_micro_shift_bps = float(lp.micro_shift_bps)
++
++                runtime.lob_depth_slope_bid = float(lp.depth_slope_bid)
++                runtime.lob_depth_slope_ask = float(lp.depth_slope_ask)
++                runtime.lob_depth_slope_imb = float(lp.depth_slope_imb)
++
++                runtime.lob_depth_convexity_bid = float(lp.depth_convexity_bid)
++                runtime.lob_depth_convexity_ask = float(lp.depth_convexity_ask)
++                runtime.lob_depth_convexity_imb = float(lp.depth_convexity_imb)
++
++                runtime.lob_dw_obi = float(lp.dw_obi)
++
++                # z-score + stability
++                try:
++                    runtime.dw_obi_stats.update(float(lp.dw_obi))
++                    runtime.lob_dw_obi_z = float(runtime.dw_obi_stats.z(float(lp.dw_obi)))
++                except Exception:
++                    runtime.lob_dw_obi_z = 0.0
++
++                try:
++                    st_score, st_secs = runtime.dw_obi_tracker.update(ts_ms=int(book_ts_ms), obi=float(lp.dw_obi))
++                    runtime.lob_dw_obi_stability_score = float(st_score)
++                    runtime.lob_dw_obi_stable_secs = float(st_secs)
++                    score_min = float(runtime.config.get("dw_obi_stable_score_min", 0.6))
++                    secs_min = float(runtime.config.get("dw_obi_stable_secs_min", 1.0))
++                    runtime.lob_dw_obi_stable = 1 if (st_score >= score_min and st_secs >= secs_min) else 0
++                except Exception:
++                    runtime.lob_dw_obi_stability_score = 0.0
++                    runtime.lob_dw_obi_stable_secs = 0.0
++                    runtime.lob_dw_obi_stable = 0
++
++                runtime.last_lob_ts_ms = int(book_ts_ms)
++
++                # Prometheus (low cardinality)
++                sym = str(runtime.symbol)
++                for i, val in enumerate(runtime.lob_qi_levels, 1):
++                    of_lob_queue_imbalance_gauge.labels(symbol=sym, level=str(i)).set(float(val))
++                of_lob_queue_imbalance_mean_gauge.labels(symbol=sym).set(float(runtime.lob_qi_mean))
++                of_lob_queue_imbalance_max_abs_gauge.labels(symbol=sym).set(float(runtime.lob_qi_max_abs))
++                of_lob_queue_imbalance_slope_gauge.labels(symbol=sym).set(float(runtime.lob_qi_slope))
++
++                of_lob_micro_mid_div_bps_gauge.labels(symbol=sym).set(float(runtime.lob_micro_mid_div_bps))
++                of_lob_micro_shift_bps_gauge.labels(symbol=sym).set(float(runtime.lob_micro_shift_bps))
++
++                of_lob_depth_slope_gauge.labels(symbol=sym, side="bid").set(float(runtime.lob_depth_slope_bid))
++                of_lob_depth_slope_gauge.labels(symbol=sym, side="ask").set(float(runtime.lob_depth_slope_ask))
++                of_lob_depth_slope_gauge.labels(symbol=sym, side="imb").set(float(runtime.lob_depth_slope_imb))
++
++                of_lob_depth_convexity_gauge.labels(symbol=sym, side="bid").set(float(runtime.lob_depth_convexity_bid))
++                of_lob_depth_convexity_gauge.labels(symbol=sym, side="ask").set(float(runtime.lob_depth_convexity_ask))
++                of_lob_depth_convexity_gauge.labels(symbol=sym, side="imb").set(float(runtime.lob_depth_convexity_imb))
++
++                of_lob_dw_obi_gauge.labels(symbol=sym).set(float(runtime.lob_dw_obi))
++                of_lob_dw_obi_z_gauge.labels(symbol=sym).set(float(runtime.lob_dw_obi_z))
++                of_lob_dw_obi_stability_score_gauge.labels(symbol=sym).set(float(runtime.lob_dw_obi_stability_score))
++                of_lob_dw_obi_stable_secs_gauge.labels(symbol=sym).set(float(runtime.lob_dw_obi_stable_secs))
++                of_lob_dw_obi_stable_gauge.labels(symbol=sym).set(float(runtime.lob_dw_obi_stable))
++
++            except Exception as exc:
++                log_silent_error(exc, 'lob_pressure_failure', runtime.symbol, 'BookProcessor:lob_pressure')
++
+             # 3. Book Rate & Churn Metrics
+             if book_ts_ms > 0:
+                 prev = _safe_int(prev_ts_ms)
+diff -ruN /mnt/data/proj/tick_flow_full/services/orderflow/components/tick_processor.py /mnt/data/proj_lob_p92/tick_flow_full/services/orderflow/components/tick_processor.py
+--- /mnt/data/proj/tick_flow_full/services/orderflow/components/tick_processor.py	2026-02-24 20:42:41.282283551 +0000
++++ /mnt/data/proj_lob_p92/tick_flow_full/services/orderflow/components/tick_processor.py	2026-02-24 21:01:25.730115863 +0000
+@@ -1970,6 +1970,23 @@
+                     emit_v2_cfg = runtime.config.get("of_inputs_emit_v2", 1)
+                     emit_v2 = bool(_i(emit_v2_cfg, 1))
+ 
++                    # LOB pressure (P91) - sourced from BookProcessor (top-5 book)
++                    try:
++                        indicators["lob_qi_mean"] = float(getattr(runtime, "lob_qi_mean", 0.0) or 0.0)
++                        indicators["lob_qi_max_abs"] = float(getattr(runtime, "lob_qi_max_abs", 0.0) or 0.0)
++                        indicators["lob_qi_slope"] = float(getattr(runtime, "lob_qi_slope", 0.0) or 0.0)
++                        indicators["lob_micro_mid_div_bps"] = float(getattr(runtime, "lob_micro_mid_div_bps", 0.0) or 0.0)
++                        indicators["lob_micro_shift_bps"] = float(getattr(runtime, "lob_micro_shift_bps", 0.0) or 0.0)
++                        indicators["lob_depth_slope_imb"] = float(getattr(runtime, "lob_depth_slope_imb", 0.0) or 0.0)
++                        indicators["lob_depth_convexity_imb"] = float(getattr(runtime, "lob_depth_convexity_imb", 0.0) or 0.0)
++                        indicators["lob_dw_obi"] = float(getattr(runtime, "lob_dw_obi", 0.0) or 0.0)
++                        indicators["lob_dw_obi_z"] = float(getattr(runtime, "lob_dw_obi_z", 0.0) or 0.0)
++                        indicators["lob_dw_obi_stability_score"] = float(getattr(runtime, "lob_dw_obi_stability_score", 0.0) or 0.0)
++                        indicators["lob_dw_obi_stable_secs"] = float(getattr(runtime, "lob_dw_obi_stable_secs", 0.0) or 0.0)
++                        indicators["lob_dw_obi_stable"] = int(getattr(runtime, "lob_dw_obi_stable", 0) or 0)
++                    except Exception:
++                        pass
++
+                     ofi_kwargs = {
+                         "v": 2 if emit_v2 else 1,
+                         "symbol": _s(runtime.symbol),
+@@ -1999,6 +2016,20 @@
+                         ofi_kwargs["ofi_dir_ok"] = _i(indicators.get("ofi_dir_ok", 0), 0)
+                         ofi_kwargs["ofi_stable_secs"] = _f(indicators.get("ofi_stable_secs", 0.0), 0.0)
+ 
++                        # LOB pressure (P91)
++                        ofi_kwargs["lob_qi_mean"] = _f(indicators.get("lob_qi_mean", 0.0), 0.0)
++                        ofi_kwargs["lob_qi_max_abs"] = _f(indicators.get("lob_qi_max_abs", 0.0), 0.0)
++                        ofi_kwargs["lob_qi_slope"] = _f(indicators.get("lob_qi_slope", 0.0), 0.0)
++                        ofi_kwargs["lob_micro_mid_div_bps"] = _f(indicators.get("lob_micro_mid_div_bps", 0.0), 0.0)
++                        ofi_kwargs["lob_micro_shift_bps"] = _f(indicators.get("lob_micro_shift_bps", 0.0), 0.0)
++                        ofi_kwargs["lob_depth_slope_imb"] = _f(indicators.get("lob_depth_slope_imb", 0.0), 0.0)
++                        ofi_kwargs["lob_depth_convexity_imb"] = _f(indicators.get("lob_depth_convexity_imb", 0.0), 0.0)
++                        ofi_kwargs["lob_dw_obi"] = _f(indicators.get("lob_dw_obi", 0.0), 0.0)
++                        ofi_kwargs["lob_dw_obi_z"] = _f(indicators.get("lob_dw_obi_z", 0.0), 0.0)
++                        ofi_kwargs["lob_dw_obi_stability_score"] = _f(indicators.get("lob_dw_obi_stability_score", 0.0), 0.0)
++                        ofi_kwargs["lob_dw_obi_stable_secs"] = _f(indicators.get("lob_dw_obi_stable_secs", 0.0), 0.0)
++                        ofi_kwargs["lob_dw_obi_stable"] = _i(indicators.get("lob_dw_obi_stable", 0), 0)
++
+                     inputs_obj = OFInputsV2(**ofi_kwargs) if emit_v2 else OFInputsV1(**ofi_kwargs)
+                     
+                     stream_inputs = str(runtime.config.get("of_inputs_stream", "metrics:ml_inputs"))
+diff -ruN /mnt/data/proj/tick_flow_full/services/orderflow/metrics.py /mnt/data/proj_lob_p92/tick_flow_full/services/orderflow/metrics.py
+--- /mnt/data/proj/tick_flow_full/services/orderflow/metrics.py	2026-02-24 20:42:41.295320388 +0000
++++ /mnt/data/proj_lob_p92/tick_flow_full/services/orderflow/metrics.py	2026-02-24 20:57:26.642474206 +0000
+@@ -237,6 +237,24 @@
+ 
+ book_rate_ema_gauge = _get_or_create_prom_gauge("book_rate_ema_hz", "Per-symbol book update rate EMA (Hz)", ["symbol"])
+ book_rate_z_gauge = _get_or_create_prom_gauge("book_rate_z", "Per-symbol book update rate robust z", ["symbol"])
++
++# --- LOB pressure (P91) ---
++of_lob_queue_imbalance_gauge = _get_or_create_prom_gauge("of_lob_queue_imbalance", "Queue imbalance (bid_qty-ask_qty)/(bid_qty+ask_qty) by level", ["symbol", "level"])
++of_lob_queue_imbalance_mean_gauge = _get_or_create_prom_gauge("of_lob_queue_imbalance_mean", "Queue imbalance mean across L1..L5", ["symbol"])
++of_lob_queue_imbalance_max_abs_gauge = _get_or_create_prom_gauge("of_lob_queue_imbalance_max_abs", "Queue imbalance max abs across L1..L5", ["symbol"])
++of_lob_queue_imbalance_slope_gauge = _get_or_create_prom_gauge("of_lob_queue_imbalance_slope", "Queue imbalance slope across levels (linear fit)", ["symbol"])
++
++of_lob_micro_mid_div_bps_gauge = _get_or_create_prom_gauge("of_lob_micro_mid_div_bps", "Microprice divergence vs mid (bps)", ["symbol"])
++of_lob_micro_shift_bps_gauge = _get_or_create_prom_gauge("of_lob_micro_shift_bps", "Microprice shift vs previous (bps)", ["symbol"])
++
++of_lob_depth_slope_gauge = _get_or_create_prom_gauge("of_lob_depth_slope", "Depth slope proxy (cum_qty vs distance from mid, qty per bps)", ["symbol", "side"])
++of_lob_depth_convexity_gauge = _get_or_create_prom_gauge("of_lob_depth_convexity", "Depth convexity proxy (far/near slope - 1)", ["symbol", "side"])
++
++of_lob_dw_obi_gauge = _get_or_create_prom_gauge("of_lob_dw_obi", "Depth-weighted OBI using weights 1/level", ["symbol"])
++of_lob_dw_obi_z_gauge = _get_or_create_prom_gauge("of_lob_dw_obi_z", "Depth-weighted OBI robust z-score (rolling median/MAD)", ["symbol"])
++of_lob_dw_obi_stability_score_gauge = _get_or_create_prom_gauge("of_lob_dw_obi_stability_score", "Depth-weighted OBI stability score (0..1)", ["symbol"])
++of_lob_dw_obi_stable_secs_gauge = _get_or_create_prom_gauge("of_lob_dw_obi_stable_secs", "Depth-weighted OBI stable secs (continuous)", ["symbol"])
++of_lob_dw_obi_stable_gauge = _get_or_create_prom_gauge("of_lob_dw_obi_stable", "Depth-weighted OBI stable flag (1/0)", ["symbol"])
+ book_stale_ms_gauge = _get_or_create_prom_gauge("book_stale_ms", "Per-symbol book staleness vs tick ts (ms)", ["symbol"])
+ 
+ # ATR Sanity & Floors metrics
+diff -ruN /mnt/data/proj/tick_flow_full/services/orderflow/runtime.py /mnt/data/proj_lob_p92/tick_flow_full/services/orderflow/runtime.py
+--- /mnt/data/proj/tick_flow_full/services/orderflow/runtime.py	2026-02-24 20:42:41.294629683 +0000
++++ /mnt/data/proj_lob_p92/tick_flow_full/services/orderflow/runtime.py	2026-02-24 20:59:51.366946465 +0000
+@@ -661,6 +661,30 @@
+     obi_stable: bool = False
+     obi_stable_secs: float = 0.0
+     obi_stability_score: float = 0.0
++
++    # LOB pressure (P91)
++    lob_qi_levels: Tuple[float, float, float, float, float] = (0.0, 0.0, 0.0, 0.0, 0.0)
++    lob_qi_mean: float = 0.0
++    lob_qi_max_abs: float = 0.0
++    lob_qi_slope: float = 0.0
++    lob_micro_mid_div_bps: float = 0.0
++    lob_micro_shift_bps: float = 0.0
++    lob_depth_slope_bid: float = 0.0
++    lob_depth_slope_ask: float = 0.0
++    lob_depth_slope_imb: float = 0.0
++    lob_depth_convexity_bid: float = 0.0
++    lob_depth_convexity_ask: float = 0.0
++    lob_depth_convexity_imb: float = 0.0
++    lob_dw_obi: float = 0.0
++    lob_dw_obi_z: float = 0.0
++    lob_dw_obi_stability_score: float = 0.0
++    lob_dw_obi_stable_secs: float = 0.0
++    lob_dw_obi_stable: int = 0
++    last_lob_ts_ms: int = 0
++
++    dw_obi_stats: RollingRobustZ = field(init=False)
++    dw_obi_tracker: OBIStabilityTracker = field(init=False)
++
+     # last_obi_event: Optional[Dict[str, Any]] = None # Already exists
+     # last_iceberg_event: Optional[Dict[str, Any]] = None # Already exists
+     liq_service: LiquidityRegimeService = field(init=False)
+@@ -725,6 +749,8 @@
+         # Spread robust stats
+         sw = int(self.config.get("spread_stats_window", 300))
+         self.spread_stats = RollingRobustZ(window=max(32, sw))
++        dw = int(self.config.get("dw_obi_stats_window", 300))
++        self.dw_obi_stats = RollingRobustZ(window=max(32, dw))
+         
+         # Daily Candle Tracker
+         self.daily_tracker = DailyCandleTracker(self.symbol)
+@@ -799,6 +825,18 @@
+         self.obi_stable_secs = 0.0
+         self.obi_stability_score = 0.0
+         self.obi_stable = False
++
++        # Depth-weighted OBI stability tracker (LOB pressure)
++        self.dw_obi_tracker = OBIStabilityTracker(
++            window_ms=int(self.config.get("dw_obi_stable_window_ms", 3000)),
++            threshold=float(self.config.get("dw_obi_threshold", 0.18)),
++            deadband=float(self.config.get("dw_obi_deadband", 0.03)),
++            grace_ms=int(self.config.get("dw_obi_grace_ms", 250)),
++        )
++        self.lob_dw_obi_stable_secs = 0.0
++        self.lob_dw_obi_stability_score = 0.0
++        self.lob_dw_obi_stable = 0
++
+         
+         # --------------------------------------
+         # Weak Progress Detector (History) - Absorption Mode
+diff -ruN /mnt/data/proj/tick_flow_full/services/orderflow/tests/test_lob_pressure_v1.py /mnt/data/proj_lob_p92/tick_flow_full/services/orderflow/tests/test_lob_pressure_v1.py
+--- /mnt/data/proj/tick_flow_full/services/orderflow/tests/test_lob_pressure_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj_lob_p92/tick_flow_full/services/orderflow/tests/test_lob_pressure_v1.py	2026-02-24 21:05:53.115252190 +0000
+@@ -0,0 +1,54 @@
++"""
++Unit tests for core.lob_pressure (P91).
++
++Covers:
++- queue imbalance per level
++- microprice vs mid divergence (bps)
++- depth-weighted OBI sign and magnitude
++"""
++
++import os
++import sys
++import math
++
++import pytest
++
++# Ensure tick_flow_full/ is on PYTHONPATH so `import core.*` works in pytest environments.
++REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
++TICK_FLOW_FULL = os.path.join(REPO_ROOT, "tick_flow_full")
++if TICK_FLOW_FULL not in sys.path:
++    sys.path.insert(0, TICK_FLOW_FULL)
++
++from core.lob_pressure import compute_lob_pressure
++
++
++def test_basic_queue_imbalance_and_microprice():
++    bids = [(100.0, 10.0), (99.0, 9.0), (98.0, 8.0), (97.0, 7.0), (96.0, 6.0)]
++    asks = [(101.0, 5.0), (102.0, 4.0), (103.0, 3.0), (104.0, 2.0), (105.0, 1.0)]
++
++    lp = compute_lob_pressure(bids=bids, asks=asks)
++
++    # L1 queue imbalance: (10-5)/(10+5)=1/3
++    assert lp.qi_levels[0] == pytest.approx(1.0 / 3.0, rel=1e-6)
++
++    # Mean should be positive (more bid qty overall by construction)
++    assert lp.qi_mean > 0.0
++
++    # Microprice should be between best bid and best ask => divergence sign should be positive
++    assert lp.micro_mid_div_bps > 0.0
++
++    # Depth-weighted OBI should be positive
++    assert lp.dw_obi > 0.0
++
++
++def test_micro_shift_uses_prev_when_available():
++    bids1 = [(100.0, 10.0), (99.0, 9.0), (98.0, 8.0), (97.0, 7.0), (96.0, 6.0)]
++    asks1 = [(101.0, 5.0), (102.0, 4.0), (103.0, 3.0), (104.0, 2.0), (105.0, 1.0)]
++
++    bids0 = [(100.0, 5.0), (99.0, 5.0), (98.0, 5.0), (97.0, 5.0), (96.0, 5.0)]
++    asks0 = [(101.0, 10.0), (102.0, 10.0), (103.0, 10.0), (104.0, 10.0), (105.0, 10.0)]
++
++    lp = compute_lob_pressure(bids=bids1, asks=asks1, prev_bids=bids0, prev_asks=asks0)
++
++    # shift should be non-zero because prev micro differs (qtys swapped)
++    assert abs(lp.micro_shift_bps) > 0.0

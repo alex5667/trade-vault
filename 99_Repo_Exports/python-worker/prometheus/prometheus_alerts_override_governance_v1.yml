@@ -1,0 +1,38 @@
+groups:
+  - name: atr_override_governance
+    rules:
+      - alert: ActiveOverridesHigh
+        expr: sum(atr_override_active_total) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High number of active manual overrides ({{\$value}})"
+          description: "There are currently more than 5 active safe-state overrides across the fleet. Overrides should be temporary."
+
+      - alert: OverrideForbiddenActivated
+        expr: rate(atr_override_forbidden_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "Forbidden override path activated!"
+          description: "An operator attempted or successfully bypassed a hard forbidden rule (e.g. SEV-1 active or protective exit missing)."
+
+      - alert: OverrideTTLExpiredWithoutRevoke
+        expr: rate(atr_override_ttl_expired_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Override TTL expired naturally"
+          description: "An override expired without being formally revoked. It might be transitioning correctly, but keep track of its recovery cert status."
+
+      - alert: PostOverrideCertFailed
+        expr: rate(atr_post_override_cert_total{status="failed"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "Post-override Certification FAILED"
+          description: "Scope immediately reverted to previous freeze state because the override produced unhealthy side effects. Operator review required."

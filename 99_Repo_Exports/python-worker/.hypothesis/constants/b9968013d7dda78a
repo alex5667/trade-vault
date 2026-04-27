@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/calib_report.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-12, 1.0, 100.0, 1000.0, 100, 200, 1000, '\n## Notes\n', '--calib', '--of-inputs', '--out-json', '--out-md', '--replay', '--tf-ms', '__main__', 'audit_count', 'audit_rate_s', 'bars_to_ready', 'by_key', 'calib', 'calib_report.json', 'calib_report.md', 'eff_quote_th', 'keys_total', 'last', 'median', 'min_quote_delta', 'mismatch', 'mismatch_total', 'n', 'n_last', 'na', 'p05', 'p95', 'p95_p05_over_med', 'regime', 'rows_total', 'src', 'src_last', 'stability', 'static', 'std', 'symbol', 'ts_ms', 'utf-8']

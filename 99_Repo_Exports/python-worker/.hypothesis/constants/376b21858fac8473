@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/exec_health_freeze_sealed_state.py
+# hypothesis_version: 6.148.10
+
+['0', '1', 'FCALL', 'FUNCTION', 'LOAD', 'REPLACE', 'already exists', 'busy', 'error', 'execute_command', 'false', 'fcall', 'function not found', 'function_load_failed', 'invalid_prev_seal', 'mapping', 'missing_seal_secret', 'no', 'off', 'ok', 'rc', 'seal_algorithm', 'seal_digest', 'seal_entrypoint', 'seal_force_reason', 'seal_prev_digest', 'seal_version', 'sealed_at_ts_ms', 'sha1_v1', 'unknown function', 'utf-8', '|']

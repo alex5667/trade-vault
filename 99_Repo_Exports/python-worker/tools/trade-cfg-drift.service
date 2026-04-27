@@ -1,0 +1,13 @@
+[Unit]
+Description=Trade config drift monitor (config:orderflow)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/trade/of_reports.env
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+ExecStart=/usr/bin/python3 -m tools.config_drift_monitor
+StandardOutput=journal
+StandardError=journal
+

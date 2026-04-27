@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/confidence_training.py
+# hypothesis_version: 6.148.10
+
+[0.05, 'breakeven', 'expired_no_entry', 'expired_no_target', 'manual_exit', 'stop_hit', 'target_hit', 'unknown']

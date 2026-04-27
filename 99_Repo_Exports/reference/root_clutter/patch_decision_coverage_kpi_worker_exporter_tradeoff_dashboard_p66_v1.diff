@@ -1,0 +1,748 @@
+diff --git a/orderflow_services/decision_coverage_kpi_worker_v1.py b/orderflow_services/decision_coverage_kpi_worker_v1.py
+new file mode 100644
+index 0000000..1e0a4a1
+--- /dev/null
++++ b/orderflow_services/decision_coverage_kpi_worker_v1.py
+@@ -0,0 +1,331 @@
++#!/usr/bin/env python3
++"""
++Decision coverage KPI worker (P66-ish).
++
++Consumes `decisions:final` stream and maintains a low-cardinality rolling 24h window:
++  - decision_last_ts_ms
++  - decision_n_24h
++  - decision_regime_n_24h{ok|warn|block|unknown}
++
++Writes state to Redis hash (read by exporter):
++  metrics:decision_coverage:state
++
++Design goals:
++  - deterministic time (use decision_ts_ms if present; fallback to stream id / now)
++  - bounded cardinality (no symbol labels)
++  - low overhead (bucketed per-minute counts + rolling window subtract on minute advance)
++"""
++
++from __future__ import annotations
++
++import json
++import os
++import socket
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, Tuple, Optional, List
++
++
++def _env(name: str, default: str = "") -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return d
++
++
++def _minute(ts_ms: int) -> int:
++    return int(ts_ms // 60000)
++
++
++def _parse_json_maybe(v: Any) -> Any:
++    if v is None:
++        return None
++    if isinstance(v, (dict, list)):
++        return v
++    s = str(v)
++    s0 = s.strip()
++    if not s0:
++        return s
++    if (s0.startswith("{") and s0.endswith("}")) or (s0.startswith("[") and s0.endswith("]")):
++        try:
++            return json.loads(s0)
++        except Exception:
++            return s
++    return s
++
++
++def _state_norm(v: Any) -> str:
++    s = str(v or "").strip().lower()
++    if s in ("ok", "warn", "block"):
++        return s
++    return "unknown"
++
++
++def _regime_from_states(dq_state: Any, drift_state: Any) -> str:
++    dq = _state_norm(dq_state)
++    dr = _state_norm(drift_state)
++    if dq == "block" or dr == "block":
++        return "block"
++    if dq == "warn" or dr == "warn":
++        return "warn"
++    if dq == "ok" and dr == "ok":
++        return "ok"
++    return "unknown"
++
++
++def _decision_ts_ms(fields: Dict[str, Any], stream_id: str) -> int:
++    # Prefer explicit decision timestamp fields
++    for k in ("decision_ts_ms", "ts_ms", "ts", "decision_ts"):
++        if k in fields:
++            ts = _i(fields.get(k), 0)
++            if ts > 0:
++                # normalize seconds -> ms if needed
++                if ts < 10_000_000_000:
++                    ts *= 1000
++                return ts
++    # Stream id is like "1700000000000-0"
++    try:
++        return int(stream_id.split("-", 1)[0])
++    except Exception:
++        return _now_ms()
++
++
++@dataclass
++class Cfg:
++    redis_url: str
++    stream: str
++    group: str
++    consumer: str
++    block_ms: int
++    count: int
++    window_minutes: int
++    bucket_prefix: str
++    bucket_ttl_s: int
++    state_key: str
++    claim_idle_ms: int
++    sleep_on_idle_s: float
++    rebuild_gap_minutes: int
++
++
++def load_cfg() -> Cfg:
++    return Cfg(
++        redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
++        stream=_env("DECISIONS_FINAL_STREAM", "decisions:final"),
++        group=_env("DECISION_COVERAGE_CG", "decision_coverage_kpi_v1"),
++        consumer=_env("DECISION_COVERAGE_CONSUMER", socket.gethostname()),
++        block_ms=_i(_env("DECISION_COVERAGE_BLOCK_MS", "5000"), 5000),
++        count=_i(_env("DECISION_COVERAGE_READ_COUNT", "200"), 200),
++        window_minutes=_i(_env("DECISION_COVERAGE_WINDOW_MINUTES", "1440"), 1440),
++        bucket_prefix=_env("DECISION_COVERAGE_BUCKET_PREFIX", "kpi:decision_coverage:bucket:"),
++        bucket_ttl_s=_i(_env("DECISION_COVERAGE_BUCKET_TTL_S", str(86400 * 3)), 86400 * 3),
++        state_key=_env("DECISION_COVERAGE_STATE_KEY", "metrics:decision_coverage:state"),
++        claim_idle_ms=_i(_env("DECISION_COVERAGE_CLAIM_IDLE_MS", "60000"), 60000),
++        sleep_on_idle_s=float(_env("DECISION_COVERAGE_SLEEP_ON_IDLE_S", "0.2") or 0.2),
++        rebuild_gap_minutes=_i(_env("DECISION_COVERAGE_REBUILD_GAP_MINUTES", "10"), 10),
++    )
++
++
++def _bucket_key(cfg: Cfg, minute_id: int) -> str:
++    return f"{cfg.bucket_prefix}{minute_id}"
++
++
++def _ensure_group(r, cfg: Cfg) -> None:
++    # Create consumer group if missing. MKSTREAM ensures stream exists.
++    try:
++        r.xgroup_create(name=cfg.stream, groupname=cfg.group, id="0-0", mkstream=True)
++    except Exception:
++        # BUSYGROUP or stream exists
++        pass
++
++
++def _hget_counts(r, key: str) -> Dict[str, int]:
++    d = r.hgetall(key) or {}
++    out: Dict[str, int] = {}
++    for k in ("ok", "warn", "block", "unknown", "total"):
++        out[k] = _i(d.get(k), 0)
++    return out
++
++
++def _bootstrap_state(r, cfg: Cfg, now_ms: int) -> Tuple[int, Dict[str, int], int]:
++    """
++    Rebuild rolling window sums from per-minute buckets.
++    Returns (cur_minute, rolling_counts, last_ts_ms).
++    """
++    cur_min = _minute(now_ms)
++    start_min = cur_min - cfg.window_minutes + 1
++
++    rolling = {"ok": 0, "warn": 0, "block": 0, "unknown": 0, "total": 0}
++    # best-effort last_ts from existing state
++    st = r.hgetall(cfg.state_key) or {}
++    last_ts_ms = _i(st.get("last_ts_ms"), 0)
++
++    pipe = r.pipeline()
++    for m in range(start_min, cur_min + 1):
++        k = _bucket_key(cfg, m)
++        pipe.hmget(k, ["ok", "warn", "block", "unknown", "total"])
++    rows = pipe.execute()
++
++    for row in rows:
++        if not row:
++            continue
++        ok = _i(row[0], 0)
++        warn = _i(row[1], 0)
++        block = _i(row[2], 0)
++        unk = _i(row[3], 0)
++        total = _i(row[4], ok + warn + block + unk)
++        rolling["ok"] += ok
++        rolling["warn"] += warn
++        rolling["block"] += block
++        rolling["unknown"] += unk
++        rolling["total"] += total
++
++    # Persist bootstrap
++    r.hset(
++        cfg.state_key,
++        mapping={
++            "cur_minute": str(cur_min),
++            "rolling_ok": str(rolling["ok"]),
++            "rolling_warn": str(rolling["warn"]),
++            "rolling_block": str(rolling["block"]),
++            "rolling_unknown": str(rolling["unknown"]),
++            "rolling_total": str(rolling["total"]),
++            "last_ts_ms": str(last_ts_ms),
++            "updated_ts_ms": str(now_ms),
++        },
++    )
++    return cur_min, rolling, last_ts_ms
++
++
++def _advance_window(r, cfg: Cfg, from_min: int, to_min: int, rolling: Dict[str, int]) -> int:
++    """
++    Advance window minute pointer to `to_min`, subtracting outgoing minute buckets.
++    Returns updated cur_minute.
++    """
++    if to_min <= from_min:
++        return from_min
++    gap = to_min - from_min
++    if gap >= cfg.rebuild_gap_minutes:
++        cur_min, new_roll, _ = _bootstrap_state(r, cfg, _now_ms())
++        rolling.update(new_roll)
++        return cur_min
++
++    cur = from_min
++    for m in range(from_min + 1, to_min + 1):
++        out_m = m - cfg.window_minutes
++        out_key = _bucket_key(cfg, out_m)
++        out_counts = _hget_counts(r, out_key)
++        for k in ("ok", "warn", "block", "unknown", "total"):
++            rolling[k] = max(0, int(rolling.get(k, 0)) - int(out_counts.get(k, 0)))
++        cur = m
++    return cur
++
++
++def _decode_fields(raw: Dict[str, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in (raw or {}).items():
++        out[str(k)] = v
++    return out
++
++
++def _process_one(r, cfg: Cfg, stream_id: str, fields: Dict[str, Any], cur_min: int, rolling: Dict[str, int], last_ts_ms: int) -> Tuple[int, int]:
++    ts_ms = _decision_ts_ms(fields, stream_id)
++    last_ts_ms = max(last_ts_ms, ts_ms)
++
++    m = _minute(ts_ms)
++    # Ignore very old out-of-window data (still ACK to prevent backlog)
++    if m < cur_min - cfg.window_minutes:
++        return cur_min, last_ts_ms
++
++    if m > cur_min:
++        cur_min = _advance_window(r, cfg, cur_min, m, rolling)
++
++    dq_state = _parse_json_maybe(fields.get("dq_state", "unknown"))
++    drift_state = _parse_json_maybe(fields.get("drift_state", "unknown"))
++    if isinstance(dq_state, dict) and "state" in dq_state:
++        dq_state = dq_state.get("state")
++    if isinstance(drift_state, dict) and "state" in drift_state:
++        drift_state = drift_state.get("state")
++
++    regime = _regime_from_states(dq_state, drift_state)
++
++    bkey = _bucket_key(cfg, m)
++    pipe = r.pipeline()
++    pipe.hincrby(bkey, regime, 1)
++    pipe.hincrby(bkey, "total", 1)
++    pipe.expire(bkey, cfg.bucket_ttl_s)
++
++    rolling[regime] = int(rolling.get(regime, 0)) + 1
++    rolling["total"] = int(rolling.get("total", 0)) + 1
++
++    pipe.hset(
++        cfg.state_key,
++        mapping={
++            "cur_minute": str(cur_min),
++            "rolling_ok": str(int(rolling["ok"])),
++            "rolling_warn": str(int(rolling["warn"])),
++            "rolling_block": str(int(rolling["block"])),
++            "rolling_unknown": str(int(rolling["unknown"])),
++            "rolling_total": str(int(rolling["total"])),
++            "last_ts_ms": str(int(last_ts_ms)),
++            "updated_ts_ms": str(_now_ms()),
++        },
++    )
++    pipe.execute()
++    return cur_min, last_ts_ms
++
++
++def main() -> int:
++    cfg = load_cfg()
++    import redis  # type: ignore
++
++    r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
++    _ensure_group(r, cfg)
++
++    cur_min, rolling, last_ts_ms = _bootstrap_state(r, cfg, _now_ms())
++
++    last_claim_ms = 0
++    while True:
++        now_ms = _now_ms()
++        if now_ms - last_claim_ms > cfg.claim_idle_ms:
++            last_claim_ms = now_ms
++            try:
++                res = r.xautoclaim(
++                    cfg.stream,
++                    cfg.group,
++                    cfg.consumer,
++                    min_idle_time=cfg.claim_idle_ms,
++                    start_id="0-0",
++                    count=cfg.count,
++                )
++                msgs = res[1] if isinstance(res, (list, tuple)) and len(res) >= 2 else []
++                for mid, mfields in msgs:
++                    fields = _decode_fields(mfields)
++                    cur_min, last_ts_ms = _process_one(r, cfg, str(mid), fields, cur_min, rolling, last_ts_ms)
++                    r.xack(cfg.stream, cfg.group, mid)
++            except Exception:
++                pass
++
++        try:
++            data = r.xreadgroup(
++                groupname=cfg.group,
++                consumername=cfg.consumer,
++                streams={cfg.stream: ">"},
++                count=cfg.count,
++                block=cfg.block_ms,
++            )
++        except Exception:
++            time.sleep(1.0)
++            continue
++
++        if not data:
++            time.sleep(cfg.sleep_on_idle_s)
++            continue
++
++        for _stream, msgs in data:
++            for mid, mfields in msgs:
++                try:
++                    fields = _decode_fields(mfields)
++                    cur_min, last_ts_ms = _process_one(r, cfg, str(mid), fields, cur_min, rolling, last_ts_ms)
++                except Exception:
++                    pass
++                try:
++                    r.xack(cfg.stream, cfg.group, mid)
++                except Exception:
++                    pass
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/orderflow_services/decision_coverage_exporter_v1.py b/orderflow_services/decision_coverage_exporter_v1.py
+new file mode 100644
+index 0000000..166c68c
+--- /dev/null
++++ b/orderflow_services/decision_coverage_exporter_v1.py
+@@ -0,0 +1,198 @@
++#!/usr/bin/env python3
++"""
++Prometheus exporter for decision coverage KPIs.
++
++Reads Redis hash `metrics:decision_coverage:state` (written by worker) and exposes:
++  - decision_last_ts_ms
++  - decision_n_24h
++  - decision_regime_n_24h{regime}
++  - decision_regime_share_24h{regime}
++  - decision_last_age_seconds
++"""
++
++from __future__ import annotations
++
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict
++
++from prometheus_client import Gauge, start_http_server
++
++
++def _env(name: str, default: str = "") -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _now_s() -> float:
++    return time.time()
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return d
++
++
++@dataclass
++class Cfg:
++    redis_url: str
++    state_key: str
++    port: int
++    interval_s: float
++
++
++def load_cfg() -> Cfg:
++    return Cfg(
++        redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
++        state_key=_env("DECISION_COVERAGE_STATE_KEY", "metrics:decision_coverage:state"),
++        port=_i(_env("DECISION_COVERAGE_EXPORTER_PORT", "9816"), 9816),
++        interval_s=float(_env("DECISION_COVERAGE_EXPORTER_INTERVAL_S", "5") or 5),
++    )
++
++
++LAST_TS = Gauge("decision_last_ts_ms", "Last decision timestamp (ms)")
++LAST_AGE = Gauge("decision_last_age_seconds", "Age of last decision (seconds)")
++
++N24 = Gauge("decision_n_24h", "Number of decisions in rolling 24h window")
++N24_REG = Gauge("decision_regime_n_24h", "Decisions per regime (rolling 24h)", ["regime"])
++SHARE24 = Gauge("decision_regime_share_24h", "Regime share (rolling 24h)", ["regime"])
++
++
++def _read_state(r, key: str) -> Dict[str, str]:
++    try:
++        return r.hgetall(key) or {}
++    except Exception:
++        return {}
++
++
++def _set_metrics(d: Dict[str, str]) -> None:
++    last_ts = _i(d.get("last_ts_ms"), 0)
++    LAST_TS.set(float(last_ts))
++    age = 0.0
++    if last_ts > 0:
++        age = max(0.0, _now_s() - (float(last_ts) / 1000.0))
++    LAST_AGE.set(age)
++
++    ok = _i(d.get("rolling_ok"), 0)
++    warn = _i(d.get("rolling_warn"), 0)
++    block = _i(d.get("rolling_block"), 0)
++    unk = _i(d.get("rolling_unknown"), 0)
++    total = _i(d.get("rolling_total"), ok + warn + block + unk)
++    if total < 0:
++        total = 0
++
++    N24.set(float(total))
++    for reg, n in (("ok", ok), ("warn", warn), ("block", block), ("unknown", unk)):
++        N24_REG.labels(regime=reg).set(float(max(0, n)))
++        share = (float(n) / float(total)) if total > 0 else 0.0
++        SHARE24.labels(regime=reg).set(share)
++
++
++def main() -> int:
++    cfg = load_cfg()
++    import redis  # type: ignore
++
++    r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
++    start_http_server(cfg.port)
++
++    while True:
++        d = _read_state(r, cfg.state_key)
++        _set_metrics(d)
++        time.sleep(cfg.interval_s)
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/ok_rate_logic/docker-compose-crypto-orderflow.yml b/ok_rate_logic/docker-compose-crypto-orderflow.yml
+index f7d9d08..9b2a4b7 100644
+--- a/ok_rate_logic/docker-compose-crypto-orderflow.yml
++++ b/ok_rate_logic/docker-compose-crypto-orderflow.yml
+@@ -1092,6 +1092,77 @@ services:
+   edge-stack-shadow-exporter-p60:
+     build: *id001
+     runtime: ${EDGE_STACK_EXPORTERS_RUNTIME:-nvidia}
+@@ -1124,6 +1195,54 @@ services:
+       - trade-network
+       - scanner-network
+
++  # -----------------------------
++  # Decision coverage KPIs (P66)
++  # -----------------------------
++
++  decision-coverage-kpi-worker:
++    build: *id001
++    runtime: ${DECISION_COVERAGE_WORKER_RUNTIME:-nvidia}
++    container_name: decision-coverage-kpi-worker
++    restart: unless-stopped
++    environment:
++      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
++      - DECISIONS_FINAL_STREAM=${DECISIONS_FINAL_STREAM:-decisions:final}
++      - DECISION_COVERAGE_CG=${DECISION_COVERAGE_CG:-decision_coverage_kpi_v1}
++      - DECISION_COVERAGE_CONSUMER=${DECISION_COVERAGE_CONSUMER:-decision-coverage-kpi-worker}
++      - DECISION_COVERAGE_STATE_KEY=${DECISION_COVERAGE_STATE_KEY:-metrics:decision_coverage:state}
++      - DECISION_COVERAGE_BUCKET_PREFIX=${DECISION_COVERAGE_BUCKET_PREFIX:-kpi:decision_coverage:bucket:}
++      - DECISION_COVERAGE_WINDOW_MINUTES=${DECISION_COVERAGE_WINDOW_MINUTES:-1440}
++      - DECISION_COVERAGE_BUCKET_TTL_S=${DECISION_COVERAGE_BUCKET_TTL_S:-259200}
++      - DECISION_COVERAGE_BLOCK_MS=${DECISION_COVERAGE_BLOCK_MS:-5000}
++      - DECISION_COVERAGE_READ_COUNT=${DECISION_COVERAGE_READ_COUNT:-200}
++      - PYTHONUNBUFFERED=1
++      - PYTHONPATH=/app:/app/ml_analysis:/app/tick_flow_full
++    command: ["python", "-m", "orderflow_services.decision_coverage_kpi_worker_v1"]
++    volumes:
++      - .:/app
++    networks:
++      - trade-network
++      - scanner-network
++
++  decision-coverage-exporter:
++    build: *id001
++    runtime: ${DECISION_COVERAGE_EXPORTER_RUNTIME:-nvidia}
++    container_name: decision-coverage-exporter
++    restart: unless-stopped
++    environment:
++      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
++      - DECISION_COVERAGE_STATE_KEY=${DECISION_COVERAGE_STATE_KEY:-metrics:decision_coverage:state}
++      - DECISION_COVERAGE_EXPORTER_PORT=${DECISION_COVERAGE_EXPORTER_PORT:-9816}
++      - PYTHONUNBUFFERED=1
++      - PYTHONPATH=/app:/app/ml_analysis:/app/tick_flow_full
++    command: ["python", "-m", "orderflow_services.decision_coverage_exporter_v1"]
++    ports:
++      - "${DECISION_COVERAGE_EXPORTER_PORT:-9816}:9816"
++    volumes:
++      - .:/app
++    networks:
++      - trade-network
++      - scanner-network
++
+   scanner-signal-quality-worker:
+     build: *id001
+diff --git a/monitoring/prometheus/prometheus.yml b/monitoring/prometheus/prometheus.yml
+index 3e3f2f9..b8c70d8 100644
+--- a/monitoring/prometheus/prometheus.yml
++++ b/monitoring/prometheus/prometheus.yml
+@@ -42,6 +42,13 @@ scrape_configs:
+     static_configs:
+       - targets:
+           - edge-stack-shadow-exporter-p60:8012
+
++  # -----------------------------
++  # Decision coverage exporter (P66)
++  # -----------------------------
++  - job_name: decision_coverage_p66
++    scrape_interval: 15s
++    static_configs:
++      - targets:
++          - decision-coverage-exporter:9816
++
+   # NOTE:
+   # If you have other exporters (conf_cal_live, proof_controller, etc),
+   # add them here as additional jobs so they land on the same alerting plane.
+diff --git a/ok_rate_logic/prometheus_alerts_tradeoff_p66_v1.yml b/ok_rate_logic/prometheus_alerts_tradeoff_p66_v1.yml
+new file mode 100644
+index 0000000..99018a8
+--- /dev/null
++++ b/ok_rate_logic/prometheus_alerts_tradeoff_p66_v1.yml
+@@ -0,0 +1,62 @@
++groups:
++  - name: tradeoff-p66
++    rules:
++      - alert: DecisionFinalStaleSLO
++        expr: (time() - (decision_last_ts_ms / 1000)) > 1800
++        for: 5m
++        labels:
++          severity: critical
++          team: trade
++          component: decision_coverage
++        annotations:
++          summary: "decisions:final is stale (>30m)"
++          description: "No new decisions observed for >30m. Check crypto-orderflow-service, Redis, consumer-group lag."
++          runbook_path: "/tradeoff_p66.md"
++          dashboard_path: "/d/tradeoff_p66/tradeoff-coverage-vs-quality?orgId=1"
++
++      - alert: DecisionRegimeUnknownShareHighSLO
++        expr: decision_regime_share_24h{regime="unknown"} > 0.05 and decision_n_24h > 200
++        for: 30m
++        labels:
++          severity: warning
++          team: trade
++          component: decision_coverage
++        annotations:
++          summary: "Unknown regime share high (>5%)"
++          description: "Too many decisions have unknown dq/drift regime. Likely missing dq_state/drift_state in payload or parser mismatch."
++          runbook_path: "/tradeoff_p66.md"
++          dashboard_path: "/d/tradeoff_p66/tradeoff-coverage-vs-quality?orgId=1"
++
++      - alert: DecisionRegimeBlockShareHighSLO
++        expr: decision_regime_share_24h{regime="block"} > 0.15 and decision_n_24h > 200
++        for: 30m
++        labels:
++          severity: warning
++          team: trade
++          component: decision_coverage
++        annotations:
++          summary: "Block regime share high (>15%)"
++          description: "A large share of decisions are in block regime. Check DQ/Drift gates and market conditions; consider shadow mode for ML rollout."
++          runbook_path: "/tradeoff_p66.md"
++          dashboard_path: "/d/tradeoff_p66/tradeoff-coverage-vs-quality?orgId=1"
+diff --git a/monitoring/runbooks/tradeoff_p66.md b/monitoring/runbooks/tradeoff_p66.md
+new file mode 100644
+index 0000000..cfe3e2e
+--- /dev/null
++++ b/monitoring/runbooks/tradeoff_p66.md
+@@ -0,0 +1,108 @@
++# Runbook: Tradeoff (Coverage vs Quality) — P66
++
++## Owner
++- team: **trade**
++- component: **decision_coverage**
++
++## Dashboard
++- `/d/tradeoff_p66/tradeoff-coverage-vs-quality?orgId=1`
++
++## What we monitor
++Low-cardinality “tradeoff plane” between:
++1) **Coverage**: what share of opportunities ends up in `ok|warn|block|unknown` regimes.
++2) **Freshness**: decisions:final stream must keep flowing.
++
++The regime is derived from `dq_state` and `drift_state` carried in `decisions:final`.
++
++## Metrics
++- `decision_last_ts_ms`
++- `decision_last_age_seconds`
++- `decision_n_24h`
++- `decision_regime_n_24h{regime="ok|warn|block|unknown"}`
++- `decision_regime_share_24h{regime="ok|warn|block|unknown"}`
++
++## Alerts
++- `DecisionFinalStaleSLO` (critical)
++- `DecisionRegimeUnknownShareHighSLO` (warning)
++- `DecisionRegimeBlockShareHighSLO` (warning)
++
++## Quick triage
++1) Open dashboard.
++2) If **stale**:
++   - check producer: `scanner-crypto-orderflow-service`
++   - check Redis: `decisions:final` length and recent entries
++3) If **unknown** high:
++   - inspect a few stream entries and verify `dq_state` / `drift_state`
++4) If **block** high:
++   - check drift/DQ gates; confirm it’s real (market) vs false positives.
++
++## Commands
++
++### Inspect decisions:final
++```bash
++redis-cli XRANGE decisions:final - + COUNT 3
++```
++
++### Check consumer-group health
++```bash
++redis-cli XINFO GROUPS decisions:final
++redis-cli XINFO CONSUMERS decisions:final decision_coverage_kpi_v1
++```
++
++### Validate decision coverage state
++```bash
++redis-cli HGETALL metrics:decision_coverage:state
++```
++
++## Rollback / mitigation
++- If decisions flow is broken: restart orderflow service and redis ingest components.
++- If `unknown` spikes after schema change: restore `dq_state/drift_state` writers or adjust worker parser.
++- If `block` spikes due to noisy thresholds: temporarily relax gates or switch ML rollout to `shadow`.
+diff --git a/monitoring/grafana/dashboards/tradeoff_p66.json b/monitoring/grafana/dashboards/tradeoff_p66.json
+new file mode 100644
+index 0000000..d47d6e6
+--- /dev/null
++++ b/monitoring/grafana/dashboards/tradeoff_p66.json
+@@ -0,0 +1,290 @@
++{
++  "uid": "tradeoff_p66",
++  "title": "Tradeoff: Coverage vs Quality (Regimes) — P66",
++  "timezone": "browser",
++  "schemaVersion": 39,
++  "version": 1,
++  "editable": true,
++  "refresh": "30s",
++  "time": { "from": "now-48h", "to": "now" },
++  "tags": ["trade", "p66", "tradeoff", "coverage", "quality"],
++  "templating": {
++    "list": [
++      {
++        "name": "instance",
++        "type": "query",
++        "datasource": "Prometheus",
++        "refresh": 2,
++        "query": "label_values(decision_n_24h, instance)",
++        "includeAll": true,
++        "multi": true,
++        "allValue": ".*",
++        "current": { "text": "All", "value": ".*" }
++      }
++    ]
++  },
++  "panels": [
++    {
++      "id": 1,
++      "type": "stat",
++      "title": "Decisions last age (s)",
++      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 6 },
++      "targets": [{ "expr": "max(decision_last_age_seconds{instance=~\"$instance\"})", "refId": "A" }],
++      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "s",
++          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 900 }, { "color": "red", "value": 1800 }] }
++        },
++        "overrides": []
++      }
++    },
++    {
++      "id": 2,
++      "type": "stat",
++      "title": "Decisions N (24h)",
++      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 6 },
++      "targets": [{ "expr": "sum(decision_n_24h{instance=~\"$instance\"})", "refId": "A" }],
++      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
++      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] }
++    },
++    {
++      "id": 3,
++      "type": "timeseries",
++      "title": "Regime share (24h)",
++      "gridPos": { "x": 0, "y": 6, "w": 24, "h": 10 },
++      "targets": [
++        { "expr": "avg(decision_regime_share_24h{regime=\"ok\",instance=~\"$instance\"})", "legendFormat": "ok", "refId": "A" },
++        { "expr": "avg(decision_regime_share_24h{regime=\"warn\",instance=~\"$instance\"})", "legendFormat": "warn", "refId": "B" },
++        { "expr": "avg(decision_regime_share_24h{regime=\"block\",instance=~\"$instance\"})", "legendFormat": "block", "refId": "C" },
++        { "expr": "avg(decision_regime_share_24h{regime=\"unknown\",instance=~\"$instance\"})", "legendFormat": "unknown", "refId": "D" }
++      ],
++      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
++      "options": { "legend": { "displayMode": "table", "placement": "bottom" } }
++    },
++    {
++      "id": 4,
++      "type": "timeseries",
++      "title": "Regime counts (24h)",
++      "gridPos": { "x": 0, "y": 16, "w": 24, "h": 10 },
++      "targets": [
++        { "expr": "sum(decision_regime_n_24h{regime=\"ok\",instance=~\"$instance\"})", "legendFormat": "ok", "refId": "A" },
++        { "expr": "sum(decision_regime_n_24h{regime=\"warn\",instance=~\"$instance\"})", "legendFormat": "warn", "refId": "B" },
++        { "expr": "sum(decision_regime_n_24h{regime=\"block\",instance=~\"$instance\"})", "legendFormat": "block", "refId": "C" },
++        { "expr": "sum(decision_regime_n_24h{regime=\"unknown\",instance=~\"$instance\"})", "legendFormat": "unknown", "refId": "D" }
++      ],
++      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
++      "options": { "legend": { "displayMode": "table", "placement": "bottom" } }
++    }
++  ]
++}

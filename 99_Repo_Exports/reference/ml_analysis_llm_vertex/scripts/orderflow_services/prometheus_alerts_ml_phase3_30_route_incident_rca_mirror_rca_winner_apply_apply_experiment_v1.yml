@@ -1,0 +1,23 @@
+groups:
+  - name: ml_phase3_30_route_incident_rca_mirror_rca_winner_apply_apply_experiment_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyExperimentStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_experiment_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror RCA winner-apply apply experiment harness is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyExperimentErrors
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_experiment_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror RCA winner-apply apply experiment harness has errors"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyExperimentLocalExposure
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_exposures_total{arm="local_fallback_candidate"}[30m]) > 0
+        for: 5m
+        labels: { severity: info }
+        annotations:
+          summary: "route incident RCA mirror RCA winner-apply apply experiment is exposing local fallback candidate"

@@ -1,0 +1,29 @@
+groups:
+  - name: latency_contract_p42_v1
+    rules:
+      - alert: OF_LatencyContract_RolloutGate_Active_Crit
+        expr: latency_contract_rollout_gate_active > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Latency contract rollout gate active"
+          description: "Sensitive rollout/apply path must stay blocked while external latency coverage is missing or budget breaches are sustained."
+
+      - alert: OF_LatencyContract_ExternalCoverageMissing_Crit
+        expr: latency_contract_rollout_gate_external_missing_total > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Latency contract external stage coverage missing"
+          description: "Missing one or more required external stages: go_ingest/ingest_to_redis or nest_gateway/*"
+
+      - alert: OF_LatencyContract_BudgetBreachSustained_Crit
+        expr: latency_contract_rollout_gate_budget_hold_reached > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Latency contract budget breach sustained"
+          description: "budget_breach_total has remained above zero longer than the configured hold threshold."

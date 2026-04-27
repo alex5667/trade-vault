@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/analytics/tag_stats.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-12, 1e-09, 1e-06, 'TRAILING', 'delta_expectancy_r', 'expectancy_fixed_r', 'expectancy_r', 'giveback_avg_r', 'giveback_avg_ratio', 'giveback_avg_usd', 'giveback_share', 'mae_avg_r', 'mdd_usd', 'mfe_avg_r', 'missed_avg_r', 'missed_avg_ratio', 'missed_avg_usd', 'missed_share', 'n', 'payoff_fixed_r', 'payoff_fixed_usd', 'payoff_r', 'payoff_usd', 'pnl_fixed_avg', 'pnl_fixed_sum', 'pnl_net_avg', 'pnl_net_sum', 'share_better', 'share_equal', 'share_worse', 'sharpe', 'std_r', 'tag', 'trailing_close_share', 'trailing_share', 'trailing_wr', 'wr_baseline', 'wr_managed']

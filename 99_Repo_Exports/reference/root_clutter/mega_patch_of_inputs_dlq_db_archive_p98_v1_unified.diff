@@ -1,0 +1,1213 @@
+diff --git a/orderflow_services/grafana/README_p98_of_inputs_archiver.md b/orderflow_services/grafana/README_p98_of_inputs_archiver.md
+new file mode 100644
+index 0000000..268fc4f
+--- /dev/null
++++ b/orderflow_services/grafana/README_p98_of_inputs_archiver.md
+@@ -0,0 +1,14 @@
++# P98 — OFInputs DLQ/quarantine DB archiver dashboard
++
++Dashboard file:
++- `orderflow_services/grafana/of_inputs_archiver_p98.json`
++
++Panels:
++- Archiver staleness (seconds): `of_inputs_archiver_staleness_sec{kind=...}`
++- Backlog len: `of_inputs_dlq_len{stream=...}` (from OFInputs DLQ exporter)
++- Inserted total: `of_inputs_archiver_inserted_total{kind=...}`
++- Error total: `of_inputs_archiver_error_total{kind=...}`
++
++Notes:
++- If backlog grows but staleness stays low, DB archiver is running.
++- If backlog grows and staleness grows, the archiver is stuck (DB down / job not scheduled).
+diff --git a/orderflow_services/grafana/of_inputs_archiver_p98.json b/orderflow_services/grafana/of_inputs_archiver_p98.json
+new file mode 100644
+index 0000000..f72f76d
+--- /dev/null
++++ b/orderflow_services/grafana/of_inputs_archiver_p98.json
+@@ -0,0 +1,253 @@
++{
++  "annotations": {
++    "list": [
++      {
++        "builtIn": 1,
++        "datasource": {
++          "type": "grafana",
++          "uid": "-- Grafana --"
++        },
++        "enable": true,
++        "hide": true,
++        "iconColor": "rgba(0, 211, 255, 1)",
++        "name": "Annotations & Alerts",
++        "type": "dashboard"
++      }
++    ]
++  },
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "id": null,
++  "links": [],
++  "liveNow": false,
++  "panels": [
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "s",
++          "min": 0
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 0,
++        "y": 0
++      },
++      "id": 1,
++      "options": {
++        "legend": {
++          "displayMode": "table",
++          "placement": "bottom",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "expr": "of_inputs_archiver_staleness_sec{kind=\"dlq\"}",
++          "legendFormat": "dlq",
++          "refId": "A"
++        },
++        {
++          "expr": "of_inputs_archiver_staleness_sec{kind=\"quarantine\"}",
++          "legendFormat": "quarantine",
++          "refId": "B"
++        }
++      ],
++      "title": "Archiver staleness (seconds)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "min": 0
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 12,
++        "y": 0
++      },
++      "id": 2,
++      "options": {
++        "legend": {
++          "displayMode": "table",
++          "placement": "bottom",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "expr": "of_inputs_dlq_len{stream=\"stream:dlq:of_inputs\"}",
++          "legendFormat": "dlq_len",
++          "refId": "A"
++        },
++        {
++          "expr": "of_inputs_dlq_len{stream=\"quarantine:signals:of:inputs\"}",
++          "legendFormat": "quarantine_len",
++          "refId": "B"
++        }
++      ],
++      "title": "Backlog (len)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "min": 0
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 0,
++        "y": 8
++      },
++      "id": 3,
++      "options": {
++        "legend": {
++          "displayMode": "table",
++          "placement": "bottom",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "expr": "of_inputs_archiver_inserted_total{kind=\"dlq\"}",
++          "legendFormat": "dlq",
++          "refId": "A"
++        },
++        {
++          "expr": "of_inputs_archiver_inserted_total{kind=\"quarantine\"}",
++          "legendFormat": "quarantine",
++          "refId": "B"
++        }
++      ],
++      "title": "Inserted total (gauge)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "min": 0
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 12,
++        "y": 8
++      },
++      "id": 4,
++      "options": {
++        "legend": {
++          "displayMode": "table",
++          "placement": "bottom",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "expr": "of_inputs_archiver_error_total{kind=\"dlq\"}",
++          "legendFormat": "dlq",
++          "refId": "A"
++        },
++        {
++          "expr": "of_inputs_archiver_error_total{kind=\"quarantine\"}",
++          "legendFormat": "quarantine",
++          "refId": "B"
++        }
++      ],
++      "title": "Error total (gauge)",
++      "type": "timeseries"
++    }
++  ],
++  "refresh": "10s",
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": [
++    "orderflow",
++    "of_inputs",
++    "dlq",
++    "archiver"
++  ],
++  "templating": {
++    "list": [
++      {
++        "current": {
++          "selected": false,
++          "text": "Prometheus",
++          "value": "Prometheus"
++        },
++        "hide": 0,
++        "includeAll": false,
++        "label": "Datasource",
++        "name": "DS_PROMETHEUS",
++        "options": [],
++        "query": "prometheus",
++        "refresh": 1,
++        "regex": "",
++        "type": "datasource"
++      }
++    ]
++  },
++  "time": {
++    "from": "now-6h",
++    "to": "now"
++  },
++  "timepicker": {
++    "refresh_intervals": [
++      "5s",
++      "10s",
++      "30s",
++      "1m",
++      "5m",
++      "15m",
++      "30m",
++      "1h"
++    ]
++  },
++  "timezone": "browser",
++  "title": "OFInputs: DLQ/quarantine DB archiver (P98)",
++  "uid": "of_inputs_archiver_p98",
++  "version": 1,
++  "weekStart": ""
++}
+diff --git a/orderflow_services/of_inputs_archiver_exporter_p98.py b/orderflow_services/of_inputs_archiver_exporter_p98.py
+new file mode 100644
+index 0000000..843f6fd
+--- /dev/null
++++ b/orderflow_services/of_inputs_archiver_exporter_p98.py
+@@ -0,0 +1,148 @@
++#!/usr/bin/env python3
++"""Prometheus exporter for OFInputs DLQ/quarantine DB archiver status (P98).
++
++Reads Redis hashes written by of_inputs_dlq_archive_to_db_p98.py:
++  - metrics:of_inputs_dlq_db_archive
++  - metrics:of_inputs_quarantine_db_archive
++
++Exposes:
++  of_inputs_archiver_last_run_ts_ms{kind="dlq|quarantine"}
++  of_inputs_archiver_staleness_sec{kind=...}
++  of_inputs_archiver_last_stream_ts_ms{kind=...}
++  of_inputs_archiver_inserted_total{kind=...}
++  of_inputs_archiver_error_total{kind=...}
++
++Run:
++  python -m orderflow_services.of_inputs_archiver_exporter_p98
++
++ENV:
++  REDIS_URL (default redis://redis-worker-1:6379/0)
++  OF_INPUTS_ARCHIVER_EXPORTER_PORT (default 9156)
++  OF_INPUTS_DLQ_DB_ARCHIVE_METRICS_KEY (default metrics:of_inputs_dlq_db_archive)
++  OF_INPUTS_QUARANTINE_DB_ARCHIVE_METRICS_KEY (default metrics:of_inputs_quarantine_db_archive)
++"""
++
++from __future__ import annotations
++
++import os
++import time
++from typing import Any, Dict
++
++from prometheus_client import Gauge, start_http_server  # type: ignore
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++
++GAUGE_LAST_RUN_TS_MS = Gauge(
++    "of_inputs_archiver_last_run_ts_ms",
++    "Timestamp of last archiver run in milliseconds since epoch",
++    ["kind"],
++)
++GAUGE_STALENESS_SEC = Gauge(
++    "of_inputs_archiver_staleness_sec",
++    "Seconds elapsed since last archiver run",
++    ["kind"],
++)
++GAUGE_LAST_STREAM_TS_MS = Gauge(
++    "of_inputs_archiver_last_stream_ts_ms",
++    "Timestamp extracted from last processed stream ID (ms)",
++    ["kind"],
++)
++GAUGE_INSERTED_TOTAL = Gauge(
++    "of_inputs_archiver_inserted_total",
++    "Cumulative rows inserted (monotonic-ish gauge from Redis hash)",
++    ["kind"],
++)
++GAUGE_ERROR_TOTAL = Gauge(
++    "of_inputs_archiver_error_total",
++    "Cumulative error count (monotonic-ish gauge from Redis hash)",
++    ["kind"],
++)
++
++
++def _i(x: Any, default: int = 0) -> int:
++    try:
++        if x is None:
++            return default
++        if isinstance(x, (bytes, bytearray)):
++            x = x.decode("utf-8", "replace")
++        return int(float(x))
++    except Exception:
++        return default
++
++
++def _s(x: Any) -> str:
++    if x is None:
++        return ""
++    if isinstance(x, (bytes, bytearray)):
++        try:
++            return x.decode("utf-8", "replace")
++        except Exception:
++            return ""
++    return str(x)
++
++
++def _stream_id_to_ts_ms(stream_id: str) -> int:
++    try:
++        return int(stream_id.split("-", 1)[0])
++    except Exception:
++        return 0
++
++
++class Exporter:
++    def __init__(self) -> None:
++        self.redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++        self.port = int(os.getenv("OF_INPUTS_ARCHIVER_EXPORTER_PORT", "9156") or 9156)
++        self.key_dlq = os.getenv("OF_INPUTS_DLQ_DB_ARCHIVE_METRICS_KEY", "metrics:of_inputs_dlq_db_archive")
++        self.key_quarantine = os.getenv(
++            "OF_INPUTS_QUARANTINE_DB_ARCHIVE_METRICS_KEY", "metrics:of_inputs_quarantine_db_archive"
++        )
++        self.r = redis.Redis.from_url(self.redis_url, decode_responses=False) if redis else None
++
++    def _hgetall(self, key: str) -> Dict[str, Any]:
++        if not self.r:
++            return {}
++        try:
++            raw = self.r.hgetall(key) or {}
++            out: Dict[str, Any] = {}
++            for k, v in raw.items():
++                out[_s(k)] = v
++            return out
++        except Exception:
++            return {}
++
++    def _emit(self, kind: str, d: Dict[str, Any]) -> None:
++        last_run = _i(d.get("last_run_ts_ms"), 0)
++        last_stream_id = _s(d.get("last_stream_id"))
++        inserted_total = _i(d.get("inserted_total"), 0)
++        error_total = _i(d.get("error_total"), 0)
++
++        GAUGE_LAST_RUN_TS_MS.labels(kind=kind).set(last_run)
++        if last_run > 0:
++            GAUGE_STALENESS_SEC.labels(kind=kind).set(max(0.0, (int(time.time() * 1000) - last_run) / 1000.0))
++        else:
++            GAUGE_STALENESS_SEC.labels(kind=kind).set(0)
++
++        GAUGE_LAST_STREAM_TS_MS.labels(kind=kind).set(_stream_id_to_ts_ms(last_stream_id) if last_stream_id else 0)
++        GAUGE_INSERTED_TOTAL.labels(kind=kind).set(inserted_total)
++        GAUGE_ERROR_TOTAL.labels(kind=kind).set(error_total)
++
++    def tick(self) -> None:
++        self._emit("dlq", self._hgetall(self.key_dlq))
++        self._emit("quarantine", self._hgetall(self.key_quarantine))
++
++
++def main() -> None:
++    ex = Exporter()
++    start_http_server(ex.port)
++    print(f"of_inputs_archiver_exporter_p98 serving on :{ex.port}")
++    while True:
++        ex.tick()
++        time.sleep(5)
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/orderflow_services/of_inputs_dlq_archive_to_db_p98.py b/orderflow_services/of_inputs_dlq_archive_to_db_p98.py
+new file mode 100644
+index 0000000..226dd9d
+--- /dev/null
++++ b/orderflow_services/of_inputs_dlq_archive_to_db_p98.py
+@@ -0,0 +1,459 @@
++"""OFInputs DLQ + quarantine streams -> Postgres/Timescale archiver (P98).
++
++Goal
++- Keep a durable history of OFInputs DLQ/quarantine events for postmortems.
++- Designed to sit *on top* of the existing DLQ/quarantine contour (P96/P97):
++  - stream:dlq:of_inputs
++  - quarantine:signals:of:inputs
++
++Design
++- Reads Redis streams (XRANGE) from a checkpoint stored in Redis.
++- Inserts into DB with idempotency (PRIMARY KEY (stream, dlq_id)).
++- Updates a small status hash in Redis for Prometheus exporter:
++    metrics:of_inputs_dlq_db_archive
++    metrics:of_inputs_quarantine_db_archive
++
++Usage
++  TRADES_DB_DSN=... REDIS_URL=... \
++    python -m orderflow_services.of_inputs_dlq_archive_to_db_p98 --once
++
++  # Continuous loop
++  python -m orderflow_services.of_inputs_dlq_archive_to_db_p98 --loop
++
++  # Backfill last N entries without updating checkpoint
++  python -m orderflow_services.of_inputs_dlq_archive_to_db_p98 --tail 200000 --no-checkpoint
++
++ENV
++  REDIS_URL / REDIS_TICKS_URL
++  TRADES_DB_DSN / ARCHIVER_PG_DSN / DATABASE_URL / PG_DSN
++  OF_INPUTS_DLQ_DB_ARCHIVE_STREAMS (comma-separated) default:
++    stream:dlq:of_inputs,quarantine:signals:of:inputs
++  OF_INPUTS_DLQ_DB_ARCHIVE_BATCH (default 5000)
++  OF_INPUTS_DLQ_DB_ARCHIVE_DELETE_AFTER_INSERT (default 0)
++  OF_INPUTS_DLQ_DB_ARCHIVE_AUTO_MIGRATE (default 0)
++
++Rollback
++  - stop the job; no runtime impact.
++  - table is append-only.
++"""
++
++from __future__ import annotations
++
++import argparse
++import datetime as dt
++import json
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional, Tuple
++
++import psycopg2
++from psycopg2.extras import execute_values
++
++
++def env(name: str, default: str) -> str:
++    v = os.getenv(name)
++    return v if v else default
++
++
++def env_int(name: str, default: int) -> int:
++    v = os.getenv(name)
++    try:
++        return int(v) if v else default
++    except Exception:
++        return default
++
++
++def env_bool(name: str, default: bool = False) -> bool:
++    v = os.getenv(name)
++    if v is None or v == "":
++        return default
++    return str(v).strip().lower() in ("1", "true", "yes", "y", "on")
++
++
++def pick_dsn() -> str:
++    return (
++        os.getenv("ARCHIVER_PG_DSN")
++        or os.getenv("TRADES_DB_DSN")
++        or os.getenv("DATABASE_URL")
++        or os.getenv("PG_DSN")
++        or ""
++    )
++
++
++def _decode(x: Any) -> Any:
++    if isinstance(x, (bytes, bytearray)):
++        return x.decode("utf-8", "ignore")
++    return x
++
++
++def _json_loads_maybe(s: Any) -> Any:
++    if s is None:
++        return None
++    s = _decode(s)
++    if isinstance(s, (dict, list)):
++        return s
++    if not isinstance(s, str):
++        return s
++    try:
++        return json.loads(s)
++    except Exception:
++        return s
++
++
++def ts_ms_from_stream_id(stream_id: str) -> int:
++    return int(str(stream_id).split("-", 1)[0])
++
++
++def coalesce_ts_ms(payload: Dict[str, Any], stream_id: str) -> int:
++    for k in ("ts_ms", "tick_ts", "ts_event_ms", "ts", "timestamp_ms"):
++        v = payload.get(k)
++        try:
++            if v is not None:
++                return int(float(v))
++        except Exception:
++            pass
++    return ts_ms_from_stream_id(stream_id)
++
++
++def _connect_redis():
++    import redis  # type: ignore
++
++    url = os.getenv("REDIS_URL") or os.getenv("REDIS_TICKS_URL") or "redis://localhost:6379/0"
++    return redis.Redis.from_url(url, decode_responses=False)
++
++
++@dataclass
++class PgCfg:
++    dsn: str
++
++
++class PgWriter:
++    def __init__(self, cfg: PgCfg):
++        self.cfg = cfg
++
++    def _conn(self):
++        return psycopg2.connect(self.cfg.dsn)
++
++    def ensure_tables(self) -> None:
++        ddl = """
++        CREATE TABLE IF NOT EXISTS of_inputs_dlq_events (
++          stream TEXT NOT NULL,
++          dlq_id TEXT NOT NULL,
++          ts_ms BIGINT NOT NULL,
++          ts TIMESTAMPTZ NOT NULL,
++          src_stream TEXT,
++          src_stream_id TEXT,
++          err TEXT,
++          dq_code TEXT,
++          attempt_version INT,
++          published_version INT,
++          missing_fields TEXT,
++          payload_json JSONB,
++          inserted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
++          PRIMARY KEY (stream, dlq_id)
++        );
++        CREATE INDEX IF NOT EXISTS of_inputs_dlq_events_ts_idx ON of_inputs_dlq_events (ts DESC);
++        CREATE INDEX IF NOT EXISTS of_inputs_dlq_events_dq_idx ON of_inputs_dlq_events (dq_code, ts DESC);
++        CREATE INDEX IF NOT EXISTS of_inputs_dlq_events_src_idx ON of_inputs_dlq_events (src_stream, ts DESC);
++        """
++        with self._conn() as conn:
++            with conn.cursor() as cur:
++                cur.execute(ddl)
++                try:
++                    cur.execute("SELECT create_hypertable('of_inputs_dlq_events','ts', if_not_exists => TRUE);")
++                except Exception:
++                    conn.rollback()
++            conn.commit()
++
++    def insert_rows(self, rows: List[Tuple[Any, ...]]) -> int:
++        if not rows:
++            return 0
++        sql = """
++        INSERT INTO of_inputs_dlq_events (
++          stream, dlq_id, ts_ms, ts,
++          src_stream, src_stream_id, err,
++          dq_code, attempt_version, published_version, missing_fields,
++          payload_json
++        ) VALUES %s
++        ON CONFLICT (stream, dlq_id) DO NOTHING
++        """
++        with self._conn() as conn:
++            with conn.cursor() as cur:
++                execute_values(cur, sql, rows, page_size=5000)
++            conn.commit()
++        return len(rows)
++
++
++def _i(x: Any, default: int = 0) -> int:
++    try:
++        if x is None:
++            return default
++        if isinstance(x, (bytes, bytearray)):
++            x = x.decode("utf-8", "replace")
++        return int(float(x))
++    except Exception:
++        return default
++
++
++def _s(x: Any) -> str:
++    if x is None:
++        return ""
++    if isinstance(x, (bytes, bytearray)):
++        try:
++            return x.decode("utf-8", "replace")
++        except Exception:
++            return ""
++    return str(x)
++
++
++def _as_payload_guess(fields: Dict[str, Any]) -> Dict[str, Any]:
++    """If no explicit 'payload' field exists, treat the remaining fields as payload."""
++    drop = {
++        "err",
++        "error",
++        "stream",
++        "src_stream",
++        "stream_id",
++        "src_stream_id",
++        "data",
++        "payload",
++    }
++    out: Dict[str, Any] = {}
++    for k, v in (fields or {}).items():
++        ks = _s(k)
++        if ks in drop:
++            continue
++        out[ks] = _decode(v)
++    return out
++
++
++def parse_event(stream: str, dlq_id: str, fields: Dict[str, Any]) -> Tuple[Tuple[Any, ...], str]:
++    """Parse a Redis stream entry into a DB row + last_stream_id for checkpoint."""
++    f = {str(_decode(k)): _decode(v) for k, v in (fields or {}).items()}
++
++    src_stream = str(f.get("stream") or f.get("src_stream") or "")
++    src_stream_id = str(f.get("stream_id") or f.get("src_stream_id") or "")
++    err = str(f.get("err") or f.get("error") or "")
++
++    payload_raw = f.get("payload")
++    if payload_raw is None:
++        payload_raw = f.get("data")
++
++    payload_any = _json_loads_maybe(payload_raw)
++    if payload_any is None:
++        payload = _as_payload_guess(f)
++    elif isinstance(payload_any, dict):
++        payload = payload_any
++    else:
++        payload = {"payload": payload_any}
++
++    ts_ms = coalesce_ts_ms(payload, dlq_id)
++    ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.timezone.utc)
++
++    dq_code = payload.get("dq_code") or payload.get("why") or f.get("dq_code") or f.get("why")
++    attempt_version = payload.get("attempt_version") or payload.get("attempt_v") or f.get("attempt_version")
++    published_version = payload.get("published_version") or payload.get("published_v") or f.get("published_version")
++    missing_fields = payload.get("missing_fields") or payload.get("missing") or f.get("missing_fields")
++
++    # stringify missing_fields consistently
++    mf_s = ""
++    try:
++        if isinstance(missing_fields, (list, tuple)):
++            mf_s = ",".join([str(x) for x in missing_fields])
++        elif missing_fields is None:
++            mf_s = ""
++        else:
++            mf_s = str(missing_fields)
++    except Exception:
++        mf_s = ""
++
++    row = (
++        str(stream),
++        str(dlq_id),
++        int(ts_ms),
++        ts,
++        src_stream or None,
++        src_stream_id or None,
++        err or None,
++        str(dq_code) if dq_code is not None else None,
++        int(float(attempt_version)) if attempt_version is not None and str(attempt_version).strip() != "" else None,
++        int(float(published_version)) if published_version is not None and str(published_version).strip() != "" else None,
++        mf_s or None,
++        json.dumps(payload, ensure_ascii=False),
++    )
++    return row, str(dlq_id)
++
++
++def _checkpoint_key(stream: str) -> str:
++    return f"cfg:of_inputs_dlq_db_archive:last_id:{stream}"
++
++
++def _metrics_key(stream: str) -> str:
++    # Deterministic mapping: dlq stream -> dlq metrics; quarantine stream -> quarantine metrics
++    if "quarantine" in stream:
++        return "metrics:of_inputs_quarantine_db_archive"
++    return "metrics:of_inputs_dlq_db_archive"
++
++
++def _write_metrics(r, key: str, last_stream_id: str, inserted_delta: int, error_delta: int) -> None:
++    now_ms = int(time.time() * 1000)
++    try:
++        pipe = r.pipeline()
++        pipe.hset(key, mapping={
++            "last_run_ts_ms": str(now_ms),
++            "last_stream_id": str(last_stream_id),
++        })
++        if inserted_delta:
++            pipe.hincrby(key, "inserted_total", int(inserted_delta))
++        if error_delta:
++            pipe.hincrby(key, "error_total", int(error_delta))
++        pipe.expire(key, 14 * 24 * 3600)
++        pipe.execute()
++    except Exception:
++        pass
++
++
++def read_batch(r, stream: str, start_id: str, count: int) -> List[Tuple[str, Dict[str, Any]]]:
++    items = r.xrange(stream, min=start_id, max="+", count=count)
++    out: List[Tuple[str, Dict[str, Any]]] = []
++    for mid, fields in items:
++        out.append((str(_decode(mid)), fields))
++    return out
++
++
++def run_once(args: argparse.Namespace) -> int:
++    dsn = pick_dsn()
++    if not dsn:
++        raise SystemExit("missing_db_dsn: set TRADES_DB_DSN/ARCHIVER_PG_DSN")
++
++    r = _connect_redis()
++    pg = PgWriter(PgCfg(dsn=dsn))
++
++    auto_migrate = bool(args.auto_migrate) or env_bool("OF_INPUTS_DLQ_DB_ARCHIVE_AUTO_MIGRATE", False)
++    if auto_migrate:
++        pg.ensure_tables()
++
++    delete_after = bool(args.delete_after) or env_bool("OF_INPUTS_DLQ_DB_ARCHIVE_DELETE_AFTER_INSERT", False)
++
++    total_inserted = 0
++
++    for stream in args.streams:
++        stream = stream.strip()
++        if not stream:
++            continue
++
++        if args.no_checkpoint:
++            start_id = "-"
++        else:
++            start_id_raw = r.get(_checkpoint_key(stream))
++            start_id = str(_decode(start_id_raw)) if start_id_raw else "-"
++
++        # tail mode: start from last N entries
++        if args.tail and int(args.tail) > 0:
++            try:
++                items = r.xrevrange(stream, max="+", min="-", count=int(args.tail))
++                ids = [str(_decode(mid)) for mid, _ in items]
++                if ids:
++                    start_id = ids[-1]
++            except Exception:
++                pass
++
++        last_id = start_id
++        inserted_total_stream = 0
++        errors_total_stream = 0
++
++        while True:
++            batch = read_batch(r, stream, last_id, count=args.batch)
++            if not batch:
++                break
++
++            # XRANGE is inclusive; skip the first if it's the checkpoint id
++            if last_id != "-" and batch and batch[0][0] == last_id:
++                batch = batch[1:]
++
++            rows: List[Tuple[Any, ...]] = []
++            last_seen = last_id
++            for mid, fields in batch:
++                last_seen = mid
++                try:
++                    row, _ = parse_event(stream, mid, fields)
++                    rows.append(row)
++                except Exception:
++                    errors_total_stream += 1
++                    continue
++
++            try:
++                inserted = pg.insert_rows(rows)
++                inserted_total_stream += inserted
++                total_inserted += inserted
++            except Exception:
++                errors_total_stream += 1
++                # fail-open: continue; don't advance checkpoint on DB errors
++                break
++
++            last_id = last_seen
++
++            if args.max_batches and args.max_batches > 0:
++                args.max_batches -= 1
++                if args.max_batches <= 0:
++                    break
++
++        # Update checkpoint and metrics
++        if not args.no_checkpoint and last_id and last_id != start_id:
++            try:
++                r.set(_checkpoint_key(stream), str(last_id))
++            except Exception:
++                pass
++
++        # optional delete-after-insert (dangerous): trim everything <= last_id
++        if delete_after and last_id and last_id != "-":
++            try:
++                r.xtrim(stream, minid=last_id, approximate=False)
++            except Exception:
++                pass
++
++        _write_metrics(r, _metrics_key(stream), last_id or "-", inserted_total_stream, errors_total_stream)
++
++    return total_inserted
++
++
++def main() -> None:
++    default_streams = env(
++        "OF_INPUTS_DLQ_DB_ARCHIVE_STREAMS",
++        "stream:dlq:of_inputs,quarantine:signals:of:inputs",
++    )
++
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--once", action="store_true", help="run one pass")
++    ap.add_argument("--loop", action="store_true", help="run forever")
++    ap.add_argument("--batch", type=int, default=env_int("OF_INPUTS_DLQ_DB_ARCHIVE_BATCH", 5000))
++    ap.add_argument("--streams", type=str, default=default_streams)
++    ap.add_argument("--tail", type=int, default=0)
++    ap.add_argument("--no-checkpoint", action="store_true")
++    ap.add_argument("--auto-migrate", action="store_true")
++    ap.add_argument("--delete-after", action="store_true")
++    ap.add_argument("--sleep", type=float, default=10.0)
++    ap.add_argument("--max-batches", type=int, default=0)
++
++    args = ap.parse_args()
++    args.streams = [s.strip() for s in str(args.streams).split(",") if s.strip()]
++
++    if not args.once and not args.loop:
++        args.once = True
++
++    if args.loop:
++        while True:
++            try:
++                n = run_once(args)
++                print(f"of_inputs_dlq_archive_to_db_p98 inserted={n}")
++            except Exception as e:
++                print(f"of_inputs_dlq_archive_to_db_p98 error: {e}")
++            time.sleep(float(args.sleep))
++    else:
++        n = run_once(args)
++        print(f"of_inputs_dlq_archive_to_db_p98 inserted={n}")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/orderflow_services/prometheus_alerts_of_inputs_archiver_p98.yml b/orderflow_services/prometheus_alerts_of_inputs_archiver_p98.yml
+new file mode 100644
+index 0000000..68ade22
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_of_inputs_archiver_p98.yml
+@@ -0,0 +1,68 @@
++groups:
++- name: of_inputs_archiver_p98
++  rules:
++  - alert: OF_OFInputsDLQDBArchiverStale_Warn
++    expr: >
++      (of_inputs_archiver_staleness_sec{kind="dlq"} > 3600)
++      and on() (max(of_inputs_dlq_len{stream="stream:dlq:of_inputs"}) > 0)
++    for: 20m
++    labels:
++      severity: warning
++    annotations:
++      summary: 'OFInputs DLQ DB archiver stale while DLQ non-empty'
++      description: 'DLQ->DB archiver has not updated for >1h while stream:dlq:of_inputs has backlog. Check DB/Redis connectivity and the archiver job.'
++      runbook_path: /runbooks/runbook_of_inputs_dlq_db_archive_p98.md
++      dashboard_path: /d/of_inputs_archiver_p98
++
++  - alert: OF_OFInputsDLQDBArchiverStale_Crit
++    expr: >
++      (of_inputs_archiver_staleness_sec{kind="dlq"} > 6*3600)
++      and on() (max(of_inputs_dlq_len{stream="stream:dlq:of_inputs"}) > 0)
++    for: 20m
++    labels:
++      severity: critical
++    annotations:
++      summary: 'CRIT: OFInputs DLQ DB archiver very stale while DLQ non-empty'
++      description: 'DLQ->DB archiver has not updated for >6h while stream:dlq:of_inputs has backlog. Postmortem visibility degraded.'
++      runbook_path: /runbooks/runbook_of_inputs_dlq_db_archive_p98.md
++      dashboard_path: /d/of_inputs_archiver_p98
++
++  - alert: OF_OFInputsQuarantineDBArchiverStale_Warn
++    expr: >
++      (of_inputs_archiver_staleness_sec{kind="quarantine"} > 3600)
++      and on() (max(of_inputs_dlq_len{stream="quarantine:signals:of:inputs"}) > 0)
++    for: 20m
++    labels:
++      severity: warning
++    annotations:
++      summary: 'OFInputs quarantine DB archiver stale while quarantine non-empty'
++      description: 'Quarantine->DB archiver has not updated for >1h while quarantine stream has backlog.'
++      runbook_path: /runbooks/runbook_of_inputs_dlq_db_archive_p98.md
++      dashboard_path: /d/of_inputs_archiver_p98
++
++  - alert: OF_OFInputsQuarantineDBArchiverStale_Crit
++    expr: >
++      (of_inputs_archiver_staleness_sec{kind="quarantine"} > 6*3600)
++      and on() (max(of_inputs_dlq_len{stream="quarantine:signals:of:inputs"}) > 0)
++    for: 20m
++    labels:
++      severity: critical
++    annotations:
++      summary: 'CRIT: OFInputs quarantine DB archiver very stale while quarantine non-empty'
++      description: 'Quarantine->DB archiver has not updated for >6h while quarantine stream has backlog.'
++      runbook_path: /runbooks/runbook_of_inputs_dlq_db_archive_p98.md
++      dashboard_path: /d/of_inputs_archiver_p98
++
++  - alert: OF_OFInputsDBArchiverErrorsSpike_Warn
++    expr: >
++      (max_over_time(of_inputs_archiver_error_total{kind="dlq"}[30m]) - min_over_time(of_inputs_archiver_error_total{kind="dlq"}[30m])) > 0
++      or
++      (max_over_time(of_inputs_archiver_error_total{kind="quarantine"}[30m]) - min_over_time(of_inputs_archiver_error_total{kind="quarantine"}[30m])) > 0
++    for: 10m
++    labels:
++      severity: warning
++    annotations:
++      summary: 'OFInputs DB archiver errors increased'
++      description: 'Error counter changed in the last 30m. Inspect logs of of_inputs_dlq_archive_to_db_p98.py and DB availability.'
++      runbook_path: /runbooks/runbook_of_inputs_dlq_db_archive_p98.md
++      dashboard_path: /d/of_inputs_archiver_p98
+diff --git a/orderflow_services/runbook_of_inputs_dlq_db_archive_p98.md b/orderflow_services/runbook_of_inputs_dlq_db_archive_p98.md
+new file mode 100644
+index 0000000..1fb9f97
+--- /dev/null
++++ b/orderflow_services/runbook_of_inputs_dlq_db_archive_p98.md
+@@ -0,0 +1,68 @@
++# P98 — Runbook: OFInputs DLQ/quarantine → DB archive
++
++## Цель
++Сохранить историю событий DLQ и quarantine для OFInputs в Postgres/Timescale:
++- постмортемы по деградации book_state (V3→V2 downgrade)
++- топ причин/символов/регимов
++- возможность строить тренды и корреляции с latency/exec
++
++## Компоненты
++- Archiver: `orderflow_services/of_inputs_dlq_archive_to_db_p98.py`
++- Exporter: `orderflow_services/of_inputs_archiver_exporter_p98.py`
++- Table/DDL: `services/archivers/sql/20260225_of_inputs_dlq_events_p98.sql`
++
++## Потоки
++- DLQ: `stream:dlq:of_inputs`
++- Quarantine: `quarantine:signals:of:inputs`
++
++## Схема таблицы
++`of_inputs_dlq_events(stream, dlq_id, ts_ms, ts, src_stream, src_stream_id, err, dq_code, attempt_version, published_version, missing_fields, payload_json, inserted_at)`
++
++## Запуск вручную
++```bash
++export REDIS_URL=redis://redis-worker-1:6379/0
++export TRADES_DB_DSN='postgresql://...'
++python -m orderflow_services.of_inputs_dlq_archive_to_db_p98 --once --auto-migrate
++```
++
++Backfill (без чекпоинта):
++```bash
++python -m orderflow_services.of_inputs_dlq_archive_to_db_p98 --once --tail 200000 --no-checkpoint
++```
++
++## Автоматизация (варианты)
++### Вариант A: systemd timer (рекомендовано)
++- Период: каждые 5–10 минут или раз в час (если объёмы маленькие).
++- Команда: `python -m orderflow_services.of_inputs_dlq_archive_to_db_p98 --once`
++
++### Вариант B: docker-compose timers
++Добавьте сервис/command в ваш timers stack и включите ENV.
++
++## Метрики/экспорт
++Archiver пишет статусы в Redis hashes:
++- `metrics:of_inputs_dlq_db_archive`
++- `metrics:of_inputs_quarantine_db_archive`
++
++Exporter:
++```bash
++export OF_INPUTS_ARCHIVER_EXPORTER_PORT=9156
++python -m orderflow_services.of_inputs_archiver_exporter_p98
++```
++
++## Триггеры/алерты
++См. `orderflow_services/prometheus_alerts_of_inputs_archiver_p98.yml`.
++
++## Диагностика
++1) DLQ растёт, а inserted_total не растёт
++- проверить логи archiver
++- проверить DSN/доступность Postgres
++
++2) staleness_sec растёт
++- job не запускается или падает до записи метрик
++
++3) Конфликт схемы/таблицы
++- прогнать `psql $TRADES_DB_DSN -f services/archivers/sql/20260225_of_inputs_dlq_events_p98.sql`
++
++## Rollback
++- остановить archiver + exporter
++- таблица остаётся как история (append-only)
+diff --git a/services/archivers/sql/20260225_of_inputs_dlq_events_p98.sql b/services/archivers/sql/20260225_of_inputs_dlq_events_p98.sql
+new file mode 100644
+index 0000000..92687c3
+--- /dev/null
++++ b/services/archivers/sql/20260225_of_inputs_dlq_events_p98.sql
+@@ -0,0 +1,50 @@
++-- P98: archive OFInputs DLQ + quarantine streams into Timescale/Postgres
++-- Mirrors of_gate_dlq_events (P83), but tailored for of_inputs payloads.
++
++CREATE TABLE IF NOT EXISTS of_inputs_dlq_events (
++  stream TEXT NOT NULL,
++  dlq_id TEXT NOT NULL,
++  ts_ms BIGINT NOT NULL,
++  ts TIMESTAMPTZ NOT NULL,
++  src_stream TEXT,
++  src_stream_id TEXT,
++  err TEXT,
++  dq_code TEXT,
++  attempt_version INT,
++  published_version INT,
++  missing_fields TEXT,
++  payload_json JSONB,
++  inserted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
++  PRIMARY KEY (stream, dlq_id)
++);
++
++CREATE INDEX IF NOT EXISTS of_inputs_dlq_events_ts_idx
++  ON of_inputs_dlq_events (ts DESC);
++
++CREATE INDEX IF NOT EXISTS of_inputs_dlq_events_dq_idx
++  ON of_inputs_dlq_events (dq_code, ts DESC);
++
++CREATE INDEX IF NOT EXISTS of_inputs_dlq_events_src_idx
++  ON of_inputs_dlq_events (src_stream, ts DESC);
++
++-- Try to enable Timescale hypertable (fail-open on plain Postgres)
++DO $$
++BEGIN
++  PERFORM create_hypertable('of_inputs_dlq_events','ts', if_not_exists => TRUE);
++EXCEPTION
++  WHEN undefined_function THEN
++    NULL;
++  WHEN others THEN
++    NULL;
++END $$;
++
++-- Retention policy (14d) if Timescale is available (fail-open)
++DO $$
++BEGIN
++  PERFORM add_retention_policy('of_inputs_dlq_events', INTERVAL '14 days');
++EXCEPTION
++  WHEN undefined_function THEN
++    NULL;
++  WHEN others THEN
++    NULL;
++END $$;
+diff --git a/services/orderflow/tests/test_of_inputs_dlq_db_archive_parse_p98.py b/services/orderflow/tests/test_of_inputs_dlq_db_archive_parse_p98.py
+new file mode 100644
+index 0000000..5bda3ec
+--- /dev/null
++++ b/services/orderflow/tests/test_of_inputs_dlq_db_archive_parse_p98.py
+@@ -0,0 +1,49 @@
++import unittest
++
++
++class TestOFInputsDLQDBArchiveParseP98(unittest.TestCase):
++    def test_parse_dlq_payload_json(self):
++        from orderflow_services.of_inputs_dlq_archive_to_db_p98 import parse_event
++
++        stream = "stream:dlq:of_inputs"
++        mid = "1700000000000-1"
++        fields = {
++            b"stream": b"signals:of:inputs",
++            b"stream_id": b"1700000000000-9",
++            b"err": b"missing required field: microprice",
++            b"payload": b"{\"schema_version\":3,\"ts_ms\":1700000000000,\"symbol\":\"BTCUSDT\",\"dq_code\":\"missing_lob_fields\",\"missing_fields\":[\"microprice\",\"spread_bps\"]}",
++        }
++
++        row, last_id = parse_event(stream, mid, fields)
++        self.assertEqual(last_id, mid)
++        self.assertEqual(row[0], stream)
++        self.assertEqual(row[1], mid)
++        self.assertEqual(row[2], 1700000000000)
++        self.assertEqual(row[7], "missing_lob_fields")
++        self.assertIn("microprice", row[10])
++
++    def test_parse_quarantine_fields_as_payload(self):
++        from orderflow_services.of_inputs_dlq_archive_to_db_p98 import parse_event
++
++        stream = "quarantine:signals:of:inputs"
++        mid = "1700000001000-1"
++        fields = {
++            b"dq_code": b"book_state_degraded",
++            b"attempt_version": b"3",
++            b"published_version": b"2",
++            b"missing_fields": b"microprice,obi_l1",
++            b"ts_ms": b"1700000001000",
++            b"symbol": b"ETHUSDT",
++        }
++
++        row, _ = parse_event(stream, mid, fields)
++        self.assertEqual(row[0], stream)
++        self.assertEqual(row[2], 1700000001000)
++        self.assertEqual(row[7], "book_state_degraded")
++        self.assertEqual(row[8], 3)
++        self.assertEqual(row[9], 2)
++        self.assertIn("microprice", row[10])
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tick_flow_full/orderflow_services/grafana/README_p98_of_inputs_archiver.md b/tick_flow_full/orderflow_services/grafana/README_p98_of_inputs_archiver.md
+new file mode 120000
+index 0000000..e3ef62d
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/grafana/README_p98_of_inputs_archiver.md
+@@ -0,0 +1 @@
++../../../orderflow_services/grafana/README_p98_of_inputs_archiver.md
+\ No newline at end of file
+diff --git a/tick_flow_full/orderflow_services/grafana/of_inputs_archiver_p98.json b/tick_flow_full/orderflow_services/grafana/of_inputs_archiver_p98.json
+new file mode 120000
+index 0000000..6aecd0a
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/grafana/of_inputs_archiver_p98.json
+@@ -0,0 +1 @@
++../../../orderflow_services/grafana/of_inputs_archiver_p98.json
+\ No newline at end of file
+diff --git a/tick_flow_full/orderflow_services/of_inputs_archiver_exporter_p98.py b/tick_flow_full/orderflow_services/of_inputs_archiver_exporter_p98.py
+new file mode 120000
+index 0000000..996d3c6
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/of_inputs_archiver_exporter_p98.py
+@@ -0,0 +1 @@
++../../orderflow_services/of_inputs_archiver_exporter_p98.py
+\ No newline at end of file
+diff --git a/tick_flow_full/orderflow_services/of_inputs_dlq_archive_to_db_p98.py b/tick_flow_full/orderflow_services/of_inputs_dlq_archive_to_db_p98.py
+new file mode 120000
+index 0000000..f8b6773
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/of_inputs_dlq_archive_to_db_p98.py
+@@ -0,0 +1 @@
++../../orderflow_services/of_inputs_dlq_archive_to_db_p98.py
+\ No newline at end of file
+diff --git a/tick_flow_full/orderflow_services/prometheus_alerts_of_inputs_archiver_p98.yml b/tick_flow_full/orderflow_services/prometheus_alerts_of_inputs_archiver_p98.yml
+new file mode 120000
+index 0000000..519d6ea
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_of_inputs_archiver_p98.yml
+@@ -0,0 +1 @@
++../../orderflow_services/prometheus_alerts_of_inputs_archiver_p98.yml
+\ No newline at end of file
+diff --git a/tick_flow_full/orderflow_services/runbook_of_inputs_dlq_db_archive_p98.md b/tick_flow_full/orderflow_services/runbook_of_inputs_dlq_db_archive_p98.md
+new file mode 120000
+index 0000000..aa5c576
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/runbook_of_inputs_dlq_db_archive_p98.md
+@@ -0,0 +1 @@
++../../orderflow_services/runbook_of_inputs_dlq_db_archive_p98.md
+\ No newline at end of file
+diff --git a/tick_flow_full/services/archivers/sql/20260225_of_inputs_dlq_events_p98.sql b/tick_flow_full/services/archivers/sql/20260225_of_inputs_dlq_events_p98.sql
+new file mode 120000
+index 0000000..f6ce9b1
+--- /dev/null
++++ b/tick_flow_full/services/archivers/sql/20260225_of_inputs_dlq_events_p98.sql
+@@ -0,0 +1 @@
++../../../../services/archivers/sql/20260225_of_inputs_dlq_events_p98.sql
+\ No newline at end of file

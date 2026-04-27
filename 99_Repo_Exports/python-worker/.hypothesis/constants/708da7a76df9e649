@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signals/volumes.py
+# hypothesis_version: 6.148.10
+
+[1000, 10000, 'change', 'closeTime', 'close_time', 'quoteVolume', 'symbol', 'timestamp', 'volume', 'volumeChangePct', 'volumeChangePercent']

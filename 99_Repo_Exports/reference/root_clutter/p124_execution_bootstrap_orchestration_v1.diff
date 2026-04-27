@@ -1,0 +1,584 @@
+--- services/execution_bootstrap_supervisor.py	2026-03-08 07:28:28.000000000 +0000
++++ services/execution_bootstrap_supervisor.py	2026-03-08 07:47:47.363203833 +0000
+@@ -5,7 +5,7 @@
+ import os
+ import time
+ from dataclasses import asdict, dataclass
+-from typing import Any, Dict, Optional, Sequence
++from typing import Any, Dict, List, Optional, Sequence
+ 
+ try:  # pragma: no cover
+     import redis  # type: ignore
+@@ -80,6 +80,16 @@
+     'trade_execution_bootstrap_user_stream_ready',
+     'User-stream contour readiness for executor bootstrap (1 or 0).',
+ )
++TRADE_EXECUTION_BOOTSTRAP_BLOCKED = _metric(
++    Gauge,
++    'trade_execution_bootstrap_blocked',
++    'Whether executor bootstrap is currently blocked by a dependency failure (1 or 0).',
++)
++TRADE_EXECUTION_BOOTSTRAP_LAST_BLOCK_TIMESTAMP_SECONDS = _metric(
++    Gauge,
++    'trade_execution_bootstrap_last_block_timestamp_seconds',
++    'Unix timestamp of the latest persisted bootstrap block incident.',
++)
+ 
+ 
+ @dataclass
+@@ -105,6 +115,21 @@
+         return asdict(self)
+ 
+ 
++@dataclass
++class BootstrapBlockIncident:
++    ready: bool
++    reason: str
++    checked_at_ms: int
++    projection: Dict[str, Any]
++    user_stream: Dict[str, Any]
++    runbook_actions: List[str]
++    status_key: str
++    last_block_key: str
++
++    def to_dict(self) -> Dict[str, Any]:
++        return asdict(self)
++
++
+ class ExecutionBootstrapSupervisor:
+     def __init__(
+         self,
+@@ -116,6 +141,9 @@
+         user_stream_bootstrap_grace_ms: int = 45000,
+         require_projection_ready: bool = True,
+         require_user_stream_ready: bool = True,
++        status_key: str = 'orders:execution:bootstrap:status',
++        last_block_key: str = 'orders:execution:bootstrap:last_block',
++        block_ttl_sec: int = 86400,
+     ) -> None:
+         self.r = redis_client
+         self.projection_worker = projection_worker or _worker_from_env(redis_client)
+@@ -124,6 +152,9 @@
+         self.user_stream_bootstrap_grace_ms = max(int(user_stream_bootstrap_grace_ms or 45000), 1000)
+         self.require_projection_ready = bool(require_projection_ready)
+         self.require_user_stream_ready = bool(require_user_stream_ready)
++        self.status_key = str(status_key or 'orders:execution:bootstrap:status')
++        self.last_block_key = str(last_block_key or 'orders:execution:bootstrap:last_block')
++        self.block_ttl_sec = max(int(block_ttl_sec or 86400), 60)
+ 
+     def projection_status(self) -> BootstrapDependencyStatus:
+         try:
+@@ -187,6 +218,99 @@
+         detail.update(doc)
+         return BootstrapDependencyStatus(ready=(ready or not self.require_user_stream_ready), reason=reason, detail=detail)
+ 
++    def _runbook_actions_for_reason(self, reason: str, projection: Dict[str, Any], user_stream: Dict[str, Any]) -> List[str]:
++        actions: List[str] = []
++        if reason.startswith('projection:'):
++            detail = projection.get('detail') or {}
++            if 'no_leader' in reason or detail.get('reason') == 'no_leader':
++                actions.append('Проверьте lease/fencing ключи projection worker и убедитесь, что есть ровно один активный лидер.')
++            if 'cursor' in reason or 'lag' in reason or 'stale' in reason:
++                actions.append('Проверьте lag/cursor projection worker; при необходимости выполните --print-health и --rebuild-all.')
++            actions.append('Проверьте service execution-state-projection-worker и endpoint execution-state-projection-health /readyz.')
++        if reason.startswith('user_stream:'):
++            detail = user_stream.get('detail') or {}
++            if detail.get('connected') is False:
++                actions.append('Перезапустите Binance user-stream worker, проверьте listenKey lifecycle и websocket connectivity.')
++            if detail.get('have_listen_key') is False:
++                actions.append('Проверьте создание listenKey и keepalive scheduler; без listenKey executor должен оставаться blocked.')
++            actions.append('Проверьте freshness last_event_ms / last_ingest_ms и alert user-stream stale/disconnected.')
++        if not actions:
++            actions.append('Проверьте /api/execution-bootstrap/health и журналы projection/user-stream сервисов.')
++        return actions
++
++    def _persist_json(self, key: str, payload: Dict[str, Any], *, ttl_sec: int = 0) -> None:
++        try:
++            body = json.dumps(payload, ensure_ascii=False, sort_keys=True)
++            if ttl_sec > 0:
++                self.r.set(key, body, ex=int(ttl_sec))
++            else:
++                self.r.set(key, body)
++        except Exception:
++            pass
++
++    def _load_json(self, key: str) -> Dict[str, Any]:
++        try:
++            raw = self.r.get(key)
++            doc = json.loads(raw) if raw else {}
++            return doc if isinstance(doc, dict) else {}
++        except Exception:
++            return {}
++
++    def _record_snapshot(self, snap: BootstrapHealthSnapshot) -> None:
++        payload = snap.to_dict()
++        payload['status_key'] = self.status_key
++        payload['last_block_key'] = self.last_block_key
++        self._persist_json(self.status_key, payload, ttl_sec=self.block_ttl_sec)
++        blocked = not bool(snap.ready)
++        try:
++            if TRADE_EXECUTION_BOOTSTRAP_BLOCKED:
++                TRADE_EXECUTION_BOOTSTRAP_BLOCKED.set(1.0 if blocked else 0.0)
++        except Exception:
++            pass
++        if blocked:
++            incident = BootstrapBlockIncident(
++                ready=snap.ready,
++                reason=snap.reason,
++                checked_at_ms=snap.checked_at_ms,
++                projection=snap.projection,
++                user_stream=snap.user_stream,
++                runbook_actions=self._runbook_actions_for_reason(snap.reason, snap.projection, snap.user_stream),
++                status_key=self.status_key,
++                last_block_key=self.last_block_key,
++            )
++            incident_doc = incident.to_dict()
++            self._persist_json(self.last_block_key, incident_doc, ttl_sec=self.block_ttl_sec)
++            try:
++                if TRADE_EXECUTION_BOOTSTRAP_LAST_BLOCK_TIMESTAMP_SECONDS:
++                    TRADE_EXECUTION_BOOTSTRAP_LAST_BLOCK_TIMESTAMP_SECONDS.set(float(snap.checked_at_ms) / 1000.0)
++            except Exception:
++                pass
++
++    def latest_block(self) -> Dict[str, Any]:
++        return self._load_json(self.last_block_key)
++
++    def latest_status(self) -> Dict[str, Any]:
++        return self._load_json(self.status_key)
++
++    def runbook_snapshot(self) -> Dict[str, Any]:
++        current = self.health_snapshot().to_dict()
++        latest_block = self.latest_block()
++        latest_reason = _s(latest_block.get('reason'))
++        actions = latest_block.get('runbook_actions') if isinstance(latest_block.get('runbook_actions'), list) else None
++        if not actions:
++            actions = self._runbook_actions_for_reason(
++                latest_reason or _s(current.get('reason')),
++                current.get('projection') or {},
++                current.get('user_stream') or {},
++            )
++        return {
++            'current': current,
++            'latest_block': latest_block,
++            'runbook_actions': actions,
++            'status_key': self.status_key,
++            'last_block_key': self.last_block_key,
++        }
++
+     def health_snapshot(self) -> BootstrapHealthSnapshot:
+         projection = self.projection_status()
+         user_stream = self.user_stream_status()
+@@ -206,7 +330,7 @@
+                 TRADE_EXECUTION_BOOTSTRAP_READY.set(1.0 if ready else 0.0)
+         except Exception:
+             pass
+-        return BootstrapHealthSnapshot(
++        snap = BootstrapHealthSnapshot(
+             ok=ready,
+             ready=ready,
+             reason=reason,
+@@ -214,6 +338,8 @@
+             user_stream=user_stream.to_dict(),
+             checked_at_ms=checked_at_ms,
+         )
++        self._record_snapshot(snap)
++        return snap
+ 
+     def wait_until_ready(self, *, timeout_ms: int = 0, poll_ms: int = 500) -> BootstrapHealthSnapshot:
+         deadline_ms = (_ms_now() + max(int(timeout_ms or 0), 0)) if int(timeout_ms or 0) > 0 else 0
+@@ -241,6 +367,9 @@
+         user_stream_bootstrap_grace_ms=int(os.getenv('EXEC_BOOTSTRAP_USER_STREAM_GRACE_MS', os.getenv('USER_STREAM_MAX_STALE_MS', '45000'))),
+         require_projection_ready=_b(os.getenv('EXEC_BOOTSTRAP_REQUIRE_PROJECTION_READY', '1'), True),
+         require_user_stream_ready=_b(os.getenv('EXEC_BOOTSTRAP_REQUIRE_USER_STREAM_READY', '1'), True),
++        status_key=os.getenv('EXEC_BOOTSTRAP_STATUS_KEY', 'orders:execution:bootstrap:status'),
++        last_block_key=os.getenv('EXEC_BOOTSTRAP_LAST_BLOCK_KEY', 'orders:execution:bootstrap:last_block'),
++        block_ttl_sec=int(os.getenv('EXEC_BOOTSTRAP_BLOCK_TTL_SEC', '86400')),
+     )
+ 
+ 
+@@ -253,6 +382,8 @@
+ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:  # pragma: no cover
+     p = argparse.ArgumentParser(description='Execution bootstrap supervisor')
+     p.add_argument('--print-health', action='store_true', help='print one combined bootstrap health snapshot and exit')
++    p.add_argument('--print-last-block', action='store_true', help='print latest persisted bootstrap block incident and exit')
++    p.add_argument('--print-runbook', action='store_true', help='print runbook payload with latest block reason and actions and exit')
+     p.add_argument('--wait-until-ready', action='store_true', help='block until projection cluster and user-stream contour are healthy')
+     p.add_argument('--timeout-ms', type=int, default=int(os.getenv('EXEC_BOOTSTRAP_TIMEOUT_MS', '0')))
+     p.add_argument('--poll-ms', type=int, default=int(os.getenv('EXEC_BOOTSTRAP_POLL_MS', '500')))
+@@ -264,6 +395,12 @@
+     args = _parse_args(argv)
+     r = _redis_from_env()
+     sup = _supervisor_from_env(r)
++    if args.print_last_block:
++        print(json.dumps(sup.latest_block(), ensure_ascii=False, indent=2))
++        return 0
++    if args.print_runbook:
++        print(json.dumps(sup.runbook_snapshot(), ensure_ascii=False, indent=2))
++        return 0
+     if args.print_health:
+         print(json.dumps(sup.health_snapshot().to_dict(), ensure_ascii=False, indent=2))
+         return 0
+--- services/execution_bootstrap_health_server.py	2026-03-08 07:28:29.000000000 +0000
++++ services/execution_bootstrap_health_server.py	2026-03-08 07:47:47.378946001 +0000
+@@ -12,15 +12,24 @@
+ 
+ class _Handler(BaseHTTPRequestHandler):  # pragma: no cover
+     def do_GET(self):
+-        if self.path not in ('/healthz', '/readyz', '/api/execution-bootstrap/health'):
++        sup = self.server.supervisor  # type: ignore[attr-defined]
++        if self.path in ('/healthz', '/readyz', '/api/execution-bootstrap/health'):
++            snap = sup.health_snapshot().to_dict()
++            is_ready = self.path in ('/readyz', '/api/execution-bootstrap/health')
++            status = 200 if (snap.get('ready') if is_ready else snap.get('ok')) else 503
++            body = json.dumps(snap, ensure_ascii=False).encode('utf-8')
++        elif self.path == '/api/execution-bootstrap/incident/latest':
++            incident = sup.latest_block()
++            status = 200 if incident else 404
++            body = json.dumps(incident or {'reason': 'no_incident_persisted'}, ensure_ascii=False).encode('utf-8')
++        elif self.path == '/api/execution-bootstrap/runbook/latest':
++            payload = sup.runbook_snapshot()
++            status = 200
++            body = json.dumps(payload, ensure_ascii=False).encode('utf-8')
++        else:
+             self.send_response(404)
+             self.end_headers()
+             return
+-        sup = self.server.supervisor  # type: ignore[attr-defined]
+-        snap = sup.health_snapshot().to_dict()
+-        is_ready = self.path in ('/readyz', '/api/execution-bootstrap/health')
+-        status = 200 if (snap.get('ready') if is_ready else snap.get('ok')) else 503
+-        body = json.dumps(snap, ensure_ascii=False).encode('utf-8')
+         self.send_response(status)
+         self.send_header('Content-Type', 'application/json; charset=utf-8')
+         self.send_header('Content-Length', str(len(body)))
+--- confidence_calculation/docker-compose-crypto-orderflow.yml	2026-03-08 07:28:29.000000000 +0000
++++ confidence_calculation/docker-compose-crypto-orderflow.yml	2026-03-08 07:47:47.406116619 +0000
+@@ -1959,8 +1959,17 @@
+       - EXEC_BOOTSTRAP_REQUIRE_USER_STREAM_READY=1
+       - EXEC_BOOTSTRAP_USER_STREAM_GRACE_MS=45000
+       - EXEC_BOOTSTRAP_HEALTH_PORT=8787
++      - EXEC_BOOTSTRAP_STATUS_KEY=orders:execution:bootstrap:status
++      - EXEC_BOOTSTRAP_LAST_BLOCK_KEY=orders:execution:bootstrap:last_block
++      - EXEC_BOOTSTRAP_BLOCK_TTL_SEC=86400
+       - PYTHONPATH=/app
+     depends_on: *id003
++    healthcheck:
++      test: ["CMD", "python", "-c", "import sys,urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8787/readyz', timeout=2); sys.exit(0 if r.status==200 else 1)"]
++      interval: 10s
++      timeout: 3s
++      retries: 6
++      start_period: 10s
+     ports:
+       - "8787:8787"
+     networks: *id004
+@@ -1969,6 +1978,46 @@
+     deploy: *id006
+     container_name: execution-bootstrap-health
+ 
++  binance-executor-supervised:
++    build: *id001
++    command: ["python", "/app/services/execution_bootstrap_supervisor.py", "--wait-until-ready", "--run-executor"]
++    environment:
++      - REDIS_URL=redis://redis-worker-1:6379/0
++      - PYTHONUNBUFFERED=1
++      - EXEC_BOOTSTRAP_REQUIRE_READY=1
++      - EXEC_BOOTSTRAP_REQUIRE_PROJECTION_READY=1
++      - EXEC_BOOTSTRAP_REQUIRE_USER_STREAM_READY=1
++      - EXEC_BOOTSTRAP_TIMEOUT_MS=120000
++      - EXEC_BOOTSTRAP_POLL_MS=500
++      - EXEC_BOOTSTRAP_USER_STREAM_GRACE_MS=45000
++      - EXEC_BOOTSTRAP_STATUS_KEY=orders:execution:bootstrap:status
++      - EXEC_BOOTSTRAP_LAST_BLOCK_KEY=orders:execution:bootstrap:last_block
++      - EXEC_BOOTSTRAP_BLOCK_TTL_SEC=86400
++      - USER_STREAM_STATUS_KEY=orders:user_stream:status
++      - USER_STREAM_MAX_STALE_MS=45000
++      - EXEC_PROJECTION_CURSOR_KEY=orders:exec:projection:cursor
++      - EXEC_PROJECTION_LEADER_LEASE_ENABLE=1
++      - EXEC_PROJECTION_LEASE_KEY=orders:exec:projection:leader
++      - EXEC_PROJECTION_FENCING_KEY=orders:exec:projection:fencing
++      - EXEC_PROJECTION_LEASE_TTL_MS=10000
++      - EXEC_PROJECTION_HEALTH_MAX_LAG_MS=15000
++      - EXEC_PROJECTION_HEALTH_MAX_CURSOR_AGE_MS=60000
++      - PYTHONPATH=/app
++    depends_on:
++      execution-bootstrap-health:
++        condition: service_healthy
++    healthcheck:
++      test: ["CMD", "python", "-c", "import sys,urllib.request; r=urllib.request.urlopen('http://execution-bootstrap-health:8787/readyz', timeout=2); sys.exit(0 if r.status==200 else 1)"]
++      interval: 15s
++      timeout: 3s
++      retries: 4
++      start_period: 20s
++    networks: *id004
++    volumes: *id005
++    restart: on-failure:5
++    deploy: *id006
++    container_name: binance-executor-supervised
++
+ 
+   ml-confirm-sre-poller:
+     build: *id001
+--- deploy/execution_safe_defaults_p104.env.example	2026-03-08 07:28:29.000000000 +0000
++++ deploy/execution_safe_defaults_p104.env.example	2026-03-08 07:47:47.457783475 +0000
+@@ -38,3 +38,6 @@
+ EXEC_BOOTSTRAP_POLL_MS=500
+ EXEC_BOOTSTRAP_USER_STREAM_GRACE_MS=45000
+ EXEC_BOOTSTRAP_HEALTH_PORT=8787
++EXEC_BOOTSTRAP_STATUS_KEY=orders:execution:bootstrap:status
++EXEC_BOOTSTRAP_LAST_BLOCK_KEY=orders:execution:bootstrap:last_block
++EXEC_BOOTSTRAP_BLOCK_TTL_SEC=86400
+--- /dev/null	2026-03-08 07:18:40.493835261 +0000
++++ orderflow_services/prometheus_alerts_execution_orchestration_p124.yml	2026-03-08 07:47:47.476528128 +0000
+@@ -0,0 +1,22 @@
++groups:
++  - name: trade-execution-orchestration-p124
++    rules:
++      - alert: TradeExecutionBootstrapBlocked
++        expr: trade_execution_bootstrap_blocked == 1
++        for: 2m
++        labels:
++          severity: page
++          domain: execution-bootstrap
++        annotations:
++          summary: Execution bootstrap is blocked by dependency health
++          description: Executor should remain blocked until projection cluster and user-stream contour recover.
++
++      - alert: TradeExecutionBootstrapHealthServiceDown
++        expr: up{job="execution-bootstrap-health"} == 0
++        for: 2m
++        labels:
++          severity: page
++          domain: execution-bootstrap
++        annotations:
++          summary: execution-bootstrap-health endpoint is down
++          description: Orchestration cannot enforce ready-gate if bootstrap health endpoint is unavailable.
+--- /dev/null	2026-03-08 07:18:40.493835261 +0000
++++ services/tests/test_execution_bootstrap_enforcement_p124_v1.py	2026-03-08 07:47:47.493478165 +0000
+@@ -0,0 +1,180 @@
++from pathlib import Path
++import importlib.util
++import json
++import socket
++import sys
++sys.path.insert(0, str(Path(__file__).parents[2]))
++import threading
++import time
++import urllib.request
++
++worker_mod_path = Path(__file__).parent.parent / 'execution_projection_worker.py'
++worker_spec = importlib.util.spec_from_file_location('execution_projection_worker_p124', worker_mod_path)
++worker_mod = importlib.util.module_from_spec(worker_spec)
++sys.modules[worker_spec.name] = worker_mod
++assert worker_spec.loader is not None
++worker_spec.loader.exec_module(worker_mod)
++
++sup_mod_path = Path(__file__).parent.parent / 'execution_bootstrap_supervisor.py'
++sup_spec = importlib.util.spec_from_file_location('execution_bootstrap_supervisor_p124', sup_mod_path)
++sup_mod = importlib.util.module_from_spec(sup_spec)
++sys.modules[sup_spec.name] = sup_mod
++assert sup_spec.loader is not None
++sup_spec.loader.exec_module(sup_mod)
++
++health_mod_path = Path(__file__).parent.parent / 'execution_bootstrap_health_server.py'
++health_spec = importlib.util.spec_from_file_location('execution_bootstrap_health_server_p124', health_mod_path)
++health_mod = importlib.util.module_from_spec(health_spec)
++sys.modules[health_spec.name] = health_mod
++assert health_spec.loader is not None
++health_spec.loader.exec_module(health_mod)
++
++
++class FakeRedis:
++    def __init__(self):
++        self.kv = {}
++        self.streams = {}
++        self._seq = 0
++
++    def get(self, key):
++        return self.kv.get(key)
++
++    def set(self, key, value, ex=None, nx=False, xx=False, px=None):
++        exists = key in self.kv
++        if nx and exists:
++            return False
++        if xx and not exists:
++            return False
++        self.kv[key] = value
++        return True
++
++    def incr(self, key):
++        cur = int(self.kv.get(key) or 0)
++        cur += 1
++        self.kv[key] = str(cur)
++        return cur
++
++    def delete(self, key):
++        existed = key in self.kv
++        self.kv.pop(key, None)
++        return 1 if existed else 0
++
++    def scan_iter(self, match=None):
++        if not match or match == '*':
++            yield from list(self.kv.keys())
++            return
++        if match.endswith('*'):
++            prefix = match[:-1]
++            for key in list(self.kv.keys()):
++                if str(key).startswith(prefix):
++                    yield key
++            return
++        for key in list(self.kv.keys()):
++            if key == match:
++                yield key
++
++    def xadd(self, key, fields, maxlen=None, approximate=None):
++        self._seq += 1
++        sid = f"{int(time.time() * 1000) + self._seq}-0"
++        self.streams.setdefault(key, []).append((sid, dict(fields)))
++        return sid
++
++    def xrange(self, key, start='-', end='+', count=None):
++        rows = list(self.streams.get(key, []))
++        def _gte(stream_id, ref):
++            a, b = stream_id.split('-', 1)
++            c, d = ref.split('-', 1)
++            return (int(a), int(b)) >= (int(c), int(d))
++        if start not in ('-', '+'):
++            rows = [row for row in rows if _gte(row[0], start)]
++        if count is not None:
++            rows = rows[: int(count)]
++        return rows
++
++    def xrevrange(self, key, end='+', start='-', count=None):
++        rows = list(reversed(self.streams.get(key, [])))
++        if count is not None:
++            rows = rows[: int(count)]
++        return rows
++
++
++def _mk_worker(redis_obj):
++    return worker_mod.ExecutionProjectionWorker(
++        redis_obj,
++        exec_stream='orders:exec',
++        state_key_prefix='orders:state:',
++        leader_lease_enable=True,
++        lease_key='orders:exec:projection:leader',
++        fencing_key='orders:exec:projection:fencing',
++        owner_id='leader-p124',
++    )
++
++
++def test_bootstrap_supervisor_persists_latest_block_reason_and_runbook_actions():
++    r = FakeRedis()
++    worker = _mk_worker(r)
++    stale_ms = int(time.time() * 1000) - 120000
++    r.set('orders:user_stream:status', json.dumps({
++        'connected': True,
++        'listen_key': 'lk-stale',
++        'status': 'stream_live',
++        'last_keepalive_ms': stale_ms,
++        'last_ingest_ms': stale_ms,
++        'last_event_ms': stale_ms,
++        'ws_connected_ms': stale_ms,
++    }))
++    sup = sup_mod.ExecutionBootstrapSupervisor(
++        r,
++        projection_worker=worker,
++        user_stream_max_stale_ms=1000,
++        status_key='orders:execution:bootstrap:status',
++        last_block_key='orders:execution:bootstrap:last_block',
++    )
++    snap = sup.health_snapshot()
++    assert snap.ready is False
++    incident = sup.latest_block()
++    assert incident['reason'] == 'projection:no_leader'
++    assert incident['last_block_key'] == 'orders:execution:bootstrap:last_block'
++    assert incident['runbook_actions']
++    runbook = sup.runbook_snapshot()
++    assert runbook['latest_block']['reason'] == 'projection:no_leader'
++    assert runbook['runbook_actions']
++
++
++def test_bootstrap_health_server_exposes_incident_and_runbook_endpoints():
++    r = FakeRedis()
++    worker = _mk_worker(r)
++    stale_ms = int(time.time() * 1000) - 120000
++    r.set('orders:user_stream:status', json.dumps({
++        'connected': True,
++        'listen_key': 'lk-stale',
++        'status': 'stream_live',
++        'last_keepalive_ms': stale_ms,
++        'last_ingest_ms': stale_ms,
++        'last_event_ms': stale_ms,
++        'ws_connected_ms': stale_ms,
++    }))
++    sup = sup_mod.ExecutionBootstrapSupervisor(r, projection_worker=worker, user_stream_max_stale_ms=1000)
++    sup.health_snapshot()
++
++    sock = socket.socket()
++    sock.bind(('127.0.0.1', 0))
++    host, port = sock.getsockname()
++    sock.close()
++    server = health_mod.HTTPServer((host, port), health_mod._Handler)
++    server.supervisor = sup
++    th = threading.Thread(target=server.serve_forever, daemon=True)
++    th.start()
++    try:
++        with urllib.request.urlopen(f'http://{host}:{port}/api/execution-bootstrap/incident/latest', timeout=2) as resp:
++            payload = json.loads(resp.read().decode('utf-8'))
++            assert resp.status == 200
++            assert payload['reason'].startswith('projection:')
++        with urllib.request.urlopen(f'http://{host}:{port}/api/execution-bootstrap/runbook/latest', timeout=2) as resp:
++            payload = json.loads(resp.read().decode('utf-8'))
++            assert resp.status == 200
++            assert payload['latest_block']['reason'].startswith('projection:')
++            assert payload['runbook_actions']
++    finally:
++        server.shutdown()
++        th.join(timeout=2)
+--- /dev/null	2026-03-08 07:18:40.493835261 +0000
++++ services/tests/test_execution_bootstrap_orchestration_assets_p124_v1.py	2026-03-08 07:47:47.510747511 +0000
+@@ -0,0 +1,28 @@
++from pathlib import Path
++import yaml
++
++
++def test_orchestration_alert_rules_yaml_loads():
++    path = Path(__file__).parents[2] / 'orderflow_services' / 'prometheus_alerts_execution_orchestration_p124.yml'
++    doc = yaml.safe_load(path.read_text())
++    assert isinstance(doc, dict)
++    assert doc['groups'][0]['name'] == 'trade-execution-orchestration-p124'
++
++
++def test_compose_contains_healthcheck_and_supervised_executor_gate():
++    path = Path(__file__).parents[2] / 'confidence_calculation' / 'docker-compose-crypto-orderflow.yml'
++    text = path.read_text()
++    assert 'execution-bootstrap-health:' in text
++    assert 'healthcheck:' in text
++    assert "http://127.0.0.1:8787/readyz" in text
++    assert 'binance-executor-supervised:' in text
++    assert 'execution-bootstrap-health:' in text and 'condition: service_healthy' in text
++    assert 'execution_bootstrap_supervisor.py", "--wait-until-ready", "--run-executor"' in text
++
++
++def test_env_example_contains_bootstrap_incident_keys():
++    path = Path(__file__).parents[2] / 'deploy' / 'execution_safe_defaults_p104.env.example'
++    text = path.read_text()
++    assert 'EXEC_BOOTSTRAP_STATUS_KEY=orders:execution:bootstrap:status' in text
++    assert 'EXEC_BOOTSTRAP_LAST_BLOCK_KEY=orders:execution:bootstrap:last_block' in text
++    assert 'EXEC_BOOTSTRAP_BLOCK_TTL_SEC=86400' in text
+--- /dev/null	2026-03-08 07:18:40.493835261 +0000
++++ p124_bootstrap_orchestration_report.md	2026-03-08 07:47:47.563719868 +0000
+@@ -0,0 +1,13 @@
++P1.2.4 — bootstrap supervisor orchestration enforcement
++
++What was added:
++- healthcheck on execution-bootstrap-health
++- compose-level ready gate for supervised executor service
++- persisted latest bootstrap block reason in Redis
++- new endpoints:
++  - /api/execution-bootstrap/incident/latest
++  - /api/execution-bootstrap/runbook/latest
++
++Notes:
++- The uploaded archive does not contain an existing executor service definition in compose.
++- This patch therefore adds a canonical `binance-executor-supervised` service instead of patching a pre-existing executor service block.

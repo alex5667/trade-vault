@@ -1,0 +1,35 @@
+groups:
+  - name: calibration_extended_v1
+    rules:
+      - alert: OF_CalibrationExtended_ExporterStale_Warn
+        expr: conf_cal_extended_proof_age_sec > 10800
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "extended calibration proof is stale"
+          description: "conf_cal_extended exporter sees stale proof JSON; nightly calibration analysis may be broken."
+      - alert: OF_CalibrationExtended_MCEHigh_Crit
+        expr: conf_cal_extended_metric{arm="active",metric="mce_cal"} > 0.12
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "active calibration MCE is high"
+          description: "Worst-bin calibration error is elevated even if aggregate ECE still looks acceptable."
+      - alert: OF_CalibrationExtended_SlopeLow_Warn
+        expr: conf_cal_extended_metric{arm="active",metric="calibration_slope"} < 0.70
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "active calibration slope is low"
+          description: "Probability scale is compressed/overconfident; investigate challenger and recent drift."
+      - alert: OF_CalibrationExtended_SharpnessGrey_Warn
+        expr: conf_cal_extended_metric{arm="active",metric="sharpness_mean"} < 0.02 or conf_cal_extended_metric{arm="active",metric="prob_mass_near_half"} > 0.60
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "active calibration became too grey"
+          description: "Probability mass is collapsing toward 0.5; model may be degraded or over-regularized."

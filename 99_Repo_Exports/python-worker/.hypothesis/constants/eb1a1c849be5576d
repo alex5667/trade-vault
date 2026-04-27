@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/dq_gate_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.1, 0.5, 0.7, 0.8, 0.85, 1.0, 1000, 5000, 'book', 'book_health_ok', 'book_stale', 'both', 'clock_skew_now', 'data_health', 'disabled', 'dq_components', 'dq_data_health_min', 'dq_gate_enable', 'dq_gate_mode', 'dq_health_score', 'dq_pen', 'dq_pen_max', 'dq_reason', 'dq_reason_bucket', 'dq_skew_ema_ms_max', 'dq_tick_age_ms_max', 'dq_veto', 'enforce', 'health', 'latency', 'latency_spike', 'low_data_health', 'ok', 'other', 'penalty', 'skew', 'skew_now', 'skew_stream', 'stale', 'stream_id_skew', 'tick_time_age_ms', 'veto']

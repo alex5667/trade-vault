@@ -1,0 +1,23 @@
+groups:
+  - name: ml_phase3_2_local_report_handoff_rewire_v1
+    rules:
+      - alert: MLLocalReportHandoffRewireStale
+        expr: time() - ml_local_report_handoff_rewire_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "local report handoff rewire adapter is stale"
+
+      - alert: MLLocalReportHandoffRewireErrors
+        expr: increase(ml_local_report_handoff_rewire_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "local report handoff rewire adapter has errors"
+
+      - alert: MLLocalReportHandoffRewireRejects
+        expr: increase(ml_local_report_handoff_rewire_routed_total{decision="REJECT"}[30m]) > 10
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "local report handoff rewire is rejecting requests"

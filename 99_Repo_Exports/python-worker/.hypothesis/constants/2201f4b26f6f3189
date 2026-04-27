@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/numexpr/utils.py
+# hypothesis_version: 6.148.10
+
+['-n', 'NUMBER_OF_PROCESSORS', 'NUMEXPR_MAX_THREADS', 'NUMEXPR_NUM_THREADS', 'OMP_NUM_THREADS', 'SC_NPROCESSORS_ONLN', 'fast', 'high', 'hw.ncpu', 'low', 'sparc', 'sysconf', 'sysctl']

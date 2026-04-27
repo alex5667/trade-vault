@@ -1,0 +1,25 @@
+services:
+  scanner-rollback-slo-analytics-v1:
+    command: python -m orderflow_services.rollback_slo_analytics_v1
+    environment:
+      ROLLBACK_SLO_WINDOW_HOURS: "24"
+      ROLLBACK_MTTR_SLO_SEC: "900"
+    ports:
+      - "9864:9864"
+
+  scanner-rollback-retry-controller-v1:
+    command: python -m orderflow_services.rollback_retry_controller_v1
+    environment:
+      ROLLBACK_RETRY_MAX_ATTEMPTS: "2"
+      ROLLBACK_RETRY_BASE_BACKOFF_SEC: "300"
+      ROLLBACK_RETRY_MAX_BACKOFF_SEC: "3600"
+    ports:
+      - "9865:9865"
+
+  scanner-rollback-auto-escalation-v1:
+    command: python -m orderflow_services.rollback_auto_escalation_summarizer_v1
+    environment:
+      ROLLBACK_ESCALATION_WINDOW_HOURS: "24"
+      ROLLBACK_ESCALATION_FAIL_THRESHOLD: "3"
+    ports:
+      - "9866:9866"

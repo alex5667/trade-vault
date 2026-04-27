@@ -1,0 +1,49 @@
+groups:
+  - name: liqmap_observability_v1
+    rules:
+      # A1.1: Warn when any LiqMap snapshot age exceeds 60 s for 2 consecutive minutes.
+      # Sentinel -1 (missing) and -2 (parse error) are negative → never match > 60000.
+      - alert: OF_LiqMap_SnapshotAgeHigh_Warn
+        expr: max by (symbol, window) (liqmap_snapshot_age_ms) > 60000
+        for: 2m
+        labels:
+          severity: warning
+          component: liqmap
+        annotations:
+          summary: "LiqMap snapshot is stale (>60s)"
+          description: "liqmap_snapshot_age_ms={{ $value }}ms for symbol={{ $labels.symbol }}, window={{ $labels.window }}. Check liqmap snapshot writer and Redis latency."
+
+      # A1.1: Critical when snapshot age exceeds 180 s — gate/features likely degraded.
+      - alert: OF_LiqMap_SnapshotAgeHigh_Crit
+        expr: max by (symbol, window) (liqmap_snapshot_age_ms) > 180000
+        for: 30s
+        labels:
+          severity: critical
+          component: liqmap
+        annotations:
+          summary: "LiqMap snapshot is very stale (>180s)"
+          description: "liqmap_snapshot_age_ms={{ $value }}ms for symbol={{ $labels.symbol }}, window={{ $labels.window }}. Gate/features likely ineffective; check producer health and Redis."
+
+      # A1.1: Warn on elevated parse/compute failures (>5 in 5m window, sustained 2m).
+      # Uses new per-(symbol, window, where) counter for granular breakdown.
+      - alert: OF_LiqMap_ParseErrorsHigh_Warn
+        expr: increase(liqmap_parse_errors_total[5m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+          component: liqmap
+        annotations:
+          summary: "LiqMap parse/compute errors detected"
+          description: "increase(liqmap_parse_errors_total[5m])={{ $value }}. Fail-open path is being used; inspect logs (silent_errors_total{kind=liqmap,where=parse_or_compute})."
+
+      # A1.1: Critical on high parse/compute failure rate (>25 in 5m window, sustained 2m).
+      # Likely schema drift or corrupt snapshot payloads.
+      - alert: OF_LiqMap_ParseErrorsHigh_Crit
+        expr: increase(liqmap_parse_errors_total[5m]) > 25
+        for: 2m
+        labels:
+          severity: critical
+          component: liqmap
+        annotations:
+          summary: "High LiqMap parse/compute error rate"
+          description: "increase(liqmap_parse_errors_total[5m])={{ $value }}. Likely schema drift or corrupt snapshot payloads; investigate liqmap snapshot writer and parser expectations."

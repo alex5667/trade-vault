@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/feature_store_service.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-06, 0.5, 1.0, 1000.0, 5000, '0', '86400', 'asof_ts_ms', 'confidence', 'fs-1', 'global', 'horizon_sec', 'news-feature-store', 'news:agg:global', 'news_grade_id', 'primary_tag_id', 'ref', 'risk_ema', 'risk_ewma', 'surprise_ema', 'surprise_ewma', 'tags_mask', 'ts_ms']

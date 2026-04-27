@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/decision_store.py
+# hypothesis_version: 6.148.10
+
+[10000, 86400, 'decisions:final']

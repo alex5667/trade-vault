@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signal_scoring/reason_codes.py
+# hypothesis_version: 6.148.10
+
+['OK', 'VETO_CONF_BELOW_MIN', 'VETO_L2_BAD', 'VETO_L2_MISSING', 'VETO_L2_STALE', 'VETO_L3_SPOOF_RISK', 'VETO_SPREAD_WIDE', 'VETO_UNKNOWN', 'VETO_WALL_NEAR', 'bo_l2_bad', 'bo_l2_missing', 'bo_l2_stale', 'bo_l2_veto', 'conf_below_min_veto', 'l3_spoof_risk', 'ok', 'range_breakout_veto', 'spread_wide', 'wall_near_veto']

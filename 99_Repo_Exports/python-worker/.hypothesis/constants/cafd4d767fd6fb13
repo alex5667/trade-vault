@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/stats/mstats_extras.py
+# hypothesis_version: 6.148.10
+
+['MaskedArray', 'beta', 'binom', 'compare_medians_ms', 'float_', 'hdmedian', 'hdquantiles', 'hdquantiles_sd', 'idealfourths', 'int_', 'ma', 'median_cihs', 'mjci', 'mquantiles_cimj', 'mstats', 'norm', 'rsh', 't', 'trimmed_mean_ci']

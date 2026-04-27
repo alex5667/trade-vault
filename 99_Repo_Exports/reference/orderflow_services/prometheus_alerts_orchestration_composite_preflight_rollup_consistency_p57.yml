@@ -1,0 +1,20 @@
+groups:
+  - name: trade_orchestration_composite_preflight_rollup_consistency_p57
+    rules:
+      - alert: TradeOrchestrationCompositePreflightRollupConsistencyDriftCrit
+        expr: orchestration_composite_preflight_rollup_consistency_ok == 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: Orchestration composite preflight rollup drift detected
+          description: Redis hourly/daily rollup buckets no longer match the source stream for the checked range.
+
+      - alert: TradeOrchestrationCompositePreflightRollupStateCursorMismatchWarn
+        expr: orchestration_composite_preflight_rollup_consistency_state_cursor_match == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Rollup cursor/state mismatch detected
+          description: Rollup cursor key and rollup state last_stream_id diverged.

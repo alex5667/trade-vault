@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/policy/circuit_breaker_state_v1.py
+# hypothesis_version: 6.148.10
+
+[300, 1000, 3600, 5000, 'changed_at', 'cnt', 'counting', 'cur', 'dwell', 'dwell_rem', 'error', 'fast_match', 'hysteresis', 'mode', 'ok', 'pend', 'pending_count', 'pending_mode', 'prev_mode', 'raw', 'reason', 'switched', 'updated_at']

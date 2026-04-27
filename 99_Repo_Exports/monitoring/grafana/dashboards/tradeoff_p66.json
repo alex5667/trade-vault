@@ -1,0 +1,525 @@
+{
+  "uid": "tradeoff_p66",
+  "title": "Tradeoff: Coverage vs Quality (Regimes) — P66",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 3,
+  "editable": true,
+  "refresh": "30s",
+  "time": {
+    "from": "now-48h",
+    "to": "now"
+  },
+  "tags": [
+    "trade",
+    "p66",
+    "tradeoff",
+    "coverage",
+    "quality"
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "instance",
+        "type": "query",
+        "datasource": "Prometheus",
+        "refresh": 2,
+        "query": "label_values(decision_n_24h, instance)",
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": ".*"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Decisions last age (s)",
+      "description": "Seconds since last decision observed. Alert fires >1800s (30m).",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "max(decision_last_age_seconds{instance=~\"$instance\"})",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 900
+              },
+              {
+                "color": "red",
+                "value": 1800
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Decisions N (24h rolling)",
+      "description": "Total decisions processed in rolling 24h window.",
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum(decision_n_24h{instance=~\"$instance\"})",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "OK regime share (24h)",
+      "description": "Target: >70% ok. Below this may indicate elevated DQ/drift blocking.",
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "avg(decision_regime_share_24h{regime=\"ok\",instance=~\"$instance\"})",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "green",
+                "value": 0.7
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Regime share (24h rolling)",
+      "description": "Stacked share of ok/warn/block/unknown regimes in rolling 24h window.",
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "expr": "avg(decision_regime_share_24h{regime=\"ok\",instance=~\"$instance\"})",
+          "legendFormat": "ok",
+          "refId": "A"
+        },
+        {
+          "expr": "avg(decision_regime_share_24h{regime=\"warn\",instance=~\"$instance\"})",
+          "legendFormat": "warn",
+          "refId": "B"
+        },
+        {
+          "expr": "avg(decision_regime_share_24h{regime=\"block\",instance=~\"$instance\"})",
+          "legendFormat": "block",
+          "refId": "C"
+        },
+        {
+          "expr": "avg(decision_regime_share_24h{regime=\"unknown\",instance=~\"$instance\"})",
+          "legendFormat": "unknown",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Regime counts (24h rolling)",
+      "description": "Absolute counts per regime in rolling 24h window.",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "expr": "sum(decision_regime_n_24h{regime=\"ok\",instance=~\"$instance\"})",
+          "legendFormat": "ok",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(decision_regime_n_24h{regime=\"warn\",instance=~\"$instance\"})",
+          "legendFormat": "warn",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(decision_regime_n_24h{regime=\"block\",instance=~\"$instance\"})",
+          "legendFormat": "block",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(decision_regime_n_24h{regime=\"unknown\",instance=~\"$instance\"})",
+          "legendFormat": "unknown",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Signal quality: expectancy by regime (24h)",
+      "description": "Mean R per closed trade in rolling 24h window, split by dq/drift regime. OK regime should stay positive.",
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "expr": "signal_quality_expectancy_r_24h_by_regime{regime=\"ok\",instance=~\"$instance\"}",
+          "legendFormat": "ok",
+          "refId": "A"
+        },
+        {
+          "expr": "signal_quality_expectancy_r_24h_by_regime{regime=\"warn\",instance=~\"$instance\"}",
+          "legendFormat": "warn",
+          "refId": "B"
+        },
+        {
+          "expr": "signal_quality_expectancy_r_24h_by_regime{regime=\"block\",instance=~\"$instance\"}",
+          "legendFormat": "block",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Signal quality: precision@top5% by regime (24h)",
+      "description": "Win rate among top 5% highest-scored signals in rolling 24h window, by regime.",
+      "gridPos": {
+        "x": 0,
+        "y": 35,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "expr": "signal_quality_precision_top5p_24h_by_regime{regime=\"ok\",instance=~\"$instance\"}",
+          "legendFormat": "ok",
+          "refId": "A"
+        },
+        {
+          "expr": "signal_quality_precision_top5p_24h_by_regime{regime=\"warn\",instance=~\"$instance\"}",
+          "legendFormat": "warn",
+          "refId": "B"
+        },
+        {
+          "expr": "signal_quality_precision_top5p_24h_by_regime{regime=\"block\",instance=~\"$instance\"}",
+          "legendFormat": "block",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Signal quality: ECE by regime (24h)",
+      "description": "Expected Calibration Error per regime. Lower is better; warn regime ECE > 0.10 fires alert.",
+      "gridPos": {
+        "x": 0,
+        "y": 44,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "expr": "signal_quality_ece_24h_by_regime{regime=\"ok\",instance=~\"$instance\"}",
+          "legendFormat": "ok",
+          "refId": "A"
+        },
+        {
+          "expr": "signal_quality_ece_24h_by_regime{regime=\"warn\",instance=~\"$instance\"}",
+          "legendFormat": "warn",
+          "refId": "B"
+        },
+        {
+          "expr": "signal_quality_ece_24h_by_regime{regime=\"block\",instance=~\"$instance\"}",
+          "legendFormat": "block",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Signal quality: N by regime (24h)",
+      "description": "Sample count of closed trades in rolling 24h window, by dq/drift regime. Used to gate alert significance.",
+      "gridPos": {
+        "x": 0,
+        "y": 53,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "signal_quality_n_24h_by_regime{regime=\"ok\",instance=~\"$instance\"}",
+          "legendFormat": "ok",
+          "refId": "A"
+        },
+        {
+          "expr": "signal_quality_n_24h_by_regime{regime=\"warn\",instance=~\"$instance\"}",
+          "legendFormat": "warn",
+          "refId": "B"
+        },
+        {
+          "expr": "signal_quality_n_24h_by_regime{regime=\"block\",instance=~\"$instance\"}",
+          "legendFormat": "block",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Policy effective mode share by regime (24h)",
+      "description": "Rolling 24h share of effective_mode per regime. block regime should be 100% block; warn ideally shadow or block.",
+      "gridPos": {
+        "x": 0,
+        "y": 61,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "expr": "sum(policy_mode_share_24h{regime=\"ok\",effective_mode=\"active\",instance=~\"$instance\"})",
+          "legendFormat": "ok/active",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(policy_mode_share_24h{regime=\"ok\",effective_mode=\"shadow\",instance=~\"$instance\"})",
+          "legendFormat": "ok/shadow",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(policy_mode_share_24h{regime=\"warn\",effective_mode=\"active\",instance=~\"$instance\"})",
+          "legendFormat": "warn/active",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(policy_mode_share_24h{regime=\"warn\",effective_mode=\"shadow\",instance=~\"$instance\"})",
+          "legendFormat": "warn/shadow",
+          "refId": "D"
+        },
+        {
+          "expr": "sum(policy_mode_share_24h{regime=\"block\",effective_mode=\"block\",instance=~\"$instance\"})",
+          "legendFormat": "block/block",
+          "refId": "E"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Policy mismatch shares (24h)",
+      "description": "Fraction of decisions where policy enforcement deviated from expected. Critical: block_not_block >1%. Warning: warn_active >5%.",
+      "gridPos": {
+        "x": 0,
+        "y": 71,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "policy_mode_mismatch_share_24h{kind=\"block_regime_effective_not_block\",instance=~\"$instance\"}",
+          "legendFormat": "block_not_block (critical >1%)",
+          "refId": "A"
+        },
+        {
+          "expr": "policy_mode_mismatch_share_24h{kind=\"warn_regime_effective_active\",instance=~\"$instance\"}",
+          "legendFormat": "warn_active (warning >5%)",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      }
+    }
+  ]
+}

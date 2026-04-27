@@ -1,0 +1,19 @@
+groups:
+  - name: ml_phase3_27_route_incident_rca_mirror_rca_winner_apply_apply_incident_bundles_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyIncidentBundlesStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_incident_bundles_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyIncidentBundlesErrors
+        expr: rate(ml_route_incident_rca_mirror_rca_winner_apply_apply_incident_bundles_runs_total{status="error"}[5m]) > 0
+        for: 2m
+        labels: { severity: critical }
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyCriticalBundleBuilt
+        expr: rate(ml_route_incident_rca_mirror_rca_winner_apply_apply_incident_bundles_total{severity="critical"}[5m]) > 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "Winner Apply Governance contour generated a critical RCA bundle"

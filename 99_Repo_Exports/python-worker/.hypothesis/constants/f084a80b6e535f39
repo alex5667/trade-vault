@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/matplotlib/mathtext.py
+# hypothesis_version: 6.148.10
+
+[2.0, 72.0, '3.6', '_Result', 'agg', 'bbox', 'cm', 'custom', 'dejavusans', 'dejavuserif', 'macosx', 'path', 'raster', 'render', 'stix', 'stixsans', 'text.antialiased', 'vector']

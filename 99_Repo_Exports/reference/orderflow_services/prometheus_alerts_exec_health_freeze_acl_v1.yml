@@ -1,0 +1,23 @@
+groups:
+- name: exec_health_freeze_acl_v1
+  rules:
+  # P11: ACL violation — прямая попытка записи в freeze-control hash мимо FCALL entrypoints
+  - alert: OF_ExecHealth_FreezeACLViolation_Crit
+    expr: increase(exec_health_freeze_acl_violation_total[15m]) > 0
+    for: 1m
+    labels:
+      severity: critical
+      service: orderflow
+    annotations:
+      summary: ExecHealth freeze-control ACL violation detected
+      description: Redis ACL denied a direct write/scripting command on freeze-control surfaces.
+  # P11: ACL audit exporter завис или не обновляется — мы слепые к violations
+  - alert: OF_ExecHealth_FreezeACLAuditExporter_Stale_Warn
+    expr: exec_health_freeze_acl_audit_up == 0 or exec_health_freeze_acl_audit_state_age_seconds > 300
+    for: 5m
+    labels:
+      severity: warning
+      service: orderflow
+    annotations:
+      summary: ExecHealth ACL audit exporter stale
+      description: Freeze-control ACL audit exporter is not updating.

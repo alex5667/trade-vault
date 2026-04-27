@@ -1,0 +1,701 @@
+--- services/execution_metrics.py
++++ services/execution_metrics.py
+@@ -74,6 +74,23 @@
+     ["symbol"],
+ )
+ 
++EXECUTION_DUST_SWEEP_TOTAL = _metric(
++    Counter,
++    "execution_dust_sweep_total",
++    "Periodic dust cleanup worker sweep outcomes by symbol.",
++    ["symbol", "result"],
++)
++EXECUTION_DUST_SWEEP_CANDIDATES = _metric(
++    Gauge,
++    "execution_dust_sweep_candidates",
++    "Current number of dust candidates observed during the latest periodic sweep.",
++)
++EXECUTION_DUST_SWEEP_LAST_RUN_TS = _metric(
++    Gauge,
++    "execution_dust_sweep_last_run_ts",
++    "Unix timestamp of the latest periodic dust cleanup worker sweep.",
++)
++
+ MARK_CONTRACT_SPREAD_BPS = _metric(
+     Gauge,
+     "mark_contract_spread_bps",
+--- services/binance_dust_cleanup_worker.py
++++ services/binance_dust_cleanup_worker.py
+@@ -0,0 +1,507 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Periodic Binance dust-position cleanup worker.
++
++Goal
++----
++Find residual futures positions ("tails" / "dust") that remain after
++close/resize/reversal paths and proactively flatten them from exchange truth.
++
++Safety contract
++---------------
++* Only acts on positions whose current notional or isolated margin is below the
++  configured dust thresholds.
++* Requires N consecutive sweep confirmations before submitting reduce-only exit.
++* Exit quantity always comes from live `positionRisk`, not local state.
++* Cancels both plain and algo orders before retrying the reduce-only market exit.
++* Verifies `flat + no plain orders + no algo orders` after each attempt.
++
++This worker intentionally operates outside the normal order execution queue so it
++can clean stuck residuals even when the original close/resize/reconcile path has
++already finished.
++"""
++
++import json
++import logging
++import math
++import os
++import sys
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional, Set
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
++REPO_ROOT = os.path.dirname(CURRENT_DIR)
++TICK_ROOT = os.path.join(REPO_ROOT, 'tick_flow_full')
++for _p in (REPO_ROOT, TICK_ROOT):
++    if _p and _p not in sys.path:
++        sys.path.insert(0, _p)
++
++try:
++    from services.binance_futures_client import BinanceFuturesClient
++except Exception:  # pragma: no cover
++    from binance_futures_client import BinanceFuturesClient
++
++try:
++    from services.execution_metrics import (
++        EXECUTION_DUST_CLEANUP_TOTAL,
++        EXECUTION_DUST_RESIDUAL_QTY,
++        EXECUTION_DUST_SWEEP_CANDIDATES,
++        EXECUTION_DUST_SWEEP_LAST_RUN_TS,
++        EXECUTION_DUST_SWEEP_TOTAL,
++        EXECUTION_FORCE_FLAT_VERIFY_TOTAL,
++    )
++except Exception:  # pragma: no cover
++    try:
++        from execution_metrics import (
++            EXECUTION_DUST_CLEANUP_TOTAL,
++            EXECUTION_DUST_RESIDUAL_QTY,
++            EXECUTION_DUST_SWEEP_CANDIDATES,
++            EXECUTION_DUST_SWEEP_LAST_RUN_TS,
++            EXECUTION_DUST_SWEEP_TOTAL,
++            EXECUTION_FORCE_FLAT_VERIFY_TOTAL,
++        )
++    except Exception:  # pragma: no cover
++        EXECUTION_DUST_CLEANUP_TOTAL = None  # type: ignore
++        EXECUTION_DUST_RESIDUAL_QTY = None  # type: ignore
++        EXECUTION_DUST_SWEEP_CANDIDATES = None  # type: ignore
++        EXECUTION_DUST_SWEEP_LAST_RUN_TS = None  # type: ignore
++        EXECUTION_DUST_SWEEP_TOTAL = None  # type: ignore
++        EXECUTION_FORCE_FLAT_VERIFY_TOTAL = None  # type: ignore
++
++
++log = logging.getLogger("binance_dust_cleanup_worker")
++
++
++def _bool_env(name: str, default: bool = False) -> bool:
++    raw = os.getenv(name)
++    if raw is None:
++        return bool(default)
++    return str(raw).strip().lower() in {"1", "true", "yes", "on", "y"}
++
++
++def _f(v: Any, default: float = 0.0) -> float:
++    try:
++        if v is None:
++            return float(default)
++        return float(v)
++    except Exception:
++        return float(default)
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _load_allowlist(raw: str) -> Set[str]:
++    return {part.strip().upper() for part in str(raw or '').split(',') if part.strip()}
++
++
++def _step_decimals(step: float) -> int:
++    if step <= 0:
++        return 8
++    s = f"{step:.16f}".rstrip('0')
++    if '.' not in s:
++        return 0
++    return len(s.split('.', 1)[1])
++
++
++def _position_side_for_mode(position_mode: str, logical_side: Optional[str]) -> Optional[str]:
++    if str(position_mode or '').strip().lower() != 'hedge':
++        return None
++    side = str(logical_side or '').upper().strip()
++    if side in {'LONG', 'SHORT'}:
++        return side
++    return None
++
++
++@dataclass
++class SymbolFilter:
++    step_size: float = 0.0
++    min_qty: float = 0.0
++
++
++class BinanceDustCleanupWorker:
++    def __init__(
++        self,
++        *,
++        client: Optional[BinanceFuturesClient] = None,
++        redis_client: Any = None,
++        interval_sec: Optional[float] = None,
++        confirm_passes: Optional[int] = None,
++        dust_notional_usdt: Optional[float] = None,
++        dust_margin_usdt: Optional[float] = None,
++        close_retries: Optional[int] = None,
++        verify_timeout_ms: Optional[int] = None,
++        verify_poll_ms: Optional[int] = None,
++        allowlist: Optional[Set[str]] = None,
++    ) -> None:
++        self.client = client or BinanceFuturesClient.from_env()
++        if redis_client is not None:
++            self.r = redis_client
++        elif redis is not None and os.getenv('REDIS_URL'):
++            self.r = redis.from_url(os.getenv('REDIS_URL', 'redis://localhost:6379/0'), decode_responses=True)
++        else:
++            self.r = None
++        self.exec_stream = os.getenv('EXEC_STREAM', 'orders:exec')
++        self.exec_stream_maxlen = max(0, int(os.getenv('EXEC_STREAM_MAXLEN', '0') or '0')) or None
++        self.enabled = _bool_env('BINANCE_DUST_SWEEP_ENABLE', True)
++        self.interval_sec = float(interval_sec if interval_sec is not None else os.getenv('BINANCE_DUST_SWEEP_INTERVAL_SEC', '15'))
++        self.confirm_passes = max(1, int(confirm_passes if confirm_passes is not None else os.getenv('BINANCE_DUST_SWEEP_CONFIRM_PASSES', '2')) )
++        self.dust_notional_usdt = float(dust_notional_usdt if dust_notional_usdt is not None else os.getenv('BINANCE_DUST_NOTIONAL_USDT', '3.0'))
++        self.dust_margin_usdt = float(dust_margin_usdt if dust_margin_usdt is not None else os.getenv('BINANCE_DUST_MARGIN_USDT', '1.0'))
++        self.close_retries = max(1, int(close_retries if close_retries is not None else os.getenv('BINANCE_DUST_CLOSE_RETRIES', '3')) )
++        self.verify_timeout_ms = max(250, int(verify_timeout_ms if verify_timeout_ms is not None else os.getenv('BINANCE_DUST_VERIFY_TIMEOUT_MS', '3000')) )
++        self.verify_poll_ms = max(100, int(verify_poll_ms if verify_poll_ms is not None else os.getenv('BINANCE_DUST_VERIFY_POLL_MS', '250')) )
++        self.position_mode = str(os.getenv('BINANCE_POSITION_MODE') or 'oneway').strip().lower()
++        self.allowlist = {s.upper() for s in (allowlist or _load_allowlist(os.getenv('BINANCE_SYMBOL_ALLOWLIST', '')))}
++        self._filters: Dict[str, SymbolFilter] = {}
++        self._confirm_seen: Dict[str, int] = {}
++
++    def _metric_inc(self, symbol: str, result: str) -> None:
++        if EXECUTION_DUST_SWEEP_TOTAL is None:
++            return
++        try:
++            EXECUTION_DUST_SWEEP_TOTAL.labels(symbol=symbol, result=result).inc()
++        except Exception:
++            pass
++
++    def _emit_exec_event(self, *, symbol: str, event_type: str, status: str, payload: Dict[str, Any]) -> None:
++        if self.r is None:
++            return
++        fields = {
++            'sid': '',
++            'symbol': str(symbol),
++            'action': 'dust_cleanup',
++            'event_type': str(event_type),
++            'status': str(status),
++            'ts_event_ms': str(_now_ms()),
++            'ts_ms': str(_now_ms()),
++            'payload_json': json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
++        }
++        try:
++            kwargs: Dict[str, Any] = {}
++            if self.exec_stream_maxlen:
++                kwargs = {'maxlen': self.exec_stream_maxlen, 'approximate': True}
++            self.r.xadd(self.exec_stream, fields, **kwargs)
++        except Exception:
++            pass
++
++    def _load_symbol_filter(self, symbol: str) -> SymbolFilter:
++        target = str(symbol or '').upper().strip()
++        cached = self._filters.get(target)
++        if cached is not None:
++            return cached
++        info = self.client.get_exchange_info() or {}
++        filt = SymbolFilter(step_size=0.0, min_qty=0.0)
++        for row in list(info.get('symbols') or []):
++            if str(row.get('symbol') or '').upper().strip() != target:
++                continue
++            for fr in list(row.get('filters') or []):
++                ftype = str(fr.get('filterType') or '').upper().strip()
++                if ftype == 'LOT_SIZE':
++                    filt.step_size = _f(fr.get('stepSize'), 0.0)
++                    filt.min_qty = _f(fr.get('minQty'), 0.0)
++                    break
++            break
++        self._filters[target] = filt
++        return filt
++
++    def _qty_tolerance(self, symbol: str) -> float:
++        sf = self._load_symbol_filter(symbol)
++        if sf.step_size > 0:
++            return max(sf.step_size / 2.0, 1e-12)
++        return 1e-12
++
++    def _quantize_qty(self, symbol: str, qty: float) -> float:
++        qty = abs(_f(qty, 0.0))
++        sf = self._load_symbol_filter(symbol)
++        step = float(sf.step_size or 0.0)
++        if step <= 0.0 or qty <= 0.0:
++            return qty
++        quant = math.floor((qty / step) + 1e-12) * step
++        if quant <= 0.0:
++            quant = qty
++        decimals = _step_decimals(step)
++        return float(f"{quant:.{decimals}f}")
++
++    def _build_live_exposure(self, symbol: str, row: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
++        row = dict(row or self.client.get_symbol_position_risk(symbol) or {})
++        signed_qty = _f(row.get('positionAmt'), 0.0)
++        abs_qty = abs(signed_qty)
++        logical_side: Optional[str] = None
++        if signed_qty > 0:
++            logical_side = 'LONG'
++        elif signed_qty < 0:
++            logical_side = 'SHORT'
++        margin = abs(_f(row.get('isolatedMargin'), 0.0) or _f(row.get('initialMargin'), 0.0))
++        notional = abs(_f(row.get('notional'), 0.0))
++        plain_orders = list(self.client.get_open_orders(symbol) or [])
++        algo_orders = list(self.client.get_open_algo_orders(symbol) or [])
++        tol = self._qty_tolerance(symbol)
++        return {
++            'symbol': symbol,
++            'signed_qty': signed_qty,
++            'abs_qty': abs_qty,
++            'logical_side': logical_side,
++            'notional_usdt': notional,
++            'margin_usdt': margin,
++            'open_plain_orders': len(plain_orders),
++            'open_algo_orders': len(algo_orders),
++            'plain_order_refs': plain_orders,
++            'algo_order_refs': algo_orders,
++            'qty_tolerance': tol,
++            'is_flat_qty': math.isclose(abs_qty, 0.0, abs_tol=tol),
++            'is_flat': math.isclose(abs_qty, 0.0, abs_tol=tol) and len(plain_orders) == 0 and len(algo_orders) == 0,
++        }
++
++    def _is_dust_position(self, snapshot: Dict[str, Any]) -> bool:
++        qty = abs(_f(snapshot.get('abs_qty'), 0.0))
++        if qty <= 0.0:
++            return False
++        margin = abs(_f(snapshot.get('margin_usdt'), 0.0))
++        notional = abs(_f(snapshot.get('notional_usdt'), 0.0))
++        return bool((margin > 0.0 and margin <= self.dust_margin_usdt) or (notional > 0.0 and notional <= self.dust_notional_usdt))
++
++    def _cancel_all_symbol_orders_best_effort(self, symbol: str, exposure: Dict[str, Any]) -> Dict[str, Any]:
++        plain_orders = list(exposure.get('plain_order_refs') or [])
++        algo_orders = list(exposure.get('algo_order_refs') or [])
++        canceled_plain = 0
++        canceled_algo = 0
++        try:
++            self.client.cancel_all_orders(symbol)
++        except Exception:
++            pass
++        for row in plain_orders:
++            try:
++                oid = row.get('orderId')
++                cid = str(row.get('clientOrderId') or row.get('origClientOrderId') or '').strip() or None
++                if oid is not None:
++                    self.client.cancel_plain_order(symbol, order_id=int(oid))
++                    canceled_plain += 1
++                elif cid:
++                    self.client.cancel_plain_order(symbol, client_order_id=cid)
++                    canceled_plain += 1
++            except Exception:
++                continue
++        for row in algo_orders:
++            try:
++                oid = row.get('algoId')
++                cid = str(row.get('clientAlgoId') or '').strip() or None
++                if oid is not None:
++                    self.client.cancel_algo_order(symbol, algo_id=int(oid))
++                    canceled_algo += 1
++                elif cid:
++                    self.client.cancel_algo_order(symbol, client_algo_id=cid)
++                    canceled_algo += 1
++            except Exception:
++                continue
++        return {
++            'plain_seen': len(plain_orders),
++            'algo_seen': len(algo_orders),
++            'plain_canceled': canceled_plain,
++            'algo_canceled': canceled_algo,
++        }
++
++    def _make_client_order_id(self, symbol: str, attempt: int) -> str:
++        base = f"dust_{str(symbol).lower()[:8]}_{int(time.time() * 1000) % 100000000}_{attempt}"
++        return base[:36]
++
++    def _submit_reduce_only_market_exit(self, *, symbol: str, logical_side: str, qty: float, attempt: int) -> Dict[str, Any]:
++        exit_side = 'SELL' if str(logical_side).upper() == 'LONG' else 'BUY'
++        q_close = self._quantize_qty(symbol, qty)
++        params: Dict[str, Any] = {
++            'symbol': symbol,
++            'side': exit_side,
++            'type': 'MARKET',
++            'quantity': q_close,
++            'newClientOrderId': self._make_client_order_id(symbol, attempt),
++            'newOrderRespType': 'RESULT',
++        }
++        pos_side = _position_side_for_mode(self.position_mode, logical_side)
++        if self.position_mode == 'oneway':
++            params['reduceOnly'] = True
++        elif pos_side:
++            params['positionSide'] = pos_side
++        j = self.client.post_plain_order(params)
++        return {
++            'close_order_id': j.get('orderId'),
++            'close_client_id': params['newClientOrderId'],
++            'close_order_status': j.get('status'),
++            'qty': q_close,
++            'side': exit_side,
++        }
++
++    def _verify_symbol_flat(self, symbol: str) -> Dict[str, Any]:
++        deadline = time.time() + (self.verify_timeout_ms / 1000.0)
++        last = self._build_live_exposure(symbol)
++        while time.time() <= deadline:
++            last = self._build_live_exposure(symbol)
++            if EXECUTION_DUST_RESIDUAL_QTY is not None:
++                try:
++                    EXECUTION_DUST_RESIDUAL_QTY.labels(symbol=symbol).set(float(last.get('abs_qty') or 0.0))
++                except Exception:
++                    pass
++            if last.get('is_flat'):
++                if EXECUTION_FORCE_FLAT_VERIFY_TOTAL is not None:
++                    try:
++                        EXECUTION_FORCE_FLAT_VERIFY_TOTAL.labels(symbol=symbol, result='flat').inc()
++                    except Exception:
++                        pass
++                return last
++            time.sleep(self.verify_poll_ms / 1000.0)
++        if EXECUTION_FORCE_FLAT_VERIFY_TOTAL is not None:
++            try:
++                result = 'dust' if self._is_dust_position(last) else 'residual'
++                EXECUTION_FORCE_FLAT_VERIFY_TOTAL.labels(symbol=symbol, result=result).inc()
++            except Exception:
++                pass
++        return last
++
++    def _cleanup_symbol(self, symbol: str, row: Dict[str, Any]) -> Dict[str, Any]:
++        attempts: List[Dict[str, Any]] = []
++        verify = self._build_live_exposure(symbol, row=row)
++        if verify.get('is_flat'):
++            result = {'symbol': symbol, 'status': 'already_flat', 'verify': verify, 'attempts': attempts}
++            self._metric_inc(symbol, 'already_flat')
++            return result
++        for attempt in range(1, self.close_retries + 1):
++            live = self._build_live_exposure(symbol)
++            verify = live
++            if live.get('is_flat'):
++                break
++            live_qty = float(live.get('abs_qty') or 0.0)
++            live_side = str(live.get('logical_side') or '').upper().strip()
++            if live_qty <= 0.0 or live_side not in {'LONG', 'SHORT'}:
++                break
++            canceled = self._cancel_all_symbol_orders_best_effort(symbol, live)
++            close = self._submit_reduce_only_market_exit(symbol=symbol, logical_side=live_side, qty=live_qty, attempt=attempt)
++            verify = self._verify_symbol_flat(symbol)
++            attempts.append({
++                'attempt': attempt,
++                'before_qty': live_qty,
++                'before_side': live_side,
++                'before_is_dust': self._is_dust_position(live),
++                'canceled': canceled,
++                'close': close,
++                'verify': {
++                    'abs_qty': float(verify.get('abs_qty') or 0.0),
++                    'notional_usdt': float(verify.get('notional_usdt') or 0.0),
++                    'margin_usdt': float(verify.get('margin_usdt') or 0.0),
++                    'open_plain_orders': int(verify.get('open_plain_orders') or 0),
++                    'open_algo_orders': int(verify.get('open_algo_orders') or 0),
++                    'is_flat': bool(verify.get('is_flat')),
++                    'is_dust': self._is_dust_position(verify),
++                },
++            })
++            if verify.get('is_flat'):
++                break
++        status = 'closed' if verify.get('is_flat') else ('dust_remaining' if self._is_dust_position(verify) else 'residual_position')
++        if EXECUTION_DUST_CLEANUP_TOTAL is not None:
++            try:
++                EXECUTION_DUST_CLEANUP_TOTAL.labels(symbol=symbol, result=status).inc()
++            except Exception:
++                pass
++        self._metric_inc(symbol, status)
++        doc = {
++            'symbol': symbol,
++            'status': status,
++            'attempts': attempts,
++            'residual_qty': float(verify.get('abs_qty') or 0.0),
++            'residual_notional_usdt': float(verify.get('notional_usdt') or 0.0),
++            'residual_margin_usdt': float(verify.get('margin_usdt') or 0.0),
++            'verify': verify,
++        }
++        self._emit_exec_event(symbol=symbol, event_type='dust_cleanup_worker', status=status, payload=doc)
++        return doc
++
++    def sweep_once(self) -> Dict[str, Any]:
++        ts = time.time()
++        if EXECUTION_DUST_SWEEP_LAST_RUN_TS is not None:
++            try:
++                EXECUTION_DUST_SWEEP_LAST_RUN_TS.set(ts)
++            except Exception:
++                pass
++        rows = list(self.client.get_position_risk() or [])
++        current_candidates: Set[str] = set()
++        pending_symbols: List[str] = []
++        acted: List[Dict[str, Any]] = []
++        for row in rows:
++            symbol = str(row.get('symbol') or '').upper().strip()
++            if not symbol:
++                continue
++            if self.allowlist and symbol not in self.allowlist:
++                self._confirm_seen.pop(symbol, None)
++                continue
++            snapshot = {
++                'symbol': symbol,
++                'abs_qty': abs(_f(row.get('positionAmt'), 0.0)),
++                'notional_usdt': abs(_f(row.get('notional'), 0.0)),
++                'margin_usdt': abs(_f(row.get('isolatedMargin'), 0.0) or _f(row.get('initialMargin'), 0.0)),
++            }
++            if not self._is_dust_position(snapshot):
++                self._confirm_seen.pop(symbol, None)
++                continue
++            current_candidates.add(symbol)
++            seen = int(self._confirm_seen.get(symbol, 0)) + 1
++            self._confirm_seen[symbol] = seen
++            if seen < self.confirm_passes:
++                pending_symbols.append(symbol)
++                self._metric_inc(symbol, 'candidate_pending')
++                self._emit_exec_event(symbol=symbol, event_type='dust_cleanup_candidate', status='pending', payload={
++                    'symbol': symbol,
++                    'confirm_seen': seen,
++                    'confirm_passes': self.confirm_passes,
++                    **snapshot,
++                })
++                continue
++            try:
++                acted.append(self._cleanup_symbol(symbol, dict(row)))
++            except Exception as exc:
++                self._metric_inc(symbol, 'error')
++                self._emit_exec_event(symbol=symbol, event_type='dust_cleanup_worker', status='error', payload={
++                    'symbol': symbol,
++                    'error': str(exc),
++                    **snapshot,
++                })
++                acted.append({'symbol': symbol, 'status': 'error', 'error': str(exc)})
++        for symbol in list(self._confirm_seen.keys()):
++            if symbol not in current_candidates:
++                self._confirm_seen.pop(symbol, None)
++        if EXECUTION_DUST_SWEEP_CANDIDATES is not None:
++            try:
++                EXECUTION_DUST_SWEEP_CANDIDATES.set(len(current_candidates))
++            except Exception:
++                pass
++        return {
++            'ts_ms': _now_ms(),
++            'candidates': sorted(current_candidates),
++            'pending': pending_symbols,
++            'acted': acted,
++        }
++
++    def run_forever(self) -> None:
++        while True:
++            try:
++                if self.enabled:
++                    self.sweep_once()
++            except Exception as exc:  # pragma: no cover
++                log.exception('dust cleanup sweep failed: %s', exc)
++            time.sleep(max(self.interval_sec, 1.0))
++
++
++def main() -> int:
++    logging.basicConfig(level=os.getenv('LOG_LEVEL', 'INFO').upper(), format='%(asctime)s %(levelname)s %(name)s: %(message)s')
++    worker = BinanceDustCleanupWorker()
++    worker.run_forever()
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+--- services/prometheus_alerts_binance_dust_cleanup_worker_v1.yml
++++ services/prometheus_alerts_binance_dust_cleanup_worker_v1.yml
+@@ -0,0 +1,20 @@
++groups:
++  - name: binance-dust-cleanup-worker
++    rules:
++      - alert: BinanceDustCleanupWorkerSweepStalled
++        expr: time() - execution_dust_sweep_last_run_ts > 120
++        for: 2m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Binance dust cleanup worker sweep is stale"
++          description: "The periodic dust cleanup worker has not updated its last-run timestamp for more than 120 seconds."
++
++      - alert: BinanceDustCleanupResidualsPersist
++        expr: increase(execution_dust_cleanup_total{result=~"dust_remaining|residual_position"}[15m]) > 0
++        for: 5m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Residual Binance dust positions remain after cleanup"
++          description: "The worker attempted to flatten residual positions but some tails still remain after the verify loop."
+--- services/tests/test_binance_dust_cleanup_worker_v1.py
++++ services/tests/test_binance_dust_cleanup_worker_v1.py
+@@ -0,0 +1,139 @@
++from __future__ import annotations
++
++from services.binance_dust_cleanup_worker import BinanceDustCleanupWorker
++
++
++class FakeRedis:
++    def __init__(self):
++        self.events = []
++
++    def xadd(self, stream, fields, **kwargs):
++        self.events.append((stream, dict(fields), dict(kwargs)))
++        return f"{len(self.events)}-0"
++
++
++class FakeClient:
++    def __init__(self):
++        self.position_rows = {
++            'APTUSDT': [
++                {'symbol': 'APTUSDT', 'positionAmt': '0.1', 'notional': '0.10', 'isolatedMargin': '0.00'},
++                {'symbol': 'APTUSDT', 'positionAmt': '0.0', 'notional': '0.0', 'isolatedMargin': '0.0'},
++            ],
++            'BTCUSDT': [
++                {'symbol': 'BTCUSDT', 'positionAmt': '0.005', 'notional': '350.0', 'isolatedMargin': '18.0'},
++            ],
++        }
++        self.current_idx = {'APTUSDT': 0, 'BTCUSDT': 0}
++        self.plain_orders = {'APTUSDT': [{'orderId': 1, 'clientOrderId': 'plain-1'}], 'BTCUSDT': []}
++        self.algo_orders = {'APTUSDT': [{'algoId': 11, 'clientAlgoId': 'algo-11'}], 'BTCUSDT': []}
++        self.cancel_all_calls = []
++        self.post_plain_calls = []
++
++    def get_exchange_info(self):
++        return {
++            'symbols': [
++                {'symbol': 'APTUSDT', 'filters': [{'filterType': 'LOT_SIZE', 'stepSize': '0.1', 'minQty': '0.1'}]},
++                {'symbol': 'BTCUSDT', 'filters': [{'filterType': 'LOT_SIZE', 'stepSize': '0.001', 'minQty': '0.001'}]},
++            ]
++        }
++
++    def get_position_risk(self):
++        out = []
++        for symbol, rows in self.position_rows.items():
++            idx = min(self.current_idx.get(symbol, 0), len(rows) - 1)
++            out.append(dict(rows[idx]))
++        return out
++
++    def get_symbol_position_risk(self, symbol, position_side=None):
++        rows = self.position_rows[str(symbol).upper()]
++        idx = min(self.current_idx.get(str(symbol).upper(), 0), len(rows) - 1)
++        return dict(rows[idx])
++
++    def get_open_orders(self, symbol=None):
++        return list(self.plain_orders.get(str(symbol).upper(), []))
++
++    def get_open_algo_orders(self, symbol=None):
++        return list(self.algo_orders.get(str(symbol).upper(), []))
++
++    def cancel_all_orders(self, symbol):
++        self.cancel_all_calls.append(str(symbol).upper())
++        self.plain_orders[str(symbol).upper()] = []
++        self.algo_orders[str(symbol).upper()] = []
++        return {'status': 'ok'}
++
++    def cancel_plain_order(self, symbol, order_id=None, client_order_id=None):
++        self.plain_orders[str(symbol).upper()] = []
++        return {'status': 'canceled'}
++
++    def cancel_algo_order(self, symbol, algo_id=None, client_algo_id=None):
++        self.algo_orders[str(symbol).upper()] = []
++        return {'status': 'canceled'}
++
++    def post_plain_order(self, params):
++        self.post_plain_calls.append(dict(params))
++        symbol = str(params['symbol']).upper()
++        self.current_idx[symbol] = min(self.current_idx.get(symbol, 0) + 1, len(self.position_rows[symbol]) - 1)
++        return {'orderId': 999, 'status': 'FILLED'}
++
++
++def test_dust_worker_confirms_then_cleans_up_exact_qty():
++    fake_client = FakeClient()
++    fake_redis = FakeRedis()
++    worker = BinanceDustCleanupWorker(
++        client=fake_client,
++        redis_client=fake_redis,
++        confirm_passes=2,
++        close_retries=2,
++        verify_timeout_ms=50,
++        verify_poll_ms=10,
++        allowlist={'APTUSDT', 'BTCUSDT'},
++    )
++
++    first = worker.sweep_once()
++    assert first['candidates'] == ['APTUSDT']
++    assert first['pending'] == ['APTUSDT']
++    assert fake_client.post_plain_calls == []
++
++    second = worker.sweep_once()
++    assert len(fake_client.post_plain_calls) == 1
++    req = fake_client.post_plain_calls[0]
++    assert req['symbol'] == 'APTUSDT'
++    assert req['side'] == 'SELL'
++    assert float(req['quantity']) == 0.1
++    assert req['reduceOnly'] is True
++    assert second['acted'][0]['status'] == 'closed'
++    assert any(fields['event_type'] == 'dust_cleanup_worker' for _, fields, _ in fake_redis.events)
++
++
++def test_dust_worker_skips_non_dust_position():
++    fake_client = FakeClient()
++    worker = BinanceDustCleanupWorker(
++        client=fake_client,
++        redis_client=FakeRedis(),
++        confirm_passes=1,
++        allowlist={'BTCUSDT'},
++    )
++    res = worker.sweep_once()
++    assert res['candidates'] == []
++    assert fake_client.post_plain_calls == []
++
++
++def test_dust_worker_reports_error_when_cleanup_fails():
++    class ErrorClient(FakeClient):
++        def post_plain_order(self, params):
++            raise RuntimeError('submit_failed')
++
++    fake_client = ErrorClient()
++    fake_redis = FakeRedis()
++    worker = BinanceDustCleanupWorker(
++        client=fake_client,
++        redis_client=fake_redis,
++        confirm_passes=1,
++        close_retries=1,
++        verify_timeout_ms=50,
++        verify_poll_ms=10,
++        allowlist={'APTUSDT'},
++    )
++    res = worker.sweep_once()
++    assert res['acted'][0]['status'] == 'error'
++    assert any(fields['status'] == 'error' for _, fields, _ in fake_redis.events)

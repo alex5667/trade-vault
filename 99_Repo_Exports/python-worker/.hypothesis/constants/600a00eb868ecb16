@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/bottleneck/slow/nonreduce_axis.py
+# hypothesis_version: 6.148.10
+
+[0.5, 'argpartition', 'average', 'dense', 'ignore', 'max', 'mergesort', 'min', 'nanrankdata', 'ordinal', 'partition', 'push', 'quicksort', 'rankdata', 'unknown method "{0}"']

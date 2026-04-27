@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/signal_scoring/score_model.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 100.0, '*', '+1', '-1', '0', '0.10', '1', '2.4', '30', '300', '800.0', '99.0', 'BEAR', 'BULL', 'BUY', 'CONF_CAL_B', 'CONF_CAL_K', 'CONF_CAL_LOG_ERRORS', 'CONF_CAL_MIN_SAMPLES', 'CONF_CAL_MODE', 'CONF_CAL_PATH', 'CONF_CAL_RELOAD_SEC', 'CONF_PCT_CAP', 'LONG', 'SELL', 'SHORT', 'conf_factor01', 'confidence_calib_key', 'confidence_calib_n', 'confidence_p_win', 'confidence_pct', 'direction', 'final_score', 'global', 'isotonic', 'raw_score', 'side', 'sigmoid', 'symbol']

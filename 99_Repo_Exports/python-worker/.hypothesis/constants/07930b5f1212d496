@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/core/crypto_orderflow_scoring.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.05, 0.1, 0.15, 0.25, 1.0, 'LONG', 'NEUTRAL', 'SHORT', 'base01', 'conf01', 'l2', 'l2_snapshot', 'quality_veto', 'veto']

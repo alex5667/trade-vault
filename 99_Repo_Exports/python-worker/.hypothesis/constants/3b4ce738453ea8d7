@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/matplotlib/_enums.py
+# hypothesis_version: 6.148.10
+
+[-1.5, -1.3, -0.5, 0.25, 0.5, 0.8, 0.85, 1.2, 1.5, 2.75, 5.5, 120, ', ', 'Cap style', 'CapStyle', 'Join style', 'JoinStyle', 'bevel', 'black', 'butt', 'center', 'miter', 'o', 'projecting', 'round', 'tab:blue', 'tab:red', '{', '}']

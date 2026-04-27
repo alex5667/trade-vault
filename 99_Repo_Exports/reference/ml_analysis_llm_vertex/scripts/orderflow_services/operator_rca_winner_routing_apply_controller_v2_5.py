@@ -1,0 +1,270 @@
+from __future__ import annotations
+from utils.time_utils import get_ny_time_millis
+
+import json
+import os
+import time
+from dataclasses import dataclass, asdict
+from typing import Any, Dict, List, Optional, Tuple
+
+try:  # pragma: no cover
+    import redis.asyncio as redis_async  # type: ignore
+except Exception:  # pragma: no cover
+    redis_async = None  # type: ignore
+
+from prometheus_client import Counter, Gauge, Histogram, start_http_server
+
+
+PORT = int(os.getenv("ML_OPERATOR_RCA_WINNER_ROUTING_PORT", "9877"))
+SRC_STREAM = os.getenv("ML_OPERATOR_RCA_EXPERIMENT_WINNER_STREAM", "stream:ml:operator_rca_experiment_winner_decisions")
+AUDIT_STREAM = os.getenv("ML_OPERATOR_RCA_ROUTING_APPLY_AUDIT_STREAM", "stream:ml:operator_rca_routing_apply_audit")
+RESULTS_STREAM = os.getenv("ML_OPERATOR_RCA_ROUTING_APPLY_RESULTS_STREAM", "stream:ml:operator_rca_routing_apply_results")
+POLICY_HASH = os.getenv("ML_OPERATOR_RCA_ROUTING_DEFAULT_HASH", "cfg:ml:operator_rca_routing:default")
+STATE_HASH = os.getenv("ML_OPERATOR_RCA_ROUTING_APPLY_STATE_HASH", "metrics:ml:operator_rca_routing_apply:last")
+GROUP = os.getenv("ML_OPERATOR_RCA_ROUTING_APPLY_GROUP", "cg:ml:operator_rca_winner_routing_apply")
+CONSUMER = os.getenv("HOSTNAME", "scanner-ml-operator-rca-routing-apply-v2-5")
+
+
+RUNS = Counter("ml_operator_rca_winner_routing_apply_runs_total", "Phase 2.5 controller runs", ["status"])
+DECISIONS = Counter("ml_operator_rca_winner_routing_apply_decisions_total", "Routing apply decisions", ["decision", "mode"])
+LAST_RUN_TS = Gauge("ml_operator_rca_winner_routing_apply_last_run_ts_seconds", "Last run timestamp")
+COOLDOWN_LEFT = Gauge("ml_operator_rca_winner_routing_apply_cooldown_left_seconds", "Cooldown left seconds")
+LOOP_LAT = Histogram("ml_operator_rca_winner_routing_apply_loop_seconds", "Loop latency")
+
+
+@dataclass
+class WinnerDecision:
+    experiment_id: str
+    winner_arm: str
+    provider: str
+    model_name: str
+    prompt_version: str
+    policy_version: str
+    sample_n: int
+    winner_score: float
+    control_score: float
+    confidence: float
+    ts_ms: int
+    reason_codes: List[str]
+    raw: Dict[str, Any]
+
+    @property
+    def uplift(self) -> float:
+        return float(self.winner_score) - float(self.control_score)
+
+
+def _now_ms() -> int:
+    return get_ny_time_millis()
+
+
+def _s(x: Any, d: str = "") -> str:
+    if x is None:
+        return d
+    return str(x)
+
+
+def _f(x: Any, d: float = 0.0) -> float:
+    try:
+        return float(x)
+    except Exception:
+        return d
+
+
+def _i(x: Any, d: int = 0) -> int:
+    try:
+        return int(float(x))
+    except Exception:
+        return d
+
+
+def _csv_set(v: str) -> set[str]:
+    return {x.strip() for x in str(v or "").split(",") if x.strip()}
+
+
+def parse_winner_message(fields: Dict[Any, Any]) -> WinnerDecision:
+    d: Dict[str, Any] = {}
+    for k, v in fields.items():
+        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
+        vv = v.decode() if isinstance(v, (bytes, bytearray)) else v
+        d[kk] = vv
+    rc = d.get("reason_codes") or d.get("reason_codes_json") or "[]"
+    try:
+        reason_codes = json.loads(rc) if isinstance(rc, str) else list(rc)
+    except Exception:
+        reason_codes = []
+    return WinnerDecision(
+        experiment_id=_s(d.get("experiment_id")),
+        winner_arm=_s(d.get("winner_arm"), "control"),
+        provider=_s(d.get("provider"), os.getenv("ML_OPERATOR_RCA_DEFAULT_PROVIDER", "vertex")),
+        model_name=_s(d.get("model_name"), os.getenv("ML_OPERATOR_RCA_DEFAULT_MODEL", "gemini-2.5-flash-lite")),
+        prompt_version=_s(d.get("prompt_version"), os.getenv("ML_OPERATOR_RCA_DEFAULT_PROMPT_VERSION", "ml_triage_v1")),
+        policy_version=_s(d.get("policy_version"), os.getenv("ML_OPERATOR_RCA_DEFAULT_POLICY_VERSION", "policy_v1")),
+        sample_n=_i(d.get("sample_n"), 0),
+        winner_score=_f(d.get("winner_score"), 0.0),
+        control_score=_f(d.get("control_score"), 0.0),
+        confidence=_f(d.get("confidence"), 0.0),
+        ts_ms=_i(d.get("ts_ms"), _now_ms()),
+        reason_codes=reason_codes,
+        raw=d,
+    )
+
+
+def compute_apply_decision(
+    wd: WinnerDecision,
+    *,
+    advisory_only: bool,
+    kill_switch: bool,
+    min_sample: int,
+    min_uplift: float,
+    min_confidence: float,
+    cooldown_active: bool,
+    allowed_providers: set[str],
+    allowed_models: set[str],
+    allowed_prompts: set[str],
+) -> Tuple[str, List[str]]:
+    reasons: List[str] = []
+    if kill_switch:
+        reasons.append("KILL_SWITCH")
+        return "HOLD", reasons
+    if cooldown_active:
+        reasons.append("COOLDOWN_ACTIVE")
+        return "HOLD", reasons
+    if wd.sample_n < int(min_sample):
+        reasons.append("INSUFFICIENT_SAMPLE")
+        return "HOLD", reasons
+    if wd.uplift < float(min_uplift):
+        reasons.append("UPLIFT_TOO_LOW")
+        return "HOLD", reasons
+    if wd.confidence < float(min_confidence):
+        reasons.append("CONFIDENCE_TOO_LOW")
+        return "HOLD", reasons
+    if allowed_providers and wd.provider not in allowed_providers:
+        reasons.append("PROVIDER_NOT_ALLOWED")
+        return "SUPPRESS", reasons
+    if allowed_models and wd.model_name not in allowed_models:
+        reasons.append("MODEL_NOT_ALLOWED")
+        return "SUPPRESS", reasons
+    if allowed_prompts and wd.prompt_version not in allowed_prompts:
+        reasons.append("PROMPT_NOT_ALLOWED")
+        return "SUPPRESS", reasons
+    if advisory_only:
+        reasons.append("DRY_RUN")
+        return "PROMOTE_DRY_RUN", reasons
+    reasons.append("COMMIT_ELIGIBLE")
+    return "PROMOTE_COMMIT", reasons
+
+
+def build_policy_update(wd: WinnerDecision, current: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+    cur = current or {}
+    return {
+        "provider": wd.provider,
+        "model_name": wd.model_name,
+        "prompt_version": wd.prompt_version,
+        "policy_version": wd.policy_version,
+        "winner_experiment_id": wd.experiment_id,
+        "winner_arm": wd.winner_arm,
+        "winner_score": f"{wd.winner_score:.6f}",
+        "control_score": f"{wd.control_score:.6f}",
+        "uplift": f"{wd.uplift:.6f}",
+        "sample_n": str(int(wd.sample_n)),
+        "confidence": f"{wd.confidence:.6f}",
+        "updated_at_ms": str(_now_ms()),
+        "previous_provider": _s(cur.get("provider")),
+        "previous_model_name": _s(cur.get("model_name")),
+        "previous_prompt_version": _s(cur.get("prompt_version")),
+        "previous_policy_version": _s(cur.get("policy_version")),
+    }
+
+
+async def _write_audit(r: Any, payload: Dict[str, Any]) -> None:
+    await r.xadd(AUDIT_STREAM, {k: json.dumps(v) if isinstance(v, (dict, list)) else str(v) for k, v in payload.items()}, maxlen=100000, approximate=True)
+
+
+async def _write_result(r: Any, payload: Dict[str, Any]) -> None:
+    await r.xadd(RESULTS_STREAM, {k: json.dumps(v) if isinstance(v, (dict, list)) else str(v) for k, v in payload.items()}, maxlen=100000, approximate=True)
+
+
+async def worker() -> None:  # pragma: no cover
+    if redis_async is None:
+        raise RuntimeError("redis.asyncio is required to run worker")
+    start_http_server(PORT)
+    r = redis_async.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+    try:
+        await r.xgroup_create(SRC_STREAM, GROUP, id="0", mkstream=True)
+    except Exception:
+        pass
+
+    advisory_only = _i(os.getenv("ML_OPERATOR_RCA_ROUTING_APPLY_ADVISORY_ONLY", "1"), 1) == 1
+    min_sample = _i(os.getenv("ML_OPERATOR_RCA_ROUTING_APPLY_MIN_SAMPLE", "12"), 12)
+    min_uplift = _f(os.getenv("ML_OPERATOR_RCA_ROUTING_APPLY_MIN_UPLIFT", "0.05"), 0.05)
+    min_conf = _f(os.getenv("ML_OPERATOR_RCA_ROUTING_APPLY_MIN_CONFIDENCE", "0.60"), 0.60)
+    cooldown_sec = _i(os.getenv("ML_OPERATOR_RCA_ROUTING_APPLY_COOLDOWN_SEC", "21600"), 21600)
+    allowed_providers = _csv_set(os.getenv("ML_OPERATOR_RCA_ROUTING_ALLOWED_PROVIDERS", "vertex"))
+    allowed_models = _csv_set(os.getenv("ML_OPERATOR_RCA_ROUTING_ALLOWED_MODELS", "gemini-2.5-flash-lite,gemini-2.5-flash"))
+    allowed_prompts = _csv_set(os.getenv("ML_OPERATOR_RCA_ROUTING_ALLOWED_PROMPTS", "ml_triage_v1,ml_triage_v2"))
+
+    while True:
+        t0 = time.perf_counter()
+        rows = await r.xreadgroup(GROUP, CONSUMER, {SRC_STREAM: ">"}, count=50, block=5000)
+        LAST_RUN_TS.set(time.time())
+        kill_switch = _i(await r.hget(POLICY_HASH, "kill_switch") or 0, 0) == 1
+        last_commit_ms = _i(await r.hget(STATE_HASH, "last_commit_ts_ms") or 0, 0)
+        cooldown_left = max(0, (last_commit_ms + cooldown_sec * 1000 - _now_ms()) // 1000)
+        COOLDOWN_LEFT.set(float(cooldown_left))
+        cooldown_active = cooldown_left > 0
+
+        for _stream, items in rows:
+            for msg_id, fields in items:
+                try:
+                    wd = parse_winner_message(fields)
+                    decision, reasons = compute_apply_decision(
+                        wd,
+                        advisory_only=advisory_only,
+                        kill_switch=kill_switch,
+                        min_sample=min_sample,
+                        min_uplift=min_uplift,
+                        min_confidence=min_conf,
+                        cooldown_active=cooldown_active,
+                        allowed_providers=allowed_providers,
+                        allowed_models=allowed_models,
+                        allowed_prompts=allowed_prompts,
+                    )
+                    current = await r.hgetall(POLICY_HASH)
+                    result = {
+                        "ts_ms": _now_ms(),
+                        "experiment_id": wd.experiment_id,
+                        "winner_arm": wd.winner_arm,
+                        "decision": decision,
+                        "reason_codes": reasons,
+                        "provider": wd.provider,
+                        "model_name": wd.model_name,
+                        "prompt_version": wd.prompt_version,
+                        "policy_version": wd.policy_version,
+                        "sample_n": wd.sample_n,
+                        "uplift": wd.uplift,
+                        "confidence": wd.confidence,
+                        "mode": "DRY_RUN" if advisory_only else "COMMIT",
+                    }
+                    if decision == "PROMOTE_COMMIT":
+                        update = build_policy_update(wd, current)
+                        await r.hset(POLICY_HASH, mapping=update)
+                        await r.hset(STATE_HASH, mapping={"last_commit_ts_ms": str(_now_ms()), "last_commit_experiment_id": wd.experiment_id})
+                    elif decision == "PROMOTE_DRY_RUN":
+                        update = build_policy_update(wd, current)
+                        result["proposed_update"] = update
+                    await _write_result(r, result)
+                    await _write_audit(r, {"event": "OPERATOR_RCA_ROUTING_APPLY", **result})
+                    DECISIONS.labels(decision=decision, mode=result["mode"]).inc()
+                    RUNS.labels(status="ok").inc()
+                except Exception as exc:
+                    RUNS.labels(status="err").inc()
+                    await _write_audit(r, {"event": "OPERATOR_RCA_ROUTING_APPLY_ERR", "error": repr(exc), "ts_ms": _now_ms()})
+                finally:
+                    await r.xack(SRC_STREAM, GROUP, msg_id)
+        LOOP_LAT.observe(time.perf_counter() - t0)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    import asyncio
+
+    asyncio.run(worker())

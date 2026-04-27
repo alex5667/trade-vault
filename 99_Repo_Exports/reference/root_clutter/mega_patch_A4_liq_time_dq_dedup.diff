@@ -1,0 +1,321 @@
+diff --git a/.env.example b/.env.example
+index 5395db9..43a9e57 100644
+--- a/.env.example
++++ b/.env.example
+@@ -49,6 +49,11 @@
+ # LIQ_MAX_OOO_MS=2000
+ # LIQ_ENABLE_QUARANTINE=true
+ 
++# Optional: dedup (noise reduction)
++# LIQ_DEDUP_ENABLED=true
++# LIQ_DEDUP_TTL_MS=60000
++# LIQ_DEDUP_MAX_KEYS=20000
++
+ # Aliases for shorter naming (optional):
+ # LIQ_MAX_PAST_MS=10000
+ # LIQ_MAX_FUTURE_MS=2000
+diff --git a/internal/liquidation/config.go b/internal/liquidation/config.go
+index 010dd5d..73b9fd4 100644
+--- a/internal/liquidation/config.go
++++ b/internal/liquidation/config.go
+@@ -272,6 +272,17 @@ func LoadConfigFromEnv(fallbackSymbols []string) Config {
+ 	dq.MaxFutureSkew = parseDurationMsEnvAlias("LIQ_MAX_FUTURE_SKEW_MS", "LIQ_MAX_FUTURE_MS", 2*time.Second)
+ 	dq.MaxOutOfOrder = parseDurationMsEnv("LIQ_MAX_OOO_MS", 2*time.Second)
+ 	dq.EnableQuarantine = parseBoolEnv("LIQ_ENABLE_QUARANTINE", true)
++
++	// A4: optional dedup (noise reduction)
++	dq.DedupEnabled = parseBoolEnv("LIQ_DEDUP_ENABLED", true)
++	dq.DedupTTL = parseDurationMsEnv("LIQ_DEDUP_TTL_MS", 60*time.Second)
++	dq.DedupMaxKeys = parseIntEnv("LIQ_DEDUP_MAX_KEYS", 20_000)
++	if dq.DedupEnabled {
++		dq.dedup = newDedupCache(dq.DedupTTL, dq.DedupMaxKeys)
++	} else {
++		dq.dedup = nil
++	}
++
+ 	cfg.DQ = dq
+ 
+ 	return cfg
+diff --git a/internal/liquidation/controller.go b/internal/liquidation/controller.go
+index 8bfe81d..b0f5515 100644
+--- a/internal/liquidation/controller.go
++++ b/internal/liquidation/controller.go
+@@ -157,7 +157,11 @@ func (c *Controller) runBinance(ctx context.Context) {
+ 				ok, reason := c.cfg.DQ.Validate(ev, nowMs)
+ 				if !ok {
+ 					c.metrics.Drop(venue, reason, 1)
+-					c.pub.QuarantineEvent(ev, msg, reason)
++					// filtered_symbol и dedup — это не "плохие" события, а шум/фильтрация,
++					// поэтому не отправляем их в quarantine, чтобы не раздувать stream:liq_evt:quarantine.
++					if reason != "filtered_symbol" && reason != "dedup" {
++						c.pub.QuarantineEvent(ev, msg, reason)
++					}
+ 					continue
+ 				}
+ 				c.metrics.ObserveLag(venue, nowMs-ev.TsEventMs)
+@@ -277,7 +281,11 @@ func (c *Controller) runBybit(ctx context.Context) {
+ 				ok, reason := c.cfg.DQ.Validate(ev, nowMs)
+ 				if !ok {
+ 					c.metrics.Drop(venue, reason, 1)
+-					c.pub.QuarantineEvent(ev, msg, reason)
++					// filtered_symbol и dedup — это не "плохие" события, а шум/фильтрация,
++					// поэтому не отправляем их в quarantine, чтобы не раздувать stream:liq_evt:quarantine.
++					if reason != "filtered_symbol" && reason != "dedup" {
++						c.pub.QuarantineEvent(ev, msg, reason)
++					}
+ 					continue
+ 				}
+ 				c.metrics.ObserveLag(venue, nowMs-ev.TsEventMs)
+diff --git a/internal/liquidation/dq.go b/internal/liquidation/dq.go
+index 62c1f67..6313298 100644
+--- a/internal/liquidation/dq.go
++++ b/internal/liquidation/dq.go
+@@ -9,11 +9,21 @@ import (
+ // DQPolicy — правила качества данных для liquidation events.
+ //
+ // Цели:
+-//   - отбрасывать stale/future-skew
++//   - валидировать минимальный набор полей (symbol, price, qty)
++//   - отбрасывать bad time: stale/future-skew (detect → quarantine)
+ //   - обеспечивать монотонность времени по символу (в пределах MaxOutOfOrder)
+ //   - фильтровать по allowlist
++//   - (опционально) дедуплицировать повторяющиеся события в коротком окне
+ //
+ // Принцип: detect → quarantine (сэмплируемо) → метрики.
++//
++// Важно:
++//   - В MVP мы НЕ делаем "clamp" времени (это потенциально скрывает проблему источника).
++//     Для bad time события уходят в quarantine.
++//   - Дедуп — это "noise reduction". Его НЕ нужно отправлять в quarantine.
++//     (см. controller.go: reason==dedup фильтруется без quarantine).
++//
++// NOTE: DQPolicy должен быть быстрым (O(1)), потому что вызывается на каждый event.
+ type DQPolicy struct {
+ 	MaxEventAge   time.Duration
+ 	MaxFutureSkew time.Duration
+@@ -23,8 +33,16 @@ type DQPolicy struct {
+ 
+ 	EnableQuarantine bool
+ 
++	// Dedup* — опциональная дедупликация одинаковых событий.
++	// Полезно для Binance !forceOrder@arr, где в одном окне может прилететь одно и то же.
++	DedupEnabled bool
++	DedupTTL     time.Duration
++	DedupMaxKeys int
++
+ 	mu       sync.Mutex
+ 	lastTsMs map[string]int64
++	// dedupCache уже содержит собственную блокировку, поэтому держим его отдельно.
++	dedup *dedupCache
+ }
+ 
+ func DefaultDQPolicy(allowSymbols []string) DQPolicy {
+@@ -35,18 +53,33 @@ func DefaultDQPolicy(allowSymbols []string) DQPolicy {
+ 			m[s] = struct{}{}
+ 		}
+ 	}
+-	return DQPolicy{
++
++	p := DQPolicy{
+ 		MaxEventAge:      10 * time.Second,
+ 		MaxFutureSkew:    2 * time.Second,
+ 		MaxOutOfOrder:    2 * time.Second,
+ 		AllowSymbols:     m,
+ 		EnableQuarantine: true,
++		DedupEnabled:     true,
++		DedupTTL:         60 * time.Second,
++		DedupMaxKeys:     20_000,
+ 		lastTsMs:         map[string]int64{},
+ 	}
++	p.dedup = newDedupCache(p.DedupTTL, p.DedupMaxKeys)
++	return p
+ }
+ 
+ // Validate возвращает (ok, reason).
++//
++// reason:
++//   - filtered_symbol        — allowlist
++//   - missing_* / bad_*      — минимальные поля
++//   - bad_ts_unit            — похоже на секунды или некорректную шкалу (не ms)
++//   - stale / future_skew    — bad time (MVP: quarantine)
++//   - out_of_order           — слишком большое OOO
++//   - dedup                  — повтор в окне DedupTTL
+ func (p *DQPolicy) Validate(ev LiqEventV1, nowMs int64) (bool, string) {
++	// --- required fields ---
+ 	if ev.Symbol == "" {
+ 		return false, "missing_symbol"
+ 	}
+@@ -58,13 +91,21 @@ func (p *DQPolicy) Validate(ev LiqEventV1, nowMs int64) (bool, string) {
+ 	if ev.TsEventMs <= 0 {
+ 		return false, "bad_ts"
+ 	}
++
++	// Быстрый sanity-check "похоже ли на epoch ms".
++	// 1e11 ms ~= 1973-03-03; epoch seconds обычно ~ 1e9..1e10.
++	// Мы не делаем преобразование (sanitize) — лучше quarantine, чтобы downstream не обучался на мусоре.
++	if ev.TsEventMs < 100_000_000_000 {
++		return false, "bad_ts_unit"
++	}
++
+ 	if strings.TrimSpace(ev.Price) == "" {
+ 		return false, "missing_price"
+ 	}
+ 	if strings.TrimSpace(ev.Qty) == "" {
+ 		return false, "missing_qty"
+ 	}
+-	// Быстрая дополнительная проверка на нули/отрицательные.
++	// Быстрая проверка на нули/отрицательные + валидность decimal.
+ 	if !isPositiveDecimalString(ev.Price) {
+ 		return false, "bad_price"
+ 	}
+@@ -72,6 +113,7 @@ func (p *DQPolicy) Validate(ev LiqEventV1, nowMs int64) (bool, string) {
+ 		return false, "bad_qty"
+ 	}
+ 
++	// --- bad time ---
+ 	if p.MaxEventAge > 0 {
+ 		if nowMs-ev.TsEventMs > p.MaxEventAge.Milliseconds() {
+ 			return false, "stale"
+@@ -82,6 +124,21 @@ func (p *DQPolicy) Validate(ev LiqEventV1, nowMs int64) (bool, string) {
+ 			return false, "future_skew"
+ 		}
+ 	}
++
++	// --- dedup (noise reduction) ---
++	// Выполняем после bad time, чтобы не тратить кеш на заведомо плохие события.
++	if p.DedupEnabled {
++		if p.dedup == nil {
++			// ленивое создание (на случай если p был скопирован/переинициализирован)
++			p.dedup = newDedupCache(p.DedupTTL, p.DedupMaxKeys)
++		}
++		key := p.eventDedupKey(ev)
++		if p.dedup.SeenOrAdd(key, nowMs) {
++			return false, "dedup"
++		}
++	}
++
++	// --- out-of-order ---
+ 	if p.MaxOutOfOrder > 0 {
+ 		p.mu.Lock()
+ 		last, ok := p.lastTsMs[ev.Symbol]
+@@ -98,5 +155,42 @@ func (p *DQPolicy) Validate(ev LiqEventV1, nowMs int64) (bool, string) {
+ 		p.mu.Unlock()
+ 		return false, "out_of_order"
+ 	}
++
+ 	return true, ""
+ }
++
++func (p *DQPolicy) eventDedupKey(ev LiqEventV1) string {
++	// Ключ — максимально "сильный", чтобы избежать коллизий.
++	// Включаем venue, потому что одинаковые символ/цена/qty/ts могут совпасть между биржами.
++	// Формат: venue|symbol|ts|side|price|qty
++	//
++	// Не используем notional_usd, потому что он derived и зависит от округления.
++	// price/qty берём как строки (биржевой формат).
++	return ev.Venue + "|" + ev.Symbol + "|" + itoa64(ev.TsEventMs) + "|" + ev.OrderSide + "|" + ev.Price + "|" + ev.Qty
++}
++
++// itoa64 — локальный быстрый конвертер int64->string без fmt.
++func itoa64(v int64) string {
++	// worst-case: -9223372036854775808
++	if v == 0 {
++		return "0"
++	}
++
++	neg := v < 0
++	if neg {
++		v = -v
++	}
++
++	var buf [32]byte
++	i := len(buf)
++	for v > 0 {
++		i--
++		buf[i] = byte('0' + v%10)
++		v /= 10
++	}
++	if neg {
++		i--
++		buf[i] = '-'
++	}
++	return string(buf[i:])
++}
+diff --git a/internal/liquidation/dq_test.go b/internal/liquidation/dq_test.go
+index 2fdc931..eaf8895 100644
+--- a/internal/liquidation/dq_test.go
++++ b/internal/liquidation/dq_test.go
+@@ -7,14 +7,14 @@ func TestDQPolicy_StaleAndOOO(t *testing.T) {
+ 	now := int64(1_000_000)
+ 
+ 	// ok
+-	ev1 := LiqEventV1{Symbol: "BTCUSDT", TsEventMs: now - 1000, Price: "1", Qty: "1"}
++	ev1 := LiqEventV1{Venue: "binance_usdtm", Symbol: "BTCUSDT", TsEventMs: now - 1000, Price: "1", Qty: "1", OrderSide: "BUY"}
+ 	ok, reason := p.Validate(ev1, now)
+ 	if !ok {
+ 		t.Fatalf("expected ok, got %v (%s)", ok, reason)
+ 	}
+ 
+ 	// out-of-order beyond window
+-	ev2 := LiqEventV1{Symbol: "BTCUSDT", TsEventMs: now - 10_000, Price: "1", Qty: "1"}
++	ev2 := LiqEventV1{Venue: "binance_usdtm", Symbol: "BTCUSDT", TsEventMs: now - 10_000, Price: "1", Qty: "1", OrderSide: "BUY"}
+ 	ok, reason = p.Validate(ev2, now)
+ 	if ok {
+ 		t.Fatalf("expected not ok")
+@@ -25,9 +25,55 @@ func TestDQPolicy_StaleAndOOO(t *testing.T) {
+ 	}
+ 
+ 	// filtered symbol
+-	ev3 := LiqEventV1{Symbol: "ETHUSDT", TsEventMs: now - 1000, Price: "1", Qty: "1"}
++	ev3 := LiqEventV1{Venue: "binance_usdtm", Symbol: "ETHUSDT", TsEventMs: now - 1000, Price: "1", Qty: "1", OrderSide: "BUY"}
+ 	ok, reason = p.Validate(ev3, now)
+ 	if ok || reason != "filtered_symbol" {
+ 		t.Fatalf("expected filtered_symbol, got ok=%v reason=%s", ok, reason)
+ 	}
+ }
++
++func TestDQPolicy_BadTsUnitSeconds(t *testing.T) {
++	p := DefaultDQPolicy([]string{"BTCUSDT"})
++	// epoch seconds (10 digits) — должны уйти в quarantine как bad_ts_unit
++	nowMs := int64(1_700_000_000_000)
++	ev := LiqEventV1{Venue: "binance_usdtm", Symbol: "BTCUSDT", TsEventMs: 1_700_000_000, Price: "1", Qty: "1", OrderSide: "BUY"}
++	ok, reason := p.Validate(ev, nowMs)
++	if ok {
++		t.Fatalf("expected not ok")
++	}
++	if reason != "bad_ts_unit" {
++		t.Fatalf("expected bad_ts_unit, got %s", reason)
++	}
++}
++
++func TestDQPolicy_Dedup(t *testing.T) {
++	p := DefaultDQPolicy([]string{"BTCUSDT"})
++	// отключаем bad time для теста TTL
++	p.MaxEventAge = 0
++	p.MaxFutureSkew = 0
++	p.MaxOutOfOrder = 0
++	p.DedupEnabled = true
++	p.DedupTTL = 60_000_000_000 // 60s in ns
++	p.DedupMaxKeys = 100
++	p.dedup = newDedupCache(p.DedupTTL, p.DedupMaxKeys)
++
++	now := int64(1_000_000_000_000)
++	ev := LiqEventV1{Venue: "binance_usdtm", Symbol: "BTCUSDT", TsEventMs: now - 1, Price: "123", Qty: "0.5", OrderSide: "BUY"}
++
++	ok, reason := p.Validate(ev, now)
++	if !ok {
++		t.Fatalf("expected ok, got %v (%s)", ok, reason)
++	}
++
++	ok, reason = p.Validate(ev, now)
++	if ok || reason != "dedup" {
++		t.Fatalf("expected dedup, got ok=%v reason=%s", ok, reason)
++	}
++
++	// after TTL
++	now2 := now + 60_000 + 1
++	ok, reason = p.Validate(ev, now2)
++	if !ok {
++		t.Fatalf("expected ok after ttl, got %v (%s)", ok, reason)
++	}
++}

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/side_sign.py
+# hypothesis_version: 6.148.10
+
+[0.0, 'BUY', 'SELL', 'is_buyer_maker', 'maker_buy', 'maker_sell', 'side', 'side_buy', 'side_sell', 'unknown']

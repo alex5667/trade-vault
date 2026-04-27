@@ -1,0 +1,10 @@
+groups:
+  - name: ml_phase2_17_operator_routing_incident_rca_route_incident_bundle_v1
+    rules:
+      - alert: MLOperatorRoutingIncidentRCARouteIncidentBundleStale
+        expr: time() - ml_operator_routing_incident_rca_route_incident_bundle_last_run_ts_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Routing incident RCA Route Incident Bundle builder is stale"

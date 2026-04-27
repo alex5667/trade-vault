@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/news_debug.py
+# hypothesis_version: 6.148.10
+
+[0.0, 100, 4294967295, ',', '/', '1', '2000', ':', 'NEWS_DEBUG_FULL', 'event_tminus_sec', 'false', 'ignore', 'news', 'news:analysis/', 'news:analysis:', 'news_grade_id', 'news_risk', 'on', 'ref', 'symbol', 'tags_mask', 'true', 'ts', 'utf-8', 'yes', '…']

@@ -1,0 +1,11 @@
+groups:
+  - name: ml_phase2_11_operator_routing_incident_rca_governance_v1
+    rules:
+      - alert: MLOperatorRoutingIncidentRCAGovernorStale
+        expr: time() - ml_operator_routing_incident_rca_governor_last_run_ts_seconds > 1800
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "routing incident RCA governor is stale"
+          description: "Routing incident RCA usefulness governor has not completed a run in 30+ minutes"

@@ -1,0 +1,36 @@
+groups:
+- name: meta_model_guardrails
+  rules:
+  
+  # 1. Freeze Latch Active (Hard Stop)
+  - alert: MetaGuardFreeze
+    expr: meta_guard_freeze == 1
+    for: 1m
+    labels:
+      severity: critical
+      team: trade-ml
+    annotations:
+      summary: "Meta model guardrails triggered FREEZE"
+      description: "Guardrails detected schema mismatch or critical missing data. Meta model is forced to SHADOW mode. Check Redis key 'meta_guard_reason' or logs."
+
+  # 2. Impending Freeze (Warning on high missingness but not yet critical)
+  # Assuming we export meta_guard_missing_mean
+  - alert: MetaImpendingFreeze
+    expr: meta_guard_missing_mean > 0.03 and meta_guard_missing_mean < 0.05
+    for: 5m
+    labels:
+      severity: warning
+      team: trade-ml
+    annotations:
+      summary: "Meta model missingness approaching limit"
+      description: "Average missing rate is {{ $value | printf '%.2f' }}, limit is 0.05. Investigate input data quality."
+
+  - alert: MetaAutoRampFrozen
+    expr: meta_ramp_decision{decision="freeze"} == 1
+    for: 10m
+    labels:
+      severity: info
+      team: trade-ml
+    annotations:
+      summary: "Meta Auto-Ramp is in FREEZE state"
+      description: "The auto-ramp logic has decided to freeze the rollout (share=0). This might be due to guardrails or bad performance streaks."

@@ -1,0 +1,33 @@
+# Prometheus scrape snippet for Edge Stack exporters (P59 + P60)
+#
+# This file is a reference/snippet — its content is already merged into
+# the main prometheus.yml under scrape_configs:.
+#
+# If Prometheus runs INSIDE the same docker scanner-network:
+#   targets use service container_name DNS:
+#     scanner-edge-stack-train-exporter-p59:9813
+#     scanner-edge-stack-shadow-exporter-p60:8012
+#
+# If Prometheus runs on the HOST (or outside the docker network):
+#   use localhost:<mapped_port> or the host IP:
+#     127.0.0.1:9813  (P59 train exporter)
+#     127.0.0.1:8012  (P60 shadow exporter)
+
+scrape_configs:
+  # P59 — Edge Stack v1 nightly train metrics exporter
+  # Reads Redis hash metrics:edge_stack_train:last
+  # Alert rules: orderflow_services/prometheus_alerts_edge_stack_train_p59.yml
+  - job_name: edge_stack_train_p59
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - scanner-edge-stack-train-exporter-p59:9813
+
+  # P60 — Edge Stack v1 shadow eval status exporter
+  # Reads shadow_status.json produced by edge_stack_shadow_eval_bundle_v1
+  # Alert rules: orderflow_services/prometheus_alerts_edge_stack_shadow_p60.yml
+  - job_name: edge_stack_shadow_p60
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          - scanner-edge-stack-shadow-exporter-p60:8012

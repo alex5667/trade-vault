@@ -1,0 +1,775 @@
+diff --git a/services/orderflow/components/tick_processor.py b/services/orderflow/components/tick_processor.py
+index f0e98bb..ee4b2aa 100644
+--- a/services/orderflow/components/tick_processor.py
++++ b/services/orderflow/components/tick_processor.py
+@@ -69,7 +69,7 @@ from services.orderflow.metrics import (
+     tick_ts_future_total, tick_age_ms_hist, tick_reorder_back_ms_hist, tick_time_action_total,
+     tick_time_decision_total,
+     burst_active_gauge, burst_flush_total, signals_emitted_total, feature_missing_total, burst_window_ms_gauge, tick_gap_p50_ms_gauge, tick_gap_p95_ms_gauge,
+-    liqmap_snapshot_age_ms_gauge, liqmap_snapshot_parse_errors_total,
++    liqmap_snapshot_age_ms_gauge, liqmap_parse_errors_total, liqmap_snapshot_parse_errors_total,
+     liqmap_gate_shadow_hit_total, liqmap_gate_veto_total,
+     book_missing_seq_ema_gauge, tick_missing_seq_ema_gauge, tick_missing_seq_events_total,
+     tick_id_gap_events_total, tick_id_dup_events_total, tick_id_reorder_events_total,
+@@ -275,22 +275,80 @@ class TickProcessor:
+         self._capture_queue: Optional[asyncio.Queue] = None
+         self._ofc_capture_enabled = os.getenv("OFC_CAPTURE", "0") == "1"
+ 
++
++        # ------------------------------------------------------------------
+         # LiqMap (liquidation map) feature injection (runtime)
+-        # Default OFF to keep existing behavior; enable explicitly via env.
++        #
++        # Goal: enrich `indicators` with deterministic liqmap_<window>_* scalars
++        # sourced from Redis snapshots.
++        #
++        # Safety defaults:
++        # - Disabled by default (hot path stability). Enable explicitly via env.
++        # - Fail-open: any Redis/parse/compute issue MUST NOT raise.
++        # - Bounded Redis load: refresh per (symbol, window) at most every N ms.
++        # - Determinism: feature keys are fixed by core.liqmap_features_v1.
++        #
++        # Env knobs:
++        #   LIQMAP_FEATURES_ENABLE            (default 0)
++        #   LIQMAP_FEATURES_WINDOWS           (default "5m,1h")
++        #   LIQMAP_FEATURES_REFRESH_MS        (default 1500)
++        #       legacy alias: LIQMAP_FEATURES_FETCH_INTERVAL_MS
++        #   LIQMAP_FEATURES_FAILOPEN_STALE_MS (default 120000)
++        #
++        # Optional tuning knobs (feature engineering):
++        #   LIQMAP_SNAPSHOT_KEY_PREFIX (default "liqmap:snapshot")
++        #   LIQMAP_NEAR_BAND_BPS       (default 20)
++        #   LIQMAP_PEAK_MIN_SHARE      (default 0.05)
++        #
++        # Optional execution behavior:
++        #   LIQMAP_TRAIL_AFTER_TP1_ENABLE (default 0)
++        #     When enabled and TP1 is anchored by LiqMap, set payload["trail_after_tp1"]=1.
++        # ------------------------------------------------------------------
+         self.liqmap_features_enable = os.getenv("LIQMAP_FEATURES_ENABLE", "0").strip().lower() in ("1", "true", "yes", "on")
+-        self.liqmap_features_windows = [
+-            w.strip() for w in (os.getenv("LIQMAP_FEATURES_WINDOWS", "5m,1h") or "5m,1h").split(",") if w.strip()
+-        ]
+-        self.liqmap_features_fetch_interval_ms = int(os.getenv("LIQMAP_FEATURES_FETCH_INTERVAL_MS", "500") or 500)
++
++        _liq_w = (os.getenv("LIQMAP_FEATURES_WINDOWS", "5m,1h") or "5m,1h").strip()
++        self.liqmap_features_windows = [w.strip() for w in _liq_w.split(",") if w.strip()]
++
++        # Refresh interval (ms). Keep legacy alias for backward compatibility.
++        _refresh_s = (os.getenv("LIQMAP_FEATURES_REFRESH_MS", "") or "").strip()
++        if not _refresh_s:
++            _refresh_s = (os.getenv("LIQMAP_FEATURES_FETCH_INTERVAL_MS", "1500") or "1500").strip()
++        try:
++            self.liqmap_features_refresh_ms = int(_refresh_s or 1500)
++        except Exception:
++            self.liqmap_features_refresh_ms = 1500
++        # Backward-compat attribute name (some older code uses this).
++        self.liqmap_features_fetch_interval_ms = int(self.liqmap_features_refresh_ms)
++
++        # How long we are allowed to reuse last-good features after Redis/parse failures.
++        try:
++            self.liqmap_features_failopen_stale_ms = int(os.getenv("LIQMAP_FEATURES_FAILOPEN_STALE_MS", "120000") or 120000)
++        except Exception:
++            self.liqmap_features_failopen_stale_ms = 120000
++
+         self.liqmap_snapshot_key_prefix = os.getenv("LIQMAP_SNAPSHOT_KEY_PREFIX", "liqmap:snapshot") or "liqmap:snapshot"
+-        self.liqmap_near_band_bps = float(os.getenv("LIQMAP_NEAR_BAND_BPS", "20") or 20.0)
+-        self.liqmap_peak_min_share = float(os.getenv("LIQMAP_PEAK_MIN_SHARE", "0.05") or 0.05)
+-        # Optional: force trailing to start only after TP1-magnet is reached (world-practice).
+-        # Default OFF. When enabled and TP1 is anchored by LiqMap, we set payload["trail_after_tp1"]=1.
++        try:
++            self.liqmap_near_band_bps = float(os.getenv("LIQMAP_NEAR_BAND_BPS", "20") or 20.0)
++        except Exception:
++            self.liqmap_near_band_bps = 20.0
++        try:
++            self.liqmap_peak_min_share = float(os.getenv("LIQMAP_PEAK_MIN_SHARE", "0.05") or 0.05)
++        except Exception:
++            self.liqmap_peak_min_share = 0.05
++
+         self.liqmap_trail_after_tp1_enable = os.getenv("LIQMAP_TRAIL_AFTER_TP1_ENABLE", "0").strip().lower() in ("1", "true", "yes", "on")
+ 
+-        # Cache: (symbol, window) -> {"fetch_ms": int, "feats": dict}
++        # In-memory caches (per symbol+window) to keep Redis load bounded and preserve last-good feats.
++        # Cache entry shape:
++        #   {
++        #     "fetch_ms": int,   # last attempt time (success or failure)
++        #     "good_ms": int,    # last successful parse+compute time
++        #     "snap_ts_ms": int, # snapshot timestamp from payload (ts_ms)
++        #     "feats": Dict[str, float],
++        #   }
+         self._liqmap_cache: Dict[tuple, Dict[str, Any]] = {}
++        self._liqmap_next_refresh_ts_ms: Dict[tuple, int] = {}
++
+ 
+         # P69: Circuit Breaker State (Hysteresis)
+         self.cb_state = CircuitBreakerState(
+@@ -474,12 +532,28 @@ class TickProcessor:
+     ) -> None:
+         """Inject LiqMap-derived scalar features into `indicators` (best-effort).
+ 
+-        Reads Redis snapshots (JSON) from keys:
+-          {LIQMAP_SNAPSHOT_KEY_PREFIX}:{SYMBOL}:{WINDOW}
++        Source:
++          Redis key: {LIQMAP_SNAPSHOT_KEY_PREFIX}:{SYMBOL}:{WINDOW}
++
++        Output:
++          Flattened scalars with prefix `liqmap_<window>_...` are merged into `indicators`.
+ 
+-        Writes flattened scalars with prefix `liqmap_<window>_...` into `indicators`.
++        Operational goals:
++        - Bounded Redis load (refresh throttling per symbol/window)
++        - Fail-open semantics (never raises in the hot path)
++        - Deterministic feature keys (see core.liqmap_features_v1)
++        - Correct age semantics even when reusing cached features
+ 
+-        Fail-open: never raises in the hot path.
++        Prometheus:
++          - liqmap_snapshot_age_ms (gauge) labeled by (symbol, window)
++              sentinel: -1 missing snapshot (no cache)
++                        -2 parse/compute error (no cache)
++          - liqmap_parse_errors_total (counter) labeled by (symbol, window, where)
++          - liqmap_snapshot_parse_errors_total (counter) labeled by (symbol)
++
++        Note:
++          We intentionally keep the on-tick logic simple and side-effect free.
++          All exceptions are swallowed (fail-open).
+         """
+         if not getattr(self, "liqmap_features_enable", False):
+             return
+@@ -489,80 +563,163 @@ class TickProcessor:
+         if not windows:
+             return
+ 
+-        interval_ms = int(getattr(self, "liqmap_features_fetch_interval_ms", 500) or 500)
++        refresh_ms = int(getattr(self, "liqmap_features_refresh_ms", 1500) or 1500)
++        failopen_stale_ms = int(getattr(self, "liqmap_features_failopen_stale_ms", 120000) or 120000)
++
+         prefix = str(getattr(self, "liqmap_snapshot_key_prefix", "liqmap:snapshot") or "liqmap:snapshot")
+         near_band_bps = float(getattr(self, "liqmap_near_band_bps", 20.0) or 20.0)
+         peak_min_share = float(getattr(self, "liqmap_peak_min_share", 0.05) or 0.05)
+ 
+         for w in windows:
++            w_s = str(w)
++            cache_key = (sym, w_s)
++
++            # Decide if we should refresh now.
++            next_ts = int(self._liqmap_next_refresh_ts_ms.get(cache_key, 0) or 0)
++            should_refresh = (refresh_ms <= 0) or (now_ms >= next_ts)
++
++            cached = self._liqmap_cache.get(cache_key)
++
++            def _emit_age_gauge(val: float) -> None:
++                try:
++                    liqmap_snapshot_age_ms_gauge.labels(symbol=sym, window=w_s).set(float(val))
++                except Exception:
++                    pass
++
++            def _inc_parse_err(where: str) -> None:
++                # Detailed (debug) counter
++                try:
++                    liqmap_parse_errors_total.labels(symbol=sym, window=w_s, where=str(where)).inc()
++                except Exception:
++                    pass
++                # Low-cardinality counter
++                try:
++                    liqmap_snapshot_parse_errors_total.labels(symbol=sym).inc()
++                except Exception:
++                    pass
++
++            def _use_cached_if_fresh() -> bool:
++                """Use cached feats if we have last-good within failopen_stale_ms."""
++                nonlocal cached
++                if not cached:
++                    return False
++                good_ms = int(cached.get("good_ms", 0) or 0)
++                if good_ms <= 0:
++                    return False
++                if (now_ms - good_ms) > failopen_stale_ms:
++                    return False
++
++                feats = cached.get("feats") or {}
++                if not isinstance(feats, dict) or not feats:
++                    return False
++
++                # Merge features.
++                indicators.update(feats)
++
++                # Fix age key to reflect *current* now_ms.
++                snap_ts_ms = int(cached.get("snap_ts_ms", 0) or 0)
++                if snap_ts_ms > 0:
++                    age_ms = float(max(0, int(now_ms) - int(snap_ts_ms)))
++                    indicators[f"liqmap_{w_s}_age_ms"] = age_ms
++                    _emit_age_gauge(age_ms)
++                else:
++                    # If we don't know snapshot timestamp, fall back to whatever age is in feats.
++                    try:
++                        _emit_age_gauge(float(indicators.get(f"liqmap_{w_s}_age_ms", 0.0) or 0.0))
++                    except Exception:
++                        pass
++                return True
++
+             try:
+-                cache_key = (sym, str(w))
+-                cached = self._liqmap_cache.get(cache_key)
+-                if cached is not None:
+-                    last_fetch = int(cached.get("fetch_ms", 0) or 0)
+-                    if interval_ms > 0 and (now_ms - last_fetch) < interval_ms:
+-                        feats = cached.get("feats") or {}
+-                        if isinstance(feats, dict) and feats:
+-                            indicators.update(feats)
++                if not should_refresh:
++                    # Hot-path reuse (no Redis call).
++                    if _use_cached_if_fresh():
+                         continue
++                    # If cache is stale/empty, we will refresh even if next_ts says otherwise.
++                    should_refresh = True
+ 
+-                redis_key = f"{prefix}:{sym}:{w}"
++                if not should_refresh:
++                    continue
++
++                self._liqmap_next_refresh_ts_ms[cache_key] = int(now_ms) + max(1, int(refresh_ms))
++
++                redis_key = f"{prefix}:{sym}:{w_s}"
+                 raw = await self.redis.get(redis_key)
+ 
++                # Missing snapshot: prefer last-good cache (fail-open) before emitting sentinel.
+                 if raw is None:
+-                    feats = make_liqmap_default_features([str(w)])
+-                    # For Prom: mark missing snapshot explicitly
+-                    try:
+-                        liqmap_snapshot_age_ms_gauge.labels(symbol=sym, window=str(w)).set(-1.0)
+-                    except Exception:
+-                        pass
++                    if _use_cached_if_fresh():
++                        continue
+ 
+-                    self._liqmap_cache[cache_key] = {"fetch_ms": int(now_ms), "feats": feats}
++                    feats = make_liqmap_default_features([w_s])
+                     indicators.update(feats)
++                    _emit_age_gauge(-1.0)
++
++                    self._liqmap_cache[cache_key] = {
++                        "fetch_ms": int(now_ms),
++                        "good_ms": int(cached.get("good_ms", 0) or 0) if cached else 0,
++                        "snap_ts_ms": int(cached.get("snap_ts_ms", 0) or 0) if cached else 0,
++                        "feats": feats,
++                    }
+                     continue
+ 
+-                if isinstance(raw, (bytes, bytearray)):
+-                    raw_s = raw.decode("utf-8", errors="ignore")
+-                else:
+-                    raw_s = str(raw)
++                raw_s = raw.decode("utf-8", errors="ignore") if isinstance(raw, (bytes, bytearray)) else str(raw)
+ 
+                 try:
+-                    snap = parse_liqmap_snapshot_v1(raw_s, expected_symbol=str(sym), expected_window=str(w))
++                    snap = parse_liqmap_snapshot_v1(raw_s, expected_symbol=str(sym), expected_window=str(w_s))
+                     feats = compute_liqmap_features(
+                         snap,
+                         price=float(price),
+-                        windows=(str(w),),
++                        windows=(w_s,),
+                         near_band_bps=float(near_band_bps),
+                         peak_min_share=float(peak_min_share),
+                         now_ms=int(now_ms),
+                     )
+-                    self._liqmap_cache[cache_key] = {"fetch_ms": int(now_ms), "feats": feats}
++
++                    # Persist last-good.
++                    snap_ts_ms = int(getattr(snap, "ts_ms", 0) or 0)
++                    self._liqmap_cache[cache_key] = {
++                        "fetch_ms": int(now_ms),
++                        "good_ms": int(now_ms),
++                        "snap_ts_ms": snap_ts_ms,
++                        "feats": feats,
++                    }
++
+                     indicators.update(feats)
+ 
++                    # Emit age gauge with *current* age.
+                     try:
+-                        age = float(feats.get(f"liqmap_{w}_age_ms", 0.0) or 0.0)
+-                        liqmap_snapshot_age_ms_gauge.labels(symbol=sym, window=str(w)).set(age)
++                        age = float(feats.get(f"liqmap_{w_s}_age_ms", 0.0) or 0.0)
++                        _emit_age_gauge(age)
+                     except Exception:
+                         pass
+ 
+                 except Exception:
+-                    # Parse error / incompatible schema: fail-open with zero features.
+-                    feats = make_liqmap_default_features([str(w)])
+-                    self._liqmap_cache[cache_key] = {"fetch_ms": int(now_ms), "feats": feats}
++                    # Parse error / incompatible schema: fail-open.
++                    _inc_parse_err("parse_or_compute")
++
++                    if _use_cached_if_fresh():
++                        continue
++
++                    feats = make_liqmap_default_features([w_s])
+                     indicators.update(feats)
++                    _emit_age_gauge(-2.0)
+ 
+-                    try:
+-                        liqmap_snapshot_parse_errors_total.labels(symbol=sym).inc()
+-                    except Exception:
+-                        pass
+-                    try:
+-                        liqmap_snapshot_age_ms_gauge.labels(symbol=sym, window=str(w)).set(-2.0)
+-                    except Exception:
+-                        pass
++                    self._liqmap_cache[cache_key] = {
++                        "fetch_ms": int(now_ms),
++                        "good_ms": int(cached.get("good_ms", 0) or 0) if cached else 0,
++                        "snap_ts_ms": int(cached.get("snap_ts_ms", 0) or 0) if cached else 0,
++                        "feats": feats,
++                    }
+ 
+             except Exception:
+                 # Hard fail-open
+-                pass
++                try:
++                    if cached:
++                        _use_cached_if_fresh()
++                except Exception:
++                    pass
++                continue
+ 
+ 
+     async def _emit_early_veto_decision_record(
+diff --git a/services/orderflow/metrics.py b/services/orderflow/metrics.py
+index a588af4..3f1cbcb 100644
+--- a/services/orderflow/metrics.py
++++ b/services/orderflow/metrics.py
+@@ -534,6 +534,13 @@ liqmap_snapshot_age_ms_gauge = _get_or_create_prom_gauge(
+     "Age of liqmap snapshot (ms). -1 missing, -2 parse error.",
+     ["symbol", "window"],
+ )
++
++
++liqmap_parse_errors_total = _get_or_create_prom_counter(
++    "liqmap_parse_errors_total",
++    "Total LiqMap snapshot parse/validation/feature-compute errors (detailed).",
++    ["symbol", "window", "where"],
++)
+ liqmap_snapshot_parse_errors_total = _get_or_create_prom_counter(
+     "liqmap_snapshot_parse_errors_total",
+     "Total liqmap snapshot parse errors.",
+diff --git a/services/orderflow/tests/test_tick_processor_mirror_identical_a3.py b/services/orderflow/tests/test_tick_processor_mirror_identical_a3.py
+new file mode 100644
+index 0000000..518eb53
+--- /dev/null
++++ b/services/orderflow/tests/test_tick_processor_mirror_identical_a3.py
+@@ -0,0 +1,37 @@
++from __future__ import annotations
++
++from pathlib import Path
++
++
++def _read(p: Path) -> str:
++    # Normalize newlines and trailing whitespace to avoid false positives from editors.
++    return "\n".join([ln.rstrip() for ln in p.read_text(encoding="utf-8", errors="replace").splitlines()]) + "\n"
++
++
++def test_a3_tick_processor_mirror_is_identical() -> None:
++    """A3: enforce strict 1:1 mirror equivalence for TickProcessor.
++
++    After A3 we intentionally keep the two TickProcessor implementations identical:
++      - SoT:    python-worker/tick_flow_full/services/orderflow/components/tick_processor.py
++      - mirror: python-worker/services/orderflow/components/tick_processor.py
++
++    Rationale: Train==Serve, deterministic DQ + gates, and lower review burden.
++
++    If this fails, apply the change to BOTH files or re-run the mirror sync patch.
++    """
++
++    repo_root = Path(__file__).resolve().parents[4]
++
++    sot = repo_root / "python-worker/tick_flow_full/services/orderflow/components/tick_processor.py"
++    mirror = repo_root / "python-worker/services/orderflow/components/tick_processor.py"
++
++    assert sot.exists(), f"missing SoT file: {sot}"
++    assert mirror.exists(), f"missing mirror file: {mirror}"
++
++    sot_text = _read(sot)
++    mirror_text = _read(mirror)
++
++    assert sot_text == mirror_text, (
++        "TickProcessor files are not identical (SoT vs mirror). "
++        "Keep them 1:1 to prevent train/serve drift."
++    )
+diff --git a/tick_flow_full/services/orderflow/components/tick_processor.py b/tick_flow_full/services/orderflow/components/tick_processor.py
+index e7d2d0c..ee4b2aa 100644
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -69,6 +69,8 @@ from services.orderflow.metrics import (
+     tick_ts_future_total, tick_age_ms_hist, tick_reorder_back_ms_hist, tick_time_action_total,
+     tick_time_decision_total,
+     burst_active_gauge, burst_flush_total, signals_emitted_total, feature_missing_total, burst_window_ms_gauge, tick_gap_p50_ms_gauge, tick_gap_p95_ms_gauge,
++    liqmap_snapshot_age_ms_gauge, liqmap_parse_errors_total, liqmap_snapshot_parse_errors_total,
++    liqmap_gate_shadow_hit_total, liqmap_gate_veto_total,
+     book_missing_seq_ema_gauge, tick_missing_seq_ema_gauge, tick_missing_seq_events_total,
+     tick_id_gap_events_total, tick_id_dup_events_total, tick_id_reorder_events_total,
+     ticks_out_of_order_total, ticks_side_unknown_total, bars_closed_total, divergence_detected_total,
+@@ -143,6 +145,12 @@ from core.exec_regime_bucket_v1 import compute_exec_regime_bucket
+ from core.fill_prob_proxy import compute_fill_prob_proxy
+ from core.bucket2_v1 import derive_bucket2_label
+ from core.calendar_flags import calendar_flags_utc
++from core.liqmap_features_v1 import (
++    compute_liqmap_features,
++    make_liqmap_default_features,
++    parse_liqmap_snapshot_v1,
++)
++
+ 
+ from services.orderflow.log_sampler import sampled_info, sampled_warning, sampled_debug, LogSamplerFactory
+ 
+@@ -267,6 +275,81 @@ class TickProcessor:
+         self._capture_queue: Optional[asyncio.Queue] = None
+         self._ofc_capture_enabled = os.getenv("OFC_CAPTURE", "0") == "1"
+ 
++
++        # ------------------------------------------------------------------
++        # LiqMap (liquidation map) feature injection (runtime)
++        #
++        # Goal: enrich `indicators` with deterministic liqmap_<window>_* scalars
++        # sourced from Redis snapshots.
++        #
++        # Safety defaults:
++        # - Disabled by default (hot path stability). Enable explicitly via env.
++        # - Fail-open: any Redis/parse/compute issue MUST NOT raise.
++        # - Bounded Redis load: refresh per (symbol, window) at most every N ms.
++        # - Determinism: feature keys are fixed by core.liqmap_features_v1.
++        #
++        # Env knobs:
++        #   LIQMAP_FEATURES_ENABLE            (default 0)
++        #   LIQMAP_FEATURES_WINDOWS           (default "5m,1h")
++        #   LIQMAP_FEATURES_REFRESH_MS        (default 1500)
++        #       legacy alias: LIQMAP_FEATURES_FETCH_INTERVAL_MS
++        #   LIQMAP_FEATURES_FAILOPEN_STALE_MS (default 120000)
++        #
++        # Optional tuning knobs (feature engineering):
++        #   LIQMAP_SNAPSHOT_KEY_PREFIX (default "liqmap:snapshot")
++        #   LIQMAP_NEAR_BAND_BPS       (default 20)
++        #   LIQMAP_PEAK_MIN_SHARE      (default 0.05)
++        #
++        # Optional execution behavior:
++        #   LIQMAP_TRAIL_AFTER_TP1_ENABLE (default 0)
++        #     When enabled and TP1 is anchored by LiqMap, set payload["trail_after_tp1"]=1.
++        # ------------------------------------------------------------------
++        self.liqmap_features_enable = os.getenv("LIQMAP_FEATURES_ENABLE", "0").strip().lower() in ("1", "true", "yes", "on")
++
++        _liq_w = (os.getenv("LIQMAP_FEATURES_WINDOWS", "5m,1h") or "5m,1h").strip()
++        self.liqmap_features_windows = [w.strip() for w in _liq_w.split(",") if w.strip()]
++
++        # Refresh interval (ms). Keep legacy alias for backward compatibility.
++        _refresh_s = (os.getenv("LIQMAP_FEATURES_REFRESH_MS", "") or "").strip()
++        if not _refresh_s:
++            _refresh_s = (os.getenv("LIQMAP_FEATURES_FETCH_INTERVAL_MS", "1500") or "1500").strip()
++        try:
++            self.liqmap_features_refresh_ms = int(_refresh_s or 1500)
++        except Exception:
++            self.liqmap_features_refresh_ms = 1500
++        # Backward-compat attribute name (some older code uses this).
++        self.liqmap_features_fetch_interval_ms = int(self.liqmap_features_refresh_ms)
++
++        # How long we are allowed to reuse last-good features after Redis/parse failures.
++        try:
++            self.liqmap_features_failopen_stale_ms = int(os.getenv("LIQMAP_FEATURES_FAILOPEN_STALE_MS", "120000") or 120000)
++        except Exception:
++            self.liqmap_features_failopen_stale_ms = 120000
++
++        self.liqmap_snapshot_key_prefix = os.getenv("LIQMAP_SNAPSHOT_KEY_PREFIX", "liqmap:snapshot") or "liqmap:snapshot"
++        try:
++            self.liqmap_near_band_bps = float(os.getenv("LIQMAP_NEAR_BAND_BPS", "20") or 20.0)
++        except Exception:
++            self.liqmap_near_band_bps = 20.0
++        try:
++            self.liqmap_peak_min_share = float(os.getenv("LIQMAP_PEAK_MIN_SHARE", "0.05") or 0.05)
++        except Exception:
++            self.liqmap_peak_min_share = 0.05
++
++        self.liqmap_trail_after_tp1_enable = os.getenv("LIQMAP_TRAIL_AFTER_TP1_ENABLE", "0").strip().lower() in ("1", "true", "yes", "on")
++
++        # In-memory caches (per symbol+window) to keep Redis load bounded and preserve last-good feats.
++        # Cache entry shape:
++        #   {
++        #     "fetch_ms": int,   # last attempt time (success or failure)
++        #     "good_ms": int,    # last successful parse+compute time
++        #     "snap_ts_ms": int, # snapshot timestamp from payload (ts_ms)
++        #     "feats": Dict[str, float],
++        #   }
++        self._liqmap_cache: Dict[tuple, Dict[str, Any]] = {}
++        self._liqmap_next_refresh_ts_ms: Dict[tuple, int] = {}
++
++
+         # P69: Circuit Breaker State (Hysteresis)
+         self.cb_state = CircuitBreakerState(
+             redis=self.redis,
+@@ -439,6 +522,206 @@ class TickProcessor:
+             pass
+ 
+ 
++    async def _inject_liqmap_features(
++        self,
++        *,
++        runtime: "SymbolRuntime",
++        now_ms: int,
++        price: float,
++        indicators: Dict[str, Any],
++    ) -> None:
++        """Inject LiqMap-derived scalar features into `indicators` (best-effort).
++
++        Source:
++          Redis key: {LIQMAP_SNAPSHOT_KEY_PREFIX}:{SYMBOL}:{WINDOW}
++
++        Output:
++          Flattened scalars with prefix `liqmap_<window>_...` are merged into `indicators`.
++
++        Operational goals:
++        - Bounded Redis load (refresh throttling per symbol/window)
++        - Fail-open semantics (never raises in the hot path)
++        - Deterministic feature keys (see core.liqmap_features_v1)
++        - Correct age semantics even when reusing cached features
++
++        Prometheus:
++          - liqmap_snapshot_age_ms (gauge) labeled by (symbol, window)
++              sentinel: -1 missing snapshot (no cache)
++                        -2 parse/compute error (no cache)
++          - liqmap_parse_errors_total (counter) labeled by (symbol, window, where)
++          - liqmap_snapshot_parse_errors_total (counter) labeled by (symbol)
++
++        Note:
++          We intentionally keep the on-tick logic simple and side-effect free.
++          All exceptions are swallowed (fail-open).
++        """
++        if not getattr(self, "liqmap_features_enable", False):
++            return
++
++        sym = str(getattr(runtime, "symbol", "unknown") or "unknown")
++        windows = list(getattr(self, "liqmap_features_windows", []) or [])
++        if not windows:
++            return
++
++        refresh_ms = int(getattr(self, "liqmap_features_refresh_ms", 1500) or 1500)
++        failopen_stale_ms = int(getattr(self, "liqmap_features_failopen_stale_ms", 120000) or 120000)
++
++        prefix = str(getattr(self, "liqmap_snapshot_key_prefix", "liqmap:snapshot") or "liqmap:snapshot")
++        near_band_bps = float(getattr(self, "liqmap_near_band_bps", 20.0) or 20.0)
++        peak_min_share = float(getattr(self, "liqmap_peak_min_share", 0.05) or 0.05)
++
++        for w in windows:
++            w_s = str(w)
++            cache_key = (sym, w_s)
++
++            # Decide if we should refresh now.
++            next_ts = int(self._liqmap_next_refresh_ts_ms.get(cache_key, 0) or 0)
++            should_refresh = (refresh_ms <= 0) or (now_ms >= next_ts)
++
++            cached = self._liqmap_cache.get(cache_key)
++
++            def _emit_age_gauge(val: float) -> None:
++                try:
++                    liqmap_snapshot_age_ms_gauge.labels(symbol=sym, window=w_s).set(float(val))
++                except Exception:
++                    pass
++
++            def _inc_parse_err(where: str) -> None:
++                # Detailed (debug) counter
++                try:
++                    liqmap_parse_errors_total.labels(symbol=sym, window=w_s, where=str(where)).inc()
++                except Exception:
++                    pass
++                # Low-cardinality counter
++                try:
++                    liqmap_snapshot_parse_errors_total.labels(symbol=sym).inc()
++                except Exception:
++                    pass
++
++            def _use_cached_if_fresh() -> bool:
++                """Use cached feats if we have last-good within failopen_stale_ms."""
++                nonlocal cached
++                if not cached:
++                    return False
++                good_ms = int(cached.get("good_ms", 0) or 0)
++                if good_ms <= 0:
++                    return False
++                if (now_ms - good_ms) > failopen_stale_ms:
++                    return False
++
++                feats = cached.get("feats") or {}
++                if not isinstance(feats, dict) or not feats:
++                    return False
++
++                # Merge features.
++                indicators.update(feats)
++
++                # Fix age key to reflect *current* now_ms.
++                snap_ts_ms = int(cached.get("snap_ts_ms", 0) or 0)
++                if snap_ts_ms > 0:
++                    age_ms = float(max(0, int(now_ms) - int(snap_ts_ms)))
++                    indicators[f"liqmap_{w_s}_age_ms"] = age_ms
++                    _emit_age_gauge(age_ms)
++                else:
++                    # If we don't know snapshot timestamp, fall back to whatever age is in feats.
++                    try:
++                        _emit_age_gauge(float(indicators.get(f"liqmap_{w_s}_age_ms", 0.0) or 0.0))
++                    except Exception:
++                        pass
++                return True
++
++            try:
++                if not should_refresh:
++                    # Hot-path reuse (no Redis call).
++                    if _use_cached_if_fresh():
++                        continue
++                    # If cache is stale/empty, we will refresh even if next_ts says otherwise.
++                    should_refresh = True
++
++                if not should_refresh:
++                    continue
++
++                self._liqmap_next_refresh_ts_ms[cache_key] = int(now_ms) + max(1, int(refresh_ms))
++
++                redis_key = f"{prefix}:{sym}:{w_s}"
++                raw = await self.redis.get(redis_key)
++
++                # Missing snapshot: prefer last-good cache (fail-open) before emitting sentinel.
++                if raw is None:
++                    if _use_cached_if_fresh():
++                        continue
++
++                    feats = make_liqmap_default_features([w_s])
++                    indicators.update(feats)
++                    _emit_age_gauge(-1.0)
++
++                    self._liqmap_cache[cache_key] = {
++                        "fetch_ms": int(now_ms),
++                        "good_ms": int(cached.get("good_ms", 0) or 0) if cached else 0,
++                        "snap_ts_ms": int(cached.get("snap_ts_ms", 0) or 0) if cached else 0,
++                        "feats": feats,
++                    }
++                    continue
++
++                raw_s = raw.decode("utf-8", errors="ignore") if isinstance(raw, (bytes, bytearray)) else str(raw)
++
++                try:
++                    snap = parse_liqmap_snapshot_v1(raw_s, expected_symbol=str(sym), expected_window=str(w_s))
++                    feats = compute_liqmap_features(
++                        snap,
++                        price=float(price),
++                        windows=(w_s,),
++                        near_band_bps=float(near_band_bps),
++                        peak_min_share=float(peak_min_share),
++                        now_ms=int(now_ms),
++                    )
++
++                    # Persist last-good.
++                    snap_ts_ms = int(getattr(snap, "ts_ms", 0) or 0)
++                    self._liqmap_cache[cache_key] = {
++                        "fetch_ms": int(now_ms),
++                        "good_ms": int(now_ms),
++                        "snap_ts_ms": snap_ts_ms,
++                        "feats": feats,
++                    }
++
++                    indicators.update(feats)
++
++                    # Emit age gauge with *current* age.
++                    try:
++                        age = float(feats.get(f"liqmap_{w_s}_age_ms", 0.0) or 0.0)
++                        _emit_age_gauge(age)
++                    except Exception:
++                        pass
++
++                except Exception:
++                    # Parse error / incompatible schema: fail-open.
++                    _inc_parse_err("parse_or_compute")
++
++                    if _use_cached_if_fresh():
++                        continue
++
++                    feats = make_liqmap_default_features([w_s])
++                    indicators.update(feats)
++                    _emit_age_gauge(-2.0)
++
++                    self._liqmap_cache[cache_key] = {
++                        "fetch_ms": int(now_ms),
++                        "good_ms": int(cached.get("good_ms", 0) or 0) if cached else 0,
++                        "snap_ts_ms": int(cached.get("snap_ts_ms", 0) or 0) if cached else 0,
++                        "feats": feats,
++                    }
++
++            except Exception:
++                # Hard fail-open
++                try:
++                    if cached:
++                        _use_cached_if_fresh()
++                except Exception:
++                    pass
++                continue
++
++
+     async def _emit_early_veto_decision_record(
+         self,
+         *,
+@@ -906,6 +1189,18 @@ class TickProcessor:
+         except Exception:
+             pass
+ 
++        # LiqMap feature injection (best-effort)
++        # Inserted after strict DQ trackers and before delta detector / of_engine.build().
++        try:
++            await self._inject_liqmap_features(
++                runtime=runtime,
++                now_ms=int(time.time() * 1000),
++                price=float(price),
++                indicators=indicators,
++            )
++        except Exception:
++            pass
++
+         # --- Delta Detection ---
+         delta_event = {}
+         try:
+diff --git a/tick_flow_full/services/orderflow/metrics.py b/tick_flow_full/services/orderflow/metrics.py
+index fd1d8fe..a59fa06 100644
+--- a/tick_flow_full/services/orderflow/metrics.py
++++ b/tick_flow_full/services/orderflow/metrics.py
+@@ -513,6 +513,36 @@ tick_missing_seq_events_total = _get_or_create_prom_counter(
+     "tick_missing_seq_events_total", "Count of detected tick sequence gaps", ["symbol"]
+ )
+ 
++
++
++# --- LiqMap (liquidation map) metrics ---
++# Snapshot age is computed as: now_ms - snapshot.ts_ms (from redis payload).
++# Special values: -1 = missing snapshot, -2 = parse error.
++liqmap_snapshot_age_ms_gauge = _get_or_create_prom_gauge(
++    "liqmap_snapshot_age_ms",
++    "Age of liqmap snapshot (ms). -1 missing, -2 parse error.",
++    ["symbol", "window"],
++)
++liqmap_parse_errors_total = _get_or_create_prom_counter(
++    "liqmap_parse_errors_total",
++    "Total LiqMap snapshot parse/validation/feature-compute errors (detailed).",
++    ["symbol", "window", "where"],
++)
++liqmap_snapshot_parse_errors_total = _get_or_create_prom_counter(
++    "liqmap_snapshot_parse_errors_total",
++    "Total liqmap snapshot parse errors.",
++    ["symbol"],
++)
++liqmap_gate_shadow_hit_total = _get_or_create_prom_counter(
++    "liqmap_gate_shadow_hit_total",
++    "Total liqmap gate shadow hits (would veto).",
++    ["symbol", "dir", "window"],
++)
++liqmap_gate_veto_total = _get_or_create_prom_counter(
++    "liqmap_gate_veto_total",
++    "Total liqmap gate enforced vetoes.",
++    ["symbol", "dir", "reason"],
++)
+ # P2/F: trade_id ordering issue breakdown (diagnostic; GAP is already covered by tick_missing_seq_events_total).
+ tick_id_gap_events_total = _get_or_create_prom_counter(
+     "tick_id_gap_events_total", "Count of tick trade_id gaps (tid > last_tid+1)", ["symbol"]

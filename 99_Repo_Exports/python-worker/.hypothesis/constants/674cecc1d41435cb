@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/message_rate.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.2, 1.0, 120, 1000, '0.20', '120', 'MSG_RATE_ALPHA', 'MSG_RATE_Z_WINDOW', 'book_update_rate_hz', 'book_update_rate_z', 'cancel_rate_z', 'otr', 'otr_z', 'trade_msg_rate_hz', 'trade_msg_rate_z']

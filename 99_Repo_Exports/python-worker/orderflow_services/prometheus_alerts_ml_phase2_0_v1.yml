@@ -1,0 +1,20 @@
+groups:
+  - name: ml-phase2-0-operator-rca
+    rules:
+      - alert: MLOperatorRCABridgeStale
+        expr: time() - ml_operator_rca_bridge_last_run_ts_seconds > 900
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "ML operator RCA bridge stale"}
+
+      - alert: MLOperatorRCAOrchestratorStale
+        expr: time() - ml_operator_rca_last_run_ts_seconds > 900
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "ML operator RCA orchestrator stale"}
+
+      - alert: MLOperatorRCAQueueLagHigh
+        expr: ml_operator_rca_queue_lag_ms > 300000
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "ML operator RCA queue lag high"}

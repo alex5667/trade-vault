@@ -1,0 +1,56 @@
+groups:
+- name: contract-metrics-v4
+  rules:
+  - alert: ConfirmationSchemaDrift
+    expr: rate(confirmation_unknown_total[5m]) > 0.01
+    for: 5m
+    labels:
+      severity: warning
+      service: orderflow
+    annotations:
+      summary: "Unknown confirmation keys detected"
+      description: "Schema drift: {{ $value }} unknown confirmations/sec. Check logs
+        for new keys."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: StrongGateHighVeto
+    expr: rate(strong_gate_veto_total[5m]) > 1.0
+    for: 5m
+    labels:
+      severity: warning
+      service: orderflow
+    annotations:
+      summary: "High Strong Gate Veto Rate"
+      description: "Strong Gate is vetoing > 1 signal/sec. Check strategy config/thresholds."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: EvidenceMissingForSignal
+    expr: (sum by(symbol) (rate(confirmation_seen_total[5m]))) > 0 and (sum 
+      by(symbol) (rate(evidence_used_total_session[5m]))) == 0
+    for: 5m
+    labels:
+      severity: critical
+      service: orderflow
+    annotations:
+      summary: "Signals emitted without recorded evidence"
+      description: "Compliance violation: Signals confirmed but no evidence recorded
+        in session metrics."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: SweepDetectedButNoEvidenceUsed
+    expr: (sum by(symbol) (rate(sweep_detected_total[10m]))) > 0 and (sum 
+      by(symbol) (rate(evidence_used_total_session[10m]))) == 0
+    for: 10m
+    labels:
+      severity: warning
+      service: orderflow
+    annotations:
+      summary: "Sweeps detected but no evidence recorded"
+      description: "Potential wiring/config issue: sweep_detected_total > 0 but evidence_used_total_session
+        == 0 for 10m. Verify sweep evidence integration and labels."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd

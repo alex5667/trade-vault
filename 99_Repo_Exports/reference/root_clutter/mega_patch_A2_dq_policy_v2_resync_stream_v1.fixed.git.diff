@@ -1,0 +1,704 @@
+diff --git a/go-worker/internal/binance/futures_streams.go b/go-worker/internal/binance/futures_streams.go
+index 6bb28e6..b9af130 100644
+--- a/go-worker/internal/binance/futures_streams.go
++++ b/go-worker/internal/binance/futures_streams.go
+@@ -2,11 +2,13 @@ package binance
+ 
+ import (
+ 	"context"
++	"os"
+ 	"encoding/json"
+ 	"errors"
+ 	"fmt"
+ 	"log"
+ 	"net"
++	"strconv"
+ 	"strings"
+ 	"sync"
+ 	"sync/atomic"
+@@ -619,3 +621,149 @@ func DebugDecodeEnvelope(raw []byte) string {
+ 	encoded, _ := json.MarshalIndent(generic, "", "  ")
+ 	return string(encoded)
+ }
++
++// runBookResyncListener listens to a Redis Stream with control-plane messages emitted by the Python worker.
++//
++// Stream schema (XADD):
++//   symbol=<SYM> ts_ms=<epoch_ms> reason=<gap|timegap|...> action=<resubscribe|reconnect> ema=<float> last_gap=<int>
++//
++// Behavior:
++//   - resubscribe: unsubscribe+subscribe (depth20 + aggTrade) for that symbol on the active multiplex manager
++//   - reconnect:   force a full reconnect by canceling the active manager (heavy; use sparingly)
++//
++// Safety:
++//   - opt-in via env FUTURES_BOOK_RESYNC_ENABLED=1
++//   - per-symbol cooldown to avoid thrash
++func (c *FuturesStreamController) runBookResyncListener(ctx context.Context) {
++	enabled := os.Getenv("FUTURES_BOOK_RESYNC_ENABLED")
++	if enabled == "" {
++		enabled = "0"
++	}
++	if enabled != "1" && enabled != "true" && enabled != "TRUE" {
++		return
++	}
++
++	stream := os.Getenv("FUTURES_BOOK_RESYNC_STREAM")
++	if stream == "" {
++		stream = "stream:book_resync_requests"
++	}
++	group := os.Getenv("FUTURES_BOOK_RESYNC_GROUP")
++	if group == "" {
++		group = "go-worker"
++	}
++	consumer := os.Getenv("FUTURES_BOOK_RESYNC_CONSUMER")
++	if consumer == "" {
++		if h, err := os.Hostname(); err == nil && h != "" {
++			consumer = h
++		} else {
++			consumer = "go-worker"
++		}
++	}
++
++	cooldownMs := int64(5000)
++	if v := os.Getenv("FUTURES_BOOK_RESYNC_COOLDOWN_MS"); v != "" {
++		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
++			cooldownMs = n
++		}
++	}
++
++	// Create consumer group (mkstream), ignore BUSYGROUP.
++	_ = c.client.XGroupCreateMkStream(ctx, stream, group, "$").Err()
++
++	last := make(map[string]time.Time)
++	for {
++		select {
++		case <-ctx.Done():
++			return
++		default:
++		}
++
++		res, err := c.client.XReadGroup(ctx, &redis.XReadGroupArgs{
++			Group:    group,
++			Consumer: consumer,
++			Streams:  []string{stream, ">"},
++			Count:    16,
++			Block:    5 * time.Second,
++		}).Result()
++		if err != nil {
++			if err == redis.Nil {
++				continue
++			}
++			// fail-open: keep the main stream controller alive
++			time.Sleep(500 * time.Millisecond)
++			continue
++		}
++
++		for _, xs := range res {
++			for _, msg := range xs.Messages {
++				sym := ""
++				if v, ok := msg.Values["symbol"]; ok {
++					sym = fmt.Sprint(v)
++				} else if v, ok := msg.Values["sym"]; ok {
++					sym = fmt.Sprint(v)
++				}
++				reason := ""
++				if v, ok := msg.Values["reason"]; ok {
++					reason = fmt.Sprint(v)
++				}
++				action := "resubscribe"
++				if v, ok := msg.Values["action"]; ok {
++					action = fmt.Sprint(v)
++				}
++
++				if sym == "" {
++					_, _ = c.client.XAck(ctx, stream, group, msg.ID).Result()
++					continue
++				}
++
++				now := time.Now()
++				if t0, ok := last[sym]; ok {
++					if now.Sub(t0) < (time.Duration(cooldownMs) * time.Millisecond) {
++						_, _ = c.client.XAck(ctx, stream, group, msg.ID).Result()
++						continue
++					}
++				}
++				last[sym] = now
++
++				if action == "reconnect" {
++					c.forceReconnect(ctx, "book_resync:"+reason)
++				} else {
++					c.resubscribeSymbol(sym)
++				}
++
++				_, _ = c.client.XAck(ctx, stream, group, msg.ID).Result()
++			}
++		}
++	}
++}
++
++
++// resubscribeSymbol performs a best-effort unsubscribe+subscribe cycle for one symbol on the active manager.
++// This is cheaper than reconnecting all streams and is usually enough to recover from local book gaps.
++func (c *FuturesStreamController) resubscribeSymbol(sym string) {
++	c.mu.Lock()
++	mgr := c.activeManager
++	c.mu.Unlock()
++	if mgr == nil {
++		return
++	}
++
++	// Remove + add back to force the server-side subscription to refresh.
++	_ = mgr.UpdateSubscriptions(nil, []string{sym})
++	time.Sleep(200 * time.Millisecond)
++	_ = mgr.UpdateSubscriptions([]string{sym}, nil)
++}
++
++
++// forceReconnect cancels the active manager so the controller reconnects the full multiplex stream.
++// Heavy hammer; use when resubscribe is not sufficient.
++func (c *FuturesStreamController) forceReconnect(ctx context.Context, reason string) {
++	c.mu.Lock()
++	cancel := c.activeManagerCancel
++	c.mu.Unlock()
++	if cancel != nil {
++		cancel()
++	}
++	// The main Run() loop will start a fresh manager on the next refresh tick.
++	_ = reason
++}
+diff --git a/services/crypto_orderflow_service.py b/services/crypto_orderflow_service.py
+index 1c5468a..5ff1ca1 100644
+--- a/services/crypto_orderflow_service.py
++++ b/services/crypto_orderflow_service.py
+@@ -1563,6 +1563,29 @@ class CryptoOrderflowService:
+                             ingest_ts_ms = int(time.time() * 1000)
+ 
+                         await self.strategy.process_book(runtime, payload, ingest_ts_ms)
++
++
++# Control-plane: request a WS resubscribe/reconnect on sustained book gaps.
++# BookProcessor sets runtime.book_resync_requested (cooldown-protected).
++if getattr(runtime, "book_resync_requested", False):
++    try:
++        stream = str(runtime.config.get("book_resync_stream", "stream:book_resync_requests") or "stream:book_resync_requests")
++        maxlen = int(runtime.config.get("book_resync_stream_maxlen", 10_000) or 10_000)
++        fields = {
++            "symbol": str(getattr(runtime, "symbol", "")),
++            "ts_ms": str(int(ingest_ts_ms or 0)),
++            "reason": str(getattr(runtime, "book_resync_reason", "gap") or "gap"),
++            "action": str(getattr(runtime, "book_resync_action", "resubscribe") or "resubscribe"),
++            "ema": str(float(getattr(runtime, "book_missing_seq_ema", 0.0) or 0.0)),
++            "last_gap": str(int(getattr(runtime, "book_missing_seq_last_gap", 0) or 0)),
++        }
++        await self.main.xadd(stream, fields, maxlen=maxlen, approximate=True)
++    except Exception:
++        # fail-open: never break the hot path on control-plane failures
++        pass
++    finally:
++        # One-shot flag (cooldown handled in BookProcessor).
++        runtime.book_resync_requested = False
+                     except Exception as exc:  # noqa: BLE001
+                         logger.exception("❌ (%s) Ошибка обработки книги %s: %s", symbol, msg_id, exc)
+                     finally:
+diff --git a/services/orderflow/components/book_processor.py b/services/orderflow/components/book_processor.py
+index f7cf4ec..6734967 100644
+--- a/services/orderflow/components/book_processor.py
++++ b/services/orderflow/components/book_processor.py
+@@ -36,13 +36,14 @@ _l2gpu_cache: Dict[str, Any] = {}
+ 
+ 
+ def _update_book_timegap_dq(runtime: Any, ingest_ts_ms: int, book_raw: Dict[str, Any]) -> None:
+-    """Update *book_missing_seq_ema* for **partial depth** streams (e.g. @depth20@100ms).
++    """Update *book_missing_seq_ema* for streams where deterministic `U/u` continuity is unavailable.
++
++    This is primarily a fallback for snapshot-only feeds (or normalized payloads that dropped `U`).
+ 
+     Why this exists
+     --------------
+-    Binance *partial book depth* streams are **snapshots** that include `lastUpdateId` but
+-    **do not include** the diff-seq pair `U/u` that would allow a deterministic missing-seq
+-    check. In this mode the best we can do is detect *time gaps* in the inbound stream.
++    Some feeds (or adapters) provide only `lastUpdateId` and omit `U` (firstUpdateId). In that case
++    we cannot deterministically count missing diff-updates, so we detect *time gaps* as a proxy.
+ 
+     Contract (runtime fields)
+     -------------------------
+@@ -325,6 +326,119 @@ class BookProcessor:
+                         runtime.br_calib.update(regime=rg, inst_hz=float(inst), dt_ms=int(dt))
+                     except Exception:
+                         pass
++
++
++
++def _update_book_seq_uu_dq(runtime: Any, ingest_ts_ms: int, book_raw: Dict[str, Any]) -> None:
++    """Deterministic book missing-seq tracker for Binance depthUpdate streams using `U/u`.
++
++    This handles both Binance Futures and Spot *diff depth* style messages where the payload carries:
++      - U: firstUpdateId
++      - u: lastUpdateId
++
++    Continuity check:
++      gap_detected = (prev_u + 1 != cur_U)
++      gap = cur_U - prev_u - 1  (missed diff updates)
++
++    We update:
++      - runtime.book_seq_last_u (monotonic max)
++      - runtime.book_seq_last_reason (init/ok/overlap/gap/dup/reorder)
++      - runtime.book_missing_seq_last_gap (gap size for diagnostics)
++      - runtime.book_missing_seq_ema (binary EMA over gap events)
++      - runtime.book_resync_requested (one-shot flag; orchestrator publishes control message)
++    """
++    try:
++        cfg = getattr(runtime, "config", {}) or {}
++        now_ms = int(ingest_ts_ms or 0)
++
++        tau_ms = int(cfg.get("dq_book_seq_tau_ms", 1000) or 1000)
++
++        # Lazy init of the EMA tracker (fail-open).
++        if not hasattr(runtime, "book_seq_gap") or getattr(runtime, "book_seq_gap") is None:
++            from core.seq_gap_tracker_v1 import GapEmaTracker
++            runtime.book_seq_gap = GapEmaTracker(tau_ms=tau_ms, init=0.0)
++
++        # Defaults
++        if not hasattr(runtime, "book_missing_seq_ema"):
++            runtime.book_missing_seq_ema = 0.0
++        if not hasattr(runtime, "book_missing_seq_last_gap"):
++            runtime.book_missing_seq_last_gap = 0
++        if not hasattr(runtime, "book_seq_last_reason"):
++            runtime.book_seq_last_reason = "init"
++        if not hasattr(runtime, "book_resync_requested"):
++            runtime.book_resync_requested = False
++        if not hasattr(runtime, "book_resync_last_ts_ms"):
++            runtime.book_resync_last_ts_ms = 0
++
++        prev_u = int(getattr(runtime, "book_seq_last_u", 0) or 0)
++        cur_U = int(book_raw.get("U") or 0)
++        cur_u = int(book_raw.get("u") or 0)
++
++        # Init
++        if prev_u <= 0:
++            runtime.book_seq_last_u = cur_u or cur_U
++            runtime.book_seq_last_reason = "init"
++            runtime.book_missing_seq_last_gap = 0
++            runtime.book_missing_seq_ema = float(runtime.book_seq_gap.update(False, now_ms))
++            return
++
++        reason = "ok"
++        is_gap = False
++        last_gap = 0
++
++        # DUP/OLD: the whole update is older (or equal) than what we've already applied.
++        if cur_u and cur_u <= prev_u:
++            reason = "dup"
++
++        # GAP: missing diff-updates between last_u and current_U.
++        elif cur_U and cur_U > (prev_u + 1):
++            is_gap = True
++            last_gap = int(cur_U - prev_u - 1)
++            reason = "gap"
++
++        # OVERLAP / OK: the expected next update id is covered by [U..u]
++        elif cur_U and cur_u and (cur_U <= (prev_u + 1) <= cur_u):
++            if cur_U <= prev_u:
++                reason = "overlap"
++            else:
++                reason = "ok"
++
++        # REORDER / unknown edge: keep fail-open.
++        else:
++            reason = "reorder"
++
++        runtime.book_seq_last_reason = reason
++        runtime.book_missing_seq_last_gap = last_gap
++        runtime.book_missing_seq_ema = float(runtime.book_seq_gap.update(is_gap, now_ms))
++
++        # Keep last_u monotonic on overlaps.
++        if cur_u:
++            runtime.book_seq_last_u = max(prev_u, cur_u)
++        elif cur_U:
++            runtime.book_seq_last_u = max(prev_u, cur_U)
++
++        # Optional: request resync on sustained gaps (cooldown-protected).
++        if is_gap:
++            thr = float(cfg.get("book_resync_ema_threshold", 0.30) or 0.30)
++            cooldown_ms = int(cfg.get("book_resync_cooldown_ms", 10_000) or 10_000)
++            last_req = int(getattr(runtime, "book_resync_last_ts_ms", 0) or 0)
++            if (float(runtime.book_missing_seq_ema) >= thr) and (now_ms - last_req >= cooldown_ms):
++                runtime.book_resync_requested = True
++                runtime.book_resync_last_ts_ms = now_ms
++                # Provide structured context for the orchestrator / Go-worker.
++                runtime.book_resync_reason = "gap"
++                runtime.book_resync_action = "resubscribe"
++
++    except Exception:
++        pass
++
++
++def _update_book_missing_seq_dq(runtime: Any, ingest_ts_ms: int, book_raw: Dict[str, Any]) -> None:
++    """Selector: prefer deterministic `U/u` if present, else fallback to time-gap proxy."""
++    if (book_raw.get("U") is not None) and (book_raw.get("u") is not None) and int(book_raw.get("U") or 0) > 0:
++        _update_book_seq_uu_dq(runtime, ingest_ts_ms, book_raw)
++    else:
++        _update_book_missing_seq_dq(runtime, ingest_ts_ms, book_raw)
+                     
+                     # Z-Score
+                     try:
+@@ -421,8 +535,8 @@ class BookProcessor:
+             # GPU L2 Microstructure (spread, imbalance, microprice, walls)
+             self._update_l2_gpu(runtime, book_raw)
+ 
+-            # DQ: partial depth snapshots have no (U/u). Use time-gap proxy.
+-            _update_book_timegap_dq(runtime, ingest_ts_ms, book_raw)
++            # DQ: prefer deterministic U/u continuity if present; else fallback to time-gap proxy.
++            _update_book_missing_seq_dq(runtime, ingest_ts_ms, book_raw)
+ 
+             return True
+ 
+diff --git a/services/orderflow/runtime.py b/services/orderflow/runtime.py
+index 936a217..e5e07b4 100644
+--- a/services/orderflow/runtime.py
++++ b/services/orderflow/runtime.py
+@@ -533,6 +533,8 @@ class SymbolRuntime:
+     # One-shot flag consumed by the orchestrator to ask Go WS layer for reconnect/resubscribe.
+     book_resync_requested: bool = False
+     book_resync_last_ts_ms: int = 0
++    book_resync_reason: str = ""  # e.g. gap/timegap
++    book_resync_action: str = "resubscribe"  # resubscribe|reconnect (consumer-defined)
+     # Tick dedup (best-effort). Helps avoid double-counting on retries/replays.
+     tick_dedup_window: int = 4096
+     tick_uid_ring: Deque[str] = field(default_factory=deque, repr=False)
+diff --git a/services/orderflow/utils.py b/services/orderflow/utils.py
+index 0b9d4d0..bd2c593 100644
+--- a/services/orderflow/utils.py
++++ b/services/orderflow/utils.py
+@@ -489,6 +489,7 @@ def _parse_book_payload(payload: Dict[str, Any], symbol: str) -> Dict[str, Any]:
+     return {
+         "symbol": symbol,
+         "ts_ms": ts_ms,
++        "U": _safe_int(merged.get("U") or merged.get("firstUpdateId")), # Binance depthUpdate: firstUpdateId (U)
+         "u": _safe_int(merged.get("u") or merged.get("lastUpdateId")), # Binance specific
+         "bids": bids,
+         "asks": asks,
+diff --git a/tick_flow_full/core/of_confirm_engine.py b/tick_flow_full/core/of_confirm_engine.py
+index 7ba3e39..34bc32c 100644
+--- a/tick_flow_full/core/of_confirm_engine.py
++++ b/tick_flow_full/core/of_confirm_engine.py
+@@ -18,6 +18,34 @@ from core.absorption_level_score import compute_absorption_level_score
+ from core.of_confirm_contract import OFConfirmV3, pack_bits
+ from core.cfg_merge import merged_cfg
+ from core.strong_need_policy import compute_strong_need_same_tick
++
++
++def should_enforce_dq_veto(dq_veto: int, dq_reason_bucket: str, cfg2: Dict[str, Any], uptime_s: float) -> bool:
++    """Rollout guard for DQ hard-veto.
++
++    We enforce dq_veto only when:
++      - dq_gate_mode is one of: enforce | both | veto
++      - For bucket == 'book_seq': explicitly enabled AND warmup elapsed
++
++    This keeps *observe-only* behavior as default for book-seq gaps, while still
++    reporting dq_level/dq_veto for dashboards.
++    """
++    if not int(dq_veto or 0):
++        return False
++    mode = str((cfg2 or {}).get("dq_gate_mode", "off") or "off").lower()
++    if mode not in ("enforce", "both", "veto"):
++        return False
++
++    if dq_reason_bucket == "book_seq":
++        enabled = int((cfg2 or {}).get("dq_book_veto_enabled", 0) or 0)
++        warmup_s = float((cfg2 or {}).get("dq_book_veto_warmup_s", 86400) or 86400)
++        if enabled <= 0:
++            return False
++        if float(uptime_s or 0.0) < warmup_s:
++            return False
++
++    return True
++
+ from common.metrics_stage import (
+     veto_total, dist,
+     meta_feature_seen_total,
+diff --git a/tick_flow_full/services/crypto_orderflow_service.py b/tick_flow_full/services/crypto_orderflow_service.py
+index 34e8f61..5f374b9 100644
+--- a/tick_flow_full/services/crypto_orderflow_service.py
++++ b/tick_flow_full/services/crypto_orderflow_service.py
+@@ -1565,6 +1565,29 @@ class CryptoOrderflowService:
+ 
+                         await self.strategy.process_book(runtime, payload, ingest_ts_ms)
+ 
++
++# Control-plane: request a WS resubscribe/reconnect on sustained book gaps.
++# BookProcessor sets runtime.book_resync_requested (cooldown-protected).
++if getattr(runtime, "book_resync_requested", False):
++    try:
++        stream = str(runtime.config.get("book_resync_stream", "stream:book_resync_requests") or "stream:book_resync_requests")
++        maxlen = int(runtime.config.get("book_resync_stream_maxlen", 10_000) or 10_000)
++        fields = {
++            "symbol": str(getattr(runtime, "symbol", "")),
++            "ts_ms": str(int(ingest_ts_ms or 0)),
++            "reason": str(getattr(runtime, "book_resync_reason", "gap") or "gap"),
++            "action": str(getattr(runtime, "book_resync_action", "resubscribe") or "resubscribe"),
++            "ema": str(float(getattr(runtime, "book_missing_seq_ema", 0.0) or 0.0)),
++            "last_gap": str(int(getattr(runtime, "book_missing_seq_last_gap", 0) or 0)),
++        }
++        await self.main.xadd(stream, fields, maxlen=maxlen, approximate=True)
++    except Exception:
++        # fail-open: never break the hot path on control-plane failures
++        pass
++    finally:
++        # One-shot flag (cooldown handled in BookProcessor).
++        runtime.book_resync_requested = False
++
+                         # If BookProcessor detected persistent time gaps (partial depth),
+                         # request Go WS layer to reconnect/resubscribe for this symbol.
+                         if getattr(runtime, "book_resync_requested", False):
+diff --git a/tick_flow_full/services/orderflow/components/book_processor.py b/tick_flow_full/services/orderflow/components/book_processor.py
+index f7cf4ec..6734967 100644
+--- a/tick_flow_full/services/orderflow/components/book_processor.py
++++ b/tick_flow_full/services/orderflow/components/book_processor.py
+@@ -36,13 +36,14 @@ _l2gpu_cache: Dict[str, Any] = {}
+ 
+ 
+ def _update_book_timegap_dq(runtime: Any, ingest_ts_ms: int, book_raw: Dict[str, Any]) -> None:
+-    """Update *book_missing_seq_ema* for **partial depth** streams (e.g. @depth20@100ms).
++    """Update *book_missing_seq_ema* for streams where deterministic `U/u` continuity is unavailable.
++
++    This is primarily a fallback for snapshot-only feeds (or normalized payloads that dropped `U`).
+ 
+     Why this exists
+     --------------
+-    Binance *partial book depth* streams are **snapshots** that include `lastUpdateId` but
+-    **do not include** the diff-seq pair `U/u` that would allow a deterministic missing-seq
+-    check. In this mode the best we can do is detect *time gaps* in the inbound stream.
++    Some feeds (or adapters) provide only `lastUpdateId` and omit `U` (firstUpdateId). In that case
++    we cannot deterministically count missing diff-updates, so we detect *time gaps* as a proxy.
+ 
+     Contract (runtime fields)
+     -------------------------
+@@ -325,6 +326,119 @@ class BookProcessor:
+                         runtime.br_calib.update(regime=rg, inst_hz=float(inst), dt_ms=int(dt))
+                     except Exception:
+                         pass
++
++
++
++def _update_book_seq_uu_dq(runtime: Any, ingest_ts_ms: int, book_raw: Dict[str, Any]) -> None:
++    """Deterministic book missing-seq tracker for Binance depthUpdate streams using `U/u`.
++
++    This handles both Binance Futures and Spot *diff depth* style messages where the payload carries:
++      - U: firstUpdateId
++      - u: lastUpdateId
++
++    Continuity check:
++      gap_detected = (prev_u + 1 != cur_U)
++      gap = cur_U - prev_u - 1  (missed diff updates)
++
++    We update:
++      - runtime.book_seq_last_u (monotonic max)
++      - runtime.book_seq_last_reason (init/ok/overlap/gap/dup/reorder)
++      - runtime.book_missing_seq_last_gap (gap size for diagnostics)
++      - runtime.book_missing_seq_ema (binary EMA over gap events)
++      - runtime.book_resync_requested (one-shot flag; orchestrator publishes control message)
++    """
++    try:
++        cfg = getattr(runtime, "config", {}) or {}
++        now_ms = int(ingest_ts_ms or 0)
++
++        tau_ms = int(cfg.get("dq_book_seq_tau_ms", 1000) or 1000)
++
++        # Lazy init of the EMA tracker (fail-open).
++        if not hasattr(runtime, "book_seq_gap") or getattr(runtime, "book_seq_gap") is None:
++            from core.seq_gap_tracker_v1 import GapEmaTracker
++            runtime.book_seq_gap = GapEmaTracker(tau_ms=tau_ms, init=0.0)
++
++        # Defaults
++        if not hasattr(runtime, "book_missing_seq_ema"):
++            runtime.book_missing_seq_ema = 0.0
++        if not hasattr(runtime, "book_missing_seq_last_gap"):
++            runtime.book_missing_seq_last_gap = 0
++        if not hasattr(runtime, "book_seq_last_reason"):
++            runtime.book_seq_last_reason = "init"
++        if not hasattr(runtime, "book_resync_requested"):
++            runtime.book_resync_requested = False
++        if not hasattr(runtime, "book_resync_last_ts_ms"):
++            runtime.book_resync_last_ts_ms = 0
++
++        prev_u = int(getattr(runtime, "book_seq_last_u", 0) or 0)
++        cur_U = int(book_raw.get("U") or 0)
++        cur_u = int(book_raw.get("u") or 0)
++
++        # Init
++        if prev_u <= 0:
++            runtime.book_seq_last_u = cur_u or cur_U
++            runtime.book_seq_last_reason = "init"
++            runtime.book_missing_seq_last_gap = 0
++            runtime.book_missing_seq_ema = float(runtime.book_seq_gap.update(False, now_ms))
++            return
++
++        reason = "ok"
++        is_gap = False
++        last_gap = 0
++
++        # DUP/OLD: the whole update is older (or equal) than what we've already applied.
++        if cur_u and cur_u <= prev_u:
++            reason = "dup"
++
++        # GAP: missing diff-updates between last_u and current_U.
++        elif cur_U and cur_U > (prev_u + 1):
++            is_gap = True
++            last_gap = int(cur_U - prev_u - 1)
++            reason = "gap"
++
++        # OVERLAP / OK: the expected next update id is covered by [U..u]
++        elif cur_U and cur_u and (cur_U <= (prev_u + 1) <= cur_u):
++            if cur_U <= prev_u:
++                reason = "overlap"
++            else:
++                reason = "ok"
++
++        # REORDER / unknown edge: keep fail-open.
++        else:
++            reason = "reorder"
++
++        runtime.book_seq_last_reason = reason
++        runtime.book_missing_seq_last_gap = last_gap
++        runtime.book_missing_seq_ema = float(runtime.book_seq_gap.update(is_gap, now_ms))
++
++        # Keep last_u monotonic on overlaps.
++        if cur_u:
++            runtime.book_seq_last_u = max(prev_u, cur_u)
++        elif cur_U:
++            runtime.book_seq_last_u = max(prev_u, cur_U)
++
++        # Optional: request resync on sustained gaps (cooldown-protected).
++        if is_gap:
++            thr = float(cfg.get("book_resync_ema_threshold", 0.30) or 0.30)
++            cooldown_ms = int(cfg.get("book_resync_cooldown_ms", 10_000) or 10_000)
++            last_req = int(getattr(runtime, "book_resync_last_ts_ms", 0) or 0)
++            if (float(runtime.book_missing_seq_ema) >= thr) and (now_ms - last_req >= cooldown_ms):
++                runtime.book_resync_requested = True
++                runtime.book_resync_last_ts_ms = now_ms
++                # Provide structured context for the orchestrator / Go-worker.
++                runtime.book_resync_reason = "gap"
++                runtime.book_resync_action = "resubscribe"
++
++    except Exception:
++        pass
++
++
++def _update_book_missing_seq_dq(runtime: Any, ingest_ts_ms: int, book_raw: Dict[str, Any]) -> None:
++    """Selector: prefer deterministic `U/u` if present, else fallback to time-gap proxy."""
++    if (book_raw.get("U") is not None) and (book_raw.get("u") is not None) and int(book_raw.get("U") or 0) > 0:
++        _update_book_seq_uu_dq(runtime, ingest_ts_ms, book_raw)
++    else:
++        _update_book_missing_seq_dq(runtime, ingest_ts_ms, book_raw)
+                     
+                     # Z-Score
+                     try:
+@@ -421,8 +535,8 @@ class BookProcessor:
+             # GPU L2 Microstructure (spread, imbalance, microprice, walls)
+             self._update_l2_gpu(runtime, book_raw)
+ 
+-            # DQ: partial depth snapshots have no (U/u). Use time-gap proxy.
+-            _update_book_timegap_dq(runtime, ingest_ts_ms, book_raw)
++            # DQ: prefer deterministic U/u continuity if present; else fallback to time-gap proxy.
++            _update_book_missing_seq_dq(runtime, ingest_ts_ms, book_raw)
+ 
+             return True
+ 
+diff --git a/tick_flow_full/services/orderflow/runtime.py b/tick_flow_full/services/orderflow/runtime.py
+index 936a217..e5e07b4 100644
+--- a/tick_flow_full/services/orderflow/runtime.py
++++ b/tick_flow_full/services/orderflow/runtime.py
+@@ -533,6 +533,8 @@ class SymbolRuntime:
+     # One-shot flag consumed by the orchestrator to ask Go WS layer for reconnect/resubscribe.
+     book_resync_requested: bool = False
+     book_resync_last_ts_ms: int = 0
++    book_resync_reason: str = ""  # e.g. gap/timegap
++    book_resync_action: str = "resubscribe"  # resubscribe|reconnect (consumer-defined)
+     # Tick dedup (best-effort). Helps avoid double-counting on retries/replays.
+     tick_dedup_window: int = 4096
+     tick_uid_ring: Deque[str] = field(default_factory=deque, repr=False)
+diff --git a/tick_flow_full/services/orderflow/utils.py b/tick_flow_full/services/orderflow/utils.py
+index dd9ff3d..08237fa 100644
+--- a/tick_flow_full/services/orderflow/utils.py
++++ b/tick_flow_full/services/orderflow/utils.py
+@@ -557,6 +557,7 @@ def _parse_book_payload(payload: Dict[str, Any], symbol: str) -> Dict[str, Any]:
+         "symbol": symbol,
+         "ts_ms": ts_ms,
+         "event_ts_ms": ts_ms,
++        "U": _safe_int(merged.get("U") or merged.get("firstUpdateId")), # Binance depthUpdate: firstUpdateId (U)
+         "u": _safe_int(merged.get("u") or merged.get("lastUpdateId")), # Binance specific
+         "bids": bids,
+         "asks": asks,
+diff --git a/tick_flow_full/tests/core/test_dq_book_veto_rollout_guard.py b/tick_flow_full/tests/core/test_dq_book_veto_rollout_guard.py
+new file mode 100644
+index 0000000..182bf84
+--- /dev/null
++++ b/tick_flow_full/tests/core/test_dq_book_veto_rollout_guard.py
+@@ -0,0 +1,24 @@
++import time
++
++from tick_flow_full.core.of_confirm_engine import should_enforce_dq_veto
++
++
++def test_should_enforce_dq_veto_off_mode():
++    cfg2 = {"dq_gate_mode": "off", "dq_book_veto_enabled": 1, "dq_book_veto_warmup_s": 0}
++    assert should_enforce_dq_veto(1, "tick_gap", cfg2, uptime_s=10.0) is False
++
++
++def test_should_enforce_dq_veto_non_book_bucket_enforces_when_mode_enforce():
++    cfg2 = {"dq_gate_mode": "enforce", "dq_book_veto_enabled": 0, "dq_book_veto_warmup_s": 86400}
++    assert should_enforce_dq_veto(1, "tick_gap", cfg2, uptime_s=0.0) is True
++
++
++def test_should_enforce_dq_veto_book_bucket_requires_enable_flag():
++    cfg2 = {"dq_gate_mode": "enforce", "dq_book_veto_enabled": 0, "dq_book_veto_warmup_s": 0}
++    assert should_enforce_dq_veto(1, "book_seq", cfg2, uptime_s=99999.0) is False
++
++
++def test_should_enforce_dq_veto_book_bucket_requires_warmup_elapsed():
++    cfg2 = {"dq_gate_mode": "enforce", "dq_book_veto_enabled": 1, "dq_book_veto_warmup_s": 3600}
++    assert should_enforce_dq_veto(1, "book_seq", cfg2, uptime_s=10.0) is False
++    assert should_enforce_dq_veto(1, "book_seq", cfg2, uptime_s=3600.0) is True
+diff --git a/tick_flow_full/tests/services/orderflow/components/test_book_seq_tracker_uu.py b/tick_flow_full/tests/services/orderflow/components/test_book_seq_tracker_uu.py
+new file mode 100644
+index 0000000..66d67af
+--- /dev/null
++++ b/tick_flow_full/tests/services/orderflow/components/test_book_seq_tracker_uu.py
+@@ -0,0 +1,35 @@
++from types import SimpleNamespace
++
++from tick_flow_full.services.orderflow.components.book_processor import _update_book_seq_uu_dq
++
++
++def test_book_seq_tracker_uu_ok_and_gap_and_resync_flag():
++    runtime = SimpleNamespace()
++    runtime.config = {
++        "dq_book_seq_tau_ms": 1000,             # ~alpha 0.1 at 10Hz
++        "book_resync_ema_threshold": 0.05,      # trigger quickly for the test
++        "book_resync_cooldown_ms": 0,           # disable cooldown in unit test
++    }
++
++    # init (no ema "gap")
++    _update_book_seq_uu_dq(runtime, ingest_ts_ms=0, book_raw={"U": 100, "u": 105})
++    assert runtime.book_seq_last_reason == "init"
++    assert int(runtime.book_seq_last_u) == 105
++    assert float(runtime.book_missing_seq_ema) == 0.0
++    assert int(runtime.book_missing_seq_last_gap) == 0
++    assert getattr(runtime, "book_resync_requested", False) is False
++
++    # overlap/ok
++    _update_book_seq_uu_dq(runtime, ingest_ts_ms=100, book_raw={"U": 106, "u": 110})
++    assert runtime.book_seq_last_reason in ("ok", "overlap")
++    assert int(runtime.book_seq_last_u) == 110
++    assert int(runtime.book_missing_seq_last_gap) == 0
++
++    # gap (U skips ahead)
++    _update_book_seq_uu_dq(runtime, ingest_ts_ms=200, book_raw={"U": 120, "u": 125})
++    assert runtime.book_seq_last_reason == "gap"
++    assert int(runtime.book_missing_seq_last_gap) == 9  # 120 - 110 - 1
++    assert float(runtime.book_missing_seq_ema) > 0.0
++    assert getattr(runtime, "book_resync_requested", False) is True
++    assert getattr(runtime, "book_resync_reason", "") == "gap"
++    assert getattr(runtime, "book_resync_action", "") == "resubscribe"

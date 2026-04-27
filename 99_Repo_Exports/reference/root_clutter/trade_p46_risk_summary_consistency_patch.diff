@@ -1,0 +1,481 @@
+diff -ruN p45/.pytest_cache/.gitignore p46/.pytest_cache/.gitignore
+--- p45/.pytest_cache/.gitignore	1970-01-01 00:00:00.000000000 +0000
++++ p46/.pytest_cache/.gitignore	2026-03-07 07:24:43.984713104 +0000
+@@ -0,0 +1,2 @@
++# Created by pytest automatically.
++*
+diff -ruN p45/.pytest_cache/CACHEDIR.TAG p46/.pytest_cache/CACHEDIR.TAG
+--- p45/.pytest_cache/CACHEDIR.TAG	1970-01-01 00:00:00.000000000 +0000
++++ p46/.pytest_cache/CACHEDIR.TAG	2026-03-07 07:24:43.984806171 +0000
+@@ -0,0 +1,4 @@
++Signature: 8a477f597d28d172789f06886806bc55
++# This file is a cache directory tag created by pytest.
++# For information about cache directory tags, see:
++#	https://bford.info/cachedir/spec.html
+diff -ruN p45/.pytest_cache/README.md p46/.pytest_cache/README.md
+--- p45/.pytest_cache/README.md	1970-01-01 00:00:00.000000000 +0000
++++ p46/.pytest_cache/README.md	2026-03-07 07:24:43.984509377 +0000
+@@ -0,0 +1,8 @@
++# pytest cache directory #
++
++This directory contains data from the pytest's cache plugin,
++which provides the `--lf` and `--ff` options, as well as the `cache` fixture.
++
++**Do not** commit this to version control.
++
++See [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.
+diff -ruN p45/.pytest_cache/v/cache/lastfailed p46/.pytest_cache/v/cache/lastfailed
+--- p45/.pytest_cache/v/cache/lastfailed	1970-01-01 00:00:00.000000000 +0000
++++ p46/.pytest_cache/v/cache/lastfailed	2026-03-07 07:25:09.114918015 +0000
+@@ -0,0 +1 @@
++{}
+\ No newline at end of file
+diff -ruN p45/.pytest_cache/v/cache/nodeids p46/.pytest_cache/v/cache/nodeids
+--- p45/.pytest_cache/v/cache/nodeids	1970-01-01 00:00:00.000000000 +0000
++++ p46/.pytest_cache/v/cache/nodeids	2026-03-07 07:25:09.114290207 +0000
+@@ -0,0 +1,7 @@
++[
++  "audit_code/risk/test_risk_summary_assets_v1.py::test_summary_sql_assets_exist",
++  "binance_execution/test_alertmanager_risk_deeplinks_v1.py::test_alertmanager_template_has_risk_links",
++  "binance_execution/test_grafana_risk_annotations_v1.py::test_risk_dashboard_has_annotations",
++  "binance_execution/test_runbook_server_risk_summary_v1.py::test_runbook_server_has_risk_summary_endpoints",
++  "scripts/test_refresh_risk_decision_summary_v1.py::test_refresh_summary_script_exists"
++]
+\ No newline at end of file
+Binary files p45/audit_code/risk/__pycache__/test_risk_summary_assets_v1.cpython-313-pytest-9.0.2.pyc and p46/audit_code/risk/__pycache__/test_risk_summary_assets_v1.cpython-313-pytest-9.0.2.pyc differ
+diff -ruN p45/audit_code/risk/test_risk_summary_assets_v1.py p46/audit_code/risk/test_risk_summary_assets_v1.py
+--- p45/audit_code/risk/test_risk_summary_assets_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p46/audit_code/risk/test_risk_summary_assets_v1.py	2026-03-07 07:24:22.784910261 +0000
+@@ -0,0 +1,7 @@
++from pathlib import Path
++
++
++def test_summary_sql_assets_exist():
++    root = Path(__file__).resolve().parents[2]
++    assert (root / 'db' / 'migrations' / '20260306_11_risk_decision_summary.sql').exists()
++    assert (root / 'db' / 'migrations' / '20260306_12_risk_decision_summary_indexes.sql').exists()
+Binary files p45/binance_execution/__pycache__/test_alertmanager_risk_deeplinks_v1.cpython-313-pytest-9.0.2.pyc and p46/binance_execution/__pycache__/test_alertmanager_risk_deeplinks_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p45/binance_execution/__pycache__/test_grafana_risk_annotations_v1.cpython-313-pytest-9.0.2.pyc and p46/binance_execution/__pycache__/test_grafana_risk_annotations_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p45/binance_execution/__pycache__/test_runbook_server_risk_summary_v1.cpython-313-pytest-9.0.2.pyc and p46/binance_execution/__pycache__/test_runbook_server_risk_summary_v1.cpython-313-pytest-9.0.2.pyc differ
+diff -ruN p45/binance_execution/test_alertmanager_risk_deeplinks_v1.py p46/binance_execution/test_alertmanager_risk_deeplinks_v1.py
+--- p45/binance_execution/test_alertmanager_risk_deeplinks_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p46/binance_execution/test_alertmanager_risk_deeplinks_v1.py	2026-03-07 07:24:22.785564147 +0000
+@@ -0,0 +1,8 @@
++from pathlib import Path
++
++
++def test_alertmanager_template_has_risk_links():
++    src = (Path(__file__).resolve().parents[1] / 'monitoring' / 'alertmanager' / 'templates' / 'trade_execution.tmpl').read_text(encoding='utf-8')
++    assert 'Risk Canary:' in src
++    assert 'Risk Summary:' in src
++    assert 'Silence:' in src
+diff -ruN p45/binance_execution/test_grafana_risk_annotations_v1.py p46/binance_execution/test_grafana_risk_annotations_v1.py
+--- p45/binance_execution/test_grafana_risk_annotations_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p46/binance_execution/test_grafana_risk_annotations_v1.py	2026-03-07 07:24:22.785764696 +0000
+@@ -0,0 +1,9 @@
++from pathlib import Path
++import json
++
++
++def test_risk_dashboard_has_annotations():
++    src = (Path(__file__).resolve().parents[1] / 'monitoring' / 'grafana' / 'dashboards' / 'trade_execution_p45_risk_quality.json').read_text(encoding='utf-8')
++    data = json.loads(src)
++    annotations = data.get('annotations', {}).get('list', [])
++    assert annotations and len(annotations) >= 2
+diff -ruN p45/binance_execution/test_runbook_server_risk_summary_v1.py p46/binance_execution/test_runbook_server_risk_summary_v1.py
+--- p45/binance_execution/test_runbook_server_risk_summary_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p46/binance_execution/test_runbook_server_risk_summary_v1.py	2026-03-07 07:24:22.785437503 +0000
+@@ -0,0 +1,7 @@
++from pathlib import Path
++
++
++def test_runbook_server_has_risk_summary_endpoints():
++    src = (Path(__file__).resolve().parents[1] / 'runbooks' / 'server' / 'runbook_server.py').read_text(encoding='utf-8')
++    assert '/api/risk-canary/latest' in src
++    assert '/api/risk-summary/latest' in src
+diff -ruN p45/config/docker-compose.execution-p46-risk-summary.override.yml p46/config/docker-compose.execution-p46-risk-summary.override.yml
+--- p45/config/docker-compose.execution-p46-risk-summary.override.yml	1970-01-01 00:00:00.000000000 +0000
++++ p46/config/docker-compose.execution-p46-risk-summary.override.yml	2026-03-07 07:24:22.781442294 +0000
+@@ -0,0 +1,7 @@
++
++services:
++  trade-runbook-server:
++    volumes:
++      - ./monitoring/grafana/dashboards:/opt/trade/monitoring/grafana/dashboards:ro
++      - ./runbooks:/opt/trade/runbooks:ro
++      - ./var/runbook-reports:/var/lib/trade-runbook/reports
+diff -ruN p45/config/env.execution-p46-risk-summary.example p46/config/env.execution-p46-risk-summary.example
+--- p45/config/env.execution-p46-risk-summary.example	1970-01-01 00:00:00.000000000 +0000
++++ p46/config/env.execution-p46-risk-summary.example	2026-03-07 07:24:22.781314733 +0000
+@@ -0,0 +1,9 @@
++
++TRADE_RISK_SQL_AUDIT_ENABLE=1
++RISK_AUDIT_SQL_DSN=postgresql://trade:trade@postgres:5432/trade
++RISK_CANARY_LOOKBACK_HOURS=24
++RISK_CANARY_REPORT_PATH=/var/lib/trade-runbook/reports/latest_risk_engine_canary.json
++RISK_DECISION_SUMMARY_REPORT_PATH=/var/lib/trade-runbook/reports/latest_risk_decision_summary.json
++RISK_CONSISTENCY_LIMIT=250
++ALERTMANAGER_EXTERNAL_URL=http://alertmanager:9093
++RUNBOOK_BASE_URL=http://trade-runbook-server:18080
+diff -ruN p45/db/migrations/20260306_11_risk_decision_summary.sql p46/db/migrations/20260306_11_risk_decision_summary.sql
+--- p45/db/migrations/20260306_11_risk_decision_summary.sql	1970-01-01 00:00:00.000000000 +0000
++++ p46/db/migrations/20260306_11_risk_decision_summary.sql	2026-03-07 07:24:22.779816530 +0000
+@@ -0,0 +1,42 @@
++
++-- P4.6: materialized SQL summary for risk decision quality and SLOs.
++
++create materialized view if not exists risk_decision_summary_mv as
++with base as (
++  select
++    created_ts_ms,
++    to_timestamp(created_ts_ms / 1000.0) at time zone 'utc' as created_at_utc,
++    tier,
++    level,
++    symbol,
++    cluster,
++    allow_trade_publish,
++    clamp_ratio,
++    decision_latency_ms,
++    (case when reasons_jsonb::text ilike '%confidence_below_tier_floor%' then 1 else 0 end) as confidence_denial,
++    (case when clamp_ratio < 0.999 then 1 else 0 end) as clamp_flag
++  from risk_decision_audit
++), windows as (
++  select '1h'::text as window_name, ((extract(epoch from now()) * 1000)::bigint - 3600 * 1000)::bigint as cutoff_ts_ms
++  union all
++  select '24h'::text, ((extract(epoch from now()) * 1000)::bigint - 24 * 3600 * 1000)::bigint
++  union all
++  select '7d'::text, ((extract(epoch from now()) * 1000)::bigint - 7 * 24 * 3600 * 1000)::bigint
++)
++select
++  w.window_name,
++  b.tier,
++  b.level,
++  count(*)::bigint as decision_count,
++  coalesce(sum(case when b.allow_trade_publish then 1 else 0 end), 0)::bigint as allow_count,
++  coalesce(sum(case when not b.allow_trade_publish then 1 else 0 end), 0)::bigint as deny_count,
++  coalesce(sum(b.clamp_flag), 0)::bigint as clamp_count,
++  coalesce(sum(b.confidence_denial), 0)::bigint as confidence_denial_count,
++  coalesce(avg(b.clamp_ratio), 1.0)::double precision as avg_clamp_ratio,
++  coalesce(percentile_cont(0.95) within group (order by b.decision_latency_ms), 0)::double precision as decision_latency_p95_ms,
++  max(b.created_ts_ms)::bigint as latest_created_ts_ms,
++  ((extract(epoch from now()) * 1000)::bigint)::bigint as refreshed_ts_ms
++from windows w
++join base b on b.created_ts_ms >= w.cutoff_ts_ms
++group by w.window_name, b.tier, b.level
++with no data;
+diff -ruN p45/db/migrations/20260306_12_risk_decision_summary_indexes.sql p46/db/migrations/20260306_12_risk_decision_summary_indexes.sql
+--- p45/db/migrations/20260306_12_risk_decision_summary_indexes.sql	1970-01-01 00:00:00.000000000 +0000
++++ p46/db/migrations/20260306_12_risk_decision_summary_indexes.sql	2026-03-07 07:24:22.780201058 +0000
+@@ -0,0 +1,3 @@
++
++create unique index if not exists risk_decision_summary_mv_window_tier_level_idx
++  on risk_decision_summary_mv (window_name, tier, level);
+diff -ruN p45/deploy/systemd/README.md p46/deploy/systemd/README.md
+--- p45/deploy/systemd/README.md	2026-03-07 06:24:59.000000000 +0000
++++ p46/deploy/systemd/README.md	2026-03-07 07:24:22.786123752 +0000
+@@ -32,3 +32,6 @@
+ Then the existing `trade-execution-healthcheck.service` will refresh the metric file on each run.
+ 
+ - trade-execution-checkpoint-scrubber.service/.timer — removes orphan/stale replay checkpoints and reports retention guard drift.
++
++- `trade-risk-engine-canary-report.timer` — periodic risk-engine canary report
++- `trade-risk-decision-summary-refresh.timer` — periodic refresh of materialized risk decision summary
+diff -ruN p45/deploy/systemd/trade-risk-decision-summary-refresh.service p46/deploy/systemd/trade-risk-decision-summary-refresh.service
+--- p45/deploy/systemd/trade-risk-decision-summary-refresh.service	1970-01-01 00:00:00.000000000 +0000
++++ p46/deploy/systemd/trade-risk-decision-summary-refresh.service	2026-03-07 07:24:22.780964857 +0000
+@@ -0,0 +1,9 @@
++[Unit]
++Description=Refresh trade risk decision summary
++After=network-online.target
++
++[Service]
++Type=oneshot
++WorkingDirectory=/opt/trade
++EnvironmentFile=-/etc/default/trade-risk-engine
++ExecStart=/usr/bin/python3 /opt/trade/scripts/refresh_risk_decision_summary.py
+diff -ruN p45/deploy/systemd/trade-risk-decision-summary-refresh.timer p46/deploy/systemd/trade-risk-decision-summary-refresh.timer
+--- p45/deploy/systemd/trade-risk-decision-summary-refresh.timer	1970-01-01 00:00:00.000000000 +0000
++++ p46/deploy/systemd/trade-risk-decision-summary-refresh.timer	2026-03-07 07:24:22.781116827 +0000
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Periodic refresh of trade risk decision summary
++
++[Timer]
++OnBootSec=6m
++OnUnitActiveSec=30m
++Unit=trade-risk-decision-summary-refresh.service
++
++[Install]
++WantedBy=timers.target
+diff -ruN p45/deploy/systemd/trade-risk-engine-canary-report.service p46/deploy/systemd/trade-risk-engine-canary-report.service
+--- p45/deploy/systemd/trade-risk-engine-canary-report.service	1970-01-01 00:00:00.000000000 +0000
++++ p46/deploy/systemd/trade-risk-engine-canary-report.service	2026-03-07 07:24:22.780655400 +0000
+@@ -0,0 +1,9 @@
++[Unit]
++Description=Trade risk engine canary report
++After=network-online.target
++
++[Service]
++Type=oneshot
++WorkingDirectory=/opt/trade
++EnvironmentFile=-/etc/default/trade-risk-engine
++ExecStart=/usr/bin/python3 /opt/trade/scripts/build_risk_engine_canary_report.py
+diff -ruN p45/deploy/systemd/trade-risk-engine-canary-report.timer p46/deploy/systemd/trade-risk-engine-canary-report.timer
+--- p45/deploy/systemd/trade-risk-engine-canary-report.timer	1970-01-01 00:00:00.000000000 +0000
++++ p46/deploy/systemd/trade-risk-engine-canary-report.timer	2026-03-07 07:24:22.780808748 +0000
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Periodic trade risk engine canary report
++
++[Timer]
++OnBootSec=5m
++OnUnitActiveSec=20m
++Unit=trade-risk-engine-canary-report.service
++
++[Install]
++WantedBy=timers.target
+diff -ruN p45/monitoring/alertmanager/templates/trade_execution.tmpl p46/monitoring/alertmanager/templates/trade_execution.tmpl
+--- p45/monitoring/alertmanager/templates/trade_execution.tmpl	2026-03-06 20:13:39.000000000 +0000
++++ p46/monitoring/alertmanager/templates/trade_execution.tmpl	2026-03-07 07:24:22.782747248 +0000
+@@ -20,6 +20,9 @@
+ 
+ Runbooks: http://trade-runbook-server:18080/
+ Latest health JSON: http://trade-runbook-server:18080/api/health/latest
++Risk Canary: http://trade-runbook-server:18080/api/risk-canary/latest
++Risk Summary: http://trade-runbook-server:18080/api/risk-summary/latest
++Silence: {{ .ExternalURL }}/#/silences/new?filter=%7Balertname%3D%22{{ .CommonLabels.alertname }}%22%7D
+ {{- end }}
+ 
+ {{ define "trade.html" -}}
+diff -ruN p45/monitoring/alertmanager/trade_execution_alertmanager.yml p46/monitoring/alertmanager/trade_execution_alertmanager.yml
+--- p45/monitoring/alertmanager/trade_execution_alertmanager.yml	2026-03-06 20:13:39.000000000 +0000
++++ p46/monitoring/alertmanager/trade_execution_alertmanager.yml	2026-03-07 07:24:22.781865813 +0000
+@@ -1,6 +1,8 @@
+ global:
+   resolve_timeout: 5m
+ 
++external_url: http://alertmanager:9093
++
+ templates:
+   - /etc/alertmanager/templates/*.tmpl
+ 
+diff -ruN p45/monitoring/grafana/dashboards/trade_execution_p45_risk_quality.json p46/monitoring/grafana/dashboards/trade_execution_p45_risk_quality.json
+--- p45/monitoring/grafana/dashboards/trade_execution_p45_risk_quality.json	2026-03-07 07:10:14.000000000 +0000
++++ p46/monitoring/grafana/dashboards/trade_execution_p45_risk_quality.json	2026-03-07 07:24:22.783563125 +0000
+@@ -156,5 +156,25 @@
+         }
+       ]
+     }
+-  ]
++  ],
++  "annotations": {
++    "list": [
++      {
++        "name": "Risk decision audit annotations",
++        "datasource": "${DS_RISK_AUDIT_SQL}",
++        "enable": true,
++        "iconColor": "rgba(255, 96, 96, 1)",
++        "rawSql": "select to_timestamp(created_ts_ms/1000.0) as time, decision_id as text, level as tags from risk_decision_audit where created_ts_ms > (extract(epoch from now() - interval '24 hours')*1000) order by created_ts_ms desc limit 500",
++        "type": "dashboard"
++      },
++      {
++        "name": "Risk summary refresh",
++        "datasource": "${DS_RISK_AUDIT_SQL}",
++        "enable": true,
++        "iconColor": "rgba(96, 160, 255, 1)",
++        "rawSql": "select to_timestamp(refreshed_ts_ms/1000.0) as time, window_name || ' ' || tier || '/' || level as text, 'risk_summary' as tags from risk_decision_summary_mv where window_name='24h'",
++        "type": "dashboard"
++      }
++    ]
++  }
+ }
+\ No newline at end of file
+diff -ruN p45/runbooks/P46_RISK_SUMMARY_AND_CONSISTENCY.md p46/runbooks/P46_RISK_SUMMARY_AND_CONSISTENCY.md
+--- p45/runbooks/P46_RISK_SUMMARY_AND_CONSISTENCY.md	1970-01-01 00:00:00.000000000 +0000
++++ p46/runbooks/P46_RISK_SUMMARY_AND_CONSISTENCY.md	2026-03-07 07:24:22.784717748 +0000
+@@ -0,0 +1,6 @@
++# P4.6 Risk Summary and Consistency
++
++1. Refresh `risk_decision_summary_mv` using `scripts/refresh_risk_decision_summary.py`.
++2. Verify `latest_risk_decision_summary.json` and `latest_risk_engine_canary.json` in the runbook server.
++3. Run `scripts/check_risk_signal_snapshot_consistency.py` after deploys that change signal payload or risk snapshot schema.
++4. Use Alertmanager deep-links to create a silence only after capturing the risk summary and runbook evidence.
+Binary files p45/runbooks/server/__pycache__/runbook_server.cpython-313.pyc and p46/runbooks/server/__pycache__/runbook_server.cpython-313.pyc differ
+diff -ruN p45/runbooks/server/runbook_server.py p46/runbooks/server/runbook_server.py
+--- p45/runbooks/server/runbook_server.py	2026-03-07 07:10:14.000000000 +0000
++++ p46/runbooks/server/runbook_server.py	2026-03-07 07:25:02.198016230 +0000
+@@ -100,6 +100,30 @@
+                 return
+             self.send_error(404, 'replay slo summary not found')
+             return
++        if parsed.path == '/api/risk-canary/latest':
++            latest = self.report_root / 'latest_risk_engine_canary.json'
++            if latest.exists():
++                body = latest.read_bytes()
++                self.send_response(200)
++                self.send_header('Content-Type', 'application/json; charset=utf-8')
++                self.send_header('Content-Length', str(len(body)))
++                self.end_headers()
++                self.wfile.write(body)
++                return
++            self.send_error(404, 'risk canary report not found')
++            return
++        if parsed.path == '/api/risk-summary/latest':
++            latest = self.report_root / 'latest_risk_decision_summary.json'
++            if latest.exists():
++                body = latest.read_bytes()
++                self.send_response(200)
++                self.send_header('Content-Type', 'application/json; charset=utf-8')
++                self.send_header('Content-Length', str(len(body)))
++                self.end_headers()
++                self.wfile.write(body)
++                return
++            self.send_error(404, 'risk summary report not found')
++            return
+         if parsed.path == '/api/health/latest':
+             latest = self.report_root / 'latest_execution_health.json'
+             if latest.exists():
+Binary files p45/scripts/__pycache__/check_risk_signal_snapshot_consistency.cpython-313.pyc and p46/scripts/__pycache__/check_risk_signal_snapshot_consistency.cpython-313.pyc differ
+Binary files p45/scripts/__pycache__/refresh_risk_decision_summary.cpython-313.pyc and p46/scripts/__pycache__/refresh_risk_decision_summary.cpython-313.pyc differ
+Binary files p45/scripts/__pycache__/test_refresh_risk_decision_summary_v1.cpython-313-pytest-9.0.2.pyc and p46/scripts/__pycache__/test_refresh_risk_decision_summary_v1.cpython-313-pytest-9.0.2.pyc differ
+diff -ruN p45/scripts/check_risk_signal_snapshot_consistency.py p46/scripts/check_risk_signal_snapshot_consistency.py
+--- p45/scripts/check_risk_signal_snapshot_consistency.py	1970-01-01 00:00:00.000000000 +0000
++++ p46/scripts/check_risk_signal_snapshot_consistency.py	2026-03-07 07:24:22.780516810 +0000
+@@ -0,0 +1,76 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++
++try:
++    import psycopg  # type: ignore
++except Exception:  # pragma: no cover
++    psycopg = None  # type: ignore
++
++
++def _eq_num(a, b, tol: float = 1e-6) -> bool:
++    try:
++        return abs(float(a) - float(b)) <= tol
++    except Exception:
++        return a == b
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description='Check consistency between signal payload persisted in risk_decision_audit and SQL risk_snapshot.')
++    parser.add_argument('--dsn', default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')))
++    parser.add_argument('--limit', type=int, default=int(os.getenv('RISK_CONSISTENCY_LIMIT', '250')))
++    args = parser.parse_args()
++    if not args.dsn or psycopg is None:
++        raise RuntimeError('psycopg + DSN required')
++
++    mismatches = []
++    checked = 0
++    with psycopg.connect(args.dsn) as conn:
++        with conn.cursor() as cur:
++            cur.execute('''
++                select a.decision_id, a.symbol, a.sid, a.effective_execution_policy,
++                       a.adjusted_notional_usd, a.leverage_cap, a.clamp_ratio,
++                       a.signal_jsonb, s.snapshot_jsonb, s.tier, s.level,
++                       s.effective_execution_policy as snap_execution_policy,
++                       s.adjusted_notional_usd as snap_adjusted_notional_usd,
++                       s.leverage_cap as snap_leverage_cap,
++                       s.clamp_ratio as snap_clamp_ratio
++                from risk_decision_audit a
++                join risk_snapshot s using (decision_id)
++                order by a.created_ts_ms desc
++                limit %s
++            ''', (args.limit,))
++            for row in cur.fetchall():
++                checked += 1
++                decision_id, symbol, sid, exec_policy, adjusted_notional, leverage_cap, clamp_ratio, signal_jsonb, snapshot_jsonb, tier, level, snap_exec_policy, snap_adj, snap_lev, snap_clamp = row
++                signal = signal_jsonb or {}
++                snap = snapshot_jsonb or {}
++                reasons = []
++                if str(signal.get('execution_policy') or exec_policy) != str(snap_exec_policy or signal.get('execution_policy') or exec_policy):
++                    reasons.append('execution_policy')
++                if not _eq_num(signal.get('planned_notional_usd', adjusted_notional), snap_adj):
++                    reasons.append('planned_notional_usd')
++                if not _eq_num(signal.get('risk_leverage_cap', leverage_cap), snap_lev):
++                    reasons.append('risk_leverage_cap')
++                snap_ratio = snap.get('clamp_ratio') if isinstance(snap, dict) else None
++                if not _eq_num((snap_ratio if snap_ratio is not None else clamp_ratio), snap_clamp):
++                    reasons.append('clamp_ratio_snapshot')
++                if reasons:
++                    mismatches.append({
++                        'decision_id': decision_id,
++                        'sid': sid,
++                        'symbol': symbol,
++                        'tier': tier,
++                        'level': level,
++                        'mismatches': reasons,
++                    })
++    out = {'checked': checked, 'mismatch_count': len(mismatches), 'mismatches': mismatches}
++    print(json.dumps(out, ensure_ascii=False, indent=2))
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+diff -ruN p45/scripts/refresh_risk_decision_summary.py p46/scripts/refresh_risk_decision_summary.py
+--- p45/scripts/refresh_risk_decision_summary.py	1970-01-01 00:00:00.000000000 +0000
++++ p46/scripts/refresh_risk_decision_summary.py	2026-03-07 07:24:22.780355777 +0000
+@@ -0,0 +1,46 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++from pathlib import Path
++
++try:
++    import psycopg  # type: ignore
++except Exception:  # pragma: no cover
++    psycopg = None  # type: ignore
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description='Refresh materialized risk decision summary and emit JSON report.')
++    parser.add_argument('--dsn', default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')))
++    parser.add_argument('--out', default=os.getenv('RISK_DECISION_SUMMARY_REPORT_PATH', '/var/lib/trade-runbook/reports/latest_risk_decision_summary.json'))
++    args = parser.parse_args()
++    if not args.dsn or psycopg is None:
++        raise RuntimeError('psycopg + DSN required')
++
++    report = {'rows': []}
++    with psycopg.connect(args.dsn) as conn:
++        with conn.cursor() as cur:
++            cur.execute('refresh materialized view risk_decision_summary_mv')
++            cur.execute('''
++                select window_name, tier, level, decision_count, allow_count, deny_count,
++                       clamp_count, confidence_denial_count, avg_clamp_ratio,
++                       decision_latency_p95_ms, latest_created_ts_ms, refreshed_ts_ms
++                from risk_decision_summary_mv
++                order by window_name, tier, level
++            ''')
++            cols = [d.name for d in cur.description]
++            for row in cur.fetchall():
++                report['rows'].append({k: row[i] for i, k in enumerate(cols)})
++        conn.commit()
++    out = Path(args.out)
++    out.parent.mkdir(parents=True, exist_ok=True)
++    out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
++    print(json.dumps({'rows': len(report['rows']), 'out': str(out)}, ensure_ascii=False))
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+diff -ruN p45/scripts/test_refresh_risk_decision_summary_v1.py p46/scripts/test_refresh_risk_decision_summary_v1.py
+--- p45/scripts/test_refresh_risk_decision_summary_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p46/scripts/test_refresh_risk_decision_summary_v1.py	2026-03-07 07:25:02.197341258 +0000
+@@ -0,0 +1,7 @@
++from pathlib import Path
++
++
++def test_refresh_summary_script_exists():
++    root = Path(__file__).resolve().parents[1] / 'scripts'
++    assert (root / 'refresh_risk_decision_summary.py').exists()
++    assert (root / 'check_risk_signal_snapshot_consistency.py').exists()

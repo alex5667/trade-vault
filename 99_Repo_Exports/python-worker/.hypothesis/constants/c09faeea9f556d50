@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/orderflow/unified_pipeline.py
+# hypothesis_version: 6.148.10
+
+[1000.0, 'LONG', 'SHORT', 'Signal', '_scoring_result', 'asia', 'atr', 'base_score', 'europe', 'golden_pattern_label', 'is_golden_pattern', 'obi', 'quality_combined', 'regime', 'score', 'session', 'side', 'symbol', 'tags', 'ts_event_ms', 'us', 'weak_progress', 'z_delta']

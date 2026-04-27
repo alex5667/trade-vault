@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/cost_aware_lcb.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 10000.0, '-inf', '0', '1', '250', 'LCB_FEES_ALREADY_NET', 'LCB_SLIPPAGE_BPS_CAP', 'LCB_SUBTRACT_FEES', 'fees_usd', 'inf', 'p0_slippage_bps_est', 'r_mult', 'risk_usd', 'turnover_roundtrip']

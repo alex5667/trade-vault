@@ -1,0 +1,274 @@
+diff --git a/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py b/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py
+index 8e4c2d5..d79c3d2 100644
+--- a/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py
++++ b/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py
+@@ -1,11 +1,11 @@
+ from __future__ import annotations
+
+ import json
+ import os
+ import time
+-from typing import Dict, List, Tuple
++from typing import Dict, List, Tuple, Optional
+
+ import requests
+
+
+ def _env(name: str, default: str = "") -> str:
+     return (os.getenv(name) or default).strip()
+@@ -15,6 +15,14 @@ def _now_ms() -> int:
+     return int(time.time() * 1000)
+
+
++def _split_csv(s: str) -> List[str]:
++    out: List[str] = []
++    for part in (s or "").replace(";", ",").split(","):
++        p = part.strip()
++        if p:
++            out.append(p)
++    return out
++
++
+ def _http_check(url: str, *, verify_tls: bool, timeout_s: float = 6.0) -> Tuple[bool, str, float]:
+     t0 = time.time()
+     try:
+@@ -29,6 +37,32 @@ def _http_check(url: str, *, verify_tls: bool, timeout_s: float = 6.0) -> Tuple[
+         return False, f"exc:{type(e).__name__}", dt
+
+
++def _mk_url(base: str, path: str) -> str:
++    b = (base or "").rstrip("/")
++    p = (path or "").strip()
++    if not p:
++        return b
++    if not p.startswith("/"):
++        p = "/" + p
++    return b + p
++
++
++def _smoke_contract_targets(public_base: str) -> Tuple[List[str], List[str]]:
++    """Return (runbooks_urls, dashboards_urls) for contract checks."""
++    # Defaults cover the monitoring contract pieces:
++    # - runbooks must serve markdown files
++    # - grafana must route dashboards (redirect to login is ok because we follow redirects; final is 200)
++    runbooks = _split_csv(_env("SMOKE_RUNBOOK_PATHS", "/runbooks/web_uptime.md,/runbooks/promote_freeze.md,/runbooks/chatops_security.md"))
++    dashboards = _split_csv(_env("SMOKE_DASHBOARD_PATHS", "/grafana/d/edge_stack_overview/edge-stack-overview?orgId=1,/grafana/d/chatops_security/chatops-security?orgId=1"))
++    runbook_urls = [_mk_url(public_base, p) for p in runbooks]
++    dash_urls = [_mk_url(public_base, p) for p in dashboards]
++    return runbook_urls, dash_urls
++
++
+ def _telegram_links_smoke(webhook_url: str, *, verify_tls: bool) -> Tuple[bool, str]:
+     payload = {
+         "status": "firing",
+@@ -85,7 +119,7 @@ def _write_redis(hash_key: str, fields: Dict[str, str]) -> None:
+         pass
+
+
+ def main() -> int:
+     public_base = _env("PUBLIC_BASE_URL", "")
+@@ -97,19 +131,30 @@ def main() -> int:
+     verify_tls = _env("SMOKE_VERIFY_TLS", "0") in ("1", "true", "yes")
+
+-    urls = [
++    health_urls = [
+         f"{public_base}/grafana/api/health",
+         f"{public_base}/runbooks/healthz",
+         f"{public_base}/alertmanager/-/ready",
+         f"{public_base}/prometheus/-/ready",
+     ]
++    runbook_urls, dash_urls = _smoke_contract_targets(public_base)
+
+     checks: List[Dict[str, str]] = []
+     ok_all = True
+
+-    for u in urls:
++    # 1) Public proxy health checks
++    for u in health_urls:
+         ok, reason, dt_ms = _http_check(u, verify_tls=verify_tls)
+-        checks.append({"url": u, "ok": "1" if ok else "0", "reason": reason, "latency_ms": f"{dt_ms:.1f}"})
++        checks.append({"kind": "health", "url": u, "ok": "1" if ok else "0", "reason": reason, "latency_ms": f"{dt_ms:.1f}"})
+         ok_all = ok_all and ok
+
++    # 2) Monitoring contract checks: runbooks + dashboards exist and route under public-proxy.
++    runbooks_ok = True
++    dashboards_ok = True
++    for u in runbook_urls:
++        ok, reason, dt_ms = _http_check(u, verify_tls=verify_tls)
++        checks.append({"kind": "runbook", "url": u, "ok": "1" if ok else "0", "reason": reason, "latency_ms": f"{dt_ms:.1f}"})
++        runbooks_ok = runbooks_ok and ok
++        ok_all = ok_all and ok
++    for u in dash_urls:
++        ok, reason, dt_ms = _http_check(u, verify_tls=verify_tls)
++        checks.append({"kind": "dashboard", "url": u, "ok": "1" if ok else "0", "reason": reason, "latency_ms": f"{dt_ms:.1f}"})
++        dashboards_ok = dashboards_ok and ok
++        ok_all = ok_all and ok
++
+     webhook_url = _env("ALERT_WEBHOOK_URL", "http://alertmanager-telegram-webhook:8081/alert")
+     ok2, reason2 = _telegram_links_smoke(webhook_url, verify_tls=verify_tls)
+-    checks.append({"url": webhook_url, "ok": "1" if ok2 else "0", "reason": reason2, "latency_ms": "0"})
++    checks.append({"kind": "telegram", "url": webhook_url, "ok": "1" if ok2 else "0", "reason": reason2, "latency_ms": "0"})
+     ok_all = ok_all and ok2
+
+     ts_ms = _now_ms()
+     out = {"success": ok_all, "updated_ts_ms": ts_ms, "checks": checks}
+     print(json.dumps(out, ensure_ascii=False))
+
+     key = _env("MONITORING_SMOKE_METRICS_KEY", "metrics:monitoring_smoke:last")
++    failed_checks = [c for c in checks if c.get("ok") != "1"]
++    failed_health = [c for c in failed_checks if c.get("kind") == "health"]
++    failed_contract = [c for c in failed_checks if c.get("kind") in ("runbook", "dashboard")]
+     fields = {
+         "success": "1" if ok_all else "0",
++        "runbooks_ok": "1" if runbooks_ok else "0",
++        "dashboards_ok": "1" if dashboards_ok else "0",
+         "updated_ts_ms": str(ts_ms),
+         "reason": "ok" if ok_all else "failed",
+         "public_base_url": public_base,
+-        "failed": json.dumps([c for c in checks if c["ok"] != "1"], ensure_ascii=False)[:1800],
++        "failed_total": str(len(failed_checks)),
++        "failed_health": json.dumps(failed_health, ensure_ascii=False)[:1200],
++        "failed_contract": json.dumps(failed_contract, ensure_ascii=False)[:1200],
+     }
+     _write_redis(key, fields)
+     return 0 if ok_all else 2
+diff --git a/ml_analysis/tools/monitoring_smoke_exporter_v1.py b/ml_analysis/tools/monitoring_smoke_exporter_v1.py
+index d2ac0c8..1c2ce6f 100644
+--- a/ml_analysis/tools/monitoring_smoke_exporter_v1.py
++++ b/ml_analysis/tools/monitoring_smoke_exporter_v1.py
+@@ -55,7 +55,11 @@ def metrics() -> PlainTextResponse:
+     d = _read_redis()
+     success = 0.0
+     updated_ts = 0.0
++    runbooks_ok = 0.0
++    dashboards_ok = 0.0
++    failed_total = 0.0
+     if d:
+         try:
+             success = 1.0 if float(d.get("success", "0")) > 0 else 0.0
+@@ -66,6 +70,18 @@ def metrics() -> PlainTextResponse:
+         except Exception:
+             updated_ts = 0.0
+
++        try:
++            runbooks_ok = 1.0 if float(d.get("runbooks_ok", "0")) > 0 else 0.0
++        except Exception:
++            runbooks_ok = 0.0
++        try:
++            dashboards_ok = 1.0 if float(d.get("dashboards_ok", "0")) > 0 else 0.0
++        except Exception:
++            dashboards_ok = 0.0
++        try:
++            failed_total = float(d.get("failed_total", "0") or 0)
++        except Exception:
++            failed_total = 0.0
++
+     age_s = 0.0
+     if updated_ts > 0:
+         age_s = max(0.0, (time.time() * 1000.0 - updated_ts) / 1000.0)
+@@ -85,6 +101,21 @@ def metrics() -> PlainTextResponse:
+     lines.append("# TYPE monitoring_smoke_age_seconds gauge")
+     lines.append(f"monitoring_smoke_age_seconds {age_s}")
+
++    lines.append("# HELP monitoring_smoke_runbooks_ok 1 if runbooks contract checks OK")
++    lines.append("# TYPE monitoring_smoke_runbooks_ok gauge")
++    lines.append(f"monitoring_smoke_runbooks_ok {runbooks_ok}")
++
++    lines.append("# HELP monitoring_smoke_dashboards_ok 1 if grafana dashboards routes OK")
++    lines.append("# TYPE monitoring_smoke_dashboards_ok gauge")
++    lines.append(f"monitoring_smoke_dashboards_ok {dashboards_ok}")
++
++    lines.append("# HELP monitoring_smoke_failed_checks_total Number of failed checks in last smoke run")
++    lines.append("# TYPE monitoring_smoke_failed_checks_total gauge")
++    lines.append(f"monitoring_smoke_failed_checks_total {failed_total}")
++
+     return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
+diff --git a/ok_rate_logic/prometheus_alerts_monitoring_smoke_contract_v1.yml b/ok_rate_logic/prometheus_alerts_monitoring_smoke_contract_v1.yml
+new file mode 100644
+index 0000000..3d9a5e8
+--- /dev/null
++++ b/ok_rate_logic/prometheus_alerts_monitoring_smoke_contract_v1.yml
+@@ -0,0 +1,42 @@
++groups:
++  - name: monitoring-smoke-contract
++    rules:
++      - alert: MonitoringSmokeRunbooksBroken
++        expr: monitoring_smoke_runbooks_ok == 0
++        for: 20m
++        labels:
++          severity: warning
++          team: trade
++          component: monitoring
++        annotations:
++          summary: "Monitoring contract broken: runbooks URLs"
++          description: "Nightly monitoring smoke detected broken runbooks URLs under public-proxy (non-200). Fix runbooks-web routing or file paths."
++          runbook_path: "/web_uptime.md"
++          dashboard_path: "/d/chatops_security/chatops-security?orgId=1"
++
++      - alert: MonitoringSmokeDashboardsBroken
++        expr: monitoring_smoke_dashboards_ok == 0
++        for: 20m
++        labels:
++          severity: warning
++          team: trade
++          component: monitoring
++        annotations:
++          summary: "Monitoring contract broken: Grafana dashboards routes"
++          description: "Nightly monitoring smoke detected broken Grafana dashboard routes under public-proxy (non-200). Fix public-proxy/grafana subpath routing."
++          runbook_path: "/web_uptime.md"
++          dashboard_path: "/d/chatops_security/chatops-security?orgId=1"
+diff --git a/monitoring/README_smoke_tests.md b/monitoring/README_smoke_tests.md
+index f2f6c92..0d1e93f 100644
+--- a/monitoring/README_smoke_tests.md
++++ b/monitoring/README_smoke_tests.md
+@@ -1,18 +1,34 @@
+ # Nightly monitoring smoke tests
+
+ ## What is checked
+ 1) Public proxy routes health:
+ - `/grafana/api/health`
+ - `/runbooks/healthz`
+ - `/alertmanager/-/ready`
+ - `/prometheus/-/ready`
+
++2) Monitoring contract (public-proxy routing must serve links we send in alerts):
++- runbooks markdown:
++  - `/runbooks/web_uptime.md`
++  - `/runbooks/promote_freeze.md`
++  - `/runbooks/chatops_security.md`
++- grafana dashboards routes (final status should be 200; redirects to login are OK):
++  - `/grafana/d/edge_stack_overview/...`
++  - `/grafana/d/chatops_security/...`
++
+ 2) Telegram webhook link building (dry_run per-request):
+ - ensures returned links start with RUNBOOKS_BASE_URL and GRAFANA_BASE_URL.
+
+ ## Run manually
+ ```bash
+ export PUBLIC_BASE_URL="https://localhost"
+ export SMOKE_VERIFY_TLS=0
+ ./scripts/smoke_public_proxy.sh
+ ```
+
+ Python runner (writes Redis hash `metrics:monitoring_smoke:last`):
+ ```bash
+ export PYTHONPATH=./tick_flow_full:./ml_analysis
+ export REDIS_URL="redis://redis-worker-1:6379/0"
+ python -m ml_analysis.tools.nightly_monitoring_smoke_tests_v1
+ ```
+
++## Override targets
++```bash
++export SMOKE_RUNBOOK_PATHS="/runbooks/web_uptime.md,/runbooks/promote_freeze.md"
++export SMOKE_DASHBOARD_PATHS="/grafana/d/chatops_security/chatops-security?orgId=1"
++```
++
+ ## Exporter
+
+ `monitoring-smoke-exporter` exposes:
+ - `monitoring_smoke_last_success`
+ - `monitoring_smoke_last_updated_ts_ms`
+ - `monitoring_smoke_age_seconds`
++- `monitoring_smoke_runbooks_ok`
++- `monitoring_smoke_dashboards_ok`
++- `monitoring_smoke_failed_checks_total`

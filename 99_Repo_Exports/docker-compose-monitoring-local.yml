@@ -1,0 +1,53 @@
+services:
+  scanner-prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: scanner-prometheus
+    restart: unless-stopped
+    volumes:
+    - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    - ./prometheus_rules:/etc/prometheus/prometheus_rules:ro
+    - ./orderflow_services:/etc/prometheus/orderflow_services:ro
+    - ./python-worker/orderflow_services:/etc/prometheus/python-worker/orderflow_services:ro
+    - prometheus-data:/prometheus
+    - ./prometheus:/etc/prometheus/prometheus:ro
+    - ./regime_alerts.yml:/etc/prometheus/regime_alerts.yml:ro
+    - ./websocket_alerts.yml:/etc/prometheus/websocket_alerts.yml:ro
+    - ./python-worker/services:/etc/prometheus/python-worker/services:ro
+    - ./python-worker/monitoring:/etc/prometheus/python-worker/monitoring:ro
+    command:
+    - --config.file=/etc/prometheus/prometheus.yml
+    - --storage.tsdb.path=/prometheus
+    - --storage.tsdb.retention.time=15d
+    - --web.console.libraries=/usr/share/prometheus/console_libraries
+    - --web.console.templates=/usr/share/prometheus/consoles
+    - --web.enable-lifecycle
+    ports:
+    - 9090:9090
+    networks:
+    - scanner-infra
+    - scanner-ops
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --spider
+      - -q
+      - http://localhost:9090/-/healthy
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        reservations:
+          memory: 24M
+    environment:
+    - TZ=UTC
+networks:
+  scanner-infra:
+    external: true
+  scanner-ops:
+    external: true
+volumes:
+  prometheus-data:
+    driver: local

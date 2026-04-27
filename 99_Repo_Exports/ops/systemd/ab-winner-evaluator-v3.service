@@ -1,0 +1,27 @@
+[Unit]
+Description=Trade AB Winner Evaluator V3 (LCB on R_adj)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+Environment=PYTHONPATH=/home/alex/front/trade/scanner_infra/python-worker:/home/alex/front/trade/scanner_infra
+Environment=REDIS_URL=redis://redis-worker-1:6379/0
+Environment=AB_EVENTS_STREAM=events:trades
+Environment=AB_EVAL_GROUP=ab-eval-v3
+Environment=AB_EVAL_BLOCK_MS=2000
+Environment=AB_EVAL_COUNT=200
+Environment=AB_LCB_V2_PREFIX=cfg:entry_policy:lcb:v2
+Environment=AB_LCB_TTL_SEC=2592000
+Environment=LCB_LAM_SPREAD=0.03
+Environment=LCB_LAM_PRESSURE=0.05
+Environment=LCB_LAM_BOOKSTALE=0.03
+Environment=LCB_LAM_UNSTABLE=0.03
+Environment=LCB_LAM_NEWS=0.05
+ExecStart=/usr/bin/python3 -m services.ab_winner_evaluator_service_v3
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

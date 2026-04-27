@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/async_signal_publisher.py
+# hypothesis_version: 6.148.10
+
+[0.5, 1.0, 2.0, 10.0, 1000, 10000, ',', '0', '1', '1.0', '2.0', ':', 'BTCUSDT,ETHUSDT', 'OPEN', 'Successful retries', '_risk_clip', 'action', 'advisory', 'allow', 'applied', 'async_pub_cmp', 'be', 'binance', 'clip', 'close', 'deny', 'dq_flags', 'graph_enforced_live', 'kind', 'legacy_enforced', 'na', 'new_entry', 'on', 'orders:queue', 'original_risk', 'payload', 'ratchet', 'reason', 'risk_pct', 'runtime_gate', 'signal', 'sl', 'source', 'state', 'stream', 'symbol', 'tp', 'trail', 'true', 'venue', 'violations', 'yes']

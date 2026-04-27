@@ -1,0 +1,30 @@
+groups:
+  - name: ml_phase3_21_route_incident_rca_mirror_rca_winner_apply_vertex_feedback_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyVertexRCAStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_vertex_rca_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror RCA winner apply vertex RCA consumer is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyVertexGovernanceStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_vertex_governance_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror RCA winner apply vertex feedback governor is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyVertexGovernanceLowUsefulness
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_vertex_governance_avg_usefulness < 0.60
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "winner apply vertex RCA answers are scoring low on usefulness"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyVertexGovernanceLowQuality
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_vertex_governance_avg_quality < 0.55
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "winner apply vertex RCA answers are scoring critically low on quality"

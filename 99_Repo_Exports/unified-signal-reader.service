@@ -1,0 +1,38 @@
+[Unit]
+Description=Unified Signal Reader - объединяет XAUUSD и канальные сигналы
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=simple
+User=alex
+Group=alex
+WorkingDirectory=/home/alex/front/trade/scanner_infra
+ExecStart=/bin/bash /home/alex/front/trade/scanner_infra/start_unified_signals.sh
+Restart=always
+RestartSec=10
+
+# Переменные окружения (настройте под свои значения)
+Environment=REDIS_URL=redis://scanner-redis-worker-1:6379/0
+Environment=NOTIFY_STREAM=notify:telegram
+Environment=PARSED_STREAM=signal:telegram:parsed
+Environment=TELEGRAM_BOT_TOKEN=
+Environment=TELEGRAM_NOTIFY_CHAT_IDS=
+
+# Ограничения ресурсов
+MemoryMax=512M
+CPUQuota=50%
+
+# Логирование
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=unified-signal-reader
+
+# Безопасность
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/alex/front/trade/scanner_infra
+
+[Install]
+WantedBy=multi-user.target

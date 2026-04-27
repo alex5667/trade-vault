@@ -1,0 +1,26 @@
+{
+  "title": "Trade Execution P4.8 Unified",
+  "uid": "trade-execution-p48-unified",
+  "schemaVersion": 38,
+  "version": 1,
+  "panels": [
+    {"type": "stat", "title": "Execution Rehydrate", "gridPos": {"x":0,"y":0,"w":6,"h":4}, "targets": [{"expr": "sum(rate(trade_execution_rehydrate_total[5m]))"}]},
+    {"type": "stat", "title": "Replay Retention Guard", "gridPos": {"x":6,"y":0,"w":6,"h":4}, "targets": [{"expr": "sum(trade_execution_replay_retention_guard_total)"}]},
+    {"type": "stat", "title": "Risk Summary Freshness", "gridPos": {"x":12,"y":0,"w":6,"h":4}, "targets": [{"expr": "trade_risk_summary_freshness_seconds"}]},
+    {"type": "stat", "title": "Risk Drift Repeated SID", "gridPos": {"x":18,"y":0,"w":6,"h":4}, "targets": [{"expr": "trade_risk_signal_repeated_sid_total"}]},
+    {"type": "timeseries", "title": "Execution / Replay / Risk", "gridPos": {"x":0,"y":4,"w":12,"h":8}, "targets": [
+      {"expr": "sum(rate(execution_state_transition_total[5m]))", "legendFormat": "execution transitions"},
+      {"expr": "sum(rate(trade_execution_rehydrate_total[5m]))", "legendFormat": "rehydrate"},
+      {"expr": "sum(rate(trade_risk_decision_total[5m]))", "legendFormat": "risk decisions"}
+    ]},
+    {"type": "timeseries", "title": "Clamp / Confidence / Drift", "gridPos": {"x":12,"y":4,"w":12,"h":8}, "targets": [
+      {"expr": "trade_risk_signal_mismatch_rate", "legendFormat": "mismatch rate"},
+      {"expr": "sum(rate(trade_risk_clamp_total[5m]))", "legendFormat": "clamp rate"},
+      {"expr": "sum(rate(trade_risk_confidence_deny_total[5m]))", "legendFormat": "confidence deny"}
+    ]}
+  ],
+  "annotations": {"list": [
+    {"name": "Risk mismatch quarantine", "datasource": "${DS_RISK_AUDIT_SQL}", "enable": true, "rawSql": "select to_timestamp(created_ts_ms/1000.0) as time, coalesce(sid,'') || ' ' || quarantine_action as text, tier as tags from risk_mismatch_quarantine_ledger where created_ts_ms > (extract(epoch from now() - interval '24 hours')*1000) order by created_ts_ms desc limit 500", "type": "dashboard"},
+    {"name": "Execution quarantine", "datasource": "${DS_RISK_AUDIT_SQL}", "enable": true, "rawSql": "select to_timestamp(created_at_ms/1000.0) as time, sid || ' ' || action as text, severity as tags from execution_quarantine_ledger where created_at_ms > (extract(epoch from now() - interval '24 hours')*1000) order by created_at_ms desc limit 500", "type": "dashboard"}
+  ]}
+}

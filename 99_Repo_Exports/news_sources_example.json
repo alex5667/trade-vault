@@ -1,0 +1,50 @@
+{
+	"providers": ["cryptopanic", "fmp", "newsapi", "rss", "fmp_calendar"],
+	"rss": {
+		"enabled": true,
+		"urls": [
+			"https://www.coindesk.com/arc/outboundfeeds/rss/",
+			"https://cointelegraph.com/rss",
+			"https://decrypt.co/feed",
+			"https://bitcoinmagazine.com/.rss/full/",
+			"https://thedefiant.io/rss.xml",
+			"https://www.ecb.europa.eu/rss/press.html"
+		]
+	},
+	"cryptopanic": {
+		"enabled": true,
+		"currencies": ["BTC", "ETH", "SOL", "BNB"],
+		"filter": "important",
+		"kind": "news",
+		"regions": "en"
+	},
+	"fmp": {
+		"enabled": true,
+		"tickers": [
+			"SPY",
+			"QQQ",
+			"DIA",
+			"IWM",
+			"AAPL",
+			"MSFT",
+			"NVDA",
+			"TSLA",
+			"COIN",
+			"MSTR"
+		],
+		"limit": 50
+	},
+	"newsapi": {
+		"enabled": true,
+		"q": "(bitcoin OR ethereum OR crypto OR binance OR coinbase) OR (FOMC OR Fed OR ECB OR CPI OR NFP OR rates) OR (S&P 500 OR Nasdaq OR earnings)",
+		"language": "en",
+		"pageSize": 50
+	},
+	"fmp_calendar": {
+		"enabled": true,
+		"backDays": 1,
+		"lookaheadDays": 7,
+		"countries": ["US", "EU"],
+		"importance": ["High", "Medium"]
+	}
+}

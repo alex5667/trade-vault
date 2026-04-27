@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signal_execution/execution_planner.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-06, 0.1, 0.3, 0.5, 0.7, 1.0, 100.0, 'expiry_bars', 'high', 'low']

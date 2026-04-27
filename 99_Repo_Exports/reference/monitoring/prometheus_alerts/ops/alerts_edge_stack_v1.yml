@@ -1,0 +1,47 @@
+groups:
+  - name: edge_stack_v1
+    rules:
+      - alert: EdgeStackShadowStatusDown
+        expr: edge_stack_shadow_status_up == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Edge Stack shadow status exporter cannot read status file
+          description: The exporter reports up=0 for >10m. Check shadow eval job and status file.
+
+      - alert: EdgeStackShadowStatusStale
+        expr: edge_stack_shadow_eval_age_seconds > 3 * 3600
+        for: 20m
+        labels:
+          severity: warning
+        annotations:
+          summary: Edge Stack shadow evaluation is stale
+          description: Shadow status age is >3h. Eval job/timer might be stuck.
+
+      - alert: EdgeStackCandidateDegradesBrier
+        expr: edge_stack_shadow_metric_brier{model="challenger",kind="cal"} - edge_stack_shadow_metric_brier{model="champion",kind="cal"} > 0.01
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Edge Stack challenger calibration degrades (Brier)
+          description: Challenger Brier(cal) worse than champion by >0.01.
+
+      - alert: EdgeStackCandidateDegradesECE
+        expr: edge_stack_shadow_metric_ece{model="challenger",kind="cal"} - edge_stack_shadow_metric_ece{model="champion",kind="cal"} > 0.02
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Edge Stack challenger calibration degrades (ECE)
+          description: Challenger ECE(cal) worse than champion by >0.02.
+
+      - alert: EdgeStackPromotionRecommended
+        expr: edge_stack_shadow_promotion_decision == 1
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: Edge Stack promotion is recommended by guard
+          description: Guard conditions met. If auto-promote is disabled, promote manually.

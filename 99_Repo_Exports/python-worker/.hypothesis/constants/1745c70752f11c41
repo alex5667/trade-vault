@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/sparse/_compressed.py
+# hypothesis_version: 6.148.10
+
+['CF', '_diagonal', '_eldiv_', '_elmul_', '_ge_', '_gt_', '_has_sorted_indices', '_le_', '_lt_', '_matmat', '_matmat_maxnnz', '_matvec', '_matvecs', '_maximum_', '_minimum_', '_minus_', '_ne_', '_plus_', 'axis out of bounds', 'blocksize', 'cf', 'clip', 'column', 'i', 'inconsistent shapes', 'mergesort', 'row']

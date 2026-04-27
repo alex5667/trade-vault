@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/of_inputs_v3_circuit.py
+# hypothesis_version: 6.148.10
+
+[1000.0, 365, 1000, 3600, 10000, ',', '-', ':', '[^a-z0-9_]+', '_', '_+', 'cfg', 'cfg_ttl', 'cooldown', 'cooldown_ms', 'count', 'disabled_until_ms', 'dq_code', 'hard', 'hard_until_ms', 'manual_no_ttl', 'of_inputs_v3', 'of_inputs_v3_circuit', 'reason', 'src', 'symbol', 'trip_ts_ms', 'tripped', 'ts_ms', 'unknown', 'until_ms', 'window_ms', '{}']

@@ -1,0 +1,143 @@
+diff --git a/ml_analysis/tests/test_train_tools_v7_schema_smoke.py b/ml_analysis/tests/test_train_tools_v7_schema_smoke.py
+index 2bf7af4..fe28a19 100644
+--- a/ml_analysis/tests/test_train_tools_v7_schema_smoke.py
++++ b/ml_analysis/tests/test_train_tools_v7_schema_smoke.py
+@@ -47,10 +47,14 @@ def test_v7_schema_choices_help_smoke() -> None:
+     from ml_analysis.tools import build_edge_stack_dataset_from_redis as t_redis
+     from ml_analysis.tools import feature_selection_loop_v1 as t_fs
+     from ml_analysis.tools import train_edge_stack_v1_oof as t_train
++    from ml_analysis.tools import nightly_edge_stack_v1_train_bundle as t_bundle
++    from ml_analysis.tools import nightly_feature_selection_loop_bundle_v1 as t_fs_bundle
+ 
+     _expect_help_ok(t_build.main, takes_argv=False)
+     _expect_help_ok(t_redis.main, takes_argv=True)
+     _expect_help_ok(t_fs.main, takes_argv=True)
++    _expect_help_ok(t_bundle.main, takes_argv=True)
++    _expect_help_ok(t_fs_bundle.main, takes_argv=True)
+     with pytest.raises(SystemExit) as e:
+         # train tool exits via argparse on --help
+         t_train.main(["--help"])  # type: ignore
+diff --git a/ml_analysis/tools/nightly_edge_stack_v1_train_bundle.py b/ml_analysis/tools/nightly_edge_stack_v1_train_bundle.py
+index 490207d..ce0d7db 100644
+--- a/ml_analysis/tools/nightly_edge_stack_v1_train_bundle.py
++++ b/ml_analysis/tools/nightly_edge_stack_v1_train_bundle.py
+@@ -34,6 +34,11 @@ try:
+ except Exception:
+     redis = None  # type: ignore
+ 
++try:
++    from tools.schema_choices_v1 import schema_choices as _schema_choices, normalize_schema_ver as _norm_schema_ver  # type: ignore
++except Exception:
++    from ml_analysis.tools.schema_choices_v1 import schema_choices as _schema_choices, normalize_schema_ver as _norm_schema_ver  # type: ignore
++
+ from ml_analysis.tools.edge_stack_train_bundle_utils_p59 import (
+     atomic_copy,
+     atomic_write_json,
+@@ -114,7 +119,7 @@ def main(argv: Optional[list] = None) -> int:
+     ap.add_argument("--y_min_r", type=float, default=float(os.environ.get("Y_MIN_R", os.environ.get("EDGE_STACK_Y_MIN_R", "0.10"))))
+ 
+     # Feature schema / registry pinning
+-    ap.add_argument("--feature_schema_ver", default=os.environ.get("ML_EDGE_STACK_OOF_FEATURE_SCHEMA_VER", os.environ.get("ML_FEATURE_SCHEMA_VER", "v3")))
++    ap.add_argument("--feature_schema_ver", default=os.environ.get("ML_EDGE_STACK_OOF_FEATURE_SCHEMA_VER", os.environ.get("ML_FEATURE_SCHEMA_VER", "v3")), choices=_schema_choices(include_empty=True))
+     ap.add_argument("--scenario_prefix", default=os.environ.get("EDGE_STACK_SCENARIO_PREFIX", "bucket:"))
+     ap.add_argument("--include_time_onehot", type=int, default=int(os.environ.get("EDGE_STACK_INCLUDE_TIME_ONEHOT", "1")))
+     ap.add_argument("--strict_feature_cols", type=int, default=int(os.environ.get("ML_STRICT_FEATURE_COLS", "0")))
+@@ -144,6 +149,9 @@ def main(argv: Optional[list] = None) -> int:
+ 
+     args = ap.parse_args(argv)
+ 
++    feature_schema_ver = _norm_schema_ver(str(args.feature_schema_ver or "").strip())
++
++
+     run_id = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+     out_dir = os.path.abspath(str(args.out_dir))
+     run_dir = os.path.join(out_dir, "runs", run_id)
+@@ -186,7 +194,7 @@ def main(argv: Optional[list] = None) -> int:
+         "--out_report_json", dataset_report,
+         "--out_quarantine_jsonl", quarantine_jsonl,
+         "--emit_feature_cols_json", feature_cols_json,
+-        "--feature_schema_ver", str(args.feature_schema_ver or "").strip(),
++        "--feature_schema_ver", str(feature_schema_ver or "").strip(),
+         "--scenario_prefix", str(args.scenario_prefix),
+         "--include_time_onehot", str(int(args.include_time_onehot)),
+         "--strict_feature_cols", str(int(args.strict_feature_cols)),
+@@ -251,7 +259,7 @@ def main(argv: Optional[list] = None) -> int:
+         "--gbdt_learning_rate", str(args.gbdt_lr),
+         "--gbdt_max_iter", str(args.gbdt_max_iter),
+         "--calibrate", str(int(args.calibrate)),
+-        "--feature_schema_ver", str(args.feature_schema_ver or "").strip(),
++        "--feature_schema_ver", str(feature_schema_ver or "").strip(),
+         "--scenario_prefix", str(args.scenario_prefix),
+         "--include_time_onehot", str(int(args.include_time_onehot)),
+         "--require_feature_registry", "1",
+@@ -343,7 +351,7 @@ def main(argv: Optional[list] = None) -> int:
+         "oof_meta_ece": tv.ece,
+         "train_ok": 1 if tv.ok else 0,
+         "train_reason": tv.reason,
+-        "feature_schema_ver": str(args.feature_schema_ver or ""),
++        "feature_schema_ver": str(feature_schema_ver or ""),
+         "candidate_path": candidate_path,
+         "champion_path": champion_path if promoted else "",
+         "promote_applied": 1 if promoted else 0,
+diff --git a/ml_analysis/tools/nightly_feature_selection_loop_bundle_v1.py b/ml_analysis/tools/nightly_feature_selection_loop_bundle_v1.py
+index c010817..fe22c4c 100644
+--- a/ml_analysis/tools/nightly_feature_selection_loop_bundle_v1.py
++++ b/ml_analysis/tools/nightly_feature_selection_loop_bundle_v1.py
+@@ -35,6 +35,12 @@ from typing import Any, Dict, Optional, Tuple
+ 
+ from ml_analysis.tools.edge_stack_train_bundle_utils_p59 import atomic_write_json, now_ms, write_train_metrics
+ 
++try:
++    from tools.schema_choices_v1 import schema_choices as _schema_choices, normalize_schema_ver as _norm_schema_ver  # type: ignore
++except Exception:
++    from ml_analysis.tools.schema_choices_v1 import schema_choices as _schema_choices, normalize_schema_ver as _norm_schema_ver  # type: ignore
++
++
+ 
+ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+ logger = logging.getLogger("nightly_feature_selection_loop_bundle_v1")
+@@ -110,6 +116,7 @@ def main(argv: Optional[list] = None) -> int:
+     ap.add_argument(
+         "--feature_schema_ver",
+         default=os.environ.get("FEATURE_SELECTION_LOOP_SCHEMA_VER", os.environ.get("ML_FEATURE_SCHEMA_VER", "v5_of")),
++        choices=_schema_choices(include_empty=True),
+     )
+     ap.add_argument("--scenario_prefix", default=os.environ.get("EDGE_STACK_SCENARIO_PREFIX", "bucket:"))
+     ap.add_argument("--include_time_onehot", type=int, default=int(os.environ.get("EDGE_STACK_INCLUDE_TIME_ONEHOT", "1")))
+@@ -125,6 +132,9 @@ def main(argv: Optional[list] = None) -> int:
+ 
+     args = ap.parse_args(argv)
+ 
++    feature_schema_ver = _norm_schema_ver(str(args.feature_schema_ver or "").strip())
++
++
+     run_id = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+     out_dir = os.path.abspath(str(args.out_dir))
+     run_dir = os.path.join(out_dir, "runs", run_id)
+@@ -170,7 +180,7 @@ def main(argv: Optional[list] = None) -> int:
+         "--emit_feature_cols_json",
+         feature_cols_json,
+         "--feature_schema_ver",
+-        str(args.feature_schema_ver or "").strip(),
++        str(feature_schema_ver or "").strip(),
+         "--scenario_prefix",
+         str(args.scenario_prefix),
+         "--include_time_onehot",
+@@ -215,7 +225,7 @@ def main(argv: Optional[list] = None) -> int:
+         "--data_path",
+         dataset_jsonl,
+         "--schema_ver",
+-        str(args.feature_schema_ver),
++        str(feature_schema_ver),
+         "--out_dir",
+         fs_dir,
+         "--model",
+@@ -256,7 +266,7 @@ def main(argv: Optional[list] = None) -> int:
+         "run_id": run_id,
+         "exit_code": 0,
+         "updated_ts_ms": now_ms(),
+-        "schema_ver": str(summary.get("schema_ver") or str(args.feature_schema_ver)),
++        "schema_ver": str(summary.get("schema_ver") or str(feature_schema_ver)),
+         "schema_hash": str(summary.get("schema_hash") or ""),
+         "n_rows": int(summary.get("n_rows", 0) or 0),
+         "n_features": int(summary.get("n_features", 0) or 0),

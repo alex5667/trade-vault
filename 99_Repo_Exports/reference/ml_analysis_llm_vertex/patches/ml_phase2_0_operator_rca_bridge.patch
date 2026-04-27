@@ -1,0 +1,670 @@
+diff --git a/orderflow_services/incident_bundle_to_vertex_bridge_v1.py b/orderflow_services/incident_bundle_to_vertex_bridge_v1.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/incident_bundle_to_vertex_bridge_v1.py
+@@ -0,0 +1,416 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Tuple
++
++try:
++    import redis.asyncio as redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++from prometheus_client import Counter, Gauge, Histogram, start_http_server
++
++
++INCIDENT_BUNDLE_STREAM = os.getenv("ML_INCIDENT_BUNDLE_STREAM", "stream:ml:incident_bundle_results")
++RCA_REQUEST_STREAM = os.getenv("ML_OPERATOR_RCA_REQUEST_STREAM", "stream:ml:operator_rca_requests")
++STATE_KEY = os.getenv("ML_OPERATOR_RCA_BRIDGE_STATE_KEY", "metrics:ml:operator_rca_bridge:last")
++GROUP = os.getenv("ML_OPERATOR_RCA_BRIDGE_GROUP", "cg:ml_operator_rca_bridge_v1")
++CONSUMER = os.getenv("ML_OPERATOR_RCA_BRIDGE_CONSUMER", "ml-operator-rca-bridge-v1")
++PROM_PORT = int(os.getenv("ML_OPERATOR_RCA_BRIDGE_PORT", "9868"))
++
++RUNS = Counter("ml_operator_rca_bridge_runs_total", "Bridge loop runs")
++REQUESTS = Counter("ml_operator_rca_bridge_requests_total", "RCA requests built", ["severity"])
++SKIPPED = Counter("ml_operator_rca_bridge_skipped_total", "Skipped bundles", ["reason"])
++LAST_RUN_TS = Gauge("ml_operator_rca_bridge_last_run_ts_seconds", "Last successful bridge loop timestamp")
++QUEUE_LAG_MS = Gauge("ml_operator_rca_bridge_queue_lag_ms", "Approximate queue lag in ms")
++LOOP_SECONDS = Histogram("ml_operator_rca_bridge_loop_seconds", "Bridge loop latency")
++
++
++def _b2s(v: Any) -> str:
++    if isinstance(v, bytes):
++        return v.decode("utf-8", errors="replace")
++    return str(v)
++
++
++def _loads_maybe(v: Any, default: Any) -> Any:
++    if v in (None, "", b""):
++        return default
++    try:
++        return json.loads(_b2s(v))
++    except Exception:
++        return default
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++@dataclass
++class IncidentBundle:
++    recommendation_id: str
++    ts_ms: int
++    model_id: str
++    family: str
++    severity: str
++    primary_reason_codes: List[str]
++    summary: str
++    snapshot_before: Dict[str, Any]
++    snapshot_after: Dict[str, Any]
++    snapshot_diff: Dict[str, Any]
++    timeline: List[Dict[str, Any]]
++
++
++def parse_bundle(fields: Dict[Any, Any]) -> IncidentBundle:
++    d = {_b2s(k): v for k, v in fields.items()}
++    return IncidentBundle(
++        recommendation_id=_b2s(d.get("recommendation_id", "")),
++        ts_ms=int(_b2s(d.get("ts_ms", "0")) or "0"),
++        model_id=_b2s(d.get("model_id", "")),
++        family=_b2s(d.get("family", "")),
++        severity=_b2s(d.get("severity", "warning")) or "warning",
++        primary_reason_codes=_loads_maybe(d.get("primary_reason_codes_json"), []),
++        summary=_b2s(d.get("summary", "")),
++        snapshot_before=_loads_maybe(d.get("snapshot_before_json"), {}),
++        snapshot_after=_loads_maybe(d.get("snapshot_after_json"), {}),
++        snapshot_diff=_loads_maybe(d.get("snapshot_diff_json"), {}),
++        timeline=_loads_maybe(d.get("timeline_json"), []),
++    )
++
++
++def should_bridge(bundle: IncidentBundle) -> Tuple[bool, str]:
++    if not bundle.recommendation_id:
++        return False, "missing_recommendation_id"
++    if bundle.severity.lower() not in {"warning", "critical"}:
++        return False, "severity_below_threshold"
++    if not bundle.model_id:
++        return False, "missing_model_id"
++    if not bundle.timeline:
++        return False, "missing_timeline"
++    return True, "ok"
++
++
++def _top_diff_items(snapshot_diff: Dict[str, Any], limit: int) -> List[Dict[str, Any]]:
++    items: List[Dict[str, Any]] = []
++    if not isinstance(snapshot_diff, dict):
++        return items
++    for k, v in snapshot_diff.items():
++        if isinstance(v, dict):
++            item = {"field": k}
++            item.update(v)
++            items.append(item)
++        else:
++            items.append({"field": k, "value": v})
++
++    def _key(x: Dict[str, Any]) -> Tuple[float, str]:
++        dv = x.get("delta")
++        try:
++            score = abs(float(dv))
++        except Exception:
++            score = -1.0
++        return (-score, str(x.get("field", "")))
++
++    items.sort(key=_key)
++    return items[:limit]
++
++
++def build_rca_input_pack(bundle: IncidentBundle, *, prompt_version: str, policy_version: str, diff_limit: int = 12) -> Dict[str, Any]:
++    compact_timeline = []
++    for item in bundle.timeline[:50]:
++        if not isinstance(item, dict):
++            continue
++        compact_timeline.append(
++            {
++                "ts_ms": item.get("ts_ms"),
++                "event": item.get("event"),
++                "state": item.get("state"),
++                "reason_codes": item.get("reason_codes"),
++                "status": item.get("status"),
++            }
++        )
++    return {
++        "schema_version": 1,
++        "task_type": "incident_rca",
++        "prompt_version": prompt_version,
++        "policy_version": policy_version,
++        "recommendation_id": bundle.recommendation_id,
++        "model_id": bundle.model_id,
++        "family": bundle.family,
++        "severity": bundle.severity,
++        "summary": bundle.summary,
++        "primary_reason_codes": bundle.primary_reason_codes,
++        "top_snapshot_diff": _top_diff_items(bundle.snapshot_diff, diff_limit),
++        "snapshot_before": bundle.snapshot_before,
++        "snapshot_after": bundle.snapshot_after,
++        "timeline": compact_timeline,
++        "instructions": {
++            "response_format": "json_only",
++            "advisory_only": True,
++            "no_auto_apply": True,
++            "allowed_actions": [
++                "require_shadow_retrain",
++                "freeze_candidate",
++                "unfreeze_candidate",
++                "request_calibration_refresh",
++                "propose_threshold_canary",
++                "open_incident",
++                "draft_postmortem",
++            ],
++        },
++    }
++
++
++async def _ensure_group(r: Any) -> None:
++    try:
++        await r.xgroup_create(INCIDENT_BUNDLE_STREAM, GROUP, id="0", mkstream=True)
++    except Exception:
++        pass
++
++
++async def run_forever() -> None:
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PROM_PORT)
++    prompt_version = os.getenv("ML_OPERATOR_RCA_PROMPT_VERSION", "incident_rca_v1")
++    policy_version = os.getenv("ML_OPERATOR_RCA_POLICY_VERSION", "policy_v1")
++    block_ms = int(os.getenv("ML_OPERATOR_RCA_BRIDGE_BLOCK_MS", "5000"))
++    count = int(os.getenv("ML_OPERATOR_RCA_BRIDGE_READ_COUNT", "32"))
++    diff_limit = int(os.getenv("ML_OPERATOR_RCA_DIFF_LIMIT", "12"))
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=False)
++    await _ensure_group(r)
++
++    while True:
++        t0 = time.perf_counter()
++        rows = await r.xreadgroup(GROUP, CONSUMER, {INCIDENT_BUNDLE_STREAM: ">"}, count=count, block=block_ms)
++        RUNS.inc()
++        for _stream, messages in rows:
++            for msg_id, fields in messages:
++                bundle = parse_bundle(fields)
++                ok, reason = should_bridge(bundle)
++                if not ok:
++                    SKIPPED.labels(reason=reason).inc()
++                    await r.xack(INCIDENT_BUNDLE_STREAM, GROUP, msg_id)
++                    continue
++                req = build_rca_input_pack(bundle, prompt_version=prompt_version, policy_version=policy_version, diff_limit=diff_limit)
++                payload = {
++                    "schema_version": 1,
++                    "request_id": f"{bundle.recommendation_id}:{bundle.ts_ms}",
++                    "ts_ms": _now_ms(),
++                    "task_type": "incident_rca",
++                    "priority": "high" if bundle.severity.lower() == "critical" else "normal",
++                    "recommendation_id": bundle.recommendation_id,
++                    "model_id": bundle.model_id,
++                    "family": bundle.family,
++                    "severity": bundle.severity,
++                    "prompt_version": prompt_version,
++                    "policy_version": policy_version,
++                    "input_pack_json": json.dumps(req, separators=(",", ":"), sort_keys=True),
++                }
++                await r.xadd(RCA_REQUEST_STREAM, payload, maxlen=100000, approximate=True)
++                await r.hset(
++                    STATE_KEY,
++                    mapping={
++                        "last_request_id": payload["request_id"],
++                        "last_recommendation_id": bundle.recommendation_id,
++                        "last_model_id": bundle.model_id,
++                        "last_ts_ms": str(payload["ts_ms"]),
++                        "last_prompt_version": prompt_version,
++                        "last_policy_version": policy_version,
++                    },
++                )
++                REQUESTS.labels(severity=bundle.severity.lower()).inc()
++                try:
++                    QUEUE_LAG_MS.set(max(0, _now_ms() - bundle.ts_ms))
++                except Exception:
++                    pass
++                await r.xack(INCIDENT_BUNDLE_STREAM, GROUP, msg_id)
++        LAST_RUN_TS.set(time.time())
++        LOOP_SECONDS.observe(time.perf_counter() - t0)
++
++
++if __name__ == "__main__":  # pragma: no cover
++    import asyncio
++    asyncio.run(run_forever())
+diff --git a/orderflow_services/providers/vertex_incident_rca_provider_v2_0.py b/orderflow_services/providers/vertex_incident_rca_provider_v2_0.py
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/orderflow_services/providers/vertex_incident_rca_provider_v2_0.py
+@@ -0,0 +1,99 @@
++from __future__ import annotations
++
++import json
++import os
++from dataclasses import dataclass
++from typing import Any, Dict
++
++
++@dataclass
++class IncidentRCAResponse:
++    status: str
++    provider: str
++    model_name: str
++    latency_ms: int
++    output_json: Dict[str, Any]
++    estimated_cost_usd: float
++
++
++class VertexIncidentRCAProviderV20:
++    def __init__(self) -> None:
++        self.project_id = os.getenv("VERTEX_PROJECT_ID", "")
++        self.location = os.getenv("VERTEX_LOCATION", "global")
++        self.model_name = os.getenv("VERTEX_RCA_MODEL", "gemini-2.5-flash")
++        self.timeout_ms = int(os.getenv("VERTEX_RCA_TIMEOUT_MS", "45000"))
++        self.dry_run = int(os.getenv("VERTEX_RCA_DRY_RUN", "0")) == 1
++
++    def _build_prompt(self, payload: Dict[str, Any]) -> str:
++        instruction = {
++            "role": "system",
++            "content": (
++                "You are an incident RCA assistant for ML control plane. "
++                "Return JSON only. "
++                "Do not recommend actions outside the allowed_actions list. "
++                "Never suggest auto-apply. "
++                "Be concise and evidence-based."
++            ),
++        }
++        user = {
++            "role": "user",
++            "content": json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
++        }
++        return json.dumps({"messages": [instruction, user]}, ensure_ascii=False, separators=(",", ":"))
++
++    def _dry_run_response(self, payload: Dict[str, Any]) -> IncidentRCAResponse:
++        rid = payload.get("recommendation_id", "unknown")
++        model_id = payload.get("model_id", "unknown")
++        reasons = payload.get("primary_reason_codes", []) or []
++        severity = payload.get("severity", "warning")
++        output = {
++            "schema_version": 1,
++            "analysis_run_id": f"dryrun:{rid}",
++            "status": "ok",
++            "summary": f"Dry-run RCA for {model_id}",
++            "findings": [
++                {"kind": "incident_bundle_rca", "target": model_id, "confidence": 0.5, "evidence": reasons[:5]}
++            ],
++            "recommendations": [
++                {
++                    "action": "open_incident" if severity == "critical" else "draft_postmortem",
++                    "target": model_id,
++                    "risk": "low",
++                    "reason_code": reasons[0] if reasons else "UNKNOWN",
++                }
++            ],
++        }
++        return IncidentRCAResponse(status="ok", provider="vertex", model_name=self.model_name, latency_ms=0, output_json=output, estimated_cost_usd=0.0)
++
++    def analyze(self, payload: Dict[str, Any]) -> IncidentRCAResponse:
++        if self.dry_run:
++            return self._dry_run_response(payload)
++
++        from google import genai  # type: ignore
++        from google.genai import types  # type: ignore
++        import time
++
++        client = genai.Client(vertexai=True, project=self.project_id, location=self.location)
++        prompt = self._build_prompt(payload)
++        t0 = time.perf_counter()
++        resp = client.models.generate_content(
++            model=self.model_name,
++            contents=prompt,
++            config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.1, max_output_tokens=2048),
++        )
++        latency_ms = int((time.perf_counter() - t0) * 1000)
++        text = getattr(resp, "text", "") or "{}"
++        output = json.loads(text)
++        return IncidentRCAResponse(status="ok", provider="vertex", model_name=self.model_name, latency_ms=latency_ms, output_json=output, estimated_cost_usd=0.0)
+diff --git a/orderflow_services/ml_operator_rca_orchestrator_v2_0.py b/orderflow_services/ml_operator_rca_orchestrator_v2_0.py
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/orderflow_services/ml_operator_rca_orchestrator_v2_0.py
+@@ -0,0 +1,194 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from typing import Any, Dict, Tuple
++
++try:
++    import redis.asyncio as redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++from prometheus_client import Counter, Gauge, Histogram, start_http_server
++
++from orderflow_services.providers.vertex_incident_rca_provider_v2_0 import VertexIncidentRCAProviderV20
++
++
++REQUEST_STREAM = os.getenv("ML_OPERATOR_RCA_REQUEST_STREAM", "stream:ml:operator_rca_requests")
++RESULTS_STREAM = os.getenv("ML_OPERATOR_RCA_RESULTS_STREAM", "stream:ml:operator_rca_results")
++PROPOSALS_STREAM = os.getenv("ML_OPERATOR_RCA_PROPOSALS_STREAM", "stream:ml:recommendation_proposals")
++DLQ_STREAM = os.getenv("ML_OPERATOR_RCA_DLQ_STREAM", "stream:ml:operator_rca_dlq")
++AUDIT_STREAM = os.getenv("ML_OPERATOR_RCA_AUDIT_STREAM", "stream:ml:recommendation_audit")
++STATE_KEY = os.getenv("ML_OPERATOR_RCA_ORCH_STATE_KEY", "metrics:ml:operator_rca:last")
++GROUP = os.getenv("ML_OPERATOR_RCA_GROUP", "cg:ml_operator_rca_orchestrator_v2_0")
++CONSUMER = os.getenv("ML_OPERATOR_RCA_CONSUMER", "ml-operator-rca-v2-0")
++PROM_PORT = int(os.getenv("ML_OPERATOR_RCA_PORT", "9869"))
++
++RUNS = Counter("ml_operator_rca_runs_total", "Operator RCA orchestrator loops")
++REQUESTS = Counter("ml_operator_rca_requests_total", "Operator RCA requests processed", ["status"])
++LATENCY = Histogram("ml_operator_rca_latency_seconds", "Vertex RCA latency seconds")
++LAST_RUN_TS = Gauge("ml_operator_rca_last_run_ts_seconds", "Last run ts")
++QUEUE_LAG_MS = Gauge("ml_operator_rca_queue_lag_ms", "Approximate request queue lag")
++
++
++def _b2s(v: Any) -> str:
++    if isinstance(v, bytes):
++        return v.decode("utf-8", errors="replace")
++    return str(v)
++
++
++def _loads(v: Any, default: Any) -> Any:
++    try:
++        if v in (None, "", b""):
++            return default
++        return json.loads(_b2s(v))
++    except Exception:
++        return default
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _validate_output(output: Dict[str, Any]) -> Tuple[bool, str]:
++    if not isinstance(output, dict):
++        return False, "output_not_object"
++    if not isinstance(output.get("findings", []), list):
++        return False, "findings_not_list"
++    recs = output.get("recommendations", [])
++    if not isinstance(recs, list):
++        return False, "recommendations_not_list"
++    return True, "ok"
++
++
++def _normalize_proposal(recommendation_id: str, output: Dict[str, Any]) -> Dict[str, Any]:
++    recs = output.get("recommendations", [])
++    first = recs[0] if recs else {}
++    return {
++        "schema_version": 1,
++        "recommendation_id": recommendation_id,
++        "ts_ms": _now_ms(),
++        "source": "operator_rca_v2_0",
++        "risk_level": str(first.get("risk", "low")),
++        "action_type": str(first.get("action", "draft_postmortem")),
++        "target_kind": "model",
++        "target_ref": str(first.get("target", "")),
++        "recommendation_json": json.dumps(output, separators=(",", ":"), sort_keys=True),
++        "apply_status": "PENDING",
++    }
++
++
++async def _ensure_group(r: Any) -> None:
++    try:
++        await r.xgroup_create(REQUEST_STREAM, GROUP, id="0", mkstream=True)
++    except Exception:
++        pass
++
++
++async def run_forever() -> None:
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PROM_PORT)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=False)
++    await _ensure_group(r)
++    provider = VertexIncidentRCAProviderV20()
++    block_ms = int(os.getenv("ML_OPERATOR_RCA_BLOCK_MS", "5000"))
++    count = int(os.getenv("ML_OPERATOR_RCA_READ_COUNT", "16"))
++
++    while True:
++        rows = await r.xreadgroup(GROUP, CONSUMER, {REQUEST_STREAM: ">"}, count=count, block=block_ms)
++        RUNS.inc()
++        for _stream, messages in rows:
++            for msg_id, fields in messages:
++                ts_ms = int(_b2s(fields.get(b"ts_ms", b"0")) or "0")
++                try:
++                    QUEUE_LAG_MS.set(max(0, _now_ms() - ts_ms))
++                except Exception:
++                    pass
++                recommendation_id = _b2s(fields.get(b"recommendation_id", b""))
++                payload = _loads(fields.get(b"input_pack_json"), {})
++                if not payload:
++                    await r.xadd(DLQ_STREAM, {"reason": "missing_input_pack", "original_id": msg_id})
++                    REQUESTS.labels(status="dlq").inc()
++                    await r.xack(REQUEST_STREAM, GROUP, msg_id)
++                    continue
++                try:
++                    t0 = time.perf_counter()
++                    resp = provider.analyze(payload)
++                    LATENCY.observe(time.perf_counter() - t0)
++                    ok, reason = _validate_output(resp.output_json)
++                    if not ok:
++                        await r.xadd(DLQ_STREAM, {"reason": reason, "recommendation_id": recommendation_id, "output_json": json.dumps(resp.output_json, separators=(",", ":"), sort_keys=True)}, maxlen=20000, approximate=True)
++                        REQUESTS.labels(status="dlq").inc()
++                    else:
++                        result = {
++                            "schema_version": 1,
++                            "recommendation_id": recommendation_id,
++                            "ts_ms": _now_ms(),
++                            "provider": resp.provider,
++                            "model_name": resp.model_name,
++                            "status": resp.status,
++                            "latency_ms": resp.latency_ms,
++                            "estimated_cost_usd": resp.estimated_cost_usd,
++                            "output_json": json.dumps(resp.output_json, separators=(",", ":"), sort_keys=True),
++                        }
++                        await r.xadd(RESULTS_STREAM, result, maxlen=50000, approximate=True)
++                        await r.xadd(PROPOSALS_STREAM, _normalize_proposal(recommendation_id, resp.output_json), maxlen=100000, approximate=True)
++                        await r.xadd(AUDIT_STREAM, {"ts_ms": _now_ms(), "event": "OPERATOR_RCA_COMPLETED", "recommendation_id": recommendation_id, "provider": resp.provider, "model_name": resp.model_name, "status": resp.status}, maxlen=200000, approximate=True)
++                        await r.hset(STATE_KEY, mapping={"last_ts_ms": str(_now_ms()), "last_recommendation_id": recommendation_id, "last_provider": resp.provider, "last_model_name": resp.model_name, "last_status": resp.status})
++                        REQUESTS.labels(status="ok").inc()
++                except Exception as exc:
++                    await r.xadd(DLQ_STREAM, {"reason": "provider_exception", "recommendation_id": recommendation_id, "error": str(exc)[:500]}, maxlen=20000, approximate=True)
++                    REQUESTS.labels(status="error").inc()
++                await r.xack(REQUEST_STREAM, GROUP, msg_id)
++        LAST_RUN_TS.set(time.time())
++
++
++if __name__ == "__main__":  # pragma: no cover
++    import asyncio
++    asyncio.run(run_forever())
+diff --git a/orderflow_services/sql/ml_phase2_0_v1.sql b/orderflow_services/sql/ml_phase2_0_v1.sql
+new file mode 100644
+index 0000000..4444444
+--- /dev/null
++++ b/orderflow_services/sql/ml_phase2_0_v1.sql
+@@ -0,0 +1,26 @@
++CREATE TABLE IF NOT EXISTS llm_incident_rca_runs (
++  analysis_run_id         text PRIMARY KEY,
++  recommendation_id       text NOT NULL,
++  ts_ms                   bigint NOT NULL,
++  provider                text NOT NULL,
++  model_name              text NOT NULL,
++  prompt_version          text,
++  policy_version          text,
++  status                  text NOT NULL,
++  latency_ms              bigint,
++  estimated_cost_usd      double precision,
++  output_json             jsonb NOT NULL
++);
++
++CREATE INDEX IF NOT EXISTS idx_llm_incident_rca_runs_rec_ts
++  ON llm_incident_rca_runs (recommendation_id, ts_ms DESC);
++
++CREATE TABLE IF NOT EXISTS llm_incident_rca_results (
++  recommendation_id       text PRIMARY KEY,
++  latest_analysis_run_id  text NOT NULL,
++  latest_ts_ms            bigint NOT NULL,
++  provider                text NOT NULL,
++  model_name              text NOT NULL,
++  severity                text,
++  summary                 text,
++  result_json             jsonb NOT NULL
++);
+diff --git a/orderflow_services/docker_compose_fragment_ml_phase2_0_v1.yml b/orderflow_services/docker_compose_fragment_ml_phase2_0_v1.yml
+new file mode 100644
+index 0000000..5555555
+--- /dev/null
++++ b/orderflow_services/docker_compose_fragment_ml_phase2_0_v1.yml
+@@ -0,0 +1,28 @@
++services:
++  scanner-ml-incident-bundle-to-vertex-bridge-v1:
++    build:
++      context: .
++    command: ["python", "-m", "orderflow_services.incident_bundle_to_vertex_bridge_v1"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL}
++      ML_OPERATOR_RCA_BRIDGE_PORT: 9868
++      ML_OPERATOR_RCA_PROMPT_VERSION: incident_rca_v1
++      ML_OPERATOR_RCA_POLICY_VERSION: policy_v1
++    ports: ["9868:9868"]
++
++  scanner-ml-operator-rca-v2-0:
++    build:
++      context: .
++    command: ["python", "-m", "orderflow_services.ml_operator_rca_orchestrator_v2_0"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL}
++      DATABASE_URL: ${DATABASE_URL:-}
++      VERTEX_PROJECT_ID: ${VERTEX_PROJECT_ID}
++      VERTEX_LOCATION: ${VERTEX_LOCATION:-global}
++      VERTEX_RCA_MODEL: ${VERTEX_RCA_MODEL:-gemini-2.5-flash}
++      VERTEX_RCA_DRY_RUN: ${VERTEX_RCA_DRY_RUN:-1}
++      ML_OPERATOR_RCA_PORT: 9869
++    ports: ["9869:9869"]
+diff --git a/orderflow_services/prometheus_alerts_ml_phase2_0_v1.yml b/orderflow_services/prometheus_alerts_ml_phase2_0_v1.yml
+new file mode 100644
+index 0000000..6666666
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_ml_phase2_0_v1.yml
+@@ -0,0 +1,24 @@
++groups:
++  - name: ml-phase2-0-operator-rca
++    rules:
++      - alert: MLOperatorRCABridgeStale
++        expr: time() - ml_operator_rca_bridge_last_run_ts_seconds > 900
++        for: 10m
++        labels: {severity: warning}
++        annotations: {summary: "ML operator RCA bridge stale"}
++
++      - alert: MLOperatorRCAOrchestratorStale
++        expr: time() - ml_operator_rca_last_run_ts_seconds > 900
++        for: 10m
++        labels: {severity: warning}
++        annotations: {summary: "ML operator RCA orchestrator stale"}
++
++      - alert: MLOperatorRCAQueueLagHigh
++        expr: ml_operator_rca_queue_lag_ms > 300000
++        for: 10m
++        labels: {severity: warning}
++        annotations: {summary: "ML operator RCA queue lag high"}
+diff --git a/orderflow_services/runbook_ml_phase2_0_v1.md b/orderflow_services/runbook_ml_phase2_0_v1.md
+new file mode 100644
+index 0000000..7777777
+--- /dev/null
++++ b/orderflow_services/runbook_ml_phase2_0_v1.md
+@@ -0,0 +1,28 @@
++# ML Phase 2.0 — Operator RCA Pack to Vertex Bridge
++
++## Scope
++- scanner_infra only
++- advisory-only
++- no auto-apply
++- hot path untouched
++
++## Streams
++- input: `stream:ml:incident_bundle_results`
++- request: `stream:ml:operator_rca_requests`
++- result: `stream:ml:operator_rca_results`
++- proposals: `stream:ml:recommendation_proposals`
++- dlq: `stream:ml:operator_rca_dlq`
++
++## Rollout
++1. Apply SQL patch.
++2. Start bridge service.
++3. Start orchestrator in `VERTEX_RCA_DRY_RUN=1`.
++4. Verify request/result/proposals streams.
++5. Switch to real Vertex provider only after smoke validation.
++
++## Smoke checks
++```bash
++redis-cli XREVRANGE stream:ml:incident_bundle_results + - COUNT 3
++redis-cli XREVRANGE stream:ml:operator_rca_requests + - COUNT 3
++redis-cli XREVRANGE stream:ml:operator_rca_results + - COUNT 3
++redis-cli XREVRANGE stream:ml:recommendation_proposals + - COUNT 3
++```
+diff --git a/orderflow_services/tests/test_incident_bundle_to_vertex_bridge_v1.py b/orderflow_services/tests/test_incident_bundle_to_vertex_bridge_v1.py
+new file mode 100644
+index 0000000..8888888
+--- /dev/null
++++ b/orderflow_services/tests/test_incident_bundle_to_vertex_bridge_v1.py
+@@ -0,0 +1,44 @@
++from orderflow_services.incident_bundle_to_vertex_bridge_v1 import IncidentBundle, build_rca_input_pack, should_bridge
++
++
++def _bundle(**overrides):
++    base = IncidentBundle(
++        recommendation_id="rec-1",
++        ts_ms=1710000000000,
++        model_id="edge_stack_v1:champion",
++        family="edge_stack_v1",
++        severity="critical",
++        primary_reason_codes=["LATENCY_P95_REGRESSION", "ERROR_RATE_SPIKE"],
++        summary="regression after commit",
++        snapshot_before={"latency_p95_max_ms": 2.1},
++        snapshot_after={"latency_p95_max_ms": 6.8},
++        snapshot_diff={
++            "latency_p95_max_ms": {"before": 2.1, "after": 6.8, "delta": 4.7},
++            "error_rate_max": {"before": 0.01, "after": 0.08, "delta": 0.07},
++        },
++        timeline=[{"ts_ms": 1, "event": "APPLY", "state": "EXECUTED"}],
++    )
++    for k, v in overrides.items():
++        setattr(base, k, v)
++    return base
++
++
++def test_should_bridge_for_critical_bundle():
++    ok, reason = should_bridge(_bundle())
++    assert ok is True
++    assert reason == "ok"
++
++
++def test_should_skip_low_severity():
++    ok, reason = should_bridge(_bundle(severity="info"))
++    assert ok is False
++    assert reason == "severity_below_threshold"
++
++
++def test_build_rca_input_pack_is_deterministic_and_compact():
++    bundle = _bundle()
++    pack = build_rca_input_pack(bundle, prompt_version="pv1", policy_version="pol1", diff_limit=1)
++    assert pack["task_type"] == "incident_rca"
++    assert pack["prompt_version"] == "pv1"
++    assert pack["policy_version"] == "pol1"
++    assert len(pack["top_snapshot_diff"]) == 1
++    assert pack["timeline"][0]["event"] == "APPLY"
++    assert pack["instructions"]["advisory_only"] is True
++PATCH

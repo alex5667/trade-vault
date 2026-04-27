@@ -1,0 +1,17 @@
+groups:
+  - name: latency-contract-p414-warning-policy-binding
+    rules:
+      - alert: LatencyContractDeployLintApprovalRouteBindingMismatch
+        expr: latency_contract_deploy_lint_summary_dual_control_route_binding_mismatch_total > 0
+        for: 10m
+        labels: {severity: warn}
+        annotations:
+          summary: "Deploy-lint approval route binding mismatch"
+          description: "A dual-control approval no longer matches warning policy or notifier route class."
+      - alert: LatencyContractDeployLintApprovalNotifierRoutePageDrift
+        expr: latency_contract_deploy_lint_silence_approval_notifier_route_class_match == 0
+        for: 5m
+        labels: {severity: crit}
+        annotations:
+          summary: "Deploy-lint notifier route class changed after approval"
+          description: "The approval was prepared for a different notifier route class than the current drift state."

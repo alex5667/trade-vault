@@ -1,0 +1,589 @@
+diff --git a/services/binance_executor.py b/services/binance_executor.py
+index 86ea166..9d7e253 100644
+--- a/services/binance_executor.py
++++ b/services/binance_executor.py
+@@ -1166,6 +1166,42 @@ class BinanceExecutor:
+                 continue
+         return {}
+ 
++    def _normalize_user_stream_plain_order(self, event_doc: Dict[str, Any]) -> Dict[str, Any]:
++        order = dict((event_doc or {}).get("order") or event_doc or {})
++        if not isinstance(order, dict):
++            return {}
++        if order.get("orderId") in (None, "") and order.get("i") not in (None, ""):
++            order["orderId"] = order.get("i")
++        if order.get("clientOrderId") in (None, "") and order.get("c") not in (None, ""):
++            order["clientOrderId"] = order.get("c")
++        if order.get("status") in (None, "") and order.get("X") not in (None, ""):
++            order["status"] = order.get("X")
++        if order.get("executedQty") in (None, "") and order.get("z") not in (None, ""):
++            order["executedQty"] = order.get("z")
++        if order.get("avgPrice") in (None, "") and order.get("ap") not in (None, ""):
++            order["avgPrice"] = order.get("ap")
++        if order.get("symbol") in (None, "") and order.get("s") not in (None, ""):
++            order["symbol"] = order.get("s")
++        if order.get("side") in (None, "") and order.get("S") not in (None, ""):
++            order["side"] = order.get("S")
++        if order.get("type") in (None, "") and order.get("o") not in (None, ""):
++            order["type"] = order.get("o")
++        return order
++
++    def _normalize_user_stream_algo_order(self, event_doc: Dict[str, Any]) -> Dict[str, Any]:
++        algo = dict((event_doc or {}).get("algo") or event_doc or {})
++        if not isinstance(algo, dict):
++            return {}
++        if algo.get("algoId") in (None, "") and algo.get("algoId") not in (None, ""):
++            algo["algoId"] = algo.get("algoId")
++        if algo.get("clientAlgoId") in (None, "") and algo.get("clientAlgoId") not in (None, ""):
++            algo["clientAlgoId"] = algo.get("clientAlgoId")
++        if algo.get("status") in (None, "") and algo.get("X") not in (None, ""):
++            algo["status"] = algo.get("X")
++        if algo.get("symbol") in (None, "") and algo.get("s") not in (None, ""):
++            algo["symbol"] = algo.get("s")
++        return algo
++
+     def _sync_client_clock_if_due(self, client: "BinanceFuturesClient") -> None:
+         now_ms = _ms_now()
+         if now_ms < self._next_time_sync_due_ms:
+@@ -1257,7 +1293,7 @@ class BinanceExecutor:
+                         BINANCE_ALGO_RECONCILE_TOTAL.labels(action=action, source="user_stream").inc()
+                 except Exception:
+                     pass
+-                return dict(event_doc.get("order") or event_doc)
++                return self._normalize_user_stream_plain_order(event_doc)
+             if client_id:
+                 q = client.query_plain_order(symbol, client_order_id=client_id)
+                 try:
+@@ -1283,7 +1319,7 @@ class BinanceExecutor:
+                         BINANCE_ALGO_RECONCILE_TOTAL.labels(action=action, source="user_stream").inc()
+                 except Exception:
+                     pass
+-                return dict(event_doc.get("algo") or event_doc)
++                return self._normalize_user_stream_algo_order(event_doc)
+             if client_algo_id:
+                 q = client.query_algo_order(symbol, client_algo_id=client_algo_id)
+                 try:
+diff --git a/services/testing/binance_mock_harness.py b/services/testing/binance_mock_harness.py
+index 704a4bd..fa55728 100644
+--- a/services/testing/binance_mock_harness.py
++++ b/services/testing/binance_mock_harness.py
+@@ -11,7 +11,7 @@ from contextlib import contextmanager
+ from dataclasses import dataclass, field
+ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ from threading import Lock, Thread
+-from typing import Any, Deque, Dict, Iterable, List, Optional, Tuple
++from typing import Any, Callable, Deque, Dict, Iterable, List, Optional, Tuple
+ import json
+ import time
+ import urllib.parse
+@@ -197,6 +197,8 @@ class MockBinanceState:
+         self.algo_order_by_client: Dict[str, int] = {}
+         self.order_scripts: Dict[str, Dict[str, Any]] = {}
+         self.algo_errors: Dict[str, Dict[str, Any]] = {}
++        self.http_faults: Dict[Tuple[str, str], Deque[Dict[str, Any]]] = defaultdict(deque)
++        self.user_stream_sinks: List[Callable[[str], None]] = []
+         self._lock = Lock()
+ 
+     def set_mark_price(self, symbol: str, price: float) -> None:
+@@ -228,10 +230,27 @@ class MockBinanceState:
+             out.append(self.user_stream_events.popleft())
+         return out
+ 
+-    def _emit_order_update(self, order: ScriptedOrder, execution_type: str) -> None:
++    def register_user_stream_sink(self, sink: Callable[[str], None]) -> None:
++        self.user_stream_sinks.append(sink)
++
++    def set_http_fault(self, method: str, path: str, *, status: int, payload: Dict[str, Any], repeat: int = 1) -> None:
++        key = (str(method or 'GET').upper(), str(path or '').split('?', 1)[0])
++        for _ in range(max(1, int(repeat))):
++            self.http_faults[key].append({"status": int(status), "payload": dict(payload)})
++
++    def _publish_user_stream_payload(self, payload: Dict[str, Any]) -> None:
++        raw = json.dumps(payload, ensure_ascii=False)
++        self.user_stream_events.append(raw)
++        for sink in list(self.user_stream_sinks):
++            try:
++                sink(raw)
++            except Exception:
++                continue
++
++    def _emit_order_update(self, order: ScriptedOrder, execution_type: str, *, event_time_ms: Optional[int] = None) -> None:
+         payload = {
+             "e": "ORDER_TRADE_UPDATE",
+-            "E": _ms_now(),
++            "E": int(event_time_ms or _ms_now()),
+             "o": {
+                 "s": order.symbol,
+                 "S": order.side,
+@@ -244,12 +263,12 @@ class MockBinanceState:
+                 "ap": f"{order.avg_price}",
+             },
+         }
+-        self.user_stream_events.append(json.dumps(payload, ensure_ascii=False))
++        self._publish_user_stream_payload(payload)
+ 
+-    def _emit_algo_update(self, algo: ScriptedAlgoOrder, execution_type: str) -> None:
++    def _emit_algo_update(self, algo: ScriptedAlgoOrder, execution_type: str, *, event_time_ms: Optional[int] = None) -> None:
+         payload = {
+             "e": "ALGO_UPDATE",
+-            "E": _ms_now(),
++            "E": int(event_time_ms or _ms_now()),
+             "ao": {
+                 "s": algo.symbol,
+                 "S": algo.side,
+@@ -259,7 +278,71 @@ class MockBinanceState:
+                 "clientAlgoId": algo.client_algo_id,
+             },
+         }
+-        self.user_stream_events.append(json.dumps(payload, ensure_ascii=False))
++        self._publish_user_stream_payload(payload)
++
++    def inject_plain_order_update(
++        self,
++        *,
++        client_order_id: Optional[str] = None,
++        order_id: Optional[int] = None,
++        status: str,
++        executed_qty: Optional[float] = None,
++        avg_price: Optional[float] = None,
++        execution_type: str = "TRADE",
++        event_time_ms: Optional[int] = None,
++    ) -> Dict[str, Any]:
++        order: Optional[ScriptedOrder] = None
++        if order_id is not None:
++            order = self.plain_orders.get(int(order_id))
++        elif client_order_id:
++            oid = self.plain_order_by_client.get(str(client_order_id))
++            order = self.plain_orders.get(int(oid or -1))
++        if order is None:
++            raise KeyError(f"unknown plain order: client_order_id={client_order_id} order_id={order_id}")
++        if executed_qty is not None:
++            order.executed_qty = float(executed_qty)
++        if avg_price is not None:
++            order.avg_price = float(avg_price)
++        order.status = str(status or order.status).upper()
++        delta = max(0.0, float(order.executed_qty) - float(order.applied_qty))
++        if delta > 0:
++            self._apply_position_delta(order.symbol, order.side, delta, order.reduce_only)
++            order.applied_qty += delta
++        self._emit_order_update(order, execution_type=execution_type, event_time_ms=event_time_ms)
++        return {
++            "symbol": order.symbol,
++            "orderId": order.order_id,
++            "clientOrderId": order.client_order_id,
++            "status": order.status,
++            "executedQty": f"{order.executed_qty}",
++            "avgPrice": f"{order.avg_price}",
++        }
++
++    def inject_algo_update(
++        self,
++        *,
++        client_algo_id: Optional[str] = None,
++        algo_id: Optional[int] = None,
++        status: str,
++        execution_type: str = "TRIGGERED",
++        event_time_ms: Optional[int] = None,
++    ) -> Dict[str, Any]:
++        algo: Optional[ScriptedAlgoOrder] = None
++        if algo_id is not None:
++            algo = self.algo_orders.get(int(algo_id))
++        elif client_algo_id:
++            aid = self.algo_order_by_client.get(str(client_algo_id))
++            algo = self.algo_orders.get(int(aid or -1))
++        if algo is None:
++            raise KeyError(f"unknown algo order: client_algo_id={client_algo_id} algo_id={algo_id}")
++        algo.status = str(status or algo.status).upper()
++        self._emit_algo_update(algo, execution_type=execution_type, event_time_ms=event_time_ms)
++        return {
++            "symbol": algo.symbol,
++            "algoId": algo.algo_id,
++            "clientAlgoId": algo.client_algo_id,
++            "status": algo.status,
++        }
+ 
+     def _record(self, method: str, path: str, params: Dict[str, Any]) -> None:
+         self.request_log.append({"method": method, "path": path, "params": dict(params)})
+@@ -402,6 +485,11 @@ class MockBinanceState:
+         path = path.split("?", 1)[0]
+         with self._lock:
+             self._record(method, path, params)
++            fault_key = (str(method or "GET").upper(), path)
++            fault_queue = self.http_faults.get(fault_key)
++            if fault_queue:
++                fault = fault_queue.popleft()
++                return self._json_response(handler, int(fault["status"]), fault["payload"])
+             if path == "/fapi/v1/ping":
+                 return self._json_response(handler, 200, {})
+             if path == "/fapi/v1/time":
+--- /dev/null	2026-03-07 15:54:47.751158847 +0000
++++ b/services/testing/binance_scenario_runner.py	2026-03-07 17:11:53.904897894 +0000
+@@ -0,0 +1,215 @@
++from __future__ import annotations
++
++"""Scenario runner on top of the deterministic Binance mock harness.
++
++The goal is to exercise executor + user-stream behaviour with scripted timelines
++instead of hand-written per-test glue. The runner intentionally keeps the API
++small and deterministic so replay/load-smoke tests can share the same helpers.
++"""
++
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional
++import json
++import time
++
++from services.binance_executor import BinanceExecutor
++from services.binance_futures_client import BinanceFuturesClient
++from services.binance_user_stream_worker import BinanceUserStreamWorker
++from services.testing.binance_mock_harness import InMemoryRedis
++
++
++@dataclass
++class ScenarioStepResult:
++    at: str
++    op: str
++    result: Dict[str, Any]
++    snapshot: Dict[str, Any]
++
++
++class BinanceScenarioRunner:
++    def __init__(self, *, mock_server: Any, redis_client: Optional[InMemoryRedis] = None, api_key: str = "k", api_secret: str = "s") -> None:
++        self.mock = mock_server
++        self.base_url = str(mock_server.base_url)
++        self.redis = redis_client if redis_client is not None else InMemoryRedis()
++        self.api_key = api_key
++        self.api_secret = api_secret
++        self.executor = self._new_executor()
++        self.worker = self._new_worker()
++        self._live_user_stream_bridge_enabled = False
++
++    def _new_client(self) -> BinanceFuturesClient:
++        return BinanceFuturesClient(
++            api_key=self.api_key,
++            api_secret=self.api_secret,
++            base_url=self.base_url,
++            timeout_s=1.0,
++            recv_window=3000,
++        )
++
++    def _new_executor(self) -> BinanceExecutor:
++        return BinanceExecutor(redis_client=self.redis, prod_client=self._new_client(), telegram_client=None)
++
++    def _new_worker(self) -> BinanceUserStreamWorker:
++        return BinanceUserStreamWorker(redis_client=self.redis, client=self._new_client())
++
++    def attach_live_user_stream_bridge(self) -> None:
++        if self._live_user_stream_bridge_enabled:
++            return
++
++        def _sink(raw: str) -> None:
++            try:
++                self.worker.handle_message(raw)
++            except Exception:
++                return
++
++        self.mock.state.register_user_stream_sink(_sink)
++        self._live_user_stream_bridge_enabled = True
++
++    def restart_executor(self) -> BinanceExecutor:
++        self.executor = self._new_executor()
++        return self.executor
++
++    def restart_worker(self) -> BinanceUserStreamWorker:
++        self.worker = self._new_worker()
++        return self.worker
++
++    def queue_raw(self, payload: Dict[str, Any], *, queue_key: str = "orders:queue:binance") -> None:
++        self.redis.lpush(queue_key, json.dumps(payload))
++
++    def enqueue_open_burst(self, *, sid_prefix: str, count: int, symbol: str = "BTCUSDT", side: str = "BUY", qty: float = 1.0, order_type: str = "MARKET", sl: Optional[float] = None, tp_levels: Optional[List[float]] = None) -> None:
++        for idx in range(int(count)):
++            payload: Dict[str, Any] = {
++                "action": "open",
++                "sid": f"{sid_prefix}-{idx}",
++                "symbol": symbol,
++                "side": side,
++                "qty": qty,
++                "type": order_type,
++            }
++            if sl is not None:
++                payload["sl"] = sl
++            if tp_levels is not None:
++                payload["tp_levels"] = list(tp_levels)
++            self.queue_raw(payload)
++
++    def run_executor_once(self, *, timeout: int = 0) -> bool:
++        return bool(self.executor.run_once(timeout=timeout))
++
++    def run_executor_until_idle(self, *, timeout: int = 0, max_items: int = 256) -> int:
++        processed = 0
++        while processed < int(max_items) and self.run_executor_once(timeout=timeout):
++            processed += 1
++        return processed
++
++    def drain_user_stream(self, *, limit: Optional[int] = None) -> int:
++        handled = 0
++        while True:
++            messages = self.mock.state.pop_user_stream_messages()
++            if not messages:
++                break
++            for raw in messages:
++                self.worker.handle_message(raw)
++                handled += 1
++                if limit is not None and handled >= int(limit):
++                    return handled
++        return handled
++
++    def set_mark_price(self, symbol: str, price: float) -> None:
++        self.mock.state.set_mark_price(symbol, price)
++
++    def set_contract_price(self, symbol: str, price: float) -> None:
++        self.mock.state.set_contract_price(symbol, price)
++
++    def set_http_fault(self, method: str, path: str, *, status: int, payload: Dict[str, Any], repeat: int = 1) -> None:
++        self.mock.state.set_http_fault(method, path, status=status, payload=payload, repeat=repeat)
++
++    def inject_order_update(self, **kwargs) -> Dict[str, Any]:
++        return self.mock.state.inject_plain_order_update(**kwargs)
++
++    def inject_algo_update(self, **kwargs) -> Dict[str, Any]:
++        return self.mock.state.inject_algo_update(**kwargs)
++
++    def sleep_ms(self, ms: int) -> None:
++        time.sleep(max(0, int(ms)) / 1000.0)
++
++    def exec_events(self, key: str = "orders:exec") -> List[Dict[str, str]]:
++        return [fields for _id, fields in self.redis.xrange(key)]
++
++    def user_stream_events(self, key: str = "orders:user_stream") -> List[Dict[str, str]]:
++        return [fields for _id, fields in self.redis.xrange(key)]
++
++    def snapshot(self, *, sid: Optional[str] = None, symbol: str = "BTCUSDT") -> Dict[str, Any]:
++        state_doc: Dict[str, Any] = {}
++        if sid:
++            raw = self.redis.get(f"orders:state:{sid}")
++            if raw:
++                try:
++                    state_doc = json.loads(raw)
++                except Exception:
++                    state_doc = {"_raw": raw}
++        return {
++            "sid": sid or "",
++            "state": state_doc,
++            "position_qty": float(self.mock.state.positions.get(str(symbol).upper(), 0.0)),
++            "exec_events": len(self.redis.xrange("orders:exec")),
++            "user_stream_events": len(self.redis.xrange("orders:user_stream")),
++            "request_count": len(self.mock.state.request_log),
++        }
++
++    def run_timeline(self, steps: List[Dict[str, Any]], *, sid: Optional[str] = None, symbol: str = "BTCUSDT") -> List[Dict[str, Any]]:
++        report: List[Dict[str, Any]] = []
++        for idx, step in enumerate(list(steps)):
++            op = str(step.get("op") or "").strip()
++            at = str(step.get("at") or f"step-{idx}")
++            result: Dict[str, Any]
++            if op == "queue_open" or op == "queue_raw":
++                payload = dict(step.get("payload") or {})
++                self.queue_raw(payload)
++                result = {"queued": True, "sid": payload.get("sid")}
++            elif op == "run_executor_once":
++                result = {"processed": self.run_executor_once(timeout=int(step.get("timeout", 0)))}
++            elif op == "run_executor_until_idle":
++                result = {"processed_count": self.run_executor_until_idle(timeout=int(step.get("timeout", 0)), max_items=int(step.get("max_items", 256)))}
++            elif op == "drain_user_stream":
++                result = {"handled": self.drain_user_stream(limit=step.get("limit"))}
++            elif op == "restart_executor":
++                self.restart_executor()
++                result = {"restarted": "executor"}
++            elif op == "restart_worker":
++                self.restart_worker()
++                result = {"restarted": "worker"}
++            elif op == "set_mark_price":
++                self.set_mark_price(str(step.get("symbol") or symbol), float(step["price"]))
++                result = {"mark_price": float(step["price"])}
++            elif op == "set_contract_price":
++                self.set_contract_price(str(step.get("symbol") or symbol), float(step["price"]))
++                result = {"contract_price": float(step["price"])}
++            elif op == "sleep_ms":
++                ms = int(step.get("ms") or 0)
++                self.sleep_ms(ms)
++                result = {"slept_ms": ms}
++            elif op == "inject_order_update":
++                result = self.inject_order_update(**{k: v for k, v in step.items() if k not in {"op", "at"}})
++            elif op == "inject_algo_update":
++                result = self.inject_algo_update(**{k: v for k, v in step.items() if k not in {"op", "at"}})
++            elif op == "http_fault":
++                self.set_http_fault(
++                    str(step.get("method") or "GET"),
++                    str(step.get("path") or ""),
++                    status=int(step.get("status") or 500),
++                    payload=dict(step.get("payload") or {"code": -1000, "msg": "fault"}),
++                    repeat=int(step.get("repeat") or 1),
++                )
++                result = {"fault_queued": True}
++            elif op == "attach_live_user_stream_bridge":
++                self.attach_live_user_stream_bridge()
++                result = {"live_user_stream_bridge": True}
++            else:
++                raise ValueError(f"unknown scenario op: {op}")
++            report.append({
++                "at": at,
++                "op": op,
++                "result": result,
++                "snapshot": self.snapshot(sid=sid, symbol=symbol),
++            })
++        return report
+--- /dev/null	2026-03-07 15:54:47.751158847 +0000
++++ b/services/tests/test_binance_scenario_runner_p63_v1.py	2026-03-07 17:16:22.428391359 +0000
+@@ -0,0 +1,150 @@
++import json
++
++from services.binance_executor import _make_cid
++from services.testing.binance_mock_harness import running_binance_mock
++from services.testing.binance_scenario_runner import BinanceScenarioRunner
++
++
++def _configure_env(monkeypatch, *, base_url: str, maker: bool = False, fill_timeout_s: str = "0.25") -> None:
++    values = {
++        "BINANCE_CLIENT_MODE": "real",
++        "BINANCE_FUTURES_BASE_URL": base_url,
++        "BINANCE_POSITION_MODE": "oneway",
++        "BINANCE_SYMBOL_ALLOWLIST": "BTCUSDT",
++        "BINANCE_INIT_SYMBOL_SETTINGS": "0",
++        "BINANCE_FILL_TIMEOUT_S": fill_timeout_s,
++        "BINANCE_FILL_POLL_S": "0.05",
++        "BINANCE_RECV_WINDOW_MS": "3000",
++        "PROTECTION_ARM_TIMEOUT_MS": "2500",
++        "TP_LIMIT_WATCHDOG_ENABLE": "1",
++        "TP_LIMIT_WATCHDOG_TIMEOUT_MS": "120",
++        "TP_TRIGGER_MONITOR_TIMEOUT_S": "1.0",
++        "BINANCE_TRAIL_ARM_POLL_S": "0.05",
++        "BINANCE_TRAIL_NOTIFY": "0",
++        "EXEC_RECONCILE_ENABLE": "1",
++        "EXEC_RECONCILE_ON_503_UNKNOWN": "1",
++        "EXEC_RECONCILE_PREFER_USER_STREAM": "1",
++        "EXEC_REHYDRATE_ON_STATE_MISS": "1",
++        "EXEC_JOURNAL_SQL_ENABLE": "0",
++        "EXECUTION_JOURNAL_DSN": "",
++        "EXECUTION_QUARANTINE_LEDGER_DSN": "",
++        "REDIS_URL": "redis://mock/0",
++        "EXEC_STREAM": "orders:exec",
++        "ORDERS_QUEUE_BINANCE": "orders:queue:binance",
++        "ORDERS_QUEUE_BINANCE_PROCESSING": "orders:queue:binance:processing",
++        "ORDERS_QUEUE_BINANCE_DLQ": "orders:queue:binance:dlq",
++        "USER_STREAM_STREAM": "orders:user_stream",
++        "USER_STREAM_CACHE_PREFIX": "orders:user_stream:",
++        "EXEC_POLICY_DEFAULT": "MAKER_FIRST" if maker else "SAFETY_FIRST",
++        "EXEC_POLICY_MAKER_ALLOWED_SYMBOLS": "BTCUSDT" if maker else "DO_NOT_USE",
++        "EXEC_FORCE_SAFETY_FIRST": "0" if maker else "1",
++    }
++    for k, v in values.items():
++        monkeypatch.setenv(k, v)
++
++
++def test_scripted_timeline_partial_restart_trigger_delayed_fill(monkeypatch):
++    with running_binance_mock() as mock:
++        _configure_env(monkeypatch, base_url=mock.base_url, maker=True, fill_timeout_s="0.12")
++        mock.state.set_mark_price("BTCUSDT", 100.0)
++        mock.state.set_contract_price("BTCUSDT", 99.0)
++        runner = BinanceScenarioRunner(mock_server=mock)
++        sid = "sid-timeline-1"
++        payload = {
++            "action": "open",
++            "sid": sid,
++            "symbol": "BTCUSDT",
++            "side": "BUY",
++            "qty": 1,
++            "type": "MARKET",
++            "sl": 95,
++            "tp_levels": [101],
++        }
++        mock.state.set_plain_order_script(
++            _make_cid(sid, "entry"),
++            query_sequence=[{"status": "PARTIALLY_FILLED", "executedQty": "0.4", "avgPrice": "100.0"}],
++        )
++
++        report = runner.run_timeline([
++            {"at": "t0", "op": "queue_open", "payload": payload},
++            {"at": "t0", "op": "run_executor_once"},
++            {"at": "t1", "op": "drain_user_stream"},
++            {"at": "t2", "op": "restart_executor"},
++            {"at": "t2", "op": "queue_raw", "payload": payload},
++            {"at": "t2", "op": "run_executor_once"},
++            {"at": "t2", "op": "drain_user_stream"},
++            {"at": "t3", "op": "set_mark_price", "symbol": "BTCUSDT", "price": 101.5},
++            {"at": "t4", "op": "sleep_ms", "ms": 350},
++            {"at": "t4", "op": "drain_user_stream"},
++        ], sid=sid, symbol="BTCUSDT")
++
++        partial_snapshot = next(item for item in report if item["at"] == "t1")
++        assert partial_snapshot["snapshot"]["state"]["status"] == "partially_filled"
++
++        exec_events = runner.exec_events()
++        assert any(ev.get("event_type") == "duplicate_prevented" and ev.get("sid") == sid for ev in exec_events)
++        tp_states = [ev.get("tp_state") for ev in exec_events if ev.get("event_type") == "tp_watchdog"]
++        assert "TP1_TRIGGERED" in tp_states
++        assert "TP1_WATCHDOG_MARKET_FALLBACK" in tp_states
++        assert abs(mock.state.positions["BTCUSDT"]) <= 1e-9
++
++
++def test_degraded_rest_with_live_user_stream_bridge_reconciles_without_query(monkeypatch):
++    with running_binance_mock() as mock:
++        _configure_env(monkeypatch, base_url=mock.base_url, maker=False)
++        runner = BinanceScenarioRunner(mock_server=mock)
++        sid = "sid-ws-reconcile-1"
++        payload = {
++            "action": "open",
++            "sid": sid,
++            "symbol": "BTCUSDT",
++            "side": "BUY",
++            "qty": 1,
++            "type": "MARKET",
++            "sl": 95,
++            "tp_levels": [110],
++        }
++        entry_cid = _make_cid(sid, "entry")
++        mock.state.set_plain_order_script(
++            entry_cid,
++            post_error={"status": 503, "payload": {"code": 0, "msg": "Unknown error, please check your request or try again later."}},
++            create_on_post_error=True,
++        )
++
++        report = runner.run_timeline([
++            {"at": "t0", "op": "attach_live_user_stream_bridge"},
++            {"at": "t0", "op": "queue_open", "payload": payload},
++            {"at": "t0", "op": "run_executor_once"},
++        ], sid=sid)
++
++        assert report[-1]["result"]["processed"] is True
++        reqs = mock.state.request_log
++        assert len([x for x in reqs if x["path"] == "/fapi/v1/order" and x["method"] == "POST"]) == 1
++        assert runner.redis.lrange("orders:queue:binance:dlq", 0, -1) == []
++        state_doc = json.loads(runner.redis.get(f"orders:state:{sid}"))
++        assert state_doc["fsm_state"] in {"PROTECTED", "TP_POLICY_ARMED", "TRAIL_ARMED"}
++        exec_events = runner.exec_events()
++        assert any(ev.get("fsm_state") == "PENDING_RECONCILE" for ev in exec_events)
++
++
++def test_burst_with_worker_reconnect_smoke_pack(monkeypatch):
++    with running_binance_mock() as mock:
++        _configure_env(monkeypatch, base_url=mock.base_url, maker=False)
++        runner = BinanceScenarioRunner(mock_server=mock)
++        runner.enqueue_open_burst(sid_prefix="sid-burst-reconnect", count=12, symbol="BTCUSDT", side="BUY", qty=1, order_type="MARKET", sl=95, tp_levels=[110])
++
++        first = runner.run_executor_until_idle(max_items=6)
++        first_events = runner.drain_user_stream()
++        runner.restart_worker()
++        second = runner.run_executor_until_idle(max_items=12)
++        second_events = runner.drain_user_stream()
++
++        assert first == 6
++        assert second == 6
++        assert first_events > 0
++        assert second_events > 0
++        assert runner.redis.lrange("orders:queue:binance:dlq", 0, -1) == []
++        exec_open = [ev for ev in runner.exec_events() if ev.get("action") == "open"]
++        assert len(exec_open) >= 12
++        user_events = runner.user_stream_events()
++        assert len(user_events) >= 12

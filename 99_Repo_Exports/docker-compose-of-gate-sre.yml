@@ -1,0 +1,136 @@
+services:
+  scanner-of-gate-sre:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-of-gate-sre
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - OF_GATE_METRICS_STREAM=metrics:of_gate
+    - NOTIFY_TELEGRAM_STREAM=notify:telegram
+    - OF_INPUTS_STREAM=signals:of:inputs
+    - TRADE_EVENTS_STREAM=events:trades
+    - CONF_CAL_AB_SHADOW=${CONF_CAL_AB_SHADOW:-false}
+    - OF_SCORE_MIN=${OF_SCORE_MIN:-0.60}
+    - TZ=UTC
+    volumes:
+    - /var/lib/trade:/var/lib/trade
+    - ./python-worker/persistence:/app/persistence
+    networks:
+    - scanner-ops
+    - scanner-infra
+    command: "sh -c \"\n  echo '[OF-GATE-SRE] Starting monitoring loop...'\n  mkdir\
+      \ -p /var/lib/trade/of_bench /var/lib/trade/of_gate_golden /var/lib/trade/of_replay\n\
+      \n  echo '[OF-GATE-SRE] Waiting for redis-worker-1...'\n  for i in $$(seq 1\
+      \ 12); do\n    python -c \\\"import redis; r=redis.from_url('${REDIS_URL:-${REDIS_URL}}');\
+      \ r.ping()\\\" 2>/dev/null && echo '[OF-GATE-SRE] Redis ready.' && break\n \
+      \   echo \\\"[OF-GATE-SRE] Redis not ready, retry (max 12)...\\\"\n    sleep\
+      \ 5\n  done\n\n  while true; do\n    M=`date +%M`\n    H=`date +%H`\n\n    #\
+      \ SRE monitor: 00, 10, 20, 30, 40, 50\n    case \"$$M\" in 00|10|20|30|40|50)\
+      \ python -m tools.of_gate_sre_monitor --window-min 10 --always 0 || echo 'SRE\
+      \ monitor failed' ;; esac\n\n    # Latency benchmark: 05, 35\n    case \"$$M\"\
+      \ in 05|35) python -m tools.bench_of_gate_latency --window-min 60 --out /var/lib/trade/of_bench/latency_bench_last.json\
+      \ || echo 'Benchmark failed' ;; esac\n    \n    # Nightly tasks\n    if [ \"\
+      $$M\" = \"00\" ]; then\n      if [ \"$$H\" = \"02\" ]; then python -m tools.of_gate_golden_snapshot\
+      \ --window-hours 24 --baseline /var/lib/trade/of_gate_golden/baseline.json --out-dir\
+      \ /var/lib/trade/of_gate_golden --fail-on-drift 0 --notify 1 || echo 'Snapshot\
+      \ failed'; fi\n      if [ \"$$H\" = \"03\" ]; then python -m tools.golden_replay_of_confirm_from_redis\
+      \ --out-dir /var/lib/trade/of_replay --stream signals:of:inputs --field payload\
+      \ --since-hours 24 --max-records 200000 --baseline /var/lib/trade/of_replay/baseline.ndjson\
+      \ --fail-on-mismatch 0 || echo 'Replay failed'; fi\n      if [ \"$$H\" = \"\
+      04\" ]; then python -m tools.ml_calibration_health_monitor || echo 'ML monitor\
+      \ failed'; fi\n    fi\n    \n    sleep 60\n  done\n\"\n"
+    deploy:
+      resources:
+        reservations:
+          memory: 24M
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    environment:
+    - OLLAMA_MAX_VRAM=24G
+    - OLLAMA_MAX_THREADS=2
+    - OLLAMA_KEEP_ALIVE=24h
+    - TZ=UTC
+    ports:
+    - 11434:11434
+    volumes:
+    - ollama-data:/root/.ollama
+    dns:
+    - 8.8.8.8
+    - 8.8.4.4
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+        reservations:
+          devices:
+          - driver: nvidia
+            count: all
+            capabilities:
+            - gpu
+          memory: 24M
+    networks:
+    - scanner-ops
+    - scanner-infra
+  scanner-aiops-agent:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-aiops-agent
+    init: true
+    restart: unless-stopped
+    environment:
+    - AIOPS_MODEL=deepseek-r1:14b
+    - AIOPS_TIMEOUT=600
+    - OLLAMA_URL=http://ollama:11434/api/generate
+    - GO_GATEWAY_URL=${AIOPS_GO_GATEWAY_URL:-http://scanner-go-gateway:8090}
+    - PROMETHEUS_ADDR_OVERRIDE=http://scanner-prometheus:9090
+    - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    - NVIDIA_API_KEY=${NVIDIA_API_KEY:-}
+    - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.0-flash}
+    - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+    - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+    - TRADES_DB_DSN=${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD:-}@postgres:5432/scanner_analytics}
+    - PYTHONPATH=/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    volumes:
+    - ./python-worker:/app
+    command:
+    - python
+    - -m
+    - tools.aiops_agent
+    - --daemon
+    depends_on:
+    - ollama
+    dns:
+    - 8.8.8.8
+    - 8.8.4.4
+    networks:
+    - scanner-ops
+    - scanner-infra
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pgrep -f tools/aiops_agent.py || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 256M
+        reservations:
+          memory: 24M
+networks:
+  scanner-ops:
+    external: true
+  scanner-infra:
+    external: true
+volumes:
+  ollama-data: null

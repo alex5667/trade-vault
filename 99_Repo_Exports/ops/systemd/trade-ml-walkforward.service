@@ -1,0 +1,13 @@
+[Unit]
+Description=Trade ML walk-forward report (dataset NDJSON)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/trade/of_reports.env
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+Environment="REDIS_URL=redis://redis-worker-1:6379/0"
+Environment="MODELS_DIR=/var/lib/trade/of_reports/models"
+Environment="OUT_DIR=/var/lib/trade/of_reports/out"
+ExecStart=/bin/bash -c 'DATASET=$${OUT_DIR}/ml_ds.ndjson; MODEL=$${MODELS_DIR}/ml_confirm.joblib; OUT=$${OUT_DIR}/wf_report_$$(date +%Y%m%d_%H%M%S).json; if [ -f "$$DATASET" ] && [ -f "$$MODEL" ]; then /usr/bin/python3 -m tools.ml_walkforward_eval --dataset "$$DATASET" --model "$$MODEL" --out "$$OUT" --fold-hours 24 --step-hours 12 --embargo-min 30; else echo "Dataset or model not found"; exit 1; fi'

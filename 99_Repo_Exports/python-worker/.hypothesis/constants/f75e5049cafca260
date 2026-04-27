@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/numexpr/expressions.py
+# hypothesis_version: 6.148.10
+
+[0.5, 1.0, 254, 2147483647, '%s(%s, %s, %s)', 'E', 'RawNode(%s)', '_', '__%s__', 'abs', 'add', 'aggressive', 'and', 'arccos', 'arccosh', 'arcsin', 'arcsinh', 'arctan', 'arctan2', 'arctanh', 'bool', 'bytes', 'cannot encode axis', 'ceil', 'complex', 'conj', 'constant', 'contains', 'copy', 'cos', 'cosh', 'div', 'double', 'eq', 'exp', 'expm1', 'float', 'floor', 'fmod', 'ge', 'generic', 'gt', 'imag', 'int', 'invert', 'log', 'log10', 'log1p', 'long', 'lshift', 'max', 'min', 'mod', 'moderate', 'mul', 'ne', 'neg', 'none', 'ones_like', 'op', 'optimization', 'or', 'pow', 'prod', 'raw', 'real', 'rshift', 'sin', 'sinh', 'sqrt', 'str', 'sub', 'sum', 'tan', 'tanh', 'variable', 'where']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/policy/circuit_breaker_v1.py
+# hypothesis_version: 6.148.10
+
+[-0.2, -0.05, 0.0, 0.1, 0.18, 0.3, 0.4, '0', '1', '2', 'bad', 'block', 'cb_ece_block', 'cb_ece_warn', 'cb_enable', 'cb_expectancy_block', 'cb_expectancy_warn', 'cb_quality_min_n_24h', 'cb_unknown_as_warn', 'deny', 'disabled', 'fail', 'false', 'good', 'ml_confirm_rollout', 'ml_enforce_disable', 'n', 'no', 'off', 'ok', 'on', 'pass', 'policy_dq_state', 'policy_drift_state', 'policy_ece_24h', 'policy_reason', 'policy_regime', 'policy_ver', 'quality:block', 'quality:warn', 'signal_quality_n_24h', 'soft', 'strong_gate_shadow', 'true', 'unknown', 'v1', 'warn', 'warning', 'y', 'yes', '|']

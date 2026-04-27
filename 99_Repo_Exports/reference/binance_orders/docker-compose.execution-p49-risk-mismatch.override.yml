@@ -1,0 +1,7 @@
+services:
+  trade-risk-mismatch-summary-refresher:
+    command: ["python3", "/opt/trade/scripts/refresh_risk_mismatch_summary.py"]
+    environment:
+      - RISK_MISMATCH_SUMMARY_TEXTFILE_PATH=/var/lib/node_exporter/textfile_collector/risk_mismatch_summary.prom
+  trade-risk-mismatch-retention:
+    command: ["python3", "/opt/trade/scripts/purge_risk_mismatch_hot_tables.py"]

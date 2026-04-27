@@ -1,0 +1,161 @@
+# Prometheus алерты для ML Confirm Gate
+# 
+# Причины алертов:
+#   - no_cfg: отсутствие конфига в Redis
+#   - load_fail: ошибка загрузки модели
+#   - enforce_share missing: отсутствие enforce_share в конфиге
+#   - labels empty: пустой labels:tb стрим
+
+groups:
+  - name: ml_confirm_alerts
+    interval: 30s
+    rules:
+      # ============================================================
+      # no_cfg (критично)
+      # ============================================================
+      - alert: MLConfirmNoCfgRateHigh
+        expr: |
+          (
+            increase(ml_confirm_errors_total{reason="no_cfg"}[5m])
+          /
+            clamp_min(increase(ml_confirm_events_total[5m]), 1)
+          ) > 0.01
+        for: 2m
+        labels:
+          severity: critical
+          component: ml_confirm_gate
+        annotations:
+          summary: "ML Confirm: High no_cfg error rate"
+          description: |
+            ML Confirm Gate has >1% no_cfg errors in the last 5 minutes.
+            This indicates missing or invalid champion config in Redis.
+            Check: cfg:ml_confirm:champion key in Redis.
+
+      - alert: MLConfirmCfgMissing
+        expr: min_over_time(ml_confirm_cfg_present[2m]) == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: ml_confirm_gate
+        annotations:
+          summary: "ML Confirm: champion cfg missing in Redis"
+          description: |
+            Champion config (cfg:ml_confirm:champion) is missing from Redis.
+            Check Redis connectivity and config restoration from disk backup.
+
+      # ============================================================
+      # load_fail (критично)
+      # ============================================================
+      - alert: MLConfirmModelLoadFail
+        expr: increase(ml_confirm_errors_total{reason="load_fail"}[10m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: ml_confirm_gate
+        annotations:
+          summary: "ML Confirm: Model load failure"
+          description: |
+            ML Confirm Gate failed to load model in the last 10 minutes.
+            Check model file path and permissions.
+
+      - alert: MLConfirmModelNotLoaded
+        expr: ml_confirm_model_loaded == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: ml_confirm_gate
+        annotations:
+          summary: "ML Confirm: Model not loaded"
+          description: |
+            ML Confirm Gate model is not loaded (required for ENFORCE/CANARY mode).
+            Check model file existence and load errors.
+
+      # ============================================================
+      # enforce_share missing / invalid_cfg (критично)
+      # ============================================================
+      - alert: MLConfirmInvalidCfg
+        expr: increase(ml_confirm_errors_total{reason="invalid_cfg"}[10m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: ml_confirm_gate
+        annotations:
+          summary: "ML Confirm: Invalid champion config"
+          description: |
+            ML Confirm Gate detected invalid champion config (validation failed).
+            Check: enforce_share missing, mode/enforce_share mismatch, or schema_version unsupported.
+
+      - alert: MLConfirmEnforceShareMissing
+        expr: increase(ml_missing_critical_total{field="champion.enforce_share"}[30m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: ml_confirm_gate
+        annotations:
+          summary: "ML Confirm: enforce_share missing/defaulted"
+          description: |
+            enforce_share missing in champion config (should not happen in production).
+            Check champion config JSON for missing enforce_share field.
+
+      # ============================================================
+      # labels empty (критично для train)
+      # ============================================================
+      - alert: TBLabelsEmpty
+        expr: max_over_time(tb_labels_xlen[30m]) < 1
+        for: 30m
+        labels:
+          severity: critical
+          component: tb_labeler
+        annotations:
+          summary: "TB labels stream is empty"
+          description: "labels:tb has no new data for 30m (training will fail or degrade)"
+
+      - alert: TBLabelsBelowMin
+        expr: max_over_time(tb_labels_xlen[60m]) < 500
+        for: 60m
+        labels:
+          severity: warning
+          component: tb_labeler
+        annotations:
+          summary: "TB labels stream below minimum"
+          description: "labels:tb < 500 for 60m (warmup or labeler issues)"
+
+      - alert: TBLabelsNoNewData
+        expr: tb_labels_xadd_rate == 0
+        for: 30m
+        labels:
+          severity: warning
+          component: tb_labeler
+        annotations:
+          summary: "TB Labels: No new data"
+          description: |
+            labels:tb stream has no new data (xadd_rate=0) for 30+ minutes.
+            Check labeler worker status and input streams.
+
+      - alert: TBTrainEmptyRun
+        expr: increase(tb_train_empty_run_total[24h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: ml_train
+        annotations:
+          summary: "TB Train: Empty training run detected"
+          description: |
+            Training run exported 0 labels in the last 24 hours.
+            Check training pipeline and labels:tb stream.
+
+      # ============================================================
+      # Promo failures
+      # ============================================================
+      - alert: MLConfirmPromoFail
+        expr: increase(tb_promo_fail_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: ml_promo
+        annotations:
+          summary: "ML Confirm: Promotion failure"
+          description: |
+            Champion promotion failed in the last hour.
+            Check promotion logs and config validation.
+

@@ -1,0 +1,26 @@
+groups:
+  - name: ml_phase1_6_post_commit
+    rules:
+      - alert: MLPostCommitVerifierStale
+        expr: time() - ml_post_commit_verifier_last_run_ts_seconds > 900
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ML post-commit verifier stale"
+
+      - alert: MLAutoRollbackTriggerStale
+        expr: time() - ml_auto_rollback_trigger_last_run_ts_seconds > 900
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ML auto rollback trigger stale"
+
+      - alert: MLPostCommitRollbackBurst
+        expr: increase(ml_auto_rollback_triggered_total[30m]) > 3
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Multiple automatic rollback triggers in 30m"

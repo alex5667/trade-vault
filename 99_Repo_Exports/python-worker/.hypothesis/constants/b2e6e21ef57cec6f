@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/auto_calibration_service.py
+# hypothesis_version: 6.148.10
+
+[0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1.0, 100, 150, 300, 'BTCUSDT', 'CryptoOrderFlow', 'ETHUSDT', 'PG_DSN_CALIBRATION', 'REDIS_URL', 'TRADES_DB_DSN', '__main__', 'last_id', 'last_max_trade_id', 'last_offset_mult', 'last_run_ts', 'max_id', 'new_cnt', 'source', 'symbol', 'total_cnt', 'tp1_offset_atr', 'trailing']

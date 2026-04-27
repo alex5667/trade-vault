@@ -1,0 +1,34 @@
+groups:
+  - name: liqmap_levels_overlay_v1
+    rules:
+      - alert: LiqMapLevelsOverlayEnabledButNeverAppliedWarn
+        expr: |
+          (max_over_time(liqmap_levels_overlay_enabled[30m]) == 1)
+          and on(symbol, window)
+          (sum by(symbol, window) (increase(liqmap_levels_attempt_total[30m])) > 0)
+          and on(symbol, window)
+          (max_over_time(liqmap_levels_applied_last[30m]) == 0)
+        for: 10m
+        labels:
+          severity: warn
+        annotations:
+          summary: "LiqMap levels overlay enabled but never applied (warn)"
+          description: |
+            LiqMap TP/SL overlay is enabled (D2) and code-path is executed, but applied flag stayed 0 for 30m.
+            Usually indicates mismatch between liqmap_* keys, missing injection, or missing apply function wiring.
+
+      - alert: LiqMapLevelsOverlayEnabledButNeverAppliedCrit
+        expr: |
+          (max_over_time(liqmap_levels_overlay_enabled[120m]) == 1)
+          and on(symbol, window)
+          (sum by(symbol, window) (increase(liqmap_levels_attempt_total[120m])) > 0)
+          and on(symbol, window)
+          (max_over_time(liqmap_levels_applied_last[120m]) == 0)
+        for: 30m
+        labels:
+          severity: crit
+        annotations:
+          summary: "LiqMap levels overlay enabled but never applied (crit)"
+          description: |
+            LiqMap TP/SL overlay is enabled and code-path is executed, but applied flag stayed 0 for 2h.
+            Treat as miswire: injection keys mismatch, Redis snapshot not parsed, or overlay config too strict (min_usd/buffer).

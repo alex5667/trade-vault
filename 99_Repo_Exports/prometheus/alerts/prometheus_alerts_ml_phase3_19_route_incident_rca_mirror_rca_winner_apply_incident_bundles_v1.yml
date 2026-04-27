@@ -1,0 +1,23 @@
+groups:
+  - name: ml_phase3_19_route_incident_rca_mirror_rca_winner_apply_incident_bundles_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyIncidentBundlesStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_incident_bundles_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror RCA winner apply incident bundles builder is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyIncidentBundlesErrors
+        expr: rate(ml_route_incident_rca_mirror_rca_winner_apply_incident_bundles_runs_total{status="error"}[5m]) > 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "route incident RCA mirror RCA winner apply incident bundles builder has errors"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyCriticalBundleBuilt
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_incident_bundles_total{severity="critical"}[1h]) > 0
+        for: 1m
+        labels: { severity: high }
+        annotations:
+          summary: "winner apply contour generated a critical forensic bundle (often from a rollback or high MTTR)"

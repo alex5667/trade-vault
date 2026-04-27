@@ -1,0 +1,65 @@
+diff --git a/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml b/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml
+index dd46ea8..a417ba1 100644
+--- a/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml
++++ b/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml
+@@ -92,3 +92,32 @@ groups:
+         This typically indicates broken snapshot wiring (bar_processor -> runtime -> indicators -> gauges).
+       runbook_path: /runbooks/world_practice_trackers_v1.md
+       dashboard_path: /d/world_practice_trackers_v1
++
++  # ── Crit: fill-prob wiring likely broken (eta>0 but fill_prob stuck at 0) while system is active ─
++  - alert: OF_WP_FillProbStuckZero_Crit
++    expr: |
++      (
++        max by (sym) (max_over_time(trade_eta_fill_sec[20m])) > 0.2
++      )
++      and on(sym)
++      (
++        max by (sym) (max_over_time(trade_fill_prob[20m])) <= 0.001
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.05
++      )
++    for: 20m
++    labels:
++      severity: critical
++    annotations:
++      summary: "{{ $labels.sym }}: eta_fill active but fill_prob stuck at 0"
++      description: |
++        Symbol {{ $labels.sym }}: trade_eta_fill_sec indicates L3-lite is producing ETA,
++        but trade_fill_prob remains ~0 for 20m while allow decisions exist.
++        This typically indicates broken wiring of fill_prob_proxy (L3-lite -> indicators -> gauges) or fallback compute disabled.
++      runbook_path: /runbooks/world_practice_trackers_v1.md
++      dashboard_path: /d/world_practice_trackers_v1
+diff --git a/orderflow_services/runbook_world_practice_trackers_v1.md b/orderflow_services/runbook_world_practice_trackers_v1.md
+index 45ed42b..7d4bc5b 100644
+--- a/orderflow_services/runbook_world_practice_trackers_v1.md
++++ b/orderflow_services/runbook_world_practice_trackers_v1.md
+@@ -51,6 +51,23 @@ Triage:
+ 1) Confirm `metrics:of_gate` contains `vol_fast_bps/vol_slow_bps/vol_ratio` fields.
+ 2) If missing or zeros → snapshot wiring broken (bar_processor → runtime → indicators → gauges).
+ 
++
++
++### Alert: OF_WP_FillProbStuckZero_Crit
++Meaning: `trade_eta_fill_sec` indicates L3-lite is producing ETA-to-fill, but `trade_fill_prob` remains ~0 for prolonged time while the system is active.
++
++Triage:
++1) Confirm it is not an “inactive” state:
++   - In Prometheus: `trade_eta_fill_sec` should be > 0.2s for the same symbol in the last 20m.
++2) Inspect recent `metrics:of_gate` rows:
++   - `eta_fill_bid_sec / eta_fill_ask_sec`
++   - `cancel_to_trade_bid / cancel_to_trade_ask`
++   - `fill_prob_proxy`, `exec_fill_pen`
++3) Wiring checks:
++   - L3-lite tracker running and updating stats for this symbol
++   - tick_processor fallback compute is enabled and not overridden by stale placeholders
++4) If values look real (not wiring):
++   - consider tightening allow policy for `HIGH_VOL_LOW_LIQ` and/or enforcing more conservative exec bucket thresholds.
+ ## Smoke-check (nightly orchestration)
+ Tool:
+ - `python -m orderflow_services.world_practice_gauges_smoke_check_v1`

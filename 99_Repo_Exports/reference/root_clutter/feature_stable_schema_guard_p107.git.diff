@@ -1,0 +1,317 @@
+diff --git a/python-worker/core/ml_feature_schema_v5_of.py b/python-worker/core/ml_feature_schema_v5_of.py
+--- a/python-worker/core/ml_feature_schema_v5_of.py	2026-02-26 05:45:57.392652656 +0000
++++ b/python-worker/core/ml_feature_schema_v5_of.py	2026-02-26 05:47:17.187812416 +0000
+@@ -14,8 +14,11 @@
+ 
+ from __future__ import annotations
+ 
++import hashlib
++import json
++import os
+ from dataclasses import dataclass
+-from typing import List
++from typing import List, Set, Tuple
+ 
+ from core.ml_feature_schema_v4_of import MLFeatureSchemaV4OF
+ 
+@@ -81,3 +84,118 @@
+         for k in extra_bool:
+             if k not in self.bool_keys:
+                 self.bool_keys.append(k)
++
++
++def _default_denylist_path() -> str:
++    # Keep default local to python-worker/core. Can be overridden via env.
++    return os.path.join(os.path.dirname(__file__), "feature_denylist_v1.json")
++
++
++def _normalize_deny_key(k: str) -> Tuple[str, str]:
++    """Normalize denylist key.
++
++    Accepts:
++      - raw keys: "vol_ratio"
++      - prefixed keys: "n:vol_ratio", "b:lob_dw_obi_stable"
++
++    Returns (kind, raw_key) where kind in {"n","b","?"}.
++    """
++    s = (k or "").strip()
++    if not s:
++        return "?", ""
++    if len(s) > 2 and s[1] == ":" and s[0] in ("n", "b"):
++        return s[0], s[2:]
++    return "?", s
++
++
++def _load_denylist(path: str) -> Tuple[Set[str], Set[str], str]:
++    """Load denylist json.
++
++    Expected keys:
++      - deny_num: [..]
++      - deny_bool: [..]
++    Also tolerates a single list under "deny" with optional n:/b: prefixes.
++
++    Returns (deny_num, deny_bool, denylist_hash16).
++    """
++    try:
++        with open(path, "r", encoding="utf-8") as f:
++            obj = json.load(f)
++    except Exception:
++        return set(), set(), "na"
++
++    deny_num: Set[str] = set()
++    deny_bool: Set[str] = set()
++
++    if isinstance(obj, dict):
++        dn = obj.get("deny_num")
++        db = obj.get("deny_bool")
++        dany = obj.get("deny")
++
++        if isinstance(dn, list):
++            for k in dn:
++                _, raw = _normalize_deny_key(str(k))
++                if raw:
++                    deny_num.add(raw)
++        if isinstance(db, list):
++            for k in db:
++                _, raw = _normalize_deny_key(str(k))
++                if raw:
++                    deny_bool.add(raw)
++
++        # Optional combined list with prefixes.
++        if isinstance(dany, list):
++            for k in dany:
++                kind, raw = _normalize_deny_key(str(k))
++                if not raw:
++                    continue
++                if kind == "n":
++                    deny_num.add(raw)
++                elif kind == "b":
++                    deny_bool.add(raw)
++
++    # Stable hash binding.
++    payload = {
++        "deny_num": sorted(deny_num),
++        "deny_bool": sorted(deny_bool),
++    }
++    h = hashlib.sha256(json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode("utf-8")).hexdigest()
++    return deny_num, deny_bool, h[:16]
++
++
++@dataclass
++class MLFeatureSchemaV5OFStable(MLFeatureSchemaV5OF):
++    """v5_of_stable = v5_of - denylist.
++
++    Safety:
++      - by default we *protect* all v4_of core keys from being denied,
++        even if they appear in denylist (misconfig protection)
++      - denylist file is optional; missing file => no filtering
++    """
++
++    denylist_hash16: str = "na"
++
++    def __post_init__(self) -> None:  # noqa: D401
++        super().__post_init__()
++
++        deny_path = (os.getenv("ML_FEATURE_DENYLIST_PATH") or "").strip() or _default_denylist_path()
++        deny_num, deny_bool, h16 = _load_denylist(deny_path)
++        self.denylist_hash16 = h16
++
++        # Protect v4_of core by default.
++        allow_core = int(os.getenv("ML_FEATURE_DENYLIST_ALLOW_CORE", "0") or 0) == 1
++        try:
++            core = MLFeatureSchemaV4OF()
++            core_num = set(core.num_keys)
++            core_bool = set(core.bool_keys)
++        except Exception:
++            core_num, core_bool = set(), set()
++
++        if not allow_core:
++            deny_num = {k for k in deny_num if k and k not in core_num}
++            deny_bool = {k for k in deny_bool if k and k not in core_bool}
++
++        if deny_num:
++            self.num_keys = [k for k in self.num_keys if k not in deny_num]
++        if deny_bool:
++            self.bool_keys = [k for k in self.bool_keys if k not in deny_bool]
+diff --git a/python-worker/services/ml_confirm_gate_dynamic_v8_stack_schema_v3.py b/python-worker/services/ml_confirm_gate_dynamic_v8_stack_schema_v3.py
+--- a/python-worker/services/ml_confirm_gate_dynamic_v8_stack_schema_v3.py	2026-02-26 05:45:57.399128341 +0000
++++ b/python-worker/services/ml_confirm_gate_dynamic_v8_stack_schema_v3.py	2026-02-26 05:50:56.240193101 +0000
+@@ -22,9 +22,10 @@
+ from core.ml_feature_schema_v4_stack import MLFeatureSchemaV4Stack
+ from core.ml_feature_schema_v4_of import MLFeatureSchemaV4OF
+ try:
+-    from core.ml_feature_schema_v5_of import MLFeatureSchemaV5OF
++    from core.ml_feature_schema_v5_of import MLFeatureSchemaV5OF, MLFeatureSchemaV5OFStable
+ except Exception:
+     MLFeatureSchemaV5OF = None
++    MLFeatureSchemaV5OFStable = None
+ 
+ from core.confirmations_schema_v1 import apply_confirmations_to_indicators
+ 
+@@ -93,14 +94,19 @@
+         # v3_online/v3o → MLFeatureSchemaV3Online (serving-safe, no leakage)
+         # v4/v4_stack   → MLFeatureSchemaV4Stack (expanded 97-feature schema)
+         schema_ver = (os.getenv("ML_FEATURE_SCHEMA_VER", "v3") or "v3").lower().strip()
++        self._schema_ver = schema_ver
+         if schema_ver == "v2":
+             self._schema: Any = MLFeatureSchemaV2()
+         elif schema_ver in ("v3_online", "v3o"):
+             self._schema = MLFeatureSchemaV3Online()
+         elif schema_ver in ("v4", "v4_stack"):
+             self._schema = MLFeatureSchemaV4Stack()
+-        elif schema_ver in ("v4_of", "v5") and MLFeatureSchemaV4OF is not None:
++        elif schema_ver == "v4_of" and MLFeatureSchemaV4OF is not None:
+             self._schema = MLFeatureSchemaV4OF()
++        elif schema_ver in ("v5_of", "v5") and MLFeatureSchemaV5OF is not None:
++            self._schema = MLFeatureSchemaV5OF()
++        elif schema_ver in ("v5_of_stable", "v5_stable", "v5s") and MLFeatureSchemaV5OFStable is not None:
++            self._schema = MLFeatureSchemaV5OFStable()
+         else:
+ 
+             self._schema = MLFeatureSchemaV3()
+@@ -316,6 +322,8 @@
+         err = ""
+         p = 0.0
+         pch = 0.0
++        schema_n_features = -1
++        model_n_features = -1
+         try:
+             if self._model is None:
+                 raise RuntimeError("ml_model_missing")
+@@ -323,19 +331,35 @@
+                                        indicators=indicators, rule_score=rule_score, rule_have=rule_have,
+                                        rule_need=rule_need, cancel_spike_veto=cancel_spike_veto)
+ 
++            schema_n_features = int(len(x))
++
+             # Commit 5: Guard against model trained on different schema (shape mismatch).
+             # Catches model file/schema version drift before calling predict_proba.
+             expected_n = getattr(self._model, "n_features_in_", None)
+             if expected_n is not None and int(expected_n) != len(x):
+-                status = "n_features_mismatch"
++                # Treat as missing/drift; in ENFORCE we follow fail_policy, otherwise shadow/no-op.
++                allow_mismatch = True
++                status = "N_FEATURES_MISMATCH"
++                abstain_mismatch = False
++                if mode == "ENFORCE" and should_enforce and ok_rule == 1:
++                    if self._fail_policy == "CLOSED":
++                        allow_mismatch = False
++                        status = "N_FEATURES_MISMATCH_FAILCLOSED"
++                    else:
++                        allow_mismatch = True
++                        status = "N_FEATURES_MISMATCH_FAILOPEN"
++                    abstain_mismatch = bool(self._abstain_on_missing)
++
+                 latency_us = int((time.perf_counter_ns() - t0_ns) / 1000)
+                 missing_info = {
+                     "__n_features_expected": int(expected_n),
+                     "__n_features_got": int(len(x)),
++                    "__schema_ver": str(self._schema_ver),
++                    "__denylist_hash16": str(getattr(self._schema, "denylist_hash16", "na")),
+                 }
+                 return MLDecision(
+                     mode=mode if mode in ("OFF", "SHADOW", "ENFORCE") else "OFF",
+-                    allow=False,
++                    allow=bool(allow_mismatch),
+                     should_enforce=bool(should_enforce),
+                     bucket=bucket,
+                     p_edge=0.0,
+@@ -346,10 +370,70 @@
+                     missing=1,
+                     latency_ms=float(latency_us) / 1000.0,
+                     status=status,
++                    abstain=bool(abstain_mismatch),
+                     conf=0.0,
+                     latency_us=int(latency_us),
+                 )
+ 
++            # Optional strict check by feature names (catches denylist swaps with same n_features).
++            # Off by default to avoid overhead if training does not persist feature names.
++            if int(os.getenv("ML_CONFIRM_CHECK_FEATURE_NAMES", "0") or 0) == 1:
++                fn = getattr(self._model, "feature_names_in_", None)
++                if fn is not None and hasattr(self._schema, "feature_names"):
++                    try:
++                        model_names = [str(x) for x in list(fn)]
++                        schema_names = [str(x) for x in list(self._schema.feature_names())]
++                    except Exception:
++                        model_names, schema_names = [], []
++                    if model_names and schema_names and len(model_names) == len(schema_names) and model_names != schema_names:
++                        allow_mismatch = True
++                        status = "FEATURE_NAMES_MISMATCH"
++                        abstain_mismatch = False
++                        if mode == "ENFORCE" and should_enforce and ok_rule == 1:
++                            if self._fail_policy == "CLOSED":
++                                allow_mismatch = False
++                                status = "FEATURE_NAMES_MISMATCH_FAILCLOSED"
++                            else:
++                                allow_mismatch = True
++                                status = "FEATURE_NAMES_MISMATCH_FAILOPEN"
++                            abstain_mismatch = bool(self._abstain_on_missing)
++
++                        # Find first mismatch index to keep err small.
++                        idx = -1
++                        try:
++                            for i, (a, b) in enumerate(zip(model_names, schema_names)):
++                                if a != b:
++                                    idx = i
++                                    break
++                        except Exception:
++                            idx = -1
++
++                        latency_us = int((time.perf_counter_ns() - t0_ns) / 1000)
++                        missing_info = {
++                            "__schema_ver": str(self._schema_ver),
++                            "__denylist_hash16": str(getattr(self._schema, "denylist_hash16", "na")),
++                            "__mismatch_at": int(idx),
++                            "__model_name": str(model_names[idx]) if idx >= 0 and idx < len(model_names) else "",
++                            "__schema_name": str(schema_names[idx]) if idx >= 0 and idx < len(schema_names) else "",
++                        }
++                        return MLDecision(
++                            mode=mode if mode in ("OFF", "SHADOW", "ENFORCE") else "OFF",
++                            allow=bool(allow_mismatch),
++                            should_enforce=bool(should_enforce),
++                            bucket=bucket,
++                            p_edge=0.0,
++                            p_min_used=float(self._pmin_symbol(bucket_from_scenario(scenario), symbol)),
++                            share_used=float(share_used),
++                            model_ver=self._model_ver,
++                            err=str(missing_info),
++                            missing=1,
++                            latency_ms=float(latency_us) / 1000.0,
++                            status=status,
++                            abstain=bool(abstain_mismatch),
++                            conf=0.0,
++                            latency_us=int(latency_us),
++                        )
++
+             p = self._predict(self._model, x)
+             if self._chal_model is not None and self._chal_ver:
+                 pch = self._predict(self._chal_model, x)
+@@ -403,6 +487,9 @@
+                 "scenario_v4": scenario,
+                 "bucket": bucket,
+                 "mode": mode,
++                "schema_ver": str(self._schema_ver),
++                "schema_n_features": str(int(schema_n_features)),
++                "denylist_hash16": str(getattr(self._schema, "denylist_hash16", "na")),
+                 "enforce": str(int(should_enforce)),
+                 "share_used": str(float(share_used)),
+                 "ok_rule": str(int(ok_rule)),
+@@ -416,6 +503,7 @@
+                 "p_margin": str(float(p_margin)),
+                 "conf": str(float(conf)),
+                 "model_ver": self._model_ver,
++                "model_n_features": str(int(model_n_features)),
+                 "p_edge_chal": str(float(pch)),
+                 "chal_ver": self._chal_ver,
+                 "missing": str(int(missing)),
+@@ -441,6 +529,9 @@
+                 "abstain": int(abstain),
+                 "status": status,
+                 "mode": mode,
++                "schema_ver": str(self._schema_ver),
++                "schema_n_features": str(int(schema_n_features)),
++                "denylist_hash16": str(getattr(self._schema, "denylist_hash16", "na")),
+             })
+         except Exception:
+             pass

@@ -1,0 +1,35 @@
+groups:
+  - name: active_symbol_guard_p12
+    rules:
+      # Alert on repeated runbook failures (blocked, rejected, ack_missing)
+      - alert: ActiveSymbolGuardRunbookFailures
+        expr: sum by (action) (increase(execution_active_symbol_guard_runbook_action_total{result=~"blocked|rejected|ack_missing"}[15m])) > 0
+        for: 2m
+        labels:
+          severity: ticket
+          service: trade-execution
+        annotations:
+          summary: "Runbook action for active_symbol guard needs review"
+          description: "Recent runbook action failures detected for action={{ $labels.action }}"
+
+      # Informational: a manual hold was applied in the last hour
+      - alert: ActiveSymbolGuardManualHoldPresent
+        expr: sum(increase(execution_active_symbol_guard_runbook_action_total{action="apply_hold_symbol",result="applied"}[1h])) > 0
+        for: 1m
+        labels:
+          severity: info
+          service: trade-execution
+        annotations:
+          summary: "One or more symbols are on manual hold"
+          description: "Manual holds were applied in the last hour. Verify operator/ticket context via the audit stream."
+
+      # Warning: a guarded force-release was blocked because exchange was not flat
+      - alert: ActiveSymbolGuardForceReleaseBlocked
+        expr: sum(increase(execution_active_symbol_guard_runbook_action_total{action="guarded_force_release",result="blocked"}[30m])) > 0
+        for: 2m
+        labels:
+          severity: warning
+          service: trade-execution
+        annotations:
+          summary: "Guarded force-release was blocked by exchange truth"
+          description: "At least one force-release request was rejected because exchange truth was not flat/no-orders."

@@ -1,0 +1,69 @@
+{
+  "signal_stream": "ml_replay_inputs_v1",
+  "closed_stream": "trades:closed",
+  "signals_raw": 19999,
+  "signals_parsed": 19999,
+  "closes_raw": 19999,
+  "closes_parsed": 19999,
+  "joined": 19998,
+  "unmatched_closes": 1,
+  "y_min_r": 0.1,
+  "since_ms": 0,
+  "until_ms": 0,
+  "generated_ms": 1772266855496,
+  "strict_feature_cols": 0,
+  "forbid_scenario_v4_onehot": 0,
+  "drop": {
+    "counts": {
+      "join_no_signal": 1
+    },
+    "examples": {
+      "join_no_signal": [
+        {
+          "sid": "crypto-of:DOGEUSDT:0",
+          "symbol": "DOGEUSDT",
+          "close_ts_ms": 0
+        }
+      ]
+    }
+  },
+  "join_strategy": "sid_or_nearest",
+  "join_tolerance_ms": 10000,
+  "join_secondary": "dir_scenario_soft",
+  "nearest_max_scan": 80,
+  "join_bucket_keys": [],
+  "nearest_join": {
+    "n": 0,
+    "cand_p50": 0,
+    "cand_p95": 0,
+    "cand2_p50": 0,
+    "cand2_p95": 0,
+    "ambiguous": 0,
+    "ambiguous_examples": [],
+    "bucket_used": 0
+  },
+  "joined_by_sid": 19998,
+  "joined_by_nearest": 0,
+  "mismatch": {
+    "counts": {
+      "<=1s": 0,
+      "<=10s": 0,
+      "<=60s": 0,
+      "<=5m": 0,
+      ">5m": 1
+    },
+    "examples": [
+      {
+        "symbol": "DOGEUSDT",
+        "sid_close": "crypto-of:DOGEUSDT:0",
+        "close_ts_ms": 0,
+        "nearest_signal_sid": "crypto-of:DOGEUSDT:1772231693604",
+        "nearest_signal_ts_ms": 1772266594529,
+        "delta_ms": -1772266594529
+      }
+    ]
+  },
+  "pos_rate": 0.0,
+  "r_mult_p50": 0.0,
+  "r_mult_p95": 0.0
+}

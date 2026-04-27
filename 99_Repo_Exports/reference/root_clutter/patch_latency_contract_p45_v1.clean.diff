@@ -1,0 +1,997 @@
+diff -ruN '--exclude=*.pyc' '--exclude=__pycache__' repo_p44_work/.pytest_cache/.gitignore repo_p45_work/.pytest_cache/.gitignore
+--- repo_p44_work/.pytest_cache/.gitignore	1970-01-01 00:00:00.000000000 +0000
++++ repo_p45_work/.pytest_cache/.gitignore	2026-03-08 09:05:08.122021061 +0000
+@@ -0,0 +1,2 @@
++# Created by pytest automatically.
++*
+diff -ruN '--exclude=*.pyc' '--exclude=__pycache__' repo_p44_work/.pytest_cache/CACHEDIR.TAG repo_p45_work/.pytest_cache/CACHEDIR.TAG
+--- repo_p44_work/.pytest_cache/CACHEDIR.TAG	1970-01-01 00:00:00.000000000 +0000
++++ repo_p45_work/.pytest_cache/CACHEDIR.TAG	2026-03-08 09:05:08.122060942 +0000
+@@ -0,0 +1,4 @@
++Signature: 8a477f597d28d172789f06886806bc55
++# This file is a cache directory tag created by pytest.
++# For information about cache directory tags, see:
++#	https://bford.info/cachedir/spec.html
+diff -ruN '--exclude=*.pyc' '--exclude=__pycache__' repo_p44_work/.pytest_cache/README.md repo_p45_work/.pytest_cache/README.md
+--- repo_p44_work/.pytest_cache/README.md	1970-01-01 00:00:00.000000000 +0000
++++ repo_p45_work/.pytest_cache/README.md	2026-03-08 09:05:08.121969309 +0000
+@@ -0,0 +1,8 @@
++# pytest cache directory #
++
++This directory contains data from the pytest's cache plugin,
++which provides the `--lf` and `--ff` options, as well as the `cache` fixture.
++
++**Do not** commit this to version control.
++
++See [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.
+diff -ruN '--exclude=*.pyc' '--exclude=__pycache__' repo_p44_work/.pytest_cache/v/cache/nodeids repo_p45_work/.pytest_cache/v/cache/nodeids
+--- repo_p44_work/.pytest_cache/v/cache/nodeids	1970-01-01 00:00:00.000000000 +0000
++++ repo_p45_work/.pytest_cache/v/cache/nodeids	2026-03-08 09:05:08.122321162 +0000
+@@ -0,0 +1,17 @@
++[
++  "orderflow_services/tests/test_latency_contract_p44_deploy_lint_v1.py::test_deploy_lint_cli_module_loads",
++  "orderflow_services/tests/test_latency_contract_p44_deploy_lint_v1.py::test_env_examples_include_deploy_lint_report_path",
++  "orderflow_services/tests/test_latency_contract_p44_deploy_lint_v1.py::test_generic_wrapper_calls_deploy_lint_before_preflight",
++  "orderflow_services/tests/test_latency_contract_p44_deploy_lint_v1.py::test_specific_wrappers_export_wrapper_and_unit_paths",
++  "orderflow_services/tests/test_latency_contract_p44_deploy_lint_v1.py::test_systemd_units_export_env_file_and_lint_report_path",
++  "orderflow_services/tests/test_latency_contract_p45_alerts_yaml_v1.py::test_p45_alerts_yaml_valid",
++  "orderflow_services/tests/test_latency_contract_p45_dashboard_json_v1.py::test_p45_dashboard_json_valid",
++  "orderflow_services/tests/test_latency_contract_p45_deploy_lint_cli_v1.py::test_cli_returns_27_for_persistent_drift",
++  "orderflow_services/tests/test_latency_contract_p45_deploy_lint_exporter_v1.py::test_env_examples_include_p45_vars",
++  "orderflow_services/tests/test_latency_contract_p45_deploy_lint_exporter_v1.py::test_exporter_has_p45_metrics",
++  "services/tests/test_latency_deploy_contract_v1.py::test_lint_contract_missing_env_fails",
++  "services/tests/test_latency_deploy_contract_v1.py::test_lint_contract_ok_against_repo_examples",
++  "services/tests/test_latency_deploy_contract_v1.py::test_parse_env_file_text_skips_comments",
++  "services/tests/test_latency_deploy_lint_state_v1.py::test_persistent_failure_activates_gate_and_success_clears_it",
++  "services/tests/test_latency_deploy_lint_state_v1.py::test_transient_failure_does_not_activate_gate"
++]
+\ No newline at end of file
+diff -ruN '--exclude=*.pyc' '--exclude=__pycache__' repo_p44_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example repo_p45_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
+--- repo_p44_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example	2026-03-08 08:39:48.438490886 +0000
++++ repo_p45_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example	2026-03-08 09:03:09.235338981 +0000
+@@ -15,3 +15,10 @@
+ META_COV_ROLLOUT_MIN_HOLD_SEC=600
+ CONF_SCORE_GUARD_AUTOPROMO_APPLY=1
+ LATENCY_CONTRACT_DEPLOY_LINT_REPORT_PATH=/var/lib/trade/reports/latency_contract_deploy_lint.json
++LATENCY_CONTRACT_DEPLOY_LINT_STATE_PREFIX=metrics:latency_contract:deploy_lint:last
++LATENCY_CONTRACT_DEPLOY_LINT_GATE_PREFIX=cfg:orderflow:latency_contract:deploy_lint_gate
++LATENCY_CONTRACT_DEPLOY_LINT_PERSIST_HOLD_S=1800
++LATENCY_CONTRACT_DEPLOY_LINT_STATE_TTL_S=172800
++LATENCY_CONTRACT_DEPLOY_LINT_SUMMARY_KEY=metrics:latency_contract:deploy_lint:summary:last
++LATENCY_CONTRACT_DEPLOY_LINT_EXPORTER_PORT=9834
++LATENCY_CONTRACT_DEPLOY_LINT_EXPORTER_INTERVAL_S=15
+diff -ruN '--exclude=*.pyc' '--exclude=__pycache__' repo_p44_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example repo_p45_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
+--- repo_p44_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example	2026-03-08 08:39:48.438247038 +0000
++++ repo_p45_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example	2026-03-08 09:03:09.235009759 +0000
+@@ -15,3 +15,10 @@
+ META_COV_ROLLOUT_MIN_HOLD_SEC=600
+ CONF_SCORE_GUARD_AUTOPROMO_APPLY=1
+ LATENCY_CONTRACT_DEPLOY_LINT_REPORT_PATH=/var/lib/trade/reports/latency_contract_deploy_lint.json
++LATENCY_CONTRACT_DEPLOY_LINT_STATE_PREFIX=metrics:latency_contract:deploy_lint:last
++LATENCY_CONTRACT_DEPLOY_LINT_GATE_PREFIX=cfg:orderflow:latency_contract:deploy_lint_gate
++LATENCY_CONTRACT_DEPLOY_LINT_PERSIST_HOLD_S=1800
++LATENCY_CONTRACT_DEPLOY_LINT_STATE_TTL_S=172800
++LATENCY_CONTRACT_DEPLOY_LINT_SUMMARY_KEY=metrics:latency_contract:deploy_lint:summary:last
++LATENCY_CONTRACT_DEPLOY_LINT_EXPORTER_PORT=9834
++LATENCY_CONTRACT_DEPLOY_LINT_EXPORTER_INTERVAL_S=15
+diff -ruN '--exclude=*.pyc' '--exclude=__pycache__' repo_p44_work/orderflow_services/grafana/latency_contract_p45_v1.json repo_p45_work/orderflow_services/grafana/latency_contract_p45_v1.json
+--- repo_p44_work/orderflow_services/grafana/latency_contract_p45_v1.json	1970-01-01 00:00:00.000000000 +0000
++++ repo_p45_work/orderflow_services/grafana/latency_contract_p45_v1.json	2026-03-08 09:02:57.476059880 +0000
+@@ -0,0 +1,40 @@
++{
++  "title": "Latency Contract Deploy Lint (P4.5)",
++  "schemaVersion": 39,
++  "version": 1,
++  "refresh": "30s",
++  "panels": [
++    {
++      "type": "stat",
++      "title": "Persistent Gates",
++      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
++      "targets": [
++        {"expr": "latency_contract_deploy_lint_summary_gate_active_total", "refId": "A"}
++      ]
++    },
++    {
++      "type": "stat",
++      "title": "Failing Purposes",
++      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
++      "targets": [
++        {"expr": "latency_contract_deploy_lint_summary_fail_total", "refId": "A"}
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Gate Active by Purpose",
++      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
++      "targets": [
++        {"expr": "latency_contract_deploy_lint_gate_active", "legendFormat": "{{purpose}}", "refId": "A"}
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Deploy Lint Fail Age (s)",
++      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
++      "targets": [
++        {"expr": "latency_contract_deploy_lint_fail_age_seconds", "legendFormat": "{{purpose}}", "refId": "A"}
++      ]
++    }
++  ]
++}
+diff -ruN '--exclude=*.pyc' '--exclude=__pycache__' repo_p44_work/orderflow_services/latency_contract_deploy_lint_exporter_v1.py repo_p45_work/orderflow_services/latency_contract_deploy_lint_exporter_v1.py
+--- repo_p44_work/orderflow_services/latency_contract_deploy_lint_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p45_work/orderflow_services/latency_contract_deploy_lint_exporter_v1.py	2026-03-08 09:01:41.730289108 +0000
+@@ -0,0 +1,122 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Prometheus exporter for latency deploy-lint state.
++
++The host-side deploy-lint already runs on every sensitive apply/rollout path. This
++exporter makes the latest lint verdicts visible in Prometheus/Grafana and writes a
++small summary hash that other automation can inspect.
++"""
++
++import os
++import time
++from dataclasses import dataclass
++from typing import Any
++
++from prometheus_client import Gauge, start_http_server
++
++from services.observability.latency_deploy_contract import CONTRACTS
++from services.observability.latency_deploy_lint_state import state_key
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return d
++
++
++def _f(v: Any, d: float = 0.0) -> float:
++    try:
++        return float(v)
++    except Exception:
++        return d
++
++
++G_UP = Gauge('latency_contract_deploy_lint_exporter_up', 'latency deploy lint exporter loop running')
++G_READ_OK = Gauge('latency_contract_deploy_lint_exporter_read_ok', 'latency deploy lint exporter redis read ok')
++G_STATE_PRESENT = Gauge('latency_contract_deploy_lint_state_present', 'deploy lint state present', ['purpose'])
++G_OK = Gauge('latency_contract_deploy_lint_ok', 'latest deploy lint result ok', ['purpose'])
++G_ERRORS = Gauge('latency_contract_deploy_lint_errors_total', 'latest deploy lint errors count', ['purpose'])
++G_WARNINGS = Gauge('latency_contract_deploy_lint_warnings_total', 'latest deploy lint warnings count', ['purpose'])
++G_LAST_CHECK_AGE = Gauge('latency_contract_deploy_lint_last_checked_age_seconds', 'age of last deploy lint check', ['purpose'])
++G_FAIL_AGE = Gauge('latency_contract_deploy_lint_fail_age_seconds', 'age of current deploy lint failure streak', ['purpose'])
++G_GATE_ACTIVE = Gauge('latency_contract_deploy_lint_gate_active', 'persistent deploy lint gate active', ['purpose'])
++G_SUMMARY_FAIL_TOTAL = Gauge('latency_contract_deploy_lint_summary_fail_total', 'number of purposes currently failing deploy lint')
++G_SUMMARY_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_gate_active_total', 'number of purposes with persistent deploy lint gate active')
++
++
++@dataclass
++class Cfg:
++    redis_url: str
++    port: int
++    interval_s: float
++    state_prefix: str
++    summary_key: str
++
++
++def load_cfg() -> Cfg:
++    prefix = _env('LATENCY_CONTRACT_DEPLOY_LINT_STATE_PREFIX', 'metrics:latency_contract:deploy_lint:last')
++    return Cfg(
++        redis_url=_env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
++        port=_i(_env('LATENCY_CONTRACT_DEPLOY_LINT_EXPORTER_PORT', '9834'), 9834),
++        interval_s=float(_env('LATENCY_CONTRACT_DEPLOY_LINT_EXPORTER_INTERVAL_S', '15') or 15),
++        state_prefix=prefix,
++        summary_key=_env('LATENCY_CONTRACT_DEPLOY_LINT_SUMMARY_KEY', 'metrics:latency_contract:deploy_lint:summary:last'),
++    )
++
++
++def main() -> int:
++    cfg = load_cfg()
++    import redis  # type: ignore
++
++    r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
++    start_http_server(cfg.port)
++    purposes = tuple(sorted(CONTRACTS.keys()))
++    while True:
++        G_UP.set(1.0)
++        now = time.time()
++        try:
++            fail_total = 0
++            gate_total = 0
++            for purpose in purposes:
++                raw = r.hgetall(state_key(cfg.state_prefix, purpose)) or {}
++                present = 1.0 if raw else 0.0
++                G_STATE_PRESENT.labels(purpose=purpose).set(present)
++                ok = _f(raw.get('ok'), 0.0)
++                gate = _f(raw.get('gate_active'), 0.0)
++                errors = _f(raw.get('errors_count'), 0.0)
++                warnings = _f(raw.get('warnings_count'), 0.0)
++                last_ts_ms = _i(raw.get('last_checked_ts_ms'), 0)
++                fail_age_s = _f(raw.get('fail_age_s'), 0.0)
++                age_s = max(0.0, now - (last_ts_ms / 1000.0)) if last_ts_ms > 0 else 0.0
++                G_OK.labels(purpose=purpose).set(ok)
++                G_GATE_ACTIVE.labels(purpose=purpose).set(gate)
++                G_ERRORS.labels(purpose=purpose).set(errors)
++                G_WARNINGS.labels(purpose=purpose).set(warnings)
++                G_LAST_CHECK_AGE.labels(purpose=purpose).set(age_s)
++                G_FAIL_AGE.labels(purpose=purpose).set(fail_age_s)
++                if present > 0 and ok <= 0:
++                    fail_total += 1
++                if gate > 0:
++                    gate_total += 1
++            G_SUMMARY_FAIL_TOTAL.set(float(fail_total))
++            G_SUMMARY_GATE_ACTIVE_TOTAL.set(float(gate_total))
++            r.hset(cfg.summary_key, mapping={
++                'schema_version': '1',
++                'last_ts_ms': str(int(now * 1000)),
++                'fail_total': str(fail_total),
++                'gate_active_total': str(gate_total),
++            })
++            G_READ_OK.set(1.0)
++        except Exception:
++            G_READ_OK.set(0.0)
++        time.sleep(cfg.interval_s)
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+diff -ruN '--exclude=*.pyc' '--exclude=__pycache__' repo_p44_work/orderflow_services/latency_contract_deploy_lint_v1.py repo_p45_work/orderflow_services/latency_contract_deploy_lint_v1.py
+--- repo_p44_work/orderflow_services/latency_contract_deploy_lint_v1.py	2026-03-08 08:39:46.593144910 +0000
++++ repo_p45_work/orderflow_services/latency_contract_deploy_lint_v1.py	2026-03-08 09:00:43.727199560 +0000
+@@ -14,6 +14,7 @@
+ import os
+ 
+ from services.observability.latency_deploy_contract import lint_deploy_contract, render_json
++from services.observability.latency_deploy_lint_state import update_deploy_lint_state
+ 
+ 
+ def main() -> int:
+@@ -36,13 +37,39 @@
+         unit_file=ns.unit_file or None,
+         env_file=ns.env_file or None,
+     )
++    if ns.json_out:
++        report['report_path'] = str(ns.json_out)
+     payload = render_json(report)
+     if ns.json_out:
+         p = Path(ns.json_out)
+         p.parent.mkdir(parents=True, exist_ok=True)
+         p.write_text(payload, encoding='utf-8')
++
++    gate_active = 0
++    redis_url = (os.getenv('REDIS_URL') or '').strip()
++    if redis_url:
++        import redis  # type: ignore
++
++        r = redis.Redis.from_url(redis_url, decode_responses=True)
++        state = update_deploy_lint_state(
++            r,
++            purpose=ns.purpose,
++            report=report,
++            state_prefix=(os.getenv('LATENCY_CONTRACT_DEPLOY_LINT_STATE_PREFIX') or 'metrics:latency_contract:deploy_lint:last').strip(),
++            gate_prefix=(os.getenv('LATENCY_CONTRACT_DEPLOY_LINT_GATE_PREFIX') or 'cfg:orderflow:latency_contract:deploy_lint_gate').strip(),
++            hold_s=int(float((os.getenv('LATENCY_CONTRACT_DEPLOY_LINT_PERSIST_HOLD_S') or '1800'))),
++            ttl_s=int(float((os.getenv('LATENCY_CONTRACT_DEPLOY_LINT_STATE_TTL_S') or '172800'))),
++        )
++        gate_active = 1 if str(state.get('gate_active', '0')) == '1' else 0
++        report['redis_state'] = state
++        payload = render_json(report)
++        if ns.json_out:
++            p.write_text(payload, encoding='utf-8')
++
+     print(payload)
+-    return 0 if report.get('ok') else 26
++    if report.get('ok'):
++        return 0
++    return 27 if gate_active else 26
+ 
+ 
+ if __name__ == '__main__':
+diff -ruN '--exclude=*.pyc' '--exclude=__pycache__' repo_p44_work/orderflow_services/prometheus_alerts_latency_contract_p45_v1.yml repo_p45_work/orderflow_services/prometheus_alerts_latency_contract_p45_v1.yml
+--- repo_p44_work/orderflow_services/prometheus_alerts_latency_contract_p45_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ repo_p45_work/orderflow_services/prometheus_alerts_latency_contract_p45_v1.yml	2026-03-08 09:02:57.462176204 +0000
+@@ -0,0 +1,20 @@
++groups:
++  - name: latency_contract_p45_deploy_lint
++    rules:
++      - alert: OF_LatencyDeployLint_ExporterStale_Warn
++        expr: latency_contract_deploy_lint_exporter_read_ok < 1
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Latency deploy-lint exporter stale"
++          description: "Exporter cannot read Redis deploy-lint state. Visibility into persistent config drift is degraded."
++
++      - alert: OF_LatencyDeployLint_PersistentConfigDrift_Crit
++        expr: latency_contract_deploy_lint_summary_gate_active_total > 0
++        for: 5m
++        labels:
++          severity: critical
++        annotations:
++          summary: "Persistent deploy-lint config drift blocks sensitive jobs"
++          description: "At least one latency-sensitive rollout/apply purpose has persistent config drift and should remain blocked until config is fixed."
+diff -ruN '--exclude=*.pyc' '--exclude=__pycache__' repo_p44_work/orderflow_services/runbook_latency_contract_p45_v1.md repo_p45_work/orderflow_services/runbook_latency_contract_p45_v1.md
+--- repo_p44_work/orderflow_services/runbook_latency_contract_p45_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ repo_p45_work/orderflow_services/runbook_latency_contract_p45_v1.md	2026-03-08 09:02:57.483347866 +0000
+@@ -0,0 +1,45 @@
++# P4.5 — Latency Contract Deploy Lint State / Exporter
++
++## Что это делает
++
++Каждый запуск host-side deploy lint теперь публикует состояние в Redis:
++
++- `metrics:latency_contract:deploy_lint:last:<purpose>`
++- `cfg:orderflow:latency_contract:deploy_lint_gate:<purpose>:v1`
++- `metrics:latency_contract:deploy_lint:summary:last` (через exporter)
++
++Это даёт:
++- видимость последних lint verdicts в Prometheus/Grafana
++- сигнал о persistent config drift
++- отдельный gate per purpose после выдержки `LATENCY_CONTRACT_DEPLOY_LINT_PERSIST_HOLD_S`
++
++## Ключевые поля state
++
++- `ok`
++- `errors_count`
++- `warnings_count`
++- `last_checked_ts_ms`
++- `fail_since_ts_ms`
++- `fail_age_s`
++- `gate_active`
++- `gate_reason_code`
++- `error_codes`
++
++## Как запускать exporter
++
++```bash
++python3 -m orderflow_services.latency_contract_deploy_lint_exporter_v1
++```
++
++## Что смотреть
++
++- `latency_contract_deploy_lint_gate_active{purpose}`
++- `latency_contract_deploy_lint_fail_age_seconds{purpose}`
++- `latency_contract_deploy_lint_summary_gate_active_total`
++- `latency_contract_deploy_lint_summary_fail_total`
++
++## Интерпретация
++
++- `ok=0`, `gate_active=0` — transient drift, lint упал, но hold ещё не достигнут
++- `ok=0`, `gate_active=1` — persistent drift; recurring jobs должны оставаться заблокированными до исправления конфигурации
++- `ok=1` — state/gate очищены после успешного lint
+diff -ruN '--exclude=*.pyc' '--exclude=__pycache__' repo_p44_work/orderflow_services/tests/test_latency_contract_p45_alerts_yaml_v1.py repo_p45_work/orderflow_services/tests/test_latency_contract_p45_alerts_yaml_v1.py
+--- repo_p44_work/orderflow_services/tests/test_latency_contract_p45_alerts_yaml_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p45_work/orderflow_services/tests/test_latency_contract_p45_alerts_yaml_v1.py	2026-03-08 09:03:57.592879720 +0000
+@@ -0,0 +1,9 @@
++import os
++import yaml
++
++
++def test_p45_alerts_yaml_valid() -> None:
++    path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'prometheus_alerts_latency_contract_p45_v1.yml'))
++    with open(path, 'r', encoding='utf-8') as f:
++        data = yaml.safe_load(f)
++    assert 'groups' in data and data['groups']
+diff -ruN '--exclude=*.pyc' '--exclude=__pycache__' repo_p44_work/orderflow_services/tests/test_latency_contract_p45_dashboard_json_v1.py repo_p45_work/orderflow_services/tests/test_latency_contract_p45_dashboard_json_v1.py
+--- repo_p44_work/orderflow_services/tests/test_latency_contract_p45_dashboard_json_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p45_work/orderflow_services/tests/test_latency_contract_p45_dashboard_json_v1.py	2026-03-08 09:03:57.600234222 +0000
+@@ -0,0 +1,10 @@
++import json
++import os
++
++
++def test_p45_dashboard_json_valid() -> None:
++    path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'grafana', 'latency_contract_p45_v1.json'))
++    with open(path, 'r', encoding='utf-8') as f:
++        data = json.load(f)
++    assert data['title']
++    assert data['panels']
+diff -ruN '--exclude=*.pyc' '--exclude=__pycache__' repo_p44_work/orderflow_services/tests/test_latency_contract_p45_deploy_lint_cli_v1.py repo_p45_work/orderflow_services/tests/test_latency_contract_p45_deploy_lint_cli_v1.py
+--- repo_p44_work/orderflow_services/tests/test_latency_contract_p45_deploy_lint_cli_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p45_work/orderflow_services/tests/test_latency_contract_p45_deploy_lint_cli_v1.py	2026-03-08 09:04:45.325834745 +0000
+@@ -0,0 +1,82 @@
++from __future__ import annotations
++
++import os
++import sys
++import types
++from pathlib import Path
++
++from orderflow_services import latency_contract_deploy_lint_v1 as mod
++
++
++class FakeRedis:
++    def __init__(self) -> None:
++        self.hashes: dict[str, dict[str, str]] = {}
++
++    def hgetall(self, key: str):
++        return dict(self.hashes.get(key, {}))
++
++    def hset(self, key: str, mapping=None, **kwargs):
++        self.hashes.setdefault(key, {}).update({str(k): str(v) for k, v in dict(mapping or {}).items()})
++        return 1
++
++    def expire(self, key: str, ttl: int):
++        return True
++
++    def delete(self, key: str):
++        self.hashes.pop(key, None)
++        return 1
++
++
++class _RedisModule:
++    def __init__(self, client: FakeRedis) -> None:
++        self._client = client
++
++    class Redis:
++        @staticmethod
++        def from_url(url: str, decode_responses: bool = True):
++            raise AssertionError('patched below')
++
++
++def test_cli_returns_27_for_persistent_drift(monkeypatch, tmp_path: Path) -> None:
++    fake = FakeRedis()
++    redis_mod = types.SimpleNamespace()
++    redis_mod.Redis = types.SimpleNamespace(from_url=lambda *a, **k: fake)
++    monkeypatch.setitem(sys.modules, 'redis', redis_mod)
++
++    report = {
++        'ok': False,
++        'errors': ['wrapper_wrong_compose_file'],
++        'warnings': [],
++        'checks': {
++            'compose_file': 'x',
++            'wrapper_file': 'y',
++            'unit_file': 'z',
++            'env_file': 'e',
++            'missing_runtime_env': [],
++            'missing_env_file_vars': [],
++        },
++    }
++    monkeypatch.setattr(mod, 'lint_deploy_contract', lambda **kwargs: report)
++    monkeypatch.setenv('REDIS_URL', 'redis://fake/0')
++    monkeypatch.setenv('LATENCY_CONTRACT_DEPLOY_LINT_PERSIST_HOLD_S', '1')
++
++    # Seed previous failure so the next failed run becomes persistent.
++    fake.hset('metrics:latency_contract:deploy_lint:last:conf_score_guardrails_apply', mapping={
++        'fail_since_ts_ms': '1',
++        'last_ok_ts_ms': '0',
++    })
++
++    argv = sys.argv[:]
++    try:
++        sys.argv = [
++            'latency_contract_deploy_lint_v1.py',
++            '--purpose', 'conf_score_guardrails_apply',
++            '--repo-root', str(tmp_path),
++            '--json-out', str(tmp_path / 'lint.json'),
++        ]
++        rc = mod.main()
++    finally:
++        sys.argv = argv
++        for k in ['REDIS_URL', 'LATENCY_CONTRACT_DEPLOY_LINT_PERSIST_HOLD_S']:
++            os.environ.pop(k, None)
++    assert rc == 27
+diff -ruN '--exclude=*.pyc' '--exclude=__pycache__' repo_p44_work/orderflow_services/tests/test_latency_contract_p45_deploy_lint_exporter_v1.py repo_p45_work/orderflow_services/tests/test_latency_contract_p45_deploy_lint_exporter_v1.py
+--- repo_p44_work/orderflow_services/tests/test_latency_contract_p45_deploy_lint_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p45_work/orderflow_services/tests/test_latency_contract_p45_deploy_lint_exporter_v1.py	2026-03-08 09:04:07.521000196 +0000
+@@ -0,0 +1,20 @@
++from orderflow_services import latency_contract_deploy_lint_exporter_v1 as mod
++
++
++def test_exporter_has_p45_metrics() -> None:
++    assert hasattr(mod, 'G_GATE_ACTIVE')
++    assert hasattr(mod, 'G_SUMMARY_GATE_ACTIVE_TOTAL')
++    assert hasattr(mod, 'G_FAIL_AGE')
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[2]
++
++
++def test_env_examples_include_p45_vars() -> None:
++    for rel in [
++        'orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example',
++        'orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example',
++    ]:
++        txt = (ROOT / rel).read_text(encoding='utf-8')
++        assert 'LATENCY_CONTRACT_DEPLOY_LINT_STATE_PREFIX=' in txt
++        assert 'LATENCY_CONTRACT_DEPLOY_LINT_PERSIST_HOLD_S=' in txt
+diff -ruN '--exclude=*.pyc' '--exclude=__pycache__' repo_p44_work/services/observability/latency_deploy_lint_state.py repo_p45_work/services/observability/latency_deploy_lint_state.py
+--- repo_p44_work/services/observability/latency_deploy_lint_state.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p45_work/services/observability/latency_deploy_lint_state.py	2026-03-08 09:00:15.697298289 +0000
+@@ -0,0 +1,139 @@
++from __future__ import annotations
++
++"""Redis-backed state helpers for latency deploy-lint results.
++
++The deploy-lint CLI already runs on every sensitive apply/rollout path. This
++module turns those point-in-time results into a durable state contract that can
++be exported to Prometheus/Grafana and used to detect *persistent* configuration
++problems instead of only one-off failures.
++"""
++
++from typing import Any, Mapping
++import time
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return d
++
++
++def _clean_codes(values: list[str] | tuple[str, ...] | None) -> list[str]:
++    out: list[str] = []
++    for raw in values or []:
++        s = str(raw or '').strip()
++        if not s:
++            continue
++        out.append(s)
++    return out
++
++
++def state_key(prefix: str, purpose: str) -> str:
++    return f"{prefix}:{purpose}"
++
++
++def gate_key(prefix: str, purpose: str) -> str:
++    return f"{prefix}:{purpose}:v1"
++
++
++def summary_key(prefix: str) -> str:
++    return f"{prefix}:summary:last"
++
++
++def update_deploy_lint_state(
++    r: Any,
++    *,
++    purpose: str,
++    report: Mapping[str, Any],
++    state_prefix: str,
++    gate_prefix: str,
++    hold_s: int,
++    ttl_s: int,
++    now_ms: int | None = None,
++) -> dict[str, str]:
++    """Persist one deploy-lint result and maintain a persistent-drift gate.
++
++    Semantics:
++    - transient config drift => ok=0, gate_active=0, exit remains normal lint failure
++    - persistent config drift => ok=0, gate_active=1 after hold_s seconds
++    - success => clears fail_since/gate immediately
++    """
++
++    now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
++    ok = 1 if bool(report.get('ok')) else 0
++    errors = _clean_codes(list(report.get('errors') or []))
++    warnings = _clean_codes(list(report.get('warnings') or []))
++    checks = dict(report.get('checks') or {})
++
++    skey = state_key(state_prefix, purpose)
++    gkey = gate_key(gate_prefix, purpose)
++    prev = r.hgetall(skey) or {}
++
++    prev_fail_since = _i(prev.get('fail_since_ts_ms'), 0)
++    prev_last_ok = _i(prev.get('last_ok_ts_ms'), 0)
++    if ok:
++        fail_since_ts_ms = 0
++        fail_age_s = 0
++        last_ok_ts_ms = now_ms
++        gate_active = 0
++    else:
++        fail_since_ts_ms = prev_fail_since if prev_fail_since > 0 else now_ms
++        fail_age_s = int(max(0, (now_ms - fail_since_ts_ms) / 1000.0))
++        last_ok_ts_ms = prev_last_ok
++        gate_active = 1 if fail_age_s >= max(1, int(hold_s)) else 0
++
++    mapping = {
++        'schema_version': '1',
++        'purpose': purpose,
++        'last_checked_ts_ms': str(now_ms),
++        'last_ok_ts_ms': str(last_ok_ts_ms),
++        'last_fail_ts_ms': str(0 if ok else now_ms),
++        'fail_since_ts_ms': str(fail_since_ts_ms),
++        'fail_age_s': str(fail_age_s),
++        'ok': str(ok),
++        'errors_count': str(len(errors)),
++        'warnings_count': str(len(warnings)),
++        'gate_active': str(gate_active),
++        'gate_hold_s': str(int(hold_s)),
++        'gate_reason_code': 'persistent_config_drift' if gate_active else ('ok' if ok else 'transient_config_drift'),
++        'error_codes': ','.join(errors) if errors else 'ok',
++        'warning_codes': ','.join(warnings) if warnings else 'none',
++        'compose_file': str(checks.get('compose_file', '')),
++        'wrapper_file': str(checks.get('wrapper_file', '')),
++        'unit_file': str(checks.get('unit_file', '')),
++        'env_file': str(checks.get('env_file', '')),
++        'missing_runtime_env': ','.join(checks.get('missing_runtime_env') or []) or 'none',
++        'missing_env_file_vars': ','.join(checks.get('missing_env_file_vars') or []) or 'none',
++    }
++
++    r.hset(skey, mapping=mapping)
++    try:
++        r.expire(skey, max(1, int(ttl_s)))
++    except Exception:
++        pass
++
++    if gate_active:
++        gate_mapping = {
++            'schema_version': '1',
++            'purpose': purpose,
++            'gate_active': '1',
++            'gate_reason_code': 'persistent_config_drift',
++            'last_checked_ts_ms': str(now_ms),
++            'fail_since_ts_ms': str(fail_since_ts_ms),
++            'fail_age_s': str(fail_age_s),
++            'errors_count': str(len(errors)),
++            'error_codes': mapping['error_codes'],
++        }
++        r.hset(gkey, mapping=gate_mapping)
++        try:
++            r.expire(gkey, max(1, int(ttl_s)))
++        except Exception:
++            pass
++    else:
++        try:
++            r.delete(gkey)
++        except Exception:
++            pass
++
++    return mapping
+diff -ruN '--exclude=*.pyc' '--exclude=__pycache__' repo_p44_work/services/tests/test_latency_deploy_lint_state_v1.py repo_p45_work/services/tests/test_latency_deploy_lint_state_v1.py
+--- repo_p44_work/services/tests/test_latency_deploy_lint_state_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p45_work/services/tests/test_latency_deploy_lint_state_v1.py	2026-03-08 09:03:40.454943299 +0000
+@@ -0,0 +1,99 @@
++from __future__ import annotations
++
++from services.observability.latency_deploy_lint_state import update_deploy_lint_state, state_key, gate_key
++
++
++class FakeRedis:
++    def __init__(self) -> None:
++        self.hashes: dict[str, dict[str, str]] = {}
++        self.deleted: set[str] = set()
++
++    def hgetall(self, key: str):
++        return dict(self.hashes.get(key, {}))
++
++    def hset(self, key: str, mapping=None, **kwargs):
++        self.hashes.setdefault(key, {}).update({str(k): str(v) for k, v in dict(mapping or {}).items()})
++        return 1
++
++    def expire(self, key: str, ttl: int):
++        return True
++
++    def delete(self, key: str):
++        self.deleted.add(key)
++        self.hashes.pop(key, None)
++        return 1
++
++
++def _report(ok: bool, errors: list[str] | None = None):
++    return {
++        'ok': ok,
++        'errors': list(errors or []),
++        'warnings': [],
++        'checks': {
++            'compose_file': '/tmp/compose.yml',
++            'wrapper_file': '/tmp/wrapper.sh',
++            'unit_file': '/tmp/unit.service',
++            'env_file': '/tmp/env',
++            'missing_runtime_env': [],
++            'missing_env_file_vars': [],
++        },
++    }
++
++
++def test_transient_failure_does_not_activate_gate() -> None:
++    r = FakeRedis()
++    mapping = update_deploy_lint_state(
++        r,
++        purpose='meta_cov_rollout_controller',
++        report=_report(False, ['missing_runtime_env:X']),
++        state_prefix='metrics:latency_contract:deploy_lint:last',
++        gate_prefix='cfg:orderflow:latency_contract:deploy_lint_gate',
++        hold_s=300,
++        ttl_s=3600,
++        now_ms=1_000,
++    )
++    assert mapping['ok'] == '0'
++    assert mapping['gate_active'] == '0'
++    assert state_key('metrics:latency_contract:deploy_lint:last', 'meta_cov_rollout_controller') in r.hashes
++    assert gate_key('cfg:orderflow:latency_contract:deploy_lint_gate', 'meta_cov_rollout_controller') not in r.hashes
++
++
++def test_persistent_failure_activates_gate_and_success_clears_it() -> None:
++    r = FakeRedis()
++    update_deploy_lint_state(
++        r,
++        purpose='meta_cov_rollout_controller',
++        report=_report(False, ['wrapper_wrong_compose_file']),
++        state_prefix='metrics:latency_contract:deploy_lint:last',
++        gate_prefix='cfg:orderflow:latency_contract:deploy_lint_gate',
++        hold_s=300,
++        ttl_s=3600,
++        now_ms=1_000,
++    )
++    mapping = update_deploy_lint_state(
++        r,
++        purpose='meta_cov_rollout_controller',
++        report=_report(False, ['wrapper_wrong_compose_file']),
++        state_prefix='metrics:latency_contract:deploy_lint:last',
++        gate_prefix='cfg:orderflow:latency_contract:deploy_lint_gate',
++        hold_s=300,
++        ttl_s=3600,
++        now_ms=305_000,
++    )
++    gkey = gate_key('cfg:orderflow:latency_contract:deploy_lint_gate', 'meta_cov_rollout_controller')
++    assert mapping['gate_active'] == '1'
++    assert r.hashes[gkey]['gate_reason_code'] == 'persistent_config_drift'
++
++    cleared = update_deploy_lint_state(
++        r,
++        purpose='meta_cov_rollout_controller',
++        report=_report(True),
++        state_prefix='metrics:latency_contract:deploy_lint:last',
++        gate_prefix='cfg:orderflow:latency_contract:deploy_lint_gate',
++        hold_s=300,
++        ttl_s=3600,
++        now_ms=400_000,
++    )
++    assert cleared['ok'] == '1'
++    assert cleared['gate_active'] == '0'
++    assert gkey in r.deleted
+diff -ruN '--exclude=*.pyc' '--exclude=__pycache__' repo_p44_work/tick_flow_full/orderflow_services/grafana/latency_contract_p45_v1.json repo_p45_work/tick_flow_full/orderflow_services/grafana/latency_contract_p45_v1.json
+--- repo_p44_work/tick_flow_full/orderflow_services/grafana/latency_contract_p45_v1.json	1970-01-01 00:00:00.000000000 +0000
++++ repo_p45_work/tick_flow_full/orderflow_services/grafana/latency_contract_p45_v1.json	2026-03-08 09:04:20.210952099 +0000
+@@ -0,0 +1,40 @@
++{
++  "title": "Latency Contract Deploy Lint (P4.5)",
++  "schemaVersion": 39,
++  "version": 1,
++  "refresh": "30s",
++  "panels": [
++    {
++      "type": "stat",
++      "title": "Persistent Gates",
++      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
++      "targets": [
++        {"expr": "latency_contract_deploy_lint_summary_gate_active_total", "refId": "A"}
++      ]
++    },
++    {
++      "type": "stat",
++      "title": "Failing Purposes",
++      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
++      "targets": [
++        {"expr": "latency_contract_deploy_lint_summary_fail_total", "refId": "A"}
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Gate Active by Purpose",
++      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
++      "targets": [
++        {"expr": "latency_contract_deploy_lint_gate_active", "legendFormat": "{{purpose}}", "refId": "A"}
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Deploy Lint Fail Age (s)",
++      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
++      "targets": [
++        {"expr": "latency_contract_deploy_lint_fail_age_seconds", "legendFormat": "{{purpose}}", "refId": "A"}
++      ]
++    }
++  ]
++}
+diff -ruN '--exclude=*.pyc' '--exclude=__pycache__' repo_p44_work/tick_flow_full/orderflow_services/latency_contract_deploy_lint_exporter_v1.py repo_p45_work/tick_flow_full/orderflow_services/latency_contract_deploy_lint_exporter_v1.py
+--- repo_p44_work/tick_flow_full/orderflow_services/latency_contract_deploy_lint_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p45_work/tick_flow_full/orderflow_services/latency_contract_deploy_lint_exporter_v1.py	2026-03-08 09:04:20.136025473 +0000
+@@ -0,0 +1,122 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Prometheus exporter for latency deploy-lint state.
++
++The host-side deploy-lint already runs on every sensitive apply/rollout path. This
++exporter makes the latest lint verdicts visible in Prometheus/Grafana and writes a
++small summary hash that other automation can inspect.
++"""
++
++import os
++import time
++from dataclasses import dataclass
++from typing import Any
++
++from prometheus_client import Gauge, start_http_server
++
++from services.observability.latency_deploy_contract import CONTRACTS
++from services.observability.latency_deploy_lint_state import state_key
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return d
++
++
++def _f(v: Any, d: float = 0.0) -> float:
++    try:
++        return float(v)
++    except Exception:
++        return d
++
++
++G_UP = Gauge('latency_contract_deploy_lint_exporter_up', 'latency deploy lint exporter loop running')
++G_READ_OK = Gauge('latency_contract_deploy_lint_exporter_read_ok', 'latency deploy lint exporter redis read ok')
++G_STATE_PRESENT = Gauge('latency_contract_deploy_lint_state_present', 'deploy lint state present', ['purpose'])
++G_OK = Gauge('latency_contract_deploy_lint_ok', 'latest deploy lint result ok', ['purpose'])
++G_ERRORS = Gauge('latency_contract_deploy_lint_errors_total', 'latest deploy lint errors count', ['purpose'])
++G_WARNINGS = Gauge('latency_contract_deploy_lint_warnings_total', 'latest deploy lint warnings count', ['purpose'])
++G_LAST_CHECK_AGE = Gauge('latency_contract_deploy_lint_last_checked_age_seconds', 'age of last deploy lint check', ['purpose'])
++G_FAIL_AGE = Gauge('latency_contract_deploy_lint_fail_age_seconds', 'age of current deploy lint failure streak', ['purpose'])
++G_GATE_ACTIVE = Gauge('latency_contract_deploy_lint_gate_active', 'persistent deploy lint gate active', ['purpose'])
++G_SUMMARY_FAIL_TOTAL = Gauge('latency_contract_deploy_lint_summary_fail_total', 'number of purposes currently failing deploy lint')
++G_SUMMARY_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_gate_active_total', 'number of purposes with persistent deploy lint gate active')
++
++
++@dataclass
++class Cfg:
++    redis_url: str
++    port: int
++    interval_s: float
++    state_prefix: str
++    summary_key: str
++
++
++def load_cfg() -> Cfg:
++    prefix = _env('LATENCY_CONTRACT_DEPLOY_LINT_STATE_PREFIX', 'metrics:latency_contract:deploy_lint:last')
++    return Cfg(
++        redis_url=_env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
++        port=_i(_env('LATENCY_CONTRACT_DEPLOY_LINT_EXPORTER_PORT', '9834'), 9834),
++        interval_s=float(_env('LATENCY_CONTRACT_DEPLOY_LINT_EXPORTER_INTERVAL_S', '15') or 15),
++        state_prefix=prefix,
++        summary_key=_env('LATENCY_CONTRACT_DEPLOY_LINT_SUMMARY_KEY', 'metrics:latency_contract:deploy_lint:summary:last'),
++    )
++
++
++def main() -> int:
++    cfg = load_cfg()
++    import redis  # type: ignore
++
++    r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
++    start_http_server(cfg.port)
++    purposes = tuple(sorted(CONTRACTS.keys()))
++    while True:
++        G_UP.set(1.0)
++        now = time.time()
++        try:
++            fail_total = 0
++            gate_total = 0
++            for purpose in purposes:
++                raw = r.hgetall(state_key(cfg.state_prefix, purpose)) or {}
++                present = 1.0 if raw else 0.0
++                G_STATE_PRESENT.labels(purpose=purpose).set(present)
++                ok = _f(raw.get('ok'), 0.0)
++                gate = _f(raw.get('gate_active'), 0.0)
++                errors = _f(raw.get('errors_count'), 0.0)
++                warnings = _f(raw.get('warnings_count'), 0.0)
++                last_ts_ms = _i(raw.get('last_checked_ts_ms'), 0)
++                fail_age_s = _f(raw.get('fail_age_s'), 0.0)
++                age_s = max(0.0, now - (last_ts_ms / 1000.0)) if last_ts_ms > 0 else 0.0
++                G_OK.labels(purpose=purpose).set(ok)
++                G_GATE_ACTIVE.labels(purpose=purpose).set(gate)
++                G_ERRORS.labels(purpose=purpose).set(errors)
++                G_WARNINGS.labels(purpose=purpose).set(warnings)
++                G_LAST_CHECK_AGE.labels(purpose=purpose).set(age_s)
++                G_FAIL_AGE.labels(purpose=purpose).set(fail_age_s)
++                if present > 0 and ok <= 0:
++                    fail_total += 1
++                if gate > 0:
++                    gate_total += 1
++            G_SUMMARY_FAIL_TOTAL.set(float(fail_total))
++            G_SUMMARY_GATE_ACTIVE_TOTAL.set(float(gate_total))
++            r.hset(cfg.summary_key, mapping={
++                'schema_version': '1',
++                'last_ts_ms': str(int(now * 1000)),
++                'fail_total': str(fail_total),
++                'gate_active_total': str(gate_total),
++            })
++            G_READ_OK.set(1.0)
++        except Exception:
++            G_READ_OK.set(0.0)
++        time.sleep(cfg.interval_s)
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+diff -ruN '--exclude=*.pyc' '--exclude=__pycache__' repo_p44_work/tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_p45_v1.yml repo_p45_work/tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_p45_v1.yml
+--- repo_p44_work/tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_p45_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ repo_p45_work/tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_p45_v1.yml	2026-03-08 09:04:20.181014587 +0000
+@@ -0,0 +1,20 @@
++groups:
++  - name: latency_contract_p45_deploy_lint
++    rules:
++      - alert: OF_LatencyDeployLint_ExporterStale_Warn
++        expr: latency_contract_deploy_lint_exporter_read_ok < 1
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Latency deploy-lint exporter stale"
++          description: "Exporter cannot read Redis deploy-lint state. Visibility into persistent config drift is degraded."
++
++      - alert: OF_LatencyDeployLint_PersistentConfigDrift_Crit
++        expr: latency_contract_deploy_lint_summary_gate_active_total > 0
++        for: 5m
++        labels:
++          severity: critical
++        annotations:
++          summary: "Persistent deploy-lint config drift blocks sensitive jobs"
++          description: "At least one latency-sensitive rollout/apply purpose has persistent config drift and should remain blocked until config is fixed."
+diff -ruN '--exclude=*.pyc' '--exclude=__pycache__' repo_p44_work/tick_flow_full/orderflow_services/runbook_latency_contract_p45_v1.md repo_p45_work/tick_flow_full/orderflow_services/runbook_latency_contract_p45_v1.md
+--- repo_p44_work/tick_flow_full/orderflow_services/runbook_latency_contract_p45_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ repo_p45_work/tick_flow_full/orderflow_services/runbook_latency_contract_p45_v1.md	2026-03-08 09:04:20.192665846 +0000
+@@ -0,0 +1,45 @@
++# P4.5 — Latency Contract Deploy Lint State / Exporter
++
++## Что это делает
++
++Каждый запуск host-side deploy lint теперь публикует состояние в Redis:
++
++- `metrics:latency_contract:deploy_lint:last:<purpose>`
++- `cfg:orderflow:latency_contract:deploy_lint_gate:<purpose>:v1`
++- `metrics:latency_contract:deploy_lint:summary:last` (через exporter)
++
++Это даёт:
++- видимость последних lint verdicts в Prometheus/Grafana
++- сигнал о persistent config drift
++- отдельный gate per purpose после выдержки `LATENCY_CONTRACT_DEPLOY_LINT_PERSIST_HOLD_S`
++
++## Ключевые поля state
++
++- `ok`
++- `errors_count`
++- `warnings_count`
++- `last_checked_ts_ms`
++- `fail_since_ts_ms`
++- `fail_age_s`
++- `gate_active`
++- `gate_reason_code`
++- `error_codes`
++
++## Как запускать exporter
++
++```bash
++python3 -m orderflow_services.latency_contract_deploy_lint_exporter_v1
++```
++
++## Что смотреть
++
++- `latency_contract_deploy_lint_gate_active{purpose}`
++- `latency_contract_deploy_lint_fail_age_seconds{purpose}`
++- `latency_contract_deploy_lint_summary_gate_active_total`
++- `latency_contract_deploy_lint_summary_fail_total`
++
++## Интерпретация
++
++- `ok=0`, `gate_active=0` — transient drift, lint упал, но hold ещё не достигнут
++- `ok=0`, `gate_active=1` — persistent drift; recurring jobs должны оставаться заблокированными до исправления конфигурации
++- `ok=1` — state/gate очищены после успешного lint

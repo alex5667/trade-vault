@@ -1,0 +1,16 @@
+# Regime Quantiles Commands
+
+regime-quantiles-run:
+\t@echo \"📊 Запуск вычисления quantiles...\"\n\t@cd python-worker && python3 -m tools.update_regime_quantiles_sql
+
+regime-quantiles-status:
+\t@echo \"📊 Статус Regime Quantiles Timer:\"\n\t@systemctl list-timers --all | grep regime-quantiles || echo \"Таймер не найден\"\n\t@echo \"\"\n\t@systemctl status regime-quantiles-update.service --no-pager || true
+
+regime-quantiles-logs:
+\t@echo \"📋 Логи Regime Quantiles:\"\n\t@journalctl -u regime-quantiles-update.service -n 50 --no-pager
+
+regime-quantiles-check-redis:
+\t@echo \"🔍 Проверка regime:{symbol} в Redis...\"\n\t@docker exec scanner-redis-worker-1 redis-cli GET regime:BTCUSDT || echo \"Нет данных\"\n\t@docker exec scanner-redis-worker-1 redis-cli GET regime:ETHUSDT || echo \"Нет данных\"\n\t@docker exec scanner-redis-worker-1 redis-cli GET regime:SOLUSDT || echo \"Нет данных\"
+
+regime-quantiles-check-db:
+\t@echo \"🔍 Проверка regime_quantiles в БД...\"\n\t@echo \"SELECT symbol, timeframe, atrp_p50, adx_p60, sampleSize, updatedAt FROM regime_quantiles ORDER BY updatedAt DESC LIMIT 5;\" | psql $$ANALYTICS_DSN || echo \"⚠️ БД недоступна\"

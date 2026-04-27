@@ -1,0 +1,826 @@
+diff -ruN /tmp/p5orig/audit_code/crypto_orderflow_service.py /tmp/p5bridge/audit_code/crypto_orderflow_service.py
+--- /tmp/p5orig/audit_code/crypto_orderflow_service.py	2026-03-07 09:08:08.000000000 +0000
++++ /tmp/p5bridge/audit_code/crypto_orderflow_service.py	2026-03-07 09:47:15.586378720 +0000
+@@ -20,6 +20,7 @@
+ import time
+ import asyncio
+ import logging
++import re
+ import traceback
+ import random
+ from typing import Any, Dict, List, Optional, Tuple, Set
+@@ -143,24 +144,32 @@
+ def ensure_audit_chain_fields(signal: Dict[str, Any]) -> Dict[str, Any]:
+     """Ensure a stable signal/execution chain contract before publish.
+ 
+-    The execution journal needs explicit IDs to join signal production with the
+-    execution lifecycle and the closed-trade analytics layer.  Upstream signal
+-    producers may only provide `decision_id`, so we materialize stable
+-    `signal_id` and `execution_plan_id` here before the payload leaves the
+-    publisher boundary.
++    Real analytics tables require UUID ``signal_id`` / ``execution_plan_id``.
++    Older runtime payloads sometimes reused ``sid`` or ``decision_id`` there,
++    which breaks SQL writes once the bridge uses proper UUID columns.  We keep
++    ``decision_id`` as free-form text, but only propagate the bridge IDs when
++    they already look like UUIDs. ``execution_plan_id`` defaults to ``signal_id``
++    because ``signal_execution_plan`` uses one execution plan row per signal.
+     """
+     if not isinstance(signal, dict):
+         return signal
++    def _uuidish(v: Any) -> str:
++        s = str(v or '').strip()
++        return s if re.match(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$', s) else ''
+     decision_id = str(signal.get('decision_id') or signal.get('id') or '').strip()
+-    signal_id = str(signal.get('signal_id') or decision_id or signal.get('sid') or '').strip()
+-    execution_plan_id = str(signal.get('execution_plan_id') or decision_id or signal_id or '').strip()
++    signal_id = _uuidish(signal.get('signal_id'))
++    execution_plan_id = _uuidish(signal.get('execution_plan_id')) or signal_id
+     if signal_id:
+         signal['signal_id'] = signal_id
++    elif 'signal_id' in signal:
++        signal.pop('signal_id', None)
+     if execution_plan_id:
+         signal['execution_plan_id'] = execution_plan_id
++    elif 'execution_plan_id' in signal:
++        signal.pop('execution_plan_id', None)
+     if decision_id:
+         signal['decision_id'] = decision_id
+-    signal.setdefault('audit_chain_ver', 'p5_execution_audit_v1')
++    signal.setdefault('audit_chain_ver', 'p5_execution_bridge_v2')
+     return signal
+ # Настройка логирования
+ log_level = os.getenv("CRYPTO_OF_LOG_LEVEL", "INFO")
+diff -ruN /tmp/p5orig/audit_code/test_p5_audit_chain_fields_v1.py /tmp/p5bridge/audit_code/test_p5_audit_chain_fields_v1.py
+--- /tmp/p5orig/audit_code/test_p5_audit_chain_fields_v1.py	2026-03-07 09:07:36.000000000 +0000
++++ /tmp/p5bridge/audit_code/test_p5_audit_chain_fields_v1.py	2026-03-07 09:47:15.587271593 +0000
+@@ -6,3 +6,8 @@
+     assert 'def ensure_audit_chain_fields' in src
+     assert "signal['signal_id']" in src or 'signal["signal_id"]' in src
+     assert "signal['execution_plan_id']" in src or 'signal["execution_plan_id"]' in src
++
++
++def test_p5_bridge_chain_version_present():
++    src = (Path(__file__).resolve().parent / 'crypto_orderflow_service.py').read_text(encoding='utf-8')
++    assert 'p5_execution_bridge_v2' in src
+diff -ruN /tmp/p5orig/binance_execution/binance_executor.py /tmp/p5bridge/binance_execution/binance_executor.py
+--- /tmp/p5orig/binance_execution/binance_executor.py	2026-03-07 09:07:04.000000000 +0000
++++ /tmp/p5bridge/binance_execution/binance_executor.py	2026-03-07 09:47:15.580077685 +0000
+@@ -732,16 +732,22 @@
+     def _derive_audit_chain_fields(self, source: Dict[str, Any], sid: str) -> Dict[str, Any]:
+         """Build a stable audit chain carried in Redis state and SQL mirrors.
+ 
+-        `signal_id` and `execution_plan_id` may arrive from the upstream signal
+-        envelope.  When they do not, we derive deterministic fallbacks so SQL
+-        joins remain possible after restarts/backfills.
++        Real analytics tables use UUID ``signal_id`` and ``execution_plan_id``.
++        We therefore never derive those from ``sid``/``decision_id`` unless the
++        value already looks like a UUID.  This keeps hot-path Redis writes safe
++        while allowing bridge/backfill jobs to repair older rows later.
+         """
+         src = source or {}
+-        signal_id = str(src.get('signal_id') or src.get('decision_id') or src.get('id') or sid or '').strip()
+-        execution_plan_id = str(src.get('execution_plan_id') or src.get('decision_id') or signal_id or sid or '').strip()
++        def _uuidish(v: Any) -> str:
++            s = str(v or '').strip()
++            return s if re.match(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$', s) else ''
++        signal_id = _uuidish(src.get('signal_id'))
++        execution_plan_id = _uuidish(src.get('execution_plan_id')) or signal_id
++        decision_id = str(src.get('decision_id') or src.get('id') or '').strip()
+         return {
+             'signal_id': signal_id,
+             'execution_plan_id': execution_plan_id,
++            'decision_id': decision_id,
+         }
+ 
+     @staticmethod
+@@ -765,8 +771,15 @@
+         }
+ 
+     def _new_closed_trade_id(self, sid: str, *, exit_order_ref: str = '') -> str:
++        """Deprecated legacy helper.
++
++        Historical patches generated synthetic ``closed_trade_id`` strings before
++        the real analytics schema was known.  The production bridge now maps to
++        ``trades_closed.id`` (BIGINT), therefore new code should avoid calling
++        this helper and let the backfill/linker resolve the real closed trade.
++        """
+         suffix = hashlib.sha1(f"{sid}|{exit_order_ref}|{_ms_now()}".encode('utf-8')).hexdigest()[:12]
+-        return f"closed:{sid}:{suffix}"
++        return f"legacy-closed:{sid}:{suffix}"
+ 
+ 
+ 
+@@ -2357,6 +2370,7 @@
+             "venue": f"binance_{'demo' if is_virtual else 'prod'}",
+             "execution_policy": policy.name,
+             **audit_chain, **audit_policies, **order_refs,
++            'bridge_status': 'pending_trade_close_link',
+             **prot, **trail, **maker_watchdogs,
+         })
+         return result
+@@ -2441,6 +2455,7 @@
+             "qty": qty,
+             "execution_policy": policy.name,
+             **audit_chain, **audit_policies,
++            'bridge_status': 'pending_trade_close_link',
+             **prot, **trail, **maker_watchdogs,
+         })
+         return {
+@@ -2496,7 +2511,13 @@
+         closed_trade_id = ''
+         if close_order_id:
+             exit_order_ref = self._format_order_ref(venue='binance', kind='exit', order_id=close_order_id)
+-            closed_trade_id = str(payload.get('closed_trade_id') or '') or self._new_closed_trade_id(sid, exit_order_ref=exit_order_ref)
++            # Do not fabricate closed_trade_id here. The canonical value is
++            # scanner_analytics.trades_closed.id and must be linked by the audit
++            # bridge/backfill once the post-trade row exists.
++            try:
++                closed_trade_id = int(payload.get('closed_trade_id')) if payload.get('closed_trade_id') not in (None, '', False) else ''
++            except Exception:
++                closed_trade_id = ''
+         result = {
+             "sid": sid, "symbol": symbol, "action": "cancel",
+             "status": "ok", "side": logical or "",
+@@ -2519,6 +2540,7 @@
+                 "closed_trade_id": closed_trade_id,
+                 "closed": True,
+                 **audit_chain,
++                'bridge_status': 'awaiting_trades_closed_link',
+             })
+         return result
+ 
+diff -ruN /tmp/p5orig/binance_execution/execution_journal.py /tmp/p5bridge/binance_execution/execution_journal.py
+--- /tmp/p5orig/binance_execution/execution_journal.py	2026-03-07 09:07:04.000000000 +0000
++++ /tmp/p5bridge/binance_execution/execution_journal.py	2026-03-07 09:47:15.577321400 +0000
+@@ -2,16 +2,18 @@
+ 
+ """Best-effort execution journal sink for Postgres.
+ 
+-P5 extends the journal contract so execution SQL mirrors can be used as a durable
+-join point between signal production, execution lifecycle and analytics.  The
+-Redis stream remains the online SoT; SQL mirrors are durable audit materialized
+-views that must never break the hot path.
++P5 bridge extends the journal contract so execution SQL mirrors become the
++canonical join point between signal production, execution lifecycle, policy
++snapshots and closed-trade analytics. Redis ``orders:exec`` remains the online
++SoT; SQL mirrors are durable audit materialized views that must never break the
++hot path.
+ """
+ 
+ from dataclasses import dataclass
+ from typing import Any, Dict, Optional
+ import json
+ import os
++import re
+ import time
+ 
+ try:
+@@ -46,6 +48,8 @@
+     except Exception:  # pragma: no cover
+         psycopg = None
+ 
++_UUID_RE = re.compile(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$')
++
+ 
+ def _s(v: Any) -> str:
+     return str(v or '')
+@@ -63,11 +67,27 @@
+     return s or None
+ 
+ 
+-def _first_text(doc: Dict[str, Any], *keys: str) -> Optional[str]:
++def _optional_uuid(v: Any) -> Optional[str]:
++    s = str(v or '').strip()
++    if not s:
++        return None
++    return s if _UUID_RE.match(s) else None
++
++
++def _optional_bigint(v: Any) -> Optional[int]:
++    if v in (None, '', False):
++        return None
++    try:
++        return int(v)
++    except Exception:
++        return None
++
++
++def _first_uuidish(doc: Dict[str, Any], *keys: str) -> Optional[str]:
+     for key in keys:
+-        s = _optional_text(doc.get(key))
+-        if s:
+-            return s
++        val = _optional_uuid(doc.get(key))
++        if val:
++            return val
+     return None
+ 
+ 
+@@ -94,8 +114,8 @@
+         if not self.enabled:
+             return False
+         sql = (
+-            "INSERT INTO execution_order_events (sid, symbol, signal_id, execution_plan_id, event_type, event_ts_ms, payload_jsonb) "
+-            "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)"
++            "INSERT INTO execution_order_events (sid, symbol, signal_id, execution_plan_id, decision_id, event_type, event_ts_ms, payload_jsonb) "
++            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)"
+         )
+         payload = dict(event or {})
+         try:
+@@ -105,8 +125,9 @@
+                     cur.execute(sql, (
+                         _s(payload.get('sid')),
+                         _s(payload.get('symbol')),
+-                        _first_text(payload, 'signal_id', 'decision_id', 'id'),
+-                        _first_text(payload, 'execution_plan_id', 'decision_id', 'signal_id', 'id'),
++                        _first_uuidish(payload, 'signal_id'),
++                        _first_uuidish(payload, 'execution_plan_id', 'signal_id'),
++                        _optional_text(payload.get('decision_id')),
+                         _s(payload.get('event_type') or payload.get('action') or 'event'),
+                         _i(payload.get('ts_ms') or int(time.time() * 1000)),
+                         json.dumps(payload, ensure_ascii=False, default=str),
+@@ -122,17 +143,19 @@
+             return False
+         sql = (
+             "INSERT INTO execution_orders (sid, symbol, action, status, fsm_state, execution_policy, entry_policy, exit_policy, "
+-            "signal_id, execution_plan_id, entry_order_ref, exit_order_ref, closed_trade_id, venue, position_mode, position_side, "
++            "signal_id, execution_plan_id, decision_id, entry_order_ref, exit_order_ref, closed_trade_id, bridge_status, venue, position_mode, position_side, "
+             "working_type_policy, state_jsonb, created_at_ms, updated_at_ms) "
+-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s) "
++            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s) "
+             "ON CONFLICT (sid) DO UPDATE SET "
+             "symbol = EXCLUDED.symbol, action = EXCLUDED.action, status = EXCLUDED.status, fsm_state = EXCLUDED.fsm_state, "
+             "execution_policy = EXCLUDED.execution_policy, entry_policy = EXCLUDED.entry_policy, exit_policy = EXCLUDED.exit_policy, "
+             "signal_id = COALESCE(EXCLUDED.signal_id, execution_orders.signal_id), "
+             "execution_plan_id = COALESCE(EXCLUDED.execution_plan_id, execution_orders.execution_plan_id), "
++            "decision_id = COALESCE(EXCLUDED.decision_id, execution_orders.decision_id), "
+             "entry_order_ref = COALESCE(EXCLUDED.entry_order_ref, execution_orders.entry_order_ref), "
+             "exit_order_ref = COALESCE(EXCLUDED.exit_order_ref, execution_orders.exit_order_ref), "
+             "closed_trade_id = COALESCE(EXCLUDED.closed_trade_id, execution_orders.closed_trade_id), "
++            "bridge_status = CASE WHEN EXCLUDED.bridge_status <> '' THEN EXCLUDED.bridge_status ELSE execution_orders.bridge_status END, "
+             "venue = EXCLUDED.venue, position_mode = EXCLUDED.position_mode, position_side = EXCLUDED.position_side, "
+             "working_type_policy = EXCLUDED.working_type_policy, state_jsonb = EXCLUDED.state_jsonb, updated_at_ms = EXCLUDED.updated_at_ms"
+         )
+@@ -151,11 +174,13 @@
+                         _s(doc.get('execution_policy')),
+                         _s(doc.get('entry_policy') or doc.get('execution_policy')),
+                         _s(doc.get('exit_policy')),
+-                        _first_text(doc, 'signal_id', 'decision_id', 'id'),
+-                        _first_text(doc, 'execution_plan_id', 'decision_id', 'signal_id', 'id'),
++                        _first_uuidish(doc, 'signal_id'),
++                        _first_uuidish(doc, 'execution_plan_id', 'signal_id'),
++                        _optional_text(doc.get('decision_id')),
+                         _optional_text(doc.get('entry_order_ref')),
+                         _optional_text(doc.get('exit_order_ref')),
+-                        _optional_text(doc.get('closed_trade_id')),
++                        _optional_bigint(doc.get('closed_trade_id')),
++                        _s(doc.get('bridge_status')),
+                         _s(doc.get('venue') or 'binance'),
+                         _s(doc.get('position_mode')),
+                         _s(doc.get('position_side')),
+@@ -210,8 +235,8 @@
+         if not self.enabled:
+             return False
+         sql = (
+-            "INSERT INTO execution_watchdog_events (sid, symbol, signal_id, execution_plan_id, tp_level, watchdog_state, event_type, event_ts_ms, payload_jsonb) "
+-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)"
++            "INSERT INTO execution_watchdog_events (sid, symbol, signal_id, execution_plan_id, decision_id, tp_level, watchdog_state, event_type, event_ts_ms, payload_jsonb) "
++            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)"
+         )
+         payload = dict(event or {})
+         try:
+@@ -221,8 +246,9 @@
+                     cur.execute(sql, (
+                         _s(payload.get('sid')),
+                         _s(payload.get('symbol')),
+-                        _first_text(payload, 'signal_id', 'decision_id', 'id'),
+-                        _first_text(payload, 'execution_plan_id', 'decision_id', 'signal_id', 'id'),
++                        _first_uuidish(payload, 'signal_id'),
++                        _first_uuidish(payload, 'execution_plan_id', 'signal_id'),
++                        _optional_text(payload.get('decision_id')),
+                         payload.get('tp_level'),
+                         _s(payload.get('tp_state') or payload.get('watchdog_state') or ''),
+                         _s(payload.get('event_type') or 'watchdog'),
+diff -ruN /tmp/p5orig/binance_execution/test_execution_audit_bridge_assets_v1.py /tmp/p5bridge/binance_execution/test_execution_audit_bridge_assets_v1.py
+--- /tmp/p5orig/binance_execution/test_execution_audit_bridge_assets_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p5bridge/binance_execution/test_execution_audit_bridge_assets_v1.py	2026-03-07 09:47:15.586910639 +0000
+@@ -0,0 +1,14 @@
++from pathlib import Path
++
++
++def test_bridge_migrations_present_and_target_real_tables():
++    base = Path(__file__).resolve().parents[1] / 'db' / 'migrations'
++    sql = (base / '20260307_21_execution_analytics_bridge.sql').read_text(encoding='utf-8')
++    assert 'ALTER TABLE signal_execution_plan' in sql
++    assert 'ALTER TABLE trades_closed' in sql
++    assert 'ALTER TABLE entry_policy_audit' in sql
++    assert 'ALTER TABLE decision_snapshot' in sql
++    assert 'execution_watchdog_events' in sql
++    idx = (base / '20260307_22_execution_analytics_bridge_indexes.sql').read_text(encoding='utf-8')
++    assert 'idx_signal_execution_plan_execution_plan_id' in idx
++    assert 'idx_trades_closed_signal_plan_exit' in idx
+diff -ruN /tmp/p5orig/binance_execution/test_execution_journal_p5_contract_v1.py /tmp/p5bridge/binance_execution/test_execution_journal_p5_contract_v1.py
+--- /tmp/p5orig/binance_execution/test_execution_journal_p5_contract_v1.py	2026-03-07 09:07:04.000000000 +0000
++++ /tmp/p5bridge/binance_execution/test_execution_journal_p5_contract_v1.py	2026-03-07 09:48:13.435508356 +0000
+@@ -35,15 +35,17 @@
+     executed = []
+     sink = mod.ExecutionJournalSink(dsn='postgres://x', connect_factory=lambda dsn: _Conn(executed))
+     ok = sink.upsert_order_snapshot({
+-        'sid': 's1', 'symbol': 'BTCUSDT', 'signal_id': 'sig-1', 'execution_plan_id': 'plan-1',
++        'sid': 's1', 'symbol': 'BTCUSDT', 'signal_id': '11111111-1111-4111-8111-111111111111', 'execution_plan_id': '22222222-2222-4222-8222-222222222222',
+         'entry_order_ref': 'binance|entry|oid=1|cid=abc', 'exit_order_ref': 'binance|exit|oid=2',
+-        'closed_trade_id': 'closed:s1:abc', 'entry_policy': 'ENTRY_MARKET', 'exit_policy': 'EXIT_SAFE',
++        'closed_trade_id': 123, 'entry_policy': 'ENTRY_MARKET', 'exit_policy': 'EXIT_SAFE', 'decision_id': 'dec-1',
+     })
+     assert ok is True
+     sql, params = executed[0]
+     assert 'entry_policy' in sql and 'closed_trade_id' in sql
+-    assert params[8] == 'sig-1'
+-    assert params[9] == 'plan-1'
++    assert params[8] == '11111111-1111-4111-8111-111111111111'
++    assert params[9] == '22222222-2222-4222-8222-222222222222'
++    assert params[10] == 'dec-1'
++    assert params[13] == 123
+ 
+ 
+ def test_watchdog_event_insert_exists():
+@@ -53,4 +55,4 @@
+     assert ok is True
+     sql, params = executed[0]
+     assert 'execution_watchdog_events' in sql
+-    assert params[4] == 1
++    assert params[5] == 1
+diff -ruN /tmp/p5orig/db/migrations/20260307_21_execution_analytics_bridge.sql /tmp/p5bridge/db/migrations/20260307_21_execution_analytics_bridge.sql
+--- /tmp/p5orig/db/migrations/20260307_21_execution_analytics_bridge.sql	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p5bridge/db/migrations/20260307_21_execution_analytics_bridge.sql	2026-03-07 09:47:15.586585025 +0000
+@@ -0,0 +1,128 @@
++-- P5.3 bridge migration: align execution journal with existing analytics tables.
++--
++-- Goals:
++-- 1. Introduce a durable `execution_plan_id` bridge on signal_execution_plan.
++-- 2. Add signal/execution/closed-trade linkage to execution journal + audit tables.
++-- 3. Migrate earlier TEXT placeholders to the real schema contract where needed.
++
++ALTER TABLE signal_execution_plan
++  ADD COLUMN IF NOT EXISTS execution_plan_id UUID;
++
++UPDATE signal_execution_plan
++   SET execution_plan_id = signal_id
++ WHERE execution_plan_id IS NULL;
++
++ALTER TABLE entry_policy_audit
++  ADD COLUMN IF NOT EXISTS signal_id UUID,
++  ADD COLUMN IF NOT EXISTS execution_plan_id UUID,
++  ADD COLUMN IF NOT EXISTS decision_id TEXT;
++
++ALTER TABLE position_events
++  ADD COLUMN IF NOT EXISTS signal_id UUID,
++  ADD COLUMN IF NOT EXISTS execution_plan_id UUID,
++  ADD COLUMN IF NOT EXISTS closed_trade_id BIGINT;
++
++ALTER TABLE decision_snapshot
++  ADD COLUMN IF NOT EXISTS signal_id UUID,
++  ADD COLUMN IF NOT EXISTS execution_plan_id UUID,
++  ADD COLUMN IF NOT EXISTS decision_id TEXT;
++
++ALTER TABLE trades_closed
++  ADD COLUMN IF NOT EXISTS signal_id UUID,
++  ADD COLUMN IF NOT EXISTS execution_plan_id UUID;
++
++ALTER TABLE execution_orders
++  ADD COLUMN IF NOT EXISTS decision_id TEXT,
++  ADD COLUMN IF NOT EXISTS bridge_status TEXT NOT NULL DEFAULT '';
++
++ALTER TABLE execution_order_events
++  ADD COLUMN IF NOT EXISTS decision_id TEXT;
++
++CREATE TABLE IF NOT EXISTS execution_watchdog_events (
++  id BIGSERIAL PRIMARY KEY,
++  sid TEXT NOT NULL,
++  symbol TEXT NOT NULL DEFAULT '',
++  signal_id UUID NULL,
++  execution_plan_id UUID NULL,
++  decision_id TEXT NULL,
++  tp_level INTEGER NULL,
++  watchdog_state TEXT NOT NULL DEFAULT '',
++  event_type TEXT NOT NULL,
++  event_ts_ms BIGINT NOT NULL,
++  payload_jsonb JSONB NOT NULL DEFAULT '{}'::jsonb
++);
++
++DO $$
++BEGIN
++  IF EXISTS (
++      SELECT 1 FROM information_schema.columns
++      WHERE table_name='execution_orders' AND column_name='signal_id' AND udt_name <> 'uuid'
++  ) THEN
++    UPDATE execution_orders
++       SET signal_id = NULL
++     WHERE signal_id IS NOT NULL
++       AND signal_id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$';
++    ALTER TABLE execution_orders
++      ALTER COLUMN signal_id TYPE UUID USING NULLIF(signal_id,'')::uuid;
++  END IF;
++END $$;
++
++DO $$
++BEGIN
++  IF EXISTS (
++      SELECT 1 FROM information_schema.columns
++      WHERE table_name='execution_orders' AND column_name='execution_plan_id' AND udt_name <> 'uuid'
++  ) THEN
++    UPDATE execution_orders
++       SET execution_plan_id = NULL
++     WHERE execution_plan_id IS NOT NULL
++       AND execution_plan_id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$';
++    ALTER TABLE execution_orders
++      ALTER COLUMN execution_plan_id TYPE UUID USING NULLIF(execution_plan_id,'')::uuid;
++  END IF;
++END $$;
++
++DO $$
++BEGIN
++  IF EXISTS (
++      SELECT 1 FROM information_schema.columns
++      WHERE table_name='execution_orders' AND column_name='closed_trade_id' AND udt_name <> 'int8'
++  ) THEN
++    UPDATE execution_orders
++       SET closed_trade_id = NULL
++     WHERE closed_trade_id IS NOT NULL
++       AND closed_trade_id !~ '^[0-9]+$';
++    ALTER TABLE execution_orders
++      ALTER COLUMN closed_trade_id TYPE BIGINT USING NULLIF(closed_trade_id,'')::bigint;
++  END IF;
++END $$;
++
++DO $$
++BEGIN
++  IF EXISTS (
++      SELECT 1 FROM information_schema.columns
++      WHERE table_name='execution_order_events' AND column_name='signal_id' AND udt_name <> 'uuid'
++  ) THEN
++    UPDATE execution_order_events
++       SET signal_id = NULL
++     WHERE signal_id IS NOT NULL
++       AND signal_id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$';
++    ALTER TABLE execution_order_events
++      ALTER COLUMN signal_id TYPE UUID USING NULLIF(signal_id,'')::uuid;
++  END IF;
++END $$;
++
++DO $$
++BEGIN
++  IF EXISTS (
++      SELECT 1 FROM information_schema.columns
++      WHERE table_name='execution_order_events' AND column_name='execution_plan_id' AND udt_name <> 'uuid'
++  ) THEN
++    UPDATE execution_order_events
++       SET execution_plan_id = NULL
++     WHERE execution_plan_id IS NOT NULL
++       AND execution_plan_id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$';
++    ALTER TABLE execution_order_events
++      ALTER COLUMN execution_plan_id TYPE UUID USING NULLIF(execution_plan_id,'')::uuid;
++  END IF;
++END $$;
+diff -ruN /tmp/p5orig/db/migrations/20260307_22_execution_analytics_bridge_indexes.sql /tmp/p5bridge/db/migrations/20260307_22_execution_analytics_bridge_indexes.sql
+--- /tmp/p5orig/db/migrations/20260307_22_execution_analytics_bridge_indexes.sql	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p5bridge/db/migrations/20260307_22_execution_analytics_bridge_indexes.sql	2026-03-07 09:47:15.586707336 +0000
+@@ -0,0 +1,27 @@
++CREATE UNIQUE INDEX IF NOT EXISTS idx_signal_execution_plan_execution_plan_id
++  ON signal_execution_plan(execution_plan_id);
++
++CREATE INDEX IF NOT EXISTS idx_entry_policy_audit_signal_plan_ts
++  ON entry_policy_audit(signal_id, execution_plan_id, ts DESC);
++
++CREATE INDEX IF NOT EXISTS idx_position_events_sid_signal_plan_ts
++  ON position_events(sid, signal_id, execution_plan_id, ts DESC);
++
++CREATE INDEX IF NOT EXISTS idx_position_events_closed_trade_ts
++  ON position_events(closed_trade_id, ts DESC)
++  WHERE closed_trade_id IS NOT NULL;
++
++CREATE INDEX IF NOT EXISTS idx_decision_snapshot_signal_plan_ts
++  ON decision_snapshot(signal_id, execution_plan_id, ts_decision_ms DESC);
++
++CREATE INDEX IF NOT EXISTS idx_trades_closed_signal_plan_exit
++  ON trades_closed(signal_id, execution_plan_id, exit_ts DESC);
++
++CREATE INDEX IF NOT EXISTS idx_execution_orders_bridge_status_updated
++  ON execution_orders(bridge_status, updated_at_ms DESC);
++
++CREATE INDEX IF NOT EXISTS idx_execution_orders_decision_id_updated
++  ON execution_orders(decision_id, updated_at_ms DESC);
++
++CREATE INDEX IF NOT EXISTS idx_execution_watchdog_signal_plan_ts
++  ON execution_watchdog_events(signal_id, execution_plan_id, event_ts_ms DESC);
+diff -ruN /tmp/p5orig/scripts/backfill_execution_audit_bridge.py /tmp/p5bridge/scripts/backfill_execution_audit_bridge.py
+--- /tmp/p5orig/scripts/backfill_execution_audit_bridge.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p5bridge/scripts/backfill_execution_audit_bridge.py	2026-03-07 09:47:15.586807690 +0000
+@@ -0,0 +1,142 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Backfill signal/execution/closed-trade bridge fields across analytics tables.
++
++The bridge is intentionally idempotent: every statement can be re-run after new
++execution rows or post-trade analytics arrive.  This lets operators repair the
++chain without mutating the hot-path writer code.
++"""
++
++import argparse
++import json
++import os
++from dataclasses import dataclass, asdict
++from typing import Dict
++
++try:  # pragma: no cover
++    import psycopg  # type: ignore
++except Exception:  # pragma: no cover
++    psycopg = None
++
++
++@dataclass
++class BackfillCounts:
++    signal_execution_plan_execution_plan_id: int = 0
++    execution_orders_from_state: int = 0
++    execution_orders_closed_trade_link: int = 0
++    trades_closed_chain: int = 0
++    position_events_chain: int = 0
++    entry_policy_audit_chain: int = 0
++    decision_snapshot_chain: int = 0
++
++
++def _exec(cur, sql: str) -> int:
++    cur.execute(sql)
++    return int(getattr(cur, 'rowcount', 0) or 0)
++
++
++def run_backfill(conn) -> BackfillCounts:
++    counts = BackfillCounts()
++    with conn.cursor() as cur:
++        counts.signal_execution_plan_execution_plan_id += _exec(cur, """
++            UPDATE signal_execution_plan
++               SET execution_plan_id = signal_id
++             WHERE execution_plan_id IS NULL
++        """)
++        counts.execution_orders_from_state += _exec(cur, """
++            UPDATE execution_orders eo
++               SET signal_id = COALESCE(eo.signal_id, NULLIF(eo.state_jsonb->>'signal_id','')::uuid),
++                   execution_plan_id = COALESCE(eo.execution_plan_id, NULLIF(eo.state_jsonb->>'execution_plan_id','')::uuid),
++                   decision_id = COALESCE(eo.decision_id, NULLIF(eo.state_jsonb->>'decision_id','')),
++                   entry_order_ref = COALESCE(eo.entry_order_ref, NULLIF(eo.state_jsonb->>'entry_order_ref','')),
++                   exit_order_ref = COALESCE(eo.exit_order_ref, NULLIF(eo.state_jsonb->>'exit_order_ref','')),
++                   bridge_status = CASE
++                     WHEN COALESCE(eo.closed_trade_id,0) > 0 THEN 'closed_trade_linked'
++                     WHEN COALESCE(NULLIF(eo.state_jsonb->>'exit_order_ref',''),'') <> '' THEN 'awaiting_trades_closed_link'
++                     ELSE eo.bridge_status
++                   END
++             WHERE (eo.signal_id IS NULL AND eo.state_jsonb ? 'signal_id')
++                OR (eo.execution_plan_id IS NULL AND eo.state_jsonb ? 'execution_plan_id')
++                OR (COALESCE(eo.decision_id,'') = '' AND eo.state_jsonb ? 'decision_id')
++                OR (COALESCE(eo.entry_order_ref,'') = '' AND eo.state_jsonb ? 'entry_order_ref')
++                OR (COALESCE(eo.exit_order_ref,'') = '' AND eo.state_jsonb ? 'exit_order_ref')
++        """)
++        counts.execution_orders_closed_trade_link += _exec(cur, """
++            WITH latest_trade AS (
++                SELECT DISTINCT ON (sid) sid, id AS closed_trade_id, signal_id, execution_plan_id
++                  FROM trades_closed
++                 WHERE sid IS NOT NULL AND sid <> ''
++                 ORDER BY sid, exit_ts_ms DESC, id DESC
++            )
++            UPDATE execution_orders eo
++               SET closed_trade_id = lt.closed_trade_id,
++                   signal_id = COALESCE(eo.signal_id, lt.signal_id),
++                   execution_plan_id = COALESCE(eo.execution_plan_id, lt.execution_plan_id),
++                   bridge_status = 'closed_trade_linked'
++              FROM latest_trade lt
++             WHERE eo.sid = lt.sid
++               AND (eo.closed_trade_id IS DISTINCT FROM lt.closed_trade_id
++                 OR eo.signal_id IS NULL
++                 OR eo.execution_plan_id IS NULL)
++        """)
++        counts.trades_closed_chain += _exec(cur, """
++            UPDATE trades_closed tc
++               SET signal_id = COALESCE(tc.signal_id, eo.signal_id),
++                   execution_plan_id = COALESCE(tc.execution_plan_id, eo.execution_plan_id)
++              FROM execution_orders eo
++             WHERE tc.sid IS NOT NULL AND tc.sid <> ''
++               AND eo.sid = tc.sid
++               AND (tc.signal_id IS NULL OR tc.execution_plan_id IS NULL)
++        """)
++        counts.position_events_chain += _exec(cur, """
++            UPDATE position_events pe
++               SET signal_id = COALESCE(pe.signal_id, eo.signal_id),
++                   execution_plan_id = COALESCE(pe.execution_plan_id, eo.execution_plan_id),
++                   closed_trade_id = COALESCE(pe.closed_trade_id, eo.closed_trade_id)
++              FROM execution_orders eo
++             WHERE pe.sid IS NOT NULL AND pe.sid <> ''
++               AND eo.sid = pe.sid
++               AND (pe.signal_id IS NULL OR pe.execution_plan_id IS NULL OR pe.closed_trade_id IS NULL)
++        """)
++        counts.entry_policy_audit_chain += _exec(cur, """
++            UPDATE entry_policy_audit epa
++               SET signal_id = COALESCE(epa.signal_id, eo.signal_id),
++                   execution_plan_id = COALESCE(epa.execution_plan_id, eo.execution_plan_id),
++                   decision_id = COALESCE(epa.decision_id, eo.decision_id)
++              FROM execution_orders eo
++             WHERE epa.sid IS NOT NULL AND epa.sid <> ''
++               AND eo.sid = epa.sid
++               AND (epa.signal_id IS NULL OR epa.execution_plan_id IS NULL OR COALESCE(epa.decision_id,'') = '')
++        """)
++        counts.decision_snapshot_chain += _exec(cur, """
++            UPDATE decision_snapshot ds
++               SET signal_id = COALESCE(ds.signal_id, eo.signal_id),
++                   execution_plan_id = COALESCE(ds.execution_plan_id, eo.execution_plan_id),
++                   decision_id = COALESCE(ds.decision_id, eo.decision_id)
++              FROM execution_orders eo
++             WHERE eo.sid = ds.sid
++               AND (ds.signal_id IS NULL OR ds.execution_plan_id IS NULL OR COALESCE(ds.decision_id,'') = '')
++        """)
++    return counts
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description='Backfill execution analytics bridge fields.')
++    parser.add_argument('--dsn', default=os.getenv('EXECUTION_JOURNAL_DSN', ''))
++    parser.add_argument('--dry-run', action='store_true')
++    args = parser.parse_args()
++    if not args.dsn or psycopg is None:
++        raise RuntimeError('psycopg + EXECUTION_JOURNAL_DSN required')
++    with psycopg.connect(args.dsn) as conn:
++        counts = run_backfill(conn)
++        if args.dry_run:
++            conn.rollback()
++        else:
++            conn.commit()
++    print(json.dumps(asdict(counts), ensure_ascii=False, indent=2))
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+diff -ruN /tmp/p5orig/scripts/check_execution_audit_chain.py /tmp/p5bridge/scripts/check_execution_audit_chain.py
+--- /tmp/p5orig/scripts/check_execution_audit_chain.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p5bridge/scripts/check_execution_audit_chain.py	2026-03-07 09:47:15.586865225 +0000
+@@ -0,0 +1,80 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++from dataclasses import dataclass, asdict
++
++try:  # pragma: no cover
++    import psycopg  # type: ignore
++except Exception:  # pragma: no cover
++    psycopg = None
++
++
++@dataclass
++class AuditChainSummary:
++    execution_orders_missing_signal_id: int = 0
++    execution_orders_missing_execution_plan_id: int = 0
++    execution_orders_signal_fk_missing: int = 0
++    execution_orders_plan_fk_missing: int = 0
++    execution_orders_closed_trade_missing: int = 0
++    position_events_missing_chain: int = 0
++    trades_closed_missing_chain: int = 0
++    entry_policy_audit_missing_chain: int = 0
++    decision_snapshot_missing_chain: int = 0
++
++
++def collect_summary(conn) -> AuditChainSummary:
++    s = AuditChainSummary()
++    with conn.cursor() as cur:
++        cur.execute("select count(*) from execution_orders where signal_id is null")
++        s.execution_orders_missing_signal_id = int(cur.fetchone()[0])
++        cur.execute("select count(*) from execution_orders where execution_plan_id is null")
++        s.execution_orders_missing_execution_plan_id = int(cur.fetchone()[0])
++        cur.execute("""
++            select count(*)
++              from execution_orders eo
++              left join signals s on s.signal_id = eo.signal_id
++             where eo.signal_id is not null and s.signal_id is null
++        """)
++        s.execution_orders_signal_fk_missing = int(cur.fetchone()[0])
++        cur.execute("""
++            select count(*)
++              from execution_orders eo
++              left join signal_execution_plan sep on sep.execution_plan_id = eo.execution_plan_id
++             where eo.execution_plan_id is not null and sep.execution_plan_id is null
++        """)
++        s.execution_orders_plan_fk_missing = int(cur.fetchone()[0])
++        cur.execute("""
++            select count(*)
++              from execution_orders eo
++         left join trades_closed tc on tc.id = eo.closed_trade_id
++             where eo.closed_trade_id is not null and tc.id is null
++        """)
++        s.execution_orders_closed_trade_missing = int(cur.fetchone()[0])
++        cur.execute("select count(*) from position_events where sid is not null and sid <> '' and (signal_id is null or execution_plan_id is null)")
++        s.position_events_missing_chain = int(cur.fetchone()[0])
++        cur.execute("select count(*) from trades_closed where sid is not null and sid <> '' and (signal_id is null or execution_plan_id is null)")
++        s.trades_closed_missing_chain = int(cur.fetchone()[0])
++        cur.execute("select count(*) from entry_policy_audit where sid is not null and sid <> '' and (signal_id is null or execution_plan_id is null)")
++        s.entry_policy_audit_missing_chain = int(cur.fetchone()[0])
++        cur.execute("select count(*) from decision_snapshot where sid is not null and sid <> '' and (signal_id is null or execution_plan_id is null)")
++        s.decision_snapshot_missing_chain = int(cur.fetchone()[0])
++    return s
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description='Check end-to-end execution audit chain consistency.')
++    parser.add_argument('--dsn', default=os.getenv('EXECUTION_JOURNAL_DSN', ''))
++    args = parser.parse_args()
++    if not args.dsn or psycopg is None:
++        raise RuntimeError('psycopg + EXECUTION_JOURNAL_DSN required')
++    with psycopg.connect(args.dsn) as conn:
++        summary = collect_summary(conn)
++    print(json.dumps(asdict(summary), ensure_ascii=False, indent=2))
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+diff -ruN /tmp/p5orig/scripts/test_backfill_execution_audit_bridge_v1.py /tmp/p5bridge/scripts/test_backfill_execution_audit_bridge_v1.py
+--- /tmp/p5orig/scripts/test_backfill_execution_audit_bridge_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p5bridge/scripts/test_backfill_execution_audit_bridge_v1.py	2026-03-07 09:47:53.369422268 +0000
+@@ -0,0 +1,40 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++mod_path = Path(__file__).resolve().parent / 'backfill_execution_audit_bridge.py'
++spec = importlib.util.spec_from_file_location('backfill_execution_audit_bridge', mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++spec.loader.exec_module(mod)
++
++
++class _Cursor:
++    def __init__(self):
++        self.rowcount = 1
++        self.sql = []
++    def __enter__(self):
++        return self
++    def __exit__(self, *args):
++        return False
++    def execute(self, sql):
++        self.sql.append(sql)
++        self.rowcount = 1
++
++
++class _Conn:
++    def __init__(self):
++        self.cur = _Cursor()
++    def cursor(self):
++        return self.cur
++
++
++def test_run_backfill_executes_bridge_updates():
++    conn = _Conn()
++    counts = mod.run_backfill(conn)
++    assert counts.signal_execution_plan_execution_plan_id >= 1
++    assert counts.trades_closed_chain >= 1
++    assert counts.position_events_chain >= 1
++    merged_sql = "\n".join(conn.cur.sql)
++    assert 'UPDATE signal_execution_plan' in merged_sql
++    assert 'UPDATE trades_closed' in merged_sql
+diff -ruN /tmp/p5orig/scripts/test_check_execution_audit_chain_v1.py /tmp/p5bridge/scripts/test_check_execution_audit_chain_v1.py
+--- /tmp/p5orig/scripts/test_check_execution_audit_chain_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p5bridge/scripts/test_check_execution_audit_chain_v1.py	2026-03-07 09:47:15.586989684 +0000
+@@ -0,0 +1,33 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++mod_path = Path(__file__).resolve().parent / 'check_execution_audit_chain.py'
++spec = importlib.util.spec_from_file_location('check_execution_audit_chain', mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++spec.loader.exec_module(mod)
++
++
++class _Cursor:
++    def __init__(self):
++        self.calls = 0
++    def __enter__(self):
++        return self
++    def __exit__(self, *args):
++        return False
++    def execute(self, sql):
++        self.calls += 1
++    def fetchone(self):
++        return [self.calls]
++
++
++class _Conn:
++    def cursor(self):
++        return _Cursor()
++
++
++def test_collect_summary_runs_all_queries():
++    summary = mod.collect_summary(_Conn())
++    assert summary.execution_orders_missing_signal_id >= 1
++    assert summary.decision_snapshot_missing_chain >= 1

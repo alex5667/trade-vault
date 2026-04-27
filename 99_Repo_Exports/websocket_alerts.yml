@@ -1,0 +1,85 @@
+groups:
+  - name: websocket_alerts
+    rules:
+      # Алерт на высокую частоту переподключений
+      - alert: HighWebSocketReconnections
+        expr: websocket_alert_high_reconnections > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: websocket
+        annotations:
+          summary: 'Высокая частота переподключений WebSocket'
+          description: 'Символ {{ $labels.symbol }} с таймфреймом {{ $labels.timeframe }} имеет высокую частоту переподключений'
+          value: '{{ $value }}'
+
+      # Алерт на потерю соединения
+      - alert: WebSocketConnectionLoss
+        expr: websocket_alert_connection_loss > 0
+        for: 30s
+        labels:
+          severity: critical
+          service: websocket
+        annotations:
+          summary: 'Потеря WebSocket соединения'
+          description: 'Символ {{ $labels.symbol }} с таймфреймом {{ $labels.timeframe }} не получает сообщения более 2 минут'
+          value: '{{ $value }}'
+
+      # Алерт на высокую частоту ошибок
+      - alert: HighWebSocketErrorRate
+        expr: websocket_alert_high_error_rate > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: websocket
+        annotations:
+          summary: 'Высокая частота ошибок WebSocket'
+          description: 'Символ {{ $labels.symbol }} с таймфреймом {{ $labels.timeframe }} имеет высокую частоту ошибок (>10%)'
+          value: '{{ $value }}'
+
+      # Алерт на отсутствие активных соединений
+      - alert: NoActiveWebSocketConnections
+        expr: sum(websocket_connection_status) == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: websocket
+        annotations:
+          summary: 'Нет активных WebSocket соединений'
+          description: 'Все WebSocket соединения неактивны'
+
+      # Алерт на низкую активность сообщений
+      - alert: LowWebSocketMessageActivity
+        expr: rate(websocket_messages_received_total[5m]) < 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: websocket
+        annotations:
+          summary: 'Низкая активность WebSocket сообщений'
+          description: 'Символ {{ $labels.symbol }} с таймфреймом {{ $labels.timeframe }} получает менее 0.1 сообщений в секунду'
+          value: '{{ $value }}'
+
+      # Алерт на проблемы с публикацией в Redis
+      - alert: WebSocketRedisPublishIssues
+        expr: rate(websocket_messages_published_total[5m]) / rate(websocket_messages_received_total[5m]) < 0.9
+        for: 2m
+        labels:
+          severity: warning
+          service: websocket
+        annotations:
+          summary: 'Проблемы с публикацией в Redis'
+          description: 'Символ {{ $labels.symbol }} с таймфреймом {{ $labels.timeframe }} публикует менее 90% полученных сообщений'
+          value: '{{ $value }}'
+
+      # Алерт на длительные соединения (возможные утечки памяти)
+      - alert: LongWebSocketConnections
+        expr: websocket_connection_duration_seconds > 3600
+        for: 1m
+        labels:
+          severity: info
+          service: websocket
+        annotations:
+          summary: 'Длительные WebSocket соединения'
+          description: 'Символ {{ $labels.symbol }} с таймфреймом {{ $labels.timeframe }} соединен более 1 часа'
+          value: '{{ $value }}'

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/config/runtime_config.py
+# hypothesis_version: 6.148.10
+
+[180, '0', '1', '1000', '5000', '60', 'AUDIT_COMPACT', 'PACK_SOFT_U16', 'QF_PACK_U16', 'SIGNAL_LOG_EVERY_MS', 'STRICT_REASON_CODES', '_RuntimeCfg', 'on', 'true', 'y', 'yes']

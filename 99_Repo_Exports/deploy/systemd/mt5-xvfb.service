@@ -1,0 +1,54 @@
+# Systemd unit для MT5 под Wine с Xvfb (headless)
+# Установка:
+#   sudo cp deploy/systemd/mt5-xvfb.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable mt5-xvfb.service
+#   sudo systemctl start mt5-xvfb.service
+#
+# Проверка:
+#   sudo systemctl status mt5-xvfb.service
+#   journalctl -u mt5-xvfb.service -f
+
+[Unit]
+Description=MetaTrader 5 under Wine with Xvfb (Headless)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=%h
+
+# Wine prefix для MT5
+Environment=WINEPREFIX=%h/.wine-mt5
+Environment=WINEARCH=win64
+Environment=DISPLAY=:99
+
+# Запуск MT5 через Xvfb (виртуальный X сервер)
+ExecStart=/usr/bin/xvfb-run -a --server-args="-screen 0 1024x768x24" /usr/bin/wine "C:\\Program Files\\MetaTrader 5\\terminal64.exe" /portable
+
+# Автоматический перезапуск
+Restart=always
+RestartSec=10
+StartLimitInterval=600
+StartLimitBurst=5
+
+# Логирование
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mt5-wine
+
+# Ресурсы
+MemoryLimit=2G
+CPUQuota=100%
+
+# Таймауты
+TimeoutStartSec=60
+TimeoutStopSec=30
+
+# Безопасность
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+

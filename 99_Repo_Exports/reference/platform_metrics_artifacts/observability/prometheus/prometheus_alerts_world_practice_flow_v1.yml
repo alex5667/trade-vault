@@ -1,0 +1,129 @@
+groups:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # World-practice flow v1 – L3-lite / churn / cancel-pressure gauges
+  # ─────────────────────────────────────────────────────────────────────────────
+
+- name: of_world_practice_flow_v1
+  interval: 60s
+  rules:
+
+  # ── Warn: cancel-to-trade ratio high while system is active ──────────────────
+  - alert: OF_WP_CancelToTradeHigh_Warn
+    expr: |
+      (
+        (trade_cancel_to_trade_bid > 4) or (trade_cancel_to_trade_ask > 4)
+      )
+      and on(sym)
+      (
+        label_replace(
+          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
+          "sym", "$1", "symbol", "(.*)"
+        ) > 0.02
+      )
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): cancel-to-trade high ({{ $value | printf \"%.2f\" }})"
+      description: |
+        Cancel-to-trade ratio is high while allow decisions are being produced.
+        Typical causes: quote stuffing / spoof-like churn, microstructure stress, or bad L3-lite wiring.
+      runbook_path: /runbooks/world_practice_flow_v1.md
+      dashboard_path: /d/world_practice_flow_v1
+
+  # ── Crit: cancel-to-trade ratio extreme while system is active ───────────────
+  - alert: OF_WP_CancelToTradeExtreme_Crit
+    expr: |
+      (
+        (trade_cancel_to_trade_bid > 8) or (trade_cancel_to_trade_ask > 8)
+      )
+      and on(sym)
+      (
+        label_replace(
+          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
+          "sym", "$1", "symbol", "(.*)"
+        ) > 0.02
+      )
+    for: 10m
+    labels:
+      severity: critical
+    annotations:
+      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): cancel-to-trade EXTREME ({{ $value | printf \"%.2f\" }})"
+      description: |
+        Cancel-to-trade ratio is extreme while the strategy is active.
+        Risk: passive executability degrades, expected slippage underestimation, adverse selection.
+      runbook_path: /runbooks/world_practice_flow_v1.md
+      dashboard_path: /d/world_practice_flow_v1
+
+  # ── Warn: taker flow imbalance Z is high while active ───────────────────────
+  - alert: OF_WP_TakerFlowImbZHigh_Warn
+    expr: |
+      (
+        abs(trade_taker_flow_imb_z) > 3
+      )
+      and on(sym)
+      (
+        label_replace(
+          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
+          "sym", "$1", "symbol", "(.*)"
+        ) > 0.02
+      )
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): taker_flow_imb_z high ({{ $value | printf \"%.2f\" }})"
+      description: |
+        One-sided aggressive flow dominates (robust-z). Useful as a regime indicator.
+        If this is stuck at 0 while other rates move, suspect L3-lite wiring.
+      runbook_path: /runbooks/world_practice_flow_v1.md
+      dashboard_path: /d/world_practice_flow_v1
+
+  # ── Warn: churn_hi flag persistent while active ─────────────────────────────
+  - alert: OF_WP_BookChurnHiPersistent_Warn
+    expr: |
+      (
+        avg_over_time(trade_book_churn_hi[10m]) >= 0.9
+      )
+      and on(sym)
+      (
+        label_replace(
+          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
+          "sym", "$1", "symbol", "(.*)"
+        ) > 0.02
+      )
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): churn_hi persistent"
+      description: |
+        Book churn high flag stayed on for most of the last 10 minutes while active.
+        Expect higher slippage variance and worse passive fills.
+      runbook_path: /runbooks/world_practice_flow_v1.md
+      dashboard_path: /d/world_practice_flow_v1
+
+  # ── Crit: L3-lite flow snapshots likely broken (rates stuck at 0) while active ─
+  - alert: OF_WP_FlowSnapshotsStuckZero_Crit
+    expr: |
+      (
+        max_over_time(trade_taker_buy_rate_ema[20m]) == 0
+        and max_over_time(trade_taker_sell_rate_ema[20m]) == 0
+      )
+      and on(sym)
+      (
+        label_replace(
+          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
+          "sym", "$1", "symbol", "(.*)"
+        ) > 0.05
+      )
+    for: 20m
+    labels:
+      severity: critical
+    annotations:
+      summary: "{{ $labels.sym }}: L3-lite flow snapshots stuck at 0 while active"
+      description: |
+        Taker buy/sell rates were 0 for 20 minutes while allow decisions exist.
+        This typically indicates a broken L3-lite path (l3 tracker not fed, runtime not updated, or gauge wiring).
+      runbook_path: /runbooks/world_practice_flow_v1.md
+      dashboard_path: /d/world_practice_flow_v1

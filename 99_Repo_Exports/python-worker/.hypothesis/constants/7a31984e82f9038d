@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/infra/order_schema.py
+# hypothesis_version: 6.148.10
+
+['0', '1', 'LONG', 'SHORT', 'buy', 'false', 'long', 'n', 'no', 'off', 'on', 'sell', 'short', 'tp1', 'tp2', 'tp3', 'tp_levels', 'trail_profile', 'trailing_profile', 'true', 'y', 'yes']

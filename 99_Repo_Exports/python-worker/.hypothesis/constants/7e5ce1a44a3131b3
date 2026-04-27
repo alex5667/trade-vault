@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/emitter/outbox_publisher_adapter.py
+# hypothesis_version: 6.148.10
+
+[1000, 60000, 1000000000000, 'BUY', 'LONG', 'SELL', 'SHORT', 'Unknown', 'direction', 'kind', 'level', 'level_key', 'nan', 'now', 'side', 'signal_kind', 'source', 'strategy', 'strategy_name', 'strategy_source', 'symbol', 'timestamp', 'ts', 'ts_corrected', 'ts_corrected_to', 'ts_invalid', 'ts_ms', 'ts_raw', 'unknown']

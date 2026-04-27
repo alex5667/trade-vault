@@ -1,0 +1,23 @@
+import re
+
+filepath = "go-worker/cmd/rest-fetcher/main.go"
+with open(filepath, 'r') as f:
+    content = f.read()
+
+if "zap.ReplaceGlobals" not in content:
+    init_code = """
+	// Initialize structured logging
+	config := zap.NewProductionConfig()
+	config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+	logger, _ := config.Build()
+	zap.ReplaceGlobals(logger)
+	zap.RedirectStdLog(logger)
+"""
+    # Insert after flag.Parse()
+    content = content.replace("flag.Parse()\n", "flag.Parse()\n" + init_code)
+    
+    if '"go.uber.org/zap/zapcore"' not in content:
+        content = content.replace('"go.uber.org/zap"', '"go.uber.org/zap"\n\t"go.uber.org/zap/zapcore"')
+        
+    with open(filepath, 'w') as f:
+        f.write(content)

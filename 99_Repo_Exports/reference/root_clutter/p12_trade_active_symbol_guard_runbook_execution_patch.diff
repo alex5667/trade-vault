@@ -1,0 +1,937 @@
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=*.pyc' '--exclude=*.orig' '--exclude=*.rej' '--exclude=archivers' trade_p11_base/services/active_symbol_guard_runbook.py trade_p12/services/active_symbol_guard_runbook.py
+--- trade_p11_base/services/active_symbol_guard_runbook.py	1970-01-01 00:00:00.000000000 +0000
++++ trade_p12/services/active_symbol_guard_runbook.py	2026-03-16 20:34:00.000000000 +0000
+@@ -0,0 +1,401 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from typing import Any, Dict, Optional
++
++try:  # pragma: no cover
++    from services.active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics
++    from services.active_symbol_guard_incident_policy import ActiveSymbolGuardIncidentPolicyEngine
++    from services.active_symbol_guard_semantics import guard_view
++    from services.active_symbol_guard_store import ActiveSymbolGuardStore
++    from services.binance_futures_client import BinanceFuturesClient
++    from services.execution_metrics import (
++        EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_ACTION_TOTAL,
++        EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_AUDIT_TOTAL,
++    )
++except Exception:  # pragma: no cover
++    from active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics  # type: ignore
++    from active_symbol_guard_incident_policy import ActiveSymbolGuardIncidentPolicyEngine  # type: ignore
++    from active_symbol_guard_semantics import guard_view  # type: ignore
++    from active_symbol_guard_store import ActiveSymbolGuardStore  # type: ignore
++    from binance_futures_client import BinanceFuturesClient  # type: ignore
++    from execution_metrics import (  # type: ignore
++        EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_ACTION_TOTAL,
++        EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_AUDIT_TOTAL,
++    )
++
++
++def _ms_now() -> int:
++    return int(time.time() * 1000)
++
++
++def _i(v: Any, default: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return int(default)
++
++
++def _f(v: Any, default: float = 0.0) -> float:
++    try:
++        return float(v)
++    except Exception:
++        return float(default)
++
++
++def _truthy(v: Any) -> bool:
++    return str(v).strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
++
++
++class ActiveSymbolGuardRunbookExecutor:
++    """Safe execution layer for manual runbook actions.
++
++    Design goals:
++    - every action leaves an audit trail with operator/ticket/result
++    - destructive action (force_release) is guarded by exchange truth
++    - apply/revoke hold is explicit and TTL-bound
++    - escalation ack/renew is stored in Redis with renewable TTL
++    """
++
++    def __init__(
++        self,
++        redis_client: Any,
++        diagnostics: Optional[ActiveSymbolGuardDiagnostics] = None,
++        policy: Optional[ActiveSymbolGuardIncidentPolicyEngine] = None,
++        store: Optional[ActiveSymbolGuardStore] = None,
++        client: Optional[BinanceFuturesClient] = None,
++        *,
++        hold_ttl_sec: Optional[int] = None,
++        escalation_ack_ttl_sec: Optional[int] = None,
++        audit_stream: str = 'orders:active_symbol_guard:audit',
++        hold_key_prefix: str = 'orders:active_symbol_guard:hold:symbol:',
++        escalation_key_prefix: str = 'orders:active_symbol_guard:incident:ack:',
++    ) -> None:
++        self.r = redis_client
++        self.diagnostics = diagnostics
++        self.policy = policy
++        self.store = store or ActiveSymbolGuardStore(
++            redis_client,
++            key_prefix='orders:active_symbol_sid:',
++            active_ttl_sec=86400,
++            tombstone_ttl_sec=int(os.getenv('ACTIVE_SYMBOL_GUARD_TOMBSTONE_TTL_SEC', '120')),
++        )
++        self.client = client
++        self.hold_ttl_sec = max(int(hold_ttl_sec or os.getenv('ACTIVE_SYMBOL_GUARD_RUNBOOK_HOLD_TTL_SEC', '1800')), 1)
++        self.escalation_ack_ttl_sec = max(int(escalation_ack_ttl_sec or os.getenv('ACTIVE_SYMBOL_GUARD_ESCALATION_ACK_TTL_SEC', '1800')), 1)
++        self.audit_stream = str(audit_stream or 'orders:active_symbol_guard:audit')
++        self.hold_key_prefix = str(hold_key_prefix or 'orders:active_symbol_guard:hold:symbol:').rstrip(':') + ':'
++        self.escalation_key_prefix = str(escalation_key_prefix or 'orders:active_symbol_guard:incident:ack:').rstrip(':') + ':'
++
++    def _hold_key(self, symbol: str) -> str:
++        return f"{self.hold_key_prefix}{str(symbol or '').strip().upper()}"
++
++    def _escalation_key(self, fingerprint: str) -> str:
++        return f"{self.escalation_key_prefix}{str(fingerprint or '').strip()}"
++
++    def _json_get(self, key: str) -> Dict[str, Any]:
++        try:
++            raw = self.r.get(key)
++            doc = json.loads(raw) if raw else {}
++            return doc if isinstance(doc, dict) else {}
++        except Exception:
++            return {}
++
++    def _json_set(self, key: str, doc: Dict[str, Any], ttl_sec: int) -> None:
++        self.r.set(key, json.dumps(doc, ensure_ascii=False, default=str), ex=max(int(ttl_sec), 1))
++
++    def _audit(self, *, operator: str, action: str, ticket: str, symbol: str = '', sid: str = '', fingerprint: str = '', result: str = '', reason: str = '', payload: Optional[Dict[str, Any]] = None) -> None:
++        fields = {
++            'type': 'active_symbol_guard_runbook',
++            'operator': str(operator or ''),
++            'action': str(action or ''),
++            'ticket': str(ticket or ''),
++            'symbol': str(symbol or '').upper(),
++            'sid': str(sid or ''),
++            'fingerprint': str(fingerprint or ''),
++            'result': str(result or ''),
++            'reason': str(reason or ''),
++            'payload': json.dumps(payload or {}, ensure_ascii=False, default=str),
++            'ts_ms': str(_ms_now()),
++        }
++        try:
++            self.r.xadd(self.audit_stream, fields, maxlen=100000, approximate=True)
++        except Exception:
++            pass
++        try:
++            if EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_AUDIT_TOTAL is not None:
++                EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_AUDIT_TOTAL.labels(action=str(action or ''), result=str(result or '')).inc()
++        except Exception:
++            pass
++
++    def _metric(self, *, action: str, result: str) -> None:
++        try:
++            if EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_ACTION_TOTAL is not None:
++                EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_ACTION_TOTAL.labels(action=str(action or ''), result=str(result or '')).inc()
++        except Exception:
++            pass
++
++    def hold_state(self, symbol: str) -> Dict[str, Any]:
++        symbol = str(symbol or '').strip().upper()
++        doc = self._json_get(self._hold_key(symbol))
++        if not doc:
++            return {}
++        now_ms = _ms_now()
++        expires_at_ms = _i(doc.get('expires_at_ms'), 0)
++        doc['is_active'] = bool(str(doc.get('hold_status') or 'active') == 'active' and (expires_at_ms <= 0 or expires_at_ms > now_ms))
++        return doc
++
++    def apply_hold_symbol(self, *, symbol: str, operator: str, ticket: str, reason: str = '', ttl_sec: Optional[int] = None) -> Dict[str, Any]:
++        symbol = str(symbol or '').strip().upper()
++        operator = str(operator or '').strip()
++        ticket = str(ticket or '').strip()
++        if not symbol or not operator or not ticket:
++            raise ValueError('symbol/operator/ticket required')
++        now_ms = _ms_now()
++        ttl = max(int(ttl_sec or self.hold_ttl_sec), 1)
++        doc = {
++            'symbol': symbol,
++            'hold_status': 'active',
++            'reason': str(reason or ''),
++            'ticket': ticket,
++            'operator': operator,
++            'applied_at_ms': now_ms,
++            'expires_at_ms': now_ms + ttl * 1000,
++            'updated_at_ms': now_ms,
++        }
++        self._json_set(self._hold_key(symbol), doc, ttl)
++        self._metric(action='apply_hold_symbol', result='applied')
++        self._audit(operator=operator, action='apply_hold_symbol', ticket=ticket, symbol=symbol, result='applied', reason=reason, payload=doc)
++        return {'ok': True, 'action': 'apply_hold_symbol', 'symbol': symbol, 'hold': doc}
++
++    def revoke_hold_symbol(self, *, symbol: str, operator: str, ticket: str, reason: str = '') -> Dict[str, Any]:
++        symbol = str(symbol or '').strip().upper()
++        operator = str(operator or '').strip()
++        ticket = str(ticket or '').strip()
++        if not symbol or not operator or not ticket:
++            raise ValueError('symbol/operator/ticket required')
++        prev = self.hold_state(symbol)
++        try:
++            deleted = int(self.r.delete(self._hold_key(symbol)) or 0)
++        except Exception:
++            deleted = 0
++        result = 'revoked' if deleted else 'noop'
++        self._metric(action='revoke_hold_symbol', result=result)
++        self._audit(operator=operator, action='revoke_hold_symbol', ticket=ticket, symbol=symbol, result=result, reason=reason, payload={'previous': prev})
++        return {'ok': True, 'action': 'revoke_hold_symbol', 'symbol': symbol, 'result': result, 'previous_hold': prev}
++
++    def _exchange_truth(self, symbol: str) -> Dict[str, Any]:
++        symbol = str(symbol or '').strip().upper()
++        if self.diagnostics is not None:
++            try:
++                payload = self.diagnostics.debug_symbol(symbol, include_exchange=True)
++                truth = dict(payload.get('exchange_truth') or {})
++                if truth:
++                    return truth
++            except Exception:
++                pass
++        if self.client is not None:
++            try:
++                pos = self.client.get_position_risk(symbol=symbol)
++                plain = self.client.get_open_orders(symbol=symbol)
++                algo = self.client.get_open_algo_orders(symbol=symbol)
++                position_amt = 0.0
++                if isinstance(pos, list) and pos:
++                    row = pos[0] if isinstance(pos[0], dict) else {}
++                    position_amt = _f(row.get('positionAmt'), 0.0)
++                elif isinstance(pos, dict):
++                    position_amt = _f(pos.get('positionAmt'), 0.0)
++                return {
++                    'symbol': symbol,
++                    'position_amt': position_amt,
++                    'open_plain_orders': len(plain) if isinstance(plain, list) else 0,
++                    'open_algo_orders': len(algo) if isinstance(algo, list) else 0,
++                    'is_reliable': True,
++                }
++            except Exception as exc:
++                return {'symbol': symbol, 'is_reliable': False, 'error': str(exc)}
++        return {'symbol': symbol, 'is_reliable': False, 'error': 'exchange_truth_unavailable'}
++
++    def guarded_force_release(self, *, symbol: str, operator: str, ticket: str, expected_sid: str = '', reason: str = '', dry_run: bool = False) -> Dict[str, Any]:
++        symbol = str(symbol or '').strip().upper()
++        operator = str(operator or '').strip()
++        ticket = str(ticket or '').strip()
++        if not symbol or not operator or not ticket:
++            raise ValueError('symbol/operator/ticket required')
++
++        raw = self.store.load_raw(symbol)
++        view = guard_view(raw)
++        guard_sid = str(view.get('sid') or raw.get('sid') or '').strip()
++        exchange_truth = self._exchange_truth(symbol)
++        reliable = bool(exchange_truth.get('is_reliable'))
++        position_amt = abs(_f(exchange_truth.get('position_amt'), 0.0))
++        open_plain_orders = _i(exchange_truth.get('open_plain_orders'), 0)
++        open_algo_orders = _i(exchange_truth.get('open_algo_orders'), 0)
++        if expected_sid and guard_sid and guard_sid != str(expected_sid or '').strip():
++            result = {
++                'ok': False,
++                'action': 'guarded_force_release',
++                'symbol': symbol,
++                'reason': 'sid_mismatch',
++                'guard_sid': guard_sid,
++                'expected_sid': str(expected_sid or '').strip(),
++                'exchange_truth': exchange_truth,
++            }
++            self._metric(action='guarded_force_release', result='blocked')
++            self._audit(operator=operator, action='guarded_force_release', ticket=ticket, symbol=symbol, sid=guard_sid, result='blocked', reason='sid_mismatch', payload=result)
++            return result
++        safe = bool(reliable and position_amt == 0.0 and open_plain_orders == 0 and open_algo_orders == 0)
++        if not safe:
++            result = {
++                'ok': False,
++                'action': 'guarded_force_release',
++                'symbol': symbol,
++                'reason': 'exchange_truth_not_safe',
++                'guard': view,
++                'exchange_truth': exchange_truth,
++            }
++            self._metric(action='guarded_force_release', result='blocked')
++            self._audit(operator=operator, action='guarded_force_release', ticket=ticket, symbol=symbol, sid=guard_sid, result='blocked', reason='exchange_truth_not_safe', payload=result)
++            return result
++        if dry_run:
++            result = {
++                'ok': True,
++                'action': 'guarded_force_release',
++                'symbol': symbol,
++                'result': 'dry_run_safe',
++                'guard': view,
++                'exchange_truth': exchange_truth,
++            }
++            self._metric(action='guarded_force_release', result='dry_run_safe')
++            self._audit(operator=operator, action='guarded_force_release', ticket=ticket, symbol=symbol, sid=guard_sid, result='dry_run_safe', reason=reason, payload=result)
++            return result
++        released = self.store.mark_released(
++            symbol=symbol,
++            expected_sid=str(expected_sid or guard_sid),
++            release_reason='runbook_force_release',
++            writer='runbook',
++            extra_patch={
++                'runbook_operator': operator,
++                'runbook_ticket': ticket,
++                'runbook_reason': str(reason or ''),
++                'guard_release_policy': 'runbook_force_release',
++                'guard_release_pending': False,
++                'updated_at_ms': _ms_now(),
++            },
++        )
++        result_name = 'released' if bool(released.get('applied')) else str(released.get('reason') or 'rejected')
++        payload = {
++            'ok': bool(released.get('applied')),
++            'action': 'guarded_force_release',
++            'symbol': symbol,
++            'sid': guard_sid,
++            'result': result_name,
++            'released_doc': dict(released.get('doc') or {}),
++            'exchange_truth': exchange_truth,
++        }
++        self._metric(action='guarded_force_release', result=result_name)
++        self._audit(operator=operator, action='guarded_force_release', ticket=ticket, symbol=symbol, sid=guard_sid, result=result_name, reason=reason, payload=payload)
++        return payload
++
++    def _resolve_triage(self, *, symbol: str = '', sid: str = '', fingerprint: str = '', include_exchange: bool = True) -> Dict[str, Any]:
++        fp = str(fingerprint or '').strip()
++        if self.policy is None and self.diagnostics is not None:
++            self.policy = ActiveSymbolGuardIncidentPolicyEngine(self.r, self.diagnostics)
++        if self.policy is None:
++            return {'summary': {'symbol': str(symbol or '').upper(), 'sid': str(sid or ''), 'severity': 'info'}, 'policy': {'fingerprint': fp}}
++        if fp:
++            summary = {'symbol': str(symbol or '').upper(), 'sid': str(sid or ''), 'severity': 'info'}
++            return {'summary': summary, 'policy': {'fingerprint': fp}}
++        if symbol:
++            return self.policy.triage_symbol(str(symbol or '').upper(), include_exchange=bool(include_exchange))
++        if sid:
++            return self.policy.triage_sid(str(sid or ''), include_exchange=bool(include_exchange))
++        return {'summary': {'severity': 'info'}, 'policy': {'fingerprint': ''}}
++
++    def escalation_state(self, fingerprint: str) -> Dict[str, Any]:
++        fp = str(fingerprint or '').strip()
++        if not fp:
++            return {}
++        doc = self._json_get(self._escalation_key(fp))
++        if not doc:
++            return {}
++        now_ms = _ms_now()
++        expires_at_ms = _i(doc.get('expires_at_ms'), 0)
++        doc['is_active'] = bool(expires_at_ms <= 0 or expires_at_ms > now_ms)
++        return doc
++
++    def escalation_ack(self, *, symbol: str = '', sid: str = '', fingerprint: str = '', operator: str, ticket: str, reason: str = '', ttl_sec: Optional[int] = None) -> Dict[str, Any]:
++        operator = str(operator or '').strip()
++        ticket = str(ticket or '').strip()
++        if not operator or not ticket:
++            raise ValueError('operator/ticket required')
++        triaged = self._resolve_triage(symbol=symbol, sid=sid, fingerprint=fingerprint, include_exchange=True)
++        summary = dict((triaged or {}).get('summary') or {})
++        policy = dict((triaged or {}).get('policy') or {})
++        fp = str(policy.get('fingerprint') or fingerprint or '').strip()
++        if not fp:
++            raise ValueError('fingerprint could not be resolved')
++        now_ms = _ms_now()
++        ttl = max(int(ttl_sec or self.escalation_ack_ttl_sec), 1)
++        current = self.escalation_state(fp)
++        doc = dict(current or {})
++        doc.update({
++            'fingerprint': fp,
++            'symbol': str(summary.get('symbol') or symbol or '').upper(),
++            'sid': str(summary.get('sid') or sid or ''),
++            'ack_status': 'acked',
++            'acked_by': operator,
++            'ticket': ticket,
++            'ack_reason': str(reason or ''),
++            'acked_at_ms': _i(doc.get('acked_at_ms'), now_ms) or now_ms,
++            'renew_count': _i(doc.get('renew_count'), 0),
++            'expires_at_ms': now_ms + ttl * 1000,
++            'updated_at_ms': now_ms,
++        })
++        self._json_set(self._escalation_key(fp), doc, ttl)
++        result = {'ok': True, 'action': 'escalation_ack', 'fingerprint': fp, 'state': doc, 'triage': triaged}
++        self._metric(action='escalation_ack', result='acked')
++        self._audit(operator=operator, action='escalation_ack', ticket=ticket, symbol=str(doc.get('symbol') or ''), sid=str(doc.get('sid') or ''), fingerprint=fp, result='acked', reason=reason, payload=result)
++        return result
++
++    def escalation_renew(self, *, symbol: str = '', sid: str = '', fingerprint: str = '', operator: str, ticket: str, reason: str = '', ttl_sec: Optional[int] = None) -> Dict[str, Any]:
++        operator = str(operator or '').strip()
++        ticket = str(ticket or '').strip()
++        if not operator or not ticket:
++            raise ValueError('operator/ticket required')
++        triaged = self._resolve_triage(symbol=symbol, sid=sid, fingerprint=fingerprint, include_exchange=True)
++        summary = dict((triaged or {}).get('summary') or {})
++        policy = dict((triaged or {}).get('policy') or {})
++        fp = str(policy.get('fingerprint') or fingerprint or '').strip()
++        if not fp:
++            raise ValueError('fingerprint could not be resolved')
++        current = self.escalation_state(fp)
++        if not current:
++            result = {'ok': False, 'action': 'escalation_renew', 'fingerprint': fp, 'reason': 'ack_missing'}
++            self._metric(action='escalation_renew', result='ack_missing')
++            self._audit(operator=operator, action='escalation_renew', ticket=ticket, symbol=str(summary.get('symbol') or ''), sid=str(summary.get('sid') or ''), fingerprint=fp, result='ack_missing', reason=reason, payload=result)
++            return result
++        now_ms = _ms_now()
++        ttl = max(int(ttl_sec or self.escalation_ack_ttl_sec), 1)
++        doc = dict(current)
++        doc.update({
++            'fingerprint': fp,
++            'symbol': str(doc.get('symbol') or summary.get('symbol') or symbol or '').upper(),
++            'sid': str(doc.get('sid') or summary.get('sid') or sid or ''),
++            'ack_status': 'acked',
++            'renewed_by': operator,
++            'renew_ticket': ticket,
++            'renew_reason': str(reason or ''),
++            'renew_count': _i(doc.get('renew_count'), 0) + 1,
++            'renewed_at_ms': now_ms,
++            'expires_at_ms': now_ms + ttl * 1000,
++            'updated_at_ms': now_ms,
++        })
++        self._json_set(self._escalation_key(fp), doc, ttl)
++        result = {'ok': True, 'action': 'escalation_renew', 'fingerprint': fp, 'state': doc, 'triage': triaged}
++        self._metric(action='escalation_renew', result='renewed')
++        self._audit(operator=operator, action='escalation_renew', ticket=ticket, symbol=str(doc.get('symbol') or ''), sid=str(doc.get('sid') or ''), fingerprint=fp, result='renewed', reason=reason, payload=result)
++        return result
++
++    def runbook_state_symbol(self, symbol: str) -> Dict[str, Any]:
++        symbol = str(symbol or '').strip().upper()
++        triaged = self._resolve_triage(symbol=symbol, include_exchange=True)
++        fingerprint = str(dict((triaged or {}).get('policy') or {}).get('fingerprint') or '').strip()
++        return {
++            'symbol': symbol,
++            'guard': self.store.load_view(symbol) if hasattr(self.store, 'load_view') else guard_view(self.store.load_raw(symbol)),
++            'hold': self.hold_state(symbol),
++            'triage': triaged,
++            'escalation': self.escalation_state(fingerprint),
++        }
++
++    def runbook_state_sid(self, sid: str) -> Dict[str, Any]:
++        triaged = self._resolve_triage(sid=sid, include_exchange=True)
++        summary = dict((triaged or {}).get('summary') or {})
++        symbol = str(summary.get('symbol') or '').strip().upper()
++        payload = self.runbook_state_symbol(symbol) if symbol else {'symbol': '', 'guard': {}, 'hold': {}, 'triage': triaged, 'escalation': {}}
++        payload['sid'] = str(sid or '')
++        return payload
++
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=*.pyc' '--exclude=*.orig' '--exclude=*.rej' '--exclude=archivers' trade_p11_base/services/active_symbol_guard_cli.py trade_p12/services/active_symbol_guard_cli.py
+--- trade_p11_base/services/active_symbol_guard_cli.py	2026-03-16 19:15:03.648315084 +0000
++++ trade_p12/services/active_symbol_guard_cli.py	2026-03-16 20:34:00.000000000 +0000
+@@ -7,11 +7,13 @@
+ try:  # pragma: no cover
+     from services.active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics
+     from services.active_symbol_guard_incident_policy import ActiveSymbolGuardIncidentPolicyEngine
++    from services.active_symbol_guard_runbook import ActiveSymbolGuardRunbookExecutor
+     from services.binance_futures_client import BinanceFuturesClient
+     from services.execution_projection_worker import _redis_from_env
+ except Exception:  # pragma: no cover
+     from active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics  # type: ignore
+     from active_symbol_guard_incident_policy import ActiveSymbolGuardIncidentPolicyEngine  # type: ignore
++    from active_symbol_guard_runbook import ActiveSymbolGuardRunbookExecutor  # type: ignore
+     from binance_futures_client import BinanceFuturesClient  # type: ignore
+     from execution_projection_worker import _redis_from_env  # type: ignore
+ 
+@@ -34,6 +36,13 @@
+     group.add_argument('--incident-sid', help='Print full incident bundle for sid')
+     group.add_argument('--triage-symbol', help='Print triaged incident payload for symbol')
+     group.add_argument('--triage-sid', help='Print triaged incident payload for sid')
++    group.add_argument('--runbook-symbol', help='Print runbook state for symbol')
++    group.add_argument('--runbook-sid', help='Print runbook state for sid')
++    group.add_argument('--apply-hold-symbol', help='Apply manual hold for symbol')
++    group.add_argument('--revoke-hold-symbol', help='Revoke manual hold for symbol')
++    group.add_argument('--force-release-symbol', help='Guarded force release for symbol')
++    group.add_argument('--ack-symbol', help='Ack escalation for symbol')
++    group.add_argument('--renew-symbol', help='Renew escalation for symbol')
+     p.add_argument('--exchange', action='store_true', help='Include live Binance truth if client is configured')
+     p.add_argument('--pretty', action='store_true', help='Pretty-print JSON')
++    p.add_argument('--operator', help='Operator id/email for runbook action')
++    p.add_argument('--ticket', help='Ticket/change id for runbook action')
++    p.add_argument('--reason', default='', help='Free-form reason/note for runbook action')
++    p.add_argument('--ttl-sec', type=int, default=0, help='Optional TTL override for hold/ack/renew')
++    p.add_argument('--expected-sid', default='', help='Expected sid for guarded force release')
+     return p
+@@ -47,6 +56,7 @@
+     redis_obj = _redis_from_env()
+     client = BinanceFuturesClient.from_env() if args.exchange else None
+     diag = ActiveSymbolGuardDiagnostics(redis_obj, client=client)
++    runbook = ActiveSymbolGuardRunbookExecutor(redis_obj, diagnostics=diag, policy=ActiveSymbolGuardIncidentPolicyEngine(redis_obj, diag), client=client)
+ 
+     if args.snapshot:
+         payload = diag.snapshot()
+@@ -62,6 +72,20 @@
+         payload = ActiveSymbolGuardIncidentPolicyEngine(redis_obj, diag).triage_symbol(args.triage_symbol, include_exchange=bool(args.exchange))
+     elif args.triage_sid:
+         payload = ActiveSymbolGuardIncidentPolicyEngine(redis_obj, diag).triage_sid(args.triage_sid, include_exchange=bool(args.exchange))
++    elif args.runbook_symbol:
++        payload = runbook.runbook_state_symbol(args.runbook_symbol)
++    elif args.runbook_sid:
++        payload = runbook.runbook_state_sid(args.runbook_sid)
++    elif args.apply_hold_symbol:
++        payload = runbook.apply_hold_symbol(symbol=args.apply_hold_symbol, operator=args.operator or '', ticket=args.ticket or '', reason=args.reason or '', ttl_sec=args.ttl_sec or None)
++    elif args.revoke_hold_symbol:
++        payload = runbook.revoke_hold_symbol(symbol=args.revoke_hold_symbol, operator=args.operator or '', ticket=args.ticket or '', reason=args.reason or '')
++    elif args.force_release_symbol:
++        payload = runbook.guarded_force_release(symbol=args.force_release_symbol, operator=args.operator or '', ticket=args.ticket or '', expected_sid=args.expected_sid or '', reason=args.reason or '')
++    elif args.ack_symbol:
++        payload = runbook.escalation_ack(symbol=args.ack_symbol, operator=args.operator or '', ticket=args.ticket or '', reason=args.reason or '', ttl_sec=args.ttl_sec or None)
++    elif args.renew_symbol:
++        payload = runbook.escalation_renew(symbol=args.renew_symbol, operator=args.operator or '', ticket=args.ticket or '', reason=args.reason or '', ttl_sec=args.ttl_sec or None)
+     elif args.symbol:
+         payload = diag.debug_symbol(args.symbol, include_exchange=bool(args.exchange))
+     else:
+         payload = diag.snapshot()
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=*.pyc' '--exclude=*.orig' '--exclude=*.rej' '--exclude=archivers' trade_p11_base/services/active_symbol_guard_exporter.py trade_p12/services/active_symbol_guard_exporter.py
+--- trade_p11_base/services/active_symbol_guard_exporter.py	2026-03-16 19:15:03.647445937 +0000
++++ trade_p12/services/active_symbol_guard_exporter.py	2026-03-16 20:34:00.000000000 +0000
+@@ -8,11 +8,13 @@
+ try:  # pragma: no cover
+     from services.active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics
+     from services.active_symbol_guard_incident_policy import ActiveSymbolGuardIncidentPolicyEngine
++    from services.active_symbol_guard_runbook import ActiveSymbolGuardRunbookExecutor
+     from services.binance_futures_client import BinanceFuturesClient
+     from services.execution_projection_worker import _redis_from_env
+ except Exception:  # pragma: no cover
+     from active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics  # type: ignore
+     from active_symbol_guard_incident_policy import ActiveSymbolGuardIncidentPolicyEngine  # type: ignore
++    from active_symbol_guard_runbook import ActiveSymbolGuardRunbookExecutor  # type: ignore
+     from binance_futures_client import BinanceFuturesClient  # type: ignore
+     from execution_projection_worker import _redis_from_env  # type: ignore
+ 
+@@ -13,11 +15,36 @@
+ class _Handler(BaseHTTPRequestHandler):  # pragma: no cover
+     def _diag(self) -> ActiveSymbolGuardDiagnostics:
+         return self.server.diagnostics  # type: ignore[attr-defined]
++
++    def _runbook(self) -> ActiveSymbolGuardRunbookExecutor:
++        return self.server.runbook  # type: ignore[attr-defined]
++
++    def _write_json(self, *, status: int, payload: dict):
++        body = json.dumps(payload, ensure_ascii=False, default=str).encode('utf-8')
++        self.send_response(int(status))
++        self.send_header('Content-Type', 'application/json; charset=utf-8')
++        self.send_header('Content-Length', str(len(body)))
++        self.end_headers()
++        self.wfile.write(body)
++
++    def _json_body(self) -> dict:
++        length = int(self.headers.get('Content-Length', '0') or '0')
++        raw = self.rfile.read(length) if length > 0 else b'{}'
++        try:
++            payload = json.loads(raw.decode('utf-8') or '{}')
++        except Exception:
++            payload = {}
++        return payload if isinstance(payload, dict) else {}
+ 
+     def do_GET(self):
+         parsed = urlparse(self.path)
+         path = parsed.path
+         diag = self._diag()
+         policy = self.server.policy  # type: ignore[attr-defined]
++        runbook = self._runbook()
+         if path in ('/healthz', '/readyz', '/api/active-symbol-guard/health'):
+             snap = diag.snapshot()
+             status = 200 if snap.get('ok') else 503
+@@ -38,20 +65,59 @@
+         elif path.startswith('/api/active-symbol-guard/triage/sid/'):
+             sid = path.rsplit('/', 1)[-1].strip()
+             body = json.dumps(policy.triage_sid(sid, include_exchange=True), ensure_ascii=False).encode('utf-8')
++            status = 200
++        elif path.startswith('/api/active-symbol-guard/runbook/symbol/'):
++            symbol = path.rsplit('/', 1)[-1].strip().upper()
++            body = json.dumps(runbook.runbook_state_symbol(symbol), ensure_ascii=False).encode('utf-8')
++            status = 200
++        elif path.startswith('/api/active-symbol-guard/runbook/sid/'):
++            sid = path.rsplit('/', 1)[-1].strip()
++            body = json.dumps(runbook.runbook_state_sid(sid), ensure_ascii=False).encode('utf-8')
+             status = 200
+         elif path.startswith('/api/active-symbol-guard/incident/symbol/'):
+             symbol = path.rsplit('/', 1)[-1].strip().upper()
+             body = json.dumps(diag.incident_bundle_symbol(symbol, include_exchange=True), ensure_ascii=False).encode('utf-8')
+             status = 200
+         elif path.startswith('/api/active-symbol-guard/incident/sid/'):
+             sid = path.rsplit('/', 1)[-1].strip()
+             body = json.dumps(diag.incident_bundle_sid(sid, include_exchange=True), ensure_ascii=False).encode('utf-8')
+             status = 200
+         else:
+-            self.send_response(404)
+-            self.end_headers()
++            self._write_json(status=404, payload={'ok': False, 'error': 'not_found'})
+             return
+-        self.send_response(status)
+-        self.send_header('Content-Type', 'application/json; charset=utf-8')
+-        self.send_header('Content-Length', str(len(body)))
+-        self.end_headers()
+-        self.wfile.write(body)
++        self.send_response(status)
++        self.send_header('Content-Type', 'application/json; charset=utf-8')
++        self.send_header('Content-Length', str(len(body)))
++        self.end_headers()
++        self.wfile.write(body)
++
++    def do_POST(self):
++        parsed = urlparse(self.path)
++        path = parsed.path
++        payload = self._json_body()
++        runbook = self._runbook()
++        try:
++            if path == '/api/active-symbol-guard/actions/hold/apply':
++                out = runbook.apply_hold_symbol(symbol=str(payload.get('symbol') or ''), operator=str(payload.get('operator') or ''), ticket=str(payload.get('ticket') or ''), reason=str(payload.get('reason') or ''), ttl_sec=payload.get('ttl_sec'))
++            elif path == '/api/active-symbol-guard/actions/hold/revoke':
++                out = runbook.revoke_hold_symbol(symbol=str(payload.get('symbol') or ''), operator=str(payload.get('operator') or ''), ticket=str(payload.get('ticket') or ''), reason=str(payload.get('reason') or ''))
++            elif path == '/api/active-symbol-guard/actions/force-release':
++                out = runbook.guarded_force_release(symbol=str(payload.get('symbol') or ''), operator=str(payload.get('operator') or ''), ticket=str(payload.get('ticket') or ''), expected_sid=str(payload.get('expected_sid') or ''), reason=str(payload.get('reason') or ''), dry_run=bool(payload.get('dry_run')))
++            elif path == '/api/active-symbol-guard/actions/escalation/ack':
++                out = runbook.escalation_ack(symbol=str(payload.get('symbol') or ''), sid=str(payload.get('sid') or ''), fingerprint=str(payload.get('fingerprint') or ''), operator=str(payload.get('operator') or ''), ticket=str(payload.get('ticket') or ''), reason=str(payload.get('reason') or ''), ttl_sec=payload.get('ttl_sec'))
++            elif path == '/api/active-symbol-guard/actions/escalation/renew':
++                out = runbook.escalation_renew(symbol=str(payload.get('symbol') or ''), sid=str(payload.get('sid') or ''), fingerprint=str(payload.get('fingerprint') or ''), operator=str(payload.get('operator') or ''), ticket=str(payload.get('ticket') or ''), reason=str(payload.get('reason') or ''), ttl_sec=payload.get('ttl_sec'))
++            else:
++                self._write_json(status=404, payload={'ok': False, 'error': 'not_found'})
++                return
++            status = 200 if bool(out.get('ok', True)) else 409
++            self._write_json(status=status, payload=out)
++        except Exception as exc:
++            self._write_json(status=400, payload={'ok': False, 'error': str(exc), 'path': path})
+@@ -82,9 +148,11 @@
+     host = os.getenv('ACTIVE_SYMBOL_GUARD_EXPORTER_HOST', '0.0.0.0')
+     port = int(os.getenv('ACTIVE_SYMBOL_GUARD_EXPORTER_PORT', '8788'))
+     policy = ActiveSymbolGuardIncidentPolicyEngine(r, diag)
++    runbook = ActiveSymbolGuardRunbookExecutor(r, diagnostics=diag, policy=policy, client=client)
+     httpd = HTTPServer((host, port), _Handler)
+     httpd.diagnostics = diag  # type: ignore[attr-defined]
+     httpd.policy = policy  # type: ignore[attr-defined]
++    httpd.runbook = runbook  # type: ignore[attr-defined]
+     print(f"[active_symbol_guard_exporter] listening on http://{host}:{port}")
+     httpd.serve_forever()
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=*.pyc' '--exclude=*.orig' '--exclude=*.rej' '--exclude=archivers' trade_p11_base/services/binance_executor.py trade_p12/services/binance_executor.py
+--- trade_p11_base/services/binance_executor.py	2026-03-16 19:15:03.645000000 +0000
++++ trade_p12/services/binance_executor.py	2026-03-16 20:34:00.000000000 +0000
+@@ -1508,6 +1508,39 @@
+     def _guard_single_active_symbol_open(self, *, sid: str, symbol: str) -> None:
+         if not self.exec_single_active_position_per_symbol:
+             return
++
++    def _load_manual_symbol_hold(self, symbol: str) -> Dict[str, Any]:
++        symbol = str(symbol or '').strip().upper()
++        if not symbol:
++            return {}
++        try:
++            raw = self.r.get(f'orders:active_symbol_guard:hold:symbol:{symbol}')
++            doc = json.loads(raw) if raw else {}
++            if not isinstance(doc, dict):
++                return {}
++            expires_at_ms = _i(doc.get('expires_at_ms'), 0)
++            if expires_at_ms and expires_at_ms <= _ms_now():
++                return {}
++            if str(doc.get('hold_status') or 'active').strip().lower() != 'active':
++                return {}
++            return doc
++        except Exception:
++            return {}
++
++    def _guard_symbol_not_manually_held(self, *, symbol: str, action: str) -> None:
++        hold = self._load_manual_symbol_hold(symbol)
++        if not hold:
++            return
++        try:
++            self._exec_event({
++                'symbol': str(symbol or '').upper(),
++                'action': str(action or ''),
++                'severity': 'warning',
++                'subtype': 'manual_symbol_hold',
++                'msg': 'symbol blocked by active manual hold',
++                'ticket': str(hold.get('ticket') or ''),
++                'operator': str(hold.get('operator') or ''),
++                'reason': str(hold.get('reason') or ''),
++            })
++        except Exception:
++            pass
++        raise ExecutionActionBlockedError(f'{action}_blocked_by_manual_symbol_hold:{str(symbol or "").upper()}')
+         guard = self._load_active_symbol_guard(symbol)
+         blocked_by_sid = str(guard.get("sid") or "").strip()
+         if not blocked_by_sid or blocked_by_sid == sid:
+             return
+@@ -4666,6 +4699,7 @@
+         if not sid or not symbol:
+             raise ValueError("sid/symbol required")
+         self._guard_sid_not_quarantined(sid, symbol=symbol, action='open')
++        self._guard_symbol_not_manually_held(symbol=symbol, action='open')
+         if self.allowlist and symbol not in self.allowlist:
+             raise ValueError(f"symbol not in allowlist: {symbol}")
+         self._guard_single_active_symbol_open(sid=sid, symbol=symbol)
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=*.pyc' '--exclude=*.orig' '--exclude=*.rej' '--exclude=archivers' trade_p11_base/services/execution_metrics.py trade_p12/services/execution_metrics.py
+--- trade_p11_base/services/execution_metrics.py	2026-03-16 19:11:38.053967693 +0000
++++ trade_p12/services/execution_metrics.py	2026-03-16 20:34:00.000000000 +0000
+@@ -176,6 +176,24 @@
+ EXECUTION_ACTIVE_SYMBOL_GUARD_SUPPRESSION_TOTAL = _metric(
+     Counter,
+     "execution_active_symbol_guard_suppression_total",
+     "Active-symbol guard incidents suppressed or deduped by policy scope.",
+     ["scope", "result"],
+ )
++EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_ACTION_TOTAL = _metric(
++    Counter,
++    "execution_active_symbol_guard_runbook_action_total",
++    "Runbook actions executed against active-symbol guard state.",
++    ["action", "result"],
++)
++EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_AUDIT_TOTAL = _metric(
++    Counter,
++    "execution_active_symbol_guard_runbook_audit_total",
++    "Audit trail records emitted for active-symbol runbook actions.",
++    ["action", "result"],
++)
++
+ 
+ MARK_CONTRACT_SPREAD_BPS = _metric(
+     Gauge,
+     "mark_contract_spread_bps",
+     "Spread between mark and contract prices in basis points.",
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=*.pyc' '--exclude=*.orig' '--exclude=*.rej' '--exclude=archivers' trade_p11_base/services/prometheus_alerts_active_symbol_guard_p12.yml trade_p12/services/prometheus_alerts_active_symbol_guard_p12.yml
+--- trade_p11_base/services/prometheus_alerts_active_symbol_guard_p12.yml	1970-01-01 00:00:00.000000000 +0000
++++ trade_p12/services/prometheus_alerts_active_symbol_guard_p12.yml	2026-03-16 20:34:00.000000000 +0000
+@@ -0,0 +1,34 @@
++groups:
++  - name: active_symbol_guard_p12
++    rules:
++      - alert: ActiveSymbolGuardRunbookFailures
++        expr: sum by (action) (increase(execution_active_symbol_guard_runbook_action_total{result=~"blocked|rejected|ack_missing"}[15m])) > 0
++        for: 2m
++        labels:
++          severity: ticket
++          service: trade-execution
++        annotations:
++          summary: "Runbook action for active_symbol guard needs review"
++          description: "Recent runbook action failures detected for action={{ $labels.action }}"
++
++      - alert: ActiveSymbolGuardManualHoldPresent
++        expr: sum(increase(execution_active_symbol_guard_runbook_action_total{action="apply_hold_symbol",result="applied"}[1h])) > 0
++        for: 1m
++        labels:
++          severity: info
++          service: trade-execution
++        annotations:
++          summary: "One or more symbols are on manual hold"
++          description: "Manual holds were applied in the last hour. Verify operator/ticket context via the audit stream."
++
++      - alert: ActiveSymbolGuardForceReleaseBlocked
++        expr: sum(increase(execution_active_symbol_guard_runbook_action_total{action="guarded_force_release",result="blocked"}[30m])) > 0
++        for: 2m
++        labels:
++          severity: warning
++          service: trade-execution
++        annotations:
++          summary: "Guarded force-release was blocked by exchange truth"
++          description: "At least one force-release request was rejected because exchange truth was not flat/no-orders."
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=*.pyc' '--exclude=*.orig' '--exclude=*.rej' '--exclude=archivers' trade_p11_base/services/tests/test_active_symbol_guard_runbook_p12_v1.py trade_p12/services/tests/test_active_symbol_guard_runbook_p12_v1.py
+--- trade_p11_base/services/tests/test_active_symbol_guard_runbook_p12_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ trade_p12/services/tests/test_active_symbol_guard_runbook_p12_v1.py	2026-03-16 20:34:00.000000000 +0000
+@@ -0,0 +1,194 @@
++from pathlib import Path
++import importlib.util
++import sys
++import types
++
++root = Path(__file__).resolve().parents[2]
++if str(root) not in sys.path:
++    sys.path.insert(0, str(root))
++
++
++def _load(name: str, rel: str):
++    mod_path = root / rel
++    spec = importlib.util.spec_from_file_location(name, mod_path)
++    mod = importlib.util.module_from_spec(spec)
++    sys.modules[spec.name] = mod
++    assert spec.loader is not None
++    spec.loader.exec_module(mod)
++    return mod
++
++
++class FakeRedis:
++    def __init__(self):
++        self.kv = {}
++        self.streams = {}
++        self.seq = 0
++
++    def get(self, key):
++        return self.kv.get(key)
++
++    def set(self, key, value, ex=None, nx=False, px=None):
++        if nx and key in self.kv:
++            return False
++        self.kv[key] = value
++        return True
++
++    def delete(self, *keys):
++        n = 0
++        for key in keys:
++            if key in self.kv:
++                del self.kv[key]
++                n += 1
++        return n
++
++    def xadd(self, key, fields, maxlen=None, approximate=None):
++        self.seq += 1
++        sid = f"{1700000000000 + self.seq}-0"
++        self.streams.setdefault(key, []).append((sid, dict(fields)))
++        return sid
++
++
++def _stub_module(name: str, **attrs):
++    mod = types.ModuleType(name)
++    for k, v in attrs.items():
++        setattr(mod, k, v)
++    sys.modules[name] = mod
++    return mod
++
++
++class DummyStore:
++    def __init__(self, redis_obj, **kwargs):
++        self.r = redis_obj
++        self.docs = {}
++
++    def load_raw(self, symbol):
++        return dict(self.docs.get(str(symbol).upper()) or {})
++
++    def load_view(self, symbol):
++        return dict(self.docs.get(str(symbol).upper()) or {})
++
++    def mark_released(self, *, symbol, expected_sid='', release_reason='', writer='', extra_patch=None, **kwargs):
++        symbol = str(symbol).upper()
++        doc = dict(self.docs.get(symbol) or {'symbol': symbol, 'sid': expected_sid, 'guard_version': 1})
++        doc.update(extra_patch or {})
++        doc['guard_status'] = 'released'
++        doc['release_reason'] = release_reason
++        doc['sid'] = expected_sid or doc.get('sid') or ''
++        self.docs[symbol] = doc
++        return {'applied': True, 'reason': 'released', 'doc': doc}
++
++
++class DummyDiagnostics:
++    def __init__(self, exchange_truth=None, triage_symbol='BTCUSDT', triage_sid='sid-1'):
++        self.exchange_truth = exchange_truth or {'symbol': 'BTCUSDT', 'position_amt': 0.0, 'open_plain_orders': 0, 'open_algo_orders': 0, 'is_reliable': True}
++        self.symbol = triage_symbol
++        self.sid = triage_sid
++
++    def debug_symbol(self, symbol, include_exchange=False):
++        return {'guard_raw': {'symbol': symbol, 'sid': self.sid, 'guard_status': 'active'}, 'guard_view': {'symbol': symbol, 'sid': self.sid, 'guard_status': 'active'}, 'exchange_truth': dict(self.exchange_truth)}
++
++
++class DummyPolicy:
++    def triage_symbol(self, symbol, include_exchange=False):
++        return {'summary': {'symbol': symbol, 'sid': 'sid-1', 'severity': 'warning'}, 'policy': {'fingerprint': f'fp:{symbol}'}}
++
++    def triage_sid(self, sid, include_exchange=False):
++        return {'summary': {'symbol': 'BTCUSDT', 'sid': sid, 'severity': 'warning'}, 'policy': {'fingerprint': f'fp:{sid}'}}
++
++
++def test_apply_and_revoke_hold_record_audit():
++    _stub_module('services.active_symbol_guard_diagnostics', ActiveSymbolGuardDiagnostics=DummyDiagnostics)
++    _stub_module('services.active_symbol_guard_incident_policy', ActiveSymbolGuardIncidentPolicyEngine=DummyPolicy)
++    _stub_module('services.active_symbol_guard_semantics', guard_view=lambda doc, **kwargs: dict(doc or {}))
++    _stub_module('services.active_symbol_guard_store', ActiveSymbolGuardStore=DummyStore)
++    _stub_module('services.binance_futures_client', BinanceFuturesClient=object)
++    _stub_module('services.execution_metrics', EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_ACTION_TOTAL=None, EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_AUDIT_TOTAL=None)
++
++    mod = _load('services.active_symbol_guard_runbook_p12_test1', 'services/active_symbol_guard_runbook.py')
++    r = FakeRedis()
++    ex = mod.ActiveSymbolGuardRunbookExecutor(r, diagnostics=DummyDiagnostics(), policy=DummyPolicy(), store=DummyStore(r))
++
++    applied = ex.apply_hold_symbol(symbol='BTCUSDT', operator='alice', ticket='INC-1', reason='investigation', ttl_sec=60)
++    assert applied['ok'] is True
++    assert applied['hold']['ticket'] == 'INC-1'
++    assert ex.hold_state('BTCUSDT')['is_active'] is True
++
++    revoked = ex.revoke_hold_symbol(symbol='BTCUSDT', operator='alice', ticket='INC-1', reason='resolved')
++    assert revoked['ok'] is True
++    assert revoked['result'] == 'revoked'
++    assert ex.hold_state('BTCUSDT') == {}
++    assert len(r.streams.get('orders:active_symbol_guard:audit', [])) == 2
++
++
++def test_guarded_force_release_blocks_when_exchange_not_flat():
++    _stub_module('services.active_symbol_guard_diagnostics', ActiveSymbolGuardDiagnostics=DummyDiagnostics)
++    _stub_module('services.active_symbol_guard_incident_policy', ActiveSymbolGuardIncidentPolicyEngine=DummyPolicy)
++    _stub_module('services.active_symbol_guard_semantics', guard_view=lambda doc, **kwargs: dict(doc or {}))
++    _stub_module('services.active_symbol_guard_store', ActiveSymbolGuardStore=DummyStore)
++    _stub_module('services.binance_futures_client', BinanceFuturesClient=object)
++    _stub_module('services.execution_metrics', EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_ACTION_TOTAL=None, EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_AUDIT_TOTAL=None)
++
++    mod = _load('services.active_symbol_guard_runbook_p12_test2', 'services/active_symbol_guard_runbook.py')
++    r = FakeRedis()
++    diag = DummyDiagnostics(exchange_truth={'symbol': 'BTCUSDT', 'position_amt': 0.25, 'open_plain_orders': 0, 'open_algo_orders': 0, 'is_reliable': True})
++    store = DummyStore(r)
++    store.docs['BTCUSDT'] = {'symbol': 'BTCUSDT', 'sid': 'sid-1', 'guard_status': 'active'}
++    ex = mod.ActiveSymbolGuardRunbookExecutor(r, diagnostics=diag, policy=DummyPolicy(), store=store)
++
++    out = ex.guarded_force_release(symbol='BTCUSDT', operator='alice', ticket='INC-2', reason='unsafe')
++    assert out['ok'] is False
++    assert out['reason'] == 'exchange_truth_not_safe'
++    assert store.docs['BTCUSDT']['guard_status'] == 'active'
++
++
++def test_escalation_ack_and_renew_require_fingerprint_state():
++    _stub_module('services.active_symbol_guard_diagnostics', ActiveSymbolGuardDiagnostics=DummyDiagnostics)
++    _stub_module('services.active_symbol_guard_incident_policy', ActiveSymbolGuardIncidentPolicyEngine=DummyPolicy)
++    _stub_module('services.active_symbol_guard_semantics', guard_view=lambda doc, **kwargs: dict(doc or {}))
++    _stub_module('services.active_symbol_guard_store', ActiveSymbolGuardStore=DummyStore)
++    _stub_module('services.binance_futures_client', BinanceFuturesClient=object)
++    _stub_module('services.execution_metrics', EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_ACTION_TOTAL=None, EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_AUDIT_TOTAL=None)
++
++    mod = _load('services.active_symbol_guard_runbook_p12_test3', 'services/active_symbol_guard_runbook.py')
++    r = FakeRedis()
++    ex = mod.ActiveSymbolGuardRunbookExecutor(r, diagnostics=DummyDiagnostics(), policy=DummyPolicy(), store=DummyStore(r))
++
++    ack = ex.escalation_ack(symbol='BTCUSDT', operator='alice', ticket='INC-3', reason='owned', ttl_sec=30)
++    assert ack['ok'] is True
++    fp = ack['fingerprint']
++    state = ex.escalation_state(fp)
++    assert state['ack_status'] == 'acked'
++
++    renewed = ex.escalation_renew(symbol='BTCUSDT', operator='bob', ticket='INC-3A', reason='extend', ttl_sec=45)
++    assert renewed['ok'] is True
++    assert renewed['state']['renew_count'] == 1
++
++    missing = ex.escalation_renew(fingerprint='fp:missing', operator='carol', ticket='INC-4', reason='should_fail')
++    assert missing['ok'] is False
++    assert missing['reason'] == 'ack_missing'
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' '--exclude=*.pyc' '--exclude=*.orig' '--exclude=*.rej' '--exclude=archivers' trade_p11_base/services/tests/test_active_symbol_guard_exporter_cli_assets_p12_v1.py trade_p12/services/tests/test_active_symbol_guard_exporter_cli_assets_p12_v1.py
+--- trade_p11_base/services/tests/test_active_symbol_guard_exporter_cli_assets_p12_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ trade_p12/services/tests/test_active_symbol_guard_exporter_cli_assets_p12_v1.py	2026-03-16 20:34:00.000000000 +0000
+@@ -0,0 +1,39 @@
++from pathlib import Path
++
++
++def test_cli_contains_runbook_flags():
++    src = Path(__file__).resolve().parents[2] / 'services' / 'active_symbol_guard_cli.py'
++    text = src.read_text(encoding='utf-8')
++    assert '--apply-hold-symbol' in text
++    assert '--revoke-hold-symbol' in text
++    assert '--force-release-symbol' in text
++    assert '--ack-symbol' in text
++    assert '--renew-symbol' in text
++
++
++def test_exporter_contains_action_endpoints():
++    src = Path(__file__).resolve().parents[2] / 'services' / 'active_symbol_guard_exporter.py'
++    text = src.read_text(encoding='utf-8')
++    assert '/api/active-symbol-guard/actions/hold/apply' in text
++    assert '/api/active-symbol-guard/actions/hold/revoke' in text
++    assert '/api/active-symbol-guard/actions/force-release' in text
++    assert '/api/active-symbol-guard/actions/escalation/ack' in text
++    assert '/api/active-symbol-guard/actions/escalation/renew' in text
++
++
++def test_binance_executor_checks_manual_hold_before_open():
++    src = Path(__file__).resolve().parents[2] / 'services' / 'binance_executor.py'
++    text = src.read_text(encoding='utf-8')
++    assert 'def _guard_symbol_not_manually_held' in text
++    assert "self._guard_symbol_not_manually_held(symbol=symbol, action='open')" in text

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/metrics_book_sanity_p5.py
+# hypothesis_version: 6.148.10
+
+[0.5, 100, 'Collector', 'TCollector', '_names_to_collectors', 'book_crossed_total', 'symbol']

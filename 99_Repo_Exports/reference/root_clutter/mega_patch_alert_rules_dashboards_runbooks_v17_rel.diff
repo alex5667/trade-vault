@@ -1,0 +1,318 @@
+diff --git a/orderflow_services/grafana/world_practice_trackers_v1.json b/orderflow_services/grafana/world_practice_trackers_v1.json
+index ebb1916..31bf9da 100644
+--- a/orderflow_services/grafana/world_practice_trackers_v1.json
++++ b/orderflow_services/grafana/world_practice_trackers_v1.json
+@@ -46,6 +46,26 @@
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+      "targets": [{"expr": "trade_res_recovered{sym=~\"$sym\",bucket=~\"$bucket\"}", "legendFormat": "recovered {{sym}} {{bucket}}"}],
+      "title": "res_recovered (0/1)",
++     "type": "timeseries"},
++
++    {"collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 17}, "id": 6, "panels": [], "title": "Execution-risk (P95) — spread + exec_pen", "type": "row"},
++
++    {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++     "fieldConfig": {"defaults": {"unit": "none", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never", "pointSize": 3, "spanNulls": true}}, "overrides": []},
++     "gridPos": {"h": 8, "w": 12, "x": 0, "y": 18},
++     "id": 7,
++     "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
++     "targets": [{"expr": "histogram_quantile(0.95, sum by (le, sym, bucket) (rate(trade_exec_pen_bucket{sym=~\\\"$sym\\\",bucket=~\\\"$bucket\\\"}[5m])))", "legendFormat": "exec_pen_p95 {{sym}} {{bucket}}"}],
++     "title": "exec_pen p95 (by sym,bucket)",
++     "type": "timeseries"},
++
++    {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++     "fieldConfig": {"defaults": {"unit": "none", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never", "pointSize": 3, "spanNulls": true}}, "overrides": []},
++     "gridPos": {"h": 8, "w": 12, "x": 12, "y": 18},
++     "id": 8,
++     "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
++     "targets": [{"expr": "histogram_quantile(0.95, sum by (le, sym, bucket) (rate(trade_spread_bps_bucket{sym=~\\\"$sym\\\",bucket=~\\\"$bucket\\\"}[5m])))", "legendFormat": "spread_bps_p95 {{sym}} {{bucket}}"}],
++     "title": "spread_bps p95 (by sym,bucket)",
+      "type": "timeseries"}
+   ],
+   "refresh": "30s",
+diff --git a/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml b/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml
+index dd46ea8..843fca2 100644
+--- a/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml
++++ b/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml
+@@ -92,3 +92,59 @@ groups:
+         This typically indicates broken snapshot wiring (bar_processor -> runtime -> indicators -> gauges).
+       runbook_path: /runbooks/world_practice_trackers_v1.md
+       dashboard_path: /d/world_practice_trackers_v1
++
++  # ── Warn: execution penalty p95 high (distribution shift) while system is active ─
++  - alert: OF_WP_ExecPenP95High_Warn
++    expr: |
++      (
++        histogram_quantile(
++          0.95,
++          sum by (le, sym, bucket) (rate(trade_exec_pen_bucket[10m]))
++        ) > 0.35
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 10m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }}: exec_pen p95 high in {{ $labels.bucket }} ({{ $value | printf \"%.2f\" }})"
++      description: |
++        Symbol {{ $labels.sym }}: execution penalty distribution shifted high (p95).
++        Check spread_bps p95, expected_slippage_bps{model="eff"} p95, and exec_risk_norm p95.
++        If isolated: likely real market regime (thin book / volatility).
++        If widespread: wiring/labeling or snapshot regression.
++      runbook_path: /runbooks/world_practice_trackers_v1.md
++      dashboard_path: /d/world_practice_trackers_v1
++
++  # ── Warn: spread p95 high (decision-time spread inflation) while system is active ─
++  - alert: OF_WP_SpreadP95High_Warn
++    expr: |
++      (
++        histogram_quantile(
++          0.95,
++          sum by (le, sym, bucket) (rate(trade_spread_bps_bucket[10m]))
++        ) > 8
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 10m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }}: spread_bps p95 high in {{ $labels.bucket }} ({{ $value | printf \"%.2f\" }} bps)"
++      description: |
++        Symbol {{ $labels.sym }}: decision-time spread distribution shifted high (p95).
++        Check book health, top-of-book liquidity, and whether spread_bps_submit is correctly populated.
++      runbook_path: /runbooks/world_practice_trackers_v1.md
++      dashboard_path: /d/world_practice_trackers_v1
+diff --git a/orderflow_services/runbook_world_practice_trackers_v1.md b/orderflow_services/runbook_world_practice_trackers_v1.md
+index 45ed42b..5187836 100644
+--- a/orderflow_services/runbook_world_practice_trackers_v1.md
++++ b/orderflow_services/runbook_world_practice_trackers_v1.md
+@@ -8,6 +8,11 @@ This runbook covers the **world-practice trackers** that are exposed as low-card
+ - Book resilience: `trade_res_recovered`, `trade_res_recovery_ms`, `trade_res_speed_per_s`
+ - Passive executability: `trade_fill_prob`, `trade_eta_fill_sec`, `trade_exec_fill_pen`
+ 
++- Execution-risk layer (P95/P99-ready histograms):
++  - `trade_spread_bps`
++  - `trade_exec_risk_ref_bps`, `trade_exec_risk_bps`, `trade_exec_risk_norm`, `trade_exec_pen`
++  - `trade_expected_slippage_bps{model="legacy|eff"}` (legacy = pre-decomp, eff = decision-time effective)
++
+ Signals are produced on the hot path and also exported into the `metrics:of_gate` stream for smoke-check.
+ 
+ ## Where data comes from
+@@ -15,6 +20,8 @@ Signals are produced on the hot path and also exported into the `metrics:of_gate
+ - `liq_regime_label` is sourced from liquidity guard (book processor) via `runtime.last_liq_regime`.
+ - `res_*` is sourced from `BookResilienceTracker` snapshot.
+ - `fill_prob_proxy / eta_fill_*` are sourced from L3-lite stats, with a **fallback** in tick_processor using `core.fill_prob_proxy.compute_fill_prob_proxy()`.
++- `spread_bps_submit` is computed from best bid/ask at decision time.
++- `exec_risk_*` and `exec_pen` are computed by OF engine (execution-risk layer) and exported by tick_processor.
+ 
+ ## Prometheus alerts
+ Alert rules:
+@@ -51,6 +58,27 @@ Triage:
+ 1) Confirm `metrics:of_gate` contains `vol_fast_bps/vol_slow_bps/vol_ratio` fields.
+ 2) If missing or zeros → snapshot wiring broken (bar_processor → runtime → indicators → gauges).
+ 
++### Alert: OF_WP_ExecPenP95High_Warn
++Meaning: execution penalty distribution shifted high (p95) while system is active.
++
++Triage:
++1) Check whether it is market-driven:
++   - `spread_bps` p95 (often the primary driver)
++   - `trade_expected_slippage_bps{model="eff"}` p95
++2) Check wiring:
++   - `metrics:of_gate` rows contain `exec_risk_norm` **and** `exec_pen` (non-zero when risk is non-trivial)
++3) If widespread across symbols:
++   - verify bucket labeling (`exec_regime_bucket`) and any recent snapshot regression.
++
++### Alert: OF_WP_SpreadP95High_Warn
++Meaning: decision-time spread distribution shifted high (p95) while system is active.
++
++Triage:
++1) Confirm it is not a data bug:
++   - `metrics:of_gate` includes `spread_bps_submit` and it matches best bid/ask.
++2) If real market:
++   - thin book / widening spreads → consider tightening allow policy in affected buckets.
++
+ ## Smoke-check (nightly orchestration)
+ Tool:
+ - `python -m orderflow_services.world_practice_gauges_smoke_check_v1`
+@@ -82,6 +110,10 @@ Suggested panels:
+ - `trade_fill_prob` + `trade_eta_fill_sec`
+ - `trade_res_recovery_ms` + `trade_res_recovered`
+ 
++- P95 exec-risk (histograms):
++  - `histogram_quantile(0.95, sum by (le,sym,bucket)(rate(trade_exec_pen_bucket[5m])))`
++  - `histogram_quantile(0.95, sum by (le,sym,bucket)(rate(trade_spread_bps_bucket[5m])))`
++
+ ## Rollback (fast)
+ - Disable smoke-check:
+   - `ENABLE_WORLD_PRACTICE_SMOKE=0`
+diff --git a/tick_flow_full/orderflow_services/grafana/world_practice_trackers_v1.json b/tick_flow_full/orderflow_services/grafana/world_practice_trackers_v1.json
+index ebb1916..31bf9da 100644
+--- a/tick_flow_full/orderflow_services/grafana/world_practice_trackers_v1.json
++++ b/tick_flow_full/orderflow_services/grafana/world_practice_trackers_v1.json
+@@ -46,6 +46,26 @@
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+      "targets": [{"expr": "trade_res_recovered{sym=~\"$sym\",bucket=~\"$bucket\"}", "legendFormat": "recovered {{sym}} {{bucket}}"}],
+      "title": "res_recovered (0/1)",
++     "type": "timeseries"},
++
++    {"collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 17}, "id": 6, "panels": [], "title": "Execution-risk (P95) — spread + exec_pen", "type": "row"},
++
++    {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++     "fieldConfig": {"defaults": {"unit": "none", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never", "pointSize": 3, "spanNulls": true}}, "overrides": []},
++     "gridPos": {"h": 8, "w": 12, "x": 0, "y": 18},
++     "id": 7,
++     "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
++     "targets": [{"expr": "histogram_quantile(0.95, sum by (le, sym, bucket) (rate(trade_exec_pen_bucket{sym=~\\\"$sym\\\",bucket=~\\\"$bucket\\\"}[5m])))", "legendFormat": "exec_pen_p95 {{sym}} {{bucket}}"}],
++     "title": "exec_pen p95 (by sym,bucket)",
++     "type": "timeseries"},
++
++    {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++     "fieldConfig": {"defaults": {"unit": "none", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never", "pointSize": 3, "spanNulls": true}}, "overrides": []},
++     "gridPos": {"h": 8, "w": 12, "x": 12, "y": 18},
++     "id": 8,
++     "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
++     "targets": [{"expr": "histogram_quantile(0.95, sum by (le, sym, bucket) (rate(trade_spread_bps_bucket{sym=~\\\"$sym\\\",bucket=~\\\"$bucket\\\"}[5m])))", "legendFormat": "spread_bps_p95 {{sym}} {{bucket}}"}],
++     "title": "spread_bps p95 (by sym,bucket)",
+      "type": "timeseries"}
+   ],
+   "refresh": "30s",
+diff --git a/tick_flow_full/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml b/tick_flow_full/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml
+index dd46ea8..843fca2 100644
+--- a/tick_flow_full/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml
+@@ -92,3 +92,59 @@ groups:
+         This typically indicates broken snapshot wiring (bar_processor -> runtime -> indicators -> gauges).
+       runbook_path: /runbooks/world_practice_trackers_v1.md
+       dashboard_path: /d/world_practice_trackers_v1
++
++  # ── Warn: execution penalty p95 high (distribution shift) while system is active ─
++  - alert: OF_WP_ExecPenP95High_Warn
++    expr: |
++      (
++        histogram_quantile(
++          0.95,
++          sum by (le, sym, bucket) (rate(trade_exec_pen_bucket[10m]))
++        ) > 0.35
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 10m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }}: exec_pen p95 high in {{ $labels.bucket }} ({{ $value | printf \"%.2f\" }})"
++      description: |
++        Symbol {{ $labels.sym }}: execution penalty distribution shifted high (p95).
++        Check spread_bps p95, expected_slippage_bps{model="eff"} p95, and exec_risk_norm p95.
++        If isolated: likely real market regime (thin book / volatility).
++        If widespread: wiring/labeling or snapshot regression.
++      runbook_path: /runbooks/world_practice_trackers_v1.md
++      dashboard_path: /d/world_practice_trackers_v1
++
++  # ── Warn: spread p95 high (decision-time spread inflation) while system is active ─
++  - alert: OF_WP_SpreadP95High_Warn
++    expr: |
++      (
++        histogram_quantile(
++          0.95,
++          sum by (le, sym, bucket) (rate(trade_spread_bps_bucket[10m]))
++        ) > 8
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 10m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }}: spread_bps p95 high in {{ $labels.bucket }} ({{ $value | printf \"%.2f\" }} bps)"
++      description: |
++        Symbol {{ $labels.sym }}: decision-time spread distribution shifted high (p95).
++        Check book health, top-of-book liquidity, and whether spread_bps_submit is correctly populated.
++      runbook_path: /runbooks/world_practice_trackers_v1.md
++      dashboard_path: /d/world_practice_trackers_v1
+diff --git a/tick_flow_full/orderflow_services/runbook_world_practice_trackers_v1.md b/tick_flow_full/orderflow_services/runbook_world_practice_trackers_v1.md
+index 45ed42b..5187836 100644
+--- a/tick_flow_full/orderflow_services/runbook_world_practice_trackers_v1.md
++++ b/tick_flow_full/orderflow_services/runbook_world_practice_trackers_v1.md
+@@ -8,6 +8,11 @@ This runbook covers the **world-practice trackers** that are exposed as low-card
+ - Book resilience: `trade_res_recovered`, `trade_res_recovery_ms`, `trade_res_speed_per_s`
+ - Passive executability: `trade_fill_prob`, `trade_eta_fill_sec`, `trade_exec_fill_pen`
+ 
++- Execution-risk layer (P95/P99-ready histograms):
++  - `trade_spread_bps`
++  - `trade_exec_risk_ref_bps`, `trade_exec_risk_bps`, `trade_exec_risk_norm`, `trade_exec_pen`
++  - `trade_expected_slippage_bps{model="legacy|eff"}` (legacy = pre-decomp, eff = decision-time effective)
++
+ Signals are produced on the hot path and also exported into the `metrics:of_gate` stream for smoke-check.
+ 
+ ## Where data comes from
+@@ -15,6 +20,8 @@ Signals are produced on the hot path and also exported into the `metrics:of_gate
+ - `liq_regime_label` is sourced from liquidity guard (book processor) via `runtime.last_liq_regime`.
+ - `res_*` is sourced from `BookResilienceTracker` snapshot.
+ - `fill_prob_proxy / eta_fill_*` are sourced from L3-lite stats, with a **fallback** in tick_processor using `core.fill_prob_proxy.compute_fill_prob_proxy()`.
++- `spread_bps_submit` is computed from best bid/ask at decision time.
++- `exec_risk_*` and `exec_pen` are computed by OF engine (execution-risk layer) and exported by tick_processor.
+ 
+ ## Prometheus alerts
+ Alert rules:
+@@ -51,6 +58,27 @@ Triage:
+ 1) Confirm `metrics:of_gate` contains `vol_fast_bps/vol_slow_bps/vol_ratio` fields.
+ 2) If missing or zeros → snapshot wiring broken (bar_processor → runtime → indicators → gauges).
+ 
++### Alert: OF_WP_ExecPenP95High_Warn
++Meaning: execution penalty distribution shifted high (p95) while system is active.
++
++Triage:
++1) Check whether it is market-driven:
++   - `spread_bps` p95 (often the primary driver)
++   - `trade_expected_slippage_bps{model="eff"}` p95
++2) Check wiring:
++   - `metrics:of_gate` rows contain `exec_risk_norm` **and** `exec_pen` (non-zero when risk is non-trivial)
++3) If widespread across symbols:
++   - verify bucket labeling (`exec_regime_bucket`) and any recent snapshot regression.
++
++### Alert: OF_WP_SpreadP95High_Warn
++Meaning: decision-time spread distribution shifted high (p95) while system is active.
++
++Triage:
++1) Confirm it is not a data bug:
++   - `metrics:of_gate` includes `spread_bps_submit` and it matches best bid/ask.
++2) If real market:
++   - thin book / widening spreads → consider tightening allow policy in affected buckets.
++
+ ## Smoke-check (nightly orchestration)
+ Tool:
+ - `python -m orderflow_services.world_practice_gauges_smoke_check_v1`
+@@ -82,6 +110,10 @@ Suggested panels:
+ - `trade_fill_prob` + `trade_eta_fill_sec`
+ - `trade_res_recovery_ms` + `trade_res_recovered`
+ 
++- P95 exec-risk (histograms):
++  - `histogram_quantile(0.95, sum by (le,sym,bucket)(rate(trade_exec_pen_bucket[5m])))`
++  - `histogram_quantile(0.95, sum by (le,sym,bucket)(rate(trade_spread_bps_bucket[5m])))`
++
+ ## Rollback (fast)
+ - Disable smoke-check:
+   - `ENABLE_WORLD_PRACTICE_SMOKE=0`

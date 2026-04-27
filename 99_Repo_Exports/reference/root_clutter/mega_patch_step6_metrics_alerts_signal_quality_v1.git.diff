@@ -1,0 +1,947 @@
+diff --git a/services/orderflow/components/tick_processor.py b/services/orderflow/components/tick_processor.py
+index 0000000..1111111
+--- a/services/orderflow/components/tick_processor.py
++++ b/services/orderflow/components/tick_processor.py
+@@ -120,6 +120,10 @@
+     trade_adverse_rd_veto,
+ )
+ 
++from services.orderflow.metrics_signal_quality_v1 import (
++    dq_level_gauge, dq_veto_total, tick_gap_n_gauge, sanitize_dq_bucket,
++)
++
+ from services.orderflow.world_practice.realized_drift_tracker_v1 import RealizedDriftTrackerV1
+ 
+ from services.orderflow.side_policy import is_unknown_side_tick
+@@ -322,6 +326,7 @@
+                     try:
+                         tick_gap_p50_ms_gauge.labels(symbol=str(runtime.symbol)).set(runtime.tick_gap_p50_ms)
+                         tick_gap_p95_ms_gauge.labels(symbol=str(runtime.symbol)).set(runtime.tick_gap_p95_ms)
++                        tick_gap_n_gauge.labels(symbol=str(runtime.symbol)).set(runtime.tick_gap_n)
+                     except Exception:
+                         pass
+             except Exception:
+@@ -2037,6 +2042,25 @@
+         t_build_us = int((time.perf_counter_ns() - t_build_ns0) / 1000)
+         indicators["of_build_us"] = int(t_build_us)
+ 
++        # ---------------------------------------------------------------
++        # Step 6 (Signal-quality): export DQ gate outcomes to Prometheus.
++        #
++        # - dq_level is emitted always (0/1/2)
++        # - dq_veto_total is incremented only when dq_veto==1
++        # - bucket is clamped to a fixed allowlist to prevent cardinality blow-ups
++        # ---------------------------------------------------------------
++        try:
++            _sym = str(runtime.symbol)
++            _lvl = int(indicators.get("dq_level", 0) or 0)
++            dq_level_gauge.labels(symbol=_sym).set(_lvl)
++
++            if int(indicators.get("dq_veto", 0) or 0) == 1:
++                _bucket = sanitize_dq_bucket(str(indicators.get("dq_reason_bucket", "other") or "other"))
++                dq_veto_total.labels(symbol=_sym, bucket=_bucket).inc()
++        except Exception:
++            pass
++
++
+         # Fill-prob / exec_fill_pen fallback (smoke-check: detect broken wiring)
+         # If OFConfirmEngine already computed these fields, we do NOT override them.
+         try:
+
+diff --git a/tick_flow_full/services/orderflow/components/tick_processor.py b/tick_flow_full/services/orderflow/components/tick_processor.py
+index 0000000..1111111
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -120,6 +120,10 @@
+     trade_adverse_rd_veto,
+ )
+ 
++from services.orderflow.metrics_signal_quality_v1 import (
++    dq_level_gauge, dq_veto_total, tick_gap_n_gauge, sanitize_dq_bucket,
++)
++
+ from services.orderflow.world_practice.realized_drift_tracker_v1 import RealizedDriftTrackerV1
+ 
+ from services.orderflow.side_policy import is_unknown_side_tick
+@@ -322,6 +326,7 @@
+                     try:
+                         tick_gap_p50_ms_gauge.labels(symbol=str(runtime.symbol)).set(runtime.tick_gap_p50_ms)
+                         tick_gap_p95_ms_gauge.labels(symbol=str(runtime.symbol)).set(runtime.tick_gap_p95_ms)
++                        tick_gap_n_gauge.labels(symbol=str(runtime.symbol)).set(runtime.tick_gap_n)
+                     except Exception:
+                         pass
+             except Exception:
+@@ -2037,6 +2042,25 @@
+         t_build_us = int((time.perf_counter_ns() - t_build_ns0) / 1000)
+         indicators["of_build_us"] = int(t_build_us)
+ 
++        # ---------------------------------------------------------------
++        # Step 6 (Signal-quality): export DQ gate outcomes to Prometheus.
++        #
++        # - dq_level is emitted always (0/1/2)
++        # - dq_veto_total is incremented only when dq_veto==1
++        # - bucket is clamped to a fixed allowlist to prevent cardinality blow-ups
++        # ---------------------------------------------------------------
++        try:
++            _sym = str(runtime.symbol)
++            _lvl = int(indicators.get("dq_level", 0) or 0)
++            dq_level_gauge.labels(symbol=_sym).set(_lvl)
++
++            if int(indicators.get("dq_veto", 0) or 0) == 1:
++                _bucket = sanitize_dq_bucket(str(indicators.get("dq_reason_bucket", "other") or "other"))
++                dq_veto_total.labels(symbol=_sym, bucket=_bucket).inc()
++        except Exception:
++            pass
++
++
+         # Fill-prob / exec_fill_pen fallback (smoke-check: detect broken wiring)
+         # If OFConfirmEngine already computed these fields, we do NOT override them.
+         try:
+
+diff --git a/services/orderflow/components/book_processor.py b/services/orderflow/components/book_processor.py
+index 0000000..1111111
+--- a/services/orderflow/components/book_processor.py
++++ b/services/orderflow/components/book_processor.py
+@@ -7,7 +7,7 @@
+ from services.orderflow.runtime import SymbolRuntime, BookSnapshot, BookState
+ from services.orderflow.configuration import _safe_int, _safe_float
+ from services.orderflow.metrics import (
+-    log_silent_error, book_missing_seq_events_total, book_rate_ema_gauge, book_rate_z_gauge,
++    log_silent_error, book_missing_seq_events_total, book_missing_seq_ema_gauge, book_rate_ema_gauge, book_rate_z_gauge,
+     of_lob_queue_imbalance_gauge, of_lob_queue_imbalance_mean_gauge,
+     of_lob_queue_imbalance_max_abs_gauge, of_lob_queue_imbalance_slope_gauge,
+     of_lob_micro_mid_div_bps_gauge, of_lob_micro_shift_bps_gauge,
+@@ -128,6 +128,14 @@
+             runtime.book_missing_seq_ema = float(prev_ema)
+ 
+         runtime.book_seq_last_reason = str(reason)
++
++        # Export EMA to Prometheus at book rate as well (not only on ticks).
++        # This avoids staleness when book stream is live but tick stream is quiet.
++        try:
++            book_missing_seq_ema_gauge.labels(symbol=str(runtime.symbol)).set(float(runtime.book_missing_seq_ema))
++        except Exception:
++            pass
++
+ 
+         # Advance last_u only when monotonic; this is robust against duplicates / reorders.
+         if cur_u > prev_u:
+
+diff --git a/tick_flow_full/services/orderflow/components/book_processor.py b/tick_flow_full/services/orderflow/components/book_processor.py
+index 0000000..1111111
+--- a/tick_flow_full/services/orderflow/components/book_processor.py
++++ b/tick_flow_full/services/orderflow/components/book_processor.py
+@@ -7,7 +7,7 @@
+ from services.orderflow.runtime import SymbolRuntime, BookSnapshot, BookState
+ from services.orderflow.configuration import _safe_int, _safe_float
+ from services.orderflow.metrics import (
+-    log_silent_error, book_missing_seq_events_total, book_rate_ema_gauge, book_rate_z_gauge,
++    log_silent_error, book_missing_seq_events_total, book_missing_seq_ema_gauge, book_rate_ema_gauge, book_rate_z_gauge,
+     of_lob_queue_imbalance_gauge, of_lob_queue_imbalance_mean_gauge,
+     of_lob_queue_imbalance_max_abs_gauge, of_lob_queue_imbalance_slope_gauge,
+     of_lob_micro_mid_div_bps_gauge, of_lob_micro_shift_bps_gauge,
+@@ -128,6 +128,14 @@
+             runtime.book_missing_seq_ema = float(prev_ema)
+ 
+         runtime.book_seq_last_reason = str(reason)
++
++        # Export EMA to Prometheus at book rate as well (not only on ticks).
++        # This avoids staleness when book stream is live but tick stream is quiet.
++        try:
++            book_missing_seq_ema_gauge.labels(symbol=str(runtime.symbol)).set(float(runtime.book_missing_seq_ema))
++        except Exception:
++            pass
++
+ 
+         # Advance last_u only when monotonic; this is robust against duplicates / reorders.
+         if cur_u > prev_u:
+
+diff --git a/services/orderflow/metrics_signal_quality_v1.py b/services/orderflow/metrics_signal_quality_v1.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/services/orderflow/metrics_signal_quality_v1.py
+@@ -0,0 +1,68 @@
++"""Signal-quality metrics (Step 6).
++
++This module defines low-cardinality Prometheus metrics used to monitor
++data-quality (DQ) signals and continuity issues in production.
++
++Why a dedicated module?
++- Keeps the Step-6 metric contract self-contained and mirror-friendly.
++- Avoids continuously growing the already-large `services.orderflow.metrics`.
++
++Cardinality rules:
++- label `symbol` is allowed.
++- label `bucket` MUST be from a small fixed allowlist.
++  Never put free-form reasons or IDs into labels.
++"""
++
++from __future__ import annotations
++
++from prometheus_client import Counter, Gauge
++
++
++_DQ_BUCKET_ALLOWLIST = {
++    # Contract buckets (alerting + dashboards)
++    "book_seq",
++    "tick_seq",
++    "gap_p95",
++    "data_health",
++    "other",
++    # internal / no-veto bucket (kept for safety)
++    "ok",
++}
++
++
++def sanitize_dq_bucket(bucket: str) -> str:
++    """Clamp bucket to a small allowlist.
++
++    This protects Prometheus from accidental high-cardinality growth when
++    runtime code starts emitting new reason strings.
++    """
++    b = (bucket or "").strip().lower()
++    if b in _DQ_BUCKET_ALLOWLIST:
++        return b
++    return "other"
++
++
++# ---------------------------------------------------------------------------
++# Metrics (names are part of the external contract)
++# ---------------------------------------------------------------------------
++
++# DQ gate level (0/1/2) emitted per symbol.
++dq_level_gauge = Gauge(
++    "dq_level",
++    "DQ gate severity level (0/1/2).",
++    labelnames=["symbol"],
++)
++
++# DQ veto counter bucketed by primary DQ bucket.
++dq_veto_total = Counter(
++    "dq_veto_total",
++    "Number of times DQ gate applied veto (dq_veto==1).",
++    labelnames=["symbol", "bucket"],
++)
++
++# Tick-gap sample count used to gate alerting (min_samples).
++tick_gap_n_gauge = Gauge(
++    "tick_gap_n",
++    "Rolling sample count for tick_gap_pXX_ms trackers.",
++    labelnames=["symbol"],
++)
+
+diff --git a/tick_flow_full/services/orderflow/metrics_signal_quality_v1.py b/tick_flow_full/services/orderflow/metrics_signal_quality_v1.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/tick_flow_full/services/orderflow/metrics_signal_quality_v1.py
+@@ -0,0 +1,70 @@
++"""Signal-quality metrics (Step 6).
++
++MIRROR of: services/orderflow/metrics_signal_quality_v1.py
++
++This module defines low-cardinality Prometheus metrics used to monitor
++data-quality (DQ) signals and continuity issues in production.
++
++Why a dedicated module?
++- Keeps the Step-6 metric contract self-contained and mirror-friendly.
++- Avoids continuously growing the already-large `services.orderflow.metrics`.
++
++Cardinality rules:
++- label `symbol` is allowed.
++- label `bucket` MUST be from a small fixed allowlist.
++  Never put free-form reasons or IDs into labels.
++"""
++
++from __future__ import annotations
++
++from prometheus_client import Counter, Gauge
++
++
++_DQ_BUCKET_ALLOWLIST = {
++    # Contract buckets (alerting + dashboards)
++    "book_seq",
++    "tick_seq",
++    "gap_p95",
++    "data_health",
++    "other",
++    # internal / no-veto bucket (kept for safety)
++    "ok",
++}
++
++
++def sanitize_dq_bucket(bucket: str) -> str:
++    """Clamp bucket to a small allowlist.
++
++    This protects Prometheus from accidental high-cardinality growth when
++    runtime code starts emitting new reason strings.
++    """
++    b = (bucket or "").strip().lower()
++    if b in _DQ_BUCKET_ALLOWLIST:
++        return b
++    return "other"
++
++
++# ---------------------------------------------------------------------------
++# Metrics (names are part of the external contract)
++# ---------------------------------------------------------------------------
++
++# DQ gate level (0/1/2) emitted per symbol.
++dq_level_gauge = Gauge(
++    "dq_level",
++    "DQ gate severity level (0/1/2).",
++    labelnames=["symbol"],
++)
++
++# DQ veto counter bucketed by primary DQ bucket.
++dq_veto_total = Counter(
++    "dq_veto_total",
++    "Number of times DQ gate applied veto (dq_veto==1).",
++    labelnames=["symbol", "bucket"],
++)
++
++# Tick-gap sample count used to gate alerting (min_samples).
++tick_gap_n_gauge = Gauge(
++    "tick_gap_n",
++    "Rolling sample count for tick_gap_pXX_ms trackers.",
++    labelnames=["symbol"],
++)
+
+diff --git a/services/orderflow/prometheus_alerts_signal_quality_v2.yml b/services/orderflow/prometheus_alerts_signal_quality_v2.yml
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/services/orderflow/prometheus_alerts_signal_quality_v2.yml
+@@ -0,0 +1,102 @@
++# Signal-quality alert rules (Step D / Step 6)
++#
++# Designed for scrape_interval = 15s:
++# - warn windows are minutes (reduce flapping)
++# - crit windows are short but still >= 2 evaluations where practical
++#
++# IMPORTANT:
++# - Keep labels low-cardinality: only {symbol} and fixed {severity}.
++# - DQ thresholds are expressed in metric space (defaults). If you later
++#   expose threshold-gauges, you can swap constants for those gauges.
++groups:
++  - name: signal_quality_v2
++    interval: 15s
++    rules:
++      # ---------------------------------------------------------------------
++      # Tick gap P95 (ms)
++      # ---------------------------------------------------------------------
++      - alert: TickGapP95HighWarn
++        expr: (tick_gap_p95_ms > 3000) and (tick_gap_n >= 50)
++        for: 2m
++        labels:
++          severity: warning
++          subsystem: orderflow
++        annotations:
++          summary: "Tick gap P95 is high (warn)"
++          description: "tick_gap_p95_ms > 3000ms with tick_gap_n >= 50 samples for 2m."
++
++      - alert: TickGapP95HighCrit
++        expr: (tick_gap_p95_ms > 10000) and (tick_gap_n >= 50)
++        for: 30s
++        labels:
++          severity: critical
++          subsystem: orderflow
++        annotations:
++          summary: "Tick gap P95 is high (crit)"
++          description: "tick_gap_p95_ms > 10000ms with tick_gap_n >= 50 samples for 30s."
++
++      - alert: TickGapP95Extreme
++        expr: (tick_gap_p95_ms > 30000) and (tick_gap_n >= 50)
++        for: 10s
++        labels:
++          severity: critical
++          subsystem: orderflow
++        annotations:
++          summary: "Tick gap P95 is extreme"
++          description: "tick_gap_p95_ms > 30000ms with tick_gap_n >= 50 samples."
++
++      # ---------------------------------------------------------------------
++      # Missing sequence EMAs
++      # ---------------------------------------------------------------------
++      - alert: TickMissingSeqEmaWarn
++        expr: tick_missing_seq_ema > 2
++        for: 2m
++        labels:
++          severity: warning
++          subsystem: orderflow
++        annotations:
++          summary: "Tick missing-seq EMA elevated (warn)"
++          description: "tick_missing_seq_ema > 2 for 2m."
++
++      - alert: TickMissingSeqEmaCrit
++        expr: tick_missing_seq_ema > 10
++        for: 30s
++        labels:
++          severity: critical
++          subsystem: orderflow
++        annotations:
++          summary: "Tick missing-seq EMA elevated (crit)"
++          description: "tick_missing_seq_ema > 10 for 30s."
++
++      - alert: BookMissingSeqEmaCrit
++        expr: book_missing_seq_ema > 30
++        for: 30s
++        labels:
++          severity: critical
++          subsystem: orderflow
++        annotations:
++          summary: "Book missing-seq EMA elevated (crit)"
++          description: "book_missing_seq_ema > 30 for 30s. In observe-only phase you may treat as ticket until book veto is enabled."
++
++      # ---------------------------------------------------------------------
++      # DQ Level share (time-weighted share of dq_level == 2)
++      # ---------------------------------------------------------------------
++      - alert: DqLevel2ShareWarn
++        expr: avg_over_time((dq_level == bool 2)[1h:15s]) > 0.10
++        for: 5m
++        labels:
++          severity: warning
++          subsystem: orderflow
++        annotations:
++          summary: "High share of dq_level==2 (warn)"
++          description: "Time-weighted share of dq_level==2 over 1h is > 10%."
++
++      - alert: DqLevel2ShareCrit
++        expr: avg_over_time((dq_level == bool 2)[1h:15s]) > 0.20
++        for: 5m
++        labels:
++          severity: critical
++          subsystem: orderflow
++        annotations:
++          summary: "High share of dq_level==2 (crit)"
++          description: "Time-weighted share of dq_level==2 over 1h is > 20%."
+
+diff --git a/tick_flow_full/services/orderflow/prometheus_alerts_signal_quality_v2.yml b/tick_flow_full/services/orderflow/prometheus_alerts_signal_quality_v2.yml
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/tick_flow_full/services/orderflow/prometheus_alerts_signal_quality_v2.yml
+@@ -0,0 +1,102 @@
++# Signal-quality alert rules (Step D / Step 6)
++#
++# Designed for scrape_interval = 15s:
++# - warn windows are minutes (reduce flapping)
++# - crit windows are short but still >= 2 evaluations where practical
++#
++# IMPORTANT:
++# - Keep labels low-cardinality: only {symbol} and fixed {severity}.
++# - DQ thresholds are expressed in metric space (defaults). If you later
++#   expose threshold-gauges, you can swap constants for those gauges.
++groups:
++  - name: signal_quality_v2
++    interval: 15s
++    rules:
++      # ---------------------------------------------------------------------
++      # Tick gap P95 (ms)
++      # ---------------------------------------------------------------------
++      - alert: TickGapP95HighWarn
++        expr: (tick_gap_p95_ms > 3000) and (tick_gap_n >= 50)
++        for: 2m
++        labels:
++          severity: warning
++          subsystem: orderflow
++        annotations:
++          summary: "Tick gap P95 is high (warn)"
++          description: "tick_gap_p95_ms > 3000ms with tick_gap_n >= 50 samples for 2m."
++
++      - alert: TickGapP95HighCrit
++        expr: (tick_gap_p95_ms > 10000) and (tick_gap_n >= 50)
++        for: 30s
++        labels:
++          severity: critical
++          subsystem: orderflow
++        annotations:
++          summary: "Tick gap P95 is high (crit)"
++          description: "tick_gap_p95_ms > 10000ms with tick_gap_n >= 50 samples for 30s."
++
++      - alert: TickGapP95Extreme
++        expr: (tick_gap_p95_ms > 30000) and (tick_gap_n >= 50)
++        for: 10s
++        labels:
++          severity: critical
++          subsystem: orderflow
++        annotations:
++          summary: "Tick gap P95 is extreme"
++          description: "tick_gap_p95_ms > 30000ms with tick_gap_n >= 50 samples."
++
++      # ---------------------------------------------------------------------
++      # Missing sequence EMAs
++      # ---------------------------------------------------------------------
++      - alert: TickMissingSeqEmaWarn
++        expr: tick_missing_seq_ema > 2
++        for: 2m
++        labels:
++          severity: warning
++          subsystem: orderflow
++        annotations:
++          summary: "Tick missing-seq EMA elevated (warn)"
++          description: "tick_missing_seq_ema > 2 for 2m."
++
++      - alert: TickMissingSeqEmaCrit
++        expr: tick_missing_seq_ema > 10
++        for: 30s
++        labels:
++          severity: critical
++          subsystem: orderflow
++        annotations:
++          summary: "Tick missing-seq EMA elevated (crit)"
++          description: "tick_missing_seq_ema > 10 for 30s."
++
++      - alert: BookMissingSeqEmaCrit
++        expr: book_missing_seq_ema > 30
++        for: 30s
++        labels:
++          severity: critical
++          subsystem: orderflow
++        annotations:
++          summary: "Book missing-seq EMA elevated (crit)"
++          description: "book_missing_seq_ema > 30 for 30s. In observe-only phase you may treat as ticket until book veto is enabled."
++
++      # ---------------------------------------------------------------------
++      # DQ Level share (time-weighted share of dq_level == 2)
++      # ---------------------------------------------------------------------
++      - alert: DqLevel2ShareWarn
++        expr: avg_over_time((dq_level == bool 2)[1h:15s]) > 0.10
++        for: 5m
++        labels:
++          severity: warning
++          subsystem: orderflow
++        annotations:
++          summary: "High share of dq_level==2 (warn)"
++          description: "Time-weighted share of dq_level==2 over 1h is > 10%."
++
++      - alert: DqLevel2ShareCrit
++        expr: avg_over_time((dq_level == bool 2)[1h:15s]) > 0.20
++        for: 5m
++        labels:
++          severity: critical
++          subsystem: orderflow
++        annotations:
++          summary: "High share of dq_level==2 (crit)"
++          description: "Time-weighted share of dq_level==2 over 1h is > 20%."
+
+diff --git a/orderflow_services/prometheus_alerts_signal_quality_v2.yml b/orderflow_services/prometheus_alerts_signal_quality_v2.yml
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_signal_quality_v2.yml
+@@ -0,0 +1,102 @@
++# Signal-quality alert rules (Step D / Step 6)
++#
++# Designed for scrape_interval = 15s:
++# - warn windows are minutes (reduce flapping)
++# - crit windows are short but still >= 2 evaluations where practical
++#
++# IMPORTANT:
++# - Keep labels low-cardinality: only {symbol} and fixed {severity}.
++# - DQ thresholds are expressed in metric space (defaults). If you later
++#   expose threshold-gauges, you can swap constants for those gauges.
++groups:
++  - name: signal_quality_v2
++    interval: 15s
++    rules:
++      # ---------------------------------------------------------------------
++      # Tick gap P95 (ms)
++      # ---------------------------------------------------------------------
++      - alert: TickGapP95HighWarn
++        expr: (tick_gap_p95_ms > 3000) and (tick_gap_n >= 50)
++        for: 2m
++        labels:
++          severity: warning
++          subsystem: orderflow
++        annotations:
++          summary: "Tick gap P95 is high (warn)"
++          description: "tick_gap_p95_ms > 3000ms with tick_gap_n >= 50 samples for 2m."
++
++      - alert: TickGapP95HighCrit
++        expr: (tick_gap_p95_ms > 10000) and (tick_gap_n >= 50)
++        for: 30s
++        labels:
++          severity: critical
++          subsystem: orderflow
++        annotations:
++          summary: "Tick gap P95 is high (crit)"
++          description: "tick_gap_p95_ms > 10000ms with tick_gap_n >= 50 samples for 30s."
++
++      - alert: TickGapP95Extreme
++        expr: (tick_gap_p95_ms > 30000) and (tick_gap_n >= 50)
++        for: 10s
++        labels:
++          severity: critical
++          subsystem: orderflow
++        annotations:
++          summary: "Tick gap P95 is extreme"
++          description: "tick_gap_p95_ms > 30000ms with tick_gap_n >= 50 samples."
++
++      # ---------------------------------------------------------------------
++      # Missing sequence EMAs
++      # ---------------------------------------------------------------------
++      - alert: TickMissingSeqEmaWarn
++        expr: tick_missing_seq_ema > 2
++        for: 2m
++        labels:
++          severity: warning
++          subsystem: orderflow
++        annotations:
++          summary: "Tick missing-seq EMA elevated (warn)"
++          description: "tick_missing_seq_ema > 2 for 2m."
++
++      - alert: TickMissingSeqEmaCrit
++        expr: tick_missing_seq_ema > 10
++        for: 30s
++        labels:
++          severity: critical
++          subsystem: orderflow
++        annotations:
++          summary: "Tick missing-seq EMA elevated (crit)"
++          description: "tick_missing_seq_ema > 10 for 30s."
++
++      - alert: BookMissingSeqEmaCrit
++        expr: book_missing_seq_ema > 30
++        for: 30s
++        labels:
++          severity: critical
++          subsystem: orderflow
++        annotations:
++          summary: "Book missing-seq EMA elevated (crit)"
++          description: "book_missing_seq_ema > 30 for 30s. In observe-only phase you may treat as ticket until book veto is enabled."
++
++      # ---------------------------------------------------------------------
++      # DQ Level share (time-weighted share of dq_level == 2)
++      # ---------------------------------------------------------------------
++      - alert: DqLevel2ShareWarn
++        expr: avg_over_time((dq_level == bool 2)[1h:15s]) > 0.10
++        for: 5m
++        labels:
++          severity: warning
++          subsystem: orderflow
++        annotations:
++          summary: "High share of dq_level==2 (warn)"
++          description: "Time-weighted share of dq_level==2 over 1h is > 10%."
++
++      - alert: DqLevel2ShareCrit
++        expr: avg_over_time((dq_level == bool 2)[1h:15s]) > 0.20
++        for: 5m
++        labels:
++          severity: critical
++          subsystem: orderflow
++        annotations:
++          summary: "High share of dq_level==2 (crit)"
++          description: "Time-weighted share of dq_level==2 over 1h is > 20%."
+
+diff --git a/tick_flow_full/orderflow_services/prometheus_alerts_signal_quality_v2.yml b/tick_flow_full/orderflow_services/prometheus_alerts_signal_quality_v2.yml
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_signal_quality_v2.yml
+@@ -0,0 +1,102 @@
++# Signal-quality alert rules (Step D / Step 6)
++#
++# Designed for scrape_interval = 15s:
++# - warn windows are minutes (reduce flapping)
++# - crit windows are short but still >= 2 evaluations where practical
++#
++# IMPORTANT:
++# - Keep labels low-cardinality: only {symbol} and fixed {severity}.
++# - DQ thresholds are expressed in metric space (defaults). If you later
++#   expose threshold-gauges, you can swap constants for those gauges.
++groups:
++  - name: signal_quality_v2
++    interval: 15s
++    rules:
++      # ---------------------------------------------------------------------
++      # Tick gap P95 (ms)
++      # ---------------------------------------------------------------------
++      - alert: TickGapP95HighWarn
++        expr: (tick_gap_p95_ms > 3000) and (tick_gap_n >= 50)
++        for: 2m
++        labels:
++          severity: warning
++          subsystem: orderflow
++        annotations:
++          summary: "Tick gap P95 is high (warn)"
++          description: "tick_gap_p95_ms > 3000ms with tick_gap_n >= 50 samples for 2m."
++
++      - alert: TickGapP95HighCrit
++        expr: (tick_gap_p95_ms > 10000) and (tick_gap_n >= 50)
++        for: 30s
++        labels:
++          severity: critical
++          subsystem: orderflow
++        annotations:
++          summary: "Tick gap P95 is high (crit)"
++          description: "tick_gap_p95_ms > 10000ms with tick_gap_n >= 50 samples for 30s."
++
++      - alert: TickGapP95Extreme
++        expr: (tick_gap_p95_ms > 30000) and (tick_gap_n >= 50)
++        for: 10s
++        labels:
++          severity: critical
++          subsystem: orderflow
++        annotations:
++          summary: "Tick gap P95 is extreme"
++          description: "tick_gap_p95_ms > 30000ms with tick_gap_n >= 50 samples."
++
++      # ---------------------------------------------------------------------
++      # Missing sequence EMAs
++      # ---------------------------------------------------------------------
++      - alert: TickMissingSeqEmaWarn
++        expr: tick_missing_seq_ema > 2
++        for: 2m
++        labels:
++          severity: warning
++          subsystem: orderflow
++        annotations:
++          summary: "Tick missing-seq EMA elevated (warn)"
++          description: "tick_missing_seq_ema > 2 for 2m."
++
++      - alert: TickMissingSeqEmaCrit
++        expr: tick_missing_seq_ema > 10
++        for: 30s
++        labels:
++          severity: critical
++          subsystem: orderflow
++        annotations:
++          summary: "Tick missing-seq EMA elevated (crit)"
++          description: "tick_missing_seq_ema > 10 for 30s."
++
++      - alert: BookMissingSeqEmaCrit
++        expr: book_missing_seq_ema > 30
++        for: 30s
++        labels:
++          severity: critical
++          subsystem: orderflow
++        annotations:
++          summary: "Book missing-seq EMA elevated (crit)"
++          description: "book_missing_seq_ema > 30 for 30s. In observe-only phase you may treat as ticket until book veto is enabled."
++
++      # ---------------------------------------------------------------------
++      # DQ Level share (time-weighted share of dq_level == 2)
++      # ---------------------------------------------------------------------
++      - alert: DqLevel2ShareWarn
++        expr: avg_over_time((dq_level == bool 2)[1h:15s]) > 0.10
++        for: 5m
++        labels:
++          severity: warning
++          subsystem: orderflow
++        annotations:
++          summary: "High share of dq_level==2 (warn)"
++          description: "Time-weighted share of dq_level==2 over 1h is > 10%."
++
++      - alert: DqLevel2ShareCrit
++        expr: avg_over_time((dq_level == bool 2)[1h:15s]) > 0.20
++        for: 5m
++        labels:
++          severity: critical
++          subsystem: orderflow
++        annotations:
++          summary: "High share of dq_level==2 (crit)"
++          description: "Time-weighted share of dq_level==2 over 1h is > 20%."
+
+diff --git a/services/orderflow/runbook_signal_quality_v2.md b/services/orderflow/runbook_signal_quality_v2.md
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/services/orderflow/runbook_signal_quality_v2.md
+@@ -0,0 +1,32 @@
++# Runbook: Signal quality (DQ / gaps / seq)
++
++## What to look at first (5 minutes)
++1) `dq_level` and `dq_veto_total{bucket}` per symbol  
++2) `tick_gap_p95_ms` + `tick_gap_n` (make sure there are enough samples)  
++3) `tick_missing_seq_ema` and `book_missing_seq_ema`  
++4) Decision record fields: `dq_reasons`, `dq_reason_bucket`, `book_seq_last_reason`, `tick_seq_last_reason`
++
++## Typical causes
++- **tick_gap_p95_ms spikes**: websocket stall, redis lag, GC pauses, CPU saturation.
++- **tick_missing_seq_ema**: upstream drops/reconnects, out-of-order delivery, consumer lag.
++- **book_missing_seq_ema**: depth stream resync, missing depthUpdate events, snapshot overlap mismatch.
++- **dq_level==2 share**: usually means thresholds too strict for current feed frequency, or real stream instability.
++
++## SAFE vs STRICT operations
++- Start rollouts in **SAFE** mode (observe-only for book veto, softer thresholds).
++- Switch to **STRICT** only after you have stable baselines for:
++  - tick_gap_p95_ms distribution
++  - tick_missing_seq_ema distribution
++  - book_missing_seq_ema distribution
++
++## Mitigation playbook
++- If `tick_gap_p95_ms` is spiking:
++  - check consumer lag / redis latency / network drops
++  - temporarily increase `gap_*` thresholds or reduce gating strictness
++- If `book_missing_seq_ema` is elevated during warmup:
++  - keep `dq_book_veto_enabled=false` until observe-only window passes
++  - confirm depth stream frequency and EMA alpha match (10Hz vs 4Hz vs 2Hz)
++
++## Rollback
++- Disable book veto: `dq_book_veto_enabled=false`
++- Revert alert bundle to previous version if flapping.
+
+diff --git a/tick_flow_full/services/orderflow/runbook_signal_quality_v2.md b/tick_flow_full/services/orderflow/runbook_signal_quality_v2.md
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/tick_flow_full/services/orderflow/runbook_signal_quality_v2.md
+@@ -0,0 +1,32 @@
++# Runbook: Signal quality (DQ / gaps / seq)
++
++## What to look at first (5 minutes)
++1) `dq_level` and `dq_veto_total{bucket}` per symbol  
++2) `tick_gap_p95_ms` + `tick_gap_n` (make sure there are enough samples)  
++3) `tick_missing_seq_ema` and `book_missing_seq_ema`  
++4) Decision record fields: `dq_reasons`, `dq_reason_bucket`, `book_seq_last_reason`, `tick_seq_last_reason`
++
++## Typical causes
++- **tick_gap_p95_ms spikes**: websocket stall, redis lag, GC pauses, CPU saturation.
++- **tick_missing_seq_ema**: upstream drops/reconnects, out-of-order delivery, consumer lag.
++- **book_missing_seq_ema**: depth stream resync, missing depthUpdate events, snapshot overlap mismatch.
++- **dq_level==2 share**: usually means thresholds too strict for current feed frequency, or real stream instability.
++
++## SAFE vs STRICT operations
++- Start rollouts in **SAFE** mode (observe-only for book veto, softer thresholds).
++- Switch to **STRICT** only after you have stable baselines for:
++  - tick_gap_p95_ms distribution
++  - tick_missing_seq_ema distribution
++  - book_missing_seq_ema distribution
++
++## Mitigation playbook
++- If `tick_gap_p95_ms` is spiking:
++  - check consumer lag / redis latency / network drops
++  - temporarily increase `gap_*` thresholds or reduce gating strictness
++- If `book_missing_seq_ema` is elevated during warmup:
++  - keep `dq_book_veto_enabled=false` until observe-only window passes
++  - confirm depth stream frequency and EMA alpha match (10Hz vs 4Hz vs 2Hz)
++
++## Rollback
++- Disable book veto: `dq_book_veto_enabled=false`
++- Revert alert bundle to previous version if flapping.
+
+diff --git a/orderflow_services/runbook_signal_quality_v2.md b/orderflow_services/runbook_signal_quality_v2.md
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/runbook_signal_quality_v2.md
+@@ -0,0 +1,32 @@
++# Runbook: Signal quality (DQ / gaps / seq)
++
++## What to look at first (5 minutes)
++1) `dq_level` and `dq_veto_total{bucket}` per symbol  
++2) `tick_gap_p95_ms` + `tick_gap_n` (make sure there are enough samples)  
++3) `tick_missing_seq_ema` and `book_missing_seq_ema`  
++4) Decision record fields: `dq_reasons`, `dq_reason_bucket`, `book_seq_last_reason`, `tick_seq_last_reason`
++
++## Typical causes
++- **tick_gap_p95_ms spikes**: websocket stall, redis lag, GC pauses, CPU saturation.
++- **tick_missing_seq_ema**: upstream drops/reconnects, out-of-order delivery, consumer lag.
++- **book_missing_seq_ema**: depth stream resync, missing depthUpdate events, snapshot overlap mismatch.
++- **dq_level==2 share**: usually means thresholds too strict for current feed frequency, or real stream instability.
++
++## SAFE vs STRICT operations
++- Start rollouts in **SAFE** mode (observe-only for book veto, softer thresholds).
++- Switch to **STRICT** only after you have stable baselines for:
++  - tick_gap_p95_ms distribution
++  - tick_missing_seq_ema distribution
++  - book_missing_seq_ema distribution
++
++## Mitigation playbook
++- If `tick_gap_p95_ms` is spiking:
++  - check consumer lag / redis latency / network drops
++  - temporarily increase `gap_*` thresholds or reduce gating strictness
++- If `book_missing_seq_ema` is elevated during warmup:
++  - keep `dq_book_veto_enabled=false` until observe-only window passes
++  - confirm depth stream frequency and EMA alpha match (10Hz vs 4Hz vs 2Hz)
++
++## Rollback
++- Disable book veto: `dq_book_veto_enabled=false`
++- Revert alert bundle to previous version if flapping.
+
+diff --git a/tick_flow_full/orderflow_services/runbook_signal_quality_v2.md b/tick_flow_full/orderflow_services/runbook_signal_quality_v2.md
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/runbook_signal_quality_v2.md
+@@ -0,0 +1,32 @@
++# Runbook: Signal quality (DQ / gaps / seq)
++
++## What to look at first (5 minutes)
++1) `dq_level` and `dq_veto_total{bucket}` per symbol  
++2) `tick_gap_p95_ms` + `tick_gap_n` (make sure there are enough samples)  
++3) `tick_missing_seq_ema` and `book_missing_seq_ema`  
++4) Decision record fields: `dq_reasons`, `dq_reason_bucket`, `book_seq_last_reason`, `tick_seq_last_reason`
++
++## Typical causes
++- **tick_gap_p95_ms spikes**: websocket stall, redis lag, GC pauses, CPU saturation.
++- **tick_missing_seq_ema**: upstream drops/reconnects, out-of-order delivery, consumer lag.
++- **book_missing_seq_ema**: depth stream resync, missing depthUpdate events, snapshot overlap mismatch.
++- **dq_level==2 share**: usually means thresholds too strict for current feed frequency, or real stream instability.
++
++## SAFE vs STRICT operations
++- Start rollouts in **SAFE** mode (observe-only for book veto, softer thresholds).
++- Switch to **STRICT** only after you have stable baselines for:
++  - tick_gap_p95_ms distribution
++  - tick_missing_seq_ema distribution
++  - book_missing_seq_ema distribution
++
++## Mitigation playbook
++- If `tick_gap_p95_ms` is spiking:
++  - check consumer lag / redis latency / network drops
++  - temporarily increase `gap_*` thresholds or reduce gating strictness
++- If `book_missing_seq_ema` is elevated during warmup:
++  - keep `dq_book_veto_enabled=false` until observe-only window passes
++  - confirm depth stream frequency and EMA alpha match (10Hz vs 4Hz vs 2Hz)
++
++## Rollback
++- Disable book veto: `dq_book_veto_enabled=false`
++- Revert alert bundle to previous version if flapping.
+
+diff --git a/orderflow_services/tests/test_signal_quality_step6_prom_contract_v1.py b/orderflow_services/tests/test_signal_quality_step6_prom_contract_v1.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/tests/test_signal_quality_step6_prom_contract_v1.py
+@@ -0,0 +1,38 @@
++from __future__ import annotations
++
++import os
++from pathlib import Path
++
++def _read(path: str) -> str:
++    p = Path(path)
++    assert p.exists(), f"Missing file: {path}"
++    return p.read_text(encoding="utf-8")
++
++def test_step6_metrics_module_contract_exists():
++    txt = _read("services/orderflow/metrics_signal_quality_v1.py")
++    # Metric names are the public contract used by dashboards/alerts.
++    assert '"dq_level"' in txt
++    assert '"dq_veto_total"' in txt
++    assert '"tick_gap_n"' in txt
++    # Bucket sanitizer must exist to protect cardinality.
++    assert "sanitize_dq_bucket" in txt
++
++def test_step6_alerts_yaml_contains_expected_alerts():
++    # YAML parsing is optional; we do a light string check to keep this test runnable
++    # even in minimal CI containers.
++    txt = _read("services/orderflow/prometheus_alerts_signal_quality_v2.yml")
++    for name in [
++        "TickGapP95HighWarn",
++        "TickGapP95HighCrit",
++        "TickGapP95Extreme",
++        "TickMissingSeqEmaWarn",
++        "TickMissingSeqEmaCrit",
++        "BookMissingSeqEmaCrit",
++        "DqLevel2ShareWarn",
++        "DqLevel2ShareCrit",
++    ]:
++        assert name in txt
++
++    # Ensure we reference the intended low-cardinality metrics.
++    for metric in ["tick_gap_p95_ms", "tick_gap_n", "tick_missing_seq_ema", "book_missing_seq_ema", "dq_level"]:
++        assert metric in txt
+

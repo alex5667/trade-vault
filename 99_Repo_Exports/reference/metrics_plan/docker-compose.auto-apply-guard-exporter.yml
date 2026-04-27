@@ -1,0 +1,41 @@
+
+services:
+  auto-apply-guard-exporter:
+    container_name: scanner-auto-apply-guard-exporter
+    image: scanner-python-worker:latest
+    restart: always
+    command: python -m tools.auto_apply_guard_prom_exporter_v1
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - AUTO_APPLY_GUARD_METRICS_WIN1M_PREFIX=metrics:auto_apply_guard:win1m
+      - AUTO_APPLY_GUARD_WINDOWS_MIN=5,10,30,60
+      - AUTO_APPLY_GUARD_REASON_TOPN=10
+      - AUTO_APPLY_GUARD_EXPORTER_PORT=9126
+      # Default logging
+      - LOG_LEVEL=INFO
+    networks:
+      - scanner-network
+    depends_on:
+      - redis-worker-1
+
+  conf-score-guard-autopromo-exporter:
+    container_name: scanner-conf-score-guard-autopromo-exporter
+    image: scanner-python-worker:latest
+    restart: always
+    command: python -m orderflow_services.conf_score_guardrails_autopromo_exporter_v1 --state-path /var/lib/trade/of_reports/conf_score_guard_autopromo_state.json
+    environment:
+      - CONF_SCORE_GUARD_AUTOPROMO_STATE_PATH=/var/lib/trade/of_reports/conf_score_guard_autopromo_state.json
+      - CONF_SCORE_GUARD_AUTOPROMO_EXPORTER_PORT=9117
+      # Default logging
+      - LOG_LEVEL=INFO
+    networks:
+      - scanner-network
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/trade:/var/lib/trade
+    depends_on:
+      - redis-worker-1
+
+networks:
+  scanner-network:
+    external: true

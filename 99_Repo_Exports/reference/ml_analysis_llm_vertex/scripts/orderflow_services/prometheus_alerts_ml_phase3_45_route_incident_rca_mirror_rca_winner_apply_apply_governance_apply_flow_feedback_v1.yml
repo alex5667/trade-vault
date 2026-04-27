@@ -1,0 +1,30 @@
+groups:
+  - name: ml_phase3_45_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_feedback_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowRCAStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance apply-flow RCA consumer is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowGovernanceStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_governance_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance apply-flow governance is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowGovernanceLowUsefulness
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_governance_avg_usefulness < 0.60
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance apply-flow usefulness is low"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowGovernanceLowQuality
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_governance_avg_quality < 0.55
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance apply-flow quality is low"

@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/groupby/grouper.py
+# hypothesis_version: 6.148.10
+
+[', ', '__len__', 'axis', 'dropna', 'dtype', 'first', 'freq', 'int', 'key', 'level', 'mM', 'mergesort', 'name', 'ndim', 'sort']

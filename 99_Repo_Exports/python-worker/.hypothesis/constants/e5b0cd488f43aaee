@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/analyze_of_gate_latency_p99.py
+# hypothesis_version: 6.148.10
+
+[0.0, 2000, '--count', '--redis-url', '--stream', 'REDIS_URL', '__main__', 'latency_us', 'metrics:of_gate', 'ml_latency_us']

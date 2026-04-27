@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/sharded_serial_executor.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.5, 2.0, 20000, 4294967295, 'SymbolExec', 'executed', 'failed', 'queue_full', 'submitted', 'task', 'unknown', 'unknown error', 'utf-8']

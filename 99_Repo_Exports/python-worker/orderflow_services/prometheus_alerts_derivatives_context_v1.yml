@@ -1,0 +1,35 @@
+groups:
+  - name: derivatives_context_v1
+    rules:
+      - alert: OF_DerivativesContext_SnapshotStale_Warn
+        expr: max(deriv_ctx_exporter_snapshot_age_ms) > 90000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Derivatives context snapshot is stale"
+          description: "At least one ctx:deriv snapshot is older than 90s. Collector may be lagging."
+      - alert: OF_DerivativesContext_FundingExtreme_Crit
+        expr: max by(symbol) (deriv_ctx_exporter_flag{flag="funding_extreme"}) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Funding extreme detected"
+          description: "Funding is in extreme regime for at least one symbol. Tighten/veto paths should be reviewed."
+      - alert: OF_DerivativesContext_BasisExtreme_Crit
+        expr: max by(symbol) (deriv_ctx_exporter_flag{flag="basis_extreme"}) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Basis extreme detected"
+          description: "Premium/basis is in extreme regime for at least one symbol."
+      - alert: OF_DerivativesContext_ExporterStale_Warn
+        expr: absent(deriv_ctx_exporter_up) or max_over_time(deriv_ctx_exporter_up[10m]) < 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Derivatives context exporter is stale"
+          description: "The exporter did not expose healthy metrics in the last 10 minutes."

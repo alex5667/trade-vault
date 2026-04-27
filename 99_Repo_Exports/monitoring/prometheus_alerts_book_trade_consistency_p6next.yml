@@ -1,0 +1,73 @@
+groups:
+  - name: book_trade_consistency_p6next
+    rules:
+      # -----------------------------------------------------------------------
+      # Alert: Book staleness rate is elevated (stale BBO vs event timestamp).
+      # Causes: slow book update, venue connectivity degradation, backpressure.
+      # Action: check stream_book_staleness_hist_ms p95, inspect book_ts_ms gaps.
+      # -----------------------------------------------------------------------
+      - alert: BookStalenessCritical
+        expr: >
+          sum by (symbol, stream) (
+            rate(stream_trade_to_book_stale_total[5m])
+          ) > 0.5
+        for: 3m
+        labels:
+          severity: warning
+          component: book_trade_consistency_gate
+        annotations:
+          summary: "Book staleness rate elevated for {{ $labels.symbol }} ({{ $labels.stream }})"
+          description: >
+            More than 0.5 stale-book events/sec for symbol {{ $labels.symbol }}
+            on stream {{ $labels.stream }} over the past 5m.
+            Current rate: {{ $value | humanize }}/s.
+            Indicates book_ts_ms is lagging behind event_ts_ms > BOOK_TRADE_CONSISTENCY_MAX_BOOK_STALENESS_MS.
+          runbook_url: "See monitoring/runbook_book_trade_consistency_p6next.md"
+
+      # -----------------------------------------------------------------------
+      # Alert: Adverse cross events detected (trade_px outside BBO).
+      # Causes: stale book + trade routing latency, venue-specific microburst.
+      # Action: check adverse_cross_dist_bps histogram, review BBO_EPS_BPS.
+      # -----------------------------------------------------------------------
+      - alert: AdverseCrossRateElevated
+        expr: >
+          sum by (symbol, stream) (
+            rate(stream_trade_to_book_adverse_cross_total[5m])
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: book_trade_consistency_gate
+        annotations:
+          summary: "Adverse cross rate elevated for {{ $labels.symbol }} ({{ $labels.stream }})"
+          description: >
+            More than 0.1 adverse-cross events/sec for symbol {{ $labels.symbol }}
+            on stream {{ $labels.stream }} over the past 5m.
+            Current rate: {{ $value | humanize }}/s.
+            Indicates trade_px is printing outside current BBO by more than
+            BOOK_TRADE_CONSISTENCY_ADVERSE_CROSS_BPS bps.
+          runbook_url: "See monitoring/runbook_book_trade_consistency_p6next.md"
+
+      # -----------------------------------------------------------------------
+      # Alert: Hard veto being triggered (mode=veto / GATE_PROFILE=hard only).
+      # Causes: persistent stale book + adverse cross.
+      # Action: check veto_reason label, consider relaxing thresholds.
+      # -----------------------------------------------------------------------
+      - alert: BookTradeConsistencyVetoActive
+        expr: >
+          sum by (symbol, stream, reason) (
+            rate(stream_trade_to_book_veto_total[5m])
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          component: book_trade_consistency_gate
+        annotations:
+          summary: "BookTradeConsistencyGate hard veto active: {{ $labels.reason }} for {{ $labels.symbol }}"
+          description: >
+            BookTradeConsistencyGate is hard-vetoing events for symbol {{ $labels.symbol }}
+            (stream={{ $labels.stream }}, reason={{ $labels.reason }}).
+            Rate: {{ $value | humanize }}/s.
+            This only fires when BOOK_TRADE_CONSISTENCY_MODE=veto or GATE_PROFILE=hard.
+            Review thresholds or switch back to monitor mode if false-positive.
+          runbook_url: "See monitoring/runbook_book_trade_consistency_p6next.md"

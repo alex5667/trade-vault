@@ -1,0 +1,149 @@
+--- a/tick_flow_full/services/orderflow/metrics.py+++ b/tick_flow_full/services/orderflow/metrics.py@@ -116,6 +116,34 @@     ["symbol", "window", "where"],
+ )
+ 
++
++# -----------------------------------------------------------------------------
++# A2: LiqMap gate metrics (SoT sync)
++#
++# We keep the detailed (symbol, window, where) counter above for debugging.
++# The counters below match the naming/labels used by the services/ mirror and
++# are intended for dashboards/alerts with low cardinality.
++# -----------------------------------------------------------------------------
++
++# NOTE: keep low-cardinality: symbol only.
++liqmap_snapshot_parse_errors_total = _get_or_create_prom_counter(
++    "liqmap_snapshot_parse_errors_total",
++    "Total liqmap snapshot parse errors (SoT sync; low-cardinality).",
++    ["symbol"],
++)
++
++# Gate accounting (incremented by the gate wiring when enabled).
++liqmap_gate_shadow_hit_total = _get_or_create_prom_counter(
++    "liqmap_gate_shadow_hit_total",
++    "Total liqmap gate shadow hits (would veto).",
++    ["symbol", "dir", "window"],
++)
++
++liqmap_gate_veto_total = _get_or_create_prom_counter(
++    "liqmap_gate_veto_total",
++    "Total liqmap gate enforced vetoes.",
++    ["symbol", "dir", "reason"],
++)
+ 
+ 
+ # Decision record metrics (P45/P48)
+
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py+++ b/tick_flow_full/services/orderflow/components/tick_processor.py@@ -62,7 +62,7 @@     ok_metrics_emitted_total, ok_metrics_skipped_total, ok_metrics_error_total,
+     of_gate_eligible_total, of_gate_ok_hard_total, of_gate_ok_soft_total, of_gate_quarantined_total,
+     log_silent_error, silent_errors_total,
+-    liqmap_snapshot_age_ms_gauge, liqmap_parse_errors_total,
++    liqmap_snapshot_age_ms_gauge, liqmap_parse_errors_total, liqmap_snapshot_parse_errors_total,
+     atr_gate_veto_total, tp1_net_margin_bps_gauge, tp1_zero_pnl_total, signals_total,
+     fp_imb_confirm_total, fp_absorb_confirm_total, fp_buckets_evicted_total,
+     book_calib_ready, dn_calib_ready, book_health_ok, book_rate_hz, dn_usd, calib_persist_total,
+@@ -692,6 +692,11 @@                     try:
+ 
+                         liqmap_parse_errors_total.labels(symbol=sym, window=wnd, where="parse_or_compute").inc()
++                        try:
++                            # Low-cardinality counter for dashboards/alerts (SoT sync with services/).
++                            liqmap_snapshot_parse_errors_total.labels(symbol=sym).inc()
++                        except Exception:
++                            pass
+ 
+                     except Exception:
+ 
+
+--- a/tick_flow_full/services/orderflow/tests/test_liqmap_injection_tick_processor_v1.py+++ b/tick_flow_full/services/orderflow/tests/test_liqmap_injection_tick_processor_v1.py@@ -83,6 +83,18 @@         _install_module_stub(_mod, {_cls: type(_cls, (), {"__init__": lambda self, *a, **k: None})})
+ 
+ 
++
++# Ensure tick_flow_full/ is first on sys.path so `services.*` resolves to SoT, not mirror.
++from pathlib import Path
++
++_TFF_ROOT = str(Path(__file__).resolve().parents[3])  # .../tick_flow_full
++if _TFF_ROOT not in sys.path:
++    sys.path.insert(0, _TFF_ROOT)
++
++# Project root is required for shared helpers (e.g., utils.*).
++_PROJ_ROOT = str(Path(__file__).resolve().parents[4])  # project root
++if _PROJ_ROOT not in sys.path:
++    sys.path.insert(1, _PROJ_ROOT)
+ 
+ from services.orderflow.components.tick_processor import TickProcessor
+ 
+@@ -192,3 +204,33 @@ 
+     # Age must increase deterministically based on cached snap ts.
+     assert ind2["liqmap_1h_age_ms"] == 12_000.0
++
++
++def test_liqmap_injection_parse_error_increments_prom_counters():
++    # Use a unique symbol to avoid interference from other tests.
++    sym = "ZZZUSDT"
++    now_ms = 30_000
++
++    key = f"liqmap:snapshot:{sym}:1h"
++
++    # Invalid JSON triggers parse failure -> should increment counters.
++    r = _DummyRedis({key: "{not-json"})
++    tp = _make_tp(r, refresh_ms=0)
++    runtime = _DummyRuntime(sym)
++
++    from services.orderflow.metrics import (
++        liqmap_parse_errors_total,
++        liqmap_snapshot_parse_errors_total,
++    )
++
++    d_before = liqmap_parse_errors_total.labels(symbol=sym, window="1h", where="parse_or_compute")._value.get()
++    s_before = liqmap_snapshot_parse_errors_total.labels(symbol=sym)._value.get()
++
++    ind = {}
++    asyncio.run(tp._inject_liqmap_features(runtime=runtime, now_ms=now_ms, price=100.0, indicators=ind))
++
++    d_after = liqmap_parse_errors_total.labels(symbol=sym, window="1h", where="parse_or_compute")._value.get()
++    s_after = liqmap_snapshot_parse_errors_total.labels(symbol=sym)._value.get()
++
++    assert d_after == d_before + 1
++    assert s_after == s_before + 1
+
+--- a/tick_flow_full/services/orderflow/tests/test_liqmap_metrics_exports_v1.py+++ b/tick_flow_full/services/orderflow/tests/test_liqmap_metrics_exports_v1.py@@ -0,0 +1,42 @@+from __future__ import annotations
++
++import sys
++from pathlib import Path
++
++# Ensure tick_flow_full/ is first so `services.*` resolves to SoT, not mirror.
++_TFF_ROOT = str(Path(__file__).resolve().parents[3])  # .../tick_flow_full
++if _TFF_ROOT not in sys.path:
++    sys.path.insert(0, _TFF_ROOT)
++
++# Project root is required for shared helpers in other imports; keep after SoT.
++_PROJ_ROOT = str(Path(__file__).resolve().parents[4])
++if _PROJ_ROOT not in sys.path:
++    sys.path.insert(1, _PROJ_ROOT)
++
++
++def test_sot_metrics_export_liqmap_symbols_and_label_contract() -> None:
++    """A2 contract:
++
++    tick_flow_full/services/orderflow/metrics.py (SoT) must expose LiqMap metrics
++    that TickProcessor may import and that dashboards/alerts can rely on.
++
++    This test imports the SoT metrics as a normal python module (services.*).
++    """
++
++    from services.orderflow import metrics as sot
++
++    required = [
++        "liqmap_snapshot_age_ms_gauge",
++        "liqmap_snapshot_parse_errors_total",
++        "liqmap_gate_shadow_hit_total",
++        "liqmap_gate_veto_total",
++    ]
++
++    for k in required:
++        assert hasattr(sot, k), f"SoT metrics missing: {k}"
++
++    # Label contract (keep low-cardinality for alerts).
++    sot.liqmap_snapshot_age_ms_gauge.labels(symbol="BTCUSDT", window="1h").set(0.0)
++    sot.liqmap_snapshot_parse_errors_total.labels(symbol="BTCUSDT").inc(0)
++    sot.liqmap_gate_shadow_hit_total.labels(symbol="BTCUSDT", dir="LONG", window="1h").inc(0)
++    sot.liqmap_gate_veto_total.labels(symbol="BTCUSDT", dir="LONG", reason="hot_near").inc(0)

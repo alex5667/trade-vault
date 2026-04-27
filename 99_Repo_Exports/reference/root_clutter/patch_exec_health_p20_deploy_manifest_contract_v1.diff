@@ -1,0 +1,856 @@
+--- a/services/orderflow/exec_health_freeze_deploy_contract.py
++++ b/services/orderflow/exec_health_freeze_deploy_contract.py
+@@ -0,0 +1,226 @@
++from __future__ import annotations
++
++"""Deploy-manifest / env contract for rollout-gated sensitive ExecHealth jobs.
++
++P20 hardens the last host/container hand-off around rollout preflight:
++- wrappers must declare which sensitive purpose they are launching;
++- audit/bootstrap/target Redis URLs must be present and use the correct named user;
++- preflight service identity env (client name + lib-name) must be explicit;
++- target service identity env (client name + lib-name) must be explicit;
++- wrapper and Python preflight must agree on one contract/schema version.
++
++The intent is to fail *before* the sensitive compose/systemd job starts if the
++host-side manifest is incomplete or drifted.
++"""
++
++from dataclasses import dataclass
++import os
++from typing import Any, Dict, Mapping
++
++from services.orderflow.exec_health_freeze_acl_contract import AUDIT_USER, BOOTSTRAP_USER
++from services.orderflow.exec_health_freeze_service_identity import (
++    ServiceIdentity,
++    get_expected_service,
++    parse_redis_url_username,
++)
++
++ROLLOUT_PREFLIGHT_SCHEMA_VERSION = 'exec_health_freeze_rollout_preflight_contract_v1'
++PREFLIGHT_SCHEMA_VERSION_ENV = 'EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION'
++DEPLOY_CONTRACT_PURPOSE_ENV = 'EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE'
++PREFLIGHT_CLIENT_NAME_ENV = 'EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME'
++PREFLIGHT_LIB_NAME_ENV = 'EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME'
++TARGET_CLIENT_NAME_ENV = 'EXEC_HEALTH_REDIS_CLIENT_NAME'
++TARGET_LIB_NAME_ENV = 'EXEC_HEALTH_REDIS_LIB_NAME'
++ENFORCE_ENV = 'EXEC_HEALTH_DEPLOY_CONTRACT_ENFORCE'
++
++PREFLIGHT_SERVICE = 'exec_health_freeze_rollout_preflight_v1'
++
++
++@dataclass(frozen=True)
++class SensitiveDeployManifest:
++    purpose: str
++    target_service: str
++    target_url_env: str
++    target_expected_user: str
++    target_expected_name: str
++    target_expected_lib_name: str
++
++
++
++def _s(x: Any, d: str = '') -> str:
++    try:
++        return str(x) if x is not None else str(d)
++    except Exception:
++        return str(d)
++
++
++
++def _b(x: Any, default: bool = False) -> bool:
++    try:
++        if isinstance(x, str):
++            return x.strip().lower() in {'1', 'true', 'yes', 'on'}
++        return bool(int(x))
++    except Exception:
++        return bool(default)
++
++
++
++def build_sensitive_deploy_manifest_contract() -> Dict[str, SensitiveDeployManifest]:
++    acl = get_expected_service('exec_health_freeze_acl_policy_v1')
++    commit = get_expected_service('exec_health_freeze_override_v1')
++    rows = [
++        SensitiveDeployManifest(
++            purpose='exec_health_freeze_acl_policy_apply',
++            target_service=acl.service,
++            target_url_env=acl.redis_url_env,
++            target_expected_user=acl.redis_user,
++            target_expected_name=acl.client_name,
++            target_expected_lib_name=acl.lib_name,
++        ),
++        SensitiveDeployManifest(
++            purpose='exec_health_freeze_override_commit_thaw',
++            target_service=commit.service,
++            target_url_env=commit.redis_url_env,
++            target_expected_user=commit.redis_user,
++            target_expected_name=commit.client_name,
++            target_expected_lib_name=commit.lib_name,
++        ),
++    ]
++    return {r.purpose: r for r in rows}
++
++
++
++def get_sensitive_deploy_manifest(purpose: str) -> SensitiveDeployManifest:
++    try:
++        return build_sensitive_deploy_manifest_contract()[str(purpose)]
++    except KeyError as exc:
++        raise KeyError(f'unknown ExecHealth sensitive deploy purpose: {purpose}') from exc
++
++
++
++def _expected_preflight_identity() -> ServiceIdentity:
++    return get_expected_service(PREFLIGHT_SERVICE)
++
++
++
++def render_sensitive_deploy_env_templates(host: str = 'redis-worker-1', port: int = 6379, db: int = 0) -> Dict[str, Dict[str, str]]:
++    pre = _expected_preflight_identity()
++    out: Dict[str, Dict[str, str]] = {}
++    for purpose, row in build_sensitive_deploy_manifest_contract().items():
++        out[purpose] = {
++            PREFLIGHT_SCHEMA_VERSION_ENV: ROLLOUT_PREFLIGHT_SCHEMA_VERSION,
++            DEPLOY_CONTRACT_PURPOSE_ENV: purpose,
++            'EXEC_HEALTH_REDIS_AUDIT_URL': f'redis://{AUDIT_USER}:<password>@{host}:{port}/{db}',
++            'EXEC_HEALTH_REDIS_BOOTSTRAP_URL': f'redis://{BOOTSTRAP_USER}:<password>@{host}:{port}/{db}',
++            row.target_url_env: f'redis://{row.target_expected_user}:<password>@{host}:{port}/{db}',
++            PREFLIGHT_CLIENT_NAME_ENV: pre.client_name,
++            PREFLIGHT_LIB_NAME_ENV: pre.lib_name,
++            TARGET_CLIENT_NAME_ENV: row.target_expected_name,
++            TARGET_LIB_NAME_ENV: row.target_expected_lib_name,
++            'EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE': '1',
++            'EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME': '1',
++            'EXEC_HEALTH_DEPLOY_CONTRACT_ENFORCE': '1',
++        }
++    return out
++
++
++
++def validate_sensitive_deploy_env_contract(purpose: str, env: Mapping[str, Any] | None = None) -> Dict[str, Any]:
++    env = dict(os.environ if env is None else env)
++    manifest = get_sensitive_deploy_manifest(purpose)
++    pre = _expected_preflight_identity()
++    violations = []
++
++    schema_version = _s(env.get(PREFLIGHT_SCHEMA_VERSION_ENV))
++    if schema_version != ROLLOUT_PREFLIGHT_SCHEMA_VERSION:
++        violations.append({
++            'kind': 'preflight_schema_version_mismatch',
++            'field': PREFLIGHT_SCHEMA_VERSION_ENV,
++            'expected': ROLLOUT_PREFLIGHT_SCHEMA_VERSION,
++            'actual': schema_version,
++        })
++
++    declared_purpose = _s(env.get(DEPLOY_CONTRACT_PURPOSE_ENV))
++    if declared_purpose and declared_purpose != purpose:
++        violations.append({
++            'kind': 'deploy_contract_purpose_mismatch',
++            'field': DEPLOY_CONTRACT_PURPOSE_ENV,
++            'expected': purpose,
++            'actual': declared_purpose,
++        })
++
++    audit_url = _s(env.get('EXEC_HEALTH_REDIS_AUDIT_URL'))
++    bootstrap_url = _s(env.get('EXEC_HEALTH_REDIS_BOOTSTRAP_URL'))
++    target_url = _s(env.get(manifest.target_url_env))
++    for field, url, expected_user in [
++        ('EXEC_HEALTH_REDIS_AUDIT_URL', audit_url, AUDIT_USER),
++        ('EXEC_HEALTH_REDIS_BOOTSTRAP_URL', bootstrap_url, BOOTSTRAP_USER),
++        (manifest.target_url_env, target_url, manifest.target_expected_user),
++    ]:
++        if not url:
++            violations.append({'kind': 'missing_env', 'field': field})
++            continue
++        actual_user = parse_redis_url_username(url)
++        if actual_user != expected_user:
++            violations.append({'kind': 'wrong_redis_user', 'field': field, 'expected': expected_user, 'actual': actual_user})
++
++    got_pre_name = _s(env.get(PREFLIGHT_CLIENT_NAME_ENV))
++    if got_pre_name != pre.client_name:
++        violations.append({'kind': 'wrong_client_name', 'field': PREFLIGHT_CLIENT_NAME_ENV, 'expected': pre.client_name, 'actual': got_pre_name})
++    got_pre_lib = _s(env.get(PREFLIGHT_LIB_NAME_ENV))
++    if got_pre_lib != pre.lib_name:
++        violations.append({'kind': 'wrong_lib_name', 'field': PREFLIGHT_LIB_NAME_ENV, 'expected': pre.lib_name, 'actual': got_pre_lib})
++
++    got_target_name = _s(env.get(TARGET_CLIENT_NAME_ENV))
++    if got_target_name != manifest.target_expected_name:
++        violations.append({'kind': 'wrong_client_name', 'field': TARGET_CLIENT_NAME_ENV, 'expected': manifest.target_expected_name, 'actual': got_target_name})
++    got_target_lib = _s(env.get(TARGET_LIB_NAME_ENV))
++    if got_target_lib != manifest.target_expected_lib_name:
++        violations.append({'kind': 'wrong_lib_name', 'field': TARGET_LIB_NAME_ENV, 'expected': manifest.target_expected_lib_name, 'actual': got_target_lib})
++
++    for flag in ('EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE', 'EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME'):
++        if _s(env.get(flag, '1')) not in {'1', 'true', 'True', 'yes', 'on'}:
++            violations.append({'kind': 'identity_flag_disabled', 'field': flag, 'actual': _s(env.get(flag))})
++
++    return {
++        'ok': not violations,
++        'purpose': purpose,
++        'schema_version': ROLLOUT_PREFLIGHT_SCHEMA_VERSION,
++        'preflight_service': pre.service,
++        'target_service': manifest.target_service,
++        'target_url_env': manifest.target_url_env,
++        'violations': violations,
++    }
++
++
++
++def assert_sensitive_deploy_env_contract(purpose: str, env: Mapping[str, Any] | None = None) -> Dict[str, Any]:
++    enforce = _b((env or os.environ).get(ENFORCE_ENV, '1'), True)
++    chk = validate_sensitive_deploy_env_contract(purpose, env=env)
++    if enforce and not chk.get('ok'):
++        raise RuntimeError(f'ExecHealth deploy env contract mismatch for {purpose}: {chk.get("violations")}')
++    return chk
++
++
++
++def assert_runtime_service_env_contract(service: str, env: Mapping[str, Any] | None = None) -> Dict[str, Any]:
++    env = dict(os.environ if env is None else env)
++    expected = get_expected_service(service)
++    violations = []
++    target_url = _s(env.get(expected.redis_url_env))
++    if not target_url:
++        violations.append({'kind': 'missing_env', 'field': expected.redis_url_env})
++    else:
++        actual_user = parse_redis_url_username(target_url)
++        if actual_user != expected.redis_user:
++            violations.append({'kind': 'wrong_redis_user', 'field': expected.redis_url_env, 'expected': expected.redis_user, 'actual': actual_user})
++    got_name = _s(env.get(TARGET_CLIENT_NAME_ENV))
++    if got_name != expected.client_name:
++        violations.append({'kind': 'wrong_client_name', 'field': TARGET_CLIENT_NAME_ENV, 'expected': expected.client_name, 'actual': got_name})
++    got_lib = _s(env.get(TARGET_LIB_NAME_ENV))
++    if got_lib != expected.lib_name:
++        violations.append({'kind': 'wrong_lib_name', 'field': TARGET_LIB_NAME_ENV, 'expected': expected.lib_name, 'actual': got_lib})
++    chk = {'ok': not violations, 'service': service, 'violations': violations}
++    if _b(env.get(ENFORCE_ENV, '1'), True) and not chk['ok']:
++        raise RuntimeError(f'ExecHealth runtime env contract mismatch for {service}: {violations}')
++    return chk
+--- a/services/orderflow/tests/test_exec_health_freeze_deploy_contract_v1.py
++++ b/services/orderflow/tests/test_exec_health_freeze_deploy_contract_v1.py
+@@ -0,0 +1,42 @@
++from services.orderflow.exec_health_freeze_deploy_contract import (
++    ROLLOUT_PREFLIGHT_SCHEMA_VERSION,
++    assert_runtime_service_env_contract,
++    render_sensitive_deploy_env_templates,
++    validate_sensitive_deploy_env_contract,
++)
++
++
++def test_render_sensitive_deploy_env_templates_contains_sensitive_purposes() -> None:
++    tpl = render_sensitive_deploy_env_templates()
++    assert 'exec_health_freeze_acl_policy_apply' in tpl
++    assert tpl['exec_health_freeze_acl_policy_apply']['EXEC_HEALTH_REDIS_CLIENT_NAME'] == 'exec-health-freeze-acl-policy-v1'
++    assert 'exec_health_freeze_override_commit_thaw' in tpl
++    assert tpl['exec_health_freeze_override_commit_thaw']['EXEC_HEALTH_REDIS_LIB_NAME'] == 'exec-health-freeze-writer'
++
++
++
++def test_validate_sensitive_deploy_env_contract_ok_acl_policy_apply() -> None:
++    env = render_sensitive_deploy_env_templates()['exec_health_freeze_acl_policy_apply']
++    chk = validate_sensitive_deploy_env_contract('exec_health_freeze_acl_policy_apply', env=env)
++    assert chk['ok'] is True
++    assert chk['schema_version'] == ROLLOUT_PREFLIGHT_SCHEMA_VERSION
++
++
++
++def test_validate_sensitive_deploy_env_contract_detects_wrong_users_and_names() -> None:
++    env = render_sensitive_deploy_env_templates()['exec_health_freeze_override_commit_thaw'].copy()
++    env['EXEC_HEALTH_REDIS_AUDIT_URL'] = 'redis://default:bad@redis-worker-1:6379/0'
++    env['EXEC_HEALTH_REDIS_CLIENT_NAME'] = 'wrong-name'
++    env['EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION'] = 'older-v0'
++    chk = validate_sensitive_deploy_env_contract('exec_health_freeze_override_commit_thaw', env=env)
++    kinds = {(row['kind'], row['field']) for row in chk['violations'] if 'field' in row}
++    assert ('preflight_schema_version_mismatch', 'EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION') in kinds
++    assert ('wrong_redis_user', 'EXEC_HEALTH_REDIS_AUDIT_URL') in kinds
++    assert ('wrong_client_name', 'EXEC_HEALTH_REDIS_CLIENT_NAME') in kinds
++
++
++
++def test_assert_runtime_service_env_contract_ok() -> None:
++    env = render_sensitive_deploy_env_templates()['exec_health_freeze_override_commit_thaw'].copy()
++    chk = assert_runtime_service_env_contract('exec_health_freeze_override_v1', env=env)
++    assert chk['ok'] is True
+--- a/services/orderflow/tests/test_exec_health_freeze_rollout_preflight_v1.py
++++ b/services/orderflow/tests/test_exec_health_freeze_rollout_preflight_v1.py
+@@ -1,6 +1,7 @@
+ from types import SimpleNamespace
+ 
+ import orderflow_services.exec_health_freeze_rollout_preflight_v1 as mod
++from services.orderflow.exec_health_freeze_deploy_contract import render_sensitive_deploy_env_templates
+ 
+ 
+ class FakeRedis:
+@@ -50,21 +51,42 @@
+     return SimpleNamespace(Redis=SimpleNamespace(from_url=staticmethod(lambda *a, **k: fake)))
+ 
+ 
++def _seed_env(monkeypatch, purpose: str):
++    env = render_sensitive_deploy_env_templates()[purpose]
++    for k, v in env.items():
++        monkeypatch.setenv(k, str(v))
++
++
+ def test_preflight_main_ok(monkeypatch):
+     fake = FakeRedis()
++    _seed_env(monkeypatch, 'exec_health_freeze_acl_policy_apply')
+     monkeypatch.setattr(mod, 'redis', _redis_ns(fake))
+-    assert mod.main(['--purpose', 'acl-policy-apply']) == 0
++    assert mod.main(['--purpose', 'exec_health_freeze_acl_policy_apply']) == 0
+     assert fake.client_name == 'exec-health-freeze-rollout-preflight-v1'
+     assert fake.lib_name == 'exec-health-freeze-audit'
+ 
+ 
+ def test_preflight_main_blocked(monkeypatch):
+     fake = FakeRedis()
++    _seed_env(monkeypatch, 'exec_health_freeze_acl_policy_apply')
+     fake.kv['cfg:orderflow:exec_health:reconnect_smoke:rollout_gate:v1'] = '{"reason":"nightly_reconnect_smoke_failed","ts_ms":1}'
+     monkeypatch.setattr(mod, 'redis', _redis_ns(fake))
+     try:
+-        mod.main(['--purpose', 'acl-policy-apply'])
++        mod.main(['--purpose', 'exec_health_freeze_acl_policy_apply'])
+     except SystemExit as exc:
+         assert int(exc.code) == 24
+     else:
+         raise AssertionError('expected SystemExit(24)')
++
++
++def test_preflight_main_fails_on_schema_mismatch(monkeypatch):
++    fake = FakeRedis()
++    _seed_env(monkeypatch, 'exec_health_freeze_acl_policy_apply')
++    monkeypatch.setenv('EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION', 'stale-v0')
++    monkeypatch.setattr(mod, 'redis', _redis_ns(fake))
++    try:
++        mod.main(['--purpose', 'exec_health_freeze_acl_policy_apply'])
++    except RuntimeError as exc:
++        assert 'deploy env contract mismatch' in str(exc)
++    else:
++        raise AssertionError('expected deploy contract mismatch')
+--- a/orderflow_services/exec_health_freeze_rollout_preflight_v1.py
++++ b/orderflow_services/exec_health_freeze_rollout_preflight_v1.py
+@@ -11,6 +11,7 @@
+ except Exception:  # pragma: no cover
+     redis = None
+ 
++from services.orderflow.exec_health_freeze_deploy_contract import assert_sensitive_deploy_env_contract, ROLLOUT_PREFLIGHT_SCHEMA_VERSION
+ from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
+ from services.orderflow.exec_health_freeze_rollout_gate import assert_rollout_gate_open, get_rollout_gate_state
+ from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
+@@ -33,9 +34,11 @@
+ 
+ 
+ class PreflightController:
+-    def __init__(self, redis_url: str | None = None) -> None:
++    def __init__(self, *, purpose: str, redis_url: str | None = None) -> None:
+         if redis is None:
+             raise RuntimeError('redis dependency missing')
++        self.purpose = purpose
++        self.deploy_contract = assert_sensitive_deploy_env_contract(purpose)
+         self.redis_url = redis_url or _redis_url()
+         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
+         ensure_service_identity_sync(self.r, SERVICE)
+@@ -49,6 +52,7 @@
+             'ok': True,
+             'service': SERVICE,
+             'purpose': purpose,
++            'preflight_schema_version': ROLLOUT_PREFLIGHT_SCHEMA_VERSION,
+             'gate_active': bool(st.get('active')),
+             'redis_url': self.redis_url,
+         }
+@@ -64,7 +68,7 @@
+ 
+ def main(argv: List[str] | None = None) -> int:
+     ns = build_arg_parser().parse_args(argv)
+-    ctl = PreflightController()
++    ctl = PreflightController(purpose=ns.purpose)
+     out = ctl.check(purpose=ns.purpose, exit_code=int(ns.exit_code))
+     if not ns.quiet:
+         _jprint(out)
+--- a/orderflow_services/exec_health_freeze_acl_policy_v1.py
++++ b/orderflow_services/exec_health_freeze_acl_policy_v1.py
+@@ -13,6 +13,7 @@
+     redis = None
+ 
+ from services.orderflow.exec_health_freeze_acl_contract import compare_acl_contract, render_acl_save_load_commands, render_acl_setuser_commands, render_auth_dsn_templates
++from services.orderflow.exec_health_freeze_deploy_contract import assert_runtime_service_env_contract, render_sensitive_deploy_env_templates
+ from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync, render_service_identity_env_templates
+ from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
+ from services.orderflow.exec_health_freeze_rollout_gate import assert_rollout_gate_open
+@@ -25,6 +26,7 @@
+ class PolicyController:
+     def __init__(self, redis_url: str | None = None) -> None:
+         self.redis_url = redis_url or os.getenv('EXEC_HEALTH_REDIS_BOOTSTRAP_URL') or os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0')
++        assert_runtime_service_env_contract('exec_health_freeze_acl_policy_v1')
+         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True) if redis is not None else None
+         if self.r is not None:
+             ensure_service_identity_sync(self.r, "exec_health_freeze_acl_policy_v1")
+@@ -36,6 +38,7 @@
+             'acl_save_load_commands': render_acl_save_load_commands(),
+             'mandatory_auth_dsn_templates': render_auth_dsn_templates(),
+             'service_identity_env_templates': render_service_identity_env_templates(),
++            'sensitive_deploy_env_templates': render_sensitive_deploy_env_templates(),
+         }
+ 
+     def apply(self, *, save: bool = True, reload_check: bool = False) -> Dict[str, Any]:
+--- a/orderflow_services/exec_health_freeze_override_v1.py
++++ b/orderflow_services/exec_health_freeze_override_v1.py
+@@ -15,6 +15,7 @@
+     redis = None
+ 
+ from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
++from services.orderflow.exec_health_freeze_deploy_contract import assert_runtime_service_env_contract
+ from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
+ from services.orderflow.exec_health_freeze_control import (
+     ACK_SIGNING_SECRET_ENV,
+@@ -49,6 +50,7 @@
+         if redis is None:
+             raise RuntimeError("redis dependency missing")
+         self.redis_url = redis_url or os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++        assert_runtime_service_env_contract('exec_health_freeze_override_v1')
+         self.control_key = os.getenv("EXEC_HEALTH_FREEZE_CONTROL_KEY", "cfg:orderflow:exec_health:freeze_control:v1")
+         self.state_key = os.getenv("EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY", "metrics:exec_health:slo:autoguard:state")
+         self.freeze_key = os.getenv("EXEC_HEALTH_AUTO_FREEZE_KEY", "cfg:orderflow:exec_health:auto_freeze:v1")
+--- a/orderflow_services/tests/test_exec_health_freeze_acl_policy_v1.py
++++ b/orderflow_services/tests/test_exec_health_freeze_acl_policy_v1.py
+@@ -69,3 +69,10 @@
+         assert int(exc.code) == 24
+     else:
+         raise AssertionError('expected rollout gate block')
++
++
++def test_acl_policy_render_includes_sensitive_deploy_templates() -> None:
++    ctl = PolicyController.__new__(PolicyController)
++    out = ctl.render()
++    assert 'sensitive_deploy_env_templates' in out
++    assert 'exec_health_freeze_acl_policy_apply' in out['sensitive_deploy_env_templates']
+--- a/orderflow_services/tests/test_exec_health_freeze_rollout_preflight_deploy_v1.py
++++ b/orderflow_services/tests/test_exec_health_freeze_rollout_preflight_deploy_v1.py
+@@ -21,3 +21,23 @@
+ 
+     assert 'run-exec-health-freeze-acl-policy-apply-v1.sh' in svc_apply
+     assert 'run-exec-health-freeze-override-commit-thaw-v1.sh' in svc_commit
++
++
++def test_sensitive_compose_env_contract_and_examples_present():
++    compose_apply = Path('orderflow_services/deploy/docker-compose.exec-health-freeze-acl-policy-apply-v1.yml').read_text()
++    compose_commit = Path('orderflow_services/deploy/docker-compose.exec-health-freeze-override-commit-thaw-v1.yml').read_text()
++    env_apply = Path('orderflow_services/deploy/env/exec-health-freeze-acl-policy-apply.env.example').read_text()
++    env_commit = Path('orderflow_services/deploy/env/exec-health-freeze-override-commit-thaw.env.example').read_text()
++
++    for txt in (compose_apply, compose_commit):
++        assert 'EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION' in txt
++        assert 'EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE' in txt
++        assert 'EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME' in txt
++        assert 'EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME' in txt
++        assert 'EXEC_HEALTH_REDIS_CLIENT_NAME' in txt
++        assert 'EXEC_HEALTH_REDIS_LIB_NAME' in txt
++
++    assert 'EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE=exec_health_freeze_acl_policy_apply' in env_apply
++    assert 'EXEC_HEALTH_REDIS_CLIENT_NAME=exec-health-freeze-acl-policy-v1' in env_apply
++    assert 'EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE=exec_health_freeze_override_commit_thaw' in env_commit
++    assert 'EXEC_HEALTH_REDIS_CLIENT_NAME=exec-health-freeze-override-v1' in env_commit
+--- a/orderflow_services/deploy/docker-compose.exec-health-freeze-acl-policy-apply-v1.yml
++++ b/orderflow_services/deploy/docker-compose.exec-health-freeze-acl-policy-apply-v1.yml
+@@ -9,6 +9,12 @@
+       REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
+       EXEC_HEALTH_REDIS_AUDIT_URL: ${EXEC_HEALTH_REDIS_AUDIT_URL:-}
+       EXEC_HEALTH_REDIS_BOOTSTRAP_URL: ${EXEC_HEALTH_REDIS_BOOTSTRAP_URL:?EXEC_HEALTH_REDIS_BOOTSTRAP_URL is required}
++      EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION: ${EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION:?EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION is required}
++      EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE: ${EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE:?EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE is required}
++      EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME: ${EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME:?EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME is required}
++      EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME: ${EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME:?EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME is required}
++      EXEC_HEALTH_REDIS_CLIENT_NAME: ${EXEC_HEALTH_REDIS_CLIENT_NAME:?EXEC_HEALTH_REDIS_CLIENT_NAME is required}
++      EXEC_HEALTH_REDIS_LIB_NAME: ${EXEC_HEALTH_REDIS_LIB_NAME:?EXEC_HEALTH_REDIS_LIB_NAME is required}
+       EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE: ${EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE:-1}
+       EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME: ${EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME:-1}
+       EXEC_HEALTH_FREEZE_ACL_POLICY_APPLY_ARGS: ${EXEC_HEALTH_FREEZE_ACL_POLICY_APPLY_ARGS:-}
+--- a/orderflow_services/deploy/docker-compose.exec-health-freeze-override-commit-thaw-v1.yml
++++ b/orderflow_services/deploy/docker-compose.exec-health-freeze-override-commit-thaw-v1.yml
+@@ -9,7 +9,13 @@
+       REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
+       EXEC_HEALTH_REDIS_AUDIT_URL: ${EXEC_HEALTH_REDIS_AUDIT_URL:-}
+       EXEC_HEALTH_REDIS_BOOTSTRAP_URL: ${EXEC_HEALTH_REDIS_BOOTSTRAP_URL:?EXEC_HEALTH_REDIS_BOOTSTRAP_URL is required}
++      EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION: ${EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION:?EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION is required}
++      EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE: ${EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE:?EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE is required}
++      EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME: ${EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME:?EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME is required}
++      EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME: ${EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME:?EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME is required}
+       EXEC_HEALTH_ACK_SIGNING_SECRET: ${EXEC_HEALTH_ACK_SIGNING_SECRET:?EXEC_HEALTH_ACK_SIGNING_SECRET is required}
++      EXEC_HEALTH_REDIS_CLIENT_NAME: ${EXEC_HEALTH_REDIS_CLIENT_NAME:?EXEC_HEALTH_REDIS_CLIENT_NAME is required}
++      EXEC_HEALTH_REDIS_LIB_NAME: ${EXEC_HEALTH_REDIS_LIB_NAME:?EXEC_HEALTH_REDIS_LIB_NAME is required}
+       EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE: ${EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE:-1}
+       EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME: ${EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME:-1}
+       OPERATOR: ${OPERATOR:?OPERATOR is required}
+--- a/orderflow_services/deploy/systemd/run-exec-health-freeze-with-rollout-preflight-v1.sh
++++ b/orderflow_services/deploy/systemd/run-exec-health-freeze-with-rollout-preflight-v1.sh
+@@ -4,6 +4,7 @@
+ REPO_ROOT="${EXEC_HEALTH_REPO_ROOT:-/opt/scanner_infra}"
+ PYTHON_BIN="${EXEC_HEALTH_PYTHON_BIN:-python3}"
+ PURPOSE="${EXEC_HEALTH_ROLLOUT_PREFLIGHT_PURPOSE:-}"
++HOST_PREFLIGHT_SCHEMA_VERSION="exec_health_freeze_rollout_preflight_contract_v1"
+ 
+ if [[ -z "${PURPOSE}" ]]; then
+   echo "EXEC_HEALTH_ROLLOUT_PREFLIGHT_PURPOSE is required" >&2
+@@ -14,6 +15,15 @@
+   exit 64
+ fi
+ 
++export EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION="${EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION:-${HOST_PREFLIGHT_SCHEMA_VERSION}}"
++export EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE="${EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE:-${PURPOSE}}"
++: "${EXEC_HEALTH_REDIS_AUDIT_URL:?EXEC_HEALTH_REDIS_AUDIT_URL is required}"
++: "${EXEC_HEALTH_REDIS_BOOTSTRAP_URL:?EXEC_HEALTH_REDIS_BOOTSTRAP_URL is required}"
++: "${EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME:?EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME is required}"
++: "${EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME:?EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME is required}"
++: "${EXEC_HEALTH_REDIS_CLIENT_NAME:?EXEC_HEALTH_REDIS_CLIENT_NAME is required}"
++: "${EXEC_HEALTH_REDIS_LIB_NAME:?EXEC_HEALTH_REDIS_LIB_NAME is required}"
++
+ cd "${REPO_ROOT}"
+ "${PYTHON_BIN}" -m orderflow_services.exec_health_freeze_rollout_preflight_v1 --purpose "${PURPOSE}" --quiet
+ exec "$@"
+--- a/orderflow_services/deploy/env/exec-health-freeze-acl-policy-apply.env.example
++++ b/orderflow_services/deploy/env/exec-health-freeze-acl-policy-apply.env.example
+@@ -0,0 +1,12 @@
++EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION=exec_health_freeze_rollout_preflight_contract_v1
++EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE=exec_health_freeze_acl_policy_apply
++EXEC_HEALTH_REDIS_AUDIT_URL=redis://exec_health_freeze_audit:<password>@redis-worker-1:6379/0
++EXEC_HEALTH_REDIS_BOOTSTRAP_URL=redis://exec_health_freeze_bootstrap:<password>@redis-worker-1:6379/0
++EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME=exec-health-freeze-rollout-preflight-v1
++EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME=exec-health-freeze-audit
++EXEC_HEALTH_REDIS_CLIENT_NAME=exec-health-freeze-acl-policy-v1
++EXEC_HEALTH_REDIS_LIB_NAME=exec-health-freeze-bootstrap
++EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE=1
++EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME=1
++EXEC_HEALTH_DEPLOY_CONTRACT_ENFORCE=1
++REDIS_URL=redis://exec_health_freeze_bootstrap:<password>@redis-worker-1:6379/0
+--- a/orderflow_services/deploy/env/exec-health-freeze-override-commit-thaw.env.example
++++ b/orderflow_services/deploy/env/exec-health-freeze-override-commit-thaw.env.example
+@@ -0,0 +1,15 @@
++EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION=exec_health_freeze_rollout_preflight_contract_v1
++EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE=exec_health_freeze_override_commit_thaw
++EXEC_HEALTH_REDIS_AUDIT_URL=redis://exec_health_freeze_audit:<password>@redis-worker-1:6379/0
++EXEC_HEALTH_REDIS_BOOTSTRAP_URL=redis://exec_health_freeze_bootstrap:<password>@redis-worker-1:6379/0
++EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME=exec-health-freeze-rollout-preflight-v1
++EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME=exec-health-freeze-audit
++EXEC_HEALTH_REDIS_CLIENT_NAME=exec-health-freeze-override-v1
++EXEC_HEALTH_REDIS_LIB_NAME=exec-health-freeze-writer
++EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE=1
++EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME=1
++EXEC_HEALTH_DEPLOY_CONTRACT_ENFORCE=1
++REDIS_URL=redis://exec_health_freeze_writer:<password>@redis-worker-1:6379/0
++EXEC_HEALTH_ACK_SIGNING_SECRET=<strong-secret>
++OPERATOR=alice
++REQUEST_ID=req-123
+--- a/orderflow_services/runbook_exec_health_freeze_rollout_deploy_contract_v1.md
++++ b/orderflow_services/runbook_exec_health_freeze_rollout_deploy_contract_v1.md
+@@ -0,0 +1,33 @@
++# ExecHealth rollout deploy manifest / env contract (v1)
++
++Purpose:
++- fail before starting sensitive rollout-gated jobs if host/container env is incomplete or drifted.
++
++Schema/version:
++- `EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION=exec_health_freeze_rollout_preflight_contract_v1`
++
++Required for guarded jobs:
++- `EXEC_HEALTH_REDIS_AUDIT_URL` -> named user `exec_health_freeze_audit`
++- `EXEC_HEALTH_REDIS_BOOTSTRAP_URL` -> named user `exec_health_freeze_bootstrap`
++- purpose-specific target URL:
++  - ACL policy apply -> `EXEC_HEALTH_REDIS_BOOTSTRAP_URL`
++  - commit-thaw -> `REDIS_URL` with writer user
++- `EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME`
++- `EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME`
++- `EXEC_HEALTH_REDIS_CLIENT_NAME`
++- `EXEC_HEALTH_REDIS_LIB_NAME`
++
++Expected client identities:
++- preflight -> `exec-health-freeze-rollout-preflight-v1` / `exec-health-freeze-audit`
++- acl policy apply -> `exec-health-freeze-acl-policy-v1` / `exec-health-freeze-bootstrap`
++- override commit-thaw -> `exec-health-freeze-override-v1` / `exec-health-freeze-writer`
++
++Checks:
++1. host-side wrapper exports schema version and purpose.
++2. Python preflight validates env contract before Redis connect.
++3. target service validates its runtime env contract on startup.
++4. rollout gate still checked after env validation.
++
++Example manifests:
++- `orderflow_services/deploy/env/exec-health-freeze-acl-policy-apply.env.example`
++- `orderflow_services/deploy/env/exec-health-freeze-override-commit-thaw.env.example`
+--- a/tick_flow_full/orderflow_services/exec_health_freeze_rollout_preflight_v1.py
++++ b/tick_flow_full/orderflow_services/exec_health_freeze_rollout_preflight_v1.py
+@@ -0,0 +1,79 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++from typing import Any, Dict, List
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++from services.orderflow.exec_health_freeze_deploy_contract import assert_sensitive_deploy_env_contract, ROLLOUT_PREFLIGHT_SCHEMA_VERSION
++from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
++from services.orderflow.exec_health_freeze_rollout_gate import assert_rollout_gate_open, get_rollout_gate_state
++from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
++
++SERVICE = 'exec_health_freeze_rollout_preflight_v1'
++DEFAULT_EXIT_CODE = 24
++
++
++def _redis_url() -> str:
++    return (
++        os.getenv('EXEC_HEALTH_REDIS_AUDIT_URL')
++        or os.getenv('EXEC_HEALTH_REDIS_BOOTSTRAP_URL')
++        or os.getenv('REDIS_URL')
++        or 'redis://redis-worker-1:6379/0'
++    )
++
++
++def _jprint(obj: Dict[str, Any]) -> None:
++    print(json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True))
++
++
++class PreflightController:
++    def __init__(self, *, purpose: str, redis_url: str | None = None) -> None:
++        if redis is None:
++            raise RuntimeError('redis dependency missing')
++        self.purpose = purpose
++        self.deploy_contract = assert_sensitive_deploy_env_contract(purpose)
++        self.redis_url = redis_url or _redis_url()
++        self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
++        ensure_service_identity_sync(self.r, SERVICE)
++        heal_service_identity_sync(self.r, SERVICE, force=True)
++
++    def check(self, *, purpose: str, exit_code: int = DEFAULT_EXIT_CODE) -> Dict[str, Any]:
++        heal_service_identity_sync(self.r, SERVICE)
++        assert_rollout_gate_open(self.r, purpose=purpose, exit_code=exit_code)
++        st = get_rollout_gate_state(self.r)
++        return {
++            'ok': True,
++            'service': SERVICE,
++            'purpose': purpose,
++            'preflight_schema_version': ROLLOUT_PREFLIGHT_SCHEMA_VERSION,
++            'gate_active': bool(st.get('active')),
++            'redis_url': self.redis_url,
++        }
++
++
++def build_arg_parser() -> argparse.ArgumentParser:
++    ap = argparse.ArgumentParser(description='ExecHealth rollout preflight guard')
++    ap.add_argument('--purpose', required=True)
++    ap.add_argument('--exit-code', type=int, default=int(os.getenv('EXEC_HEALTH_ROLLOUT_PREFLIGHT_EXIT_CODE', str(DEFAULT_EXIT_CODE)) or DEFAULT_EXIT_CODE))
++    ap.add_argument('--quiet', action='store_true')
++    return ap
++
++
++def main(argv: List[str] | None = None) -> int:
++    ns = build_arg_parser().parse_args(argv)
++    ctl = PreflightController(purpose=ns.purpose)
++    out = ctl.check(purpose=ns.purpose, exit_code=int(ns.exit_code))
++    if not ns.quiet:
++        _jprint(out)
++    return 0
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+--- a/tick_flow_full/orderflow_services/exec_health_freeze_acl_policy_v1.py
++++ b/tick_flow_full/orderflow_services/exec_health_freeze_acl_policy_v1.py
+@@ -13,8 +13,10 @@
+     redis = None
+ 
+ from services.orderflow.exec_health_freeze_acl_contract import compare_acl_contract, render_acl_save_load_commands, render_acl_setuser_commands, render_auth_dsn_templates
++from services.orderflow.exec_health_freeze_deploy_contract import assert_runtime_service_env_contract, render_sensitive_deploy_env_templates
+ from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync, render_service_identity_env_templates
+ from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
++from services.orderflow.exec_health_freeze_rollout_gate import assert_rollout_gate_open
+ 
+ 
+ def _jprint(obj: Dict[str, Any]) -> None:
+@@ -24,6 +26,7 @@
+ class PolicyController:
+     def __init__(self, redis_url: str | None = None) -> None:
+         self.redis_url = redis_url or os.getenv('EXEC_HEALTH_REDIS_BOOTSTRAP_URL') or os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0')
++        assert_runtime_service_env_contract('exec_health_freeze_acl_policy_v1')
+         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True) if redis is not None else None
+         if self.r is not None:
+             ensure_service_identity_sync(self.r, "exec_health_freeze_acl_policy_v1")
+@@ -35,12 +38,14 @@
+             'acl_save_load_commands': render_acl_save_load_commands(),
+             'mandatory_auth_dsn_templates': render_auth_dsn_templates(),
+             'service_identity_env_templates': render_service_identity_env_templates(),
++            'sensitive_deploy_env_templates': render_sensitive_deploy_env_templates(),
+         }
+ 
+     def apply(self, *, save: bool = True, reload_check: bool = False) -> Dict[str, Any]:
+         if self.r is None:
+             raise RuntimeError('redis dependency missing')
+         heal_service_identity_sync(self.r, "exec_health_freeze_acl_policy_v1")
++        assert_rollout_gate_open(self.r, purpose='exec_health_freeze_acl_policy_v1.apply', exit_code=24)
+         applied: List[str] = []
+         for cmd in render_acl_setuser_commands():
+             argv = cmd.split()
+--- a/tick_flow_full/orderflow_services/exec_health_freeze_override_v1.py
++++ b/tick_flow_full/orderflow_services/exec_health_freeze_override_v1.py
+@@ -15,6 +15,7 @@
+     redis = None
+ 
+ from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
++from services.orderflow.exec_health_freeze_deploy_contract import assert_runtime_service_env_contract
+ from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
+ from services.orderflow.exec_health_freeze_control import (
+     ACK_SIGNING_SECRET_ENV,
+@@ -33,6 +34,7 @@
+     eval_commit_cas,
+     eval_prepare_cas,
+ )
++from services.orderflow.exec_health_freeze_rollout_gate import assert_rollout_gate_open
+ 
+ 
+ def _now_ms() -> int:
+@@ -48,6 +50,7 @@
+         if redis is None:
+             raise RuntimeError("redis dependency missing")
+         self.redis_url = redis_url or os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++        assert_runtime_service_env_contract('exec_health_freeze_override_v1')
+         self.control_key = os.getenv("EXEC_HEALTH_FREEZE_CONTROL_KEY", "cfg:orderflow:exec_health:freeze_control:v1")
+         self.state_key = os.getenv("EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY", "metrics:exec_health:slo:autoguard:state")
+         self.freeze_key = os.getenv("EXEC_HEALTH_AUTO_FREEZE_KEY", "cfg:orderflow:exec_health:auto_freeze:v1")
+@@ -205,6 +208,7 @@
+         now = _now_ms()
+         if not operator.strip() or not request_id.strip():
+             raise ValueError("operator and request_id are required")
++        assert_rollout_gate_open(self.r, purpose='exec_health_freeze_override_v1.commit_thaw', exit_code=24)
+         secret = os.getenv(ACK_SIGNING_SECRET_ENV, "")
+         if not secret:
+             raise ValueError(f"{ACK_SIGNING_SECRET_ENV} is required for signed commit thaw")
+--- a/tick_flow_full/orderflow_services/deploy/docker-compose.exec-health-freeze-acl-policy-apply-v1.yml
++++ b/tick_flow_full/orderflow_services/deploy/docker-compose.exec-health-freeze-acl-policy-apply-v1.yml
+@@ -9,6 +9,12 @@
+       REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
+       EXEC_HEALTH_REDIS_AUDIT_URL: ${EXEC_HEALTH_REDIS_AUDIT_URL:-}
+       EXEC_HEALTH_REDIS_BOOTSTRAP_URL: ${EXEC_HEALTH_REDIS_BOOTSTRAP_URL:?EXEC_HEALTH_REDIS_BOOTSTRAP_URL is required}
++      EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION: ${EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION:?EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION is required}
++      EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE: ${EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE:?EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE is required}
++      EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME: ${EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME:?EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME is required}
++      EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME: ${EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME:?EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME is required}
++      EXEC_HEALTH_REDIS_CLIENT_NAME: ${EXEC_HEALTH_REDIS_CLIENT_NAME:?EXEC_HEALTH_REDIS_CLIENT_NAME is required}
++      EXEC_HEALTH_REDIS_LIB_NAME: ${EXEC_HEALTH_REDIS_LIB_NAME:?EXEC_HEALTH_REDIS_LIB_NAME is required}
+       EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE: ${EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE:-1}
+       EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME: ${EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME:-1}
+       EXEC_HEALTH_FREEZE_ACL_POLICY_APPLY_ARGS: ${EXEC_HEALTH_FREEZE_ACL_POLICY_APPLY_ARGS:-}
+--- a/tick_flow_full/orderflow_services/deploy/docker-compose.exec-health-freeze-override-commit-thaw-v1.yml
++++ b/tick_flow_full/orderflow_services/deploy/docker-compose.exec-health-freeze-override-commit-thaw-v1.yml
+@@ -9,7 +9,13 @@
+       REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
+       EXEC_HEALTH_REDIS_AUDIT_URL: ${EXEC_HEALTH_REDIS_AUDIT_URL:-}
+       EXEC_HEALTH_REDIS_BOOTSTRAP_URL: ${EXEC_HEALTH_REDIS_BOOTSTRAP_URL:?EXEC_HEALTH_REDIS_BOOTSTRAP_URL is required}
++      EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION: ${EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION:?EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION is required}
++      EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE: ${EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE:?EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE is required}
++      EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME: ${EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME:?EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME is required}
++      EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME: ${EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME:?EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME is required}
+       EXEC_HEALTH_ACK_SIGNING_SECRET: ${EXEC_HEALTH_ACK_SIGNING_SECRET:?EXEC_HEALTH_ACK_SIGNING_SECRET is required}
++      EXEC_HEALTH_REDIS_CLIENT_NAME: ${EXEC_HEALTH_REDIS_CLIENT_NAME:?EXEC_HEALTH_REDIS_CLIENT_NAME is required}
++      EXEC_HEALTH_REDIS_LIB_NAME: ${EXEC_HEALTH_REDIS_LIB_NAME:?EXEC_HEALTH_REDIS_LIB_NAME is required}
+       EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE: ${EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE:-1}
+       EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME: ${EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME:-1}
+       OPERATOR: ${OPERATOR:?OPERATOR is required}
+--- a/tick_flow_full/orderflow_services/deploy/systemd/run-exec-health-freeze-with-rollout-preflight-v1.sh
++++ b/tick_flow_full/orderflow_services/deploy/systemd/run-exec-health-freeze-with-rollout-preflight-v1.sh
+@@ -4,6 +4,7 @@
+ REPO_ROOT="${EXEC_HEALTH_REPO_ROOT:-/opt/scanner_infra}"
+ PYTHON_BIN="${EXEC_HEALTH_PYTHON_BIN:-python3}"
+ PURPOSE="${EXEC_HEALTH_ROLLOUT_PREFLIGHT_PURPOSE:-}"
++HOST_PREFLIGHT_SCHEMA_VERSION="exec_health_freeze_rollout_preflight_contract_v1"
+ 
+ if [[ -z "${PURPOSE}" ]]; then
+   echo "EXEC_HEALTH_ROLLOUT_PREFLIGHT_PURPOSE is required" >&2
+@@ -14,6 +15,15 @@
+   exit 64
+ fi
+ 
++export EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION="${EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION:-${HOST_PREFLIGHT_SCHEMA_VERSION}}"
++export EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE="${EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE:-${PURPOSE}}"
++: "${EXEC_HEALTH_REDIS_AUDIT_URL:?EXEC_HEALTH_REDIS_AUDIT_URL is required}"
++: "${EXEC_HEALTH_REDIS_BOOTSTRAP_URL:?EXEC_HEALTH_REDIS_BOOTSTRAP_URL is required}"
++: "${EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME:?EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME is required}"
++: "${EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME:?EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME is required}"
++: "${EXEC_HEALTH_REDIS_CLIENT_NAME:?EXEC_HEALTH_REDIS_CLIENT_NAME is required}"
++: "${EXEC_HEALTH_REDIS_LIB_NAME:?EXEC_HEALTH_REDIS_LIB_NAME is required}"
++
+ cd "${REPO_ROOT}"
+ "${PYTHON_BIN}" -m orderflow_services.exec_health_freeze_rollout_preflight_v1 --purpose "${PURPOSE}" --quiet
+ exec "$@"
+--- a/tick_flow_full/orderflow_services/deploy/env/exec-health-freeze-acl-policy-apply.env.example
++++ b/tick_flow_full/orderflow_services/deploy/env/exec-health-freeze-acl-policy-apply.env.example
+@@ -0,0 +1,12 @@
++EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION=exec_health_freeze_rollout_preflight_contract_v1
++EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE=exec_health_freeze_acl_policy_apply
++EXEC_HEALTH_REDIS_AUDIT_URL=redis://exec_health_freeze_audit:<password>@redis-worker-1:6379/0
++EXEC_HEALTH_REDIS_BOOTSTRAP_URL=redis://exec_health_freeze_bootstrap:<password>@redis-worker-1:6379/0
++EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME=exec-health-freeze-rollout-preflight-v1
++EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME=exec-health-freeze-audit
++EXEC_HEALTH_REDIS_CLIENT_NAME=exec-health-freeze-acl-policy-v1
++EXEC_HEALTH_REDIS_LIB_NAME=exec-health-freeze-bootstrap
++EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE=1
++EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME=1
++EXEC_HEALTH_DEPLOY_CONTRACT_ENFORCE=1
++REDIS_URL=redis://exec_health_freeze_bootstrap:<password>@redis-worker-1:6379/0
+--- a/tick_flow_full/orderflow_services/deploy/env/exec-health-freeze-override-commit-thaw.env.example
++++ b/tick_flow_full/orderflow_services/deploy/env/exec-health-freeze-override-commit-thaw.env.example
+@@ -0,0 +1,15 @@
++EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION=exec_health_freeze_rollout_preflight_contract_v1
++EXEC_HEALTH_DEPLOY_CONTRACT_PURPOSE=exec_health_freeze_override_commit_thaw
++EXEC_HEALTH_REDIS_AUDIT_URL=redis://exec_health_freeze_audit:<password>@redis-worker-1:6379/0
++EXEC_HEALTH_REDIS_BOOTSTRAP_URL=redis://exec_health_freeze_bootstrap:<password>@redis-worker-1:6379/0
++EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME=exec-health-freeze-rollout-preflight-v1
++EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME=exec-health-freeze-audit
++EXEC_HEALTH_REDIS_CLIENT_NAME=exec-health-freeze-override-v1
++EXEC_HEALTH_REDIS_LIB_NAME=exec-health-freeze-writer
++EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE=1
++EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME=1
++EXEC_HEALTH_DEPLOY_CONTRACT_ENFORCE=1
++REDIS_URL=redis://exec_health_freeze_writer:<password>@redis-worker-1:6379/0
++EXEC_HEALTH_ACK_SIGNING_SECRET=<strong-secret>
++OPERATOR=alice
++REQUEST_ID=req-123
+--- a/tick_flow_full/orderflow_services/runbook_exec_health_freeze_rollout_deploy_contract_v1.md
++++ b/tick_flow_full/orderflow_services/runbook_exec_health_freeze_rollout_deploy_contract_v1.md
+@@ -0,0 +1,33 @@
++# ExecHealth rollout deploy manifest / env contract (v1)
++
++Purpose:
++- fail before starting sensitive rollout-gated jobs if host/container env is incomplete or drifted.
++
++Schema/version:
++- `EXEC_HEALTH_ROLLOUT_PREFLIGHT_SCHEMA_VERSION=exec_health_freeze_rollout_preflight_contract_v1`
++
++Required for guarded jobs:
++- `EXEC_HEALTH_REDIS_AUDIT_URL` -> named user `exec_health_freeze_audit`
++- `EXEC_HEALTH_REDIS_BOOTSTRAP_URL` -> named user `exec_health_freeze_bootstrap`
++- purpose-specific target URL:
++  - ACL policy apply -> `EXEC_HEALTH_REDIS_BOOTSTRAP_URL`
++  - commit-thaw -> `REDIS_URL` with writer user
++- `EXEC_HEALTH_ROLLOUT_PREFLIGHT_CLIENT_NAME`
++- `EXEC_HEALTH_ROLLOUT_PREFLIGHT_LIB_NAME`
++- `EXEC_HEALTH_REDIS_CLIENT_NAME`
++- `EXEC_HEALTH_REDIS_LIB_NAME`
++
++Expected client identities:
++- preflight -> `exec-health-freeze-rollout-preflight-v1` / `exec-health-freeze-audit`
++- acl policy apply -> `exec-health-freeze-acl-policy-v1` / `exec-health-freeze-bootstrap`
++- override commit-thaw -> `exec-health-freeze-override-v1` / `exec-health-freeze-writer`
++
++Checks:
++1. host-side wrapper exports schema version and purpose.
++2. Python preflight validates env contract before Redis connect.
++3. target service validates its runtime env contract on startup.
++4. rollout gate still checked after env validation.
++
++Example manifests:
++- `orderflow_services/deploy/env/exec-health-freeze-acl-policy-apply.env.example`
++- `orderflow_services/deploy/env/exec-health-freeze-override-commit-thaw.env.example`

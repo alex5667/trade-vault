@@ -1,0 +1,589 @@
+diff --git a/monitoring/prometheus/prometheus.yml b/monitoring/prometheus/prometheus.yml
+index 52ceda1..9e826f1 100644
+--- a/monitoring/prometheus/prometheus.yml
++++ b/monitoring/prometheus/prometheus.yml
+@@ -47,6 +47,8 @@ rule_files:
+   - /etc/prometheus/rules/orderflow_services/prometheus_alerts_of_inputs_dlq_db_p99.yml
+   # P2/F Strict DQ stream health v1 (latency & continuity)
+   - /etc/prometheus/rules/orderflow_services/prometheus_alerts_strict_dq_stream_health_v1.yml
++  # TCA rollups (execution-health)
++  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_tca_rollups_v1.yml
+ 
+ 
+ alerting:
+@@ -190,3 +192,12 @@ scrape_configs:
+     static_configs:
+       - targets:
+           - scanner-of-inputs-dlq-db-exporter:9157
++
++  # -----------------------------
++  # TCA rollups exporter (Phase B)
++  # -----------------------------
++  - job_name: tca_rollups_exporter
++    scrape_interval: 15s
++    static_configs:
++      - targets:
++          - scanner-tca-rollups-exporter:9831
+diff --git a/services/orderflow/strategy.py b/services/orderflow/strategy.py
+index dcd0e16..e6ca120 100644
+--- a/services/orderflow/strategy.py
++++ b/services/orderflow/strategy.py
+@@ -11,8 +11,13 @@
+ Сервис асинхронный, построен на redis.asyncio.
+ """
+ 
++
+ from __future__ import annotations
+ 
++from services.posttrade.tca_rollups_reader import fetch_tca_rollups, TcaOnlineCfg
++from services.posttrade.tca_redis_state import TcaKeyDims
++
++
+ import json
+ from common.time_utils import normalize_epoch_ms as normalize_epoch_ms_v2
+ from common.of_gate_metrics_contract import enrich_schema_fields, validate_of_gate_row, why_label
+@@ -380,6 +385,99 @@ class OrderFlowStrategy:
+         else:
+             indicators['liqmap_ok'] = 0
+ 
++    async def _maybe_apply_tca_exec_health(
++        self,
++        *,
++        runtime: Any,
++        indicators: Dict[str, Any],
++        now_ms: int,
++        side: str,
++    ) -> None:
++        """Apply execution-health tightening/veto based on recent TCA rollups.
++
++        This is *hot-path* but bounded:
++        - Reads a few Redis keys via MGET (through fetch_tca_rollups).
++        - Cached per symbol for a short TTL to avoid extra Redis load.
++
++        Output
++        ------
++        Adds audit fields into `indicators`:
++          tca_mode, tca_slippage_add_bps, tca_veto, tca_reasons, tca_is_p95_bps, ...
++
++        Tighten semantics
++        -----------------
++        In tighten mode, we increase indicators['expected_slippage_bps'] by slippage_add_bps
++        (capped) so downstream EdgeCost/EntryPolicy become stricter automatically.
++
++        Fail-open: any error => no action.
++        """
++        try:
++            cfg = TcaOnlineCfg.from_env(prefix="EXEC")
++            if cfg.mode == "off":
++                return
++        except Exception:
++            return
++
++        sym = str(getattr(runtime, "symbol", "") or "").upper()
++        if not sym:
++            return
++
++        # Cache: per symbol, refresh at most once per second.
++        cache_ttl_ms = int(os.getenv("EXEC_TCA_CACHE_TTL_MS", "1000") or 1000)
++        try:
++            c = getattr(runtime, "_tca_exec_cache", None)
++            if isinstance(c, dict):
++                last_ts = int(c.get("ts_ms", 0) or 0)
++                if (int(now_ms) - last_ts) < cache_ttl_ms:
++                    cached = c.get("roll") or {}
++                    if isinstance(cached, dict) and cached:
++                        # re-apply tighten deterministically
++                        indicators.update({k: v for k, v in cached.items() if k.startswith("tca_") or k in {"tca_mode", "tca_veto"}})
++                        add = float(cached.get("tca_slippage_add_bps", 0.0) or 0.0)
++                        if cfg.mode == "tighten" and add > 0:
++                            base = float(indicators.get("expected_slippage_bps", 0.0) or 0.0)
++                            indicators.setdefault("expected_slippage_bps_base", base)
++                            indicators["expected_slippage_bps"] = float(base) + float(add)
++                        return
++        except Exception:
++            pass
++
++        # We use aggregated dims (tf/kind='all') so the lookup works even if hot-path doesn't know exact kind/tf.
++        venue = str(os.getenv("TRADE_VENUE", os.getenv("VENUE", "binance")) or "binance").lower()
++        session = str(indicators.get("session") or "na").lower()
++        dims = TcaKeyDims(sym=sym, venue=venue, session=session, tf="all", kind="all", side=str(side).upper())
++
++        roll = await fetch_tca_rollups(redis=self.redis, dims=dims, cfg=cfg, prefer_agg=True)
++
++        # Store audit fields (prefixed) to avoid collisions.
++        indicators["tca_mode"] = str(roll.get("mode") or cfg.mode)
++        indicators["tca_slippage_add_bps"] = float(roll.get("slippage_add_bps") or 0.0)
++        indicators["tca_veto"] = 1 if bool(roll.get("veto")) else 0
++        indicators["tca_reasons"] = ";".join(list(roll.get("reasons") or [])[:8])
++
++        if roll.get("is_p95_bps") is not None:
++            indicators["tca_is_p95_bps"] = float(roll.get("is_p95_bps"))
++        if roll.get("eff_spread_p95_bps") is not None:
++            indicators["tca_eff_spread_p95_bps"] = float(roll.get("eff_spread_p95_bps"))
++        for k, v in dict(roll).items():
++            if k.startswith("perm_impact_p95_bps_") and v is not None:
++                indicators[f"tca_{k}"] = float(v)
++            if k.startswith("realized_spread_p50_bps_") and v is not None:
++                indicators[f"tca_{k}"] = float(v)
++
++        # Tighten: raise expected_slippage_bps (cost proxy) so downstream gates become stricter.
++        add = float(indicators.get("tca_slippage_add_bps", 0.0) or 0.0)
++        if cfg.mode == "tighten" and add > 0:
++            base = float(indicators.get("expected_slippage_bps", 0.0) or 0.0)
++            indicators.setdefault("expected_slippage_bps_base", base)
++            indicators["expected_slippage_bps"] = float(base) + float(add)
++
++        # Cache rollups (including derived tighten add) for deterministic reuse within TTL.
++        try:
++            runtime._tca_exec_cache = {"ts_ms": int(now_ms), "roll": {k: indicators.get(k) for k in list(indicators.keys()) if k.startswith("tca_") or k in {"tca_mode", "tca_slippage_add_bps", "tca_veto", "expected_slippage_bps_base"}}}
++        except Exception:
++            pass
++
+ 
+     async def _maybe_poll_symbol_overrides(self, runtime, now_ms: int) -> None:
+         """
+@@ -1615,6 +1713,20 @@ class OrderFlowStrategy:
+                 if "expected_slippage_bps" not in indicators or float(indicators.get("expected_slippage_bps", 0.0) or 0.0) <= 0:
+                     indicators["expected_slippage_bps"] = float(cfg2.get("expected_slippage_bps_missing_default", SLIPPAGE_BPS_MISSING_DEFAULT))
+                     indicators["expected_slippage_missing"] = 1
++
++                # ------------------------------------------------------------------
++                # Phase B: execution-health tightening/veto (TCA rollups)
++                # ------------------------------------------------------------------
++                try:
++                    await self._maybe_apply_tca_exec_health(
++                        runtime=runtime,
++                        indicators=indicators,
++                        now_ms=int(tick_ts or now_ts),
++                        side=str(direction or "").upper(),
++                    )
++                except Exception:
++                    pass
++
+             except Exception:
+                 pass
+ 
+diff --git a/services/posttrade/tca_redis_state.py b/services/posttrade/tca_redis_state.py
+index c0cbab9..435272f 100644
+--- a/services/posttrade/tca_redis_state.py
++++ b/services/posttrade/tca_redis_state.py
+@@ -60,6 +60,7 @@ async def write_rollups(
+       - is_p95, eff_spread_p95, perm_impact_p95, realized_spread_p50, ...
+     """
+     exp_at = int(time.time()) + int(ttl_sec)
++    now_ms = int(time.time() * 1000)
+     d = dims.norm()
+     pipe = redis.pipeline()
+     try:
+@@ -72,6 +73,14 @@ async def write_rollups(
+             pipe.set(key, str(float(v)), ex=int(ttl_sec))
+         # Also keep a heartbeat key for quick "is writer alive" checks.
+         pipe.set(f"tca:rollups:last_write_ts:{d.sym}:{d.venue}", str(exp_at), ex=int(ttl_sec))
++
++        # Index of recently-touched dimensions for exporters.
++        # Avoid SCAN in production — exporters can pull the most recent N dims from this ZSET.
++        # Member format: sym:venue:session:tf:kind:side
++        member = f"{d.sym}:{d.venue}:{d.session}:{d.tf}:{d.kind}:{d.side}"
++        pipe.zadd("tca:dims:v1", {member: now_ms})
++        # Keep index alive while any rollups are alive.
++        pipe.expire("tca:dims:v1", int(ttl_sec) * 2)
+         await pipe.execute()
+     except Exception:
+         # Fail-open: Redis cache is optional.
+diff --git a/services/posttrade/tca_worker.py b/services/posttrade/tca_worker.py
+index 8398cfc..9e3674c 100644
+--- a/services/posttrade/tca_worker.py
++++ b/services/posttrade/tca_worker.py
+@@ -229,60 +229,83 @@ class Pg:
+         finally:
+             conn.close()
+ 
+-    def compute_rollups(self, *, dims: TcaKeyDims, window_min: int, delta_sec: int) -> Dict[str, float]:
+-        # For P1 we compute only the minimal set used by ExecutionHealthGate.
+-        # NOTE: percentile_cont ignores NULL.
+-        col = "1s" if int(delta_sec) == 1 else "5s" if int(delta_sec) == 5 else f"{int(delta_sec)}s"
+-        # We only support columns 1s and 5s at P1; other deltas are ignored.
+-        if col not in {"1s", "5s"}:
+-            return {}
++def compute_rollups(self, *, dims: TcaKeyDims, window_min: int, delta_sec: int) -> Dict[str, float]:
++    """Compute minimal rollups used by online execution-health gates.
++
++    Design goals:
++    - Deterministic: uses DB as SoT (Timescale), Redis is a cache.
++    - Bounded: only p95/p50 used by gates.
++    - Robust: supports aggregated dims (tf='all', kind='all') by widening the WHERE clause.
++
++    Notes:
++    - We scope rollups to fill_role='entry' because entry execution quality is what affects
++      *future* entry decisions.
++    - Ordered-set aggregate percentile_cont ignores NULL (good for missing joins).
++    """
++
++    # Column selector (controlled allowlist: only 1s/5s at P1).
++    col = "1s" if int(delta_sec) == 1 else "5s" if int(delta_sec) == 5 else f"{int(delta_sec)}s"
++    if col not in {"1s", "5s"}:
++        return {}
++
++    col_imp = f"perm_impact_{col}_bps"
++    col_rs = f"realized_spread_{col}_bps"
++
++    d = dims.norm()
++
++    where = [
++        "ts > now() - (%s || ' minutes')::interval",
++        "fill_role='entry'",
++        "sym=%s",
++        "venue=%s",
++        "session=%s",
++        "side=%s",
++    ]
++    params = [int(window_min), d.sym.upper(), d.venue.lower(), d.session, d.side.upper()]
++
++    # Aggregated dims support:
++    # - kind='all' => ignore kind filter
++    # - tf='all'   => ignore tf filter
++    if str(d.tf).lower() not in {"all", "*", ""}:
++        where.append("tf=%s")
++        params.append(d.tf)
++    if str(d.kind).lower() not in {"all", "*", ""}:
++        where.append("kind=%s")
++        params.append(d.kind)
++
++    q2 = (
++        "SELECT "
++        "  percentile_cont(0.95) WITHIN GROUP (ORDER BY is_bps) AS is_p95, "
++        "  percentile_cont(0.95) WITHIN GROUP (ORDER BY eff_spread_bps) AS eff_p95, "
++        f"  percentile_cont(0.95) WITHIN GROUP (ORDER BY {col_imp}) AS imp_p95, "
++        f"  percentile_cont(0.50) WITHIN GROUP (ORDER BY {col_rs}) AS rs_p50 "
++        "FROM tca_fill_metrics "
++        "WHERE " + " AND ".join(where)
++    )
+ 
+-        # Column names are derived from a controlled allowlist (col in {1s,5s}).
+-        col_imp = f"perm_impact_{col}_bps"
+-        col_rs = f"realized_spread_{col}_bps"
+-        q2 = (
+-            "SELECT "
+-            "  percentile_cont(0.95) WITHIN GROUP (ORDER BY is_bps) AS is_p95, "
+-            "  percentile_cont(0.95) WITHIN GROUP (ORDER BY eff_spread_bps) AS eff_p95, "
+-            f"  percentile_cont(0.95) WITHIN GROUP (ORDER BY {col_imp}) AS imp_p95, "
+-            f"  percentile_cont(0.50) WITHIN GROUP (ORDER BY {col_rs}) AS rs_p50 "
+-            "FROM tca_fill_metrics "
+-            "WHERE ts > now() - (%s || ' minutes')::interval "
+-            "  AND sym=%s AND venue=%s AND session=%s AND tf=%s AND kind=%s AND side=%s"
+-        )
+-        conn = self._connect()
+-        try:
+-            cur = conn.cursor()
+-            cur.execute(
+-                q2,
+-                (
+-                    int(window_min),
+-                    dims.sym.upper(),
+-                    dims.venue.lower(),
+-                    dims.session,
+-                    dims.tf,
+-                    dims.kind,
+-                    dims.side.upper(),
+-                ),
+-            )
+-            row = cur.fetchone()
+-            if not row:
+-                return {}
+-            out: Dict[str, float] = {}
+-            if row[0] is not None:
+-                out["is_p95"] = float(row[0])
+-            if row[1] is not None:
+-                out["eff_spread_p95"] = float(row[1])
+-            if row[2] is not None:
+-                out["perm_impact_p95"] = float(row[2])
+-            if row[3] is not None:
+-                out["realized_spread_p50"] = float(row[3])
+-            return out
+-        finally:
+-            conn.close()
++    conn = self._connect()
++    try:
++        cur = conn.cursor()
++        cur.execute(q2, tuple(params))
++        row = cur.fetchone()
++        if not row:
++            return {}
++        out: Dict[str, float] = {}
++        if row[0] is not None:
++            out["is_p95"] = float(row[0])
++        if row[1] is not None:
++            out["eff_spread_p95"] = float(row[1])
++        if row[2] is not None:
++            out["perm_impact_p95"] = float(row[2])
++        if row[3] is not None:
++            out["realized_spread_p50"] = float(row[3])
++        return out
++    finally:
++        conn.close()
+ 
+ 
+ @dataclass
++
+ class Cfg:
+     redis_url: str
+     batch_size: int
+@@ -292,6 +315,7 @@ class Cfg:
+     rollup_window_min: int
+     redis_ttl_sec: int
+     rollups_enable: bool
++    rollups_write_agg: bool
+     bbo_lookback_ms: int
+ 
+     @staticmethod
+@@ -305,6 +329,7 @@ class Cfg:
+             rollup_window_min=_env_int("EXEC_TCA_ROLLUP_WINDOW_MIN", "60"),
+             redis_ttl_sec=_env_int("EXEC_TCA_REDIS_TTL_SEC", "600"),
+             rollups_enable=_env_bool("TCA_ROLLUPS_ENABLE", "1"),
++            rollups_write_agg=_env_bool("TCA_ROLLUPS_WRITE_AGG", "1"),
+             bbo_lookback_ms=_env_int("TCA_MAX_BBO_LOOKBACK_MS", "3000"),
+         )
+ 
+@@ -452,25 +477,74 @@ async def main() -> None:
+             # Update cursor even if some rows were skipped (monotonic scan).
+             await _save_cursor(r, cfg.cursor_key, last[0], last[1])
+ 
++            
++
+             # Redis rollups for online gates
+             if cfg.rollups_enable and touched_dims:
+                 for dims in touched_dims.values():
+-                    # Compute rollups for Δ=1s only (P1 minimal). Δ=5s can be added later.
+-                    try:
+-                        roll = pg.compute_rollups(dims=dims, window_min=cfg.rollup_window_min, delta_sec=1)
+-                        if roll:
+-                            await write_rollups(
+-                                redis=r,
+-                                dims=dims,
+-                                rollups=roll,
+-                                ttl_sec=cfg.redis_ttl_sec,
+-                                delta_sec=1,
+-                            )
+-                    except Exception:
+-                        continue
++                    # Produce rollups for requested deltas (default 1s,5s).
++                    for dsec in cfg.deltas:
++                        try:
++                            roll = pg.compute_rollups(dims=dims, window_min=cfg.rollup_window_min, delta_sec=int(dsec))
++                            if roll:
++                                await write_rollups(
++                                    redis=r,
++                                    dims=dims,
++                                    rollups=roll,
++                                    ttl_sec=cfg.redis_ttl_sec,
++                                    delta_sec=int(dsec),
++                                )
++                        except Exception:
++                            continue
++
++                        # Aggregated variants for consumers that do not know exact kind/tf (e.g., EntryPolicy).
++                        # This keeps cardinality bounded (x2) but greatly improves hit-rate of online lookups.
++                        if cfg.rollups_write_agg:
++                            try:
++                                # kind='all' (keep tf)
++                                dims_kind_all = TcaKeyDims(
++                                    sym=dims.sym,
++                                    venue=dims.venue,
++                                    session=dims.session,
++                                    tf=dims.tf,
++                                    kind="all",
++                                    side=dims.side,
++                                )
++                                roll_k = pg.compute_rollups(
++                                    dims=dims_kind_all, window_min=cfg.rollup_window_min, delta_sec=int(dsec)
++                                )
++                                if roll_k:
++                                    await write_rollups(
++                                        redis=r,
++                                        dims=dims_kind_all,
++                                        rollups=roll_k,
++                                        ttl_sec=cfg.redis_ttl_sec,
++                                        delta_sec=int(dsec),
++                                    )
++
++                                # tf='all' + kind='all'
++                                dims_all = TcaKeyDims(
++                                    sym=dims.sym,
++                                    venue=dims.venue,
++                                    session=dims.session,
++                                    tf="all",
++                                    kind="all",
++                                    side=dims.side,
++                                )
++                                roll_a = pg.compute_rollups(dims=dims_all, window_min=cfg.rollup_window_min, delta_sec=int(dsec))
++                                if roll_a:
++                                    await write_rollups(
++                                        redis=r,
++                                        dims=dims_all,
++                                        rollups=roll_a,
++                                        ttl_sec=cfg.redis_ttl_sec,
++                                        delta_sec=int(dsec),
++                                    )
++                            except Exception:
++                                pass
+ 
+         except Exception:
+-            logger.exception("tca_worker loop error")
++            logger.exception("tca_worker loop error")("tca_worker loop error")
+             await asyncio.sleep(1.0)
+ 
+ 
+diff --git a/services/smt_entry_policy_service.py b/services/smt_entry_policy_service.py
+index 263d5f0..6950225 100644
+--- a/services/smt_entry_policy_service.py
++++ b/services/smt_entry_policy_service.py
+@@ -12,10 +12,24 @@ from services.entry_policy_ab_gate import regime_group, decide_active_arm, norm_
+ from core.entry_policy_freeze import EntryPolicyFreezeV1
+ from core.entry_policy_overrides_v1 import EntryPolicyOverridesV1
+ from core.active_arm_stabilizer import ActiveArmStabilizer
++from services.posttrade.tca_rollups_reader import fetch_tca_rollups, TcaOnlineCfg
++from services.posttrade.tca_redis_state import TcaKeyDims
+ 
+ def _now_ms() -> int:
+     return int(time.time() * 1000)
+ 
++def _session_from_ts_ms(ts_ms: int) -> str:
++    """Best-effort session resolver.
++
++    In the full repo, domain.time_utils.session_from_ts_ms exists and is canonical.
++    In tests or minimal deployments, we fall back to 'na'.
++    """
++    try:
++        from domain.time_utils import session_from_ts_ms  # type: ignore
++        return str(session_from_ts_ms(int(ts_ms)) or "na").lower()
++    except Exception:
++        return "na"
++
+ def _i(x: Any, d: int = 0) -> int:
+     try: return int(x)
+     except Exception: return d
+@@ -180,9 +194,24 @@ class EntryPolicyService:
+             if obj and obj.is_active(now_ms): return 1, int(obj.until_ts_ms), str(obj.mode), str(obj.reason_code)
+         return 0, 0, "", ""
+ 
++
+     async def _get_context(self, cand: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+         snap = await self._get_snap(cand["symbol"])
+         bundle = await self._get_bundle(cand["bundle"])
++
++        # ------------------------------------------------------------------
++        # Phase B: execution-health tightening/veto via TCA rollups (Redis)
++        # ------------------------------------------------------------------
++        # This is a *fast* path (bounded MGET). It is SAFE to fail-open.
++        # If enabled, we:
++        #   - attach rollup fields into `snap` for audit
++        #   - (tighten) raise expected_slippage_bps so existing slippage gate becomes stricter
++        #   - (veto) short-circuit before emitting an entry
++        try:
++            await self._attach_tca_rollups(now_ms=_now_ms(), cand=cand, snap=snap, bundle=bundle)
++        except Exception:
++            pass
++
+         return snap, bundle
+ 
+     async def _get_snap(self, sym: str) -> Dict[str, Any]:
+@@ -193,6 +222,75 @@ class EntryPolicyService:
+         d = await self.r.hgetall(f"{self.cfg.bundle_prefix}{bid}")
+         return d or {}
+ 
++    async def _attach_tca_rollups(self, *, now_ms: int, cand: Dict[str, Any], snap: Dict[str, Any], bundle: Dict[str, Any]) -> None:
++        """Attach TCA execution-health rollups to snap (online path).
++
++        This method implements the best-practice idea:
++          execution-health should tighten/veto *before* we produce a real entry.
++
++        Control knobs (ENV):
++          ENTRY_POLICY_TCA_MODE=off|tighten|veto
++          ENTRY_POLICY_MAX_IS_P95_BPS / EXEC_MAX_IS_P95_BPS
++          ENTRY_POLICY_MAX_PERM_IMPACT_P95_BPS / EXEC_MAX_PERM_IMPACT_P95_BPS
++          ENTRY_POLICY_MIN_REALIZED_SPREAD_P50_BPS / EXEC_MIN_REALIZED_SPREAD_P50_BPS
++
++          ENTRY_POLICY_TCA_TIGHTEN_ADD_MULT / EXEC_TCA_TIGHTEN_ADD_MULT
++          ENTRY_POLICY_TCA_TIGHTEN_ADD_CAP_BPS / EXEC_TCA_TIGHTEN_ADD_CAP_BPS
++
++        Fail-open:
++          missing Redis keys or parse errors => no action.
++        """
++        cfg = TcaOnlineCfg.from_env(prefix="ENTRY_POLICY")
++        if cfg.mode == "off":
++            return
++
++        sym = str(cand.get("symbol") or "").upper()
++        side = str(cand.get("side") or "").upper()
++        venue = str(snap.get("venue") or "binance").lower()
++
++        # Prefer session from snap (if orderflow pipeline publishes it), otherwise derive from setup_ts_ms / now.
++        sess = str(snap.get("session") or "").strip().lower()
++        if not sess:
++            setup_ts = int(cand.get("setup_ts_ms", 0) or 0)
++            sess = _session_from_ts_ms(setup_ts or now_ms)
++
++        # Many EntryPolicy consumers do not know exact kind/tf of orderflow signal.
++        # tca_worker writes aggregated dims (kind='all', tf='all') for this reason.
++        dims = TcaKeyDims(sym=sym, venue=venue, session=sess, tf="all", kind="all", side=side)
++
++        roll = await fetch_tca_rollups(redis=self.r, dims=dims, cfg=cfg, prefer_agg=True)
++
++        snap["tca_mode"] = str(roll.get("mode") or cfg.mode)
++        snap["tca_slippage_add_bps"] = float(roll.get("slippage_add_bps") or 0.0)
++        snap["tca_reasons"] = list(roll.get("reasons") or [])
++        snap["tca_veto"] = 1 if bool(roll.get("veto")) else 0
++
++        # Flatten key metrics for audit
++        if roll.get("is_p95_bps") is not None:
++            snap["tca_is_p95_bps"] = float(roll.get("is_p95_bps"))
++        if roll.get("eff_spread_p95_bps") is not None:
++            snap["tca_eff_spread_p95_bps"] = float(roll.get("eff_spread_p95_bps"))
++        for k, v in dict(roll).items():
++            if k.startswith("perm_impact_p95_bps_") and v is not None:
++                snap[f"tca_{k}"] = float(v)
++            if k.startswith("realized_spread_p50_bps_") and v is not None:
++                snap[f"tca_{k}"] = float(v)
++
++        # Tighten: adjust expected_slippage_bps upward (so existing slippage gate becomes stricter).
++        add = float(snap.get("tca_slippage_add_bps", 0.0) or 0.0)
++        if cfg.mode == "tighten" and add > 0:
++            try:
++                base = float(snap.get("expected_slippage_bps", 0.0) or 0.0)
++            except Exception:
++                base = 0.0
++            snap["expected_slippage_bps_base"] = float(base)
++            snap["expected_slippage_bps"] = float(base) + float(add)
++            snap["tca_expected_slippage_bps_added"] = float(add)
++
++        # Veto: mark snap so process_one can short-circuit before emit.
++        if cfg.mode == "veto" and int(snap.get("tca_veto", 0) or 0) == 1:
++            snap["tca_veto_reason"] = "DENY_TCA_EXEC_HEALTH"
++
+     async def _maybe_poll_overrides(self, now_ms: int, *, cand: Dict[str, Any], snap: Dict[str, Any], bundle: Dict[str, Any]) -> None:
+         """
+         Poll overrides using strict schema + hold-down + hysteresis.
+@@ -480,6 +578,23 @@ class EntryPolicyService:
+                 await self._audit(now_ms=_now_ms(), cand=cand, ok=True, reason_code="ALLOW_SHADOW_FROZEN_NONA", notes=frz_reason, snap=snap, bundle=bundle, ovr=ovr)
+                 return
+ 
++        # Phase B: hard veto from execution-health (TCA rollups)
++        try:
++            if str(snap.get("tca_mode", "")).lower() == "veto" and int(snap.get("tca_veto", 0) or 0) == 1:
++                await self._audit(
++                    now_ms=_now_ms(),
++                    cand=cand,
++                    ok=False,
++                    reason_code=str(snap.get("tca_veto_reason", "DENY_TCA_EXEC_HEALTH")),
++                    notes=";".join(list(snap.get("tca_reasons", []) or []))[:200],
++                    snap=snap,
++                    bundle=bundle,
++                    ovr=ovr,
++                )
++                return
++        except Exception:
++            pass
++
+         from services.entry_policy_core import evaluate_entry_policy
+         dec = evaluate_entry_policy(now_ms=_now_ms(), cand=cand, snap=snap, bundle=bundle, cfg=self.core_cfg, dedup_state=self._dedup)
+         

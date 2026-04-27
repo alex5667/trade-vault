@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/bucket_utils.py
+# hypothesis_version: 6.148.10
+
+['bear', 'bull', 'chop', 'cont', 'meanrev', 'other', 'range', 'rev', 'reversal', 'trend']

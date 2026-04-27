@@ -1,0 +1,24 @@
+groups:
+  - name: ml-phase1-8-rollback
+    rules:
+      - alert: RollbackSuccessRateLow
+        expr: ml_rollback_slo_success_rate < 0.90
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: rollback success rate below floor
+      - alert: RollbackMTTRP95High
+        expr: ml_rollback_slo_mttr_p95_sec > 900
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: rollback MTTR p95 above SLO
+      - alert: RollbackEscalationCritical
+        expr: increase(ml_rollback_escalations_total{severity="critical"}[30m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: critical rollback escalation emitted

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/crypto_signal_formatter.py
+# hypothesis_version: 6.148.10
+
+[1e-06, 100, 1000, ',', '100', '; ', 'ACCOUNT_DEPOSIT_USD', 'ACCOUNT_LEVERAGE', 'LONG', 'SHORT', 'TP1 n/a', 'delta_z_threshold', 'obi_threshold', 'p_cluster', 'p_delta', 'p_legacy', 'p_speed', 'rocket_v1', '⚪', '🔴', '🟢']

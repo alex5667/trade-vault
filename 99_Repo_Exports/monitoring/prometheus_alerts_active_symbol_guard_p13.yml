@@ -1,0 +1,96 @@
+groups:
+  - name: active_symbol_guard_p13
+    rules:
+
+      # -----------------------------------------------------------------------
+      # P13-1: Active manual holds count (should stay low; many simultaneous
+      #         holds indicate runbook overuse or automation issues)
+      # -----------------------------------------------------------------------
+      - alert: ActiveSymbolGuardManualHoldCountHigh
+        expr: |
+          execution_active_symbol_guard_runbook_state_total{kind="hold",status="active"} > 5
+        for: 5m
+        labels:
+          severity: warning
+          team: execution
+          patch: p13
+        annotations:
+          summary: "High number of active manual holds ({{ $value }})"
+          description: |
+            More than 5 simultaneous manual holds on guard symbols ({{ $value }}).
+            This likely indicates manual intervention is overused or automated for-hold logic is misfiring.
+            Review: GET /api/active-symbol-guard/runbook/dashboard
+
+      # -----------------------------------------------------------------------
+      # P13-2: Active ack count (many simultaneous acks may indicate stale
+      #         acknowledgements that were never renewed or revoked)
+      # -----------------------------------------------------------------------
+      - alert: ActiveSymbolGuardActiveAckCountHigh
+        expr: |
+          execution_active_symbol_guard_runbook_state_total{kind="ack",status="active"} > 10
+        for: 5m
+        labels:
+          severity: warning
+          team: execution
+          patch: p13
+        annotations:
+          summary: "High number of active incident acks ({{ $value }})"
+          description: |
+            More than 10 simultaneous active escalation-acks ({{ $value }}).
+            Acks that are never renewed or revoked accumulate here.
+            Review: GET /api/active-symbol-guard/runbook/dashboard
+
+      # -----------------------------------------------------------------------
+      # P13-3: Renew-reminder rate (high rate = acks are expiring faster than
+      #         operators are renewing them; could mean oncall overload)
+      # -----------------------------------------------------------------------
+      - alert: ActiveSymbolGuardAckRenewReminderHigh
+        expr: |
+          rate(execution_active_symbol_guard_renew_reminder_total[10m]) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          team: execution
+          patch: p13
+        annotations:
+          summary: "High rate of ack renew-reminders ({{ $value | humanize }}/s)"
+          description: |
+            Renew-reminders are firing frequently ({{ $value | humanize }}/s). 
+            Operators are not renewing their incident acks before expiry.
+            Action: renew active acks via POST /api/active-symbol-guard/actions/escalation/renew
+            or via CLI: python active_symbol_guard_cli.py --renew-symbol SYMBOL
+
+      # -----------------------------------------------------------------------
+      # P13-4: Zero renew-reminder metric when acks are present (metric
+      #         initialization guard — ensures metric is always scraped)
+      # -----------------------------------------------------------------------
+      - alert: ActiveSymbolGuardAckRenewReminderMetricAbsent
+        expr: |
+          absent(execution_active_symbol_guard_renew_reminder_total)
+        for: 15m
+        labels:
+          severity: info
+          team: execution
+          patch: p13
+        annotations:
+          summary: "Renew-reminder metric absent (P13)"
+          description: |
+            The execution_active_symbol_guard_renew_reminder_total metric is missing.
+            The active_symbol_guard_incident_notifier may not be running.
+
+      # -----------------------------------------------------------------------
+      # P13-5: Runbook state metric absent (hold/ack state gauge not updated)
+      # -----------------------------------------------------------------------
+      - alert: ActiveSymbolGuardRunbookStateMetricAbsent
+        expr: |
+          absent(execution_active_symbol_guard_runbook_state_total)
+        for: 15m
+        labels:
+          severity: info
+          team: execution
+          patch: p13
+        annotations:
+          summary: "Runbook state metric absent (P13)"
+          description: |
+            The execution_active_symbol_guard_runbook_state_total gauge is missing.
+            The diagnostics snapshot or notifier run may not be fired.

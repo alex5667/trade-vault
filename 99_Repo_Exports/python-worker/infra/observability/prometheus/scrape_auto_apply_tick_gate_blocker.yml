@@ -1,0 +1,8 @@
+# Prometheus scrape snippet for auto-apply tick-gate blocker
+#
+# Add into scrape_configs:
+#
+# - job_name: 'auto_apply_tick_gate_blocker'
+#   static_configs:
+#     - targets: ['localhost:9114']
+#

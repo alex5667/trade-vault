@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/build_of_dataset.py
+# hypothesis_version: 6.148.10
+
+[-1.0, -0.5, 0.0, 0.5, 200, ',', '--min-n', '--neg-th', '--out', '--pos-th', '--replay', '--trades', ':', '__main__', 'abs_lvl_ok', 'base_score', 'close_reason', 'confirmations', 'direction', 'evidence', 'exec_risk_bps', 'exec_risk_norm', 'fp_edge_absorb', 'have', 'iceberg_strict', 'leg_abs_lvl_ok', 'leg_fp_edge_absorb', 'leg_iceberg_strict', 'leg_obi_stable', 'leg_ofi_leg', 'leg_reclaim_recent', 'leg_sweep_recent', 'leg_weak_progress', 'legs', 'meta', 'meta_p', 'meta_veto', 'need', 'need_reason', 'obi_stable', 'ofi_leg', 'ok', 'ok_soft', 'pnl', 'r', 'r_mult', 'reclaim_recent', 'risk_usd', 'scenario', 'scenario_v4', 'score', 'score_breakdown', 'sid', 'sweep_recent', 'symbol', 'ts_ms', 'utf-8', 'w', 'weak_progress', 'y']

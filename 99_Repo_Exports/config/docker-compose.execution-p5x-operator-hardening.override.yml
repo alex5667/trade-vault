@@ -1,0 +1,18 @@
+services:
+  # P5X: auto-silence helper for repeated risk-drift mismatch storms
+  trade-risk-drift-autosilence:
+    command: ["python3", "/opt/trade/scripts/auto_silence_risk_drift_storm.py"]
+    environment:
+      - ALERTMANAGER_EXTERNAL_URL=http://alertmanager:9093
+
+  # P5X: SQL consistency checker between risk_mismatch_summary_mv and archive
+  trade-risk-mismatch-archive-consistency:
+    command: ["python3", "/opt/trade/scripts/check_risk_mismatch_summary_archive_consistency.py"]
+    environment:
+      - RISK_MISMATCH_ARCHIVE_CONSISTENCY_TEXTFILE_PATH=/var/lib/node_exporter/textfile_collector/risk_mismatch_archive_consistency.prom
+
+  # P5X: retention purge with freshness/textfile export
+  trade-risk-mismatch-retention:
+    command: ["python3", "/opt/trade/scripts/purge_risk_mismatch_hot_tables.py"]
+    environment:
+      - RISK_MISMATCH_RETENTION_TEXTFILE_PATH=/var/lib/node_exporter/textfile_collector/risk_mismatch_retention.prom

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/slippage_model.py
+# hypothesis_version: 6.148.10
+
+[0.0, 2.0, 10000.0, '0', '0.5', '1', '1.5', '30', 'SLIPPAGE_DEFAULT_BPS', 'SLIPPAGE_USE_EMA', 'a', 'ask', 'b', 'bid', 'ema_bps', 'hget', 'na', 'on', 'samples', 'slipema', 'true', 'yes']

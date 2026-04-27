@@ -1,0 +1,10 @@
+
+# P4.5: Trade runbook server — expose risk canary report and Grafana dashboards.
+# Apply with: docker compose -f docker-compose-timers.yml -f config/docker-compose.execution-p45-risk-audit.override.yml up
+
+services:
+  trade-runbook-server:
+    volumes:
+      - ./monitoring/grafana/dashboards:/opt/trade/monitoring/grafana/dashboards:ro
+      - ./runbooks:/opt/trade/runbooks:ro
+      - ./var/runbook-reports:/var/lib/trade-runbook/reports

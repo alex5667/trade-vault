@@ -1,0 +1,878 @@
++++ p33auto/.pytest_cache/.gitignore	2026-03-07 06:37:43.609374870 +0000
+@@ -0,0 +1,2 @@
++# Created by pytest automatically.
++*
+diff -ruN p33ops/.pytest_cache/CACHEDIR.TAG p33auto/.pytest_cache/CACHEDIR.TAG
+--- p33ops/.pytest_cache/CACHEDIR.TAG	1970-01-01 00:00:00.000000000 +0000
++++ p33auto/.pytest_cache/CACHEDIR.TAG	2026-03-07 06:37:43.609457561 +0000
+@@ -0,0 +1,4 @@
++Signature: 8a477f597d28d172789f06886806bc55
++# This file is a cache directory tag created by pytest.
++# For information about cache directory tags, see:
++#	https://bford.info/cachedir/spec.html
+diff -ruN p33ops/.pytest_cache/README.md p33auto/.pytest_cache/README.md
+--- p33ops/.pytest_cache/README.md	1970-01-01 00:00:00.000000000 +0000
++++ p33auto/.pytest_cache/README.md	2026-03-07 06:37:43.609320632 +0000
+@@ -0,0 +1,8 @@
++# pytest cache directory #
++
++This directory contains data from the pytest's cache plugin,
++which provides the `--lf` and `--ff` options, as well as the `cache` fixture.
++
++**Do not** commit this to version control.
++
++See [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.
+diff -ruN p33ops/.pytest_cache/v/cache/nodeids p33auto/.pytest_cache/v/cache/nodeids
+--- p33ops/.pytest_cache/v/cache/nodeids	1970-01-01 00:00:00.000000000 +0000
++++ p33auto/.pytest_cache/v/cache/nodeids	2026-03-07 06:37:43.609914086 +0000
+@@ -0,0 +1,11 @@
++[
++  "binance_execution/test_p33_autonomy_assets_v1.py::test_grafana_autonomy_dashboard_exists",
++  "binance_execution/test_p33_autonomy_assets_v1.py::test_materialized_summary_sql_exists",
++  "binance_execution/test_p33_autonomy_decision_v1.py::test_should_trigger_on_retention_guard",
++  "binance_execution/test_p33_autonomy_retention_quarantine_v1.py::test_retention_quarantine_script_exists_and_mentions_action",
++  "binance_execution/test_p33_autonomy_runbook_server_v1.py::test_runbook_server_exposes_replay_slo_and_autonomy",
++  "binance_execution/test_p33_ops_complete_assets_v1.py::test_prometheus_rules_include_replay_p95",
++  "binance_execution/test_p33_ops_complete_assets_v1.py::test_scrubber_assets_exist",
++  "binance_execution/test_p33_ops_complete_runbook_v1.py::test_ops_complete_runbook_exists",
++  "binance_execution/test_p33_ops_complete_runbook_v1.py::test_runbook_server_exposes_rebuild_endpoint"
++]
+\ No newline at end of file
+Binary files p33ops/binance_execution/__pycache__/execution_state_replay.cpython-313.pyc and p33auto/binance_execution/__pycache__/execution_state_replay.cpython-313.pyc differ
+Binary files p33ops/binance_execution/__pycache__/quarantine_ledger.cpython-313.pyc and p33auto/binance_execution/__pycache__/quarantine_ledger.cpython-313.pyc differ
+Binary files p33ops/binance_execution/__pycache__/test_p33_autonomy_assets_v1.cpython-313-pytest-9.0.2.pyc and p33auto/binance_execution/__pycache__/test_p33_autonomy_assets_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p33ops/binance_execution/__pycache__/test_p33_autonomy_decision_v1.cpython-313-pytest-9.0.2.pyc and p33auto/binance_execution/__pycache__/test_p33_autonomy_decision_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p33ops/binance_execution/__pycache__/test_p33_autonomy_retention_quarantine_v1.cpython-313-pytest-9.0.2.pyc and p33auto/binance_execution/__pycache__/test_p33_autonomy_retention_quarantine_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p33ops/binance_execution/__pycache__/test_p33_autonomy_runbook_server_v1.cpython-313-pytest-9.0.2.pyc and p33auto/binance_execution/__pycache__/test_p33_autonomy_runbook_server_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p33ops/binance_execution/__pycache__/test_p33_ops_complete_assets_v1.cpython-313-pytest-9.0.2.pyc and p33auto/binance_execution/__pycache__/test_p33_ops_complete_assets_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p33ops/binance_execution/__pycache__/test_p33_ops_complete_runbook_v1.cpython-313-pytest-9.0.2.pyc and p33auto/binance_execution/__pycache__/test_p33_ops_complete_runbook_v1.cpython-313-pytest-9.0.2.pyc differ
+diff -ruN p33ops/binance_execution/test_p33_autonomy_assets_v1.py p33auto/binance_execution/test_p33_autonomy_assets_v1.py
+--- p33ops/binance_execution/test_p33_autonomy_assets_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p33auto/binance_execution/test_p33_autonomy_assets_v1.py	2026-03-07 06:37:29.594594068 +0000
+@@ -0,0 +1,13 @@
++from pathlib import Path
++
++
++def test_materialized_summary_sql_exists():
++    sql = (Path(__file__).resolve().parents[1] / 'db' / 'migrations' / '20260306_07_execution_replay_slo_summary.sql').read_text(encoding='utf-8')
++    assert 'CREATE MATERIALIZED VIEW execution_replay_slo_summary_mv' in sql
++    assert 'replay_latency_p95_ms' in sql
++
++
++def test_grafana_autonomy_dashboard_exists():
++    data = (Path(__file__).resolve().parents[1] / 'monitoring' / 'grafana' / 'dashboards' / 'trade_execution_p33_autonomy.json').read_text(encoding='utf-8')
++    assert 'trade_execution_rebuild_last_status_code' in data
++    assert 'RETENTION_GUARD_QUARANTINED' in data
+diff -ruN p33ops/binance_execution/test_p33_autonomy_decision_v1.py p33auto/binance_execution/test_p33_autonomy_decision_v1.py
+--- p33ops/binance_execution/test_p33_autonomy_decision_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p33auto/binance_execution/test_p33_autonomy_decision_v1.py	2026-03-07 06:37:29.540048308 +0000
+@@ -0,0 +1,13 @@
++from pathlib import Path
++import importlib.util
++
++mod_path = Path(__file__).resolve().parents[1] / 'scripts' / 'auto_trigger_checkpoint_scrubber.py'
++spec = importlib.util.spec_from_file_location('auto_trigger_checkpoint_scrubber', mod_path)
++mod = importlib.util.module_from_spec(spec)
++spec.loader.exec_module(mod)
++
++
++def test_should_trigger_on_retention_guard():
++    dec = mod.should_trigger({'overall_status': 'ok', 'consistency': {'critical_mismatches': 0}, 'retention_guard': {'breached_checkpoints': 2}})
++    assert dec['trigger'] is True
++    assert 'retention_guard_breached' in dec['reasons']
+diff -ruN p33ops/binance_execution/test_p33_autonomy_retention_quarantine_v1.py p33auto/binance_execution/test_p33_autonomy_retention_quarantine_v1.py
+--- p33ops/binance_execution/test_p33_autonomy_retention_quarantine_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p33auto/binance_execution/test_p33_autonomy_retention_quarantine_v1.py	2026-03-07 06:37:29.548614673 +0000
+@@ -0,0 +1,7 @@
++from pathlib import Path
++
++
++def test_retention_quarantine_script_exists_and_mentions_action():
++    src = (Path(__file__).resolve().parents[1] / 'scripts' / 'apply_retention_guard_quarantine.py').read_text(encoding='utf-8')
++    assert 'RETENTION_GUARD_QUARANTINED' in src
++    assert 'run_policy' in src
+diff -ruN p33ops/binance_execution/test_p33_autonomy_runbook_server_v1.py p33auto/binance_execution/test_p33_autonomy_runbook_server_v1.py
+--- p33ops/binance_execution/test_p33_autonomy_runbook_server_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p33auto/binance_execution/test_p33_autonomy_runbook_server_v1.py	2026-03-07 06:37:29.602257161 +0000
+@@ -0,0 +1,7 @@
++from pathlib import Path
++
++
++def test_runbook_server_exposes_replay_slo_and_autonomy():
++    src = (Path(__file__).resolve().parents[1] / 'runbooks' / 'server' / 'runbook_server.py').read_text(encoding='utf-8')
++    assert '/api/autonomy/latest' in src
++    assert '/api/replay-slo/latest' in src
+diff -ruN p33ops/config/docker-compose.execution-p33-autonomy.override.yml p33auto/config/docker-compose.execution-p33-autonomy.override.yml
+--- p33ops/config/docker-compose.execution-p33-autonomy.override.yml	1970-01-01 00:00:00.000000000 +0000
++++ p33auto/config/docker-compose.execution-p33-autonomy.override.yml	2026-03-07 06:36:43.605274299 +0000
+@@ -0,0 +1,10 @@
++services:
++  trade-runbook-server:
++    environment:
++      RUNBOOK_REPORT_DIR: /var/lib/trade-runbook/reports
++      EXECUTION_HEALTH_REPORT_PATH: /var/lib/trade-runbook/reports/latest_execution_health.json
++      CANARY_REPORT_PATH: /var/lib/trade-runbook/reports/latest_canary_scoring.json
++    volumes:
++      - ./var/runbook-reports:/var/lib/trade-runbook/reports
++      - ./runbooks:/opt/trade/runbooks:ro
++      - ./monitoring/grafana/dashboards:/opt/trade/monitoring/grafana/dashboards:ro
+diff -ruN p33ops/config/env.execution-p33-autonomy.example p33auto/config/env.execution-p33-autonomy.example
+--- p33ops/config/env.execution-p33-autonomy.example	1970-01-01 00:00:00.000000000 +0000
++++ p33auto/config/env.execution-p33-autonomy.example	2026-03-07 06:36:43.611409087 +0000
+@@ -0,0 +1,7 @@
++EXEC_AUTONOMY_TRIGGER_ON_WARNING=1
++EXEC_RETENTION_GUARD_QUARANTINE_ENABLE=1
++EXECUTION_HEALTH_REPORT_PATH=/var/lib/trade-runbook/reports/latest_execution_health.json
++EXEC_REBUILD_TEXTFILE_PATH=/var/lib/node_exporter/textfile/trade_execution_rebuild.prom
++EXEC_HEALTHCHECK_TEXTFILE_PATH=/var/lib/node_exporter/textfile/trade_execution_health.prom
++RUNBOOK_REPORT_DIR=/var/lib/trade-runbook/reports
++EXECUTION_RETENTION_DAYS=14
+diff -ruN p33ops/db/migrations/20260306_07_execution_replay_slo_summary.sql p33auto/db/migrations/20260306_07_execution_replay_slo_summary.sql
+--- p33ops/db/migrations/20260306_07_execution_replay_slo_summary.sql	1970-01-01 00:00:00.000000000 +0000
++++ p33auto/db/migrations/20260306_07_execution_replay_slo_summary.sql	2026-03-07 06:36:43.524042485 +0000
+@@ -0,0 +1,49 @@
++-- P3.3 autonomy: replay/rehydrate SLO materialized summary
++
++DROP MATERIALIZED VIEW IF EXISTS execution_replay_slo_summary_mv;
++
++CREATE MATERIALIZED VIEW execution_replay_slo_summary_mv AS
++WITH windows AS (
++  SELECT '1h'::text AS window_name, ((extract(epoch from now() - interval '1 hour') * 1000)::bigint) AS from_ms
++  UNION ALL
++  SELECT '24h'::text, ((extract(epoch from now() - interval '24 hour') * 1000)::bigint)
++  UNION ALL
++  SELECT '7d'::text, ((extract(epoch from now() - interval '7 day') * 1000)::bigint)
++),
++rehydrate AS (
++  SELECT
++    w.window_name,
++    count(*) FILTER (WHERE e.event_type = 'state_rehydrated') AS rehydrate_total,
++    count(*) FILTER (WHERE e.event_type = 'state_rehydrated' AND coalesce(e.payload_jsonb->>'rehydrate_source','') = 'stream') AS rehydrate_stream_total,
++    count(*) FILTER (WHERE e.event_type = 'state_rehydrated' AND coalesce(e.payload_jsonb->>'rehydrate_source','') = 'sql') AS rehydrate_sql_total,
++    count(*) FILTER (WHERE e.event_type = 'state_rehydrated' AND coalesce((e.payload_jsonb->>'replay_truncated')::int, 0) = 1) AS replay_truncated_total,
++    count(*) FILTER (WHERE e.event_type = 'state_rehydrated' AND coalesce((e.payload_jsonb->>'retention_guard_triggered')::int, 0) = 1) AS retention_guard_total,
++    percentile_cont(0.95) within group (order by coalesce((e.payload_jsonb->>'replay_latency_ms')::double precision, 0)) FILTER (WHERE e.event_type = 'state_rehydrated') AS replay_latency_p95_ms
++  FROM windows w
++  LEFT JOIN execution_order_events e
++    ON e.event_ts_ms >= w.from_ms
++  GROUP BY w.window_name
++),
++quarantine AS (
++  SELECT
++    w.window_name,
++    count(*) FILTER (WHERE q.action = 'REPLAY_MISMATCH_QUARANTINED') AS replay_mismatch_quarantine_total,
++    count(*) FILTER (WHERE q.action = 'RETENTION_GUARD_QUARANTINED') AS retention_guard_quarantine_total
++  FROM windows w
++  LEFT JOIN execution_quarantine_ledger q
++    ON q.created_at_ms >= w.from_ms
++  GROUP BY w.window_name
++)
++SELECT
++  r.window_name,
++  r.rehydrate_total,
++  r.rehydrate_stream_total,
++  r.rehydrate_sql_total,
++  r.replay_truncated_total,
++  r.retention_guard_total,
++  q.replay_mismatch_quarantine_total,
++  q.retention_guard_quarantine_total,
++  coalesce(r.replay_latency_p95_ms, 0)::double precision AS replay_latency_p95_ms,
++  (extract(epoch from now()) * 1000)::bigint AS refreshed_at_ms
++FROM rehydrate r
++JOIN quarantine q USING (window_name);
+diff -ruN p33ops/db/migrations/20260306_08_execution_replay_slo_summary_indexes.sql p33auto/db/migrations/20260306_08_execution_replay_slo_summary_indexes.sql
+--- p33ops/db/migrations/20260306_08_execution_replay_slo_summary_indexes.sql	1970-01-01 00:00:00.000000000 +0000
++++ p33auto/db/migrations/20260306_08_execution_replay_slo_summary_indexes.sql	2026-03-07 06:36:43.530105568 +0000
+@@ -0,0 +1,2 @@
++CREATE UNIQUE INDEX IF NOT EXISTS execution_replay_slo_summary_mv_window_name_idx
++  ON execution_replay_slo_summary_mv (window_name);
+diff -ruN p33ops/deploy/systemd/trade-execution-auto-scrubber.service p33auto/deploy/systemd/trade-execution-auto-scrubber.service
+--- p33ops/deploy/systemd/trade-execution-auto-scrubber.service	1970-01-01 00:00:00.000000000 +0000
++++ p33auto/deploy/systemd/trade-execution-auto-scrubber.service	2026-03-07 06:36:43.536467475 +0000
+@@ -0,0 +1,9 @@
++[Unit]
++Description=Trade execution auto-trigger checkpoint scrubber
++After=network-online.target
++
++[Service]
++Type=oneshot
++WorkingDirectory=/opt/trade
++EnvironmentFile=-/etc/default/trade-execution-p33-autonomy
++ExecStart=/usr/bin/python3 /opt/trade/scripts/auto_trigger_checkpoint_scrubber.py
+diff -ruN p33ops/deploy/systemd/trade-execution-auto-scrubber.timer p33auto/deploy/systemd/trade-execution-auto-scrubber.timer
+--- p33ops/deploy/systemd/trade-execution-auto-scrubber.timer	1970-01-01 00:00:00.000000000 +0000
++++ p33auto/deploy/systemd/trade-execution-auto-scrubber.timer	2026-03-07 06:36:43.542933337 +0000
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Periodic trade execution auto-trigger checkpoint scrubber
++
++[Timer]
++OnBootSec=6m
++OnUnitActiveSec=10m
++Unit=trade-execution-auto-scrubber.service
++
++[Install]
++WantedBy=timers.target
+diff -ruN p33ops/deploy/systemd/trade-execution-replay-slo-refresh.service p33auto/deploy/systemd/trade-execution-replay-slo-refresh.service
+--- p33ops/deploy/systemd/trade-execution-replay-slo-refresh.service	1970-01-01 00:00:00.000000000 +0000
++++ p33auto/deploy/systemd/trade-execution-replay-slo-refresh.service	2026-03-07 06:36:43.549339438 +0000
+@@ -0,0 +1,9 @@
++[Unit]
++Description=Refresh trade execution replay SLO materialized summary
++After=network-online.target
++
++[Service]
++Type=oneshot
++WorkingDirectory=/opt/trade
++EnvironmentFile=-/etc/default/trade-execution-p33-autonomy
++ExecStart=/usr/bin/python3 /opt/trade/scripts/refresh_execution_replay_slo_summary.py
+diff -ruN p33ops/deploy/systemd/trade-execution-replay-slo-refresh.timer p33auto/deploy/systemd/trade-execution-replay-slo-refresh.timer
+--- p33ops/deploy/systemd/trade-execution-replay-slo-refresh.timer	1970-01-01 00:00:00.000000000 +0000
++++ p33auto/deploy/systemd/trade-execution-replay-slo-refresh.timer	2026-03-07 06:36:43.599231523 +0000
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Periodic refresh of replay/rehydrate SLO summary
++
++[Timer]
++OnBootSec=8m
++OnUnitActiveSec=15m
++Unit=trade-execution-replay-slo-refresh.service
++
++[Install]
++WantedBy=timers.target
+diff -ruN p33ops/monitoring/grafana/dashboards/trade_execution_p33_autonomy.json p33auto/monitoring/grafana/dashboards/trade_execution_p33_autonomy.json
+--- p33ops/monitoring/grafana/dashboards/trade_execution_p33_autonomy.json	1970-01-01 00:00:00.000000000 +0000
++++ p33auto/monitoring/grafana/dashboards/trade_execution_p33_autonomy.json	2026-03-07 06:36:43.624463522 +0000
+@@ -0,0 +1,56 @@
++{
++  "annotations": {
++    "list": [
++      {
++        "builtIn": 1,
++        "datasource": {"type": "grafana", "uid": "-- Grafana --"},
++        "enable": true,
++        "hide": true,
++        "iconColor": "rgba(0, 211, 255, 1)",
++        "name": "Annotations & Alerts",
++        "type": "dashboard"
++      },
++      {
++        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++        "enable": true,
++        "expr": "changes(trade_execution_rebuild_last_status_code[10m]) > 0",
++        "iconColor": "rgba(255, 191, 0, 1)",
++        "name": "Rebuild report updated",
++        "textFormat": "rebuild report refreshed",
++        "titleFormat": "rebuild"
++      },
++      {
++        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++        "enable": true,
++        "expr": "increase(execution_quarantine_events_total{action=\"RETENTION_GUARD_QUARANTINED\"}[10m]) > 0",
++        "iconColor": "rgba(255, 96, 96, 1)",
++        "name": "Retention-guard quarantine",
++        "textFormat": "retention guard quarantine triggered",
++        "titleFormat": "retention-guard"
++      },
++      {
++        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++        "enable": true,
++        "expr": "changes(trade_execution_autonomy_trigger_checkpoint_scrubber[10m]) > 0",
++        "iconColor": "rgba(80, 180, 255, 1)",
++        "name": "Autonomy scrubber trigger",
++        "textFormat": "health-based scrubber trigger changed",
++        "titleFormat": "auto-scrubber"
++      }
++    ]
++  },
++  "editable": true,
++  "panels": [
++    {"type": "stat", "title": "Rebuild latency p95", "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0}, "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "targets": [{"expr": "trade_execution_rebuild_last_replay_latency_p95_ms", "refId": "A"}]},
++    {"type": "stat", "title": "Rebuild retention guard count", "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0}, "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "targets": [{"expr": "trade_execution_rebuild_last_retention_guard_count", "refId": "A"}]},
++    {"type": "stat", "title": "Autonomy trigger scrubber", "gridPos": {"h": 6, "w": 6, "x": 12, "y": 0}, "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "targets": [{"expr": "trade_execution_autonomy_trigger_checkpoint_scrubber", "refId": "A"}]},
++    {"type": "timeseries", "title": "Replay latency histogram", "gridPos": {"h": 8, "w": 24, "x": 0, "y": 6}, "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "targets": [{"expr": "histogram_quantile(0.95, sum by (le) (rate(trade_execution_replay_latency_ms_bucket[5m])))", "refId": "A"}]}
++  ],
++  "refresh": "30s",
++  "schemaVersion": 39,
++  "title": "Trade Execution P3.3 Autonomy",
++  "uid": "trade-exec-p33-autonomy",
++  "version": 1,
++  "time": {"from": "now-6h", "to": "now"},
++  "timezone": "utc"
++}
+diff -ruN p33ops/monitoring/prometheus_rules_execution_p33_autonomy.yml p33auto/monitoring/prometheus_rules_execution_p33_autonomy.yml
+--- p33ops/monitoring/prometheus_rules_execution_p33_autonomy.yml	1970-01-01 00:00:00.000000000 +0000
++++ p33auto/monitoring/prometheus_rules_execution_p33_autonomy.yml	2026-03-07 06:37:29.531159422 +0000
+@@ -0,0 +1,31 @@
++groups:
++  - name: trade-execution-p33-autonomy
++    interval: 30s
++    rules:
++      - alert: TradeExecutionAutonomyScrubberTriggered
++        expr: trade_execution_autonomy_trigger_checkpoint_scrubber > 0
++        for: 5m
++        labels:
++          severity: warning
++          component: trade-execution
++        annotations:
++          summary: "Health status requests checkpoint scrubber"
++          description: "Autonomy layer marked checkpoint scrubber trigger as active for more than 5 minutes."
++      - alert: TradeExecutionRebuildRetentionGuardHigh
++        expr: trade_execution_rebuild_last_retention_guard_count > 0
++        for: 10m
++        labels:
++          severity: critical
++          component: trade-execution
++        annotations:
++          summary: "Replay rebuild sees retention guard breaches"
++          description: "Rebuild report shows one or more replay checkpoints behind stream retention."
++      - alert: TradeExecutionRetentionGuardQuarantineSpike
++        expr: increase(execution_quarantine_events_total{action="RETENTION_GUARD_QUARANTINED"}[15m]) > 0
++        for: 0m
++        labels:
++          severity: critical
++          component: trade-execution
++        annotations:
++          summary: "Retention-guard quarantine events detected"
++          description: "One or more sid were quarantined because replay checkpoints fell behind Redis stream retention."
+diff -ruN p33ops/runbooks/P33_AUTONOMY_REPLAY.md p33auto/runbooks/P33_AUTONOMY_REPLAY.md
+--- p33ops/runbooks/P33_AUTONOMY_REPLAY.md	1970-01-01 00:00:00.000000000 +0000
++++ p33auto/runbooks/P33_AUTONOMY_REPLAY.md	2026-03-07 06:36:43.618138608 +0000
+@@ -0,0 +1,18 @@
++# P3.3 autonomy: replay / rehydrate
++
++## Что делает слой
++- читает `latest_execution_health.json`
++- автоматически запускает scrubber checkpoint keys
++- при breached retention guard переводит `sid` в quarantine
++- публикует `latest_auto_scrubber.json`
++- обновляет materialized summary `execution_replay_slo_summary_mv`
++
++## Когда включать
++- после стабилизации `P3.3-ops-complete`
++- только при работающем SQL journal mirror
++
++## Что смотреть
++- `/api/health/latest`
++- `/api/rebuild/latest`
++- `/api/autonomy/latest`
++- `latest_replay_slo_summary.json`
+Binary files p33ops/runbooks/server/__pycache__/runbook_server.cpython-313.pyc and p33auto/runbooks/server/__pycache__/runbook_server.cpython-313.pyc differ
+diff -ruN p33ops/runbooks/server/runbook_server.py p33auto/runbooks/server/runbook_server.py
+--- p33ops/runbooks/server/runbook_server.py	2026-03-07 06:23:00.000000000 +0000
++++ p33auto/runbooks/server/runbook_server.py	2026-03-07 06:36:56.298089780 +0000
+@@ -43,7 +43,7 @@
+ <style>body{{font-family:sans-serif;margin:2rem;max-width:1100px}}code{{background:#f4f4f4;padding:.1rem .3rem}}.badge{{padding:.15rem .5rem;border-radius:4px;background:#eee}}.ok{{background:#d1fae5}}.warning{{background:#fef3c7}}.critical{{background:#fee2e2}}</style>
+ </head><body>
+ <h1>Trade Execution Runbooks</h1>
+-<p>Latest health: <span class="badge {badge}">{html.escape(badge)}</span> — <a href="/api/health/latest">Health JSON</a> | <a href="/api/rebuild/latest">Rebuild JSON</a></p>
++<p>Latest health: <span class="badge {badge}">{html.escape(badge)}</span> — <a href="/api/health/latest">Health JSON</a> | <a href="/api/rebuild/latest">Rebuild JSON</a> | <a href="/api/autonomy/latest">Autonomy JSON</a> | <a href="/api/replay-slo/latest">Replay SLO JSON</a></p>
+ <h2>Runbooks</h2><ul>{''.join(items) or '<li>no runbooks found</li>'}</ul>
+ <h2>Reports</h2><ul>{''.join(report_items) or '<li>no reports found</li>'}</ul>
+ <p><code>/healthz</code> returns 200 if the server process is alive.</p>
+@@ -76,6 +76,30 @@
+                 return
+             self.send_error(404, 'rebuild report not found')
+             return
++        if parsed.path == '/api/autonomy/latest':
++            latest = self.report_root / 'latest_auto_scrubber.json'
++            if latest.exists():
++                body = latest.read_bytes()
++                self.send_response(200)
++                self.send_header('Content-Type', 'application/json; charset=utf-8')
++                self.send_header('Content-Length', str(len(body)))
++                self.end_headers()
++                self.wfile.write(body)
++                return
++            self.send_error(404, 'autonomy report not found')
++            return
++        if parsed.path == '/api/replay-slo/latest':
++            latest = self.report_root / 'latest_replay_slo_summary.json'
++            if latest.exists():
++                body = latest.read_bytes()
++                self.send_response(200)
++                self.send_header('Content-Type', 'application/json; charset=utf-8')
++                self.send_header('Content-Length', str(len(body)))
++                self.end_headers()
++                self.wfile.write(body)
++                return
++            self.send_error(404, 'replay slo summary not found')
++            return
+         if parsed.path == '/api/health/latest':
+             latest = self.report_root / 'latest_execution_health.json'
+             if latest.exists():
+Binary files p33ops/scripts/__pycache__/apply_retention_guard_quarantine.cpython-313.pyc and p33auto/scripts/__pycache__/apply_retention_guard_quarantine.cpython-313.pyc differ
+Binary files p33ops/scripts/__pycache__/auto_trigger_checkpoint_scrubber.cpython-313.pyc and p33auto/scripts/__pycache__/auto_trigger_checkpoint_scrubber.cpython-313.pyc differ
+Binary files p33ops/scripts/__pycache__/execution_healthcheck.cpython-313.pyc and p33auto/scripts/__pycache__/execution_healthcheck.cpython-313.pyc differ
+Binary files p33ops/scripts/__pycache__/rebuild_orders_state_from_exec.cpython-313.pyc and p33auto/scripts/__pycache__/rebuild_orders_state_from_exec.cpython-313.pyc differ
+Binary files p33ops/scripts/__pycache__/refresh_execution_replay_slo_summary.cpython-313.pyc and p33auto/scripts/__pycache__/refresh_execution_replay_slo_summary.cpython-313.pyc differ
+Binary files p33ops/scripts/__pycache__/scrub_replay_checkpoints.cpython-313.pyc and p33auto/scripts/__pycache__/scrub_replay_checkpoints.cpython-313.pyc differ
+diff -ruN p33ops/scripts/apply_retention_guard_quarantine.py p33auto/scripts/apply_retention_guard_quarantine.py
+--- p33ops/scripts/apply_retention_guard_quarantine.py	1970-01-01 00:00:00.000000000 +0000
++++ p33auto/scripts/apply_retention_guard_quarantine.py	2026-03-07 06:34:19.595526591 +0000
+@@ -0,0 +1,106 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import time
++from typing import Any, Dict, List
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++try:
++    from services.execution_state_replay import stream_retention_guard_report, rebuild_state_with_fallback
++except Exception:  # pragma: no cover
++    try:
++        from binance_execution.execution_state_replay import stream_retention_guard_report, rebuild_state_with_fallback
++    except Exception:
++        from execution_state_replay import stream_retention_guard_report, rebuild_state_with_fallback  # type: ignore
++
++try:
++    from services.quarantine_ledger import QuarantineLedgerSink
++except Exception:  # pragma: no cover
++    try:
++        from binance_execution.quarantine_ledger import QuarantineLedgerSink
++    except Exception:
++        from quarantine_ledger import QuarantineLedgerSink  # type: ignore
++
++
++def run_policy(
++    redis_client: Any,
++    *,
++    exec_stream: str,
++    checkpoint_prefix: str,
++    state_prefix: str,
++    journal_dsn: str,
++    quarantine_prefix: str,
++    ledger_dsn: str,
++    sample_limit: int,
++    scan_count: int,
++    dry_run: bool,
++) -> Dict[str, Any]:
++    cprefix = checkpoint_prefix.rstrip(':') + ':'
++    qprefix = quarantine_prefix.rstrip(':') + ':'
++    ledger = QuarantineLedgerSink(dsn=ledger_dsn) if ledger_dsn else None
++    guard = stream_retention_guard_report(redis_client, exec_stream=exec_stream, checkpoint_prefix=cprefix, sample_limit=sample_limit)
++    items: List[Dict[str, Any]] = []
++    quarantined = 0
++    for ex in list(guard.get('breached_examples') or []):
++        sid = str(ex.get('sid') or '')
++        checkpoint_id = str(ex.get('checkpoint_id') or '')
++        result = rebuild_state_with_fallback(redis_client, exec_stream=exec_stream, sid=sid, scan_count=scan_count, checkpoint_id=checkpoint_id, sql_dsn=journal_dsn)
++        if result.source == 'stream' and result.state_doc:
++            items.append({'sid': sid, 'action': 'skip_stream_recovered'})
++            continue
++        state_doc = dict(result.state_doc or {})
++        payload = dict(state_doc)
++        payload.update({'sid': sid, 'quarantine_reason': 'retention_guard_breach', 'retention_guard': ex, 'rehydrate_source': result.source})
++        items.append({'sid': sid, 'action': 'quarantine', 'source': result.source})
++        if not dry_run:
++            redis_client.set(f'{qprefix}{sid}', json.dumps(payload, ensure_ascii=False, default=str))
++            redis_client.sadd(f'{qprefix}sids', sid)
++            redis_client.xadd(f'{qprefix}events', {'sid': sid, 'event': 'RETENTION_GUARD_QUARANTINED', 'ts_ms': str(int(time.time()*1000))}, maxlen=10000, approximate=True)
++            if ledger is not None:
++                try:
++                    ledger.record_quarantine_event({
++                        'sid': sid,
++                        'symbol': str(payload.get('symbol') or ''),
++                        'action': 'RETENTION_GUARD_QUARANTINED',
++                        'severity': 'critical',
++                        'reason': 'retention_guard_breach',
++                        'source': 'retention_guard_policy',
++                        'quarantine_key': f'{qprefix}{sid}',
++                        'state': payload,
++                    })
++                except Exception:
++                    pass
++            quarantined += 1
++    return {'checked': int(guard.get('checked_checkpoint_keys') or 0), 'breached': int(guard.get('breached_checkpoints') or 0), 'quarantined': quarantined, 'items': items}
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description='Quarantine SIDs whose replay checkpoint fell behind Redis stream retention.')
++    parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
++    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', 'orders:exec'))
++    parser.add_argument('--checkpoint-prefix', default=os.getenv('EXEC_REPLAY_CHECKPOINT_KEY_PREFIX', 'orders:exec:replay:cursor:'))
++    parser.add_argument('--state-prefix', default=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'))
++    parser.add_argument('--journal-dsn', default=os.getenv('EXECUTION_JOURNAL_DSN', ''))
++    parser.add_argument('--quarantine-prefix', default=os.getenv('ORDERS_QUARANTINE_PREFIX', 'orders:quarantine:state:'))
++    parser.add_argument('--ledger-dsn', default=os.getenv('EXECUTION_QUARANTINE_LEDGER_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')))
++    parser.add_argument('--sample-limit', type=int, default=int(os.getenv('EXEC_REPLAY_RETENTION_GUARD_SAMPLE_LIMIT', '2000')))
++    parser.add_argument('--scan-count', type=int, default=int(os.getenv('EXEC_REPLAY_SCAN_COUNT', '20000')))
++    parser.add_argument('--dry-run', action='store_true')
++    args = parser.parse_args()
++    if redis is None:
++        raise RuntimeError('redis package required')
++    r = redis.from_url(args.redis_url, decode_responses=True)
++    report = run_policy(r, exec_stream=args.exec_stream, checkpoint_prefix=args.checkpoint_prefix, state_prefix=args.state_prefix, journal_dsn=args.journal_dsn, quarantine_prefix=args.quarantine_prefix, ledger_dsn=args.ledger_dsn, sample_limit=args.sample_limit, scan_count=args.scan_count, dry_run=bool(args.dry_run))
++    print(json.dumps(report, ensure_ascii=False, indent=2))
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+diff -ruN p33ops/scripts/auto_trigger_checkpoint_scrubber.py p33auto/scripts/auto_trigger_checkpoint_scrubber.py
+--- p33ops/scripts/auto_trigger_checkpoint_scrubber.py	1970-01-01 00:00:00.000000000 +0000
++++ p33auto/scripts/auto_trigger_checkpoint_scrubber.py	2026-03-07 06:34:19.541241623 +0000
+@@ -0,0 +1,93 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import sys
++import time
++from pathlib import Path
++from typing import Any, Dict, Optional
++
++SCRIPT_DIR = Path(__file__).resolve().parent
++if str(SCRIPT_DIR) not in sys.path:
++    sys.path.insert(0, str(SCRIPT_DIR))
++
++import scrub_replay_checkpoints as scrubber
++try:
++    import apply_retention_guard_quarantine as retention_quarantine
++except Exception:  # pragma: no cover
++    retention_quarantine = None
++
++
++def should_trigger(report: Dict[str, Any], *, trigger_on_warning: bool = True) -> Dict[str, Any]:
++    overall = str(report.get('overall_status') or 'unknown')
++    consistency = dict(report.get('consistency') or {})
++    retention = dict(report.get('retention_guard') or {})
++    reasons = []
++    if overall == 'critical':
++        reasons.append('overall_critical')
++    elif trigger_on_warning and overall == 'warning':
++        reasons.append('overall_warning')
++    if int(retention.get('breached_checkpoints') or 0) > 0:
++        reasons.append('retention_guard_breached')
++    if int(consistency.get('critical_mismatches') or 0) > 0:
++        reasons.append('critical_mismatches')
++    return {'trigger': bool(reasons), 'reasons': reasons}
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description='Trigger replay checkpoint scrubber automatically from health report.')
++    parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
++    parser.add_argument('--journal-dsn', default=os.getenv('EXECUTION_JOURNAL_DSN', ''))
++    parser.add_argument('--health-report', default=os.getenv('EXECUTION_HEALTH_REPORT_PATH', os.path.join(os.getenv('RUNBOOK_REPORT_DIR', '/var/lib/trade-runbook/reports'), 'latest_execution_health.json')))
++    parser.add_argument('--report-dir', default=os.getenv('RUNBOOK_REPORT_DIR', '/var/lib/trade-runbook/reports'))
++    parser.add_argument('--trigger-on-warning', action='store_true', default=os.getenv('EXEC_AUTONOMY_TRIGGER_ON_WARNING', '1') != '0')
++    parser.add_argument('--apply-retention-quarantine', action='store_true', default=os.getenv('EXEC_RETENTION_GUARD_QUARANTINE_ENABLE', '1') != '0')
++    args = parser.parse_args()
++
++    import redis  # type: ignore
++    r = redis.from_url(args.redis_url, decode_responses=True)
++    health_path = Path(args.health_report)
++    report = json.loads(health_path.read_text(encoding='utf-8')) if health_path.exists() else {}
++    decision = should_trigger(report, trigger_on_warning=bool(args.trigger_on_warning))
++    out: Dict[str, Any] = {
++        'checked_at_ms': int(time.time() * 1000),
++        'health_report': str(health_path),
++        'decision': decision,
++        'scrub_report': None,
++        'retention_quarantine_report': None,
++    }
++    if decision['trigger']:
++        out['scrub_report'] = scrubber.run_scrub(
++            r,
++            exec_stream=os.getenv('EXEC_STREAM', 'orders:exec'),
++            checkpoint_prefix=os.getenv('EXEC_REPLAY_CHECKPOINT_KEY_PREFIX', 'orders:exec:replay:cursor:'),
++            state_prefix=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'),
++            journal_dsn=args.journal_dsn,
++            scan_count=int(os.getenv('EXEC_REPLAY_SCAN_COUNT', '20000')),
++            sample_limit=int(os.getenv('EXEC_REPLAY_CHECKPOINT_SCRUB_SAMPLE_LIMIT', '5000')),
++            dry_run=False,
++        )
++        if args.apply_retention_quarantine and retention_quarantine is not None and 'retention_guard_breached' in decision['reasons']:
++            out['retention_quarantine_report'] = retention_quarantine.run_policy(
++                r,
++                exec_stream=os.getenv('EXEC_STREAM', 'orders:exec'),
++                checkpoint_prefix=os.getenv('EXEC_REPLAY_CHECKPOINT_KEY_PREFIX', 'orders:exec:replay:cursor:'),
++                state_prefix=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'),
++                journal_dsn=args.journal_dsn,
++                quarantine_prefix=os.getenv('ORDERS_QUARANTINE_PREFIX', 'orders:quarantine:state:'),
++                ledger_dsn=os.getenv('EXECUTION_QUARANTINE_LEDGER_DSN', args.journal_dsn),
++                sample_limit=int(os.getenv('EXEC_REPLAY_RETENTION_GUARD_SAMPLE_LIMIT', '2000')),
++                scan_count=int(os.getenv('EXEC_REPLAY_SCAN_COUNT', '20000')),
++                dry_run=False,
++            )
++    out_path = Path(args.report_dir) / 'latest_auto_scrubber.json'
++    out_path.parent.mkdir(parents=True, exist_ok=True)
++    out_path.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding='utf-8')
++    print(json.dumps(out, ensure_ascii=False, indent=2))
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+diff -ruN p33ops/scripts/execution_healthcheck.py p33auto/scripts/execution_healthcheck.py
+--- p33ops/scripts/execution_healthcheck.py	2026-03-07 06:24:21.000000000 +0000
++++ p33auto/scripts/execution_healthcheck.py	2026-03-07 06:35:07.042119680 +0000
+@@ -52,9 +52,33 @@
+     }
+ 
+ 
++def build_autonomy_recommendations(report: Dict[str, Any]) -> Dict[str, Any]:
++    consistency_doc = dict(report.get('consistency') or {})
++    retention = dict(report.get('retention_guard') or {})
++    overall = str(report.get('overall_status') or 'unknown')
++    trigger_scrubber = bool(
++        overall in {'warning', 'critical'}
++        or int(retention.get('breached_checkpoints') or 0) > 0
++        or int(consistency_doc.get('critical_mismatches') or 0) > 0
++    )
++    trigger_retention_quarantine = bool(int(retention.get('breached_checkpoints') or 0) > 0)
++    return {
++        'trigger_checkpoint_scrubber': trigger_scrubber,
++        'trigger_retention_guard_quarantine': trigger_retention_quarantine,
++        'reasons': [
++            reason for reason, flag in {
++                'overall_not_ok': overall in {'warning', 'critical'},
++                'retention_guard_breached': int(retention.get('breached_checkpoints') or 0) > 0,
++                'critical_mismatches': int(consistency_doc.get('critical_mismatches') or 0) > 0,
++            }.items() if flag
++        ],
++    }
++
++
+ def render_prometheus_textfile(report: Dict[str, Any]) -> str:
+     consistency_doc = dict(report.get('consistency') or {})
+     user_stream = dict(report.get('user_stream') or {})
++    autonomy = dict(report.get('autonomy_recommendations') or {})
+     status = str(report.get('overall_status') or 'unknown')
+     code_map = {'ok': 0, 'warning': 1, 'critical': 2}
+     lines = [
+@@ -77,6 +101,8 @@
+         'trade_execution_user_stream_keys_checked': int(user_stream.get('keys_checked') or 0),
+         'trade_execution_user_stream_stale': 1 if user_stream.get('is_stale') else 0,
+         'trade_execution_replay_retention_guard_breached': int((report.get('retention_guard') or {}).get('breached_checkpoints') or 0),
++        'trade_execution_autonomy_trigger_checkpoint_scrubber': 1 if autonomy.get('trigger_checkpoint_scrubber') else 0,
++        'trade_execution_autonomy_trigger_retention_quarantine': 1 if autonomy.get('trigger_retention_guard_quarantine') else 0,
+         'trade_execution_health_checked_at_ms': int(report.get('checked_at_ms') or 0),
+     }
+     for name, value in metric_pairs.items():
+@@ -127,6 +153,7 @@
+         'retention_guard': retention_guard,
+         'overall_status': 'critical' if summary.critical_mismatches > 0 or int(retention_guard.get('breached_checkpoints') or 0) > 0 else ('warning' if summary.warning_mismatches > 0 or freshness['is_stale'] else 'ok'),
+     }
++    report['autonomy_recommendations'] = build_autonomy_recommendations(report)
+     report_dir = Path(args.report_dir)
+     report_dir.mkdir(parents=True, exist_ok=True)
+     latest = report_dir / 'latest_execution_health.json'
+diff -ruN p33ops/scripts/rebuild_orders_state_from_exec.py p33auto/scripts/rebuild_orders_state_from_exec.py
+--- p33ops/scripts/rebuild_orders_state_from_exec.py	2026-03-07 06:24:21.000000000 +0000
++++ p33auto/scripts/rebuild_orders_state_from_exec.py	2026-03-07 06:35:07.050471129 +0000
+@@ -4,9 +4,9 @@
+ import argparse
+ import json
+ import os
++import time
+ from pathlib import Path
+ from typing import Any, Dict, List
+-import time
+ 
+ try:
+     import redis  # type: ignore
+@@ -22,8 +22,26 @@
+         from execution_state_replay import rebuild_state_with_fallback, persist_state_snapshot  # type: ignore
+ 
+ 
++def render_prometheus_textfile(report: Dict[str, Any]) -> str:
++    status_code = 0 if int(report.get('rebuilt_count') or 0) == int(report.get('items_total') or 0) else 1
++    pairs = {
++        'trade_execution_rebuild_last_status_code': status_code,
++        'trade_execution_rebuild_last_items_total': int(report.get('items_total') or 0),
++        'trade_execution_rebuild_last_rebuilt_count': int(report.get('rebuilt_count') or 0),
++        'trade_execution_rebuild_last_truncated_count': int(report.get('truncated_count') or 0),
++        'trade_execution_rebuild_last_retention_guard_count': int(report.get('retention_guard_count') or 0),
++        'trade_execution_rebuild_last_replay_latency_p95_ms': int(report.get('replay_latency_p95_ms') or 0),
++        'trade_execution_rebuild_last_checked_at_ms': int(report.get('checked_at_ms') or 0),
++    }
++    lines = []
++    for name, value in pairs.items():
++        lines.append(f'# TYPE {name} gauge')
++        lines.append(f'{name} {value}')
++    return '\n'.join(lines) + '\n'
++
++
+ def main() -> int:
+-    parser = argparse.ArgumentParser(description='Rebuild orders:state:* materialized views from orders:exec stream.')
++    parser = argparse.ArgumentParser(description='Rebuild orders:state:* materialized view from orders:exec.')
+     parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
+     parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', 'orders:exec'))
+     parser.add_argument('--state-prefix', default=(os.getenv('ORDERS_STATE_KEY_PREFIX') or 'orders:state:'))
+@@ -34,6 +52,7 @@
+     parser.add_argument('--ttl-sec', type=int, default=int(os.getenv('ORDERS_STATE_TTL_SEC', '86400')))
+     parser.add_argument('--dry-run', action='store_true')
+     parser.add_argument('--report-dir', default=os.getenv('RUNBOOK_REPORT_DIR', '/var/lib/trade-runbook/reports'))
++    parser.add_argument('--textfile-output', default=os.getenv('EXEC_REBUILD_TEXTFILE_PATH', ''))
+     args = parser.parse_args()
+     if redis is None:
+         raise RuntimeError('redis package required')
+@@ -112,6 +131,9 @@
+     report_dir = Path(args.report_dir)
+     report_dir.mkdir(parents=True, exist_ok=True)
+     (report_dir / 'latest_rebuild_state.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
++    if args.textfile_output:
++        Path(args.textfile_output).parent.mkdir(parents=True, exist_ok=True)
++        Path(args.textfile_output).write_text(render_prometheus_textfile(report), encoding='utf-8')
+     print(json.dumps(report, ensure_ascii=False, indent=2))
+     return 0
+ 
+diff -ruN p33ops/scripts/refresh_execution_replay_slo_summary.py p33auto/scripts/refresh_execution_replay_slo_summary.py
+--- p33ops/scripts/refresh_execution_replay_slo_summary.py	1970-01-01 00:00:00.000000000 +0000
++++ p33auto/scripts/refresh_execution_replay_slo_summary.py	2026-03-07 06:36:43.517532837 +0000
+@@ -0,0 +1,49 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++from pathlib import Path
++
++try:
++    import psycopg  # type: ignore
++except Exception:  # pragma: no cover
++    psycopg = None  # type: ignore
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description='Refresh execution replay/rehydrate SLO materialized summary.')
++    parser.add_argument('--dsn', default=os.getenv('EXECUTION_JOURNAL_DSN', ''))
++    parser.add_argument('--report-dir', default=os.getenv('RUNBOOK_REPORT_DIR', '/var/lib/trade-runbook/reports'))
++    args = parser.parse_args()
++    if not args.dsn or psycopg is None:
++        raise RuntimeError('psycopg + EXECUTION_JOURNAL_DSN required')
++    rows = []
++    with psycopg.connect(args.dsn) as conn:
++        with conn.cursor() as cur:
++            cur.execute('refresh materialized view execution_replay_slo_summary_mv')
++            cur.execute('select window_name, rehydrate_total, rehydrate_stream_total, rehydrate_sql_total, replay_truncated_total, retention_guard_total, replay_mismatch_quarantine_total, retention_guard_quarantine_total, replay_latency_p95_ms from execution_replay_slo_summary_mv order by window_name')
++            for row in cur.fetchall() or []:
++                rows.append({
++                    'window_name': row[0],
++                    'rehydrate_total': int(row[1] or 0),
++                    'rehydrate_stream_total': int(row[2] or 0),
++                    'rehydrate_sql_total': int(row[3] or 0),
++                    'replay_truncated_total': int(row[4] or 0),
++                    'retention_guard_total': int(row[5] or 0),
++                    'replay_mismatch_quarantine_total': int(row[6] or 0),
++                    'retention_guard_quarantine_total': int(row[7] or 0),
++                    'replay_latency_p95_ms': float(row[8] or 0.0),
++                })
++        conn.commit()
++    out = {'items': rows}
++    report_dir = Path(args.report_dir)
++    report_dir.mkdir(parents=True, exist_ok=True)
++    (report_dir / 'latest_replay_slo_summary.json').write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding='utf-8')
++    print(json.dumps(out, ensure_ascii=False, indent=2))
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+diff -ruN p33ops/scripts/scrub_replay_checkpoints.py p33auto/scripts/scrub_replay_checkpoints.py
+--- p33ops/scripts/scrub_replay_checkpoints.py	2026-03-07 06:24:58.000000000 +0000
++++ p33auto/scripts/scrub_replay_checkpoints.py	2026-03-07 06:34:19.532519924 +0000
+@@ -20,35 +20,32 @@
+         from execution_state_replay import rebuild_state_with_fallback, stream_retention_guard_report  # type: ignore
+ 
+ 
+-def main() -> int:
+-    parser = argparse.ArgumentParser(description='Periodic scrubber for replay checkpoint keys.')
+-    parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
+-    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', 'orders:exec'))
+-    parser.add_argument('--checkpoint-prefix', default=os.getenv('EXEC_REPLAY_CHECKPOINT_KEY_PREFIX', 'orders:exec:replay:cursor:'))
+-    parser.add_argument('--state-prefix', default=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'))
+-    parser.add_argument('--journal-dsn', default=os.getenv('EXECUTION_JOURNAL_DSN', ''))
+-    parser.add_argument('--scan-count', type=int, default=int(os.getenv('EXEC_REPLAY_SCAN_COUNT', '20000')))
+-    parser.add_argument('--sample-limit', type=int, default=int(os.getenv('EXEC_REPLAY_CHECKPOINT_SCRUB_SAMPLE_LIMIT', '5000')))
+-    parser.add_argument('--dry-run', action='store_true')
+-    args = parser.parse_args()
+-    if redis is None:
+-        raise RuntimeError('redis package required')
+-    r = redis.from_url(args.redis_url, decode_responses=True)
+-    cprefix = args.checkpoint_prefix.rstrip(':') + ':'
+-    sprefix = args.state_prefix.rstrip(':') + ':'
++def run_scrub(
++    redis_client: Any,
++    *,
++    exec_stream: str,
++    checkpoint_prefix: str,
++    state_prefix: str,
++    journal_dsn: str,
++    scan_count: int,
++    sample_limit: int,
++    dry_run: bool,
++) -> Dict[str, Any]:
++    cprefix = checkpoint_prefix.rstrip(':') + ':'
++    sprefix = state_prefix.rstrip(':') + ':'
+     report: Dict[str, Any] = {
+         'checked': 0,
+         'deleted': 0,
+-        'retention_guard': stream_retention_guard_report(r, exec_stream=args.exec_stream, checkpoint_prefix=cprefix, sample_limit=args.sample_limit),
++        'retention_guard': stream_retention_guard_report(redis_client, exec_stream=exec_stream, checkpoint_prefix=cprefix, sample_limit=sample_limit),
+         'items': [],
+     }
+-    keys = list(r.scan_iter(match=f'{cprefix}*'))[: int(args.sample_limit)]
++    keys = list(redis_client.scan_iter(match=f'{cprefix}*'))[: int(sample_limit)]
+     for key in keys:
+         report['checked'] += 1
+         sid = str(key).split(cprefix, 1)[-1]
+-        state_raw = r.get(f'{sprefix}{sid}')
++        state_raw = redis_client.get(f'{sprefix}{sid}')
+         state_exists = bool(state_raw)
+-        result = rebuild_state_with_fallback(r, exec_stream=args.exec_stream, sid=sid, scan_count=args.scan_count, checkpoint_id=str(r.get(key) or ''), sql_dsn=args.journal_dsn)
++        result = rebuild_state_with_fallback(redis_client, exec_stream=exec_stream, sid=sid, scan_count=scan_count, checkpoint_id=str(redis_client.get(key) or ''), sql_dsn=journal_dsn)
+         delete_reason = ''
+         if not state_exists and not result.state_doc:
+             delete_reason = 'orphan_checkpoint'
+@@ -56,9 +53,36 @@
+             delete_reason = 'checkpoint_beyond_stream_retention'
+         if delete_reason:
+             report['items'].append({'sid': sid, 'delete_reason': delete_reason})
+-            if not args.dry_run:
+-                r.delete(key)
++            if not dry_run:
++                redis_client.delete(key)
+                 report['deleted'] += 1
++    return report
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description='Periodic scrubber for replay checkpoint keys.')
++    parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
++    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', 'orders:exec'))
++    parser.add_argument('--checkpoint-prefix', default=os.getenv('EXEC_REPLAY_CHECKPOINT_KEY_PREFIX', 'orders:exec:replay:cursor:'))
++    parser.add_argument('--state-prefix', default=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'))
++    parser.add_argument('--journal-dsn', default=os.getenv('EXECUTION_JOURNAL_DSN', ''))
++    parser.add_argument('--scan-count', type=int, default=int(os.getenv('EXEC_REPLAY_SCAN_COUNT', '20000')))
++    parser.add_argument('--sample-limit', type=int, default=int(os.getenv('EXEC_REPLAY_CHECKPOINT_SCRUB_SAMPLE_LIMIT', '5000')))
++    parser.add_argument('--dry-run', action='store_true')
++    args = parser.parse_args()
++    if redis is None:
++        raise RuntimeError('redis package required')
++    r = redis.from_url(args.redis_url, decode_responses=True)
++    report = run_scrub(
++        r,
++        exec_stream=args.exec_stream,
++        checkpoint_prefix=args.checkpoint_prefix,
++        state_prefix=args.state_prefix,
++        journal_dsn=args.journal_dsn,
++        scan_count=args.scan_count,
++        sample_limit=args.sample_limit,
++        dry_run=bool(args.dry_run),
++    )
+     print(json.dumps(report, ensure_ascii=False, indent=2))
+     return 0
+ 

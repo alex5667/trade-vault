@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/utils/atr_cache.py
+# hypothesis_version: 6.148.10
+
+[0.0, 100, 3600, '15m', '1d', '1h', '1m', '30m', '4h', '5m', 'ATR_REDIS_URL', 'D1', 'H1', 'H4', 'M1', 'M15', 'M30', 'M5', 'age_ms', 'atr', 'atr:*', 'atr_json', 'atr_string', 'atr_tracker', 'atr_val', 'd1', 'h1', 'h4', 'has_ts', 'key', 'lastCloseTime', 'm1', 'm15', 'm30', 'm5', 'na', 'none', 'pttl_ms', 'selected', 'source', 'src', 'ta_last', 'tf', 'tf_mismatch', 'ts', 'ts_ms', 'unknown']

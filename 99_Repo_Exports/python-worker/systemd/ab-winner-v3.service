@@ -1,0 +1,22 @@
+[Unit]
+Description=AB Winner Suggester V3 (LCB Evaluator)
+After=network.target redis.service
+
+[Service]
+Type=simple
+User=alex
+Group=alex
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+Environment="PYTHONPATH=/home/alex/front/trade/scanner_infra/python-worker"
+Environment="AB_STATS_PREFIX=ab_stats:v3"
+Environment="AB_EVENTS_STREAM=events:trades"
+Environment="AB_EVENTS_GROUP=ab_evaluator_group"
+Environment="AB_EVENTS_CONSUMER=ab_evaluator_worker"
+ExecStart=/home/alex/front/trade/scanner_infra/python-worker/.venv/bin/python services/ab_winner_suggester_service_v3.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

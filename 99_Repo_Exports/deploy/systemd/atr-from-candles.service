@@ -1,0 +1,29 @@
+[Unit]
+Description=XAUUSD ATR Calculator from Candles
+Documentation=https://github.com/your-org/scanner_infra
+After=redis.target docker.service
+Wants=redis.target
+
+[Service]
+Type=simple
+User=scanner
+WorkingDirectory=/opt/scanner/python-worker
+Environment="PYTHONUNBUFFERED=1"
+Environment="REDIS_URL=redis://scanner-redis:6379/0"
+Environment="CANDLES_STREAM=candles:data"
+Environment="ATR_GROUP=atr-worker-group"
+Environment="ATR_CONSUMER=atr-worker-1"
+Environment="ATR_PERIOD=14"
+Environment="ATR_SYMBOLS=XAUUSD"
+Environment="ATR_TFS=1m,5m,15m,1d"
+
+ExecStart=/usr/bin/python3 /opt/scanner/python-worker/services/atr_from_candles.py
+
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+

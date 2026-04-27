@@ -1,0 +1,545 @@
+--- /dev/null	2026-04-05 12:45:08.874604515 +0000
++++ orderflow_services/recommendation_action_adapters_v1.py	2026-04-05 12:55:11.215156705 +0000
+@@ -0,0 +1,131 @@
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Any, Dict, Optional, Tuple
++import copy
++import json
++import time
++
++ALLOWED_ACTIONS = {
++    "propose_threshold_canary",
++    "request_calibration_refresh",
++    "freeze_candidate",
++    "unfreeze_candidate",
++}
++
++LOW_RISK_ACTIONS = {
++    "propose_threshold_canary",
++    "request_calibration_refresh",
++    "freeze_candidate",
++    "unfreeze_candidate",
++}
++
++ALLOWED_TARGET_KINDS = {
++    "ml_confirm_cfg",
++    "model_registry_flag",
++    "calibration_job",
++}
++
++REPLAY_REQUIRED_ACTIONS = {
++    "propose_threshold_canary",
++}
++
++
++@dataclass(frozen=True)
++class AdapterResult:
++    ok: bool
++    dry_run: bool
++    action: str
++    target_kind: str
++    target_ref: str
++    before_json: str
++    after_json: str
++    patch_json: str
++    rollback_json: str
++    reason_code: str = "OK"
++
++
++def stable_json(obj: Any) -> str:
++    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++def _to_float(v: Any) -> Optional[float]:
++    try:
++        x = float(v)
++        if x != x:
++            return None
++        return x
++    except Exception:
++        return None
++
++
++def _bounded_threshold_change(current: float, proposed: float, max_delta: float, floor: float, ceil: float) -> Tuple[bool, float, str]:
++    if proposed < floor or proposed > ceil:
++        return False, current, "THRESHOLD_OUT_OF_BOUNDS"
++    if abs(proposed - current) > max_delta:
++        return False, current, "THRESHOLD_DELTA_TOO_LARGE"
++    return True, proposed, "OK"
++
++
++def apply_recommendation_adapter(
++    *,
++    action_type: str,
++    target_kind: str,
++    target_ref: str,
++    recommendation_json: Dict[str, Any],
++    current_state: Dict[str, Any],
++    dry_run: bool,
++    max_threshold_delta: float = 0.03,
++    threshold_floor: float = 0.0,
++    threshold_ceil: float = 1.0,
++) -> AdapterResult:
++    action_type = str(action_type or "")
++    target_kind = str(target_kind or "")
++    target_ref = str(target_ref or "")
++    rec = copy.deepcopy(recommendation_json or {})
++    before = copy.deepcopy(current_state or {})
++    after = copy.deepcopy(before)
++
++    if action_type not in ALLOWED_ACTIONS:
++        return AdapterResult(False, dry_run, action_type, target_kind, target_ref, stable_json(before), stable_json(after), stable_json({}), stable_json({}), "ACTION_NOT_ALLOWED")
++    if action_type not in LOW_RISK_ACTIONS:
++        return AdapterResult(False, dry_run, action_type, target_kind, target_ref, stable_json(before), stable_json(after), stable_json({}), stable_json({}), "ACTION_NOT_LOW_RISK")
++    if target_kind not in ALLOWED_TARGET_KINDS:
++        return AdapterResult(False, dry_run, action_type, target_kind, target_ref, stable_json(before), stable_json(after), stable_json({}), stable_json({}), "TARGET_KIND_NOT_ALLOWED")
++
++    patch: Dict[str, Any] = {}
++
++    if action_type == "freeze_candidate":
++        after["promotion_state"] = "FROZEN"
++        patch = {"promotion_state": "FROZEN"}
++    elif action_type == "unfreeze_candidate":
++        after["promotion_state"] = "SHADOW"
++        patch = {"promotion_state": "SHADOW"}
++    elif action_type == "request_calibration_refresh":
++        after["calibration_refresh_requested"] = 1
++        after["calibration_refresh_requested_at_ms"] = int(time.time() * 1000)
++        patch = {
++            "calibration_refresh_requested": 1,
++            "calibration_refresh_requested_at_ms": after["calibration_refresh_requested_at_ms"],
++        }
++    elif action_type == "propose_threshold_canary":
++        current = _to_float(before.get("p_min"))
++        proposed = _to_float(rec.get("to"))
++        if current is None or proposed is None:
++            return AdapterResult(False, dry_run, action_type, target_kind, target_ref, stable_json(before), stable_json(after), stable_json({}), stable_json({}), "THRESHOLD_FIELDS_MISSING")
++        ok, bounded, reason = _bounded_threshold_change(current, proposed, max_threshold_delta, threshold_floor, threshold_ceil)
++        if not ok:
++            return AdapterResult(False, dry_run, action_type, target_kind, target_ref, stable_json(before), stable_json(after), stable_json({}), stable_json({}), reason)
++        after["p_min_canary"] = bounded
++        after["canary_enabled"] = 1
++        patch = {"p_min_canary": bounded, "canary_enabled": 1}
++    else:
++        return AdapterResult(False, dry_run, action_type, target_kind, target_ref, stable_json(before), stable_json(after), stable_json({}), stable_json({}), "ACTION_NOT_IMPLEMENTED")
++
++    rollback = {
++        "action_type": action_type,
++        "target_kind": target_kind,
++        "target_ref": target_ref,
++        "before": before,
++    }
++    return AdapterResult(True, dry_run, action_type, target_kind, target_ref, stable_json(before), stable_json(after), stable_json(patch), stable_json(rollback), "OK")
+--- /dev/null	2026-04-05 12:45:08.874604515 +0000
++++ orderflow_services/ml_recommendation_executor_v1.py	2026-04-05 12:55:11.222176237 +0000
+@@ -0,0 +1,229 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, Optional
++
++try:
++    import redis.asyncio as redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++from prometheus_client import Counter, Gauge, start_http_server
++
++from recommendation_action_adapters_v1 import (
++    ALLOWED_ACTIONS,
++    REPLAY_REQUIRED_ACTIONS,
++    apply_recommendation_adapter,
++    stable_json,
++)
++
++APPLY_REQ_STREAM = os.getenv("ML_RECOMMENDATION_APPLY_REQUESTS_STREAM", "stream:ml:recommendation_apply_requests")
++APPLY_RESULTS_STREAM = os.getenv("ML_RECOMMENDATION_APPLY_RESULTS_STREAM", "stream:ml:recommendation_apply_results")
++AUDIT_STREAM = os.getenv("ML_RECOMMENDATION_AUDIT_STREAM", "stream:ml:recommendation_audit")
++ROLLBACK_STREAM = os.getenv("ML_RECOMMENDATION_ROLLBACK_STREAM", "stream:ml:recommendation_rollback_journal")
++ROLLBACK_REQ_STREAM = os.getenv("ML_RECOMMENDATION_ROLLBACK_REQUESTS_STREAM", "stream:ml:recommendation_rollback_requests")
++GROUP = os.getenv("ML_RECOMMENDATION_EXECUTOR_GROUP", "cg:ml_recommendation_executor_v1")
++CONSUMER = os.getenv("HOSTNAME", "ml-recommendation-executor-v1")
++STATE_PREFIX = os.getenv("ML_RECOMMENDATION_EXECUTOR_STATE_PREFIX", "state:ml:target")
++MODE = os.getenv("ML_RECOMMENDATION_EXECUTOR_MODE", "DRY_RUN").upper()
++
++EXECUTOR_UP = Gauge("ml_recommendation_executor_up", "Executor up")
++EXECUTOR_LAST_RUN = Gauge("ml_recommendation_executor_last_run_ts_seconds", "Last executor loop")
++EXECUTOR_APPLY_TOTAL = Counter("ml_recommendation_executor_apply_total", "Apply decisions", ["status", "mode", "action_type"])
++EXECUTOR_ROLLBACK_TOTAL = Counter("ml_recommendation_executor_rollback_total", "Rollback decisions", ["status", "action_type"])
++
++
++@dataclass
++class ApplyDecision:
++    ok: bool
++    status: str
++    reason_code: str
++    result_payload: Dict[str, Any]
++
++
++def _decode(fields: Dict[Any, Any]) -> Dict[str, str]:
++    out: Dict[str, str] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        vv = v.decode() if isinstance(v, (bytes, bytearray)) else str(v)
++        out[kk] = vv
++    return out
++
++
++def _json(v: Any, default: Any) -> Any:
++    if v in (None, "", b""):
++        return default
++    try:
++        if isinstance(v, (bytes, bytearray)):
++            v = v.decode()
++        if isinstance(v, str):
++            return json.loads(v)
++        return v
++    except Exception:
++        return default
++
++
++def state_key(target_kind: str, target_ref: str) -> str:
++    return f"{STATE_PREFIX}:{target_kind}:{target_ref}"
++
++
++def evaluate_apply_request(payload: Dict[str, Any], current_state: Dict[str, Any], *, mode: str = MODE) -> ApplyDecision:
++    action_type = str(payload.get("action_type", ""))
++    replay_status = str(payload.get("replay_status", "UNKNOWN")).upper()
++    approval_status = str(payload.get("approval_status", "PENDING")).upper()
++    recommendation_json = _json(payload.get("recommendation_json", {}), {})
++    target_kind = str(payload.get("target_kind", ""))
++    target_ref = str(payload.get("target_ref", ""))
++
++    if action_type not in ALLOWED_ACTIONS:
++        return ApplyDecision(False, "BLOCKED", "ACTION_NOT_ALLOWED", {"action_type": action_type})
++    if approval_status != "APPROVED":
++        return ApplyDecision(False, "BLOCKED", "NOT_APPROVED", {"action_type": action_type})
++    if action_type in REPLAY_REQUIRED_ACTIONS and replay_status != "PASS":
++        return ApplyDecision(False, "BLOCKED", "REPLAY_REQUIRED", {"action_type": action_type, "replay_status": replay_status})
++
++    dry_run = mode != "COMMIT"
++    result = apply_recommendation_adapter(
++        action_type=action_type,
++        target_kind=target_kind,
++        target_ref=target_ref,
++        recommendation_json=recommendation_json,
++        current_state=current_state,
++        dry_run=dry_run,
++    )
++    status = "APPLIED" if (result.ok and not dry_run) else ("DRY_RUN" if result.ok else "BLOCKED")
++    return ApplyDecision(result.ok, status, result.reason_code, {
++        "action_type": action_type,
++        "target_kind": target_kind,
++        "target_ref": target_ref,
++        "dry_run": dry_run,
++        "before_json": result.before_json,
++        "after_json": result.after_json,
++        "patch_json": result.patch_json,
++        "rollback_json": result.rollback_json,
++        "reason_code": result.reason_code,
++    })
++
++
++def evaluate_rollback_request(payload: Dict[str, Any], current_state: Dict[str, Any], *, mode: str = MODE) -> ApplyDecision:
++    rollback_json = _json(payload.get("rollback_json", {}), {})
++    if not rollback_json or "before" not in rollback_json:
++        return ApplyDecision(False, "BLOCKED", "ROLLBACK_PAYLOAD_INVALID", {})
++    action_type = str(rollback_json.get("action_type", "rollback"))
++    target_kind = str(rollback_json.get("target_kind", payload.get("target_kind", "")))
++    target_ref = str(rollback_json.get("target_ref", payload.get("target_ref", "")))
++    before = rollback_json.get("before", {})
++    status = "ROLLED_BACK" if mode == "COMMIT" else "DRY_RUN"
++    return ApplyDecision(True, status, "OK", {
++        "action_type": action_type,
++        "target_kind": target_kind,
++        "target_ref": target_ref,
++        "dry_run": mode != "COMMIT",
++        "before_json": stable_json(current_state),
++        "after_json": stable_json(before),
++        "patch_json": stable_json(before),
++        "rollback_json": stable_json(rollback_json),
++        "reason_code": "OK",
++    })
++
++
++async def _process_apply(redis_cli: Any, msg_id: str, payload: Dict[str, str]) -> None:
++    target_kind = payload.get("target_kind", "")
++    target_ref = payload.get("target_ref", "")
++    key = state_key(target_kind, target_ref)
++    current_state = _json(await redis_cli.get(key), {})
++    decision = evaluate_apply_request(payload, current_state, mode=MODE)
++    action_type = payload.get("action_type", "")
++    EXECUTOR_APPLY_TOTAL.labels(status=decision.status, mode=MODE, action_type=action_type).inc()
++    out = {
++        "schema_version": 1,
++        "ts_ms": int(time.time() * 1000),
++        "request_id": payload.get("request_id", msg_id),
++        "recommendation_id": payload.get("recommendation_id", ""),
++        "status": decision.status,
++        "reason_code": decision.reason_code,
++        **{k: stable_json(v) if isinstance(v, (dict, list)) else v for k, v in decision.result_payload.items()},
++    }
++    if decision.ok and MODE == "COMMIT":
++        await redis_cli.set(key, decision.result_payload.get("after_json", "{}"))
++        await redis_cli.xadd(ROLLBACK_STREAM, {
++            "schema_version": 1,
++            "ts_ms": int(time.time() * 1000),
++            "recommendation_id": payload.get("recommendation_id", ""),
++            "request_id": payload.get("request_id", msg_id),
++            "action_type": action_type,
++            "target_kind": target_kind,
++            "target_ref": target_ref,
++            "rollback_json": decision.result_payload.get("rollback_json", "{}"),
++        }, maxlen=200000, approximate=True)
++    await redis_cli.xadd(APPLY_RESULTS_STREAM, out, maxlen=200000, approximate=True)
++    await redis_cli.xadd(AUDIT_STREAM, {
++        "schema_version": 1,
++        "ts_ms": int(time.time() * 1000),
++        "event": "apply_decision",
++        "recommendation_id": payload.get("recommendation_id", ""),
++        "request_id": payload.get("request_id", msg_id),
++        "status": decision.status,
++        "reason_code": decision.reason_code,
++        "action_type": action_type,
++    }, maxlen=200000, approximate=True)
++
++
++async def _process_rollback(redis_cli: Any, msg_id: str, payload: Dict[str, str]) -> None:
++    target_kind = payload.get("target_kind", "")
++    target_ref = payload.get("target_ref", "")
++    key = state_key(target_kind, target_ref)
++    current_state = _json(await redis_cli.get(key), {})
++    decision = evaluate_rollback_request(payload, current_state, mode=MODE)
++    action_type = payload.get("action_type", "rollback")
++    EXECUTOR_ROLLBACK_TOTAL.labels(status=decision.status, action_type=action_type).inc()
++    if decision.ok and MODE == "COMMIT":
++        await redis_cli.set(key, decision.result_payload.get("after_json", "{}"))
++    await redis_cli.xadd(AUDIT_STREAM, {
++        "schema_version": 1,
++        "ts_ms": int(time.time() * 1000),
++        "event": "rollback_decision",
++        "request_id": payload.get("request_id", msg_id),
++        "status": decision.status,
++        "reason_code": decision.reason_code,
++        "action_type": action_type,
++    }, maxlen=200000, approximate=True)
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    port = int(os.getenv("ML_RECOMMENDATION_EXECUTOR_METRICS_PORT", "9857"))
++    start_http_server(port)
++    EXECUTOR_UP.set(1)
++    redis_cli = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=False)
++    try:
++        await redis_cli.xgroup_create(APPLY_REQ_STREAM, GROUP, id="0", mkstream=True)
++    except Exception:
++        pass
++    try:
++        await redis_cli.xgroup_create(ROLLBACK_REQ_STREAM, GROUP, id="0", mkstream=True)
++    except Exception:
++        pass
++    while True:
++        EXECUTOR_LAST_RUN.set(time.time())
++        rows = await redis_cli.xreadgroup(GROUP, CONSUMER, {APPLY_REQ_STREAM: ">", ROLLBACK_REQ_STREAM: ">"}, count=100, block=5000)
++        for stream_name, messages in rows:
++            sname = stream_name.decode() if isinstance(stream_name, (bytes, bytearray)) else str(stream_name)
++            for msg_id, fields in messages:
++                payload = _decode(fields)
++                try:
++                    if sname == APPLY_REQ_STREAM:
++                        await _process_apply(redis_cli, msg_id.decode() if isinstance(msg_id, (bytes, bytearray)) else str(msg_id), payload)
++                    else:
++                        await _process_rollback(redis_cli, msg_id.decode() if isinstance(msg_id, (bytes, bytearray)) else str(msg_id), payload)
++                finally:
++                    await redis_cli.xack(sname, GROUP, msg_id)
++
++
++if __name__ == "__main__":  # pragma: no cover
++    import asyncio
++    asyncio.run(main())
+--- /dev/null	2026-04-05 12:45:08.874604515 +0000
++++ orderflow_services/sql/ml_phase1_4_v1.sql	2026-04-05 12:55:11.241910790 +0000
+@@ -0,0 +1,36 @@
++ALTER TABLE IF EXISTS llm_recommendations
++  ADD COLUMN IF NOT EXISTS executor_mode text,
++  ADD COLUMN IF NOT EXISTS executor_status text,
++  ADD COLUMN IF NOT EXISTS executor_reason_code text,
++  ADD COLUMN IF NOT EXISTS applied_at_ms bigint,
++  ADD COLUMN IF NOT EXISTS rollback_available boolean NOT NULL DEFAULT false,
++  ADD COLUMN IF NOT EXISTS rollback_last_request_ms bigint;
++
++CREATE TABLE IF NOT EXISTS llm_recommendation_apply_results (
++  request_id           text PRIMARY KEY,
++  recommendation_id    text,
++  ts_ms                bigint NOT NULL,
++  action_type          text NOT NULL,
++  target_kind          text NOT NULL,
++  target_ref           text NOT NULL,
++  status               text NOT NULL,
++  reason_code          text,
++  dry_run              boolean NOT NULL DEFAULT true,
++  before_json          jsonb,
++  after_json           jsonb,
++  patch_json           jsonb,
++  rollback_json        jsonb
++);
++
++CREATE TABLE IF NOT EXISTS llm_recommendation_rollback_journal (
++  request_id           text PRIMARY KEY,
++  recommendation_id    text,
++  ts_ms                bigint NOT NULL,
++  action_type          text NOT NULL,
++  target_kind          text NOT NULL,
++  target_ref           text NOT NULL,
++  rollback_json        jsonb NOT NULL
++);
++
++CREATE INDEX IF NOT EXISTS idx_llm_recommendation_apply_results_ts ON llm_recommendation_apply_results (ts_ms DESC);
++CREATE INDEX IF NOT EXISTS idx_llm_recommendation_rollback_journal_ts ON llm_recommendation_rollback_journal (ts_ms DESC);
+--- /dev/null	2026-04-05 12:45:08.874604515 +0000
++++ orderflow_services/docker_compose_fragment_ml_phase1_4_v1.yml	2026-04-05 12:55:11.248264995 +0000
+@@ -0,0 +1,10 @@
++services:
++  scanner-ml-recommendation-executor-v1:
++    command: ["python", "-m", "orderflow_services.ml_recommendation_executor_v1"]
++    environment:
++      ML_RECOMMENDATION_EXECUTOR_MODE: ${ML_RECOMMENDATION_EXECUTOR_MODE:-DRY_RUN}
++      ML_RECOMMENDATION_EXECUTOR_METRICS_PORT: 9857
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++    ports:
++      - "9857:9857"
++    restart: unless-stopped
+--- /dev/null	2026-04-05 12:45:08.874604515 +0000
++++ orderflow_services/prometheus_alerts_ml_phase1_4_v1.yml	2026-04-05 12:55:11.254607560 +0000
+@@ -0,0 +1,17 @@
++groups:
++  - name: ml_phase1_4_executor
++    rules:
++      - alert: MLRecommendationExecutorDown
++        expr: ml_recommendation_executor_up == 0
++        for: 5m
++        labels:
++          severity: page
++        annotations:
++          summary: "ML recommendation executor is down"
++      - alert: MLRecommendationExecutorStale
++        expr: time() - ml_recommendation_executor_last_run_ts_seconds > 900
++        for: 10m
++        labels:
++          severity: ticket
++        annotations:
++          summary: "ML recommendation executor stale"
+--- /dev/null	2026-04-05 12:45:08.874604515 +0000
++++ orderflow_services/runbook_ml_phase1_4_v1.md	2026-04-05 12:55:11.260401391 +0000
+@@ -0,0 +1,27 @@
++# Phase 1.4 — Recommendation Executor Adapters
++
++## Purpose
++Limited executor layer for low-risk actions inside scanner_infra.
++
++## Modes
++- `DRY_RUN` (default)
++- `COMMIT`
++
++## Supported actions
++- `propose_threshold_canary`
++- `request_calibration_refresh`
++- `freeze_candidate`
++- `unfreeze_candidate`
++
++## Safety
++- review/apply bus still required
++- threshold changes are bounded
++- replay is mandatory for threshold canary
++- rollback journal is written only on commit
++
++## Smoke checks
++```bash
++redis-cli XREVRANGE stream:ml:recommendation_apply_results + - COUNT 5
++redis-cli XREVRANGE stream:ml:recommendation_rollback_journal + - COUNT 5
++curl -s localhost:9857/metrics | grep '^ml_recommendation_executor_'
++```
+--- /dev/null	2026-04-05 12:45:08.874604515 +0000
++++ orderflow_services/tests/test_recommendation_action_adapters_v1.py	2026-04-05 12:55:11.228147823 +0000
+@@ -0,0 +1,30 @@
++from recommendation_action_adapters_v1 import apply_recommendation_adapter
++
++
++def test_threshold_canary_within_bounds():
++    res = apply_recommendation_adapter(
++        action_type="propose_threshold_canary",
++        target_kind="ml_confirm_cfg",
++        target_ref="edge_stack_v1",
++        recommendation_json={"to": 0.58},
++        current_state={"p_min": 0.60},
++        dry_run=True,
++        max_threshold_delta=0.03,
++    )
++    assert res.ok is True
++    assert '"p_min_canary":0.58' in res.after_json
++    assert '"canary_enabled":1' in res.after_json
++
++
++def test_threshold_canary_rejects_large_delta():
++    res = apply_recommendation_adapter(
++        action_type="propose_threshold_canary",
++        target_kind="ml_confirm_cfg",
++        target_ref="edge_stack_v1",
++        recommendation_json={"to": 0.50},
++        current_state={"p_min": 0.60},
++        dry_run=True,
++        max_threshold_delta=0.03,
++    )
++    assert res.ok is False
++    assert res.reason_code == "THRESHOLD_DELTA_TOO_LARGE"
+--- /dev/null	2026-04-05 12:45:08.874604515 +0000
++++ orderflow_services/tests/test_ml_recommendation_executor_v1.py	2026-04-05 12:55:11.233760954 +0000
+@@ -0,0 +1,41 @@
++from ml_recommendation_executor_v1 import evaluate_apply_request, evaluate_rollback_request
++
++
++def test_apply_requires_replay_for_threshold_canary():
++    payload = {
++        "action_type": "propose_threshold_canary",
++        "target_kind": "ml_confirm_cfg",
++        "target_ref": "edge_stack_v1",
++        "recommendation_json": '{"to":0.58}',
++        "approval_status": "APPROVED",
++        "replay_status": "FAIL",
++    }
++    dec = evaluate_apply_request(payload, {"p_min": 0.60}, mode="DRY_RUN")
++    assert dec.ok is False
++    assert dec.reason_code == "REPLAY_REQUIRED"
++
++
++def test_apply_dry_run_success():
++    payload = {
++        "action_type": "freeze_candidate",
++        "target_kind": "model_registry_flag",
++        "target_ref": "edge_stack_v1_candidate",
++        "recommendation_json": '{}',
++        "approval_status": "APPROVED",
++        "replay_status": "PASS",
++    }
++    dec = evaluate_apply_request(payload, {"promotion_state": "SHADOW"}, mode="DRY_RUN")
++    assert dec.ok is True
++    assert dec.status == "DRY_RUN"
++
++
++def test_rollback_uses_before_state():
++    payload = {
++        "rollback_json": '{"action_type":"freeze_candidate","target_kind":"model_registry_flag","target_ref":"x","before":{"promotion_state":"SHADOW"}}',
++        "target_kind": "model_registry_flag",
++        "target_ref": "x",
++    }
++    dec = evaluate_rollback_request(payload, {"promotion_state": "FROZEN"}, mode="DRY_RUN")
++    assert dec.ok is True
++    assert dec.status == "DRY_RUN"
++    assert '"promotion_state":"SHADOW"' in dec.result_payload["after_json"]

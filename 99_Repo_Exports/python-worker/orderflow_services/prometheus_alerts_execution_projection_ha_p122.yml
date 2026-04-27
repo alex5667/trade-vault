@@ -1,0 +1,36 @@
+groups:
+  - name: execution_projection_ha_p122
+    rules:
+      # P1.2.2: No leader holding the projection lease
+      # Fires if no worker instance reports is_leader=1 for more than 30 seconds.
+      # This means orders:state:{sid} is not being updated — derived cache is frozen.
+      - alert: TradeExecutionProjectionNoLeader
+        expr: max(trade_execution_projection_is_leader) == 0
+        for: 30s
+        labels:
+          severity: critical
+          domain: execution
+          component: execution-projection-worker
+        annotations:
+          summary: "No projection worker holds the leader lease"
+          description: >
+            No execution-projection-worker is currently leader.
+            orders:state:{sid} derived cache will be frozen until a leader is elected.
+            Check Redis key orders:exec:projection:leader and restart the projection worker.
+
+      # P1.2.2: Cluster not ready — leader exists but readyz probe fails
+      # Fires if the readiness gauge (exposed via health endpoint) stays false.
+      # This typically means lag > EXEC_PROJECTION_LAG_READYZ_MAX_MS or stale-writer eviction.
+      - alert: TradeExecutionProjectionClusterNotReady
+        expr: max(trade_execution_projection_is_leader) == 1 and max(trade_execution_projection_lag_ms) > 30000
+        for: 2m
+        labels:
+          severity: warning
+          domain: execution
+          component: execution-projection-worker
+        annotations:
+          summary: "Execution projection worker is leader but lag is too high"
+          description: >
+            The execution-projection-worker holds the leader lease but projection lag
+            exceeds 30s for more than 2 minutes. The readyz probe will return 503.
+            Check orders:exec stream throughput and worker health.

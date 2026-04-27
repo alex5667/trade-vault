@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/bench_ml_confirm_latency.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.1, 0.5, 0.9, 0.95, 0.99, 1000.0, 1000, 2000, 60000, 300000, '+', '-', '--out', '--redis-url', '--stream', '--window-min', '.', '60', 'MISSING', 'ML_BENCH_OUT', 'ML_BENCH_WINDOW_MIN', 'REDIS_URL', '__main__', '_ts_ms', 'abstain', 'abstain_rate', 'allow', 'allow_rate', 'conf', 'err', 'err_rate', 'error', 'latency_ms', 'latency_us', 'metrics:ml_confirm', 'missing', 'missing_n', 'missing_rate', 'n', 'p10', 'p50', 'p90', 'p95', 'p99', 'p_edge', 'qps', 'status', 'timestamp', 'ts', 'ts_ms', 'utf-8', 'w', 'window_min']

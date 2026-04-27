@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/telegram/analytics_reporter.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 1000, ',', '0.05', '0.10', '0.20', '0.60', '1', '3', '300', '50', '60', ':', '=', 'ANALYTICS_SOFT_TOPN', 'ANALYTICS_TG_ENABLE', 'SEM_DEDUP_ALERT_HIGH', 'SEM_DEDUP_ALERT_LOW', 'a', 'bad', 'count', 'default_high', 'default_low', 'disabled', 'downstream_dups', 'dup_drop', 'dup_drop_min_pct', 'dups_now', 'dups_prev', 'high_by_kind', 'high_thr', 'hint', 'hits', 'hits_growth', 'hits_growth_pct', 'hits_now', 'hits_prev', 'impact', 'kind', 'low_by_kind', 'low_thr', 'min_events', 'offenders', 'ok', 'overtight', 'pairs', 'ratio', 'reason', 'sem_dedup_analytics', 'sem_dedup_hits_total', 'sem_dedup_ratio', 'soft_top', 'soft_u16', 'status', 'symbol', 'thresholds', 'top_hits', 'totals', 'true', 'ts_ms', 'type', 'u16', 'undertight', 'unknown', 'utf-8', 'window_s', 'writes', 'yes']

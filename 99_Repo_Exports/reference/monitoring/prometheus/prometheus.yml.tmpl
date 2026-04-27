@@ -1,0 +1,79 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/rules/prometheus_alerts_*.yml
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - trade-alertmanager:9093
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - localhost:9090
+
+  - job_name: blackbox_http
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://trade-grafana:3000/api/health
+          - http://trade-runbooks-web:8082/healthz
+          - http://trade-alertmanager:9093/-/ready
+          - http://trade-prometheus:9090/-/ready
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: trade-blackbox-exporter:9115
+
+  - job_name: blackbox_public
+    metrics_path: /probe
+    params:
+      module: [http_2xx_insecure]
+    static_configs:
+      - targets:
+          - ${PUBLIC_BASE_URL}/grafana/api/health
+          - ${PUBLIC_BASE_URL}/runbooks/healthz
+          - ${PUBLIC_BASE_URL}/alertmanager/-/ready
+          - ${PUBLIC_BASE_URL}/prometheus/-/ready
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: trade-blackbox-exporter:9115
+
+  - job_name: edge_stack_train_p59
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - edge-stack-train-exporter-p59:9813
+
+  - job_name: edge_stack_shadow_p60
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          - edge-stack-shadow-exporter-p60:8012
+
+  - job_name: chatops_metrics
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - chatops-metrics-exporter:9817
+
+  - job_name: monitoring_smoke
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          - monitoring-smoke-exporter:9814

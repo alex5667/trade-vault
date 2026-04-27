@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/geometry/structures.py
+# hypothesis_version: 6.148.10
+
+[1.0, 'daily_high', 'daily_low', 'fvg', 'liquidity', 'order_block', 'pivot_point', 'resistance', 'session_high', 'session_low', 'support', 'weekly_high', 'weekly_low']

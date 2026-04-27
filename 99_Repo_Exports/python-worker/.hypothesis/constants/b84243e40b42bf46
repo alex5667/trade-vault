@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/cache_service.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 2.0, 3.0, 200, 600, 1000, 172800, 86400000, 1000000000, 100000000000, 946684800000, '%Y-%m-%d', '<unprintable>', 'close', 'date', 'down', 'high', 'hlc', 'ignore', 'inf', 'low', 'none', 'pivot', 'pivots', 'r1', 'r2', 's1', 's2', 'ts_ms', 'up', 'utf-8']

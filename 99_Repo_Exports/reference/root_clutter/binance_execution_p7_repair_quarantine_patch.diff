@@ -1,0 +1,1160 @@
+diff -ruN p6bundle/.pytest_cache/.gitignore p7work/.pytest_cache/.gitignore
+--- p6bundle/.pytest_cache/.gitignore	1970-01-01 00:00:00.000000000 +0000
++++ p7work/.pytest_cache/.gitignore	2026-03-06 20:47:14.018101496 +0000
+@@ -0,0 +1,2 @@
++# Created by pytest automatically.
++*
+diff -ruN p6bundle/.pytest_cache/CACHEDIR.TAG p7work/.pytest_cache/CACHEDIR.TAG
+--- p6bundle/.pytest_cache/CACHEDIR.TAG	1970-01-01 00:00:00.000000000 +0000
++++ p7work/.pytest_cache/CACHEDIR.TAG	2026-03-06 20:47:14.018157393 +0000
+@@ -0,0 +1,4 @@
++Signature: 8a477f597d28d172789f06886806bc55
++# This file is a cache directory tag created by pytest.
++# For information about cache directory tags, see:
++#	https://bford.info/cachedir/spec.html
+diff -ruN p6bundle/.pytest_cache/README.md p7work/.pytest_cache/README.md
+--- p6bundle/.pytest_cache/README.md	1970-01-01 00:00:00.000000000 +0000
++++ p7work/.pytest_cache/README.md	2026-03-06 20:47:14.018045847 +0000
+@@ -0,0 +1,8 @@
++# pytest cache directory #
++
++This directory contains data from the pytest's cache plugin,
++which provides the `--lf` and `--ff` options, as well as the `cache` fixture.
++
++**Do not** commit this to version control.
++
++See [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.
+diff -ruN p6bundle/.pytest_cache/v/cache/nodeids p7work/.pytest_cache/v/cache/nodeids
+--- p6bundle/.pytest_cache/v/cache/nodeids	1970-01-01 00:00:00.000000000 +0000
++++ p7work/.pytest_cache/v/cache/nodeids	2026-03-06 20:47:14.018476836 +0000
+@@ -0,0 +1,83 @@
++[
++  "audit_code/risk/test_portfolio_risk_engine_v1.py::test_cluster_exposure_hard_deny",
++  "audit_code/risk/test_portfolio_risk_engine_v1.py::test_force_flatten_on_daily_loss_limit",
++  "audit_code/test_redis_dq_policy_v1.py::test_hard_veto_on_tick_and_timeouts",
++  "audit_code/test_redis_dq_policy_v1.py::test_soft_veto_tightens_without_blocking",
++  "binance_execution/test_backfill_execution_journal_v1.py::test_derive_snapshot_rows_merges_latest_by_sid",
++  "binance_execution/test_backfill_execution_journal_v1.py::test_parse_exec_stream_entry_uses_action_as_default_event_type",
++  "binance_execution/test_binance_account_reporter_p0_v1.py::TestAvailableHistory::test_no_history_returns_none",
++  "binance_execution/test_binance_account_reporter_p0_v1.py::TestAvailableHistory::test_store_and_read_1h_delta",
++  "binance_execution/test_binance_account_reporter_p0_v1.py::TestAvailableHistory::test_store_and_read_24h_delta",
++  "binance_execution/test_binance_account_reporter_p0_v1.py::TestAvailableHistory::test_ttl_cleanup",
++  "binance_execution/test_binance_account_reporter_p0_v1.py::TestBinanceAccountReporterP0::test_fmt_delta",
++  "binance_execution/test_binance_account_reporter_p0_v1.py::TestBinanceAccountReporterP0::test_report_contains_key_fields",
++  "binance_execution/test_binance_account_reporter_p0_v1.py::TestBinanceAccountReporterP0::test_report_with_deltas_block",
++  "binance_execution/test_binance_account_reporter_p0_v1.py::TestBinanceAccountReporterP0::test_report_with_none_deltas",
++  "binance_execution/test_binance_account_reporter_p0_v1.py::TestBinanceAccountReporterP0::test_side_detection",
++  "binance_execution/test_binance_account_reporter_p0_v1.py::TestBinanceAccountReporterP0::test_snapshot_aggregation_and_counts",
++  "binance_execution/test_binance_account_reporter_p0_v1.py::TestBinanceAccountReporterP0::test_snapshot_positions_sorted_by_notional",
++  "binance_execution/test_binance_algo_client_v1.py::test_post_order_routes_algo_and_maps_compat_fields",
++  "binance_execution/test_binance_algo_client_v1.py::test_post_order_routes_plain_market",
++  "binance_execution/test_binance_executor_p1_policy_v1.py::test_place_protective_maker_first_uses_take_profit_limit",
++  "binance_execution/test_binance_executor_p1_policy_v1.py::test_place_protective_safety_first_uses_take_profit_market",
++  "binance_execution/test_binance_executor_p1_policy_v1.py::test_submit_reduce_only_market_exit_uses_plain_order_path",
++  "binance_execution/test_binance_executor_p1_policy_v1.py::test_trailing_activate_price_guard_for_long_exit",
++  "binance_execution/test_binance_executor_p2_state_v1.py::test_resume_open_from_state_returns_terminal_snapshot",
++  "binance_execution/test_binance_executor_p2_state_v1.py::test_transition_state_is_idempotent",
++  "binance_execution/test_binance_executor_p34_journal_v1.py::test_exec_event_and_state_are_mirrored_to_journal",
++  "binance_execution/test_binance_futures_client_p2_v1.py::test_ambiguous_execution_error_detection",
++  "binance_execution/test_binance_futures_client_p2_v1.py::test_user_stream_methods_route_to_listenkey_endpoints",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_classify_binance_insufficient_margin",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_classify_binance_rate_limit",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_classify_binance_timestamp_error",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_classify_binance_unknown_code",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_classify_generic_valueerror",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_classify_network_timeout",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_make_cid_contains_tag",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_make_cid_deterministic",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_make_cid_different_tags",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_make_cid_length",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_round_half_up_normal",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_round_half_up_stable",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_sha1_8_deterministic",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_sha1_8_different",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_sha1_8_len",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_trailing_callback_bps_10",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_trailing_callback_bps_to_pct",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_trailing_callback_clamp_max",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_trailing_callback_clamp_min",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_trailing_callback_explicit_pct_aliases",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_trailing_callback_explicit_pct_rounding",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_trailing_callback_fallback_to_default",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_trailing_callback_from_atr",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_trailing_callback_from_atr_with_mult",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_trailing_callback_priority_pct_over_bps",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_truthy_bool_false",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_truthy_bool_true",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_truthy_float_nonzero",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_truthy_int_nonzero",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_truthy_int_zero",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_truthy_none",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_truthy_string_false",
++  "binance_execution/test_binance_trailing_unit_v1.py::test_truthy_string_true",
++  "binance_execution/test_binance_user_stream_worker_v1.py::test_apply_event_orders_by_event_time",
++  "binance_execution/test_binance_user_stream_worker_v1.py::test_handle_message_caches_algo_event",
++  "binance_execution/test_binance_user_stream_worker_v1.py::test_normalize_order_trade_update",
++  "binance_execution/test_execution_consistency_checker_v1.py::test_compare_execution_views_detects_sql_missing_and_state_mismatch",
++  "binance_execution/test_execution_consistency_checker_v1.py::test_summarise_mismatches_counts_severity",
++  "binance_execution/test_execution_healthcheck_textfile_v1.py::test_render_prometheus_textfile_contains_key_metrics",
++  "binance_execution/test_execution_intent_validator_v1.py::test_algo_close_position_incompatible_with_quantity",
++  "binance_execution/test_execution_intent_validator_v1.py::test_hedge_requires_position_side",
++  "binance_execution/test_execution_intent_validator_v1.py::test_plain_oneway_reduce_only_market_close_is_valid",
++  "binance_execution/test_execution_journal_v1.py::test_record_event_and_snapshot_use_sql_sink",
++  "binance_execution/test_execution_policy_v1.py::test_allowlisted_major_gets_maker_first_when_healthy",
++  "binance_execution/test_execution_policy_v1.py::test_forced_safety_on_infra_degraded",
++  "binance_execution/test_grafana_p7_dashboard_v1.py::test_grafana_p7_dashboard_is_valid_json_and_has_panels",
++  "binance_execution/test_quarantine_inconsistent_sid_v1.py::test_quarantine_sid_writes_copy_and_event",
++  "binance_execution/test_repair_execution_inconsistencies_v1.py::test_build_repair_plan_prefers_redis_and_requests_upsert",
++  "binance_execution/test_repair_execution_inconsistencies_v1.py::test_sql_repair_writer_applies_order_and_refs",
++  "binance_execution/test_rollout_flags_v1.py::test_rollout_flags_defaults",
++  "binance_execution/test_rollout_flags_v1.py::test_rollout_flags_degraded_mode_disables_maker",
++  "binance_execution/test_rollout_flags_v1.py::test_rollout_flags_force_safety",
++  "binance_execution/test_runbook_server_v1.py::test_render_index_shows_runbooks_and_latest_health"
++]
+\ No newline at end of file
+Binary files p6bundle/audit_code/__pycache__/redis_dq_policy.cpython-313.pyc and p7work/audit_code/__pycache__/redis_dq_policy.cpython-313.pyc differ
+Binary files p6bundle/audit_code/__pycache__/test_redis_dq_policy_v1.cpython-313-pytest-9.0.2.pyc and p7work/audit_code/__pycache__/test_redis_dq_policy_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p6bundle/audit_code/risk/__pycache__/portfolio_risk_engine.cpython-313.pyc and p7work/audit_code/risk/__pycache__/portfolio_risk_engine.cpython-313.pyc differ
+Binary files p6bundle/audit_code/risk/__pycache__/test_portfolio_risk_engine_v1.cpython-313-pytest-9.0.2.pyc and p7work/audit_code/risk/__pycache__/test_portfolio_risk_engine_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/binance_account_reporter.cpython-313.pyc and p7work/binance_execution/__pycache__/binance_account_reporter.cpython-313.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/binance_executor.cpython-313.pyc and p7work/binance_execution/__pycache__/binance_executor.cpython-313.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/binance_futures_client.cpython-313.pyc and p7work/binance_execution/__pycache__/binance_futures_client.cpython-313.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/binance_user_stream_worker.cpython-313.pyc and p7work/binance_execution/__pycache__/binance_user_stream_worker.cpython-313.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/execution_intent_validator.cpython-313.pyc and p7work/binance_execution/__pycache__/execution_intent_validator.cpython-313.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/execution_journal.cpython-313.pyc and p7work/binance_execution/__pycache__/execution_journal.cpython-313.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/execution_policy.cpython-313.pyc and p7work/binance_execution/__pycache__/execution_policy.cpython-313.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/rollout_flags.cpython-313.pyc and p7work/binance_execution/__pycache__/rollout_flags.cpython-313.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/test_backfill_execution_journal_v1.cpython-313-pytest-9.0.2.pyc and p7work/binance_execution/__pycache__/test_backfill_execution_journal_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/test_binance_account_reporter_p0_v1.cpython-313-pytest-9.0.2.pyc and p7work/binance_execution/__pycache__/test_binance_account_reporter_p0_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/test_binance_algo_client_v1.cpython-313-pytest-9.0.2.pyc and p7work/binance_execution/__pycache__/test_binance_algo_client_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/test_binance_executor_p1_policy_v1.cpython-313-pytest-9.0.2.pyc and p7work/binance_execution/__pycache__/test_binance_executor_p1_policy_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/test_binance_executor_p2_state_v1.cpython-313-pytest-9.0.2.pyc and p7work/binance_execution/__pycache__/test_binance_executor_p2_state_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/test_binance_executor_p34_journal_v1.cpython-313-pytest-9.0.2.pyc and p7work/binance_execution/__pycache__/test_binance_executor_p34_journal_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/test_binance_futures_client_p2_v1.cpython-313-pytest-9.0.2.pyc and p7work/binance_execution/__pycache__/test_binance_futures_client_p2_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/test_binance_trailing_unit_v1.cpython-313-pytest-9.0.2.pyc and p7work/binance_execution/__pycache__/test_binance_trailing_unit_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/test_binance_user_stream_worker_v1.cpython-313-pytest-9.0.2.pyc and p7work/binance_execution/__pycache__/test_binance_user_stream_worker_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/test_execution_consistency_checker_v1.cpython-313-pytest-9.0.2.pyc and p7work/binance_execution/__pycache__/test_execution_consistency_checker_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/test_execution_healthcheck_textfile_v1.cpython-313-pytest-9.0.2.pyc and p7work/binance_execution/__pycache__/test_execution_healthcheck_textfile_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/test_execution_intent_validator_v1.cpython-313-pytest-9.0.2.pyc and p7work/binance_execution/__pycache__/test_execution_intent_validator_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/test_execution_journal_v1.cpython-313-pytest-9.0.2.pyc and p7work/binance_execution/__pycache__/test_execution_journal_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/test_execution_policy_v1.cpython-313-pytest-9.0.2.pyc and p7work/binance_execution/__pycache__/test_execution_policy_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/test_grafana_p7_dashboard_v1.cpython-313-pytest-9.0.2.pyc and p7work/binance_execution/__pycache__/test_grafana_p7_dashboard_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/test_quarantine_inconsistent_sid_v1.cpython-313-pytest-9.0.2.pyc and p7work/binance_execution/__pycache__/test_quarantine_inconsistent_sid_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/test_repair_execution_inconsistencies_v1.cpython-313-pytest-9.0.2.pyc and p7work/binance_execution/__pycache__/test_repair_execution_inconsistencies_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/test_rollout_flags_v1.cpython-313-pytest-9.0.2.pyc and p7work/binance_execution/__pycache__/test_rollout_flags_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p6bundle/binance_execution/__pycache__/test_runbook_server_v1.cpython-313-pytest-9.0.2.pyc and p7work/binance_execution/__pycache__/test_runbook_server_v1.cpython-313-pytest-9.0.2.pyc differ
+diff -ruN p6bundle/binance_execution/test_execution_healthcheck_textfile_v1.py p7work/binance_execution/test_execution_healthcheck_textfile_v1.py
+--- p6bundle/binance_execution/test_execution_healthcheck_textfile_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p7work/binance_execution/test_execution_healthcheck_textfile_v1.py	2026-03-06 20:46:56.723367148 +0000
+@@ -0,0 +1,36 @@
++from __future__ import annotations
++
++import importlib.util
++import sys
++from pathlib import Path
++
++SCRIPT = Path(__file__).resolve().parent.parent / 'scripts' / 'execution_healthcheck.py'
++SPEC = importlib.util.spec_from_file_location('execution_healthcheck', SCRIPT)
++mod = importlib.util.module_from_spec(SPEC)
++assert SPEC and SPEC.loader
++sys.modules[SPEC.name] = mod
++SPEC.loader.exec_module(mod)
++
++
++def test_render_prometheus_textfile_contains_key_metrics():
++    report = {
++        'checked_at_ms': 123,
++        'overall_status': 'warning',
++        'consistency': {
++            'redis_state_count': 2,
++            'stream_sid_count': 2,
++            'sql_order_count': 1,
++            'mismatches_total': 3,
++            'critical_mismatches': 1,
++            'warning_mismatches': 2,
++        },
++        'user_stream': {
++            'age_ms': 500,
++            'keys_checked': 4,
++            'is_stale': False,
++        },
++    }
++    text = mod.render_prometheus_textfile(report)
++    assert 'trade_execution_health_status_code 1' in text
++    assert 'trade_execution_consistency_critical_mismatches 1' in text
++    assert 'trade_execution_user_stream_age_ms 500' in text
+diff -ruN p6bundle/binance_execution/test_grafana_p7_dashboard_v1.py p7work/binance_execution/test_grafana_p7_dashboard_v1.py
+--- p6bundle/binance_execution/test_grafana_p7_dashboard_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p7work/binance_execution/test_grafana_p7_dashboard_v1.py	2026-03-06 20:46:56.743128721 +0000
+@@ -0,0 +1,11 @@
++from __future__ import annotations
++
++import json
++from pathlib import Path
++
++
++def test_grafana_p7_dashboard_is_valid_json_and_has_panels():
++    path = Path(__file__).resolve().parent.parent / 'monitoring' / 'grafana' / 'dashboards' / 'trade_execution_p7_panels.json'
++    doc = json.loads(path.read_text(encoding='utf-8'))
++    assert doc['title'] == 'Trade Execution P7 Panels'
++    assert len(doc['panels']) >= 4
+diff -ruN p6bundle/binance_execution/test_quarantine_inconsistent_sid_v1.py p7work/binance_execution/test_quarantine_inconsistent_sid_v1.py
+--- p6bundle/binance_execution/test_quarantine_inconsistent_sid_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p7work/binance_execution/test_quarantine_inconsistent_sid_v1.py	2026-03-06 20:46:56.712952733 +0000
+@@ -0,0 +1,71 @@
++from __future__ import annotations
++
++import importlib.util
++import json
++import sys
++from pathlib import Path
++
++SCRIPT = Path(__file__).resolve().parent.parent / 'scripts' / 'quarantine_inconsistent_sid.py'
++SPEC = importlib.util.spec_from_file_location('quarantine_inconsistent_sid', SCRIPT)
++mod = importlib.util.module_from_spec(SPEC)
++assert SPEC and SPEC.loader
++sys.modules[SPEC.name] = mod
++SPEC.loader.exec_module(mod)
++
++
++class _Pipe:
++    def __init__(self, redis_obj):
++        self.redis = redis_obj
++        self.ops = []
++
++    def set(self, key, value):
++        self.ops.append(('set', key, value))
++        return self
++
++    def sadd(self, key, value):
++        self.ops.append(('sadd', key, value))
++        return self
++
++    def xadd(self, key, fields, maxlen=None, approximate=None):
++        self.ops.append(('xadd', key, fields))
++        return self
++
++    def execute(self):
++        for op, key, value in self.ops:
++            if op == 'set':
++                self.redis.kv[key] = value
++            elif op == 'sadd':
++                self.redis.sets.setdefault(key, set()).add(value)
++            elif op == 'xadd':
++                self.redis.streams.setdefault(key, []).append(value)
++        return True
++
++
++class _Redis:
++    def __init__(self):
++        self.kv = {}
++        self.sets = {}
++        self.streams = {}
++
++    def get(self, key):
++        return self.kv.get(key)
++
++    def pipeline(self):
++        return _Pipe(self)
++
++
++def test_quarantine_sid_writes_copy_and_event():
++    r = _Redis()
++    r.kv['orders:state:sid-1'] = json.dumps({'sid': 'sid-1', 'status': 'open'})
++    result = mod.quarantine_sid(
++        r,
++        'sid-1',
++        state_prefix='orders:state:',
++        quarantine_prefix='orders:quarantine:state:',
++        reason='sql_missing',
++    )
++    assert result['applied'] is True
++    assert 'orders:quarantine:state:sid-1' in r.kv
++    assert 'sid-1' in r.sets['orders:quarantine:state:sids']
++    payload = json.loads(r.kv['orders:quarantine:state:sid-1'])
++    assert payload['quarantine_reason'] == 'sql_missing'
+diff -ruN p6bundle/binance_execution/test_repair_execution_inconsistencies_v1.py p7work/binance_execution/test_repair_execution_inconsistencies_v1.py
+--- p6bundle/binance_execution/test_repair_execution_inconsistencies_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p7work/binance_execution/test_repair_execution_inconsistencies_v1.py	2026-03-06 20:46:56.703633428 +0000
+@@ -0,0 +1,75 @@
++from __future__ import annotations
++
++import importlib.util
++import sys
++from pathlib import Path
++
++SCRIPT = Path(__file__).resolve().parent.parent / 'scripts' / 'repair_execution_inconsistencies.py'
++SPEC = importlib.util.spec_from_file_location('repair_execution_inconsistencies', SCRIPT)
++mod = importlib.util.module_from_spec(SPEC)
++assert SPEC and SPEC.loader
++sys.modules[SPEC.name] = mod
++SPEC.loader.exec_module(mod)
++
++
++class _FakeCursor:
++    def __init__(self, sink):
++        self.sink = sink
++
++    def __enter__(self):
++        return self
++
++    def __exit__(self, exc_type, exc, tb):
++        return False
++
++    def execute(self, sql, params):
++        self.sink.append((sql, params))
++
++
++class _FakeConn:
++    def __init__(self):
++        self.statements = []
++
++    def __enter__(self):
++        return self
++
++    def __exit__(self, exc_type, exc, tb):
++        return False
++
++    def cursor(self):
++        return _FakeCursor(self.statements)
++
++
++def test_build_repair_plan_prefers_redis_and_requests_upsert():
++    mismatches = [mod.consistency.ConsistencyMismatch('sid-1', 'critical', 'sql_missing', 'missing')]
++    plan = mod.build_repair_plan(
++        mismatches,
++        {'sid-1': {'sid': 'sid-1', 'symbol': 'BTCUSDT', 'status': 'open', 'fsm_state': 'PROTECTED'}},
++        {},
++        {},
++        {},
++    )
++    assert plan[0]['source'] == 'redis'
++    assert 'upsert_execution_order' in plan[0]['actions']
++
++
++def test_sql_repair_writer_applies_order_and_refs():
++    conn = _FakeConn()
++    writer = mod.SQLRepairWriter(conn)
++    counters = writer.apply([
++        {
++            'sid': 'sid-1',
++            'actions': ['upsert_execution_order', 'sync_protection_refs'],
++            'source_doc': {
++                'sid': 'sid-1',
++                'symbol': 'BTCUSDT',
++                'status': 'open',
++                'fsm_state': 'PROTECTED',
++                'sl_algo_id': 11,
++            },
++            'source_ref_doc': {'sid': 'sid-1', 'symbol': 'BTCUSDT', 'sl_algo_id': 11},
++        }
++    ])
++    assert counters['orders_upserted'] == 1
++    assert counters['refs_synced'] == 1
++    assert len(conn.statements) == 2
+diff -ruN p6bundle/config/docker-compose.execution-p7.override.yml p7work/config/docker-compose.execution-p7.override.yml
+--- p6bundle/config/docker-compose.execution-p7.override.yml	1970-01-01 00:00:00.000000000 +0000
++++ p7work/config/docker-compose.execution-p7.override.yml	2026-03-06 20:45:24.239799752 +0000
+@@ -0,0 +1,42 @@
++version: '3.9'
++
++services:
++  grafana:
++    volumes:
++      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards-json:ro
++
++  trade-runbook-server:
++    environment:
++      - RUNBOOK_ROOT=/srv/runbooks
++      - RUNBOOK_REPORT_DIR=/var/lib/trade-runbook/reports
++    volumes:
++      - ./runbooks:/srv/runbooks:ro
++      - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
++
++  # Optional helper container to run repair tooling on demand.
++  trade-execution-repair:
++    build:
++      context: .
++      dockerfile: python-worker/Dockerfile
++    image: scanner-python-worker:latest
++    profiles: ["ops"]
++    working_dir: /app
++    environment:
++      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
++      - EXEC_STREAM=${EXEC_STREAM:-orders:exec}
++      - EXECUTION_JOURNAL_DSN=${EXECUTION_JOURNAL_DSN:-}
++    command: ["python", "/app/scripts/repair_execution_inconsistencies.py", "--dry-run"]
++
++  trade-execution-quarantine:
++    build:
++      context: .
++      dockerfile: python-worker/Dockerfile
++    image: scanner-python-worker:latest
++    profiles: ["ops"]
++    working_dir: /app
++    environment:
++      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
++      - EXEC_STREAM=${EXEC_STREAM:-orders:exec}
++      - EXECUTION_JOURNAL_DSN=${EXECUTION_JOURNAL_DSN:-}
++      - EXEC_QUARANTINE_MIN_SEVERITY=${EXEC_QUARANTINE_MIN_SEVERITY:-critical}
++    command: ["python", "/app/scripts/quarantine_inconsistent_sid.py", "--dry-run"]
+diff -ruN p6bundle/config/env.execution-p7.example p7work/config/env.execution-p7.example
+--- p6bundle/config/env.execution-p7.example	1970-01-01 00:00:00.000000000 +0000
++++ p7work/config/env.execution-p7.example	2026-03-06 20:45:24.248617439 +0000
+@@ -0,0 +1,10 @@
++# P7 consistency repair / quarantine
++EXEC_QUARANTINE_MIN_SEVERITY=critical
++ORDERS_QUARANTINE_PREFIX=orders:quarantine:state:
++
++# Node exporter textfile collector path for execution healthcheck
++EXEC_HEALTHCHECK_TEXTFILE_PATH=/var/lib/node_exporter/textfile_collector/trade_execution_health.prom
++
++# Repair tooling limits
++EXEC_CONSISTENCY_STREAM_COUNT=20000
++USER_STREAM_STALE_MS=120000
+diff -ruN p6bundle/deploy/systemd/README.md p7work/deploy/systemd/README.md
+--- p6bundle/deploy/systemd/README.md	2026-03-06 20:13:39.000000000 +0000
++++ p7work/deploy/systemd/README.md	2026-03-06 20:45:05.650639771 +0000
+@@ -14,3 +14,19 @@
+ 
+ The healthcheck timer writes JSON reports into `${RUNBOOK_REPORT_DIR}` so the
+ static runbook server can display the latest consistency status.
++
++
++P7 adds optional one-shot operator services:
++
++```bash
++sudo systemctl start trade-execution-repair.service
++sudo systemctl start trade-execution-quarantine.service
++```
++
++If you use the node-exporter textfile collector, set:
++
++```bash
++EXEC_HEALTHCHECK_TEXTFILE_PATH=/var/lib/node_exporter/textfile_collector/trade_execution_health.prom
++```
++
++Then the existing `trade-execution-healthcheck.service` will refresh the metric file on each run.
+diff -ruN p6bundle/deploy/systemd/trade-execution-quarantine.service p7work/deploy/systemd/trade-execution-quarantine.service
+--- p6bundle/deploy/systemd/trade-execution-quarantine.service	1970-01-01 00:00:00.000000000 +0000
++++ p7work/deploy/systemd/trade-execution-quarantine.service	2026-03-06 20:45:04.039023567 +0000
+@@ -0,0 +1,13 @@
++[Unit]
++Description=Trade execution sid quarantine from consistency mismatches
++After=network-online.target
++Wants=network-online.target
++
++[Service]
++Type=oneshot
++User=trade
++Group=trade
++WorkingDirectory=/opt/trade
++EnvironmentFile=-/etc/trade/trade-execution.env
++ExecStart=/usr/bin/python3 /opt/trade/scripts/quarantine_inconsistent_sid.py --severity ${EXEC_QUARANTINE_MIN_SEVERITY:-critical}
++SuccessExitStatus=0
+diff -ruN p6bundle/deploy/systemd/trade-execution-repair.service p7work/deploy/systemd/trade-execution-repair.service
+--- p6bundle/deploy/systemd/trade-execution-repair.service	1970-01-01 00:00:00.000000000 +0000
++++ p7work/deploy/systemd/trade-execution-repair.service	2026-03-06 20:45:04.032161321 +0000
+@@ -0,0 +1,13 @@
++[Unit]
++Description=Trade execution SQL mirror repair from Redis mirrors
++After=network-online.target
++Wants=network-online.target
++
++[Service]
++Type=oneshot
++User=trade
++Group=trade
++WorkingDirectory=/opt/trade
++EnvironmentFile=-/etc/trade/trade-execution.env
++ExecStart=/usr/bin/python3 /opt/trade/scripts/repair_execution_inconsistencies.py
++SuccessExitStatus=0
+diff -ruN p6bundle/monitoring/grafana/dashboards/trade_execution_p7_panels.json p7work/monitoring/grafana/dashboards/trade_execution_p7_panels.json
+--- p6bundle/monitoring/grafana/dashboards/trade_execution_p7_panels.json	1970-01-01 00:00:00.000000000 +0000
++++ p7work/monitoring/grafana/dashboards/trade_execution_p7_panels.json	2026-03-06 20:46:00.138224745 +0000
+@@ -0,0 +1,89 @@
++{
++  "annotations": {"list": []},
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "links": [],
++  "liveNow": false,
++  "panels": [
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
++      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0},
++      "id": 1,
++      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
++      "targets": [{"expr": "trade_execution_health_status_code", "refId": "A"}],
++      "title": "Execution health status code",
++      "type": "stat"
++    },
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
++      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0},
++      "id": 2,
++      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}},
++      "targets": [{"expr": "trade_execution_consistency_critical_mismatches", "legendFormat": "critical", "refId": "A"}, {"expr": "trade_execution_consistency_warning_mismatches", "legendFormat": "warning", "refId": "B"}],
++      "title": "Consistency mismatches",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {"unit": "ms"}, "overrides": []},
++      "gridPos": {"h": 6, "w": 6, "x": 12, "y": 0},
++      "id": 3,
++      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}},
++      "targets": [{"expr": "trade_execution_user_stream_age_ms", "refId": "A"}],
++      "title": "User stream age",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
++      "gridPos": {"h": 6, "w": 6, "x": 18, "y": 0},
++      "id": 4,
++      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}},
++      "targets": [{"expr": "trade_dq_hard_veto_total", "legendFormat": "hard veto", "refId": "A"}, {"expr": "trade_risk_force_flatten_total", "legendFormat": "force flatten", "refId": "B"}],
++      "title": "DQ / risk incident counters",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
++      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 6},
++      "id": 5,
++      "options": {"legend": {"displayMode": "table", "placement": "right"}, "tooltip": {"mode": "multi"}},
++      "targets": [
++        {"expr": "trade_execution_journal_write_fail_total", "legendFormat": "journal write fail", "refId": "A"},
++        {"expr": "execution_emergency_flatten_total", "legendFormat": "emergency flatten", "refId": "B"},
++        {"expr": "execution_reconcile_pending_total", "legendFormat": "reconcile pending", "refId": "C"}
++      ],
++      "title": "Execution incidents",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {"unit": "percentunit"}, "overrides": []},
++      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 6},
++      "id": 6,
++      "options": {"legend": {"displayMode": "table", "placement": "right"}, "tooltip": {"mode": "multi"}},
++      "targets": [
++        {"expr": "trade_portfolio_total_exposure_ratio", "legendFormat": "total exposure", "refId": "A"},
++        {"expr": "trade_portfolio_cluster_exposure_ratio", "legendFormat": "cluster exposure", "refId": "B"}
++      ],
++      "title": "Portfolio exposure ratios",
++      "type": "timeseries"
++    }
++  ],
++  "refresh": "30s",
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": ["trade", "execution", "p7"],
++  "templating": {"list": []},
++  "time": {"from": "now-6h", "to": "now"},
++  "timepicker": {},
++  "timezone": "utc",
++  "title": "Trade Execution P7 Panels",
++  "uid": "trade-exec-p7",
++  "version": 1,
++  "weekStart": ""
++}
+diff -ruN p6bundle/runbooks/CANARY_ROLLOUT_CHECKLIST.md p7work/runbooks/CANARY_ROLLOUT_CHECKLIST.md
+--- p6bundle/runbooks/CANARY_ROLLOUT_CHECKLIST.md	1970-01-01 00:00:00.000000000 +0000
++++ p7work/runbooks/CANARY_ROLLOUT_CHECKLIST.md	2026-03-06 20:44:48.203514202 +0000
+@@ -0,0 +1,34 @@
++# Canary rollout checklist
++
++## Before enablement
++- Confirm `EXEC_ALGO_CANONICAL_V2=1` only in canary env.
++- Confirm `EXEC_FORCE_SAFETY_FIRST=1` for first canary slice.
++- Confirm `EXEC_MAKER_TP_ENABLE=0` unless the symbol list is explicitly approved.
++- Confirm `EXEC_USER_STREAM_ENABLE=1` and user stream freshness is green.
++- Confirm `EXECUTION_JOURNAL_DSN` is set and SQL migrations are applied.
++- Confirm `EXEC_HEALTHCHECK_TEXTFILE_PATH` points to the node-exporter textfile collector.
++- Confirm `trade-execution-healthcheck.timer` and `trade-runbook-server.service` are active.
++
++## During canary
++- Watch Grafana dashboard `trade_execution_p7_panels.json`.
++- Watch `trade_execution_health_status_code` and ensure it stays `0`.
++- Watch `trade_execution_consistency_critical_mismatches` and keep it at `0`.
++- Watch `trade_dq_level`, `trade_risk_level`, and `execution_emergency_flatten_total`.
++- Sample at least 10 real `sid` and verify all three mirrors:
++  - `orders:state:*`
++  - `orders:exec`
++  - `execution_orders`
++
++## Promote or stop
++Promote only if all of the following stay true for the agreed observation window:
++- no emergency flatten events,
++- no critical consistency mismatches,
++- no stale user stream alerts,
++- no hard DQ veto burst,
++- realized slippage remains within policy.
++
++Stop and rollback immediately if any of the following happen:
++- `execution_emergency_flatten_total > 0`,
++- `trade_execution_consistency_critical_mismatches > 0`,
++- `trade_execution_user_stream_stale = 1`,
++- repeated quarantine actions for new `sid`.
+diff -ruN p6bundle/runbooks/PROD_ROLLOUT_CHECKLIST.md p7work/runbooks/PROD_ROLLOUT_CHECKLIST.md
+--- p6bundle/runbooks/PROD_ROLLOUT_CHECKLIST.md	1970-01-01 00:00:00.000000000 +0000
++++ p7work/runbooks/PROD_ROLLOUT_CHECKLIST.md	2026-03-06 20:44:48.213540949 +0000
+@@ -0,0 +1,32 @@
++# Production rollout checklist
++
++## Preconditions
++- Canary rollout completed successfully.
++- SQL backfill finished and dry-run of repair tooling shows no pending critical fixes.
++- Alertmanager routes are live for `trade-execution`, `trade-dq`, `trade-risk`, and `trade-ops`.
++- Runbook server is reachable by on-call and links to the latest health report.
++- `scripts/check_execution_consistency.py --report-path ...` returns `0` or approved `1`.
++
++## Phase 1 — safety-first only
++- Set `EXEC_FORCE_SAFETY_FIRST=1`.
++- Set `EXEC_MAKER_TP_ENABLE=0`.
++- Enable `TRADE_DQ_HARD_VETO_ENABLE=1`.
++- Enable `TRADE_RISK_ENGINE_V2_ENABLE=1`.
++- Verify stable metrics for the first observation window.
++
++## Phase 2 — maker enablement for approved symbols
++- Set `EXEC_FORCE_SAFETY_FIRST=0`.
++- Keep `EXEC_DEGRADED_MODE_DISABLE_MAKER=1`.
++- Add only approved Tier A symbols to maker policy.
++- Verify watchdog fallback rate and maker fill ratio.
++
++## Phase 3 — full production
++- Expand maker symbols only after a reviewed change request.
++- Keep degraded-mode force-safety flags documented and ready.
++- Keep repair and quarantine tooling available but manual by default.
++
++## Post-rollout verification
++- `execution_orders` row count keeps pace with `orders:exec` growth.
++- no new `sql_missing` or `fsm_state_mismatch` critical mismatches.
++- textfile metrics are scraped and visible in Prometheus/Grafana.
++- runbook server serves the latest JSON report and checklist pages.
+diff -ruN p6bundle/runbooks/REPAIR_AND_QUARANTINE.md p7work/runbooks/REPAIR_AND_QUARANTINE.md
+--- p6bundle/runbooks/REPAIR_AND_QUARANTINE.md	1970-01-01 00:00:00.000000000 +0000
++++ p7work/runbooks/REPAIR_AND_QUARANTINE.md	2026-03-06 20:44:48.230444448 +0000
+@@ -0,0 +1,39 @@
++# Repair and quarantine
++
++## When to repair SQL mirror
++Use `scripts/repair_execution_inconsistencies.py` when:
++- Redis `orders:state:*` and `orders:exec` agree,
++- SQL mirror is missing or stale,
++- exchange state is already stable,
++- you need BI/Grafana/audit continuity.
++
++Example dry-run:
++```bash
++python scripts/repair_execution_inconsistencies.py --dry-run
++```
++
++Example apply:
++```bash
++python scripts/repair_execution_inconsistencies.py
++```
++
++## When to quarantine a sid
++Use `scripts/quarantine_inconsistent_sid.py` when:
++- a `sid` keeps showing critical consistency mismatches,
++- operator review decides that downstream automation must stop acting on that `sid`,
++- there is no evidence that the live position itself is unsafe.
++
++Example dry-run:
++```bash
++python scripts/quarantine_inconsistent_sid.py --dry-run
++```
++
++Example apply:
++```bash
++python scripts/quarantine_inconsistent_sid.py --severity critical
++```
++
++## Important limits
++- Repair tooling updates SQL mirror only.
++- Quarantine tooling marks Redis metadata only.
++- Neither tool replaces the emergency flatten runbook when exposure is unsafe.
+Binary files p6bundle/runbooks/server/__pycache__/runbook_server.cpython-313.pyc and p7work/runbooks/server/__pycache__/runbook_server.cpython-313.pyc differ
+Binary files p6bundle/scripts/__pycache__/backfill_execution_journal_from_orders_exec.cpython-313.pyc and p7work/scripts/__pycache__/backfill_execution_journal_from_orders_exec.cpython-313.pyc differ
+Binary files p6bundle/scripts/__pycache__/check_execution_consistency.cpython-313.pyc and p7work/scripts/__pycache__/check_execution_consistency.cpython-313.pyc differ
+Binary files p6bundle/scripts/__pycache__/execution_healthcheck.cpython-313.pyc and p7work/scripts/__pycache__/execution_healthcheck.cpython-313.pyc differ
+Binary files p6bundle/scripts/__pycache__/quarantine_inconsistent_sid.cpython-313.pyc and p7work/scripts/__pycache__/quarantine_inconsistent_sid.cpython-313.pyc differ
+Binary files p6bundle/scripts/__pycache__/repair_execution_inconsistencies.cpython-313.pyc and p7work/scripts/__pycache__/repair_execution_inconsistencies.cpython-313.pyc differ
+diff -ruN p6bundle/scripts/execution_healthcheck.py p7work/scripts/execution_healthcheck.py
+--- p6bundle/scripts/execution_healthcheck.py	2026-03-06 20:13:39.000000000 +0000
++++ p7work/scripts/execution_healthcheck.py	2026-03-06 20:44:01.134400876 +0000
+@@ -4,8 +4,9 @@
+ """Periodic execution healthcheck for systemd timer / cron.
+ 
+ Runs the SQL/Redis consistency checker and a small set of freshness checks,
+-writes a stable JSON document consumed by the runbook server, and exits with a
+-severity-driven code suitable for timer monitoring.
++writes a stable JSON document consumed by the runbook server, optionally exports
++Prometheus textfile metrics, and exits with a severity-driven code suitable for
++timer monitoring.
+ """
+ 
+ import argparse
+@@ -43,6 +44,45 @@
+     }
+ 
+ 
++def render_prometheus_textfile(report: Dict[str, Any]) -> str:
++    consistency_doc = dict(report.get('consistency') or {})
++    user_stream = dict(report.get('user_stream') or {})
++    status = str(report.get('overall_status') or 'unknown')
++    code_map = {'ok': 0, 'warning': 1, 'critical': 2}
++    lines = [
++        '# HELP trade_execution_health_status_code Overall health status as a numeric code (ok=0, warning=1, critical=2).',
++        '# TYPE trade_execution_health_status_code gauge',
++        f'trade_execution_health_status_code {code_map.get(status, 3)}',
++        '# HELP trade_execution_health_status Status flags labelled by level.',
++        '# TYPE trade_execution_health_status gauge',
++    ]
++    for level in ('ok', 'warning', 'critical'):
++        lines.append(f'trade_execution_health_status{{level="{level}"}} {1 if level == status else 0}')
++    metric_pairs = {
++        'trade_execution_consistency_redis_state_count': int(consistency_doc.get('redis_state_count') or 0),
++        'trade_execution_consistency_stream_sid_count': int(consistency_doc.get('stream_sid_count') or 0),
++        'trade_execution_consistency_sql_order_count': int(consistency_doc.get('sql_order_count') or 0),
++        'trade_execution_consistency_mismatches_total': int(consistency_doc.get('mismatches_total') or 0),
++        'trade_execution_consistency_critical_mismatches': int(consistency_doc.get('critical_mismatches') or 0),
++        'trade_execution_consistency_warning_mismatches': int(consistency_doc.get('warning_mismatches') or 0),
++        'trade_execution_user_stream_age_ms': int(user_stream.get('age_ms') or 0),
++        'trade_execution_user_stream_keys_checked': int(user_stream.get('keys_checked') or 0),
++        'trade_execution_user_stream_stale': 1 if user_stream.get('is_stale') else 0,
++        'trade_execution_health_checked_at_ms': int(report.get('checked_at_ms') or 0),
++    }
++    for name, value in metric_pairs.items():
++        lines.append(f'# TYPE {name} gauge')
++        lines.append(f'{name} {value}')
++    return '\n'.join(lines) + '\n'
++
++
++def _write_atomic(path: Path, payload: str) -> None:
++    path.parent.mkdir(parents=True, exist_ok=True)
++    tmp = path.with_suffix(path.suffix + '.tmp')
++    tmp.write_text(payload, encoding='utf-8')
++    tmp.replace(path)
++
++
+ def main(argv: Optional[List[str]] = None) -> int:
+     parser = argparse.ArgumentParser(description='Run execution health checks and write JSON report.')
+     parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
+@@ -50,6 +90,7 @@
+     parser.add_argument('--report-dir', default=os.getenv('RUNBOOK_REPORT_DIR', '/var/lib/trade-runbook/reports'))
+     parser.add_argument('--user-stream-cache-prefix', default=os.getenv('USER_STREAM_CACHE_PREFIX', 'orders:user_stream:'))
+     parser.add_argument('--user-stream-stale-ms', type=int, default=int(os.getenv('USER_STREAM_STALE_MS', '120000')))
++    parser.add_argument('--textfile-output', default=os.getenv('EXEC_HEALTHCHECK_TEXTFILE_PATH', ''))
+     args = parser.parse_args(argv)
+ 
+     import redis  # type: ignore
+@@ -73,8 +114,9 @@
+     report_dir = Path(args.report_dir)
+     report_dir.mkdir(parents=True, exist_ok=True)
+     latest = report_dir / 'latest_execution_health.json'
+-    latest.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + '
+-', encoding='utf-8')
++    _write_atomic(latest, json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + '\n')
++    if args.textfile_output:
++        _write_atomic(Path(args.textfile_output), render_prometheus_textfile(report))
+     print(json.dumps(report, ensure_ascii=False, sort_keys=True))
+     if report['overall_status'] == 'critical':
+         return 2
+diff -ruN p6bundle/scripts/quarantine_inconsistent_sid.py p7work/scripts/quarantine_inconsistent_sid.py
+--- p6bundle/scripts/quarantine_inconsistent_sid.py	1970-01-01 00:00:00.000000000 +0000
++++ p7work/scripts/quarantine_inconsistent_sid.py	2026-03-06 20:42:51.183398736 +0000
+@@ -0,0 +1,124 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Soft-quarantine inconsistent execution state in Redis.
++
++The tool does not cancel positions or touch Binance. It marks suspicious `sid`
++values so the rest of the stack can stop acting on them while operators review
++runbooks and reports.
++"""
++
++import argparse
++import json
++import os
++import sys
++import time
++from pathlib import Path
++from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
++
++SCRIPT_DIR = Path(__file__).resolve().parent
++if str(SCRIPT_DIR) not in sys.path:
++    sys.path.insert(0, str(SCRIPT_DIR))
++
++import check_execution_consistency as consistency
++
++
++def _s(v: Any) -> str:
++    return '' if v is None else str(v)
++
++
++def build_quarantine_targets(mismatches: Iterable[consistency.ConsistencyMismatch], *, severity: str = 'critical') -> List[Dict[str, Any]]:
++    order = {'critical': 2, 'warning': 1}
++    min_sev = order.get(severity, 2)
++    by_sid: Dict[str, List[consistency.ConsistencyMismatch]] = {}
++    for mm in mismatches:
++        if order.get(mm.severity, 0) >= min_sev:
++            by_sid.setdefault(mm.sid, []).append(mm)
++    out: List[Dict[str, Any]] = []
++    for sid, items in sorted(by_sid.items()):
++        out.append({
++            'sid': sid,
++            'reason': '; '.join(sorted({m.category for m in items})),
++            'severity': max((m.severity for m in items), key=lambda s: order.get(s, 0)),
++        })
++    return out
++
++
++def quarantine_sid(redis_client: Any, sid: str, *, state_prefix: str, quarantine_prefix: str, reason: str, source: str = 'consistency_checker', dry_run: bool = False) -> Dict[str, Any]:
++    now_ms = int(time.time() * 1000)
++    state_key = f'{state_prefix}{sid}'
++    quarantine_key = f'{quarantine_prefix}{sid}'
++    existing = redis_client.get(state_key)
++    state_doc: Dict[str, Any]
++    try:
++        state_doc = json.loads(existing) if existing else {}
++        if not isinstance(state_doc, dict):
++            state_doc = {}
++    except Exception:
++        state_doc = {}
++    state_doc.setdefault('sid', sid)
++    state_doc['quarantined_at_ms'] = now_ms
++    state_doc['quarantine_reason'] = reason
++    state_doc['quarantine_source'] = source
++    result = {
++        'sid': sid,
++        'state_key': state_key,
++        'quarantine_key': quarantine_key,
++        'reason': reason,
++        'applied': not dry_run,
++    }
++    if dry_run:
++        return result
++    payload = json.dumps(state_doc, ensure_ascii=False, default=str)
++    pipe = redis_client.pipeline()
++    pipe.set(quarantine_key, payload)
++    pipe.sadd(f'{quarantine_prefix}sids', sid)
++    pipe.xadd(f'{quarantine_prefix}events', {'sid': sid, 'reason': reason, 'ts_ms': now_ms, 'source': source}, maxlen=10000, approximate=True)
++    pipe.execute()
++    return result
++
++
++def main(argv: Optional[List[str]] = None) -> int:
++    parser = argparse.ArgumentParser(description='Soft-quarantine inconsistent sid values in Redis.')
++    parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
++    parser.add_argument('--journal-dsn', default=os.getenv('EXECUTION_JOURNAL_DSN', ''))
++    parser.add_argument('--state-prefix', default=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'))
++    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', 'orders:exec'))
++    parser.add_argument('--stream-count', type=int, default=int(os.getenv('EXEC_CONSISTENCY_STREAM_COUNT', '20000')))
++    parser.add_argument('--quarantine-prefix', default=os.getenv('ORDERS_QUARANTINE_PREFIX', 'orders:quarantine:state:'))
++    parser.add_argument('--severity', default=os.getenv('EXEC_QUARANTINE_MIN_SEVERITY', 'critical'))
++    parser.add_argument('--dry-run', action='store_true')
++    args = parser.parse_args(argv)
++
++    if not args.journal_dsn:
++        raise SystemExit('EXECUTION_JOURNAL_DSN/--journal-dsn is required')
++
++    summary = consistency.run_check(
++        redis_url=args.redis_url,
++        journal_dsn=args.journal_dsn,
++        state_prefix=args.state_prefix,
++        exec_stream=args.exec_stream,
++        stream_count=args.stream_count,
++    )
++    mismatches = [consistency.ConsistencyMismatch(**m) for m in summary.mismatches]
++    targets = build_quarantine_targets(mismatches, severity=args.severity)
++
++    import redis  # type: ignore
++    redis_client = redis.from_url(args.redis_url, decode_responses=True)
++    results = [
++        quarantine_sid(
++            redis_client,
++            item['sid'],
++            state_prefix=args.state_prefix,
++            quarantine_prefix=args.quarantine_prefix,
++            reason=item['reason'],
++            dry_run=args.dry_run,
++        )
++        for item in targets
++    ]
++    print(json.dumps({'targets': targets, 'results': results}, ensure_ascii=False, indent=2, sort_keys=True))
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+diff -ruN p6bundle/scripts/repair_execution_inconsistencies.py p7work/scripts/repair_execution_inconsistencies.py
+--- p6bundle/scripts/repair_execution_inconsistencies.py	1970-01-01 00:00:00.000000000 +0000
++++ p7work/scripts/repair_execution_inconsistencies.py	2026-03-06 20:42:07.629550748 +0000
+@@ -0,0 +1,260 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Repair SQL execution journal rows from Redis state/stream mirrors.
++
++Purpose
++-------
++P7 adds a conservative repair utility that treats Redis ``orders:state:*`` and
++recent ``orders:exec`` events as the operational source of truth for *current*
++execution state, while SQL remains the durable mirror used by BI, dashboards,
++and incident review.
++
++The tool is intentionally narrow:
++* it repairs only the SQL mirror;
++* it never mutates live Binance/position state;
++* it prefers Redis state snapshots over stream events when both are present;
++* it records a JSON summary for auditability.
++"""
++
++import argparse
++import json
++import os
++import sys
++import time
++from pathlib import Path
++from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
++
++SCRIPT_DIR = Path(__file__).resolve().parent
++if str(SCRIPT_DIR) not in sys.path:
++    sys.path.insert(0, str(SCRIPT_DIR))
++
++import check_execution_consistency as consistency
++
++
++PROTECTION_FIELDS = (
++    'sl_algo_id',
++    'sl_client_algo_id',
++    'tp1_algo_id',
++    'tp2_algo_id',
++    'tp3_algo_id',
++    'trail_algo_id',
++    'trail_client_algo_id',
++)
++
++
++def _i(v: Any, default: int = 0) -> int:
++    try:
++        if v is None:
++            return default
++        return int(float(v))
++    except Exception:
++        return int(default)
++
++
++def _s(v: Any) -> str:
++    return '' if v is None else str(v)
++
++
++def select_best_source(redis_doc: Mapping[str, Any], stream_doc: Mapping[str, Any], sql_doc: Mapping[str, Any]) -> Tuple[str, Dict[str, Any]]:
++    """Choose the least lossy mirror for SQL repair.
++
++    Preference order:
++    1. Redis state snapshot (already materialized by executor)
++    2. Latest stream event (for partially rolled out or freshly restarted nodes)
++    3. Existing SQL row (only when the other mirrors are absent)
++    """
++    if redis_doc:
++        return 'redis', dict(redis_doc)
++    if stream_doc:
++        return 'stream', dict(stream_doc)
++    return 'sql', dict(sql_doc)
++
++
++def build_repair_plan(
++    mismatches: Iterable[consistency.ConsistencyMismatch],
++    redis_state: Mapping[str, Mapping[str, Any]],
++    stream_latest: Mapping[str, Mapping[str, Any]],
++    sql_orders: Mapping[str, Mapping[str, Any]],
++    sql_refs: Mapping[str, Mapping[str, Any]],
++) -> List[Dict[str, Any]]:
++    by_sid: Dict[str, List[consistency.ConsistencyMismatch]] = {}
++    for mm in mismatches:
++        by_sid.setdefault(mm.sid, []).append(mm)
++
++    plan: List[Dict[str, Any]] = []
++    for sid, items in sorted(by_sid.items()):
++        redis_doc = dict(redis_state.get(sid) or {})
++        stream_doc = dict(stream_latest.get(sid) or {})
++        sql_doc = dict(sql_orders.get(sid) or {})
++        sql_ref_doc = dict(sql_refs.get(sid) or {})
++        source_name, source_doc = select_best_source(redis_doc, stream_doc, sql_doc)
++        categories = {m.category for m in items}
++        actions: List[str] = []
++        if 'sql_missing' in categories:
++            actions.append('upsert_execution_order')
++        if any(c.endswith('_mismatch') for c in categories):
++            actions.append('sync_execution_order')
++        if any(c.startswith(f'{field}_') for c in categories for field in PROTECTION_FIELDS):
++            actions.append('sync_protection_refs')
++        if not actions and source_doc:
++            # Presence-only issues still benefit from re-seeding SQL when it is missing.
++            if not sql_doc:
++                actions.append('upsert_execution_order')
++        plan.append({
++            'sid': sid,
++            'source': source_name,
++            'actions': sorted(set(actions)),
++            'source_doc': source_doc,
++            'source_ref_doc': redis_doc or sql_ref_doc,
++            'categories': sorted(categories),
++        })
++    return plan
++
++
++class SQLRepairWriter:
++    def __init__(self, conn: Any):
++        self.conn = conn
++
++    def apply(self, plan: Iterable[Mapping[str, Any]]) -> Dict[str, int]:
++        counters = {
++            'orders_upserted': 0,
++            'orders_synced': 0,
++            'refs_synced': 0,
++        }
++        with self.conn:
++            with self.conn.cursor() as cur:
++                for step in plan:
++                    doc = dict(step.get('source_doc') or {})
++                    ref_doc = dict(step.get('source_ref_doc') or {})
++                    sid = _s(step.get('sid'))
++                    actions = set(step.get('actions') or [])
++                    if not sid or not actions:
++                        continue
++                    if 'upsert_execution_order' in actions or 'sync_execution_order' in actions:
++                        cur.execute(
++                            """
++                            INSERT INTO execution_orders (sid, symbol, action, status, fsm_state, execution_policy, venue, position_mode, position_side, working_type_policy, state_jsonb, created_at_ms, updated_at_ms)
++                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
++                            ON CONFLICT (sid) DO UPDATE SET
++                              symbol = EXCLUDED.symbol,
++                              action = EXCLUDED.action,
++                              status = EXCLUDED.status,
++                              fsm_state = EXCLUDED.fsm_state,
++                              execution_policy = EXCLUDED.execution_policy,
++                              venue = EXCLUDED.venue,
++                              position_mode = EXCLUDED.position_mode,
++                              position_side = EXCLUDED.position_side,
++                              working_type_policy = EXCLUDED.working_type_policy,
++                              state_jsonb = EXCLUDED.state_jsonb,
++                              updated_at_ms = GREATEST(execution_orders.updated_at_ms, EXCLUDED.updated_at_ms)
++                            """,
++                            (
++                                sid,
++                                _s(doc.get('symbol')),
++                                _s(doc.get('action')),
++                                _s(doc.get('status')),
++                                _s(doc.get('fsm_state')),
++                                _s(doc.get('execution_policy')),
++                                _s(doc.get('venue') or 'binance'),
++                                _s(doc.get('position_mode')),
++                                _s(doc.get('position_side')),
++                                _s(doc.get('working_type_policy')),
++                                json.dumps(doc, ensure_ascii=False, default=str),
++                                _i(doc.get('created_at_ms') or doc.get('ts_ms') or int(time.time() * 1000)),
++                                _i(doc.get('updated_at_ms') or doc.get('ts_ms') or int(time.time() * 1000)),
++                            ),
++                        )
++                        if 'upsert_execution_order' in actions:
++                            counters['orders_upserted'] += 1
++                        else:
++                            counters['orders_synced'] += 1
++                    if 'sync_protection_refs' in actions:
++                        src = {**doc, **ref_doc}
++                        cur.execute(
++                            """
++                            INSERT INTO execution_protection_refs (sid, symbol, sl_algo_id, sl_client_algo_id, tp1_algo_id, tp2_algo_id, tp3_algo_id, trail_algo_id, trail_client_algo_id, updated_at_ms)
++                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
++                            ON CONFLICT (sid) DO UPDATE SET
++                              symbol = EXCLUDED.symbol,
++                              sl_algo_id = COALESCE(EXCLUDED.sl_algo_id, execution_protection_refs.sl_algo_id),
++                              sl_client_algo_id = COALESCE(NULLIF(EXCLUDED.sl_client_algo_id, ''), execution_protection_refs.sl_client_algo_id),
++                              tp1_algo_id = COALESCE(EXCLUDED.tp1_algo_id, execution_protection_refs.tp1_algo_id),
++                              tp2_algo_id = COALESCE(EXCLUDED.tp2_algo_id, execution_protection_refs.tp2_algo_id),
++                              tp3_algo_id = COALESCE(EXCLUDED.tp3_algo_id, execution_protection_refs.tp3_algo_id),
++                              trail_algo_id = COALESCE(EXCLUDED.trail_algo_id, execution_protection_refs.trail_algo_id),
++                              trail_client_algo_id = COALESCE(NULLIF(EXCLUDED.trail_client_algo_id, ''), execution_protection_refs.trail_client_algo_id),
++                              updated_at_ms = GREATEST(execution_protection_refs.updated_at_ms, EXCLUDED.updated_at_ms)
++                            """,
++                            (
++                                sid,
++                                _s(src.get('symbol')),
++                                _i(src.get('sl_algo_id'), 0) or None,
++                                _s(src.get('sl_client_algo_id')),
++                                _i(src.get('tp1_algo_id'), 0) or None,
++                                _i(src.get('tp2_algo_id'), 0) or None,
++                                _i(src.get('tp3_algo_id'), 0) or None,
++                                _i(src.get('trail_algo_id'), 0) or None,
++                                _s(src.get('trail_client_algo_id')),
++                                _i(src.get('updated_at_ms') or src.get('ts_ms') or int(time.time() * 1000)),
++                            ),
++                        )
++                        counters['refs_synced'] += 1
++        return counters
++
++
++def run_repair(*, redis_url: str, journal_dsn: str, state_prefix: str, exec_stream: str, stream_count: int, dry_run: bool = False) -> Dict[str, Any]:
++    redis_client = consistency._connect_redis() if redis_url == os.getenv('REDIS_URL', 'redis://localhost:6379/0') else __import__('redis').from_url(redis_url, decode_responses=True)
++    reader = consistency.RedisExecutionReader(redis_client, state_prefix, exec_stream)
++    redis_state = {sid: doc for sid, doc in reader.iter_state()}
++    stream_latest = reader.latest_stream_events(count=stream_count)
++
++    sql_conn = consistency._connect_pg(journal_dsn)
++    sql_reader = consistency.SQLExecutionReader(sql_conn)
++    sql_orders = sql_reader.load_orders()
++    sql_refs = sql_reader.load_protection_refs()
++
++    mismatches = consistency.compare_execution_views(redis_state, stream_latest, sql_orders, sql_refs)
++    plan = build_repair_plan(mismatches, redis_state, stream_latest, sql_orders, sql_refs)
++    result: Dict[str, Any] = {
++        'checked_at_ms': int(time.time() * 1000),
++        'mismatches_total': len(mismatches),
++        'repair_steps_total': len([p for p in plan if p.get('actions')]),
++        'plan': plan,
++        'applied': False,
++        'counters': {'orders_upserted': 0, 'orders_synced': 0, 'refs_synced': 0},
++    }
++    if not dry_run:
++        writer = SQLRepairWriter(sql_conn)
++        result['counters'] = writer.apply(plan)
++        result['applied'] = True
++    return result
++
++
++def main(argv: Optional[List[str]] = None) -> int:
++    parser = argparse.ArgumentParser(description='Repair SQL execution journal from Redis mirrors.')
++    parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
++    parser.add_argument('--journal-dsn', default=os.getenv('EXECUTION_JOURNAL_DSN', ''))
++    parser.add_argument('--state-prefix', default=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'))
++    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', 'orders:exec'))
++    parser.add_argument('--stream-count', type=int, default=int(os.getenv('EXEC_CONSISTENCY_STREAM_COUNT', '20000')))
++    parser.add_argument('--dry-run', action='store_true')
++    args = parser.parse_args(argv)
++
++    if not args.journal_dsn:
++        raise SystemExit('EXECUTION_JOURNAL_DSN/--journal-dsn is required')
++
++    result = run_repair(
++        redis_url=args.redis_url,
++        journal_dsn=args.journal_dsn,
++        state_prefix=args.state_prefix,
++        exec_stream=args.exec_stream,
++        stream_count=args.stream_count,
++        dry_run=args.dry_run,
++    )
++    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())

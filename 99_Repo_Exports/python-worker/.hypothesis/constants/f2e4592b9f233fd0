@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/optimize/cobyla.py
+# hypothesis_version: 6.148.10
+
+['OptimizeResult', 'RLock', 'fmin_cobyla', 'functools', 'izip', 'synchronized']

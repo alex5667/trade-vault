@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/redis_errors.py
+# hypothesis_version: 6.148.10
+
+[1.0, 2.0, 30.0, 'AuthenticationError', 'BROKEN PIPE', 'BUSY LOADING', 'BUSYGROUP', 'BusyLoadingError', 'CONNECTION CLOSED', 'CONNECTION REFUSED', 'CONNECTION RESET', 'ConnectionError', 'DataError', 'ECONN', 'Exception', 'LOADING', 'MAXMEMORY', 'NOGROUP', 'NOSCRIPT', 'OOM', 'READONLY', 'ReadOnlyError', 'Redis operation', 'ResponseError', 'SYNTAX', 'T', 'TIMED OUT', 'TIMEOUT', 'TimeoutError', 'UNKNOWN COMMAND', 'WRONGTYPE', 'XACK', 'XAUTOCLAIM', 'XGROUP', 'XREADGROUP', 'auth', 'busy', 'connection', 'data', 'key', 'memory', 'readonly', 'response', 'script', 'stream', 'timeout', 'transient', 'unknown', 'wrong kind of value']

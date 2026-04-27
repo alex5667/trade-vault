@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/ml_promo_callbacks_worker_tb_v10_4.py
+# hypothesis_version: 6.148.10
+
+[0.05, 200, 1000, 3600, 200000, '$', ',', '604800', ':', ':rejected:', '>', 'BOT_CALLBACKS_STREAM', 'ML_CFG_CHAMPION_KEY', 'ML_CFG_HASH_KEY', 'ML_PROMO_CONSUMER', 'ML_PROMO_GROUP', 'OPEN', 'REDIS_URL', 'SHADOW', '__main__', 'alert', 'approve:ml_tb_v10_4:', 'bootstrap_ms', 'bot:callbacks', 'c1', 'callback', 'cfg:ml_confirm', 'enforce_share', 'fail_policy', 'ignore', 'info', 'ml-promo-tb-v10-4', 'ml_cfg_bootstrap', 'ml_champion_invalid', 'ml_promo', 'mode', 'notify:telegram', 'promoted_ms', 'reject:ml_tb_v10_4:', 'rejected_ms', 'run_id', 'subtype', 'text', 'ts_ms', 'type', 'utf-8']

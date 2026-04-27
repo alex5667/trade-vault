@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/side_policy.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 10000.0, 10000, '0', 'BUY', 'SELL', 'drop', 'false', 'ignore', 'ignore_delta', 'is_buyer_maker', 'keep', 'none', 'pass', 'quarantine', 'side', 'side_conf', 'unknown']

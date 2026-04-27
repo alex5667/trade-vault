@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/bucket_allowlist_v1.py
+# hypothesis_version: 6.148.10
+
+['*', ',', '0', ';', 'HIGH_VOL_LOW_LIQ', 'NORMAL', 'all', 'any', 'false', 'none', 'off']

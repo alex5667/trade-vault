@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/microbar_publish.py
+# hypothesis_version: 6.148.10
+
+[0.5, ',', '0', '1', '200000', '50000', '86400', 'BTCUSDT,ETHUSDT', 'MICROBAR_MAJORS', 'MICROBAR_SYMBOLS_SET', 'dual', 'legacy_maxlen', 'legacy_stream', 'majors', 'majors_stream', 'payload', 'per_maxlen', 'per_prefix', 'set_ttl', 'split', 'symbols_set', 'true', 'yes']

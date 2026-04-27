@@ -1,0 +1,72 @@
+groups:
+  - name: exec_health_slo_v1
+    rules:
+      - alert: OF_ExecHealth_SLO_ExporterStale_Warn
+        expr: exec_health_slo_exporter_up < 1
+        for: 5m
+        labels:
+          severity: warning
+          team: trade
+        annotations:
+          summary: "ExecHealth SLO exporter is stale"
+          description: "The ExecHealth SLO exporter cannot read its Redis summary or the summary is older than the configured staleness budget."
+
+      - alert: OF_ExecHealth_RolloutDrift_Warn
+        expr: exec_health_slo_rollout_drift_instances_total > 0
+        for: 10m
+        labels:
+          severity: warning
+          team: trade
+        annotations:
+          summary: "ExecHealth rollout drift detected"
+          description: "At least one active ExecHealth instance differs from the modal mode/threshold configuration for its scope."
+
+      - alert: OF_ExecHealth_RolloutDrift_Crit
+        expr: exec_health_slo_rollout_drift_instances_total > 1
+        for: 15m
+        labels:
+          severity: critical
+          team: trade
+        annotations:
+          summary: "ExecHealth rollout drift is widespread"
+          description: "More than one active ExecHealth instance differs from the expected scope configuration."
+
+      - alert: OF_ExecHealth_CrossScopeModeMismatch_Crit
+        expr: exec_health_slo_cross_scope_mode_distinct > 1
+        for: 10m
+        labels:
+          severity: critical
+          team: trade
+        annotations:
+          summary: "ExecHealth mode mismatch across scopes"
+          description: "edge / pipeline / entry_policy do not agree on the effective ExecHealth mode."
+
+      - alert: OF_ExecHealth_CrossScopeThresholdMismatch_Warn
+        expr: max(exec_health_slo_cross_scope_threshold_distinct) > 1
+        for: 10m
+        labels:
+          severity: warning
+          team: trade
+        annotations:
+          summary: "ExecHealth threshold mismatch across scopes"
+          description: "The modal ExecHealth thresholds differ between scopes."
+
+      - alert: OF_ExecHealth_VetoShareHigh_Warn
+        expr: max(exec_health_slo_share{outcome="veto"}) > 0.20
+        for: 15m
+        labels:
+          severity: warning
+          team: trade
+        annotations:
+          summary: "ExecHealth veto share is elevated"
+          description: "At least one scope has veto share above 20%. Investigate thresholds, rollout drift, or market degradation."
+
+      - alert: OF_ExecHealth_VetoShareHigh_Crit
+        expr: max(exec_health_slo_share{outcome="veto"}) > 0.35
+        for: 15m
+        labels:
+          severity: critical
+          team: trade
+        annotations:
+          summary: "ExecHealth veto share is critically high"
+          description: "At least one scope has veto share above 35%. Confirm whether this is intended hardening or a bad rollout / degraded market state."

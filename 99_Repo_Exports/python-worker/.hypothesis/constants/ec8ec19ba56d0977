@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/session_telemetry.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.05, 0.5, 1.0]

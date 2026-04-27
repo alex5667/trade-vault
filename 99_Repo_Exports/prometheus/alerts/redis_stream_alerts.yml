@@ -1,0 +1,297 @@
+groups:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Redis Stream Length Alerts
+  # Метрика: redis_stream_length{stream, instance}
+  # Источник: oliver006/redis_exporter v1.66+ via REDIS_EXPORTER_CHECK_SINGLE_STREAMS
+  # ─────────────────────────────────────────────────────────────────────────────
+  - name: redis_stream_length
+    rules:
+
+      # ── Сигналы: outbox переполнен ──────────────────────────────────────────
+      # Норма: dispatcher живой → outbox дренируется, длина ≈0–5k
+      # MAXLEN по умолчанию 200 000 (~4ч при 15 sig/s). >50k = consumer отстаёт.
+      - alert: RedisStreamOutboxBacklog
+        expr: |
+          redis_stream_length{stream="stream:signals:outbox"} > 50000
+        for: 3m
+        labels:
+          severity: warning
+          team: ops
+          component: redis_stream
+        annotations:
+          summary: "⚠️ stream:signals:outbox накопил бэклог ({{ $value | humanize }}) на {{ $labels.instance }}"
+          description: |
+            Длина stream:signals:outbox превысила 50 000 сообщений.
+            Возможные причины: упал NestJS-consumer, Python-dispatcher, деградация redis-worker-1.
+          runbook: |
+            1. Проверить логи nestjs-consumer: docker logs nestjs-gateway --tail 100
+            2. Проверить логи python-dispatcher: docker logs python-worker --tail 100
+            3. XPENDING stream:signals:outbox nestjs-consumer - | head — посмотреть pending
+
+      - alert: RedisStreamOutboxCritical
+        expr: |
+          redis_stream_length{stream="stream:signals:outbox"} > 150000
+        for: 2m
+        labels:
+          severity: critical
+          team: ops
+          component: redis_stream
+        annotations:
+          summary: "🚨 stream:signals:outbox КРИТИЧНО ({{ $value | humanize }}) на {{ $labels.instance }}"
+          description: |
+            Бэклог >150 000 — приближается к MAXLEN (200 000). Новые сигналы начнут отбрасываться.
+          runbook: |
+            1. Немедленно проверить consumer group: XINFO GROUPS stream:signals:outbox
+            2. Временно увеличить MAXLEN или перезапустить consumer
+            3. Rollback deployа, если сигналы перестали обрабатываться
+
+      # ── DLQ: сигналы в Dead Letter Queue ────────────────────────────────────
+      - alert: RedisStreamDLQGrowth
+        expr: |
+          redis_stream_length{stream="stream:signals:dlq"} > 100
+        for: 5m
+        labels:
+          severity: warning
+          team: ops
+          component: redis_stream
+        annotations:
+          summary: "⚠️ DLQ растёт: stream:signals:dlq={{ $value | humanize }} на {{ $labels.instance }}"
+          description: |
+            Ненулевой DLQ — сигналы не могут быть обработаны нормально.
+          runbook: |
+            1. XRANGE stream:signals:dlq - + COUNT 5 — посмотреть первые сообщения
+            2. Проверить причину: bad payload, schema mismatch, execution error
+
+      - alert: RedisStreamDLQCritical
+        expr: |
+          redis_stream_length{stream="stream:signals:dlq"} > 1000
+        for: 2m
+        labels:
+          severity: critical
+          team: ops
+          component: redis_stream
+        annotations:
+          summary: "🚨 DLQ критичен: stream:signals:dlq={{ $value | humanize }} на {{ $labels.instance }}"
+          description: |
+            DLQ >1 000 сообщений — системная ошибка обработки сигналов.
+
+      # ── OF Quarantine ────────────────────────────────────────────────────────
+      - alert: RedisStreamOFQuarantineHigh
+        expr: |
+          redis_stream_length{stream="stream:of:quarantine"} > 500
+        for: 5m
+        labels:
+          severity: warning
+          team: ops
+          component: redis_stream
+        annotations:
+          summary: "⚠️ stream:of:quarantine растёт ({{ $value }}) на {{ $labels.instance }}"
+          description: |
+            Много сигналов OFConfirm помещается в карантин.
+            Возможно деградирует CVD/orderflow данных или порог карантина слишком агрессивен.
+
+      # ── Execution: orders:queue:binance DLQ ─────────────────────────────────
+      - alert: RedisStreamOrdersDLQGrowth
+        expr: |
+          redis_stream_length{stream="orders:queue:binance:dlq"} > 10
+        for: 3m
+        labels:
+          severity: critical
+          team: ops
+          component: redis_stream
+        annotations:
+          summary: "🚨 Execution DLQ растёт: orders:queue:binance:dlq={{ $value }} на {{ $labels.instance }}"
+          description: |
+            Ордера попадают в DLQ — возможна проблема с Binance executor или API.
+          runbook: |
+            1. Проверить binance-executor логи
+            2. XRANGE orders:queue:binance:dlq - + COUNT 3 — посмотреть ошибки
+            3. Проверить API ключи / лимиты
+
+      # ── DLQ book deltas (sequence gaps) ─────────────────────────────────────
+      - alert: RedisStreamBookDeltaDLQGrowth
+        expr: |
+          redis_stream_length{stream="dlq:book_deltas"} > 0
+        for: 2m
+        labels:
+          severity: warning
+          team: ops
+          component: redis_stream
+        annotations:
+          summary: "⚠️ Sequence gaps в orderbook: dlq:book_deltas={{ $value }} на {{ $labels.instance }}"
+          description: |
+            Обнаружены разрывы в sequence ID orderbook delta-стримов.
+            Это означает потерю данных и необходимость повторного снепшота.
+
+      # ── Liquidation events ───────────────────────────────────────────────────
+      - alert: RedisStreamLiqEvtStopped
+        expr: |
+          redis_stream_length{stream="stream:liq_evt"} == 0
+        for: 10m
+        labels:
+          severity: warning
+          team: ops
+          component: redis_stream
+        annotations:
+          summary: "⚠️ stream:liq_evt пуст 10 мин на {{ $labels.instance }}"
+          description: |
+            Ликвидационные события не поступают. Возможно остановлен Go ingest worker или проблема с WebSocket.
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Redis Consumer Group Lag Alerts
+  # Метрика: redis_stream_pending_entries_count{stream, group, instance}
+  # Источник: oliver006/redis_exporter v1.66+ via REDIS_EXPORTER_STREAMS_GROUPS_LIST
+  # ВАЖНО: pending_entries_count = кол-во сообщений, доставленных но не ACK-нутых.
+  # Это прокси для consumer lag — чем больше, тем сильнее consumer отстаёт.
+  # ─────────────────────────────────────────────────────────────────────────────
+  - name: redis_consumer_group_lag
+    rules:
+
+      # ── NestJS consumer lag по outbox ────────────────────────────────────────
+      - alert: RedisConsumerLagNestjsWarning
+        expr: |
+          redis_stream_pending_entries_count{
+            stream="stream:signals:outbox",
+            group="nestjs-consumer"
+          } > 2000
+        for: 3m
+        labels:
+          severity: warning
+          team: ops
+          component: redis_consumer
+        annotations:
+          summary: "⚠️ NestJS consumer lag: {{ $value | humanize }} pending на {{ $labels.instance }}"
+          description: |
+            Consumer group nestjs-consumer отстаёт от stream:signals:outbox.
+            Сигналы задерживаются до WebSocket клиентов.
+          runbook: |
+            1. Проверить nestjs-gateway CPU/память
+            2. kubectl/docker exec проверить XPENDING stream:signals:outbox nestjs-consumer - + 5
+
+      - alert: RedisConsumerLagNestjsCritical
+        expr: |
+          redis_stream_pending_entries_count{
+            stream="stream:signals:outbox",
+            group="nestjs-consumer"
+          } > 10000
+        for: 2m
+        labels:
+          severity: critical
+          team: ops
+          component: redis_consumer
+        annotations:
+          summary: "🚨 NestJS consumer КРИТИЧНО отстаёт: {{ $value | humanize }} pending на {{ $labels.instance }}"
+          description: |
+            Критический lag — NestJS не успевает обрабатывать сигналы из outbox.
+
+      # ── Python dispatcher lag по outbox ─────────────────────────────────────
+      - alert: RedisConsumerLagDispatcherWarning
+        expr: |
+          redis_stream_pending_entries_count{
+            stream="stream:signals:outbox",
+            group="python-dispatcher"
+          } > 2000
+        for: 3m
+        labels:
+          severity: warning
+          team: ops
+          component: redis_consumer
+        annotations:
+          summary: "⚠️ Python-dispatcher consumer lag: {{ $value | humanize }} pending на {{ $labels.instance }}"
+          description: |
+            Consumer group python-dispatcher отстаёт от stream:signals:outbox.
+
+      # ── Execution consumer lag ────────────────────────────────────────────────
+      - alert: RedisConsumerLagExecutionWarning
+        expr: |
+          redis_stream_pending_entries_count{
+            stream="orders:exec",
+            group="execution-worker"
+          } > 50
+        for: 2m
+        labels:
+          severity: warning
+          team: ops
+          component: redis_consumer
+        annotations:
+          summary: "⚠️ Execution worker lag: {{ $value }} pending orders:exec на {{ $labels.instance }}"
+          description: |
+            Execution worker отстаёт от потока ордеров. Ордера не отправляются на биржу вовремя.
+
+      - alert: RedisConsumerLagExecutionCritical
+        expr: |
+          redis_stream_pending_entries_count{
+            stream="orders:exec",
+            group="execution-worker"
+          } > 200
+        for: 1m
+        labels:
+          severity: critical
+          team: ops
+          component: redis_consumer
+        annotations:
+          summary: "🚨 КРИТИЧНО: Execution lag {{ $value }} ордеров на {{ $labels.instance }}"
+          description: |
+            Критический лаг execution worker. Ордера аккумулируются — риск устаревших сигналов.
+          runbook: |
+            1. Немедленно проверить binance-executor статус
+            2. Проверить API rate limit Binance
+            3. Рассмотреть аварийную остановку входов: ENTRY_POLICY_FREEZE=true
+
+      # ── Binance order queue lag ───────────────────────────────────────────────
+      - alert: RedisConsumerLagBinanceQueueWarning
+        expr: |
+          redis_stream_pending_entries_count{
+            stream="orders:queue:binance",
+            group="binance-executor"
+          } > 20
+        for: 2m
+        labels:
+          severity: warning
+          team: ops
+          component: redis_consumer
+        annotations:
+          summary: "⚠️ Binance executor lag: {{ $value }} pending на {{ $labels.instance }}"
+          description: |
+            Ордера в orders:queue:binance не обрабатываются вовремя.
+
+      # ── Candles consumer lag ─────────────────────────────────────────────────
+      - alert: RedisConsumerLagCandlesWarning
+        expr: |
+          redis_stream_pending_entries_count{
+            stream="candles:data",
+            group="candles-consumer-group"
+          } > 5000
+        for: 5m
+        labels:
+          severity: warning
+          team: ops
+          component: redis_consumer
+        annotations:
+          summary: "⚠️ Candles consumer lag: {{ $value | humanize }} pending на {{ $labels.instance }}"
+          description: |
+            Python worker не успевает читать свечи из candles:data. Сигналы могут быть на устаревших данных.
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Redis Exporter Liveness
+  # Алерт если exporter недоступен (метрика пропала) — blind-spot detection
+  # ─────────────────────────────────────────────────────────────────────────────
+  - name: redis_exporter_liveness
+    rules:
+      - alert: RedisExporterDown
+        expr: |
+          up{job="redis-workers"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: ops
+          component: redis_exporter
+        annotations:
+          summary: "🚨 Redis exporter недоступен: {{ $labels.instance }}"
+          description: |
+            Prometheus не может собрать метрики с redis-exporter для {{ $labels.instance }}.
+            Все stream length / consumer lag метрики этого шарда — слепое пятно.
+          runbook: |
+            1. docker ps | grep redis-exporter — проверить контейнер
+            2. curl http://<exporter>:9121/metrics — проверить ответ
+            3. docker restart redis-exporter-<instance>

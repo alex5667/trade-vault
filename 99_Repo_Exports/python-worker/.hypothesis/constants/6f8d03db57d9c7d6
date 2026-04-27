@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/label_joiner.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 1000, 2000, 10000, 50000, 'BE', 'LONG', 'LOSS', 'POSITION_CLOSED', 'SHORT', 'WIN', '__main__', 'close_ts', 'data', 'decision', 'direction', 'dlq:label_joiner', 'entry_price', 'events:trades', 'exit_price', 'exit_ts_ms', 'final_permit', 'json', 'label', 'label-joiner', 'lossless', 'ml_prob', 'ml_replay_inputs_v1', 'pnl', 'r_multiple', 'result', 'rule_score', 'scanner-label-joiner', 'sid', 'sl', 'symbol', 'total_pnl', 'trade', 'trades:closed', 'ts_close', 'ts_decision', 'type', 'worker-1']

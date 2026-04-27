@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/analytics/roc_store.py
+# hypothesis_version: 6.148.10
+
+[100, 2000, 'INFO', 'REDIS_URL', 'ROCStore', 'ROC_METRICS_STREAM', 'auc', 'id', 'metrics:roc', 'n', 'num_points', 'points', 'strategy', 'symbol', 'ts']

@@ -1,0 +1,53 @@
+services:
+  scanner-ml-operator-rca-routing-post-apply-verifier-v2-6:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    restart: unless-stopped
+    command: ["python", "-m", "orderflow_services.operator_rca_routing_post_apply_verifier_v2_6"]
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      ML_OPERATOR_RCA_ROUTING_VERIFY_METRICS_PORT: 9878
+    ports:
+      - "9878:9878"
+    networks:
+      - scanner-network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "python", "-c", "print('ok')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  scanner-ml-operator-rca-routing-rollback-executor-v2-6:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    restart: unless-stopped
+    command: ["python", "-m", "orderflow_services.operator_rca_routing_rollback_executor_v2_6"]
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      ML_OPERATOR_RCA_ROUTING_ROLLBACK_METRICS_PORT: 9879
+      ML_OPERATOR_RCA_ROUTING_ROLLBACK_MODE: ${ML_OPERATOR_RCA_ROUTING_ROLLBACK_MODE:-DRY_RUN}
+    ports:
+      - "9879:9879"
+    networks:
+      - scanner-network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "python", "-c", "print('ok')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+networks:
+  scanner-network:
+    external: true

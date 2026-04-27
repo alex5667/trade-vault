@@ -1,0 +1,24 @@
+[Unit]
+Description=OBI FastAPI Service for %i
+After=network-online.target redis.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/home/%i/front/trade/scanner_infra/py-obi
+Environment=PYTHONUNBUFFERED=1
+Environment=OBI_WINDOW_LEVELS=5
+Environment=OBI_THRESHOLD=0.25
+Environment=OBI_SUSTAIN_MS=1200
+Environment=RING_SECONDS=600
+Environment=NOTIFY_URL=http://127.0.0.1:8088/notify
+
+ExecStart=/home/%i/front/trade/scanner_infra/py-obi/.venv/bin/python /home/%i/front/trade/scanner_infra/py-obi/book_obi_service.py
+
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+

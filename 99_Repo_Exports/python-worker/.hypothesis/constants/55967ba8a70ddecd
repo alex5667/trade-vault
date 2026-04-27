@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/reason_normalizer.py
+# hypothesis_version: 6.148.10
+
+['-', '[:\\s]+', '\\b\\d+(\\.\\d+)?\\b', '_', '_+', 'bo', 'bo_', 'bo_l2_', 'bo_l2_fail_closed', 'bo_l2_veto', 'book_l2_gate', 'book_l2_quality', 'breakout', 'closed', 'conf_', 'conf_below_min', 'conf_below_min_veto', 'confidence_gate', 'cooldown', 'cooldown_gate', 'drop', 'fail', 'l2', 'l2_', 'l2_missing', 'l2_stale', 'l2_veto', 'l3_', 'l3_missing', 'l3_quality', 'l3_unavailable', 'l3_veto', 'open', 'other', 'reject', 'spread', 'spread_filter_veto', 'spread_gate', 'touch', 'touch_gate', 'touch_suppressed', 'unknown', 'unknown_veto', 'veto']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/signal_json_logger.py
+# hypothesis_version: 6.148.10
+
+[',', '0', '1', ':', 'SIGNAL_ONE_JSON_LOG', 'cancel_to_trade', 'conf_factor', 'data_quality', 'data_quality_flags', 'false', 'features', 'final_score', 'geo_zone_hits', 'geometry', 'geometry_score', 'hlc_fallback', 'htf_level_dist_bps', 'kind', 'l2_is_stale', 'l2_stale', 'level_key', 'level_price', 'market_regime_score', 'microprice_shift', 'missing_htf', 'missing_l3', 'no', 'obi_avg', 'off', 'parts', 'payload_kind', 'price', 'raw_score', 'regime_range_score', 'regime_score', 'regime_trend_score', 'score', 'side', 'signal_id', 'spread_bps', 'symbol', 'taker_rate', 'taker_rate_ema', 'taker_rate_ema_5s', 'ts', 'used_fallback_hlc']

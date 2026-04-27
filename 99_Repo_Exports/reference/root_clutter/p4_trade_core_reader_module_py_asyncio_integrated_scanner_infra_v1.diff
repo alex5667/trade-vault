@@ -1,0 +1,715 @@
+diff --git a/main.py b/main.py
+--- a/main.py
++++ b/main.py
+@@ -72,6 +72,23 @@
+         ticks_url = os.getenv("REDIS_TICKS_URL") or os.getenv("REDIS_URL_TICKS")
+ 
+         service = CryptoOrderflowService(redis_dsn=redis_url, ticks_dsn=ticks_url)
++# -------------------------------------------------------------------
++# P4: Trade-side NewsRecoReader (asyncio) — best-effort, fail-open.
++#
++# Зачем это здесь:
++# - CryptoOrderflowService и Stage-5 gates работают в этом asyncio loop.
++# - Reader в фоне делает Redis GET (1 ключ: trade:cache:news_reco_map),
++#   обновляет in-memory cache, а hot-path читает только память.
++# - При проблемах с Redis/JSON мы НЕ блокируем запуск и НЕ ломаем сервис:
++#   это чистый fail-open компонент.
++# -------------------------------------------------------------------
++try:
++    from services.news_reco_reader import ensure_started as _ensure_news_reco_started  # noqa: PLC0415
++    loop.run_until_complete(_ensure_news_reco_started())
++    print("✅ [Main] NewsRecoReader started (best-effort)", flush=True)
++except Exception as _exc:  # noqa: BLE001
++    print(f"⚠️ [Main] NewsRecoReader failed to start (fail-open): {_exc}", flush=True)
++
+         print("🚀 [Main] Running CryptoOrderflowService.run_forever()...", flush=True)
+         loop.run_until_complete(service.run_forever())
+ 
+@@ -98,9 +115,15 @@
+         )
+     finally:
+         print("🛑 [Main] CryptoOrderflowService thread finished", flush=True)
+-        if loop is not None:
+-            try:
+-                loop.close()
++if loop is not None:
++    # P4: best-effort shutdown (avoid "Task was destroyed" warnings).
++    try:
++        from services.news_reco_reader import shutdown as _shutdown_news_reco_reader  # noqa: PLC0415
++        loop.run_until_complete(_shutdown_news_reco_reader())
++    except Exception:
++        pass
++    try:
++        loop.close()
+             except Exception:  # noqa: BLE001
+                 pass
+ 
+diff --git a/core/config.py b/core/config.py
+--- a/core/config.py
++++ b/core/config.py
+@@ -247,4 +247,32 @@
+ OF_READ_COUNT: int = int(os.getenv("OF_READ_COUNT", "10"))
+ 
+ # Таймаут блокировки для чтения order flow
+-OF_READ_BLOCK_MS: int = int(os.getenv("OF_READ_BLOCK_MS", "5000"))+OF_READ_BLOCK_MS: int = int(os.getenv("OF_READ_BLOCK_MS", "5000"))
++
++# ===== News Reco Reader (trade-side, asyncio) =====
++# Reader runs in the same asyncio loop as CryptoOrderflowService and updates an
++# in-memory cache from Redis. Hot-path must remain IO-free.
++#
++# Fail-open: when disabled or stale, gates should behave as if no news reco exists.
++
++TRADE_NEWS_RECO_READER_ENABLE: bool = os.getenv("TRADE_NEWS_RECO_READER_ENABLE", "0").strip().lower() in ("1", "true", "yes", "on")
++
++# Redis URL for reader (defaults to REDIS_URL). Use dedicated Redis if you want.
++TRADE_NEWS_RECO_REDIS_URL: str = os.getenv("TRADE_NEWS_RECO_REDIS_URL", os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
++
++# Single aggregated map key written by trade-side cache consumer.
++TRADE_NEWS_RECO_MAP_KEY: str = os.getenv("TRADE_NEWS_RECO_MAP_KEY", "trade:cache:news_reco_map")
++
++# Poll frequency (ms) and jitter (ms) to avoid thundering herd on restarts.
++TRADE_NEWS_RECO_POLL_MS: int = int(os.getenv("TRADE_NEWS_RECO_POLL_MS", "250"))
++TRADE_NEWS_RECO_POLL_JITTER_MS: int = int(os.getenv("TRADE_NEWS_RECO_POLL_JITTER_MS", "50"))
++
++# If last-good refresh older than this, reader clears cache (fail-open).
++TRADE_NEWS_RECO_STALE_FAIL_OPEN_MS: int = int(os.getenv("TRADE_NEWS_RECO_STALE_FAIL_OPEN_MS", "5000"))
++
++# Safety cap on number of symbols to keep in memory.
++TRADE_NEWS_RECO_MAX_SYMBOLS: int = int(os.getenv("TRADE_NEWS_RECO_MAX_SYMBOLS", "2000"))
++
++# Tight socket timeouts for reader (ms). Reader is best-effort and must not block loop.
++TRADE_NEWS_RECO_REDIS_CONNECT_TIMEOUT_MS: int = int(os.getenv("TRADE_NEWS_RECO_REDIS_CONNECT_TIMEOUT_MS", "200"))
++TRADE_NEWS_RECO_REDIS_SOCKET_TIMEOUT_MS: int = int(os.getenv("TRADE_NEWS_RECO_REDIS_SOCKET_TIMEOUT_MS", "50"))
+diff --git a/services/news_reco_reader/__init__.py b/services/news_reco_reader/__init__.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/services/news_reco_reader/__init__.py
+@@ -0,0 +1,15 @@
++"""services.news_reco_reader
++
++Trade-core drop-in module for reading news recommendations from Redis into
++an in-memory cache.
++
++Usage
++-----
++Startup (once, inside an asyncio loop):
++    await ensure_started()
++
++Hot-path (no IO):
++    snap = get_reco("BTCUSDT")
++"""
++
++from .reader import ensure_started, shutdown, get_reco, NewsRecoReader  # noqa: F401
+diff --git a/services/news_reco_reader/metrics.py b/services/news_reco_reader/metrics.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/services/news_reco_reader/metrics.py
+@@ -0,0 +1,88 @@
++"""services.news_reco_reader.metrics
++
++Minimal Prometheus metrics for trade-side news recommendations reader.
++
++Design goals
++------------
++- Zero impact on hot-path: gate reads in-memory cache without IO.
++- Metrics are best-effort: if prometheus_client is not installed, we expose
++  no-op stubs (unit tests and minimal environments must not break).
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Any, Optional
++
++
++class _NoopMetric:
++    def inc(self, amount: float = 1.0) -> None:
++        return
++
++    def set(self, value: float) -> None:
++        return
++
++    def observe(self, value: float) -> None:
++        return
++
++    def labels(self, **kwargs: Any) -> "_NoopMetric":  # noqa: ANN401
++        return self
++
++
++def _mk_noop() -> _NoopMetric:
++    return _NoopMetric()
++
++
++@dataclass(frozen=True)
++class NewsRecoMetrics:
++    hits_total: Any
++    miss_total: Any
++    stale_total: Any
++    update_total: Any
++    parse_errors_total: Any
++    redis_errors_total: Any
++
++    symbols: Any
++    last_ok_ts_ms: Any
++    lag_ms: Any
++
++
++def build_metrics(prefix: str = "trade_news_reco_reader") -> NewsRecoMetrics:
++    """Build Prometheus metrics (or no-op stubs)."""
++    try:
++        from prometheus_client import Counter, Gauge  # type: ignore
++    except Exception:  # pragma: no cover
++        return NewsRecoMetrics(
++            hits_total=_mk_noop(),
++            miss_total=_mk_noop(),
++            stale_total=_mk_noop(),
++            update_total=_mk_noop(),
++            parse_errors_total=_mk_noop(),
++            redis_errors_total=_mk_noop(),
++            symbols=_mk_noop(),
++            last_ok_ts_ms=_mk_noop(),
++            lag_ms=_mk_noop(),
++        )
++
++    hits_total = Counter(f"{prefix}_hits_total", "Cache hits (hot-path)")
++    miss_total = Counter(f"{prefix}_miss_total", "Cache miss (hot-path)")
++    stale_total = Counter(f"{prefix}_stale_total", "Reco became stale/expired")
++    update_total = Counter(f"{prefix}_update_total", "Successful cache updates from Redis map")
++    parse_errors_total = Counter(f"{prefix}_parse_errors_total", "JSON parse/validate errors")
++    redis_errors_total = Counter(f"{prefix}_redis_errors_total", "Redis IO errors")
++
++    symbols = Gauge(f"{prefix}_symbols", "Number of symbols in cache")
++    last_ok_ts_ms = Gauge(f"{prefix}_last_ok_ts_ms", "Last successful refresh (epoch ms)")
++    lag_ms = Gauge(f"{prefix}_lag_ms", "Lag between now and map.ts_ms (ms)")
++
++    return NewsRecoMetrics(
++        hits_total=hits_total,
++        miss_total=miss_total,
++        stale_total=stale_total,
++        update_total=update_total,
++        parse_errors_total=parse_errors_total,
++        redis_errors_total=redis_errors_total,
++        symbols=symbols,
++        last_ok_ts_ms=last_ok_ts_ms,
++        lag_ms=lag_ms,
++    )
+diff --git a/services/news_reco_reader/cache.py b/services/news_reco_reader/cache.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/services/news_reco_reader/cache.py
+@@ -0,0 +1,168 @@
++"""services.news_reco_reader.cache
++
++In-memory TTL cache for trade-side news recommendations (reco).
++
++The cache is updated by an asyncio background reader, and accessed on the
++hot-path by Stage-5 gates/policies without any IO.
++
++Contract (Redis map value)
++--------------------------
++The trade-side cache consumer is expected to write a single Redis key:
++
++    trade:cache:news_reco_map
++
++with JSON:
++
++    {
++      "schema_ver": "v1",
++      "ts_ms": 1710000000000,
++      "reco": {
++        "BTCUSDT": {"expires_ms": 1710000005000, ...},
++        "ETHUSDT": {"expires_ms": 1710000006000, ...}
++      }
++    }
++
++Only "reco" and per-symbol "expires_ms" are strictly required. Everything
++else is treated as opaque payload (forward compatible).
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++import json
++import time
++from typing import Any, Dict, Optional, Tuple
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def sanitize_symbol(sym: str) -> str:
++    sym = (sym or "").strip().upper()
++    # Defensive: keep only common chars to avoid memory abuse via hostile keys.
++    # Binance-like symbols are [A-Z0-9], but we allow ':' and '-' for internal.
++    out = []
++    for ch in sym:
++        if ch.isalnum() or ch in (":", "-", "_"):
++            out.append(ch)
++    sym = "".join(out)
++    return sym[:40]  # hard cap
++
++
++@dataclass
++class NewsRecoSnapshot:
++    symbol: str
++    expires_ms: int
++    received_ts_ms: int
++    payload: Dict[str, Any]
++
++
++class NewsRecoCache:
++    """Simple TTL cache with size cap and deterministic eviction."""
++
++    def __init__(self, max_symbols: int = 2000) -> None:
++        self._max_symbols = max(10, int(max_symbols))
++        self._by_symbol: Dict[str, NewsRecoSnapshot] = {}
++
++    @property
++    def size(self) -> int:
++        return len(self._by_symbol)
++
++    def get(self, symbol: str, *, now: Optional[int] = None) -> Optional[NewsRecoSnapshot]:
++        nowv = now if now is not None else now_ms()
++        sym = sanitize_symbol(symbol)
++        snap = self._by_symbol.get(sym)
++        if snap is None:
++            return None
++        if snap.expires_ms <= nowv:
++            # Expired — delete and fail-open.
++            self._by_symbol.pop(sym, None)
++            return None
++        return snap
++
++    def sweep_expired(self, *, now: Optional[int] = None) -> int:
++        nowv = now if now is not None else now_ms()
++        to_del = [s for s, v in self._by_symbol.items() if v.expires_ms <= nowv]
++        for s in to_del:
++            self._by_symbol.pop(s, None)
++        return len(to_del)
++
++    def update_from_map_json(self, raw_json: str, *, now: Optional[int] = None) -> Tuple[int, int, int]:
++        """Parse and apply a map JSON.
++
++        Returns (updated, skipped_invalid, expired_dropped).
++        """
++        nowv = now if now is not None else now_ms()
++        try:
++            obj = json.loads(raw_json)
++        except Exception as exc:
++            raise ValueError(f"invalid json: {exc}") from exc
++
++        if not isinstance(obj, dict):
++            raise ValueError("map is not an object")
++
++        reco = obj.get("reco")
++        ts_ms = obj.get("ts_ms")
++
++        if reco is None or not isinstance(reco, dict):
++            raise ValueError("map.reco missing or not an object")
++
++        updated = 0
++        invalid = 0
++        expired = 0
++
++        for k, v in reco.items():
++            sym = sanitize_symbol(str(k))
++            if not sym:
++                invalid += 1
++                continue
++
++            if not isinstance(v, dict):
++                invalid += 1
++                continue
++
++            exp = v.get("expires_ms")
++            try:
++                exp_ms = int(exp)
++            except Exception:
++                invalid += 1
++                continue
++
++            if exp_ms <= nowv:
++                expired += 1
++                # Don't store expired values.
++                self._by_symbol.pop(sym, None)
++                continue
++
++            payload = dict(v)
++            payload.setdefault("symbol", sym)
++            if ts_ms is not None:
++                payload.setdefault("map_ts_ms", ts_ms)
++
++            self._by_symbol[sym] = NewsRecoSnapshot(
++                symbol=sym,
++                expires_ms=exp_ms,
++                received_ts_ms=nowv,
++                payload=payload,
++            )
++            updated += 1
++
++        # Enforce size cap deterministically: evict earliest expiry first.
++        if len(self._by_symbol) > self._max_symbols:
++            items = sorted(self._by_symbol.items(), key=lambda kv: kv[1].expires_ms)
++            to_evict = len(items) - self._max_symbols
++            for i in range(to_evict):
++                self._by_symbol.pop(items[i][0], None)
++
++        return updated, invalid, expired
++
++    def as_dict(self, *, now: Optional[int] = None) -> Dict[str, Dict[str, Any]]:
++        nowv = now if now is not None else now_ms()
++        out: Dict[str, Dict[str, Any]] = {}
++        for sym, snap in list(self._by_symbol.items()):
++            if snap.expires_ms <= nowv:
++                self._by_symbol.pop(sym, None)
++                continue
++            out[sym] = snap.payload
++        return out
+diff --git a/services/news_reco_reader/reader.py b/services/news_reco_reader/reader.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/services/news_reco_reader/reader.py
+@@ -0,0 +1,269 @@
++"""services.news_reco_reader.reader
++
++Asyncio background reader that periodically fetches *one* Redis key:
++
++    trade:cache:news_reco_map
++
++and updates an in-memory TTL cache. Stage-5 gates/policies consume the
++in-memory cache only (no await / no IO).
++
++Fail-open behavior
++------------------
++- Any Redis/JSON errors do NOT stop the trade-core.
++- If last-good refresh is older than STALE_FAIL_OPEN_MS, cache is cleared.
++  That disables tighten/hard effects based on stale information.
++
++Backends
++--------
++- Prefer redis.asyncio when available (redis-py >= 4.x).
++- Fallback to sync redis client executed via asyncio.to_thread.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import json
++import os
++import random
++import time
++from typing import Any, Optional
++
++from .cache import NewsRecoCache, now_ms
++from .metrics import build_metrics
++
++
++def _env_bool(name: str, default: str = "0") -> bool:
++    return os.getenv(name, default).strip().lower() in ("1", "true", "yes", "on")
++
++
++class NewsRecoReader:
++    def __init__(
++        self,
++        *,
++        redis_url: str,
++        map_key: str,
++        poll_ms: int,
++        jitter_ms: int,
++        stale_fail_open_ms: int,
++        max_symbols: int,
++    ) -> None:
++        self._redis_url = redis_url
++        self._map_key = map_key
++        self._poll_ms = max(50, int(poll_ms))
++        self._jitter_ms = max(0, int(jitter_ms))
++        self._stale_fail_open_ms = max(0, int(stale_fail_open_ms))
++        self.cache = NewsRecoCache(max_symbols=max_symbols)
++
++        self._task: Optional[asyncio.Task[None]] = None
++        self._stop_evt = asyncio.Event()
++        self._last_ok_ms: int = 0
++
++        self.metrics = build_metrics()
++
++        self._redis_async = None
++        self._redis_sync = None
++
++    @property
++    def started(self) -> bool:
++        return self._task is not None and not self._task.done()
++
++    def get(self, symbol: str) -> Optional[dict]:
++        snap = self.cache.get(symbol)
++        if snap is None:
++            self.metrics.miss_total.inc()
++            return None
++        self.metrics.hits_total.inc()
++        return snap.payload
++
++    async def start(self) -> None:
++        if self.started:
++            return
++        self._stop_evt.clear()
++        self._task = asyncio.create_task(self._run(), name="news_reco_reader")
++
++    async def stop(self) -> None:
++        if self._task is None:
++            return
++        self._stop_evt.set()
++        self._task.cancel()
++        try:
++            await self._task
++        except Exception:
++            pass
++        self._task = None
++
++        # Close redis clients if any.
++        try:
++            if self._redis_async is not None:
++                await self._redis_async.close()
++        except Exception:
++            pass
++        try:
++            if self._redis_sync is not None:
++                self._redis_sync.close()
++        except Exception:
++            pass
++
++    async def _init_redis(self) -> None:
++        if self._redis_async is not None or self._redis_sync is not None:
++            return
++
++        connect_timeout_ms = int(os.getenv("TRADE_NEWS_RECO_REDIS_CONNECT_TIMEOUT_MS", "200"))
++        socket_timeout_ms = int(os.getenv("TRADE_NEWS_RECO_REDIS_SOCKET_TIMEOUT_MS", "50"))
++        max_conn = int(os.getenv("TRADE_NEWS_RECO_REDIS_MAX_CONNECTIONS", "20"))
++
++        # Defensive clamps
++        connect_timeout_s = max(0.01, min(connect_timeout_ms / 1000.0, 2.0))
++        socket_timeout_s = max(0.005, min(socket_timeout_ms / 1000.0, 2.0))
++        max_conn = max(2, min(max_conn, 200))
++
++        # Preferred: redis.asyncio
++        try:
++            import redis.asyncio as redis_async  # type: ignore
++
++            self._redis_async = redis_async.from_url(
++                self._redis_url,
++                socket_connect_timeout=connect_timeout_s,
++                socket_timeout=socket_timeout_s,
++                max_connections=max_conn,
++                decode_responses=True,
++                retry_on_timeout=False,
++            )
++            return
++        except Exception:
++            self._redis_async = None
++
++        # Fallback: sync redis in a thread (still non-blocking for event-loop)
++        try:
++            import redis  # type: ignore
++
++            self._redis_sync = redis.from_url(
++                self._redis_url,
++                socket_connect_timeout=connect_timeout_s,
++                socket_timeout=socket_timeout_s,
++                decode_responses=True,
++                retry_on_timeout=False,
++            )
++        except Exception as exc:
++            raise RuntimeError(f"redis client init failed: {exc}") from exc
++
++    async def _redis_get(self, key: str) -> Optional[str]:
++        await self._init_redis()
++        if self._redis_async is not None:
++            return await self._redis_async.get(key)
++        assert self._redis_sync is not None
++        return await asyncio.to_thread(self._redis_sync.get, key)
++
++    async def _run(self) -> None:
++        # Startup jitter to avoid thundering herd on restarts.
++        if self._jitter_ms > 0:
++            await asyncio.sleep(random.random() * (self._jitter_ms / 1000.0))
++
++        while not self._stop_evt.is_set():
++            t0 = now_ms()
++            try:
++                raw = await self._redis_get(self._map_key)
++                if raw:
++                    updated, invalid, expired = self.cache.update_from_map_json(raw, now=t0)
++                    self.metrics.update_total.inc()
++                    self.metrics.symbols.set(self.cache.size)
++                    self._last_ok_ms = t0
++                    self.metrics.last_ok_ts_ms.set(float(t0))
++
++                    # Lag metric (now - map.ts_ms) if present
++                    try:
++                        obj = json.loads(raw)
++                        ts_ms = int(obj.get("ts_ms", 0))
++                        if ts_ms > 0:
++                            self.metrics.lag_ms.set(float(max(0, t0 - ts_ms)))
++                    except Exception:
++                        pass
++
++                else:
++                    # No value: treat as miss (consumer down or not yet ready).
++                    self.metrics.redis_errors_total.inc()
++
++                # Fail-open stale guard
++                if self._stale_fail_open_ms > 0 and self._last_ok_ms > 0:
++                    if (t0 - self._last_ok_ms) > self._stale_fail_open_ms:
++                        dropped = self.cache.sweep_expired(now=t0)
++                        # Additionally clear everything, to avoid tighten on stale data.
++                        self.cache._by_symbol.clear()  # noqa: SLF001  (internal clear)
++                        self.metrics.stale_total.inc()
++                        self.metrics.symbols.set(0)
++
++            except asyncio.CancelledError:
++                raise
++            except ValueError:
++                self.metrics.parse_errors_total.inc()
++            except Exception:
++                self.metrics.redis_errors_total.inc()
++
++            # Next poll
++            sleep_ms = self._poll_ms
++            if self._jitter_ms > 0:
++                sleep_ms += int(random.random() * self._jitter_ms)
++            await asyncio.sleep(sleep_ms / 1000.0)
++
++
++# -------------------------------------------------------------------------
++# Singleton helpers (drop-in integration for trade core)
++# -------------------------------------------------------------------------
++
++_SINGLETON: Optional[NewsRecoReader] = None
++_SINGLETON_LOCK = asyncio.Lock()
++
++
++def get_reco(symbol: str) -> Optional[dict]:
++    """Hot-path getter: returns reco payload or None (fail-open)."""
++    if _SINGLETON is None:
++        return None
++    return _SINGLETON.get(symbol)
++
++
++async def ensure_started() -> Optional[NewsRecoReader]:
++    """Ensure the background reader is running (idempotent).
++
++    Controlled by:
++        TRADE_NEWS_RECO_READER_ENABLE=1
++
++    If disabled, returns None and does nothing.
++    """
++    if not _env_bool("TRADE_NEWS_RECO_READER_ENABLE", "0"):
++        return None
++
++    global _SINGLETON
++    if _SINGLETON is not None and _SINGLETON.started:
++        return _SINGLETON
++
++    async with _SINGLETON_LOCK:
++        if _SINGLETON is not None and _SINGLETON.started:
++            return _SINGLETON
++
++        redis_url = os.getenv("TRADE_NEWS_RECO_REDIS_URL") or os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++        map_key = os.getenv("TRADE_NEWS_RECO_MAP_KEY", "trade:cache:news_reco_map")
++        poll_ms = int(os.getenv("TRADE_NEWS_RECO_POLL_MS", "250"))
++        jitter_ms = int(os.getenv("TRADE_NEWS_RECO_POLL_JITTER_MS", "50"))
++        stale_ms = int(os.getenv("TRADE_NEWS_RECO_STALE_FAIL_OPEN_MS", "5000"))
++        max_symbols = int(os.getenv("TRADE_NEWS_RECO_MAX_SYMBOLS", "2000"))
++
++        _SINGLETON = NewsRecoReader(
++            redis_url=redis_url,
++            map_key=map_key,
++            poll_ms=poll_ms,
++            jitter_ms=jitter_ms,
++            stale_fail_open_ms=stale_ms,
++            max_symbols=max_symbols,
++        )
++        await _SINGLETON.start()
++        return _SINGLETON
++
++
++async def shutdown() -> None:
++    global _SINGLETON
++    if _SINGLETON is None:
++        return
++    try:
++        await _SINGLETON.stop()
++    finally:
++        _SINGLETON = None
+diff --git a/tests/test_news_reco_reader_cache.py b/tests/test_news_reco_reader_cache.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/tests/test_news_reco_reader_cache.py
+@@ -0,0 +1,46 @@
++import time
++
++from services.news_reco_reader.cache import NewsRecoCache, now_ms
++
++
++def test_update_from_map_json_filters_expired_and_invalid():
++    c = NewsRecoCache(max_symbols=10)
++    t0 = now_ms()
++    raw = {
++        "schema_ver": "v1",
++        "ts_ms": t0 - 10,
++        "reco": {
++            "BTCUSDT": {"expires_ms": t0 + 1000, "suggest_profile": "tighten"},
++            "ETHUSDT": {"expires_ms": t0 - 1, "suggest_profile": "soft"},   # expired
++            "BAD": {"expires_ms": "nope"},  # invalid
++            "X": "not an object",           # invalid
++        },
++    }
++    import json
++    updated, invalid, expired = c.update_from_map_json(json.dumps(raw), now=t0)
++    assert updated == 1
++    assert invalid == 2
++    assert expired == 1
++
++    assert c.get("BTCUSDT", now=t0) is not None
++    assert c.get("ETHUSDT", now=t0) is None
++
++
++def test_eviction_by_earliest_expiry():
++    c = NewsRecoCache(max_symbols=2)
++    t0 = now_ms()
++    import json
++    raw = {
++        "schema_ver": "v1",
++        "ts_ms": t0,
++        "reco": {
++            "A": {"expires_ms": t0 + 100},
++            "B": {"expires_ms": t0 + 200},
++            "C": {"expires_ms": t0 + 300},
++        },
++    }
++    c.update_from_map_json(json.dumps(raw), now=t0)
++    # Only 2 should remain, with latest expiries (B,C)
++    assert c.get("A", now=t0) is None
++    assert c.get("B", now=t0) is not None
++    assert c.get("C", now=t0) is not None
+diff --git a/tests/test_news_reco_reader_disabled.py b/tests/test_news_reco_reader_disabled.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/tests/test_news_reco_reader_disabled.py
+@@ -0,0 +1,11 @@
++import os
++import asyncio
++
++from services.news_reco_reader.reader import ensure_started, shutdown
++
++
++def test_disabled_reader_does_not_start():
++    os.environ["TRADE_NEWS_RECO_READER_ENABLE"] = "0"
++    r = asyncio.run(ensure_started())
++    assert r is None
++    asyncio.run(shutdown())

@@ -1,0 +1,12 @@
+{
+  "schema_version": 3,
+  "input_key": "confidence_v1",
+  "generated_at": 1776520857.2035463,
+  "meta": {
+    "method_global": "auto",
+    "training_source": "/app/calibration/dataset.jsonl",
+    "hierarchical": true
+  },
+  "buckets": {},
+  "train_report": {}
+}

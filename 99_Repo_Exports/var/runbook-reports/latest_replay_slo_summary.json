@@ -1,0 +1,37 @@
+{
+  "items": [
+    {
+      "window_name": "1h",
+      "rehydrate_total": 0,
+      "rehydrate_stream_total": 0,
+      "rehydrate_sql_total": 0,
+      "replay_truncated_total": 0,
+      "retention_guard_total": 0,
+      "replay_mismatch_quarantine_total": 0,
+      "retention_guard_quarantine_total": 0,
+      "replay_latency_p95_ms": 0.0
+    },
+    {
+      "window_name": "24h",
+      "rehydrate_total": 0,
+      "rehydrate_stream_total": 0,
+      "rehydrate_sql_total": 0,
+      "replay_truncated_total": 0,
+      "retention_guard_total": 0,
+      "replay_mismatch_quarantine_total": 0,
+      "retention_guard_quarantine_total": 0,
+      "replay_latency_p95_ms": 0.0
+    },
+    {
+      "window_name": "7d",
+      "rehydrate_total": 0,
+      "rehydrate_stream_total": 0,
+      "rehydrate_sql_total": 0,
+      "replay_truncated_total": 0,
+      "retention_guard_total": 0,
+      "replay_mismatch_quarantine_total": 0,
+      "retention_guard_quarantine_total": 0,
+      "replay_latency_p95_ms": 0.0
+    }
+  ]
+}

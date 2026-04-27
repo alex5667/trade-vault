@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/numpy/lib/scimath.py
+# hypothesis_version: 6.148.10
+
+[1.0, 2.0, 'arccos', 'arcsin', 'arctanh', 'log', 'log10', 'log2', 'logn', 'power', 'sqrt']

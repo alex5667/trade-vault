@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/atr_tf_calibrator.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.1, 0.15, 0.25, 0.35, 1.0, 1.05, 4.0, 500.0, 10000.0, 120000, 240000, 600000, 1800000, '15M', '15m', '1M', '1m', '3m', '5M', '5m', 'M1', 'M15', 'M5', 'age_ms', 'atr', 'atr_bps', 'key', 'loaded', 'm1', 'm15', 'm3', 'm5', 'none', 'score', 'src', 'symbol', 'ta_last', 'tf', 'tf_tag', 'ts_ms', 'updated_ts_ms', 'v']

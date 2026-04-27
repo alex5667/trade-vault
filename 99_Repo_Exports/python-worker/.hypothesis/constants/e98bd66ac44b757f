@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/trailing_tp1_calibration.py
+# hypothesis_version: 6.148.10
+
+[-1000000000.0, 0.0, 1e-08, 0.1, 0.3, 0.4, 0.7, 1.0, 200, ',', '--dsn', '--limit', '--offsets', '--source', '--symbol', '--use-mfe-exit', '0.3,0.4,0.5,0.6,0.7', 'LONG', 'No trades found', 'PostgreSQL DSN', 'Strategy/source name', 'Symbol, e.g. ETHUSDT', '__main__', 'atr_entry', 'end_ts', 'entry_price', 'entry_ts', 'exit_price', 'exit_ts', 'high', 'id', 'initial_sl_price', 'limit', 'low', 'mfe_exit', 'minute_ts', 'no_atr', 'original_exit', 'side', 'source', 'start_ts', 'store_true', 'symbol', 'tp1_hit', 'tp1_hit_ts_ms', 'tp1_price', 'trailing_stop', 'ts']

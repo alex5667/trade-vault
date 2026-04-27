@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/matplotlib/contour.py
+# hypothesis_version: 6.148.10
+
+[-1e+250, 0.0, 1e-250, 1e-15, 1e-13, 1e-10, 0.5, 0.99, 1.2, 2.0, 1e+250, 180, '%1.3f', ', ', '3.5', '_as_mpl_transform', '_contour_generator', '_nolegend_', 'allsegs', 'backspace', 'both', 'button_press_event', 'center', 'cmap', 'contour', 'contour.algorithm', 'contour.corner_mask', 'contour.linewidth', 'contourf', 'cvalues', 'delete', 'enter', 'escape', 'format_ticks', 'ignore', 'image', 'image.origin', 'key_press_event', 'lines.linewidth', 'lower', 'max', 'min', 'mpl2005', 'neither', 'none', 'norm', 'solid', 'text.Text', 'upper', 'x', 'y', 'zorder']

@@ -1,0 +1,101 @@
+groups:
+  - name: of_dq_gate_policy_v1
+    rules:
+      - alert: OF_DQ_GateHardState_Crit
+        expr: of_dq_gate_level >= 2
+        for: 1m
+        labels:
+          severity: crit
+          component: dq_gate
+        annotations:
+          summary: "DQ Gate is in Hard Veto State (level >= 2)"
+          description: >-
+            DQ Gate level for {{ $labels.symbol }} is {{ $value }}. Hard veto is active. Check runbook.
+
+      - alert: OF_DQ_GateVetoRate_High_Warn
+        expr: rate(of_dq_veto_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: warn
+          component: dq_gate
+        annotations:
+          summary: "DQ Gate Veto Rate is High"
+          description: >-
+            DQ Gate is actively vetoing ticks for {{ $labels.symbol }}, reason: {{ $labels.reason }}.
+
+      - alert: OF_DQ_TickGapP95High_Warn
+        expr: of_dq_diagnostic_tick_gap_p95_ms > 50
+        for: 5m
+        labels:
+          severity: warn
+          component: dq_gate
+        annotations:
+          summary: "Tick Gap P95 is High (Warn)"
+          description: >-
+            Tick Gap P95 for {{ $labels.symbol }} is {{ $value }} ms (threshold > 50ms).
+
+      - alert: OF_DQ_TickGapP95Extreme_Crit
+        expr: of_dq_diagnostic_tick_gap_p95_ms > 200
+        for: 2m
+        labels:
+          severity: crit
+          component: dq_gate
+        annotations:
+          summary: "Tick Gap P95 is Extreme (Crit)"
+          description: >-
+            Tick Gap P95 for {{ $labels.symbol }} is {{ $value }} ms (threshold > 200ms).
+
+      - alert: OF_DQ_TickMissingSeqEmaHigh_Warn
+        expr: of_dq_diagnostic_tick_missing_seq_ema > 0.01
+        for: 5m
+        labels:
+          severity: warn
+          component: dq_gate
+        annotations:
+          summary: "Tick Missing Seq EMA is High (Warn)"
+          description: >-
+            Missing sequence EMA for ticks is {{ $value }}.
+
+      - alert: OF_DQ_TickMissingSeqEmaHard_Crit
+        expr: of_dq_diagnostic_tick_missing_seq_ema > 0.05
+        for: 2m
+        labels:
+          severity: crit
+          component: dq_gate
+        annotations:
+          summary: "Tick Missing Seq EMA is Critical (Crit)"
+          description: >-
+            Missing sequence EMA for ticks is {{ $value }}.
+
+      - alert: OF_DQ_BookMissingSeqEmaHigh_Warn
+        expr: of_dq_diagnostic_book_missing_seq_ema > 0.01
+        for: 5m
+        labels:
+          severity: warn
+          component: dq_gate
+        annotations:
+          summary: "Book Missing Seq EMA is High (Warn)"
+          description: >-
+            Missing sequence EMA for book is {{ $value }}.
+
+      - alert: OF_DQ_BookMissingSeqEmaHard_Crit
+        expr: of_dq_diagnostic_book_missing_seq_ema > 0.05
+        for: 2m
+        labels:
+          severity: crit
+          component: dq_gate
+        annotations:
+          summary: "Book Missing Seq EMA is Critical (Crit)"
+          description: >-
+            Missing sequence EMA for book is {{ $value }}.
+
+      - alert: OF_DQ_HealthScoreLow_Warn
+        expr: of_dq_gate_health_score < 0.8
+        for: 5m
+        labels:
+          severity: warn
+          component: dq_gate
+        annotations:
+          summary: "DQ Gate Health Score Low"
+          description: >-
+            Health score for {{ $labels.symbol }} is {{ $value }} (threshold < 0.8).

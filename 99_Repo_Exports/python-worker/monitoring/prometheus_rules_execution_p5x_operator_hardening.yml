@@ -1,0 +1,38 @@
+groups:
+  - name: trade-risk-drift-operator-hardening
+    rules:
+      # Alert when the archive consistency check report itself is stale
+      # (checker hasn't run recently — implies a pipeline breakage)
+      - alert: TradeRiskMismatchArchiveConsistencyStale
+        expr: trade_risk_mismatch_archive_consistency_stale > 0
+        for: 15m
+        labels:
+          severity: warning
+          domain: risk-drift
+        annotations:
+          summary: Risk mismatch archive consistency report is stale.
+          description: Archive consistency checker report has exceeded freshness threshold.
+
+      # Alert when the MV diverges from the hot+archive re-aggregation
+      # (data has drifted; operator should investigate purge or MV refresh issues)
+      - alert: TradeRiskMismatchArchiveConsistencyMismatch
+        expr: trade_risk_mismatch_archive_consistency_mismatch_total > 0
+        for: 10m
+        labels:
+          severity: warning
+          domain: risk-drift
+        annotations:
+          summary: Risk mismatch materialized summary diverges from hot+archive ledger.
+          description: risk_mismatch_summary_mv is inconsistent with recomputed hot+archive aggregate.
+
+      # Alert when the archive purge freshness/reporting pipeline is stale
+      # (6h threshold: purge is expected to run daily)
+      - alert: TradeRiskMismatchRetentionStale
+        expr: trade_risk_mismatch_retention_stale > 0
+        for: 6h
+        labels:
+          severity: warning
+          domain: risk-drift
+        annotations:
+          summary: Risk mismatch retention purge report is stale.
+          description: The archive purge freshness/reporting pipeline is stale.

@@ -1,0 +1,12 @@
+{
+  "symbol": "ETHUSDT",
+  "recommend": "promote",
+  "reversal_veto_precision": 0.85,
+  "n_reversals": 12,
+  "data_sufficient": true,
+  "proof_streak": 2,
+  "proof_streak_required": 3,
+  "rollback_streak": 0,
+  "rollback_streak_required": 2,
+  "window_h": 24
+}

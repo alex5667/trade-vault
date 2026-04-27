@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/calibration/local_calibration_service.py
+# hypothesis_version: 6.148.10
+
+[0.5, 2.0, 'absorption_score', 'atr_quantile', 'cdf_points_count', 'count_samples', 'default_extreme_z', 'deltaSpike_z', 'is_extreme', 'liquidity_score', 'metrics_to_calibrate', 'mixed', 'obi', 'p50', 'p75', 'p90', 'q90', 'q95', 'q98', 'quantile', 'threshold', 'value', 'weak_progress']

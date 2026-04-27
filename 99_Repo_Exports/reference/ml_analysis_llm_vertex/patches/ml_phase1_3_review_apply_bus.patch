@@ -1,0 +1,1695 @@
+--- /dev/null
++++ b/orderflow_services/ml_recommendation_apply_gate_v1.py
+@@ -0,0 +1,276 @@
++
+
++from __future__ import annotations
+
++
+
++import hashlib
+
++import json
+
++import os
+
++import time
+
++from dataclasses import asdict, dataclass
+
++from typing import Any, Dict, List
+
++
+
++try:
+
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
+
++except Exception:  # pragma: no cover
+
++    class _Metric:
+
++        def labels(self, *args, **kwargs):
+
++            return self
+
++        def inc(self, *args, **kwargs):
+
++            return None
+
++        def set(self, *args, **kwargs):
+
++            return None
+
++        def observe(self, *args, **kwargs):
+
++            return None
+
++    Counter = Gauge = Histogram = lambda *a, **k: _Metric()  # type: ignore
+
++    def start_http_server(*args, **kwargs):  # type: ignore
+
++        return None
+
++
+
++APPLY_REQUESTS_STREAM = os.getenv("ML_RECOMMENDATION_APPLY_REQUESTS_STREAM", "stream:ml:recommendation_apply_requests")
+
++APPLY_RESULTS_STREAM = os.getenv("ML_RECOMMENDATION_APPLY_RESULTS_STREAM", "stream:ml:recommendation_apply_results")
+
++AUDIT_STREAM = os.getenv("ML_RECOMMENDATION_AUDIT_STREAM", "stream:ml:recommendation_audit")
+
++GROUP = os.getenv("ML_RECOMMENDATION_APPLY_GROUP", "cg:ml_recommendation_apply_gate")
+
++CONSUMER = os.getenv("ML_RECOMMENDATION_APPLY_CONSUMER", os.getenv("HOSTNAME", "ml-recommendation-apply-gate-1"))
+
++
+
++ALLOWED_ACTIONS = {
+
++    "require_shadow_retrain",
+
++    "freeze_candidate",
+
++    "unfreeze_candidate",
+
++    "request_calibration_refresh",
+
++    "propose_threshold_canary",
+
++    "open_incident",
+
++    "draft_postmortem",
+
++}
+
++
+
++APPLYABLE_ACTIONS = {
+
++    "require_shadow_retrain",
+
++    "freeze_candidate",
+
++    "unfreeze_candidate",
+
++    "request_calibration_refresh",
+
++    "propose_threshold_canary",
+
++}
+
++
+
++REPLAY_REQUIRED_ACTIONS = {
+
++    "require_shadow_retrain",
+
++    "request_calibration_refresh",
+
++    "propose_threshold_canary",
+
++}
+
++
+
++ALLOWED_TARGET_KINDS = {
+
++    "edge_stack_v1",
+
++    "meta_lr",
+
++    "ml_scorer_v2",
+
++    "ml_scorer_v3",
+
++    "confidence_cal",
+
++    "feature_drift",
+
++    "governance",
+
++}
+
++
+
++APPLY_REQ_TOTAL = Counter("ml_recommendation_apply_requests_total", "Recommendation apply requests seen", ["action_type", "status"])
+
++APPLY_DECISION_TOTAL = Counter("ml_recommendation_apply_decision_total", "Recommendation apply decisions", ["action_type", "decision"])
+
++APPLY_LAST_RUN_TS = Gauge("ml_recommendation_apply_last_run_ts_seconds", "Last run timestamp of recommendation apply gate")
+
++APPLY_LOOP_SECONDS = Histogram("ml_recommendation_apply_loop_seconds", "Loop duration for recommendation apply gate")
+
++APPLY_UP = Gauge("ml_recommendation_apply_up", "Up metric for recommendation apply gate")
+
++
+
++
+
++def _now_ms() -> int:
+
++    return int(time.time() * 1000)
+
++
+
++
+
++def _to_int(x: Any, default: int = 0) -> int:
+
++    try:
+
++        if x is None:
+
++            return default
+
++        return int(float(x))
+
++    except Exception:
+
++        return default
+
++
+
++
+
++def _to_bool(x: Any, default: bool = False) -> bool:
+
++    if x is None:
+
++        return default
+
++    if isinstance(x, bool):
+
++        return x
+
++    s = str(x).strip().lower()
+
++    if s in {"1", "true", "yes", "y", "on"}:
+
++        return True
+
++    if s in {"0", "false", "no", "n", "off"}:
+
++        return False
+
++    return default
+
++
+
++
+
++def _split_csv(s: Any) -> List[str]:
+
++    if s is None:
+
++        return []
+
++    if isinstance(s, (list, tuple)):
+
++        return [str(x).strip() for x in s if str(x).strip()]
+
++    return [x.strip() for x in str(s).split(",") if x.strip()]
+
++
+
++
+
++@dataclass
+
++class ApplyDecision:
+
++    recommendation_id: str
+
++    action_type: str
+
++    target_kind: str
+
++    target_ref: str
+
++    decision: str
+
++    allow: int
+
++    status: str
+
++    reason_codes_json: str
+
++    replay_required: int
+
++    replay_status: str
+
++    approved_count: int
+
++    rejected_count: int
+
++    apply_mode: str
+
++    dry_run: int
+
++    actor: str
+
++    ts_ms: int
+
++
+
++    def to_dict(self) -> Dict[str, Any]:
+
++        return asdict(self)
+
++
+
++
+
++def parse_apply_request(payload: Dict[str, Any]) -> Dict[str, Any]:
+
++    out = dict(payload)
+
++    out["recommendation_id"] = str(payload.get("recommendation_id", "") or "")
+
++    out["action_type"] = str(payload.get("action_type", "") or "")
+
++    out["target_kind"] = str(payload.get("target_kind", "") or "")
+
++    out["target_ref"] = str(payload.get("target_ref", "") or "")
+
++    out["risk_level"] = str(payload.get("risk_level", "unknown") or "unknown").lower()
+
++    out["approved_count"] = _to_int(payload.get("approved_count", 0), 0)
+
++    out["rejected_count"] = _to_int(payload.get("rejected_count", 0), 0)
+
++    out["replay_required"] = 1 if _to_bool(payload.get("replay_required", False), False) else 0
+
++    out["replay_status"] = str(payload.get("replay_status", "UNKNOWN") or "UNKNOWN").upper()
+
++    out["review_status"] = str(payload.get("review_status", "PENDING") or "PENDING").upper()
+
++    out["reason_codes"] = _split_csv(payload.get("reason_codes_json") or payload.get("reason_codes"))
+
++    return out
+
++
+
++
+
++def evaluate_apply_request(payload: Dict[str, Any]) -> ApplyDecision:
+
++    req = parse_apply_request(payload)
+
++    action_type = req["action_type"]
+
++    apply_mode = str(os.getenv("ML_RECOMMENDATION_APPLY_MODE", "REVIEW_ONLY") or "REVIEW_ONLY").upper()
+
++    dry_run = 1 if _to_bool(os.getenv("ML_RECOMMENDATION_APPLY_DRY_RUN", "1"), True) else 0
+
++    min_approvals = _to_int(os.getenv("ML_RECOMMENDATION_MIN_APPROVALS", "1"), 1)
+
++    allow_high_risk = _to_bool(os.getenv("ML_RECOMMENDATION_ALLOW_HIGH_RISK", "0"), False)
+
++
+
++    reason_codes: List[str] = []
+
++    allow = 0
+
++    status = "BLOCKED"
+
++    decision = "BLOCK"
+
++
+
++    if not req["recommendation_id"]:
+
++        reason_codes.append("MISSING_RECOMMENDATION_ID")
+
++    if action_type not in ALLOWED_ACTIONS:
+
++        reason_codes.append("ACTION_NOT_ALLOWED")
+
++    if req["target_kind"] not in ALLOWED_TARGET_KINDS:
+
++        reason_codes.append("TARGET_KIND_NOT_ALLOWED")
+
++    if req["review_status"] not in {"APPROVED", "READY_FOR_APPLY"}:
+
++        reason_codes.append("NOT_APPROVED")
+
++    if req["approved_count"] < min_approvals:
+
++        reason_codes.append("INSUFFICIENT_APPROVALS")
+
++    if req["rejected_count"] > 0:
+
++        reason_codes.append("HAS_REJECTIONS")
+
++    if action_type not in APPLYABLE_ACTIONS:
+
++        reason_codes.append("REVIEW_ONLY_ACTION")
+
++    if req["risk_level"] == "high" and not allow_high_risk:
+
++        reason_codes.append("HIGH_RISK_BLOCKED")
+
++    replay_required = 1 if action_type in REPLAY_REQUIRED_ACTIONS or req["replay_required"] == 1 else 0
+
++    replay_status = req["replay_status"]
+
++    if replay_required and replay_status != "PASS":
+
++        reason_codes.append("REPLAY_REQUIRED_NOT_PASS")
+
++    if apply_mode == "OFF":
+
++        reason_codes.append("APPLY_MODE_OFF")
+
++
+
++    if not reason_codes:
+
++        allow = 1
+
++        if apply_mode == "REVIEW_ONLY":
+
++            status = "REVIEW_ONLY"
+
++            decision = "ALLOW_REVIEW_ONLY"
+
++        elif dry_run == 1:
+
++            status = "DRY_RUN_ALLOWED"
+
++            decision = "ALLOW_DRY_RUN"
+
++        else:
+
++            status = "READY_FOR_EXECUTOR"
+
++            decision = "ALLOW_EXECUTOR"
+
++
+
++    return ApplyDecision(
+
++        recommendation_id=req["recommendation_id"],
+
++        action_type=action_type,
+
++        target_kind=req["target_kind"],
+
++        target_ref=req["target_ref"],
+
++        decision=decision,
+
++        allow=allow,
+
++        status=status,
+
++        reason_codes_json=json.dumps(reason_codes, ensure_ascii=False, separators=(",", ":")),
+
++        replay_required=replay_required,
+
++        replay_status=replay_status,
+
++        approved_count=req["approved_count"],
+
++        rejected_count=req["rejected_count"],
+
++        apply_mode=apply_mode,
+
++        dry_run=dry_run,
+
++        actor="ml_recommendation_apply_gate_v1",
+
++        ts_ms=_now_ms(),
+
++    )
+
++
+
++
+
++def build_audit_event(decision: ApplyDecision) -> Dict[str, Any]:
+
++    audit_id = hashlib.sha1(f"{decision.recommendation_id}|{decision.ts_ms}|{decision.decision}".encode("utf-8")).hexdigest()
+
++    return {
+
++        "schema_version": 1,
+
++        "audit_id": audit_id,
+
++        "recommendation_id": decision.recommendation_id,
+
++        "ts_ms": decision.ts_ms,
+
++        "event_type": "APPLY_GATE_DECISION",
+
++        "actor": decision.actor,
+
++        "payload_json": json.dumps(decision.to_dict(), ensure_ascii=False, separators=(",", ":")),
+
++    }
+
++
+
++
+
++async def _run() -> None:
+
++    try:
+
++        import redis.asyncio as redis  # type: ignore
+
++    except Exception as exc:  # pragma: no cover
+
++        raise RuntimeError("redis.asyncio is required to run the apply gate") from exc
+
++
+
++    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
++    metrics_port = _to_int(os.getenv("ML_RECOMMENDATION_APPLY_METRICS_PORT", "9855"), 9855)
+
++    start_http_server(metrics_port)
+
++    APPLY_UP.set(1)
+
++
+
++    client = redis.from_url(redis_url, decode_responses=True)
+
++    try:
+
++        await client.xgroup_create(APPLY_REQUESTS_STREAM, GROUP, id="0", mkstream=True)
+
++    except Exception:
+
++        pass
+
++
+
++    while True:
+
++        t0 = time.perf_counter()
+
++        APPLY_LAST_RUN_TS.set(time.time())
+
++        rows = await client.xreadgroup(
+
++            GROUP,
+
++            CONSUMER,
+
++            {APPLY_REQUESTS_STREAM: ">"},
+
++            count=_to_int(os.getenv("ML_RECOMMENDATION_APPLY_BATCH", "64"), 64),
+
++            block=_to_int(os.getenv("ML_RECOMMENDATION_APPLY_BLOCK_MS", "5000"), 5000),
+
++        )
+
++        if not rows:
+
++            APPLY_LOOP_SECONDS.observe(time.perf_counter() - t0)
+
++            continue
+
++        for _, messages in rows:
+
++            for msg_id, fields in messages:
+
++                req = dict(fields)
+
++                dec = evaluate_apply_request(req)
+
++                APPLY_REQ_TOTAL.labels(dec.action_type or "unknown", dec.status).inc()
+
++                APPLY_DECISION_TOTAL.labels(dec.action_type or "unknown", dec.decision).inc()
+
++                await client.xadd(APPLY_RESULTS_STREAM, dec.to_dict(), maxlen=100_000, approximate=True)
+
++                await client.xadd(AUDIT_STREAM, build_audit_event(dec), maxlen=200_000, approximate=True)
+
++                await client.xack(APPLY_REQUESTS_STREAM, GROUP, msg_id)
+
++        APPLY_LOOP_SECONDS.observe(time.perf_counter() - t0)
+
++
+
++
+
++def main() -> None:
+
++    import asyncio
+
++    asyncio.run(_run())
+
++
+
++
+
++if __name__ == "__main__":
+
++    main()
+
+
+--- /dev/null
++++ b/orderflow_services/ml_recommendation_review_bus_v1.py
+@@ -0,0 +1,291 @@
++
+
++from __future__ import annotations
+
++
+
++import hashlib
+
++import json
+
++import os
+
++import time
+
++from typing import Any, Dict, List, Tuple
+
++
+
++try:
+
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
+
++except Exception:  # pragma: no cover
+
++    class _Metric:
+
++        def labels(self, *args, **kwargs):
+
++            return self
+
++        def inc(self, *args, **kwargs):
+
++            return None
+
++        def set(self, *args, **kwargs):
+
++            return None
+
++        def observe(self, *args, **kwargs):
+
++            return None
+
++    Counter = Gauge = Histogram = lambda *a, **k: _Metric()  # type: ignore
+
++    def start_http_server(*args, **kwargs):  # type: ignore
+
++        return None
+
++
+
++PROPOSALS_STREAM = os.getenv("ML_RECOMMENDATION_PROPOSALS_STREAM", "stream:ml:recommendation_proposals")
+
++REVIEW_REQUESTS_STREAM = os.getenv("ML_RECOMMENDATION_REVIEW_REQUESTS_STREAM", "stream:ml:recommendation_review_requests")
+
++REVIEWS_STREAM = os.getenv("ML_RECOMMENDATION_REVIEWS_STREAM", "stream:ml:recommendation_reviews")
+
++APPLY_REQUESTS_STREAM = os.getenv("ML_RECOMMENDATION_APPLY_REQUESTS_STREAM", "stream:ml:recommendation_apply_requests")
+
++AUDIT_STREAM = os.getenv("ML_RECOMMENDATION_AUDIT_STREAM", "stream:ml:recommendation_audit")
+
++GROUP_PROPOSALS = os.getenv("ML_RECOMMENDATION_REVIEW_PROPOSALS_GROUP", "cg:ml_recommendation_review_proposals")
+
++GROUP_REVIEWS = os.getenv("ML_RECOMMENDATION_REVIEW_REVIEWS_GROUP", "cg:ml_recommendation_reviews")
+
++CONSUMER = os.getenv("ML_RECOMMENDATION_REVIEW_CONSUMER", os.getenv("HOSTNAME", "ml-recommendation-review-bus-1"))
+
++
+
++ALLOWED_ACTIONS = {
+
++    "require_shadow_retrain",
+
++    "freeze_candidate",
+
++    "unfreeze_candidate",
+
++    "request_calibration_refresh",
+
++    "propose_threshold_canary",
+
++    "open_incident",
+
++    "draft_postmortem",
+
++}
+
++
+
++REVIEW_REQ_TOTAL = Counter("ml_recommendation_review_requests_total", "Review requests emitted", ["action_type"])
+
++REVIEW_EVENTS_TOTAL = Counter("ml_recommendation_review_events_total", "Incoming review events", ["decision"])
+
++REVIEW_APPLY_REQ_TOTAL = Counter("ml_recommendation_apply_requests_emitted_total", "Apply requests emitted after review", ["action_type"])
+
++REVIEW_UP = Gauge("ml_recommendation_review_bus_up", "Up metric for recommendation review bus")
+
++REVIEW_LAST_RUN_TS = Gauge("ml_recommendation_review_bus_last_run_ts_seconds", "Last run ts for recommendation review bus")
+
++REVIEW_LOOP_SECONDS = Histogram("ml_recommendation_review_bus_loop_seconds", "Loop time for recommendation review bus")
+
++
+
++
+
++def _now_ms() -> int:
+
++    return int(time.time() * 1000)
+
++
+
++
+
++def _to_int(x: Any, default: int = 0) -> int:
+
++    try:
+
++        if x is None:
+
++            return default
+
++        return int(float(x))
+
++    except Exception:
+
++        return default
+
++
+
++
+
++def _to_bool(x: Any, default: bool = False) -> bool:
+
++    if x is None:
+
++        return default
+
++    if isinstance(x, bool):
+
++        return x
+
++    s = str(x).strip().lower()
+
++    if s in {"1", "true", "yes", "y", "on"}:
+
++        return True
+
++    if s in {"0", "false", "no", "n", "off"}:
+
++        return False
+
++    return default
+
++
+
++
+
++def _norm_action(x: Any) -> str:
+
++    return str(x or "").strip()
+
++
+
++
+
++def _norm_risk(x: Any) -> str:
+
++    return str(x or "unknown").strip().lower() or "unknown"
+
++
+
++
+
++def _split_reason_codes(payload: Dict[str, Any]) -> List[str]:
+
++    raw = payload.get("reason_codes_json") or payload.get("reason_codes") or "[]"
+
++    if isinstance(raw, list):
+
++        return [str(x).strip() for x in raw if str(x).strip()]
+
++    s = str(raw)
+
++    try:
+
++        if s.startswith("["):
+
++            data = json.loads(s)
+
++            if isinstance(data, list):
+
++                return [str(x).strip() for x in data if str(x).strip()]
+
++    except Exception:
+
++        pass
+
++    return [x.strip() for x in s.split(",") if x.strip()]
+
++
+
++
+
++def proposal_to_review_request(payload: Dict[str, Any]) -> Dict[str, Any]:
+
++    action_type = _norm_action(payload.get("action_type"))
+
++    recommendation_id = str(payload.get("recommendation_id") or "").strip()
+
++    if not recommendation_id:
+
++        recommendation_id = hashlib.sha1(
+
++            f"{action_type}|{payload.get('target_kind')}|{payload.get('target_ref')}|{payload.get('ts_ms')}".encode("utf-8")
+
++        ).hexdigest()
+
++    replay_required = 1 if action_type in {"require_shadow_retrain", "request_calibration_refresh", "propose_threshold_canary"} else 0
+
++    reason_codes = _split_reason_codes(payload)
+
++    return {
+
++        "schema_version": 1,
+
++        "recommendation_id": recommendation_id,
+
++        "analysis_run_id": str(payload.get("analysis_run_id", "") or ""),
+
++        "ts_ms": _to_int(payload.get("ts_ms", _now_ms()), _now_ms()),
+
++        "action_type": action_type,
+
++        "target_kind": str(payload.get("target_kind", "") or ""),
+
++        "target_ref": str(payload.get("target_ref", "") or ""),
+
++        "risk_level": _norm_risk(payload.get("risk_level")),
+
++        "recommendation_json": payload.get("recommendation_json") if isinstance(payload.get("recommendation_json"), str) else json.dumps(payload.get("recommendation_json", {}), ensure_ascii=False, separators=(",", ":")),
+
++        "review_status": "PENDING",
+
++        "replay_required": replay_required,
+
++        "replay_status": str(payload.get("replay_status", "UNKNOWN") or "UNKNOWN").upper(),
+
++        "approved_count": 0,
+
++        "rejected_count": 0,
+
++        "reason_codes_json": json.dumps(reason_codes, ensure_ascii=False, separators=(",", ":")),
+
++    }
+
++
+
++
+
++def apply_request_from_review_state(state: Dict[str, Any]) -> Dict[str, Any]:
+
++    return {
+
++        "schema_version": 1,
+
++        "recommendation_id": state["recommendation_id"],
+
++        "analysis_run_id": state.get("analysis_run_id", ""),
+
++        "ts_ms": _now_ms(),
+
++        "action_type": state["action_type"],
+
++        "target_kind": state["target_kind"],
+
++        "target_ref": state["target_ref"],
+
++        "risk_level": state.get("risk_level", "unknown"),
+
++        "review_status": "READY_FOR_APPLY",
+
++        "approved_count": _to_int(state.get("approved_count", 0), 0),
+
++        "rejected_count": _to_int(state.get("rejected_count", 0), 0),
+
++        "replay_required": _to_int(state.get("replay_required", 0), 0),
+
++        "replay_status": str(state.get("replay_status", "UNKNOWN") or "UNKNOWN").upper(),
+
++        "reason_codes_json": state.get("reason_codes_json", "[]"),
+
++        "recommendation_json": state.get("recommendation_json", "{}"),
+
++    }
+
++
+
++
+
++def build_audit_event(recommendation_id: str, event_type: str, actor: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+
++    ts_ms = _now_ms()
+
++    audit_id = hashlib.sha1(f"{recommendation_id}|{event_type}|{actor}|{ts_ms}".encode("utf-8")).hexdigest()
+
++    return {
+
++        "schema_version": 1,
+
++        "audit_id": audit_id,
+
++        "recommendation_id": recommendation_id,
+
++        "ts_ms": ts_ms,
+
++        "event_type": event_type,
+
++        "actor": actor,
+
++        "payload_json": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+
++    }
+
++
+
++
+
++def review_state_key(recommendation_id: str) -> str:
+
++    return f"ml:recommendation:review_state:{recommendation_id}"
+
++
+
++
+
++def should_emit_apply_request(state: Dict[str, Any], *, min_approvals: int) -> Tuple[bool, List[str]]:
+
++    reasons: List[str] = []
+
++    action_type = str(state.get("action_type", "") or "")
+
++    if action_type not in ALLOWED_ACTIONS:
+
++        reasons.append("ACTION_NOT_ALLOWED")
+
++    if _to_int(state.get("approved_count", 0), 0) < min_approvals:
+
++        reasons.append("INSUFFICIENT_APPROVALS")
+
++    if _to_int(state.get("rejected_count", 0), 0) > 0:
+
++        reasons.append("HAS_REJECTIONS")
+
++    risk_level = _norm_risk(state.get("risk_level", "unknown"))
+
++    if risk_level == "high" and not _to_bool(os.getenv("ML_RECOMMENDATION_ALLOW_HIGH_RISK", "0"), False):
+
++        reasons.append("HIGH_RISK_BLOCKED")
+
++    if _to_int(state.get("replay_required", 0), 0) == 1 and str(state.get("replay_status", "UNKNOWN")).upper() != "PASS":
+
++        reasons.append("REPLAY_REQUIRED_NOT_PASS")
+
++    return (len(reasons) == 0, reasons)
+
++
+
++
+
++async def _handle_proposals(client: Any) -> None:
+
++    rows = await client.xreadgroup(
+
++        GROUP_PROPOSALS,
+
++        CONSUMER,
+
++        {PROPOSALS_STREAM: ">"},
+
++        count=_to_int(os.getenv("ML_RECOMMENDATION_REVIEW_BATCH", "64"), 64),
+
++        block=1000,
+
++    )
+
++    for _, messages in rows:
+
++        for msg_id, fields in messages:
+
++            proposal = dict(fields)
+
++            review_req = proposal_to_review_request(proposal)
+
++            key = review_state_key(review_req["recommendation_id"])
+
++            if not await client.exists(key):
+
++                await client.hset(key, mapping=review_req)
+
++            await client.xadd(REVIEW_REQUESTS_STREAM, review_req, maxlen=100_000, approximate=True)
+
++            await client.xadd(AUDIT_STREAM, build_audit_event(review_req["recommendation_id"], "REVIEW_REQUEST_CREATED", "ml_recommendation_review_bus_v1", review_req), maxlen=200_000, approximate=True)
+
++            REVIEW_REQ_TOTAL.labels(review_req["action_type"] or "unknown").inc()
+
++            await client.xack(PROPOSALS_STREAM, GROUP_PROPOSALS, msg_id)
+
++
+
++
+
++async def _handle_reviews(client: Any) -> None:
+
++    rows = await client.xreadgroup(
+
++        GROUP_REVIEWS,
+
++        CONSUMER,
+
++        {REVIEWS_STREAM: ">"},
+
++        count=_to_int(os.getenv("ML_RECOMMENDATION_REVIEW_BATCH", "64"), 64),
+
++        block=1000,
+
++    )
+
++    min_approvals = _to_int(os.getenv("ML_RECOMMENDATION_MIN_APPROVALS", "1"), 1)
+
++    for _, messages in rows:
+
++        for msg_id, fields in messages:
+
++            review = dict(fields)
+
++            recommendation_id = str(review.get("recommendation_id", "") or "")
+
++            if not recommendation_id:
+
++                await client.xack(REVIEWS_STREAM, GROUP_REVIEWS, msg_id)
+
++                continue
+
++            state_key = review_state_key(recommendation_id)
+
++            state = await client.hgetall(state_key)
+
++            if not state:
+
++                await client.xadd(AUDIT_STREAM, build_audit_event(recommendation_id, "REVIEW_EVENT_DROPPED", "ml_recommendation_review_bus_v1", {"reason": "UNKNOWN_RECOMMENDATION", "review": review}), maxlen=200_000, approximate=True)
+
++                await client.xack(REVIEWS_STREAM, GROUP_REVIEWS, msg_id)
+
++                continue
+
++            decision = str(review.get("decision", "COMMENT") or "COMMENT").upper()
+
++            reviewer = str(review.get("reviewer", "unknown") or "unknown")
+
++            replay_status = str(review.get("replay_status", state.get("replay_status", "UNKNOWN")) or "UNKNOWN").upper()
+
++            approved_count = _to_int(state.get("approved_count", 0), 0)
+
++            rejected_count = _to_int(state.get("rejected_count", 0), 0)
+
++
+
++            if decision == "APPROVE":
+
++                approved_count += 1
+
++            elif decision == "REJECT":
+
++                rejected_count += 1
+
++
+
++            state["approved_count"] = approved_count
+
++            state["rejected_count"] = rejected_count
+
++            state["replay_status"] = replay_status
+
++            state["last_review_ts_ms"] = _now_ms()
+
++            state["review_status"] = "APPROVED" if approved_count >= min_approvals and rejected_count == 0 else ("REJECTED" if rejected_count > 0 else "UNDER_REVIEW")
+
++            await client.hset(state_key, mapping={k: str(v) for k, v in state.items()})
+
++
+
++            audit_payload = {"reviewer": reviewer, "decision": decision, "replay_status": replay_status, "approved_count": approved_count, "rejected_count": rejected_count}
+
++            REVIEW_EVENTS_TOTAL.labels(decision).inc()
+
++            await client.xadd(AUDIT_STREAM, build_audit_event(recommendation_id, "REVIEW_EVENT", reviewer, audit_payload), maxlen=200_000, approximate=True)
+
++
+
++            emit_apply, reasons = should_emit_apply_request(state, min_approvals=min_approvals)
+
++            if emit_apply:
+
++                apply_req = apply_request_from_review_state(state)
+
++                await client.xadd(APPLY_REQUESTS_STREAM, apply_req, maxlen=100_000, approximate=True)
+
++                await client.xadd(AUDIT_STREAM, build_audit_event(recommendation_id, "APPLY_REQUEST_EMITTED", "ml_recommendation_review_bus_v1", apply_req), maxlen=200_000, approximate=True)
+
++                REVIEW_APPLY_REQ_TOTAL.labels(apply_req["action_type"] or "unknown").inc()
+
++            elif reasons:
+
++                await client.xadd(AUDIT_STREAM, build_audit_event(recommendation_id, "APPLY_REQUEST_BLOCKED", "ml_recommendation_review_bus_v1", {"reasons": reasons, "state": state}), maxlen=200_000, approximate=True)
+
++            await client.xack(REVIEWS_STREAM, GROUP_REVIEWS, msg_id)
+
++
+
++
+
++async def _run() -> None:
+
++    try:
+
++        import redis.asyncio as redis  # type: ignore
+
++    except Exception as exc:  # pragma: no cover
+
++        raise RuntimeError("redis.asyncio is required to run the review bus") from exc
+
++
+
++    metrics_port = _to_int(os.getenv("ML_RECOMMENDATION_REVIEW_METRICS_PORT", "9856"), 9856)
+
++    start_http_server(metrics_port)
+
++    REVIEW_UP.set(1)
+
++    client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True)
+
++    for stream, group in ((PROPOSALS_STREAM, GROUP_PROPOSALS), (REVIEWS_STREAM, GROUP_REVIEWS)):
+
++        try:
+
++            await client.xgroup_create(stream, group, id="0", mkstream=True)
+
++        except Exception:
+
++            pass
+
++
+
++    while True:
+
++        t0 = time.perf_counter()
+
++        REVIEW_LAST_RUN_TS.set(time.time())
+
++        await _handle_proposals(client)
+
++        await _handle_reviews(client)
+
++        REVIEW_LOOP_SECONDS.observe(time.perf_counter() - t0)
+
++
+
++
+
++def main() -> None:
+
++    import asyncio
+
++    asyncio.run(_run())
+
++
+
++
+
++if __name__ == "__main__":
+
++    main()
+
+
+--- /dev/null
++++ b/orderflow_services/sql/ml_phase1_3_v1.sql
+@@ -0,0 +1,51 @@
++
+
++-- Phase 1.3: recommendation review/apply bus tables and indexes
+
++-- Safe to apply multiple times.
+
++
+
++ALTER TABLE IF EXISTS llm_recommendations
+
++  ADD COLUMN IF NOT EXISTS review_status text NOT NULL DEFAULT 'PENDING';
+
++
+
++ALTER TABLE IF EXISTS llm_recommendations
+
++  ADD COLUMN IF NOT EXISTS replay_required boolean NOT NULL DEFAULT false;
+
++
+
++ALTER TABLE IF EXISTS llm_recommendations
+
++  ADD COLUMN IF NOT EXISTS replay_status text NOT NULL DEFAULT 'UNKNOWN';
+
++
+
++ALTER TABLE IF EXISTS llm_recommendations
+
++  ADD COLUMN IF NOT EXISTS approved_count integer NOT NULL DEFAULT 0;
+
++
+
++ALTER TABLE IF EXISTS llm_recommendations
+
++  ADD COLUMN IF NOT EXISTS rejected_count integer NOT NULL DEFAULT 0;
+
++
+
++ALTER TABLE IF EXISTS llm_recommendations
+
++  ADD COLUMN IF NOT EXISTS last_review_ts_ms bigint;
+
++
+
++CREATE TABLE IF NOT EXISTS llm_recommendation_reviews (
+
++  recommendation_id       text NOT NULL,
+
++  reviewer                text NOT NULL,
+
++  ts_ms                   bigint NOT NULL,
+
++  decision                text NOT NULL,
+
++  replay_status           text NOT NULL DEFAULT 'UNKNOWN',
+
++  source                  text NOT NULL DEFAULT 'stream',
+
++  notes                   text,
+
++  payload_json            jsonb,
+
++  PRIMARY KEY (recommendation_id, reviewer, ts_ms)
+
++);
+
++
+
++CREATE TABLE IF NOT EXISTS llm_recommendation_audit (
+
++  audit_id                text PRIMARY KEY,
+
++  recommendation_id       text NOT NULL,
+
++  ts_ms                   bigint NOT NULL,
+
++  event_type              text NOT NULL,
+
++  actor                   text NOT NULL,
+
++  payload_json            jsonb NOT NULL
+
++);
+
++
+
++CREATE INDEX IF NOT EXISTS idx_llm_recommendation_reviews_rec_ts
+
++  ON llm_recommendation_reviews (recommendation_id, ts_ms DESC);
+
++
+
++CREATE INDEX IF NOT EXISTS idx_llm_recommendation_audit_rec_ts
+
++  ON llm_recommendation_audit (recommendation_id, ts_ms DESC);
+
++
+
++CREATE INDEX IF NOT EXISTS idx_llm_recommendations_review_status
+
++  ON llm_recommendations (review_status, apply_status, ts_ms DESC);
+
+
+--- /dev/null
++++ b/orderflow_services/docker_compose_fragment_ml_phase1_3_v1.yml
+@@ -0,0 +1,33 @@
++
+
++version: "3.9"
+
++
+
++services:
+
++  scanner-ml-recommendation-review-bus-v1:
+
++    build:
+
++      context: .
+
++      dockerfile: python-worker/Dockerfile.gpu
+
++    command: ["python", "-m", "orderflow_services.ml_recommendation_review_bus_v1"]
+
++    environment:
+
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
+
++      ML_RECOMMENDATION_MIN_APPROVALS: ${ML_RECOMMENDATION_MIN_APPROVALS:-1}
+
++      ML_RECOMMENDATION_ALLOW_HIGH_RISK: ${ML_RECOMMENDATION_ALLOW_HIGH_RISK:-0}
+
++      ML_RECOMMENDATION_REVIEW_METRICS_PORT: ${ML_RECOMMENDATION_REVIEW_METRICS_PORT:-9856}
+
++    ports:
+
++      - "${ML_RECOMMENDATION_REVIEW_METRICS_PORT:-9856}:${ML_RECOMMENDATION_REVIEW_METRICS_PORT:-9856}"
+
++    restart: unless-stopped
+
++
+
++  scanner-ml-recommendation-apply-gate-v1:
+
++    build:
+
++      context: .
+
++      dockerfile: python-worker/Dockerfile.gpu
+
++    command: ["python", "-m", "orderflow_services.ml_recommendation_apply_gate_v1"]
+
++    environment:
+
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
+
++      ML_RECOMMENDATION_APPLY_MODE: ${ML_RECOMMENDATION_APPLY_MODE:-REVIEW_ONLY}
+
++      ML_RECOMMENDATION_APPLY_DRY_RUN: ${ML_RECOMMENDATION_APPLY_DRY_RUN:-1}
+
++      ML_RECOMMENDATION_MIN_APPROVALS: ${ML_RECOMMENDATION_MIN_APPROVALS:-1}
+
++      ML_RECOMMENDATION_ALLOW_HIGH_RISK: ${ML_RECOMMENDATION_ALLOW_HIGH_RISK:-0}
+
++      ML_RECOMMENDATION_APPLY_METRICS_PORT: ${ML_RECOMMENDATION_APPLY_METRICS_PORT:-9855}
+
++    ports:
+
++      - "${ML_RECOMMENDATION_APPLY_METRICS_PORT:-9855}:${ML_RECOMMENDATION_APPLY_METRICS_PORT:-9855}"
+
++    restart: unless-stopped
+
+
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_ml_phase1_3_v1.yml
+@@ -0,0 +1,30 @@
++
+
++groups:
+
++  - name: ml_phase1_3_review_apply_bus
+
++    rules:
+
++      - alert: MLRecommendationReviewBusStale
+
++        expr: time() - ml_recommendation_review_bus_last_run_ts_seconds > 900
+
++        for: 10m
+
++        labels:
+
++          severity: warning
+
++        annotations:
+
++          summary: "ML recommendation review bus is stale"
+
++          description: "scanner_infra review bus has not updated its last-run timestamp in 15 minutes."
+
++
+
++      - alert: MLRecommendationApplyGateStale
+
++        expr: time() - ml_recommendation_apply_last_run_ts_seconds > 900
+
++        for: 10m
+
++        labels:
+
++          severity: warning
+
++        annotations:
+
++          summary: "ML recommendation apply gate is stale"
+
++          description: "scanner_infra apply gate has not updated its last-run timestamp in 15 minutes."
+
++
+
++      - alert: MLRecommendationApplyBlockedSpike
+
++        expr: sum(increase(ml_recommendation_apply_decision_total{decision="BLOCK"}[30m])) > 25
+
++        for: 5m
+
++        labels:
+
++          severity: ticket
+
++        annotations:
+
++          summary: "ML recommendation apply gate is blocking many requests"
+
++          description: "A spike in blocked apply decisions may indicate replay, approval, or policy issues."
+
+
+--- /dev/null
++++ b/orderflow_services/runbook_ml_phase1_3_v1.md
+@@ -0,0 +1,63 @@
++
+
++# Phase 1.3 — Recommendation Review/Apply Bus (scanner_infra only)
+
++
+
++## Scope
+
++Internal `scanner_infra` recommendation review/apply bus:
+
++- review request fan-out
+
++- explicit approval/rejection stream
+
++- replay-required gating
+
++- audit trail
+
++- apply gate in review-only / dry-run / executor-ready modes
+
++
+
++## Streams
+
++- `stream:ml:recommendation_proposals`
+
++- `stream:ml:recommendation_review_requests`
+
++- `stream:ml:recommendation_reviews`
+
++- `stream:ml:recommendation_apply_requests`
+
++- `stream:ml:recommendation_apply_results`
+
++- `stream:ml:recommendation_audit`
+
++
+
++## Minimal rollout
+
++1. Apply SQL:
+
++   `\i orderflow_services/sql/ml_phase1_3_v1.sql`
+
++2. Load compose fragment:
+
++   `orderflow_services/docker_compose_fragment_ml_phase1_3_v1.yml`
+
++3. Load Prometheus rules:
+
++   `orderflow_services/prometheus_alerts_ml_phase1_3_v1.yml`
+
++4. Set environment:
+
++   - `ML_RECOMMENDATION_MIN_APPROVALS=1`
+
++   - `ML_RECOMMENDATION_APPLY_MODE=REVIEW_ONLY`
+
++   - `ML_RECOMMENDATION_APPLY_DRY_RUN=1`
+
++
+
++## Smoke checks
+
++```bash
+
++redis-cli XREVRANGE stream:ml:recommendation_review_requests + - COUNT 5
+
++redis-cli XREVRANGE stream:ml:recommendation_apply_requests + - COUNT 5
+
++redis-cli XREVRANGE stream:ml:recommendation_apply_results + - COUNT 5
+
++redis-cli XREVRANGE stream:ml:recommendation_audit + - COUNT 10
+
++curl -s localhost:9856/metrics | grep '^ml_recommendation_review_'
+
++curl -s localhost:9855/metrics | grep '^ml_recommendation_apply_'
+
++```
+
++
+
++## Review event contract
+
++Example payload into `stream:ml:recommendation_reviews`:
+
++```json
+
++{
+
++  "recommendation_id": "abc123",
+
++  "reviewer": "ops_user",
+
++  "decision": "APPROVE",
+
++  "replay_status": "PASS"
+
++}
+
++```
+
++
+
++## Operating modes
+
++- `REVIEW_ONLY`: apply gate can approve logically but will never forward for execution
+
++- `DRY_RUN`: returns `DRY_RUN_ALLOWED`
+
++- executor mode (`ML_RECOMMENDATION_APPLY_DRY_RUN=0`, `ML_RECOMMENDATION_APPLY_MODE!=REVIEW_ONLY`) returns `READY_FOR_EXECUTOR`
+
++
+
++## Rollback
+
++Stop:
+
++- `scanner-ml-recommendation-review-bus-v1`
+
++- `scanner-ml-recommendation-apply-gate-v1`
+
++
+
++Keep tables and streams intact for audit continuity.
+
+
+--- /dev/null
++++ b/orderflow_services/tests/test_ml_recommendation_apply_gate_v1.py
+@@ -0,0 +1,45 @@
++
+
++import json
+
++
+
++from orderflow_services.ml_recommendation_apply_gate_v1 import evaluate_apply_request
+
++
+
++
+
++def test_apply_gate_blocks_when_replay_missing(monkeypatch):
+
++    monkeypatch.setenv("ML_RECOMMENDATION_APPLY_MODE", "REVIEW_ONLY")
+
++    monkeypatch.setenv("ML_RECOMMENDATION_APPLY_DRY_RUN", "1")
+
++    monkeypatch.setenv("ML_RECOMMENDATION_MIN_APPROVALS", "1")
+
++
+
++    dec = evaluate_apply_request({
+
++        "recommendation_id": "r1",
+
++        "action_type": "propose_threshold_canary",
+
++        "target_kind": "edge_stack_v1",
+
++        "target_ref": "cfg:ml_confirm:edge_stack_v1:champion",
+
++        "review_status": "APPROVED",
+
++        "approved_count": 1,
+
++        "rejected_count": 0,
+
++        "replay_status": "UNKNOWN",
+
++        "risk_level": "low",
+
++    })
+
++    reasons = set(json.loads(dec.reason_codes_json))
+
++    assert dec.allow == 0
+
++    assert "REPLAY_REQUIRED_NOT_PASS" in reasons
+
++
+
++
+
++def test_apply_gate_allows_review_only_when_replay_pass(monkeypatch):
+
++    monkeypatch.setenv("ML_RECOMMENDATION_APPLY_MODE", "REVIEW_ONLY")
+
++    monkeypatch.setenv("ML_RECOMMENDATION_APPLY_DRY_RUN", "1")
+
++    monkeypatch.setenv("ML_RECOMMENDATION_MIN_APPROVALS", "1")
+
++
+
++    dec = evaluate_apply_request({
+
++        "recommendation_id": "r2",
+
++        "action_type": "request_calibration_refresh",
+
++        "target_kind": "confidence_cal",
+
++        "target_ref": "conf_cal:latest",
+
++        "review_status": "APPROVED",
+
++        "approved_count": 1,
+
++        "rejected_count": 0,
+
++        "replay_status": "PASS",
+
++        "risk_level": "low",
+
++    })
+
++    assert dec.allow == 1
+
++    assert dec.status == "REVIEW_ONLY"
+
+
+--- /dev/null
++++ b/orderflow_services/tests/test_ml_recommendation_review_bus_v1.py
+@@ -0,0 +1,43 @@
++
+
++from orderflow_services.ml_recommendation_review_bus_v1 import (
+
++    proposal_to_review_request,
+
++    should_emit_apply_request,
+
++)
+
++
+
++
+
++def test_proposal_to_review_request_marks_replay_required():
+
++    req = proposal_to_review_request({
+
++        "analysis_run_id": "run1",
+
++        "ts_ms": 1,
+
++        "action_type": "propose_threshold_canary",
+
++        "target_kind": "edge_stack_v1",
+
++        "target_ref": "cfg:ml_confirm:edge_stack_v1:champion",
+
++        "risk_level": "low",
+
++    })
+
++    assert req["review_status"] == "PENDING"
+
++    assert req["replay_required"] == 1
+
++
+
++
+
++def test_should_emit_apply_request_requires_approval_and_replay(monkeypatch):
+
++    monkeypatch.setenv("ML_RECOMMENDATION_MIN_APPROVALS", "1")
+
++    ok, reasons = should_emit_apply_request({
+
++        "action_type": "propose_threshold_canary",
+
++        "approved_count": 1,
+
++        "rejected_count": 0,
+
++        "risk_level": "low",
+
++        "replay_required": 1,
+
++        "replay_status": "PASS",
+
++    }, min_approvals=1)
+
++    assert ok is True
+
++    assert reasons == []
+
++
+
++    ok2, reasons2 = should_emit_apply_request({
+
++        "action_type": "propose_threshold_canary",
+
++        "approved_count": 1,
+
++        "rejected_count": 0,
+
++        "risk_level": "low",
+
++        "replay_required": 1,
+
++        "replay_status": "UNKNOWN",
+
++    }, min_approvals=1)
+
++    assert ok2 is False
+
++    assert "REPLAY_REQUIRED_NOT_PASS" in reasons2
+

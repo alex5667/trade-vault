@@ -1,0 +1,1128 @@
+--- /dev/null	2026-03-03 12:25:15.286137852 +0000
++++ services/binance_futures_client.py	2026-03-03 12:36:07.403551900 +0000
+@@ -0,0 +1,121 @@
++from __future__ import annotations
++
++"""Binance USDT-M Futures REST client (minimal, stdlib-only).
++
++Why this exists
++--------------
++Your stack already emits trade signals and queues order commands in Redis.
++For execution + post-trade accounting you need a deterministic, testable
++connector to Binance.
++
++This module intentionally:
++  - uses only Python stdlib (urllib + hmac) to avoid dependency drift
++  - implements signed requests (HMAC SHA256) with recvWindow + timestamp
++  - is fail-open at call sites: raise explicit exceptions, do not swallow
++  - does NOT log secrets
++
++Endpoints used here are stable parts of the Binance Futures API:
++  - GET /fapi/v2/account
++  - GET /fapi/v2/positionRisk
++  - GET /fapi/v1/openOrders
++
++Execution endpoints (POST /fapi/v1/order etc.) can be added later on top of
++the same request primitive.
++"""
++
++import hashlib
++import hmac
++import json
++import time
++import urllib.error
++import urllib.parse
++import urllib.request
++from dataclasses import dataclass
++from typing import Any, Dict, Optional
++
++
++class BinanceHTTPError(RuntimeError):
++    def __init__(self, *, status: int, body: str, url: str):
++        super().__init__(f"Binance HTTP {status}: {body[:400]}")
++        self.status = int(status)
++        self.body = str(body)
++        self.url = str(url)
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _hmac_sha256_hex(secret: str, msg: str) -> str:
++    return hmac.new(secret.encode("utf-8"), msg.encode("utf-8"), hashlib.sha256).hexdigest()
++
++
++@dataclass
++class BinanceFuturesREST:
++    """Minimal REST client for Binance USDT-M Futures."""
++
++    api_key: str
++    api_secret: str
++    base_url: str = "https://fapi.binance.com"
++    timeout_s: float = 8.0
++    recv_window_ms: int = 5000
++
++    def _request(
++        self,
++        *,
++        method: str,
++        path: str,
++        params: Optional[Dict[str, Any]] = None,
++        signed: bool = False,
++    ) -> Any:
++        method_u = (method or "GET").upper()
++        p: Dict[str, Any] = dict(params or {})
++        if signed:
++            p.setdefault("timestamp", _now_ms())
++            p.setdefault("recvWindow", int(self.recv_window_ms))
++
++            # Binance expects signature over query-string (in the same key order
++            # as produced by urlencode). We keep it deterministic by sorting keys.
++            qs = urllib.parse.urlencode(sorted(p.items()), doseq=True)
++            sig = _hmac_sha256_hex(self.api_secret, qs)
++            p["signature"] = sig
++
++        qs2 = urllib.parse.urlencode(sorted(p.items()), doseq=True)
++        url = self.base_url.rstrip("/") + path
++        if qs2:
++            url = url + "?" + qs2
++
++        req = urllib.request.Request(url=url, method=method_u)
++        req.add_header("X-MBX-APIKEY", self.api_key)
++
++        # Binance returns JSON (also for errors). We keep raw body for debug.
++        try:
++            with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
++                raw = resp.read().decode("utf-8", errors="replace")
++                if not raw:
++                    return {}
++                try:
++                    return json.loads(raw)
++                except Exception:
++                    return {"raw": raw}
++        except urllib.error.HTTPError as e:
++            body = ""
++            try:
++                body = e.read().decode("utf-8", errors="replace")  # type: ignore[call-arg]
++            except Exception:
++                body = str(e)
++            raise BinanceHTTPError(status=int(getattr(e, "code", 0) or 0), body=body, url=url) from e
++
++    # --- Read APIs ---
++
++    def get_account(self) -> Dict[str, Any]:
++        return self._request(method="GET", path="/fapi/v2/account", signed=True)
++
++    def get_position_risk(self) -> Any:
++        return self._request(method="GET", path="/fapi/v2/positionRisk", signed=True)
++
++    def get_open_orders(self, *, symbol: Optional[str] = None) -> Any:
++        params: Dict[str, Any] = {}
++        if symbol:
++            params["symbol"] = symbol
++        return self._request(method="GET", path="/fapi/v1/openOrders", params=params, signed=True)
+--- /dev/null	2026-03-03 12:25:15.286137852 +0000
++++ services/binance_account_reporter.py	2026-03-03 12:46:35.078626454 +0000
+@@ -0,0 +1,405 @@
++from __future__ import annotations
++
++"""Hourly Binance account state reporter -> Telegram (+ Redis snapshot).
++
++Primary goal (P0)
++-----------------
++You asked to start with a service that:
++  - pulls real account state from Binance USDT-M Futures
++  - posts a Telegram message 1x/hour (wallet, margin, open exposure, etc.)
++
++Design choices
++--------------
++* Deterministic timing: optional alignment to hour boundary to avoid drift.
++* Fail-open: never crash-loop on transient Binance/Telegram outages.
++* Observability:
++    - Prometheus metrics (optional)
++    - Redis snapshot for UI / downstream services
++
++Environment
++-----------
++Required:
++  BINANCE_API_KEY
++  BINANCE_API_SECRET
++  TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID   (if you want direct TG)
++
++Optional:
++  BINANCE_FUTURES_BASE_URL=https://fapi.binance.com
++    - testnet: https://testnet.binancefuture.com
++
++  REDIS_URL=redis://redis-worker-1:6379/0
++  ACCOUNT_SNAPSHOT_KEY=account:snapshot:binance_usdtm
++  ACCOUNT_SNAPSHOT_TTL_SEC=7200
++
++  REPORT_INTERVAL_SEC=3600
++  REPORT_ALIGN_TO_HOUR=1   (align to UTC hour)
++  REPORT_TOPN_POSITIONS=5
++  REPORT_INCLUDE_OPEN_ORDERS=1
++
++  ACCOUNT_REPORT_METRICS_ENABLE=0|1
++  ACCOUNT_REPORT_METRICS_PORT=9133
++  ACCOUNT_REPORT_METRICS_ADDR=0.0.0.0
++"""
++
++import os
++import sys
++
++# Ensure imports work regardless of how the service is launched.
++# The repo uses both `services/` and `tick_flow_full/` on PYTHONPATH.
++CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
++REPO_ROOT = os.path.dirname(CURRENT_DIR)
++TICK_ROOT = os.path.join(REPO_ROOT, 'tick_flow_full')
++for _p in (REPO_ROOT, TICK_ROOT):
++    if _p and _p not in sys.path:
++        sys.path.insert(0, _p)
++
++import json
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional, Tuple
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++try:
++    from prometheus_client import Gauge, Histogram, start_http_server  # type: ignore
++except Exception:  # pragma: no cover
++    Gauge = None  # type: ignore
++    Histogram = None  # type: ignore
++    start_http_server = None  # type: ignore
++
++from common.log import setup_logger
++from services.binance_futures_client import BinanceFuturesREST, BinanceHTTPError
++from services.telegram.telegram_client import TelegramClient
++
++
++log = setup_logger("binance_account_reporter")
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _fmt_usdt(x: float) -> str:
++    # Telegram: keep it compact and readable.
++    return f"{x:,.2f}"
++
++
++def _safe_float(v: Any, default: float = 0.0) -> float:
++    try:
++        if v is None:
++            return float(default)
++        return float(v)
++    except Exception:
++        return float(default)
++
++
++def _side_from_position_amt(amt: float) -> str:
++    if amt > 0:
++        return "LONG"
++    if amt < 0:
++        return "SHORT"
++    return "FLAT"
++
++
++@dataclass
++class AccountSnapshot:
++    ts_ms: int
++    venue: str
++    wallet_balance: float
++    margin_balance: float
++    available_balance: float
++    unrealized_pnl: float
++    initial_margin: float
++    maint_margin: float
++    open_positions_n: int
++    open_notional_usdt: float
++    open_orders_n: int
++    positions: List[Dict[str, Any]]
++
++    def to_json(self) -> str:
++        return json.dumps(
++            {
++                "ts_ms": int(self.ts_ms),
++                "venue": self.venue,
++                "wallet_balance": self.wallet_balance,
++                "margin_balance": self.margin_balance,
++                "available_balance": self.available_balance,
++                "unrealized_pnl": self.unrealized_pnl,
++                "initial_margin": self.initial_margin,
++                "maint_margin": self.maint_margin,
++                "open_positions_n": int(self.open_positions_n),
++                "open_notional_usdt": self.open_notional_usdt,
++                "open_orders_n": int(self.open_orders_n),
++                "positions": self.positions,
++            },
++            ensure_ascii=False,
++            separators=(",", ":"),
++        )
++
++
++def build_snapshot(
++    *,
++    client: BinanceFuturesREST,
++    topn_positions: int,
++    include_open_orders: bool,
++) -> AccountSnapshot:
++    ts_ms = _now_ms()
++    acct = client.get_account()
++    pr = client.get_position_risk()
++
++    wallet = _safe_float(acct.get("totalWalletBalance"))
++    margin_bal = _safe_float(acct.get("totalMarginBalance"))
++    avail = _safe_float(acct.get("availableBalance"))
++    u_pnl = _safe_float(acct.get("totalUnrealizedProfit"))
++    init_m = _safe_float(acct.get("totalInitialMargin"))
++    maint_m = _safe_float(acct.get("totalMaintMargin"))
++
++    all_positions: List[Dict[str, Any]] = []
++    open_notional = 0.0
++    if isinstance(pr, list):
++        for row in pr:
++            amt = _safe_float(row.get("positionAmt"))
++            if abs(amt) <= 0.0:
++                continue
++            mark = _safe_float(row.get("markPrice"))
++            entry = _safe_float(row.get("entryPrice"))
++            upnl = _safe_float(row.get("unRealizedProfit"))
++            notional = _safe_float(row.get("notional"), default=amt * mark)
++            open_notional += abs(notional)
++            all_positions.append(
++                {
++                    "symbol": str(row.get("symbol") or ""),
++                    "side": _side_from_position_amt(amt),
++                    "position_amt": amt,
++                    "entry_price": entry,
++                    "mark_price": mark,
++                    "unrealized_pnl": upnl,
++                    "notional": notional,
++                    "liquidation_price": _safe_float(row.get("liquidationPrice")),
++                    "initial_margin": _safe_float(row.get("initialMargin")),
++                    "maint_margin": _safe_float(row.get("maintMargin")),
++                    "isolated_margin": _safe_float(row.get("isolatedMargin")),
++                    "margin_type": str(row.get("marginType") or ""),
++                    "leverage": _safe_float(row.get("leverage")),
++                }
++            )
++
++    open_positions_total_n = len(all_positions)
++
++    # Sort by absolute notional to show the most impactful risk first.
++    all_positions.sort(key=lambda x: abs(_safe_float(x.get("notional"))), reverse=True)
++    positions_top = all_positions
++    if topn_positions > 0:
++        positions_top = all_positions[:topn_positions]
++
++    open_orders_n = 0
++    if include_open_orders:
++        try:
++            oo = client.get_open_orders(symbol=None)
++            if isinstance(oo, list):
++                open_orders_n = len(oo)
++        except Exception:
++            # Open orders are not critical for P0 report.
++            open_orders_n = 0
++
++    return AccountSnapshot(
++        ts_ms=ts_ms,
++        venue="binance_usdtm",
++        wallet_balance=wallet,
++        margin_balance=margin_bal,
++        available_balance=avail,
++        unrealized_pnl=u_pnl,
++        initial_margin=init_m,
++        maint_margin=maint_m,
++        open_positions_n=open_positions_total_n,
++        open_notional_usdt=open_notional,
++        open_orders_n=open_orders_n,
++        positions=positions_top,
++    )
++
++
++def format_report(snapshot: AccountSnapshot) -> str:
++    t_utc = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(snapshot.ts_ms / 1000))
++
++    used_pct = 0.0
++    if snapshot.margin_balance > 0:
++        used_pct = 100.0 * (snapshot.initial_margin / snapshot.margin_balance)
++
++    maint_pct = 0.0
++    if snapshot.margin_balance > 0:
++        maint_pct = 100.0 * (snapshot.maint_margin / snapshot.margin_balance)
++
++    upnl = snapshot.unrealized_pnl
++    upnl_sign = "+" if upnl >= 0 else ""
++
++    lines: List[str] = []
++    lines.append(f"<b>📊 Binance USDT-M Account</b>  <code>{t_utc}</code>")
++    lines.append("")
++    lines.append(f"Wallet: <code>{_fmt_usdt(snapshot.wallet_balance)} USDT</code>")
++    lines.append(f"Margin: <code>{_fmt_usdt(snapshot.margin_balance)} USDT</code>")
++    lines.append(f"Available: <code>{_fmt_usdt(snapshot.available_balance)} USDT</code>")
++    lines.append(f"uPnL: <code>{upnl_sign}{_fmt_usdt(upnl)} USDT</code>")
++    lines.append(f"Initial margin: <code>{_fmt_usdt(snapshot.initial_margin)} USDT</code>  (<code>{used_pct:.1f}%</code>)")
++    lines.append(f"Maint margin: <code>{_fmt_usdt(snapshot.maint_margin)} USDT</code>  (<code>{maint_pct:.2f}%</code>)")
++    lines.append("")
++    lines.append(
++        f"Open positions: <b>{snapshot.open_positions_n}</b> | Exposure: <code>{_fmt_usdt(snapshot.open_notional_usdt)} USDT</code> | Open orders: <b>{snapshot.open_orders_n}</b>"
++    )
++
++    if snapshot.positions:
++        lines.append("")
++        lines.append("<b>Top positions</b>")
++        for p in snapshot.positions:
++            sym = str(p.get("symbol") or "")
++            side = str(p.get("side") or "")
++            amt = _safe_float(p.get("position_amt"))
++            notional = _safe_float(p.get("notional"))
++            pupnl = _safe_float(p.get("unrealized_pnl"))
++            pupnl_sign = "+" if pupnl >= 0 else ""
++            liq = _safe_float(p.get("liquidation_price"))
++            liq_s = f" liq={liq:.2f}" if liq > 0 else ""
++            lines.append(
++                f"• <b>{sym}</b> {side} <code>{amt:g}</code> | notional <code>{_fmt_usdt(abs(notional))}</code> | uPnL <code>{pupnl_sign}{_fmt_usdt(pupnl)}</code>{liq_s}"
++            )
++
++    # Telegram HTML parse mode.
++    return "\n".join(lines).strip()
++
++
++class Metrics:
++    def __init__(self) -> None:
++        if Gauge is None or Histogram is None:
++            raise RuntimeError("prometheus_client is not available")
++        self.fetch_latency = Histogram(
++            "binance_account_report_fetch_latency_ms",
++            "Latency of Binance account fetch",
++            buckets=[50, 100, 250, 500, 1000, 2000, 5000, 10000],
++        )
++        self.last_ok_ts = Gauge("binance_account_report_last_ok_ts_seconds", "Last successful report time")
++        self.last_err_ts = Gauge("binance_account_report_last_err_ts_seconds", "Last failed report time")
++        self.wallet = Gauge("binance_account_wallet_balance_usdt", "Wallet balance")
++        self.margin = Gauge("binance_account_margin_balance_usdt", "Margin balance")
++        self.available = Gauge("binance_account_available_balance_usdt", "Available balance")
++        self.upnl = Gauge("binance_account_unrealized_pnl_usdt", "Unrealized PnL")
++        self.init_margin = Gauge("binance_account_initial_margin_usdt", "Initial margin")
++        self.maint_margin = Gauge("binance_account_maint_margin_usdt", "Maintenance margin")
++        self.open_pos_n = Gauge("binance_account_open_positions", "Number of open positions")
++        self.open_notional = Gauge("binance_account_open_notional_usdt", "Total absolute notional exposure")
++        self.open_orders_n = Gauge("binance_account_open_orders", "Number of open orders")
++        self.snapshot_age = Gauge("binance_account_snapshot_age_ms", "Age of last stored snapshot")
++
++
++def _sleep_until_next_tick(interval_s: int, align_to_hour: bool) -> None:
++    if interval_s <= 0:
++        interval_s = 3600
++    now = time.time()
++    if align_to_hour and interval_s == 3600:
++        # Align to UTC hour boundary.
++        next_tick = (int(now) // 3600 + 1) * 3600
++        sleep_s = max(0.0, float(next_tick) - now)
++        time.sleep(sleep_s)
++        return
++
++    # Generic fixed-interval sleep.
++    time.sleep(float(interval_s))
++
++
++def main() -> None:
++    api_key = os.getenv("BINANCE_API_KEY", "").strip()
++    api_secret = os.getenv("BINANCE_API_SECRET", "").strip()
++    if not api_key or not api_secret:
++        raise SystemExit("BINANCE_API_KEY/BINANCE_API_SECRET are required")
++
++    base_url = os.getenv("BINANCE_FUTURES_BASE_URL", "https://fapi.binance.com").strip()
++    redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0").strip()
++    snapshot_key = os.getenv("ACCOUNT_SNAPSHOT_KEY", "account:snapshot:binance_usdtm").strip()
++    snapshot_ttl = int(os.getenv("ACCOUNT_SNAPSHOT_TTL_SEC", "7200"))
++
++    interval_s = int(os.getenv("REPORT_INTERVAL_SEC", "3600"))
++    align = os.getenv("REPORT_ALIGN_TO_HOUR", "1").lower() in {"1", "true", "yes"}
++    topn = int(os.getenv("REPORT_TOPN_POSITIONS", "5"))
++    include_oo = os.getenv("REPORT_INCLUDE_OPEN_ORDERS", "1").lower() in {"1", "true", "yes"}
++
++    metrics_enable = os.getenv("ACCOUNT_REPORT_METRICS_ENABLE", "0").lower() in {"1", "true", "yes"}
++    metrics_port = int(os.getenv("ACCOUNT_REPORT_METRICS_PORT", "9133"))
++    metrics_addr = os.getenv("ACCOUNT_REPORT_METRICS_ADDR", "0.0.0.0")
++    m: Optional[Metrics] = None
++    if metrics_enable:
++        if start_http_server is None:
++            log.warning("⚠️ prometheus_client not installed; metrics disabled")
++        else:
++            start_http_server(metrics_port, addr=metrics_addr)
++            m = Metrics()
++            log.info("✅ Prometheus metrics enabled on %s:%d", metrics_addr, metrics_port)
++
++    tg = TelegramClient.from_env()
++    if tg is None:
++        log.warning("⚠️ Telegram disabled (TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID not set)")
++
++    r = None
++    if redis is None:
++        log.warning("⚠️ redis-py not installed; Redis snapshot disabled")
++    else:
++        r = redis.from_url(redis_url, decode_responses=True)
++    client = BinanceFuturesREST(api_key=api_key, api_secret=api_secret, base_url=base_url)
++
++    log.info("🚀 Binance account reporter started")
++    log.info("   base_url=%s", base_url)
++    log.info("   redis=%s", redis_url)
++    log.info("   snapshot_key=%s ttl=%ds", snapshot_key, snapshot_ttl)
++    log.info("   interval=%ds align_to_hour=%s", interval_s, align)
++
++    # Initial alignment sleep to avoid immediate spam on restart.
++    _sleep_until_next_tick(interval_s, align_to_hour=align)
++
++    last_snapshot_ts_ms = 0
++    while True:
++        t0 = time.time()
++        try:
++            snap = build_snapshot(client=client, topn_positions=topn, include_open_orders=include_oo)
++            # Store snapshot for UI / downstream services (optional).
++            if r is not None:
++                r.set(snapshot_key, snap.to_json(), ex=snapshot_ttl)
++            last_snapshot_ts_ms = int(snap.ts_ms)
++
++            msg = format_report(snap)
++            if tg is not None:
++                _ = tg.send_text(msg)
++
++            if m is not None:
++                m.last_ok_ts.set_to_current_time()
++                m.wallet.set(float(snap.wallet_balance))
++                m.margin.set(float(snap.margin_balance))
++                m.available.set(float(snap.available_balance))
++                m.upnl.set(float(snap.unrealized_pnl))
++                m.init_margin.set(float(snap.initial_margin))
++                m.maint_margin.set(float(snap.maint_margin))
++                m.open_pos_n.set(float(snap.open_positions_n))
++                m.open_notional.set(float(snap.open_notional_usdt))
++                m.open_orders_n.set(float(snap.open_orders_n))
++                m.snapshot_age.set(0.0)
++
++        except BinanceHTTPError as e:
++            log.error("❌ Binance API error: %s", str(e))
++            if m is not None:
++                m.last_err_ts.set_to_current_time()
++        except Exception as e:
++            log.exception("❌ Unexpected error in reporter: %s", str(e))
++            if m is not None:
++                m.last_err_ts.set_to_current_time()
++
++        # Metrics: latency + snapshot age
++        if m is not None:
++            dt_ms = (time.time() - t0) * 1000.0
++            m.fetch_latency.observe(float(dt_ms))
++            if last_snapshot_ts_ms > 0:
++                m.snapshot_age.set(float(_now_ms() - last_snapshot_ts_ms))
++
++        _sleep_until_next_tick(interval_s, align_to_hour=align)
++
++
++if __name__ == "__main__":
++    main()
+--- /dev/null	2026-03-03 12:25:15.286137852 +0000
++++ services/orderflow/tests/test_binance_account_reporter_p0_v1.py	2026-03-03 12:43:12.081264003 +0000
+@@ -0,0 +1,122 @@
++"""Unit tests for Binance account reporter P0.
++
++We do NOT hit Binance network in tests.
++We validate:
++  - snapshot parsing (account + positionRisk)
++  - open_notional aggregation
++  - open_positions_n counts ALL positions (not only top-N)
++  - report formatting is stable and includes key metrics
++"""
++
++import unittest
++import sys
++import os
++
++# Add repo root to path to import services.*
++repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
++if repo_root not in sys.path:
++    sys.path.insert(0, repo_root)
++
++
++from services.binance_account_reporter import build_snapshot, format_report
++
++
++class DummyClient:
++    def __init__(self):
++        self._acct = {
++            "totalWalletBalance": "1000.00",
++            "totalMarginBalance": "1100.00",
++            "availableBalance": "800.00",
++            "totalUnrealizedProfit": "25.50",
++            "totalInitialMargin": "250.00",
++            "totalMaintMargin": "15.00",
++        }
++        self._pos = [
++            {
++                "symbol": "BTCUSDT",
++                "positionAmt": "0.010",
++                "entryPrice": "50000",
++                "markPrice": "51000",
++                "unRealizedProfit": "10",
++                "notional": "510",
++                "liquidationPrice": "42000",
++                "initialMargin": "51",
++                "maintMargin": "3",
++                "isolatedMargin": "0",
++                "marginType": "cross",
++                "leverage": "10",
++            },
++            {
++                "symbol": "ETHUSDT",
++                "positionAmt": "-0.20",
++                "entryPrice": "3000",
++                "markPrice": "2900",
++                "unRealizedProfit": "-5",
++                "notional": "-580",
++                "liquidationPrice": "0",
++                "initialMargin": "58",
++                "maintMargin": "4",
++                "isolatedMargin": "0",
++                "marginType": "cross",
++                "leverage": "10",
++            },
++            {
++                "symbol": "XRPUSDT",
++                "positionAmt": "100",
++                "entryPrice": "0.50",
++                "markPrice": "0.51",
++                "unRealizedProfit": "0.2",
++                "notional": "51",
++                "liquidationPrice": "0",
++                "initialMargin": "5",
++                "maintMargin": "0.3",
++                "isolatedMargin": "0",
++                "marginType": "cross",
++                "leverage": "10",
++            },
++        ]
++
++    def get_account(self):
++        return self._acct
++
++    def get_position_risk(self):
++        return self._pos
++
++    def get_open_orders(self, *, symbol=None):
++        return [{"symbol": "BTCUSDT"}, {"symbol": "ETHUSDT"}]
++
++
++class TestBinanceAccountReporterP0(unittest.TestCase):
++    def test_snapshot_aggregation_and_counts(self):
++        c = DummyClient()
++        snap = build_snapshot(client=c, topn_positions=2, include_open_orders=True)
++
++        # All positions counted.
++        self.assertEqual(snap.open_positions_n, 3)
++        # Top-N list is truncated.
++        self.assertEqual(len(snap.positions), 2)
++
++        # Exposure sums absolute notionals: 510 + 580 + 51 = 1141
++        self.assertAlmostEqual(snap.open_notional_usdt, 1141.0, places=6)
++
++        self.assertEqual(snap.open_orders_n, 2)
++        self.assertAlmostEqual(snap.wallet_balance, 1000.0)
++        self.assertAlmostEqual(snap.margin_balance, 1100.0)
++        self.assertAlmostEqual(snap.available_balance, 800.0)
++        self.assertAlmostEqual(snap.unrealized_pnl, 25.5)
++
++    def test_report_contains_key_fields(self):
++        c = DummyClient()
++        snap = build_snapshot(client=c, topn_positions=2, include_open_orders=True)
++        msg = format_report(snap)
++
++        self.assertIn("Binance USDT-M Account", msg)
++        self.assertIn("Wallet", msg)
++        self.assertIn("Margin", msg)
++        self.assertIn("Open positions", msg)
++        # Contains one of top symbols
++        self.assertTrue(("BTCUSDT" in msg) or ("ETHUSDT" in msg))
++
++
++if __name__ == "__main__":
++    unittest.main()
+--- /dev/null	2026-03-03 12:25:15.286137852 +0000
++++ tick_flow_full/services/binance_futures_client.py	2026-03-03 12:34:37.105465276 +0000
+@@ -0,0 +1,95 @@
++from __future__ import annotations
++
++"""Mirror: Binance USDT-M Futures REST client (stdlib-only).
++
++This file intentionally matches services/binance_futures_client.py.
++Keep it in sync if you change the request/signature logic.
++"""
++
++import hashlib
++import hmac
++import json
++import time
++import urllib.error
++import urllib.parse
++import urllib.request
++from dataclasses import dataclass
++from typing import Any, Dict, Optional
++
++
++class BinanceHTTPError(RuntimeError):
++    def __init__(self, *, status: int, body: str, url: str):
++        super().__init__(f"Binance HTTP {status}: {body[:400]}")
++        self.status = int(status)
++        self.body = str(body)
++        self.url = str(url)
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _hmac_sha256_hex(secret: str, msg: str) -> str:
++    return hmac.new(secret.encode("utf-8"), msg.encode("utf-8"), hashlib.sha256).hexdigest()
++
++
++@dataclass
++class BinanceFuturesREST:
++    api_key: str
++    api_secret: str
++    base_url: str = "https://fapi.binance.com"
++    timeout_s: float = 8.0
++    recv_window_ms: int = 5000
++
++    def _request(
++        self,
++        *,
++        method: str,
++        path: str,
++        params: Optional[Dict[str, Any]] = None,
++        signed: bool = False,
++    ) -> Any:
++        method_u = (method or "GET").upper()
++        p: Dict[str, Any] = dict(params or {})
++        if signed:
++            p.setdefault("timestamp", _now_ms())
++            p.setdefault("recvWindow", int(self.recv_window_ms))
++            qs = urllib.parse.urlencode(sorted(p.items()), doseq=True)
++            p["signature"] = _hmac_sha256_hex(self.api_secret, qs)
++
++        qs2 = urllib.parse.urlencode(sorted(p.items()), doseq=True)
++        url = self.base_url.rstrip("/") + path
++        if qs2:
++            url = url + "?" + qs2
++
++        req = urllib.request.Request(url=url, method=method_u)
++        req.add_header("X-MBX-APIKEY", self.api_key)
++
++        try:
++            with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
++                raw = resp.read().decode("utf-8", errors="replace")
++                if not raw:
++                    return {}
++                try:
++                    return json.loads(raw)
++                except Exception:
++                    return {"raw": raw}
++        except urllib.error.HTTPError as e:
++            body = ""
++            try:
++                body = e.read().decode("utf-8", errors="replace")
++            except Exception:
++                body = str(e)
++            raise BinanceHTTPError(status=int(getattr(e, "code", 0) or 0), body=body, url=url) from e
++
++    def get_account(self) -> Dict[str, Any]:
++        return self._request(method="GET", path="/fapi/v2/account", signed=True)
++
++    def get_position_risk(self) -> Any:
++        return self._request(method="GET", path="/fapi/v2/positionRisk", signed=True)
++
++    def get_open_orders(self, *, symbol: Optional[str] = None) -> Any:
++        params: Dict[str, Any] = {}
++        if symbol:
++            params["symbol"] = symbol
++        return self._request(method="GET", path="/fapi/v1/openOrders", params=params, signed=True)
+--- /dev/null	2026-03-03 12:25:15.286137852 +0000
++++ tick_flow_full/services/binance_account_reporter.py	2026-03-03 12:46:35.079045769 +0000
+@@ -0,0 +1,354 @@
++from __future__ import annotations
++
++"""Mirror: Hourly Binance account state reporter -> Telegram (+ Redis snapshot).
++
++This file intentionally mirrors services/binance_account_reporter.py.
++"""
++
++import os
++import sys
++
++# Ensure imports work regardless of how the service is launched.
++CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
++TICK_ROOT = os.path.dirname(CURRENT_DIR)
++REPO_ROOT = os.path.dirname(TICK_ROOT)
++for _p in (REPO_ROOT, TICK_ROOT):
++    if _p and _p not in sys.path:
++        sys.path.insert(0, _p)
++
++import json
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++try:
++    from prometheus_client import Gauge, Histogram, start_http_server  # type: ignore
++except Exception:  # pragma: no cover
++    Gauge = None  # type: ignore
++    Histogram = None  # type: ignore
++    start_http_server = None  # type: ignore
++
++from common.log import setup_logger
++from services.telegram.telegram_client import TelegramClient
++
++from tick_flow_full.services.binance_futures_client import BinanceFuturesREST, BinanceHTTPError
++
++
++log = setup_logger("binance_account_reporter")
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _fmt_usdt(x: float) -> str:
++    return f"{x:,.2f}"
++
++
++def _safe_float(v: Any, default: float = 0.0) -> float:
++    try:
++        if v is None:
++            return float(default)
++        return float(v)
++    except Exception:
++        return float(default)
++
++
++def _side_from_position_amt(amt: float) -> str:
++    if amt > 0:
++        return "LONG"
++    if amt < 0:
++        return "SHORT"
++    return "FLAT"
++
++
++@dataclass
++class AccountSnapshot:
++    ts_ms: int
++    venue: str
++    wallet_balance: float
++    margin_balance: float
++    available_balance: float
++    unrealized_pnl: float
++    initial_margin: float
++    maint_margin: float
++    open_positions_n: int
++    open_notional_usdt: float
++    open_orders_n: int
++    positions: List[Dict[str, Any]]
++
++    def to_json(self) -> str:
++        return json.dumps(
++            {
++                "ts_ms": int(self.ts_ms),
++                "venue": self.venue,
++                "wallet_balance": self.wallet_balance,
++                "margin_balance": self.margin_balance,
++                "available_balance": self.available_balance,
++                "unrealized_pnl": self.unrealized_pnl,
++                "initial_margin": self.initial_margin,
++                "maint_margin": self.maint_margin,
++                "open_positions_n": int(self.open_positions_n),
++                "open_notional_usdt": self.open_notional_usdt,
++                "open_orders_n": int(self.open_orders_n),
++                "positions": self.positions,
++            },
++            ensure_ascii=False,
++            separators=(",", ":"),
++        )
++
++
++def build_snapshot(
++    *,
++    client: BinanceFuturesREST,
++    topn_positions: int,
++    include_open_orders: bool,
++) -> AccountSnapshot:
++    ts_ms = _now_ms()
++    acct = client.get_account()
++    pr = client.get_position_risk()
++
++    wallet = _safe_float(acct.get("totalWalletBalance"))
++    margin_bal = _safe_float(acct.get("totalMarginBalance"))
++    avail = _safe_float(acct.get("availableBalance"))
++    u_pnl = _safe_float(acct.get("totalUnrealizedProfit"))
++    init_m = _safe_float(acct.get("totalInitialMargin"))
++    maint_m = _safe_float(acct.get("totalMaintMargin"))
++
++    all_positions: List[Dict[str, Any]] = []
++    open_notional = 0.0
++    if isinstance(pr, list):
++        for row in pr:
++            amt = _safe_float(row.get("positionAmt"))
++            if abs(amt) <= 0.0:
++                continue
++            mark = _safe_float(row.get("markPrice"))
++            entry = _safe_float(row.get("entryPrice"))
++            upnl = _safe_float(row.get("unRealizedProfit"))
++            notional = _safe_float(row.get("notional"), default=amt * mark)
++            open_notional += abs(notional)
++            all_positions.append(
++                {
++                    "symbol": str(row.get("symbol") or ""),
++                    "side": _side_from_position_amt(amt),
++                    "position_amt": amt,
++                    "entry_price": entry,
++                    "mark_price": mark,
++                    "unrealized_pnl": upnl,
++                    "notional": notional,
++                    "liquidation_price": _safe_float(row.get("liquidationPrice")),
++                    "initial_margin": _safe_float(row.get("initialMargin")),
++                    "maint_margin": _safe_float(row.get("maintMargin")),
++                    "isolated_margin": _safe_float(row.get("isolatedMargin")),
++                    "margin_type": str(row.get("marginType") or ""),
++                    "leverage": _safe_float(row.get("leverage")),
++                }
++            )
++
++    open_positions_total_n = len(all_positions)
++
++    all_positions.sort(key=lambda x: abs(_safe_float(x.get("notional"))), reverse=True)
++    positions_top = all_positions
++    if topn_positions > 0:
++        positions_top = all_positions[:topn_positions]
++
++    open_orders_n = 0
++    if include_open_orders:
++        try:
++            oo = client.get_open_orders(symbol=None)
++            if isinstance(oo, list):
++                open_orders_n = len(oo)
++        except Exception:
++            open_orders_n = 0
++
++    return AccountSnapshot(
++        ts_ms=ts_ms,
++        venue="binance_usdtm",
++        wallet_balance=wallet,
++        margin_balance=margin_bal,
++        available_balance=avail,
++        unrealized_pnl=u_pnl,
++        initial_margin=init_m,
++        maint_margin=maint_m,
++        open_positions_n=open_positions_total_n,
++        open_notional_usdt=open_notional,
++        open_orders_n=open_orders_n,
++        positions=positions_top,
++    )
++
++
++def format_report(snapshot: AccountSnapshot) -> str:
++    t_utc = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(snapshot.ts_ms / 1000))
++
++    used_pct = 0.0
++    if snapshot.margin_balance > 0:
++        used_pct = 100.0 * (snapshot.initial_margin / snapshot.margin_balance)
++    maint_pct = 0.0
++    if snapshot.margin_balance > 0:
++        maint_pct = 100.0 * (snapshot.maint_margin / snapshot.margin_balance)
++
++    upnl = snapshot.unrealized_pnl
++    upnl_sign = "+" if upnl >= 0 else ""
++
++    lines: List[str] = []
++    lines.append(f"<b>📊 Binance USDT-M Account</b>  <code>{t_utc}</code>")
++    lines.append("")
++    lines.append(f"Wallet: <code>{_fmt_usdt(snapshot.wallet_balance)} USDT</code>")
++    lines.append(f"Margin: <code>{_fmt_usdt(snapshot.margin_balance)} USDT</code>")
++    lines.append(f"Available: <code>{_fmt_usdt(snapshot.available_balance)} USDT</code>")
++    lines.append(f"uPnL: <code>{upnl_sign}{_fmt_usdt(upnl)} USDT</code>")
++    lines.append(f"Initial margin: <code>{_fmt_usdt(snapshot.initial_margin)} USDT</code>  (<code>{used_pct:.1f}%</code>)")
++    lines.append(f"Maint margin: <code>{_fmt_usdt(snapshot.maint_margin)} USDT</code>  (<code>{maint_pct:.2f}%</code>)")
++    lines.append("")
++    lines.append(
++        f"Open positions: <b>{snapshot.open_positions_n}</b> | Exposure: <code>{_fmt_usdt(snapshot.open_notional_usdt)} USDT</code> | Open orders: <b>{snapshot.open_orders_n}</b>"
++    )
++
++    if snapshot.positions:
++        lines.append("")
++        lines.append("<b>Top positions</b>")
++        for p in snapshot.positions:
++            sym = str(p.get("symbol") or "")
++            side = str(p.get("side") or "")
++            amt = _safe_float(p.get("position_amt"))
++            notional = _safe_float(p.get("notional"))
++            pupnl = _safe_float(p.get("unrealized_pnl"))
++            pupnl_sign = "+" if pupnl >= 0 else ""
++            liq = _safe_float(p.get("liquidation_price"))
++            liq_s = f" liq={liq:.2f}" if liq > 0 else ""
++            lines.append(
++                f"• <b>{sym}</b> {side} <code>{amt:g}</code> | notional <code>{_fmt_usdt(abs(notional))}</code> | uPnL <code>{pupnl_sign}{_fmt_usdt(pupnl)}</code>{liq_s}"
++            )
++
++    return "\n".join(lines).strip()
++
++
++class Metrics:
++    def __init__(self) -> None:
++        if Gauge is None or Histogram is None:
++            raise RuntimeError("prometheus_client is not available")
++        self.fetch_latency = Histogram(
++            "binance_account_report_fetch_latency_ms",
++            "Latency of Binance account fetch",
++            buckets=[50, 100, 250, 500, 1000, 2000, 5000, 10000],
++        )
++        self.last_ok_ts = Gauge("binance_account_report_last_ok_ts_seconds", "Last successful report time")
++        self.last_err_ts = Gauge("binance_account_report_last_err_ts_seconds", "Last failed report time")
++        self.wallet = Gauge("binance_account_wallet_balance_usdt", "Wallet balance")
++        self.margin = Gauge("binance_account_margin_balance_usdt", "Margin balance")
++        self.available = Gauge("binance_account_available_balance_usdt", "Available balance")
++        self.upnl = Gauge("binance_account_unrealized_pnl_usdt", "Unrealized PnL")
++        self.init_margin = Gauge("binance_account_initial_margin_usdt", "Initial margin")
++        self.maint_margin = Gauge("binance_account_maint_margin_usdt", "Maintenance margin")
++        self.open_pos_n = Gauge("binance_account_open_positions", "Number of open positions")
++        self.open_notional = Gauge("binance_account_open_notional_usdt", "Total absolute notional exposure")
++        self.open_orders_n = Gauge("binance_account_open_orders", "Number of open orders")
++        self.snapshot_age = Gauge("binance_account_snapshot_age_ms", "Age of last stored snapshot")
++
++
++def _sleep_until_next_tick(interval_s: int, align_to_hour: bool) -> None:
++    if interval_s <= 0:
++        interval_s = 3600
++    now = time.time()
++    if align_to_hour and interval_s == 3600:
++        next_tick = (int(now) // 3600 + 1) * 3600
++        time.sleep(max(0.0, float(next_tick) - now))
++        return
++    time.sleep(float(interval_s))
++
++
++def main() -> None:
++    api_key = os.getenv("BINANCE_API_KEY", "").strip()
++    api_secret = os.getenv("BINANCE_API_SECRET", "").strip()
++    if not api_key or not api_secret:
++        raise SystemExit("BINANCE_API_KEY/BINANCE_API_SECRET are required")
++
++    base_url = os.getenv("BINANCE_FUTURES_BASE_URL", "https://fapi.binance.com").strip()
++    redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0").strip()
++    snapshot_key = os.getenv("ACCOUNT_SNAPSHOT_KEY", "account:snapshot:binance_usdtm").strip()
++    snapshot_ttl = int(os.getenv("ACCOUNT_SNAPSHOT_TTL_SEC", "7200"))
++
++    interval_s = int(os.getenv("REPORT_INTERVAL_SEC", "3600"))
++    align = os.getenv("REPORT_ALIGN_TO_HOUR", "1").lower() in {"1", "true", "yes"}
++    topn = int(os.getenv("REPORT_TOPN_POSITIONS", "5"))
++    include_oo = os.getenv("REPORT_INCLUDE_OPEN_ORDERS", "1").lower() in {"1", "true", "yes"}
++
++    metrics_enable = os.getenv("ACCOUNT_REPORT_METRICS_ENABLE", "0").lower() in {"1", "true", "yes"}
++    metrics_port = int(os.getenv("ACCOUNT_REPORT_METRICS_PORT", "9133"))
++    metrics_addr = os.getenv("ACCOUNT_REPORT_METRICS_ADDR", "0.0.0.0")
++    m: Optional[Metrics] = None
++    if metrics_enable:
++        if start_http_server is None:
++            log.warning("⚠️ prometheus_client not installed; metrics disabled")
++        else:
++            start_http_server(metrics_port, addr=metrics_addr)
++            m = Metrics()
++            log.info("✅ Prometheus metrics enabled on %s:%d", metrics_addr, metrics_port)
++
++    tg = TelegramClient.from_env()
++    if tg is None:
++        log.warning("⚠️ Telegram disabled (TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID not set)")
++
++    r = None
++    if redis is None:
++        log.warning("⚠️ redis-py not installed; Redis snapshot disabled")
++    else:
++        r = redis.from_url(redis_url, decode_responses=True)
++    client = BinanceFuturesREST(api_key=api_key, api_secret=api_secret, base_url=base_url)
++
++    log.info("🚀 Binance account reporter started")
++    log.info("   base_url=%s", base_url)
++    log.info("   redis=%s", redis_url)
++    log.info("   snapshot_key=%s ttl=%ds", snapshot_key, snapshot_ttl)
++    log.info("   interval=%ds align_to_hour=%s", interval_s, align)
++
++    _sleep_until_next_tick(interval_s, align_to_hour=align)
++
++    last_snapshot_ts_ms = 0
++    while True:
++        t0 = time.time()
++        try:
++            snap = build_snapshot(client=client, topn_positions=topn, include_open_orders=include_oo)
++            r.set(snapshot_key, snap.to_json(), ex=snapshot_ttl)
++            last_snapshot_ts_ms = int(snap.ts_ms)
++
++            msg = format_report(snap)
++            if tg is not None:
++                _ = tg.send_text(msg)
++
++            if m is not None:
++                m.last_ok_ts.set_to_current_time()
++                m.wallet.set(float(snap.wallet_balance))
++                m.margin.set(float(snap.margin_balance))
++                m.available.set(float(snap.available_balance))
++                m.upnl.set(float(snap.unrealized_pnl))
++                m.init_margin.set(float(snap.initial_margin))
++                m.maint_margin.set(float(snap.maint_margin))
++                m.open_pos_n.set(float(snap.open_positions_n))
++                m.open_notional.set(float(snap.open_notional_usdt))
++                m.open_orders_n.set(float(snap.open_orders_n))
++                m.snapshot_age.set(0.0)
++        except BinanceHTTPError as e:
++            log.error("❌ Binance API error: %s", str(e))
++            if m is not None:
++                m.last_err_ts.set_to_current_time()
++        except Exception as e:
++            log.exception("❌ Unexpected error in reporter: %s", str(e))
++            if m is not None:
++                m.last_err_ts.set_to_current_time()
++
++        if m is not None:
++            m.fetch_latency.observe(float((time.time() - t0) * 1000.0))
++            if last_snapshot_ts_ms > 0:
++                m.snapshot_age.set(float(_now_ms() - last_snapshot_ts_ms))
++
++        _sleep_until_next_tick(interval_s, align_to_hour=align)
++
++
++if __name__ == "__main__":
++    main()
+--- /mnt/data/repo_orig/services/telegram/telegram_client.py	2026-02-19 20:18:57.000000000 +0000
++++ /mnt/data/repo/services/telegram/telegram_client.py	2026-03-03 12:48:49.629179908 +0000
+@@ -22,8 +22,11 @@
+ 
+     @staticmethod
+     def from_env() -> Optional["TelegramClient"]:
+-        tok = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+-        cid = os.getenv("TELEGRAM_CHAT_ID", "").strip()
++        # Backward compatible env names:
++        #   - preferred: TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID
++        #   - legacy (used by some older services): BOT_TOKEN / CHAT_ID
++        tok = (os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_TOKEN") or "").strip()
++        cid = (os.getenv("TELEGRAM_CHAT_ID") or os.getenv("CHAT_ID") or "").strip()
+         if not tok or not cid:
+             return None
+         return TelegramClient(token=tok, chat_id=cid)

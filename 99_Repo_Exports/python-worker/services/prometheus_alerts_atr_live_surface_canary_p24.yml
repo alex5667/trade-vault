@@ -1,0 +1,117 @@
+groups:
+  - name: atr_live_surface_canary
+    rules:
+
+      # ---- Application ratio ----
+      - alert: LiveSurfaceCanaryApplyRateZero
+        expr: |
+          sum(rate(trade_live_surface_applied_total{applied="true"}[10m])) == 0
+          and
+          sum(rate(trade_live_surface_applied_total[10m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          team: trade
+        annotations:
+          summary: "Live surface canary: apply_rate=0 despite signals flowing"
+          description: >
+            ATR_HORIZON_LIVE_SURFACE_MODE may be misconfigured or no signals
+            match the canary subset. Check ATR_HORIZON_LIVE_SURFACE_CANARY_SHARE
+            and ATR_HORIZON_LIVE_SURFACE_SYMBOLS.
+
+      # ---- SL delta too large (sizing risk) ----
+      - alert: LiveSurfaceSlDeltaBpsHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le, symbol) (
+              rate(trade_live_surface_sl_delta_bps_hist_bucket[30m])
+            )
+          ) > 200
+        for: 10m
+        labels:
+          severity: critical
+          team: trade
+        annotations:
+          summary: "Live surface: p95 SL delta > 200 bps on {{ $labels.symbol }}"
+          description: >
+            ATR-derived SL distance is very different from baseline.
+            This directly affects MT5 lot sizing. Check ATR_HORIZON_LIVE_SL_ATR_MULT
+            and atr_profile.atr_value freshness.
+
+      # ---- TP1 delta too large ----
+      - alert: LiveSurfaceTp1DeltaBpsHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le, symbol) (
+              rate(trade_live_surface_tp1_delta_bps_hist_bucket[30m])
+            )
+          ) > 300
+        for: 10m
+        labels:
+          severity: warning
+          team: trade
+        annotations:
+          summary: "Live surface: p95 TP1 delta > 300 bps on {{ $labels.symbol }}"
+          description: >
+            ATR-derived TP1 is very different from baseline. This shifts BE/trailing
+            trigger point. Monitor TP1 hit-rate vs baseline.
+
+      # ---- Signal age / TTL explosion ----
+      - alert: LiveSurfaceTtlDeltaHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le, symbol) (
+              rate(trade_live_surface_ttl_delta_ms_hist_bucket[30m])
+            )
+          ) > 30000
+        for: 10m
+        labels:
+          severity: warning
+          team: trade
+        annotations:
+          summary: "Live surface: p95 TTL delta > 30s on {{ $labels.symbol }}"
+          description: >
+            max_signal_age_ms from horizon differs a lot from baseline. Check
+            horizon_contract.max_signal_age_ms source and atr_tf_ms selection.
+
+      # ---- TP1 hit-rate drop on canary ----
+      - alert: LiveSurfaceCanaryTp1HitRateDrop
+        expr: |
+          (
+            sum(rate(trade_live_surface_vs_baseline_outcome_total{applied="true",close_reason="tp1"}[1h]))
+            /
+            sum(rate(trade_live_surface_vs_baseline_outcome_total{applied="true"}[1h]))
+          )
+          <
+          0.7 * (
+            sum(rate(trade_live_surface_vs_baseline_outcome_total{applied="false",close_reason="tp1"}[1h]))
+            /
+            sum(rate(trade_live_surface_vs_baseline_outcome_total{applied="false"}[1h]))
+          )
+        for: 30m
+        labels:
+          severity: critical
+          team: trade
+        annotations:
+          summary: "Live surface canary: TP1 hit-rate < 70% of baseline"
+          description: >
+            Canary subset is hitting TP1 significantly less often than baseline.
+            Consider rollback: ATR_HORIZON_LIVE_SURFACE_MODE=shadow
+
+      # ---- Signal timeout rate spike ----
+      - alert: LiveSurfaceSignalTooOldHighRate
+        expr: |
+          rate(trade_live_surface_canary_total{reason_code="LIVE_SURFACE_CANARY_APPLY"}[10m]) > 0
+          and
+          rate(trade_live_surface_vs_baseline_outcome_total{close_reason="signal_too_old",applied="true"}[10m])
+          >
+          3 * rate(trade_live_surface_vs_baseline_outcome_total{close_reason="signal_too_old",applied="false"}[10m])
+        for: 15m
+        labels:
+          severity: warning
+          team: trade
+        annotations:
+          summary: "Live surface canary: signal_too_old rate > 3x baseline"
+          description: >
+            max_signal_age_ms from horizon may be too short for this symbol.
+            Check atr_tf_ms and horizon.max_signal_age_ms values.

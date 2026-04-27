@@ -1,0 +1,30 @@
+groups:
+  - name: ml_phase3_53_apply_flow_experiment_incident_rca_bridge_v1
+    rules:
+      - alert: MLApplyFlowExperimentIncidentRCABridgeStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_bridge_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "apply-flow experiment incident RCA bridge is stale"
+
+      - alert: MLApplyFlowExperimentIncidentRCABridgeErrors
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_bridge_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "apply-flow experiment incident RCA bridge has errors"
+
+      - alert: MLApplyFlowExperimentIncidentRCABridgeVertexTraffic
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_bridge_routed_total{route="VERTEX"}[30m]) > 0
+        for: 5m
+        labels: { severity: info }
+        annotations:
+          summary: "apply-flow experiment incident RCA bridge routed traffic to vertex"
+
+      - alert: MLApplyFlowExperimentIncidentRCABridgeLocalTraffic
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_bridge_routed_total{route="LOCAL"}[30m]) > 0
+        for: 5m
+        labels: { severity: info }
+        annotations:
+          summary: "apply-flow experiment incident RCA bridge routed traffic to local"

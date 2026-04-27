@@ -1,0 +1,105 @@
+diff --git a/tick_flow_full/core/meta_schema_registry.py b/tick_flow_full/core/meta_schema_registry.py
+index c64ca9c..5b5bebe 100644
+--- a/tick_flow_full/core/meta_schema_registry.py
++++ b/tick_flow_full/core/meta_schema_registry.py
+@@ -51,6 +51,13 @@ from core.meta_features_v8 import (
+     META_FEAT_V8_HASH,
+ )
+ 
++from core.meta_features_v9 import (
++    META_FEAT_V9_NAME,
++    META_FEAT_V9_VERSION,
++    META_FEAT_V9_COLS,
++    META_FEAT_V9_HASH,
++)
++
+ # Registry: name -> (version, cols, hash)
+ META_SCHEMA_REGISTRY: Dict[str, Tuple[int, List[str], str]] = {
+     META_FEAT_V1_NAME: (META_FEAT_V1_VERSION, META_FEAT_V1_COLS, META_FEAT_V1_HASH),
+@@ -61,6 +68,7 @@ META_SCHEMA_REGISTRY: Dict[str, Tuple[int, List[str], str]] = {
+     META_FEAT_V6_NAME: (META_FEAT_V6_VERSION, META_FEAT_V6_COLS, META_FEAT_V6_HASH),
+     META_FEAT_V7_NAME: (META_FEAT_V7_VERSION, META_FEAT_V7_COLS, META_FEAT_V7_HASH),
+     META_FEAT_V8_NAME: (META_FEAT_V8_VERSION, META_FEAT_V8_COLS, META_FEAT_V8_HASH),
++    META_FEAT_V9_NAME: (META_FEAT_V9_VERSION, META_FEAT_V9_COLS, META_FEAT_V9_HASH),
+ }
+ 
+ def get_schema_info(name: str) -> Tuple[int, List[str], str]:
+diff --git a/tick_flow_full/core/of_confirm_engine.py b/tick_flow_full/core/of_confirm_engine.py
+index 7ba3e39..1d87d53 100644
+--- a/tick_flow_full/core/of_confirm_engine.py
++++ b/tick_flow_full/core/of_confirm_engine.py
+@@ -94,6 +94,15 @@ from core.meta_features_v8 import (
+     build_meta_features_v8,
+ )
+ 
++from core.meta_features_v9 import (
++    META_FEAT_V9_NAME,
++    META_FEAT_V9_VERSION,
++    META_FEAT_V9_HASH,
++    META_FEAT_V9_COLS,
++    META_FEAT_V9_TRANSFORMS,
++    build_meta_features_v9,
++)
++
+ # Optional gates (may live in the full repo). Keep engine importable even in
+ # partial archives; engine remains functional with graceful degradation.
+ try:
+@@ -122,9 +131,10 @@ META_SCHEMA_REGISTRY: Dict[str, Tuple[int, str]] = {
+     META_FEAT_V6_NAME: (META_FEAT_V6_VERSION, META_FEAT_V6_HASH),
+     META_FEAT_V7_NAME: (META_FEAT_V7_VERSION, META_FEAT_V7_HASH),
+     META_FEAT_V8_NAME: (META_FEAT_V8_VERSION, META_FEAT_V8_HASH),
++    META_FEAT_V9_NAME: (META_FEAT_V9_VERSION, META_FEAT_V9_HASH),
+ }
+ 
+-META_SCHEMA_V2P = (META_FEAT_V2_NAME, META_FEAT_V3_NAME, META_FEAT_V4_NAME, META_FEAT_V5_NAME, META_FEAT_V6_NAME, META_FEAT_V7_NAME, META_FEAT_V8_NAME)
++META_SCHEMA_V2P = (META_FEAT_V2_NAME, META_FEAT_V3_NAME, META_FEAT_V4_NAME, META_FEAT_V5_NAME, META_FEAT_V6_NAME, META_FEAT_V7_NAME, META_FEAT_V8_NAME, META_FEAT_V9_NAME)
+ 
+ def _get_attr_or_key(obj: Any, name: str, default: Any = None) -> Any:
+     if obj is None:
+@@ -2173,6 +2183,7 @@ class OFConfirmEngine:
+                         META_FEAT_V6_NAME: dict(name=META_FEAT_V6_NAME, version=META_FEAT_V6_VERSION, hash=META_FEAT_V6_HASH, builder=build_meta_features_v6),
+                         META_FEAT_V7_NAME: dict(name=META_FEAT_V7_NAME, version=META_FEAT_V7_VERSION, hash=META_FEAT_V7_HASH, builder=build_meta_features_v7),
+                         META_FEAT_V8_NAME: dict(name=META_FEAT_V8_NAME, version=META_FEAT_V8_VERSION, hash=META_FEAT_V8_HASH, builder=build_meta_features_v8),
++                        META_FEAT_V9_NAME: dict(name=META_FEAT_V9_NAME, version=META_FEAT_V9_VERSION, hash=META_FEAT_V9_HASH, builder=build_meta_features_v9),
+                     }
+ 
+                     schema_cfg = SCHEMAS.get(model_schema_name)
+diff --git a/mnt/data/trade19/tick_flow_full/tests/core/test_meta_schema_registry_v9_registered.py b/tick_flow_full/tests/core/test_meta_schema_registry_v9_registered.py
+new file mode 100644
+index 0000000..c1f7210
+--- /dev/null
++++ b/tick_flow_full/tests/core/test_meta_schema_registry_v9_registered.py
+@@ -0,0 +1,10 @@
++from core.meta_features_v9 import META_FEAT_V9_NAME, META_FEAT_V9_VERSION, META_FEAT_V9_HASH, META_FEAT_V9_COLS
++from core.meta_schema_registry import META_SCHEMA_REGISTRY, get_schema_info
++
++
++def test_meta_schema_registry_registers_v9():
++    assert META_FEAT_V9_NAME in META_SCHEMA_REGISTRY
++    vers, cols, h = get_schema_info(META_FEAT_V9_NAME)
++    assert vers == META_FEAT_V9_VERSION
++    assert h == META_FEAT_V9_HASH
++    assert cols == META_FEAT_V9_COLS
+diff --git a/mnt/data/trade19/tick_flow_full/tests/core/test_of_confirm_engine_meta_schema_registry_v9.py b/tick_flow_full/tests/core/test_of_confirm_engine_meta_schema_registry_v9.py
+new file mode 100644
+index 0000000..426c863
+--- /dev/null
++++ b/tick_flow_full/tests/core/test_of_confirm_engine_meta_schema_registry_v9.py
+@@ -0,0 +1,17 @@
++from core.meta_features_v9 import META_FEAT_V9_NAME, META_FEAT_V9_VERSION, META_FEAT_V9_HASH
++import core.of_confirm_engine as ofe
++
++
++def test_of_confirm_engine_meta_schema_registry_has_v9():
++    assert META_FEAT_V9_NAME in ofe.META_SCHEMA_REGISTRY
++    vers, h = ofe.META_SCHEMA_REGISTRY[META_FEAT_V9_NAME]
++    assert int(vers) == int(META_FEAT_V9_VERSION)
++    assert str(h) == str(META_FEAT_V9_HASH)
++
++
++def test_of_confirm_engine_source_has_v9_builder():
++    # Static guard: ensure v9 builder is actually wired in the schema map.
++    import inspect
++    src = inspect.getsource(ofe)
++    assert "build_meta_features_v9" in src
++    assert "META_FEAT_V9_NAME" in src

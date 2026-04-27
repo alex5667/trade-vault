@@ -1,0 +1,82 @@
+services:
+  scanner-operator-routing-incident-route-rca-route-slo-analytics-v2-25:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    command: ["python", "-m", "orderflow_services.operator_routing_incident_route_rca_route_slo_analytics_v2_25"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_SLO_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_SLO_PORT:-9912}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_MTTR_SLO_SEC: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_MTTR_SLO_SEC:-900}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_SUCCESS_RATE_MIN: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_SUCCESS_RATE_MIN:-0.85}
+    ports:
+      - "${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_SLO_PORT:-9912}:9912"
+    networks:
+      - scanner-network
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9912/metrics >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 384M
+
+  scanner-operator-routing-incident-route-rca-route-retry-controller-v2-25:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    command: ["python", "-m", "orderflow_services.operator_routing_incident_route_rca_route_retry_controller_v2_25"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_PORT:-9913}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_MAX_ATTEMPTS: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_MAX_ATTEMPTS:-3}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_BASE_BACKOFF_SEC: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_BASE_BACKOFF_SEC:-300}
+    ports:
+      - "${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_RETRY_PORT:-9913}:9913"
+    networks:
+      - scanner-network
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9913/metrics >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 384M
+
+  scanner-operator-routing-incident-route-rca-route-auto-escalation-summarizer-v2-25:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    command: ["python", "-m", "orderflow_services.operator_routing_incident_route_rca_route_auto_escalation_summarizer_v2_25"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_ESCALATIONS_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_ESCALATIONS_PORT:-9914}
+    ports:
+      - "${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTE_ESCALATIONS_PORT:-9914}:9914"
+    networks:
+      - scanner-network
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9914/metrics >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 384M

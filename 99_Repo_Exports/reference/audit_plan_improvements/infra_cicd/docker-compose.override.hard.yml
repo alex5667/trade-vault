@@ -1,0 +1,57 @@
+services:
+  multi-symbol-orderflow:
+    environment:
+      GATE_PROFILE: 'hard'
+      EDGE_TS_BAD_POLICY: 'veto'
+      EDGE_TS_BAD_VETO_BPS: '1000000'
+      EDGE_TS_MAX_SKEW_MS: '21600000'
+      EDGE_DISABLE_EMA: '0'
+      SIGNAL_OUTBOX_RETRY_ZSET: 'signals:outbox:retry:schedule'
+      SIGNAL_OUTBOX_RETRY_PAYLOAD_PREFIX: 'signals:outbox:retry:payload'
+      SIGNAL_OUTBOX_RETRY_LEASE_PREFIX: 'signals:outbox:retry:lease'
+      SIGNAL_OUTBOX_RETRY_PAYLOAD_TTL_SEC: '86400'
+      SIGNAL_OUTBOX_RETRY_BASE_MS: '500'
+      SIGNAL_OUTBOX_RETRY_MAX_MS: '60000'
+      SIGNAL_OUTBOX_RETRY_JITTER: '0.2'
+      SIGNAL_OUTBOX_RETRY_PUMP_EVERY_MS: '250'
+      SIGNAL_OUTBOX_RETRY_PUMP_BATCH: '200'
+      # pending rescue
+      SIGNAL_OUTBOX_PENDING_CHECK_SEC: '3'
+      SIGNAL_OUTBOX_PENDING_MIN_IDLE_MS: '60000'
+      SIGNAL_OUTBOX_PENDING_CLAIM_COUNT: '200'
+      SIGNAL_OUTBOX_PENDING_MAX_BATCHES: '3'
+      # ack retry (optional)
+      SIGNAL_OUTBOX_ACK_RETRY_TTL_SEC: '600'
+      # envelope done
+      SIGNAL_ENV_DONE_TTL_SEC: '604800'
+      SIGNAL_ENV_DONE_NS: 'sig:env_done'
+      # delivery namespace
+      SIGNAL_DELIVERY_NS: 'sig:delivery:v1'
+      SIGNAL_DELIVERY_TTL_SEC: '86400'
+      # optional: index + cleanup (по умолчанию выключено)
+      SIGNAL_DELIVERY_INDEX_ENABLE: '1'
+      SIGNAL_DELIVERY_INDEX_KEY: 'sig:delivery:v1:index'
+      SIGNAL_DELIVERY_INDEX_CLEANUP_EVERY_S: '30'
+      SIGNAL_DELIVERY_INDEX_CLEANUP_MAX: '2000'
+      # pending cursor persistence
+      SIGNAL_PENDING_CURSOR_NS: 'sig:outbox:pending_cursor'
+      # dead-consumer diagnostics
+      SIGNAL_OUTBOX_DEAD_CONSUMER_IDLE_MS: '300000'
+      SIGNAL_OUTBOX_DEL_DEAD_CONSUMERS: '0' # можно 1, но удаляем только pending==0
+      # outbox msg-level idempotency
+      SIGNAL_OUTBOX_MSGDONE_NS: 'sig:outbox:msg_done'
+      SIGNAL_OUTBOX_MSGDONE_TTL_SEC: '172800'
+      # pending rescue
+      SIGNAL_OUTBOX_PENDING_ENABLE: '1'
+      SIGNAL_OUTBOX_PENDING_CHECK_EVERY_S: '2.0'
+      SIGNAL_OUTBOX_CLAIM_MIN_IDLE_MS: '60000'
+      SIGNAL_OUTBOX_CLAIM_COUNT: '200'
+      SIGNAL_OUTBOX_CLAIM_MAX_BATCHES: '3'
+      # single rescue leader
+      SIGNAL_OUTBOX_RESCUE_LOCK_KEY: 'sig:outbox:rescue_lock:signals-outbox-group'
+      SIGNAL_OUTBOX_RESCUE_LOCK_TTL_SEC: '10'
+      # ack retry
+      SIGNAL_OUTBOX_ACK_RETRY_TTL_S: '600'
+      SIGNAL_OUTBOX_ACK_RETRY_MAX: '20000'
+      # helper.read NOGROUP recovery
+      SIGNAL_OUTBOX_RECOVERY_START_ID: '0'

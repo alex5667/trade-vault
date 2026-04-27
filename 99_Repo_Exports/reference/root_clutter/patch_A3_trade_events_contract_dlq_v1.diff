@@ -1,0 +1,342 @@
+diff --git a/python-worker/services/posttrade/trade_events_contract.py b/python-worker/services/posttrade/trade_events_contract.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/python-worker/services/posttrade/trade_events_contract.py
+@@ -0,0 +1,177 @@
++"""Trade events (events:trades) contract helpers.
++
++Purpose
++-------
++This module defines a *strict-but-safe* validator/sanitizer for Redis Stream events
++produced by executors and trade monitors. The main consumer is the ML/label joiner
++pipeline, which requires a stable join-key (`sid`) and deterministic time semantics
++(epoch-ms).
++
++Design goals
++------------
++- Deterministic time: `ts` and `exit_ts_ms` are epoch-ms UTC, encoded as strings
++  because Redis Streams store string fields.
++- Idempotency: `event_id` is expected to be SHA1 hex (40 chars). We validate format.
++- Fail-open for optional fields: we never invent PnL/risk numbers, but we will
++  normalize types and fill `exit_ts_ms` from `ts` if missing (safe default).
++- Low-cardinality: do NOT put `event_id`/`sid` into Prometheus labels. Use logs.
++
++How to use
++----------
++Producers (trade_events_logger.py, executors):
++  evt = normalize_position_closed_event(evt)
++  ok, err = validate_position_closed_event(evt)
++  if not ok: publish to DLQ and ACK (poison-pill) OR raise in strict environments.
++
++Consumers:
++  Use `validate_position_closed_event` early and quarantine invalid events.
++"""
++
++from __future__ import annotations
++
++import json
++import re
++from dataclasses import dataclass
++from typing import Any, Dict, Iterable, List, Optional, Tuple
++
++# ---------------------------------------------------------------------
++# Contract
++# ---------------------------------------------------------------------
++
++POSITION_CLOSED_REQUIRED_FIELDS: Tuple[str, ...] = (
++    "event_type",
++    "event_id",
++    "sid",
++    "symbol",
++    "ts",
++    "source",
++    "price",
++    "pnl",
++    "risk_usd",
++    "r_mult",
++    "exit_ts_ms",
++    "ab_arm",
++    "regime",
++)
++
++# Heavy fields must never be emitted into Redis Streams.
++# They belong in Postgres or a per-sid blob list key.
++HEAVY_FIELDS: Tuple[str, ...] = (
++    "config_snapshot",
++    "calibrated_specs",
++    "indicators_snapshot",
++    "trail_profile_config",
++    "evidence",
++    "feature_vector",
++    "trail_profile",
++    "raw_signal",
++    "signal_payload",
++)
++
++_SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
++_EPOCH_MS_RE = re.compile(r"^[0-9]{13,}$")  # allow >=13 digits to tolerate ms+ns trunc.
++
++@dataclass(frozen=True)
++class ValidationError:
++    field: str
++    reason: str
++
++    def __str__(self) -> str:
++        return f"{self.field}: {self.reason}"
++
++
++def _as_str(x: Any) -> str:
++    """Convert to Redis Stream safe string."""
++    if x is None:
++        return ""
++    if isinstance(x, (bytes, bytearray)):
++        try:
++            return x.decode("utf-8", errors="replace")
++        except Exception:
++            return str(x)
++    if isinstance(x, (dict, list)):
++        return json.dumps(x, separators=(",", ":"), ensure_ascii=False)
++    return str(x)
++
++
++def strip_heavy_fields(evt: Dict[str, Any]) -> Dict[str, Any]:
++    """Remove heavy fields from a trade event dict (in-place copy)."""
++    out = dict(evt)
++    for k in HEAVY_FIELDS:
++        out.pop(k, None)
++    return out
++
++
++def normalize_position_closed_event(evt: Dict[str, Any]) -> Dict[str, str]:
++    """Normalize event values to strings (Redis Stream contract).
++
++    Notes:
++    - We preserve both 'metadata' and 'meta' if present. If only one exists,
++      we mirror into the other for backwards compatibility.
++    - If exit_ts_ms missing, we default it to ts (safe and deterministic).
++    """
++    e: Dict[str, Any] = strip_heavy_fields(evt)
++
++    # Mirror meta/metadata for compatibility
++    meta = e.get("meta")
++    metadata = e.get("metadata")
++    if meta is None and metadata is not None:
++        e["meta"] = metadata
++    if metadata is None and meta is not None:
++        e["metadata"] = meta
++
++    # Default exit_ts_ms to ts if missing
++    if e.get("exit_ts_ms") in (None, ""):
++        if e.get("ts") not in (None, ""):
++            e["exit_ts_ms"] = e.get("ts")
++
++    # Convert everything to strings
++    out: Dict[str, str] = {}
++    for k, v in e.items():
++        out[k] = _as_str(v)
++    return out
++
++
++def validate_position_closed_event(evt: Dict[str, Any]) -> Tuple[bool, List[ValidationError]]:
++    """Validate a POSITION_CLOSED event. Returns (ok, errors)."""
++    errors: List[ValidationError] = []
++
++    def miss(field: str, reason: str) -> None:
++        errors.append(ValidationError(field=field, reason=reason))
++
++    # Required fields
++    for f in POSITION_CLOSED_REQUIRED_FIELDS:
++        v = evt.get(f)
++        if v is None or str(v).strip() == "":
++            miss(f, "missing")
++    if errors:
++        return False, errors
++
++    # event_type strict
++    if str(evt.get("event_type")) != "POSITION_CLOSED":
++        miss("event_type", "must be POSITION_CLOSED")
++
++    # event_id SHA1 hex
++    eid = str(evt.get("event_id") or "").strip().lower()
++    if not _SHA1_RE.match(eid):
++        miss("event_id", "must be sha1 hex (40 chars)")
++
++    # epoch ms checks
++    for f in ("ts", "exit_ts_ms"):
++        v = str(evt.get(f) or "").strip()
++        if not _EPOCH_MS_RE.match(v):
++            miss(f, "must be epoch ms as digits")
++
++    # price/pnl/risk/r_mult must parse as float
++    for f in ("price", "pnl", "risk_usd", "r_mult"):
++        v = str(evt.get(f) or "").strip()
++        try:
++            float(v)
++        except Exception:
++            miss(f, "must be float")
++
++    # Soft sanity: regime must be non-empty (allow 'na')
++    if str(evt.get("regime") or "").strip() == "":
++        miss("regime", "missing")
++
++    return (len(errors) == 0), errors
+diff --git a/python-worker/services/posttrade/redis_stream_dlq.py b/python-worker/services/posttrade/redis_stream_dlq.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/python-worker/services/posttrade/redis_stream_dlq.py
+@@ -0,0 +1,44 @@
++"""DLQ helper for Redis Streams.
++
++We use a dedicated DLQ stream for poison-pill events, so the main consumer group
++doesn't get stuck on invalid messages.
++
++DLQ entry schema (fields are strings):
++  - reason: short machine-readable code
++  - error:  human-readable error summary (short)
++  - stream: original stream name
++  - entry_id: original stream entry id
++  - payload: JSON string (possibly truncated)
++"""
++
++from __future__ import annotations
++
++import json
++from typing import Any, Dict, Optional
++
++def _truncate(s: str, max_bytes: int = 16_000) -> str:
++    b = s.encode("utf-8", errors="replace")
++    if len(b) <= max_bytes:
++        return s
++    return b[:max_bytes].decode("utf-8", errors="replace")
++
++def publish_dlq(
++    redis_client: Any,
++    *,
++    dlq_stream: str,
++    reason: str,
++    error: str,
++    stream: str,
++    entry_id: str,
++    payload: Dict[str, Any],
++    maxlen: int = 200_000,
++) -> None:
++    # NOTE: Redis Streams require field-values to be strings/bytes.
++    body = {
++        "reason": str(reason),
++        "error": _truncate(str(error), 2000),
++        "stream": str(stream),
++        "entry_id": str(entry_id),
++        "payload": _truncate(json.dumps(payload, ensure_ascii=False, separators=(",", ":"))),
++    }
++    redis_client.xadd(dlq_stream, body, maxlen=maxlen, approximate=True)
+diff --git a/python-worker/tests/test_trade_events_contract.py b/python-worker/tests/test_trade_events_contract.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/python-worker/tests/test_trade_events_contract.py
+@@ -0,0 +1,103 @@
++import unittest
++import time
++
++from python_worker.services.posttrade.trade_events_contract import (
++    normalize_position_closed_event,
++    validate_position_closed_event,
++)
++
++def _ms_now():
++    return int(time.time() * 1000)
++
++class TestTradeEventsContract(unittest.TestCase):
++    def test_valid_position_closed(self):
++        ts = str(_ms_now())
++        evt = {
++            "event_type": "POSITION_CLOSED",
++            "event_id": "a" * 40,
++            "sid": "sig-BTCUSDT-1",
++            "symbol": "BTCUSDT",
++            "ts": ts,
++            "source": "binance",
++            "price": "85400.5",
++            "pnl": "127.35",
++            "risk_usd": "18.45",
++            "r_mult": "6.91",
++            "exit_ts_ms": ts,
++            "ab_arm": "A",
++            "regime": "trending",
++            "meta": {"close_reason": "SL_HIT"},
++        }
++        norm = normalize_position_closed_event(evt)
++        ok, errs = validate_position_closed_event(norm)
++        self.assertTrue(ok, str(errs))
++        self.assertIn("metadata", norm)  # mirrored
++
++    def test_missing_sid_fails(self):
++        ts = str(_ms_now())
++        evt = {
++            "event_type": "POSITION_CLOSED",
++            "event_id": "a" * 40,
++            "sid": "",
++            "symbol": "BTCUSDT",
++            "ts": ts,
++            "source": "binance",
++            "price": "1",
++            "pnl": "1",
++            "risk_usd": "1",
++            "r_mult": "1",
++            "exit_ts_ms": ts,
++            "ab_arm": "A",
++            "regime": "na",
++        }
++        norm = normalize_position_closed_event(evt)
++        ok, errs = validate_position_closed_event(norm)
++        self.assertFalse(ok)
++        self.assertTrue(any(e.field == "sid" for e in errs))
++
++    def test_bad_ts_fails(self):
++        evt = {
++            "event_type": "POSITION_CLOSED",
++            "event_id": "a" * 40,
++            "sid": "sig-1",
++            "symbol": "BTCUSDT",
++            "ts": "not_ms",
++            "source": "binance",
++            "price": "1",
++            "pnl": "1",
++            "risk_usd": "1",
++            "r_mult": "1",
++            "exit_ts_ms": "not_ms",
++            "ab_arm": "A",
++            "regime": "na",
++        }
++        norm = normalize_position_closed_event(evt)
++        ok, errs = validate_position_closed_event(norm)
++        self.assertFalse(ok)
++        self.assertTrue(any(e.field == "ts" for e in errs))
++        self.assertTrue(any(e.field == "exit_ts_ms" for e in errs))
++
++    def test_exit_ts_defaulted(self):
++        ts = str(_ms_now())
++        evt = {
++            "event_type": "POSITION_CLOSED",
++            "event_id": "a" * 40,
++            "sid": "sig-1",
++            "symbol": "BTCUSDT",
++            "ts": ts,
++            "source": "binance",
++            "price": "1",
++            "pnl": "1",
++            "risk_usd": "1",
++            "r_mult": "1",
++            "exit_ts_ms": "",
++            "ab_arm": "A",
++            "regime": "na",
++        }
++        norm = normalize_position_closed_event(evt)
++        self.assertEqual(norm["exit_ts_ms"], ts)
++        ok, errs = validate_position_closed_event(norm)
++        self.assertTrue(ok, str(errs))
++
++if __name__ == "__main__":
++    unittest.main()

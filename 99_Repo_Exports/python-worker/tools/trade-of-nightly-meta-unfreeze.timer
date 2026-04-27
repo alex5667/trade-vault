@@ -1,0 +1,10 @@
+[Unit]
+Description=Run meta unfreeze proposal nightly
+
+[Timer]
+OnCalendar=*-*-* 06:55:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+

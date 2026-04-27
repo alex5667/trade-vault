@@ -1,0 +1,73 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "single"}},
+      "targets": [
+        {"expr": "orchestration_composite_preflight_history_block_ratio{window=\"24h\"}", "legendFormat": "{{purpose}} block_ratio 24h", "refId": "A"},
+        {"expr": "orchestration_composite_preflight_history_invalid_ratio{window=\"24h\"}", "legendFormat": "{{purpose}} invalid_ratio 24h", "refId": "B"}
+      ],
+      "title": "24h block/invalid ratio by purpose",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "id": 2,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "single"}},
+      "targets": [
+        {"expr": "sum by (purpose, selected_reason_code) (orchestration_composite_preflight_history_events_total{window=\"24h\", decision_status=~\"block|invalid\"})", "legendFormat": "{{purpose}} {{selected_reason_code}}", "refId": "A"}
+      ],
+      "title": "24h block/invalid frequency by reason",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "id": 3,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "single"}},
+      "targets": [
+        {"expr": "orchestration_composite_preflight_history_total{window=\"24h\"}", "legendFormat": "{{purpose}} total 24h", "refId": "A"},
+        {"expr": "orchestration_composite_preflight_history_total{window=\"7d\"}", "legendFormat": "{{purpose}} total 7d", "refId": "B"}
+      ],
+      "title": "Decision volume by purpose",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "id": 4,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "single"}},
+      "targets": [
+        {"expr": "orchestration_composite_preflight_history_window_complete", "legendFormat": "{{window}} complete", "refId": "A"},
+        {"expr": "orchestration_composite_preflight_history_stream_oldest_age_seconds", "legendFormat": "{{window}} oldest_age_s", "refId": "B"}
+      ],
+      "title": "History coverage / retention health",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["trade", "orchestration", "preflight", "history", "p55"],
+  "templating": {"list": []},
+  "time": {"from": "now-7d", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Orchestration Composite Preflight History P55",
+  "uid": "orchestration-composite-preflight-history-p55",
+  "version": 1,
+  "weekStart": ""
+}

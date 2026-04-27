@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/ok_fields.py
+# hypothesis_version: 6.148.10
+
+['=', 'allow', 'decision', 'evidence', 'evidence.ok', 'f', 'fallback.0', 'fallback.ok_rule', 'false', 'ignore', 'missing', 'n', 'na', 'no', 'ofc.allow', 'ofc.ok', 'off', 'ok', 'ok_rule', 'ok_rule_soft', 'ok_soft', 'ok_strict', 'on', 'payload', 'rule', 'rule_ok', 'rule_ok_soft', 'scenario', 'scenario_v4', 'soft_ok', 't', 'timestamp', 'true', 'ts', 'ts_ms', 'utf-8', 'y', 'yes', '{', '}']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/exec_health_observability.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, '-inf', 'NONE', 'UNKNOWN', 'apply', 'flag', 'inf', 'is_p95_bps', 'max_is_p95_bps', 'metric', 'mode', 'monitor', 'off', 'outcome', 'pass', 'perm_impact_p95_bps', 'reason', 'scope', 'symbol', 'tighten', 'tighten_add_bps', 'tighten_k_mult', 'unknown', 'veto', 'where']

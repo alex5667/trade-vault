@@ -1,0 +1,42 @@
+groups:
+  - name: feature_registry_contract_p94
+    rules:
+      - alert: FeatureRegistryContractFailed
+        expr: feature_registry_contract_last_success == 0
+        for: 20m
+        labels:
+          severity: critical
+          team: trade
+          component: feature_registry
+          service: of-timers
+        annotations:
+          summary: "Feature Registry contract failed (hash mismatch / pins missing)"
+          description: "Feature Registry contract check reports failure. Investigate pins vs current schema_hash/feature_cols_hash; accidental change without schema bump is likely."
+          runbook_path: "/runbook_feature_registry_p94.md"
+          dashboard_path: "/d/feature_registry_contract/feature-registry-contract?orgId=1"
+
+      - alert: FeatureRegistryContractStale
+        expr: feature_registry_contract_last_age_seconds > 6 * 3600
+        for: 30m
+        labels:
+          severity: warning
+          team: trade
+          component: feature_registry
+          service: of-timers
+        annotations:
+          summary: "Feature Registry contract status stale (>6h)"
+          description: "No recent update in metrics:feature_registry_contract:last. Check of-timers worker schedule and Redis connectivity."
+          runbook_path: "/runbook_feature_registry_p94.md"
+
+      - alert: FeatureRegistryContractExporterDown
+        expr: feature_registry_contract_exporter_up == 0
+        for: 10m
+        labels:
+          severity: warning
+          team: trade
+          component: feature_registry
+          service: exporter
+        annotations:
+          summary: "Feature Registry contract exporter down"
+          description: "Prometheus exporter cannot read Redis metrics. Check exporter container/service and Redis URL."
+          runbook_path: "/runbook_feature_registry_p94.md"

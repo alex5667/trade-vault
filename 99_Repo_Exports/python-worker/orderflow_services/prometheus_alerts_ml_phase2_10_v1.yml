@@ -1,0 +1,26 @@
+groups:
+  - name: ml_phase2_10_operator_routing_incident_rca_governance_v1
+    rules:
+      - alert: MLOperatorRoutingIncidentRCAPersisterDown
+        expr: ml_operator_routing_incident_rca_results_up == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "routing incident RCA results persister is down"
+
+      - alert: MLOperatorRoutingIncidentRCAQualityScorerStale
+        expr: time() - ml_operator_routing_incident_rca_quality_last_run_ts_seconds > 1800
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "routing incident RCA quality scorer is stale"
+
+      - alert: MLOperatorRoutingIncidentRCAFeedbackLoopDown
+        expr: ml_operator_routing_incident_rca_feedback_up == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "routing incident RCA feedback loop is down"

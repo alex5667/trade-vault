@@ -1,0 +1,46 @@
+diff --git a/tick_flow_full/core/of_confirm_engine.py b/tick_flow_full/core/of_confirm_engine.py
+--- a/tick_flow_full/core/of_confirm_engine.py
++++ b/tick_flow_full/core/of_confirm_engine.py
+@@ -1268,7 +1268,9 @@
+             liqmap_adverse_peak_usd = float(getattr(lmg, "adverse_peak_usd", 0.0) or 0.0)
+             liqmap_favorable_peak_usd = float(getattr(lmg, "favorable_peak_usd", 0.0) or 0.0)
+ 
+-            # Mark gate bit for downstream analytics/decision-record.
++            # Gate bit is set on *any* LiqMap hit:
++            #  - shadow_veto==1: even in SHADOW mode we mark the bit for analysis/decision-record
++            #  - veto==1: ENFORCE veto path (hard block later) also marks the bit
+             if liqmap_shadow_veto == 1 or liqmap_veto == 1:
+                 try:
+                     setattr(dec, "gate_bits", int(getattr(dec, "gate_bits", 0)) | self.GATE_BIT_LIQMAP)
+@@ -1414,6 +1416,12 @@
+         # P15: LiqMap Gate Veto (already respects cfg2[liqmap_gate_mode])
+         if liqmap_veto:
+             try:
++                # Ensure gate bit is always recorded, even if earlier export/bit-setting failed.
++                try:
++                    setattr(dec, "gate_bits", int(getattr(dec, "gate_bits", 0)) | self.GATE_BIT_LIQMAP)
++                except Exception:
++                    pass
++
+                 ok = 0
+                 hard_veto = "liqmap_gate"
+                 veto_total(self, reason_code=f"liqmap_{str(liqmap_reason or 'na')[:32]}")
+diff --git a/tick_flow_full/tests/core/test_of_confirm_engine_liqmap_gate_wiring_v1.py b/tick_flow_full/tests/core/test_of_confirm_engine_liqmap_gate_wiring_v1.py
+--- a/tick_flow_full/tests/core/test_of_confirm_engine_liqmap_gate_wiring_v1.py
++++ b/tick_flow_full/tests/core/test_of_confirm_engine_liqmap_gate_wiring_v1.py
+@@ -18,6 +18,10 @@
+     assert "from core.liqmap_gate_v1 import evaluate_liqmap_gate_v1" in text
+     assert "evaluate_liqmap_gate_v1(" in text
+ 
++    # Gate bit constant and usage
++    assert "GATE_BIT_LIQMAP" in text
++    assert "self.GATE_BIT_LIQMAP" in text
++
+     # Stable exported keys used by meta_feat_v9
+     for k in (
+         "liqmap_gate_shadow_veto",
+@@ -33,3 +37,4 @@
+ 
+     # Ensure enforce mode actually vetoes trades
+     assert "hard_veto = \"liqmap_gate\"" in text
++    assert "ok = 0" in text

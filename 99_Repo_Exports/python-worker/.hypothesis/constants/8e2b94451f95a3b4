@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/stats/_covariance.py
+# hypothesis_version: 6.148.10
+
+['Covariance', 'cholesky', 'covariance', 'diagonal', 'eigenvalues', 'eigenvectors', 'precision']

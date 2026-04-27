@@ -1,0 +1,10 @@
+{
+  "broken": [],
+  "broken_by_kind": {},
+  "error": "missing TRADES_DB_DSN/DATABASE_URL",
+  "generated_at_iso": "2026-04-18T14:26:53Z",
+  "generated_at_ts": 1776522413.0556748,
+  "schema_version": "p5.6.v1",
+  "seed_rows": 0,
+  "total_broken": 0
+}

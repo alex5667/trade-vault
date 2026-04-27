@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/payload_fingerprint.py
+# hypothesis_version: 6.148.10
+
+[',', ':', 'correlation_id', 'outbox_sid', 'outbox_trace_id', 'published_at', 'published_at_ms', 'sid', 'signal_id', 'span_id', 'target', 'targets', 'trace', 'trace_id', 'ts', 'ts_ms', 'utf-8']

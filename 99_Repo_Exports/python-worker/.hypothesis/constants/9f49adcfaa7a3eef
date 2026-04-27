@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signals/golden_pattern_service.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.7, 1.0, 1.2, 2.0, 3.0, 100.0, 'bearish_golden', 'bullish_golden', 'golden_pattern', 'regime_range_score', 'regime_trend_score', 'spread_bps']

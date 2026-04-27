@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/redis_fast.py
+# hypothesis_version: 6.148.10
+
+[1000.0, 200, '16', '200', '50', 'REDIS_URL', 'max_connections', 'socket_timeout_ms']

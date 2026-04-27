@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/feature_engineering.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.33, 0.66, 1.0, 1.4826, 1000, 3600, 86400, 'RobustScalerPack', 'UTC', 'asia', 'center', 'clamp', 'clip', 'eu', 'hi', 'high', 'identity', 'lo', 'log1p', 'log1p_signed', 'low', 'mid', 'name', 'none', 'off', 'other', 'regime_thresholds', 'scale', 'session_hours', 'signed_log1p', 'type', 'unknown', 'us', 'winsor', 'winsorize']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tick_flow_full/core/confirmations_schema_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, '0', '1', '=', 'conf_div_match', 'conf_iceberg_strict', 'conf_obi_stable', 'conf_reclaim', 'conf_rsi_agree', 'conf_sweep_any', 'conf_sweep_eqh', 'conf_sweep_eql', 'conf_weak_progress', 'div_match', 'f', 'false', 'ice_strict', 'iceberg_strict', 'n', 'no', 'obi_ok', 'obi_stable', 'off', 'on', 'reclaim', 'rsi_agree', 'sweep', 'sweep_any', 'sweep_eqh', 'sweep_eql', 't', 'true', 'weak_progress', 'y', 'yes']

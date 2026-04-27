@@ -1,0 +1,35 @@
+# P86: Alerts for DB-based residual validation (regime buckets)
+# Enabled only when ENFORCE_STATE_EXPORTER_DB_STATS=1 on enforce_bucket_state_exporter.
+
+groups:
+  - name: of_exec_slip_residuals_p86
+    rules:
+      - alert: ExecSlipResidualDBDown
+        # Fires when the DB residual stats query has been failing for 10 minutes.
+        expr: of_exec_slip_stats_db_up == 0
+        for: 10m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Residual validation DB query failing"
+          description: "enforce_bucket_state_exporter DB stats query failing (of_exec_slip_stats_db_up=0). Check ANALYTICS_DB_DSN and exporter logs."
+
+      - alert: ExecSlipResidualP99High
+        # Fires when residual P99 > 20 bps for a sym/bucket with >80 samples over lookback.
+        expr: (of_exec_slip_db_n > 80) and on(sym,bucket) (of_exec_slip_resid_p99_bps > 20)
+        for: 30m
+        labels:
+          severity: page
+        annotations:
+          summary: "Slippage residual P99 is high"
+          description: "DB-based residual P99 > 20 bps for sym/bucket with enough samples. Inspect mv_exec_slippage_eval_1h_stats and runbook_slippage_qa_p77.md."
+
+      - alert: ExecSlipEdgeNegShareHigh
+        # Fires when edge_minus_expected_bps < 0 share > 0.55 for sym/bucket with >80 samples.
+        expr: (of_exec_slip_db_n > 80) and on(sym,bucket) (of_exec_slip_edge_neg_share > 0.55)
+        for: 30m
+        labels:
+          severity: page
+        annotations:
+          summary: "Edge negative share is high"
+          description: "edge_minus_expected_bps < 0 share > 0.55 for sym/bucket with enough samples. Investigate slippage decomp calibration and enforcement."

@@ -1,0 +1,9 @@
+pytz>=2023.3
+redis>=4.5.0
+telethon>=1.28.0
+# Фиксируем requests и certifi, чтобы избежать backtracking и отсутствующих колёс
+requests==2.32.3
+certifi==2024.8.30
+python-dotenv>=1.0.0
+# httpx тянет requests extras через rfc3986; совместим с pinned certifi
+httpx>=0.24.0

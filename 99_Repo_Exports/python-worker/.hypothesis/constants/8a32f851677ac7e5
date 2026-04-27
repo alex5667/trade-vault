@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/io/formats/info.py
+# hypothesis_version: 6.148.10
+
+[1024.0, ' # ', ' and columns', '+', '-', 'Column', 'Columns', 'DataFrame', 'Dtype', 'GB', 'KB', 'MB', 'Non-Null Count', 'Series', 'TB', 'bytes', 'deep', 'display.memory_usage', 'examples_sub', 'klass', 'max_cols_sub', 'object', 'see_also_sub', 'show_counts_sub', 'type_sub', 'version_added_sub']

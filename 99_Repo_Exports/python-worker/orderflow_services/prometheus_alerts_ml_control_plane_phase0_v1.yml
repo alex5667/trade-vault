@@ -1,0 +1,48 @@
+groups:
+  - name: ml_control_plane_phase0_v1
+    interval: 30s
+    rules:
+      - alert: MLInventoryExporterDown
+        expr: ml_inventory_exporter_up == 0
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "ML inventory exporter down"
+          description: "Phase-0 inventory exporter has not completed successfully for >10m. Model control-plane inventory may be stale."
+
+      - alert: MLInventoryExporterStale
+        expr: time() - ml_inventory_last_run_ts_seconds > 900
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "ML inventory stale (>15m)"
+          description: "No fresh model inventory snapshot has been produced in >15 minutes."
+
+      - alert: MLHealthRollupDown
+        expr: ml_health_rollup_up == 0
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "ML health rollup worker down"
+          description: "Phase-0 ml health rollup worker is unhealthy. Runtime telemetry snapshots may be missing."
+
+      - alert: MLHealthRollupStale
+        expr: time() - ml_health_rollup_last_run_ts_seconds > 300
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "ML health rollup stale (>5m)"
+          description: "No recent successful ml health rollup loop. Check Redis consumer group lag and worker logs."
+
+      - alert: MLHealthRollupQueueLagHigh
+        expr: ml_health_rollup_queue_lag_ms > 300000
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "ML health rollup queue lag high"
+          description: "metrics:ml_confirm backlog is >5 minutes. Control-plane telemetry may drift from runtime."

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/mt5_bridge/models.py
+# hypothesis_version: 6.148.10
+
+[1.0, 60.0, 'buy', 'created_at', 'entry_zone_high', 'entry_zone_low', 'expiry_bars', 'long', 'partials', 'position_size', 'price_at_signal', 'risk_usd', 'sell', 'short', 'side', 'signal_id', 'stop_price', 'symbol', 'tp_levels', 'ts_signal']

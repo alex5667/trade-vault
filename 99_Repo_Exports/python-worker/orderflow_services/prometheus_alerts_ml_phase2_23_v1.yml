@@ -1,0 +1,10 @@
+groups:
+  - name: ml_phase2_23_operator_routing_incident_route_rca_winner_apply_v1
+    rules:
+      - alert: MLOperatorRoutingIncidentRouteRCAWinnerApplyStale
+        expr: time() - ml_operator_routing_incident_route_rca_winner_routing_apply_last_run_ts_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Routing incident Route RCA Winner Apply controller is stale"

@@ -1,0 +1,1011 @@
+--- orderflow_services/exec_health_slo_autoguard_v1.py
++++ orderflow_services/exec_health_slo_autoguard_v1.py
+@@ -0,0 +1,252 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import asyncio
++import json
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Tuple
++
++try:
++    import redis.asyncio as aioredis  # type: ignore
++except Exception:  # pragma: no cover
++    aioredis = None
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++def _b(x: Any) -> bool:
++    try:
++        if isinstance(x, str):
++            return x.strip().lower() in {"1", "true", "yes", "on"}
++        return bool(int(x))
++    except Exception:
++        return False
++
++
++def _s(x: Any, d: str = "") -> str:
++    try:
++        return str(x) if x is not None else str(d)
++    except Exception:
++        return str(d)
++
++
++@dataclass
++class GuardCfg:
++    redis_url: str
++    summary_key: str
++    state_key: str
++    freeze_key: str
++    notify_stream: str
++    loop_s: int
++    mode_mismatch_minutes: int
++    drift_minutes: int
++    drift_instances_min: int
++    freeze_minutes: int
++    cooldown_minutes: int
++    rollback_enable: bool
++    rollback_on_mode_mismatch: bool
++    rollback_on_drift: bool
++    enabled: bool
++
++    @staticmethod
++    def from_env() -> "GuardCfg":
++        return GuardCfg(
++            redis_url=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"),
++            summary_key=os.getenv("EXEC_HEALTH_SLO_SUMMARY_KEY", "metrics:exec_health:slo:last"),
++            state_key=os.getenv("EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY", "metrics:exec_health:slo:autoguard:state"),
++            freeze_key=os.getenv("EXEC_HEALTH_AUTO_FREEZE_KEY", "cfg:orderflow:exec_health:auto_freeze:v1"),
++            notify_stream=os.getenv("EXEC_HEALTH_AUTOGUARD_NOTIFY_STREAM", "notify:telegram"),
++            loop_s=max(5, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_CHECK_EVERY_S", "30"), 30)),
++            mode_mismatch_minutes=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_MODE_MISMATCH_MINUTES", "5"), 5)),
++            drift_minutes=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_DRIFT_MINUTES", "10"), 10)),
++            drift_instances_min=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_DRIFT_INSTANCES_MIN", "1"), 1)),
++            freeze_minutes=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_FREEZE_MINUTES", "30"), 30)),
++            cooldown_minutes=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_COOLDOWN_MINUTES", "30"), 30)),
++            rollback_enable=_b(os.getenv("EXEC_HEALTH_AUTOGUARD_ROLLBACK_ENABLE", "1")),
++            rollback_on_mode_mismatch=_b(os.getenv("EXEC_HEALTH_AUTOGUARD_ROLLBACK_ON_MODE_MISMATCH", "1")),
++            rollback_on_drift=_b(os.getenv("EXEC_HEALTH_AUTOGUARD_ROLLBACK_ON_DRIFT", "0")),
++            enabled=_b(os.getenv("EXEC_HEALTH_AUTOGUARD_ENABLE", "1")),
++        )
++
++
++@dataclass
++class EvalResult:
++    mode_mismatch_active: bool
++    rollout_drift_active: bool
++    mode_mismatch_since_ts_ms: int
++    rollout_drift_since_ts_ms: int
++    should_trigger: bool
++    trigger_reasons: List[str]
++
++
++def evaluate_autoguard(*, summary: Dict[str, Any], prev_state: Dict[str, Any], cfg: GuardCfg, now_ms: int) -> EvalResult:
++    cross_scope_mode_distinct = _i(summary.get("cross_scope_mode_distinct"), 0)
++    rollout_drift_instances_total = _i(summary.get("rollout_drift_instances_total"), 0)
++
++    mm_active = cross_scope_mode_distinct > 1
++    drift_active = rollout_drift_instances_total >= int(cfg.drift_instances_min)
++
++    mm_since = _i(prev_state.get("mode_mismatch_since_ts_ms"), 0)
++    dr_since = _i(prev_state.get("rollout_drift_since_ts_ms"), 0)
++
++    if mm_active:
++        mm_since = mm_since or now_ms
++    else:
++        mm_since = 0
++
++    if drift_active:
++        dr_since = dr_since or now_ms
++    else:
++        dr_since = 0
++
++    reasons: List[str] = []
++    if mm_active and (now_ms - mm_since) >= int(cfg.mode_mismatch_minutes * 60 * 1000):
++        reasons.append("cross_scope_mode_mismatch")
++    if drift_active and (now_ms - dr_since) >= int(cfg.drift_minutes * 60 * 1000):
++        reasons.append("rollout_drift")
++
++    return EvalResult(
++        mode_mismatch_active=mm_active,
++        rollout_drift_active=drift_active,
++        mode_mismatch_since_ts_ms=mm_since,
++        rollout_drift_since_ts_ms=dr_since,
++        should_trigger=bool(reasons),
++        trigger_reasons=reasons,
++    )
++
++
++class AutoGuard:
++    def __init__(self, cfg: GuardCfg | None = None):
++        self.cfg = cfg or GuardCfg.from_env()
++        if aioredis is None:
++            raise RuntimeError("redis dependency missing")
++        self.r = aioredis.from_url(self.cfg.redis_url, decode_responses=True)
++
++    async def _read_hash(self, key: str) -> Dict[str, Any]:
++        try:
++            return await self.r.hgetall(key) or {}
++        except Exception:
++            return {}
++
++    async def _notify(self, text: str) -> None:
++        try:
++            await self.r.xadd(self.cfg.notify_stream, {"ts_ms": str(_now_ms()), "source": "exec_health_slo_autoguard_v1", "text": text}, maxlen=5000)
++        except Exception:
++            pass
++
++    async def _set_state(self, state: Dict[str, Any]) -> None:
++        payload = {str(k): str(v) for k, v in state.items()}
++        await self.r.hset(self.cfg.state_key, mapping=payload)
++        await self.r.expire(self.cfg.state_key, max(300, self.cfg.cooldown_minutes * 180))
++
++    async def _set_freeze(self, *, now_ms: int, reasons: List[str]) -> None:
++        until = now_ms + int(self.cfg.freeze_minutes * 60 * 1000)
++        payload = {
++            "schema_name": "exec_health_auto_freeze",
++            "schema_version": 1,
++            "ts_ms": now_ms,
++            "freeze_active": 1,
++            "freeze_reason": ",".join(reasons),
++            "freeze_until_ts_ms": until,
++        }
++        await self.r.set(self.cfg.freeze_key, json.dumps(payload, separators=(",", ":")))
++        await self.r.pexpire(self.cfg.freeze_key, int(self.cfg.freeze_minutes * 60 * 1000))
++
++    async def _maybe_rollback(self, *, now_ms: int, reasons: List[str], state: Dict[str, Any]) -> Tuple[bool, str, str]:
++        if not self.cfg.rollback_enable:
++            return False, "", ""
++        if ("cross_scope_mode_mismatch" in reasons and not self.cfg.rollback_on_mode_mismatch) or (
++            "rollout_drift" in reasons and not self.cfg.rollback_on_drift
++        ):
++            return False, "", ""
++
++        active_sid = str(await self.r.get("cfg:orderflow:overrides:v1:active_sid") or "")
++        prev_sid = str(await self.r.get("cfg:orderflow:overrides:v1:prev_sid") or "")
++        if not active_sid or not prev_sid or active_sid == prev_sid:
++            return False, active_sid, prev_sid
++
++        await self.r.set("cfg:orderflow:overrides:v1:active_sid", prev_sid)
++        rb = {"ts_ms": now_ms, "reason": ",".join(reasons), "from_sid": active_sid, "to_sid": prev_sid}
++        await self.r.set(f"cfg:orderflow:overrides:v1:rollback:{active_sid}", json.dumps(rb, separators=(",", ":")))
++        return True, active_sid, prev_sid
++
++    async def run_once(self) -> None:
++        if not self.cfg.enabled:
++            return
++        now = _now_ms()
++        summary = await self._read_hash(self.cfg.summary_key)
++        if not summary:
++            return
++        state = await self._read_hash(self.cfg.state_key)
++
++        freeze_until = _i(state.get("freeze_until_ts_ms"), 0)
++        cooldown_until = _i(state.get("cooldown_until_ts_ms"), 0)
++        freeze_active = 1 if freeze_until > now else 0
++
++        ev = evaluate_autoguard(summary=summary, prev_state=state, cfg=self.cfg, now_ms=now)
++        state.update(
++            {
++                "schema_name": "exec_health_slo_autoguard_state",
++                "schema_version": 1,
++                "updated_ts_ms": now,
++                "mode_mismatch_active": int(ev.mode_mismatch_active),
++                "rollout_drift_active": int(ev.rollout_drift_active),
++                "mode_mismatch_since_ts_ms": int(ev.mode_mismatch_since_ts_ms),
++                "rollout_drift_since_ts_ms": int(ev.rollout_drift_since_ts_ms),
++                "last_eval_reasons_json": json.dumps(list(ev.trigger_reasons), ensure_ascii=False),
++                "freeze_active": int(freeze_active),
++                "freeze_until_ts_ms": int(freeze_until),
++                "cooldown_until_ts_ms": int(cooldown_until),
++            }
++        )
++
++        if ev.should_trigger and now >= cooldown_until:
++            await self._set_freeze(now_ms=now, reasons=ev.trigger_reasons)
++            did_rb, from_sid, to_sid = await self._maybe_rollback(now_ms=now, reasons=ev.trigger_reasons, state=state)
++            state.update(
++                {
++                    "freeze_active": 1,
++                    "freeze_until_ts_ms": int(now + self.cfg.freeze_minutes * 60 * 1000),
++                    "last_trigger_ts_ms": int(now),
++                    "last_trigger_reasons_json": json.dumps(list(ev.trigger_reasons), ensure_ascii=False),
++                    "last_action": "freeze+rollback" if did_rb else "freeze",
++                    "last_rollback_ts_ms": int(now if did_rb else _i(state.get("last_rollback_ts_ms"), 0)),
++                    "last_rollback_from_sid": str(from_sid or state.get("last_rollback_from_sid") or ""),
++                    "last_rollback_to_sid": str(to_sid or state.get("last_rollback_to_sid") or ""),
++                    "rollback_total": int(_i(state.get("rollback_total"), 0) + (1 if did_rb else 0)),
++                    "cooldown_until_ts_ms": int(now + self.cfg.cooldown_minutes * 60 * 1000),
++                }
++            )
++            await self._notify(f"ExecHealth autoguard trigger: reasons={','.join(ev.trigger_reasons)} rollback={int(did_rb)} from={from_sid} to={to_sid}")
++        elif freeze_until <= now:
++            state["freeze_active"] = 0
++            state["last_action"] = state.get("last_action") or "idle"
++
++        await self._set_state(state)
++
++    async def run_forever(self) -> None:
++        while True:
++            try:
++                await self.run_once()
++            except Exception:
++                pass
++            await asyncio.sleep(self.cfg.loop_s)
++
++
++async def _main() -> None:
++    await AutoGuard().run_forever()
++
++
++if __name__ == "__main__":
++    asyncio.run(_main())
+--- orderflow_services/exec_health_slo_autoguard_exporter_v1.py
++++ orderflow_services/exec_health_slo_autoguard_exporter_v1.py
+@@ -0,0 +1,68 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import os
++import time
++from typing import Any, Dict
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++from prometheus_client import Gauge, start_http_server
++
++
++def _now_s() -> float:
++    return time.time()
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++UP = Gauge("exec_health_slo_autoguard_exporter_up", "1 if exporter can read autoguard state")
++FREEZE_ACTIVE = Gauge("exec_health_slo_autoguard_freeze_active", "Autoguard freeze active (1/0)")
++FREEZE_REMAINING_S = Gauge("exec_health_slo_autoguard_freeze_remaining_seconds", "Remaining freeze duration in seconds")
++MODE_MISMATCH_ACTIVE = Gauge("exec_health_slo_autoguard_mode_mismatch_active", "Mode mismatch currently active")
++ROLLING_DRIFT_ACTIVE = Gauge("exec_health_slo_autoguard_rollout_drift_active", "Rollout drift currently active")
++LAST_TRIGGER_MS = Gauge("exec_health_slo_autoguard_last_trigger_ts_ms", "Last autoguard trigger ts_ms")
++LAST_ROLLBACK_MS = Gauge("exec_health_slo_autoguard_last_rollback_ts_ms", "Last rollback ts_ms")
++ROLLBACK_TOTAL = Gauge("exec_health_slo_autoguard_rollback_total", "Total rollbacks performed by autoguard")
++STATE_AGE_S = Gauge("exec_health_slo_autoguard_state_age_seconds", "Age of autoguard state in seconds")
++
++
++def main() -> None:
++    redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++    key = os.getenv("EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY", "metrics:exec_health:slo:autoguard:state")
++    port = int(os.getenv("EXEC_HEALTH_SLO_AUTOGUARD_EXPORTER_PORT", "9825"))
++    interval_s = float(os.getenv("EXEC_HEALTH_SLO_AUTOGUARD_EXPORTER_INTERVAL_S", "10") or 10)
++    if redis is None:
++        raise RuntimeError("redis dependency missing")
++    r = redis.Redis.from_url(redis_url, decode_responses=True)
++    start_http_server(port)
++    while True:
++        try:
++            d: Dict[str, Any] = r.hgetall(key) or {}
++            now_s = _now_s()
++            UP.set(1.0)
++            updated_ms = _i(d.get("updated_ts_ms"), 0)
++            age_s = max(0.0, now_s - (float(updated_ms) / 1000.0 if updated_ms > 0 else 0.0))
++            STATE_AGE_S.set(age_s)
++            freeze_until = _i(d.get("freeze_until_ts_ms"), 0)
++            FREEZE_ACTIVE.set(float(_i(d.get("freeze_active"), 0)))
++            FREEZE_REMAINING_S.set(max(0.0, (float(freeze_until) / 1000.0) - now_s) if freeze_until > 0 else 0.0)
++            MODE_MISMATCH_ACTIVE.set(float(_i(d.get("mode_mismatch_active"), 0)))
++            ROLLING_DRIFT_ACTIVE.set(float(_i(d.get("rollout_drift_active"), 0)))
++            LAST_TRIGGER_MS.set(float(_i(d.get("last_trigger_ts_ms"), 0)))
++            LAST_ROLLBACK_MS.set(float(_i(d.get("last_rollback_ts_ms"), 0)))
++            ROLLBACK_TOTAL.set(float(_i(d.get("rollback_total"), 0)))
++        except Exception:
++            UP.set(0.0)
++        time.sleep(interval_s)
++
++
++if __name__ == "__main__":
++    main()
+--- orderflow_services/prometheus_alerts_exec_health_slo_autoguard_v1.yml
++++ orderflow_services/prometheus_alerts_exec_health_slo_autoguard_v1.yml
+@@ -0,0 +1,32 @@
++groups:
++  - name: exec_health_slo_autoguard_v1
++    rules:
++      - alert: OF_ExecHealth_AutoGuard_ExporterStale_Warn
++        expr: exec_health_slo_autoguard_exporter_up < 1
++        for: 5m
++        labels:
++          severity: warning
++          team: trade
++        annotations:
++          summary: "ExecHealth autoguard exporter stale"
++          description: "Autoguard exporter cannot read state or state is stale."
++
++      - alert: OF_ExecHealth_AutoGuard_FreezeActive_Warn
++        expr: exec_health_slo_autoguard_freeze_active > 0
++        for: 2m
++        labels:
++          severity: warning
++          team: trade
++        annotations:
++          summary: "ExecHealth autoguard freeze is active"
++          description: "Autoguard latched a freeze due to mode mismatch or rollout drift."
++
++      - alert: OF_ExecHealth_AutoGuard_RollbackPerformed_Warn
++        expr: increase(exec_health_slo_autoguard_rollback_total[15m]) > 0
++        for: 1m
++        labels:
++          severity: warning
++          team: trade
++        annotations:
++          summary: "ExecHealth autoguard performed rollback"
++          description: "Autoguard switched active_sid back to prev_sid due to sustained rollout mismatch/drift."
+--- orderflow_services/runbook_exec_health_slo_autoguard_v1.md
++++ orderflow_services/runbook_exec_health_slo_autoguard_v1.md
+@@ -0,0 +1,23 @@
++# ExecHealth AutoGuard (v1)
++
++Triggers auto-freeze and optional rollback when either condition is sustained:
++- `cross_scope_mode_distinct > 1`
++- `rollout_drift_instances_total >= threshold`
++
++## Inputs
++- summary hash: `metrics:exec_health:slo:last`
++
++## Outputs
++- state hash: `metrics:exec_health:slo:autoguard:state`
++- freeze key: `cfg:orderflow:exec_health:auto_freeze:v1`
++- optional rollback marker: `cfg:orderflow:overrides:v1:rollback:<active_sid>`
++
++## Rollback path
++If enabled and `active_sid != prev_sid`, autoguard sets:
++- `cfg:orderflow:overrides:v1:active_sid = prev_sid`
++
++## Primary metrics
++- `exec_health_slo_autoguard_freeze_active`
++- `exec_health_slo_autoguard_mode_mismatch_active`
++- `exec_health_slo_autoguard_rollout_drift_active`
++- `exec_health_slo_autoguard_rollback_total`
+--- orderflow_services/grafana/exec_health_slo_autoguard_v1.json
++++ orderflow_services/grafana/exec_health_slo_autoguard_v1.json
+@@ -0,0 +1,31 @@
++{
++  "title": "ExecHealth AutoGuard (v1)",
++  "schemaVersion": 39,
++  "version": 1,
++  "panels": [
++    {
++      "type": "timeseries",
++      "title": "Freeze / trigger state",
++      "targets": [
++        {"expr": "exec_health_slo_autoguard_freeze_active", "legendFormat": "freeze_active"},
++        {"expr": "exec_health_slo_autoguard_mode_mismatch_active", "legendFormat": "mode_mismatch_active"},
++        {"expr": "exec_health_slo_autoguard_rollout_drift_active", "legendFormat": "rollout_drift_active"}
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Freeze remaining / state age",
++      "targets": [
++        {"expr": "exec_health_slo_autoguard_freeze_remaining_seconds", "legendFormat": "freeze_remaining_s"},
++        {"expr": "exec_health_slo_autoguard_state_age_seconds", "legendFormat": "state_age_s"}
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Rollback total",
++      "targets": [
++        {"expr": "exec_health_slo_autoguard_rollback_total", "legendFormat": "rollback_total"}
++      ]
++    }
++  ]
++}
+--- orderflow_services/tests/test_exec_health_slo_autoguard_v1.py
++++ orderflow_services/tests/test_exec_health_slo_autoguard_v1.py
+@@ -0,0 +1,54 @@
++from __future__ import annotations
++
++from orderflow_services.exec_health_slo_autoguard_v1 import GuardCfg, evaluate_autoguard
++
++
++def _cfg() -> GuardCfg:
++    return GuardCfg(
++        redis_url='redis://x',
++        summary_key='k1',
++        state_key='k2',
++        freeze_key='k3',
++        notify_stream='k4',
++        loop_s=30,
++        mode_mismatch_minutes=5,
++        drift_minutes=10,
++        drift_instances_min=2,
++        freeze_minutes=30,
++        cooldown_minutes=30,
++        rollback_enable=True,
++        rollback_on_mode_mismatch=True,
++        rollback_on_drift=False,
++        enabled=True,
++    )
++
++
++def test_autoguard_triggers_on_sustained_mode_mismatch() -> None:
++    cfg = _cfg()
++    now = 1_000_000
++    prev = {"mode_mismatch_since_ts_ms": str(now - 6 * 60 * 1000), "rollout_drift_since_ts_ms": "0"}
++    summary = {"cross_scope_mode_distinct": "2", "rollout_drift_instances_total": "0"}
++    ev = evaluate_autoguard(summary=summary, prev_state=prev, cfg=cfg, now_ms=now)
++    assert ev.should_trigger is True
++    assert "cross_scope_mode_mismatch" in ev.trigger_reasons
++    assert ev.rollout_drift_active is False
++
++
++def test_autoguard_triggers_on_sustained_rollout_drift() -> None:
++    cfg = _cfg()
++    now = 2_000_000
++    prev = {"mode_mismatch_since_ts_ms": "0", "rollout_drift_since_ts_ms": str(now - 11 * 60 * 1000)}
++    summary = {"cross_scope_mode_distinct": "1", "rollout_drift_instances_total": "3"}
++    ev = evaluate_autoguard(summary=summary, prev_state=prev, cfg=cfg, now_ms=now)
++    assert ev.should_trigger is True
++    assert "rollout_drift" in ev.trigger_reasons
++
++
++def test_autoguard_resets_since_when_condition_clears() -> None:
++    cfg = _cfg()
++    prev = {"mode_mismatch_since_ts_ms": "123", "rollout_drift_since_ts_ms": "456"}
++    summary = {"cross_scope_mode_distinct": "1", "rollout_drift_instances_total": "0"}
++    ev = evaluate_autoguard(summary=summary, prev_state=prev, cfg=cfg, now_ms=999)
++    assert ev.mode_mismatch_since_ts_ms == 0
++    assert ev.rollout_drift_since_ts_ms == 0
++    assert ev.should_trigger is False
+--- orderflow_services/tests/test_exec_health_slo_autoguard_exporter_v1.py
++++ orderflow_services/tests/test_exec_health_slo_autoguard_exporter_v1.py
+@@ -0,0 +1,31 @@
++from __future__ import annotations
++
++from unittest.mock import patch, MagicMock
++
++from orderflow_services import exec_health_slo_autoguard_exporter_v1 as exp
++
++
++def test_exec_health_slo_autoguard_exporter_sets_gauges() -> None:
++    mock_redis_mod = MagicMock()
++    mock_client = MagicMock()
++    mock_redis_mod.Redis.from_url.return_value = mock_client
++    mock_client.hgetall.return_value = {
++        "updated_ts_ms": "1000",
++        "freeze_active": "1",
++        "freeze_until_ts_ms": "9999999999999",
++        "mode_mismatch_active": "1",
++        "rollout_drift_active": "0",
++        "last_trigger_ts_ms": "900",
++        "last_rollback_ts_ms": "800",
++        "rollback_total": "2",
++    }
++    with patch("orderflow_services.exec_health_slo_autoguard_exporter_v1.redis", mock_redis_mod), \
++         patch("orderflow_services.exec_health_slo_autoguard_exporter_v1.start_http_server"), \
++         patch("orderflow_services.exec_health_slo_autoguard_exporter_v1.time.sleep", side_effect=KeyboardInterrupt):
++        try:
++            exp.main()
++        except KeyboardInterrupt:
++            pass
++    assert exp.FREEZE_ACTIVE._value.get() == 1.0
++    assert exp.MODE_MISMATCH_ACTIVE._value.get() == 1.0
++    assert exp.ROLLBACK_TOTAL._value.get() == 2.0
+--- orderflow_services/tests/test_exec_health_slo_autoguard_alerts_yaml_v1.py
++++ orderflow_services/tests/test_exec_health_slo_autoguard_alerts_yaml_v1.py
+@@ -0,0 +1,35 @@
++from __future__ import annotations
++
++import os
++import yaml
++import pytest
++
++
++def _alerts_path(tick_flow_full: bool = False) -> str:
++    base = os.path.dirname(__file__)
++    root = os.path.abspath(os.path.join(base, ".."))
++    if tick_flow_full:
++        tf_root = os.path.abspath(os.path.join(base, "..", "..", "tick_flow_full", "orderflow_services"))
++        return os.path.join(tf_root, "prometheus_alerts_exec_health_slo_autoguard_v1.yml")
++    return os.path.join(root, "prometheus_alerts_exec_health_slo_autoguard_v1.yml")
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_exec_health_slo_autoguard_alerts_yaml_parses(tick_flow_full: bool):
++    with open(_alerts_path(tick_flow_full)) as fh:
++        doc = yaml.safe_load(fh)
++    assert isinstance(doc, dict)
++    assert len(doc.get("groups", [])) >= 1
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_exec_health_slo_autoguard_alerts_have_expected_names(tick_flow_full: bool):
++    with open(_alerts_path(tick_flow_full)) as fh:
++        doc = yaml.safe_load(fh)
++    names = {r.get("alert") for r in doc["groups"][0].get("rules", []) if "alert" in r}
++    expected = {
++        "OF_ExecHealth_AutoGuard_ExporterStale_Warn",
++        "OF_ExecHealth_AutoGuard_FreezeActive_Warn",
++        "OF_ExecHealth_AutoGuard_RollbackPerformed_Warn",
++    }
++    assert expected.issubset(names)
+--- orderflow_services/tests/test_exec_health_slo_autoguard_dashboard_json_v1.py
++++ orderflow_services/tests/test_exec_health_slo_autoguard_dashboard_json_v1.py
+@@ -0,0 +1,37 @@
++from __future__ import annotations
++
++import json
++import os
++import pytest
++
++
++def _dashboard_path(tick_flow_full: bool = False) -> str:
++    base = os.path.dirname(__file__)
++    root = os.path.abspath(os.path.join(base, "..", "grafana"))
++    if tick_flow_full:
++        tf_root = os.path.abspath(os.path.join(base, "..", "..", "tick_flow_full", "orderflow_services", "grafana"))
++        return os.path.join(tf_root, "exec_health_slo_autoguard_v1.json")
++    return os.path.join(root, "exec_health_slo_autoguard_v1.json")
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_exec_health_slo_autoguard_dashboard_parses(tick_flow_full: bool):
++    with open(_dashboard_path(tick_flow_full)) as fh:
++        doc = json.load(fh)
++    assert doc.get("title") == "ExecHealth AutoGuard (v1)"
++    assert len(doc.get("panels", [])) >= 3
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_exec_health_slo_autoguard_dashboard_contains_expected_queries(tick_flow_full: bool):
++    with open(_dashboard_path(tick_flow_full)) as fh:
++        doc = json.load(fh)
++    exprs = []
++    for panel in doc.get("panels", []):
++        for target in panel.get("targets", []) or []:
++            if isinstance(target, dict) and target.get("expr"):
++                exprs.append(target["expr"])
++    joined = "\n".join(exprs)
++    assert "exec_health_slo_autoguard_freeze_active" in joined
++    assert "exec_health_slo_autoguard_mode_mismatch_active" in joined
++    assert "exec_health_slo_autoguard_rollback_total" in joined
+--- tick_flow_full/orderflow_services/exec_health_slo_autoguard_v1.py
++++ tick_flow_full/orderflow_services/exec_health_slo_autoguard_v1.py
+@@ -0,0 +1,252 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import asyncio
++import json
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Tuple
++
++try:
++    import redis.asyncio as aioredis  # type: ignore
++except Exception:  # pragma: no cover
++    aioredis = None
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++def _b(x: Any) -> bool:
++    try:
++        if isinstance(x, str):
++            return x.strip().lower() in {"1", "true", "yes", "on"}
++        return bool(int(x))
++    except Exception:
++        return False
++
++
++def _s(x: Any, d: str = "") -> str:
++    try:
++        return str(x) if x is not None else str(d)
++    except Exception:
++        return str(d)
++
++
++@dataclass
++class GuardCfg:
++    redis_url: str
++    summary_key: str
++    state_key: str
++    freeze_key: str
++    notify_stream: str
++    loop_s: int
++    mode_mismatch_minutes: int
++    drift_minutes: int
++    drift_instances_min: int
++    freeze_minutes: int
++    cooldown_minutes: int
++    rollback_enable: bool
++    rollback_on_mode_mismatch: bool
++    rollback_on_drift: bool
++    enabled: bool
++
++    @staticmethod
++    def from_env() -> "GuardCfg":
++        return GuardCfg(
++            redis_url=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"),
++            summary_key=os.getenv("EXEC_HEALTH_SLO_SUMMARY_KEY", "metrics:exec_health:slo:last"),
++            state_key=os.getenv("EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY", "metrics:exec_health:slo:autoguard:state"),
++            freeze_key=os.getenv("EXEC_HEALTH_AUTO_FREEZE_KEY", "cfg:orderflow:exec_health:auto_freeze:v1"),
++            notify_stream=os.getenv("EXEC_HEALTH_AUTOGUARD_NOTIFY_STREAM", "notify:telegram"),
++            loop_s=max(5, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_CHECK_EVERY_S", "30"), 30)),
++            mode_mismatch_minutes=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_MODE_MISMATCH_MINUTES", "5"), 5)),
++            drift_minutes=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_DRIFT_MINUTES", "10"), 10)),
++            drift_instances_min=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_DRIFT_INSTANCES_MIN", "1"), 1)),
++            freeze_minutes=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_FREEZE_MINUTES", "30"), 30)),
++            cooldown_minutes=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_COOLDOWN_MINUTES", "30"), 30)),
++            rollback_enable=_b(os.getenv("EXEC_HEALTH_AUTOGUARD_ROLLBACK_ENABLE", "1")),
++            rollback_on_mode_mismatch=_b(os.getenv("EXEC_HEALTH_AUTOGUARD_ROLLBACK_ON_MODE_MISMATCH", "1")),
++            rollback_on_drift=_b(os.getenv("EXEC_HEALTH_AUTOGUARD_ROLLBACK_ON_DRIFT", "0")),
++            enabled=_b(os.getenv("EXEC_HEALTH_AUTOGUARD_ENABLE", "1")),
++        )
++
++
++@dataclass
++class EvalResult:
++    mode_mismatch_active: bool
++    rollout_drift_active: bool
++    mode_mismatch_since_ts_ms: int
++    rollout_drift_since_ts_ms: int
++    should_trigger: bool
++    trigger_reasons: List[str]
++
++
++def evaluate_autoguard(*, summary: Dict[str, Any], prev_state: Dict[str, Any], cfg: GuardCfg, now_ms: int) -> EvalResult:
++    cross_scope_mode_distinct = _i(summary.get("cross_scope_mode_distinct"), 0)
++    rollout_drift_instances_total = _i(summary.get("rollout_drift_instances_total"), 0)
++
++    mm_active = cross_scope_mode_distinct > 1
++    drift_active = rollout_drift_instances_total >= int(cfg.drift_instances_min)
++
++    mm_since = _i(prev_state.get("mode_mismatch_since_ts_ms"), 0)
++    dr_since = _i(prev_state.get("rollout_drift_since_ts_ms"), 0)
++
++    if mm_active:
++        mm_since = mm_since or now_ms
++    else:
++        mm_since = 0
++
++    if drift_active:
++        dr_since = dr_since or now_ms
++    else:
++        dr_since = 0
++
++    reasons: List[str] = []
++    if mm_active and (now_ms - mm_since) >= int(cfg.mode_mismatch_minutes * 60 * 1000):
++        reasons.append("cross_scope_mode_mismatch")
++    if drift_active and (now_ms - dr_since) >= int(cfg.drift_minutes * 60 * 1000):
++        reasons.append("rollout_drift")
++
++    return EvalResult(
++        mode_mismatch_active=mm_active,
++        rollout_drift_active=drift_active,
++        mode_mismatch_since_ts_ms=mm_since,
++        rollout_drift_since_ts_ms=dr_since,
++        should_trigger=bool(reasons),
++        trigger_reasons=reasons,
++    )
++
++
++class AutoGuard:
++    def __init__(self, cfg: GuardCfg | None = None):
++        self.cfg = cfg or GuardCfg.from_env()
++        if aioredis is None:
++            raise RuntimeError("redis dependency missing")
++        self.r = aioredis.from_url(self.cfg.redis_url, decode_responses=True)
++
++    async def _read_hash(self, key: str) -> Dict[str, Any]:
++        try:
++            return await self.r.hgetall(key) or {}
++        except Exception:
++            return {}
++
++    async def _notify(self, text: str) -> None:
++        try:
++            await self.r.xadd(self.cfg.notify_stream, {"ts_ms": str(_now_ms()), "source": "exec_health_slo_autoguard_v1", "text": text}, maxlen=5000)
++        except Exception:
++            pass
++
++    async def _set_state(self, state: Dict[str, Any]) -> None:
++        payload = {str(k): str(v) for k, v in state.items()}
++        await self.r.hset(self.cfg.state_key, mapping=payload)
++        await self.r.expire(self.cfg.state_key, max(300, self.cfg.cooldown_minutes * 180))
++
++    async def _set_freeze(self, *, now_ms: int, reasons: List[str]) -> None:
++        until = now_ms + int(self.cfg.freeze_minutes * 60 * 1000)
++        payload = {
++            "schema_name": "exec_health_auto_freeze",
++            "schema_version": 1,
++            "ts_ms": now_ms,
++            "freeze_active": 1,
++            "freeze_reason": ",".join(reasons),
++            "freeze_until_ts_ms": until,
++        }
++        await self.r.set(self.cfg.freeze_key, json.dumps(payload, separators=(",", ":")))
++        await self.r.pexpire(self.cfg.freeze_key, int(self.cfg.freeze_minutes * 60 * 1000))
++
++    async def _maybe_rollback(self, *, now_ms: int, reasons: List[str], state: Dict[str, Any]) -> Tuple[bool, str, str]:
++        if not self.cfg.rollback_enable:
++            return False, "", ""
++        if ("cross_scope_mode_mismatch" in reasons and not self.cfg.rollback_on_mode_mismatch) or (
++            "rollout_drift" in reasons and not self.cfg.rollback_on_drift
++        ):
++            return False, "", ""
++
++        active_sid = str(await self.r.get("cfg:orderflow:overrides:v1:active_sid") or "")
++        prev_sid = str(await self.r.get("cfg:orderflow:overrides:v1:prev_sid") or "")
++        if not active_sid or not prev_sid or active_sid == prev_sid:
++            return False, active_sid, prev_sid
++
++        await self.r.set("cfg:orderflow:overrides:v1:active_sid", prev_sid)
++        rb = {"ts_ms": now_ms, "reason": ",".join(reasons), "from_sid": active_sid, "to_sid": prev_sid}
++        await self.r.set(f"cfg:orderflow:overrides:v1:rollback:{active_sid}", json.dumps(rb, separators=(",", ":")))
++        return True, active_sid, prev_sid
++
++    async def run_once(self) -> None:
++        if not self.cfg.enabled:
++            return
++        now = _now_ms()
++        summary = await self._read_hash(self.cfg.summary_key)
++        if not summary:
++            return
++        state = await self._read_hash(self.cfg.state_key)
++
++        freeze_until = _i(state.get("freeze_until_ts_ms"), 0)
++        cooldown_until = _i(state.get("cooldown_until_ts_ms"), 0)
++        freeze_active = 1 if freeze_until > now else 0
++
++        ev = evaluate_autoguard(summary=summary, prev_state=state, cfg=self.cfg, now_ms=now)
++        state.update(
++            {
++                "schema_name": "exec_health_slo_autoguard_state",
++                "schema_version": 1,
++                "updated_ts_ms": now,
++                "mode_mismatch_active": int(ev.mode_mismatch_active),
++                "rollout_drift_active": int(ev.rollout_drift_active),
++                "mode_mismatch_since_ts_ms": int(ev.mode_mismatch_since_ts_ms),
++                "rollout_drift_since_ts_ms": int(ev.rollout_drift_since_ts_ms),
++                "last_eval_reasons_json": json.dumps(list(ev.trigger_reasons), ensure_ascii=False),
++                "freeze_active": int(freeze_active),
++                "freeze_until_ts_ms": int(freeze_until),
++                "cooldown_until_ts_ms": int(cooldown_until),
++            }
++        )
++
++        if ev.should_trigger and now >= cooldown_until:
++            await self._set_freeze(now_ms=now, reasons=ev.trigger_reasons)
++            did_rb, from_sid, to_sid = await self._maybe_rollback(now_ms=now, reasons=ev.trigger_reasons, state=state)
++            state.update(
++                {
++                    "freeze_active": 1,
++                    "freeze_until_ts_ms": int(now + self.cfg.freeze_minutes * 60 * 1000),
++                    "last_trigger_ts_ms": int(now),
++                    "last_trigger_reasons_json": json.dumps(list(ev.trigger_reasons), ensure_ascii=False),
++                    "last_action": "freeze+rollback" if did_rb else "freeze",
++                    "last_rollback_ts_ms": int(now if did_rb else _i(state.get("last_rollback_ts_ms"), 0)),
++                    "last_rollback_from_sid": str(from_sid or state.get("last_rollback_from_sid") or ""),
++                    "last_rollback_to_sid": str(to_sid or state.get("last_rollback_to_sid") or ""),
++                    "rollback_total": int(_i(state.get("rollback_total"), 0) + (1 if did_rb else 0)),
++                    "cooldown_until_ts_ms": int(now + self.cfg.cooldown_minutes * 60 * 1000),
++                }
++            )
++            await self._notify(f"ExecHealth autoguard trigger: reasons={','.join(ev.trigger_reasons)} rollback={int(did_rb)} from={from_sid} to={to_sid}")
++        elif freeze_until <= now:
++            state["freeze_active"] = 0
++            state["last_action"] = state.get("last_action") or "idle"
++
++        await self._set_state(state)
++
++    async def run_forever(self) -> None:
++        while True:
++            try:
++                await self.run_once()
++            except Exception:
++                pass
++            await asyncio.sleep(self.cfg.loop_s)
++
++
++async def _main() -> None:
++    await AutoGuard().run_forever()
++
++
++if __name__ == "__main__":
++    asyncio.run(_main())
+--- tick_flow_full/orderflow_services/exec_health_slo_autoguard_exporter_v1.py
++++ tick_flow_full/orderflow_services/exec_health_slo_autoguard_exporter_v1.py
+@@ -0,0 +1,68 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import os
++import time
++from typing import Any, Dict
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++from prometheus_client import Gauge, start_http_server
++
++
++def _now_s() -> float:
++    return time.time()
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++UP = Gauge("exec_health_slo_autoguard_exporter_up", "1 if exporter can read autoguard state")
++FREEZE_ACTIVE = Gauge("exec_health_slo_autoguard_freeze_active", "Autoguard freeze active (1/0)")
++FREEZE_REMAINING_S = Gauge("exec_health_slo_autoguard_freeze_remaining_seconds", "Remaining freeze duration in seconds")
++MODE_MISMATCH_ACTIVE = Gauge("exec_health_slo_autoguard_mode_mismatch_active", "Mode mismatch currently active")
++ROLLING_DRIFT_ACTIVE = Gauge("exec_health_slo_autoguard_rollout_drift_active", "Rollout drift currently active")
++LAST_TRIGGER_MS = Gauge("exec_health_slo_autoguard_last_trigger_ts_ms", "Last autoguard trigger ts_ms")
++LAST_ROLLBACK_MS = Gauge("exec_health_slo_autoguard_last_rollback_ts_ms", "Last rollback ts_ms")
++ROLLBACK_TOTAL = Gauge("exec_health_slo_autoguard_rollback_total", "Total rollbacks performed by autoguard")
++STATE_AGE_S = Gauge("exec_health_slo_autoguard_state_age_seconds", "Age of autoguard state in seconds")
++
++
++def main() -> None:
++    redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++    key = os.getenv("EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY", "metrics:exec_health:slo:autoguard:state")
++    port = int(os.getenv("EXEC_HEALTH_SLO_AUTOGUARD_EXPORTER_PORT", "9825"))
++    interval_s = float(os.getenv("EXEC_HEALTH_SLO_AUTOGUARD_EXPORTER_INTERVAL_S", "10") or 10)
++    if redis is None:
++        raise RuntimeError("redis dependency missing")
++    r = redis.Redis.from_url(redis_url, decode_responses=True)
++    start_http_server(port)
++    while True:
++        try:
++            d: Dict[str, Any] = r.hgetall(key) or {}
++            now_s = _now_s()
++            UP.set(1.0)
++            updated_ms = _i(d.get("updated_ts_ms"), 0)
++            age_s = max(0.0, now_s - (float(updated_ms) / 1000.0 if updated_ms > 0 else 0.0))
++            STATE_AGE_S.set(age_s)
++            freeze_until = _i(d.get("freeze_until_ts_ms"), 0)
++            FREEZE_ACTIVE.set(float(_i(d.get("freeze_active"), 0)))
++            FREEZE_REMAINING_S.set(max(0.0, (float(freeze_until) / 1000.0) - now_s) if freeze_until > 0 else 0.0)
++            MODE_MISMATCH_ACTIVE.set(float(_i(d.get("mode_mismatch_active"), 0)))
++            ROLLING_DRIFT_ACTIVE.set(float(_i(d.get("rollout_drift_active"), 0)))
++            LAST_TRIGGER_MS.set(float(_i(d.get("last_trigger_ts_ms"), 0)))
++            LAST_ROLLBACK_MS.set(float(_i(d.get("last_rollback_ts_ms"), 0)))
++            ROLLBACK_TOTAL.set(float(_i(d.get("rollback_total"), 0)))
++        except Exception:
++            UP.set(0.0)
++        time.sleep(interval_s)
++
++
++if __name__ == "__main__":
++    main()
+--- tick_flow_full/orderflow_services/prometheus_alerts_exec_health_slo_autoguard_v1.yml
++++ tick_flow_full/orderflow_services/prometheus_alerts_exec_health_slo_autoguard_v1.yml
+@@ -0,0 +1,32 @@
++groups:
++  - name: exec_health_slo_autoguard_v1
++    rules:
++      - alert: OF_ExecHealth_AutoGuard_ExporterStale_Warn
++        expr: exec_health_slo_autoguard_exporter_up < 1
++        for: 5m
++        labels:
++          severity: warning
++          team: trade
++        annotations:
++          summary: "ExecHealth autoguard exporter stale"
++          description: "Autoguard exporter cannot read state or state is stale."
++
++      - alert: OF_ExecHealth_AutoGuard_FreezeActive_Warn
++        expr: exec_health_slo_autoguard_freeze_active > 0
++        for: 2m
++        labels:
++          severity: warning
++          team: trade
++        annotations:
++          summary: "ExecHealth autoguard freeze is active"
++          description: "Autoguard latched a freeze due to mode mismatch or rollout drift."
++
++      - alert: OF_ExecHealth_AutoGuard_RollbackPerformed_Warn
++        expr: increase(exec_health_slo_autoguard_rollback_total[15m]) > 0
++        for: 1m
++        labels:
++          severity: warning
++          team: trade
++        annotations:
++          summary: "ExecHealth autoguard performed rollback"
++          description: "Autoguard switched active_sid back to prev_sid due to sustained rollout mismatch/drift."
+--- tick_flow_full/orderflow_services/runbook_exec_health_slo_autoguard_v1.md
++++ tick_flow_full/orderflow_services/runbook_exec_health_slo_autoguard_v1.md
+@@ -0,0 +1,23 @@
++# ExecHealth AutoGuard (v1)
++
++Triggers auto-freeze and optional rollback when either condition is sustained:
++- `cross_scope_mode_distinct > 1`
++- `rollout_drift_instances_total >= threshold`
++
++## Inputs
++- summary hash: `metrics:exec_health:slo:last`
++
++## Outputs
++- state hash: `metrics:exec_health:slo:autoguard:state`
++- freeze key: `cfg:orderflow:exec_health:auto_freeze:v1`
++- optional rollback marker: `cfg:orderflow:overrides:v1:rollback:<active_sid>`
++
++## Rollback path
++If enabled and `active_sid != prev_sid`, autoguard sets:
++- `cfg:orderflow:overrides:v1:active_sid = prev_sid`
++
++## Primary metrics
++- `exec_health_slo_autoguard_freeze_active`
++- `exec_health_slo_autoguard_mode_mismatch_active`
++- `exec_health_slo_autoguard_rollout_drift_active`
++- `exec_health_slo_autoguard_rollback_total`
+--- tick_flow_full/orderflow_services/grafana/exec_health_slo_autoguard_v1.json
++++ tick_flow_full/orderflow_services/grafana/exec_health_slo_autoguard_v1.json
+@@ -0,0 +1,31 @@
++{
++  "title": "ExecHealth AutoGuard (v1)",
++  "schemaVersion": 39,
++  "version": 1,
++  "panels": [
++    {
++      "type": "timeseries",
++      "title": "Freeze / trigger state",
++      "targets": [
++        {"expr": "exec_health_slo_autoguard_freeze_active", "legendFormat": "freeze_active"},
++        {"expr": "exec_health_slo_autoguard_mode_mismatch_active", "legendFormat": "mode_mismatch_active"},
++        {"expr": "exec_health_slo_autoguard_rollout_drift_active", "legendFormat": "rollout_drift_active"}
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Freeze remaining / state age",
++      "targets": [
++        {"expr": "exec_health_slo_autoguard_freeze_remaining_seconds", "legendFormat": "freeze_remaining_s"},
++        {"expr": "exec_health_slo_autoguard_state_age_seconds", "legendFormat": "state_age_s"}
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Rollback total",
++      "targets": [
++        {"expr": "exec_health_slo_autoguard_rollback_total", "legendFormat": "rollback_total"}
++      ]
++    }
++  ]
++}

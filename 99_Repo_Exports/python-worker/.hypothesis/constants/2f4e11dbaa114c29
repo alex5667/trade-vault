@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/atr_policy_resolver.py
+# hypothesis_version: 6.148.10
+
+[1000, 5000, '1', '5000', 'ATR_POLICY_ACTIVE', 'ATR_POLICY_MISS', 'CryptoOrderFlow', 'KILL_SWITCH_ACTIVE', 'POLICY_NOT_DICT', 'REDIS_URL', '_last_good', 'canary', 'canary_shadow', 'default', 'enabled', 'exact', 'fallback_default', 'fallback_scenario', 'live', 'miss', 'na', 'policy_ver', 'reason_code', 'regime', 'risk_horizon_bucket', 'scenario', 'shadow', 'source', 'stop_ttl_mode', 'symbol', 'trailing_mode', 'unknown', 'updated_at_ms']

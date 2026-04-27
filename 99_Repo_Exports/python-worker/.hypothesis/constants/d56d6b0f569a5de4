@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/book_geometry.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.1, 0.5, 5.0, 10000.0, 50000.0, 'asks', 'best_ask_px', 'best_bid_px', 'bids', 'book_state', 'last_book', 'snap', 'top5_asks', 'top5_bids']

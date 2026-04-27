@@ -1,0 +1,46 @@
+groups:
+- name: exec_health_freeze_acl_drift_v1
+  rules:
+  # P12: The ACL deployment contract SoT does not match the live Redis ACL LIST
+  - alert: OF_ExecHealth_FreezeACLDrift_Crit
+    expr: exec_health_freeze_acl_contract_match == 0
+    for: 1m
+    labels:
+      severity: critical
+      service: orderflow
+    annotations:
+      summary: ExecHealth Redis ACL Drift
+      description: Redis ACL rules for user {{ $labels.user }} do not match the expected deployment contract. Some rules may have been altered manually or the deployment is out of sync.
+
+  # P12: Default user has active connections — massive security gap, as we expect AUTH username
+  - alert: OF_ExecHealth_FreezeDefaultUserConnected_Crit
+    expr: exec_health_freeze_acl_default_user_connections > 0
+    for: 1m
+    labels:
+      severity: critical
+      service: orderflow
+    annotations:
+      summary: ExecHealth Redis Default User in use
+      description: There are {{ $value }} connections logged in to the default user. Freeze-control expects all apps to use proper named users (reader/writer).
+
+  # P12: Redis is not configured with an aclfile, so ACL SAVE is broken
+  - alert: OF_ExecHealth_FreezeACLFileMissing_Warn
+    expr: exec_health_freeze_acl_aclfile_configured == 0
+    for: 5m
+    labels:
+      severity: warning
+      service: orderflow
+    annotations:
+      summary: ExecHealth Redis ACL file missing
+      description: Redis 'aclfile' is not configured in redis.conf. ACL changes cannot be persisted across restarts.
+
+  # P12: ACL drift exporter loop is crashing or hanging
+  - alert: OF_ExecHealth_FreezeACLDriftExporter_Stale_Warn
+    expr: exec_health_freeze_acl_drift_exporter_up == 0 or exec_health_freeze_acl_drift_state_age_seconds > 120
+    for: 5m
+    labels:
+      severity: warning
+      service: orderflow
+    annotations:
+      summary: ExecHealth ACL Drift Exporter Stale
+      description: The ACL drift exporter is not updating successfully. We are blind to ACL drift and connection abuse.

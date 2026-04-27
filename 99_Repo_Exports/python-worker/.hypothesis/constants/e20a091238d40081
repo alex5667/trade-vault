@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/label_triple_barrier_from_redis_ticks_v10.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 1e-06, 1.0, 2.0, 30.0, 1000.0, 3600.0, 10000.0, 1000, 2000, 5000, 180000, 200000, '+', ',', '-', '--fallback-sl-bps', '--fallback-tp-bps', '--h-ms', '--inputs', '--out', '--print-stream-age', '--since-hours', '--sl-k-atr', '--tick-stream-prefix', '--ticks-redis-url', '--tp-k-atr', ':', 'LONG', 'NO_TICKS', 'REDIS_URL', 'SHORT', 'SL', 'TICKS_REDIS_URL', 'TIMEOUT', 'TP', '__main__', 'ask', 'atr_bps', 'bid', 'data', 'direction', 'entry_px', 'ignore', 'indicators', 'last', 'mid', 'price', 'r', 'stop_bps', 'store_true', 'stream:tick_', 'symbol', 'tb_entry_px', 'tb_entry_ts_ms', 'tb_label', 'tb_r_mult', 'tb_ret_bps', 'tb_scale_bps', 'tb_sl_bps', 'tb_t_hit_ms', 'tb_tp_bps', 'tb_y_edge', 'timestamp', 'ts', 'ts_ms', 'utf-8', 'w']

@@ -1,0 +1,56 @@
+services:
+  scanner-operator-routing-incident-route-rca-experiment-router-v2-22:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    command: ["python", "-m", "orderflow_services.operator_routing_incident_route_rca_experiment_router_v2_22"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_EXPERIMENT_ROUTER_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_EXPERIMENT_ROUTER_PORT:-9907}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_EXPERIMENT_ENABLE: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_EXPERIMENT_ENABLE:-1}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_EXPERIMENT_ID: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_EXPERIMENT_ID:-route_incident_rca_ab_v1}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_EXPERIMENT_MIN_SAMPLE: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_EXPERIMENT_MIN_SAMPLE:-8}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_EXPERIMENT_WINDOW_MIN: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_EXPERIMENT_WINDOW_MIN:-1440}
+    ports:
+      - "${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_EXPERIMENT_ROUTER_PORT:-9907}:9907"
+    networks:
+      - scanner-network
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9907/metrics >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 384M
+
+  scanner-operator-routing-incident-route-rca-experiment-winner-selector-v2-22:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    command: ["python", "-m", "orderflow_services.operator_routing_incident_route_rca_experiment_winner_selector_v2_22"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_EXPERIMENT_WINNER_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_EXPERIMENT_WINNER_PORT:-9908}
+    ports:
+      - "${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_EXPERIMENT_WINNER_PORT:-9908}:9908"
+    networks:
+      - scanner-network
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9908/metrics >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 384M

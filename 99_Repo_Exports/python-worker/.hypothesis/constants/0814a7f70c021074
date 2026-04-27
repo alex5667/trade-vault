@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/local_calibration/calibrate_local_thresholds.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.9, 0.95, 0.98, 101, 1000, 100000, '0-0', '0.0', '30', '300', '365', 'CALIB_LOOKBACK_DAYS', 'CALIB_MIN_MEAN_PNL_R', 'CALIB_SOURCE', 'PG_DSN', 'POSITION_CLOSED', 'REDIS_URL', 'TRADES_CLOSED_STREAM', '__main__', 'atr_quantile', 'count', 'delta_spike_z', 'entry_tag', 'event', 'event_type', 'ignore', 'mean_y', 'mixed', 'obi', 'pg', 'pnl', 'pnl_r', 'q', 'q_high', 'q_low', 'r_mult', 'r_multiple', 'redis', 'regime', 'risk_usd', 'session', 'symbol', 'trades:closed', 'utf-8', 'value', 'weak_progress']

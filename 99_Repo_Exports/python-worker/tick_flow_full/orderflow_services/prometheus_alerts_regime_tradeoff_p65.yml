@@ -1,0 +1,95 @@
+groups:
+- name: regime_tradeoff_alerts
+  rules:
+  # 1. Stale Decision Data
+  # decisions:final should be constantly flowing. If not -> critical pipeline issue.
+  - alert: DecisionFinalStale
+    expr: (time() * 1000 - decision_last_ts_ms) > 1800000
+    for: 1m
+    labels:
+      severity: critical
+      team: strategies
+    annotations:
+      summary: "Decisions stream is stale (>30m)"
+      description: "Last decision processed at {{ $value | humanizeTimestamp }}."
+
+  # 2. High share of Unknown Regimes
+  # Indicates DQ/Drift state missing from payload.
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: DecisionRegimeUnknownHigh
+    expr: decision_regime_share_24h{regime="unknown"} > 0.10
+    for: 15m
+    labels:
+      severity: warning
+      team: strategies
+    annotations:
+      summary: "High share of unknown regimes (>10%)"
+      description: "Checks if decisions:final payload has valid dq_state/drift_state."
+
+  # 3. Block Regime Share Too High
+  # If we block > 50% of trades, something is wrong with market or gates.
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: DecisionRegimeBlockShareHigh
+    expr: decision_regime_share_24h{regime="block"} > 0.50
+    for: 30m
+    labels:
+      severity: warning
+      team: strategies
+    annotations:
+      summary: "We are blocking > 50% of opportunities"
+      description: "Check if Global Drift or Data Quality is permanently failing."
+
+  # 4. Signal Quality - Warn vs Ok
+  # Expectancy in Warn regime should not be significantly worse than Ok (or at least positive).
+  # Formula: (Ok - Warn) > Threshold? 
+  # Actually we usually alert if Warn < 0 or Warn << Ok.
+  # Let's say: Warn Expectancy < 0.5 * Ok Expectancy (if Ok > 0)
+  # Needs SignalQuality exporter metrics (P64). 
+  # Assuming metrics: signal_quality_expectancy_24h{regime="ok|warn"}
+  # Placeholder for now as per task P65 request to add alert.
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: SignalQualityWarnMuchWorseThanOk
+    expr: (signal_quality_expectancy_24h{regime="ok"} - 
+      signal_quality_expectancy_24h{regime="warn"}) > 0.5
+    for: 1h
+    labels:
+      severity: warning
+      team: analytics
+    annotations:
+      summary: "Warn regime performs significantly worse than Ok"
+      description: "Drift/DQ Warnings might be valid signals to avoid trades."
+
+  # 5. Signal Quality - Block vs Ok
+  # Blocked trades (shadow mode) should perform worse or same as Ok.
+  # If Blocked trades perform BETTER, our gates are wrong.
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: SignalQualityBlockBetterThanOk
+    expr: signal_quality_expectancy_24h{regime="block"} > 
+      signal_quality_expectancy_24h{regime="ok"}
+    for: 2h
+    labels:
+      severity: warning
+      team: analytics
+    annotations:
+      summary: "Blocked trades perform better than Ok trades"
+      description: "The blocking logic (Drift/DQ) might be filtering out winning trades."
+
+  # 6. Calibration Degradation in Warn
+  # ECE (Expected Calibration Error) should be low.
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: SignalQualityEceWarnHigh
+    expr: signal_quality_ece_24h{regime="warn"} > 0.15
+    for: 1h
+    labels:
+      severity: warning
+      team: analytics
+    annotations:
+      summary: "High Calibration Error in Warn Regime"
+      description: "Models are miscalibrated when data quality is Warn."
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd

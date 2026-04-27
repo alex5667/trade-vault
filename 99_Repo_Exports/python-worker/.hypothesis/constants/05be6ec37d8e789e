@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/slippage_stats.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.001, 0.05, 0.5, 1.0, 1000.0, '0', '0.05', '1', '20', 'SLIPPAGE_EMA_ALPHA', 'SLIPPAGE_EMA_ENABLED', 'SLIPPAGE_EMA_TTL_SEC', 'SlippageEmaConfig', 'asian', 'ema_slippage_bps', 'ema_spread_bps', 'europe', 'ignore', 'last_ts_ms', 'na', 'on', 'overnight', 'samples', 'slipema:', 'true', 'us', 'utf-8', 'yes']

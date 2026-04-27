@@ -1,0 +1,453 @@
+diff --git a/python-worker/services/posttrade/decision_snapshot_writer_metrics.py b/python-worker/services/posttrade/decision_snapshot_writer_metrics.py
+index 06e7a33..9e4d1b2 100644
+--- a/python-worker/services/posttrade/decision_snapshot_writer_metrics.py
++++ b/python-worker/services/posttrade/decision_snapshot_writer_metrics.py
+@@ -1,7 +1,7 @@
+ """Prometheus metrics for DecisionSnapshotWriter.
+@@
+ Exposed metrics (requested):
+ - decision_snapshot_writer_written_total
+ - decision_snapshot_writer_db_fail_total
+ - decision_snapshot_writer_redis_lag_ms (histogram; p95 via PromQL)
++- decision_snapshot_writer_pending_count (gauge)
+@@
+ Additional useful counters (low-cardinality):
+ - decision_snapshot_writer_processed_total
+ - decision_snapshot_writer_dlq_total
+ - decision_snapshot_writer_reclaim_total
++- decision_snapshot_writer_claim_fail_total
++- decision_snapshot_writer_dlq_by_reason_total{reason}
+ """
+@@
+ class _NoOp:
+     def inc(self, amount: float = 1.0) -> None:
+         return
+@@
+     def observe(self, amount: float) -> None:
+         return
++
++    def set(self, amount: float) -> None:
++        return
+@@
+ @dataclass
+ class WriterMetrics:
+     written_total: Any
+     db_fail_total: Any
+     processed_total: Any
+     dlq_total: Any
++    dlq_by_reason_total: Any
+     reclaim_total: Any
++    claim_fail_total: Any
++    pending_count: Any
+     redis_lag_ms: Any
+@@
+ def build_metrics() -> WriterMetrics:
+@@
+     try:
+-        from prometheus_client import Counter, Histogram
++        from prometheus_client import Counter, Histogram, Gauge
+@@
+         dlq_total = Counter(
+             "decision_snapshot_writer_dlq_total",
+             "Entries sent to DLQ (bad payload/row).",
+         )
++        dlq_by_reason_total = Counter(
++            "decision_snapshot_writer_dlq_by_reason_total",
++            "Entries sent to DLQ, by reason (low cardinality).",
++            ["reason"],
++        )
+         reclaim_total = Counter(
+             "decision_snapshot_writer_reclaim_total",
+             "Pending entries reclaimed via XAUTOCLAIM/XCLAIM.",
+         )
++        claim_fail_total = Counter(
++            "decision_snapshot_writer_claim_fail_total",
++            "PEL claim failures (XAUTOCLAIM/XCLAIM errors).",
++        )
++        pending_count = Gauge(
++            "decision_snapshot_writer_pending_count",
++            "Current pending entries in the Redis consumer group (PEL size).",
++        )
+@@
+         _METRICS = WriterMetrics(
+             written_total=written_total,
+             db_fail_total=db_fail_total,
+             processed_total=processed_total,
+             dlq_total=dlq_total,
++            dlq_by_reason_total=dlq_by_reason_total,
+             reclaim_total=reclaim_total,
++            claim_fail_total=claim_fail_total,
++            pending_count=pending_count,
+             redis_lag_ms=redis_lag_ms,
+         )
+         return _METRICS
+@@
+         noop = _NoOp()
+         _METRICS = WriterMetrics(
+             written_total=noop,
+             db_fail_total=noop,
+             processed_total=noop,
+             dlq_total=noop,
++            dlq_by_reason_total=noop,
+             reclaim_total=noop,
++            claim_fail_total=noop,
++            pending_count=noop,
+             redis_lag_ms=noop,
+         )
+         return _METRICS
+
+diff --git a/python-worker/services/posttrade/decision_snapshot_writer.py b/python-worker/services/posttrade/decision_snapshot_writer.py
+index 7dfc92d..b1b62b3 100644
+--- a/python-worker/services/posttrade/decision_snapshot_writer.py
++++ b/python-worker/services/posttrade/decision_snapshot_writer.py
+@@ -146,6 +146,10 @@ class DecisionSnapshotWriterConfig:
+     pel_claim_count: int = _env_int("DECISION_SNAPSHOT_PEL_CLAIM_COUNT", 100)
+     pel_start_id: str = _env("DECISION_SNAPSHOT_PEL_START_ID", "0-0")
+     pel_max_iters: int = _env_int("DECISION_SNAPSHOT_PEL_CLAIM_MAX_ITERS", 2)
++
++    # PEL observability
++    pending_poll_every_sec: int = _env_int("DECISION_SNAPSHOT_PENDING_POLL_EVERY_SEC", 15)
+@@
+ class DecisionSnapshotStreamWorker:
+@@
+     def __init__(self, *, cfg: DecisionSnapshotWriterConfig, redis: Any, db: Any):
+@@
+         self._pel_task: Optional[asyncio.Task] = None
++        self._pending_task: Optional[asyncio.Task] = None
+@@
+     async def _dlq(self, *, entry_id: str, fields: Any, reason: str, err: str) -> None:
+@@
+             await self.redis.xadd(
+@@
+             )
+             self._metrics.dlq_total.inc()
++            # Low-cardinality breakdown (top reasons in Grafana).
++            try:
++                self._metrics.dlq_by_reason_total.labels(reason=str(reason)).inc()
++            except Exception:
++                # No-op metrics backend or label init race; never break DLQ path.
++                pass
+         except Exception as e:
+             logger.warning("dlq publish failed: %s", e)
++
++    async def _fetch_pending_count(self) -> Optional[int]:
++        """Return current pending count for the consumer group (best-effort).
++
++        We try multiple Redis commands because redis-py APIs differ by version:
++        - XPENDING <stream> <group> (summary)
++        - XINFO GROUPS <stream>
++
++        This value is used for:
++        - SRE alerting (PEL growing)
++        - operational debugging (writer down / DB stalls)
++        """
++        # 1) XPENDING summary (preferred)
++        try:
++            xpending = getattr(self.redis, "xpending", None)
++            if callable(xpending):
++                res = await xpending(self.cfg.stream, self.cfg.group)
++                # redis-py may return dict or tuple
++                if isinstance(res, dict) and "pending" in res:
++                    return int(res.get("pending") or 0)
++                if isinstance(res, (list, tuple)) and len(res) >= 1:
++                    return int(res[0] or 0)
++        except Exception:
++            pass
++
++        # 2) XINFO GROUPS fallback
++        try:
++            xinfo_groups = getattr(self.redis, "xinfo_groups", None)
++            if callable(xinfo_groups):
++                groups = await xinfo_groups(self.cfg.stream)
++                for g in groups or []:
++                    # redis-py may decode bytes or keep as bytes
++                    name = g.get("name") if isinstance(g, dict) else None
++                    name = _decode_bytes(name)
++                    if str(name) == str(self.cfg.group):
++                        return int(g.get("pending") or 0)
++        except Exception:
++            pass
++
++        return None
++
++    async def _pending_poll_once(self) -> Optional[int]:
++        n = await self._fetch_pending_count()
++        if n is None:
++            return None
++        try:
++            self._metrics.pending_count.set(float(n))
++        except Exception:
++            pass
++        return int(n)
++
++    async def _pending_poll_loop(self) -> None:
++        # Keep pending gauge reasonably fresh for alerting.
++        while True:
++            try:
++                await self._pending_poll_once()
++            except Exception as e:
++                logger.debug("pending poll error: %s", e)
++            await asyncio.sleep(max(5, int(self.cfg.pending_poll_every_sec)))
+@@
+     async def recover_pending_once(self) -> int:
+@@
+             except Exception as e:
++                # record claim failures for SRE
++                try:
++                    self._metrics.claim_fail_total.inc()
++                except Exception:
++                    pass
+                 logger.debug("xautoclaim not usable: %s", e)
+@@
+             except Exception as e:
++                try:
++                    self._metrics.claim_fail_total.inc()
++                except Exception:
++                    pass
+                 logger.warning("pel reclaim fallback failed: %s", e)
+                 break
+@@
+     async def run_forever(self) -> None:
+         await self.ensure_group()
+@@
+         if self.cfg.pel_enable:
+             self._pel_task = asyncio.create_task(self._pel_recover_loop())
++
++        # Pending gauge poll loop (helps detect PEL growth even when lag histograms look OK).
++        self._pending_task = asyncio.create_task(self._pending_poll_loop())
+@@
+         while True:
+             try:
+                 n = await self.run_once()
+                 if n == 0:
+                     await asyncio.sleep(0.01)
+             except Exception as e:
+                 logger.exception("decision_snapshot_writer loop error: %s", e)
+                 await asyncio.sleep(self.cfg.fail_sleep_sec)
+
+diff --git a/monitoring/prometheus/rules/orderflow_services/prometheus_alerts_decision_snapshot_writer_v1.yml b/monitoring/prometheus/rules/orderflow_services/prometheus_alerts_decision_snapshot_writer_v1.yml
+index 63eece2..c4dfb7a 100644
+--- a/monitoring/prometheus/rules/orderflow_services/prometheus_alerts_decision_snapshot_writer_v1.yml
++++ b/monitoring/prometheus/rules/orderflow_services/prometheus_alerts_decision_snapshot_writer_v1.yml
+@@ -1,10 +1,14 @@
+ # DecisionSnapshotWriter (A4) — alerts + recording rules
+ # Notes:
+ # - We record p95 from histogram buckets to provide a stable metric name.
+ # - Alerts are written to avoid depending on a specific scrape job label.
++# A5 additions:
++# - pending_count gauge (PEL size) and alerts for growth
++# - claim_fail_total for reclaim failures
++# - dlq_by_reason_total{reason} for "top reasons" breakdown
+@@
+ groups:
+   - name: decision_snapshot_writer_recording_v1
+     interval: 30s
+     rules:
+       - record: decision_snapshot_writer_redis_lag_ms_p95
+         expr: |
+           histogram_quantile(
+             0.95,
+             sum(rate(decision_snapshot_writer_redis_lag_ms_bucket[5m])) by (le)
+           )
++
++      - record: decision_snapshot_writer_reclaim_rate_5m
++        expr: rate(decision_snapshot_writer_reclaim_total[5m])
++
++      - record: decision_snapshot_writer_dlq_rate_5m_by_reason
++        expr: sum by (reason) (rate(decision_snapshot_writer_dlq_by_reason_total[5m]))
+@@
+       - alert: DecisionSnapshotWriterDLQSpiking
+         expr: rate(decision_snapshot_writer_dlq_total[5m]) > 0
+         for: 10m
+@@
+           runbook: |
+             1) Inspect DLQ stream: XREVRANGE stream:decision_snapshot:dlq + - COUNT 20
+             2) Identify producer/version producing malformed payload
+             3) Fix contract mismatch (payload JSON / required keys sid/decision_ts_ms)
++
++      - alert: DecisionSnapshotWriterPendingHigh
++        expr: decision_snapshot_writer_pending_count > 1000
++        for: 5m
++        labels:
++          severity: warning
++          component: decision_snapshot_writer
++        annotations:
++          summary: "DecisionSnapshotWriter PEL pending is high (>1000)"
++          runbook: "monitoring/prometheus/runbooks/decision_snapshot_writer.md"
++
++      - alert: DecisionSnapshotWriterPendingGrowingFast
++        expr: (decision_snapshot_writer_pending_count > 500) and (delta(decision_snapshot_writer_pending_count[10m]) > 200)
++        for: 10m
++        labels:
++          severity: critical
++          component: decision_snapshot_writer
++        annotations:
++          summary: "DecisionSnapshotWriter PEL pending is growing fast"
++          runbook: "monitoring/prometheus/runbooks/decision_snapshot_writer.md"
++
++      - alert: DecisionSnapshotWriterClaimFailing
++        expr: rate(decision_snapshot_writer_claim_fail_total[5m]) > 0
++        for: 2m
++        labels:
++          severity: warning
++          component: decision_snapshot_writer
++        annotations:
++          summary: "DecisionSnapshotWriter PEL claim operations are failing"
++          runbook: "monitoring/prometheus/runbooks/decision_snapshot_writer.md"
++
++      - alert: DecisionSnapshotWriterDLQByReasonSpiking
++        expr: sum by (reason) (rate(decision_snapshot_writer_dlq_by_reason_total[5m])) > 0
++        for: 10m
++        labels:
++          severity: warning
++          component: decision_snapshot_writer
++        annotations:
++          summary: "DecisionSnapshotWriter DLQ is receiving bad payloads (by reason={{ $labels.reason }})"
++          runbook: "monitoring/prometheus/runbooks/decision_snapshot_writer.md"
++
++diff --git a/monitoring/prometheus/runbooks/decision_snapshot_writer.md b/monitoring/prometheus/runbooks/decision_snapshot_writer.md
++new file mode 100644
++index 0000000..7d33d8e
++--- /dev/null
+++++ b/monitoring/prometheus/runbooks/decision_snapshot_writer.md
++@@ -0,0 +1,124 @@
++# DecisionSnapshotWriter Runbook
++
++Scope: `events:decision_snapshot` (Redis Stream) -> `decision_snapshot` (Timescale)
++
++## Fast triage
++1) Is the container up?
++- `docker ps | grep decision-snapshot-writer`
++- `docker logs scanner-decision-snapshot-writer --tail=200`
++
++2) Is /metrics alive?
++- `curl -sS http://scanner-decision-snapshot-writer:9825/metrics | head`
++
++3) Redis connectivity
++- `redis-cli -h redis-worker-1 ping`
++
++4) DB connectivity
++- `pg_isready -h postgres -U trading -d scanner_analytics`
++
++## Symptoms and actions
++
++### A) `db_fail_total` grows
++Meaning: DB upsert failing; good messages remain pending (at-least-once).
++Actions:
++- Validate DSN: `TRADES_DB_DSN` (host must be `postgres` in compose)
++- Check DB locks/disk:
++  - `SELECT now(), * FROM pg_stat_activity WHERE wait_event IS NOT NULL;`
++  - `df -h` on DB node
++- If table missing: apply migration SQL for `decision_snapshot`.
++
++### B) `redis_lag_ms_p95` high
++Meaning: decision snapshots are being processed late.
++Common causes:
++- DB slow or writer CPU throttled
++- PEL growing (see pending_count)
++Actions:
++- Check pending:
++  - `redis-cli XPENDING events:decision_snapshot decision_snapshot_writer`
++  - `redis-cli XINFO GROUPS events:decision_snapshot`
++- Increase temporarily:
++  - `DECISION_SNAPSHOT_BATCH_SIZE`
++  - `DECISION_SNAPSHOT_DB_UPSERT_CHUNK`
++
++### C) `pending_count` high or growing
++Meaning: messages are stuck pending (writer crashed mid-batch, DB failure, or consumer churn).
++Actions:
++- Confirm reclaim loop working (look for `pel reclaimed=` in logs)
++- If reclaim failing: check `claim_fail_total` and Redis version
++- Validate `DECISION_SNAPSHOT_PEL_MIN_IDLE_MS` (too small may churn; too big delays recovery)
++
++### D) DLQ spiking / by reason
++Meaning: malformed payloads or contract mismatch.
++Actions:
++- Inspect DLQ:
++  - `redis-cli XREVRANGE stream:decision_snapshot:dlq + - COUNT 20`
++- Look at fields:
++  - `reason` (`bad_payload_json`, `bad_payload_row`)
++  - `payload` (truncated)
++- Fix producer:
++  - ensure `sid` present
++  - ensure `decision_ts_ms` (or `ts_emit_ms`) present and epoch-ms
++  - ensure bid/ask are sane (non-crossed)
++
++## Safety notes
++- Writer is **fail-open** relative to trading: stopping it does not block signal emit.
++- Data correctness is protected by idempotent upsert: `UNIQUE(sid, ts_decision_ms)`.
++
++## Useful queries
++- Latest rows:
++  - `SELECT ts_decision_ms, sid, symbol, decision_mid FROM decision_snapshot ORDER BY ts_decision_ms DESC LIMIT 20;`
++- Volume:
++  - `SELECT date_trunc('minute', to_timestamp(ts_decision_ms/1000.0)) AS m, count(*) FROM decision_snapshot GROUP BY 1 ORDER BY 1 DESC LIMIT 60;`
++
++diff --git a/python-worker/tests/test_decision_snapshot_writer_pending.py b/python-worker/tests/test_decision_snapshot_writer_pending.py
++new file mode 100644
++index 0000000..1d5e6d9
++--- /dev/null
+++++ b/python-worker/tests/test_decision_snapshot_writer_pending.py
++@@ -0,0 +1,120 @@
++import asyncio
++import sqlite3
++import sys
++import unittest
++from pathlib import Path
++
++ROOT = Path(__file__).resolve()
++PYWORKER = ROOT.parents[1]
++REPO = ROOT.parents[2]
++for p in (str(PYWORKER), str(REPO)):
++    if p not in sys.path:
++        sys.path.insert(0, p)
++
++from services.posttrade.decision_snapshot_db import SQLiteDecisionSnapshotDB
++from services.posttrade.decision_snapshot_writer import DecisionSnapshotWriterConfig, DecisionSnapshotStreamWorker
++
++
++class FakeRedisPending:
++    def __init__(self, pending: int):
++        self.pending = pending
++        self.xpending_called = 0
++        self.xinfo_called = 0
++
++    async def xgroup_create(self, name, groupname, id, mkstream):
++        return True
++
++    async def xpending(self, name, groupname):
++        self.xpending_called += 1
++        # mimic redis-py tuple format: (pending, min, max, consumers)
++        return (self.pending, b"0-0", b"0-0", [])
++
++    async def xinfo_groups(self, name):
++        self.xinfo_called += 1
++        return [{"name": b"decision_snapshot_writer", "pending": self.pending}]
++
++
++class PendingPollSmokeTest(unittest.TestCase):
++    def test_pending_poll_reads_xpending(self):
++        conn = sqlite3.connect(":memory:")
++        db = SQLiteDecisionSnapshotDB(conn=conn)
++        db.ensure_schema()
++
++        cfg = DecisionSnapshotWriterConfig()
++        cfg.db_type = "sqlite"
++        cfg.stream = "events:decision_snapshot"
++        cfg.group = "decision_snapshot_writer"
++
++        fake = FakeRedisPending(pending=123)
++        worker = DecisionSnapshotStreamWorker(cfg=cfg, redis=fake, db=db)
++
++        async def _run():
++            await worker.ensure_group()
++            n = await worker._pending_poll_once()  # internal smoke
++            return n
++
++        n = asyncio.run(_run())
++        self.assertEqual(n, 123)
++        self.assertGreaterEqual(fake.xpending_called, 1)
++
++
++if __name__ == "__main__":
++    unittest.main()

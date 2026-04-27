@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core_snapshot/policy_snapshot_v1.py
+# hypothesis_version: 6.148.10
+
+[0.01, 0.1, 0.2, 0.3, 0.4, 0.95, 1.0, 2.0, 3.0, 10.0, 30.0, 35.0, 45.0, 60.0, 100, 120, 200, 300, 450, 700, 900, 1500, 3000, 10000, 30000, 86400, ',', '0', '1', ':', 'DQ_BOOK_VETO_ENABLED', 'DQ_GAP_EXTREME_MS', 'DQ_GAP_HARD_MS', 'DQ_GAP_MIN_SAMPLES', 'DQ_GAP_SOFT_MS', 'DQ_GATE_MODE', 'DQ_MODE', 'DQ_OBSERVE_ONLY_SEC', 'GIT_COMMIT', 'GIT_SHA', 'SOURCE_VERSION', '__dataclass_fields__', 'book_hard', 'dq_book_veto_enabled', 'dq_gap_extreme_ms', 'dq_gap_hard_ms', 'dq_gap_min_samples', 'dq_gap_soft_ms', 'dq_gate_mode', 'dq_mode', 'dq_observe_only_sec', 'false', 'n', 'no', 'off', 'on', 'safe', 'strict', 'true', 'utf-8', 'value', 'y', 'yes']

@@ -1,0 +1,19 @@
+groups:
+  - name: ofc_contextual_runtime_summary_v1
+    rules:
+      - alert: OFCContextualRuntimeSummaryStale
+        expr: ofc_ctx_rollout_runtime_summary_age_seconds > 120
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OFC contextual runtime summary is stale"
+          description: "Runtime summary age exceeded 120s; rollout/exporter may be reading stale runtime state."
+      - alert: OFCContextualRuntimeDeferStuck
+        expr: ofc_ctx_rollout_runtime_defer_active > 0 and ofc_ctx_rollout_runtime_cooldown_remaining_seconds > 300
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OFC contextual runtime restart defer is stuck"
+          description: "Runtime reloader remains deferred for more than expected cooldown window."

@@ -1,0 +1,77 @@
+groups:
+  - name: orchestration_composite_preflight_strategy_research_stats_p68
+    rules:
+      - alert: TradeStrategyResearchStatsSuppressionExpiryReminder
+        expr: |
+          max by (purpose, family) (
+            strategy_research_stats_alert_policy_override_expiring_soon{family=~"pbo_high|report_stale"}
+          )
+          * on (purpose, family) group_left
+          max by (purpose, family) (
+            strategy_research_stats_alert_policy_override_active{family=~"pbo_high|report_stale"}
+          )
+          > 0
+        for: 5m
+        labels:
+          severity: info
+          source: strategy_research_stats
+          class: suppression_expiry
+        annotations:
+          summary: "strategy_research_stats suppression override is nearing expiry"
+          description: "The active suppression override for purpose={{ $labels.purpose }} family={{ $labels.family }} is inside the configured reminder window and will expire soon unless renewed intentionally."
+
+      - alert: TradeStrategyResearchStatsPboHighResurfacedAfterExpiry
+        expr: |
+          max by (purpose) (
+            strategy_research_stats_alert_policy_override_expired_recently{family="pbo_high"}
+          )
+          * on (purpose) group_left
+          (
+            sum by (purpose) (
+              orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window="24h",decision_status=~"block|invalid",family="pbo_high"}
+            )
+            >= on (purpose) group_left
+            max by (purpose) (strategy_research_stats_alert_policy_min_events_24h{family="pbo_high"})
+          )
+          * on (purpose) group_left
+          max by (purpose) (strategy_research_stats_alert_policy_enabled{family="pbo_high"})
+          * on (purpose) group_left
+          (1 - max by (purpose) (strategy_research_stats_alert_policy_suppress_active{family="pbo_high"}))
+          > 0
+        for: 5m
+        labels:
+          severity: warning
+          source: strategy_research_stats
+          family: pbo_high
+          class: resurfaced_after_expiry
+        annotations:
+          summary: "strategy_research_stats pbo_high resurfaced after suppression expiry"
+          description: "The suppression override for purpose={{ $labels.purpose }} family=pbo_high expired recently, and the underlying pbo_high family condition is still above the configured threshold."
+
+      - alert: TradeStrategyResearchStatsReportStaleResurfacedAfterExpiry
+        expr: |
+          max by (purpose) (
+            strategy_research_stats_alert_policy_override_expired_recently{family="report_stale"}
+          )
+          * on (purpose) group_left
+          (
+            sum by (purpose) (
+              orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window="7d",decision_status=~"block|invalid",family="report_stale"}
+            )
+            >= on (purpose) group_left
+            max by (purpose) (strategy_research_stats_alert_policy_min_events_7d{family="report_stale"})
+          )
+          * on (purpose) group_left
+          max by (purpose) (strategy_research_stats_alert_policy_enabled{family="report_stale"})
+          * on (purpose) group_left
+          (1 - max by (purpose) (strategy_research_stats_alert_policy_suppress_active{family="report_stale"}))
+          > 0
+        for: 10m
+        labels:
+          severity: warning
+          source: strategy_research_stats
+          family: report_stale
+          class: resurfaced_after_expiry
+        annotations:
+          summary: "strategy_research_stats report_stale resurfaced after suppression expiry"
+          description: "The suppression override for purpose={{ $labels.purpose }} family=report_stale expired recently, and the stale-report family condition is still above the configured threshold."

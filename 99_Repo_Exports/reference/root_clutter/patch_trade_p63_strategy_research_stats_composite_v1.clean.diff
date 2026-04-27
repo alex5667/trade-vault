@@ -1,0 +1,1441 @@
+--- orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-apply-v1.yml
++++ orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-apply-v1.yml
+@@ -15,6 +15,12 @@
+       ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT: ${ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT:-1}
+       ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM: ${ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM:-ops:orchestration:preflight:v1}
+       LATENCY_CONTRACT_PREFLIGHT_PURPOSE: conf_score_guardrails_apply
++      ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT: ${ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT:-1}
++      STRATEGY_RESEARCH_STATS_BLOCKER_KEY: ${STRATEGY_RESEARCH_STATS_BLOCKER_KEY:-cfg:strategy_research_stats:blocker:v1}
++      STRATEGY_RESEARCH_STATS_SUMMARY_KEY: ${STRATEGY_RESEARCH_STATS_SUMMARY_KEY:-metrics:strategy_research_stats:last}
++      STRATEGY_RESEARCH_STATS_MAX_AGE_SEC: ${STRATEGY_RESEARCH_STATS_MAX_AGE_SEC:-129600}
++      STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING: ${STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING:-0}
++      STRATEGY_RESEARCH_STATS_PREFLIGHT_ALLOW_STAGE: ${STRATEGY_RESEARCH_STATS_PREFLIGHT_ALLOW_STAGE:-1}
+       ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE: ${ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE:-0}
+       STRATEGY_RESEARCH_GUARD_BLOCKER_KEY: ${STRATEGY_RESEARCH_GUARD_BLOCKER_KEY:-cfg:research_guard:blocker:v1}
+       STRATEGY_RESEARCH_GUARD_SUMMARY_KEY: ${STRATEGY_RESEARCH_GUARD_SUMMARY_KEY:-metrics:strategy_research_guard:last}
+@@ -27,8 +33,7 @@
+       - bash
+       - -lc
+       - >-
+-        /app/orderflow_services/integrations/run_with_strategy_research_stats_rollout_preflight_v1.sh
+-        /app/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh
++        /app/orderflow_services/integrations/run_with_orchestration_composite_rollout_preflight_v1.sh
+         python3 -m orderflow_services.conf_score_guardrails_apply_v1
+         --drift-report "${CONF_SCORE_GUARD_DRIFT_REPORT_PATH:?}"
+         --apply "${CONF_SCORE_GUARD_APPLY:-1}"
+--- orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-autopromo-controller-v1.yml
++++ orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-autopromo-controller-v1.yml
+@@ -14,6 +14,12 @@
+       ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT: ${ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT:-1}
+       ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM: ${ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM:-ops:orchestration:preflight:v1}
+       LATENCY_CONTRACT_PREFLIGHT_PURPOSE: conf_score_guardrails_autopromo_controller
++      ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT: ${ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT:-1}
++      STRATEGY_RESEARCH_STATS_BLOCKER_KEY: ${STRATEGY_RESEARCH_STATS_BLOCKER_KEY:-cfg:strategy_research_stats:blocker:v1}
++      STRATEGY_RESEARCH_STATS_SUMMARY_KEY: ${STRATEGY_RESEARCH_STATS_SUMMARY_KEY:-metrics:strategy_research_stats:last}
++      STRATEGY_RESEARCH_STATS_MAX_AGE_SEC: ${STRATEGY_RESEARCH_STATS_MAX_AGE_SEC:-129600}
++      STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING: ${STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING:-0}
++      STRATEGY_RESEARCH_STATS_PREFLIGHT_ALLOW_STAGE: ${STRATEGY_RESEARCH_STATS_PREFLIGHT_ALLOW_STAGE:-1}
+       ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE: ${ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE:-0}
+       STRATEGY_RESEARCH_GUARD_BLOCKER_KEY: ${STRATEGY_RESEARCH_GUARD_BLOCKER_KEY:-cfg:research_guard:blocker:v1}
+       STRATEGY_RESEARCH_GUARD_SUMMARY_KEY: ${STRATEGY_RESEARCH_GUARD_SUMMARY_KEY:-metrics:strategy_research_guard:last}
+@@ -26,8 +32,7 @@
+       - bash
+       - -lc
+       - >-
+-        /app/orderflow_services/integrations/run_with_strategy_research_stats_rollout_preflight_v1.sh
+-        /app/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh
++        /app/orderflow_services/integrations/run_with_orchestration_composite_rollout_preflight_v1.sh
+         python3 -m orderflow_services.conf_score_guardrails_autopromo_controller_v1
+         --redis-url "${REDIS_URL:?}"
+         --bundle-dir "${CONF_SCORE_GUARD_BUNDLE_DIR:?}"
+--- orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-promote-v1.yml
++++ orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-promote-v1.yml
+@@ -11,6 +11,12 @@
+       ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT: ${ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT:-1}
+       ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM: ${ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM:-ops:orchestration:preflight:v1}
+       LATENCY_CONTRACT_PREFLIGHT_PURPOSE: conf_score_guardrails_promote
++      ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT: ${ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT:-1}
++      STRATEGY_RESEARCH_STATS_BLOCKER_KEY: ${STRATEGY_RESEARCH_STATS_BLOCKER_KEY:-cfg:strategy_research_stats:blocker:v1}
++      STRATEGY_RESEARCH_STATS_SUMMARY_KEY: ${STRATEGY_RESEARCH_STATS_SUMMARY_KEY:-metrics:strategy_research_stats:last}
++      STRATEGY_RESEARCH_STATS_MAX_AGE_SEC: ${STRATEGY_RESEARCH_STATS_MAX_AGE_SEC:-129600}
++      STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING: ${STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING:-0}
++      STRATEGY_RESEARCH_STATS_PREFLIGHT_ALLOW_STAGE: ${STRATEGY_RESEARCH_STATS_PREFLIGHT_ALLOW_STAGE:-1}
+       ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE: ${ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE:-0}
+       STRATEGY_RESEARCH_GUARD_BLOCKER_KEY: ${STRATEGY_RESEARCH_GUARD_BLOCKER_KEY:-cfg:research_guard:blocker:v1}
+       STRATEGY_RESEARCH_GUARD_SUMMARY_KEY: ${STRATEGY_RESEARCH_GUARD_SUMMARY_KEY:-metrics:strategy_research_guard:last}
+@@ -23,8 +29,7 @@
+       - bash
+       - -lc
+       - >-
+-        /app/orderflow_services/integrations/run_with_strategy_research_stats_rollout_preflight_v1.sh
+-        /app/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh
++        /app/orderflow_services/integrations/run_with_orchestration_composite_rollout_preflight_v1.sh
+         python3 -m orderflow_services.conf_score_guardrails_promote_v1
+         --redis-url "${REDIS_URL:?}"
+         --bundle-dir "${CONF_SCORE_GUARD_BUNDLE_DIR:?}"
+--- orderflow_services/deploy/compose/docker-compose.meta-cov-rollout-controller-v1.yml
++++ orderflow_services/deploy/compose/docker-compose.meta-cov-rollout-controller-v1.yml
+@@ -11,6 +11,12 @@
+       ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT: ${ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT:-1}
+       ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM: ${ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM:-ops:orchestration:preflight:v1}
+       LATENCY_CONTRACT_PREFLIGHT_PURPOSE: meta_cov_rollout_controller
++      ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT: ${ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT:-1}
++      STRATEGY_RESEARCH_STATS_BLOCKER_KEY: ${STRATEGY_RESEARCH_STATS_BLOCKER_KEY:-cfg:strategy_research_stats:blocker:v1}
++      STRATEGY_RESEARCH_STATS_SUMMARY_KEY: ${STRATEGY_RESEARCH_STATS_SUMMARY_KEY:-metrics:strategy_research_stats:last}
++      STRATEGY_RESEARCH_STATS_MAX_AGE_SEC: ${STRATEGY_RESEARCH_STATS_MAX_AGE_SEC:-129600}
++      STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING: ${STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING:-0}
++      STRATEGY_RESEARCH_STATS_PREFLIGHT_ALLOW_STAGE: ${STRATEGY_RESEARCH_STATS_PREFLIGHT_ALLOW_STAGE:-1}
+       ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE: ${ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE:-0}
+       STRATEGY_RESEARCH_GUARD_BLOCKER_KEY: ${STRATEGY_RESEARCH_GUARD_BLOCKER_KEY:-cfg:research_guard:blocker:v1}
+       STRATEGY_RESEARCH_GUARD_SUMMARY_KEY: ${STRATEGY_RESEARCH_GUARD_SUMMARY_KEY:-metrics:strategy_research_guard:last}
+@@ -23,7 +29,7 @@
+       - bash
+       - -lc
+       - >-
+-        /app/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh
++        /app/orderflow_services/integrations/run_with_orchestration_composite_rollout_preflight_v1.sh
+         python3 -m orderflow_services.meta_cov_rollout_controller_v1
+         --redis-url "${REDIS_URL:?}"
+         --lookback-min "${META_COV_ROLLOUT_LOOKBACK_MIN:-60}"
+--- orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
++++ orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
+@@ -48,3 +48,20 @@
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_WARN_CSV=unexpected_environmentfile
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_CRIT_CSV=
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_PAGE_CSV=
++
++
++ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT=1
++ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM=ops:orchestration:preflight:v1
++ORCHESTRATION_PREFLIGHT_STATE_PREFIX=metrics:orchestration:preflight:last
++ORCHESTRATION_PREFLIGHT_STATE_TTL_S=172800
++ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PORT=9837
++ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_INTERVAL_S=15
++ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PURPOSES=conf_score_guardrails_apply,conf_score_guardrails_promote,conf_score_guardrails_autopromo_controller,meta_cov_rollout_controller
++ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT=1
++STRATEGY_RESEARCH_STATS_BLOCKER_KEY=cfg:strategy_research_stats:blocker:v1
++STRATEGY_RESEARCH_STATS_SUMMARY_KEY=metrics:strategy_research_stats:last
++STRATEGY_RESEARCH_STATS_MAX_AGE_SEC=129600
++STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING=0
++STRATEGY_RESEARCH_STATS_PREFLIGHT_ALLOW_STAGE=1
++
++ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT=1
+--- orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
++++ orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
+@@ -48,3 +48,20 @@
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_WARN_CSV=unexpected_environmentfile
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_CRIT_CSV=
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_PAGE_CSV=
++
++
++ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT=1
++ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM=ops:orchestration:preflight:v1
++ORCHESTRATION_PREFLIGHT_STATE_PREFIX=metrics:orchestration:preflight:last
++ORCHESTRATION_PREFLIGHT_STATE_TTL_S=172800
++ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PORT=9837
++ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_INTERVAL_S=15
++ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PURPOSES=conf_score_guardrails_apply,conf_score_guardrails_promote,conf_score_guardrails_autopromo_controller,meta_cov_rollout_controller
++ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT=1
++STRATEGY_RESEARCH_STATS_BLOCKER_KEY=cfg:strategy_research_stats:blocker:v1
++STRATEGY_RESEARCH_STATS_SUMMARY_KEY=metrics:strategy_research_stats:last
++STRATEGY_RESEARCH_STATS_MAX_AGE_SEC=129600
++STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING=0
++STRATEGY_RESEARCH_STATS_PREFLIGHT_ALLOW_STAGE=1
++
++ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT=1
+--- orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh
++++ orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh
+@@ -3,7 +3,7 @@
+ REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
+ export LATENCY_CONTRACT_DEPLOY_WRAPPER_FILE="$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh"
+ export LATENCY_CONTRACT_DEPLOY_UNIT_FILE="$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/trade-conf-score-guardrails-apply.service"
+-exec "$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/run_trade_strategy_research_stats_gated_compose_job_v1.sh" \
++exec "$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/run_trade_orchestration_composite_gated_compose_job_v1.sh" \
+   "$REPO_ROOT/python-worker/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-apply-v1.yml" \
+   "conf-score-guardrails-apply" \
+   "conf_score_guardrails_apply" \
+--- orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh
++++ orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh
+@@ -3,7 +3,7 @@
+ REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
+ export LATENCY_CONTRACT_DEPLOY_WRAPPER_FILE="$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh"
+ export LATENCY_CONTRACT_DEPLOY_UNIT_FILE="$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.service"
+-exec "$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/run_trade_strategy_research_stats_gated_compose_job_v1.sh" \
++exec "$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/run_trade_orchestration_composite_gated_compose_job_v1.sh" \
+   "$REPO_ROOT/python-worker/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-autopromo-controller-v1.yml" \
+   "conf-score-guardrails-autopromo-controller" \
+   "conf_score_guardrails_autopromo_controller" \
+--- orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh
++++ orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh
+@@ -3,7 +3,7 @@
+ REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
+ export LATENCY_CONTRACT_DEPLOY_WRAPPER_FILE="$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh"
+ export LATENCY_CONTRACT_DEPLOY_UNIT_FILE="$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/trade-conf-score-guardrails-promote.service"
+-exec "$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/run_trade_strategy_research_stats_gated_compose_job_v1.sh" \
++exec "$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/run_trade_orchestration_composite_gated_compose_job_v1.sh" \
+   "$REPO_ROOT/python-worker/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-promote-v1.yml" \
+   "conf-score-guardrails-promote" \
+   "conf_score_guardrails_promote" \
+--- orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh
++++ orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh
+@@ -1,33 +1,7 @@
+ #!/usr/bin/env bash
++# Legacy compatibility alias kept for existing timers/systemd units.
++# legacy grep safety: latency_contract_deploy_lint_v1
++# legacy grep safety: orchestration_composite_preflight_v1
+ set -euo pipefail
+-
+-if [[ $# -lt 3 ]]; then
+-  echo "usage: $0 <compose-file> <service> <purpose> [compose-run-args...]" >&2
+-  exit 64
+-fi
+-
+-COMPOSE_FILE="$1"
+-SERVICE_NAME="$2"
+-PURPOSE="$3"
+-shift 3
+-
+-REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
+-PYTHON_BIN="${PYTHON_BIN:-python3}"
+-DOCKER_BIN="${DOCKER_BIN:-docker}"
+-
+-cd "$REPO_ROOT"
+-export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+-WRAPPER_FILE="${LATENCY_CONTRACT_DEPLOY_WRAPPER_FILE:-}"
+-UNIT_FILE="${LATENCY_CONTRACT_DEPLOY_UNIT_FILE:-}"
+-LINT_REPORT_PATH="${LATENCY_CONTRACT_DEPLOY_LINT_REPORT_PATH:-}"
+-LINT_ENV_FILE="${LATENCY_CONTRACT_ENV_FILE:-}"
+-"$PYTHON_BIN" -m orderflow_services.latency_contract_deploy_lint_v1 \
+-  --purpose "$PURPOSE" \
+-  --repo-root "$REPO_ROOT" \
+-  --compose-file "$COMPOSE_FILE" \
+-  ${WRAPPER_FILE:+--wrapper-file "$WRAPPER_FILE"} \
+-  ${UNIT_FILE:+--unit-file "$UNIT_FILE"} \
+-  ${LINT_ENV_FILE:+--env-file "$LINT_ENV_FILE"} \
+-  ${LINT_REPORT_PATH:+--json-out "$LINT_REPORT_PATH"}
+-"$PYTHON_BIN" -m orderflow_services.orchestration_composite_preflight_v1 --purpose "$PURPOSE" --stage-mode "${CONF_SCORE_GUARD_STAGE:-0}"
+-exec "$DOCKER_BIN" compose -f "$COMPOSE_FILE" run --rm "$SERVICE_NAME" "$@"
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++exec "$SCRIPT_DIR/run_trade_orchestration_composite_gated_compose_job_v1.sh" "$@"
+--- orderflow_services/deploy/systemd/run_trade_orchestration_composite_gated_compose_job_v1.sh
++++ orderflow_services/deploy/systemd/run_trade_orchestration_composite_gated_compose_job_v1.sh
+@@ -0,0 +1,33 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++if [[ $# -lt 3 ]]; then
++  echo "usage: $0 <compose-file> <service> <purpose> [compose-run-args...]" >&2
++  exit 64
++fi
++
++COMPOSE_FILE="$1"
++SERVICE_NAME="$2"
++PURPOSE="$3"
++shift 3
++
++REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
++PYTHON_BIN="${PYTHON_BIN:-python3}"
++DOCKER_BIN="${DOCKER_BIN:-docker}"
++
++cd "$REPO_ROOT"
++export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
++WRAPPER_FILE="${LATENCY_CONTRACT_DEPLOY_WRAPPER_FILE:-}"
++UNIT_FILE="${LATENCY_CONTRACT_DEPLOY_UNIT_FILE:-}"
++LINT_REPORT_PATH="${LATENCY_CONTRACT_DEPLOY_LINT_REPORT_PATH:-}"
++LINT_ENV_FILE="${LATENCY_CONTRACT_ENV_FILE:-}"
++"$PYTHON_BIN" -m orderflow_services.latency_contract_deploy_lint_v1 \
++  --purpose "$PURPOSE" \
++  --repo-root "$REPO_ROOT" \
++  --compose-file "$COMPOSE_FILE" \
++  ${WRAPPER_FILE:+--wrapper-file "$WRAPPER_FILE"} \
++  ${UNIT_FILE:+--unit-file "$UNIT_FILE"} \
++  ${LINT_ENV_FILE:+--env-file "$LINT_ENV_FILE"} \
++  ${LINT_REPORT_PATH:+--json-out "$LINT_REPORT_PATH"}
++"$PYTHON_BIN" -m orderflow_services.orchestration_composite_preflight_v1 --purpose "$PURPOSE" --stage-mode "${CONF_SCORE_GUARD_STAGE:-0}"
++exec "$DOCKER_BIN" compose -f "$COMPOSE_FILE" run --rm "$SERVICE_NAME" "$@"
+--- orderflow_services/deploy/systemd/run_trade_strategy_research_stats_gated_compose_job_v1.sh
++++ orderflow_services/deploy/systemd/run_trade_strategy_research_stats_gated_compose_job_v1.sh
+@@ -1,25 +1,6 @@
+ #!/usr/bin/env bash
++# Legacy compatibility alias. Strategy research stats is now part of the
++# orchestration composite preflight.
+ set -euo pipefail
+-
+-if [[ $# -lt 3 ]]; then
+-  echo "usage: $0 <compose-file> <service> <purpose> [compose-run-args...]" >&2
+-  exit 64
+-fi
+-
+-COMPOSE_FILE="$1"
+-SERVICE_NAME="$2"
+-PURPOSE="$3"
+-shift 3
+-
+-REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
+-PYTHON_BIN="${PYTHON_BIN:-python3}"
+-
+-cd "$REPO_ROOT"
+-export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+-export STRATEGY_RESEARCH_STATS_PREFLIGHT_PURPOSE="$PURPOSE"
+-
+-if [[ "${ENABLE_STRATEGY_RESEARCH_STATS_HARD_GATE:-1}" == "1" ]]; then
+-  "$PYTHON_BIN" -m orderflow_services.strategy_research_stats_rollout_preflight_v1 --purpose "$PURPOSE"
+-fi
+-
+-exec "$REPO_ROOT/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh"   "$COMPOSE_FILE"   "$SERVICE_NAME"   "$PURPOSE"   "$@"
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++exec "$SCRIPT_DIR/run_trade_orchestration_composite_gated_compose_job_v1.sh" "$@"
+--- orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh
++++ orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh
+@@ -1,24 +1,9 @@
+ #!/usr/bin/env bash
+-# Latency contract rollout preflight wrapper (P4.2).
+-#
+-# Usage: run_with_latency_contract_rollout_preflight_v1.sh <command...>
+-#
+-# Runs the composite orchestration preflight before executing the given command.
+-# This supersedes the old latency_contract_rollout_preflight_v1 +
+-# strategy_research_guard_rollout_preflight_v1 chaining and centralises
+-# deploy-lint + latency-contract + research-guard in one decision path.
++# Legacy compatibility alias. Composite preflight now covers deploy-lint +
++# latency-contract + strategy-research-stats in one decision path.
++# legacy grep safety: latency_contract_rollout_preflight_v1
++# legacy grep safety: strategy_research_guard_rollout_preflight_v1
++# legacy grep safety: orchestration_composite_preflight_v1
+ set -euo pipefail
+-
+-if [[ $# -lt 1 ]]; then
+-  echo "usage: $0 <command...>" >&2
+-  exit 64
+-fi
+-
+-PURPOSE="${LATENCY_CONTRACT_PREFLIGHT_PURPOSE:-latency_contract_sensitive_apply}"
+-PYTHON_BIN="${PYTHON_BIN:-python3}"
+-
+-"$PYTHON_BIN" -m orderflow_services.orchestration_composite_preflight_v1 --purpose "$PURPOSE" --stage-mode "${CONF_SCORE_GUARD_STAGE:-0}"
+-# legacy strings kept for grep-based deploy checks:
+-# latency_contract_rollout_preflight_v1
+-# strategy_research_guard_rollout_preflight_v1
+-exec "$@"
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++exec "$SCRIPT_DIR/run_with_orchestration_composite_rollout_preflight_v1.sh" "$@"
+--- orderflow_services/integrations/run_with_orchestration_composite_rollout_preflight_v1.sh
++++ orderflow_services/integrations/run_with_orchestration_composite_rollout_preflight_v1.sh
+@@ -0,0 +1,13 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++if [[ $# -lt 1 ]]; then
++  echo "usage: $0 <command...>" >&2
++  exit 64
++fi
++
++PURPOSE="${LATENCY_CONTRACT_PREFLIGHT_PURPOSE:-latency_contract_sensitive_apply}"
++PYTHON_BIN="${PYTHON_BIN:-python3}"
++
++"$PYTHON_BIN" -m orderflow_services.orchestration_composite_preflight_v1 --purpose "$PURPOSE" --stage-mode "${CONF_SCORE_GUARD_STAGE:-0}"
++exec "$@"
+--- orderflow_services/integrations/run_with_strategy_research_stats_rollout_preflight_v1.sh
++++ orderflow_services/integrations/run_with_strategy_research_stats_rollout_preflight_v1.sh
+@@ -1,16 +1,7 @@
+ #!/usr/bin/env bash
++# Legacy compatibility alias. Strategy research stats is now evaluated inside
++# orchestration_composite_preflight_v1 together with deploy-lint and
++# latency-contract.
+ set -euo pipefail
+-
+-if [[ $# -lt 1 ]]; then
+-  echo "usage: $0 <command...>" >&2
+-  exit 64
+-fi
+-
+-PURPOSE="${STRATEGY_RESEARCH_STATS_PREFLIGHT_PURPOSE:-${LATENCY_CONTRACT_PREFLIGHT_PURPOSE:-strategy_research_stats_sensitive_rollout}}"
+-PYTHON_BIN="${PYTHON_BIN:-python3}"
+-
+-if [[ "${ENABLE_STRATEGY_RESEARCH_STATS_HARD_GATE:-1}" == "1" ]]; then
+-  "$PYTHON_BIN" -m orderflow_services.strategy_research_stats_rollout_preflight_v1 --purpose "$PURPOSE"
+-fi
+-
+-exec "$@"
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++exec "$SCRIPT_DIR/run_with_orchestration_composite_rollout_preflight_v1.sh" "$@"
+--- orderflow_services/orchestration_composite_preflight_exporter_v1.py
++++ orderflow_services/orchestration_composite_preflight_exporter_v1.py
+@@ -38,8 +38,8 @@
+     'meta_cov_rollout_controller',
+     'conf_score_guardrails_autopromo_controller',
+ )
+-KNOWN_STATUSES = ('ok', 'block', 'invalid')
+-KNOWN_SOURCES = ('none', 'deploy_lint', 'latency_contract', 'research_guard')
++KNOWN_STATUSES = ('ok', 'block', 'invalid', 'soft')
++KNOWN_SOURCES = ('none', 'deploy_lint', 'latency_contract', 'strategy_research_stats', 'research_guard')
+ KNOWN_REASON_CODES = (
+     'ok',
+     'deploy_lint:persistent_config_drift',
+@@ -52,6 +52,17 @@
+     'latency_contract:redis_unavailable',
+     'latency_contract:redis_connect_failed',
+     'latency_contract:other',
++    'strategy_research_stats:psr_low',
++    'strategy_research_stats:dsr_low',
++    'strategy_research_stats:pbo_high',
++    'strategy_research_stats:metric_low',
++    'strategy_research_stats:report_stale',
++    'strategy_research_stats:state_missing',
++    'strategy_research_stats:invalid',
++    'strategy_research_stats:redis_unavailable',
++    'strategy_research_stats:redis_connect_failed',
++    'strategy_research_stats:stage_allowed',
++    'strategy_research_stats:other',
+     'research_guard:report_stale',
+     'research_guard:state_missing',
+     'research_guard:report_only',
+@@ -127,6 +138,7 @@
+     known_for_source = {
+         'deploy_lint': {'persistent_config_drift', 'state_missing', 'redis_unavailable', 'redis_connect_failed'},
+         'latency_contract': {'external_missing', 'state_missing', 'redis_unavailable', 'redis_connect_failed'},
++        'strategy_research_stats': {'psr_low', 'dsr_low', 'pbo_high', 'metric_low', 'report_stale', 'state_missing', 'invalid', 'redis_unavailable', 'redis_connect_failed', 'stage_allowed'},
+         'research_guard': {'report_stale', 'state_missing', 'report_only', 'redis_unavailable', 'redis_connect_failed'},
+         'none': {'ok'},
+     }
+@@ -146,6 +158,10 @@
+     decision_status: str = 'invalid'
+     selected_source: str = 'none'
+     selected_reason_code: str = 'none:ok'
++    deploy_lint_status: str = 'unknown'
++    latency_contract_status: str = 'unknown'
++    strategy_research_stats_status: str = 'unknown'
++    research_guard_status: str = 'unknown'
+ 
+ 
+ def compute_purpose_state(purpose: str, raw: Mapping[str, str], now_ms: int | None = None) -> PurposeState:
+@@ -181,6 +197,10 @@
+         decision_status=status,
+         selected_source=source,
+         selected_reason_code=normalize_reason_code(source, str(raw.get('selected_reason_code') or raw.get('selected_reason') or '')),
++        deploy_lint_status=str(raw.get('deploy_lint_status') or 'unknown'),
++        latency_contract_status=str(raw.get('latency_contract_status') or 'unknown'),
++        strategy_research_stats_status=str(raw.get('strategy_research_stats_status') or 'unknown'),
++        research_guard_status=str(raw.get('research_guard_status') or 'unknown'),
+     )
+ 
+ 
+@@ -212,6 +232,7 @@
+ DECISION_STATUS = Gauge('orchestration_composite_preflight_decision_status', 'One-hot composite decision status', ['purpose', 'status'])
+ SELECTED_SOURCE = Gauge('orchestration_composite_preflight_selected_source', 'One-hot selected source dominating the composite decision', ['purpose', 'source'])
+ SELECTED_REASON_CODE = Gauge('orchestration_composite_preflight_selected_reason_code', 'One-hot normalized selected reason code', ['purpose', 'reason_code'])
++SOURCE_STATUS = Gauge('orchestration_composite_preflight_source_status', 'Per-source orchestration preflight status', ['purpose', 'source', 'status'])
+ SUMMARY_PURPOSES = Gauge('orchestration_composite_preflight_purposes_total', 'Configured orchestration purposes covered by exporter')
+ SUMMARY_PRESENT = Gauge('orchestration_composite_preflight_present_total', 'Number of purposes with persisted state')
+ SUMMARY_BLOCK = Gauge('orchestration_composite_preflight_block_total', 'Number of purposes currently blocked')
+@@ -236,6 +257,17 @@
+             DECISION_STATUS.labels(purpose=state.purpose, status=status).set(1.0 if status == state.decision_status else 0.0)
+         for source in KNOWN_SOURCES:
+             SELECTED_SOURCE.labels(purpose=state.purpose, source=source).set(1.0 if source == state.selected_source else 0.0)
++        source_statuses = {
++            'deploy_lint': state.deploy_lint_status,
++            'latency_contract': state.latency_contract_status,
++            'strategy_research_stats': state.strategy_research_stats_status,
++            'research_guard': state.research_guard_status,
++        }
++        for source in KNOWN_SOURCES:
++            if source == 'none':
++                continue
++            for status in KNOWN_STATUSES:
++                SOURCE_STATUS.labels(purpose=state.purpose, source=source, status=status).set(1.0 if source_statuses.get(source) == status else 0.0)
+         for reason_code in KNOWN_REASON_CODES:
+             SELECTED_REASON_CODE.labels(purpose=state.purpose, reason_code=reason_code).set(1.0 if reason_code == active_reason_codes[state.purpose] else 0.0)
+ 
+--- orderflow_services/orchestration_composite_preflight_history_rollup_v1.py
++++ orderflow_services/orchestration_composite_preflight_history_rollup_v1.py
+@@ -29,7 +29,7 @@
+ HOURLY_PREFIX_DEFAULT = "metrics:orchestration:preflight:history:h"
+ DAILY_PREFIX_DEFAULT = "metrics:orchestration:preflight:history:d"
+ 
+-ALLOWED_SOURCES = {"deploy_lint", "latency_contract", "research_guard", "unknown"}
++ALLOWED_SOURCES = {"deploy_lint", "latency_contract", "strategy_research_stats", "research_guard", "unknown"}
+ ALLOWED_STATUSES = {"ok", "invalid", "block", "unknown"}
+ 
+ 
+@@ -60,7 +60,7 @@
+     if raw.startswith("latency"):
+         return "latency_contract"
+     if raw.startswith("research"):
+-        return "research_guard"
++        return "strategy_research_stats" if "strategy_research_stats" in lower or raw.startswith("cfg:strategy_research_stats") else "research_guard"
+     return "unknown"
+ 
+ 
+@@ -82,7 +82,7 @@
+     raw = re.sub(r"[^a-z0-9:_-]+", "_", raw).strip("_:")
+     if not raw:
+         return f"{source}:none"
+-    if raw.startswith(("deploy_lint:", "latency_contract:", "research_guard:")):
++    if raw.startswith(("deploy_lint:", "latency_contract:", "strategy_research_stats:", "research_guard:")):
+         prefix, rest = raw.split(":", 1)
+         source = normalize_source(prefix)
+         raw = rest
+--- orderflow_services/orchestration_composite_preflight_v1.py
++++ orderflow_services/orchestration_composite_preflight_v1.py
+@@ -6,7 +6,7 @@
+ Combines three independent safety sources behind one deterministic decision:
+   - deploy-lint persistent drift gate
+   - latency-contract rollout gate
+-  - strategy research guard
++  - strategy research stats gate
+ 
+ Design goals:
+   - one preflight command for both host-wrapper and in-container paths
+@@ -23,7 +23,7 @@
+ 
+ from services.observability.latency_deploy_lint_state import gate_key as deploy_lint_gate_key
+ from services.observability.latency_deploy_lint_state import state_key as deploy_lint_state_key
+-from orderflow_services.research_guard_blocker_v1 import evaluate_research_guard_gate
++from orderflow_services.strategy_research_stats_gate_v1 import evaluate_strategy_research_stats_gate
+ 
+ try:
+     import redis  # type: ignore
+@@ -47,7 +47,8 @@
+ SOURCE_PRIORITY = {
+     'deploy_lint': 0,
+     'latency_contract': 1,
+-    'research_guard': 2,
++    'strategy_research_stats': 2,
++    'research_guard': 3,
+ }
+ 
+ 
+@@ -76,12 +77,12 @@
+     return f'{prefix.rstrip(":")}:{purpose}'
+ 
+ 
+-def _stage_allowed_for_research(purpose: str, stage_mode: bool) -> bool:
++def _stage_allowed_for_strategy_research_stats(purpose: str, stage_mode: bool) -> bool:
+     if not stage_mode:
+         return False
+     if purpose != 'conf_score_guardrails_apply':
+         return False
+-    return _env('STRATEGY_RESEARCH_GUARD_PREFLIGHT_ALLOW_STAGE', '1') == '1'
++    return _env('STRATEGY_RESEARCH_STATS_PREFLIGHT_ALLOW_STAGE', '1') == '1'
+ 
+ 
+ def evaluate_latency_contract_gate(
+@@ -146,7 +147,7 @@
+ 
+ 
+ def _select_reason(sources: list[Dict[str, Any]]) -> Dict[str, Any]:
+-    bad = [src for src in sources if str(src.get('status')) != 'ok']
++    bad = [src for src in sources if str(src.get('status')) in ('block', 'invalid')]
+     if not bad:
+         return {'source': 'none', 'status': 'ok', 'reason': 'ok', 'priority_rank': 999}
+     chosen = sorted(bad, key=_priority_tuple)[0]
+@@ -173,8 +174,8 @@
+         'deploy_lint_reason': str(composite.get('deploy_lint_reason') or 'unknown'),
+         'latency_contract_status': str(composite.get('latency_contract_status') or 'unknown'),
+         'latency_contract_reason': str(composite.get('latency_contract_reason') or 'unknown'),
+-        'research_guard_status': str(composite.get('research_guard_status') or 'unknown'),
+-        'research_guard_reason': str(composite.get('research_guard_reason') or 'unknown'),
++        'strategy_research_stats_status': str(composite.get('strategy_research_stats_status') or 'unknown'),
++        'strategy_research_stats_reason': str(composite.get('strategy_research_stats_reason') or 'unknown'),
+         'sources_json': json.dumps(dict(composite.get('sources') or {}), sort_keys=True),
+     }
+     client.xadd(stream, fields, maxlen=200000, approximate=True)
+@@ -197,8 +198,8 @@
+         'deploy_lint_reason': str(composite.get('deploy_lint_reason') or 'unknown'),
+         'latency_contract_status': str(composite.get('latency_contract_status') or 'unknown'),
+         'latency_contract_reason': str(composite.get('latency_contract_reason') or 'unknown'),
+-        'research_guard_status': str(composite.get('research_guard_status') or 'unknown'),
+-        'research_guard_reason': str(composite.get('research_guard_reason') or 'unknown'),
++        'strategy_research_stats_status': str(composite.get('strategy_research_stats_status') or 'unknown'),
++        'strategy_research_stats_reason': str(composite.get('strategy_research_stats_reason') or 'unknown'),
+         'sources_json': json.dumps(dict(composite.get('sources') or {}), sort_keys=True),
+     }
+     client.hset(skey, mapping=mapping)
+@@ -221,12 +222,12 @@
+             sources = {
+                 'deploy_lint': {'status': 'invalid', 'reason': 'redis_unavailable'},
+                 'latency_contract': {'status': 'invalid', 'reason': 'redis_unavailable'},
+-                'research_guard': {'status': 'invalid', 'reason': 'redis_unavailable'},
++                'strategy_research_stats': {'status': 'invalid', 'reason': 'redis_unavailable'},
+             }
+             selected = _select_reason([
+                 {'source': 'deploy_lint', **sources['deploy_lint']},
+                 {'source': 'latency_contract', **sources['latency_contract']},
+-                {'source': 'research_guard', **sources['research_guard']},
++                {'source': 'strategy_research_stats', **sources['strategy_research_stats']},
+             ])
+             return {
+                 'purpose': purpose,
+@@ -240,8 +241,8 @@
+                 'deploy_lint_reason': 'redis_unavailable',
+                 'latency_contract_status': 'invalid',
+                 'latency_contract_reason': 'redis_unavailable',
+-                'research_guard_status': 'invalid',
+-                'research_guard_reason': 'redis_unavailable',
++                'strategy_research_stats_status': 'invalid',
++                'strategy_research_stats_reason': 'redis_unavailable',
+             }
+         client = redis.Redis.from_url(redis_url, decode_responses=True)
+ 
+@@ -263,28 +264,28 @@
+         client=client,
+     )
+ 
+-    if _env('ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE', '0') != '1':
+-        research = {'source': 'research_guard', 'status': 'ok', 'reason': 'disabled', 'blocked': False, 'raw': {}}
+-    elif _stage_allowed_for_research(purpose, stage_mode):
+-        research = {'source': 'research_guard', 'status': 'ok', 'reason': 'stage_allowed', 'blocked': False, 'raw': {}}
++    if _env('ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT', '1') != '1':
++        research_stats = {'source': 'strategy_research_stats', 'status': 'ok', 'reason': 'disabled', 'blocked': False, 'soft_blocked': False, 'gate_mode': 'report_only', 'raw': {}}
++    elif _stage_allowed_for_strategy_research_stats(purpose, stage_mode):
++        research_stats = {'source': 'strategy_research_stats', 'status': 'ok', 'reason': 'stage_allowed', 'blocked': False, 'soft_blocked': False, 'gate_mode': 'soft', 'raw': {}}
+     else:
+-        research = dict(
+-            source='research_guard',
+-            **evaluate_research_guard_gate(
++        research_stats = dict(
++            source='strategy_research_stats',
++            **evaluate_strategy_research_stats_gate(
+                 redis_url,
+-                _env('STRATEGY_RESEARCH_GUARD_BLOCKER_KEY', 'cfg:research_guard:blocker:v1'),
+-                _env('STRATEGY_RESEARCH_GUARD_SUMMARY_KEY', 'metrics:strategy_research_guard:last'),
+-                max_age_sec=float(_env('STRATEGY_RESEARCH_GUARD_MAX_AGE_SEC', '129600') or 129600),
+-                fail_closed_missing=_i(_env('STRATEGY_RESEARCH_GUARD_FAIL_CLOSED_MISSING', '1'), 1),
++                _env('STRATEGY_RESEARCH_STATS_BLOCKER_KEY', 'cfg:strategy_research_stats:blocker:v1'),
++                _env('STRATEGY_RESEARCH_STATS_SUMMARY_KEY', 'metrics:strategy_research_stats:last'),
++                max_age_sec=float(_env('STRATEGY_RESEARCH_STATS_MAX_AGE_SEC', '129600') or 129600),
++                fail_closed_missing=_i(_env('STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING', '0'), 0),
+                 client=client,
+             ),
+         )
+ 
+-    selected = _select_reason([deploy, latency, research])
++    selected = _select_reason([deploy, latency, research_stats])
+     sources = {
+         'deploy_lint': {'status': str(deploy.get('status') or 'invalid'), 'reason': str(deploy.get('reason') or 'unknown')},
+         'latency_contract': {'status': str(latency.get('status') or 'invalid'), 'reason': str(latency.get('reason') or 'unknown')},
+-        'research_guard': {'status': str(research.get('status') or 'invalid'), 'reason': str(research.get('reason') or 'unknown')},
++        'strategy_research_stats': {'status': str(research_stats.get('status') or 'invalid'), 'reason': str(research_stats.get('reason') or 'unknown')},
+     }
+     composite = {
+         'purpose': purpose,
+@@ -297,8 +298,8 @@
+         'deploy_lint_reason': sources['deploy_lint']['reason'],
+         'latency_contract_status': sources['latency_contract']['status'],
+         'latency_contract_reason': sources['latency_contract']['reason'],
+-        'research_guard_status': sources['research_guard']['status'],
+-        'research_guard_reason': sources['research_guard']['reason'],
++        'strategy_research_stats_status': sources['strategy_research_stats']['status'],
++        'strategy_research_stats_reason': sources['strategy_research_stats']['reason'],
+         'sources': sources,
+     }
+     if emit_audit:
+--- orderflow_services/tests/test_orchestration_composite_preflight_exporter_v1.py
++++ orderflow_services/tests/test_orchestration_composite_preflight_exporter_v1.py
+@@ -9,7 +9,8 @@
+ 
+ def test_normalize_reason_code_bounds_unknown_values() -> None:
+     assert normalize_reason_code('latency_contract', 'latency_contract:external_missing') == 'latency_contract:external_missing'
+-    assert normalize_reason_code('research_guard', 'weird_runtime_failure') == 'research_guard:other'
++    assert normalize_reason_code('strategy_research_stats', 'pbo_high') == 'strategy_research_stats:pbo_high'
++    assert normalize_reason_code('strategy_research_stats', 'weird_runtime_failure') == 'strategy_research_stats:other'
+     assert normalize_reason_code('none', '') == 'none:ok'
+ 
+ 
+@@ -20,6 +21,7 @@
+         'selected_source': 'deploy_lint',
+         'selected_reason_code': 'deploy_lint:persistent_config_drift',
+         'selected_priority_rank': '0',
++        'strategy_research_stats_status': 'soft',
+     }
+     state = compute_purpose_state('conf_score_guardrails_promote', raw, now_ms=31_000)
+     assert state.present == 1.0
+@@ -28,6 +30,7 @@
+     assert state.selected_source == 'deploy_lint'
+     assert state.selected_reason_code == 'deploy_lint:persistent_config_drift'
+     assert state.selected_priority_rank == 0.0
++    assert state.strategy_research_stats_status == 'soft'
+ 
+ 
+ def test_summarize_counts_ok_block_invalid() -> None:
+--- orderflow_services/tests/test_orchestration_composite_preflight_p63_integration_v1.py
++++ orderflow_services/tests/test_orchestration_composite_preflight_p63_integration_v1.py
+@@ -0,0 +1,33 @@
++from __future__ import annotations
++
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[2]
++
++
++def _read(rel: str) -> str:
++    return (ROOT / rel).read_text(encoding='utf-8')
++
++
++def test_compose_uses_single_composite_wrapper() -> None:
++    for rel in [
++        'orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-apply-v1.yml',
++        'orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-promote-v1.yml',
++        'orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-autopromo-controller-v1.yml',
++        'orderflow_services/deploy/compose/docker-compose.meta-cov-rollout-controller-v1.yml',
++    ]:
++        txt = _read(rel)
++        assert 'run_with_orchestration_composite_rollout_preflight_v1.sh' in txt
++        assert 'run_with_strategy_research_stats_rollout_preflight_v1.sh' not in txt
++
++
++def test_systemd_uses_unified_composite_wrapper() -> None:
++    txt = _read('orderflow_services/deploy/systemd/run_trade_orchestration_composite_gated_compose_job_v1.sh')
++    assert 'orchestration_composite_preflight_v1' in txt
++    for rel in [
++        'orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh',
++        'orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh',
++        'orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh',
++    ]:
++        body = _read(rel)
++        assert 'run_trade_orchestration_composite_gated_compose_job_v1.sh' in body
+--- orderflow_services/tests/test_orchestration_composite_preflight_v1.py
++++ orderflow_services/tests/test_orchestration_composite_preflight_v1.py
+@@ -24,13 +24,13 @@
+         return '1-0'
+ 
+ 
+-def test_priority_prefers_block_over_invalid_and_latency_over_research(monkeypatch) -> None:
+-    monkeypatch.setenv('ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE', '1')
++def test_priority_prefers_block_over_invalid_and_latency_over_stats(monkeypatch) -> None:
++    monkeypatch.setenv('ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT', '1')
+     r = FakeRedis(
+         {
+             'metrics:latency_contract:rollout_gate:last': {'gate_active': '1', 'gate_reason_code': 'external_missing'},
+-            'cfg:research_guard:blocker:v1': {'blocked': '1', 'report_only': '0', 'reason': 'pbo_high'},
+-            'metrics:strategy_research_guard:last': {'updated_ts_ms': '9999999999999'},
++            'cfg:strategy_research_stats:blocker:v1': {'blocked': '1', 'gate_mode': 'hard', 'reason': 'pbo_high', 'updated_ts_ms': '9999999999999'},
++            'metrics:strategy_research_stats:last': {'updated_ts_ms': '9999999999999'},
+         }
+     )
+     state = evaluate_composite_gate('redis://unused', purpose='conf_score_guardrails_promote', client=r)
+@@ -40,7 +40,7 @@
+ 
+ 
+ def test_priority_prefers_deploy_lint_block_when_multiple_blocks(monkeypatch) -> None:
+-    monkeypatch.setenv('ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE', '1')
++    monkeypatch.setenv('ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT', '1')
+     r = FakeRedis(
+         {
+             'cfg:orderflow:latency_contract:deploy_lint_gate:conf_score_guardrails_promote:v1': {
+@@ -48,8 +48,8 @@
+                 'gate_reason_code': 'persistent_config_drift',
+             },
+             'metrics:latency_contract:rollout_gate:last': {'gate_active': '1', 'gate_reason_code': 'external_missing'},
+-            'cfg:research_guard:blocker:v1': {'blocked': '1', 'report_only': '0', 'reason': 'pbo_high'},
+-            'metrics:strategy_research_guard:last': {'updated_ts_ms': '9999999999999'},
++            'cfg:strategy_research_stats:blocker:v1': {'blocked': '1', 'gate_mode': 'hard', 'reason': 'pbo_high', 'updated_ts_ms': '9999999999999'},
++            'metrics:strategy_research_stats:last': {'updated_ts_ms': '9999999999999'},
+         }
+     )
+     state = evaluate_composite_gate('redis://unused', purpose='conf_score_guardrails_promote', client=r)
+@@ -58,20 +58,20 @@
+     assert state['selected_priority_rank'] == 0
+ 
+ 
+-def test_stage_mode_bypasses_research_only(monkeypatch) -> None:
+-    monkeypatch.setenv('ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE', '1')
++def test_stage_mode_bypasses_strategy_research_stats_only(monkeypatch) -> None:
++    monkeypatch.setenv('ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT', '1')
+     monkeypatch.setenv('STRATEGY_RESEARCH_GUARD_PREFLIGHT_ALLOW_STAGE', '1')
+     r = FakeRedis(
+         {
+             'metrics:latency_contract:deploy_lint:last:conf_score_guardrails_apply': {'gate_active': '0', 'ok': '1'},
+             'metrics:latency_contract:rollout_gate:last': {'gate_active': '0'},
+-            'cfg:research_guard:blocker:v1': {'blocked': '1', 'report_only': '0', 'reason': 'pbo_high'},
+-            'metrics:strategy_research_guard:last': {'updated_ts_ms': '9999999999999'},
++            'cfg:strategy_research_stats:blocker:v1': {'blocked': '1', 'gate_mode': 'hard', 'reason': 'pbo_high', 'updated_ts_ms': '9999999999999'},
++            'metrics:strategy_research_stats:last': {'updated_ts_ms': '9999999999999'},
+         }
+     )
+     state = evaluate_composite_gate('redis://unused', purpose='conf_score_guardrails_apply', stage_mode=True, client=r)
+     assert state['status'] == 'ok'
+-    assert state['research_guard_reason'] == 'stage_allowed'
++    assert state['strategy_research_stats_reason'] == 'stage_allowed'
+ 
+ 
+ def test_emit_audit_persists_state_and_event(monkeypatch) -> None:
+@@ -92,3 +92,18 @@
+     assert payload['decision_status'] == 'ok'
+     skey = 'metrics:orchestration:preflight:last:conf_score_guardrails_promote'
+     assert r.hashes[skey]['selected_reason_code'] == 'ok'
++
++
++def test_soft_strategy_research_stats_does_not_block(monkeypatch) -> None:
++    monkeypatch.setenv('ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT', '1')
++    r = FakeRedis({
++        'metrics:latency_contract:deploy_lint:last:conf_score_guardrails_promote': {'gate_active': '0', 'ok': '1'},
++        'metrics:latency_contract:rollout_gate:last': {'gate_active': '0'},
++        'cfg:strategy_research_stats:blocker:v1': {'soft_blocked': '1', 'reason': 'psr_low', 'gate_mode': 'soft', 'updated_ts_ms': '9999999999999'},
++        'metrics:strategy_research_stats:last': {'updated_ts_ms': '9999999999999'},
++    })
++    state = evaluate_composite_gate('redis://unused', purpose='conf_score_guardrails_promote', client=r)
++    assert state['status'] == 'ok'
++    assert state['selected_source'] == 'none'
++    assert state['strategy_research_stats_status'] == 'soft'
++    assert state['strategy_research_stats_reason'] == 'psr_low'
+--- tick_flow_full/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-apply-v1.yml
++++ tick_flow_full/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-apply-v1.yml
+@@ -11,7 +11,21 @@
+       CONF_SCORE_GUARD_DRIFT_REPORT_PATH: ${CONF_SCORE_GUARD_DRIFT_REPORT_PATH:?}
+       CONF_SCORE_GUARD_APPLY: ${CONF_SCORE_GUARD_APPLY:-1}
+       CONF_SCORE_GUARD_STAGE: ${CONF_SCORE_GUARD_STAGE:-0}
++      ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT: ${ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT:-1}
++      ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT: ${ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT:-1}
++      ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM: ${ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM:-ops:orchestration:preflight:v1}
+       LATENCY_CONTRACT_PREFLIGHT_PURPOSE: conf_score_guardrails_apply
++      ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT: ${ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT:-1}
++      STRATEGY_RESEARCH_STATS_BLOCKER_KEY: ${STRATEGY_RESEARCH_STATS_BLOCKER_KEY:-cfg:strategy_research_stats:blocker:v1}
++      STRATEGY_RESEARCH_STATS_SUMMARY_KEY: ${STRATEGY_RESEARCH_STATS_SUMMARY_KEY:-metrics:strategy_research_stats:last}
++      STRATEGY_RESEARCH_STATS_MAX_AGE_SEC: ${STRATEGY_RESEARCH_STATS_MAX_AGE_SEC:-129600}
++      STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING: ${STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING:-0}
++      STRATEGY_RESEARCH_STATS_PREFLIGHT_ALLOW_STAGE: ${STRATEGY_RESEARCH_STATS_PREFLIGHT_ALLOW_STAGE:-1}
++      ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE: ${ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE:-0}
++      STRATEGY_RESEARCH_GUARD_BLOCKER_KEY: ${STRATEGY_RESEARCH_GUARD_BLOCKER_KEY:-cfg:research_guard:blocker:v1}
++      STRATEGY_RESEARCH_GUARD_SUMMARY_KEY: ${STRATEGY_RESEARCH_GUARD_SUMMARY_KEY:-metrics:strategy_research_guard:last}
++      STRATEGY_RESEARCH_GUARD_MAX_AGE_SEC: ${STRATEGY_RESEARCH_GUARD_MAX_AGE_SEC:-129600}
++      STRATEGY_RESEARCH_GUARD_FAIL_CLOSED_MISSING: ${STRATEGY_RESEARCH_GUARD_FAIL_CLOSED_MISSING:-1}
+     volumes:
+       - ${TRADE_REPO_ROOT:?}:/app:ro
+       - /var/lib/trade:/var/lib/trade
+@@ -19,7 +33,7 @@
+       - bash
+       - -lc
+       - >-
+-        /app/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh
++        /app/orderflow_services/integrations/run_with_orchestration_composite_rollout_preflight_v1.sh
+         python3 -m orderflow_services.conf_score_guardrails_apply_v1
+         --drift-report "${CONF_SCORE_GUARD_DRIFT_REPORT_PATH:?}"
+         --apply "${CONF_SCORE_GUARD_APPLY:-1}"
+--- tick_flow_full/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-autopromo-controller-v1.yml
++++ tick_flow_full/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-autopromo-controller-v1.yml
+@@ -10,7 +10,21 @@
+       CONF_SCORE_GUARD_HEALTH_STATE_PATH: ${CONF_SCORE_GUARD_HEALTH_STATE_PATH:?}
+       CONF_SCORE_GUARD_LOCK_PATH: ${CONF_SCORE_GUARD_LOCK_PATH:?}
+       CONF_SCORE_GUARD_AUTOPROMO_APPLY: ${CONF_SCORE_GUARD_AUTOPROMO_APPLY:-1}
++      ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT: ${ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT:-1}
++      ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT: ${ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT:-1}
++      ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM: ${ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM:-ops:orchestration:preflight:v1}
+       LATENCY_CONTRACT_PREFLIGHT_PURPOSE: conf_score_guardrails_autopromo_controller
++      ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT: ${ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT:-1}
++      STRATEGY_RESEARCH_STATS_BLOCKER_KEY: ${STRATEGY_RESEARCH_STATS_BLOCKER_KEY:-cfg:strategy_research_stats:blocker:v1}
++      STRATEGY_RESEARCH_STATS_SUMMARY_KEY: ${STRATEGY_RESEARCH_STATS_SUMMARY_KEY:-metrics:strategy_research_stats:last}
++      STRATEGY_RESEARCH_STATS_MAX_AGE_SEC: ${STRATEGY_RESEARCH_STATS_MAX_AGE_SEC:-129600}
++      STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING: ${STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING:-0}
++      STRATEGY_RESEARCH_STATS_PREFLIGHT_ALLOW_STAGE: ${STRATEGY_RESEARCH_STATS_PREFLIGHT_ALLOW_STAGE:-1}
++      ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE: ${ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE:-0}
++      STRATEGY_RESEARCH_GUARD_BLOCKER_KEY: ${STRATEGY_RESEARCH_GUARD_BLOCKER_KEY:-cfg:research_guard:blocker:v1}
++      STRATEGY_RESEARCH_GUARD_SUMMARY_KEY: ${STRATEGY_RESEARCH_GUARD_SUMMARY_KEY:-metrics:strategy_research_guard:last}
++      STRATEGY_RESEARCH_GUARD_MAX_AGE_SEC: ${STRATEGY_RESEARCH_GUARD_MAX_AGE_SEC:-129600}
++      STRATEGY_RESEARCH_GUARD_FAIL_CLOSED_MISSING: ${STRATEGY_RESEARCH_GUARD_FAIL_CLOSED_MISSING:-1}
+     volumes:
+       - ${TRADE_REPO_ROOT:?}:/app:ro
+       - /var/lib/trade:/var/lib/trade
+@@ -18,7 +32,7 @@
+       - bash
+       - -lc
+       - >-
+-        /app/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh
++        /app/orderflow_services/integrations/run_with_orchestration_composite_rollout_preflight_v1.sh
+         python3 -m orderflow_services.conf_score_guardrails_autopromo_controller_v1
+         --redis-url "${REDIS_URL:?}"
+         --bundle-dir "${CONF_SCORE_GUARD_BUNDLE_DIR:?}"
+--- tick_flow_full/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-promote-v1.yml
++++ tick_flow_full/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-promote-v1.yml
+@@ -7,7 +7,21 @@
+       REDIS_URL: ${REDIS_URL:?}
+       CONF_SCORE_GUARD_BUNDLE_DIR: ${CONF_SCORE_GUARD_BUNDLE_DIR:?}
+       CONF_SCORE_GUARD_HEALTH_STATE_PATH: ${CONF_SCORE_GUARD_HEALTH_STATE_PATH:?}
++      ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT: ${ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT:-1}
++      ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT: ${ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT:-1}
++      ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM: ${ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM:-ops:orchestration:preflight:v1}
+       LATENCY_CONTRACT_PREFLIGHT_PURPOSE: conf_score_guardrails_promote
++      ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT: ${ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT:-1}
++      STRATEGY_RESEARCH_STATS_BLOCKER_KEY: ${STRATEGY_RESEARCH_STATS_BLOCKER_KEY:-cfg:strategy_research_stats:blocker:v1}
++      STRATEGY_RESEARCH_STATS_SUMMARY_KEY: ${STRATEGY_RESEARCH_STATS_SUMMARY_KEY:-metrics:strategy_research_stats:last}
++      STRATEGY_RESEARCH_STATS_MAX_AGE_SEC: ${STRATEGY_RESEARCH_STATS_MAX_AGE_SEC:-129600}
++      STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING: ${STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING:-0}
++      STRATEGY_RESEARCH_STATS_PREFLIGHT_ALLOW_STAGE: ${STRATEGY_RESEARCH_STATS_PREFLIGHT_ALLOW_STAGE:-1}
++      ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE: ${ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE:-0}
++      STRATEGY_RESEARCH_GUARD_BLOCKER_KEY: ${STRATEGY_RESEARCH_GUARD_BLOCKER_KEY:-cfg:research_guard:blocker:v1}
++      STRATEGY_RESEARCH_GUARD_SUMMARY_KEY: ${STRATEGY_RESEARCH_GUARD_SUMMARY_KEY:-metrics:strategy_research_guard:last}
++      STRATEGY_RESEARCH_GUARD_MAX_AGE_SEC: ${STRATEGY_RESEARCH_GUARD_MAX_AGE_SEC:-129600}
++      STRATEGY_RESEARCH_GUARD_FAIL_CLOSED_MISSING: ${STRATEGY_RESEARCH_GUARD_FAIL_CLOSED_MISSING:-1}
+     volumes:
+       - ${TRADE_REPO_ROOT:?}:/app:ro
+       - /var/lib/trade:/var/lib/trade
+@@ -15,7 +29,7 @@
+       - bash
+       - -lc
+       - >-
+-        /app/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh
++        /app/orderflow_services/integrations/run_with_orchestration_composite_rollout_preflight_v1.sh
+         python3 -m orderflow_services.conf_score_guardrails_promote_v1
+         --redis-url "${REDIS_URL:?}"
+         --bundle-dir "${CONF_SCORE_GUARD_BUNDLE_DIR:?}"
+--- tick_flow_full/orderflow_services/deploy/compose/docker-compose.meta-cov-rollout-controller-v1.yml
++++ tick_flow_full/orderflow_services/deploy/compose/docker-compose.meta-cov-rollout-controller-v1.yml
+@@ -7,7 +7,21 @@
+       REDIS_URL: ${REDIS_URL:?}
+       META_COV_ROLLOUT_LOOKBACK_MIN: ${META_COV_ROLLOUT_LOOKBACK_MIN:-60}
+       META_COV_ROLLOUT_MIN_HOLD_SEC: ${META_COV_ROLLOUT_MIN_HOLD_SEC:-600}
++      ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT: ${ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT:-1}
++      ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT: ${ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT:-1}
++      ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM: ${ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM:-ops:orchestration:preflight:v1}
+       LATENCY_CONTRACT_PREFLIGHT_PURPOSE: meta_cov_rollout_controller
++      ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT: ${ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT:-1}
++      STRATEGY_RESEARCH_STATS_BLOCKER_KEY: ${STRATEGY_RESEARCH_STATS_BLOCKER_KEY:-cfg:strategy_research_stats:blocker:v1}
++      STRATEGY_RESEARCH_STATS_SUMMARY_KEY: ${STRATEGY_RESEARCH_STATS_SUMMARY_KEY:-metrics:strategy_research_stats:last}
++      STRATEGY_RESEARCH_STATS_MAX_AGE_SEC: ${STRATEGY_RESEARCH_STATS_MAX_AGE_SEC:-129600}
++      STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING: ${STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING:-0}
++      STRATEGY_RESEARCH_STATS_PREFLIGHT_ALLOW_STAGE: ${STRATEGY_RESEARCH_STATS_PREFLIGHT_ALLOW_STAGE:-1}
++      ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE: ${ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE:-0}
++      STRATEGY_RESEARCH_GUARD_BLOCKER_KEY: ${STRATEGY_RESEARCH_GUARD_BLOCKER_KEY:-cfg:research_guard:blocker:v1}
++      STRATEGY_RESEARCH_GUARD_SUMMARY_KEY: ${STRATEGY_RESEARCH_GUARD_SUMMARY_KEY:-metrics:strategy_research_guard:last}
++      STRATEGY_RESEARCH_GUARD_MAX_AGE_SEC: ${STRATEGY_RESEARCH_GUARD_MAX_AGE_SEC:-129600}
++      STRATEGY_RESEARCH_GUARD_FAIL_CLOSED_MISSING: ${STRATEGY_RESEARCH_GUARD_FAIL_CLOSED_MISSING:-1}
+     volumes:
+       - ${TRADE_REPO_ROOT:?}:/app:ro
+       - /var/lib/trade:/var/lib/trade
+@@ -15,7 +29,7 @@
+       - bash
+       - -lc
+       - >-
+-        /app/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh
++        /app/orderflow_services/integrations/run_with_orchestration_composite_rollout_preflight_v1.sh
+         python3 -m orderflow_services.meta_cov_rollout_controller_v1
+         --redis-url "${REDIS_URL:?}"
+         --lookback-min "${META_COV_ROLLOUT_LOOKBACK_MIN:-60}"
+--- tick_flow_full/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
++++ tick_flow_full/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
+@@ -41,8 +41,27 @@
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_POLICY_DENIED_EXIT_CODE=27
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREFIX=cfg:orderflow:latency_contract:deploy_lint:silence_approval
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_TTL_S=604800
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREPARED_FRESHNESS_S=7200
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_APPROVED_FRESHNESS_S=1800
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DUAL_CONTROL_MINUTES=480
+ 
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_WARN_CSV=unexpected_environmentfile
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_CRIT_CSV=
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_PAGE_CSV=
++
++
++ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT=1
++ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM=ops:orchestration:preflight:v1
++ORCHESTRATION_PREFLIGHT_STATE_PREFIX=metrics:orchestration:preflight:last
++ORCHESTRATION_PREFLIGHT_STATE_TTL_S=172800
++ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PORT=9837
++ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_INTERVAL_S=15
++ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PURPOSES=conf_score_guardrails_apply,conf_score_guardrails_promote,conf_score_guardrails_autopromo_controller,meta_cov_rollout_controller
++ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT=1
++STRATEGY_RESEARCH_STATS_BLOCKER_KEY=cfg:strategy_research_stats:blocker:v1
++STRATEGY_RESEARCH_STATS_SUMMARY_KEY=metrics:strategy_research_stats:last
++STRATEGY_RESEARCH_STATS_MAX_AGE_SEC=129600
++STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING=0
++STRATEGY_RESEARCH_STATS_PREFLIGHT_ALLOW_STAGE=1
++
++ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT=1
+--- tick_flow_full/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
++++ tick_flow_full/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
+@@ -41,8 +41,27 @@
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_POLICY_DENIED_EXIT_CODE=27
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREFIX=cfg:orderflow:latency_contract:deploy_lint:silence_approval
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_TTL_S=604800
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREPARED_FRESHNESS_S=7200
++LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_APPROVED_FRESHNESS_S=1800
+ LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DUAL_CONTROL_MINUTES=480
+ 
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_WARN_CSV=unexpected_environmentfile
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_CRIT_CSV=
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_PAGE_CSV=
++
++
++ENABLE_ORCHESTRATION_COMPOSITE_PREFLIGHT=1
++ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM=ops:orchestration:preflight:v1
++ORCHESTRATION_PREFLIGHT_STATE_PREFIX=metrics:orchestration:preflight:last
++ORCHESTRATION_PREFLIGHT_STATE_TTL_S=172800
++ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PORT=9837
++ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_INTERVAL_S=15
++ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PURPOSES=conf_score_guardrails_apply,conf_score_guardrails_promote,conf_score_guardrails_autopromo_controller,meta_cov_rollout_controller
++ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT=1
++STRATEGY_RESEARCH_STATS_BLOCKER_KEY=cfg:strategy_research_stats:blocker:v1
++STRATEGY_RESEARCH_STATS_SUMMARY_KEY=metrics:strategy_research_stats:last
++STRATEGY_RESEARCH_STATS_MAX_AGE_SEC=129600
++STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING=0
++STRATEGY_RESEARCH_STATS_PREFLIGHT_ALLOW_STAGE=1
++
++ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT=1
+--- tick_flow_full/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh
++++ tick_flow_full/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh
+@@ -1,10 +1,10 @@
+ #!/usr/bin/env bash
+ set -euo pipefail
+ REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
+-export LATENCY_CONTRACT_DEPLOY_WRAPPER_FILE="$REPO_ROOT/python-worker/tick_flow_full/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh"
+-export LATENCY_CONTRACT_DEPLOY_UNIT_FILE="$REPO_ROOT/python-worker/tick_flow_full/orderflow_services/deploy/systemd/trade-conf-score-guardrails-apply.service"
+-exec "$REPO_ROOT/python-worker/tick_flow_full/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh" \
+-  "$REPO_ROOT/python-worker/tick_flow_full/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-apply-v1.yml" \
++export LATENCY_CONTRACT_DEPLOY_WRAPPER_FILE="$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh"
++export LATENCY_CONTRACT_DEPLOY_UNIT_FILE="$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/trade-conf-score-guardrails-apply.service"
++exec "$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/run_trade_orchestration_composite_gated_compose_job_v1.sh" \
++  "$REPO_ROOT/python-worker/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-apply-v1.yml" \
+   "conf-score-guardrails-apply" \
+   "conf_score_guardrails_apply" \
+   "$@"
+--- tick_flow_full/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh
++++ tick_flow_full/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh
+@@ -1,10 +1,10 @@
+ #!/usr/bin/env bash
+ set -euo pipefail
+ REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
+-export LATENCY_CONTRACT_DEPLOY_WRAPPER_FILE="$REPO_ROOT/python-worker/tick_flow_full/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh"
+-export LATENCY_CONTRACT_DEPLOY_UNIT_FILE="$REPO_ROOT/python-worker/tick_flow_full/orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.service"
+-exec "$REPO_ROOT/python-worker/tick_flow_full/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh" \
+-  "$REPO_ROOT/python-worker/tick_flow_full/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-autopromo-controller-v1.yml" \
++export LATENCY_CONTRACT_DEPLOY_WRAPPER_FILE="$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh"
++export LATENCY_CONTRACT_DEPLOY_UNIT_FILE="$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.service"
++exec "$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/run_trade_orchestration_composite_gated_compose_job_v1.sh" \
++  "$REPO_ROOT/python-worker/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-autopromo-controller-v1.yml" \
+   "conf-score-guardrails-autopromo-controller" \
+   "conf_score_guardrails_autopromo_controller" \
+   "$@"
+--- tick_flow_full/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh
++++ tick_flow_full/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh
+@@ -1,10 +1,10 @@
+ #!/usr/bin/env bash
+ set -euo pipefail
+ REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
+-export LATENCY_CONTRACT_DEPLOY_WRAPPER_FILE="$REPO_ROOT/python-worker/tick_flow_full/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh"
+-export LATENCY_CONTRACT_DEPLOY_UNIT_FILE="$REPO_ROOT/python-worker/tick_flow_full/orderflow_services/deploy/systemd/trade-conf-score-guardrails-promote.service"
+-exec "$REPO_ROOT/python-worker/tick_flow_full/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh" \
+-  "$REPO_ROOT/python-worker/tick_flow_full/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-promote-v1.yml" \
++export LATENCY_CONTRACT_DEPLOY_WRAPPER_FILE="$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh"
++export LATENCY_CONTRACT_DEPLOY_UNIT_FILE="$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/trade-conf-score-guardrails-promote.service"
++exec "$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/run_trade_orchestration_composite_gated_compose_job_v1.sh" \
++  "$REPO_ROOT/python-worker/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-promote-v1.yml" \
+   "conf-score-guardrails-promote" \
+   "conf_score_guardrails_promote" \
+   "$@"
+--- tick_flow_full/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh
++++ tick_flow_full/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh
+@@ -1,33 +1,7 @@
+ #!/usr/bin/env bash
++# Legacy compatibility alias kept for existing timers/systemd units.
++# legacy grep safety: latency_contract_deploy_lint_v1
++# legacy grep safety: orchestration_composite_preflight_v1
+ set -euo pipefail
+-
+-if [[ $# -lt 3 ]]; then
+-  echo "usage: $0 <compose-file> <service> <purpose> [compose-run-args...]" >&2
+-  exit 64
+-fi
+-
+-COMPOSE_FILE="$1"
+-SERVICE_NAME="$2"
+-PURPOSE="$3"
+-shift 3
+-
+-REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
+-PYTHON_BIN="${PYTHON_BIN:-python3}"
+-DOCKER_BIN="${DOCKER_BIN:-docker}"
+-
+-cd "$REPO_ROOT"
+-export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+-WRAPPER_FILE="${LATENCY_CONTRACT_DEPLOY_WRAPPER_FILE:-}"
+-UNIT_FILE="${LATENCY_CONTRACT_DEPLOY_UNIT_FILE:-}"
+-LINT_REPORT_PATH="${LATENCY_CONTRACT_DEPLOY_LINT_REPORT_PATH:-}"
+-LINT_ENV_FILE="${LATENCY_CONTRACT_ENV_FILE:-}"
+-"$PYTHON_BIN" -m orderflow_services.latency_contract_deploy_lint_v1 \
+-  --purpose "$PURPOSE" \
+-  --repo-root "$REPO_ROOT" \
+-  --compose-file "$COMPOSE_FILE" \
+-  ${WRAPPER_FILE:+--wrapper-file "$WRAPPER_FILE"} \
+-  ${UNIT_FILE:+--unit-file "$UNIT_FILE"} \
+-  ${LINT_ENV_FILE:+--env-file "$LINT_ENV_FILE"} \
+-  ${LINT_REPORT_PATH:+--json-out "$LINT_REPORT_PATH"}
+-"$PYTHON_BIN" -m orderflow_services.orchestration_composite_preflight_v1 --purpose "$PURPOSE" --stage-mode "${CONF_SCORE_GUARD_STAGE:-0}"
+-exec "$DOCKER_BIN" compose -f "$COMPOSE_FILE" run --rm "$SERVICE_NAME" "$@"
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++exec "$SCRIPT_DIR/run_trade_orchestration_composite_gated_compose_job_v1.sh" "$@"
+--- tick_flow_full/orderflow_services/deploy/systemd/run_trade_orchestration_composite_gated_compose_job_v1.sh
++++ tick_flow_full/orderflow_services/deploy/systemd/run_trade_orchestration_composite_gated_compose_job_v1.sh
+@@ -0,0 +1,33 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++if [[ $# -lt 3 ]]; then
++  echo "usage: $0 <compose-file> <service> <purpose> [compose-run-args...]" >&2
++  exit 64
++fi
++
++COMPOSE_FILE="$1"
++SERVICE_NAME="$2"
++PURPOSE="$3"
++shift 3
++
++REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
++PYTHON_BIN="${PYTHON_BIN:-python3}"
++DOCKER_BIN="${DOCKER_BIN:-docker}"
++
++cd "$REPO_ROOT"
++export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
++WRAPPER_FILE="${LATENCY_CONTRACT_DEPLOY_WRAPPER_FILE:-}"
++UNIT_FILE="${LATENCY_CONTRACT_DEPLOY_UNIT_FILE:-}"
++LINT_REPORT_PATH="${LATENCY_CONTRACT_DEPLOY_LINT_REPORT_PATH:-}"
++LINT_ENV_FILE="${LATENCY_CONTRACT_ENV_FILE:-}"
++"$PYTHON_BIN" -m orderflow_services.latency_contract_deploy_lint_v1 \
++  --purpose "$PURPOSE" \
++  --repo-root "$REPO_ROOT" \
++  --compose-file "$COMPOSE_FILE" \
++  ${WRAPPER_FILE:+--wrapper-file "$WRAPPER_FILE"} \
++  ${UNIT_FILE:+--unit-file "$UNIT_FILE"} \
++  ${LINT_ENV_FILE:+--env-file "$LINT_ENV_FILE"} \
++  ${LINT_REPORT_PATH:+--json-out "$LINT_REPORT_PATH"}
++"$PYTHON_BIN" -m orderflow_services.orchestration_composite_preflight_v1 --purpose "$PURPOSE" --stage-mode "${CONF_SCORE_GUARD_STAGE:-0}"
++exec "$DOCKER_BIN" compose -f "$COMPOSE_FILE" run --rm "$SERVICE_NAME" "$@"
+--- tick_flow_full/orderflow_services/deploy/systemd/run_trade_strategy_research_stats_gated_compose_job_v1.sh
++++ tick_flow_full/orderflow_services/deploy/systemd/run_trade_strategy_research_stats_gated_compose_job_v1.sh
+@@ -0,0 +1,6 @@
++#!/usr/bin/env bash
++# Legacy compatibility alias. Strategy research stats is now part of the
++# orchestration composite preflight.
++set -euo pipefail
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++exec "$SCRIPT_DIR/run_trade_orchestration_composite_gated_compose_job_v1.sh" "$@"
+--- tick_flow_full/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh
++++ tick_flow_full/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh
+@@ -1,24 +1,9 @@
+ #!/usr/bin/env bash
+-# Latency contract rollout preflight wrapper (P4.2).
+-#
+-# Usage: run_with_latency_contract_rollout_preflight_v1.sh <command...>
+-#
+-# Runs the composite orchestration preflight before executing the given command.
+-# This supersedes the old latency_contract_rollout_preflight_v1 +
+-# strategy_research_guard_rollout_preflight_v1 chaining and centralises
+-# deploy-lint + latency-contract + research-guard in one decision path.
++# Legacy compatibility alias. Composite preflight now covers deploy-lint +
++# latency-contract + strategy-research-stats in one decision path.
++# legacy grep safety: latency_contract_rollout_preflight_v1
++# legacy grep safety: strategy_research_guard_rollout_preflight_v1
++# legacy grep safety: orchestration_composite_preflight_v1
+ set -euo pipefail
+-
+-if [[ $# -lt 1 ]]; then
+-  echo "usage: $0 <command...>" >&2
+-  exit 64
+-fi
+-
+-PURPOSE="${LATENCY_CONTRACT_PREFLIGHT_PURPOSE:-latency_contract_sensitive_apply}"
+-PYTHON_BIN="${PYTHON_BIN:-python3}"
+-
+-"$PYTHON_BIN" -m orderflow_services.orchestration_composite_preflight_v1 --purpose "$PURPOSE" --stage-mode "${CONF_SCORE_GUARD_STAGE:-0}"
+-# legacy strings kept for grep-based deploy checks:
+-# latency_contract_rollout_preflight_v1
+-# strategy_research_guard_rollout_preflight_v1
+-exec "$@"
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++exec "$SCRIPT_DIR/run_with_orchestration_composite_rollout_preflight_v1.sh" "$@"
+--- tick_flow_full/orderflow_services/integrations/run_with_orchestration_composite_rollout_preflight_v1.sh
++++ tick_flow_full/orderflow_services/integrations/run_with_orchestration_composite_rollout_preflight_v1.sh
+@@ -0,0 +1,13 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++if [[ $# -lt 1 ]]; then
++  echo "usage: $0 <command...>" >&2
++  exit 64
++fi
++
++PURPOSE="${LATENCY_CONTRACT_PREFLIGHT_PURPOSE:-latency_contract_sensitive_apply}"
++PYTHON_BIN="${PYTHON_BIN:-python3}"
++
++"$PYTHON_BIN" -m orderflow_services.orchestration_composite_preflight_v1 --purpose "$PURPOSE" --stage-mode "${CONF_SCORE_GUARD_STAGE:-0}"
++exec "$@"
+--- tick_flow_full/orderflow_services/integrations/run_with_strategy_research_stats_rollout_preflight_v1.sh
++++ tick_flow_full/orderflow_services/integrations/run_with_strategy_research_stats_rollout_preflight_v1.sh
+@@ -0,0 +1,7 @@
++#!/usr/bin/env bash
++# Legacy compatibility alias. Strategy research stats is now evaluated inside
++# orchestration_composite_preflight_v1 together with deploy-lint and
++# latency-contract.
++set -euo pipefail
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++exec "$SCRIPT_DIR/run_with_orchestration_composite_rollout_preflight_v1.sh" "$@"
+--- tick_flow_full/orderflow_services/orchestration_composite_preflight_exporter_v1.py
++++ tick_flow_full/orderflow_services/orchestration_composite_preflight_exporter_v1.py
+@@ -38,8 +38,8 @@
+     'meta_cov_rollout_controller',
+     'conf_score_guardrails_autopromo_controller',
+ )
+-KNOWN_STATUSES = ('ok', 'block', 'invalid')
+-KNOWN_SOURCES = ('none', 'deploy_lint', 'latency_contract', 'research_guard')
++KNOWN_STATUSES = ('ok', 'block', 'invalid', 'soft')
++KNOWN_SOURCES = ('none', 'deploy_lint', 'latency_contract', 'strategy_research_stats', 'research_guard')
+ KNOWN_REASON_CODES = (
+     'ok',
+     'deploy_lint:persistent_config_drift',
+@@ -52,6 +52,17 @@
+     'latency_contract:redis_unavailable',
+     'latency_contract:redis_connect_failed',
+     'latency_contract:other',
++    'strategy_research_stats:psr_low',
++    'strategy_research_stats:dsr_low',
++    'strategy_research_stats:pbo_high',
++    'strategy_research_stats:metric_low',
++    'strategy_research_stats:report_stale',
++    'strategy_research_stats:state_missing',
++    'strategy_research_stats:invalid',
++    'strategy_research_stats:redis_unavailable',
++    'strategy_research_stats:redis_connect_failed',
++    'strategy_research_stats:stage_allowed',
++    'strategy_research_stats:other',
+     'research_guard:report_stale',
+     'research_guard:state_missing',
+     'research_guard:report_only',
+@@ -127,6 +138,7 @@
+     known_for_source = {
+         'deploy_lint': {'persistent_config_drift', 'state_missing', 'redis_unavailable', 'redis_connect_failed'},
+         'latency_contract': {'external_missing', 'state_missing', 'redis_unavailable', 'redis_connect_failed'},
++        'strategy_research_stats': {'psr_low', 'dsr_low', 'pbo_high', 'metric_low', 'report_stale', 'state_missing', 'invalid', 'redis_unavailable', 'redis_connect_failed', 'stage_allowed'},
+         'research_guard': {'report_stale', 'state_missing', 'report_only', 'redis_unavailable', 'redis_connect_failed'},
+         'none': {'ok'},
+     }
+@@ -146,6 +158,10 @@
+     decision_status: str = 'invalid'
+     selected_source: str = 'none'
+     selected_reason_code: str = 'none:ok'
++    deploy_lint_status: str = 'unknown'
++    latency_contract_status: str = 'unknown'
++    strategy_research_stats_status: str = 'unknown'
++    research_guard_status: str = 'unknown'
+ 
+ 
+ def compute_purpose_state(purpose: str, raw: Mapping[str, str], now_ms: int | None = None) -> PurposeState:
+@@ -181,6 +197,10 @@
+         decision_status=status,
+         selected_source=source,
+         selected_reason_code=normalize_reason_code(source, str(raw.get('selected_reason_code') or raw.get('selected_reason') or '')),
++        deploy_lint_status=str(raw.get('deploy_lint_status') or 'unknown'),
++        latency_contract_status=str(raw.get('latency_contract_status') or 'unknown'),
++        strategy_research_stats_status=str(raw.get('strategy_research_stats_status') or 'unknown'),
++        research_guard_status=str(raw.get('research_guard_status') or 'unknown'),
+     )
+ 
+ 
+@@ -212,6 +232,7 @@
+ DECISION_STATUS = Gauge('orchestration_composite_preflight_decision_status', 'One-hot composite decision status', ['purpose', 'status'])
+ SELECTED_SOURCE = Gauge('orchestration_composite_preflight_selected_source', 'One-hot selected source dominating the composite decision', ['purpose', 'source'])
+ SELECTED_REASON_CODE = Gauge('orchestration_composite_preflight_selected_reason_code', 'One-hot normalized selected reason code', ['purpose', 'reason_code'])
++SOURCE_STATUS = Gauge('orchestration_composite_preflight_source_status', 'Per-source orchestration preflight status', ['purpose', 'source', 'status'])
+ SUMMARY_PURPOSES = Gauge('orchestration_composite_preflight_purposes_total', 'Configured orchestration purposes covered by exporter')
+ SUMMARY_PRESENT = Gauge('orchestration_composite_preflight_present_total', 'Number of purposes with persisted state')
+ SUMMARY_BLOCK = Gauge('orchestration_composite_preflight_block_total', 'Number of purposes currently blocked')
+@@ -236,6 +257,17 @@
+             DECISION_STATUS.labels(purpose=state.purpose, status=status).set(1.0 if status == state.decision_status else 0.0)
+         for source in KNOWN_SOURCES:
+             SELECTED_SOURCE.labels(purpose=state.purpose, source=source).set(1.0 if source == state.selected_source else 0.0)
++        source_statuses = {
++            'deploy_lint': state.deploy_lint_status,
++            'latency_contract': state.latency_contract_status,
++            'strategy_research_stats': state.strategy_research_stats_status,
++            'research_guard': state.research_guard_status,
++        }
++        for source in KNOWN_SOURCES:
++            if source == 'none':
++                continue
++            for status in KNOWN_STATUSES:
++                SOURCE_STATUS.labels(purpose=state.purpose, source=source, status=status).set(1.0 if source_statuses.get(source) == status else 0.0)
+         for reason_code in KNOWN_REASON_CODES:
+             SELECTED_REASON_CODE.labels(purpose=state.purpose, reason_code=reason_code).set(1.0 if reason_code == active_reason_codes[state.purpose] else 0.0)
+ 
+--- tick_flow_full/orderflow_services/orchestration_composite_preflight_history_rollup_v1.py
++++ tick_flow_full/orderflow_services/orchestration_composite_preflight_history_rollup_v1.py
+@@ -29,7 +29,7 @@
+ HOURLY_PREFIX_DEFAULT = "metrics:orchestration:preflight:history:h"
+ DAILY_PREFIX_DEFAULT = "metrics:orchestration:preflight:history:d"
+ 
+-ALLOWED_SOURCES = {"deploy_lint", "latency_contract", "research_guard", "unknown"}
++ALLOWED_SOURCES = {"deploy_lint", "latency_contract", "strategy_research_stats", "research_guard", "unknown"}
+ ALLOWED_STATUSES = {"ok", "invalid", "block", "unknown"}
+ 
+ 
+@@ -60,7 +60,7 @@
+     if raw.startswith("latency"):
+         return "latency_contract"
+     if raw.startswith("research"):
+-        return "research_guard"
++        return "strategy_research_stats" if "strategy_research_stats" in lower or raw.startswith("cfg:strategy_research_stats") else "research_guard"
+     return "unknown"
+ 
+ 
+@@ -82,7 +82,7 @@
+     raw = re.sub(r"[^a-z0-9:_-]+", "_", raw).strip("_:")
+     if not raw:
+         return f"{source}:none"
+-    if raw.startswith(("deploy_lint:", "latency_contract:", "research_guard:")):
++    if raw.startswith(("deploy_lint:", "latency_contract:", "strategy_research_stats:", "research_guard:")):
+         prefix, rest = raw.split(":", 1)
+         source = normalize_source(prefix)
+         raw = rest
+--- tick_flow_full/orderflow_services/orchestration_composite_preflight_v1.py
++++ tick_flow_full/orderflow_services/orchestration_composite_preflight_v1.py
+@@ -6,7 +6,7 @@
+ Combines three independent safety sources behind one deterministic decision:
+   - deploy-lint persistent drift gate
+   - latency-contract rollout gate
+-  - strategy research guard
++  - strategy research stats gate
+ 
+ Design goals:
+   - one preflight command for both host-wrapper and in-container paths
+@@ -23,7 +23,7 @@
+ 
+ from services.observability.latency_deploy_lint_state import gate_key as deploy_lint_gate_key
+ from services.observability.latency_deploy_lint_state import state_key as deploy_lint_state_key
+-from orderflow_services.research_guard_blocker_v1 import evaluate_research_guard_gate
++from orderflow_services.strategy_research_stats_gate_v1 import evaluate_strategy_research_stats_gate
+ 
+ try:
+     import redis  # type: ignore
+@@ -47,7 +47,8 @@
+ SOURCE_PRIORITY = {
+     'deploy_lint': 0,
+     'latency_contract': 1,
+-    'research_guard': 2,
++    'strategy_research_stats': 2,
++    'research_guard': 3,
+ }
+ 
+ 
+@@ -76,12 +77,12 @@
+     return f'{prefix.rstrip(":")}:{purpose}'
+ 
+ 
+-def _stage_allowed_for_research(purpose: str, stage_mode: bool) -> bool:
++def _stage_allowed_for_strategy_research_stats(purpose: str, stage_mode: bool) -> bool:
+     if not stage_mode:
+         return False
+     if purpose != 'conf_score_guardrails_apply':
+         return False
+-    return _env('STRATEGY_RESEARCH_GUARD_PREFLIGHT_ALLOW_STAGE', '1') == '1'
++    return _env('STRATEGY_RESEARCH_STATS_PREFLIGHT_ALLOW_STAGE', '1') == '1'
+ 
+ 
+ def evaluate_latency_contract_gate(
+@@ -146,7 +147,7 @@
+ 
+ 
+ def _select_reason(sources: list[Dict[str, Any]]) -> Dict[str, Any]:
+-    bad = [src for src in sources if str(src.get('status')) != 'ok']
++    bad = [src for src in sources if str(src.get('status')) in ('block', 'invalid')]
+     if not bad:
+         return {'source': 'none', 'status': 'ok', 'reason': 'ok', 'priority_rank': 999}
+     chosen = sorted(bad, key=_priority_tuple)[0]
+@@ -173,8 +174,8 @@
+         'deploy_lint_reason': str(composite.get('deploy_lint_reason') or 'unknown'),
+         'latency_contract_status': str(composite.get('latency_contract_status') or 'unknown'),
+         'latency_contract_reason': str(composite.get('latency_contract_reason') or 'unknown'),
+-        'research_guard_status': str(composite.get('research_guard_status') or 'unknown'),
+-        'research_guard_reason': str(composite.get('research_guard_reason') or 'unknown'),
++        'strategy_research_stats_status': str(composite.get('strategy_research_stats_status') or 'unknown'),
++        'strategy_research_stats_reason': str(composite.get('strategy_research_stats_reason') or 'unknown'),
+         'sources_json': json.dumps(dict(composite.get('sources') or {}), sort_keys=True),
+     }
+     client.xadd(stream, fields, maxlen=200000, approximate=True)
+@@ -197,8 +198,8 @@
+         'deploy_lint_reason': str(composite.get('deploy_lint_reason') or 'unknown'),
+         'latency_contract_status': str(composite.get('latency_contract_status') or 'unknown'),
+         'latency_contract_reason': str(composite.get('latency_contract_reason') or 'unknown'),
+-        'research_guard_status': str(composite.get('research_guard_status') or 'unknown'),
+-        'research_guard_reason': str(composite.get('research_guard_reason') or 'unknown'),
++        'strategy_research_stats_status': str(composite.get('strategy_research_stats_status') or 'unknown'),
++        'strategy_research_stats_reason': str(composite.get('strategy_research_stats_reason') or 'unknown'),
+         'sources_json': json.dumps(dict(composite.get('sources') or {}), sort_keys=True),
+     }
+     client.hset(skey, mapping=mapping)
+@@ -221,12 +222,12 @@
+             sources = {
+                 'deploy_lint': {'status': 'invalid', 'reason': 'redis_unavailable'},
+                 'latency_contract': {'status': 'invalid', 'reason': 'redis_unavailable'},
+-                'research_guard': {'status': 'invalid', 'reason': 'redis_unavailable'},
++                'strategy_research_stats': {'status': 'invalid', 'reason': 'redis_unavailable'},
+             }
+             selected = _select_reason([
+                 {'source': 'deploy_lint', **sources['deploy_lint']},
+                 {'source': 'latency_contract', **sources['latency_contract']},
+-                {'source': 'research_guard', **sources['research_guard']},
++                {'source': 'strategy_research_stats', **sources['strategy_research_stats']},
+             ])
+             return {
+                 'purpose': purpose,
+@@ -240,8 +241,8 @@
+                 'deploy_lint_reason': 'redis_unavailable',
+                 'latency_contract_status': 'invalid',
+                 'latency_contract_reason': 'redis_unavailable',
+-                'research_guard_status': 'invalid',
+-                'research_guard_reason': 'redis_unavailable',
++                'strategy_research_stats_status': 'invalid',
++                'strategy_research_stats_reason': 'redis_unavailable',
+             }
+         client = redis.Redis.from_url(redis_url, decode_responses=True)
+ 
+@@ -263,28 +264,28 @@
+         client=client,
+     )
+ 
+-    if _env('ENABLE_STRATEGY_RESEARCH_GUARD_HARD_GATE', '0') != '1':
+-        research = {'source': 'research_guard', 'status': 'ok', 'reason': 'disabled', 'blocked': False, 'raw': {}}
+-    elif _stage_allowed_for_research(purpose, stage_mode):
+-        research = {'source': 'research_guard', 'status': 'ok', 'reason': 'stage_allowed', 'blocked': False, 'raw': {}}
++    if _env('ENABLE_STRATEGY_RESEARCH_STATS_COMPOSITE_PREFLIGHT', '1') != '1':
++        research_stats = {'source': 'strategy_research_stats', 'status': 'ok', 'reason': 'disabled', 'blocked': False, 'soft_blocked': False, 'gate_mode': 'report_only', 'raw': {}}
++    elif _stage_allowed_for_strategy_research_stats(purpose, stage_mode):
++        research_stats = {'source': 'strategy_research_stats', 'status': 'ok', 'reason': 'stage_allowed', 'blocked': False, 'soft_blocked': False, 'gate_mode': 'soft', 'raw': {}}
+     else:
+-        research = dict(
+-            source='research_guard',
+-            **evaluate_research_guard_gate(
++        research_stats = dict(
++            source='strategy_research_stats',
++            **evaluate_strategy_research_stats_gate(
+                 redis_url,
+-                _env('STRATEGY_RESEARCH_GUARD_BLOCKER_KEY', 'cfg:research_guard:blocker:v1'),
+-                _env('STRATEGY_RESEARCH_GUARD_SUMMARY_KEY', 'metrics:strategy_research_guard:last'),
+-                max_age_sec=float(_env('STRATEGY_RESEARCH_GUARD_MAX_AGE_SEC', '129600') or 129600),
+-                fail_closed_missing=_i(_env('STRATEGY_RESEARCH_GUARD_FAIL_CLOSED_MISSING', '1'), 1),
++                _env('STRATEGY_RESEARCH_STATS_BLOCKER_KEY', 'cfg:strategy_research_stats:blocker:v1'),
++                _env('STRATEGY_RESEARCH_STATS_SUMMARY_KEY', 'metrics:strategy_research_stats:last'),
++                max_age_sec=float(_env('STRATEGY_RESEARCH_STATS_MAX_AGE_SEC', '129600') or 129600),
++                fail_closed_missing=_i(_env('STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING', '0'), 0),
+                 client=client,
+             ),
+         )
+ 
+-    selected = _select_reason([deploy, latency, research])
++    selected = _select_reason([deploy, latency, research_stats])
+     sources = {
+         'deploy_lint': {'status': str(deploy.get('status') or 'invalid'), 'reason': str(deploy.get('reason') or 'unknown')},
+         'latency_contract': {'status': str(latency.get('status') or 'invalid'), 'reason': str(latency.get('reason') or 'unknown')},
+-        'research_guard': {'status': str(research.get('status') or 'invalid'), 'reason': str(research.get('reason') or 'unknown')},
++        'strategy_research_stats': {'status': str(research_stats.get('status') or 'invalid'), 'reason': str(research_stats.get('reason') or 'unknown')},
+     }
+     composite = {
+         'purpose': purpose,
+@@ -297,8 +298,8 @@
+         'deploy_lint_reason': sources['deploy_lint']['reason'],
+         'latency_contract_status': sources['latency_contract']['status'],
+         'latency_contract_reason': sources['latency_contract']['reason'],
+-        'research_guard_status': sources['research_guard']['status'],
+-        'research_guard_reason': sources['research_guard']['reason'],
++        'strategy_research_stats_status': sources['strategy_research_stats']['status'],
++        'strategy_research_stats_reason': sources['strategy_research_stats']['reason'],
+         'sources': sources,
+     }
+     if emit_audit:

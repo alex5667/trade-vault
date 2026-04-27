@@ -1,0 +1,38 @@
+groups:
+  - name: gr_capture_and_parity_p112
+    rules:
+      - alert: OFCCaptureStuck
+        expr: (time() * 1000 - max_over_time(ofc_capture_last_write_ts_ms[10m])) > 180000
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OFC capture appears stuck"
+          description: "No capture writes for >3m in last 10m window."
+
+      - alert: OFCCaptureHighErrorRate
+        expr: increase(ofc_capture_errors_total[5m]) >= 5
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OFC capture write errors"
+          description: "Capture errors increased by >=5 over 5m."
+
+      - alert: GoldenReplayNightlyStale
+        expr: (time() * 1000 - golden_replay_state_updated_ts_ms) > 93600000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Golden replay nightly state is stale"
+          description: "No nightly update for >26h."
+
+      - alert: GoldenReplayNightlyMismatch
+        expr: golden_replay_mismatches_total > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Golden replay parity mismatches detected"
+          description: "Latest nightly run reports >0 mismatches."

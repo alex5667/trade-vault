@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/liq_pressure_gate_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.02, 0.05, 0.06, 0.1, 0.12, 1.0, 2.0, 3.0, 1200, ',', 'LONG', 'SHORT', 'VETO', 'bad_obi', 'bad_ofi', 'bad_q', 'boost', 'both', 'bst', 'enforce', 'fast_recover', 'liq_pressure_ofi_thr', 'liq_pressure_pen_max', 'off', 'penalty']

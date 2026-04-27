@@ -1,0 +1,20 @@
+# OF Gate SRE Monitoring Crontab
+# Add to Docker container for automated monitoring
+
+# OF Gate SRE Monitor (hourly at :00)
+# 0 * * * * cd /app && /opt/venv/bin/python -m tools.of_gate_sre_monitor --always 0 >> /var/log/of_gate_sre.log 2>&1
+
+# OF Gate Latency Benchmark (hourly at :15)
+# 15 * * * * cd /app && /opt/venv/bin/python -m tools.bench_of_gate_latency --window-min 60 --out /var/lib/trade/of_bench/latency_bench_last.json >> /var/log/of_gate_bench.log 2>&1
+
+# OF Gate Golden Snapshot (nightly at 04:00)
+# 0 4 * * * cd /app && /opt/venv/bin/python -m tools.of_gate_golden_snapshot --window-hours 24 --baseline /var/lib/trade/of_gate_golden/baseline.json --out-dir /var/lib/trade/of_gate_golden --fail-on-drift 1 --notify 1 >> /var/log/of_gate_golden.log 2>&1
+
+# OF Confirm Golden Replay (nightly at 05:00)
+# 0 5 * * * cd /app && /opt/venv/bin/python -m tools.golden_replay_of_confirm_from_redis --out-dir /var/lib/trade/of_replay --stream signals:of:inputs --field payload --since-hours 24 --max-records 200000 --baseline /var/lib/trade/of_replay/baseline.ndjson --fail-on-mismatch 1 >> /var/log/of_replay.log 2>&1
+
+# LiqMap Gate Calibrator (nightly at 04:30)
+# 30 4 * * * cd /app && /opt/venv/bin/python -m tools.liqmap_gate_calibrator --hours 168 >> /var/log/liqmap_calibrator.log 2>&1
+
+# ML Confirm Gate Calibrator (nightly at 05:00) — progressive enforce_share ladder
+# 0 5 * * * cd /app && /opt/venv/bin/python -m tools.ml_confirm_gate_calibrator --hours 168 >> /var/log/ml_confirm_calibrator.log 2>&1

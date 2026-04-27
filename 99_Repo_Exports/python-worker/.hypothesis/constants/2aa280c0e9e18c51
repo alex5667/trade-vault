@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/sparse/_coo.py
+# hypothesis_version: 6.148.10
+
+[100, 'A', 'C', 'F', 'axis out of bounds', 'coo', 'coo_array', 'coo_matrix', 'i', 'invalid input format', 'isspmatrix_coo', 'restructuredtext en']

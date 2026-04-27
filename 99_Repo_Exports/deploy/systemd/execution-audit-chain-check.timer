@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodic execution audit-chain checker timer (P5.7)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=15s
+Persistent=true
+Unit=execution-audit-chain-check.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/crypto_orderflow_detectors.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-12, 1e-06, 0.05, 0.1, 0.5, 1.0, 1.5, 2.0, 3.0, 10.0, 1000.0, 5000, '1', 'BUY', 'E', 'SELL', 'above_threshold', 'absorption', 'ask', 'ask_vol', 'asks', 'b', 'bid', 'bid_vol', 'bids', 'buy', 'concentration', 'delta', 'delta_spike', 'depth', 'direction', 'duration', 'false', 'iceberg', 'is_buyer_maker', 'last_qty', 'long', 'obi', 'obi_z', 'on', 'price', 'qty', 'refresh', 's', 'sell', 'short', 'side', 'stable_secs', 'stacking', 'start', 'start_ts', 'timestamp', 'total_refresh_qty', 'true', 'ts', 'ts_ms', 'type', 'unknown', 'volume', 'yes', 'z']

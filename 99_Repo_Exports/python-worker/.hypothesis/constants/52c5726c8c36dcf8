@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/of_confirm_diff_report.py
+# hypothesis_version: 6.148.10
+
+[0.0, 2000000, '--baseline', '--candidate', '--fail-on-mismatch', '--max-samples', '--out', '--score-eps', '.', '1', '1e-6', '30', 'NA', 'OF_REPLAY_SCORE_EPS', '__main__', 'baseline', 'baseline_n', 'candidate', 'candidate_n', 'diffs', 'gate_bits', 'have', 'k', 'mismatch_types', 'mismatches', 'missing_in_baseline', 'missing_in_candidate', 'need', 'ok', 'r', 'samples', 'scenario_v4', 'score', 'symbol', 'top_groups', 'utf-8', 'w']

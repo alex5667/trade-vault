@@ -1,0 +1,160 @@
+# Docker Compose для Aggregated Signal Hub V2
+# Используйте: docker-compose -f docker-compose.hub-v2.yml up -d
+
+version: '3.8'
+
+services:
+  # ============================================================
+  # Aggregated Signal Hub V2 - Main Service
+  # ============================================================
+  aggregated-hub-v2:
+    build:
+      context: .
+      dockerfile: Dockerfile.python-worker
+    container_name: scanner-aggregated-hub-v2
+    restart: unless-stopped
+
+    environment:
+      # === Базовая конфигурация ===
+      - SYMBOL=XAUUSD
+      - REDIS_URL=redis://scanner-redis-worker-1:6379/0
+
+      # === Redis streams ===
+      - TICK_STREAM=ticks:XAUUSD
+      - PRINTS_STREAM=prints:XAUUSD
+
+      # === Пороги и фильтры ===
+      - HUB_CONFIDENCE_THR=0.70 # Минимальный confidence для сигнала (0..1)
+      - HUB_MIN_SIG_INT_SEC=180 # Мин. интервал между сигналами (сек)
+      - HUB_SIDE_LOCK_SEC=20 # Блокировка смены стороны (сек)
+
+      # === Веса для confidence blending ===
+      - W_DELTA_PRO=0.50 # True bid/ask delta (pro detector)
+      - W_SPEED=0.15 # Tick speed/range
+      - W_CLUSTER=0.25 # DOM cluster score
+      - W_LEGACY=0.10 # Legacy detector (compatibility)
+
+      # === Writer / Risk Management ===
+      - MIN_CONF=60.0 # Мин. confidence для writer [0..100]
+      - HUB_COOLDOWN=300 # Cooldown между ордерами (сек)
+      - RISK_PCT=1.0 # % риска от баланса
+      - SL_MULT=1.5 # Множитель SL (ATR)
+      - TP_MULTS=2.0,3.0,4.0 # Множители TP (ATR)
+
+      # === Order Push / Telegram ===
+      - ORDER_PUSH_URL=http://go-gateway:8080/orders/push
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+
+      # === Parquet Label Sink (опционально) ===
+      - PARQUET_LABELS_DIR=/data/labels
+
+      # === Logging ===
+      - LOG_LEVEL=INFO
+      - PYTHONUNBUFFERED=1
+
+    command: >
+      sh -c "cd python-worker && 
+             python3 aggregated_signal_hub_v2.py --mode=live --symbol=XAUUSD"
+
+    volumes:
+      # Код (для разработки, закомментируйте в prod)
+      - ./python-worker:/app/python-worker:ro
+      - ./common:/app/common:ro
+      - ./core:/app/core:ro
+
+      # Данные
+      - ./data/labels:/data/labels
+
+    depends_on:
+      - scanner-redis-worker-1
+
+    networks:
+      - scanner-net
+
+    healthcheck:
+      test: ['CMD', 'pgrep', '-f', 'aggregated_signal_hub_v2']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  # ============================================================
+  # Hub V2 - Replay Mode (для тестирования)
+  # ============================================================
+  aggregated-hub-v2-replay:
+    build:
+      context: .
+      dockerfile: Dockerfile.python-worker
+    container_name: scanner-aggregated-hub-v2-replay
+    restart: 'no'
+    profiles:
+      - replay # Запускается только с --profile replay
+
+    environment:
+      - SYMBOL=XAUUSD
+      - REDIS_URL=redis://scanner-redis-worker-1:6379/0
+      - HUB_CONFIDENCE_THR=0.62
+      - HUB_MIN_SIG_INT_SEC=180
+      - W_DELTA_PRO=0.50
+      - W_SPEED=0.15
+      - W_CLUSTER=0.25
+      - W_LEGACY=0.10
+      - MIN_CONF=60.0
+      - LOG_LEVEL=INFO
+      - PYTHONUNBUFFERED=1
+
+    command: >
+      sh -c "cd python-worker && 
+             python3 aggregated_signal_hub_v2.py 
+               --mode=replay 
+               --replay-csv=/data/replay/trades_xauusd.csv 
+               --replay-speed=1.0 
+               --max-rows=10000"
+
+    volumes:
+      - ./python-worker:/app/python-worker:ro
+      - ./common:/app/common:ro
+      - ./core:/app/core:ro
+      - ./data/replay:/data/replay:ro
+      - ./data/labels:/data/labels
+
+    networks:
+      - scanner-net
+
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+networks:
+  scanner-net:
+    name: scanner-net
+    external: true
+# ============================================================
+# Примеры запуска:
+# ============================================================
+#
+# 1. Запуск Hub V2 в live режиме:
+#    docker-compose -f docker-compose.hub-v2.yml up -d aggregated-hub-v2
+#
+# 2. Запуск в replay режиме (тестирование):
+#    docker-compose -f docker-compose.hub-v2.yml --profile replay up aggregated-hub-v2-replay
+#
+# 3. Просмотр логов:
+#    docker-compose -f docker-compose.hub-v2.yml logs -f aggregated-hub-v2
+#
+# 4. Остановка:
+#    docker-compose -f docker-compose.hub-v2.yml down
+#
+# 5. Интеграция с основным docker-compose.yml:
+#    Добавьте сервис aggregated-hub-v2 в основной файл или используйте:
+#    docker-compose -f docker-compose.yml -f docker-compose.hub-v2.yml up -d
+

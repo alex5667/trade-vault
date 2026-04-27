@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/feature_store_worker.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 2.0, 1000.0, 200, 500, 1000, 2000, 3600, 60000, '0.5', '1800', 'GLOBAL', 'HOSTNAME', 'INFO', 'LOG_LEVEL', 'NEWS_AGG_TTL_SEC', 'NEWS_ANALYSIS_DLQ', 'NEWS_ANALYSIS_STREAM', 'NEWS_FEATURE_GROUP', 'NEWS_POSTGRES_DSN', 'NewsPostgresWriter', 'POSTGRES_DSN', 'REDIS_URL', '__main__', 'asof_ts_ms', 'confidence', 'horizon_sec', 'news-feature-1', 'news-feature-store', 'news:analysis', 'news:analysis:dlq', 'news_feature_store', 'news_grade_id', 'primary_tag', 'primary_tag_id', 'ref', 'risk', 'risk_ema', 'source', 'surprise', 'surprise_ema', 'symbol', 'tags_mask', 'ts_ms', 'uid']

@@ -1,0 +1,821 @@
+--- /mnt/data/proj19/services/orderflow/configuration.py	2026-02-28 13:35:46.000000000 +0000
++++ /mnt/data/proj19_mod/services/orderflow/configuration.py	2026-03-01 10:23:49.649000783 +0000
+@@ -114,6 +114,24 @@
+     "dq_book_missing_seq_ema_soft": _safe_float(os.getenv("DQ_BOOK_MISSING_SEQ_EMA_SOFT", "0"), 0.0) or None,
+     "dq_book_missing_seq_ema_hard": _safe_float(os.getenv("DQ_BOOK_MISSING_SEQ_EMA_HARD", "0"), 0.0) or None,
+ 
++    # Book stream DQ tuning (partial depth streams like @depth20@100ms)
++    # expected_interval_ms: nominal update interval of the book stream (ms).
++    # gap_min_missing_updates: how many missed intervals constitute a "gap event".
++    # resync_on_gap: set runtime.book_resync_needed=True when a severe gap is detected.
++    # dq_book_seq_tau_ms: EMA smoothing for book gaps (separate from tick seq).
++    "book_expected_interval_ms": _safe_int(os.getenv("BOOK_EXPECTED_INTERVAL_MS", "100"), 100),
++    "book_gap_min_missing_updates": _safe_int(os.getenv("BOOK_GAP_MIN_MISSING_UPDATES", "0"), 0)
++    or (3 if str(os.getenv("DQ_MODE", "safe")).lower() == "strict" else 5),
++    "book_resync_on_gap": _safe_int(os.getenv("BOOK_RESYNC_ON_GAP", "0"), 0),
++    "book_resync_min_missing_updates": _safe_int(os.getenv("BOOK_RESYNC_MIN_MISSING_UPDATES", "0"), 0)
++    or (10 if str(os.getenv("DQ_MODE", "safe")).lower() == "strict" else 15),
++    "dq_book_seq_tau_ms": _safe_int(os.getenv("DQ_BOOK_SEQ_TAU_MS", "0"), 0)
++    or (6000 if str(os.getenv("DQ_MODE", "safe")).lower() == "strict" else 15000),
++
++    # Separate rollout knob for book-gap hard veto (recommended: observe 24h first).
++    "dq_book_veto_enabled": _safe_int(os.getenv("DQ_BOOK_VETO_ENABLED", "0"), 0),
++    "dq_book_veto_warmup_s": _safe_int(os.getenv("DQ_BOOK_VETO_WARMUP_S", "86400"), 86400),
++
+     "dq_data_health_min": _safe_float(os.getenv("DQ_DATA_HEALTH_MIN", "0.85"), 0.85),
+     "dq_data_health_hard_min": _safe_float(os.getenv("DQ_DATA_HEALTH_HARD_MIN", "0.70"), 0.70),
+     "dq_tick_age_ms_max": _safe_float(os.getenv("DQ_TICK_AGE_MS_MAX", "5000"), 5000.0),
+
+--- /mnt/data/proj19/tick_flow_full/services/orderflow/configuration.py	2026-02-28 13:35:46.000000000 +0000
++++ /mnt/data/proj19_mod/tick_flow_full/services/orderflow/configuration.py	2026-03-01 10:23:49.649849195 +0000
+@@ -114,6 +114,24 @@
+     "dq_book_missing_seq_ema_soft": _safe_float(os.getenv("DQ_BOOK_MISSING_SEQ_EMA_SOFT", "0"), 0.0) or None,
+     "dq_book_missing_seq_ema_hard": _safe_float(os.getenv("DQ_BOOK_MISSING_SEQ_EMA_HARD", "0"), 0.0) or None,
+ 
++    # Book stream DQ tuning (partial depth streams like @depth20@100ms)
++    # expected_interval_ms: nominal update interval of the book stream (ms).
++    # gap_min_missing_updates: how many missed intervals constitute a "gap event".
++    # resync_on_gap: set runtime.book_resync_needed=True when a severe gap is detected.
++    # dq_book_seq_tau_ms: EMA smoothing for book gaps (separate from tick seq).
++    "book_expected_interval_ms": _safe_int(os.getenv("BOOK_EXPECTED_INTERVAL_MS", "100"), 100),
++    "book_gap_min_missing_updates": _safe_int(os.getenv("BOOK_GAP_MIN_MISSING_UPDATES", "0"), 0)
++    or (3 if str(os.getenv("DQ_MODE", "safe")).lower() == "strict" else 5),
++    "book_resync_on_gap": _safe_int(os.getenv("BOOK_RESYNC_ON_GAP", "0"), 0),
++    "book_resync_min_missing_updates": _safe_int(os.getenv("BOOK_RESYNC_MIN_MISSING_UPDATES", "0"), 0)
++    or (10 if str(os.getenv("DQ_MODE", "safe")).lower() == "strict" else 15),
++    "dq_book_seq_tau_ms": _safe_int(os.getenv("DQ_BOOK_SEQ_TAU_MS", "0"), 0)
++    or (6000 if str(os.getenv("DQ_MODE", "safe")).lower() == "strict" else 15000),
++
++    # Separate rollout knob for book-gap hard veto (recommended: observe 24h first).
++    "dq_book_veto_enabled": _safe_int(os.getenv("DQ_BOOK_VETO_ENABLED", "0"), 0),
++    "dq_book_veto_warmup_s": _safe_int(os.getenv("DQ_BOOK_VETO_WARMUP_S", "86400"), 86400),
++
+     "dq_data_health_min": _safe_float(os.getenv("DQ_DATA_HEALTH_MIN", "0.85"), 0.85),
+     "dq_data_health_hard_min": _safe_float(os.getenv("DQ_DATA_HEALTH_HARD_MIN", "0.70"), 0.70),
+     "dq_tick_age_ms_max": _safe_float(os.getenv("DQ_TICK_AGE_MS_MAX", "5000"), 5000.0),
+
+--- /mnt/data/proj19/services/orderflow/runtime.py	2026-02-28 10:33:39.000000000 +0000
++++ /mnt/data/proj19_mod/services/orderflow/runtime.py	2026-03-01 10:26:06.782446128 +0000
+@@ -731,6 +731,17 @@
+     liq_service: LiquidityRegimeService = field(init=False)
+ 
+ 
++    # --- Strict / partial book DQ tracking ---
++    #
++    # For full depth diff streams (U/u): we can detect true missing sequence.
++    # For partial depth streams (e.g. @depth20@100ms): we fall back to time-gap based detection.
++    book_seq_last_u: int = 0
++    book_seq_last_reason: str = ""
++    book_ingest_last_ts_ms: int = 0
++    book_missing_seq_ema: float = 0.0
++    book_missing_seq_last_gap: int = 0
++    book_resync_needed: bool = False
++
+     def __post_init__(self) -> None:
+         self.apply_config(self.config)
+         # default selected tf = config atr_tf
+@@ -755,9 +766,10 @@
+         # P2/F: gap EMA time-constant (safe vs strict defaults, override via config)
+         dq_mode = str(self.config.get("dq_mode", "safe") or "safe").lower()
+         tau_default = 10_000 if dq_mode == "safe" else 3_000
+-        tau_ms = int(self.config.get("dq_seq_tau_ms", tau_default) or tau_default)
+-        self.tick_seq_gap = GapEmaTracker(tau_ms=tau_ms)
+-        self.book_seq_gap = GapEmaTracker(tau_ms=tau_ms)
++        tau_tick_ms = int(self.config.get("dq_seq_tau_ms", tau_default) or tau_default)
++        tau_book_ms = int(self.config.get("dq_book_seq_tau_ms", tau_tick_ms) or tau_tick_ms)
++        self.tick_seq_gap = GapEmaTracker(tau_ms=tau_tick_ms)
++        self.book_seq_gap = GapEmaTracker(tau_ms=tau_book_ms)
+         self.burst_cal = BurstCalibrator(
+             base_window_ms=int(self.config.get("burst_window_ms", 2500)),
+             min_window_ms=int(self.config.get("burst_window_min_ms", 300)),
+
+--- /mnt/data/proj19/tick_flow_full/services/orderflow/runtime.py	2026-02-28 10:33:39.000000000 +0000
++++ /mnt/data/proj19_mod/tick_flow_full/services/orderflow/runtime.py	2026-03-01 10:26:06.783958589 +0000
+@@ -731,6 +731,17 @@
+     liq_service: LiquidityRegimeService = field(init=False)
+ 
+ 
++    # --- Strict / partial book DQ tracking ---
++    #
++    # For full depth diff streams (U/u): we can detect true missing sequence.
++    # For partial depth streams (e.g. @depth20@100ms): we fall back to time-gap based detection.
++    book_seq_last_u: int = 0
++    book_seq_last_reason: str = ""
++    book_ingest_last_ts_ms: int = 0
++    book_missing_seq_ema: float = 0.0
++    book_missing_seq_last_gap: int = 0
++    book_resync_needed: bool = False
++
+     def __post_init__(self) -> None:
+         self.apply_config(self.config)
+         # default selected tf = config atr_tf
+@@ -755,9 +766,10 @@
+         # P2/F: gap EMA time-constant (safe vs strict defaults, override via config)
+         dq_mode = str(self.config.get("dq_mode", "safe") or "safe").lower()
+         tau_default = 10_000 if dq_mode == "safe" else 3_000
+-        tau_ms = int(self.config.get("dq_seq_tau_ms", tau_default) or tau_default)
+-        self.tick_seq_gap = GapEmaTracker(tau_ms=tau_ms)
+-        self.book_seq_gap = GapEmaTracker(tau_ms=tau_ms)
++        tau_tick_ms = int(self.config.get("dq_seq_tau_ms", tau_default) or tau_default)
++        tau_book_ms = int(self.config.get("dq_book_seq_tau_ms", tau_tick_ms) or tau_tick_ms)
++        self.tick_seq_gap = GapEmaTracker(tau_ms=tau_tick_ms)
++        self.book_seq_gap = GapEmaTracker(tau_ms=tau_book_ms)
+         self.burst_cal = BurstCalibrator(
+             base_window_ms=int(self.config.get("burst_window_ms", 2500)),
+             min_window_ms=int(self.config.get("burst_window_min_ms", 300)),
+
+--- /mnt/data/proj19/services/orderflow/components/book_processor.py	2026-02-24 20:49:13.000000000 +0000
++++ /mnt/data/proj19_mod/services/orderflow/components/book_processor.py	2026-03-01 10:28:00.423804928 +0000
+@@ -8,6 +8,7 @@
+ from services.orderflow.configuration import _safe_int, _safe_float
+ from services.orderflow.metrics import (
+     log_silent_error, book_rate_ema_gauge, book_rate_z_gauge,
++    book_missing_seq_ema_gauge, book_missing_seq_events_total,
+     of_lob_queue_imbalance_gauge, of_lob_queue_imbalance_mean_gauge,
+     of_lob_queue_imbalance_max_abs_gauge, of_lob_queue_imbalance_slope_gauge,
+     of_lob_micro_mid_div_bps_gauge, of_lob_micro_shift_bps_gauge,
+@@ -21,6 +22,7 @@
+ from core.lob_pressure import compute_lob_pressure  # LOB pressure features (P91)
+ from core.cvd_reclaim import compute_cvd_reclaim
+ from core.ofi_tracker import OFIEvent
++from core.book_seq_tracker_v2 import compute_book_seq_update
+ 
+ # GPU L2 processor — lazy import, no hard dependency
+ try:
+@@ -48,6 +50,60 @@
+         self.book_churn_z_full = book_churn_z_full
+         self.book_churn_z_hi = book_churn_z_hi
+ 
++    def _update_book_dq_seq_gap(self, runtime, book_raw: dict, ingest_ts_ms: int) -> None:
++        """Update book gap EMA and optional resync flag.
++
++        Supports two cases:
++          * full depth diff stream: uses U/u for strict missing-seq detection
++          * partial depth stream (@depth20@100ms): uses ingest time-gaps
++
++        This method is intentionally lightweight and must never raise.
++        """
++
++        try:
++            cfg = getattr(runtime, 'config', {}) or {}
++            expected_interval_ms = int(cfg.get('book_expected_interval_ms', 100) or 100)
++            min_missing_updates = int(cfg.get('book_gap_min_missing_updates', 3) or 3)
++            resync_on_gap = bool(int(cfg.get('book_resync_on_gap', 0) or 0))
++            resync_min_missing = int(cfg.get('book_resync_min_missing_updates', 10) or 10)
++
++            prev_last_u = int(getattr(runtime, 'book_seq_last_u', 0) or 0)
++            prev_ingest_ts_ms = int(getattr(runtime, 'book_ingest_last_ts_ms', 0) or 0)
++
++            upd = compute_book_seq_update(
++                prev_last_u=prev_last_u,
++                prev_ingest_ts_ms=prev_ingest_ts_ms,
++                payload=book_raw or {},
++                ingest_ts_ms=int(ingest_ts_ms or 0),
++                expected_interval_ms=expected_interval_ms,
++                min_missing_updates=min_missing_updates,
++            )
++
++            runtime.book_seq_last_u = upd.last_u
++            runtime.book_ingest_last_ts_ms = upd.last_ingest_ts_ms
++            runtime.book_seq_last_reason = upd.reason
++            runtime.book_missing_seq_last_gap = int(upd.gap_missing_updates or 0)
++
++            # Update EMA tracker.
++            if hasattr(runtime, 'book_seq_gap') and hasattr(runtime.book_seq_gap, 'update'):
++                runtime.book_seq_gap.update(is_gap=bool(upd.is_gap_event), ts_ms=int(upd.last_ingest_ts_ms or 0))
++                snap = runtime.book_seq_gap.snapshot() if hasattr(runtime.book_seq_gap, 'snapshot') else {}
++                runtime.book_missing_seq_ema = float(snap.get('ema', 0.0) or 0.0)
++
++            # Metrics: observe EMA continuously; events counter only when we mark a gap event.
++            sym = str(getattr(runtime, 'symbol', ''))
++            if sym:
++                book_missing_seq_ema_gauge.labels(symbol=sym).set(float(getattr(runtime, 'book_missing_seq_ema', 0.0) or 0.0))
++                if upd.is_gap_event:
++                    book_missing_seq_events_total.labels(symbol=sym).inc()
++
++            # Optional: request a book re-sync when the gap is severe.
++            if resync_on_gap and upd.is_gap_event and upd.gap_missing_updates >= resync_min_missing:
++                runtime.book_resync_needed = True
++        except Exception:
++            return
++
++
+     def process_book(self, runtime: SymbolRuntime, payload: Dict[str, Any], ingest_ts_ms: int) -> bool:
+         """
+         Processes a raw book payload from Redis stream.
+@@ -60,6 +116,9 @@
+             if not book_raw:
+                 return False
+ 
++            # DQ: book missing-seq / time-gap tracking (supports partial depth streams).
++            self._update_book_dq_seq_gap(runtime=runtime, book_raw=book_raw, ingest_ts_ms=int(ingest_ts_ms or 0))
++
+             # 2. Build Typed Snapshot
+             prev_snap = getattr(runtime, "last_book", None)
+             prev_ts_ms = _safe_int(getattr(runtime, "last_book_ts_ms", 0) or 0)
+
+--- /mnt/data/proj19/tick_flow_full/services/orderflow/components/book_processor.py	2026-02-24 20:49:13.000000000 +0000
++++ /mnt/data/proj19_mod/tick_flow_full/services/orderflow/components/book_processor.py	2026-03-01 10:28:00.424221733 +0000
+@@ -8,6 +8,7 @@
+ from services.orderflow.configuration import _safe_int, _safe_float
+ from services.orderflow.metrics import (
+     log_silent_error, book_rate_ema_gauge, book_rate_z_gauge,
++    book_missing_seq_ema_gauge, book_missing_seq_events_total,
+     of_lob_queue_imbalance_gauge, of_lob_queue_imbalance_mean_gauge,
+     of_lob_queue_imbalance_max_abs_gauge, of_lob_queue_imbalance_slope_gauge,
+     of_lob_micro_mid_div_bps_gauge, of_lob_micro_shift_bps_gauge,
+@@ -21,6 +22,7 @@
+ from core.lob_pressure import compute_lob_pressure  # LOB pressure features (P91)
+ from core.cvd_reclaim import compute_cvd_reclaim
+ from core.ofi_tracker import OFIEvent
++from core.book_seq_tracker_v2 import compute_book_seq_update
+ 
+ # GPU L2 processor — lazy import, no hard dependency
+ try:
+@@ -48,6 +50,60 @@
+         self.book_churn_z_full = book_churn_z_full
+         self.book_churn_z_hi = book_churn_z_hi
+ 
++    def _update_book_dq_seq_gap(self, runtime, book_raw: dict, ingest_ts_ms: int) -> None:
++        """Update book gap EMA and optional resync flag.
++
++        Supports two cases:
++          * full depth diff stream: uses U/u for strict missing-seq detection
++          * partial depth stream (@depth20@100ms): uses ingest time-gaps
++
++        This method is intentionally lightweight and must never raise.
++        """
++
++        try:
++            cfg = getattr(runtime, 'config', {}) or {}
++            expected_interval_ms = int(cfg.get('book_expected_interval_ms', 100) or 100)
++            min_missing_updates = int(cfg.get('book_gap_min_missing_updates', 3) or 3)
++            resync_on_gap = bool(int(cfg.get('book_resync_on_gap', 0) or 0))
++            resync_min_missing = int(cfg.get('book_resync_min_missing_updates', 10) or 10)
++
++            prev_last_u = int(getattr(runtime, 'book_seq_last_u', 0) or 0)
++            prev_ingest_ts_ms = int(getattr(runtime, 'book_ingest_last_ts_ms', 0) or 0)
++
++            upd = compute_book_seq_update(
++                prev_last_u=prev_last_u,
++                prev_ingest_ts_ms=prev_ingest_ts_ms,
++                payload=book_raw or {},
++                ingest_ts_ms=int(ingest_ts_ms or 0),
++                expected_interval_ms=expected_interval_ms,
++                min_missing_updates=min_missing_updates,
++            )
++
++            runtime.book_seq_last_u = upd.last_u
++            runtime.book_ingest_last_ts_ms = upd.last_ingest_ts_ms
++            runtime.book_seq_last_reason = upd.reason
++            runtime.book_missing_seq_last_gap = int(upd.gap_missing_updates or 0)
++
++            # Update EMA tracker.
++            if hasattr(runtime, 'book_seq_gap') and hasattr(runtime.book_seq_gap, 'update'):
++                runtime.book_seq_gap.update(is_gap=bool(upd.is_gap_event), ts_ms=int(upd.last_ingest_ts_ms or 0))
++                snap = runtime.book_seq_gap.snapshot() if hasattr(runtime.book_seq_gap, 'snapshot') else {}
++                runtime.book_missing_seq_ema = float(snap.get('ema', 0.0) or 0.0)
++
++            # Metrics: observe EMA continuously; events counter only when we mark a gap event.
++            sym = str(getattr(runtime, 'symbol', ''))
++            if sym:
++                book_missing_seq_ema_gauge.labels(symbol=sym).set(float(getattr(runtime, 'book_missing_seq_ema', 0.0) or 0.0))
++                if upd.is_gap_event:
++                    book_missing_seq_events_total.labels(symbol=sym).inc()
++
++            # Optional: request a book re-sync when the gap is severe.
++            if resync_on_gap and upd.is_gap_event and upd.gap_missing_updates >= resync_min_missing:
++                runtime.book_resync_needed = True
++        except Exception:
++            return
++
++
+     def process_book(self, runtime: SymbolRuntime, payload: Dict[str, Any], ingest_ts_ms: int) -> bool:
+         """
+         Processes a raw book payload from Redis stream.
+@@ -60,6 +116,9 @@
+             if not book_raw:
+                 return False
+ 
++            # DQ: book missing-seq / time-gap tracking (supports partial depth streams).
++            self._update_book_dq_seq_gap(runtime=runtime, book_raw=book_raw, ingest_ts_ms=int(ingest_ts_ms or 0))
++
+             # 2. Build Typed Snapshot
+             prev_snap = getattr(runtime, "last_book", None)
+             prev_ts_ms = _safe_int(getattr(runtime, "last_book_ts_ms", 0) or 0)
+
+--- /mnt/data/proj19/services/orderflow/components/tick_processor.py	2026-03-01 05:05:20.000000000 +0000
++++ /mnt/data/proj19_mod/services/orderflow/components/tick_processor.py	2026-03-01 10:30:48.643344888 +0000
+@@ -68,7 +68,8 @@
+     tick_ts_missing_total, tick_ts_backwards_total, tick_ts_clamped_total, tick_ts_quarantined_total,
+     tick_ts_future_total, tick_age_ms_hist, tick_reorder_back_ms_hist, tick_time_action_total,
+     tick_time_decision_total,
+-    burst_active_gauge, burst_flush_total, signals_emitted_total, feature_missing_total, burst_window_ms_gauge, tick_gap_p50_ms_gauge, tick_gap_p95_ms_gauge,
++    burst_active_gauge, burst_flush_total, signals_emitted_total, feature_missing_total, burst_window_ms_gauge, tick_gap_p50_ms_gauge, tick_gap_p95_ms_gauge, tick_gap_n_gauge,
++    dq_level_gauge, dq_veto_total,
+     liqmap_snapshot_age_ms_gauge, liqmap_snapshot_parse_errors_total,
+     liqmap_gate_shadow_hit_total, liqmap_gate_veto_total,
+     book_missing_seq_ema_gauge, tick_missing_seq_ema_gauge, tick_missing_seq_events_total,
+@@ -347,6 +348,7 @@
+                     try:
+                         tick_gap_p50_ms_gauge.labels(symbol=str(runtime.symbol)).set(runtime.tick_gap_p50_ms)
+                         tick_gap_p95_ms_gauge.labels(symbol=str(runtime.symbol)).set(runtime.tick_gap_p95_ms)
++                        tick_gap_n_gauge.labels(symbol=str(runtime.symbol)).set(int(getattr(runtime, "tick_gap_n", 0) or 0))
+                     except Exception:
+                         pass
+             except Exception:
+@@ -454,6 +456,9 @@
+             indicators["tick_gap_n"] = int(getattr(runtime, "tick_gap_n", 0) or 0)
+             indicators["tick_missing_seq_ema"] = float(getattr(runtime, "tick_missing_seq_ema", 0.0) or 0.0)
+             indicators["book_missing_seq_ema"] = float(getattr(runtime, "book_missing_seq_ema", 0.0) or 0.0)
++            indicators["book_seq_last_reason"] = str(getattr(runtime, "book_seq_last_reason", ""))
++            indicators["book_missing_seq_last_gap"] = int(getattr(runtime, "book_missing_seq_last_gap", 0) or 0)
++            indicators["book_resync_needed"] = int(bool(getattr(runtime, "book_resync_needed", False)))
+ 
+             # book_missing_seq is primarily updated in orderbook path; still surface gauge for visibility.
+             try:
+@@ -2175,6 +2180,18 @@
+         t_build_us = int((time.perf_counter_ns() - t_build_ns0) / 1000)
+         indicators["of_build_us"] = int(t_build_us)
+ 
++        # DQ metrics (level/veto). This is safe to run in both SAFE/STRICT modes.
++        try:
++            _sym = str(runtime.symbol)
++            dq_level = int(indicators.get("dq_level", 0) or 0)
++            dq_level_gauge.labels(symbol=_sym).set(dq_level)
++            dq_veto = int(indicators.get("dq_veto", 0) or 0)
++            if dq_veto:
++                dq_reason = str(indicators.get("dq_reason_bucket", "unknown") or "unknown")
++                dq_veto_total.labels(symbol=_sym, reason=dq_reason).inc()
++        except Exception:
++            pass
++
+         # Fill-prob / exec_fill_pen fallback (smoke-check: detect broken wiring)
+         # If OFConfirmEngine already computed these fields, we do NOT override them.
+         try:
+
+--- /mnt/data/proj19/tick_flow_full/services/orderflow/components/tick_processor.py	2026-03-01 04:47:09.000000000 +0000
++++ /mnt/data/proj19_mod/tick_flow_full/services/orderflow/components/tick_processor.py	2026-03-01 10:30:48.645844608 +0000
+@@ -68,7 +68,8 @@
+     tick_ts_missing_total, tick_ts_backwards_total, tick_ts_clamped_total, tick_ts_quarantined_total,
+     tick_ts_future_total, tick_age_ms_hist, tick_reorder_back_ms_hist, tick_time_action_total,
+     tick_time_decision_total,
+-    burst_active_gauge, burst_flush_total, signals_emitted_total, feature_missing_total, burst_window_ms_gauge, tick_gap_p50_ms_gauge, tick_gap_p95_ms_gauge,
++    burst_active_gauge, burst_flush_total, signals_emitted_total, feature_missing_total, burst_window_ms_gauge, tick_gap_p50_ms_gauge, tick_gap_p95_ms_gauge, tick_gap_n_gauge,
++    dq_level_gauge, dq_veto_total,
+     book_missing_seq_ema_gauge, tick_missing_seq_ema_gauge, tick_missing_seq_events_total,
+     tick_id_gap_events_total, tick_id_dup_events_total, tick_id_reorder_events_total,
+     ticks_out_of_order_total, ticks_side_unknown_total, bars_closed_total, divergence_detected_total,
+@@ -322,6 +323,7 @@
+                     try:
+                         tick_gap_p50_ms_gauge.labels(symbol=str(runtime.symbol)).set(runtime.tick_gap_p50_ms)
+                         tick_gap_p95_ms_gauge.labels(symbol=str(runtime.symbol)).set(runtime.tick_gap_p95_ms)
++                        tick_gap_n_gauge.labels(symbol=str(runtime.symbol)).set(int(getattr(runtime, "tick_gap_n", 0) or 0))
+                     except Exception:
+                         pass
+             except Exception:
+@@ -429,6 +431,9 @@
+             indicators["tick_gap_n"] = int(getattr(runtime, "tick_gap_n", 0) or 0)
+             indicators["tick_missing_seq_ema"] = float(getattr(runtime, "tick_missing_seq_ema", 0.0) or 0.0)
+             indicators["book_missing_seq_ema"] = float(getattr(runtime, "book_missing_seq_ema", 0.0) or 0.0)
++            indicators["book_seq_last_reason"] = str(getattr(runtime, "book_seq_last_reason", ""))
++            indicators["book_missing_seq_last_gap"] = int(getattr(runtime, "book_missing_seq_last_gap", 0) or 0)
++            indicators["book_resync_needed"] = int(bool(getattr(runtime, "book_resync_needed", False)))
+ 
+             # book_missing_seq is primarily updated in orderbook path; still surface gauge for visibility.
+             try:
+@@ -2037,6 +2042,18 @@
+         t_build_us = int((time.perf_counter_ns() - t_build_ns0) / 1000)
+         indicators["of_build_us"] = int(t_build_us)
+ 
++        # DQ metrics (level/veto). This is safe to run in both SAFE/STRICT modes.
++        try:
++            _sym = str(runtime.symbol)
++            dq_level = int(indicators.get("dq_level", 0) or 0)
++            dq_level_gauge.labels(symbol=_sym).set(dq_level)
++            dq_veto = int(indicators.get("dq_veto", 0) or 0)
++            if dq_veto:
++                dq_reason = str(indicators.get("dq_reason_bucket", "unknown") or "unknown")
++                dq_veto_total.labels(symbol=_sym, reason=dq_reason).inc()
++        except Exception:
++            pass
++
+         # Fill-prob / exec_fill_pen fallback (smoke-check: detect broken wiring)
+         # If OFConfirmEngine already computed these fields, we do NOT override them.
+         try:
+
+--- /mnt/data/proj19/services/orderflow/metrics.py	2026-03-01 06:48:14.000000000 +0000
++++ /mnt/data/proj19_mod/services/orderflow/metrics.py	2026-03-01 10:31:07.623293179 +0000
+@@ -510,6 +510,24 @@
+     "tick_gap_p95_ms", "Tick gap p95 (ms)", ["symbol"]
+ )
+ 
++tick_gap_n_gauge = _get_or_create_prom_gauge(
++    "tick_gap_n",
++    "Tick-gap tracker sample size (n) used for gap percentiles",
++    labelnames=["symbol"],
++)
++
++dq_level_gauge = _get_or_create_prom_gauge(
++    "dq_level",
++    "Data-quality gate level: 0 ok, 1 soft, 2 hard",
++    labelnames=["symbol"],
++)
++
++dq_veto_total = _get_or_create_prom_counter(
++    "dq_veto_total",
++    "Total number of DQ veto events (effective veto, post-suppression if any)",
++    labelnames=["symbol", "reason"],
++)
++
+ # P2/F: missing-seq EMA signals (0..1) and raw gap events count.
+ book_missing_seq_ema_gauge = _get_or_create_prom_gauge(
+     "book_missing_seq_ema", "EMA of book missing-seq events (0..1)", ["symbol"]
+
+--- /mnt/data/proj19/tick_flow_full/services/orderflow/metrics.py	2026-03-01 04:47:09.000000000 +0000
++++ /mnt/data/proj19_mod/tick_flow_full/services/orderflow/metrics.py	2026-03-01 10:31:07.624458828 +0000
+@@ -498,6 +498,24 @@
+     "tick_gap_p95_ms", "Tick gap p95 (ms)", ["symbol"]
+ )
+ 
++tick_gap_n_gauge = _get_or_create_prom_gauge(
++    "tick_gap_n",
++    "Tick-gap tracker sample size (n) used for gap percentiles",
++    labelnames=["symbol"],
++)
++
++dq_level_gauge = _get_or_create_prom_gauge(
++    "dq_level",
++    "Data-quality gate level: 0 ok, 1 soft, 2 hard",
++    labelnames=["symbol"],
++)
++
++dq_veto_total = _get_or_create_prom_counter(
++    "dq_veto_total",
++    "Total number of DQ veto events (effective veto, post-suppression if any)",
++    labelnames=["symbol", "reason"],
++)
++
+ # P2/F: missing-seq EMA signals (0..1) and raw gap events count.
+ book_missing_seq_ema_gauge = _get_or_create_prom_gauge(
+     "book_missing_seq_ema", "EMA of book missing-seq events (0..1)", ["symbol"]
+
+--- /mnt/data/proj19/tick_flow_full/core/of_confirm_engine.py	2026-03-01 04:47:09.000000000 +0000
++++ /mnt/data/proj19_mod/tick_flow_full/core/of_confirm_engine.py	2026-03-01 10:31:52.335221617 +0000
+@@ -1272,6 +1272,42 @@
+         dq_bucket = str(dq_meta.get("dq_reason_bucket", "ok"))
+         dq_level = int(dq_meta.get("dq_level", 0) or 0)
+         dq_reasons = list(dq_meta.get("dq_reasons", []) or [])
++
++        # Optional suppression for book-gap hard veto.
++        #
++        # Motivation: on partial depth streams (@depth20@100ms) a short-lived
++        # network hiccup can create a time-gap. We still want to *observe* it
++        # (dq_level/dq_reason_bucket), but delaying strict hard-veto reduces
++        # rollout risk.
++        dq_veto_raw = int(dq_veto)
++        dq_veto_suppressed = 0
++        dq_veto_suppressed_reason = ""
++        try:
++            if dq_veto_raw == 1 and str(dq_bucket) == "book_missing_seq_hard":
++                enabled = int(cfg2.get("dq_book_veto_enabled", 0) or 0)
++                if enabled != 1:
++                    dq_veto = 0
++                    dq_veto_suppressed = 1
++                    dq_veto_suppressed_reason = "disabled"
++                else:
++                    warmup_s = int(cfg2.get("dq_book_veto_warmup_s", 86400) or 86400)
++                    if warmup_s > 0:
++                        # Use engine lifetime as warmup reference.
++                        import time
++                        now_ms = int(indicators.get("ingest_ts_ms", 0) or 0)
++                        if now_ms <= 0:
++                            now_ms = int(time.time() * 1000)
++                        boot_ms = int(getattr(self, "_dq_boot_ts_ms", 0) or 0)
++                        if boot_ms <= 0:
++                            setattr(self, "_dq_boot_ts_ms", now_ms)
++                            boot_ms = now_ms
++                        uptime_s = max(0.0, float(now_ms - boot_ms) / 1000.0)
++                        if uptime_s < float(warmup_s):
++                            dq_veto = 0
++                            dq_veto_suppressed = 1
++                            dq_veto_suppressed_reason = "warmup"
++        except Exception:
++            pass
+         
+         # 5. Apply to Score
+         # User spec: "final_score_raw = base - exec_pen - burst_pen + liq_boost - liq_pen"
+@@ -1307,6 +1343,9 @@
+         indicators["score_breakdown"] = score_breakdown
+         indicators["dq_pen"] = dq_pen
+         indicators["dq_veto"] = dq_veto
++        indicators["dq_veto_raw"] = int(dq_veto_raw)
++        indicators["dq_veto_suppressed"] = int(dq_veto_suppressed)
++        indicators["dq_veto_suppressed_reason"] = str(dq_veto_suppressed_reason)
+         indicators["dq_reason"] = dq_reason
+         indicators["dq_health_score"] = dq_health
+         indicators["dq_reason_bucket"] = dq_bucket
+
+--- /dev/null	2026-03-01 10:07:59.214010380 +0000
++++ /mnt/data/proj19_mod/tick_flow_full/core/book_seq_tracker_v2.py	2026-03-01 10:22:58.490202095 +0000
+@@ -0,0 +1,201 @@
++"""Book sequence / staleness tracker (v2).
++
++Why this exists
++--------------
++
++Binance offers multiple order book streams:
++
++* Full depth diff stream (depthUpdate) contains **U/u** (first/last update ids).
++  This allows a strict missing-sequence check.
++
++* Partial depth streams (e.g. @depth20@100ms) often provide only a **snapshot**
++  with a single update id ("u" or "lastUpdateId"). There is no reliable U/u pair,
++  so missing-seq cannot be measured exactly. For these streams we fall back to
++  **time-gap based** estimation: if the wall-clock / ingest gap is large enough,
++  we treat it as "missing".
++
++The output of this module is intentionally small and deterministic so it can be
++unit-tested independently of the runtime/service stack.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Any, Dict
++
++
++def _safe_int(v: Any, default: int = 0) -> int:
++    try:
++        if v is None:
++            return default
++        # bool is also int in Python; treat explicitly
++        if isinstance(v, bool):
++            return int(v)
++        return int(v)
++    except Exception:
++        return default
++
++
++@dataclass(frozen=True)
++class BookSeqUpdate:
++    """One update step for book sequence/staleness tracking."""
++
++    # Monotone last seen update id (u / lastUpdateId). 0 when unknown.
++    last_u: int
++
++    # Last ingest timestamp (ms). 0 when unknown.
++    last_ingest_ts_ms: int
++
++    # Human-readable reason bucket (debug).
++    reason: str
++
++    # Estimated number of missed updates for diagnostics.
++    #
++    # * For strict U/u streams: exact count.
++    # * For partial snapshot streams: estimate based on ingest dt.
++    gap_missing_updates: int
++
++    # Whether this update should be treated as a "gap event" for EMA.
++    is_gap_event: bool
++
++
++def compute_book_seq_update(
++    *,
++    prev_last_u: int,
++    prev_ingest_ts_ms: int,
++    payload: Dict[str, Any],
++    ingest_ts_ms: int,
++    expected_interval_ms: int,
++    min_missing_updates: int,
++) -> BookSeqUpdate:
++    """Compute the next state for book missing-seq tracking.
++
++    Parameters
++    ----------
++    prev_last_u:
++        Previously observed last update id (u). 0 if unknown.
++
++    prev_ingest_ts_ms:
++        Previously observed ingest timestamp in ms. 0 if unknown.
++
++    payload:
++        Normalized book payload. Expected keys (when present):
++          * U: first update id
++          * u: last update id (or lastUpdateId)
++
++    ingest_ts_ms:
++        Ingest timestamp in ms (monotone-ish wall clock from receiver).
++
++    expected_interval_ms:
++        Nominal stream interval. For @depth20@100ms this is 100.
++
++    min_missing_updates:
++        Minimum estimated missing updates to raise a gap event.
++
++    Returns
++    -------
++    BookSeqUpdate
++    """
++
++    prev_last_u = _safe_int(prev_last_u, 0)
++    prev_ingest_ts_ms = _safe_int(prev_ingest_ts_ms, 0)
++    ingest_ts_ms = _safe_int(ingest_ts_ms, 0)
++
++    U = _safe_int(payload.get("U"), 0)
++    u = _safe_int(payload.get("u"), 0)
++
++    # -------- strict path (U/u present) --------
++    if U > 0 and u > 0 and prev_last_u > 0:
++        if u <= prev_last_u:
++            # Old/dup message. Do NOT count as missing.
++            reason = "dup" if u == prev_last_u else "reorder"
++            gap = 0
++            is_gap = False
++        elif U > prev_last_u + 1:
++            # True missing seq.
++            gap = U - prev_last_u - 1
++            reason = "gap"
++            is_gap = gap >= 1
++        else:
++            # Overlap is normal for Binance depthUpdate.
++            gap = 0
++            reason = "ok" if U == prev_last_u + 1 else "overlap"
++            is_gap = False
++
++        new_last_u = max(prev_last_u, u)
++        new_last_ingest = ingest_ts_ms if ingest_ts_ms > 0 else prev_ingest_ts_ms
++        return BookSeqUpdate(
++            last_u=new_last_u,
++            last_ingest_ts_ms=new_last_ingest,
++            reason=reason,
++            gap_missing_updates=gap,
++            is_gap_event=is_gap,
++        )
++
++    # -------- fallback path (partial depth snapshots) --------
++    # No reliable U/u pair => estimate missing by time gap.
++    if prev_ingest_ts_ms <= 0 or ingest_ts_ms <= 0:
++        new_last_u = max(prev_last_u, u)
++        new_last_ingest = ingest_ts_ms if ingest_ts_ms > 0 else prev_ingest_ts_ms
++        return BookSeqUpdate(
++            last_u=new_last_u,
++            last_ingest_ts_ms=new_last_ingest,
++            reason="init",
++            gap_missing_updates=0,
++            is_gap_event=False,
++        )
++
++    dt_ms = ingest_ts_ms - prev_ingest_ts_ms
++    if dt_ms < 0:
++        # Bad time (clock jump or out-of-order ingest). Do not count as missing.
++        new_last_u = max(prev_last_u, u)
++        return BookSeqUpdate(
++            last_u=new_last_u,
++            last_ingest_ts_ms=ingest_ts_ms,
++            reason="reorder",
++            gap_missing_updates=0,
++            is_gap_event=False,
++        )
++
++    # If expected_interval_ms is 0/None, fallback to "no gap".
++    exp_ms = _safe_int(expected_interval_ms, 0)
++    if exp_ms <= 0:
++        new_last_u = max(prev_last_u, u)
++        return BookSeqUpdate(
++            last_u=new_last_u,
++            last_ingest_ts_ms=ingest_ts_ms,
++            reason="no_interval",
++            gap_missing_updates=0,
++            is_gap_event=False,
++        )
++
++    # Missing estimate: how many full expected intervals fit into dt, minus the current message.
++    # Example for 100ms stream:
++    #   dt=100ms  => 0 missing
++    #   dt=350ms  => floor(3) - 1 = 2 missing
++    #   dt=1200ms => floor(12) - 1 = 11 missing
++    missing_est = max(0, int(dt_ms // exp_ms) - 1)
++    gap = int(missing_est)
++
++    # We deliberately gate the EMA update by a minimum missing-count.
++    # This avoids treating small scheduling jitter as a data-quality incident.
++    min_miss = max(1, _safe_int(min_missing_updates, 1))
++    is_gap = gap >= min_miss
++
++    # Additional sanity: lastUpdateId is not strictly continuous for snapshot streams.
++    # We only flag regression for debug; it must NOT become a missing-event.
++    if u > 0 and prev_last_u > 0 and u < prev_last_u:
++        reason = "reorder"
++        is_gap = False
++        gap = 0
++    else:
++        reason = "gap" if is_gap else "ok"
++
++    new_last_u = max(prev_last_u, u)
++    return BookSeqUpdate(
++        last_u=new_last_u,
++        last_ingest_ts_ms=ingest_ts_ms,
++        reason=reason,
++        gap_missing_updates=gap,
++        is_gap_event=is_gap,
++    )
+
+--- /dev/null	2026-03-01 10:07:59.214010380 +0000
++++ /mnt/data/proj19_mod/tick_flow_full/tests/core/test_book_seq_tracker_v2_timegap_depth20_100ms.py	2026-03-01 10:32:18.837083309 +0000
+@@ -0,0 +1,95 @@
++import os
++import sys
++from pathlib import Path
++
++# Add tick_flow_full to sys.path so 'core.*' is importable.
++ROOT = Path(__file__).resolve().parents[1]  # tests/
++TICK_FLOW_FULL = ROOT.parent  # tick_flow_full/
++if str(TICK_FLOW_FULL) not in sys.path:
++    sys.path.insert(0, str(TICK_FLOW_FULL))
++
++from core.book_seq_tracker_v2 import compute_book_seq_update
++
++
++def test_timegap_depth20_100ms_marks_gap_after_min_missing_updates():
++    # depth20@100ms nominal stream interval
++    exp_ms = 100
++    min_missing = 3
++
++    # First message initializes state
++    upd0 = compute_book_seq_update(
++        prev_last_u=0,
++        prev_ingest_ts_ms=0,
++        payload={"u": 100},
++        ingest_ts_ms=1_000,
++        expected_interval_ms=exp_ms,
++        min_missing_updates=min_missing,
++    )
++    assert upd0.reason == "init"
++    assert upd0.is_gap_event is False
++
++    # Normal cadence: dt=100ms => missing_est=0
++    upd1 = compute_book_seq_update(
++        prev_last_u=upd0.last_u,
++        prev_ingest_ts_ms=upd0.last_ingest_ts_ms,
++        payload={"u": 101},
++        ingest_ts_ms=1_100,
++        expected_interval_ms=exp_ms,
++        min_missing_updates=min_missing,
++    )
++    assert upd1.reason == "ok"
++    assert upd1.gap_missing_updates == 0
++    assert upd1.is_gap_event is False
++
++    # Large pause: dt=600ms => floor(6)-1=5 missing => gap
++    upd2 = compute_book_seq_update(
++        prev_last_u=upd1.last_u,
++        prev_ingest_ts_ms=upd1.last_ingest_ts_ms,
++        payload={"u": 102},
++        ingest_ts_ms=1_700,
++        expected_interval_ms=exp_ms,
++        min_missing_updates=min_missing,
++    )
++    assert upd2.reason == "gap"
++    assert upd2.gap_missing_updates == 5
++    assert upd2.is_gap_event is True
++
++
++def test_strict_Uu_path_detects_exact_missing_seq():
++    upd0 = compute_book_seq_update(
++        prev_last_u=150,
++        prev_ingest_ts_ms=1_000,
++        payload={"U": 152, "u": 155},
++        ingest_ts_ms=1_100,
++        expected_interval_ms=100,
++        min_missing_updates=3,
++    )
++    # Missing: U=152, prev=150 => gap=1
++    assert upd0.reason == "gap"
++    assert upd0.gap_missing_updates == 1
++    assert upd0.is_gap_event is True
++    assert upd0.last_u == 155
++
++
++def test_timegap_does_not_flag_small_jitter_as_gap():
++    upd0 = compute_book_seq_update(
++        prev_last_u=0,
++        prev_ingest_ts_ms=0,
++        payload={"u": 100},
++        ingest_ts_ms=1_000,
++        expected_interval_ms=100,
++        min_missing_updates=3,
++    )
++
++    # dt=250ms => floor(2)-1=1 missing, but min_missing_updates=3 => no gap
++    upd1 = compute_book_seq_update(
++        prev_last_u=upd0.last_u,
++        prev_ingest_ts_ms=upd0.last_ingest_ts_ms,
++        payload={"u": 101},
++        ingest_ts_ms=1_250,
++        expected_interval_ms=100,
++        min_missing_updates=3,
++    )
++    assert upd1.reason == "ok"
++    assert upd1.gap_missing_updates == 1
++    assert upd1.is_gap_event is False

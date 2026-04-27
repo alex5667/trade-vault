@@ -1,0 +1,945 @@
+--- a/services/binance_executor.py
++++ b/services/binance_executor.py
+@@ -118,6 +118,10 @@
+     from rollout_flags import RolloutFlags
+ 
+ from services.telegram.telegram_client import TelegramClient
++try:
++    from services.active_symbol_guard_store import ActiveSymbolGuardStore
++except Exception:  # pragma: no cover
++    from active_symbol_guard_store import ActiveSymbolGuardStore  # type: ignore
+ 
+ try:
+     from prometheus_client import Counter, Gauge, REGISTRY
+@@ -133,6 +137,7 @@
+         EXECUTION_DUPLICATE_PREVENTED_TOTAL,
+         EXECUTION_ENTRY_FILLED_TOTAL,
+         EXECUTION_ENTRY_SUBMITTED_TOTAL,
++        EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_TOTAL,
+         EXECUTION_ACTIVE_SYMBOL_GUARD_EXCHANGE_CHECK_TOTAL,
+         EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASE_TOTAL,
+         EXECUTION_ACTIVE_SYMBOL_GUARD_STUCK_TOTAL,
+@@ -161,6 +166,7 @@
+             EXECUTION_DUPLICATE_PREVENTED_TOTAL,
+             EXECUTION_ENTRY_FILLED_TOTAL,
+             EXECUTION_ENTRY_SUBMITTED_TOTAL,
++            EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_TOTAL,
+             EXECUTION_ACTIVE_SYMBOL_GUARD_EXCHANGE_CHECK_TOTAL,
+             EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASE_TOTAL,
+             EXECUTION_ACTIVE_SYMBOL_GUARD_STUCK_TOTAL,
+@@ -872,6 +878,7 @@
+         self.exec_single_active_position_require_flat_no_orders = _bool_env("EXEC_SINGLE_ACTIVE_POSITION_REQUIRE_FLAT_NO_ORDERS", True)
+         self.exec_active_symbol_user_stream_stale_ms = int(os.getenv("EXEC_ACTIVE_SYMBOL_USER_STREAM_STALE_MS", "30000"))
+         self.active_symbol_key_prefix = (os.getenv("ORDERS_ACTIVE_SYMBOL_KEY_PREFIX") or "orders:active_symbol_sid:").rstrip(":") + ":"
++        self.active_symbol_guard_tombstone_ttl_sec = int(os.getenv("ACTIVE_SYMBOL_GUARD_TOMBSTONE_TTL_SEC", "120"))
+         self.user_stream_status_key = os.getenv("USER_STREAM_STATUS_KEY", "orders:user_stream:status")
+         self.exec_reconcile_on_503_unknown = _bool_env("EXEC_RECONCILE_ON_503_UNKNOWN", True)
+         self.exec_reconcile_prefer_user_stream = _bool_env("EXEC_RECONCILE_PREFER_USER_STREAM", True)
+@@ -1105,6 +1112,25 @@
+     def _active_symbol_state_key(self, symbol: str) -> str:
+         return f"{self.active_symbol_key_prefix}{str(symbol or '').strip().upper()}"
+ 
++    def _active_symbol_guard_store(self) -> ActiveSymbolGuardStore:
++        store = getattr(self, "_active_symbol_guard_store_cache", None)
++        if store is None:
++            store = ActiveSymbolGuardStore(
++                self.r,
++                key_prefix=getattr(self, "active_symbol_key_prefix", "orders:active_symbol_sid:"),
++                active_ttl_sec=max(int(getattr(self, "state_ttl", 86400) or 86400), 1),
++                tombstone_ttl_sec=max(int(getattr(self, "active_symbol_guard_tombstone_ttl_sec", 120) or 120), 1),
++            )
++            setattr(self, "_active_symbol_guard_store_cache", store)
++        return store
++
++    def _record_active_symbol_guard_cas(self, *, writer: str, operation: str, result: str) -> None:
++        try:
++            if EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_TOTAL is not None:
++                EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_TOTAL.labels(writer=str(writer or ""), operation=str(operation or ""), result=str(result or "")).inc()
++        except Exception:
++            pass
++
+     def _state_is_terminalish(self, state: Optional[Dict[str, Any]]) -> bool:
+         doc = dict(state or {})
+         fsm_state = str(doc.get("fsm_state") or "").strip().upper()
+@@ -1119,27 +1145,19 @@
+ 
+     def _load_active_symbol_guard(self, symbol: str) -> Dict[str, Any]:
+         try:
+-            raw = self.r.get(self._active_symbol_state_key(symbol))
+-            if raw:
+-                doc = json.loads(raw)
+-                if isinstance(doc, dict):
+-                    return doc
++            return self._active_symbol_guard_store().load_active(symbol)
+         except Exception:
+-            pass
+-        return {}
++            return {}
+ 
+     def _clear_active_symbol_guard(self, symbol: str, *, expected_sid: str = "") -> None:
+         try:
+-            key = self._active_symbol_state_key(symbol)
+-            raw = self.r.get(key)
+-            if not raw:
+-                return
+-            doc = json.loads(raw)
+-            if not isinstance(doc, dict):
+-                return
+-            if expected_sid and str(doc.get("sid") or "").strip() != str(expected_sid or "").strip():
+-                return
+-            self.r.delete(key)
++            result = self._active_symbol_guard_store().mark_released(
++                symbol=symbol,
++                expected_sid=expected_sid,
++                release_reason="executor_clear_guard",
++                writer="executor",
++            )
++            self._record_active_symbol_guard_cas(writer="executor", operation="release", result=str(result.get("reason") or ("ok" if result.get("applied") else "noop")))
+         except Exception:
+             return
+ 
+@@ -1248,11 +1266,14 @@
+                 "state_terminalish": bool(state_terminalish),
+                 "user_stream_stale": bool(self._user_stream_is_stale_for_active_guard()),
+             })
+-            self.r.set(
+-                self._active_symbol_state_key(symbol),
+-                json.dumps(updated, ensure_ascii=False, default=str),
+-                ex=self.state_ttl if getattr(self, "state_ttl", 0) > 0 else None,
++            result = self._active_symbol_guard_store().acquire_or_refresh(
++                symbol=symbol,
++                sid=blocked_by_sid,
++                payload_patch=updated,
++                writer="executor",
++                ttl_sec=self.state_ttl if getattr(self, "state_ttl", 0) > 0 else 86400,
+             )
++            self._record_active_symbol_guard_cas(writer="executor", operation="refresh", result=str(result.get("reason") or ("ok" if result.get("applied") else "noop")))
+         except Exception:
+             pass
+         try:
+@@ -1390,11 +1411,14 @@
+                                 "guard_release_reason": "",
+                                 "state_terminalish": False,
+                             })
+-                            self.r.set(
+-                                self._active_symbol_state_key(symbol),
+-                                json.dumps(guard_doc, ensure_ascii=False, default=str),
+-                                ex=self.state_ttl if self.state_ttl > 0 else None,
++                            result = self._active_symbol_guard_store().acquire_or_refresh(
++                                symbol=symbol,
++                                sid=sid,
++                                payload_patch=guard_doc,
++                                writer="executor",
++                                ttl_sec=self.state_ttl if self.state_ttl > 0 else 86400,
+                             )
++                            self._record_active_symbol_guard_cas(writer="executor", operation="persist_active", result=str(result.get("reason") or ("ok" if result.get("applied") else "noop")))
+                         except Exception:
+                             pass
+                     elif bool(getattr(self, "exec_single_active_position_exchange_truth_release", True)):
+@@ -1406,11 +1430,14 @@
+                                 "guard_release_reason": "await_exchange_flat_no_orders",
+                                 "state_terminalish": True,
+                             })
+-                            self.r.set(
+-                                self._active_symbol_state_key(symbol),
+-                                json.dumps(guard_doc, ensure_ascii=False, default=str),
+-                                ex=self.state_ttl if self.state_ttl > 0 else None,
++                            result = self._active_symbol_guard_store().acquire_or_refresh(
++                                symbol=symbol,
++                                sid=sid,
++                                payload_patch=guard_doc,
++                                writer="executor",
++                                ttl_sec=self.state_ttl if self.state_ttl > 0 else 86400,
+                             )
++                            self._record_active_symbol_guard_cas(writer="executor", operation="persist_pending_release", result=str(result.get("reason") or ("ok" if result.get("applied") else "noop")))
+                         except Exception:
+                             pass
+                     else:
+--- a/services/binance_active_symbol_guard_repair_worker.py
++++ b/services/binance_active_symbol_guard_repair_worker.py
+@@ -12,18 +12,22 @@
+     redis = None  # type: ignore
+ 
+ try:
++    from services.active_symbol_guard_store import ActiveSymbolGuardStore
+     from services.binance_futures_client import BinanceFuturesClient
+ except Exception:  # pragma: no cover
++    from active_symbol_guard_store import ActiveSymbolGuardStore  # type: ignore
+     from binance_futures_client import BinanceFuturesClient  # type: ignore
+ 
+ try:
+     from services.execution_metrics import (
++        EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_TOTAL,
+         EXECUTION_ACTIVE_SYMBOL_GUARD_EXCHANGE_CHECK_TOTAL,
+         EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASE_TOTAL,
+         EXECUTION_ACTIVE_SYMBOL_GUARD_STUCK_TOTAL,
+     )
+ except Exception:  # pragma: no cover
+     from execution_metrics import (  # type: ignore
++        EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_TOTAL,
+         EXECUTION_ACTIVE_SYMBOL_GUARD_EXCHANGE_CHECK_TOTAL,
+         EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASE_TOTAL,
+         EXECUTION_ACTIVE_SYMBOL_GUARD_STUCK_TOTAL,
+@@ -62,6 +66,7 @@
+         self.require_flat_no_orders = str(os.getenv("EXEC_SINGLE_ACTIVE_POSITION_REQUIRE_FLAT_NO_ORDERS", "1")).strip().lower() not in {"0", "false", "no", "off"}
+         self.dry_run = str(os.getenv("ACTIVE_SYMBOL_GUARD_REPAIR_DRY_RUN", "0")).strip().lower() in {"1", "true", "yes", "on"}
+         self.state_ttl_sec = int(os.getenv("ORDERS_STATE_TTL_SEC", "86400"))
++        self.active_symbol_guard_tombstone_ttl_sec = int(os.getenv("ACTIVE_SYMBOL_GUARD_TOMBSTONE_TTL_SEC", "120"))
+ 
+     def _state_is_terminalish(self, state: Optional[Dict[str, Any]]) -> bool:
+         doc = dict(state or {})
+@@ -81,6 +86,26 @@
+         except Exception:
+             return {}
+ 
++
++    def _guard_store(self) -> ActiveSymbolGuardStore:
++        store = getattr(self, "_active_symbol_guard_store_cache", None)
++        if store is None:
++            store = ActiveSymbolGuardStore(
++                self.r,
++                key_prefix=self.active_symbol_key_prefix,
++                active_ttl_sec=max(int(self.state_ttl_sec or 86400), 1),
++                tombstone_ttl_sec=max(int(self.active_symbol_guard_tombstone_ttl_sec or 120), 1),
++            )
++            self._active_symbol_guard_store_cache = store
++        return store
++
++    def _record_guard_cas(self, operation: str, result: str) -> None:
++        try:
++            if EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_TOTAL is not None:
++                EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_TOTAL.labels(writer='guard_repair', operation=str(operation or ''), result=str(result or '')).inc()
++        except Exception:
++            pass
++
+     def _read_exchange_truth(self, symbol: str) -> Dict[str, Any]:
+         symbol = str(symbol or "").strip().upper()
+         out: Dict[str, Any] = {
+@@ -127,26 +152,26 @@
+         return out
+ 
+     def _clear_guard(self, symbol: str, expected_sid: str = "") -> bool:
+-        key = f"{self.active_symbol_key_prefix}{str(symbol or '').strip().upper()}"
+         try:
+-            raw = self.r.get(key)
+-            if not raw:
+-                return False
+-            doc = json.loads(raw)
+-            if not isinstance(doc, dict):
+-                return False
+-            if expected_sid and str(doc.get("sid") or "").strip() != str(expected_sid or "").strip():
+-                return False
+-            if not self.dry_run:
+-                self.r.delete(key)
+-            return True
++            if self.dry_run:
++                return bool(self._guard_store().load_raw(symbol))
++            result = self._guard_store().mark_released(
++                symbol=symbol,
++                expected_sid=expected_sid,
++                release_reason='repair_worker_exchange_flat',
++                writer='guard_repair',
++            )
++            self._record_guard_cas('release', str(result.get('reason') or ('ok' if result.get('applied') else 'noop')))
++            return bool(result.get('applied'))
+         except Exception:
+             return False
+ 
+     def repair_one(self, symbol: str) -> Dict[str, Any]:
+         symbol = str(symbol or "").strip().upper()
+         key = f"{self.active_symbol_key_prefix}{symbol}"
+-        guard = self._load_json(key)
++        guard = self._guard_store().load_raw(symbol)
++        if str(guard.get('guard_status') or '').strip().lower() == 'released':
++            return {"symbol": symbol, "sid": str(guard.get('sid') or ''), "status": "released_tombstone", "reason": "already_released"}
+         sid = str(guard.get("sid") or "").strip()
+         state = self._load_json(f"{self.state_key_prefix}{sid}") if sid else {}
+         truth = self._read_exchange_truth(symbol)
+@@ -185,7 +210,14 @@
+         })
+         try:
+             if not self.dry_run:
+-                self.r.set(key, json.dumps(updated, ensure_ascii=False, default=str), ex=self.state_ttl_sec if self.state_ttl_sec > 0 else None)
++                result = self._guard_store().acquire_or_refresh(
++                    symbol=symbol,
++                    sid=sid,
++                    payload_patch=updated,
++                    writer='guard_repair',
++                    ttl_sec=self.state_ttl_sec if self.state_ttl_sec > 0 else 86400,
++                )
++                self._record_guard_cas('refresh', str(result.get('reason') or ('ok' if result.get('applied') else 'noop')))
+             if EXECUTION_ACTIVE_SYMBOL_GUARD_STUCK_TOTAL is not None:
+                 EXECUTION_ACTIVE_SYMBOL_GUARD_STUCK_TOTAL.labels(symbol=symbol, reason=reason).inc()
+         except Exception:
+--- a/services/execution_projection_worker.py
++++ b/services/execution_projection_worker.py
+@@ -59,14 +59,23 @@
+     REGISTRY = None  # type: ignore
+ 
+ try:  # pragma: no cover
++    from services.active_symbol_guard_store import ActiveSymbolGuardStore
+     from services.execution_contracts import build_materialized_state_view
+     from services.execution_journal import ExecutionJournalSink
+     from services.execution_state_replay import project_event_into_state
+ except Exception:  # pragma: no cover
++    from active_symbol_guard_store import ActiveSymbolGuardStore  # type: ignore
+     from execution_contracts import build_materialized_state_view
+     from execution_journal import ExecutionJournalSink
+     from execution_state_replay import project_event_into_state
+ 
++try:  # pragma: no cover
++    from services.execution_metrics import EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_TOTAL
++except Exception:  # pragma: no cover
++    try:
++        from execution_metrics import EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_TOTAL  # type: ignore
++    except Exception:  # pragma: no cover
++        EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_TOTAL = None  # type: ignore
+ 
+ # ---------------------------------------------------------------------------
+ # Prometheus metric helpers
+@@ -387,6 +396,26 @@
+     def _active_symbol_key(self, symbol: str) -> str:
+         return f"{self.active_symbol_key_prefix}{str(symbol or '').strip().upper()}"
+ 
++    def _active_symbol_guard_store(self) -> ActiveSymbolGuardStore:
++        store = getattr(self, "_active_symbol_guard_store_cache", None)
++        if store is None:
++            store = ActiveSymbolGuardStore(
++                self.r,
++                key_prefix=self.active_symbol_key_prefix,
++                active_ttl_sec=max(int(self.state_ttl_sec or 86400), 1),
++                tombstone_ttl_sec=max(int(os.getenv('ACTIVE_SYMBOL_GUARD_TOMBSTONE_TTL_SEC', '120') or 120), 1),
++            )
++            self._active_symbol_guard_store_cache = store
++        return store
++
++
++    def _record_active_symbol_guard_cas(self, operation: str, result: str) -> None:
++        try:
++            if EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_TOTAL is not None:
++                EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_TOTAL.labels(writer='projection', operation=str(operation or ''), result=str(result or '')).inc()
++        except Exception:
++            pass
++
+     def _state_is_terminalish(self, doc: Mapping[str, Any]) -> bool:
+         state = dict(doc or {})
+         fsm_state = str(state.get('fsm_state') or '').strip().upper()
+@@ -405,19 +434,8 @@
+         sid = _s(doc.get('sid'))
+         if not symbol or not sid:
+             return
+-        key = self._active_symbol_key(symbol)
+         is_terminalish = self._state_is_terminalish(doc)
+-        if is_terminalish and not self.exchange_truth_release:
+-            try:
+-                raw = self.r.get(key)
+-                if raw:
+-                    current = json.loads(raw)
+-                    if not isinstance(current, dict) or _s(current.get('sid')) == sid:
+-                        self.r.delete(key)
+-            except Exception:
+-                pass
+-            return
+-        payload = json.dumps({
++        payload_doc = {
+             'symbol': symbol,
+             'sid': sid,
+             'fsm_state': str(doc.get('fsm_state') or doc.get('status') or ''),
+@@ -429,12 +447,21 @@
+             'guard_release_pending': bool(is_terminalish and self.exchange_truth_release),
+             'guard_release_reason': 'await_exchange_flat_no_orders' if is_terminalish and self.exchange_truth_release else '',
+             'state_terminalish': bool(is_terminalish),
+-        }, ensure_ascii=False, default=str)
++        }
+         try:
+-            if self.state_ttl_sec > 0:
+-                self.r.set(key, payload, ex=self.state_ttl_sec)
+-            else:
+-                self.r.set(key, payload)
++            store = self._active_symbol_guard_store()
++            if is_terminalish and not self.exchange_truth_release:
++                result = store.mark_released(symbol=symbol, expected_sid=sid, release_reason='projection_terminal_state', writer='projection')
++                self._record_active_symbol_guard_cas('release', str(result.get('reason') or ('ok' if result.get('applied') else 'noop')))
++                return
++            result = store.acquire_or_refresh(
++                symbol=symbol,
++                sid=sid,
++                payload_patch=payload_doc,
++                writer='projection',
++                ttl_sec=self.state_ttl_sec if self.state_ttl_sec > 0 else 86400,
++            )
++            self._record_active_symbol_guard_cas('refresh', str(result.get('reason') or ('ok' if result.get('applied') else 'noop')))
+         except Exception:
+             pass
+ 
+--- a/services/execution_metrics.py
++++ b/services/execution_metrics.py
+@@ -105,6 +105,14 @@
+     ["symbol", "result"],
+ )
+ 
++
++EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_TOTAL = _metric(
++    Counter,
++    "execution_active_symbol_guard_cas_total",
++    "CAS outcomes while updating or releasing active-symbol guard keys.",
++    ["writer", "operation", "result"],
++)
++
+ MARK_CONTRACT_SPREAD_BPS = _metric(
+     Gauge,
+     "mark_contract_spread_bps",
+--- a/services/tests/test_binance_executor_p5_active_symbol_release_v1.py
++++ b/services/tests/test_binance_executor_p5_active_symbol_release_v1.py
+@@ -73,7 +73,9 @@
+     ex = _mk_exec(r)
+     ex._load_order_state = lambda sid: {'sid': sid, 'fsm_state': 'EXIT_FILLED', 'status': 'closed', 'closed': True}
+     ex._guard_single_active_symbol_open(sid='sid-new', symbol='BTCUSDT', client=FlatClient())
+-    assert r.get('orders:active_symbol_sid:BTCUSDT') in (None, '')
++    raw = json.loads(r.get('orders:active_symbol_sid:BTCUSDT'))
++    assert raw['guard_status'] == 'released'
++    assert ex._load_active_symbol_guard('BTCUSDT') == {}
+ 
+ 
+ def test_active_symbol_guard_stays_and_repairs_metadata_when_exchange_still_open():
+--- a/services/tests/test_binance_active_symbol_guard_repair_worker_p5_v1.py
++++ b/services/tests/test_binance_active_symbol_guard_repair_worker_p5_v1.py
+@@ -55,7 +55,9 @@
+     worker = mod.BinanceActiveSymbolGuardRepairWorker(redis_client=r, client=FlatClient())
+     out = worker.run_once()
+     assert out[0]['status'] == 'released'
+-    assert r.get('orders:active_symbol_sid:SOLUSDT') in (None, '')
++    raw = json.loads(r.get('orders:active_symbol_sid:SOLUSDT'))
++    assert raw['guard_status'] == 'released'
++    assert worker._guard_store().load_active('SOLUSDT') == {}
+ 
+ 
+ def test_guard_repair_worker_keeps_guard_when_open_orders_exist():
+--- a/services/tests/test_single_active_symbol_guard_v1.py
++++ b/services/tests/test_single_active_symbol_guard_v1.py
+@@ -102,7 +102,9 @@
+         'ts_event_ms': '1700000000002',
+     })
+     worker.run_until_idle()
+-    assert r.get('orders:active_symbol_sid:BTCUSDT') in (None, '')
++    raw = json.loads(r.get('orders:active_symbol_sid:BTCUSDT'))
++    assert raw['guard_status'] == 'released'
++    assert worker._active_symbol_guard_store().load_active('BTCUSDT') == {}
+ 
+ 
+ def test_executor_blocks_new_open_when_symbol_has_active_sid():
+@@ -134,4 +136,6 @@
+     ex = _mk_exec(r)
+     ex._load_order_state = lambda sid: {'sid': sid, 'fsm_state': 'EXIT_FILLED', 'status': 'closed', 'closed': True}
+     ex._guard_single_active_symbol_open(sid='sid-new', symbol='SOLUSDT')
+-    assert r.get('orders:active_symbol_sid:SOLUSDT') in (None, '')
++    raw = json.loads(r.get('orders:active_symbol_sid:SOLUSDT'))
++    assert raw['guard_status'] == 'released'
++    assert ex._load_active_symbol_guard('SOLUSDT') == {}
+--- a/services/active_symbol_guard_store.py
++++ b/services/active_symbol_guard_store.py
+@@ -0,0 +1,274 @@
++from __future__ import annotations
++
++import json
++import time
++import uuid
++from typing import Any, Dict, Optional
++
++
++def _ms_now() -> int:
++    return int(time.time() * 1000)
++
++
++def _i(v: Any, default: int = 0) -> int:
++    try:
++        return int(v)
++    except Exception:
++        return int(default)
++
++
++class ActiveSymbolGuardStore:
++    """Atomic/CAS wrapper for orders:active_symbol_sid:{symbol}.
++
++    Design goals:
++    - protect against stale writers deleting or resurrecting a guard after a newer write
++    - keep a short-lived release tombstone so a stale writer cannot recreate the key after release
++    - expose low-level version/lease fields for auditability
++
++    Runtime policy:
++    - active guard => guard_status == "active"
++    - released guard => guard_status == "released" with a short TTL tombstone
++    - readers that want blocking semantics should use load_active(...), not load_raw(...)
++    """
++
++    _CAS_SET_LUA = """
++local key = KEYS[1]
++local expected_version = tonumber(ARGV[1])
++local expected_sid = ARGV[2]
++local expected_lease = ARGV[3]
++local ttl_sec = tonumber(ARGV[4])
++local payload = ARGV[5]
++local cur_raw = redis.call('GET', key)
++if not cur_raw then
++  if expected_version ~= 0 then
++    return {0, 'version_mismatch_absent'}
++  end
++  local doc = cjson.decode(payload)
++  doc['guard_version'] = 1
++  redis.call('SET', key, cjson.encode(doc), 'EX', ttl_sec)
++  return {1, cjson.encode(doc)}
++end
++local cur = cjson.decode(cur_raw)
++local cur_ver = tonumber(cur['guard_version'] or 0)
++local cur_sid = tostring(cur['sid'] or '')
++local cur_lease = tostring(cur['guard_lease_token'] or '')
++if cur_ver ~= expected_version then
++  return {0, 'version_mismatch'}
++end
++if expected_sid ~= '' and cur_sid ~= expected_sid then
++  return {0, 'sid_mismatch'}
++end
++if expected_lease ~= '' and cur_lease ~= expected_lease then
++  return {0, 'lease_mismatch'}
++end
++local doc = cjson.decode(payload)
++doc['guard_version'] = cur_ver + 1
++redis.call('SET', key, cjson.encode(doc), 'EX', ttl_sec)
++return {1, cjson.encode(doc)}
++"""
++
++    def __init__(
++        self,
++        redis_client: Any,
++        *,
++        key_prefix: str = 'orders:active_symbol_sid:',
++        active_ttl_sec: int = 86400,
++        tombstone_ttl_sec: int = 120,
++    ) -> None:
++        self.r = redis_client
++        self.key_prefix = str(key_prefix or 'orders:active_symbol_sid:').rstrip(':') + ':'
++        self.active_ttl_sec = max(int(active_ttl_sec or 0), 1)
++        self.tombstone_ttl_sec = max(int(tombstone_ttl_sec or 0), 1)
++
++    def key(self, symbol: str) -> str:
++        return f"{self.key_prefix}{str(symbol or '').strip().upper()}"
++
++    def load_raw(self, symbol: str) -> Dict[str, Any]:
++        try:
++            raw = self.r.get(self.key(symbol))
++            doc = json.loads(raw) if raw else {}
++            return doc if isinstance(doc, dict) else {}
++        except Exception:
++            return {}
++
++    def load_active(self, symbol: str) -> Dict[str, Any]:
++        doc = self.load_raw(symbol)
++        if str(doc.get('guard_status') or 'active').strip().lower() == 'released':
++            return {}
++        return doc
++
++    def _fallback_cas_set(
++        self,
++        *,
++        symbol: str,
++        payload_doc: Dict[str, Any],
++        expected_version: int,
++        expected_sid: str,
++        expected_lease_token: str,
++        ttl_sec: int,
++    ) -> Dict[str, Any]:
++        key = self.key(symbol)
++        cur = self.load_raw(symbol)
++        if not cur:
++            if int(expected_version) != 0:
++                return {'applied': False, 'reason': 'version_mismatch_absent', 'doc': {}}
++            final_doc = dict(payload_doc)
++            final_doc['guard_version'] = 1
++            self.r.set(key, json.dumps(final_doc, ensure_ascii=False, default=str), ex=int(ttl_sec))
++            return {'applied': True, 'reason': 'created', 'doc': final_doc}
++        cur_ver = _i(cur.get('guard_version'), 0)
++        if cur_ver != int(expected_version):
++            return {'applied': False, 'reason': 'version_mismatch', 'doc': cur}
++        if expected_sid and str(cur.get('sid') or '').strip() != str(expected_sid or '').strip():
++            return {'applied': False, 'reason': 'sid_mismatch', 'doc': cur}
++        if expected_lease_token and str(cur.get('guard_lease_token') or '').strip() != str(expected_lease_token or '').strip():
++            return {'applied': False, 'reason': 'lease_mismatch', 'doc': cur}
++        final_doc = dict(payload_doc)
++        final_doc['guard_version'] = cur_ver + 1
++        self.r.set(key, json.dumps(final_doc, ensure_ascii=False, default=str), ex=int(ttl_sec))
++        return {'applied': True, 'reason': 'updated', 'doc': final_doc}
++
++    def _cas_set(
++        self,
++        *,
++        symbol: str,
++        payload_doc: Dict[str, Any],
++        expected_version: int,
++        expected_sid: str,
++        expected_lease_token: str,
++        ttl_sec: int,
++    ) -> Dict[str, Any]:
++        key = self.key(symbol)
++        if hasattr(self.r, 'eval'):
++            try:
++                result = self.r.eval(
++                    self._CAS_SET_LUA,
++                    1,
++                    key,
++                    int(expected_version),
++                    str(expected_sid or ''),
++                    str(expected_lease_token or ''),
++                    int(ttl_sec),
++                    json.dumps(payload_doc, ensure_ascii=False, default=str),
++                )
++                ok = bool(result and int(result[0]) == 1)
++                if ok:
++                    doc = json.loads(result[1]) if len(result) > 1 and result[1] else {}
++                    return {'applied': True, 'reason': 'updated', 'doc': doc if isinstance(doc, dict) else {}}
++                reason = str(result[1] if len(result) > 1 else 'cas_rejected')
++                return {'applied': False, 'reason': reason, 'doc': self.load_raw(symbol)}
++            except Exception:
++                pass
++        return self._fallback_cas_set(
++            symbol=symbol,
++            payload_doc=payload_doc,
++            expected_version=expected_version,
++            expected_sid=expected_sid,
++            expected_lease_token=expected_lease_token,
++            ttl_sec=ttl_sec,
++        )
++
++    def acquire_or_refresh(
++        self,
++        *,
++        symbol: str,
++        sid: str,
++        payload_patch: Dict[str, Any],
++        writer: str,
++        ttl_sec: Optional[int] = None,
++        retry_once: bool = True,
++    ) -> Dict[str, Any]:
++        symbol = str(symbol or '').strip().upper()
++        sid = str(sid or '').strip()
++        now_ms = _ms_now()
++        ttl = int(ttl_sec or self.active_ttl_sec)
++        current = self.load_raw(symbol)
++        current_status = str(current.get('guard_status') or 'active').strip().lower()
++        current_sid = str(current.get('sid') or '').strip()
++        expected_version = _i(current.get('guard_version'), 0) if current else 0
++        expected_lease = str(current.get('guard_lease_token') or '').strip() if current else ''
++        expected_sid = ''
++        if current:
++            if current_status == 'released':
++                if current_sid and current_sid == sid:
++                    return {'applied': False, 'reason': 'released_tombstone_same_sid', 'doc': current}
++                expected_sid = ''
++            elif current_sid == sid:
++                expected_sid = sid
++            else:
++                return {'applied': False, 'reason': 'held_by_other_sid', 'doc': current}
++        lease_token = f"{writer}:{now_ms}:{uuid.uuid4().hex[:8]}"
++        new_doc = dict(current if current_sid == sid and current_status != 'released' else {})
++        new_doc.update(payload_patch or {})
++        new_doc.update({
++            'symbol': symbol,
++            'sid': sid,
++            'guard_status': 'active',
++            'guard_writer': str(writer or ''),
++            'guard_writer_ts_ms': now_ms,
++            'guard_lease_owner': str(writer or ''),
++            'guard_lease_token': lease_token,
++            'guard_lease_epoch_ms': now_ms,
++            'updated_at_ms': int((payload_patch or {}).get('updated_at_ms') or now_ms),
++        })
++        result = self._cas_set(
++            symbol=symbol,
++            payload_doc=new_doc,
++            expected_version=expected_version,
++            expected_sid=expected_sid,
++            expected_lease_token=expected_lease,
++            ttl_sec=ttl,
++        )
++        if (not result.get('applied')) and retry_once and str(result.get('reason') or '').startswith('version_mismatch'):
++            return self.acquire_or_refresh(symbol=symbol, sid=sid, payload_patch=payload_patch, writer=writer, ttl_sec=ttl, retry_once=False)
++        return result
++
++    def mark_released(
++        self,
++        *,
++        symbol: str,
++        expected_sid: str = '',
++        release_reason: str = '',
++        writer: str,
++        tombstone_ttl_sec: Optional[int] = None,
++        extra_patch: Optional[Dict[str, Any]] = None,
++        retry_once: bool = True,
++    ) -> Dict[str, Any]:
++        symbol = str(symbol or '').strip().upper()
++        current = self.load_raw(symbol)
++        if not current:
++            return {'applied': False, 'reason': 'absent', 'doc': {}}
++        current_sid = str(current.get('sid') or '').strip()
++        if expected_sid and current_sid != str(expected_sid or '').strip():
++            return {'applied': False, 'reason': 'sid_mismatch', 'doc': current}
++        expected_version = _i(current.get('guard_version'), 0)
++        expected_lease = str(current.get('guard_lease_token') or '').strip()
++        now_ms = _ms_now()
++        ttl = int(tombstone_ttl_sec or self.tombstone_ttl_sec)
++        new_doc = dict(current)
++        new_doc.update(extra_patch or {})
++        new_doc.update({
++            'symbol': symbol,
++            'sid': current_sid,
++            'guard_status': 'released',
++            'released_at_ms': now_ms,
++            'release_reason': str(release_reason or ''),
++            'guard_writer': str(writer or ''),
++            'guard_writer_ts_ms': now_ms,
++            'guard_lease_owner': str(writer or ''),
++            'guard_lease_token': f"{writer}:{now_ms}:{uuid.uuid4().hex[:8]}",
++            'guard_lease_epoch_ms': now_ms,
++            'guard_release_pending': False,
++            'updated_at_ms': now_ms,
++        })
++        result = self._cas_set(
++            symbol=symbol,
++            payload_doc=new_doc,
++            expected_version=expected_version,
++            expected_sid=current_sid,
++            expected_lease_token=expected_lease,
++            ttl_sec=ttl,
++        )
++        if (not result.get('applied')) and retry_once and str(result.get('reason') or '').startswith('version_mismatch'):
++            return self.mark_released(symbol=symbol, expected_sid=expected_sid, release_reason=release_reason, writer=writer, tombstone_ttl_sec=ttl, extra_patch=extra_patch, retry_once=False)
++        return result
+--- a/services/tests/test_active_symbol_guard_store_p7_cas_v1.py
++++ b/services/tests/test_active_symbol_guard_store_p7_cas_v1.py
+@@ -0,0 +1,99 @@
++from pathlib import Path
++import importlib.util
++import json
++import sys
++
++root = Path(__file__).resolve().parents[2]
++if str(root) not in sys.path:
++    sys.path.insert(0, str(root))
++
++mod_path = root / 'services' / 'active_symbol_guard_store.py'
++spec = importlib.util.spec_from_file_location('services.active_symbol_guard_store_p7', mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++class FakeRedis:
++    def __init__(self):
++        self.kv = {}
++
++    def get(self, key):
++        return self.kv.get(key)
++
++    def set(self, key, value, ex=None):
++        self.kv[key] = value
++        return True
++
++    def delete(self, key):
++        self.kv.pop(key, None)
++        return 1
++
++    def scan_iter(self, match=None):
++        prefix = str(match or '').rstrip('*')
++        for key in list(self.kv.keys()):
++            if key.startswith(prefix):
++                yield key
++
++
++ActiveSymbolGuardStore = mod.ActiveSymbolGuardStore
++
++
++def test_released_tombstone_blocks_same_sid_resurrection():
++    r = FakeRedis()
++    store = ActiveSymbolGuardStore(r, key_prefix='orders:active_symbol_sid:', active_ttl_sec=86400, tombstone_ttl_sec=120)
++
++    first = store.acquire_or_refresh(symbol='BTCUSDT', sid='sid-A', payload_patch={'fsm_state': 'OPEN'}, writer='projection')
++    assert first['applied'] is True
++
++    released = store.mark_released(symbol='BTCUSDT', expected_sid='sid-A', release_reason='flat', writer='guard_repair')
++    assert released['applied'] is True
++    assert released['doc']['guard_status'] == 'released'
++
++    late_same_sid = store.acquire_or_refresh(symbol='BTCUSDT', sid='sid-A', payload_patch={'fsm_state': 'OPEN_LATE'}, writer='projection')
++    assert late_same_sid['applied'] is False
++    assert late_same_sid['reason'] == 'released_tombstone_same_sid'
++    assert store.load_active('BTCUSDT') == {}
++    assert store.load_raw('BTCUSDT').get('guard_status') == 'released'
++
++
++def test_different_sid_can_take_over_after_release_tombstone():
++    r = FakeRedis()
++    store = ActiveSymbolGuardStore(r, key_prefix='orders:active_symbol_sid:', active_ttl_sec=86400, tombstone_ttl_sec=120)
++
++    first = store.acquire_or_refresh(symbol='BTCUSDT', sid='sid-A', payload_patch={'fsm_state': 'OPEN'}, writer='projection')
++    release = store.mark_released(symbol='BTCUSDT', expected_sid='sid-A', release_reason='flat', writer='guard_repair')
++    second = store.acquire_or_refresh(symbol='BTCUSDT', sid='sid-B', payload_patch={'fsm_state': 'OPEN'}, writer='executor')
++
++    assert first['doc']['guard_version'] == 1
++    assert release['doc']['guard_version'] == 2
++    assert second['applied'] is True
++    assert second['doc']['guard_version'] == 3
++    assert second['doc']['sid'] == 'sid-B'
++    assert second['doc']['guard_status'] == 'active'
++    assert store.load_active('BTCUSDT').get('sid') == 'sid-B'
++
++
++def test_stale_release_cas_cannot_delete_newer_refresh():
++    r = FakeRedis()
++    store = ActiveSymbolGuardStore(r, key_prefix='orders:active_symbol_sid:', active_ttl_sec=86400, tombstone_ttl_sec=120)
++
++    created = store.acquire_or_refresh(symbol='BTCUSDT', sid='sid-A', payload_patch={'fsm_state': 'OPEN', 'updated_at_ms': 100}, writer='projection')
++    stale = dict(created['doc'])
++    refreshed = store.acquire_or_refresh(symbol='BTCUSDT', sid='sid-A', payload_patch={'fsm_state': 'OPEN', 'updated_at_ms': 200}, writer='executor')
++    assert refreshed['doc']['guard_version'] == 2
++
++    stale_release_doc = dict(stale)
++    stale_release_doc.update({'guard_status': 'released', 'release_reason': 'stale_release', 'guard_writer': 'guard_repair'})
++    rejected = store._cas_set(
++        symbol='BTCUSDT',
++        payload_doc=stale_release_doc,
++        expected_version=int(stale['guard_version']),
++        expected_sid='sid-A',
++        expected_lease_token=str(stale.get('guard_lease_token') or ''),
++        ttl_sec=120,
++    )
++    assert rejected['applied'] is False
++    assert rejected['reason'] == 'version_mismatch'
++    assert store.load_active('BTCUSDT').get('guard_version') == 2
+--- a/services/tests/test_active_symbol_guard_writers_p7_integration_v1.py
++++ b/services/tests/test_active_symbol_guard_writers_p7_integration_v1.py
+@@ -0,0 +1,125 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++root = Path(__file__).resolve().parents[2]
++if str(root) not in sys.path:
++    sys.path.insert(0, str(root))
++
++
++def _load(name: str, rel: str):
++    mod_path = root / rel
++    spec = importlib.util.spec_from_file_location(name, mod_path)
++    mod = importlib.util.module_from_spec(spec)
++    sys.modules[spec.name] = mod
++    assert spec.loader is not None
++    spec.loader.exec_module(mod)
++    return mod
++
++
++store_mod = _load('services.active_symbol_guard_store_p7_integration', 'services/active_symbol_guard_store.py')
++proj_mod = _load('services.execution_projection_worker_p7_integration', 'services/execution_projection_worker.py')
++exec_mod = _load('services.binance_executor_p7_integration', 'services/binance_executor.py')
++repair_mod = _load('services.binance_guard_repair_p7_integration', 'services/binance_active_symbol_guard_repair_worker.py')
++
++
++class FakeRedis:
++    def __init__(self):
++        self.kv = {}
++        self.streams = {}
++        self._seq = 0
++
++    def get(self, key):
++        return self.kv.get(key)
++
++    def set(self, key, value, ex=None, nx=False, px=None):
++        if nx and key in self.kv:
++            return False
++        self.kv[key] = value
++        return True
++
++    def delete(self, *keys):
++        n = 0
++        for key in keys:
++            if key in self.kv:
++                del self.kv[key]
++                n += 1
++        return n
++
++    def scan_iter(self, match=None):
++        prefix = str(match or '').rstrip('*')
++        for key in list(self.kv.keys()):
++            if key.startswith(prefix):
++                yield key
++
++    def xadd(self, key, fields, maxlen=None, approximate=None):
++        self._seq += 1
++        sid = f"{1700000000000 + self._seq}-0"
++        self.streams.setdefault(key, []).append((sid, dict(fields)))
++        return sid
++
++    def xrange(self, key, start='-', end='+', count=None):
++        rows = list(self.streams.get(key, []))
++        if count is not None:
++            rows = rows[: int(count)]
++        return rows
++
++
++def _mk_executor(redis_obj):
++    ex = exec_mod.BinanceExecutor.__new__(exec_mod.BinanceExecutor)
++    ex.r = redis_obj
++    ex.state_key_prefix = 'orders:state:'
++    ex.state_ttl = 86400
++    ex.exec_single_active_position_per_symbol = True
++    ex.exec_single_active_position_release_on_terminal = True
++    ex.exec_single_active_position_exchange_truth_release = True
++    ex.active_symbol_key_prefix = 'orders:active_symbol_sid:'
++    ex.active_symbol_guard_tombstone_ttl_sec = 120
++    ex.execution_journal = None
++    ex.exec_journal_primary = False
++    ex.exec_state_derived_view = True
++    ex.exec_inline_state_projection = True
++    return ex
++
++
++def _mk_repair(redis_obj):
++    w = repair_mod.BinanceActiveSymbolGuardRepairWorker.__new__(repair_mod.BinanceActiveSymbolGuardRepairWorker)
++    w.r = redis_obj
++    w.active_symbol_key_prefix = 'orders:active_symbol_sid:'
++    w.state_key_prefix = 'orders:state:'
++    w.state_ttl_sec = 86400
++    w.active_symbol_guard_tombstone_ttl_sec = 120
++    w.dry_run = False
++    return w
++
++
++def test_projection_late_same_sid_event_cannot_resurrect_after_repair_release():
++    r = FakeRedis()
++    worker = proj_mod.ExecutionProjectionWorker(r, exchange_truth_release=True, state_ttl_sec=86400)
++    repair = _mk_repair(r)
++    store = store_mod.ActiveSymbolGuardStore(r, key_prefix='orders:active_symbol_sid:', active_ttl_sec=86400, tombstone_ttl_sec=120)
++
++    worker._persist_active_symbol_state({'symbol': 'BTCUSDT', 'sid': 'sid-A', 'fsm_state': 'ENTRY_FILLED', 'updated_at_ms': 100})
++    released = repair._clear_guard('BTCUSDT', expected_sid='sid-A')
++    assert released is True
++    assert store.load_active('BTCUSDT') == {}
++
++    worker._persist_active_symbol_state({'symbol': 'BTCUSDT', 'sid': 'sid-A', 'fsm_state': 'ENTRY_FILLED', 'updated_at_ms': 200})
++    assert store.load_active('BTCUSDT') == {}
++    assert store.load_raw('BTCUSDT').get('guard_status') == 'released'
++
++
++def test_executor_new_sid_can_acquire_after_released_tombstone():
++    r = FakeRedis()
++    worker = proj_mod.ExecutionProjectionWorker(r, exchange_truth_release=True, state_ttl_sec=86400)
++    repair = _mk_repair(r)
++    executor = _mk_executor(r)
++    store = store_mod.ActiveSymbolGuardStore(r, key_prefix='orders:active_symbol_sid:', active_ttl_sec=86400, tombstone_ttl_sec=120)
++
++    worker._persist_active_symbol_state({'symbol': 'BTCUSDT', 'sid': 'sid-A', 'fsm_state': 'ENTRY_FILLED', 'updated_at_ms': 100})
++    assert repair._clear_guard('BTCUSDT', expected_sid='sid-A') is True
++    executor._persist_materialized_state_cache('sid-B', {'symbol': 'BTCUSDT', 'sid': 'sid-B', 'fsm_state': 'ENTRY_FILLED', 'status': 'open', 'updated_at_ms': 300})
++
++    active = store.load_active('BTCUSDT')
++    assert active.get('sid') == 'sid-B'
++    assert active.get('guard_status') == 'active'

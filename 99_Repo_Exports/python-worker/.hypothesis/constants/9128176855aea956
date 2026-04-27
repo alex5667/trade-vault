@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/conf_thresholds.py
+# hypothesis_version: 6.148.10
+
+[0.45, 70.0, '0', '1', 'LOG_EDGE_VETO', 'MIN_CONF_DEFAULT', 'on', 'true', 'y', 'yes']

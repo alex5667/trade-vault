@@ -1,0 +1,102 @@
+# Signal-quality alert rules (Step D / Step 6)
+#
+# Designed for scrape_interval = 15s:
+# - warn windows are minutes (reduce flapping)
+# - crit windows are short but still >= 2 evaluations where practical
+#
+# IMPORTANT:
+# - Keep labels low-cardinality: only {symbol} and fixed {severity}.
+# - DQ thresholds are expressed in metric space (defaults). If you later
+#   expose threshold-gauges, you can swap constants for those gauges.
+groups:
+  - name: signal_quality_v2
+    interval: 15s
+    rules:
+      # ---------------------------------------------------------------------
+      # Tick gap P95 (ms)
+      # ---------------------------------------------------------------------
+      - alert: TickGapP95HighWarn
+        expr: (tick_gap_p95_ms > 3000) and (tick_gap_n >= 50)
+        for: 2m
+        labels:
+          severity: warning
+          subsystem: orderflow
+        annotations:
+          summary: "Tick gap P95 is high (warn)"
+          description: "tick_gap_p95_ms > 3000ms with tick_gap_n >= 50 samples for 2m."
+
+      - alert: TickGapP95HighCrit
+        expr: (tick_gap_p95_ms > 10000) and (tick_gap_n >= 50)
+        for: 30s
+        labels:
+          severity: critical
+          subsystem: orderflow
+        annotations:
+          summary: "Tick gap P95 is high (crit)"
+          description: "tick_gap_p95_ms > 10000ms with tick_gap_n >= 50 samples for 30s."
+
+      - alert: TickGapP95Extreme
+        expr: (tick_gap_p95_ms > 30000) and (tick_gap_n >= 50)
+        for: 10s
+        labels:
+          severity: critical
+          subsystem: orderflow
+        annotations:
+          summary: "Tick gap P95 is extreme"
+          description: "tick_gap_p95_ms > 30000ms with tick_gap_n >= 50 samples."
+
+      # ---------------------------------------------------------------------
+      # Missing sequence EMAs
+      # ---------------------------------------------------------------------
+      - alert: TickMissingSeqEmaWarn
+        expr: tick_missing_seq_ema > 2
+        for: 2m
+        labels:
+          severity: warning
+          subsystem: orderflow
+        annotations:
+          summary: "Tick missing-seq EMA elevated (warn)"
+          description: "tick_missing_seq_ema > 2 for 2m."
+
+      - alert: TickMissingSeqEmaCrit
+        expr: tick_missing_seq_ema > 10
+        for: 30s
+        labels:
+          severity: critical
+          subsystem: orderflow
+        annotations:
+          summary: "Tick missing-seq EMA elevated (crit)"
+          description: "tick_missing_seq_ema > 10 for 30s."
+
+      - alert: BookMissingSeqEmaCrit
+        expr: book_missing_seq_ema > 30
+        for: 30s
+        labels:
+          severity: critical
+          subsystem: orderflow
+        annotations:
+          summary: "Book missing-seq EMA elevated (crit)"
+          description: "book_missing_seq_ema > 30 for 30s. In observe-only phase you may treat as ticket until book veto is enabled."
+
+      # ---------------------------------------------------------------------
+      # DQ Level share (time-weighted share of dq_level == 2)
+      # ---------------------------------------------------------------------
+      - alert: DqLevel2ShareWarn
+        expr: avg_over_time((dq_level == bool 2)[1h:15s]) > 0.10
+        for: 5m
+        labels:
+          severity: warning
+          subsystem: orderflow
+        annotations:
+          summary: "High share of dq_level==2 (warn)"
+          description: "Time-weighted share of dq_level==2 over 1h is > 10%."
+
+      - alert: DqLevel2ShareCrit
+        expr: avg_over_time((dq_level == bool 2)[1h:15s]) > 0.20
+        for: 5m
+        labels:
+          severity: critical
+          subsystem: orderflow
+        annotations:
+          summary: "High share of dq_level==2 (crit)"
+          description: "Time-weighted share of dq_level==2 over 1h is > 20%."

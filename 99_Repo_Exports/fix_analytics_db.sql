@@ -1,0 +1,33 @@
+ALTER TABLE trades_closed
+  ADD COLUMN IF NOT EXISTS sc_contract_ver smallint,
+  ADD COLUMN IF NOT EXISTS sc_risk_horizon_bucket text,
+  ADD COLUMN IF NOT EXISTS sc_hold_target_ms bigint,
+  ADD COLUMN IF NOT EXISTS sc_alpha_half_life_ms bigint,
+  ADD COLUMN IF NOT EXISTS sc_max_signal_age_ms bigint,
+  ADD COLUMN IF NOT EXISTS sc_atr_age_ms bigint,
+  ADD COLUMN IF NOT EXISTS sc_atr_source text,
+  ADD COLUMN IF NOT EXISTS sc_atr_pct double precision,
+  ADD COLUMN IF NOT EXISTS sc_vol_ratio_fast_slow double precision,
+  ADD COLUMN IF NOT EXISTS sc_vol_ratio_z double precision,
+  ADD COLUMN IF NOT EXISTS trailing_surface_applied boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS trailing_surface_reason_code text,
+  ADD COLUMN IF NOT EXISTS baseline_trailing_offset_atr double precision,
+  ADD COLUMN IF NOT EXISTS selected_trailing_offset_atr double precision,
+  ADD COLUMN IF NOT EXISTS atr_policy_ver integer,
+  ADD COLUMN IF NOT EXISTS atr_policy_tag text,
+  ADD COLUMN IF NOT EXISTS atr_policy_source text,
+  ADD COLUMN IF NOT EXISTS atr_policy_scenario text,
+  ADD COLUMN IF NOT EXISTS atr_policy_regime text,
+  ADD COLUMN IF NOT EXISTS atr_policy_bucket text,
+  ADD COLUMN IF NOT EXISTS atr_stop_ttl_mode text,
+  ADD COLUMN IF NOT EXISTS atr_trailing_mode text,
+  ADD COLUMN IF NOT EXISTS atr_recovery_run_id text,
+  ADD COLUMN IF NOT EXISTS atr_restore_cert_id text,
+  ADD COLUMN IF NOT EXISTS atr_restore_cert_status text,
+  ADD COLUMN IF NOT EXISTS atr_policy_snapshot_json jsonb;
+
+ALTER TABLE trades_closed_p0
+  ADD COLUMN IF NOT EXISTS trailing_surface_applied boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS trailing_surface_reason_code text,
+  ADD COLUMN IF NOT EXISTS baseline_trailing_offset_atr double precision,
+  ADD COLUMN IF NOT EXISTS selected_trailing_offset_atr double precision;

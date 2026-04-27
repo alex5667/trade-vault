@@ -1,0 +1,902 @@
+--- a/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
++++ b/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
+@@ -131,3 +131,4 @@
+ 
+ # Strategy research stats alert-policy dual-control (P6.11)
+ STRATEGY_RESEARCH_STATS_ALERT_POLICY_DUAL_CONTROL_ON_LIMIT=1
++STRATEGY_RESEARCH_STATS_ALERT_POLICY_DUAL_CONTROL_APPROVED_FRESHNESS_S=1800
+--- a/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
++++ b/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
+@@ -130,3 +130,4 @@
+ 
+ # Strategy research stats alert-policy dual-control (P6.11)
+ STRATEGY_RESEARCH_STATS_ALERT_POLICY_DUAL_CONTROL_ON_LIMIT=1
++STRATEGY_RESEARCH_STATS_ALERT_POLICY_DUAL_CONTROL_APPROVED_FRESHNESS_S=1800
+--- a/orderflow_services/strategy_research_stats_alert_policy_exporter_v1.py
++++ b/orderflow_services/strategy_research_stats_alert_policy_exporter_v1.py
+@@ -17,7 +17,7 @@
+ 
+ FAMILIES = ('pbo_high', 'report_stale', 'psr_dsr_low')
+ LIFECYCLE_STATES = ('none', 'active', 'cleared', 'expired')
+-DUAL_CONTROL_STATES = ('none', 'pending', 'approved', 'consumed')
++DUAL_CONTROL_STATES = ('none', 'pending', 'approved', 'consumed', 'invalidated')
+ LIMIT_KINDS = ('none', 'budget', 'max_renew')
+ DEFAULT_PURPOSES = (
+     'conf_score_guardrails_apply',
+@@ -64,6 +64,10 @@
+         return float(default)
+ 
+ 
++def _dual_control_approved_freshness_s() -> float:
++    return max(60.0, _to_float(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_DUAL_CONTROL_APPROVED_FRESHNESS_S', '1800'), 1800.0))
++
++
+ def _read_hash(client: Any, key: str) -> Dict[str, str]:
+     if client is None or not key:
+         return {}
+@@ -233,6 +237,61 @@
+     return int(time.time() * 1000)
+ 
+ 
++def _sweep_stale_dual_control_approval(client: Any, purpose: str, family: str, state_key: str, state: Dict[str, str], now_ms: int) -> Dict[str, str]:
++    if not state or str(state.get('dual_control_approval_state') or '') != 'approved':
++        return state
++    approved_ts_ms = int(_to_float(state.get('dual_control_approved_ts_ms'), 0.0))
++    if approved_ts_ms <= 0:
++        return state
++    freshness_s = max(60.0, _to_float(state.get('dual_control_approved_freshness_s'), _dual_control_approved_freshness_s()))
++    deadline_ts_ms = int(_to_float(state.get('dual_control_approved_deadline_ts_ms'), 0.0))
++    if deadline_ts_ms <= 0:
++        deadline_ts_ms = int(approved_ts_ms + freshness_s * 1000.0)
++    if deadline_ts_ms > now_ms:
++        if int(_to_float(state.get('dual_control_approved_deadline_ts_ms'), 0.0)) != deadline_ts_ms:
++            updated = dict(state)
++            updated.update({
++                'dual_control_approved_deadline_ts_ms': str(deadline_ts_ms),
++                'dual_control_approved_freshness_s': str(int(freshness_s)),
++            })
++            try:
++                client.hset(state_key, mapping=updated)
++            except Exception:
++                return updated
++            return updated
++        return state
++    updated = dict(state)
++    updated.update({
++        'dual_control_required': '1',
++        'dual_control_approval_state': 'invalidated',
++        'dual_control_approved_deadline_ts_ms': str(deadline_ts_ms),
++        'dual_control_approved_freshness_s': str(int(freshness_s)),
++        'dual_control_invalidated_ts_ms': str(now_ms),
++        'dual_control_invalidated_reason': 'approval_freshness_expired',
++        'dual_control_invalidated_stage': 'exporter',
++    })
++    try:
++        client.hset(state_key, mapping=updated)
++    except Exception:
++        return updated
++    _emit_event(
++        client,
++        'strategy_research_stats_alert_policy_suppress_override_dual_control_invalidated',
++        {
++            'purpose': purpose,
++            'family': family,
++            'reason': 'approval_freshness_expired',
++            'stage': 'exporter',
++            'approval_ticket': str(state.get('dual_control_approved_ticket') or ''),
++            'approver': str(state.get('dual_control_approved_operator') or ''),
++            'approved_ts_ms': approved_ts_ms,
++            'deadline_ts_ms': deadline_ts_ms,
++            'freshness_s': int(freshness_s),
++        },
++    )
++    return updated
++
++
+ def _resolve_override(client: Any, purpose: str, family: str, now_ms: int) -> Dict[str, Any]:
+     raw = _read_hash(client, _override_key(purpose, family))
+     state_key = _override_state_key(purpose, family)
+@@ -341,6 +400,7 @@
+                     'remaining_s': max(0.0, (expire_ts_ms - now_ms) / 1000.0),
+                 },
+             )
++    state = _sweep_stale_dual_control_approval(client, purpose, family, state_key, state, now_ms) if state else state
+     has_ticket = 1.0 if str((raw or state).get('ticket') or '').strip() else 0.0 if (raw or state) else 0.0
+     has_operator = 1.0 if str((raw or state).get('operator') or '').strip() else 0.0 if (raw or state) else 0.0
+     has_reason = 1.0 if str((raw or state).get('reason') or '').strip() else 0.0 if (raw or state) else 0.0
+@@ -362,6 +422,10 @@
+     dual_control_state = str((state or {}).get('dual_control_approval_state') or 'none') if state else 'none'
+     dual_control_approved_ts_ms = int(_to_float((state or {}).get('dual_control_approved_ts_ms'), 0.0)) if state else 0
+     dual_control_approver_present = 1.0 if str((state or {}).get('dual_control_approved_operator') or '').strip() else 0.0
++    dual_control_deadline_ts_ms = int(_to_float((state or {}).get('dual_control_approved_deadline_ts_ms'), 0.0)) if state else 0
++    if state and dual_control_state == 'approved' and dual_control_deadline_ts_ms <= 0 and dual_control_approved_ts_ms > 0:
++        dual_control_deadline_ts_ms = int(dual_control_approved_ts_ms + max(60.0, _to_float((state or {}).get('dual_control_approved_freshness_s'), _dual_control_approved_freshness_s())) * 1000.0)
++    dual_control_freshness_remaining_s = max(0.0, (dual_control_deadline_ts_ms - now_ms) / 1000.0) if dual_control_state == 'approved' and dual_control_deadline_ts_ms > 0 else 0.0
+     return {
+         'present': 1.0 if raw else 0.0,
+         'active': active,
+@@ -394,6 +458,7 @@
+         'dual_control_state': dual_control_state,
+         'dual_control_approved_ts_ms': dual_control_approved_ts_ms,
+         'dual_control_approver_present': dual_control_approver_present,
++        'dual_control_freshness_remaining_s': dual_control_freshness_remaining_s,
+     }
+ 
+ def _family_default(family: str, field: str) -> float:
+@@ -465,6 +530,7 @@
+ POLICY_OVERRIDE_DUAL_CONTROL_REQUIRED = Gauge('strategy_research_stats_alert_policy_override_dual_control_required', '1 if limit-hit renewal for purpose/family requires dual-control approval', ['purpose', 'family'])
+ POLICY_OVERRIDE_DUAL_CONTROL_STATE = Gauge('strategy_research_stats_alert_policy_override_dual_control_state', 'Dual-control approval state for purpose/family', ['purpose', 'family', 'state'])
+ POLICY_OVERRIDE_DUAL_CONTROL_APPROVAL_AGE = Gauge('strategy_research_stats_alert_policy_override_dual_control_approval_age_seconds', 'Age of approved dual-control approval for purpose/family', ['purpose', 'family'])
++POLICY_OVERRIDE_DUAL_CONTROL_FRESHNESS_REMAINING = Gauge('strategy_research_stats_alert_policy_override_dual_control_freshness_remaining_seconds', 'Remaining freshness window for approved dual-control approval for purpose/family', ['purpose', 'family'])
+ POLICY_OVERRIDE_DUAL_CONTROL_APPROVER_PRESENT = Gauge('strategy_research_stats_alert_policy_override_dual_control_approver_present', '1 if a second approver is recorded for purpose/family', ['purpose', 'family'])
+ POLICY_ACTIVE_SUPPRESSIONS_TOTAL = Gauge('strategy_research_stats_alert_policy_active_suppressions_total', 'Number of active TTL-backed suppress overrides by family', ['family'])
+ POLICY_MIN_24H = Gauge('strategy_research_stats_alert_policy_min_events_24h', 'Minimum 24h events threshold for purpose/family alerts', ['purpose', 'family'])
+@@ -542,6 +608,7 @@
+                 POLICY_OVERRIDE_DUAL_CONTROL_STATE.labels(purpose=purpose, family=family, state=dc_state).set(1.0 if override.get('dual_control_state', 'none') == dc_state else 0.0)
+             approved_ts_ms = override.get('dual_control_approved_ts_ms', 0) or 0
+             POLICY_OVERRIDE_DUAL_CONTROL_APPROVAL_AGE.labels(purpose=purpose, family=family).set(max(0.0, (now_ms - approved_ts_ms) / 1000.0) if approved_ts_ms else 0.0)
++            POLICY_OVERRIDE_DUAL_CONTROL_FRESHNESS_REMAINING.labels(purpose=purpose, family=family).set(override.get('dual_control_freshness_remaining_s', 0.0))
+             POLICY_OVERRIDE_DUAL_CONTROL_APPROVER_PRESENT.labels(purpose=purpose, family=family).set(override.get('dual_control_approver_present', 0.0))
+             if override['active']:
+                 active_totals[family] += 1.0
+--- a/orderflow_services/strategy_research_stats_alert_policy_override_v1.py
++++ b/orderflow_services/strategy_research_stats_alert_policy_override_v1.py
+@@ -76,6 +76,10 @@
+ def require_dual_control_on_limit() -> int:
+     return 1 if _to_int(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_DUAL_CONTROL_ON_LIMIT', '1'), 1) > 0 else 0
+ 
++
++def dual_control_approved_freshness_s() -> int:
++    return max(60, _to_int(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_DUAL_CONTROL_APPROVED_FRESHNESS_S', '1800'), 1800))
++
+ def override_limits_defaults_key() -> str:
+     return _env(
+         'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_DEFAULTS_KEY',
+@@ -174,6 +178,64 @@
+     if escalation_ticket and approval_ticket == escalation_ticket:
+         raise OverrideWorkflowError('dual-control approval ticket must differ from escalation ticket')
+ 
++def _dual_control_approval_deadline_ts_ms(state: Dict[str, str]) -> int:
++    approved_ts_ms = _to_int(state.get('dual_control_approved_ts_ms'), 0)
++    freshness_s = max(60, _to_int(state.get('dual_control_approved_freshness_s'), dual_control_approved_freshness_s()))
++    stored_deadline_ts_ms = _to_int(state.get('dual_control_approved_deadline_ts_ms'), 0)
++    if stored_deadline_ts_ms > 0:
++        return stored_deadline_ts_ms
++    if approved_ts_ms <= 0:
++        return 0
++    return approved_ts_ms + freshness_s * 1000
++
++
++def _invalidate_stale_dual_control_approval(
++    client: Any,
++    *,
++    purpose: str,
++    family: str,
++    state_key: str,
++    state: Dict[str, str],
++    stage: str,
++) -> Dict[str, str]:
++    approval_state = str(state.get('dual_control_approval_state') or '')
++    if approval_state != 'approved':
++        return state
++    approved_ts_ms = _to_int(state.get('dual_control_approved_ts_ms'), 0)
++    if approved_ts_ms <= 0:
++        return state
++    now_ms = _now_ms()
++    deadline_ts_ms = _dual_control_approval_deadline_ts_ms(state)
++    if deadline_ts_ms <= 0 or deadline_ts_ms > now_ms:
++        return state
++    updated = dict(state)
++    updated.update({
++        'dual_control_required': '1',
++        'dual_control_approval_state': 'invalidated',
++        'dual_control_approved_deadline_ts_ms': str(deadline_ts_ms),
++        'dual_control_approved_freshness_s': str(max(60, _to_int(state.get('dual_control_approved_freshness_s'), dual_control_approved_freshness_s()))),
++        'dual_control_invalidated_ts_ms': str(now_ms),
++        'dual_control_invalidated_reason': 'approval_freshness_expired',
++        'dual_control_invalidated_stage': stage,
++    })
++    client.hset(state_key, mapping=updated)
++    _emit_event(
++        client,
++        'strategy_research_stats_alert_policy_suppress_override_dual_control_invalidated',
++        {
++            'purpose': purpose,
++            'family': family,
++            'reason': 'approval_freshness_expired',
++            'stage': stage,
++            'approval_ticket': str(state.get('dual_control_approved_ticket') or ''),
++            'approver': str(state.get('dual_control_approved_operator') or ''),
++            'approved_ts_ms': approved_ts_ms,
++            'deadline_ts_ms': deadline_ts_ms,
++            'freshness_s': max(60, _to_int(state.get('dual_control_approved_freshness_s'), dual_control_approved_freshness_s())),
++        },
++    )
++    return updated
++
+ 
+ def _mark_dual_control_pending(client: Any, *, purpose: str, family: str, state_key: str, state: Dict[str, str], limit_kind: str) -> Dict[str, str]:
+     now_ms = _now_ms()
+@@ -189,6 +251,11 @@
+         'dual_control_approved_ticket': '',
+         'dual_control_approved_operator': '',
+         'dual_control_approved_reason': '',
++        'dual_control_approved_deadline_ts_ms': '0',
++        'dual_control_approved_freshness_s': str(dual_control_approved_freshness_s()),
++        'dual_control_invalidated_ts_ms': '0',
++        'dual_control_invalidated_reason': '',
++        'dual_control_invalidated_stage': '',
+         'dual_control_consumed_ts_ms': '0',
+     })
+     client.hset(state_key, mapping=updated)
+@@ -212,7 +279,9 @@
+     approval_state = str(state.get('dual_control_approval_state') or '')
+     if approval_state == 'approved' and str(state.get('dual_control_approved_operator') or '').strip() and str(state.get('dual_control_approved_ticket') or '').strip():
+         return state
+-    updated = _mark_dual_control_pending(client, purpose=purpose, family=family, state_key=state_key, state=state, limit_kind=limit_kind)
++    if approval_state == 'invalidated':
++        raise OverrideWorkflowError('renew exceeds policy limits; dual-control approval freshness expired and must be re-approved by a second approver')
++    _mark_dual_control_pending(client, purpose=purpose, family=family, state_key=state_key, state=state, limit_kind=limit_kind)
+     raise OverrideWorkflowError('renew exceeds policy limits; escalation path requires dual-control approval from a second approver')
+ 
+ 
+@@ -422,6 +491,11 @@
+         'dual_control_approved_ticket': str(approval.get('ticket') or '') if approval else '',
+         'dual_control_approved_operator': str(approval.get('operator') or '') if approval else '',
+         'dual_control_approved_reason': str(approval.get('reason') or '') if approval else '',
++        'dual_control_approved_deadline_ts_ms': str(approval.get('deadline_ts_ms') or 0) if approval else '0',
++        'dual_control_approved_freshness_s': str(approval.get('freshness_s') or 0) if approval else '0',
++        'dual_control_invalidated_ts_ms': '0',
++        'dual_control_invalidated_reason': '',
++        'dual_control_invalidated_stage': '',
+         'dual_control_consumed_ts_ms': str(now_ms if approval else 0),
+     }
+ 
+@@ -568,6 +642,11 @@
+         'dual_control_approved_ticket': '',
+         'dual_control_approved_operator': '',
+         'dual_control_approved_reason': '',
++        'dual_control_approved_deadline_ts_ms': '0',
++        'dual_control_approved_freshness_s': str(dual_control_approved_freshness_s()),
++        'dual_control_invalidated_ts_ms': '0',
++        'dual_control_invalidated_reason': '',
++        'dual_control_invalidated_stage': '',
+         'dual_control_consumed_ts_ms': '0',
+     })
+     client.hset(state_key, mapping=updated)
+@@ -612,11 +691,20 @@
+     state = _read_state(client, purpose, family)
+     if not state:
+         raise OverrideWorkflowError('no override lifecycle state found for purpose/family')
+-    if str(state.get('dual_control_approval_state') or '') != 'pending' or _to_int(state.get('dual_control_required'), 0) != 1:
+-        raise OverrideWorkflowError('dual-control approval is only allowed when a pending limit-hit escalation approval exists')
++    state = _invalidate_stale_dual_control_approval(
++        client,
++        purpose=purpose,
++        family=family,
++        state_key=state_key,
++        state=state,
++        stage='approve',
++    )
++    if str(state.get('dual_control_approval_state') or '') not in ('pending', 'invalidated') or _to_int(state.get('dual_control_required'), 0) != 1:
++        raise OverrideWorkflowError('dual-control approval is only allowed when a pending or invalidated limit-hit escalation approval exists')
+     _ensure_dual_control_approver_distinct(state, approver, approval_ticket)
+     now_ms = _now_ms()
+     updated = dict(state)
++    freshness_s = dual_control_approved_freshness_s()
+     updated.update({
+         'dual_control_required': '1',
+         'dual_control_approval_state': 'approved',
+@@ -624,6 +712,11 @@
+         'dual_control_approved_ticket': approval_ticket,
+         'dual_control_approved_operator': approver,
+         'dual_control_approved_reason': approval_reason,
++        'dual_control_approved_deadline_ts_ms': str(now_ms + freshness_s * 1000),
++        'dual_control_approved_freshness_s': str(freshness_s),
++        'dual_control_invalidated_ts_ms': '0',
++        'dual_control_invalidated_reason': '',
++        'dual_control_invalidated_stage': '',
+     })
+     client.hset(state_key, mapping=updated)
+     _emit_event(
+@@ -637,6 +730,8 @@
+             'approval_reason': approval_reason,
+             'renew_ticket': str(state.get('renew_ack_ticket') or ''),
+             'escalation_ticket': str(state.get('renew_escalation_ticket') or ''),
++            'freshness_s': freshness_s,
++            'deadline_ts_ms': now_ms + freshness_s * 1000,
+         },
+     )
+     return updated
+@@ -706,6 +801,14 @@
+         escalation_ack = _require_escalation_fields(state)
+         _ensure_new_escalation_identity(str(escalation_ack.get('ticket') or ''), state, ack_ticket)
+         if require_dual_control_on_limit() > 0:
++            state = _invalidate_stale_dual_control_approval(
++                client,
++                purpose=purpose,
++                family=family,
++                state_key=state_key,
++                state=state,
++                stage='renew',
++            )
+             state = _require_dual_control_approval(
+                 client,
+                 purpose=purpose,
+@@ -719,6 +822,8 @@
+                 'ticket': str(state.get('dual_control_approved_ticket') or ''),
+                 'operator': str(state.get('dual_control_approved_operator') or ''),
+                 'reason': str(state.get('dual_control_approved_reason') or ''),
++                'deadline_ts_ms': str(_dual_control_approval_deadline_ts_ms(state) or 0),
++                'freshness_s': str(max(60, _to_int(state.get('dual_control_approved_freshness_s'), dual_control_approved_freshness_s()))),
+             }
+     expire_ts_ms = now_ms + ttl_s * 1000
+     key = override_key(purpose, family)
+@@ -841,6 +946,11 @@
+             'dual_control_approved_ticket': '',
+             'dual_control_approved_operator': '',
+             'dual_control_approved_reason': '',
++            'dual_control_approved_deadline_ts_ms': '0',
++            'dual_control_approved_freshness_s': str(dual_control_approved_freshness_s()),
++            'dual_control_invalidated_ts_ms': '0',
++            'dual_control_invalidated_reason': '',
++            'dual_control_invalidated_stage': '',
+             'dual_control_consumed_ts_ms': '0',
+         },
+     )
+--- a/tick_flow_full/orderflow_services/strategy_research_stats_alert_policy_exporter_v1.py
++++ b/tick_flow_full/orderflow_services/strategy_research_stats_alert_policy_exporter_v1.py
+@@ -17,7 +17,7 @@
+ 
+ FAMILIES = ('pbo_high', 'report_stale', 'psr_dsr_low')
+ LIFECYCLE_STATES = ('none', 'active', 'cleared', 'expired')
+-DUAL_CONTROL_STATES = ('none', 'pending', 'approved', 'consumed')
++DUAL_CONTROL_STATES = ('none', 'pending', 'approved', 'consumed', 'invalidated')
+ LIMIT_KINDS = ('none', 'budget', 'max_renew')
+ DEFAULT_PURPOSES = (
+     'conf_score_guardrails_apply',
+@@ -64,6 +64,10 @@
+         return float(default)
+ 
+ 
++def _dual_control_approved_freshness_s() -> float:
++    return max(60.0, _to_float(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_DUAL_CONTROL_APPROVED_FRESHNESS_S', '1800'), 1800.0))
++
++
+ def _read_hash(client: Any, key: str) -> Dict[str, str]:
+     if client is None or not key:
+         return {}
+@@ -233,6 +237,61 @@
+     return int(time.time() * 1000)
+ 
+ 
++def _sweep_stale_dual_control_approval(client: Any, purpose: str, family: str, state_key: str, state: Dict[str, str], now_ms: int) -> Dict[str, str]:
++    if not state or str(state.get('dual_control_approval_state') or '') != 'approved':
++        return state
++    approved_ts_ms = int(_to_float(state.get('dual_control_approved_ts_ms'), 0.0))
++    if approved_ts_ms <= 0:
++        return state
++    freshness_s = max(60.0, _to_float(state.get('dual_control_approved_freshness_s'), _dual_control_approved_freshness_s()))
++    deadline_ts_ms = int(_to_float(state.get('dual_control_approved_deadline_ts_ms'), 0.0))
++    if deadline_ts_ms <= 0:
++        deadline_ts_ms = int(approved_ts_ms + freshness_s * 1000.0)
++    if deadline_ts_ms > now_ms:
++        if int(_to_float(state.get('dual_control_approved_deadline_ts_ms'), 0.0)) != deadline_ts_ms:
++            updated = dict(state)
++            updated.update({
++                'dual_control_approved_deadline_ts_ms': str(deadline_ts_ms),
++                'dual_control_approved_freshness_s': str(int(freshness_s)),
++            })
++            try:
++                client.hset(state_key, mapping=updated)
++            except Exception:
++                return updated
++            return updated
++        return state
++    updated = dict(state)
++    updated.update({
++        'dual_control_required': '1',
++        'dual_control_approval_state': 'invalidated',
++        'dual_control_approved_deadline_ts_ms': str(deadline_ts_ms),
++        'dual_control_approved_freshness_s': str(int(freshness_s)),
++        'dual_control_invalidated_ts_ms': str(now_ms),
++        'dual_control_invalidated_reason': 'approval_freshness_expired',
++        'dual_control_invalidated_stage': 'exporter',
++    })
++    try:
++        client.hset(state_key, mapping=updated)
++    except Exception:
++        return updated
++    _emit_event(
++        client,
++        'strategy_research_stats_alert_policy_suppress_override_dual_control_invalidated',
++        {
++            'purpose': purpose,
++            'family': family,
++            'reason': 'approval_freshness_expired',
++            'stage': 'exporter',
++            'approval_ticket': str(state.get('dual_control_approved_ticket') or ''),
++            'approver': str(state.get('dual_control_approved_operator') or ''),
++            'approved_ts_ms': approved_ts_ms,
++            'deadline_ts_ms': deadline_ts_ms,
++            'freshness_s': int(freshness_s),
++        },
++    )
++    return updated
++
++
+ def _resolve_override(client: Any, purpose: str, family: str, now_ms: int) -> Dict[str, Any]:
+     raw = _read_hash(client, _override_key(purpose, family))
+     state_key = _override_state_key(purpose, family)
+@@ -341,6 +400,7 @@
+                     'remaining_s': max(0.0, (expire_ts_ms - now_ms) / 1000.0),
+                 },
+             )
++    state = _sweep_stale_dual_control_approval(client, purpose, family, state_key, state, now_ms) if state else state
+     has_ticket = 1.0 if str((raw or state).get('ticket') or '').strip() else 0.0 if (raw or state) else 0.0
+     has_operator = 1.0 if str((raw or state).get('operator') or '').strip() else 0.0 if (raw or state) else 0.0
+     has_reason = 1.0 if str((raw or state).get('reason') or '').strip() else 0.0 if (raw or state) else 0.0
+@@ -362,6 +422,10 @@
+     dual_control_state = str((state or {}).get('dual_control_approval_state') or 'none') if state else 'none'
+     dual_control_approved_ts_ms = int(_to_float((state or {}).get('dual_control_approved_ts_ms'), 0.0)) if state else 0
+     dual_control_approver_present = 1.0 if str((state or {}).get('dual_control_approved_operator') or '').strip() else 0.0
++    dual_control_deadline_ts_ms = int(_to_float((state or {}).get('dual_control_approved_deadline_ts_ms'), 0.0)) if state else 0
++    if state and dual_control_state == 'approved' and dual_control_deadline_ts_ms <= 0 and dual_control_approved_ts_ms > 0:
++        dual_control_deadline_ts_ms = int(dual_control_approved_ts_ms + max(60.0, _to_float((state or {}).get('dual_control_approved_freshness_s'), _dual_control_approved_freshness_s())) * 1000.0)
++    dual_control_freshness_remaining_s = max(0.0, (dual_control_deadline_ts_ms - now_ms) / 1000.0) if dual_control_state == 'approved' and dual_control_deadline_ts_ms > 0 else 0.0
+     return {
+         'present': 1.0 if raw else 0.0,
+         'active': active,
+@@ -394,6 +458,7 @@
+         'dual_control_state': dual_control_state,
+         'dual_control_approved_ts_ms': dual_control_approved_ts_ms,
+         'dual_control_approver_present': dual_control_approver_present,
++        'dual_control_freshness_remaining_s': dual_control_freshness_remaining_s,
+     }
+ 
+ def _family_default(family: str, field: str) -> float:
+@@ -465,6 +530,7 @@
+ POLICY_OVERRIDE_DUAL_CONTROL_REQUIRED = Gauge('strategy_research_stats_alert_policy_override_dual_control_required', '1 if limit-hit renewal for purpose/family requires dual-control approval', ['purpose', 'family'])
+ POLICY_OVERRIDE_DUAL_CONTROL_STATE = Gauge('strategy_research_stats_alert_policy_override_dual_control_state', 'Dual-control approval state for purpose/family', ['purpose', 'family', 'state'])
+ POLICY_OVERRIDE_DUAL_CONTROL_APPROVAL_AGE = Gauge('strategy_research_stats_alert_policy_override_dual_control_approval_age_seconds', 'Age of approved dual-control approval for purpose/family', ['purpose', 'family'])
++POLICY_OVERRIDE_DUAL_CONTROL_FRESHNESS_REMAINING = Gauge('strategy_research_stats_alert_policy_override_dual_control_freshness_remaining_seconds', 'Remaining freshness window for approved dual-control approval for purpose/family', ['purpose', 'family'])
+ POLICY_OVERRIDE_DUAL_CONTROL_APPROVER_PRESENT = Gauge('strategy_research_stats_alert_policy_override_dual_control_approver_present', '1 if a second approver is recorded for purpose/family', ['purpose', 'family'])
+ POLICY_ACTIVE_SUPPRESSIONS_TOTAL = Gauge('strategy_research_stats_alert_policy_active_suppressions_total', 'Number of active TTL-backed suppress overrides by family', ['family'])
+ POLICY_MIN_24H = Gauge('strategy_research_stats_alert_policy_min_events_24h', 'Minimum 24h events threshold for purpose/family alerts', ['purpose', 'family'])
+@@ -542,6 +608,7 @@
+                 POLICY_OVERRIDE_DUAL_CONTROL_STATE.labels(purpose=purpose, family=family, state=dc_state).set(1.0 if override.get('dual_control_state', 'none') == dc_state else 0.0)
+             approved_ts_ms = override.get('dual_control_approved_ts_ms', 0) or 0
+             POLICY_OVERRIDE_DUAL_CONTROL_APPROVAL_AGE.labels(purpose=purpose, family=family).set(max(0.0, (now_ms - approved_ts_ms) / 1000.0) if approved_ts_ms else 0.0)
++            POLICY_OVERRIDE_DUAL_CONTROL_FRESHNESS_REMAINING.labels(purpose=purpose, family=family).set(override.get('dual_control_freshness_remaining_s', 0.0))
+             POLICY_OVERRIDE_DUAL_CONTROL_APPROVER_PRESENT.labels(purpose=purpose, family=family).set(override.get('dual_control_approver_present', 0.0))
+             if override['active']:
+                 active_totals[family] += 1.0
+--- a/tick_flow_full/orderflow_services/strategy_research_stats_alert_policy_override_v1.py
++++ b/tick_flow_full/orderflow_services/strategy_research_stats_alert_policy_override_v1.py
+@@ -76,6 +76,10 @@
+ def require_dual_control_on_limit() -> int:
+     return 1 if _to_int(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_DUAL_CONTROL_ON_LIMIT', '1'), 1) > 0 else 0
+ 
++
++def dual_control_approved_freshness_s() -> int:
++    return max(60, _to_int(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_DUAL_CONTROL_APPROVED_FRESHNESS_S', '1800'), 1800))
++
+ def override_limits_defaults_key() -> str:
+     return _env(
+         'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_DEFAULTS_KEY',
+@@ -174,6 +178,64 @@
+     if escalation_ticket and approval_ticket == escalation_ticket:
+         raise OverrideWorkflowError('dual-control approval ticket must differ from escalation ticket')
+ 
++def _dual_control_approval_deadline_ts_ms(state: Dict[str, str]) -> int:
++    approved_ts_ms = _to_int(state.get('dual_control_approved_ts_ms'), 0)
++    freshness_s = max(60, _to_int(state.get('dual_control_approved_freshness_s'), dual_control_approved_freshness_s()))
++    stored_deadline_ts_ms = _to_int(state.get('dual_control_approved_deadline_ts_ms'), 0)
++    if stored_deadline_ts_ms > 0:
++        return stored_deadline_ts_ms
++    if approved_ts_ms <= 0:
++        return 0
++    return approved_ts_ms + freshness_s * 1000
++
++
++def _invalidate_stale_dual_control_approval(
++    client: Any,
++    *,
++    purpose: str,
++    family: str,
++    state_key: str,
++    state: Dict[str, str],
++    stage: str,
++) -> Dict[str, str]:
++    approval_state = str(state.get('dual_control_approval_state') or '')
++    if approval_state != 'approved':
++        return state
++    approved_ts_ms = _to_int(state.get('dual_control_approved_ts_ms'), 0)
++    if approved_ts_ms <= 0:
++        return state
++    now_ms = _now_ms()
++    deadline_ts_ms = _dual_control_approval_deadline_ts_ms(state)
++    if deadline_ts_ms <= 0 or deadline_ts_ms > now_ms:
++        return state
++    updated = dict(state)
++    updated.update({
++        'dual_control_required': '1',
++        'dual_control_approval_state': 'invalidated',
++        'dual_control_approved_deadline_ts_ms': str(deadline_ts_ms),
++        'dual_control_approved_freshness_s': str(max(60, _to_int(state.get('dual_control_approved_freshness_s'), dual_control_approved_freshness_s()))),
++        'dual_control_invalidated_ts_ms': str(now_ms),
++        'dual_control_invalidated_reason': 'approval_freshness_expired',
++        'dual_control_invalidated_stage': stage,
++    })
++    client.hset(state_key, mapping=updated)
++    _emit_event(
++        client,
++        'strategy_research_stats_alert_policy_suppress_override_dual_control_invalidated',
++        {
++            'purpose': purpose,
++            'family': family,
++            'reason': 'approval_freshness_expired',
++            'stage': stage,
++            'approval_ticket': str(state.get('dual_control_approved_ticket') or ''),
++            'approver': str(state.get('dual_control_approved_operator') or ''),
++            'approved_ts_ms': approved_ts_ms,
++            'deadline_ts_ms': deadline_ts_ms,
++            'freshness_s': max(60, _to_int(state.get('dual_control_approved_freshness_s'), dual_control_approved_freshness_s())),
++        },
++    )
++    return updated
++
+ 
+ def _mark_dual_control_pending(client: Any, *, purpose: str, family: str, state_key: str, state: Dict[str, str], limit_kind: str) -> Dict[str, str]:
+     now_ms = _now_ms()
+@@ -189,6 +251,11 @@
+         'dual_control_approved_ticket': '',
+         'dual_control_approved_operator': '',
+         'dual_control_approved_reason': '',
++        'dual_control_approved_deadline_ts_ms': '0',
++        'dual_control_approved_freshness_s': str(dual_control_approved_freshness_s()),
++        'dual_control_invalidated_ts_ms': '0',
++        'dual_control_invalidated_reason': '',
++        'dual_control_invalidated_stage': '',
+         'dual_control_consumed_ts_ms': '0',
+     })
+     client.hset(state_key, mapping=updated)
+@@ -212,7 +279,9 @@
+     approval_state = str(state.get('dual_control_approval_state') or '')
+     if approval_state == 'approved' and str(state.get('dual_control_approved_operator') or '').strip() and str(state.get('dual_control_approved_ticket') or '').strip():
+         return state
+-    updated = _mark_dual_control_pending(client, purpose=purpose, family=family, state_key=state_key, state=state, limit_kind=limit_kind)
++    if approval_state == 'invalidated':
++        raise OverrideWorkflowError('renew exceeds policy limits; dual-control approval freshness expired and must be re-approved by a second approver')
++    _mark_dual_control_pending(client, purpose=purpose, family=family, state_key=state_key, state=state, limit_kind=limit_kind)
+     raise OverrideWorkflowError('renew exceeds policy limits; escalation path requires dual-control approval from a second approver')
+ 
+ 
+@@ -422,6 +491,11 @@
+         'dual_control_approved_ticket': str(approval.get('ticket') or '') if approval else '',
+         'dual_control_approved_operator': str(approval.get('operator') or '') if approval else '',
+         'dual_control_approved_reason': str(approval.get('reason') or '') if approval else '',
++        'dual_control_approved_deadline_ts_ms': str(approval.get('deadline_ts_ms') or 0) if approval else '0',
++        'dual_control_approved_freshness_s': str(approval.get('freshness_s') or 0) if approval else '0',
++        'dual_control_invalidated_ts_ms': '0',
++        'dual_control_invalidated_reason': '',
++        'dual_control_invalidated_stage': '',
+         'dual_control_consumed_ts_ms': str(now_ms if approval else 0),
+     }
+ 
+@@ -568,6 +642,11 @@
+         'dual_control_approved_ticket': '',
+         'dual_control_approved_operator': '',
+         'dual_control_approved_reason': '',
++        'dual_control_approved_deadline_ts_ms': '0',
++        'dual_control_approved_freshness_s': str(dual_control_approved_freshness_s()),
++        'dual_control_invalidated_ts_ms': '0',
++        'dual_control_invalidated_reason': '',
++        'dual_control_invalidated_stage': '',
+         'dual_control_consumed_ts_ms': '0',
+     })
+     client.hset(state_key, mapping=updated)
+@@ -612,11 +691,20 @@
+     state = _read_state(client, purpose, family)
+     if not state:
+         raise OverrideWorkflowError('no override lifecycle state found for purpose/family')
+-    if str(state.get('dual_control_approval_state') or '') != 'pending' or _to_int(state.get('dual_control_required'), 0) != 1:
+-        raise OverrideWorkflowError('dual-control approval is only allowed when a pending limit-hit escalation approval exists')
++    state = _invalidate_stale_dual_control_approval(
++        client,
++        purpose=purpose,
++        family=family,
++        state_key=state_key,
++        state=state,
++        stage='approve',
++    )
++    if str(state.get('dual_control_approval_state') or '') not in ('pending', 'invalidated') or _to_int(state.get('dual_control_required'), 0) != 1:
++        raise OverrideWorkflowError('dual-control approval is only allowed when a pending or invalidated limit-hit escalation approval exists')
+     _ensure_dual_control_approver_distinct(state, approver, approval_ticket)
+     now_ms = _now_ms()
+     updated = dict(state)
++    freshness_s = dual_control_approved_freshness_s()
+     updated.update({
+         'dual_control_required': '1',
+         'dual_control_approval_state': 'approved',
+@@ -624,6 +712,11 @@
+         'dual_control_approved_ticket': approval_ticket,
+         'dual_control_approved_operator': approver,
+         'dual_control_approved_reason': approval_reason,
++        'dual_control_approved_deadline_ts_ms': str(now_ms + freshness_s * 1000),
++        'dual_control_approved_freshness_s': str(freshness_s),
++        'dual_control_invalidated_ts_ms': '0',
++        'dual_control_invalidated_reason': '',
++        'dual_control_invalidated_stage': '',
+     })
+     client.hset(state_key, mapping=updated)
+     _emit_event(
+@@ -637,6 +730,8 @@
+             'approval_reason': approval_reason,
+             'renew_ticket': str(state.get('renew_ack_ticket') or ''),
+             'escalation_ticket': str(state.get('renew_escalation_ticket') or ''),
++            'freshness_s': freshness_s,
++            'deadline_ts_ms': now_ms + freshness_s * 1000,
+         },
+     )
+     return updated
+@@ -706,6 +801,14 @@
+         escalation_ack = _require_escalation_fields(state)
+         _ensure_new_escalation_identity(str(escalation_ack.get('ticket') or ''), state, ack_ticket)
+         if require_dual_control_on_limit() > 0:
++            state = _invalidate_stale_dual_control_approval(
++                client,
++                purpose=purpose,
++                family=family,
++                state_key=state_key,
++                state=state,
++                stage='renew',
++            )
+             state = _require_dual_control_approval(
+                 client,
+                 purpose=purpose,
+@@ -719,6 +822,8 @@
+                 'ticket': str(state.get('dual_control_approved_ticket') or ''),
+                 'operator': str(state.get('dual_control_approved_operator') or ''),
+                 'reason': str(state.get('dual_control_approved_reason') or ''),
++                'deadline_ts_ms': str(_dual_control_approval_deadline_ts_ms(state) or 0),
++                'freshness_s': str(max(60, _to_int(state.get('dual_control_approved_freshness_s'), dual_control_approved_freshness_s()))),
+             }
+     expire_ts_ms = now_ms + ttl_s * 1000
+     key = override_key(purpose, family)
+@@ -841,6 +946,11 @@
+             'dual_control_approved_ticket': '',
+             'dual_control_approved_operator': '',
+             'dual_control_approved_reason': '',
++            'dual_control_approved_deadline_ts_ms': '0',
++            'dual_control_approved_freshness_s': str(dual_control_approved_freshness_s()),
++            'dual_control_invalidated_ts_ms': '0',
++            'dual_control_invalidated_reason': '',
++            'dual_control_invalidated_stage': '',
+             'dual_control_consumed_ts_ms': '0',
+         },
+     )
+--- /dev/null
++++ b/orderflow_services/tests/test_strategy_research_stats_alert_policy_p612_v1.py
+@@ -0,0 +1,192 @@
++from __future__ import annotations
++
++from orderflow_services.strategy_research_stats_alert_policy_override_v1 import (
++    OverrideWorkflowError,
++    acknowledge_renewal,
++    approve_dual_control_renewal,
++    override_key,
++    override_state_key,
++    renew_override,
++    set_override,
++)
++from orderflow_services.strategy_research_stats_alert_policy_exporter_v1 import (
++    POLICY_OVERRIDE_DUAL_CONTROL_FRESHNESS_REMAINING,
++    POLICY_OVERRIDE_DUAL_CONTROL_STATE,
++    publish,
++)
++
++
++class FakeRedis:
++    def __init__(self, hashes: dict[str, dict[str, str]] | None = None) -> None:
++        self.hashes = dict(hashes or {})
++        self.expiry_s: dict[str, int] = {}
++        self.events: list[tuple[str, dict[str, str]]] = []
++
++    def hgetall(self, key: str) -> dict[str, str]:
++        return dict(self.hashes.get(key, {}))
++
++    def hset(self, key: str, mapping: dict[str, str]) -> None:
++        self.hashes[key] = {**self.hashes.get(key, {}), **mapping}
++
++    def expire(self, key: str, ttl_s: int) -> None:
++        self.expiry_s[key] = ttl_s
++
++    def delete(self, key: str) -> int:
++        existed = 1 if key in self.hashes else 0
++        self.hashes.pop(key, None)
++        self.expiry_s.pop(key, None)
++        return existed
++
++    def xadd(self, stream: str, fields: dict[str, str], maxlen: int | None = None, approximate: bool = True) -> str:
++        self.events.append((stream, dict(fields)))
++        return '1-0'
++
++    def keys(self, pattern: str) -> list[str]:
++        prefix = pattern.rstrip('*')
++        return [k for k in self.hashes if k.startswith(prefix)]
++
++
++def _set_common_env(monkeypatch) -> None:
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_PURPOSES', 'conf_score_guardrails_promote')
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_PREFIX', 'cfg:strategy_research_stats:alert_policy:suppress_override:v1')
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_STATE_PREFIX', 'cfg:strategy_research_stats:alert_policy:suppress_state:v1')
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_PREFIX', 'cfg:strategy_research_stats:alert_policy:override_limits:v1')
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_DEFAULTS_KEY', 'cfg:strategy_research_stats:alert_policy:override_limits:v1:defaults')
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_REMINDER_WINDOW_S', '3600')
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_BUDGET_S', '1500')
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_RENEW_COUNT', '2')
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_REQUIRE_ESCALATION_ON_LIMIT', '1')
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_DUAL_CONTROL_ON_LIMIT', '1')
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_DUAL_CONTROL_APPROVED_FRESHNESS_S', '120')
++
++
++def test_p612_stale_dual_control_approval_invalidates_and_requires_reapproval(monkeypatch) -> None:
++    base_now_ms = 1_700_000_000_000
++    _set_common_env(monkeypatch)
++    from orderflow_services import strategy_research_stats_alert_policy_exporter_v1 as exp
++    from orderflow_services import strategy_research_stats_alert_policy_override_v1 as mod
++
++    now_ref = {'value': base_now_ms}
++    monkeypatch.setattr(exp, '_now_ms', lambda: now_ref['value'])
++    monkeypatch.setattr(mod, '_now_ms', lambda: now_ref['value'])
++
++    r = FakeRedis()
++    set_override(
++        r,
++        purpose='conf_score_guardrails_promote',
++        family='pbo_high',
++        ticket='INC-1',
++        operator='alice',
++        reason='initial suppression',
++        ttl_s=1200,
++    )
++    publish(r)
++    acknowledge_renewal(
++        r,
++        purpose='conf_score_guardrails_promote',
++        family='pbo_high',
++        ticket='INC-2',
++        operator='bob',
++        reason='renew with new ticket',
++        escalation_ticket='SEV-1',
++        escalation_operator='lead',
++        escalation_reason='budget exceeded',
++    )
++    try:
++        renew_override(r, purpose='conf_score_guardrails_promote', family='pbo_high', ttl_s=600)
++    except OverrideWorkflowError:
++        pass
++    else:  # pragma: no cover
++        raise AssertionError('renew must wait for dual-control approval')
++    approve_dual_control_renewal(
++        r,
++        purpose='conf_score_guardrails_promote',
++        family='pbo_high',
++        approval_ticket='APR-1',
++        approver='manager',
++        approval_reason='fresh second approver',
++    )
++
++    now_ref['value'] = base_now_ms + 121_000
++    try:
++        renew_override(r, purpose='conf_score_guardrails_promote', family='pbo_high', ttl_s=600)
++    except OverrideWorkflowError as exc:
++        assert 'freshness expired' in str(exc)
++    else:  # pragma: no cover
++        raise AssertionError('stale approval must be invalidated before renew')
++    state = r.hgetall(override_state_key('conf_score_guardrails_promote', 'pbo_high'))
++    assert state['dual_control_approval_state'] == 'invalidated'
++    assert state['dual_control_invalidated_reason'] == 'approval_freshness_expired'
++    assert state['dual_control_invalidated_stage'] == 'renew'
++    assert any(ev[1]['kind'] == 'strategy_research_stats_alert_policy_suppress_override_dual_control_invalidated' for ev in r.events)
++
++    approve_dual_control_renewal(
++        r,
++        purpose='conf_score_guardrails_promote',
++        family='pbo_high',
++        approval_ticket='APR-2',
++        approver='director',
++        approval_reason='fresh reapproval after expiry',
++    )
++    renewed = renew_override(r, purpose='conf_score_guardrails_promote', family='pbo_high', ttl_s=600)
++    state = r.hgetall(override_state_key('conf_score_guardrails_promote', 'pbo_high'))
++    raw = r.hgetall(override_key('conf_score_guardrails_promote', 'pbo_high'))
++    assert renewed['ticket'] == 'INC-2'
++    assert raw['ticket'] == 'INC-2'
++    assert state['dual_control_approval_state'] == 'consumed'
++    assert state['dual_control_approved_operator'] == 'director'
++
++
++def test_p612_exporter_sweeps_stale_approved_dual_control_state(monkeypatch) -> None:
++    now_ms = 1_700_000_500_000
++    _set_common_env(monkeypatch)
++    from orderflow_services import strategy_research_stats_alert_policy_exporter_v1 as exp
++
++    monkeypatch.setattr(exp, '_now_ms', lambda: now_ms)
++    r = FakeRedis({
++        override_state_key('conf_score_guardrails_promote', 'report_stale'): {
++            'purpose': 'conf_score_guardrails_promote',
++            'family': 'report_stale',
++            'ticket': 'INC-10',
++            'operator': 'alice',
++            'reason': 'temp suppression',
++            'created_ts_ms': str(now_ms - 1800_000),
++            'expire_ts_ms': str(now_ms - 60_000),
++            'active': '0',
++            'lifecycle_state': 'expired',
++            'expired_ts_ms': str(now_ms - 60_000),
++            'renew_ack_required': '1',
++            'renew_ack_ts_ms': str(now_ms - 90_000),
++            'renew_ack_ticket': 'INC-11',
++            'renew_ack_operator': 'bob',
++            'renew_ack_reason': 'renew with new incident',
++            'renew_escalation_ticket': 'SEV-9',
++            'renew_escalation_operator': 'lead',
++            'renew_escalation_reason': 'limit override requested',
++            'policy_budget_used_s': '4200',
++            'policy_max_budget_s': '3600',
++            'policy_max_renew_count': '1',
++            'policy_limit_hit_kind': 'budget',
++            'policy_limit_hit_ts_ms': str(now_ms - 20_000),
++            'policy_limit_requires_escalation': '1',
++            'renew_count': '2',
++            'dual_control_required': '1',
++            'dual_control_approval_state': 'approved',
++            'dual_control_request_ts_ms': str(now_ms - 140_000),
++            'dual_control_request_ticket': 'SEV-9',
++            'dual_control_request_operator': 'lead',
++            'dual_control_request_reason': 'limit override requested',
++            'dual_control_approved_ts_ms': str(now_ms - 130_000),
++            'dual_control_approved_ticket': 'APR-5',
++            'dual_control_approved_operator': 'director',
++            'dual_control_approved_reason': 'second approver accepted',
++            'dual_control_approved_freshness_s': '120',
++        },
++    })
++    publish(r)
++    state = r.hgetall(override_state_key('conf_score_guardrails_promote', 'report_stale'))
++    assert state['dual_control_approval_state'] == 'invalidated'
++    assert state['dual_control_invalidated_stage'] == 'exporter'
++    assert POLICY_OVERRIDE_DUAL_CONTROL_STATE.labels(purpose='conf_score_guardrails_promote', family='report_stale', state='invalidated')._value.get() == 1.0
++    assert POLICY_OVERRIDE_DUAL_CONTROL_FRESHNESS_REMAINING.labels(purpose='conf_score_guardrails_promote', family='report_stale')._value.get() == 0.0
++    assert any(ev[1]['kind'] == 'strategy_research_stats_alert_policy_suppress_override_dual_control_invalidated' for ev in r.events)
+--- /dev/null
++++ b/orderflow_services/tests/test_strategy_research_stats_alert_policy_p612_deploy_v1.py
+@@ -0,0 +1,26 @@
++from __future__ import annotations
++
++import os
++
++_DIR = os.path.join(os.path.dirname(__file__), '..', 'deploy', 'env')
++
++_P612_VARS = (
++    'STRATEGY_RESEARCH_STATS_ALERT_POLICY_DUAL_CONTROL_APPROVED_FRESHNESS_S',
++)
++
++
++def _read(name: str) -> str:
++    with open(os.path.join(_DIR, name)) as f:
++        return f.read()
++
++
++def test_prod_env_example_has_p612_vars() -> None:
++    content = _read('latency-contract-sensitive-jobs.prod.env.example')
++    for var in _P612_VARS:
++        assert var in content, f'Missing {var} in prod example'
++
++
++def test_staging_env_example_has_p612_vars() -> None:
++    content = _read('latency-contract-sensitive-jobs.staging.env.example')
++    for var in _P612_VARS:
++        assert var in content, f'Missing {var} in staging example'

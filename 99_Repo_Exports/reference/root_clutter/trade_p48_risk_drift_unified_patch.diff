@@ -1,0 +1,634 @@
+diff -ruN p47/.pytest_cache/.gitignore p48/.pytest_cache/.gitignore
+--- p47/.pytest_cache/.gitignore	1970-01-01 00:00:00.000000000 +0000
++++ p48/.pytest_cache/.gitignore	2026-03-07 08:13:27.552987730 +0000
+@@ -0,0 +1,2 @@
++# Created by pytest automatically.
++*
+diff -ruN p47/.pytest_cache/CACHEDIR.TAG p48/.pytest_cache/CACHEDIR.TAG
+--- p47/.pytest_cache/CACHEDIR.TAG	1970-01-01 00:00:00.000000000 +0000
++++ p48/.pytest_cache/CACHEDIR.TAG	2026-03-07 08:13:27.553158019 +0000
+@@ -0,0 +1,4 @@
++Signature: 8a477f597d28d172789f06886806bc55
++# This file is a cache directory tag created by pytest.
++# For information about cache directory tags, see:
++#	https://bford.info/cachedir/spec.html
+diff -ruN p47/.pytest_cache/README.md p48/.pytest_cache/README.md
+--- p47/.pytest_cache/README.md	1970-01-01 00:00:00.000000000 +0000
++++ p48/.pytest_cache/README.md	2026-03-07 08:13:27.552692922 +0000
+@@ -0,0 +1,8 @@
++# pytest cache directory #
++
++This directory contains data from the pytest's cache plugin,
++which provides the `--lf` and `--ff` options, as well as the `cache` fixture.
++
++**Do not** commit this to version control.
++
++See [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.
+diff -ruN p47/.pytest_cache/v/cache/nodeids p48/.pytest_cache/v/cache/nodeids
+--- p47/.pytest_cache/v/cache/nodeids	1970-01-01 00:00:00.000000000 +0000
++++ p48/.pytest_cache/v/cache/nodeids	2026-03-07 08:13:27.553709961 +0000
+@@ -0,0 +1,8 @@
++[
++  "audit_code/risk/test_p48_risk_drift_assets_v1.py::test_p48_sql_assets_exist",
++  "binance_execution/test_alertmanager_risk_drift_deeplinks_v1.py::test_alertmanager_contains_risk_drift_links",
++  "binance_execution/test_p48_unified_dashboard_assets_v1.py::test_unified_dashboard_exists",
++  "binance_execution/test_runbook_server_risk_mismatch_v1.py::test_runbook_server_has_risk_mismatch_endpoint",
++  "scripts/test_check_risk_signal_snapshot_consistency_p48_v1.py::test_risk_consistency_script_contains_drift_ledger",
++  "scripts/test_refresh_risk_mismatch_summary_v1.py::test_script_exists_and_loads"
++]
+\ No newline at end of file
+Binary files p47/audit_code/risk/__pycache__/risk_drift_sql.cpython-313.pyc and p48/audit_code/risk/__pycache__/risk_drift_sql.cpython-313.pyc differ
+Binary files p47/audit_code/risk/__pycache__/test_p48_risk_drift_assets_v1.cpython-313-pytest-9.0.2.pyc and p48/audit_code/risk/__pycache__/test_p48_risk_drift_assets_v1.cpython-313-pytest-9.0.2.pyc differ
+diff -ruN p47/audit_code/risk/risk_drift_sql.py p48/audit_code/risk/risk_drift_sql.py
+--- p47/audit_code/risk/risk_drift_sql.py	1970-01-01 00:00:00.000000000 +0000
++++ p48/audit_code/risk/risk_drift_sql.py	2026-03-07 08:12:12.963701577 +0000
+@@ -0,0 +1,98 @@
++from __future__ import annotations
++
++"""Best-effort SQL sink for repeated risk mismatch quarantine events."""
++
++from dataclasses import dataclass
++from typing import Any, Dict
++import json
++import os
++import time
++
++try:
++    import psycopg  # type: ignore
++except Exception:  # pragma: no cover
++    psycopg = None  # type: ignore
++
++try:
++    from prometheus_client import Counter, REGISTRY
++except Exception:  # pragma: no cover
++    Counter = None  # type: ignore
++    REGISTRY = None  # type: ignore
++
++
++def _metric(factory, name: str, *args, **kwargs):
++    if factory is None:
++        return None
++    try:
++        return factory(name, *args, **kwargs)
++    except ValueError:
++        return getattr(REGISTRY, '_names_to_collectors', {}).get(name) if REGISTRY is not None else None
++
++
++TRADE_RISK_DRIFT_LEDGER_WRITE_TOTAL = _metric(
++    Counter,
++    'trade_risk_drift_ledger_write_total',
++    'Number of successful writes to risk mismatch quarantine ledger.',
++    ['action'],
++)
++TRADE_RISK_DRIFT_LEDGER_WRITE_FAIL_TOTAL = _metric(
++    Counter,
++    'trade_risk_drift_ledger_write_fail_total',
++    'Number of failed writes to risk mismatch quarantine ledger.',
++    ['stage'],
++)
++
++
++@dataclass
++class RiskDriftSqlSink:
++    dsn: str = ''
++    enabled: bool = False
++
++    @classmethod
++    def from_env(cls) -> 'RiskDriftSqlSink':
++        dsn = str(os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')) or '').strip()
++        enabled = str(os.getenv('TRADE_RISK_DRIFT_LEDGER_ENABLE', '1')).strip().lower() in {'1', 'true', 'yes', 'on'}
++        return cls(dsn=dsn, enabled=bool(enabled and dsn))
++
++    def record_quarantine(self, payload: Dict[str, Any]) -> bool:
++        if not self.enabled or not self.dsn or psycopg is None:
++            return False
++        doc = dict(payload or {})
++        now_ms = int(doc.get('created_ts_ms') or int(time.time() * 1000))
++        try:
++            with psycopg.connect(self.dsn) as conn:
++                with conn.cursor() as cur:
++                    cur.execute(
++                        """
++                        INSERT INTO risk_mismatch_quarantine_ledger (
++                            decision_id, sid, signal_id, symbol, tier,
++                            repeated_count, mismatch_rate, reasons_jsonb,
++                            source, quarantine_action, created_ts_ms
++                        ) VALUES (
++                            %s,%s,%s,%s,%s,
++                            %s,%s,%s::jsonb,
++                            %s,%s,%s
++                        )
++                        """,
++                        (
++                            str(doc.get('decision_id') or '') or None,
++                            str(doc.get('sid') or '') or None,
++                            str(doc.get('signal_id') or '') or None,
++                            str(doc.get('symbol') or ''),
++                            str(doc.get('tier') or ''),
++                            int(doc.get('repeated_count') or 0),
++                            float(doc.get('mismatch_rate') or 0.0),
++                            json.dumps(doc.get('reasons') or [], ensure_ascii=False, default=str),
++                            str(doc.get('source') or 'risk_consistency_checker'),
++                            str(doc.get('quarantine_action') or 'REPEATED_MISMATCH_QUARANTINED'),
++                            now_ms,
++                        ),
++                    )
++                conn.commit()
++            if TRADE_RISK_DRIFT_LEDGER_WRITE_TOTAL:
++                TRADE_RISK_DRIFT_LEDGER_WRITE_TOTAL.labels(action=str(doc.get('quarantine_action') or 'REPEATED_MISMATCH_QUARANTINED')).inc()
++            return True
++        except Exception:
++            if TRADE_RISK_DRIFT_LEDGER_WRITE_FAIL_TOTAL:
++                TRADE_RISK_DRIFT_LEDGER_WRITE_FAIL_TOTAL.labels(stage='record_quarantine').inc()
++            return False
+diff -ruN p47/audit_code/risk/test_p48_risk_drift_assets_v1.py p48/audit_code/risk/test_p48_risk_drift_assets_v1.py
+--- p47/audit_code/risk/test_p48_risk_drift_assets_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p48/audit_code/risk/test_p48_risk_drift_assets_v1.py	2026-03-07 08:13:08.660152289 +0000
+@@ -0,0 +1,7 @@
++from pathlib import Path
++
++
++def test_p48_sql_assets_exist():
++    root = Path(__file__).resolve().parents[2]
++    assert (root / 'db' / 'migrations' / '20260306_15_risk_mismatch_quarantine.sql').exists()
++    assert (root / 'db' / 'migrations' / '20260306_16_risk_mismatch_quarantine_indexes.sql').exists()
+Binary files p47/binance_execution/__pycache__/test_alertmanager_risk_drift_deeplinks_v1.cpython-313-pytest-9.0.2.pyc and p48/binance_execution/__pycache__/test_alertmanager_risk_drift_deeplinks_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p47/binance_execution/__pycache__/test_p48_unified_dashboard_assets_v1.cpython-313-pytest-9.0.2.pyc and p48/binance_execution/__pycache__/test_p48_unified_dashboard_assets_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p47/binance_execution/__pycache__/test_runbook_server_risk_mismatch_v1.cpython-313-pytest-9.0.2.pyc and p48/binance_execution/__pycache__/test_runbook_server_risk_mismatch_v1.cpython-313-pytest-9.0.2.pyc differ
+diff -ruN p47/binance_execution/test_alertmanager_risk_drift_deeplinks_v1.py p48/binance_execution/test_alertmanager_risk_drift_deeplinks_v1.py
+--- p47/binance_execution/test_alertmanager_risk_drift_deeplinks_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p48/binance_execution/test_alertmanager_risk_drift_deeplinks_v1.py	2026-03-07 08:13:08.661266852 +0000
+@@ -0,0 +1,7 @@
++from pathlib import Path
++
++
++def test_alertmanager_contains_risk_drift_links():
++    src = (Path(__file__).resolve().parents[1] / 'monitoring' / 'alertmanager' / 'templates' / 'trade_execution.tmpl').read_text(encoding='utf-8')
++    assert 'Risk Drift:' in src
++    assert 'Unified Ops Dashboard:' in src
+diff -ruN p47/binance_execution/test_p48_unified_dashboard_assets_v1.py p48/binance_execution/test_p48_unified_dashboard_assets_v1.py
+--- p47/binance_execution/test_p48_unified_dashboard_assets_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p48/binance_execution/test_p48_unified_dashboard_assets_v1.py	2026-03-07 08:13:08.661097329 +0000
+@@ -0,0 +1,6 @@
++from pathlib import Path
++
++
++def test_unified_dashboard_exists():
++    p = Path(__file__).resolve().parents[1] / 'monitoring' / 'grafana' / 'dashboards' / 'trade_execution_p48_unified.json'
++    assert p.exists()
+diff -ruN p47/binance_execution/test_runbook_server_risk_mismatch_v1.py p48/binance_execution/test_runbook_server_risk_mismatch_v1.py
+--- p47/binance_execution/test_runbook_server_risk_mismatch_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p48/binance_execution/test_runbook_server_risk_mismatch_v1.py	2026-03-07 08:13:08.660893010 +0000
+@@ -0,0 +1,6 @@
++from pathlib import Path
++
++
++def test_runbook_server_has_risk_mismatch_endpoint():
++    src = (Path(__file__).resolve().parents[1] / 'runbooks' / 'server' / 'runbook_server.py').read_text(encoding='utf-8')
++    assert '/api/risk-mismatch/latest' in src
+diff -ruN p47/config/docker-compose.execution-p48-risk-drift.override.yml p48/config/docker-compose.execution-p48-risk-drift.override.yml
+--- p47/config/docker-compose.execution-p48-risk-drift.override.yml	1970-01-01 00:00:00.000000000 +0000
++++ p48/config/docker-compose.execution-p48-risk-drift.override.yml	2026-03-07 08:13:08.658983334 +0000
+@@ -0,0 +1,41 @@
++services:
++  trade-runbook-server:
++    environment:
++      RUNBOOK_REPORT_DIR: /var/lib/trade-runbook/reports
++    volumes:
++      - ./var/runbook-reports:/var/lib/trade-runbook/reports
++
++  trade-risk-summary-refresher:
++    image: python:3.12-slim
++    working_dir: /opt/trade
++    command: ["bash", "-lc", "while true; do python3 /opt/trade/scripts/refresh_risk_decision_summary.py; sleep ${RISK_SUMMARY_REFRESH_INTERVAL_SEC:-600}; done"]
++    environment:
++      RISK_AUDIT_SQL_DSN: ${RISK_AUDIT_SQL_DSN:-}
++      RISK_DECISION_SUMMARY_REPORT_PATH: /var/lib/trade-runbook/reports/latest_risk_decision_summary.json
++      RISK_SUMMARY_TEXTFILE_PATH: /var/lib/node_exporter/textfile_collector/risk_summary.prom
++    volumes:
++      - ./:/opt/trade
++      - ./var/runbook-reports:/var/lib/trade-runbook/reports
++      - ./var/node-exporter:/var/lib/node_exporter/textfile_collector
++
++  trade-risk-mismatch-refresher:
++    image: python:3.12-slim
++    working_dir: /opt/trade
++    command: ["bash", "-lc", "while true; do python3 /opt/trade/scripts/refresh_risk_mismatch_summary.py; sleep ${RISK_MISMATCH_REFRESH_INTERVAL_SEC:-900}; done"]
++    environment:
++      RISK_AUDIT_SQL_DSN: ${RISK_AUDIT_SQL_DSN:-}
++      RISK_MISMATCH_SUMMARY_REPORT_PATH: /var/lib/trade-runbook/reports/latest_risk_mismatch_summary.json
++    volumes:
++      - ./:/opt/trade
++      - ./var/runbook-reports:/var/lib/trade-runbook/reports
++
++  trade-operator-score-reporter:
++    image: python:3.12-slim
++    working_dir: /opt/trade
++    command: ["bash", "-lc", "while true; do python3 /opt/trade/scripts/build_operator_score_report.py; sleep ${OPERATOR_SCORE_REFRESH_INTERVAL_SEC:-900}; done"]
++    environment:
++      RUNBOOK_REPORT_DIR: /var/lib/trade-runbook/reports
++      OPERATOR_SCORE_REPORT_PATH: /var/lib/trade-runbook/reports/latest_operator_score.json
++    volumes:
++      - ./:/opt/trade
++      - ./var/runbook-reports:/var/lib/trade-runbook/reports
+diff -ruN p47/config/env.execution-p48-risk-drift.example p48/config/env.execution-p48-risk-drift.example
+--- p47/config/env.execution-p48-risk-drift.example	1970-01-01 00:00:00.000000000 +0000
++++ p48/config/env.execution-p48-risk-drift.example	2026-03-07 08:13:08.659197757 +0000
+@@ -0,0 +1,8 @@
++TRADE_RISK_DRIFT_LEDGER_ENABLE=1
++RISK_CONSISTENCY_QUARANTINE_ON_REPEATED=1
++RISK_CONSISTENCY_REPEAT_THRESHOLD=3
++RISK_CONSISTENCY_TEXTFILE_PATH=/var/lib/node_exporter/textfile_collector/risk_consistency.prom
++RISK_SUMMARY_REFRESH_INTERVAL_SEC=600
++RISK_MISMATCH_REFRESH_INTERVAL_SEC=900
++OPERATOR_SCORE_REFRESH_INTERVAL_SEC=900
++GRAFANA_BASE_URL=http://grafana:3000
+diff -ruN p47/db/migrations/20260306_15_risk_mismatch_quarantine.sql p48/db/migrations/20260306_15_risk_mismatch_quarantine.sql
+--- p47/db/migrations/20260306_15_risk_mismatch_quarantine.sql	1970-01-01 00:00:00.000000000 +0000
++++ p48/db/migrations/20260306_15_risk_mismatch_quarantine.sql	2026-03-07 08:12:12.870638231 +0000
+@@ -0,0 +1,43 @@
++-- P4.8: SQL ledger for repeated risk mismatch quarantine and materialized mismatch summary.
++
++CREATE TABLE IF NOT EXISTS risk_mismatch_quarantine_ledger (
++  id BIGSERIAL PRIMARY KEY,
++  decision_id TEXT NULL,
++  sid TEXT NULL,
++  signal_id TEXT NULL,
++  symbol TEXT NOT NULL DEFAULT '',
++  tier TEXT NOT NULL DEFAULT '',
++  repeated_count INTEGER NOT NULL DEFAULT 0,
++  mismatch_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
++  reasons_jsonb JSONB NOT NULL DEFAULT '[]'::jsonb,
++  source TEXT NOT NULL DEFAULT 'risk_consistency_checker',
++  quarantine_action TEXT NOT NULL DEFAULT 'REPEATED_MISMATCH_QUARANTINED',
++  created_ts_ms BIGINT NOT NULL
++);
++
++CREATE MATERIALIZED VIEW IF NOT EXISTS risk_mismatch_summary_mv AS
++WITH base AS (
++  SELECT '1h'::text AS window_name, *
++  FROM risk_mismatch_quarantine_ledger
++  WHERE created_ts_ms >= (extract(epoch from now() - interval '1 hour')*1000)::bigint
++  UNION ALL
++  SELECT '24h'::text AS window_name, *
++  FROM risk_mismatch_quarantine_ledger
++  WHERE created_ts_ms >= (extract(epoch from now() - interval '24 hours')*1000)::bigint
++  UNION ALL
++  SELECT '7d'::text AS window_name, *
++  FROM risk_mismatch_quarantine_ledger
++  WHERE created_ts_ms >= (extract(epoch from now() - interval '7 days')*1000)::bigint
++)
++SELECT
++  window_name,
++  COALESCE(NULLIF(tier, ''), 'UNKNOWN') AS tier,
++  COUNT(*)::bigint AS quarantine_count,
++  COUNT(DISTINCT sid)::bigint AS distinct_sid_count,
++  AVG(repeated_count)::double precision AS avg_repeated_count,
++  MAX(repeated_count)::integer AS max_repeated_count,
++  AVG(mismatch_rate)::double precision AS avg_mismatch_rate,
++  MAX(created_ts_ms)::bigint AS latest_created_ts_ms,
++  (extract(epoch from now())*1000)::bigint AS refreshed_ts_ms
++FROM base
++GROUP BY window_name, COALESCE(NULLIF(tier, ''), 'UNKNOWN');
+diff -ruN p47/db/migrations/20260306_16_risk_mismatch_quarantine_indexes.sql p48/db/migrations/20260306_16_risk_mismatch_quarantine_indexes.sql
+--- p47/db/migrations/20260306_16_risk_mismatch_quarantine_indexes.sql	1970-01-01 00:00:00.000000000 +0000
++++ p48/db/migrations/20260306_16_risk_mismatch_quarantine_indexes.sql	2026-03-07 08:12:12.949945628 +0000
+@@ -0,0 +1,3 @@
++CREATE UNIQUE INDEX IF NOT EXISTS risk_mismatch_summary_mv_window_tier_idx ON risk_mismatch_summary_mv (window_name, tier);
++CREATE INDEX IF NOT EXISTS risk_mismatch_quarantine_ledger_sid_ts_idx ON risk_mismatch_quarantine_ledger (sid, created_ts_ms DESC) WHERE sid IS NOT NULL;
++CREATE INDEX IF NOT EXISTS risk_mismatch_quarantine_ledger_symbol_ts_idx ON risk_mismatch_quarantine_ledger (symbol, created_ts_ms DESC);
+diff -ruN p47/deploy/systemd/trade-risk-mismatch-summary-refresh.service p48/deploy/systemd/trade-risk-mismatch-summary-refresh.service
+--- p47/deploy/systemd/trade-risk-mismatch-summary-refresh.service	1970-01-01 00:00:00.000000000 +0000
++++ p48/deploy/systemd/trade-risk-mismatch-summary-refresh.service	2026-03-07 08:13:08.659391478 +0000
+@@ -0,0 +1,9 @@
++[Unit]
++Description=Refresh risk mismatch summary materialized view
++After=network-online.target
++
++[Service]
++Type=oneshot
++WorkingDirectory=/opt/trade
++EnvironmentFile=-/etc/default/trade-risk-p48
++ExecStart=/usr/bin/python3 /opt/trade/scripts/refresh_risk_mismatch_summary.py
+diff -ruN p47/deploy/systemd/trade-risk-mismatch-summary-refresh.timer p48/deploy/systemd/trade-risk-mismatch-summary-refresh.timer
+--- p47/deploy/systemd/trade-risk-mismatch-summary-refresh.timer	1970-01-01 00:00:00.000000000 +0000
++++ p48/deploy/systemd/trade-risk-mismatch-summary-refresh.timer	2026-03-07 08:13:08.659608264 +0000
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Periodic refresh of risk mismatch summary
++
++[Timer]
++OnBootSec=6m
++OnUnitActiveSec=15m
++Unit=trade-risk-mismatch-summary-refresh.service
++
++[Install]
++WantedBy=timers.target
+diff -ruN p47/monitoring/alertmanager/templates/trade_execution.tmpl p48/monitoring/alertmanager/templates/trade_execution.tmpl
+--- p47/monitoring/alertmanager/templates/trade_execution.tmpl	2026-03-07 07:24:22.000000000 +0000
++++ p48/monitoring/alertmanager/templates/trade_execution.tmpl	2026-03-07 08:13:08.658505355 +0000
+@@ -22,6 +22,8 @@
+ Latest health JSON: http://trade-runbook-server:18080/api/health/latest
+ Risk Canary: http://trade-runbook-server:18080/api/risk-canary/latest
+ Risk Summary: http://trade-runbook-server:18080/api/risk-summary/latest
++Risk Drift: http://trade-runbook-server:18080/api/risk-mismatch/latest
++Unified Ops Dashboard: http://grafana:3000/d/trade-execution-p48-unified/trade-execution-p48-unified
+ Silence: {{ .ExternalURL }}/#/silences/new?filter=%7Balertname%3D%22{{ .CommonLabels.alertname }}%22%7D
+ {{- end }}
+ 
+diff -ruN p47/monitoring/grafana/dashboards/trade_execution_p48_unified.json p48/monitoring/grafana/dashboards/trade_execution_p48_unified.json
+--- p47/monitoring/grafana/dashboards/trade_execution_p48_unified.json	1970-01-01 00:00:00.000000000 +0000
++++ p48/monitoring/grafana/dashboards/trade_execution_p48_unified.json	2026-03-07 08:13:08.658798630 +0000
+@@ -0,0 +1,26 @@
++{
++  "title": "Trade Execution P4.8 Unified",
++  "uid": "trade-execution-p48-unified",
++  "schemaVersion": 38,
++  "version": 1,
++  "panels": [
++    {"type": "stat", "title": "Execution Rehydrate", "gridPos": {"x":0,"y":0,"w":6,"h":4}, "targets": [{"expr": "sum(rate(trade_execution_rehydrate_total[5m]))"}]},
++    {"type": "stat", "title": "Replay Retention Guard", "gridPos": {"x":6,"y":0,"w":6,"h":4}, "targets": [{"expr": "sum(trade_execution_replay_retention_guard_total)"}]},
++    {"type": "stat", "title": "Risk Summary Freshness", "gridPos": {"x":12,"y":0,"w":6,"h":4}, "targets": [{"expr": "trade_risk_summary_freshness_seconds"}]},
++    {"type": "stat", "title": "Risk Drift Repeated SID", "gridPos": {"x":18,"y":0,"w":6,"h":4}, "targets": [{"expr": "trade_risk_signal_repeated_sid_total"}]},
++    {"type": "timeseries", "title": "Execution / Replay / Risk", "gridPos": {"x":0,"y":4,"w":12,"h":8}, "targets": [
++      {"expr": "sum(rate(execution_state_transition_total[5m]))", "legendFormat": "execution transitions"},
++      {"expr": "sum(rate(trade_execution_rehydrate_total[5m]))", "legendFormat": "rehydrate"},
++      {"expr": "sum(rate(trade_risk_decision_total[5m]))", "legendFormat": "risk decisions"}
++    ]},
++    {"type": "timeseries", "title": "Clamp / Confidence / Drift", "gridPos": {"x":12,"y":4,"w":12,"h":8}, "targets": [
++      {"expr": "trade_risk_signal_mismatch_rate", "legendFormat": "mismatch rate"},
++      {"expr": "sum(rate(trade_risk_clamp_total[5m]))", "legendFormat": "clamp rate"},
++      {"expr": "sum(rate(trade_risk_confidence_deny_total[5m]))", "legendFormat": "confidence deny"}
++    ]}
++  ],
++  "annotations": {"list": [
++    {"name": "Risk mismatch quarantine", "datasource": "${DS_RISK_AUDIT_SQL}", "enable": true, "rawSql": "select to_timestamp(created_ts_ms/1000.0) as time, coalesce(sid,'') || ' ' || quarantine_action as text, tier as tags from risk_mismatch_quarantine_ledger where created_ts_ms > (extract(epoch from now() - interval '24 hours')*1000) order by created_ts_ms desc limit 500", "type": "dashboard"},
++    {"name": "Execution quarantine", "datasource": "${DS_RISK_AUDIT_SQL}", "enable": true, "rawSql": "select to_timestamp(created_at_ms/1000.0) as time, sid || ' ' || action as text, severity as tags from execution_quarantine_ledger where created_at_ms > (extract(epoch from now() - interval '24 hours')*1000) order by created_at_ms desc limit 500", "type": "dashboard"}
++  ]}
++}
+diff -ruN p47/runbooks/P48_RISK_DRIFT_LEDGER_AND_UNIFIED_DASHBOARD.md p48/runbooks/P48_RISK_DRIFT_LEDGER_AND_UNIFIED_DASHBOARD.md
+--- p47/runbooks/P48_RISK_DRIFT_LEDGER_AND_UNIFIED_DASHBOARD.md	1970-01-01 00:00:00.000000000 +0000
++++ p48/runbooks/P48_RISK_DRIFT_LEDGER_AND_UNIFIED_DASHBOARD.md	2026-03-07 08:13:08.659823031 +0000
+@@ -0,0 +1,7 @@
++# P4.8: Risk drift ledger and unified dashboard
++
++## What this layer adds
++- Dedicated SQL ledger for repeated risk mismatch quarantine.
++- Materialized mismatch summary for 1h/24h/7d windows.
++- Compose wiring for auto-refresh and operator-score refresh.
++- Unified Grafana dashboard spanning execution, replay, risk and operator score.
+Binary files p47/runbooks/server/__pycache__/runbook_server.cpython-313.pyc and p48/runbooks/server/__pycache__/runbook_server.cpython-313.pyc differ
+diff -ruN p47/runbooks/server/runbook_server.py p48/runbooks/server/runbook_server.py
+--- p47/runbooks/server/runbook_server.py	2026-03-07 08:00:14.000000000 +0000
++++ p48/runbooks/server/runbook_server.py	2026-03-07 08:13:08.657628227 +0000
+@@ -43,7 +43,7 @@
+ <style>body{{font-family:sans-serif;margin:2rem;max-width:1100px}}code{{background:#f4f4f4;padding:.1rem .3rem}}.badge{{padding:.15rem .5rem;border-radius:4px;background:#eee}}.ok{{background:#d1fae5}}.warning{{background:#fef3c7}}.critical{{background:#fee2e2}}</style>
+ </head><body>
+ <h1>Trade Execution Runbooks</h1>
+-<p>Latest health: <span class="badge {badge}">{html.escape(badge)}</span> — <a href="/api/health/latest">Health JSON</a> | <a href="/api/rebuild/latest">Rebuild JSON</a> | <a href="/api/autonomy/latest">Autonomy JSON</a> | <a href="/api/replay-slo/latest">Replay SLO JSON</a> | <a href="/api/risk-canary/latest">Risk Canary JSON</a> | <a href="/api/risk-summary/latest">Risk Summary JSON</a> | <a href="/api/operator-score/latest">Operator Score JSON</a></p>
++<p>Latest health: <span class="badge {badge}">{html.escape(badge)}</span> — <a href="/api/health/latest">Health JSON</a> | <a href="/api/rebuild/latest">Rebuild JSON</a> | <a href="/api/autonomy/latest">Autonomy JSON</a> | <a href="/api/replay-slo/latest">Replay SLO JSON</a> | <a href="/api/risk-canary/latest">Risk Canary JSON</a> | <a href="/api/risk-summary/latest">Risk Summary JSON</a> | <a href="/api/operator-score/latest">Operator Score JSON</a> | <a href="/api/risk-mismatch/latest">Risk Drift JSON</a></p>
+ <h2>Runbooks</h2><ul>{''.join(items) or '<li>no runbooks found</li>'}</ul>
+ <h2>Reports</h2><ul>{''.join(report_items) or '<li>no reports found</li>'}</ul>
+ <p><code>/healthz</code> returns 200 if the server process is alive.</p>
+Binary files p47/scripts/__pycache__/check_risk_signal_snapshot_consistency.cpython-313.pyc and p48/scripts/__pycache__/check_risk_signal_snapshot_consistency.cpython-313.pyc differ
+Binary files p47/scripts/__pycache__/refresh_risk_mismatch_summary.cpython-313.pyc and p48/scripts/__pycache__/refresh_risk_mismatch_summary.cpython-313.pyc differ
+Binary files p47/scripts/__pycache__/test_check_risk_signal_snapshot_consistency_p48_v1.cpython-313-pytest-9.0.2.pyc and p48/scripts/__pycache__/test_check_risk_signal_snapshot_consistency_p48_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files p47/scripts/__pycache__/test_refresh_risk_mismatch_summary_v1.cpython-313-pytest-9.0.2.pyc and p48/scripts/__pycache__/test_refresh_risk_mismatch_summary_v1.cpython-313-pytest-9.0.2.pyc differ
+diff -ruN p47/scripts/check_risk_signal_snapshot_consistency.py p48/scripts/check_risk_signal_snapshot_consistency.py
+--- p47/scripts/check_risk_signal_snapshot_consistency.py	2026-03-07 08:00:03.000000000 +0000
++++ p48/scripts/check_risk_signal_snapshot_consistency.py	2026-03-07 08:12:12.977209276 +0000
+@@ -4,6 +4,8 @@
+ import argparse
+ import json
+ import os
++import sys
++import time
+ from pathlib import Path
+ 
+ try:
+@@ -16,6 +18,12 @@
+ except Exception:  # pragma: no cover
+     redis = None  # type: ignore
+ 
++REPO_ROOT = Path(__file__).resolve().parents[1]
++if str(REPO_ROOT) not in sys.path:
++    sys.path.insert(0, str(REPO_ROOT))
++
++from audit_code.risk.risk_drift_sql import RiskDriftSqlSink  # noqa: E402
++
+ 
+ def _eq_num(a, b, tol: float = 1e-6) -> bool:
+     try:
+@@ -40,11 +48,24 @@
+     return {'sid': sid, 'quarantine_key': qkey, 'reason': reason}
+ 
+ 
++def render_textfile(report: dict) -> str:
++    lines = [
++        '# HELP trade_risk_signal_mismatch_rate Fraction of checked decisions that mismatched risk snapshot.',
++        '# TYPE trade_risk_signal_mismatch_rate gauge',
++        f"trade_risk_signal_mismatch_rate {float(report.get('mismatch_rate') or 0.0)}",
++        '# HELP trade_risk_signal_repeated_sid_total Number of repeated mismatch sid above threshold.',
++        '# TYPE trade_risk_signal_repeated_sid_total gauge',
++        f"trade_risk_signal_repeated_sid_total {int(len(report.get('repeated_sid') or []))}",
++    ]
++    return '\n'.join(lines) + '\n'
++
++
+ def main() -> int:
+     parser = argparse.ArgumentParser(description='Check consistency between signal payload persisted in risk_decision_audit and SQL risk_snapshot.')
+     parser.add_argument('--dsn', default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')))
+     parser.add_argument('--limit', type=int, default=int(os.getenv('RISK_CONSISTENCY_LIMIT', '250')))
+     parser.add_argument('--out', default=os.getenv('RISK_CONSISTENCY_REPORT_PATH', '/var/lib/trade-runbook/reports/latest_risk_signal_consistency.json'))
++    parser.add_argument('--textfile-output', default=os.getenv('RISK_CONSISTENCY_TEXTFILE_PATH', ''))
+     parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
+     parser.add_argument('--quarantine-prefix', default=os.getenv('ORDERS_QUARANTINE_PREFIX', 'orders:quarantine:state:'))
+     parser.add_argument('--repeat-threshold', type=int, default=int(os.getenv('RISK_CONSISTENCY_REPEAT_THRESHOLD', '3')))
+@@ -53,12 +74,14 @@
+     if not args.dsn or psycopg is None:
+         raise RuntimeError('psycopg + DSN required')
+ 
++    sink = RiskDriftSqlSink.from_env()
+     mismatches = []
+     checked = 0
+     with psycopg.connect(args.dsn) as conn:
+         with conn.cursor() as cur:
+-            cur.execute('''
+-                select a.decision_id, a.symbol, a.sid, a.effective_execution_policy,
++            cur.execute(
++                '''
++                select a.decision_id, a.signal_id, a.symbol, a.sid, a.effective_execution_policy,
+                        a.adjusted_notional_usd, a.leverage_cap, a.clamp_ratio,
+                        a.signal_jsonb, s.snapshot_jsonb, s.tier, s.level,
+                        s.effective_execution_policy as snap_execution_policy,
+@@ -69,10 +92,12 @@
+                 join risk_snapshot s using (decision_id)
+                 order by a.created_ts_ms desc
+                 limit %s
+-            ''', (args.limit,))
++                ''',
++                (args.limit,),
++            )
+             for row in cur.fetchall():
+                 checked += 1
+-                decision_id, symbol, sid, exec_policy, adjusted_notional, leverage_cap, clamp_ratio, signal_jsonb, snapshot_jsonb, tier, level, snap_exec_policy, snap_adj, snap_lev, snap_clamp = row
++                decision_id, signal_id, symbol, sid, exec_policy, adjusted_notional, leverage_cap, clamp_ratio, signal_jsonb, snapshot_jsonb, tier, level, snap_exec_policy, snap_adj, snap_lev, snap_clamp = row
+                 signal = signal_jsonb or {}
+                 snap = snapshot_jsonb or {}
+                 reasons = []
+@@ -88,6 +113,7 @@
+                 if reasons:
+                     mismatches.append({
+                         'decision_id': decision_id,
++                        'signal_id': signal_id,
+                         'sid': sid,
+                         'symbol': symbol,
+                         'tier': tier,
+@@ -95,24 +121,40 @@
+                         'mismatches': reasons,
+                     })
+     repeated_by_sid = {}
++    first_for_sid = {}
+     for item in mismatches:
+         sid = str(item.get('sid') or '')
+         if not sid:
+             continue
+         repeated_by_sid[sid] = repeated_by_sid.get(sid, 0) + 1
+-    repeated = [{'sid': sid, 'count': count} for sid, count in sorted(repeated_by_sid.items()) if count >= int(args.repeat_threshold)]
++        first_for_sid.setdefault(sid, item)
++    repeated = []
++    for sid, count in sorted(repeated_by_sid.items()):
++        if count >= int(args.repeat_threshold):
++            merged = dict(first_for_sid[sid])
++            merged['sid'] = sid
++            merged['count'] = count
++            repeated.append(merged)
+     quarantine_results = []
++    mismatch_rate = (float(len(mismatches)) / float(checked)) if checked else 0.0
+     if args.quarantine_on_repeated and repeated and redis is not None:
+         r = redis.from_url(args.redis_url, decode_responses=True)
++        now_ms = int(time.time() * 1000)
+         for item in repeated:
+-            quarantine_results.append(_quarantine_sid(
+-                r,
+-                item['sid'],
+-                prefix=args.quarantine_prefix,
+-                reason='repeated_risk_consistency_mismatch',
+-                payload={'sid': item['sid'], 'mismatch_count': item['count'], 'reason': 'repeated_risk_consistency_mismatch'},
+-            ))
+-    mismatch_rate = (float(len(mismatches)) / float(checked)) if checked else 0.0
++            payload = {'sid': item['sid'], 'mismatch_count': item['count'], 'reason': 'repeated_risk_consistency_mismatch'}
++            quarantine_results.append(_quarantine_sid(r, item['sid'], prefix=args.quarantine_prefix, reason='repeated_risk_consistency_mismatch', payload=payload))
++            sink.record_quarantine({
++                'decision_id': item.get('decision_id'),
++                'signal_id': item.get('signal_id'),
++                'sid': item['sid'],
++                'symbol': item.get('symbol') or '',
++                'tier': item.get('tier') or '',
++                'repeated_count': item['count'],
++                'mismatch_rate': mismatch_rate,
++                'reasons': item.get('mismatches') or [],
++                'quarantine_action': 'REPEATED_MISMATCH_QUARANTINED',
++                'created_ts_ms': now_ms,
++            })
+     out = {
+         'checked': checked,
+         'mismatch_count': len(mismatches),
+@@ -120,8 +162,11 @@
+         'mismatches': mismatches,
+         'repeated_sid': repeated,
+         'quarantine_results': quarantine_results,
++        'generated_at_ms': int(time.time() * 1000),
+     }
+     _write_atomic(Path(args.out), json.dumps(out, ensure_ascii=False, indent=2) + '\n')
++    if args.textfile_output:
++        _write_atomic(Path(args.textfile_output), render_textfile(out))
+     print(json.dumps(out, ensure_ascii=False, indent=2))
+     return 0
+ 
+diff -ruN p47/scripts/refresh_risk_mismatch_summary.py p48/scripts/refresh_risk_mismatch_summary.py
+--- p47/scripts/refresh_risk_mismatch_summary.py	1970-01-01 00:00:00.000000000 +0000
++++ p48/scripts/refresh_risk_mismatch_summary.py	2026-03-07 08:12:12.989941336 +0000
+@@ -0,0 +1,54 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import time
++from pathlib import Path
++
++try:
++    import psycopg  # type: ignore
++except Exception:  # pragma: no cover
++    psycopg = None  # type: ignore
++
++
++def _write_atomic(path: Path, payload: str) -> None:
++    path.parent.mkdir(parents=True, exist_ok=True)
++    tmp = path.with_suffix(path.suffix + '.tmp')
++    tmp.write_text(payload, encoding='utf-8')
++    tmp.replace(path)
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description='Refresh materialized risk mismatch summary.')
++    parser.add_argument('--dsn', default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')))
++    parser.add_argument('--out', default=os.getenv('RISK_MISMATCH_SUMMARY_REPORT_PATH', '/var/lib/trade-runbook/reports/latest_risk_mismatch_summary.json'))
++    args = parser.parse_args()
++    if not args.dsn or psycopg is None:
++        raise RuntimeError('psycopg + DSN required')
++    report = {'generated_at_ms': int(time.time() * 1000), 'rows': []}
++    with psycopg.connect(args.dsn) as conn:
++        with conn.cursor() as cur:
++            cur.execute('refresh materialized view risk_mismatch_summary_mv')
++            cur.execute(
++                '''
++                select window_name, tier, quarantine_count, distinct_sid_count,
++                       avg_repeated_count, max_repeated_count, avg_mismatch_rate,
++                       latest_created_ts_ms, refreshed_ts_ms
++                from risk_mismatch_summary_mv
++                order by window_name, tier
++                '''
++            )
++            cols = [d.name for d in cur.description]
++            for row in cur.fetchall():
++                report['rows'].append({k: row[i] for i, k in enumerate(cols)})
++        conn.commit()
++    report['row_count'] = len(report['rows'])
++    _write_atomic(Path(args.out), json.dumps(report, ensure_ascii=False, indent=2) + '\n')
++    print(json.dumps({'row_count': report['row_count']}, ensure_ascii=False))
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+diff -ruN p47/scripts/test_check_risk_signal_snapshot_consistency_p48_v1.py p48/scripts/test_check_risk_signal_snapshot_consistency_p48_v1.py
+--- p47/scripts/test_check_risk_signal_snapshot_consistency_p48_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p48/scripts/test_check_risk_signal_snapshot_consistency_p48_v1.py	2026-03-07 08:13:08.660581237 +0000
+@@ -0,0 +1,7 @@
++from pathlib import Path
++
++
++def test_risk_consistency_script_contains_drift_ledger():
++    src = (Path(__file__).resolve().parents[1] / 'scripts' / 'check_risk_signal_snapshot_consistency.py').read_text(encoding='utf-8')
++    assert 'RiskDriftSqlSink' in src
++    assert 'REPEATED_MISMATCH_QUARANTINED' in src
+diff -ruN p47/scripts/test_refresh_risk_mismatch_summary_v1.py p48/scripts/test_refresh_risk_mismatch_summary_v1.py
+--- p47/scripts/test_refresh_risk_mismatch_summary_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p48/scripts/test_refresh_risk_mismatch_summary_v1.py	2026-03-07 08:13:08.660387368 +0000
+@@ -0,0 +1,13 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++p = Path(__file__).resolve().parents[1] / 'scripts' / 'refresh_risk_mismatch_summary.py'
++spec = importlib.util.spec_from_file_location('refresh_risk_mismatch_summary', p)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++spec.loader.exec_module(mod)
++
++
++def test_script_exists_and_loads():
++    assert hasattr(mod, 'main')

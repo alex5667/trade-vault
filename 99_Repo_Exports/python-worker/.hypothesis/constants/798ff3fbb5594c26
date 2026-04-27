@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/ticker_data.py
+# hypothesis_version: 6.148.10
+
+[0.0, 'highPrice', 'high_24h', 'lastPrice', 'last_price', 'lowPrice', 'low_24h', 'openPrice', 'open_price', 'priceChangePercent', 'price_change_percent', 'quoteVolume', 'quote_volume', 'volume']

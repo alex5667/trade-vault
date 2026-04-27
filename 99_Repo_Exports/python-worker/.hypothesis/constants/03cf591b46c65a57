@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/of_evidence.py
+# hypothesis_version: 6.148.10
+
+[0.0, 120000, 'ASK', 'BID', 'BUY', 'LONG', 'SELL', 'SHORT', 'absorption_volume', 'direction_bias', 'hold_bars', 'kind', 'level', 'pool_id', 'reclaim_age_ms', 'reclaim_hold_bars', 'reclaim_level', 'reclaim_pool_id', 'side', 'sweep_age_ms', 'sweep_dir_bias', 'sweep_kind', 'sweep_valid_ms', 'ts_ms', 'volume']

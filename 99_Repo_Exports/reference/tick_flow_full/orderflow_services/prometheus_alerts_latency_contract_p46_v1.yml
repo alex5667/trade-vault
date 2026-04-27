@@ -1,0 +1,19 @@
+groups:
+  - name: latency-contract-p46
+    rules:
+      - alert: OF_LatencyDeployLint_NotifierStale_Warn
+        expr: latency_contract_deploy_lint_notifier_last_run_age_seconds > 900
+        for: 10m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Latency deploy-lint notifier stale"
+          description: "Notifier has not updated recently; persistent config drift may no longer be pushed to Telegram/ops-event."
+      - alert: OF_LatencyDeployLint_PersistentDriftNotified_Crit
+        expr: latency_contract_deploy_lint_notifier_active > 0 and latency_contract_deploy_lint_summary_gate_active_total > 0
+        for: 5m
+        labels:
+          severity: crit
+        annotations:
+          summary: "Latency deploy-lint persistent drift active"
+          description: "Persistent deploy-lint config drift remains active and notifier is reporting it via Telegram/ops-event."

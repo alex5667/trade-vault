@@ -1,0 +1,834 @@
+diff --git a/services/binance_dust_cleanup_admin_ack.py b/services/binance_dust_cleanup_admin_ack.py
+new file mode 100644
+index 0000000..8b1c2f1
+--- /dev/null
++++ b/services/binance_dust_cleanup_admin_ack.py
+@@ -0,0 +1,333 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _json_dumps(value: Any) -> str:
++    return json.dumps(value, ensure_ascii=False, sort_keys=True)
++
++
++def _safe_json_loads(value: Any) -> Dict[str, Any]:
++    if value is None:
++        return {}
++    if isinstance(value, dict):
++        return value
++    if isinstance(value, bytes):
++        value = value.decode("utf-8", errors="replace")
++    if not value:
++        return {}
++    try:
++        payload = json.loads(value)
++        return payload if isinstance(payload, dict) else {}
++    except Exception:
++        return {}
++
++
++def _bool_env(name: str, default: bool) -> bool:
++    raw = os.getenv(name)
++    if raw is None:
++        return default
++    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
++
++
++@dataclass
++class DustReminderAckKeys:
++    ack_prefix: str
++    audit_stream: str
++    stream_maxlen: int
++
++
++def ack_keys_from_env() -> DustReminderAckKeys:
++    return DustReminderAckKeys(
++        ack_prefix=os.getenv(
++            "BINANCE_DUST_ADMIN_ACK_PREFIX",
++            "orders:dust_cleanup:ack:",
++        ),
++        audit_stream=os.getenv(
++            "BINANCE_DUST_ADMIN_AUDIT_STREAM",
++            "orders:dust_cleanup:audit",
++        ),
++        stream_maxlen=int(os.getenv("BINANCE_DUST_ADMIN_AUDIT_STREAM_MAXLEN", "10000")),
++    )
++
++
++def ack_key(kind: str, symbol: str) -> str:
++    return f"{ack_keys_from_env().ack_prefix}{kind}:{symbol.upper()}"
++
++
++def _xadd_audit(redis_client: Any, payload: Dict[str, Any]) -> None:
++    keys = ack_keys_from_env()
++    try:
++        redis_client.xadd(
++            keys.audit_stream,
++            {k: _json_dumps(v) if isinstance(v, (dict, list)) else str(v) for k, v in payload.items()},
++            maxlen=keys.stream_maxlen,
++            approximate=True,
++        )
++    except Exception:
++        # audit must not break the control path; caller already gets explicit response
++        pass
++
++
++def _set_json(redis_client: Any, key: str, value: Dict[str, Any], ttl_sec: int) -> None:
++    payload = _json_dumps(value)
++    if ttl_sec > 0:
++        redis_client.set(key, payload, ex=ttl_sec)
++    else:
++        redis_client.set(key, payload)
++
++
++def _ttl_seconds(redis_client: Any, key: str) -> int:
++    try:
++        ttl = int(redis_client.ttl(key))
++    except Exception:
++        return -1
++    return ttl
++
++
++def reminder_ack_state(redis_client: Any, kind: str, symbol: str) -> Dict[str, Any]:
++    key = ack_key(kind, symbol)
++    state = _safe_json_loads(redis_client.get(key))
++    if not state:
++        return {}
++    state["ttl_sec"] = _ttl_seconds(redis_client, key)
++    state["ack_key"] = key
++    return state
++
++
++def ack_reminder(
++    redis_client: Any,
++    *,
++    kind: str,
++    symbol: str,
++    operator: str,
++    reason: str,
++    ticket: str,
++    ttl_sec: int,
++    fingerprint: str = "",
++) -> Dict[str, Any]:
++    symbol_u = symbol.upper()
++    key = ack_key(kind, symbol_u)
++    now_ms = _now_ms()
++    doc = {
++        "kind": kind,
++        "symbol": symbol_u,
++        "operator": operator,
++        "reason": reason,
++        "ticket": ticket,
++        "fingerprint": fingerprint,
++        "acked_at_ms": now_ms,
++        "renewed_at_ms": now_ms,
++        "expires_at_ms": now_ms + max(ttl_sec, 0) * 1000,
++        "ack_version": 1,
++    }
++    _set_json(redis_client, key, doc, ttl_sec)
++    _xadd_audit(
++        redis_client,
++        {
++            "ts_ms": now_ms,
++            "area": "dust_cleanup_ack",
++            "action": "ack_reminder",
++            "kind": kind,
++            "symbol": symbol_u,
++            "operator": operator,
++            "reason": reason,
++            "ticket": ticket,
++            "fingerprint": fingerprint,
++            "ttl_sec": ttl_sec,
++            "result": "ok",
++        },
++    )
++    out = dict(doc)
++    out["ttl_sec"] = _ttl_seconds(redis_client, key)
++    out["ack_key"] = key
++    return out
++
++
++def renew_reminder_ack(
++    redis_client: Any,
++    *,
++    kind: str,
++    symbol: str,
++    operator: str,
++    reason: str,
++    ticket: str,
++    ttl_sec: int,
++) -> Dict[str, Any]:
++    symbol_u = symbol.upper()
++    key = ack_key(kind, symbol_u)
++    current = _safe_json_loads(redis_client.get(key))
++    now_ms = _now_ms()
++    if not current:
++        return {
++            "ok": False,
++            "reason": "ack_not_found",
++            "kind": kind,
++            "symbol": symbol_u,
++            "ack_key": key,
++        }
++    current["renewed_at_ms"] = now_ms
++    current["expires_at_ms"] = now_ms + max(ttl_sec, 0) * 1000
++    current["renew_operator"] = operator
++    current["renew_reason"] = reason
++    current["renew_ticket"] = ticket
++    current["ack_version"] = int(current.get("ack_version", 1)) + 1
++    _set_json(redis_client, key, current, ttl_sec)
++    _xadd_audit(
++        redis_client,
++        {
++            "ts_ms": now_ms,
++            "area": "dust_cleanup_ack",
++            "action": "renew_ack",
++            "kind": kind,
++            "symbol": symbol_u,
++            "operator": operator,
++            "reason": reason,
++            "ticket": ticket,
++            "ttl_sec": ttl_sec,
++            "result": "ok",
++        },
++    )
++    out = dict(current)
++    out["ttl_sec"] = _ttl_seconds(redis_client, key)
++    out["ack_key"] = key
++    out["ok"] = True
++    return out
++
++
++def revoke_reminder_ack(
++    redis_client: Any,
++    *,
++    kind: str,
++    symbol: str,
++    operator: str,
++    reason: str,
++    ticket: str,
++) -> Dict[str, Any]:
++    symbol_u = symbol.upper()
++    key = ack_key(kind, symbol_u)
++    existed = redis_client.get(key)
++    redis_client.delete(key)
++    now_ms = _now_ms()
++    _xadd_audit(
++        redis_client,
++        {
++            "ts_ms": now_ms,
++            "area": "dust_cleanup_ack",
++            "action": "revoke_ack",
++            "kind": kind,
++            "symbol": symbol_u,
++            "operator": operator,
++            "reason": reason,
++            "ticket": ticket,
++            "result": "ok" if existed else "noop",
++        },
++    )
++    return {
++        "ok": True,
++        "kind": kind,
++        "symbol": symbol_u,
++        "ack_key": key,
++        "result": "ok" if existed else "noop",
++    }
++
++
++def should_suppress_reminder(
++    redis_client: Any,
++    *,
++    kind: str,
++    symbol: str,
++    fingerprint: str = "",
++) -> Dict[str, Any]:
++    state = reminder_ack_state(redis_client, kind, symbol)
++    if not state:
++        return {"suppressed": False, "reason": "no_ack"}
++    if fingerprint and state.get("fingerprint") and state.get("fingerprint") != fingerprint:
++        return {"suppressed": False, "reason": "fingerprint_mismatch", "ack_state": state}
++    ttl = int(state.get("ttl_sec", -1))
++    if ttl == -2:
++        return {"suppressed": False, "reason": "ack_missing"}
++    if ttl == -1 or ttl > 0:
++        return {"suppressed": True, "reason": "acked", "ack_state": state}
++    return {"suppressed": False, "reason": "ack_expired", "ack_state": state}
++
++
++def recent_ack_audit(redis_client: Any, *, symbol: str = "", limit: int = 50) -> List[Dict[str, Any]]:
++    stream = ack_keys_from_env().audit_stream
++    out: List[Dict[str, Any]] = []
++    try:
++        rows = redis_client.xrevrange(stream, count=max(limit, 1))
++    except Exception:
++        return out
++    symbol_u = symbol.upper() if symbol else ""
++    for row_id, fields in rows:
++        event: Dict[str, Any] = {"id": row_id.decode() if isinstance(row_id, bytes) else str(row_id)}
++        for k, v in fields.items():
++            key = k.decode() if isinstance(k, bytes) else str(k)
++            raw = v.decode() if isinstance(v, bytes) else v
++            parsed = _safe_json_loads(raw)
++            event[key] = parsed if parsed else raw
++        if symbol_u and str(event.get("symbol", "")).upper() != symbol_u:
++            continue
++        if event.get("area") != "dust_cleanup_ack":
++            continue
++        out.append(event)
++        if len(out) >= limit:
++            break
++    return out
++
++
++def ack_dashboard(redis_client: Any, *, limit: int = 200) -> Dict[str, Any]:
++    now_ms = _now_ms()
++    prefix = ack_keys_from_env().ack_prefix
++    rows: List[Dict[str, Any]] = []
++    for key in redis_client.scan_iter(match=f"{prefix}*", count=max(limit, 50)):
++        key_s = key.decode() if isinstance(key, bytes) else str(key)
++        doc = _safe_json_loads(redis_client.get(key_s))
++        if not doc:
++            continue
++        ttl = _ttl_seconds(redis_client, key_s)
++        doc["ttl_sec"] = ttl
++        doc["ack_key"] = key_s
++        doc["age_sec"] = max(0, (now_ms - int(doc.get("acked_at_ms", now_ms))) // 1000)
++        rows.append(doc)
++    rows.sort(key=lambda x: (str(x.get("kind", "")), str(x.get("symbol", ""))))
++    without_ack = {
++        "denylist_old_without_ack": 0,
++        "cooldown_loop_without_ack": 0,
++    }
++    for row in rows:
++        if row.get("kind") == "old_denylist":
++            without_ack["denylist_old_without_ack"] += 1
++        if row.get("kind") == "cooldown_loop":
++            without_ack["cooldown_loop_without_ack"] += 1
++    return {
++        "ok": True,
++        "generated_at_ms": now_ms,
++        "items": rows,
++        "counts": {
++            "acks": len(rows),
++            **without_ack,
++        },
++    }
++
++
++def dashboard_with_unacked(
++    redis_client: Any,
++    *,
++    stale_denylist: List[Dict[str, Any]],
++    cooldown_loops: List[Dict[str, Any]],
++) -> Dict[str, Any]:
++    now_ms = _now_ms()
++    acked_deny = set()
++    acked_cd = set()
++    for item in ack_dashboard(redis_client).get("items", []):
++        symbol = str(item.get("symbol", "")).upper()
++        kind = str(item.get("kind", ""))
++        if kind == "old_denylist":
++            acked_deny.add(symbol)
++        elif kind == "cooldown_loop":
++            acked_cd.add(symbol)
++
++    deny_without_ack = [x for x in stale_denylist if str(x.get("symbol", "")).upper() not in acked_deny]
++    cooldown_without_ack = [x for x in cooldown_loops if str(x.get("symbol", "")).upper() not in acked_cd]
++    return {
++        "ok": True,
++        "generated_at_ms": now_ms,
++        "stale_denylist_without_ack": deny_without_ack,
++        "cooldown_loops_without_ack": cooldown_without_ack,
++        "counts": {
++            "stale_denylist_without_ack": len(deny_without_ack),
++            "cooldown_loops_without_ack": len(cooldown_without_ack),
++        },
++    }
++
++
++__all__ = [
++    "ack_reminder",
++    "renew_reminder_ack",
++    "revoke_reminder_ack",
++    "should_suppress_reminder",
++    "reminder_ack_state",
++    "recent_ack_audit",
++    "ack_dashboard",
++    "dashboard_with_unacked",
++]
+diff --git a/services/binance_dust_cleanup_admin_notifier.py b/services/binance_dust_cleanup_admin_notifier.py
+index 8e1a7d1..6d86a91 100644
+--- a/services/binance_dust_cleanup_admin_notifier.py
++++ b/services/binance_dust_cleanup_admin_notifier.py
+@@ -1,9 +1,12 @@
+ from __future__ import annotations
+ 
+ import json
++import os
+ import time
+ from typing import Any, Dict, Iterable, List, Optional
+ 
++from .binance_dust_cleanup_admin_ack import should_suppress_reminder, reminder_ack_state
++
+ 
+ def _now_ms() -> int:
+     return int(time.time() * 1000)
+@@ -21,6 +24,21 @@ def _push_telegram(redis_client: Any, stream_key: str, payload: Dict[str, Any],
+         approximate=True,
+     )
+ 
++
++def _renew_window_sec() -> int:
++    return int(os.getenv("BINANCE_DUST_ADMIN_ACK_RENEW_REMINDER_SEC", "900"))
++
++
++def _build_ack_suffix(redis_client: Any, kind: str, symbol: str) -> str:
++    state = reminder_ack_state(redis_client, kind, symbol)
++    if not state:
++        return ""
++    ttl = int(state.get("ttl_sec", -1))
++    ticket = str(state.get("ticket", ""))
++    operator = str(state.get("operator", ""))
++    if ttl >= 0:
++        return f"\nACK: {operator} / {ticket} / ttl={ttl}s"
++    return f"\nACK: {operator} / {ticket}"
++
+ 
+ def _manual_action_text(event: Dict[str, Any]) -> str:
+     action = str(event.get("action", ""))
+@@ -32,7 +50,7 @@ def _manual_action_text(event: Dict[str, Any]) -> str:
+     if action == "add_denylist":
+         return f"🧹 Dust denylist add: {symbol}\noperator={operator}\nticket={ticket}\nreason={reason}"
+     if action == "remove_denylist":
+-        return f"🧹 Dust denylist remove: {symbol}\noperator={operator}\nticket={ticket}\nreason={reason}"
++        return f"🧹 Dust denylist remove: {symbol}\noperator={operator}\nticket={ticket}\nreason={reason}"
+     if action == "clear_cooldown":
+         return f"🧹 Dust cooldown clear: {symbol}\noperator={operator}\nticket={ticket}\nreason={reason}"
+     return f"🧹 Dust admin action: {action} {symbol}\noperator={operator}\nticket={ticket}\nreason={reason}"
+@@ -54,14 +72,38 @@ def _reminder_text(kind: str, item: Dict[str, Any]) -> str:
+     if kind == "old_denylist":
+         return (
+             f"⚠️ Dust denylist entry is old: {symbol}\n"
+-            f"age_sec={age_sec}\n"
++            f"age_sec={age_sec}\n"
+             f"reason={reason}"
+         )
+     return (
+         f"⚠️ Dust cooldown loop detected: {symbol}\n"
+         f"age_sec={age_sec}\n"
+         f"reason={reason}"
+     )
++
++
++def _renew_reminder_text(kind: str, item: Dict[str, Any], ack_state: Dict[str, Any]) -> str:
++    symbol = str(item.get("symbol", "?"))
++    ttl = int(ack_state.get("ttl_sec", -1))
++    operator = str(ack_state.get("operator", ""))
++    ticket = str(ack_state.get("ticket", ""))
++    return (
++        f"⏰ Dust reminder ACK is close to expiry: {symbol}\n"
++        f"kind={kind}\n"
++        f"operator={operator}\n"
++        f"ticket={ticket}\n"
++        f"ttl_sec={ttl}"
++    )
+@@ -91,6 +133,34 @@ def emit_manual_action_notifications(redis_client: Any, *, source_events: Iterab
+             kind="manual_action",
+         )
+ 
++
++def _emit_reminder_with_ack_awareness(
++    redis_client: Any,
++    *,
++    notify_stream: str,
++    kind: str,
++    item: Dict[str, Any],
++    dedupe_key: str,
++    repeat_sec: int,
++) -> Dict[str, Any]:
++    symbol = str(item.get("symbol", "")).upper()
++    fingerprint = str(item.get("fingerprint", ""))
++    suppression = should_suppress_reminder(
++        redis_client,
++        kind=kind,
++        symbol=symbol,
++        fingerprint=fingerprint,
++    )
++    if suppression.get("suppressed"):
++        ack_state = suppression.get("ack_state") or {}
++        ttl = int(ack_state.get("ttl_sec", -1))
++        if 0 <= ttl <= _renew_window_sec():
++            _push_telegram(
++                redis_client,
++                notify_stream,
++                {"text": _renew_reminder_text(kind, item, ack_state), "severity": "info", "symbol": symbol, "kind": kind},
++                dedupe_key=f"{dedupe_key}:renew",
++                repeat_sec=max(60, repeat_sec // 2),
++                kind="ack_renew_reminder",
++            )
++        return {"ok": True, "result": "suppressed", "symbol": symbol, "kind": kind}
++    return emit_reminder_notifications(redis_client, notify_stream=notify_stream, items=[item], kind=kind, repeat_sec=repeat_sec)
++
+ 
+ def emit_reminder_notifications(
+     redis_client: Any,
+@@ -119,4 +189,4 @@ def emit_reminder_notifications(
+             text = _reminder_text(kind, item)
+         _push_telegram(redis_client, notify_stream, {"text": text, "severity": "warning", "symbol": symbol, "kind": kind}, dedupe_key=dedupe_key, repeat_sec=repeat_sec, kind=kind)
+         sent += 1
+-    return {"ok": True, "sent": sent, "kind": kind}
++    return {"ok": True, "sent": sent, "kind": kind}
+diff --git a/services/binance_dust_cleanup_admin_cli.py b/services/binance_dust_cleanup_admin_cli.py
+index 0d0c9f8..ef5a548 100644
+--- a/services/binance_dust_cleanup_admin_cli.py
++++ b/services/binance_dust_cleanup_admin_cli.py
+@@ -7,6 +7,12 @@ import json
+ import os
+ 
+ from .binance_dust_cleanup_admin import DustCleanupAdminControl
++from .binance_dust_cleanup_admin_ack import (
++    ack_reminder,
++    renew_reminder_ack,
++    revoke_reminder_ack,
++    ack_dashboard,
++)
+ 
+ 
+ def _pretty(value):
+@@ -36,6 +42,20 @@ def build_parser() -> argparse.ArgumentParser:
+     parser.add_argument("--show-audit", action="store_true")
+     parser.add_argument("--audit-symbol", default="")
+     parser.add_argument("--limit", type=int, default=20)
++    parser.add_argument("--show-ack-dashboard", action="store_true")
++    parser.add_argument("--ack-kind", default="")
++    parser.add_argument("--ack-symbol", default="")
++    parser.add_argument("--ack-reminder", action="store_true")
++    parser.add_argument("--renew-ack", action="store_true")
++    parser.add_argument("--revoke-ack", action="store_true")
++    parser.add_argument("--operator", default="")
++    parser.add_argument("--reason", default="")
++    parser.add_argument("--ticket", default="")
++    parser.add_argument("--ttl-sec", type=int, default=1800)
++    parser.add_argument("--fingerprint", default="")
+     return parser
+@@ -61,6 +81,23 @@ def main() -> int:
+     if args.show_audit:
+         print(_pretty(control.recent_audit(symbol=args.audit_symbol, limit=args.limit)))
+         return 0
++    if args.show_ack_dashboard:
++        print(_pretty(ack_dashboard(redis_client, limit=max(args.limit, 50))))
++        return 0
++    if args.ack_reminder:
++        print(_pretty(ack_reminder(redis_client, kind=args.ack_kind, symbol=args.ack_symbol, operator=args.operator, reason=args.reason, ticket=args.ticket, ttl_sec=args.ttl_sec, fingerprint=args.fingerprint)))
++        return 0
++    if args.renew_ack:
++        print(_pretty(renew_reminder_ack(redis_client, kind=args.ack_kind, symbol=args.ack_symbol, operator=args.operator, reason=args.reason, ticket=args.ticket, ttl_sec=args.ttl_sec)))
++        return 0
++    if args.revoke_ack:
++        print(_pretty(revoke_reminder_ack(redis_client, kind=args.ack_kind, symbol=args.ack_symbol, operator=args.operator, reason=args.reason, ticket=args.ticket)))
++        return 0
+     print(_pretty({"ok": False, "reason": "no_action"}))
+     return 1
+ 
+ if __name__ == "__main__":
+     raise SystemExit(main())
+diff --git a/services/binance_dust_cleanup_admin_http.py b/services/binance_dust_cleanup_admin_http.py
+index a3d1b8e..0e492e0 100644
+--- a/services/binance_dust_cleanup_admin_http.py
++++ b/services/binance_dust_cleanup_admin_http.py
+@@ -10,6 +10,12 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
+ from .binance_dust_cleanup_admin import DustCleanupAdminControl
++from .binance_dust_cleanup_admin_ack import (
++    ack_reminder,
++    renew_reminder_ack,
++    revoke_reminder_ack,
++    ack_dashboard,
++)
+ 
+ 
+ class Handler(BaseHTTPRequestHandler):
+@@ -33,6 +39,15 @@ class Handler(BaseHTTPRequestHandler):
+         if self.path.startswith("/api/binance-dust/audit"):
+             symbol = self._query_param("symbol")
+             limit = int(self._query_param("limit") or "20")
+             return self._write_json(control.recent_audit(symbol=symbol, limit=limit))
++        if self.path.startswith("/api/binance-dust/ack/dashboard"):
++            limit = int(self._query_param("limit") or "200")
++            return self._write_json(ack_dashboard(self.server.redis_client, limit=limit))
+         return self._write_json({"ok": False, "reason": "not_found"}, status=404)
+@@ -47,6 +62,30 @@ class Handler(BaseHTTPRequestHandler):
+         if self.path == "/api/binance-dust/cooldown/clear":
+             payload = self._read_json()
+             return self._write_json(control.clear_cooldown(symbol=payload["symbol"], operator=payload["operator"], reason=payload["reason"], ticket=payload["ticket"]))
++        if self.path == "/api/binance-dust/ack":
++            payload = self._read_json()
++            return self._write_json(
++                ack_reminder(
++                    self.server.redis_client,
++                    kind=payload["kind"],
++                    symbol=payload["symbol"],
++                    operator=payload["operator"],
++                    reason=payload["reason"],
++                    ticket=payload["ticket"],
++                    ttl_sec=int(payload.get("ttl_sec", 1800)),
++                    fingerprint=payload.get("fingerprint", ""),
++                )
++            )
++        if self.path == "/api/binance-dust/ack/renew":
++            payload = self._read_json()
++            return self._write_json(renew_reminder_ack(self.server.redis_client, kind=payload["kind"], symbol=payload["symbol"], operator=payload["operator"], reason=payload["reason"], ticket=payload["ticket"], ttl_sec=int(payload.get("ttl_sec", 1800))))
++        if self.path == "/api/binance-dust/ack/revoke":
++            payload = self._read_json()
++            return self._write_json(revoke_reminder_ack(self.server.redis_client, kind=payload["kind"], symbol=payload["symbol"], operator=payload["operator"], reason=payload["reason"], ticket=payload["ticket"]))
+         return self._write_json({"ok": False, "reason": "not_found"}, status=404)
+ 
+ 
+diff --git a/services/execution_metrics.py b/services/execution_metrics.py
+index 79cb8e7..c7a7c51 100644
+--- a/services/execution_metrics.py
++++ b/services/execution_metrics.py
+@@ -210,6 +210,38 @@ execution_dust_admin_old_entry_age_sec = Gauge(
+     ["kind", "symbol"],
+ )
+ 
++execution_dust_admin_ack_action_total = Counter(
++    "execution_dust_admin_ack_action_total",
++    "Dust admin reminder acknowledgement actions.",
++    ["action", "result"],
++)
++
++execution_dust_admin_ack_state_total = Gauge(
++    "execution_dust_admin_ack_state_total",
++    "Current count of active dust admin ACK states.",
++    ["kind"],
++)
++
++execution_dust_admin_ack_ttl_sec = Gauge(
++    "execution_dust_admin_ack_ttl_sec",
++    "Remaining TTL for dust admin reminder ACK state.",
++    ["kind", "symbol"],
++)
++
++execution_dust_admin_unacked_items_total = Gauge(
++    "execution_dust_admin_unacked_items_total",
++    "Count of old denylist / cooldown loop items that currently have no operator ACK.",
++    ["kind"],
++)
++
++execution_dust_admin_ack_renew_reminder_total = Counter(
++    "execution_dust_admin_ack_renew_reminder_total",
++    "Dust admin ACK renewal reminders emitted.",
++    ["kind", "result"],
++)
++
+ __all__ = [name for name in globals() if name.startswith("execution_")]
+diff --git a/services/prometheus_alerts_binance_dust_cleanup_admin_ack_v1.yml b/services/prometheus_alerts_binance_dust_cleanup_admin_ack_v1.yml
+new file mode 100644
+index 0000000..bdb5ba1
+--- /dev/null
++++ b/services/prometheus_alerts_binance_dust_cleanup_admin_ack_v1.yml
+@@ -0,0 +1,37 @@
++groups:
++  - name: binance-dust-cleanup-admin-ack
++    rules:
++      - alert: BinanceDustAdminOldDenylistWithoutAck
++        expr: execution_dust_admin_unacked_items_total{kind="old_denylist"} > 0
++        for: 15m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Dust admin has old denylist entries without operator acknowledgement"
++
++      - alert: BinanceDustAdminCooldownLoopWithoutAck
++        expr: execution_dust_admin_unacked_items_total{kind="cooldown_loop"} > 0
++        for: 15m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Dust admin has cooldown loop reminders without operator acknowledgement"
++
++      - alert: BinanceDustAdminAckRenewReminderEmitted
++        expr: increase(execution_dust_admin_ack_renew_reminder_total{result="sent"}[30m]) > 0
++        for: 0m
++        labels:
++          severity: info
++        annotations:
++          summary: "Dust admin ACK renewal reminder was emitted"
++
++      - alert: BinanceDustAdminAckActionFailures
++        expr: increase(execution_dust_admin_ack_action_total{result!="ok"}[15m]) > 0
++        for: 0m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Dust admin ACK workflow returned non-ok result"
++
+diff --git a/services/tests/test_binance_dust_cleanup_admin_ack_v1.py b/services/tests/test_binance_dust_cleanup_admin_ack_v1.py
+new file mode 100644
+index 0000000..0dd3329
+--- /dev/null
++++ b/services/tests/test_binance_dust_cleanup_admin_ack_v1.py
+@@ -0,0 +1,150 @@
++from __future__ import annotations
++
++import json
++
++from services.binance_dust_cleanup_admin_ack import (
++    ack_reminder,
++    renew_reminder_ack,
++    revoke_reminder_ack,
++    should_suppress_reminder,
++    reminder_ack_state,
++    dashboard_with_unacked,
++)
++
++
++class FakeRedis:
++    def __init__(self):
++        self.store = {}
++        self.ttls = {}
++        self.streams = {}
++
++    def get(self, key):
++        return self.store.get(key)
++
++    def set(self, key, value, ex=None):
++        self.store[key] = value
++        if ex is not None:
++            self.ttls[key] = ex
++
++    def delete(self, key):
++        self.store.pop(key, None)
++        self.ttls.pop(key, None)
++
++    def ttl(self, key):
++        if key not in self.store:
++            return -2
++        return self.ttls.get(key, -1)
++
++    def xadd(self, stream, payload, maxlen=None, approximate=None):
++        self.streams.setdefault(stream, []).append(payload)
++
++    def xrevrange(self, stream, count=10):
++        rows = list(reversed(self.streams.get(stream, [])))[:count]
++        out = []
++        for i, row in enumerate(rows):
++            out.append((str(i), row))
++        return out
++
++    def scan_iter(self, match=None, count=None):
++        prefix = match.rstrip("*") if match else ""
++        for key in list(self.store.keys()):
++            if not prefix or str(key).startswith(prefix):
++                yield key
++
++
++def test_ack_and_suppress_roundtrip():
++    redis = FakeRedis()
++    ack_reminder(
++        redis,
++        kind="old_denylist",
++        symbol="APTUSDT",
++        operator="alex",
++        reason="investigating",
++        ticket="INC-42",
++        ttl_sec=1800,
++        fingerprint="fp-1",
++    )
++    state = reminder_ack_state(redis, "old_denylist", "APTUSDT")
++    assert state["operator"] == "alex"
++    suppressed = should_suppress_reminder(redis, kind="old_denylist", symbol="APTUSDT", fingerprint="fp-1")
++    assert suppressed["suppressed"] is True
++
++
++def test_renew_and_revoke_ack():
++    redis = FakeRedis()
++    ack_reminder(
++        redis,
++        kind="cooldown_loop",
++        symbol="SUIUSDT",
++        operator="alex",
++        reason="owned",
++        ticket="INC-7",
++        ttl_sec=120,
++    )
++    renewed = renew_reminder_ack(
++        redis,
++        kind="cooldown_loop",
++        symbol="SUIUSDT",
++        operator="bob",
++        reason="extend",
++        ticket="INC-7A",
++        ttl_sec=3600,
++    )
++    assert renewed["ok"] is True
++    assert renewed["renew_operator"] == "bob"
++    revoked = revoke_reminder_ack(
++        redis,
++        kind="cooldown_loop",
++        symbol="SUIUSDT",
++        operator="bob",
++        reason="resolved",
++        ticket="INC-7A",
++    )
++    assert revoked["result"] == "ok"
++    assert should_suppress_reminder(redis, kind="cooldown_loop", symbol="SUIUSDT")["suppressed"] is False
++
++
++def test_dashboard_without_ack_lists_expected_items():
++    redis = FakeRedis()
++    ack_reminder(
++        redis,
++        kind="old_denylist",
++        symbol="APTUSDT",
++        operator="alex",
++        reason="investigating",
++        ticket="INC-42",
++        ttl_sec=1800,
++    )
++    view = dashboard_with_unacked(
++        redis,
++        stale_denylist=[{"symbol": "APTUSDT", "age_sec": 999}, {"symbol": "SUIUSDT", "age_sec": 1001}],
++        cooldown_loops=[{"symbol": "XRPUSDT", "age_sec": 1900}],
++    )
++    assert view["counts"]["stale_denylist_without_ack"] == 1
++    assert view["stale_denylist_without_ack"][0]["symbol"] == "SUIUSDT"
++    assert view["counts"]["cooldown_loops_without_ack"] == 1
++
+diff --git a/services/tests/test_binance_dust_cleanup_admin_ack_assets_v1.py b/services/tests/test_binance_dust_cleanup_admin_ack_assets_v1.py
+new file mode 100644
+index 0000000..85af1ab
+--- /dev/null
++++ b/services/tests/test_binance_dust_cleanup_admin_ack_assets_v1.py
+@@ -0,0 +1,32 @@
++from pathlib import Path
++
++
++def test_ack_alerts_file_exists_and_mentions_expected_rules():
++    path = Path("services/prometheus_alerts_binance_dust_cleanup_admin_ack_v1.yml")
++    assert path.exists()
++    text = path.read_text(encoding="utf-8")
++    assert "BinanceDustAdminOldDenylistWithoutAck" in text
++    assert "BinanceDustAdminCooldownLoopWithoutAck" in text
++
++
++def test_cli_and_http_expose_ack_routes():
++    cli_text = Path("services/binance_dust_cleanup_admin_cli.py").read_text(encoding="utf-8")
++    http_text = Path("services/binance_dust_cleanup_admin_http.py").read_text(encoding="utf-8")
++    assert "--ack-reminder" in cli_text
++    assert "--renew-ack" in cli_text
++    assert "--revoke-ack" in cli_text
++    assert "/api/binance-dust/ack" in http_text
++    assert "/api/binance-dust/ack/renew" in http_text
++    assert "/api/binance-dust/ack/revoke" in http_text

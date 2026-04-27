@@ -1,0 +1,38 @@
+[Unit]
+Description=Telegram Worker for Scanner Infrastructure
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/alex/front/trade/scanner_infra/telegram-worker
+ExecStart=/usr/bin/python3 multithreaded_worker.py
+Restart=always
+RestartSec=10
+StartLimitInterval=60
+StartLimitBurst=3
+
+# Автоматический перезапуск при сбоях
+RestartPreventExitStatus=0
+RestartForceExitStatus=1
+
+# Ограничения ресурсов
+MemoryMax=512M
+CPUQuota=50%
+
+# Логирование
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=telegram-worker
+
+# Переменные окружения
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/home/alex/front/trade/scanner_infra/telegram-worker
+
+# Health check
+ExecStartPre=/bin/bash -c 'until redis-cli ping > /dev/null 2>&1; do echo "Waiting for Redis..."; sleep 1; done'
+ExecStartPre=/bin/bash -c 'until test -f /home/alex/front/trade/scanner_infra/telegram-worker/.env; do echo "Waiting for .env file..."; sleep 1; done'
+
+[Install]
+WantedBy=multi-user.target 

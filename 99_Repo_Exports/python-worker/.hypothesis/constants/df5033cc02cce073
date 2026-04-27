@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/transient_errors.py
+# hypothesis_version: 6.148.10
+
+['broken pipe', 'busy loading', 'cluster down', 'connection', 'connection reset', 'eof', 'errno', 'i/o error', 'loading the dataset', 'master is down', 'read timeout', 'readonly', 'reset by peer', 'temporarily', 'timed out', 'timeout', 'try again', 'write timeout']

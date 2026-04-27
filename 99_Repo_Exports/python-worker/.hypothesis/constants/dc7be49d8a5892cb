@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/audit_side_sign_usage.py
+# hypothesis_version: 6.148.10
+
+[200, '!=\\s*[\\\'"]BUY[\\\'"]', '*', '--dirs', '--format', '--root', '.', '.py', 'Next step:', '__main__', 'default_buy', 'default_sell', 'else_return_minus1', 'file', 'findings', 'ibm_to_sign', 'json', 'kind', 'line', 'not_buy_used_as_sell', 'or\\s*[\\\'"]BUY[\\\'"]', 'or\\s*[\\\'"]SELL[\\\'"]', 'python-worker/tools', 'r', 'replace', 'snippet', 'ternary_else_minus1', 'text', 'utf-8']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/core/confidence_threshold.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.45, 70.0, '0.45', '50.0', '; ', 'MIN_CONF_', 'MIN_CONF_DEFAULT', 'MIN_CONF_FACTOR_']

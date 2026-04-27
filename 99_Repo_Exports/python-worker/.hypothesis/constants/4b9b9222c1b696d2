@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/tick_quality_ema.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 300000, 'age_abs_ms', 'now', 'skew_abs_ms', 'stream_id', 'ts_now', 'ts_stream_id', 'unknown', 'wall']

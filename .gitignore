@@ -1,0 +1,12 @@
+.obsidian/workspace*
+.obsidian/cache
+*.env
+.env*
+*secret*
+*token*
+*key*
+*.pem
+*.sqlite
+*.db
+node_modules/
+__pycache__/

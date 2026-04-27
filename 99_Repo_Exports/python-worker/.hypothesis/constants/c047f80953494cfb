@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/ml_feature_schema.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 2.0, 7.0, 24.0, 60.0, 1000, 'LONG', 'abs_lvl_ok', 'cancel_spike_veto', 'confirmations', 'continuation', 'delta_z', 'dir_long', 'direction', 'dow_cos', 'dow_sin', 'exec_risk_norm', 'fp_edge_absorb', 'hawkes_cancel_lam', 'hawkes_churn_lam', 'hawkes_taker_lam', 'hour_cos', 'hour_sin', 'iceberg_strict', 'indicators', 'liq_score', 'none', 'obi_stable', 'of_score', 'ofi', 'ofi_dir_ok', 'ofi_stability_score', 'ofi_stable', 'ofi_z', 'range_meanrev', 'reclaim_recent', 'reversal', 'rule_have', 'rule_need', 'rule_score', 'saw_chop_spoof_proxy', 'sc_continuation', 'sc_none', 'sc_other', 'sc_range_meanrev', 'sc_reversal', 'scenario', 'scenario_v4', 'spread_bps', 'strong_gate_have', 'strong_gate_need', 'sweep_recent', 'symbol', 'ts_ms', 'vol_shock_news_proxy', 'weak_progress']

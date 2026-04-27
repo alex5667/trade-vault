@@ -1,0 +1,38 @@
+groups:
+  - name: meta_dq_alerts
+    rules:
+      - alert: MetaDQNoCoverage
+        expr: meta_quality_dq_present_n == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Meta quality report has no DQ coverage (dq_present_n==0)"
+          description: "dq_health_score/data_health not present in report; DQ latch will freeze ramp."
+
+      - alert: MetaDQWorstBucketPRAUCLow
+        expr: meta_quality_worst_dq_bucket_pr_auc < 0.52
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Worst DQ bucket PR-AUC low"
+          description: "Worst DQ bucket PR-AUC is below threshold; consider freeze/rollback schema."
+
+      - alert: MetaDQWorstBucketECEHigh
+        expr: meta_quality_worst_dq_bucket_ece > 0.12
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Worst DQ bucket ECE high"
+          description: "Worst DQ bucket calibration error (ECE) above threshold; ramp should freeze."
+
+      - alert: MetaDQCorrelationNegative
+        expr: meta_quality_corr_meta_p_dq_health < -0.10
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Meta p negatively correlated with DQ health"
+          description: "meta_p vs dq_health correlation is negative; indicates model may trust bad data."

@@ -1,0 +1,47 @@
+groups:
+  - name: trade_scanner_outbox_alerts
+    rules:
+      - alert: OutboxBacklogHigh
+        expr: redis_stream_length{stream="stream:signals:outbox"} > 1000
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High outbox backlog"
+          description: "Outbox dispatcher lag is increasing. The queue size for stream:signals:outbox is {{ $value }}, which is above the 1000 threshold."
+
+      - alert: SignalDedupCollisionSpike
+        expr: sum(rate(outbox_dedup_collisions_total[5m])) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Signal deduplication collisions spike"
+          description: "High rate of deduplication collisions in the outbox writer ({{ $value }} col/sec). Possible detector loop or rapid redundant signals."
+
+      - alert: GateVetoSpikeByKind
+        expr: sum by (kind) (rate(pipeline_veto_total[5m])) > 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Spike in gate vetoes for kind"
+          description: "High rate of signal vetoes ({{ $value }} vetoes/sec) for kind {{ $labels.kind }}."
+
+      - alert: TickMonotonicViolationRate
+        expr: sum by (symbol) (rate(ts_rejected_total{reason="non_monotonic"}[5m])) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Non-monotonic tick rate is high"
+          description: "High rate of out-of-order or duplicate ticks detected for {{ $labels.symbol }} ({{ $value }} req/sec)."
+
+      - alert: TraceIdMissingRate
+        expr: sum by (symbol) (rate(trace_id_missing_total[5m])) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Trace ID missing from payloads"
+          description: "High rate of signals lacking trace_id for {{ $labels.symbol }}."

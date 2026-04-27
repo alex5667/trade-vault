@@ -1,0 +1,54 @@
+groups:
+  - name: of_inputs_v3_circuit_p100
+    rules:
+      - alert: OFInputsV3CircuitExporterStale
+        expr: (time() * 1000) - max(of_inputs_v3_circuit_state_exporter_poll_ts_ms) > 60000
+        for: 5m
+        labels:
+          severity: critical
+          component: of_inputs
+        annotations:
+          summary: "OFInputs V3 circuit exporter is stale"
+          description: "Exporter loop has not updated poll_ts_ms for >60s. Circuit state may be invisible to Prometheus. Check exporter process and Redis connectivity."
+
+      - alert: OFInputsV3CircuitDisabledAny
+        expr: sum(of_inputs_v3_circuit_cfg_disabled) > 0
+        for: 2m
+        labels:
+          severity: warning
+          component: of_inputs
+        annotations:
+          summary: "OFInputs V3 circuit disabled for at least one symbol"
+          description: "Circuit breaker disabled V3 inputs for {{ $value }} symbol(s). Use runbook_of_inputs_v3_circuit_p100.md to drill down (cfg:of_inputs:v3_disabled:*)."
+
+      - alert: OFInputsV3CircuitDisabledMany
+        expr: sum(of_inputs_v3_circuit_cfg_disabled) > 5
+        for: 2m
+        labels:
+          severity: critical
+          component: of_inputs
+        annotations:
+          summary: "OFInputs V3 circuit disabled for many symbols"
+          description: "Circuit breaker disabled V3 inputs for {{ $value }} symbol(s). Likely systemic V3 inputs degradation (book lag / missing LOB fields / Redis issues)."
+
+      - alert: OFInputsV3CircuitPreTripDowngrades
+        # Pre-trip signal: if any symbol accumulates 2+ downgrades within the sliding window,
+        # it is close to tripping (defaults: max_downgrades_in_window=3, window_ms=60000).
+        expr: max by (symbol, reason) (of_inputs_v3_circuit_downgrades_window) >= 2
+        for: 2m
+        labels:
+          severity: info
+          component: of_inputs
+        annotations:
+          summary: "OFInputs V3 downgrades approaching circuit trip"
+          description: "Symbol {{ $labels.symbol }} reason={{ $labels.reason }} has {{ $value }} downgrades within the window; if it reaches the trip threshold it will be disabled and fallback to V2."
+
+      - alert: OFInputsV3CircuitAutoApplyBlockedGlobal
+        expr: max(of_inputs_v3_circuit_auto_apply_block_global_active) > 0
+        for: 2m
+        labels:
+          severity: warning
+          component: of_inputs
+        annotations:
+          summary: "Global auto-apply blocked by OFInputs V3 circuit"
+          description: "Global auto-apply block key is present (cfg:of_inputs_v3:auto_apply_block_global:*). This is fail-closed to prevent automated promotions during inputs degradation."

@@ -1,0 +1,112 @@
+# P90: Enforce bucket state exporter self-health + operational alerts.
+#
+# Alerts in this file cover:
+#   1. Exporter staleness (of_enforce_state_exporter_poll_ts_ms)
+#   2. auto-apply block state (of_auto_apply_block_active)
+#   3. SLO freezer block state (of_enforce_freezer_block_active)
+#   4. exec_slip_stats refresh staleness (of_exec_slip_stats_refresh_last_ok_age_sec)
+#
+# Requires: enforce_bucket_state_exporter_v1.py running with P90 self-health gauges.
+# Runbook: orderflow_services/runbook_enforce_bucket_ops_p90.md
+# Dashboard: orderflow_services/grafana/enforce_bucket_ops_p90.json
+
+groups:
+- name: enforce_bucket_state_exporter_p90
+  rules:
+
+  # --- Exporter self-health ---
+  # Fires when of_enforce_state_exporter_poll_ts_ms hasn't been updated for >30m.
+  # This means the exporter process itself is frozen/dead (not just a bad tick).
+  - alert: OF_EnforceStateExporterStale_Crit
+    expr: >
+      (time() * 1000 - of_enforce_state_exporter_poll_ts_ms) > 30 * 60 * 1000
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: 'Enforce bucket state exporter loop stale (>30m)'
+      description: >
+        of_enforce_state_exporter_poll_ts_ms has not been updated for >30 minutes.
+        The exporter process may be crashed or stuck. Check scanner-enforce-bucket-state-exporter
+        container logs and restart if necessary.
+      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
+      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json
+
+  # --- Auto-apply block ---
+  # Fires when the enforce-bucket promoter has raised an auto_apply block (i.e. it
+  # detected a QA regression and blocked automated bucket promotion).
+  - alert: OF_AutoApplyBlockedByEnforceBucket_Warn
+    expr: of_auto_apply_block_active{source="enforce_bucket_promoter"} > 0
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: 'Enforce-bucket promoter auto-apply block active (>10m)'
+      description: >
+        Auto-apply has been blocked by the enforce-bucket promoter for >10 minutes
+        (cause={{ $labels.cause }}). Review the promoter status report and decide
+        whether to manually unblock or wait for rollback.
+      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
+      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json
+
+  - alert: OF_AutoApplyBlockedByEnforceBucket_Crit
+    expr: of_auto_apply_block_active{source="enforce_bucket_promoter"} > 0
+    for: 1h
+    labels:
+      severity: critical
+    annotations:
+      summary: 'CRIT: Enforce-bucket promoter auto-apply block active (>1h)'
+      description: >
+        Auto-apply has been blocked by the enforce-bucket promoter for >1 hour
+        (cause={{ $labels.cause }}). Automated promotion is completely suspended.
+        Investigate the promoter report and resolve the underlying QA regression.
+      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
+      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json
+
+  # --- SLO Freezer ---
+  # Fires when the SLO freezer has blocked auto-apply for a sym/bucket combination.
+  - alert: OF_EnforceBucketSLOFreezerActive_Warn
+    expr: of_enforce_freezer_block_active > 0
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: 'Enforce bucket SLO freezer block active (sym={{ $labels.sym }}, bucket={{ $labels.bucket }})'
+      description: >
+        The SLO freezer is blocking auto-apply for sym={{ $labels.sym }},
+        bucket={{ $labels.bucket }} for >15 minutes. This is expected if SLO
+        degradation was detected; verify the freeze is intentional and that the
+        underlying SLO metric is recovering.
+      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
+      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json
+
+  # --- exec_slip_stats refresh staleness ---
+  # The exec_slip_stats refresher writes the MV used by the promoter and exporter for
+  # DB-based residual validation. If stale, residual metrics become unreliable.
+  - alert: OF_ExecSlipStatsRefreshStale_Warn
+    expr: of_exec_slip_stats_refresh_last_ok_age_sec > 3 * 3600
+    for: 30m
+    labels:
+      severity: warning
+    annotations:
+      summary: 'exec_slip_stats MV refresh stale (>3h)'
+      description: >
+        The exec_slip_stats_refresh process has not completed successfully for >3 hours.
+        DB-based residual validation metrics may be outdated. Check the
+        exec-slip-stats-refresh timer container and DB connectivity.
+      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
+      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json
+
+  - alert: OF_ExecSlipStatsRefreshStale_Crit
+    expr: of_exec_slip_stats_refresh_last_ok_age_sec > 6 * 3600
+    for: 20m
+    labels:
+      severity: critical
+    annotations:
+      summary: 'CRIT: exec_slip_stats MV refresh stale (>6h)'
+      description: >
+        The exec_slip_stats_refresh process has not completed successfully for >6 hours.
+        The promoter's DB guardrails are running blind. This severely degrades the
+        enforce-bucket safety system. Check DB connectivity and refresh timer.
+      runbook_path: orderflow_services/runbook_enforce_bucket_ops_p90.md
+      dashboard_path: orderflow_services/grafana/enforce_bucket_ops_p90.json

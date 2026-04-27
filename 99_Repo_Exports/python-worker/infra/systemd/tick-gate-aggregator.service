@@ -1,0 +1,15 @@
+[Unit]
+Description=Tick Gate Aggregator (/metrics exporter from Redis stream)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+EnvironmentFile=/etc/default/tick-gate-aggregator
+ExecStart=/usr/bin/python3 -m tools.tick_gate_metrics_aggregator
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

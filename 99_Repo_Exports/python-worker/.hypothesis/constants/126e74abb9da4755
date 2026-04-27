@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/orderflow_services/confidence_cal_metrics.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.005, 0.01, 0.02, 0.03, 0.05, 0.08, 0.1, 0.15, 0.2, 0.3, 0.5, 1.0, 'arm', 'bucket_by', 'bucket_level', 'calibration_slope', 'confidence', 'confidence_cal_info', 'confidence_cal_stale', 'counter', 'default', 'gauge', 'hist', 'key', 'mce', 'method', 'prob_mass_near_half', 'result', 'schema_version', 'sharpness_entropy', 'sharpness_mean', 'symbol', 'type', 'unknown']

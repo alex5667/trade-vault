@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/derivatives_context.py
+# hypothesis_version: 6.148.10
+
+[-50.0, 0.0, 1e-12, 1.4826, 3.0, 50.0, 10000.0, 180, ',', ':', 'basis_bps', 'basis_extreme', 'binance', 'ctx:deriv:', 'delta_oi_5m', 'fundingRate', 'fundingTime', 'funding_extreme', 'funding_rate', 'funding_rate_abs', 'funding_rate_z', 'lastFundingRate', 'oi_accel', 'oi_notional_usd', 'open_interest', 'premiumIndex', 'premium_index', 'replace', 'schema_version', 'symbol', 'time', 'ts_ms', 'utf-8', 'venue']

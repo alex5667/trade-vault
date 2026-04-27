@@ -1,0 +1,1114 @@
+diff --git a/orderflow_services/grafana/README_world_practice_lob_pressure_v1.md b/orderflow_services/grafana/README_world_practice_lob_pressure_v1.md
+new file mode 100644
+index 0000000..773965d
+--- /dev/null
++++ b/orderflow_services/grafana/README_world_practice_lob_pressure_v1.md
+@@ -0,0 +1,16 @@
++# World-practice LOB pressure v1 (Grafana)
++
++Dashboard JSON: `orderflow_services/grafana/world_practice_lob_pressure_v1.json`
++
++Variables:
++- `sym`: symbol filter
++- `bucket`: exec_regime_bucket filter
++
++Panels:
++- microprice divergence vs mid + microprice shift
++- DW OBI (raw + robust-z)
++- DW OBI stability score + stable flag
++- queue imbalance aggregates (L1..L5)
++- depth shape: slope imbalance (normalized) + convexity imbalance
++
++Runbook: `/runbooks/world_practice_lob_pressure_v1.md`
+diff --git a/orderflow_services/grafana/world_practice_lob_pressure_v1.json b/orderflow_services/grafana/world_practice_lob_pressure_v1.json
+new file mode 100644
+index 0000000..4a1eb96
+--- /dev/null
++++ b/orderflow_services/grafana/world_practice_lob_pressure_v1.json
+@@ -0,0 +1,90 @@
++{
++  "annotations": {"list": [{"builtIn": 1, "datasource": {"type": "grafana", "uid": "-- Grafana --"}, "enable": true, "hide": true, "iconColor": "rgba(0, 211, 255, 1)", "name": "Annotations & Alerts", "type": "dashboard"}]},
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "id": null,
++  "links": [],
++  "liveNow": false,
++  "panels": [
++    {"collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0}, "id": 1, "panels": [], "title": "World-practice LOB pressure v1 (microprice + depth shape + DW OBI)", "type": "row"},
++
++    {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++     "fieldConfig": {"defaults": {"unit": "bps", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never", "pointSize": 3, "spanNulls": true}}, "overrides": []},
++     "gridPos": {"h": 8, "w": 12, "x": 0, "y": 1},
++     "id": 2,
++     "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
++     "targets": [
++       {"expr": "trade_micro_mid_div_bps{sym=~\\\"$sym\\\",bucket=~\\\"$bucket\\\"}", "legendFormat": "micro_mid_div {{sym}} {{bucket}}"},
++       {"expr": "trade_micro_shift_bps{sym=~\\\"$sym\\\",bucket=~\\\"$bucket\\\"}", "legendFormat": "micro_shift {{sym}} {{bucket}}"}
++     ],
++     "title": "microprice: divergence vs mid + shift (bps)",
++     "type": "timeseries"},
++
++    {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++     "fieldConfig": {"defaults": {"unit": "none", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never", "pointSize": 3, "spanNulls": true}}, "overrides": []},
++     "gridPos": {"h": 8, "w": 12, "x": 12, "y": 1},
++     "id": 3,
++     "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
++     "targets": [
++       {"expr": "trade_dw_obi{sym=~\\\"$sym\\\",bucket=~\\\"$bucket\\\"}", "legendFormat": "dw_obi {{sym}} {{bucket}}"},
++       {"expr": "trade_dw_obi_z{sym=~\\\"$sym\\\",bucket=~\\\"$bucket\\\"}", "legendFormat": "dw_obi_z {{sym}} {{bucket}}"}
++     ],
++     "title": "DW OBI: raw [-1..1] + robust z",
++     "type": "timeseries"},
++
++    {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++     "fieldConfig": {"defaults": {"unit": "none", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never", "pointSize": 3, "spanNulls": true}}, "overrides": []},
++     "gridPos": {"h": 8, "w": 12, "x": 0, "y": 9},
++     "id": 4,
++     "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
++     "targets": [
++       {"expr": "trade_dw_obi_stability_score{sym=~\\\"$sym\\\",bucket=~\\\"$bucket\\\"}", "legendFormat": "stability_score {{sym}} {{bucket}}"},
++       {"expr": "trade_dw_obi_stable{sym=~\\\"$sym\\\",bucket=~\\\"$bucket\\\"}", "legendFormat": "stable(0/1) {{sym}} {{bucket}}"}
++     ],
++     "title": "DW OBI stability",
++     "type": "timeseries"},
++
++    {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++     "fieldConfig": {"defaults": {"unit": "none", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never", "pointSize": 3, "spanNulls": true}}, "overrides": []},
++     "gridPos": {"h": 8, "w": 12, "x": 12, "y": 9},
++     "id": 5,
++     "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
++     "targets": [
++       {"expr": "trade_qi_mean{sym=~\\\"$sym\\\",bucket=~\\\"$bucket\\\"}", "legendFormat": "qi_mean {{sym}} {{bucket}}"},
++       {"expr": "trade_qi_max_abs{sym=~\\\"$sym\\\",bucket=~\\\"$bucket\\\"}", "legendFormat": "qi_max_abs {{sym}} {{bucket}}"},
++       {"expr": "trade_qi_slope{sym=~\\\"$sym\\\",bucket=~\\\"$bucket\\\"}", "legendFormat": "qi_slope {{sym}} {{bucket}}"}
++     ],
++     "title": "queue imbalance aggregates",
++     "type": "timeseries"},
++
++    {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++     "fieldConfig": {"defaults": {"unit": "none", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never", "pointSize": 3, "spanNulls": true}}, "overrides": []},
++     "gridPos": {"h": 8, "w": 24, "x": 0, "y": 17},
++     "id": 6,
++     "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
++     "targets": [
++       {"expr": "trade_depth_slope_imb_norm{sym=~\\\"$sym\\\",bucket=~\\\"$bucket\\\"}", "legendFormat": "slope_imb_norm {{sym}} {{bucket}}"},
++       {"expr": "trade_depth_convexity_imb{sym=~\\\"$sym\\\",bucket=~\\\"$bucket\\\"}", "legendFormat": "convexity_imb {{sym}} {{bucket}}"}
++     ],
++     "title": "depth shape: slope imbalance (norm) + convexity imbalance",
++     "type": "timeseries"}
++  ],
++  "refresh": "30s",
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": ["orderflow", "world_practice"],
++  "templating": {
++    "list": [
++      {"name": "DS_PROMETHEUS", "type": "datasource", "query": "prometheus", "current": {"selected": false, "text": "Prometheus", "value": "Prometheus"}},
++      {"name": "sym", "type": "query", "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "definition": "label_values(trade_micro_mid_div_bps, sym)", "query": {"query": "label_values(trade_micro_mid_div_bps, sym)", "refId": "PromSym"}, "current": {"selected": false, "text": ".*", "value": ".*"}},
++      {"name": "bucket", "type": "query", "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "definition": "label_values(trade_micro_mid_div_bps, bucket)", "query": {"query": "label_values(trade_micro_mid_div_bps, bucket)", "refId": "PromBucket"}, "current": {"selected": false, "text": ".*", "value": ".*"}}
++    ]
++  },
++  "time": {"from": "now-6h", "to": "now"},
++  "timepicker": {},
++  "timezone": "utc",
++  "title": "World-practice LOB pressure v1",
++  "uid": "world_practice_lob_pressure_v1",
++  "version": 1
++}
+diff --git a/orderflow_services/prometheus_alerts_world_practice_lob_pressure_v1.yml b/orderflow_services/prometheus_alerts_world_practice_lob_pressure_v1.yml
+new file mode 100644
+index 0000000..bce0c81
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_world_practice_lob_pressure_v1.yml
+@@ -0,0 +1,142 @@
++groups:
++  # ─────────────────────────────────────────────────────────────────────────────
++  # World-practice LOB pressure v1 – microprice / depth shape / dw_obi stability
++  # ─────────────────────────────────────────────────────────────────────────────
++
++- name: of_world_practice_lob_pressure_v1
++  interval: 60s
++  rules:
++
++  # ── Warn: microprice diverges from mid while system is active ────────────────
++  - alert: OF_WP_MicroMidDivHigh_Warn
++    expr: |
++      (
++        abs(trade_micro_mid_div_bps) > 2.5
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 10m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): micro_mid_div_bps high ({{ $value | printf \"%.2f\" }})"
++      description: |
++        Microprice deviates from mid while allow decisions are being produced.
++        Interpretable as hidden queue pressure near touch (top-of-book imbalance).
++      runbook_path: /runbooks/world_practice_lob_pressure_v1.md
++      dashboard_path: /d/world_practice_lob_pressure_v1
++
++  # ── Warn: microprice shift spikes (momentum) while active ────────────────────
++  - alert: OF_WP_MicroShiftSpike_Warn
++    expr: |
++      (
++        (max_over_time(trade_micro_shift_bps[5m]) > 1.0)
++        or
++        (min_over_time(trade_micro_shift_bps[5m]) < -1.0)
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 5m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): micro_shift_bps spike"
++      description: |
++        Microprice shifts quickly over the last 5 minutes while the system is active.
++        Often coincides with sudden pressure changes and wider slippage variance.
++      runbook_path: /runbooks/world_practice_lob_pressure_v1.md
++      dashboard_path: /d/world_practice_lob_pressure_v1
++
++  # ── Warn: persistent stable DW OBI pressure (regime indicator) ──────────────
++  - alert: OF_WP_DWOBIStableHigh_Warn
++    expr: |
++      (
++        abs(trade_dw_obi_z) > 2.5
++        and trade_dw_obi_stable > 0.5
++        and trade_dw_obi_stability_score >= 0.60
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 10m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): DW OBI stable high pressure (z={{ $value | printf \"%.2f\" }})"
++      description: |
++        Depth-weighted OBI (near-touch emphasis) shows persistent, stable pressure.
++        Treat as a regime flag: expect higher adverse selection risk on the weaker side.
++      runbook_path: /runbooks/world_practice_lob_pressure_v1.md
++      dashboard_path: /d/world_practice_lob_pressure_v1
++
++  # ── Warn: depth convexity imbalance sustained (shape asymmetry) ──────────────
++  - alert: OF_WP_DepthConvexityImbHigh_Warn
++    expr: |
++      (
++        abs(trade_depth_convexity_imb) > 0.35
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 15m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): depth_convexity_imb high ({{ $value | printf \"%.2f\" }})"
++      description: |
++        Depth curve shape differs between bid/ask sides (convexity imbalance).
++        Useful as a liquidity/impact asymmetry indicator.
++      runbook_path: /runbooks/world_practice_lob_pressure_v1.md
++      dashboard_path: /d/world_practice_lob_pressure_v1
++
++  # ── Crit: LOB pressure snapshots likely broken (stuck at 0) while active ────
++  - alert: OF_WP_LobPressureSnapshotsStuckZero_Crit
++    expr: |
++      (
++        max_over_time(trade_micro_mid_div_bps[30m]) == 0
++        and max_over_time(trade_micro_shift_bps[30m]) == 0
++        and max_over_time(trade_dw_obi_z[30m]) == 0
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.05
++      )
++      and on(sym)
++      (
++        label_replace(
++          max_over_time(book_rate_ema[5m]),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.05
++      )
++    for: 20m
++    labels:
++      severity: critical
++    annotations:
++      summary: "{{ $labels.sym }}: LOB pressure snapshots stuck at 0 while active"
++      description: |
++        Microprice / DW OBI snapshots stayed at 0 for 30 minutes while allow decisions and book updates exist.
++        This typically indicates broken wiring: book processor not feeding LOB pressure, indicator keys not propagated,
++        or gauge emission path not executed.
++      runbook_path: /runbooks/world_practice_lob_pressure_v1.md
++      dashboard_path: /d/world_practice_lob_pressure_v1
+diff --git a/runbooks/world_practice_lob_pressure_v1.md b/runbooks/world_practice_lob_pressure_v1.md
+new file mode 100644
+index 0000000..96c15ca
+--- /dev/null
++++ b/runbooks/world_practice_lob_pressure_v1.md
+@@ -0,0 +1,94 @@
++# Runbook: World-practice LOB pressure v1
++
++Scope
++- Low-cardinality gauges: `trade_*` with labels `{sym,bucket}`.
++- Signals:
++  - Microprice divergence vs mid (`trade_micro_mid_div_bps`) and microprice shift (`trade_micro_shift_bps`)
++  - Depth-weighted OBI (`trade_dw_obi`, `trade_dw_obi_z`) + stability (`trade_dw_obi_stability_score`, `trade_dw_obi_stable*`)
++  - Depth shape proxies (`trade_depth_slope_imb_norm`, `trade_depth_convexity_imb`)
++  - Queue imbalance aggregates (`trade_qi_*`)
++
++## Alerts
++
++### OF_WP_MicroMidDivHigh_Warn
++Meaning
++- Microprice deviates from mid persistently (hidden pressure near touch).
++
++Checks
++1) Confirm the move is real (not stuck/flat):
++   - `trade_micro_mid_div_bps` and `trade_micro_shift_bps` panels.
++   - `trade_dw_obi_z` should often agree in sign when pressure is real.
++2) If divergence is high but `trade_dw_obi_z≈0`:
++   - suspect top-of-book qty quality (missing/zeroed L1) or book parsing.
++
++Actions
++- Treat as regime flag: tighten expected slippage cap for passive orders, or require stronger confirmation on weaker side.
++
++---
++
++### OF_WP_MicroShiftSpike_Warn
++Meaning
++- Microprice is shifting fast (pressure flips / momentum bursts).
++
++Checks
++- Compare with:
++  - `trade_dw_obi_z` (does it spike too?)
++  - `trade_book_churn_hi` and `trade_cancel_to_trade_*` (from flow/churn dashboard)
++
++Actions
++- Consider temporary cooldown / widen slippage buffers / avoid passive joins if churn is also high.
++
++---
++
++### OF_WP_DWOBIStableHigh_Warn
++Meaning
++- Depth-weighted OBI robust-z is high and the stability flags indicate persistence.
++
++Checks
++- `trade_dw_obi_z` sign and magnitude; `trade_dw_obi_stability_score` ≥ ~0.6.
++- Cross-check with `trade_micro_mid_div_bps` (should often agree).
++
++Actions
++- Treat as sustained pressure regime:
++  - increase adverse-selection penalty,
++  - reduce size for passive joins on the weaker side,
++  - consider switching to more aggressive execution if fills degrade.
++
++---
++
++### OF_WP_DepthConvexityImbHigh_Warn
++Meaning
++- Depth curve shape differs between bid/ask sides.
++
++Checks
++- If convexity imbalance is sustained but microprice/DW OBI are calm, this may be structural (symbol-specific) rather than acute.
++
++Actions
++- Use as an impact asymmetry hint (execution-aware scoring): prefer entries that align with the thicker side.
++
++---
++
++### OF_WP_LobPressureSnapshotsStuckZero_Crit
++Meaning
++- LOB pressure snapshot gauges are stuck at 0 despite active decisions and book updates.
++
++Primary suspects
++- LOB pressure path not fed (book_processor not updating runtime / indicators).
++- Indicator key propagation broken (keys exist but not passed into `indicators`).
++- Gauge emission block not executed due to exception (should be fail-open, but verify logs).
++
++Checks
++1) Confirm book stream is alive:
++   - `book_rate_ema` > 0
++2) Confirm LOB pressure computations exist at all:
++   - `of_lob_micro_mid_div_bps` / `of_lob_dw_obi` (per-symbol gauges)
++3) Confirm indicators are present in gate payloads (metrics:of_gate):
++   - look for keys like `lob_micro_mid_div_bps`, `lob_dw_obi_z`, `lob_qi_mean`.
++4) Check recent silent errors:
++   - `silent_errors_total{kind="tick_processor"}` and logs around tick_processor world-practice block.
++
++Actions
++- If `of_lob_*` are non-zero but `trade_*` are stuck:
++  - the issue is in the tick processor gauge emission.
++- If both `of_lob_*` and `trade_*` are stuck:
++  - the issue is earlier: book feed, parsing, or `compute_lob_pressure` integration.
+diff --git a/services/orderflow/__pycache__/__init__.cpython-312.pyc b/services/orderflow/__pycache__/__init__.cpython-312.pyc
+deleted file mode 100644
+index 0f3577d..0000000
+Binary files a/services/orderflow/__pycache__/__init__.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/auto_apply_guard.cpython-312.pyc b/services/orderflow/__pycache__/auto_apply_guard.cpython-312.pyc
+deleted file mode 100644
+index 6f93ce4..0000000
+Binary files a/services/orderflow/__pycache__/auto_apply_guard.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/calibration_repo.cpython-312.pyc b/services/orderflow/__pycache__/calibration_repo.cpython-312.pyc
+deleted file mode 100644
+index 1862bff..0000000
+Binary files a/services/orderflow/__pycache__/calibration_repo.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/calibration_service.cpython-312.pyc b/services/orderflow/__pycache__/calibration_service.cpython-312.pyc
+deleted file mode 100644
+index 4f1e2a7..0000000
+Binary files a/services/orderflow/__pycache__/calibration_service.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/conf_cal_ops_eventlog_v1.cpython-312.pyc b/services/orderflow/__pycache__/conf_cal_ops_eventlog_v1.cpython-312.pyc
+deleted file mode 100644
+index cb0ee86..0000000
+Binary files a/services/orderflow/__pycache__/conf_cal_ops_eventlog_v1.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/configuration.cpython-312.pyc b/services/orderflow/__pycache__/configuration.cpython-312.pyc
+deleted file mode 100644
+index 15c54e5..0000000
+Binary files a/services/orderflow/__pycache__/configuration.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/decision_binding_v1.cpython-312.pyc b/services/orderflow/__pycache__/decision_binding_v1.cpython-312.pyc
+deleted file mode 100644
+index 8709e3f..0000000
+Binary files a/services/orderflow/__pycache__/decision_binding_v1.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/decision_record_v1.cpython-312.pyc b/services/orderflow/__pycache__/decision_record_v1.cpython-312.pyc
+deleted file mode 100644
+index a850a75..0000000
+Binary files a/services/orderflow/__pycache__/decision_record_v1.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/dq_quarantine.cpython-312.pyc b/services/orderflow/__pycache__/dq_quarantine.cpython-312.pyc
+deleted file mode 100644
+index 6b40f41..0000000
+Binary files a/services/orderflow/__pycache__/dq_quarantine.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/market_state.cpython-312.pyc b/services/orderflow/__pycache__/market_state.cpython-312.pyc
+deleted file mode 100644
+index b9f273f..0000000
+Binary files a/services/orderflow/__pycache__/market_state.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/meta_ab_v2_nightly_job_v1.cpython-312.pyc b/services/orderflow/__pycache__/meta_ab_v2_nightly_job_v1.cpython-312.pyc
+deleted file mode 100644
+index 6ebb52b..0000000
+Binary files a/services/orderflow/__pycache__/meta_ab_v2_nightly_job_v1.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/meta_ab_v2_policy_guardrail_v1.cpython-312.pyc b/services/orderflow/__pycache__/meta_ab_v2_policy_guardrail_v1.cpython-312.pyc
+deleted file mode 100644
+index 134d888..0000000
+Binary files a/services/orderflow/__pycache__/meta_ab_v2_policy_guardrail_v1.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/meta_ab_v2_report_exporter_v1.cpython-312.pyc b/services/orderflow/__pycache__/meta_ab_v2_report_exporter_v1.cpython-312.pyc
+deleted file mode 100644
+index 7ae34f7..0000000
+Binary files a/services/orderflow/__pycache__/meta_ab_v2_report_exporter_v1.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/metric_labels.cpython-312.pyc b/services/orderflow/__pycache__/metric_labels.cpython-312.pyc
+deleted file mode 100644
+index ba823cf..0000000
+Binary files a/services/orderflow/__pycache__/metric_labels.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/metrics.cpython-312.pyc b/services/orderflow/__pycache__/metrics.cpython-312.pyc
+deleted file mode 100644
+index 56e54cd..0000000
+Binary files a/services/orderflow/__pycache__/metrics.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/metrics_batcher.cpython-312.pyc b/services/orderflow/__pycache__/metrics_batcher.cpython-312.pyc
+deleted file mode 100644
+index 940dc1e..0000000
+Binary files a/services/orderflow/__pycache__/metrics_batcher.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/microbar_publish.cpython-312.pyc b/services/orderflow/__pycache__/microbar_publish.cpython-312.pyc
+deleted file mode 100644
+index c00a5d1..0000000
+Binary files a/services/orderflow/__pycache__/microbar_publish.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/of_gate_metrics_contract.cpython-312.pyc b/services/orderflow/__pycache__/of_gate_metrics_contract.cpython-312.pyc
+deleted file mode 100644
+index 6849722..0000000
+Binary files a/services/orderflow/__pycache__/of_gate_metrics_contract.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/probability_utils_v1.cpython-312.pyc b/services/orderflow/__pycache__/probability_utils_v1.cpython-312.pyc
+deleted file mode 100644
+index 37b40d8..0000000
+Binary files a/services/orderflow/__pycache__/probability_utils_v1.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/runtime.cpython-312.pyc b/services/orderflow/__pycache__/runtime.cpython-312.pyc
+deleted file mode 100644
+index 0d2549a..0000000
+Binary files a/services/orderflow/__pycache__/runtime.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/session_telemetry.cpython-312.pyc b/services/orderflow/__pycache__/session_telemetry.cpython-312.pyc
+deleted file mode 100644
+index 0146a0a..0000000
+Binary files a/services/orderflow/__pycache__/session_telemetry.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/side_policy.cpython-312.pyc b/services/orderflow/__pycache__/side_policy.cpython-312.pyc
+deleted file mode 100644
+index d99be6a..0000000
+Binary files a/services/orderflow/__pycache__/side_policy.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/signal_pipeline.cpython-312.pyc b/services/orderflow/__pycache__/signal_pipeline.cpython-312.pyc
+deleted file mode 100644
+index bbf20f4..0000000
+Binary files a/services/orderflow/__pycache__/signal_pipeline.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/signal_quality_exporter_v1.cpython-312.pyc b/services/orderflow/__pycache__/signal_quality_exporter_v1.cpython-312.pyc
+deleted file mode 100644
+index fef815e..0000000
+Binary files a/services/orderflow/__pycache__/signal_quality_exporter_v1.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/signal_quality_kpi_worker_v1.cpython-312.pyc b/services/orderflow/__pycache__/signal_quality_kpi_worker_v1.cpython-312.pyc
+deleted file mode 100644
+index f56171f..0000000
+Binary files a/services/orderflow/__pycache__/signal_quality_kpi_worker_v1.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/strategy.cpython-312.pyc b/services/orderflow/__pycache__/strategy.cpython-312.pyc
+deleted file mode 100644
+index 0208d50..0000000
+Binary files a/services/orderflow/__pycache__/strategy.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/tick_dedup.cpython-312.pyc b/services/orderflow/__pycache__/tick_dedup.cpython-312.pyc
+deleted file mode 100644
+index 8199269..0000000
+Binary files a/services/orderflow/__pycache__/tick_dedup.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/tick_quality_ema.cpython-312.pyc b/services/orderflow/__pycache__/tick_quality_ema.cpython-312.pyc
+deleted file mode 100644
+index 1b23e8f..0000000
+Binary files a/services/orderflow/__pycache__/tick_quality_ema.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/trade_close_joiner_worker_v1.cpython-312.pyc b/services/orderflow/__pycache__/trade_close_joiner_worker_v1.cpython-312.pyc
+deleted file mode 100644
+index ac19832..0000000
+Binary files a/services/orderflow/__pycache__/trade_close_joiner_worker_v1.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/__pycache__/utils.cpython-312.pyc b/services/orderflow/__pycache__/utils.cpython-312.pyc
+deleted file mode 100644
+index f90b5b0..0000000
+Binary files a/services/orderflow/__pycache__/utils.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/components/__pycache__/__init__.cpython-312.pyc b/services/orderflow/components/__pycache__/__init__.cpython-312.pyc
+deleted file mode 100644
+index d168c7f..0000000
+Binary files a/services/orderflow/components/__pycache__/__init__.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/components/__pycache__/bar_processor.cpython-312.pyc b/services/orderflow/components/__pycache__/bar_processor.cpython-312.pyc
+deleted file mode 100644
+index 86326b3..0000000
+Binary files a/services/orderflow/components/__pycache__/bar_processor.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/components/__pycache__/book_processor.cpython-312.pyc b/services/orderflow/components/__pycache__/book_processor.cpython-312.pyc
+deleted file mode 100644
+index a06fdc0..0000000
+Binary files a/services/orderflow/components/__pycache__/book_processor.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/components/__pycache__/parsing.cpython-312.pyc b/services/orderflow/components/__pycache__/parsing.cpython-312.pyc
+deleted file mode 100644
+index f77d934..0000000
+Binary files a/services/orderflow/components/__pycache__/parsing.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/components/__pycache__/tick_processor.cpython-312.pyc b/services/orderflow/components/__pycache__/tick_processor.cpython-312.pyc
+deleted file mode 100644
+index 0d8b973..0000000
+Binary files a/services/orderflow/components/__pycache__/tick_processor.cpython-312.pyc and /dev/null differ
+diff --git a/services/orderflow/components/tick_processor.py b/services/orderflow/components/tick_processor.py
+index f1c1f73..1d85318 100644
+--- a/services/orderflow/components/tick_processor.py
++++ b/services/orderflow/components/tick_processor.py
+@@ -60,6 +60,12 @@ from services.orderflow.metrics import (
+     trade_cancel_to_trade_bid, trade_cancel_to_trade_ask,
+     trade_taker_flow_imb_z, trade_book_churn_score, trade_book_churn_hi,
+ 
++    trade_qi_mean, trade_qi_max_abs, trade_qi_slope,
++    trade_micro_mid_div_bps, trade_micro_shift_bps,
++    trade_depth_slope_bid, trade_depth_slope_ask, trade_depth_slope_imb, trade_depth_slope_imb_norm,
++    trade_depth_convexity_bid, trade_depth_convexity_ask, trade_depth_convexity_imb,
++    trade_dw_obi, trade_dw_obi_z, trade_dw_obi_stability_score, trade_dw_obi_stable_secs, trade_dw_obi_stable,
++
+ )
+ from services.orderflow.side_policy import is_unknown_side_tick
+ from common.tick_time import TickTimeGuard, TickTimePolicy
+@@ -1415,6 +1421,34 @@ class TickProcessor:
+                 trade_max_expected_slippage_bps_eff.labels(sym=_sym, bucket=_bk).set(
+                     float(indicators.get("max_expected_slippage_bps_eff", 0.0) or 0.0)
+                 )
++
++
++            # LOB pressure snapshots (microprice / depth shape / DW OBI)
++            trade_qi_mean.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_qi_mean", 0.0) or 0.0))
++            trade_qi_max_abs.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_qi_max_abs", 0.0) or 0.0))
++            trade_qi_slope.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_qi_slope", 0.0) or 0.0))
++
++            trade_micro_mid_div_bps.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_micro_mid_div_bps", 0.0) or 0.0))
++            trade_micro_shift_bps.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_micro_shift_bps", 0.0) or 0.0))
++
++            _dsb = float(indicators.get("lob_depth_slope_bid", 0.0) or 0.0)
++            _dsa = float(indicators.get("lob_depth_slope_ask", 0.0) or 0.0)
++            _dsi = float(indicators.get("lob_depth_slope_imb", (_dsb - _dsa)) or 0.0)
++            trade_depth_slope_bid.labels(sym=_sym, bucket=_bk).set(_dsb)
++            trade_depth_slope_ask.labels(sym=_sym, bucket=_bk).set(_dsa)
++            trade_depth_slope_imb.labels(sym=_sym, bucket=_bk).set(_dsi)
++            _den = abs(_dsb) + abs(_dsa) + 1e-9
++            trade_depth_slope_imb_norm.labels(sym=_sym, bucket=_bk).set(float(_dsi) / float(_den))
++
++            trade_depth_convexity_bid.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_depth_convexity_bid", 0.0) or 0.0))
++            trade_depth_convexity_ask.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_depth_convexity_ask", 0.0) or 0.0))
++            trade_depth_convexity_imb.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_depth_convexity_imb", 0.0) or 0.0))
++
++            trade_dw_obi.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_dw_obi", 0.0) or 0.0))
++            trade_dw_obi_z.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_dw_obi_z", 0.0) or 0.0))
++            trade_dw_obi_stability_score.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_dw_obi_stability_score", 0.0) or 0.0))
++            trade_dw_obi_stable_secs.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_dw_obi_stable_secs", 0.0) or 0.0))
++            trade_dw_obi_stable.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_dw_obi_stable", 0) or 0))
+         except Exception:
+             pass
+ 
+diff --git a/services/orderflow/metrics.py b/services/orderflow/metrics.py
+index 9d0a759..b115159 100644
+--- a/services/orderflow/metrics.py
++++ b/services/orderflow/metrics.py
+@@ -1508,3 +1508,111 @@ trade_max_expected_slippage_bps_eff = _get_or_create_prom_gauge(
+     "Effective max expected slippage cap after regime tightening (bps)",
+     ["sym", "bucket"],
+ )
++
++# ---------------------------------------------------------------------------
++# World-practice LOB pressure snapshots v1 (microprice + depth shape + DW OBI)
++# Low-cardinality: sym × exec_regime_bucket
++# ---------------------------------------------------------------------------
++
++trade_qi_mean = _get_or_create_prom_gauge(
++    "trade_qi_mean",
++    "Queue imbalance mean across L1..L5 (LOB pressure)",
++    ["sym", "bucket"],
++)
++
++trade_qi_max_abs = _get_or_create_prom_gauge(
++    "trade_qi_max_abs",
++    "Queue imbalance max |qi| across L1..L5 (LOB pressure)",
++    ["sym", "bucket"],
++)
++
++trade_qi_slope = _get_or_create_prom_gauge(
++    "trade_qi_slope",
++    "Queue imbalance slope across depth levels (positive = bid pressure builds deeper)",
++    ["sym", "bucket"],
++)
++
++trade_micro_mid_div_bps = _get_or_create_prom_gauge(
++    "trade_micro_mid_div_bps",
++    "Microprice divergence vs mid (bps); +ve = hidden bid pressure",
++    ["sym", "bucket"],
++)
++
++trade_micro_shift_bps = _get_or_create_prom_gauge(
++    "trade_micro_shift_bps",
++    "Microprice shift vs previous snapshot (bps)",
++    ["sym", "bucket"],
++)
++
++trade_depth_slope_bid = _get_or_create_prom_gauge(
++    "trade_depth_slope_bid",
++    "Cumulative depth slope (bid) across L1..L5 (units=qty)",
++    ["sym", "bucket"],
++)
++
++trade_depth_slope_ask = _get_or_create_prom_gauge(
++    "trade_depth_slope_ask",
++    "Cumulative depth slope (ask) across L1..L5 (units=qty)",
++    ["sym", "bucket"],
++)
++
++trade_depth_slope_imb = _get_or_create_prom_gauge(
++    "trade_depth_slope_imb",
++    "Depth slope imbalance (bid - ask) (units=qty)",
++    ["sym", "bucket"],
++)
++
++trade_depth_slope_imb_norm = _get_or_create_prom_gauge(
++    "trade_depth_slope_imb_norm",
++    "Depth slope imbalance normalized by |bid|+|ask| (dimensionless)",
++    ["sym", "bucket"],
++)
++
++trade_depth_convexity_bid = _get_or_create_prom_gauge(
++    "trade_depth_convexity_bid",
++    "Depth curve convexity (bid), normalized by total depth (dimensionless)",
++    ["sym", "bucket"],
++)
++
++trade_depth_convexity_ask = _get_or_create_prom_gauge(
++    "trade_depth_convexity_ask",
++    "Depth curve convexity (ask), normalized by total depth (dimensionless)",
++    ["sym", "bucket"],
++)
++
++trade_depth_convexity_imb = _get_or_create_prom_gauge(
++    "trade_depth_convexity_imb",
++    "Depth curve convexity imbalance (bid - ask) (dimensionless)",
++    ["sym", "bucket"],
++)
++
++trade_dw_obi = _get_or_create_prom_gauge(
++    "trade_dw_obi",
++    "Depth-weighted order-book imbalance (weights=1/level), [-1..+1]",
++    ["sym", "bucket"],
++)
++
++trade_dw_obi_z = _get_or_create_prom_gauge(
++    "trade_dw_obi_z",
++    "Depth-weighted OBI robust z-score (symbol-local)",
++    ["sym", "bucket"],
++)
++
++trade_dw_obi_stability_score = _get_or_create_prom_gauge(
++    "trade_dw_obi_stability_score",
++    "DW OBI stability score (0..1) — higher = more persistent pressure",
++    ["sym", "bucket"],
++)
++
++trade_dw_obi_stable_secs = _get_or_create_prom_gauge(
++    "trade_dw_obi_stable_secs",
++    "Seconds DW OBI stayed stable (monotone segments)",
++    ["sym", "bucket"],
++)
++
++trade_dw_obi_stable = _get_or_create_prom_gauge(
++    "trade_dw_obi_stable",
++    "DW OBI stable flag (0/1)",
++    ["sym", "bucket"],
++)
++
+diff --git a/tick_flow_full/orderflow_services/grafana/README_world_practice_lob_pressure_v1.md b/tick_flow_full/orderflow_services/grafana/README_world_practice_lob_pressure_v1.md
+new file mode 120000
+index 0000000..0c49779
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/grafana/README_world_practice_lob_pressure_v1.md
+@@ -0,0 +1 @@
++../../../orderflow_services/grafana/README_world_practice_lob_pressure_v1.md
+\ No newline at end of file
+diff --git a/tick_flow_full/orderflow_services/grafana/world_practice_lob_pressure_v1.json b/tick_flow_full/orderflow_services/grafana/world_practice_lob_pressure_v1.json
+new file mode 120000
+index 0000000..968c851
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/grafana/world_practice_lob_pressure_v1.json
+@@ -0,0 +1 @@
++../../../orderflow_services/grafana/world_practice_lob_pressure_v1.json
+\ No newline at end of file
+diff --git a/tick_flow_full/orderflow_services/prometheus_alerts_world_practice_lob_pressure_v1.yml b/tick_flow_full/orderflow_services/prometheus_alerts_world_practice_lob_pressure_v1.yml
+new file mode 100644
+index 0000000..bce0c81
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_world_practice_lob_pressure_v1.yml
+@@ -0,0 +1,142 @@
++groups:
++  # ─────────────────────────────────────────────────────────────────────────────
++  # World-practice LOB pressure v1 – microprice / depth shape / dw_obi stability
++  # ─────────────────────────────────────────────────────────────────────────────
++
++- name: of_world_practice_lob_pressure_v1
++  interval: 60s
++  rules:
++
++  # ── Warn: microprice diverges from mid while system is active ────────────────
++  - alert: OF_WP_MicroMidDivHigh_Warn
++    expr: |
++      (
++        abs(trade_micro_mid_div_bps) > 2.5
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 10m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): micro_mid_div_bps high ({{ $value | printf \"%.2f\" }})"
++      description: |
++        Microprice deviates from mid while allow decisions are being produced.
++        Interpretable as hidden queue pressure near touch (top-of-book imbalance).
++      runbook_path: /runbooks/world_practice_lob_pressure_v1.md
++      dashboard_path: /d/world_practice_lob_pressure_v1
++
++  # ── Warn: microprice shift spikes (momentum) while active ────────────────────
++  - alert: OF_WP_MicroShiftSpike_Warn
++    expr: |
++      (
++        (max_over_time(trade_micro_shift_bps[5m]) > 1.0)
++        or
++        (min_over_time(trade_micro_shift_bps[5m]) < -1.0)
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 5m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): micro_shift_bps spike"
++      description: |
++        Microprice shifts quickly over the last 5 minutes while the system is active.
++        Often coincides with sudden pressure changes and wider slippage variance.
++      runbook_path: /runbooks/world_practice_lob_pressure_v1.md
++      dashboard_path: /d/world_practice_lob_pressure_v1
++
++  # ── Warn: persistent stable DW OBI pressure (regime indicator) ──────────────
++  - alert: OF_WP_DWOBIStableHigh_Warn
++    expr: |
++      (
++        abs(trade_dw_obi_z) > 2.5
++        and trade_dw_obi_stable > 0.5
++        and trade_dw_obi_stability_score >= 0.60
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 10m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): DW OBI stable high pressure (z={{ $value | printf \"%.2f\" }})"
++      description: |
++        Depth-weighted OBI (near-touch emphasis) shows persistent, stable pressure.
++        Treat as a regime flag: expect higher adverse selection risk on the weaker side.
++      runbook_path: /runbooks/world_practice_lob_pressure_v1.md
++      dashboard_path: /d/world_practice_lob_pressure_v1
++
++  # ── Warn: depth convexity imbalance sustained (shape asymmetry) ──────────────
++  - alert: OF_WP_DepthConvexityImbHigh_Warn
++    expr: |
++      (
++        abs(trade_depth_convexity_imb) > 0.35
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.02
++      )
++    for: 15m
++    labels:
++      severity: warning
++    annotations:
++      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): depth_convexity_imb high ({{ $value | printf \"%.2f\" }})"
++      description: |
++        Depth curve shape differs between bid/ask sides (convexity imbalance).
++        Useful as a liquidity/impact asymmetry indicator.
++      runbook_path: /runbooks/world_practice_lob_pressure_v1.md
++      dashboard_path: /d/world_practice_lob_pressure_v1
++
++  # ── Crit: LOB pressure snapshots likely broken (stuck at 0) while active ────
++  - alert: OF_WP_LobPressureSnapshotsStuckZero_Crit
++    expr: |
++      (
++        max_over_time(trade_micro_mid_div_bps[30m]) == 0
++        and max_over_time(trade_micro_shift_bps[30m]) == 0
++        and max_over_time(trade_dw_obi_z[30m]) == 0
++      )
++      and on(sym)
++      (
++        label_replace(
++          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.05
++      )
++      and on(sym)
++      (
++        label_replace(
++          max_over_time(book_rate_ema[5m]),
++          "sym", "$1", "symbol", "(.*)"
++        ) > 0.05
++      )
++    for: 20m
++    labels:
++      severity: critical
++    annotations:
++      summary: "{{ $labels.sym }}: LOB pressure snapshots stuck at 0 while active"
++      description: |
++        Microprice / DW OBI snapshots stayed at 0 for 30 minutes while allow decisions and book updates exist.
++        This typically indicates broken wiring: book processor not feeding LOB pressure, indicator keys not propagated,
++        or gauge emission path not executed.
++      runbook_path: /runbooks/world_practice_lob_pressure_v1.md
++      dashboard_path: /d/world_practice_lob_pressure_v1
+diff --git a/tick_flow_full/services/orderflow/__pycache__/__init__.cpython-312.pyc b/tick_flow_full/services/orderflow/__pycache__/__init__.cpython-312.pyc
+deleted file mode 100644
+index 2d3aa08..0000000
+Binary files a/tick_flow_full/services/orderflow/__pycache__/__init__.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/__pycache__/auto_apply_guard.cpython-312.pyc b/tick_flow_full/services/orderflow/__pycache__/auto_apply_guard.cpython-312.pyc
+deleted file mode 100644
+index 1e682f2..0000000
+Binary files a/tick_flow_full/services/orderflow/__pycache__/auto_apply_guard.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/__pycache__/calibration_repo.cpython-312.pyc b/tick_flow_full/services/orderflow/__pycache__/calibration_repo.cpython-312.pyc
+deleted file mode 100644
+index c53dddb..0000000
+Binary files a/tick_flow_full/services/orderflow/__pycache__/calibration_repo.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/__pycache__/calibration_service.cpython-312.pyc b/tick_flow_full/services/orderflow/__pycache__/calibration_service.cpython-312.pyc
+deleted file mode 100644
+index fa60669..0000000
+Binary files a/tick_flow_full/services/orderflow/__pycache__/calibration_service.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/__pycache__/confidence_conformal_v1.cpython-312.pyc b/tick_flow_full/services/orderflow/__pycache__/confidence_conformal_v1.cpython-312.pyc
+deleted file mode 100644
+index 3eeea1d..0000000
+Binary files a/tick_flow_full/services/orderflow/__pycache__/confidence_conformal_v1.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/__pycache__/configuration.cpython-312.pyc b/tick_flow_full/services/orderflow/__pycache__/configuration.cpython-312.pyc
+deleted file mode 100644
+index c51e937..0000000
+Binary files a/tick_flow_full/services/orderflow/__pycache__/configuration.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/__pycache__/decision_binding_v1.cpython-312.pyc b/tick_flow_full/services/orderflow/__pycache__/decision_binding_v1.cpython-312.pyc
+deleted file mode 100644
+index aeceef9..0000000
+Binary files a/tick_flow_full/services/orderflow/__pycache__/decision_binding_v1.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/__pycache__/decision_record_v1.cpython-312.pyc b/tick_flow_full/services/orderflow/__pycache__/decision_record_v1.cpython-312.pyc
+deleted file mode 100644
+index 6910ec4..0000000
+Binary files a/tick_flow_full/services/orderflow/__pycache__/decision_record_v1.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/__pycache__/evidence_contract.cpython-312.pyc b/tick_flow_full/services/orderflow/__pycache__/evidence_contract.cpython-312.pyc
+deleted file mode 100644
+index d331ad8..0000000
+Binary files a/tick_flow_full/services/orderflow/__pycache__/evidence_contract.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/__pycache__/market_state.cpython-312.pyc b/tick_flow_full/services/orderflow/__pycache__/market_state.cpython-312.pyc
+deleted file mode 100644
+index b7b4206..0000000
+Binary files a/tick_flow_full/services/orderflow/__pycache__/market_state.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/__pycache__/metric_labels.cpython-312.pyc b/tick_flow_full/services/orderflow/__pycache__/metric_labels.cpython-312.pyc
+deleted file mode 100644
+index ebf41c6..0000000
+Binary files a/tick_flow_full/services/orderflow/__pycache__/metric_labels.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/__pycache__/metrics.cpython-312.pyc b/tick_flow_full/services/orderflow/__pycache__/metrics.cpython-312.pyc
+deleted file mode 100644
+index 03b8d50..0000000
+Binary files a/tick_flow_full/services/orderflow/__pycache__/metrics.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/__pycache__/microbar_publish.cpython-312.pyc b/tick_flow_full/services/orderflow/__pycache__/microbar_publish.cpython-312.pyc
+deleted file mode 100644
+index 8f98fdd..0000000
+Binary files a/tick_flow_full/services/orderflow/__pycache__/microbar_publish.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/__pycache__/runtime.cpython-312.pyc b/tick_flow_full/services/orderflow/__pycache__/runtime.cpython-312.pyc
+deleted file mode 100644
+index d926655..0000000
+Binary files a/tick_flow_full/services/orderflow/__pycache__/runtime.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/__pycache__/session_telemetry.cpython-312.pyc b/tick_flow_full/services/orderflow/__pycache__/session_telemetry.cpython-312.pyc
+deleted file mode 100644
+index 77a6bf0..0000000
+Binary files a/tick_flow_full/services/orderflow/__pycache__/session_telemetry.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/__pycache__/side_policy.cpython-312.pyc b/tick_flow_full/services/orderflow/__pycache__/side_policy.cpython-312.pyc
+deleted file mode 100644
+index edc14a2..0000000
+Binary files a/tick_flow_full/services/orderflow/__pycache__/side_policy.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/__pycache__/side_sign.cpython-312.pyc b/tick_flow_full/services/orderflow/__pycache__/side_sign.cpython-312.pyc
+deleted file mode 100644
+index 1272a27..0000000
+Binary files a/tick_flow_full/services/orderflow/__pycache__/side_sign.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/__pycache__/signal_pipeline.cpython-312.pyc b/tick_flow_full/services/orderflow/__pycache__/signal_pipeline.cpython-312.pyc
+deleted file mode 100644
+index ba27fe6..0000000
+Binary files a/tick_flow_full/services/orderflow/__pycache__/signal_pipeline.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/__pycache__/strategy.cpython-312.pyc b/tick_flow_full/services/orderflow/__pycache__/strategy.cpython-312.pyc
+deleted file mode 100644
+index 76bc943..0000000
+Binary files a/tick_flow_full/services/orderflow/__pycache__/strategy.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/__pycache__/tick_quality_ema.cpython-312.pyc b/tick_flow_full/services/orderflow/__pycache__/tick_quality_ema.cpython-312.pyc
+deleted file mode 100644
+index d4fcad8..0000000
+Binary files a/tick_flow_full/services/orderflow/__pycache__/tick_quality_ema.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/__pycache__/tick_time_quarantine_integration.cpython-312.pyc b/tick_flow_full/services/orderflow/__pycache__/tick_time_quarantine_integration.cpython-312.pyc
+deleted file mode 100644
+index f0390f9..0000000
+Binary files a/tick_flow_full/services/orderflow/__pycache__/tick_time_quarantine_integration.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/__pycache__/utils.cpython-312.pyc b/tick_flow_full/services/orderflow/__pycache__/utils.cpython-312.pyc
+deleted file mode 100644
+index 12b13f3..0000000
+Binary files a/tick_flow_full/services/orderflow/__pycache__/utils.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/components/__pycache__/__init__.cpython-312.pyc b/tick_flow_full/services/orderflow/components/__pycache__/__init__.cpython-312.pyc
+deleted file mode 100644
+index bcf29e2..0000000
+Binary files a/tick_flow_full/services/orderflow/components/__pycache__/__init__.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/components/__pycache__/bar_processor.cpython-312.pyc b/tick_flow_full/services/orderflow/components/__pycache__/bar_processor.cpython-312.pyc
+deleted file mode 100644
+index 4490476..0000000
+Binary files a/tick_flow_full/services/orderflow/components/__pycache__/bar_processor.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/components/__pycache__/book_processor.cpython-312.pyc b/tick_flow_full/services/orderflow/components/__pycache__/book_processor.cpython-312.pyc
+deleted file mode 100644
+index 125ca15..0000000
+Binary files a/tick_flow_full/services/orderflow/components/__pycache__/book_processor.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/components/__pycache__/parsing.cpython-312.pyc b/tick_flow_full/services/orderflow/components/__pycache__/parsing.cpython-312.pyc
+deleted file mode 100644
+index 1a7c682..0000000
+Binary files a/tick_flow_full/services/orderflow/components/__pycache__/parsing.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/components/__pycache__/tick_processor.cpython-312.pyc b/tick_flow_full/services/orderflow/components/__pycache__/tick_processor.cpython-312.pyc
+deleted file mode 100644
+index 21de81e..0000000
+Binary files a/tick_flow_full/services/orderflow/components/__pycache__/tick_processor.cpython-312.pyc and /dev/null differ
+diff --git a/tick_flow_full/services/orderflow/components/tick_processor.py b/tick_flow_full/services/orderflow/components/tick_processor.py
+index 76eb3ae..7c64b68 100644
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -56,6 +56,12 @@ from services.orderflow.metrics import (
+     trade_cancel_to_trade_bid, trade_cancel_to_trade_ask,
+     trade_taker_flow_imb_z, trade_book_churn_score, trade_book_churn_hi,
+ 
++    trade_qi_mean, trade_qi_max_abs, trade_qi_slope,
++    trade_micro_mid_div_bps, trade_micro_shift_bps,
++    trade_depth_slope_bid, trade_depth_slope_ask, trade_depth_slope_imb, trade_depth_slope_imb_norm,
++    trade_depth_convexity_bid, trade_depth_convexity_ask, trade_depth_convexity_imb,
++    trade_dw_obi, trade_dw_obi_z, trade_dw_obi_stability_score, trade_dw_obi_stable_secs, trade_dw_obi_stable,
++
+ )
+ 
+ from services.orderflow.side_policy import is_unknown_side_tick
+@@ -1548,6 +1554,34 @@ class TickProcessor:
+                 trade_max_expected_slippage_bps_eff.labels(sym=_sym, bucket=_bk).set(
+                     float(indicators.get("max_expected_slippage_bps_eff", 0.0) or 0.0)
+                 )
++
++
++            # LOB pressure snapshots (microprice / depth shape / DW OBI)
++            trade_qi_mean.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_qi_mean", 0.0) or 0.0))
++            trade_qi_max_abs.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_qi_max_abs", 0.0) or 0.0))
++            trade_qi_slope.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_qi_slope", 0.0) or 0.0))
++
++            trade_micro_mid_div_bps.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_micro_mid_div_bps", 0.0) or 0.0))
++            trade_micro_shift_bps.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_micro_shift_bps", 0.0) or 0.0))
++
++            _dsb = float(indicators.get("lob_depth_slope_bid", 0.0) or 0.0)
++            _dsa = float(indicators.get("lob_depth_slope_ask", 0.0) or 0.0)
++            _dsi = float(indicators.get("lob_depth_slope_imb", (_dsb - _dsa)) or 0.0)
++            trade_depth_slope_bid.labels(sym=_sym, bucket=_bk).set(_dsb)
++            trade_depth_slope_ask.labels(sym=_sym, bucket=_bk).set(_dsa)
++            trade_depth_slope_imb.labels(sym=_sym, bucket=_bk).set(_dsi)
++            _den = abs(_dsb) + abs(_dsa) + 1e-9
++            trade_depth_slope_imb_norm.labels(sym=_sym, bucket=_bk).set(float(_dsi) / float(_den))
++
++            trade_depth_convexity_bid.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_depth_convexity_bid", 0.0) or 0.0))
++            trade_depth_convexity_ask.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_depth_convexity_ask", 0.0) or 0.0))
++            trade_depth_convexity_imb.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_depth_convexity_imb", 0.0) or 0.0))
++
++            trade_dw_obi.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_dw_obi", 0.0) or 0.0))
++            trade_dw_obi_z.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_dw_obi_z", 0.0) or 0.0))
++            trade_dw_obi_stability_score.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_dw_obi_stability_score", 0.0) or 0.0))
++            trade_dw_obi_stable_secs.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_dw_obi_stable_secs", 0.0) or 0.0))
++            trade_dw_obi_stable.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_dw_obi_stable", 0) or 0))
+         except Exception:
+             pass
+ 
+diff --git a/tick_flow_full/services/orderflow/metrics.py b/tick_flow_full/services/orderflow/metrics.py
+index fddcc57..cb85253 100644
+--- a/tick_flow_full/services/orderflow/metrics.py
++++ b/tick_flow_full/services/orderflow/metrics.py
+@@ -1339,3 +1339,111 @@ trade_max_expected_slippage_bps_eff = _get_or_create_prom_gauge(
+     "Effective max expected slippage cap after regime tightening (bps)",
+     ["sym", "bucket"],
+ )
++
++# ---------------------------------------------------------------------------
++# World-practice LOB pressure snapshots v1 (microprice + depth shape + DW OBI)
++# Low-cardinality: sym × exec_regime_bucket
++# ---------------------------------------------------------------------------
++
++trade_qi_mean = _get_or_create_prom_gauge(
++    "trade_qi_mean",
++    "Queue imbalance mean across L1..L5 (LOB pressure)",
++    ["sym", "bucket"],
++)
++
++trade_qi_max_abs = _get_or_create_prom_gauge(
++    "trade_qi_max_abs",
++    "Queue imbalance max |qi| across L1..L5 (LOB pressure)",
++    ["sym", "bucket"],
++)
++
++trade_qi_slope = _get_or_create_prom_gauge(
++    "trade_qi_slope",
++    "Queue imbalance slope across depth levels (positive = bid pressure builds deeper)",
++    ["sym", "bucket"],
++)
++
++trade_micro_mid_div_bps = _get_or_create_prom_gauge(
++    "trade_micro_mid_div_bps",
++    "Microprice divergence vs mid (bps); +ve = hidden bid pressure",
++    ["sym", "bucket"],
++)
++
++trade_micro_shift_bps = _get_or_create_prom_gauge(
++    "trade_micro_shift_bps",
++    "Microprice shift vs previous snapshot (bps)",
++    ["sym", "bucket"],
++)
++
++trade_depth_slope_bid = _get_or_create_prom_gauge(
++    "trade_depth_slope_bid",
++    "Cumulative depth slope (bid) across L1..L5 (units=qty)",
++    ["sym", "bucket"],
++)
++
++trade_depth_slope_ask = _get_or_create_prom_gauge(
++    "trade_depth_slope_ask",
++    "Cumulative depth slope (ask) across L1..L5 (units=qty)",
++    ["sym", "bucket"],
++)
++
++trade_depth_slope_imb = _get_or_create_prom_gauge(
++    "trade_depth_slope_imb",
++    "Depth slope imbalance (bid - ask) (units=qty)",
++    ["sym", "bucket"],
++)
++
++trade_depth_slope_imb_norm = _get_or_create_prom_gauge(
++    "trade_depth_slope_imb_norm",
++    "Depth slope imbalance normalized by |bid|+|ask| (dimensionless)",
++    ["sym", "bucket"],
++)
++
++trade_depth_convexity_bid = _get_or_create_prom_gauge(
++    "trade_depth_convexity_bid",
++    "Depth curve convexity (bid), normalized by total depth (dimensionless)",
++    ["sym", "bucket"],
++)
++
++trade_depth_convexity_ask = _get_or_create_prom_gauge(
++    "trade_depth_convexity_ask",
++    "Depth curve convexity (ask), normalized by total depth (dimensionless)",
++    ["sym", "bucket"],
++)
++
++trade_depth_convexity_imb = _get_or_create_prom_gauge(
++    "trade_depth_convexity_imb",
++    "Depth curve convexity imbalance (bid - ask) (dimensionless)",
++    ["sym", "bucket"],
++)
++
++trade_dw_obi = _get_or_create_prom_gauge(
++    "trade_dw_obi",
++    "Depth-weighted order-book imbalance (weights=1/level), [-1..+1]",
++    ["sym", "bucket"],
++)
++
++trade_dw_obi_z = _get_or_create_prom_gauge(
++    "trade_dw_obi_z",
++    "Depth-weighted OBI robust z-score (symbol-local)",
++    ["sym", "bucket"],
++)
++
++trade_dw_obi_stability_score = _get_or_create_prom_gauge(
++    "trade_dw_obi_stability_score",
++    "DW OBI stability score (0..1) — higher = more persistent pressure",
++    ["sym", "bucket"],
++)
++
++trade_dw_obi_stable_secs = _get_or_create_prom_gauge(
++    "trade_dw_obi_stable_secs",
++    "Seconds DW OBI stayed stable (monotone segments)",
++    ["sym", "bucket"],
++)
++
++trade_dw_obi_stable = _get_or_create_prom_gauge(
++    "trade_dw_obi_stable",
++    "DW OBI stable flag (0/1)",
++    ["sym", "bucket"],
++)
++

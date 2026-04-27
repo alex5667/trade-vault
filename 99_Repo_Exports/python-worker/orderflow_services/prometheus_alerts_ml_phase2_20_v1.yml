@@ -1,0 +1,10 @@
+groups:
+  - name: ml_phase2_20_operator_routing_incident_route_usefulness_governor_v1
+    rules:
+      - alert: MLOperatorRoutingIncidentRouteRCAUsefulnessGovernorStale
+        expr: time() - ml_operator_routing_incident_route_rca_governor_last_run_ts_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Routing incident Route RCA Usefulness Governor is stale"

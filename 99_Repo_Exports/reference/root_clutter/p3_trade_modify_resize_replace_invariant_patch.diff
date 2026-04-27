@@ -1,0 +1,1174 @@
+--- a/services/binance_executor.py
++++ b/services/binance_executor.py
+@@ -137,6 +137,8 @@
+         EXECUTION_POSITION_UNPROTECTED_SECONDS,
+         EXECUTION_PROTECTION_ARM_TIMEOUT_TOTAL,
+         EXECUTION_PROTECTION_REPAIR_TOTAL,
++        EXECUTION_PROTECTION_REPLACE_NAKED_WINDOW_MS,
++        EXECUTION_PROTECTION_REPLACE_TOTAL,
+         EXECUTION_PROTECTION_VERIFY_FAIL_TOTAL,
+         EXECUTION_RECONCILE_PARTIAL_PROTECTION_TOTAL,
+         FEE_BPS_SAVED_ESTIMATE,
+@@ -160,6 +162,8 @@
+             EXECUTION_POSITION_UNPROTECTED_SECONDS,
+             EXECUTION_PROTECTION_ARM_TIMEOUT_TOTAL,
+             EXECUTION_PROTECTION_REPAIR_TOTAL,
++            EXECUTION_PROTECTION_REPLACE_NAKED_WINDOW_MS,
++            EXECUTION_PROTECTION_REPLACE_TOTAL,
+             EXECUTION_PROTECTION_VERIFY_FAIL_TOTAL,
+             EXECUTION_RECONCILE_PARTIAL_PROTECTION_TOTAL,
+             FEE_BPS_SAVED_ESTIMATE,
+@@ -176,7 +180,8 @@
+         BINANCE_ALGO_RECONCILE_TOTAL = EXECUTION_DUPLICATE_PREVENTED_TOTAL = None  # type: ignore
+         EXECUTION_ENTRY_FILLED_TOTAL = EXECUTION_ENTRY_SUBMITTED_TOTAL = EXECUTION_OPERATION_BLOCKED_TOTAL = None  # type: ignore
+         EXECUTION_POSITION_UNPROTECTED_SECONDS = EXECUTION_PROTECTION_ARM_TIMEOUT_TOTAL = None  # type: ignore
+-        EXECUTION_PROTECTION_REPAIR_TOTAL = EXECUTION_PROTECTION_VERIFY_FAIL_TOTAL = None  # type: ignore
++        EXECUTION_PROTECTION_REPAIR_TOTAL = EXECUTION_PROTECTION_REPLACE_NAKED_WINDOW_MS = None  # type: ignore
++        EXECUTION_PROTECTION_REPLACE_TOTAL = EXECUTION_PROTECTION_VERIFY_FAIL_TOTAL = None  # type: ignore
+         EXECUTION_RECONCILE_PARTIAL_PROTECTION_TOTAL = None  # type: ignore
+         FEE_BPS_SAVED_ESTIMATE = MAKER_FILL_RATIO = MARK_CONTRACT_SPREAD_BPS = None  # type: ignore
+         SL_TRIGGER_MARK_MINUS_CONTRACT_BPS = TP_LIMIT_FILLED_TOTAL = TP_LIMIT_TRIGGERED_TOTAL = None  # type: ignore
+@@ -282,6 +287,7 @@
+ FSM_ENTRY_PARTIAL = "ENTRY_PARTIAL"
+ FSM_ENTRY_FILLED = "ENTRY_FILLED"
+ FSM_PROTECTION_ARMING = "PROTECTION_ARMING"
++FSM_PROTECTION_REPLACING = "PROTECTION_REPLACING"
+ FSM_PROTECTED = "PROTECTED"
+ FSM_TP_POLICY_ARMED = "TP_POLICY_ARMED"
+ FSM_TRAIL_ARMED = "TRAIL_ARMED"
+@@ -762,9 +768,11 @@
+         # Anti-blowup invariant: after entry fill, protection must be confirmed
+         # within this window, otherwise the executor will emergency-flatten.
+         self.protection_arm_timeout_ms = int(os.getenv("PROTECTION_ARM_TIMEOUT_MS", "2500"))
++        self.protection_replace_max_naked_ms = int(os.getenv("PROTECTION_REPLACE_MAX_NAKED_MS", "3000"))
+         self.exec_resume_open_repair = _bool_env("EXEC_RESUME_OPEN_REPAIR", True)
+         self.exec_strict_protection_verify = _bool_env("EXEC_STRICT_PROTECTION_VERIFY", True)
+         self.exec_reconcile_require_protection_complete = _bool_env("EXEC_RECONCILE_REQUIRE_PROTECTION_COMPLETE", True)
++        self.exec_modify_resize_strict_replace = _bool_env("EXEC_MODIFY_RESIZE_STRICT_REPLACE", True)
+ 
+         # Local protection headroom reserve. Binance does not perform a margin
+         # check before algo trigger; we keep a small local reserve to avoid
+@@ -3468,7 +3476,7 @@
+ 
+ 
+     def handle_modify(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+-        """Modify existing position: cancel all our orders → re-place SL/TP → trailing arming."""
++        """Modify protection for an existing position under a strict replace invariant."""
+         sid = str(payload.get("sid") or "").strip()
+         symbol = str(payload.get("symbol") or "").strip().upper()
+         if not sid or not symbol:
+@@ -3476,98 +3484,88 @@
+         self._guard_binance_action_enabled(action="modify", sid=sid, symbol=symbol)
+         client, filters = self._resolve_client(payload)
+         self._sync_client_clock(client)
+-
+         self._guard_sid_not_quarantined(sid, symbol=symbol, action='modify')
+         if self.allowlist and symbol not in self.allowlist:
+             raise ValueError(f"symbol not in allowlist: {symbol}")
+-
++        state = self._load_order_state(sid)
++        fsm_state = str(state.get("fsm_state") or "")
++        if fsm_state and fsm_state not in {
++            FSM_ENTRY_FILLED, FSM_ENTRY_PARTIAL, FSM_PROTECTED,
++            FSM_TP_POLICY_ARMED, FSM_TRAIL_ARMED,
++        }:
++            raise RuntimeError(f"modify_forbidden_in_state:{fsm_state}")
+         canceled = self._cancel_by_token(symbol, sid, client=client)
+-
+-        # Determine current position
+-        risks = client.get_position_risk() or []
+-        amt = 0.0
+-        for pos in risks:
+-            if str(pos.get("symbol") or "").upper() != symbol:
+-                continue
+-            amt = _f(pos.get("positionAmt"), 0.0)
+-            break
+-
+-        if amt == 0.0:
++        live = self._read_live_position(symbol=symbol, client=client)
++        if not live.get("is_open"):
+             return {
+-                "sid": sid, "symbol": symbol, "action": "modify",
+-                "status": "no_position", "canceled_orders": canceled,
++                "sid": sid,
++                "symbol": symbol,
++                "action": "modify",
++                "status": "no_position",
++                "canceled_orders": canceled,
+             }
+-
+-        logical = "LONG" if amt > 0 else "SHORT"
+-        qty = abs(amt)
+-        policy = self._resolve_execution_policy(payload, symbol)
+-
+-        sl = _f(payload.get("sl"), 0.0) if payload.get("sl") is not None else None
+-        sl = sl if sl and sl > 0 else None
+-        tps_raw = payload.get("tp_levels") or []
+-        tps = [float(x) for x in tps_raw if x not in (None, "")]
+-        tps = [tp for tp in tps if tp > 0]
+-
+-        # Fetch current mark price for protective order validation and trailing calc
++        logical = str(live.get("logical_side") or "")
++        qty = float(live.get("qty") or 0.0)
++        policy = self._resolve_execution_policy(payload or state, symbol)
++        sl = self._expected_requested_sl(payload, state)
++        tps = self._expected_requested_tps(payload, state)
++        trail_requested = self._trail_requested(payload, state)
+         mark_price: Optional[float] = None
+         try:
+             mp = float(client.get_mark_price(symbol) or 0.0)
+             mark_price = mp if mp > 0 else None
+         except Exception:
+             pass
+-
+-        prot = self._place_protective(
+-            sid=sid, symbol=symbol, logical_side=logical,
+-            qty=qty, sl=sl, tps=tps, policy=policy,
+-            client=client, filters=filters,
+-            ref_price=mark_price,
+-        )
+-
+-        # Determine entry price for trailing callbackRate calculation
+-        # mark_price was already fetched above; use it as the fallback.
+-        entry_price: Optional[float] = mark_price
+-        if payload.get("entry") not in (None, 0, "", "0"):
+-            try:
+-                ep = float(payload.get("entry"))
+-                if ep > 0:
+-                    entry_price = ep
+-            except Exception:
+-                pass  # keep mark_price fallback
+-
+-        trail = self._maybe_start_trailing_after_tp1(
+-            payload=payload, sid=sid, symbol=symbol, logical_side=logical,
+-            initial_qty=qty,
+-            sl_order_id=_i(prot.get("sl_algo_id"), 0) or None,
+-            tp_levels=tps,
+-            tp1_working_type=str(prot.get("tp1_working_type") or policy.tp_working_type),
++        replaced = self._replace_position_protection(
++            sid=sid,
++            symbol=symbol,
++            action="modify",
++            logical_side=logical,
++            live_qty=qty,
++            sl=sl,
++            tps=tps,
++            payload={**state, **payload, "trail_after_tp1_requested": trail_requested},
+             policy=policy,
+-            client=client, filters=filters,
++            client=client,
++            filters=filters,
++            ref_price=mark_price,
+         )
+-        if EXECUTION_EMERGENCY_FLATTEN_TOTAL:
+-            EXECUTION_EMERGENCY_FLATTEN_TOTAL.labels(symbol=symbol, reason="emerg").inc()
+-        # P5: derive audit chain from payload and include in result
+         audit_chain = self._derive_audit_chain_fields(payload, sid)
+         audit_policies = self._derive_entry_exit_policies(execution_policy=policy.name)
+-        # P5: persist audit chain into state so it survives modify→cancel handoff
++        final_status = str(replaced.get("status") or "ok")
+         self._save_order_state(sid, {
+             "action": "modify",
+-            "status": "ok",
++            "status": final_status,
+             "symbol": symbol,
+-            "side": logical,
+-            "qty": qty,
++            "side": replaced.get("side") or logical,
++            "qty": replaced.get("qty") or qty,
+             "execution_policy": policy.name,
+-            **audit_chain, **audit_policies,
+-            **prot, **trail,
++            "sl_requested": sl,
++            "tp_levels_requested": list(tps),
++            "trail_after_tp1_requested": trail_requested,
++            **audit_chain,
++            **audit_policies,
++            **replaced,
+         })
+         return {
+-            "sid": sid, "symbol": symbol, "action": "modify",
+-            "status": "ok", "side": logical, "qty": qty,
++            "sid": sid,
++            "symbol": symbol,
++            "action": "modify",
++            "status": final_status,
++            "side": replaced.get("side") or logical,
++            "qty": replaced.get("qty") or qty,
+             "canceled_orders": canceled,
+-            **audit_chain, **audit_policies,
+-            **prot, **trail,
++            "execution_policy": policy.name,
++            "sl_requested": sl,
++            "tp_levels_requested": list(tps),
++            "trail_after_tp1_requested": trail_requested,
++            **audit_chain,
++            **audit_policies,
++            **replaced,
+             "json": json.dumps(
+-                {"canceled": canceled, "protective": prot, "trailing": trail},
+-                ensure_ascii=False, default=str,
++                {"canceled": canceled, "replaced": replaced},
++                ensure_ascii=False,
++                default=str,
+             ),
+         }
+ 
+@@ -3672,17 +3670,7 @@
+         return resize_mode, float(delta_qty), float(target_qty)
+ 
+     def handle_resize(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+-        """Resize an existing position and re-arm protection for the resulting size.
+-
+-        Supports:
+-        - resize_mode=delta_qty  → add/reduce by delta_qty
+-        - resize_mode=target_qty → set absolute position size
+-
+-        After resize:
+-        - cancels all open orders for this symbol
+-        - re-arms SL/TP/trailing at new size with provided levels
+-        - forbidden in unsafe FSM states (PROTECTION_ARMING, PENDING_RECONCILE, terminals)
+-        """
++        """Resize an existing position, then strictly replace protection for the live size."""
+         sid = str(payload.get("sid") or "").strip()
+         symbol = str(payload.get("symbol") or "").strip().upper()
+         if not sid or not symbol:
+@@ -3693,40 +3681,36 @@
+         self._guard_sid_not_quarantined(sid, symbol=symbol, action='resize')
+         state = self._load_order_state(sid)
+         fsm_state = str(state.get("fsm_state") or "")
+-        # Only allow resize in stable states (not mid-arm or terminals)
+         if fsm_state and fsm_state not in {
+             FSM_ENTRY_FILLED, FSM_ENTRY_PARTIAL, FSM_PROTECTED,
+             FSM_TP_POLICY_ARMED, FSM_TRAIL_ARMED,
+         }:
+             raise RuntimeError(f"resize_forbidden_in_state:{fsm_state}")
+-        # Fetch actual position from exchange
+-        risks = client.get_position_risk() or []
+-        amt = 0.0
+-        logical = None
+-        for pos in risks:
+-            if str(pos.get("symbol") or "").upper() != symbol:
+-                continue
+-            amt = _f(pos.get("positionAmt"), 0.0)
+-            if amt != 0.0:
+-                logical = "LONG" if amt > 0 else "SHORT"
+-                break
+-        if amt == 0.0 or logical is None:
++        live_before = self._read_live_position(symbol=symbol, client=client)
++        if not live_before.get("is_open"):
+             raise RuntimeError(f"no_open_position_to_resize:{symbol}")
+-        current_qty = abs(float(amt))
++        logical = str(live_before.get("logical_side") or "")
++        current_qty = float(live_before.get("qty") or 0.0)
+         resize_mode, delta_qty, target_qty = self._normalize_resize_target(current_qty, payload)
+         if math.isclose(delta_qty, 0.0, abs_tol=1e-12):
+             return {
+-                "sid": sid, "symbol": symbol, "action": "resize", "status": "noop",
+-                "current_qty": current_qty, "target_qty": target_qty,
++                "sid": sid,
++                "symbol": symbol,
++                "action": "resize",
++                "status": "noop",
++                "current_qty": current_qty,
++                "target_qty": target_qty,
+             }
+         self._transition_state(
+-            sid, symbol=symbol, action="resize", next_state=FSM_VALIDATED,
++            sid,
++            symbol=symbol,
++            action="resize",
++            next_state=FSM_VALIDATED,
+             details={"resize_mode": resize_mode, "current_qty": current_qty, "target_qty": target_qty},
+         )
+         resize_side = "BUY" if logical == "LONG" else "SELL"
+         pos_side = _position_side_for_mode(self.position_mode, logical)
+         if delta_qty > 0:
+-            # Increasing position — submit a market add order
+             q_resize, _ = self._quantize(symbol, delta_qty, None, filters=filters)
+             params: Dict[str, Any] = {
+                 "symbol": symbol,
+@@ -3741,66 +3725,108 @@
+                 sid=sid, symbol=symbol, action="resize_add", params=params, client=client
+             )
+         else:
+-            # Decreasing position — submit a reduce-only market exit
+             reduce_qty = abs(delta_qty)
+             j_resize = self._submit_reduce_only_market_exit(
+-                sid=sid, symbol=symbol, logical_side=logical, qty=reduce_qty,
+-                reason_tag="resize", client=client, filters=filters,
++                sid=sid,
++                symbol=symbol,
++                logical_side=logical,
++                qty=reduce_qty,
++                reason_tag="resize",
++                client=client,
++                filters=filters,
+             )
+-        # Cancel existing protective orders before re-arming
+         try:
+             client.cancel_all_orders(symbol)
+         except Exception:
+             pass
+-        final_qty = max(0.0, target_qty)
+-        sl = _f(payload.get("sl"), 0.0) if payload.get("sl") is not None else None
+-        sl = sl if sl and sl > 0 else None
+-        tps = [
+-            float(x) for x in (payload.get("tp_levels") or [])
+-            if x not in (None, "") and float(x) > 0
+-        ]
+-        policy = resolve_execution_policy(
+-            symbol=symbol, logical_side=logical, signal_payload=payload,
+-            rollout_flags=self.rollout_flags,
+-            maker_allowed_symbols=self.exec_policy_maker_allowed_symbols,
+-            default_policy=self.exec_policy_default,
+-            infra_degraded=bool(payload.get("dq_hard_veto") or payload.get("infra_degraded")),
+-        )
+-        prot: Dict[str, Any] = {}
+-        trail: Dict[str, Any] = {}
+-        if final_qty > 0 and (sl or tps):
+-            mark_price = None
+-            try:
+-                mp = float(client.get_mark_price(symbol) or 0.0)
+-                mark_price = mp if mp > 0 else None
+-            except Exception:
+-                pass
+-            prot = self._place_protective(
+-                sid=sid, symbol=symbol, logical_side=logical, qty=final_qty,
+-                sl=sl, tps=tps, policy=policy,
+-                client=client, filters=filters, ref_price=mark_price,
+-            )
+-            trail = self._maybe_start_trailing_after_tp1(
+-                payload=payload, sid=sid, symbol=symbol, logical_side=logical,
+-                entry_price=mark_price,
+-                sl_order_id=_i(prot.get("sl_algo_id"), 0) or None,
+-                tp_levels=tps, client=client, filters=filters,
++        live_after = self._read_live_position(symbol=symbol, client=client)
++        final_qty = float(live_after.get("qty") or 0.0)
++        final_logical = str(live_after.get("logical_side") or logical or "")
++        sl = self._expected_requested_sl(payload, state)
++        tps = self._expected_requested_tps(payload, state)
++        trail_requested = self._trail_requested(payload, state)
++        if not live_after.get("is_open"):
++            self._transition_state(
++                sid,
++                symbol=symbol,
++                action="resize",
++                next_state=FSM_EXIT_FILLED,
++                details={"resize_target_qty": target_qty, "resize_delta_qty": delta_qty},
+             )
++            self._save_order_state(sid, {
++                "action": "resize",
++                "status": "flat",
++                "symbol": symbol,
++                "side": "",
++                "qty": 0.0,
++                "resize_mode": resize_mode,
++                "resize_delta_qty": delta_qty,
++                "resize_target_qty": target_qty,
++                "sl_requested": sl,
++                "tp_levels_requested": list(tps),
++                "trail_after_tp1_requested": trail_requested,
++            })
++            return {
++                "sid": sid,
++                "symbol": symbol,
++                "action": "resize",
++                "status": "flat",
++                "side": "",
++                "current_qty": current_qty,
++                "target_qty": target_qty,
++                "delta_qty": delta_qty,
++                "resize_order": j_resize,
++            }
++        policy = self._resolve_execution_policy({**state, **payload}, symbol)
++        mark_price = None
++        try:
++            mp = float(client.get_mark_price(symbol) or 0.0)
++            mark_price = mp if mp > 0 else None
++        except Exception:
++            pass
++        replaced = self._replace_position_protection(
++            sid=sid,
++            symbol=symbol,
++            action="resize",
++            logical_side=final_logical,
++            live_qty=final_qty,
++            sl=sl,
++            tps=tps,
++            payload={**state, **payload, "trail_after_tp1_requested": trail_requested},
++            policy=policy,
++            client=client,
++            filters=filters,
++            ref_price=mark_price,
++        )
++        final_status = str(replaced.get("status") or "ok")
+         self._save_order_state(sid, {
+             "action": "resize",
+-            "status": "ok",
++            "status": final_status,
+             "symbol": symbol,
+-            "side": logical,
+-            "qty": final_qty,
++            "side": replaced.get("side") or final_logical,
++            "qty": replaced.get("qty") or final_qty,
+             "resize_mode": resize_mode,
+             "resize_delta_qty": delta_qty,
+             "resize_target_qty": target_qty,
+-            **prot, **trail,
++            "sl_requested": sl,
++            "tp_levels_requested": list(tps),
++            "trail_after_tp1_requested": trail_requested,
++            **replaced,
+         })
+         return {
+-            "sid": sid, "symbol": symbol, "action": "resize", "status": "ok",
+-            "side": logical, "current_qty": current_qty, "target_qty": target_qty,
+-            "delta_qty": delta_qty, "resize_order": j_resize, **prot, **trail,
++            "sid": sid,
++            "symbol": symbol,
++            "action": "resize",
++            "status": final_status,
++            "side": replaced.get("side") or final_logical,
++            "current_qty": current_qty,
++            "target_qty": target_qty,
++            "delta_qty": delta_qty,
++            "resize_order": j_resize,
++            "sl_requested": sl,
++            "tp_levels_requested": list(tps),
++            "trail_after_tp1_requested": trail_requested,
++            **replaced,
+         }
+ 
+     # --- Main processing loop ---
+@@ -4004,14 +4030,17 @@
+         expect_sl: bool,
+         tps: List[float],
+         expect_trail: bool = False,
++        sl: Optional[float] = None,
+     ) -> Dict[str, Any]:
+         """Strictly verify protective orders against exchange truth.
+ 
+-        Success requires exact live refs for all expected components.  This helper is
+-        intentionally stricter than the old local-response check because the failure
+-        mode we are fixing is precisely: entry filled, local submit path returned,
+-        but one or more protective orders never became visible on exchange.
++        Success requires exact live refs for all expected components and, for P3,
++        that trigger prices match the currently requested protection contract.  This
++        closes the modify/resize failure mode where old protective orders remain live
++        with the same clientAlgoId but stale trigger levels.
+         """
++        expected_sl_price = float(sl) if expect_sl and sl not in (None, 0, "", "0") else None
++        expected_tp_prices = [float(tp) for tp in list(tps or []) if float(tp) > 0]
+         if hasattr(client, "inspect_protection_set"):
+             result = client.inspect_protection_set(
+                 symbol,
+@@ -4019,24 +4048,41 @@
+                 expected_tp_count=len(tps),
+                 expect_sl=bool(expect_sl),
+                 expect_trail=bool(expect_trail),
++                expected_sl_price=expected_sl_price,
++                expected_tp_prices=expected_tp_prices,
+             )
+         else:
+-            # Conservative fallback for older client stubs used by tests.
+-            matched: Dict[str, Any] = {"sid": sid, "symbol": symbol.upper(), "by_client_algo_id": {}, "tp_by_index": {}, "missing": []}
++            def _price_matches(row: Dict[str, Any], expected_price: Optional[float]) -> bool:
++                if expected_price in (None, 0, "", "0"):
++                    return True
++                actual = _f(row.get("triggerPrice") or row.get("stopPrice") or row.get("activatePrice"), 0.0)
++                if actual <= 0:
++                    return False
++                tol = max(1e-9, abs(float(expected_price)) * 1e-9)
++                return math.isclose(float(actual), float(expected_price), rel_tol=0.0, abs_tol=tol)
++
++            matched: Dict[str, Any] = {
++                "sid": sid,
++                "symbol": symbol.upper(),
++                "by_client_algo_id": {},
++                "tp_by_index": {},
++                "missing": [],
++                "mismatched": [],
++            }
+             expected = []
+             if expect_sl:
+-                expected.append(("sl", _make_cid(sid, "sl")))
++                expected.append(("sl", _make_cid(sid, "sl"), expected_sl_price))
+             for idx in range(1, len(tps) + 1):
+-                expected.append((f"tp{idx}", _make_cid(sid, f"tp{idx}")))
++                expected.append((f"tp{idx}", _make_cid(sid, f"tp{idx}"), float(tps[idx - 1])))
+             if expect_trail:
+-                expected.append(("trail", _make_cid(sid, "trail")))
++                expected.append(("trail", _make_cid(sid, "trail"), None))
+             open_orders = []
+             try:
+                 open_orders = client.get_open_algo_orders(symbol) or []
+             except Exception:
+                 open_orders = []
+             by_cid = {str(row.get("clientAlgoId") or "").strip(): row for row in open_orders if str(row.get("clientAlgoId") or "").strip()}
+-            for key, cid in expected:
++            for key, cid, expected_price in expected:
+                 row = by_cid.get(cid)
+                 if row is None:
+                     try:
+@@ -4047,6 +4093,8 @@
+                     matched["missing"].append(key)
+                     continue
+                 matched["by_client_algo_id"][cid] = row
++                if not _price_matches(row, expected_price):
++                    matched["mismatched"].append(key)
+                 if key == "sl":
+                     matched["sl"] = row
+                 elif key == "trail":
+@@ -4059,13 +4107,14 @@
+                     if idx > 0:
+                         matched["tp_by_index"][idx] = row
+             matched["tp"] = [matched["tp_by_index"][idx] for idx in sorted(matched["tp_by_index"])]
+-            matched["is_complete"] = not matched["missing"]
++            matched["is_complete"] = not matched["missing"] and not matched["mismatched"]
+             result = matched
+         result = dict(result or {})
+         result.setdefault("missing", [])
++        result.setdefault("mismatched", [])
+         result.setdefault("tp_by_index", {})
+         result.setdefault("tp", [])
+-        result.setdefault("is_complete", not result.get("missing"))
++        result.setdefault("is_complete", not result.get("missing") and not result.get("mismatched"))
+         return result
+ 
+     def _verified_refs_to_state(self, verified: Dict[str, Any]) -> Dict[str, Any]:
+@@ -4236,47 +4285,107 @@
+         client: "BinanceFuturesClient",
+         filters: "FiltersCache",
+         ref_price: Optional[float] = None,
++        force_recreate: bool = False,
+     ) -> Dict[str, Any]:
+         expect_sl = bool(sl and sl > 0)
+         if not expect_sl and not tps:
+             return {"is_complete": False, "missing": ["sl_or_tp_contract_absent"], "repair_actions": []}
+         verify_before = self._verify_protection_on_exchange(
+-            sid=sid, symbol=symbol, client=client, expect_sl=expect_sl, tps=tps, expect_trail=False
++            sid=sid,
++            symbol=symbol,
++            client=client,
++            expect_sl=expect_sl,
++            tps=tps,
++            expect_trail=False,
++            sl=sl,
+         )
+-        if verify_before.get("is_complete"):
+-            return {**self._verified_refs_to_state(verify_before), "is_complete": True, "repair_actions": [], "verified": verify_before}
++        if verify_before.get("is_complete") and not force_recreate:
++            return {
++                **self._verified_refs_to_state(verify_before),
++                "is_complete": True,
++                "repair_actions": [],
++                "verified": verify_before,
++                "missing": [],
++                "mismatched": [],
++            }
+         try:
+-            self._local_headroom_check(client=client, symbol=symbol, qty=filled_qty, reference_price=float(sl or (tps[0] if tps else 0.0) or 0.0))
++            self._local_headroom_check(
++                client=client,
++                symbol=symbol,
++                qty=filled_qty,
++                reference_price=float(sl or (tps[0] if tps else 0.0) or 0.0),
++            )
+         except Exception:
+             pass
+         repair_actions: List[str] = []
+         repair_state: Dict[str, Any] = {}
+         missing = list(verify_before.get("missing") or [])
+-        if expect_sl and "sl" in missing:
+-            repair_state.update(self._place_sl_only(
+-                sid=sid, symbol=symbol, logical_side=logical_side, qty=filled_qty,
+-                sl=float(sl), client=client, filters=filters, ref_price=ref_price,
+-            ))
+-            repair_actions.append("sl")
++        mismatched = list(verify_before.get("mismatched") or [])
++        repair_targets = set(missing) | set(mismatched)
++        if force_recreate:
++            if expect_sl:
++                repair_targets.add("sl")
++            for idx in range(1, len(tps) + 1):
++                repair_targets.add(f"tp{idx}")
++        if expect_sl and "sl" in repair_targets:
++            try:
++                client.cancel_algo_order(symbol, client_algo_id=_make_cid(sid, "sl"))
++            except Exception:
++                pass
++            repair_state.update(
++                self._place_sl_only(
++                    sid=sid,
++                    symbol=symbol,
++                    logical_side=logical_side,
++                    qty=filled_qty,
++                    sl=float(sl),
++                    client=client,
++                    filters=filters,
++                    ref_price=ref_price,
++                )
++            )
++            repair_actions.append("replace_sl" if "sl" in mismatched or force_recreate else "sl")
+         if tps:
+             parts = self._split_tp_qtys(symbol, filled_qty, len(tps), filters=filters)
+             for idx, (tp, part_qty) in enumerate(zip(tps, parts), start=1):
+-                if f"tp{idx}" not in missing:
++                key = f"tp{idx}"
++                if key not in repair_targets:
+                     continue
+-                repair_state.update(self._place_tp_only(
+-                    sid=sid, symbol=symbol, logical_side=logical_side, qty_for_level=float(part_qty),
+-                    tp=float(tp), tp_idx=idx, tp_count_total=len(tps), policy=policy,
+-                    client=client, filters=filters, ref_price=ref_price,
+-                ))
+-                repair_actions.append(f"tp{idx}")
++                try:
++                    client.cancel_algo_order(symbol, client_algo_id=_make_cid(sid, key))
++                except Exception:
++                    pass
++                repair_state.update(
++                    self._place_tp_only(
++                        sid=sid,
++                        symbol=symbol,
++                        logical_side=logical_side,
++                        qty_for_level=float(part_qty),
++                        tp=float(tp),
++                        tp_idx=idx,
++                        tp_count_total=len(tps),
++                        policy=policy,
++                        client=client,
++                        filters=filters,
++                        ref_price=ref_price,
++                    )
++                )
++                repair_actions.append(f"replace_{key}" if key in mismatched or force_recreate else key)
+         verify_after = self._verify_protection_on_exchange(
+-            sid=sid, symbol=symbol, client=client, expect_sl=expect_sl, tps=tps, expect_trail=False
++            sid=sid,
++            symbol=symbol,
++            client=client,
++            expect_sl=expect_sl,
++            tps=tps,
++            expect_trail=False,
++            sl=sl,
+         )
+         result = {
+             **repair_state,
+             **self._verified_refs_to_state(verify_after),
+             "is_complete": bool(verify_after.get("is_complete")),
+             "missing": list(verify_after.get("missing") or []),
++            "mismatched": list(verify_after.get("mismatched") or []),
+             "repair_actions": repair_actions,
+             "verified": verify_after,
+         }
+@@ -4288,6 +4397,208 @@
+             pass
+         return result
+ 
++    def _read_live_position(self, *, symbol: str, client: "BinanceFuturesClient") -> Dict[str, Any]:
++        risks = client.get_position_risk() or []
++        amt = 0.0
++        logical: Optional[str] = None
++        for pos in risks:
++            if str(pos.get("symbol") or "").upper() != str(symbol).upper():
++                continue
++            amt = _f(pos.get("positionAmt"), 0.0)
++            if amt > 0:
++                logical = "LONG"
++            elif amt < 0:
++                logical = "SHORT"
++            break
++        return {
++            "position_amt": amt,
++            "qty": abs(float(amt)),
++            "logical_side": logical,
++            "is_open": not math.isclose(float(amt), 0.0, abs_tol=1e-12),
++        }
++
++    def _cancel_expected_protection_refs(
++        self,
++        *,
++        sid: str,
++        symbol: str,
++        tp_count: int,
++        client: "BinanceFuturesClient",
++        cancel_trail: bool = True,
++    ) -> List[str]:
++        cancelled: List[str] = []
++        tags = ["sl"] + [f"tp{idx}" for idx in range(1, int(tp_count) + 1)]
++        if cancel_trail:
++            tags.append("trail")
++        for tag in tags:
++            cid = _make_cid(sid, tag)
++            try:
++                client.cancel_algo_order(symbol, client_algo_id=cid)
++                cancelled.append(cid)
++            except Exception:
++                continue
++        return cancelled
++
++    def _replace_position_protection(
++        self,
++        *,
++        sid: str,
++        symbol: str,
++        action: str,
++        logical_side: str,
++        live_qty: float,
++        sl: Optional[float],
++        tps: List[float],
++        payload: Dict[str, Any],
++        policy: ExecutionPolicyDecision,
++        client: "BinanceFuturesClient",
++        filters: "FiltersCache",
++        ref_price: Optional[float] = None,
++    ) -> Dict[str, Any]:
++        if not getattr(self, "exec_modify_resize_strict_replace", True):
++            return self._repair_open_protection(
++                sid=sid,
++                symbol=symbol,
++                logical_side=logical_side,
++                filled_qty=live_qty,
++                sl=sl,
++                tps=tps,
++                policy=policy,
++                client=client,
++                filters=filters,
++                ref_price=ref_price,
++                force_recreate=False,
++            )
++        trail_requested = self._trail_requested(payload)
++        naked_started_ms = _mono_ms()
++        self._transition_state(
++            sid,
++            symbol=symbol,
++            action=action,
++            next_state=FSM_PROTECTION_REPLACING,
++            details={
++                "sl_requested": sl,
++                "tp_levels_requested": list(tps),
++                "trail_after_tp1_requested": trail_requested,
++                "replacement_started_at_ms": _ms_now(),
++            },
++        )
++        explicit_cancelled = self._cancel_expected_protection_refs(
++            sid=sid,
++            symbol=symbol,
++            tp_count=len(tps),
++            client=client,
++            cancel_trail=True,
++        )
++        repaired = self._repair_open_protection(
++            sid=sid,
++            symbol=symbol,
++            logical_side=logical_side,
++            filled_qty=live_qty,
++            sl=sl,
++            tps=tps,
++            policy=policy,
++            client=client,
++            filters=filters,
++            ref_price=ref_price,
++            force_recreate=True,
++        )
++        live = self._read_live_position(symbol=symbol, client=client)
++        current_qty = float(live.get("qty") or 0.0)
++        current_logical = str(live.get("logical_side") or logical_side or "").upper()
++        naked_window_ms = max(0, _mono_ms() - naked_started_ms)
++        try:
++            if EXECUTION_PROTECTION_REPLACE_NAKED_WINDOW_MS is not None:
++                EXECUTION_PROTECTION_REPLACE_NAKED_WINDOW_MS.labels(symbol=symbol, action=action).set(float(naked_window_ms))
++        except Exception:
++            pass
++        if repaired.get("is_complete") and naked_window_ms <= int(getattr(self, "protection_replace_max_naked_ms", 3000)):
++            trail: Dict[str, Any] = {}
++            if trail_requested and tps:
++                trail = self._maybe_start_trailing_after_tp1(
++                    payload=payload,
++                    sid=sid,
++                    symbol=symbol,
++                    logical_side=current_logical,
++                    entry_price=ref_price,
++                    initial_qty=current_qty,
++                    sl_order_id=_i(repaired.get("sl_algo_id"), 0) or None,
++                    tp_levels=tps,
++                    tp1_working_type=str(repaired.get("tp1_working_type") or policy.tp_working_type),
++                    policy=policy,
++                    client=client,
++                    filters=filters,
++                )
++            details = {
++                **repaired,
++                **trail,
++                "qty": current_qty,
++                "side": current_logical,
++                "sl_requested": sl,
++                "tp_levels_requested": list(tps),
++                "trail_after_tp1_requested": trail_requested,
++                "protection_replaced": True,
++                "protection_naked_window_ms": naked_window_ms,
++                "explicit_cancelled_protection_refs": explicit_cancelled,
++            }
++            self._transition_state(sid, symbol=symbol, action=action, next_state=FSM_PROTECTED, details=details)
++            if tps:
++                self._transition_state(sid, symbol=symbol, action=action, next_state=FSM_TP_POLICY_ARMED, details={"tp_levels_count": len(tps)})
++            try:
++                if EXECUTION_PROTECTION_REPLACE_TOTAL is not None:
++                    EXECUTION_PROTECTION_REPLACE_TOTAL.labels(symbol=symbol, action=action, result="ok").inc()
++            except Exception:
++                pass
++            return details
++        reason = "replace_verify_incomplete"
++        if repaired.get("is_complete") and naked_window_ms > int(getattr(self, "protection_replace_max_naked_ms", 3000)):
++            reason = "replace_naked_window_exceeded"
++        try:
++            if EXECUTION_PROTECTION_VERIFY_FAIL_TOTAL is not None:
++                failure_reason = reason
++                if repaired.get("missing"):
++                    failure_reason = ",".join(list(repaired.get("missing") or [])[:4])
++                elif repaired.get("mismatched"):
++                    failure_reason = "mismatch:" + ",".join(list(repaired.get("mismatched") or [])[:3])
++                EXECUTION_PROTECTION_VERIFY_FAIL_TOTAL.labels(symbol=symbol, phase=f"{action}_replace", reason=failure_reason).inc()
++            if EXECUTION_PROTECTION_REPLACE_TOTAL is not None:
++                EXECUTION_PROTECTION_REPLACE_TOTAL.labels(symbol=symbol, action=action, result="emergency_flatten").inc()
++        except Exception:
++            pass
++        self._emit_protection_incident(sid, symbol, reason)
++        flatten_qty = current_qty if current_qty > 0 else live_qty
++        flatten_logical = current_logical if current_logical in {"LONG", "SHORT"} else logical_side
++        emerg = self._emergency_flatten_position(
++            sid=sid,
++            symbol=symbol,
++            logical_side=flatten_logical,
++            qty=flatten_qty,
++            client=client,
++            filters=filters,
++            reason=reason,
++        )
++        self._transition_state(
++            sid,
++            symbol=symbol,
++            action=action,
++            next_state=FSM_EMERGENCY_FLATTENED,
++            details={**emerg, "protection_naked_window_ms": naked_window_ms},
++        )
++        return {
++            **repaired,
++            **emerg,
++            "status": "emergency_flattened",
++            "side": flatten_logical,
++            "qty": flatten_qty,
++            "sl_requested": sl,
++            "tp_levels_requested": list(tps),
++            "trail_after_tp1_requested": trail_requested,
++            "protection_invariant_failed": True,
++            "protection_replaced": False,
++            "protection_naked_window_ms": naked_window_ms,
++            "explicit_cancelled_protection_refs": explicit_cancelled,
++        }
++
+     def _resume_open_from_state(
+         self,
+         sid: str,
+@@ -4424,7 +4735,13 @@
+         protection_complete = True
+         if action in {"open", "modify", "resize"} and (expect_sl or tps) and getattr(self, "exec_reconcile_require_protection_complete", True):
+             verified = self._verify_protection_on_exchange(
+-                sid=sid, symbol=symbol, client=client, expect_sl=expect_sl, tps=tps, expect_trail=False
++                sid=sid,
++                symbol=symbol,
++                client=client,
++                expect_sl=expect_sl,
++                tps=tps,
++                expect_trail=False,
++                sl=self._expected_requested_sl(payload, state),
+             )
+             protection_complete = bool(verified.get("is_complete"))
+             if not protection_complete and action == "open" and logical in {"LONG", "SHORT"} and filled_qty > 0:
+--- a/services/binance_futures_client.py
++++ b/services/binance_futures_client.py
+@@ -38,6 +38,7 @@
+ 
+ import hashlib
+ import hmac
++import math
+ import json
+ import os
+ import socket
+@@ -1147,12 +1148,15 @@
+         expected_tp_count: int = 0,
+         expect_sl: bool = True,
+         expect_trail: bool = False,
++        expected_sl_price: Optional[float] = None,
++        expected_tp_prices: Optional[List[float]] = None,
+     ) -> Dict[str, Any]:
+         """Inspect the currently live protective contract for one SID on exchange.
+ 
+-        Returns a deterministic contract view keyed by exact ``clientAlgoId`` values,
+-        together with a low-cardinality ``missing`` list suitable for strict
+-        executor-side verification.
++        In addition to exact ``clientAlgoId`` presence, P3 validates that trigger
++        prices on exchange match the requested contract.  This is essential for
++        modify/resize, where stale protective orders may survive cancellation and
++        otherwise look "complete" by id alone.
+         """
+         symbol_u = str(symbol).upper()
+         matched: Dict[str, Any] = {
+@@ -1164,7 +1168,19 @@
+             "by_client_algo_id": {},
+             "tp_by_index": {},
+             "missing": [],
++            "mismatched": [],
+         }
++        expected_tp_prices = list(expected_tp_prices or [])
++
++        def _price_matches(row: Dict[str, Any], expected: Optional[float]) -> bool:
++            if expected in (None, 0, "", "0"):
++                return True
++            actual = _f(row.get("triggerPrice") or row.get("stopPrice") or row.get("activatePrice"), 0.0)
++            if actual <= 0:
++                return False
++            tol = max(1e-9, abs(float(expected)) * 1e-9)
++            return math.isclose(float(actual), float(expected), rel_tol=0.0, abs_tol=tol)
++
+         open_orders = self.get_open_algo_orders(symbol_u) or []
+         token = self._sid_token(sid)
+         for order in open_orders:
+@@ -1186,18 +1202,26 @@
+                     matched["tp_by_index"][idx] = order
+         if expect_sl:
+             sl_cid = self._build_client_algo_id(sid, "sl")
+-            if sl_cid not in matched["by_client_algo_id"]:
++            row = matched["by_client_algo_id"].get(sl_cid)
++            if row is None:
+                 matched["missing"].append("sl")
++            elif not _price_matches(row, expected_sl_price):
++                matched["mismatched"].append("sl")
+         for idx in range(1, int(expected_tp_count) + 1):
+             tp_cid = self._build_client_algo_id(sid, f"tp{idx}")
+-            if tp_cid not in matched["by_client_algo_id"]:
++            row = matched["by_client_algo_id"].get(tp_cid)
++            if row is None:
+                 matched["missing"].append(f"tp{idx}")
++                continue
++            expected_tp = expected_tp_prices[idx - 1] if idx - 1 < len(expected_tp_prices) else None
++            if not _price_matches(row, expected_tp):
++                matched["mismatched"].append(f"tp{idx}")
+         if expect_trail:
+             trail_cid = self._build_client_algo_id(sid, "trail")
+             if trail_cid not in matched["by_client_algo_id"]:
+                 matched["missing"].append("trail")
+-        matched["is_complete"] = not matched["missing"]
+-        matched["tp"] = [matched["tp_by_index"][idx] for idx in sorted(matched["tp_by_index"]) ]
++        matched["is_complete"] = not matched["missing"] and not matched["mismatched"]
++        matched["tp"] = [matched["tp_by_index"][idx] for idx in sorted(matched["tp_by_index"])]
+         return matched
+ 
+     def reconcile_protection_by_sid(self, symbol: str, sid: str) -> Dict[str, Any]:
+--- a/services/execution_metrics.py
++++ b/services/execution_metrics.py
+@@ -245,6 +245,19 @@
+     "Repair attempts for missing protective orders after entry fill or reconcile.",
+     ["symbol", "result"],
+ )
++
++EXECUTION_PROTECTION_REPLACE_TOTAL = _metric(
++    Counter,
++    "execution_protection_replace_total",
++    "Strict modify/resize protection replacement outcomes.",
++    ["symbol", "action", "result"],
++)
++EXECUTION_PROTECTION_REPLACE_NAKED_WINDOW_MS = _metric(
++    Gauge,
++    "execution_protection_replace_naked_window_ms",
++    "Observed naked-window duration during strict protection replacement.",
++    ["symbol", "action"],
++)
+ EXECUTION_RECONCILE_PARTIAL_PROTECTION_TOTAL = _metric(
+     Counter,
+     "execution_reconcile_partial_protection_total",
+--- a/services/tests/test_binance_executor_p12_strict_protection_v1.py
++++ b/services/tests/test_binance_executor_p12_strict_protection_v1.py
+@@ -34,7 +34,7 @@
+             {"algoId": 12, "clientAlgoId": mod._make_cid("sid-1", "tp1"), "workingType": "MARK_PRICE", "type": "TAKE_PROFIT_MARKET"},
+         ]
+         self.created = []
+-    def inspect_protection_set(self, symbol, *, sid, expected_tp_count, expect_sl, expect_trail):
++    def inspect_protection_set(self, symbol, *, sid, expected_tp_count, expect_sl, expect_trail, expected_sl_price=None, expected_tp_prices=None):
+         by = {row["clientAlgoId"]: row for row in self.open_algo_orders}
+         tp_by_index = {}
+         missing = []
+@@ -47,7 +47,7 @@
+                 missing.append(f"tp{idx}")
+             else:
+                 tp_by_index[idx] = row
+-        return {"sl": by.get(mod._make_cid(sid, "sl")), "tp_by_index": tp_by_index, "tp": list(tp_by_index.values()), "missing": missing, "is_complete": not missing}
++        return {"sl": by.get(mod._make_cid(sid, "sl")), "tp_by_index": tp_by_index, "tp": list(tp_by_index.values()), "missing": missing, "mismatched": [], "is_complete": not missing}
+     def query_algo_order(self, symbol, client_algo_id=None):
+         for row in self.open_algo_orders:
+             if row["clientAlgoId"] == client_algo_id:
+--- a/services/tests/test_binance_executor_p3_replace_invariant_v1.py
++++ b/services/tests/test_binance_executor_p3_replace_invariant_v1.py
+@@ -0,0 +1,160 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++root = Path(__file__).resolve().parents[2]
++if str(root) not in sys.path:
++    sys.path.insert(0, str(root))
++
++mod_path = root / "services" / "binance_executor.py"
++spec = importlib.util.spec_from_file_location("services.binance_executor_p3", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++class DummyFilters:
++    def get(self, symbol):
++        return type("F", (), {"step_size": 0.001, "tick_size": 0.1})()
++
++
++class DummyPolicy:
++    name = "SAFETY_FIRST"
++    reason = "test"
++    tp_watchdog_enabled = False
++    tp_working_type = "MARK_PRICE"
++    tp_limit_time_in_force = "GTX"
++
++
++class DummyClient:
++    def __init__(self):
++        self.cancelled = []
++    def cancel_all_orders(self, symbol):
++        self.cancelled.append((symbol, "all"))
++    def get_mark_price(self, symbol):
++        return 100.0
++
++
++def _mk_exec_for_replace(repair_result):
++    ex = mod.BinanceExecutor.__new__(mod.BinanceExecutor)
++    ex.position_mode = "oneway"
++    ex.protection_replace_max_naked_ms = 5000
++    ex.exec_modify_resize_strict_replace = True
++    ex._transition_log = []
++    ex._transition_state = lambda sid, **kwargs: ex._transition_log.append(kwargs["next_state"]) or {"fsm_state": kwargs["next_state"]}
++    ex._cancel_expected_protection_refs = lambda **kwargs: [mod._make_cid(kwargs["sid"], "sl")]
++    ex._repair_open_protection = lambda **kwargs: dict(repair_result)
++    ex._read_live_position = lambda **kwargs: {"is_open": True, "qty": 2.0, "logical_side": "LONG", "position_amt": 2.0}
++    ex._maybe_start_trailing_after_tp1 = lambda **kwargs: {}
++    ex._emit_protection_incident = lambda *args, **kwargs: None
++    ex._emergency_flatten_position = lambda **kwargs: {"emergency_order_id": 91, "emergency_reason": kwargs.get("reason", "")}
++    return ex
++
++
++def test_replace_position_protection_transitions_via_replacing_then_protected():
++    ex = _mk_exec_for_replace({"is_complete": True, "sl_algo_id": 11, "tp1_algo_id": 12, "repair_actions": ["replace_sl", "replace_tp1"]})
++    out = ex._replace_position_protection(
++        sid="sid-p3-ok",
++        symbol="BTCUSDT",
++        action="modify",
++        logical_side="LONG",
++        live_qty=2.0,
++        sl=95.0,
++        tps=[110.0],
++        payload={"trail_after_tp1": False},
++        policy=DummyPolicy(),
++        client=DummyClient(),
++        filters=DummyFilters(),
++        ref_price=100.0,
++    )
++    assert out["protection_replaced"] is True
++    assert mod.FSM_PROTECTION_REPLACING in ex._transition_log
++    assert mod.FSM_PROTECTED in ex._transition_log
++    assert mod.FSM_EMERGENCY_FLATTENED not in ex._transition_log
++
++
++def test_replace_position_protection_flattens_when_verify_incomplete():
++    ex = _mk_exec_for_replace({"is_complete": False, "missing": ["tp1"], "mismatched": [], "repair_actions": ["replace_sl"]})
++    out = ex._replace_position_protection(
++        sid="sid-p3-bad",
++        symbol="BTCUSDT",
++        action="resize",
++        logical_side="LONG",
++        live_qty=1.5,
++        sl=94.0,
++        tps=[108.0],
++        payload={"trail_after_tp1": False},
++        policy=DummyPolicy(),
++        client=DummyClient(),
++        filters=DummyFilters(),
++        ref_price=100.0,
++    )
++    assert out["status"] == "emergency_flattened"
++    assert out["protection_invariant_failed"] is True
++    assert mod.FSM_PROTECTION_REPLACING in ex._transition_log
++    assert mod.FSM_EMERGENCY_FLATTENED in ex._transition_log
++    assert mod.FSM_PROTECTED not in ex._transition_log
++
++
++def test_handle_modify_uses_state_requested_protection_when_payload_omits_levels():
++    ex = mod.BinanceExecutor.__new__(mod.BinanceExecutor)
++    ex.allowlist = set()
++    ex.position_mode = "oneway"
++    ex.exec_modify_resize_strict_replace = True
++    ex._resolve_client = lambda payload: (DummyClient(), DummyFilters())
++    ex._sync_client_clock = lambda client: None
++    ex._guard_binance_action_enabled = lambda **kwargs: None
++    ex._guard_sid_not_quarantined = lambda *args, **kwargs: None
++    ex._load_order_state = lambda sid: {
++        "sid": sid,
++        "symbol": "BTCUSDT",
++        "fsm_state": mod.FSM_PROTECTED,
++        "sl_requested": 93.0,
++        "tp_levels_requested": [106.0, 112.0],
++        "trail_after_tp1_requested": True,
++    }
++    ex._cancel_by_token = lambda symbol, sid, client=None: 2
++    ex._read_live_position = lambda **kwargs: {"is_open": True, "qty": 2.0, "logical_side": "LONG", "position_amt": 2.0}
++    ex._resolve_execution_policy = lambda payload, symbol: DummyPolicy()
++    ex._replace_position_protection = lambda **kwargs: {
++        "status": "ok",
++        "side": "LONG",
++        "qty": 2.0,
++        "sl_algo_id": 11,
++        "tp1_algo_id": 12,
++        "tp2_algo_id": 13,
++        "protection_replaced": True,
++    }
++    ex._derive_audit_chain_fields = lambda payload, sid: {}
++    ex._derive_entry_exit_policies = lambda execution_policy: {}
++    ex._save_order_state = lambda *args, **kwargs: None
++    out = ex.handle_modify({"sid": "sid-mod", "symbol": "BTCUSDT"})
++    assert out["status"] == "ok"
++    assert out["sl_requested"] == 93.0
++    assert out["tp_levels_requested"] == [106.0, 112.0]
++    assert out["trail_after_tp1_requested"] is True
++
++
++def test_handle_resize_returns_flat_without_rearming_when_position_closed():
++    ex = mod.BinanceExecutor.__new__(mod.BinanceExecutor)
++    ex.position_mode = "oneway"
++    ex.rollout_flags = type("RF", (), {})()
++    ex.exec_policy_maker_allowed_symbols = set()
++    ex.exec_policy_default = "SAFETY_FIRST"
++    ex._resolve_client = lambda payload: (DummyClient(), DummyFilters())
++    ex._sync_client_clock = lambda client: None
++    ex._guard_binance_action_enabled = lambda **kwargs: None
++    ex._guard_sid_not_quarantined = lambda *args, **kwargs: None
++    ex._load_order_state = lambda sid: {"sid": sid, "symbol": "BTCUSDT", "fsm_state": mod.FSM_PROTECTED, "sl_requested": 95.0, "tp_levels_requested": [110.0]}
++    calls = [{"is_open": True, "qty": 1.0, "logical_side": "LONG", "position_amt": 1.0}, {"is_open": False, "qty": 0.0, "logical_side": None, "position_amt": 0.0}]
++    ex._read_live_position = lambda **kwargs: calls.pop(0)
++    ex._normalize_resize_target = lambda current_qty, payload: ("target_qty", -1.0, 0.0)
++    ex._transition_log = []
++    ex._transition_state = lambda sid, **kwargs: ex._transition_log.append(kwargs["next_state"]) or {"fsm_state": kwargs["next_state"]}
++    ex._submit_reduce_only_market_exit = lambda **kwargs: {"close_order_id": 55}
++    ex._save_order_state = lambda *args, **kwargs: None
++    out = ex.handle_resize({"sid": "sid-flat", "symbol": "BTCUSDT", "target_qty": 0})
++    assert out["status"] == "flat"
++    assert mod.FSM_EXIT_FILLED in ex._transition_log
++    assert mod.FSM_PROTECTION_REPLACING not in ex._transition_log

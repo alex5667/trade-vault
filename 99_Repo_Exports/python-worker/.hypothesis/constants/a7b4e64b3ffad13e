@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/arrays/arrow/extension_types.py
+# hypothesis_version: 6.148.10
+
+['D', '_hotfix_installed', 'closed', 'freq', 'left', 'pandas.interval', 'pandas.period', 'right', 'subtype']

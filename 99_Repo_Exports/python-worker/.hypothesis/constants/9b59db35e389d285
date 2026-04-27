@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/redis_stream_consumer.py
+# hypothesis_version: 6.148.10
+
+[100, 200, '$', '+', '-', '0', '0-0', '>', 'BUSYGROUP', 'COUNT', 'NOGROUP', 'No such key', 'ORDERFLOW_DLQ_STREAM', 'XAUTOCLAIM', 'busygroup', 'consumer', 'consumers', 'ignore', 'loading', 'max', 'min', 'name', 'no such command', 'no such key', 'pending', 'stream:dlq:orderflow', 'time_since_delivered', 'unknown command', 'utf-8']

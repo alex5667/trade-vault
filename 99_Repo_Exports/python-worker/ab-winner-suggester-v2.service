@@ -1,0 +1,21 @@
+[Unit]
+Description=AB Winner Suggester V2 (symbol+regime)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+Environment=PYTHONPATH=/home/alex/front/trade/scanner_infra/python-worker:/home/alex/front/trade/scanner_infra
+Environment=REDIS_URL=redis://redis-worker-1:6379/0
+Environment=TRADE_EVENTS_STREAM=events:trades
+Environment=AB_WINNER_EVAL_SEC=300
+Environment=AB_WINNER_LOOKBACK_MS=86400000
+Environment=AB_WINNER_MIN_SAMPLES=40
+Environment=AB_WINNER_MIN_EDGE_R=0.05
+Restart=always
+RestartSec=2
+ExecStart=/usr/bin/python3 -m services.ab_winner_suggester_service_v2
+
+[Install]
+WantedBy=multi-user.target

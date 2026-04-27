@@ -1,0 +1,620 @@
+diff -ruN -x __pycache__ -x '*.pyc' -x .pytest_cache p5x/audit_code/crypto_orderflow_service.py p5x_mod/audit_code/crypto_orderflow_service.py
+--- p5x/audit_code/crypto_orderflow_service.py	2026-03-07 07:10:14.000000000 +0000
++++ p5x_mod/audit_code/crypto_orderflow_service.py	2026-03-07 09:08:09.406209338 +0000
+@@ -138,6 +138,30 @@
+ # ──────────────────────────────────────────────────────────────────────────────
+ 
+ logger = logging.getLogger("crypto_orderflow_service")
++
++
++def ensure_audit_chain_fields(signal: Dict[str, Any]) -> Dict[str, Any]:
++    """Ensure a stable signal/execution chain contract before publish.
++
++    The execution journal needs explicit IDs to join signal production with the
++    execution lifecycle and the closed-trade analytics layer.  Upstream signal
++    producers may only provide `decision_id`, so we materialize stable
++    `signal_id` and `execution_plan_id` here before the payload leaves the
++    publisher boundary.
++    """
++    if not isinstance(signal, dict):
++        return signal
++    decision_id = str(signal.get('decision_id') or signal.get('id') or '').strip()
++    signal_id = str(signal.get('signal_id') or decision_id or signal.get('sid') or '').strip()
++    execution_plan_id = str(signal.get('execution_plan_id') or decision_id or signal_id or '').strip()
++    if signal_id:
++        signal['signal_id'] = signal_id
++    if execution_plan_id:
++        signal['execution_plan_id'] = execution_plan_id
++    if decision_id:
++        signal['decision_id'] = decision_id
++    signal.setdefault('audit_chain_ver', 'p5_execution_audit_v1')
++    return signal
+ # Настройка логирования
+ log_level = os.getenv("CRYPTO_OF_LOG_LEVEL", "INFO")
+ logging.basicConfig(
+@@ -1157,6 +1181,7 @@
+ 
+     async def _pre_publish_allows_signal(self, runtime: Any, signal: Dict[str, Any]) -> bool:
+         now_ms = _utc_epoch_ms()
++        signal = ensure_audit_chain_fields(signal)
+         signal.setdefault('ts_event_ms', int(signal.get('ts_event_ms') or now_ms))
+         signal['ts_publish_ms'] = int(now_ms)
+         if self.exec_quarantine_denylist_enable and check_signal_against_quarantine_cache is not None:
+diff -ruN -x __pycache__ -x '*.pyc' -x .pytest_cache p5x/audit_code/test_p5_audit_chain_fields_v1.py p5x_mod/audit_code/test_p5_audit_chain_fields_v1.py
+--- p5x/audit_code/test_p5_audit_chain_fields_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p5x_mod/audit_code/test_p5_audit_chain_fields_v1.py	2026-03-07 09:07:37.882573204 +0000
+@@ -0,0 +1,8 @@
++from pathlib import Path
++
++
++def test_ensure_audit_chain_fields_present_in_source():
++    src = (Path(__file__).resolve().parent / 'crypto_orderflow_service.py').read_text(encoding='utf-8')
++    assert 'def ensure_audit_chain_fields' in src
++    assert "signal['signal_id']" in src or 'signal["signal_id"]' in src
++    assert "signal['execution_plan_id']" in src or 'signal["execution_plan_id"]' in src
+diff -ruN -x __pycache__ -x '*.pyc' -x .pytest_cache p5x/binance_execution/binance_executor.py p5x_mod/binance_execution/binance_executor.py
+--- p5x/binance_execution/binance_executor.py	2026-03-07 06:23:29.000000000 +0000
++++ p5x_mod/binance_execution/binance_executor.py	2026-03-07 09:07:05.041436732 +0000
+@@ -729,6 +729,47 @@
+         return self.client, self.filters  # type: ignore[return-value]
+ 
+ 
++    def _derive_audit_chain_fields(self, source: Dict[str, Any], sid: str) -> Dict[str, Any]:
++        """Build a stable audit chain carried in Redis state and SQL mirrors.
++
++        `signal_id` and `execution_plan_id` may arrive from the upstream signal
++        envelope.  When they do not, we derive deterministic fallbacks so SQL
++        joins remain possible after restarts/backfills.
++        """
++        src = source or {}
++        signal_id = str(src.get('signal_id') or src.get('decision_id') or src.get('id') or sid or '').strip()
++        execution_plan_id = str(src.get('execution_plan_id') or src.get('decision_id') or signal_id or sid or '').strip()
++        return {
++            'signal_id': signal_id,
++            'execution_plan_id': execution_plan_id,
++        }
++
++    @staticmethod
++    def _format_order_ref(*, venue: str, kind: str, order_id: Any = None, client_id: Any = None) -> str:
++        parts = [str(venue or 'binance').strip(), str(kind or '').strip()]
++        if order_id not in (None, '', 0, '0'):
++            parts.append(f"oid={order_id}")
++        if client_id not in (None, ''):
++            parts.append(f"cid={client_id}")
++        return '|'.join([p for p in parts if p])
++
++    def _derive_entry_exit_policies(self, *, execution_policy: str) -> Dict[str, str]:
++        if str(execution_policy).upper() == MAKER_FIRST:
++            return {
++                'entry_policy': 'ENTRY_MARKET_OR_SHORT_IOC',
++                'exit_policy': 'SL_STOP_MARKET__TP_LIMIT_LADDER__TRAIL_OPTIONAL',
++            }
++        return {
++            'entry_policy': 'ENTRY_MARKET_OR_SHORT_IOC',
++            'exit_policy': 'SL_STOP_MARKET__TP_MARKET__TRAIL_OPTIONAL',
++        }
++
++    def _new_closed_trade_id(self, sid: str, *, exit_order_ref: str = '') -> str:
++        suffix = hashlib.sha1(f"{sid}|{exit_order_ref}|{_ms_now()}".encode('utf-8')).hexdigest()[:12]
++        return f"closed:{sid}:{suffix}"
++
++
++
+     # --- Redis event helpers ---
+ 
+     def _exec_event(self, fields: Dict[str, Any]) -> None:
+@@ -786,23 +827,28 @@
+     def _save_order_state(self, sid: str, state: Dict[str, Any]) -> None:
+         """Write orders:state:{sid} Redis key for fast SID→Binance ID lookup.
+ 
+-        Schema (fields written on open):
+-          ts_ms            — unix ms timestamp
+-          venue            — always 'binance'
+-          action           — open | cancel | modify
+-          status           — filled | closed | ...
+-          symbol, side, qty, exec_price
+-          binance_order_id — Binance entry order ID
+-          sl_algo_id      — SL STOP_MARKET algo ID
+-          tp1_algo_id, tp2_algo_id, ...  — TP algo IDs
+-          trail_algo_id   — TRAILING_STOP_MARKET algo ID (written when arming fires)
+-
+-        Consumers: r.get(f"orders:state:{sid}") → json.loads()
+-        TTL: ORDERS_STATE_TTL_SEC (default 86400 = 24h).
+-        Fail-open: all Redis errors silently swallowed.
++        P5 note: the Redis state key is a *materialized view*, not the primary
++        event log.  We therefore merge new fields into the existing snapshot so
++        durable chain fields (signal_id, execution_plan_id, entry/exit refs,
++        closed_trade_id) survive partial updates such as TP watchdog or trail
++        arming.
+         """
+         try:
+-            doc = {"ts_ms": _ms_now(), "venue": "binance", **state}
++            existing: Dict[str, Any] = {}
++            try:
++                raw_prev = self.r.get(f"{self.state_key_prefix}{sid}")
++                if raw_prev:
++                    parsed_prev = json.loads(raw_prev)
++                    if isinstance(parsed_prev, dict):
++                        existing = parsed_prev
++            except Exception:
++                existing = {}
++            merged = dict(existing)
++            merged.update(state or {})
++            if 'created_at_ms' not in merged:
++                merged['created_at_ms'] = int(existing.get('created_at_ms') or _ms_now())
++            merged['updated_at_ms'] = _ms_now()
++            doc = {"ts_ms": _ms_now(), "venue": "binance", **merged}
+             self.r.set(
+                 f"{self.state_key_prefix}{sid}",
+                 json.dumps(doc, ensure_ascii=False, default=str),
+@@ -1281,11 +1327,18 @@
+             "sid": sid,
+             "symbol": symbol,
+             "action": "tp_state",
++            "event_type": "tp_watchdog",
+             "tp_level": int(level),
+             "tp_state": tp_state,
+             **extra,
+         }
+         self._exec_event(ev)
++        try:
++            sink = getattr(self, "execution_journal", None)
++            if sink is not None:
++                sink.record_watchdog_event(ev)
++        except Exception:
++            pass
+         state_doc = {f"tp{int(level)}_state": tp_state}
+         for k, v in extra.items():
+             state_doc[f"tp{int(level)}_{k}"] = v
+@@ -1358,6 +1411,7 @@
+             "close_client_id": params["newClientOrderId"],
+             "close_order_status": j.get("status"),
+             "close_reason_tag": reason_tag,
++            "exit_order_ref": self._format_order_ref(venue="binance", kind="close_market", order_id=j.get("orderId"), client_id=params["newClientOrderId"]),
+         }
+ 
+     def _protection_confirmed(self, prot: Dict[str, Any], tps: List[float], trail_enabled: bool) -> bool:
+@@ -1409,9 +1463,12 @@
+         if EXECUTION_EMERGENCY_FLATTEN_TOTAL:
+             EXECUTION_EMERGENCY_FLATTEN_TOTAL.labels(symbol=symbol, reason="emerg").inc()
+         self._transition_state(sid, symbol=symbol, action="emergency_flatten", next_state=FSM_EMERGENCY_FLATTENED, details=close)
++        exit_order_ref = str(close.get('exit_order_ref') or '')
+         return {
+             "emergency_order_id": close.get("close_order_id"),
+             "emergency_client_id": close.get("close_client_id"),
++            "exit_order_ref": exit_order_ref,
++            "closed_trade_id": self._new_closed_trade_id(sid, exit_order_ref=exit_order_ref) if exit_order_ref else '',
+         }
+ 
+     # --- Protective orders (SL + TPs) ---
+@@ -2267,6 +2324,10 @@
+             )
+             self._transition_state(sid, symbol=symbol, action="open", next_state=FSM_EMERGENCY_FLATTENED, details=emerg)
+             prot = {**prot, **emerg, "protection_invariant_failed": True}
++        order_refs = {
++            "entry_order_ref": self._format_order_ref(venue="binance", kind="entry", order_id=order_id, client_id=params["newClientOrderId"]),
++        }
++        audit_policies = self._derive_entry_exit_policies(execution_policy=policy.name)
+         result = {
+             "sid": sid, "symbol": symbol, "action": "open",
+             "status": status.lower(), "side": logical,
+@@ -2275,6 +2336,7 @@
+             "is_virtual": str(is_virtual).lower(),
+             "venue": f"binance_{'demo' if is_virtual else 'prod'}",
+             "execution_policy": policy.name,
++            **audit_chain, **audit_policies, **order_refs,
+             **prot, **trail, **maker_watchdogs,
+             "json": json.dumps(
+                 {"entry": j_final, "protective": prot, "trailing": trail, "tp_watchdogs": maker_watchdogs},
+@@ -2294,6 +2356,7 @@
+             "is_virtual": is_virtual,
+             "venue": f"binance_{'demo' if is_virtual else 'prod'}",
+             "execution_policy": policy.name,
++            **audit_chain, **audit_policies, **order_refs,
+             **prot, **trail, **maker_watchdogs,
+         })
+         return result
+@@ -2310,6 +2373,7 @@
+         if self.allowlist and symbol not in self.allowlist:
+             raise ValueError(f"symbol not in allowlist: {symbol}")
+ 
++        audit_chain = self._derive_audit_chain_fields(payload, sid)
+         canceled = self._cancel_by_token(symbol, sid, client=client)
+ 
+         # Determine current position
+@@ -2368,10 +2432,22 @@
+             payload=payload, sid=sid, symbol=symbol, logical_side=logical, filled_qty=qty,
+             prot=prot, tps=tps, client=client, filters=filters,
+         )
++        audit_policies = self._derive_entry_exit_policies(execution_policy=policy.name)
++        self._save_order_state(sid, {
++            "action": "modify",
++            "status": "ok",
++            "symbol": symbol,
++            "side": logical,
++            "qty": qty,
++            "execution_policy": policy.name,
++            **audit_chain, **audit_policies,
++            **prot, **trail, **maker_watchdogs,
++        })
+         return {
+             "sid": sid, "symbol": symbol, "action": "modify",
+             "status": "ok", "side": logical, "qty": qty,
+             "canceled_orders": canceled, "execution_policy": policy.name,
++            **audit_chain, **audit_policies,
+             **prot, **trail, **maker_watchdogs,
+             "json": json.dumps(
+                 {"canceled": canceled, "protective": prot, "trailing": trail, "tp_watchdogs": maker_watchdogs},
+@@ -2390,6 +2466,7 @@
+         if self.allowlist and symbol not in self.allowlist:
+             raise ValueError(f"symbol not in allowlist: {symbol}")
+ 
++        audit_chain = self._derive_audit_chain_fields(payload, sid)
+         canceled = self._cancel_by_token(symbol, sid, client=client)
+ 
+         # Close any open position
+@@ -2415,12 +2492,20 @@
+             close_order_id = _i(close.get("close_order_id"), 0) or None
+             closed = True
+ 
++        exit_order_ref = ''
++        closed_trade_id = ''
++        if close_order_id:
++            exit_order_ref = self._format_order_ref(venue='binance', kind='exit', order_id=close_order_id)
++            closed_trade_id = str(payload.get('closed_trade_id') or '') or self._new_closed_trade_id(sid, exit_order_ref=exit_order_ref)
+         result = {
+             "sid": sid, "symbol": symbol, "action": "cancel",
+             "status": "ok", "side": logical or "",
+             "qty": qty, "canceled_orders": canceled,
+             "close_order_id": close_order_id or "",
++            "exit_order_ref": exit_order_ref,
++            "closed_trade_id": closed_trade_id,
+             "closed": str(closed).lower(),
++            **audit_chain,
+         }
+         # Update orders:state:{sid}: mark position as closed
+         if closed:
+@@ -2430,7 +2515,10 @@
+                 "symbol": symbol,
+                 "side": logical or "",
+                 "close_order_id": close_order_id or "",
++                "exit_order_ref": exit_order_ref,
++                "closed_trade_id": closed_trade_id,
+                 "closed": True,
++                **audit_chain,
+             })
+         return result
+ 
+diff -ruN -x __pycache__ -x '*.pyc' -x .pytest_cache p5x/binance_execution/execution_journal.py p5x_mod/binance_execution/execution_journal.py
+--- p5x/binance_execution/execution_journal.py	2026-03-06 18:42:42.000000000 +0000
++++ p5x_mod/binance_execution/execution_journal.py	2026-03-07 09:07:05.003528629 +0000
+@@ -1,9 +1,15 @@
+ from __future__ import annotations
+ 
+-"""Best-effort execution journal sink for Postgres."""
++"""Best-effort execution journal sink for Postgres.
++
++P5 extends the journal contract so execution SQL mirrors can be used as a durable
++join point between signal production, execution lifecycle and analytics.  The
++Redis stream remains the online SoT; SQL mirrors are durable audit materialized
++views that must never break the hot path.
++"""
+ 
+ from dataclasses import dataclass
+-from typing import Any, Dict
++from typing import Any, Dict, Optional
+ import json
+ import os
+ import time
+@@ -41,6 +47,30 @@
+         psycopg = None
+ 
+ 
++def _s(v: Any) -> str:
++    return str(v or '')
++
++
++def _i(v: Any, default: int = 0) -> int:
++    try:
++        return int(v)
++    except Exception:
++        return int(default)
++
++
++def _optional_text(v: Any) -> Optional[str]:
++    s = str(v or '').strip()
++    return s or None
++
++
++def _first_text(doc: Dict[str, Any], *keys: str) -> Optional[str]:
++    for key in keys:
++        s = _optional_text(doc.get(key))
++        if s:
++            return s
++    return None
++
++
+ @dataclass
+ class ExecutionJournalSink:
+     dsn: str = ''
+@@ -64,8 +94,8 @@
+         if not self.enabled:
+             return False
+         sql = (
+-            "INSERT INTO execution_order_events (sid, symbol, event_type, event_ts_ms, payload_jsonb) "
+-            "VALUES (%s, %s, %s, %s, %s::jsonb)"
++            "INSERT INTO execution_order_events (sid, symbol, signal_id, execution_plan_id, event_type, event_ts_ms, payload_jsonb) "
++            "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)"
+         )
+         payload = dict(event or {})
+         try:
+@@ -73,10 +103,12 @@
+             with conn:
+                 with conn.cursor() as cur:
+                     cur.execute(sql, (
+-                        str(payload.get('sid') or ''),
+-                        str(payload.get('symbol') or ''),
+-                        str(payload.get('event_type') or payload.get('action') or 'event'),
+-                        int(payload.get('ts_ms') or int(time.time() * 1000)),
++                        _s(payload.get('sid')),
++                        _s(payload.get('symbol')),
++                        _first_text(payload, 'signal_id', 'decision_id', 'id'),
++                        _first_text(payload, 'execution_plan_id', 'decision_id', 'signal_id', 'id'),
++                        _s(payload.get('event_type') or payload.get('action') or 'event'),
++                        _i(payload.get('ts_ms') or int(time.time() * 1000)),
+                         json.dumps(payload, ensure_ascii=False, default=str),
+                     ))
+             return True
+@@ -89,35 +121,48 @@
+         if not self.enabled:
+             return False
+         sql = (
+-            "INSERT INTO execution_orders (sid, symbol, action, status, fsm_state, execution_policy, venue, "
+-            "position_mode, position_side, working_type_policy, state_jsonb, created_at_ms, updated_at_ms) "
+-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s) "
++            "INSERT INTO execution_orders (sid, symbol, action, status, fsm_state, execution_policy, entry_policy, exit_policy, "
++            "signal_id, execution_plan_id, entry_order_ref, exit_order_ref, closed_trade_id, venue, position_mode, position_side, "
++            "working_type_policy, state_jsonb, created_at_ms, updated_at_ms) "
++            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s) "
+             "ON CONFLICT (sid) DO UPDATE SET "
+             "symbol = EXCLUDED.symbol, action = EXCLUDED.action, status = EXCLUDED.status, fsm_state = EXCLUDED.fsm_state, "
+-            "execution_policy = EXCLUDED.execution_policy, venue = EXCLUDED.venue, position_mode = EXCLUDED.position_mode, "
+-            "position_side = EXCLUDED.position_side, working_type_policy = EXCLUDED.working_type_policy, "
+-            "state_jsonb = EXCLUDED.state_jsonb, updated_at_ms = EXCLUDED.updated_at_ms"
++            "execution_policy = EXCLUDED.execution_policy, entry_policy = EXCLUDED.entry_policy, exit_policy = EXCLUDED.exit_policy, "
++            "signal_id = COALESCE(EXCLUDED.signal_id, execution_orders.signal_id), "
++            "execution_plan_id = COALESCE(EXCLUDED.execution_plan_id, execution_orders.execution_plan_id), "
++            "entry_order_ref = COALESCE(EXCLUDED.entry_order_ref, execution_orders.entry_order_ref), "
++            "exit_order_ref = COALESCE(EXCLUDED.exit_order_ref, execution_orders.exit_order_ref), "
++            "closed_trade_id = COALESCE(EXCLUDED.closed_trade_id, execution_orders.closed_trade_id), "
++            "venue = EXCLUDED.venue, position_mode = EXCLUDED.position_mode, position_side = EXCLUDED.position_side, "
++            "working_type_policy = EXCLUDED.working_type_policy, state_jsonb = EXCLUDED.state_jsonb, updated_at_ms = EXCLUDED.updated_at_ms"
+         )
+         doc = dict(state or {})
+-        now_ms = int(doc.get('ts_ms') or int(time.time() * 1000))
++        now_ms = _i(doc.get('ts_ms') or int(time.time() * 1000))
+         try:
+             conn = self._connect()
+             with conn:
+                 with conn.cursor() as cur:
+                     cur.execute(sql, (
+-                        str(doc.get('sid') or ''),
+-                        str(doc.get('symbol') or ''),
+-                        str(doc.get('action') or ''),
+-                        str(doc.get('status') or ''),
+-                        str(doc.get('fsm_state') or ''),
+-                        str(doc.get('execution_policy') or ''),
+-                        str(doc.get('venue') or 'binance'),
+-                        str(doc.get('position_mode') or ''),
+-                        str(doc.get('position_side') or ''),
+-                        str(doc.get('working_type_policy') or ''),
++                        _s(doc.get('sid')),
++                        _s(doc.get('symbol')),
++                        _s(doc.get('action')),
++                        _s(doc.get('status')),
++                        _s(doc.get('fsm_state')),
++                        _s(doc.get('execution_policy')),
++                        _s(doc.get('entry_policy') or doc.get('execution_policy')),
++                        _s(doc.get('exit_policy')),
++                        _first_text(doc, 'signal_id', 'decision_id', 'id'),
++                        _first_text(doc, 'execution_plan_id', 'decision_id', 'signal_id', 'id'),
++                        _optional_text(doc.get('entry_order_ref')),
++                        _optional_text(doc.get('exit_order_ref')),
++                        _optional_text(doc.get('closed_trade_id')),
++                        _s(doc.get('venue') or 'binance'),
++                        _s(doc.get('position_mode')),
++                        _s(doc.get('position_side')),
++                        _s(doc.get('working_type_policy')),
+                         json.dumps(doc, ensure_ascii=False, default=str),
+-                        int(doc.get('created_at_ms') or now_ms),
+-                        int(doc.get('updated_at_ms') or now_ms),
++                        _i(doc.get('created_at_ms') or now_ms),
++                        _i(doc.get('updated_at_ms') or now_ms),
+                     ))
+             return True
+         except Exception:
+@@ -128,7 +173,7 @@
+     def upsert_protection_refs(self, state: Dict[str, Any]) -> bool:
+         if not self.enabled:
+             return False
+-        sid = str((state or {}).get('sid') or '')
++        sid = _s((state or {}).get('sid'))
+         if not sid:
+             return False
+         sql = (
+@@ -145,18 +190,47 @@
+                 with conn.cursor() as cur:
+                     cur.execute(sql, (
+                         sid,
+-                        str(s.get('symbol') or ''),
++                        _s(s.get('symbol')),
+                         s.get('sl_algo_id'),
+-                        s.get('sl_client_algo_id'),
++                        _optional_text(s.get('sl_client_algo_id')),
+                         s.get('tp1_algo_id'),
+                         s.get('tp2_algo_id'),
+                         s.get('tp3_algo_id'),
+                         s.get('trail_algo_id'),
+-                        s.get('trail_client_algo_id'),
+-                        int(s.get('updated_at_ms') or int(time.time() * 1000)),
++                        _optional_text(s.get('trail_client_algo_id')),
++                        _i(s.get('updated_at_ms') or int(time.time() * 1000)),
+                     ))
+             return True
+         except Exception:
+             if TRADE_EXECUTION_JOURNAL_WRITE_FAIL_TOTAL:
+                 TRADE_EXECUTION_JOURNAL_WRITE_FAIL_TOTAL.labels(kind='protection_refs').inc()
+             return False
++
++    def record_watchdog_event(self, event: Dict[str, Any]) -> bool:
++        if not self.enabled:
++            return False
++        sql = (
++            "INSERT INTO execution_watchdog_events (sid, symbol, signal_id, execution_plan_id, tp_level, watchdog_state, event_type, event_ts_ms, payload_jsonb) "
++            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)"
++        )
++        payload = dict(event or {})
++        try:
++            conn = self._connect()
++            with conn:
++                with conn.cursor() as cur:
++                    cur.execute(sql, (
++                        _s(payload.get('sid')),
++                        _s(payload.get('symbol')),
++                        _first_text(payload, 'signal_id', 'decision_id', 'id'),
++                        _first_text(payload, 'execution_plan_id', 'decision_id', 'signal_id', 'id'),
++                        payload.get('tp_level'),
++                        _s(payload.get('tp_state') or payload.get('watchdog_state') or ''),
++                        _s(payload.get('event_type') or 'watchdog'),
++                        _i(payload.get('ts_ms') or int(time.time() * 1000)),
++                        json.dumps(payload, ensure_ascii=False, default=str),
++                    ))
++            return True
++        except Exception:
++            if TRADE_EXECUTION_JOURNAL_WRITE_FAIL_TOTAL:
++                TRADE_EXECUTION_JOURNAL_WRITE_FAIL_TOTAL.labels(kind='watchdog_event').inc()
++            return False
+diff -ruN -x __pycache__ -x '*.pyc' -x .pytest_cache p5x/binance_execution/test_execution_journal_p5_contract_v1.py p5x_mod/binance_execution/test_execution_journal_p5_contract_v1.py
+--- p5x/binance_execution/test_execution_journal_p5_contract_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p5x_mod/binance_execution/test_execution_journal_p5_contract_v1.py	2026-03-07 09:07:05.041730117 +0000
+@@ -0,0 +1,56 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++mod_path = Path(__file__).resolve().parent / 'execution_journal.py'
++spec = importlib.util.spec_from_file_location('execution_journal_p5', mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++spec.loader.exec_module(mod)
++
++
++class _Cursor:
++    def __init__(self, executed):
++        self.executed = executed
++    def __enter__(self):
++        return self
++    def __exit__(self, *args):
++        return False
++    def execute(self, sql, params):
++        self.executed.append((sql, params))
++
++
++class _Conn:
++    def __init__(self, executed):
++        self.executed = executed
++    def __enter__(self):
++        return self
++    def __exit__(self, *args):
++        return False
++    def cursor(self):
++        return _Cursor(self.executed)
++
++
++def test_order_snapshot_contains_chain_columns():
++    executed = []
++    sink = mod.ExecutionJournalSink(dsn='postgres://x', connect_factory=lambda dsn: _Conn(executed))
++    ok = sink.upsert_order_snapshot({
++        'sid': 's1', 'symbol': 'BTCUSDT', 'signal_id': 'sig-1', 'execution_plan_id': 'plan-1',
++        'entry_order_ref': 'binance|entry|oid=1|cid=abc', 'exit_order_ref': 'binance|exit|oid=2',
++        'closed_trade_id': 'closed:s1:abc', 'entry_policy': 'ENTRY_MARKET', 'exit_policy': 'EXIT_SAFE',
++    })
++    assert ok is True
++    sql, params = executed[0]
++    assert 'entry_policy' in sql and 'closed_trade_id' in sql
++    assert params[8] == 'sig-1'
++    assert params[9] == 'plan-1'
++
++
++def test_watchdog_event_insert_exists():
++    executed = []
++    sink = mod.ExecutionJournalSink(dsn='postgres://x', connect_factory=lambda dsn: _Conn(executed))
++    ok = sink.record_watchdog_event({'sid': 's1', 'symbol': 'BTCUSDT', 'tp_level': 1, 'tp_state': 'TP1_TRIGGERED'})
++    assert ok is True
++    sql, params = executed[0]
++    assert 'execution_watchdog_events' in sql
++    assert params[4] == 1
+diff -ruN -x __pycache__ -x '*.pyc' -x .pytest_cache p5x/binance_execution/test_p5_execution_journal_assets_v1.py p5x_mod/binance_execution/test_p5_execution_journal_assets_v1.py
+--- p5x/binance_execution/test_p5_execution_journal_assets_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p5x_mod/binance_execution/test_p5_execution_journal_assets_v1.py	2026-03-07 09:07:05.042074067 +0000
+@@ -0,0 +1,11 @@
++from pathlib import Path
++
++
++def test_p5_migrations_present():
++    base = Path(__file__).resolve().parents[1] / 'db' / 'migrations'
++    sql = (base / '20260307_19_execution_journal_contract_p5.sql').read_text(encoding='utf-8')
++    assert 'execution_watchdog_events' in sql
++    assert 'closed_trade_id' in sql
++    sql2 = (base / '20260307_20_execution_journal_contract_p5_indexes.sql').read_text(encoding='utf-8')
++    assert 'idx_execution_orders_signal_plan' in sql2
++    assert 'idx_execution_watchdog_sid_ts' in sql2
+diff -ruN -x __pycache__ -x '*.pyc' -x .pytest_cache p5x/db/migrations/20260307_19_execution_journal_contract_p5.sql p5x_mod/db/migrations/20260307_19_execution_journal_contract_p5.sql
+--- p5x/db/migrations/20260307_19_execution_journal_contract_p5.sql	1970-01-01 00:00:00.000000000 +0000
++++ p5x_mod/db/migrations/20260307_19_execution_journal_contract_p5.sql	2026-03-07 09:07:05.034874908 +0000
+@@ -0,0 +1,27 @@
++-- P5 journal contract extension: durable signal->execution->closed-trade chain
++
++ALTER TABLE execution_orders
++  ADD COLUMN IF NOT EXISTS entry_policy TEXT NOT NULL DEFAULT '',
++  ADD COLUMN IF NOT EXISTS exit_policy TEXT NOT NULL DEFAULT '',
++  ADD COLUMN IF NOT EXISTS signal_id TEXT NULL,
++  ADD COLUMN IF NOT EXISTS execution_plan_id TEXT NULL,
++  ADD COLUMN IF NOT EXISTS entry_order_ref TEXT NULL,
++  ADD COLUMN IF NOT EXISTS exit_order_ref TEXT NULL,
++  ADD COLUMN IF NOT EXISTS closed_trade_id TEXT NULL;
++
++ALTER TABLE execution_order_events
++  ADD COLUMN IF NOT EXISTS signal_id TEXT NULL,
++  ADD COLUMN IF NOT EXISTS execution_plan_id TEXT NULL;
++
++CREATE TABLE IF NOT EXISTS execution_watchdog_events (
++  id BIGSERIAL PRIMARY KEY,
++  sid TEXT NOT NULL,
++  symbol TEXT NOT NULL DEFAULT '',
++  signal_id TEXT NULL,
++  execution_plan_id TEXT NULL,
++  tp_level INTEGER NULL,
++  watchdog_state TEXT NOT NULL DEFAULT '',
++  event_type TEXT NOT NULL,
++  event_ts_ms BIGINT NOT NULL,
++  payload_jsonb JSONB NOT NULL
++);
+diff -ruN -x __pycache__ -x '*.pyc' -x .pytest_cache p5x/db/migrations/20260307_20_execution_journal_contract_p5_indexes.sql p5x_mod/db/migrations/20260307_20_execution_journal_contract_p5_indexes.sql
+--- p5x/db/migrations/20260307_20_execution_journal_contract_p5_indexes.sql	1970-01-01 00:00:00.000000000 +0000
++++ p5x_mod/db/migrations/20260307_20_execution_journal_contract_p5_indexes.sql	2026-03-07 09:07:05.035581152 +0000
+@@ -0,0 +1,14 @@
++CREATE INDEX IF NOT EXISTS idx_execution_orders_signal_plan
++  ON execution_orders(signal_id, execution_plan_id, updated_at_ms DESC);
++
++CREATE INDEX IF NOT EXISTS idx_execution_orders_closed_trade
++  ON execution_orders(closed_trade_id);
++
++CREATE INDEX IF NOT EXISTS idx_execution_events_signal_plan_ts
++  ON execution_order_events(signal_id, execution_plan_id, event_ts_ms DESC);
++
++CREATE INDEX IF NOT EXISTS idx_execution_watchdog_sid_ts
++  ON execution_watchdog_events(sid, event_ts_ms DESC);
++
++CREATE INDEX IF NOT EXISTS idx_execution_watchdog_symbol_state_ts
++  ON execution_watchdog_events(symbol, watchdog_state, event_ts_ms DESC);

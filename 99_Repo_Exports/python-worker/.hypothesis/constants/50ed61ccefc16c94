@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/audit_code_integrity.py
+# hypothesis_version: 6.148.10
+
+[20000, ',', '--fail-on-dup', '--max-files', '--out', '--root', '.', '.git', '.mypy_cache', '.py', '.pytest_cache', '.venv', '__main__', '__pycache__', 'async_def', 'build', 'class', 'def', 'dist', 'dup_defs', 'dup_imports', 'error', 'files_scanned', 'files_with_dup_defs', 'findings', 'kind', 'lineno', 'n_defs', 'n_imports', 'node_modules', 'path', 'r', 'root', 'summary', 'utf-8', 'venv', 'w', 'write JSON report']

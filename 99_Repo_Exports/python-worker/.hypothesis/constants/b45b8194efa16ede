@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/ml_analysis/tools/tune_conf_score_weights_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.002, 0.08, 0.25, 0.5, 100, 200, 2000, ',', '--max-w', '--min-n-key', '--min-n-regime', '--ndjson', '--out-json', '--parquet', '--uplift-min', '=', '[', '__main__', 'baselines', 'breakout', 'by_regime', 'confirmations', 'div_match', 'evidence', 'fp_edge_absorb', 'ice_strict', 'iceberg_strict', 'kind', 'market_mode', 'market_regime', 'max_w', 'mean', 'mean_r', 'meanrev', 'meta', 'min_n_key', 'min_n_regime', 'momentum', 'n', 'neutral', 'obi_stable', 'r', 'r_mult', 'range', 'reclaim', 'regime', 'revert', 'rsi_agree', 'signal_kind', 'sweep', 'sweep_eqh', 'sweep_eql', 'synergy', 'synergy_by_regime', 'trend', 'uplift_min', 'utf-8', 'w', 'winrate', 'y']

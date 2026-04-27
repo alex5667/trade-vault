@@ -1,0 +1,62 @@
+groups:
+  - name: exec_health_observability_v1
+    rules:
+      - alert: OF_ExecHealth_ReaderErrors_Warn
+        expr: sum by (scope, where) (increase(exec_health_reader_errors_total[5m])) > 1
+        for: 2m
+        labels:
+          severity: warning
+          component: exec_health
+        annotations:
+          summary: "ExecHealth reader errors detected"
+          description: "increase(exec_health_reader_errors_total[5m])={{ $value }} for scope={{ $labels.scope }}, where={{ $labels.where }}. Check Redis reachability, key format compatibility, and fail-open logs."
+
+      - alert: OF_ExecHealth_ReaderErrors_Crit
+        expr: sum by (scope, where) (increase(exec_health_reader_errors_total[5m])) > 10
+        for: 2m
+        labels:
+          severity: critical
+          component: exec_health
+        annotations:
+          summary: "High ExecHealth reader error rate"
+          description: "increase(exec_health_reader_errors_total[5m])={{ $value }} for scope={{ $labels.scope }}, where={{ $labels.where }}. Telemetry and policy overlays may be stale or absent."
+
+      - alert: OF_ExecHealth_VetoStorm_Warn
+        expr: sum by (scope, symbol) (increase(exec_health_decision_total{outcome="veto"}[15m])) > 20
+        for: 5m
+        labels:
+          severity: warning
+          component: exec_health
+        annotations:
+          summary: "ExecHealth veto burst detected"
+          description: "increase(exec_health_decision_total{outcome='veto'}[15m])={{ $value }} for scope={{ $labels.scope }}, symbol={{ $labels.symbol }}. Review thresholds, rollups, and recent market regime shifts."
+
+      - alert: OF_ExecHealth_VetoStorm_Crit
+        expr: sum by (scope, symbol) (increase(exec_health_decision_total{outcome="veto"}[15m])) > 50
+        for: 5m
+        labels:
+          severity: critical
+          component: exec_health
+        annotations:
+          summary: "Severe ExecHealth veto storm"
+          description: "increase(exec_health_decision_total{outcome='veto'}[15m])={{ $value }} for scope={{ $labels.scope }}, symbol={{ $labels.symbol }}. Trading entry path may be effectively shut; verify TCA rollups and threshold alignment."
+
+      - alert: OF_ExecHealth_RollupsMissing_Warn
+        expr: (((time() * 1000) - max by (scope, symbol) (exec_health_last_event_ts_ms)) < 300000) and on (scope, symbol) (max by (scope, symbol) (exec_health_rollup_present{metric="is_p95_bps"}) == 0)
+        for: 10m
+        labels:
+          severity: warning
+          component: exec_health
+        annotations:
+          summary: "ExecHealth active traffic without rollups"
+          description: "Recent ExecHealth traffic exists for scope={{ $labels.scope }}, symbol={{ $labels.symbol }}, but rollup presence for is_p95_bps stayed at 0. Check TCA writer freshness and key namespace compatibility."
+
+      - alert: OF_ExecHealth_RollupsMissing_Crit
+        expr: (((time() * 1000) - max by (scope, symbol) (exec_health_last_event_ts_ms)) < 300000) and on (scope, symbol) (max by (scope, symbol) (exec_health_rollup_present{metric="is_p95_bps"}) == 0)
+        for: 20m
+        labels:
+          severity: critical
+          component: exec_health
+        annotations:
+          summary: "ExecHealth rollups missing for active flow"
+          description: "ExecHealth saw live traffic for scope={{ $labels.scope }}, symbol={{ $labels.symbol }}, but no is_p95_bps rollups were present for 20m. Alerts/dashboards may show fail-open masking."

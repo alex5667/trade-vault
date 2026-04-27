@@ -1,0 +1,32 @@
+groups:
+- name: atr-policy-analytics
+  rules:
+  - alert: AtrPolicyPnlDegradation
+    expr: atr_policy_avg_pnl_bps < -100 and atr_policy_n_trades > 5
+    for: 1h
+    labels:
+      severity: page
+      service: atr_policy
+    annotations:
+      summary: "ATR Policy PnL Degradation detected"
+      description: "Policy v{{ $labels.policy_ver }} for symbol {{ $labels.symbol }} ({{ $labels.scenario }} / {{ $labels.regime }}) has avg PnL < -100 bps over recent trades. Review policy recovery runs or rollbacks."
+
+  - alert: AtrPolicyHighSlippage
+    expr: atr_policy_slippage_bps > 15 and atr_policy_n_trades > 5
+    for: 1h
+    labels:
+      severity: warn
+      service: atr_policy
+    annotations:
+      summary: "ATR Policy High Slippage detected"
+      description: "Policy v{{ $labels.policy_ver }} for symbol {{ $labels.symbol }} has avg slippage > 15 bps. Check execution latency or liquidity conditions."
+
+  - alert: AtrPolicyMissingProvenance
+    expr: atr_policy_n_trades{policy_ver="0"} > 5 or atr_policy_n_trades{cert_status=""} > 5
+    for: 1h
+    labels:
+      severity: warn
+      service: atr_policy
+    annotations:
+      summary: "ATR Policy Missing Provenance"
+      description: "Trades observed without valid policy_ver or cert_status. Check provenance propagation in signal outbox or trade monitor."

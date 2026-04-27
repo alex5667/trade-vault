@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/analytics/telegram_reporter_ext.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.3, 100, 2000, '/data/reports', 'Actual Loss', 'Actual Win', 'Agg', 'Blues', 'False Positive Rate', 'HTML', 'INFO', 'NOTIFY_STREAM', 'Predicted Loss', 'Predicted Win', 'REDIS_URL', 'REPORT_IMG_DIR', 'Random', 'TelegramReporterExt', 'True Positive Rate', 'caption', 'center', 'fpr', 'group_id', 'k--', 'notify:telegram', 'parse_mode', 'photo_path', 'text', 'tight', 'tpr', '🎯 Confusion Matrix', '📈 ROC Analysis']

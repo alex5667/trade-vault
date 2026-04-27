@@ -1,0 +1,10 @@
+# Example: daily report (stdout to file) + textfile exporter (node_exporter)
+# Adjust paths to your environment.
+
+# Daily report (02:10)
+10 2 * * * cd /home/alex/front/trade/scanner_infra/python-worker && REDIS_URL=redis://redis-worker-1:6379/0 \
+  python -m tools.tick_gate_daily_report --hours 24 --format text >> /var/log/tick_gate_daily_report.log 2>&1
+
+# Textfile exporter (every 5 min)
+*/5 * * * * cd /home/alex/front/trade/scanner_infra/python-worker && REDIS_URL=redis://redis-worker-1:6379/0 \
+  python -m tools.tick_gate_textfile_exporter --hours 24 --out /var/lib/node_exporter/textfile_collector/tick_gate.prom >/dev/null 2>&1

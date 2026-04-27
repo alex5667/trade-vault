@@ -1,0 +1,39 @@
+groups:
+- name: of_gate_dlq_p82
+  rules:
+  - alert: OF_Gate_DLQ_ExporterDown
+    expr: of_gate_dlq_exporter_up == 0
+    for: 5m
+    labels:
+      severity: warn
+    annotations:
+      summary: of_gate DLQ exporter is down
+      description: >
+        Prometheus cannot observe DLQ streams. Check exporter container logs.
+        Expected: python -m orderflow_services.of_gate_dlq_exporter_v1 (port 9154).
+
+  - alert: OF_Gate_DLQ_NonZero15m
+    expr: sum(of_gate_dlq_len) > 0
+    for: 15m
+    labels:
+      severity: warn
+    annotations:
+      summary: of_gate DLQ is non-empty
+      description: >
+        DLQ length is > 0 for 15m.
+        Inspect with: python -m orderflow_services.of_gate_dlq_drilldown_p83 top --limit 5000
+        If fixes are safe: enable auto replay timer (ENABLE_OF_GATE_DLQ_AUTO_REPLAY_TIMER=1).
+
+  - alert: OF_Gate_DLQ_OldestAgeHigh
+    expr: max(of_gate_dlq_oldest_age_sec) > 3600
+    for: 10m
+    labels:
+      severity: page
+    annotations:
+      summary: of_gate DLQ backlog is old
+      description: >
+        Oldest DLQ entry is older than 1 hour.
+        This usually indicates a stuck archiver, persistent parse errors, or DB issues.
+        1) Check archiver alerts/logs
+        2) Drilldown: python -m orderflow_services.of_gate_dlq_drilldown_p83 stats
+        3) Safe replay: python -m orderflow_services.of_gate_dlq_fixed_replay_p84 auto --commit --delete-after-replay

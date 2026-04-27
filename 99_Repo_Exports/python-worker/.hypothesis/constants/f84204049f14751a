@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/ml_labeling.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.5, 1.0, 'R', 'TP', 'WIN', 'heuristic_tp', 'meta', 'metadata', 'missing', 'no_risk', 'pnl', 'pnl_net', 'pnl_over_risk', 'r_mult', 'reason', 'reason_raw', 'risk_usd', '{', '}']

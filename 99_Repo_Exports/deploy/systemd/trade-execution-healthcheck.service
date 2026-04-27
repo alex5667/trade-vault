@@ -1,0 +1,20 @@
+[Unit]
+Description=Trade execution SQL/Redis consistency healthcheck
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=trade
+Group=trade
+WorkingDirectory=/opt/trade
+EnvironmentFile=-/etc/trade/trade-execution.env
+# Writes latest_execution_health.json and exits with severity code:
+#   0 = ok | 1 = warning | 2 = critical
+# SuccessExitStatus allows systemd to treat exit 1 and 2 as non-failure
+# (the timer keeps running; alert on missing heartbeat instead).
+ExecStart=/usr/bin/python3 /opt/trade/python-worker/scripts/execution_healthcheck.py --report-dir ${RUNBOOK_REPORT_DIR:-/var/lib/trade-runbook/reports}
+SuccessExitStatus=0 1 2
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,618 @@
+diff --git a/orderflow_services/phase2_integration_freeze_auditor_v2_if1.py b/orderflow_services/phase2_integration_freeze_auditor_v2_if1.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/phase2_integration_freeze_auditor_v2_if1.py
+@@ -0,0 +1,547 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from typing import Any, Dict, Iterable, List, Optional, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    import psycopg
++except Exception:  # pragma: no cover
++    psycopg = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++
++APP_NAME = "phase2_integration_freeze_auditor_v2_if1"
++PORT = int(os.getenv("ML_PHASE2_INTEGRATION_FREEZE_PORT", "9915"))
++RUN_EVERY_SEC = int(os.getenv("ML_PHASE2_INTEGRATION_FREEZE_RUN_EVERY_SEC", "300"))
++MAXLEN = int(os.getenv("ML_PHASE2_INTEGRATION_FREEZE_MAXLEN", "20000"))
++DEFAULT_MAX_AGE_MS = int(os.getenv("ML_PHASE2_INTEGRATION_FREEZE_DEFAULT_MAX_AGE_MS", "7200000"))
++CRITICAL_MAX_AGE_MS = int(os.getenv("ML_PHASE2_INTEGRATION_FREEZE_CRITICAL_MAX_AGE_MS", "3600000"))
++
++REPORTS_STREAM = os.getenv(
++    "ML_PHASE2_INTEGRATION_FREEZE_REPORTS_STREAM",
++    "stream:ml:phase2_integration_freeze_reports",
++)
++AUDIT_STREAM = os.getenv(
++    "ML_PHASE2_INTEGRATION_FREEZE_AUDIT_STREAM",
++    "stream:ml:phase2_integration_freeze_audit",
++)
++LAST_HASH = os.getenv(
++    "ML_PHASE2_INTEGRATION_FREEZE_LAST_HASH",
++    "metrics:ml:phase2_integration_freeze:last",
++)
++
++
++PHASE2_CONTRACTS: Dict[str, Dict[str, List[str]]] = {
++    "routing_incident_rca": {
++        "critical_streams": [
++            "stream:ml:operator_rca_routing_incident_bundle_results",
++            "stream:ml:operator_rca_routing_rca_requests",
++            "stream:ml:operator_rca_routing_rca_results",
++            "stream:ml:operator_rca_routing_rca_quality_results",
++            "stream:ml:operator_rca_routing_rca_feedback_summary",
++        ],
++        "critical_hashes": [
++            "metrics:ml:operator_rca_routing_rca_results:last",
++            "metrics:ml:operator_rca_routing_rca_quality:last",
++            "metrics:ml:operator_rca_routing_rca_feedback:last",
++        ],
++        "critical_tables": [
++            "llm_operator_routing_incident_rca_results",
++            "llm_operator_routing_incident_rca_quality",
++            "llm_operator_routing_incident_rca_feedback",
++        ],
++        "optional_streams": [
++            "stream:ml:operator_rca_routing_rca_governor_decisions",
++            "stream:ml:operator_routing_incident_rca_routing_decisions",
++            "stream:ml:operator_routing_incident_rca_experiment_winner_decisions",
++            "stream:ml:operator_routing_incident_rca_routing_apply_results",
++            "stream:ml:operator_routing_incident_rca_routing_verify_results",
++            "stream:ml:operator_routing_incident_rca_route_slo_rollups",
++        ],
++        "optional_hashes": [
++            "metrics:ml:operator_routing_incident_rca_governor:last",
++            "metrics:ml:operator_routing_incident_rca_routing:last",
++            "metrics:ml:operator_routing_incident_rca_routing_apply:last",
++            "metrics:ml:operator_routing_incident_rca_route_slo:last",
++        ],
++    },
++    "route_incident_rca": {
++        "critical_streams": [
++            "stream:ml:operator_routing_incident_rca_route_incident_bundle_results",
++            "stream:ml:operator_routing_incident_rca_route_rca_requests",
++            "stream:ml:operator_routing_incident_rca_route_rca_results",
++            "stream:ml:operator_routing_incident_rca_route_rca_quality_results",
++            "stream:ml:operator_routing_incident_rca_route_rca_feedback_summary",
++        ],
++        "critical_hashes": [
++            "metrics:ml:operator_routing_incident_rca_route_rca_results:last",
++            "metrics:ml:operator_routing_incident_rca_route_rca_quality:last",
++            "metrics:ml:operator_routing_incident_rca_route_rca_feedback:last",
++        ],
++        "critical_tables": [
++            "llm_operator_routing_incident_route_rca_results",
++            "llm_operator_routing_incident_route_rca_quality",
++            "llm_operator_routing_incident_route_rca_feedback",
++        ],
++        "optional_streams": [
++            "stream:ml:operator_routing_incident_route_rca_governor_decisions",
++            "stream:ml:operator_routing_incident_route_rca_routing_decisions",
++            "stream:ml:operator_routing_incident_route_rca_experiment_winner_decisions",
++            "stream:ml:operator_routing_incident_route_rca_routing_apply_results",
++            "stream:ml:operator_routing_incident_route_rca_routing_verify_results",
++            "stream:ml:operator_routing_incident_route_rca_route_slo_rollups",
++        ],
++        "optional_hashes": [
++            "metrics:ml:operator_routing_incident_route_rca_governor:last",
++            "metrics:ml:operator_routing_incident_route_rca_routing:last",
++            "metrics:ml:operator_routing_incident_route_rca_routing_apply:last",
++            "metrics:ml:operator_routing_incident_route_rca_route_slo:last",
++        ],
++    },
++}
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter(
++    "ml_phase2_integration_freeze_runs_total",
++    "Phase 2 integration freeze runs",
++    ("status", "decision"),
++)
++LAT = _hist(
++    "ml_phase2_integration_freeze_latency_seconds",
++    "Phase 2 integration freeze latency seconds",
++)
++UP = _gauge(
++    "ml_phase2_integration_freeze_up",
++    "Phase 2 integration freeze auditor up",
++)
++LAST_RUN_TS = _gauge(
++    "ml_phase2_integration_freeze_last_run_ts_seconds",
++    "Phase 2 integration freeze auditor last run timestamp",
++)
++FAILS = _gauge(
++    "ml_phase2_integration_freeze_failed_checks",
++    "Failed checks in the latest integration freeze run",
++)
++WARNS = _gauge(
++    "ml_phase2_integration_freeze_warn_checks",
++    "Warn checks in the latest integration freeze run",
++)
++CONTRACT_OK = _gauge(
++    "ml_phase2_integration_freeze_contract_ok",
++    "Per-item contract status in the latest run",
++    ("contour", "kind", "name"),
++)
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def stable_json(obj: Any) -> str:
++    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++def parse_ts_ms(value: Any) -> int:
++    try:
++        if value is None:
++            return 0
++        return int(float(value))
++    except Exception:
++        return 0
++
++
++def age_ms_from_ts(ts_ms: int, now_ts_ms: int) -> int:
++    if ts_ms <= 0:
++        return 10**12
++    return max(0, now_ts_ms - ts_ms)
++
++
++def summarize_decision(failed_checks: int, warn_checks: int) -> str:
++    if failed_checks > 0:
++        return "NO_GO"
++    if warn_checks > 0:
++        return "WARN"
++    return "GO"
++
++
++def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        if isinstance(v, (bytes, bytearray)):
++            try:
++                out[kk] = v.decode()
++            except Exception:
++                out[kk] = v.hex()
++        else:
++            out[kk] = v
++    return out
++
++
++async def check_stream(client: Any, stream_key: str, critical: bool, now_ts_ms: int) -> Dict[str, Any]:
++    max_age = CRITICAL_MAX_AGE_MS if critical else DEFAULT_MAX_AGE_MS
++    try:
++        rows = await client.xrevrange(stream_key, count=1)
++    except Exception:
++        rows = []
++    if not rows:
++        return {
++            "status": "FAIL" if critical else "WARN",
++            "kind": "stream",
++            "name": stream_key,
++            "reason_code": "STREAM_EMPTY",
++            "age_ms": 10**12,
++        }
++    entry_id, payload = rows[0]
++    row = as_dict(payload)
++    ts_ms = parse_ts_ms(row.get("ts_ms"))
++    age_ms = age_ms_from_ts(ts_ms, now_ts_ms)
++    if age_ms > max_age:
++        return {
++            "status": "FAIL" if critical else "WARN",
++            "kind": "stream",
++            "name": stream_key,
++            "reason_code": "STREAM_STALE",
++            "age_ms": age_ms,
++        }
++    return {
++        "status": "OK",
++        "kind": "stream",
++        "name": stream_key,
++        "reason_code": "OK",
++        "age_ms": age_ms,
++    }
++
++
++async def check_hash(client: Any, hash_key: str, critical: bool, now_ts_ms: int) -> Dict[str, Any]:
++    max_age = CRITICAL_MAX_AGE_MS if critical else DEFAULT_MAX_AGE_MS
++    raw = await client.hgetall(hash_key)
++    row = as_dict(raw)
++    if not row:
++        return {
++            "status": "FAIL" if critical else "WARN",
++            "kind": "hash",
++            "name": hash_key,
++            "reason_code": "HASH_EMPTY",
++            "age_ms": 10**12,
++        }
++    age_ms = age_ms_from_ts(parse_ts_ms(row.get("ts_ms")), now_ts_ms)
++    if age_ms > max_age:
++        return {
++            "status": "FAIL" if critical else "WARN",
++            "kind": "hash",
++            "name": hash_key,
++            "reason_code": "HASH_STALE",
++            "age_ms": age_ms,
++        }
++    return {
++        "status": "OK",
++        "kind": "hash",
++        "name": hash_key,
++        "reason_code": "OK",
++        "age_ms": age_ms,
++    }
++
++
++def db_table_exists(conn: Any, table_name: str) -> bool:
++    with conn.cursor() as cur:
++        cur.execute("SELECT to_regclass(%s)", (table_name,))
++        row = cur.fetchone()
++        return bool(row and row[0])
++
++
++def check_table(conn: Any, table_name: str, critical: bool) -> Dict[str, Any]:
++    exists = db_table_exists(conn, table_name)
++    if not exists:
++        return {
++            "status": "FAIL" if critical else "WARN",
++            "kind": "table",
++            "name": table_name,
++            "reason_code": "TABLE_MISSING",
++            "age_ms": 0,
++        }
++    return {
++        "status": "OK",
++        "kind": "table",
++        "name": table_name,
++        "reason_code": "OK",
++        "age_ms": 0,
++    }
++
++
++async def run_checks(r: Any, db_url: str) -> Dict[str, Any]:
++    now_ts_ms = now_ms()
++    checks: List[Dict[str, Any]] = []
++
++    conn = psycopg.connect(db_url) if (db_url and psycopg is not None) else None  # pragma: no cover
++    try:
++        for contour, spec in PHASE2_CONTRACTS.items():
++            for name in spec.get("critical_streams", []):
++                row = await check_stream(r, name, True, now_ts_ms)
++                row["contour"] = contour
++                checks.append(row)
++            for name in spec.get("critical_hashes", []):
++                row = await check_hash(r, name, True, now_ts_ms)
++                row["contour"] = contour
++                checks.append(row)
++            for name in spec.get("optional_streams", []):
++                row = await check_stream(r, name, False, now_ts_ms)
++                row["contour"] = contour
++                checks.append(row)
++            for name in spec.get("optional_hashes", []):
++                row = await check_hash(r, name, False, now_ts_ms)
++                row["contour"] = contour
++                checks.append(row)
++            for name in spec.get("critical_tables", []):
++                if conn is None:
++                    row = {
++                        "status": "WARN",
++                        "kind": "table",
++                        "name": name,
++                        "reason_code": "DB_UNAVAILABLE",
++                        "age_ms": 0,
++                        "contour": contour,
++                    }
++                else:
++                    row = check_table(conn, name, True)
++                    row["contour"] = contour
++                checks.append(row)
++    finally:
++        if conn is not None:
++            conn.close()
++
++    failed = [x for x in checks if x["status"] == "FAIL"]
++    warns = [x for x in checks if x["status"] == "WARN"]
++    decision = summarize_decision(len(failed), len(warns))
++    return {
++        "schema_version": 1,
++        "ts_ms": now_ts_ms,
++        "decision": decision,
++        "total_checks": len(checks),
++        "failed_checks": len(failed),
++        "warn_checks": len(warns),
++        "checks": checks,
++    }
++
++
++async def persist_if_configured(db_url: str, report: Dict[str, Any]) -> None:
++    if not db_url or psycopg is None:
++        return
++    with psycopg.connect(db_url) as conn:  # pragma: no cover
++        with conn.cursor() as cur:
++            cur.execute(
++                """
++                INSERT INTO llm_phase2_integration_freeze_reports (
++                    ts_ms,
++                    decision,
++                    total_checks,
++                    failed_checks,
++                    warn_checks,
++                    report_json
++                ) VALUES (
++                    %(ts_ms)s,
++                    %(decision)s,
++                    %(total_checks)s,
++                    %(failed_checks)s,
++                    %(warn_checks)s,
++                    %(report_json)s
++                )
++                """,
++                {
++                    "ts_ms": report["ts_ms"],
++                    "decision": report["decision"],
++                    "total_checks": report["total_checks"],
++                    "failed_checks": report["failed_checks"],
++                    "warn_checks": report["warn_checks"],
++                    "report_json": json.dumps(report),
++                },
++            )
++            conn.commit()
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    db_url = os.getenv("DATABASE_URL", "")
++
++    while True:
++        started = time.perf_counter()
++        status = "ok"
++        decision = "WARN"
++        try:
++            report = await run_checks(r, db_url)
++            decision = report["decision"]
++            await persist_if_configured(db_url, report)
++            await r.xadd(
++                REPORTS_STREAM,
++                {
++                    "schema_version": 1,
++                    "decision": report["decision"],
++                    "total_checks": str(report["total_checks"]),
++                    "failed_checks": str(report["failed_checks"]),
++                    "warn_checks": str(report["warn_checks"]),
++                    "report_json": stable_json(report),
++                    "ts_ms": str(report["ts_ms"]),
++                },
++                maxlen=MAXLEN,
++                approximate=True,
++            )
++            await r.hset(
++                LAST_HASH,
++                mapping={
++                    "decision": report["decision"],
++                    "total_checks": str(report["total_checks"]),
++                    "failed_checks": str(report["failed_checks"]),
++                    "warn_checks": str(report["warn_checks"]),
++                    "ts_ms": str(report["ts_ms"]),
++                },
++            )
++            if FAILS:
++                FAILS.set(report["failed_checks"])
++            if WARNS:
++                WARNS.set(report["warn_checks"])
++            for row in report["checks"]:
++                if CONTRACT_OK:
++                    CONTRACT_OK.labels(
++                        contour=row["contour"],
++                        kind=row["kind"],
++                        name=row["name"],
++                    ).set(1 if row["status"] == "OK" else 0)
++            if LAST_RUN_TS:
++                LAST_RUN_TS.set(time.time())
++        except Exception as exc:
++            status = "error"
++            await r.xadd(
++                AUDIT_STREAM,
++                {
++                    "event_type": "PHASE2_INTEGRATION_FREEZE_FAILED",
++                    "error": str(exc),
++                    "ts_ms": str(now_ms()),
++                },
++                maxlen=MAXLEN,
++                approximate=True,
++            )
++        finally:
++            if RUNS:
++                RUNS.labels(status=status, decision=decision).inc()
++            if LAT:
++                LAT.observe(max(time.perf_counter() - started, 0.0))
++            time.sleep(max(RUN_EVERY_SEC, 5))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    import asyncio
++    asyncio.run(main())
+diff --git a/orderflow_services/sql/ml_phase2_integration_freeze_v1.sql b/orderflow_services/sql/ml_phase2_integration_freeze_v1.sql
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/orderflow_services/sql/ml_phase2_integration_freeze_v1.sql
+@@ -0,0 +1,18 @@
++BEGIN;
++
++CREATE TABLE IF NOT EXISTS llm_phase2_integration_freeze_reports (
++    id            bigserial PRIMARY KEY,
++    ts_ms         bigint NOT NULL,
++    decision      text NOT NULL,
++    total_checks  integer NOT NULL,
++    failed_checks integer NOT NULL,
++    warn_checks   integer NOT NULL,
++    report_json   jsonb NOT NULL
++);
++
++CREATE INDEX IF NOT EXISTS idx_llm_phase2_integration_freeze_reports_ts
++    ON llm_phase2_integration_freeze_reports(ts_ms DESC);
++
++COMMIT;
+diff --git a/orderflow_services/docker_compose_fragment_ml_phase2_integration_freeze_v1.yml b/orderflow_services/docker_compose_fragment_ml_phase2_integration_freeze_v1.yml
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/orderflow_services/docker_compose_fragment_ml_phase2_integration_freeze_v1.yml
+@@ -0,0 +1,18 @@
++services:
++  scanner-phase2-integration-freeze-auditor-v2-if1:
++    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
++    command: ["python", "-m", "orderflow_services.phase2_integration_freeze_auditor_v2_if1"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_PHASE2_INTEGRATION_FREEZE_PORT: ${ML_PHASE2_INTEGRATION_FREEZE_PORT:-9915}
++      ML_PHASE2_INTEGRATION_FREEZE_RUN_EVERY_SEC: ${ML_PHASE2_INTEGRATION_FREEZE_RUN_EVERY_SEC:-300}
++      ML_PHASE2_INTEGRATION_FREEZE_DEFAULT_MAX_AGE_MS: ${ML_PHASE2_INTEGRATION_FREEZE_DEFAULT_MAX_AGE_MS:-7200000}
++      ML_PHASE2_INTEGRATION_FREEZE_CRITICAL_MAX_AGE_MS: ${ML_PHASE2_INTEGRATION_FREEZE_CRITICAL_MAX_AGE_MS:-3600000}
++    ports: ["${ML_PHASE2_INTEGRATION_FREEZE_PORT:-9915}:9915"]
++    depends_on: [redis-worker-1]
+diff --git a/orderflow_services/prometheus_alerts_ml_phase2_integration_freeze_v1.yml b/orderflow_services/prometheus_alerts_ml_phase2_integration_freeze_v1.yml
+new file mode 100644
+index 0000000..4444444
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_ml_phase2_integration_freeze_v1.yml
+@@ -0,0 +1,31 @@
++groups:
++  - name: ml_phase2_integration_freeze_v1
++    rules:
++      - alert: MLPhase2IntegrationFreezeStale
++        expr: time() - ml_phase2_integration_freeze_last_run_ts_seconds > 1800
++        for: 10m
++        labels: { severity: warning }
++        annotations:
++          summary: "phase2 integration freeze auditor is stale"
++
++      - alert: MLPhase2IntegrationFreezeNoGo
++        expr: ml_phase2_integration_freeze_failed_checks > 0
++        for: 5m
++        labels: { severity: critical }
++        annotations:
++          summary: "phase2 integration freeze produced NO_GO"
++
++      - alert: MLPhase2IntegrationFreezeWarn
++        expr: ml_phase2_integration_freeze_warn_checks > 0
++        for: 15m
++        labels: { severity: warning }
++        annotations:
++          summary: "phase2 integration freeze produced WARN checks"
+diff --git a/orderflow_services/runbook_ml_phase2_integration_freeze_v1.md b/orderflow_services/runbook_ml_phase2_integration_freeze_v1.md
+new file mode 100644
+index 0000000..5555555
+--- /dev/null
++++ b/orderflow_services/runbook_ml_phase2_integration_freeze_v1.md
+@@ -0,0 +1,49 @@
++# Phase 2 Integration Freeze v1
++
++## Цель
++Дать единый **go / warn / no_go** verdict по всем новым Phase 2 контурам перед переходом к `Phase 3`.
++
++## Что проверяется
++- обязательные streams по `routing_incident_rca`
++- обязательные hashes по `routing_incident_rca`
++- обязательные tables по `routing_incident_rca`
++- обязательные streams по `route_incident_rca`
++- обязательные hashes по `route_incident_rca`
++- обязательные tables по `route_incident_rca`
++- optional streams / hashes для расширенного governance-контура
++
++## Вердикты
++- `GO` — нет fail/warn
++- `WARN` — нет fail, но есть warn
++- `NO_GO` — есть хотя бы один critical fail
++
++## Safe start
++```bash
++export ML_PHASE2_INTEGRATION_FREEZE_RUN_EVERY_SEC=300
++export ML_PHASE2_INTEGRATION_FREEZE_DEFAULT_MAX_AGE_MS=7200000
++export ML_PHASE2_INTEGRATION_FREEZE_CRITICAL_MAX_AGE_MS=3600000
++```
++
++## Smoke checks
++```bash
++curl -s localhost:9915/metrics | grep '^ml_phase2_integration_freeze_'
++redis-cli HGETALL metrics:ml:phase2_integration_freeze:last
++redis-cli XREVRANGE stream:ml:phase2_integration_freeze_reports + - COUNT 3
++redis-cli XREVRANGE stream:ml:phase2_integration_freeze_audit + - COUNT 3
++```
++
++## Как трактовать
++- `GO` → можно открывать Phase 3 planning
++- `WARN` → сначала погасить stale / optional drift
++- `NO_GO` → не переходить к Phase 3, чинить contracts / migrations / freshness
++
++## Notes
++- scope только `scanner_infra`
++- hot path не затронут
++- auditor advisory-only
+diff --git a/orderflow_services/tests/test_phase2_integration_freeze_auditor_v2_if1.py b/orderflow_services/tests/test_phase2_integration_freeze_auditor_v2_if1.py
+new file mode 100644
+index 0000000..6666666
+--- /dev/null
++++ b/orderflow_services/tests/test_phase2_integration_freeze_auditor_v2_if1.py
+@@ -0,0 +1,31 @@
++from orderflow_services.phase2_integration_freeze_auditor_v2_if1 import (
++    age_ms_from_ts,
++    parse_ts_ms,
++    summarize_decision,
++)
++
++
++def test_parse_ts_ms_handles_invalid_values():
++    assert parse_ts_ms("1000") == 1000
++    assert parse_ts_ms(None) == 0
++    assert parse_ts_ms("bad") == 0
++
++
++def test_age_ms_from_ts_is_bounded():
++    assert age_ms_from_ts(1000, 2000) == 1000
++    assert age_ms_from_ts(0, 2000) >= 10**12
++
++
++def test_summarize_decision():
++    assert summarize_decision(0, 0) == "GO"
++    assert summarize_decision(0, 2) == "WARN"
++    assert summarize_decision(1, 0) == "NO_GO"

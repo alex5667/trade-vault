@@ -1,0 +1,25 @@
+groups:
+- name: meta_ab_v2_policy_v1
+  rules:
+  - alert: MetaAbV2PolicyBlockedIncrease
+    expr: meta_ab_v2_policy_blocked == 1 and 
+      meta_ab_v2_action_raw{action="increase_share"} == 1
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Meta AB v2 increase blocked by policy"
+      description: "Policy blocked an increase recommendation. Inspect meta_ab_v2_policy_blocked_reason{reason=...}
+        and the report JSON."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: MetaAbV2PolicyBlockedAllChanges
+    expr: meta_ab_v2_policy_blocked == 1
+    for: 2h
+    labels:
+      severity: info
+    annotations:
+      summary: "Meta AB v2 policy is blocking ramp changes"
+      description: "Policy is blocking a share change. This may be expected (guardrail)
+        or indicate drift/CI/tail degradation."

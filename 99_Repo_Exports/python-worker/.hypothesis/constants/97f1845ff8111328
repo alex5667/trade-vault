@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signal_exec/performance_tracker.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-06, 1.0, 1000.0, 1000, 4096, ' | ', '0', '180', 'BREAKEVEN', 'ENTRY_FILLED', 'MANUAL_EXIT', 'STOP_HIT', 'SignalBus', 'TP_HIT', 'atr_1m', 'breakeven', 'close', 'expired_no_entry', 'expired_no_target', 'finalize_reason', 'mae_R', 'manual_exit', 'mfe_R', 'normal_exit', 'normal_finalization', 'outcome', 'realized_R', 'setup_type', 'side', 'signal_id', 'stop_hit', 'symbol', 'target_hit', 'ts_entry', 'ts_exit', 'ts_signal', 'ttd_bars', 'unknown']

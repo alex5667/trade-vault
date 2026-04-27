@@ -1,0 +1,1709 @@
+diff --git a/services/orderflow/components/bar_processor.py b/services/orderflow/components/bar_processor.py
+index e82b944..3d3f9d6 100644
+--- a/services/orderflow/components/bar_processor.py
++++ b/services/orderflow/components/bar_processor.py
+@@ -202,6 +202,15 @@ class BarProcessor:
+             # 20. SMT Snapshot (BOS/Structure Proxy)
+             await self._publish_smt_snapshot(runtime, bar)
+ 
++            # 21. Reset trade_id ordering counters (per-microbar window).
++            # These counters are used by strict DQ / observability and must not leak across bars.
++            try:
++                runtime.tick_id_gap_count = 0
++                runtime.tick_id_dup_count = 0
++                runtime.tick_id_reorder_count = 0
++            except Exception:
++                pass
++
+         except Exception as exc:
+             log_silent_error(exc, 'process_bar_fatal', runtime.symbol, 'BarProcessor:process_bar')
+ 
+diff --git a/services/orderflow/components/tick_processor.py b/services/orderflow/components/tick_processor.py
+index 5079202..e7d2d0c 100644
+--- a/services/orderflow/components/tick_processor.py
++++ b/services/orderflow/components/tick_processor.py
+@@ -68,7 +68,9 @@ from services.orderflow.metrics import (
+     tick_ts_missing_total, tick_ts_backwards_total, tick_ts_clamped_total, tick_ts_quarantined_total,
+     tick_ts_future_total, tick_age_ms_hist, tick_reorder_back_ms_hist, tick_time_action_total,
+     tick_time_decision_total,
+-    burst_active_gauge, burst_flush_total, signals_emitted_total, feature_missing_total, burst_window_ms_gauge, tick_gap_p50_ms_gauge,
++    burst_active_gauge, burst_flush_total, signals_emitted_total, feature_missing_total, burst_window_ms_gauge, tick_gap_p50_ms_gauge, tick_gap_p95_ms_gauge,
++    book_missing_seq_ema_gauge, tick_missing_seq_ema_gauge, tick_missing_seq_events_total,
++    tick_id_gap_events_total, tick_id_dup_events_total, tick_id_reorder_events_total,
+     ticks_out_of_order_total, ticks_side_unknown_total, bars_closed_total, divergence_detected_total,
+     divergence_confirmed_total, divergence_triggered_total, divergence_overridden_total, divergence_suppressed_total,
+     sweep_detected_total, strong_gate_veto_total, evidence_used_total, ticks_pressure_filtered_total,
+@@ -87,17 +89,6 @@ from services.orderflow.metrics import (
+     of_inputs_missing_lob_total, of_inputs_downgrade_total, of_inputs_quarantined_total, of_inputs_publish_error_total,
+     of_inputs_v3_forced_v2_total, of_inputs_v3_circuit_trip_total, of_inputs_v3_circuit_disabled, of_inputs_v3_circuit_disabled_until_ms, of_inputs_v3_circuit_hard_disabled_until_ms,
+     track_confirmations, evidence_used_total_session, record_confirmation_seen, record_evidence_used,
+-    # Execution-risk observability (P71 slippage decomp layer)
+-    impact_proxy_hist, expected_slippage_decomp_bps_hist, of_gate_veto_top1_total,
+-    trade_impact_proxy, trade_taker_flow_imb_z_abs, trade_slippage_decomp_coeff_bps,
+-    trade_expected_slippage_bps as _m_slip_bps,
+-    # Exec-risk histograms (v16): P95/P99-ready for spread + penalty observability
+-    trade_spread_bps,
+-    trade_exec_risk_ref_bps,
+-    trade_exec_risk_bps,
+-    trade_exec_risk_norm,
+-    trade_exec_pen,
+-    trade_expected_slippage_limit_exceed_total,
+     trade_vol_fast_bps, trade_vol_slow_bps, trade_vol_ratio, trade_vol_ratio_z,
+     trade_res_recovered, trade_res_recovery_ms, trade_res_speed_per_s,
+     trade_fill_prob, trade_eta_fill_sec, trade_exec_fill_pen,
+@@ -130,6 +121,7 @@ from services.orderflow.metrics import (
+ )
+ 
+ from services.orderflow.world_practice.realized_drift_tracker_v1 import RealizedDriftTrackerV1
++
+ from services.orderflow.side_policy import is_unknown_side_tick
+ from common.tick_time import TickTimeGuard, TickTimePolicy
+ from services.orderflow.tick_time_quarantine_integration import TickTimeQuarantineIntegration
+@@ -144,22 +136,20 @@ from core.book_derivatives_v1 import compute_book_imbalance_rate_10
+ from core.flow_derived_features_v1 import compute_liquidity_pressure_and_info_flow
+ from core.confirmations_schema_v1 import parse_confirmations_v1
+ from core.slippage_model import expected_slippage_bps
+-from core.expected_slippage_decomp_v1 import expected_slippage_decomp_bps
+ from core.bucket_allowlist_v1 import bucket_allowed
+-# Commit 3: book microstructure features (top-N snapshot for v4 schema)
+-from core.book_microstructure_v4 import compute_microstructure_v4
+-# Commit 2 / Commit 1: materialize confirmations as first-class ML features (train==serve parity)
+-from core.confirmations_schema_v1 import apply_confirmations_to_indicators
+ from core.of_inputs_contract import OFInputsV1, OFInputsV2
+ from core.instrument_config import get_default_delta_tiers
+-from core.fill_prob_proxy import compute_fill_prob_proxy
+ from core.exec_regime_bucket_v1 import compute_exec_regime_bucket
++from core.fill_prob_proxy import compute_fill_prob_proxy
+ from core.bucket2_v1 import derive_bucket2_label
+ from core.calendar_flags import calendar_flags_utc
+ 
+-from handlers.crypto_orderflow.utils.log_sampler import sampled_info, sampled_warning, sampled_debug, LogSamplerFactory
++from services.orderflow.log_sampler import sampled_info, sampled_warning, sampled_debug, LogSamplerFactory
+ 
+-import redis.asyncio as aioredis
++try:
++    import redis.asyncio as aioredis
++except Exception:  # pragma: no cover
++    aioredis = None  # type: ignore
+ 
+ # P62: write Unified Decision Record even on early veto (before SignalPipeline)
+ from services.orderflow.decision_record_v1 import DecisionRecordV1, write_decision_record, extract_fields_best_effort, deterministic_sample
+@@ -286,6 +276,169 @@ class TickProcessor:
+             change_count_ttl_s=int(os.getenv("CB_CHANGE_COUNT_TTL_S", "3600") or 3600),
+         )
+ 
++    @staticmethod
++    def _update_strict_dq_trackers(
++        *,
++        runtime: "SymbolRuntime",
++        tick: Dict[str, Any],
++        tick_ts_ms: int,
++        cfg_eff: Dict[str, Any],
++        indicators: Dict[str, Any],
++    ) -> None:
++        """P2/F: Strict DQ signals for Train==Serve.
++
++        Best-effort, must never raise on hot path.
++
++        Produces/updates:
++        - tick_gap_p50_ms / tick_gap_p95_ms / tick_gap_n (rolling TickGapTracker)
++        - tick_missing_seq_ema (EMA of trade-id discontinuities)
++        - book_missing_seq_ema (already tracked by orderbook path; surfaced here)
++
++        These fields are injected into `indicators` so that of_engine / MetaModelLR
++        see the same signals in runtime as in train (Train==Serve).
++        """
++
++        # 1) Tick gap tracking (time determinism: use normalized tick_ts_ms).
++        try:
++            runtime.tick_gaps.record(int(tick_ts_ms))
++        except Exception:
++            pass
++
++        # Snapshot frequency: quantile snapshot sorts <= window (~512), keep it cheap.
++        # Default: 500 (prod-safe, avoids Prom/Redis spam on majors).
++        try:
++            every_n = int(cfg_eff.get("tick_gap_snapshot_every_n", 500) or 500)
++        except Exception:
++            every_n = 500
++
++        if every_n > 0:
++            try:
++                if int(getattr(runtime, "tick_count", 0) or 0) % int(every_n) == 0:
++                    gaps = runtime.tick_gaps.snapshot()
++                    runtime.tick_gap_p50_ms = float(gaps.get("p50", 0.0) or 0.0)
++                    runtime.tick_gap_p95_ms = float(gaps.get("p95", 0.0) or 0.0)
++                    runtime.tick_gap_n = int(gaps.get("n", 0) or 0)
++
++                    try:
++                        tick_gap_p50_ms_gauge.labels(symbol=str(runtime.symbol)).set(runtime.tick_gap_p50_ms)
++                        tick_gap_p95_ms_gauge.labels(symbol=str(runtime.symbol)).set(runtime.tick_gap_p95_ms)
++                    except Exception:
++                        pass
++            except Exception:
++                pass
++
++        # 2) Tick missing-seq tracking (trade_id continuity).
++        #
++        # Binance USDT-M futures (fapi) publishes aggTradeId as monotonically increasing `trade_id`.
++        # We must distinguish:
++        #   - GAP:      tid > last_tid + 1  (missing data / stream break)
++        #   - DUP:      tid == last_tid     (duplicate delivery)
++        #   - REORDER:  tid <  last_tid     (out-of-order delivery)
++        #
++        # Only GAP contributes to tick_missing_seq_ema.
++        try:
++            tid_raw = tick.get("trade_id")
++            # Compatibility fallbacks (not expected in prod for your Go worker).
++            if tid_raw is None:
++                tid_raw = tick.get("a")  # aggTradeId
++            if tid_raw is None:
++                tid_raw = tick.get("t")  # tradeId (some feeds)
++            if tid_raw is None:
++                tid_raw = tick.get("id")
++
++            if tid_raw is not None:
++                tid = int(tid_raw)
++                last_tid = int(getattr(runtime, "last_trade_id", 0) or 0)
++
++                is_gap = False
++                is_dup = False
++                is_reorder = False
++
++                if last_tid > 0:
++                    if tid > last_tid + 1:
++                        is_gap = True
++                        runtime.tick_seq_last_reason = "gap"
++                        runtime.tick_id_gap_count = int(getattr(runtime, "tick_id_gap_count", 0) or 0) + 1
++                        try:
++                            tick_missing_seq_events_total.labels(symbol=str(runtime.symbol)).inc()
++                        except Exception:
++                            pass
++                        try:
++                            tick_id_gap_events_total.labels(symbol=str(runtime.symbol)).inc()
++                        except Exception:
++                            pass
++
++                    elif tid == last_tid:
++                        is_dup = True
++                        runtime.tick_seq_last_reason = "dup"
++                        runtime.tick_id_dup_count = int(getattr(runtime, "tick_id_dup_count", 0) or 0) + 1
++                        try:
++                            tick_id_dup_events_total.labels(symbol=str(runtime.symbol)).inc()
++                        except Exception:
++                            pass
++
++                    elif tid < last_tid:
++                        is_reorder = True
++                        runtime.tick_seq_last_reason = "reorder"
++                        runtime.tick_id_reorder_count = int(getattr(runtime, "tick_id_reorder_count", 0) or 0) + 1
++                        try:
++                            tick_id_reorder_events_total.labels(symbol=str(runtime.symbol)).inc()
++                        except Exception:
++                            pass
++
++                    else:
++                        runtime.tick_seq_last_reason = "ok"
++
++                else:
++                    runtime.tick_seq_last_reason = "init"
++
++                # Update EMA with a monotone ts to avoid dt<=0 forcing alpha=1 and resetting the EMA.
++                ts_for_seq = int(tick_ts_ms or 0)
++                last_seq_ts = int(getattr(runtime.tick_seq_gap, "last_ts_ms", 0) or 0)
++                if ts_for_seq <= last_seq_ts:
++                    ts_for_seq = last_seq_ts + 1
++
++                runtime.tick_missing_seq_ema = float(
++                    runtime.tick_seq_gap.update(is_gap=bool(is_gap), ts_ms=int(ts_for_seq))
++                )
++                try:
++                    tick_missing_seq_ema_gauge.labels(symbol=str(runtime.symbol)).set(runtime.tick_missing_seq_ema)
++                except Exception:
++                    pass
++
++                # Monotone last_trade_id: do NOT regress on REORDER.
++                if tid > last_tid:
++                    runtime.last_trade_id = int(tid)
++
++                # Expose counters/flags into indicators (reset on bar close).
++                indicators["tick_gap_count"] = int(getattr(runtime, "tick_id_gap_count", 0) or 0)
++                indicators["tick_dup_count"] = int(getattr(runtime, "tick_id_dup_count", 0) or 0)
++                indicators["tick_reorder_count"] = int(getattr(runtime, "tick_id_reorder_count", 0) or 0)
++                indicators["tick_id_gap"] = int(bool(is_gap))
++                indicators["tick_id_dup"] = int(bool(is_dup))
++                indicators["tick_id_reorder"] = int(bool(is_reorder))
++                indicators["tick_seq_last_reason"] = str(getattr(runtime, "tick_seq_last_reason", ""))
++
++        except Exception:
++            pass
++
++        # 3) Surface cached DQ values into indicators for the engine/model.
++        try:
++            indicators["tick_gap_p50_ms"] = float(getattr(runtime, "tick_gap_p50_ms", 0.0) or 0.0)
++            indicators["tick_gap_p95_ms"] = float(getattr(runtime, "tick_gap_p95_ms", 0.0) or 0.0)
++            indicators["tick_gap_n"] = int(getattr(runtime, "tick_gap_n", 0) or 0)
++            indicators["tick_missing_seq_ema"] = float(getattr(runtime, "tick_missing_seq_ema", 0.0) or 0.0)
++            indicators["book_missing_seq_ema"] = float(getattr(runtime, "book_missing_seq_ema", 0.0) or 0.0)
++
++            # book_missing_seq is primarily updated in orderbook path; still surface gauge for visibility.
++            try:
++                book_missing_seq_ema_gauge.labels(symbol=str(runtime.symbol)).set(indicators["book_missing_seq_ema"])
++            except Exception:
++                pass
++        except Exception:
++            pass
++
++
+     async def _emit_early_veto_decision_record(
+         self,
+         *,
+@@ -648,6 +801,37 @@ class TickProcessor:
+             price = float(tick.get("price") or tick.get("p") or 0.0)
+             ibm = tick.get("is_buyer_maker") if "is_buyer_maker" in tick else tick.get("m")
+             direction = "SHORT" if ibm else "LONG"  # True=Sell=Short, False=Buy=Long
++
++            # ------------------------------------------------------------------
++            # Sanitize qty/volume for downstream detectors (fail-open).
++            # Some upstream tick sources may omit qty/volume; we normalize to 0.0
++            # to avoid KeyError/TypeError in any custom detector/extension.
++            # We also write the canonical "qty" key back into the tick dict so
++            # delta_detector.push(tick) and any custom extensions always see it.
++            # ------------------------------------------------------------------
++            try:
++                qty_raw = tick.get("qty")
++                if qty_raw is None:
++                    qty_raw = tick.get("q")
++                if qty_raw is None:
++                    qty_raw = tick.get("quantity")
++                if qty_raw is None:
++                    qty_raw = tick.get("volume")
++                qty = float(qty_raw or 0.0)
++                if qty < 0:
++                    qty = abs(qty)
++                tick["qty"] = qty
++            except Exception:
++                qty = 0.0
++                tick["qty"] = 0.0
++
++            # L3-lite stats must see *all* trades (even when we early-return on missing delta_event)
++            try:
++                if qty > 0.0 and getattr(runtime, "l3_stats", None) is not None:
++                    side = 1 if direction == "LONG" else -1  # taker buy=+1, taker sell=-1
++                    runtime.l3_stats.on_trade(tick_ts, qty=float(qty), side=int(side))
++            except Exception:
++                pass
+         except Exception as e:
+             log_silent_error(e, "tick_parse", runtime.symbol, "TickProcessor")
+             return None
+@@ -665,6 +849,8 @@ class TickProcessor:
+         except Exception:
+             cfg = dict(getattr(runtime, "config", {}) or {})
+ 
++        cfg_eff = dict(cfg)
++
+         # ------------------------------------------------------------------
+         # P68: Determine policy regime. Prefer local indicator states, fallback to dynamic cfg.
+         # ------------------------------------------------------------------
+@@ -706,6 +892,20 @@ class TickProcessor:
+             # fail-open: do not break tick processing
+             pass
+ 
++        # P2/F: strict DQ trackers (tick gaps + missing seq).
++        # Must run BEFORE any early-return so that DQ state converges even under gating.
++        try:
++            cfg_eff = dict(cfg)
++            self._update_strict_dq_trackers(
++                runtime=runtime,
++                tick=tick,
++                tick_ts_ms=int(tick_ts),
++                cfg_eff=cfg_eff,
++                indicators=indicators,
++            )
++        except Exception:
++            pass
++
+         # --- Delta Detection ---
+         delta_event = {}
+         try:
+@@ -915,8 +1115,11 @@ class TickProcessor:
+                     if rate > 0 and _should_sample(sample_uid, rate):
+                         latency_us = (time.perf_counter_ns() // 1000) - t0_us
+                         # Flatten legs for diagnostics
+-                        legs = ev.get("missing_legs", [])
+-                        # Fill expected indicators
++                        legs = []
++                        if 'ev' in locals() and hasattr(ev, 'get'):
++                            legs = ev.get("missing_legs", [])
++                        # Fill expected indicators — build payload in a nested try so a missing
++                        # reference (ofc, ev) never breaks the main veto path.
+                         try:
+                             payload = {
+                                 "type": "of_gate",
+@@ -925,9 +1128,9 @@ class TickProcessor:
+                                 "sample_key_mode": OF_GATE_METRICS_SAMPLE_KEY_MODE,
+                                 "ts_ms": str(normalize_epoch_ms_v2(tick_ts).ts_ms),
+                                 "symbol": str(runtime.symbol),
+-                                "direction": str(getattr(ofc,"side","unknown")),
+-                                "scenario": str(getattr(ofc,"scenario","unknown")),
+-                                "scenario_v4": _str(ev.get("scenario_v4", getattr(ofc,"scenario","unknown"))),
++                                "direction": str(getattr(ofc, "side", "unknown") if 'ofc' in locals() else "unknown"),
++                                "scenario": str(getattr(ofc, "scenario", "unknown") if 'ofc' in locals() else "unknown"),
++                                "scenario_v4": str(ev.get("scenario_v4", "unknown") if 'ev' in locals() and hasattr(ev, 'get') else "unknown"),
+                                 "ok": "0",
+                                 "ok_soft": "0",
+                                 "have": "0",
+@@ -940,7 +1143,7 @@ class TickProcessor:
+                                 "latency_us": str(int(latency_us)),
+                                 "dn_tier": str(tier),
+                                 "dn_usd": str(float(delta_usd)),
+-                                "dn_tier_threshold": str(float(dn_tiers_decision.tier0_usd if min_tier==0 else getattr(dn_tiers_decision, f"tier{min_tier}_usd", 0.0))),
++                                "dn_tier_threshold": str(float(dn_tiers_decision.tier0_usd if min_tier == 0 else getattr(dn_tiers_decision, f"tier{min_tier}_usd", 0.0))),
+                                 # Fill required fields with defaults
+                                 "meta_p": "-1.0",
+                                 "meta_veto": "0",
+@@ -968,7 +1171,6 @@ class TickProcessor:
+              except Exception:
+                 pass
+ 
+-
+              return None
+ 
+         indicators["dn_tier"] = int(tier)
+@@ -1123,6 +1325,33 @@ class TickProcessor:
+         except Exception:
+             pass
+ 
++        # Sweep/Reclaim recency flags (schema v2/v3)
++        # Гарантируем заполнение sweep_recent, reclaim_recent, reclaim_hold_bars для всех downstream-потребителей.
++        try:
++            now_ms_det = int(tick_ts)
++            sweep_ok = compute_sweep_recent(
++                now_ts_ms=now_ms_det,
++                last_sweep=getattr(runtime, "last_sweep", None),
++                cfg=cfg,
++                indicators=indicators,
++            )
++            indicators["sweep_recent"] = int(1 if sweep_ok else 0)
++
++            reclaim_ok, hold_bars = compute_reclaim_recent(
++                direction=str(direction),
++                now_ts_ms=now_ms_det,
++                last_reclaim=getattr(runtime, "last_reclaim", None),
++                cfg=cfg,
++                indicators=indicators,
++            )
++            indicators["reclaim_recent"] = int(1 if reclaim_ok else 0)
++            indicators["reclaim_hold_bars"] = int(hold_bars) if reclaim_ok else 0
++        except Exception:
++            # Fail-open: гарантируем defaults даже если runtime не имеет last_sweep/last_reclaim
++            indicators.setdefault("sweep_recent", 0)
++            indicators.setdefault("reclaim_recent", 0)
++            indicators.setdefault("reclaim_hold_bars", 0)
++
+         # Unified data_health score
+         try:
+             indicators["book_ts_gap_ms"] = int(tick_ts - int(getattr(runtime, "last_book_ts_ms", 0) or 0))
+@@ -1197,6 +1426,17 @@ class TickProcessor:
+                 pass
+             apply_book_evidence_policy(indicators=indicators, dh=dh, cfg=cfg)
+             apply_shadow_only_policy(indicators=indicators, dh=dh, cfg=cfg)
++
++            # Schema v2/v3 compatibility aliases (used by ML feature schemas)
++            indicators["book_staleness_ms"] = int(indicators.get("book_ts_gap_ms", 0) or 0)
++            indicators["liq_score"] = float(
++                getattr(runtime, "last_liq_score", 0.0)
++                or runtime.dynamic_cfg.get("liq_score", 0.0)
++                or 0.0
++            )
++            indicators["cancel_spike_veto"] = int(getattr(runtime, "book_churn_hi", 0) or 0)
++            indicators["book_rate_z"] = float(getattr(runtime, "book_rate_z", 0.0) or 0.0)
++            indicators["book_churn_score"] = float(getattr(runtime, "book_churn_score", 0.0) or 0.0)
+         except Exception:
+             pass
+ 
+@@ -1204,6 +1444,89 @@ class TickProcessor:
+         indicators.setdefault("expected_slippage_bps", 0.0)
+         indicators.setdefault("slippage_reason", "na")
+ 
++        # OFI stability event (schema v2/v3)
++        # Читаем runtime.last_ofi_event и экспортируем ofi, ofi_z, ofi_stable и т.д.
++        # При совпадении ofi_stable + ofi_dir_ok — добавляем в confirmations и инкрементируем evidence_used_total.
++        try:
++            now_ms_det = int(tick_ts)
++            ev_ofi = getattr(runtime, "last_ofi_event", None)
++            if ev_ofi:
++                # Поддерживаем как dict-формат (Redis replay), так и object-формат (in-process)
++                if isinstance(ev_ofi, dict):
++                    ts0 = int(ev_ofi.get("ts_ms", 0) or 0)
++                    dir0 = str(ev_ofi.get("direction", "") or "").upper()
++                    ofi_ev = ev_ofi.get("ofi", 0.0)
++                    ofi_z_ev = ev_ofi.get("ofi_z", 0.0)
++                    stable_secs = ev_ofi.get("stable_secs", 0.0)
++                    score = ev_ofi.get("stability_score", 0.0)
++                    stable_flag = ev_ofi.get("stable", 0)
++                else:
++                    ts0 = int(getattr(ev_ofi, "ts_ms", 0) or 0)
++                    dir0 = str(getattr(ev_ofi, "direction", "") or "").upper()
++                    ofi_ev = getattr(ev_ofi, "ofi", 0.0)
++                    ofi_z_ev = getattr(ev_ofi, "ofi_z", 0.0)
++                    stable_secs = getattr(ev_ofi, "stable_secs", 0.0)
++                    score = getattr(ev_ofi, "stability_score", 0.0)
++                    stable_flag = getattr(ev_ofi, "stable", 0)
++
++                age_ofi = (now_ms_det - ts0) if ts0 > 0 else 10**9
++                indicators["ofi_age_ms"] = int(age_ofi)
++                ttl_ofi = int(cfg.get("ofi_event_ttl_ms", 15000) or 15000)
++                if 0 <= age_ofi <= ttl_ofi:
++                    # Локальные хелперы для безопасного cast без NaN/Inf
++                    def _f_ofi(x, d=0.0):
++                        try:
++                            v = float(x)
++                            return v if v == v and v not in (float('inf'), float('-inf')) else float(d)
++                        except Exception:
++                            return float(d)
++
++                    def _i_ofi(x, d=0):
++                        try:
++                            return int(x)
++                        except Exception:
++                            try:
++                                return int(float(x))
++                            except Exception:
++                                return int(d)
++
++                    ofi_v = _f_ofi(ofi_ev, 0.0)
++                    ofi_z_v = _f_ofi(ofi_z_ev, 0.0)
++                    stable_secs_v = _f_ofi(stable_secs, 0.0)
++                    score_v = _f_ofi(score, 0.0)
++                    stable_flag_i = _i_ofi(stable_flag, 0)
++
++                    indicators["ofi"] = float(ofi_v)
++                    indicators["ofi_z"] = float(ofi_z_v)
++                    indicators["ofi_stable_secs"] = float(stable_secs_v)
++                    indicators["ofi_stability_score"] = float(score_v)
++
++                    # Стабильность: явный флаг ИЛИ эвристика (stable_secs >= 1s и score >= 0.8)
++                    is_stable = bool(stable_flag_i == 1 or (stable_secs_v >= 1.0 and score_v >= 0.8))
++                    indicators["ofi_stable"] = int(1 if is_stable else 0)
++
++                    # Нормализация направления OFI-события
++                    if dir0 in ("BUY", "BID", "LONG"):
++                        dir0 = "LONG"
++                    elif dir0 in ("SELL", "ASK", "SHORT"):
++                        dir0 = "SHORT"
++                    indicators["ofi_dir_ok"] = int(1 if (dir0 and dir0 == str(direction).upper()) else 0)
++
++                    # Confirmation + evidence counter (ранее OFI-событие не доходило до evidence)
++                    if indicators["ofi_stable"] == 1 and indicators["ofi_dir_ok"] == 1:
++                        confirmations.append(f"ofi_stable={stable_secs_v:.2f}")
++                        evidence_used_total.labels(symbol=runtime.symbol, key="ofi_stable").inc()
++        except Exception:
++            pass
++
++        # Ensure OFI fields exist for downstream exporters / ML feature schemas even if no event
++        indicators.setdefault("ofi", 0.0)
++        indicators.setdefault("ofi_z", 0.0)
++        indicators.setdefault("ofi_stability_score", 0.0)
++        indicators.setdefault("ofi_stable_secs", 0.0)
++        indicators.setdefault("ofi_stable", 0)
++        indicators.setdefault("ofi_dir_ok", 0)
++
+         # OFI impact proxy
+         try:
+             book = getattr(runtime, 'last_book', None)
+@@ -1281,7 +1604,7 @@ class TickProcessor:
+         else:
+              indicators["delta_z_source"] = "cvd"
+ 
+-        # Slippage Logic (legacy model)
++        # Slippage Logic
+         try:
+             atr_bps = (float(indicators.get("atr", 0.0)) / price * 10000.0) if price > 0 else 0.0
+             indicators["atr_bps"] = float(atr_bps)
+@@ -1293,15 +1616,13 @@ class TickProcessor:
+                 atr_bps=atr_bps,
+                 cfg=cfg
+             )
+-            # Preserve legacy expected slippage (pre-decomp) for drift/regression tracking.
+             indicators["expected_slippage_bps"] = float(est.expected_bps)
+-            indicators["expected_slippage_bps_legacy"] = float(est.expected_bps)
+             indicators["slippage_reason"] = str(est.reason)
+         except Exception:
+             pass
+ 
+         # ---------------------------------------------------------------
+-        # Execution-risk layer: impact_proxy + slippage decomposition
++        # Execution-risk layer: impact_proxy + slippage decomposition (P9x)
+         # Fail-open: never raises; all indicators default to 0.0 on error.
+         # ---------------------------------------------------------------
+ 
+@@ -1335,75 +1656,59 @@ class TickProcessor:
+                 liq_regime_label=str(indicators.get("liq_regime_label", "na") or "na"),
+                 vol_regime_label=str(indicators.get("vol_regime_label", "na") or "na"),
+             )
+-            bucket = str(b.bucket)
+-            indicators["exec_regime_bucket"] = bucket
++            _bucket = str(b.bucket)
++            indicators["exec_regime_bucket"] = _bucket
+         except Exception:
+             indicators.setdefault("exec_regime_bucket", "NORMAL")
+-            bucket = str(indicators.get("exec_regime_bucket", "NORMAL"))
++            _bucket = str(indicators.get("exec_regime_bucket", "NORMAL"))
+ 
+         # spread_bps_submit / mid_px_submit — snapshot at decision time
+         try:
+             indicators.setdefault("spread_bps_submit", float(indicators.get("spread_bps", 0.0) or 0.0))
+-            mid_px_submit = float(getattr(runtime, "last_book_mid", 0.0) or 0.0)
+-            if mid_px_submit <= 0:
+-                mid_px_submit = float(price) if float(price) > 0 else 0.0
+-            indicators.setdefault("mid_px_submit", mid_px_submit)
+-
+-            # World-practice distributions: (legacy) expected slippage + spread at decision time.
+-            try:
+-                _sym = str(runtime.symbol)
+-                _bk = str(bucket) if 'bucket' in dir() or 'bucket' in locals() else str(indicators.get("exec_regime_bucket", "NORMAL"))
+-                _m_slip_bps.labels(sym=_sym, bucket=_bk, model="legacy").observe(
+-                    float(indicators.get("expected_slippage_bps_legacy") or indicators.get("expected_slippage_bps") or 0.0)
+-                )
+-                trade_spread_bps.labels(sym=_sym, bucket=_bk).observe(
+-                    float(indicators.get("spread_bps_submit") or 0.0)
+-                )
+-            except Exception:
+-                pass
++            _mid_px_submit = float(getattr(runtime, "last_book_mid", 0.0) or 0.0)
++            if _mid_px_submit <= 0:
++                _mid_px_submit = float(price) if float(price) > 0 else 0.0
++            indicators.setdefault("mid_px_submit", _mid_px_submit)
+         except Exception:
+             pass
+ 
+-        # Taker-flow imbalance from L3-lite (computed in l3_lite_tracker and
+-        # attached to runtime via attach_to_context; just expose to indicators).
++        # Taker-flow imbalance from L3-lite (computed by l3_lite_tracker; expose to indicators)
+         try:
+-            indicators.setdefault(
+-                "taker_flow_imb", float(getattr(runtime, "taker_flow_imb", 0.0) or 0.0)
+-            )
+-            indicators.setdefault(
+-                "taker_flow_imb_z", float(getattr(runtime, "taker_flow_imb_z", 0.0) or 0.0)
+-            )
++            indicators.setdefault("taker_flow_imb",   float(getattr(runtime, "taker_flow_imb",   0.0) or 0.0))
++            indicators.setdefault("taker_flow_imb_z", float(getattr(runtime, "taker_flow_imb_z", 0.0) or 0.0))
+         except Exception:
+             pass
+ 
+         # Impact proxy: abs(dn_usd) / depth_min_5_usd
+-        # Uses book microstructure v4 fields (depth_bid_5 / depth_ask_5) already
+-        # computed and stored in indicators by compute_microstructure_v4 above.
+         try:
+-            mid_px = float(price) if float(price) > 0 else 1.0
+-            d5bid_qty = float(indicators.get("depth_bid_5", 0.0) or 0.0)
+-            d5ask_qty = float(indicators.get("depth_ask_5", 0.0) or 0.0)
+-            d5bid_usd = d5bid_qty * mid_px
+-            d5ask_usd = d5ask_qty * mid_px
+-            depth_min_5_usd = max(min(d5bid_usd, d5ask_usd), 1e-6) if (d5bid_usd > 0 or d5ask_usd > 0) else 1e-6
+-            dn_usd_val = abs(float(indicators.get("dn_usd", 0.0) or 0.0))
+-            ip = min(dn_usd_val / depth_min_5_usd, 10.0)  # cap: 10x prevents outlier noise
+-            indicators["depth_bid_5_usd"] = float(d5bid_usd)
+-            indicators["depth_ask_5_usd"] = float(d5ask_usd)
+-            indicators["depth_min_5_usd"] = float(depth_min_5_usd)
+-            indicators["impact_proxy"] = float(ip)
+-            try:
+-                impact_proxy_hist.labels(symbol=str(runtime.symbol)).observe(float(ip))
+-                bucket_label = str(indicators.get("exec_regime_bucket", "NORMAL"))
+-                trade_impact_proxy.labels(sym=str(runtime.symbol), bucket=bucket_label).observe(float(ip))
+-            except Exception:
+-                pass
+-            # taker_flow_imb_z abs observe
++            _mid_px = float(price) if float(price) > 0 else 1.0
++            _d5bid_qty = float(indicators.get("depth_bid_5", 0.0) or 0.0)
++            _d5ask_qty = float(indicators.get("depth_ask_5", 0.0) or 0.0)
++            _d5bid_usd = _d5bid_qty * _mid_px
++            _d5ask_usd = _d5ask_qty * _mid_px
++            _depth_min_5_usd = (
++                max(min(_d5bid_usd, _d5ask_usd), 1e-6)
++                if (_d5bid_usd > 0 or _d5ask_usd > 0)
++                else 1e-6
++            )
++            _dn_usd_val = abs(float(indicators.get("dn_usd", 0.0) or 0.0))
++            _ip = min(_dn_usd_val / _depth_min_5_usd, 10.0)  # cap at 10x
++            indicators["depth_bid_5_usd"]  = float(_d5bid_usd)
++            indicators["depth_ask_5_usd"]  = float(_d5ask_usd)
++            indicators["depth_min_5_usd"]  = float(_depth_min_5_usd)
++            indicators["impact_proxy"]      = float(_ip)
+             try:
+-                imb_z = float(indicators.get("taker_flow_imb_z", 0.0) or 0.0)
++                from services.orderflow.metrics import (
++                    impact_proxy_hist, trade_impact_proxy, trade_taker_flow_imb_z_abs,
++                )
++                impact_proxy_hist.labels(symbol=str(runtime.symbol)).observe(float(_ip))
++                trade_impact_proxy.labels(
++                    sym=str(runtime.symbol), bucket=str(indicators.get("exec_regime_bucket", "NORMAL"))
++                ).observe(float(_ip))
++                _imb_z = float(indicators.get("taker_flow_imb_z", 0.0) or 0.0)
+                 trade_taker_flow_imb_z_abs.labels(
+                     sym=str(runtime.symbol), bucket=str(indicators.get("exec_regime_bucket", "NORMAL"))
+-                ).observe(abs(imb_z))
++                ).observe(abs(_imb_z))
+             except Exception:
+                 pass
+             # Taker-flow gate counter emission (P9c)
+@@ -1424,24 +1729,21 @@ class TickProcessor:
+         except Exception:
+             pass
+ 
+-        # Expected slippage decomposition: spread_comp + impact_comp
+-        # k (impact coefficient) can be calibrated per (symbol, regime_bucket):
+-        #   1) static default from ENV/cfg (slippage_decomp_impact_coeff_bps)
+-        #   2) nightly calibrator writes per-key overrides to Redis -> loaded via runtime.dynamic_cfg
++        # Expected slippage decomposition: spread_comp + k * |impact_proxy| * size_scale
++        # k overridden per-bucket via nightly calibrator -> runtime.dynamic_cfg
+         try:
+-            from core.expected_slippage_decomp_v1 import expected_slippage_decomp_bps as _slip_decomp
++            from tick_flow_full.core.expected_slippage_decomp_v1 import expected_slippage_decomp_bps as _slip_decomp
+             _decomp_cfg = dict(cfg)
+-            # enable decomp by default (can be disabled per-symbol via cfg)
+             _decomp_cfg.setdefault("slippage_decomp_enable", 1)
+-            # Per-bucket coeff override from nightly calibrator (loaded into dynamic_cfg by runtime)
+-            _per_bucket = {}
++            # Per-bucket coeff from nightly calibrator (loaded into dynamic_cfg by runtime)
++            _per_bucket_map = {}
+             try:
+-                _per_bucket = dict(runtime.dynamic_cfg.get("slippage_decomp_impact_coeff_bps") or {})
++                _per_bucket_map = dict(runtime.dynamic_cfg.get("slippage_decomp_impact_coeff_bps") or {})
+             except Exception:
+                 pass
+             _bucket_now = str(indicators.get("exec_regime_bucket", "NORMAL"))
+-            if _bucket_now in _per_bucket:
+-                _decomp_cfg["slippage_decomp_impact_coeff_bps"] = float(_per_bucket[_bucket_now])
++            if _bucket_now in _per_bucket_map:
++                _decomp_cfg["slippage_decomp_impact_coeff_bps"] = float(_per_bucket_map[_bucket_now])
+             _decomp_cfg["symbol"] = str(runtime.symbol)
+             _decomp_cfg["exec_regime_bucket"] = _bucket_now
+             _slip = _slip_decomp(
+@@ -1451,8 +1753,8 @@ class TickProcessor:
+                 order_size_usd=float(indicators.get("dn_usd", 0.0) or 0.0),
+             )
+             indicators["expected_slippage_decomp_bps"] = float(_slip.total_bps)
+-            indicators["slip_decomp_spread_bps"] = float(_slip.spread_bps)
+-            indicators["slip_decomp_impact_bps"] = float(_slip.impact_bps)
++            indicators["slip_decomp_spread_bps"]       = float(_slip.spread_bps)
++            indicators["slip_decomp_impact_bps"]       = float(_slip.impact_bps)
+             _coeff_used = float(_decomp_cfg.get("slippage_decomp_impact_coeff_bps", 8.0) or 8.0)
+             indicators["slip_decomp_coeff_bps"] = _coeff_used
+             # Optional strict max(model, decomp) (bucket-aware)
+@@ -1466,14 +1768,19 @@ class TickProcessor:
+                         float(indicators.get("expected_slippage_bps", 0.0) or 0.0),
+                         float(_slip.total_bps),
+                     ))
+-            # Prometheus observe (best-effort)
++            # Prometheus observe (best-effort, low-cardinality)
+             try:
+-                _bk = str(_bucket_now)
++                from services.orderflow.metrics import (
++                    trade_expected_slippage_bps as _m_slip_bps,
++                    trade_slippage_decomp_coeff_bps,
++                    expected_slippage_decomp_bps_hist,
++                    trade_expected_slippage_limit_exceed_total,
++                )
+                 _sym = str(runtime.symbol)
++                _bk  = str(_bucket_now)
+                 _m_slip_bps.labels(sym=_sym, bucket=_bk, model="decomp").observe(float(_slip.total_bps))
+                 trade_slippage_decomp_coeff_bps.labels(sym=_sym, bucket=_bk).observe(_coeff_used)
+                 expected_slippage_decomp_bps_hist.labels(symbol=_sym, scenario_v4="na").observe(float(_slip.total_bps))
+-                # Limit exceeded counter
+                 _max_eff = float(_decomp_cfg.get("max_expected_slippage_bps_eff", 0.0) or 0.0)
+                 if _max_eff > 0 and _slip.total_bps > _max_eff:
+                     trade_expected_slippage_limit_exceed_total.labels(sym=_sym, bucket=_bk, model="decomp").inc()
+@@ -1488,39 +1795,27 @@ class TickProcessor:
+             indicators["obi"] = 0
+             indicators["iceberg_refresh"] = 0
+ 
+-        # Commit 3: Book microstructure features (top-5 levels snapshot for v4 ML schema).
+-        # Injected here, before the OFConfirmEngine, so the engine can also see them.
+-        try:
+-            if runtime.last_book is not None:
+-                ms = compute_microstructure_v4(runtime.last_book, getattr(runtime, 'prev_book', None), levels=5)
+-                if isinstance(ms, dict):
+-                    indicators.update(ms)
+-            # Ensure book_health_ok is in indicators for ML schema completeness
+-            try:
+-                indicators.setdefault("book_health_ok", int(getattr(runtime, "last_book_health_ok", 1)))
+-            except Exception:
+-                pass
+-        except Exception:
+-            pass
+-
+         # Pressure Proxy Layer
+         p_snap = runtime.pressure.snapshot(now_ms=int(tick_ts))
+         indicators["pressure_per_min"] = float(p_snap.per_min_ema)
+         indicators["cooldown_hit_rate"] = float(p_snap.cd_rate_ema)
+ 
++        # Schema v2/v3 alias — pressure и triggers_per_min ссылаются на одно значение
++        indicators["pressure"] = float(indicators.get("pressure_per_min", 0.0) or 0.0)
++        indicators["triggers_per_min"] = float(indicators.get("pressure_per_min", 0.0) or 0.0)
+ 
+         # Attach L3-lite stats snapshot (taker/cancel/eta-fill) to indicators
+         try:
+             if getattr(runtime, "l3_stats", None) is not None:
+-                s3 = runtime.l3_stats.snap
+-                indicators["taker_buy_rate_ema"] = float(getattr(s3, "taker_buy_rate_ema", 0.0) or 0.0)
+-                indicators["taker_sell_rate_ema"] = float(getattr(s3, "taker_sell_rate_ema", 0.0) or 0.0)
+-                indicators["cancel_bid_rate_ema"] = float(getattr(s3, "cancel_bid_rate_ema", 0.0) or 0.0)
+-                indicators["cancel_ask_rate_ema"] = float(getattr(s3, "cancel_ask_rate_ema", 0.0) or 0.0)
+-                indicators["cancel_to_trade_bid"] = float(getattr(s3, "cancel_to_trade_bid", 0.0) or 0.0)
+-                indicators["cancel_to_trade_ask"] = float(getattr(s3, "cancel_to_trade_ask", 0.0) or 0.0)
+-                indicators["eta_fill_bid_sec"] = float(getattr(s3, "eta_fill_bid_sec", 0.0) or 0.0)
+-                indicators["eta_fill_ask_sec"] = float(getattr(s3, "eta_fill_ask_sec", 0.0) or 0.0)
++                s = runtime.l3_stats.snap
++                indicators["taker_buy_rate_ema"] = float(getattr(s, "taker_buy_rate_ema", 0.0) or 0.0)
++                indicators["taker_sell_rate_ema"] = float(getattr(s, "taker_sell_rate_ema", 0.0) or 0.0)
++                indicators["cancel_bid_rate_ema"] = float(getattr(s, "cancel_bid_rate_ema", 0.0) or 0.0)
++                indicators["cancel_ask_rate_ema"] = float(getattr(s, "cancel_ask_rate_ema", 0.0) or 0.0)
++                indicators["cancel_to_trade_bid"] = float(getattr(s, "cancel_to_trade_bid", 0.0) or 0.0)
++                indicators["cancel_to_trade_ask"] = float(getattr(s, "cancel_to_trade_ask", 0.0) or 0.0)
++                indicators["eta_fill_bid_sec"] = float(getattr(s, "eta_fill_bid_sec", 0.0) or 0.0)
++                indicators["eta_fill_ask_sec"] = float(getattr(s, "eta_fill_ask_sec", 0.0) or 0.0)
+         except Exception:
+             pass
+ 
+@@ -1633,7 +1928,9 @@ class TickProcessor:
+             # Flags should never break the main tick path.
+             pass
+ # A3: Rolling trackers (VWAP diff, momentum, realized vol)
+-        # Updated on microbar close by BarProcessor and stored in runtime.dynamic_cfg.
++        # These are updated on microbar close by BarProcessor and stored in
++        # runtime.dynamic_cfg (merged into cfg earlier). We keep a strict
++        # no-NaN contract here because JSON payloads may be configured strict.
+         try:
+             indicators["roll_vwap_px"] = float(cfg.get("roll_vwap_px", 0.0) or 0.0)
+             indicators["vwap_roll_diff_bps"] = float(cfg.get("vwap_roll_diff_bps", 0.0) or 0.0)
+@@ -1854,27 +2151,6 @@ class TickProcessor:
+             trade_dw_obi_stability_score.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_dw_obi_stability_score", 0.0) or 0.0))
+             trade_dw_obi_stable_secs.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_dw_obi_stable_secs", 0.0) or 0.0))
+             trade_dw_obi_stable.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_dw_obi_stable", 0) or 0))
+-
+-            # Histograms (P95/P99-ready): effective slippage + execution risk/penalty.
+-            # All wrapped in try/except so histogram failures never break the hot path.
+-            try:
+-                _m_slip_bps.labels(sym=_sym, bucket=_bk, model="eff").observe(
+-                    float(indicators.get("expected_slippage_bps", 0.0) or 0.0)
+-                )
+-                trade_exec_risk_ref_bps.labels(sym=_sym, bucket=_bk).observe(
+-                    float(indicators.get("exec_risk_ref_bps", 0.0) or 0.0)
+-                )
+-                trade_exec_risk_bps.labels(sym=_sym, bucket=_bk).observe(
+-                    float(indicators.get("exec_risk_bps", 0.0) or 0.0)
+-                )
+-                trade_exec_risk_norm.labels(sym=_sym, bucket=_bk).observe(
+-                    float(indicators.get("exec_risk_norm", 0.0) or 0.0)
+-                )
+-                trade_exec_pen.labels(sym=_sym, bucket=_bk).observe(
+-                    float(indicators.get("exec_pen", 0.0) or 0.0)
+-                )
+-            except Exception:
+-                pass
+         except Exception:
+             pass
+ 
+@@ -2032,6 +2308,15 @@ class TickProcessor:
+         # Phase E: OBI / OFI
+         try:
+             now_ms_det = int(tick_ts)
++
++            # Defaults для полей схемы v2/v3 — гарантируем отсутствие пропусков в payload
++            indicators.setdefault("obi", 0.0)
++            indicators.setdefault("obi_z", 0.0)
++            indicators.setdefault("obi_stability_score", 0.0)
++            indicators.setdefault("obi_stable_secs", 0.0)
++            indicators.setdefault("obi_stable", 0)
++            indicators.setdefault("obi_sustained", 0)
++
+             # OBI stability (quality-gated)
+             if runtime.last_obi_event:
+                 age = now_ms_det - int(runtime.last_obi_event.get("ts_ms", 0) or 0)
+@@ -2044,10 +2329,13 @@ class TickProcessor:
+                     indicators["obi_stable_secs"] = float(runtime.last_obi_event.get("stable_secs", 0.0) or 0.0)
+                     indicators["obi_stability_score"] = float(runtime.last_obi_event.get("stability_score", 0.0) or 0.0)
+                     indicators["obi_sustained"] = bool(int(runtime.last_obi_event.get("stable", 0) or 0) == 1)
++                    # Явно выставляем obi_stable из obi_sustained (schema v2/v3)
++                    indicators["obi_stable"] = int(1 if indicators.get("obi_sustained") else 0)
+                     if str(runtime.last_obi_event.get("direction") or "").upper() == direction:
+                         if indicators["obi_sustained"]:
+                             confirmations.append(f"obi_stable={float(indicators['obi_stable_secs']):.2f}")
+ 
++            indicators.setdefault("obi_stable", 0)
+             # Footprint edge absorb (recent, no range expansion)
+             fe = getattr(runtime, "last_fp_edge", None)
+             if fe is not None:
+@@ -2116,23 +2404,10 @@ class TickProcessor:
+             except Exception:
+                 pass
+ 
++        # Min Confirmations
+         # ... (Check min_confirmations) ...
+         # Simplified:
+         min_confirmations = int(runtime.config.get("min_confirmations", 0))
+-
+-        # Commit 2: Make confirmations first-class features for ML gate (train==serve parity).
+-        # apply_confirmations_to_indicators is fail-safe — never raises, never re-raises.
+-        # Keys written: conf:<key> (numeric), b:<key> (binary), <key> (binary, for canonical set).
+-        # Runs BEFORE min_confirmations check so even vetoed ticks export features.
+-        try:
+-            apply_confirmations_to_indicators(
+-                confirmations=list(confirmations),
+-                indicators=indicators,
+-                also_write_raw_keys=True,
+-            )
+-        except Exception:
+-            pass
+-
+         if len(confirmations) < min_confirmations:
+             return None
+ 
+@@ -3044,9 +3319,9 @@ class TickProcessor:
+         try:
+             rd = getattr(runtime, "adverse_rd_tracker", None)
+             if rd is not None:
+-                indicators = runtime.indicators if hasattr(runtime, "indicators") else {}
+-                bkt = str(indicators.get("exec_regime_bucket", "NORMAL") or "NORMAL")
+-                px0 = float(indicators.get("mid_px_submit") or entry or 0.0)
++                _rdind2 = runtime.indicators if hasattr(runtime, "indicators") else {}
++                bkt = str(_rdind2.get("exec_regime_bucket", "NORMAL") or "NORMAL")
++                px0 = float(_rdind2.get("mid_px_submit") or entry or 0.0)
+                 if px0 > 0:
+                     rd.on_signal(ts_ms=int(tick_ts), direction=str(direction), px0=float(px0), bucket=bkt)
+         except Exception:
+@@ -3224,24 +3499,6 @@ class TickProcessor:
+                 "flag_high_mom": str(int(indicators.get("flag_high_mom", 0) or 0)),
+                 "flag_high_realized_vol": str(int(indicators.get("flag_high_realized_vol", 0) or 0)),
+                 "flag_high_pressure": str(int(indicators.get("flag_high_pressure", 0) or 0)),
+-
+-                # Execution risk & slippage (world-practice trackers v16)
+-                # Enables SRE/QA/Timescale to distinguish: "rules/defaults",
+-                # "legacy vs eff vs decomp", "exec_risk exists, exec_pen=0" (broken wiring).
+-                "spread_bps_submit": str(float(indicators.get("spread_bps_submit", indicators.get("spread_bps", 0.0)) or 0.0)),
+-                "impact_proxy": str(float(indicators.get("impact_proxy", 0.0) or 0.0)),
+-                "liq_score": str(float(indicators.get("liq_score", 0.0) or 0.0)),
+-                "expected_slippage_bps": str(float(indicators.get("expected_slippage_bps", 0.0) or 0.0)),
+-                "expected_slippage_bps_legacy": str(float(indicators.get("expected_slippage_bps_legacy", indicators.get("expected_slippage_bps", 0.0)) or 0.0)),
+-                "expected_slippage_decomp_bps": str(float(indicators.get("expected_slippage_decomp_bps", 0.0) or 0.0)),
+-                "slip_decomp_spread_bps": str(float(indicators.get("slip_decomp_spread_bps", 0.0) or 0.0)),
+-                "slip_decomp_impact_bps": str(float(indicators.get("slip_decomp_impact_bps", 0.0) or 0.0)),
+-                "slip_decomp_coeff_bps": str(float(indicators.get("slip_decomp_coeff_bps", 0.0) or 0.0)),
+-                "exec_risk_ref_bps": str(float(indicators.get("exec_risk_ref_bps", 0.0) or 0.0)),
+-                "exec_risk_bps": str(float(indicators.get("exec_risk_bps", 0.0) or 0.0)),
+-                "exec_risk_norm": str(float(indicators.get("exec_risk_norm", 0.0) or 0.0)),
+-                "exec_pen": str(float(indicators.get("exec_pen", 0.0) or 0.0)),
+-
+                 "reason_code_top1": str(reason_top1),  # sanitized by enrich_schema_fields
+                 "meta_feature_coverage": str(float(meta_cov)),
+                 "meta_enforce_mode": meta_enforce,
+@@ -3285,16 +3542,6 @@ class TickProcessor:
+                 of_gate_ok_hard_total.labels(symbol=symbol, scenario_v4=scen).inc()
+             if int(fields.get("ok_soft", "0") or 0) == 1:
+                 of_gate_ok_soft_total.labels(symbol=symbol, scenario_v4=scen).inc()
+-            # Veto top1 counter: only on hard-veto (ok=0, ok_soft=0)
+-            if int(fields.get("ok", "0") or 0) == 0 and int(fields.get("ok_soft", "0") or 0) == 0:
+-                try:
+-                    rc1_lbl = str(fields.get("reason_code_top1") or "na")
+-                    if rc1_lbl and rc1_lbl != "na":
+-                        of_gate_veto_top1_total.labels(
+-                            symbol=symbol, scenario_v4=scen, reason_code_top1=rc1_lbl
+-                        ).inc()
+-                except Exception:
+-                    pass
+ 
+         except Exception as e:
+             ok_metrics_error_total.labels(src="tick_gate", where=why_label("exception")).inc()
+diff --git a/services/orderflow/configuration.py b/services/orderflow/configuration.py
+index ca4fc48..68fa17f 100644
+--- a/services/orderflow/configuration.py
++++ b/services/orderflow/configuration.py
+@@ -4,7 +4,12 @@ import os
+ import json
+ import logging
+ from copy import deepcopy
+-from redis.exceptions import RedisError
++try:
++    from redis.exceptions import RedisError  # type: ignore
++except Exception:  # pragma: no cover
++    # Optional dependency for unit-test environment / minimal installs.
++    class RedisError(Exception):
++        pass
+ 
+ from core.instrument_config import OrderFlowConfig, get_config
+ from services.pnl_math import get_symbol_info
+@@ -84,6 +89,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
+     "weak_progress_atr": 0.15,
+     "signal_cooldown_sec":3,
+     "tick_buffer": 500,
++    "tick_gap_snapshot_every_n": 500,
+     "orders_queue_enabled": False,
+     "orders_queue_type": "market",
+     "orders_queue_profile": "",
+diff --git a/services/orderflow/metrics.py b/services/orderflow/metrics.py
+index 1886538..4eafccd 100644
+--- a/services/orderflow/metrics.py
++++ b/services/orderflow/metrics.py
+@@ -531,6 +531,36 @@ burst_flush_total = _get_or_create_prom_counter('burst_flush_total', 'Total burs
+ signals_emitted_total = _get_or_create_prom_counter('signals_emitted_total', 'Total signals actually emitted', ['symbol'])
+ burst_window_ms_gauge = _get_or_create_prom_gauge('burst_window_ms', 'Current burst window (ms)', ['symbol'])
+ tick_gap_p50_ms_gauge = _get_or_create_prom_gauge('tick_gap_p50_ms', 'Tick gap p50 (ms)', ['symbol'])
++tick_gap_p95_ms_gauge = _get_or_create_prom_gauge(
++    "tick_gap_p95_ms", "Tick gap p95 (ms)", ["symbol"]
++)
++
++# P2/F: missing-seq EMA signals (0..1) and raw gap events count.
++book_missing_seq_ema_gauge = _get_or_create_prom_gauge(
++    "book_missing_seq_ema", "EMA of book missing-seq events (0..1)", ["symbol"]
++)
++tick_missing_seq_ema_gauge = _get_or_create_prom_gauge(
++    "tick_missing_seq_ema", "EMA of tick missing-seq events (0..1)", ["symbol"]
++)
++
++book_missing_seq_events_total = _get_or_create_prom_counter(
++    "book_missing_seq_events_total", "Count of detected book sequence gaps", ["symbol"]
++)
++tick_missing_seq_events_total = _get_or_create_prom_counter(
++    "tick_missing_seq_events_total", "Count of detected tick sequence gaps", ["symbol"]
++)
++
++# P2/F: trade_id ordering issue breakdown (diagnostic; GAP is already covered by tick_missing_seq_events_total).
++tick_id_gap_events_total = _get_or_create_prom_counter(
++    "tick_id_gap_events_total", "Count of tick trade_id gaps (tid > last_tid+1)", ["symbol"]
++)
++tick_id_dup_events_total = _get_or_create_prom_counter(
++    "tick_id_dup_events_total", "Count of duplicate tick trade_id events (tid == last_tid)", ["symbol"]
++)
++tick_id_reorder_events_total = _get_or_create_prom_counter(
++    "tick_id_reorder_events_total", "Count of out-of-order tick trade_id events (tid < last_tid)", ["symbol"]
++)
++
+ 
+ # --- Drain Mode Metrics ---
+ drain_forced_cancel_total = _get_or_create_prom_counter(
+diff --git a/services/orderflow/policy/circuit_breaker_state_v1.py b/services/orderflow/policy/circuit_breaker_state_v1.py
+index 0e2dd75..5292979 100644
+--- a/services/orderflow/policy/circuit_breaker_state_v1.py
++++ b/services/orderflow/policy/circuit_breaker_state_v1.py
+@@ -18,10 +18,16 @@ Redis Keys:
+     - updated_at: int (last tick processed)
+ """
+ 
++from __future__ import annotations
++
++
+ import time
+ import logging
+ from typing import Optional, Tuple, Dict, Any
+-import redis.asyncio as aioredis
++try:
++    import redis.asyncio as aioredis
++except Exception:  # pragma: no cover
++    aioredis = None  # type: ignore
+ 
+ 
+ class CircuitBreakerState:
+diff --git a/services/orderflow/runtime.py b/services/orderflow/runtime.py
+index ec14f7a..26fce9e 100644
+--- a/services/orderflow/runtime.py
++++ b/services/orderflow/runtime.py
+@@ -192,6 +192,7 @@ from core.atr_floor_policy import compute_atr_bps_threshold
+ from core.fees_aware_policy import fees_aware_min_atr_bps
+ 
+ from core.tick_gap_tracker import TickGapTracker
++from core.seq_gap_tracker_v1 import GapEmaTracker
+ from core.burst_calibrator import BurstCalibrator
+ 
+ from core.time_utils import normalize_epoch_ms, extract_tick_ts_ms
+@@ -213,8 +214,17 @@ from core.liquidity_regime import LiquidityRegimeService
+ from services.async_signal_publisher import AsyncSignalPublisher, StreamSink
+ 
+ 
+-import redis.asyncio as aioredis
+-from redis.exceptions import RedisError, ResponseError
++try:
++    import redis.asyncio as aioredis
++    from redis.exceptions import RedisError, ResponseError
++except Exception:  # pragma: no cover
++    aioredis = None  # type: ignore
++
++    class RedisError(Exception):
++        pass
++
++    class ResponseError(Exception):
++        pass
+ 
+ from common.backoff import Backoff
+ from common.redis_errors import is_transient_error as is_transient_redis_error
+@@ -406,6 +416,30 @@ class SymbolRuntime:
+     # Missing fields from strategy.py (required for slots=True)
+     mock_force: str = ""
+     tick_gaps_ms: Deque[int] = field(default_factory=lambda: deque(maxlen=512), init=False)
++    # --- P2/F strict DQ state (Train==Serve for MetaModelLR) ---
++    # Cached quantiles from TickGapTracker (computed periodically by strategy).
++    tick_gap_p50_ms: float = 0.0
++    tick_gap_p95_ms: float = 0.0
++    tick_gap_n: int = 0
++
++    # EMA of sequence continuity failures (0..1). Higher => more frequent gaps.
++    tick_missing_seq_ema: float = 0.0
++    book_missing_seq_ema: float = 0.0
++    tick_seq_last_reason: str = ""
++    book_seq_last_reason: str = ""
++
++    # Trackers (initialized in __post_init__)
++    tick_seq_gap: GapEmaTracker = field(init=False)
++    book_seq_gap: GapEmaTracker = field(init=False)
++
++    # Optional: last seen trade id for tick stream continuity checks.
++    last_trade_id: int = 0
++    # P2/F: trade_id ordering issue counters (per-microbar; reset on bar close)
++    tick_id_gap_count: int = 0
++    tick_id_dup_count: int = 0
++    tick_id_reorder_count: int = 0
++
++
+     last_tick_seen_ts: int = 0
+     _cvd_guard: Optional[Any] = field(default=None, init=False)
+     cvd_quarantine_active: int = 0
+@@ -717,6 +751,12 @@ class SymbolRuntime:
+         ba = int(self.config.get("burst_max_age_ms", 8000))
+         self.burst = BurstCandidateSelector(window_ms=max(0, bw), max_age_ms=max(1000, ba))
+         self.tick_gaps = TickGapTracker(window=int(self.config.get("tick_gap_window", 512)))
++        # P2/F: gap EMA time-constant (safe vs strict defaults, override via config)
++        dq_mode = str(self.config.get("dq_mode", "safe") or "safe").lower()
++        tau_default = 10_000 if dq_mode == "safe" else 3_000
++        tau_ms = int(self.config.get("dq_seq_tau_ms", tau_default) or tau_default)
++        self.tick_seq_gap = GapEmaTracker(tau_ms=tau_ms)
++        self.book_seq_gap = GapEmaTracker(tau_ms=tau_ms)
+         self.burst_cal = BurstCalibrator(
+             base_window_ms=int(self.config.get("burst_window_ms", 2500)),
+             min_window_ms=int(self.config.get("burst_window_min_ms", 300)),
+@@ -1081,7 +1121,10 @@ class SymbolRuntime:
+         Обновляет конфиг и перезагружает детекторы без потери истории тиков.
+         """
+         prev_ticks: List[Dict[str, Any]] = list(self.tick_buffer) if hasattr(self, "tick_buffer") else []
+-        self.config = new_config.copy()
++        merged = DEFAULT_CONFIG.copy()
++        if isinstance(new_config, dict):
++            merged.update(new_config)
++        self.config = merged
+         self.tick_buffer = deque(prev_ticks, maxlen=self.config["tick_buffer"])
+         # keep pressure deque; do not reset on config reload
+ 
+diff --git a/tick_flow_full/core/data_health.py b/tick_flow_full/core/data_health.py
+index 821b580..3f33cd8 100644
+--- a/tick_flow_full/core/data_health.py
++++ b/tick_flow_full/core/data_health.py
+@@ -114,6 +114,26 @@ def compute_data_health(*, indicators: Dict[str, Any], cfg: Dict[str, Any]) -> D
+         # gap means missing trades (ingestion) -> degrade
+         reasons.append("tick_gap")
+ 
++    # --- Trade-id ordering (Binance aggTradeId continuity) ---
++    # Distinct from time-based tick_gap_ms / tick_oood.
++    try:
++        tick_id_gap = _b(indicators.get("tick_id_gap", 0))
++        tick_id_dup = _b(indicators.get("tick_id_dup", 0))
++        tick_id_reorder = _b(indicators.get("tick_id_reorder", 0))
++        tick_gap_count = _i(indicators.get("tick_gap_count", 0), 0)
++        tick_dup_count = _i(indicators.get("tick_dup_count", 0), 0)
++        tick_reorder_count = _i(indicators.get("tick_reorder_count", 0), 0)
++    except Exception:
++        tick_id_gap = tick_id_dup = tick_id_reorder = 0
++        tick_gap_count = tick_dup_count = tick_reorder_count = 0
++
++    if tick_id_gap == 1 or tick_gap_count > 0:
++        reasons.append("tick_id_gap")
++    if tick_id_reorder == 1 or tick_reorder_count > 0:
++        reasons.append("tick_id_reorder")
++    if tick_id_dup == 1 or tick_dup_count > 0:
++        reasons.append("tick_id_dup")
++
+     # --- Book health ---
+     book_health_ok = _i(indicators.get("book_health_ok", 1), 1)
+     book_age_ms = _i(indicators.get("book_age_ms", 0), 0)
+@@ -152,6 +172,13 @@ def compute_data_health(*, indicators: Dict[str, Any], cfg: Dict[str, Any]) -> D
+             score *= 0.85
+         if tick_gap_ms >= 2000:
+             score *= 0.85
++        # trade-id ordering degradation (soft by default; configurable)
++        if tick_id_gap == 1 or tick_gap_count > 0:
++            score *= float(cfg.get("data_health_tick_id_gap_mul", 0.85))
++        if tick_id_reorder == 1 or tick_reorder_count > 0:
++            score *= float(cfg.get("data_health_tick_id_reorder_mul", 0.95))
++        if tick_id_dup == 1 or tick_dup_count > 0:
++            score *= float(cfg.get("data_health_tick_id_dup_mul", 0.98))
+         if book_health_ok == 0:
+             score *= 0.60
+         if spread_ok == 0:
+diff --git a/tick_flow_full/services/orderflow/components/bar_processor.py b/tick_flow_full/services/orderflow/components/bar_processor.py
+index 6ae0350..ef43879 100644
+--- a/tick_flow_full/services/orderflow/components/bar_processor.py
++++ b/tick_flow_full/services/orderflow/components/bar_processor.py
+@@ -194,6 +194,15 @@ class BarProcessor:
+             # 20. SMT Snapshot (BOS/Structure Proxy)
+             await self._publish_smt_snapshot(runtime, bar)
+ 
++            # 21. Reset trade_id ordering counters (per-microbar window).
++            # These counters are used by strict DQ / observability and must not leak across bars.
++            try:
++                runtime.tick_id_gap_count = 0
++                runtime.tick_id_dup_count = 0
++                runtime.tick_id_reorder_count = 0
++            except Exception:
++                pass
++
+         except Exception as exc:
+             log_silent_error(exc, 'process_bar_fatal', runtime.symbol, 'BarProcessor:process_bar')
+ 
+diff --git a/tick_flow_full/services/orderflow/components/tick_processor.py b/tick_flow_full/services/orderflow/components/tick_processor.py
+index 128fd80..e7d2d0c 100644
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -68,7 +68,9 @@ from services.orderflow.metrics import (
+     tick_ts_missing_total, tick_ts_backwards_total, tick_ts_clamped_total, tick_ts_quarantined_total,
+     tick_ts_future_total, tick_age_ms_hist, tick_reorder_back_ms_hist, tick_time_action_total,
+     tick_time_decision_total,
+-    burst_active_gauge, burst_flush_total, signals_emitted_total, feature_missing_total, burst_window_ms_gauge, tick_gap_p50_ms_gauge,
++    burst_active_gauge, burst_flush_total, signals_emitted_total, feature_missing_total, burst_window_ms_gauge, tick_gap_p50_ms_gauge, tick_gap_p95_ms_gauge,
++    book_missing_seq_ema_gauge, tick_missing_seq_ema_gauge, tick_missing_seq_events_total,
++    tick_id_gap_events_total, tick_id_dup_events_total, tick_id_reorder_events_total,
+     ticks_out_of_order_total, ticks_side_unknown_total, bars_closed_total, divergence_detected_total,
+     divergence_confirmed_total, divergence_triggered_total, divergence_overridden_total, divergence_suppressed_total,
+     sweep_detected_total, strong_gate_veto_total, evidence_used_total, ticks_pressure_filtered_total,
+@@ -142,9 +144,12 @@ from core.fill_prob_proxy import compute_fill_prob_proxy
+ from core.bucket2_v1 import derive_bucket2_label
+ from core.calendar_flags import calendar_flags_utc
+ 
+-from handlers.crypto_orderflow.utils.log_sampler import sampled_info, sampled_warning, sampled_debug, LogSamplerFactory
++from services.orderflow.log_sampler import sampled_info, sampled_warning, sampled_debug, LogSamplerFactory
+ 
+-import redis.asyncio as aioredis
++try:
++    import redis.asyncio as aioredis
++except Exception:  # pragma: no cover
++    aioredis = None  # type: ignore
+ 
+ # P62: write Unified Decision Record even on early veto (before SignalPipeline)
+ from services.orderflow.decision_record_v1 import DecisionRecordV1, write_decision_record, extract_fields_best_effort, deterministic_sample
+@@ -271,6 +276,169 @@ class TickProcessor:
+             change_count_ttl_s=int(os.getenv("CB_CHANGE_COUNT_TTL_S", "3600") or 3600),
+         )
+ 
++    @staticmethod
++    def _update_strict_dq_trackers(
++        *,
++        runtime: "SymbolRuntime",
++        tick: Dict[str, Any],
++        tick_ts_ms: int,
++        cfg_eff: Dict[str, Any],
++        indicators: Dict[str, Any],
++    ) -> None:
++        """P2/F: Strict DQ signals for Train==Serve.
++
++        Best-effort, must never raise on hot path.
++
++        Produces/updates:
++        - tick_gap_p50_ms / tick_gap_p95_ms / tick_gap_n (rolling TickGapTracker)
++        - tick_missing_seq_ema (EMA of trade-id discontinuities)
++        - book_missing_seq_ema (already tracked by orderbook path; surfaced here)
++
++        These fields are injected into `indicators` so that of_engine / MetaModelLR
++        see the same signals in runtime as in train (Train==Serve).
++        """
++
++        # 1) Tick gap tracking (time determinism: use normalized tick_ts_ms).
++        try:
++            runtime.tick_gaps.record(int(tick_ts_ms))
++        except Exception:
++            pass
++
++        # Snapshot frequency: quantile snapshot sorts <= window (~512), keep it cheap.
++        # Default: 500 (prod-safe, avoids Prom/Redis spam on majors).
++        try:
++            every_n = int(cfg_eff.get("tick_gap_snapshot_every_n", 500) or 500)
++        except Exception:
++            every_n = 500
++
++        if every_n > 0:
++            try:
++                if int(getattr(runtime, "tick_count", 0) or 0) % int(every_n) == 0:
++                    gaps = runtime.tick_gaps.snapshot()
++                    runtime.tick_gap_p50_ms = float(gaps.get("p50", 0.0) or 0.0)
++                    runtime.tick_gap_p95_ms = float(gaps.get("p95", 0.0) or 0.0)
++                    runtime.tick_gap_n = int(gaps.get("n", 0) or 0)
++
++                    try:
++                        tick_gap_p50_ms_gauge.labels(symbol=str(runtime.symbol)).set(runtime.tick_gap_p50_ms)
++                        tick_gap_p95_ms_gauge.labels(symbol=str(runtime.symbol)).set(runtime.tick_gap_p95_ms)
++                    except Exception:
++                        pass
++            except Exception:
++                pass
++
++        # 2) Tick missing-seq tracking (trade_id continuity).
++        #
++        # Binance USDT-M futures (fapi) publishes aggTradeId as monotonically increasing `trade_id`.
++        # We must distinguish:
++        #   - GAP:      tid > last_tid + 1  (missing data / stream break)
++        #   - DUP:      tid == last_tid     (duplicate delivery)
++        #   - REORDER:  tid <  last_tid     (out-of-order delivery)
++        #
++        # Only GAP contributes to tick_missing_seq_ema.
++        try:
++            tid_raw = tick.get("trade_id")
++            # Compatibility fallbacks (not expected in prod for your Go worker).
++            if tid_raw is None:
++                tid_raw = tick.get("a")  # aggTradeId
++            if tid_raw is None:
++                tid_raw = tick.get("t")  # tradeId (some feeds)
++            if tid_raw is None:
++                tid_raw = tick.get("id")
++
++            if tid_raw is not None:
++                tid = int(tid_raw)
++                last_tid = int(getattr(runtime, "last_trade_id", 0) or 0)
++
++                is_gap = False
++                is_dup = False
++                is_reorder = False
++
++                if last_tid > 0:
++                    if tid > last_tid + 1:
++                        is_gap = True
++                        runtime.tick_seq_last_reason = "gap"
++                        runtime.tick_id_gap_count = int(getattr(runtime, "tick_id_gap_count", 0) or 0) + 1
++                        try:
++                            tick_missing_seq_events_total.labels(symbol=str(runtime.symbol)).inc()
++                        except Exception:
++                            pass
++                        try:
++                            tick_id_gap_events_total.labels(symbol=str(runtime.symbol)).inc()
++                        except Exception:
++                            pass
++
++                    elif tid == last_tid:
++                        is_dup = True
++                        runtime.tick_seq_last_reason = "dup"
++                        runtime.tick_id_dup_count = int(getattr(runtime, "tick_id_dup_count", 0) or 0) + 1
++                        try:
++                            tick_id_dup_events_total.labels(symbol=str(runtime.symbol)).inc()
++                        except Exception:
++                            pass
++
++                    elif tid < last_tid:
++                        is_reorder = True
++                        runtime.tick_seq_last_reason = "reorder"
++                        runtime.tick_id_reorder_count = int(getattr(runtime, "tick_id_reorder_count", 0) or 0) + 1
++                        try:
++                            tick_id_reorder_events_total.labels(symbol=str(runtime.symbol)).inc()
++                        except Exception:
++                            pass
++
++                    else:
++                        runtime.tick_seq_last_reason = "ok"
++
++                else:
++                    runtime.tick_seq_last_reason = "init"
++
++                # Update EMA with a monotone ts to avoid dt<=0 forcing alpha=1 and resetting the EMA.
++                ts_for_seq = int(tick_ts_ms or 0)
++                last_seq_ts = int(getattr(runtime.tick_seq_gap, "last_ts_ms", 0) or 0)
++                if ts_for_seq <= last_seq_ts:
++                    ts_for_seq = last_seq_ts + 1
++
++                runtime.tick_missing_seq_ema = float(
++                    runtime.tick_seq_gap.update(is_gap=bool(is_gap), ts_ms=int(ts_for_seq))
++                )
++                try:
++                    tick_missing_seq_ema_gauge.labels(symbol=str(runtime.symbol)).set(runtime.tick_missing_seq_ema)
++                except Exception:
++                    pass
++
++                # Monotone last_trade_id: do NOT regress on REORDER.
++                if tid > last_tid:
++                    runtime.last_trade_id = int(tid)
++
++                # Expose counters/flags into indicators (reset on bar close).
++                indicators["tick_gap_count"] = int(getattr(runtime, "tick_id_gap_count", 0) or 0)
++                indicators["tick_dup_count"] = int(getattr(runtime, "tick_id_dup_count", 0) or 0)
++                indicators["tick_reorder_count"] = int(getattr(runtime, "tick_id_reorder_count", 0) or 0)
++                indicators["tick_id_gap"] = int(bool(is_gap))
++                indicators["tick_id_dup"] = int(bool(is_dup))
++                indicators["tick_id_reorder"] = int(bool(is_reorder))
++                indicators["tick_seq_last_reason"] = str(getattr(runtime, "tick_seq_last_reason", ""))
++
++        except Exception:
++            pass
++
++        # 3) Surface cached DQ values into indicators for the engine/model.
++        try:
++            indicators["tick_gap_p50_ms"] = float(getattr(runtime, "tick_gap_p50_ms", 0.0) or 0.0)
++            indicators["tick_gap_p95_ms"] = float(getattr(runtime, "tick_gap_p95_ms", 0.0) or 0.0)
++            indicators["tick_gap_n"] = int(getattr(runtime, "tick_gap_n", 0) or 0)
++            indicators["tick_missing_seq_ema"] = float(getattr(runtime, "tick_missing_seq_ema", 0.0) or 0.0)
++            indicators["book_missing_seq_ema"] = float(getattr(runtime, "book_missing_seq_ema", 0.0) or 0.0)
++
++            # book_missing_seq is primarily updated in orderbook path; still surface gauge for visibility.
++            try:
++                book_missing_seq_ema_gauge.labels(symbol=str(runtime.symbol)).set(indicators["book_missing_seq_ema"])
++            except Exception:
++                pass
++        except Exception:
++            pass
++
++
+     async def _emit_early_veto_decision_record(
+         self,
+         *,
+@@ -681,6 +849,8 @@ class TickProcessor:
+         except Exception:
+             cfg = dict(getattr(runtime, "config", {}) or {})
+ 
++        cfg_eff = dict(cfg)
++
+         # ------------------------------------------------------------------
+         # P68: Determine policy regime. Prefer local indicator states, fallback to dynamic cfg.
+         # ------------------------------------------------------------------
+@@ -722,6 +892,20 @@ class TickProcessor:
+             # fail-open: do not break tick processing
+             pass
+ 
++        # P2/F: strict DQ trackers (tick gaps + missing seq).
++        # Must run BEFORE any early-return so that DQ state converges even under gating.
++        try:
++            cfg_eff = dict(cfg)
++            self._update_strict_dq_trackers(
++                runtime=runtime,
++                tick=tick,
++                tick_ts_ms=int(tick_ts),
++                cfg_eff=cfg_eff,
++                indicators=indicators,
++            )
++        except Exception:
++            pass
++
+         # --- Delta Detection ---
+         delta_event = {}
+         try:
+diff --git a/tick_flow_full/services/orderflow/configuration.py b/tick_flow_full/services/orderflow/configuration.py
+index d0b4a38..8de17be 100644
+--- a/tick_flow_full/services/orderflow/configuration.py
++++ b/tick_flow_full/services/orderflow/configuration.py
+@@ -4,7 +4,12 @@ import os
+ import json
+ import logging
+ from copy import deepcopy
+-from redis.exceptions import RedisError
++try:
++    from redis.exceptions import RedisError  # type: ignore
++except Exception:  # pragma: no cover
++    # Optional dependency for unit-test environment / minimal installs.
++    class RedisError(Exception):
++        pass
+ 
+ from core.instrument_config import OrderFlowConfig, get_config
+ from services.pnl_math import get_symbol_info
+@@ -84,6 +89,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
+     "weak_progress_atr": 0.15,
+     "signal_cooldown_sec":3,
+     "tick_buffer": 500,
++    "tick_gap_snapshot_every_n": 500,
+     "orders_queue_enabled": False,
+     "orders_queue_type": "market",
+     "orders_queue_profile": "",
+diff --git a/tick_flow_full/services/orderflow/metrics.py b/tick_flow_full/services/orderflow/metrics.py
+index dccc0db..fd1d8fe 100644
+--- a/tick_flow_full/services/orderflow/metrics.py
++++ b/tick_flow_full/services/orderflow/metrics.py
+@@ -494,6 +494,36 @@ burst_flush_total = _get_or_create_prom_counter('burst_flush_total', 'Total burs
+ signals_emitted_total = _get_or_create_prom_counter('signals_emitted_total', 'Total signals actually emitted', ['symbol'])
+ burst_window_ms_gauge = _get_or_create_prom_gauge('burst_window_ms', 'Current burst window (ms)', ['symbol'])
+ tick_gap_p50_ms_gauge = _get_or_create_prom_gauge('tick_gap_p50_ms', 'Tick gap p50 (ms)', ['symbol'])
++tick_gap_p95_ms_gauge = _get_or_create_prom_gauge(
++    "tick_gap_p95_ms", "Tick gap p95 (ms)", ["symbol"]
++)
++
++# P2/F: missing-seq EMA signals (0..1) and raw gap events count.
++book_missing_seq_ema_gauge = _get_or_create_prom_gauge(
++    "book_missing_seq_ema", "EMA of book missing-seq events (0..1)", ["symbol"]
++)
++tick_missing_seq_ema_gauge = _get_or_create_prom_gauge(
++    "tick_missing_seq_ema", "EMA of tick missing-seq events (0..1)", ["symbol"]
++)
++
++book_missing_seq_events_total = _get_or_create_prom_counter(
++    "book_missing_seq_events_total", "Count of detected book sequence gaps", ["symbol"]
++)
++tick_missing_seq_events_total = _get_or_create_prom_counter(
++    "tick_missing_seq_events_total", "Count of detected tick sequence gaps", ["symbol"]
++)
++
++# P2/F: trade_id ordering issue breakdown (diagnostic; GAP is already covered by tick_missing_seq_events_total).
++tick_id_gap_events_total = _get_or_create_prom_counter(
++    "tick_id_gap_events_total", "Count of tick trade_id gaps (tid > last_tid+1)", ["symbol"]
++)
++tick_id_dup_events_total = _get_or_create_prom_counter(
++    "tick_id_dup_events_total", "Count of duplicate tick trade_id events (tid == last_tid)", ["symbol"]
++)
++tick_id_reorder_events_total = _get_or_create_prom_counter(
++    "tick_id_reorder_events_total", "Count of out-of-order tick trade_id events (tid < last_tid)", ["symbol"]
++)
++
+ 
+ # --- Drain Mode Metrics ---
+ drain_forced_cancel_total = _get_or_create_prom_counter(
+diff --git a/tick_flow_full/services/orderflow/policy/circuit_breaker_state_v1.py b/tick_flow_full/services/orderflow/policy/circuit_breaker_state_v1.py
+index 0e2dd75..5292979 100644
+--- a/tick_flow_full/services/orderflow/policy/circuit_breaker_state_v1.py
++++ b/tick_flow_full/services/orderflow/policy/circuit_breaker_state_v1.py
+@@ -18,10 +18,16 @@ Redis Keys:
+     - updated_at: int (last tick processed)
+ """
+ 
++from __future__ import annotations
++
++
+ import time
+ import logging
+ from typing import Optional, Tuple, Dict, Any
+-import redis.asyncio as aioredis
++try:
++    import redis.asyncio as aioredis
++except Exception:  # pragma: no cover
++    aioredis = None  # type: ignore
+ 
+ 
+ class CircuitBreakerState:
+diff --git a/tick_flow_full/services/orderflow/runtime.py b/tick_flow_full/services/orderflow/runtime.py
+index 50f9846..f6fa329 100644
+--- a/tick_flow_full/services/orderflow/runtime.py
++++ b/tick_flow_full/services/orderflow/runtime.py
+@@ -214,6 +214,7 @@ from core.atr_floor_policy import compute_atr_bps_threshold
+ from core.fees_aware_policy import fees_aware_min_atr_bps
+ 
+ from core.tick_gap_tracker import TickGapTracker
++from core.seq_gap_tracker_v1 import GapEmaTracker
+ from core.burst_calibrator import BurstCalibrator
+ 
+ from core.time_utils import normalize_epoch_ms, extract_tick_ts_ms
+@@ -235,8 +236,17 @@ from core.liquidity_regime import LiquidityRegimeService
+ from services.async_signal_publisher import AsyncSignalPublisher, StreamSink
+ 
+ 
+-import redis.asyncio as aioredis
+-from redis.exceptions import RedisError, ResponseError
++try:
++    import redis.asyncio as aioredis
++    from redis.exceptions import RedisError, ResponseError
++except Exception:  # pragma: no cover
++    aioredis = None  # type: ignore
++
++    class RedisError(Exception):
++        pass
++
++    class ResponseError(Exception):
++        pass
+ 
+ from common.backoff import Backoff
+ from common.redis_errors import is_transient_error as is_transient_redis_error
+@@ -659,6 +669,12 @@ class SymbolRuntime:
+     # Checksum / Sequence tracking
+     last_u: int = 0
+     last_id: int = 0
++    # P2/F: aggTradeId continuity tracking (Binance futures)
++    last_trade_id: int = 0
++    tick_id_gap_count: int = 0
++    tick_id_dup_count: int = 0
++    tick_id_reorder_count: int = 0
++
+     
+     # Last state
+     last_price: float = 0.0
+@@ -736,6 +752,12 @@ class SymbolRuntime:
+         ba = int(self.config.get("burst_max_age_ms", 8000))
+         self.burst = BurstCandidateSelector(window_ms=max(0, bw), max_age_ms=max(1000, ba))
+         self.tick_gaps = TickGapTracker(window=int(self.config.get("tick_gap_window", 512)))
++        # P2/F: gap EMA time-constant (safe vs strict defaults, override via config)
++        dq_mode = str(self.config.get("dq_mode", "safe") or "safe").lower()
++        tau_default = 10_000 if dq_mode == "safe" else 3_000
++        tau_ms = int(self.config.get("dq_seq_tau_ms", tau_default) or tau_default)
++        self.tick_seq_gap = GapEmaTracker(tau_ms=tau_ms)
++        self.book_seq_gap = GapEmaTracker(tau_ms=tau_ms)
+         self.burst_cal = BurstCalibrator(
+             base_window_ms=int(self.config.get("burst_window_ms", 2500)),
+             min_window_ms=int(self.config.get("burst_window_min_ms", 300)),
+@@ -1088,7 +1110,10 @@ class SymbolRuntime:
+         Обновляет конфиг и перезагружает детекторы без потери истории тиков.
+         """
+         prev_ticks: List[Dict[str, Any]] = list(self.tick_buffer) if hasattr(self, "tick_buffer") else []
+-        self.config = new_config.copy()
++        merged = DEFAULT_CONFIG.copy()
++        if isinstance(new_config, dict):
++            merged.update(new_config)
++        self.config = merged
+         self.tick_buffer = deque(prev_ticks, maxlen=self.config["tick_buffer"])
+         # keep pressure deque; do not reset on config reload
+ 
+diff --git a/tick_flow_full/tests/services/orderflow/components/test_tick_processor_sanity.py b/tick_flow_full/tests/services/orderflow/components/test_tick_processor_sanity.py
+index 2646d28..12e104c 100644
+--- a/tick_flow_full/tests/services/orderflow/components/test_tick_processor_sanity.py
++++ b/tick_flow_full/tests/services/orderflow/components/test_tick_processor_sanity.py
+@@ -1,57 +1,99 @@
+-import pytest
+-import asyncio
+-from unittest.mock import MagicMock
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++
++from core.seq_gap_tracker_v1 import GapEmaTracker
++from core.tick_gap_tracker import TickGapTracker
+ from services.orderflow.components.tick_processor import TickProcessor
+-from services.orderflow.runtime import SymbolRuntime
+-
+-@pytest.mark.asyncio
+-async def test_tick_processor_sanity():
+-    redis_mock = MagicMock()
+-    signal_mock = MagicMock()
+-    calib_mock = MagicMock()
+-    of_engine_mock = MagicMock()
+-    of_engine_mock.symbol = "BTCUSDT"
+-    
+-    tp = TickProcessor(
+-        redis_client=redis_mock,
+-        signal_pipeline=signal_mock,
+-        calib_svc=calib_mock,
+-        of_engine=of_engine_mock
++
++
++@dataclass
++class MiniRuntime:
++    """Minimal runtime stub for unit-testing strict DQ helpers without Redis."""
++
++    symbol: str
++    config: dict
++
++    tick_count: int = 0
++
++    # Trackers used by _update_strict_dq_trackers
++    tick_gaps: TickGapTracker = field(default_factory=lambda: TickGapTracker(window=512))
++    tick_seq_gap: GapEmaTracker = field(default_factory=lambda: GapEmaTracker(tau_ms=10_000))
++
++    # Cached DQ outputs
++    tick_gap_p50_ms: float = 0.0
++    tick_gap_p95_ms: float = 0.0
++    tick_gap_n: int = 0
++
++    tick_missing_seq_ema: float = 0.0
++    tick_seq_last_reason: str = ""
++
++    # Last seen monotone trade id
++    last_trade_id: int = 0
++
++    # Per-microbar counters (normally reset on bar close)
++    tick_id_gap_count: int = 0
++    tick_id_dup_count: int = 0
++    tick_id_reorder_count: int = 0
++
++
++def test_tick_trade_id_gap_dup_reorder_separation():
++    runtime = MiniRuntime("BTCUSDT", config={"tick_gap_snapshot_every_n": 1})
++
++    ind = {}
++    TickProcessor._update_strict_dq_trackers(
++        runtime=runtime,
++        tick={"trade_id": 100},
++        tick_ts_ms=1_000,
++        cfg_eff=runtime.config,
++        indicators=ind,
++    )
++
++    assert runtime.last_trade_id == 100
++    assert ind.get("tick_gap_count", 0) == 0
++    assert ind.get("tick_dup_count", 0) == 0
++    assert ind.get("tick_reorder_count", 0) == 0
++
++    # DUP: tid == last_tid
++    ind = {}
++    TickProcessor._update_strict_dq_trackers(
++        runtime=runtime,
++        tick={"trade_id": 100},
++        tick_ts_ms=1_100,
++        cfg_eff=runtime.config,
++        indicators=ind,
+     )
+-    
+-    runtime = SymbolRuntime("BTCUSDT", config={"micro_tf": "1s"})
+-    # Mocking necessary components that usually get built in __post_init__ or delayed
+-    runtime.delta_detector = MagicMock()
+-    runtime.delta_detector.push.return_value = {"delta": 10.0, "z": 1.5}
+-    runtime.pressure = MagicMock()
+-    
+-    p_snap = MagicMock()
+-    p_snap.per_min_ema = 0.5
+-    p_snap.cd_rate_ema = 0.1
+-    runtime.pressure.snapshot.return_value = p_snap
+-    
+-    runtime.tick_dn_calib = MagicMock()
+-    dn_dec = MagicMock()
+-    dn_dec.tier0_usd = 100000
+-    dn_dec.tier1_usd = 300000
+-    dn_dec.tier2_usd = 700000
+-    dn_dec.src = "fallback"
+-    dn_dec.scale = 1.0
+-    runtime.tick_dn_calib.tiers.return_value = dn_dec
+-    
+-    runtime.dn_passrate = MagicMock()
+-    
+-    # Tick data
+-    tick = {
+-        "price": 50000.0,
+-        "qty": 1.0,
+-        "is_buyer_maker": False,
+-        "ts_ms": 1600000000000
+-    }
+-    
+-    res = await tp.process_tick(runtime, tick)
+-    
+-    # Tick processor doesn't necessarily return a dict unless we hit end or have conditions met.
+-    # It might return None if wait or filtered.
+-    # We just ensure it doesn't crash given the new tracker integration.
+-    assert True
++    assert runtime.last_trade_id == 100
++    assert ind.get("tick_dup_count") == 1
++    assert ind.get("tick_seq_last_reason") == "dup"
++    assert ind.get("tick_id_dup") == 1
++    assert ind.get("tick_id_gap") == 0
++
++    # REORDER: tid < last_tid (must NOT regress last_trade_id)
++    ind = {}
++    TickProcessor._update_strict_dq_trackers(
++        runtime=runtime,
++        tick={"trade_id": 99},
++        tick_ts_ms=1_200,
++        cfg_eff=runtime.config,
++        indicators=ind,
++    )
++    assert runtime.last_trade_id == 100
++    assert ind.get("tick_reorder_count") == 1
++    assert ind.get("tick_seq_last_reason") == "reorder"
++    assert ind.get("tick_id_reorder") == 1
++
++    # GAP: tid > last_tid + 1 (missing) -> tick_missing_seq_ema increases
++    ind = {}
++    TickProcessor._update_strict_dq_trackers(
++        runtime=runtime,
++        tick={"trade_id": 103},
++        tick_ts_ms=1_300,
++        cfg_eff=runtime.config,
++        indicators=ind,
++    )
++
++    assert runtime.last_trade_id == 103
++    assert ind.get("tick_gap_count") == 1
++    assert ind.get("tick_id_gap") == 1
++    assert runtime.tick_missing_seq_ema > 0.0

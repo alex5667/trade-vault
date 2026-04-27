@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/vol_regime_tracker.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.001, 0.01, 0.03, 0.2, 0.25, 0.9, 0.99, 1.0, 3.0, 100.0, 10000.0, 240, 'calm', 'close', 'end_ts_ms', 'na', 'normal', 'open', 'shock', 'ts_ms', 'vol_fast_bps', 'vol_ratio', 'vol_ratio_z', 'vol_regime_label', 'vol_slow_bps', 'vol_ts_ms']

@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/matplotlib/image.py
+# hypothesis_version: 6.148.10
+
+[-0.5, 0.0, 0.1, 0.5, 0.8, 1.0, 4.0, 10000.0, 10000000.0, 100000000.0, 100, 255, '1', '2**23 columns', '2**24 rows', '3.6', '<u2', '=u2', '>u2', 'A must be 2D or 3D', 'B', 'I;16', 'I;16B', 'L', 'L;2', 'L;4', 'LA', 'Method not supported', 'Must set data first', 'P', 'RGB', 'RGBA', 'RGBX', 'Software', 'Unknown image mode', 'Unknown type of bbox', '_imcache', 'antialiased', 'auto', 'bessel', 'bicubic', 'bilinear', 'blackman', 'catrom', 'cmap', 'constant', 'data', 'dpi', 'eps', 'f', 'figure.facecolor', 'format', 'gaussian', 'geturl', 'hamming', 'hanning', 'hermite', 'image.interpolation', 'image.origin', 'image.resample', 'jpeg', 'jpg', 'kaiser', 'lanczos', 'lower', 'mitchell', 'name', 'nearest', 'none', 'pdf', 'png', 'pnginfo', 'ps', 'quadric', 'raw', 'rgba', 'same_kind', 'savefig.facecolor', 'savefig.format', 'sinc', 'spline16', 'spline36', 'svg', 'upper']

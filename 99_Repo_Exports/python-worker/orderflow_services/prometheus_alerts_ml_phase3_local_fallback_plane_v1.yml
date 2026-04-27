@@ -1,0 +1,29 @@
+groups:
+  - name: ml_phase3_local_fallback_plane_alerts_v1
+    rules:
+      - alert: MLLocalFallbackPlaneStale
+        expr: time() - ml_local_fallback_last_run_ts_seconds > 600
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Local Fallback Plane is stale"
+          description: "Gateway hasn't processed messages for over 10 minutes."
+
+      - alert: MLLocalFallbackPlaneErrors
+        expr: rate(ml_local_fallback_runs_total{status="ERROR"}[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Local Fallback Plane error rate is high"
+          description: "Ollama or Gateway reporting continuous errors."
+
+      - alert: MLLocalFallbackPlaneRejectionsSpike
+        expr: rate(ml_local_fallback_rejected_total[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Local Fallback Plane rejections spike"
+          description: "Many requests are being rejected by guardrails."

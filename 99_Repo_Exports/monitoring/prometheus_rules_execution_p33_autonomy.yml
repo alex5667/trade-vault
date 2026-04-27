@@ -1,0 +1,37 @@
+groups:
+  - name: trade-execution-p33-autonomy
+    interval: 30s
+    rules:
+      # Fires when the autonomy layer has decided to trigger the scrubber
+      # (meaning overall health is warning/critical or retention is breached)
+      - alert: TradeExecutionAutonomyScrubberTriggered
+        expr: trade_execution_autonomy_trigger_checkpoint_scrubber > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: trade-execution
+        annotations:
+          summary: "Health status requests checkpoint scrubber"
+          description: "Autonomy layer marked checkpoint scrubber trigger as active for more than 5 minutes."
+
+      # Rebuild report shows at least one replay checkpoint behind stream retention
+      - alert: TradeExecutionRebuildRetentionGuardHigh
+        expr: trade_execution_rebuild_last_retention_guard_count > 0
+        for: 10m
+        labels:
+          severity: critical
+          component: trade-execution
+        annotations:
+          summary: "Replay rebuild sees retention guard breaches"
+          description: "Rebuild report shows one or more replay checkpoints behind stream retention."
+
+      # Spike of SIDs quarantined by the retention-guard policy (immediate alert)
+      - alert: TradeExecutionRetentionGuardQuarantineSpike
+        expr: increase(execution_quarantine_events_total{action="RETENTION_GUARD_QUARANTINED"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: trade-execution
+        annotations:
+          summary: "Retention-guard quarantine events detected"
+          description: "One or more sid were quarantined because replay checkpoints fell behind Redis stream retention."

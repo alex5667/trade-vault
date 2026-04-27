@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/crypto_signal_formatter.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-06, 1e-05, 0.0001, 0.01, 0.7, 1.0, 10.0, 1000.0, 100, 1000, 1000000, '0', '0.00', '1', '100', '; ', 'ACCOUNT_LEVERAGE', 'ENTRY_POLICY_SHADOW', 'LONG', 'SHORT', 'T?', 'TP1 n/a', 'atr_bps', 'atr_bps_th', 'atr_floor_rg', 'atr_floor_tier', 'atr_gate_rg', 'bypassed', 'cancel_spike_reason', 'cancel_spike_veto', 'failed', 'n/a', 'none', 'on', 'p_cluster', 'p_delta', 'p_legacy', 'p_speed', 'passed', 'rocket_v1', 'slq_original_mult', 'slq_used', 'strong_gate_ok', 'true', 'unknown', 'yes', 'активен', 'после TP1', '⚠️', '⚪', '✅', '❌', '❓', '🔴', '🟢']

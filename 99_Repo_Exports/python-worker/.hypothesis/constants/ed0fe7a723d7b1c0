@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/data_parser.py
+# hypothesis_version: 6.148.10
+
+[0.0, 2.0, 1000, 86400000, 1000000000, 946684800000, 1000000000000, '+00:00', '0', '1', 'L3LiteEvent', 'Z', '[{', ']}', 'ask', 'asks', 'b', 'bid', 'bids', 'buy', 'buyer_is_maker', 'data', 'false', 'flags', 'ignore', 'isBuyerMaker', 'is_buyer_maker', 'kind', 'last', 'm', 'n', 'no', 'p', 'price', 'q', 'qty', 'quantity', 's', 'sell', 'side', 'size', 'true', 'ts', 'ts_ms', 'unknown', 'utf-8', 'volume', 'y', 'yes']

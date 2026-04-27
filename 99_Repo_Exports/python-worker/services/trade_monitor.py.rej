@@ -1,0 +1,14 @@
+--- python-worker/services/trade_monitor.py
++++ python-worker/services/trade_monitor.py
+@@ -3120,9 +3121,9 @@
+                         spec = self._get_spec(sym)
+                         closed = finalize_trade(
+                             pos, spec,
+-                            exit_price=float(exit_price),
++                            exit_price=float(pos_exit_price),
+                             exit_ts_ms=int(exit_ts_ms or now_ms),
+-                            close_reason_raw=str(raw),
++                            close_reason_raw=str(pos_raw),
+                             is_timeout=True
+                         )
+ 

@@ -1,0 +1,524 @@
+diff --git a/services/news_reco_reader/__init__.py b/services/news_reco_reader/__init__.py
+new file mode 100644
+index 0000000..a3a2d1c
+--- /dev/null
++++ b/services/news_reco_reader/__init__.py
+@@ -0,0 +1,15 @@
++"""Trade-core reader for news_agent recommendations.
++
++This package is intentionally dependency-light and safe for hot-path usage:
++
++* The background poller performs Redis I/O.
++* The trade hot-path only reads an in-memory cache (O(1), no awaits).
++
++Integration pattern:
++  - start the reader once during process startup (asyncio task)
++  - call `get_reco(symbol)` from gates / policies.
++"""
++
++from .reader import (
++    NewsRecoReader,
++    NewsRecoSnapshot,
++    get_reco,
++    ensure_started,
++)
++
++__all__ = ["NewsRecoReader", "NewsRecoSnapshot", "get_reco", "ensure_started"]
++
+diff --git a/services/news_reco_reader/cache.py b/services/news_reco_reader/cache.py
+new file mode 100644
+index 0000000..7e94c7a
+--- /dev/null
++++ b/services/news_reco_reader/cache.py
+@@ -0,0 +1,173 @@
++from __future__ import annotations
++
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, Optional
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++@dataclass(frozen=True)
++class NewsRecoSnapshot:
++    """A single recommendation snapshot for a symbol.
++
++    This mirrors `NewsTradeRecoDTO` minimally. We keep it flexible (extra keys
++    allowed) to avoid coupling trade-core to the news-agent DTO evolution.
++    """
++
++    symbol: str
++    payload: Dict[str, Any]
++    expires_ms: int
++
++    @property
++    def is_expired(self) -> bool:
++        return self.expires_ms <= now_ms()
++
++
++class NewsRecoCache:
++    """In-memory TTL cache.
++
++    Trade hot-path MUST only read from this cache.
++    Background updater will periodically replace/update entries.
++    """
++
++    def __init__(self, max_symbols: int = 2000):
++        self._max_symbols = max_symbols
++        self._by_symbol: Dict[str, NewsRecoSnapshot] = {}
++        self._last_update_ms: int = 0
++        self._last_good_update_ms: int = 0
++
++    def last_update_ms(self) -> int:
++        return self._last_update_ms
++
++    def last_good_update_ms(self) -> int:
++        return self._last_good_update_ms
++
++    def size(self) -> int:
++        return len(self._by_symbol)
++
++    def get(self, symbol: str) -> Optional[NewsRecoSnapshot]:
++        s = self._by_symbol.get(symbol)
++        if s is None:
++            return None
++        if s.expires_ms <= now_ms():
++            # Expired: remove lazily.
++            self._by_symbol.pop(symbol, None)
++            return None
++        return s
++
++    def snapshot_all(self) -> Dict[str, NewsRecoSnapshot]:
++        """Return a shallow copy (for debugging/metrics only)."""
++        # Avoid filtering here to keep it cheap; callers should treat entries
++        # as possibly-expired.
++        return dict(self._by_symbol)
++
++    def apply_map(self, reco_map: Dict[str, Dict[str, Any]], ts_ms: int) -> None:
++        """Apply a new aggregated map.
++
++        reco_map format: {"BTCUSDT": { ... }, ... }
++
++        Each entry MUST contain expires_ms.
++        """
++        self._last_update_ms = ts_ms
++        now = now_ms()
++
++        # First pass: build new entries and count.
++        new_entries: Dict[str, NewsRecoSnapshot] = {}
++        for sym, payload in reco_map.items():
++            if not isinstance(sym, str) or not sym:
++                continue
++            if not isinstance(payload, dict):
++                continue
++            exp = payload.get("expires_ms")
++            if not isinstance(exp, int):
++                continue
++            if exp <= now:
++                continue
++            new_entries[sym] = NewsRecoSnapshot(symbol=sym, payload=payload, expires_ms=exp)
++
++        # Eviction if too big: keep the longest-lived first.
++        if len(new_entries) > self._max_symbols:
++            items = sorted(new_entries.values(), key=lambda s: s.expires_ms, reverse=True)
++            new_entries = {s.symbol: s for s in items[: self._max_symbols]}
++
++        self._by_symbol = new_entries
++        self._last_good_update_ms = ts_ms
++
++    def mark_bad_update(self, ts_ms: int) -> None:
++        """Record that updater ran but failed to apply a valid map."""
++        self._last_update_ms = ts_ms
++
++
++def parse_agg_map(raw_json: str) -> Optional[Dict[str, Any]]:
++    """Parse aggregated map JSON.
++
++    Expected format produced by trade-side cache service:
++      {"schema_ver":"v1", "ts_ms": 123, "reco": {"BTCUSDT": {...}, ...}}
++    """
++
++    import json
++
++    try:
++        obj = json.loads(raw_json)
++    except Exception:
++        return None
++    if not isinstance(obj, dict):
++        return None
++    reco = obj.get("reco")
++    ts_ms = obj.get("ts_ms")
++    if not isinstance(reco, dict):
++        return None
++    if not isinstance(ts_ms, int):
++        # fallback: accept missing ts_ms, but it reduces observability
++        ts_ms = now_ms()
++    return {"ts_ms": ts_ms, "reco": reco}
++
+diff --git a/services/news_reco_reader/reader.py b/services/news_reco_reader/reader.py
+new file mode 100644
+index 0000000..20d95a7
+--- /dev/null
++++ b/services/news_reco_reader/reader.py
+@@ -0,0 +1,319 @@
++from __future__ import annotations
++
++import asyncio
++import os
++import random
++from dataclasses import dataclass
++from typing import Awaitable, Callable, Optional
++
++from .cache import NewsRecoCache, NewsRecoSnapshot, now_ms, parse_agg_map
++
++
++def _env_int(name: str, default: int) -> int:
++    v = os.getenv(name)
++    if v is None or v == "":
++        return default
++    try:
++        return int(v)
++    except Exception:
++        return default
++
++
++def _env_str(name: str, default: str) -> str:
++    v = os.getenv(name)
++    return default if v is None or v == "" else v
++
++
++def _env_bool(name: str, default: bool) -> bool:
++    v = os.getenv(name)
++    if v is None or v == "":
++        return default
++    return v.strip().lower() in ("1", "true", "yes", "y", "on")
++
++
++@dataclass(frozen=True)
++class ReaderConfig:
++    enable: bool
++    redis_url: str
++    map_key: str
++    poll_ms: int
++    jitter_ms: int
++    stale_fail_open_ms: int
++    max_symbols: int
++
++    @staticmethod
++    def from_env() -> "ReaderConfig":
++        return ReaderConfig(
++            enable=_env_bool("TRADE_NEWS_RECO_READER_ENABLE", True),
++            redis_url=_env_str("TRADE_NEWS_RECO_REDIS_URL", _env_str("REDIS_URL", "redis://localhost:6379/0")),
++            map_key=_env_str("TRADE_NEWS_RECO_MAP_KEY", "trade:cache:news_reco_map"),
++            poll_ms=max(50, _env_int("TRADE_NEWS_RECO_POLL_MS", 250)),
++            jitter_ms=max(0, _env_int("TRADE_NEWS_RECO_POLL_JITTER_MS", 50)),
++            stale_fail_open_ms=max(500, _env_int("TRADE_NEWS_RECO_STALE_FAIL_OPEN_MS", 5000)),
++            max_symbols=max(100, _env_int("TRADE_NEWS_RECO_MAX_SYMBOLS", 2000)),
++        )
++
++
++class NewsRecoReader:
++    """Background poller that mirrors `trade:cache:news_reco_map` into memory.
++
++    Design goals:
++      - Hot-path reads are synchronous and non-blocking.
++      - Poller failures are fail-open (cache keeps last-good until local TTL).
++      - Minimal dependencies: works with redis-py asyncio, optional.
++    """
++
++    def __init__(
++        self,
++        cfg: Optional[ReaderConfig] = None,
++        *,
++        redis_get: Optional[Callable[[], Awaitable[Optional[str]]]] = None,
++    ) -> None:
++        self.cfg = cfg or ReaderConfig.from_env()
++        self.cache = NewsRecoCache(max_symbols=self.cfg.max_symbols)
++
++        # If provided (tests), we don't create a Redis client.
++        self._redis_get = redis_get
++        self._redis = None
++
++        self._task: Optional[asyncio.Task] = None
++        self._stop = asyncio.Event()
++        self._started = False
++        self._start_lock = asyncio.Lock()
++        self._last_apply_ok_ms: int = 0
++
++    def started(self) -> bool:
++        return self._started
++
++    def last_apply_ok_ms(self) -> int:
++        return self._last_apply_ok_ms
++
++    async def start(self) -> None:
++        """Start polling loop as an asyncio task.
++
++        Safe to call multiple times.
++        """
++        async with self._start_lock:
++            if self._started:
++                return
++            if not self.cfg.enable:
++                self._started = True
++                return
++
++            if self._redis_get is None:
++                self._redis_get = await self._build_redis_get()
++            self._task = asyncio.create_task(self._run(), name="news_reco_reader")
++            self._started = True
++
++    async def stop(self) -> None:
++        self._stop.set()
++        t = self._task
++        if t is not None:
++            t.cancel()
++            try:
++                await t
++            except Exception:
++                pass
++
++    def get(self, symbol: str) -> Optional[NewsRecoSnapshot]:
++        return self.cache.get(symbol)
++
++    async def _build_redis_get(self) -> Callable[[], Awaitable[Optional[str]]]:
++        """Create a coroutine that does GET map_key.
++
++        Tries redis-py asyncio first. If not available, raises RuntimeError.
++        """
++        try:
++            import redis.asyncio as redis  # type: ignore
++        except Exception as e:
++            raise RuntimeError(
++                "redis.asyncio is required in trade core for NewsRecoReader. "
++                "Install 'redis' (redis-py) >= 4.2 or provide redis_get override."
++            ) from e
++
++        # decode_responses=True => str
++        self._redis = redis.from_url(self.cfg.redis_url, decode_responses=True)
++
++        async def _get() -> Optional[str]:
++            try:
++                return await self._redis.get(self.cfg.map_key)
++            except Exception:
++                return None
++
++        return _get
++
++    async def _run(self) -> None:
++        # Small startup delay to avoid thundering herd on deploy.
++        await asyncio.sleep(random.uniform(0.05, 0.25))
++
++        while not self._stop.is_set():
++            t0 = now_ms()
++            try:
++                raw = await self._redis_get() if self._redis_get is not None else None
++                parsed = parse_agg_map(raw) if raw else None
++
++                if parsed is None:
++                    self.cache.mark_bad_update(now_ms())
++                else:
++                    self.cache.apply_map(parsed["reco"], parsed["ts_ms"])
++                    self._last_apply_ok_ms = now_ms()
++
++            except asyncio.CancelledError:
++                raise
++            except Exception:
++                # Fail-open: keep last-good cache.
++                self.cache.mark_bad_update(now_ms())
++
++            # Local staleness fail-open: if we haven't applied a good update
++            # for too long, drop cache (avoid using stale tightening signals).
++            if self._last_apply_ok_ms and (now_ms() - self._last_apply_ok_ms) > self.cfg.stale_fail_open_ms:
++                self.cache.apply_map({}, now_ms())
++                self._last_apply_ok_ms = 0
++
++            # Sleep with jitter.
++            delay_ms = self.cfg.poll_ms + (random.randint(0, self.cfg.jitter_ms) if self.cfg.jitter_ms else 0)
++            dt = now_ms() - t0
++            sleep_ms = max(10, delay_ms - dt)
++            try:
++                await asyncio.wait_for(self._stop.wait(), timeout=sleep_ms / 1000.0)
++            except asyncio.TimeoutError:
++                pass
++
++
++# --- Minimal singleton helpers (optional) ---
++
++_SINGLETON: Optional[NewsRecoReader] = None
++_SINGLETON_LOCK = asyncio.Lock()
++
++
++async def ensure_started(cfg: Optional[ReaderConfig] = None) -> NewsRecoReader:
++    """Get singleton reader and ensure its polling task is running."""
++    global _SINGLETON
++    async with _SINGLETON_LOCK:
++        if _SINGLETON is None:
++            _SINGLETON = NewsRecoReader(cfg)
++        await _SINGLETON.start()
++        return _SINGLETON
++
++
++def get_reco(symbol: str) -> Optional[NewsRecoSnapshot]:
++    """Hot-path getter.
++
++    NOTE: This does NOT start the reader automatically because startup should
++    be explicit (determinism). If you want auto-start, call ensure_started()
++    during process init.
++    """
++    if _SINGLETON is None:
++        return None
++    return _SINGLETON.get(symbol)
++
++
++__all__ = ["ReaderConfig", "NewsRecoReader", "NewsRecoSnapshot", "ensure_started", "get_reco"]
++
+diff --git a/services/news_reco_reader/README.md b/services/news_reco_reader/README.md
+new file mode 100644
+index 0000000..1bd1a0b
+--- /dev/null
++++ b/services/news_reco_reader/README.md
+@@ -0,0 +1,88 @@
++# News reco reader (trade core)
++
++Purpose: mirror `trade:cache:news_reco_map` from Redis into an in-memory cache.
++
++Trade hot-path (gates/policies) MUST read only from memory.
++
++## How to integrate
++
++During trade process startup (when asyncio loop is running):
++
++```python
++from services.news_reco_reader import ensure_started
++
++async def main():
++    await ensure_started()
++    ... start your workers ...
++```
++
++Then inside gates:
++
++```python
++from services.news_reco_reader import get_reco
++
++snap = get_reco(symbol)
++if snap:
++    profile = snap.payload.get("suggest_profile")
++```
++
++## ENV
++
++* `TRADE_NEWS_RECO_READER_ENABLE=1`
++* `TRADE_NEWS_RECO_REDIS_URL` (fallback `REDIS_URL`)
++* `TRADE_NEWS_RECO_MAP_KEY=trade:cache:news_reco_map`
++* `TRADE_NEWS_RECO_POLL_MS=250`
++* `TRADE_NEWS_RECO_POLL_JITTER_MS=50`
++* `TRADE_NEWS_RECO_STALE_FAIL_OPEN_MS=5000`
++* `TRADE_NEWS_RECO_MAX_SYMBOLS=2000`
++
++## Fail-open behavior
++
++If Redis is down or JSON is invalid:
++- reader keeps last-good cache.
++If last-good is older than `STALE_FAIL_OPEN_MS`:
++- reader drops cache to empty (tighten signals disabled).
++
+diff --git a/tests/test_news_reco_reader_cache.py b/tests/test_news_reco_reader_cache.py
+new file mode 100644
+index 0000000..dc6f0a8
+--- /dev/null
++++ b/tests/test_news_reco_reader_cache.py
+@@ -0,0 +1,129 @@
++import asyncio
++
++from services.news_reco_reader.cache import NewsRecoCache, now_ms, parse_agg_map
++from services.news_reco_reader.reader import NewsRecoReader, ReaderConfig
++
++
++def _run(coro):
++    return asyncio.run(coro)
++
++
++def test_parse_agg_map_ok():
++    raw = '{"schema_ver":"v1","ts_ms":123,"reco":{"BTCUSDT":{"expires_ms":9999999999999}}}'
++    p = parse_agg_map(raw)
++    assert p is not None
++    assert p["ts_ms"] == 123
++    assert "BTCUSDT" in p["reco"]
++
++
++def test_cache_apply_and_get_expiry():
++    c = NewsRecoCache(max_symbols=10)
++    future = now_ms() + 10_000
++    c.apply_map({"BTCUSDT": {"expires_ms": future, "suggest_profile": "tighten"}}, ts_ms=111)
++    s = c.get("BTCUSDT")
++    assert s is not None
++    assert s.payload["suggest_profile"] == "tighten"
++
++
++def test_reader_applies_map_from_redis_get_override():
++    future = now_ms() + 10_000
++    payload = '{"schema_ver":"v1","ts_ms":321,"reco":{"ETHUSDT":{"expires_ms":%d,"suggest_profile":"soft"}}}' % future
++    calls = {"n": 0}
++
++    async def fake_get():
++        calls["n"] += 1
++        return payload
++
++    cfg = ReaderConfig(
++        enable=True,
++        redis_url="redis://unused",
++        map_key="trade:cache:news_reco_map",
++        poll_ms=50,
++        jitter_ms=0,
++        stale_fail_open_ms=1000,
++        max_symbols=100,
++    )
++
++    async def _case():
++        r = NewsRecoReader(cfg, redis_get=fake_get)
++        await r.start()
++        await asyncio.sleep(0.12)
++        snap = r.get("ETHUSDT")
++        assert snap is not None
++        assert snap.payload.get("suggest_profile") == "soft"
++        assert calls["n"] >= 1
++        await r.stop()
++
++    _run(_case())
++
++
++def test_reader_fail_open_drops_on_stale():
++    future = now_ms() + 200
++    good = '{"schema_ver":"v1","ts_ms":123,"reco":{"BTCUSDT":{"expires_ms":%d}}}' % future
++    calls = {"n": 0}
++
++    async def fake_get():
++        calls["n"] += 1
++        return good if calls["n"] == 1 else None
++
++    cfg = ReaderConfig(
++        enable=True,
++        redis_url="redis://unused",
++        map_key="trade:cache:news_reco_map",
++        poll_ms=50,
++        jitter_ms=0,
++        stale_fail_open_ms=120,
++        max_symbols=100,
++    )
++
++    async def _case():
++        r = NewsRecoReader(cfg, redis_get=fake_get)
++        await r.start()
++        await asyncio.sleep(0.08)
++        assert r.get("BTCUSDT") is not None
++        await asyncio.sleep(0.20)
++        assert r.get("BTCUSDT") is None
++        await r.stop()
++
++    _run(_case())
++

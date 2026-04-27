@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/of_gate_missing_leg_report.py
+# hypothesis_version: 6.148.10
+
+[8000, '+', '-', '--limit', '--only-veto', '--redis-url', '--stream', '--top', '0', '8000', 'Metrics stream name', 'OF_GATE_MISS_LIMIT', 'REDIS_MAIN_URL', 'REDIS_URL', 'Redis URL', 'Top-N legs to print', '__main__', 'count', 'ignore', 'leg', 'metrics:of_gate', 'miss_leg', 'missing_legs', 'ok', 'only_veto', 'scanned', 'scanned_effective', 'store_true', 'stream', 'top', 'utf-8']

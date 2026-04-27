@@ -1,0 +1,27 @@
+groups:
+  - name: ml_phase1_1_vertex_hardening
+    rules:
+      - alert: MLContextPackCompactorStale
+        expr: time() - ml_context_pack_compactor_last_run_ts_seconds > 900
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ML context pack compactor is stale"
+
+      - alert: MLVertexTriageQueueLagHigh
+        expr: ml_vertex_triage_queue_lag_ms > 300000
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Vertex triage queue lag is high"
+
+      - alert: MLVertexTriageParseFailures
+        expr: increase(ml_vertex_triage_parse_fail_total[30m]) > 10
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Vertex triage parse/guard failures exceeded threshold"
+

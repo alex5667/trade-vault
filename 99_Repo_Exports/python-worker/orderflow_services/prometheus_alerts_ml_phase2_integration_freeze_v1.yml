@@ -1,0 +1,28 @@
+groups:
+  - name: ml_phase2_integration_freeze_alerts_if1
+    rules:
+      - alert: MLPhase2IntegrationFreezeNoGo
+        expr: ml_phase2_integration_freeze_verdict == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Phase 2 Integration Freeze verdict is NO_GO"
+          description: "Critical Phase 2 streams are empty or stale. Check runbook for details."
+
+      - alert: MLPhase2IntegrationFreezeWarn
+        expr: ml_phase2_integration_freeze_verdict == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Phase 2 Integration Freeze verdict is WARN"
+          description: "Some Phase 2 streams are empty or stale. Check runbook for details."
+
+      - alert: MLPhase2IntegrationFreezeStale
+        expr: time() - ml_phase2_integration_freeze_verdict > 600
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Phase 2 Integration Freeze Auditor is stale"

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/meta_guardrails_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, 100, 1000, 200000, ',', '--apply', '--crit-features', '--dataset-parquet', '--dyn-key', '--expected-schema', '--freeze-key', '--ignore-dq', '--max-miss-crit', '--max-miss-mean', '--model-json', '--notify-stream', '--prom-textfile', '--reason-key', '--redis-url', '--report-json', '--require-schema', '.tmp', '0', '0.05', '0.20', '; ', 'DYN_CFG_KEY', 'Dataset not found', 'Empty dataset', 'META_GUARD_APPLY', 'META_SCHEMA', 'META_SCHEMA_REQUIRED', 'REDIS_URL', '__main__', '_ind', 'dq', 'dq_eval_error', 'fallback', 'feat', 'feature_names', 'features', 'indicators', 'meta_feat_v6', 'meta_guard_freeze', 'meta_guard_reason', 'notify:telegram', 'ok', 'r', 'redis_url', 'schema', 'schema_name', 'settings:dynamic_cfg', 'store_true', 'text', 'ts', 'type', 'unknown', 'utf-8', 'w']

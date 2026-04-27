@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/liq_thresholds.py
+# hypothesis_version: 6.148.10
+
+[0.33, 0.35, 0.38, 0.4, 0.58, 0.6, 0.62, 0.65, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 50.0, 55.0, 80.0, 11000.0, 22000.0, 45000.0, 70000.0, 90000.0, 140000.0, 180000.0, 300000.0, 600000.0, 'large', 'liq_book_rate_bad_hz', 'liq_depth_bad_usd', 'liq_depth_crit_usd', 'liq_depth_good_usd', 'liq_spread_bad_bp', 'liq_spread_crit_bp', 'liq_stressed_score', 'liq_thin_score', 'majors', 'memes', 'mid']

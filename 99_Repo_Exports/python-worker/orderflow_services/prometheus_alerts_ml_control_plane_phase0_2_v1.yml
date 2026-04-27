@@ -1,0 +1,29 @@
+groups:
+  - name: ml-control-plane-phase0-2-v1
+    rules:
+      - alert: MLModelSnapshotCompactorDown
+        expr: ml_model_snapshot_compactor_up == 0
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "ml_model_snapshot_compactor_v1 is down"
+          description: "The model snapshot compactor has not completed a healthy loop."
+
+      - alert: MLModelSnapshotCompactorStale
+        expr: time() - ml_model_snapshot_compactor_last_run_ts_seconds > 900
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "ml_model_snapshot_compactor_v1 is stale"
+          description: "The model snapshot compactor has not updated snapshots recently."
+
+      - alert: MLModelSnapshotCriticalModelsPresent
+        expr: ml_model_snapshot_status_count{status="critical"} > 0
+        for: 15m
+        labels:
+          severity: info
+        annotations:
+          summary: "Critical model snapshots detected"
+          description: "At least one model snapshot is currently classified as critical."

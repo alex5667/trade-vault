@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/eval_meta_enforce.py
+# hypothesis_version: 6.148.10
+
+[-1000000000.0, -1.0, 0.0, 0.02, 0.05, 0.18, 0.25, 0.5, 1.0, ',', '--dataset', '--grid', '--meanr-drop-max', '--min-pass-rate', '--model', '--only-ok', '--out', '--tail-improve-min', '--tail-max', '__main__', 'baseline', 'best', 'coef', 'delta', 'features', 'filtered', 'grid', 'intercept', 'kind', 'logreg_v1', 'meanR', 'meanR_drop', 'meta_p_min', 'n', 'no_valid_threshold', 'objective', 'ok', 'output JSON decision', 'pass_rate', 'r', 'r_mult', 'tail_improve', 'tail_rate', 'threshold', 'utf-8', 'w']

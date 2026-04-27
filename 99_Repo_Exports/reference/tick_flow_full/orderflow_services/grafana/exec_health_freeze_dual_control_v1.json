@@ -1,0 +1,9 @@
+{
+  "title": "ExecHealth Freeze Dual Control (v1)",
+  "panels": [
+    {"title": "Pending Request", "targets": [{"expr": "exec_health_freeze_dual_control_pending_request"}]},
+    {"title": "Ready / Valid Commit", "targets": [{"expr": "exec_health_freeze_dual_control_ready"}, {"expr": "exec_health_freeze_dual_control_valid_commit_event_present"}]},
+    {"title": "Violations", "targets": [{"expr": "exec_health_freeze_dual_control_violation"}]},
+    {"title": "Status", "targets": [{"expr": "exec_health_freeze_dual_control_status"}]}
+  ]
+}

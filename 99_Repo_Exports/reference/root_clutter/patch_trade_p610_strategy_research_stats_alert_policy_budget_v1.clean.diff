@@ -1,0 +1,1119 @@
+--- orderflow_services/deploy/compose/docker-compose.strategy-research-stats-alert-policy-exporter-v1.yml	2026-03-09 16:33:31.762737286 +0000
++++ orderflow_services/deploy/compose/docker-compose.strategy-research-stats-alert-policy-exporter-v1.yml	2026-03-09 16:30:35.982676431 +0000
+@@ -12,6 +12,11 @@
+       STRATEGY_RESEARCH_STATS_ALERT_POLICY_OPS_STREAM: ${STRATEGY_RESEARCH_STATS_ALERT_POLICY_OPS_STREAM:-ops:strategy_research_stats:alert_policy:v1}
+       STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_REMINDER_WINDOW_S: ${STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_REMINDER_WINDOW_S:-3600}
+       STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_EXPIRED_RECENT_WINDOW_S: ${STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_EXPIRED_RECENT_WINDOW_S:-21600}
++      STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_PREFIX: ${STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_PREFIX:-cfg:strategy_research_stats:alert_policy:override_limits:v1}
++      STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_DEFAULTS_KEY: ${STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_DEFAULTS_KEY:-cfg:strategy_research_stats:alert_policy:override_limits:v1:defaults}
++      STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_BUDGET_S: ${STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_BUDGET_S:-259200}
++      STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_RENEW_COUNT: ${STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_RENEW_COUNT:-2}
++      STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_REQUIRE_ESCALATION_ON_LIMIT: ${STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_REQUIRE_ESCALATION_ON_LIMIT:-1}
+       STRATEGY_RESEARCH_STATS_ALERT_POLICY_PURPOSES: ${STRATEGY_RESEARCH_STATS_ALERT_POLICY_PURPOSES:-conf_score_guardrails_apply,conf_score_guardrails_promote,conf_score_guardrails_autopromo_controller,meta_cov_rollout_controller}
+       STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_PBO_HIGH_MIN_EVENTS_24H: ${STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_PBO_HIGH_MIN_EVENTS_24H:-3}
+       STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_REPORT_STALE_MIN_EVENTS_7D: ${STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_REPORT_STALE_MIN_EVENTS_7D:-5}
+--- orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example	2026-03-08 09:24:43.000000000 +0000
++++ orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example	2026-03-09 16:30:35.983251789 +0000
+@@ -29,3 +29,9 @@
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_ENABLE=1
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_STREAM=notify:telegram
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_REMINDER_S=21600
++
++STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_PREFIX=cfg:strategy_research_stats:alert_policy:override_limits:v1
++STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_DEFAULTS_KEY=cfg:strategy_research_stats:alert_policy:override_limits:v1:defaults
++STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_BUDGET_S=259200
++STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_RENEW_COUNT=2
++STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_REQUIRE_ESCALATION_ON_LIMIT=1
+--- orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example	2026-03-08 09:24:43.000000000 +0000
++++ orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example	2026-03-09 16:30:35.983960992 +0000
+@@ -29,3 +29,9 @@
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_ENABLE=1
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_STREAM=notify:telegram
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_REMINDER_S=21600
++
++STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_PREFIX=cfg:strategy_research_stats:alert_policy:override_limits:v1
++STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_DEFAULTS_KEY=cfg:strategy_research_stats:alert_policy:override_limits:v1:defaults
++STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_BUDGET_S=259200
++STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_RENEW_COUNT=2
++STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_REQUIRE_ESCALATION_ON_LIMIT=1
+--- orderflow_services/strategy_research_stats_alert_policy_exporter_v1.py	2026-03-09 16:33:31.782250569 +0000
++++ orderflow_services/strategy_research_stats_alert_policy_exporter_v1.py	2026-03-09 16:29:22.083561064 +0000
+@@ -17,6 +17,7 @@
+ 
+ FAMILIES = ('pbo_high', 'report_stale', 'psr_dsr_low')
+ LIFECYCLE_STATES = ('none', 'active', 'cleared', 'expired')
++LIMIT_KINDS = ('none', 'budget', 'max_renew')
+ DEFAULT_PURPOSES = (
+     'conf_score_guardrails_apply',
+     'conf_score_guardrails_promote',
+@@ -116,6 +117,42 @@
+     return _env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OPS_STREAM', 'ops:strategy_research_stats:alert_policy:v1')
+ 
+ 
++def _override_limits_defaults_key() -> str:
++    return _env(
++        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_DEFAULTS_KEY',
++        'cfg:strategy_research_stats:alert_policy:override_limits:v1:defaults',
++    )
++
++
++def _override_limits_key(purpose: str) -> str:
++    prefix = _env(
++        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_PREFIX',
++        'cfg:strategy_research_stats:alert_policy:override_limits:v1',
++    ).rstrip(':')
++    return f'{prefix}:{purpose}'
++
++
++def _resolve_override_limits(client: Any, purpose: str, family: str) -> Dict[str, float]:
++    defaults_hash = _read_hash(client, _override_limits_defaults_key())
++    purpose_hash = _read_hash(client, _override_limits_key(purpose))
++    values = {
++        'max_budget_s': max(300.0, _to_float(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_BUDGET_S', '259200'), 259200.0)),
++        'max_renew_count': max(0.0, _to_float(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_RENEW_COUNT', '2'), 2.0)),
++        'require_escalation': 1.0 if _to_float(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_REQUIRE_ESCALATION_ON_LIMIT', '1'), 1.0) > 0.0 else 0.0,
++    }
++    for src in (defaults_hash, purpose_hash):
++        if not src:
++            continue
++        for field in tuple(values.keys()):
++            key = f'{field}_{family}'
++            if key in src and src[key] not in ('', None):
++                values[field] = _to_float(src[key], values[field])
++    values['max_budget_s'] = max(300.0, values['max_budget_s'])
++    values['max_renew_count'] = max(0.0, values['max_renew_count'])
++    values['require_escalation'] = 1.0 if values['require_escalation'] > 0.0 else 0.0
++    return values
++
++
+ def _reminder_window_s() -> float:
+     return max(60.0, _to_float(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_REMINDER_WINDOW_S', '3600'), 3600.0))
+ 
+@@ -262,6 +299,13 @@
+     renew_ack_ts_ms = int(_to_float((state or {}).get('renew_ack_ts_ms'), 0.0)) if state else 0
+     renew_ack_present = 1.0 if str((state or {}).get('renew_ack_ticket') or '').strip() else 0.0
+     renew_count = _to_float((state or {}).get('renew_count'), 0.0) if state else 0.0
++    policy_budget_used_s = _to_float((state or {}).get('policy_budget_used_s'), 0.0) if state else 0.0
++    policy_max_budget_s = _to_float((state or {}).get('policy_max_budget_s'), 0.0) if state else 0.0
++    policy_max_renew_count = _to_float((state or {}).get('policy_max_renew_count'), 0.0) if state else 0.0
++    policy_limit_hit_kind = str((state or {}).get('policy_limit_hit_kind') or '') if state else ''
++    policy_limit_hit_ts_ms = int(_to_float((state or {}).get('policy_limit_hit_ts_ms'), 0.0)) if state else 0
++    policy_requires_escalation = 1.0 if _to_float((state or {}).get('policy_limit_requires_escalation'), 0.0) > 0.0 else 0.0
++    escalation_present = 1.0 if str((state or {}).get('renew_escalation_ticket') or '').strip() else 0.0
+     return {
+         'present': 1.0 if raw else 0.0,
+         'active': active,
+@@ -281,6 +325,14 @@
+         'renew_ack_present': renew_ack_present,
+         'renew_ack_ts_ms': renew_ack_ts_ms,
+         'renew_count': renew_count,
++        'policy_budget_used_s': policy_budget_used_s,
++        'policy_max_budget_s': policy_max_budget_s,
++        'policy_budget_remaining_s': max(0.0, policy_max_budget_s - policy_budget_used_s) if policy_max_budget_s else 0.0,
++        'policy_max_renew_count': policy_max_renew_count,
++        'policy_limit_hit_kind': policy_limit_hit_kind,
++        'policy_limit_hit_ts_ms': policy_limit_hit_ts_ms,
++        'policy_requires_escalation': policy_requires_escalation,
++        'policy_escalation_present': escalation_present,
+     }
+ 
+ def _family_default(family: str, field: str) -> float:
+@@ -340,6 +392,14 @@
+ POLICY_OVERRIDE_RENEW_ACK_PRESENT = Gauge('strategy_research_stats_alert_policy_override_renew_ack_present', '1 if a renewal acknowledgement is currently stored for purpose/family', ['purpose', 'family'])
+ POLICY_OVERRIDE_RENEW_ACK_AGE = Gauge('strategy_research_stats_alert_policy_override_renew_ack_age_seconds', 'Age of the current renewal acknowledgement for purpose/family', ['purpose', 'family'])
+ POLICY_OVERRIDE_RENEW_COUNT = Gauge('strategy_research_stats_alert_policy_override_renew_count', 'How many times a suppress override has been renewed for purpose/family', ['purpose', 'family'])
++POLICY_OVERRIDE_POLICY_BUDGET_USED = Gauge('strategy_research_stats_alert_policy_override_budget_used_seconds', 'Cumulative suppression budget used by purpose/family override chain', ['purpose', 'family'])
++POLICY_OVERRIDE_POLICY_BUDGET_REMAINING = Gauge('strategy_research_stats_alert_policy_override_budget_remaining_seconds', 'Remaining suppression budget for purpose/family override chain', ['purpose', 'family'])
++POLICY_OVERRIDE_POLICY_MAX_BUDGET = Gauge('strategy_research_stats_alert_policy_override_max_budget_seconds', 'Configured max suppression budget for purpose/family override chain', ['purpose', 'family'])
++POLICY_OVERRIDE_POLICY_MAX_RENEWS = Gauge('strategy_research_stats_alert_policy_override_max_renew_count', 'Configured max renew count for purpose/family override chain', ['purpose', 'family'])
++POLICY_OVERRIDE_POLICY_LIMIT_HIT = Gauge('strategy_research_stats_alert_policy_override_limit_hit', '1 if the latest suppression workflow hit a policy limit kind for purpose/family', ['purpose', 'family', 'kind'])
++POLICY_OVERRIDE_POLICY_LIMIT_HIT_AGE = Gauge('strategy_research_stats_alert_policy_override_limit_hit_age_seconds', 'Age of the latest policy limit hit for purpose/family', ['purpose', 'family'])
++POLICY_OVERRIDE_POLICY_REQUIRES_ESCALATION = Gauge('strategy_research_stats_alert_policy_override_requires_escalation', '1 if policy requires escalation once limit is exceeded for purpose/family', ['purpose', 'family'])
++POLICY_OVERRIDE_POLICY_ESCALATION_PRESENT = Gauge('strategy_research_stats_alert_policy_override_escalation_present', '1 if a renewal acknowledgement contains escalation fields for purpose/family', ['purpose', 'family'])
+ POLICY_ACTIVE_SUPPRESSIONS_TOTAL = Gauge('strategy_research_stats_alert_policy_active_suppressions_total', 'Number of active TTL-backed suppress overrides by family', ['family'])
+ POLICY_MIN_24H = Gauge('strategy_research_stats_alert_policy_min_events_24h', 'Minimum 24h events threshold for purpose/family alerts', ['purpose', 'family'])
+ POLICY_MIN_7D = Gauge('strategy_research_stats_alert_policy_min_events_7d', 'Minimum 7d events threshold for purpose/family alerts', ['purpose', 'family'])
+@@ -366,6 +426,15 @@
+         for family in FAMILIES:
+             policy = resolve_family_policy(family, defaults_hash, purpose_hash)
+             override = _resolve_override(client, purpose, family, now_ms)
++            limit_policy = _resolve_override_limits(client, purpose, family)
++            if not override.get('policy_max_budget_s'):
++                override['policy_max_budget_s'] = limit_policy['max_budget_s']
++            if not override.get('policy_max_renew_count'):
++                override['policy_max_renew_count'] = limit_policy['max_renew_count']
++            if override.get('policy_requires_escalation', 0.0) == 0.0 and limit_policy['require_escalation'] > 0.0:
++                override['policy_requires_escalation'] = limit_policy['require_escalation']
++            if not override.get('policy_budget_remaining_s'):
++                override['policy_budget_remaining_s'] = max(0.0, override.get('policy_max_budget_s', 0.0) - override.get('policy_budget_used_s', 0.0))
+             static_suppress = 1.0 if policy['suppress_active'] else 0.0
+             effective_suppress = 1.0 if static_suppress or override['active'] else 0.0
+             POLICY_ENABLED.labels(purpose=purpose, family=family).set(policy['enabled'])
+@@ -391,6 +460,16 @@
+             ack_ts_ms = override.get('renew_ack_ts_ms', 0) or 0
+             POLICY_OVERRIDE_RENEW_ACK_AGE.labels(purpose=purpose, family=family).set(max(0.0, (now_ms - ack_ts_ms) / 1000.0) if ack_ts_ms else 0.0)
+             POLICY_OVERRIDE_RENEW_COUNT.labels(purpose=purpose, family=family).set(override.get('renew_count', 0.0))
++            POLICY_OVERRIDE_POLICY_BUDGET_USED.labels(purpose=purpose, family=family).set(override.get('policy_budget_used_s', 0.0))
++            POLICY_OVERRIDE_POLICY_BUDGET_REMAINING.labels(purpose=purpose, family=family).set(override.get('policy_budget_remaining_s', 0.0))
++            POLICY_OVERRIDE_POLICY_MAX_BUDGET.labels(purpose=purpose, family=family).set(override.get('policy_max_budget_s', 0.0))
++            POLICY_OVERRIDE_POLICY_MAX_RENEWS.labels(purpose=purpose, family=family).set(override.get('policy_max_renew_count', 0.0))
++            for kind in LIMIT_KINDS:
++                POLICY_OVERRIDE_POLICY_LIMIT_HIT.labels(purpose=purpose, family=family, kind=kind).set(1.0 if override.get('policy_limit_hit_kind', '') == kind else 0.0)
++            hit_ts_ms = override.get('policy_limit_hit_ts_ms', 0) or 0
++            POLICY_OVERRIDE_POLICY_LIMIT_HIT_AGE.labels(purpose=purpose, family=family).set(max(0.0, (now_ms - hit_ts_ms) / 1000.0) if hit_ts_ms else 0.0)
++            POLICY_OVERRIDE_POLICY_REQUIRES_ESCALATION.labels(purpose=purpose, family=family).set(override.get('policy_requires_escalation', 0.0))
++            POLICY_OVERRIDE_POLICY_ESCALATION_PRESENT.labels(purpose=purpose, family=family).set(override.get('policy_escalation_present', 0.0))
+             if override['active']:
+                 active_totals[family] += 1.0
+             POLICY_MIN_24H.labels(purpose=purpose, family=family).set(policy['min_events_24h'])
+--- orderflow_services/strategy_research_stats_alert_policy_override_v1.py	2026-03-09 16:33:31.783535973 +0000
++++ orderflow_services/strategy_research_stats_alert_policy_override_v1.py	2026-03-09 16:32:55.607972900 +0000
+@@ -71,6 +71,135 @@
+     return max(default_ttl_s(), _to_int(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_MAX_TTL_S', '604800'), 604800))
+ 
+ 
++def override_limits_defaults_key() -> str:
++    return _env(
++        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_DEFAULTS_KEY',
++        'cfg:strategy_research_stats:alert_policy:override_limits:v1:defaults',
++    )
++
++
++def override_limits_key(purpose: str) -> str:
++    prefix = _env(
++        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_PREFIX',
++        'cfg:strategy_research_stats:alert_policy:override_limits:v1',
++    ).rstrip(':')
++    return f'{prefix}:{purpose}'
++
++
++def _read_limits(client: Any, purpose: str) -> tuple[Dict[str, str], Dict[str, str]]:
++    return (
++        client.hgetall(override_limits_defaults_key()) or {},
++        client.hgetall(override_limits_key(purpose)) or {},
++    )
++
++
++def resolve_override_limits(client: Any, purpose: str, family: str) -> Dict[str, int]:
++    defaults_hash, purpose_hash = _read_limits(client, purpose)
++    max_budget_default = max(300, _to_int(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_BUDGET_S', '259200'), 259200))
++    max_renew_default = max(0, _to_int(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_RENEW_COUNT', '2'), 2))
++    require_escalation_default = 1 if _to_int(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_REQUIRE_ESCALATION_ON_LIMIT', '1'), 1) > 0 else 0
++    values = {
++        'max_budget_s': max_budget_default,
++        'max_renew_count': max_renew_default,
++        'require_escalation': require_escalation_default,
++    }
++    for src in (defaults_hash, purpose_hash):
++        if not src:
++            continue
++        for field in tuple(values.keys()):
++            key = f'{field}_{family}'
++            if key in src and str(src[key]).strip() not in ('', 'None'):
++                values[field] = _to_int(src[key], values[field])
++    values['max_budget_s'] = max(300, values['max_budget_s'])
++    values['max_renew_count'] = max(0, values['max_renew_count'])
++    values['require_escalation'] = 1 if values['require_escalation'] > 0 else 0
++    return values
++
++
++def _policy_chain_start_ms(previous: Dict[str, str] | None, fallback_now_ms: int) -> int:
++    prev = previous or {}
++    return max(0, _to_int(prev.get('policy_chain_started_ts_ms'), 0) or _to_int(prev.get('created_ts_ms'), 0) or fallback_now_ms)
++
++
++def _policy_budget_used_s(previous: Dict[str, str] | None) -> int:
++    prev = previous or {}
++    return max(0, _to_int(prev.get('policy_budget_used_s'), 0) or _to_int(prev.get('ttl_s'), 0))
++
++
++def _policy_limit_kind(limits: Dict[str, int], *, proposed_budget_s: int, proposed_renew_count: int) -> str:
++    if proposed_budget_s > int(limits.get('max_budget_s', 0)):
++        return 'budget'
++    if proposed_renew_count > int(limits.get('max_renew_count', 0)):
++        return 'max_renew'
++    return ''
++
++
++def _require_escalation_fields(state: Dict[str, str]) -> Dict[str, str]:
++    esc = {
++        'ticket': str(state.get('renew_escalation_ticket') or '').strip(),
++        'operator': str(state.get('renew_escalation_operator') or '').strip(),
++        'reason': str(state.get('renew_escalation_reason') or '').strip(),
++    }
++    if not esc['ticket'] or not esc['operator'] or not esc['reason']:
++        raise OverrideWorkflowError('renew exceeds policy limits; acknowledge-renew must include escalation-ticket/operator/reason')
++    return esc
++
++
++def _ensure_new_escalation_identity(escalation_ticket: str, current: Dict[str, str], ack_ticket: str) -> None:
++    previous_ticket = str(current.get('ticket') or '').strip()
++    if escalation_ticket == ack_ticket:
++        raise OverrideWorkflowError('escalation ticket must be distinct from renewal ticket')
++    if previous_ticket and escalation_ticket == previous_ticket:
++        raise OverrideWorkflowError('escalation ticket must be distinct from current/previous override ticket')
++
++
++def _record_limit_block(
++    client: Any,
++    *,
++    purpose: str,
++    family: str,
++    state_key: str,
++    state: Dict[str, str],
++    limits: Dict[str, int],
++    limit_kind: str,
++    proposed_budget_s: int,
++    proposed_renew_count: int,
++) -> None:
++    now_ms = _now_ms()
++    client.hset(
++        state_key,
++        mapping={
++            'purpose': purpose,
++            'family': family,
++            'policy_limit_hit_kind': limit_kind,
++            'policy_limit_hit_ts_ms': str(now_ms),
++            'policy_limit_requires_escalation': '1' if limits.get('require_escalation', 0) > 0 else '0',
++            'policy_max_budget_s': str(limits.get('max_budget_s', 0)),
++            'policy_max_renew_count': str(limits.get('max_renew_count', 0)),
++            'policy_budget_used_s': str(_policy_budget_used_s(state)),
++            'policy_proposed_budget_s': str(proposed_budget_s),
++            'policy_proposed_renew_count': str(proposed_renew_count),
++            'renew_ack_required': '1',
++        },
++    )
++    _emit_event(
++        client,
++        'strategy_research_stats_alert_policy_suppress_override_limit_blocked',
++        {
++            'purpose': purpose,
++            'family': family,
++            'limit_kind': limit_kind,
++            'current_ticket': str(state.get('ticket') or ''),
++            'current_operator': str(state.get('operator') or ''),
++            'policy_max_budget_s': limits.get('max_budget_s', 0),
++            'policy_max_renew_count': limits.get('max_renew_count', 0),
++            'policy_budget_used_s': _policy_budget_used_s(state),
++            'policy_proposed_budget_s': proposed_budget_s,
++            'policy_proposed_renew_count': proposed_renew_count,
++        },
++    )
++
++
+ def _validate_family(family: str) -> str:
+     family = (family or '').strip()
+     if family not in SUPPORTED_OVERRIDE_FAMILIES:
+@@ -141,12 +270,19 @@
+     ttl_s: int,
+     previous: Dict[str, str] | None = None,
+     renewal_ack: Dict[str, str] | None = None,
++    limits: Dict[str, int] | None = None,
++    escalation_ack: Dict[str, str] | None = None,
+ ) -> Dict[str, str]:
+     prev = previous or {}
+     ack = renewal_ack or {}
++    esc = escalation_ack or {}
++    policy = limits or {}
+     renew_count = _to_int(prev.get('renew_count'), 0)
+     is_renewal = 1 if ack else 0
+     renew_count += is_renewal
++    chain_started_ts_ms = _policy_chain_start_ms(prev, now_ms)
++    previous_budget_s = _policy_budget_used_s(prev)
++    budget_used_s = previous_budget_s + int(ttl_s)
+     return {
+         'purpose': purpose,
+         'family': family,
+@@ -177,6 +313,21 @@
+         'renew_ack_consumed_ticket': str(ack.get('ticket') or ''),
+         'renew_ack_consumed_operator': str(ack.get('operator') or ''),
+         'renew_ack_consumed_reason': str(ack.get('reason') or ''),
++        'renew_escalation_ticket': '',
++        'renew_escalation_operator': '',
++        'renew_escalation_reason': '',
++        'policy_chain_started_ts_ms': str(chain_started_ts_ms),
++        'policy_budget_used_s': str(budget_used_s),
++        'policy_max_budget_s': str(policy.get('max_budget_s', 0)),
++        'policy_max_renew_count': str(policy.get('max_renew_count', 0)),
++        'policy_limit_requires_escalation': str(1 if policy.get('require_escalation', 0) > 0 else 0),
++        'policy_limit_hit_kind': '',
++        'policy_limit_hit_ts_ms': '0',
++        'policy_last_escalation_ticket': str(esc.get('ticket') or ''),
++        'policy_last_escalation_operator': str(esc.get('operator') or ''),
++        'policy_last_escalation_reason': str(esc.get('reason') or ''),
++        'policy_last_escalation_ts_ms': str(now_ms if esc else _to_int(prev.get('policy_last_escalation_ts_ms'), 0)),
++        'policy_escalation_count': str(_to_int(prev.get('policy_escalation_count'), 0) + (1 if esc else 0)),
+     }
+ 
+ 
+@@ -232,6 +383,8 @@
+             ttl_s=ttl_s,
+             previous=state or existing,
+             renewal_ack=None,
++            limits=resolve_override_limits(client, purpose, family),
++            escalation_ack=None,
+         ),
+     )
+     _emit_event(
+@@ -259,6 +412,9 @@
+     ticket: str,
+     operator: str,
+     reason: str,
++    escalation_ticket: str = '',
++    escalation_operator: str = '',
++    escalation_reason: str = '',
+ ) -> Dict[str, Any]:
+     purpose = _validate_nonempty('purpose', purpose)
+     family = _validate_family(family)
+@@ -273,6 +429,13 @@
+     if not _renewal_required(state, now_ms):
+         raise OverrideWorkflowError('renew acknowledgement is only allowed after expiry reminder or expiry')
+     _ensure_new_identity(ticket, operator, reason, state)
++    escalation_ticket = str(escalation_ticket or '').strip()
++    escalation_operator = str(escalation_operator or '').strip()
++    escalation_reason = str(escalation_reason or '').strip()
++    if escalation_ticket:
++        _ensure_new_escalation_identity(escalation_ticket, state, ticket)
++        escalation_operator = _validate_nonempty('escalation_operator', escalation_operator)
++        escalation_reason = _validate_nonempty('escalation_reason', escalation_reason)
+     updated = dict(state)
+     updated.update({
+         'renew_ack_required': '1',
+@@ -280,6 +443,9 @@
+         'renew_ack_ticket': ticket,
+         'renew_ack_operator': operator,
+         'renew_ack_reason': reason,
++        'renew_escalation_ticket': escalation_ticket,
++        'renew_escalation_operator': escalation_operator,
++        'renew_escalation_reason': escalation_reason,
+     })
+     client.hset(state_key, mapping=updated)
+     _emit_event(
+@@ -295,6 +461,9 @@
+             'current_operator': str(state.get('operator') or ''),
+             'current_reason': str(state.get('reason') or ''),
+             'lifecycle_state': str(state.get('lifecycle_state') or ''),
++            'escalation_ticket': escalation_ticket,
++            'escalation_operator': escalation_operator,
++            'escalation_reason': escalation_reason,
+         },
+     )
+     return updated
+@@ -328,6 +497,27 @@
+     ack_operator = _validate_nonempty('renew_ack_operator', ack_operator_raw)
+     ack_reason = _validate_nonempty('renew_ack_reason', ack_reason_raw)
+     _ensure_new_identity(ack_ticket, ack_operator, ack_reason, state)
++    limits = resolve_override_limits(client, purpose, family)
++    proposed_budget_s = _policy_budget_used_s(state) + int(ttl_s)
++    proposed_renew_count = _to_int(state.get('renew_count'), 0) + 1
++    limit_kind = _policy_limit_kind(limits, proposed_budget_s=proposed_budget_s, proposed_renew_count=proposed_renew_count)
++    escalation_ack: Dict[str, str] = {}
++    if limit_kind:
++        _record_limit_block(
++            client,
++            purpose=purpose,
++            family=family,
++            state_key=state_key,
++            state=state,
++            limits=limits,
++            limit_kind=limit_kind,
++            proposed_budget_s=proposed_budget_s,
++            proposed_renew_count=proposed_renew_count,
++        )
++        if limits.get('require_escalation', 0) <= 0:
++            raise OverrideWorkflowError(f'renew exceeds policy {limit_kind} limit for purpose/family')
++        escalation_ack = _require_escalation_fields(client.hgetall(state_key) or state)
++        _ensure_new_escalation_identity(str(escalation_ack.get('ticket') or ''), client.hgetall(state_key) or state, ack_ticket)
+     expire_ts_ms = now_ms + ttl_s * 1000
+     key = override_key(purpose, family)
+     payload = {
+@@ -360,6 +550,8 @@
+                 'operator': ack_operator,
+                 'reason': ack_reason,
+             },
++            limits=limits,
++            escalation_ack=escalation_ack,
+         ),
+     )
+     _emit_event(
+@@ -377,6 +569,14 @@
+             'ttl_s': ttl_s,
+             'expire_ts_ms': expire_ts_ms,
+             'renew_count': str(_to_int(state.get('renew_count'), 0) + 1),
++            'limit_kind': limit_kind,
++            'policy_max_budget_s': limits.get('max_budget_s', 0),
++            'policy_max_renew_count': limits.get('max_renew_count', 0),
++            'policy_proposed_budget_s': proposed_budget_s,
++            'policy_proposed_renew_count': proposed_renew_count,
++            'escalation_ticket': escalation_ack.get('ticket', ''),
++            'escalation_operator': escalation_ack.get('operator', ''),
++            'escalation_reason': escalation_ack.get('reason', ''),
+         },
+     )
+     return payload
+@@ -421,6 +621,9 @@
+             'renew_ack_ticket': '',
+             'renew_ack_operator': '',
+             'renew_ack_reason': '',
++            'renew_escalation_ticket': '',
++            'renew_escalation_operator': '',
++            'renew_escalation_reason': '',
+         },
+     )
+     _emit_event(
+@@ -491,6 +694,9 @@
+     pa.add_argument('--ticket', required=True)
+     pa.add_argument('--operator', required=True)
+     pa.add_argument('--reason', required=True)
++    pa.add_argument('--escalation-ticket', default='')
++    pa.add_argument('--escalation-operator', default='')
++    pa.add_argument('--escalation-reason', default='')
+ 
+     pr = sub.add_parser('renew', help='Renew an override after acknowledgement with a new TTL')
+     pr.add_argument('--purpose', required=True)
+@@ -533,6 +739,9 @@
+                 ticket=ns.ticket,
+                 operator=ns.operator,
+                 reason=ns.reason,
++                escalation_ticket=getattr(ns, 'escalation_ticket', ''),
++                escalation_operator=getattr(ns, 'escalation_operator', ''),
++                escalation_reason=getattr(ns, 'escalation_reason', ''),
+             )
+             sys.stdout.write(json.dumps(payload, sort_keys=True) + '\n')
+             return 0
+--- orderflow_services/tests/test_strategy_research_stats_alert_policy_p610_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ orderflow_services/tests/test_strategy_research_stats_alert_policy_p610_v1.py	2026-03-09 16:32:00.550840787 +0000
+@@ -0,0 +1,188 @@
++from __future__ import annotations
++
++from orderflow_services.strategy_research_stats_alert_policy_override_v1 import (
++    OverrideWorkflowError,
++    acknowledge_renewal,
++    override_key,
++    override_state_key,
++    renew_override,
++    set_override,
++)
++from orderflow_services.strategy_research_stats_alert_policy_exporter_v1 import (
++    POLICY_OVERRIDE_POLICY_BUDGET_USED,
++    POLICY_OVERRIDE_POLICY_ESCALATION_PRESENT,
++    POLICY_OVERRIDE_POLICY_LIMIT_HIT,
++    POLICY_OVERRIDE_POLICY_MAX_BUDGET,
++    POLICY_OVERRIDE_POLICY_MAX_RENEWS,
++    publish,
++)
++
++
++class FakeRedis:
++    def __init__(self, hashes: dict[str, dict[str, str]] | None = None) -> None:
++        self.hashes = dict(hashes or {})
++        self.expiry_s: dict[str, int] = {}
++        self.events: list[tuple[str, dict[str, str]]] = []
++
++    def hgetall(self, key: str) -> dict[str, str]:
++        return dict(self.hashes.get(key, {}))
++
++    def hset(self, key: str, mapping: dict[str, str]) -> None:
++        self.hashes[key] = {**self.hashes.get(key, {}), **mapping}
++
++    def expire(self, key: str, ttl_s: int) -> None:
++        self.expiry_s[key] = ttl_s
++
++    def delete(self, key: str) -> int:
++        existed = 1 if key in self.hashes else 0
++        self.hashes.pop(key, None)
++        self.expiry_s.pop(key, None)
++        return existed
++
++    def xadd(self, stream: str, fields: dict[str, str], maxlen: int | None = None, approximate: bool = True) -> str:
++        self.events.append((stream, dict(fields)))
++        return '1-0'
++
++    def keys(self, pattern: str) -> list[str]:
++        prefix = pattern.rstrip('*')
++        return [k for k in self.hashes if k.startswith(prefix)]
++
++
++def _set_common_env(monkeypatch) -> None:
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_PURPOSES', 'conf_score_guardrails_promote')
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_PREFIX', 'cfg:strategy_research_stats:alert_policy:suppress_override:v1')
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_STATE_PREFIX', 'cfg:strategy_research_stats:alert_policy:suppress_state:v1')
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_PREFIX', 'cfg:strategy_research_stats:alert_policy:override_limits:v1')
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_DEFAULTS_KEY', 'cfg:strategy_research_stats:alert_policy:override_limits:v1:defaults')
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_REMINDER_WINDOW_S', '3600')
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_BUDGET_S', '259200')
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_RENEW_COUNT', '2')
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_REQUIRE_ESCALATION_ON_LIMIT', '1')
++
++
++def test_p610_blocks_renew_on_max_renew_limit_without_escalation(monkeypatch) -> None:
++    now_ms = 1_700_000_000_000
++    _set_common_env(monkeypatch)
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_RENEW_COUNT', '0')
++    from orderflow_services import strategy_research_stats_alert_policy_exporter_v1 as exp
++    monkeypatch.setattr(exp, '_now_ms', lambda: now_ms)
++    from orderflow_services import strategy_research_stats_alert_policy_override_v1 as mod
++    monkeypatch.setattr(mod, '_now_ms', lambda: now_ms)
++    r = FakeRedis()
++    set_override(
++        r,
++        purpose='conf_score_guardrails_promote',
++        family='pbo_high',
++        ticket='INC-1',
++        operator='alice',
++        reason='initial suppression',
++        ttl_s=1200,
++    )
++    publish(r)
++    acknowledge_renewal(
++        r,
++        purpose='conf_score_guardrails_promote',
++        family='pbo_high',
++        ticket='INC-2',
++        operator='bob',
++        reason='renew with new incident',
++    )
++    try:
++        renew_override(r, purpose='conf_score_guardrails_promote', family='pbo_high', ttl_s=900)
++    except OverrideWorkflowError as exc:
++        assert 'escalation' in str(exc)
++    else:  # pragma: no cover
++        raise AssertionError('renew_override must enforce escalation when max-renew limit is exceeded')
++    state = r.hgetall(override_state_key('conf_score_guardrails_promote', 'pbo_high'))
++    assert state['policy_limit_hit_kind'] == 'max_renew'
++    assert state['renew_ack_required'] == '1'
++    assert any(ev[1]['kind'] == 'strategy_research_stats_alert_policy_suppress_override_limit_blocked' for ev in r.events)
++
++
++def test_p610_allows_renew_with_escalation_when_budget_limit_hit(monkeypatch) -> None:
++    now_ms = 1_700_000_000_000
++    _set_common_env(monkeypatch)
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_BUDGET_S', '1500')
++    from orderflow_services import strategy_research_stats_alert_policy_exporter_v1 as exp
++    monkeypatch.setattr(exp, '_now_ms', lambda: now_ms)
++    from orderflow_services import strategy_research_stats_alert_policy_override_v1 as mod
++    monkeypatch.setattr(mod, '_now_ms', lambda: now_ms)
++    r = FakeRedis()
++    set_override(
++        r,
++        purpose='conf_score_guardrails_promote',
++        family='report_stale',
++        ticket='INC-10',
++        operator='alice',
++        reason='wait for feed recovery',
++        ttl_s=1200,
++    )
++    publish(r)
++    acknowledge_renewal(
++        r,
++        purpose='conf_score_guardrails_promote',
++        family='report_stale',
++        ticket='INC-11',
++        operator='bob',
++        reason='renew while refresh underway',
++        escalation_ticket='SEV-200',
++        escalation_operator='lead',
++        escalation_reason='budget exceeded and approved',
++    )
++    renewed = renew_override(r, purpose='conf_score_guardrails_promote', family='report_stale', ttl_s=600)
++    state = r.hgetall(override_state_key('conf_score_guardrails_promote', 'report_stale'))
++    raw = r.hgetall(override_key('conf_score_guardrails_promote', 'report_stale'))
++    assert renewed['ticket'] == 'INC-11'
++    assert raw['ticket'] == 'INC-11'
++    assert state['policy_budget_used_s'] == '1800'
++    assert state['policy_last_escalation_ticket'] == 'SEV-200'
++    assert state['policy_escalation_count'] == '1'
++    assert state['renew_count'] == '1'
++    assert any(ev[1]['kind'] == 'strategy_research_stats_alert_policy_suppress_override_renewed' and ev[1].get('limit_kind') == 'budget' for ev in r.events)
++
++
++def test_p610_exporter_surfaces_limit_policy_and_escalation_presence(monkeypatch) -> None:
++    now_ms = 1_700_000_000_000
++    _set_common_env(monkeypatch)
++    from orderflow_services import strategy_research_stats_alert_policy_exporter_v1 as exp
++    monkeypatch.setattr(exp, '_now_ms', lambda: now_ms)
++    r = FakeRedis({
++        'cfg:strategy_research_stats:alert_policy:override_limits:v1:defaults': {
++            'max_budget_s_pbo_high': '3600',
++            'max_renew_count_pbo_high': '1',
++            'require_escalation_pbo_high': '1',
++        },
++        override_state_key('conf_score_guardrails_promote', 'pbo_high'): {
++            'purpose': 'conf_score_guardrails_promote',
++            'family': 'pbo_high',
++            'ticket': 'INC-1',
++            'operator': 'alice',
++            'reason': 'temp suppression',
++            'created_ts_ms': str(now_ms - 1800_000),
++            'expire_ts_ms': str(now_ms - 60_000),
++            'active': '0',
++            'lifecycle_state': 'expired',
++            'expired_ts_ms': str(now_ms - 60_000),
++            'renew_ack_required': '1',
++            'renew_ack_ts_ms': str(now_ms - 30_000),
++            'renew_ack_ticket': 'INC-2',
++            'renew_ack_operator': 'bob',
++            'renew_ack_reason': 'renew with new incident',
++            'renew_escalation_ticket': 'SEV-9',
++            'renew_escalation_operator': 'lead',
++            'renew_escalation_reason': 'limit override approved',
++            'policy_budget_used_s': '4200',
++            'policy_max_budget_s': '3600',
++            'policy_max_renew_count': '1',
++            'policy_limit_hit_kind': 'budget',
++            'policy_limit_hit_ts_ms': str(now_ms - 20_000),
++            'policy_limit_requires_escalation': '1',
++            'renew_count': '2',
++        },
++    })
++    publish(r)
++    assert POLICY_OVERRIDE_POLICY_MAX_BUDGET.labels(purpose='conf_score_guardrails_promote', family='pbo_high')._value.get() == 3600.0
++    assert POLICY_OVERRIDE_POLICY_BUDGET_USED.labels(purpose='conf_score_guardrails_promote', family='pbo_high')._value.get() == 4200.0
++    assert POLICY_OVERRIDE_POLICY_MAX_RENEWS.labels(purpose='conf_score_guardrails_promote', family='pbo_high')._value.get() == 1.0
++    assert POLICY_OVERRIDE_POLICY_ESCALATION_PRESENT.labels(purpose='conf_score_guardrails_promote', family='pbo_high')._value.get() == 1.0
++    assert POLICY_OVERRIDE_POLICY_LIMIT_HIT.labels(purpose='conf_score_guardrails_promote', family='pbo_high', kind='budget')._value.get() == 1.0
+--- tick_flow_full/orderflow_services/strategy_research_stats_alert_policy_exporter_v1.py	2026-03-09 16:33:31.784000283 +0000
++++ tick_flow_full/orderflow_services/strategy_research_stats_alert_policy_exporter_v1.py	2026-03-09 16:30:35.982032591 +0000
+@@ -17,6 +17,7 @@
+ 
+ FAMILIES = ('pbo_high', 'report_stale', 'psr_dsr_low')
+ LIFECYCLE_STATES = ('none', 'active', 'cleared', 'expired')
++LIMIT_KINDS = ('none', 'budget', 'max_renew')
+ DEFAULT_PURPOSES = (
+     'conf_score_guardrails_apply',
+     'conf_score_guardrails_promote',
+@@ -116,6 +117,42 @@
+     return _env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OPS_STREAM', 'ops:strategy_research_stats:alert_policy:v1')
+ 
+ 
++def _override_limits_defaults_key() -> str:
++    return _env(
++        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_DEFAULTS_KEY',
++        'cfg:strategy_research_stats:alert_policy:override_limits:v1:defaults',
++    )
++
++
++def _override_limits_key(purpose: str) -> str:
++    prefix = _env(
++        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_PREFIX',
++        'cfg:strategy_research_stats:alert_policy:override_limits:v1',
++    ).rstrip(':')
++    return f'{prefix}:{purpose}'
++
++
++def _resolve_override_limits(client: Any, purpose: str, family: str) -> Dict[str, float]:
++    defaults_hash = _read_hash(client, _override_limits_defaults_key())
++    purpose_hash = _read_hash(client, _override_limits_key(purpose))
++    values = {
++        'max_budget_s': max(300.0, _to_float(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_BUDGET_S', '259200'), 259200.0)),
++        'max_renew_count': max(0.0, _to_float(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_RENEW_COUNT', '2'), 2.0)),
++        'require_escalation': 1.0 if _to_float(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_REQUIRE_ESCALATION_ON_LIMIT', '1'), 1.0) > 0.0 else 0.0,
++    }
++    for src in (defaults_hash, purpose_hash):
++        if not src:
++            continue
++        for field in tuple(values.keys()):
++            key = f'{field}_{family}'
++            if key in src and src[key] not in ('', None):
++                values[field] = _to_float(src[key], values[field])
++    values['max_budget_s'] = max(300.0, values['max_budget_s'])
++    values['max_renew_count'] = max(0.0, values['max_renew_count'])
++    values['require_escalation'] = 1.0 if values['require_escalation'] > 0.0 else 0.0
++    return values
++
++
+ def _reminder_window_s() -> float:
+     return max(60.0, _to_float(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_REMINDER_WINDOW_S', '3600'), 3600.0))
+ 
+@@ -262,6 +299,13 @@
+     renew_ack_ts_ms = int(_to_float((state or {}).get('renew_ack_ts_ms'), 0.0)) if state else 0
+     renew_ack_present = 1.0 if str((state or {}).get('renew_ack_ticket') or '').strip() else 0.0
+     renew_count = _to_float((state or {}).get('renew_count'), 0.0) if state else 0.0
++    policy_budget_used_s = _to_float((state or {}).get('policy_budget_used_s'), 0.0) if state else 0.0
++    policy_max_budget_s = _to_float((state or {}).get('policy_max_budget_s'), 0.0) if state else 0.0
++    policy_max_renew_count = _to_float((state or {}).get('policy_max_renew_count'), 0.0) if state else 0.0
++    policy_limit_hit_kind = str((state or {}).get('policy_limit_hit_kind') or '') if state else ''
++    policy_limit_hit_ts_ms = int(_to_float((state or {}).get('policy_limit_hit_ts_ms'), 0.0)) if state else 0
++    policy_requires_escalation = 1.0 if _to_float((state or {}).get('policy_limit_requires_escalation'), 0.0) > 0.0 else 0.0
++    escalation_present = 1.0 if str((state or {}).get('renew_escalation_ticket') or '').strip() else 0.0
+     return {
+         'present': 1.0 if raw else 0.0,
+         'active': active,
+@@ -281,6 +325,14 @@
+         'renew_ack_present': renew_ack_present,
+         'renew_ack_ts_ms': renew_ack_ts_ms,
+         'renew_count': renew_count,
++        'policy_budget_used_s': policy_budget_used_s,
++        'policy_max_budget_s': policy_max_budget_s,
++        'policy_budget_remaining_s': max(0.0, policy_max_budget_s - policy_budget_used_s) if policy_max_budget_s else 0.0,
++        'policy_max_renew_count': policy_max_renew_count,
++        'policy_limit_hit_kind': policy_limit_hit_kind,
++        'policy_limit_hit_ts_ms': policy_limit_hit_ts_ms,
++        'policy_requires_escalation': policy_requires_escalation,
++        'policy_escalation_present': escalation_present,
+     }
+ 
+ def _family_default(family: str, field: str) -> float:
+@@ -340,6 +392,14 @@
+ POLICY_OVERRIDE_RENEW_ACK_PRESENT = Gauge('strategy_research_stats_alert_policy_override_renew_ack_present', '1 if a renewal acknowledgement is currently stored for purpose/family', ['purpose', 'family'])
+ POLICY_OVERRIDE_RENEW_ACK_AGE = Gauge('strategy_research_stats_alert_policy_override_renew_ack_age_seconds', 'Age of the current renewal acknowledgement for purpose/family', ['purpose', 'family'])
+ POLICY_OVERRIDE_RENEW_COUNT = Gauge('strategy_research_stats_alert_policy_override_renew_count', 'How many times a suppress override has been renewed for purpose/family', ['purpose', 'family'])
++POLICY_OVERRIDE_POLICY_BUDGET_USED = Gauge('strategy_research_stats_alert_policy_override_budget_used_seconds', 'Cumulative suppression budget used by purpose/family override chain', ['purpose', 'family'])
++POLICY_OVERRIDE_POLICY_BUDGET_REMAINING = Gauge('strategy_research_stats_alert_policy_override_budget_remaining_seconds', 'Remaining suppression budget for purpose/family override chain', ['purpose', 'family'])
++POLICY_OVERRIDE_POLICY_MAX_BUDGET = Gauge('strategy_research_stats_alert_policy_override_max_budget_seconds', 'Configured max suppression budget for purpose/family override chain', ['purpose', 'family'])
++POLICY_OVERRIDE_POLICY_MAX_RENEWS = Gauge('strategy_research_stats_alert_policy_override_max_renew_count', 'Configured max renew count for purpose/family override chain', ['purpose', 'family'])
++POLICY_OVERRIDE_POLICY_LIMIT_HIT = Gauge('strategy_research_stats_alert_policy_override_limit_hit', '1 if the latest suppression workflow hit a policy limit kind for purpose/family', ['purpose', 'family', 'kind'])
++POLICY_OVERRIDE_POLICY_LIMIT_HIT_AGE = Gauge('strategy_research_stats_alert_policy_override_limit_hit_age_seconds', 'Age of the latest policy limit hit for purpose/family', ['purpose', 'family'])
++POLICY_OVERRIDE_POLICY_REQUIRES_ESCALATION = Gauge('strategy_research_stats_alert_policy_override_requires_escalation', '1 if policy requires escalation once limit is exceeded for purpose/family', ['purpose', 'family'])
++POLICY_OVERRIDE_POLICY_ESCALATION_PRESENT = Gauge('strategy_research_stats_alert_policy_override_escalation_present', '1 if a renewal acknowledgement contains escalation fields for purpose/family', ['purpose', 'family'])
+ POLICY_ACTIVE_SUPPRESSIONS_TOTAL = Gauge('strategy_research_stats_alert_policy_active_suppressions_total', 'Number of active TTL-backed suppress overrides by family', ['family'])
+ POLICY_MIN_24H = Gauge('strategy_research_stats_alert_policy_min_events_24h', 'Minimum 24h events threshold for purpose/family alerts', ['purpose', 'family'])
+ POLICY_MIN_7D = Gauge('strategy_research_stats_alert_policy_min_events_7d', 'Minimum 7d events threshold for purpose/family alerts', ['purpose', 'family'])
+@@ -366,6 +426,15 @@
+         for family in FAMILIES:
+             policy = resolve_family_policy(family, defaults_hash, purpose_hash)
+             override = _resolve_override(client, purpose, family, now_ms)
++            limit_policy = _resolve_override_limits(client, purpose, family)
++            if not override.get('policy_max_budget_s'):
++                override['policy_max_budget_s'] = limit_policy['max_budget_s']
++            if not override.get('policy_max_renew_count'):
++                override['policy_max_renew_count'] = limit_policy['max_renew_count']
++            if override.get('policy_requires_escalation', 0.0) == 0.0 and limit_policy['require_escalation'] > 0.0:
++                override['policy_requires_escalation'] = limit_policy['require_escalation']
++            if not override.get('policy_budget_remaining_s'):
++                override['policy_budget_remaining_s'] = max(0.0, override.get('policy_max_budget_s', 0.0) - override.get('policy_budget_used_s', 0.0))
+             static_suppress = 1.0 if policy['suppress_active'] else 0.0
+             effective_suppress = 1.0 if static_suppress or override['active'] else 0.0
+             POLICY_ENABLED.labels(purpose=purpose, family=family).set(policy['enabled'])
+@@ -391,6 +460,16 @@
+             ack_ts_ms = override.get('renew_ack_ts_ms', 0) or 0
+             POLICY_OVERRIDE_RENEW_ACK_AGE.labels(purpose=purpose, family=family).set(max(0.0, (now_ms - ack_ts_ms) / 1000.0) if ack_ts_ms else 0.0)
+             POLICY_OVERRIDE_RENEW_COUNT.labels(purpose=purpose, family=family).set(override.get('renew_count', 0.0))
++            POLICY_OVERRIDE_POLICY_BUDGET_USED.labels(purpose=purpose, family=family).set(override.get('policy_budget_used_s', 0.0))
++            POLICY_OVERRIDE_POLICY_BUDGET_REMAINING.labels(purpose=purpose, family=family).set(override.get('policy_budget_remaining_s', 0.0))
++            POLICY_OVERRIDE_POLICY_MAX_BUDGET.labels(purpose=purpose, family=family).set(override.get('policy_max_budget_s', 0.0))
++            POLICY_OVERRIDE_POLICY_MAX_RENEWS.labels(purpose=purpose, family=family).set(override.get('policy_max_renew_count', 0.0))
++            for kind in LIMIT_KINDS:
++                POLICY_OVERRIDE_POLICY_LIMIT_HIT.labels(purpose=purpose, family=family, kind=kind).set(1.0 if override.get('policy_limit_hit_kind', '') == kind else 0.0)
++            hit_ts_ms = override.get('policy_limit_hit_ts_ms', 0) or 0
++            POLICY_OVERRIDE_POLICY_LIMIT_HIT_AGE.labels(purpose=purpose, family=family).set(max(0.0, (now_ms - hit_ts_ms) / 1000.0) if hit_ts_ms else 0.0)
++            POLICY_OVERRIDE_POLICY_REQUIRES_ESCALATION.labels(purpose=purpose, family=family).set(override.get('policy_requires_escalation', 0.0))
++            POLICY_OVERRIDE_POLICY_ESCALATION_PRESENT.labels(purpose=purpose, family=family).set(override.get('policy_escalation_present', 0.0))
+             if override['active']:
+                 active_totals[family] += 1.0
+             POLICY_MIN_24H.labels(purpose=purpose, family=family).set(policy['min_events_24h'])
+--- tick_flow_full/orderflow_services/strategy_research_stats_alert_policy_override_v1.py	2026-03-09 16:33:31.784565456 +0000
++++ tick_flow_full/orderflow_services/strategy_research_stats_alert_policy_override_v1.py	2026-03-09 16:32:55.608668766 +0000
+@@ -71,6 +71,135 @@
+     return max(default_ttl_s(), _to_int(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_MAX_TTL_S', '604800'), 604800))
+ 
+ 
++def override_limits_defaults_key() -> str:
++    return _env(
++        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_DEFAULTS_KEY',
++        'cfg:strategy_research_stats:alert_policy:override_limits:v1:defaults',
++    )
++
++
++def override_limits_key(purpose: str) -> str:
++    prefix = _env(
++        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_PREFIX',
++        'cfg:strategy_research_stats:alert_policy:override_limits:v1',
++    ).rstrip(':')
++    return f'{prefix}:{purpose}'
++
++
++def _read_limits(client: Any, purpose: str) -> tuple[Dict[str, str], Dict[str, str]]:
++    return (
++        client.hgetall(override_limits_defaults_key()) or {},
++        client.hgetall(override_limits_key(purpose)) or {},
++    )
++
++
++def resolve_override_limits(client: Any, purpose: str, family: str) -> Dict[str, int]:
++    defaults_hash, purpose_hash = _read_limits(client, purpose)
++    max_budget_default = max(300, _to_int(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_BUDGET_S', '259200'), 259200))
++    max_renew_default = max(0, _to_int(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_RENEW_COUNT', '2'), 2))
++    require_escalation_default = 1 if _to_int(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_REQUIRE_ESCALATION_ON_LIMIT', '1'), 1) > 0 else 0
++    values = {
++        'max_budget_s': max_budget_default,
++        'max_renew_count': max_renew_default,
++        'require_escalation': require_escalation_default,
++    }
++    for src in (defaults_hash, purpose_hash):
++        if not src:
++            continue
++        for field in tuple(values.keys()):
++            key = f'{field}_{family}'
++            if key in src and str(src[key]).strip() not in ('', 'None'):
++                values[field] = _to_int(src[key], values[field])
++    values['max_budget_s'] = max(300, values['max_budget_s'])
++    values['max_renew_count'] = max(0, values['max_renew_count'])
++    values['require_escalation'] = 1 if values['require_escalation'] > 0 else 0
++    return values
++
++
++def _policy_chain_start_ms(previous: Dict[str, str] | None, fallback_now_ms: int) -> int:
++    prev = previous or {}
++    return max(0, _to_int(prev.get('policy_chain_started_ts_ms'), 0) or _to_int(prev.get('created_ts_ms'), 0) or fallback_now_ms)
++
++
++def _policy_budget_used_s(previous: Dict[str, str] | None) -> int:
++    prev = previous or {}
++    return max(0, _to_int(prev.get('policy_budget_used_s'), 0) or _to_int(prev.get('ttl_s'), 0))
++
++
++def _policy_limit_kind(limits: Dict[str, int], *, proposed_budget_s: int, proposed_renew_count: int) -> str:
++    if proposed_budget_s > int(limits.get('max_budget_s', 0)):
++        return 'budget'
++    if proposed_renew_count > int(limits.get('max_renew_count', 0)):
++        return 'max_renew'
++    return ''
++
++
++def _require_escalation_fields(state: Dict[str, str]) -> Dict[str, str]:
++    esc = {
++        'ticket': str(state.get('renew_escalation_ticket') or '').strip(),
++        'operator': str(state.get('renew_escalation_operator') or '').strip(),
++        'reason': str(state.get('renew_escalation_reason') or '').strip(),
++    }
++    if not esc['ticket'] or not esc['operator'] or not esc['reason']:
++        raise OverrideWorkflowError('renew exceeds policy limits; acknowledge-renew must include escalation-ticket/operator/reason')
++    return esc
++
++
++def _ensure_new_escalation_identity(escalation_ticket: str, current: Dict[str, str], ack_ticket: str) -> None:
++    previous_ticket = str(current.get('ticket') or '').strip()
++    if escalation_ticket == ack_ticket:
++        raise OverrideWorkflowError('escalation ticket must be distinct from renewal ticket')
++    if previous_ticket and escalation_ticket == previous_ticket:
++        raise OverrideWorkflowError('escalation ticket must be distinct from current/previous override ticket')
++
++
++def _record_limit_block(
++    client: Any,
++    *,
++    purpose: str,
++    family: str,
++    state_key: str,
++    state: Dict[str, str],
++    limits: Dict[str, int],
++    limit_kind: str,
++    proposed_budget_s: int,
++    proposed_renew_count: int,
++) -> None:
++    now_ms = _now_ms()
++    client.hset(
++        state_key,
++        mapping={
++            'purpose': purpose,
++            'family': family,
++            'policy_limit_hit_kind': limit_kind,
++            'policy_limit_hit_ts_ms': str(now_ms),
++            'policy_limit_requires_escalation': '1' if limits.get('require_escalation', 0) > 0 else '0',
++            'policy_max_budget_s': str(limits.get('max_budget_s', 0)),
++            'policy_max_renew_count': str(limits.get('max_renew_count', 0)),
++            'policy_budget_used_s': str(_policy_budget_used_s(state)),
++            'policy_proposed_budget_s': str(proposed_budget_s),
++            'policy_proposed_renew_count': str(proposed_renew_count),
++            'renew_ack_required': '1',
++        },
++    )
++    _emit_event(
++        client,
++        'strategy_research_stats_alert_policy_suppress_override_limit_blocked',
++        {
++            'purpose': purpose,
++            'family': family,
++            'limit_kind': limit_kind,
++            'current_ticket': str(state.get('ticket') or ''),
++            'current_operator': str(state.get('operator') or ''),
++            'policy_max_budget_s': limits.get('max_budget_s', 0),
++            'policy_max_renew_count': limits.get('max_renew_count', 0),
++            'policy_budget_used_s': _policy_budget_used_s(state),
++            'policy_proposed_budget_s': proposed_budget_s,
++            'policy_proposed_renew_count': proposed_renew_count,
++        },
++    )
++
++
+ def _validate_family(family: str) -> str:
+     family = (family or '').strip()
+     if family not in SUPPORTED_OVERRIDE_FAMILIES:
+@@ -141,12 +270,19 @@
+     ttl_s: int,
+     previous: Dict[str, str] | None = None,
+     renewal_ack: Dict[str, str] | None = None,
++    limits: Dict[str, int] | None = None,
++    escalation_ack: Dict[str, str] | None = None,
+ ) -> Dict[str, str]:
+     prev = previous or {}
+     ack = renewal_ack or {}
++    esc = escalation_ack or {}
++    policy = limits or {}
+     renew_count = _to_int(prev.get('renew_count'), 0)
+     is_renewal = 1 if ack else 0
+     renew_count += is_renewal
++    chain_started_ts_ms = _policy_chain_start_ms(prev, now_ms)
++    previous_budget_s = _policy_budget_used_s(prev)
++    budget_used_s = previous_budget_s + int(ttl_s)
+     return {
+         'purpose': purpose,
+         'family': family,
+@@ -177,6 +313,21 @@
+         'renew_ack_consumed_ticket': str(ack.get('ticket') or ''),
+         'renew_ack_consumed_operator': str(ack.get('operator') or ''),
+         'renew_ack_consumed_reason': str(ack.get('reason') or ''),
++        'renew_escalation_ticket': '',
++        'renew_escalation_operator': '',
++        'renew_escalation_reason': '',
++        'policy_chain_started_ts_ms': str(chain_started_ts_ms),
++        'policy_budget_used_s': str(budget_used_s),
++        'policy_max_budget_s': str(policy.get('max_budget_s', 0)),
++        'policy_max_renew_count': str(policy.get('max_renew_count', 0)),
++        'policy_limit_requires_escalation': str(1 if policy.get('require_escalation', 0) > 0 else 0),
++        'policy_limit_hit_kind': '',
++        'policy_limit_hit_ts_ms': '0',
++        'policy_last_escalation_ticket': str(esc.get('ticket') or ''),
++        'policy_last_escalation_operator': str(esc.get('operator') or ''),
++        'policy_last_escalation_reason': str(esc.get('reason') or ''),
++        'policy_last_escalation_ts_ms': str(now_ms if esc else _to_int(prev.get('policy_last_escalation_ts_ms'), 0)),
++        'policy_escalation_count': str(_to_int(prev.get('policy_escalation_count'), 0) + (1 if esc else 0)),
+     }
+ 
+ 
+@@ -232,6 +383,8 @@
+             ttl_s=ttl_s,
+             previous=state or existing,
+             renewal_ack=None,
++            limits=resolve_override_limits(client, purpose, family),
++            escalation_ack=None,
+         ),
+     )
+     _emit_event(
+@@ -259,6 +412,9 @@
+     ticket: str,
+     operator: str,
+     reason: str,
++    escalation_ticket: str = '',
++    escalation_operator: str = '',
++    escalation_reason: str = '',
+ ) -> Dict[str, Any]:
+     purpose = _validate_nonempty('purpose', purpose)
+     family = _validate_family(family)
+@@ -273,6 +429,13 @@
+     if not _renewal_required(state, now_ms):
+         raise OverrideWorkflowError('renew acknowledgement is only allowed after expiry reminder or expiry')
+     _ensure_new_identity(ticket, operator, reason, state)
++    escalation_ticket = str(escalation_ticket or '').strip()
++    escalation_operator = str(escalation_operator or '').strip()
++    escalation_reason = str(escalation_reason or '').strip()
++    if escalation_ticket:
++        _ensure_new_escalation_identity(escalation_ticket, state, ticket)
++        escalation_operator = _validate_nonempty('escalation_operator', escalation_operator)
++        escalation_reason = _validate_nonempty('escalation_reason', escalation_reason)
+     updated = dict(state)
+     updated.update({
+         'renew_ack_required': '1',
+@@ -280,6 +443,9 @@
+         'renew_ack_ticket': ticket,
+         'renew_ack_operator': operator,
+         'renew_ack_reason': reason,
++        'renew_escalation_ticket': escalation_ticket,
++        'renew_escalation_operator': escalation_operator,
++        'renew_escalation_reason': escalation_reason,
+     })
+     client.hset(state_key, mapping=updated)
+     _emit_event(
+@@ -295,6 +461,9 @@
+             'current_operator': str(state.get('operator') or ''),
+             'current_reason': str(state.get('reason') or ''),
+             'lifecycle_state': str(state.get('lifecycle_state') or ''),
++            'escalation_ticket': escalation_ticket,
++            'escalation_operator': escalation_operator,
++            'escalation_reason': escalation_reason,
+         },
+     )
+     return updated
+@@ -328,6 +497,27 @@
+     ack_operator = _validate_nonempty('renew_ack_operator', ack_operator_raw)
+     ack_reason = _validate_nonempty('renew_ack_reason', ack_reason_raw)
+     _ensure_new_identity(ack_ticket, ack_operator, ack_reason, state)
++    limits = resolve_override_limits(client, purpose, family)
++    proposed_budget_s = _policy_budget_used_s(state) + int(ttl_s)
++    proposed_renew_count = _to_int(state.get('renew_count'), 0) + 1
++    limit_kind = _policy_limit_kind(limits, proposed_budget_s=proposed_budget_s, proposed_renew_count=proposed_renew_count)
++    escalation_ack: Dict[str, str] = {}
++    if limit_kind:
++        _record_limit_block(
++            client,
++            purpose=purpose,
++            family=family,
++            state_key=state_key,
++            state=state,
++            limits=limits,
++            limit_kind=limit_kind,
++            proposed_budget_s=proposed_budget_s,
++            proposed_renew_count=proposed_renew_count,
++        )
++        if limits.get('require_escalation', 0) <= 0:
++            raise OverrideWorkflowError(f'renew exceeds policy {limit_kind} limit for purpose/family')
++        escalation_ack = _require_escalation_fields(client.hgetall(state_key) or state)
++        _ensure_new_escalation_identity(str(escalation_ack.get('ticket') or ''), client.hgetall(state_key) or state, ack_ticket)
+     expire_ts_ms = now_ms + ttl_s * 1000
+     key = override_key(purpose, family)
+     payload = {
+@@ -360,6 +550,8 @@
+                 'operator': ack_operator,
+                 'reason': ack_reason,
+             },
++            limits=limits,
++            escalation_ack=escalation_ack,
+         ),
+     )
+     _emit_event(
+@@ -377,6 +569,14 @@
+             'ttl_s': ttl_s,
+             'expire_ts_ms': expire_ts_ms,
+             'renew_count': str(_to_int(state.get('renew_count'), 0) + 1),
++            'limit_kind': limit_kind,
++            'policy_max_budget_s': limits.get('max_budget_s', 0),
++            'policy_max_renew_count': limits.get('max_renew_count', 0),
++            'policy_proposed_budget_s': proposed_budget_s,
++            'policy_proposed_renew_count': proposed_renew_count,
++            'escalation_ticket': escalation_ack.get('ticket', ''),
++            'escalation_operator': escalation_ack.get('operator', ''),
++            'escalation_reason': escalation_ack.get('reason', ''),
+         },
+     )
+     return payload
+@@ -421,6 +621,9 @@
+             'renew_ack_ticket': '',
+             'renew_ack_operator': '',
+             'renew_ack_reason': '',
++            'renew_escalation_ticket': '',
++            'renew_escalation_operator': '',
++            'renew_escalation_reason': '',
+         },
+     )
+     _emit_event(
+@@ -491,6 +694,9 @@
+     pa.add_argument('--ticket', required=True)
+     pa.add_argument('--operator', required=True)
+     pa.add_argument('--reason', required=True)
++    pa.add_argument('--escalation-ticket', default='')
++    pa.add_argument('--escalation-operator', default='')
++    pa.add_argument('--escalation-reason', default='')
+ 
+     pr = sub.add_parser('renew', help='Renew an override after acknowledgement with a new TTL')
+     pr.add_argument('--purpose', required=True)
+@@ -533,6 +739,9 @@
+                 ticket=ns.ticket,
+                 operator=ns.operator,
+                 reason=ns.reason,
++                escalation_ticket=getattr(ns, 'escalation_ticket', ''),
++                escalation_operator=getattr(ns, 'escalation_operator', ''),
++                escalation_reason=getattr(ns, 'escalation_reason', ''),
+             )
+             sys.stdout.write(json.dumps(payload, sort_keys=True) + '\n')
+             return 0

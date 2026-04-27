@@ -1,0 +1,39 @@
+{
+  "action": "long",
+  "score": 0.85,
+  "reason": "strong consensus",
+  "votes": {
+    "orderflow": {
+      "status": "ok",
+      "vote": {
+        "source": "orderflow",
+        "direction": "long",
+        "confidence": 0.9,
+        "veto": false
+      }
+    },
+    "ta_indicators": {
+      "status": "ok",
+      "vote": {
+        "source": "ta_indicators",
+        "direction": "long",
+        "confidence": 0.8,
+        "veto": false
+      }
+    },
+    "microstructure": {
+      "status": "unavailable",
+      "vote": null
+    },
+    "regime_filter": {
+      "status": "ok",
+      "vote": {
+        "source": "regime_filter",
+        "direction": "neutral",
+        "confidence": 0.5,
+        "veto": false
+      }
+    }
+  },
+  "shadow": false
+}

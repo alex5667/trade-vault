@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signal_scoring/weak_progress/utils.py
+# hypothesis_version: 6.148.10
+
+[1e-06, 0.3, 0.35, 0.7, 'moderate', 'strong', 'weak']

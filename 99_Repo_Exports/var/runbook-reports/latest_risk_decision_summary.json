@@ -1,0 +1,91 @@
+{
+  "rows": [
+    {
+      "window_name": "1h",
+      "tier": "A",
+      "level": "ALLOW_TIGHTENED",
+      "decision_count": 51,
+      "allow_count": 51,
+      "deny_count": 0,
+      "clamp_count": 51,
+      "confidence_denial_count": 0,
+      "avg_clamp_ratio": 0.07466666666666677,
+      "decision_latency_avg_ms": 0.1655247857949386,
+      "latest_created_ts_ms": 1776516797473,
+      "refreshed_ts_ms": 1776521995519
+    },
+    {
+      "window_name": "1h",
+      "tier": "B",
+      "level": "ALLOW_TIGHTENED",
+      "decision_count": 26,
+      "allow_count": 26,
+      "deny_count": 0,
+      "clamp_count": 26,
+      "confidence_denial_count": 0,
+      "avg_clamp_ratio": 0.08000000000000002,
+      "decision_latency_avg_ms": 0.3065194267457208,
+      "latest_created_ts_ms": 1776516835818,
+      "refreshed_ts_ms": 1776521995519
+    },
+    {
+      "window_name": "1h",
+      "tier": "C",
+      "level": "ALLOW_TIGHTENED",
+      "decision_count": 33,
+      "allow_count": 33,
+      "deny_count": 0,
+      "clamp_count": 33,
+      "confidence_denial_count": 0,
+      "avg_clamp_ratio": 0.06400000000000004,
+      "decision_latency_avg_ms": 0.11778236402085784,
+      "latest_created_ts_ms": 1776516746339,
+      "refreshed_ts_ms": 1776521995519
+    },
+    {
+      "window_name": "24h",
+      "tier": "A",
+      "level": "ALLOW_TIGHTENED",
+      "decision_count": 1465,
+      "allow_count": 1465,
+      "deny_count": 0,
+      "clamp_count": 1465,
+      "confidence_denial_count": 0,
+      "avg_clamp_ratio": 0.07466666666666871,
+      "decision_latency_avg_ms": 0.09834337667160772,
+      "latest_created_ts_ms": 1776470269617,
+      "refreshed_ts_ms": 1776521995519
+    },
+    {
+      "window_name": "24h",
+      "tier": "B",
+      "level": "ALLOW_TIGHTENED",
+      "decision_count": 511,
+      "allow_count": 511,
+      "deny_count": 0,
+      "clamp_count": 511,
+      "confidence_denial_count": 0,
+      "avg_clamp_ratio": 0.07999999999999899,
+      "decision_latency_avg_ms": 0.09479996071191625,
+      "latest_created_ts_ms": 1776469877044,
+      "refreshed_ts_ms": 1776521995519
+    },
+    {
+      "window_name": "24h",
+      "tier": "C",
+      "level": "ALLOW_TIGHTENED",
+      "decision_count": 973,
+      "allow_count": 973,
+      "deny_count": 0,
+      "clamp_count": 973,
+      "confidence_denial_count": 0,
+      "avg_clamp_ratio": 0.06400000000000004,
+      "decision_latency_avg_ms": 0.1035560978510018,
+      "latest_created_ts_ms": 1776470209827,
+      "refreshed_ts_ms": 1776521995519
+    }
+  ],
+  "generated_at_ms": 1776521995426,
+  "row_count": 6,
+  "latest_refreshed_ts_ms": 1776521995519
+}

@@ -1,0 +1,2071 @@
+Binary files /mnt/data/repo_base/orderflow_services/__pycache__/__init__.cpython-311.pyc and /mnt/data/repo/orderflow_services/__pycache__/__init__.cpython-311.pyc differ
+Binary files /mnt/data/repo_base/orderflow_services/__pycache__/new_features_gauges_smoke_check_v1.cpython-311.pyc and /mnt/data/repo/orderflow_services/__pycache__/new_features_gauges_smoke_check_v1.cpython-311.pyc differ
+diff -ruN --no-dereference '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_p78.sql' '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_top_p78.sql' a/orderflow_services/grafana/README_world_practice_trackers_v1.md b/orderflow_services/grafana/README_world_practice_trackers_v1.md
+--- a/orderflow_services/grafana/README_world_practice_trackers_v1.md	2026-02-25 19:24:03.000000000 +0000
++++ b/orderflow_services/grafana/README_world_practice_trackers_v1.md	2026-02-27 11:15:14.042532200 +0000
+@@ -15,3 +15,19 @@
+ - `trade_eta_fill_sec{sym=~"$sym",bucket=~"$bucket"}`
+ - `trade_res_recovery_ms{sym=~"$sym",bucket=~"$bucket"}`
+ - `trade_res_recovered{sym=~"$sym",bucket=~"$bucket"}`
++
++
++## A8 row: microstructure extras
++
++Dashboard now includes a dedicated row **A8 microstructure extras** with panels for:
++- Depth10 + Gini (top-10)
++- VWAP diff + Momentum (bps)
++- Realized vol + Pressure
++- Liquidity pressure + Info flow
++- Flags (0/1)
++
++Prometheus metrics used:
++- `trade_depth_total_10`, `trade_gini_depth_10`
++- `trade_vwap_roll_diff_bps`, `trade_price_momentum_bps`, `trade_realized_vol_bps`
++- `trade_pressure_per_min`, `trade_liquidity_pressure`, `trade_info_flow`
++- `trade_flag_state{flag=...}`
+diff -ruN --no-dereference '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_p78.sql' '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_top_p78.sql' a/orderflow_services/grafana/world_practice_trackers_v1.json b/orderflow_services/grafana/world_practice_trackers_v1.json
+--- a/orderflow_services/grafana/world_practice_trackers_v1.json	2026-02-25 19:24:03.000000000 +0000
++++ b/orderflow_services/grafana/world_practice_trackers_v1.json	2026-02-27 11:14:27.552028509 +0000
+@@ -42,16 +42,16 @@
+       },
+       "fieldConfig": {
+         "defaults": {
+-          "unit": "none",
+           "custom": {
+             "drawStyle": "line",
++            "fillOpacity": 10,
+             "lineInterpolation": "linear",
+             "lineWidth": 1,
+-            "fillOpacity": 10,
+-            "showPoints": "never",
+             "pointSize": 3,
++            "showPoints": "never",
+             "spanNulls": true
+-          }
++          },
++          "unit": "none"
+         },
+         "overrides": []
+       },
+@@ -84,16 +84,16 @@
+       },
+       "fieldConfig": {
+         "defaults": {
+-          "unit": "none",
+           "custom": {
+             "drawStyle": "line",
++            "fillOpacity": 10,
+             "lineInterpolation": "linear",
+             "lineWidth": 1,
+-            "fillOpacity": 10,
+-            "showPoints": "never",
+             "pointSize": 3,
++            "showPoints": "never",
+             "spanNulls": true
+-          }
++          },
++          "unit": "none"
+         },
+         "overrides": []
+       },
+@@ -130,16 +130,16 @@
+       },
+       "fieldConfig": {
+         "defaults": {
+-          "unit": "ms",
+           "custom": {
+             "drawStyle": "line",
++            "fillOpacity": 10,
+             "lineInterpolation": "linear",
+             "lineWidth": 1,
+-            "fillOpacity": 10,
+-            "showPoints": "never",
+             "pointSize": 3,
++            "showPoints": "never",
+             "spanNulls": true
+-          }
++          },
++          "unit": "ms"
+         },
+         "overrides": []
+       },
+@@ -172,16 +172,16 @@
+       },
+       "fieldConfig": {
+         "defaults": {
+-          "unit": "none",
+           "custom": {
+             "drawStyle": "line",
++            "fillOpacity": 10,
+             "lineInterpolation": "linear",
+             "lineWidth": 1,
+-            "fillOpacity": 10,
+-            "showPoints": "never",
+             "pointSize": 3,
++            "showPoints": "never",
+             "spanNulls": true
+-          }
++          },
++          "unit": "none"
+         },
+         "overrides": []
+       },
+@@ -227,16 +227,16 @@
+       },
+       "fieldConfig": {
+         "defaults": {
+-          "unit": "none",
+           "custom": {
+             "drawStyle": "line",
++            "fillOpacity": 10,
+             "lineInterpolation": "linear",
+             "lineWidth": 1,
+-            "fillOpacity": 10,
+-            "showPoints": "never",
+             "pointSize": 3,
++            "showPoints": "never",
+             "spanNulls": true
+-          }
++          },
++          "unit": "none"
+         },
+         "overrides": []
+       },
+@@ -269,16 +269,16 @@
+       },
+       "fieldConfig": {
+         "defaults": {
+-          "unit": "none",
+           "custom": {
+             "drawStyle": "line",
++            "fillOpacity": 10,
+             "lineInterpolation": "linear",
+             "lineWidth": 1,
+-            "fillOpacity": 10,
+-            "showPoints": "never",
+             "pointSize": 3,
++            "showPoints": "never",
+             "spanNulls": true
+-          }
++          },
++          "unit": "none"
+         },
+         "overrides": []
+       },
+@@ -303,6 +303,282 @@
+       ],
+       "title": "spread_bps p95 (by sym,bucket)",
+       "type": "timeseries"
++    },
++    {
++      "collapsed": false,
++      "datasource": null,
++      "gridPos": {
++        "h": 1,
++        "w": 24,
++        "x": 0,
++        "y": 26
++      },
++      "id": 9,
++      "panels": [],
++      "title": "A8 microstructure extras",
++      "type": "row"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "lineInterpolation": "linear",
++            "lineWidth": 1,
++            "pointSize": 3,
++            "showPoints": "never",
++            "spanNulls": true
++          },
++          "unit": "none"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 0,
++        "y": 27
++      },
++      "id": 10,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom"
++        }
++      },
++      "targets": [
++        {
++          "datasource": null,
++          "editorMode": "code",
++          "expr": "trade_depth_total_10{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}}/{{bucket}} depth10",
++          "range": true,
++          "refId": "A"
++        },
++        {
++          "datasource": null,
++          "editorMode": "code",
++          "expr": "trade_gini_depth_10{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}}/{{bucket}} gini",
++          "range": true,
++          "refId": "B"
++        }
++      ],
++      "title": "Depth10 + Gini (top-10)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "lineInterpolation": "linear",
++            "lineWidth": 1,
++            "pointSize": 3,
++            "showPoints": "never",
++            "spanNulls": true
++          },
++          "unit": "none"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 12,
++        "y": 27
++      },
++      "id": 11,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom"
++        }
++      },
++      "targets": [
++        {
++          "datasource": null,
++          "editorMode": "code",
++          "expr": "trade_vwap_roll_diff_bps{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}}/{{bucket}} vwap_diff",
++          "range": true,
++          "refId": "A"
++        },
++        {
++          "datasource": null,
++          "editorMode": "code",
++          "expr": "trade_price_momentum_bps{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}}/{{bucket}} mom",
++          "range": true,
++          "refId": "B"
++        }
++      ],
++      "title": "VWAP diff + Momentum (bps)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "lineInterpolation": "linear",
++            "lineWidth": 1,
++            "pointSize": 3,
++            "showPoints": "never",
++            "spanNulls": true
++          },
++          "unit": "none"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 0,
++        "y": 35
++      },
++      "id": 12,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom"
++        }
++      },
++      "targets": [
++        {
++          "datasource": null,
++          "editorMode": "code",
++          "expr": "trade_realized_vol_bps{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}}/{{bucket}} rv",
++          "range": true,
++          "refId": "A"
++        },
++        {
++          "datasource": null,
++          "editorMode": "code",
++          "expr": "trade_pressure_per_min{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}}/{{bucket}} pressure/min",
++          "range": true,
++          "refId": "B"
++        }
++      ],
++      "title": "Realized vol + Pressure",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "lineInterpolation": "linear",
++            "lineWidth": 1,
++            "pointSize": 3,
++            "showPoints": "never",
++            "spanNulls": true
++          },
++          "unit": "none"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 12,
++        "y": 35
++      },
++      "id": 13,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom"
++        }
++      },
++      "targets": [
++        {
++          "datasource": null,
++          "editorMode": "code",
++          "expr": "trade_liquidity_pressure{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}}/{{bucket}} liq_pressure",
++          "range": true,
++          "refId": "A"
++        },
++        {
++          "datasource": null,
++          "editorMode": "code",
++          "expr": "trade_info_flow{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}}/{{bucket}} info_flow",
++          "range": true,
++          "refId": "B"
++        }
++      ],
++      "title": "Liquidity pressure + Info flow",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "lineInterpolation": "linear",
++            "lineWidth": 1,
++            "pointSize": 3,
++            "showPoints": "never",
++            "spanNulls": true
++          },
++          "unit": "none"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 43
++      },
++      "id": 14,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom"
++        }
++      },
++      "targets": [
++        {
++          "datasource": null,
++          "editorMode": "code",
++          "expr": "trade_flag_state{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}}/{{bucket}} {{flag}}",
++          "range": true,
++          "refId": "A"
++        }
++      ],
++      "title": "Flags (0/1)",
++      "type": "timeseries"
+     }
+   ],
+   "refresh": "30s",
+@@ -315,50 +591,50 @@
+   "templating": {
+     "list": [
+       {
+-        "name": "DS_PROMETHEUS",
+-        "type": "datasource",
+-        "query": "prometheus",
+         "current": {
+           "selected": false,
+           "text": "Prometheus",
+           "value": "Prometheus"
+-        }
++        },
++        "name": "DS_PROMETHEUS",
++        "query": "prometheus",
++        "type": "datasource"
+       },
+       {
+-        "name": "sym",
+-        "type": "query",
++        "current": {
++          "selected": false,
++          "text": ".*",
++          "value": ".*"
++        },
+         "datasource": {
+           "type": "prometheus",
+           "uid": "${DS_PROMETHEUS}"
+         },
+         "definition": "label_values(trade_vol_ratio_z, sym)",
++        "name": "sym",
+         "query": {
+           "query": "label_values(trade_vol_ratio_z, sym)",
+           "refId": "PromSym"
+         },
++        "type": "query"
++      },
++      {
+         "current": {
+           "selected": false,
+           "text": ".*",
+           "value": ".*"
+-        }
+-      },
+-      {
+-        "name": "bucket",
+-        "type": "query",
++        },
+         "datasource": {
+           "type": "prometheus",
+           "uid": "${DS_PROMETHEUS}"
+         },
+         "definition": "label_values(trade_vol_ratio_z, bucket)",
++        "name": "bucket",
+         "query": {
+           "query": "label_values(trade_vol_ratio_z, bucket)",
+           "refId": "PromBucket"
+         },
+-        "current": {
+-          "selected": false,
+-          "text": ".*",
+-          "value": ".*"
+-        }
++        "type": "query"
+       }
+     ]
+   },
+diff -ruN --no-dereference '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_p78.sql' '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_top_p78.sql' a/orderflow_services/new_features_gauges_smoke_check_v1.py b/orderflow_services/new_features_gauges_smoke_check_v1.py
+--- a/orderflow_services/new_features_gauges_smoke_check_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/new_features_gauges_smoke_check_v1.py	2026-02-27 11:20:01.716891412 +0000
+@@ -0,0 +1,353 @@
++"""A8 — Smoke-check for new derived microstructure features.
++
++Goal
++----
++Detect wiring / runtime regressions where new features become "stuck" (e.g. always 0)
++while the stream is alive, and detect NaN explosions early.
++
++Why stream-based smoke-check
++----------------------------
++We validate the Redis stream `metrics:of_gate` because:
++- it is produced in the same hot path as the model inputs
++- it is independent from Prometheus scrape timing
++- it makes it easy to run from a timer worker and emit a single alert/event
++
++Alert conditions (v1)
++---------------------
++1) realized_vol_bps == 0 while there is enough data to compute it
++   (proxy: realized_vol_no_data == 0 seen frequently in the recent window)
++2) NaN_rate across the tracked fields exceeds a threshold.
++
++Exit code
++---------
++- 0: ok / no alert
++- 2: alert condition detected
++
++The script always prints a single JSON line to stdout for the timer worker.
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import math
++import os
++import sys
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, Iterable, List, Optional, Tuple
++
++import redis
++
++
++KEY_FIELDS: Tuple[str, ...] = (
++    # A8 gauges / stream fields
++    "depth_total_10",
++    "gini_depth_10",
++    "vwap_roll_diff_bps",
++    "price_momentum_bps",
++    "realized_vol_bps",
++    "pressure_per_min",
++    "liquidity_pressure",
++    "info_flow",
++)
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _as_str(v: Any) -> str:
++    if v is None:
++        return ""
++    if isinstance(v, (bytes, bytearray)):
++        try:
++            return v.decode("utf-8")
++        except Exception:
++            return str(v)
++    return str(v)
++
++
++def _parse_float(v: Any) -> Optional[float]:
++    if v is None:
++        return None
++    try:
++        s = _as_str(v).strip()
++        if s == "":
++            return None
++        return float(s)
++    except Exception:
++        return None
++
++
++def _parse_int(v: Any) -> Optional[int]:
++    if v is None:
++        return None
++    try:
++        s = _as_str(v).strip()
++        if s == "":
++            return None
++        return int(float(s))
++    except Exception:
++        return None
++
++
++def _is_bad_number(x: Optional[float]) -> bool:
++    if x is None:
++        return True
++    return not math.isfinite(x)
++
++
++@dataclass
++class RecentRow:
++    ts_ms: int
++    data: Dict[str, Any]
++
++
++def _read_recent_rows(
++    r: redis.Redis,
++    stream: str,
++    *,
++    recent_s: int,
++    limit: int,
++) -> Tuple[List[RecentRow], Dict[str, Any]]:
++    """Read tail of a Redis stream and keep only rows within `recent_s` window."""
++
++    now_ms = _now_ms()
++    cutoff = now_ms - int(recent_s * 1000)
++
++    # Use XREVRANGE for efficiency (tail-first).
++    raw = r.xrevrange(stream, max="+", min="-", count=limit)
++
++    n_total = len(raw)
++    recent: List[RecentRow] = []
++    max_ts_ms = 0
++
++    for _id, fields in raw:
++        # ts_ms is a required part of the metrics contract; still be defensive.
++        ts = _parse_int(fields.get(b"ts_ms") if isinstance(fields, dict) else None)
++        if ts is None:
++            ts = _parse_int(fields.get("ts_ms")) if isinstance(fields, dict) else None
++        ts = int(ts or 0)
++        if ts > max_ts_ms:
++            max_ts_ms = ts
++        if ts >= cutoff:
++            recent.append(RecentRow(ts_ms=ts, data=fields))
++
++    meta = {
++        "now_ms": now_ms,
++        "cutoff_ms": cutoff,
++        "n_total": n_total,
++        "n_recent": len(recent),
++        "max_ts_ms": max_ts_ms,
++        "age_ms": (now_ms - max_ts_ms) if max_ts_ms > 0 else None,
++    }
++    return recent, meta
++
++
++def _compute_nan_rate(rows: Iterable[RecentRow]) -> Tuple[float, int, int, Dict[str, int]]:
++    bad = 0
++    total = 0
++    per_key_bad: Dict[str, int] = {k: 0 for k in KEY_FIELDS}
++
++    for rr in rows:
++        fields = rr.data
++        for k in KEY_FIELDS:
++            v = fields.get(k) if isinstance(fields, dict) else None
++            if v is None and isinstance(fields, dict):
++                v = fields.get(k.encode("utf-8"))
++            x = _parse_float(v)
++            total += 1
++            if _is_bad_number(x):
++                bad += 1
++                per_key_bad[k] += 1
++
++    rate = float(bad) / float(total) if total > 0 else 0.0
++    return rate, bad, total, per_key_bad
++
++
++def _compute_realized_vol_stuck(
++    rows: Iterable[RecentRow],
++    *,
++    min_ready: int,
++    eps_bps: float,
++) -> Tuple[bool, Dict[str, Any]]:
++    """Return (stuck, details)."""
++
++    ready = 0
++    max_abs = 0.0
++    n_seen = 0
++
++    for rr in rows:
++        fields = rr.data
++
++        rv_nd = fields.get("realized_vol_no_data") if isinstance(fields, dict) else None
++        if rv_nd is None and isinstance(fields, dict):
++            rv_nd = fields.get(b"realized_vol_no_data")
++        rv_nd_i = _parse_int(rv_nd)
++
++        rv = fields.get("realized_vol_bps") if isinstance(fields, dict) else None
++        if rv is None and isinstance(fields, dict):
++            rv = fields.get(b"realized_vol_bps")
++        rv_f = _parse_float(rv)
++
++        n_seen += 1
++        if rv_nd_i == 0:
++            ready += 1
++            if rv_f is not None and math.isfinite(rv_f):
++                a = abs(float(rv_f))
++                if a > max_abs:
++                    max_abs = a
++
++    stuck = (ready >= int(min_ready)) and (max_abs <= float(eps_bps))
++    details = {
++        "rv_ready": ready,
++        "rv_seen": n_seen,
++        "rv_eps_bps": float(eps_bps),
++        "rv_max_abs_bps": float(max_abs),
++    }
++    return stuck, details
++
++
++def _compute_ready_counts(rows: Iterable[RecentRow]) -> Dict[str, int]:
++    """Count how often rolling trackers report ready (no_data==0).
++
++    These counters help detect a different class of wiring regressions where a feature
++    never becomes ready (no_data stays 1 forever) even though the stream is alive.
++    """
++
++    rv_ready = 0
++    vwap_ready = 0
++    for rr in rows:
++        fields = rr.data
++
++        rv_nd = fields.get("realized_vol_no_data") if isinstance(fields, dict) else None
++        if rv_nd is None and isinstance(fields, dict):
++            rv_nd = fields.get(b"realized_vol_no_data")
++        rv_nd_i = _parse_int(rv_nd)
++        if rv_nd_i == 0:
++            rv_ready += 1
++
++        vw_nd = fields.get("vwap_roll_no_data") if isinstance(fields, dict) else None
++        if vw_nd is None and isinstance(fields, dict):
++            vw_nd = fields.get(b"vwap_roll_no_data")
++        vw_nd_i = _parse_int(vw_nd)
++        if vw_nd_i == 0:
++            vwap_ready += 1
++
++    return {"rv_ready": rv_ready, "vwap_ready": vwap_ready}
++
++
++def main(argv: Optional[List[str]] = None) -> None:
++    ap = argparse.ArgumentParser()
++
++    ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    ap.add_argument("--stream", default=os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate"))
++    ap.add_argument("--out-stream", default=os.getenv("A8_SMOKE_OUT_STREAM", "sre:new_features_smoke"))
++
++    ap.add_argument("--recent-s", type=int, default=int(os.getenv("A8_SMOKE_RECENT_S", "600")))
++    ap.add_argument("--limit", type=int, default=int(os.getenv("A8_SMOKE_LIMIT", "2000")))
++
++    ap.add_argument("--nan-rate-max", type=float, default=float(os.getenv("A8_SMOKE_NAN_RATE_MAX", "0.01")))
++    ap.add_argument("--rv-never-ready-min-recent", type=int, default=int(os.getenv("A8_SMOKE_RV_NEVER_READY_MIN_RECENT", "200")))
++
++    ap.add_argument("--rv-min-ready", type=int, default=int(os.getenv("A8_SMOKE_RV_MIN_READY", "40")))
++    ap.add_argument("--rv-eps-bps", type=float, default=float(os.getenv("A8_SMOKE_RV_EPS_BPS", "1e-6")))
++
++    ap.add_argument("--maxlen", type=int, default=int(os.getenv("A8_SMOKE_OUT_MAXLEN", "2000")))
++
++    args = ap.parse_args(argv)
++
++    out: Dict[str, Any] = {
++        "ts_ms": _now_ms(),
++        "stream": args.stream,
++        "out_stream": args.out_stream,
++        "recent_s": int(args.recent_s),
++        "limit": int(args.limit),
++        "key_fields": list(KEY_FIELDS),
++    }
++
++    alert = False
++    issues: List[str] = []
++
++    try:
++        r = redis.Redis.from_url(args.redis_url, decode_responses=False)
++        # quick connectivity check
++        r.ping()
++
++        rows, meta = _read_recent_rows(r, args.stream, recent_s=args.recent_s, limit=args.limit)
++        out.update(meta)
++
++        if meta.get("n_recent", 0) <= 0:
++            out["no_data"] = True
++        else:
++            out["no_data"] = False
++
++            nan_rate, bad_slots, total_slots, per_key_bad = _compute_nan_rate(rows)
++            out.update(
++                {
++                    "nan_rate": float(nan_rate),
++                    "nan_bad_slots": int(bad_slots),
++                    "nan_total_slots": int(total_slots),
++                    "nan_per_key_bad": per_key_bad,
++                }
++            )
++            if float(nan_rate) > float(args.nan_rate_max):
++                alert = True
++                issues.append(f"nan_rate>{args.nan_rate_max}")
++
++            stuck_rv, rv_details = _compute_realized_vol_stuck(
++                rows,
++                min_ready=args.rv_min_ready,
++                eps_bps=args.rv_eps_bps,
++            )
++            out.update(rv_details)
++            out["stuck_realized_vol"] = bool(stuck_rv)
++
++            ready_counts = _compute_ready_counts(rows)
++            out.update(ready_counts)
++
++            if stuck_rv:
++                alert = True
++                issues.append("realized_vol_stuck_zero")
++
++            # Wiring regression: tracker never becomes ready.
++            # For liquid symbols, `*_no_data` should flip to 0 quickly.
++            if int(meta.get("n_recent", 0)) >= int(args.rv_never_ready_min_recent):
++                if int(ready_counts.get("rv_ready", 0)) == 0:
++                    alert = True
++                    issues.append("realized_vol_never_ready")
++                if int(ready_counts.get("vwap_ready", 0)) == 0:
++                    alert = True
++                    issues.append("vwap_roll_never_ready")
++
++        out["alert"] = bool(alert)
++        out["issues"] = issues
++
++        # Emit a small event for dashboards / alerting / forensics.
++        try:
++            r.xadd(
++                args.out_stream,
++                {k: json.dumps(v) if isinstance(v, (dict, list)) else _as_str(v) for k, v in out.items()},
++                maxlen=int(args.maxlen),
++                approximate=True,
++            )
++        except Exception:
++            # never fail the smoke-check due to the out-stream
++            pass
++
++        print(json.dumps(out, ensure_ascii=False, sort_keys=True))
++        sys.exit(2 if alert else 0)
++
++    except SystemExit:
++        raise
++    except Exception as e:
++        out["error"] = f"{type(e).__name__}: {e}"
++        out["alert"] = True
++        out["issues"] = ["exception"]
++        print(json.dumps(out, ensure_ascii=False, sort_keys=True))
++        sys.exit(2)
++
++
++if __name__ == "__main__":
++    main()
+diff -ruN --no-dereference '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_p78.sql' '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_top_p78.sql' a/orderflow_services/runbook_world_practice_trackers_v1.md b/orderflow_services/runbook_world_practice_trackers_v1.md
+--- a/orderflow_services/runbook_world_practice_trackers_v1.md	2026-02-25 17:20:02.000000000 +0000
++++ b/orderflow_services/runbook_world_practice_trackers_v1.md	2026-02-27 11:15:03.598902379 +0000
+@@ -119,6 +119,38 @@
+ - `WP_SMOKE_MAX_AGE_MS=900000` (15m)
+ - `WP_SMOKE_MIN_RECENT=200`
+ 
++## A8: Microstructure extras (depth/gini/vwap/mom/rv/flow/flags)
++
++### Gauges
++New low-cardinality gauges (sym × bucket, plus `flag` enum):
++- `trade_depth_total_10`, `trade_gini_depth_10`
++- `trade_vwap_roll_diff_bps`, `trade_price_momentum_bps`, `trade_realized_vol_bps`
++- `trade_pressure_per_min`, `trade_liquidity_pressure`, `trade_info_flow`
++- `trade_flag_state{flag=...}` (0/1)
++
++These are emitted by `tick_processor` from the same `indicators` dict that feeds model inputs.
++
++### Smoke-check
++Tool:
++- `python -m orderflow_services.new_features_gauges_smoke_check_v1`
++
++Checks (v1):
++- `realized_vol_bps` stuck at ~0 while `realized_vol_no_data==0` is present in the recent window
++- `nan_rate` across the tracked fields exceeds threshold
++
++Orchestration:
++- executed hourly by `services/of_timers_worker.py` at `:16` (cooldown-protected notifications)
++
++Env knobs:
++- `ENABLE_A8_NEW_FEATURES_SMOKE=1`
++- `A8_NEW_FEATURES_SMOKE_TIMEOUT_S=120`
++- `A8_NEW_FEATURES_SMOKE_COOLDOWN_S=21600` (6h)
++- `A8_SMOKE_RECENT_S=600` (10m)
++- `A8_SMOKE_NAN_RATE_MAX=0.01`
++- `A8_SMOKE_RV_MIN_READY=40` (min rows with `realized_vol_no_data==0`)
++- `A8_SMOKE_RV_EPS_BPS=1e-6`
++
++
+ ## Grafana
+ Dashboard JSON:
+ - `orderflow_services/grafana/world_practice_trackers_v1.json`
+Binary files /mnt/data/repo_base/orderflow_services/tests/__pycache__/__init__.cpython-311.pyc and /mnt/data/repo/orderflow_services/tests/__pycache__/__init__.cpython-311.pyc differ
+Binary files /mnt/data/repo_base/orderflow_services/tests/__pycache__/test_a8_new_features_wiring_v1.cpython-311-pytest-8.2.2.pyc and /mnt/data/repo/orderflow_services/tests/__pycache__/test_a8_new_features_wiring_v1.cpython-311-pytest-8.2.2.pyc differ
+Binary files /mnt/data/repo_base/orderflow_services/tests/__pycache__/test_new_features_smoke_check_compile_v1.cpython-311-pytest-8.2.2.pyc and /mnt/data/repo/orderflow_services/tests/__pycache__/test_new_features_smoke_check_compile_v1.cpython-311-pytest-8.2.2.pyc differ
+diff -ruN --no-dereference '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_p78.sql' '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_top_p78.sql' a/orderflow_services/tests/test_a8_new_features_wiring_v1.py b/orderflow_services/tests/test_a8_new_features_wiring_v1.py
+--- a/orderflow_services/tests/test_a8_new_features_wiring_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/tests/test_a8_new_features_wiring_v1.py	2026-02-27 11:12:07.908522449 +0000
+@@ -0,0 +1,39 @@
++from pathlib import Path
++
++
++def _read(rel: str) -> str:
++    root = Path(__file__).resolve().parents[2]
++    return (root / rel).read_text(encoding="utf-8")
++
++
++def test_a8_metrics_gauges_declared_v1() -> None:
++    txt = _read("tick_flow_full/services/orderflow/metrics.py")
++    for name in (
++        "trade_depth_total_10",
++        "trade_gini_depth_10",
++        "trade_vwap_roll_diff_bps",
++        "trade_price_momentum_bps",
++        "trade_realized_vol_bps",
++        "trade_pressure_per_min",
++        "trade_liquidity_pressure",
++        "trade_info_flow",
++        "trade_flag_state",
++    ):
++        assert name in txt
++
++
++def test_a8_tick_processor_emits_stream_fields_v1() -> None:
++    txt = _read("tick_flow_full/services/orderflow/components/tick_processor.py")
++    for key in (
++        '"depth_total_10"',
++        '"gini_depth_10"',
++        '"vwap_roll_diff_bps"',
++        '"price_momentum_bps"',
++        '"realized_vol_bps"',
++        '"pressure_per_min"',
++        '"liquidity_pressure"',
++        '"info_flow"',
++        '"realized_vol_no_data"',
++        '"vwap_roll_no_data"',
++    ):
++        assert key in txt
+diff -ruN --no-dereference '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_p78.sql' '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_top_p78.sql' a/orderflow_services/tests/test_new_features_smoke_check_compile_v1.py b/orderflow_services/tests/test_new_features_smoke_check_compile_v1.py
+--- a/orderflow_services/tests/test_new_features_smoke_check_compile_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/tests/test_new_features_smoke_check_compile_v1.py	2026-02-27 11:11:52.783305711 +0000
+@@ -0,0 +1,9 @@
++import compileall
++
++
++def test_new_features_smoke_check_compiles_v1() -> None:
++    ok = compileall.compile_file(
++        "orderflow_services/new_features_gauges_smoke_check_v1.py",
++        quiet=1,
++    )
++    assert ok
+diff -ruN --no-dereference '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_p78.sql' '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_top_p78.sql' a/services/of_timers_worker.py b/services/of_timers_worker.py
+--- a/services/of_timers_worker.py	2026-02-26 06:53:13.000000000 +0000
++++ b/services/of_timers_worker.py	2026-02-27 11:13:38.783733890 +0000
+@@ -581,6 +581,101 @@
+     return False
+ 
+ 
++
++
++def _parse_new_features_smoke_output(stdout: str, stderr: str) -> dict:
++    """Extract JSON payload from A8 smoke-check output (best-effort)."""
++    out = (stdout or "").strip()
++    err = (stderr or "").strip()
++    blob = "\n".join([out, err]).strip()
++
++    for line in reversed(blob.splitlines()):
++        line = line.strip()
++        if not line:
++            continue
++        if line.startswith("{") and line.endswith("}"):
++            try:
++                d = json.loads(line)
++                if isinstance(d, dict):
++                    return d
++            except Exception:
++                pass
++    return {"raw": blob[:2000]}
++
++
++def run_new_features_smoke_check_a8() -> bool:
++    """Run A8 smoke-check (new derived features: NaN rate + realized_vol stuck).
++
++    Exit codes:
++      - 0 -> OK (or no_data)
++      - 2 -> ALERT (NaN_rate above threshold and/or realized_vol stuck)
++      - other -> ERROR
++
++    Dedup/cooldown by signature (issues + key shares).
++    """
++    enabled = os.getenv("ENABLE_A8_NEW_FEATURES_SMOKE")
++    if enabled is None:
++        enabled = "1" if os.getenv("OF_GATE_METRICS_ENABLE", "1") == "1" else "0"
++    if str(enabled).lower() not in ("1", "true", "yes", "on"):
++        return True
++
++    module = os.getenv(
++        "A8_NEW_FEATURES_SMOKE_MODULE",
++        "orderflow_services.new_features_gauges_smoke_check_v1",
++    )
++    timeout_s = int(os.getenv("A8_NEW_FEATURES_SMOKE_TIMEOUT_S", "120"))
++
++    rc, stdout, stderr = run_tool_rc(module=module, args=[], timeout=timeout_s)
++
++    if rc == 0:
++        logger.info("A8 new-features smoke-check: OK")
++        return True
++
++    parsed = _parse_new_features_smoke_output(stdout, stderr)
++
++    issues = str(parsed.get("issues") or "")[:300]
++    n_recent = parsed.get("n_recent")
++    nan_rate = parsed.get("nan_rate")
++    stuck_rv = parsed.get("stuck_realized_vol")
++    rv_ready = parsed.get("rv_ready")
++    no_data = parsed.get("no_data")
++
++    def _bucketize(x, step=0.01):
++        try:
++            v = float(x)
++            if step <= 0:
++                return v
++            return round(v / step) * step
++        except Exception:
++            return None
++
++    signature = (
++        f"rc={rc}|no_data={no_data}|n={n_recent}|nan={_bucketize(nan_rate)}|"
++        f"stuck_rv={stuck_rv}|rv_ready={rv_ready}|issues={issues}"
++    )
++
++    cooldown_s = int(os.getenv("A8_NEW_FEATURES_SMOKE_COOLDOWN_S", str(6 * 3600)))
++    dedup_enable = str(os.getenv("A8_NEW_FEATURES_SMOKE_DEDUP", "1")).lower() in ("1", "true", "yes", "on")
++    dedup_prefix = os.getenv("A8_NEW_FEATURES_SMOKE_DEDUP_PREFIX", "dedup:alert:a8_new_features:")
++
++    if dedup_enable and not _dedup_allow(signature, cooldown_s=cooldown_s, prefix=dedup_prefix):
++        logger.warning(
++            f"A8 new-features smoke-check: suppressed duplicate alert (cooldown {cooldown_s}s). sig={signature}"
++        )
++        return False
++
++    head = (parsed.get("raw") or "").strip().replace("\n", " | ")
++    head = head[:700] if head else ""
++
++    text = (
++        f"A8_NEW_FEATURES_SMOKE rc={rc} no_data={no_data} n_recent={n_recent} "
++        f"nan_rate={nan_rate} stuck_rv={stuck_rv} rv_ready={rv_ready} issues={issues} :: {head}"
++    )
++
++    sid = "a8_new_features_smoke:" + hashlib.sha1(signature.encode("utf-8")).hexdigest()[:16]
++    sev = "crit" if rc == 2 else "page"
++    _notify_stream(text, severity=sev, sid=sid)
++    return False
+ def run_of_gate_exporters_smoke_p111() -> bool:
+     """Smoke-check OF-Gate exporters wiring (P111).
+ 
+@@ -2752,6 +2847,13 @@
+                     run_config_drift_monitor()
+                     last_run["config_drift"] = now.timestamp()
+ 
++            # Hourly:16 A8 new-features smoke-check (NaN rate + realized_vol stuck)
++            if minute >= 16 and minute < 17:
++                last = last_run.get("a8_new_features_smoke", 0)
++                if now.timestamp() - last > 3500:
++                    run_new_features_smoke_check_a8()
++                    last_run["a8_new_features_smoke"] = now.timestamp()
++
+             # Hourly:45 live health loop
+             if minute >= 45 and minute < 46:
+                 last = last_run.get("conf_cal_live_health", 0)
+diff -ruN --no-dereference '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_p78.sql' '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_top_p78.sql' a/services/orderflow/components/tick_processor.py b/services/orderflow/components/tick_processor.py
+--- a/services/orderflow/components/tick_processor.py	2026-02-27 04:29:06.000000000 +0000
++++ b/services/orderflow/components/tick_processor.py	2026-02-27 11:10:09.404755019 +0000
+@@ -107,6 +107,12 @@
+     trade_cancel_to_trade_bid, trade_cancel_to_trade_ask,
+     trade_taker_flow_imb_z, trade_book_churn_score, trade_book_churn_hi,
+ 
++    # A8 observability gauges (microstructure extras)
++    trade_depth_total_10, trade_gini_depth_10,
++    trade_vwap_roll_diff_bps, trade_price_momentum_bps, trade_realized_vol_bps,
++    trade_pressure_per_min, trade_liquidity_pressure, trade_info_flow,
++    trade_flag_state,
++
+     trade_qi_mean, trade_qi_max_abs, trade_qi_slope,
+     trade_micro_mid_div_bps, trade_micro_shift_bps,
+     trade_depth_slope_bid, trade_depth_slope_ask, trade_depth_slope_imb, trade_depth_slope_imb_norm,
+@@ -1783,6 +1789,28 @@
+                     float(indicators.get("max_expected_slippage_bps_eff", 0.0) or 0.0)
+                 )
+ 
++            # A8: additional microstructure gauges (depth/gini/vwap/mom/rv/flow/flags).
++            # NOTE: keep it strictly low-cardinality to avoid Prometheus churn.
++            trade_depth_total_10.labels(sym=_sym, bucket=_bk).set(float(indicators.get("depth_total_10", 0.0) or 0.0))
++            trade_gini_depth_10.labels(sym=_sym, bucket=_bk).set(float(indicators.get("gini_depth_10", 0.0) or 0.0))
++            trade_vwap_roll_diff_bps.labels(sym=_sym, bucket=_bk).set(float(indicators.get("vwap_roll_diff_bps", 0.0) or 0.0))
++            trade_price_momentum_bps.labels(sym=_sym, bucket=_bk).set(float(indicators.get("price_momentum_bps", 0.0) or 0.0))
++            trade_realized_vol_bps.labels(sym=_sym, bucket=_bk).set(float(indicators.get("realized_vol_bps", 0.0) or 0.0))
++            trade_pressure_per_min.labels(sym=_sym, bucket=_bk).set(float(indicators.get("pressure_per_min", 0.0) or 0.0))
++            trade_liquidity_pressure.labels(sym=_sym, bucket=_bk).set(float(indicators.get("liquidity_pressure", 0.0) or 0.0))
++            trade_info_flow.labels(sym=_sym, bucket=_bk).set(float(indicators.get("info_flow", 0.0) or 0.0))
++
++            for _flag in (
++                "flag_low_liq",
++                "flag_spread_spike",
++                "flag_large_trade",
++                "flag_high_gini",
++                "flag_high_mom",
++                "flag_high_realized_vol",
++                "flag_high_pressure",
++            ):
++                trade_flag_state.labels(sym=_sym, bucket=_bk, flag=_flag).set(float(indicators.get(_flag, 0.0) or 0.0))
++
+             # LOB pressure snapshots (microprice / depth shape / DW OBI)
+             trade_qi_mean.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_qi_mean", 0.0) or 0.0))
+             trade_qi_max_abs.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_qi_max_abs", 0.0) or 0.0))
+@@ -3129,6 +3157,30 @@
+ 
+                 "max_expected_slippage_bps_eff": str(float(indicators.get("max_expected_slippage_bps_eff", 0.0) or 0.0)),
+ 
++                # A8: derived features observability (mirror Prom gauges + enable smoke-checks).
++                # Keep this list low-cardinality + small payload: scalars + 0/1 flags.
++                "depth_total_10": str(float(indicators.get("depth_total_10", 0.0) or 0.0)),
++                "gini_depth_10": str(float(indicators.get("gini_depth_10", 0.0) or 0.0)),
++                "vwap_roll_diff_bps": str(float(indicators.get("vwap_roll_diff_bps", 0.0) or 0.0)),
++                "price_momentum_bps": str(float(indicators.get("price_momentum_bps", 0.0) or 0.0)),
++                "realized_vol_bps": str(float(indicators.get("realized_vol_bps", 0.0) or 0.0)),
++                "pressure_per_min": str(float(indicators.get("pressure_per_min", 0.0) or 0.0)),
++                "liquidity_pressure": str(float(indicators.get("liquidity_pressure", 0.0) or 0.0)),
++                "info_flow": str(float(indicators.get("info_flow", 0.0) or 0.0)),
++
++                # No-data bits — required to avoid false positives in “stuck==0” checks.
++                "vwap_roll_no_data": str(int(indicators.get("vwap_roll_no_data", 1) or 0)),
++                "realized_vol_no_data": str(int(indicators.get("realized_vol_no_data", 1) or 0)),
++
++                # Flags (0/1) — useful for dashboard quick triage.
++                "flag_low_liq": str(int(indicators.get("flag_low_liq", 0) or 0)),
++                "flag_spread_spike": str(int(indicators.get("flag_spread_spike", 0) or 0)),
++                "flag_large_trade": str(int(indicators.get("flag_large_trade", 0) or 0)),
++                "flag_high_gini": str(int(indicators.get("flag_high_gini", 0) or 0)),
++                "flag_high_mom": str(int(indicators.get("flag_high_mom", 0) or 0)),
++                "flag_high_realized_vol": str(int(indicators.get("flag_high_realized_vol", 0) or 0)),
++                "flag_high_pressure": str(int(indicators.get("flag_high_pressure", 0) or 0)),
++
+                 # Execution risk & slippage (world-practice trackers v16)
+                 # Enables SRE/QA/Timescale to distinguish: "rules/defaults",
+                 # "legacy vs eff vs decomp", "exec_risk exists, exec_pen=0" (broken wiring).
+diff -ruN --no-dereference '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_p78.sql' '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_top_p78.sql' a/services/orderflow/metrics.py b/services/orderflow/metrics.py
+--- a/services/orderflow/metrics.py	2026-02-25 20:59:37.000000000 +0000
++++ b/services/orderflow/metrics.py	2026-02-27 11:08:21.735306536 +0000
+@@ -1605,6 +1605,76 @@
+     ["sym", "bucket"],
+ )
+ 
++
++
++# ---------------------------------------------------------------------------
++# A8 — Observability for additional microstructure features (v1)
++# Low-cardinality gauges (sym × exec_regime_bucket, plus small flag enum)
++#
++# These gauges mirror the new derived features injected into `indicators`:
++#   - depth_total_10, gini_depth_10
++#   - vwap_roll_diff_bps, price_momentum_bps, realized_vol_bps
++#   - liquidity_pressure, info_flow, pressure_per_min
++#   - boolean flags flag_* (0/1)
++#
++# Motivation:
++#   - Make the wiring visible in Grafana immediately (no waiting for offline rollups)
++#   - Enable quick smoke-checks to detect “feature stuck” and NaN explosions
++# ---------------------------------------------------------------------------
++
++trade_depth_total_10 = _get_or_create_prom_gauge(
++    "trade_depth_total_10",
++    "Total top-10 depth (bid+ask) in native qty units",
++    ["sym", "bucket"],
++)
++
++trade_gini_depth_10 = _get_or_create_prom_gauge(
++    "trade_gini_depth_10",
++    "Gini coefficient of top-10 depth distribution (0..1), higher = more concentrated liquidity",
++    ["sym", "bucket"],
++)
++
++trade_vwap_roll_diff_bps = _get_or_create_prom_gauge(
++    "trade_vwap_roll_diff_bps",
++    "Rolling VWAP vs mid divergence (bps)",
++    ["sym", "bucket"],
++)
++
++trade_price_momentum_bps = _get_or_create_prom_gauge(
++    "trade_price_momentum_bps",
++    "Rolling price momentum (bps) — last_px vs rolling median/close proxy",
++    ["sym", "bucket"],
++)
++
++trade_realized_vol_bps = _get_or_create_prom_gauge(
++    "trade_realized_vol_bps",
++    "Realized volatility estimate over rolling micro-bars (bps)",
++    ["sym", "bucket"],
++)
++
++trade_pressure_per_min = _get_or_create_prom_gauge(
++    "trade_pressure_per_min",
++    "System pressure proxy (cooldown hits per minute) from rolling trackers",
++    ["sym", "bucket"],
++)
++
++trade_liquidity_pressure = _get_or_create_prom_gauge(
++    "trade_liquidity_pressure",
++    "Liquidity pressure proxy (dimensionless) — signed flow vs available depth",
++    ["sym", "bucket"],
++)
++
++trade_info_flow = _get_or_create_prom_gauge(
++    "trade_info_flow",
++    "Information flow / toxicity proxy (dimensionless), higher = more toxic flow",
++    ["sym", "bucket"],
++)
++
++trade_flag_state = _get_or_create_prom_gauge(
++    "trade_flag_state",
++    "Binary microstructure flags (0/1); label 'flag' enumerates the flag name",
++    ["sym", "bucket", "flag"],
++)
+ # ---------------------------------------------------------------------------
+ # World-practice LOB pressure snapshots v1 (microprice + depth shape + DW OBI)
+ # Low-cardinality: sym × exec_regime_bucket
+diff -ruN --no-dereference '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_p78.sql' '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_top_p78.sql' a/tick_flow_full/orderflow_services/grafana/README_world_practice_trackers_v1.md b/tick_flow_full/orderflow_services/grafana/README_world_practice_trackers_v1.md
+--- a/tick_flow_full/orderflow_services/grafana/README_world_practice_trackers_v1.md	2026-02-24 20:17:02.000000000 +0000
++++ b/tick_flow_full/orderflow_services/grafana/README_world_practice_trackers_v1.md	2026-02-27 11:15:14.042771211 +0000
+@@ -15,3 +15,19 @@
+ - `trade_eta_fill_sec{sym=~"$sym",bucket=~"$bucket"}`
+ - `trade_res_recovery_ms{sym=~"$sym",bucket=~"$bucket"}`
+ - `trade_res_recovered{sym=~"$sym",bucket=~"$bucket"}`
++
++
++## A8 row: microstructure extras
++
++Dashboard now includes a dedicated row **A8 microstructure extras** with panels for:
++- Depth10 + Gini (top-10)
++- VWAP diff + Momentum (bps)
++- Realized vol + Pressure
++- Liquidity pressure + Info flow
++- Flags (0/1)
++
++Prometheus metrics used:
++- `trade_depth_total_10`, `trade_gini_depth_10`
++- `trade_vwap_roll_diff_bps`, `trade_price_momentum_bps`, `trade_realized_vol_bps`
++- `trade_pressure_per_min`, `trade_liquidity_pressure`, `trade_info_flow`
++- `trade_flag_state{flag=...}`
+diff -ruN --no-dereference '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_p78.sql' '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_top_p78.sql' a/tick_flow_full/orderflow_services/grafana/world_practice_trackers_v1.json b/tick_flow_full/orderflow_services/grafana/world_practice_trackers_v1.json
+--- a/tick_flow_full/orderflow_services/grafana/world_practice_trackers_v1.json	2026-02-25 19:24:03.000000000 +0000
++++ b/tick_flow_full/orderflow_services/grafana/world_practice_trackers_v1.json	2026-02-27 11:14:27.553059559 +0000
+@@ -42,16 +42,16 @@
+       },
+       "fieldConfig": {
+         "defaults": {
+-          "unit": "none",
+           "custom": {
+             "drawStyle": "line",
++            "fillOpacity": 10,
+             "lineInterpolation": "linear",
+             "lineWidth": 1,
+-            "fillOpacity": 10,
+-            "showPoints": "never",
+             "pointSize": 3,
++            "showPoints": "never",
+             "spanNulls": true
+-          }
++          },
++          "unit": "none"
+         },
+         "overrides": []
+       },
+@@ -84,16 +84,16 @@
+       },
+       "fieldConfig": {
+         "defaults": {
+-          "unit": "none",
+           "custom": {
+             "drawStyle": "line",
++            "fillOpacity": 10,
+             "lineInterpolation": "linear",
+             "lineWidth": 1,
+-            "fillOpacity": 10,
+-            "showPoints": "never",
+             "pointSize": 3,
++            "showPoints": "never",
+             "spanNulls": true
+-          }
++          },
++          "unit": "none"
+         },
+         "overrides": []
+       },
+@@ -130,16 +130,16 @@
+       },
+       "fieldConfig": {
+         "defaults": {
+-          "unit": "ms",
+           "custom": {
+             "drawStyle": "line",
++            "fillOpacity": 10,
+             "lineInterpolation": "linear",
+             "lineWidth": 1,
+-            "fillOpacity": 10,
+-            "showPoints": "never",
+             "pointSize": 3,
++            "showPoints": "never",
+             "spanNulls": true
+-          }
++          },
++          "unit": "ms"
+         },
+         "overrides": []
+       },
+@@ -172,16 +172,16 @@
+       },
+       "fieldConfig": {
+         "defaults": {
+-          "unit": "none",
+           "custom": {
+             "drawStyle": "line",
++            "fillOpacity": 10,
+             "lineInterpolation": "linear",
+             "lineWidth": 1,
+-            "fillOpacity": 10,
+-            "showPoints": "never",
+             "pointSize": 3,
++            "showPoints": "never",
+             "spanNulls": true
+-          }
++          },
++          "unit": "none"
+         },
+         "overrides": []
+       },
+@@ -227,16 +227,16 @@
+       },
+       "fieldConfig": {
+         "defaults": {
+-          "unit": "none",
+           "custom": {
+             "drawStyle": "line",
++            "fillOpacity": 10,
+             "lineInterpolation": "linear",
+             "lineWidth": 1,
+-            "fillOpacity": 10,
+-            "showPoints": "never",
+             "pointSize": 3,
++            "showPoints": "never",
+             "spanNulls": true
+-          }
++          },
++          "unit": "none"
+         },
+         "overrides": []
+       },
+@@ -269,16 +269,16 @@
+       },
+       "fieldConfig": {
+         "defaults": {
+-          "unit": "none",
+           "custom": {
+             "drawStyle": "line",
++            "fillOpacity": 10,
+             "lineInterpolation": "linear",
+             "lineWidth": 1,
+-            "fillOpacity": 10,
+-            "showPoints": "never",
+             "pointSize": 3,
++            "showPoints": "never",
+             "spanNulls": true
+-          }
++          },
++          "unit": "none"
+         },
+         "overrides": []
+       },
+@@ -303,6 +303,282 @@
+       ],
+       "title": "spread_bps p95 (by sym,bucket)",
+       "type": "timeseries"
++    },
++    {
++      "collapsed": false,
++      "datasource": null,
++      "gridPos": {
++        "h": 1,
++        "w": 24,
++        "x": 0,
++        "y": 26
++      },
++      "id": 9,
++      "panels": [],
++      "title": "A8 microstructure extras",
++      "type": "row"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "lineInterpolation": "linear",
++            "lineWidth": 1,
++            "pointSize": 3,
++            "showPoints": "never",
++            "spanNulls": true
++          },
++          "unit": "none"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 0,
++        "y": 27
++      },
++      "id": 10,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom"
++        }
++      },
++      "targets": [
++        {
++          "datasource": null,
++          "editorMode": "code",
++          "expr": "trade_depth_total_10{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}}/{{bucket}} depth10",
++          "range": true,
++          "refId": "A"
++        },
++        {
++          "datasource": null,
++          "editorMode": "code",
++          "expr": "trade_gini_depth_10{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}}/{{bucket}} gini",
++          "range": true,
++          "refId": "B"
++        }
++      ],
++      "title": "Depth10 + Gini (top-10)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "lineInterpolation": "linear",
++            "lineWidth": 1,
++            "pointSize": 3,
++            "showPoints": "never",
++            "spanNulls": true
++          },
++          "unit": "none"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 12,
++        "y": 27
++      },
++      "id": 11,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom"
++        }
++      },
++      "targets": [
++        {
++          "datasource": null,
++          "editorMode": "code",
++          "expr": "trade_vwap_roll_diff_bps{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}}/{{bucket}} vwap_diff",
++          "range": true,
++          "refId": "A"
++        },
++        {
++          "datasource": null,
++          "editorMode": "code",
++          "expr": "trade_price_momentum_bps{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}}/{{bucket}} mom",
++          "range": true,
++          "refId": "B"
++        }
++      ],
++      "title": "VWAP diff + Momentum (bps)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "lineInterpolation": "linear",
++            "lineWidth": 1,
++            "pointSize": 3,
++            "showPoints": "never",
++            "spanNulls": true
++          },
++          "unit": "none"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 0,
++        "y": 35
++      },
++      "id": 12,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom"
++        }
++      },
++      "targets": [
++        {
++          "datasource": null,
++          "editorMode": "code",
++          "expr": "trade_realized_vol_bps{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}}/{{bucket}} rv",
++          "range": true,
++          "refId": "A"
++        },
++        {
++          "datasource": null,
++          "editorMode": "code",
++          "expr": "trade_pressure_per_min{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}}/{{bucket}} pressure/min",
++          "range": true,
++          "refId": "B"
++        }
++      ],
++      "title": "Realized vol + Pressure",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "lineInterpolation": "linear",
++            "lineWidth": 1,
++            "pointSize": 3,
++            "showPoints": "never",
++            "spanNulls": true
++          },
++          "unit": "none"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 12,
++        "y": 35
++      },
++      "id": 13,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom"
++        }
++      },
++      "targets": [
++        {
++          "datasource": null,
++          "editorMode": "code",
++          "expr": "trade_liquidity_pressure{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}}/{{bucket}} liq_pressure",
++          "range": true,
++          "refId": "A"
++        },
++        {
++          "datasource": null,
++          "editorMode": "code",
++          "expr": "trade_info_flow{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}}/{{bucket}} info_flow",
++          "range": true,
++          "refId": "B"
++        }
++      ],
++      "title": "Liquidity pressure + Info flow",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "custom": {
++            "drawStyle": "line",
++            "fillOpacity": 10,
++            "lineInterpolation": "linear",
++            "lineWidth": 1,
++            "pointSize": 3,
++            "showPoints": "never",
++            "spanNulls": true
++          },
++          "unit": "none"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 24,
++        "x": 0,
++        "y": 43
++      },
++      "id": 14,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom"
++        }
++      },
++      "targets": [
++        {
++          "datasource": null,
++          "editorMode": "code",
++          "expr": "trade_flag_state{sym=~\"$sym\",bucket=~\"$bucket\"}",
++          "legendFormat": "{{sym}}/{{bucket}} {{flag}}",
++          "range": true,
++          "refId": "A"
++        }
++      ],
++      "title": "Flags (0/1)",
++      "type": "timeseries"
+     }
+   ],
+   "refresh": "30s",
+@@ -315,50 +591,50 @@
+   "templating": {
+     "list": [
+       {
+-        "name": "DS_PROMETHEUS",
+-        "type": "datasource",
+-        "query": "prometheus",
+         "current": {
+           "selected": false,
+           "text": "Prometheus",
+           "value": "Prometheus"
+-        }
++        },
++        "name": "DS_PROMETHEUS",
++        "query": "prometheus",
++        "type": "datasource"
+       },
+       {
+-        "name": "sym",
+-        "type": "query",
++        "current": {
++          "selected": false,
++          "text": ".*",
++          "value": ".*"
++        },
+         "datasource": {
+           "type": "prometheus",
+           "uid": "${DS_PROMETHEUS}"
+         },
+         "definition": "label_values(trade_vol_ratio_z, sym)",
++        "name": "sym",
+         "query": {
+           "query": "label_values(trade_vol_ratio_z, sym)",
+           "refId": "PromSym"
+         },
++        "type": "query"
++      },
++      {
+         "current": {
+           "selected": false,
+           "text": ".*",
+           "value": ".*"
+-        }
+-      },
+-      {
+-        "name": "bucket",
+-        "type": "query",
++        },
+         "datasource": {
+           "type": "prometheus",
+           "uid": "${DS_PROMETHEUS}"
+         },
+         "definition": "label_values(trade_vol_ratio_z, bucket)",
++        "name": "bucket",
+         "query": {
+           "query": "label_values(trade_vol_ratio_z, bucket)",
+           "refId": "PromBucket"
+         },
+-        "current": {
+-          "selected": false,
+-          "text": ".*",
+-          "value": ".*"
+-        }
++        "type": "query"
+       }
+     ]
+   },
+diff -ruN --no-dereference '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_p78.sql' '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_top_p78.sql' a/tick_flow_full/orderflow_services/new_features_gauges_smoke_check_v1.py b/tick_flow_full/orderflow_services/new_features_gauges_smoke_check_v1.py
+--- a/tick_flow_full/orderflow_services/new_features_gauges_smoke_check_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/orderflow_services/new_features_gauges_smoke_check_v1.py	2026-02-27 11:11:47.062053867 +0000
+@@ -0,0 +1,11 @@
++"""Thin wrapper for tick_flow_full mirror.
++
++The canonical implementation lives in `orderflow_services/new_features_gauges_smoke_check_v1.py`.
++Keeping a wrapper here prevents train/serve directory drift.
++"""
++
++from orderflow_services.new_features_gauges_smoke_check_v1 import main
++
++
++if __name__ == "__main__":
++    main()
+diff -ruN --no-dereference '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_p78.sql' '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_top_p78.sql' a/tick_flow_full/orderflow_services/runbook_world_practice_trackers_v1.md b/tick_flow_full/orderflow_services/runbook_world_practice_trackers_v1.md
+--- a/tick_flow_full/orderflow_services/runbook_world_practice_trackers_v1.md	2026-02-25 17:20:02.000000000 +0000
++++ b/tick_flow_full/orderflow_services/runbook_world_practice_trackers_v1.md	2026-02-27 11:15:03.599307907 +0000
+@@ -119,6 +119,38 @@
+ - `WP_SMOKE_MAX_AGE_MS=900000` (15m)
+ - `WP_SMOKE_MIN_RECENT=200`
+ 
++## A8: Microstructure extras (depth/gini/vwap/mom/rv/flow/flags)
++
++### Gauges
++New low-cardinality gauges (sym × bucket, plus `flag` enum):
++- `trade_depth_total_10`, `trade_gini_depth_10`
++- `trade_vwap_roll_diff_bps`, `trade_price_momentum_bps`, `trade_realized_vol_bps`
++- `trade_pressure_per_min`, `trade_liquidity_pressure`, `trade_info_flow`
++- `trade_flag_state{flag=...}` (0/1)
++
++These are emitted by `tick_processor` from the same `indicators` dict that feeds model inputs.
++
++### Smoke-check
++Tool:
++- `python -m orderflow_services.new_features_gauges_smoke_check_v1`
++
++Checks (v1):
++- `realized_vol_bps` stuck at ~0 while `realized_vol_no_data==0` is present in the recent window
++- `nan_rate` across the tracked fields exceeds threshold
++
++Orchestration:
++- executed hourly by `services/of_timers_worker.py` at `:16` (cooldown-protected notifications)
++
++Env knobs:
++- `ENABLE_A8_NEW_FEATURES_SMOKE=1`
++- `A8_NEW_FEATURES_SMOKE_TIMEOUT_S=120`
++- `A8_NEW_FEATURES_SMOKE_COOLDOWN_S=21600` (6h)
++- `A8_SMOKE_RECENT_S=600` (10m)
++- `A8_SMOKE_NAN_RATE_MAX=0.01`
++- `A8_SMOKE_RV_MIN_READY=40` (min rows with `realized_vol_no_data==0`)
++- `A8_SMOKE_RV_EPS_BPS=1e-6`
++
++
+ ## Grafana
+ Dashboard JSON:
+ - `orderflow_services/grafana/world_practice_trackers_v1.json`
+diff -ruN --no-dereference '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_p78.sql' '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_top_p78.sql' a/tick_flow_full/services/of_timers_worker.py b/tick_flow_full/services/of_timers_worker.py
+--- a/tick_flow_full/services/of_timers_worker.py	2026-02-26 06:50:34.000000000 +0000
++++ b/tick_flow_full/services/of_timers_worker.py	2026-02-27 11:13:38.782204264 +0000
+@@ -674,6 +674,101 @@
+     return False
+ 
+ 
++
++
++def _parse_new_features_smoke_output(stdout: str, stderr: str) -> dict:
++    """Extract JSON payload from A8 smoke-check output (best-effort)."""
++    out = (stdout or "").strip()
++    err = (stderr or "").strip()
++    blob = "\n".join([out, err]).strip()
++
++    for line in reversed(blob.splitlines()):
++        line = line.strip()
++        if not line:
++            continue
++        if line.startswith("{") and line.endswith("}"):
++            try:
++                d = json.loads(line)
++                if isinstance(d, dict):
++                    return d
++            except Exception:
++                pass
++    return {"raw": blob[:2000]}
++
++
++def run_new_features_smoke_check_a8() -> bool:
++    """Run A8 smoke-check (new derived features: NaN rate + realized_vol stuck).
++
++    Exit codes:
++      - 0 -> OK (or no_data)
++      - 2 -> ALERT (NaN_rate above threshold and/or realized_vol stuck)
++      - other -> ERROR
++
++    Dedup/cooldown by signature (issues + key shares).
++    """
++    enabled = os.getenv("ENABLE_A8_NEW_FEATURES_SMOKE")
++    if enabled is None:
++        enabled = "1" if os.getenv("OF_GATE_METRICS_ENABLE", "1") == "1" else "0"
++    if str(enabled).lower() not in ("1", "true", "yes", "on"):
++        return True
++
++    module = os.getenv(
++        "A8_NEW_FEATURES_SMOKE_MODULE",
++        "orderflow_services.new_features_gauges_smoke_check_v1",
++    )
++    timeout_s = int(os.getenv("A8_NEW_FEATURES_SMOKE_TIMEOUT_S", "120"))
++
++    rc, stdout, stderr = run_tool_rc(module=module, args=[], timeout=timeout_s)
++
++    if rc == 0:
++        logger.info("A8 new-features smoke-check: OK")
++        return True
++
++    parsed = _parse_new_features_smoke_output(stdout, stderr)
++
++    issues = str(parsed.get("issues") or "")[:300]
++    n_recent = parsed.get("n_recent")
++    nan_rate = parsed.get("nan_rate")
++    stuck_rv = parsed.get("stuck_realized_vol")
++    rv_ready = parsed.get("rv_ready")
++    no_data = parsed.get("no_data")
++
++    def _bucketize(x, step=0.01):
++        try:
++            v = float(x)
++            if step <= 0:
++                return v
++            return round(v / step) * step
++        except Exception:
++            return None
++
++    signature = (
++        f"rc={rc}|no_data={no_data}|n={n_recent}|nan={_bucketize(nan_rate)}|"
++        f"stuck_rv={stuck_rv}|rv_ready={rv_ready}|issues={issues}"
++    )
++
++    cooldown_s = int(os.getenv("A8_NEW_FEATURES_SMOKE_COOLDOWN_S", str(6 * 3600)))
++    dedup_enable = str(os.getenv("A8_NEW_FEATURES_SMOKE_DEDUP", "1")).lower() in ("1", "true", "yes", "on")
++    dedup_prefix = os.getenv("A8_NEW_FEATURES_SMOKE_DEDUP_PREFIX", "dedup:alert:a8_new_features:")
++
++    if dedup_enable and not _dedup_allow(signature, cooldown_s=cooldown_s, prefix=dedup_prefix):
++        logger.warning(
++            f"A8 new-features smoke-check: suppressed duplicate alert (cooldown {cooldown_s}s). sig={signature}"
++        )
++        return False
++
++    head = (parsed.get("raw") or "").strip().replace("\n", " | ")
++    head = head[:700] if head else ""
++
++    text = (
++        f"A8_NEW_FEATURES_SMOKE rc={rc} no_data={no_data} n_recent={n_recent} "
++        f"nan_rate={nan_rate} stuck_rv={stuck_rv} rv_ready={rv_ready} issues={issues} :: {head}"
++    )
++
++    sid = "a8_new_features_smoke:" + hashlib.sha1(signature.encode("utf-8")).hexdigest()[:16]
++    sev = "crit" if rc == 2 else "page"
++    _notify_stream(text, severity=sev, sid=sid)
++    return False
+ def run_of_gate_exporters_smoke_p111() -> bool:
+     """Smoke-check OF-Gate exporters wiring (P111).
+ 
+@@ -2727,6 +2822,13 @@
+                     run_config_drift_monitor()
+                     last_run["config_drift"] = now.timestamp()
+ 
++            # Hourly:16 A8 new-features smoke-check (NaN rate + realized_vol stuck)
++            if minute >= 16 and minute < 17:
++                last = last_run.get("a8_new_features_smoke", 0)
++                if now.timestamp() - last > 3500:
++                    run_new_features_smoke_check_a8()
++                    last_run["a8_new_features_smoke"] = now.timestamp()
++
+             # Hourly:45 live health loop
+             if minute >= 45 and minute < 46:
+                 last = last_run.get("conf_cal_live_health", 0)
+diff -ruN --no-dereference '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_p78.sql' '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_top_p78.sql' a/tick_flow_full/services/orderflow/components/tick_processor.py b/tick_flow_full/services/orderflow/components/tick_processor.py
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py	2026-02-27 04:29:06.000000000 +0000
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py	2026-02-27 11:10:09.386085513 +0000
+@@ -96,6 +96,12 @@
+     trade_cancel_to_trade_bid, trade_cancel_to_trade_ask,
+     trade_taker_flow_imb_z, trade_book_churn_score, trade_book_churn_hi,
+ 
++    # A8 observability gauges (microstructure extras)
++    trade_depth_total_10, trade_gini_depth_10,
++    trade_vwap_roll_diff_bps, trade_price_momentum_bps, trade_realized_vol_bps,
++    trade_pressure_per_min, trade_liquidity_pressure, trade_info_flow,
++    trade_flag_state,
++
+     trade_qi_mean, trade_qi_max_abs, trade_qi_slope,
+     trade_micro_mid_div_bps, trade_micro_shift_bps,
+     trade_depth_slope_bid, trade_depth_slope_ask, trade_depth_slope_imb, trade_depth_slope_imb_norm,
+@@ -1896,6 +1902,28 @@
+                     float(indicators.get("max_expected_slippage_bps_eff", 0.0) or 0.0)
+                 )
+ 
++            # A8: additional microstructure gauges (depth/gini/vwap/mom/rv/flow/flags).
++            # NOTE: keep it strictly low-cardinality to avoid Prometheus churn.
++            trade_depth_total_10.labels(sym=_sym, bucket=_bk).set(float(indicators.get("depth_total_10", 0.0) or 0.0))
++            trade_gini_depth_10.labels(sym=_sym, bucket=_bk).set(float(indicators.get("gini_depth_10", 0.0) or 0.0))
++            trade_vwap_roll_diff_bps.labels(sym=_sym, bucket=_bk).set(float(indicators.get("vwap_roll_diff_bps", 0.0) or 0.0))
++            trade_price_momentum_bps.labels(sym=_sym, bucket=_bk).set(float(indicators.get("price_momentum_bps", 0.0) or 0.0))
++            trade_realized_vol_bps.labels(sym=_sym, bucket=_bk).set(float(indicators.get("realized_vol_bps", 0.0) or 0.0))
++            trade_pressure_per_min.labels(sym=_sym, bucket=_bk).set(float(indicators.get("pressure_per_min", 0.0) or 0.0))
++            trade_liquidity_pressure.labels(sym=_sym, bucket=_bk).set(float(indicators.get("liquidity_pressure", 0.0) or 0.0))
++            trade_info_flow.labels(sym=_sym, bucket=_bk).set(float(indicators.get("info_flow", 0.0) or 0.0))
++
++            for _flag in (
++                "flag_low_liq",
++                "flag_spread_spike",
++                "flag_large_trade",
++                "flag_high_gini",
++                "flag_high_mom",
++                "flag_high_realized_vol",
++                "flag_high_pressure",
++            ):
++                trade_flag_state.labels(sym=_sym, bucket=_bk, flag=_flag).set(float(indicators.get(_flag, 0.0) or 0.0))
++
+             # LOB pressure snapshots (microprice / depth shape / DW OBI)
+             trade_qi_mean.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_qi_mean", 0.0) or 0.0))
+             trade_qi_max_abs.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_qi_max_abs", 0.0) or 0.0))
+@@ -3219,6 +3247,30 @@
+                 "lob_dw_obi_stable": str(int(indicators.get("lob_dw_obi_stable", 0) or 0)),
+ 
+                 "max_expected_slippage_bps_eff": str(float(indicators.get("max_expected_slippage_bps_eff", 0.0) or 0.0)),
++
++                # A8: derived features observability (mirror Prom gauges + enable smoke-checks).
++                # Keep this list low-cardinality + small payload: scalars + 0/1 flags.
++                "depth_total_10": str(float(indicators.get("depth_total_10", 0.0) or 0.0)),
++                "gini_depth_10": str(float(indicators.get("gini_depth_10", 0.0) or 0.0)),
++                "vwap_roll_diff_bps": str(float(indicators.get("vwap_roll_diff_bps", 0.0) or 0.0)),
++                "price_momentum_bps": str(float(indicators.get("price_momentum_bps", 0.0) or 0.0)),
++                "realized_vol_bps": str(float(indicators.get("realized_vol_bps", 0.0) or 0.0)),
++                "pressure_per_min": str(float(indicators.get("pressure_per_min", 0.0) or 0.0)),
++                "liquidity_pressure": str(float(indicators.get("liquidity_pressure", 0.0) or 0.0)),
++                "info_flow": str(float(indicators.get("info_flow", 0.0) or 0.0)),
++
++                # No-data bits — required to avoid false positives in “stuck==0” checks.
++                "vwap_roll_no_data": str(int(indicators.get("vwap_roll_no_data", 1) or 0)),
++                "realized_vol_no_data": str(int(indicators.get("realized_vol_no_data", 1) or 0)),
++
++                # Flags (0/1) — useful for dashboard quick triage.
++                "flag_low_liq": str(int(indicators.get("flag_low_liq", 0) or 0)),
++                "flag_spread_spike": str(int(indicators.get("flag_spread_spike", 0) or 0)),
++                "flag_large_trade": str(int(indicators.get("flag_large_trade", 0) or 0)),
++                "flag_high_gini": str(int(indicators.get("flag_high_gini", 0) or 0)),
++                "flag_high_mom": str(int(indicators.get("flag_high_mom", 0) or 0)),
++                "flag_high_realized_vol": str(int(indicators.get("flag_high_realized_vol", 0) or 0)),
++                "flag_high_pressure": str(int(indicators.get("flag_high_pressure", 0) or 0)),
+                 "reason_code_top1": str(reason_top1),  # sanitized by enrich_schema_fields
+                 "meta_feature_coverage": str(float(meta_cov)),
+                 "meta_enforce_mode": meta_enforce,
+diff -ruN --no-dereference '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_p78.sql' '--exclude=tick_flow_full/services/archivers/sql/20260224_of_gate_metrics_rollups_top_p78.sql' a/tick_flow_full/services/orderflow/metrics.py b/tick_flow_full/services/orderflow/metrics.py
+--- a/tick_flow_full/services/orderflow/metrics.py	2026-02-25 20:59:37.000000000 +0000
++++ b/tick_flow_full/services/orderflow/metrics.py	2026-02-27 11:08:21.734241307 +0000
+@@ -1436,6 +1436,76 @@
+     ["sym", "bucket"],
+ )
+ 
++
++
++# ---------------------------------------------------------------------------
++# A8 — Observability for additional microstructure features (v1)
++# Low-cardinality gauges (sym × exec_regime_bucket, plus small flag enum)
++#
++# These gauges mirror the new derived features injected into `indicators`:
++#   - depth_total_10, gini_depth_10
++#   - vwap_roll_diff_bps, price_momentum_bps, realized_vol_bps
++#   - liquidity_pressure, info_flow, pressure_per_min
++#   - boolean flags flag_* (0/1)
++#
++# Motivation:
++#   - Make the wiring visible in Grafana immediately (no waiting for offline rollups)
++#   - Enable quick smoke-checks to detect “feature stuck” and NaN explosions
++# ---------------------------------------------------------------------------
++
++trade_depth_total_10 = _get_or_create_prom_gauge(
++    "trade_depth_total_10",
++    "Total top-10 depth (bid+ask) in native qty units",
++    ["sym", "bucket"],
++)
++
++trade_gini_depth_10 = _get_or_create_prom_gauge(
++    "trade_gini_depth_10",
++    "Gini coefficient of top-10 depth distribution (0..1), higher = more concentrated liquidity",
++    ["sym", "bucket"],
++)
++
++trade_vwap_roll_diff_bps = _get_or_create_prom_gauge(
++    "trade_vwap_roll_diff_bps",
++    "Rolling VWAP vs mid divergence (bps)",
++    ["sym", "bucket"],
++)
++
++trade_price_momentum_bps = _get_or_create_prom_gauge(
++    "trade_price_momentum_bps",
++    "Rolling price momentum (bps) — last_px vs rolling median/close proxy",
++    ["sym", "bucket"],
++)
++
++trade_realized_vol_bps = _get_or_create_prom_gauge(
++    "trade_realized_vol_bps",
++    "Realized volatility estimate over rolling micro-bars (bps)",
++    ["sym", "bucket"],
++)
++
++trade_pressure_per_min = _get_or_create_prom_gauge(
++    "trade_pressure_per_min",
++    "System pressure proxy (cooldown hits per minute) from rolling trackers",
++    ["sym", "bucket"],
++)
++
++trade_liquidity_pressure = _get_or_create_prom_gauge(
++    "trade_liquidity_pressure",
++    "Liquidity pressure proxy (dimensionless) — signed flow vs available depth",
++    ["sym", "bucket"],
++)
++
++trade_info_flow = _get_or_create_prom_gauge(
++    "trade_info_flow",
++    "Information flow / toxicity proxy (dimensionless), higher = more toxic flow",
++    ["sym", "bucket"],
++)
++
++trade_flag_state = _get_or_create_prom_gauge(
++    "trade_flag_state",
++    "Binary microstructure flags (0/1); label 'flag' enumerates the flag name",
++    ["sym", "bucket", "flag"],
++)
+ # ---------------------------------------------------------------------------
+ # World-practice LOB pressure snapshots v1 (microprice + depth shape + DW OBI)
+ # Low-cardinality: sym × exec_regime_bucket

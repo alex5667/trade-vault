@@ -1,0 +1,606 @@
+x-default-python-worker:
+  build: &id001
+    context: .
+    dockerfile: python-worker/Dockerfile
+  restart: unless-stopped
+  environment:
+  - GPU_ENABLED=false
+  - CUDA_VISIBLE_DEVICES=
+  networks: &id002
+  - scanner-timers
+  - scanner-infra
+  - scanner-core
+  dns: &id003
+  - 8.8.8.8
+  - 8.8.4.4
+services:
+  scanner-ml-confirm-calibrator:
+    build: *id001
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - ML_CONFIRM_METRICS_STREAM=metrics:ml_confirm
+    - ML_CFG_CHAMPION_KEY=cfg:ml_confirm:champion
+    - ML_OUTCOME_STREAM=trades:closed
+    - NOTIFY_STREAM=notify:telegram
+    - ML_CAL_HOURS=168
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    container_name: scanner-ml-confirm-calibrator
+    command: 'sh -c "while true; do current_hour=$$(date -u +%H); if [ \"$$current_hour\"
+      = \"05\" ]; then echo ''Running ML Confirm Gate Calibrator...''; python3 tools/run_with_minik_failover.py
+      --job-name ml_confirm_calibrator --is-minik -- python tools/ml_confirm_gate_calibrator.py
+      --hours 168; echo ''Done. Sleeping 23h...''; sleep 82000; else echo ''Waiting
+      for 05:00 UTC...''; sleep 600; fi; done"
+
+      '
+    volumes:
+    - ./python-worker:/app
+    - ./logs:/app/logs
+    - /var/lib/trade/ml_models:/var/lib/trade/ml_models
+    - ./calibration:/app/calibration
+  scanner-taker-flow-calibrator:
+    build: *id001
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - EXECUTION_JOURNAL_DSN=${EXECUTION_JOURNAL_DSN}
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    container_name: scanner-taker-flow-calibrator
+    command: 'sh -c "while true; do current_hour=$$(date -u +%H); if [ \"$$current_hour\"
+      = \"04\" ]; then echo ''Running Taker Flow Gate Calibrator...''; python3 tools/run_with_minik_failover.py
+      --job-name taker_flow_calibrator --is-minik -- python tools/taker_flow_gate_calibrator.py
+      --hours 168; echo ''Done. Sleeping 23h...''; sleep 82000; else echo ''Waiting
+      for 04:00 UTC...''; sleep 600; fi; done"
+
+      '
+  scanner-conf-score-tuning-nightly-timer:
+    build: *id001
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
+    - TRADES_DB_DSN=${TRADES_DB_DSN}
+    - CONF_SCORE_TUNING_OUT_DIR=${CONF_SCORE_TUNING_OUT_DIR}
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    container_name: scanner-conf-score-tuning-nightly-timer
+    volumes:
+    - ./python-worker:/app
+    - /var/lib/trade/replay_inputs_archives:/var/lib/trade/replay_inputs_archives
+    - /var/lib/trade/conf_score_weight_tuning:/var/lib/trade/conf_score_weight_tuning
+    command: 'sh -c "sleep 5 && while true; do HOUR=$$(date +%-H); MIN=$$(date +%-M);
+      if [ \"$$HOUR\" -eq 22 ] && [ \"$$MIN\" -ge 0 ] && [ \"$$MIN\" -lt 15 ]; then
+      echo ''Running Nightly Confidence Scorer Weight Tuning...''; python3 tools/run_with_minik_failover.py
+      --job-name nightly_conf_score --is-minik -- python3 -u orderflow_services/nightly_conf_score_weight_tuning_bundle_v1.py;
+      echo ''Tuning done. Sleeping until next day...''; sleep 82800; else sleep 60;
+      fi; done"
+
+      '
+  scanner-meta-skew-guard-nightly-timer:
+    build: *id001
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - META_SKEW_OUT_DIR=${META_SKEW_OUT_DIR}
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    container_name: scanner-meta-skew-guard-nightly-timer
+    volumes:
+    - ./python-worker:/app
+    - /var/lib/trade:/var/lib/trade
+    command: 'sh -c "sleep 5 && while true; do HOUR=$$(date +%-H); MIN=$$(date +%-M);
+      if [ \"$$HOUR\" -eq 22 ] && [ \"$$MIN\" -ge 30 ] && [ \"$$MIN\" -lt 45 ]; then
+      echo ''Running Nightly Meta Skew Guard (Stage 4)...''; python3 tools/run_with_minik_failover.py
+      --job-name nightly_meta_skew --is-minik -- python3 -u tools/nightly_meta_skew_guard_v7.py
+      --train-ndjson /var/lib/trade/training/latest_confirm_train_v7.ndjson --out-dir
+      /var/lib/trade/meta_guard/reports --freeze-json /var/lib/trade/meta_guard/meta_freeze.json;
+      echo ''Guard updated. Sleeping until next day...''; sleep 82800; else sleep
+      60; fi; done"
+
+      '
+  scanner-meta-ab-winner-evaluator-v1:
+    build: *id001
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    container_name: scanner-meta-ab-winner-evaluator-v1
+    volumes:
+    - ./python-worker:/app
+    - /var/lib/trade:/var/lib/trade
+    command: 'sh -c "sleep 5 && while true; do HOUR=$$(date +%-H); MIN=$$(date +%-M);
+      if [ \"$$HOUR\" -eq 23 ] && [ \"$$MIN\" -ge 0 ] && [ \"$$MIN\" -lt 20 ]; then
+      echo ''Running Stage 4 A/B Winner Evaluator...''; python3 tools/run_with_minik_failover.py
+      --job-name meta_ab_v1 --is-minik -- python3 -u tools/meta_ab_winner_evaluator_v1.py
+      --dataset /var/lib/trade/training/latest_confirm_train_v7.ndjson --model-champion
+      /var/lib/trade/models/meta_model_lr_v8.json --model-challenger /var/lib/trade/models/meta_model_lr_v9.json
+      --p-min 0.6 --min-delta-exp-r 0.005 --tail-slack 0.1 --ramp-step 0.05 --share-max
+      0.5 --apply; echo ''Evaluator done. Sleeping until next day...''; sleep 82800;
+      else sleep 60; fi; done"
+
+      '
+  scanner-meta-ab-winner-evaluator-v2:
+    build: *id001
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    container_name: scanner-meta-ab-winner-evaluator-v2
+    volumes:
+    - ./python-worker:/app
+    - /var/lib/trade:/var/lib/trade
+    command: 'sh -c "sleep 150 && while true; do HOUR=$$(date +%-H); MIN=$$(date +%-M);
+      if [ \"$$HOUR\" -eq 23 ] && [ \"$$MIN\" -ge 30 ] && [ \"$$MIN\" -lt 50 ]; then
+      echo ''Running Stage 4 A/B Winner Evaluator v2...''; python3 tools/run_with_minik_failover.py
+      --job-name meta_ab_v2 --is-minik -- python3 -u -m tools.meta_ab_winner_evaluator_v2
+      --in-ndjson /var/lib/trade/training/latest_confirm_train_v7.ndjson --champion-model
+      /var/lib/trade/models/meta_model_lr_v8.json --challenger-model /var/lib/trade/models/meta_model_lr_v9.json
+      --p-min 0.55 --min-n 1000 --min-delta-exp-r 0.002 --tail-r -1.0 --tail-slack
+      0.01 --bootstrap 1 --boot-n 400 --strata symbol --strata-topk 10 --ramp-step
+      0.05 --max-share 0.50 --current-share 0.0 --apply 1; echo ''Evaluator v2 done.
+      Sleeping until next day...''; sleep 82800; else sleep 60; fi; done"
+
+      '
+  scanner-trailing-tuner:
+    build: *id001
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - TRAILING_AUTOTUNE_STREAM=trades:closed
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    container_name: scanner-trailing-tuner
+    command: "sh -c \"while true; do echo '\u0417\u0430\u043F\u0443\u0441\u043A trailing\
+      \ tuner...'; python3 tools/run_with_minik_failover.py --job-name trailing_tuner\
+      \ --is-minik -- python tools/recommend_trailing_from_redis.py; echo '\u041E\u0436\
+      \u0438\u0434\u0430\u043D\u0438\u0435 1 \u0447\u0430\u0441...'; sleep 3600; done\"\
+      \n"
+  scanner-trailing-autotune:
+    build: *id001
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - TRAILING_AUTOTUNE_STREAM=trades:closed
+    - TRAILING_AUTOTUNE_ENABLED=1
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    container_name: scanner-trailing-autotune
+    command: python3 tools/run_with_minik_failover.py --job-name trailing_autotune_telegram
+      --is-minik -- python -m tools.trailing_autotune_telegram
+  scanner-burst-report:
+    build: *id001
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - BURST_REPORT_INTERVAL_SEC=900
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    container_name: scanner-burst-report
+    command: python3 tools/run_with_minik_failover.py --job-name burst_report --is-minik
+      -- python -m tools.burst_report
+  decision-coverage-kpi-worker:
+    build: *id001
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - DECISIONS_FINAL_STREAM=events:decision_snapshot
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    container_name: scanner-decision-coverage-kpi-worker
+    command: python3 tools/run_with_minik_failover.py --job-name decision_coverage_kpi
+      --is-minik -- python3 -u orderflow_services/decision_coverage_kpi_worker_v1.py
+  candles-archiver:
+    build: *id001
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - ANALYTICS_DSN=${ANALYTICS_DB_DSN}
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    container_name: scanner-candles-archiver
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name candles_archiver
+      --is-minik -- python -m services.candles_archiver
+  post-sl-analyzer:
+    build: *id001
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    container_name: scanner-post-sl-analyzer
+    command: sh -c "sleep 40 && python services/post_sl_analyzer.py"
+  sl-quantile-aggregator:
+    build: *id001
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    container_name: scanner-sl-quantile-aggregator
+    command: sh -c "sleep 45 && python services/sl_quantile_aggregator.py"
+  periodic-reporter:
+    build: *id001
+    restart: unless-stopped
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - NOTIFY_STREAM=notify:telegram
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    container_name: scanner-periodic-reporter
+    command: sh -c "sleep 10 && python3 tools/run_daemon_with_minik_failover.py --job-name
+      periodic_reporter --is-minik -- python -m services.periodic_reporter"
+  telegram-worker:
+    profiles:
+    - disabled
+    build:
+      context: .
+      dockerfile: telegram-worker/Dockerfile
+    container_name: scanner-telegram-worker
+    env_file:
+    - ./telegram-worker/.env
+    environment:
+    - PYTHONUNBUFFERED=1
+    - SESSIONS_DIR=/app/sessions
+    - REDIS_URL=${REDIS_URL}
+    - STREAM_NAME=signal:telegram:raw
+    - NOTIFY_STREAM=notify:telegram
+    - PARSED_TTL_SECONDS=3600
+    - CHANNELS=
+    - CHANNELS_REDIS_KEY=telegram:channels:usernames
+    - CHANNELS_REFRESH_SEC=60
+    - TG_WHITELIST=
+    - MAX_THREADS=5
+    - CHANNELS_PER_THREAD=20
+    - RAW_STREAM=signal:telegram:raw
+    - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
+    - TZ=UTC
+    volumes:
+    - ./telegram-worker/sessions:/app/sessions
+    networks:
+    - scanner-core
+    - scanner-infra
+    - scanner-network
+    extra_hosts:
+    - api.telegram.org:149.154.166.110
+    restart: on-failure:5
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name telegram_worker
+      --is-minik -- sh -c "sleep 25 && python multithreaded_worker.py"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 24M
+  notify-worker:
+    build:
+      context: .
+      dockerfile: telegram-worker/Dockerfile
+    container_name: scanner-notify-worker
+    oom_score_adj: -500
+    env_file:
+    - ./telegram-worker/.env
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - BOT_POLLING_ENABLED=false
+    - NOTIFY_STREAM=notify:telegram
+    - PARSED_TTL_SECONDS=3600
+    - CHANNELS=
+    - CHANNELS_REDIS_KEY=telegram:channels:usernames
+    - CHANNELS_REFRESH_SEC=60
+    - TG_WHITELIST=
+    - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
+    - TZ=UTC
+    volumes:
+    - /var/lib/trade/ml_models:/var/lib/trade/ml_models
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name notify_worker
+      --is-minik -- sh -c "sleep 50 && python notify_worker.py"
+    networks:
+    - scanner-core
+    - scanner-infra
+    - scanner-network
+    extra_hosts:
+    - api.telegram.org:149.154.166.110
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 24M
+  signal-performance-tracker:
+    profiles:
+    - default
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-signal-tracker
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - REDIS_HOST=redis-worker-1
+    - REDIS_PORT=6379
+    - REDIS_TICKS_URL=redis://redis-ticks:6379/0
+    - REDIS_TICKS_HOST=redis-ticks
+    - REDIS_TICKS_PORT=6379
+    - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    - TRACKER_CONFIG_PATH=/app/python-worker/config/signal_tracker_config.json
+    - SYMBOLS=XAUUSD,XAUUSDT,BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,SUIUSDT,APTUSDT,ARBUSDT,DOGEUSDT,WIFUSDT,1000PEPEUSDT,1000SHIBUSDT,1000FLOKIUSDT,1000BONKUSDT,AVAXUSDT,LINKUSDT,INJUSDT
+    - STRATEGIES=orderflow,ta,aggregated,cryptoorderflow
+    - PERIODIC_REPORT_HOURS=1
+    - TP_RATIO=${TP_RATIO:-0.5,0.3,0.2}
+    - ENTRY_TAG_ANALYTICS_ENABLED=true
+    - ENTRY_TAG_ANALYTICS_LIMIT=2000
+    - ENTRY_TAG_MIN_TRADES=10
+    - TRAILING_AFTER_TP1_SOURCES=CryptoOrderFlow
+    - DATABASE_URL=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+    - TRADES_DB_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+    - ENABLE_CLOSED_ZSET_INDEX=1
+    - BASELINE_HORIZON_DAYS=180
+    - DEBUG_DB_CONN=1
+    - CRYPTO_COMMISSION_RATE=0.0005
+    - TM_ORPHAN_TIMEOUT_ENABLED=1
+    - LOG_DIR=/app/logs
+    - TM_NAMESPACE=signal-tracker
+    - TICK_READ_COUNT=100
+    - EVENTS_CLOSED_READ_COUNT=200
+    - OF_INPUTS_STREAM_MAXLEN=5000
+    - TZ=UTC
+    networks:
+    - scanner-core
+    - scanner-infra
+    volumes:
+    - ./logs:/app/logs
+    - ./python-worker/services:/app/services
+    - ./python-worker/core:/app/core
+    - ./python-worker/common:/app/common
+    - ./python-worker/infra:/app/infra
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: '0.5'
+        reservations:
+          memory: 24M
+    ulimits:
+      nofile:
+        soft: 4096
+        hard: 4096
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - test -f /app/services/signal_performance_tracker.py
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name signal_performance_tracker
+      --is-minik -- sh -c "sleep 90 && python -m services.signal_performance_tracker"
+  scanner-cooldown-suggester:
+    profiles:
+    - default
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-cooldown-suggester
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - COOLDOWN_POLICY_INTERVAL_SEC=900
+    - TZ=UTC
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name cooldown_suggester
+      --is-minik -- python -m services.cooldown_policy_suggester_service
+    networks:
+    - scanner-core
+    - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 24M
+    volumes:
+    - ./logs:/app/logs
+  scanner-regime-quantiles:
+    profiles:
+    - default
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-regime-quantiles
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - ANALYTICS_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+    - REGIME_Q_INTERVAL_SEC=21600
+    - REGIME_Q_REDIS_TTL_SEC=129600
+    - REGIME_BARS_TABLE=regime_snapshot
+    - REGIME_Q_COL_ADX=adx
+    - REGIME_Q_COL_ATRP="atrPct"
+    - REGIME_Q_COL_TS=ts
+    - TZ=UTC
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name regime_quantiles
+      --is-minik -- python -m tools.update_regime_quantiles_sql
+    ports:
+    - 8001:8001
+    networks:
+    - scanner-core
+    - scanner-infra
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.3'
+        reservations:
+          memory: 24M
+  scanner-auto-train-calibration:
+    profiles:
+    - default
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-auto-train-calibration
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - TRADES_DB_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+    - PERF_PG_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+    - CONF_CAL_INTERVAL_SEC=21600
+    - TZ=UTC
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name auto_train_calibration
+      --is-minik -- python -m tools.auto_train_conf_calibration --loop --interval
+      21600
+    networks:
+    - scanner-core
+    - scanner-infra
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+    - ./data/calibration:/app/python-worker/calibration
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 24M
+  scanner-ab-winner-evaluator-v3:
+    profiles:
+    - default
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-ab-winner-evaluator-v3
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - AB_EVAL_INTERVAL_SEC=3600
+    - AB_EVAL_LOCK_KEY=lock:ab_winner_eval:v3
+    - AB_EVAL_LOCK_TTL_SEC=3300
+    - AB_EVAL_WINDOW_HOURS=24
+    - AB_EVAL_IGNORE_LAST_MIN=5
+    - AB_EVAL_HOLD_DOWN_MS=21600000
+    - AB_EVAL_SWITCH_MIN_MARGIN_R=0.12
+    - AB_EVAL_SCENARIO_DISAGREE_MARGIN_R=0.18
+    - AB_EVAL_REPORT_KEY=ab:winner_report:latest
+    - TZ=UTC
+    command: python3 tools/run_with_minik_failover.py --job-name ab_winner_evaluator_v3
+      --is-minik -- python -m services.ab_winner_evaluator_service_v3
+    networks:
+    - scanner-core
+    - scanner-infra
+    volumes:
+    - ./logs:/app/logs
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 24M
+  scanner-ab-winner-v2-cron:
+    profiles:
+    - default
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-ab-winner-v2-cron
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - AB_EVAL_LOCK_KEY=lock:ab_winner_evaluator:v1
+    - AB_EVAL_LOCK_TTL_SEC=3300
+    - TZ=UTC
+    command: python3 tools/run_with_minik_failover.py --job-name ab_winner_v2_cron
+      --is-minik -- sh -c while true; do echo 'Running AB Winner V2...'; python tools/ab_winner_eval_once.py;
+      echo 'Done. Sleeping 1h...'; sleep 3600; done
+    networks:
+    - scanner-core
+    - scanner-infra
+    volumes:
+    - ./logs:/app/logs
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 24M
+  scanner-ab-winner-job:
+    profiles:
+    - legacy_disabled
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-ab-winner-job
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - AB_WINNER_INTERVAL_SEC=3600
+    - AB_WINNER_TELEGRAM_ENABLED=1
+    - AB_WINNER_LOCK_KEY=lock:ab_winner_evaluator:v1
+    - AB_WINNER_LOCK_TTL_MS=3000000
+    - NOTIFY_STREAM=notify:telegram
+    - TZ=UTC
+    command: python3 tools/run_with_minik_failover.py --job-name ab_winner_job --is-minik
+      -- python -m services.ab_winner_evaluator_job
+    networks:
+    - scanner-core
+    - scanner-infra
+    volumes:
+    - ./logs:/app/logs
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 24M
+networks:
+  scanner-timers:
+    name: scanner-timers
+  scanner-infra:
+    name: scanner-infra
+  scanner-core:
+    name: scanner-core
+  scanner-network:
+    name: scanner-network
+    external: true

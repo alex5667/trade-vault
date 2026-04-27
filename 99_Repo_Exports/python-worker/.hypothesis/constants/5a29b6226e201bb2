@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/burst_gate_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-06, 0.08, 0.1, 0.25, 1.6, 2.5, 3.0, 4.0, 5.0, 10.0, 15.0, 99.0, ',', 'VETO', 'book_churn_score', 'book_rate_z', 'burst_churn', 'burst_cr_ema', 'burst_ctr', 'burst_ctr_thr', 'burst_exc', 'burst_gate_enable', 'burst_gate_mode', 'burst_ha_lam', 'burst_pen', 'burst_pen_max', 'burst_pen_w', 'burst_tr_ema', 'burst_veto', 'burst_veto_mult', 'burst_z', 'cancel_rate_ema', 'enforce', 'hard', 'hawkes_cancel_lam', 'hawkes_combined_lam', 'hawkes_lam', 'hawkes_mu_c', 'hawkes_mu_h', 'hawkes_mu_t', 'hawkes_trade_lam', 'off', 'ok', 'penalty', 'pressure_sps', 'taker_rate_ema', 'trade_rate_ema', 'veto', 'veto_churn', 'veto_ctr', 'veto_excess']

@@ -1,0 +1,406 @@
+services:
+  calibration-scheduler:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-calibration-scheduler
+    environment:
+    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/scanner_analytics
+    - REDIS_HOST=redis-worker-1
+    - REDIS_PORT=6379
+    - REDIS_URL=${REDIS_URL}
+    - TZ=Europe/Kyiv
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command:
+    - sh
+    - /app/calibration_scheduler.sh
+    volumes:
+    - ./calibration_scheduler.sh:/app/calibration_scheduler.sh:ro
+    - ./python-worker:/app/python-worker:ro
+    - ./logs:/app/logs
+    - ./calibration:/app/calibration
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+          cpus: '1.5'
+        reservations:
+          memory: 24M
+  redis-cleanup:
+    build:
+      context: .
+      dockerfile: Dockerfile.cleanup
+    container_name: redis-cleanup
+    environment:
+    - REDIS_HOST=redis-worker-1
+    - REDIS_PORT=6379
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+      go-worker-1m:
+        condition: service_started
+      go-worker-5m:
+        condition: service_started
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command:
+    - sh
+    - -c
+    - sleep 60 && while true; do ./redis-streams-cleanup.sh setup; sleep 21600; done
+    deploy:
+      resources:
+        reservations:
+          memory: 24M
+  redis-key-janitor:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-redis-key-janitor
+    environment:
+    - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+    - ATR_REDIS_URL=${ATR_REDIS_URL:-redis://redis-worker-2:6379/0}
+    - REDIS_TICKS_URL=${REDIS_TICKS_URL:-redis://redis-ticks:6379/0}
+    - JANITOR_INTERVAL_S=300
+    - JANITOR_DRY_RUN=false
+    - JANITOR_LOG_LEVEL=INFO
+    - JANITOR_SCAN_BATCH=200
+    - TZ=UTC
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command:
+    - sh
+    - -c
+    - sleep 60 && python3 /app/services/redis_key_janitor.py
+    volumes:
+    - ./python-worker:/app
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 24M
+  capture-microbars:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-capture-microbars
+    environment:
+    - REDIS_URL=${REDIS_URL:-${REDIS_URL}}
+    - MICROBAR_SPLIT_STREAMS_ENABLE=${MICROBAR_SPLIT_STREAMS_ENABLE:-0}
+    - MICROBAR_LEGACY_STREAM=${MICROBAR_LEGACY_STREAM:-events:microbar_closed}
+    - MICROBAR_PER_SYMBOL_STREAM_TEMPLATE=${MICROBAR_PER_SYMBOL_STREAM_TEMPLATE:-events:microbar_closed:{sym}}
+    - MICROBAR_SYMBOLS_SET=${MICROBAR_SYMBOLS_SET:-events:microbar_closed:symbols}
+    - MICROBAR_CAPTURE_SYMBOLS=${MICROBAR_CAPTURE_SYMBOLS:-}
+    - MICROBAR_CAPTURE_MAX_SYMBOLS=${MICROBAR_CAPTURE_MAX_SYMBOLS:-200}
+    - OUTPUT_FILE=${MICROBAR_OUTPUT_FILE:-microbar_closed_slice.ndjson}
+    - DURATION_SEC=${MICROBAR_DURATION_SEC:-900}
+    - TZ=UTC
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: 'no'
+    profiles:
+    - utilities
+    command:
+    - python
+    - /app/scripts/capture_microbars.py
+    volumes:
+    - ./python-worker:/app
+    - ./data:/app/data
+    working_dir: /app
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.3'
+        reservations:
+          memory: 24M
+  regime-worker:
+    build:
+      context: .
+      dockerfile: regime-worker/Dockerfile
+    image: scanner_infra-regime-worker:latest
+    container_name: scanner-regime-worker
+    environment:
+    - REDIS_READ_HOST=redis-worker-1
+    - REDIS_READ_PORT=6379
+    - REDIS_HOST=redis-worker-1
+    - REDIS_PORT=6379
+    - REDIS_URL=${REDIS_URL}
+    - REDIS_USERNAME=${GO_GATEWAY_REDIS_USER:-go_gateway}
+    - REDIS_PASSWORD=${GO_GATEWAY_REDIS_PASS}
+    - REGIME_WILDER_N=14
+    - REGIME_STREAM_OUT=stream:regime
+    - REGIME_CONSUMER_GROUP=regime-worker-group
+    - REGIME_READ_COUNT=10
+    - REGIME_READ_BLOCK_MS=1000
+    - DATABASE_URL=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/scanner_analytics
+    - REGIME_QUANTILES_TTL_SEC=600
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      go-worker-1m:
+        condition: service_healthy
+      go-worker-5m:
+        condition: service_healthy
+      go-worker-15m:
+        condition: service_healthy
+      go-worker-1h:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command:
+    - sh
+    - -c
+    - sleep 35 && python main.py
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 24M
+  regime-quantiles-job:
+    build:
+      context: .
+      dockerfile: regime-quantiles-job/Dockerfile
+    image: scanner_infra-regime-quantiles-job:latest
+    container_name: scanner-regime-quantiles-job
+    environment:
+    - DATABASE_URL=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/scanner_analytics
+    - REDIS_URL=${REDIS_URL}
+    - REGIME_QUANTILES_INTERVAL_SEC=${REGIME_QUANTILES_INTERVAL_SEC:-900}
+    - REGIME_QUANTILES_LOOKBACK_DAYS=${REGIME_QUANTILES_LOOKBACK_DAYS:-14}
+    - REGIME_QUANTILES_MIN_SAMPLES=${REGIME_QUANTILES_MIN_SAMPLES:-80}
+    - TZ=UTC
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 24M
+  regime-storage:
+    build:
+      context: .
+      dockerfile: regime-storage/Dockerfile
+    image: scanner_infra-regime-storage:latest
+    container_name: scanner-regime-storage
+    environment:
+    - REDIS_HOST=redis-worker-1
+    - REDIS_PORT=6379
+    - REDIS_URL=${REDIS_URL}
+    - REDIS_USERNAME=${GO_GATEWAY_REDIS_USER:-go_gateway}
+    - REDIS_PASSWORD=${GO_GATEWAY_REDIS_PASS}
+    - DATABASE_URL=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/scanner_analytics
+    - REGIME_STORAGE_READ_COUNT=50
+    - REGIME_STORAGE_READ_BLOCK_MS=5000
+    - TZ=UTC
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    command:
+    - sh
+    - -c
+    - sleep 45 && python regime_storage.py
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 24M
+  migration-runner:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    image: scanner_infra-migration-runner:latest
+    container_name: scanner-migration-runner
+    restart: 'no'
+    environment:
+    - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/scanner_analytics
+    - TZ=UTC
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    command:
+    - sh
+    - /app/python-worker/migrations/apply_migrations.sh
+    volumes:
+    - ./python-worker/migrations:/app/python-worker/migrations:ro
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 24M
+  migration-runner-trade:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    image: scanner_infra-migration-runner:latest
+    container_name: scanner-migration-runner-trade
+    restart: 'no'
+    environment:
+    - TRADE_PG_DSN=postgresql://trading:${TRADING_PASSWORD}@scanner-postgres:5432/trade
+    - TZ=UTC
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    command:
+    - sh
+    - /app/python-worker/migrations/apply_migrations_trade_db.sh
+    volumes:
+    - ./python-worker/migrations:/app/python-worker/migrations:ro
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 24M
+  health-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile.health-monitor
+    image: scanner_infra-health-monitor:latest
+    container_name: scanner-health-monitor
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - NOTIFY_STREAM=notify:telegram
+    - HEALTH_CHECK_INTERVAL=60
+    - HEALTH_STALL_THRESHOLD=600
+    - HEALTH_STARTUP_GRACE_SEC=300
+    - TZ=UTC
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.1'
+        reservations:
+          memory: 24M
+  docker-watchdog:
+    build:
+      context: .
+      dockerfile: Dockerfile.watchdog
+    image: scanner_infra-docker-watchdog:latest
+    container_name: scanner-docker-watchdog
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - NOTIFY_STREAM=notify:telegram
+    - TZ=UTC
+    networks:
+    - scanner-core
+    - scanner-infra
+    restart: unless-stopped
+    volumes:
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.1'
+        reservations:
+          memory: 24M
+  tb-pipeline-runner:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-tb-pipeline-runner
+    restart: 'no'
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - PYTHONPATH=.:/app
+    - GPU_ENABLED=true
+    - NVIDIA_VISIBLE_DEVICES=all
+    - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    - BIAS_REGIME_ENABLE=1
+    - BIAS_RSI_ENABLE=1
+    - BIAS_REGIME_TTL_MS=300000
+    - BIAS_RSI_TTL_MS=300000
+    - BIAS_RSI_HI=60
+    - BIAS_RSI_LO=40
+    - BIAS_RSI_REQUIRE_SLOPE=0
+    - DIV_INFER_ENABLE=1
+    - DIV_INFER_MIN_STRENGTH=0.0
+    - DIV_INFER_MAX_AGE_MS=180000
+    - TZ=UTC
+    working_dir: /app
+    command:
+    - sleep
+    - infinity
+    volumes:
+    - ./python-worker:/app
+    - /var/lib/trade/ml_runs:/var/lib/trade/ml_runs
+    - /tmp:/tmp
+    - /var/lib/trade/of_reports:/var/lib/trade/of_reports:ro
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 24M
+    networks:
+    - scanner-core
+    - scanner-infra
+networks:
+  scanner-core:
+    external: true
+  scanner-infra:
+    external: true

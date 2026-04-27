@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/leader_lock.py
+# hypothesis_version: 6.148.10
+
+[8.0, 1000, 'LeaderLock', 'py']

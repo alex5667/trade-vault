@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Trade OF config drift monitor every hour
+Requires=trade-of-config-drift-monitor.service
+
+[Timer]
+OnCalendar=*:0:00
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
+

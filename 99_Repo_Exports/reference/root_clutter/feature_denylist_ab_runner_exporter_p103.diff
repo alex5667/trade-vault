@@ -1,0 +1,663 @@
+diff --git a/ml_analysis/tools/feature_denylist_proposal_exporter_v1.py b/ml_analysis/tools/feature_denylist_proposal_exporter_v1.py
+new file mode 100644
+index 0000000..0b01e0c
+--- /dev/null
++++ b/ml_analysis/tools/feature_denylist_proposal_exporter_v1.py
+@@ -0,0 +1,168 @@
++"""Prometheus textfile exporter: feature-denylist proposal status.
++
++Exports low-cardinality gauges based on proposals manifests on disk.
++Intended for node_exporter textfile collector or similar.
++
++Metrics
++-------
++feature_denylist_proposals_total{status="pending_ab|ab_done|ab_failed|approved"}
++feature_denylist_oldest_pending_age_seconds
++
++Optionally also exports last nightly AB runner stats from Redis hash
++FEATURE_DENYLIST_AB_METRICS_KEY (default metrics:feature_denylist_ab:last):
++  feature_denylist_ab_runner_pending
++  feature_denylist_ab_runner_processed
++  feature_denylist_ab_runner_fail
++  feature_denylist_ab_runner_oldest_pending_age_seconds
++  feature_denylist_ab_runner_age_seconds
++
++Env
++---
++FEATURE_DENYLIST_PROPOSALS_DIR (default ./proposals)
++FEATURE_DENYLIST_EXPORT_PATH (default /tmp/feature_denylist.prom)
++REDIS_URL (optional)
++
++"""
++
++from __future__ import annotations
++
++import json
++import os
++import time
++from datetime import datetime, timezone
++from pathlib import Path
++from typing import Any, Dict, List
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++UTC = timezone.utc
++
++
++def _get_redis():
++    if redis is None:
++        return None
++    url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
++    try:
++        return redis.Redis.from_url(url, decode_responses=True)
++    except Exception:
++        return None
++
++
++def _read_json(path: Path) -> Dict[str, Any]:
++    return json.loads(path.read_text(encoding="utf-8"))
++
++
++def _scrape_manifest_statuses(proposals_dir: Path) -> Dict[str, int]:
++    counts: Dict[str, int] = {"pending_ab": 0, "ab_done": 0, "ab_failed": 0, "approved": 0}
++    if not proposals_dir.exists():
++        return counts
++    for p in proposals_dir.glob("denylist_proposal_*.manifest.json"):
++        try:
++            m = _read_json(p)
++            st = str(m.get("status") or "")
++            if st in counts:
++                counts[st] += 1
++        except Exception:
++            continue
++    return counts
++
++
++def _oldest_pending_age_s(proposals_dir: Path) -> int:
++    if not proposals_dir.exists():
++        return 0
++    pending: List[Path] = []
++    for p in proposals_dir.glob("denylist_proposal_*.manifest.json"):
++        try:
++            m = _read_json(p)
++            if str(m.get("status") or "") == "pending_ab":
++                pending.append(p)
++        except Exception:
++            continue
++    if not pending:
++        return 0
++    pending.sort(key=lambda x: x.stat().st_mtime)
++    return int(time.time() - pending[0].stat().st_mtime)
++
++
++def _format_metric(name: str, labels: Dict[str, str], value: float) -> str:
++    if labels:
++        lab = ",".join([f'{k}="{v}"' for k, v in labels.items()])
++        return f"{name}{{{lab}}} {value}\n"
++    return f"{name} {value}\n"
++
++
++def main() -> int:
++    proposals_dir = Path(os.getenv("FEATURE_DENYLIST_PROPOSALS_DIR", "proposals")).expanduser().resolve()
++    out_path = Path(os.getenv("FEATURE_DENYLIST_EXPORT_PATH", "/tmp/feature_denylist.prom")).expanduser().resolve()
++
++    counts = _scrape_manifest_statuses(proposals_dir)
++    oldest_age = _oldest_pending_age_s(proposals_dir)
++
++    lines: List[str] = []
++    lines.append("# HELP feature_denylist_proposals_total Number of denylist proposals by status\n")
++    lines.append("# TYPE feature_denylist_proposals_total gauge\n")
++    for st, n in sorted(counts.items()):
++        lines.append(_format_metric("feature_denylist_proposals_total", {"status": st}, float(n)))
++
++    lines.append("# HELP feature_denylist_oldest_pending_age_seconds Age in seconds of oldest pending_ab proposal\n")
++    lines.append("# TYPE feature_denylist_oldest_pending_age_seconds gauge\n")
++    lines.append(_format_metric("feature_denylist_oldest_pending_age_seconds", {}, float(oldest_age)))
++
++    # Optional: AB runner last stats from Redis
++    r = _get_redis()
++    key = os.getenv("FEATURE_DENYLIST_AB_METRICS_KEY", "metrics:feature_denylist_ab:last")
++    if r is not None:
++        try:
++            h = r.hgetall(key) or {}
++            ts_utc = str(h.get("ts_utc") or "").strip()
++            age_s = 0
++            if ts_utc:
++                try:
++                    dt = datetime.fromisoformat(ts_utc)
++                    if dt.tzinfo is None:
++                        dt = dt.replace(tzinfo=UTC)
++                    age_s = int((datetime.now(tz=UTC) - dt).total_seconds())
++                except Exception:
++                    age_s = 0
++
++            def _i(name: str) -> int:
++                try:
++                    return int(float(str(h.get(name) or "0")))
++                except Exception:
++                    return 0
++
++            lines.append("# HELP feature_denylist_ab_runner_age_seconds Age of last AB runner tick\n")
++            lines.append("# TYPE feature_denylist_ab_runner_age_seconds gauge\n")
++            lines.append(_format_metric("feature_denylist_ab_runner_age_seconds", {}, float(age_s)))
++
++            lines.append("# HELP feature_denylist_ab_runner_pending Pending proposals seen at last tick\n")
++            lines.append("# TYPE feature_denylist_ab_runner_pending gauge\n")
++            lines.append(_format_metric("feature_denylist_ab_runner_pending", {}, float(_i("pending_n"))))
++
++            lines.append("# HELP feature_denylist_ab_runner_processed Processed proposals at last tick\n")
++            lines.append("# TYPE feature_denylist_ab_runner_processed gauge\n")
++            lines.append(_format_metric("feature_denylist_ab_runner_processed", {}, float(_i("processed_n"))))
++
++            lines.append("# HELP feature_denylist_ab_runner_fail Failed processed count at last tick\n")
++            lines.append("# TYPE feature_denylist_ab_runner_fail gauge\n")
++            lines.append(_format_metric("feature_denylist_ab_runner_fail", {}, float(_i("fail_n"))))
++
++            lines.append("# HELP feature_denylist_ab_runner_oldest_pending_age_seconds Oldest pending age at last tick\n")
++            lines.append("# TYPE feature_denylist_ab_runner_oldest_pending_age_seconds gauge\n")
++            lines.append(_format_metric("feature_denylist_ab_runner_oldest_pending_age_seconds", {}, float(_i("oldest_pending_age_s"))))
++        except Exception:
++            pass
++
++    out_path.parent.mkdir(parents=True, exist_ok=True)
++    tmp = out_path.with_suffix(out_path.suffix + ".tmp")
++    tmp.write_text("".join(lines), encoding="utf-8")
++    tmp.replace(out_path)
++
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/ml_analysis/tools/nightly_feature_denylist_ab_runner_v1.py b/ml_analysis/tools/nightly_feature_denylist_ab_runner_v1.py
+new file mode 100644
+index 0000000..c3e34a9
+--- /dev/null
++++ b/ml_analysis/tools/nightly_feature_denylist_ab_runner_v1.py
+@@ -0,0 +1,190 @@
++"""Nightly runner for feature-denylist proposals (AB gate).
++
++Scans proposals dir for manifests with status=pending_ab and runs
++`feature_denylist_replay_ab_v1` for a small batch (default 1). Updates
++low-cardinality Redis gauges so Prometheus can alert on staleness.
++
++Design
++------
++- Deterministic: does not mutate global state except manifest transitions
++  performed by the replay/AB tool itself.
++- Fail-closed: if Redis is unavailable, it still runs AB; metrics update
++  is best-effort.
++- Dedup: processes oldest pending first.
++
++Env
++---
++REDIS_URL
++FEATURE_DENYLIST_PROPOSALS_DIR (default: <fs_run_dir>/proposals is common; here default is ./proposals)
++FEATURE_DENYLIST_AB_MAX_PENDING (default 1)
++FEATURE_DENYLIST_AB_METRICS_KEY (default metrics:feature_denylist_ab:last)
++
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import subprocess
++import sys
++import time
++from datetime import datetime, timezone
++from pathlib import Path
++from typing import Any, Dict, List, Optional, Tuple
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++UTC = timezone.utc
++
++
++def _utc_now() -> datetime:
++    return datetime.now(tz=UTC)
++
++
++def _utc_iso() -> str:
++    return _utc_now().isoformat()
++
++
++def _get_redis():
++    if redis is None:
++        return None
++    url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
++    try:
++        return redis.Redis.from_url(url, decode_responses=True)
++    except Exception:
++        return None
++
++
++def _read_json(path: Path) -> Dict[str, Any]:
++    return json.loads(path.read_text(encoding="utf-8"))
++
++
++def _write_metrics(payload: Dict[str, Any]) -> None:
++    key = os.getenv("FEATURE_DENYLIST_AB_METRICS_KEY", "metrics:feature_denylist_ab:last")
++    r = _get_redis()
++    if r is None:
++        return
++    flat: Dict[str, str] = {}
++    for k, v in payload.items():
++        if v is None:
++            continue
++        if isinstance(v, (dict, list)):
++            flat[k] = json.dumps(v, ensure_ascii=False, separators=(",", ":"))
++        else:
++            flat[k] = str(v)
++    try:
++        r.hset(key, mapping=flat)
++        r.expire(key, 172800)  # 48h
++    except Exception:
++        return
++
++
++def _list_pending(proposals_dir: Path) -> List[Path]:
++    out: List[Path] = []
++    if not proposals_dir.exists():
++        return out
++    for p in proposals_dir.glob("denylist_proposal_*.manifest.json"):
++        try:
++            m = _read_json(p)
++            if str(m.get("status") or "") == "pending_ab":
++                out.append(p)
++        except Exception:
++            continue
++    # oldest first (by mtime)
++    out.sort(key=lambda x: x.stat().st_mtime)
++    return out
++
++
++def _run_replay_ab(manifest: Path, out_dir: Optional[Path] = None) -> Tuple[int, str, str]:
++    cmd = [sys.executable, "-m", "ml_analysis.tools.feature_denylist_replay_ab_v1", "--manifest", str(manifest)]
++    if out_dir is not None:
++        cmd += ["--out_dir", str(out_dir)]
++    p = subprocess.run(cmd, text=True, capture_output=True)
++    return int(p.returncode), p.stdout, p.stderr
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser()
++    ap.add_argument(
++        "--proposals-dir",
++        default=os.getenv("FEATURE_DENYLIST_PROPOSALS_DIR", "proposals"),
++        help="Directory with denylist_proposal_*.manifest.json",
++    )
++    ap.add_argument(
++        "--max-pending",
++        type=int,
++        default=int(os.getenv("FEATURE_DENYLIST_AB_MAX_PENDING", "1")),
++        help="How many pending manifests to process per run",
++    )
++    ap.add_argument(
++        "--out-dir",
++        default="",
++        help="Where AB runs are written (default: <proposals-dir>/ab_runs)",
++    )
++    ap.add_argument("--dry-run", type=int, default=0)
++    args = ap.parse_args()
++
++    proposals_dir = Path(args.proposals_dir).expanduser().resolve()
++    out_dir = Path(args.out_dir).expanduser().resolve() if args.out_dir else (proposals_dir / "ab_runs")
++
++    pending = _list_pending(proposals_dir)
++    now = _utc_now()
++
++    oldest_age_s = 0
++    if pending:
++        oldest_age_s = int(time.time() - pending[0].stat().st_mtime)
++
++    if int(args.dry_run) == 1:
++        _write_metrics(
++            {
++                "ts_utc": _utc_iso(),
++                "pending_n": len(pending),
++                "oldest_pending_age_s": oldest_age_s,
++                "dry_run": 1,
++            }
++        )
++        print(json.dumps({"pending_n": len(pending), "oldest_pending_age_s": oldest_age_s}, ensure_ascii=False))
++        return 0
++
++    processed: List[Dict[str, Any]] = []
++    ok_n = 0
++    fail_n = 0
++
++    for mp in pending[: max(0, int(args.max_pending))]:
++        rc, out, err = _run_replay_ab(mp, out_dir=out_dir)
++        item = {
++            "manifest": str(mp),
++            "rc": rc,
++            "stdout_tail": "\n".join((out or "").splitlines()[-10:]),
++            "stderr_tail": "\n".join((err or "").splitlines()[-10:]),
++        }
++        processed.append(item)
++        if rc == 0:
++            ok_n += 1
++        else:
++            fail_n += 1
++
++    payload = {
++        "ts_utc": _utc_iso(),
++        "pending_n": len(pending),
++        "processed_n": len(processed),
++        "ok_n": ok_n,
++        "fail_n": fail_n,
++        "oldest_pending_age_s": oldest_age_s,
++        "processed": processed[:3],  # small
++    }
++    _write_metrics(payload)
++
++    # Print one-line JSON for logs
++    print(json.dumps({k: payload[k] for k in ("pending_n", "processed_n", "ok_n", "fail_n", "oldest_pending_age_s")}, ensure_ascii=False))
++
++    # Fail if any processed failed (so orchestration can alert)
++    return 0 if fail_n == 0 else 2
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/orderflow_services/prometheus_alerts_feature_denylist_p103.yml b/orderflow_services/prometheus_alerts_feature_denylist_p103.yml
+new file mode 100644
+index 0000000..cf8b47c
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_feature_denylist_p103.yml
+@@ -0,0 +1,39 @@
++# P103: Feature denylist actionable output guardrails
++# Alerts are intentionally low-cardinality.
++
++groups:
++- name: feature_denylist_p103
++  rules:
++
++  - alert: FeatureDenylistPendingABStale
++    expr: feature_denylist_oldest_pending_age_seconds > 72*3600
++    for: 30m
++    labels:
++      severity: warning
++      tier: P103
++      owner: ml
++    annotations:
++      summary: "Feature denylist proposal pending AB is stale"
++      description: "Oldest pending_ab proposal age {{ $value }}s (>72h). Run nightly_feature_denylist_ab_runner_v1 or investigate AB failures."
++
++  - alert: FeatureDenylistABRunnerStale
++    expr: feature_denylist_ab_runner_age_seconds > 6*3600
++    for: 30m
++    labels:
++      severity: warning
++      tier: P103
++      owner: ml
++    annotations:
++      summary: "Feature denylist AB runner hasn't reported recently"
++      description: "AB runner last tick age {{ $value }}s (>6h). Timers worker may be disabled or exporter not updating."
++
++  - alert: FeatureDenylistABRunnerFailing
++    expr: feature_denylist_ab_runner_fail > 0
++    for: 10m
++    labels:
++      severity: warning
++      tier: P103
++      owner: ml
++    annotations:
++      summary: "Feature denylist AB runner had failures"
++      description: "AB runner processed failures count={{ $value }}. Check logs; proposal manifests may be stuck in pending_ab."
+diff --git a/orderflow_services/runbook_feature_denylist_p103.md b/orderflow_services/runbook_feature_denylist_p103.md
+new file mode 100644
+index 0000000..ee42280
+--- /dev/null
++++ b/orderflow_services/runbook_feature_denylist_p103.md
+@@ -0,0 +1,77 @@
++# Runbook: Feature Denylist Actionable Output (P103)
++
++## Purpose
++Close the loop for "feature selection -> actionable output":
++
++1) Feature-selection loop produces `stability_table.csv`.
++2) `autogen_feature_denylist_proposal_v1` generates a candidate denylist proposal (`pending_ab`).
++3) Nightly AB runner evaluates the proposal on a deterministic replay dataset:
++   - `feature_denylist_replay_ab_v1` transitions `pending_ab -> ab_done` or `ab_failed`.
++4) Human approval is required to mark it `approved` (no auto-apply).
++
++## Signals / Metrics
++- `feature_denylist_proposals_total{status="pending_ab"}`
++- `feature_denylist_oldest_pending_age_seconds`
++- `feature_denylist_ab_runner_*` (age/pending/processed/fail)
++
++## Alerts
++### FeatureDenylistPendingABStale
++Oldest pending AB proposal is older than 72 hours.
++
++**Fast check**
++```bash
++ls -lt proposals/denylist_proposal_*.manifest.json | head
++jq -r '.status,.proposal_hash,.created_utc' proposals/denylist_proposal_*.manifest.json | head -n 30
++```
++
++**Action**
++1) Run AB runner manually (safe):
++```bash
++python -m ml_analysis.tools.nightly_feature_denylist_ab_runner_v1 \
++  --proposals-dir ./proposals \
++  --max-pending 1
++```
++2) If it fails, inspect stderr tail printed by runner and the AB run dir:
++```bash
++ls -lt proposals/ab_runs | head
++```
++
++### FeatureDenylistABRunnerStale
++AB runner is not ticking (Redis metrics not refreshed).
++
++**Action**
++- Ensure timers worker is running and `ENABLE_FEATURE_DENYLIST_AB_RUNNER=1`.
++- Ensure exporter is running (textfile collector):
++  - `python -m ml_analysis.tools.feature_denylist_proposal_exporter_v1`
++
++### FeatureDenylistABRunnerFailing
++At least one AB run failed.
++
++**Action**
++- Inspect the manifest mentioned in runner stdout tail.
++- Re-run AB with higher verbosity by calling replay tool directly:
++```bash
++python -m ml_analysis.tools.feature_denylist_replay_ab_v1 --manifest <path>
++```
++
++## Approval workflow (mandatory)
++After `ab_done`:
++
++1) Validate AB report path in manifest:
++```bash
++jq '.ab' <manifest>
++```
++
++2) Approve (status -> approved) only if guard passed:
++```bash
++python -m ml_analysis.tools.approve_feature_denylist_proposal_v1 \
++  --manifest <manifest> \
++  --approve 1
++```
++
++3) Apply instructions are printed by the approval tool. Apply in a separate PR/patch.
++
++## Rollback
++If a denylist was applied and quality regressed:
++- revert the denylist JSON changes (single file) and redeploy training.
++- keep the proposal manifests for audit.
+diff --git a/services/of_timers_worker.py b/services/of_timers_worker.py
+index d9608a5..7606b1c 100644
+--- a/services/of_timers_worker.py
++++ b/services/of_timers_worker.py
+@@ -1533,6 +1533,24 @@ def run_confirmations_coverage_nightly() -> bool:
+     return run_tool(module, timeout=timeout)
+ 
+ 
++def run_feature_denylist_ab_runner_nightly() -> bool:
++    """Run nightly AB gate for feature-denylist proposals (P103).
++
++    Processes oldest pending_ab proposals and writes low-card metrics to Redis hash
++    (metrics:feature_denylist_ab:last).
++    """
++    if os.getenv("ENABLE_FEATURE_DENYLIST_AB_RUNNER", "0") != "1":
++        return False
++    proposals_dir = os.getenv("FEATURE_DENYLIST_PROPOSALS_DIR", "proposals")
++    max_pending = os.getenv("FEATURE_DENYLIST_AB_MAX_PENDING", "1")
++    out_dir = os.getenv("FEATURE_DENYLIST_AB_OUT_DIR", "")
++    args = ["--proposals-dir", proposals_dir, "--max-pending", str(max_pending)]
++    if out_dir:
++        args += ["--out-dir", out_dir]
++    timeout = int(os.getenv("FEATURE_DENYLIST_AB_TIMEOUT_SEC", "3600"))
++    return run_tool("ml_analysis.tools.nightly_feature_denylist_ab_runner_v1", args, timeout=timeout)
++
++
+ def run_archive_maintenance() -> bool:
+     """Run Archive Inventory and Prune (P57)."""
+     archive_dir = os.getenv("ARCHIVE_DIR", "/var/lib/trade/of_inputs_archive")
+@@ -2358,6 +2376,7 @@ def main() -> None:
+                 ("archive_maint", 5, 40, run_archive_maintenance),
+                 ("meta_ab_v2", 5, 55, run_meta_ab_v2_nightly_job_v1),
+                 ("confirmations_coverage", 6, 5, run_confirmations_coverage_nightly),
++                ("feature_denylist_ab_runner", 6, 45, run_feature_denylist_ab_runner_nightly),
+                 ("enforce_bucket_promoter", 6, 10, run_nightly_enforce_bucket_promoter),
+                 ("meta_ramp", 6, 20, run_nightly_meta_enforce_ramp),
+                 ("meta_self_heal", 7, 10, run_nightly_meta_self_heal),
+diff --git a/tick_flow_full/orderflow_services/prometheus_alerts_feature_denylist_p103.yml b/tick_flow_full/orderflow_services/prometheus_alerts_feature_denylist_p103.yml
+new file mode 100644
+index 0000000..cf8b47c
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_feature_denylist_p103.yml
+@@ -0,0 +1,39 @@
++# P103: Feature denylist actionable output guardrails
++# Alerts are intentionally low-cardinality.
++
++groups:
++- name: feature_denylist_p103
++  rules:
++
++  - alert: FeatureDenylistPendingABStale
++    expr: feature_denylist_oldest_pending_age_seconds > 72*3600
++    for: 30m
++    labels:
++      severity: warning
++      tier: P103
++      owner: ml
++    annotations:
++      summary: "Feature denylist proposal pending AB is stale"
++      description: "Oldest pending_ab proposal age {{ $value }}s (>72h). Run nightly_feature_denylist_ab_runner_v1 or investigate AB failures."
++
++  - alert: FeatureDenylistABRunnerStale
++    expr: feature_denylist_ab_runner_age_seconds > 6*3600
++    for: 30m
++    labels:
++      severity: warning
++      tier: P103
++      owner: ml
++    annotations:
++      summary: "Feature denylist AB runner hasn't reported recently"
++      description: "AB runner last tick age {{ $value }}s (>6h). Timers worker may be disabled or exporter not updating."
++
++  - alert: FeatureDenylistABRunnerFailing
++    expr: feature_denylist_ab_runner_fail > 0
++    for: 10m
++    labels:
++      severity: warning
++      tier: P103
++      owner: ml
++    annotations:
++      summary: "Feature denylist AB runner had failures"
++      description: "AB runner processed failures count={{ $value }}. Check logs; proposal manifests may be stuck in pending_ab."
+diff --git a/tick_flow_full/orderflow_services/runbook_feature_denylist_p103.md b/tick_flow_full/orderflow_services/runbook_feature_denylist_p103.md
+new file mode 100644
+index 0000000..ee42280
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/runbook_feature_denylist_p103.md
+@@ -0,0 +1,77 @@
++# Runbook: Feature Denylist Actionable Output (P103)
++
++## Purpose
++Close the loop for "feature selection -> actionable output":
++
++1) Feature-selection loop produces `stability_table.csv`.
++2) `autogen_feature_denylist_proposal_v1` generates a candidate denylist proposal (`pending_ab`).
++3) Nightly AB runner evaluates the proposal on a deterministic replay dataset:
++   - `feature_denylist_replay_ab_v1` transitions `pending_ab -> ab_done` or `ab_failed`.
++4) Human approval is required to mark it `approved` (no auto-apply).
++
++## Signals / Metrics
++- `feature_denylist_proposals_total{status="pending_ab"}`
++- `feature_denylist_oldest_pending_age_seconds`
++- `feature_denylist_ab_runner_*` (age/pending/processed/fail)
++
++## Alerts
++### FeatureDenylistPendingABStale
++Oldest pending AB proposal is older than 72 hours.
++
++**Fast check**
++```bash
++ls -lt proposals/denylist_proposal_*.manifest.json | head
++jq -r '.status,.proposal_hash,.created_utc' proposals/denylist_proposal_*.manifest.json | head -n 30
++```
++
++**Action**
++1) Run AB runner manually (safe):
++```bash
++python -m ml_analysis.tools.nightly_feature_denylist_ab_runner_v1 \
++  --proposals-dir ./proposals \
++  --max-pending 1
++```
++2) If it fails, inspect stderr tail printed by runner and the AB run dir:
++```bash
++ls -lt proposals/ab_runs | head
++```
++
++### FeatureDenylistABRunnerStale
++AB runner is not ticking (Redis metrics not refreshed).
++
++**Action**
++- Ensure timers worker is running and `ENABLE_FEATURE_DENYLIST_AB_RUNNER=1`.
++- Ensure exporter is running (textfile collector):
++  - `python -m ml_analysis.tools.feature_denylist_proposal_exporter_v1`
++
++### FeatureDenylistABRunnerFailing
++At least one AB run failed.
++
++**Action**
++- Inspect the manifest mentioned in runner stdout tail.
++- Re-run AB with higher verbosity by calling replay tool directly:
++```bash
++python -m ml_analysis.tools.feature_denylist_replay_ab_v1 --manifest <path>
++```
++
++## Approval workflow (mandatory)
++After `ab_done`:
++
++1) Validate AB report path in manifest:
++```bash
++jq '.ab' <manifest>
++```
++
++2) Approve (status -> approved) only if guard passed:
++```bash
++python -m ml_analysis.tools.approve_feature_denylist_proposal_v1 \
++  --manifest <manifest> \
++  --approve 1
++```
++
++3) Apply instructions are printed by the approval tool. Apply in a separate PR/patch.
++
++## Rollback
++If a denylist was applied and quality regressed:
++- revert the denylist JSON changes (single file) and redeploy training.
++- keep the proposal manifests for audit.

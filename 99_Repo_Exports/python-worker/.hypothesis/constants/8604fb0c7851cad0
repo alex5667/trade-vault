@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/utils/trail_conditional.py
+# hypothesis_version: 6.148.10
+
+[-1.0, 0.0, 1.0, 256, '0', '0.0', '0.35', '1', '1.2', '1m', 'ALLOW_NO_STATS', 'BUY', 'EVAL_DISABLED', 'EVAL_ERROR', 'EVAL_ERROR_FAIL_OPEN', 'LONG', 'MOMENTUM_OK ', 'NA', 'NO_EVAL', 'PAYLOAD_SET_ERROR', 'TRAIL_GIVEBACK_R_MIN', 'TRAIL_OBI_MIN', 'TRAIL_TF_DEFAULT', 'TRAIL_Z_MIN', 'USDT', 'VETO_NO_STATS', 'delta_z', 'ema_giveback_r', 'enabled', 'ignore', 'na', 'name', 'obi', 'obi_20', 'obi_avg', 'obi_is_sustained', 'obi_score', 'obi_stable', 'obi_sustained', 'on', 'raw_score', 'reason', 'sust=1', 'trail_after_tp1', 'true', 'utf-8', 'value', 'yes', 'z', 'z_delta']

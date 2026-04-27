@@ -1,0 +1,1977 @@
+--- orderflow_services/derivatives_context_collector_v1.py
++++ orderflow_services/derivatives_context_collector_v1.py
+@@ -0,0 +1,168 @@
++from __future__ import annotations
++
++"""Low-frequency collector for normalized derivatives context.
++
++Responsibilities
++----------------
++- poll public Binance USDⓈ-M endpoints for premium index / mark / index / OI
++- merge with partial funding stream payloads when available
++- compute normalized snapshot and publish to Redis key `ctx:deriv:<SYMBOL>`
++
++This service is *not* on the hot tick path.
++It is safe to run every 15–60 seconds.
++"""
++
++import asyncio
++import json
++import logging
++import os
++import time
++from typing import Dict, List
++
++import redis.asyncio as aioredis
++
++from services.binance_futures_client import BinanceFuturesPublicREST
++from services.orderflow.derivatives_context import (
++    DEFAULT_CTX_PREFIX,
++    aread_derivatives_context,
++    awrite_derivatives_context,
++    build_snapshot,
++)
++from services.orderflow.metrics_derivatives_context import deriv_ctx_collector_errors_total, deriv_ctx_collector_up
++
++logger = logging.getLogger("derivatives_context_collector_v1")
++
++
++def _split_csv(raw: str) -> List[str]:
++    return [s.strip().upper() for s in str(raw or "").split(",") if s.strip()]
++
++
++class DerivativesContextCollector:
++    def __init__(self) -> None:
++        self.redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++        self.r = aioredis.from_url(self.redis_url, decode_responses=True)
++        self.public = BinanceFuturesPublicREST(
++            base_url=(os.getenv("BINANCE_FUTURES_BASE_URL") or "https://fapi.binance.com").strip(),
++            timeout_s=float(os.getenv("BINANCE_HTTP_TIMEOUT_S", "8.0") or 8.0),
++        )
++        self.interval_s = float(os.getenv("DERIV_CTX_POLL_INTERVAL_S", "30") or 30.0)
++        self.ttl_s = int(os.getenv("DERIV_CTX_TTL_S", "180") or 180)
++        self.symbols_key = os.getenv("DERIV_CTX_SYMBOLS_SET", "crypto:symbols")
++        self.static_symbols = _split_csv(os.getenv("DERIV_CTX_SYMBOLS", "BTCUSDT,ETHUSDT"))
++        self.history_len = int(os.getenv("DERIV_CTX_HISTORY_LEN", "96") or 96)
++        self.funding_extreme_abs = float(os.getenv("DERIV_CTX_FUNDING_EXTREME_ABS", "0.0008") or 0.0008)
++        self.basis_extreme_abs_bps = float(os.getenv("DERIV_CTX_BASIS_EXTREME_BPS", "10.0") or 10.0)
++        self.oi_accel_abs_usd = float(os.getenv("DERIV_CTX_OI_ACCEL_ABS_USD", "5000000") or 5_000_000.0)
++        self.partial_prefix = os.getenv("DERIV_CTX_PARTIAL_PREFIX", "ctx:deriv_source:funding:")
++
++    async def _discover_symbols(self) -> List[str]:
++        out = set(self.static_symbols)
++        try:
++            members = await self.r.smembers(self.symbols_key)
++            for m in members or []:
++                s = str(m or "").strip().upper()
++                if s:
++                    out.add(s)
++        except Exception:
++            pass
++        if not out:
++            out = {"BTCUSDT", "ETHUSDT"}
++        return sorted(out)
++
++    async def _read_funding_history(self, symbol: str) -> List[float]:
++        key = f"ctx:deriv_hist:funding:{symbol}"
++        try:
++            vals = await self.r.lrange(key, 0, self.history_len - 1)
++            return [float(v) for v in vals or []]
++        except Exception:
++            return []
++
++    async def _push_funding_history(self, symbol: str, funding_rate: float) -> None:
++        key = f"ctx:deriv_hist:funding:{symbol}"
++        try:
++            pipe = self.r.pipeline()
++            pipe.lpush(key, float(funding_rate))
++            pipe.ltrim(key, 0, self.history_len - 1)
++            pipe.expire(key, max(self.ttl_s * 8, 3600))
++            await pipe.execute()
++        except Exception:
++            pass
++
++    async def _get_partial_funding_payload(self, symbol: str) -> Dict:
++        try:
++            raw = await self.r.get(f"{self.partial_prefix}{symbol}")
++            return json.loads(raw) if raw else {}
++        except Exception:
++            return {}
++
++    async def _collect_symbol(self, symbol: str) -> None:
++        now_ms = int(time.time() * 1000)
++        prev = await aread_derivatives_context(self.r, symbol=symbol, prefix=DEFAULT_CTX_PREFIX)
++        funding_partial = await self._get_partial_funding_payload(symbol)
++        funding_hist = await self._read_funding_history(symbol)
++
++        # Public REST calls are blocking stdlib HTTP -> offload to thread pool.
++        premium = await asyncio.to_thread(self.public.get_premium_index, symbol)
++        oi = await asyncio.to_thread(self.public.get_open_interest, symbol)
++
++        funding_rate = funding_partial.get("funding_rate", premium.get("lastFundingRate", premium.get("lastFundingRateRate", 0.0)))
++        mark_price = premium.get("markPrice", 0.0)
++        index_price = premium.get("indexPrice", 0.0)
++        premium_index = premium.get("premiumIndex", premium.get("lastFundingRate", 0.0))
++        open_interest = oi.get("openInterest", 0.0)
++        prev_oi = float(prev.open_interest if prev else 0.0)
++
++        snap = build_snapshot(
++            symbol=symbol,
++            ts_ms=now_ms,
++            venue="binance",
++            funding_rate=float(funding_rate or 0.0),
++            funding_history=funding_hist,
++            premium_index=float(premium_index or 0.0),
++            mark_price=float(mark_price or 0.0),
++            index_price=float(index_price or 0.0),
++            open_interest=float(open_interest or 0.0),
++            previous_open_interest=float(prev_oi),
++            funding_extreme_abs=self.funding_extreme_abs,
++            basis_extreme_abs_bps=self.basis_extreme_abs_bps,
++            oi_accel_abs_usd=self.oi_accel_abs_usd,
++        )
++        ok = await awrite_derivatives_context(self.r, snap, ttl_s=self.ttl_s)
++        if ok:
++            await self._push_funding_history(symbol, snap.funding_rate)
++
++    async def run_once(self) -> None:
++        syms = await self._discover_symbols()
++        for sym in syms:
++            try:
++                await self._collect_symbol(sym)
++            except Exception as exc:
++                logger.exception("derivatives context collect failed for %s: %s", sym, exc)
++                try:
++                    deriv_ctx_collector_errors_total.labels(where="collect_symbol").inc()
++                except Exception:
++                    pass
++
++    async def run_forever(self) -> None:
++        while True:
++            try:
++                if deriv_ctx_collector_up is not None:
++                    deriv_ctx_collector_up.set(1)
++                await self.run_once()
++            except Exception as exc:
++                logger.exception("collector loop failed: %s", exc)
++                try:
++                    deriv_ctx_collector_errors_total.labels(where="loop").inc()
++                except Exception:
++                    pass
++            await asyncio.sleep(self.interval_s)
++
++
++async def _amain() -> None:
++    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
++    svc = DerivativesContextCollector()
++    await svc.run_forever()
++
++
++if __name__ == "__main__":
++    asyncio.run(_amain())
+--- orderflow_services/derivatives_context_exporter_v1.py
++++ orderflow_services/derivatives_context_exporter_v1.py
+@@ -0,0 +1,91 @@
++from __future__ import annotations
++
++import json
++import logging
++import os
++import time
++from typing import Dict, Iterable, List
++
++try:
++    import redis
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++from prometheus_client import Gauge, Counter, start_http_server
++
++from services.orderflow.derivatives_context import from_json
++
++logger = logging.getLogger("derivatives_context_exporter_v1")
++
++
++g_up = Gauge("deriv_ctx_exporter_up", "Derivatives context exporter up")
++g_last_ts_ms = Gauge("deriv_ctx_exporter_last_snapshot_ts_ms", "Last derivatives context snapshot ts_ms", ["symbol"])
++g_age_ms = Gauge("deriv_ctx_exporter_snapshot_age_ms", "Age of derivatives context snapshot in ms", ["symbol"])
++g_funding_z = Gauge("deriv_ctx_exporter_funding_rate_z", "Funding rate robust z-score", ["symbol"])
++g_basis_bps = Gauge("deriv_ctx_exporter_basis_bps", "Basis bps", ["symbol"])
++g_oi_usd = Gauge("deriv_ctx_exporter_oi_notional_usd", "OI notional USD", ["symbol"])
++g_flag = Gauge("deriv_ctx_exporter_flag", "Derivatives context flags", ["symbol", "flag"])
++c_errors = Counter("deriv_ctx_exporter_errors_total", "Exporter errors", ["where"])
++
++
++class Exporter:
++    def __init__(self) -> None:
++        self.redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++        if redis is None:
++            raise RuntimeError("redis package is required for derivatives_context_exporter_v1")
++        self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
++        self.interval_s = float(os.getenv("DERIV_CTX_EXPORTER_INTERVAL_S", "15") or 15.0)
++        self.port = int(os.getenv("DERIV_CTX_EXPORTER_PORT", "9831") or 9831)
++        self.prefix = os.getenv("DERIV_CTX_PREFIX", "ctx:deriv:")
++        self.allow = {s.strip().upper() for s in str(os.getenv("DERIV_CTX_METRICS_SYMBOLS", "")).split(",") if s.strip()}
++
++    def _symbols(self) -> List[str]:
++        keys = self.r.keys(f"{self.prefix}*")
++        syms = []
++        for k in keys:
++            try:
++                syms.append(str(k).split(self.prefix, 1)[1].upper())
++            except Exception:
++                continue
++        return sorted(set(syms))
++
++    def scrape_once(self) -> None:
++        now_ms = int(time.time() * 1000)
++        for sym in self._symbols():
++            try:
++                raw = self.r.get(f"{self.prefix}{sym}")
++                snap = from_json(raw)
++                if not snap:
++                    continue
++                label = sym if (not self.allow or sym in self.allow) else "__all__"
++                g_last_ts_ms.labels(symbol=label).set(float(snap.ts_ms))
++                g_age_ms.labels(symbol=label).set(max(0.0, float(now_ms - int(snap.ts_ms))))
++                g_funding_z.labels(symbol=label).set(float(snap.funding_rate_z))
++                g_basis_bps.labels(symbol=label).set(float(snap.basis_bps))
++                g_oi_usd.labels(symbol=label).set(float(snap.oi_notional_usd))
++                g_flag.labels(symbol=label, flag="funding_extreme").set(float(snap.funding_extreme))
++                g_flag.labels(symbol=label, flag="basis_extreme").set(float(snap.basis_extreme))
++                g_flag.labels(symbol=label, flag="oi_accel").set(float(snap.oi_accel))
++            except Exception as exc:
++                logger.exception("export fail for %s: %s", sym, exc)
++                c_errors.labels(where="scrape_symbol").inc()
++
++    def run(self) -> None:
++        start_http_server(self.port)
++        logger.info("derivatives context exporter listening on :%d", self.port)
++        while True:
++            try:
++                g_up.set(1)
++                self.scrape_once()
++            except Exception as exc:
++                logger.exception("export loop fail: %s", exc)
++                c_errors.labels(where="loop").inc()
++            time.sleep(self.interval_s)
++
++
++def main() -> None:
++    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
++    Exporter().run()
++
++
++if __name__ == "__main__":
++    main()
+--- orderflow_services/grafana/derivatives_context_v1.json
++++ orderflow_services/grafana/derivatives_context_v1.json
+@@ -0,0 +1,60 @@
++{
++  "title": "Derivatives Context (v1)",
++  "schemaVersion": 39,
++  "version": 1,
++  "templating": {
++    "list": [
++      {
++        "name": "symbol",
++        "type": "query",
++        "datasource": "Prometheus",
++        "query": "label_values(deriv_ctx_exporter_snapshot_age_ms, symbol)",
++        "refresh": 1,
++        "includeAll": true,
++        "multi": true
++      }
++    ]
++  },
++  "panels": [
++    {
++      "title": "Funding rate z-score",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "deriv_ctx_exporter_funding_rate_z{symbol=~\"$symbol\"}",
++          "legendFormat": "{{symbol}}"
++        }
++      ]
++    },
++    {
++      "title": "Basis bps",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "deriv_ctx_exporter_basis_bps{symbol=~\"$symbol\"}",
++          "legendFormat": "{{symbol}}"
++        }
++      ]
++    },
++    {
++      "title": "OI notional USD",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "deriv_ctx_exporter_oi_notional_usd{symbol=~\"$symbol\"}",
++          "legendFormat": "{{symbol}}"
++        }
++      ]
++    },
++    {
++      "title": "Snapshot age ms",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "deriv_ctx_exporter_snapshot_age_ms{symbol=~\"$symbol\"}",
++          "legendFormat": "{{symbol}}"
++        }
++      ]
++    }
++  ]
++}
+--- orderflow_services/prometheus_alerts_derivatives_context_v1.yml
++++ orderflow_services/prometheus_alerts_derivatives_context_v1.yml
+@@ -0,0 +1,35 @@
++groups:
++  - name: derivatives_context_v1
++    rules:
++      - alert: OF_DerivativesContext_SnapshotStale_Warn
++        expr: max(deriv_ctx_exporter_snapshot_age_ms) > 90000
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Derivatives context snapshot is stale"
++          description: "At least one ctx:deriv snapshot is older than 90s. Collector may be lagging."
++      - alert: OF_DerivativesContext_FundingExtreme_Crit
++        expr: max by(symbol) (deriv_ctx_exporter_flag{flag="funding_extreme"}) > 0
++        for: 5m
++        labels:
++          severity: critical
++        annotations:
++          summary: "Funding extreme detected"
++          description: "Funding is in extreme regime for at least one symbol. Tighten/veto paths should be reviewed."
++      - alert: OF_DerivativesContext_BasisExtreme_Crit
++        expr: max by(symbol) (deriv_ctx_exporter_flag{flag="basis_extreme"}) > 0
++        for: 5m
++        labels:
++          severity: critical
++        annotations:
++          summary: "Basis extreme detected"
++          description: "Premium/basis is in extreme regime for at least one symbol."
++      - alert: OF_DerivativesContext_ExporterStale_Warn
++        expr: absent(deriv_ctx_exporter_up) or max_over_time(deriv_ctx_exporter_up[10m]) < 1
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Derivatives context exporter is stale"
++          description: "The exporter did not expose healthy metrics in the last 10 minutes."
+--- orderflow_services/tests/test_derivatives_context_alerts_yaml_v1.py
++++ orderflow_services/tests/test_derivatives_context_alerts_yaml_v1.py
+@@ -0,0 +1,24 @@
++from __future__ import annotations
++
++import os
++import yaml
++import pytest
++
++
++def _path(tick_flow_full: bool = False) -> str:
++    base = os.path.dirname(__file__)
++    if tick_flow_full:
++        return os.path.abspath(os.path.join(base, "..", "..", "tick_flow_full", "orderflow_services", "prometheus_alerts_derivatives_context_v1.yml"))
++    return os.path.abspath(os.path.join(base, "..", "prometheus_alerts_derivatives_context_v1.yml"))
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_derivatives_context_alerts_yaml_parses(tick_flow_full: bool):
++    path = _path(tick_flow_full)
++    assert os.path.isfile(path)
++    with open(path) as fh:
++        doc = yaml.safe_load(fh)
++    assert "groups" in doc and doc["groups"]
++    names = {r.get("alert") for r in doc["groups"][0].get("rules", [])}
++    assert "OF_DerivativesContext_SnapshotStale_Warn" in names
++    assert "OF_DerivativesContext_FundingExtreme_Crit" in names
+--- orderflow_services/tests/test_derivatives_context_dashboard_json_v1.py
++++ orderflow_services/tests/test_derivatives_context_dashboard_json_v1.py
+@@ -0,0 +1,24 @@
++from __future__ import annotations
++
++import json
++import os
++import pytest
++
++
++def _path(tick_flow_full: bool = False) -> str:
++    base = os.path.dirname(__file__)
++    if tick_flow_full:
++        return os.path.abspath(os.path.join(base, "..", "..", "tick_flow_full", "orderflow_services", "grafana", "derivatives_context_v1.json"))
++    return os.path.abspath(os.path.join(base, "..", "grafana", "derivatives_context_v1.json"))
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_derivatives_context_dashboard_json_parses(tick_flow_full: bool):
++    path = _path(tick_flow_full)
++    assert os.path.isfile(path)
++    with open(path) as fh:
++        doc = json.load(fh)
++    assert doc.get("title") == "Derivatives Context (v1)"
++    exprs = "\n".join(t.get("expr", "") for p in doc.get("panels", []) for t in p.get("targets", []))
++    assert "deriv_ctx_exporter_funding_rate_z" in exprs
++    assert "deriv_ctx_exporter_basis_bps" in exprs
+--- orderflow_services/tests/test_derivatives_context_exporter_v1.py
++++ orderflow_services/tests/test_derivatives_context_exporter_v1.py
+@@ -0,0 +1,25 @@
++from __future__ import annotations
++
++from types import SimpleNamespace
++from unittest.mock import MagicMock, patch
++
++from orderflow_services import derivatives_context_exporter_v1 as mod
++
++
++def test_derivatives_context_exporter_reads_snapshot_and_sets_metrics():
++    mock_redis_cls = MagicMock()
++    cli = MagicMock()
++    mock_redis_cls.from_url.return_value = cli
++    cli.keys.return_value = ["ctx:deriv:BTCUSDT"]
++    cli.get.return_value = '{"schema_version":1,"symbol":"BTCUSDT","ts_ms":1000,"venue":"binance","funding_rate":0.001,"funding_rate_abs":0.001,"funding_rate_z":4.0,"premium_index":0.001,"basis_bps":12.0,"open_interest":1000.0,"delta_oi_5m":10.0,"oi_notional_usd":100000.0,"funding_extreme":1,"basis_extreme":1,"oi_accel":0}'
++
++    with patch.object(mod, "redis", SimpleNamespace(Redis=mock_redis_cls)), \
++         patch("orderflow_services.derivatives_context_exporter_v1.start_http_server"), \
++         patch("orderflow_services.derivatives_context_exporter_v1.time.sleep", side_effect=KeyboardInterrupt):
++        try:
++            mod.main()
++        except KeyboardInterrupt:
++            pass
++
++    assert mod.g_funding_z.labels(symbol="BTCUSDT")._value.get() == 4.0
++    assert mod.g_basis_bps.labels(symbol="BTCUSDT")._value.get() == 12.0
+--- services/binance_futures_client.py
++++ services/binance_futures_client.py
+@@ -243,6 +243,41 @@
+             timeout_s=timeout_s,
+         )
+ 
++
++
++
++@dataclass
++class BinanceFuturesPublicREST:
++    """Minimal public REST client for Binance USDⓈ-M Futures.
++
++    No API key is required. This client exists specifically for low-frequency
++    context collectors (funding / premium index / open interest) so they do not
++    depend on trading credentials.
++    """
++
++    base_url: str = "https://fapi.binance.com"
++    timeout_s: float = 8.0
++
++    def _request(self, *, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
++        qs = urllib.parse.urlencode(sorted((params or {}).items()), doseq=True)
++        url = self.base_url.rstrip("/") + path
++        if qs:
++            url = url + "?" + qs
++        req = urllib.request.Request(url=url, method="GET")
++        req.add_header("User-Agent", "scanner_infra/binance_public_v1")
++        with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
++            raw = resp.read()
++        return _safe_json_loads(raw)
++
++    def get_premium_index(self, symbol: str) -> Any:
++        return self._request(path="/fapi/v1/premiumIndex", params={"symbol": str(symbol).upper()})
++
++    def get_open_interest(self, symbol: str) -> Any:
++        return self._request(path="/fapi/v1/openInterest", params={"symbol": str(symbol).upper()})
++
++    def get_funding_info(self, symbol: str) -> Any:
++        # `/premiumIndex` already carries mark/index/lastFundingRate on Binance.
++        return self.get_premium_index(symbol)
+ 
+ # ---------------------------------------------------------------------------
+ # BinanceFuturesClient — full execution client (used by binance_executor P1)
+--- services/orderflow/derivatives_context.py
++++ services/orderflow/derivatives_context.py
+@@ -0,0 +1,337 @@
++from __future__ import annotations
++
++"""Normalized derivatives context for perpetual futures.
++
++This module centralizes the *read/write contract* for cross-service derivatives
++context consumed by runtime/orderflow gates.
++
++Why this exists
++---------------
++The project already had partial funding ingestion (`funding_handler_impl.py`) and
++public market helpers (`binance_futures_client.py`), but there was no single
++normalized Redis snapshot that policy layers could consume deterministically.
++
++This module defines that snapshot and provides:
++- pure math helpers (`basis_bps`, `oi_notional_usd`, robust z)
++- normalization of raw exchange payloads into a stable JSON contract
++- async/sync Redis readers/writers (fail-open at call sites)
++
++Redis contract
++--------------
++Key: ``ctx:deriv:<SYMBOL>``
++Value: JSON object
++
++Example::
++    {
++      "schema_version": 1,
++      "symbol": "BTCUSDT",
++      "ts_ms": 1731000000000,
++      "venue": "binance",
++      "funding_rate": 0.0001,
++      "funding_rate_abs": 0.0001,
++      "funding_rate_z": 2.3,
++      "premium_index": 0.0008,
++      "basis_bps": 8.0,
++      "open_interest": 12345.0,
++      "delta_oi_5m": 234.0,
++      "oi_notional_usd": 123450000.0,
++      "funding_extreme": 0,
++      "basis_extreme": 0,
++      "oi_accel": 0
++    }
++
++Design rules
++------------
++- Epoch milliseconds only.
++- JSON numbers only (no Decimal / pandas dependency).
++- Fail-open readers: bad payloads return None.
++- Writers are explicit and deterministic.
++"""
++
++import json
++import math
++import time
++from dataclasses import asdict, dataclass
++from statistics import median
++from typing import Any, Dict, Iterable, Optional, Sequence
++
++SCHEMA_VERSION = 1
++DEFAULT_CTX_PREFIX = "ctx:deriv:"
++
++
++@dataclass(frozen=True)
++class DerivativesContextSnapshot:
++    schema_version: int
++    symbol: str
++    ts_ms: int
++    venue: str
++    funding_rate: float
++    funding_rate_abs: float
++    funding_rate_z: float
++    premium_index: float
++    basis_bps: float
++    open_interest: float
++    delta_oi_5m: float
++    oi_notional_usd: float
++    funding_extreme: int
++    basis_extreme: int
++    oi_accel: int
++
++    def to_dict(self) -> Dict[str, Any]:
++        return asdict(self)
++
++    def to_json(self) -> str:
++        return json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
++
++
++# ---------------------------------------------------------------------------
++# Small numeric helpers (dependency-free, deterministic)
++# ---------------------------------------------------------------------------
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _f(v: Any, d: float = 0.0) -> float:
++    try:
++        x = float(v)
++        return x if math.isfinite(x) else d
++    except Exception:
++        return d
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(v)
++    except Exception:
++        return d
++
++
++def _s(v: Any) -> str:
++    return str(v or "").strip()
++
++
++def ctx_key(symbol: str, prefix: str = DEFAULT_CTX_PREFIX) -> str:
++    return f"{prefix}{str(symbol or '').upper()}"
++
++
++def basis_bps(*, mark_price: float, index_price: float) -> float:
++    """Compute premium/basis in bps.
++
++    We intentionally use mark vs index because that is the most stable public
++    proxy available from Binance premiumIndex without requiring spot connector
++    joins inside the hot path.
++    """
++    mark = _f(mark_price, 0.0)
++    index_ = _f(index_price, 0.0)
++    if mark <= 0.0 or index_ <= 0.0:
++        return 0.0
++    out = ((mark - index_) / index_) * 10_000.0
++    return float(out) if math.isfinite(out) else 0.0
++
++
++def oi_notional_usd(*, open_interest: float, mark_price: float) -> float:
++    oi = _f(open_interest, 0.0)
++    px = _f(mark_price, 0.0)
++    if oi <= 0.0 or px <= 0.0:
++        return 0.0
++    out = oi * px
++    return float(out) if math.isfinite(out) else 0.0
++
++
++def robust_zscore(*, x: float, history: Sequence[float]) -> float:
++    """Median/MAD-based z-score.
++
++    Production rationale:
++    - derivatives context is sparse / heavy-tailed;
++    - mean/std explodes under exchange stress regimes;
++    - median/MAD remains stable enough for gating.
++    """
++    xv = _f(x, 0.0)
++    vals = [abs(_f(v, 0.0)) for v in (history or []) if math.isfinite(_f(v, 0.0))]
++    if len(vals) < 5:
++        return 0.0
++    med = float(median(vals))
++    mad = float(median([abs(v - med) for v in vals]))
++    if mad <= 1e-12:
++        return 0.0
++    # 1.4826 = consistency constant for normal distribution.
++    z = (abs(xv) - med) / (1.4826 * mad)
++    if not math.isfinite(z):
++        return 0.0
++    return float(max(-50.0, min(50.0, z)))
++
++
++def delta_open_interest(*, current_oi: float, previous_oi: float) -> float:
++    cur = _f(current_oi, 0.0)
++    prev = _f(previous_oi, 0.0)
++    if cur <= 0.0 or prev <= 0.0:
++        return 0.0
++    out = cur - prev
++    return float(out) if math.isfinite(out) else 0.0
++
++
++def build_snapshot(
++    *,
++    symbol: str,
++    ts_ms: int,
++    venue: str,
++    funding_rate: float,
++    funding_history: Sequence[float],
++    premium_index: float,
++    mark_price: float,
++    index_price: float,
++    open_interest: float,
++    previous_open_interest: float,
++    funding_extreme_abs: float,
++    basis_extreme_abs_bps: float,
++    oi_accel_abs_usd: float,
++) -> DerivativesContextSnapshot:
++    """Build normalized derivatives snapshot from raw values.
++
++    Inputs are intentionally already scalarized so collectors can source them
++    from REST, Redis, caches, or synthetic replay fixtures.
++    """
++    fr = _f(funding_rate, 0.0)
++    px_mark = _f(mark_price, 0.0)
++    px_index = _f(index_price, 0.0)
++    basis = basis_bps(mark_price=px_mark, index_price=px_index)
++    oi = _f(open_interest, 0.0)
++    doi = delta_open_interest(current_oi=oi, previous_oi=previous_open_interest)
++    oi_usd = oi_notional_usd(open_interest=oi, mark_price=px_mark)
++    doi_usd = abs(_f(doi, 0.0) * px_mark)
++    fz = robust_zscore(x=fr, history=funding_history)
++
++    funding_extreme = 1 if abs(fr) >= max(_f(funding_extreme_abs, 0.0), 1e-12) or fz >= 3.0 else 0
++    basis_extreme = 1 if abs(basis) >= max(_f(basis_extreme_abs_bps, 0.0), 1e-12) else 0
++    oi_accel = 1 if doi_usd >= max(_f(oi_accel_abs_usd, 0.0), 1e-12) and doi != 0.0 else 0
++
++    return DerivativesContextSnapshot(
++        schema_version=SCHEMA_VERSION,
++        symbol=str(symbol or "").upper(),
++        ts_ms=int(ts_ms or _now_ms()),
++        venue=str(venue or "binance").lower(),
++        funding_rate=float(fr),
++        funding_rate_abs=float(abs(fr)),
++        funding_rate_z=float(fz),
++        premium_index=float(_f(premium_index, 0.0)),
++        basis_bps=float(basis),
++        open_interest=float(oi),
++        delta_oi_5m=float(doi),
++        oi_notional_usd=float(oi_usd),
++        funding_extreme=int(funding_extreme),
++        basis_extreme=int(basis_extreme),
++        oi_accel=int(oi_accel),
++    )
++
++
++def from_dict(payload: Dict[str, Any]) -> Optional[DerivativesContextSnapshot]:
++    try:
++        symbol = _s(payload.get("symbol")).upper()
++        if not symbol:
++            return None
++        return DerivativesContextSnapshot(
++            schema_version=_i(payload.get("schema_version"), SCHEMA_VERSION),
++            symbol=symbol,
++            ts_ms=_i(payload.get("ts_ms"), 0),
++            venue=_s(payload.get("venue")) or "binance",
++            funding_rate=_f(payload.get("funding_rate"), 0.0),
++            funding_rate_abs=_f(payload.get("funding_rate_abs"), 0.0),
++            funding_rate_z=_f(payload.get("funding_rate_z"), 0.0),
++            premium_index=_f(payload.get("premium_index"), 0.0),
++            basis_bps=_f(payload.get("basis_bps"), 0.0),
++            open_interest=_f(payload.get("open_interest"), 0.0),
++            delta_oi_5m=_f(payload.get("delta_oi_5m"), 0.0),
++            oi_notional_usd=_f(payload.get("oi_notional_usd"), 0.0),
++            funding_extreme=_i(payload.get("funding_extreme"), 0),
++            basis_extreme=_i(payload.get("basis_extreme"), 0),
++            oi_accel=_i(payload.get("oi_accel"), 0),
++        )
++    except Exception:
++        return None
++
++
++def from_json(raw: Any) -> Optional[DerivativesContextSnapshot]:
++    try:
++        if raw is None:
++            return None
++        if isinstance(raw, bytes):
++            raw = raw.decode("utf-8", errors="replace")
++        if isinstance(raw, str):
++            raw = json.loads(raw)
++        if not isinstance(raw, dict):
++            return None
++        return from_dict(raw)
++    except Exception:
++        return None
++
++
++async def aread_derivatives_context(redis, *, symbol: str, prefix: str = DEFAULT_CTX_PREFIX) -> Optional[DerivativesContextSnapshot]:
++    if redis is None:
++        return None
++    try:
++        raw = await redis.get(ctx_key(symbol, prefix=prefix))
++    except Exception:
++        return None
++    return from_json(raw)
++
++
++def read_derivatives_context_sync(redis, *, symbol: str, prefix: str = DEFAULT_CTX_PREFIX) -> Optional[DerivativesContextSnapshot]:
++    if redis is None:
++        return None
++    try:
++        raw = redis.get(ctx_key(symbol, prefix=prefix))
++    except Exception:
++        return None
++    return from_json(raw)
++
++
++async def awrite_derivatives_context(redis, snap: DerivativesContextSnapshot, *, ttl_s: int = 180, prefix: str = DEFAULT_CTX_PREFIX) -> bool:
++    if redis is None:
++        return False
++    try:
++        await redis.set(ctx_key(snap.symbol, prefix=prefix), snap.to_json(), ex=int(ttl_s))
++        return True
++    except Exception:
++        return False
++
++
++def write_derivatives_context_sync(redis, snap: DerivativesContextSnapshot, *, ttl_s: int = 180, prefix: str = DEFAULT_CTX_PREFIX) -> bool:
++    if redis is None:
++        return False
++    try:
++        redis.set(ctx_key(snap.symbol, prefix=prefix), snap.to_json(), ex=int(ttl_s))
++        return True
++    except Exception:
++        return False
++
++
++def partial_funding_payload_from_exchange(payload: Dict[str, Any], *, venue: str = "binance", now_ms: Optional[int] = None) -> Dict[str, Any]:
++    """Normalize a funding stream payload into a minimal partial context payload.
++
++    This helper is intentionally limited to fields that can realistically arrive
++    from a funding stream. It does not invent OI/basis if those values are not
++    present. The collector can merge this partial payload with REST polling.
++    """
++    obj = dict(payload or {})
++    symbol = _s(obj.get("symbol")).upper()
++    ts_ms = _i(obj.get("time") or obj.get("fundingTime") or obj.get("ts_ms") or now_ms or _now_ms())
++    rate = _f(obj.get("lastFundingRate", obj.get("fundingRate", 0.0)), 0.0)
++    premium = _f(obj.get("lastFundingRate", 0.0), 0.0) if "premiumIndex" not in obj else _f(obj.get("premiumIndex"), 0.0)
++    return {
++        "schema_version": SCHEMA_VERSION,
++        "symbol": symbol,
++        "ts_ms": ts_ms,
++        "venue": str(venue or "binance").lower(),
++        "funding_rate": float(rate),
++        "funding_rate_abs": float(abs(rate)),
++        "funding_rate_z": 0.0,
++        "premium_index": float(premium),
++        "basis_bps": 0.0,
++        "open_interest": 0.0,
++        "delta_oi_5m": 0.0,
++        "oi_notional_usd": 0.0,
++        "funding_extreme": 0,
++        "basis_extreme": 0,
++        "oi_accel": 0,
++    }
+--- services/orderflow/derivatives_context_gate.py
++++ services/orderflow/derivatives_context_gate.py
+@@ -0,0 +1,109 @@
++from __future__ import annotations
++
++"""Pure policy for normalized derivatives context.
++
++This gate is intentionally small and deterministic so it can be reused by:
++- services.orderflow.signal_pipeline
++- services.smt_entry_policy_service
++- future regime overlays
++
++Profiles
++--------
++- default/soft: annotate only
++- strict: tighten execution assumptions
++- hard: tighten + optional veto on multi-flag crowding
++"""
++
++from dataclasses import dataclass
++from typing import List
++
++
++@dataclass
++class DerivativesContextDecision:
++    hit: bool
++    mode: str
++    flags: List[str]
++    crowding_score: float
++    tighten_add_bps: float
++    veto: bool
++    veto_reason: str
++    caution: bool
++
++
++def _map_profile(profile: str) -> str:
++    p = str(profile or "default").strip().lower()
++    if p in {"default", "soft", "monitor"}:
++        return "monitor"
++    if p in {"strict", "tighten"}:
++        return "tighten"
++    if p in {"hard", "veto"}:
++        return "veto"
++    return "monitor"
++
++
++def evaluate_derivatives_context(
++    *,
++    profile: str,
++    funding_rate_z: float,
++    basis_bps: float,
++    funding_extreme: int,
++    basis_extreme: int,
++    oi_accel: int,
++    thr_funding_z: float,
++    thr_basis_bps: float,
++    require_oi_for_veto: bool,
++    tighten_mult: float,
++    tighten_cap_bps: float,
++) -> DerivativesContextDecision:
++    mode = _map_profile(profile)
++
++    fz = float(funding_rate_z or 0.0)
++    bb = float(basis_bps or 0.0)
++    fx = int(funding_extreme or 0)
++    bx = int(basis_extreme or 0)
++    ox = int(oi_accel or 0)
++    thr_fz = float(thr_funding_z or 0.0)
++    thr_bb = float(thr_basis_bps or 0.0)
++
++    flags: List[str] = []
++    if fx or (thr_fz > 0.0 and fz >= thr_fz):
++        flags.append("funding_extreme")
++    if bx or (thr_bb > 0.0 and abs(bb) >= thr_bb):
++        flags.append("basis_extreme")
++    if ox:
++        flags.append("oi_accel")
++
++    score = float(len(flags))
++    hit = bool(flags)
++    caution = bool(len(flags) >= 1)
++
++    tighten_add = 0.0
++    if mode in {"tighten", "veto"} and hit:
++        sev = 0.0
++        if thr_fz > 0.0:
++            sev = max(sev, max(0.0, fz - thr_fz))
++        if thr_bb > 0.0:
++            sev = max(sev, max(0.0, abs(bb) - thr_bb) / max(thr_bb, 1e-9))
++        sev += 0.5 * max(0.0, score - 1.0)
++        tighten_add = min(float(tighten_cap_bps or 0.0), max(0.0, float(tighten_mult or 0.0)) * sev)
++
++    veto = False
++    veto_reason = ""
++    if mode == "veto" and hit:
++        if require_oi_for_veto:
++            veto = bool(("funding_extreme" in flags and "basis_extreme" in flags and "oi_accel" in flags))
++        else:
++            veto = bool(len(flags) >= 2)
++        if veto:
++            veto_reason = "deriv_ctx:" + ",".join(flags)
++
++    return DerivativesContextDecision(
++        hit=hit,
++        mode=mode,
++        flags=flags,
++        crowding_score=float(score),
++        tighten_add_bps=float(tighten_add),
++        veto=bool(veto),
++        veto_reason=str(veto_reason),
++        caution=bool(caution),
++    )
+--- services/orderflow/metrics_derivatives_context.py
++++ services/orderflow/metrics_derivatives_context.py
+@@ -0,0 +1,110 @@
++"""Prometheus metrics for normalized derivatives context.
++
++Cardinality policy:
++- Prefer {symbol}; exporter may collapse into __all__ for non-allowlisted symbols.
++- Flags/reasons are finite enumerations.
++"""
++
++from __future__ import annotations
++
++import logging
++from typing import Sequence, Type, TypeVar
++
++try:
++    from prometheus_client import Counter, Gauge, Histogram, REGISTRY  # type: ignore
++    from prometheus_client.registry import Collector  # type: ignore
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = object  # type: ignore
++    REGISTRY = None  # type: ignore
++    Collector = object  # type: ignore
++
++logger = logging.getLogger("orderflow_metrics_derivatives_context")
++TCollector = TypeVar("TCollector", bound="Collector")
++
++
++def _get_or_create(name: str, ctor: Type[TCollector], documentation: str, labelnames: Sequence[str] = (), **kwargs):
++    if REGISTRY is None:  # pragma: no cover
++        return None
++    existing = getattr(REGISTRY, "_names_to_collectors", {}).get(name)
++    if existing is not None:
++        return existing
++    try:
++        return ctor(name, documentation, labelnames=tuple(labelnames), **kwargs)
++    except Exception as exc:  # pragma: no cover
++        logger.exception("Failed to create metric %s: %s", name, exc)
++        return None
++
++
++deriv_ctx_snapshot_age_ms = _get_or_create(
++    "deriv_ctx_snapshot_age_ms",
++    Histogram,
++    "Age of normalized derivatives context snapshot in milliseconds",
++    labelnames=("symbol",),
++    buckets=(250, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000),
++)
++
++deriv_ctx_funding_rate_z = _get_or_create(
++    "deriv_ctx_funding_rate_z",
++    Histogram,
++    "Funding-rate robust z-score from derivatives context",
++    labelnames=("symbol",),
++    buckets=(0.5, 1, 2, 3, 4, 5, 7, 10),
++)
++
++deriv_ctx_basis_bps = _get_or_create(
++    "deriv_ctx_basis_bps",
++    Histogram,
++    "Basis / premium in bps from derivatives context",
++    labelnames=("symbol",),
++    buckets=(1, 2, 4, 8, 12, 20, 30, 50, 80, 120),
++)
++
++deriv_ctx_oi_notional_usd = _get_or_create(
++    "deriv_ctx_oi_notional_usd",
++    Histogram,
++    "Open interest notional in USD from derivatives context",
++    labelnames=("symbol",),
++    buckets=(1e5, 5e5, 1e6, 5e6, 1e7, 5e7, 1e8, 5e8, 1e9, 5e9),
++)
++
++deriv_ctx_gate_monitor_hit_total = _get_or_create(
++    "deriv_ctx_gate_monitor_hit_total",
++    Counter,
++    "Derivatives context gate hits (annotate/monitor)",
++    labelnames=("symbol", "profile"),
++)
++
++deriv_ctx_gate_tighten_total = _get_or_create(
++    "deriv_ctx_gate_tighten_total",
++    Counter,
++    "Derivatives context tighten count",
++    labelnames=("symbol", "profile"),
++)
++
++deriv_ctx_gate_veto_total = _get_or_create(
++    "deriv_ctx_gate_veto_total",
++    Counter,
++    "Derivatives context veto count",
++    labelnames=("symbol", "reason"),
++)
++
++deriv_ctx_tighten_add_bps = _get_or_create(
++    "deriv_ctx_tighten_add_bps",
++    Histogram,
++    "Added slippage (bps) due to derivatives context crowding",
++    labelnames=("symbol",),
++    buckets=(0.25, 0.5, 1, 2, 3, 4, 6, 8, 10),
++)
++
++deriv_ctx_collector_up = _get_or_create(
++    "deriv_ctx_collector_up",
++    Gauge,
++    "Derivatives context collector liveness",
++)
++
++deriv_ctx_collector_errors_total = _get_or_create(
++    "deriv_ctx_collector_errors_total",
++    Counter,
++    "Derivatives context collector errors",
++    labelnames=("where",),
++)
+--- services/orderflow/signal_pipeline.py
++++ services/orderflow/signal_pipeline.py
+@@ -38,6 +38,18 @@
+ # P5: book sanity + stream integrity gates (pre-publish, fail-open)
+ from services.orderflow.book_sanity_gate import BookSanityGate
+ from services.orderflow.stream_integrity_gate import StreamIntegrityGate
++from services.orderflow.derivatives_context import aread_derivatives_context
++from services.orderflow.derivatives_context_gate import evaluate_derivatives_context
++from services.orderflow.metrics_derivatives_context import (
++    deriv_ctx_snapshot_age_ms,
++    deriv_ctx_funding_rate_z,
++    deriv_ctx_basis_bps,
++    deriv_ctx_oi_notional_usd,
++    deriv_ctx_gate_monitor_hit_total,
++    deriv_ctx_gate_tighten_total,
++    deriv_ctx_gate_veto_total,
++    deriv_ctx_tighten_add_bps,
++)
+ 
+ _book_sanity_gate = BookSanityGate.from_env()
+ _stream_integrity_gate = StreamIntegrityGate.from_env()
+@@ -107,6 +119,8 @@
+ 
+         raw_syms2 = str(os.getenv("FLOW_TOX_METRICS_SYMBOLS", os.getenv("LIQ_GEOM_METRICS_SYMBOLS", "")) or "").strip()
+         self._flow_tox_syms_allow = {s.strip().upper() for s in raw_syms2.split(",") if s.strip()} if raw_syms2 else set()
++        raw_syms3 = str(os.getenv("DERIV_CTX_METRICS_SYMBOLS", os.getenv("FLOW_TOX_METRICS_SYMBOLS", "")) or "").strip()
++        self._deriv_ctx_syms_allow = {s.strip().upper() for s in raw_syms3.split(",") if s.strip()} if raw_syms3 else set()
+ 
+         # TB Labeler Feed (P45 fix): explicitly feed signals:of:inputs
+         self.publish_of_inputs = os.getenv("PUBLISH_OF_INPUTS", "1").lower() in {"1", "true", "yes", "on"}
+@@ -491,6 +505,107 @@
+         curr_stale_ms = int(indicators.get("book_ts_gap_ms", 0) or 0)
+         if curr_stale_ms <= 0:
+             curr_stale_ms = int(indicators.get("liq_book_stale_ms", 0) or 0)
++
++        # ------------------------------------------------------------------
++        # P0: Derivatives context gate (funding / basis / OI crowding)
++        # ------------------------------------------------------------------
++        # Context is normalized by a separate low-frequency collector and stored
++        # under Redis key `ctx:deriv:<SYMBOL>`.
++        #
++        # Profiles:
++        #   - default/soft: annotate only
++        #   - strict: tighten expected_slippage_bps
++        #   - hard: tighten + optional veto on multi-flag crowding
++        #
++        # This code is fail-open: missing Redis / snapshot => no action.
++        try:
++            deriv_profile = str(os.getenv("DERIV_CTX_PROFILE", os.getenv("GATE_PROFILE", "default")) or "default").strip().lower()
++            if deriv_profile not in {"default", "soft", "strict", "hard", "monitor", "tighten", "veto"}:
++                deriv_profile = "default"
++
++            snap = await aread_derivatives_context(getattr(runtime, "redis_client", None), symbol=symbol)
++            if snap is not None:
++                now_ms = int(signal.get("tick_ts") or signal.get("ts_ms") or time.time() * 1000)
++                indicators["deriv_ctx_profile"] = deriv_profile
++                indicators["funding_rate"] = float(snap.funding_rate)
++                indicators["funding_rate_z"] = float(snap.funding_rate_z)
++                indicators["premium_index"] = float(snap.premium_index)
++                indicators["basis_bps"] = float(snap.basis_bps)
++                indicators["open_interest"] = float(snap.open_interest)
++                indicators["delta_oi_5m"] = float(snap.delta_oi_5m)
++                indicators["oi_notional_usd"] = float(snap.oi_notional_usd)
++                indicators["funding_extreme"] = int(snap.funding_extreme)
++                indicators["basis_extreme"] = int(snap.basis_extreme)
++                indicators["oi_accel"] = int(snap.oi_accel)
++
++                decd = evaluate_derivatives_context(
++                    profile=deriv_profile,
++                    funding_rate_z=float(snap.funding_rate_z),
++                    basis_bps=float(snap.basis_bps),
++                    funding_extreme=int(snap.funding_extreme),
++                    basis_extreme=int(snap.basis_extreme),
++                    oi_accel=int(snap.oi_accel),
++                    thr_funding_z=float(os.getenv("DERIV_CTX_FUNDING_Z_MAX", "3.0") or 3.0),
++                    thr_basis_bps=float(os.getenv("DERIV_CTX_BASIS_BPS_MAX", "10.0") or 10.0),
++                    require_oi_for_veto=bool(int(os.getenv("DERIV_CTX_REQUIRE_OI_FOR_VETO", "1") or 1)),
++                    tighten_mult=float(os.getenv("DERIV_CTX_TIGHTEN_ADD_MULT", "1.0") or 1.0),
++                    tighten_cap_bps=float(os.getenv("DERIV_CTX_TIGHTEN_ADD_CAP_BPS", "8.0") or 8.0),
++                )
++
++                indicators["deriv_ctx_flags"] = ",".join(decd.flags) if decd.flags else ""
++                indicators["deriv_ctx_hit"] = 1 if decd.hit else 0
++                indicators["deriv_ctx_crowding_score"] = float(decd.crowding_score)
++                indicators["deriv_ctx_snapshot_age_ms"] = int(max(0, now_ms - int(snap.ts_ms)))
++
++                try:
++                    sym_label = str(symbol).upper()
++                    if self._deriv_ctx_syms_allow and sym_label not in self._deriv_ctx_syms_allow:
++                        sym_label = "__all__"
++                    deriv_ctx_snapshot_age_ms.labels(symbol=sym_label).observe(float(max(0, now_ms - int(snap.ts_ms))))
++                    deriv_ctx_funding_rate_z.labels(symbol=sym_label).observe(abs(float(snap.funding_rate_z)))
++                    deriv_ctx_basis_bps.labels(symbol=sym_label).observe(abs(float(snap.basis_bps)))
++                    deriv_ctx_oi_notional_usd.labels(symbol=sym_label).observe(float(max(0.0, snap.oi_notional_usd)))
++                    if decd.hit:
++                        deriv_ctx_gate_monitor_hit_total.labels(symbol=sym_label, profile=deriv_profile).inc()
++                except Exception:
++                    pass
++
++                if decd.tighten_add_bps > 0.0:
++                    exp0 = float(indicators.get("expected_slippage_bps", 0.0) or 0.0)
++                    indicators["deriv_ctx_tighten_add_bps"] = float(decd.tighten_add_bps)
++                    indicators["expected_slippage_bps"] = float(exp0 + float(decd.tighten_add_bps))
++                    try:
++                        sym_label2 = str(symbol).upper()
++                        if self._deriv_ctx_syms_allow and sym_label2 not in self._deriv_ctx_syms_allow:
++                            sym_label2 = "__all__"
++                        deriv_ctx_gate_tighten_total.labels(symbol=sym_label2, profile=deriv_profile).inc()
++                        deriv_ctx_tighten_add_bps.labels(symbol=sym_label2).observe(float(decd.tighten_add_bps))
++                    except Exception:
++                        pass
++
++                if decd.veto:
++                    deriv_reason = str(decd.veto_reason)
++                    try:
++                        sym_label3 = str(symbol).upper()
++                        if self._deriv_ctx_syms_allow and sym_label3 not in self._deriv_ctx_syms_allow:
++                            sym_label3 = "__all__"
++                        deriv_ctx_gate_veto_total.labels(symbol=sym_label3, reason=deriv_reason).inc()
++                    except Exception:
++                        pass
++                    logger.info(
++                        "🛡️ [GATE] DerivativesContext VETO (%s): %s | funding_z=%.2f basis_bps=%.2f oi_accel=%s",
++                        symbol,
++                        deriv_reason,
++                        float(snap.funding_rate_z),
++                        float(snap.basis_bps),
++                        int(snap.oi_accel),
++                    )
++                    strong_gate_veto_total.labels(symbol=symbol, scenario="deriv_ctx", reason=deriv_reason, mode="ENFORCE").inc()
++                    passed = False
++                    reason = f"DERIV_CTX_VETO: {deriv_reason}"
++                    return
++        except Exception:
++            pass
+ 
+         # ------------------------------------------------------------------
+         # Phase C (P2): Liquidity geometry & resiliency gate (monitor/tighten/veto)
+--- services/orderflow/strategy.py
++++ services/orderflow/strategy.py
+@@ -59,6 +59,7 @@
+ from services.signal_preprocess import preprocess_signal_for_publish
+ from services.orderflow.market_state import MarketStateService
+ from services.orderflow.liqmap_features import try_parse_liqmap_snapshot_json, compute_liqmap_features_from_snapshot
++from services.orderflow.derivatives_context import aread_derivatives_context
+ 
+ # Phase C/P2: liquidity geometry + resiliency (hot-path)
+ from services.orderflow.book_geometry import (
+@@ -261,6 +262,52 @@
+         self.liqmap_feature_peak_range_bps = float(os.getenv("LIQMAP_FEATURE_PEAK_RANGE_BPS", "600") or 600)
+         self.liqmap_feature_front_run_bps = float(os.getenv("LIQMAP_FEATURE_FRONT_RUN_BPS", "20") or 20)
+         self.liqmap_feature_sl_buffer_bps = float(os.getenv("LIQMAP_FEATURE_SL_BUFFER_BPS", "15") or 15)
++        # P0: derivatives context cache (low-frequency, fail-open).
++        self.deriv_ctx_cache_ms = int(os.getenv("DERIV_CTX_CACHE_MS", "3000") or 3000)
++        self._deriv_ctx_cache: Dict[str, Tuple[int, Dict[str, Any]]] = {}
++
++    async def _attach_derivatives_context(self, runtime: SymbolRuntime, signal: Dict[str, Any]) -> None:
++        """Attach normalized derivatives context to signal indicators (best-effort).
++
++        This keeps the low-frequency derivatives snapshot close to the signal so
++        downstream components (SignalPipeline, audits, replay) can reason about
++        funding/basis/OI crowding without performing an extra Redis read on every
++        downstream consumer.
++        """
++        if self.redis is None:
++            return
++        symbol = str(runtime.symbol or signal.get("symbol") or "").upper()
++        if not symbol:
++            return
++        now_ms = int(signal.get("tick_ts") or signal.get("ts_ms") or time.time() * 1000)
++        cached = self._deriv_ctx_cache.get(symbol)
++        if cached and (now_ms - int(cached[0])) < self.deriv_ctx_cache_ms:
++            payload = dict(cached[1])
++        else:
++            snap = await aread_derivatives_context(self.redis, symbol=symbol)
++            if snap is None:
++                return
++            payload = {
++                "funding_rate": float(snap.funding_rate),
++                "funding_rate_z": float(snap.funding_rate_z),
++                "premium_index": float(snap.premium_index),
++                "basis_bps": float(snap.basis_bps),
++                "open_interest": float(snap.open_interest),
++                "delta_oi_5m": float(snap.delta_oi_5m),
++                "oi_notional_usd": float(snap.oi_notional_usd),
++                "funding_extreme": int(snap.funding_extreme),
++                "basis_extreme": int(snap.basis_extreme),
++                "oi_accel": int(snap.oi_accel),
++                "deriv_ctx_snapshot_age_ms": int(max(0, now_ms - int(snap.ts_ms))),
++            }
++            self._deriv_ctx_cache[symbol] = (now_ms, dict(payload))
++
++        indicators = signal.get("indicators")
++        if not isinstance(indicators, dict):
++            indicators = {}
++            signal["indicators"] = indicators
++        for k, v in payload.items():
++            indicators.setdefault(k, v)
+ 
+     def start_batcher(self):
+         """Запустить фоновые воркеры MetricsBatcher и PrometheusBatcher."""
+@@ -3118,6 +3165,10 @@
+         """
+         Delegates signal publishing to SignalPipeline.
+         """
++        try:
++            await self._attach_derivatives_context(runtime, signal)
++        except Exception:
++            pass
+         await self.signal_pipeline.publish_signal(runtime, signal)
+     async def _publish_orders_queue(self, runtime: SymbolRuntime, signal: Dict[str, Any]) -> None:
+         """
+--- services/orderflow/tests/test_derivatives_context_entry_strategy_v1.py
++++ services/orderflow/tests/test_derivatives_context_entry_strategy_v1.py
+@@ -0,0 +1,57 @@
++from __future__ import annotations
++
++import asyncio
++import json
++import sys
++from pathlib import Path
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
++
++from services.orderflow.derivatives_context import aread_derivatives_context, partial_funding_payload_from_exchange
++
++
++class FakeAsyncRedis:
++    def __init__(self, mapping=None):
++        self.mapping = dict(mapping or {})
++
++    async def get(self, key):
++        return self.mapping.get(key)
++
++
++def test_aread_derivatives_context_reads_snapshot_from_redis():
++    payload = {
++        "schema_version": 1,
++        "symbol": "BTCUSDT",
++        "ts_ms": 1000,
++        "venue": "binance",
++        "funding_rate": 0.0010,
++        "funding_rate_abs": 0.0010,
++        "funding_rate_z": 4.0,
++        "premium_index": 0.0010,
++        "basis_bps": 12.0,
++        "open_interest": 10000.0,
++        "delta_oi_5m": 1000.0,
++        "oi_notional_usd": 1000000.0,
++        "funding_extreme": 1,
++        "basis_extreme": 1,
++        "oi_accel": 1,
++    }
++    r = FakeAsyncRedis({"ctx:deriv:BTCUSDT": json.dumps(payload)})
++    snap = asyncio.run(aread_derivatives_context(r, symbol="BTCUSDT"))
++    assert snap is not None
++    assert snap.funding_rate_z == 4.0
++    assert snap.basis_extreme == 1
++
++
++def test_partial_funding_payload_from_exchange_normalizes_legacy_stream_shape():
++    out = partial_funding_payload_from_exchange(
++        {
++            "symbol": "ETHUSDT",
++            "lastFundingRate": "0.0004",
++            "fundingTime": 123456,
++        },
++        venue="binance",
++    )
++    assert out["symbol"] == "ETHUSDT"
++    assert out["funding_rate"] == 0.0004
++    assert out["ts_ms"] == 123456
+--- services/orderflow/tests/test_derivatives_context_gate_v1.py
++++ services/orderflow/tests/test_derivatives_context_gate_v1.py
+@@ -0,0 +1,79 @@
++from __future__ import annotations
++
++import sys
++from pathlib import Path
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
++
++from services.orderflow.derivatives_context_gate import evaluate_derivatives_context
++
++
++def test_default_profile_only_monitors():
++    dec = evaluate_derivatives_context(
++        profile="default",
++        funding_rate_z=4.0,
++        basis_bps=12.0,
++        funding_extreme=1,
++        basis_extreme=1,
++        oi_accel=0,
++        thr_funding_z=3.0,
++        thr_basis_bps=10.0,
++        require_oi_for_veto=True,
++        tighten_mult=1.0,
++        tighten_cap_bps=8.0,
++    )
++    assert dec.hit is True
++    assert dec.mode == "monitor"
++    assert dec.tighten_add_bps == 0.0
++    assert dec.veto is False
++
++
++def test_strict_profile_tightens():
++    dec = evaluate_derivatives_context(
++        profile="strict",
++        funding_rate_z=4.0,
++        basis_bps=12.0,
++        funding_extreme=1,
++        basis_extreme=1,
++        oi_accel=0,
++        thr_funding_z=3.0,
++        thr_basis_bps=10.0,
++        require_oi_for_veto=True,
++        tighten_mult=2.0,
++        tighten_cap_bps=8.0,
++    )
++    assert dec.hit is True
++    assert dec.tighten_add_bps > 0.0
++    assert dec.veto is False
++
++
++def test_hard_profile_requires_oi_for_veto_when_enabled():
++    dec = evaluate_derivatives_context(
++        profile="hard",
++        funding_rate_z=4.0,
++        basis_bps=12.0,
++        funding_extreme=1,
++        basis_extreme=1,
++        oi_accel=0,
++        thr_funding_z=3.0,
++        thr_basis_bps=10.0,
++        require_oi_for_veto=True,
++        tighten_mult=1.0,
++        tighten_cap_bps=8.0,
++    )
++    assert dec.veto is False
++
++    dec2 = evaluate_derivatives_context(
++        profile="hard",
++        funding_rate_z=4.0,
++        basis_bps=12.0,
++        funding_extreme=1,
++        basis_extreme=1,
++        oi_accel=1,
++        thr_funding_z=3.0,
++        thr_basis_bps=10.0,
++        require_oi_for_veto=True,
++        tighten_mult=1.0,
++        tighten_cap_bps=8.0,
++    )
++    assert dec2.veto is True
+--- services/orderflow/tests/test_derivatives_context_v1.py
++++ services/orderflow/tests/test_derivatives_context_v1.py
+@@ -0,0 +1,42 @@
++from __future__ import annotations
++
++import sys
++from pathlib import Path
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
++
++from services.orderflow.derivatives_context import basis_bps, robust_zscore, build_snapshot
++
++
++def test_basis_bps_positive_premium():
++    out = basis_bps(mark_price=100.8, index_price=100.0)
++    assert round(out, 4) == 80.0
++
++
++def test_robust_zscore_uses_median_mad():
++    hist = [0.0001, 0.00011, 0.00009, 0.00012, 0.0001, 0.00011, 0.0001]
++    z = robust_zscore(x=0.0010, history=hist)
++    assert z > 3.0
++
++
++def test_build_snapshot_sets_extreme_flags():
++    snap = build_snapshot(
++        symbol="BTCUSDT",
++        ts_ms=1,
++        venue="binance",
++        funding_rate=0.0010,
++        funding_history=[0.0001, 0.0001, 0.00011, 0.00009, 0.0001, 0.00012],
++        premium_index=0.0010,
++        mark_price=101.5,
++        index_price=100.0,
++        open_interest=50000.0,
++        previous_open_interest=47000.0,
++        funding_extreme_abs=0.0008,
++        basis_extreme_abs_bps=10.0,
++        oi_accel_abs_usd=100000.0,
++    )
++    assert snap.symbol == "BTCUSDT"
++    assert snap.funding_extreme == 1
++    assert snap.basis_extreme == 1
++    assert snap.oi_accel == 1
++    assert snap.oi_notional_usd > 0.0
+--- services/smt_entry_policy_service.py
++++ services/smt_entry_policy_service.py
+@@ -16,6 +16,8 @@
+ # P6: execution health (TCA rollups) for entry policy
+ from services.orderflow.utils import session_utc
+ from services.orderflow.execution_health_gate import ExecHealthThresholds, read_exec_rollups, decide_execution_health
++from services.orderflow.derivatives_context import aread_derivatives_context
++from services.orderflow.derivatives_context_gate import evaluate_derivatives_context
+ 
+ def _now_ms() -> int:
+     return int(time.time() * 1000)
+@@ -320,6 +322,80 @@
+                 return
+         except Exception:
+             pass
++
++    async def _apply_derivatives_context_policy(self, *, cand: Dict[str, Any], snap: Dict[str, Any]) -> Tuple[bool, str, str]:
++        """P0: Derivatives context overlay for EntryPolicy.
++
++        Reads normalized snapshot from ``ctx:deriv:<SYMBOL>`` and applies the
++        same deterministic policy semantics as SignalPipeline:
++          - default/soft: annotate only
++          - strict: tighten expected_slippage_bps
++          - hard: tighten + veto on multi-flag crowding
++        """
++        try:
++            profile = str(os.getenv("ENTRY_DERIV_CTX_PROFILE", os.getenv("DERIV_CTX_PROFILE", os.getenv("ENTRY_POLICY_PROFILE", os.getenv("GATE_PROFILE", "default")))) or "default").strip().lower()
++            if profile not in {"default", "soft", "strict", "hard", "monitor", "tighten", "veto"}:
++                profile = "default"
++
++            sym = str(cand.get("symbol") or snap.get("symbol") or "").upper()
++            if not sym:
++                return True, "", ""
++
++            snap_ctx = await aread_derivatives_context(self.r, symbol=sym)
++            if snap_ctx is None:
++                return True, "", ""
++
++            snap["deriv_ctx_profile"] = profile
++            snap["funding_rate"] = float(snap_ctx.funding_rate)
++            snap["funding_rate_z"] = float(snap_ctx.funding_rate_z)
++            snap["premium_index"] = float(snap_ctx.premium_index)
++            snap["basis_bps"] = float(snap_ctx.basis_bps)
++            snap["open_interest"] = float(snap_ctx.open_interest)
++            snap["delta_oi_5m"] = float(snap_ctx.delta_oi_5m)
++            snap["oi_notional_usd"] = float(snap_ctx.oi_notional_usd)
++            snap["funding_extreme"] = int(snap_ctx.funding_extreme)
++            snap["basis_extreme"] = int(snap_ctx.basis_extreme)
++            snap["oi_accel"] = int(snap_ctx.oi_accel)
++            snap["deriv_ctx_snapshot_age_ms"] = max(0, int(_now_ms() - int(snap_ctx.ts_ms)))
++
++            dec = evaluate_derivatives_context(
++                profile=profile,
++                funding_rate_z=float(snap_ctx.funding_rate_z),
++                basis_bps=float(snap_ctx.basis_bps),
++                funding_extreme=int(snap_ctx.funding_extreme),
++                basis_extreme=int(snap_ctx.basis_extreme),
++                oi_accel=int(snap_ctx.oi_accel),
++                thr_funding_z=float(os.getenv("DERIV_CTX_FUNDING_Z_MAX", "3.0") or 3.0),
++                thr_basis_bps=float(os.getenv("DERIV_CTX_BASIS_BPS_MAX", "10.0") or 10.0),
++                require_oi_for_veto=bool(int(os.getenv("DERIV_CTX_REQUIRE_OI_FOR_VETO", "1") or 1)),
++                tighten_mult=float(os.getenv("ENTRY_DERIV_CTX_TIGHTEN_ADD_MULT", os.getenv("DERIV_CTX_TIGHTEN_ADD_MULT", "1.0")) or 1.0),
++                tighten_cap_bps=float(os.getenv("ENTRY_DERIV_CTX_TIGHTEN_ADD_CAP_BPS", os.getenv("DERIV_CTX_TIGHTEN_ADD_CAP_BPS", "8.0")) or 8.0),
++            )
++
++            snap["deriv_ctx_flags"] = ",".join(dec.flags) if dec.flags else ""
++            snap["deriv_ctx_hit"] = 1 if dec.hit else 0
++            snap["deriv_ctx_crowding_score"] = float(dec.crowding_score)
++
++            if dec.tighten_add_bps > 0.0:
++                micro = snap.get("micro") if isinstance(snap.get("micro"), dict) else {}
++                exp0 = _f(snap.get("expected_slippage_bps", micro.get("expected_slippage_bps", 0.0)), 0.0)
++                exp1 = float(exp0 + float(dec.tighten_add_bps))
++                snap["expected_slippage_bps"] = exp1
++                if isinstance(micro, dict):
++                    micro["expected_slippage_bps"] = exp1
++                    snap["micro"] = micro
++                snap["deriv_ctx_tighten_add_bps"] = float(dec.tighten_add_bps)
++
++            if dec.veto:
++                notes = (
++                    f"flags={snap.get('deriv_ctx_flags','')} funding_z={float(snap_ctx.funding_rate_z):.2f} "
++                    f"basis_bps={float(snap_ctx.basis_bps):.2f} oi_accel={int(snap_ctx.oi_accel)}"
++                )
++                return False, "DENY_DERIV_CTX", notes
++
++            return True, "", "" if not dec.hit else f"flags={snap.get('deriv_ctx_flags','')}"
++        except Exception:
++            return True, "", ""
+ 
+         self._ovr_group[grp] = o
+         self._ovr_loaded_ts_ms[grp] = int(o.updated_ts_ms or now_ms)
+@@ -356,7 +432,7 @@
+                     # Liquidity geometry / resiliency (Phase C)
+                     # These fields are *best-effort* and may be missing depending on
+                     # how SMT snapshots are produced.
+-                    \"liq_geom\": {
++                    "liq_geom": {
+                         "profile": str(snap.get("liq_geom_profile", "")),
+                         "flags": str(snap.get("liq_geom_flags", "")),
+                         "slope_min": float(snap.get("liq_geom_slope_min", 0.0) or 0.0),
+@@ -370,6 +446,16 @@
+                         "ofi_norm_z": float(snap.get("ofi_norm_z", snap.get("flow_toxic_ofi_norm_z", 0.0)) or 0.0),
+                         "vpin_cdf": float(snap.get("vpin_cdf", snap.get("flow_toxic_vpin_cdf", 0.0)) or 0.0),
+                         "tighten_add_bps": float(snap.get("flow_toxic_tighten_add_bps", 0.0) or 0.0),
++                    },
++                    "deriv_ctx": {
++                        "profile": str(snap.get("deriv_ctx_profile", "")),
++                        "flags": str(snap.get("deriv_ctx_flags", "")),
++                        "funding_rate": float(snap.get("funding_rate", 0.0) or 0.0),
++                        "funding_rate_z": float(snap.get("funding_rate_z", 0.0) or 0.0),
++                        "basis_bps": float(snap.get("basis_bps", 0.0) or 0.0),
++                        "delta_oi_5m": float(snap.get("delta_oi_5m", 0.0) or 0.0),
++                        "oi_notional_usd": float(snap.get("oi_notional_usd", 0.0) or 0.0),
++                        "tighten_add_bps": float(snap.get("deriv_ctx_tighten_add_bps", 0.0) or 0.0),
+                     },
+                 },
+                 "snap": {k: snap.get(k) for k in ("close_px", "spread_bp", "pressure_sps", "cooldown_sps", "obi_age_ms", "regime")},
+@@ -804,6 +890,12 @@
+                 await self._audit(now_ms=_now_ms(), cand=cand, ok=True, reason_code="ALLOW_SHADOW_FROZEN_NONA", notes=frz_reason, snap=snap, bundle=bundle, ovr=ovr)
+                 return
+ 
++        # P0: normalized derivatives context overlay.
++        ok_deriv, deriv_rc, deriv_notes = await self._apply_derivatives_context_policy(cand=cand, snap=snap)
++        if not ok_deriv:
++            await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code=str(deriv_rc), notes=str(deriv_notes), snap=snap, bundle=bundle, ovr=ovr)
++            return
++
+         # Phase C (P2): Liquidity geometry/resiliency overlay for EntryPolicy
+         # - default/soft: annotate only (audit)
+         # - strict: tighten expected_slippage_bps (more conservative)
+--- tick_flow_full/handlers/funding_handler_impl.py
++++ tick_flow_full/handlers/funding_handler_impl.py
+@@ -1,109 +1,78 @@
+ #!/usr/bin/env python3
+-"""
+-Funding Data Handler
+-Обработчик данных funding rates от Binance
++"""Funding Data Handler.
++
++Extended for P0 derivatives context:
++- keeps legacy raw funding keys untouched (`binance:fundingRate:<SYMBOL>`)
++- additionally writes a minimal partial normalized payload under
++  `ctx:deriv_source:funding:<SYMBOL>` so the collector can merge stream-fed
++  funding with REST-polled basis / OI without parsing heterogeneous payloads in
++  multiple places.
+ """
+ 
+ import json
+ import sys
++import time
+ from typing import List, Dict, Any
++
++from services.orderflow.derivatives_context import partial_funding_payload_from_exchange
+ 
+ 
+ class FundingDataHandler:
+-    """
+-    Обработчик данных funding rates от Binance
+-    """
+-    
++    """Funding-rate handler for Binance stream payloads."""
++
+     def __init__(self, redis_client):
+-        """
+-        Инициализация обработчика funding rates
+-        
+-        Args:
+-            redis_client: Клиент Redis
+-        """
+         self.redis_client = redis_client
+-    
++        self.partial_prefix = "ctx:deriv_source:funding:"
++        self.partial_ttl_s = 3600
++
+     def handle_funding_stream_data(self, data) -> None:
+-        """
+-        Обрабатывает данные funding rates из стрима
+-        
+-        Args:
+-            data: Данные funding rates (может быть список или строка)
+-        """
+         try:
+             funding_data = self._extract_funding_data(data)
+-            
+             if not funding_data:
+                 print("⚠️ Нет данных funding rates для обработки")
+                 return
+-                
+-            # Закомментировано для уменьшения шума в логах
+-            # print(f"💰 FundingHandler: Получены funding rates: {len(funding_data)} записей")
+-            # sys.stdout.flush()
+-            
+-            # Сохраняем данные в Redis
+             self._save_funding_data(funding_data)
+-            
+         except Exception as e:
+             print(f"❌ FundingHandler: Ошибка обработки funding rates: {e}")
+             sys.stdout.flush()
+-    
++
+     def _extract_funding_data(self, data) -> List[Dict]:
+-        """
+-        Извлекает данные funding rates из различных форматов
+-        
+-        Args:
+-            data: Данные в различных форматах
+-            
+-        Returns:
+-            List[Dict]: Список данных funding rates
+-        """
+         funding_data = []
+-        
+         if isinstance(data, list):
+-            # Если data уже список funding rates
+             funding_data = data
+         elif isinstance(data, str):
+-            # Если data строка JSON
+             funding_data = json.loads(data)
+         elif isinstance(data, dict):
+-            # Если data словарь, ищем ключ 'funding_rates' или используем весь словарь
+             funding_data = data.get('funding_rates', [data] if data else [])
+-        
+         return funding_data
+-    
++
+     def _save_funding_data(self, funding_data: List[Dict]) -> None:
+-        """
+-        Сохраняет данные funding rates в Redis
+-        
+-        Args:
+-            funding_data: Список данных funding rates
+-        """
+         try:
++            now_ms = int(time.time() * 1000)
+             for funding in funding_data:
+                 symbol = self._extract_symbol_from_funding(funding)
+-                
+-                if symbol:
+-                    key = f"binance:fundingRate:{symbol}"
+-                    value = json.dumps(funding)
+-                    self.redis_client.setex(key, 3600, value)  # TTL 1 час
+-                    
++                if not symbol:
++                    continue
++                # Legacy raw key used by existing tools/reporters.
++                key = f"binance:fundingRate:{symbol}"
++                value = json.dumps(funding)
++                self.redis_client.setex(key, 3600, value)
++
++                # New partial normalized source for P0 derivatives context collector.
++                try:
++                    partial = partial_funding_payload_from_exchange(funding, venue="binance", now_ms=now_ms)
++                    if partial.get("symbol"):
++                        pkey = f"{self.partial_prefix}{symbol}"
++                        self.redis_client.setex(pkey, int(self.partial_ttl_s), json.dumps(partial, ensure_ascii=False))
++                except Exception:
++                    # Fail-open: collector can still use public REST polling.
++                    pass
+         except Exception as e:
+             print(f"❌ FundingHandler: Ошибка сохранения funding rates: {e}")
+             sys.stdout.flush()
+-    
++
+     def _extract_symbol_from_funding(self, funding) -> str:
+-        """
+-        Извлекает символ из данных funding rate
+-        
+-        Args:
+-            funding: Данные funding rate
+-            
+-        Returns:
+-            str: Символ или пустая строка
+-        """
+         symbol = ''
+-        
+         if isinstance(funding, dict):
+             symbol = funding.get('symbol', '')
+         elif isinstance(funding, str):
+@@ -112,90 +81,47 @@
+                 symbol = funding_dict.get('symbol', '')
+             except json.JSONDecodeError:
+                 pass
+-        
+-        return symbol
+-    
++        return str(symbol or '').upper()
++
+     def validate_funding_data(self, data: Dict) -> bool:
+-        """
+-        Валидирует данные funding rate
+-        
+-        Args:
+-            data: Данные funding rate
+-            
+-        Returns:
+-            bool: True если данные валидны
+-        """
+         if not isinstance(data, dict):
+             return False
+-        
+-        # Проверяем обязательные поля
+         required_fields = ['symbol']
+         for field in required_fields:
+             if field not in data:
+                 return False
+-        
+         return True
+-    
++
+     def get_funding_info(self, symbol: str) -> Dict:
+-        """
+-        Получает информацию о funding rate из Redis
+-        
+-        Args:
+-            symbol: Символ торговой пары
+-            
+-        Returns:
+-            Dict: Данные funding rate или пустой словарь
+-        """
+         try:
+-            key = f"binance:fundingRate:{symbol}"
++            key = f"binance:fundingRate:{str(symbol).upper()}"
+             data = self.redis_client.get(key)
+-            
+             if data:
+                 return json.loads(data)
+             else:
+                 return {}
+-                
+         except Exception as e:
+             print(f"❌ FundingHandler: Ошибка получения данных funding rate для {symbol}: {e}")
+             return {}
+-    
++
+     def get_all_funding_rates(self) -> List[Dict]:
+-        """
+-        Получает все funding rates из Redis
+-        
+-        Returns:
+-            List[Dict]: Список всех funding rates
+-        """
+         try:
+             pattern = "binance:fundingRate:*"
+             keys = self.redis_client.keys(pattern)
+-            
+             funding_rates = []
+             for key in keys:
+                 data = self.redis_client.get(key)
+                 if data:
+                     funding_rates.append(json.loads(data))
+-            
+             return funding_rates
+-            
+         except Exception as e:
+             print(f"❌ FundingHandler: Ошибка получения всех funding rates: {e}")
+             return []
+-    
++
+     def get_high_funding_rates(self, threshold: float = 0.01) -> List[Dict]:
+-        """
+-        Получает funding rates выше порогового значения
+-        
+-        Args:
+-            threshold: Пороговое значение (по умолчанию 1%)
+-            
+-        Returns:
+-            List[Dict]: Список funding rates выше порога
+-        """
+         try:
+             all_funding = self.get_all_funding_rates()
+             high_funding = []
+-            
+             for funding in all_funding:
+                 rate = funding.get('lastFundingRate', 0)
+                 try:
+@@ -204,27 +130,17 @@
+                         high_funding.append(funding)
+                 except (ValueError, TypeError):
+                     continue
+-            
+             return high_funding
+-            
+         except Exception as e:
+             print(f"❌ FundingHandler: Ошибка получения высоких funding rates: {e}")
+             return []
+-    
++
+     def get_funding_rate_summary(self) -> Dict:
+-        """
+-        Получает сводку по funding rates
+-        
+-        Returns:
+-            Dict: Сводка с количеством положительных/отрицательных rates
+-        """
+         try:
+             all_funding = self.get_all_funding_rates()
+-            
+             positive_count = 0
+             negative_count = 0
+             total_count = len(all_funding)
+-            
+             for funding in all_funding:
+                 rate = funding.get('lastFundingRate', 0)
+                 try:
+@@ -235,14 +151,12 @@
+                         negative_count += 1
+                 except (ValueError, TypeError):
+                     continue
+-            
+             return {
+                 'total': total_count,
+                 'positive': positive_count,
+                 'negative': negative_count,
+                 'neutral': total_count - positive_count - negative_count
+             }
+-            
+         except Exception as e:
+             print(f"❌ FundingHandler: Ошибка получения сводки funding rates: {e}")
+-            return {'total': 0, 'positive': 0, 'negative': 0, 'neutral': 0} +            return {'total': 0, 'positive': 0, 'negative': 0, 'neutral': 0}
+--- tick_flow_full/orderflow_services/grafana/derivatives_context_v1.json
++++ tick_flow_full/orderflow_services/grafana/derivatives_context_v1.json
+@@ -0,0 +1,60 @@
++{
++  "title": "Derivatives Context (v1)",
++  "schemaVersion": 39,
++  "version": 1,
++  "templating": {
++    "list": [
++      {
++        "name": "symbol",
++        "type": "query",
++        "datasource": "Prometheus",
++        "query": "label_values(deriv_ctx_exporter_snapshot_age_ms, symbol)",
++        "refresh": 1,
++        "includeAll": true,
++        "multi": true
++      }
++    ]
++  },
++  "panels": [
++    {
++      "title": "Funding rate z-score",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "deriv_ctx_exporter_funding_rate_z{symbol=~\"$symbol\"}",
++          "legendFormat": "{{symbol}}"
++        }
++      ]
++    },
++    {
++      "title": "Basis bps",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "deriv_ctx_exporter_basis_bps{symbol=~\"$symbol\"}",
++          "legendFormat": "{{symbol}}"
++        }
++      ]
++    },
++    {
++      "title": "OI notional USD",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "deriv_ctx_exporter_oi_notional_usd{symbol=~\"$symbol\"}",
++          "legendFormat": "{{symbol}}"
++        }
++      ]
++    },
++    {
++      "title": "Snapshot age ms",
++      "type": "timeseries",
++      "targets": [
++        {
++          "expr": "deriv_ctx_exporter_snapshot_age_ms{symbol=~\"$symbol\"}",
++          "legendFormat": "{{symbol}}"
++        }
++      ]
++    }
++  ]
++}
+--- tick_flow_full/orderflow_services/prometheus_alerts_derivatives_context_v1.yml
++++ tick_flow_full/orderflow_services/prometheus_alerts_derivatives_context_v1.yml
+@@ -0,0 +1,35 @@
++groups:
++  - name: derivatives_context_v1
++    rules:
++      - alert: OF_DerivativesContext_SnapshotStale_Warn
++        expr: max(deriv_ctx_exporter_snapshot_age_ms) > 90000
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Derivatives context snapshot is stale"
++          description: "At least one ctx:deriv snapshot is older than 90s. Collector may be lagging."
++      - alert: OF_DerivativesContext_FundingExtreme_Crit
++        expr: max by(symbol) (deriv_ctx_exporter_flag{flag="funding_extreme"}) > 0
++        for: 5m
++        labels:
++          severity: critical
++        annotations:
++          summary: "Funding extreme detected"
++          description: "Funding is in extreme regime for at least one symbol. Tighten/veto paths should be reviewed."
++      - alert: OF_DerivativesContext_BasisExtreme_Crit
++        expr: max by(symbol) (deriv_ctx_exporter_flag{flag="basis_extreme"}) > 0
++        for: 5m
++        labels:
++          severity: critical
++        annotations:
++          summary: "Basis extreme detected"
++          description: "Premium/basis is in extreme regime for at least one symbol."
++      - alert: OF_DerivativesContext_ExporterStale_Warn
++        expr: absent(deriv_ctx_exporter_up) or max_over_time(deriv_ctx_exporter_up[10m]) < 1
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Derivatives context exporter is stale"
++          description: "The exporter did not expose healthy metrics in the last 10 minutes."

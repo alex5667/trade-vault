@@ -1,0 +1,31 @@
+services:
+  scanner-operator-routing-incident-route-rca-winner-routing-apply-controller-v2-23:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    command: ["python", "-m", "orderflow_services.operator_routing_incident_route_rca_winner_routing_apply_controller_v2_23"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_WINNER_APPLY_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_WINNER_APPLY_PORT:-9909}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_ADVISORY_ONLY: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_ADVISORY_ONLY:-1}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_EXECUTOR_MODE: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_EXECUTOR_MODE:-DRY_RUN}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_MIN_SAMPLE: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_MIN_SAMPLE:-8}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_MIN_UPLIFT: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_MIN_UPLIFT:-0.05}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_COOLDOWN_SEC: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_APPLY_COOLDOWN_SEC:-21600}
+    ports:
+      - "${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_WINNER_APPLY_PORT:-9909}:9909"
+    networks:
+      - scanner-network
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9909/metrics >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 384M

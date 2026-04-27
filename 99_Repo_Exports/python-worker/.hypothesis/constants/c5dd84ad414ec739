@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/calendar_store_worker.py
+# hypothesis_version: 6.148.10
+
+[0.5, 512, 1000, 2000, 4096, '0-0', '2.0', '>', 'AUD', 'CAD', 'CALENDAR_CONSUMER', 'CALENDAR_GROUP', 'CAL_PG_FLUSH_EVERY_N', 'CHF', 'CNH', 'CNY', 'EUR', 'GBP', 'HKD', 'INFO', 'JPY', 'LOG_LEVEL', 'NOK', 'NZD', 'POSTGRES_DSN', 'REDIS_URL', 'SEK', 'SGD', 'USD', '__main__', 'calendar:events', 'calendar_store', 'country', 'crypto', 'currency', 'event_ts_ms', 'fmp', 'forecast', 'fx', 'global', 'importance', 'loop error: %s', 'metals', 'next_ts_ms', 'payload', 'pg flush failed: %s', 'previous', 'raw', 'ref', 'source', 'title', 'tminus_sec', 'uid', 'unit', 'updated_ts_ms']

@@ -1,0 +1,10 @@
+[Unit]
+Description=Trade execution automated repair / quarantine policy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/trade
+EnvironmentFile=/opt/trade/.env
+ExecStart=/usr/bin/python3 /opt/trade/scripts/automated_execution_repair_policy.py

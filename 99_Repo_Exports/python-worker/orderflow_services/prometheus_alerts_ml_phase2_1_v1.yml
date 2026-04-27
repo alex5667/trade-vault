@@ -1,0 +1,26 @@
+groups:
+  - name: ml_phase2_1_operator_rca
+    rules:
+      - alert: MLOperatorRCAResultsPersisterStale
+        expr: time() - ml_operator_rca_results_persister_last_run_ts_seconds > 900
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "operator_rca_results_persister is stale"
+
+      - alert: MLOperatorRCAQualityLow
+        expr: ml_operator_rca_quality_last_score < 60
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Latest operator RCA quality score is below threshold"
+
+      - alert: MLOperatorRCAFeedbackStale
+        expr: time() - ml_operator_rca_feedback_last_run_ts_seconds > 1800
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "operator_rca_feedback_loop is stale"

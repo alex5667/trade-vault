@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/interpolate/interpolate.py
+# hypothesis_version: 6.148.10
+
+['BPoly', 'BSpline', 'NdPPoly', 'PPoly', 'RectBivariateSpline', 'array', 'asarray', 'atleast_1d', 'atleast_2d', 'comb', 'dfitpack', 'interp1d', 'interp2d', 'interpn', 'intp', 'itertools', 'lagrange', 'make_interp_spline', 'poly1d', 'prod', 'ravel', 'searchsorted', 'spec', 'transpose']

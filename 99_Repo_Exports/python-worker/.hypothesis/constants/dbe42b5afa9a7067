@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/sparse/linalg/_isolve/lgmres.py
+# hypothesis_version: 6.148.10
+
+[1e-16, 1e-05, 0.25, 1.0, 1.5, 1000, 'axpy', 'dot', 'lgmres', 'nrm2', 'scal']

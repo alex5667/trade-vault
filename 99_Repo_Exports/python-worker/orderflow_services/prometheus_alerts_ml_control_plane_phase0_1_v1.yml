@@ -1,0 +1,34 @@
+groups:
+  - name: ml_control_plane_phase0_1_v1
+    rules:
+      - alert: MLTrainingRunsWriterDown
+        expr: ml_training_runs_writer_up == 0
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "ML training-runs writer is down"
+
+      - alert: MLTrainingRunsWriterStale
+        expr: time() - ml_training_runs_writer_last_run_ts_seconds > 1800
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "ML training-runs writer is stale"
+
+      - alert: MLHealthEnricherDown
+        expr: ml_health_enricher_up == 0
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "ML health enricher is down"
+
+      - alert: MLHealthEnricherStale
+        expr: time() - ml_health_enricher_last_run_ts_seconds > 1800
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "ML health enricher is stale"

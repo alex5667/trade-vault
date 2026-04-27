@@ -1,0 +1,28 @@
+groups:
+  - name: tick_ingest_latency
+    rules:
+      - alert: TickIngestProcessP99High
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum(rate(tick_ingest_process_ms_bucket[5m])) by (le, symbol)
+          ) > 25
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tick ingest processing p99 high (symbol={{ $labels.symbol }})"
+          description: "p99 of tick processing latency > 25ms for 10m. Check CPU, Prometheus overhead, Redis latency, and recent code changes."
+
+      - alert: TickIngestE2EDelayP99High
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum(rate(tick_ingest_e2e_delay_ms_bucket[5m])) by (le, symbol)
+          ) > 5000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tick ingest end-to-end delay p99 high (symbol={{ $labels.symbol }})"
+          description: "p99(ingest_ts_ms - event_ts_ms) > 5s for 10m. Likely bad payload timestamps, stream lag, or backpressure."

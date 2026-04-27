@@ -1,0 +1,21 @@
+[Unit]
+Description=Scanner golden replay parity check (nightly)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+
+# Adjust WorkingDirectory to your repo root on the host.
+WorkingDirectory=/opt/scanner-infra/repo
+
+# Ensure your python sees the repo.
+Environment=PYTHONPATH=/opt/scanner-infra/repo
+
+# Where OFC captures are stored.
+Environment=OFC_CAPTURE_DIR=/var/lib/scanner/ofc_capture
+
+# Where reports are stored.
+Environment=GOLDEN_REPLAY_OUTDIR=/var/lib/scanner/golden_replay_reports
+
+ExecStart=/usr/bin/python3 -m ml_analysis.tools.nightly_golden_replay_job_v1 --fail-on-mismatch

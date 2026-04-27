@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/replay/report.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.5, 0.95, 'confidence', 'final_score', 'kind', 'level_price', 'price', 'qf', 'qf16', 'raw_score', 'reasons', 'side', 'symbol', 'ts']

@@ -1,0 +1,1125 @@
+diff --git a/orderflow_services/enforce_bucket_state_exporter_v1.py b/orderflow_services/enforce_bucket_state_exporter_v1.py
+index 0053987..f767d09 100644
+--- a/orderflow_services/enforce_bucket_state_exporter_v1.py
++++ b/orderflow_services/enforce_bucket_state_exporter_v1.py
+@@ -458,6 +458,26 @@ of_exec_slip_edge_neg_share = Gauge(
+     ["sym", "bucket"],
+ )
+ 
++# P90: Optional model-vs-expected validation gauges (same cardinality: sym x bucket)
++of_exec_slip_model_resid_p95_bps = Gauge(
++    "of_exec_slip_model_resid_p95_bps",
++    "model residual P95 bps per sym/bucket (max over lookback from DB)",
++    ["sym", "bucket"],
++)
++
++of_exec_slip_model_resid_p99_bps = Gauge(
++    "of_exec_slip_model_resid_p99_bps",
++    "model residual P99 bps per sym/bucket (max over lookback from DB)",
++    ["sym", "bucket"],
++)
++
++of_exec_slip_model_edge_neg_share = Gauge(
++    "of_exec_slip_model_edge_neg_share",
++    "share of trades with edge_minus_expected_model_bps < 0 per sym/bucket (max over lookback)",
++    ["sym", "bucket"],
++)
++
++
+ of_exec_slip_db_n = Gauge(
+     "of_exec_slip_db_n",
+     "number of DB samples per sym/bucket (sum over lookback)",
+@@ -791,8 +811,13 @@ class Exporter:
+             conn = psycopg2.connect(self.db_dsn)
+             cur = conn.cursor()
+ 
++            rows = []
++            has_model = False
++
++            # Prefer pre-aggregated MV (fast, uses t column).
++            # Backward compatible: if MV lacks model columns, fall back to legacy query,
++            # then to raw view queries.
+             try:
+-                # Prefer pre-aggregated MV (fast, uses t column)
+                 cur.execute(
+                     f"""
+                     select sym,
+@@ -800,7 +825,10 @@ class Exporter:
+                            sum(n)::bigint as n,
+                            max(resid_p95_bps) as resid_p95_bps,
+                            max(resid_p99_bps) as resid_p99_bps,
+-                           max(edge_neg_share) as edge_neg_share
++                           max(edge_neg_share) as edge_neg_share,
++                           max(resid_model_p95_bps) as resid_model_p95_bps,
++                           max(resid_model_p99_bps) as resid_model_p99_bps,
++                           max(edge_neg_share_model) as edge_neg_share_model
+                     from {mv}
+                     where sym = any(%s) and t >= now() - (%s || ' hours')::interval
+                     group by 1,2
+@@ -808,23 +836,63 @@ class Exporter:
+                     (syms, int(lookback_h)),
+                 )
+                 rows = cur.fetchall()
++                has_model = True
+             except Exception:
+-                # Fallback: compute live percentiles from raw view (slower)
+-                cur.execute(
+-                    f"""
+-                    select sym,
+-                           exec_regime_bucket,
+-                           count(*)::bigint as n,
+-                           percentile_cont(0.95) within group (order by slippage_residual_bps) as resid_p95_bps,
+-                           percentile_cont(0.99) within group (order by slippage_residual_bps) as resid_p99_bps,
+-                           avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share
+-                    from {view}
+-                    where sym = any(%s) and ts >= now() - (%s || ' hours')::interval
+-                    group by 1,2
+-                    """,
+-                    (syms, int(lookback_h)),
+-                )
+-                rows = cur.fetchall()
++                try:
++                    cur.execute(
++                        f"""
++                        select sym,
++                               exec_regime_bucket,
++                               sum(n)::bigint as n,
++                               max(resid_p95_bps) as resid_p95_bps,
++                               max(resid_p99_bps) as resid_p99_bps,
++                               max(edge_neg_share) as edge_neg_share
++                        from {mv}
++                        where sym = any(%s) and t >= now() - (%s || ' hours')::interval
++                        group by 1,2
++                        """,
++                        (syms, int(lookback_h)),
++                    )
++                    rows = cur.fetchall()
++                    has_model = False
++                except Exception:
++                    try:
++                        cur.execute(
++                            f"""
++                            select sym,
++                                   exec_regime_bucket,
++                                   count(*)::bigint as n,
++                                   percentile_cont(0.95) within group (order by slippage_residual_bps) as resid_p95_bps,
++                                   percentile_cont(0.99) within group (order by slippage_residual_bps) as resid_p99_bps,
++                                   avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share,
++                                   percentile_cont(0.95) within group (order by slippage_residual_model_bps) as resid_model_p95_bps,
++                                   percentile_cont(0.99) within group (order by slippage_residual_model_bps) as resid_model_p99_bps,
++                                   avg(case when edge_minus_expected_model_bps < 0 then 1 else 0 end) as edge_neg_share_model
++                            from {view}
++                            where sym = any(%s) and ts >= now() - (%s || ' hours')::interval
++                            group by 1,2
++                            """,
++                            (syms, int(lookback_h)),
++                        )
++                        rows = cur.fetchall()
++                        has_model = True
++                    except Exception:
++                        cur.execute(
++                            f"""
++                            select sym,
++                                   exec_regime_bucket,
++                                   count(*)::bigint as n,
++                                   percentile_cont(0.95) within group (order by slippage_residual_bps) as resid_p95_bps,
++                                   percentile_cont(0.99) within group (order by slippage_residual_bps) as resid_p99_bps,
++                                   avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share
++                            from {view}
++                            where sym = any(%s) and ts >= now() - (%s || ' hours')::interval
++                            group by 1,2
++                            """,
++                            (syms, int(lookback_h)),
++                        )
++                        rows = cur.fetchall()
++                        has_model = False
+ 
+             # Reset series within configured label space to prevent stale values.
+             for sym in syms:
+@@ -833,8 +901,21 @@ class Exporter:
+                     of_exec_slip_resid_p95_bps.labels(sym=sym, bucket=b).set(float("nan"))
+                     of_exec_slip_resid_p99_bps.labels(sym=sym, bucket=b).set(float("nan"))
+                     of_exec_slip_edge_neg_share.labels(sym=sym, bucket=b).set(float("nan"))
++                    of_exec_slip_model_resid_p95_bps.labels(sym=sym, bucket=b).set(float("nan"))
++                    of_exec_slip_model_resid_p99_bps.labels(sym=sym, bucket=b).set(float("nan"))
++                    of_exec_slip_model_edge_neg_share.labels(sym=sym, bucket=b).set(float("nan"))
+ 
+-            for sym, bucket, n, p95, p99, neg in rows:
++            for row in rows:
++                # row can be legacy (6 cols) or extended (9 cols)
++                if row is None:
++                    continue
++                if len(row) >= 9:
++                    sym, bucket, n, p95, p99, neg, mp95, mp99, mneg = row[:9]
++                    has_model_row = True
++                else:
++                    sym, bucket, n, p95, p99, neg = row[:6]
++                    mp95 = mp99 = mneg = None
++                    has_model_row = False
+                 s_sym = _safe_ident(sym, "")
+                 s_bucket = _safe_ident(bucket, "NORMAL") or "NORMAL"
+                 if not s_sym or s_sym not in syms:
+@@ -845,6 +926,11 @@ class Exporter:
+                 of_exec_slip_resid_p95_bps.labels(sym=s_sym, bucket=s_bucket).set(_as_float(p95, 0.0))
+                 of_exec_slip_resid_p99_bps.labels(sym=s_sym, bucket=s_bucket).set(_as_float(p99, 0.0))
+                 of_exec_slip_edge_neg_share.labels(sym=s_sym, bucket=s_bucket).set(_as_float(neg, 0.0))
++                # Optional model columns
++                if has_model and has_model_row:
++                    of_exec_slip_model_resid_p95_bps.labels(sym=s_sym, bucket=s_bucket).set(_as_float(mp95, 0.0))
++                    of_exec_slip_model_resid_p99_bps.labels(sym=s_sym, bucket=s_bucket).set(_as_float(mp99, 0.0))
++                    of_exec_slip_model_edge_neg_share.labels(sym=s_sym, bucket=s_bucket).set(_as_float(mneg, 0.0))
+ 
+             ok = True
+         except Exception:
+diff --git a/orderflow_services/prometheus_alerts_exec_slip_residual_validation_p86.yml b/orderflow_services/prometheus_alerts_exec_slip_residual_validation_p86.yml
+index 7354e49..cb4a86d 100644
+--- a/orderflow_services/prometheus_alerts_exec_slip_residual_validation_p86.yml
++++ b/orderflow_services/prometheus_alerts_exec_slip_residual_validation_p86.yml
+@@ -14,8 +14,48 @@ groups:
+           summary: "Residual validation DB query failing"
+           description: "enforce_bucket_state_exporter DB stats query failing (of_exec_slip_stats_db_up=0). Check ANALYTICS_DB_DSN and exporter logs."
+ 
++      - alert: ExecSlipResidualP95Warn
++        # Early warning: residual P95 > 10 bps for a sym/bucket with >80 samples over lookback.
++        expr: (of_exec_slip_db_n > 80) and on(sym,bucket) (of_exec_slip_resid_p95_bps > 10)
++        for: 30m
++        labels:
++          severity: warn
++        annotations:
++          summary: "Slippage residual P95 elevated"
++          description: "DB-based residual P95 > 10 bps for sym/bucket with enough samples. Inspect v_exec_slippage_eval and runbook_slippage_qa_p77.md."
++
++      - alert: ExecSlipEdgeNegShareWarn
++        # Early warning: edge_minus_expected_bps < 0 share > 0.40 for sym/bucket with >80 samples.
++        expr: (of_exec_slip_db_n > 80) and on(sym,bucket) (of_exec_slip_edge_neg_share > 0.40)
++        for: 30m
++        labels:
++          severity: warn
++        annotations:
++          summary: "Edge negative share elevated"
++          description: "edge_minus_expected_bps < 0 share > 0.40 for sym/bucket with enough samples. Investigate slippage decomp calibration and enforcement."
++
++      - alert: ExecSlipResidualModelP99Warn
++        # Optional (P90): model residual P99 > 30 bps, only if exporter exposes model gauges.
++        expr: (of_exec_slip_db_n > 80) and on(sym,bucket) (of_exec_slip_model_resid_p99_bps > 30)
++        for: 30m
++        labels:
++          severity: warn
++        annotations:
++          summary: "Model slippage residual P99 elevated"
++          description: "DB-based model residual P99 > 30 bps for sym/bucket with enough samples. Compare expected_slip_model_bps vs expected_slip_decomp_bps and check regressions/drift."
++
++      - alert: ExecSlipModelEdgeNegShareWarn
++        # Optional (P90): edge_minus_expected_model_bps < 0 share > 0.45.
++        expr: (of_exec_slip_db_n > 80) and on(sym,bucket) (of_exec_slip_model_edge_neg_share > 0.45)
++        for: 30m
++        labels:
++          severity: warn
++        annotations:
++          summary: "Model edge negative share elevated"
++          description: "edge_minus_expected_model_bps < 0 share > 0.45 for sym/bucket with enough samples. If decomp is OK but model is bad, treat as model calibration/feature drift."
++
+       - alert: ExecSlipResidualP99High
+-        # Fires when residual P99 > 20 bps for a sym/bucket with >80 samples over lookback.
++        # Pages when residual P99 > 20 bps for a sym/bucket with >80 samples over lookback.
+         expr: (of_exec_slip_db_n > 80) and on(sym,bucket) (of_exec_slip_resid_p99_bps > 20)
+         for: 30m
+         labels:
+@@ -25,7 +65,7 @@ groups:
+           description: "DB-based residual P99 > 20 bps for sym/bucket with enough samples. Inspect mv_exec_slippage_eval_1h_stats and runbook_slippage_qa_p77.md."
+ 
+       - alert: ExecSlipEdgeNegShareHigh
+-        # Fires when edge_minus_expected_bps < 0 share > 0.55 for sym/bucket with >80 samples.
++        # Pages when edge_minus_expected_bps < 0 share > 0.55 for sym/bucket with >80 samples.
+         expr: (of_exec_slip_db_n > 80) and on(sym,bucket) (of_exec_slip_edge_neg_share > 0.55)
+         for: 30m
+         labels:
+diff --git a/orderflow_services/runbook_slippage_qa_p77.md b/orderflow_services/runbook_slippage_qa_p77.md
+index 880d3b4..da46c75 100644
+--- a/orderflow_services/runbook_slippage_qa_p77.md
++++ b/orderflow_services/runbook_slippage_qa_p77.md
+@@ -65,6 +65,20 @@ order by n desc;
+ ```
+ 
+ 
++### Residual stats per bucket (model expected)
++```sql
++select
++  exec_regime_bucket,
++  count(*)::bigint as n,
++  percentile_cont(0.95) within group (order by slippage_residual_model_bps) as resid_model_p95_bps,
++  percentile_cont(0.99) within group (order by slippage_residual_model_bps) as resid_model_p99_bps,
++  avg(case when edge_minus_expected_model_bps < 0 then 1 else 0 end) as edge_neg_share_model
++from v_exec_slippage_eval
++where sym = 'BTCUSDT' and ts >= now() - interval '24 hours'
++group by 1
++order by n desc;
++```
++
+ 3) Calibrator state keys (Redis):
+ 
+ ```bash
+@@ -160,6 +174,8 @@ Messages:
+ - Residual validation (requires `ENFORCE_STATE_EXPORTER_DB_STATS=1` on enforce_bucket_state_exporter):
+   - `of_exec_slip_resid_p95_bps{sym,bucket}` / `of_exec_slip_resid_p99_bps{sym,bucket}` (max over lookback)
+   - `of_exec_slip_edge_neg_share{sym,bucket}` (max over lookback)
++  - `of_exec_slip_model_resid_p95_bps{sym,bucket}` / `of_exec_slip_model_resid_p99_bps{sym,bucket}` (optional P90)
++  - `of_exec_slip_model_edge_neg_share{sym,bucket}` (optional P90)
+   - `of_exec_slip_db_n{sym,bucket}` (sum n over lookback)
+   - `of_exec_slip_stats_db_up` should be 1
+ - `of_exec_slip_stats_refresh_last_ok_age_sec` should be < 3600 (typical)
+@@ -171,6 +187,9 @@ Messages:
+ 1) Validate DB connectivity (`ANALYTICS_DB_DSN`) and permissions to `REFRESH MATERIALIZED VIEW`.
+ 2) Run manually:
+    - `python -m orderflow_services.refresh_exec_slip_stats_p80`
++3) Optional (P90): use extended MV with model residuals:
++   - refresher env: `EXEC_SLIP_STATS_MV=mv_exec_slippage_eval_1h_stats_v2`
++   - exporter env: `ENFORCE_STATE_EXPORTER_DB_MV=mv_exec_slippage_eval_1h_stats_v2`
+ 3) If concurrent refresh fails repeatedly, ensure no long-running transaction blocks MV.
+ 
+ ### If EnforceAutoApplyBlocked fires
+diff --git a/orderflow_services/tests/test_exec_slippage_eval_view_contract_p86.py b/orderflow_services/tests/test_exec_slippage_eval_view_contract_p86.py
+index 7b7bbfa..186c995 100644
+--- a/orderflow_services/tests/test_exec_slippage_eval_view_contract_p86.py
++++ b/orderflow_services/tests/test_exec_slippage_eval_view_contract_p86.py
+@@ -1,31 +1,39 @@
+-# -*- coding: utf-8 -*-
+-"""P86: Contract test for v_exec_slippage_eval SQL view.
+-
+-Several P80/P86 tools query v_exec_slippage_eval with columns:
+-  - slippage_residual_bps
+-  - edge_minus_expected_bps
+-
+-This test ensures the SQL source files in both trees include these columns.
+-"""
+-
+-from __future__ import annotations
+-
+ from pathlib import Path
+ 
+ 
+-def _read(p: Path) -> str:
+-    return p.read_text(encoding="utf-8", errors="replace")
++def test_exec_slippage_eval_view_contract_p86():
++    sql = Path("services/archivers/sql/20260223_exec_slippage_eval_view.sql").read_text(
++        encoding="utf-8", errors="replace"
++    )
++
++    # Key columns required by:
++    #  - MV refresher (stats)
++    #  - enforce_bucket_state_exporter DB stats query
++    #  - promoter/rollback/freezer validation
++    required_cols = [
++        "expected_slip_model_bps",
++        "expected_slip_decomp_bps",
++        "slip_decomp_coeff_bps",
++        "slip_decomp_spread_bps",
++        "slip_decomp_impact_bps",
++        "realized_slip_worse_bps",
++        "slippage_residual_bps",
++        "slippage_residual_model_bps",
++        "edge_minus_expected_bps",
++        "edge_minus_expected_model_bps",
++        "exec_regime_bucket",
++        "taker_flow_imb_z",
++        "liq_regime_label",
++        "vol_regime_label",
++        "features_json",
++    ]
+ 
++    for col in required_cols:
++        assert col in sql, f"missing {col} in view SQL"
+ 
+-def test_exec_slippage_eval_view_sql_contains_p86_columns() -> None:
+-    repo = Path(__file__).resolve().parents[2]  # repo root (python-worker/)
+-    paths = [
+-        repo / "services" / "archivers" / "sql" / "20260223_exec_slippage_eval_view.sql",
+-        repo / "tick_flow_full" / "services" / "archivers" / "sql" / "20260223_exec_slippage_eval_view.sql",
+-    ]
+-    for p in paths:
+-        assert p.exists(), f"missing SQL file: {p}"
+-        s = _read(p)
+-        assert "CREATE OR REPLACE VIEW v_exec_slippage_eval" in s, f"view DDL missing in {p}"
+-        assert "slippage_residual_bps" in s, f"slippage_residual_bps missing in {p}"
+-        assert "edge_minus_expected_bps" in s, f"edge_minus_expected_bps missing in {p}"
++    # Make sure residual columns are actually projected in the final SELECT (not only computed in CTE).
++    assert "\n  slippage_residual_bps,\n" in sql
++    assert "\n  slippage_residual_model_bps,\n" in sql
++
++    # Guard against a common SQL bug: referencing an alias that wasn't defined in the same SELECT list.
++    assert "base.*,\n  realized_slip_worse_bps" not in sql
+diff --git a/services/archivers/sql/20260223_exec_slippage_eval_view.sql b/services/archivers/sql/20260223_exec_slippage_eval_view.sql
+index a347261..efcacf7 100644
+--- a/services/archivers/sql/20260223_exec_slippage_eval_view.sql
++++ b/services/archivers/sql/20260223_exec_slippage_eval_view.sql
+@@ -1,116 +1,80 @@
+--- v_exec_slippage_eval: Execution slippage evaluation view for the nightly calibrator.
+--- View: v_exec_slippage_eval
++-- P86/P90: Exec slippage evaluation view (validation of expected slippage models)
+ --
+--- Used by nightly_slippage_calibrator_v1.py to fit per-bucket impact coefficients.
+--- Fields:
+---   ts                      – exit timestamp
+---   sym                     – symbol
+---   exec_regime_bucket      – NORMAL / LOW_LIQ / HIGH_VOL / HIGH_VOL_LOW_LIQ
+---   spread_bps              – spread (bps) at submit, for spread component isolation
+---   impact_proxy            – |dn_usd| / depth_min_5_usd
+---   fill_px                 – actual fill price (features_json→fill_px → t.entry_price)
+---   mid_px_submit           – mid price at decision time
+---   size_usd                – order size in USD (for size scaling)
+---   realized_slip_worse_bps – realized slippage unfavorable vs mid_px_submit (bps)
+---   slippage_residual_bps     – realized_slip_worse_bps - expected_slip_decomp_bps
+---                             FIX: uses fill_px (not entry_price) and correct sign per direction
+---   expected_slip_model_bps – model (slippage_model.py) expected slippage
+---   expected_slip_decomp_bps – decomp model expected slippage
+---   slip_decomp_coeff_bps   – k coefficient that was used at decision time
+---   edge_bps                – edge proxy (if present in features_json)
+---   edge_minus_expected_slip_decomp_bps – edge - decomp expected slip (calibrator residual)
+---   edge_minus_expected_bps  – alias for edge_minus_expected_slip_decomp_bps (used by exporter)
++-- This view is used by:
++--  - nightly_slippage_calibrator_v1.py (fit slippage_decomp_impact_coeff_bps)
++--  - enforce_bucket_state_exporter_v1.py (DB-based residual validation)
++--  - enforce_bucket_promoter / rollback / freezer (guardrails)
+ --
+--- Returns last 60 days; calibrator passes its own lookback WHERE clause.
+---
+--- FIX (2026-02-24): Rewrote with WITH base AS (...), calc AS (...) CTEs so:
+---   1. fill_px uses features_json→fill_px first (true fill), then t.entry_price as fallback.
+---   2. realized_slip_worse_bps correctly computes sign per direction (fill vs mid at submit).
+---   3. No column name collisions in outer SELECT (cleaner, avoids expression repetition).
++-- Notes:
++--  * realized_slip_worse_bps is computed from mid_px_submit vs fill_px.
++--  * slippage_residual_bps is residual vs expected_slip_decomp_bps (spread + k*impact_proxy).
++--  * slippage_residual_model_bps is residual vs expected_slip_model_bps (the runtime model output).
++--  * edge_minus_expected_bps is edge_bps - expected_slip_decomp_bps.
++--  * edge_minus_expected_model_bps is edge_bps - expected_slip_model_bps.
+ 
+ CREATE OR REPLACE VIEW v_exec_slippage_eval AS
+ WITH base AS (
+   SELECT
+-    p0.exit_ts               AS ts,
+-    t.symbol                 AS sym,
+-    COALESCE(NULLIF(p0.features_json->>'exec_regime_bucket',''), 'NORMAL') AS exec_regime_bucket,
+-
+-    -- Spread at submit (bps): prefer features_json snapshot, fall back to column
+-    COALESCE(
+-      NULLIF((p0.features_json->>'spread_bps_submit')::double precision, 0),
+-      NULLIF(p0.spread_bps_at_entry, 0),
+-      NULLIF((p0.features_json->>'spread_bps')::double precision, 0),
+-      0.0
+-    ) AS spread_bps,
+-
+-    -- Market impact proxy: |dn_usd| / depth_min_5_usd
+-    COALESCE(NULLIF((p0.features_json->>'impact_proxy')::double precision, 0), 0.0) AS impact_proxy,
+-
+-    -- Mid price at submit (for realized slip calc)
+-    COALESCE(
+-      NULLIF((p0.features_json->>'mid_px_submit')::double precision, 0),
+-      NULLIF(t.entry_price, 0),
+-      0.0
+-    ) AS mid_px_submit,
+-
+-    -- Fill price: prefer features_json (true fill reported by exchange), fall back to entry_price
+-    COALESCE(
+-      NULLIF((p0.features_json->>'fill_px')::double precision, 0),
+-      NULLIF(t.entry_price, 0),
+-      0.0
+-    ) AS fill_px,
+-
+-    -- Size proxy (USD)
+-    COALESCE(NULLIF(t.notional_usd, 0), NULLIF((p0.features_json->>'size_usd')::double precision, 0), 0.0) AS size_usd,
+-
+-    -- Expected slippage (legacy model)
+-    COALESCE(NULLIF((p0.features_json->>'expected_slippage_bps')::double precision, 0), 0.0)   AS expected_slip_model_bps,
+-    -- Expected slippage (decomp model)
+-    COALESCE(NULLIF((p0.features_json->>'expected_slippage_decomp_bps')::double precision, 0), 0.0) AS expected_slip_decomp_bps,
+-    -- k coefficient used at decision time (for retrospective audit)
+-    COALESCE(NULLIF((p0.features_json->>'slip_decomp_coeff_bps')::double precision, 0), 0.0)   AS slip_decomp_coeff_bps,
+-
+-    -- Spread component logged at decision time
+-    COALESCE(NULLIF((p0.features_json->>'slip_decomp_spread_bps')::double precision, 0), 0.0)  AS slip_decomp_spread_bps,
+-
+-    -- Impact component logged at decision time
+-    COALESCE(NULLIF((p0.features_json->>'slip_decomp_impact_bps')::double precision, 0), 0.0)  AS slip_decomp_impact_bps,
+-
+-    -- Optional edge proxy (if present)
+-    NULLIF((p0.features_json->>'edge_bps')::double precision, 0) AS edge_bps,
+-
+-    -- Direction normalised for CASE expressions below
+-    UPPER(COALESCE(NULLIF(t.direction,''), '')) AS dir,
+-
+-    -- Taker flow imbalance z-score at submit
+-    COALESCE(NULLIF((p0.features_json->>'taker_flow_imb_z')::double precision, 0), 0.0) AS taker_flow_imb_z,
+-
+-    -- Liquidity / volume regime labels for diagnostics
+-    COALESCE(NULLIF(p0.features_json->>'liq_regime_label', ''), 'na') AS liq_regime_label,
+-    COALESCE(NULLIF(p0.features_json->>'vol_regime_label', ''), 'na') AS vol_regime_label,
+-
+-    p0.features_json AS features_json
+-  FROM trades_closed_p0 p0
+-  JOIN trades_closed t
+-    ON t.order_id = p0.order_id
+-  WHERE p0.exit_ts > now() - interval '60 days'
++    ts,
++    sym,
++    exec_regime_bucket,
++    spread_bps,
++    impact_proxy,
++    mid_px_submit,
++    fill_px,
++    size_usd,
++    taker_flow_imb_z,
++    liq_regime_label,
++    vol_regime_label,
++    expected_slippage_bps AS expected_slip_model_bps,
++    expected_slippage_decomp_bps AS expected_slip_decomp_bps,
++    slippage_decomp_impact_coeff_bps AS slip_decomp_coeff_bps,
++    spread_bps AS slip_decomp_spread_bps,
++    (expected_slippage_decomp_bps - spread_bps) AS slip_decomp_impact_bps,
++    edge_bps,
++    features_json
++  FROM public.trades_closed
++  WHERE ts IS NOT NULL
++    AND sym IS NOT NULL
++    AND exec_regime_bucket IS NOT NULL
+ ),
+-calc AS (
++inner_calc AS (
+   SELECT
+     base.*,
+-  realized_slip_worse_bps,
+-
+-  -- Residual (realized - expected decomp) used by DB-based validation/exporter (P86)
+-  (realized_slip_worse_bps - expected_slip_decomp_bps) AS slippage_residual_bps,
+ 
++    -- Realized slippage (worse direction)
++    CASE
++      WHEN fill_px IS NULL OR mid_px_submit IS NULL OR mid_px_submit = 0 THEN NULL
++      -- BUY: pay above mid is worse
++      WHEN edge_bps IS NOT NULL AND edge_bps >= 0 THEN ((fill_px - mid_px_submit) / mid_px_submit) * 10000
++      -- SELL: receive below mid is worse
++      WHEN edge_bps IS NOT NULL AND edge_bps <  0 THEN ((mid_px_submit - fill_px) / mid_px_submit) * 10000
++      ELSE NULL
++    END AS realized_slip_worse_bps,
++
++    -- Edge minus expected (decomp) (negative => edge was not enough to cover expected slippage)
++    CASE
++      WHEN edge_bps IS NULL THEN NULL
++      ELSE edge_bps - expected_slip_decomp_bps
++    END AS edge_minus_expected_bps,
+ 
+-    -- Edge - expected (decomp) bps; NULL when edge_bps missing.
++    -- Edge minus expected (model)
+     CASE
+-      WHEN base.edge_bps IS NULL THEN NULL
+-      ELSE base.edge_bps - base.expected_slip_decomp_bps
+-    END AS edge_minus_expected_bps
++      WHEN edge_bps IS NULL THEN NULL
++      ELSE edge_bps - expected_slip_model_bps
++    END AS edge_minus_expected_model_bps
+ 
+   FROM base
++),
++calc AS (
++  SELECT
++    x.*,
++
++    -- Residuals used by DB-based validation/exporter (P86/P90)
++    (x.realized_slip_worse_bps - x.expected_slip_decomp_bps) AS slippage_residual_bps,
++    (x.realized_slip_worse_bps - x.expected_slip_model_bps)  AS slippage_residual_model_bps
++
++  FROM inner_calc x
+ )
+ SELECT
+   ts,
+@@ -121,27 +85,27 @@ SELECT
+   mid_px_submit,
+   fill_px,
+   size_usd,
++
+   expected_slip_model_bps,
+   expected_slip_decomp_bps,
++
+   slip_decomp_coeff_bps,
+   slip_decomp_spread_bps,
+   slip_decomp_impact_bps,
++
+   edge_bps,
++  realized_slip_worse_bps,
++
++  slippage_residual_bps,
++  slippage_residual_model_bps,
+ 
+-  -- Realized slippage (worse direction): fill vs mid at submit.
+-  -- FIX: LONG pays more when fill_px > mid_px_submit; SHORT pays more when fill_px < mid_px_submit.
+-  CASE
+-    WHEN mid_px_submit <= 0 OR fill_px <= 0 THEN 0.0
+-    WHEN dir = 'LONG'  THEN GREATEST(0.0, (fill_px - mid_px_submit) / mid_px_submit * 10000.0)
+-    WHEN dir = 'SHORT' THEN GREATEST(0.0, (mid_px_submit - fill_px) / mid_px_submit * 10000.0)
+-    ELSE 0.0
+-  END AS realized_slip_worse_bps,
+-  -- Edge - expected (decomp) bps (alias kept for backwards compatibility)
+   edge_minus_expected_bps AS edge_minus_expected_slip_decomp_bps,
+   edge_minus_expected_bps,
++  edge_minus_expected_model_bps,
+ 
+   taker_flow_imb_z,
+   liq_regime_label,
+   vol_regime_label,
+   features_json
++
+ FROM calc;
+diff --git a/services/archivers/sql/20260225_exec_slippage_eval_stats_mv_1h_v2.sql b/services/archivers/sql/20260225_exec_slippage_eval_stats_mv_1h_v2.sql
+new file mode 100644
+index 0000000..392ac20
+--- /dev/null
++++ b/services/archivers/sql/20260225_exec_slippage_eval_stats_mv_1h_v2.sql
+@@ -0,0 +1,30 @@
++-- P90: Extended hourly stats for v_exec_slippage_eval (decomp + model residuals)
++--
++-- This MV is optional and backward-compatible: it keeps the original columns
++-- (resid_p95_bps/resid_p99_bps/edge_neg_share) and adds *_model_* variants.
++--
++-- Usage:
++--   - refresher:  EXEC_SLIP_STATS_MV=mv_exec_slippage_eval_1h_stats_v2
++--   - exporter:   ENFORCE_STATE_EXPORTER_DB_MV=mv_exec_slippage_eval_1h_stats_v2
++
++CREATE MATERIALIZED VIEW IF NOT EXISTS mv_exec_slippage_eval_1h_stats_v2 AS
++SELECT
++  time_bucket('1 hour', ts) AS t,
++  sym,
++  exec_regime_bucket,
++  count(*)::bigint AS n,
++
++  percentile_cont(0.95) WITHIN GROUP (ORDER BY slippage_residual_bps) AS resid_p95_bps,
++  percentile_cont(0.99) WITHIN GROUP (ORDER BY slippage_residual_bps) AS resid_p99_bps,
++  avg(CASE WHEN edge_minus_expected_bps < 0 THEN 1 ELSE 0 END) AS edge_neg_share,
++
++  percentile_cont(0.95) WITHIN GROUP (ORDER BY slippage_residual_model_bps) AS resid_model_p95_bps,
++  percentile_cont(0.99) WITHIN GROUP (ORDER BY slippage_residual_model_bps) AS resid_model_p99_bps,
++  avg(CASE WHEN edge_minus_expected_model_bps < 0 THEN 1 ELSE 0 END) AS edge_neg_share_model
++
++FROM v_exec_slippage_eval
++GROUP BY 1, 2, 3
++WITH NO DATA;
++
++CREATE UNIQUE INDEX IF NOT EXISTS mv_exec_slippage_eval_1h_stats_v2_ux
++  ON mv_exec_slippage_eval_1h_stats_v2 (t, sym, exec_regime_bucket);
+diff --git a/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py b/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py
+index 0053987..f767d09 100644
+--- a/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py
++++ b/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py
+@@ -458,6 +458,26 @@ of_exec_slip_edge_neg_share = Gauge(
+     ["sym", "bucket"],
+ )
+ 
++# P90: Optional model-vs-expected validation gauges (same cardinality: sym x bucket)
++of_exec_slip_model_resid_p95_bps = Gauge(
++    "of_exec_slip_model_resid_p95_bps",
++    "model residual P95 bps per sym/bucket (max over lookback from DB)",
++    ["sym", "bucket"],
++)
++
++of_exec_slip_model_resid_p99_bps = Gauge(
++    "of_exec_slip_model_resid_p99_bps",
++    "model residual P99 bps per sym/bucket (max over lookback from DB)",
++    ["sym", "bucket"],
++)
++
++of_exec_slip_model_edge_neg_share = Gauge(
++    "of_exec_slip_model_edge_neg_share",
++    "share of trades with edge_minus_expected_model_bps < 0 per sym/bucket (max over lookback)",
++    ["sym", "bucket"],
++)
++
++
+ of_exec_slip_db_n = Gauge(
+     "of_exec_slip_db_n",
+     "number of DB samples per sym/bucket (sum over lookback)",
+@@ -791,8 +811,13 @@ class Exporter:
+             conn = psycopg2.connect(self.db_dsn)
+             cur = conn.cursor()
+ 
++            rows = []
++            has_model = False
++
++            # Prefer pre-aggregated MV (fast, uses t column).
++            # Backward compatible: if MV lacks model columns, fall back to legacy query,
++            # then to raw view queries.
+             try:
+-                # Prefer pre-aggregated MV (fast, uses t column)
+                 cur.execute(
+                     f"""
+                     select sym,
+@@ -800,7 +825,10 @@ class Exporter:
+                            sum(n)::bigint as n,
+                            max(resid_p95_bps) as resid_p95_bps,
+                            max(resid_p99_bps) as resid_p99_bps,
+-                           max(edge_neg_share) as edge_neg_share
++                           max(edge_neg_share) as edge_neg_share,
++                           max(resid_model_p95_bps) as resid_model_p95_bps,
++                           max(resid_model_p99_bps) as resid_model_p99_bps,
++                           max(edge_neg_share_model) as edge_neg_share_model
+                     from {mv}
+                     where sym = any(%s) and t >= now() - (%s || ' hours')::interval
+                     group by 1,2
+@@ -808,23 +836,63 @@ class Exporter:
+                     (syms, int(lookback_h)),
+                 )
+                 rows = cur.fetchall()
++                has_model = True
+             except Exception:
+-                # Fallback: compute live percentiles from raw view (slower)
+-                cur.execute(
+-                    f"""
+-                    select sym,
+-                           exec_regime_bucket,
+-                           count(*)::bigint as n,
+-                           percentile_cont(0.95) within group (order by slippage_residual_bps) as resid_p95_bps,
+-                           percentile_cont(0.99) within group (order by slippage_residual_bps) as resid_p99_bps,
+-                           avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share
+-                    from {view}
+-                    where sym = any(%s) and ts >= now() - (%s || ' hours')::interval
+-                    group by 1,2
+-                    """,
+-                    (syms, int(lookback_h)),
+-                )
+-                rows = cur.fetchall()
++                try:
++                    cur.execute(
++                        f"""
++                        select sym,
++                               exec_regime_bucket,
++                               sum(n)::bigint as n,
++                               max(resid_p95_bps) as resid_p95_bps,
++                               max(resid_p99_bps) as resid_p99_bps,
++                               max(edge_neg_share) as edge_neg_share
++                        from {mv}
++                        where sym = any(%s) and t >= now() - (%s || ' hours')::interval
++                        group by 1,2
++                        """,
++                        (syms, int(lookback_h)),
++                    )
++                    rows = cur.fetchall()
++                    has_model = False
++                except Exception:
++                    try:
++                        cur.execute(
++                            f"""
++                            select sym,
++                                   exec_regime_bucket,
++                                   count(*)::bigint as n,
++                                   percentile_cont(0.95) within group (order by slippage_residual_bps) as resid_p95_bps,
++                                   percentile_cont(0.99) within group (order by slippage_residual_bps) as resid_p99_bps,
++                                   avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share,
++                                   percentile_cont(0.95) within group (order by slippage_residual_model_bps) as resid_model_p95_bps,
++                                   percentile_cont(0.99) within group (order by slippage_residual_model_bps) as resid_model_p99_bps,
++                                   avg(case when edge_minus_expected_model_bps < 0 then 1 else 0 end) as edge_neg_share_model
++                            from {view}
++                            where sym = any(%s) and ts >= now() - (%s || ' hours')::interval
++                            group by 1,2
++                            """,
++                            (syms, int(lookback_h)),
++                        )
++                        rows = cur.fetchall()
++                        has_model = True
++                    except Exception:
++                        cur.execute(
++                            f"""
++                            select sym,
++                                   exec_regime_bucket,
++                                   count(*)::bigint as n,
++                                   percentile_cont(0.95) within group (order by slippage_residual_bps) as resid_p95_bps,
++                                   percentile_cont(0.99) within group (order by slippage_residual_bps) as resid_p99_bps,
++                                   avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share
++                            from {view}
++                            where sym = any(%s) and ts >= now() - (%s || ' hours')::interval
++                            group by 1,2
++                            """,
++                            (syms, int(lookback_h)),
++                        )
++                        rows = cur.fetchall()
++                        has_model = False
+ 
+             # Reset series within configured label space to prevent stale values.
+             for sym in syms:
+@@ -833,8 +901,21 @@ class Exporter:
+                     of_exec_slip_resid_p95_bps.labels(sym=sym, bucket=b).set(float("nan"))
+                     of_exec_slip_resid_p99_bps.labels(sym=sym, bucket=b).set(float("nan"))
+                     of_exec_slip_edge_neg_share.labels(sym=sym, bucket=b).set(float("nan"))
++                    of_exec_slip_model_resid_p95_bps.labels(sym=sym, bucket=b).set(float("nan"))
++                    of_exec_slip_model_resid_p99_bps.labels(sym=sym, bucket=b).set(float("nan"))
++                    of_exec_slip_model_edge_neg_share.labels(sym=sym, bucket=b).set(float("nan"))
+ 
+-            for sym, bucket, n, p95, p99, neg in rows:
++            for row in rows:
++                # row can be legacy (6 cols) or extended (9 cols)
++                if row is None:
++                    continue
++                if len(row) >= 9:
++                    sym, bucket, n, p95, p99, neg, mp95, mp99, mneg = row[:9]
++                    has_model_row = True
++                else:
++                    sym, bucket, n, p95, p99, neg = row[:6]
++                    mp95 = mp99 = mneg = None
++                    has_model_row = False
+                 s_sym = _safe_ident(sym, "")
+                 s_bucket = _safe_ident(bucket, "NORMAL") or "NORMAL"
+                 if not s_sym or s_sym not in syms:
+@@ -845,6 +926,11 @@ class Exporter:
+                 of_exec_slip_resid_p95_bps.labels(sym=s_sym, bucket=s_bucket).set(_as_float(p95, 0.0))
+                 of_exec_slip_resid_p99_bps.labels(sym=s_sym, bucket=s_bucket).set(_as_float(p99, 0.0))
+                 of_exec_slip_edge_neg_share.labels(sym=s_sym, bucket=s_bucket).set(_as_float(neg, 0.0))
++                # Optional model columns
++                if has_model and has_model_row:
++                    of_exec_slip_model_resid_p95_bps.labels(sym=s_sym, bucket=s_bucket).set(_as_float(mp95, 0.0))
++                    of_exec_slip_model_resid_p99_bps.labels(sym=s_sym, bucket=s_bucket).set(_as_float(mp99, 0.0))
++                    of_exec_slip_model_edge_neg_share.labels(sym=s_sym, bucket=s_bucket).set(_as_float(mneg, 0.0))
+ 
+             ok = True
+         except Exception:
+diff --git a/tick_flow_full/orderflow_services/prometheus_alerts_exec_slip_residual_validation_p86.yml b/tick_flow_full/orderflow_services/prometheus_alerts_exec_slip_residual_validation_p86.yml
+index 7354e49..cb4a86d 100644
+--- a/tick_flow_full/orderflow_services/prometheus_alerts_exec_slip_residual_validation_p86.yml
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_exec_slip_residual_validation_p86.yml
+@@ -14,8 +14,48 @@ groups:
+           summary: "Residual validation DB query failing"
+           description: "enforce_bucket_state_exporter DB stats query failing (of_exec_slip_stats_db_up=0). Check ANALYTICS_DB_DSN and exporter logs."
+ 
++      - alert: ExecSlipResidualP95Warn
++        # Early warning: residual P95 > 10 bps for a sym/bucket with >80 samples over lookback.
++        expr: (of_exec_slip_db_n > 80) and on(sym,bucket) (of_exec_slip_resid_p95_bps > 10)
++        for: 30m
++        labels:
++          severity: warn
++        annotations:
++          summary: "Slippage residual P95 elevated"
++          description: "DB-based residual P95 > 10 bps for sym/bucket with enough samples. Inspect v_exec_slippage_eval and runbook_slippage_qa_p77.md."
++
++      - alert: ExecSlipEdgeNegShareWarn
++        # Early warning: edge_minus_expected_bps < 0 share > 0.40 for sym/bucket with >80 samples.
++        expr: (of_exec_slip_db_n > 80) and on(sym,bucket) (of_exec_slip_edge_neg_share > 0.40)
++        for: 30m
++        labels:
++          severity: warn
++        annotations:
++          summary: "Edge negative share elevated"
++          description: "edge_minus_expected_bps < 0 share > 0.40 for sym/bucket with enough samples. Investigate slippage decomp calibration and enforcement."
++
++      - alert: ExecSlipResidualModelP99Warn
++        # Optional (P90): model residual P99 > 30 bps, only if exporter exposes model gauges.
++        expr: (of_exec_slip_db_n > 80) and on(sym,bucket) (of_exec_slip_model_resid_p99_bps > 30)
++        for: 30m
++        labels:
++          severity: warn
++        annotations:
++          summary: "Model slippage residual P99 elevated"
++          description: "DB-based model residual P99 > 30 bps for sym/bucket with enough samples. Compare expected_slip_model_bps vs expected_slip_decomp_bps and check regressions/drift."
++
++      - alert: ExecSlipModelEdgeNegShareWarn
++        # Optional (P90): edge_minus_expected_model_bps < 0 share > 0.45.
++        expr: (of_exec_slip_db_n > 80) and on(sym,bucket) (of_exec_slip_model_edge_neg_share > 0.45)
++        for: 30m
++        labels:
++          severity: warn
++        annotations:
++          summary: "Model edge negative share elevated"
++          description: "edge_minus_expected_model_bps < 0 share > 0.45 for sym/bucket with enough samples. If decomp is OK but model is bad, treat as model calibration/feature drift."
++
+       - alert: ExecSlipResidualP99High
+-        # Fires when residual P99 > 20 bps for a sym/bucket with >80 samples over lookback.
++        # Pages when residual P99 > 20 bps for a sym/bucket with >80 samples over lookback.
+         expr: (of_exec_slip_db_n > 80) and on(sym,bucket) (of_exec_slip_resid_p99_bps > 20)
+         for: 30m
+         labels:
+@@ -25,7 +65,7 @@ groups:
+           description: "DB-based residual P99 > 20 bps for sym/bucket with enough samples. Inspect mv_exec_slippage_eval_1h_stats and runbook_slippage_qa_p77.md."
+ 
+       - alert: ExecSlipEdgeNegShareHigh
+-        # Fires when edge_minus_expected_bps < 0 share > 0.55 for sym/bucket with >80 samples.
++        # Pages when edge_minus_expected_bps < 0 share > 0.55 for sym/bucket with >80 samples.
+         expr: (of_exec_slip_db_n > 80) and on(sym,bucket) (of_exec_slip_edge_neg_share > 0.55)
+         for: 30m
+         labels:
+diff --git a/tick_flow_full/orderflow_services/runbook_slippage_qa_p77.md b/tick_flow_full/orderflow_services/runbook_slippage_qa_p77.md
+index 880d3b4..da46c75 100644
+--- a/tick_flow_full/orderflow_services/runbook_slippage_qa_p77.md
++++ b/tick_flow_full/orderflow_services/runbook_slippage_qa_p77.md
+@@ -65,6 +65,20 @@ order by n desc;
+ ```
+ 
+ 
++### Residual stats per bucket (model expected)
++```sql
++select
++  exec_regime_bucket,
++  count(*)::bigint as n,
++  percentile_cont(0.95) within group (order by slippage_residual_model_bps) as resid_model_p95_bps,
++  percentile_cont(0.99) within group (order by slippage_residual_model_bps) as resid_model_p99_bps,
++  avg(case when edge_minus_expected_model_bps < 0 then 1 else 0 end) as edge_neg_share_model
++from v_exec_slippage_eval
++where sym = 'BTCUSDT' and ts >= now() - interval '24 hours'
++group by 1
++order by n desc;
++```
++
+ 3) Calibrator state keys (Redis):
+ 
+ ```bash
+@@ -160,6 +174,8 @@ Messages:
+ - Residual validation (requires `ENFORCE_STATE_EXPORTER_DB_STATS=1` on enforce_bucket_state_exporter):
+   - `of_exec_slip_resid_p95_bps{sym,bucket}` / `of_exec_slip_resid_p99_bps{sym,bucket}` (max over lookback)
+   - `of_exec_slip_edge_neg_share{sym,bucket}` (max over lookback)
++  - `of_exec_slip_model_resid_p95_bps{sym,bucket}` / `of_exec_slip_model_resid_p99_bps{sym,bucket}` (optional P90)
++  - `of_exec_slip_model_edge_neg_share{sym,bucket}` (optional P90)
+   - `of_exec_slip_db_n{sym,bucket}` (sum n over lookback)
+   - `of_exec_slip_stats_db_up` should be 1
+ - `of_exec_slip_stats_refresh_last_ok_age_sec` should be < 3600 (typical)
+@@ -171,6 +187,9 @@ Messages:
+ 1) Validate DB connectivity (`ANALYTICS_DB_DSN`) and permissions to `REFRESH MATERIALIZED VIEW`.
+ 2) Run manually:
+    - `python -m orderflow_services.refresh_exec_slip_stats_p80`
++3) Optional (P90): use extended MV with model residuals:
++   - refresher env: `EXEC_SLIP_STATS_MV=mv_exec_slippage_eval_1h_stats_v2`
++   - exporter env: `ENFORCE_STATE_EXPORTER_DB_MV=mv_exec_slippage_eval_1h_stats_v2`
+ 3) If concurrent refresh fails repeatedly, ensure no long-running transaction blocks MV.
+ 
+ ### If EnforceAutoApplyBlocked fires
+diff --git a/tick_flow_full/services/archivers/sql/20260223_exec_slippage_eval_view.sql b/tick_flow_full/services/archivers/sql/20260223_exec_slippage_eval_view.sql
+index e4568d7..efcacf7 100644
+--- a/tick_flow_full/services/archivers/sql/20260223_exec_slippage_eval_view.sql
++++ b/tick_flow_full/services/archivers/sql/20260223_exec_slippage_eval_view.sql
+@@ -1,96 +1,80 @@
+--- 2026-02-23 / 2026-02-24 (fix)
+--- View: v_exec_slippage_eval
+--- Purpose: validate (edge - expected_slippage_decomp_bps) distribution by regime bucket;
+---          provide input dataset for nightly slippage calibrator.
++-- P86/P90: Exec slippage evaluation view (validation of expected slippage models)
+ --
+--- FIX (2026-02-24): Rewrote with WITH base AS (...), calc AS (...) CTEs so:
+---   1. fill_px uses features_json→fill_px first (true fill), then t.entry_price as fallback.
+---   2. realized_slip_worse_bps correctly computes sign per direction (fill vs mid at submit).
+---   3. No column name collisions in outer SELECT (cleaner, avoids expression repetition).
++-- This view is used by:
++--  - nightly_slippage_calibrator_v1.py (fit slippage_decomp_impact_coeff_bps)
++--  - enforce_bucket_state_exporter_v1.py (DB-based residual validation)
++--  - enforce_bucket_promoter / rollback / freezer (guardrails)
++--
++-- Notes:
++--  * realized_slip_worse_bps is computed from mid_px_submit vs fill_px.
++--  * slippage_residual_bps is residual vs expected_slip_decomp_bps (spread + k*impact_proxy).
++--  * slippage_residual_model_bps is residual vs expected_slip_model_bps (the runtime model output).
++--  * edge_minus_expected_bps is edge_bps - expected_slip_decomp_bps.
++--  * edge_minus_expected_model_bps is edge_bps - expected_slip_model_bps.
+ 
+ CREATE OR REPLACE VIEW v_exec_slippage_eval AS
+ WITH base AS (
+   SELECT
+-    p0.exit_ts               AS ts,
+-    t.symbol                 AS sym,
+-    COALESCE(NULLIF(p0.features_json->>'exec_regime_bucket',''), 'NORMAL') AS exec_regime_bucket,
+-
+-    -- Spread at submit (bps): prefer features_json snapshot, fall back to column
+-    COALESCE(
+-      NULLIF((p0.features_json->>'spread_bps_submit')::double precision, 0),
+-      NULLIF(p0.spread_bps_at_entry, 0),
+-      NULLIF((p0.features_json->>'spread_bps')::double precision, 0),
+-      0.0
+-    ) AS spread_bps,
+-
+-    -- Market impact proxy: |dn_usd| / depth_min_5_usd
+-    COALESCE(NULLIF((p0.features_json->>'impact_proxy')::double precision, 0), 0.0) AS impact_proxy,
+-
+-    -- Mid price at submit (for realized slip calc)
+-    COALESCE(
+-      NULLIF((p0.features_json->>'mid_px_submit')::double precision, 0),
+-      NULLIF(t.entry_price, 0),
+-      0.0
+-    ) AS mid_px_submit,
+-
+-    -- Fill price: prefer features_json (true fill reported by exchange), fall back to entry_price
+-    COALESCE(
+-      NULLIF((p0.features_json->>'fill_px')::double precision, 0),
+-      NULLIF(t.entry_price, 0),
+-      0.0
+-    ) AS fill_px,
+-
+-    -- Size proxy (USD)
+-    COALESCE(NULLIF(t.notional_usd, 0), NULLIF((p0.features_json->>'size_usd')::double precision, 0), 0.0) AS size_usd,
+-
+-    -- Expected slippage (legacy model)
+-    COALESCE(NULLIF((p0.features_json->>'expected_slippage_bps')::double precision, 0), 0.0)   AS expected_slip_model_bps,
+-    -- Expected slippage (decomp model)
+-    COALESCE(NULLIF((p0.features_json->>'expected_slippage_decomp_bps')::double precision, 0), 0.0) AS expected_slip_decomp_bps,
+-    -- k coefficient used at decision time (for retrospective audit)
+-    COALESCE(NULLIF((p0.features_json->>'slip_decomp_coeff_bps')::double precision, 0), 0.0)   AS slip_decomp_coeff_bps,
+-
+-    -- Spread component logged at decision time
+-    COALESCE(NULLIF((p0.features_json->>'slip_decomp_spread_bps')::double precision, 0), 0.0)  AS slip_decomp_spread_bps,
+-
+-    -- Impact component logged at decision time
+-    COALESCE(NULLIF((p0.features_json->>'slip_decomp_impact_bps')::double precision, 0), 0.0)  AS slip_decomp_impact_bps,
+-
+-    -- Optional edge proxy (if present)
+-    NULLIF((p0.features_json->>'edge_bps')::double precision, 0) AS edge_bps,
+-
+-    -- Direction normalised for CASE expressions below
+-    UPPER(COALESCE(NULLIF(t.direction,''), '')) AS dir,
+-
+-    -- Taker flow imbalance z-score at submit
+-    COALESCE(NULLIF((p0.features_json->>'taker_flow_imb_z')::double precision, 0), 0.0) AS taker_flow_imb_z,
+-
+-    -- Liquidity / volume regime labels for diagnostics
+-    COALESCE(NULLIF(p0.features_json->>'liq_regime_label', ''), 'na') AS liq_regime_label,
+-    COALESCE(NULLIF(p0.features_json->>'vol_regime_label', ''), 'na') AS vol_regime_label,
+-
+-    p0.features_json AS features_json
+-  FROM trades_closed_p0 p0
+-  JOIN trades_closed t
+-    ON t.order_id = p0.order_id
+-  WHERE p0.exit_ts > now() - interval '60 days'
++    ts,
++    sym,
++    exec_regime_bucket,
++    spread_bps,
++    impact_proxy,
++    mid_px_submit,
++    fill_px,
++    size_usd,
++    taker_flow_imb_z,
++    liq_regime_label,
++    vol_regime_label,
++    expected_slippage_bps AS expected_slip_model_bps,
++    expected_slippage_decomp_bps AS expected_slip_decomp_bps,
++    slippage_decomp_impact_coeff_bps AS slip_decomp_coeff_bps,
++    spread_bps AS slip_decomp_spread_bps,
++    (expected_slippage_decomp_bps - spread_bps) AS slip_decomp_impact_bps,
++    edge_bps,
++    features_json
++  FROM public.trades_closed
++  WHERE ts IS NOT NULL
++    AND sym IS NOT NULL
++    AND exec_regime_bucket IS NOT NULL
+ ),
+-calc AS (
++inner_calc AS (
+   SELECT
+     base.*,
+-  realized_slip_worse_bps,
+-
+-  -- Residual (realized - expected decomp) used by DB-based validation/exporter (P86)
+-  (realized_slip_worse_bps - expected_slip_decomp_bps) AS slippage_residual_bps,
+ 
++    -- Realized slippage (worse direction)
++    CASE
++      WHEN fill_px IS NULL OR mid_px_submit IS NULL OR mid_px_submit = 0 THEN NULL
++      -- BUY: pay above mid is worse
++      WHEN edge_bps IS NOT NULL AND edge_bps >= 0 THEN ((fill_px - mid_px_submit) / mid_px_submit) * 10000
++      -- SELL: receive below mid is worse
++      WHEN edge_bps IS NOT NULL AND edge_bps <  0 THEN ((mid_px_submit - fill_px) / mid_px_submit) * 10000
++      ELSE NULL
++    END AS realized_slip_worse_bps,
++
++    -- Edge minus expected (decomp) (negative => edge was not enough to cover expected slippage)
++    CASE
++      WHEN edge_bps IS NULL THEN NULL
++      ELSE edge_bps - expected_slip_decomp_bps
++    END AS edge_minus_expected_bps,
+ 
+-    -- Edge - expected (decomp) bps; NULL when edge_bps missing.
++    -- Edge minus expected (model)
+     CASE
+-      WHEN base.edge_bps IS NULL THEN NULL
+-      ELSE base.edge_bps - base.expected_slip_decomp_bps
+-    END AS edge_minus_expected_bps
++      WHEN edge_bps IS NULL THEN NULL
++      ELSE edge_bps - expected_slip_model_bps
++    END AS edge_minus_expected_model_bps
+ 
+   FROM base
++),
++calc AS (
++  SELECT
++    x.*,
++
++    -- Residuals used by DB-based validation/exporter (P86/P90)
++    (x.realized_slip_worse_bps - x.expected_slip_decomp_bps) AS slippage_residual_bps,
++    (x.realized_slip_worse_bps - x.expected_slip_model_bps)  AS slippage_residual_model_bps
++
++  FROM inner_calc x
+ )
+ SELECT
+   ts,
+@@ -101,27 +85,27 @@ SELECT
+   mid_px_submit,
+   fill_px,
+   size_usd,
++
+   expected_slip_model_bps,
+   expected_slip_decomp_bps,
++
+   slip_decomp_coeff_bps,
+   slip_decomp_spread_bps,
+   slip_decomp_impact_bps,
++
+   edge_bps,
++  realized_slip_worse_bps,
++
++  slippage_residual_bps,
++  slippage_residual_model_bps,
+ 
+-  -- Realized slippage (worse direction): fill vs mid at submit.
+-  -- FIX: LONG pays more when fill_px > mid_px_submit; SHORT pays more when fill_px < mid_px_submit.
+-  CASE
+-    WHEN mid_px_submit <= 0 OR fill_px <= 0 THEN 0.0
+-    WHEN dir = 'LONG'  THEN GREATEST(0.0, (fill_px - mid_px_submit) / mid_px_submit * 10000.0)
+-    WHEN dir = 'SHORT' THEN GREATEST(0.0, (mid_px_submit - fill_px) / mid_px_submit * 10000.0)
+-    ELSE 0.0
+-  END AS realized_slip_worse_bps,
+-  -- Edge - expected (decomp) bps (alias kept for backwards compatibility)
+   edge_minus_expected_bps AS edge_minus_expected_slip_decomp_bps,
+   edge_minus_expected_bps,
++  edge_minus_expected_model_bps,
+ 
+   taker_flow_imb_z,
+   liq_regime_label,
+   vol_regime_label,
+   features_json
++
+ FROM calc;
+diff --git a/tick_flow_full/services/archivers/sql/20260225_exec_slippage_eval_stats_mv_1h_v2.sql b/tick_flow_full/services/archivers/sql/20260225_exec_slippage_eval_stats_mv_1h_v2.sql
+new file mode 100644
+index 0000000..392ac20
+--- /dev/null
++++ b/tick_flow_full/services/archivers/sql/20260225_exec_slippage_eval_stats_mv_1h_v2.sql
+@@ -0,0 +1,30 @@
++-- P90: Extended hourly stats for v_exec_slippage_eval (decomp + model residuals)
++--
++-- This MV is optional and backward-compatible: it keeps the original columns
++-- (resid_p95_bps/resid_p99_bps/edge_neg_share) and adds *_model_* variants.
++--
++-- Usage:
++--   - refresher:  EXEC_SLIP_STATS_MV=mv_exec_slippage_eval_1h_stats_v2
++--   - exporter:   ENFORCE_STATE_EXPORTER_DB_MV=mv_exec_slippage_eval_1h_stats_v2
++
++CREATE MATERIALIZED VIEW IF NOT EXISTS mv_exec_slippage_eval_1h_stats_v2 AS
++SELECT
++  time_bucket('1 hour', ts) AS t,
++  sym,
++  exec_regime_bucket,
++  count(*)::bigint AS n,
++
++  percentile_cont(0.95) WITHIN GROUP (ORDER BY slippage_residual_bps) AS resid_p95_bps,
++  percentile_cont(0.99) WITHIN GROUP (ORDER BY slippage_residual_bps) AS resid_p99_bps,
++  avg(CASE WHEN edge_minus_expected_bps < 0 THEN 1 ELSE 0 END) AS edge_neg_share,
++
++  percentile_cont(0.95) WITHIN GROUP (ORDER BY slippage_residual_model_bps) AS resid_model_p95_bps,
++  percentile_cont(0.99) WITHIN GROUP (ORDER BY slippage_residual_model_bps) AS resid_model_p99_bps,
++  avg(CASE WHEN edge_minus_expected_model_bps < 0 THEN 1 ELSE 0 END) AS edge_neg_share_model
++
++FROM v_exec_slippage_eval
++GROUP BY 1, 2, 3
++WITH NO DATA;
++
++CREATE UNIQUE INDEX IF NOT EXISTS mv_exec_slippage_eval_1h_stats_v2_ux
++  ON mv_exec_slippage_eval_1h_stats_v2 (t, sym, exec_regime_bucket);

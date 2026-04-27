@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/strong_gate_calibrator.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.1, 0.2, 0.4, 0.55, 1.0, 'full_enforce', 'hold', 'min_lift', 'min_n_total', 'min_n_vetoed', 'min_precision', 'promote', 'rollback', 'rollback_precision', 'shadow', 'shadow_enforce']

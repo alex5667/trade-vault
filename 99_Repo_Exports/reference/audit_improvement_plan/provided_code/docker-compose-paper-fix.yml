@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  paper-executor:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-paper-executor
+    environment:
+    - REDIS_URL=redis://redis-worker-1:6379/0
+    - SYMBOL=XAUUSD
+    - SYMBOLS=XAUUSD,XAUUSDT,BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,SUIUSDT,APTUSDT,ARBUSDT,DOGEUSDT,WIFUSDT,1000PEPEUSDT,1000SHIBUSDT,1000FLOKIUSDT,1000BONKUSDT
+    - PAPER_SYMBOLS_MODE=env
+    - TICK_STREAM=stream:tick_XAUUSDT
+    - PAPER_ORDERS_STREAM=orders:queue
+    - PAPER_DEALS_STREAM=events:trades
+    - PAPER_PARQUET=/data/paper_trades.parquet
+    - WORKER_THREADS=4
+    - ROUTE_CACHE_TTL_MS=500
+    volumes:
+    - backtest-data:/data
+    - ./python-worker:/app/python-worker:ro
+    networks:
+    - scanner-network
+    restart: unless-stopped
+
+networks:
+  scanner-network:
+    external: true
+
+volumes:
+  backtest-data:
+    external: true
+    name: scanner_infra_backtest-data

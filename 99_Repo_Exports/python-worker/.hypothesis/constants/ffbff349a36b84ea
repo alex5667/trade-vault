@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/cooldown_service.py
+# hypothesis_version: 6.148.10
+
+[300, 500, 900, 1000, 3600, 10000, 15000, 20000, 30000, 45000, 60000, 90000, 'absorption', 'breakout', 'default', 'extreme', 'obi_spike', 'of', 'sweep', 'weak_progress']

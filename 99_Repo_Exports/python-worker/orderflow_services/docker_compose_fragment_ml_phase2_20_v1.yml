@@ -1,0 +1,31 @@
+services:
+  scanner-operator-routing-incident-route-rca-usefulness-governor-v2-20:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    command: ["python", "-m", "orderflow_services.operator_routing_incident_route_rca_usefulness_governor_v2_20"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_PORT:-9905}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_ADVISORY_ONLY: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_ADVISORY_ONLY:-1}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_WINDOW_MIN: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_WINDOW_MIN:-1440}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_MIN_SAMPLE: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_MIN_SAMPLE:-8}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_SUPPRESS_SCORE_MAX: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_SUPPRESS_SCORE_MAX:-0.45}
+      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_PROMOTE_SCORE_MIN: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_PROMOTE_SCORE_MIN:-0.72}
+    ports:
+      - "${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_PORT:-9905}:9905"
+    networks:
+      - scanner-network
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9905/metrics >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 384M

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/reclaim_detector.py
+# hypothesis_version: 6.148.10
+
+[0.0, 5000, 120000, 'EQH', 'close', 'direction_bias', 'end_ts_ms', 'high', 'kind', 'level', 'low', 'pool_id', 'pool_kind', 'reclaim_hold_bars', 'reclaim_valid_ms', 'tol_px', 'ts_ms']

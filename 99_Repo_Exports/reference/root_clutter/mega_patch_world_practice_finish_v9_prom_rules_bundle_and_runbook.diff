@@ -1,0 +1,177 @@
+diff --git a/orderflow_services/prometheus_rules_bundle_manifest_v1.yml b/orderflow_services/prometheus_rules_bundle_manifest_v1.yml
+new file mode 100644
+index 0000000..33bcf48
+--- /dev/null
++++ b/orderflow_services/prometheus_rules_bundle_manifest_v1.yml
+@@ -0,0 +1,18 @@
++# Prometheus rules bundle manifest (v1)
++#
++# Purpose
++#   Single include-list for deployment of Prometheus rule files.
++#
++# Typical usage
++#   1) Copy repo directories into your Prometheus rules dir (example):
++#        /etc/prometheus/rules/<repo_root>/...
++#   2) In prometheus.yml, set rule_files to these globs.
++#
++# Notes
++#   - This intentionally uses globs so new rule files are auto-included.
++#   - Keep the rules directory layout stable.
++
++rule_file_globs:
++  - orderflow_services/prometheus_alerts_*.yml
++  - ok_rate_logic/prometheus_alerts_*.yml
++  - services/orderflow/prometheus_alerts_*.yml
+
+diff --git a/orderflow_services/README_prometheus_rules_bundle_v1.md b/orderflow_services/README_prometheus_rules_bundle_v1.md
+new file mode 100644
+index 0000000..88f7177
+--- /dev/null
++++ b/orderflow_services/README_prometheus_rules_bundle_v1.md
+@@ -0,0 +1,27 @@
++# Prometheus rules bundle (v1)
++
++## What
++A small, explicit **include list** used for deploying Prometheus rules from this repo.
++
++## Where
++- Manifest: `orderflow_services/prometheus_rules_bundle_manifest_v1.yml`
++- Rule files live under:
++  - `orderflow_services/prometheus_alerts_*.yml`
++  - `ok_rate_logic/prometheus_alerts_*.yml`
++  - `services/orderflow/prometheus_alerts_*.yml`
++
++## How to deploy
++1) Copy the repo (or these subfolders) into your Prometheus rules directory.
++2) Add the manifest globs into `prometheus.yml` under `rule_files`.
++
++Example:
++```yaml
++rule_files:
++  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_*.yml
++  - /etc/prometheus/rules/ok_rate_logic/prometheus_alerts_*.yml
++  - /etc/prometheus/rules/services/orderflow/prometheus_alerts_*.yml
++```
++
++## Why this exists
++So new alert files (e.g. slippage calibrator health) are included automatically without
++editing your Prometheus config every time.
+
+diff --git a/tick_flow_full/orderflow_services/prometheus_rules_bundle_manifest_v1.yml b/tick_flow_full/orderflow_services/prometheus_rules_bundle_manifest_v1.yml
+new file mode 100644
+index 0000000..5167773
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/prometheus_rules_bundle_manifest_v1.yml
+@@ -0,0 +1,8 @@
++# Prometheus rules bundle manifest (v1) — tick_flow_full mirror
++#
++# Use when you deploy rules from the tick_flow_full subtree only.
++# (Paths are relative to tick_flow_full/)
++
++rule_file_globs:
++  - orderflow_services/prometheus_alerts_*.yml
++  - services/orderflow/prometheus_alerts_*.yml
+
+diff --git a/tick_flow_full/orderflow_services/README_prometheus_rules_bundle_v1.md b/tick_flow_full/orderflow_services/README_prometheus_rules_bundle_v1.md
+new file mode 100644
+index 0000000..06620f1
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/README_prometheus_rules_bundle_v1.md
+@@ -0,0 +1,10 @@
++# Prometheus rules bundle (v1) — tick_flow_full mirror
++
++Manifest: `orderflow_services/prometheus_rules_bundle_manifest_v1.yml`
++
++Example `prometheus.yml` snippet (if you mount `tick_flow_full/` as the rules root):
++```yaml
++rule_files:
++  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_*.yml
++  - /etc/prometheus/rules/services/orderflow/prometheus_alerts_*.yml
++```
+
+diff --git a/mnt/data/_step9_backup/runbook_slippage_qa_p77.md b/orderflow_services/runbook_slippage_qa_p77.md
+index e6e46e6..9661dfd 100644
+--- a/mnt/data/_step9_backup/runbook_slippage_qa_p77.md
++++ b/orderflow_services/runbook_slippage_qa_p77.md
+@@ -28,6 +28,7 @@ Runtime flags (env/cfg):
+ ### Prometheus alerts
+ - `prometheus_alerts_slippage_qa_v1.yml`
+ - `prometheus_alerts_enforce_bucket_promoter_v1.yml`
++- `prometheus_alerts_slippage_calibrator_health_v1.yml`
+ 
+ ### Exporter metrics (port 9142)
+ - `of_enforce_bucket_flag{component="slippage|taker_flow", sym="global", bucket}`
+@@ -38,8 +39,27 @@ Runtime flags (env/cfg):
+ ## Triage
+ ### Alert: Promoter report stale
+ 1) Check timers: `of_timers_worker` logs around 06:10 UTC.
+-2) Check DB: `v_exec_slippage_eval` exists and returns rows for last 24h.
+-3) Check Redis: stream `metrics:of_gate` is populated (lookback 24h).
++2) Quick DB check (rowcount by bucket, last 24h):
++
++```sql
++select exec_regime_bucket, count(*)::bigint as n
++from v_exec_slippage_eval
++where ts >= now() - interval '24 hours'
++group by 1
++order by n desc;
++```
++
++3) Calibrator state keys (Redis):
++
++```bash
++redis-cli GET state:slippage_calib:last_ok_ts_ms
++redis-cli GET state:slippage_calib:last_run_ts_ms
++redis-cli --scan --pattern 'state:slippage_calib:last:*' | head
++# per sym/bucket timestamp
++redis-cli GET cfg:slippage_decomp_impact_coeff_bps_ts_ms:BTCUSDT:HIGH_VOL_LOW_LIQ
++```
++
++4) Check Redis: stream `metrics:of_gate` is populated (lookback 24h).
+ 
+ ### Alert: Residual high while enforced
+ 1) Narrow enforcement to safest bucket:
+
+diff --git a/mnt/data/_step9_backup/tff_runbook_slippage_qa_p77.md b/tick_flow_full/orderflow_services/runbook_slippage_qa_p77.md
+index e6e46e6..9661dfd 100644
+--- a/mnt/data/_step9_backup/tff_runbook_slippage_qa_p77.md
++++ b/tick_flow_full/orderflow_services/runbook_slippage_qa_p77.md
+@@ -28,6 +28,7 @@ Runtime flags (env/cfg):
+ ### Prometheus alerts
+ - `prometheus_alerts_slippage_qa_v1.yml`
+ - `prometheus_alerts_enforce_bucket_promoter_v1.yml`
++- `prometheus_alerts_slippage_calibrator_health_v1.yml`
+ 
+ ### Exporter metrics (port 9142)
+ - `of_enforce_bucket_flag{component="slippage|taker_flow", sym="global", bucket}`
+@@ -38,8 +39,27 @@ Runtime flags (env/cfg):
+ ## Triage
+ ### Alert: Promoter report stale
+ 1) Check timers: `of_timers_worker` logs around 06:10 UTC.
+-2) Check DB: `v_exec_slippage_eval` exists and returns rows for last 24h.
+-3) Check Redis: stream `metrics:of_gate` is populated (lookback 24h).
++2) Quick DB check (rowcount by bucket, last 24h):
++
++```sql
++select exec_regime_bucket, count(*)::bigint as n
++from v_exec_slippage_eval
++where ts >= now() - interval '24 hours'
++group by 1
++order by n desc;
++```
++
++3) Calibrator state keys (Redis):
++
++```bash
++redis-cli GET state:slippage_calib:last_ok_ts_ms
++redis-cli GET state:slippage_calib:last_run_ts_ms
++redis-cli --scan --pattern 'state:slippage_calib:last:*' | head
++# per sym/bucket timestamp
++redis-cli GET cfg:slippage_decomp_impact_coeff_bps_ts_ms:BTCUSDT:HIGH_VOL_LOW_LIQ
++```
++
++4) Check Redis: stream `metrics:of_gate` is populated (lookback 24h).
+ 
+ ### Alert: Residual high while enforced
+ 1) Narrow enforcement to safest bucket:
+

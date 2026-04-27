@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/ab_router.py
+# hypothesis_version: 6.148.10
+
+[100, 'A', 'B', 'C', 'ab_split_b_default', 'ab_split_b_thin', 'ab_split_c_default', 'ab_split_c_thin', 'big', 'default', 'illiquid', 'na', 'news', 'thin', 'utf-8']

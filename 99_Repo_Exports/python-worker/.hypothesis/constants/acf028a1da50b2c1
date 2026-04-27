@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/sparse/csc.py
+# hypothesis_version: 6.148.10
+
+['csc_matrix', 'csc_tocsr', 'expandptr', 'get_index_dtype', 'isspmatrix_csc', 'spmatrix', 'upcast']

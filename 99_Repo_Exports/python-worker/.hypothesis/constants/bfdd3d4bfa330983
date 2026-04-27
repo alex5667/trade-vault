@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signal_scoring/config.py
+# hypothesis_version: 6.148.10
+
+[0.1, 0.2, 0.3, 0.5, 0.6, 0.7, 1.0, 80.0, 90.0, 300000, '1', 'ScoringConfig', '__', 'atr_quantile', 'delta_spike_z', 'obi', 'true', 'weak_progress', 'yes']

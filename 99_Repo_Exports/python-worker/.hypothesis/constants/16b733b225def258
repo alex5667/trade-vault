@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/gpu_service.py
+# hypothesis_version: 6.148.10
+
+['available', 'compute_capability', 'current_device', 'device_count', 'error', 'name', 'totalGlobalMem', 'total_memory']

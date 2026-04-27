@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/main_loop_service.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.05, 0.25, 0.5, 2.0, 5.0, 60.0, 100, 200, 250, 1000, 2000, 5000, 20000, 30000, 120000, '%s=%s tags=%s', '0-0', 'HealthMetrics', '_is_transient_error', 'backoff_base', 'backoff_jitter', 'backoff_max', 'backoff_multiplier', 'backoff_pending_base', 'backoff_pending_max', 'book', 'book_stream', 'claim_interval_ms', 'config', 'error_handler', 'gauge', 'health_metrics', 'idle_sleep_s', 'is_transient_error', 'kind', 'l3', 'l3_stream', 'last_stat_mono_s', 'max_msgs_per_loop', 'message_handler', 'metrics', 'on_pending_len', 'pending_len', 'read_block_ms', 'read_count', 'read_count_book', 'read_count_l3', 'read_count_tick', 'read_new', 'set_gauge', 'set_pending_len', 'stream', 'symbol', 'tick_stream', 'ticks']

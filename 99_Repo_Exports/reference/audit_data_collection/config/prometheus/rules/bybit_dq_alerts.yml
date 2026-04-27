@@ -1,0 +1,188 @@
+# Prometheus alert rules for Bybit data-quality metrics.
+#
+# Naming convention:
+# - TradeBybit* : alerts specific to Bybit WS ingestion in go-worker.
+#
+# Severity:
+# - warning: investigate during working hours / degrade
+# - critical: paging / immediate action
+#
+# Tuning notes (defaults):
+# - tick_gap_p95_ms thresholds assume actively traded instruments.
+#   If you run illiquid symbols, increase `for:` or thresholds to avoid noise.
+# - book_missing_seq_ema is an EMA of missing update-ids (u) on *delta* only.
+#   Snapshot events (reconnect/first sync) do NOT penalize missing; see book_seq_resets_total.
+
+groups:
+  - name: trade-bybit-dq
+    interval: 15s
+    rules:
+      # --- Tick gaps (event-time) ---
+      - alert: TradeBybitTickGapP95HighWarn
+        expr: tick_gap_p95_ms{venue="bybit"} > 2000
+        for: 2m
+        labels:
+          severity: warning
+          team: trade
+          component: ingest
+          venue: bybit
+        annotations:
+          summary: "Bybit tick gaps high (p95)"
+          description: "tick_gap_p95_ms={{ $value }}ms for symbol={{ $labels.symbol }}. Indicates missing ticks / WS stalls / time drift."
+          runbook: "infra/prometheus/runbooks/bybit_dq.md#tradebybittickgapp95highwarn"
+
+      - alert: TradeBybitTickGapP95HighCrit
+        expr: tick_gap_p95_ms{venue="bybit"} > 10000
+        for: 30s
+        labels:
+          severity: critical
+          team: trade
+          component: ingest
+          venue: bybit
+        annotations:
+          summary: "Bybit tick gaps very high (p95)"
+          description: "tick_gap_p95_ms={{ $value }}ms for symbol={{ $labels.symbol }}. High probability of data loss or WS freeze."
+          runbook: "infra/prometheus/runbooks/bybit_dq.md#tradebybittickgapp95highcrit"
+
+      - alert: TradeBybitTickGapP95ExtremeCrit
+        expr: tick_gap_p95_ms{venue="bybit"} > 30000
+        for: 10s
+        labels:
+          severity: critical
+          team: trade
+          component: ingest
+          venue: bybit
+        annotations:
+          summary: "Bybit tick gaps EXTREME (p95)"
+          description: "tick_gap_p95_ms={{ $value }}ms for symbol={{ $labels.symbol }}. Treat as outage for this symbol."
+          runbook: "infra/prometheus/runbooks/bybit_dq.md#tradebybittickgapp95extremecrit"
+
+      # --- Orderbook missing seq (EMA of missing update-ids) ---
+      - alert: TradeBybitBookMissingSeqEmaWarn
+        expr: book_missing_seq_ema{venue="bybit"} > 2
+        for: 2m
+        labels:
+          severity: warning
+          team: trade
+          component: ingest
+          venue: bybit
+        annotations:
+          summary: "Bybit orderbook missing update-ids (EMA high)"
+          description: "book_missing_seq_ema={{ $value }} for symbol={{ $labels.symbol }}. Orderbook deltas are missing; likely packet loss or reconnect loops."
+          runbook: "infra/prometheus/runbooks/bybit_dq.md#tradebybitbookmissingseqemawarn"
+
+      - alert: TradeBybitBookMissingSeqEmaCrit
+        expr: book_missing_seq_ema{venue="bybit"} > 10
+        for: 30s
+        labels:
+          severity: critical
+          team: trade
+          component: ingest
+          venue: bybit
+        annotations:
+          summary: "Bybit orderbook missing update-ids (EMA VERY high)"
+          description: "book_missing_seq_ema={{ $value }} for symbol={{ $labels.symbol }}. Orderbook quality is unacceptable; OF features likely corrupted."
+          runbook: "infra/prometheus/runbooks/bybit_dq.md#tradebybitbookmissingseqemacrit"
+
+      # --- Resets / reconnect loops ---
+      - alert: TradeBybitBookSeqResetsHighWarn
+        expr: increase(book_seq_resets_total{venue="bybit"}[10m]) > 3
+        labels:
+          severity: warning
+          team: trade
+          component: ingest
+          venue: bybit
+        annotations:
+          summary: "Bybit orderbook sequence resets often"
+          description: "book_seq_resets_total increased by >3/10m for symbol={{ $labels.symbol }}. Frequent snapshots/reconnects; check WS stability."
+          runbook: "infra/prometheus/runbooks/bybit_dq.md#tradebybitbookseqresetshighwarn"
+
+      - alert: TradeBybitBookSeqResetsHighCrit
+        expr: increase(book_seq_resets_total{venue="bybit"}[10m]) > 10
+        labels:
+          severity: critical
+          team: trade
+          component: ingest
+          venue: bybit
+        annotations:
+          summary: "Bybit orderbook sequence resets storm"
+          description: "book_seq_resets_total increased by >10/10m for symbol={{ $labels.symbol }}. Strong evidence of reconnect storm."
+          runbook: "infra/prometheus/runbooks/bybit_dq.md#tradebybitbookseqresetshighcrit"
+
+      - alert: TradeBybitReconnectStormWarn
+        expr: increase(bybit_futures_reconnects_total[10m]) > 2
+        labels:
+          severity: warning
+          team: trade
+          component: ingest
+          venue: bybit
+        annotations:
+          summary: "Bybit WS reconnects are frequent"
+          description: "bybit_futures_reconnects_total increased by >2/10m. Check network, WS url, ping/read timeouts."
+          runbook: "infra/prometheus/runbooks/bybit_dq.md#tradebybitreconnectstormwarn"
+
+      - alert: TradeBybitReconnectStormCrit
+        expr: increase(bybit_futures_reconnects_total[10m]) > 10
+        labels:
+          severity: critical
+          team: trade
+          component: ingest
+          venue: bybit
+        annotations:
+          summary: "Bybit WS reconnect storm"
+          description: "bybit_futures_reconnects_total increased by >10/10m. Ingestion is unstable; expect data gaps."
+          runbook: "infra/prometheus/runbooks/bybit_dq.md#tradebybitreconnectstormcrit"
+
+      # --- Out-of-order / duplicate events ---
+      - alert: TradeBybitTickOutOfOrderHighWarn
+        expr: increase(tick_gap_out_of_order_total{venue="bybit"}[10m]) > 5
+        labels:
+          severity: warning
+          team: trade
+          component: ingest
+          venue: bybit
+        annotations:
+          summary: "Bybit ticks out-of-order/duplicates observed"
+          description: "tick_gap_out_of_order_total increased by >5/10m for symbol={{ $labels.symbol }}. Check clock/time parsing and WS stability."
+          runbook: "infra/prometheus/runbooks/bybit_dq.md#tradebybittickoutoforderhighwarn"
+
+      - alert: TradeBybitBookOutOfOrderHighWarn
+        expr: increase(book_seq_out_of_order_total{venue="bybit"}[10m]) > 5
+        labels:
+          severity: warning
+          team: trade
+          component: ingest
+          venue: bybit
+        annotations:
+          summary: "Bybit orderbook update-id non-increasing"
+          description: "book_seq_out_of_order_total increased by >5/10m for symbol={{ $labels.symbol }}. Likely duplicate deltas or state desync."
+          runbook: "infra/prometheus/runbooks/bybit_dq.md#tradebybitbookoutoforderhighwarn"
+
+      # --- Parser errors ---
+      - alert: TradeBybitParseErrorsWarn
+        expr: rate(bybit_parse_errors_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+          team: trade
+          component: ingest
+          venue: bybit
+        annotations:
+          summary: "Bybit WS parse errors"
+          description: "bybit_parse_errors_total is increasing. Possible schema change or invalid payloads."
+          runbook: "infra/prometheus/runbooks/bybit_dq.md#tradebybitparseerrorswarn"
+
+      # --- Global ingestion silence (all symbols/types) ---
+      # This fires if the exporter is present but no messages are processed, OR if the metric is absent.
+      - alert: TradeBybitIngestSilentCrit
+        expr: (sum(rate(bybit_futures_messages_total[5m])) < 0.0001) OR absent(sum(rate(bybit_futures_messages_total[5m])))
+        for: 5m
+        labels:
+          severity: critical
+          team: trade
+          component: ingest
+          venue: bybit
+        annotations:
+          summary: "Bybit ingestion is silent"
+          description: "No Bybit messages processed for 5m (or metric absent). Check go-worker process, WS connectivity, and Redis publish."
+          runbook: "infra/prometheus/runbooks/bybit_dq.md#tradebybitingestsilentcrit"

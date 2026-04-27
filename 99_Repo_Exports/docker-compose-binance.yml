@@ -1,0 +1,271 @@
+services:
+  binance-executor:
+    # LEGACY: superseded by binance-executor-supervised (docker-compose-crypto-orderflow.yml)
+    # That service wraps the same BinanceExecutor via execution_bootstrap_supervisor.py.
+    # Running both simultaneously causes a race condition on orders:queue:binance.
+    # Pinned to profile 'legacy' so it is never started by default.
+    profiles:
+      - legacy
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-binance-executor
+    restart: on-failure:5
+    environment:
+    - REDIS_URL=${EXEC_PROJECTION_REDIS_URL}
+    - BINANCE_DEMO_API_KEY=${BINANCE_DEMO_API_KEY}
+    - BINANCE_DEMO_API_SECRET=${BINANCE_DEMO_API_SECRET}
+    - BINANCE_DEMO_FUTURES_BASE_URL=${BINANCE_DEMO_FUTURES_BASE_URL:-https://testnet.binancefuture.com}
+    - BINANCE_API_KEY=${BINANCE_API_KEY:-}
+    - BINANCE_API_SECRET=${BINANCE_API_SECRET:-}
+    - BINANCE_FUTURES_BASE_URL=${BINANCE_FUTURES_BASE_URL:-https://fapi.binance.com}
+    - BINANCE_CLIENT_MODE=${BINANCE_CLIENT_MODE:-auto}
+    - BINANCE_HTTP_TIMEOUT_S=${BINANCE_HTTP_TIMEOUT_S:-8.0}
+    - BINANCE_RECV_WINDOW=${BINANCE_RECV_WINDOW:-60000}
+    - BINANCE_TIME_SYNC=${BINANCE_TIME_SYNC:-1}
+    - BINANCE_POSITION_MODE=${BINANCE_POSITION_MODE:-oneway}
+    - BINANCE_SYMBOL_ALLOWLIST=${BINANCE_SYMBOL_ALLOWLIST:-BTCUSDT}
+    - BINANCE_INIT_SYMBOL_SETTINGS=${BINANCE_INIT_SYMBOL_SETTINGS:-1}
+    - BINANCE_MARGIN_TYPE=${BINANCE_MARGIN_TYPE:-ISOLATED}
+    - BINANCE_DEFAULT_LEVERAGE=${BINANCE_DEFAULT_LEVERAGE:-100}
+    - BINANCE_MAX_RETRY=${BINANCE_MAX_RETRY:-3}
+    - BINANCE_FILL_TIMEOUT_S=${BINANCE_FILL_TIMEOUT_S:-10.0}
+    - BINANCE_FILL_POLL_S=${BINANCE_FILL_POLL_S:-0.25}
+    - BINANCE_ASSUME_LOT_IS_QTY=${BINANCE_ASSUME_LOT_IS_QTY:-0}
+    - ORDERS_QUEUE_BINANCE=${ORDERS_QUEUE_BINANCE:-orders:queue:binance}
+    - ORDERS_QUEUE_BINANCE_PROCESSING=${ORDERS_QUEUE_BINANCE_PROCESSING:-orders:queue:binance:processing}
+    - ORDERS_QUEUE_BINANCE_DLQ=${ORDERS_QUEUE_BINANCE_DLQ:-orders:queue:binance:dlq}
+    - EXEC_STREAM=${EXEC_STREAM:-orders:exec}
+    - ORDERS_STATE_KEY_PREFIX=${ORDERS_STATE_KEY_PREFIX:-orders:state:}
+    - ORDERS_STATE_TTL_SEC=${ORDERS_STATE_TTL_SEC:-86400}
+    - ACTIVE_SYMBOL_GUARD_TOMBSTONE_TTL_SEC=${ACTIVE_SYMBOL_GUARD_TOMBSTONE_TTL_SEC:-120}
+    - BINANCE_TRAIL_CALLBACK_MIN=${BINANCE_TRAIL_CALLBACK_MIN:-0.1}
+    - BINANCE_TRAIL_CALLBACK_MAX=${BINANCE_TRAIL_CALLBACK_MAX:-5.0}
+    - BINANCE_TRAIL_CALLBACK_DEFAULT=${BINANCE_TRAIL_CALLBACK_DEFAULT:-0.3}
+    - BINANCE_TRAIL_ATR_MULT=${BINANCE_TRAIL_ATR_MULT:-1.0}
+    - BINANCE_TRAIL_ARM_POLL_S=${BINANCE_TRAIL_ARM_POLL_S:-1.0}
+    - BINANCE_TRAIL_ARM_TIMEOUT_S=${BINANCE_TRAIL_ARM_TIMEOUT_S:-7200}
+    - BINANCE_TRAIL_NOTIFY=${BINANCE_TRAIL_NOTIFY:-1}
+    - ACCOUNT_DEPOSIT_USD=${ACCOUNT_DEPOSIT_USD:-1000}
+    - ACCOUNT_LEVERAGE=${ACCOUNT_LEVERAGE:-10}
+    - RISK_PERCENT=${RISK_PERCENT:-5.0}
+    - RISK_MAX_QTY=${RISK_MAX_QTY:-100000.0}
+    - TP_MODE=${TP_MODE:-RR}
+    - SL_WORKING_TYPE=${SL_WORKING_TYPE:-MARK_PRICE}
+    - TP_MARKET_WORKING_TYPE=${TP_MARKET_WORKING_TYPE:-MARK_PRICE}
+    - TP_LIMIT_TRIGGER_WORKING_TYPE=${TP_LIMIT_TRIGGER_WORKING_TYPE:-MARK_PRICE}
+    - TRAIL_WORKING_TYPE=${TRAIL_WORKING_TYPE:-MARK_PRICE}
+    - PROTECTION_ARM_TIMEOUT_MS=${PROTECTION_ARM_TIMEOUT_MS:-2500}
+    - PROTECTION_FEE_BUFFER_BPS=${PROTECTION_FEE_BUFFER_BPS:-8.0}
+    - PROTECTION_SLIPPAGE_BUFFER_BPS=${PROTECTION_SLIPPAGE_BUFFER_BPS:-15.0}
+    - PROTECTION_TIER_A_SLIPPAGE_BUFFER_BPS=${PROTECTION_TIER_A_SLIPPAGE_BUFFER_BPS:-15.0}
+    - PROTECTION_TIER_B_SLIPPAGE_BUFFER_BPS=${PROTECTION_TIER_B_SLIPPAGE_BUFFER_BPS:-20.0}
+    - PROTECTION_TIER_C_SLIPPAGE_BUFFER_BPS=${PROTECTION_TIER_C_SLIPPAGE_BUFFER_BPS:-30.0}
+    - ACCOUNT_AVAILABLE_FLOOR_USD=${ACCOUNT_AVAILABLE_FLOOR_USD:-25.0}
+    - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    - EXEC_QUARANTINE_RESUME_GUARD_ENABLE=${EXEC_QUARANTINE_RESUME_GUARD_ENABLE:-1}
+    - ORDERS_QUARANTINE_SIDS_KEY=${ORDERS_QUARANTINE_SIDS_KEY:-orders:quarantine:state:sids}
+    - BINANCE_DUST_NOTIONAL_USDT=${BINANCE_DUST_NOTIONAL_USDT:-3}
+    - BINANCE_DUST_MARGIN_USDT=${BINANCE_DUST_MARGIN_USDT:-1}
+    - BINANCE_DUST_CLOSE_RETRIES=${BINANCE_DUST_CLOSE_RETRIES:-3}
+    - BINANCE_DUST_VERIFY_TIMEOUT_MS=${BINANCE_DUST_VERIFY_TIMEOUT_MS:-3000}
+    - BINANCE_DUST_VERIFY_POLL_MS=${BINANCE_DUST_VERIFY_POLL_MS:-250}
+    - EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL=${EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL:-1}
+    - EXEC_SINGLE_ACTIVE_POSITION_RELEASE_ON_TERMINAL=${EXEC_SINGLE_ACTIVE_POSITION_RELEASE_ON_TERMINAL:-1}
+    - EXEC_SINGLE_ACTIVE_POSITION_STALE_TIMEOUT_MS=${EXEC_SINGLE_ACTIVE_POSITION_STALE_TIMEOUT_MS:-900000}
+    - ORDERS_ACTIVE_SYMBOL_KEY_PREFIX=${ORDERS_ACTIVE_SYMBOL_KEY_PREFIX:-orders:active_symbol_sid:}
+    - EXEC_SINGLE_ACTIVE_POSITION_EXCHANGE_TRUTH_RELEASE=${EXEC_SINGLE_ACTIVE_POSITION_EXCHANGE_TRUTH_RELEASE:-1}
+    - EXEC_SINGLE_ACTIVE_POSITION_GUARD_REPAIR_ENABLE=${EXEC_SINGLE_ACTIVE_POSITION_GUARD_REPAIR_ENABLE:-1}
+    - EXEC_SINGLE_ACTIVE_POSITION_REQUIRE_FLAT_NO_ORDERS=${EXEC_SINGLE_ACTIVE_POSITION_REQUIRE_FLAT_NO_ORDERS:-1}
+    - EXEC_ACTIVE_SYMBOL_USER_STREAM_STALE_MS=${EXEC_ACTIVE_SYMBOL_USER_STREAM_STALE_MS:-30000}
+    - USER_STREAM_STATUS_KEY=${USER_STREAM_STATUS_KEY:-orders:user_stream:status}
+    - ACTIVE_SYMBOL_GUARD_HEATMAP_5M_MS=${ACTIVE_SYMBOL_GUARD_HEATMAP_5M_MS:-300000}
+    - ACTIVE_SYMBOL_GUARD_HEATMAP_1H_MS=${ACTIVE_SYMBOL_GUARD_HEATMAP_1H_MS:-3600000}
+    - ACTIVE_SYMBOL_GUARD_TIMELINE_LIMIT=${ACTIVE_SYMBOL_GUARD_TIMELINE_LIMIT:-20}
+    - EXECUTION_RETENTION_DAYS=${EXECUTION_RETENTION_DAYS:-14}
+    - BINANCE_EXECUTOR_METRICS_PORT=9876
+    - CANARY_REPORT_PATH=${CANARY_REPORT_PATH:-/var/lib/trade-runbook/reports/latest_canary_scoring.json}
+    - ALERTMANAGER_EXTERNAL_URL=${ALERTMANAGER_EXTERNAL_URL:-http://alertmanager:9093}
+    - EXECUTION_JOURNAL_DSN=${EXECUTION_JOURNAL_DSN}
+    - LOG_LEVEL=INFO
+    - TZ=UTC
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python3 -c 'import urllib.request; urllib.request.urlopen("http://localhost:9876")'
+        || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    dns:
+    - 8.8.8.8
+    - 1.1.1.1
+    ports:
+    - 9876:9876
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.3'
+        reservations:
+          memory: 24M
+    volumes:
+    - ./python-worker:/app
+    - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
+    command:
+    - sh
+    - -c
+    - sleep 20 && python -m services.binance_executor
+  binance-user-stream-worker:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-binance-user-stream-worker
+    restart: on-failure:5
+    environment:
+    - REDIS_URL=${EXEC_PROJECTION_REDIS_URL}
+    - BINANCE_DEMO_API_KEY=${BINANCE_DEMO_API_KEY}
+    - BINANCE_DEMO_API_SECRET=${BINANCE_DEMO_API_SECRET}
+    - BINANCE_DEMO_FUTURES_BASE_URL=${BINANCE_DEMO_FUTURES_BASE_URL:-https://testnet.binancefuture.com}
+    - BINANCE_API_KEY=${BINANCE_API_KEY:-}
+    - BINANCE_API_SECRET=${BINANCE_API_SECRET:-}
+    - BINANCE_FUTURES_BASE_URL=${BINANCE_FUTURES_BASE_URL:-https://fapi.binance.com}
+    - BINANCE_CLIENT_MODE=${BINANCE_CLIENT_MODE:-auto}
+    - LOG_LEVEL=INFO
+    - TZ=UTC
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    dns:
+    - 8.8.8.8
+    - 1.1.1.1
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.2'
+        reservations:
+          memory: 24M
+    volumes:
+    - ./python-worker:/app
+    command:
+    - python
+    - -m
+    - services.binance_user_stream_worker
+  binance-account-reporter:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-binance-account-reporter
+    restart: on-failure:5
+    environment:
+    - REDIS_URL=${EXEC_PROJECTION_REDIS_URL}
+    - BINANCE_DEMO_API_KEY=${BINANCE_DEMO_API_KEY}
+    - BINANCE_DEMO_API_SECRET=${BINANCE_DEMO_API_SECRET}
+    - BINANCE_DEMO_FUTURES_BASE_URL=${BINANCE_DEMO_FUTURES_BASE_URL:-https://testnet.binancefuture.com}
+    - BINANCE_HTTP_TIMEOUT_S=${BINANCE_HTTP_TIMEOUT_S:-8.0}
+    - REPORT_INTERVAL_SEC=${REPORT_INTERVAL_SEC:-3600}
+    - REPORT_ALIGN_TO_HOUR=${REPORT_ALIGN_TO_HOUR:-1}
+    - REPORT_TOPN_POSITIONS=${REPORT_TOPN_POSITIONS:-5}
+    - REPORT_INCLUDE_OPEN_ORDERS=${REPORT_INCLUDE_OPEN_ORDERS:-1}
+    - ACCOUNT_SNAPSHOT_KEY=${ACCOUNT_SNAPSHOT_KEY:-account:snapshot:binance_usdtm}
+    - ACCOUNT_SNAPSHOT_TTL_SEC=${ACCOUNT_SNAPSHOT_TTL_SEC:-7200}
+    - ACCOUNT_HISTORY_KEY=${ACCOUNT_HISTORY_KEY:-account:snapshot:binance_usdtm:history}
+    - ACCOUNT_HISTORY_TTL_SEC=${ACCOUNT_HISTORY_TTL_SEC:-90000}
+    - TELEGRAM_BOT_TOKEN=
+    - TELEGRAM_CHAT_ID=
+    - LOG_LEVEL=INFO
+    - TZ=UTC
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    dns:
+    - 8.8.8.8
+    - 1.1.1.1
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.1'
+        reservations:
+          memory: 24M
+    volumes:
+    - ./python-worker:/app
+    command:
+    - python
+    - -m
+    - services.binance_account_reporter
+  active-symbol-guard-exporter:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    container_name: scanner-active-symbol-guard-exporter
+    restart: on-failure:5
+    environment:
+    - REDIS_URL=${EXEC_PROJECTION_REDIS_URL}
+    - BINANCE_API_KEY=${BINANCE_API_KEY:-}
+    - BINANCE_API_SECRET=${BINANCE_API_SECRET:-}
+    - BINANCE_FUTURES_BASE_URL=${BINANCE_FUTURES_BASE_URL:-https://fapi.binance.com}
+    - ACTIVE_SYMBOL_GUARD_EXPORTER_HOST=0.0.0.0
+    - ACTIVE_SYMBOL_GUARD_EXPORTER_PORT=8788
+    - ACTIVE_SYMBOL_GUARD_EXPORTER_HOT_LIMIT=10
+    - ACTIVE_SYMBOL_GUARD_STALE_TOMBSTONE_MS=600000
+    - ORDERS_ACTIVE_SYMBOL_KEY_PREFIX=${ORDERS_ACTIVE_SYMBOL_KEY_PREFIX:-orders:active_symbol_sid:}
+    - ORDERS_STATE_KEY_PREFIX=${ORDERS_STATE_KEY_PREFIX:-orders:state:}
+    - ORDERS_STATE_TTL_SEC=${ORDERS_STATE_TTL_SEC:-86400}
+    - ACTIVE_SYMBOL_GUARD_TOMBSTONE_TTL_SEC=${ACTIVE_SYMBOL_GUARD_TOMBSTONE_TTL_SEC:-120}
+    - ACTIVE_SYMBOL_GUARD_HEATMAP_5M_MS=${ACTIVE_SYMBOL_GUARD_HEATMAP_5M_MS:-300000}
+    - ACTIVE_SYMBOL_GUARD_HEATMAP_1H_MS=${ACTIVE_SYMBOL_GUARD_HEATMAP_1H_MS:-3600000}
+    - ACTIVE_SYMBOL_GUARD_TIMELINE_LIMIT=${ACTIVE_SYMBOL_GUARD_TIMELINE_LIMIT:-20}
+    - ACTIVE_SYMBOL_GUARD_INCIDENT_DEDUPE_INFO_SEC=${ACTIVE_SYMBOL_GUARD_INCIDENT_DEDUPE_INFO_SEC:-300}
+    - ACTIVE_SYMBOL_GUARD_INCIDENT_DEDUPE_WARNING_SEC=${ACTIVE_SYMBOL_GUARD_INCIDENT_DEDUPE_WARNING_SEC:-900}
+    - ACTIVE_SYMBOL_GUARD_INCIDENT_DEDUPE_CRITICAL_SEC=${ACTIVE_SYMBOL_GUARD_INCIDENT_DEDUPE_CRITICAL_SEC:-1800}
+    - ACTIVE_SYMBOL_GUARD_SYMBOL_SUPPRESS_SEC=${ACTIVE_SYMBOL_GUARD_SYMBOL_SUPPRESS_SEC:-1800}
+    - ACTIVE_SYMBOL_GUARD_FINGERPRINT_SUPPRESS_SEC=${ACTIVE_SYMBOL_GUARD_FINGERPRINT_SUPPRESS_SEC:-900}
+    - ACTIVE_SYMBOL_GUARD_RUNBOOK_HOLD_TTL_SEC=${ACTIVE_SYMBOL_GUARD_RUNBOOK_HOLD_TTL_SEC:-1800}
+    - ACTIVE_SYMBOL_GUARD_ESCALATION_TARGET=${ACTIVE_SYMBOL_GUARD_ESCALATION_TARGET:-telegram:oncall}
+    - TZ=UTC
+    ports:
+    - 8788:8788
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+    - scanner-core
+    - scanner-infra
+    dns:
+    - 8.8.8.8
+    - 1.1.1.1
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.1'
+        reservations:
+          memory: 24M
+    volumes:
+    - ./python-worker:/app
+    command:
+    - python
+    - -m
+    - services.active_symbol_guard_exporter

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/confidence_calculation/confidence_scorer.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.02, 0.03, 0.05, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.7, 0.95, 1.0, 1.1, 1.2, 1.3, 1.5, 2.0, 3.0, '.features', '.lgb', '1', 'ConfidenceScorer', 'ML_SCORING_ENABLE', 'SCORER_ML_MODEL_PATH', 'SCORER_WEIGHTS_PATH', 'SignalContext', '__call__', 'atr_q', 'atr_q_main', 'atr_regime', 'b_div', 'b_reclaim', 'b_rsi', 'b_sweep', 'base_score', 'bonus', 'confidence', 'confirmations', 'delta_z', 'div_match', 'evidence', 'main_z', 'market_mode', 'ml_fusion_alpha', 'ml_prob', 'momentum', 'neutral', 'obi_trend_m', 'obi_z', 'prog_range_m', 'r', 'range', 'range_vs_atr', 'reclaim', 'rsi_agree', 'side', 'suggested_weights', 'sweep', 'trend', 'weak_ratio', 'z_trend_m']

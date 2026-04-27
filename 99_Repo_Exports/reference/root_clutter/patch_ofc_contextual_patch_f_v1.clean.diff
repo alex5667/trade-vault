@@ -1,0 +1,1036 @@
+diff --git a/orderflow_services/deploy/compose/docker-compose.ofc-contextual-runtime-health-exporter-v1.yml b/orderflow_services/deploy/compose/docker-compose.ofc-contextual-runtime-health-exporter-v1.yml
+new file mode 100644
+index 0000000..8eabdee
+--- /dev/null
++++ b/orderflow_services/deploy/compose/docker-compose.ofc-contextual-runtime-health-exporter-v1.yml
+@@ -0,0 +1,19 @@
++services:
++  ofc-contextual-runtime-health-exporter-v1:
++    image: ${TRADE_ORDERFLOW_IMAGE:?}
++    restart: unless-stopped
++    working_dir: /app
++    environment:
++      PYTHONPATH: /app
++      OFC_CTX_RUNTIME_RELOADER_STATE_PATH: ${OFC_CTX_RUNTIME_RELOADER_STATE_PATH:-/var/lib/trade/ofc_contextual_runtime_reloader_state.json}
++      OFC_CTX_RUNTIME_HEALTH_EXPORTER_PORT: ${OFC_CTX_RUNTIME_HEALTH_EXPORTER_PORT:-9850}
++      OFC_CTX_RUNTIME_HEALTH_EXPORTER_INTERVAL_S: ${OFC_CTX_RUNTIME_HEALTH_EXPORTER_INTERVAL_S:-15}
++    volumes:
++      - ${TRADE_REPO_ROOT:?}:/app:ro
++      - /var/lib/trade:/var/lib/trade:ro
++    command:
++      - python3
++      - -m
++      - orderflow_services.ofc_contextual_runtime_health_exporter_v1
++    ports:
++      - "${OFC_CTX_RUNTIME_HEALTH_EXPORTER_PORT:-9850}:${OFC_CTX_RUNTIME_HEALTH_EXPORTER_PORT:-9850}"
+diff --git a/orderflow_services/deploy/env/ofc-contextual-runtime-health-exporter-v1.env.example b/orderflow_services/deploy/env/ofc-contextual-runtime-health-exporter-v1.env.example
+new file mode 100644
+index 0000000..3c69c4b
+--- /dev/null
++++ b/orderflow_services/deploy/env/ofc-contextual-runtime-health-exporter-v1.env.example
+@@ -0,0 +1,5 @@
++# Runtime reloader health exporter
++TRADE_REPO_ROOT=/opt/trade/prod/repo
++OFC_CTX_RUNTIME_RELOADER_STATE_PATH=/var/lib/trade/ofc_contextual_runtime_reloader_state.json
++OFC_CTX_RUNTIME_HEALTH_EXPORTER_PORT=9850
++OFC_CTX_RUNTIME_HEALTH_EXPORTER_INTERVAL_S=15
+diff --git a/orderflow_services/deploy/systemd/trade-ofc-contextual-runtime-health-exporter.service b/orderflow_services/deploy/systemd/trade-ofc-contextual-runtime-health-exporter.service
+new file mode 100644
+index 0000000..78e33f3
+--- /dev/null
++++ b/orderflow_services/deploy/systemd/trade-ofc-contextual-runtime-health-exporter.service
+@@ -0,0 +1,14 @@
++[Unit]
++Description=OFC contextual runtime health exporter v1
++After=network.target
++
++[Service]
++Type=simple
++EnvironmentFile=-/etc/default/ofc-contextual-runtime-health-exporter-v1
++WorkingDirectory=${TRADE_REPO_ROOT}
++ExecStart=/usr/bin/env python3 -m orderflow_services.ofc_contextual_runtime_health_exporter_v1
++Restart=always
++RestartSec=5
++
++[Install]
++WantedBy=multi-user.target
+diff --git a/orderflow_services/grafana/ofc_contextual_rollout_v1.json b/orderflow_services/grafana/ofc_contextual_rollout_v1.json
+index b206887..bff33c8 100644
+--- a/orderflow_services/grafana/ofc_contextual_rollout_v1.json
++++ b/orderflow_services/grafana/ofc_contextual_rollout_v1.json
+@@ -3,7 +3,10 @@
+     "list": [
+       {
+         "builtIn": 1,
+-        "datasource": {"type": "grafana", "uid": "-- Grafana --"},
++        "datasource": {
++          "type": "grafana",
++          "uid": "-- Grafana --"
++        },
+         "enable": true,
+         "hide": true,
+         "iconColor": "rgba(0, 211, 255, 1)",
+@@ -20,68 +23,407 @@
+   "liveNow": false,
+   "panels": [
+     {
+-      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+-      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "short"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 0,
++        "y": 0
++      },
+       "id": 1,
+-      "options": {"reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""}, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "none", "justifyMode": "auto"},
++      "options": {
++        "reduceOptions": {
++          "values": false,
++          "calcs": [
++            "lastNotNull"
++          ],
++          "fields": ""
++        },
++        "orientation": "auto",
++        "textMode": "auto",
++        "colorMode": "value",
++        "graphMode": "none",
++        "justifyMode": "auto"
++      },
+       "targets": [
+-        {"expr": "sum(ofc_ctx_rollout_current_mode{mode=~\"$mode\"})", "legendFormat": "current_mode", "refId": "A"},
+-        {"expr": "sum(ofc_ctx_rollout_desired_mode{mode=~\"$mode\"})", "legendFormat": "desired_mode", "refId": "B"}
++        {
++          "expr": "sum(ofc_ctx_rollout_current_mode{mode=~\"$mode\"})",
++          "legendFormat": "current_mode",
++          "refId": "A"
++        },
++        {
++          "expr": "sum(ofc_ctx_rollout_desired_mode{mode=~\"$mode\"})",
++          "legendFormat": "desired_mode",
++          "refId": "B"
++        }
+       ],
+       "title": "Current / desired rollout mode",
+       "type": "stat"
+     },
+     {
+-      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+-      "fieldConfig": {"defaults": {"unit": "percentunit"}, "overrides": []},
+-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "percentunit"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 12,
++        "y": 0
++      },
+       "id": 2,
+-      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
++      "options": {
++        "legend": {
++          "displayMode": "table",
++          "placement": "bottom",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
+       "targets": [
+-        {"expr": "ofc_ctx_rollout_shadow_disagree_rate", "legendFormat": "shadow_disagree_rate", "refId": "A"},
+-        {"expr": "ofc_ctx_rollout_fail_open_rate", "legendFormat": "fail_open_rate", "refId": "B"},
+-        {"expr": "ofc_ctx_rollout_fallback_rate", "legendFormat": "fallback_rate", "refId": "C"}
++        {
++          "expr": "ofc_ctx_rollout_shadow_disagree_rate",
++          "legendFormat": "shadow_disagree_rate",
++          "refId": "A"
++        },
++        {
++          "expr": "ofc_ctx_rollout_fail_open_rate",
++          "legendFormat": "fail_open_rate",
++          "refId": "B"
++        },
++        {
++          "expr": "ofc_ctx_rollout_fallback_rate",
++          "legendFormat": "fallback_rate",
++          "refId": "C"
++        }
+       ],
+       "title": "Safety rates",
+       "type": "timeseries"
+     },
+     {
+-      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+-      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "s"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 0,
++        "y": 8
++      },
+       "id": 3,
+-      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
++      "options": {
++        "legend": {
++          "displayMode": "table",
++          "placement": "bottom",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
+       "targets": [
+-        {"expr": "ofc_ctx_rollout_bundle_age_seconds", "legendFormat": "bundle_age_seconds", "refId": "A"},
+-        {"expr": "ofc_ctx_rollout_writer_lag_seconds", "legendFormat": "writer_lag_seconds", "refId": "B"}
++        {
++          "expr": "ofc_ctx_rollout_bundle_age_seconds",
++          "legendFormat": "bundle_age_seconds",
++          "refId": "A"
++        },
++        {
++          "expr": "ofc_ctx_rollout_writer_lag_seconds",
++          "legendFormat": "writer_lag_seconds",
++          "refId": "B"
++        }
+       ],
+       "title": "Bundle freshness / writer lag",
+       "type": "timeseries"
+     },
+     {
+-      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+-      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "short"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 12,
++        "y": 8
++      },
+       "id": 4,
+-      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
++      "options": {
++        "legend": {
++          "displayMode": "table",
++          "placement": "bottom",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
+       "targets": [
+-        {"expr": "ofc_ctx_rollout_observations", "legendFormat": "observations", "refId": "A"},
+-        {"expr": "ofc_ctx_rollout_canary_symbols_count", "legendFormat": "canary_symbols_count", "refId": "B"},
+-        {"expr": "ofc_ctx_rollout_rollback_requested", "legendFormat": "rollback_requested", "refId": "C"}
++        {
++          "expr": "ofc_ctx_rollout_observations",
++          "legendFormat": "observations",
++          "refId": "A"
++        },
++        {
++          "expr": "ofc_ctx_rollout_canary_symbols_count",
++          "legendFormat": "canary_symbols_count",
++          "refId": "B"
++        },
++        {
++          "expr": "ofc_ctx_rollout_rollback_requested",
++          "legendFormat": "rollback_requested",
++          "refId": "C"
++        }
+       ],
+       "title": "Rollout population / rollback",
+       "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "short"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 0,
++        "y": 16
++      },
++      "id": 5,
++      "options": {
++        "reduceOptions": {
++          "values": false,
++          "calcs": [
++            "lastNotNull"
++          ],
++          "fields": ""
++        },
++        "orientation": "auto",
++        "textMode": "auto",
++        "colorMode": "value",
++        "graphMode": "none",
++        "justifyMode": "auto"
++      },
++      "targets": [
++        {
++          "expr": "ofc_ctx_runtime_reloader_child_pid",
++          "legendFormat": "child_pid",
++          "refId": "A"
++        },
++        {
++          "expr": "ofc_ctx_runtime_reloader_restart_count",
++          "legendFormat": "restart_count",
++          "refId": "B"
++        },
++        {
++          "expr": "ofc_ctx_runtime_reloader_state_age_seconds",
++          "legendFormat": "state_age_s",
++          "refId": "C"
++        }
++      ],
++      "title": "Runtime reloader pid / restart count / state age",
++      "type": "stat"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "s"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 12,
++        "y": 16
++      },
++      "id": 6,
++      "options": {
++        "legend": {
++          "displayMode": "table",
++          "placement": "bottom",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "expr": "ofc_ctx_runtime_reloader_child_uptime_seconds",
++          "legendFormat": "child_uptime_seconds",
++          "refId": "A"
++        },
++        {
++          "expr": "ofc_ctx_runtime_reloader_cooldown_remaining_seconds",
++          "legendFormat": "cooldown_remaining_seconds",
++          "refId": "B"
++        },
++        {
++          "expr": "ofc_ctx_runtime_reloader_defer_until_seconds",
++          "legendFormat": "defer_until_seconds",
++          "refId": "C"
++        }
++      ],
++      "title": "Runtime child uptime / cooldown / defer",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "short"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 0,
++        "y": 24
++      },
++      "id": 7,
++      "options": {
++        "legend": {
++          "displayMode": "table",
++          "placement": "bottom",
++          "showLegend": true
++        },
++        "tooltip": {
++          "mode": "single",
++          "sort": "none"
++        }
++      },
++      "targets": [
++        {
++          "expr": "ofc_ctx_runtime_reloader_overlay_dirty",
++          "legendFormat": "overlay_dirty",
++          "refId": "A"
++        },
++        {
++          "expr": "ofc_ctx_runtime_reloader_defer_active",
++          "legendFormat": "defer_active",
++          "refId": "B"
++        },
++        {
++          "expr": "ofc_ctx_runtime_reloader_rollback_flag_present",
++          "legendFormat": "rollback_flag_present",
++          "refId": "C"
++        }
++      ],
++      "title": "Overlay dirty / defer / rollback flag",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "short"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 12,
++        "y": 24
++      },
++      "id": 8,
++      "options": {
++        "showHeader": true,
++        "sortBy": [
++          {
++            "desc": true,
++            "displayName": "Value"
++          }
++        ]
++      },
++      "targets": [
++        {
++          "expr": "ofc_ctx_runtime_reloader_info",
++          "format": "table",
++          "instant": true,
++          "legendFormat": "runtime_info",
++          "refId": "A"
++        }
++      ],
++      "title": "Active overlay fingerprint / last restart reason / defer reason",
++      "type": "table"
+     }
+   ],
+   "refresh": "30s",
+   "schemaVersion": 39,
+   "style": "dark",
+-  "tags": ["trade", "ofc", "contextual", "rollout"],
++  "tags": [
++    "trade",
++    "ofc",
++    "contextual",
++    "rollout",
++    "runtime",
++    "reloader"
++  ],
+   "templating": {
+     "list": [
+       {
+-        "current": {"selected": true, "text": [".*"], "value": [".*"]},
++        "current": {
++          "selected": true,
++          "text": [
++            ".*"
++          ],
++          "value": [
++            ".*"
++          ]
++        },
+         "hide": 0,
+         "includeAll": true,
+         "label": "mode",
+@@ -93,9 +435,12 @@
+       }
+     ]
+   },
+-  "time": {"from": "now-24h", "to": "now"},
++  "time": {
++    "from": "now-24h",
++    "to": "now"
++  },
+   "timezone": "utc",
+-  "title": "OFC Contextual Rollout (v1)",
+-  "version": 1,
++  "title": "OFC Contextual Rollout + Runtime Reloader (v2)",
++  "version": 2,
+   "weekStart": ""
+ }
+diff --git a/orderflow_services/ofc_contextual_runtime_health_exporter_v1.py b/orderflow_services/ofc_contextual_runtime_health_exporter_v1.py
+new file mode 100644
+index 0000000..aa3b404
+--- /dev/null
++++ b/orderflow_services/ofc_contextual_runtime_health_exporter_v1.py
+@@ -0,0 +1,146 @@
++from __future__ import annotations
++
++import json
++import logging
++import os
++import time
++from typing import Any, Dict, Optional
++
++from prometheus_client import Gauge, start_http_server
++
++logger = logging.getLogger(__name__)
++
++
++def _env(name: str, default: str = "") -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _to_float(v: Any, default: float = 0.0) -> float:
++    try:
++        return float(v)
++    except Exception:
++        return float(default)
++
++
++def _to_int(v: Any, default: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return int(default)
++
++
++def _read_json(path: str) -> Dict[str, Any]:
++    if not path or not os.path.exists(path):
++        return {}
++    try:
++        with open(path, "r", encoding="utf-8") as fh:
++            data = json.load(fh)
++        return data if isinstance(data, dict) else {}
++    except Exception:
++        return {}
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _age_seconds(ts_ms: Any) -> float:
++    ts = _to_int(ts_ms, 0)
++    if ts <= 0:
++        return 0.0
++    return max(0.0, (_now_ms() - ts) / 1000.0)
++
++
++def _uptime_seconds(start_ts_ms: Any) -> float:
++    ts = _to_int(start_ts_ms, 0)
++    if ts <= 0:
++        return 0.0
++    return max(0.0, (_now_ms() - ts) / 1000.0)
++
++
++def _cooldown_remaining_seconds(cooldown_until_ts_ms: Any) -> float:
++    ts = _to_int(cooldown_until_ts_ms, 0)
++    if ts <= 0:
++        return 0.0
++    return max(0.0, (ts - _now_ms()) / 1000.0)
++
++
++def _str(v: Any) -> str:
++    return str(v or "").strip()
++
++
++UP = Gauge('ofc_ctx_runtime_reloader_exporter_up', '1 if runtime reloader exporter loop is running')
++STATE_PRESENT = Gauge('ofc_ctx_runtime_reloader_state_present', '1 if runtime reloader state file exists and parses')
++STATE_AGE_SECONDS = Gauge('ofc_ctx_runtime_reloader_state_age_seconds', 'Age of runtime reloader state update')
++CHILD_PID = Gauge('ofc_ctx_runtime_reloader_child_pid', 'Current runtime child pid')
++CHILD_UPTIME_SECONDS = Gauge('ofc_ctx_runtime_reloader_child_uptime_seconds', 'Current runtime child uptime in seconds')
++RESTART_COUNT = Gauge('ofc_ctx_runtime_reloader_restart_count', 'Runtime reloader restart count since start')
++LAST_EXIT_CODE = Gauge('ofc_ctx_runtime_reloader_last_child_exit_code', 'Last child exit code observed by reloader')
++ROLLBACK_FLAG_PRESENT = Gauge('ofc_ctx_runtime_reloader_rollback_flag_present', '1 if rollback flag exists in active state')
++OVERLAY_DIRTY = Gauge('ofc_ctx_runtime_reloader_overlay_dirty', '1 if desired overlay differs from active child overlay')
++DEFER_ACTIVE = Gauge('ofc_ctx_runtime_reloader_defer_active', '1 if restart is currently deferred')
++COOLDOWN_REMAINING_SECONDS = Gauge('ofc_ctx_runtime_reloader_cooldown_remaining_seconds', 'Cooldown remaining before reloader may restart child')
++DEFER_UNTIL_SECONDS = Gauge('ofc_ctx_runtime_reloader_defer_until_seconds', 'Seconds until defer state expires')
++INFO = Gauge('ofc_ctx_runtime_reloader_info', 'One-hot info for runtime reloader state', ['active_overlay_fingerprint', 'last_restart_reason_kind', 'defer_reason'])
++
++_LAST_INFO: Optional[tuple[str, str, str]] = None
++
++
++def export_once(state_path: str) -> Dict[str, Any]:
++    global _LAST_INFO
++    data = _read_json(state_path)
++    UP.set(1.0)
++    STATE_PRESENT.set(1.0 if data else 0.0)
++    if not data:
++        STATE_AGE_SECONDS.set(0.0)
++        CHILD_PID.set(0.0)
++        CHILD_UPTIME_SECONDS.set(0.0)
++        RESTART_COUNT.set(0.0)
++        LAST_EXIT_CODE.set(0.0)
++        ROLLBACK_FLAG_PRESENT.set(0.0)
++        OVERLAY_DIRTY.set(0.0)
++        DEFER_ACTIVE.set(0.0)
++        COOLDOWN_REMAINING_SECONDS.set(0.0)
++        DEFER_UNTIL_SECONDS.set(0.0)
++        if _LAST_INFO is not None:
++            INFO.labels(*_LAST_INFO).set(0.0)
++            _LAST_INFO = None
++        return {}
++
++    STATE_AGE_SECONDS.set(_age_seconds(data.get('ts_ms', 0)))
++    CHILD_PID.set(float(_to_int(data.get('child_pid', 0), 0)))
++    CHILD_UPTIME_SECONDS.set(_uptime_seconds(data.get('child_start_ts_ms', 0)))
++    RESTART_COUNT.set(float(_to_int(data.get('restart_count', 0), 0)))
++    LAST_EXIT_CODE.set(float(_to_int(data.get('last_child_exit_code', 0), 0)))
++    ROLLBACK_FLAG_PRESENT.set(float(_to_int(data.get('rollback_exists', 0), 0)))
++    OVERLAY_DIRTY.set(float(_to_int(data.get('overlay_dirty', 0), 0)))
++    DEFER_ACTIVE.set(float(_to_int(data.get('defer_active', 0), 0)))
++    COOLDOWN_REMAINING_SECONDS.set(_cooldown_remaining_seconds(data.get('cooldown_until_ts_ms', 0)))
++    DEFER_UNTIL_SECONDS.set(_cooldown_remaining_seconds(data.get('defer_until_ts_ms', 0)))
++
++    labels = (
++        _str(data.get('active_overlay_fingerprint', 'unknown'))[:64],
++        _str(data.get('last_restart_reason_kind', 'unknown'))[:64],
++        _str(data.get('defer_reason', ''))[:64],
++    )
++    if _LAST_INFO is not None and _LAST_INFO != labels:
++        INFO.labels(*_LAST_INFO).set(0.0)
++    INFO.labels(*labels).set(1.0)
++    _LAST_INFO = labels
++    return data
++
++
++def main() -> None:
++    port = _to_int(_env('OFC_CTX_RUNTIME_HEALTH_EXPORTER_PORT', '9850'), 9850)
++    interval_s = max(1.0, _to_float(_env('OFC_CTX_RUNTIME_HEALTH_EXPORTER_INTERVAL_S', '15'), 15.0))
++    state_path = _env('OFC_CTX_RUNTIME_RELOADER_STATE_PATH', '/var/lib/trade/ofc_contextual_runtime_reloader_state.json')
++    start_http_server(port)
++    logger.info('ofc contextual runtime health exporter listening on %s', port)
++    while True:
++        export_once(state_path)
++        time.sleep(interval_s)
++
++
++if __name__ == '__main__':  # pragma: no cover
++    logging.basicConfig(level=logging.INFO)
++    main()
+diff --git a/orderflow_services/ofc_contextual_runtime_reloader_v1.py b/orderflow_services/ofc_contextual_runtime_reloader_v1.py
+index 269c936..75053da 100644
+--- a/orderflow_services/ofc_contextual_runtime_reloader_v1.py
++++ b/orderflow_services/ofc_contextual_runtime_reloader_v1.py
+@@ -133,6 +133,23 @@ def _load_overlay_state(path: str, rollback_flag_path: str) -> tuple[Dict[str, s
+     return overlay, rb_exists, fp
+ 
+ 
++def _reason_kind(reason: str) -> str:
++    s = str(reason or "").strip().lower()
++    if not s:
++        return "unknown"
++    if s == "initial":
++        return "initial"
++    if s == "cooldown":
++        return "cooldown"
++    if s.startswith("child_exit"):
++        return "child_exit"
++    if s.startswith("overlay_changed"):
++        return "overlay_changed"
++    if s.startswith("signal"):
++        return "signal"
++    return "other"
++
++
+ def run_supervisor(args: argparse.Namespace) -> int:
+     child_argv = _split_cmd(args)
+     overlay_path = str(args.overlay_env_file)
+@@ -143,26 +160,57 @@ def run_supervisor(args: argparse.Namespace) -> int:
+     state_path = str(args.state_path or "")
+ 
+     base_env = dict(os.environ)
+-    overlay_env, rollback_exists, fingerprint = _load_overlay_state(overlay_path, rollback_flag_path)
+-    child_env = merge_child_env(base_env, overlay_env)
++    desired_overlay_env, desired_rollback_exists, desired_fingerprint = _load_overlay_state(overlay_path, rollback_flag_path)
++    active_overlay_env = dict(desired_overlay_env)
++    active_rollback_exists = bool(desired_rollback_exists)
++    active_fingerprint = str(desired_fingerprint)
++
++    child_env = merge_child_env(base_env, active_overlay_env)
+     child_env["OFC_CTX_RUNTIME_RELOADER_ACTIVE"] = "1"
+-    child_env["OFC_CTX_RUNTIME_OVERLAY_FINGERPRINT"] = fingerprint
++    child_env["OFC_CTX_RUNTIME_OVERLAY_FINGERPRINT"] = active_fingerprint
+     child = _spawn_child(child_argv, child_env)
+-    last_restart_ms = _now_ms()
++
++    child_start_ms = _now_ms()
++    last_restart_ms = int(child_start_ms)
++    cooldown_until_ts_ms = int(last_restart_ms + cooldown_sec * 1000)
+     restart_count = 0
++    last_restart_reason = "initial"
++    last_restart_detail = "initial"
++    last_child_exit_code: Optional[int] = None
++    defer_active = False
++    defer_reason = ""
++    defer_until_ts_ms = 0
+ 
+     def _write_state(event: str, reason: str, child_pid: int, child_rc: Optional[int]) -> None:
++        nonlocal last_child_exit_code
++        if child_rc is not None:
++            last_child_exit_code = int(child_rc)
++        overlay_dirty = int(active_fingerprint != desired_fingerprint)
+         payload = {
+             "ts_ms": _now_ms(),
+             "event": str(event),
+             "reason": str(reason),
+             "overlay_env_file": overlay_path,
+             "rollback_flag_path": rollback_flag_path,
+-            "overlay_fingerprint": fingerprint,
+-            "rollback_exists": int(rollback_exists),
++            "active_overlay_fingerprint": str(active_fingerprint),
++            "desired_overlay_fingerprint": str(desired_fingerprint),
++            "rollback_exists": int(active_rollback_exists),
++            "desired_rollback_exists": int(desired_rollback_exists),
++            "overlay_dirty": int(overlay_dirty),
+             "child_pid": int(child_pid),
+             "child_rc": None if child_rc is None else int(child_rc),
++            "last_child_exit_code": None if last_child_exit_code is None else int(last_child_exit_code),
++            "child_start_ts_ms": int(child_start_ms),
++            "last_restart_ts_ms": int(last_restart_ms),
+             "restart_count": int(restart_count),
++            "last_restart_reason": str(last_restart_reason),
++            "last_restart_reason_kind": _reason_kind(last_restart_reason),
++            "last_restart_detail": str(last_restart_detail),
++            "cooldown_sec": int(cooldown_sec),
++            "cooldown_until_ts_ms": int(cooldown_until_ts_ms),
++            "defer_active": int(defer_active),
++            "defer_reason": str(defer_reason),
++            "defer_until_ts_ms": int(defer_until_ts_ms),
+             "child_argv": list(child_argv),
+         }
+         _atomic_write_json(state_path, payload)
+@@ -181,46 +229,62 @@ def run_supervisor(args: argparse.Namespace) -> int:
+         time.sleep(poll_sec)
+         rc = child.poll()
+         new_overlay_env, new_rollback_exists, new_fp = _load_overlay_state(overlay_path, rollback_flag_path)
+-        changed = bool(new_fp != fingerprint)
++        desired_overlay_env = new_overlay_env
++        desired_rollback_exists = bool(new_rollback_exists)
++        desired_fingerprint = str(new_fp)
++        changed = bool(desired_fingerprint != active_fingerprint)
+ 
+         if rc is not None:
+             restart_count += 1
+-            fingerprint = new_fp
+-            rollback_exists = new_rollback_exists
+-            overlay_env = new_overlay_env
+-            child_env = merge_child_env(base_env, overlay_env)
++            active_overlay_env = dict(desired_overlay_env)
++            active_rollback_exists = bool(desired_rollback_exists)
++            active_fingerprint = str(desired_fingerprint)
++            child_env = merge_child_env(base_env, active_overlay_env)
+             child_env["OFC_CTX_RUNTIME_RELOADER_ACTIVE"] = "1"
+-            child_env["OFC_CTX_RUNTIME_OVERLAY_FINGERPRINT"] = fingerprint
++            child_env["OFC_CTX_RUNTIME_OVERLAY_FINGERPRINT"] = active_fingerprint
+             child = _spawn_child(child_argv, child_env)
+-            last_restart_ms = _now_ms()
+-            _write_state("restart", f"child_exit:{rc}", int(child.pid), int(rc))
++            child_start_ms = _now_ms()
++            last_restart_ms = int(child_start_ms)
++            cooldown_until_ts_ms = int(last_restart_ms + cooldown_sec * 1000)
++            last_restart_reason = f"child_exit:{rc}"
++            last_restart_detail = f"child_exit:{rc}"
++            defer_active = False
++            defer_reason = ""
++            defer_until_ts_ms = 0
++            _write_state("restart", last_restart_reason, int(child.pid), int(rc))
+             continue
+ 
+         if not changed:
++            _write_state("steady", "steady", int(child.pid), None)
+             continue
+ 
+         now_ms = _now_ms()
+-        if (now_ms - last_restart_ms) < cooldown_sec * 1000:
+-            # Defer until cooldown expires; keep newest fingerprint desired state.
+-            fingerprint = new_fp
+-            rollback_exists = new_rollback_exists
+-            overlay_env = new_overlay_env
++        if now_ms < cooldown_until_ts_ms:
++            defer_active = True
++            defer_reason = "cooldown"
++            defer_until_ts_ms = int(cooldown_until_ts_ms)
+             _write_state("defer", "cooldown", int(child.pid), None)
+             continue
+ 
+         old_pid = int(child.pid)
+         old_rc = _terminate_child(child, grace_sec)
+         restart_count += 1
+-        fingerprint = new_fp
+-        rollback_exists = new_rollback_exists
+-        overlay_env = new_overlay_env
+-        child_env = merge_child_env(base_env, overlay_env)
++        active_overlay_env = dict(desired_overlay_env)
++        active_rollback_exists = bool(desired_rollback_exists)
++        active_fingerprint = str(desired_fingerprint)
++        child_env = merge_child_env(base_env, active_overlay_env)
+         child_env["OFC_CTX_RUNTIME_RELOADER_ACTIVE"] = "1"
+-        child_env["OFC_CTX_RUNTIME_OVERLAY_FINGERPRINT"] = fingerprint
++        child_env["OFC_CTX_RUNTIME_OVERLAY_FINGERPRINT"] = active_fingerprint
+         child = _spawn_child(child_argv, child_env)
+-        last_restart_ms = _now_ms()
+-        _write_state("restart", f"overlay_changed:old_pid={old_pid}", int(child.pid), int(old_rc))
+-
++        child_start_ms = _now_ms()
++        last_restart_ms = int(child_start_ms)
++        cooldown_until_ts_ms = int(last_restart_ms + cooldown_sec * 1000)
++        last_restart_reason = "overlay_changed"
++        last_restart_detail = f"overlay_changed:old_pid={old_pid}"
++        defer_active = False
++        defer_reason = ""
++        defer_until_ts_ms = 0
++        _write_state("restart", last_restart_reason, int(child.pid), int(old_rc))
+ 
+ def build_arg_parser() -> argparse.ArgumentParser:
+     ap = argparse.ArgumentParser(description="Supervise OFC runtime and auto-restart on overlay/rollback changes")
+diff --git a/orderflow_services/prometheus_alerts_ofc_contextual_runtime_health_v1.yml b/orderflow_services/prometheus_alerts_ofc_contextual_runtime_health_v1.yml
+new file mode 100644
+index 0000000..03f829f
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_ofc_contextual_runtime_health_v1.yml
+@@ -0,0 +1,46 @@
++groups:
++  - name: ofc-contextual-runtime-health-v1
++    rules:
++      - alert: OFCContextualRuntimeReloaderStateStale
++        expr: ofc_ctx_runtime_reloader_state_present == 0 or ofc_ctx_runtime_reloader_state_age_seconds > 90
++        for: 5m
++        labels:
++          severity: warning
++          service: trade
++          component: ofc_contextual_runtime_reloader
++        annotations:
++          summary: "OFC contextual runtime reloader state is missing or stale"
++          description: "Runtime reloader health exporter cannot see fresh state for >90s."
++
++      - alert: OFCContextualRuntimeReloaderOverlayDirtyTooLong
++        expr: ofc_ctx_runtime_reloader_overlay_dirty == 1
++        for: 15m
++        labels:
++          severity: warning
++          service: trade
++          component: ofc_contextual_runtime_reloader
++        annotations:
++          summary: "OFC contextual runtime overlay remains dirty"
++          description: "Desired overlay differs from active child overlay for >15m."
++
++      - alert: OFCContextualRuntimeReloaderDeferStuck
++        expr: ofc_ctx_runtime_reloader_defer_active == 1 and ofc_ctx_runtime_reloader_cooldown_remaining_seconds <= 0
++        for: 5m
++        labels:
++          severity: critical
++          service: trade
++          component: ofc_contextual_runtime_reloader
++        annotations:
++          summary: "OFC contextual runtime defer state is stuck"
++          description: "Reloader is still deferred although cooldown remaining is already zero."
++
++      - alert: OFCContextualRuntimeReloaderRestartStorm
++        expr: changes(ofc_ctx_runtime_reloader_restart_count[15m]) > 3
++        for: 5m
++        labels:
++          severity: critical
++          service: trade
++          component: ofc_contextual_runtime_reloader
++        annotations:
++          summary: "OFC contextual runtime reloader restart storm"
++          description: "Runtime child was restarted more than 3 times in 15 minutes."
+diff --git a/orderflow_services/tests/__pycache__/test_ofc_contextual_runtime_dashboard_v1.cpython-313-pytest-9.0.2.pyc b/orderflow_services/tests/__pycache__/test_ofc_contextual_runtime_dashboard_v1.cpython-313-pytest-9.0.2.pyc
+new file mode 100644
+index 0000000..50699be
+Binary files /dev/null and b/orderflow_services/tests/__pycache__/test_ofc_contextual_runtime_dashboard_v1.cpython-313-pytest-9.0.2.pyc differ
+diff --git a/orderflow_services/tests/__pycache__/test_ofc_contextual_runtime_health_deploy_v1.cpython-313-pytest-9.0.2.pyc b/orderflow_services/tests/__pycache__/test_ofc_contextual_runtime_health_deploy_v1.cpython-313-pytest-9.0.2.pyc
+new file mode 100644
+index 0000000..d69a096
+Binary files /dev/null and b/orderflow_services/tests/__pycache__/test_ofc_contextual_runtime_health_deploy_v1.cpython-313-pytest-9.0.2.pyc differ
+diff --git a/orderflow_services/tests/__pycache__/test_ofc_contextual_runtime_health_exporter_v1.cpython-313-pytest-9.0.2.pyc b/orderflow_services/tests/__pycache__/test_ofc_contextual_runtime_health_exporter_v1.cpython-313-pytest-9.0.2.pyc
+new file mode 100644
+index 0000000..a6f61e5
+Binary files /dev/null and b/orderflow_services/tests/__pycache__/test_ofc_contextual_runtime_health_exporter_v1.cpython-313-pytest-9.0.2.pyc differ
+diff --git a/orderflow_services/tests/__pycache__/test_ofc_contextual_runtime_reloader_v1.cpython-313-pytest-9.0.2.pyc b/orderflow_services/tests/__pycache__/test_ofc_contextual_runtime_reloader_v1.cpython-313-pytest-9.0.2.pyc
+new file mode 100644
+index 0000000..1f24349
+Binary files /dev/null and b/orderflow_services/tests/__pycache__/test_ofc_contextual_runtime_reloader_v1.cpython-313-pytest-9.0.2.pyc differ
+diff --git a/orderflow_services/tests/test_ofc_contextual_runtime_dashboard_v1.py b/orderflow_services/tests/test_ofc_contextual_runtime_dashboard_v1.py
+new file mode 100644
+index 0000000..0e8ebe4
+--- /dev/null
++++ b/orderflow_services/tests/test_ofc_contextual_runtime_dashboard_v1.py
+@@ -0,0 +1,17 @@
++import json
++from pathlib import Path
++
++
++def test_runtime_rollout_dashboard_contains_runtime_panels():
++    data = json.loads(Path("orderflow_services/grafana/ofc_contextual_rollout_v1.json").read_text(encoding="utf-8"))
++    titles = {str(p.get("title", "")) for p in data.get("panels", [])}
++    assert "Runtime reloader pid / restart count / state age" in titles
++    assert "Runtime child uptime / cooldown / defer" in titles
++    assert "Active overlay fingerprint / last restart reason / defer reason" in titles
++
++
++def test_runtime_rollout_dashboard_references_runtime_metrics():
++    txt = Path("orderflow_services/grafana/ofc_contextual_rollout_v1.json").read_text(encoding="utf-8")
++    assert "ofc_ctx_runtime_reloader_child_pid" in txt
++    assert "ofc_ctx_runtime_reloader_overlay_dirty" in txt
++    assert "ofc_ctx_runtime_reloader_info" in txt
+diff --git a/orderflow_services/tests/test_ofc_contextual_runtime_health_deploy_v1.py b/orderflow_services/tests/test_ofc_contextual_runtime_health_deploy_v1.py
+new file mode 100644
+index 0000000..a0afb57
+--- /dev/null
++++ b/orderflow_services/tests/test_ofc_contextual_runtime_health_deploy_v1.py
+@@ -0,0 +1,20 @@
++from pathlib import Path
++
++
++def test_runtime_health_service_contains_exporter_entrypoint():
++    txt = Path("orderflow_services/deploy/systemd/trade-ofc-contextual-runtime-health-exporter.service").read_text(encoding="utf-8")
++    assert "orderflow_services.ofc_contextual_runtime_health_exporter_v1" in txt
++    assert "Restart=always" in txt
++
++
++def test_runtime_health_compose_contains_state_path_and_port():
++    txt = Path("orderflow_services/deploy/compose/docker-compose.ofc-contextual-runtime-health-exporter-v1.yml").read_text(encoding="utf-8")
++    assert "OFC_CTX_RUNTIME_RELOADER_STATE_PATH" in txt
++    assert "OFC_CTX_RUNTIME_HEALTH_EXPORTER_PORT" in txt
++
++
++def test_runtime_health_alerts_reference_runtime_metrics():
++    txt = Path("orderflow_services/prometheus_alerts_ofc_contextual_runtime_health_v1.yml").read_text(encoding="utf-8")
++    assert "ofc_ctx_runtime_reloader_state_age_seconds" in txt
++    assert "ofc_ctx_runtime_reloader_overlay_dirty" in txt
++    assert "changes(ofc_ctx_runtime_reloader_restart_count[15m])" in txt
+diff --git a/orderflow_services/tests/test_ofc_contextual_runtime_health_exporter_v1.py b/orderflow_services/tests/test_ofc_contextual_runtime_health_exporter_v1.py
+new file mode 100644
+index 0000000..0e1c5c0
+--- /dev/null
++++ b/orderflow_services/tests/test_ofc_contextual_runtime_health_exporter_v1.py
+@@ -0,0 +1,31 @@
++from pathlib import Path
++
++from orderflow_services.ofc_contextual_runtime_health_exporter_v1 import export_once
++
++
++def test_export_once_reads_runtime_state_and_exposes_fields(tmp_path: Path):
++    state = tmp_path / "state.json"
++    state.write_text(
++        """{
++  "ts_ms": 9999999999999,
++  "child_pid": 4242,
++  "child_start_ts_ms": 9999999999000,
++  "restart_count": 7,
++  "last_child_exit_code": 143,
++  "rollback_exists": 1,
++  "overlay_dirty": 1,
++  "defer_active": 1,
++  "cooldown_until_ts_ms": 9999999999999,
++  "defer_until_ts_ms": 9999999999999,
++  "active_overlay_fingerprint": "abc123",
++  "last_restart_reason_kind": "overlay_changed",
++  "defer_reason": "cooldown"
++}
++""",
++        encoding="utf-8",
++    )
++    data = export_once(str(state))
++    assert data["child_pid"] == 4242
++    assert data["restart_count"] == 7
++    assert data["active_overlay_fingerprint"] == "abc123"
++    assert data["last_restart_reason_kind"] == "overlay_changed"
+diff --git a/orderflow_services/tests/test_ofc_contextual_runtime_reloader_v1.py b/orderflow_services/tests/test_ofc_contextual_runtime_reloader_v1.py
+index dd2fee7..c035ba3 100644
+--- a/orderflow_services/tests/test_ofc_contextual_runtime_reloader_v1.py
++++ b/orderflow_services/tests/test_ofc_contextual_runtime_reloader_v1.py
+@@ -1,6 +1,7 @@
+ from pathlib import Path
+ 
+ from orderflow_services.ofc_contextual_runtime_reloader_v1 import (
++    _reason_kind,
+     fingerprint_overlay,
+     load_env_file,
+     merge_child_env,
+@@ -33,3 +34,10 @@ def test_fingerprint_changes_on_rollback_flag():
+     fp1 = fingerprint_overlay({"OFC_CTX_MODE": "shadow"}, False)
+     fp2 = fingerprint_overlay({"OFC_CTX_MODE": "shadow"}, True)
+     assert fp1 != fp2
++
++
++def test_reason_kind_maps_expected_prefixes():
++    assert _reason_kind("child_exit:143") == "child_exit"
++    assert _reason_kind("overlay_changed:old_pid=10") == "overlay_changed"
++    assert _reason_kind("signal:15") == "signal"
++    assert _reason_kind("cooldown") == "cooldown"
+diff --git a/tick_flow_full/orderflow_services/ofc_contextual_runtime_health_exporter_v1.py b/tick_flow_full/orderflow_services/ofc_contextual_runtime_health_exporter_v1.py
+new file mode 100644
+index 0000000..e74edbb
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/ofc_contextual_runtime_health_exporter_v1.py
+@@ -0,0 +1 @@
++from orderflow_services.ofc_contextual_runtime_health_exporter_v1 import *  # noqa: F401,F403

@@ -1,0 +1,1552 @@
+diff -ruN --no-dereference ./services/orderflow/auto_apply_guard.py ../proj/services/orderflow/auto_apply_guard.py
+--- a/services/orderflow/auto_apply_guard.py	2026-02-25 14:55:22.000000000 +0000
++++ b/services/orderflow/auto_apply_guard.py	2026-02-25 17:23:09.648730263 +0000
+@@ -25,7 +25,9 @@
+ 
+ 
+ DEFAULT_PREFIX = "cfg:suggestions:entry_policy:auto_apply_block"
+-DEFAULT_REASONS = "tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe"
++OF_INPUTS_V3_GLOBAL_PREFIX = "cfg:of_inputs_v3:auto_apply_block_global"
++OF_INPUTS_V3_SYMBOL_PREFIX = "cfg:of_inputs_v3:auto_apply_block"
++DEFAULT_REASONS = "tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3"
+ 
+ 
+ def _now_ms() -> int:
+@@ -74,24 +76,66 @@
+     reasons = [r.strip() for r in reasons_str.split(",") if r.strip()]
+ 
+     cli = _connect_redis(rurl)
+-    pipe = cli.pipeline(transaction=False)
+-    
+-    # We check each reason's block, meta, and ts_ms keys
++    of_global = _get_env("OF_INPUTS_V3_AUTO_APPLY_BLOCK_GLOBAL_PREFIX", OF_INPUTS_V3_GLOBAL_PREFIX)
++    of_sym_pfx = _get_env("OF_INPUTS_V3_AUTO_APPLY_BLOCK_SYMBOL_PREFIX", OF_INPUTS_V3_SYMBOL_PREFIX)
++    symbol = os.getenv("AUTO_APPLY_BLOCK_SYMBOL") or os.getenv("SYMBOL")
++
++    # One RTT via MGET: legacy {block,meta,ts} + of_inputs_v3 global + (optional) per-symbol.
++    keys = []
++    idx = {}  # rsn -> dict of indices
+     for rsn in reasons:
+-        pipe.get(f"{pfx}:{rsn}")
+-        pipe.get(f"{pfx}:{rsn}:meta")
+-        pipe.get(f"{pfx}:{rsn}:ts_ms")
+-    
+-    results = pipe.execute()
++        legacy_block = f"{pfx}:{rsn}"
++        legacy_meta = f"{pfx}:{rsn}:meta"
++        legacy_ts = f"{pfx}:{rsn}:ts_ms"
++        v3_global = f"{of_global}:{rsn}"
++        keys.extend([legacy_block, legacy_meta, legacy_ts, v3_global])
++        idx[rsn] = {
++            "legacy_block": len(keys) - 4,
++            "legacy_meta": len(keys) - 3,
++            "legacy_ts": len(keys) - 2,
++            "v3_global": len(keys) - 1,
++        }
++        if symbol:
++            v3_sym = f"{of_sym_pfx}:{symbol}:{rsn}"
++            keys.append(v3_sym)
++            idx[rsn]["v3_sym"] = len(keys) - 1
++
++    results = cli.mget(keys) if keys else []
+     now_ms = _now_ms()
+     
+     combined_meta: Dict[str, Any] = {"reasons_checked": reasons}
+     
+-    for i, rsn in enumerate(reasons):
+-        offset = i * 3
+-        block_val = results[offset]
+-        meta_raw = results[offset + 1]
+-        ts_raw = results[offset + 2]
++    for rsn in reasons:
++        j = idx.get(rsn) or {}
++
++        # v3 global hard block (preferred)
++        v3g = results[j.get("v3_global", -1)] if j.get("v3_global", -1) >= 0 else None
++        if v3g is not None:
++            meta = _load_json(v3g)
++            meta.setdefault("status", "blocked")
++            meta.setdefault("reason", rsn)
++            meta["block_key"] = f"{of_global}:{rsn}"
++            meta["scope"] = "global"
++            combined_meta.update(meta)
++            return (True, combined_meta)
++
++        # v3 per-symbol hard block
++        v3s_idx = j.get("v3_sym", -1)
++        v3s = results[v3s_idx] if v3s_idx >= 0 else None
++        if v3s is not None:
++            meta = _load_json(v3s)
++            meta.setdefault("status", "blocked")
++            meta.setdefault("reason", rsn)
++            meta["block_key"] = f"{of_sym_pfx}:{symbol}:{rsn}"
++            meta["scope"] = "symbol"
++            combined_meta.update(meta)
++            return (True, combined_meta)
++
++        # legacy keys
++        block_val = results[j.get("legacy_block", -1)] if j.get("legacy_block", -1) >= 0 else None
++        meta_raw = results[j.get("legacy_meta", -1)] if j.get("legacy_meta", -1) >= 0 else None
++        ts_raw = results[j.get("legacy_ts", -1)] if j.get("legacy_ts", -1) >= 0 else None
++
+         
+         meta = _load_json(meta_raw)
+         
+diff -ruN --no-dereference ./services/orderflow/components/tick_processor.py ../proj/services/orderflow/components/tick_processor.py
+--- a/services/orderflow/components/tick_processor.py	2026-02-25 14:55:22.000000000 +0000
++++ b/services/orderflow/components/tick_processor.py	2026-02-25 17:21:27.013720890 +0000
+@@ -13,6 +13,9 @@
+ 
+ from services.orderflow.configuration import OrderFlowConfig, _safe_int, _safe_float, _ensure_list_levels
+ from services.orderflow.runtime import SymbolRuntime, BookSnapshot
++from services.orderflow.of_inputs_v3_circuit import (
++    refresh_disabled_state, record_downgrade_and_maybe_trip, call_with_timeout
++)
+ from services.tp_config import parse_tp_ratio
+ from services.orderflow.components.parsing import OrderFlowParsing
+ from services.orderflow.utils import (
+@@ -47,6 +50,7 @@
+     cvd_reclaim_ratio_gauge, cvd_reclaim_age_ms_gauge, cvd_reclaim_window_ms_gauge,
+     of_inputs_version_total, of_inputs_missing_ofi_total, of_inputs_missing_fp_total,
+     of_inputs_missing_lob_total, of_inputs_downgrade_total, of_inputs_quarantined_total, of_inputs_publish_error_total,
++    of_inputs_v3_forced_v2_total, of_inputs_v3_circuit_trip_total, of_inputs_v3_circuit_disabled, of_inputs_v3_circuit_disabled_until_ms,
+     track_confirmations, evidence_used_total_session, record_confirmation_seen, record_evidence_used,
+     # Execution-risk observability (P71 slippage decomp layer)
+     impact_proxy_hist, expected_slippage_decomp_bps_hist, of_gate_veto_top1_total,
+@@ -2058,6 +2062,46 @@
+                     missing_fields = []
+ 
+                     if emit_v3:
++                        # --- P100: OFInputs V3 circuit breaker ---
++                        cb_enabled = bool(_i(runtime.config.get("of_inputs_v3_circuit_enabled", 1), 1))
++                        cb_timeout_ms = int(runtime.config.get("of_inputs_v3_circuit_redis_timeout_ms", 50))
++                        cb_refresh_every_ms = int(runtime.config.get("of_inputs_v3_circuit_refresh_every_ms", 10_000))
++                        cb_window_ms = int(runtime.config.get("of_inputs_v3_circuit_window_ms", 60_000))
++                        cb_max_downgrades = int(runtime.config.get("of_inputs_v3_circuit_max_downgrades_in_window", 3))
++                        cb_disable_ms = int(runtime.config.get("of_inputs_v3_circuit_disable_ms", 300_000))
++                        cb_block_auto_apply = bool(_i(runtime.config.get("of_inputs_v3_circuit_block_auto_apply", 1), 1))
++                        cb_auto_apply_reason = str(runtime.config.get("of_inputs_v3_auto_apply_reason", "of_inputs_v3") or "of_inputs_v3")
++
++                        cb_disabled = False
++                        cb_disabled_until_ms = 0
++                        cb_disabled_reason = ""
++                        if cb_enabled:
++                            res = await call_with_timeout(
++                                refresh_disabled_state(
++                                    self.redis,
++                                    runtime,
++                                    int(tick_ts_ms),
++                                    refresh_every_ms=cb_refresh_every_ms,
++                                ),
++                                timeout_ms=cb_timeout_ms,
++                            )
++                            if isinstance(res, tuple) and len(res) == 3:
++                                cb_disabled, cb_disabled_until_ms, cb_disabled_reason = res
++                            else:
++                                cb_disabled_until_ms = int(getattr(runtime, "of_inputs_v3_disabled_until_ms", 0) or 0)
++                                cb_disabled_reason = str(getattr(runtime, "of_inputs_v3_disabled_reason", "") or "")
++                                cb_disabled = bool(cb_disabled_until_ms > int(tick_ts_ms))
++
++                        try:
++                            of_inputs_v3_circuit_disabled.labels(symbol=str(runtime.symbol)).set(1 if cb_disabled else 0)
++                            of_inputs_v3_circuit_disabled_until_ms.labels(symbol=str(runtime.symbol)).set(float(cb_disabled_until_ms or 0))
++                        except Exception:
++                            pass
++
++                        if cb_disabled:
++                            downgrade_reason = "circuit_disabled"
++                            published_v = 2
++
+                         # best-effort book_age_ms (prefer indicators if present)
+                         book_age_ms = _i(indicators.get("book_age_ms", -1), -1)
+                         if book_age_ms < 0:
+@@ -2069,88 +2113,139 @@
+                             except Exception:
+                                 book_age_ms = -1
+ 
+-                        # Required presence check (presence, not value): missing means feature pipeline degraded.
+-                        required_presence = ("qimb_wmean", "mp_mid_bps", "obi_dw", "ofi_ml_norm")
+-                        for k in required_presence:
+-                            if k not in indicators:
+-                                missing_fields.append(k)
+-
+-                        if OFInputsV3 is None:
+-                            downgrade_reason = "v3_class_missing"
+-                        elif book_age_ms < 0:
+-                            downgrade_reason = "book_age_missing"
+-                        elif book_age_ms > v3_max_book_age_ms:
+-                            downgrade_reason = "book_stale"
+-                        elif missing_fields:
+-                            downgrade_reason = "missing_lob_fields"
++                        if not downgrade_reason:
++                            # Required presence check (presence, not value): missing means feature pipeline degraded.
++                            required_presence = ("qimb_wmean", "mp_mid_bps", "obi_dw", "ofi_ml_norm")
++                            for k in required_presence:
++                                if k not in indicators:
++                                    missing_fields.append(k)
++
++                            if OFInputsV3 is None:
++                                downgrade_reason = "v3_class_missing"
++                            elif book_age_ms < 0:
++                                downgrade_reason = "book_age_missing"
++                            elif book_age_ms > v3_max_book_age_ms:
++                                downgrade_reason = "book_stale"
++                            elif missing_fields:
++                                downgrade_reason = "missing_lob_fields"
+ 
+                         if downgrade_reason:
+                             # Deterministic downgrade to V2
+                             published_v = 2
+                             try:
+-                                of_inputs_missing_lob_total.labels(symbol=str(runtime.symbol), reason=downgrade_reason).inc()
++                                of_inputs_v3_forced_v2_total.labels(symbol=str(runtime.symbol), reason=str(downgrade_reason)).inc()
+                             except Exception:
+                                 pass
++
++                            # Record downgrade into circuit breaker window and maybe trip (best-effort).
++                            if cb_enabled and str(downgrade_reason) != "circuit_disabled":
++                                try:
++                                    res2 = await call_with_timeout(
++                                        record_downgrade_and_maybe_trip(
++                                            self.redis,
++                                            sym=str(runtime.symbol),
++                                            now_ms=int(tick_ts_ms),
++                                            downgrade_reason=str(downgrade_reason),
++                                            window_ms=int(cb_window_ms),
++                                            max_downgrades_in_window=int(cb_max_downgrades),
++                                            disable_ms=int(cb_disable_ms),
++                                            block_auto_apply=bool(cb_block_auto_apply),
++                                            auto_apply_reason=str(cb_auto_apply_reason),
++                                        ),
++                                        timeout_ms=cb_timeout_ms,
++                                    )
++                                    if isinstance(res2, dict) and int(res2.get("tripped") or 0) == 1:
++                                        try:
++                                            of_inputs_v3_circuit_trip_total.labels(
++                                                symbol=str(runtime.symbol),
++                                                reason=str(downgrade_reason),
++                                            ).inc()
++                                        except Exception:
++                                            pass
++
++                                        try:
++                                            until_ms = int(res2.get("disabled_until_ms") or 0)
++                                            if until_ms > 0:
++                                                setattr(runtime, "of_inputs_v3_disabled_until_ms", int(until_ms))
++                                                setattr(runtime, "of_inputs_v3_disabled_reason", str(downgrade_reason))
++                                                try:
++                                                    of_inputs_v3_circuit_disabled.labels(symbol=str(runtime.symbol)).set(1)
++                                                    of_inputs_v3_circuit_disabled_until_ms.labels(symbol=str(runtime.symbol)).set(float(until_ms))
++                                                except Exception:
++                                                    pass
++                                        except Exception:
++                                            pass
++                                except Exception:
++                                    pass
++
++                            # Missing-lob metric: only for data degradation (not intentional circuit-disable).
++                            if str(downgrade_reason) != "circuit_disabled":
++                                try:
++                                    of_inputs_missing_lob_total.labels(symbol=str(runtime.symbol), reason=str(downgrade_reason)).inc()
++                                except Exception:
++                                    pass
++
+                             try:
+                                 of_inputs_downgrade_total.labels(
+                                     symbol=str(runtime.symbol),
+                                     from_version="3",
+                                     to_version="2",
+-                                    reason=downgrade_reason,
++                                    reason=str(downgrade_reason),
+                                 ).inc()
+                             except Exception:
+                                 pass
+ 
+-                            # Quarantine (dedup) for triage
+-                            try:
+-                                last_map = getattr(runtime, "_of_inputs_quarantine_last", None)
+-                                if not isinstance(last_map, dict):
+-                                    last_map = {}
+-                                    setattr(runtime, "_of_inputs_quarantine_last", last_map)
+-                                last_ts = int(last_map.get(downgrade_reason, 0) or 0)
+-                                if tick_ts_ms - last_ts >= quarantine_cooldown_ms:
+-                                    last_map[downgrade_reason] = tick_ts_ms
+-                                    q = {
+-                                        "ts_ms": int(tick_ts_ms),
+-                                        "symbol": str(runtime.symbol),
+-                                        "dq_code": downgrade_reason,
+-                                        "attempt_version": int(attempt_v),
+-                                        "published_version": int(published_v),
+-                                        "missing_fields": list(missing_fields),
+-                                        "book_age_ms": int(book_age_ms),
+-                                        "stream": stream_inputs,
+-                                    }
+-                                    try:
+-                                        of_inputs_quarantined_total.labels(
+-                                            symbol=str(runtime.symbol),
+-                                            reason=downgrade_reason,
+-                                            attempt_version=str(attempt_v),
+-                                            published_version=str(published_v),
+-                                        ).inc()
+-                                    except Exception:
+-                                        pass
+-
+-                                    import json as _json
+-                                    def _json_safe(obj):
+-                                        try:
+-                                            return _json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+-                                        except Exception:
+-                                            return '{"error":"json"}'
+-
+-                                    async def _xadd_quarantine() -> None:
++                            # Quarantine (dedup) for triage (skip when circuit-disabled; it's intentional).
++                            if str(downgrade_reason) != "circuit_disabled":
++                                try:
++                                    last_map = getattr(runtime, "_of_inputs_quarantine_last", None)
++                                    if not isinstance(last_map, dict):
++                                        last_map = {}
++                                        setattr(runtime, "_of_inputs_quarantine_last", last_map)
++                                    last_ts = int(last_map.get(downgrade_reason, 0) or 0)
++                                    if tick_ts_ms - last_ts >= quarantine_cooldown_ms:
++                                        last_map[downgrade_reason] = tick_ts_ms
++                                        q = {
++                                            "ts_ms": int(tick_ts_ms),
++                                            "symbol": str(runtime.symbol),
++                                            "dq_code": str(downgrade_reason),
++                                            "attempt_version": int(attempt_v),
++                                            "published_version": int(published_v),
++                                            "missing_fields": list(missing_fields),
++                                            "book_age_ms": int(book_age_ms),
++                                            "stream": stream_inputs,
++                                        }
+                                         try:
+-                                            await self.redis.xadd(
+-                                                quarantine_stream,
+-                                                fields={"payload": _json_safe(q)},
+-                                                maxlen=quarantine_maxlen,
+-                                                approximate=True,
+-                                            )
++                                            of_inputs_quarantined_total.labels(
++                                                symbol=str(runtime.symbol),
++                                                reason=str(downgrade_reason),
++                                                attempt_version=str(attempt_v),
++                                                published_version=str(published_v),
++                                            ).inc()
+                                         except Exception:
+                                             pass
+ 
+-                                    asyncio.create_task(_xadd_quarantine())
+-                            except Exception:
+-                                pass
++                                        import json as _json
++                                        def _json_safe(obj):
++                                            try:
++                                                return _json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
++                                            except Exception:
++                                                return '{"error":"json"}'
++
++                                        async def _xadd_quarantine() -> None:
++                                            try:
++                                                await self.redis.xadd(
++                                                    quarantine_stream,
++                                                    fields={"payload": _json_safe(q)},
++                                                    maxlen=quarantine_maxlen,
++                                                    approximate=True,
++                                                )
++                                            except Exception:
++                                                pass
++
++                                        asyncio.create_task(_xadd_quarantine())
++                                except Exception:
++                                    pass
+ 
+                         # If not downgraded, attach V3 fields
+                         if not downgrade_reason:
+diff -ruN --no-dereference ./services/orderflow/metrics.py ../proj/services/orderflow/metrics.py
+--- a/services/orderflow/metrics.py	2026-02-25 14:55:22.000000000 +0000
++++ b/services/orderflow/metrics.py	2026-02-25 17:16:36.924306930 +0000
+@@ -965,6 +965,33 @@
+     ['symbol', 'stage']
+ )
+ 
++
++# --- OF Inputs V3 circuit breaker (P100) ---
++of_inputs_v3_forced_v2_total = _get_or_create_prom_counter(
++    "of_inputs_v3_forced_v2_total",
++    "Total times V3 was requested but V2 was published (forced downgrade), by reason",
++    ["symbol", "reason"],
++)
++
++of_inputs_v3_circuit_trip_total = _get_or_create_prom_counter(
++    "of_inputs_v3_circuit_trip_total",
++    "Total times OFInputs V3 circuit breaker tripped (set cfg disable), by downgrade reason",
++    ["symbol", "reason"],
++)
++
++of_inputs_v3_circuit_disabled = _get_or_create_prom_gauge(
++    "of_inputs_v3_circuit_disabled",
++    "Gauge: OFInputs V3 is currently disabled by circuit breaker (1/0)",
++    ["symbol"],
++)
++
++of_inputs_v3_circuit_disabled_until_ms = _get_or_create_prom_gauge(
++    "of_inputs_v3_circuit_disabled_until_ms",
++    "If disabled, wall-clock epoch ms until which V3 remains disabled (best-effort)",
++    ["symbol"],
++)
++
++
+ # --- Pre-publish gates (data quality / regime-session) ---
+ pre_publish_gate_veto_total = _get_or_create_prom_counter(
+     'pre_publish_gate_veto_total',
+diff -ruN --no-dereference ./services/orderflow/of_inputs_v3_circuit.py ../proj/services/orderflow/of_inputs_v3_circuit.py
+--- a/services/orderflow/of_inputs_v3_circuit.py	1970-01-01 00:00:00.000000000 +0000
++++ b/services/orderflow/of_inputs_v3_circuit.py	2026-02-25 17:15:03.972314367 +0000
+@@ -0,0 +1,240 @@
++"""OFInputs V3 circuit breaker (P100).
++
++Goal
++- Deterministic V3->V2 fallback when V3 book/LOB inputs degrade.
++- Persist disable state in Redis under cfg:* (TTL) so it survives state:* cleanups.
++- Track downgrades in per-reason ZSET keys (state:*), enabling efficient ZCOUNT.
++- Optionally set global/per-symbol auto-apply blocks (fail-closed) on trip.
++
++Keys
++- cfg disable:   cfg:of_inputs:v3_disabled:{sym} (TTL)
++- downgrades:    state:of_inputs:v3_downgrades:{reason}:{sym} (ZSET)
++- seq counter:   state:of_inputs:v3_downgrades_seq:{reason}:{sym} (STRING INT)
++- auto-apply:    cfg:of_inputs_v3:auto_apply_block_global:{reason} (TTL)
++                cfg:of_inputs_v3:auto_apply_block:{sym}:{reason} (TTL)
++
++Notes
++- This module is designed for use in the tick path: all redis ops must be best-effort
++  and optionally time-bounded by the caller (see call_with_timeout).
++- Time source must be deterministic: pass tick_ts_ms as now_ms.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import json
++import re
++from typing import Any, Dict, Optional, Tuple
++
++
++_CFG_DISABLED_PREFIX = "cfg:of_inputs:v3_disabled"
++_STATE_DOWGRADES_PREFIX = "state:of_inputs:v3_downgrades"
++_STATE_DOWGRADES_SEQ_PREFIX = "state:of_inputs:v3_downgrades_seq"
++
++_AUTO_APPLY_GLOBAL_PREFIX = "cfg:of_inputs_v3:auto_apply_block_global"
++_AUTO_APPLY_SYM_PREFIX = "cfg:of_inputs_v3:auto_apply_block"
++
++_REASON_SAFE_RE = re.compile(r"[^a-z0-9_]+")
++
++
++def _norm_reason(reason: str) -> str:
++    r = str(reason or "").strip().lower()
++    r = r.replace("-", "_")
++    r = _REASON_SAFE_RE.sub("_", r)
++    r = re.sub(r"_+", "_", r).strip("_")
++    return r or "unknown"
++
++
++def _cfg_disabled_key(sym: str) -> str:
++    return f"{_CFG_DISABLED_PREFIX}:{sym}"
++
++
++def _downgrades_zset_key(sym: str, reason: str) -> str:
++    rsn = _norm_reason(reason)
++    return f"{_STATE_DOWGRADES_PREFIX}:{rsn}:{sym}"
++
++
++def _downgrades_seq_key(sym: str, reason: str) -> str:
++    rsn = _norm_reason(reason)
++    return f"{_STATE_DOWGRADES_SEQ_PREFIX}:{rsn}:{sym}"
++
++
++def _auto_apply_global_key(reason: str) -> str:
++    rsn = _norm_reason(reason)
++    return f"{_AUTO_APPLY_GLOBAL_PREFIX}:{rsn}"
++
++
++def _auto_apply_sym_key(sym: str, reason: str) -> str:
++    rsn = _norm_reason(reason)
++    return f"{_AUTO_APPLY_SYM_PREFIX}:{sym}:{rsn}"
++
++
++def _json_dumps(obj: Any) -> str:
++    try:
++        return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
++    except Exception:
++        return "{}"
++
++
++def _json_loads(s: Optional[str]) -> Dict[str, Any]:
++    if not s:
++        return {}
++    try:
++        x = json.loads(s)
++        return x if isinstance(x, dict) else {}
++    except Exception:
++        return {}
++
++
++async def call_with_timeout(awaitable, timeout_ms: int) -> Any:
++    """Best-effort: return None on timeout/exception."""
++    try:
++        return await asyncio.wait_for(awaitable, timeout=timeout_ms / 1000.0)
++    except Exception:
++        return None
++
++
++async def refresh_disabled_state(
++    redis,
++    runtime,
++    now_ms: int,
++    refresh_every_ms: int = 10_000,
++) -> Tuple[bool, int, str]:
++    """Refresh runtime cache from cfg disable key.
++
++    Returns: (disabled, disabled_until_ms, disabled_reason)
++
++    Value semantics:
++    - If cfg key contains JSON with {"until_ms": ...}, we prefer it.
++    - Otherwise, we derive until_ms from PTTL.
++    """
++    try:
++        last = int(getattr(runtime, "of_inputs_v3_cb_last_refresh_ts_ms", 0) or 0)
++        if last > 0 and (now_ms - last) < int(refresh_every_ms):
++            until_ms = int(getattr(runtime, "of_inputs_v3_disabled_until_ms", 0) or 0)
++            rsn = str(getattr(runtime, "of_inputs_v3_disabled_reason", "") or "")
++            return (until_ms > now_ms, until_ms, rsn)
++
++        setattr(runtime, "of_inputs_v3_cb_last_refresh_ts_ms", int(now_ms))
++        sym = str(getattr(runtime, "symbol", "") or "")
++        if not sym:
++            return (False, 0, "")
++
++        key = _cfg_disabled_key(sym)
++
++        # Pipeline GET + PTTL to keep 1 RTT.
++        pipe = redis.pipeline(transaction=False)
++        pipe.get(key)
++        pipe.pttl(key)
++        raw, pttl = await pipe.execute()
++
++        until_ms = 0
++        rsn = ""
++
++        if raw is not None:
++            meta = _json_loads(raw)
++            try:
++                until_ms = int(meta.get("until_ms") or 0)
++            except Exception:
++                until_ms = 0
++            rsn = str(meta.get("reason") or meta.get("dq_code") or "cfg")
++
++            # If no until_ms in value, derive from TTL.
++            try:
++                pttl_i = int(pttl) if pttl is not None else -2
++            except Exception:
++                pttl_i = -2
++            if until_ms <= 0:
++                if pttl_i is None or pttl_i < 0:
++                    # No TTL (manual hard disable) -> represent as far future.
++                    until_ms = now_ms + 10 * 365 * 24 * 3600 * 1000
++                    rsn = rsn or "manual_no_ttl"
++                else:
++                    until_ms = now_ms + max(0, pttl_i)
++                    rsn = rsn or "cfg_ttl"
++
++        else:
++            # No key.
++            until_ms = 0
++            rsn = ""
++
++        setattr(runtime, "of_inputs_v3_disabled_until_ms", int(until_ms))
++        setattr(runtime, "of_inputs_v3_disabled_reason", str(rsn or ""))
++        return (int(until_ms) > now_ms, int(until_ms), str(rsn or ""))
++
++    except Exception:
++        return (False, int(getattr(runtime, "of_inputs_v3_disabled_until_ms", 0) or 0), str(getattr(runtime, "of_inputs_v3_disabled_reason", "") or ""))
++
++
++async def record_downgrade_and_maybe_trip(
++    redis,
++    sym: str,
++    now_ms: int,
++    downgrade_reason: str,
++    window_ms: int,
++    max_downgrades_in_window: int,
++    disable_ms: int,
++    block_auto_apply: bool,
++    auto_apply_reason: str = "of_inputs_v3",
++) -> Dict[str, Any]:
++    """Record a V3->V2 downgrade and trip circuit if threshold exceeded.
++
++    Returns dict:
++      {"tripped": 0/1, "count": int, "disabled_until_ms": int}
++
++    Redis usage is per-reason ZSET for O(1) ZCOUNT.
++    """
++    rsn = _norm_reason(downgrade_reason)
++    sym_s = str(sym or "")
++    if not sym_s:
++        return {"tripped": 0, "count": 0, "disabled_until_ms": 0}
++
++    try:
++        key = _downgrades_zset_key(sym_s, rsn)
++        seq_key = _downgrades_seq_key(sym_s, rsn)
++
++        # Add member with deterministic seq
++        seq = await redis.incr(seq_key)
++        member = f"{int(now_ms)}:{int(seq)}"
++
++        # Maintain window
++        lo = int(now_ms) - int(window_ms)
++        pipe = redis.pipeline(transaction=False)
++        pipe.zadd(key, {member: int(now_ms)})
++        pipe.zremrangebyscore(key, 0, lo - 1)
++        pipe.zcount(key, lo, int(now_ms))
++        _, _, count = await pipe.execute()
++
++        try:
++            c = int(count)
++        except Exception:
++            c = 0
++
++        if c < int(max_downgrades_in_window):
++            return {"tripped": 0, "count": c, "disabled_until_ms": 0}
++
++        # Trip
++        until_ms = int(now_ms) + int(disable_ms)
++        disable_key = _cfg_disabled_key(sym_s)
++        payload = {
++            "until_ms": int(until_ms),
++            "reason": str(rsn),
++            "trip_ts_ms": int(now_ms),
++            "count": int(c),
++            "window_ms": int(window_ms),
++        }
++
++        pipe2 = redis.pipeline(transaction=False)
++        pipe2.set(disable_key, _json_dumps(payload), px=int(disable_ms))
++
++        if bool(block_auto_apply):
++            gk = _auto_apply_global_key(auto_apply_reason)
++            sk = _auto_apply_sym_key(sym_s, auto_apply_reason)
++            pipe2.set(gk, _json_dumps({"ts_ms": int(now_ms), "reason": str(auto_apply_reason), "src": "of_inputs_v3_circuit"}), px=int(disable_ms))
++            pipe2.set(sk, _json_dumps({"ts_ms": int(now_ms), "symbol": sym_s, "reason": str(auto_apply_reason), "src": "of_inputs_v3_circuit"}), px=int(disable_ms))
++
++        await pipe2.execute()
++        return {"tripped": 1, "count": c, "disabled_until_ms": int(until_ms)}
++
++    except Exception:
++        return {"tripped": 0, "count": 0, "disabled_until_ms": 0}
+diff -ruN --no-dereference ./services/orderflow/runtime.py ../proj/services/orderflow/runtime.py
+--- a/services/orderflow/runtime.py	2026-02-25 14:55:22.000000000 +0000
++++ b/services/orderflow/runtime.py	2026-02-25 17:15:56.598721319 +0000
+@@ -323,6 +323,12 @@
+     last_book_health_ok: int = 1
+     last_book_health: str = "OK"
+     last_book_age_ms: int = 0
++
++    # OFInputs V3 circuit breaker cache (P100)
++    of_inputs_v3_disabled_until_ms: int = 0
++    of_inputs_v3_disabled_reason: str = ""
++    of_inputs_v3_cb_last_refresh_ts_ms: int = 0
++
+     
+     # Separate: last emitted signal (even if strong gate did NOT pass)
+     last_emit_ts_ms: int = 0
+diff -ruN --no-dereference ./services/orderflow/tests/test_of_inputs_v3_circuit_p100.py ../proj/services/orderflow/tests/test_of_inputs_v3_circuit_p100.py
+--- a/services/orderflow/tests/test_of_inputs_v3_circuit_p100.py	1970-01-01 00:00:00.000000000 +0000
++++ b/services/orderflow/tests/test_of_inputs_v3_circuit_p100.py	2026-02-25 17:24:50.223388337 +0000
+@@ -0,0 +1,226 @@
++import json
++import pytest
++
++from services.orderflow.of_inputs_v3_circuit import (
++    refresh_disabled_state,
++    record_downgrade_and_maybe_trip,
++)
++
++
++class FakePipe:
++    def __init__(self, r):
++        self.r = r
++        self.ops = []
++
++    def get(self, key):
++        self.ops.append(("get", key))
++        return self
++
++    def pttl(self, key):
++        self.ops.append(("pttl", key))
++        return self
++
++    def incr(self, key):
++        self.ops.append(("incr", key))
++        return self
++
++    def set(self, key, val, px=None):
++        self.ops.append(("set", key, val, px))
++        return self
++
++    def zadd(self, key, mapping):
++        self.ops.append(("zadd", key, mapping))
++        return self
++
++    def zremrangebyscore(self, key, min_s, max_s):
++        self.ops.append(("zrem", key, min_s, max_s))
++        return self
++
++    def zcount(self, key, min_s, max_s):
++        self.ops.append(("zcount", key, min_s, max_s))
++        return self
++
++    async def execute(self):
++        out = []
++        for op in self.ops:
++            name = op[0]
++            if name == "get":
++                out.append(await self.r.get(op[1]))
++            elif name == "pttl":
++                out.append(await self.r.pttl(op[1]))
++            elif name == "incr":
++                out.append(await self.r.incr(op[1]))
++            elif name == "set":
++                out.append(await self.r.set(op[1], op[2], px=op[3]))
++            elif name == "zadd":
++                out.append(await self.r.zadd(op[1], op[2]))
++            elif name == "zrem":
++                out.append(await self.r.zremrangebyscore(op[1], op[2], op[3]))
++            elif name == "zcount":
++                out.append(await self.r.zcount(op[1], op[2], op[3]))
++            else:
++                raise RuntimeError(op)
++        self.ops = []
++        return out
++
++
++class FakeAsyncRedis:
++    def __init__(self):
++        self._kv = {}
++        self._exp = {}  # key -> exp_at_ms
++        self._ints = {}
++        self._z = {}  # key -> {member: score}
++        self._now_ms = 0
++
++    def set_now_ms(self, now_ms: int):
++        self._now_ms = int(now_ms)
++
++    def pipeline(self, transaction=False):
++        return FakePipe(self)
++
++    async def get(self, key):
++        self._gc()
++        return self._kv.get(key)
++
++    async def pttl(self, key):
++        self._gc()
++        if key not in self._kv:
++            return -2
++        exp = self._exp.get(key)
++        if exp is None:
++            return -1
++        return max(-2, int(exp) - int(self._now_ms))
++
++    async def set(self, key, val, px=None):
++        self._kv[key] = val
++        if px is not None:
++            self._exp[key] = int(self._now_ms) + int(px)
++        return True
++
++    async def incr(self, key):
++        v = int(self._ints.get(key, 0)) + 1
++        self._ints[key] = v
++        return v
++
++    async def zadd(self, key, mapping):
++        z = self._z.setdefault(key, {})
++        for m, s in mapping.items():
++            z[str(m)] = int(s)
++        return True
++
++    async def zremrangebyscore(self, key, min_s, max_s):
++        z = self._z.get(key, {})
++        rm = [m for m, s in z.items() if int(min_s) <= int(s) <= int(max_s)]
++        for m in rm:
++            z.pop(m, None)
++        return len(rm)
++
++    async def zcount(self, key, min_s, max_s):
++        z = self._z.get(key, {})
++        return sum(1 for s in z.values() if int(min_s) <= int(s) <= int(max_s))
++
++    async def mget(self, keys):
++        self._gc()
++        return [self._kv.get(k) for k in keys]
++
++    def _gc(self):
++        # expire keys
++        expired = [k for k, exp in self._exp.items() if int(exp) <= int(self._now_ms)]
++        for k in expired:
++            self._kv.pop(k, None)
++            self._exp.pop(k, None)
++
++
++class DummyRuntime:
++    def __init__(self, symbol: str):
++        self.symbol = symbol
++        self.of_inputs_v3_disabled_until_ms = 0
++        self.of_inputs_v3_disabled_reason = ""
++        self.of_inputs_v3_cb_last_refresh_ts_ms = 0
++
++
++@pytest.mark.asyncio
++async def test_record_and_trip_sets_cfg_and_auto_apply_keys():
++    r = FakeAsyncRedis()
++    sym = "BTCUSDT"
++    now = 1_000_000
++    r.set_now_ms(now)
++
++    # 1st / 2nd do not trip
++    res1 = await record_downgrade_and_maybe_trip(
++        r, sym=sym, now_ms=now, downgrade_reason="book_stale",
++        window_ms=60_000, max_downgrades_in_window=3, disable_ms=300_000,
++        block_auto_apply=True, auto_apply_reason="of_inputs_v3",
++    )
++    assert res1["tripped"] == 0
++
++    res2 = await record_downgrade_and_maybe_trip(
++        r, sym=sym, now_ms=now + 10_000, downgrade_reason="book_stale",
++        window_ms=60_000, max_downgrades_in_window=3, disable_ms=300_000,
++        block_auto_apply=True, auto_apply_reason="of_inputs_v3",
++    )
++    assert res2["tripped"] == 0
++
++    # 3rd trips
++    res3 = await record_downgrade_and_maybe_trip(
++        r, sym=sym, now_ms=now + 20_000, downgrade_reason="book_stale",
++        window_ms=60_000, max_downgrades_in_window=3, disable_ms=300_000,
++        block_auto_apply=True, auto_apply_reason="of_inputs_v3",
++    )
++    assert res3["tripped"] == 1
++    assert res3["disabled_until_ms"] == (now + 20_000 + 300_000)
++
++    disable_key = f"cfg:of_inputs:v3_disabled:{sym}"
++    val = await r.get(disable_key)
++    meta = json.loads(val)
++    assert meta["until_ms"] == res3["disabled_until_ms"]
++    assert meta["reason"] == "book_stale"
++
++    gk = "cfg:of_inputs_v3:auto_apply_block_global:of_inputs_v3"
++    sk = f"cfg:of_inputs_v3:auto_apply_block:{sym}:of_inputs_v3"
++    assert await r.get(gk) is not None
++    assert await r.get(sk) is not None
++
++
++@pytest.mark.asyncio
++async def test_refresh_disabled_state_reads_until_ms_from_value():
++    r = FakeAsyncRedis()
++    sym = "ETHUSDT"
++    rt = DummyRuntime(sym)
++
++    now = 2_000_000
++    r.set_now_ms(now)
++
++    disable_key = f"cfg:of_inputs:v3_disabled:{sym}"
++    payload = {"until_ms": now + 50_000, "reason": "missing_lob_fields"}
++    await r.set(disable_key, json.dumps(payload), px=50_000)
++
++    disabled, until_ms, reason = await refresh_disabled_state(r, rt, now_ms=now, refresh_every_ms=10_000)
++    assert disabled is True
++    assert until_ms == now + 50_000
++    assert reason == "missing_lob_fields"
++
++    # Cache hit
++    r.set_now_ms(now + 1_000)
++    disabled2, until2, reason2 = await refresh_disabled_state(r, rt, now_ms=now + 1_000, refresh_every_ms=10_000)
++    assert disabled2 is True
++    assert until2 == until_ms
++    assert reason2 == reason
++
++
++@pytest.mark.asyncio
++async def test_refresh_disabled_state_derives_until_ms_from_ttl_when_value_has_no_until():
++    r = FakeAsyncRedis()
++    sym = "BNBUSDT"
++    rt = DummyRuntime(sym)
++
++    now = 3_000_000
++    r.set_now_ms(now)
++
++    disable_key = f"cfg:of_inputs:v3_disabled:{sym}"
++    await r.set(disable_key, "1", px=100_000)
++
++    disabled, until_ms, reason = await refresh_disabled_state(r, rt, now_ms=now, refresh_every_ms=10_000)
++    assert disabled is True
++    assert until_ms == now + 100_000
++    assert reason in ("cfg_ttl", "cfg")
+diff -ruN --no-dereference ./tick_flow_full/services/orderflow/auto_apply_guard.py ../proj/tick_flow_full/services/orderflow/auto_apply_guard.py
+--- a/tick_flow_full/services/orderflow/auto_apply_guard.py	2026-02-25 14:55:22.000000000 +0000
++++ b/tick_flow_full/services/orderflow/auto_apply_guard.py	2026-02-25 17:23:09.648730263 +0000
+@@ -25,7 +25,9 @@
+ 
+ 
+ DEFAULT_PREFIX = "cfg:suggestions:entry_policy:auto_apply_block"
+-DEFAULT_REASONS = "tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe"
++OF_INPUTS_V3_GLOBAL_PREFIX = "cfg:of_inputs_v3:auto_apply_block_global"
++OF_INPUTS_V3_SYMBOL_PREFIX = "cfg:of_inputs_v3:auto_apply_block"
++DEFAULT_REASONS = "tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3"
+ 
+ 
+ def _now_ms() -> int:
+@@ -74,24 +76,66 @@
+     reasons = [r.strip() for r in reasons_str.split(",") if r.strip()]
+ 
+     cli = _connect_redis(rurl)
+-    pipe = cli.pipeline(transaction=False)
+-    
+-    # We check each reason's block, meta, and ts_ms keys
++    of_global = _get_env("OF_INPUTS_V3_AUTO_APPLY_BLOCK_GLOBAL_PREFIX", OF_INPUTS_V3_GLOBAL_PREFIX)
++    of_sym_pfx = _get_env("OF_INPUTS_V3_AUTO_APPLY_BLOCK_SYMBOL_PREFIX", OF_INPUTS_V3_SYMBOL_PREFIX)
++    symbol = os.getenv("AUTO_APPLY_BLOCK_SYMBOL") or os.getenv("SYMBOL")
++
++    # One RTT via MGET: legacy {block,meta,ts} + of_inputs_v3 global + (optional) per-symbol.
++    keys = []
++    idx = {}  # rsn -> dict of indices
+     for rsn in reasons:
+-        pipe.get(f"{pfx}:{rsn}")
+-        pipe.get(f"{pfx}:{rsn}:meta")
+-        pipe.get(f"{pfx}:{rsn}:ts_ms")
+-    
+-    results = pipe.execute()
++        legacy_block = f"{pfx}:{rsn}"
++        legacy_meta = f"{pfx}:{rsn}:meta"
++        legacy_ts = f"{pfx}:{rsn}:ts_ms"
++        v3_global = f"{of_global}:{rsn}"
++        keys.extend([legacy_block, legacy_meta, legacy_ts, v3_global])
++        idx[rsn] = {
++            "legacy_block": len(keys) - 4,
++            "legacy_meta": len(keys) - 3,
++            "legacy_ts": len(keys) - 2,
++            "v3_global": len(keys) - 1,
++        }
++        if symbol:
++            v3_sym = f"{of_sym_pfx}:{symbol}:{rsn}"
++            keys.append(v3_sym)
++            idx[rsn]["v3_sym"] = len(keys) - 1
++
++    results = cli.mget(keys) if keys else []
+     now_ms = _now_ms()
+     
+     combined_meta: Dict[str, Any] = {"reasons_checked": reasons}
+     
+-    for i, rsn in enumerate(reasons):
+-        offset = i * 3
+-        block_val = results[offset]
+-        meta_raw = results[offset + 1]
+-        ts_raw = results[offset + 2]
++    for rsn in reasons:
++        j = idx.get(rsn) or {}
++
++        # v3 global hard block (preferred)
++        v3g = results[j.get("v3_global", -1)] if j.get("v3_global", -1) >= 0 else None
++        if v3g is not None:
++            meta = _load_json(v3g)
++            meta.setdefault("status", "blocked")
++            meta.setdefault("reason", rsn)
++            meta["block_key"] = f"{of_global}:{rsn}"
++            meta["scope"] = "global"
++            combined_meta.update(meta)
++            return (True, combined_meta)
++
++        # v3 per-symbol hard block
++        v3s_idx = j.get("v3_sym", -1)
++        v3s = results[v3s_idx] if v3s_idx >= 0 else None
++        if v3s is not None:
++            meta = _load_json(v3s)
++            meta.setdefault("status", "blocked")
++            meta.setdefault("reason", rsn)
++            meta["block_key"] = f"{of_sym_pfx}:{symbol}:{rsn}"
++            meta["scope"] = "symbol"
++            combined_meta.update(meta)
++            return (True, combined_meta)
++
++        # legacy keys
++        block_val = results[j.get("legacy_block", -1)] if j.get("legacy_block", -1) >= 0 else None
++        meta_raw = results[j.get("legacy_meta", -1)] if j.get("legacy_meta", -1) >= 0 else None
++        ts_raw = results[j.get("legacy_ts", -1)] if j.get("legacy_ts", -1) >= 0 else None
++
+         
+         meta = _load_json(meta_raw)
+         
+diff -ruN --no-dereference ./tick_flow_full/services/orderflow/components/tick_processor.py ../proj/tick_flow_full/services/orderflow/components/tick_processor.py
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py	2026-02-25 14:55:22.000000000 +0000
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py	2026-02-25 17:21:27.014897858 +0000
+@@ -13,6 +13,9 @@
+ 
+ from services.orderflow.configuration import OrderFlowConfig, _safe_int, _safe_float, _ensure_list_levels
+ from services.orderflow.runtime import SymbolRuntime, BookSnapshot
++from services.orderflow.of_inputs_v3_circuit import (
++    refresh_disabled_state, record_downgrade_and_maybe_trip, call_with_timeout
++)
+ from services.tp_config import parse_tp_ratio
+ from services.orderflow.components.parsing import OrderFlowParsing
+ from services.orderflow.utils import (
+@@ -47,6 +50,7 @@
+     cvd_reclaim_ratio_gauge, cvd_reclaim_age_ms_gauge, cvd_reclaim_window_ms_gauge,
+     of_inputs_version_total, of_inputs_missing_ofi_total, of_inputs_missing_fp_total,
+     of_inputs_missing_lob_total, of_inputs_downgrade_total, of_inputs_quarantined_total, of_inputs_publish_error_total,
++    of_inputs_v3_forced_v2_total, of_inputs_v3_circuit_trip_total, of_inputs_v3_circuit_disabled, of_inputs_v3_circuit_disabled_until_ms,
+     track_confirmations, evidence_used_total_session, record_confirmation_seen, record_evidence_used,
+     trade_vol_fast_bps, trade_vol_slow_bps, trade_vol_ratio, trade_vol_ratio_z,
+     trade_res_recovered, trade_res_recovery_ms, trade_res_speed_per_s,
+@@ -2151,6 +2155,46 @@
+                     missing_fields = []
+ 
+                     if emit_v3:
++                        # --- P100: OFInputs V3 circuit breaker ---
++                        cb_enabled = bool(_i(runtime.config.get("of_inputs_v3_circuit_enabled", 1), 1))
++                        cb_timeout_ms = int(runtime.config.get("of_inputs_v3_circuit_redis_timeout_ms", 50))
++                        cb_refresh_every_ms = int(runtime.config.get("of_inputs_v3_circuit_refresh_every_ms", 10_000))
++                        cb_window_ms = int(runtime.config.get("of_inputs_v3_circuit_window_ms", 60_000))
++                        cb_max_downgrades = int(runtime.config.get("of_inputs_v3_circuit_max_downgrades_in_window", 3))
++                        cb_disable_ms = int(runtime.config.get("of_inputs_v3_circuit_disable_ms", 300_000))
++                        cb_block_auto_apply = bool(_i(runtime.config.get("of_inputs_v3_circuit_block_auto_apply", 1), 1))
++                        cb_auto_apply_reason = str(runtime.config.get("of_inputs_v3_auto_apply_reason", "of_inputs_v3") or "of_inputs_v3")
++
++                        cb_disabled = False
++                        cb_disabled_until_ms = 0
++                        cb_disabled_reason = ""
++                        if cb_enabled:
++                            res = await call_with_timeout(
++                                refresh_disabled_state(
++                                    self.redis,
++                                    runtime,
++                                    int(tick_ts_ms),
++                                    refresh_every_ms=cb_refresh_every_ms,
++                                ),
++                                timeout_ms=cb_timeout_ms,
++                            )
++                            if isinstance(res, tuple) and len(res) == 3:
++                                cb_disabled, cb_disabled_until_ms, cb_disabled_reason = res
++                            else:
++                                cb_disabled_until_ms = int(getattr(runtime, "of_inputs_v3_disabled_until_ms", 0) or 0)
++                                cb_disabled_reason = str(getattr(runtime, "of_inputs_v3_disabled_reason", "") or "")
++                                cb_disabled = bool(cb_disabled_until_ms > int(tick_ts_ms))
++
++                        try:
++                            of_inputs_v3_circuit_disabled.labels(symbol=str(runtime.symbol)).set(1 if cb_disabled else 0)
++                            of_inputs_v3_circuit_disabled_until_ms.labels(symbol=str(runtime.symbol)).set(float(cb_disabled_until_ms or 0))
++                        except Exception:
++                            pass
++
++                        if cb_disabled:
++                            downgrade_reason = "circuit_disabled"
++                            published_v = 2
++
+                         # best-effort book_age_ms (prefer indicators if present)
+                         book_age_ms = _i(indicators.get("book_age_ms", -1), -1)
+                         if book_age_ms < 0:
+@@ -2162,88 +2206,139 @@
+                             except Exception:
+                                 book_age_ms = -1
+ 
+-                        # Required presence check (presence, not value): missing means feature pipeline degraded.
+-                        required_presence = ("qimb_wmean", "mp_mid_bps", "obi_dw", "ofi_ml_norm")
+-                        for k in required_presence:
+-                            if k not in indicators:
+-                                missing_fields.append(k)
+-
+-                        if OFInputsV3 is None:
+-                            downgrade_reason = "v3_class_missing"
+-                        elif book_age_ms < 0:
+-                            downgrade_reason = "book_age_missing"
+-                        elif book_age_ms > v3_max_book_age_ms:
+-                            downgrade_reason = "book_stale"
+-                        elif missing_fields:
+-                            downgrade_reason = "missing_lob_fields"
++                        if not downgrade_reason:
++                            # Required presence check (presence, not value): missing means feature pipeline degraded.
++                            required_presence = ("qimb_wmean", "mp_mid_bps", "obi_dw", "ofi_ml_norm")
++                            for k in required_presence:
++                                if k not in indicators:
++                                    missing_fields.append(k)
++
++                            if OFInputsV3 is None:
++                                downgrade_reason = "v3_class_missing"
++                            elif book_age_ms < 0:
++                                downgrade_reason = "book_age_missing"
++                            elif book_age_ms > v3_max_book_age_ms:
++                                downgrade_reason = "book_stale"
++                            elif missing_fields:
++                                downgrade_reason = "missing_lob_fields"
+ 
+                         if downgrade_reason:
+                             # Deterministic downgrade to V2
+                             published_v = 2
+                             try:
+-                                of_inputs_missing_lob_total.labels(symbol=str(runtime.symbol), reason=downgrade_reason).inc()
++                                of_inputs_v3_forced_v2_total.labels(symbol=str(runtime.symbol), reason=str(downgrade_reason)).inc()
+                             except Exception:
+                                 pass
++
++                            # Record downgrade into circuit breaker window and maybe trip (best-effort).
++                            if cb_enabled and str(downgrade_reason) != "circuit_disabled":
++                                try:
++                                    res2 = await call_with_timeout(
++                                        record_downgrade_and_maybe_trip(
++                                            self.redis,
++                                            sym=str(runtime.symbol),
++                                            now_ms=int(tick_ts_ms),
++                                            downgrade_reason=str(downgrade_reason),
++                                            window_ms=int(cb_window_ms),
++                                            max_downgrades_in_window=int(cb_max_downgrades),
++                                            disable_ms=int(cb_disable_ms),
++                                            block_auto_apply=bool(cb_block_auto_apply),
++                                            auto_apply_reason=str(cb_auto_apply_reason),
++                                        ),
++                                        timeout_ms=cb_timeout_ms,
++                                    )
++                                    if isinstance(res2, dict) and int(res2.get("tripped") or 0) == 1:
++                                        try:
++                                            of_inputs_v3_circuit_trip_total.labels(
++                                                symbol=str(runtime.symbol),
++                                                reason=str(downgrade_reason),
++                                            ).inc()
++                                        except Exception:
++                                            pass
++
++                                        try:
++                                            until_ms = int(res2.get("disabled_until_ms") or 0)
++                                            if until_ms > 0:
++                                                setattr(runtime, "of_inputs_v3_disabled_until_ms", int(until_ms))
++                                                setattr(runtime, "of_inputs_v3_disabled_reason", str(downgrade_reason))
++                                                try:
++                                                    of_inputs_v3_circuit_disabled.labels(symbol=str(runtime.symbol)).set(1)
++                                                    of_inputs_v3_circuit_disabled_until_ms.labels(symbol=str(runtime.symbol)).set(float(until_ms))
++                                                except Exception:
++                                                    pass
++                                        except Exception:
++                                            pass
++                                except Exception:
++                                    pass
++
++                            # Missing-lob metric: only for data degradation (not intentional circuit-disable).
++                            if str(downgrade_reason) != "circuit_disabled":
++                                try:
++                                    of_inputs_missing_lob_total.labels(symbol=str(runtime.symbol), reason=str(downgrade_reason)).inc()
++                                except Exception:
++                                    pass
++
+                             try:
+                                 of_inputs_downgrade_total.labels(
+                                     symbol=str(runtime.symbol),
+                                     from_version="3",
+                                     to_version="2",
+-                                    reason=downgrade_reason,
++                                    reason=str(downgrade_reason),
+                                 ).inc()
+                             except Exception:
+                                 pass
+ 
+-                            # Quarantine (dedup) for triage
+-                            try:
+-                                last_map = getattr(runtime, "_of_inputs_quarantine_last", None)
+-                                if not isinstance(last_map, dict):
+-                                    last_map = {}
+-                                    setattr(runtime, "_of_inputs_quarantine_last", last_map)
+-                                last_ts = int(last_map.get(downgrade_reason, 0) or 0)
+-                                if tick_ts_ms - last_ts >= quarantine_cooldown_ms:
+-                                    last_map[downgrade_reason] = tick_ts_ms
+-                                    q = {
+-                                        "ts_ms": int(tick_ts_ms),
+-                                        "symbol": str(runtime.symbol),
+-                                        "dq_code": downgrade_reason,
+-                                        "attempt_version": int(attempt_v),
+-                                        "published_version": int(published_v),
+-                                        "missing_fields": list(missing_fields),
+-                                        "book_age_ms": int(book_age_ms),
+-                                        "stream": stream_inputs,
+-                                    }
+-                                    try:
+-                                        of_inputs_quarantined_total.labels(
+-                                            symbol=str(runtime.symbol),
+-                                            reason=downgrade_reason,
+-                                            attempt_version=str(attempt_v),
+-                                            published_version=str(published_v),
+-                                        ).inc()
+-                                    except Exception:
+-                                        pass
+-
+-                                    import json as _json
+-                                    def _json_safe(obj):
+-                                        try:
+-                                            return _json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+-                                        except Exception:
+-                                            return '{"error":"json"}'
+-
+-                                    async def _xadd_quarantine() -> None:
++                            # Quarantine (dedup) for triage (skip when circuit-disabled; it's intentional).
++                            if str(downgrade_reason) != "circuit_disabled":
++                                try:
++                                    last_map = getattr(runtime, "_of_inputs_quarantine_last", None)
++                                    if not isinstance(last_map, dict):
++                                        last_map = {}
++                                        setattr(runtime, "_of_inputs_quarantine_last", last_map)
++                                    last_ts = int(last_map.get(downgrade_reason, 0) or 0)
++                                    if tick_ts_ms - last_ts >= quarantine_cooldown_ms:
++                                        last_map[downgrade_reason] = tick_ts_ms
++                                        q = {
++                                            "ts_ms": int(tick_ts_ms),
++                                            "symbol": str(runtime.symbol),
++                                            "dq_code": str(downgrade_reason),
++                                            "attempt_version": int(attempt_v),
++                                            "published_version": int(published_v),
++                                            "missing_fields": list(missing_fields),
++                                            "book_age_ms": int(book_age_ms),
++                                            "stream": stream_inputs,
++                                        }
+                                         try:
+-                                            await self.redis.xadd(
+-                                                quarantine_stream,
+-                                                fields={"payload": _json_safe(q)},
+-                                                maxlen=quarantine_maxlen,
+-                                                approximate=True,
+-                                            )
++                                            of_inputs_quarantined_total.labels(
++                                                symbol=str(runtime.symbol),
++                                                reason=str(downgrade_reason),
++                                                attempt_version=str(attempt_v),
++                                                published_version=str(published_v),
++                                            ).inc()
+                                         except Exception:
+                                             pass
+ 
+-                                    asyncio.create_task(_xadd_quarantine())
+-                            except Exception:
+-                                pass
++                                        import json as _json
++                                        def _json_safe(obj):
++                                            try:
++                                                return _json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
++                                            except Exception:
++                                                return '{"error":"json"}'
++
++                                        async def _xadd_quarantine() -> None:
++                                            try:
++                                                await self.redis.xadd(
++                                                    quarantine_stream,
++                                                    fields={"payload": _json_safe(q)},
++                                                    maxlen=quarantine_maxlen,
++                                                    approximate=True,
++                                                )
++                                            except Exception:
++                                                pass
++
++                                        asyncio.create_task(_xadd_quarantine())
++                                except Exception:
++                                    pass
+ 
+                         # If not downgraded, attach V3 fields
+                         if not downgrade_reason:
+diff -ruN --no-dereference ./tick_flow_full/services/orderflow/metrics.py ../proj/tick_flow_full/services/orderflow/metrics.py
+--- a/tick_flow_full/services/orderflow/metrics.py	2026-02-25 14:55:22.000000000 +0000
++++ b/tick_flow_full/services/orderflow/metrics.py	2026-02-25 17:16:36.925525775 +0000
+@@ -928,6 +928,33 @@
+     ['symbol', 'stage']
+ )
+ 
++
++# --- OF Inputs V3 circuit breaker (P100) ---
++of_inputs_v3_forced_v2_total = _get_or_create_prom_counter(
++    "of_inputs_v3_forced_v2_total",
++    "Total times V3 was requested but V2 was published (forced downgrade), by reason",
++    ["symbol", "reason"],
++)
++
++of_inputs_v3_circuit_trip_total = _get_or_create_prom_counter(
++    "of_inputs_v3_circuit_trip_total",
++    "Total times OFInputs V3 circuit breaker tripped (set cfg disable), by downgrade reason",
++    ["symbol", "reason"],
++)
++
++of_inputs_v3_circuit_disabled = _get_or_create_prom_gauge(
++    "of_inputs_v3_circuit_disabled",
++    "Gauge: OFInputs V3 is currently disabled by circuit breaker (1/0)",
++    ["symbol"],
++)
++
++of_inputs_v3_circuit_disabled_until_ms = _get_or_create_prom_gauge(
++    "of_inputs_v3_circuit_disabled_until_ms",
++    "If disabled, wall-clock epoch ms until which V3 remains disabled (best-effort)",
++    ["symbol"],
++)
++
++
+ # --- Pre-publish gates (data quality / regime-session) ---
+ pre_publish_gate_veto_total = _get_or_create_prom_counter(
+     'pre_publish_gate_veto_total',
+diff -ruN --no-dereference ./tick_flow_full/services/orderflow/of_inputs_v3_circuit.py ../proj/tick_flow_full/services/orderflow/of_inputs_v3_circuit.py
+--- a/tick_flow_full/services/orderflow/of_inputs_v3_circuit.py	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/services/orderflow/of_inputs_v3_circuit.py	2026-02-25 17:15:03.972314367 +0000
+@@ -0,0 +1,240 @@
++"""OFInputs V3 circuit breaker (P100).
++
++Goal
++- Deterministic V3->V2 fallback when V3 book/LOB inputs degrade.
++- Persist disable state in Redis under cfg:* (TTL) so it survives state:* cleanups.
++- Track downgrades in per-reason ZSET keys (state:*), enabling efficient ZCOUNT.
++- Optionally set global/per-symbol auto-apply blocks (fail-closed) on trip.
++
++Keys
++- cfg disable:   cfg:of_inputs:v3_disabled:{sym} (TTL)
++- downgrades:    state:of_inputs:v3_downgrades:{reason}:{sym} (ZSET)
++- seq counter:   state:of_inputs:v3_downgrades_seq:{reason}:{sym} (STRING INT)
++- auto-apply:    cfg:of_inputs_v3:auto_apply_block_global:{reason} (TTL)
++                cfg:of_inputs_v3:auto_apply_block:{sym}:{reason} (TTL)
++
++Notes
++- This module is designed for use in the tick path: all redis ops must be best-effort
++  and optionally time-bounded by the caller (see call_with_timeout).
++- Time source must be deterministic: pass tick_ts_ms as now_ms.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import json
++import re
++from typing import Any, Dict, Optional, Tuple
++
++
++_CFG_DISABLED_PREFIX = "cfg:of_inputs:v3_disabled"
++_STATE_DOWGRADES_PREFIX = "state:of_inputs:v3_downgrades"
++_STATE_DOWGRADES_SEQ_PREFIX = "state:of_inputs:v3_downgrades_seq"
++
++_AUTO_APPLY_GLOBAL_PREFIX = "cfg:of_inputs_v3:auto_apply_block_global"
++_AUTO_APPLY_SYM_PREFIX = "cfg:of_inputs_v3:auto_apply_block"
++
++_REASON_SAFE_RE = re.compile(r"[^a-z0-9_]+")
++
++
++def _norm_reason(reason: str) -> str:
++    r = str(reason or "").strip().lower()
++    r = r.replace("-", "_")
++    r = _REASON_SAFE_RE.sub("_", r)
++    r = re.sub(r"_+", "_", r).strip("_")
++    return r or "unknown"
++
++
++def _cfg_disabled_key(sym: str) -> str:
++    return f"{_CFG_DISABLED_PREFIX}:{sym}"
++
++
++def _downgrades_zset_key(sym: str, reason: str) -> str:
++    rsn = _norm_reason(reason)
++    return f"{_STATE_DOWGRADES_PREFIX}:{rsn}:{sym}"
++
++
++def _downgrades_seq_key(sym: str, reason: str) -> str:
++    rsn = _norm_reason(reason)
++    return f"{_STATE_DOWGRADES_SEQ_PREFIX}:{rsn}:{sym}"
++
++
++def _auto_apply_global_key(reason: str) -> str:
++    rsn = _norm_reason(reason)
++    return f"{_AUTO_APPLY_GLOBAL_PREFIX}:{rsn}"
++
++
++def _auto_apply_sym_key(sym: str, reason: str) -> str:
++    rsn = _norm_reason(reason)
++    return f"{_AUTO_APPLY_SYM_PREFIX}:{sym}:{rsn}"
++
++
++def _json_dumps(obj: Any) -> str:
++    try:
++        return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
++    except Exception:
++        return "{}"
++
++
++def _json_loads(s: Optional[str]) -> Dict[str, Any]:
++    if not s:
++        return {}
++    try:
++        x = json.loads(s)
++        return x if isinstance(x, dict) else {}
++    except Exception:
++        return {}
++
++
++async def call_with_timeout(awaitable, timeout_ms: int) -> Any:
++    """Best-effort: return None on timeout/exception."""
++    try:
++        return await asyncio.wait_for(awaitable, timeout=timeout_ms / 1000.0)
++    except Exception:
++        return None
++
++
++async def refresh_disabled_state(
++    redis,
++    runtime,
++    now_ms: int,
++    refresh_every_ms: int = 10_000,
++) -> Tuple[bool, int, str]:
++    """Refresh runtime cache from cfg disable key.
++
++    Returns: (disabled, disabled_until_ms, disabled_reason)
++
++    Value semantics:
++    - If cfg key contains JSON with {"until_ms": ...}, we prefer it.
++    - Otherwise, we derive until_ms from PTTL.
++    """
++    try:
++        last = int(getattr(runtime, "of_inputs_v3_cb_last_refresh_ts_ms", 0) or 0)
++        if last > 0 and (now_ms - last) < int(refresh_every_ms):
++            until_ms = int(getattr(runtime, "of_inputs_v3_disabled_until_ms", 0) or 0)
++            rsn = str(getattr(runtime, "of_inputs_v3_disabled_reason", "") or "")
++            return (until_ms > now_ms, until_ms, rsn)
++
++        setattr(runtime, "of_inputs_v3_cb_last_refresh_ts_ms", int(now_ms))
++        sym = str(getattr(runtime, "symbol", "") or "")
++        if not sym:
++            return (False, 0, "")
++
++        key = _cfg_disabled_key(sym)
++
++        # Pipeline GET + PTTL to keep 1 RTT.
++        pipe = redis.pipeline(transaction=False)
++        pipe.get(key)
++        pipe.pttl(key)
++        raw, pttl = await pipe.execute()
++
++        until_ms = 0
++        rsn = ""
++
++        if raw is not None:
++            meta = _json_loads(raw)
++            try:
++                until_ms = int(meta.get("until_ms") or 0)
++            except Exception:
++                until_ms = 0
++            rsn = str(meta.get("reason") or meta.get("dq_code") or "cfg")
++
++            # If no until_ms in value, derive from TTL.
++            try:
++                pttl_i = int(pttl) if pttl is not None else -2
++            except Exception:
++                pttl_i = -2
++            if until_ms <= 0:
++                if pttl_i is None or pttl_i < 0:
++                    # No TTL (manual hard disable) -> represent as far future.
++                    until_ms = now_ms + 10 * 365 * 24 * 3600 * 1000
++                    rsn = rsn or "manual_no_ttl"
++                else:
++                    until_ms = now_ms + max(0, pttl_i)
++                    rsn = rsn or "cfg_ttl"
++
++        else:
++            # No key.
++            until_ms = 0
++            rsn = ""
++
++        setattr(runtime, "of_inputs_v3_disabled_until_ms", int(until_ms))
++        setattr(runtime, "of_inputs_v3_disabled_reason", str(rsn or ""))
++        return (int(until_ms) > now_ms, int(until_ms), str(rsn or ""))
++
++    except Exception:
++        return (False, int(getattr(runtime, "of_inputs_v3_disabled_until_ms", 0) or 0), str(getattr(runtime, "of_inputs_v3_disabled_reason", "") or ""))
++
++
++async def record_downgrade_and_maybe_trip(
++    redis,
++    sym: str,
++    now_ms: int,
++    downgrade_reason: str,
++    window_ms: int,
++    max_downgrades_in_window: int,
++    disable_ms: int,
++    block_auto_apply: bool,
++    auto_apply_reason: str = "of_inputs_v3",
++) -> Dict[str, Any]:
++    """Record a V3->V2 downgrade and trip circuit if threshold exceeded.
++
++    Returns dict:
++      {"tripped": 0/1, "count": int, "disabled_until_ms": int}
++
++    Redis usage is per-reason ZSET for O(1) ZCOUNT.
++    """
++    rsn = _norm_reason(downgrade_reason)
++    sym_s = str(sym or "")
++    if not sym_s:
++        return {"tripped": 0, "count": 0, "disabled_until_ms": 0}
++
++    try:
++        key = _downgrades_zset_key(sym_s, rsn)
++        seq_key = _downgrades_seq_key(sym_s, rsn)
++
++        # Add member with deterministic seq
++        seq = await redis.incr(seq_key)
++        member = f"{int(now_ms)}:{int(seq)}"
++
++        # Maintain window
++        lo = int(now_ms) - int(window_ms)
++        pipe = redis.pipeline(transaction=False)
++        pipe.zadd(key, {member: int(now_ms)})
++        pipe.zremrangebyscore(key, 0, lo - 1)
++        pipe.zcount(key, lo, int(now_ms))
++        _, _, count = await pipe.execute()
++
++        try:
++            c = int(count)
++        except Exception:
++            c = 0
++
++        if c < int(max_downgrades_in_window):
++            return {"tripped": 0, "count": c, "disabled_until_ms": 0}
++
++        # Trip
++        until_ms = int(now_ms) + int(disable_ms)
++        disable_key = _cfg_disabled_key(sym_s)
++        payload = {
++            "until_ms": int(until_ms),
++            "reason": str(rsn),
++            "trip_ts_ms": int(now_ms),
++            "count": int(c),
++            "window_ms": int(window_ms),
++        }
++
++        pipe2 = redis.pipeline(transaction=False)
++        pipe2.set(disable_key, _json_dumps(payload), px=int(disable_ms))
++
++        if bool(block_auto_apply):
++            gk = _auto_apply_global_key(auto_apply_reason)
++            sk = _auto_apply_sym_key(sym_s, auto_apply_reason)
++            pipe2.set(gk, _json_dumps({"ts_ms": int(now_ms), "reason": str(auto_apply_reason), "src": "of_inputs_v3_circuit"}), px=int(disable_ms))
++            pipe2.set(sk, _json_dumps({"ts_ms": int(now_ms), "symbol": sym_s, "reason": str(auto_apply_reason), "src": "of_inputs_v3_circuit"}), px=int(disable_ms))
++
++        await pipe2.execute()
++        return {"tripped": 1, "count": c, "disabled_until_ms": int(until_ms)}
++
++    except Exception:
++        return {"tripped": 0, "count": 0, "disabled_until_ms": 0}
+diff -ruN --no-dereference ./tick_flow_full/services/orderflow/runtime.py ../proj/tick_flow_full/services/orderflow/runtime.py
+--- a/tick_flow_full/services/orderflow/runtime.py	2026-02-25 14:55:22.000000000 +0000
++++ b/tick_flow_full/services/orderflow/runtime.py	2026-02-25 17:15:56.599289977 +0000
+@@ -354,6 +354,12 @@
+     last_book_health_ok: int = 1
+     last_book_health: str = "OK"
+     last_book_age_ms: int = 0
++
++    # OFInputs V3 circuit breaker cache (P100)
++    of_inputs_v3_disabled_until_ms: int = 0
++    of_inputs_v3_disabled_reason: str = ""
++    of_inputs_v3_cb_last_refresh_ts_ms: int = 0
++
+     
+     # Separate: last emitted signal (even if strong gate did NOT pass)
+     last_emit_ts_ms: int = 0

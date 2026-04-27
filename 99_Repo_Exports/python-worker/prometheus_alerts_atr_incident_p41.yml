@@ -1,0 +1,49 @@
+groups:
+- name: atr_policy_incident_p41
+  rules:
+  
+  # --- MTTA/MTTM/MTTR Alerts ---
+  - alert: ATRIncidentUnacknowledgedSEV1
+    expr: atr_incidents_total{severity="SEV-1", status="OPEN"} > 0
+    for: 5m
+    labels:
+      severity: page
+      tier: "1"
+      service: atr_incident_control_service
+    annotations:
+      summary: "SEV-1 Incident unacknowledged for > 5m"
+      description: "A SEV-1 incident is stuck in OPEN state. Operator MUST ack."
+
+  - alert: ATRIncidentUnacknowledgedSEV2
+    expr: atr_incidents_total{severity="SEV-2", status="OPEN"} > 0
+    for: 15m
+    labels:
+      severity: warning
+      tier: "2"
+      service: atr_incident_control_service
+    annotations:
+      summary: "SEV-2 Incident unacknowledged for > 15m"
+      description: "A SEV-2 incident is stuck in OPEN state. Operator MUST ack."
+
+  - alert: ATRIncidentRunbookNotApplied
+    expr: atr_incidents_total{severity=~"SEV-1|SEV-2", status="ACKED"} > 0
+    for: 10m
+    labels:
+      severity: page
+      tier: "1"
+      service: atr_incident_control_service
+    annotations:
+      summary: "Critical incident ACKed but no mitigation action taken"
+      description: "Runbook mitigation actions have not been applied within 10m of incident ACK."
+
+  # --- Governance / Artifact Integrity Alerts ---
+  - alert: ATRIncidentClosedWithoutEvidence
+    expr: rate(atr_incident_without_evidence_total[5m]) > 0
+    for: 1m
+    labels:
+      severity: warning
+      tier: "2"
+      service: atr_incident_control_service
+    annotations:
+      summary: "Incident closed without evidence pack"
+      description: "An incident was forced closed without a formal post-incident artifact. This violates Phase 6.4 governance."

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signal_scoring/weak_progress/config.py
+# hypothesis_version: 6.148.10
+
+[0.3, 0.35, 0.4, 0.7, 0.75, 0.8, 0.9, 1.5, 1.8, 2.0, 'absorption', 'breakout', 'breakout_R1', 'breakout_R2', 'continuation', 'default_continuation', 'default_fade', 'default_other', 'extreme_high', 'fade', 'fade_HTF_OB', 'fade_PDH', 'fade_PDL', 'fade_liquidity', 'momentum', 'other', 'reversal', 'trend_continuation']

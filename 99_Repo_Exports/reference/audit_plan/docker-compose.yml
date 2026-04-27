@@ -1,0 +1,17 @@
+include:
+  - path: docker-compose-shared.yml
+  - path: docker-compose-infrastructure.yml
+  - path: docker-compose-go-workers.yml
+  - path: docker-compose-python-workers.yml
+  - path: docker-compose-news-pipeline.yml
+  - path: docker-compose-crypto-orderflow.yml
+  - path: docker-compose-backend.yml
+  - path: docker-compose-monitoring.yml
+  - path: docker-compose.tp-trailing.yml
+  - path: docker-compose-timers.yml
+  - path: docker-compose-utilities.yml
+  - path: docker-compose-of-gate-sre.yml
+  - path: docker-compose.notify-telegram-v2.yml
+  - path: docker-compose-binance.yml
+  - path: docker-compose-networks-volumes.yml
+

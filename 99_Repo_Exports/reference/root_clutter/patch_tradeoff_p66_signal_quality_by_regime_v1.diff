@@ -1,0 +1,394 @@
+diff --git a/orderflow_services/signal_quality_regime_exporter_p66_v1.py b/orderflow_services/signal_quality_regime_exporter_p66_v1.py
+new file mode 100644
+index 0000000..d7b8d7a
+--- /dev/null
++++ b/orderflow_services/signal_quality_regime_exporter_p66_v1.py
+@@ -0,0 +1,214 @@
++#!/usr/bin/env python3
++"""
++P66: Signal Quality exporter (by regime)
++
++Reads Redis hash `settings:dynamic_cfg` (or DYN_CFG_KEY) populated by the existing
++signal-quality KPI worker and exposes low-cardinality metrics:
++
++  signal_quality_expectancy_r_24h_by_regime{regime="ok|warn|block"}
++  signal_quality_precision_top5p_24h_by_regime{regime="ok|warn|block"}
++  signal_quality_ece_24h_by_regime{regime="ok|warn|block"}
++  signal_quality_n_24h_by_regime{regime="ok|warn|block"}
++  signal_quality_last_ts_ms
++  signal_quality_last_age_seconds
++
++Design goals:
++  - no symbol labels (bounded cardinality)
++  - deterministic and observable (age/ts)
++"""
++
++from __future__ import annotations
++
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict
++
++from prometheus_client import Gauge, start_http_server
++
++
++def _env(name: str, default: str = "") -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _now_s() -> float:
++    return time.time()
++
++
++def _f(v: Any, d: float = 0.0) -> float:
++    try:
++        if v is None:
++            return d
++        return float(v)
++    except Exception:
++        try:
++            return float(str(v).strip())
++        except Exception:
++            return d
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return d
++
++
++@dataclass
++class Cfg:
++    redis_url: str
++    dyn_cfg_key: str
++    port: int
++    interval_s: float
++
++
++def load_cfg() -> Cfg:
++    return Cfg(
++        redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
++        dyn_cfg_key=_env("DYN_CFG_KEY", "settings:dynamic_cfg"),
++        port=_i(_env("SIGNAL_QUALITY_REGIME_EXPORTER_PORT", "9817"), 9817),
++        interval_s=float(_env("SIGNAL_QUALITY_REGIME_EXPORTER_INTERVAL_S", "5") or 5),
++    )
++
++
++G_EXPECT = Gauge(
++    "signal_quality_expectancy_r_24h_by_regime",
++    "Mean R over last 24h by dq/drift regime",
++    ["regime"],
++)
++G_PREC = Gauge(
++    "signal_quality_precision_top5p_24h_by_regime",
++    "Win rate in top 5% by score over last 24h by dq/drift regime",
++    ["regime"],
++)
++G_ECE = Gauge(
++    "signal_quality_ece_24h_by_regime",
++    "ECE over last 24h by dq/drift regime",
++    ["regime"],
++)
++G_N = Gauge(
++    "signal_quality_n_24h_by_regime",
++    "N over last 24h by dq/drift regime",
++    ["regime"],
++)
++G_LAST_TS = Gauge("signal_quality_last_ts_ms", "Timestamp of last signal-quality calc (ms)")
++G_LAST_AGE = Gauge("signal_quality_last_age_seconds", "Age of last signal-quality calc (seconds)")
++
++
++def _read_hash(r, key: str) -> Dict[str, Any]:
++    try:
++        return r.hgetall(key) or {}
++    except Exception:
++        return {}
++
++
++def _set_metrics(cfg2: Dict[str, Any]) -> None:
++    # global
++    last_ts_ms = _i(cfg2.get("signal_quality_last_ts_ms"), 0)
++    G_LAST_TS.set(float(last_ts_ms))
++    age_s = 0.0
++    if last_ts_ms > 0:
++        age_s = max(0.0, _now_s() - (float(last_ts_ms) / 1000.0))
++    G_LAST_AGE.set(age_s)
++
++    for regime in ("ok", "warn", "block"):
++        G_EXPECT.labels(regime=regime).set(_f(cfg2.get(f"signal_quality_expectancy_r_24h_regime_{regime}"), 0.0))
++        G_PREC.labels(regime=regime).set(_f(cfg2.get(f"signal_quality_precision_top5p_24h_regime_{regime}"), 0.0))
++        G_ECE.labels(regime=regime).set(_f(cfg2.get(f"signal_quality_ece_24h_regime_{regime}"), 0.0))
++        G_N.labels(regime=regime).set(float(_i(cfg2.get(f"signal_quality_n_24h_regime_{regime}"), 0)))
++
++
++def main() -> int:
++    cfg = load_cfg()
++    import redis  # type: ignore
++
++    r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
++    start_http_server(cfg.port)
++
++    while True:
++        cfg2 = _read_hash(r, cfg.dyn_cfg_key)
++        _set_metrics(cfg2)
++        time.sleep(cfg.interval_s)
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/ok_rate_logic/docker-compose-crypto-orderflow.yml b/ok_rate_logic/docker-compose-crypto-orderflow.yml
+index 9b2a4b7..c2f513a 100644
+--- a/ok_rate_logic/docker-compose-crypto-orderflow.yml
++++ b/ok_rate_logic/docker-compose-crypto-orderflow.yml
+@@ -1173,6 +1173,34 @@ services:
+     networks:
+       - trade-network
+       - scanner-network
++
++  signal-quality-regime-exporter-p66:
++    build: *id001
++    runtime: ${SIGNAL_QUALITY_REGIME_EXPORTER_RUNTIME:-nvidia}
++    container_name: signal-quality-regime-exporter-p66
++    restart: unless-stopped
++    environment:
++      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
++      - DYN_CFG_KEY=${DYN_CFG_KEY:-settings:dynamic_cfg}
++      - SIGNAL_QUALITY_REGIME_EXPORTER_PORT=${SIGNAL_QUALITY_REGIME_EXPORTER_PORT:-9817}
++      - SIGNAL_QUALITY_REGIME_EXPORTER_INTERVAL_S=${SIGNAL_QUALITY_REGIME_EXPORTER_INTERVAL_S:-5}
++      - PYTHONUNBUFFERED=1
++      - PYTHONPATH=/app:/app/ml_analysis:/app/tick_flow_full
++    command: ["python", "-m", "orderflow_services.signal_quality_regime_exporter_p66_v1"]
++    ports:
++      - "${SIGNAL_QUALITY_REGIME_EXPORTER_PORT:-9817}:9817"
++    volumes:
++      - .:/app
++    networks:
++      - trade-network
++      - scanner-network
+
+   scanner-signal-quality-worker:
+     build: *id001
+diff --git a/monitoring/prometheus/prometheus.yml b/monitoring/prometheus/prometheus.yml
+index b8c70d8..3e0f7c1 100644
+--- a/monitoring/prometheus/prometheus.yml
++++ b/monitoring/prometheus/prometheus.yml
+@@ -49,6 +49,15 @@ scrape_configs:
+     static_configs:
+       - targets:
+           - decision-coverage-exporter:9816
++
++  # -----------------------------
++  # Signal quality by regime exporter (P66)
++  # -----------------------------
++  - job_name: signal_quality_regime_p66
++    scrape_interval: 15s
++    static_configs:
++      - targets:
++          - signal-quality-regime-exporter-p66:9817
+
+   # NOTE:
+   # If you have other exporters (conf_cal_live, proof_controller, etc),
+diff --git a/ok_rate_logic/prometheus_alerts_tradeoff_p66_v1.yml b/ok_rate_logic/prometheus_alerts_tradeoff_p66_v1.yml
+index 99018a8..2e0e0c3 100644
+--- a/ok_rate_logic/prometheus_alerts_tradeoff_p66_v1.yml
++++ b/ok_rate_logic/prometheus_alerts_tradeoff_p66_v1.yml
+@@ -1,6 +1,6 @@
+ groups:
+   - name: tradeoff-p66
+     rules:
+@@ -37,3 +37,44 @@ groups:
+           summary: "Block regime share high (>15%)"
+           description: "A large share of decisions are in block regime. Check DQ/Drift gates and market conditions; consider shadow mode for ML rollout."
+           runbook_path: "/tradeoff_p66.md"
+           dashboard_path: "/d/tradeoff_p66/tradeoff-coverage-vs-quality?orgId=1"
++
++      - alert: SignalQualityOkRegimeExpectancyNegativeSLO
++        expr: signal_quality_n_24h_by_regime{regime="ok"} >= 50 and signal_quality_expectancy_r_24h_by_regime{regime="ok"} < 0.0
++        for: 30m
++        labels:
++          severity: warning
++          team: trade
++          component: signal_quality
++        annotations:
++          summary: "Signal quality degraded in ok regime (expectancy < 0)"
++          description: "Expectancy (mean R) for regime=ok is negative with sufficient N. Investigate scoring changes, slippage, and label drift."
++          runbook_path: "/tradeoff_p66.md"
++          dashboard_path: "/d/tradeoff_p66/tradeoff-coverage-vs-quality?orgId=1"
++
++      - alert: SignalQualityWarnRegimeEceHighSLO
++        expr: signal_quality_n_24h_by_regime{regime="warn"} >= 30 and signal_quality_ece_24h_by_regime{regime="warn"} > 0.10
++        for: 30m
++        labels:
++          severity: warning
++          team: trade
++          component: signal_quality
++        annotations:
++          summary: "Calibration degraded in warn regime (ECE > 0.10)"
++          description: "ECE for regime=warn is high with sufficient N. Consider recalibration, check feature drift, and ensure p-calibration pipeline is healthy."
++          runbook_path: "/tradeoff_p66.md"
++          dashboard_path: "/d/tradeoff_p66/tradeoff-coverage-vs-quality?orgId=1"
++
++      - alert: SignalQualityBlockRegimeStillTradingSLO
++        expr: signal_quality_n_24h_by_regime{regime="block"} >= 20
++        for: 1h
++        labels:
++          severity: warning
++          team: trade
++          component: signal_quality
++        annotations:
++          summary: "Block regime has executed trades (unexpected)"
++          description: "There are many closed trades in regime=block in last 24h. Verify that DQ/Drift gates correctly block/route decisions and policy modes are enforced."
++          runbook_path: "/tradeoff_p66.md"
++          dashboard_path: "/d/tradeoff_p66/tradeoff-coverage-vs-quality?orgId=1"
+diff --git a/monitoring/runbooks/tradeoff_p66.md b/monitoring/runbooks/tradeoff_p66.md
+index cfe3e2e..a22d8e3 100644
+--- a/monitoring/runbooks/tradeoff_p66.md
++++ b/monitoring/runbooks/tradeoff_p66.md
+@@ -1,13 +1,13 @@
+ # Runbook: Tradeoff (Coverage vs Quality) — P66
+
+ ## Owner
+ - team: **trade**
+-- component: **decision_coverage**
++- component: **decision_coverage / signal_quality**
+
+ ## Dashboard
+ - `/d/tradeoff_p66/tradeoff-coverage-vs-quality?orgId=1`
+
+ ## What we monitor
+ Low-cardinality “tradeoff plane” between:
+ 1) **Coverage**: what share of opportunities ends up in `ok|warn|block|unknown` regimes.
+ 2) **Freshness**: decisions:final stream must keep flowing.
++3) **Quality by regime**: expectancy/precision/ECE for closed trades, bucketed by the same regime.
+
+ The regime is derived from `dq_state` and `drift_state` carried in `decisions:final`.
+
+ ## Metrics
+ - `decision_last_ts_ms`
+ - `decision_last_age_seconds`
+ - `decision_n_24h`
+ - `decision_regime_n_24h{regime="ok|warn|block|unknown"}`
+ - `decision_regime_share_24h{regime="ok|warn|block|unknown"}`
++
++- `signal_quality_last_ts_ms`
++- `signal_quality_last_age_seconds`
++- `signal_quality_expectancy_r_24h_by_regime{regime="ok|warn|block"}`
++- `signal_quality_precision_top5p_24h_by_regime{regime="ok|warn|block"}`
++- `signal_quality_ece_24h_by_regime{regime="ok|warn|block"}`
++- `signal_quality_n_24h_by_regime{regime="ok|warn|block"}`
+
+ ## Alerts
+ - `DecisionFinalStaleSLO` (critical)
+ - `DecisionRegimeUnknownShareHighSLO` (warning)
+ - `DecisionRegimeBlockShareHighSLO` (warning)
++- `SignalQualityOkRegimeExpectancyNegativeSLO` (warning)
++- `SignalQualityWarnRegimeEceHighSLO` (warning)
++- `SignalQualityBlockRegimeStillTradingSLO` (warning)
+
+ ## Quick triage
+ 1) Open dashboard.
+ 2) If **stale**:
+    - check producer: `scanner-crypto-orderflow-service`
+    - check Redis: `decisions:final` length and recent entries
+ 3) If **unknown** high:
+    - inspect a few stream entries and verify `dq_state` / `drift_state`
+ 4) If **block** high:
+    - check drift/DQ gates; confirm it’s real (market) vs false positives.
++5) If **signal quality degraded**:
++   - verify signal-quality KPI worker is writing cfg keys
++   - compare by-regime curves: ok vs warn vs block
+
+ ## Commands
+
+ ### Inspect decisions:final
+ ```bash
+ redis-cli XRANGE decisions:final - + COUNT 3
+ ```
+@@ -40,6 +48,15 @@
+ redis-cli HGETALL metrics:decision_coverage:state
+ ```
+
++### Validate signal-quality cfg keys
++```bash
++redis-cli HGETALL settings:dynamic_cfg | egrep 'signal_quality_(expectancy|precision|ece|n)_24h_regime_|signal_quality_last_ts_ms'
++```
++
+ ## Rollback / mitigation
+ - If decisions flow is broken: restart orderflow service and redis ingest components.
+ - If `unknown` spikes after schema change: restore `dq_state/drift_state` writers or adjust worker parser.
+ - If `block` spikes due to noisy thresholds: temporarily relax gates or switch ML rollout to `shadow`.
++- If ok-regime expectancy is negative: rollback recent scorer/calibrator changes; validate slippage decomposition & fill-prob proxies.
+diff --git a/monitoring/grafana/dashboards/tradeoff_p66.json b/monitoring/grafana/dashboards/tradeoff_p66.json
+index d47d6e6..b7b7a0c 100644
+--- a/monitoring/grafana/dashboards/tradeoff_p66.json
++++ b/monitoring/grafana/dashboards/tradeoff_p66.json
+@@ -3,7 +3,7 @@
+   "title": "Tradeoff: Coverage vs Quality (Regimes) — P66",
+   "timezone": "browser",
+   "schemaVersion": 39,
+-  "version": 1,
++  "version": 2,
+   "editable": true,
+   "refresh": "30s",
+   "time": { "from": "now-48h", "to": "now" },
+@@ -154,6 +154,97 @@
+       "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+       "options": { "legend": { "displayMode": "table", "placement": "bottom" } }
+     },
++    {
++      "id": 5,
++      "type": "timeseries",
++      "title": "Signal quality: expectancy by regime (24h)",
++      "gridPos": { "x": 0, "y": 26, "w": 24, "h": 9 },
++      "targets": [
++        { "expr": "signal_quality_expectancy_r_24h_by_regime{regime=\"ok\",instance=~\"$instance\"}", "legendFormat": "ok", "refId": "A" },
++        { "expr": "signal_quality_expectancy_r_24h_by_regime{regime=\"warn\",instance=~\"$instance\"}", "legendFormat": "warn", "refId": "B" },
++        { "expr": "signal_quality_expectancy_r_24h_by_regime{regime=\"block\",instance=~\"$instance\"}", "legendFormat": "block", "refId": "C" }
++      ],
++      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
++      "options": { "legend": { "displayMode": "table", "placement": "bottom" } }
++    },
++    {
++      "id": 6,
++      "type": "timeseries",
++      "title": "Signal quality: precision@top5% by regime (24h)",
++      "gridPos": { "x": 0, "y": 35, "w": 24, "h": 9 },
++      "targets": [
++        { "expr": "signal_quality_precision_top5p_24h_by_regime{regime=\"ok\",instance=~\"$instance\"}", "legendFormat": "ok", "refId": "A" },
++        { "expr": "signal_quality_precision_top5p_24h_by_regime{regime=\"warn\",instance=~\"$instance\"}", "legendFormat": "warn", "refId": "B" },
++        { "expr": "signal_quality_precision_top5p_24h_by_regime{regime=\"block\",instance=~\"$instance\"}", "legendFormat": "block", "refId": "C" }
++      ],
++      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
++      "options": { "legend": { "displayMode": "table", "placement": "bottom" } }
++    },
++    {
++      "id": 7,
++      "type": "timeseries",
++      "title": "Signal quality: ECE by regime (24h)",
++      "gridPos": { "x": 0, "y": 44, "w": 24, "h": 9 },
++      "targets": [
++        { "expr": "signal_quality_ece_24h_by_regime{regime=\"ok\",instance=~\"$instance\"}", "legendFormat": "ok", "refId": "A" },
++        { "expr": "signal_quality_ece_24h_by_regime{regime=\"warn\",instance=~\"$instance\"}", "legendFormat": "warn", "refId": "B" },
++        { "expr": "signal_quality_ece_24h_by_regime{regime=\"block\",instance=~\"$instance\"}", "legendFormat": "block", "refId": "C" }
++      ],
++      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
++      "options": { "legend": { "displayMode": "table", "placement": "bottom" } }
++    },
++    {
++      "id": 8,
++      "type": "timeseries",
++      "title": "Signal quality: N by regime (24h)",
++      "gridPos": { "x": 0, "y": 53, "w": 24, "h": 8 },
++      "targets": [
++        { "expr": "signal_quality_n_24h_by_regime{regime=\"ok\",instance=~\"$instance\"}", "legendFormat": "ok", "refId": "A" },
++        { "expr": "signal_quality_n_24h_by_regime{regime=\"warn\",instance=~\"$instance\"}", "legendFormat": "warn", "refId": "B" },
++        { "expr": "signal_quality_n_24h_by_regime{regime=\"block\",instance=~\"$instance\"}", "legendFormat": "block", "refId": "C" }
++      ],
++      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
++      "options": { "legend": { "displayMode": "table", "placement": "bottom" } }
++    }
+   ]
+ }

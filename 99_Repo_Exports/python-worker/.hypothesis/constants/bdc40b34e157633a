@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/sparse/csr.py
+# hypothesis_version: 6.148.10
+
+['csr_count_blocks', 'csr_matrix', 'csr_tobsr', 'csr_tocsc', 'get_csr_submatrix', 'get_index_dtype', 'isspmatrix_csr', 'spmatrix', 'upcast']

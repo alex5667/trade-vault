@@ -1,0 +1,46 @@
+groups:
+  - name: binance-dust-cleanup-admin-ack
+    rules:
+      - alert: BinanceDustAdminOldDenylistWithoutAck
+        expr: execution_dust_admin_unacked_items_total{kind="old_denylist"} > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dust admin has old denylist entries without operator acknowledgement"
+          description: >
+            One or more denylist entries are older than the configured threshold and have
+            no active operator ACK. Operator should acknowledge via CLI/HTTP or resolve the issue.
+
+      - alert: BinanceDustAdminCooldownLoopWithoutAck
+        expr: execution_dust_admin_unacked_items_total{kind="cooldown_loop"} > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dust admin has cooldown loop reminders without operator acknowledgement"
+          description: >
+            One or more symbols are stuck in a cooldown loop and have no active operator ACK.
+            Operator should investigate the cooldown cause and ACK or clear cooldown.
+
+      - alert: BinanceDustAdminAckRenewReminderEmitted
+        expr: increase(execution_dust_admin_ack_renew_reminder_total{result="sent"}[30m]) > 0
+        for: 0m
+        labels:
+          severity: info
+        annotations:
+          summary: "Dust admin ACK renewal reminder was emitted"
+          description: >
+            An operator ACK is approaching expiry. Operator should renew via CLI (--renew-ack)
+            or HTTP (POST /api/binance-dust/ack/renew) before the ACK expires.
+
+      - alert: BinanceDustAdminAckActionFailures
+        expr: increase(execution_dust_admin_ack_action_total{result!="ok"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dust admin ACK workflow returned non-ok result"
+          description: >
+            An ACK operation (ack/renew/revoke) returned a non-ok result, indicating
+            a potential state issue (e.g. renewing an ACK that does not exist).

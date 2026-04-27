@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/book_sanity_gate.py
+# hypothesis_version: 6.148.10
+
+[0.0, ',', '0', '1', 'BOOK_SANITY_FLAGS', 'BOOK_SANITY_MODE', 'BOOK_SANITY_PROFILE', 'BookSanityGate', 'GATE_PROFILE', 'VETO_BOOK_CROSS', 'VETO_BOOK_NAN', 'VETO_BOOK_NEG_QTY', 'VETO_BOOK_SANITY', 'auto', 'book_sanity_flags', 'crossed_bbo', 'default', 'hard', 'monitor', 'nan_depth', 'nan_px', 'neg_qty', 'strict', 'tighten', 'trade_outside_bbo', 'veto']

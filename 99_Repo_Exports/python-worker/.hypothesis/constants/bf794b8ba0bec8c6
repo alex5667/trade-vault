@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/book_trade_consistency_gate.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 1.5, 1200.0, 256, '1', 'GATE_PROFILE', 'OK', 'VETO_BOOK_STALE', 'a', 'adverse_cross', 'ask', 'auto', 'b', 'bbo_ts_ms', 'best_ask', 'best_ask_px', 'best_ask_ts_ms', 'best_bid', 'best_bid_px', 'best_bid_ts_ms', 'bid', 'book', 'book_last_update_ms', 'book_ts_ms', 'default', 'hard', 'l2', 'l2_snapshot', 'l2_ts_ms', 'last_book_ts_ms', 'last_price', 'last_trade_px', 'missing_bbo', 'missing_book_ts', 'monitor', 'now_ts_ms', 'of', 'on', 'price', 'processing_ts_ms', 'source_stage', 'stale_book', 'stream_type', 'strict', 'tick', 'tighten', 'trade_px', 'true', 'ts', 'ts_event_ms', 'ts_ms', 'ts_processing_ms', 'veto', 'yes']

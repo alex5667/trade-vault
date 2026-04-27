@@ -1,0 +1,589 @@
+--- a/calendar_store_worker.py+++ b/calendar_store_worker.py@@ -157,51 +157,40 @@             key = f"calendar:agg:{scope_norm}"
+             prev = self.r.hgetall(key) or {}
+             prev_next = _i(prev.get("next_ts_ms"), 0)
+-            
+-            # политика: строго ближайшее по времени событие
+-            should_replace = False
+-            if event_ts_ms > now_ms:
+-                if prev_next <= now_ms or event_ts_ms < prev_next:
+-                    should_update = True
+-                else:
+-                    should_update = False
+-            else:
+-                should_update = False
+-
+-            # Wait, the mapping in previous code was:
+-            # should_replace = (prev_next <= 0) or (event_ts_ms > 0 and event_ts_ms < prev_next)
+-            # Let's use that but ensure it's future event.
+-            
+-            if event_ts_ms > 0 and event_ts_ms >= now_ms:
+-                if (prev_next <= now_ms) or (event_ts_ms < prev_next):
+-                    pipe = self.r.pipeline(transaction=False)
+-                    pipe.hset(key, mapping={
+-                        "next_ts_ms": int(event_ts_ms),
+-                        "event_tminus_sec": int(tminus),
+-                        "event_grade_id": int(event_grade_id),
+-                        "event_ref": uid,
+-                        "updated_ts_ms": int(now_ms),
+-                        "currency": currency,
+-                        "country": country,
+-                        "title": title[:256],
+-                        "source": source,
+-                    })
+-                    pipe.expire(key, AGG_TTL_SEC)
+-                    pipe.execute()
+-                    
+-                    # Optional: insert feature snapshot into Postgres
+-                    if self.pg is not None:
+-                        try:
+-                            self.pg.insert_calendar_feature_scope(
+-                                scope=scope_norm,
+-                                ts_ms=now_ms,
+-                                next_event_ts_ms=event_ts_ms,
+-                                event_grade_id=event_grade_id,
+-                                event_ref=uid,
+-                                event_tminus_sec=tminus
+-                            )
+-                        except Exception:
+-                            pass
++
++            # Policy: keep the nearest FUTURE event for this scope.
++            # NOTE: do not persist tminus as source-of-truth; downstream must recompute from event_ts_ms and now_ts_ms.
++            should_write = (event_ts_ms > 0 and event_ts_ms >= now_ms and ((prev_next <= now_ms) or (prev_next > 0 and event_ts_ms < prev_next)))
++            if should_write:
++                pipe = self.r.pipeline(transaction=False)
++                pipe.hset(key, mapping={
++                "event_ts_ms": int(event_ts_ms),
++                    "next_ts_ms": int(event_ts_ms),
++                    "event_tminus_sec": int(tminus),
++                    "event_grade_id": int(event_grade_id),
++                    "event_ref": uid,
++                    "updated_ts_ms": int(now_ms),
++                    "currency": currency,
++                    "country": country,
++                    "title": title[:256],
++                    "source": source,
++                })
++                pipe.expire(key, AGG_TTL_SEC)
++                pipe.execute()
++                
++                # Optional: insert feature snapshot into Postgres
++                if self.pg is not None:
++                    try:
++                        self.pg.insert_calendar_feature_scope(
++                            scope=scope_norm,
++                            ts_ms=now_ms,
++                            next_event_ts_ms=event_ts_ms,
++                            event_grade_id=event_grade_id,
++                            event_ref=uid,
++                            event_tminus_sec=tminus
++                        )
++                    except Exception:
++                        pass
+ 
+ def main() -> None:
+     r = redis.Redis.from_url(REDIS_URL, decode_responses=True, health_check_interval=30)
+
+
+--- a/calendar_store_service.py+++ b/calendar_store_service.py@@ -79,6 +79,7 @@         r.hset(
+             _agg_key(key),
+             mapping={
++                "event_ts_ms": str(ts_ms),
+                 "next_ts_ms": str(ts_ms),
+                 "event_tminus_sec": str(tminus),
+                 "event_grade_id": str(int(grade_id)),
+
+
+--- a/enricher_sync.py+++ b/enricher_sync.py@@ -57,28 +57,48 @@     def __init__(self, *, redis, per_symbol_cache_ms: int = 1500) -> None:
+         self.r = redis
+         self.cache_ms = int(per_symbol_cache_ms)
+-        # sym -> (cached_at_ms, NewsFeatures)
++        # sym -> (cache_bucket, NewsFeatures)
+         self._cache: Dict[str, tuple[int, NewsFeatures]] = {}
+ 
+-    def attach(self, ctx: OrderflowSignalContext, *, asset_class: str = "") -> None:
++    def attach(
++        self,
++        ctx: OrderflowSignalContext,
++        *,
++        asset_class: str = "",
++        now_ts_ms: Optional[int] = None,
++    ) -> None:
+         """Populate ctx.news.
+ 
+         asset_class controls which calendar scope we read:
+           calendar:agg:<asset_class_lower>
++
++        now_ts_ms:
++          Preferred deterministic time source (epoch ms) from market data.
++          If not provided, falls back to wall-clock and sets dq-flag.
+         """
+         try:
+             sym = (getattr(ctx, "symbol", "") or "GLOBAL").upper()
+-            now_ms = int(time.time() * 1000)
++
++            wall_ms = int(time.time() * 1000)
++            if now_ts_ms is None or int(now_ts_ms) <= 0:
++                now_ms = wall_ms
++                _append_dq_flag(ctx, "time_fallback_wall_clock")
++            else:
++                now_ms = int(now_ts_ms)
++
++            bucket = int(now_ms // max(1, self.cache_ms))
+ 
+             # Cheap hot-loop cache: avoids Redis hits on every tick burst.
+             cached = self._cache.get(sym)
+-            if cached and (now_ms - cached[0] <= self.cache_ms):
++            if cached and (bucket == cached[0]):
+                 ctx.news = cached[1]
+                 return
+ 
+             news_key = f"news:agg:{sym}"
+ 
+             cal_scope = (asset_class or "").strip().lower()
++            if cal_scope == "forex":
++                cal_scope = "fx"
+             cal_key = f"calendar:agg:{cal_scope}" if cal_scope else ""
+ 
+             pipe = self.r.pipeline(transaction=False)
+@@ -96,6 +116,12 @@             if ref and not ref.startswith("news:analysis:"):
+                 ref = f"news:analysis:{ref}"
+ 
++            # Deterministic tminus: derived from event_ts_ms/next_ts_ms and now_ms.
++            event_ts = 0
++            if cal:
++                event_ts = _safe_int(cal.get("event_ts_ms", 0), 0) or _safe_int(cal.get("next_ts_ms", 0), 0)
++            event_tminus_sec = int((event_ts - now_ms) / 1000) if event_ts > 0 else -1
++
+             nf = NewsFeatures(
+                 ref=ref,
+                 news_risk=_safe_float(news.get("risk_ema", 0.0)),
+@@ -106,12 +132,12 @@                 confidence=_safe_float(news.get("confidence", 0.0)),
+                 horizon_sec=_safe_int(news.get("horizon_sec", 0)),
+                 asof_ts_ms=_safe_int(news.get("asof_ts_ms", 0)),
+-                event_tminus_sec=_safe_int(cal.get("event_tminus_sec", -1)) if cal else -1,
++                event_tminus_sec=event_tminus_sec,
+                 event_grade_id=_safe_int(cal.get("event_grade_id", 0)) if cal else 0,
+             )
+ 
+             ctx.news = nf
+-            self._cache[sym] = (now_ms, nf)
++            self._cache[sym] = (bucket, nf)
+ 
+         except Exception:
+             _append_dq_flag(ctx, "news_enrich_fail_open")
+@@ -119,3 +145,4 @@                 ctx.news = None
+             except Exception:
+                 pass
++
+
+
+--- a/news_gate.py+++ b/news_gate.py@@ -14,6 +14,23 @@     meta: Dict[str, Any]
+ 
+ 
++@dataclass
++class GateDecision:
++    """Unified result for hard-block + soft risk scaling.
++
++    risk_factor_bps:
++      10000 -> no reduction
++      0     -> full disable (equivalent to hard block in strategy layer)
++    """
++
++    hard_block: bool
++    hard_reason: str
++    until_ts_ms: int
++    risk_factor_bps: int  # 0..10000
++    dq_flags: Dict[str, Any]
++    meta: Dict[str, Any]
++
++
+ def _i(x: Any, d: int = 0) -> int:
+     try:
+         return int(x)
+@@ -29,16 +46,27 @@         return d
+ 
+ 
++def _clamp01(x: float) -> float:
++    if x <= 0.0:
++        return 0.0
++    if x >= 1.0:
++        return 1.0
++    return x
++
++
++def _clamp_int(x: int, lo: int, hi: int) -> int:
++    return lo if x < lo else hi if x > hi else x
++
++
+ class NewsGate:
+-    """
+-    Redis-based high-impact news gate.
++    """Redis-based high-impact news gate.
+ 
+     Sources (in order):
+       1) Manual JSON key with TTL:
+          news:hi:active -> {"active":1, "until_ts_ms":..., "reason":"CPI", "symbols":[...]}
+       2) Calendar aggregated hash:
+          calendar:agg:<asset_class> -> fields:
+-           event_grade_id, event_tminus_sec, event_ts_ms, title/event_id
++           event_grade_id, event_ts_ms/next_ts_ms, (legacy) event_tminus_sec, title/event_id
+ 
+     Determinism:
+       - caller must pass now_ts_ms (event time), not wall-time.
+@@ -53,13 +81,37 @@         grade_min: int = 4,
+         manual_key: str = "news:hi:active",
+         cal_agg_prefix: str = "calendar:agg:",
++        # soft gate
++        soft_enabled: bool = True,
++        soft_window_sec: Optional[int] = None,
++        soft_grade_min: int = 2,
++        soft_grade2_bps: int = 5000,
++        soft_grade3_bps: int = 3500,
++        soft_grade4_bps: int = 2500,
++        soft_news_k: float = 0.9,
++        soft_news_min_bps: int = 2500,
+     ) -> None:
+         self.redis = redis_client
+-        self.asset_class = str(asset_class)
++
++        ac = str(asset_class).strip().lower()
++        if ac == "forex":
++            ac = "fx"
++        self.asset_class = ac
++
+         self.window_sec = int(window_sec)
+         self.grade_min = int(grade_min)
+         self.manual_key = str(manual_key)
++
+         self.cal_key = f"{str(cal_agg_prefix)}{self.asset_class}"
++
++        self.soft_enabled = bool(soft_enabled)
++        self.soft_window_sec = int(soft_window_sec) if soft_window_sec is not None else int(window_sec)
++        self.soft_grade_min = int(soft_grade_min)
++        self.soft_grade2_bps = int(soft_grade2_bps)
++        self.soft_grade3_bps = int(soft_grade3_bps)
++        self.soft_grade4_bps = int(soft_grade4_bps)
++        self.soft_news_k = float(soft_news_k)
++        self.soft_news_min_bps = int(soft_news_min_bps)
+ 
+     def _manual(self, now_ts_ms: int, symbols: Optional[Tuple[str, ...]] = None) -> Optional[NewsBlock]:
+         try:
+@@ -87,37 +139,160 @@         except Exception:
+             return None
+ 
+-    def _calendar(self, now_ts_ms: int) -> Optional[NewsBlock]:
++    def _calendar_fields(self) -> Dict[str, Any]:
+         try:
+             d = self.redis.hgetall(self.cal_key) or {}
+-            if not isinstance(d, dict) or not d:
+-                return None
+-            grade = _i(d.get("event_grade_id", 0), 0)
+-            if grade < self.grade_min:
+-                return None
+-            tminus = _f(d.get("event_tminus_sec", 1e9), 1e9)
+-            if abs(tminus) > float(self.window_sec):
+-                return None
+-            event_ts_ms = _i(d.get("event_ts_ms", 0), 0)
+-            if event_ts_ms <= 0:
+-                event_ts_ms = int(now_ts_ms + tminus * 1000.0)
+-            until_ts_ms = int(event_ts_ms + self.window_sec * 1000)
+-            if now_ts_ms >= until_ts_ms:
+-                return None
+-            title = str(d.get("title", "") or d.get("event_title", "") or "")
+-            ev_id = str(d.get("event_id", "") or "")
+-            meta = {"src": "calendar:agg", "grade": grade, "tminus_sec": float(tminus), "title": title, "event_id": ev_id}
+-            return NewsBlock(blocked=True, reason="calendar_hi_impact", until_ts_ms=until_ts_ms, meta=meta)
++            return d if isinstance(d, dict) else {}
+         except Exception:
+-            return None
+-
+-    def check(self, *, now_ts_ms: int, symbols: Optional[Tuple[str, ...]] = None) -> NewsBlock:
++            return {}
++
++    def decide(
++        self,
++        *,
++        now_ts_ms: int,
++        symbols: Optional[Tuple[str, ...]] = None,
++        # optional news features (pass from ctx.news to get full soft-gate)
++        news_risk: Optional[float] = None,
++        news_grade_id: Optional[int] = None,
++        confidence: Optional[float] = None,
++        horizon_sec: Optional[int] = None,
++        asof_ts_ms: Optional[int] = None,
++    ) -> GateDecision:
++        dq: Dict[str, Any] = {}
++        meta: Dict[str, Any] = {}
++
+         if now_ts_ms <= 0:
+-            return NewsBlock(blocked=False, reason="no_ts", until_ts_ms=0, meta={})
++            dq["no_ts"] = True
++            return GateDecision(
++                hard_block=False,
++                hard_reason="no_ts",
++                until_ts_ms=0,
++                risk_factor_bps=10000,
++                dq_flags=dq,
++                meta=meta,
++            )
++
++        # 1) Manual hard block
+         m = self._manual(now_ts_ms, symbols=symbols)
+         if m is not None:
+-            return m
+-        c = self._calendar(now_ts_ms)
+-        if c is not None:
+-            return c
+-        return NewsBlock(blocked=False, reason="ok", until_ts_ms=0, meta={})
++            return GateDecision(
++                hard_block=True,
++                hard_reason=m.reason,
++                until_ts_ms=m.until_ts_ms,
++                risk_factor_bps=0,
++                dq_flags=dq,
++                meta=m.meta,
++            )
++
++        # 2) Calendar hard/soft
++        cal = self._calendar_fields()
++        grade = _i(cal.get("event_grade_id", 0), 0)
++
++        event_ts_ms = _i(cal.get("event_ts_ms", 0), 0) or _i(cal.get("next_ts_ms", 0), 0)
++        tminus = 1e9
++        if event_ts_ms > 0:
++            tminus = float(event_ts_ms - now_ts_ms) / 1000.0
++        else:
++            # Legacy fallback (stale by design) - keep only to avoid breaking old deployments.
++            tminus = _f(cal.get("event_tminus_sec", 1e9), 1e9)
++            dq["calendar_missing_event_ts_ms"] = True
++
++        title = str(cal.get("title", "") or cal.get("event_title", "") or "")
++        ev_id = str(cal.get("event_id", "") or "")
++
++        meta.update(
++            {
++                "src": "calendar:agg",
++                "cal_key": self.cal_key,
++                "grade": grade,
++                "tminus_sec": float(tminus),
++                "event_ts_ms": int(event_ts_ms) if event_ts_ms > 0 else 0,
++                "title": title,
++                "event_id": ev_id,
++            }
++        )
++
++        # Hard block window
++        if grade >= self.grade_min and abs(tminus) <= float(self.window_sec):
++            until_ts_ms = int(event_ts_ms + self.window_sec * 1000) if event_ts_ms > 0 else int(now_ts_ms + self.window_sec * 1000)
++            if now_ts_ms < until_ts_ms:
++                return GateDecision(
++                    hard_block=True,
++                    hard_reason="calendar_hi_impact",
++                    until_ts_ms=until_ts_ms,
++                    risk_factor_bps=0,
++                    dq_flags=dq,
++                    meta=meta,
++                )
++
++        # Soft gate defaults
++        rf_bps = 10000
++        if self.soft_enabled:
++            # Calendar soft: reduce risk around grade>=soft_grade_min
++            if grade >= self.soft_grade_min and abs(tminus) <= float(self.soft_window_sec):
++                if grade >= 4:
++                    rf_bps = min(rf_bps, self.soft_grade4_bps)
++                    meta["soft_calendar_bps"] = self.soft_grade4_bps
++                elif grade == 3:
++                    rf_bps = min(rf_bps, self.soft_grade3_bps)
++                    meta["soft_calendar_bps"] = self.soft_grade3_bps
++                elif grade == 2:
++                    rf_bps = min(rf_bps, self.soft_grade2_bps)
++                    meta["soft_calendar_bps"] = self.soft_grade2_bps
++
++            # News soft: requires features
++            if news_risk is not None and news_grade_id is not None and confidence is not None:
++                # staleness by horizon (if provided)
++                if asof_ts_ms is not None and horizon_sec is not None and int(horizon_sec) > 0 and int(asof_ts_ms) > 0:
++                    if (now_ts_ms - int(asof_ts_ms)) > int(horizon_sec) * 1000:
++                        dq["news_stale_over_horizon"] = True
++                    else:
++                        rr = _clamp01(float(news_risk))
++                        g = int(news_grade_id)
++                        if g >= 3:
++                            gw = 1.0
++                        elif g == 2:
++                            gw = 0.6
++                        elif g == 1:
++                            gw = 0.3
++                        else:
++                            gw = 0.0
++                        cw = max(0.2, min(1.0, float(confidence)))
++                        impact = rr * gw * cw
++                        factor = max(float(self.soft_news_min_bps) / 10000.0, 1.0 - self.soft_news_k * impact)
++                        news_bps = int(10000.0 * factor)
++                        rf_bps = min(rf_bps, news_bps)
++                        meta["soft_news_bps"] = news_bps
++                        meta["soft_news_impact"] = float(impact)
++                else:
++                    rr = _clamp01(float(news_risk))
++                    g = int(news_grade_id)
++                    gw = 1.0 if g >= 3 else 0.6 if g == 2 else 0.3 if g == 1 else 0.0
++                    cw = max(0.2, min(1.0, float(confidence)))
++                    impact = rr * gw * cw
++                    factor = max(float(self.soft_news_min_bps) / 10000.0, 1.0 - self.soft_news_k * impact)
++                    news_bps = int(10000.0 * factor)
++                    rf_bps = min(rf_bps, news_bps)
++                    meta["soft_news_bps"] = news_bps
++                    meta["soft_news_impact"] = float(impact)
++
++        rf_bps = _clamp_int(int(rf_bps), 0, 10000)
++
++        return GateDecision(
++            hard_block=False,
++            hard_reason="ok",
++            until_ts_ms=0,
++            risk_factor_bps=rf_bps,
++            dq_flags=dq,
++            meta=meta,
++        )
++
++    def check(self, *, now_ts_ms: int, symbols: Optional[Tuple[str, ...]] = None) -> NewsBlock:
++        """Backward-compatible hard-block API."""
++        d = self.decide(now_ts_ms=now_ts_ms, symbols=symbols)
++        return NewsBlock(
++            blocked=bool(d.hard_block),
++            reason=str(d.hard_reason),
++            until_ts_ms=int(d.until_ts_ms),
++            meta=dict(d.meta),
++        )
+
+
+--- a/analyzer_worker.py+++ b/analyzer_worker.py@@ -77,63 +77,76 @@         if not uid:
+             return
+ 
+-        # idempotency (анализ делаем один раз на uid)
++        # Idempotency:
++        # - done_key is set ONLY after successful heavy-store + stream emit
++        # - lease_key prevents parallel duplicate work and auto-expires on crashes
+         done_key = f"news:analysis:done:{uid}"
+-        if not self.r.setnx(done_key, "1"):
++        if self.r.get(done_key):
+             return
+-        self.r.expire(done_key, ANALYSIS_DONE_TTL_SEC)
++        lease_key = f"news:analysis:lease:{uid}"
++        lease_sec = int(float(os.getenv("NEWS_ANALYSIS_LEASE_SEC", "300")))
++        if not self.r.set(lease_key, CONSUMER, nx=True, ex=lease_sec):
++            return
+ 
+-        title = _safe_s(fields.get("title"))
+-        url = _safe_s(fields.get("url"))
+-        source = _safe_s(fields.get("source"))
+-        summary = _safe_s(fields.get("summary"))
++        try:
++            title = _safe_s(fields.get("title"))
++            url = _safe_s(fields.get("url"))
++            source = _safe_s(fields.get("source"))
++            summary = _safe_s(fields.get("summary"))
+ 
+-        published_ts_ms = int(float(fields.get("published_ts_ms") or 0) or 0)
+-        if published_ts_ms <= 0:
+-            published_ts_ms = int(time.time() * 1000)
++            published_ts_ms = int(float(fields.get("published_ts_ms") or 0) or 0)
++            if published_ts_ms <= 0:
++                published_ts_ms = int(time.time() * 1000)
+ 
+-        syms = _parse_symbols_json(_safe_s(fields.get("symbols")))
+-        if not syms:
+-            syms = ["GLOBAL"]
++            syms = _parse_symbols_json(_safe_s(fields.get("symbols")))
++            if not syms:
++                syms = ["GLOBAL"]
+ 
+-        # LLM analysis
+-        a = self.llm.analyze(title=title, url=url, source=source, summary=summary)
++            # LLM analysis
++            a = self.llm.analyze(title=title, url=url, source=source, summary=summary)
+ 
+-        # heavy JSON store
+-        heavy = {
+-            "uid": uid,
+-            "source": source,
+-            "url": url,
+-            "title": title,
+-            "ts_ms": published_ts_ms,
+-            "symbols": syms,
+-            "analysis": a,
+-            "raw": {k: _safe_s(v) for k, v in fields.items()},
+-        }
+-        heavy_key = f"news:analysis:{uid}"
+-        self.r.setex(heavy_key, ANALYSIS_TTL_SEC, json.dumps(heavy, ensure_ascii=False))
++            # heavy JSON store
++            heavy = {
++                "uid": uid,
++                "source": source,
++                "url": url,
++                "title": title,
++                "ts_ms": published_ts_ms,
++                "symbols": syms,
++                "analysis": a,
++                "raw": {k: _safe_s(v) for k, v in fields.items()},
++            }
++            heavy_key = f"news:analysis:{uid}"
++            self.r.setex(heavy_key, ANALYSIS_TTL_SEC, json.dumps(heavy, ensure_ascii=False))
+ 
+-        # emit to stream (per symbol)
+-        # важно: все поля stringable
+-        now_ms = int(time.time() * 1000)
+-        for sym in syms:
+-            out = {
+-                "uid": uid,
+-                "symbol": sym,
+-                "risk": str(a.get("risk", 0.0)),
+-                "surprise": str(a.get("surprise", 0.0)),
+-                "confidence": str(a.get("confidence", 0.0)),
+-                "tags_mask": str(int(a.get("tags_mask", 0))),
+-                "primary_tag_id": str(int(a.get("primary_tag_id", 0))),
+-                "ts_ms": str(published_ts_ms),
+-                "ingested_ts_ms": str(now_ms),
+-            }
+-            self.r.xadd(NEWS_ANALYSIS_STREAM, out, maxlen=int(os.getenv("NEWS_ANALYSIS_MAXLEN", "200000")))
++            # emit to stream (per symbol)
++            # важно: все поля stringable
++            now_ms = int(time.time() * 1000)
++            for sym in syms:
++                out = {
++                    "uid": uid,
++                    "symbol": sym,
++                    "risk": str(a.get("risk", 0.0)),
++                    "surprise": str(a.get("surprise", 0.0)),
++                    "confidence": str(a.get("confidence", 0.0)),
++                    "tags_mask": str(int(a.get("tags_mask", 0))),
++                    "primary_tag_id": str(int(a.get("primary_tag_id", 0))),
++                    "ts_ms": str(published_ts_ms),
++                    "ingested_ts_ms": str(now_ms),
++                }
++                self.r.xadd(NEWS_ANALYSIS_STREAM, out, maxlen=int(os.getenv("NEWS_ANALYSIS_MAXLEN", "200000")))
+ 
+-        # Важно: если хотите "ат-лиз-ван" семантику, ack должен быть только после xadd/setex.
+-        # StreamWorker должен делать ACK после handle_message (как у вас уже сделано).
++            # Mark processed only after successful writes
++            self.r.set(done_key, "1", ex=ANALYSIS_DONE_TTL_SEC)
++            # Важно: если хотите "ат-лиз-ван" семантику, ack должен быть только после xadd/setex.
++            # StreamWorker должен делать ACK после handle_message (как у вас уже сделано).
+ 
+ 
++        finally:
++            try:
++                self.r.delete(lease_key)
++            except Exception:
++                pass
+ def main() -> None:
+     # Отключаем CLIENT SETINFO для совместимости со старыми версиями Redis
+     import redis.connection
+@@ -178,4 +191,4 @@ 
+ 
+ if __name__ == "__main__":
+-    main()+    main()
+
+

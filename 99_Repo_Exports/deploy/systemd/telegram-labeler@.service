@@ -1,0 +1,27 @@
+[Unit]
+Description=Telegram Labeler & Analytics Bot for %i
+After=network-online.target book-analytics.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/home/%i/front/trade/scanner_infra/python-worker
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/home/%i/front/trade/scanner_infra/python-worker
+
+# Required: Set your bot token
+Environment=BOT_TOKEN=YOUR_BOT_TOKEN_HERE
+
+# Optional
+Environment=OBI_HOST=http://127.0.0.1:8090
+Environment=DEFAULT_SYMBOL=XAUUSD
+
+ExecStart=/home/%i/front/trade/scanner_infra/python-worker/venv/bin/python -m tools.telegram_labeler
+
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+

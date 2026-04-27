@@ -1,0 +1,142 @@
+groups:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # World-practice LOB pressure v1 – microprice / depth shape / dw_obi stability
+  # ─────────────────────────────────────────────────────────────────────────────
+
+- name: of_world_practice_lob_pressure_v1
+  interval: 60s
+  rules:
+
+  # ── Warn: microprice diverges from mid while system is active ────────────────
+  - alert: OF_WP_MicroMidDivHigh_Warn
+    expr: |
+      (
+        abs(trade_micro_mid_div_bps) > 2.5
+      )
+      and on(sym)
+      (
+        label_replace(
+          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
+          "sym", "$1", "symbol", "(.*)"
+        ) > 0.02
+      )
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): micro_mid_div_bps high ({{ $value | printf \"%.2f\" }})"
+      description: |
+        Microprice deviates from mid while allow decisions are being produced.
+        Interpretable as hidden queue pressure near touch (top-of-book imbalance).
+      runbook_path: /runbooks/world_practice_lob_pressure_v1.md
+      dashboard_path: /d/world_practice_lob_pressure_v1
+
+  # ── Warn: microprice shift spikes (momentum) while active ────────────────────
+  - alert: OF_WP_MicroShiftSpike_Warn
+    expr: |
+      (
+        (max_over_time(trade_micro_shift_bps[5m]) > 1.0)
+        or
+        (min_over_time(trade_micro_shift_bps[5m]) < -1.0)
+      )
+      and on(sym)
+      (
+        label_replace(
+          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
+          "sym", "$1", "symbol", "(.*)"
+        ) > 0.02
+      )
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): micro_shift_bps spike"
+      description: |
+        Microprice shifts quickly over the last 5 minutes while the system is active.
+        Often coincides with sudden pressure changes and wider slippage variance.
+      runbook_path: /runbooks/world_practice_lob_pressure_v1.md
+      dashboard_path: /d/world_practice_lob_pressure_v1
+
+  # ── Warn: persistent stable DW OBI pressure (regime indicator) ──────────────
+  - alert: OF_WP_DWOBIStableHigh_Warn
+    expr: |
+      (
+        abs(trade_dw_obi_z) > 2.5
+        and trade_dw_obi_stable > 0.5
+        and trade_dw_obi_stability_score >= 0.60
+      )
+      and on(sym)
+      (
+        label_replace(
+          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
+          "sym", "$1", "symbol", "(.*)"
+        ) > 0.02
+      )
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): DW OBI stable high pressure (z={{ $value | printf \"%.2f\" }})"
+      description: |
+        Depth-weighted OBI (near-touch emphasis) shows persistent, stable pressure.
+        Treat as a regime flag: expect higher adverse selection risk on the weaker side.
+      runbook_path: /runbooks/world_practice_lob_pressure_v1.md
+      dashboard_path: /d/world_practice_lob_pressure_v1
+
+  # ── Warn: depth convexity imbalance sustained (shape asymmetry) ──────────────
+  - alert: OF_WP_DepthConvexityImbHigh_Warn
+    expr: |
+      (
+        abs(trade_depth_convexity_imb) > 0.35
+      )
+      and on(sym)
+      (
+        label_replace(
+          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
+          "sym", "$1", "symbol", "(.*)"
+        ) > 0.02
+      )
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{{ $labels.sym }} ({{ $labels.bucket }}): depth_convexity_imb high ({{ $value | printf \"%.2f\" }})"
+      description: |
+        Depth curve shape differs between bid/ask sides (convexity imbalance).
+        Useful as a liquidity/impact asymmetry indicator.
+      runbook_path: /runbooks/world_practice_lob_pressure_v1.md
+      dashboard_path: /d/world_practice_lob_pressure_v1
+
+  # ── Crit: LOB pressure snapshots likely broken (stuck at 0) while active ────
+  - alert: OF_WP_LobPressureSnapshotsStuckZero_Crit
+    expr: |
+      (
+        max_over_time(trade_micro_mid_div_bps[30m]) == 0
+        and max_over_time(trade_micro_shift_bps[30m]) == 0
+        and max_over_time(trade_dw_obi_z[30m]) == 0
+      )
+      and on(sym)
+      (
+        label_replace(
+          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
+          "sym", "$1", "symbol", "(.*)"
+        ) > 0.05
+      )
+      and on(sym)
+      (
+        label_replace(
+          max_over_time(book_rate_ema[5m]),
+          "sym", "$1", "symbol", "(.*)"
+        ) > 0.05
+      )
+    for: 20m
+    labels:
+      severity: critical
+    annotations:
+      summary: "{{ $labels.sym }}: LOB pressure snapshots stuck at 0 while active"
+      description: |
+        Microprice / DW OBI snapshots stayed at 0 for 30 minutes while allow decisions and book updates exist.
+        This typically indicates broken wiring: book processor not feeding LOB pressure, indicator keys not propagated,
+        or gauge emission path not executed.
+      runbook_path: /runbooks/world_practice_lob_pressure_v1.md
+      dashboard_path: /d/world_practice_lob_pressure_v1

@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/matplotlib/texmanager.py
+# hypothesis_version: 6.148.10
+
+[1.0, 1.25, '% geometry.', '% in usetex mode.', '%s.dvi', '%s.png', ', ', '--freetype0', '--halt-on-error', '-D', '-T', '-bg', '-o', '.tex', '1.16', '3.5', '3.6', 'Transparent', '\\begin{document}', '\\end{document}', '\\pagestyle{empty}', '\\rmfamily', '\\sffamily', '\\ttfamily', '\\usepackage{avant}', '\\usepackage{charter}', '\\usepackage{courier}', '\\usepackage{helvet}', '\\usepackage{type1cm}', '\\usepackage{type1ec}', '_called_from_pytest', 'avant garde', 'backslashreplace', 'bookman', 'charter', 'courier', 'cursive', 'dvipng', 'font.', 'font.family', 'font.size', 'helvetica', 'latex', 'monospace', 'option', 'package', 'palatino', 'sans-serif', 'savefig.dpi', 'serif', 'strings', 'tex.cache', 'text.latex.preamble', 'textcomp', 'tight', 'times', 'underscore', 'unicode_escape', 'utf-8', 'zapf chancery']

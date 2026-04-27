@@ -1,0 +1,53 @@
+groups:
+  - name: latency_audit_p41
+    rules:
+      # ── 1. Go Ingestion Latency (Stage: ingest_source_to_redis) ────────────
+      - alert: LatencyIngestGoP99High
+        expr: |
+          histogram_quantile(0.99, sum(rate(latency_contract_stage_ms_bucket{stage="ingest_source_to_redis"}[5m])) by (le, stage)) > 10
+        for: 2m
+        labels:
+          severity: warning
+          component: go-worker
+          project: trade
+        annotations:
+          summary: "Go Ingestion Latency p99 > 10ms"
+          description: "Задержка от биржи до Redis (p99) составляет {{ $value | humanize }}ms. SLO: 5ms. Проверить загрузку CPU на go-worker и Redis latency."
+
+      # ── 2. Python Core Latency (Stage: redis_to_feature + feature_to_emit) ──
+      - alert: LatencyPythonCoreP99High
+        expr: |
+          histogram_quantile(0.99, sum(rate(latency_contract_stage_ms_bucket{stage=~"redis_to_feature|feature_to_emit"}[5m])) by (le, stage)) > 30
+        for: 2m
+        labels:
+          severity: warning
+          component: python-worker
+          project: trade
+        annotations:
+          summary: "Python Processing Latency p99 > 30ms"
+          description: "Задержка обработки тика в Python (p99) составляет {{ $value | humanize }}ms. SLO: 25ms. Проверить GIL contention и сложность расчета признаков."
+
+      # ── 3. End-to-End Latency (Stage: end_to_end_event) ────────────────────
+      - alert: LatencyEndToEndP99Critical
+        expr: |
+          histogram_quantile(0.99, sum(rate(latency_contract_stage_ms_bucket{stage="end_to_end_event"}[5m])) by (le, stage)) > 50
+        for: 2m
+        labels:
+          severity: critical
+          component: pipeline
+          project: trade
+        annotations:
+          summary: "CRITICAL: End-to-End Latency p99 > 50ms"
+          description: "Сквозная задержка (биржа -> сигнал) превысила 50ms (текущая: {{ $value | humanize }}ms). Риск проскальзывания и неактуальных сигналов!"
+
+      # ── 4. Latency Contract Data Quality (Missing stages) ─────────────────
+      - alert: LatencyContractMissingStages
+        expr: |
+          absent(latency_contract_stage_ms_bucket) == 1
+        for: 5m
+        labels:
+          severity: warning
+          component: monitoring
+        annotations:
+          summary: "Latency Contract metrics are missing"
+          description: "Метрики задержек P4.1 не поступают в Prometheus. Проверить экспортер в python-worker и go-worker."

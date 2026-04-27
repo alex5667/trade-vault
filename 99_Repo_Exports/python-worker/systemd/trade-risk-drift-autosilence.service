@@ -1,0 +1,9 @@
+[Unit]
+Description=trade risk drift auto-silence (P5X operator hardening)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/trade
+EnvironmentFile=-/etc/default/trade-operator-hardening
+ExecStart=/usr/bin/python3 /opt/trade/scripts/auto_silence_risk_drift_storm.py

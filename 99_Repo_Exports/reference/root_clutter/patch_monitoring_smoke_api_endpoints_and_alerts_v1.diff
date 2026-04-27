@@ -1,0 +1,155 @@
+diff --git a/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py b/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py
+index 4b5d8c3..8d90b56 100644
+--- a/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py
++++ b/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py
+@@ -138,11 +138,16 @@ def main() -> int:
+     verify_tls = _env("SMOKE_VERIFY_TLS", "0") in ("1", "true", "yes")
+ 
+     health_urls = [
+         f"{public_base}/grafana/api/health",
+         f"{public_base}/runbooks/healthz",
+         f"{public_base}/alertmanager/-/ready",
++        f"{public_base}/alertmanager/api/v2/status",
+         f"{public_base}/prometheus/-/ready",
++        f"{public_base}/prometheus/api/v1/status/runtimeinfo",
+     ]
+     runbook_urls, dash_urls = _smoke_contract_targets(public_base)
+ 
+     checks: List[Dict[str, str]] = []
+@@ -154,9 +159,20 @@ def main() -> int:
+     for u in health_urls:
+         ok, reason, dt_ms = _http_check(u, verify_tls=verify_tls)
+         checks.append({"kind": "health", "url": u, "ok": "1" if ok else "0", "reason": reason, "latency_ms": f"{dt_ms:.1f}"})
+         ok_all = ok_all and ok
++        # Kind-specific rollups for exporters/alerts
++        if u.endswith("/alertmanager/api/v2/status"):
++            checks.append({"kind": "am_api", "url": u, "ok": "1" if ok else "0", "reason": reason, "latency_ms": f"{dt_ms:.1f}"})
++        if u.endswith("/prometheus/api/v1/status/runtimeinfo"):
++            checks.append({"kind": "prom_api", "url": u, "ok": "1" if ok else "0", "reason": reason, "latency_ms": f"{dt_ms:.1f}"})
+ 
+     # 2) Monitoring contract checks: runbooks + dashboards exist and route under public-proxy.
+     runbooks_ok = True
+     dashboards_ok = True
+@@ -187,6 +203,8 @@ def main() -> int:
+     ts_ms = _now_ms()
+     out = {"success": ok_all, "updated_ts_ms": ts_ms, "checks": checks}
+     print(json.dumps(out, ensure_ascii=False))
+ 
+     key = _env("MONITORING_SMOKE_METRICS_KEY", "metrics:monitoring_smoke:last")
+     failed_checks = [c for c in checks if c.get("ok") != "1"]
+     failed_health = [c for c in failed_checks if c.get("kind") == "health"]
+     failed_contract = [c for c in failed_checks if c.get("kind") in ("runbook", "dashboard")]
++    am_api_ok = all(c.get("ok") == "1" for c in checks if c.get("kind") == "am_api") if any(c.get("kind") == "am_api" for c in checks) else False
++    prom_api_ok = all(c.get("ok") == "1" for c in checks if c.get("kind") == "prom_api") if any(c.get("kind") == "prom_api" for c in checks) else False
+     fields = {
+         "success": "1" if ok_all else "0",
+         "runbooks_ok": "1" if runbooks_ok else "0",
+         "dashboards_ok": "1" if dashboards_ok else "0",
++        "alertmanager_api_ok": "1" if am_api_ok else "0",
++        "prometheus_api_ok": "1" if prom_api_ok else "0",
+         "updated_ts_ms": str(ts_ms),
+         "reason": "ok" if ok_all else "failed",
+         "public_base_url": public_base,
+         "failed_total": str(len(failed_checks)),
+         "failed_health": json.dumps(failed_health, ensure_ascii=False)[:1200],
+         "failed_contract": json.dumps(failed_contract, ensure_ascii=False)[:1200],
+     }
+     _write_redis(key, fields)
+     return 0 if ok_all else 2
+diff --git a/ml_analysis/tools/monitoring_smoke_exporter_v1.py b/ml_analysis/tools/monitoring_smoke_exporter_v1.py
+index 1c2ce6f..2f1b7f9 100644
+--- a/ml_analysis/tools/monitoring_smoke_exporter_v1.py
++++ b/ml_analysis/tools/monitoring_smoke_exporter_v1.py
+@@ -57,6 +57,8 @@ def metrics() -> PlainTextResponse:
+     runbooks_ok = 0.0
+     dashboards_ok = 0.0
+     failed_total = 0.0
++    alertmanager_api_ok = 0.0
++    prometheus_api_ok = 0.0
+     if d:
+         try:
+             success = 1.0 if float(d.get("success", "0")) > 0 else 0.0
+@@ -83,6 +85,16 @@ def metrics() -> PlainTextResponse:
+         except Exception:
+             failed_total = 0.0
+ 
++        try:
++            alertmanager_api_ok = 1.0 if float(d.get("alertmanager_api_ok", "0")) > 0 else 0.0
++        except Exception:
++            alertmanager_api_ok = 0.0
++        try:
++            prometheus_api_ok = 1.0 if float(d.get("prometheus_api_ok", "0")) > 0 else 0.0
++        except Exception:
++            prometheus_api_ok = 0.0
++
+     age_s = 0.0
+     if updated_ts > 0:
+         age_s = max(0.0, (time.time() * 1000.0 - updated_ts) / 1000.0)
+@@ -113,6 +125,16 @@ def metrics() -> PlainTextResponse:
+     lines.append("# TYPE monitoring_smoke_failed_checks_total gauge")
+     lines.append(f"monitoring_smoke_failed_checks_total {failed_total}")
+ 
++    lines.append("# HELP monitoring_smoke_alertmanager_api_ok 1 if alertmanager /api/v2/status is OK")
++    lines.append("# TYPE monitoring_smoke_alertmanager_api_ok gauge")
++    lines.append(f"monitoring_smoke_alertmanager_api_ok {alertmanager_api_ok}")
++
++    lines.append("# HELP monitoring_smoke_prometheus_api_ok 1 if prometheus /api/v1/status/runtimeinfo is OK")
++    lines.append("# TYPE monitoring_smoke_prometheus_api_ok gauge")
++    lines.append(f"monitoring_smoke_prometheus_api_ok {prometheus_api_ok}")
++
+     return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
+diff --git a/ok_rate_logic/prometheus_alerts_monitoring_smoke_apis_v1.yml b/ok_rate_logic/prometheus_alerts_monitoring_smoke_apis_v1.yml
+new file mode 100644
+index 0000000..ad1c5a1
+--- /dev/null
++++ b/ok_rate_logic/prometheus_alerts_monitoring_smoke_apis_v1.yml
+@@ -0,0 +1,42 @@
++groups:
++  - name: monitoring-smoke-apis
++    rules:
++      - alert: MonitoringSmokeAlertmanagerApiBroken
++        expr: monitoring_smoke_alertmanager_api_ok == 0
++        for: 20m
++        labels:
++          severity: warning
++          team: trade
++          component: monitoring
++        annotations:
++          summary: "Monitoring smoke: Alertmanager API broken"
++          description: "Nightly monitoring smoke detected Alertmanager /api/v2/status under public-proxy is not OK."
++          runbook_path: "/web_uptime.md"
++          dashboard_path: "/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1"
++
++      - alert: MonitoringSmokePrometheusApiBroken
++        expr: monitoring_smoke_prometheus_api_ok == 0
++        for: 20m
++        labels:
++          severity: warning
++          team: trade
++          component: monitoring
++        annotations:
++          summary: "Monitoring smoke: Prometheus API broken"
++          description: "Nightly monitoring smoke detected Prometheus /api/v1/status/runtimeinfo under public-proxy is not OK."
++          runbook_path: "/web_uptime.md"
++          dashboard_path: "/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1"
+diff --git a/monitoring/README_smoke_tests.md b/monitoring/README_smoke_tests.md
+index 93e5e7e..e0b6c03 100644
+--- a/monitoring/README_smoke_tests.md
++++ b/monitoring/README_smoke_tests.md
+@@ -6,10 +6,12 @@
+ 1) Public proxy routes health:
+ - `/grafana/api/health`
+ - `/runbooks/healthz`
+ - `/alertmanager/-/ready`
++- `/alertmanager/api/v2/status`
+ - `/prometheus/-/ready`
++- `/prometheus/api/v1/status/runtimeinfo`
+ 
+ 2) Monitoring contract (public-proxy routing must serve links we send in alerts):
+ - runbooks markdown:
+@@ -62,6 +64,8 @@
+ - `monitoring_smoke_runbooks_ok`
+ - `monitoring_smoke_dashboards_ok`
+ - `monitoring_smoke_failed_checks_total`
++- `monitoring_smoke_alertmanager_api_ok`
++- `monitoring_smoke_prometheus_api_ok`

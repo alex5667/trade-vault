@@ -1,0 +1,57 @@
+name: python-lint-f821
+
+# Блокирующий CI check: ruff F821 (undefined names) на critical paths.
+# Цель: предотвратить повторение скрытой потери метрик,
+# когда функции вызываются внутри try/except, но не импортированы.
+
+on:
+  push:
+    paths:
+      - "python-worker/**/*.py"
+      - "python-worker/pyproject.toml"
+  pull_request:
+    paths:
+      - "python-worker/**/*.py"
+      - "python-worker/pyproject.toml"
+
+jobs:
+  lint-f821:
+    name: "ruff F821 – undefined name guard"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: python-worker
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: ruff F821 – pipeline (must pass, blocks merge)
+        run: |
+          python -m ruff check handlers/crypto_orderflow/pipeline/ --select F821 \
+            --output-format=github
+        # Exit non-zero → PR blocked.
+
+      - name: ruff F – common/metrics_stage and related (must pass)
+        run: |
+          python -m ruff check common/ --select F \
+            --output-format=github
+
+      - name: ruff F – full pyflakes scan (warning only, non-blocking)
+        # Собирает весь F-список для visibility; не блокирует, но фиксирует регрессии в аннотациях.
+        run: |
+          python -m ruff check . \
+            --select F \
+            --exclude ".venv,venv,reference,tick_flow_full/tests" \
+            --output-format=github \
+            --exit-zero

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/liquidity_geometry.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.001, 0.1, 0.2, 0.3, 0.33, 0.5, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0, 3.0, 20.0, 50.0, 10000.0, 5000, 'BarSample', 'ClusterVol', 'GeoZoneHit', 'LiquidityContext', 'LiquidityPattern', 'SimpleL2Snapshot', 'ask', 'bid']

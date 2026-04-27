@@ -1,0 +1,26 @@
+groups:
+  - name: ml_phase2_6_operator_rca_routing
+    rules:
+      - alert: MLOperatorRCARoutingVerifyStale
+        expr: time() - ml_operator_rca_routing_verify_last_run_ts_seconds > 1800
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "operator_rca routing post-apply verifier is stale"
+
+      - alert: MLOperatorRCARoutingRollbackExecutorStale
+        expr: time() - ml_operator_rca_routing_rollback_last_run_ts_seconds > 1800
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "operator_rca routing rollback executor is stale"
+
+      - alert: MLOperatorRCARoutingVerifyRollbackRequired
+        expr: increase(ml_operator_rca_routing_verify_total{status="ROLLBACK_REQUIRED"}[30m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "operator_rca routing post-apply verification requested rollback"

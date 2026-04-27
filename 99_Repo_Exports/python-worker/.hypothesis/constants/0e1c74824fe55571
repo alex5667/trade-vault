@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/optimize/_lbfgsb_py.py
+# hypothesis_version: 6.148.10
+
+[b'\x00', b'CONV', b'FG', b'NEW_X', 0.0, 2.220446049250313e-09, 1e-08, 1e-05, 10000000.0, 15000, 'LbfgsInvHessProduct', 'S60', 'START', 'callback', 'disp', 'eps', 'fmin_l_bfgs_b', 'ftol', 'fun', 'funcalls', 'grad', 'gtol', 'ij,ij->i', 'iprint', 'jac', 'maxcor', 'maxfun', 'maxiter', 'maxls', 'message', 'nfev', 'nit', 'status', 'task', 'warnflag', 'x']

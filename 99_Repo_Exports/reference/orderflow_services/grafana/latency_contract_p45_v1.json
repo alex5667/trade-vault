@@ -1,0 +1,40 @@
+{
+  "title": "Latency Contract Deploy Lint (P4.5)",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Persistent Gates",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [
+        {"expr": "latency_contract_deploy_lint_summary_gate_active_total", "refId": "A"}
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Failing Purposes",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "targets": [
+        {"expr": "latency_contract_deploy_lint_summary_fail_total", "refId": "A"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Gate Active by Purpose",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [
+        {"expr": "latency_contract_deploy_lint_gate_active", "legendFormat": "{{purpose}}", "refId": "A"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Deploy Lint Fail Age (s)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [
+        {"expr": "latency_contract_deploy_lint_fail_age_seconds", "legendFormat": "{{purpose}}", "refId": "A"}
+      ]
+    }
+  ]
+}

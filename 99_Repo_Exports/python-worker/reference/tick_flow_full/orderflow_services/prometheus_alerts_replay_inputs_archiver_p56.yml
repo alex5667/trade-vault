@@ -1,0 +1,26 @@
+groups:
+- name: replay_inputs_archiver_p56
+  rules:
+  - alert: ReplayInputsArchiverStale
+    expr: (time()*1000 - replay_inputs_archiver_last_run_ts_ms) / 1000 > 900
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: replay inputs archiver not running (stale)
+      description: No updates from replay_inputs_archiver for >15 minutes. Check
+        process and Redis connectivity.
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: ReplayInputsArchiverErrors
+    expr: increase(replay_inputs_archiver_error_total[10m]) > 0
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: replay inputs archiver errors detected
+      description: Archiver is failing to archive some replay inputs. Inspect 
+        metrics hash and logs.
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd

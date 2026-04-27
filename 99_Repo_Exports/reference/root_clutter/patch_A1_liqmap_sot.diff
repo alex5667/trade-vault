@@ -1,0 +1,491 @@
+diff --git a/tick_flow_full/services/orderflow/components/tick_processor.py.orig b/tick_flow_full/services/orderflow/components/tick_processor.py
+index e7d2d0c..3af4938 100644
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py.orig
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -143,6 +143,12 @@ from core.exec_regime_bucket_v1 import compute_exec_regime_bucket
+ from core.fill_prob_proxy import compute_fill_prob_proxy
+ from core.bucket2_v1 import derive_bucket2_label
+ from core.calendar_flags import calendar_flags_utc
++from core.liqmap_features_v1 import (
++    parse_liqmap_snapshot_v1,
++    compute_liqmap_features,
++    liqmap_feature_keys,
++    make_liqmap_default_features,
++)
+ 
+ from services.orderflow.log_sampler import sampled_info, sampled_warning, sampled_debug, LogSamplerFactory
+ 
+@@ -267,6 +273,59 @@ class TickProcessor:
+         self._capture_queue: Optional[asyncio.Queue] = None
+         self._ofc_capture_enabled = os.getenv("OFC_CAPTURE", "0") == "1"
+ 
++
++        # ------------------------------------------------------------------
++        # LiqMap feature injection (liquidation map snapshot -> indicators)
++        #
++        # Default is OFF for safety: the hot path should stay stable unless explicitly enabled.
++        #
++        # Env knobs (new names):
++        #   - LIQMAP_FEATURES_ENABLE (0/1)
++        #   - LIQMAP_FEATURES_WINDOWS (e.g. "5m,1h"; default "1h")
++        #   - LIQMAP_FEATURES_REFRESH_MS (default 1500)  [legacy alias: LIQMAP_FEATURES_FETCH_INTERVAL_MS]
++        #   - LIQMAP_FEATURES_FAILOPEN_STALE_MS (default 120000)
++        #
++        # Notes:
++        # - Refresh is per (symbol, window) and is best-effort.
++        # - Fail-open: on Redis/parse errors we keep last-good feats up to FAILOPEN_STALE_MS.
++        # - Determinism: feature keys are stable via core.liqmap_features_v1 contracts.
++        # ------------------------------------------------------------------
++        self.liqmap_features_enable = os.getenv("LIQMAP_FEATURES_ENABLE", "0").strip().lower() in ("1", "true", "yes", "on")
++        _liq_w = (os.getenv("LIQMAP_FEATURES_WINDOWS", "1h") or "1h").strip()
++        self.liqmap_features_windows = [w.strip() for w in _liq_w.split(",") if w.strip()]
++
++        # Refresh interval (ms). Keep legacy env alias for backward compatibility.
++        _refresh_s = os.getenv("LIQMAP_FEATURES_REFRESH_MS", "").strip()
++        if not _refresh_s:
++            _refresh_s = os.getenv("LIQMAP_FEATURES_FETCH_INTERVAL_MS", "1500").strip()
++        try:
++            self.liqmap_features_refresh_ms = int(_refresh_s or 1500)
++        except Exception:
++            self.liqmap_features_refresh_ms = 1500
++
++        # How long we are allowed to reuse last-good features after Redis/parse failures.
++        try:
++            self.liqmap_features_failopen_stale_ms = int(os.getenv("LIQMAP_FEATURES_FAILOPEN_STALE_MS", "120000") or 120000)
++        except Exception:
++            self.liqmap_features_failopen_stale_ms = 120000
++
++        # Optional tuning knobs for feature computation.
++        self.liqmap_snapshot_key_prefix = os.getenv("LIQMAP_SNAPSHOT_KEY_PREFIX", "liqmap:snapshot") or "liqmap:snapshot"
++        try:
++            self.liqmap_near_band_bps = float(os.getenv("LIQMAP_NEAR_BAND_BPS", "20") or 20.0)
++        except Exception:
++            self.liqmap_near_band_bps = 20.0
++        try:
++            self.liqmap_peak_min_share = float(os.getenv("LIQMAP_PEAK_MIN_SHARE", "0.05") or 0.05)
++        except Exception:
++            self.liqmap_peak_min_share = 0.05
++
++        # In-memory caches (per symbol+window) to keep Redis load bounded and preserve last-good feats.
++        # Cache entry shape:
++        #   {"fetch_ms": int, "good_ms": int, "snap_ts_ms": int, "feats": Dict[str, float]}
++        self._liqmap_cache: Dict[tuple, Dict[str, Any]] = {}
++        self._liqmap_next_refresh_ts_ms: Dict[tuple, int] = {}
++
+         # P69: Circuit Breaker State (Hysteresis)
+         self.cb_state = CircuitBreakerState(
+             redis=self.redis,
+@@ -439,6 +498,194 @@ class TickProcessor:
+             pass
+ 
+ 
++    async def _inject_liqmap_features(
++        self,
++        *,
++        runtime: "SymbolRuntime",
++        now_ms: int,
++        price: float,
++        indicators: Dict[str, Any],
++    ) -> None:
++        """Best-effort LiqMap snapshot -> indicator injection.
++
++        Reads Redis key:
++            {LIQMAP_SNAPSHOT_KEY_PREFIX}:{SYMBOL}:{WINDOW}
++
++        Then parses and computes stable feature keys via core.liqmap_features_v1.
++
++        Fail-open policy:
++        - If Redis is missing / errors or parsing fails, we reuse last-good features
++          for up to LIQMAP_FEATURES_FAILOPEN_STALE_MS.
++        - If no last-good exists (or it's too stale) we inject all-zero defaults.
++
++        The function must never raise (hot path).
++        """
++        try:
++            if not bool(getattr(self, "liqmap_features_enable", False)):
++                return
++
++            sym = str(getattr(runtime, "symbol", "") or "").strip().upper()
++            if not sym:
++                return
++
++            windows = list(getattr(self, "liqmap_features_windows", []) or [])
++            if not windows:
++                return
++
++            refresh_ms = int(getattr(self, "liqmap_features_refresh_ms", 0) or 0)
++            stale_ms = int(getattr(self, "liqmap_features_failopen_stale_ms", 0) or 0)
++            prefix = str(getattr(self, "liqmap_snapshot_key_prefix", "liqmap:snapshot") or "liqmap:snapshot")
++
++            near_band_bps = float(getattr(self, "liqmap_near_band_bps", 20.0) or 20.0)
++            peak_min_share = float(getattr(self, "liqmap_peak_min_share", 0.05) or 0.05)
++
++            # NOTE: keep the loop per-window; features are namespaced by liqmap_{w}_* keys.
++            for w in windows:
++                wnd = str(w)
++                ck = (sym, wnd)
++
++                cached = self._liqmap_cache.get(ck) if hasattr(self, "_liqmap_cache") else None
++
++                # Refresh throttling (per symbol+window)
++                next_ts = 0
++                try:
++                    next_ts = int(self._liqmap_next_refresh_ts_ms.get(ck, 0) or 0)
++                except Exception:
++                    next_ts = 0
++
++                if cached and refresh_ms > 0 and int(now_ms) < int(next_ts):
++                    # Reuse cached feats (but refresh age_ms deterministically from snap ts).
++                    feats = cached.get("feats") if isinstance(cached, dict) else None
++                    if isinstance(feats, dict) and feats:
++                        try:
++                            snap_ts_ms = int(cached.get("snap_ts_ms", 0) or 0)
++                            if snap_ts_ms > 0:
++                                feats[f"liqmap_{wnd}_age_ms"] = float(max(0, int(now_ms) - snap_ts_ms))
++                        except Exception:
++                            pass
++                        indicators.update(feats)
++                    continue
++
++                # Schedule next refresh right away to keep Redis pressure bounded even if fetch fails.
++                try:
++                    self._liqmap_next_refresh_ts_ms[ck] = int(now_ms) + int(refresh_ms)
++                except Exception:
++                    pass
++
++                raw = None
++                try:
++                    # Snapshot writer may store bytes; parser expects str.
++                    raw = await self.redis.get(f"{prefix}:{sym}:{wnd}")
++                except Exception:
++                    try:
++                        silent_errors_total.labels(kind="liqmap", symbol=sym, where="redis_get").inc()
++                    except Exception:
++                        pass
++                    raw = None
++
++                if raw is None:
++                    # Missing snapshot: reuse last-good if not too stale.
++                    if isinstance(cached, dict):
++                        try:
++                            good_ms = int(cached.get("good_ms", 0) or 0)
++                            if good_ms > 0 and stale_ms > 0 and (int(now_ms) - good_ms) <= int(stale_ms):
++                                feats = cached.get("feats")
++                                if isinstance(feats, dict) and feats:
++                                    try:
++                                        snap_ts_ms = int(cached.get("snap_ts_ms", 0) or 0)
++                                        if snap_ts_ms > 0:
++                                            feats[f"liqmap_{wnd}_age_ms"] = float(max(0, int(now_ms) - snap_ts_ms))
++                                    except Exception:
++                                        pass
++                                    indicators.update(feats)
++                                    continue
++                        except Exception:
++                            pass
++
++                    # No cache or too stale -> deterministic zeros.
++                    defaults = make_liqmap_default_features([wnd])
++                    indicators.update(defaults)
++                    self._liqmap_cache[ck] = {
++                        "fetch_ms": int(now_ms),
++                        "good_ms": int(cached.get("good_ms", 0) or 0) if isinstance(cached, dict) else 0,
++                        "snap_ts_ms": int(cached.get("snap_ts_ms", 0) or 0) if isinstance(cached, dict) else 0,
++                        "feats": defaults,
++                    }
++                    continue
++
++                # Decode bytes -> str
++                raw_s: str
++                try:
++                    raw_s = raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw)
++                except Exception:
++                    raw_s = str(raw)
++
++                # Parse and compute features
++                try:
++                    snap = parse_liqmap_snapshot_v1(raw_s, expected_symbol=sym, expected_window=wnd)
++                    feats = compute_liqmap_features(
++                        snap,
++                        price=float(price),
++                        windows=(wnd,),
++                        near_band_bps=float(near_band_bps),
++                        peak_min_share=float(peak_min_share),
++                        now_ms=int(now_ms),
++                    )
++
++                    # Ensure stable key set for the window (defensive; no-op if already present).
++                    for k in liqmap_feature_keys(wnd):
++                        feats.setdefault(k, 0.0)
++
++                    indicators.update(feats)
++                    self._liqmap_cache[ck] = {
++                        "fetch_ms": int(now_ms),
++                        "good_ms": int(now_ms),
++                        "snap_ts_ms": int(getattr(snap, "ts_ms", 0) or 0),
++                        "feats": feats,
++                    }
++                except Exception:
++                    try:
++                        silent_errors_total.labels(kind="liqmap", symbol=sym, where="parse_or_compute").inc()
++                    except Exception:
++                        pass
++
++                    # Parse/compute error -> reuse last-good if allowed.
++                    if isinstance(cached, dict):
++                        try:
++                            good_ms = int(cached.get("good_ms", 0) or 0)
++                            if good_ms > 0 and stale_ms > 0 and (int(now_ms) - good_ms) <= int(stale_ms):
++                                feats = cached.get("feats")
++                                if isinstance(feats, dict) and feats:
++                                    try:
++                                        snap_ts_ms = int(cached.get("snap_ts_ms", 0) or 0)
++                                        if snap_ts_ms > 0:
++                                            feats[f"liqmap_{wnd}_age_ms"] = float(max(0, int(now_ms) - snap_ts_ms))
++                                    except Exception:
++                                        pass
++                                    indicators.update(feats)
++                                    continue
++                        except Exception:
++                            pass
++
++                    defaults = make_liqmap_default_features([wnd])
++                    indicators.update(defaults)
++                    self._liqmap_cache[ck] = {
++                        "fetch_ms": int(now_ms),
++                        "good_ms": int(cached.get("good_ms", 0) or 0) if isinstance(cached, dict) else 0,
++                        "snap_ts_ms": int(cached.get("snap_ts_ms", 0) or 0) if isinstance(cached, dict) else 0,
++                        "feats": defaults,
++                    }
++
++        except Exception:
++            # Absolute fail-open: do not let any LiqMap bug break tick processing.
++            try:
++                sym = str(getattr(runtime, "symbol", "") or "unknown")
++                silent_errors_total.labels(kind="liqmap", symbol=sym, where="inject_outer").inc()
++            except Exception:
++                pass
++            return
++
++
+     async def _emit_early_veto_decision_record(
+         self,
+         *,
+@@ -906,6 +1153,19 @@ class TickProcessor:
+         except Exception:
+             pass
+ 
++
++        # LiqMap feature injection (best-effort)
++        # Inserted after strict DQ trackers and before delta detector / of_engine.build().
++        try:
++            await self._inject_liqmap_features(
++                runtime=runtime,
++                now_ms=int(time.time() * 1000),
++                price=float(price),
++                indicators=indicators,
++            )
++        except Exception:
++            pass
++
+         # --- Delta Detection ---
+         delta_event = {}
+         try:
+diff --git a/tick_flow_full/services/orderflow/tests/test_liqmap_injection_tick_processor_v1.py b/tick_flow_full/services/orderflow/tests/test_liqmap_injection_tick_processor_v1.py
+new file mode 100644
+index 0000000..c493f3b
+--- /dev/null
++++ b/tick_flow_full/services/orderflow/tests/test_liqmap_injection_tick_processor_v1.py
+@@ -0,0 +1,193 @@
++import asyncio
++import importlib
++import json
++import sys
++import types
++
++
++# -----------------------------------------------------------------------------
++# Test-only dependency shims
++# -----------------------------------------------------------------------------
++# The unit test validates LiqMap injection logic and does not require external
++# drivers (Postgres / Redis). In production those deps must be installed.
++
++
++def _install_module_stub(mod_name: str, attrs: dict) -> None:
++    m = types.ModuleType(mod_name)
++    for k, v in attrs.items():
++        setattr(m, k, v)
++    sys.modules[mod_name] = m
++
++
++# asyncpg (Postgres driver)
++try:
++    importlib.import_module("asyncpg")
++except ModuleNotFoundError:
++    class Pool:  # pragma: no cover
++        pass
++
++    async def create_pool(*args, **kwargs):  # pragma: no cover
++        return Pool()
++
++    _install_module_stub("asyncpg", {"Pool": Pool, "create_pool": create_pool})
++
++
++# redis-py (sync + asyncio API)
++try:
++    importlib.import_module("redis")
++    importlib.import_module("redis.asyncio")
++    importlib.import_module("redis.exceptions")
++except ModuleNotFoundError:
++    class ConnectionPool:  # pragma: no cover
++        def __init__(self, *args, **kwargs):
++            pass
++
++    class Redis:  # pragma: no cover
++        def __init__(self, *args, **kwargs):
++            pass
++
++        def ping(self):
++            return True
++
++    class RedisError(Exception):  # pragma: no cover
++        pass
++
++    exc_mod = types.ModuleType("redis.exceptions")
++    exc_mod.RedisError = RedisError
++    exc_mod.ConnectionError = RedisError
++    exc_mod.TimeoutError = RedisError
++    exc_mod.BusyLoadingError = RedisError
++    exc_mod.ResponseError = RedisError
++    sys.modules["redis.exceptions"] = exc_mod
++
++    redis_asyncio = types.ModuleType("redis.asyncio")
++    redis_asyncio.Redis = Redis
++    sys.modules["redis.asyncio"] = redis_asyncio
++
++    redis_mod = types.ModuleType("redis")
++    redis_mod.Redis = Redis
++    redis_mod.ConnectionPool = ConnectionPool
++    redis_mod.exceptions = exc_mod
++    sys.modules["redis"] = redis_mod
++
++
++# Optional internal trackers used by runtime; not required for this unit test.
++for _mod, _cls in (
++    ("core.rolling_vwap_tracker", "RollingVWAPTracker"),
++    ("core.rolling_momentum_tracker", "RollingMomentumTracker"),
++    ("core.rolling_volatility_tracker", "RollingVolatilityTracker"),
++):
++    try:
++        importlib.import_module(_mod)
++    except ModuleNotFoundError:
++        _install_module_stub(_mod, {_cls: type(_cls, (), {"__init__": lambda self, *a, **k: None})})
++
++
++from services.orderflow.components.tick_processor import TickProcessor
++
++
++class _DummyRuntime:
++    def __init__(self, symbol: str):
++        self.symbol = symbol
++
++
++class _DummyRedis:
++    def __init__(self, payload_by_key):
++        self.payload_by_key = dict(payload_by_key)
++        self.get_calls = []
++
++    async def get(self, key: str):
++        self.get_calls.append(key)
++        return self.payload_by_key.get(key)
++
++
++def _make_tp(redis: _DummyRedis, *, refresh_ms=1500, stale_ms=120000):
++    # Bypass heavy __init__; only fields used by _inject_liqmap_features are set.
++    tp = TickProcessor.__new__(TickProcessor)
++    tp.redis = redis
++
++    tp.liqmap_features_enable = True
++    tp.liqmap_features_windows = ["1h"]
++    tp.liqmap_features_refresh_ms = int(refresh_ms)
++    tp.liqmap_features_failopen_stale_ms = int(stale_ms)
++
++    tp.liqmap_snapshot_key_prefix = "liqmap:snapshot"
++    tp.liqmap_near_band_bps = 20.0
++    tp.liqmap_peak_min_share = 0.05
++
++    tp._liqmap_cache = {}
++    tp._liqmap_next_refresh_ts_ms = {}
++
++    return tp
++
++
++def test_liqmap_injection_updates_indicators_and_throttles_refresh():
++    now_ms = 10_000
++    snap = {
++        "ts_ms": now_ms - 2_000,
++        "symbol": "BTCUSDT",
++        "window": "1h",
++        "levels": [
++            {"price": 99.0, "long_usd": 100.0, "short_usd": 200.0},
++            {"price": 100.0, "long_usd": 400.0, "short_usd": 100.0},
++            {"price": 101.0, "long_usd": 50.0, "short_usd": 900.0},
++        ],
++    }
++
++    key = "liqmap:snapshot:BTCUSDT:1h"
++    r = _DummyRedis({key: json.dumps(snap)})
++    tp = _make_tp(r, refresh_ms=1500)
++
++    runtime = _DummyRuntime("BTCUSDT")
++    indicators = {}
++
++    asyncio.run(tp._inject_liqmap_features(runtime=runtime, now_ms=now_ms, price=100.0, indicators=indicators))
++
++    # A couple of core keys should exist (full set is tested in core tests).
++    assert indicators["liqmap_1h_levels_n"] == 3.0
++    assert indicators["liqmap_1h_age_ms"] == 2000.0
++    assert "liqmap_1h_total_usd" in indicators
++
++    # Second call within refresh interval should not hit Redis again.
++    indicators2 = {}
++    asyncio.run(tp._inject_liqmap_features(runtime=runtime, now_ms=now_ms + 500, price=100.0, indicators=indicators2))
++    assert len(r.get_calls) == 1
++    assert "liqmap_1h_total_usd" in indicators2
++
++    # After refresh interval passes, Redis should be called again.
++    indicators3 = {}
++    asyncio.run(tp._inject_liqmap_features(runtime=runtime, now_ms=now_ms + 2000, price=100.0, indicators=indicators3))
++    assert len(r.get_calls) == 2
++
++
++def test_liqmap_injection_failopen_reuses_last_good_when_snapshot_missing():
++    base_ms = 20_000
++    snap = {
++        "ts_ms": base_ms - 2_000,
++        "symbol": "BTCUSDT",
++        "window": "1h",
++        "levels": [
++            {"price": 100.0, "long_usd": 100.0, "short_usd": 100.0},
++            {"price": 101.0, "long_usd": 200.0, "short_usd": 0.0},
++        ],
++    }
++
++    key = "liqmap:snapshot:BTCUSDT:1h"
++    r = _DummyRedis({key: json.dumps(snap)})
++    tp = _make_tp(r, refresh_ms=1, stale_ms=120_000)
++    runtime = _DummyRuntime("BTCUSDT")
++
++    ind1 = {}
++    asyncio.run(tp._inject_liqmap_features(runtime=runtime, now_ms=base_ms, price=100.0, indicators=ind1))
++    assert "liqmap_1h_total_usd" in ind1
++    assert ind1["liqmap_1h_age_ms"] == 2000.0
++
++    # Now simulate missing snapshot (Redis returns None); we still expect last-good feats.
++    r.payload_by_key[key] = None
++
++    ind2 = {}
++    asyncio.run(tp._inject_liqmap_features(runtime=runtime, now_ms=base_ms + 10_000, price=100.0, indicators=ind2))
++    assert "liqmap_1h_total_usd" in ind2
++
++    # Age must increase deterministically based on cached snap ts.
++    assert ind2["liqmap_1h_age_ms"] == 12_000.0

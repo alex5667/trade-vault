@@ -1,0 +1,45 @@
+groups:
+  - name: bybit_book_delta_gaps
+
+    rules:
+      # ── Warning: elevated gap rate ────────────────────────────────────────────
+      # A small number of gaps can happen during Bybit reconnects.  A sustained
+      # elevated rate (> 1/min per symbol over 5 min) means something is wrong
+      # with the WS feed or the local processing queue.
+      - alert: BybitBookDeltaGapElevated
+        expr: |
+          sum(rate(bybit_book_delta_gaps_total[5m])) by (symbol) > (1 / 60)
+        for: 5m
+        labels:
+          severity: warning
+          team: infra
+          exchange: bybit
+        annotations:
+          summary: "Bybit book delta gap rate elevated (symbol={{ $labels.symbol }})"
+          description: |
+            rate(bybit_book_delta_gaps_total[5m]) > 1/min for {{ $labels.symbol }}.
+            The local orderbook was flushed and resnapshot was requested.
+            Investigate WS lag, reconnect storms, or backpressure in the
+            message processing queue.
+            DLQ stream: dlq:book_deltas — inspect recent entries for gap details.
+
+      # ── Page: critical gap burst ──────────────────────────────────────────────
+      # More than 3 gaps per minute sustained for 2 minutes signals that the book
+      # may be cycling through flush/resnapshot loops.  At this rate SL/TP logic
+      # is receiving stale/empty books and spread calculations are corrupted.
+      - alert: BybitBookDeltaGapCritical
+        expr: |
+          sum(rate(bybit_book_delta_gaps_total[2m])) by (symbol) > (3 / 60)
+        for: 2m
+        labels:
+          severity: page
+          team: infra
+          exchange: bybit
+        annotations:
+          summary: "CRITICAL: Bybit book delta gap burst (symbol={{ $labels.symbol }})"
+          description: |
+            rate(bybit_book_delta_gaps_total[2m]) > 3/min for {{ $labels.symbol }} — CRITICAL.
+            The orderbook is cycling through flush/resnapshot loops at high frequency.
+            SL/TP logic is receiving corrupted spread data.
+            Action: check Bybit WS connectivity, inspect dlq:book_deltas, consider
+            disabling the symbol from Bybit source and switching to Binance feed.

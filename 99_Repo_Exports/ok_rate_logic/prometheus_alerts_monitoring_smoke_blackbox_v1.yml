@@ -1,0 +1,15 @@
+groups:
+  - name: monitoring-smoke-blackbox
+    rules:
+      - alert: MonitoringSmokeBlackboxExporterBroken
+        expr: monitoring_smoke_blackbox_exporter_ok == 0
+        for: 20m
+        labels:
+          severity: warning
+          team: trade
+          component: monitoring
+        annotations:
+          summary: "Monitoring smoke: blackbox-exporter unhealthy"
+          description: "Nightly monitoring smoke detected blackbox-exporter /-/healthy is not OK (internal). Uptime probes may become unreliable."
+          runbook_path: "/monitoring_smoke.md"
+          dashboard_path: "/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1"

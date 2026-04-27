@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/sparse/linalg/isolve.py
+# hypothesis_version: 6.148.10
+
+['bicg', 'bicgstab', 'cg', 'cgs', 'gcrotmk', 'gmres', 'iterative', 'lgmres', 'lsmr', 'lsqr', 'minres', 'qmr', 'test', 'tfqmr', 'utils']

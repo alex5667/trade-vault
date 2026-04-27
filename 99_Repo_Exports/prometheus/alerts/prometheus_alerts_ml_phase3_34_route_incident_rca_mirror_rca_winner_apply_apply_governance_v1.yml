@@ -1,0 +1,30 @@
+groups:
+  - name: ml_phase3_34_route_incident_rca_mirror_rca_winner_apply_apply_governance_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplySLOStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_slo_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply SLO analytics is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyRetryStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_retry_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply retry controller is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyEscalationsStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_escalations_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply escalation summarizer is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyRollbackMTTRHigh
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_rollback_mttr_p95_seconds > 120
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply rollback MTTR p95 is high"

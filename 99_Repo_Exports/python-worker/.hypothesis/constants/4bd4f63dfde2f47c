@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/tick_time_quarantine_integration.py
+# hypothesis_version: 6.148.10
+
+[0.01, 1000, 10000, 50000, '1', '120000', '1500', '5000', 'bad_ts', 'cannot_parse', 'error', 'flag', 'flags', 'now_ms', 'payload', 'reason', 'soft_event', 'streak_or_score', 'symbol', 'tick.time.hard_drop', 'tick.time.hard_drop.', 'tick.time.soft_event', 'tick_time_quarantine', 'true', 'ts', 'ts_ms', 'unknown', 'yes']

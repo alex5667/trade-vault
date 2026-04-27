@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/special/sf_error.py
+# hypothesis_version: 6.148.10
+
+['SpecialFunctionError']

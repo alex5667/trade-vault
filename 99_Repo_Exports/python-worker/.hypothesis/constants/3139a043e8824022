@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/auto_apply_guard.py
+# hypothesis_version: 6.148.10
+
+[1000, ',', '0', '1', 'REDIS_URL', 'True', 'block_key', 'blocked', 'exit_code', 'meta', 'no_redis_url', 'reason', 'reasons_checked', 'status', 'tick_gate', 'true', 'ts_ms']

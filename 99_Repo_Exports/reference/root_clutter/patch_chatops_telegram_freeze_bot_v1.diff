@@ -1,0 +1,386 @@
+diff --git a/monitoring/chatops/telegram_freeze_bot/Dockerfile b/monitoring/chatops/telegram_freeze_bot/Dockerfile
+new file mode 100644
+index 0000000..a5506e1
+--- /dev/null
++++ b/monitoring/chatops/telegram_freeze_bot/Dockerfile
+@@ -0,0 +1,24 @@
++FROM python:3.11-slim
++
++WORKDIR /app
++
++COPY requirements.txt /app/requirements.txt
++RUN pip install --no-cache-dir -r /app/requirements.txt
++
++COPY bot.py /app/bot.py
++
++ENV PYTHONUNBUFFERED=1
++
++CMD ["python", "/app/bot.py"]
+diff --git a/monitoring/chatops/telegram_freeze_bot/requirements.txt b/monitoring/chatops/telegram_freeze_bot/requirements.txt
+new file mode 100644
+index 0000000..e3c8bd3
+--- /dev/null
++++ b/monitoring/chatops/telegram_freeze_bot/requirements.txt
+@@ -0,0 +1,2 @@
++requests==2.32.3
++redis==5.0.8
+diff --git a/monitoring/chatops/telegram_freeze_bot/bot.py b/monitoring/chatops/telegram_freeze_bot/bot.py
+new file mode 100644
+index 0000000..ed1b46f
+--- /dev/null
++++ b/monitoring/chatops/telegram_freeze_bot/bot.py
+@@ -0,0 +1,324 @@
++from __future__ import annotations
++
++import json
++import os
++import re
++import sys
++import time
++from typing import Any, Dict, List, Optional, Tuple
++
++import requests
++import redis
++
++from tick_flow_full.core.promote_freeze import read_freeze, set_freeze, clear_freeze
++
++
++def _env(name: str, default: str = "") -> str:
++    return (os.getenv(name) or default).strip()
++
++
++BOT_TOKEN = _env("TELEGRAM_BOT_TOKEN", "")
++REDIS_URL = _env("REDIS_URL", "redis://redis-worker-1:6379/0")
++OPS_EVENT_STREAM = _env("OPS_EVENT_STREAM", "ops:eventlog")
++
++# Security: allowlist (fail-closed if empty)
++ADMIN_USER_IDS = [x for x in re.split(r"[,\s]+", _env("TELEGRAM_ADMIN_USER_IDS", "")) if x]
++ALLOWED_CHAT_ID = _env("TELEGRAM_ALLOWED_CHAT_ID", _env("TELEGRAM_CHAT_ID", ""))
++
++# Bot state
++OFFSET_KEY = _env("TELEGRAM_BOT_OFFSET_KEY", "ops:telegram_freeze_bot:offset")
++POLL_INTERVAL_S = float(_env("TELEGRAM_BOT_POLL_INTERVAL_S", "2.0"))
++TIMEOUT_S = int(_env("TELEGRAM_BOT_LONGPOLL_TIMEOUT_S", "25"))
++
++# Default freeze duration
++DEFAULT_FREEZE_S = int(_env("EDGE_STACK_PROMOTE_FREEZE_DURATION_S", "86400"))
++
++# Operational knobs
++MAX_REASON_LEN = 240
++
++
++def _redis() -> redis.Redis:
++    return redis.Redis.from_url(REDIS_URL, decode_responses=True)
++
++
++def _tg_api(method: str) -> str:
++    return f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
++
++
++def _tg_post(method: str, payload: Dict[str, Any]) -> Dict[str, Any]:
++    r = requests.post(_tg_api(method), json=payload, timeout=10)
++    if r.status_code >= 300:
++        raise RuntimeError(f"telegram_http:{r.status_code}:{r.text[:200]}")
++    js = r.json()
++    if not js.get("ok"):
++        raise RuntimeError(f"telegram_api_error:{js}")
++    return js
++
++
++def _tg_get_updates(offset: int) -> List[Dict[str, Any]]:
++    params = {"timeout": TIMEOUT_S, "offset": offset, "allowed_updates": ["message"]}
++    r = requests.get(_tg_api("getUpdates"), params=params, timeout=TIMEOUT_S + 5)
++    if r.status_code >= 300:
++        raise RuntimeError(f"telegram_http:{r.status_code}:{r.text[:200]}")
++    js = r.json()
++    if not js.get("ok"):
++        raise RuntimeError(f"telegram_api_error:{js}")
++    return js.get("result") or []
++
++
++def _tg_send(chat_id: str, text: str, reply_to: Optional[int] = None) -> None:
++    payload: Dict[str, Any] = {"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
++    if reply_to is not None:
++        payload["reply_to_message_id"] = reply_to
++    _tg_post("sendMessage", payload)
++
++
++def _write_ops_event(event: Dict[str, Any]) -> None:
++    try:
++        r = _redis()
++        r.xadd(
++            OPS_EVENT_STREAM,
++            {"ts_ms": str(int(time.time() * 1000)), "event": json.dumps(event, ensure_ascii=False)[:4000]},
++            maxlen=5000,
++            approximate=True,
++        )
++    except Exception:
++        # best-effort
++        pass
++
++
++def _is_admin(user_id: Optional[int]) -> bool:
++    if user_id is None:
++        return False
++    if not ADMIN_USER_IDS:
++        return False
++    return str(user_id) in set(ADMIN_USER_IDS)
++
++
++def _chat_allowed(chat_id: Optional[int]) -> bool:
++    if not ALLOWED_CHAT_ID:
++        return False
++    if chat_id is None:
++        return False
++    return str(chat_id) == str(ALLOWED_CHAT_ID)
++
++
++HELP = """ChatOps: Edge Stack promote-freeze
++
++Commands:
++  /freeze status
++  /freeze set <duration_s> <reason...>
++  /freeze clear
++
++Examples:
++  /freeze set 3600 manual investigation
++  /freeze status
++
++Security:
++  - only TELEGRAM_ALLOWED_CHAT_ID is accepted
++  - only TELEGRAM_ADMIN_USER_IDS are allowed (fail-closed if empty)
++"""
++
++
++def _parse_freeze_cmd(text: str) -> Optional[Tuple[str, List[str]]]:
++    t = (text or "").strip()
++    if not t:
++        return None
++    # allow "/freeze" and "freeze"
++    if t.startswith("/freeze"):
++        rest = t[len("/freeze") :].strip()
++    elif t.startswith("freeze"):
++        rest = t[len("freeze") :].strip()
++    else:
++        return None
++    if not rest:
++        return ("help", [])
++    parts = rest.split()
++    return (parts[0].lower(), parts[1:])
++
++
++def _format_status() -> str:
++    st = read_freeze(REDIS_URL)
++    now_ms = int(time.time() * 1000)
++    left_s = 0
++    if st.until_ts_ms and st.until_ts_ms > now_ms:
++        left_s = int((st.until_ts_ms - now_ms) / 1000)
++    return json.dumps(
++        {"active": st.active, "until_ts_ms": st.until_ts_ms, "left_s": left_s, "reason": st.reason, "source": st.source},
++        ensure_ascii=False,
++    )
++
++
++def _handle_cmd(cmd: str, args: List[str], actor: Dict[str, Any]) -> Tuple[bool, str]:
++    """Returns (ok, response_text)."""
++    if cmd in ("help", "h", "?"):
++        return True, HELP
++    if cmd == "status":
++        return True, _format_status()
++    if cmd == "clear":
++        ok = clear_freeze(REDIS_URL)
++        _write_ops_event({"type": "promote_freeze_clear", "ok": ok, **actor})
++        return ok, json.dumps({"ok": ok}, ensure_ascii=False)
++    if cmd == "set":
++        if len(args) < 2:
++            return False, "Usage: /freeze set <duration_s> <reason...>"
++        try:
++            duration_s = int(args[0])
++        except Exception:
++            return False, "duration_s must be integer seconds"
++        reason = " ".join(args[1:]).strip()[:MAX_REASON_LEN]
++        if duration_s <= 0:
++            return False, "duration_s must be > 0"
++        ok = set_freeze(
++            REDIS_URL,
++            duration_s=duration_s,
++            reason=reason,
++            source="chatops",
++            extra={"actor": actor.get("actor", "unknown")},
++        )
++        _write_ops_event({"type": "promote_freeze_set", "ok": ok, "duration_s": duration_s, "reason": reason, **actor})
++        return ok, json.dumps({"ok": ok, "duration_s": duration_s}, ensure_ascii=False)
++    return False, f"Unknown subcommand: {cmd}
+
+{HELP}"
++
++
++def _load_offset(r: redis.Redis) -> int:
++    try:
++        v = r.get(OFFSET_KEY)
++        return int(v) if v else 0
++    except Exception:
++        return 0
++
++
++def _save_offset(r: redis.Redis, offset: int) -> None:
++    try:
++        r.set(OFFSET_KEY, str(offset))
++    except Exception:
++        pass
++
++
++def main() -> int:
++    if not BOT_TOKEN:
++        print("TELEGRAM_BOT_TOKEN is required", file=sys.stderr)
++        return 2
++    if not ALLOWED_CHAT_ID:
++        print("TELEGRAM_ALLOWED_CHAT_ID (or TELEGRAM_CHAT_ID) is required", file=sys.stderr)
++        return 2
++    if not ADMIN_USER_IDS:
++        print("TELEGRAM_ADMIN_USER_IDS is empty; bot is fail-closed (no one can run commands)", file=sys.stderr)
++        return 2
++
++    r = _redis()
++    offset = _load_offset(r)
++    print(json.dumps({"ok": True, "offset": offset, "allowed_chat_id": ALLOWED_CHAT_ID, "admin_user_ids": ADMIN_USER_IDS}, ensure_ascii=False))
++
++    while True:
++        try:
++            updates = _tg_get_updates(offset=offset + 1 if offset else 0)
++            for u in updates:
++                upd_id = int(u.get("update_id", 0))
++                msg = (u.get("message") or {})
++                chat = (msg.get("chat") or {})
++                from_ = (msg.get("from") or {})
++                chat_id = chat.get("id")
++                user_id = from_.get("id")
++                text = msg.get("text") or ""
++                msg_id = msg.get("message_id")
++
++                offset = max(offset, upd_id)
++                _save_offset(r, offset)
++
++                # scope + auth
++                if not _chat_allowed(chat_id):
++                    continue
++                if not _is_admin(user_id):
++                    try:
++                        _tg_send(str(chat_id), "Unauthorized", reply_to=msg_id)
++                    except Exception:
++                        pass
++                    _write_ops_event({"type": "chatops_unauthorized", "user_id": user_id, "chat_id": chat_id, "text": text[:200]})
++                    continue
++
++                parsed = _parse_freeze_cmd(text)
++                if not parsed:
++                    continue
++                subcmd, args = parsed
++                actor = {
++                    "actor": str(user_id),
++                    "chat_id": str(chat_id),
++                    "username": str(from_.get("username") or ""),
++                    "name": f"{from_.get('first_name','')}".strip(),
++                }
++                ok, resp = _handle_cmd(subcmd, args, actor)
++                try:
++                    _tg_send(str(chat_id), resp, reply_to=msg_id)
++                except Exception as e:
++                    _write_ops_event({"type": "chatops_send_failed", "err": str(e)[:200], **actor})
++                else:
++                    _write_ops_event({"type": "chatops_freeze_cmd", "cmd": subcmd, "ok": ok, "args": args[:10], **actor})
++
++        except Exception as e:
++            _write_ops_event({"type": "chatops_loop_error", "err": str(e)[:200]})
++            time.sleep(2.0)
++            continue
++
++        time.sleep(POLL_INTERVAL_S)
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/ok_rate_logic/docker-compose-crypto-orderflow.yml b/ok_rate_logic/docker-compose-crypto-orderflow.yml
+index 9f1d3a2..8a6d8ad 100644
+--- a/ok_rate_logic/docker-compose-crypto-orderflow.yml
++++ b/ok_rate_logic/docker-compose-crypto-orderflow.yml
+@@ -1032,6 +1032,25 @@ services:
+   # Prometheus (real deploy wiring)
+   # -----------------------------
+
++  chatops-telegram-freeze-bot:
++    build:
++      context: .
++      dockerfile: monitoring/chatops/telegram_freeze_bot/Dockerfile
++    container_name: chatops-telegram-freeze-bot
++    restart: unless-stopped
++    environment:
++      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
++      - TELEGRAM_ALLOWED_CHAT_ID=${TELEGRAM_ALLOWED_CHAT_ID:-${TELEGRAM_CHAT_ID:-}}
++      - TELEGRAM_ADMIN_USER_IDS=${TELEGRAM_ADMIN_USER_IDS:-}
++      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
++      - OPS_EVENT_STREAM=${OPS_EVENT_STREAM:-ops:eventlog}
++      - EDGE_STACK_PROMOTE_FREEZE_DURATION_S=${EDGE_STACK_PROMOTE_FREEZE_DURATION_S:-86400}
++      - TELEGRAM_BOT_OFFSET_KEY=${TELEGRAM_BOT_OFFSET_KEY:-ops:telegram_freeze_bot:offset}
++      - TELEGRAM_BOT_POLL_INTERVAL_S=${TELEGRAM_BOT_POLL_INTERVAL_S:-2.0}
++      - TELEGRAM_BOT_LONGPOLL_TIMEOUT_S=${TELEGRAM_BOT_LONGPOLL_TIMEOUT_S:-25}
++    networks:
++      - trade-network
++
+   grafana:
+     image: grafana/grafana:11.1.0
+     container_name: trade-grafana
+diff --git a/monitoring/runbooks/chatops_freeze.md b/monitoring/runbooks/chatops_freeze.md
+new file mode 100644
+index 0000000..4692c6e
+--- /dev/null
++++ b/monitoring/runbooks/chatops_freeze.md
+@@ -0,0 +1,91 @@
++# Runbook: ChatOps Freeze Control (Telegram)
++
++## Goal
++Allow a trusted operator to set/clear/status promotion freeze directly from Telegram,
++with audit trail to `ops:eventlog`.
++
++## Security model (fail-closed)
++- Only messages from **one** chat id are accepted: `TELEGRAM_ALLOWED_CHAT_ID`
++- Only users in allowlist are accepted: `TELEGRAM_ADMIN_USER_IDS` (comma-separated Telegram user ids)
++- If `TELEGRAM_ADMIN_USER_IDS` is empty → bot exits and no one can run commands.
++
++## Setup
++1) Create Telegram bot token.
++2) Add bot to the target group (or use direct chat).
++3) Disable privacy mode for group command handling if needed (BotFather → /setprivacy).
++4) Set env vars:
++
++```bash
++export TELEGRAM_BOT_TOKEN="123456:ABC..."
++export TELEGRAM_ALLOWED_CHAT_ID="-1001234567890"
++export TELEGRAM_ADMIN_USER_IDS="11111111,22222222"
++export REDIS_URL="redis://redis-worker-1:6379/0"
++```
++
++## Start
++```bash
++docker compose -f ok_rate_logic/docker-compose-crypto-orderflow.yml up -d chatops-telegram-freeze-bot
++docker logs -n 200 chatops-telegram-freeze-bot
++```
++
++## Commands
++```text
++/freeze status
++/freeze set 3600 manual investigation
++/freeze clear
++```
++
++## Audit
++Tail:
++```bash
++REDIS_URL="redis://redis-worker-1:6379/0" ./scripts/ops_eventlog_tail.sh
++```
++
++Events:
++- `chatops_freeze_cmd`
++- `chatops_unauthorized`
++- `promote_freeze_set`
++- `promote_freeze_clear`

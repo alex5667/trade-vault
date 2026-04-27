@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signal_exec/context.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 'SignalContext', 'account_state', 'asks', 'atr_1m', 'best_ask', 'best_bid', 'bids', 'contract_size', 'delta', 'equity_usd', 'extra', 'features', 'final_score', 'htf_levels', 'kind', 'local_swings', 'open_risk_usd', 'orderbook', 'price', 'price_at_signal', 'setup_type', 'side', 'signal_id', 'strength', 'symbol', 'tick_size', 'ts', 'ts_signal', 'ttd_expiry_bars', 'type', 'volume']

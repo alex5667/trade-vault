@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/tick_dedup.py
+# hypothesis_version: 6.148.10
+
+[0.0, 20000, 180000, 'is_buyer_maker', 'price', 'qty', 'side', 'trade_id', 'ts_ms', 'utf-8']

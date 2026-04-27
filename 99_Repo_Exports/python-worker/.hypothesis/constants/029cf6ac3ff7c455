@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/deploy_calibrator_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, 2.5, '\nProposed Change:', '--a', '--apply', '--b', '--key', '--redis-url', '1', 'REDIS_URL', 'Redis key to update', 'Shift (intercept)', '__main__', 'a', 'b', 'calibrate_p_edge', 'calibrator', 'platt_logit', 'store_true', 'type']

@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS news_features_symbol CASCADE;
+DROP TABLE IF EXISTS news_analysis CASCADE;

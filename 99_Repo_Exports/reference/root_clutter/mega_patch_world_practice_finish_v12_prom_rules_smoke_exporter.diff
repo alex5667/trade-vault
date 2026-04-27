@@ -1,0 +1,849 @@
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' a/orderflow_services/enforce_bucket_state_exporter_v1.py b/orderflow_services/enforce_bucket_state_exporter_v1.py
+--- a/orderflow_services/enforce_bucket_state_exporter_v1.py	2026-02-24 10:40:30.000000000 +0000
++++ b/orderflow_services/enforce_bucket_state_exporter_v1.py	2026-02-25 04:16:23.237166089 +0000
+@@ -25,6 +25,8 @@
+   EXEC_SLIP_STATS_STATUS_PATH (default /var/lib/trade/of_reports/out/enforce/stats/exec_slip_stats_refresh_status.json)
+   ENFORCE_FREEZER_STATUS_PATH (default /var/lib/trade/of_reports/out/enforce/freezer/enforce_bucket_slo_freezer_status.json)
+ 
++  PROM_RULES_BUNDLE_STATE_PREFIX (default state:prom_rules_bundle)
++
+   AUTO_APPLY_BLOCK_PREFIX (default cfg:suggestions:entry_policy:auto_apply_block)
+   ENFORCE_AUTO_APPLY_BLOCK_REASON (default enforce_bucket_promoter)
+ 
+@@ -60,6 +62,11 @@
+   of_exec_slip_stats_refresh_last_dur_ms
+   of_exec_slip_stats_refresh_last_ok
+ 
++  of_prom_rules_bundle_last_ok
++  of_prom_rules_bundle_last_ok_age_sec
++  of_prom_rules_bundle_last_files_checked
++  of_prom_rules_bundle_last_error_n
++
+   of_auto_apply_block_active{source,cause}
+   of_auto_apply_block_age_sec{source}
+ 
+@@ -249,6 +256,28 @@
+     "1 if last refresh ok",
+ )
+ 
++
++# Prometheus rules bundle validation state (nightly smoke-check)
++of_prom_rules_bundle_last_ok = Gauge(
++    "of_prom_rules_bundle_last_ok",
++    "1 if last rules bundle validation succeeded (state:prom_rules_bundle:last_ok)",
++)
++
++of_prom_rules_bundle_last_ok_age_sec = Gauge(
++    "of_prom_rules_bundle_last_ok_age_sec",
++    "age seconds since last successful rules bundle validation (state:prom_rules_bundle:last_ok_ts_ms)",
++)
++
++of_prom_rules_bundle_last_files_checked = Gauge(
++    "of_prom_rules_bundle_last_files_checked",
++    "number of rules files discovered in last validation run (state:prom_rules_bundle:last_files_checked)",
++)
++
++of_prom_rules_bundle_last_error_n = Gauge(
++    "of_prom_rules_bundle_last_error_n",
++    "number of validation errors in last run (state:prom_rules_bundle:last_error_n)",
++)
++
+ # Freezer
+ of_enforce_freezer_block_active = Gauge(
+     "of_enforce_freezer_block_active",
+@@ -425,6 +454,27 @@
+         except Exception:
+             return
+ 
++
++    def _export_prom_rules_bundle_health(self) -> None:
++        if not self.redis:
++            return
++        prefix = (os.getenv("PROM_RULES_BUNDLE_STATE_PREFIX") or "state:prom_rules_bundle").strip() or "state:prom_rules_bundle"
++        try:
++            ok = _as_int(self.redis.get(f"{prefix}:last_ok"), 0)
++            ok_ts_ms = _as_int(self.redis.get(f"{prefix}:last_ok_ts_ms"), 0)
++            files_checked = _as_int(self.redis.get(f"{prefix}:last_files_checked"), 0)
++            err_n = _as_int(self.redis.get(f"{prefix}:last_error_n"), 0)
++    
++            of_prom_rules_bundle_last_ok.set(float(1 if ok else 0))
++            of_prom_rules_bundle_last_files_checked.set(float(files_checked))
++            of_prom_rules_bundle_last_error_n.set(float(err_n))
++            if ok_ts_ms > 0:
++                of_prom_rules_bundle_last_ok_age_sec.set((_now_ms() - ok_ts_ms) / 1000.0)
++            else:
++                of_prom_rules_bundle_last_ok_age_sec.set(float("nan"))
++        except Exception:
++            return
++    
+     def _export_auto_apply_block(self) -> None:
+         if not self.redis:
+             return
+@@ -487,6 +537,7 @@
+         self._export_coeffs()
+         self._export_promoter()
+         self._export_exec_slip_stats_refresh()
++        self._export_prom_rules_bundle_health()
+         self._export_auto_apply_block()
+         self._export_freezer_status()
+ 
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' a/orderflow_services/prom_rules_bundle_health_check_v1.py b/orderflow_services/prom_rules_bundle_health_check_v1.py
+--- a/orderflow_services/prom_rules_bundle_health_check_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/prom_rules_bundle_health_check_v1.py	2026-02-25 04:11:09.178567940 +0000
+@@ -0,0 +1,152 @@
++from __future__ import annotations
++
++"""Prometheus rules bundle health check (nightly/orchestration).
++
++Purpose
++- Run the Python rules validator (and optional promtool) on the repo rules bundle.
++- Persist last-run / last-ok state into Redis so exporters + alerts can track staleness.
++
++State keys (Redis)
++- state:prom_rules_bundle:last_run_ts_ms
++- state:prom_rules_bundle:last_ok_ts_ms
++- state:prom_rules_bundle:last_ok
++- state:prom_rules_bundle:last_files_checked
++- state:prom_rules_bundle:last_error_n
++- state:prom_rules_bundle:last_error_head
++
++Exit codes
++- 0 OK
++- 2 validation failed
++
++ENV
++- REDIS_URL (default redis://redis-worker-1:6379/0)
++- PROM_RULES_BUNDLE_STATE_PREFIX (default state:prom_rules_bundle)
++- REPO_ROOT (default /app if exists)
++"""
++
++import argparse
++import json
++import os
++import shutil
++import time
++from pathlib import Path
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++from orderflow_services.validate_prometheus_rules_bundle_v1 import validate_repo_rules
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _get_repo_root(arg_root: str | None) -> Path:
++    if arg_root:
++        return Path(arg_root).resolve()
++    env_root = (os.getenv("REPO_ROOT") or "").strip()
++    if env_root:
++        return Path(env_root).resolve()
++    if Path("/app").exists():
++        return Path("/app").resolve()
++    # file: <repo>/orderflow_services/prom_rules_bundle_health_check_v1.py
++    return Path(__file__).resolve().parents[1]
++
++
++def _connect_redis():
++    if redis is None:
++        return None
++    url = os.getenv("REDIS_URL") or os.getenv("CRYPTO_NOTIFY_REDIS_URL") or "redis://redis-worker-1:6379/0"
++    try:
++        return redis.Redis.from_url(url, decode_responses=True)
++    except Exception:
++        return None
++
++
++def _write_state(*, ok: bool, files_checked: int, errors: list[str]) -> None:
++    r = _connect_redis()
++    if r is None:
++        return
++
++    prefix = (os.getenv("PROM_RULES_BUNDLE_STATE_PREFIX") or "state:prom_rules_bundle").strip() or "state:prom_rules_bundle"
++    now = _now_ms()
++
++    err_n = int(len(errors))
++    err_head = (errors[0] if errors else "")
++    if len(err_head) > 240:
++        err_head = err_head[:240] + "…"
++
++    # Keep last_errors_json small (best-effort).
++    err_blob = ""
++    if errors:
++        try:
++            err_blob = json.dumps(errors[:8], ensure_ascii=False)
++            if len(err_blob) > 1800:
++                err_blob = err_blob[:1800] + "…"
++        except Exception:
++            err_blob = ""
++
++    pipe = r.pipeline(transaction=False)
++    pipe.set(f"{prefix}:last_run_ts_ms", str(now))
++    pipe.set(f"{prefix}:last_ok", "1" if ok else "0")
++    pipe.set(f"{prefix}:last_files_checked", str(int(files_checked)))
++    pipe.set(f"{prefix}:last_error_n", str(int(err_n)))
++    pipe.set(f"{prefix}:last_error_head", err_head)
++    if err_blob:
++        pipe.set(f"{prefix}:last_errors_json", err_blob)
++        pipe.expire(f"{prefix}:last_errors_json", 7 * 24 * 3600)
++
++    if ok:
++        pipe.set(f"{prefix}:last_ok_ts_ms", str(now))
++
++    # Keep state keys reasonably fresh, but do not delete them.
++    ttl_s = int(os.getenv("PROM_RULES_BUNDLE_STATE_TTL_S", str(14 * 24 * 3600)))
++    for k in (
++        f"{prefix}:last_run_ts_ms",
++        f"{prefix}:last_ok_ts_ms",
++        f"{prefix}:last_ok",
++        f"{prefix}:last_files_checked",
++        f"{prefix}:last_error_n",
++        f"{prefix}:last_error_head",
++    ):
++        pipe.expire(k, ttl_s)
++
++    try:
++        pipe.execute()
++    except Exception:
++        # fail-open: do not break timers on redis issues
++        return
++
++
++def main(argv: list[str] | None = None) -> int:
++    p = argparse.ArgumentParser()
++    p.add_argument("--root", default=None, help="Repo root (default: auto)")
++    p.add_argument("--promtool", choices=("auto", "on", "off"), default="auto")
++    args = p.parse_args(argv)
++
++    repo_root = _get_repo_root(args.root)
++
++    if args.promtool == "on":
++        use_promtool = True
++    elif args.promtool == "off":
++        use_promtool = False
++    else:
++        use_promtool = bool(shutil.which("promtool"))
++
++    res = validate_repo_rules(repo_root=repo_root, use_promtool=use_promtool)
++    _write_state(ok=res.ok, files_checked=res.files_checked, errors=res.errors)
++
++    if res.ok:
++        print(f"OK: validated {res.files_checked} rules files")
++        return 0
++
++    print(f"FAIL: {len(res.errors)} error(s) while validating {res.files_checked} rules files")
++    for e in res.errors[:10]:
++        print(f"- {e}")
++    return 2
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' a/orderflow_services/prometheus_alerts_prom_rules_bundle_health_v1.yml b/orderflow_services/prometheus_alerts_prom_rules_bundle_health_v1.yml
+--- a/orderflow_services/prometheus_alerts_prom_rules_bundle_health_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/prometheus_alerts_prom_rules_bundle_health_v1.yml	2026-02-25 04:17:34.591130959 +0000
+@@ -0,0 +1,33 @@
++groups:
++  - name: of_prom_rules_bundle_health_v1
++    interval: 1m
++    rules:
++      - alert: OF_PromRulesBundleValidationFailed
++        expr: of_prom_rules_bundle_last_ok == 0
++        for: 10m
++        labels:
++          severity: page
++          component: observability
++        annotations:
++          summary: "Prometheus rules bundle validation failing"
++          description: "Nightly/orchestrated validator did not record a successful run. Inspect state:prom_rules_bundle:* (last_error_head, last_errors_json), and run tools/validate_prometheus_rules_bundle_v1.sh locally or in-container."
++
++      - alert: OF_PromRulesBundleValidationStale
++        expr: of_prom_rules_bundle_last_ok_age_sec > 36 * 3600
++        for: 15m
++        labels:
++          severity: warn
++          component: observability
++        annotations:
++          summary: "Prometheus rules bundle validation stale"
++          description: "No successful rules bundle validation recorded for >36h. Check of_timers_worker schedule (:09) and state:prom_rules_bundle:last_ok_ts_ms."
++
++      - alert: OF_PromRulesBundleValidationErrorsPresent
++        expr: of_prom_rules_bundle_last_error_n > 0
++        for: 10m
++        labels:
++          severity: warn
++          component: observability
++        annotations:
++          summary: "Prometheus rules bundle validator reported errors"
++          description: "Validator recorded one or more errors in last run. Inspect state:prom_rules_bundle:last_error_head / last_errors_json."
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' a/orderflow_services/runbook_slippage_qa_p77.md b/orderflow_services/runbook_slippage_qa_p77.md
+--- a/orderflow_services/runbook_slippage_qa_p77.md	2026-02-25 03:58:04.582118330 +0000
++++ b/orderflow_services/runbook_slippage_qa_p77.md	2026-02-25 04:18:10.273728991 +0000
+@@ -168,3 +168,34 @@
+ Examples:
+ - `promtool check rules orderflow_services/prometheus_alerts_slippage_qa_v1.yml`
+ - `find orderflow_services -maxdepth 1 -name 'prometheus_alerts_*.yml' -print0 | xargs -0 -n1 promtool check rules`
++
++## Prometheus rules bundle smoke-check (P90)
++
++Purpose: detect broken rule YAML (schema/structure) early and alert if the check stops updating.
++
++### State (Redis)
++Keys (prefix `state:prom_rules_bundle`):
++- `state:prom_rules_bundle:last_run_ts_ms`
++- `state:prom_rules_bundle:last_ok_ts_ms`
++- `state:prom_rules_bundle:last_ok` (1/0)
++- `state:prom_rules_bundle:last_files_checked`
++- `state:prom_rules_bundle:last_error_n`
++- `state:prom_rules_bundle:last_error_head`
++
++### Prometheus metrics (exporter)
++- `of_prom_rules_bundle_last_ok`
++- `of_prom_rules_bundle_last_ok_age_sec`
++- `of_prom_rules_bundle_last_error_n`
++
++### Quick triage
++1) Inspect state:
++- `GET state:prom_rules_bundle:last_error_head`
++- `GET state:prom_rules_bundle:last_errors_json`
++
++2) Run the same check manually:
++- `python -m orderflow_services.prom_rules_bundle_health_check_v1 --promtool auto`
++
++3) If the check never runs:
++- confirm `of_timers_worker` schedule includes the `:09` smoke-check block
++- confirm env `ENABLE_PROM_RULES_BUNDLE_SMOKE=1`
++- confirm Redis connectivity (`REDIS_URL`)
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' a/services/of_timers_worker.py b/services/of_timers_worker.py
+--- a/services/of_timers_worker.py	2026-02-24 11:41:34.000000000 +0000
++++ b/services/of_timers_worker.py	2026-02-25 04:22:04.020210741 +0000
+@@ -98,7 +98,7 @@
+         return True
+ 
+ 
+-def _notify_stream(text: str, severity: str = "crit", sid: str = None) -> None:
++def _notify_stream(text: str, severity: str = "crit", sid: str = None, source: str = "of_timers_worker") -> None:
+     """Best-effort notification to Redis Stream (handled by telegram notifier worker)."""
+     stream = (
+         os.getenv("TELEGRAM_NOTIFY_STREAM")
+@@ -113,7 +113,7 @@
+ 
+     payload = {
+         "message": text,
+-        "source": "of_gate_contract_smoke",
++        "source": source,
+         "ts_ms": str(int(time.time() * 1000)),
+         "severity": severity,
+     }
+@@ -264,6 +264,63 @@
+     return False
+ 
+ 
++
++def run_prom_rules_bundle_smoke_check() -> bool:
++    """Validate Prometheus rules bundle and alert on failures (low-cardinality).
++
++    Uses `orderflow_services.prom_rules_bundle_health_check_v1` to:
++      - validate YAML schema + rules structure
++      - optionally run promtool (if available / requested)
++      - persist state:prom_rules_bundle:* keys in Redis
++
++    Dedup/cooldown:
++      - suppress identical alerts for N seconds by signature (default 6h)
++    """
++    enabled = os.getenv("ENABLE_PROM_RULES_BUNDLE_SMOKE", "1")
++    if str(enabled).lower() not in ("1", "true", "yes", "on"):
++        return True
++
++    promtool_mode = (os.getenv("PROM_RULES_BUNDLE_SMOKE_PROMTOOL", "auto") or "auto").strip().lower()
++    if promtool_mode not in ("auto", "on", "off"):
++        promtool_mode = "auto"
++
++    timeout_s = int(os.getenv("PROM_RULES_BUNDLE_SMOKE_TIMEOUT_S", "180"))
++    cooldown_s = int(os.getenv("PROM_RULES_BUNDLE_SMOKE_COOLDOWN_S", str(6 * 3600)))
++    dedup_enable = str(os.getenv("PROM_RULES_BUNDLE_SMOKE_DEDUP", "1")).lower() in ("1", "true", "yes", "on")
++    dedup_prefix = os.getenv("PROM_RULES_BUNDLE_SMOKE_DEDUP_PREFIX", "dedup:prom_rules_bundle:")
++
++    rc, stdout, stderr = run_tool_rc(
++        "orderflow_services.prom_rules_bundle_health_check_v1",
++        args=["--promtool", promtool_mode],
++        timeout=timeout_s,
++    )
++
++    if rc == 0:
++        return True
++
++    blob = ((stdout or "").strip() + "\n" + (stderr or "").strip()).strip()
++    head = ""
++    for line in blob.splitlines():
++        line = line.strip()
++        if line:
++            head = line
++            break
++    if len(head) > 200:
++        head = head[:200] + "…"
++    signature = f"rc={rc}|{head}"
++
++    if dedup_enable and not _dedup_allow(signature, cooldown_s=cooldown_s, prefix=dedup_prefix):
++        logger.warning(
++            f"Prom rules bundle smoke-check: suppressed duplicate alert (cooldown {cooldown_s}s). sig={signature}"
++        )
++        return False
++
++    sid = "prom_rules_bundle_smoke:" + hashlib.sha1(signature.encode("utf-8")).hexdigest()[:16]
++    text = f"PROM_RULES_BUNDLE_SMOKE rc={rc} promtool={promtool_mode} :: {head}"
++    _notify_stream(text, severity=("crit" if rc == 2 else "page"), sid=sid, source="prom_rules_bundle_smoke")
++    return False
++
++
+ def run_tool(module: str = None, args: List[str] = None, timeout: int = 3600, env_override: dict = None, **kwargs) -> bool:
+     """Run python module in a subprocess.
+ 
+@@ -1429,6 +1486,7 @@
+     logger.info("OF Timers Worker starting...")
+     logger.info("Monitors: Config drift (hourly :15)")
+     logger.info("Monitors: OF Gate contract smoke-check (hourly :08)")
++    logger.info("Monitors: Prometheus rules bundle smoke-check (hourly :09)")
+     logger.info("Monitors: Confidence cal live health (hourly :45)")
+     logger.info("Weekly: Latency bench (Sun 06:40)")
+     logger.info("Nightly:")
+@@ -1494,6 +1552,14 @@
+                     run_of_gate_contract_smoke_check()
+                     last_run["of_gate_contract_smoke"] = now.timestamp()
+ 
++            # Hourly:09 Prometheus rules bundle smoke-check (writes state:prom_rules_bundle:*)
++            if minute >= 9 and minute < 10:
++                last = last_run.get("prom_rules_bundle_smoke", 0)
++                if now.timestamp() - last > 3500:
++                    run_prom_rules_bundle_smoke_check()
++                    last_run["prom_rules_bundle_smoke"] = now.timestamp()
++
++
+             if minute >= 15 and minute < 16:
+                 last = last_run.get("config_drift", 0)
+                 if now.timestamp() - last > 3500:
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' a/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py b/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py
+--- a/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py	2026-02-24 10:40:55.000000000 +0000
++++ b/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py	2026-02-25 04:16:23.238123002 +0000
+@@ -25,6 +25,8 @@
+   EXEC_SLIP_STATS_STATUS_PATH (default /var/lib/trade/of_reports/out/enforce/stats/exec_slip_stats_refresh_status.json)
+   ENFORCE_FREEZER_STATUS_PATH (default /var/lib/trade/of_reports/out/enforce/freezer/enforce_bucket_slo_freezer_status.json)
+ 
++  PROM_RULES_BUNDLE_STATE_PREFIX (default state:prom_rules_bundle)
++
+   AUTO_APPLY_BLOCK_PREFIX (default cfg:suggestions:entry_policy:auto_apply_block)
+   ENFORCE_AUTO_APPLY_BLOCK_REASON (default enforce_bucket_promoter)
+ 
+@@ -60,6 +62,11 @@
+   of_exec_slip_stats_refresh_last_dur_ms
+   of_exec_slip_stats_refresh_last_ok
+ 
++  of_prom_rules_bundle_last_ok
++  of_prom_rules_bundle_last_ok_age_sec
++  of_prom_rules_bundle_last_files_checked
++  of_prom_rules_bundle_last_error_n
++
+   of_auto_apply_block_active{source,cause}
+   of_auto_apply_block_age_sec{source}
+ 
+@@ -249,6 +256,28 @@
+     "1 if last refresh ok",
+ )
+ 
++
++# Prometheus rules bundle validation state (nightly smoke-check)
++of_prom_rules_bundle_last_ok = Gauge(
++    "of_prom_rules_bundle_last_ok",
++    "1 if last rules bundle validation succeeded (state:prom_rules_bundle:last_ok)",
++)
++
++of_prom_rules_bundle_last_ok_age_sec = Gauge(
++    "of_prom_rules_bundle_last_ok_age_sec",
++    "age seconds since last successful rules bundle validation (state:prom_rules_bundle:last_ok_ts_ms)",
++)
++
++of_prom_rules_bundle_last_files_checked = Gauge(
++    "of_prom_rules_bundle_last_files_checked",
++    "number of rules files discovered in last validation run (state:prom_rules_bundle:last_files_checked)",
++)
++
++of_prom_rules_bundle_last_error_n = Gauge(
++    "of_prom_rules_bundle_last_error_n",
++    "number of validation errors in last run (state:prom_rules_bundle:last_error_n)",
++)
++
+ # Freezer
+ of_enforce_freezer_block_active = Gauge(
+     "of_enforce_freezer_block_active",
+@@ -425,6 +454,27 @@
+         except Exception:
+             return
+ 
++
++    def _export_prom_rules_bundle_health(self) -> None:
++        if not self.redis:
++            return
++        prefix = (os.getenv("PROM_RULES_BUNDLE_STATE_PREFIX") or "state:prom_rules_bundle").strip() or "state:prom_rules_bundle"
++        try:
++            ok = _as_int(self.redis.get(f"{prefix}:last_ok"), 0)
++            ok_ts_ms = _as_int(self.redis.get(f"{prefix}:last_ok_ts_ms"), 0)
++            files_checked = _as_int(self.redis.get(f"{prefix}:last_files_checked"), 0)
++            err_n = _as_int(self.redis.get(f"{prefix}:last_error_n"), 0)
++    
++            of_prom_rules_bundle_last_ok.set(float(1 if ok else 0))
++            of_prom_rules_bundle_last_files_checked.set(float(files_checked))
++            of_prom_rules_bundle_last_error_n.set(float(err_n))
++            if ok_ts_ms > 0:
++                of_prom_rules_bundle_last_ok_age_sec.set((_now_ms() - ok_ts_ms) / 1000.0)
++            else:
++                of_prom_rules_bundle_last_ok_age_sec.set(float("nan"))
++        except Exception:
++            return
++    
+     def _export_auto_apply_block(self) -> None:
+         if not self.redis:
+             return
+@@ -487,6 +537,7 @@
+         self._export_coeffs()
+         self._export_promoter()
+         self._export_exec_slip_stats_refresh()
++        self._export_prom_rules_bundle_health()
+         self._export_auto_apply_block()
+         self._export_freezer_status()
+ 
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' a/tick_flow_full/orderflow_services/prom_rules_bundle_health_check_v1.py b/tick_flow_full/orderflow_services/prom_rules_bundle_health_check_v1.py
+--- a/tick_flow_full/orderflow_services/prom_rules_bundle_health_check_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/orderflow_services/prom_rules_bundle_health_check_v1.py	2026-02-25 04:11:26.593611015 +0000
+@@ -0,0 +1,145 @@
++from __future__ import annotations
++
++"""Prometheus rules bundle health check (nightly/orchestration) — tick_flow_full mirror.
++
++Keeps the same Redis state contract as the top-level implementation:
++- state:prom_rules_bundle:last_run_ts_ms
++- state:prom_rules_bundle:last_ok_ts_ms
++- state:prom_rules_bundle:last_ok
++- state:prom_rules_bundle:last_files_checked
++- state:prom_rules_bundle:last_error_n
++- state:prom_rules_bundle:last_error_head
++
++Exit codes:
++- 0 OK
++- 2 validation failed
++
++ENV:
++- REDIS_URL (default redis://redis-worker-1:6379/0)
++- PROM_RULES_BUNDLE_STATE_PREFIX (default state:prom_rules_bundle)
++- REPO_ROOT (default /app if exists)
++"""
++
++import argparse
++import json
++import os
++import shutil
++import time
++from pathlib import Path
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++from tick_flow_full.orderflow_services.validate_prometheus_rules_bundle_v1 import validate_repo_rules
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _get_repo_root(arg_root: str | None) -> Path:
++    if arg_root:
++        return Path(arg_root).resolve()
++    env_root = (os.getenv("REPO_ROOT") or "").strip()
++    if env_root:
++        return Path(env_root).resolve()
++    if Path("/app").exists():
++        return Path("/app").resolve()
++    # file: <repo>/tick_flow_full/orderflow_services/prom_rules_bundle_health_check_v1.py
++    return Path(__file__).resolve().parents[2]
++
++
++def _connect_redis():
++    if redis is None:
++        return None
++    url = os.getenv("REDIS_URL") or os.getenv("CRYPTO_NOTIFY_REDIS_URL") or "redis://redis-worker-1:6379/0"
++    try:
++        return redis.Redis.from_url(url, decode_responses=True)
++    except Exception:
++        return None
++
++
++def _write_state(*, ok: bool, files_checked: int, errors: list[str]) -> None:
++    r = _connect_redis()
++    if r is None:
++        return
++
++    prefix = (os.getenv("PROM_RULES_BUNDLE_STATE_PREFIX") or "state:prom_rules_bundle").strip() or "state:prom_rules_bundle"
++    now = _now_ms()
++
++    err_n = int(len(errors))
++    err_head = (errors[0] if errors else "")
++    if len(err_head) > 240:
++        err_head = err_head[:240] + "…"
++
++    err_blob = ""
++    if errors:
++        try:
++            err_blob = json.dumps(errors[:8], ensure_ascii=False)
++            if len(err_blob) > 1800:
++                err_blob = err_blob[:1800] + "…"
++        except Exception:
++            err_blob = ""
++
++    pipe = r.pipeline(transaction=False)
++    pipe.set(f"{prefix}:last_run_ts_ms", str(now))
++    pipe.set(f"{prefix}:last_ok", "1" if ok else "0")
++    pipe.set(f"{prefix}:last_files_checked", str(int(files_checked)))
++    pipe.set(f"{prefix}:last_error_n", str(int(err_n)))
++    pipe.set(f"{prefix}:last_error_head", err_head)
++    if err_blob:
++        pipe.set(f"{prefix}:last_errors_json", err_blob)
++        pipe.expire(f"{prefix}:last_errors_json", 7 * 24 * 3600)
++
++    if ok:
++        pipe.set(f"{prefix}:last_ok_ts_ms", str(now))
++
++    ttl_s = int(os.getenv("PROM_RULES_BUNDLE_STATE_TTL_S", str(14 * 24 * 3600)))
++    for k in (
++        f"{prefix}:last_run_ts_ms",
++        f"{prefix}:last_ok_ts_ms",
++        f"{prefix}:last_ok",
++        f"{prefix}:last_files_checked",
++        f"{prefix}:last_error_n",
++        f"{prefix}:last_error_head",
++    ):
++        pipe.expire(k, ttl_s)
++
++    try:
++        pipe.execute()
++    except Exception:
++        return
++
++
++def main(argv: list[str] | None = None) -> int:
++    p = argparse.ArgumentParser()
++    p.add_argument("--root", default=None, help="Repo root (default: auto)")
++    p.add_argument("--promtool", choices=("auto", "on", "off"), default="auto")
++    args = p.parse_args(argv)
++
++    repo_root = _get_repo_root(args.root)
++
++    if args.promtool == "on":
++        use_promtool = True
++    elif args.promtool == "off":
++        use_promtool = False
++    else:
++        use_promtool = bool(shutil.which("promtool"))
++
++    res = validate_repo_rules(repo_root=repo_root, use_promtool=use_promtool)
++    _write_state(ok=res.ok, files_checked=res.files_checked, errors=res.errors)
++
++    if res.ok:
++        print(f"OK: validated {res.files_checked} rules files")
++        return 0
++
++    print(f"FAIL: {len(res.errors)} error(s) while validating {res.files_checked} rules files")
++    for e in res.errors[:10]:
++        print(f"- {e}")
++    return 2
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' a/tick_flow_full/orderflow_services/prometheus_alerts_prom_rules_bundle_health_v1.yml b/tick_flow_full/orderflow_services/prometheus_alerts_prom_rules_bundle_health_v1.yml
+--- a/tick_flow_full/orderflow_services/prometheus_alerts_prom_rules_bundle_health_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_prom_rules_bundle_health_v1.yml	2026-02-25 04:17:41.778254801 +0000
+@@ -0,0 +1,33 @@
++groups:
++  - name: of_prom_rules_bundle_health_v1
++    interval: 1m
++    rules:
++      - alert: OF_PromRulesBundleValidationFailed
++        expr: of_prom_rules_bundle_last_ok == 0
++        for: 10m
++        labels:
++          severity: page
++          component: observability
++        annotations:
++          summary: "Prometheus rules bundle validation failing"
++          description: "Nightly/orchestrated validator did not record a successful run. Inspect state:prom_rules_bundle:* (last_error_head, last_errors_json), and run tools/validate_prometheus_rules_bundle_v1.sh locally or in-container."
++
++      - alert: OF_PromRulesBundleValidationStale
++        expr: of_prom_rules_bundle_last_ok_age_sec > 36 * 3600
++        for: 15m
++        labels:
++          severity: warn
++          component: observability
++        annotations:
++          summary: "Prometheus rules bundle validation stale"
++          description: "No successful rules bundle validation recorded for >36h. Check of_timers_worker schedule (:09) and state:prom_rules_bundle:last_ok_ts_ms."
++
++      - alert: OF_PromRulesBundleValidationErrorsPresent
++        expr: of_prom_rules_bundle_last_error_n > 0
++        for: 10m
++        labels:
++          severity: warn
++          component: observability
++        annotations:
++          summary: "Prometheus rules bundle validator reported errors"
++          description: "Validator recorded one or more errors in last run. Inspect state:prom_rules_bundle:last_error_head / last_errors_json."
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' a/tick_flow_full/orderflow_services/runbook_slippage_qa_p77.md b/tick_flow_full/orderflow_services/runbook_slippage_qa_p77.md
+--- a/tick_flow_full/orderflow_services/runbook_slippage_qa_p77.md	2026-02-25 03:58:12.509257903 +0000
++++ b/tick_flow_full/orderflow_services/runbook_slippage_qa_p77.md	2026-02-25 04:18:16.827754384 +0000
+@@ -167,3 +167,34 @@
+ Examples:
+ - `promtool check rules orderflow_services/prometheus_alerts_slippage_qa_v1.yml`
+ - `find orderflow_services -maxdepth 1 -name 'prometheus_alerts_*.yml' -print0 | xargs -0 -n1 promtool check rules`
++
++## Prometheus rules bundle smoke-check (P90)
++
++Purpose: detect broken rule YAML (schema/structure) early and alert if the check stops updating.
++
++### State (Redis)
++Keys (prefix `state:prom_rules_bundle`):
++- `state:prom_rules_bundle:last_run_ts_ms`
++- `state:prom_rules_bundle:last_ok_ts_ms`
++- `state:prom_rules_bundle:last_ok` (1/0)
++- `state:prom_rules_bundle:last_files_checked`
++- `state:prom_rules_bundle:last_error_n`
++- `state:prom_rules_bundle:last_error_head`
++
++### Prometheus metrics (exporter)
++- `of_prom_rules_bundle_last_ok`
++- `of_prom_rules_bundle_last_ok_age_sec`
++- `of_prom_rules_bundle_last_error_n`
++
++### Quick triage
++1) Inspect state:
++- `GET state:prom_rules_bundle:last_error_head`
++- `GET state:prom_rules_bundle:last_errors_json`
++
++2) Run the same check manually:
++- `python -m tick_flow_full.orderflow_services.prom_rules_bundle_health_check_v1 --promtool auto`
++
++3) If the check never runs:
++- confirm `of_timers_worker` schedule includes the `:09` smoke-check block
++- confirm env `ENABLE_PROM_RULES_BUNDLE_SMOKE=1`
++- confirm Redis connectivity (`REDIS_URL`)
+diff -ruN --no-dereference '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' a/tick_flow_full/services/of_timers_worker.py b/tick_flow_full/services/of_timers_worker.py
+--- a/tick_flow_full/services/of_timers_worker.py	2026-02-24 09:13:12.000000000 +0000
++++ b/tick_flow_full/services/of_timers_worker.py	2026-02-25 04:22:04.020752541 +0000
+@@ -98,7 +98,7 @@
+         return True
+ 
+ 
+-def _notify_stream(text: str, severity: str = "crit", sid: str = None) -> None:
++def _notify_stream(text: str, severity: str = "crit", sid: str = None, source: str = "of_timers_worker") -> None:
+     """Best-effort notification to Redis Stream (handled by telegram notifier worker)."""
+     stream = (
+         os.getenv("TELEGRAM_NOTIFY_STREAM")
+@@ -113,7 +113,7 @@
+ 
+     payload = {
+         "message": text,
+-        "source": "of_gate_contract_smoke",
++        "source": source,
+         "ts_ms": str(int(time.time() * 1000)),
+         "severity": severity,
+     }
+@@ -264,6 +264,63 @@
+     return False
+ 
+ 
++
++def run_prom_rules_bundle_smoke_check() -> bool:
++    """Validate Prometheus rules bundle and alert on failures (low-cardinality).
++
++    Uses `orderflow_services.prom_rules_bundle_health_check_v1` to:
++      - validate YAML schema + rules structure
++      - optionally run promtool (if available / requested)
++      - persist state:prom_rules_bundle:* keys in Redis
++
++    Dedup/cooldown:
++      - suppress identical alerts for N seconds by signature (default 6h)
++    """
++    enabled = os.getenv("ENABLE_PROM_RULES_BUNDLE_SMOKE", "1")
++    if str(enabled).lower() not in ("1", "true", "yes", "on"):
++        return True
++
++    promtool_mode = (os.getenv("PROM_RULES_BUNDLE_SMOKE_PROMTOOL", "auto") or "auto").strip().lower()
++    if promtool_mode not in ("auto", "on", "off"):
++        promtool_mode = "auto"
++
++    timeout_s = int(os.getenv("PROM_RULES_BUNDLE_SMOKE_TIMEOUT_S", "180"))
++    cooldown_s = int(os.getenv("PROM_RULES_BUNDLE_SMOKE_COOLDOWN_S", str(6 * 3600)))
++    dedup_enable = str(os.getenv("PROM_RULES_BUNDLE_SMOKE_DEDUP", "1")).lower() in ("1", "true", "yes", "on")
++    dedup_prefix = os.getenv("PROM_RULES_BUNDLE_SMOKE_DEDUP_PREFIX", "dedup:prom_rules_bundle:")
++
++    rc, stdout, stderr = run_tool_rc(
++        "orderflow_services.prom_rules_bundle_health_check_v1",
++        args=["--promtool", promtool_mode],
++        timeout=timeout_s,
++    )
++
++    if rc == 0:
++        return True
++
++    blob = ((stdout or "").strip() + "\n" + (stderr or "").strip()).strip()
++    head = ""
++    for line in blob.splitlines():
++        line = line.strip()
++        if line:
++            head = line
++            break
++    if len(head) > 200:
++        head = head[:200] + "…"
++    signature = f"rc={rc}|{head}"
++
++    if dedup_enable and not _dedup_allow(signature, cooldown_s=cooldown_s, prefix=dedup_prefix):
++        logger.warning(
++            f"Prom rules bundle smoke-check: suppressed duplicate alert (cooldown {cooldown_s}s). sig={signature}"
++        )
++        return False
++
++    sid = "prom_rules_bundle_smoke:" + hashlib.sha1(signature.encode("utf-8")).hexdigest()[:16]
++    text = f"PROM_RULES_BUNDLE_SMOKE rc={rc} promtool={promtool_mode} :: {head}"
++    _notify_stream(text, severity=("crit" if rc == 2 else "page"), sid=sid, source="prom_rules_bundle_smoke")
++    return False
++
++
+ def run_tool(module: str = None, args: List[str] = None, timeout: int = 3600, env_override: dict = None, **kwargs) -> bool:
+     """Run python module in a subprocess.
+ 
+@@ -1373,6 +1430,7 @@
+     logger.info("OF Timers Worker starting...")
+     logger.info("Monitors: Config drift (hourly :15)")
+     logger.info("Monitors: OF Gate contract smoke-check (hourly :08)")
++    logger.info("Monitors: Prometheus rules bundle smoke-check (hourly :09)")
+     logger.info("Monitors: Confidence cal live health (hourly :45)")
+     logger.info("Weekly: Latency bench (Sun 06:40)")
+     logger.info("Nightly:")
+@@ -1437,6 +1495,14 @@
+                     run_of_gate_contract_smoke_check()
+                     last_run["of_gate_contract_smoke"] = now.timestamp()
+ 
++            # Hourly:09 Prometheus rules bundle smoke-check (writes state:prom_rules_bundle:*)
++            if minute >= 9 and minute < 10:
++                last = last_run.get("prom_rules_bundle_smoke", 0)
++                if now.timestamp() - last > 3500:
++                    run_prom_rules_bundle_smoke_check()
++                    last_run["prom_rules_bundle_smoke"] = now.timestamp()
++
++
+             if minute >= 15 and minute < 16:
+                 last = last_run.get("config_drift", 0)
+                 if now.timestamp() - last > 3500:

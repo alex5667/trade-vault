@@ -1,0 +1,138 @@
+groups:
+  - name: orderflow_signal_quality_v2
+    # IMPORTANT
+    #   These alerts assume scrape_interval ~= 15s.
+    #   We set the rule evaluation interval to 15s so that the 10s 'extreme'
+    #   guard is meaningful (otherwise it becomes effectively a 30s+ guard).
+    interval: 15s
+    rules:
+      # -------------------------------------------------------------------
+      # Signal quality (stream-level) — gap/seq + DQ hard-level share
+      #
+      # Design constraints
+      #   - Per-symbol only (low cardinality).
+      #   - Gate tick_gap_p95 by tick_gap_n >= min_samples.
+      #   - Keep thresholds stable and actionable (no flapping).
+      #
+      # Notes
+      #   - If your runtime exports dq_level as 'dq_level' (legacy) OR
+      #     'dq_level_gauge' (newer), we support both via 'or'.
+      #   - Same approach for book_missing_seq_ema (legacy vs gauge).
+      # -------------------------------------------------------------------
+
+      # ── Tick gap p95 (warn/crit/extreme) ─────────────────────────────────
+      - alert: OF_SQ_TickGapP95High_Warn
+        expr: tick_gap_p95_ms > 3000 and on(symbol) tick_gap_n >= 50
+        for: 2m
+        labels:
+          severity: warning
+          component: orderflow
+          scope: signal_quality
+          playbook: services/orderflow/runbook_signal_quality_v2.md
+        annotations:
+          summary: "{{ $labels.symbol }}: tick gap p95 high (warn)"
+          description: |
+            Tick stream latency is degraded: tick_gap_p95_ms > 3000ms for 2m (n>=50).
+            Typical causes: WS/network jitter, upstream throttling, local CPU stalls.
+
+      - alert: OF_SQ_TickGapP95High_Crit
+        expr: tick_gap_p95_ms > 4500 and on(symbol) tick_gap_n >= 50
+        for: 30s
+        labels:
+          severity: critical
+          component: orderflow
+          scope: signal_quality
+          playbook: services/orderflow/runbook_signal_quality_v2.md
+        annotations:
+          summary: "{{ $labels.symbol }}: tick gap p95 high (crit)"
+          description: |
+            Tick stream latency is severely degraded: tick_gap_p95_ms > 4500ms for 30s (n>=50).
+            Expect dq_level to escalate and potential hard-veto depending on DQ mode.
+
+      - alert: OF_SQ_TickGapP95Extreme_Crit
+        expr: tick_gap_p95_ms > 9000 and on(symbol) tick_gap_n >= 50
+        for: 10s
+        labels:
+          severity: critical
+          component: orderflow
+          scope: signal_quality
+          playbook: services/orderflow/runbook_signal_quality_v2.md
+        annotations:
+          summary: "{{ $labels.symbol }}: tick gap p95 extreme"
+          description: |
+            Extreme tick stream latency spike: tick_gap_p95_ms > 9000ms for 10s (n>=50).
+            Usually correlates with transient WS disconnect/reconnect, host stalls, or network drops.
+
+      # ── Tick missing seq EMA (warn/crit) ────────────────────────────────
+      - alert: OF_SQ_TickMissingSeqEmaHigh_Warn
+        expr: tick_missing_seq_ema > 0.05
+        for: 2m
+        labels:
+          severity: warning
+          component: orderflow
+          scope: signal_quality
+          playbook: services/orderflow/runbook_signal_quality_v2.md
+        annotations:
+          summary: "{{ $labels.symbol }}: tick missing-seq EMA high (warn)"
+          description: |
+            Tick continuity degradation: tick_missing_seq_ema > 0.05 for 2m.
+            Indicates true gaps in trade_id continuity. Investigate WS drops/reconnects.
+
+      - alert: OF_SQ_TickMissingSeqEmaHigh_Crit
+        expr: tick_missing_seq_ema > 0.15
+        for: 30s
+        labels:
+          severity: critical
+          component: orderflow
+          scope: signal_quality
+          playbook: services/orderflow/runbook_signal_quality_v2.md
+        annotations:
+          summary: "{{ $labels.symbol }}: tick missing-seq EMA high (crit)"
+          description: |
+            Tick continuity broken: tick_missing_seq_ema > 0.15 for 30s.
+            Strong indicator of persistent WS gaps or a parsing/sequence bug.
+
+      # ── Book missing seq EMA (ticket by default) ────────────────────────
+      - alert: OF_SQ_BookMissingSeqEmaHigh_Ticket
+        expr: ((book_missing_seq_ema_gauge) or (book_missing_seq_ema)) > 0.10
+        for: 30s
+        labels:
+          severity: ticket
+          component: orderflow
+          scope: signal_quality
+          playbook: services/orderflow/runbook_signal_quality_v2.md
+        annotations:
+          summary: "{{ $labels.symbol }}: book missing-seq EMA high (ticket)"
+          description: |
+            Book continuity broken: book_missing_seq_ema > 0.10 for 30s.
+            In observe-only phase this should create a ticket, not a page.
+            If/when BOOK_VETO_ENABLED is turned on, promote this to critical paging.
+
+      # ── DQ hard-level share (10% warn / 20% crit) ───────────────────────
+      - alert: OF_SQ_DQHardShareHigh_Warn
+        expr: avg_over_time((((dq_level_gauge) or (dq_level)) == bool 2)[1h:15s]) > 0.10
+        for: 5m
+        labels:
+          severity: warning
+          component: orderflow
+          scope: signal_quality
+          playbook: services/orderflow/runbook_signal_quality_v2.md
+        annotations:
+          summary: "{{ $labels.symbol }}: dq_level==2 share high (warn)"
+          description: |
+            DQ hard-level is frequent: dq_level==2 for >10% of scrapes in the last 1h.
+            This is a sustained integrity issue — investigate gap/seq sources.
+
+      - alert: OF_SQ_DQHardShareHigh_Crit
+        expr: avg_over_time((((dq_level_gauge) or (dq_level)) == bool 2)[1h:15s]) > 0.20
+        for: 5m
+        labels:
+          severity: critical
+          component: orderflow
+          scope: signal_quality
+          playbook: services/orderflow/runbook_signal_quality_v2.md
+        annotations:
+          summary: "{{ $labels.symbol }}: dq_level==2 share high (crit)"
+          description: |
+            DQ hard-level is dominant: dq_level==2 for >20% of scrapes in the last 1h.
+            Expect material decision quality degradation and frequent vetos (depending on mode).

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/confirmations_coverage_nightly_job_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 500, '--dataset', '--min-nonzero-warn', '--min-rows', '--out', '.tmp', '0.005', '1000', 'Output JSON path', 'Parquet dataset path', '__main__', 'conf_all_zero', 'conf_bad_all_zero', 'conf_cols_missing', 'conf_div_match', 'conf_iceberg_strict', 'conf_obi_stable', 'conf_present_cols', 'conf_reclaim', 'conf_rsi_agree', 'conf_sweep_any', 'conf_sweep_eqh', 'conf_sweep_eql', 'conf_total_cols', 'conf_weak_progress', 'counts', 'dataset_load_failed', 'dataset_missing', 'dataset_path', 'div_match', 'error', 'features', 'float64', 'iceberg_strict', 'mean', 'n_rows', 'n_rows_low', 'nonnull_rate', 'nonzero_rate', 'obi_stable', 'present', 'pyarrow', 'reasons', 'reclaim', 'rsi_agree', 'summary', 'sweep_any', 'sweep_eqh', 'sweep_eql', 'ts_ms', 'utf-8', 'w', 'weak_progress']

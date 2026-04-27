@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/atr_horizon_shadow_gate.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.05, 0.25, 500, 1000, 60000, 300000, '300000', '60000', 'DQ_HZ_INTERNAL_ERROR', 'DQ_HZ_OK', 'allow_shadow', 'alpha_half_life_ms', 'atr', 'atr_age_budget_ms', 'atr_age_ms', 'atr_selected_age_ms', 'atr_selected_tf_ms', 'atr_selected_value', 'atr_tf_ms', 'atr_value', 'book_age_budget_ms', 'book_age_ms', 'book_ts_ms', 'hold_target_ms', 'max_hold_target_ms', 'max_signal_age_ms', 'reason_details', 'selector_reason_code', 'shadow_reason_code', 'signal_age_budget_ms', 'signal_age_ms', 'ts', 'ts_ms']

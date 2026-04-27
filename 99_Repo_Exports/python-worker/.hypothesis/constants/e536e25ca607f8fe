@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/atr_policy_rollout_router.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.05, 0.25, 1.0, 10000.0, 10000, 'canary_25', 'canary_5', 'default', 'frozen', 'horizon', 'kind', 'live_100', 'meta', 'na', 'regime', 'risk_horizon_bucket', 'rolled_back', 'scenario', 'session', 'shadow', 'symbol', 'unknown', 'utf-8', '|']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/observability/metrics_registry.py
+# hypothesis_version: 6.148.10
+
+[0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.25, 0.5, 1.0, 100, 250, 500, 1000, 'ab_variant', 'atr_bad_active', 'atr_bad_total', 'cfg_hash', 'confidence_pct', 'delta_fallback_mode', 'field', 'flag', 'gate', 'kind', 'lcb_margin', 'microbar_stream_xlen', 'ml_confirm_cfg_valid', 'outcome', 'pipeline_stage_ms', 'pipeline_veto_total', 'reason', 'reason_code', 'redis_used_memory_mb', 'regime', 'scenario', 'signal_dq_flag_total', 'signals_veto_total', 'source', 'stage', 'stream', 'symbol', 'ts_rejected_total']

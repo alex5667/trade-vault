@@ -1,0 +1,32 @@
+groups:
+  - name: binance-protection-auditor-p0
+    rules:
+      - alert: BinancePositionWithoutStop
+        expr: sum by (venue, symbol) (execution_protection_audit_open_findings{finding="position_without_sl"}) > 0
+        for: 10s
+        labels:
+          severity: critical
+          team: trade
+        annotations:
+          summary: "Binance position without stop protection"
+          description: "Protection auditor sees an open Binance position with no SL algo order for venue={{ $labels.venue }} symbol={{ $labels.symbol }}."
+
+      - alert: BinancePositionWithoutAnyProtection
+        expr: sum by (venue, symbol) (execution_protection_audit_open_findings{finding="position_without_any_protection"}) > 0
+        for: 5s
+        labels:
+          severity: critical
+          team: trade
+        annotations:
+          summary: "Binance position is completely naked"
+          description: "No SL/TP/trailing protection is visible on the exchange for venue={{ $labels.venue }} symbol={{ $labels.symbol }}."
+
+      - alert: BinanceProtectionAuditorNotRunning
+        expr: time() - execution_protection_audit_last_run_ts > 30
+        for: 1m
+        labels:
+          severity: warning
+          team: trade
+        annotations:
+          summary: "Binance protection auditor stale"
+          description: "The external Binance protection auditor has not completed a scan for more than 30 seconds."

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signals/orderbook_metrics.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 1.0, 1000.0, 1500, 'ask', 'asks', 'bid', 'bids', 'duration', 'price', 'refresh', 'volume']

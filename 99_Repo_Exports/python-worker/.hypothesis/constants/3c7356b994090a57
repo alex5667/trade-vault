@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/runtime_snapshot_deps.py
+# hypothesis_version: 6.148.10
+
+['--json', '--root', '.', ':', '__main__', '_get', '_get_attr_or_key', 'bar', 'book_evidence.py', 'compute_obi_flags', 'compute_ofi_flags', 'compute_sweep_recent', 'core', 'files', 'fp_edge_evidence.py', 'get', 'getattr', 'items', 'keys', 'last_', 'last_bar', 'last_edge', 'last_event', 'last_fp_edge', 'last_iceberg_event', 'last_obi_event', 'last_ofi_event', 'last_reclaim', 'last_sweep', 'nested', 'of_confirm_engine.py', 'of_evidence.py', 'print JSON', 'repo root', 'runtime', 'store_true', 'top', 'top:', 'utf-8', 'values']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/v12_of_features.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 60000.0, 1000, 3600, 3600000, 'atr_bps_rank_30d', 'calibration_age_ms', 'cvd_slope', 'depth_migration_bps', 'eth_btc_corr_5m', 'large_trade_ratio', 'last_trade_pnl_bps', 'liq_last_ts_ms', 'minutes_to_funding', 'momentum_10s', 'ofi', 'ofi_prev_tick', 'perp_spot_basis_bps', 'quote_stuffing_score', 'session_overlap_flag', 'signal_count_1h', 'signal_frequency_1h', 'spread_bps_rank_1d', 'tick_direction_run', 'trade_size_entropy']

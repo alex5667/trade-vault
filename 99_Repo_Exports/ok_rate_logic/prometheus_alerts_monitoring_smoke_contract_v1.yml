@@ -1,0 +1,28 @@
+groups:
+  - name: monitoring-smoke-contract
+    rules:
+      - alert: MonitoringSmokeRunbooksBroken
+        expr: monitoring_smoke_runbooks_ok == 0
+        for: 20m
+        labels:
+          severity: warning
+          team: trade
+          component: monitoring
+        annotations:
+          summary: "Monitoring contract broken: runbooks URLs"
+          description: "Nightly monitoring smoke detected broken runbooks URLs under public-proxy (non-200). Fix runbooks-web routing or file paths."
+          runbook_path: "/monitoring_smoke.md"
+          dashboard_path: "/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1"
+
+      - alert: MonitoringSmokeDashboardsBroken
+        expr: monitoring_smoke_dashboards_ok == 0
+        for: 20m
+        labels:
+          severity: warning
+          team: trade
+          component: monitoring
+        annotations:
+          summary: "Monitoring contract broken: Grafana dashboards routes"
+          description: "Nightly monitoring smoke detected broken Grafana dashboard routes under public-proxy (non-200). Fix public-proxy/grafana subpath routing."
+          runbook_path: "/monitoring_smoke.md"
+          dashboard_path: "/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1"

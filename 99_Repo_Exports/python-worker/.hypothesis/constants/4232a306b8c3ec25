@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signal_scoring/weak_progress/__init__.py
+# hypothesis_version: 6.148.10
+
+['PATTERN_WP_CONFIG', 'PatternFamily', 'WeakProgressConfig']

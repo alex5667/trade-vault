@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/tb_labeling.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 1e-06, 10000.0, 'LONG', 'NO_TICKS', 'SL', 'TIMEOUT', 'TP', 'adverse_proxy', 'atr_bps', 'h_ms', 'hit_ms', 'label', 'mae_bps', 'mfe_bps', 'r_mult', 'ret_bps', 'spread_bps', 'stop_bps', 'y_edge']

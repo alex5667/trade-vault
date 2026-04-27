@@ -1,0 +1,23 @@
+services:
+  ofc-contextual-runtime-health-exporter-v1:
+    image: ${TRADE_ORDERFLOW_IMAGE:?}
+    restart: unless-stopped
+    working_dir: /app
+    environment:
+      PYTHONPATH: /app
+      OFC_CTX_RUNTIME_RELOADER_STATE_PATH: ${OFC_CTX_RUNTIME_RELOADER_STATE_PATH:-/var/lib/trade/ofc_contextual_runtime_reloader_state.json}
+      OFC_CTX_RUNTIME_HEALTH_EXPORTER_PORT: ${OFC_CTX_RUNTIME_HEALTH_EXPORTER_PORT:-9850}
+      OFC_CTX_RUNTIME_HEALTH_EXPORTER_INTERVAL_S: ${OFC_CTX_RUNTIME_HEALTH_EXPORTER_INTERVAL_S:-15}
+    volumes:
+    - ${TRADE_REPO_ROOT:?}/python-worker:/app:ro
+    - /var/lib/trade:/var/lib/trade:ro
+    command:
+    - python3
+    - -m
+    - orderflow_services.ofc_contextual_runtime_health_exporter_v1
+    ports:
+    - ${OFC_CTX_RUNTIME_HEALTH_EXPORTER_PORT:-9850}:${OFC_CTX_RUNTIME_HEALTH_EXPORTER_PORT:-9850}
+    deploy:
+      resources:
+        reservations:
+          memory: 24M

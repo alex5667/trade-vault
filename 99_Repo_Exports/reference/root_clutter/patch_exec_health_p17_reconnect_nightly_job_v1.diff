@@ -1,0 +1,1228 @@
+diff --git a/orderflow_services/exec_health_freeze_reconnect_nightly_smoke_v1.py b/orderflow_services/exec_health_freeze_reconnect_nightly_smoke_v1.py
+new file mode 100644
+index 0000000..f88e7de
+--- /dev/null
++++ b/orderflow_services/exec_health_freeze_reconnect_nightly_smoke_v1.py
+@@ -0,0 +1,272 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Nightly reconnect chaos smoke for ExecHealth trusted Redis clients.
++
++P17 wires the P16 reconnect chaos harness into a regular nightly job suitable for
++systemd + docker compose on a staging/infra host.
++
++What it validates
++- repairable reconnect drift for representative writer/audit/bootstrap clients:
++  * client comes back with correct CLIENT SETNAME
++  * client comes back with correct CLIENT SETINFO LIB-NAME
++  * recovery event is emitted
++  * recovery_total increments in heal-state
++- non-repairable wrong_user path for writer:
++  * helper does not self-heal the user mismatch
++  * scenario stays in violation path
++
++Outputs
++- JSON report (default: /tmp/exec_health_freeze_reconnect_smoke_report.json)
++- textfile metrics (default: /tmp/exec_health_freeze_reconnect_smoke.prom)
++
++Exit codes
++- 0 all enabled scenarios passed
++- 2 one or more enabled scenarios failed
++"""
++
++import argparse
++import json
++import os
++import socket
++import tempfile
++import time
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any, Dict, Iterable, List, Optional
++
++from orderflow_services.exec_health_freeze_reconnect_chaos_harness_v1 import ChaosHarness
++from services.orderflow.exec_health_freeze_service_identity import get_expected_service
++
++
++DEFAULT_REPORT_PATH = '/tmp/exec_health_freeze_reconnect_smoke_report.json'
++DEFAULT_TEXTFILE_PATH = '/tmp/exec_health_freeze_reconnect_smoke.prom'
++STATE_KEY = 'metrics:exec_health:freeze_reconnect_smoke:last'
++
++
++@dataclass(frozen=True)
++class SmokeCase:
++    role: str
++    service: str
++    redis_url: str
++    scenario: str
++    wrong_user_url: str = ''
++    enabled: bool = True
++    skip_reason: str = ''
++
++
++REPAIRABLE_CASES = [
++    ('writer', 'exec_health_freeze_override_v1', 'REDIS_URL'),
++    ('audit', 'exec_health_freeze_client_name_audit_exporter_v1', 'EXEC_HEALTH_REDIS_AUDIT_URL'),
++    ('bootstrap', 'exec_health_freeze_acl_policy_v1', 'EXEC_HEALTH_REDIS_BOOTSTRAP_URL'),
++]
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _s(x: Any, d: str = '') -> str:
++    try:
++        return str(x) if x is not None else str(d)
++    except Exception:
++        return str(d)
++
++
++def _b(x: Any, default: bool = False) -> bool:
++    try:
++        if isinstance(x, str):
++            t = x.strip().lower()
++            if not t:
++                return bool(default)
++            return t in {'1', 'true', 'yes', 'on'}
++        return bool(int(x))
++    except Exception:
++        return bool(default)
++
++
++def _atomic_write(path: str, text: str) -> None:
++    p = Path(path).expanduser().resolve()
++    p.parent.mkdir(parents=True, exist_ok=True)
++    with tempfile.NamedTemporaryFile('w', encoding='utf-8', delete=False, dir=str(p.parent)) as tmp:
++        tmp.write(text)
++        tmp.flush()
++        os.fsync(tmp.fileno())
++        tmp_name = tmp.name
++    Path(tmp_name).replace(p)
++
++
++def _write_json(path: str, obj: Any) -> None:
++    _atomic_write(path, json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True) + '\n')
++
++
++def _render_textfile(report: Dict[str, Any]) -> str:
++    now_ms = int(report.get('ts_ms', 0) or 0)
++    duration_s = float(report.get('duration_seconds', 0.0) or 0.0)
++    overall_ok = 1 if report.get('ok') else 0
++    success_ts = int(report.get('last_success_ts_ms', 0) or 0)
++    lines = [
++        '# HELP exec_health_freeze_reconnect_smoke_last_run_ok 1 if last nightly reconnect smoke run succeeded.',
++        '# TYPE exec_health_freeze_reconnect_smoke_last_run_ok gauge',
++        f'exec_health_freeze_reconnect_smoke_last_run_ok {overall_ok}',
++        '# HELP exec_health_freeze_reconnect_smoke_last_run_ts_ms Last nightly reconnect smoke run timestamp in epoch ms.',
++        '# TYPE exec_health_freeze_reconnect_smoke_last_run_ts_ms gauge',
++        f'exec_health_freeze_reconnect_smoke_last_run_ts_ms {now_ms}',
++        '# HELP exec_health_freeze_reconnect_smoke_last_success_ts_ms Last successful nightly reconnect smoke timestamp in epoch ms.',
++        '# TYPE exec_health_freeze_reconnect_smoke_last_success_ts_ms gauge',
++        f'exec_health_freeze_reconnect_smoke_last_success_ts_ms {success_ts}',
++        '# HELP exec_health_freeze_reconnect_smoke_last_duration_seconds Duration of last nightly reconnect smoke run.',
++        '# TYPE exec_health_freeze_reconnect_smoke_last_duration_seconds gauge',
++        f'exec_health_freeze_reconnect_smoke_last_duration_seconds {duration_s:.6f}',
++        '# HELP exec_health_freeze_reconnect_smoke_case_ok 1 if reconnect smoke case passed.',
++        '# TYPE exec_health_freeze_reconnect_smoke_case_ok gauge',
++        '# HELP exec_health_freeze_reconnect_smoke_case_skipped 1 if reconnect smoke case was skipped.',
++        '# TYPE exec_health_freeze_reconnect_smoke_case_skipped gauge',
++        '# HELP exec_health_freeze_reconnect_smoke_case_duration_seconds Duration of reconnect smoke case.',
++        '# TYPE exec_health_freeze_reconnect_smoke_case_duration_seconds gauge',
++        '# HELP exec_health_freeze_reconnect_smoke_case_recovery_total Recovery total observed in heal-state after reconnect smoke case.',
++        '# TYPE exec_health_freeze_reconnect_smoke_case_recovery_total gauge',
++    ]
++    for row in list(report.get('cases', []) or []):
++        role = _s(row.get('role'))
++        service = _s(row.get('service'))
++        scenario = _s(row.get('scenario')).replace('-', '_')
++        labels = f'role="{role}",service="{service}",scenario="{scenario}"'
++        ok = 1 if row.get('ok') else 0
++        skipped = 1 if row.get('skipped') else 0
++        duration = float(row.get('duration_seconds', 0.0) or 0.0)
++        recovery_total = float(row.get('recovery_total', 0) or 0)
++        lines.append(f'exec_health_freeze_reconnect_smoke_case_ok{{{labels}}} {ok}')
++        lines.append(f'exec_health_freeze_reconnect_smoke_case_skipped{{{labels}}} {skipped}')
++        lines.append(f'exec_health_freeze_reconnect_smoke_case_duration_seconds{{{labels}}} {duration:.6f}')
++        lines.append(f'exec_health_freeze_reconnect_smoke_case_recovery_total{{{labels}}} {recovery_total:.0f}')
++    return '\n'.join(lines) + '\n'
++
++
++def _build_cases_from_env() -> List[SmokeCase]:
++    out: List[SmokeCase] = []
++    include_bootstrap = _b(os.getenv('EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_INCLUDE_BOOTSTRAP', '1'), True)
++    include_wrong_user = _b(os.getenv('EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_INCLUDE_WRONG_USER', '1'), True)
++    for role, service, url_env in REPAIRABLE_CASES:
++        if role == 'bootstrap' and not include_bootstrap:
++            out.append(SmokeCase(role, service, '', 'reconnect-both', enabled=False, skip_reason='bootstrap disabled'))
++            continue
++        url = _s(os.getenv(url_env)).strip()
++        if not url:
++            out.append(SmokeCase(role, service, '', 'reconnect-both', enabled=False, skip_reason=f'missing {url_env}'))
++            continue
++        out.append(SmokeCase(role, service, url, 'reconnect-both'))
++    wrong_user_url = _s(os.getenv('EXEC_HEALTH_REDIS_WRONG_USER_URL')).strip()
++    writer_url = _s(os.getenv('REDIS_URL')).strip()
++    if include_wrong_user and writer_url and wrong_user_url:
++        out.append(SmokeCase('writer', 'exec_health_freeze_override_v1', writer_url, 'wrong-user', wrong_user_url=wrong_user_url))
++    else:
++        reason = 'wrong-user disabled'
++        if include_wrong_user and not wrong_user_url:
++            reason = 'missing EXEC_HEALTH_REDIS_WRONG_USER_URL'
++        elif include_wrong_user and not writer_url:
++            reason = 'missing REDIS_URL'
++        out.append(SmokeCase('writer', 'exec_health_freeze_override_v1', writer_url, 'wrong-user', wrong_user_url=wrong_user_url, enabled=False, skip_reason=reason))
++    return out
++
++
++def _evaluate_case(case: SmokeCase, raw: Dict[str, Any]) -> Dict[str, Any]:
++    if case.scenario == 'wrong-user':
++        ok = (raw.get('ok') is False) and (raw.get('unexpected_success') is False) and ('wrong_user' in _s(raw.get('error')).lower())
++        return {
++            'ok': bool(ok),
++            'reason': 'wrong_user_violation_expected' if ok else 'wrong_user_path_failed',
++            'recovery_total': int((raw.get('state') or {}).get('recovery_total', 0) or 0),
++        }
++    expected = get_expected_service(case.service)
++    state = dict(raw.get('state') or {})
++    after = dict(raw.get('after_entry') or {})
++    recovery_total = int(state.get('recovery_total', 0) or 0)
++    ok = bool(raw.get('ok')) and bool(raw.get('recovered')) and bool(raw.get('event_id')) and after.get('name') == expected.client_name and after.get('lib-name') == expected.lib_name and recovery_total >= 1
++    return {
++        'ok': bool(ok),
++        'reason': 'repairable_reconnect_recovered' if ok else 'repairable_reconnect_failed',
++        'recovery_total': recovery_total,
++    }
++
++
++def run_case(case: SmokeCase) -> Dict[str, Any]:
++    started = time.time()
++    if not case.enabled:
++        return {
++            'role': case.role,
++            'service': case.service,
++            'scenario': case.scenario,
++            'skipped': True,
++            'skip_reason': case.skip_reason,
++            'ok': True,
++            'duration_seconds': 0.0,
++            'recovery_total': 0,
++        }
++    harness = ChaosHarness(case.redis_url, service=case.service, wrong_user_url=case.wrong_user_url)
++    if case.scenario == 'wrong-user':
++        raw = harness.run_wrong_user()
++    else:
++        raw = harness.run_repairable(case.scenario)
++    chk = _evaluate_case(case, raw)
++    duration_s = max(0.0, time.time() - started)
++    return {
++        'role': case.role,
++        'service': case.service,
++        'scenario': case.scenario,
++        'skipped': False,
++        'ok': bool(chk['ok']),
++        'check_reason': chk['reason'],
++        'duration_seconds': duration_s,
++        'recovery_total': int(chk['recovery_total']),
++        'raw': raw,
++    }
++
++
++class NightlySmokeRunner:
++    def __init__(self, *, report_path: str, textfile_path: str) -> None:
++        self.report_path = report_path
++        self.textfile_path = textfile_path
++        self.hostname = socket.gethostname()
++        self.state_key = os.getenv('EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_STATE_KEY', STATE_KEY)
++
++    def run(self, cases: Optional[Iterable[SmokeCase]] = None) -> Dict[str, Any]:
++        started = time.time()
++        ts_ms = _now_ms()
++        rows: List[Dict[str, Any]] = []
++        for case in list(cases or _build_cases_from_env()):
++            rows.append(run_case(case))
++        enabled_rows = [r for r in rows if not r.get('skipped')]
++        ok = all(bool(r.get('ok')) for r in enabled_rows) if enabled_rows else True
++        report = {
++            'schema_ver': 'exec_health_reconnect_smoke_v1',
++            'host': self.hostname,
++            'ts_ms': ts_ms,
++            'ok': bool(ok),
++            'enabled_case_count': len(enabled_rows),
++            'case_count': len(rows),
++            'duration_seconds': max(0.0, time.time() - started),
++            'last_success_ts_ms': ts_ms if ok else 0,
++            'cases': rows,
++            'state_key': self.state_key,
++        }
++        _write_json(self.report_path, report)
++        _atomic_write(self.textfile_path, _render_textfile(report))
++        return report
++
++
++def build_arg_parser() -> argparse.ArgumentParser:
++    p = argparse.ArgumentParser(description='Nightly ExecHealth reconnect chaos smoke runner')
++    p.add_argument('--report-path', default=os.getenv('EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_REPORT_PATH', DEFAULT_REPORT_PATH))
++    p.add_argument('--textfile-path', default=os.getenv('EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_TEXTFILE_PATH', DEFAULT_TEXTFILE_PATH))
++    return p
++
++
++def main(argv: Optional[List[str]] = None) -> int:
++    args = build_arg_parser().parse_args(argv)
++    report = NightlySmokeRunner(report_path=args.report_path, textfile_path=args.textfile_path).run()
++    return 0 if report.get('ok') else 2
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+diff --git a/orderflow_services/deploy/docker-compose.exec-health-freeze-reconnect-nightly-v1.yml b/orderflow_services/deploy/docker-compose.exec-health-freeze-reconnect-nightly-v1.yml
+new file mode 100644
+index 0000000..f68fba6
+--- /dev/null
++++ b/orderflow_services/deploy/docker-compose.exec-health-freeze-reconnect-nightly-v1.yml
+@@ -0,0 +1,28 @@
++services:
++  exec-health-freeze-reconnect-nightly:
++    image: ${EXEC_HEALTH_RECONNECT_SMOKE_IMAGE:-python:3.13-slim}
++    working_dir: /repo
++    volumes:
++      - ${EXEC_HEALTH_REPO_ROOT:-.}:/repo
++      - ${EXEC_HEALTH_RECONNECT_SMOKE_REPORT_DIR:-/var/lib/trade/exec_health_reconnect_smoke}:/var/lib/trade/exec_health_reconnect_smoke
++      - ${EXEC_HEALTH_RECONNECT_SMOKE_TEXTFILE_DIR:-/var/lib/node_exporter/textfile_collector}:/var/lib/node_exporter/textfile_collector
++    environment:
++      PYTHONPATH: /repo
++      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
++      EXEC_HEALTH_REDIS_AUDIT_URL: ${EXEC_HEALTH_REDIS_AUDIT_URL:-}
++      EXEC_HEALTH_REDIS_BOOTSTRAP_URL: ${EXEC_HEALTH_REDIS_BOOTSTRAP_URL:-}
++      EXEC_HEALTH_REDIS_WRONG_USER_URL: ${EXEC_HEALTH_REDIS_WRONG_USER_URL:-}
++      EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_REPORT_PATH: /var/lib/trade/exec_health_reconnect_smoke/latest_report.json
++      EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_TEXTFILE_PATH: /var/lib/node_exporter/textfile_collector/exec_health_freeze_reconnect_smoke.prom
++      EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_INCLUDE_BOOTSTRAP: ${EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_INCLUDE_BOOTSTRAP:-1}
++      EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_INCLUDE_WRONG_USER: ${EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_INCLUDE_WRONG_USER:-1}
++      EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE: ${EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE:-1}
++      EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME: ${EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME:-1}
++      EXEC_HEALTH_FREEZE_CLIENT_HEAL_CHECK_MS: ${EXEC_HEALTH_FREEZE_CLIENT_HEAL_CHECK_MS:-0}
++    command:
++      - /bin/bash
++      - -lc
++      - >-
++        python -m pip install --no-cache-dir redis >/tmp/exec_health_reconnect_smoke_pip.log 2>&1 &&
++        python -m orderflow_services.exec_health_freeze_reconnect_nightly_smoke_v1
++    restart: "no"
+diff --git a/orderflow_services/deploy/systemd/run-exec-health-freeze-reconnect-nightly-v1.sh b/orderflow_services/deploy/systemd/run-exec-health-freeze-reconnect-nightly-v1.sh
+new file mode 100755
+index 0000000..15e3b59
+--- /dev/null
++++ b/orderflow_services/deploy/systemd/run-exec-health-freeze-reconnect-nightly-v1.sh
+@@ -0,0 +1,12 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++REPO_ROOT="${EXEC_HEALTH_REPO_ROOT:-/opt/scanner_infra}"
++COMPOSE_FILE="${EXEC_HEALTH_RECONNECT_SMOKE_COMPOSE_FILE:-${REPO_ROOT}/orderflow_services/deploy/docker-compose.exec-health-freeze-reconnect-nightly-v1.yml}"
++SERVICE_NAME="${EXEC_HEALTH_RECONNECT_SMOKE_SERVICE_NAME:-exec-health-freeze-reconnect-nightly}"
++REPORT_DIR="${EXEC_HEALTH_RECONNECT_SMOKE_REPORT_DIR:-/var/lib/trade/exec_health_reconnect_smoke}"
++TEXTFILE_DIR="${EXEC_HEALTH_RECONNECT_SMOKE_TEXTFILE_DIR:-/var/lib/node_exporter/textfile_collector}"
++
++mkdir -p "${REPORT_DIR}" "${TEXTFILE_DIR}"
++cd "${REPO_ROOT}"
++exec docker compose -f "${COMPOSE_FILE}" run --rm "${SERVICE_NAME}"
+diff --git a/orderflow_services/deploy/systemd/exec-health-freeze-reconnect-nightly.service b/orderflow_services/deploy/systemd/exec-health-freeze-reconnect-nightly.service
+new file mode 100644
+index 0000000..0afbcc1
+--- /dev/null
++++ b/orderflow_services/deploy/systemd/exec-health-freeze-reconnect-nightly.service
+@@ -0,0 +1,17 @@
++[Unit]
++Description=ExecHealth nightly reconnect chaos smoke
++After=network-online.target docker.service
++Wants=network-online.target
++Requires=docker.service
++
++[Service]
++Type=oneshot
++EnvironmentFile=-/etc/default/exec-health-freeze-reconnect-nightly
++WorkingDirectory=/opt/scanner_infra
++ExecStart=/opt/scanner_infra/orderflow_services/deploy/systemd/run-exec-health-freeze-reconnect-nightly-v1.sh
++Nice=10
++IOSchedulingClass=best-effort
++TimeoutStartSec=1800
++
++[Install]
++WantedBy=multi-user.target
+diff --git a/orderflow_services/deploy/systemd/exec-health-freeze-reconnect-nightly.timer b/orderflow_services/deploy/systemd/exec-health-freeze-reconnect-nightly.timer
+new file mode 100644
+index 0000000..8b8075d
+--- /dev/null
++++ b/orderflow_services/deploy/systemd/exec-health-freeze-reconnect-nightly.timer
+@@ -0,0 +1,11 @@
++[Unit]
++Description=Nightly ExecHealth reconnect chaos smoke timer
++
++[Timer]
++OnCalendar=*-*-* 03:17:00
++RandomizedDelaySec=20m
++Persistent=true
++Unit=exec-health-freeze-reconnect-nightly.service
++
++[Install]
++WantedBy=timers.target
+diff --git a/orderflow_services/runbook_exec_health_freeze_reconnect_nightly_v1.md b/orderflow_services/runbook_exec_health_freeze_reconnect_nightly_v1.md
+new file mode 100644
+index 0000000..92672f9
+--- /dev/null
++++ b/orderflow_services/runbook_exec_health_freeze_reconnect_nightly_v1.md
+@@ -0,0 +1,95 @@
++# ExecHealth Nightly Reconnect Chaos Smoke (P17)
++
++## Goal
++
++Run the P16 reconnect chaos smoke automatically every night on staging / infra host so the self-healing path is exercised regularly, not only during incident response.
++
++## What the nightly job validates
++
++Repairable reconnect drift:
++- representative writer client returns with expected `CLIENT SETNAME`
++- representative audit client returns with expected `CLIENT SETINFO LIB-NAME`
++- representative bootstrap client also recovers when enabled
++- recovery event is emitted
++- `recovery_total` in heal-state increases
++
++Non-repairable path:
++- `wrong_user` does **not** self-heal
++- scenario remains on violation path
++
++## Files
++
++- Compose job:
++  - `orderflow_services/deploy/docker-compose.exec-health-freeze-reconnect-nightly-v1.yml`
++- systemd service:
++  - `orderflow_services/deploy/systemd/exec-health-freeze-reconnect-nightly.service`
++- systemd timer:
++  - `orderflow_services/deploy/systemd/exec-health-freeze-reconnect-nightly.timer`
++- Wrapper:
++  - `orderflow_services/deploy/systemd/run-exec-health-freeze-reconnect-nightly-v1.sh`
++- Runner:
++  - `orderflow_services/exec_health_freeze_reconnect_nightly_smoke_v1.py`
++
++## Manual run
++
++```bash
++python -m orderflow_services.exec_health_freeze_reconnect_nightly_smoke_v1
++```
++
++Expected outputs:
++- report JSON: `/var/lib/trade/exec_health_reconnect_smoke/latest_report.json`
++- textfile metric: `/var/lib/node_exporter/textfile_collector/exec_health_freeze_reconnect_smoke.prom`
++
++## systemd install
++
++```bash
++sudo cp orderflow_services/deploy/systemd/exec-health-freeze-reconnect-nightly.service /etc/systemd/system/
++sudo cp orderflow_services/deploy/systemd/exec-health-freeze-reconnect-nightly.timer /etc/systemd/system/
++```
++
++Copy wrapper too:
++
++```bash
++sudo install -m 0755 orderflow_services/deploy/systemd/run-exec-health-freeze-reconnect-nightly-v1.sh \
++  /opt/scanner_infra/orderflow_services/deploy/systemd/run-exec-health-freeze-reconnect-nightly-v1.sh
++```
++
++Create environment file `/etc/default/exec-health-freeze-reconnect-nightly`:
++
++```bash
++EXEC_HEALTH_REPO_ROOT=/opt/scanner_infra
++EXEC_HEALTH_RECONNECT_SMOKE_REPORT_DIR=/var/lib/trade/exec_health_reconnect_smoke
++EXEC_HEALTH_RECONNECT_SMOKE_TEXTFILE_DIR=/var/lib/node_exporter/textfile_collector
++REDIS_URL=redis://exec_health_freeze_writer:<pass>@redis-worker-1:6379/0
++EXEC_HEALTH_REDIS_AUDIT_URL=redis://exec_health_freeze_audit:<pass>@redis-worker-1:6379/0
++EXEC_HEALTH_REDIS_BOOTSTRAP_URL=redis://exec_health_freeze_bootstrap:<pass>@redis-worker-1:6379/0
++EXEC_HEALTH_REDIS_WRONG_USER_URL=redis://default:<pass>@redis-worker-1:6379/0
++```
++
++Reload and start:
++
++```bash
++sudo systemctl daemon-reload
++sudo systemctl enable --now exec-health-freeze-reconnect-nightly.timer
++```
++
++## Troubleshooting
++
++Inspect last timer runs:
++
++```bash
++systemctl list-timers --all | grep exec-health-freeze-reconnect-nightly
++journalctl -u exec-health-freeze-reconnect-nightly.service -n 200 --no-pager
++```
++
++Inspect last report:
++
++```bash
++cat /var/lib/trade/exec_health_reconnect_smoke/latest_report.json
++cat /var/lib/node_exporter/textfile_collector/exec_health_freeze_reconnect_smoke.prom
++```
++
++## Alert expectations
++
++- alert if nightly smoke did not succeed within 36h
++- alert if last run failed
+diff --git a/orderflow_services/prometheus_alerts_exec_health_freeze_reconnect_nightly_v1.yml b/orderflow_services/prometheus_alerts_exec_health_freeze_reconnect_nightly_v1.yml
+new file mode 100644
+index 0000000..fb155e6
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_exec_health_freeze_reconnect_nightly_v1.yml
+@@ -0,0 +1,20 @@
++groups:
++  - name: exec_health_freeze_reconnect_nightly_v1
++    rules:
++      - alert: OF_ExecHealth_ReconnectNightly_Failed_Crit
++        expr: exec_health_freeze_reconnect_smoke_last_run_ok == 0
++        for: 30m
++        labels:
++          severity: critical
++        annotations:
++          summary: "ExecHealth nightly reconnect chaos smoke failed"
++          description: "Last reconnect chaos smoke run reported failure. Check latest JSON report and systemd logs."
++
++      - alert: OF_ExecHealth_ReconnectNightly_Stale_Warn
++        expr: (time() * 1000 - exec_health_freeze_reconnect_smoke_last_success_ts_ms) > 36 * 3600 * 1000
++        for: 1h
++        labels:
++          severity: warning
++        annotations:
++          summary: "ExecHealth nightly reconnect chaos smoke is stale"
++          description: "No successful reconnect chaos smoke run has been observed within the last 36 hours."
+diff --git a/orderflow_services/grafana/exec_health_freeze_reconnect_nightly_v1.json b/orderflow_services/grafana/exec_health_freeze_reconnect_nightly_v1.json
+new file mode 100644
+index 0000000..33ababe
+--- /dev/null
++++ b/orderflow_services/grafana/exec_health_freeze_reconnect_nightly_v1.json
+@@ -0,0 +1,43 @@
++{
++  "title": "ExecHealth Reconnect Nightly Smoke (v1)",
++  "schemaVersion": 39,
++  "version": 1,
++  "panels": [
++    {
++      "type": "stat",
++      "title": "Last Run OK",
++      "targets": [
++        {
++          "expr": "exec_health_freeze_reconnect_smoke_last_run_ok"
++        }
++      ]
++    },
++    {
++      "type": "stat",
++      "title": "Hours Since Success",
++      "targets": [
++        {
++          "expr": "(time()*1000 - exec_health_freeze_reconnect_smoke_last_success_ts_ms) / 1000 / 3600"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Case OK by Service/Scenario",
++      "targets": [
++        {
++          "expr": "exec_health_freeze_reconnect_smoke_case_ok"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Recovery Total by Service/Scenario",
++      "targets": [
++        {
++          "expr": "exec_health_freeze_reconnect_smoke_case_recovery_total"
++        }
++      ]
++    }
++  ]
++}
+diff --git a/orderflow_services/tests/test_exec_health_freeze_reconnect_nightly_smoke_v1.py b/orderflow_services/tests/test_exec_health_freeze_reconnect_nightly_smoke_v1.py
+new file mode 100644
+index 0000000..7f2d546
+--- /dev/null
++++ b/orderflow_services/tests/test_exec_health_freeze_reconnect_nightly_smoke_v1.py
+@@ -0,0 +1,72 @@
++from pathlib import Path
++
++import orderflow_services.exec_health_freeze_reconnect_nightly_smoke_v1 as mod
++
++
++class FakeHarness:
++    def __init__(self, redis_url, *, service, wrong_user_url=''):
++        self.redis_url = redis_url
++        self.service = service
++        self.wrong_user_url = wrong_user_url
++
++    def run_repairable(self, mode):
++        expected = mod.get_expected_service(self.service)
++        return {
++            'ok': True,
++            'recovered': True,
++            'event_id': '1-0',
++            'after_entry': {'name': expected.client_name, 'lib-name': expected.lib_name},
++            'state': {'recovery_total': '1'},
++        }
++
++    def run_wrong_user(self):
++        return {
++            'ok': False,
++            'unexpected_success': False,
++            'error': 'wrong_user violation',
++            'state': {'last_result_ok': '0'},
++        }
++
++
++class FailingHarness(FakeHarness):
++    def run_repairable(self, mode):
++        out = super().run_repairable(mode)
++        out['after_entry']['lib-name'] = 'bad-lib'
++        return out
++
++
++def test_nightly_smoke_runner_success(monkeypatch, tmp_path):
++    monkeypatch.setattr(mod, 'ChaosHarness', FakeHarness)
++    monkeypatch.setenv('REDIS_URL', 'redis://writer@unit/0')
++    monkeypatch.setenv('EXEC_HEALTH_REDIS_AUDIT_URL', 'redis://audit@unit/0')
++    monkeypatch.setenv('EXEC_HEALTH_REDIS_BOOTSTRAP_URL', 'redis://bootstrap@unit/0')
++    monkeypatch.setenv('EXEC_HEALTH_REDIS_WRONG_USER_URL', 'redis://default@unit/0')
++
++    report = tmp_path / 'report.json'
++    prom = tmp_path / 'smoke.prom'
++    rc = mod.main(['--report-path', str(report), '--textfile-path', str(prom)])
++    assert rc == 0
++    text = prom.read_text()
++    assert 'exec_health_freeze_reconnect_smoke_last_run_ok 1' in text
++    assert 'scenario="wrong_user"' in text
++    assert 'service="exec_health_freeze_acl_policy_v1"' in text
++    body = report.read_text()
++    assert '"ok": true' in body
++
++
++def test_nightly_smoke_runner_failure(monkeypatch, tmp_path):
++    monkeypatch.setattr(mod, 'ChaosHarness', FailingHarness)
++    monkeypatch.setenv('REDIS_URL', 'redis://writer@unit/0')
++    monkeypatch.setenv('EXEC_HEALTH_REDIS_AUDIT_URL', 'redis://audit@unit/0')
++    monkeypatch.setenv('EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_INCLUDE_BOOTSTRAP', '0')
++    monkeypatch.setenv('EXEC_HEALTH_REDIS_WRONG_USER_URL', 'redis://default@unit/0')
++
++    report = tmp_path / 'report.json'
++    prom = tmp_path / 'smoke.prom'
++    rc = mod.main(['--report-path', str(report), '--textfile-path', str(prom)])
++    assert rc == 2
++    text = prom.read_text()
++    assert 'exec_health_freeze_reconnect_smoke_last_run_ok 0' in text
++    assert 'scenario="reconnect_both"' in text
++    assert 'service="exec_health_freeze_override_v1"' in text
++    assert '"ok": false' in report.read_text()
+diff --git a/orderflow_services/tests/test_exec_health_freeze_reconnect_nightly_compose_v1.py b/orderflow_services/tests/test_exec_health_freeze_reconnect_nightly_compose_v1.py
+new file mode 100644
+index 0000000..1ba858b
+--- /dev/null
++++ b/orderflow_services/tests/test_exec_health_freeze_reconnect_nightly_compose_v1.py
+@@ -0,0 +1,10 @@
++from pathlib import Path
++import yaml
++
++
++def test_compose_yaml_valid():
++    data = yaml.safe_load(Path('orderflow_services/deploy/docker-compose.exec-health-freeze-reconnect-nightly-v1.yml').read_text())
++    svc = data['services']['exec-health-freeze-reconnect-nightly']
++    assert svc['working_dir'] == '/repo'
++    assert 'REDIS_URL' in svc['environment']
++    assert 'python -m orderflow_services.exec_health_freeze_reconnect_nightly_smoke_v1' in ' '.join(svc['command'])
+diff --git a/orderflow_services/tests/test_exec_health_freeze_reconnect_nightly_systemd_v1.py b/orderflow_services/tests/test_exec_health_freeze_reconnect_nightly_systemd_v1.py
+new file mode 100644
+index 0000000..d6e4085
+--- /dev/null
++++ b/orderflow_services/tests/test_exec_health_freeze_reconnect_nightly_systemd_v1.py
+@@ -0,0 +1,10 @@
++from pathlib import Path
++
++
++def test_systemd_service_and_timer_present():
++    svc = Path('orderflow_services/deploy/systemd/exec-health-freeze-reconnect-nightly.service').read_text()
++    timer = Path('orderflow_services/deploy/systemd/exec-health-freeze-reconnect-nightly.timer').read_text()
++    wrapper = Path('orderflow_services/deploy/systemd/run-exec-health-freeze-reconnect-nightly-v1.sh').read_text()
++    assert 'docker compose -f' in wrapper
++    assert 'ExecStart=/opt/scanner_infra/orderflow_services/deploy/systemd/run-exec-health-freeze-reconnect-nightly-v1.sh' in svc
++    assert 'OnCalendar=*-*-* 03:17:00' in timer
+diff --git a/orderflow_services/tests/test_exec_health_freeze_reconnect_nightly_alerts_yaml_v1.py b/orderflow_services/tests/test_exec_health_freeze_reconnect_nightly_alerts_yaml_v1.py
+new file mode 100644
+index 0000000..aa1076f
+--- /dev/null
++++ b/orderflow_services/tests/test_exec_health_freeze_reconnect_nightly_alerts_yaml_v1.py
+@@ -0,0 +1,7 @@
++from pathlib import Path
++import yaml
++
++
++def test_alerts_yaml_valid():
++    data = yaml.safe_load(Path('orderflow_services/prometheus_alerts_exec_health_freeze_reconnect_nightly_v1.yml').read_text())
++    assert data['groups'][0]['name'] == 'exec_health_freeze_reconnect_nightly_v1'
+diff --git a/orderflow_services/tests/test_exec_health_freeze_reconnect_nightly_dashboard_json_v1.py b/orderflow_services/tests/test_exec_health_freeze_reconnect_nightly_dashboard_json_v1.py
+new file mode 100644
+index 0000000..928d56a
+--- /dev/null
++++ b/orderflow_services/tests/test_exec_health_freeze_reconnect_nightly_dashboard_json_v1.py
+@@ -0,0 +1,7 @@
++from pathlib import Path
++import json
++
++
++def test_dashboard_json_valid():
++    data = json.loads(Path('orderflow_services/grafana/exec_health_freeze_reconnect_nightly_v1.json').read_text())
++    assert data['title'] == 'ExecHealth Reconnect Nightly Smoke (v1)'
+diff --git a/tick_flow_full/orderflow_services/exec_health_freeze_reconnect_nightly_smoke_v1.py b/tick_flow_full/orderflow_services/exec_health_freeze_reconnect_nightly_smoke_v1.py
+new file mode 100644
+index 0000000..f88e7de
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/exec_health_freeze_reconnect_nightly_smoke_v1.py
+@@ -0,0 +1,272 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Nightly reconnect chaos smoke for ExecHealth trusted Redis clients.
++
++P17 wires the P16 reconnect chaos harness into a regular nightly job suitable for
++systemd + docker compose on a staging/infra host.
++
++What it validates
++- repairable reconnect drift for representative writer/audit/bootstrap clients:
++  * client comes back with correct CLIENT SETNAME
++  * client comes back with correct CLIENT SETINFO LIB-NAME
++  * recovery event is emitted
++  * recovery_total increments in heal-state
++- non-repairable wrong_user path for writer:
++  * helper does not self-heal the user mismatch
++  * scenario stays in violation path
++
++Outputs
++- JSON report (default: /tmp/exec_health_freeze_reconnect_smoke_report.json)
++- textfile metrics (default: /tmp/exec_health_freeze_reconnect_smoke.prom)
++
++Exit codes
++- 0 all enabled scenarios passed
++- 2 one or more enabled scenarios failed
++"""
++
++import argparse
++import json
++import os
++import socket
++import tempfile
++import time
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any, Dict, Iterable, List, Optional
++
++from orderflow_services.exec_health_freeze_reconnect_chaos_harness_v1 import ChaosHarness
++from services.orderflow.exec_health_freeze_service_identity import get_expected_service
++
++
++DEFAULT_REPORT_PATH = '/tmp/exec_health_freeze_reconnect_smoke_report.json'
++DEFAULT_TEXTFILE_PATH = '/tmp/exec_health_freeze_reconnect_smoke.prom'
++STATE_KEY = 'metrics:exec_health:freeze_reconnect_smoke:last'
++
++
++@dataclass(frozen=True)
++class SmokeCase:
++    role: str
++    service: str
++    redis_url: str
++    scenario: str
++    wrong_user_url: str = ''
++    enabled: bool = True
++    skip_reason: str = ''
++
++
++REPAIRABLE_CASES = [
++    ('writer', 'exec_health_freeze_override_v1', 'REDIS_URL'),
++    ('audit', 'exec_health_freeze_client_name_audit_exporter_v1', 'EXEC_HEALTH_REDIS_AUDIT_URL'),
++    ('bootstrap', 'exec_health_freeze_acl_policy_v1', 'EXEC_HEALTH_REDIS_BOOTSTRAP_URL'),
++]
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _s(x: Any, d: str = '') -> str:
++    try:
++        return str(x) if x is not None else str(d)
++    except Exception:
++        return str(d)
++
++
++def _b(x: Any, default: bool = False) -> bool:
++    try:
++        if isinstance(x, str):
++            t = x.strip().lower()
++            if not t:
++                return bool(default)
++            return t in {'1', 'true', 'yes', 'on'}
++        return bool(int(x))
++    except Exception:
++        return bool(default)
++
++
++def _atomic_write(path: str, text: str) -> None:
++    p = Path(path).expanduser().resolve()
++    p.parent.mkdir(parents=True, exist_ok=True)
++    with tempfile.NamedTemporaryFile('w', encoding='utf-8', delete=False, dir=str(p.parent)) as tmp:
++        tmp.write(text)
++        tmp.flush()
++        os.fsync(tmp.fileno())
++        tmp_name = tmp.name
++    Path(tmp_name).replace(p)
++
++
++def _write_json(path: str, obj: Any) -> None:
++    _atomic_write(path, json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True) + '\n')
++
++
++def _render_textfile(report: Dict[str, Any]) -> str:
++    now_ms = int(report.get('ts_ms', 0) or 0)
++    duration_s = float(report.get('duration_seconds', 0.0) or 0.0)
++    overall_ok = 1 if report.get('ok') else 0
++    success_ts = int(report.get('last_success_ts_ms', 0) or 0)
++    lines = [
++        '# HELP exec_health_freeze_reconnect_smoke_last_run_ok 1 if last nightly reconnect smoke run succeeded.',
++        '# TYPE exec_health_freeze_reconnect_smoke_last_run_ok gauge',
++        f'exec_health_freeze_reconnect_smoke_last_run_ok {overall_ok}',
++        '# HELP exec_health_freeze_reconnect_smoke_last_run_ts_ms Last nightly reconnect smoke run timestamp in epoch ms.',
++        '# TYPE exec_health_freeze_reconnect_smoke_last_run_ts_ms gauge',
++        f'exec_health_freeze_reconnect_smoke_last_run_ts_ms {now_ms}',
++        '# HELP exec_health_freeze_reconnect_smoke_last_success_ts_ms Last successful nightly reconnect smoke timestamp in epoch ms.',
++        '# TYPE exec_health_freeze_reconnect_smoke_last_success_ts_ms gauge',
++        f'exec_health_freeze_reconnect_smoke_last_success_ts_ms {success_ts}',
++        '# HELP exec_health_freeze_reconnect_smoke_last_duration_seconds Duration of last nightly reconnect smoke run.',
++        '# TYPE exec_health_freeze_reconnect_smoke_last_duration_seconds gauge',
++        f'exec_health_freeze_reconnect_smoke_last_duration_seconds {duration_s:.6f}',
++        '# HELP exec_health_freeze_reconnect_smoke_case_ok 1 if reconnect smoke case passed.',
++        '# TYPE exec_health_freeze_reconnect_smoke_case_ok gauge',
++        '# HELP exec_health_freeze_reconnect_smoke_case_skipped 1 if reconnect smoke case was skipped.',
++        '# TYPE exec_health_freeze_reconnect_smoke_case_skipped gauge',
++        '# HELP exec_health_freeze_reconnect_smoke_case_duration_seconds Duration of reconnect smoke case.',
++        '# TYPE exec_health_freeze_reconnect_smoke_case_duration_seconds gauge',
++        '# HELP exec_health_freeze_reconnect_smoke_case_recovery_total Recovery total observed in heal-state after reconnect smoke case.',
++        '# TYPE exec_health_freeze_reconnect_smoke_case_recovery_total gauge',
++    ]
++    for row in list(report.get('cases', []) or []):
++        role = _s(row.get('role'))
++        service = _s(row.get('service'))
++        scenario = _s(row.get('scenario')).replace('-', '_')
++        labels = f'role="{role}",service="{service}",scenario="{scenario}"'
++        ok = 1 if row.get('ok') else 0
++        skipped = 1 if row.get('skipped') else 0
++        duration = float(row.get('duration_seconds', 0.0) or 0.0)
++        recovery_total = float(row.get('recovery_total', 0) or 0)
++        lines.append(f'exec_health_freeze_reconnect_smoke_case_ok{{{labels}}} {ok}')
++        lines.append(f'exec_health_freeze_reconnect_smoke_case_skipped{{{labels}}} {skipped}')
++        lines.append(f'exec_health_freeze_reconnect_smoke_case_duration_seconds{{{labels}}} {duration:.6f}')
++        lines.append(f'exec_health_freeze_reconnect_smoke_case_recovery_total{{{labels}}} {recovery_total:.0f}')
++    return '\n'.join(lines) + '\n'
++
++
++def _build_cases_from_env() -> List[SmokeCase]:
++    out: List[SmokeCase] = []
++    include_bootstrap = _b(os.getenv('EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_INCLUDE_BOOTSTRAP', '1'), True)
++    include_wrong_user = _b(os.getenv('EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_INCLUDE_WRONG_USER', '1'), True)
++    for role, service, url_env in REPAIRABLE_CASES:
++        if role == 'bootstrap' and not include_bootstrap:
++            out.append(SmokeCase(role, service, '', 'reconnect-both', enabled=False, skip_reason='bootstrap disabled'))
++            continue
++        url = _s(os.getenv(url_env)).strip()
++        if not url:
++            out.append(SmokeCase(role, service, '', 'reconnect-both', enabled=False, skip_reason=f'missing {url_env}'))
++            continue
++        out.append(SmokeCase(role, service, url, 'reconnect-both'))
++    wrong_user_url = _s(os.getenv('EXEC_HEALTH_REDIS_WRONG_USER_URL')).strip()
++    writer_url = _s(os.getenv('REDIS_URL')).strip()
++    if include_wrong_user and writer_url and wrong_user_url:
++        out.append(SmokeCase('writer', 'exec_health_freeze_override_v1', writer_url, 'wrong-user', wrong_user_url=wrong_user_url))
++    else:
++        reason = 'wrong-user disabled'
++        if include_wrong_user and not wrong_user_url:
++            reason = 'missing EXEC_HEALTH_REDIS_WRONG_USER_URL'
++        elif include_wrong_user and not writer_url:
++            reason = 'missing REDIS_URL'
++        out.append(SmokeCase('writer', 'exec_health_freeze_override_v1', writer_url, 'wrong-user', wrong_user_url=wrong_user_url, enabled=False, skip_reason=reason))
++    return out
++
++
++def _evaluate_case(case: SmokeCase, raw: Dict[str, Any]) -> Dict[str, Any]:
++    if case.scenario == 'wrong-user':
++        ok = (raw.get('ok') is False) and (raw.get('unexpected_success') is False) and ('wrong_user' in _s(raw.get('error')).lower())
++        return {
++            'ok': bool(ok),
++            'reason': 'wrong_user_violation_expected' if ok else 'wrong_user_path_failed',
++            'recovery_total': int((raw.get('state') or {}).get('recovery_total', 0) or 0),
++        }
++    expected = get_expected_service(case.service)
++    state = dict(raw.get('state') or {})
++    after = dict(raw.get('after_entry') or {})
++    recovery_total = int(state.get('recovery_total', 0) or 0)
++    ok = bool(raw.get('ok')) and bool(raw.get('recovered')) and bool(raw.get('event_id')) and after.get('name') == expected.client_name and after.get('lib-name') == expected.lib_name and recovery_total >= 1
++    return {
++        'ok': bool(ok),
++        'reason': 'repairable_reconnect_recovered' if ok else 'repairable_reconnect_failed',
++        'recovery_total': recovery_total,
++    }
++
++
++def run_case(case: SmokeCase) -> Dict[str, Any]:
++    started = time.time()
++    if not case.enabled:
++        return {
++            'role': case.role,
++            'service': case.service,
++            'scenario': case.scenario,
++            'skipped': True,
++            'skip_reason': case.skip_reason,
++            'ok': True,
++            'duration_seconds': 0.0,
++            'recovery_total': 0,
++        }
++    harness = ChaosHarness(case.redis_url, service=case.service, wrong_user_url=case.wrong_user_url)
++    if case.scenario == 'wrong-user':
++        raw = harness.run_wrong_user()
++    else:
++        raw = harness.run_repairable(case.scenario)
++    chk = _evaluate_case(case, raw)
++    duration_s = max(0.0, time.time() - started)
++    return {
++        'role': case.role,
++        'service': case.service,
++        'scenario': case.scenario,
++        'skipped': False,
++        'ok': bool(chk['ok']),
++        'check_reason': chk['reason'],
++        'duration_seconds': duration_s,
++        'recovery_total': int(chk['recovery_total']),
++        'raw': raw,
++    }
++
++
++class NightlySmokeRunner:
++    def __init__(self, *, report_path: str, textfile_path: str) -> None:
++        self.report_path = report_path
++        self.textfile_path = textfile_path
++        self.hostname = socket.gethostname()
++        self.state_key = os.getenv('EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_STATE_KEY', STATE_KEY)
++
++    def run(self, cases: Optional[Iterable[SmokeCase]] = None) -> Dict[str, Any]:
++        started = time.time()
++        ts_ms = _now_ms()
++        rows: List[Dict[str, Any]] = []
++        for case in list(cases or _build_cases_from_env()):
++            rows.append(run_case(case))
++        enabled_rows = [r for r in rows if not r.get('skipped')]
++        ok = all(bool(r.get('ok')) for r in enabled_rows) if enabled_rows else True
++        report = {
++            'schema_ver': 'exec_health_reconnect_smoke_v1',
++            'host': self.hostname,
++            'ts_ms': ts_ms,
++            'ok': bool(ok),
++            'enabled_case_count': len(enabled_rows),
++            'case_count': len(rows),
++            'duration_seconds': max(0.0, time.time() - started),
++            'last_success_ts_ms': ts_ms if ok else 0,
++            'cases': rows,
++            'state_key': self.state_key,
++        }
++        _write_json(self.report_path, report)
++        _atomic_write(self.textfile_path, _render_textfile(report))
++        return report
++
++
++def build_arg_parser() -> argparse.ArgumentParser:
++    p = argparse.ArgumentParser(description='Nightly ExecHealth reconnect chaos smoke runner')
++    p.add_argument('--report-path', default=os.getenv('EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_REPORT_PATH', DEFAULT_REPORT_PATH))
++    p.add_argument('--textfile-path', default=os.getenv('EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_TEXTFILE_PATH', DEFAULT_TEXTFILE_PATH))
++    return p
++
++
++def main(argv: Optional[List[str]] = None) -> int:
++    args = build_arg_parser().parse_args(argv)
++    report = NightlySmokeRunner(report_path=args.report_path, textfile_path=args.textfile_path).run()
++    return 0 if report.get('ok') else 2
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+diff --git a/tick_flow_full/orderflow_services/deploy/docker-compose.exec-health-freeze-reconnect-nightly-v1.yml b/tick_flow_full/orderflow_services/deploy/docker-compose.exec-health-freeze-reconnect-nightly-v1.yml
+new file mode 100644
+index 0000000..f68fba6
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/deploy/docker-compose.exec-health-freeze-reconnect-nightly-v1.yml
+@@ -0,0 +1,28 @@
++services:
++  exec-health-freeze-reconnect-nightly:
++    image: ${EXEC_HEALTH_RECONNECT_SMOKE_IMAGE:-python:3.13-slim}
++    working_dir: /repo
++    volumes:
++      - ${EXEC_HEALTH_REPO_ROOT:-.}:/repo
++      - ${EXEC_HEALTH_RECONNECT_SMOKE_REPORT_DIR:-/var/lib/trade/exec_health_reconnect_smoke}:/var/lib/trade/exec_health_reconnect_smoke
++      - ${EXEC_HEALTH_RECONNECT_SMOKE_TEXTFILE_DIR:-/var/lib/node_exporter/textfile_collector}:/var/lib/node_exporter/textfile_collector
++    environment:
++      PYTHONPATH: /repo
++      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
++      EXEC_HEALTH_REDIS_AUDIT_URL: ${EXEC_HEALTH_REDIS_AUDIT_URL:-}
++      EXEC_HEALTH_REDIS_BOOTSTRAP_URL: ${EXEC_HEALTH_REDIS_BOOTSTRAP_URL:-}
++      EXEC_HEALTH_REDIS_WRONG_USER_URL: ${EXEC_HEALTH_REDIS_WRONG_USER_URL:-}
++      EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_REPORT_PATH: /var/lib/trade/exec_health_reconnect_smoke/latest_report.json
++      EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_TEXTFILE_PATH: /var/lib/node_exporter/textfile_collector/exec_health_freeze_reconnect_smoke.prom
++      EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_INCLUDE_BOOTSTRAP: ${EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_INCLUDE_BOOTSTRAP:-1}
++      EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_INCLUDE_WRONG_USER: ${EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_INCLUDE_WRONG_USER:-1}
++      EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE: ${EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE:-1}
++      EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME: ${EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME:-1}
++      EXEC_HEALTH_FREEZE_CLIENT_HEAL_CHECK_MS: ${EXEC_HEALTH_FREEZE_CLIENT_HEAL_CHECK_MS:-0}
++    command:
++      - /bin/bash
++      - -lc
++      - >-
++        python -m pip install --no-cache-dir redis >/tmp/exec_health_reconnect_smoke_pip.log 2>&1 &&
++        python -m orderflow_services.exec_health_freeze_reconnect_nightly_smoke_v1
++    restart: "no"
+diff --git a/tick_flow_full/orderflow_services/deploy/systemd/run-exec-health-freeze-reconnect-nightly-v1.sh b/tick_flow_full/orderflow_services/deploy/systemd/run-exec-health-freeze-reconnect-nightly-v1.sh
+new file mode 100755
+index 0000000..15e3b59
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/deploy/systemd/run-exec-health-freeze-reconnect-nightly-v1.sh
+@@ -0,0 +1,12 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++REPO_ROOT="${EXEC_HEALTH_REPO_ROOT:-/opt/scanner_infra}"
++COMPOSE_FILE="${EXEC_HEALTH_RECONNECT_SMOKE_COMPOSE_FILE:-${REPO_ROOT}/orderflow_services/deploy/docker-compose.exec-health-freeze-reconnect-nightly-v1.yml}"
++SERVICE_NAME="${EXEC_HEALTH_RECONNECT_SMOKE_SERVICE_NAME:-exec-health-freeze-reconnect-nightly}"
++REPORT_DIR="${EXEC_HEALTH_RECONNECT_SMOKE_REPORT_DIR:-/var/lib/trade/exec_health_reconnect_smoke}"
++TEXTFILE_DIR="${EXEC_HEALTH_RECONNECT_SMOKE_TEXTFILE_DIR:-/var/lib/node_exporter/textfile_collector}"
++
++mkdir -p "${REPORT_DIR}" "${TEXTFILE_DIR}"
++cd "${REPO_ROOT}"
++exec docker compose -f "${COMPOSE_FILE}" run --rm "${SERVICE_NAME}"
+diff --git a/tick_flow_full/orderflow_services/deploy/systemd/exec-health-freeze-reconnect-nightly.service b/tick_flow_full/orderflow_services/deploy/systemd/exec-health-freeze-reconnect-nightly.service
+new file mode 100644
+index 0000000..0afbcc1
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/deploy/systemd/exec-health-freeze-reconnect-nightly.service
+@@ -0,0 +1,17 @@
++[Unit]
++Description=ExecHealth nightly reconnect chaos smoke
++After=network-online.target docker.service
++Wants=network-online.target
++Requires=docker.service
++
++[Service]
++Type=oneshot
++EnvironmentFile=-/etc/default/exec-health-freeze-reconnect-nightly
++WorkingDirectory=/opt/scanner_infra
++ExecStart=/opt/scanner_infra/orderflow_services/deploy/systemd/run-exec-health-freeze-reconnect-nightly-v1.sh
++Nice=10
++IOSchedulingClass=best-effort
++TimeoutStartSec=1800
++
++[Install]
++WantedBy=multi-user.target
+diff --git a/tick_flow_full/orderflow_services/deploy/systemd/exec-health-freeze-reconnect-nightly.timer b/tick_flow_full/orderflow_services/deploy/systemd/exec-health-freeze-reconnect-nightly.timer
+new file mode 100644
+index 0000000..8b8075d
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/deploy/systemd/exec-health-freeze-reconnect-nightly.timer
+@@ -0,0 +1,11 @@
++[Unit]
++Description=Nightly ExecHealth reconnect chaos smoke timer
++
++[Timer]
++OnCalendar=*-*-* 03:17:00
++RandomizedDelaySec=20m
++Persistent=true
++Unit=exec-health-freeze-reconnect-nightly.service
++
++[Install]
++WantedBy=timers.target
+diff --git a/tick_flow_full/orderflow_services/runbook_exec_health_freeze_reconnect_nightly_v1.md b/tick_flow_full/orderflow_services/runbook_exec_health_freeze_reconnect_nightly_v1.md
+new file mode 100644
+index 0000000..92672f9
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/runbook_exec_health_freeze_reconnect_nightly_v1.md
+@@ -0,0 +1,95 @@
++# ExecHealth Nightly Reconnect Chaos Smoke (P17)
++
++## Goal
++
++Run the P16 reconnect chaos smoke automatically every night on staging / infra host so the self-healing path is exercised regularly, not only during incident response.
++
++## What the nightly job validates
++
++Repairable reconnect drift:
++- representative writer client returns with expected `CLIENT SETNAME`
++- representative audit client returns with expected `CLIENT SETINFO LIB-NAME`
++- representative bootstrap client also recovers when enabled
++- recovery event is emitted
++- `recovery_total` in heal-state increases
++
++Non-repairable path:
++- `wrong_user` does **not** self-heal
++- scenario remains on violation path
++
++## Files
++
++- Compose job:
++  - `orderflow_services/deploy/docker-compose.exec-health-freeze-reconnect-nightly-v1.yml`
++- systemd service:
++  - `orderflow_services/deploy/systemd/exec-health-freeze-reconnect-nightly.service`
++- systemd timer:
++  - `orderflow_services/deploy/systemd/exec-health-freeze-reconnect-nightly.timer`
++- Wrapper:
++  - `orderflow_services/deploy/systemd/run-exec-health-freeze-reconnect-nightly-v1.sh`
++- Runner:
++  - `orderflow_services/exec_health_freeze_reconnect_nightly_smoke_v1.py`
++
++## Manual run
++
++```bash
++python -m orderflow_services.exec_health_freeze_reconnect_nightly_smoke_v1
++```
++
++Expected outputs:
++- report JSON: `/var/lib/trade/exec_health_reconnect_smoke/latest_report.json`
++- textfile metric: `/var/lib/node_exporter/textfile_collector/exec_health_freeze_reconnect_smoke.prom`
++
++## systemd install
++
++```bash
++sudo cp orderflow_services/deploy/systemd/exec-health-freeze-reconnect-nightly.service /etc/systemd/system/
++sudo cp orderflow_services/deploy/systemd/exec-health-freeze-reconnect-nightly.timer /etc/systemd/system/
++```
++
++Copy wrapper too:
++
++```bash
++sudo install -m 0755 orderflow_services/deploy/systemd/run-exec-health-freeze-reconnect-nightly-v1.sh \
++  /opt/scanner_infra/orderflow_services/deploy/systemd/run-exec-health-freeze-reconnect-nightly-v1.sh
++```
++
++Create environment file `/etc/default/exec-health-freeze-reconnect-nightly`:
++
++```bash
++EXEC_HEALTH_REPO_ROOT=/opt/scanner_infra
++EXEC_HEALTH_RECONNECT_SMOKE_REPORT_DIR=/var/lib/trade/exec_health_reconnect_smoke
++EXEC_HEALTH_RECONNECT_SMOKE_TEXTFILE_DIR=/var/lib/node_exporter/textfile_collector
++REDIS_URL=redis://exec_health_freeze_writer:<pass>@redis-worker-1:6379/0
++EXEC_HEALTH_REDIS_AUDIT_URL=redis://exec_health_freeze_audit:<pass>@redis-worker-1:6379/0
++EXEC_HEALTH_REDIS_BOOTSTRAP_URL=redis://exec_health_freeze_bootstrap:<pass>@redis-worker-1:6379/0
++EXEC_HEALTH_REDIS_WRONG_USER_URL=redis://default:<pass>@redis-worker-1:6379/0
++```
++
++Reload and start:
++
++```bash
++sudo systemctl daemon-reload
++sudo systemctl enable --now exec-health-freeze-reconnect-nightly.timer
++```
++
++## Troubleshooting
++
++Inspect last timer runs:
++
++```bash
++systemctl list-timers --all | grep exec-health-freeze-reconnect-nightly
++journalctl -u exec-health-freeze-reconnect-nightly.service -n 200 --no-pager
++```
++
++Inspect last report:
++
++```bash
++cat /var/lib/trade/exec_health_reconnect_smoke/latest_report.json
++cat /var/lib/node_exporter/textfile_collector/exec_health_freeze_reconnect_smoke.prom
++```
++
++## Alert expectations
++
++- alert if nightly smoke did not succeed within 36h
++- alert if last run failed
+diff --git a/tick_flow_full/orderflow_services/prometheus_alerts_exec_health_freeze_reconnect_nightly_v1.yml b/tick_flow_full/orderflow_services/prometheus_alerts_exec_health_freeze_reconnect_nightly_v1.yml
+new file mode 100644
+index 0000000..fb155e6
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_exec_health_freeze_reconnect_nightly_v1.yml
+@@ -0,0 +1,20 @@
++groups:
++  - name: exec_health_freeze_reconnect_nightly_v1
++    rules:
++      - alert: OF_ExecHealth_ReconnectNightly_Failed_Crit
++        expr: exec_health_freeze_reconnect_smoke_last_run_ok == 0
++        for: 30m
++        labels:
++          severity: critical
++        annotations:
++          summary: "ExecHealth nightly reconnect chaos smoke failed"
++          description: "Last reconnect chaos smoke run reported failure. Check latest JSON report and systemd logs."
++
++      - alert: OF_ExecHealth_ReconnectNightly_Stale_Warn
++        expr: (time() * 1000 - exec_health_freeze_reconnect_smoke_last_success_ts_ms) > 36 * 3600 * 1000
++        for: 1h
++        labels:
++          severity: warning
++        annotations:
++          summary: "ExecHealth nightly reconnect chaos smoke is stale"
++          description: "No successful reconnect chaos smoke run has been observed within the last 36 hours."
+diff --git a/tick_flow_full/orderflow_services/grafana/exec_health_freeze_reconnect_nightly_v1.json b/tick_flow_full/orderflow_services/grafana/exec_health_freeze_reconnect_nightly_v1.json
+new file mode 100644
+index 0000000..33ababe
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/grafana/exec_health_freeze_reconnect_nightly_v1.json
+@@ -0,0 +1,43 @@
++{
++  "title": "ExecHealth Reconnect Nightly Smoke (v1)",
++  "schemaVersion": 39,
++  "version": 1,
++  "panels": [
++    {
++      "type": "stat",
++      "title": "Last Run OK",
++      "targets": [
++        {
++          "expr": "exec_health_freeze_reconnect_smoke_last_run_ok"
++        }
++      ]
++    },
++    {
++      "type": "stat",
++      "title": "Hours Since Success",
++      "targets": [
++        {
++          "expr": "(time()*1000 - exec_health_freeze_reconnect_smoke_last_success_ts_ms) / 1000 / 3600"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Case OK by Service/Scenario",
++      "targets": [
++        {
++          "expr": "exec_health_freeze_reconnect_smoke_case_ok"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Recovery Total by Service/Scenario",
++      "targets": [
++        {
++          "expr": "exec_health_freeze_reconnect_smoke_case_recovery_total"
++        }
++      ]
++    }
++  ]
++}

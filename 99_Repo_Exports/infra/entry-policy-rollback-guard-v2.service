@@ -1,0 +1,19 @@
+[Unit]
+Description=Entry Policy Rollback Guard V2 (per-regime + data-quality)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+Environment=PYTHONPATH=.:..
+Environment=REDIS_URL=redis://redis-worker-1:6379/0
+Environment=TRADE_EVENTS_STREAM=events:trades
+Environment=AB_RB_MODE=enforce
+Environment=AB_RB_WINDOW_N=60
+Environment=AB_RB_COOLDOWN_SEC=7200
+ExecStart=/usr/bin/python -m services.entry_policy_rollback_guard_v2
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

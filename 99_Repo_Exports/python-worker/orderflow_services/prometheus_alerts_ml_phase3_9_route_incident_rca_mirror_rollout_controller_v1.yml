@@ -1,0 +1,23 @@
+groups:
+  - name: ml_phase3_9_route_incident_rca_mirror_rollout_controller_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRolloutControllerStale
+        expr: time() - ml_route_incident_rca_mirror_rollout_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror rollout controller is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRolloutControllerErrors
+        expr: increase(ml_route_incident_rca_mirror_rollout_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror rollout controller has errors"
+
+      - alert: MLRouteIncidentRCAMirrorRolloutControllerUnexpectedTransition
+        expr: increase(ml_route_incident_rca_mirror_rollout_transitions_total{transition_type="NONE"}[30m]) > 0
+        for: 10m
+        labels: { severity: info }
+        annotations:
+          summary: "route incident RCA mirror rollout controller saw unexpected transition accounting"

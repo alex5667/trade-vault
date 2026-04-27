@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/signal_types.py
+# hypothesis_version: 6.148.10
+
+[0.7, 'MIXED', 'RANGE', 'TREND', 'UNKNOWN', 'absorption', 'breakout', 'expansion_bear', 'expansion_bull', 'range', 'range_bearish', 'range_bullish', 'reclaim', 'squeeze', 'squeeze_bearish', 'squeeze_bullish', 'sweep', 'trending_bear', 'trending_bull']

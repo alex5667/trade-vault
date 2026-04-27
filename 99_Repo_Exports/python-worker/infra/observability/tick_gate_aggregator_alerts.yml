@@ -1,0 +1,57 @@
+groups:
+  - name: tick_gate_aggregator
+    rules:
+      - alert: TickGateNoEvents
+        expr: increase(tick_gate_events_total[30m]) == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tick Gate aggregator sees no events"
+          description: "No gate events consumed in the last 30m. Check wrapper publish, Redis stream, or aggregator service."
+
+      - alert: TickGateLastRunStale
+        expr: (time() - tick_gate_last_run_ts_seconds) > 900
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tick Gate last run is stale"
+          description: "Latest gate event older than 15 minutes. Check wrapper/timer and aggregator health."
+
+      - alert: TickGateFailRateHigh
+        expr: |
+          (
+            increase(tick_gate_events_total{status="fail"}[15m])
+          /
+            clamp_min(increase(tick_gate_events_total[15m]), 1)
+          ) > 0.20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tick Gate FAIL rate high"
+          description: "FAIL rate > 20% over 15m. Inspect tick quality metrics (EMA, latency) and fail reasons."
+
+      - alert: TickGateErrorRateHigh
+        expr: |
+          (
+            increase(tick_gate_events_total{status="error"}[15m])
+          /
+            clamp_min(increase(tick_gate_events_total[15m]), 1)
+          ) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tick Gate ERROR rate high"
+          description: "ERROR rate > 5% over 15m. Likely /metrics unavailable or parsing errors in gate tool."
+
+      - alert: TickGateStreamLagHigh
+        expr: tick_gate_stream_lag_ms > 600000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tick Gate stream lag high"
+          description: "Aggregator is lagging behind by >10 minutes. Check consumer group PEL, Redis latency, or aggregator CPU."

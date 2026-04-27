@@ -1,0 +1,10 @@
+[Unit]
+Description=Run ML rollout guard v2 hourly
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+

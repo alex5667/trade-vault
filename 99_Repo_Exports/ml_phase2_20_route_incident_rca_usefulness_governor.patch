@@ -1,0 +1,557 @@
+diff --git a/orderflow_services/operator_routing_incident_route_rca_usefulness_governor_v2_20.py b/orderflow_services/operator_routing_incident_route_rca_usefulness_governor_v2_20.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/operator_routing_incident_route_rca_usefulness_governor_v2_20.py
+@@ -0,0 +1,420 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from collections import defaultdict
++from typing import Any, DefaultDict, Dict, Iterable, List, Tuple
++
++try:  # pragma: no cover
++    import psycopg
++except Exception:  # pragma: no cover
++    psycopg = None
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++
++APP_NAME = "operator_routing_incident_route_rca_usefulness_governor_v2_20"
++PORT = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_PORT", "9905"))
++RUN_EVERY_SEC = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_RUN_EVERY_SEC", "300"))
++WINDOW_MIN = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_WINDOW_MIN", "1440"))
++MIN_SAMPLE = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_MIN_SAMPLE", "8"))
++SUPPRESS_SCORE_MAX = float(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_SUPPRESS_SCORE_MAX", "0.45"))
++PROMOTE_SCORE_MIN = float(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_PROMOTE_SCORE_MIN", "0.72"))
++ADVISORY_ONLY = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_ADVISORY_ONLY", "1"))
++MAXLEN = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_MAXLEN", "20000"))
++
++DECISIONS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_DECISIONS_STREAM",
++    "stream:ml:operator_routing_incident_route_rca_governor_decisions",
++)
++AUDIT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_AUDIT_STREAM",
++    "stream:ml:operator_routing_incident_route_rca_governor_audit",
++)
++LAST_HASH = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_LAST_HASH",
++    "metrics:ml:operator_routing_incident_route_rca_governor:last",
++)
++ACTION_PREFIX = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_ACTION_PREFIX",
++    "cfg:ml:operator_routing_incident_route_rca_governor:action:",
++)
++PROVIDER_PREFIX = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_PROVIDER_PREFIX",
++    "cfg:ml:operator_routing_incident_route_rca_governor:provider:",
++)
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter(
++    "ml_operator_routing_incident_route_rca_governor_runs_total",
++    "Route-incident RCA governor runs",
++    ("status", "decision"),
++)
++LAT = _hist(
++    "ml_operator_routing_incident_route_rca_governor_latency_seconds",
++    "Route-incident RCA governor latency seconds",
++)
++UP = _gauge(
++    "ml_operator_routing_incident_route_rca_governor_up",
++    "Route-incident RCA governor up",
++)
++LAST_RUN_TS = _gauge(
++    "ml_operator_routing_incident_route_rca_governor_last_run_ts_seconds",
++    "Route-incident RCA governor last run timestamp",
++)
++SCORED = _gauge(
++    "ml_operator_routing_incident_route_rca_governor_scored_entities",
++    "Entities scored in the latest run",
++    ("scope",),
++)
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def stable_json(obj: Any) -> str:
++    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++def maybe_json(value: Any, default: Any = None) -> Any:
++    if value is None:
++        return default
++    if isinstance(value, (dict, list)):
++        return value
++    try:
++        return json.loads(value)
++    except Exception:
++        return default
++
++
++def safe_float(value: Any, default: float = 0.0) -> float:
++    try:
++        return float(value)
++    except Exception:
++        return default
++
++
++def avg(values: Iterable[float]) -> float:
++    vals = list(values)
++    return sum(vals) / len(vals) if vals else 0.0
++
++
++def weighted_score(quality_avg: float, usefulness_avg: float) -> float:
++    return round(0.4 * quality_avg + 0.6 * usefulness_avg, 6)
++
++
++def decision_for(score: float, sample_n: int) -> str:
++    if sample_n < MIN_SAMPLE:
++        return "HOLD"
++    if score <= SUPPRESS_SCORE_MAX:
++        return "SUPPRESS"
++    if score >= PROMOTE_SCORE_MIN:
++        return "PROMOTE"
++    return "HOLD"
++
++
++def action_key(action_type: str, prompt_version: str, policy_version: str) -> str:
++    return f"{action_type}:{prompt_version}:{policy_version}"
++
++
++def provider_key(provider: str, model_name: str, prompt_version: str) -> str:
++    return f"{provider}:{model_name}:{prompt_version}"
++
++
++def action_policy_hash(key: str) -> str:
++    return f"{ACTION_PREFIX}{key}"
++
++
++def provider_policy_hash(key: str) -> str:
++    return f"{PROVIDER_PREFIX}{key}"
++
++
++def build_decision_row(scope: str, entity_key: str, quality_avg: float, usefulness_avg: float, sample_n: int) -> Dict[str, Any]:
++    score = weighted_score(quality_avg, usefulness_avg)
++    return {
++        "scope": scope,
++        "entity_key": entity_key,
++        "sample_n": sample_n,
++        "quality_avg": round(quality_avg, 6),
++        "usefulness_avg": round(usefulness_avg, 6),
++        "score": score,
++        "decision": decision_for(score, sample_n),
++    }
++
++
++def fetch_rows(db_url: str) -> List[Dict[str, Any]]:
++    if not db_url or psycopg is None:
++        return []
++    threshold_ms = now_ms() - WINDOW_MIN * 60 * 1000
++    sql = """
++        SELECT
++            r.incident_id,
++            r.provider,
++            r.model_name,
++            r.prompt_version,
++            r.policy_version,
++            r.quality_score,
++            r.usefulness_score,
++            r.result_json
++        FROM llm_operator_routing_incident_route_rca_results r
++        WHERE r.ts_ms >= %(threshold_ms)s
++    """
++    out: List[Dict[str, Any]] = []
++    with psycopg.connect(db_url) as conn:  # pragma: no cover
++        with conn.cursor() as cur:
++            cur.execute(sql, {"threshold_ms": threshold_ms})
++            cols = [c.name for c in cur.description]
++            for row in cur.fetchall():
++                out.append(dict(zip(cols, row)))
++    return out
++
++
++def aggregate(rows: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
++    action_scores: DefaultDict[str, Dict[str, List[float]]] = defaultdict(lambda: {"q": [], "u": []})
++    provider_scores: DefaultDict[str, Dict[str, List[float]]] = defaultdict(lambda: {"q": [], "u": []})
++
++    for row in rows:
++        quality = safe_float(row.get("quality_score"), 0.0)
++        usefulness = safe_float(row.get("usefulness_score"), 0.5)
++        provider = str(row.get("provider") or "")
++        model_name = str(row.get("model_name") or "")
++        prompt_version = str(row.get("prompt_version") or "")
++        policy_version = str(row.get("policy_version") or "")
++        result = maybe_json(row.get("result_json"), {}) or {}
++        recommendations = result.get("recommendations", []) or []
++
++        pk = provider_key(provider, model_name, prompt_version)
++        provider_scores[pk]["q"].append(quality)
++        provider_scores[pk]["u"].append(usefulness)
++
++        for reco in recommendations:
++            action_type = str(reco.get("action") or "")
++            if not action_type:
++                continue
++            ak = action_key(action_type, prompt_version, policy_version)
++            action_scores[ak]["q"].append(quality)
++            action_scores[ak]["u"].append(usefulness)
++
++    action_rows = [
++        build_decision_row("action_pattern", key, avg(data["q"]), avg(data["u"]), min(len(data["q"]), len(data["u"])) or max(len(data["q"]), len(data["u"])))
++        for key, data in action_scores.items()
++    ]
++    provider_rows = [
++        build_decision_row("provider_prompt", key, avg(data["q"]), avg(data["u"]), min(len(data["q"]), len(data["u"])) or max(len(data["q"]), len(data["u"])))
++        for key, data in provider_scores.items()
++    ]
++    return action_rows, provider_rows
++
++
++async def persist_decision_if_configured(db_url: str, row: Dict[str, Any]) -> None:
++    if not db_url or psycopg is None:
++        return
++    with psycopg.connect(db_url) as conn:  # pragma: no cover
++        with conn.cursor() as cur:
++            cur.execute(
++                """
++                INSERT INTO llm_operator_routing_incident_route_rca_governor_decisions (
++                    ts_ms,
++                    scope,
++                    entity_key,
++                    sample_n,
++                    quality_avg,
++                    usefulness_avg,
++                    score,
++                    decision,
++                    advisory_only
++                ) VALUES (
++                    %(ts_ms)s,
++                    %(scope)s,
++                    %(entity_key)s,
++                    %(sample_n)s,
++                    %(quality_avg)s,
++                    %(usefulness_avg)s,
++                    %(score)s,
++                    %(decision)s,
++                    %(advisory_only)s
++                )
++                """,
++                {
++                    "ts_ms": now_ms(),
++                    "scope": row["scope"],
++                    "entity_key": row["entity_key"],
++                    "sample_n": row["sample_n"],
++                    "quality_avg": row["quality_avg"],
++                    "usefulness_avg": row["usefulness_avg"],
++                    "score": row["score"],
++                    "decision": row["decision"],
++                    "advisory_only": ADVISORY_ONLY,
++                },
++            )
++            conn.commit()
++
++
++async def write_policy_hash(r: Any, row: Dict[str, Any]) -> None:
++    key = action_policy_hash(row["entity_key"]) if row["scope"] == "action_pattern" else provider_policy_hash(row["entity_key"])
++    await r.hset(
++        key,
++        mapping={
++            "scope": row["scope"],
++            "entity_key": row["entity_key"],
++            "sample_n": str(row["sample_n"]),
++            "quality_avg": str(row["quality_avg"]),
++            "usefulness_avg": str(row["usefulness_avg"]),
++            "score": str(row["score"]),
++            "decision": row["decision"],
++            "advisory_only": str(ADVISORY_ONLY),
++            "window_min": str(WINDOW_MIN),
++            "ts_ms": str(now_ms()),
++        },
++    )
++
++
++async def emit(r: Any, row: Dict[str, Any]) -> None:
++    payload = {
++        "schema_version": 1,
++        "scope": row["scope"],
++        "entity_key": row["entity_key"],
++        "sample_n": str(row["sample_n"]),
++        "quality_avg": str(row["quality_avg"]),
++        "usefulness_avg": str(row["usefulness_avg"]),
++        "score": str(row["score"]),
++        "decision": row["decision"],
++        "advisory_only": str(ADVISORY_ONLY),
++        "ts_ms": str(now_ms()),
++    }
++    await r.xadd(DECISIONS_STREAM, payload, maxlen=MAXLEN, approximate=True)
++    await r.xadd(
++        AUDIT_STREAM,
++        {
++            "event_type": "ROUTE_INCIDENT_RCA_GOVERNOR_DECIDED",
++            "scope": row["scope"],
++            "entity_key": row["entity_key"],
++            "decision": row["decision"],
++            "score": str(row["score"]),
++            "ts_ms": str(now_ms()),
++        },
++        maxlen=MAXLEN,
++        approximate=True,
++    )
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    db_url = os.getenv("DATABASE_URL", "")
++
++    while True:
++        started = time.perf_counter()
++        status = "ok"
++        decision_label = "HOLD"
++        try:
++            rows = fetch_rows(db_url)
++            action_rows, provider_rows = aggregate(rows)
++            if SCORED:
++                SCORED.labels(scope="action_pattern").set(len(action_rows))
++                SCORED.labels(scope="provider_prompt").set(len(provider_rows))
++
++            decisions = action_rows + provider_rows
++            if decisions:
++                decision_label = max(decisions, key=lambda x: x["score"]).get("decision", "HOLD")
++
++            for row in decisions:
++                await emit(r, row)
++                await write_policy_hash(r, row)
++                await persist_decision_if_configured(db_url, row)
++
++            await r.hset(
++                LAST_HASH,
++                mapping={
++                    "action_rows": str(len(action_rows)),
++                    "provider_rows": str(len(provider_rows)),
++                    "decision": decision_label,
++                    "window_min": str(WINDOW_MIN),
++                    "ts_ms": str(now_ms()),
++                },
++            )
++            if LAST_RUN_TS:
++                LAST_RUN_TS.set(time.time())
++        except Exception as exc:
++            status = "error"
++            await r.xadd(
++                AUDIT_STREAM,
++                {
++                    "event_type": "ROUTE_INCIDENT_RCA_GOVERNOR_FAILED",
++                    "error": str(exc),
++                    "ts_ms": str(now_ms()),
++                },
++                maxlen=MAXLEN,
++                approximate=True,
++            )
++        finally:
++            if RUNS:
++                RUNS.labels(status=status, decision=decision_label).inc()
++            if LAT:
++                LAT.observe(max(time.perf_counter() - started, 0.0))
++            time.sleep(max(RUN_EVERY_SEC, 5))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    main()
+diff --git a/orderflow_services/sql/ml_phase2_20_v1.sql b/orderflow_services/sql/ml_phase2_20_v1.sql
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/orderflow_services/sql/ml_phase2_20_v1.sql
+@@ -0,0 +1,27 @@
++BEGIN;
++
++CREATE TABLE IF NOT EXISTS llm_operator_routing_incident_route_rca_governor_decisions (
++    id               bigserial PRIMARY KEY,
++    ts_ms            bigint NOT NULL,
++    scope            text NOT NULL,
++    entity_key       text NOT NULL,
++    sample_n         integer NOT NULL,
++    quality_avg      double precision NOT NULL,
++    usefulness_avg   double precision NOT NULL,
++    score            double precision NOT NULL,
++    decision         text NOT NULL,
++    advisory_only    integer NOT NULL DEFAULT 1
++);
++
++CREATE INDEX IF NOT EXISTS idx_llm_operator_routing_incident_route_rca_governor_decisions_scope_ts
++    ON llm_operator_routing_incident_route_rca_governor_decisions(scope, ts_ms DESC);
++
++CREATE TABLE IF NOT EXISTS llm_operator_routing_incident_route_rca_governor_policy_versions (
++    id               bigserial PRIMARY KEY,
++    ts_ms            bigint NOT NULL,
++    advisory_only    integer NOT NULL,
++    window_min       integer NOT NULL,
++    min_sample       integer NOT NULL
++);
++
++COMMIT;
+diff --git a/orderflow_services/docker_compose_fragment_ml_phase2_20_v1.yml b/orderflow_services/docker_compose_fragment_ml_phase2_20_v1.yml
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/orderflow_services/docker_compose_fragment_ml_phase2_20_v1.yml
+@@ -0,0 +1,22 @@
++services:
++  scanner-operator-routing-incident-route-rca-usefulness-governor-v2-20:
++    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
++    command: ["python", "-m", "orderflow_services.operator_routing_incident_route_rca_usefulness_governor_v2_20"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_PORT:-9905}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_ADVISORY_ONLY: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_ADVISORY_ONLY:-1}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_WINDOW_MIN: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_WINDOW_MIN:-1440}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_MIN_SAMPLE: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_MIN_SAMPLE:-8}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_SUPPRESS_SCORE_MAX: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_SUPPRESS_SCORE_MAX:-0.45}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_PROMOTE_SCORE_MIN: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_PROMOTE_SCORE_MIN:-0.72}
++    ports: ["${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_PORT:-9905}:9905"]
++    depends_on: [redis-worker-1]
+diff --git a/orderflow_services/prometheus_alerts_ml_phase2_20_v1.yml b/orderflow_services/prometheus_alerts_ml_phase2_20_v1.yml
+new file mode 100644
+index 0000000..3333334
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_ml_phase2_20_v1.yml
+@@ -0,0 +1,24 @@
++groups:
++  - name: ml_phase2_20_operator_routing_incident_route_rca_governor_v1
++    rules:
++      - alert: MLOperatorRoutingIncidentRouteRCAGovernorStale
++        expr: time() - ml_operator_routing_incident_route_rca_governor_last_run_ts_seconds > 1800
++        for: 10m
++        labels: { severity: warning }
++        annotations:
++          summary: "route incident RCA usefulness governor is stale"
++
++      - alert: MLOperatorRoutingIncidentRouteRCAGovernorErrors
++        expr: increase(ml_operator_routing_incident_route_rca_governor_runs_total{status="error"}[30m]) > 0
++        for: 5m
++        labels: { severity: warning }
++        annotations:
++          summary: "route incident RCA usefulness governor has errors"
+diff --git a/orderflow_services/runbook_ml_phase2_20_v1.md b/orderflow_services/runbook_ml_phase2_20_v1.md
+new file mode 100644
+index 0000000..4444444
+--- /dev/null
++++ b/orderflow_services/runbook_ml_phase2_20_v1.md
+@@ -0,0 +1,43 @@
++# Phase 2.20 — Route Incident RCA Usefulness Governor
++
++## Цель
++Построить отдельный usefulness governor именно для `route incident RCA`, отдельно от:
++- обычного `operator_rca`
++- `routing incident RCA`
++
++## Что делает
++- использует `quality_score + usefulness_score`
++- строит решения по двум scope:
++  - `action_pattern = action_type + prompt_version + policy_version`
++  - `provider_prompt = provider + model_name + prompt_version`
++- выдаёт только:
++  - `SUPPRESS`
++  - `PROMOTE`
++  - `HOLD`
++
++## Потоки и state
++- `stream:ml:operator_routing_incident_route_rca_governor_decisions`
++- `stream:ml:operator_routing_incident_route_rca_governor_audit`
++- `cfg:ml:operator_routing_incident_route_rca_governor:action:*`
++- `cfg:ml:operator_routing_incident_route_rca_governor:provider:*`
++
++## Safe start
++```bash
++export ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_ADVISORY_ONLY=1
++export ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_WINDOW_MIN=1440
++export ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_MIN_SAMPLE=8
++export ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_SUPPRESS_SCORE_MAX=0.45
++export ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_PROMOTE_SCORE_MIN=0.72
++```
++
++## Smoke checks
++```bash
++redis-cli XREVRANGE stream:ml:operator_routing_incident_route_rca_governor_decisions + - COUNT 5
++redis-cli XREVRANGE stream:ml:operator_routing_incident_route_rca_governor_audit + - COUNT 5
++redis-cli HGETALL cfg:ml:operator_routing_incident_route_rca_governor:action:open_incident:routing_incident_route_rca_v1:policy_v1
++redis-cli HGETALL cfg:ml:operator_routing_incident_route_rca_governor:provider:vertex:gemini-2.5-flash-lite:routing_incident_route_rca_v1
++curl -s localhost:9905/metrics | grep '^ml_operator_routing_incident_route_rca_governor_'
++```
++
++## Notes
++- scope только `scanner_infra`
++- hot path не затронут
++- advisory-only по умолчанию
+diff --git a/orderflow_services/tests/test_operator_routing_incident_route_rca_usefulness_governor_v2_20.py b/orderflow_services/tests/test_operator_routing_incident_route_rca_usefulness_governor_v2_20.py
+new file mode 100644
+index 0000000..5555555
+--- /dev/null
++++ b/orderflow_services/tests/test_operator_routing_incident_route_rca_usefulness_governor_v2_20.py
+@@ -0,0 +1,39 @@
++from orderflow_services.operator_routing_incident_route_rca_usefulness_governor_v2_20 import (
++    action_key,
++    build_decision_row,
++    decision_for,
++    provider_key,
++    weighted_score,
++)
++
++
++def test_weighted_score_prefers_usefulness():
++    score = weighted_score(quality_avg=0.5, usefulness_avg=1.0)
++    assert round(score, 6) == round(0.4 * 0.5 + 0.6 * 1.0, 6)
++
++
++def test_decision_for_respects_thresholds():
++    assert decision_for(0.40, 10) == "SUPPRESS"
++    assert decision_for(0.80, 10) == "PROMOTE"
++    assert decision_for(0.60, 10) == "HOLD"
++    assert decision_for(0.90, 2) == "HOLD"
++
++
++def test_keys_and_build_decision_row():
++    ak = action_key("open_incident", "routing_incident_route_rca_v1", "policy_v1")
++    pk = provider_key("vertex", "gemini-2.5-flash-lite", "routing_incident_route_rca_v1")
++    assert "open_incident" in ak
++    assert "gemini-2.5-flash-lite" in pk
++    row = build_decision_row("provider_prompt", pk, 0.7, 0.8, 12)
++    assert row["decision"] in {"PROMOTE", "HOLD", "SUPPRESS"}
++    assert row["sample_n"] == 12

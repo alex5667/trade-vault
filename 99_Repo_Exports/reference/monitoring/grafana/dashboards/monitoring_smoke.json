@@ -1,0 +1,144 @@
+{
+  "uid": "monitoring_smoke",
+  "title": "Monitoring Smoke (Nightly Contract)",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 4,
+  "editable": true,
+  "refresh": "30s",
+  "time": { "from": "now-48h", "to": "now" },
+  "tags": ["trade", "monitoring", "smoke"],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Smoke success (last)",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 6 },
+      "targets": [{ "expr": "monitoring_smoke_last_success", "refId": "A" }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": { "unit": "none", "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Runbooks OK (last)",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 6 },
+      "targets": [{ "expr": "monitoring_smoke_runbooks_ok", "refId": "A" }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Dashboards OK (last)",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 6 },
+      "targets": [{ "expr": "monitoring_smoke_dashboards_ok", "refId": "A" }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Failed checks (last)",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 6 },
+      "targets": [{ "expr": "monitoring_smoke_failed_checks_total", "refId": "A" }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": { "unit": "none", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 3 }] } },
+        "overrides": []
+      }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Alertmanager API OK (last)",
+      "gridPos": { "x": 0, "y": 6, "w": 6, "h": 6 },
+      "targets": [{ "expr": "monitoring_smoke_alertmanager_api_ok", "refId": "A" }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] }
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Prometheus API OK (last)",
+      "gridPos": { "x": 6, "y": 6, "w": 6, "h": 6 },
+      "targets": [{ "expr": "monitoring_smoke_prometheus_api_ok", "refId": "A" }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] }
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Blackbox exporter OK (last, internal)",
+      "gridPos": { "x": 12, "y": 6, "w": 6, "h": 6 },
+      "targets": [{ "expr": "monitoring_smoke_blackbox_exporter_ok", "refId": "A" }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Smoke age (seconds)",
+      "gridPos": { "x": 18, "y": 6, "w": 6, "h": 6 },
+      "targets": [{ "expr": "monitoring_smoke_age_seconds", "refId": "A" }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 7200 }, { "color": "red", "value": 21600 }] } },
+        "overrides": []
+      }
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Targets stale (last)",
+      "gridPos": { "x": 0, "y": 12, "w": 6, "h": 6 },
+      "targets": [{ "expr": "monitoring_smoke_targets_stale", "refId": "A" }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Targets age (seconds)",
+      "gridPos": { "x": 6, "y": 12, "w": 6, "h": 6 },
+      "targets": [{ "expr": "monitoring_smoke_targets_age_seconds", "refId": "A" }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Contract OK (last 48h)",
+      "gridPos": { "x": 0, "y": 18, "w": 24, "h": 10 },
+      "targets": [
+        { "expr": "monitoring_smoke_last_success", "legendFormat": "success", "refId": "A" },
+        { "expr": "monitoring_smoke_runbooks_ok", "legendFormat": "runbooks_ok", "refId": "B" },
+        { "expr": "monitoring_smoke_dashboards_ok", "legendFormat": "dashboards_ok", "refId": "C" },
+        { "expr": "monitoring_smoke_alertmanager_api_ok", "legendFormat": "am_api_ok", "refId": "D" },
+        { "expr": "monitoring_smoke_prometheus_api_ok", "legendFormat": "prom_api_ok", "refId": "E" },
+        { "expr": "monitoring_smoke_blackbox_exporter_ok", "legendFormat": "blackbox_ok", "refId": "F" },
+        { "expr": "1 - monitoring_smoke_targets_stale", "legendFormat": "targets_fresh", "refId": "G" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" } }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Failed checks total (trend)",
+      "gridPos": { "x": 0, "y": 28, "w": 24, "h": 8 },
+      "targets": [{ "expr": "monitoring_smoke_failed_checks_total", "legendFormat": "failed_total", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    }
+  ]
+}

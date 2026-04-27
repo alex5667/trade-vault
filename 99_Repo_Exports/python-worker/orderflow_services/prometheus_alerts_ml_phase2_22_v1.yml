@@ -1,0 +1,18 @@
+groups:
+  - name: ml_phase2_22_operator_routing_incident_route_rca_experiment_v1
+    rules:
+      - alert: MLOperatorRoutingIncidentRouteRCAExperimentRouterStale
+        expr: time() - ml_operator_routing_incident_route_rca_experiment_router_last_run_ts_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Routing incident Route RCA Experiment Router is stale"
+
+      - alert: MLOperatorRoutingIncidentRouteRCAWinnerSelectorStale
+        expr: time() - ml_operator_routing_incident_route_rca_experiment_winner_last_run_ts_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Routing incident Route RCA Winner Selector is stale"

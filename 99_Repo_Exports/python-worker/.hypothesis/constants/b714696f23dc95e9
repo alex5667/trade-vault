@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/replay/recorder.py
+# hypothesis_version: 6.148.10
+
+[1000, ',', '0', '1', 'REPLAY_RECORD', 'REPLAY_RECORD_FLUSH', 'REPLAY_RECORD_FSYNC', 'REPLAY_RECORD_PATH', 'REPLAY_RECORD_TYPES', 'ctx', 'false', 'no', 'on', 'payload', 'signal', 'tick', 'true', 'ts_ms', 'type', 'yes']

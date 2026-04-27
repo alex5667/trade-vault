@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Tick-Quality Gated Ramp periodically (Step 20)
+
+[Timer]
+# Run daily at 02:15 (adjust)
+OnCalendar=*-*-* 02:15:00
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

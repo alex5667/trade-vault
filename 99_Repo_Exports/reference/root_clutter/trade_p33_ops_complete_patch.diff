@@ -1,0 +1,732 @@
+diff -ruN p33hard/binance_execution/binance_executor.py p33ops/binance_execution/binance_executor.py
+--- p33hard/binance_execution/binance_executor.py	2026-03-07 06:12:24.000000000 +0000
++++ p33ops/binance_execution/binance_executor.py	2026-03-07 06:23:29.604164463 +0000
+@@ -84,6 +84,7 @@
+         resolve_execution_policy,
+     )
+     from services.execution_journal import ExecutionJournalSink
++    from services.quarantine_ledger import QuarantineLedgerSink
+     from services.execution_state_replay import (
+         rebuild_state_from_stream,
+         rebuild_state_with_fallback,
+@@ -101,6 +102,7 @@
+         resolve_execution_policy,
+     )
+     from execution_journal import ExecutionJournalSink
++    from quarantine_ledger import QuarantineLedgerSink
+     from execution_state_replay import (
+         rebuild_state_from_stream,
+         rebuild_state_with_fallback,
+@@ -817,7 +819,7 @@
+             pass  # fail-open: state is best-effort; exec stream is authoritative
+ 
+     def _replay_checkpoint_key(self, sid: str) -> str:
+-        return f"{getattr(self, "exec_replay_checkpoint_key_prefix", "orders:exec:replay:cursor:")}{sid}"
++        return f"{getattr(self, 'exec_replay_checkpoint_key_prefix', 'orders:exec:replay:cursor:')}{sid}"
+ 
+     def _quarantine_sid_for_replay_mismatch(self, sid: str, *, mismatch: Dict[str, Any], state_doc: Dict[str, Any]) -> None:
+         if not getattr(self, "exec_replay_quarantine_on_mismatch", True):
+@@ -825,10 +827,11 @@
+         try:
+             qprefix = getattr(self, "exec_replay_quarantine_prefix", "orders:quarantine:state:")
+             qkey = f"{qprefix}{sid}"
++            now_ms = _ms_now()
+             payload = dict(state_doc or {})
+             payload.update({
+                 'sid': sid,
+-                'quarantined_at_ms': _ms_now(),
++                'quarantined_at_ms': now_ms,
+                 'quarantine_reason': 'replay_mismatch',
+                 'quarantine_source': 'executor_rehydrate',
+                 'replay_mismatch': mismatch,
+@@ -837,9 +840,26 @@
+             pipe.set(qkey, json.dumps(payload, ensure_ascii=False, default=str))
+             pipe.sadd(f"{qprefix}sids", sid)
+             pipe.xadd(f"{qprefix}events", {
+-                'sid': sid, 'event': 'REPLAY_MISMATCH_QUARANTINED', 'ts_ms': str(_ms_now())
++                'sid': sid, 'event': 'REPLAY_MISMATCH_QUARANTINED', 'ts_ms': str(now_ms)
+             }, maxlen=10000, approximate=True)
+             pipe.execute()
++            try:
++                sink = getattr(self, 'quarantine_ledger', None)
++                if sink is not None:
++                    sink.record_quarantine_event({
++                        'sid': sid,
++                        'symbol': str((state_doc or {}).get('symbol') or ''),
++                        'action': 'REPLAY_MISMATCH_QUARANTINED',
++                        'severity': 'critical' if any(k in {'status', 'fsm_state'} for k in mismatch) else 'warning',
++                        'reason': 'replay_mismatch',
++                        'source': 'executor_rehydrate',
++                        'quarantine_key': qkey,
++                        'state': payload,
++                        'event_ts_ms': now_ms,
++                        'created_at_ms': now_ms,
++                    })
++            except Exception:
++                pass
+         except Exception:
+             return
+ 
+@@ -913,6 +933,8 @@
+                 "rehydrate_source": result.source,
+                 "replay_truncated": int(bool(result.truncated)),
+                 "checkpoint_id": result.checkpoint_id,
++                "retention_guard_triggered": int(bool(result.retention_guard_triggered)),
++                "replay_latency_ms": int(result.latency_ms),
+             })
+             return state_doc
+         except Exception:
+diff -ruN p33hard/binance_execution/execution_state_replay.py p33ops/binance_execution/execution_state_replay.py
+--- p33hard/binance_execution/execution_state_replay.py	2026-03-07 06:07:44.000000000 +0000
++++ p33ops/binance_execution/execution_state_replay.py	2026-03-07 06:22:40.941295631 +0000
+@@ -16,9 +16,10 @@
+ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+ 
+ try:  # pragma: no cover
+-    from prometheus_client import Counter, REGISTRY
++    from prometheus_client import Counter, Histogram, REGISTRY
+ except Exception:  # pragma: no cover
+     Counter = None  # type: ignore
++    Histogram = None  # type: ignore
+     REGISTRY = None  # type: ignore
+ 
+ 
+@@ -49,6 +50,19 @@
+     ['result'],
+ )
+ 
++TRADE_EXECUTION_REPLAY_RETENTION_GUARD_TOTAL = _metric(
++    Counter,
++    'trade_execution_replay_retention_guard_total',
++    'Replay attempts where the checkpoint fell behind Redis stream retention.',
++    ['result'],
++)
++TRADE_EXECUTION_REPLAY_LATENCY_MS = _metric(
++    Histogram,
++    'trade_execution_replay_latency_ms',
++    'Execution replay/rehydrate latency in milliseconds.',
++    buckets=(1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000),
++)
++
+ 
+ try:  # pragma: no cover
+     import psycopg  # type: ignore
+@@ -68,6 +82,8 @@
+     checkpoint_id: str
+     replayed_events: int
+     truncated: bool
++    retention_guard_triggered: bool = False
++    latency_ms: int = 0
+ 
+ 
+ def _s(v: Any) -> str:
+@@ -218,15 +234,73 @@
+             pass
+ 
+ 
+-def _bounded_rows(redis_client: Any, *, exec_stream: str, checkpoint_id: str, scan_count: int) -> Tuple[List[Tuple[Any, Mapping[str, Any]]], bool]:
++def _stream_oldest_id(redis_client: Any, exec_stream: str) -> str:
++    try:
++        rows = redis_client.xrange(exec_stream, '-', '+', count=1)
++        if rows:
++            return _s(rows[0][0])
++    except Exception:
++        pass
++    try:
++        rows = redis_client.xrevrange(exec_stream, '+', '-', count=1000000)
++        if rows:
++            return _s(rows[-1][0])
++    except Exception:
++        pass
++    return ''
++
++
++def _retention_guard_triggered(redis_client: Any, *, exec_stream: str, checkpoint_id: str) -> bool:
++    if not checkpoint_id:
++        return False
++    oldest = _stream_oldest_id(redis_client, exec_stream)
++    if not oldest:
++        return False
++    return _stream_sort_key(checkpoint_id) < _stream_sort_key(oldest)
++
++
++def stream_retention_guard_report(redis_client: Any, *, exec_stream: str, checkpoint_prefix: str, sample_limit: int = 2000) -> Dict[str, Any]:
++    prefix = checkpoint_prefix.rstrip(':') + ':'
++    oldest = _stream_oldest_id(redis_client, exec_stream)
++    total = 0
++    breached = 0
++    examples: List[Dict[str, Any]] = []
++    try:
++        keys = list(redis_client.scan_iter(match=f'{prefix}*'))[: int(sample_limit)]
++    except Exception:
++        keys = []
++    for key in keys:
++        total += 1
++        sid = _s(key).split(prefix, 1)[-1]
++        try:
++            checkpoint_id = _s(redis_client.get(key))
++        except Exception:
++            checkpoint_id = ''
++        if checkpoint_id and oldest and _stream_sort_key(checkpoint_id) < _stream_sort_key(oldest):
++            breached += 1
++            if len(examples) < 20:
++                examples.append({'sid': sid, 'checkpoint_id': checkpoint_id, 'oldest_stream_id': oldest})
++    return {
++        'exec_stream': exec_stream,
++        'checkpoint_prefix': prefix,
++        'oldest_stream_id': oldest,
++        'checked_checkpoint_keys': total,
++        'breached_checkpoints': breached,
++        'breached_examples': examples,
++        'status': 'critical' if breached > 0 else 'ok',
++    }
++
++
++def _bounded_rows(redis_client: Any, *, exec_stream: str, checkpoint_id: str, scan_count: int) -> Tuple[List[Tuple[Any, Mapping[str, Any]]], bool, bool]:
++    retention_guard = _retention_guard_triggered(redis_client, exec_stream=exec_stream, checkpoint_id=checkpoint_id)
+     if not checkpoint_id:
+         rows = redis_client.xrevrange(exec_stream, '+', '-', count=int(scan_count))
+-        return rows, False
++        return rows, False, retention_guard
+     recent = redis_client.xrevrange(exec_stream, '+', checkpoint_id, count=int(scan_count))
+     if recent:
+-        return recent, False
++        return recent, False, retention_guard
+     older = redis_client.xrevrange(exec_stream, checkpoint_id, '-', count=int(scan_count))
+-    return older, bool(older)
++    return older, bool(older), retention_guard
+ 
+ 
+ def rebuild_state_from_stream(redis_client: Any, *, exec_stream: str, sid: str, scan_count: int = 20000) -> Dict[str, Any]:
+@@ -244,10 +318,16 @@
+     checkpoint_id: str = '',
+     sql_dsn: str = '',
+ ) -> ReplayBuildResult:
+-    rows, truncated = _bounded_rows(redis_client, exec_stream=exec_stream, checkpoint_id=checkpoint_id, scan_count=scan_count)
++    started = time.perf_counter()
++    rows, truncated, retention_guard = _bounded_rows(redis_client, exec_stream=exec_stream, checkpoint_id=checkpoint_id, scan_count=scan_count)
+     events = extract_sid_events(rows, sid)
++    if retention_guard and TRADE_EXECUTION_REPLAY_RETENTION_GUARD_TOTAL:
++        TRADE_EXECUTION_REPLAY_RETENTION_GUARD_TOTAL.labels(result='triggered').inc()
+     if events:
+         state = replay_sid_state(events)
++        latency_ms = int((time.perf_counter() - started) * 1000)
++        if TRADE_EXECUTION_REPLAY_LATENCY_MS:
++            TRADE_EXECUTION_REPLAY_LATENCY_MS.observe(latency_ms)
+         if TRADE_EXECUTION_REHYDRATE_TOTAL:
+             TRADE_EXECUTION_REHYDRATE_TOTAL.labels(source='stream', result='ok').inc()
+         if truncated and TRADE_EXECUTION_REPLAY_TRUNCATED_TOTAL:
+@@ -259,9 +339,14 @@
+             checkpoint_id=checkpoint_id,
+             replayed_events=int(state.get('stream_replayed_events') or len(events)),
+             truncated=truncated,
++            retention_guard_triggered=retention_guard,
++            latency_ms=latency_ms,
+         )
+     sql_state = _load_sql_state_snapshot(dsn=sql_dsn, sid=sid) if sql_dsn else {}
+     if sql_state:
++        latency_ms = int((time.perf_counter() - started) * 1000)
++        if TRADE_EXECUTION_REPLAY_LATENCY_MS:
++            TRADE_EXECUTION_REPLAY_LATENCY_MS.observe(latency_ms)
+         if TRADE_EXECUTION_REPLAY_SQL_FALLBACK_TOTAL:
+             TRADE_EXECUTION_REPLAY_SQL_FALLBACK_TOTAL.labels(result='ok').inc()
+         if TRADE_EXECUTION_REHYDRATE_TOTAL:
+@@ -273,12 +358,19 @@
+             checkpoint_id=checkpoint_id,
+             replayed_events=0,
+             truncated=truncated,
++            retention_guard_triggered=retention_guard,
++            latency_ms=latency_ms,
+         )
++    latency_ms = int((time.perf_counter() - started) * 1000)
++    if TRADE_EXECUTION_REPLAY_LATENCY_MS:
++        TRADE_EXECUTION_REPLAY_LATENCY_MS.observe(latency_ms)
+     if TRADE_EXECUTION_REPLAY_SQL_FALLBACK_TOTAL:
+         TRADE_EXECUTION_REPLAY_SQL_FALLBACK_TOTAL.labels(result='miss').inc()
+     if TRADE_EXECUTION_REHYDRATE_TOTAL:
+         TRADE_EXECUTION_REHYDRATE_TOTAL.labels(source='none', result='miss').inc()
+-    return ReplayBuildResult(state_doc={}, source='none', used_checkpoint=bool(checkpoint_id), checkpoint_id=checkpoint_id, replayed_events=0, truncated=truncated)
++    if retention_guard and TRADE_EXECUTION_REPLAY_RETENTION_GUARD_TOTAL:
++        TRADE_EXECUTION_REPLAY_RETENTION_GUARD_TOTAL.labels(result='miss').inc()
++    return ReplayBuildResult(state_doc={}, source='none', used_checkpoint=bool(checkpoint_id), checkpoint_id=checkpoint_id, replayed_events=0, truncated=truncated, retention_guard_triggered=retention_guard, latency_ms=latency_ms)
+ 
+ 
+ def persist_state_snapshot(redis_client: Any, *, state_key: str, state_doc: Mapping[str, Any], ttl_sec: int = 0, checkpoint_key: str = '') -> bool:
+diff -ruN p33hard/binance_execution/test_p33_ops_complete_assets_v1.py p33ops/binance_execution/test_p33_ops_complete_assets_v1.py
+--- p33hard/binance_execution/test_p33_ops_complete_assets_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p33ops/binance_execution/test_p33_ops_complete_assets_v1.py	2026-03-07 06:25:25.299753784 +0000
+@@ -0,0 +1,14 @@
++from pathlib import Path
++
++
++def test_scrubber_assets_exist():
++    root = Path(__file__).resolve().parents[1]
++    assert (root / 'scripts' / 'scrub_replay_checkpoints.py').exists()
++    assert (root / 'deploy' / 'systemd' / 'trade-execution-checkpoint-scrubber.service').exists()
++    assert (root / 'deploy' / 'systemd' / 'trade-execution-checkpoint-scrubber.timer').exists()
++
++
++def test_prometheus_rules_include_replay_p95():
++    src = (Path(__file__).resolve().parents[1] / 'monitoring' / 'prometheus_rules_execution_p33_ops_complete.yml').read_text(encoding='utf-8')
++    assert 'histogram_quantile(0.95' in src
++    assert 'TradeExecutionReplayRetentionGuard' in src
+diff -ruN p33hard/binance_execution/test_p33_ops_complete_quarantine_ledger_v1.py p33ops/binance_execution/test_p33_ops_complete_quarantine_ledger_v1.py
+--- p33hard/binance_execution/test_p33_ops_complete_quarantine_ledger_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p33ops/binance_execution/test_p33_ops_complete_quarantine_ledger_v1.py	2026-03-07 06:25:25.282867090 +0000
+@@ -0,0 +1,7 @@
++from pathlib import Path
++
++
++def test_executor_replay_mismatch_records_ledger_contract():
++    src = (Path(__file__).resolve().parent / 'binance_executor.py').read_text(encoding='utf-8')
++    assert 'record_quarantine_event' in src
++    assert 'REPLAY_MISMATCH_QUARANTINED' in src
+diff -ruN p33hard/binance_execution/test_p33_ops_complete_retention_guard_v1.py p33ops/binance_execution/test_p33_ops_complete_retention_guard_v1.py
+--- p33hard/binance_execution/test_p33_ops_complete_retention_guard_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p33ops/binance_execution/test_p33_ops_complete_retention_guard_v1.py	2026-03-07 06:25:25.275555131 +0000
+@@ -0,0 +1,39 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++mod_path = Path(__file__).resolve().parent / 'execution_state_replay.py'
++spec = importlib.util.spec_from_file_location('execution_state_replay', mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++spec.loader.exec_module(mod)
++
++
++class FakeRedis:
++    def __init__(self):
++        self.kv = {
++            'orders:exec:replay:cursor:s1': '100-1',
++            'orders:exec:replay:cursor:s2': '300-1',
++        }
++        self.rows = [('200-1', {'sid': 's2'}), ('300-1', {'sid': 's2'})]
++
++    def scan_iter(self, match=None):
++        for k in list(self.kv.keys()):
++            if match is None or match.rstrip('*') in k:
++                yield k
++
++    def get(self, key):
++        return self.kv.get(key)
++
++    def xrange(self, _stream, start, end, count=1):
++        return [('200-1', {'sid': 'x'})]
++
++    def xrevrange(self, _stream, end, start, count=1000):
++        return self.rows[:count]
++
++
++def test_stream_retention_guard_report_detects_breach():
++    r = FakeRedis()
++    rep = mod.stream_retention_guard_report(r, exec_stream='orders:exec', checkpoint_prefix='orders:exec:replay:cursor:')
++    assert rep['breached_checkpoints'] >= 1
++    assert rep['status'] == 'critical'
+diff -ruN p33hard/binance_execution/test_p33_ops_complete_runbook_v1.py p33ops/binance_execution/test_p33_ops_complete_runbook_v1.py
+--- p33hard/binance_execution/test_p33_ops_complete_runbook_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p33ops/binance_execution/test_p33_ops_complete_runbook_v1.py	2026-03-07 06:25:25.268133278 +0000
+@@ -0,0 +1,10 @@
++from pathlib import Path
++
++
++def test_runbook_server_exposes_rebuild_endpoint():
++    src = (Path(__file__).resolve().parents[1] / 'runbooks' / 'server' / 'runbook_server.py').read_text(encoding='utf-8')
++    assert '/api/rebuild/latest' in src
++
++
++def test_ops_complete_runbook_exists():
++    assert (Path(__file__).resolve().parents[1] / 'runbooks' / 'P33_OPS_COMPLETE_REPLAY.md').exists()
+diff -ruN p33hard/config/docker-compose.execution-p33-ops-complete.override.yml p33ops/config/docker-compose.execution-p33-ops-complete.override.yml
+--- p33hard/config/docker-compose.execution-p33-ops-complete.override.yml	1970-01-01 00:00:00.000000000 +0000
++++ p33ops/config/docker-compose.execution-p33-ops-complete.override.yml	2026-03-07 06:24:58.112068528 +0000
+@@ -0,0 +1,6 @@
++services:
++  trade-runbook-server:
++    environment:
++      RUNBOOK_REPORT_DIR: /var/lib/trade-runbook/reports
++    volumes:
++      - ./var/runbook-reports:/var/lib/trade-runbook/reports
+diff -ruN p33hard/config/env.execution-p33-ops-complete.example p33ops/config/env.execution-p33-ops-complete.example
+--- p33hard/config/env.execution-p33-ops-complete.example	1970-01-01 00:00:00.000000000 +0000
++++ p33ops/config/env.execution-p33-ops-complete.example	2026-03-07 06:24:58.119335512 +0000
+@@ -0,0 +1,4 @@
++RUNBOOK_REPORT_DIR=/var/lib/trade-runbook/reports
++EXEC_REPLAY_RETENTION_GUARD_SAMPLE_LIMIT=2000
++EXEC_REPLAY_CHECKPOINT_SCRUB_SAMPLE_LIMIT=5000
++EXEC_HEALTHCHECK_TEXTFILE_PATH=/var/lib/node_exporter/textfile_collector/trade_execution.prom
+diff -ruN p33hard/deploy/systemd/README.md p33ops/deploy/systemd/README.md
+--- p33hard/deploy/systemd/README.md	2026-03-06 20:45:05.000000000 +0000
++++ p33ops/deploy/systemd/README.md	2026-03-07 06:24:59.999690741 +0000
+@@ -30,3 +30,5 @@
+ ```
+ 
+ Then the existing `trade-execution-healthcheck.service` will refresh the metric file on each run.
++
++- trade-execution-checkpoint-scrubber.service/.timer — removes orphan/stale replay checkpoints and reports retention guard drift.
+diff -ruN p33hard/deploy/systemd/trade-execution-checkpoint-scrubber.service p33ops/deploy/systemd/trade-execution-checkpoint-scrubber.service
+--- p33hard/deploy/systemd/trade-execution-checkpoint-scrubber.service	1970-01-01 00:00:00.000000000 +0000
++++ p33ops/deploy/systemd/trade-execution-checkpoint-scrubber.service	2026-03-07 06:24:58.096089835 +0000
+@@ -0,0 +1,9 @@
++[Unit]
++Description=Trade execution replay checkpoint scrubber
++After=network-online.target
++
++[Service]
++Type=oneshot
++WorkingDirectory=/opt/trade
++EnvironmentFile=-/etc/default/trade-execution-p33-ops-complete
++ExecStart=/usr/bin/python3 /opt/trade/scripts/scrub_replay_checkpoints.py
+diff -ruN p33hard/deploy/systemd/trade-execution-checkpoint-scrubber.timer p33ops/deploy/systemd/trade-execution-checkpoint-scrubber.timer
+--- p33hard/deploy/systemd/trade-execution-checkpoint-scrubber.timer	1970-01-01 00:00:00.000000000 +0000
++++ p33ops/deploy/systemd/trade-execution-checkpoint-scrubber.timer	2026-03-07 06:24:58.103187140 +0000
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Periodic trade execution replay checkpoint scrubber
++
++[Timer]
++OnBootSec=5m
++OnUnitActiveSec=20m
++Unit=trade-execution-checkpoint-scrubber.service
++
++[Install]
++WantedBy=timers.target
+diff -ruN p33hard/monitoring/prometheus_rules_execution_p33_ops_complete.yml p33ops/monitoring/prometheus_rules_execution_p33_ops_complete.yml
+--- p33hard/monitoring/prometheus_rules_execution_p33_ops_complete.yml	1970-01-01 00:00:00.000000000 +0000
++++ p33ops/monitoring/prometheus_rules_execution_p33_ops_complete.yml	2026-03-07 06:24:58.127124304 +0000
+@@ -0,0 +1,19 @@
++groups:
++  - name: trade-execution-p33-ops-complete
++    rules:
++      - alert: TradeExecutionReplayRetentionGuard
++        expr: trade_execution_replay_retention_guard_breached > 0
++        for: 5m
++        labels:
++          severity: critical
++        annotations:
++          summary: Replay checkpoint is behind Redis stream retention
++          runbook: REPAIR_AND_QUARANTINE.md
++      - alert: TradeExecutionReplayP95High
++        expr: histogram_quantile(0.95, sum(rate(trade_execution_replay_latency_ms_bucket[15m])) by (le)) > 500
++        for: 15m
++        labels:
++          severity: warning
++        annotations:
++          summary: Replay p95 latency is elevated
++          runbook: P33_HARDENING_REPLAY_AND_RECOVERY.md
+diff -ruN p33hard/runbooks/P33_OPS_COMPLETE_REPLAY.md p33ops/runbooks/P33_OPS_COMPLETE_REPLAY.md
+--- p33hard/runbooks/P33_OPS_COMPLETE_REPLAY.md	1970-01-01 00:00:00.000000000 +0000
++++ p33ops/runbooks/P33_OPS_COMPLETE_REPLAY.md	2026-03-07 06:24:58.134146159 +0000
+@@ -0,0 +1,13 @@
++# P3.3 ops-complete: replay / rebuild / retention guard
++
++## Что добавлено
++- `/api/rebuild/latest` в runbook server
++- quarantine ledger запись при `replay_mismatch`
++- health report включает Redis stream retention guard
++- периодический scrubber для replay checkpoints
++- replay latency histogram + p95 alert
++
++## Проверки
++1. `curl http://trade-runbook-server:18080/api/rebuild/latest`
++2. `systemctl status trade-execution-checkpoint-scrubber.timer`
++3. `python3 scripts/check_execution_replay_consistency.py --quarantine-on-critical`
+diff -ruN p33hard/runbooks/server/runbook_server.py p33ops/runbooks/server/runbook_server.py
+--- p33hard/runbooks/server/runbook_server.py	2026-03-06 20:15:11.000000000 +0000
++++ p33ops/runbooks/server/runbook_server.py	2026-03-07 06:23:00.749950635 +0000
+@@ -43,7 +43,7 @@
+ <style>body{{font-family:sans-serif;margin:2rem;max-width:1100px}}code{{background:#f4f4f4;padding:.1rem .3rem}}.badge{{padding:.15rem .5rem;border-radius:4px;background:#eee}}.ok{{background:#d1fae5}}.warning{{background:#fef3c7}}.critical{{background:#fee2e2}}</style>
+ </head><body>
+ <h1>Trade Execution Runbooks</h1>
+-<p>Latest health: <span class="badge {badge}">{html.escape(badge)}</span> — <a href="/api/health/latest">JSON</a></p>
++<p>Latest health: <span class="badge {badge}">{html.escape(badge)}</span> — <a href="/api/health/latest">Health JSON</a> | <a href="/api/rebuild/latest">Rebuild JSON</a></p>
+ <h2>Runbooks</h2><ul>{''.join(items) or '<li>no runbooks found</li>'}</ul>
+ <h2>Reports</h2><ul>{''.join(report_items) or '<li>no reports found</li>'}</ul>
+ <p><code>/healthz</code> returns 200 if the server process is alive.</p>
+@@ -64,6 +64,18 @@
+             self.end_headers()
+             self.wfile.write(body)
+             return
++        if parsed.path == '/api/rebuild/latest':
++            latest = self.report_root / 'latest_rebuild_state.json'
++            if latest.exists():
++                body = latest.read_bytes()
++                self.send_response(200)
++                self.send_header('Content-Type', 'application/json; charset=utf-8')
++                self.send_header('Content-Length', str(len(body)))
++                self.end_headers()
++                self.wfile.write(body)
++                return
++            self.send_error(404, 'rebuild report not found')
++            return
+         if parsed.path == '/api/health/latest':
+             latest = self.report_root / 'latest_execution_health.json'
+             if latest.exists():
+diff -ruN p33hard/scripts/check_execution_replay_consistency.py p33ops/scripts/check_execution_replay_consistency.py
+--- p33hard/scripts/check_execution_replay_consistency.py	2026-03-07 06:10:09.000000000 +0000
++++ p33ops/scripts/check_execution_replay_consistency.py	2026-03-07 06:24:21.734423600 +0000
+@@ -20,6 +20,15 @@
+         from execution_state_replay import rebuild_state_with_fallback, compare_replayed_state  # type: ignore
+ 
+ 
++
++try:
++    from services.quarantine_ledger import QuarantineLedgerSink
++except Exception:  # pragma: no cover
++    try:
++        from binance_execution.quarantine_ledger import QuarantineLedgerSink
++    except Exception:
++        from quarantine_ledger import QuarantineLedgerSink  # type: ignore
++
+ def _loads(value: Any) -> Dict[str, Any]:
+     if value is None:
+         return {}
+@@ -32,7 +41,7 @@
+         return {}
+ 
+ 
+-def _quarantine(redis_client: Any, *, sid: str, mismatch: Dict[str, Any], state_doc: Dict[str, Any], prefix: str) -> None:
++def _quarantine(redis_client: Any, *, sid: str, mismatch: Dict[str, Any], state_doc: Dict[str, Any], prefix: str, ledger: Any = None) -> None:
+     qprefix = prefix.rstrip(':') + ':'
+     payload = dict(state_doc or {})
+     payload.update({'sid': sid, 'quarantine_reason': 'replay_mismatch', 'replay_mismatch': mismatch})
+@@ -41,6 +50,20 @@
+     pipe.sadd(f'{qprefix}sids', sid)
+     pipe.xadd(f'{qprefix}events', {'sid': sid, 'event': 'REPLAY_MISMATCH_QUARANTINED'}, maxlen=10000, approximate=True)
+     pipe.execute()
++    try:
++        if ledger is not None:
++            ledger.record_quarantine_event({
++                'sid': sid,
++                'symbol': str((state_doc or {}).get('symbol') or ''),
++                'action': 'REPLAY_MISMATCH_QUARANTINED',
++                'severity': 'critical' if any(k in {'status', 'fsm_state'} for k in mismatch) else 'warning',
++                'reason': 'replay_mismatch',
++                'source': 'replay_consistency_checker',
++                'quarantine_key': f'{qprefix}{sid}',
++                'state': payload,
++            })
++    except Exception:
++        pass
+ 
+ 
+ def main() -> int:
+@@ -54,10 +77,12 @@
+     parser.add_argument('--critical-threshold', type=int, default=int(os.getenv('EXEC_REPLAY_CRITICAL_THRESHOLD', '1')))
+     parser.add_argument('--quarantine-on-critical', action='store_true')
+     parser.add_argument('--quarantine-prefix', default=os.getenv('ORDERS_QUARANTINE_PREFIX', 'orders:quarantine:state:'))
++    parser.add_argument('--ledger-dsn', default=os.getenv('EXECUTION_QUARANTINE_LEDGER_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')))
+     args = parser.parse_args()
+     if redis is None:
+         raise RuntimeError('redis package required')
+     r = redis.from_url(args.redis_url, decode_responses=True)
++    ledger = QuarantineLedgerSink(dsn=args.ledger_dsn) if args.ledger_dsn else None
+     prefix = args.state_prefix.rstrip(':') + ':'
+     cprefix = args.checkpoint_prefix.rstrip(':') + ':'
+     mismatches: List[Dict[str, Any]] = []
+@@ -85,10 +110,12 @@
+                 'replay_source': replayed.source,
+                 'replay_truncated': bool(replayed.truncated),
+                 'checkpoint_id': replayed.checkpoint_id,
++                'retention_guard_triggered': bool(replayed.retention_guard_triggered),
++                'replay_latency_ms': int(replayed.latency_ms),
+             }
+             mismatches.append(item)
+             if severity == 'critical' and args.quarantine_on_critical:
+-                _quarantine(r, sid=sid, mismatch=diff, state_doc=replayed.state_doc, prefix=args.quarantine_prefix)
++                _quarantine(r, sid=sid, mismatch=diff, state_doc=replayed.state_doc, prefix=args.quarantine_prefix, ledger=ledger)
+     out = {'checked_state_keys': count, 'mismatches_total': len(mismatches), 'critical_threshold': args.critical_threshold, 'items': mismatches}
+     print(json.dumps(out, ensure_ascii=False, indent=2))
+     crit = sum(1 for x in mismatches if x['severity'] == 'critical')
+diff -ruN p33hard/scripts/execution_healthcheck.py p33ops/scripts/execution_healthcheck.py
+--- p33hard/scripts/execution_healthcheck.py	2026-03-06 20:44:01.000000000 +0000
++++ p33ops/scripts/execution_healthcheck.py	2026-03-07 06:24:21.735409818 +0000
+@@ -23,6 +23,14 @@
+ 
+ import check_execution_consistency as consistency
+ 
++try:
++    from services.execution_state_replay import stream_retention_guard_report
++except Exception:  # pragma: no cover
++    try:
++        from binance_execution.execution_state_replay import stream_retention_guard_report
++    except Exception:
++        from execution_state_replay import stream_retention_guard_report  # type: ignore
++
+ 
+ def _check_user_stream_freshness(redis_client: Any, *, cache_prefix: str, stale_ms: int) -> Dict[str, Any]:
+     newest = 0
+@@ -68,6 +76,7 @@
+         'trade_execution_user_stream_age_ms': int(user_stream.get('age_ms') or 0),
+         'trade_execution_user_stream_keys_checked': int(user_stream.get('keys_checked') or 0),
+         'trade_execution_user_stream_stale': 1 if user_stream.get('is_stale') else 0,
++        'trade_execution_replay_retention_guard_breached': int((report.get('retention_guard') or {}).get('breached_checkpoints') or 0),
+         'trade_execution_health_checked_at_ms': int(report.get('checked_at_ms') or 0),
+     }
+     for name, value in metric_pairs.items():
+@@ -104,12 +113,19 @@
+         stream_count=int(os.getenv('EXEC_CONSISTENCY_STREAM_COUNT', '20000')),
+     )
+     freshness = _check_user_stream_freshness(r, cache_prefix=args.user_stream_cache_prefix, stale_ms=args.user_stream_stale_ms)
++    retention_guard = stream_retention_guard_report(
++        r,
++        exec_stream=os.getenv('EXEC_STREAM', 'orders:exec'),
++        checkpoint_prefix=os.getenv('EXEC_REPLAY_CHECKPOINT_KEY_PREFIX', 'orders:exec:replay:cursor:'),
++        sample_limit=int(os.getenv('EXEC_REPLAY_RETENTION_GUARD_SAMPLE_LIMIT', '2000')),
++    )
+ 
+     report = {
+         'checked_at_ms': int(time.time() * 1000),
+         'consistency': consistency.asdict(summary),
+         'user_stream': freshness,
+-        'overall_status': 'critical' if summary.critical_mismatches > 0 else ('warning' if summary.warning_mismatches > 0 or freshness['is_stale'] else 'ok'),
++        'retention_guard': retention_guard,
++        'overall_status': 'critical' if summary.critical_mismatches > 0 or int(retention_guard.get('breached_checkpoints') or 0) > 0 else ('warning' if summary.warning_mismatches > 0 or freshness['is_stale'] else 'ok'),
+     }
+     report_dir = Path(args.report_dir)
+     report_dir.mkdir(parents=True, exist_ok=True)
+diff -ruN p33hard/scripts/rebuild_orders_state_from_exec.py p33ops/scripts/rebuild_orders_state_from_exec.py
+--- p33hard/scripts/rebuild_orders_state_from_exec.py	2026-03-07 06:10:31.000000000 +0000
++++ p33ops/scripts/rebuild_orders_state_from_exec.py	2026-03-07 06:24:21.734879529 +0000
+@@ -4,7 +4,9 @@
+ import argparse
+ import json
+ import os
++from pathlib import Path
+ from typing import Any, Dict, List
++import time
+ 
+ try:
+     import redis  # type: ignore
+@@ -31,6 +33,7 @@
+     parser.add_argument('--sid', action='append', default=[])
+     parser.add_argument('--ttl-sec', type=int, default=int(os.getenv('ORDERS_STATE_TTL_SEC', '86400')))
+     parser.add_argument('--dry-run', action='store_true')
++    parser.add_argument('--report-dir', default=os.getenv('RUNBOOK_REPORT_DIR', '/var/lib/trade-runbook/reports'))
+     args = parser.parse_args()
+     if redis is None:
+         raise RuntimeError('redis package required')
+@@ -49,6 +52,10 @@
+                 seen_set.add(sid)
+         sids = seen
+     rebuilt: List[Dict[str, Any]] = []
++    latencies: List[int] = []
++    sources: Dict[str, int] = {}
++    truncated_count = 0
++    retention_guard_count = 0
+     for sid in sids:
+         checkpoint_id = str(r.get(f'{checkpoint_prefix}{sid}') or '')
+         result = rebuild_state_with_fallback(
+@@ -71,6 +78,10 @@
+                 ttl_sec=args.ttl_sec,
+                 checkpoint_key=f'{checkpoint_prefix}{sid}',
+             )
++        latencies.append(int(result.latency_ms))
++        sources[result.source] = sources.get(result.source, 0) + 1
++        truncated_count += int(bool(result.truncated))
++        retention_guard_count += int(bool(result.retention_guard_triggered))
+         rebuilt.append({
+             'sid': sid,
+             'rebuilt': True,
+@@ -80,8 +91,28 @@
+             'source': result.source,
+             'checkpoint_id': result.checkpoint_id,
+             'truncated': result.truncated,
++            'retention_guard_triggered': bool(result.retention_guard_triggered),
++            'latency_ms': int(result.latency_ms),
+         })
+-    print(json.dumps({'count': len(rebuilt), 'items': rebuilt}, ensure_ascii=False, indent=2))
++    p95 = 0
++    if latencies:
++        latencies_sorted = sorted(latencies)
++        idx = max(0, int((len(latencies_sorted) - 1) * 0.95))
++        p95 = int(latencies_sorted[idx])
++    report = {
++        'rebuilt_count': len([x for x in rebuilt if x.get('rebuilt')]),
++        'items_total': len(rebuilt),
++        'truncated_count': truncated_count,
++        'retention_guard_count': retention_guard_count,
++        'source_counts': sources,
++        'replay_latency_p95_ms': p95,
++        'checked_at_ms': int(time.time() * 1000),
++        'items': rebuilt,
++    }
++    report_dir = Path(args.report_dir)
++    report_dir.mkdir(parents=True, exist_ok=True)
++    (report_dir / 'latest_rebuild_state.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
++    print(json.dumps(report, ensure_ascii=False, indent=2))
+     return 0
+ 
+ 
+diff -ruN p33hard/scripts/scrub_replay_checkpoints.py p33ops/scripts/scrub_replay_checkpoints.py
+--- p33hard/scripts/scrub_replay_checkpoints.py	1970-01-01 00:00:00.000000000 +0000
++++ p33ops/scripts/scrub_replay_checkpoints.py	2026-03-07 06:24:58.079755931 +0000
+@@ -0,0 +1,67 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++from typing import Any, Dict, List
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++try:
++    from services.execution_state_replay import rebuild_state_with_fallback, stream_retention_guard_report
++except Exception:  # pragma: no cover
++    try:
++        from binance_execution.execution_state_replay import rebuild_state_with_fallback, stream_retention_guard_report
++    except Exception:
++        from execution_state_replay import rebuild_state_with_fallback, stream_retention_guard_report  # type: ignore
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description='Periodic scrubber for replay checkpoint keys.')
++    parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
++    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', 'orders:exec'))
++    parser.add_argument('--checkpoint-prefix', default=os.getenv('EXEC_REPLAY_CHECKPOINT_KEY_PREFIX', 'orders:exec:replay:cursor:'))
++    parser.add_argument('--state-prefix', default=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'))
++    parser.add_argument('--journal-dsn', default=os.getenv('EXECUTION_JOURNAL_DSN', ''))
++    parser.add_argument('--scan-count', type=int, default=int(os.getenv('EXEC_REPLAY_SCAN_COUNT', '20000')))
++    parser.add_argument('--sample-limit', type=int, default=int(os.getenv('EXEC_REPLAY_CHECKPOINT_SCRUB_SAMPLE_LIMIT', '5000')))
++    parser.add_argument('--dry-run', action='store_true')
++    args = parser.parse_args()
++    if redis is None:
++        raise RuntimeError('redis package required')
++    r = redis.from_url(args.redis_url, decode_responses=True)
++    cprefix = args.checkpoint_prefix.rstrip(':') + ':'
++    sprefix = args.state_prefix.rstrip(':') + ':'
++    report: Dict[str, Any] = {
++        'checked': 0,
++        'deleted': 0,
++        'retention_guard': stream_retention_guard_report(r, exec_stream=args.exec_stream, checkpoint_prefix=cprefix, sample_limit=args.sample_limit),
++        'items': [],
++    }
++    keys = list(r.scan_iter(match=f'{cprefix}*'))[: int(args.sample_limit)]
++    for key in keys:
++        report['checked'] += 1
++        sid = str(key).split(cprefix, 1)[-1]
++        state_raw = r.get(f'{sprefix}{sid}')
++        state_exists = bool(state_raw)
++        result = rebuild_state_with_fallback(r, exec_stream=args.exec_stream, sid=sid, scan_count=args.scan_count, checkpoint_id=str(r.get(key) or ''), sql_dsn=args.journal_dsn)
++        delete_reason = ''
++        if not state_exists and not result.state_doc:
++            delete_reason = 'orphan_checkpoint'
++        elif result.retention_guard_triggered and result.source == 'none':
++            delete_reason = 'checkpoint_beyond_stream_retention'
++        if delete_reason:
++            report['items'].append({'sid': sid, 'delete_reason': delete_reason})
++            if not args.dry_run:
++                r.delete(key)
++                report['deleted'] += 1
++    print(json.dumps(report, ensure_ascii=False, indent=2))
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())

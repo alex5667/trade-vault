@@ -1,0 +1,246 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # Bybit DQ alerts
+  - /etc/prometheus/rules/bybit_dq/*.yml
+  # P99 OFInputs DLQ DB rollup alerts (DB exporter: of_inputs_dlq_db_* gauges)
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_of_inputs_dlq_db_p99.yml
+  # P2/F Strict DQ stream health v1 (latency & continuity)
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_strict_dq_stream_health_v1.yml
+  - /etc/prometheus/rules/prometheus_alerts_*.yml
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - trade-alertmanager:9093
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - localhost:9090
+
+  - job_name: blackbox_http
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://trade-grafana:3000/api/health
+          - http://trade-runbooks-web:8082/healthz
+          - http://trade-alertmanager:9093/-/ready
+          - http://trade-prometheus:9090/-/ready
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: trade-blackbox-exporter:9115
+
+  - job_name: blackbox_public
+    metrics_path: /probe
+    params:
+      module: [http_2xx_insecure]
+    static_configs:
+      - targets:
+          - ${PUBLIC_BASE_URL}/grafana/api/health
+          - ${PUBLIC_BASE_URL}/runbooks/healthz
+          - ${PUBLIC_BASE_URL}/alertmanager/-/ready
+          - ${PUBLIC_BASE_URL}/prometheus/-/ready
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: trade-blackbox-exporter:9115
+
+  # Go Workers метрики - 10 воркеров для всех таймфреймов
+  - job_name: 'go-workers'
+    static_configs:
+      - targets:
+          - 'go-worker-1m:2112'
+          - 'go-worker-5m:2113'
+          - 'go-worker-15m:2114'
+          - 'go-worker-1h:2115'
+          - 'go-worker-4h:2116'
+          - 'go-worker-1d:2117'
+          - 'go-worker-1w:2118'
+          - 'go-worker-1month:2119'
+          - 'go-worker-3month:2120'
+          - 'go-worker-1y:2121'
+        labels:
+          service: 'go-worker'
+    scrape_interval: 10s
+    metrics_path: '/metrics'
+
+  # Redis метрики — по одному экспортеру на каждый redis-worker
+  - job_name: 'redis-workers'
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['redis-exporter-main:9121']
+        labels:
+          instance: 'redis'
+      - targets: ['redis-exporter-worker-1:9121']
+        labels:
+          instance: 'redis-worker-1'
+      - targets: ['redis-exporter-worker-2:9121']
+        labels:
+          instance: 'redis-worker-2'
+      - targets: ['redis-exporter-worker-1b:9121']
+        labels:
+          instance: 'redis-worker-1b'
+      - targets: ['redis-exporter-worker-2b:9121']
+        labels:
+          instance: 'redis-worker-2b'
+      - targets: ['redis-exporter-ticks:9121']
+        labels:
+          instance: 'redis-ticks'
+
+
+  # Python Worker метрики (если добавлен экспортер)
+  - job_name: 'python-worker'
+    static_configs:
+      - targets: ['python-worker:8000']
+    scrape_interval: 15s
+
+  # Regime Quantiles Job метрики
+  - job_name: 'regime-quantiles'
+    static_configs:
+      - targets: ['regime-quantiles-job:8001']
+    scrape_interval: 30s
+
+  # Metrics Exporter (Redis-based) метрики
+  - job_name: 'metrics-exporter-redis'
+    static_configs:
+      - targets: ['scanner-metrics-server-timer:9109']
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+
+  # OF Confirm Service метрики
+  - job_name: 'of-confirm-service'
+    static_configs:
+      - targets: ['of-confirm-service:8003']
+    scrape_interval: 15s
+
+  # Execution Gate Service метрики
+  - job_name: 'execution-gate-service'
+    static_configs:
+      - targets: ['execution-gate-service:8004']
+    scrape_interval: 15s
+
+  # ML Confirm SRE Poller метрики
+  - job_name: 'ml-confirm-sre-poller'
+    static_configs:
+      - targets: ['ml-confirm-sre-poller:8005']
+    scrape_interval: 15s
+
+  # P76 — OF gate contract smoke-check exporter (port 9148)
+  - job_name: 'of-gate-contract-smoke'
+    static_configs:
+      - targets: ['of-gate-contract-smoke-exporter:9148']
+    scrape_interval: 30s
+
+  # P59 — Edge Stack v1 nightly train metrics exporter (port 9813)
+  - job_name: edge_stack_train_p59
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - edge-stack-train-exporter-p59:9813
+
+  # P60 — Edge Stack v1 shadow eval status exporter (port 8012)
+  - job_name: edge_stack_shadow_p60
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          - edge-stack-shadow-exporter-p60:8012
+
+  # P77 — Enforce bucket state exporter (port 9142)
+  - job_name: enforce_bucket_state_p77
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - scanner-enforce-bucket-state-exporter:9142
+
+  # Go Gateway (Exposes gateway_up and others)
+  - job_name: go_gateway
+    scrape_interval: 5s
+    static_configs:
+      - targets:
+          - scanner-go-gateway:8090
+
+  # P94 — Feature Registry contract exporter (port 9817)
+  - job_name: feature_registry_contract_p94
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - feature-registry-contract-exporter:9822
+
+  # AIOps Agent v15.0 targets — AB Apply Runner (port 9109 in scanner-network)
+  - job_name: ab_apply_runner
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - ab-winner-apply-runner:9109
+
+  # AIOps Agent v15.0 targets — Exec Health Freeze Control (port 9827 in scanner-network)
+  - job_name: exec_health_freeze_control
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - scanner-exec-health-freeze-control-exporter:9827
+
+  # AIOps Agent v15.0 targets — Exec Health Freeze Integrity (port 9828)
+  - job_name: exec_health_freeze_integrity
+    scrape_interval: 10s
+    static_configs:
+      - targets:
+          - scanner-exec-health-freeze-integrity-exporter:9828
+
+  # AIOps Agent v15.0 targets — Exec Health SLO Checkers (ports 9824, 9825)
+  - job_name: exec_health_slo
+    scrape_interval: 10s
+    static_configs:
+      - targets:
+          - scanner-exec-health-slo-exporter:9824
+          - scanner-exec-health-slo-autoguard-exporter:9839
+
+  # AIOps Agent v15.0 targets — Exec Health Freeze Dual-Control (port 9829)
+  - job_name: exec_health_freeze_dual_control
+    scrape_interval: 10s
+    static_configs:
+      - targets:
+          - scanner-exec-health-freeze-dual-control-exporter:9829
+
+  # AIOps Agent v15.0 targets — Exec Health Tamper Guard & ACL Audit (ports 9830, 9831, 9842)
+  - job_name: exec_health_tamper_acl
+    scrape_interval: 10s
+    static_configs:
+      - targets:
+          - scanner-exec-health-freeze-tamper-guard:9830
+          - scanner-exec-health-freeze-acl-audit-exporter:9831
+          - scanner-exec-health-freeze-acl-drift-exporter:9842
+
+  - job_name: chatops_metrics
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - chatops-metrics-exporter:9817
+
+  - job_name: monitoring_smoke
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          - monitoring-smoke-exporter:9814
+
+  # Trade Monitor Liveness exporter (port 9844)
+  - job_name: 'trade_monitor_liveness'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['scanner-trade-monitor:9844', 'scanner-trade-monitor-2:9845']

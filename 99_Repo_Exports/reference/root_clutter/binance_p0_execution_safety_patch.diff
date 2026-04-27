@@ -1,0 +1,894 @@
+--- binance_execution/binance_execution/binance_executor.py
++++ binance_execution/binance_execution/binance_executor.py
+@@ -75,6 +75,7 @@
+     redis = None  # type: ignore
+ 
+ from services.binance_futures_client import BinanceAPIError, BinanceFuturesClient
++from services.execution_intent_validator import validate_exit_intent
+ from services.telegram.telegram_client import TelegramClient
+ 
+ 
+@@ -450,6 +451,26 @@
+         self.trail_arm_timeout_s = float(os.getenv("BINANCE_TRAIL_ARM_TIMEOUT_S", "7200"))
+         self.trail_notify = _bool_env("BINANCE_TRAIL_NOTIFY", True)
+ 
++        # --- Explicit trigger/workingType policy ---
++        # Binance defaults workingType to CONTRACT_PRICE; we require explicit
++        # policy values so risk-critical protection does not silently inherit
++        # exchange defaults.
++        self.sl_working_type = (os.getenv("SL_WORKING_TYPE") or "MARK_PRICE").strip().upper()
++        self.tp_market_working_type = (os.getenv("TP_MARKET_WORKING_TYPE") or "MARK_PRICE").strip().upper()
++        self.tp_limit_trigger_working_type = (os.getenv("TP_LIMIT_TRIGGER_WORKING_TYPE") or "MARK_PRICE").strip().upper()
++        self.trail_working_type = (os.getenv("TRAIL_WORKING_TYPE") or "MARK_PRICE").strip().upper()
++
++        # Anti-blowup invariant: after entry fill, protection must be confirmed
++        # within this window, otherwise the executor will emergency-flatten.
++        self.protection_arm_timeout_ms = int(os.getenv("PROTECTION_ARM_TIMEOUT_MS", "2500"))
++
++        # Local protection headroom reserve. Binance does not perform a margin
++        # check before algo trigger; we keep a small local reserve to avoid
++        # standing a protection order that becomes non-viable at trigger time.
++        self.protection_fee_buffer_bps = float(os.getenv("PROTECTION_FEE_BUFFER_BPS", "8.0"))
++        self.protection_slippage_buffer_bps = float(os.getenv("PROTECTION_SLIPPAGE_BUFFER_BPS", "15.0"))
++        self.account_available_floor_usd = float(os.getenv("ACCOUNT_AVAILABLE_FLOOR_USD", "25.0"))
++
+         self.r = redis.from_url(self.redis_url, decode_responses=True)
+ 
+         # --- orders:state:{sid} — fast lookup of Binance IDs by signal ID ---
+@@ -540,9 +561,9 @@
+           status           — filled | closed | ...
+           symbol, side, qty, exec_price
+           binance_order_id — Binance entry order ID
+-          sl_order_id      — SL STOP_MARKET order ID
+-          tp1_order_id, tp2_order_id, ...  — TP order IDs
+-          trail_order_id   — TRAILING_STOP_MARKET order ID (written when arming fires)
++          sl_algo_id      — SL STOP_MARKET algo ID
++          tp1_algo_id, tp2_algo_id, ...  — TP algo IDs
++          trail_algo_id   — TRAILING_STOP_MARKET algo ID (written when arming fires)
+ 
+         Consumers: r.get(f"orders:state:{sid}") → json.loads()
+         TTL: ORDERS_STATE_TTL_SEC (default 86400 = 24h).
+@@ -652,6 +673,131 @@
+             parts[-1] = _round_down(parts[-1] - (s - total_qty), step)
+         return [q for q in parts if q > 0]
+ 
++
++    def _local_headroom_check(
++        self,
++        *,
++        client: "BinanceFuturesClient",
++        symbol: str,
++        qty: float,
++        reference_price: Optional[float],
++    ) -> None:
++        """Best-effort reserve check before submitting conditional protection.
++
++        Binance Algo Service does not run a full margin check before trigger.
++        We therefore require a small local headroom floor so a freshly-opened
++        position is not considered protected when the future trigger cannot
++        realistically be carried.
++        """
++        try:
++            acct = client.get_account() or {}
++            avail = _f(acct.get("availableBalance"), 0.0)
++            px = float(reference_price or 0.0)
++            notional = abs(float(qty)) * px if px > 0 else 0.0
++            reserve = notional * (self.protection_fee_buffer_bps + self.protection_slippage_buffer_bps) / 10000.0
++            if avail - reserve < self.account_available_floor_usd:
++                raise RuntimeError(
++                    f"insufficient protection headroom: available={avail:.8f} reserve={reserve:.8f} "
++                    f"floor={self.account_available_floor_usd:.8f}"
++                )
++        except RuntimeError:
++            raise
++        except Exception:
++            # Fail-open on telemetry errors; the executor remains bounded by
++            # exchange-side validation and account risk settings.
++            return
++
++    def _validate_exit_contract(
++        self,
++        *,
++        position_side: Optional[str],
++        reduce_only: bool,
++        close_position: bool,
++        quantity: Optional[float],
++        order_type: str,
++        working_type: Optional[str],
++        is_algo: bool,
++    ) -> None:
++        result = validate_exit_intent(
++            position_mode=self.position_mode,
++            position_side=position_side,
++            exit_intent="close",
++            reduce_only=reduce_only,
++            close_position=close_position,
++            quantity=quantity,
++            order_type=order_type,
++            working_type=working_type,
++            is_algo=is_algo,
++        )
++        if not result.is_valid_exit_contract:
++            raise ValueError(f"invalid_exit_contract:{result.reason}")
++
++    def _protection_confirmed(self, prot: Dict[str, Any], tps: List[float], trail_enabled: bool) -> bool:
++        if prot.get("sl_algo_id") in (None, "", 0):
++            return False
++        for idx, _ in enumerate(tps, start=1):
++            if prot.get(f"tp{idx}_algo_id") in (None, "", 0):
++                return False
++        if trail_enabled and not (prot.get("trail_client_id") or prot.get("trail_algo_id") or prot.get("trail_pending")):
++            return False
++        return True
++
++    def _emit_protection_incident(self, sid: str, symbol: str, reason: str) -> None:
++        self._exec_event({
++            "sid": sid,
++            "symbol": symbol,
++            "action": "protection_invariant",
++            "status": "failed",
++            "reason": reason,
++            "severity": "critical",
++        })
++        self._save_order_state(sid, {
++            "action": "protection_invariant",
++            "status": "failed",
++            "symbol": symbol,
++            "incident_flag": "protection_missing",
++            "incident_reason": reason,
++        })
++
++    def _emergency_flatten_position(
++        self,
++        *,
++        sid: str,
++        symbol: str,
++        logical_side: str,
++        qty: float,
++        client: "BinanceFuturesClient",
++        filters: "FiltersCache",
++    ) -> Dict[str, Any]:
++        exit_side = "SELL" if logical_side == "LONG" else "BUY"
++        pos_side = _position_side_for_mode(self.position_mode, logical_side)
++        q_close, _ = self._quantize(symbol, qty, None, filters=filters)
++        params: Dict[str, Any] = {
++            "symbol": symbol,
++            "side": exit_side,
++            "type": "MARKET",
++            "quantity": q_close,
++            "newClientOrderId": _make_cid(sid, "emerg"),
++        }
++        if self.position_mode == "oneway":
++            params["reduceOnly"] = True
++        elif pos_side:
++            params["positionSide"] = pos_side
++        self._validate_exit_contract(
++            position_side=pos_side,
++            reduce_only=bool(params.get("reduceOnly")),
++            close_position=False,
++            quantity=float(q_close),
++            order_type="MARKET",
++            working_type=None,
++            is_algo=False,
++        )
++        j = client.post_plain_order(params)
++        return {
++            "emergency_order_id": j.get("orderId"),
++            "emergency_client_id": params["newClientOrderId"],
++        }
++
+     # --- Protective orders (SL + TPs) ---
+ 
+     def _place_protective(
+@@ -660,19 +806,24 @@
+         client: "BinanceFuturesClient",
+         filters: "FiltersCache",
+     ) -> Dict[str, Any]:
+-        """Place SL (STOP_MARKET) and TP (TAKE_PROFIT_MARKET) orders.
+-
+-        One-way mode:
+-          - SL: closePosition=True (automatically closes full remaining position)
+-          - TP: reduceOnly=True
+-        Hedge mode:
+-          - SL: quantity + positionSide (reduceOnly forbidden by Binance)
+-          - TP: positionSide
++        """Place SL and TP orders via the Binance Algo Service.
++
++        Plain entry orders and conditional protection orders now use different
++        identifier families. Protective refs are therefore persisted as
++        `*_algo_id` / `*_client_algo_id` rather than `orderId`.
+         """
+         out: Dict[str, Any] = {}
+         exit_side = "SELL" if logical_side == "LONG" else "BUY"
+         pos_side = _position_side_for_mode(self.position_mode, logical_side)
+         reduce_only_allowed = self.position_mode == "oneway"
++
++        # Best-effort reserve check before any conditional order is submitted.
++        ref_price = None
++        if sl and sl > 0:
++            ref_price = sl
++        elif tps:
++            ref_price = float(tps[0])
++        self._local_headroom_check(client=client, symbol=symbol, qty=qty, reference_price=ref_price)
+ 
+         if sl is not None and sl > 0:
+             q_sl, sl_q = self._quantize(symbol, qty, sl, filters=filters)
+@@ -680,17 +831,38 @@
+                 "symbol": symbol,
+                 "side": exit_side,
+                 "type": "STOP_MARKET",
+-                "stopPrice": sl_q,
+-                "quantity": q_sl,
+-                "newClientOrderId": _make_cid(sid, "sl"),
++                "triggerPrice": sl_q,
++                "workingType": self.sl_working_type,
++                "clientAlgoId": _make_cid(sid, "sl"),
+             }
+             if reduce_only_allowed:
+                 p["reduceOnly"] = True
++                self._validate_exit_contract(
++                    position_side=pos_side,
++                    reduce_only=True,
++                    close_position=False,
++                    quantity=float(q_sl),
++                    order_type="STOP_MARKET",
++                    working_type=self.sl_working_type,
++                    is_algo=True,
++                )
++                p["quantity"] = q_sl
+             elif pos_side:
+                 p["positionSide"] = pos_side
+-            j = client.post_order(p)
+-            out["sl_order_id"] = j.get("orderId")
+-            out["sl_client_id"] = p["newClientOrderId"]
++                p["closePosition"] = True
++                self._validate_exit_contract(
++                    position_side=pos_side,
++                    reduce_only=False,
++                    close_position=True,
++                    quantity=None,
++                    order_type="STOP_MARKET",
++                    working_type=self.sl_working_type,
++                    is_algo=True,
++                )
++            j = client.post_algo_order(p)
++            out["sl_algo_id"] = j.get("algoId")
++            out["sl_client_algo_id"] = p["clientAlgoId"]
++            out["sl_working_type"] = p["workingType"]
+ 
+         if tps:
+             parts = self._split_tp_qtys(symbol, qty, len(tps), filters=filters)
+@@ -700,17 +872,50 @@
+                     "symbol": symbol,
+                     "side": exit_side,
+                     "type": "TAKE_PROFIT_MARKET",
+-                    "stopPrice": tp_q,
+-                    "quantity": q_tp2,
+-                    "newClientOrderId": _make_cid(sid, f"tp{idx}"),
++                    "triggerPrice": tp_q,
++                    "workingType": self.tp_market_working_type,
++                    "clientAlgoId": _make_cid(sid, f"tp{idx}"),
+                 }
+                 if reduce_only_allowed:
+                     p["reduceOnly"] = True
++                    p["quantity"] = q_tp2
++                    self._validate_exit_contract(
++                        position_side=pos_side,
++                        reduce_only=True,
++                        close_position=False,
++                        quantity=float(q_tp2),
++                        order_type="TAKE_PROFIT_MARKET",
++                        working_type=self.tp_market_working_type,
++                        is_algo=True,
++                    )
+                 elif pos_side:
+                     p["positionSide"] = pos_side
+-                j = client.post_order(p)
+-                out[f"tp{idx}_order_id"] = j.get("orderId")
+-                out[f"tp{idx}_client_id"] = p["newClientOrderId"]
++                    p["closePosition"] = True if idx == len(tps) and len(tps) == 1 else False
++                    if p["closePosition"]:
++                        self._validate_exit_contract(
++                            position_side=pos_side,
++                            reduce_only=False,
++                            close_position=True,
++                            quantity=None,
++                            order_type="TAKE_PROFIT_MARKET",
++                            working_type=self.tp_market_working_type,
++                            is_algo=True,
++                        )
++                    else:
++                        p["quantity"] = q_tp2
++                        self._validate_exit_contract(
++                            position_side=pos_side,
++                            reduce_only=False,
++                            close_position=False,
++                            quantity=float(q_tp2),
++                            order_type="TAKE_PROFIT_MARKET",
++                            working_type=self.tp_market_working_type,
++                            is_algo=True,
++                        )
++                j = client.post_algo_order(p)
++                out[f"tp{idx}_algo_id"] = j.get("algoId")
++                out[f"tp{idx}_client_algo_id"] = p["clientAlgoId"]
++                out[f"tp{idx}_working_type"] = p["workingType"]
+         return out
+ 
+     # --- Order cancellation by token ---
+@@ -718,9 +923,10 @@
+     def _cancel_by_token(
+         self, symbol: str, sid: str, *, client: "BinanceFuturesClient"
+     ) -> int:
+-        """Cancel all open orders for symbol whose clientOrderId contains our sid token."""
+-        token = _sha1_8(sid)
++        """Cancel all open plain/algo orders for symbol whose client IDs match sid token."""
++        token = _sha1_8(sid) if sid else ""
+         canceled = 0
++
+         orders = client.get_open_orders(symbol) or []
+         for o in orders:
+             cid = str(o.get("clientOrderId") or "")
+@@ -729,14 +935,13 @@
+             try:
+                 oid = _i(o.get("orderId"), 0)
+                 if oid:
+-                    client.delete_order(symbol, order_id=oid)
++                    client.cancel_plain_order(symbol, order_id=oid)
+                     canceled += 1
+             except Exception:
+                 continue
+-                
+-        # Also clean up Algo Orders specifically to avoid max stop limit errors on Testnet
++
+         try:
+-            algo_orders = client._request("GET", "/fapi/v1/openAlgoOrders", params={"symbol": symbol}, signed=True) or []
++            algo_orders = client.get_open_algo_orders(symbol) or []
+             for o in algo_orders:
+                 cid = str(o.get("clientAlgoId") or "")
+                 if token and token not in cid:
+@@ -744,14 +949,14 @@
+                 try:
+                     oid = _i(o.get("algoId"), 0)
+                     if oid:
+-                        client.delete_order(symbol, order_id=oid, is_algo=True)
++                        client.cancel_algo_order(symbol, algo_id=oid)
+                         canceled += 1
+                 except Exception:
+                     continue
+         except BinanceAPIError as e:
+             if e.status not in (404, 400):
+                 pass
+-                
++
+         return canceled
+ 
+     # --- Position quantity query ---
+@@ -785,11 +990,7 @@
+         client: "BinanceFuturesClient",
+         filters: "FiltersCache",
+     ) -> Dict[str, Any]:
+-        """Place TRAILING_STOP_MARKET order.
+-
+-        In one-way mode: reduceOnly=True ensures it only reduces the position.
+-        In hedge mode: positionSide is set; reduceOnly is forbidden by Binance.
+-        """
++        """Place TRAILING_STOP_MARKET through the Algo API."""
+         exit_side = "SELL" if logical_side == "LONG" else "BUY"
+         pos_side = _position_side_for_mode(self.position_mode, logical_side)
+         q, _ = self._quantize(symbol, qty, None, filters=filters)
+@@ -802,17 +1003,28 @@
+             "type": "TRAILING_STOP_MARKET",
+             "quantity": q,
+             "callbackRate": float(callback_rate_pct),
+-            "newClientOrderId": _make_cid(sid, "trail"),
++            "workingType": self.trail_working_type,
++            "clientAlgoId": _make_cid(sid, "trail"),
+         }
+         if self.position_mode == "oneway":
+             p["reduceOnly"] = True
++            self._validate_exit_contract(
++                position_side=pos_side,
++                reduce_only=True,
++                close_position=False,
++                quantity=float(q),
++                order_type="TRAILING_STOP_MARKET",
++                working_type=self.trail_working_type,
++                is_algo=True,
++            )
+         if pos_side:
+             p["positionSide"] = pos_side
+ 
+-        j = client.post_order(p)
++        j = client.post_algo_order(p)
+         return {
+-            "trail_order_id": j.get("orderId"),
+-            "trail_client_id": p["newClientOrderId"],
++            "trail_algo_id": j.get("algoId"),
++            "trail_client_id": p["clientAlgoId"],
++            "trail_working_type": p["workingType"],
+         }
+ 
+     # --- Trailing arming background thread ---
+@@ -896,7 +1108,7 @@
+                 "status": "armed",
+                 "symbol": symbol,
+                 "side": logical_side,
+-                "trail_order_id": trail.get("trail_order_id"),
++                "trail_algo_id": trail.get("trail_algo_id"),
+                 "trail_client_id": trail.get("trail_client_id"),
+                 "trail_tp1": tp1,
+                 "trail_callback_rate_pct": callback_rate_pct,
+@@ -1035,7 +1247,7 @@
+             # 3. If position is 0 (or just became 0), clean up any lingering Algo orders
+             # that might be stuck as orphans.
+             if current_amt == 0.0 or is_opposing:
+-                algo_orders = client._request("GET", "/fapi/v1/openAlgoOrders", params={"symbol": symbol}, signed=True) or []
++                algo_orders = client.get_open_algo_orders(symbol) or []
+                 pos_side_cleanup = _position_side_for_mode(self.position_mode, logical)
+                 for o in algo_orders:
+                     try:
+@@ -1044,7 +1256,7 @@
+                             continue
+                         oid = _i(o.get("algoId"), 0)
+                         if oid:
+-                            client.delete_order(symbol, order_id=oid, is_algo=True)
++                            client.cancel_algo_order(symbol, algo_id=oid)
+                     except Exception:
+                         pass
+         except Exception:
+@@ -1111,11 +1323,22 @@
+         trail = self._maybe_start_trailing_after_tp1(
+             payload=payload, sid=sid, symbol=symbol, logical_side=logical,
+             entry_price=avg_price if avg_price > 0 else (p or None),
+-            sl_order_id=_i(prot.get("sl_order_id"), 0) or None,
++            sl_order_id=_i(prot.get("sl_algo_id"), 0) or None,
+             tp_levels=tps,
+             client=client, filters=filters,
+         )
+ 
++
++        # Anti-blowup invariant: a filled entry must not remain naked. We treat
++        # missing protection refs as a critical incident and immediately flatten.
++        trail_enabled = _truthy(payload.get("trail_after_tp1")) and bool(tps)
++        if not self._protection_confirmed(prot, tps, trail_enabled):
++            self._emit_protection_incident(sid, symbol, "entry_filled_without_confirmed_protection")
++            emerg = self._emergency_flatten_position(
++                sid=sid, symbol=symbol, logical_side=logical, qty=filled_qty,
++                client=client, filters=filters,
++            )
++            prot = {**prot, **emerg, "protection_invariant_failed": True}
+         result = {
+             "sid": sid, "symbol": symbol, "action": "open",
+             "status": status.lower(), "side": logical,
+@@ -1205,7 +1428,7 @@
+         trail = self._maybe_start_trailing_after_tp1(
+             payload=payload, sid=sid, symbol=symbol, logical_side=logical,
+             entry_price=entry_price,
+-            sl_order_id=_i(prot.get("sl_order_id"), 0) or None,
++            sl_order_id=_i(prot.get("sl_algo_id"), 0) or None,
+             tp_levels=tps,
+             client=client, filters=filters,
+         )
+--- binance_execution/binance_execution/binance_futures_client.py
++++ binance_execution/binance_execution/binance_futures_client.py
+@@ -73,6 +73,34 @@
+         super().__init__(message or f"Binance API error status={status} payload={payload}")
+         self.status = int(status)
+         self.payload = payload  # parsed dict or {"_raw": ...} fallback
++
++
++@dataclass(frozen=True)
++class PlainOrderRef:
++    """Reference to a plain /fapi/v1/order order.
++
++    Stored separately from algo references because Binance uses a different
++    identifier family for conditional orders after the Algo Service migration.
++    """
++
++    order_id: Optional[int]
++    client_order_id: Optional[str]
++    type: str
++    side: str
++    position_side: Optional[str] = None
++
++
++@dataclass(frozen=True)
++class AlgoOrderRef:
++    """Reference to a conditional /fapi/v1/algoOrder order."""
++
++    algo_id: Optional[int]
++    client_algo_id: Optional[str]
++    type: str
++    working_type: str
++    trigger_price: Optional[float] = None
++    close_position: bool = False
++    reduce_only: bool = False
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -380,19 +408,30 @@
+         return self._request("GET", "/fapi/v2/positionRisk", signed=True)
+ 
+     def get_open_orders(self, symbol: Optional[str] = None) -> Any:
+-        """List open orders. Pass symbol to narrow the result."""
++        """List open plain orders. Pass symbol to narrow the result."""
+         params: Dict[str, Any] = {}
+         if symbol:
+             params["symbol"] = symbol
+         return self._request("GET", "/fapi/v1/openOrders", params=params, signed=True)
+ 
++    def get_open_algo_orders(self, symbol: Optional[str] = None) -> Any:
++        """List open conditional orders routed via Algo Service.
++
++        Binance exposes algo orders through a dedicated endpoint and a dedicated
++        identifier family (`algoId` / `clientAlgoId`), so callers must not mix
++        the result with plain order refs.
++        """
++        params: Dict[str, Any] = {}
++        if symbol:
++            params["symbol"] = symbol
++        return self._request("GET", "/fapi/v1/openAlgoOrders", params=params, signed=True)
++
+     # --- signed trading endpoints ---
+ 
+     def cancel_all_orders(self, symbol: str) -> Any:
+         """Cancel all active regular and conditional orders for the symbol."""
+         res_regular = self._request("DELETE", "/fapi/v1/allOpenOrders", params={"symbol": symbol}, signed=True)
+         try:
+-            # New Binance Testnet requirement to clear Algo Orders explicitly
+             self._request("DELETE", "/fapi/v1/algoOpenOrders", params={"symbol": symbol}, signed=True)
+         except Exception:
+             pass
+@@ -416,29 +455,61 @@
+             params={"symbol": symbol, "marginType": str(margin_type).upper()}, signed=True,
+         )
+ 
++    def post_plain_order(self, params: Dict[str, Any]) -> Any:
++        """Submit a non-conditional order via /fapi/v1/order."""
++        return self._request("POST", "/fapi/v1/order", params=params, signed=True)
++
++    def post_algo_order(self, params: Dict[str, Any]) -> Any:
++        """Submit a conditional order via /fapi/v1/algoOrder.
++
++        The Binance Algo API uses `triggerPrice` and `clientAlgoId`. For
++        backward compatibility with older executor payloads we accept
++        `stopPrice` and `newClientOrderId` and normalise them here.
++        """
++        algo_params = dict(params)
++        if "stopPrice" in algo_params and "triggerPrice" not in algo_params:
++            algo_params["triggerPrice"] = algo_params.pop("stopPrice")
++        if "newClientOrderId" in algo_params and "clientAlgoId" not in algo_params:
++            algo_params["clientAlgoId"] = algo_params.pop("newClientOrderId")
++        algo_params.setdefault("workingType", algo_params.get("workingType") or "MARK_PRICE")
++        return self._request("POST", "/fapi/v1/algoOrder", params=algo_params, signed=True)
++
+     def post_order(self, params: Dict[str, Any]) -> Any:
+-        """Place an order.
+-
+-        Required param keys: symbol, side, type, quantity (or closePosition=True for SL).
+-        Optional keys vary by order type (price, stopPrice, callbackRate,
+-        timeInForce, positionSide, reduceOnly, newClientOrderId, ...).
+-        """
+-        # Route conditional orders to the new Algo Order API
++        """Backward-compatible routing wrapper.
++
++        New code should explicitly call post_plain_order()/post_algo_order().
++        The wrapper remains to avoid breaking old call-sites while we migrate
++        the executor and tests.
++        """
+         algo_types = {"STOP_MARKET", "TAKE_PROFIT_MARKET", "STOP", "TAKE_PROFIT", "TRAILING_STOP_MARKET"}
+         order_type = str(params.get("type", "")).upper()
+-        
+         if order_type in algo_types:
+-            # Prepare algoOrder payload
+-            algo_params = dict(params)
+-            algo_params["algoType"] = "CONDITIONAL"
+-            
+-            # Binance Algo API expects 'triggerPrice' instead of 'stopPrice' for Stop/TP orders
+-            if "stopPrice" in algo_params and order_type in {"STOP_MARKET", "TAKE_PROFIT_MARKET", "STOP", "TAKE_PROFIT"}:
+-                algo_params["triggerPrice"] = algo_params.pop("stopPrice")
+-                
+-            return self._request("POST", "/fapi/v1/algoOrder", params=algo_params, signed=True)
+-            
+-        return self._request("POST", "/fapi/v1/order", params=params, signed=True)
++            return self.post_algo_order(params)
++        return self.post_plain_order(params)
++
++    def query_plain_order(
++        self, symbol: str, *,
++        order_id: Optional[int] = None,
++        client_order_id: Optional[str] = None,
++    ) -> Any:
++        p: Dict[str, Any] = {"symbol": symbol}
++        if order_id is not None:
++            p["orderId"] = int(order_id)
++        if client_order_id is not None:
++            p["origClientOrderId"] = client_order_id
++        return self._request("GET", "/fapi/v1/order", params=p, signed=True)
++
++    def query_algo_order(
++        self, symbol: str, *,
++        algo_id: Optional[int] = None,
++        client_algo_id: Optional[str] = None,
++    ) -> Any:
++        p: Dict[str, Any] = {"symbol": symbol}
++        if algo_id is not None:
++            p["algoId"] = int(algo_id)
++        if client_algo_id is not None:
++            p["clientAlgoId"] = client_algo_id
++        return self._request("GET", "/fapi/v1/algoOrder", params=p, signed=True)
+ 
+     def get_order(
+         self, symbol: str, *,
+@@ -446,24 +517,34 @@
+         client_order_id: Optional[str] = None,
+         is_algo: bool = False
+     ) -> Any:
+-        """Query order status by orderId or origClientOrderId."""
++        """Backward-compatible query wrapper."""
++        if is_algo:
++            return self.query_algo_order(symbol, algo_id=order_id, client_algo_id=client_order_id)
++        return self.query_plain_order(symbol, order_id=order_id, client_order_id=client_order_id)
++
++    def cancel_plain_order(
++        self, symbol: str, *,
++        order_id: Optional[int] = None,
++        client_order_id: Optional[str] = None,
++    ) -> Any:
+         p: Dict[str, Any] = {"symbol": symbol}
+         if order_id is not None:
+             p["orderId"] = int(order_id)
+         if client_order_id is not None:
+             p["origClientOrderId"] = client_order_id
+-        
+-        path = "/fapi/v1/openAlgoOrders" if is_algo else "/fapi/v1/order"
+-        try:
+-            return self._request("GET", path, params=p, signed=True)
+-        except BinanceAPIError as e:
+-            # If not found and we didn't explicitly ask for algo, try algo (order might be conditional)
+-            if not is_algo and e.status in (400, 404):
+-                try:
+-                    return self._request("GET", "/fapi/v1/openAlgoOrders", params=p, signed=True)
+-                except Exception:
+-                    pass
+-            raise
++        return self._request("DELETE", "/fapi/v1/order", params=p, signed=True)
++
++    def cancel_algo_order(
++        self, symbol: str, *,
++        algo_id: Optional[int] = None,
++        client_algo_id: Optional[str] = None,
++    ) -> Any:
++        p: Dict[str, Any] = {"symbol": symbol}
++        if algo_id is not None:
++            p["algoId"] = int(algo_id)
++        if client_algo_id is not None:
++            p["clientAlgoId"] = client_algo_id
++        return self._request("DELETE", "/fapi/v1/algoOrder", params=p, signed=True)
+ 
+     def delete_order(
+         self, symbol: str, *,
+@@ -471,22 +552,7 @@
+         client_order_id: Optional[str] = None,
+         is_algo: bool = False
+     ) -> Any:
+-        """Cancel order by orderId or origClientOrderId."""
+-        p: Dict[str, Any] = {"symbol": symbol}
+-        if order_id is not None:
+-            p["orderId"] = int(order_id)
+-        if client_order_id is not None:
+-            p["origClientOrderId"] = client_order_id
+-            
+-        path = "/fapi/v1/algoOrder" if is_algo else "/fapi/v1/order"
+-        try:
+-            return self._request("DELETE", path, params=p, signed=True)
+-        except BinanceAPIError as e:
+-            if not is_algo and e.status in (400, 404):
+-                try:
+-                    # Binance requires `algoId` for `DELETE /fapi/v1/algoOrder`. 
+-                    # If we only have `orderId` or `origClientOrderId` we pass it. The API will accept either one.
+-                    return self._request("DELETE", "/fapi/v1/algoOrder", params=p, signed=True)
+-                except Exception:
+-                    pass
+-            raise
++        """Backward-compatible cancel wrapper."""
++        if is_algo:
++            return self.cancel_algo_order(symbol, algo_id=order_id, client_algo_id=client_order_id)
++        return self.cancel_plain_order(symbol, order_id=order_id, client_order_id=client_order_id)
+--- binance_execution/binance_execution/execution_intent_validator.py
++++ binance_execution/binance_execution/execution_intent_validator.py
+@@ -0,0 +1,73 @@
++from __future__ import annotations
++
++"""Local exit-intent validator for Binance Futures execution.
++
++The goal is to reject malformed exit contracts *before* they hit Binance:
++- in Hedge mode `positionSide` is mandatory
++- `reduceOnly` is not a universal close flag
++- Algo orders must not combine `closePosition=true` with `quantity`
++- Algo orders must not combine `closePosition=true` with `reduceOnly`
++"""
++
++from dataclasses import dataclass
++from typing import Optional
++
++
++@dataclass(frozen=True)
++class ExitIntentResult:
++    will_reduce_exposure: bool
++    will_open_new_exposure: bool
++    is_valid_exit_contract: bool
++    reason: str = ""
++
++
++def validate_exit_intent(
++    *,
++    position_mode: str,
++    position_side: Optional[str],
++    exit_intent: str,
++    reduce_only: bool,
++    close_position: bool,
++    quantity: Optional[float],
++    order_type: str,
++    working_type: Optional[str],
++    is_algo: bool,
++) -> ExitIntentResult:
++    pm = (position_mode or "oneway").strip().lower()
++    ps = (position_side or "").strip().upper() or None
++    ei = (exit_intent or "").strip().lower()
++    ot = (order_type or "").strip().upper()
++    wt = (working_type or "").strip().upper() or None
++    qty = float(quantity) if quantity is not None else None
++
++    if pm not in {"oneway", "hedge"}:
++        return ExitIntentResult(False, True, False, "invalid_position_mode")
++
++    if pm == "hedge" and ps not in {"LONG", "SHORT"}:
++        return ExitIntentResult(False, True, False, "positionSide_required_in_hedge")
++
++    if wt is not None and wt not in {"MARK_PRICE", "CONTRACT_PRICE"}:
++        return ExitIntentResult(False, True, False, "invalid_workingType")
++
++    if is_algo and close_position and qty not in (None, 0.0):
++        return ExitIntentResult(False, True, False, "algo_closePosition_incompatible_with_quantity")
++
++    if is_algo and close_position and reduce_only:
++        return ExitIntentResult(False, True, False, "algo_closePosition_incompatible_with_reduceOnly")
++
++    if not is_algo and pm == "hedge" and reduce_only:
++        return ExitIntentResult(False, True, False, "reduceOnly_forbidden_in_hedge_plain_order")
++
++    if ei not in {"reduce", "close"}:
++        return ExitIntentResult(False, True, False, "unsupported_exit_intent")
++
++    if close_position:
++        return ExitIntentResult(True, False, True, "close_position")
++
++    if reduce_only:
++        return ExitIntentResult(True, False, True, "reduce_only")
++
++    # In hedge mode a SELL on LONG side / BUY on SHORT side can still be a valid
++    # reducing order, but without reduceOnly/closePosition we cannot prove this
++    # contract is safe enough for the executor.
++    return ExitIntentResult(False, True, False, "exit_contract_not_provably_reducing")
+--- binance_execution/binance_execution/test_binance_algo_client_v1.py
++++ binance_execution/binance_execution/test_binance_algo_client_v1.py
+@@ -0,0 +1,58 @@
++from pathlib import Path
++import importlib.util
++
++mod_path = Path(__file__).with_name("binance_futures_client.py")
++spec = importlib.util.spec_from_file_location("binance_futures_client", mod_path)
++mod = importlib.util.module_from_spec(spec)
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++def test_post_order_routes_algo_and_maps_compat_fields(monkeypatch):
++    calls = []
++
++    client = mod.BinanceFuturesClient(api_key="k", api_secret="s")
++
++    def fake_request(method, path, params=None, signed=False):
++        calls.append((method, path, dict(params or {}), signed))
++        return {"algoId": 123}
++
++    monkeypatch.setattr(client, "_request", fake_request)
++
++    client.post_order({
++        "symbol": "BTCUSDT",
++        "side": "SELL",
++        "type": "STOP_MARKET",
++        "stopPrice": "100.0",
++        "newClientOrderId": "cid-1",
++    })
++
++    assert calls
++    method, path, params, signed = calls[0]
++    assert method == "POST"
++    assert path == "/fapi/v1/algoOrder"
++    assert params["triggerPrice"] == "100.0"
++    assert params["clientAlgoId"] == "cid-1"
++    assert signed is True
++
++
++def test_post_order_routes_plain_market(monkeypatch):
++    calls = []
++    client = mod.BinanceFuturesClient(api_key="k", api_secret="s")
++
++    def fake_request(method, path, params=None, signed=False):
++        calls.append((method, path, dict(params or {}), signed))
++        return {"orderId": 456}
++
++    monkeypatch.setattr(client, "_request", fake_request)
++
++    client.post_order({
++        "symbol": "BTCUSDT",
++        "side": "BUY",
++        "type": "MARKET",
++        "quantity": "0.01",
++    })
++
++    method, path, params, signed = calls[0]
++    assert path == "/fapi/v1/order"
++    assert params["type"] == "MARKET"
+--- binance_execution/binance_execution/test_execution_intent_validator_v1.py
++++ binance_execution/binance_execution/test_execution_intent_validator_v1.py
+@@ -0,0 +1,57 @@
++from pathlib import Path
++import importlib.util
++
++mod_path = Path(__file__).with_name("execution_intent_validator.py")
++spec = importlib.util.spec_from_file_location("execution_intent_validator", mod_path)
++mod = importlib.util.module_from_spec(spec)
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++def test_hedge_requires_position_side():
++    res = mod.validate_exit_intent(
++        position_mode="hedge",
++        position_side=None,
++        exit_intent="close",
++        reduce_only=False,
++        close_position=True,
++        quantity=None,
++        order_type="STOP_MARKET",
++        working_type="MARK_PRICE",
++        is_algo=True,
++    )
++    assert res.is_valid_exit_contract is False
++    assert res.reason == "positionSide_required_in_hedge"
++
++
++def test_algo_close_position_incompatible_with_quantity():
++    res = mod.validate_exit_intent(
++        position_mode="hedge",
++        position_side="LONG",
++        exit_intent="close",
++        reduce_only=False,
++        close_position=True,
++        quantity=1.0,
++        order_type="TAKE_PROFIT_MARKET",
++        working_type="MARK_PRICE",
++        is_algo=True,
++    )
++    assert res.is_valid_exit_contract is False
++    assert "quantity" in res.reason
++
++
++def test_plain_oneway_reduce_only_market_close_is_valid():
++    res = mod.validate_exit_intent(
++        position_mode="oneway",
++        position_side=None,
++        exit_intent="close",
++        reduce_only=True,
++        close_position=False,
++        quantity=1.0,
++        order_type="MARKET",
++        working_type=None,
++        is_algo=False,
++    )
++    assert res.is_valid_exit_contract is True
++    assert res.will_reduce_exposure is True
++    assert res.will_open_new_exposure is False

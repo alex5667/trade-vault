@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/strong_of_gate.py
+# hypothesis_version: 6.148.10
+
+[2.0, 'A', 'B', 'C', 'LONG', 'SHORT', 'abs_lvl_counts_as', 'abs_lvl_enable', 'bearish_hidden', 'bullish_hidden', 'continuation', 'continuation_gate', 'direction', 'no_trend_dir', 'none', 'regime', 'reversal', 'reversal_gate', 'strong_need_reversal', 'strong_use_iceberg', 'strong_z_min']

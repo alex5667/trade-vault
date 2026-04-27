@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/session_telemetry.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.02, 0.05, 0.5, 1.0, 2.0, 168, 300, 2000]

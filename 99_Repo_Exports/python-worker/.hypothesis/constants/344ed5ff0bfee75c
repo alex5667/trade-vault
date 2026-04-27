@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/postgres_writer.py
+# hypothesis_version: 6.148.10
+
+[8000, 'PGConfig', 'POSTGRES_DSN', 'news_postgres_writer']

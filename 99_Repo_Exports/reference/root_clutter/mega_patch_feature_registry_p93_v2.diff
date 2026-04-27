@@ -1,0 +1,318 @@
+--- /dev/null	2026-02-25 03:48:53.727228348 +0000
++++ tick_flow_full/core/feature_registry.py	2026-02-25 04:03:52.333498265 +0000
+@@ -0,0 +1,291 @@
++from __future__ import annotations
++
++"""Feature Registry (train==serve contract for edge-stack).
++
++This module provides:
++  1) Feature schema metadata (FeatureSchemaInfo) for stable schema versions.
++  2) Edge-stack feature column list (EdgeStackFeatureSpec) in the same format as
++     ml_analysis.tools.build_edge_stack_dataset_from_redis.infer_feature_cols().
++
++Design goals:
++  - Deterministic ordering (no dependence on dataset sampling).
++  - Backward-compatible version aliases (v4, v4of -> v4_of).
++  - Safe column names for DataFrame/Parquet exports (no ':' in column_names).
++
++NOTE:
++  - "feature_names" follow MLFeatureSchema* naming (n:/b:/dir:/bucket:/hour:/dow: ...).
++  - "feature_cols" follow edge-stack naming (f_*, direction_*, bucket:*, hour:*, dow:*).
++"""
++
++from dataclasses import dataclass
++from functools import lru_cache
++import hashlib
++from typing import Dict, List, Optional, Sequence
++
++
++# ---------------------------------------------------------------------------
++# Helpers
++# ---------------------------------------------------------------------------
++
++def _sha256_hex(items: Sequence[str]) -> str:
++    h = hashlib.sha256()
++    for x in items:
++        h.update(str(x).encode("utf-8"))
++        h.update(b"\n")
++    return h.hexdigest()
++
++
++def _sha256_16(items: Sequence[str]) -> str:
++    """Stable short hash for diagnostics (16 hex chars)."""
++    return _sha256_hex(items)[:16]
++
++
++def _safe_col(name: str) -> str:
++    # Keep it simple and deterministic; avoid Parquet/DataFrame reserved characters.
++    return str(name).replace(":", "_")
++
++
++def _norm_ver(ver: str) -> str:
++    v = str(ver or "").strip().lower()
++    if not v:
++        raise ValueError("empty schema_ver")
++
++    # common aliases
++    if v in ("v4", "v4of", "v4-of", "v4ofe", "v4o"):
++        return "v4_of"
++    if v in ("v4_of", "v4of_", "v4-of-of"):
++        return "v4_of"
++
++    # accept canonical
++    if v in ("v2", "v3", "v4_of"):
++        return v
++
++    raise ValueError(f"unknown schema_ver: {ver}")
++
++
++def _ensure_time_blocks(names: List[str]) -> List[str]:
++    """Ensure hour/dow one-hots exist in schema feature_names.
++
++    Historical note:
++      MLFeatureSchemaV2 was originally defined without hour/dow one-hots, but
++      the Feature Registry contract expects these blocks to exist for stable
++      schema metadata (v2..v4_of) to keep downstream tooling consistent.
++    """
++    s = set(names)
++    out = list(names)
++
++    # Append in canonical order if missing.
++    if "hour:0" not in s:
++        out.extend([f"hour:{h}" for h in range(24)])
++    if "dow:0" not in s:
++        out.extend([f"dow:{d}" for d in range(7)])
++    return out
++
++
++# ---------------------------------------------------------------------------
++# Public dataclasses
++# ---------------------------------------------------------------------------
++
++
++@dataclass(frozen=True)
++class FeatureSchemaInfo:
++    ver: str
++    feature_names: List[str]
++    column_names: List[str]
++    schema_hash: str
++
++    def to_dict(self) -> Dict[str, object]:
++        return {
++            "ver": self.ver,
++            "schema_hash": self.schema_hash,
++            "feature_names": list(self.feature_names),
++            "column_names": list(self.column_names),
++            "n_features": len(self.feature_names),
++        }
++
++
++@dataclass(frozen=True)
++class EdgeStackFeatureSpec:
++    ver: str
++    feature_cols: List[str]
++    feature_cols_hash: str
++
++    def to_dict(self) -> Dict[str, object]:
++        return {
++            "ver": self.ver,
++            "feature_cols_hash": self.feature_cols_hash,
++            "feature_cols": list(self.feature_cols),
++            "n_cols": len(self.feature_cols),
++        }
++
++
++# ---------------------------------------------------------------------------
++# Schema sources
++# ---------------------------------------------------------------------------
++
++
++def _schema_feature_names_v2() -> List[str]:
++    from core.ml_feature_schema_v2 import MLFeatureSchemaV2
++
++    names = list(MLFeatureSchemaV2().feature_names())
++    return _ensure_time_blocks(names)
++
++
++def _schema_feature_names_v3() -> List[str]:
++    from core.ml_feature_schema_v3 import MLFeatureSchemaV3
++
++    return list(MLFeatureSchemaV3().feature_names())
++
++
++def _schema_feature_names_v4_of() -> List[str]:
++    from core.ml_feature_schema_v4_of import MLFeatureSchemaV4OF
++
++    return list(MLFeatureSchemaV4OF().feature_names())
++
++
++@lru_cache(maxsize=16)
++def get_schema_info(ver: str) -> FeatureSchemaInfo:
++    """Return stable schema metadata for a given version."""
++    v = _norm_ver(ver)
++
++    if v == "v2":
++        feats = _schema_feature_names_v2()
++    elif v == "v3":
++        feats = _schema_feature_names_v3()
++    elif v == "v4_of":
++        feats = _schema_feature_names_v4_of()
++    else:  # pragma: no cover
++        raise ValueError(f"unknown schema_ver: {ver}")
++
++    cols = [_safe_col(x) for x in feats]
++    return FeatureSchemaInfo(
++        ver=v,
++        feature_names=list(feats),
++        column_names=list(cols),
++        schema_hash=_sha256_hex(feats),
++    )
++
++
++def get_schema(ver: str) -> FeatureSchemaInfo:
++    """Backward-compat alias."""
++    return get_schema_info(ver)
++
++
++# ---------------------------------------------------------------------------
++# Edge-stack feature columns (f_*, direction_*, bucket:*, hour:*, dow:*)
++# ---------------------------------------------------------------------------
++
++
++def _collect_indicator_keys(feature_names: Sequence[str]) -> List[str]:
++    keys: List[str] = []
++    for n in feature_names:
++        if n.startswith("n:") or n.startswith("b:"):
++            keys.append(n.split(":", 1)[1])
++    return keys
++
++
++def _validate_feature_cols_strict(
++    cols: Sequence[str],
++    *,
++    strict_feature_cols: bool,
++    forbid_scenario_v4_onehot: bool,
++) -> None:
++    if not strict_feature_cols:
++        return
++
++    # duplicates are not allowed in strict mode
++    seen = set()
++    dups = []
++    for c in cols:
++        if c in seen:
++            dups.append(c)
++        seen.add(c)
++    if dups:
++        raise ValueError(f"duplicate_feature_cols: {sorted(set(dups))[:10]}")
++
++    if forbid_scenario_v4_onehot:
++        bad = [c for c in cols if str(c).startswith("scenario_v4_")]
++        if bad:
++            raise ValueError(f"forbidden_feature_cols: {bad[:10]}")
++
++
++@lru_cache(maxsize=32)
++def get_edge_stack_feature_spec(
++    schema_ver: str = "v3",
++    *,
++    max_numeric: int = 128,
++    scenario_prefix: str = "bucket:",
++    include_time_onehot: Optional[bool] = None,
++    include_direction: bool = True,
++    include_scenario: bool = True,
++    strict_feature_cols: bool = False,
++    forbid_scenario_v4_onehot: bool = False,
++) -> EdgeStackFeatureSpec:
++    """Return deterministic feature_cols list for edge-stack training.
++
++    The resulting list matches the format expected by train_edge_stack_v1_oof:
++      - numeric indicators -> f_{key}
++      - direction one-hot  -> direction_BUY / direction_SELL
++      - scenario buckets   -> bucket:trend / bucket:range / bucket:other
++      - time one-hots      -> hour:0..23, dow:0..6
++
++    Parameters mirror build_edge_stack_dataset_from_redis.infer_feature_cols()
++    for compatibility.
++
++    include_time_onehot default:
++      - v2: False (backward-compat)
++      - v3+: True
++
++    max_numeric:
++      - 0 means "unlimited" (no cap)
++    """
++
++    v = _norm_ver(schema_ver)
++
++    if include_time_onehot is None:
++        include_time_onehot = False if v == "v2" else True
++
++    info = get_schema_info(v)
++    base_keys = _collect_indicator_keys(info.feature_names)
++
++    cols: List[str] = []
++
++    # numeric/boolean indicators
++    cap = int(max_numeric) if int(max_numeric) > 0 else 10**9
++    for k in base_keys[:cap]:
++        cols.append(f"f_{k}")
++
++    # direction
++    if include_direction:
++        cols.extend(["direction_BUY", "direction_SELL"])
++
++    # scenario/bucket
++    if include_scenario:
++        if str(scenario_prefix) == "bucket:":
++            cols.extend(["bucket:trend", "bucket:range", "bucket:other"])
++        else:
++            # Deterministic fallback: keep the stable 3-bucket taxonomy, but
++            # prefix it as requested (legacy compatibility). This intentionally
++            # triggers strict/forbid validations for scenario_v4_*.
++            cols.extend([
++                f"{scenario_prefix}trend",
++                f"{scenario_prefix}range",
++                f"{scenario_prefix}other",
++            ])
++
++    # time
++    if bool(include_time_onehot):
++        cols.extend([f"hour:{h}" for h in range(24)])
++        cols.extend([f"dow:{d}" for d in range(7)])
++
++    _validate_feature_cols_strict(
++        cols,
++        strict_feature_cols=bool(strict_feature_cols),
++        forbid_scenario_v4_onehot=bool(forbid_scenario_v4_onehot),
++    )
++
++    return EdgeStackFeatureSpec(
++        ver=v,
++        feature_cols=list(cols),
++        feature_cols_hash=_sha256_hex(cols),
++    )
+
+--- tick_flow_full/core/ml_feature_schema_v4_of.py	2026-02-23 16:40:38.000000000 +0000
++++ tick_flow_full/core/ml_feature_schema_v4_of.py	2026-02-25 04:06:12.200191436 +0000
+@@ -30,7 +30,10 @@
+ class MLFeatureSchemaV4OF:
+     """Online-only schema: extends v3 with microstructure/health/confirmations.
+ 
+-    Key rule: *no* post-trade outcomes (mae_r/mfe_r) in X to avoid leakage.
++    NOTE:
++      mae_r/mfe_r are included for backward-compat with v3 and are expected
++      to come from *previous* closed-trade calibration (not from the current
++      trade outcome). If your data source cannot guarantee that, set them to 0.
+     """
+ 
+     # numeric keys (read from indicators without the `n:` prefix)
+@@ -57,6 +60,8 @@
+                 "rule_score",
+                 "rule_have",
+                 "rule_need",
++                "mae_r",
++                "mfe_r",
+                 # v3 online-friendly extras (keep if present)
+                 "adverse_proxy",
+                 "lambda_taker",

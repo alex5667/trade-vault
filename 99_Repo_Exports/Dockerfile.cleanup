@@ -1,0 +1,22 @@
+FROM golang:1.22-alpine
+
+# Устанавливаем необходимые пакеты
+RUN apk add --no-cache \
+    bash \
+    redis \
+    curl \
+    jq
+
+# Копируем скрипт очистки из scripts/
+COPY scripts/redis-streams-cleanup.sh /app/
+WORKDIR /app
+
+# Делаем скрипт исполняемым
+RUN chmod +x redis-streams-cleanup.sh
+
+# Устанавливаем переменные окружения по умолчанию
+ENV REDIS_HOST=scanner-redis-worker-1
+ENV REDIS_PORT=6379
+
+# Запускаем скрипт очистки
+CMD ["./redis-streams-cleanup.sh", "setup"] 

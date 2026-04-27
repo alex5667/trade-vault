@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/constants/_codata.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 110, '(exact)', '...', '0', 'CODATA 2018', 'ConstantWarning', 'J', 'electric constant', 'find', 'kg', 'm^-1', 'mag.', 'mag. constant', 'magn.', 'mom.um', 'momentum', 'natural unit of mass', 'natural unit of time', 'physical_constants', 'precision', 'unit', 'value']

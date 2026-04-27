@@ -1,0 +1,11 @@
+[Unit]
+Description=Trade ML threshold proposer v2 (utility + drift guard, Approve/Reject)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/trade/of_reports.env
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+ExecStart=/usr/bin/python3 -m tools.ml_threshold_proposer_v2_utility
+

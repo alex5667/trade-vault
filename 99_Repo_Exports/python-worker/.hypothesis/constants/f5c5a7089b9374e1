@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/components/gates.py
+# hypothesis_version: 6.148.10
+
+[',', '-1', '0', '1', 'BUY', 'DOWN', 'ECD', 'ERROR', 'EntryPolicyGate', 'FAIL_OPEN_EDGE_COST', 'FAIL_OPEN_QUALITY', 'FAIL_OPEN_SMT', 'LONG', 'NA', 'OK', 'QA', 'QD', 'REGIME_GATE_STRICT', 'SELL', 'SHORT', 'SMT', 'SMT_DISABLED', 'SMT_NA', 'UP', '_cache_edge_cost', '_mark_dq %s: %s', 'apply', 'breakout', 'check_quality', 'check_smt', 'consistency_error', 'consistency_once', 'custom', 'edge_cost_cached', 'edge_cost_error', 'evaluate', 'extreme', 'fail_open', 'flags', 'gate', 'gates_error_total', 'kind', 'market_regime', 'no_gate', 'notes', 'on', 'quality_error', 'reason', 'reason_code', 'regime', 'smt_error', 'symbol', 'true', 'veto', 'yes']

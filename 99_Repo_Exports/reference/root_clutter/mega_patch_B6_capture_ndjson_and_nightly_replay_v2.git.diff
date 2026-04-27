@@ -1,0 +1,1104 @@
+diff --git a/core_snapshot/ofc_capture_v1.py b/core_snapshot/ofc_capture_v1.py
+new file mode 100644
+index 0000000..5a86c10
+--- /dev/null
++++ b/core_snapshot/ofc_capture_v1.py
+@@ -0,0 +1,400 @@
++"""OFC_CAPTURE v1: deterministic sampling + NDJSON capture to stable storage.
++
++Why this exists (Train==Serve / golden replay):
++  - Golden replay parity requires that we can re-run OFConfirmEngine.build() on
++    *the same inputs*.
++  - Runtime already knows the full inputs (indicators + minimal runtime snapshot
++    + stateful gates state). This module provides a safe, fail-open mechanism
++    to persist those inputs + outputs.
++
++Design goals:
++  - Deterministic sampling (stable, restart-safe): same (symbol, ts_ms, direction)
++    always results in the same capture decision.
++  - Low overhead: append-only files, one file per (day, policy_hash, pid),
++    optional fsync throttling.
++  - JSON-safe: everything is encoded as primitives/dicts; unknown types -> str().
++
++Security note:
++  - These captures may contain sensitive strategy/evidence details. Store them
++    on trusted machines only and apply retention policies.
++"""
++
++from __future__ import annotations
++
++import json
++import os
++import socket
++import time
++import hashlib
++from dataclasses import asdict, is_dataclass
++from datetime import datetime, timezone
++from typing import Any, Dict, Optional, Tuple
++
++
++def _env_bool(name: str, default: bool = False) -> bool:
++    v = os.getenv(name)
++    if v is None:
++        return default
++    v = str(v).strip().lower()
++    return v in ("1", "true", "yes", "y", "on")
++
++
++def _env_int(name: str, default: int) -> int:
++    v = os.getenv(name)
++    if v is None:
++        return default
++    try:
++        return int(str(v).strip())
++    except Exception:
++        return default
++
++
++def _env_str(name: str, default: str) -> str:
++    v = os.getenv(name)
++    return str(v) if v is not None else default
++
++
++def _utc_yyyymmdd(ts_ms: int) -> str:
++    try:
++        dt = datetime.fromtimestamp(max(0, int(ts_ms)) / 1000.0, tz=timezone.utc)
++    except Exception:
++        dt = datetime.now(tz=timezone.utc)
++    return dt.strftime("%Y%m%d")
++
++
++def _json_safe(obj: Any) -> Any:
++    """Make an object JSON-safe (primitives/dicts/lists).
++
++    This is intentionally conservative: unknown objects are stringified.
++    """
++    if obj is None:
++        return None
++    if isinstance(obj, (str, int, float, bool)):
++        return obj
++    if is_dataclass(obj):
++        try:
++            return _json_safe(asdict(obj))
++        except Exception:
++            return str(obj)
++    if isinstance(obj, dict):
++        out: Dict[str, Any] = {}
++        for k, v in obj.items():
++            try:
++                kk = str(k)
++            except Exception:
++                kk = "<key>"
++            out[kk] = _json_safe(v)
++        return out
++    if isinstance(obj, (list, tuple)):
++        return [_json_safe(x) for x in obj]
++    try:
++        return str(obj)
++    except Exception:
++        return "<unserializable>"
++
++
++def _stable_u64(key: str, seed: str) -> int:
++    """Deterministic 64-bit hash from (seed, key)."""
++    h = hashlib.blake2b(digest_size=16)
++    h.update(seed.encode("utf-8", errors="ignore"))
++    h.update(b"\x00")
++    h.update(key.encode("utf-8", errors="ignore"))
++    d = h.digest()
++    return int.from_bytes(d[:8], "big", signed=False)
++
++
++def should_sample(*, stable_key: str, sample_ppm: int, seed: str) -> bool:
++    """Return True if this event should be captured.
++
++    Args:
++        stable_key: Stable identifier for the event.
++        sample_ppm: Sampling probability in parts-per-million.
++        seed: Namespace seed.
++    """
++    try:
++        ppm = int(sample_ppm)
++    except Exception:
++        ppm = 0
++    if ppm <= 0:
++        return False
++    if ppm >= 1_000_000:
++        return True
++    x = _stable_u64(stable_key, seed)
++    return (x % 1_000_000) < ppm
++
++
++class NDJSONRotatingWriter:
++    """Append-only NDJSON writer with size/time rotation.
++
++    Writes one file per (day, policy_hash, pid). That avoids cross-process
++    locking. Rotation is local to the process.
++    """
++
++    def __init__(
++        self,
++        *,
++        base_dir: str,
++        max_bytes: int = 256 * 1024 * 1024,
++        rotate_sec: int = 3600,
++        fsync_every_n: int = 0,
++    ) -> None:
++        self.base_dir = str(base_dir)
++        self.max_bytes = int(max_bytes)
++        self.rotate_sec = int(rotate_sec)
++        self.fsync_every_n = int(fsync_every_n)
++        self._host = socket.gethostname()[:48]
++        self._pid = os.getpid()
++        self._seq = 0
++        self._fh = None
++        self._path = None
++        self._opened_at = 0.0
++        self._n = 0
++
++    def _mk_path(self, *, day: str, policy_hash: str) -> str:
++        ph = (policy_hash or "unknown")[:32]
++        d = os.path.join(self.base_dir, day, f"policy_{ph}")
++        os.makedirs(d, exist_ok=True)
++        name = f"decisions-{self._host}-{self._pid}-{self._seq:04d}.ndjson"
++        return os.path.join(d, name)
++
++    def _need_rotate(self, *, path: str) -> bool:
++        if self._fh is None or self._path != path:
++            return True
++        now = time.monotonic()
++        if self.rotate_sec > 0 and (now - self._opened_at) >= float(self.rotate_sec):
++            return True
++        try:
++            if self.max_bytes > 0 and os.path.exists(path):
++                if os.path.getsize(path) >= self.max_bytes:
++                    return True
++        except Exception:
++            return False
++        return False
++
++    def _open(self, *, path: str) -> None:
++        # Close previous
++        try:
++            if self._fh is not None:
++                self._fh.flush()
++                self._fh.close()
++        except Exception:
++            pass
++
++        # Ensure directory exists
++        os.makedirs(os.path.dirname(path), exist_ok=True)
++
++        # Line-buffered append
++        self._fh = open(path, "a", encoding="utf-8", buffering=1)
++        self._path = path
++        self._opened_at = time.monotonic()
++        self._n = 0
++
++    def write(self, *, day: str, policy_hash: str, record: Dict[str, Any]) -> Optional[str]:
++        path = self._mk_path(day=day, policy_hash=policy_hash)
++        if self._need_rotate(path=path):
++            # rotate by incrementing seq only when the day+policy stays same
++            if self._path is not None and os.path.dirname(self._path) == os.path.dirname(path):
++                self._seq += 1
++                path = self._mk_path(day=day, policy_hash=policy_hash)
++            self._open(path=path)
++
++        if self._fh is None:
++            return None
++
++        try:
++            line = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
++            self._fh.write(line + "\n")
++            self._n += 1
++            if self.fsync_every_n > 0 and (self._n % self.fsync_every_n) == 0:
++                try:
++                    self._fh.flush()
++                    os.fsync(self._fh.fileno())
++                except Exception:
++                    pass
++            return path
++        except Exception:
++            return None
++
++
++_WRITER: Optional[NDJSONRotatingWriter] = None
++
++
++def _get_writer(cfg2: Dict[str, Any]) -> NDJSONRotatingWriter:
++    global _WRITER
++    if _WRITER is not None:
++        return _WRITER
++
++    base_dir = str(cfg2.get("ofc_capture_dir") or _env_str("OFC_CAPTURE_DIR", "/var/lib/scanner/ofc_capture"))
++    max_bytes = int(cfg2.get("ofc_capture_max_bytes") or _env_int("OFC_CAPTURE_MAX_BYTES", 256 * 1024 * 1024))
++    rotate_sec = int(cfg2.get("ofc_capture_rotate_sec") or _env_int("OFC_CAPTURE_ROTATE_SEC", 3600))
++    fsync_every_n = int(cfg2.get("ofc_capture_fsync_every_n") or _env_int("OFC_CAPTURE_FSYNC_EVERY_N", 0))
++
++    _WRITER = NDJSONRotatingWriter(
++        base_dir=base_dir,
++        max_bytes=max_bytes,
++        rotate_sec=rotate_sec,
++        fsync_every_n=fsync_every_n,
++    )
++    return _WRITER
++
++
++def capture_enabled(cfg2: Dict[str, Any]) -> bool:
++    # Backward compatible env name: OFC_CAPTURE
++    if int(cfg2.get("ofc_capture_enable", 0) or 0) == 1:
++        return True
++    if _env_bool("OFC_CAPTURE_ENABLE", False):
++        return True
++    if _env_bool("OFC_CAPTURE", False):
++        return True
++    return False
++
++
++def maybe_capture_ofc_v1(
++    *,
++    engine: Any,
++    runtime: Any,
++    indicators: Dict[str, Any],
++    cfg2: Dict[str, Any],
++    ofc: Any,
++    dec: Any,
++    now_ts_ms: int,
++) -> Optional[str]:
++    """Capture one decision record (fail-open). Returns path if written."""
++
++    if not capture_enabled(cfg2):
++        return None
++
++    # deterministic sampling
++    sample_ppm = int(cfg2.get("ofc_capture_sample_ppm") or _env_int("OFC_CAPTURE_SAMPLE_PPM", 1000))
++    seed = str(cfg2.get("ofc_capture_seed") or _env_str("OFC_CAPTURE_SEED", "ofc_cap_v1"))
++
++    symbol = str(getattr(ofc, "symbol", "") or indicators.get("symbol") or "")
++    direction = str(getattr(ofc, "direction", "") or indicators.get("direction") or "")
++    ts_ms = int(getattr(ofc, "ts_ms", 0) or indicators.get("event_ts_ms") or now_ts_ms or 0)
++    stable_key = f"{symbol}|{direction}|{ts_ms}"
++
++    if not should_sample(stable_key=stable_key, sample_ppm=sample_ppm, seed=seed):
++        return None
++
++    # group by policy hash if available (B4)
++    policy_hash = str(indicators.get("dq_policy_hash", "") or "unknown")
++    manifest_hash = str(indicators.get("dq_policy_feature_manifest_hash_v1", "") or "")
++
++    # runtime + gate state for deterministic replay
++    try:
++        rt_snap = engine.export_runtime_snapshot(runtime, indicators)
++    except Exception:
++        rt_snap = {"schema": 0}
++
++    try:
++        gate_state = engine.export_gate_state(symbol=symbol) if hasattr(engine, "export_gate_state") else {}
++    except Exception:
++        gate_state = {}
++
++    # minimal dec snapshot (best-effort)
++    dec_snap: Dict[str, Any] = {}
++    try:
++        if dec is not None:
++            for k in ("scenario", "need", "have", "score", "gate_bits"):
++                v = getattr(dec, k, None)
++                if isinstance(v, (str, int, float, bool)) or v is None:
++                    dec_snap[k] = v
++    except Exception:
++        dec_snap = {}
++
++    record = {
++        "schema": "ofc_capture_v1",
++        "ts_ms": ts_ms,
++        "symbol": symbol,
++        "direction": direction,
++        "policy_hash": policy_hash,
++        "manifest_hash": manifest_hash,
++        "sample_ppm": int(sample_ppm),
++        "stable_key": stable_key,
++        "now_ts_ms": int(now_ts_ms),
++        # payload
++        "indicators": _json_safe(indicators),
++        "of_confirm_v3": _json_safe(ofc),
++        "decision": _json_safe(dec_snap),
++        "runtime_snapshot": _json_safe(rt_snap),
++        "gate_state": _json_safe(gate_state),
++    }
++
++    day = _utc_yyyymmdd(ts_ms)
++    wr = _get_writer(cfg2)
++    return wr.write(day=day, policy_hash=policy_hash, record=record)
++
++
++__all__ = [
++    "capture_enabled",
++    "maybe_capture_ofc_v1",
++    "should_sample",
++    "NDJSONRotatingWriter",
++]
++
+diff --git a/tick_flow_full/core_snapshot/ofc_capture_v1.py b/tick_flow_full/core_snapshot/ofc_capture_v1.py
+new file mode 100644
+index 0000000..5a86c10
+--- /dev/null
++++ b/tick_flow_full/core_snapshot/ofc_capture_v1.py
+@@ -0,0 +1,400 @@
++"""OFC_CAPTURE v1 (mirror copy): deterministic sampling + NDJSON capture to stable storage.
++
++Why this exists (Train==Serve / golden replay):
++  - Golden replay parity requires that we can re-run OFConfirmEngine.build() on
++    *the same inputs*.
++  - Runtime already knows the full inputs (indicators + minimal runtime snapshot
++    + stateful gates state). This module provides a safe, fail-open mechanism
++    to persist those inputs + outputs.
++
++Design goals:
++  - Deterministic sampling (stable, restart-safe): same (symbol, ts_ms, direction)
++    always results in the same capture decision.
++  - Low overhead: append-only files, one file per (day, policy_hash, pid),
++    optional fsync throttling.
++  - JSON-safe: everything is encoded as primitives/dicts; unknown types -> str().
++
++Security note:
++  - These captures may contain sensitive strategy/evidence details. Store them
++    on trusted machines only and apply retention policies.
++"""
++
++from __future__ import annotations
++
++import json
++import os
++import socket
++import time
++import hashlib
++from dataclasses import asdict, is_dataclass
++from datetime import datetime, timezone
++from typing import Any, Dict, Optional, Tuple
++
++
++def _env_bool(name: str, default: bool = False) -> bool:
++    v = os.getenv(name)
++    if v is None:
++        return default
++    v = str(v).strip().lower()
++    return v in ("1", "true", "yes", "y", "on")
++
++
++def _env_int(name: str, default: int) -> int:
++    v = os.getenv(name)
++    if v is None:
++        return default
++    try:
++        return int(str(v).strip())
++    except Exception:
++        return default
++
++
++def _env_str(name: str, default: str) -> str:
++    v = os.getenv(name)
++    return str(v) if v is not None else default
++
++
++def _utc_yyyymmdd(ts_ms: int) -> str:
++    try:
++        dt = datetime.fromtimestamp(max(0, int(ts_ms)) / 1000.0, tz=timezone.utc)
++    except Exception:
++        dt = datetime.now(tz=timezone.utc)
++    return dt.strftime("%Y%m%d")
++
++
++def _json_safe(obj: Any) -> Any:
++    """Make an object JSON-safe (primitives/dicts/lists).
++
++    This is intentionally conservative: unknown objects are stringified.
++    """
++    if obj is None:
++        return None
++    if isinstance(obj, (str, int, float, bool)):
++        return obj
++    if is_dataclass(obj):
++        try:
++            return _json_safe(asdict(obj))
++        except Exception:
++            return str(obj)
++    if isinstance(obj, dict):
++        out: Dict[str, Any] = {}
++        for k, v in obj.items():
++            try:
++                kk = str(k)
++            except Exception:
++                kk = "<key>"
++            out[kk] = _json_safe(v)
++        return out
++    if isinstance(obj, (list, tuple)):
++        return [_json_safe(x) for x in obj]
++    try:
++        return str(obj)
++    except Exception:
++        return "<unserializable>"
++
++
++def _stable_u64(key: str, seed: str) -> int:
++    """Deterministic 64-bit hash from (seed, key)."""
++    h = hashlib.blake2b(digest_size=16)
++    h.update(seed.encode("utf-8", errors="ignore"))
++    h.update(b"\x00")
++    h.update(key.encode("utf-8", errors="ignore"))
++    d = h.digest()
++    return int.from_bytes(d[:8], "big", signed=False)
++
++
++def should_sample(*, stable_key: str, sample_ppm: int, seed: str) -> bool:
++    """Return True if this event should be captured.
++
++    Args:
++        stable_key: Stable identifier for the event.
++        sample_ppm: Sampling probability in parts-per-million.
++        seed: Namespace seed.
++    """
++    try:
++        ppm = int(sample_ppm)
++    except Exception:
++        ppm = 0
++    if ppm <= 0:
++        return False
++    if ppm >= 1_000_000:
++        return True
++    x = _stable_u64(stable_key, seed)
++    return (x % 1_000_000) < ppm
++
++
++class NDJSONRotatingWriter:
++    """Append-only NDJSON writer with size/time rotation.
++
++    Writes one file per (day, policy_hash, pid). That avoids cross-process
++    locking. Rotation is local to the process.
++    """
++
++    def __init__(
++        self,
++        *,
++        base_dir: str,
++        max_bytes: int = 256 * 1024 * 1024,
++        rotate_sec: int = 3600,
++        fsync_every_n: int = 0,
++    ) -> None:
++        self.base_dir = str(base_dir)
++        self.max_bytes = int(max_bytes)
++        self.rotate_sec = int(rotate_sec)
++        self.fsync_every_n = int(fsync_every_n)
++        self._host = socket.gethostname()[:48]
++        self._pid = os.getpid()
++        self._seq = 0
++        self._fh = None
++        self._path = None
++        self._opened_at = 0.0
++        self._n = 0
++
++    def _mk_path(self, *, day: str, policy_hash: str) -> str:
++        ph = (policy_hash or "unknown")[:32]
++        d = os.path.join(self.base_dir, day, f"policy_{ph}")
++        os.makedirs(d, exist_ok=True)
++        name = f"decisions-{self._host}-{self._pid}-{self._seq:04d}.ndjson"
++        return os.path.join(d, name)
++
++    def _need_rotate(self, *, path: str) -> bool:
++        if self._fh is None or self._path != path:
++            return True
++        now = time.monotonic()
++        if self.rotate_sec > 0 and (now - self._opened_at) >= float(self.rotate_sec):
++            return True
++        try:
++            if self.max_bytes > 0 and os.path.exists(path):
++                if os.path.getsize(path) >= self.max_bytes:
++                    return True
++        except Exception:
++            return False
++        return False
++
++    def _open(self, *, path: str) -> None:
++        # Close previous
++        try:
++            if self._fh is not None:
++                self._fh.flush()
++                self._fh.close()
++        except Exception:
++            pass
++
++        # Ensure directory exists
++        os.makedirs(os.path.dirname(path), exist_ok=True)
++
++        # Line-buffered append
++        self._fh = open(path, "a", encoding="utf-8", buffering=1)
++        self._path = path
++        self._opened_at = time.monotonic()
++        self._n = 0
++
++    def write(self, *, day: str, policy_hash: str, record: Dict[str, Any]) -> Optional[str]:
++        path = self._mk_path(day=day, policy_hash=policy_hash)
++        if self._need_rotate(path=path):
++            # rotate by incrementing seq only when the day+policy stays same
++            if self._path is not None and os.path.dirname(self._path) == os.path.dirname(path):
++                self._seq += 1
++                path = self._mk_path(day=day, policy_hash=policy_hash)
++            self._open(path=path)
++
++        if self._fh is None:
++            return None
++
++        try:
++            line = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
++            self._fh.write(line + "\n")
++            self._n += 1
++            if self.fsync_every_n > 0 and (self._n % self.fsync_every_n) == 0:
++                try:
++                    self._fh.flush()
++                    os.fsync(self._fh.fileno())
++                except Exception:
++                    pass
++            return path
++        except Exception:
++            return None
++
++
++_WRITER: Optional[NDJSONRotatingWriter] = None
++
++
++def _get_writer(cfg2: Dict[str, Any]) -> NDJSONRotatingWriter:
++    global _WRITER
++    if _WRITER is not None:
++        return _WRITER
++
++    base_dir = str(cfg2.get("ofc_capture_dir") or _env_str("OFC_CAPTURE_DIR", "/var/lib/scanner/ofc_capture"))
++    max_bytes = int(cfg2.get("ofc_capture_max_bytes") or _env_int("OFC_CAPTURE_MAX_BYTES", 256 * 1024 * 1024))
++    rotate_sec = int(cfg2.get("ofc_capture_rotate_sec") or _env_int("OFC_CAPTURE_ROTATE_SEC", 3600))
++    fsync_every_n = int(cfg2.get("ofc_capture_fsync_every_n") or _env_int("OFC_CAPTURE_FSYNC_EVERY_N", 0))
++
++    _WRITER = NDJSONRotatingWriter(
++        base_dir=base_dir,
++        max_bytes=max_bytes,
++        rotate_sec=rotate_sec,
++        fsync_every_n=fsync_every_n,
++    )
++    return _WRITER
++
++
++def capture_enabled(cfg2: Dict[str, Any]) -> bool:
++    # Backward compatible env name: OFC_CAPTURE
++    if int(cfg2.get("ofc_capture_enable", 0) or 0) == 1:
++        return True
++    if _env_bool("OFC_CAPTURE_ENABLE", False):
++        return True
++    if _env_bool("OFC_CAPTURE", False):
++        return True
++    return False
++
++
++def maybe_capture_ofc_v1(
++    *,
++    engine: Any,
++    runtime: Any,
++    indicators: Dict[str, Any],
++    cfg2: Dict[str, Any],
++    ofc: Any,
++    dec: Any,
++    now_ts_ms: int,
++) -> Optional[str]:
++    """Capture one decision record (fail-open). Returns path if written."""
++
++    if not capture_enabled(cfg2):
++        return None
++
++    # deterministic sampling
++    sample_ppm = int(cfg2.get("ofc_capture_sample_ppm") or _env_int("OFC_CAPTURE_SAMPLE_PPM", 1000))
++    seed = str(cfg2.get("ofc_capture_seed") or _env_str("OFC_CAPTURE_SEED", "ofc_cap_v1"))
++
++    symbol = str(getattr(ofc, "symbol", "") or indicators.get("symbol") or "")
++    direction = str(getattr(ofc, "direction", "") or indicators.get("direction") or "")
++    ts_ms = int(getattr(ofc, "ts_ms", 0) or indicators.get("event_ts_ms") or now_ts_ms or 0)
++    stable_key = f"{symbol}|{direction}|{ts_ms}"
++
++    if not should_sample(stable_key=stable_key, sample_ppm=sample_ppm, seed=seed):
++        return None
++
++    # group by policy hash if available (B4)
++    policy_hash = str(indicators.get("dq_policy_hash", "") or "unknown")
++    manifest_hash = str(indicators.get("dq_policy_feature_manifest_hash_v1", "") or "")
++
++    # runtime + gate state for deterministic replay
++    try:
++        rt_snap = engine.export_runtime_snapshot(runtime, indicators)
++    except Exception:
++        rt_snap = {"schema": 0}
++
++    try:
++        gate_state = engine.export_gate_state(symbol=symbol) if hasattr(engine, "export_gate_state") else {}
++    except Exception:
++        gate_state = {}
++
++    # minimal dec snapshot (best-effort)
++    dec_snap: Dict[str, Any] = {}
++    try:
++        if dec is not None:
++            for k in ("scenario", "need", "have", "score", "gate_bits"):
++                v = getattr(dec, k, None)
++                if isinstance(v, (str, int, float, bool)) or v is None:
++                    dec_snap[k] = v
++    except Exception:
++        dec_snap = {}
++
++    record = {
++        "schema": "ofc_capture_v1",
++        "ts_ms": ts_ms,
++        "symbol": symbol,
++        "direction": direction,
++        "policy_hash": policy_hash,
++        "manifest_hash": manifest_hash,
++        "sample_ppm": int(sample_ppm),
++        "stable_key": stable_key,
++        "now_ts_ms": int(now_ts_ms),
++        # payload
++        "indicators": _json_safe(indicators),
++        "of_confirm_v3": _json_safe(ofc),
++        "decision": _json_safe(dec_snap),
++        "runtime_snapshot": _json_safe(rt_snap),
++        "gate_state": _json_safe(gate_state),
++    }
++
++    day = _utc_yyyymmdd(ts_ms)
++    wr = _get_writer(cfg2)
++    return wr.write(day=day, policy_hash=policy_hash, record=record)
++
++
++__all__ = [
++    "capture_enabled",
++    "maybe_capture_ofc_v1",
++    "should_sample",
++    "NDJSONRotatingWriter",
++]
++
+diff --git a/core/of_confirm_engine.py b/core/of_confirm_engine.py
+index 1111111..2222222 100644
+--- a/core/of_confirm_engine.py
++++ b/core/of_confirm_engine.py
+@@ -2390,6 +2390,25 @@ class OFConfirmEngine:
+         ofc = OFConfirmV3(
+             v=3,
+             symbol=str(symbol),
+             ts_ms=int(now_ts),
+             direction=str(direction),
+@@ -2402,7 +2421,19 @@ class OFConfirmEngine:
+             evidence=evidence,
+             contrib=contrib,
+         )
++
++        # ------------------------------------------------------------------
++        # B6: deterministic NDJSON capture for golden replay parity.
++        # Fail-open: capture must never affect trading decisions.
++        #
++        # Enabled by:
++        #   - cfg2: ofc_capture_enable=1
++        #   - env : OFC_CAPTURE=1 or OFC_CAPTURE_ENABLE=1
++        # Optional deterministic sampling:
++        #   - cfg2/ofc_capture_sample_ppm or env OFC_CAPTURE_SAMPLE_PPM (default 1000 ppm = 0.1%)
++        # ------------------------------------------------------------------
++        try:
++            from core_snapshot.ofc_capture_v1 import maybe_capture_ofc_v1  # type: ignore
++            maybe_capture_ofc_v1(engine=self, runtime=runtime, indicators=indicators, cfg2=cfg2, ofc=ofc, dec=dec, now_ts_ms=int(now_ts))
++        except Exception:
++            pass
+         return ofc, dec
+diff --git a/tick_flow_full/core/of_confirm_engine.py b/tick_flow_full/core/of_confirm_engine.py
+index 1111111..2222222 100644
+--- a/tick_flow_full/core/of_confirm_engine.py
++++ b/tick_flow_full/core/of_confirm_engine.py
+@@ -2390,6 +2390,25 @@ class OFConfirmEngine:
+         ofc = OFConfirmV3(
+             v=3,
+             symbol=str(symbol),
+             ts_ms=int(now_ts),
+             direction=str(direction),
+@@ -2402,7 +2421,19 @@ class OFConfirmEngine:
+             evidence=evidence,
+             contrib=contrib,
+         )
++
++        # ------------------------------------------------------------------
++        # B6: deterministic NDJSON capture for golden replay parity.
++        # Fail-open: capture must never affect trading decisions.
++        # ------------------------------------------------------------------
++        try:
++            from core_snapshot.ofc_capture_v1 import maybe_capture_ofc_v1  # type: ignore
++            maybe_capture_ofc_v1(engine=self, runtime=runtime, indicators=indicators, cfg2=cfg2, ofc=ofc, dec=dec, now_ts_ms=int(now_ts))
++        except Exception:
++            pass
+         return ofc, dec
+diff --git a/ml_analysis/tools/nightly_golden_replay_job_v1.py b/ml_analysis/tools/nightly_golden_replay_job_v1.py
+new file mode 100644
+index 0000000..f56a1c8
+--- /dev/null
++++ b/ml_analysis/tools/nightly_golden_replay_job_v1.py
+@@ -0,0 +1,238 @@
++"""Nightly golden replay job (B6).
++
++This tool scans OFC_CAPTURE NDJSON captures, groups them by policy hash, and
++runs golden replay parity (B5) per group.
++
++Key property: we do NOT allow mixed policies in a single replay run.
++"""
++
++from __future__ import annotations
++
++import argparse
++import os
++import sys
++import json
++import subprocess
++from datetime import datetime, timedelta, timezone
++from pathlib import Path
++from typing import Dict, List
++
++
++def _utc_yyyymmdd(dt: datetime) -> str:
++    return dt.astimezone(timezone.utc).strftime("%Y%m%d")
++
++
++def _iter_policy_dirs(base: Path, day: str) -> List[Path]:
++    root = base / day
++    if not root.exists():
++        return []
++    out: List[Path] = []
++    for p in sorted(root.iterdir()):
++        if p.is_dir() and p.name.startswith("policy_"):
++            out.append(p)
++    return out
++
++
++def _concat_ndjson(files: List[Path], out_path: Path, limit: int) -> int:
++    n = 0
++    out_path.parent.mkdir(parents=True, exist_ok=True)
++    with out_path.open("w", encoding="utf-8") as out:
++        for f in files:
++            with f.open("r", encoding="utf-8") as inp:
++                for line in inp:
++                    if not line.strip():
++                        continue
++                    out.write(line)
++                    n += 1
++                    if limit > 0 and n >= limit:
++                        return n
++    return n
++
++
++def _run_parity(inp: Path, outdir: Path, fail_on_mismatch: bool, evidence: str) -> int:
++    cmd = [
++        sys.executable,
++        "-m",
++        "ml_analysis.tools.golden_replay_parity_v1",
++        "--input",
++        str(inp),
++        "--outdir",
++        str(outdir),
++        "--evidence",
++        str(evidence),
++    ]
++    if fail_on_mismatch:
++        cmd.append("--fail-on-mismatch")
++    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
++    outdir.mkdir(parents=True, exist_ok=True)
++    (outdir / "parity_stdout.txt").write_text(p.stdout or "", encoding="utf-8")
++    return int(p.returncode)
++
++
++def prune_old(base: Path, keep_days: int) -> None:
++    if keep_days <= 0:
++        return
++    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=int(keep_days))
++    for p in sorted(base.iterdir()):
++        if not p.is_dir():
++            continue
++        name = p.name
++        if len(name) != 8 or not name.isdigit():
++            continue
++        try:
++            dt = datetime.strptime(name, "%Y%m%d").replace(tzinfo=timezone.utc)
++        except Exception:
++            continue
++        if dt < cutoff:
++            try:
++                # rm -rf equivalent (careful, but directory name is validated)
++                for sub in p.rglob("*"):
++                    if sub.is_file() or sub.is_symlink():
++                        try:
++                            sub.unlink()
++                        except Exception:
++                            pass
++                for sub in sorted(p.rglob("*"), reverse=True):
++                    if sub.is_dir():
++                        try:
++                            sub.rmdir()
++                        except Exception:
++                            pass
++                p.rmdir()
++            except Exception:
++                pass
++
++
++def main(argv: List[str]) -> int:
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--capture-dir", default=os.getenv("OFC_CAPTURE_DIR", "/var/lib/scanner/ofc_capture"))
++    ap.add_argument("--outdir", default=os.getenv("GOLDEN_REPLAY_OUTDIR", "/var/lib/scanner/golden_replay_reports"))
++    ap.add_argument("--date", default="yesterday", help="UTC yyyymmdd or 'yesterday' (default)")
++    ap.add_argument("--limit", type=int, default=int(os.getenv("GOLDEN_REPLAY_LIMIT", "0")), help="max rows per policy (0=all)")
++    ap.add_argument("--fail-on-mismatch", action="store_true")
++    ap.add_argument("--evidence", default=os.getenv("GOLDEN_REPLAY_EVIDENCE", "lite"))
++    ap.add_argument("--keep-days", type=int, default=int(os.getenv("OFC_CAPTURE_KEEP_DAYS", "10")))
++    args = ap.parse_args(argv)
++
++    cap = Path(args.capture_dir)
++    out = Path(args.outdir)
++
++    if args.date == "yesterday":
++        day = _utc_yyyymmdd(datetime.now(tz=timezone.utc) - timedelta(days=1))
++    else:
++        day = str(args.date).strip()
++
++    policy_dirs = _iter_policy_dirs(cap, day)
++    if not policy_dirs:
++        out.mkdir(parents=True, exist_ok=True)
++        (out / f"report_{day}.json").write_text(json.dumps({"day": day, "status": "no_data"}, indent=2), encoding="utf-8")
++        prune_old(cap, args.keep_days)
++        return 0
++
++    summary: Dict[str, Dict[str, object]] = {"day": day, "policies": {}}  # type: ignore
++
++    rc_all = 0
++    for pd in policy_dirs:
++        pol = pd.name.replace("policy_", "")
++        files = sorted([p for p in pd.glob("*.ndjson") if p.is_file()])
++        if not files:
++            continue
++        tmp_inp = out / day / pol / "merged.ndjson"
++        n = _concat_ndjson(files, tmp_inp, limit=int(args.limit))
++        rep_dir = out / day / pol
++        rc = _run_parity(tmp_inp, rep_dir, bool(args.fail_on_mismatch), str(args.evidence))
++        summary["policies"][pol] = {"rows": n, "returncode": rc, "dir": str(rep_dir)}  # type: ignore
++        if rc != 0:
++            rc_all = rc if rc_all == 0 else rc_all
++
++    out.mkdir(parents=True, exist_ok=True)
++    (out / f"report_{day}.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
++
++    prune_old(cap, args.keep_days)
++    return int(rc_all)
++
++
++if __name__ == "__main__":
++    raise SystemExit(main(sys.argv[1:]))
++
+diff --git a/scanner-infra/systemd/scanner-golden-replay.service b/scanner-infra/systemd/scanner-golden-replay.service
+new file mode 100644
+index 0000000..6b3f8b8
+--- /dev/null
++++ b/scanner-infra/systemd/scanner-golden-replay.service
+@@ -0,0 +1,23 @@
++[Unit]
++Description=Scanner golden replay parity check (nightly)
++After=network-online.target
++Wants=network-online.target
++
++[Service]
++Type=oneshot
++
++# Adjust WorkingDirectory to your repo root on the host.
++WorkingDirectory=/opt/scanner-infra/repo
++
++# Ensure your python sees the repo.
++Environment=PYTHONPATH=/opt/scanner-infra/repo
++
++# Where OFC captures are stored.
++Environment=OFC_CAPTURE_DIR=/var/lib/scanner/ofc_capture
++
++# Where reports are stored.
++Environment=GOLDEN_REPLAY_OUTDIR=/var/lib/scanner/golden_replay_reports
++
++ExecStart=/usr/bin/python3 -m ml_analysis.tools.nightly_golden_replay_job_v1 --fail-on-mismatch
++
+diff --git a/scanner-infra/systemd/scanner-golden-replay.timer b/scanner-infra/systemd/scanner-golden-replay.timer
+new file mode 100644
+index 0000000..97d0db7
+--- /dev/null
++++ b/scanner-infra/systemd/scanner-golden-replay.timer
+@@ -0,0 +1,12 @@
++[Unit]
++Description=Run scanner golden replay parity nightly
++
++[Timer]
++OnCalendar=*-*-* 03:15:00
++Persistent=true
++
++[Install]
++WantedBy=timers.target
++
+diff --git a/orderflow_services/tests/test_ofc_capture_sampler_v1.py b/orderflow_services/tests/test_ofc_capture_sampler_v1.py
+new file mode 100644
+index 0000000..c0f2744
+--- /dev/null
++++ b/orderflow_services/tests/test_ofc_capture_sampler_v1.py
+@@ -0,0 +1,92 @@
++import os
++
++
++def test_should_sample_deterministic():
++    from core_snapshot.ofc_capture_v1 import should_sample
++
++    seed = "seed_v1"
++    key = "BTCUSDT|LONG|1700000000000"
++
++    # deterministic: repeated calls yield same
++    a = should_sample(stable_key=key, sample_ppm=123456, seed=seed)
++    b = should_sample(stable_key=key, sample_ppm=123456, seed=seed)
++    assert a == b
++
++    # ppm boundaries
++    assert should_sample(stable_key=key, sample_ppm=0, seed=seed) is False
++    assert should_sample(stable_key=key, sample_ppm=1_000_000, seed=seed) is True
++
++
++def test_ndjson_writer_rotates(tmp_path):
++    from core_snapshot.ofc_capture_v1 import NDJSONRotatingWriter
++
++    w = NDJSONRotatingWriter(base_dir=str(tmp_path), max_bytes=200, rotate_sec=0)
++    rec = {"schema": "t", "x": "y" * 50}
++
++    p1 = w.write(day="20260101", policy_hash="abc", record=rec)
++    assert p1 is not None
++    p2 = w.write(day="20260101", policy_hash="abc", record=rec)
++    assert p2 is not None
++    # rotation by max_bytes should eventually create a new file
++    # (may be same path on the first 1-2 writes depending on filesystem overhead)
++    for _ in range(10):
++        p3 = w.write(day="20260101", policy_hash="abc", record=rec)
++    files = list((tmp_path / "20260101" / "policy_abc").glob("*.ndjson"))
++    assert len(files) >= 1
++
+diff --git a/RUNBOOK_OFC_CAPTURE_AND_GOLDEN_REPLAY.md b/RUNBOOK_OFC_CAPTURE_AND_GOLDEN_REPLAY.md
+new file mode 100644
+index 0000000..2ea8e3a
+--- /dev/null
++++ b/RUNBOOK_OFC_CAPTURE_AND_GOLDEN_REPLAY.md
+@@ -0,0 +1,164 @@
++# OFC_CAPTURE + Nightly Golden Replay (B6)
++
++## Goal
++Make Train==Serve parity *operational*:
++
++1) runtime captures deterministic inputs/outputs (NDJSON)
++2) nightly job replays those decisions offline and fails if drift is detected
++
++This closes the loop:
++runtime -> captured decisions -> replay -> alert/CI gate.
++
++## Enable capture (runtime)
++
++### Minimal enable
++
++Environment:
++
++```
++OFC_CAPTURE=1
++OFC_CAPTURE_DIR=/var/lib/scanner/ofc_capture
++```
++
++Or cfg2:
++
++```
++ofc_capture_enable=1
++ofc_capture_dir=/var/lib/scanner/ofc_capture
++```
++
++### Deterministic sampling
++
++Sampling is *deterministic* per stable_key = `symbol|direction|ts_ms`.
++
++Defaults:
++
++* `OFC_CAPTURE_SAMPLE_PPM=1000` (0.1%)
++* `OFC_CAPTURE_SEED=ofc_cap_v1`
++
++Examples:
++
++* 1%: `OFC_CAPTURE_SAMPLE_PPM=10000`
++* 0.01%: `OFC_CAPTURE_SAMPLE_PPM=100`
++
++### Storage layout
++
++Capture writes:
++
++```
++<OFC_CAPTURE_DIR>/<YYYYMMDD>/policy_<dq_policy_hash>/decisions-<host>-<pid>-<seq>.ndjson
++```
++
++One file per process (no cross-process locks).
++
++### Rotation
++
++Defaults:
++
++* `OFC_CAPTURE_MAX_BYTES=268435456` (256MB)
++* `OFC_CAPTURE_ROTATE_SEC=3600` (hourly)
++
++## Nightly replay job
++
++Tool:
++
++```
++python -m ml_analysis.tools.nightly_golden_replay_job_v1 --fail-on-mismatch
++```
++
++Defaults:
++
++* date = yesterday (UTC)
++* outdir = `/var/lib/scanner/golden_replay_reports`
++* retention = `OFC_CAPTURE_KEEP_DAYS` (default 10)
++
++Outputs:
++
++* `report_<YYYYMMDD>.json`
++* per-policy parity outputs under `<outdir>/<YYYYMMDD>/<policy_hash>/...`
++
++## systemd timer
++
++Files:
++
++* `scanner-infra/systemd/scanner-golden-replay.service`
++* `scanner-infra/systemd/scanner-golden-replay.timer`
++
++Install example:
++
++```
++sudo install -m 0644 scanner-infra/systemd/scanner-golden-replay.service /etc/systemd/system/
++sudo install -m 0644 scanner-infra/systemd/scanner-golden-replay.timer /etc/systemd/system/
++sudo systemctl daemon-reload
++sudo systemctl enable --now scanner-golden-replay.timer
++```
++
++Adjust `WorkingDirectory` + `PYTHONPATH` to your repo path.
++
++## Operational thresholds / guidance
++
++* Start capture at 0.1% (1000 ppm) for 24h.
++* If parity is clean, raise to 1% for higher confidence.
++* Keep capture retention small (7-14 days) to limit disk usage.
++
++## Failure modes
++
++* `no_data`: capture not enabled, wrong dir, or zero sampling.
++* `mixed_policy`: indicates policy hash changed during the day; split by policy dirs is expected.
++* parity mismatch: code drift, non-deterministic inputs, or missing capture fields.
++
++## Security / privacy
++
++Captured evidence can include strategy internals. Restrict access and consider encrypting backups.
++

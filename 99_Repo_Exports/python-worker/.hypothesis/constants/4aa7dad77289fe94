@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/meta_features_v6.py
+# hypothesis_version: 6.148.10
+
+[-8.0, -5.0, 0.0, 1.5, 5.0, 8.0, ',', 'book_churn_score', 'book_rate_z', 'book_staleness_ms', 'cancel_ask_rate_ema', 'cancel_bid_rate_ema', 'clip', 'exec_pen', 'exec_risk_ref_bps', 'fp_edge_age_ms', 'have_need_ratio', 'hawkes_cancel_lam', 'hawkes_churn_lam', 'hawkes_taker_lam', 'hi', 'iceberg_age_ms', 'indicators', 'last_spread_z', 'lo', 'log1p', 'meta_feat_v6', 'obi_age_ms', 'of_base_score', 'of_score_final_raw', 'ofi_age_ms', 'pressure_sps', 'reclaim_age_ms', 'sweep_age_ms', 'taker_buy_rate_ema', 'taker_sell_rate_ema', 'type', 'utf-8']

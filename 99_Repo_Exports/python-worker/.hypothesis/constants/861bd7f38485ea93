@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/_config/dates.py
+# hypothesis_version: 6.148.10
+
+['date_dayfirst', 'date_yearfirst', 'display']

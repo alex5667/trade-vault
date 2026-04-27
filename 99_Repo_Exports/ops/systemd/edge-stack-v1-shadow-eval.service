@@ -1,0 +1,16 @@
+[Unit]
+Description=Edge Stack v1 shadow evaluation bundle
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/app
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/etc/default/trade-edge-stack
+ExecStart=/usr/bin/python -m tools.edge_stack_shadow_eval_bundle_v1
+User=trade
+Group=trade
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

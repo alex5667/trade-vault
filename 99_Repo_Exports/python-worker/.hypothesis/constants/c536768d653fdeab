@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/meta_features_v9.py
+# hypothesis_version: 6.148.10
+
+[0.0, ',', '1h', '5m', 'clip(-1,1)', 'clip(0,1)', 'identity', 'indicators', 'liqmap_gate_risk_bps', 'liqmap_gate_rr', 'liqmap_gate_veto', 'log1p', 'meta_feat_v9', 'utf-8']

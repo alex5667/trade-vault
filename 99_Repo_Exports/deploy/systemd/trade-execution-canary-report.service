@@ -1,0 +1,9 @@
+[Unit]
+Description=Trade execution canary scoring report
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/trade
+EnvironmentFile=-/etc/default/trade-execution-p9
+ExecStart=/usr/bin/python3 /opt/trade/scripts/build_canary_scoring_report.py

@@ -1,0 +1,448 @@
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -140,6 +140,7 @@
+ from core.exec_regime_bucket_v1 import compute_exec_regime_bucket
+ from core.fill_prob_proxy import compute_fill_prob_proxy
+ from core.bucket2_v1 import derive_bucket2_label
++from core.calendar_flags import calendar_flags_utc
+ 
+ from handlers.crypto_orderflow.utils.log_sampler import sampled_info, sampled_warning, sampled_debug, LogSamplerFactory
+ 
+@@ -498,31 +499,6 @@
+         except Exception:
+             pass
+ 
+-        # -----------------------------------------------------------------
+-        # B1: bucket2 (breakout/reversal/high_var)
+-        #
+-        # Additive categorization for *new* models, exposed as `indicators["bucket2"]`.
+-        # IMPORTANT: we do NOT touch existing bucket:trend/range/other logic.
+-        #
+-        # Encoder side (ml_confirm_gate) will one-hot encode `bucket2:*` only
+-        # if a model was trained with these columns.
+-        #
+-        # Fail-open: if anything goes wrong -> keep missing/empty.
+-        # -----------------------------------------------------------------
+-        try:
+-            if "bucket2" not in indicators:
+-                ev = locals().get("ctx_evidence", {})
+-                if (not ev) and ofc and hasattr(ofc, "evidence") and isinstance(ofc.evidence, dict):
+-                    ev = ofc.evidence
+-                sv4 = str((ev or {}).get("scenario_v4") or indicators.get("scenario_v4") or "")
+-                indicators["bucket2"] = derive_bucket2_label(
+-                    sv4,
+-                    indicators=indicators,
+-                    evidence=ev if isinstance(ev, dict) else None,
+-                )
+-        except Exception:
+-            pass
+-
+         decision = "ok"
+         norm_ts_ms = raw_ts_ms
+         back_ms = 0
+@@ -1749,6 +1725,21 @@
+                 )
+             )
+             indicators.update(session_onehot(int(tick_ts), cfg=cfg))
++            # ---------------------------------------------------------------
++            # B2: calendar flags (UTC deterministic)
++            #
++            # Add calendar-derived low-cardinality features:
++            #   - cal_eom_utc: end-of-month (last UTC day)
++            #   - cal_eoq_utc: end-of-quarter (Mar/Jun/Sep/Dec last UTC day)
++            #   - cal_dom_utc: day-of-month (1..31)
++            #   - cal_doq_utc: day-of-quarter (1..92)
++            #
++            # Fail-open: if anything goes wrong -> omit fields.
++            # ---------------------------------------------------------------
++            try:
++                indicators.update(calendar_flags_utc(int(tick_ts)))
++            except Exception:
++                pass
+         except Exception:
+             # Flags should never break the main tick path.
+             pass
+@@ -2012,6 +2003,28 @@
+              ev = ofc.evidence
+              indicators["of_confirm"] = ofc.to_dict()
+              indicators["of_confirm_ok"] = int(ofc.ok)
++
++             # ---------------------------------------------------------------
++             # B1: bucket2 (breakout/reversal/high_var) - derived from scenario_v4
++             #
++             # This is an *additive* categorization for new models.
++             # It does NOT replace exec_regime_bucket or the legacy bucket logic.
++             #
++             # Encoder side (ml_confirm_gate) can one-hot encode bucket2:* only
++             # when a model was trained with these columns.
++             #
++             # Fail-open: if anything goes wrong -> keep missing/empty.
++             # ---------------------------------------------------------------
++             try:
++                 if "bucket2" not in indicators:
++                     sv4 = str((ev or {}).get("scenario_v4") or (ev or {}).get("scenario") or getattr(ofc, "scenario", "") or "")
++                     indicators["bucket2"] = derive_bucket2_label(
++                         sv4,
++                         indicators=indicators,
++                         evidence=ev if isinstance(ev, dict) else None,
++                     )
++             except Exception:
++                 pass
+              
+              # SRE metrics helper
+              self._emit_gate_metrics(runtime, ofc, indicators, ev, tick_ts)
+
+--- a/services/orderflow/components/tick_processor.py
++++ b/services/orderflow/components/tick_processor.py
+@@ -155,6 +155,7 @@
+ from core.fill_prob_proxy import compute_fill_prob_proxy
+ from core.exec_regime_bucket_v1 import compute_exec_regime_bucket
+ from core.bucket2_v1 import derive_bucket2_label
++from core.calendar_flags import calendar_flags_utc
+ 
+ from handlers.crypto_orderflow.utils.log_sampler import sampled_info, sampled_warning, sampled_debug, LogSamplerFactory
+ 
+@@ -513,31 +514,6 @@
+         except Exception:
+             pass
+ 
+-        # -----------------------------------------------------------------
+-        # B1: bucket2 (breakout/reversal/high_var)
+-        #
+-        # Additive categorization for *new* models, exposed as `indicators["bucket2"]`.
+-        # IMPORTANT: we do NOT touch existing bucket:trend/range/other logic.
+-        #
+-        # Encoder side (ml_confirm_gate) will one-hot encode `bucket2:*` only
+-        # if a model was trained with these columns.
+-        #
+-        # Fail-open: if anything goes wrong -> keep missing/empty.
+-        # -----------------------------------------------------------------
+-        try:
+-            if "bucket2" not in indicators:
+-                ev = locals().get("ctx_evidence", {})
+-                if (not ev) and ofc and hasattr(ofc, "evidence") and isinstance(ofc.evidence, dict):
+-                    ev = ofc.evidence
+-                sv4 = str((ev or {}).get("scenario_v4") or indicators.get("scenario_v4") or "")
+-                indicators["bucket2"] = derive_bucket2_label(
+-                    sv4,
+-                    indicators=indicators,
+-                    evidence=ev if isinstance(ev, dict) else None,
+-                )
+-        except Exception:
+-            pass
+-
+         decision = "ok"
+         norm_ts_ms = raw_ts_ms
+         back_ms = 0
+@@ -1638,6 +1614,21 @@
+                 )
+             )
+             indicators.update(session_onehot(int(tick_ts), cfg=cfg))
++            # ---------------------------------------------------------------
++            # B2: calendar flags (UTC deterministic)
++            #
++            # Add calendar-derived low-cardinality features:
++            #   - cal_eom_utc: end-of-month (last UTC day)
++            #   - cal_eoq_utc: end-of-quarter (Mar/Jun/Sep/Dec last UTC day)
++            #   - cal_dom_utc: day-of-month (1..31)
++            #   - cal_doq_utc: day-of-quarter (1..92)
++            #
++            # Fail-open: if anything goes wrong -> omit fields.
++            # ---------------------------------------------------------------
++            try:
++                indicators.update(calendar_flags_utc(int(tick_ts)))
++            except Exception:
++                pass
+         except Exception:
+             # Flags should never break the main tick path.
+             pass
+@@ -1920,6 +1911,28 @@
+              ev = ofc.evidence
+              indicators["of_confirm"] = ofc.to_dict()
+              indicators["of_confirm_ok"] = int(ofc.ok)
++
++             # ---------------------------------------------------------------
++             # B1: bucket2 (breakout/reversal/high_var) - derived from scenario_v4
++             #
++             # This is an *additive* categorization for new models.
++             # It does NOT replace exec_regime_bucket or the legacy bucket logic.
++             #
++             # Encoder side (ml_confirm_gate) can one-hot encode bucket2:* only
++             # when a model was trained with these columns.
++             #
++             # Fail-open: if anything goes wrong -> keep missing/empty.
++             # ---------------------------------------------------------------
++             try:
++                 if "bucket2" not in indicators:
++                     sv4 = str((ev or {}).get("scenario_v4") or (ev or {}).get("scenario") or getattr(ofc, "scenario", "") or "")
++                     indicators["bucket2"] = derive_bucket2_label(
++                         sv4,
++                         indicators=indicators,
++                         evidence=ev if isinstance(ev, dict) else None,
++                     )
++             except Exception:
++                 pass
+              
+              # SRE metrics helper
+              self._emit_gate_metrics(runtime, ofc, indicators, ev, tick_ts)
+
+--- a/tick_flow_full/core/ml_feature_schema_v7_of.py
++++ b/tick_flow_full/core/ml_feature_schema_v7_of.py
+@@ -28,6 +28,18 @@
+     "flag_macro_event",
+ ]
+ 
++# B2: calendar flags (UTC deterministic)
++_B2_BOOL_KEYS = [
++    "cal_eom_utc",
++    "cal_eoq_utc",
++]
++
++# Optional numeric encodings (still low-cardinality)
++_B2_NUM_KEYS = [
++    "cal_dom_utc",
++    "cal_doq_utc",
++]
++
+ 
+ @dataclass
+ class MLFeatureSchemaV7OF(MLFeatureSchemaV6OF):
+@@ -71,11 +83,19 @@
+             if k not in self.num_keys:
+                 self.num_keys.append(k)
+ 
++        # B2: optional numeric calendar encodings (low-cardinality)
++        for k in _B2_NUM_KEYS:
++            if k not in self.num_keys:
++                self.num_keys.append(k)
++
+         # keep order stable and de-dup
+         bk = list(self.bool_keys or [])
+         for k in _A5_BOOL_KEYS:
+             if k not in bk:
+                 bk.append(k)
++        for k in _B2_BOOL_KEYS:
++            if k not in bk:
++                bk.append(k)
+         self.bool_keys = bk
+ 
+ 
+
+--- a/tick_flow_full/core/calendar_flags.py
++++ b/tick_flow_full/core/calendar_flags.py
+@@ -0,0 +1,111 @@
++"""Calendar-derived deterministic flags for feature engineering (B2).
++
++Goals
++-----
++- Provide small, low-cardinality calendar context for models (EOM/EOQ).
++- Deterministic in UTC, independent of local timezone.
++- Safe for real-time: fail-open callers can drop fields on any error.
++
++Design
++------
++We expose boolean EOM/EOQ flags as well as optional numeric DOM/DOQ:
++- cal_eom_utc: 1 if timestamp falls on the last UTC day of its month.
++- cal_eoq_utc: 1 if timestamp falls on the last UTC day of its quarter.
++- cal_dom_utc: day-of-month (1..31) in UTC.
++- cal_doq_utc: day-of-quarter (1..92) in UTC.
++
++These keys are intended to be appended to MLFeatureSchemaV7OF.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from datetime import datetime, timezone, date
++import calendar
++from typing import Dict
++
++
++def _utc_date_from_ts_ms(ts_ms: int) -> date:
++    """Convert epoch milliseconds -> UTC date.
++
++    Notes:
++    - Uses timezone.utc to avoid local timezone dependence.
++    - Expects ts_ms to be epoch milliseconds.
++    """
++    # Defensive: callers may pass floats/strings, but we require int here.
++    # Let ValueError/TypeError bubble; callers are expected to be fail-open.
++    dt = datetime.fromtimestamp(int(ts_ms) / 1000.0, tz=timezone.utc)
++    return dt.date()
++
++
++def is_end_of_month_utc(ts_ms: int) -> int:
++    """Return 1 if ts_ms is on the last day of the month in UTC."""
++    d = _utc_date_from_ts_ms(ts_ms)
++    last_dom = calendar.monthrange(d.year, d.month)[1]
++    return 1 if d.day == last_dom else 0
++
++
++def is_end_of_quarter_utc(ts_ms: int) -> int:
++    """Return 1 if ts_ms is on the last day of the quarter in UTC."""
++    d = _utc_date_from_ts_ms(ts_ms)
++    if d.month not in (3, 6, 9, 12):
++        return 0
++    last_dom = calendar.monthrange(d.year, d.month)[1]
++    return 1 if d.day == last_dom else 0
++
++
++def day_of_month_utc(ts_ms: int) -> int:
++    """Day-of-month (1..31) in UTC."""
++    d = _utc_date_from_ts_ms(ts_ms)
++    return int(d.day)
++
++
++def day_of_quarter_utc(ts_ms: int) -> int:
++    """Day-of-quarter (1..92) in UTC.
++
++    Quarter start months are 1,4,7,10.
++    """
++    d = _utc_date_from_ts_ms(ts_ms)
++    q_start_month = 1 + ((d.month - 1) // 3) * 3
++    q0 = date(d.year, q_start_month, 1)
++    return int((d - q0).days + 1)
++
++
++def calendar_flags_utc(ts_ms: int) -> Dict[str, int]:
++    """Compute calendar features for a UTC timestamp (epoch ms).
++
++    Returns a dict with the canonical B2 keys.
++
++    Fail-open recommendation for callers:
++    >>> try:
++    ...     indicators.update(calendar_flags_utc(ts_ms))
++    ... except Exception:
++    ...     pass
++    """
++    ts_ms_i = int(ts_ms)
++    if ts_ms_i <= 0:
++        # Keep deterministic zeros for missing/invalid timestamps.
++        return {
++            "cal_eom_utc": 0,
++            "cal_eoq_utc": 0,
++            "cal_dom_utc": 0,
++            "cal_doq_utc": 0,
++        }
++
++    # Compute once to avoid double timestamp conversions.
++    d = _utc_date_from_ts_ms(ts_ms_i)
++    last_dom = calendar.monthrange(d.year, d.month)[1]
++
++    eom = 1 if d.day == last_dom else 0
++    eoq = 1 if (d.month in (3, 6, 9, 12) and d.day == last_dom) else 0
++
++    q_start_month = 1 + ((d.month - 1) // 3) * 3
++    q0 = date(d.year, q_start_month, 1)
++    doq = int((d - q0).days + 1)
++
++    return {
++        "cal_eom_utc": int(eom),
++        "cal_eoq_utc": int(eoq),
++        "cal_dom_utc": int(d.day),
++        "cal_doq_utc": int(doq),
++    }
+
+--- a/tick_flow_full/tests/core/test_calendar_flags_v1.py
++++ b/tick_flow_full/tests/core/test_calendar_flags_v1.py
+@@ -0,0 +1,68 @@
++from __future__ import annotations
++
++from datetime import datetime, timezone
++
++from core.calendar_flags import (
++    calendar_flags_utc,
++    is_end_of_month_utc,
++    is_end_of_quarter_utc,
++    day_of_month_utc,
++    day_of_quarter_utc,
++)
++from core.ml_feature_schema_v7_of import MLFeatureSchemaV7OF
++
++
++def _ts_ms(y: int, m: int, d: int, hh: int = 0, mm: int = 0, ss: int = 0) -> int:
++    return int(datetime(y, m, d, hh, mm, ss, tzinfo=timezone.utc).timestamp() * 1000)
++
++
++def test_calendar_flags_utc_boundary_eom_non_leap() -> None:
++    ts = _ts_ms(2026, 2, 28, 12, 0, 0)
++    f = calendar_flags_utc(ts)
++    assert f["cal_eom_utc"] == 1
++    assert f["cal_eoq_utc"] == 0
++    assert f["cal_dom_utc"] == 28
++    assert f["cal_doq_utc"] == 59  # Jan(31) + Feb(28)
++
++
++def test_calendar_flags_utc_boundary_leap_day() -> None:
++    ts = _ts_ms(2024, 2, 29, 23, 59, 59)
++    f = calendar_flags_utc(ts)
++    assert f["cal_eom_utc"] == 1
++    assert f["cal_eoq_utc"] == 0
++    assert f["cal_dom_utc"] == 29
++    assert f["cal_doq_utc"] == 60  # Jan(31) + Feb(29)
++
++
++def test_calendar_flags_utc_eoq_mar31() -> None:
++    ts = _ts_ms(2026, 3, 31, 0, 0, 0)
++    f = calendar_flags_utc(ts)
++    assert f["cal_eom_utc"] == 1
++    assert f["cal_eoq_utc"] == 1
++    assert f["cal_dom_utc"] == 31
++    assert f["cal_doq_utc"] == 90  # Q1: 31 + 28 + 31
++
++
++def test_calendar_flags_utc_q2_start() -> None:
++    ts = _ts_ms(2026, 4, 1, 0, 0, 0)
++    f = calendar_flags_utc(ts)
++    assert f["cal_eom_utc"] == 0
++    assert f["cal_eoq_utc"] == 0
++    assert f["cal_dom_utc"] == 1
++    assert f["cal_doq_utc"] == 1
++
++
++def test_helpers_match_calendar_flags() -> None:
++    ts = _ts_ms(2026, 6, 30, 18, 30, 0)
++    assert is_end_of_month_utc(ts) == 1
++    assert is_end_of_quarter_utc(ts) == 1
++    assert day_of_month_utc(ts) == 30
++    assert day_of_quarter_utc(ts) >= 1
++
++
++def test_schema_v7_includes_calendar_keys() -> None:
++    s = MLFeatureSchemaV7OF()
++    for k in ("cal_eom_utc", "cal_eoq_utc"):
++        assert k in s.bool_keys
++    for k in ("cal_dom_utc", "cal_doq_utc"):
++        assert k in s.num_keys
+
+--- a/services/orderflow/tests/test_calendar_flags_v1.py
++++ b/services/orderflow/tests/test_calendar_flags_v1.py
+@@ -0,0 +1,27 @@
++from __future__ import annotations
++
++from datetime import datetime, timezone
++import os
++import sys
++
++# Ensure both trees are importable:
++# - services.* (mirror)
++# - core.* (from tick_flow_full which exposes top-level 'core' package)
++sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
++sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../../tick_flow_full'))
++
++from core.calendar_flags import calendar_flags_utc, is_end_of_month_utc, is_end_of_quarter_utc
++
++
++def _ts_ms(y: int, m: int, d: int, hh: int = 0, mm: int = 0, ss: int = 0) -> int:
++    return int(datetime(y, m, d, hh, mm, ss, tzinfo=timezone.utc).timestamp() * 1000)
++
++
++def test_calendar_flags_eom_eoq_quick() -> None:
++    # 2026-12-31 is both EOM and EOQ.
++    ts = _ts_ms(2026, 12, 31, 23, 59, 59)
++    f = calendar_flags_utc(ts)
++    assert f["cal_eom_utc"] == 1
++    assert f["cal_eoq_utc"] == 1
++    assert is_end_of_month_utc(ts) == 1
++    assert is_end_of_quarter_utc(ts) == 1
+

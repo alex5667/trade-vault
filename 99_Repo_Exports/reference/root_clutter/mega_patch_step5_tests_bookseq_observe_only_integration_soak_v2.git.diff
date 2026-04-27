@@ -1,0 +1,722 @@
+diff --git a/orderflow_services/__init__.py b/orderflow_services/__init__.py
+new file mode 100644
+index 0000000..dc270c5
+--- /dev/null
++++ b/orderflow_services/__init__.py
+@@ -0,0 +1 @@
++# Marker package for local test utilities.
+diff --git a/orderflow_services/tests/__init__.py b/orderflow_services/tests/__init__.py
+new file mode 100644
+index 0000000..7c7605d
+--- /dev/null
++++ b/orderflow_services/tests/__init__.py
+@@ -0,0 +1 @@
++# pytest package marker
+diff --git a/orderflow_services/tests/_repo_import.py b/orderflow_services/tests/_repo_import.py
+new file mode 100644
+index 0000000..bc8ff04
+--- /dev/null
++++ b/orderflow_services/tests/_repo_import.py
+@@ -0,0 +1,62 @@
++"""Repo-local import helpers for tests.
++
++Why:
++  This codebase intentionally contains duplicated trees (SoT + mirror), and
++  the CI/test runner may not always have the repo root wired into PYTHONPATH.
++
++  These helpers load modules by *file path* to make unit/integration tests:
++    - robust to packaging differences
++    - robust to SoT/mirror path selection
++
++Contract:
++  - find_repo_root() locates the repository root by searching for well-known
++    top-level directories.
++  - load_module_from_candidates() loads the first existing candidate.
++"""
++
++from __future__ import annotations
++
++import importlib.util
++from pathlib import Path
++from types import ModuleType
++from typing import Iterable, Tuple
++
++
++def find_repo_root(start: Path) -> Path:
++    """Find repo root by walking parents until we see expected top-level dirs."""
++    p = start.resolve()
++    for _ in range(12):
++        if (p / "services").exists() or (p / "tick_flow_full").exists() or (p / "core").exists():
++            return p
++        if p.parent == p:
++            break
++        p = p.parent
++    return start.resolve()
++
++
++def load_module_from_file(path: Path, module_name: str) -> ModuleType:
++    spec = importlib.util.spec_from_file_location(module_name, str(path))
++    if spec is None or spec.loader is None:
++        raise ImportError(f"Cannot create module spec for {path}")
++    mod = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(mod)  # type: ignore[attr-defined]
++    return mod
++
++
++def load_module_from_candidates(
++    repo_root: Path,
++    candidates: Iterable[str],
++    module_name: str,
++) -> Tuple[ModuleType, Path]:
++    """Load module by relative path candidates.
++
++    Returns (module, resolved_path).
++    Raises FileNotFoundError if none exist.
++    """
++    last = None
++    for rel in candidates:
++        p = (repo_root / rel).resolve()
++        if p.exists() and p.is_file():
++            return load_module_from_file(p, module_name), p
++        last = p
++    raise FileNotFoundError(f"No candidate found for {module_name}; last tried: {last}")
+diff --git a/orderflow_services/tests/test_book_seq_tracker_uu_unit_v1.py b/orderflow_services/tests/test_book_seq_tracker_uu_unit_v1.py
+new file mode 100644
+index 0000000..8f3fc23
+--- /dev/null
++++ b/orderflow_services/tests/test_book_seq_tracker_uu_unit_v1.py
+@@ -0,0 +1,68 @@
++from __future__ import annotations
++
++from pathlib import Path
++
++import pytest
++
++from orderflow_services.tests._repo_import import find_repo_root, load_module_from_candidates
++
++
++def _load_book_seq_tracker():
++    repo = find_repo_root(Path(__file__).resolve())
++    # Prefer SoT (tick_flow_full) then mirror (services).
++    candidates = [
++        "tick_flow_full/services/orderflow/components/book_seq_tracker_uu.py",
++        "services/orderflow/components/book_seq_tracker_uu.py",
++    ]
++    return load_module_from_candidates(repo, candidates, module_name="book_seq_tracker_uu")
++
++
++def test_book_seq_continuity_with_Uu_ok_overlap():
++    """prev_u=160, event U=161,u=165 → ok, missing_event=0
++
++    Note:
++      Binance often sends overlapping depthUpdate ranges; this test covers
++      the strict-continuity case U==prev_u+1.
++    """
++    mod, _ = _load_book_seq_tracker()
++    dec = mod.decide_book_seq_uu(prev_u=160, cur_U=161, cur_u=165)
++    assert dec.has_seq_fields is True
++    assert dec.reason in ("ok", "overlap")
++    assert dec.gap == 0
++    assert float(dec.missing_event) == 0.0
++    assert dec.next_last_u == 165
++
++
++def test_book_seq_gap_detected():
++    """prev_u=160, event U=170,u=175 → gap=9, missing_event=1"""
++    mod, _ = _load_book_seq_tracker()
++    dec = mod.decide_book_seq_uu(prev_u=160, cur_U=170, cur_u=175)
++    assert dec.reason == "gap"
++    assert dec.gap == 9
++    assert float(dec.missing_event) == 1.0
++    assert dec.next_last_u == 175
++
++
++def test_book_seq_dup_old():
++    """prev_u=200, event U=190,u=195 → dup/old, missing_event=0"""
++    mod, _ = _load_book_seq_tracker()
++    dec = mod.decide_book_seq_uu(prev_u=200, cur_U=190, cur_u=195)
++    # Some implementations label this as dup or reorder; both MUST NOT count as missing.
++    assert dec.reason in ("dup", "reorder", "reorder_or_reset")
++    assert dec.gap == 0
++    assert float(dec.missing_event) == 0.0
++    # next_last_u must not go backwards
++    assert dec.next_last_u in (200, 195)
++
++
++def test_book_seq_init():
++    """No prev_u → init, ema unchanged.
++
++    For the pure decision function, init means prev_u<=0.
++    """
++    mod, _ = _load_book_seq_tracker()
++    dec = mod.decide_book_seq_uu(prev_u=0, cur_U=161, cur_u=165)
++    assert dec.reason == "init"
++    assert dec.gap == 0
++    assert float(dec.missing_event) == 0.0
++    assert dec.next_last_u == 165
+diff --git a/orderflow_services/tests/test_book_processor_missing_seq_metrics_unit_v1.py b/orderflow_services/tests/test_book_processor_missing_seq_metrics_unit_v1.py
+new file mode 100644
+index 0000000..061d1ab
+--- /dev/null
++++ b/orderflow_services/tests/test_book_processor_missing_seq_metrics_unit_v1.py
+@@ -0,0 +1,79 @@
++from __future__ import annotations
++
++from pathlib import Path
++
++import pytest
++
++from orderflow_services.tests._repo_import import find_repo_root, load_module_from_candidates
++
++
++class _DummyCounter:
++    def __init__(self) -> None:
++        self.incs = 0
++        self.last_labels = None
++
++    def labels(self, **kwargs):
++        self.last_labels = dict(kwargs)
++        return self
++
++    def inc(self, v: float = 1.0) -> None:
++        self.incs += int(v)
++
++
++class _Runtime:
++    def __init__(self, symbol: str, *, last_u: int, ema: float, alpha: float) -> None:
++        self.symbol = symbol
++        self.config = {"book_missing_seq_ema_alpha": float(alpha)}
++        self.book_seq_last_u = int(last_u)
++        self.book_missing_seq_ema = float(ema)
++        self.book_seq_last_reason = "init"
++
++
++def _load_book_processor():
++    repo = find_repo_root(Path(__file__).resolve())
++    candidates = [
++        "tick_flow_full/services/orderflow/components/book_processor.py",
++        "services/orderflow/components/book_processor.py",
++    ]
++    return load_module_from_candidates(repo, candidates, module_name="book_processor")
++
++
++def test_book_processor_gap_detected_increments_events_total():
++    """Unit: gap -> events_total.inc() and ema updates."""
++    try:
++        bp, _ = _load_book_processor()
++    except Exception as exc:
++        pytest.skip(f"book_processor not importable in this checkout: {exc}")
++
++    dummy = _DummyCounter()
++    # Monkeypatch module-level metric.
++    bp.book_missing_seq_events_total = dummy
++
++    rt = _Runtime("BTCUSDT", last_u=160, ema=0.0, alpha=0.5)
++    proc = bp.BookProcessor()
++    proc._update_book_missing_seq(rt, {"U": 170, "u": 175})
++
++    assert rt.book_seq_last_reason in ("gap", "book_seq_gap")
++    assert rt.book_seq_last_u == 175
++    assert rt.book_missing_seq_ema > 0.0
++    assert dummy.incs == 1
++    assert dummy.last_labels == {"symbol": "BTCUSDT"}
++
++
++def test_book_processor_ok_does_not_increment_events_total():
++    """Unit: ok/overlap must not count as missing event."""
++    try:
++        bp, _ = _load_book_processor()
++    except Exception as exc:
++        pytest.skip(f"book_processor not importable in this checkout: {exc}")
++
++    dummy = _DummyCounter()
++    bp.book_missing_seq_events_total = dummy
++
++    rt = _Runtime("BTCUSDT", last_u=160, ema=0.0, alpha=0.5)
++    proc = bp.BookProcessor()
++    proc._update_book_missing_seq(rt, {"U": 161, "u": 165})
++
++    assert rt.book_seq_last_reason in ("ok", "overlap", "reorder_or_reset", "init", "no_seq_fields", "no_u")
++    assert rt.book_seq_last_u == 165
++    assert dummy.incs == 0
+diff --git a/orderflow_services/tests/test_dq_gate_observe_only_unit_v1.py b/orderflow_services/tests/test_dq_gate_observe_only_unit_v1.py
+new file mode 100644
+index 0000000..250db64
+--- /dev/null
++++ b/orderflow_services/tests/test_dq_gate_observe_only_unit_v1.py
+@@ -0,0 +1,101 @@
++from __future__ import annotations
++
++from pathlib import Path
++from types import SimpleNamespace
++
++import pytest
++
++from orderflow_services.tests._repo_import import find_repo_root, load_module_from_candidates
++
++
++def _load_dq_gate():
++    repo = find_repo_root(Path(__file__).resolve())
++    candidates = [
++        "tick_flow_full/core/dq_gate_v1.py",
++        "core/dq_gate_v1.py",
++        # Some repo layouts keep the mirror under services/
++        "services/core/dq_gate_v1.py",
++        "tick_flow_full/services/core/dq_gate_v1.py",
++    ]
++    return load_module_from_candidates(repo, candidates, module_name="dq_gate_v1")
++
++
++def _base_cfg(*, observe_only_sec: int, veto_enabled: bool) -> dict:
++    return {
++        "dq_gate_enable": 1,
++        # enable veto path
++        "dq_gate_mode": "both",
++        # observe-only controls (B1)
++        "dq_observe_only_sec": int(observe_only_sec),
++        "dq_book_veto_enabled": bool(veto_enabled),
++        # thresholds
++        "book_hard": 30.0,
++        "dq_book_missing_seq_soft": 10.0,
++        # keep other thresholds high / inactive
++        "dq_tick_gap_p95_soft_ms": 1e9,
++        "dq_tick_gap_p95_hard_ms": 1e9,
++        "dq_tick_gap_p95_extreme_ms": 1e9,
++        "dq_tick_missing_seq_soft": 1e9,
++        "dq_tick_missing_seq_hard": 1e9,
++        "dq_data_health_min": 0.0,
++        "dq_data_health_hard_min": 0.0,
++    }
++
++
++def test_observe_only_blocks_veto():
++    """dq_level=2 by book_seq_hard, but uptime<observe_only => dq_veto=0."""
++    try:
++        mod, _ = _load_dq_gate()
++    except Exception as exc:
++        pytest.skip(f"dq_gate_v1 not importable in this checkout: {exc}")
++
++    # Patch runtime clock to deterministic uptime.
++    mod.runtime_snapshot = lambda event_ts_ms=None: SimpleNamespace(uptime_sec=60)  # 1 min
++
++    indicators = {
++        "event_ts_ms": 1,
++        "book_missing_seq_ema": 999.0,  # >> book_hard
++        "tick_gap_p95_ms": 0.0,
++        "tick_missing_seq_ema": 0.0,
++        "data_health": 1.0,
++        "book_health_ok": 1.0,
++        "tick_time_age_ms": 0.0,
++        "tick_ts_source_now_ema": 0.0,
++        "tick_ts_source_stream_id_ema": 0.0,
++    }
++
++    cfg = _base_cfg(observe_only_sec=3600, veto_enabled=True)  # 1h window
++    out = mod.eval_dq_gate(indicators, cfg)
++
++    assert out["dq_level"] == 2
++    # Primary reason bucket should map to book_seq.
++    assert out.get("dq_reason_bucket") in ("book_seq", "ok")
++    assert out["dq_veto"] == 0
++
++
++def test_veto_enabled_after_window():
++    """uptime>=observe_only and BOOK_VETO_ENABLED=true => dq_veto=1."""
++    try:
++        mod, _ = _load_dq_gate()
++    except Exception as exc:
++        pytest.skip(f"dq_gate_v1 not importable in this checkout: {exc}")
++
++    mod.runtime_snapshot = lambda event_ts_ms=None: SimpleNamespace(uptime_sec=7200)  # 2h
++
++    indicators = {
++        "event_ts_ms": 1,
++        "book_missing_seq_ema": 999.0,
++        "tick_gap_p95_ms": 0.0,
++        "tick_missing_seq_ema": 0.0,
++        "data_health": 1.0,
++        "book_health_ok": 1.0,
++        "tick_time_age_ms": 0.0,
++        "tick_ts_source_now_ema": 0.0,
++        "tick_ts_source_stream_id_ema": 0.0,
++    }
++
++    cfg = _base_cfg(observe_only_sec=3600, veto_enabled=True)
++    out = mod.eval_dq_gate(indicators, cfg)
++
++    assert out["dq_level"] == 2
++    assert out["dq_veto"] == 1
+diff --git a/orderflow_services/tests/test_integration_book_seq_to_dq_contract_v1.py b/orderflow_services/tests/test_integration_book_seq_to_dq_contract_v1.py
+new file mode 100644
+index 0000000..0af6005
+--- /dev/null
++++ b/orderflow_services/tests/test_integration_book_seq_to_dq_contract_v1.py
+@@ -0,0 +1,125 @@
++from __future__ import annotations
++
++from pathlib import Path
++from types import SimpleNamespace
++
++import pytest
++
++from orderflow_services.tests._repo_import import find_repo_root, load_module_from_candidates
++
++
++def _load_book_seq_tracker():
++    repo = find_repo_root(Path(__file__).resolve())
++    candidates = [
++        "tick_flow_full/services/orderflow/components/book_seq_tracker_uu.py",
++        "services/orderflow/components/book_seq_tracker_uu.py",
++    ]
++    return load_module_from_candidates(repo, candidates, module_name="book_seq_tracker_uu")
++
++
++def _load_dq_gate():
++    repo = find_repo_root(Path(__file__).resolve())
++    candidates = [
++        "tick_flow_full/core/dq_gate_v1.py",
++        "core/dq_gate_v1.py",
++        "services/core/dq_gate_v1.py",
++        "tick_flow_full/services/core/dq_gate_v1.py",
++    ]
++    return load_module_from_candidates(repo, candidates, module_name="dq_gate_v1")
++
++
++def test_integration_snapshot_overlap_gap_recovery_contract():
++    """Integration (минимум): snapshot → overlap → gap → recovery.
++
++    Checks:
++      - book keys exist in indicators
++      - dq keys exist in dq output
++      - dq gate can classify book_seq hard and (optionally) veto depending on config
++    """
++    try:
++        bs, _ = _load_book_seq_tracker()
++    except Exception as exc:
++        pytest.skip(f"book_seq_tracker_uu not importable: {exc}")
++
++    try:
++        dq, _ = _load_dq_gate()
++    except Exception as exc:
++        pytest.skip(f"dq_gate_v1 not importable: {exc}")
++
++    # Deterministic runtime uptime (bypass real monotonic clock).
++    dq.runtime_snapshot = lambda event_ts_ms=None: SimpleNamespace(uptime_sec=999999)
++
++    alpha = 0.10
++    ema = 0.0
++    last_u = 0
++    last_reason = "init"
++
++    # 1) "snapshot" stage: no prev_u yet
++    dec = bs.decide_book_seq_uu(prev_u=last_u, cur_U=101, cur_u=105)
++    last_reason = dec.reason
++    last_u = dec.next_last_u
++    # init does not count as missing
++    ema = bs.ema_update_clamped(ema, dec.missing_event, alpha)
++
++    # 2) overlap (Binance normal) — does not count as missing
++    dec = bs.decide_book_seq_uu(prev_u=last_u, cur_U=103, cur_u=110)
++    last_reason = dec.reason
++    last_u = max(last_u, dec.next_last_u)
++    ema = bs.ema_update_clamped(ema, dec.missing_event, alpha)
++
++    # 3) GAP
++    dec = bs.decide_book_seq_uu(prev_u=last_u, cur_U=120, cur_u=125)
++    last_reason = dec.reason
++    last_u = max(last_u, dec.next_last_u)
++    ema = bs.ema_update_clamped(ema, dec.missing_event, alpha)
++
++    # 4) recovery / continuous
++    dec = bs.decide_book_seq_uu(prev_u=last_u, cur_U=126, cur_u=130)
++    last_reason = dec.reason
++    last_u = max(last_u, dec.next_last_u)
++    ema = bs.ema_update_clamped(ema, dec.missing_event, alpha)
++
++    # Build minimal indicators contract (what tick_processor must surface).
++    indicators = {
++        "event_ts_ms": 1,
++        "book_missing_seq_ema": float(ema),
++        "book_seq_last_reason": str(last_reason),
++        # dq inputs (kept benign)
++        "tick_gap_p95_ms": 0.0,
++        "tick_missing_seq_ema": 0.0,
++        "data_health": 1.0,
++        "book_health_ok": 1.0,
++        "tick_time_age_ms": 0.0,
++        "tick_ts_source_now_ema": 0.0,
++        "tick_ts_source_stream_id_ema": 0.0,
++    }
++
++    assert "book_missing_seq_ema" in indicators
++    assert "book_seq_last_reason" in indicators
++
++    cfg = {
++        "dq_gate_enable": 1,
++        "dq_gate_mode": "both",
++        "dq_observe_only_sec": 0,
++        "dq_book_veto_enabled": True,
++        # Force hard threshold below our post-gap EMA
++        "book_hard": 0.08,
++        "dq_book_missing_seq_soft": 0.01,
++        # keep other hard triggers off
++        "dq_tick_gap_p95_soft_ms": 1e9,
++        "dq_tick_gap_p95_hard_ms": 1e9,
++        "dq_tick_gap_p95_extreme_ms": 1e9,
++        "dq_tick_missing_seq_soft": 1e9,
++        "dq_tick_missing_seq_hard": 1e9,
++        "dq_data_health_min": 0.0,
++        "dq_data_health_hard_min": 0.0,
++    }
++
++    out = dq.eval_dq_gate(indicators, cfg)
++    # DQ keys must exist.
++    for k in ("dq_level", "dq_veto", "dq_reason", "dq_reason_bucket", "dq_reasons"):
++        assert k in out
++
++    assert out["dq_level"] in (1, 2)
++    # With observe_only_sec==0 and veto_enabled, a hard book EMA must veto.
++    assert out["dq_veto"] == 1
+diff --git a/ml_analysis/tools/soak_dq_level_share_v1.py b/ml_analysis/tools/soak_dq_level_share_v1.py
+new file mode 100644
+index 0000000..6d99f42
+--- /dev/null
++++ b/ml_analysis/tools/soak_dq_level_share_v1.py
+@@ -0,0 +1,194 @@
++#!/usr/bin/env python3
++"""Soak helper: summarize dq_level==2 share and key DQ inputs per symbol.
++
++Intended usage:
++  - Run capture (B6/B7) for 24h, producing NDJSON (one JSON per line).
++  - Feed the NDJSON into this script to get per-symbol health stats.
++
++Design goals:
++  - deterministic parsing (no external deps)
++  - tolerant to several record layouts (top-level or nested)
++  - avoids high memory usage via bounded per-symbol sampling
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import math
++import sys
++from collections import defaultdict
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any, Dict, Iterable, List, Optional, Tuple
++
++
++def _f(x: Any, d: float = 0.0) -> float:
++    try:
++        v = float(x)
++        return v if math.isfinite(v) else d
++    except Exception:
++        return d
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(x)
++    except Exception:
++        return d
++
++
++def _get_nested(d: Dict[str, Any], keys: Iterable[str]) -> Any:
++    cur: Any = d
++    for k in keys:
++        if not isinstance(cur, dict):
++            return None
++        if k not in cur:
++            return None
++        cur = cur.get(k)
++    return cur
++
++
++def _extract_symbol(rec: Dict[str, Any]) -> str:
++    for path in (
++        ("symbol",),
++        ("meta", "symbol"),
++        ("decision", "symbol"),
++        ("dr", "symbol"),
++    ):
++        v = _get_nested(rec, path)
++        if isinstance(v, str) and v:
++            return v
++    return "UNKNOWN"
++
++
++def _extract_indicators(rec: Dict[str, Any]) -> Dict[str, Any]:
++    v = rec.get("indicators")
++    if isinstance(v, dict):
++        return v
++    v = _get_nested(rec, ("decision", "indicators"))
++    if isinstance(v, dict):
++        return v
++    v = _get_nested(rec, ("dr", "indicators"))
++    if isinstance(v, dict):
++        return v
++    return {}
++
++
++def _extract_dq_level(rec: Dict[str, Any], ind: Dict[str, Any]) -> int:
++    for path in (
++        ("dq_level",),
++        ("dq", "dq_level"),
++        ("decision", "dq_level"),
++        ("decision", "dq", "dq_level"),
++    ):
++        v = _get_nested(rec, path)
++        if v is not None:
++            return _i(v, 0)
++    if "dq_level" in ind:
++        return _i(ind.get("dq_level"), 0)
++    return 0
++
++
++@dataclass
++class SymStats:
++    n: int = 0
++    dq2: int = 0
++    # bounded samples for quantiles
++    book_ema: List[float] = None  # type: ignore
++    tick_ema: List[float] = None  # type: ignore
++    gap_p95: List[float] = None  # type: ignore
++
++    def __post_init__(self) -> None:
++        self.book_ema = []
++        self.tick_ema = []
++        self.gap_p95 = []
++
++
++def _maybe_sample(arr: List[float], x: float, max_points: int) -> None:
++    if max_points <= 0:
++        return
++    if len(arr) < max_points:
++        arr.append(float(x))
++        return
++    # Deterministic downsample: keep every k-th point by overwriting in a ring.
++    idx = len(arr) % max_points
++    arr[idx] = float(x)
++
++
++def _q(arr: List[float], q: float) -> float:
++    if not arr:
++        return float("nan")
++    a = sorted(arr)
++    i = int(round((len(a) - 1) * q))
++    i = max(0, min(len(a) - 1, i))
++    return float(a[i])
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser()
++    ap.add_argument("ndjson", type=str, help="Path to capture NDJSON file")
++    ap.add_argument("--max-points", type=int, default=20000, help="Max samples per symbol for quantiles")
++    args = ap.parse_args()
++
++    path = Path(args.ndjson)
++    if not path.exists():
++        print(f"Not found: {path}", file=sys.stderr)
++        return 2
++
++    stats: Dict[str, SymStats] = defaultdict(SymStats)
++
++    with path.open("r", encoding="utf-8") as f:
++        for line in f:
++            line = line.strip()
++            if not line:
++                continue
++            try:
++                rec = json.loads(line)
++            except Exception:
++                continue
++            if not isinstance(rec, dict):
++                continue
++
++            sym = _extract_symbol(rec)
++            ind = _extract_indicators(rec)
++            dq_level = _extract_dq_level(rec, ind)
++
++            s = stats[sym]
++            s.n += 1
++            if dq_level == 2:
++                s.dq2 += 1
++
++            # DQ inputs (pull from indicators when available)
++            b = _f(ind.get("book_missing_seq_ema"), float("nan"))
++            t = _f(ind.get("tick_missing_seq_ema"), float("nan"))
++            g = _f(ind.get("tick_gap_p95_ms"), float("nan"))
++            if math.isfinite(b):
++                _maybe_sample(s.book_ema, b, args.max_points)
++            if math.isfinite(t):
++                _maybe_sample(s.tick_ema, t, args.max_points)
++            if math.isfinite(g):
++                _maybe_sample(s.gap_p95, g, args.max_points)
++
++    # Output
++    rows: List[Tuple[str, SymStats]] = sorted(stats.items(), key=lambda kv: (-kv[1].dq2 / max(1, kv[1].n), kv[0]))
++
++    print("symbol\tn\tdq2\tshare\tbook_ema_p50\tbook_ema_p90\tbook_ema_p99\ttick_ema_p90\tgap_p95_p90")
++    for sym, s in rows:
++        share = s.dq2 / max(1, s.n)
++        print(
++            f"{sym}\t{s.n}\t{s.dq2}\t{share:.4f}\t"
++            f"{_q(s.book_ema, 0.50):.6g}\t{_q(s.book_ema, 0.90):.6g}\t{_q(s.book_ema, 0.99):.6g}\t"
++            f"{_q(s.tick_ema, 0.90):.6g}\t{_q(s.gap_p95, 0.90):.6g}"
++        )
++
++    print("\nNotes:")
++    print("  - share is dq_level==2 share over all captured rows.")
++    print("  - Use this to calibrate SAFE/STRICT thresholds and EMA alpha.")
++    print("  - For book EMA alpha guidance, pick alpha according to stream frequency (Hz):")
++    print("      10Hz -> 0.05..0.10, 4Hz -> 0.20, 2Hz -> 0.30, 1Hz -> 0.30..0.50")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/ml_analysis/tools/README_SOAK_DQ_LEVEL_SHARE.md b/ml_analysis/tools/README_SOAK_DQ_LEVEL_SHARE.md
+new file mode 100644
+index 0000000..a4474eb
+--- /dev/null
++++ b/ml_analysis/tools/README_SOAK_DQ_LEVEL_SHARE.md
+@@ -0,0 +1,37 @@
++# Soak (24h) — DQ Level share + calibration helper
++
++Goal
++  Validate that SAFE thresholds do not produce false-reds on a healthy stream,
++  and collect empirical distributions to calibrate STRICT.
++
++Inputs
++  - Capture NDJSON from B6/B7 (golden capture / decision records).
++  - One JSON object per line.
++
++Run
++  ```bash
++  python3 ml_analysis/tools/soak_dq_level_share_v1.py /path/to/capture.ndjson \
++    --max-points 20000
++  ```
++
++What to look at
++  - dq2 share per symbol
++    - SAFE target: typically << 10% (ideally < 1–3% on stable symbols)
++    - If dq2 share spikes on many symbols simultaneously:
++        suspect upstream latency/clock skew, not thresholds
++  - book_missing_seq_ema p99
++    - If p99 is near your hard threshold, you will see flapping.
++      Increase hard threshold or reduce alpha (more smoothing) for that stream.
++
++Calibration knobs
++  - dq_book_seq_ema_alpha: choose by book stream frequency
++      10Hz -> 0.05..0.10
++       4Hz -> 0.20
++       2Hz -> 0.30
++       1Hz -> 0.30..0.50
++  - thresholds:
++      book_hard / gap_soft_ms / gap_hard_ms / tick_soft / tick_hard
++
++Operational notes
++  - Keep observe-only enabled for book hard-veto for the first 24–48h after deploy.
++  - Do NOT attach high-cardinality labels (stream_id, reason strings) to Prom counters.

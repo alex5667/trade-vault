@@ -1,0 +1,54 @@
+groups:
+  - name: feature_drift_batch_v1
+    rules:
+      - alert: FeatureDriftBatchExporterDown
+        expr: feature_drift_batch_exporter_up == 0
+        for: 10m
+        labels:
+          severity: warning
+          team: trade
+          component: feature_drift_batch
+          service: exporter
+        annotations:
+          summary: "Feature drift batch exporter down"
+          description: "Exporter cannot read latest nightly feature drift batch summary/report. Check Redis URL and exporter service."
+          runbook_path: "/runbook_feature_drift_batch_v1.md"
+
+      - alert: FeatureDriftBatchStale
+        expr: feature_drift_batch_last_age_seconds > 36 * 3600
+        for: 30m
+        labels:
+          severity: warning
+          team: trade
+          component: feature_drift_batch
+          service: nightly
+        annotations:
+          summary: "Nightly feature drift batch report stale (>36h)"
+          description: "No fresh PSI/KS drift report found. Check nightly feature selection/drift timers and baseline/current data paths."
+          runbook_path: "/runbook_feature_drift_batch_v1.md"
+
+      - alert: FeatureDriftBatchCriticalFeatures
+        expr: feature_drift_batch_crit_n > 0
+        for: 30m
+        labels:
+          severity: critical
+          team: trade
+          component: feature_drift_batch
+          service: nightly
+        annotations:
+          summary: "Critical feature drift detected in nightly PSI/KS report"
+          description: "At least one Tier-1 feature breached critical PSI/KS drift thresholds. Review report JSON/CSV and consider shadow-disable or denylist AB."
+          runbook_path: "/runbook_feature_drift_batch_v1.md"
+
+      - alert: FeatureDriftBatchDenylistSuggestionsHigh
+        expr: feature_drift_batch_denylist_suggest_n >= 3
+        for: 1h
+        labels:
+          severity: warning
+          team: trade
+          component: feature_drift_batch
+          service: nightly
+        annotations:
+          summary: "Multiple features suggested for denylist AB"
+          description: "Nightly drift report suggests several features for denylist/shadow-disable workflow. Review feature selection loop and autogen proposal inputs."
+          runbook_path: "/runbook_feature_drift_batch_v1.md"

@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/computation/parsing.py
+# hypothesis_version: 6.148.10
+
+[100, '!', '"', '$', "'", '?', '_', '_DEGREESIGN_', '_DOLLARSIGN_', '_DOUBLEQUOTE_', '_EUROSIGN_', '_EXCLAMATIONMARK_', '_QUESTIONMARK_', '_SINGLEQUOTE_', '`', '°', '€']

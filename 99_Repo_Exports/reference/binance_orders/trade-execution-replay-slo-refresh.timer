@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic refresh of replay/rehydrate SLO summary
+
+[Timer]
+OnBootSec=8m
+OnUnitActiveSec=15m
+Unit=trade-execution-replay-slo-refresh.service
+
+[Install]
+WantedBy=timers.target

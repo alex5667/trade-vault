@@ -1,0 +1,1235 @@
+--- /mnt/data/repo_stepA_before/tick_flow_full/services/orderflow/components/tick_processor.py	2026-02-28 11:49:33.197363949 +0000
++++ /mnt/data/repo/tick_flow_full/services/orderflow/components/tick_processor.py	2026-02-28 12:12:42.235364451 +0000
+@@ -148,6 +148,7 @@
+     REASON_REORDER,
+     classify_trade_seq_step,
+     update_gap_ema,
++    surface_dq_indicators,
+ )
+ 
+ 
+@@ -633,6 +634,9 @@
+         if not runtime:
+             return None
+ 
++        # Local label helper for Prometheus metrics (stable cardinality).
++        symbol = str(getattr(runtime, "symbol", "") or "")
++
+         # 2) Tick time policy (must be first: protects downstream detectors)
+         tt = await self._apply_tick_time_guard(runtime, tick)
+         if tt is None:
+@@ -735,33 +739,21 @@
+             # fail-open: do not break tick processing
+             pass
+ 
+-        # --- Delta Detection ---
+-        delta_event = {}
+-        try:
+-            delta_event = runtime.delta_detector.push(tick)
+-        except Exception:
+-            pass
+-
+-        # ------------------------------------------------------------
+-        # P92: World-practice adverse selection tracker (realized drift)
+-        # Update even when no delta event (cheap). Must run before early return
+-        # so that due evaluations are processed on every tick.
+-        # ------------------------------------------------------------
+-        try:
+-            if getattr(runtime, "adverse_rd_tracker", None) is None:
+-                cfg = runtime.config if hasattr(runtime, "config") else {}
+-
+-        # Strict DQ: tick gaps (tick-time) + trade_id sequence continuity
++        # ------------------------------------------------------------------
++        # P2/F (Step A): Strict DQ signals must exist in runtime + indicators
+         #
+-        # Output surfaces (runtime + indicators):
+-        # - tick_gap_p50_ms / tick_gap_p95_ms / tick_gap_n
+-        # - tick_missing_seq_ema (EMA of GAP events in trade_id)
+-        # - tick_gap_count / tick_dup_count / tick_reorder_count (totals)
+-        # - tick_seq_last_reason (int code) / tick_seq_last_missing
++        # This block is *pure observability/state* and must be fail-open.
++        # It does NOT veto/penalize here; DQ gate policy consumes these values.
+         #
+-        # Notes:
+-        # - Fail-open: never raise; at worst keep stale values.
+-        # - Monotonic ids: last_trade_id is kept as max(..) to avoid moving backward on REORDER.
++        # Surfaces (runtime):
++        #   - tick_gap_p50_ms / tick_gap_p95_ms / tick_gap_n
++        #   - tick_missing_seq_ema (EMA of GAP events in trade_id continuity)
++        #   - tick_gap_count_total / tick_dup_count_total / tick_reorder_count_total
++        #   - tick_seq_last_reason / tick_seq_last_missing
++        #
++        # Canonical tick id key is: trade_id (from Go worker).
++        # Fallbacks exist for safety when replaying raw vendor payloads.
++        # ------------------------------------------------------------------
+         try:
+             # (A) Tick gap distribution in tick-time (rolling window inside TickGapTracker)
+             if getattr(runtime, 'tick_gaps', None) is not None and int(tick_ts or 0) > 0:
+@@ -782,8 +774,15 @@
+ 
+         try:
+             # (B) trade_id continuity (gap/dup/reorder)
+-            tid_raw = tick.get('trade_id') or tick.get('tid') or tick.get('a') or tick.get('t')
++            tid_raw = tick.get('trade_id')
++            if tid_raw is None:
++                tid_raw = tick.get('tid')
++            if tid_raw is None:
++                tid_raw = tick.get('a')
++            if tid_raw is None:
++                tid_raw = tick.get('t')
+             tid = int(tid_raw) if tid_raw is not None else 0
++
+             step = classify_trade_seq_step(int(getattr(runtime, 'last_trade_id', 0) or 0), int(tid))
+ 
+             runtime.tick_seq_last_reason = int(step.reason)
+@@ -819,6 +818,20 @@
+         except Exception:
+             pass
+ 
++        # --- Delta Detection ---
++        delta_event = {}
++        try:
++            delta_event = runtime.delta_detector.push(tick)
++        except Exception:
++            pass
++
++        # ------------------------------------------------------------
++        # P92: World-practice adverse selection tracker (realized drift)
++        # Update even when no delta event (cheap). Must run before early return
++        # so that due evaluations are processed on every tick.
++        # ------------------------------------------------------------
++        try:
++            if getattr(runtime, "adverse_rd_tracker", None) is None:
+                 runtime.adverse_rd_tracker = RealizedDriftTrackerV1(
+                     horizon_ms=int(cfg.get("adverse_rd_horizon_ms", 120_000)),
+                     alpha=float(cfg.get("adverse_rd_alpha", 0.03)),
+@@ -854,8 +867,6 @@
+         except Exception:
+             pass
+ 
+-        
+-
+         # ------------------------------------------------------------
+         # A5: baselines for flags (cheap O(10), runs even when delta_event is absent)
+         # - trade_qty_ema: time-decayed EMA of trade sizes (baseline for flag_large_trade)
+@@ -1925,21 +1936,11 @@
+         #
+         # IMPORTANT:
+         # of_engine.build(...) may select / flatten features based on this dict.
+-        indicators['tick_gap_p50_ms'] = float(getattr(runtime, 'tick_gap_p50_ms', 0.0) or 0.0)
+-        indicators['tick_gap_p95_ms'] = float(getattr(runtime, 'tick_gap_p95_ms', 0.0) or 0.0)
+-        indicators['tick_gap_n'] = int(getattr(runtime, 'tick_gap_n', 0) or 0)
+-
+-        indicators['tick_missing_seq_ema'] = float(getattr(runtime, 'tick_missing_seq_ema', 0.0) or 0.0)
+-        indicators['book_missing_seq_ema'] = float(getattr(runtime, 'book_missing_seq_ema', 0.0) or 0.0)
+-
+-        # Optional debug surfaces (numeric codes only; no strings => stable cardinality)
+-        indicators['tick_gap_count'] = int(getattr(runtime, 'tick_gap_count_total', 0) or 0)
+-        indicators['tick_dup_count'] = int(getattr(runtime, 'tick_dup_count_total', 0) or 0)
+-        indicators['tick_reorder_count'] = int(getattr(runtime, 'tick_reorder_count_total', 0) or 0)
+-        indicators['tick_seq_last_reason'] = int(getattr(runtime, 'tick_seq_last_reason', 0) or 0)
+-        indicators['tick_seq_last_missing'] = int(getattr(runtime, 'tick_seq_last_missing', 0) or 0)
+-        indicators['book_seq_last_reason'] = int(getattr(runtime, 'book_seq_last_reason', 0) or 0)
+-        indicators['book_seq_last_missing'] = int(getattr(runtime, 'book_seq_last_missing', 0) or 0)
++        try:
++            surface_dq_indicators(runtime=runtime, indicators=indicators)
++        except Exception:
++            pass
++
+         t_build_ns0 = time.perf_counter_ns()
+         ofc, dec = self.of_engine.build(
+             symbol=runtime.symbol,
+@@ -1949,7 +1950,7 @@
+             price=float(price),
+             delta_z=float(delta_z_used),
+             runtime=runtime,
+-            cfg=dict(runtime.config), # Should merge dynamic_cfg
++            cfg=dict(cfg),  # effective cfg (static + dynamic + circuit-breaker overrides)
+             indicators=indicators,
+             absorption=absorption_feat
+         )
+
+--- /mnt/data/repo_stepA_before/services/orderflow/components/tick_processor.py	2026-02-28 11:49:33.238121264 +0000
++++ /mnt/data/repo/services/orderflow/components/tick_processor.py	2026-02-28 12:12:42.235364451 +0000
+@@ -87,17 +87,6 @@
+     of_inputs_missing_lob_total, of_inputs_downgrade_total, of_inputs_quarantined_total, of_inputs_publish_error_total,
+     of_inputs_v3_forced_v2_total, of_inputs_v3_circuit_trip_total, of_inputs_v3_circuit_disabled, of_inputs_v3_circuit_disabled_until_ms, of_inputs_v3_circuit_hard_disabled_until_ms,
+     track_confirmations, evidence_used_total_session, record_confirmation_seen, record_evidence_used,
+-    # Execution-risk observability (P71 slippage decomp layer)
+-    impact_proxy_hist, expected_slippage_decomp_bps_hist, of_gate_veto_top1_total,
+-    trade_impact_proxy, trade_taker_flow_imb_z_abs, trade_slippage_decomp_coeff_bps,
+-    trade_expected_slippage_bps as _m_slip_bps,
+-    # Exec-risk histograms (v16): P95/P99-ready for spread + penalty observability
+-    trade_spread_bps,
+-    trade_exec_risk_ref_bps,
+-    trade_exec_risk_bps,
+-    trade_exec_risk_norm,
+-    trade_exec_pen,
+-    trade_expected_slippage_limit_exceed_total,
+     trade_vol_fast_bps, trade_vol_slow_bps, trade_vol_ratio, trade_vol_ratio_z,
+     trade_res_recovered, trade_res_recovery_ms, trade_res_speed_per_s,
+     trade_fill_prob, trade_eta_fill_sec, trade_exec_fill_pen,
+@@ -130,6 +119,7 @@
+ )
+ 
+ from services.orderflow.world_practice.realized_drift_tracker_v1 import RealizedDriftTrackerV1
++
+ from services.orderflow.side_policy import is_unknown_side_tick
+ from common.tick_time import TickTimeGuard, TickTimePolicy
+ from services.orderflow.tick_time_quarantine_integration import TickTimeQuarantineIntegration
+@@ -144,16 +134,11 @@
+ from core.flow_derived_features_v1 import compute_liquidity_pressure_and_info_flow
+ from core.confirmations_schema_v1 import parse_confirmations_v1
+ from core.slippage_model import expected_slippage_bps
+-from core.expected_slippage_decomp_v1 import expected_slippage_decomp_bps
+ from core.bucket_allowlist_v1 import bucket_allowed
+-# Commit 3: book microstructure features (top-N snapshot for v4 schema)
+-from core.book_microstructure_v4 import compute_microstructure_v4
+-# Commit 2 / Commit 1: materialize confirmations as first-class ML features (train==serve parity)
+-from core.confirmations_schema_v1 import apply_confirmations_to_indicators
+ from core.of_inputs_contract import OFInputsV1, OFInputsV2
+ from core.instrument_config import get_default_delta_tiers
+-from core.fill_prob_proxy import compute_fill_prob_proxy
+ from core.exec_regime_bucket_v1 import compute_exec_regime_bucket
++from core.fill_prob_proxy import compute_fill_prob_proxy
+ from core.bucket2_v1 import derive_bucket2_label
+ from core.calendar_flags import calendar_flags_utc
+ from core.flags_sessions_v1 import update_time_ema
+@@ -163,6 +148,7 @@
+     REASON_REORDER,
+     classify_trade_seq_step,
+     update_gap_ema,
++    surface_dq_indicators,
+ )
+ 
+ 
+@@ -648,6 +634,9 @@
+         if not runtime:
+             return None
+ 
++        # Local label helper for Prometheus metrics (stable cardinality).
++        symbol = str(getattr(runtime, "symbol", "") or "")
++
+         # 2) Tick time policy (must be first: protects downstream detectors)
+         tt = await self._apply_tick_time_guard(runtime, tick)
+         if tt is None:
+@@ -661,6 +650,37 @@
+             price = float(tick.get("price") or tick.get("p") or 0.0)
+             ibm = tick.get("is_buyer_maker") if "is_buyer_maker" in tick else tick.get("m")
+             direction = "SHORT" if ibm else "LONG"  # True=Sell=Short, False=Buy=Long
++
++            # ------------------------------------------------------------------
++            # Sanitize qty/volume for downstream detectors (fail-open).
++            # Some upstream tick sources may omit qty/volume; we normalize to 0.0
++            # to avoid KeyError/TypeError in any custom detector/extension.
++            # We also write the canonical "qty" key back into the tick dict so
++            # delta_detector.push(tick) and any custom extensions always see it.
++            # ------------------------------------------------------------------
++            try:
++                qty_raw = tick.get("qty")
++                if qty_raw is None:
++                    qty_raw = tick.get("q")
++                if qty_raw is None:
++                    qty_raw = tick.get("quantity")
++                if qty_raw is None:
++                    qty_raw = tick.get("volume")
++                qty = float(qty_raw or 0.0)
++                if qty < 0:
++                    qty = abs(qty)
++                tick["qty"] = qty
++            except Exception:
++                qty = 0.0
++                tick["qty"] = 0.0
++
++            # L3-lite stats must see *all* trades (even when we early-return on missing delta_event)
++            try:
++                if qty > 0.0 and getattr(runtime, "l3_stats", None) is not None:
++                    side = 1 if direction == "LONG" else -1  # taker buy=+1, taker sell=-1
++                    runtime.l3_stats.on_trade(tick_ts, qty=float(qty), side=int(side))
++            except Exception:
++                pass
+         except Exception as e:
+             log_silent_error(e, "tick_parse", runtime.symbol, "TickProcessor")
+             return None
+@@ -719,33 +739,21 @@
+             # fail-open: do not break tick processing
+             pass
+ 
+-        # --- Delta Detection ---
+-        delta_event = {}
+-        try:
+-            delta_event = runtime.delta_detector.push(tick)
+-        except Exception:
+-            pass
+-
+-        # ------------------------------------------------------------
+-        # P92: World-practice adverse selection tracker (realized drift)
+-        # Update even when no delta event (cheap). Must run before early return
+-        # so that due evaluations are processed on every tick.
+-        # ------------------------------------------------------------
+-        try:
+-            if getattr(runtime, "adverse_rd_tracker", None) is None:
+-                cfg = runtime.config if hasattr(runtime, "config") else {}
+-
+-        # Strict DQ: tick gaps (tick-time) + trade_id sequence continuity
++        # ------------------------------------------------------------------
++        # P2/F (Step A): Strict DQ signals must exist in runtime + indicators
+         #
+-        # Output surfaces (runtime + indicators):
+-        # - tick_gap_p50_ms / tick_gap_p95_ms / tick_gap_n
+-        # - tick_missing_seq_ema (EMA of GAP events in trade_id)
+-        # - tick_gap_count / tick_dup_count / tick_reorder_count (totals)
+-        # - tick_seq_last_reason (int code) / tick_seq_last_missing
++        # This block is *pure observability/state* and must be fail-open.
++        # It does NOT veto/penalize here; DQ gate policy consumes these values.
+         #
+-        # Notes:
+-        # - Fail-open: never raise; at worst keep stale values.
+-        # - Monotonic ids: last_trade_id is kept as max(..) to avoid moving backward on REORDER.
++        # Surfaces (runtime):
++        #   - tick_gap_p50_ms / tick_gap_p95_ms / tick_gap_n
++        #   - tick_missing_seq_ema (EMA of GAP events in trade_id continuity)
++        #   - tick_gap_count_total / tick_dup_count_total / tick_reorder_count_total
++        #   - tick_seq_last_reason / tick_seq_last_missing
++        #
++        # Canonical tick id key is: trade_id (from Go worker).
++        # Fallbacks exist for safety when replaying raw vendor payloads.
++        # ------------------------------------------------------------------
+         try:
+             # (A) Tick gap distribution in tick-time (rolling window inside TickGapTracker)
+             if getattr(runtime, 'tick_gaps', None) is not None and int(tick_ts or 0) > 0:
+@@ -766,8 +774,15 @@
+ 
+         try:
+             # (B) trade_id continuity (gap/dup/reorder)
+-            tid_raw = tick.get('trade_id') or tick.get('tid') or tick.get('a') or tick.get('t')
++            tid_raw = tick.get('trade_id')
++            if tid_raw is None:
++                tid_raw = tick.get('tid')
++            if tid_raw is None:
++                tid_raw = tick.get('a')
++            if tid_raw is None:
++                tid_raw = tick.get('t')
+             tid = int(tid_raw) if tid_raw is not None else 0
++
+             step = classify_trade_seq_step(int(getattr(runtime, 'last_trade_id', 0) or 0), int(tid))
+ 
+             runtime.tick_seq_last_reason = int(step.reason)
+@@ -803,6 +818,20 @@
+         except Exception:
+             pass
+ 
++        # --- Delta Detection ---
++        delta_event = {}
++        try:
++            delta_event = runtime.delta_detector.push(tick)
++        except Exception:
++            pass
++
++        # ------------------------------------------------------------
++        # P92: World-practice adverse selection tracker (realized drift)
++        # Update even when no delta event (cheap). Must run before early return
++        # so that due evaluations are processed on every tick.
++        # ------------------------------------------------------------
++        try:
++            if getattr(runtime, "adverse_rd_tracker", None) is None:
+                 runtime.adverse_rd_tracker = RealizedDriftTrackerV1(
+                     horizon_ms=int(cfg.get("adverse_rd_horizon_ms", 120_000)),
+                     alpha=float(cfg.get("adverse_rd_alpha", 0.03)),
+@@ -838,8 +867,6 @@
+         except Exception:
+             pass
+ 
+-        
+-
+         # ------------------------------------------------------------
+         # A5: baselines for flags (cheap O(10), runs even when delta_event is absent)
+         # - trade_qty_ema: time-decayed EMA of trade sizes (baseline for flag_large_trade)
+@@ -997,8 +1024,11 @@
+                     if rate > 0 and _should_sample(sample_uid, rate):
+                         latency_us = (time.perf_counter_ns() // 1000) - t0_us
+                         # Flatten legs for diagnostics
+-                        legs = ev.get("missing_legs", [])
+-                        # Fill expected indicators
++                        legs = []
++                        if 'ev' in locals() and hasattr(ev, 'get'):
++                            legs = ev.get("missing_legs", [])
++                        # Fill expected indicators — build payload in a nested try so a missing
++                        # reference (ofc, ev) never breaks the main veto path.
+                         try:
+                             payload = {
+                                 "type": "of_gate",
+@@ -1007,9 +1037,9 @@
+                                 "sample_key_mode": OF_GATE_METRICS_SAMPLE_KEY_MODE,
+                                 "ts_ms": str(normalize_epoch_ms_v2(tick_ts).ts_ms),
+                                 "symbol": str(runtime.symbol),
+-                                "direction": str(getattr(ofc,"side","unknown")),
+-                                "scenario": str(getattr(ofc,"scenario","unknown")),
+-                                "scenario_v4": _str(ev.get("scenario_v4", getattr(ofc,"scenario","unknown"))),
++                                "direction": str(getattr(ofc, "side", "unknown") if 'ofc' in locals() else "unknown"),
++                                "scenario": str(getattr(ofc, "scenario", "unknown") if 'ofc' in locals() else "unknown"),
++                                "scenario_v4": str(ev.get("scenario_v4", "unknown") if 'ev' in locals() and hasattr(ev, 'get') else "unknown"),
+                                 "ok": "0",
+                                 "ok_soft": "0",
+                                 "have": "0",
+@@ -1022,7 +1052,7 @@
+                                 "latency_us": str(int(latency_us)),
+                                 "dn_tier": str(tier),
+                                 "dn_usd": str(float(delta_usd)),
+-                                "dn_tier_threshold": str(float(dn_tiers_decision.tier0_usd if min_tier==0 else getattr(dn_tiers_decision, f"tier{min_tier}_usd", 0.0))),
++                                "dn_tier_threshold": str(float(dn_tiers_decision.tier0_usd if min_tier == 0 else getattr(dn_tiers_decision, f"tier{min_tier}_usd", 0.0))),
+                                 # Fill required fields with defaults
+                                 "meta_p": "-1.0",
+                                 "meta_veto": "0",
+@@ -1050,7 +1080,6 @@
+              except Exception:
+                 pass
+ 
+-
+              return None
+ 
+         indicators["dn_tier"] = int(tier)
+@@ -1205,6 +1234,33 @@
+         except Exception:
+             pass
+ 
++        # Sweep/Reclaim recency flags (schema v2/v3)
++        # Гарантируем заполнение sweep_recent, reclaim_recent, reclaim_hold_bars для всех downstream-потребителей.
++        try:
++            now_ms_det = int(tick_ts)
++            sweep_ok = compute_sweep_recent(
++                now_ts_ms=now_ms_det,
++                last_sweep=getattr(runtime, "last_sweep", None),
++                cfg=cfg,
++                indicators=indicators,
++            )
++            indicators["sweep_recent"] = int(1 if sweep_ok else 0)
++
++            reclaim_ok, hold_bars = compute_reclaim_recent(
++                direction=str(direction),
++                now_ts_ms=now_ms_det,
++                last_reclaim=getattr(runtime, "last_reclaim", None),
++                cfg=cfg,
++                indicators=indicators,
++            )
++            indicators["reclaim_recent"] = int(1 if reclaim_ok else 0)
++            indicators["reclaim_hold_bars"] = int(hold_bars) if reclaim_ok else 0
++        except Exception:
++            # Fail-open: гарантируем defaults даже если runtime не имеет last_sweep/last_reclaim
++            indicators.setdefault("sweep_recent", 0)
++            indicators.setdefault("reclaim_recent", 0)
++            indicators.setdefault("reclaim_hold_bars", 0)
++
+         # Unified data_health score
+         try:
+             indicators["book_ts_gap_ms"] = int(tick_ts - int(getattr(runtime, "last_book_ts_ms", 0) or 0))
+@@ -1279,6 +1335,17 @@
+                 pass
+             apply_book_evidence_policy(indicators=indicators, dh=dh, cfg=cfg)
+             apply_shadow_only_policy(indicators=indicators, dh=dh, cfg=cfg)
++
++            # Schema v2/v3 compatibility aliases (used by ML feature schemas)
++            indicators["book_staleness_ms"] = int(indicators.get("book_ts_gap_ms", 0) or 0)
++            indicators["liq_score"] = float(
++                getattr(runtime, "last_liq_score", 0.0)
++                or runtime.dynamic_cfg.get("liq_score", 0.0)
++                or 0.0
++            )
++            indicators["cancel_spike_veto"] = int(getattr(runtime, "book_churn_hi", 0) or 0)
++            indicators["book_rate_z"] = float(getattr(runtime, "book_rate_z", 0.0) or 0.0)
++            indicators["book_churn_score"] = float(getattr(runtime, "book_churn_score", 0.0) or 0.0)
+         except Exception:
+             pass
+ 
+@@ -1286,6 +1353,89 @@
+         indicators.setdefault("expected_slippage_bps", 0.0)
+         indicators.setdefault("slippage_reason", "na")
+ 
++        # OFI stability event (schema v2/v3)
++        # Читаем runtime.last_ofi_event и экспортируем ofi, ofi_z, ofi_stable и т.д.
++        # При совпадении ofi_stable + ofi_dir_ok — добавляем в confirmations и инкрементируем evidence_used_total.
++        try:
++            now_ms_det = int(tick_ts)
++            ev_ofi = getattr(runtime, "last_ofi_event", None)
++            if ev_ofi:
++                # Поддерживаем как dict-формат (Redis replay), так и object-формат (in-process)
++                if isinstance(ev_ofi, dict):
++                    ts0 = int(ev_ofi.get("ts_ms", 0) or 0)
++                    dir0 = str(ev_ofi.get("direction", "") or "").upper()
++                    ofi_ev = ev_ofi.get("ofi", 0.0)
++                    ofi_z_ev = ev_ofi.get("ofi_z", 0.0)
++                    stable_secs = ev_ofi.get("stable_secs", 0.0)
++                    score = ev_ofi.get("stability_score", 0.0)
++                    stable_flag = ev_ofi.get("stable", 0)
++                else:
++                    ts0 = int(getattr(ev_ofi, "ts_ms", 0) or 0)
++                    dir0 = str(getattr(ev_ofi, "direction", "") or "").upper()
++                    ofi_ev = getattr(ev_ofi, "ofi", 0.0)
++                    ofi_z_ev = getattr(ev_ofi, "ofi_z", 0.0)
++                    stable_secs = getattr(ev_ofi, "stable_secs", 0.0)
++                    score = getattr(ev_ofi, "stability_score", 0.0)
++                    stable_flag = getattr(ev_ofi, "stable", 0)
++
++                age_ofi = (now_ms_det - ts0) if ts0 > 0 else 10**9
++                indicators["ofi_age_ms"] = int(age_ofi)
++                ttl_ofi = int(cfg.get("ofi_event_ttl_ms", 15000) or 15000)
++                if 0 <= age_ofi <= ttl_ofi:
++                    # Локальные хелперы для безопасного cast без NaN/Inf
++                    def _f_ofi(x, d=0.0):
++                        try:
++                            v = float(x)
++                            return v if v == v and v not in (float('inf'), float('-inf')) else float(d)
++                        except Exception:
++                            return float(d)
++
++                    def _i_ofi(x, d=0):
++                        try:
++                            return int(x)
++                        except Exception:
++                            try:
++                                return int(float(x))
++                            except Exception:
++                                return int(d)
++
++                    ofi_v = _f_ofi(ofi_ev, 0.0)
++                    ofi_z_v = _f_ofi(ofi_z_ev, 0.0)
++                    stable_secs_v = _f_ofi(stable_secs, 0.0)
++                    score_v = _f_ofi(score, 0.0)
++                    stable_flag_i = _i_ofi(stable_flag, 0)
++
++                    indicators["ofi"] = float(ofi_v)
++                    indicators["ofi_z"] = float(ofi_z_v)
++                    indicators["ofi_stable_secs"] = float(stable_secs_v)
++                    indicators["ofi_stability_score"] = float(score_v)
++
++                    # Стабильность: явный флаг ИЛИ эвристика (stable_secs >= 1s и score >= 0.8)
++                    is_stable = bool(stable_flag_i == 1 or (stable_secs_v >= 1.0 and score_v >= 0.8))
++                    indicators["ofi_stable"] = int(1 if is_stable else 0)
++
++                    # Нормализация направления OFI-события
++                    if dir0 in ("BUY", "BID", "LONG"):
++                        dir0 = "LONG"
++                    elif dir0 in ("SELL", "ASK", "SHORT"):
++                        dir0 = "SHORT"
++                    indicators["ofi_dir_ok"] = int(1 if (dir0 and dir0 == str(direction).upper()) else 0)
++
++                    # Confirmation + evidence counter (ранее OFI-событие не доходило до evidence)
++                    if indicators["ofi_stable"] == 1 and indicators["ofi_dir_ok"] == 1:
++                        confirmations.append(f"ofi_stable={stable_secs_v:.2f}")
++                        evidence_used_total.labels(symbol=runtime.symbol, key="ofi_stable").inc()
++        except Exception:
++            pass
++
++        # Ensure OFI fields exist for downstream exporters / ML feature schemas even if no event
++        indicators.setdefault("ofi", 0.0)
++        indicators.setdefault("ofi_z", 0.0)
++        indicators.setdefault("ofi_stability_score", 0.0)
++        indicators.setdefault("ofi_stable_secs", 0.0)
++        indicators.setdefault("ofi_stable", 0)
++        indicators.setdefault("ofi_dir_ok", 0)
++
+         # OFI impact proxy
+         try:
+             book = getattr(runtime, 'last_book', None)
+@@ -1363,7 +1513,7 @@
+         else:
+              indicators["delta_z_source"] = "cvd"
+ 
+-        # Slippage Logic (legacy model)
++        # Slippage Logic
+         try:
+             atr_bps = (float(indicators.get("atr", 0.0)) / price * 10000.0) if price > 0 else 0.0
+             indicators["atr_bps"] = float(atr_bps)
+@@ -1375,15 +1525,13 @@
+                 atr_bps=atr_bps,
+                 cfg=cfg
+             )
+-            # Preserve legacy expected slippage (pre-decomp) for drift/regression tracking.
+             indicators["expected_slippage_bps"] = float(est.expected_bps)
+-            indicators["expected_slippage_bps_legacy"] = float(est.expected_bps)
+             indicators["slippage_reason"] = str(est.reason)
+         except Exception:
+             pass
+ 
+         # ---------------------------------------------------------------
+-        # Execution-risk layer: impact_proxy + slippage decomposition
++        # Execution-risk layer: impact_proxy + slippage decomposition (P9x)
+         # Fail-open: never raises; all indicators default to 0.0 on error.
+         # ---------------------------------------------------------------
+ 
+@@ -1417,75 +1565,59 @@
+                 liq_regime_label=str(indicators.get("liq_regime_label", "na") or "na"),
+                 vol_regime_label=str(indicators.get("vol_regime_label", "na") or "na"),
+             )
+-            bucket = str(b.bucket)
+-            indicators["exec_regime_bucket"] = bucket
++            _bucket = str(b.bucket)
++            indicators["exec_regime_bucket"] = _bucket
+         except Exception:
+             indicators.setdefault("exec_regime_bucket", "NORMAL")
+-            bucket = str(indicators.get("exec_regime_bucket", "NORMAL"))
++            _bucket = str(indicators.get("exec_regime_bucket", "NORMAL"))
+ 
+         # spread_bps_submit / mid_px_submit — snapshot at decision time
+         try:
+             indicators.setdefault("spread_bps_submit", float(indicators.get("spread_bps", 0.0) or 0.0))
+-            mid_px_submit = float(getattr(runtime, "last_book_mid", 0.0) or 0.0)
+-            if mid_px_submit <= 0:
+-                mid_px_submit = float(price) if float(price) > 0 else 0.0
+-            indicators.setdefault("mid_px_submit", mid_px_submit)
+-
+-            # World-practice distributions: (legacy) expected slippage + spread at decision time.
+-            try:
+-                _sym = str(runtime.symbol)
+-                _bk = str(bucket) if 'bucket' in dir() or 'bucket' in locals() else str(indicators.get("exec_regime_bucket", "NORMAL"))
+-                _m_slip_bps.labels(sym=_sym, bucket=_bk, model="legacy").observe(
+-                    float(indicators.get("expected_slippage_bps_legacy") or indicators.get("expected_slippage_bps") or 0.0)
+-                )
+-                trade_spread_bps.labels(sym=_sym, bucket=_bk).observe(
+-                    float(indicators.get("spread_bps_submit") or 0.0)
+-                )
+-            except Exception:
+-                pass
++            _mid_px_submit = float(getattr(runtime, "last_book_mid", 0.0) or 0.0)
++            if _mid_px_submit <= 0:
++                _mid_px_submit = float(price) if float(price) > 0 else 0.0
++            indicators.setdefault("mid_px_submit", _mid_px_submit)
+         except Exception:
+             pass
+ 
+-        # Taker-flow imbalance from L3-lite (computed in l3_lite_tracker and
+-        # attached to runtime via attach_to_context; just expose to indicators).
++        # Taker-flow imbalance from L3-lite (computed by l3_lite_tracker; expose to indicators)
+         try:
+-            indicators.setdefault(
+-                "taker_flow_imb", float(getattr(runtime, "taker_flow_imb", 0.0) or 0.0)
+-            )
+-            indicators.setdefault(
+-                "taker_flow_imb_z", float(getattr(runtime, "taker_flow_imb_z", 0.0) or 0.0)
+-            )
++            indicators.setdefault("taker_flow_imb",   float(getattr(runtime, "taker_flow_imb",   0.0) or 0.0))
++            indicators.setdefault("taker_flow_imb_z", float(getattr(runtime, "taker_flow_imb_z", 0.0) or 0.0))
+         except Exception:
+             pass
+ 
+         # Impact proxy: abs(dn_usd) / depth_min_5_usd
+-        # Uses book microstructure v4 fields (depth_bid_5 / depth_ask_5) already
+-        # computed and stored in indicators by compute_microstructure_v4 above.
+         try:
+-            mid_px = float(price) if float(price) > 0 else 1.0
+-            d5bid_qty = float(indicators.get("depth_bid_5", 0.0) or 0.0)
+-            d5ask_qty = float(indicators.get("depth_ask_5", 0.0) or 0.0)
+-            d5bid_usd = d5bid_qty * mid_px
+-            d5ask_usd = d5ask_qty * mid_px
+-            depth_min_5_usd = max(min(d5bid_usd, d5ask_usd), 1e-6) if (d5bid_usd > 0 or d5ask_usd > 0) else 1e-6
+-            dn_usd_val = abs(float(indicators.get("dn_usd", 0.0) or 0.0))
+-            ip = min(dn_usd_val / depth_min_5_usd, 10.0)  # cap: 10x prevents outlier noise
+-            indicators["depth_bid_5_usd"] = float(d5bid_usd)
+-            indicators["depth_ask_5_usd"] = float(d5ask_usd)
+-            indicators["depth_min_5_usd"] = float(depth_min_5_usd)
+-            indicators["impact_proxy"] = float(ip)
+-            try:
+-                impact_proxy_hist.labels(symbol=str(runtime.symbol)).observe(float(ip))
+-                bucket_label = str(indicators.get("exec_regime_bucket", "NORMAL"))
+-                trade_impact_proxy.labels(sym=str(runtime.symbol), bucket=bucket_label).observe(float(ip))
+-            except Exception:
+-                pass
+-            # taker_flow_imb_z abs observe
++            _mid_px = float(price) if float(price) > 0 else 1.0
++            _d5bid_qty = float(indicators.get("depth_bid_5", 0.0) or 0.0)
++            _d5ask_qty = float(indicators.get("depth_ask_5", 0.0) or 0.0)
++            _d5bid_usd = _d5bid_qty * _mid_px
++            _d5ask_usd = _d5ask_qty * _mid_px
++            _depth_min_5_usd = (
++                max(min(_d5bid_usd, _d5ask_usd), 1e-6)
++                if (_d5bid_usd > 0 or _d5ask_usd > 0)
++                else 1e-6
++            )
++            _dn_usd_val = abs(float(indicators.get("dn_usd", 0.0) or 0.0))
++            _ip = min(_dn_usd_val / _depth_min_5_usd, 10.0)  # cap at 10x
++            indicators["depth_bid_5_usd"]  = float(_d5bid_usd)
++            indicators["depth_ask_5_usd"]  = float(_d5ask_usd)
++            indicators["depth_min_5_usd"]  = float(_depth_min_5_usd)
++            indicators["impact_proxy"]      = float(_ip)
+             try:
+-                imb_z = float(indicators.get("taker_flow_imb_z", 0.0) or 0.0)
++                from services.orderflow.metrics import (
++                    impact_proxy_hist, trade_impact_proxy, trade_taker_flow_imb_z_abs,
++                )
++                impact_proxy_hist.labels(symbol=str(runtime.symbol)).observe(float(_ip))
++                trade_impact_proxy.labels(
++                    sym=str(runtime.symbol), bucket=str(indicators.get("exec_regime_bucket", "NORMAL"))
++                ).observe(float(_ip))
++                _imb_z = float(indicators.get("taker_flow_imb_z", 0.0) or 0.0)
+                 trade_taker_flow_imb_z_abs.labels(
+                     sym=str(runtime.symbol), bucket=str(indicators.get("exec_regime_bucket", "NORMAL"))
+-                ).observe(abs(imb_z))
++                ).observe(abs(_imb_z))
+             except Exception:
+                 pass
+             # Taker-flow gate counter emission (P9c)
+@@ -1506,24 +1638,21 @@
+         except Exception:
+             pass
+ 
+-        # Expected slippage decomposition: spread_comp + impact_comp
+-        # k (impact coefficient) can be calibrated per (symbol, regime_bucket):
+-        #   1) static default from ENV/cfg (slippage_decomp_impact_coeff_bps)
+-        #   2) nightly calibrator writes per-key overrides to Redis -> loaded via runtime.dynamic_cfg
++        # Expected slippage decomposition: spread_comp + k * |impact_proxy| * size_scale
++        # k overridden per-bucket via nightly calibrator -> runtime.dynamic_cfg
+         try:
+-            from core.expected_slippage_decomp_v1 import expected_slippage_decomp_bps as _slip_decomp
++            from tick_flow_full.core.expected_slippage_decomp_v1 import expected_slippage_decomp_bps as _slip_decomp
+             _decomp_cfg = dict(cfg)
+-            # enable decomp by default (can be disabled per-symbol via cfg)
+             _decomp_cfg.setdefault("slippage_decomp_enable", 1)
+-            # Per-bucket coeff override from nightly calibrator (loaded into dynamic_cfg by runtime)
+-            _per_bucket = {}
++            # Per-bucket coeff from nightly calibrator (loaded into dynamic_cfg by runtime)
++            _per_bucket_map = {}
+             try:
+-                _per_bucket = dict(runtime.dynamic_cfg.get("slippage_decomp_impact_coeff_bps") or {})
++                _per_bucket_map = dict(runtime.dynamic_cfg.get("slippage_decomp_impact_coeff_bps") or {})
+             except Exception:
+                 pass
+             _bucket_now = str(indicators.get("exec_regime_bucket", "NORMAL"))
+-            if _bucket_now in _per_bucket:
+-                _decomp_cfg["slippage_decomp_impact_coeff_bps"] = float(_per_bucket[_bucket_now])
++            if _bucket_now in _per_bucket_map:
++                _decomp_cfg["slippage_decomp_impact_coeff_bps"] = float(_per_bucket_map[_bucket_now])
+             _decomp_cfg["symbol"] = str(runtime.symbol)
+             _decomp_cfg["exec_regime_bucket"] = _bucket_now
+             _slip = _slip_decomp(
+@@ -1533,8 +1662,8 @@
+                 order_size_usd=float(indicators.get("dn_usd", 0.0) or 0.0),
+             )
+             indicators["expected_slippage_decomp_bps"] = float(_slip.total_bps)
+-            indicators["slip_decomp_spread_bps"] = float(_slip.spread_bps)
+-            indicators["slip_decomp_impact_bps"] = float(_slip.impact_bps)
++            indicators["slip_decomp_spread_bps"]       = float(_slip.spread_bps)
++            indicators["slip_decomp_impact_bps"]       = float(_slip.impact_bps)
+             _coeff_used = float(_decomp_cfg.get("slippage_decomp_impact_coeff_bps", 8.0) or 8.0)
+             indicators["slip_decomp_coeff_bps"] = _coeff_used
+             # Optional strict max(model, decomp) (bucket-aware)
+@@ -1548,14 +1677,19 @@
+                         float(indicators.get("expected_slippage_bps", 0.0) or 0.0),
+                         float(_slip.total_bps),
+                     ))
+-            # Prometheus observe (best-effort)
++            # Prometheus observe (best-effort, low-cardinality)
+             try:
+-                _bk = str(_bucket_now)
++                from services.orderflow.metrics import (
++                    trade_expected_slippage_bps as _m_slip_bps,
++                    trade_slippage_decomp_coeff_bps,
++                    expected_slippage_decomp_bps_hist,
++                    trade_expected_slippage_limit_exceed_total,
++                )
+                 _sym = str(runtime.symbol)
++                _bk  = str(_bucket_now)
+                 _m_slip_bps.labels(sym=_sym, bucket=_bk, model="decomp").observe(float(_slip.total_bps))
+                 trade_slippage_decomp_coeff_bps.labels(sym=_sym, bucket=_bk).observe(_coeff_used)
+                 expected_slippage_decomp_bps_hist.labels(symbol=_sym, scenario_v4="na").observe(float(_slip.total_bps))
+-                # Limit exceeded counter
+                 _max_eff = float(_decomp_cfg.get("max_expected_slippage_bps_eff", 0.0) or 0.0)
+                 if _max_eff > 0 and _slip.total_bps > _max_eff:
+                     trade_expected_slippage_limit_exceed_total.labels(sym=_sym, bucket=_bk, model="decomp").inc()
+@@ -1570,39 +1704,27 @@
+             indicators["obi"] = 0
+             indicators["iceberg_refresh"] = 0
+ 
+-        # Commit 3: Book microstructure features (top-5 levels snapshot for v4 ML schema).
+-        # Injected here, before the OFConfirmEngine, so the engine can also see them.
+-        try:
+-            if runtime.last_book is not None:
+-                ms = compute_microstructure_v4(runtime.last_book, getattr(runtime, 'prev_book', None), levels=5)
+-                if isinstance(ms, dict):
+-                    indicators.update(ms)
+-            # Ensure book_health_ok is in indicators for ML schema completeness
+-            try:
+-                indicators.setdefault("book_health_ok", int(getattr(runtime, "last_book_health_ok", 1)))
+-            except Exception:
+-                pass
+-        except Exception:
+-            pass
+-
+         # Pressure Proxy Layer
+         p_snap = runtime.pressure.snapshot(now_ms=int(tick_ts))
+         indicators["pressure_per_min"] = float(p_snap.per_min_ema)
+         indicators["cooldown_hit_rate"] = float(p_snap.cd_rate_ema)
+ 
++        # Schema v2/v3 alias — pressure и triggers_per_min ссылаются на одно значение
++        indicators["pressure"] = float(indicators.get("pressure_per_min", 0.0) or 0.0)
++        indicators["triggers_per_min"] = float(indicators.get("pressure_per_min", 0.0) or 0.0)
+ 
+         # Attach L3-lite stats snapshot (taker/cancel/eta-fill) to indicators
+         try:
+             if getattr(runtime, "l3_stats", None) is not None:
+-                s3 = runtime.l3_stats.snap
+-                indicators["taker_buy_rate_ema"] = float(getattr(s3, "taker_buy_rate_ema", 0.0) or 0.0)
+-                indicators["taker_sell_rate_ema"] = float(getattr(s3, "taker_sell_rate_ema", 0.0) or 0.0)
+-                indicators["cancel_bid_rate_ema"] = float(getattr(s3, "cancel_bid_rate_ema", 0.0) or 0.0)
+-                indicators["cancel_ask_rate_ema"] = float(getattr(s3, "cancel_ask_rate_ema", 0.0) or 0.0)
+-                indicators["cancel_to_trade_bid"] = float(getattr(s3, "cancel_to_trade_bid", 0.0) or 0.0)
+-                indicators["cancel_to_trade_ask"] = float(getattr(s3, "cancel_to_trade_ask", 0.0) or 0.0)
+-                indicators["eta_fill_bid_sec"] = float(getattr(s3, "eta_fill_bid_sec", 0.0) or 0.0)
+-                indicators["eta_fill_ask_sec"] = float(getattr(s3, "eta_fill_ask_sec", 0.0) or 0.0)
++                s = runtime.l3_stats.snap
++                indicators["taker_buy_rate_ema"] = float(getattr(s, "taker_buy_rate_ema", 0.0) or 0.0)
++                indicators["taker_sell_rate_ema"] = float(getattr(s, "taker_sell_rate_ema", 0.0) or 0.0)
++                indicators["cancel_bid_rate_ema"] = float(getattr(s, "cancel_bid_rate_ema", 0.0) or 0.0)
++                indicators["cancel_ask_rate_ema"] = float(getattr(s, "cancel_ask_rate_ema", 0.0) or 0.0)
++                indicators["cancel_to_trade_bid"] = float(getattr(s, "cancel_to_trade_bid", 0.0) or 0.0)
++                indicators["cancel_to_trade_ask"] = float(getattr(s, "cancel_to_trade_ask", 0.0) or 0.0)
++                indicators["eta_fill_bid_sec"] = float(getattr(s, "eta_fill_bid_sec", 0.0) or 0.0)
++                indicators["eta_fill_ask_sec"] = float(getattr(s, "eta_fill_ask_sec", 0.0) or 0.0)
+         except Exception:
+             pass
+ 
+@@ -1715,7 +1837,9 @@
+             # Flags should never break the main tick path.
+             pass
+ # A3: Rolling trackers (VWAP diff, momentum, realized vol)
+-        # Updated on microbar close by BarProcessor and stored in runtime.dynamic_cfg.
++        # These are updated on microbar close by BarProcessor and stored in
++        # runtime.dynamic_cfg (merged into cfg earlier). We keep a strict
++        # no-NaN contract here because JSON payloads may be configured strict.
+         try:
+             indicators["roll_vwap_px"] = float(cfg.get("roll_vwap_px", 0.0) or 0.0)
+             indicators["vwap_roll_diff_bps"] = float(cfg.get("vwap_roll_diff_bps", 0.0) or 0.0)
+@@ -1812,21 +1936,11 @@
+         #
+         # IMPORTANT:
+         # of_engine.build(...) may select / flatten features based on this dict.
+-        indicators['tick_gap_p50_ms'] = float(getattr(runtime, 'tick_gap_p50_ms', 0.0) or 0.0)
+-        indicators['tick_gap_p95_ms'] = float(getattr(runtime, 'tick_gap_p95_ms', 0.0) or 0.0)
+-        indicators['tick_gap_n'] = int(getattr(runtime, 'tick_gap_n', 0) or 0)
+-
+-        indicators['tick_missing_seq_ema'] = float(getattr(runtime, 'tick_missing_seq_ema', 0.0) or 0.0)
+-        indicators['book_missing_seq_ema'] = float(getattr(runtime, 'book_missing_seq_ema', 0.0) or 0.0)
+-
+-        # Optional debug surfaces (numeric codes only; no strings => stable cardinality)
+-        indicators['tick_gap_count'] = int(getattr(runtime, 'tick_gap_count_total', 0) or 0)
+-        indicators['tick_dup_count'] = int(getattr(runtime, 'tick_dup_count_total', 0) or 0)
+-        indicators['tick_reorder_count'] = int(getattr(runtime, 'tick_reorder_count_total', 0) or 0)
+-        indicators['tick_seq_last_reason'] = int(getattr(runtime, 'tick_seq_last_reason', 0) or 0)
+-        indicators['tick_seq_last_missing'] = int(getattr(runtime, 'tick_seq_last_missing', 0) or 0)
+-        indicators['book_seq_last_reason'] = int(getattr(runtime, 'book_seq_last_reason', 0) or 0)
+-        indicators['book_seq_last_missing'] = int(getattr(runtime, 'book_seq_last_missing', 0) or 0)
++        try:
++            surface_dq_indicators(runtime=runtime, indicators=indicators)
++        except Exception:
++            pass
++
+         t_build_ns0 = time.perf_counter_ns()
+         ofc, dec = self.of_engine.build(
+             symbol=runtime.symbol,
+@@ -1836,7 +1950,7 @@
+             price=float(price),
+             delta_z=float(delta_z_used),
+             runtime=runtime,
+-            cfg=dict(runtime.config), # Should merge dynamic_cfg
++            cfg=dict(cfg),  # effective cfg (static + dynamic + circuit-breaker overrides)
+             indicators=indicators,
+             absorption=absorption_feat
+         )
+@@ -1957,27 +2071,6 @@
+             trade_dw_obi_stability_score.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_dw_obi_stability_score", 0.0) or 0.0))
+             trade_dw_obi_stable_secs.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_dw_obi_stable_secs", 0.0) or 0.0))
+             trade_dw_obi_stable.labels(sym=_sym, bucket=_bk).set(float(indicators.get("lob_dw_obi_stable", 0) or 0))
+-
+-            # Histograms (P95/P99-ready): effective slippage + execution risk/penalty.
+-            # All wrapped in try/except so histogram failures never break the hot path.
+-            try:
+-                _m_slip_bps.labels(sym=_sym, bucket=_bk, model="eff").observe(
+-                    float(indicators.get("expected_slippage_bps", 0.0) or 0.0)
+-                )
+-                trade_exec_risk_ref_bps.labels(sym=_sym, bucket=_bk).observe(
+-                    float(indicators.get("exec_risk_ref_bps", 0.0) or 0.0)
+-                )
+-                trade_exec_risk_bps.labels(sym=_sym, bucket=_bk).observe(
+-                    float(indicators.get("exec_risk_bps", 0.0) or 0.0)
+-                )
+-                trade_exec_risk_norm.labels(sym=_sym, bucket=_bk).observe(
+-                    float(indicators.get("exec_risk_norm", 0.0) or 0.0)
+-                )
+-                trade_exec_pen.labels(sym=_sym, bucket=_bk).observe(
+-                    float(indicators.get("exec_pen", 0.0) or 0.0)
+-                )
+-            except Exception:
+-                pass
+         except Exception:
+             pass
+ 
+@@ -2135,6 +2228,15 @@
+         # Phase E: OBI / OFI
+         try:
+             now_ms_det = int(tick_ts)
++
++            # Defaults для полей схемы v2/v3 — гарантируем отсутствие пропусков в payload
++            indicators.setdefault("obi", 0.0)
++            indicators.setdefault("obi_z", 0.0)
++            indicators.setdefault("obi_stability_score", 0.0)
++            indicators.setdefault("obi_stable_secs", 0.0)
++            indicators.setdefault("obi_stable", 0)
++            indicators.setdefault("obi_sustained", 0)
++
+             # OBI stability (quality-gated)
+             if runtime.last_obi_event:
+                 age = now_ms_det - int(runtime.last_obi_event.get("ts_ms", 0) or 0)
+@@ -2147,10 +2249,13 @@
+                     indicators["obi_stable_secs"] = float(runtime.last_obi_event.get("stable_secs", 0.0) or 0.0)
+                     indicators["obi_stability_score"] = float(runtime.last_obi_event.get("stability_score", 0.0) or 0.0)
+                     indicators["obi_sustained"] = bool(int(runtime.last_obi_event.get("stable", 0) or 0) == 1)
++                    # Явно выставляем obi_stable из obi_sustained (schema v2/v3)
++                    indicators["obi_stable"] = int(1 if indicators.get("obi_sustained") else 0)
+                     if str(runtime.last_obi_event.get("direction") or "").upper() == direction:
+                         if indicators["obi_sustained"]:
+                             confirmations.append(f"obi_stable={float(indicators['obi_stable_secs']):.2f}")
+ 
++            indicators.setdefault("obi_stable", 0)
+             # Footprint edge absorb (recent, no range expansion)
+             fe = getattr(runtime, "last_fp_edge", None)
+             if fe is not None:
+@@ -2219,23 +2324,10 @@
+             except Exception:
+                 pass
+ 
++        # Min Confirmations
+         # ... (Check min_confirmations) ...
+         # Simplified:
+         min_confirmations = int(runtime.config.get("min_confirmations", 0))
+-
+-        # Commit 2: Make confirmations first-class features for ML gate (train==serve parity).
+-        # apply_confirmations_to_indicators is fail-safe — never raises, never re-raises.
+-        # Keys written: conf:<key> (numeric), b:<key> (binary), <key> (binary, for canonical set).
+-        # Runs BEFORE min_confirmations check so even vetoed ticks export features.
+-        try:
+-            apply_confirmations_to_indicators(
+-                confirmations=list(confirmations),
+-                indicators=indicators,
+-                also_write_raw_keys=True,
+-            )
+-        except Exception:
+-            pass
+-
+         if len(confirmations) < min_confirmations:
+             return None
+ 
+@@ -3147,9 +3239,9 @@
+         try:
+             rd = getattr(runtime, "adverse_rd_tracker", None)
+             if rd is not None:
+-                indicators = runtime.indicators if hasattr(runtime, "indicators") else {}
+-                bkt = str(indicators.get("exec_regime_bucket", "NORMAL") or "NORMAL")
+-                px0 = float(indicators.get("mid_px_submit") or entry or 0.0)
++                _rdind2 = runtime.indicators if hasattr(runtime, "indicators") else {}
++                bkt = str(_rdind2.get("exec_regime_bucket", "NORMAL") or "NORMAL")
++                px0 = float(_rdind2.get("mid_px_submit") or entry or 0.0)
+                 if px0 > 0:
+                     rd.on_signal(ts_ms=int(tick_ts), direction=str(direction), px0=float(px0), bucket=bkt)
+         except Exception:
+@@ -3327,24 +3419,6 @@
+                 "flag_high_mom": str(int(indicators.get("flag_high_mom", 0) or 0)),
+                 "flag_high_realized_vol": str(int(indicators.get("flag_high_realized_vol", 0) or 0)),
+                 "flag_high_pressure": str(int(indicators.get("flag_high_pressure", 0) or 0)),
+-
+-                # Execution risk & slippage (world-practice trackers v16)
+-                # Enables SRE/QA/Timescale to distinguish: "rules/defaults",
+-                # "legacy vs eff vs decomp", "exec_risk exists, exec_pen=0" (broken wiring).
+-                "spread_bps_submit": str(float(indicators.get("spread_bps_submit", indicators.get("spread_bps", 0.0)) or 0.0)),
+-                "impact_proxy": str(float(indicators.get("impact_proxy", 0.0) or 0.0)),
+-                "liq_score": str(float(indicators.get("liq_score", 0.0) or 0.0)),
+-                "expected_slippage_bps": str(float(indicators.get("expected_slippage_bps", 0.0) or 0.0)),
+-                "expected_slippage_bps_legacy": str(float(indicators.get("expected_slippage_bps_legacy", indicators.get("expected_slippage_bps", 0.0)) or 0.0)),
+-                "expected_slippage_decomp_bps": str(float(indicators.get("expected_slippage_decomp_bps", 0.0) or 0.0)),
+-                "slip_decomp_spread_bps": str(float(indicators.get("slip_decomp_spread_bps", 0.0) or 0.0)),
+-                "slip_decomp_impact_bps": str(float(indicators.get("slip_decomp_impact_bps", 0.0) or 0.0)),
+-                "slip_decomp_coeff_bps": str(float(indicators.get("slip_decomp_coeff_bps", 0.0) or 0.0)),
+-                "exec_risk_ref_bps": str(float(indicators.get("exec_risk_ref_bps", 0.0) or 0.0)),
+-                "exec_risk_bps": str(float(indicators.get("exec_risk_bps", 0.0) or 0.0)),
+-                "exec_risk_norm": str(float(indicators.get("exec_risk_norm", 0.0) or 0.0)),
+-                "exec_pen": str(float(indicators.get("exec_pen", 0.0) or 0.0)),
+-
+                 "reason_code_top1": str(reason_top1),  # sanitized by enrich_schema_fields
+                 "meta_feature_coverage": str(float(meta_cov)),
+                 "meta_enforce_mode": meta_enforce,
+@@ -3388,16 +3462,6 @@
+                 of_gate_ok_hard_total.labels(symbol=symbol, scenario_v4=scen).inc()
+             if int(fields.get("ok_soft", "0") or 0) == 1:
+                 of_gate_ok_soft_total.labels(symbol=symbol, scenario_v4=scen).inc()
+-            # Veto top1 counter: only on hard-veto (ok=0, ok_soft=0)
+-            if int(fields.get("ok", "0") or 0) == 0 and int(fields.get("ok_soft", "0") or 0) == 0:
+-                try:
+-                    rc1_lbl = str(fields.get("reason_code_top1") or "na")
+-                    if rc1_lbl and rc1_lbl != "na":
+-                        of_gate_veto_top1_total.labels(
+-                            symbol=symbol, scenario_v4=scen, reason_code_top1=rc1_lbl
+-                        ).inc()
+-                except Exception:
+-                    pass
+ 
+         except Exception as e:
+             ok_metrics_error_total.labels(src="tick_gate", where=why_label("exception")).inc()
+
+--- /mnt/data/repo_stepA_before/tick_flow_full/core/seq_dq_v1.py	2026-02-28 11:40:52.166964802 +0000
++++ /mnt/data/repo/tick_flow_full/core/seq_dq_v1.py	2026-02-28 12:11:36.982711256 +0000
+@@ -154,3 +154,95 @@
+         ts_ms=int(ts_ms or 0),
+         tau_ms=max(1, int(tau_ms or 1)),
+     )
++
++
++def surface_dq_indicators(runtime, indicators: dict) -> dict:
++    """Ensure DQ keys exist in `indicators` (Train==Serve contract).
++
++    Duck-typed: `runtime` may be SymbolRuntime or a test stub.
++
++    Policy:
++      - If `runtime` provides a value -> write it into indicators.
++      - If `runtime` is missing the attribute / provides None -> keep existing indicator if present,
++        otherwise set a sensible default (0 / 0.0).
++
++    This makes the helper safe to call in both prod runtime and unit tests.
++    """
++    _S = object()
++    try:
++        v = getattr(runtime, 'tick_gap_p50_ms', _S)
++        if v is not _S and v is not None:
++            indicators['tick_gap_p50_ms'] = float(v)
++        else:
++            indicators.setdefault('tick_gap_p50_ms', 0.0)
++
++        v = getattr(runtime, 'tick_gap_p95_ms', _S)
++        if v is not _S and v is not None:
++            indicators['tick_gap_p95_ms'] = float(v)
++        else:
++            indicators.setdefault('tick_gap_p95_ms', 0.0)
++
++        v = getattr(runtime, 'tick_gap_n', _S)
++        if v is not _S and v is not None:
++            indicators['tick_gap_n'] = int(v)
++        else:
++            indicators.setdefault('tick_gap_n', 0)
++
++        v = getattr(runtime, 'tick_missing_seq_ema', _S)
++        if v is not _S and v is not None:
++            indicators['tick_missing_seq_ema'] = float(v)
++        else:
++            indicators.setdefault('tick_missing_seq_ema', 0.0)
++
++        v = getattr(runtime, 'book_missing_seq_ema', _S)
++        if v is not _S and v is not None:
++            indicators['book_missing_seq_ema'] = float(v)
++        else:
++            indicators.setdefault('book_missing_seq_ema', 0.0)
++
++        # Optional debug surfaces (numeric codes only; stable label cardinality).
++        v = getattr(runtime, 'tick_gap_count_total', _S)
++        if v is not _S and v is not None:
++            indicators['tick_gap_count'] = int(v)
++        else:
++            indicators.setdefault('tick_gap_count', 0)
++
++        v = getattr(runtime, 'tick_dup_count_total', _S)
++        if v is not _S and v is not None:
++            indicators['tick_dup_count'] = int(v)
++        else:
++            indicators.setdefault('tick_dup_count', 0)
++
++        v = getattr(runtime, 'tick_reorder_count_total', _S)
++        if v is not _S and v is not None:
++            indicators['tick_reorder_count'] = int(v)
++        else:
++            indicators.setdefault('tick_reorder_count', 0)
++
++        v = getattr(runtime, 'tick_seq_last_reason', _S)
++        if v is not _S and v is not None:
++            indicators['tick_seq_last_reason'] = int(v)
++        else:
++            indicators.setdefault('tick_seq_last_reason', 0)
++
++        v = getattr(runtime, 'tick_seq_last_missing', _S)
++        if v is not _S and v is not None:
++            indicators['tick_seq_last_missing'] = int(v)
++        else:
++            indicators.setdefault('tick_seq_last_missing', 0)
++
++        v = getattr(runtime, 'book_seq_last_reason', _S)
++        if v is not _S and v is not None:
++            indicators['book_seq_last_reason'] = int(v)
++        else:
++            indicators.setdefault('book_seq_last_reason', 0)
++
++        v = getattr(runtime, 'book_seq_last_missing', _S)
++        if v is not _S and v is not None:
++            indicators['book_seq_last_missing'] = int(v)
++        else:
++            indicators.setdefault('book_seq_last_missing', 0)
++    except Exception:
++        # fail-open: keep whatever is already in indicators
++        pass
++    return indicators
+
+--- /mnt/data/repo_stepA_before/tick_flow_full/services/orderflow/signal_quality_kpi_worker_v1.py	2026-02-22 11:43:50.000000000 +0000
++++ /mnt/data/repo/tick_flow_full/services/orderflow/signal_quality_kpi_worker_v1.py	2026-02-28 12:10:56.331591128 +0000
+@@ -217,8 +217,8 @@
+     while scanned < max_scan:
+         res = r.xrevrange(stream, max=last_id, min=b"-", count=min(chunk, max_scan - scanned))
+         if not res:
+-        if len(res) == 1 and res[0][0] == last_id:
+             break
++        if len(res) == 1 and res[0][0] == last_id:
+             break
+         for _id, fields in res:
+             scanned += 1
+
+--- /mnt/data/repo_stepA_before/services/orderflow/decision_record_v1.py	2026-02-27 12:30:27.000000000 +0000
++++ /mnt/data/repo/services/orderflow/decision_record_v1.py	2026-02-28 12:10:56.335487297 +0000
+@@ -579,27 +579,21 @@
+     # ML (best-effort)
+     # Prefer stub['evidence']['ml'] (TickProcessor builds ctx_evidence), then fall back to
+     # indicators['of_confirm']['evidence']['ml'] if present.
+-    # ML (best-effort)
++    ml_state = "na"
+     ml_p_cal = None
+     ml_latency_ms = None
+     ml_model_ver = ""
+     ml_error = ""
+ 
+-    if "ml_state" in indicators:
+-        ml_state = _g("ml_state")
+-
+-    ml: Dict[str, Any] = {}
+-    ev_root = stub.get("evidence", {})
+-    if isinstance(ev_root, dict) and isinstance(ev_root.get("ml"), dict):
+-        ml = ev_root.get("ml", {})
++    ev = stub.get("evidence", {}) if isinstance(stub.get("evidence"), dict) else {}
++    ml = ev.get("ml", {}) if isinstance(ev.get("ml"), dict) else {}
+ 
+     if not ml:
+         ofc = _g("of_confirm", {})
+-        ev = ofc.get("evidence", {}) if isinstance(ofc, dict) else {}
+-        if isinstance(ev, dict) and isinstance(ev.get("ml"), dict):
+-            ml = ev.get("ml", {})
++        ev2 = ofc.get("evidence", {}) if isinstance(ofc, dict) else {}
++        ml = ev2.get("ml", {}) if isinstance(ev2.get("ml"), dict) else {}
+ 
+-    ml_state = "na"
++    if ml:
+         ml_state = _normalize_ml_state(ml)
+         # calibrated probability
+         for k in ("p_edge_cal", "p_cal", "p_edge", "p_edge_raw", "p_raw"):
+@@ -621,43 +615,16 @@
+             except Exception:
+                 pass
+         # model version / errors (best-effort)
+-        ml_model_ver = str(ml.get("model_run_id") or ml.get("model_path") or ml.get("ver") or "")
++        ml_model_ver = str(ml.get("model_run_id") or ml.get("model_path") or ml.get("cfg_source") or ml.get("ver") or "")
+         ml_error = str(ml.get("error") or ml.get("cfg_parse_err") or "")
+-    ml_p_cal = None
+-    ml_latency_ms = None
+-    ml_model_ver = ""
+-    ml_error = ""
+-
+-    # Prefer stub['evidence']['ml']
+-    ev = stub.get("evidence", {}) if isinstance(stub.get("evidence", {}), dict) else {}
+-    ml = ev.get("ml", {}) if isinstance(ev.get("ml", {}), dict) else {}
+-
+-    # Fallbacks
+-    if not ml:
+-        ofc = _g("of_confirm", {})
+-        ev2 = ofc.get("evidence", {}) if isinstance(ofc, dict) else {}
+-        ml = ev2.get("ml", {}) if isinstance(ev2.get("ml", {}), dict) else {}
+-
+-    if ml:
+-        ml_state = _normalize_ml_state(ml)
+-        # p_edge_cal is the calibrated probability
+-        for k in ("p_edge_cal", "p_cal", "p_edge", "p_edge_raw"):
+-            if k in ml:
+-                try:
+-                    ml_p_cal = float(ml.get(k))
+-                    break
+-                except Exception:
+-                    pass
+-        # latency
+-        if "latency_us" in ml:
++    else:
++        # If upstream already computed ml_state in indicators, keep it (best-effort).
++        if "ml_state" in indicators:
+             try:
+-                ml_latency_ms = float(ml.get("latency_us", 0)) / 1000.0
++                ml_state = str(_g("ml_state") or "na")
+             except Exception:
+-                pass
+-        # model version (best effort)
+-        ml_model_ver = str(ml.get("model_run_id") or ml.get("model_path") or ml.get("cfg_source") or "")
+-        ml_error = str(ml.get("error") or ml.get("cfg_parse_err") or "")
+-    
++                ml_state = "na"
++
+     # Rule
+     rule_score = float(_g("rule_score", _g("score", 0.0)) or 0.0)
+     rule_ok = bool(int(_g("ok", 0) or 0))
+
+--- /mnt/data/repo_stepA_before/tick_flow_full/tests/core/test_surface_dq_indicators_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo/tick_flow_full/tests/core/test_surface_dq_indicators_v1.py	2026-02-28 12:09:30.205428716 +0000
+@@ -0,0 +1,56 @@
++from __future__ import annotations
++
++
++class _RuntimeStub:
++    def __init__(self):
++        self.tick_gap_p50_ms = 12.0
++        self.tick_gap_p95_ms = 55.0
++        self.tick_gap_n = 321
++        self.tick_missing_seq_ema = 0.25
++        self.book_missing_seq_ema = 0.10
++
++        self.tick_gap_count_total = 3
++        self.tick_dup_count_total = 4
++        self.tick_reorder_count_total = 5
++        self.tick_seq_last_reason = 2
++        self.tick_seq_last_missing = 7
++
++        self.book_seq_last_reason = 1
++        self.book_seq_last_missing = 0
++
++
++def test_surface_dq_indicators_sets_required_keys():
++    from core.seq_dq_v1 import surface_dq_indicators
++
++    rt = _RuntimeStub()
++    indicators = {}
++    surface_dq_indicators(rt, indicators)
++
++    assert indicators["tick_gap_p50_ms"] == 12.0
++    assert indicators["tick_gap_p95_ms"] == 55.0
++    assert indicators["tick_gap_n"] == 321
++
++    assert indicators["tick_missing_seq_ema"] == 0.25
++    assert indicators["book_missing_seq_ema"] == 0.10
++
++    assert indicators["tick_gap_count"] == 3
++    assert indicators["tick_dup_count"] == 4
++    assert indicators["tick_reorder_count"] == 5
++
++    assert indicators["tick_seq_last_reason"] == 2
++    assert indicators["tick_seq_last_missing"] == 7
++
++    assert indicators["book_seq_last_reason"] == 1
++    assert indicators["book_seq_last_missing"] == 0
++
++
++def test_surface_dq_indicators_fail_open_on_missing_attrs():
++    from core.seq_dq_v1 import surface_dq_indicators
++
++    class Empty:
++        pass
++
++    indicators = {"tick_gap_p50_ms": 1.0}
++    out = surface_dq_indicators(Empty(), indicators)
++    # Does not crash and keeps pre-existing keys.
++    assert out["tick_gap_p50_ms"] == 1.0
+

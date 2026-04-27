@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/utils/risk_cfg_resolver.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.2, 0.6, 1.0, '0.6,1.0,1.5', '1,2,3', 'ATR', 'ROCKET_TP1_ATR_MULT', 'RR', 'STOP_ATR_MULT', 'STOP_ATR_MULT_BASE', 'STOP_MODE', 'STOP_PCT', 'STOP_POINTS', 'TP_ATR_MULTS', 'TP_MODE', 'TP_RR', 'TRAILING_MIN_LOCK_R', 'TRAIL_PROFILE', 'USDT', 'trail_profile', 'trailing_min_lock_r']

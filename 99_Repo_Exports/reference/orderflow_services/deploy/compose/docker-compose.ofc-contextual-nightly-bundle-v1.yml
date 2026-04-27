@@ -1,0 +1,22 @@
+services:
+  ofc-contextual-nightly-bundle:
+    image: ${TRADE_ORDERFLOW_IMAGE:?}
+    working_dir: /app
+    environment:
+      PYTHONPATH: /app
+      REDIS_URL: ${REDIS_URL:?}
+      OFC_CTX_NIGHTLY_SUMMARY_KEY: ${OFC_CTX_NIGHTLY_SUMMARY_KEY:-metrics:ofc_contextual_nightly:last}
+      OFC_CTX_EXPORTER_SUMMARY_KEY: ${OFC_CTX_EXPORTER_SUMMARY_KEY:-metrics:ofc_contextual_exporter:last}
+      OFC_CTX_WRITER_SUMMARY_KEY: ${OFC_CTX_WRITER_SUMMARY_KEY:-metrics:ofc_contextual_writer:last}
+      OFC_CTX_BUNDLE_DIR: ${OFC_CTX_BUNDLE_DIR:?}
+      OFC_CTX_OUTPUT_DIR: ${OFC_CTX_OUTPUT_DIR:-/var/lib/trade/ofc_ctx}
+      LATENCY_CONTRACT_PREFLIGHT_PURPOSE: ofc_contextual_nightly_bundle
+      ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT: ${ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT:-1}
+    volumes:
+      - ${TRADE_REPO_ROOT:?}:/app:ro
+      - /var/lib/trade:/var/lib/trade
+    command:
+      - bash
+      - -lc
+      - >-
+        python3 -m orderflow_services.nightly_ofc_contextual_ops_bundle_v1

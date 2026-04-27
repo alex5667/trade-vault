@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/meta_features_v3.py
+# hypothesis_version: 6.148.10
+
+[0.0, ',', 'burst_churn', 'burst_cr_ema', 'burst_ctr', 'burst_exc', 'burst_ha_lam', 'burst_pen', 'burst_tr_ema', 'burst_veto', 'burst_veto_flag', 'burst_z', 'log1p', 'meta_feat_v3', 'name', 'utf-8']

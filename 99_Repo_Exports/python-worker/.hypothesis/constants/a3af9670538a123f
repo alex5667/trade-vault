@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/trailing_edge_analyzer.py
+# hypothesis_version: 6.148.10
+
+[-0.1, -0.05, 0.0, 1e-06, 0.05, 0.1, 0.3, 0.4, 0.55, 0.6, 0.7, 0.8, 100, 200, 1000, 3600, '+', '-', '1', 'TrailingEdgeAnalyzer', 'actions', 'analysis_timestamp', 'close_reason', 'close_reason_detail', 'close_reason_raw', 'closed_time', 'confidence_level', 'exit_ts_ms', 'hash', 'high', 'low', 'medium', 'more_aggressive', 'more_conservative', 'on', 'pnl_net', 'reason', 'source', 'strategy', 'suggested_changes', 'symbol', 'trades:closed', 'trail_profile', 'trailing_active', 'trailing_profile', 'trailing_started', 'true', 'type', 'y', 'yes']

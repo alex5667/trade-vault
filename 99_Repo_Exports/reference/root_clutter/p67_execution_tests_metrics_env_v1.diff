@@ -1,0 +1,1197 @@
+--- /dev/null
++++ b/services/execution_metrics.py
+@@ -0,0 +1,202 @@
++from __future__ import annotations
++
++"""Execution/runtime Prometheus metrics for Binance execution hardening.
++
++Single source of truth for P6/P7 observability.
++Names are intentionally stable and low-cardinality.
++"""
++
++from typing import Any
++
++try:
++    from prometheus_client import Counter, Gauge, REGISTRY
++except Exception:  # pragma: no cover
++    Counter = Gauge = None  # type: ignore
++    REGISTRY = None  # type: ignore
++
++
++def _metric(factory, name: str, *args, **kwargs):
++    if factory is None:
++        return None
++    try:
++        return factory(name, *args, **kwargs)
++    except ValueError:
++        return getattr(REGISTRY, "_names_to_collectors", {}).get(name) if REGISTRY is not None else None
++
++
++EXECUTION_ENTRY_SUBMITTED_TOTAL = _metric(
++    Counter,
++    "execution_entry_submitted_total",
++    "Entry orders submitted by the Binance executor.",
++    ["symbol", "venue", "order_type"],
++)
++EXECUTION_ENTRY_FILLED_TOTAL = _metric(
++    Counter,
++    "execution_entry_filled_total",
++    "Entry orders reaching FILLED or PARTIALLY_FILLED state.",
++    ["symbol", "venue", "fill_status"],
++)
++EXECUTION_PROTECTION_ARM_TIMEOUT_TOTAL = _metric(
++    Counter,
++    "execution_protection_arm_timeout_total",
++    "Entry filled but protection was not confirmed within the configured deadline.",
++    ["symbol", "execution_policy"],
++)
++EXECUTION_DUPLICATE_PREVENTED_TOTAL = _metric(
++    Counter,
++    "execution_duplicate_prevented_total",
++    "Duplicate open deliveries short-circuited from executor state/replay materialization.",
++    ["symbol", "reason"],
++)
++EXECUTION_POSITION_UNPROTECTED_SECONDS = _metric(
++    Gauge,
++    "execution_position_unprotected_seconds",
++    "Worst-case naked-position window before emergency flatten after a protection incident.",
++    ["symbol"],
++)
++
++MARK_CONTRACT_SPREAD_BPS = _metric(
++    Gauge,
++    "mark_contract_spread_bps",
++    "Current mark minus contract price spread in basis points.",
++    ["symbol"],
++)
++TP_TRIGGER_MARK_MINUS_CONTRACT_BPS = _metric(
++    Gauge,
++    "tp_trigger_mark_minus_contract_bps",
++    "Mark minus contract spread in basis points observed when TP trigger semantics were evaluated.",
++    ["symbol", "level"],
++)
++SL_TRIGGER_MARK_MINUS_CONTRACT_BPS = _metric(
++    Gauge,
++    "sl_trigger_mark_minus_contract_bps",
++    "Mark minus contract spread in basis points observed when SL semantics were evaluated.",
++    ["symbol"],
++)
++TRIGGER_MISS_SUSPECTED_TOTAL = _metric(
++    Counter,
++    "trigger_miss_suspected_total",
++    "Trigger touched but exposure did not reduce before watchdog fallback / timeout.",
++    ["symbol", "level", "working_type"],
++)
++
++TP_LIMIT_TRIGGERED_TOTAL = _metric(
++    Counter,
++    "tp_limit_triggered_total",
++    "Maker TP levels that reached trigger condition.",
++    ["symbol", "level"],
++)
++TP_LIMIT_FILLED_TOTAL = _metric(
++    Counter,
++    "tp_limit_filled_total",
++    "Maker TP levels that fully filled before watchdog fallback.",
++    ["symbol", "level"],
++)
++TP_WATCHDOG_FALLBACK_TOTAL = _metric(
++    Counter,
++    "tp_watchdog_fallback_total",
++    "Maker TP levels that required market watchdog fallback.",
++    ["symbol", "level"],
++)
++MAKER_FILL_RATIO = _metric(
++    Gauge,
++    "maker_fill_ratio",
++    "Filled maker TP levels divided by triggered maker TP levels.",
++    ["symbol", "level"],
++)
++FEE_BPS_SAVED_ESTIMATE = _metric(
++    Gauge,
++    "fee_bps_saved_estimate",
++    "Estimated fee advantage in bps for maker TP levels that filled without fallback.",
++    ["symbol", "level"],
++)
++
++BINANCE_503_UNKNOWN_TOTAL = _metric(
++    Counter,
++    "binance_503_unknown_total",
++    "Binance HTTP 503 responses where execution result was explicitly unknown.",
++    ["endpoint"],
++)
++BINANCE_503_FAILURE_TOTAL = _metric(
++    Counter,
++    "binance_503_failure_total",
++    "Binance HTTP 503 responses that were ordinary failures rather than unknown execution state.",
++    ["endpoint"],
++)
++BINANCE_429_TOTAL = _metric(
++    Counter,
++    "binance_429_total",
++    "Binance rate-limit responses.",
++    ["endpoint"],
++)
++BINANCE_1008_TOTAL = _metric(
++    Counter,
++    "binance_1008_total",
++    "Binance overload errors (-1008). Metric name is normalised because Prometheus names cannot contain '-'.",
++    ["endpoint"],
++)
++BINANCE_API_ERRORS_TOTAL = _metric(
++    Counter,
++    "binance_api_errors_total",
++    "Binance API/transport errors by endpoint and exchange error code.",
++    ["endpoint", "code"],
++)
++BINANCE_ALGO_RECONCILE_TOTAL = _metric(
++    Counter,
++    "binance_algo_reconcile_total",
++    "Reconcile-first recoveries after ambiguous execution responses.",
++    ["action", "source"],
++)
++LISTENKEY_REFRESH_TOTAL = _metric(
++    Counter,
++    "listenkey_refresh_total",
++    "ListenKey lifecycle operations (start/keepalive/close).",
++    ["op", "result"],
++)
++USER_STREAM_RECONNECT_TOTAL = _metric(
++    Counter,
++    "user_stream_reconnect_total",
++    "User stream reconnect cycles.",
++    ["reason"],
++)
++USER_STREAM_LAST_EVENT_AGE_MS = _metric(
++    Gauge,
++    "user_stream_last_event_age_ms",
++    "Age of the last Binance user-stream event relative to local wall clock.",
++)
++USER_STREAM_CONNECTED = _metric(
++    Gauge,
++    "user_stream_connected",
++    "Whether the Binance user-stream worker currently considers itself connected (1/0).",
++)
++
++REDIS_STREAM_TIMEOUT_TOTAL = _metric(
++    Counter,
++    "redis_stream_timeout_total",
++    "Redis stream timeout bursts observed by the orderflow worker.",
++    ["symbol", "stream"],
++)
++QUEUE_LAG_MS = _metric(
++    Gauge,
++    "queue_lag_ms",
++    "Redis/orderflow queue lag in milliseconds.",
++    ["symbol"],
++)
++BOOK_STALENESS_MS = _metric(
++    Gauge,
++    "book_staleness_ms",
++    "Best-book staleness in milliseconds.",
++    ["symbol"],
++)
++TICK_STALENESS_MS = _metric(
++    Gauge,
++    "tick_staleness_ms",
++    "Tick staleness in milliseconds.",
++    ["symbol"],
++)
++NEGATIVE_AGE_EVENTS_TOTAL = _metric(
++    Counter,
++    "negative_age_events_total",
++    "Negative-age / time-regression events detected by DQ logic.",
++    ["symbol"],
++)
+--- a/services/binance_futures_client.py
++++ b/services/binance_futures_client.py
+@@ -47,6 +47,27 @@
+ import urllib.request
+ from dataclasses import dataclass
+ from typing import Any, Dict, Optional
++
++try:
++    from services.execution_metrics import (
++        BINANCE_429_TOTAL,
++        BINANCE_503_FAILURE_TOTAL,
++        BINANCE_503_UNKNOWN_TOTAL,
++        BINANCE_1008_TOTAL,
++        BINANCE_API_ERRORS_TOTAL,
++    )
++except Exception:  # pragma: no cover
++    try:
++        from execution_metrics import (
++            BINANCE_429_TOTAL,
++            BINANCE_503_FAILURE_TOTAL,
++            BINANCE_503_UNKNOWN_TOTAL,
++            BINANCE_1008_TOTAL,
++            BINANCE_API_ERRORS_TOTAL,
++        )
++    except Exception:  # pragma: no cover
++        BINANCE_429_TOTAL = BINANCE_503_FAILURE_TOTAL = BINANCE_503_UNKNOWN_TOTAL = None  # type: ignore
++        BINANCE_1008_TOTAL = BINANCE_API_ERRORS_TOTAL = None  # type: ignore
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -351,6 +372,7 @@
+         except urllib.error.HTTPError as e:
+             raw = e.read() if hasattr(e, "read") else b""
+             payload = _safe_json_loads(raw) if raw else {"_error": str(e)}
++            self._observe_api_error(path=path, status=int(getattr(e, "code", 0) or 0), payload=payload)
+             raise BinanceAPIError(getattr(e, "code", 0) or 0, payload)
+         except (urllib.error.URLError, socket.timeout, TimeoutError) as e:
+             # Transport-level timeouts are ambiguous for trading flows: the
+@@ -362,7 +384,37 @@
+                 "msg": str(e),
+                 "ambiguous": True,
+             }
++            self._observe_transport_timeout(path=path)
+             raise BinanceAPIError(0, payload, "Binance transport timeout / ambiguous request state")
++
++    def _observe_api_error(self, *, path: str, status: int, payload: Any) -> None:
++        endpoint = str(path or "unknown")
++        doc = payload if isinstance(payload, dict) else {}
++        code = str(doc.get("code") or status or "unknown")
++        msg = str(doc.get("msg") or doc.get("_error") or "").lower()
++        try:
++            if BINANCE_API_ERRORS_TOTAL is not None:
++                BINANCE_API_ERRORS_TOTAL.labels(endpoint=endpoint, code=code).inc()
++            if int(status) == 429 and BINANCE_429_TOTAL is not None:
++                BINANCE_429_TOTAL.labels(endpoint=endpoint).inc()
++            if str(code) == "-1008" and BINANCE_1008_TOTAL is not None:
++                BINANCE_1008_TOTAL.labels(endpoint=endpoint).inc()
++            if int(status) == 503:
++                if "unknown" in msg:
++                    if BINANCE_503_UNKNOWN_TOTAL is not None:
++                        BINANCE_503_UNKNOWN_TOTAL.labels(endpoint=endpoint).inc()
++                else:
++                    if BINANCE_503_FAILURE_TOTAL is not None:
++                        BINANCE_503_FAILURE_TOTAL.labels(endpoint=endpoint).inc()
++        except Exception:
++            pass
++
++    def _observe_transport_timeout(self, *, path: str) -> None:
++        try:
++            if BINANCE_API_ERRORS_TOTAL is not None:
++                BINANCE_API_ERRORS_TOTAL.labels(endpoint=str(path or "unknown"), code="transport_timeout").inc()
++        except Exception:
++            pass
+ 
+     # --- public endpoints (no signature) ---
+ 
+@@ -605,6 +657,26 @@
+             p["clientAlgoId"] = client_algo_id
+         return self._request("DELETE", "/fapi/v1/algoOrder", params=p, signed=True)
+ 
++    def replace_algo_order(
++        self,
++        symbol: str,
++        *,
++        cancel_algo_id: Optional[int] = None,
++        cancel_client_algo_id: Optional[str] = None,
++        new_params: Dict[str, Any],
++    ) -> Dict[str, Any]:
++        """Best-effort cancel+replace helper for untriggered algo orders.
++
++        Binance Futures does not expose a native modify endpoint for algo orders
++        across all order types, so the safe contract is explicit cancel→submit.
++        Callers should only use this for orders that have not triggered yet.
++        """
++        cancel_res = self.cancel_algo_order(
++            symbol, algo_id=cancel_algo_id, client_algo_id=cancel_client_algo_id
++        )
++        create_res = self.post_algo_order(dict(new_params or {}))
++        return {"cancel": cancel_res, "create": create_res}
++
+     def delete_order(
+         self, symbol: str, *,
+         order_id: Optional[int] = None,
+--- a/services/binance_user_stream_worker.py
++++ b/services/binance_user_stream_worker.py
+@@ -37,6 +37,24 @@
+     from services.binance_futures_client import BinanceFuturesClient
+ except Exception:  # pragma: no cover
+     from binance_futures_client import BinanceFuturesClient
++
++try:
++    from services.execution_metrics import (
++        LISTENKEY_REFRESH_TOTAL,
++        USER_STREAM_CONNECTED,
++        USER_STREAM_LAST_EVENT_AGE_MS,
++        USER_STREAM_RECONNECT_TOTAL,
++    )
++except Exception:  # pragma: no cover
++    try:
++        from execution_metrics import (
++            LISTENKEY_REFRESH_TOTAL,
++            USER_STREAM_CONNECTED,
++            USER_STREAM_LAST_EVENT_AGE_MS,
++            USER_STREAM_RECONNECT_TOTAL,
++        )
++    except Exception:  # pragma: no cover
++        LISTENKEY_REFRESH_TOTAL = USER_STREAM_CONNECTED = USER_STREAM_LAST_EVENT_AGE_MS = USER_STREAM_RECONNECT_TOTAL = None  # type: ignore
+ 
+ 
+ def _ms_now() -> int:
+@@ -91,6 +109,11 @@
+         self.client = BinanceFuturesClient.from_env(prefix=(os.getenv("BINANCE_USER_STREAM_PREFIX") or "BINANCE_"))
+         self.listen_key: Optional[str] = None
+         self._last_event_time_ms: int = 0
++        try:
++            if USER_STREAM_CONNECTED is not None:
++                USER_STREAM_CONNECTED.set(0)
++        except Exception:
++            pass
+ 
+     def _cache_key(self, kind: str, ref: str) -> str:
+         return f"{self.cache_prefix}{kind}:{ref}"
+@@ -134,6 +157,11 @@
+         if int(event.event_time_ms) < int(self._last_event_time_ms):
+             return False
+         self._last_event_time_ms = int(event.event_time_ms)
++        try:
++            if USER_STREAM_LAST_EVENT_AGE_MS is not None:
++                USER_STREAM_LAST_EVENT_AGE_MS.set(max(0, _ms_now() - int(event.event_time_ms)))
++        except Exception:
++            pass
+         fields = event.to_redis_fields()
+         fields["ingest_ts_ms"] = str(_ms_now())
+         fields["ingest_mono_ms"] = str(_mono_ms())
+@@ -155,23 +183,64 @@
+         return self._apply_event(event)
+ 
+     def start_listen_key(self) -> str:
+-        self.listen_key = self.client.start_user_stream()
+-        if not self.listen_key:
+-            raise RuntimeError("empty listenKey")
+-        return self.listen_key
++        try:
++            self.listen_key = self.client.start_user_stream()
++            if not self.listen_key:
++                raise RuntimeError("empty listenKey")
++            try:
++                if LISTENKEY_REFRESH_TOTAL is not None:
++                    LISTENKEY_REFRESH_TOTAL.labels(op="start", result="ok").inc()
++                if USER_STREAM_CONNECTED is not None:
++                    USER_STREAM_CONNECTED.set(1)
++            except Exception:
++                pass
++            return self.listen_key
++        except Exception:
++            try:
++                if LISTENKEY_REFRESH_TOTAL is not None:
++                    LISTENKEY_REFRESH_TOTAL.labels(op="start", result="error").inc()
++                if USER_STREAM_CONNECTED is not None:
++                    USER_STREAM_CONNECTED.set(0)
++            except Exception:
++                pass
++            raise
+ 
+     def keepalive_listen_key(self) -> None:
+         if not self.listen_key:
+             return
+-        self.client.keepalive_user_stream(self.listen_key)
++        try:
++            self.client.keepalive_user_stream(self.listen_key)
++            if LISTENKEY_REFRESH_TOTAL is not None:
++                LISTENKEY_REFRESH_TOTAL.labels(op="keepalive", result="ok").inc()
++        except Exception:
++            try:
++                if LISTENKEY_REFRESH_TOTAL is not None:
++                    LISTENKEY_REFRESH_TOTAL.labels(op="keepalive", result="error").inc()
++            except Exception:
++                pass
++            raise
+ 
+     def close_listen_key(self) -> None:
+         if not self.listen_key:
+             return
+         try:
+             self.client.close_user_stream(self.listen_key)
++            if LISTENKEY_REFRESH_TOTAL is not None:
++                LISTENKEY_REFRESH_TOTAL.labels(op="close", result="ok").inc()
++        except Exception:
++            try:
++                if LISTENKEY_REFRESH_TOTAL is not None:
++                    LISTENKEY_REFRESH_TOTAL.labels(op="close", result="error").inc()
++            except Exception:
++                pass
++            raise
+         finally:
+             self.listen_key = None
++            try:
++                if USER_STREAM_CONNECTED is not None:
++                    USER_STREAM_CONNECTED.set(0)
++            except Exception:
++                pass
+ 
+     def run_forever(self) -> None:
+         if websocket is None:
+@@ -195,6 +264,13 @@
+                     ws.close()
+                 except Exception:
+                     pass
++                try:
++                    if USER_STREAM_CONNECTED is not None:
++                        USER_STREAM_CONNECTED.set(0)
++                    if USER_STREAM_RECONNECT_TOTAL is not None:
++                        USER_STREAM_RECONNECT_TOTAL.labels(reason="socket_cycle").inc()
++                except Exception:
++                    pass
+                 # Binance disconnects after 24h, reconnect with a fresh or renewed listenKey.
+                 listen_key = self.start_listen_key()
+                 ws_url = f"{self.ws_base_url}/ws/{listen_key}"
+--- a/services/binance_executor.py
++++ b/services/binance_executor.py
+@@ -120,6 +120,51 @@
+     Counter = None  # type: ignore
+     REGISTRY = None  # type: ignore
+ 
++try:
++    from services.execution_metrics import (
++        BINANCE_ALGO_RECONCILE_TOTAL,
++        EXECUTION_DUPLICATE_PREVENTED_TOTAL,
++        EXECUTION_ENTRY_FILLED_TOTAL,
++        EXECUTION_ENTRY_SUBMITTED_TOTAL,
++        EXECUTION_POSITION_UNPROTECTED_SECONDS,
++        EXECUTION_PROTECTION_ARM_TIMEOUT_TOTAL,
++        FEE_BPS_SAVED_ESTIMATE,
++        MAKER_FILL_RATIO,
++        MARK_CONTRACT_SPREAD_BPS,
++        SL_TRIGGER_MARK_MINUS_CONTRACT_BPS,
++        TP_LIMIT_FILLED_TOTAL,
++        TP_LIMIT_TRIGGERED_TOTAL,
++        TP_TRIGGER_MARK_MINUS_CONTRACT_BPS,
++        TP_WATCHDOG_FALLBACK_TOTAL,
++        TRIGGER_MISS_SUSPECTED_TOTAL,
++    )
++except Exception:  # pragma: no cover
++    try:
++        from execution_metrics import (
++            BINANCE_ALGO_RECONCILE_TOTAL,
++            EXECUTION_DUPLICATE_PREVENTED_TOTAL,
++            EXECUTION_ENTRY_FILLED_TOTAL,
++            EXECUTION_ENTRY_SUBMITTED_TOTAL,
++            EXECUTION_POSITION_UNPROTECTED_SECONDS,
++            EXECUTION_PROTECTION_ARM_TIMEOUT_TOTAL,
++            FEE_BPS_SAVED_ESTIMATE,
++            MAKER_FILL_RATIO,
++            MARK_CONTRACT_SPREAD_BPS,
++            SL_TRIGGER_MARK_MINUS_CONTRACT_BPS,
++            TP_LIMIT_FILLED_TOTAL,
++            TP_LIMIT_TRIGGERED_TOTAL,
++            TP_TRIGGER_MARK_MINUS_CONTRACT_BPS,
++            TP_WATCHDOG_FALLBACK_TOTAL,
++            TRIGGER_MISS_SUSPECTED_TOTAL,
++        )
++    except Exception:  # pragma: no cover
++        BINANCE_ALGO_RECONCILE_TOTAL = EXECUTION_DUPLICATE_PREVENTED_TOTAL = None  # type: ignore
++        EXECUTION_ENTRY_FILLED_TOTAL = EXECUTION_ENTRY_SUBMITTED_TOTAL = None  # type: ignore
++        EXECUTION_POSITION_UNPROTECTED_SECONDS = EXECUTION_PROTECTION_ARM_TIMEOUT_TOTAL = None  # type: ignore
++        FEE_BPS_SAVED_ESTIMATE = MAKER_FILL_RATIO = MARK_CONTRACT_SPREAD_BPS = None  # type: ignore
++        SL_TRIGGER_MARK_MINUS_CONTRACT_BPS = TP_LIMIT_FILLED_TOTAL = TP_LIMIT_TRIGGERED_TOTAL = None  # type: ignore
++        TP_TRIGGER_MARK_MINUS_CONTRACT_BPS = TP_WATCHDOG_FALLBACK_TOTAL = TRIGGER_MISS_SUSPECTED_TOTAL = None  # type: ignore
++
+ 
+ def _metric(factory, name: str, *args, **kwargs):
+     """Idempotent Prometheus metric factory — returns existing metric if already registered."""
+@@ -677,6 +722,8 @@
+         # normalized ORDER_TRADE_UPDATE / ALGO_UPDATE payloads in Redis so the
+         # executor can verify ambiguous submissions before attempting a retry.
+         self.reconcile_enable = bool(self.rollout_flags.exec_reconcile_enable and _bool_env("EXEC_RECONCILE_ENABLE", True))
++        self.exec_reconcile_on_503_unknown = _bool_env("EXEC_RECONCILE_ON_503_UNKNOWN", True)
++        self.exec_reconcile_prefer_user_stream = _bool_env("EXEC_RECONCILE_PREFER_USER_STREAM", True)
+         self.user_stream_cache_prefix = (os.getenv("USER_STREAM_CACHE_PREFIX") or "orders:user_stream:").rstrip(":") + ":"
+         self.user_stream_stream = os.getenv("USER_STREAM_STREAM", "orders:user_stream")
+         self.orders_quarantine_sids_key = (os.getenv("ORDERS_QUARANTINE_SIDS_KEY") or "orders:quarantine:state:sids").strip()
+@@ -690,6 +737,9 @@
+         # remains the online source of truth; Postgres journal is auxiliary.
+         # Disabled if EXEC_JOURNAL_SQL_ENABLE=0 or EXECUTION_JOURNAL_DSN is not set.
+         self.execution_journal = ExecutionJournalSink() if self.rollout_flags.exec_journal_sql_enable else ExecutionJournalSink(dsn="")
++        self.exec_fee_maker_bps = float(os.getenv("EXEC_FEE_MAKER_BPS", "2.0"))
++        self.exec_fee_taker_bps = float(os.getenv("EXEC_FEE_TAKER_BPS", "5.0"))
++        self._maker_tp_stats: Dict[Tuple[str, int], Dict[str, float]] = {}
+ 
+     def _is_sid_quarantined(self, sid: str) -> bool:
+         if not self.exec_quarantine_resume_guard_enable or not sid or not self.orders_quarantine_sids_key:
+@@ -1117,34 +1167,116 @@
+             client.sync_time()
+             self._next_time_sync_due_ms = _ms_now() + max(1000, self.binance_time_sync_interval_ms)
+ 
++    def _observe_mark_contract_spread(self, symbol: str, *, client: "BinanceFuturesClient") -> Optional[float]:
++        try:
++            mark = float(client.get_mark_price(symbol) or 0.0)
++            contract = float(client.get_ticker_price(symbol) or 0.0)
++            if mark <= 0 or contract <= 0:
++                return None
++            spread_bps = (mark - contract) / contract * 10000.0
++            if MARK_CONTRACT_SPREAD_BPS is not None:
++                MARK_CONTRACT_SPREAD_BPS.labels(symbol=symbol).set(spread_bps)
++            return spread_bps
++        except Exception:
++            return None
++
++    def _observe_sl_trigger_semantics(self, symbol: str, *, client: "BinanceFuturesClient") -> None:
++        spread_bps = self._observe_mark_contract_spread(symbol, client=client)
++        if spread_bps is None:
++            return
++        try:
++            if SL_TRIGGER_MARK_MINUS_CONTRACT_BPS is not None:
++                SL_TRIGGER_MARK_MINUS_CONTRACT_BPS.labels(symbol=symbol).set(spread_bps)
++        except Exception:
++            pass
++
++    def _observe_tp_trigger_semantics(self, symbol: str, *, level: int, client: "BinanceFuturesClient") -> None:
++        spread_bps = self._observe_mark_contract_spread(symbol, client=client)
++        if spread_bps is None:
++            return
++        try:
++            if TP_TRIGGER_MARK_MINUS_CONTRACT_BPS is not None:
++                TP_TRIGGER_MARK_MINUS_CONTRACT_BPS.labels(symbol=symbol, level=str(int(level))).set(spread_bps)
++        except Exception:
++            pass
++
++    def _note_maker_tp_state(self, symbol: str, *, level: int, state: str) -> None:
++        key = (str(symbol), int(level))
++        stats = self._maker_tp_stats.setdefault(key, {"triggered": 0.0, "filled": 0.0, "fallback": 0.0})
++        st = str(state or "").upper()
++        try:
++            if st == "TRIGGERED":
++                stats["triggered"] += 1.0
++                if TP_LIMIT_TRIGGERED_TOTAL is not None:
++                    TP_LIMIT_TRIGGERED_TOTAL.labels(symbol=symbol, level=str(int(level))).inc()
++            elif st == "FILLED":
++                stats["filled"] += 1.0
++                if TP_LIMIT_FILLED_TOTAL is not None:
++                    TP_LIMIT_FILLED_TOTAL.labels(symbol=symbol, level=str(int(level))).inc()
++                if FEE_BPS_SAVED_ESTIMATE is not None:
++                    FEE_BPS_SAVED_ESTIMATE.labels(symbol=symbol, level=str(int(level))).set(max(0.0, self.exec_fee_taker_bps - self.exec_fee_maker_bps))
++            elif st == "WATCHDOG_MARKET_FALLBACK":
++                stats["fallback"] += 1.0
++                if TP_WATCHDOG_FALLBACK_TOTAL is not None:
++                    TP_WATCHDOG_FALLBACK_TOTAL.labels(symbol=symbol, level=str(int(level))).inc()
++            triggered = max(0.0, float(stats.get("triggered", 0.0)))
++            filled = max(0.0, float(stats.get("filled", 0.0)))
++            ratio = (filled / triggered) if triggered > 0 else 0.0
++            if MAKER_FILL_RATIO is not None:
++                MAKER_FILL_RATIO.labels(symbol=symbol, level=str(int(level))).set(ratio)
++        except Exception:
++            pass
++
+     def _submit_plain_order_with_reconcile(self, *, sid: str, symbol: str, action: str, params: Dict[str, Any], client: "BinanceFuturesClient") -> Dict[str, Any]:
+         try:
+             return client.post_plain_order(params)
+         except Exception as exc:
+-            if not self.reconcile_enable or not client.is_ambiguous_execution_error(exc):
++            if not self.reconcile_enable or not getattr(self, "exec_reconcile_on_503_unknown", True) or not client.is_ambiguous_execution_error(exc):
+                 raise
+             self._mark_pending_reconcile(sid, symbol=symbol, action=action, reason=str(exc))
+             client_id = str(params.get("newClientOrderId") or "").strip() or None
+-            event_doc = self._lookup_user_stream_event(plain_client_id=client_id)
++            event_doc = self._lookup_user_stream_event(plain_client_id=client_id) if getattr(self, "exec_reconcile_prefer_user_stream", True) else {}
+             if event_doc:
++                try:
++                    if BINANCE_ALGO_RECONCILE_TOTAL is not None:
++                        BINANCE_ALGO_RECONCILE_TOTAL.labels(action=action, source="user_stream").inc()
++                except Exception:
++                    pass
+                 return dict(event_doc.get("order") or event_doc)
+             if client_id:
+-                return client.query_plain_order(symbol, client_order_id=client_id)
++                q = client.query_plain_order(symbol, client_order_id=client_id)
++                try:
++                    if BINANCE_ALGO_RECONCILE_TOTAL is not None:
++                        BINANCE_ALGO_RECONCILE_TOTAL.labels(action=action, source="rest_query").inc()
++                except Exception:
++                    pass
++                return q
+             raise
+ 
+     def _submit_algo_order_with_reconcile(self, *, sid: str, symbol: str, action: str, params: Dict[str, Any], client: "BinanceFuturesClient") -> Dict[str, Any]:
+         try:
+             return client.post_algo_order(params)
+         except Exception as exc:
+-            if not self.reconcile_enable or not client.is_ambiguous_execution_error(exc):
++            if not self.reconcile_enable or not getattr(self, "exec_reconcile_on_503_unknown", True) or not client.is_ambiguous_execution_error(exc):
+                 raise
+             self._mark_pending_reconcile(sid, symbol=symbol, action=action, reason=str(exc))
+             client_algo_id = str(params.get("clientAlgoId") or params.get("newClientOrderId") or "").strip() or None
+-            event_doc = self._lookup_user_stream_event(algo_client_id=client_algo_id)
++            event_doc = self._lookup_user_stream_event(algo_client_id=client_algo_id) if getattr(self, "exec_reconcile_prefer_user_stream", True) else {}
+             if event_doc:
++                try:
++                    if BINANCE_ALGO_RECONCILE_TOTAL is not None:
++                        BINANCE_ALGO_RECONCILE_TOTAL.labels(action=action, source="user_stream").inc()
++                except Exception:
++                    pass
+                 return dict(event_doc.get("algo") or event_doc)
+             if client_algo_id:
+-                return client.query_algo_order(symbol, client_algo_id=client_algo_id)
++                q = client.query_algo_order(symbol, client_algo_id=client_algo_id)
++                try:
++                    if BINANCE_ALGO_RECONCILE_TOTAL is not None:
++                        BINANCE_ALGO_RECONCILE_TOTAL.labels(action=action, source="rest_query").inc()
++                except Exception:
++                    pass
++                return q
+             raise
+ 
+     def _resume_open_from_state(
+@@ -1569,6 +1701,7 @@
+             **extra,
+         }
+         self._exec_event(ev)
++        self._note_maker_tp_state(symbol, level=int(level), state=str(state))
+         # P5: mirror TP watchdog events to SQL for durable forensic audit
+         try:
+             sink = getattr(self, "execution_journal", None)
+@@ -1710,6 +1843,7 @@
+             })
+ 
+         if valid_sl is not None and valid_sl > 0:
++            self._observe_sl_trigger_semantics(symbol, client=client)
+             q_sl, sl_q = self._quantize(symbol, qty, valid_sl, filters=filters)
+             p: Dict[str, Any] = {
+                 "symbol": symbol,
+@@ -2027,6 +2161,7 @@
+                     touched = (px >= float(trigger_price)) if logical_side == "LONG" else (px <= float(trigger_price))
+                     if touched:
+                         touch_ts_ms = _ms_now()
++                        self._observe_tp_trigger_semantics(symbol, level=level, client=client)
+                         self._emit_tp_state(
+                             sid, symbol, level, "TRIGGERED",
+                             working_price=px, trigger_price=trigger_price, working_type=working_type,
+@@ -2059,6 +2194,11 @@
+                             trail_armed = True
+ 
+                     if touch_ts_ms is not None and (_ms_now() - touch_ts_ms) >= int(self.tp_limit_watchdog_timeout_ms):
++                        try:
++                            if TRIGGER_MISS_SUSPECTED_TOTAL is not None:
++                                TRIGGER_MISS_SUSPECTED_TOTAL.labels(symbol=symbol, level=str(int(level)), working_type=str(working_type or "").upper()).inc()
++                        except Exception:
++                            pass
+                         self._cancel_algo_order_best_effort(
+                             symbol=symbol, client=client, algo_id=algo_id, client_algo_id=client_algo_id,
+                         )
+@@ -2389,6 +2529,19 @@
+         self._guard_sid_not_quarantined(sid, symbol=symbol, action='open')
+         if self.allowlist and symbol not in self.allowlist:
+             raise ValueError(f"symbol not in allowlist: {symbol}")
++
++        recovered = self._resume_open_from_state(sid, symbol=symbol, client=client)
++        if recovered is not None:
++            try:
++                if EXECUTION_DUPLICATE_PREVENTED_TOTAL is not None:
++                    EXECUTION_DUPLICATE_PREVENTED_TOTAL.labels(symbol=symbol, reason="state_resume").inc()
++            except Exception:
++                pass
++            self._exec_event({
++                "sid": sid, "symbol": symbol, "action": "open",
++                "event_type": "duplicate_prevented", "duplicate_reason": "state_resume",
++            })
++            return dict(recovered, duplicate_prevented=True)
+ 
+         self._ensure_symbol_settings(symbol, client=client)
+ 
+@@ -2533,6 +2686,11 @@
+             sid, symbol=symbol, action="open", next_state=FSM_ENTRY_SUBMITTED,
+             details={"entry_client_order_id": params["newClientOrderId"], "entry_type": order_type}
+         )
++        try:
++            if EXECUTION_ENTRY_SUBMITTED_TOTAL is not None:
++                EXECUTION_ENTRY_SUBMITTED_TOTAL.labels(symbol=symbol, venue=("demo" if is_virtual else "prod"), order_type=order_type).inc()
++        except Exception:
++            pass
+         j_entry = self._submit_plain_order_with_reconcile(
+             sid=sid, symbol=symbol, action="open_entry", params=params, client=client
+         )
+@@ -2557,6 +2715,11 @@
+             sid, symbol=symbol, action="open", next_state=entry_fsm,
+             details={"filled_qty": filled_qty, "avg_price": avg_price, "entry_status": status}
+         )
++        try:
++            if EXECUTION_ENTRY_FILLED_TOTAL is not None:
++                EXECUTION_ENTRY_FILLED_TOTAL.labels(symbol=symbol, venue=("demo" if is_virtual else "prod"), fill_status=status).inc()
++        except Exception:
++            pass
+ 
+         sl = _f(payload.get("sl"), 0.0) if payload.get("sl") is not None else None
+         sl = sl if sl and sl > 0 else None
+@@ -2596,6 +2759,13 @@
+         trail_enabled = _truthy(payload.get("trail_after_tp1")) and bool(tps)
+         if not self._protection_confirmed(prot, tps, trail_enabled):
+             self._emit_protection_incident(sid, symbol, "entry_filled_without_confirmed_protection")
++            try:
++                if EXECUTION_PROTECTION_ARM_TIMEOUT_TOTAL is not None:
++                    EXECUTION_PROTECTION_ARM_TIMEOUT_TOTAL.labels(symbol=symbol, execution_policy=policy.name).inc()
++                if EXECUTION_POSITION_UNPROTECTED_SECONDS is not None:
++                    EXECUTION_POSITION_UNPROTECTED_SECONDS.labels(symbol=symbol).set(float(self.protection_arm_timeout_ms) / 1000.0)
++            except Exception:
++                pass
+             emerg = self._emergency_flatten_position(
+                 sid=sid, symbol=symbol, logical_side=logical, qty=filled_qty,
+                 client=client, filters=filters,
+@@ -2723,9 +2893,6 @@
+             tp_levels=tps,
+             client=client, filters=filters,
+         )
+-        if EXECUTION_EMERGENCY_FLATTEN_TOTAL:
+-            EXECUTION_EMERGENCY_FLATTEN_TOTAL.labels(symbol=symbol, reason="emerg").inc()
+-        self._transition_state(sid, symbol=symbol, action="emergency_flatten", next_state=FSM_EMERGENCY_FLATTENED, details=close)
+         # P5: derive audit chain from payload and include in result
+         audit_chain = self._derive_audit_chain_fields(payload, sid)
+         audit_policies = self._derive_entry_exit_policies(execution_policy=policy.name)
+--- a/services/crypto_orderflow_service.py
++++ b/services/crypto_orderflow_service.py
+@@ -43,6 +43,27 @@
+     tick_event_stream_skew_abs_ema_ms_gauge, tick_event_age_abs_ema_ms_gauge,
+     tick_ingest_process_ms, tick_ingest_e2e_delay_ms
+ )
++
++try:
++    from services.execution_metrics import (
++        BOOK_STALENESS_MS as exec_book_staleness_ms,
++        NEGATIVE_AGE_EVENTS_TOTAL as exec_negative_age_events_total,
++        QUEUE_LAG_MS as exec_queue_lag_ms,
++        REDIS_STREAM_TIMEOUT_TOTAL as exec_redis_stream_timeout_total,
++        TICK_STALENESS_MS as exec_tick_staleness_ms,
++    )
++except Exception:  # pragma: no cover
++    try:
++        from execution_metrics import (
++            BOOK_STALENESS_MS as exec_book_staleness_ms,
++            NEGATIVE_AGE_EVENTS_TOTAL as exec_negative_age_events_total,
++            QUEUE_LAG_MS as exec_queue_lag_ms,
++            REDIS_STREAM_TIMEOUT_TOTAL as exec_redis_stream_timeout_total,
++            TICK_STALENESS_MS as exec_tick_staleness_ms,
++        )
++    except Exception:  # pragma: no cover
++        exec_book_staleness_ms = exec_negative_age_events_total = exec_queue_lag_ms = None  # type: ignore
++        exec_redis_stream_timeout_total = exec_tick_staleness_ms = None  # type: ignore
+ from services.orderflow.tick_quality_ema import TickQualityEMA
+ from services.orderflow.utils import (
+     _fields_to_dict, _parse_tick_payload, _compute_tick_uid
+@@ -329,7 +350,8 @@
+         # newer veto layers quickly without editing code during incident
+         # mitigation or staged rollout.
+         self.trade_dq_hard_veto_enable = str(os.getenv("TRADE_DQ_HARD_VETO_ENABLE", "1")).strip().lower() in {"1", "true", "yes", "on"}
+-        self.trade_risk_engine_v2_enable = str(os.getenv("TRADE_RISK_ENGINE_V2_ENABLE", "1")).strip().lower() in {"1", "true", "yes", "on"}
++        risk_engine_v2_raw = os.getenv("TRADE_RISK_ENGINE_V2_ENABLE", os.getenv("RISK_ENGINE_V2_ENABLE", "1"))
++        self.trade_risk_engine_v2_enable = str(risk_engine_v2_raw).strip().lower() in {"1", "true", "yes", "on"}
+         self.redis_dq_thresholds = RedisDQThresholds.from_env() if (RedisDQThresholds and self.trade_dq_hard_veto_enable) else None
+         self.portfolio_risk_limits = PortfolioRiskLimits.from_env() if (PortfolioRiskLimits and self.trade_risk_engine_v2_enable) else None
+         # Set PORTFOLIO_RISK_HARD_VETO=0 to run risk engine in observe-only mode
+@@ -1062,6 +1084,41 @@
+             return out
+         return None
+ 
++    def _observe_execution_dq_metrics(self, runtime: Any, *, now_ms: int, queue_lag_ms: int, tick_staleness_ms: int, book_staleness_ms: int) -> None:
++        symbol = str(getattr(runtime, "symbol", "") or "UNKNOWN")
++        try:
++            if exec_queue_lag_ms is not None:
++                exec_queue_lag_ms.labels(symbol=symbol).set(max(0, int(queue_lag_ms)))
++            if exec_tick_staleness_ms is not None:
++                exec_tick_staleness_ms.labels(symbol=symbol).set(max(0, int(tick_staleness_ms)))
++            if exec_book_staleness_ms is not None:
++                exec_book_staleness_ms.labels(symbol=symbol).set(max(0, int(book_staleness_ms)))
++        except Exception:
++            pass
++
++        if not hasattr(self, "_exec_obs_last_negative_age_events"):
++            self._exec_obs_last_negative_age_events = {}
++        if not hasattr(self, "_exec_obs_last_redis_timeout_events"):
++            self._exec_obs_last_redis_timeout_events = {}
++
++        neg_now = int(getattr(runtime, "negative_age_events", 0) or 0)
++        neg_prev = int(self._exec_obs_last_negative_age_events.get(symbol, 0) or 0)
++        if neg_now > neg_prev and exec_negative_age_events_total is not None:
++            try:
++                exec_negative_age_events_total.labels(symbol=symbol).inc(neg_now - neg_prev)
++            except Exception:
++                pass
++        self._exec_obs_last_negative_age_events[symbol] = neg_now
++
++        timeout_now = int(getattr(runtime, "redis_timeout_events", 0) or 0)
++        timeout_prev = int(self._exec_obs_last_redis_timeout_events.get(symbol, 0) or 0)
++        if timeout_now > timeout_prev and exec_redis_stream_timeout_total is not None:
++            try:
++                exec_redis_stream_timeout_total.labels(symbol=symbol, stream="orderflow").inc(timeout_now - timeout_prev)
++            except Exception:
++                pass
++        self._exec_obs_last_redis_timeout_events[symbol] = timeout_now
++
+     def _build_redis_dq_snapshot(self, runtime: Any, *, now_ms: int) -> Optional["RedisDQSnapshot"]:
+         """Build a RedisDQSnapshot from the runtime's current health counters.
+ 
+@@ -1076,6 +1133,10 @@
+         queue_lag_ms = max(0, now_ms - last_tick_ms) if last_tick_ms > 0 else 0
+         tick_staleness_ms = max(0, now_ms - last_tick_ms) if last_tick_ms > 0 else 0
+         book_staleness_ms = max(0, now_ms - last_book_ms) if last_book_ms > 0 else 0
++        self._observe_execution_dq_metrics(
++            runtime, now_ms=now_ms, queue_lag_ms=queue_lag_ms,
++            tick_staleness_ms=tick_staleness_ms, book_staleness_ms=book_staleness_ms,
++        )
+         outbox_backlog = 0
+         try:
+             # Read publisher internal queue depth if available
+--- a/services/rollout_flags.py
++++ b/services/rollout_flags.py
+@@ -52,7 +52,7 @@
+             exec_maker_tp_enable=_b("EXEC_MAKER_TP_ENABLE", True),
+             exec_journal_sql_enable=_b("EXEC_JOURNAL_SQL_ENABLE", True),
+             trade_dq_hard_veto_enable=_b("TRADE_DQ_HARD_VETO_ENABLE", True),
+-            trade_risk_engine_v2_enable=_b("TRADE_RISK_ENGINE_V2_ENABLE", True),
++            trade_risk_engine_v2_enable=_b("TRADE_RISK_ENGINE_V2_ENABLE", _b("RISK_ENGINE_V2_ENABLE", True)),
+             exec_force_safety_first=_b("EXEC_FORCE_SAFETY_FIRST", False),
+             exec_degraded_mode_force_safety_first=_b("EXEC_DEGRADED_MODE_FORCE_SAFETY_FIRST", True),
+             exec_degraded_mode_disable_maker=_b("EXEC_DEGRADED_MODE_DISABLE_MAKER", True),
+--- /dev/null
++++ b/monitoring/prometheus_rules_execution_p67_runtime.yml
+@@ -0,0 +1,72 @@
++groups:
++  - name: trade_execution_p67_runtime
++    rules:
++      - alert: TradeExecutionProtectionArmTimeout
++        expr: increase(execution_protection_arm_timeout_total[10m]) > 0
++        for: 1m
++        labels:
++          severity: critical
++          domain: execution-runtime
++        annotations:
++          summary: Protection arm timeout in Binance executor
++          description: Entry filled but protection was not confirmed within the configured timeout.
++
++      - alert: TradeExecutionEmergencyFlatten
++        expr: increase(execution_emergency_flatten_total[10m]) > 0
++        for: 0m
++        labels:
++          severity: critical
++          domain: execution-runtime
++        annotations:
++          summary: Emergency flatten executed
++          description: Executor had to force-close exposure.
++
++      - alert: TradeExecutionWatchdogFallbackSpike
++        expr: increase(tp_watchdog_fallback_total[15m]) >= 3
++        for: 2m
++        labels:
++          severity: warning
++          domain: execution-runtime
++        annotations:
++          summary: Maker TP watchdog fallback spike
++          description: Multiple maker TP levels needed market fallback.
++
++      - alert: TradeExecutionMarkContractDivergence
++        expr: abs(mark_contract_spread_bps) >= 25
++        for: 2m
++        labels:
++          severity: warning
++          domain: execution-runtime
++        annotations:
++          summary: Mark/contract divergence spike
++          description: Trigger semantics may diverge because mark and contract prices are drifting apart.
++
++      - alert: TradeExecutionReconcileSpike
++        expr: increase(binance_algo_reconcile_total[15m]) >= 3
++        for: 2m
++        labels:
++          severity: warning
++          domain: execution-runtime
++        annotations:
++          summary: Reconcile-first path is hot
++          description: Ambiguous Binance responses required repeated reconcile recovery.
++
++      - alert: TradeExecutionQueueLagBreach
++        expr: queue_lag_ms > 5000
++        for: 5m
++        labels:
++          severity: warning
++          domain: execution-runtime
++        annotations:
++          summary: Execution/orderflow queue lag breach
++          description: Queue lag exceeded 5 seconds.
++
++      - alert: TradeExecutionUserStreamStale
++        expr: user_stream_connected == 0 or user_stream_last_event_age_ms > 120000
++        for: 2m
++        labels:
++          severity: critical
++          domain: execution-runtime
++        annotations:
++          summary: Binance user stream disconnected or stale
++          description: User stream worker is disconnected or has not seen a fresh event for >120s.
+--- /dev/null
++++ b/deploy/systemd/execution_hardening_p67.env.example
+@@ -0,0 +1,39 @@
++# Execution policy
++EXEC_POLICY_DEFAULT=SAFETY_FIRST
++EXEC_POLICY_MAKER_ALLOWED_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT
++EXEC_POLICY_TIER_C_FORCE_SAFETY_FIRST=1
++
++# Trigger semantics
++SL_WORKING_TYPE=MARK_PRICE
++TP_MARKET_WORKING_TYPE=MARK_PRICE
++TP_LIMIT_TRIGGER_WORKING_TYPE=MARK_PRICE
++TRAIL_WORKING_TYPE=MARK_PRICE
++
++# Protection
++PROTECTION_ARM_TIMEOUT_MS=2500
++TRAIL_ARM_ONLY_AFTER_TP1=1
++
++# Watchdog
++TP_LIMIT_WATCHDOG_ENABLE=1
++TP_LIMIT_WATCHDOG_TIMEOUT_MS=4000
++TP_LIMIT_WATCHDOG_MARKET_FALLBACK=1
++
++# Binance timing
++BINANCE_RECV_WINDOW_MS=3000
++BINANCE_TIME_SYNC_INTERVAL_MS=30000
++MAX_CLOCK_DRIFT_MS=250
++
++# Reconcile
++EXEC_RECONCILE_ON_503_UNKNOWN=1
++EXEC_RECONCILE_PREFER_USER_STREAM=1
++
++# Risk
++RISK_ENGINE_V2_ENABLE=1
++RISK_MAX_DAILY_LOSS_PCT=2.0
++RISK_TIER_A_MAX_LEVERAGE=10
++RISK_TIER_B_MAX_LEVERAGE=5
++RISK_TIER_C_MAX_LEVERAGE=3
++
++# Optional fee model for maker policy telemetry
++EXEC_FEE_MAKER_BPS=2.0
++EXEC_FEE_TAKER_BPS=5.0
+--- /dev/null
++++ b/services/tests/test_execution_validator_p6_v1.py
+@@ -0,0 +1,56 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++val_path = Path(__file__).resolve().parents[1] / "execution_intent_validator.py"
++spec = importlib.util.spec_from_file_location("execution_intent_validator_p6", val_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++exec_path = Path(__file__).resolve().parents[1] / "binance_executor.py"
++espec = importlib.util.spec_from_file_location("binance_executor_p6", exec_path)
++exmod = importlib.util.module_from_spec(espec)
++sys.modules[espec.name] = exmod
++assert espec.loader is not None
++espec.loader.exec_module(exmod)
++
++
++def test_validator_rejects_invalid_working_type():
++    res = mod.validate_exit_intent(
++        position_mode="oneway",
++        position_side=None,
++        exit_intent="close",
++        reduce_only=True,
++        close_position=False,
++        quantity=1.0,
++        order_type="STOP_MARKET",
++        working_type="LAST_PRICE",
++        is_algo=True,
++    )
++    assert res.is_valid_exit_contract is False
++    assert res.reason == "invalid_workingType"
++
++
++def test_validator_rejects_close_position_with_reduce_only():
++    res = mod.validate_exit_intent(
++        position_mode="oneway",
++        position_side=None,
++        exit_intent="close",
++        reduce_only=True,
++        close_position=True,
++        quantity=None,
++        order_type="TAKE_PROFIT_MARKET",
++        working_type="MARK_PRICE",
++        is_algo=True,
++    )
++    assert res.is_valid_exit_contract is False
++    assert "reduceOnly" in res.reason
++
++
++def test_trailing_activate_price_guard_for_short_exit():
++    px = exmod.compute_trailing_activate_price(
++        "SHORT", latest_price=100.0, tick_size=0.1, buffer_bps=5.0
++    )
++    assert px < 100.0
+--- /dev/null
++++ b/services/tests/test_binance_client_routing_p6_v1.py
+@@ -0,0 +1,50 @@
++from services.binance_futures_client import BinanceFuturesClient
++
++
++class DummyClient(BinanceFuturesClient):
++    def __init__(self):
++        super().__init__(api_key="k", api_secret="s")
++        self.calls = []
++
++    def post_plain_order(self, params):
++        self.calls.append(("plain", dict(params)))
++        return {"route": "plain", **params}
++
++    def post_algo_order(self, params):
++        self.calls.append(("algo", dict(params)))
++        return {"route": "algo", **params}
++
++    def cancel_algo_order(self, symbol, *, algo_id=None, client_algo_id=None):
++        self.calls.append(("cancel_algo", {"symbol": symbol, "algo_id": algo_id, "client_algo_id": client_algo_id}))
++        return {"status": "CANCELED", "algoId": algo_id, "clientAlgoId": client_algo_id}
++
++
++def test_stop_market_routes_via_algo_endpoint():
++    c = DummyClient()
++    j = c.post_order({"symbol": "BTCUSDT", "type": "STOP_MARKET", "triggerPrice": "99"})
++    assert j["route"] == "algo"
++    assert c.calls[0][0] == "algo"
++
++
++def test_take_profit_market_routes_via_algo_endpoint():
++    c = DummyClient()
++    j = c.post_order({"symbol": "BTCUSDT", "type": "TAKE_PROFIT_MARKET", "triggerPrice": "101"})
++    assert j["route"] == "algo"
++
++
++def test_market_routes_via_plain_endpoint():
++    c = DummyClient()
++    j = c.post_order({"symbol": "BTCUSDT", "type": "MARKET", "quantity": "1"})
++    assert j["route"] == "plain"
++
++
++def test_replace_algo_order_cancel_then_create():
++    c = DummyClient()
++    j = c.replace_algo_order(
++        "BTCUSDT",
++        cancel_algo_id=777,
++        new_params={"symbol": "BTCUSDT", "type": "TAKE_PROFIT_MARKET", "triggerPrice": "101"},
++    )
++    assert j["cancel"]["algoId"] == 777
++    assert j["create"]["route"] == "algo"
++    assert [x[0] for x in c.calls] == ["cancel_algo", "algo"]
+--- /dev/null
++++ b/services/tests/test_binance_executor_p6_reconcile_duplicate_v1.py
+@@ -0,0 +1,61 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++mod_path = Path(__file__).resolve().parents[1] / "binance_executor.py"
++spec = importlib.util.spec_from_file_location("binance_executor_p6_reconcile", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++client_path = Path(__file__).resolve().parents[1] / "binance_futures_client.py"
++cspec = importlib.util.spec_from_file_location("binance_client_p6_reconcile", client_path)
++client_mod = importlib.util.module_from_spec(cspec)
++sys.modules[cspec.name] = client_mod
++assert cspec.loader is not None
++cspec.loader.exec_module(client_mod)
++
++
++class FakeClient:
++    def __init__(self):
++        self.queries = []
++
++    def post_plain_order(self, params):
++        raise client_mod.BinanceAPIError(503, {"msg": "Unknown error, please check your request or try again later."})
++
++    def is_ambiguous_execution_error(self, exc):
++        return True
++
++    def query_plain_order(self, symbol, client_order_id=None):
++        self.queries.append((symbol, client_order_id))
++        return {"orderId": 123, "clientOrderId": client_order_id}
++
++
++def test_plain_submit_reconciles_from_user_stream_cache():
++    ex = mod.BinanceExecutor.__new__(mod.BinanceExecutor)
++    ex.reconcile_enable = True
++    marks = []
++    ex._mark_pending_reconcile = lambda sid, **kwargs: marks.append((sid, kwargs))
++    ex._lookup_user_stream_event = lambda **kwargs: {"order": {"orderId": 456, "clientOrderId": kwargs.get("plain_client_id")}}
++    out = ex._submit_plain_order_with_reconcile(
++        sid="sid-1", symbol="BTCUSDT", action="open_entry",
++        params={"newClientOrderId": "cid-1"}, client=FakeClient(),
++    )
++    assert out["orderId"] == 456
++    assert marks and marks[0][0] == "sid-1"
++
++
++def test_handle_open_short_circuits_duplicate_from_state_resume():
++    ex = mod.BinanceExecutor.__new__(mod.BinanceExecutor)
++    ex._resolve_client = lambda payload: (object(), object())
++    ex._guard_sid_not_quarantined = lambda *args, **kwargs: None
++    ex.allowlist = set()
++    ex._resume_open_from_state = lambda sid, **kwargs: {"sid": sid, "symbol": kwargs["symbol"], "status": "protected"}
++    seen = []
++    ex._exec_event = lambda ev: seen.append(ev)
++
++    out = ex.handle_open({"sid": "sid-2", "symbol": "BTCUSDT"})
++    assert out["duplicate_prevented"] is True
++    assert out["status"] == "protected"
++    assert any(ev.get("event_type") == "duplicate_prevented" for ev in seen)
+--- /dev/null
++++ b/services/tests/test_execution_assets_p67_v1.py
+@@ -0,0 +1,26 @@
++from pathlib import Path
++import yaml
++
++ROOT = Path(__file__).resolve().parents[2]
++
++
++def test_runtime_alert_rules_exist_and_load():
++    path = ROOT / "monitoring" / "prometheus_rules_execution_p67_runtime.yml"
++    data = yaml.safe_load(path.read_text())
++    group = data["groups"][0]
++    names = {rule["alert"] for rule in group["rules"]}
++    assert "TradeExecutionProtectionArmTimeout" in names
++    assert "TradeExecutionUserStreamStale" in names
++
++
++def test_env_example_contains_target_knobs():
++    path = ROOT / "deploy" / "systemd" / "execution_hardening_p67.env.example"
++    text = path.read_text()
++    for needle in [
++        "EXEC_POLICY_DEFAULT=SAFETY_FIRST",
++        "SL_WORKING_TYPE=MARK_PRICE",
++        "TP_LIMIT_WATCHDOG_TIMEOUT_MS=4000",
++        "BINANCE_RECV_WINDOW_MS=3000",
++        "RISK_MAX_DAILY_LOSS_PCT=2.0",
++    ]:
++        assert needle in text
+--- /dev/null
++++ b/services/tests/test_binance_user_stream_worker_p67_v1.py
+@@ -0,0 +1,25 @@
++from services.binance_user_stream_worker import BinanceUserStreamWorker
++
++
++class DummyClient:
++    def start_user_stream(self):
++        return "listen-key"
++
++    def keepalive_user_stream(self, listen_key):
++        assert listen_key == "listen-key"
++        return {"ok": True}
++
++    def close_user_stream(self, listen_key):
++        assert listen_key == "listen-key"
++        return {"ok": True}
++
++
++def test_listen_key_lifecycle_methods_do_not_drop_state():
++    worker = BinanceUserStreamWorker.__new__(BinanceUserStreamWorker)
++    worker.client = DummyClient()
++    worker.listen_key = None
++    key = worker.start_listen_key()
++    assert key == "listen-key"
++    worker.keepalive_listen_key()
++    worker.close_listen_key()
++    assert worker.listen_key is None

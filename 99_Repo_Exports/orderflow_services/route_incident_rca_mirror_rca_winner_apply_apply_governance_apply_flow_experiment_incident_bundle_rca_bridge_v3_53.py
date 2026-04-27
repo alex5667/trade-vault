@@ -1,0 +1,451 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import time
+from typing import Any, Dict, Tuple
+
+try:  # pragma: no cover
+    import redis.asyncio as redis
+except Exception:  # pragma: no cover
+    redis = None
+
+try:  # pragma: no cover
+    import psycopg
+except Exception:  # pragma: no cover
+    psycopg = None
+
+try:  # pragma: no cover
+    from prometheus_client import Counter, Gauge, Histogram, start_http_server
+except Exception:  # pragma: no cover
+    Counter = Gauge = Histogram = None
+    def start_http_server(*args: Any, **kwargs: Any) -> None:
+        return None
+
+
+APP_NAME = "route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_bundle_rca_bridge_v3_53"
+INPUT_STREAM = os.getenv(
+    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_INCIDENT_BUNDLES_STREAM",
+    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_bundles",
+)
+VERTEX_OUTPUT_STREAM = os.getenv(
+    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_INCIDENT_VERTEX_RCA_STREAM",
+    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_vertex_rca_requests",
+)
+LOCAL_OUTPUT_STREAM = os.getenv(
+    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_INCIDENT_LOCAL_RCA_STREAM",
+    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_local_rca_requests",
+)
+DECISIONS_STREAM = os.getenv(
+    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_INCIDENT_RCA_BRIDGE_DECISIONS_STREAM",
+    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_bridge_decisions",
+)
+AUDIT_STREAM = os.getenv(
+    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_INCIDENT_RCA_BRIDGE_AUDIT_STREAM",
+    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_bridge_audit",
+)
+LAST_HASH = os.getenv(
+    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_INCIDENT_RCA_BRIDGE_LAST_HASH",
+    "metrics:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_bridge:last",
+)
+GLOBAL_POLICY_KEY = os.getenv(
+    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_INCIDENT_RCA_BRIDGE_GLOBAL_POLICY_KEY",
+    "cfg:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_bridge:global",
+)
+GROUP = os.getenv(
+    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_INCIDENT_RCA_BRIDGE_GROUP",
+    APP_NAME,
+)
+CONSUMER = os.getenv("HOSTNAME", APP_NAME)
+PORT = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_INCIDENT_RCA_BRIDGE_PORT", "9987"))
+MAXLEN = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_INCIDENT_RCA_BRIDGE_MAXLEN", "20000"))
+
+DEFAULT_MODE = os.getenv(
+    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_INCIDENT_RCA_BRIDGE_MODE",
+    "AUTO",
+).upper()
+DEFAULT_ALLOW_SEVERITIES = os.getenv(
+    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_INCIDENT_RCA_BRIDGE_ALLOW_SEVERITIES",
+    "warning,critical",
+)
+DEFAULT_MAX_BUNDLE_BYTES = int(os.getenv(
+    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_INCIDENT_RCA_BRIDGE_MAX_BUNDLE_BYTES",
+    "262144",
+))
+DEFAULT_VERTEX_FOR_SEVERITIES = os.getenv(
+    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_INCIDENT_RCA_BRIDGE_VERTEX_FOR_SEVERITIES",
+    "critical",
+)
+DEFAULT_LOCAL_FOR_SEVERITIES = os.getenv(
+    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_INCIDENT_RCA_BRIDGE_LOCAL_FOR_SEVERITIES",
+    "warning",
+)
+DEFAULT_TASK_TIMEOUT_SEC = int(os.getenv(
+    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_INCIDENT_RCA_BRIDGE_TASK_TIMEOUT_SEC",
+    "900",
+))
+ALLOWED_MODES = {"AUTO", "VERTEX_ONLY", "LOCAL_ONLY", "DISABLED"}
+
+
+def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+    return Counter(name, doc, labels) if Counter else None
+
+
+def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+    return Gauge(name, doc, labels) if Gauge else None
+
+
+def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+    return Histogram(name, doc, labels) if Histogram else None
+
+
+RUNS = _counter(
+    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_bridge_runs_total",
+    "Apply-flow experiment incident RCA bridge runs",
+    ("status", "decision", "route"),
+)
+LAT = _hist(
+    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_bridge_latency_seconds",
+    "Apply-flow experiment incident RCA bridge latency seconds",
+)
+UP = _gauge(
+    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_bridge_up",
+    "Apply-flow experiment incident RCA bridge up",
+)
+LAST_RUN_TS = _gauge(
+    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_bridge_last_run_ts_seconds",
+    "Apply-flow experiment incident RCA bridge last run timestamp",
+)
+ROUTED_TOTAL = _counter(
+    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_bridge_routed_total",
+    "Apply-flow experiment incident RCA bridge routed total",
+    ("route", "severity", "trigger_type"),
+)
+CURRENT_MODE = _gauge(
+    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_bridge_current_mode",
+    "Apply-flow experiment incident RCA bridge current mode",
+    ("mode",),
+)
+
+
+def now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def parse_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(float(value))
+    except Exception:
+        return default
+
+
+def stable_json(obj: Any) -> str:
+    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    for k, v in fields.items():
+        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
+        if isinstance(v, (bytes, bytearray)):
+            try:
+                out[kk] = v.decode()
+            except Exception:
+                out[kk] = v.hex()
+        else:
+            out[kk] = v
+    return out
+
+
+def maybe_json(value: Any, default: Any = None) -> Any:
+    if value is None:
+        return default
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(value)
+    except Exception:
+        return default
+
+
+def _to_set_csv(csv_str: str) -> set[str]:
+    return {x.strip().lower() for x in csv_str.split(",") if x.strip()}
+
+
+def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+    mode = str(raw.get("mode") or DEFAULT_MODE).upper()
+    if mode not in ALLOWED_MODES:
+        mode = DEFAULT_MODE
+    allow_severities = maybe_json(raw.get("allow_severities_json"), list(_to_set_csv(DEFAULT_ALLOW_SEVERITIES)))
+    if not isinstance(allow_severities, list):
+        allow_severities = list(_to_set_csv(DEFAULT_ALLOW_SEVERITIES))
+    vertex_for = maybe_json(raw.get("vertex_for_severities_json"), list(_to_set_csv(DEFAULT_VERTEX_FOR_SEVERITIES)))
+    if not isinstance(vertex_for, list):
+        vertex_for = list(_to_set_csv(DEFAULT_VERTEX_FOR_SEVERITIES))
+    local_for = maybe_json(raw.get("local_for_severities_json"), list(_to_set_csv(DEFAULT_LOCAL_FOR_SEVERITIES)))
+    if not isinstance(local_for, list):
+        local_for = list(_to_set_csv(DEFAULT_LOCAL_FOR_SEVERITIES))
+    return {
+        "enabled": parse_int(raw.get("enabled"), 1),
+        "kill_switch": parse_int(raw.get("kill_switch"), 0),
+        "mode": mode,
+        "allow_severities": {str(x).lower() for x in allow_severities},
+        "vertex_for_severities": {str(x).lower() for x in vertex_for},
+        "local_for_severities": {str(x).lower() for x in local_for},
+        "max_bundle_bytes": parse_int(raw.get("max_bundle_bytes"), DEFAULT_MAX_BUNDLE_BYTES),
+        "task_timeout_sec": parse_int(raw.get("task_timeout_sec"), DEFAULT_TASK_TIMEOUT_SEC),
+    }
+
+
+def choose_route(bundle: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
+    severity = str(bundle.get("trigger_severity") or "").lower()
+    trigger_type = str(bundle.get("trigger_type") or "")
+    out = {
+        "decision": "REJECT",
+        "reason_code": "REJECTED",
+        "route": "",
+        "severity": severity,
+        "trigger_type": trigger_type,
+    }
+    if policy["kill_switch"] == 1:
+        out["reason_code"] = "KILL_SWITCH"
+        return out
+    if policy["enabled"] != 1:
+        out["reason_code"] = "DISABLED"
+        return out
+    if policy["mode"] == "DISABLED":
+        out["reason_code"] = "MODE_DISABLED"
+        return out
+    if severity not in policy["allow_severities"]:
+        out["reason_code"] = "SEVERITY_NOT_ALLOWED"
+        return out
+    if len(stable_json(bundle).encode("utf-8")) > policy["max_bundle_bytes"]:
+        out["reason_code"] = "BUNDLE_TOO_LARGE"
+        return out
+
+    if policy["mode"] == "VERTEX_ONLY":
+        out["decision"] = "ROUTE"
+        out["reason_code"] = "VERTEX_ONLY_MODE"
+        out["route"] = "VERTEX"
+        return out
+    if policy["mode"] == "LOCAL_ONLY":
+        out["decision"] = "ROUTE"
+        out["reason_code"] = "LOCAL_ONLY_MODE"
+        out["route"] = "LOCAL"
+        return out
+
+    if severity in policy["vertex_for_severities"]:
+        out["decision"] = "ROUTE"
+        out["reason_code"] = "AUTO_VERTEX_BY_SEVERITY"
+        out["route"] = "VERTEX"
+        return out
+    if severity in policy["local_for_severities"]:
+        out["decision"] = "ROUTE"
+        out["reason_code"] = "AUTO_LOCAL_BY_SEVERITY"
+        out["route"] = "LOCAL"
+        return out
+
+    out["decision"] = "ROUTE"
+    out["reason_code"] = "AUTO_LOCAL_FALLBACK"
+    out["route"] = "LOCAL"
+    return out
+
+
+def build_vertex_prompt(bundle: Dict[str, Any]) -> str:
+    return (
+        "Analyze this dedicated apply-flow experiment governance incident bundle. "
+        "Focus only on experiment contour evidence: verification, rollback, retry, escalation, and SLO degradation. "
+        "Identify dominant failure mechanism, rollback quality, retry worthiness, and bounded next actions."
+    )
+
+
+def build_local_prompt(bundle: Dict[str, Any]) -> str:
+    return (
+        "Give a compact bounded RCA for this apply-flow experiment safety incident bundle. "
+        "Use only experiment contour evidence and return dominant issue, 2-4 hypotheses, and concrete checks."
+    )
+
+
+def build_request(bundle: Dict[str, Any], route: str, timeout_sec: int) -> Tuple[str, Dict[str, Any]]:
+    bundle_id = str(bundle.get("bundle_id") or "")
+    request_id = f"{bundle_id}:{route.lower()}:rca"
+    base = {
+        "schema_version": 1,
+        "request_id": request_id,
+        "bundle_id": bundle_id,
+        "task_family": "route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca",
+        "task_timeout_sec": str(timeout_sec),
+        "severity": str(bundle.get("trigger_severity") or "warning"),
+        "trigger_type": str(bundle.get("trigger_type") or ""),
+        "source": APP_NAME,
+        "ts_ms": str(now_ms()),
+    }
+    if route == "VERTEX":
+        base["task_type"] = "route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_vertex_rca"
+        base["prompt"] = build_vertex_prompt(bundle)
+        base["bundle_json"] = stable_json(bundle)
+        return VERTEX_OUTPUT_STREAM, base
+    base["task_type"] = "route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_local_rca"
+    base["prompt"] = build_local_prompt(bundle)
+    base["force_local"] = "1"
+    base["input_json"] = stable_json(bundle)
+    return LOCAL_OUTPUT_STREAM, base
+
+
+async def ensure_group(client: Any, stream_key: str, group: str) -> None:
+    try:
+        await client.xgroup_create(stream_key, group, id="$", mkstream=True)
+    except Exception:
+        return
+
+
+async def read_hash(r: Any, key: str) -> Dict[str, Any]:
+    return as_dict(await r.hgetall(key))
+
+
+async def persist_if_configured(db_url: str, bundle: Dict[str, Any], decision: Dict[str, Any], destination_stream: str) -> None:
+    if not db_url or psycopg is None:
+        return
+    with psycopg.connect(db_url) as conn:  # pragma: no cover
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_bridge_decisions (
+                    bundle_id, ts_ms, trigger_type, severity, decision, reason_code, route, destination_stream, decision_json
+                ) VALUES (
+                    %(bundle_id)s, %(ts_ms)s, %(trigger_type)s, %(severity)s, %(decision)s, %(reason_code)s, %(route)s, %(destination_stream)s, %(decision_json)s
+                )
+                """,
+                {
+                    "bundle_id": bundle.get("bundle_id", ""),
+                    "ts_ms": now_ms(),
+                    "trigger_type": decision["trigger_type"],
+                    "severity": decision["severity"],
+                    "decision": decision["decision"],
+                    "reason_code": decision["reason_code"],
+                    "route": decision["route"],
+                    "destination_stream": destination_stream,
+                    "decision_json": json.dumps({"bundle": bundle, "decision": decision}),
+                },
+            )
+            conn.commit()
+
+
+async def main() -> None:  # pragma: no cover
+    if redis is None:
+        raise RuntimeError("redis.asyncio is required")
+    start_http_server(PORT)
+    if UP:
+        UP.set(1)
+    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+    await ensure_group(r, INPUT_STREAM, GROUP)
+    db_url = os.getenv("DATABASE_URL", "")
+
+    while True:
+        rows = await r.xreadgroup(GROUP, CONSUMER, {INPUT_STREAM: ">"}, count=32, block=5000)
+        if not rows:
+            continue
+        for _stream, messages in rows:
+            for msg_id, payload in messages:
+                started = time.perf_counter()
+                status = "ok"
+                decision_label = "REJECT"
+                route_label = "NONE"
+                try:
+                    row = as_dict(payload)
+                    bundle = maybe_json(row.get("bundle_json"), {})
+                    if not isinstance(bundle, dict):
+                        bundle = {}
+                    if not bundle and row.get("bundle_id"):
+                        bundle = {
+                            "bundle_id": row.get("bundle_id", ""),
+                            "trigger_type": row.get("trigger_type", ""),
+                            "trigger_reason_code": row.get("trigger_reason_code", ""),
+                            "trigger_severity": row.get("trigger_severity", ""),
+                        }
+
+                    policy = policy_from_hash(await read_hash(r, GLOBAL_POLICY_KEY))
+                    decision = choose_route(bundle, policy)
+                    decision_label = decision["decision"]
+                    route_label = decision["route"] or "NONE"
+                    destination_stream = ""
+
+                    if decision["decision"] == "ROUTE":
+                        destination_stream, request_row = build_request(bundle, decision["route"], policy["task_timeout_sec"])
+                        await r.xadd(destination_stream, request_row, maxlen=MAXLEN, approximate=True)
+                        if ROUTED_TOTAL:
+                            ROUTED_TOTAL.labels(
+                                route=decision["route"],
+                                severity=decision["severity"] or "unknown",
+                                trigger_type=decision["trigger_type"] or "unknown",
+                            ).inc()
+
+                    await persist_if_configured(db_url, bundle, decision, destination_stream)
+                    await r.xadd(
+                        DECISIONS_STREAM,
+                        {
+                            "schema_version": 1,
+                            "bundle_id": str(bundle.get("bundle_id") or ""),
+                            "trigger_type": decision["trigger_type"],
+                            "severity": decision["severity"],
+                            "decision": decision["decision"],
+                            "reason_code": decision["reason_code"],
+                            "route": decision["route"],
+                            "destination_stream": destination_stream,
+                            "ts_ms": str(now_ms()),
+                        },
+                        maxlen=MAXLEN,
+                        approximate=True,
+                    )
+                    await r.hset(
+                        LAST_HASH,
+                        mapping={
+                            "bundle_id": str(bundle.get("bundle_id") or ""),
+                            "decision": decision["decision"],
+                            "reason_code": decision["reason_code"],
+                            "route": decision["route"],
+                            "destination_stream": destination_stream,
+                            "ts_ms": str(now_ms()),
+                        },
+                    )
+                    await r.xadd(
+                        AUDIT_STREAM,
+                        {
+                            "event_type": "APPLY_FLOW_EXPERIMENT_INCIDENT_RCA_BRIDGE_DECIDED",
+                            "decision": decision["decision"],
+                            "reason_code": decision["reason_code"],
+                            "route": decision["route"],
+                            "ts_ms": str(now_ms()),
+                        },
+                        maxlen=MAXLEN,
+                        approximate=True,
+                    )
+                    if CURRENT_MODE:
+                        for mode in sorted(ALLOWED_MODES):
+                            CURRENT_MODE.labels(mode=mode).set(1 if policy["mode"] == mode else 0)
+                    await r.xack(INPUT_STREAM, GROUP, msg_id)
+                    if LAST_RUN_TS:
+                        LAST_RUN_TS.set(time.time())
+                except Exception as exc:
+                    status = "error"
+                    await r.xadd(
+                        AUDIT_STREAM,
+                        {
+                            "event_type": "APPLY_FLOW_EXPERIMENT_INCIDENT_RCA_BRIDGE_FAILED",
+                            "error": str(exc),
+                            "ts_ms": str(now_ms()),
+                        },
+                        maxlen=MAXLEN,
+                        approximate=True,
+                    )
+                    await r.xack(INPUT_STREAM, GROUP, msg_id)
+                finally:
+                    if RUNS:
+                        RUNS.labels(status=status, decision=decision_label, route=route_label).inc()
+                    if LAT:
+                        LAT.observe(max(time.perf_counter() - started, 0.0))
+
+
+if __name__ == "__main__":  # pragma: no cover
+    asyncio.run(main())

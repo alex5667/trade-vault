@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/llm_client.py
+# hypothesis_version: 6.148.10
+
+[-1.0, 0.0, 1e-06, 0.4, 0.6, 0.7, 1.0, 60.0, 200, 429, 500, 502, 503, 504, 512, '0', '0.2', '10', '2', '256', 'Content-Type', 'GEMINI_API_KEY', 'GEMINI_MAX_TOKENS', 'GEMINI_MODEL', 'GEMINI_RETRIES', 'GEMINI_RPM', 'GEMINI_TEMPERATURE', 'GEMINI_TIMEOUT_SEC', 'POST', 'application/json', 'candidates', 'confidence', 'content', 'contents', 'cpi', 'crypto_reg', 'earnings', 'etf', 'exchange', 'fed_speech', 'fomc', 'gemini-1.5-pro', 'generationConfig', 'geopolitics', 'hack', 'inflation', 'liquidation', 'macro', 'maxOutputTokens', 'nfp', 'parts', 'ppi', 'primary_tag', 'rates', 'replace', 'risk', 'risk_off', 'risk_on', 'summary', 'surprise', 'tags', 'temperature', 'text', 'utf-8', 'x-goog-api-key', '{', '}']

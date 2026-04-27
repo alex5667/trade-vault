@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/train_of_meta_model_lr.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.25, 0.5, 1.0, 300, '--dataset', '--out-model', '--out-report', '--seed', '--test-size', '--threshold', '200', 'META_LR_MIN_DATASET', '__main__', 'auc', 'balanced', 'base_score', 'binary', 'coef', 'exec_risk_bps', 'exec_risk_norm', 'f1', 'features', 'have', 'intercept', 'kind', 'leg_abs_lvl_ok', 'leg_fp_edge_absorb', 'leg_iceberg_strict', 'leg_obi_stable', 'leg_ofi_leg', 'leg_reclaim_recent', 'leg_sweep_recent', 'leg_weak_progress', 'liblinear', 'logreg_v1', 'logreg_v1_dummy', 'n', 'need', 'note', 'ok_soft', 'precision', 'r', 'recall', 'sigmoid', 'threshold', 'utf-8', 'w', 'y']

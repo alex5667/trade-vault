@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/safe_numbers.py
+# hypothesis_version: 6.148.10
+
+['nan']

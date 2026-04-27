@@ -1,0 +1,44 @@
+services:
+  scanner-ml-post-commit-verifier-v1:
+    build:
+      context: ../../
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-ml-post-commit-verifier-v1
+    command: ["python", "-m", "orderflow_services.post_commit_verifier_v1"]
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      - DATABASE_URL=${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD}@scanner-pgbouncer:5432/scanner_analytics?sslmode=disable}
+      - ML_POST_COMMIT_VERIFIER_METRICS_PORT=9872
+      - ML_COMMIT_RESULTS_STREAM=${ML_COMMIT_RESULTS_STREAM:-stream:ml:recommendation_apply_results}
+      - ML_RECOMMENDATION_ROLLBACK_REQUESTS_STREAM=${ML_RECOMMENDATION_ROLLBACK_REQUESTS_STREAM:-stream:ml:recommendation_rollback_requests}
+      - ML_RECOMMENDATION_AUDIT_STREAM=${ML_RECOMMENDATION_AUDIT_STREAM:-stream:ml:recommendation_audit}
+      - ML_POST_COMMIT_VERIFY_DELAY_SEC=${ML_POST_COMMIT_VERIFY_DELAY_SEC:-300}
+      - PROMETHEUS_MULTIPROC_DIR=/tmp
+    ports:
+      - "9872:9872"
+    networks:
+      - scanner-network
+    restart: unless-stopped
+
+  scanner-ml-auto-rollback-trigger-v1:
+    build:
+      context: ../../
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-ml-auto-rollback-trigger-v1
+    command: ["python", "-m", "orderflow_services.auto_rollback_trigger_engine_v1"]
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      - ML_POST_COMMIT_AUDIT_STREAM=${ML_POST_COMMIT_AUDIT_STREAM:-stream:ml:recommendation_audit}
+      - ML_RECOMMENDATION_ROLLBACK_REQUESTS_STREAM=${ML_RECOMMENDATION_ROLLBACK_REQUESTS_STREAM:-stream:ml:recommendation_rollback_requests}
+      - ML_AUTO_ROLLBACK_TRIGGER_METRICS_PORT=9873
+      - ML_AUTO_ROLLBACK_COOLDOWN_SEC=${ML_AUTO_ROLLBACK_COOLDOWN_SEC:-1800}
+      - PROMETHEUS_MULTIPROC_DIR=/tmp
+    ports:
+      - "9873:9873"
+    networks:
+      - scanner-network
+    restart: unless-stopped
+
+networks:
+  scanner-network:
+    external: true

@@ -1,0 +1,8 @@
+# Prometheus rules bundle manifest (v1) — tick_flow_full mirror
+#
+# Use when you deploy rules from the tick_flow_full subtree only.
+# (Paths are relative to tick_flow_full/)
+
+rule_file_globs:
+  - orderflow_services/prometheus_alerts_*.yml
+  - services/orderflow/prometheus_alerts_*.yml

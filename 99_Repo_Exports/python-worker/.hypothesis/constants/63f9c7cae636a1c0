@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/export_of_inputs_ndjson_v2.py
+# hypothesis_version: 6.148.10
+
+[1000, 3600000, '+', ',', '-', '--batch', '--end-id', '--field', '--max-records', '--no-validate', '--out', '--quiet', '--redis-url', '--resume', '--since-hours', '--since-ts-ms', '--start-id', '--state-file', '--stream', '.tmp', '24', '250000', ':', 'OF_INPUTS_STATE_FILE', 'OF_INPUTS_STREAM', 'REDIS_URL', '__main__', 'a', 'bad_json', 'field', 'ignore', 'last_id', 'missing_field', 'ok', 'out', 'payload', 'scanned', 'sid', 'store_true', 'stream', 'stream:of:inputs', 'symbol', 'ts', 'ts_ms', 'utf-8', 'v', 'w', 'written', '{']

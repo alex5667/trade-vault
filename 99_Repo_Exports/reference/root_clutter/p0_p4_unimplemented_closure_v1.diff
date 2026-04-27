@@ -1,0 +1,1001 @@
+--- confidence_calculation/docker-compose-crypto-orderflow.yml
++++ confidence_calculation/docker-compose-crypto-orderflow.yml
+@@ -182,8 +182,29 @@
+       - SLQ_K=0.7
+       - PYTHONPATH=/app
+       - ACCOUNT_DEPOSIT_USD=100
+-      - ACCOUNT_LEVERAGE=100
+-      - RISK_PERCENT=5.0
++      - ACCOUNT_LEVERAGE=20
++      - RISK_PERCENT=0.5
++      - EXEC_POLICY_DEFAULT=SAFETY_FIRST
++      - EXEC_POLICY_MAKER_ALLOWED_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT
++      - EXEC_POLICY_TIER_C_FORCE_SAFETY_FIRST=1
++      - BINANCE_LEVERAGE_TIER_A=20
++      - BINANCE_LEVERAGE_TIER_B=10
++      - BINANCE_LEVERAGE_TIER_C=5
++      - PROTECTION_ARM_TIMEOUT_MS=2500
++      - TRAIL_ARM_ONLY_AFTER_TP1=1
++      - TP_LIMIT_WATCHDOG_ENABLE=1
++      - TP_LIMIT_WATCHDOG_TIMEOUT_MS=4000
++      - TP_LIMIT_WATCHDOG_MARKET_FALLBACK=1
++      - BINANCE_RECV_WINDOW_MS=3000
++      - BINANCE_TIME_SYNC_INTERVAL_MS=30000
++      - MAX_CLOCK_DRIFT_MS=250
++      - EXEC_RECONCILE_ON_503_UNKNOWN=1
++      - EXEC_RECONCILE_PREFER_USER_STREAM=1
++      - RISK_ENGINE_V2_ENABLE=1
++      - RISK_MAX_DAILY_LOSS_PCT=2.0
++      - RISK_TIER_A_MAX_LEVERAGE=10
++      - RISK_TIER_B_MAX_LEVERAGE=5
++      - RISK_TIER_C_MAX_LEVERAGE=3
+       - CRYPTO_COMMISSION_RATE=0.0005
+       - TRAILING_TP1_OFFSET_ATR=0.6
+       - TRAILING_AFTER_TP1_SOURCES=CryptoOrderFlow
+@@ -433,7 +454,7 @@
+       - ORDERFLOW_DLQ_STREAM=stream:dlq:orderflow
+       - DELTA_BUCKET_MS=1000
+       - TRAIL_Z_THRESHOLD=4.5
+-      - FORCE_TRAIL_AFTER_TP1=true
++      - FORCE_TRAIL_AFTER_TP1=false
+       - LEVEL_SIGNAL_COOLDOWN_MS=15000
+       - BREAKOUT_MIN_DIST_ATR=0.0
+       - USE_SIGNAL_OUTBOX=true
+@@ -1199,8 +1220,8 @@
+       - SLQ_K=0.7
+       - PYTHONPATH=/app
+       - ACCOUNT_DEPOSIT_USD=100
+-      - ACCOUNT_LEVERAGE=100
+-      - RISK_PERCENT=5.0
++      - ACCOUNT_LEVERAGE=20
++      - RISK_PERCENT=0.5
+       - CRYPTO_COMMISSION_RATE=0.0005
+       - TRAILING_TP1_OFFSET_ATR=0.6
+       - TRAILING_AFTER_TP1_SOURCES=CryptoOrderFlow
+@@ -1326,7 +1347,7 @@
+       - ORDERFLOW_DLQ_STREAM=stream:dlq:orderflow
+       - DELTA_BUCKET_MS=1000
+       - TRAIL_Z_THRESHOLD=4.5
+-      - FORCE_TRAIL_AFTER_TP1=true
++      - FORCE_TRAIL_AFTER_TP1=false
+       - LEVEL_SIGNAL_COOLDOWN_MS=15000
+       - BREAKOUT_MIN_DIST_ATR=0.0
+       - USE_SIGNAL_OUTBOX=true
+--- deploy/execution_safe_defaults.env.example
++++ deploy/execution_safe_defaults.env.example
+@@ -0,0 +1,41 @@
++# Execution policy
++EXEC_POLICY_DEFAULT=SAFETY_FIRST
++EXEC_POLICY_MAKER_ALLOWED_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT
++EXEC_POLICY_TIER_C_FORCE_SAFETY_FIRST=1
++
++# Trigger semantics
++SL_WORKING_TYPE=MARK_PRICE
++TP_MARKET_WORKING_TYPE=MARK_PRICE
++TP_LIMIT_TRIGGER_WORKING_TYPE=MARK_PRICE
++TRAIL_WORKING_TYPE=MARK_PRICE
++
++# Protection
++PROTECTION_ARM_TIMEOUT_MS=2500
++TRAIL_ARM_ONLY_AFTER_TP1=1
++
++# Watchdog
++TP_LIMIT_WATCHDOG_ENABLE=1
++TP_LIMIT_WATCHDOG_TIMEOUT_MS=4000
++TP_LIMIT_WATCHDOG_MARKET_FALLBACK=1
++
++# Binance timing
++BINANCE_RECV_WINDOW_MS=3000
++BINANCE_TIME_SYNC_INTERVAL_MS=30000
++MAX_CLOCK_DRIFT_MS=250
++
++# Reconcile
++EXEC_RECONCILE_ON_503_UNKNOWN=1
++EXEC_RECONCILE_PREFER_USER_STREAM=1
++
++# Risk
++RISK_ENGINE_V2_ENABLE=1
++RISK_MAX_DAILY_LOSS_PCT=2.0
++RISK_TIER_A_MAX_LEVERAGE=10
++RISK_TIER_B_MAX_LEVERAGE=5
++RISK_TIER_C_MAX_LEVERAGE=3
++BINANCE_LEVERAGE_TIER_A=20
++BINANCE_LEVERAGE_TIER_B=10
++BINANCE_LEVERAGE_TIER_C=5
++RISK_PERCENT=0.5
++ACCOUNT_LEVERAGE=20
++FORCE_TRAIL_AFTER_TP1=false
+--- services/binance_futures_client.py
++++ services/binance_futures_client.py
+@@ -137,6 +137,86 @@
+     return urllib.parse.urlencode(items)
+ 
+ 
++def _truthy(v: Any) -> bool:
++    return str(v).strip().lower() in {"1", "true", "yes", "on"}
++
++
++def _float_or_none(v: Any) -> Optional[float]:
++    if v in (None, ""):
++        return None
++    try:
++        return float(v)
++    except Exception:
++        return None
++
++
++def _require_positive(name: str, value: Any) -> float:
++    fv = _float_or_none(value)
++    if fv is None or fv <= 0:
++        raise ValueError(f"{name}_must_be_positive")
++    return fv
++
++
++def _validate_working_type(value: Any) -> str:
++    wt = str(value or "MARK_PRICE").strip().upper()
++    if wt not in {"MARK_PRICE", "CONTRACT_PRICE"}:
++        raise ValueError("invalid_workingType")
++    return wt
++
++
++def _validate_plain_order_contract(params: Dict[str, Any], *, position_mode: str) -> None:
++    p = dict(params or {})
++    pm = str(position_mode or "oneway").strip().lower()
++    ot = str(p.get("type") or "").strip().upper()
++    if not ot:
++        raise ValueError("missing_order_type")
++    if _truthy(p.get("closePosition")):
++        raise ValueError("plain_order_closePosition_not_supported")
++    if pm == "hedge" and str(p.get("positionSide") or "").strip().upper() not in {"LONG", "SHORT"}:
++        raise ValueError("positionSide_required_in_hedge")
++    if pm == "hedge" and _truthy(p.get("reduceOnly")):
++        raise ValueError("reduceOnly_forbidden_in_hedge_plain_order")
++    qty = _float_or_none(p.get("quantity"))
++    if qty is None or qty <= 0:
++        raise ValueError("quantity_required")
++    if ot == "LIMIT":
++        _require_positive("price", p.get("price"))
++        tif = str(p.get("timeInForce") or "").strip().upper()
++        if not tif:
++            raise ValueError("limit_requires_timeInForce")
++
++
++def _validate_algo_order_contract(params: Dict[str, Any], *, position_mode: str) -> Dict[str, Any]:
++    p = dict(params or {})
++    pm = str(position_mode or "oneway").strip().lower()
++    ot = str(p.get("type") or p.get("algoType") or "").strip().upper()
++    if not ot:
++        raise ValueError("missing_order_type")
++    if pm == "hedge" and str(p.get("positionSide") or "").strip().upper() not in {"LONG", "SHORT"}:
++        raise ValueError("positionSide_required_in_hedge")
++    reduce_only = _truthy(p.get("reduceOnly"))
++    close_position = _truthy(p.get("closePosition"))
++    qty = _float_or_none(p.get("quantity"))
++    p["workingType"] = _validate_working_type(p.get("workingType") or "MARK_PRICE")
++    if close_position and qty not in (None, 0.0):
++        raise ValueError("algo_closePosition_incompatible_with_quantity")
++    if close_position and reduce_only:
++        raise ValueError("algo_closePosition_incompatible_with_reduceOnly")
++    if not close_position and (qty is None or qty <= 0):
++        raise ValueError("quantity_required")
++    trig = _float_or_none(p.get("triggerPrice") if p.get("triggerPrice") not in (None, "") else p.get("stopPrice"))
++    if ot in {"STOP_MARKET", "TAKE_PROFIT_MARKET", "STOP", "TAKE_PROFIT"} and (trig is None or trig <= 0):
++        raise ValueError("triggerPrice_required")
++    if ot == "TRAILING_STOP_MARKET":
++        cb = _float_or_none(p.get("callbackRate"))
++        if cb is None or cb < 0.1 or cb > 10.0:
++            raise ValueError("callbackRate_out_of_range")
++        ap = _float_or_none(p.get("activatePrice"))
++        if ap is not None and ap <= 0:
++            raise ValueError("activatePrice_must_be_positive")
++    return p
++
++
+ # ---------------------------------------------------------------------------
+ # BinanceFuturesREST — read-only client (used by binance_account_reporter P0)
+ # ---------------------------------------------------------------------------
+@@ -513,9 +593,14 @@
+             params={"symbol": symbol, "marginType": str(margin_type).upper()}, signed=True,
+         )
+ 
++    def position_mode(self) -> str:
++        return str(os.getenv("BINANCE_POSITION_MODE") or "oneway").strip().lower()
++
+     def post_plain_order(self, params: Dict[str, Any]) -> Any:
+         """Submit a non-conditional order via /fapi/v1/order."""
+-        return self._request("POST", "/fapi/v1/order", params=params, signed=True)
++        plain_params = dict(params or {})
++        _validate_plain_order_contract(plain_params, position_mode=self.position_mode())
++        return self._request("POST", "/fapi/v1/order", params=plain_params, signed=True)
+ 
+     def post_algo_order(self, params: Dict[str, Any]) -> Any:
+         """Submit a conditional order via /fapi/v1/algoOrder.
+@@ -531,6 +616,7 @@
+             algo_params["clientAlgoId"] = algo_params.pop("newClientOrderId")
+         algo_params.setdefault("workingType", algo_params.get("workingType") or "MARK_PRICE")
+         algo_params["algoType"] = "CONDITIONAL"
++        algo_params = _validate_algo_order_contract(algo_params, position_mode=self.position_mode())
+         return self._request("POST", "/fapi/v1/algoOrder", params=algo_params, signed=True)
+ 
+     def post_order(self, params: Dict[str, Any]) -> Any:
+@@ -615,3 +701,40 @@
+         if is_algo:
+             return self.cancel_algo_order(symbol, algo_id=order_id, client_algo_id=client_order_id)
+         return self.cancel_plain_order(symbol, order_id=order_id, client_order_id=client_order_id)
++
++    def reconcile_entry_by_client_id(self, symbol: str, client_order_id: str) -> Any:
++        return self.query_plain_order(symbol, client_order_id=str(client_order_id))
++
++    def reconcile_protection_by_sid(self, symbol: str, sid: str) -> Dict[str, Any]:
++        token = hashlib.sha1(str(sid).encode("utf-8")).hexdigest()[:8]
++        matched: Dict[str, Any] = {"sid": str(sid), "symbol": str(symbol).upper()}
++        try:
++            open_orders = self.get_open_algo_orders(symbol) or []
++        except Exception:
++            open_orders = []
++        for order in open_orders:
++            cid = str(order.get("clientAlgoId") or "")
++            if not cid or f"-{token}-" not in cid:
++                continue
++            if cid.endswith("-sl"):
++                matched["sl"] = order
++            elif cid.endswith("-trail"):
++                matched["trail"] = order
++            elif "-tp" in cid:
++                matched.setdefault("tp", []).append(order)
++        return matched
++
++    def replace_untriggered_algo_order(
++        self,
++        symbol: str,
++        *,
++        new_params: Dict[str, Any],
++        algo_id: Optional[int] = None,
++        client_algo_id: Optional[str] = None,
++    ) -> Dict[str, Any]:
++        existing = self.query_algo_order(symbol, algo_id=algo_id, client_algo_id=client_algo_id)
++        status = str(existing.get("status") or existing.get("X") or existing.get("state") or "NEW").upper()
++        if status not in {"NEW", "PENDING", "WORKING", "OPEN", "CREATED"}:
++            raise RuntimeError(f"algo_order_not_replaceable:{status}")
++        self.cancel_algo_order(symbol, algo_id=algo_id, client_algo_id=client_algo_id)
++        return self.post_algo_order(new_params)
+--- services/binance_executor.py
++++ services/binance_executor.py
+@@ -74,7 +74,7 @@
+ except Exception:  # pragma: no cover
+     redis = None  # type: ignore
+ 
+-from services.binance_futures_client import BinanceAPIError, BinanceFuturesClient
++from services.binance_futures_client import AlgoOrderRef, BinanceAPIError, BinanceFuturesClient, PlainOrderRef
+ from services.execution_intent_validator import validate_exit_intent
+ try:
+     from services.execution_policy import (
+@@ -92,7 +92,7 @@
+     )
+     from services.rollout_flags import RolloutFlags
+ except Exception:  # pragma: no cover - standalone bundle / local tests
+-    from binance_futures_client import BinanceAPIError, BinanceFuturesClient
++    from binance_futures_client import AlgoOrderRef, BinanceAPIError, BinanceFuturesClient, PlainOrderRef
+     from execution_intent_validator import validate_exit_intent
+     try:
+         from execution_policy import (
+@@ -482,6 +482,9 @@
+     if isinstance(e, BinanceAPIError):
+         payload = e.payload if isinstance(e.payload, dict) else {}
+         code = payload.get("code")
++        msg = str(payload.get("msg") or "").lower()
++        if payload.get("ambiguous") is True or (e.status == 503 and "unknown" in msg):
++            return "transient"
+         if code in (-1021, -1003, -1001, -1007, -1100):
+             return "transient"
+         return "fatal"  # includes -2021, -4045, etc.
+@@ -544,7 +547,9 @@
+         # Auto-init margin type and leverage on first open per symbol
+         self.init_symbol_settings = _bool_env("BINANCE_INIT_SYMBOL_SETTINGS", False)
+         self.margin_type = (os.getenv("BINANCE_MARGIN_TYPE") or "ISOLATED").strip().upper()
+-        self.default_leverage = int(os.getenv("BINANCE_DEFAULT_LEVERAGE", "100"))
++        self.default_leverage = int(os.getenv("BINANCE_DEFAULT_LEVERAGE", "20"))
++        self.exec_policy_tier_c_force_safety_first = _bool_env("EXEC_POLICY_TIER_C_FORCE_SAFETY_FIRST", True)
++        self.trail_arm_only_after_tp1 = _bool_env("TRAIL_ARM_ONLY_AFTER_TP1", True)
+ 
+         # Telegram: optional, used only for execution errors and trailing notifications
+         self.tg = TelegramClient.from_env()
+@@ -802,7 +807,9 @@
+     def _exec_event(self, fields: Dict[str, Any]) -> None:
+         """Write an execution fact to orders:exec stream (fail-open)."""
+         fields = dict(fields)
+-        fields.setdefault("ts_ms", str(_ms_now()))
++        now_ms = _ms_now()
++        fields.setdefault("ts_ms", str(now_ms))
++        fields.setdefault("ts_event_ms", str(fields.get("ts_event_ms") or now_ms))
+         fields.setdefault("mono_ms", str(_mono_ms()))
+         fields.setdefault("venue", "binance")
+         try:
+@@ -846,6 +853,48 @@
+             # Can't requeue: DLQ the original
+             self._dlq(raw, f"requeue_failed:{reason}")
+ 
++    def _structured_order_contract(self, *, sid: str, entry_ref: Optional[PlainOrderRef] = None, sl_ref: Optional[AlgoOrderRef] = None, tp_refs: Optional[List[AlgoOrderRef]] = None, trail_ref: Optional[AlgoOrderRef] = None) -> Dict[str, Any]:
++        contract: Dict[str, Any] = {"sid": sid}
++        if entry_ref is not None:
++            contract["entry"] = {
++                "order_id": entry_ref.order_id,
++                "client_order_id": entry_ref.client_order_id,
++                "type": entry_ref.type,
++                "side": entry_ref.side,
++                "position_side": entry_ref.position_side,
++            }
++        protective: Dict[str, Any] = {}
++        if sl_ref is not None:
++            protective.update({
++                "sl_algo_id": sl_ref.algo_id,
++                "sl_client_algo_id": sl_ref.client_algo_id,
++                "sl_working_type": sl_ref.working_type,
++            })
++        if tp_refs:
++            protective["tp_algo_ids"] = [ref.algo_id for ref in tp_refs if ref.algo_id not in (None, 0)]
++            protective["tp_client_algo_ids"] = [ref.client_algo_id for ref in tp_refs if ref.client_algo_id]
++        if protective:
++            contract["protective"] = protective
++        if trail_ref is not None:
++            contract["trailing"] = {
++                "trail_algo_id": trail_ref.algo_id,
++                "trail_client_algo_id": trail_ref.client_algo_id,
++                "trail_working_type": trail_ref.working_type,
++            }
++        return contract
++
++    def _causal_timestamps(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, int]:
++        src = payload or {}
++        now_ms = _ms_now()
++        ts_event_ms = int(src.get("ts_event_ms") or src.get("ts_queue_ms") or now_ms)
++        ts_queue_ms = int(src.get("ts_queue_ms") or ts_event_ms)
++        ts_exec_start_ms = int(src.get("ts_exec_start_ms") or now_ms)
++        return {
++            "ts_event_ms": ts_event_ms,
++            "ts_queue_ms": ts_queue_ms,
++            "ts_exec_start_ms": ts_exec_start_ms,
++        }
++
+     def _save_order_state(self, sid: str, state: Dict[str, Any]) -> None:
+         """Write orders:state:{sid} Redis key for fast SID→Binance ID lookup.
+ 
+@@ -885,11 +934,16 @@
+                 existing = {}
+             merged = dict(existing)
+             merged.update(state or {})
++            now_ms = _ms_now()
+             # Preserve original created_at_ms (set once on open)
+             if 'created_at_ms' not in merged:
+-                merged['created_at_ms'] = int(existing.get('created_at_ms') or _ms_now())
+-            merged['updated_at_ms'] = _ms_now()
+-            doc = {"ts_ms": _ms_now(), "venue": "binance", **merged}
++                merged['created_at_ms'] = int(existing.get('created_at_ms') or now_ms)
++            merged.setdefault('ts_event_ms', int(existing.get('ts_event_ms') or merged.get('ts_event_ms') or now_ms))
++            merged.setdefault('ts_queue_ms', int(existing.get('ts_queue_ms') or merged.get('ts_queue_ms') or merged['ts_event_ms']))
++            merged.setdefault('ts_exec_start_ms', int(existing.get('ts_exec_start_ms') or merged.get('ts_exec_start_ms') or now_ms))
++            merged['ts_state_commit_ms'] = int(now_ms)
++            merged['updated_at_ms'] = now_ms
++            doc = {"ts_ms": now_ms, "venue": "binance", **merged}
+             self.r.set(
+                 f"{self.state_key_prefix}{sid}",
+                 json.dumps(doc, ensure_ascii=False, default=str),
+@@ -1054,8 +1108,10 @@
+         doc["action"] = action
+         doc["fsm_prev_state"] = prev_state
+         doc["fsm_state"] = next_state
+-        doc["fsm_ts_ms"] = _ms_now()
++        now_ms = _ms_now()
++        doc["fsm_ts_ms"] = now_ms
+         doc["fsm_mono_ms"] = _mono_ms()
++        doc["ts_state_commit_ms"] = now_ms
+         self._save_order_state(sid, doc)
+         if EXECUTION_STATE_TRANSITION_TOTAL:
+             EXECUTION_STATE_TRANSITION_TOTAL.labels(action=action, symbol=symbol, next_state=next_state).inc()
+@@ -1066,6 +1122,7 @@
+             "event_type": "state_transition",
+             "prev_state": prev_state,
+             "fsm_state": next_state,
++            "ts_state_commit_ms": now_ms,
+             **(details or {}),
+         })
+         return doc
+@@ -1189,13 +1246,14 @@
+         except Exception:
+             pass
+         try:
+-            client.post_leverage(symbol, self.default_leverage)
++            target_leverage = self._resolve_symbol_leverage(symbol)
++            client.post_leverage(symbol, target_leverage)
+         except BinanceAPIError as e:
+             # -4028: "Leverage 100 is not valid, maximum is N for SYMBOL"
+             # payload may have {'maxLeverage': N} or the message contains it.
+             max_lev = self._parse_max_leverage(e)
+             if max_lev and max_lev > 0:
+-                capped = min(self.default_leverage, max_lev)
++                capped = min(self._resolve_symbol_leverage(symbol), max_lev)
+                 try:
+                     client.post_leverage(symbol, capped)
+                     import logging as _logging
+@@ -1237,6 +1295,30 @@
+             pass
+         return 0
+ 
++    def _symbol_tier(self, symbol: str) -> str:
++        s = str(symbol or '').upper()
++        if s in {"BTCUSDT", "ETHUSDT"}:
++            return "A"
++        if s in {"SOLUSDT", "XRPUSDT", "BNBUSDT"}:
++            return "B"
++        return "C"
++
++    def _resolve_symbol_leverage(self, symbol: str) -> int:
++        s = str(symbol or '').upper()
++        tier = self._symbol_tier(s)
++        specific = os.getenv(f"BINANCE_LEVERAGE_{s}")
++        if specific not in (None, ""):
++            try:
++                return max(1, int(float(specific)))
++            except Exception:
++                pass
++        tier_key = f"BINANCE_LEVERAGE_TIER_{tier}"
++        tier_default = {"A": 20, "B": 10, "C": 5}.get(tier, 5)
++        try:
++            return max(1, int(float(os.getenv(tier_key, str(tier_default)))))
++        except Exception:
++            return max(1, int(self.default_leverage))
++
+ 
+     # --- Order quantisation ---
+ 
+@@ -1391,6 +1473,7 @@
+             "status": "failed",
+             "reason": reason,
+             "severity": "critical",
++            "incident_tag": "capital_protection",
+         })
+         self._save_order_state(sid, {
+             "action": "protection_invariant",
+@@ -1398,7 +1481,62 @@
+             "symbol": symbol,
+             "incident_flag": "protection_missing",
+             "incident_reason": reason,
++            "incident_tag": "capital_protection",
+         })
++        if self.tg is not None:
++            try:
++                self.tg.send_text(
++                    f"🛑 BINANCE protection invariant failed\n"
++                    f"symbol={symbol} sid={sid[:24]}...\n"
++                    f"reason={reason}"
++                )
++            except Exception:
++                pass
++
++    def _reconcile_entry_by_client_id(self, *, sid: str, symbol: str, client_order_id: Optional[str], client: "BinanceFuturesClient") -> Dict[str, Any]:
++        cid = str(client_order_id or '').strip()
++        if not cid:
++            return {}
++        event_doc = self._lookup_user_stream_event(plain_client_id=cid)
++        if event_doc:
++            return dict(event_doc.get("order") or event_doc)
++        try:
++            return client.reconcile_entry_by_client_id(symbol, cid)
++        except Exception:
++            return {}
++
++    def _reconcile_protection_by_sid(self, *, sid: str, symbol: str, client: "BinanceFuturesClient") -> Dict[str, Any]:
++        try:
++            return client.reconcile_protection_by_sid(symbol, sid)
++        except Exception:
++            return {}
++
++    def _attempt_reconcile_after_exception(self, *, payload: Dict[str, Any], action: str, symbol: str, client: "BinanceFuturesClient") -> Dict[str, Any]:
++        sid = str(payload.get("sid") or "").strip()
++        state = self._load_order_state(sid)
++        entry_cid = str(state.get("entry_client_order_id") or payload.get("entry_client_order_id") or _make_cid(sid, "entry"))
++        entry = self._reconcile_entry_by_client_id(sid=sid, symbol=symbol, client_order_id=entry_cid, client=client)
++        protection = self._reconcile_protection_by_sid(sid=sid, symbol=symbol, client=client)
++        if not entry and not protection:
++            return {}
++        resolved = {
++            "sid": sid,
++            "symbol": symbol,
++            "action": action,
++            "event_type": "reconcile_resolved",
++            "reconcile_source": "user_stream_or_query",
++        }
++        if entry:
++            resolved["reconciled_entry_order_id"] = entry.get("orderId") or entry.get("i")
++            resolved["reconciled_entry_status"] = entry.get("status") or entry.get("X")
++            self._save_order_state(sid, {
++                "symbol": symbol,
++                "entry_client_order_id": entry_cid,
++                "binance_order_id": entry.get("orderId") or entry.get("i"),
++            })
++        if protection:
++            resolved["reconciled_protection"] = json.dumps(protection, ensure_ascii=False, default=str)
++        return resolved
+ 
+     def _emergency_flatten_position(
+         self,
+@@ -1409,6 +1547,7 @@
+         qty: float,
+         client: "BinanceFuturesClient",
+         filters: "FiltersCache",
++        reason: str = "protection_invariant",
+     ) -> Dict[str, Any]:
+         exit_side = "SELL" if logical_side == "LONG" else "BUY"
+         pos_side = _position_side_for_mode(self.position_mode, logical_side)
+@@ -1433,10 +1572,30 @@
+             working_type=None,
+             is_algo=False,
+         )
+-        j = client.post_plain_order(params)
++        try:
++            client.cancel_all_orders(symbol)
++        except Exception:
++            pass
++        j = self._submit_plain_order_with_reconcile(
++            sid=sid, symbol=symbol, action="emergency_flatten", params=params, client=client
++        )
++        if EXECUTION_EMERGENCY_FLATTEN_TOTAL:
++            EXECUTION_EMERGENCY_FLATTEN_TOTAL.labels(symbol=symbol, reason=reason).inc()
++        event = {
++            "sid": sid,
++            "symbol": symbol,
++            "action": "emergency_flatten",
++            "event_type": "flatten_emergency",
++            "reason": reason,
++            "incident_tag": "capital_protection",
++            "emergency_order_id": j.get("orderId"),
++            "emergency_client_id": params["newClientOrderId"],
++        }
++        self._exec_event(event)
+         return {
+             "emergency_order_id": j.get("orderId"),
+             "emergency_client_id": params["newClientOrderId"],
++            "emergency_reason": reason,
+         }
+ 
+     # --- Protective orders (SL + TPs) ---
+@@ -2565,23 +2724,14 @@
+         tps = [tp for tp in tps if tp > 0]
+ 
+         self._transition_state(sid, symbol=symbol, action="open", next_state=FSM_PROTECTION_ARMING)
++        protection_arm_started_mono_ms = _mono_ms()
+         prot = self._place_protective(
+             sid=sid, symbol=symbol, logical_side=logical,
+-            qty=filled_qty, sl=sl, tps=tps,
++            qty=filled_qty, sl=sl, tps=tps, policy=policy,
+             client=client, filters=filters,
+             ref_price=avg_price if avg_price > 0 else None,
+         )
+ 
+-        # Extra guard: warn if caller supplied no SL/TP at all (payload omitted them),
+-        # distinct from the validator-skip case handled inside _place_protective.
+-        if not sl and not tps and self.tg is not None:
+-            self.tg.send_text(
+-                f"⚠️ BINANCE opened without SL/TP\n"
+-                f"symbol={symbol} side={logical} qty={filled_qty}\n"
+-                f"exec_price={avg_price:.4f}\n"
+-                f"Payload contained no sl/tp_levels — position is unprotected!"
+-            )
+-
+         trail = self._maybe_start_trailing_after_tp1(
+             payload=payload, sid=sid, symbol=symbol, logical_side=logical,
+             entry_price=avg_price if avg_price > 0 else (p or None),
+@@ -2589,28 +2739,65 @@
+             tp_levels=tps,
+             client=client, filters=filters,
+         )
++        maker_watchdogs: Dict[str, Any] = {}
++        if policy.name == MAKER_FIRST:
++            maker_watchdogs = self._maybe_start_tp_limit_watchdogs(
++                payload=payload, sid=sid, symbol=symbol, logical_side=logical,
++                filled_qty=filled_qty, tp_levels=tps, tp_refs=prot, client=client, filters=filters,
++            )
+ 
++        protection_arm_elapsed_ms = max(0, _mono_ms() - protection_arm_started_mono_ms)
++        trail_enabled = self.trail_arm_only_after_tp1 and _truthy(payload.get("trail_after_tp1")) and bool(tps)
++        protection_reason = ""
++        if not sl and not tps:
++            protection_reason = "entry_filled_without_requested_protection"
++        elif not self._protection_confirmed(prot, tps, trail_enabled):
++            protection_reason = "entry_filled_without_confirmed_protection"
++        elif protection_arm_elapsed_ms > int(self.protection_arm_timeout_ms):
++            protection_reason = f"protection_arm_timeout_ms>{self.protection_arm_timeout_ms}"
+ 
+-        # Anti-blowup invariant: a filled entry must not remain naked. We treat
+-        # missing protection refs as a critical incident and immediately flatten.
+-        trail_enabled = _truthy(payload.get("trail_after_tp1")) and bool(tps)
+-        if not self._protection_confirmed(prot, tps, trail_enabled):
+-            self._emit_protection_incident(sid, symbol, "entry_filled_without_confirmed_protection")
++        if protection_reason:
++            self._emit_protection_incident(sid, symbol, protection_reason)
+             emerg = self._emergency_flatten_position(
+                 sid=sid, symbol=symbol, logical_side=logical, qty=filled_qty,
+-                client=client, filters=filters,
++                client=client, filters=filters, reason=protection_reason,
+             )
+-            self._transition_state(sid, symbol=symbol, action="open", next_state=FSM_EMERGENCY_FLATTENED, details=emerg)
+-            prot = {**prot, **emerg, "protection_invariant_failed": True}
++            self._transition_state(sid, symbol=symbol, action="open", next_state=FSM_EMERGENCY_FLATTENED, details={**emerg, "protection_arm_elapsed_ms": protection_arm_elapsed_ms})
++            prot = {**prot, **emerg, "protection_invariant_failed": True, "protection_arm_elapsed_ms": protection_arm_elapsed_ms}
+ 
+         # P5: compute audit chain + order refs before building result
+         audit_chain = self._derive_audit_chain_fields(payload, sid)
+         audit_policies = self._derive_entry_exit_policies(execution_policy=policy.name)
++        entry_ref = PlainOrderRef(order_id=order_id, client_order_id=params["newClientOrderId"], type=order_type, side=side, position_side=pos_side)
++        sl_ref = AlgoOrderRef(
++            algo_id=_i(prot.get("sl_algo_id"), 0) or None,
++            client_algo_id=str(prot.get("sl_client_algo_id") or "") or None,
++            type="STOP_MARKET",
++            working_type=str(prot.get("sl_working_type") or self.sl_working_type),
++        ) if prot.get("sl_algo_id") or prot.get("sl_client_algo_id") else None
++        tp_refs: List[AlgoOrderRef] = []
++        for idx, _tp in enumerate(tps, start=1):
++            if prot.get(f"tp{idx}_algo_id") or prot.get(f"tp{idx}_client_algo_id"):
++                tp_refs.append(AlgoOrderRef(
++                    algo_id=_i(prot.get(f"tp{idx}_algo_id"), 0) or None,
++                    client_algo_id=str(prot.get(f"tp{idx}_client_algo_id") or "") or None,
++                    type=str(prot.get(f"tp{idx}_type") or "TAKE_PROFIT_MARKET"),
++                    working_type=str(prot.get(f"tp{idx}_working_type") or self.tp_market_working_type),
++                ))
++        trail_ref = AlgoOrderRef(
++            algo_id=_i(trail.get("trail_algo_id"), 0) or None,
++            client_algo_id=str(trail.get("trail_client_algo_id") or trail.get("trail_client_id") or "") or None,
++            type="TRAILING_STOP_MARKET",
++            working_type=str(trail.get("trail_working_type") or self.trail_working_type),
++            trigger_price=_f(trail.get("activate_price"), 0.0) or None,
++        ) if trail.get("trail_algo_id") or trail.get("trail_client_algo_id") or trail.get("trail_client_id") else None
++        structured_refs = self._structured_order_contract(sid=sid, entry_ref=entry_ref, sl_ref=sl_ref, tp_refs=tp_refs, trail_ref=trail_ref)
+         order_refs = {
+             "entry_order_ref": self._format_order_ref(
+                 venue="binance", kind="entry",
+                 order_id=order_id, client_id=params["newClientOrderId"]
+             ),
++            **structured_refs,
+         }
+ 
+         self._transition_state(sid, symbol=symbol, action="open", next_state=FSM_PROTECTED, details={**prot, **trail})
+@@ -2723,9 +2910,6 @@
+             tp_levels=tps,
+             client=client, filters=filters,
+         )
+-        if EXECUTION_EMERGENCY_FLATTEN_TOTAL:
+-            EXECUTION_EMERGENCY_FLATTEN_TOTAL.labels(symbol=symbol, reason="emerg").inc()
+-        self._transition_state(sid, symbol=symbol, action="emergency_flatten", next_state=FSM_EMERGENCY_FLATTENED, details=close)
+         # P5: derive audit chain from payload and include in result
+         audit_chain = self._derive_audit_chain_fields(payload, sid)
+         audit_policies = self._derive_entry_exit_policies(execution_policy=policy.name)
+@@ -2824,16 +3008,114 @@
+             })
+         return result
+ 
+-    def handle_resize(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+-        """Resize position (TODO: compute delta-qty and market order the difference).
++    def _normalize_resize_target(self, current_qty: float, payload: Dict[str, Any]) -> Tuple[str, float, float]:
++        resize_mode = str(payload.get("resize_mode") or ("target_qty" if payload.get("target_qty") not in (None, "") else "delta_qty")).strip().lower()
++        if resize_mode not in {"delta_qty", "target_qty"}:
++            raise ValueError(f"unsupported_resize_mode:{resize_mode}")
++        if resize_mode == "delta_qty":
++            delta_qty = _f(payload.get("delta_qty"), 0.0)
++            target_qty = max(0.0, float(current_qty) + float(delta_qty))
++        else:
++            target_qty = _f(payload.get("target_qty") if payload.get("target_qty") not in (None, "") else payload.get("qty"), 0.0)
++            delta_qty = float(target_qty) - float(current_qty)
++        return resize_mode, float(delta_qty), float(target_qty)
+ 
+-        Currently intentionally unimplemented — requires careful delta calculation
+-        and safe partial-close/pyramid logic.
+-        """
++    def handle_resize(self, payload: Dict[str, Any]) -> Dict[str, Any]:
++        """Resize an existing position and re-arm protection for the resulting size."""
++        client, filters = self._resolve_client(payload)
++        self._sync_client_clock(client)
+         sid = str(payload.get("sid") or "").strip()
+         symbol = str(payload.get("symbol") or "").strip().upper()
++        if not sid or not symbol:
++            raise ValueError("sid/symbol required")
+         self._guard_sid_not_quarantined(sid, symbol=symbol, action='resize')
+-        raise RuntimeError(f"resize not implemented yet (sid={sid} symbol={symbol})")
++        state = self._load_order_state(sid)
++        fsm_state = str(state.get("fsm_state") or "")
++        if fsm_state and fsm_state not in {FSM_ENTRY_FILLED, FSM_ENTRY_PARTIAL, FSM_PROTECTED, FSM_TP_POLICY_ARMED, FSM_TRAIL_ARMED}:
++            raise RuntimeError(f"resize_forbidden_in_state:{fsm_state}")
++        risks = client.get_position_risk() or []
++        amt = 0.0
++        logical = None
++        for pos in risks:
++            if str(pos.get("symbol") or "").upper() != symbol:
++                continue
++            amt = _f(pos.get("positionAmt"), 0.0)
++            if amt != 0.0:
++                logical = "LONG" if amt > 0 else "SHORT"
++                break
++        if amt == 0.0 or logical is None:
++            raise RuntimeError(f"no_open_position_to_resize:{symbol}")
++        current_qty = abs(float(amt))
++        resize_mode, delta_qty, target_qty = self._normalize_resize_target(current_qty, payload)
++        if math.isclose(delta_qty, 0.0, abs_tol=1e-12):
++            return {"sid": sid, "symbol": symbol, "action": "resize", "status": "noop", "current_qty": current_qty, "target_qty": target_qty}
++        self._transition_state(sid, symbol=symbol, action="resize", next_state=FSM_VALIDATED, details={"resize_mode": resize_mode, "current_qty": current_qty, "target_qty": target_qty})
++        resize_side = "BUY" if logical == "LONG" else "SELL"
++        pos_side = _position_side_for_mode(self.position_mode, logical)
++        if delta_qty > 0:
++            q_resize, _ = self._quantize(symbol, delta_qty, None, filters=filters)
++            params: Dict[str, Any] = {
++                "symbol": symbol,
++                "side": resize_side,
++                "type": "MARKET",
++                "quantity": q_resize,
++                "newClientOrderId": _make_cid(sid, "resize"),
++            }
++            if pos_side:
++                params["positionSide"] = pos_side
++            j_resize = self._submit_plain_order_with_reconcile(sid=sid, symbol=symbol, action="resize_add", params=params, client=client)
++        else:
++            reduce_qty = abs(delta_qty)
++            j_resize = self._submit_reduce_only_market_exit(
++                sid=sid, symbol=symbol, logical_side=logical, qty=reduce_qty,
++                reason_tag="resize", client=client, filters=filters,
++            )
++        try:
++            client.cancel_all_orders(symbol)
++        except Exception:
++            pass
++        final_qty = max(0.0, target_qty)
++        sl = _f(payload.get("sl"), 0.0) if payload.get("sl") is not None else None
++        sl = sl if sl and sl > 0 else None
++        tps = [float(x) for x in (payload.get("tp_levels") or []) if x not in (None, "") and float(x) > 0]
++        policy = resolve_execution_policy(
++            symbol=symbol, logical_side=logical, signal_payload=payload, rollout_flags=self.rollout_flags,
++            maker_allowed_symbols=self.exec_policy_maker_allowed_symbols, default_policy=self.exec_policy_default,
++            infra_degraded=bool(payload.get("dq_hard_veto") or payload.get("infra_degraded")),
++        )
++        prot: Dict[str, Any] = {}
++        trail: Dict[str, Any] = {}
++        if final_qty > 0 and (sl or tps):
++            mark_price = None
++            try:
++                mp = float(client.get_mark_price(symbol) or 0.0)
++                mark_price = mp if mp > 0 else None
++            except Exception:
++                pass
++            prot = self._place_protective(
++                sid=sid, symbol=symbol, logical_side=logical, qty=final_qty, sl=sl, tps=tps, policy=policy,
++                client=client, filters=filters, ref_price=mark_price,
++            )
++            trail = self._maybe_start_trailing_after_tp1(
++                payload=payload, sid=sid, symbol=symbol, logical_side=logical, entry_price=mark_price,
++                sl_order_id=_i(prot.get("sl_algo_id"), 0) or None, tp_levels=tps, client=client, filters=filters,
++            )
++        self._save_order_state(sid, {
++            "action": "resize",
++            "status": "ok",
++            "symbol": symbol,
++            "side": logical,
++            "qty": final_qty,
++            "resize_mode": resize_mode,
++            "resize_delta_qty": delta_qty,
++            "resize_target_qty": target_qty,
++            **prot, **trail,
++        })
++        return {
++            "sid": sid, "symbol": symbol, "action": "resize", "status": "ok",
++            "side": logical, "current_qty": current_qty, "target_qty": target_qty, "delta_qty": delta_qty,
++            "resize_order": j_resize, **prot, **trail,
++        }
+ 
+     # --- Main processing loop ---
+ 
+@@ -2859,6 +3141,8 @@
+             self._ack_processing(raw)
+             return
+ 
++        payload.setdefault("ts_exec_start_ms", _ms_now())
++        payload.setdefault("ts_queue_ms", int(payload.get("ts_queue_ms") or payload.get("ts_event_ms") or payload["ts_exec_start_ms"]))
+         try:
+             if action == "open":
+                 out = self.handle_open(payload)
+@@ -2881,6 +3165,16 @@
+                 "sid": sid, "symbol": symbol, "action": action,
+                 "severity": "error", "msg": msg, "error_class": cls,
+             })
++            try:
++                client_for_reconcile, _ = self._resolve_client(payload)
++            except Exception:
++                client_for_reconcile = None
++            if isinstance(e, BinanceAPIError) and client_for_reconcile is not None and client_for_reconcile.is_ambiguous_execution_error(e):
++                resolved = self._attempt_reconcile_after_exception(payload=payload, action=action, symbol=symbol, client=client_for_reconcile)
++                if resolved:
++                    self._exec_event(resolved)
++                    self._ack_processing(raw)
++                    return
+             if self.tg is not None:
+                 self.tg.send_text(
+                     f"❌ BINANCE EXEC error\n"
+--- services/crypto_orderflow_service.py
++++ services/crypto_orderflow_service.py
+@@ -166,6 +166,8 @@
+         signal['execution_plan_id'] = execution_plan_id
+     if decision_id:
+         signal['decision_id'] = decision_id
++    signal.setdefault('schema_ver', str(signal.get('schema_ver') or 'execution_intent:v1'))
++    signal.setdefault('contract_ver', str(signal.get('contract_ver') or signal.get('schema_ver') or 'execution_intent:v1'))
+     signal.setdefault('audit_chain_ver', 'p5_execution_audit_v1')
+     return signal
+ 
+@@ -1230,6 +1232,7 @@
+         signal = ensure_audit_chain_fields(signal)
+         # P4.5: stamp timestamps early so audit sink always has them
+         signal.setdefault('ts_event_ms', int(signal.get('ts_event_ms') or now_ms))
++        signal.setdefault('ts_queue_ms', int(signal.get('ts_queue_ms') or signal.get('ts_event_ms') or now_ms))
+         signal['ts_publish_ms'] = int(now_ms)
+         if self.exec_quarantine_denylist_enable and check_signal_against_quarantine_cache is not None:
+             await self._refresh_quarantine_sid_cache(now_ms=now_ms)
+--- services/outbox/atomic_outbox.py
++++ services/outbox/atomic_outbox.py
+@@ -194,7 +194,9 @@
+         "schema_ver",
+         str(payload.get("schema_ver") or meta.get("schema_ver") or os.getenv("OUTBOX_SCHEMA_VER", "execution_intent:v1")),
+     )
++    payload.setdefault("contract_ver", str(payload.get("contract_ver") or meta.get("contract_ver") or payload.get("schema_ver")))
+     payload.setdefault("decision_id", str(payload.get("decision_id") or meta.get("decision_id") or signal_id))
++    payload.setdefault("execution_plan_id", str(payload.get("execution_plan_id") or meta.get("execution_plan_id") or payload.get("decision_id") or signal_id))
+     payload.setdefault(
+         "execution_policy",
+         str(payload.get("execution_policy") or meta.get("execution_policy") or os.getenv("EXECUTION_POLICY_DEFAULT", "SAFETY_FIRST")).upper(),
+@@ -230,7 +232,9 @@
+         "event_type": "INTENT_PUBLISHED",
+         "sid": str(payload_obj.get("sid") or signal_id),
+         "decision_id": str(payload_obj.get("decision_id") or signal_id),
++        "execution_plan_id": str(payload_obj.get("execution_plan_id") or payload_obj.get("decision_id") or signal_id),
+         "schema_ver": str(payload_obj.get("schema_ver") or "execution_intent:v1"),
++        "contract_ver": str(payload_obj.get("contract_ver") or payload_obj.get("schema_ver") or "execution_intent:v1"),
+         "kind": str(payload_obj.get("kind") or ""),
+         "symbol": str(payload_obj.get("symbol") or ""),
+         "execution_policy": str(payload_obj.get("execution_policy") or "SAFETY_FIRST"),
+--- services/outbox/envelope_builder.py
++++ services/outbox/envelope_builder.py
+@@ -326,7 +326,9 @@
+         event_ms = utc_epoch_ms(p_obj.get("ts_event_ms"))
+         publish_ms = _now_ms()
+         env["schema_ver"] = _schema_ver(p_obj, m_obj)
++        env["contract_ver"] = str(p_obj.get("contract_ver") or m_obj.get("contract_ver") or env["schema_ver"])
+         env["decision_id"] = _decision_id(str(sid), p_obj, m_obj)
++        env["execution_plan_id"] = str(p_obj.get("execution_plan_id") or m_obj.get("execution_plan_id") or env["decision_id"])
+         env["producer_instance_id"] = str(
+             p_obj.get("producer_instance_id")
+             or m_obj.get("producer_instance_id")
+--- services/rollout_flags.py
++++ services/rollout_flags.py
+@@ -52,7 +52,7 @@
+             exec_maker_tp_enable=_b("EXEC_MAKER_TP_ENABLE", True),
+             exec_journal_sql_enable=_b("EXEC_JOURNAL_SQL_ENABLE", True),
+             trade_dq_hard_veto_enable=_b("TRADE_DQ_HARD_VETO_ENABLE", True),
+-            trade_risk_engine_v2_enable=_b("TRADE_RISK_ENGINE_V2_ENABLE", True),
++            trade_risk_engine_v2_enable=_b("TRADE_RISK_ENGINE_V2_ENABLE", _b("RISK_ENGINE_V2_ENABLE", True)),
+             exec_force_safety_first=_b("EXEC_FORCE_SAFETY_FIRST", False),
+             exec_degraded_mode_force_safety_first=_b("EXEC_DEGRADED_MODE_FORCE_SAFETY_FIRST", True),
+             exec_degraded_mode_disable_maker=_b("EXEC_DEGRADED_MODE_DISABLE_MAKER", True),
+--- services/tests/test_execution_plan_gap_closures_v1.py
++++ services/tests/test_execution_plan_gap_closures_v1.py
+@@ -0,0 +1,116 @@
++import os
++from types import SimpleNamespace
++
++import pytest
++
++from services.binance_futures_client import BinanceFuturesClient
++from services.binance_executor import AlgoOrderRef, BinanceExecutor, PlainOrderRef
++
++
++class DummyClient(BinanceFuturesClient):
++    def __init__(self):
++        super().__init__(api_key='k', api_secret='s')
++        self.calls = []
++
++    def _request(self, method, path, *, params=None, signed=False):
++        self.calls.append((method, path, dict(params or {}), signed))
++        if path == '/fapi/v1/algoOrder' and method == 'GET':
++            return {'algoId': 77, 'status': 'NEW'}
++        if path == '/fapi/v1/algoOrder' and method == 'DELETE':
++            return {'status': 'CANCELED'}
++        if path == '/fapi/v1/algoOrder' and method == 'POST':
++            return {'algoId': 88, 'clientAlgoId': params.get('clientAlgoId')}
++        if path == '/fapi/v1/order' and method == 'POST':
++            return {'orderId': 99, 'clientOrderId': params.get('newClientOrderId')}
++        return {}
++
++
++def test_algo_validator_rejects_close_position_with_quantity(monkeypatch):
++    monkeypatch.setenv('BINANCE_POSITION_MODE', 'oneway')
++    client = DummyClient()
++    with pytest.raises(ValueError, match='algo_closePosition_incompatible_with_quantity'):
++        client.post_algo_order({
++            'symbol': 'BTCUSDT',
++            'side': 'SELL',
++            'type': 'STOP_MARKET',
++            'triggerPrice': '100000',
++            'closePosition': 'true',
++            'quantity': '0.01',
++            'clientAlgoId': 'x',
++        })
++
++
++def test_algo_validator_rejects_bad_activate_price(monkeypatch):
++    monkeypatch.setenv('BINANCE_POSITION_MODE', 'oneway')
++    client = DummyClient()
++    with pytest.raises(ValueError, match='activatePrice_must_be_positive'):
++        client.post_algo_order({
++            'symbol': 'BTCUSDT',
++            'side': 'SELL',
++            'type': 'TRAILING_STOP_MARKET',
++            'callbackRate': '0.5',
++            'activatePrice': '0',
++            'quantity': '0.01',
++            'clientAlgoId': 'trail-1',
++        })
++
++
++def test_plain_validator_requires_position_side_in_hedge(monkeypatch):
++    monkeypatch.setenv('BINANCE_POSITION_MODE', 'hedge')
++    client = DummyClient()
++    with pytest.raises(ValueError, match='positionSide_required_in_hedge'):
++        client.post_plain_order({
++            'symbol': 'BTCUSDT',
++            'side': 'BUY',
++            'type': 'MARKET',
++            'quantity': '0.01',
++            'newClientOrderId': 'entry-1',
++        })
++
++
++def test_replace_untriggered_algo_order_cancel_then_post(monkeypatch):
++    monkeypatch.setenv('BINANCE_POSITION_MODE', 'oneway')
++    client = DummyClient()
++    out = client.replace_untriggered_algo_order(
++        'BTCUSDT',
++        client_algo_id='old-cid',
++        new_params={
++            'symbol': 'BTCUSDT',
++            'side': 'SELL',
++            'type': 'STOP_MARKET',
++            'triggerPrice': '95000',
++            'quantity': '0.01',
++            'clientAlgoId': 'new-cid',
++        },
++    )
++    assert out['algoId'] == 88
++    assert [c[1] for c in client.calls[:3]] == ['/fapi/v1/algoOrder', '/fapi/v1/algoOrder', '/fapi/v1/algoOrder']
++    assert [c[0] for c in client.calls[:3]] == ['GET', 'DELETE', 'POST']
++
++
++def test_executor_symbol_leverage_and_resize_helpers(monkeypatch):
++    monkeypatch.setenv('BINANCE_LEVERAGE_TIER_A', '18')
++    monkeypatch.setenv('BINANCE_LEVERAGE_TIER_C', '4')
++    ex = BinanceExecutor.__new__(BinanceExecutor)
++    ex.default_leverage = 20
++    assert ex._resolve_symbol_leverage('BTCUSDT') == 18
++    assert ex._resolve_symbol_leverage('WIFUSDT') == 4
++    mode, delta, target = ex._normalize_resize_target(2.0, {'resize_mode': 'delta_qty', 'delta_qty': -0.5})
++    assert mode == 'delta_qty'
++    assert delta == -0.5
++    assert target == 1.5
++
++
++def test_executor_structured_order_contract():
++    ex = BinanceExecutor.__new__(BinanceExecutor)
++    doc = ex._structured_order_contract(
++        sid='sid-1',
++        entry_ref=PlainOrderRef(order_id=1, client_order_id='entry-1', type='LIMIT', side='BUY', position_side=None),
++        sl_ref=AlgoOrderRef(algo_id=2, client_algo_id='sl-1', type='STOP_MARKET', working_type='MARK_PRICE'),
++        tp_refs=[AlgoOrderRef(algo_id=3, client_algo_id='tp1', type='TAKE_PROFIT_MARKET', working_type='MARK_PRICE')],
++        trail_ref=AlgoOrderRef(algo_id=4, client_algo_id='trail-1', type='TRAILING_STOP_MARKET', working_type='MARK_PRICE'),
++    )
++    assert doc['entry']['order_id'] == 1
++    assert doc['protective']['sl_algo_id'] == 2
++    assert doc['protective']['tp_algo_ids'] == [3]
++    assert doc['trailing']['trail_algo_id'] == 4

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/replay/replay_factory.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.5, '.', '0', ':', 'REPLAY_USE_REAL_DEPS', 'conf', 'false', 'no', 'off', 'raw', 'stub', 'z_delta']

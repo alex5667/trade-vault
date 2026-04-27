@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/components/observability.py
+# hypothesis_version: 6.148.10
+
+[-1.0, 0.0, 30.0, 50000, '0', '1', '30', 'VETO_EDGE_THIN_COST', 'VETO_UNKNOWN', 'candidate_sample', 'data', 'diagnostic', 'gate', 'geometry_score', 'kind', 'on', 'raw_score', 'reason', 'regime', 'sid', 'side', 'signals_veto_total', 'spread_bps', 'symbol', 'taker_rate', 'taker_rate_ema', 'tp_mode', 'trace', 'trace_id', 'tradeable', 'true', 'ts', 'ts_ms', 'type', 'yes']

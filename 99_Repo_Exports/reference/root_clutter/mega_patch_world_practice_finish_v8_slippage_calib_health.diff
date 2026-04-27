@@ -1,0 +1,330 @@
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=20260224_of_gate_metrics_rollups_p78.sql' '--exclude=20260224_of_gate_dlq_events_indexes_p84.sql' /mnt/data/proj_next/ok_rate_logic/sql/20260224_exec_slippage_eval_stats_mv_1h.sql /mnt/data/proj_v8/ok_rate_logic/sql/20260224_exec_slippage_eval_stats_mv_1h.sql
+--- /mnt/data/proj_next/ok_rate_logic/sql/20260224_exec_slippage_eval_stats_mv_1h.sql	2026-02-24 09:00:13.000000000 +0000
++++ /mnt/data/proj_v8/ok_rate_logic/sql/20260224_exec_slippage_eval_stats_mv_1h.sql	2026-02-24 20:20:55.191891053 +0000
+@@ -1,8 +1,12 @@
+ -- P80: fast stats source for promoter/rollback/freezer.
+ -- Materialized view built from v_exec_slippage_eval.
+ --
+--- Run once in analytics DB, then refresh periodically (see refresh_exec_slip_stats_p80.py).
+--- We store hourly p95/p99 residuals and edge_neg_share; guardrails use max() across lookback.
++-- NOTE:
++--   Keep this definition aligned with services/archivers/sql/20260224_exec_slippage_eval_stats_mv_1h.sql.
++--   v_exec_slippage_eval exposes:
++--     - realized_slip_worse_bps
++--     - expected_slip_decomp_bps
++--     - edge_minus_expected_slip_decomp_bps
+ --
+ -- Requires timescaledb extension for time_bucket.
+ create materialized view if not exists mv_exec_slippage_eval_1h_stats as
+@@ -11,9 +15,9 @@
+   sym,
+   exec_regime_bucket,
+   count(*)::bigint as n,
+-  percentile_cont(0.95) within group (order by slippage_residual_bps) as resid_p95_bps,
+-  percentile_cont(0.99) within group (order by slippage_residual_bps) as resid_p99_bps,
+-  avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share
++  percentile_cont(0.95) within group (order by (realized_slip_worse_bps - expected_slip_decomp_bps)) as resid_p95_bps,
++  percentile_cont(0.99) within group (order by (realized_slip_worse_bps - expected_slip_decomp_bps)) as resid_p99_bps,
++  avg(case when edge_minus_expected_slip_decomp_bps < 0 then 1 else 0 end) as edge_neg_share
+ from v_exec_slippage_eval
+ group by 1,2,3
+ with no data;
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=20260224_of_gate_metrics_rollups_p78.sql' '--exclude=20260224_of_gate_dlq_events_indexes_p84.sql' /mnt/data/proj_next/orderflow_services/enforce_bucket_state_exporter_v1.py /mnt/data/proj_v8/orderflow_services/enforce_bucket_state_exporter_v1.py
+--- /mnt/data/proj_next/orderflow_services/enforce_bucket_state_exporter_v1.py	2026-02-24 10:40:30.000000000 +0000
++++ /mnt/data/proj_v8/orderflow_services/enforce_bucket_state_exporter_v1.py	2026-02-24 20:21:38.958427387 +0000
+@@ -173,6 +173,22 @@
+     ["sym", "bucket"],
+ )
+ 
++of_slippage_decomp_impact_coeff_age_sec = Gauge(
++    "of_slippage_decomp_impact_coeff_age_sec",
++    "age of slippage decomp impact coefficient in seconds (from ts key)",
++    ["sym", "bucket"],
++)
++
++of_slippage_calib_last_ok_age_sec = Gauge(
++    "of_slippage_calib_last_ok_age_sec",
++    "age of last successful nightly slippage calibrator run in seconds"
++)
++
++of_slippage_calib_last_updated_groups = Gauge(
++    "of_slippage_calib_last_updated_groups",
++    "number of (sym,bucket) groups updated in last slippage calibrator run"
++)
++
+ of_enforce_promoter_report_age_sec = Gauge(
+     "of_enforce_promoter_report_age_sec", "age of last promoter report in seconds"
+ )
+@@ -332,6 +348,15 @@
+                     if v is None or str(v).strip() == "":
+                         continue
+                     of_slippage_decomp_impact_coeff_bps.labels(sym=sym, bucket=b).set(_as_float(v, 0.0))
++
++                    # Age via companion timestamp key (best-effort)
++                    try:
++                        ts_key = f"cfg:slippage_decomp_impact_coeff_bps_ts_ms:{sym}:{b}"
++                        ts_ms = _as_int(self.redis.get(ts_key), 0)
++                        if ts_ms > 0:
++                            of_slippage_decomp_impact_coeff_age_sec.labels(sym=sym, bucket=b).set((_now_ms() - ts_ms) / 1000.0)
++                    except Exception:
++                        pass
+                 except Exception:
+                     continue
+ 
+@@ -397,6 +422,24 @@
+             except Exception:
+                 pass
+ 
++    def _export_slippage_calib_state(self) -> None:
++        """Export nightly slippage calibrator state keys (low cardinality).
++
++        Keys are written by tick_flow_full.tools.nightly_slippage_calibrator_v1:
++          - state:slippage_calib:last_ok_ts_ms
++          - state:slippage_calib:last_updated_groups
++        """
++        if not self.redis:
++            return
++        try:
++            ok_ts = _as_int(self.redis.get('state:slippage_calib:last_ok_ts_ms'), 0)
++            upd = _as_int(self.redis.get('state:slippage_calib:last_updated_groups'), 0)
++            of_slippage_calib_last_updated_groups.set(float(upd))
++            if ok_ts > 0:
++                of_slippage_calib_last_ok_age_sec.set((_now_ms() - ok_ts) / 1000.0)
++        except Exception:
++            return
++
+     def _export_exec_slip_stats_refresh(self) -> None:
+         obj = _load_json(self.exec_slip_stats_status_path)
+         if isinstance(obj, dict):
+@@ -485,6 +528,7 @@
+                 self._set_allow_flags(component="taker_flow", sym=sym, allow=t)
+ 
+         self._export_coeffs()
++        self._export_slippage_calib_state()
+         self._export_promoter()
+         self._export_exec_slip_stats_refresh()
+         self._export_auto_apply_block()
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=20260224_of_gate_metrics_rollups_p78.sql' '--exclude=20260224_of_gate_dlq_events_indexes_p84.sql' /mnt/data/proj_next/orderflow_services/prometheus_alerts_slippage_calibrator_health_v1.yml /mnt/data/proj_v8/orderflow_services/prometheus_alerts_slippage_calibrator_health_v1.yml
+--- /mnt/data/proj_next/orderflow_services/prometheus_alerts_slippage_calibrator_health_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj_v8/orderflow_services/prometheus_alerts_slippage_calibrator_health_v1.yml	2026-02-24 20:21:11.151897814 +0000
+@@ -0,0 +1,36 @@
++# Alerts for nightly slippage decomp calibrator (impact coeff k) and its freshness.
++#
++# Requires exporter gauges:
++#  - of_slippage_calib_last_ok_age_sec
++#  - of_slippage_calib_last_updated_groups
++#  - of_slippage_decomp_impact_coeff_age_sec{sym,bucket}
++
++groups:
++  - name: of_slippage_calib_v1
++    rules:
++      - alert: SlippageCalibStale
++        expr: of_slippage_calib_last_ok_age_sec > 172800
++        for: 30m
++        labels:
++          severity: warn
++        annotations:
++          summary: "Nightly slippage calibrator is stale (>48h)"
++          description: "No successful slippage calibrator run recently. Check ml_analysis.tools.nightly_slippage_calibrator_v1 and DB view v_exec_slippage_eval."
++
++      - alert: SlippageCalibNoUpdates
++        expr: (of_slippage_calib_last_ok_age_sec < 14400) and (of_slippage_calib_last_updated_groups == 0)
++        for: 2h
++        labels:
++          severity: warn
++        annotations:
++          summary: "Slippage calibrator ran but updated 0 groups"
++          description: "Likely insufficient samples (CALIB_MIN_SAMPLES) or view/data issues. Check v_exec_slippage_eval row counts by sym/bucket."
++
++      - alert: SlippageDecompCoeffStaleHVLL
++        expr: max by (sym) (of_slippage_decomp_impact_coeff_age_sec{bucket="HIGH_VOL_LOW_LIQ"}) > 172800
++        for: 30m
++        labels:
++          severity: warn
++        annotations:
++          summary: "Impact coeff for HVLL bucket is stale (>48h)"
++          description: "Coeff timestamp key cfg:slippage_decomp_impact_coeff_bps_ts_ms:* is stale. Calibrator or Redis write path is broken."
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=20260224_of_gate_metrics_rollups_p78.sql' '--exclude=20260224_of_gate_dlq_events_indexes_p84.sql' /mnt/data/proj_next/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py /mnt/data/proj_v8/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py
+--- /mnt/data/proj_next/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py	2026-02-24 10:40:55.000000000 +0000
++++ /mnt/data/proj_v8/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py	2026-02-24 20:21:38.959005294 +0000
+@@ -173,6 +173,22 @@
+     ["sym", "bucket"],
+ )
+ 
++of_slippage_decomp_impact_coeff_age_sec = Gauge(
++    "of_slippage_decomp_impact_coeff_age_sec",
++    "age of slippage decomp impact coefficient in seconds (from ts key)",
++    ["sym", "bucket"],
++)
++
++of_slippage_calib_last_ok_age_sec = Gauge(
++    "of_slippage_calib_last_ok_age_sec",
++    "age of last successful nightly slippage calibrator run in seconds"
++)
++
++of_slippage_calib_last_updated_groups = Gauge(
++    "of_slippage_calib_last_updated_groups",
++    "number of (sym,bucket) groups updated in last slippage calibrator run"
++)
++
+ of_enforce_promoter_report_age_sec = Gauge(
+     "of_enforce_promoter_report_age_sec", "age of last promoter report in seconds"
+ )
+@@ -332,6 +348,15 @@
+                     if v is None or str(v).strip() == "":
+                         continue
+                     of_slippage_decomp_impact_coeff_bps.labels(sym=sym, bucket=b).set(_as_float(v, 0.0))
++
++                    # Age via companion timestamp key (best-effort)
++                    try:
++                        ts_key = f"cfg:slippage_decomp_impact_coeff_bps_ts_ms:{sym}:{b}"
++                        ts_ms = _as_int(self.redis.get(ts_key), 0)
++                        if ts_ms > 0:
++                            of_slippage_decomp_impact_coeff_age_sec.labels(sym=sym, bucket=b).set((_now_ms() - ts_ms) / 1000.0)
++                    except Exception:
++                        pass
+                 except Exception:
+                     continue
+ 
+@@ -397,6 +422,24 @@
+             except Exception:
+                 pass
+ 
++    def _export_slippage_calib_state(self) -> None:
++        """Export nightly slippage calibrator state keys (low cardinality).
++
++        Keys are written by tick_flow_full.tools.nightly_slippage_calibrator_v1:
++          - state:slippage_calib:last_ok_ts_ms
++          - state:slippage_calib:last_updated_groups
++        """
++        if not self.redis:
++            return
++        try:
++            ok_ts = _as_int(self.redis.get('state:slippage_calib:last_ok_ts_ms'), 0)
++            upd = _as_int(self.redis.get('state:slippage_calib:last_updated_groups'), 0)
++            of_slippage_calib_last_updated_groups.set(float(upd))
++            if ok_ts > 0:
++                of_slippage_calib_last_ok_age_sec.set((_now_ms() - ok_ts) / 1000.0)
++        except Exception:
++            return
++
+     def _export_exec_slip_stats_refresh(self) -> None:
+         obj = _load_json(self.exec_slip_stats_status_path)
+         if isinstance(obj, dict):
+@@ -485,6 +528,7 @@
+                 self._set_allow_flags(component="taker_flow", sym=sym, allow=t)
+ 
+         self._export_coeffs()
++        self._export_slippage_calib_state()
+         self._export_promoter()
+         self._export_exec_slip_stats_refresh()
+         self._export_auto_apply_block()
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=20260224_of_gate_metrics_rollups_p78.sql' '--exclude=20260224_of_gate_dlq_events_indexes_p84.sql' /mnt/data/proj_next/tick_flow_full/orderflow_services/prometheus_alerts_slippage_calibrator_health_v1.yml /mnt/data/proj_v8/tick_flow_full/orderflow_services/prometheus_alerts_slippage_calibrator_health_v1.yml
+--- /mnt/data/proj_next/tick_flow_full/orderflow_services/prometheus_alerts_slippage_calibrator_health_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj_v8/tick_flow_full/orderflow_services/prometheus_alerts_slippage_calibrator_health_v1.yml	2026-02-24 20:21:11.159291272 +0000
+@@ -0,0 +1,36 @@
++# Alerts for nightly slippage decomp calibrator (impact coeff k) and its freshness.
++#
++# Requires exporter gauges:
++#  - of_slippage_calib_last_ok_age_sec
++#  - of_slippage_calib_last_updated_groups
++#  - of_slippage_decomp_impact_coeff_age_sec{sym,bucket}
++
++groups:
++  - name: of_slippage_calib_v1
++    rules:
++      - alert: SlippageCalibStale
++        expr: of_slippage_calib_last_ok_age_sec > 172800
++        for: 30m
++        labels:
++          severity: warn
++        annotations:
++          summary: "Nightly slippage calibrator is stale (>48h)"
++          description: "No successful slippage calibrator run recently. Check ml_analysis.tools.nightly_slippage_calibrator_v1 and DB view v_exec_slippage_eval."
++
++      - alert: SlippageCalibNoUpdates
++        expr: (of_slippage_calib_last_ok_age_sec < 14400) and (of_slippage_calib_last_updated_groups == 0)
++        for: 2h
++        labels:
++          severity: warn
++        annotations:
++          summary: "Slippage calibrator ran but updated 0 groups"
++          description: "Likely insufficient samples (CALIB_MIN_SAMPLES) or view/data issues. Check v_exec_slippage_eval row counts by sym/bucket."
++
++      - alert: SlippageDecompCoeffStaleHVLL
++        expr: max by (sym) (of_slippage_decomp_impact_coeff_age_sec{bucket="HIGH_VOL_LOW_LIQ"}) > 172800
++        for: 30m
++        labels:
++          severity: warn
++        annotations:
++          summary: "Impact coeff for HVLL bucket is stale (>48h)"
++          description: "Coeff timestamp key cfg:slippage_decomp_impact_coeff_bps_ts_ms:* is stale. Calibrator or Redis write path is broken."
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=20260224_of_gate_metrics_rollups_p78.sql' '--exclude=20260224_of_gate_dlq_events_indexes_p84.sql' /mnt/data/proj_next/tick_flow_full/tools/nightly_slippage_calibrator_v1.py /mnt/data/proj_v8/tick_flow_full/tools/nightly_slippage_calibrator_v1.py
+--- /mnt/data/proj_next/tick_flow_full/tools/nightly_slippage_calibrator_v1.py	2026-02-24 04:26:19.000000000 +0000
++++ /mnt/data/proj_v8/tick_flow_full/tools/nightly_slippage_calibrator_v1.py	2026-02-24 20:19:38.763862407 +0000
+@@ -58,6 +58,14 @@
+         return float(d)
+ 
+ 
++def _now_ms() -> int:
++    try:
++        import time
++        return int(time.time()*1000)
++    except Exception:
++        return 0
++
++
+ async def run() -> bool:
+     db_url = os.getenv("DATABASE_URL", "postgresql://trading:trading@scanner-postgres:5432/scanner_analytics")
+     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
+@@ -68,6 +76,8 @@
+ 
+     logger.info("Connecting: postgres=%s redis=%s", db_url, redis_url)
+ 
++    now_ms = _now_ms()
++
+     r = aioredis.Redis.from_url(redis_url, decode_responses=True)
+     try:
+         conn = await asyncpg.connect(db_url)
+@@ -161,11 +171,41 @@
+ 
+         c_new = max(c_min, min(c_max, c_new))
+         await r.set(key, f"{c_new:.2f}")
++        # Companion timestamp key for staleness monitoring
++        try:
++            ts_key = f"cfg:slippage_decomp_impact_coeff_bps_ts_ms:{sym}:{bucket}"
++            await r.set(ts_key, str(now_ms))
++        except Exception:
++            pass
++
++        # Per-bucket last-fit diagnostics (best-effort)
++        try:
++            hkey = f"state:slippage_calib:last:{sym}:{bucket}"
++            await r.hset(hkey, mapping={
++                'ts_ms': str(now_ms),
++                'n': str(n),
++                'q': f"{q:.3f}",
++                'fit': f"{c_fit:.3f}",
++                'new': f"{c_new:.3f}",
++                'old': str(old or ''),
++                'lookback_days': str(lookback_days),
++            })
++        except Exception:
++            pass
+         updated += 1
+ 
+         logger.info("[%s|%s] n=%d q=%.2f fit=%.2f -> new=%.2f (old=%s)",
+                     sym, bucket, n, q, c_fit, c_new, old)
+ 
++    # Global state keys for exporter/alerts
++    try:
++        await r.set('state:slippage_calib:last_run_ts_ms', str(now_ms))
++        await r.set('state:slippage_calib:last_ok_ts_ms', str(now_ms))
++        await r.set('state:slippage_calib:last_updated_groups', str(updated))
++        await r.set('state:slippage_calib:last_groups_total', str(len(groups)))
++    except Exception:
++        pass
++
+     await conn.close()
+     try:
+         await r.aclose()

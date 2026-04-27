@@ -1,0 +1,23 @@
+groups:
+  - name: ml_phase3_4_emergency_summarize_handoff_rewire_v1
+    rules:
+      - alert: MLEmergencySummarizeHandoffRewireStale
+        expr: time() - ml_emergency_summarize_handoff_rewire_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "emergency summarize handoff rewire adapter is stale"
+
+      - alert: MLEmergencySummarizeHandoffRewireErrors
+        expr: increase(ml_emergency_summarize_handoff_rewire_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "emergency summarize handoff rewire adapter has errors"
+
+      - alert: MLEmergencySummarizeHandoffRewireRejects
+        expr: increase(ml_emergency_summarize_handoff_rewire_routed_total{decision="REJECT"}[30m]) > 10
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "emergency summarize handoff rewire is rejecting requests"

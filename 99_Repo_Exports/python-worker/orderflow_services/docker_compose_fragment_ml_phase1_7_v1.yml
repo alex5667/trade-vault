@@ -1,0 +1,33 @@
+version: "3.9"
+
+services:
+  scanner-ml-rollback-verifier-v1:
+    build:
+      context: ..
+      dockerfile: python-worker/Dockerfile
+    command: python -m orderflow_services.rollback_executor_verifier_v1
+    environment:
+      REDIS_URL: ${REDIS_URL}
+      DATABASE_URL: ${DATABASE_URL:-}
+      ML_ROLLBACK_VERIFIER_METRICS_PORT: 9862
+      ROLLBACK_VERIFY_MAX_ERROR_RATE_DELTA: ${ROLLBACK_VERIFY_MAX_ERROR_RATE_DELTA:-0.01}
+      ROLLBACK_VERIFY_MAX_LATENCY_P95_DELTA_MS: ${ROLLBACK_VERIFY_MAX_LATENCY_P95_DELTA_MS:-1.5}
+      ROLLBACK_VERIFY_MAX_MISSING_CRITICAL_DELTA: ${ROLLBACK_VERIFY_MAX_MISSING_CRITICAL_DELTA:-0.01}
+      ROLLBACK_VERIFY_MAX_ALLOW_RATE_DROP: ${ROLLBACK_VERIFY_MAX_ALLOW_RATE_DROP:-0.08}
+    ports:
+      - "9862:9862"
+    restart: unless-stopped
+
+  scanner-ml-rollback-state-machine-v1:
+    build:
+      context: ..
+      dockerfile: python-worker/Dockerfile
+    command: python -m orderflow_services.ml_rollback_state_machine_worker_v1
+    environment:
+      REDIS_URL: ${REDIS_URL}
+      DATABASE_URL: ${DATABASE_URL:-}
+      ML_ROLLBACK_STATE_MACHINE_METRICS_PORT: 9863
+      ML_ROLLBACK_STATE_TTL_SEC: ${ML_ROLLBACK_STATE_TTL_SEC:-604800}
+    ports:
+      - "9863:9863"
+    restart: unless-stopped

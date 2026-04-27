@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/liqmap_gate_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.6, 1.0, 999.0, '-inf', '5m', 'ENFORCE', 'LONG', 'OFF', 'SHORT', 'adverse_peak_in_sl', 'atr_bps', 'atr_bps_exec', 'inf', 'liqmap_gate_enable', 'liqmap_gate_min_rr', 'liqmap_gate_mode', 'liqmap_gate_window', 'missing_reward_peak', 'off', 'ok', 'rr_low', 'stop_atr_mult']

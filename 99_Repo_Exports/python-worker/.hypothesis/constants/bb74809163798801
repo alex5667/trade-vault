@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/veto_reason_reporter.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.2, 0.35, 0.45, 0.5, 1.15, 1000, 300000, 600000, 900000, 'Action hint:', 'Top-N:', 'VETO_TOPN_MIN_TOTAL', 'VETO_TOPN_N', 'VETO_TOPN_WINDOW_MS', 'Why it matters:', 'analytics', 'bo_l2_', 'bo_l2_fail_closed', 'book_l2_gate', 'conf_below_min', 'confidence_gate', 'cooldown', 'cooldown_gate', 'kind', 'l2_', 'l3_', 'l3_missing', 'l3_quality', 'label_update', 'labels', 'new_family', 'new_family_share', 'new_top_reason', 'new_top_share', 'prev_family', 'prev_top_reason', 'prev_total_veto', 'signal_id', 'signal_kind', 'spread_filter_veto', 'spread_gate', 'symbol', 'text', 'title', 'top_reason', 'top_reason_share', 'top_share', 'total_veto', 'total_veto_delta', 'total_veto_ratio', 'touch_gate', 'touch_suppressed', 'ts', 'type', 'unknown', 'unknown_veto', 'utf-8', 'veto_topn', 'veto_topn_change', 'window_sec']

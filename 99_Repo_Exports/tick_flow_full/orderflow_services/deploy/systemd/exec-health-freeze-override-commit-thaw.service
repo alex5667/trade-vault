@@ -1,0 +1,16 @@
+[Unit]
+Description=ExecHealth override commit-thaw with rollout preflight guard
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/exec-health-freeze-override-commit-thaw
+WorkingDirectory=/opt/scanner_infra
+ExecStart=/opt/scanner_infra/orderflow_services/deploy/systemd/run-exec-health-freeze-override-commit-thaw-v1.sh
+Nice=10
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=multi-user.target

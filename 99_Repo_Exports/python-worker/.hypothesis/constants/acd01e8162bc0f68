@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/telegram_notifier_worker_v2.py
+# hypothesis_version: 6.148.10
+
+[0.1, 100, 200, 300, 400, 429, 500, 900, 1000, 3600, 5000, 10000, 10800, 30000, 60000, '%Y-%m-%d %H:%M:%S', '-', '0', '0.0.0.0', '1', '3600', '9125', '>', 'BUSYGROUP', 'Content-Type', 'HTML', 'NOGROUP', 'NOTIFY_METRICS_ADDR', 'NOTIFY_METRICS_PORT', 'REDIS_URL', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', '__main__', 'application/json', 'caption', 'chat_id', 'crit', 'err', 'info', 'message', 'notify:last_ok_ts_ms', 'notify:receipt:', 'notify:telegram:crit', 'notify:telegram:page', 'notify_pending_n', 'notify_queue_lag_ms', 'notify_send_total', 'ok', 'page', 'parameters', 'parse_mode', 'payload', 'receipt_id', 'redis://redis:6379/0', 'require_receipt', 'retry_after', 'severity', 'sid', 'status', 'stream', 'text', 'utf-8']

@@ -1,0 +1,392 @@
+services:
+  redis:
+    image: redis:7
+    container_name: scanner-redis
+    ports:
+    - 0.0.0.0:6379:6379
+    - 0.0.0.0:16379:16379
+    - 0.0.0.0:26379:26379
+    volumes:
+    - scanner-redis-data:/data
+    - ./redis-external-access.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+    - scanner-network
+    healthcheck:
+      test:
+      - CMD
+      - redis-cli
+      - -h
+      - localhost
+      - -p
+      - '6379'
+      - ping
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 32G
+          cpus: '8.0'
+        reservations:
+          memory: 16G
+          cpus: '4.0'
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    sysctls:
+    - net.core.somaxconn=65535
+    - net.ipv4.tcp_max_syn_backlog=65535
+    - net.core.netdev_max_backlog=5000
+    - net.ipv4.tcp_keepalive_time=600
+    - net.ipv4.tcp_keepalive_intvl=60
+    - net.ipv4.tcp_keepalive_probes=3
+    - net.ipv4.tcp_fin_timeout=30
+    - net.ipv4.tcp_tw_reuse=1
+    - net.core.rmem_max=134217728
+    - net.core.wmem_max=134217728
+    shm_size: 2gb
+    environment:
+    - REDIS_REPLICATION_MODE=master
+    - TZ=UTC
+    logging:
+      driver: json-file
+      options:
+        max-size: 100m
+        max-file: '3'
+  redis-worker-1:
+    image: redis:7
+    container_name: scanner-redis-worker-1
+    ports:
+    - 0.0.0.0:6380:6379
+    - 0.0.0.0:16380:16379
+    - 0.0.0.0:26380:26379
+    volumes:
+    - scanner-redis-worker-1-data:/data
+    - ./redis-external-access.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+    - scanner-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - redis-cli
+      - ping
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+    ulimits:
+      nofile:
+        soft: 32768
+        hard: 32768
+    sysctls:
+    - net.core.somaxconn=32768
+    - net.ipv4.tcp_max_syn_backlog=32768
+    environment:
+    - TZ=UTC
+  redis-worker-2:
+    image: redis:7
+    container_name: scanner-redis-worker-2
+    ports:
+    - 0.0.0.0:6381:6379
+    - 0.0.0.0:16381:16379
+    - 0.0.0.0:26381:26379
+    volumes:
+    - scanner-redis-worker-2-data:/data
+    - ./redis-external-access.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+    - scanner-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - redis-cli
+      - ping
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+    ulimits:
+      nofile:
+        soft: 32768
+        hard: 32768
+    sysctls:
+    - net.core.somaxconn=32768
+    - net.ipv4.tcp_max_syn_backlog=32768
+    environment:
+    - TZ=UTC
+  go-worker:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile
+    container_name: scanner-go-worker
+    environment:
+    - REDIS_HOST=redis
+    - REDIS_PORT=6379
+    - REDIS_DB=0
+    - REDIS_POOL_SIZE=1000
+    - REDIS_MIN_IDLE_CONNS=100
+    - REDIS_MAX_RETRIES=100
+    - REDIS_DIAL_TIMEOUT=30s
+    - REDIS_READ_TIMEOUT=300s
+    - REDIS_WRITE_TIMEOUT=300s
+    - BINANCE_WS_TIMEFRAME=kline_1m
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+    - scanner-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '4.0'
+        reservations:
+          memory: 2G
+          cpus: '2.0'
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:2112/metrics
+      interval: 30s
+      timeout: 10s
+      retries: 3
+  python-worker:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-python-worker
+    environment:
+    - REDIS_HOST=redis
+    - REDIS_PORT=6379
+    - REDIS_DB=0
+    - REDIS_SOCKET_TIMEOUT=300
+    - REDIS_SOCKET_CONNECT_TIMEOUT=30
+    - REDIS_MAX_CONNECTIONS=500
+    - REDIS_RETRY_ON_TIMEOUT=true
+    - REDIS_HEALTH_CHECK_INTERVAL=30
+    - DECISION_TRACE_ENABLE=1
+    - DECISION_TRACE_MAX_EVENTS=200
+    - DECISION_TRACE_DIAG_STREAM=stream:signals:diagnostics
+    - SIGNAL_DIAGNOSTICS_STREAM=stream:signals:diagnostics
+    - DECISION_TRACE_SIDECAR_UPDATE_ON_SUCCESS=0
+    - DECISION_TRACE_LOG_SAMPLE_RATE=0.02
+    - DECISION_TRACE_SUMMARY_MAXLEN=240
+    - DECISION_TRACE_SIDECAR_MAX_BYTES=120000
+    - RUNTIME_REFRESH_EVERY_SEC=10
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+    - scanner-network
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          cpus: '1.0'
+    ulimits:
+      nofile:
+        soft: 32768
+        hard: 32768
+    command:
+    - sh
+    - -c
+    - sleep 10 && python main.py
+  telegram-worker:
+    build:
+      context: .
+      dockerfile: telegram-worker/Dockerfile
+    container_name: scanner-telegram-worker
+    env_file:
+    - ./telegram-worker/.env
+    environment:
+    - SESSIONS_DIR=/app/sessions
+    - REDIS_URL=redis://redis:6379/0
+    - STREAM_NAME=signal:telegram:raw
+    - NOTIFY_STREAM=notify:telegram
+    - PARSED_TTL_SECONDS=3600
+    - CHANNELS=
+    - CHANNELS_REDIS_KEY=telegram:channels:usernames
+    - CHANNELS_REFRESH_SEC=60
+    - TG_WHITELIST=
+    - MAX_THREADS=5
+    - CHANNELS_PER_THREAD=20
+    - RAW_STREAM=signal:telegram:raw
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+    - tg-sessions:/app/sessions
+    networks:
+    - scanner-network
+    restart: on-failure:5
+    command:
+    - sh
+    - -c
+    - sleep 15 && python multithreaded_worker.py
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '2.0'
+        reservations:
+          memory: 512M
+          cpus: '1.0'
+  notify-worker:
+    build:
+      context: .
+      dockerfile: telegram-worker/Dockerfile
+    container_name: scanner-notify-worker
+    env_file:
+    - ./telegram-worker/.env
+    environment:
+    - REDIS_URL=redis://redis:6379/0
+    - NOTIFY_STREAM=notify:telegram
+    - PARSED_TTL_SECONDS=3600
+    - CHANNELS=
+    - CHANNELS_REDIS_KEY=telegram:channels:usernames
+    - CHANNELS_REFRESH_SEC=60
+    - TG_WHITELIST=
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+      telegram-worker:
+        condition: service_started
+    command:
+    - sh
+    - -c
+    - sleep 25 && python notify_worker.py
+    networks:
+    - scanner-network
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.5'
+  redis-cleanup:
+    build:
+      context: .
+      dockerfile: Dockerfile.cleanup
+    container_name: scanner-redis-cleanup
+    environment:
+    - REDIS_HOST=redis
+    - REDIS_PORT=6379
+    - TZ=UTC
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+    - scanner-network
+    restart: unless-stopped
+    command:
+    - sh
+    - -c
+    - sleep 30 && while true; do ./redis-streams-cleanup.sh setup; sleep 21600; done
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: scanner-prometheus
+    ports:
+    - 9090:9090
+    volumes:
+    - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    - prometheus-data:/prometheus
+    command:
+    - --config.file=/etc/prometheus/prometheus.yml
+    - --storage.tsdb.path=/prometheus
+    - --web.console.libraries=/etc/prometheus/console_libraries
+    - --web.console.templates=/etc/prometheus/consoles
+    - --storage.tsdb.retention.time=200h
+    - --web.enable-lifecycle
+    depends_on:
+    - go-worker
+    networks:
+    - scanner-network
+    restart: unless-stopped
+    environment:
+    - TZ=UTC
+  grafana:
+    image: grafana/grafana:latest
+    container_name: scanner-grafana
+    ports:
+    - 3001:3000
+    environment:
+    - GF_SECURITY_ADMIN_PASSWORD=admin
+    - TZ=UTC
+    volumes:
+    - grafana-data:/var/lib/grafana
+    depends_on:
+    - prometheus
+    networks:
+    - scanner-network
+    restart: unless-stopped
+networks:
+  scanner-network:
+    driver: bridge
+    ipam:
+      config:
+      - subnet: 172.18.0.0/16
+    driver_opts:
+      com.docker.network.bridge.name: scanner-br0
+      com.docker.network.bridge.enable_icc: 'true'
+      com.docker.network.bridge.enable_ip_masquerade: 'true'
+volumes:
+  scanner-redis-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  tg-sessions:
+    driver: local
+  scanner-redis-worker-1-data:
+    driver: local
+  scanner-redis-worker-2-data:
+    driver: local

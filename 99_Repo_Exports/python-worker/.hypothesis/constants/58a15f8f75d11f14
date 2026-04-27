@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/metrics_derivatives_context.py
+# hypothesis_version: 6.148.10
+
+[0.25, 0.5, 100000.0, 500000.0, 1000000.0, 5000000.0, 10000000.0, 50000000.0, 100000000.0, 500000000.0, 1000000000.0, 5000000000.0, 120, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 'Collector', 'TCollector', '_names_to_collectors', 'deriv_ctx_basis_bps', 'profile', 'reason', 'symbol', 'where']

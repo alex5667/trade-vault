@@ -1,0 +1,11 @@
+groups:
+- name: manip-gate-alerts
+  rules:
+  - alert: HighManipulationEvents
+    expr: sum by(symbol, reason) (increase(manip_gate_events_total{mode="tighten"}[5m])) > 10
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High manipulation frequency ({{ $labels.reason }}) on {{ $labels.symbol }}"
+      description: "MANIP Gate is actively penalizing {{ $labels.symbol }} due to {{ $labels.reason }}. Over 10 events caught in the last 5 minutes. Consider checking market regime."

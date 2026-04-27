@@ -1,0 +1,28 @@
+[Unit]
+Description=Execution audit-chain checker (P5.7)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=trade
+Group=trade
+WorkingDirectory=/opt/trade/python-worker
+EnvironmentFile=-/etc/default/execution-audit-chain
+ExecStart=/usr/bin/python3 /opt/trade/python-worker/scripts/check_execution_audit_chain.py \
+  --dsn ${TRADES_DB_DSN} \
+  --lookback-hours ${EXEC_AUDIT_LOOKBACK_HOURS:-24} \
+  --limit ${EXEC_AUDIT_LIMIT:-1000} \
+  --report-json ${EXEC_AUDIT_REPORT_JSON:-/var/lib/trade/runbooks/latest_execution_audit_chain.json} \
+  --report-prom ${EXEC_AUDIT_REPORT_PROM:-/var/lib/node_exporter/textfile_collector/latest_execution_audit_chain.prom}
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/trade/runbooks /var/lib/node_exporter/textfile_collector
+
+[Install]
+WantedBy=multi-user.target

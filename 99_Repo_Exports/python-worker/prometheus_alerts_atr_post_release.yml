@@ -1,0 +1,13 @@
+groups:
+- name: atr_post_release_observation
+  rules:
+  - alert: ATRPromotionHoldStale
+    expr: atr_promotion_hold_total{status="active"} > 0
+    for: 6h
+    labels:
+      severity: warning
+  - alert: ATRRollbackReviewRequired
+    expr: increase(atr_promotion_rollback_review_total[5m]) > 0
+    for: 1m
+    labels:
+      severity: critical

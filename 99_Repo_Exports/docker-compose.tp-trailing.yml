@@ -1,0 +1,70 @@
+services:
+  tp-event-listener:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-tp-event-listener
+    command: python -m services.tp_event_listener
+    restart: unless-stopped
+    networks:
+    - scanner-core
+    - scanner-infra
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      go-gateway:
+        condition: service_started
+    environment:
+    - REDIS_URL=${REDIS_URL}
+    - TP_EVENTS_STREAM=events:trades
+    - TP_EVENTS_GROUP=tp1-trailing-group
+    - TP_EVENTS_CONSUMER=tp1-trailing-1
+    - TP_EVENTS_BATCH_SIZE=50
+    - TP_EVENTS_BLOCK_MS=5000
+    - STATS_INTERVAL_SEC=300
+    - GATEWAY_URL=http://scanner-go-gateway:8090
+    - GATEWAY_TIMEOUT=3.0
+    - GATEWAY_PUSH_PATH=/orders/push
+    - DEFAULT_TRAIL_PROFILE=protective_only
+    - SIGNAL_KEY_PREFIX=signals
+    - LOG_LEVEL=INFO
+    - PYTHONUNBUFFERED=1
+    - BINANCE_TRAIL_ACTIVATE_TP=${BINANCE_TRAIL_ACTIVATE_TP}
+    - TZ=UTC
+    volumes:
+    - ./python-worker:/app
+    - ./common:/app/common
+    - ./python-worker/config/trailing_config.json:/app/config/trailing_config.json:ro
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import redis; r=redis.from_url('${REDIS_URL}'); r.ping()
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 24M
+    labels:
+    - com.scanner.service=tp-event-listener
+    - com.scanner.version=1.0.0
+    - com.scanner.description=TP1 Trailing Orchestrator
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+networks:
+  scanner-core:
+    external: true
+  scanner-infra:
+    external: true

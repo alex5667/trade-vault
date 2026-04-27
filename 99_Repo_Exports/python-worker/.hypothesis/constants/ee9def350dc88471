@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/analytics/threshold_tuner.py
+# hypothesis_version: 6.148.10
+
+[0.0, 2000, 'HTML', 'INFO', 'NOTIFY_STREAM', 'REDIS_URL', 'ThresholdTuner', 'action', 'auc', 'f1', 'f1_at_thr', 'fpr', 'notify:telegram', 'parse_mode', 'prec', 'rec', 'reload', 'rule', 'scope', 'support', 'text', 'thr', 'tpr', 'ts', 'tuned_at', 'youdenJ']

@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/linalg/_flinalg_py.py
+# hypothesis_version: 6.148.10
+
+['D', 'F', 'FORTRAN', '_c', '_r', 'c', 'd', 'f', 'get_flinalg_funcs', 's', 'z']

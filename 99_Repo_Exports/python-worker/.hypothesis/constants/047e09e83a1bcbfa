@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/ml_pred_cache.py
+# hypothesis_version: 6.148.10
+
+[1209600, ',', '1209600', ':', 'ML_PRED_TTL_SEC', 'cache_pred set', 'get_pred get']

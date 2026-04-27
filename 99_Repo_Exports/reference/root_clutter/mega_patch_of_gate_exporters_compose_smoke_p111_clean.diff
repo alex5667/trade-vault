@@ -1,0 +1,511 @@
+diff -ruN a/confidence_calculation/docker-compose-crypto-orderflow.yml b/confidence_calculation/docker-compose-crypto-orderflow.yml
+--- a/confidence_calculation/docker-compose-crypto-orderflow.yml	2026-02-26 05:51:17.283436150 +0000
++++ b/confidence_calculation/docker-compose-crypto-orderflow.yml	2026-02-26 05:50:29.791980036 +0000
+@@ -2983,6 +2983,50 @@
+       sh -c "python3 -m orderflow_services.of_inputs_dlq_db_exporter_p99"
+     profiles: ["default"]
+ 
++
++  # OF-Gate archiver/rollups status exporter (P78+)
++  of-gate-archiver-exporter:
++    build: *id001
++    container_name: scanner-of-gate-archiver-exporter
++    restart: unless-stopped
++    environment:
++      - REDIS_URL=redis://redis-worker-1:6379/0
++      - PYTHONPATH=/app
++      - OF_GATE_ARCHIVER_EXPORTER_PORT=9152
++      - OF_GATE_ARCHIVER_EXPORTER_REFRESH_SEC=10
++    depends_on: *id003
++    networks: *id004
++    volumes:
++      - .:/app
++    working_dir: /app
++    ports:
++      - '9152:9152'
++    command: >
++      sh -c "python3 -m orderflow_services.of_gate_archiver_exporter_v1"
++    profiles: ["default"]
++
++  # OF-Gate DLQ/quarantine exporter (P82)
++  of-gate-dlq-exporter:
++    build: *id001
++    container_name: scanner-of-gate-dlq-exporter
++    restart: unless-stopped
++    environment:
++      - REDIS_URL=redis://redis-worker-1:6379/0
++      - PYTHONPATH=/app
++      - OF_GATE_DLQ_EXPORTER_PORT=9154
++      - OF_GATE_DLQ_EXPORTER_REFRESH_SEC=10
++      - OF_GATE_DLQ_STREAMS=stream:dlq:of_gate_metrics,stream:dlq:of_gate_quarantine
++    depends_on: *id003
++    networks: *id004
++    volumes:
++      - .:/app
++    working_dir: /app
++    ports:
++      - '9154:9154'
++    command: >
++      sh -c "python3 -m orderflow_services.of_gate_dlq_exporter_v1"
++    profiles: ["default"]
++
+   # Prometheus rules bundle validator smoke timer (P102)
+   # NOTE: prefer running via services.of_timers_worker (hourly :09). Keep this as an optional fallback.
+   prom-rules-bundle-smoke-timer:
+@@ -3042,6 +3086,11 @@
+       - OF_INPUTS_DLQ_DB_ARCHIVE_AUTO_MIGRATE=1
+       - ENABLE_OF_INPUTS_EXPORTERS_SMOKE_P107=1
+ 
++      # OF-Gate exporters smoke-check (P111)
++      - ENABLE_OF_GATE_EXPORTERS_SMOKE_P111=1
++      - OF_GATE_EXPORTERS_SMOKE_BLOCK_REASON=of_gate_exporters_smoke
++      - OF_GATE_EXPORTERS_SMOKE_BLOCK_AUTO_APPLY=1
++
+       # Anti-flap / dedup defaults
+       - PROM_RULES_BUNDLE_SMOKE_COOLDOWN_S=21600
+       - PROM_RULES_LOADED_PROBE_COOLDOWN_S=21600
+diff -ruN a/orderflow_services/auto_apply_guard.py b/orderflow_services/auto_apply_guard.py
+--- a/orderflow_services/auto_apply_guard.py	2026-02-26 05:51:17.372716646 +0000
++++ b/orderflow_services/auto_apply_guard.py	2026-02-26 05:49:37.888651099 +0000
+@@ -27,7 +27,7 @@
+ DEFAULT_PREFIX = "cfg:suggestions:entry_policy:auto_apply_block"
+ OF_INPUTS_V3_GLOBAL_PREFIX = "cfg:of_inputs_v3:auto_apply_block_global"
+ OF_INPUTS_V3_SYMBOL_PREFIX = "cfg:of_inputs_v3:auto_apply_block"
+-DEFAULT_REASONS = "tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke"
++DEFAULT_REASONS = "tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke,of_gate_exporters_smoke"
+ 
+ 
+ def _now_ms() -> int:
+diff -ruN a/orderflow_services/of_gate_exporters_smoke_p111.py b/orderflow_services/of_gate_exporters_smoke_p111.py
+--- a/orderflow_services/of_gate_exporters_smoke_p111.py	1970-01-01 00:00:00.000000000 +0000
++++ b/orderflow_services/of_gate_exporters_smoke_p111.py	2026-02-26 05:48:06.643415428 +0000
+@@ -0,0 +1,147 @@
++"""P111 — OF-Gate exporters smoke-check.
++
++Purpose:
++  - Catch broken wiring early (exporter process down, wrong ports, network, etc.)
++  - Keep the check deterministic and low-noise (exit=2 only for actionable failures)
++
++Targets:
++  - of-gate-archiver-exporter:9152  (must contain of_gate_archiver_last_run_ts_ms)
++  - of-gate-dlq-exporter:9154       (must contain of_gate_dlq_len)
++
++Exit codes:
++  - 0: OK
++  - 2: ALERT (one or more targets failed)
++  - 1: internal error (unexpected exception)
++"""
++
++from __future__ import annotations
++
++import json
++import os
++import time
++from dataclasses import dataclass
++from typing import List, Optional
++from urllib.error import HTTPError, URLError
++from urllib.request import Request, urlopen
++
++
++@dataclass
++class TargetSpec:
++    name: str
++    endpoint: str  # host:port or full URL
++    must_contain: Optional[str] = None
++
++
++DEFAULT_TARGETS: List[TargetSpec] = [
++    TargetSpec("archiver", "of-gate-archiver-exporter:9152", "of_gate_archiver_last_run_ts_ms"),
++    TargetSpec("dlq", "of-gate-dlq-exporter:9154", "of_gate_dlq_len"),
++]
++
++
++def _parse_targets_from_env() -> List[TargetSpec]:
++    """Allow override via env.
++
++    Format:
++      OF_GATE_EXPORTERS_SMOKE_TARGETS="name=host:port|metric_substr,dlq=..."
++
++    Examples:
++      OF_GATE_EXPORTERS_SMOKE_TARGETS="archiver=of-gate-archiver-exporter:9152|of_gate_archiver_last_run_ts_ms"
++    """
++    raw = (os.getenv("OF_GATE_EXPORTERS_SMOKE_TARGETS") or "").strip()
++    if not raw:
++        return list(DEFAULT_TARGETS)
++
++    out: List[TargetSpec] = []
++    for item in raw.split(","):
++        item = item.strip()
++        if not item:
++            continue
++        name = "target"
++        endpoint = item
++        must = None
++        if "=" in item:
++            name, endpoint = item.split("=", 1)
++            name = name.strip() or "target"
++            endpoint = endpoint.strip()
++        if "|" in endpoint:
++            endpoint, must = endpoint.split("|", 1)
++            endpoint = endpoint.strip()
++            must = (must or "").strip() or None
++        out.append(TargetSpec(name=name, endpoint=endpoint, must_contain=must))
++    return out if out else list(DEFAULT_TARGETS)
++
++
++def _metrics_url(endpoint: str) -> str:
++    ep = (endpoint or "").strip()
++    if not ep:
++        return ""
++    if ep.startswith("http://") or ep.startswith("https://"):
++        if ep.endswith("/metrics"):
++            return ep
++        return ep.rstrip("/") + "/metrics"
++    return "http://" + ep + "/metrics"
++
++
++def _fetch(url: str, timeout_s: float) -> str:
++    req = Request(url, headers={"User-Agent": "of_gate_exporters_smoke_p111/1"})
++    with urlopen(req, timeout=timeout_s) as resp:
++        b = resp.read()
++        try:
++            return b.decode("utf-8", errors="replace")
++        except Exception:
++            return ""
++
++
++def main() -> int:
++    t0 = time.time()
++    timeout_s = float(os.getenv("OF_GATE_EXPORTERS_SMOKE_TIMEOUT_S", "3"))
++    targets = _parse_targets_from_env()
++
++    failures = []
++    checked = 0
++    for spec in targets:
++        url = _metrics_url(spec.endpoint)
++        if not url:
++            continue
++        checked += 1
++        try:
++            body = _fetch(url, timeout_s=timeout_s)
++            if spec.must_contain and (spec.must_contain not in body):
++                failures.append(
++                    {
++                        "name": spec.name,
++                        "target": spec.endpoint,
++                        "url": url,
++                        "err": f"missing_metric:{spec.must_contain}",
++                    }
++                )
++        except HTTPError as e:
++            failures.append(
++                {"name": spec.name, "target": spec.endpoint, "url": url, "err": f"http:{getattr(e, 'code', 'na')}"}
++            )
++        except URLError as e:
++            failures.append(
++                {"name": spec.name, "target": spec.endpoint, "url": url, "err": f"url:{getattr(e, 'reason', str(e))}"}
++            )
++        except Exception as e:
++            failures.append(
++                {"name": spec.name, "target": spec.endpoint, "url": url, "err": f"exc:{type(e).__name__}:{e}"}
++            )
++
++    dur_ms = int((time.time() - t0) * 1000)
++    if not failures:
++        print(json.dumps({"ok": 1, "checked": checked, "dur_ms": dur_ms, "targets": [t.name for t in targets]}))
++        return 0
++
++    print(json.dumps({"ok": 0, "checked": checked, "failed": failures, "dur_ms": dur_ms}))
++    return 2
++
++
++if __name__ == "__main__":
++    try:
++        raise SystemExit(main())
++    except SystemExit:
++        raise
++    except Exception as e:
++        print(json.dumps({"ok": 0, "err": f"internal:{type(e).__name__}:{e}"}))
++        raise SystemExit(1)
+diff -ruN a/services/of_timers_worker.py b/services/of_timers_worker.py
+--- a/services/of_timers_worker.py	2026-02-26 05:51:17.357835785 +0000
++++ b/services/of_timers_worker.py	2026-02-26 05:49:11.538658702 +0000
+@@ -577,6 +577,97 @@
+     return False
+ 
+ 
++def run_of_gate_exporters_smoke_p111() -> bool:
++    """Smoke-check OF-Gate exporters wiring (P111).
++
++    Checks HTTP /metrics endpoints for a small set of exporters and alerts on failures.
++
++    Exit semantics:
++      - module exit=0: OK
++      - module exit=2: ALERT (actionable failure, notify)
++      - other: ERROR (notify)
++    """
++    enabled = os.getenv("ENABLE_OF_GATE_EXPORTERS_SMOKE_P111", "1")
++    if str(enabled).lower() not in ("1", "true", "yes", "on"):
++        return True
++
++    timeout_s = int(os.getenv("OF_GATE_EXPORTERS_SMOKE_TIMEOUT_S", "30"))
++    cooldown_s = int(os.getenv("OF_GATE_EXPORTERS_SMOKE_COOLDOWN_S", str(6 * 3600)))
++    dedup_enable = str(os.getenv("OF_GATE_EXPORTERS_SMOKE_DEDUP", "1")).lower() in ("1", "true", "yes", "on")
++    dedup_prefix = os.getenv("OF_GATE_EXPORTERS_SMOKE_DEDUP_PREFIX", "dedup:alert:of_gate_exporters:")
++
++    # Fail-closed: if wiring/monitoring is broken, block auto-apply (optional).
++    block_auto_apply = str(os.getenv("OF_GATE_EXPORTERS_SMOKE_BLOCK_AUTO_APPLY", "1")).lower() in ("1", "true", "yes", "on")
++    block_reason = os.getenv("OF_GATE_EXPORTERS_SMOKE_BLOCK_REASON", "of_gate_exporters_smoke")
++    # Default: keep the block at least as long as dedup cooldown.
++    block_ttl_s = int(os.getenv("OF_GATE_EXPORTERS_SMOKE_BLOCK_TTL_S", str(max(3600, cooldown_s))))
++
++    module = os.getenv(
++        "OF_GATE_EXPORTERS_SMOKE_MODULE",
++        "orderflow_services.of_gate_exporters_smoke_p111",
++    )
++
++    rc, stdout, stderr = run_tool_rc(module, timeout=timeout_s)
++    if rc == 0:
++        if block_auto_apply:
++            _clear_auto_apply_block_if_owned(block_reason, owner="of_gate_exporters_smoke")
++        logger.info("OF-Gate exporters smoke-check: OK")
++        return True
++
++    blob = ((stdout or "").strip() + "\n" + (stderr or "").strip()).strip()
++    payload = {}
++    for line in reversed((stdout or "").splitlines()):
++        line = line.strip()
++        if line.startswith("{") and line.endswith("}"):
++            try:
++                payload = json.loads(line)
++                break
++            except Exception:
++                pass
++
++    failed = payload.get("failed") if isinstance(payload, dict) else None
++    failed_names = []
++    if isinstance(failed, list):
++        for f in failed[:6]:
++            try:
++                failed_names.append(str(f.get("name") or f.get("target") or "?")[:64])
++            except Exception:
++                pass
++
++    signature = f"rc={rc}|failed={','.join(sorted(failed_names))}"
++
++    if block_auto_apply:
++        _set_auto_apply_block(
++            block_reason,
++            meta={
++                "owner": "of_gate_exporters_smoke",
++                "rc": int(rc),
++                "failed": list(failed_names),
++                "sig": signature,
++                "module": str(module),
++            },
++            ttl_s=block_ttl_s,
++        )
++
++    if dedup_enable and not _dedup_allow(signature, cooldown_s=cooldown_s, prefix=dedup_prefix):
++        logger.warning(
++            f"OF-Gate exporters smoke-check: suppressed duplicate alert (cooldown {cooldown_s}s). sig={signature}"
++        )
++        return False
++
++    head = ""
++    for line in blob.splitlines():
++        line = (line or "").strip()
++        if line:
++            head = line
++            break
++
++    msg = f"OF_GATE_EXPORTERS_SMOKE_P111 rc={rc} failed={failed_names} :: {head[:700]}"
++    sid = "of_gate_exporters_smoke:" + hashlib.sha1(signature.encode("utf-8")).hexdigest()[:16]
++    sev = "crit" if rc == 2 else "page"
++    _notify_stream(msg, severity=sev, sid=sid)
++    return False
++
+ def _parse_world_practice_smoke_output(stdout: str, stderr: str) -> dict:
+     """Extract JSON payload from smoke-check output (best-effort)."""
+     out = (stdout or "").strip()
+@@ -2202,6 +2293,7 @@
+     logger.info("Monitors: Config drift (hourly :15)")
+     logger.info("Monitors: OF Gate contract smoke-check (hourly :08)")
+     logger.info("Monitors: Prometheus rules bundle smoke-check (hourly :09)")
++    logger.info("Monitors: OF Gate exporters smoke-check (hourly :14)")
+     logger.info("Monitors: OF Gate DLQ auto replay (hourly :44)")
+     logger.info("Monitors: Confidence cal live health (hourly :45)")
+     logger.info("Monitors: OFInputs DLQ auto replay (hourly :52) [ENABLE_OF_INPUTS_DLQ_AUTO_REPLAY=1]")
+@@ -2297,6 +2389,13 @@
+                     run_feature_registry_contract_smoke_check()
+                     last_run["feature_registry_contract_smoke"] = now.timestamp()
+ 
++
++            # Hourly:14 OF-Gate exporters wiring smoke-check (P111)
++            if minute >= 14 and minute < 15:
++                last = last_run.get("of_gate_exporters_smoke_p111", 0)
++                if now.timestamp() - last > 3500:
++                    run_of_gate_exporters_smoke_p111()
++                    last_run["of_gate_exporters_smoke_p111"] = now.timestamp()
+             if minute >= 15 and minute < 16:
+                 last = last_run.get("config_drift", 0)
+                 if now.timestamp() - last > 3500:
+diff -ruN a/services/orderflow/auto_apply_guard.py b/services/orderflow/auto_apply_guard.py
+--- a/services/orderflow/auto_apply_guard.py	2026-02-26 05:51:17.373910017 +0000
++++ b/services/orderflow/auto_apply_guard.py	2026-02-26 05:49:37.887545660 +0000
+@@ -27,7 +27,7 @@
+ DEFAULT_PREFIX = "cfg:suggestions:entry_policy:auto_apply_block"
+ OF_INPUTS_V3_GLOBAL_PREFIX = "cfg:of_inputs_v3:auto_apply_block_global"
+ OF_INPUTS_V3_SYMBOL_PREFIX = "cfg:of_inputs_v3:auto_apply_block"
+-DEFAULT_REASONS = "tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke"
++DEFAULT_REASONS = "tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke,of_gate_exporters_smoke"
+ 
+ 
+ def _now_ms() -> int:
+diff -ruN a/tick_flow_full/orderflow_services/auto_apply_guard.py b/tick_flow_full/orderflow_services/auto_apply_guard.py
+--- a/tick_flow_full/orderflow_services/auto_apply_guard.py	2026-02-26 05:51:17.374649449 +0000
++++ b/tick_flow_full/orderflow_services/auto_apply_guard.py	2026-02-26 05:49:37.889130390 +0000
+@@ -27,7 +27,7 @@
+ DEFAULT_PREFIX = "cfg:suggestions:entry_policy:auto_apply_block"
+ OF_INPUTS_V3_GLOBAL_PREFIX = "cfg:of_inputs_v3:auto_apply_block_global"
+ OF_INPUTS_V3_SYMBOL_PREFIX = "cfg:of_inputs_v3:auto_apply_block"
+-DEFAULT_REASONS = "tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke"
++DEFAULT_REASONS = "tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke,of_gate_exporters_smoke"
+ 
+ 
+ def _now_ms() -> int:
+diff -ruN a/tick_flow_full/services/of_timers_worker.py b/tick_flow_full/services/of_timers_worker.py
+--- a/tick_flow_full/services/of_timers_worker.py	2026-02-26 05:51:17.359690535 +0000
++++ b/tick_flow_full/services/of_timers_worker.py	2026-02-26 05:49:26.114552535 +0000
+@@ -577,6 +577,97 @@
+     return False
+ 
+ 
++def run_of_gate_exporters_smoke_p111() -> bool:
++    """Smoke-check OF-Gate exporters wiring (P111).
++
++    Checks HTTP /metrics endpoints for a small set of exporters and alerts on failures.
++
++    Exit semantics:
++      - module exit=0: OK
++      - module exit=2: ALERT (actionable failure, notify)
++      - other: ERROR (notify)
++    """
++    enabled = os.getenv("ENABLE_OF_GATE_EXPORTERS_SMOKE_P111", "1")
++    if str(enabled).lower() not in ("1", "true", "yes", "on"):
++        return True
++
++    timeout_s = int(os.getenv("OF_GATE_EXPORTERS_SMOKE_TIMEOUT_S", "30"))
++    cooldown_s = int(os.getenv("OF_GATE_EXPORTERS_SMOKE_COOLDOWN_S", str(6 * 3600)))
++    dedup_enable = str(os.getenv("OF_GATE_EXPORTERS_SMOKE_DEDUP", "1")).lower() in ("1", "true", "yes", "on")
++    dedup_prefix = os.getenv("OF_GATE_EXPORTERS_SMOKE_DEDUP_PREFIX", "dedup:alert:of_gate_exporters:")
++
++    # Fail-closed: if wiring/monitoring is broken, block auto-apply (optional).
++    block_auto_apply = str(os.getenv("OF_GATE_EXPORTERS_SMOKE_BLOCK_AUTO_APPLY", "1")).lower() in ("1", "true", "yes", "on")
++    block_reason = os.getenv("OF_GATE_EXPORTERS_SMOKE_BLOCK_REASON", "of_gate_exporters_smoke")
++    # Default: keep the block at least as long as dedup cooldown.
++    block_ttl_s = int(os.getenv("OF_GATE_EXPORTERS_SMOKE_BLOCK_TTL_S", str(max(3600, cooldown_s))))
++
++    module = os.getenv(
++        "OF_GATE_EXPORTERS_SMOKE_MODULE",
++        "orderflow_services.of_gate_exporters_smoke_p111",
++    )
++
++    rc, stdout, stderr = run_tool_rc(module, timeout=timeout_s)
++    if rc == 0:
++        if block_auto_apply:
++            _clear_auto_apply_block_if_owned(block_reason, owner="of_gate_exporters_smoke")
++        logger.info("OF-Gate exporters smoke-check: OK")
++        return True
++
++    blob = ((stdout or "").strip() + "\n" + (stderr or "").strip()).strip()
++    payload = {}
++    for line in reversed((stdout or "").splitlines()):
++        line = line.strip()
++        if line.startswith("{") and line.endswith("}"):
++            try:
++                payload = json.loads(line)
++                break
++            except Exception:
++                pass
++
++    failed = payload.get("failed") if isinstance(payload, dict) else None
++    failed_names = []
++    if isinstance(failed, list):
++        for f in failed[:6]:
++            try:
++                failed_names.append(str(f.get("name") or f.get("target") or "?")[:64])
++            except Exception:
++                pass
++
++    signature = f"rc={rc}|failed={','.join(sorted(failed_names))}"
++
++    if block_auto_apply:
++        _set_auto_apply_block(
++            block_reason,
++            meta={
++                "owner": "of_gate_exporters_smoke",
++                "rc": int(rc),
++                "failed": list(failed_names),
++                "sig": signature,
++                "module": str(module),
++            },
++            ttl_s=block_ttl_s,
++        )
++
++    if dedup_enable and not _dedup_allow(signature, cooldown_s=cooldown_s, prefix=dedup_prefix):
++        logger.warning(
++            f"OF-Gate exporters smoke-check: suppressed duplicate alert (cooldown {cooldown_s}s). sig={signature}"
++        )
++        return False
++
++    head = ""
++    for line in blob.splitlines():
++        line = (line or "").strip()
++        if line:
++            head = line
++            break
++
++    msg = f"OF_GATE_EXPORTERS_SMOKE_P111 rc={rc} failed={failed_names} :: {head[:700]}"
++    sid = "of_gate_exporters_smoke:" + hashlib.sha1(signature.encode("utf-8")).hexdigest()[:16]
++    sev = "crit" if rc == 2 else "page"
++    _notify_stream(msg, severity=sev, sid=sid)
++    return False
++
+ def _parse_world_practice_smoke_output(stdout: str, stderr: str) -> dict:
+     """Extract JSON payload from smoke-check output (best-effort)."""
+     out = (stdout or "").strip()
+@@ -2358,6 +2449,7 @@
+     logger.info("Monitors: Config drift (hourly :15)")
+     logger.info("Monitors: OF Gate contract smoke-check (hourly :08)")
+     logger.info("Monitors: Prometheus rules bundle smoke-check (hourly :09)")
++    logger.info("Monitors: OF Gate exporters smoke-check (hourly :14)")
+     logger.info("Monitors: OF Gate DLQ auto replay (hourly :44)")
+     logger.info("Monitors: Confidence cal live health (hourly :45)")
+     logger.info("Monitors: OFInputs DLQ auto replay (hourly :52) [ENABLE_OF_INPUTS_DLQ_AUTO_REPLAY=1]")
+@@ -2462,6 +2554,13 @@
+                     run_feature_registry_contract_smoke_check()
+                     last_run["feature_registry_contract_smoke"] = now.timestamp()
+ 
++
++            # Hourly:14 OF-Gate exporters wiring smoke-check (P111)
++            if minute >= 14 and minute < 15:
++                last = last_run.get("of_gate_exporters_smoke_p111", 0)
++                if now.timestamp() - last > 3500:
++                    run_of_gate_exporters_smoke_p111()
++                    last_run["of_gate_exporters_smoke_p111"] = now.timestamp()
+             if minute >= 15 and minute < 16:
+                 last = last_run.get("config_drift", 0)
+                 if now.timestamp() - last > 3500:
+diff -ruN a/tick_flow_full/services/orderflow/auto_apply_guard.py b/tick_flow_full/services/orderflow/auto_apply_guard.py
+--- a/tick_flow_full/services/orderflow/auto_apply_guard.py	2026-02-26 05:51:17.375174347 +0000
++++ b/tick_flow_full/services/orderflow/auto_apply_guard.py	2026-02-26 05:49:37.888220223 +0000
+@@ -27,7 +27,7 @@
+ DEFAULT_PREFIX = "cfg:suggestions:entry_policy:auto_apply_block"
+ OF_INPUTS_V3_GLOBAL_PREFIX = "cfg:of_inputs_v3:auto_apply_block_global"
+ OF_INPUTS_V3_SYMBOL_PREFIX = "cfg:of_inputs_v3:auto_apply_block"
+-DEFAULT_REASONS = "tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke"
++DEFAULT_REASONS = "tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke,of_gate_exporters_smoke"
+ 
+ 
+ def _now_ms() -> int:

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/dq_quarantine.py
+# hypothesis_version: 6.148.10
+
+[160, 1000, 4000, 200000, ',', '...', ':', 'emit_src', 'raw', 'scenario_v4', 'symbol', 'ts_ms', 'ts_seen_ms', 'why', '{}']

@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/ndimage/_ni_support.py
+# hypothesis_version: 6.148.10
+
+['axes must be unique', 'c', 'constant', 'grid-constant', 'grid-mirror', 'grid-wrap', 'mirror', 'nearest', 'reflect', 'wrap']

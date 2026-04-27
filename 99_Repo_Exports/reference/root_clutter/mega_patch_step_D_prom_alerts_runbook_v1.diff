@@ -1,0 +1,634 @@
+diff --git a/orderflow_services/prometheus_alerts_strict_dq_stream_health_v1.yml b/orderflow_services/prometheus_alerts_strict_dq_stream_health_v1.yml
+new file mode 100644
+index 0000000..13ed9f2
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_strict_dq_stream_health_v1.yml
+@@ -0,0 +1,126 @@
++groups:
++  - name: orderflow_strict_dq_stream_health_v1
++    # Align rule eval cadence with the low-latency DQ surface.
++    # NOTE: Scrape interval should be <= 15s for the 10s 'extreme' alert to be meaningful.
++    interval: 30s
++    rules:
++      # -------------------------------------------------------------------
++      # P2/F — Strict DQ alerts (stream-level)
++      #
++      # These alerts are designed to be *actionable*:
++      #   - They point at the exact root dimension: latency (gap_p95) vs continuity (missing_seq).
++      #   - They are per-symbol (low-cardinality).
++      #   - Thresholds match DQ gate v2 strict defaults (see core/dq_gate_v1.py):
++      #       gap_soft=3000ms, gap_hard=4500ms, gap_extreme=9000ms
++      #       tick_seq_soft=0.05, tick_seq_hard=0.15
++      #       book_seq_hard=0.10
++      #
++      # IMPORTANT
++      # If you run DQ_MODE=safe, consider increasing thresholds or rely primarily on dq_level alerts.
++      # -------------------------------------------------------------------
++
++      # Tick gap p95 — sustained degradation (warn)
++      - alert: OF_DQ_TickGapP95High_Warn
++        expr: tick_gap_p95_ms > 3000 and on(symbol) tick_gap_n >= 50
++        for: 2m
++        labels:
++          severity: warning
++          component: orderflow
++          scope: dq
++          playbook: orderflow_services/runbook_strict_dq_stream_health_v1.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick gap p95 high (warn)"
++          description: |
++            Tick stream latency is degraded: tick_gap_p95_ms > 3000ms for 2m (n>=50).
++            This typically indicates WS/network jitter, upstream throttling, or local CPU stalls.
++
++      # Tick gap p95 — hard sustained degradation (crit)
++      - alert: OF_DQ_TickGapP95High_Crit
++        expr: tick_gap_p95_ms > 4500 and on(symbol) tick_gap_n >= 50
++        for: 30s
++        labels:
++          severity: critical
++          component: orderflow
++          scope: dq
++          playbook: orderflow_services/runbook_strict_dq_stream_health_v1.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick gap p95 high (crit)"
++          description: |
++            Tick stream latency is severely degraded: tick_gap_p95_ms > 4500ms for 30s (n>=50).
++            Expect DQ gate to escalate dq_level and potentially hard-veto (depending on mode).
++
++      # Tick gap p95 — extreme short spike (crit)
++      - alert: OF_DQ_TickGapP95Extreme_Crit
++        expr: tick_gap_p95_ms > 9000 and on(symbol) tick_gap_n >= 50
++        for: 10s
++        labels:
++          severity: critical
++          component: orderflow
++          scope: dq
++          playbook: orderflow_services/runbook_strict_dq_stream_health_v1.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick gap p95 extreme"
++          description: |
++            Extreme tick stream latency spike: tick_gap_p95_ms > 9000ms for 10s (n>=50).
++            Usually correlates with transient WS disconnect/reconnect, host stalls, or network drops.
++
++      # Tick continuity (trade_id gap) — sustained soft degradation (warn)
++      - alert: OF_DQ_TickMissingSeqEmaHigh_Warn
++        expr: tick_missing_seq_ema > 0.05
++        for: 2m
++        labels:
++          severity: warning
++          component: orderflow
++          scope: dq
++          playbook: orderflow_services/runbook_strict_dq_stream_health_v1.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick continuity degrading (warn)"
++          description: |
++            Tick continuity degradation: tick_missing_seq_ema > 0.05 for 2m.
++            This indicates true gaps in trade_id continuity (tid jumps forward by >1).
++            Investigate WS stream drops and reconnection logic.
++
++      # Tick continuity — hard degradation (crit)
++      - alert: OF_DQ_TickMissingSeqEmaHigh_Crit
++        expr: tick_missing_seq_ema > 0.15
++        for: 30s
++        labels:
++          severity: critical
++          component: orderflow
++          scope: dq
++          playbook: orderflow_services/runbook_strict_dq_stream_health_v1.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick continuity broken (crit)"
++          description: |
++            Tick continuity broken: tick_missing_seq_ema > 0.15 for 30s.
++            This is a strong indicator of persistent WS gaps or a parsing/sequence bug.
++
++      # Book continuity (diff-depth seq chain) — hard degradation (crit)
++      - alert: OF_DQ_BookMissingSeqEmaHigh_Crit
++        expr: book_missing_seq_ema > 0.10
++        for: 30s
++        labels:
++          severity: critical
++          component: orderflow
++          scope: dq
++          playbook: orderflow_services/runbook_strict_dq_stream_health_v1.md
++        annotations:
++          summary: "{{ $labels.symbol }}: book continuity broken (crit)"
++          description: |
++            Book continuity broken: book_missing_seq_ema > 0.10 for 30s.
++            This typically means diff-depth (U/u/pu) chain is broken (missing seq) and you must resync snapshot.
++
++      # DQ hard-level share: dq_level == 2 for a large fraction of scrapes
++      - alert: OF_DQ_LevelHardShareHigh_Crit
++        expr: avg_over_time((dq_level == bool 2)[5m]) > 0.20
++        for: 1m
++        labels:
++          severity: critical
++          component: orderflow
++          scope: dq
++          playbook: orderflow_services/runbook_strict_dq_stream_health_v1.md
++        annotations:
++          summary: "{{ $labels.symbol }}: DQ hard-level share high"
++          description: |
++            DQ hard-level is sticky: dq_level==2 for >20% of scrapes over 5m.
++            This is a system-level integrity issue: trading decisions may be hard-vetoed frequently.
+
+diff --git a/tick_flow_full/orderflow_services/prometheus_alerts_strict_dq_stream_health_v1.yml b/tick_flow_full/orderflow_services/prometheus_alerts_strict_dq_stream_health_v1.yml
+new file mode 100644
+index 0000000..13ed9f2
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_strict_dq_stream_health_v1.yml
+@@ -0,0 +1,126 @@
++groups:
++  - name: orderflow_strict_dq_stream_health_v1
++    # Align rule eval cadence with the low-latency DQ surface.
++    # NOTE: Scrape interval should be <= 15s for the 10s 'extreme' alert to be meaningful.
++    interval: 30s
++    rules:
++      # -------------------------------------------------------------------
++      # P2/F — Strict DQ alerts (stream-level)
++      #
++      # These alerts are designed to be *actionable*:
++      #   - They point at the exact root dimension: latency (gap_p95) vs continuity (missing_seq).
++      #   - They are per-symbol (low-cardinality).
++      #   - Thresholds match DQ gate v2 strict defaults (see core/dq_gate_v1.py):
++      #       gap_soft=3000ms, gap_hard=4500ms, gap_extreme=9000ms
++      #       tick_seq_soft=0.05, tick_seq_hard=0.15
++      #       book_seq_hard=0.10
++      #
++      # IMPORTANT
++      # If you run DQ_MODE=safe, consider increasing thresholds or rely primarily on dq_level alerts.
++      # -------------------------------------------------------------------
++
++      # Tick gap p95 — sustained degradation (warn)
++      - alert: OF_DQ_TickGapP95High_Warn
++        expr: tick_gap_p95_ms > 3000 and on(symbol) tick_gap_n >= 50
++        for: 2m
++        labels:
++          severity: warning
++          component: orderflow
++          scope: dq
++          playbook: orderflow_services/runbook_strict_dq_stream_health_v1.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick gap p95 high (warn)"
++          description: |
++            Tick stream latency is degraded: tick_gap_p95_ms > 3000ms for 2m (n>=50).
++            This typically indicates WS/network jitter, upstream throttling, or local CPU stalls.
++
++      # Tick gap p95 — hard sustained degradation (crit)
++      - alert: OF_DQ_TickGapP95High_Crit
++        expr: tick_gap_p95_ms > 4500 and on(symbol) tick_gap_n >= 50
++        for: 30s
++        labels:
++          severity: critical
++          component: orderflow
++          scope: dq
++          playbook: orderflow_services/runbook_strict_dq_stream_health_v1.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick gap p95 high (crit)"
++          description: |
++            Tick stream latency is severely degraded: tick_gap_p95_ms > 4500ms for 30s (n>=50).
++            Expect DQ gate to escalate dq_level and potentially hard-veto (depending on mode).
++
++      # Tick gap p95 — extreme short spike (crit)
++      - alert: OF_DQ_TickGapP95Extreme_Crit
++        expr: tick_gap_p95_ms > 9000 and on(symbol) tick_gap_n >= 50
++        for: 10s
++        labels:
++          severity: critical
++          component: orderflow
++          scope: dq
++          playbook: orderflow_services/runbook_strict_dq_stream_health_v1.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick gap p95 extreme"
++          description: |
++            Extreme tick stream latency spike: tick_gap_p95_ms > 9000ms for 10s (n>=50).
++            Usually correlates with transient WS disconnect/reconnect, host stalls, or network drops.
++
++      # Tick continuity (trade_id gap) — sustained soft degradation (warn)
++      - alert: OF_DQ_TickMissingSeqEmaHigh_Warn
++        expr: tick_missing_seq_ema > 0.05
++        for: 2m
++        labels:
++          severity: warning
++          component: orderflow
++          scope: dq
++          playbook: orderflow_services/runbook_strict_dq_stream_health_v1.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick continuity degrading (warn)"
++          description: |
++            Tick continuity degradation: tick_missing_seq_ema > 0.05 for 2m.
++            This indicates true gaps in trade_id continuity (tid jumps forward by >1).
++            Investigate WS stream drops and reconnection logic.
++
++      # Tick continuity — hard degradation (crit)
++      - alert: OF_DQ_TickMissingSeqEmaHigh_Crit
++        expr: tick_missing_seq_ema > 0.15
++        for: 30s
++        labels:
++          severity: critical
++          component: orderflow
++          scope: dq
++          playbook: orderflow_services/runbook_strict_dq_stream_health_v1.md
++        annotations:
++          summary: "{{ $labels.symbol }}: tick continuity broken (crit)"
++          description: |
++            Tick continuity broken: tick_missing_seq_ema > 0.15 for 30s.
++            This is a strong indicator of persistent WS gaps or a parsing/sequence bug.
++
++      # Book continuity (diff-depth seq chain) — hard degradation (crit)
++      - alert: OF_DQ_BookMissingSeqEmaHigh_Crit
++        expr: book_missing_seq_ema > 0.10
++        for: 30s
++        labels:
++          severity: critical
++          component: orderflow
++          scope: dq
++          playbook: orderflow_services/runbook_strict_dq_stream_health_v1.md
++        annotations:
++          summary: "{{ $labels.symbol }}: book continuity broken (crit)"
++          description: |
++            Book continuity broken: book_missing_seq_ema > 0.10 for 30s.
++            This typically means diff-depth (U/u/pu) chain is broken (missing seq) and you must resync snapshot.
++
++      # DQ hard-level share: dq_level == 2 for a large fraction of scrapes
++      - alert: OF_DQ_LevelHardShareHigh_Crit
++        expr: avg_over_time((dq_level == bool 2)[5m]) > 0.20
++        for: 1m
++        labels:
++          severity: critical
++          component: orderflow
++          scope: dq
++          playbook: orderflow_services/runbook_strict_dq_stream_health_v1.md
++        annotations:
++          summary: "{{ $labels.symbol }}: DQ hard-level share high"
++          description: |
++            DQ hard-level is sticky: dq_level==2 for >20% of scrapes over 5m.
++            This is a system-level integrity issue: trading decisions may be hard-vetoed frequently.
+
+diff --git a/orderflow_services/runbook_strict_dq_stream_health_v1.md b/orderflow_services/runbook_strict_dq_stream_health_v1.md
+new file mode 100644
+index 0000000..62b5336
+--- /dev/null
++++ b/orderflow_services/runbook_strict_dq_stream_health_v1.md
+@@ -0,0 +1,150 @@
++# Runbook: Strict DQ stream health (P2/F)
++
++This runbook covers **stream-level Data Quality (DQ)** alerts that are based on
++low-cardinality per-symbol metrics exported by `services/orderflow`:
++
++- `tick_gap_p95_ms`, `tick_gap_n` — tick latency distribution snapshot
++- `tick_missing_seq_ema` — EMA of **true** trade_id gaps (tid jumps forward)
++- `book_missing_seq_ema` — EMA of diff-depth continuity breaks (U/u/pu chain)
++- `dq_level` — gate surface (0 ok, 1 soft, 2 hard-veto-capable)
++
++The alert rules are defined in:
++
++- `orderflow_services/prometheus_alerts_strict_dq_stream_health_v1.yml`
++
++## What these alerts mean
++
++### 1) Tick gap p95 (latency)
++
++Alerts:
++
++- `OF_DQ_TickGapP95High_Warn`
++- `OF_DQ_TickGapP95High_Crit`
++- `OF_DQ_TickGapP95Extreme_Crit`
++
++Interpretation:
++
++- **Tick gaps** are the time deltas between consecutive ticks processed by the
++  tick worker for a symbol.
++- A high **p95** implies persistent jitter / stalls.
++
++Common causes:
++
++- WS/network jitter, reconnect loops, upstream throttling
++- host CPU stalls (GC/CPU starvation), noisy neighbor, docker limits
++- local event loop blocking (sync I/O / heavy computations)
++
++### 2) Missing sequence EMA (continuity)
++
++Alerts:
++
++- `OF_DQ_TickMissingSeqEmaHigh_Warn` / `Crit`
++- `OF_DQ_BookMissingSeqEmaHigh_Crit`
++
++Interpretation:
++
++- `tick_missing_seq_ema` increases only on **true trade_id gaps** (tid > last + 1).
++  Duplicates/reorders are tracked separately and should not drive this EMA.
++- `book_missing_seq_ema` increases when the diff-depth chain is broken
++  (missing/invalid continuity of U/u/pu → first_id/final_id/prev_final).
++
++Common causes:
++
++- dropped WS messages, reconnect without correct backfill
++- parsing bug that misreads `u` / `U` / `pu` fields
++- out-of-order delivery causing continuity logic to mark gaps
++
++### 3) Hard DQ level share
++
++Alert:
++
++- `OF_DQ_LevelHardShareHigh_Crit`
++
++Interpretation:
++
++- `dq_level==2` means the gate considers the stream state hard-veto-capable.
++- High share indicates the system is frequently in a state where decisions may
++  be vetoed (depending on `DQ_GATE_MODE`).
++
++## Quick triage checklist
++
++1) **Scope**
++   - Many symbols at once → infra/network/host-level issue.
++   - Single symbol → exchange stream issue, symbol-specific WS instability, or
++     symbol worker regression.
++
++2) **Check freshness**
++   - Verify the worker is alive and exporting metrics.
++   - Confirm the symbol is active (not paused/disabled).
++
++3) **Correlate**
++   - If tick gaps spike together with missing_seq: likely WS reconnect/drop.
++   - If only book_missing_seq spikes: likely order book diff chain break → snapshot resync.
++
++## Mitigation actions
++
++### A) Tick gap p95 high
++
++Immediate:
++
++1. Check host resource saturation (CPU steal, load, memory pressure).
++2. Inspect WS client logs for reconnect loops / timeouts.
++3. If isolated to one symbol, restart **only that symbol worker** (preferred).
++4. If widespread, restart the WS ingest process (careful: may worsen if upstream is unstable).
++
++Follow-up:
++
++- Validate docker CPU/mem limits and the Prometheus scrape interval.
++- Ensure tick processor does not do heavy synchronous work on the hot path.
++
++### B) Tick missing_seq EMA high
++
++Immediate:
++
++1. Confirm this is not a brief transient (check alert `for:` duration).
++2. Inspect WS reconnect/backfill logic:
++   - On reconnect, do you resubscribe correctly?
++   - Is trade_id continuity preserved across reconnect?
++3. Restart symbol worker.
++
++If it persists:
++
++- Consider temporarily disabling the symbol (risk control) until continuity is stable.
++
++### C) Book missing_seq EMA high
++
++Immediate (most common fix):
++
++1. Force a **book snapshot resync** for the affected symbol.
++2. Verify diff-depth parser fields:
++   - `U`, `u`, `pu` handling is correct
++   - `u` is monotonically increasing in your internal state
++
++If it persists:
++
++- Check for schema/regression mismatch between `services/` and `tick_flow_full/` mirror.
++- Check for symbol-specific exchange behavior (some instruments can be unstable).
++
++### D) dq_level hard share high
++
++Immediate:
++
++1. Determine dominant root-cause bucket using other alerts/metrics
++   (`tick_gap_p95_ms`, `tick_missing_seq_ema`, `book_missing_seq_ema`).
++2. If `DQ_GATE_MODE=enforce` (or `both`), trading may be vetoed frequently.
++   Consider temporary:
++   - switching to `DQ_GATE_MODE=penalty` (fail-open) while investigating
++   - disabling affected symbol(s)
++
++## Configuration notes
++
++DQ behavior is driven by config keys (defaults are applied in `core/dq_gate_v1.py`):
++
++- `DQ_MODE` = `safe|strict`
++- `DQ_GATE_MODE` = `off|penalty|enforce|both`
++- Override thresholds:
++  - `DQ_TICK_GAP_P95_MS_SOFT|HARD|EXTREME`
++  - `DQ_TICK_MISSING_SEQ_EMA_SOFT|HARD`
++  - `DQ_BOOK_MISSING_SEQ_EMA_SOFT|HARD`
++
++If you change these, keep Prometheus alert thresholds consistent.
+
+diff --git a/tick_flow_full/orderflow_services/runbook_strict_dq_stream_health_v1.md b/tick_flow_full/orderflow_services/runbook_strict_dq_stream_health_v1.md
+new file mode 100644
+index 0000000..62b5336
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/runbook_strict_dq_stream_health_v1.md
+@@ -0,0 +1,150 @@
++# Runbook: Strict DQ stream health (P2/F)
++
++This runbook covers **stream-level Data Quality (DQ)** alerts that are based on
++low-cardinality per-symbol metrics exported by `services/orderflow`:
++
++- `tick_gap_p95_ms`, `tick_gap_n` — tick latency distribution snapshot
++- `tick_missing_seq_ema` — EMA of **true** trade_id gaps (tid jumps forward)
++- `book_missing_seq_ema` — EMA of diff-depth continuity breaks (U/u/pu chain)
++- `dq_level` — gate surface (0 ok, 1 soft, 2 hard-veto-capable)
++
++The alert rules are defined in:
++
++- `orderflow_services/prometheus_alerts_strict_dq_stream_health_v1.yml`
++
++## What these alerts mean
++
++### 1) Tick gap p95 (latency)
++
++Alerts:
++
++- `OF_DQ_TickGapP95High_Warn`
++- `OF_DQ_TickGapP95High_Crit`
++- `OF_DQ_TickGapP95Extreme_Crit`
++
++Interpretation:
++
++- **Tick gaps** are the time deltas between consecutive ticks processed by the
++  tick worker for a symbol.
++- A high **p95** implies persistent jitter / stalls.
++
++Common causes:
++
++- WS/network jitter, reconnect loops, upstream throttling
++- host CPU stalls (GC/CPU starvation), noisy neighbor, docker limits
++- local event loop blocking (sync I/O / heavy computations)
++
++### 2) Missing sequence EMA (continuity)
++
++Alerts:
++
++- `OF_DQ_TickMissingSeqEmaHigh_Warn` / `Crit`
++- `OF_DQ_BookMissingSeqEmaHigh_Crit`
++
++Interpretation:
++
++- `tick_missing_seq_ema` increases only on **true trade_id gaps** (tid > last + 1).
++  Duplicates/reorders are tracked separately and should not drive this EMA.
++- `book_missing_seq_ema` increases when the diff-depth chain is broken
++  (missing/invalid continuity of U/u/pu → first_id/final_id/prev_final).
++
++Common causes:
++
++- dropped WS messages, reconnect without correct backfill
++- parsing bug that misreads `u` / `U` / `pu` fields
++- out-of-order delivery causing continuity logic to mark gaps
++
++### 3) Hard DQ level share
++
++Alert:
++
++- `OF_DQ_LevelHardShareHigh_Crit`
++
++Interpretation:
++
++- `dq_level==2` means the gate considers the stream state hard-veto-capable.
++- High share indicates the system is frequently in a state where decisions may
++  be vetoed (depending on `DQ_GATE_MODE`).
++
++## Quick triage checklist
++
++1) **Scope**
++   - Many symbols at once → infra/network/host-level issue.
++   - Single symbol → exchange stream issue, symbol-specific WS instability, or
++     symbol worker regression.
++
++2) **Check freshness**
++   - Verify the worker is alive and exporting metrics.
++   - Confirm the symbol is active (not paused/disabled).
++
++3) **Correlate**
++   - If tick gaps spike together with missing_seq: likely WS reconnect/drop.
++   - If only book_missing_seq spikes: likely order book diff chain break → snapshot resync.
++
++## Mitigation actions
++
++### A) Tick gap p95 high
++
++Immediate:
++
++1. Check host resource saturation (CPU steal, load, memory pressure).
++2. Inspect WS client logs for reconnect loops / timeouts.
++3. If isolated to one symbol, restart **only that symbol worker** (preferred).
++4. If widespread, restart the WS ingest process (careful: may worsen if upstream is unstable).
++
++Follow-up:
++
++- Validate docker CPU/mem limits and the Prometheus scrape interval.
++- Ensure tick processor does not do heavy synchronous work on the hot path.
++
++### B) Tick missing_seq EMA high
++
++Immediate:
++
++1. Confirm this is not a brief transient (check alert `for:` duration).
++2. Inspect WS reconnect/backfill logic:
++   - On reconnect, do you resubscribe correctly?
++   - Is trade_id continuity preserved across reconnect?
++3. Restart symbol worker.
++
++If it persists:
++
++- Consider temporarily disabling the symbol (risk control) until continuity is stable.
++
++### C) Book missing_seq EMA high
++
++Immediate (most common fix):
++
++1. Force a **book snapshot resync** for the affected symbol.
++2. Verify diff-depth parser fields:
++   - `U`, `u`, `pu` handling is correct
++   - `u` is monotonically increasing in your internal state
++
++If it persists:
++
++- Check for schema/regression mismatch between `services/` and `tick_flow_full/` mirror.
++- Check for symbol-specific exchange behavior (some instruments can be unstable).
++
++### D) dq_level hard share high
++
++Immediate:
++
++1. Determine dominant root-cause bucket using other alerts/metrics
++   (`tick_gap_p95_ms`, `tick_missing_seq_ema`, `book_missing_seq_ema`).
++2. If `DQ_GATE_MODE=enforce` (or `both`), trading may be vetoed frequently.
++   Consider temporary:
++   - switching to `DQ_GATE_MODE=penalty` (fail-open) while investigating
++   - disabling affected symbol(s)
++
++## Configuration notes
++
++DQ behavior is driven by config keys (defaults are applied in `core/dq_gate_v1.py`):
++
++- `DQ_MODE` = `safe|strict`
++- `DQ_GATE_MODE` = `off|penalty|enforce|both`
++- Override thresholds:
++  - `DQ_TICK_GAP_P95_MS_SOFT|HARD|EXTREME`
++  - `DQ_TICK_MISSING_SEQ_EMA_SOFT|HARD`
++  - `DQ_BOOK_MISSING_SEQ_EMA_SOFT|HARD`
++
++If you change these, keep Prometheus alert thresholds consistent.
+
+diff --git a/orderflow_services/tests/test_strict_dq_stream_alerts_v1.py b/orderflow_services/tests/test_strict_dq_stream_alerts_v1.py
+new file mode 100644
+index 0000000..d94e5dc
+--- /dev/null
++++ b/orderflow_services/tests/test_strict_dq_stream_alerts_v1.py
+@@ -0,0 +1,48 @@
++from __future__ import annotations
++
++import os
++import yaml
++import pytest
++
++
++def _alerts_path(tick_flow_full: bool = False) -> str:
++    base = os.path.dirname(__file__)  # <repo>/orderflow_services/tests
++    root = os.path.abspath(os.path.join(base, ".."))
++    if tick_flow_full:
++        tf_root = os.path.abspath(os.path.join(base, "..", "..", "tick_flow_full", "orderflow_services"))
++        return os.path.join(tf_root, "prometheus_alerts_strict_dq_stream_health_v1.yml")
++    return os.path.join(root, "prometheus_alerts_strict_dq_stream_health_v1.yml")
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_strict_dq_alerts_yaml_parses(tick_flow_full: bool):
++    path = _alerts_path(tick_flow_full)
++    assert os.path.isfile(path), f"File not found: {path}"
++    with open(path) as fh:
++        doc = yaml.safe_load(fh)
++    assert isinstance(doc, dict)
++    assert "groups" in doc
++    assert len(doc["groups"]) >= 1
++    rules = doc["groups"][0].get("rules", [])
++    assert len(rules) > 0
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_strict_dq_alerts_contains_expected_alerts(tick_flow_full: bool):
++    path = _alerts_path(tick_flow_full)
++    with open(path) as fh:
++        doc = yaml.safe_load(fh)
++
++    rules = doc["groups"][0]["rules"]
++    names = [r.get("alert") for r in rules if "alert" in r]
++    expected = {
++        "OF_DQ_TickGapP95High_Warn",
++        "OF_DQ_TickGapP95High_Crit",
++        "OF_DQ_TickGapP95Extreme_Crit",
++        "OF_DQ_TickMissingSeqEmaHigh_Warn",
++        "OF_DQ_TickMissingSeqEmaHigh_Crit",
++        "OF_DQ_BookMissingSeqEmaHigh_Crit",
++        "OF_DQ_LevelHardShareHigh_Crit",
++    }
++    missing = expected - set(names)
++    assert not missing, f"Missing alerts: {sorted(missing)}; found={names}"

@@ -1,0 +1,78 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "graphTooltip": 0,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Execution emergency flatten total",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [{"expr": "sum by (symbol,reason) (increase(execution_emergency_flatten_total[15m]))", "refId": "A"}],
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Execution reconcile pending",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [{"expr": "sum by (action,symbol) (increase(execution_reconcile_pending_total[15m]))", "refId": "A"}],
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Hard DQ veto rate",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [{"expr": "sum by (symbol) (increase(trade_dq_hard_veto_total[15m]))", "refId": "A"}],
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Portfolio risk force flatten",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [{"expr": "sum by (symbol,reason) (increase(trade_risk_force_flatten_total[15m]))", "refId": "A"}],
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Portfolio exposure ratios",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 16},
+      "targets": [
+        {"expr": "trade_portfolio_total_exposure_ratio", "refId": "A", "legendFormat": "total"},
+        {"expr": "max by (symbol) (trade_portfolio_symbol_exposure_ratio)", "refId": "B", "legendFormat": "symbol {{symbol}}"},
+        {"expr": "max by (cluster) (trade_portfolio_cluster_exposure_ratio)", "refId": "C", "legendFormat": "cluster {{cluster}}"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "percentunit"}, "overrides": []},
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Execution journal write failures",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 16},
+      "targets": [{"expr": "sum by (kind) (increase(trade_execution_journal_write_fail_total[15m]))", "refId": "A"}],
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Maker TP watchdog fallback",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 25},
+      "targets": [{"expr": "sum by (symbol) (increase(execution_state_transition_total{next_state=~\"TP[123]_WATCHDOG_MARKET_FALLBACK\"}[15m]))", "refId": "A"}],
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}}
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["trade", "execution", "p5"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "Trade Execution P5",
+  "uid": "trade-execution-p5",
+  "version": 1
+}

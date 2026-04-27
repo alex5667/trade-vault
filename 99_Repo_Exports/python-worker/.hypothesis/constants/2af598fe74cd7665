@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/ab_winner_suggester_service_v3.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 1000, 2000, 3600, 20000, 50000, '0-0', '1209600', '168', '2', '3600', '604800000', 'A', 'AB_EVAL_EVERY_SEC', 'AB_INGEST_CURSOR_KEY', 'AB_LATEST_PREFIX', 'AB_LATEST_TTL_SEC', 'AB_LOOKBACK_HOURS', 'AB_META_PREFIX', 'AB_META_TTL_SEC', 'AB_SUGGEST_EXPIRE_MS', 'AB_SUGGEST_LOCK_KEY', 'AB_SUGGEST_STREAM', 'B', 'C', 'POSITION_CLOSED', 'REDIS_URL', 'TRADE_EVENTS_STREAM', '__main__', 'ab_arm', 'ab_group', 'continuation', 'default', 'event_type', 'events:trades', 'group', 'lcb_r', 'mean_r', 'n', 'na', 'notify:telegram', 'payload', 'r_mult', 'regime', 'report', 'reversal', 'scenario', 'sid', 'std_r', 'symbol', 'text', 'ts_ms', 'type', 'utf-8', 'winner', 'winrate']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/observability/ml_confirm_sre_poller.py
+# hypothesis_version: 6.148.10
+
+[60.0, '--champion-key', '--labels-stream', '--poll-interval', '--prometheus-port', '--redis-url', '60', '8005', 'ML_CFG_CHAMPION_KEY', 'PROMETHEUS_PORT', 'REDIS_URL', 'TB_LABELS_STREAM', '__main__', 'ignore', 'kind', 'labels:tb', 'ml_confirm_cfg_valid', 'reason', 'tb_labels_xadd_rate', 'tb_labels_xlen', 'tb_promo_fail_total', 'unknown', 'utf-8']

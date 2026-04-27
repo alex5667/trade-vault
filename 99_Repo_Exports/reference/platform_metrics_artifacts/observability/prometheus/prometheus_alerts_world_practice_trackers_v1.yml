@@ -1,0 +1,211 @@
+groups:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # World-practice trackers v1 – low-cardinality gauges (sym × bucket)
+  # ─────────────────────────────────────────────────────────────────────────────
+
+- name: of_world_practice_trackers_v1
+  interval: 60s
+  rules:
+
+  # ── Warn: vol_ratio_z high but exec_regime_bucket still NORMAL (bucket wiring/regime label bug) ──
+  - alert: OF_WP_VolRatioZHighInNormalBucket_Warn
+    expr: trade_vol_ratio_z{bucket="NORMAL"} > 3
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{{ $labels.sym }}: vol_ratio_z high but bucket=NORMAL ({{ $value | printf \"%.2f\" }})"
+      description: |
+        Symbol {{ $labels.sym }}: trade_vol_ratio_z is high while exec_regime_bucket remains NORMAL.
+        Typical causes: vol_regime_label stuck at "na" or bucket classifier mismatch.
+      runbook_path: /runbooks/world_practice_trackers_v1.md
+      dashboard_path: /d/world_practice_trackers_v1
+
+  # ── Warn: very low fill-prob in HIGH_VOL_LOW_LIQ when system is active ─────────
+  - alert: OF_WP_FillProbLowHVLL_Warn
+    expr: |
+      (
+        trade_fill_prob{bucket="HIGH_VOL_LOW_LIQ"} < 0.15
+      )
+      and on(sym)
+      (
+        label_replace(
+          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
+          "sym", "$1", "symbol", "(.*)"
+        ) > 0.02
+      )
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{{ $labels.sym }}: fill_prob low in HIGH_VOL_LOW_LIQ ({{ $value | printf \"%.2f\" }})"
+      description: |
+        Symbol {{ $labels.sym }}: trade_fill_prob is low in HIGH_VOL_LOW_LIQ while allow decisions are being produced.
+        This may indicate degraded passive executability (thin book / churn) or wiring issues if stuck at 0.0.
+      runbook_path: /runbooks/world_practice_trackers_v1.md
+      dashboard_path: /d/world_practice_trackers_v1
+
+  # ── Warn: eta_fill too high in HIGH_VOL_LOW_LIQ when system is active ──────────
+  - alert: OF_WP_EtaFillHighHVLL_Warn
+    expr: |
+      (
+        trade_eta_fill_sec{bucket="HIGH_VOL_LOW_LIQ"} > 8
+      )
+      and on(sym)
+      (
+        label_replace(
+          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
+          "sym", "$1", "symbol", "(.*)"
+        ) > 0.02
+      )
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{{ $labels.sym }}: eta_fill high in HIGH_VOL_LOW_LIQ ({{ $value | printf \"%.1f\" }}s)"
+      description: |
+        Symbol {{ $labels.sym }}: trade_eta_fill_sec is high in HIGH_VOL_LOW_LIQ while allow decisions are being produced.
+        Check depth_near, taker_rate_ema and churn.
+      runbook_path: /runbooks/world_practice_trackers_v1.md
+      dashboard_path: /d/world_practice_trackers_v1
+
+  # ── Crit: vol trackers likely broken (ratio stuck at 0) while system is active ─
+  - alert: OF_WP_VolTrackersStuckZero_Crit
+    expr: |
+      (
+        max_over_time(trade_vol_ratio[20m]) == 0
+      )
+      and on(sym)
+      (
+        label_replace(
+          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
+          "sym", "$1", "symbol", "(.*)"
+        ) > 0.05
+      )
+    for: 20m
+    labels:
+      severity: critical
+    annotations:
+      summary: "{{ $labels.sym }}: vol trackers stuck at 0 while active"
+      description: |
+        Symbol {{ $labels.sym }}: trade_vol_ratio has been 0 for 20m while allow decisions exist.
+        This typically indicates broken snapshot wiring (bar_processor -> runtime -> indicators -> gauges).
+      runbook_path: /runbooks/world_practice_trackers_v1.md
+      dashboard_path: /d/world_practice_trackers_v1
+
+  # ── Warn: exec penalty P95 too high – high execution cost, review fill model ─
+  - alert: OFExecPenaltyP95High
+    expr: |
+      histogram_quantile(0.95, sum(rate(trade_exec_pen_bucket[10m])) by (le, sym, bucket)) > 0.35
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{{ $labels.sym }}/{{ $labels.bucket }}: exec_pen P95 high ({{ $value | printf \"%.3f\" }})"
+      description: |
+        Symbol {{ $labels.sym }} (bucket={{ $labels.bucket }}): P95 execution penalty exceeds 0.35.
+        This may indicate high slippage cost, degraded fill model, or elevated exec_risk_norm.
+        Threshold 0.35 is a starting point; calibrate to your distribution.
+      runbook_path: /runbooks/world_practice_trackers_v1.md
+      dashboard_path: /d/world_practice_trackers_v1
+
+  # ── Warn: spread P95 too wide – elevated spread at decision time ──────────────
+  - alert: OFSpreadP95High
+    expr: |
+      histogram_quantile(0.95, sum(rate(trade_spread_bps_bucket[10m])) by (le, sym, bucket)) > 8
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{{ $labels.sym }}/{{ $labels.bucket }}: spread P95 high ({{ $value | printf \"%.1f\" }} bps)"
+      description: |
+        Symbol {{ $labels.sym }} (bucket={{ $labels.bucket }}): P95 bid/ask spread at decision time exceeds 8 bps.
+        Typical causes: book thinning, high-vol / low-liq regime, or stale snapshot in spread_bps_submit.
+        Threshold 8 bps is a starting point; calibrate to your typical spread distribution.
+      runbook_path: /runbooks/world_practice_trackers_v1.md
+      dashboard_path: /d/world_practice_trackers_v1
+
+  # ── Warn: execution penalty p95 high (distribution shift) while system is active ─
+  - alert: OF_WP_ExecPenP95High_Warn
+    expr: |
+      (
+        histogram_quantile(
+          0.95,
+          sum by (le, sym, bucket) (rate(trade_exec_pen_bucket[10m]))
+        ) > 0.35
+      )
+      and on(sym)
+      (
+        label_replace(
+          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
+          "sym", "$1", "symbol", "(.*)"
+        ) > 0.02
+      )
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{{ $labels.sym }}: exec_pen p95 high in {{ $labels.bucket }} ({{ $value | printf \"%.2f\" }})"
+      description: |
+        Symbol {{ $labels.sym }}: execution penalty distribution shifted high (p95).
+        Check spread_bps p95, expected_slippage_bps{model="eff"} p95, and exec_risk_norm p95.
+        If isolated: likely real market regime (thin book / volatility).
+        If widespread: wiring/labeling or snapshot regression.
+      runbook_path: /runbooks/world_practice_trackers_v1.md
+      dashboard_path: /d/world_practice_trackers_v1
+
+  # ── Warn: spread p95 high (decision-time spread inflation) while system is active ─
+  - alert: OF_WP_SpreadP95High_Warn
+    expr: |
+      (
+        histogram_quantile(
+          0.95,
+          sum by (le, sym, bucket) (rate(trade_spread_bps_bucket[10m]))
+        ) > 8
+      )
+      and on(sym)
+      (
+        label_replace(
+          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
+          "sym", "$1", "symbol", "(.*)"
+        ) > 0.02
+      )
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{{ $labels.sym }}: spread_bps p95 high in {{ $labels.bucket }} ({{ $value | printf \"%.2f\" }} bps)"
+      description: |
+        Symbol {{ $labels.sym }}: decision-time spread distribution shifted high (p95).
+        Check book health, top-of-book liquidity, and whether spread_bps_submit is correctly populated.
+      runbook_path: /runbooks/world_practice_trackers_v1.md
+      dashboard_path: /d/world_practice_trackers_v1
+
+  # ── Crit: fill-prob wiring likely broken (eta>0 but fill_prob stuck at 0) while system is active ─
+  - alert: OF_WP_FillProbStuckZero_Crit
+    expr: |
+      (
+        max by (sym) (max_over_time(trade_eta_fill_sec[20m])) > 0.2
+      )
+      and on(sym)
+      (
+        max by (sym) (max_over_time(trade_fill_prob[20m])) <= 0.001
+      )
+      and on(sym)
+      (
+        label_replace(
+          sum by (symbol) (rate(decision_record_written_total{result="allow"}[5m])),
+          "sym", "$1", "symbol", "(.*)"
+        ) > 0.05
+      )
+    for: 20m
+    labels:
+      severity: critical
+    annotations:
+      summary: "{{ $labels.sym }}: eta_fill active but fill_prob stuck at 0"
+      description: |
+        Symbol {{ $labels.sym }}: trade_eta_fill_sec indicates L3-lite is producing ETA,
+        but trade_fill_prob remains ~0 for 20m while allow decisions exist.
+        This typically indicates broken wiring of fill_prob_proxy (L3-lite -> indicators -> gauges) or fallback compute disabled.
+      runbook_path: /runbooks/world_practice_trackers_v1.md
+      dashboard_path: /d/world_practice_trackers_v1

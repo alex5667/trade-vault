@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/special/_spfun_stats.py
+# hypothesis_version: 6.148.10
+
+[0.25, 0.5, 1.0, 'multigammaln']

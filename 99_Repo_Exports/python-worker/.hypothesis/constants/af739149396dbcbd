@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/ack_sre_alert.py
+# hypothesis_version: 6.148.10
+
+[3600, '--ack_key', '--kind', '--prefix', '--receipt_id', '--receipt_prefix', '--redis-url', '--scope', '--ttl_sec', 'REDIS_URL', '__main__', 'ack_sre_alert', 'notify:receipt:', 'sre:ack:cfg_sugg:']

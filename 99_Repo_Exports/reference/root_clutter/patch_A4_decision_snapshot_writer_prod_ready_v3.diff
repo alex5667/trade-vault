@@ -1,0 +1,289 @@
+diff --git a/config/docker-compose.decision-snapshot-writer.yml b/config/docker-compose.decision-snapshot-writer.yml
+index 1a6f4b8..4b0fb4a 100644
+--- a/config/docker-compose.decision-snapshot-writer.yml
++++ b/config/docker-compose.decision-snapshot-writer.yml
+@@ -1,7 +1,7 @@
+ # Overlay compose for DecisionSnapshotWriter (A4)
+ # Usage (example):
+ #   docker compose \
+ #     -f config/docker-compose-infrastructure.yml \
+ #     -f config/docker-compose-crypto-orderflow.yml \
+ #     -f config/docker-compose.decision-snapshot-writer.yml \
+ #     up -d --build decision-snapshot-writer
+@@ -16,7 +16,7 @@ services:
+   decision-snapshot-writer:
+     build:
+       context: .
+       dockerfile: python-worker/Dockerfile.gpu
+     container_name: scanner-decision-snapshot-writer
+     restart: unless-stopped
+     environment:
+       - REDIS_URL=redis://redis-worker-1:6379/0
+       - DECISION_SNAPSHOT_STREAM=events:decision_snapshot
+       - DECISION_SNAPSHOT_CG=decision_snapshot_writer
+       - DECISION_SNAPSHOT_BATCH_SIZE=200
+       - DECISION_SNAPSHOT_XREAD_BLOCK_MS=2000
+       - DECISION_SNAPSHOT_DB_TYPE=postgres
+-      - TIMESCALE_DSN=postgresql://postgres:12345@postgres:5432/trade
++      # Canonical DSN (compose service hostname is always `postgres`, never container_name)
++      - TRADES_DB_DSN=postgresql://trading:trading_password@postgres:5432/scanner_analytics
++      # Back-compat: writer also accepts TIMESCALE_DSN/DATABASE_URL
++      - TIMESCALE_DSN=postgresql://trading:trading_password@postgres:5432/scanner_analytics
+       - DECISION_SNAPSHOT_DB_ENSURE_SCHEMA=0
+@@ -52,11 +52,14 @@ services:
+ 
+     depends_on:
+       redis-worker-1:
+         condition: service_healthy
+       postgres:
+         condition: service_healthy
+ 
+     networks:
+-      - scanner-network
++      # Writer must be reachable by the Prometheus instance which loads its alert rules.
++      # In most stacks, trade-prometheus lives on trade-network while producers live on scanner-network.
++      - scanner-network
++      - trade-network
+ 
+     healthcheck:
+       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9825/metrics', timeout=2).read(); print('OK')\" >/dev/null 2>&1"]
+       interval: 15s
+       timeout: 5s
+       retries: 20
+       start_period: 60s
+diff --git a/observability/prometheus/prometheus_alerts_decision_snapshot_writer_v1.yml b/observability/prometheus/prometheus_alerts_decision_snapshot_writer_v1.yml
+deleted file mode 100644
+index 63eece2..0000000
+--- a/observability/prometheus/prometheus_alerts_decision_snapshot_writer_v1.yml
++++ /dev/null
+@@ -1,84 +0,0 @@
+-# DecisionSnapshotWriter (A4) — alerts + recording rules
+-# Notes:
+-# - We record p95 from histogram buckets to provide a stable metric name.
+-# - Alerts are written to avoid depending on a specific scrape job label.
+-
+-groups:
+-  - name: decision_snapshot_writer_recording_v1
+-    interval: 30s
+-    rules:
+-      - record: decision_snapshot_writer_redis_lag_ms_p95
+-        expr: |
+-          histogram_quantile(
+-            0.95,
+-            sum(rate(decision_snapshot_writer_redis_lag_ms_bucket[5m])) by (le)
+-          )
+-
+-  - name: decision_snapshot_writer_alerts_v1
+-    interval: 30s
+-    rules:
+-      - alert: DecisionSnapshotWriterMetricsAbsent
+-        expr: absent(decision_snapshot_writer_processed_total)
+-        for: 2m
+-        labels:
+-          severity: critical
+-          component: decision_snapshot_writer
+-        annotations:
+-          summary: "DecisionSnapshotWriter metrics are absent (writer down or not scraped)"
+-          runbook: |
+-            1) Check container: docker ps | grep decision-snapshot-writer
+-            2) Check /metrics: curl http://<writer>:9825/metrics
+-            3) Check Redis connectivity: redis-cli -h redis-worker-1 ping
+-            4) Check Timescale: pg_isready -h postgres -U postgres -d trade
+-
+-      - alert: DecisionSnapshotWriterDBFailing
+-        expr: rate(decision_snapshot_writer_db_fail_total[5m]) > 0
+-        for: 2m
+-        labels:
+-          severity: critical
+-          component: decision_snapshot_writer
+-        annotations:
+-          summary: "DecisionSnapshotWriter DB upserts are failing"
+-          runbook: |
+-            1) Check Timescale connectivity and credentials (TIMESCALE_DSN)
+-            2) Check DB health: pg_isready; look for disk full / locks
+-            3) Inspect logs: docker logs scanner-decision-snapshot-writer --tail=200
+-
+-      - alert: DecisionSnapshotWriterRedisLagP95High
+-        expr: decision_snapshot_writer_redis_lag_ms_p95 > 5000
+-        for: 5m
+-        labels:
+-          severity: warning
+-          component: decision_snapshot_writer
+-        annotations:
+-          summary: "DecisionSnapshotWriter redis lag p95 is high (>5s)"
+-          runbook: |
+-            1) Check backlog in consumer group (XPENDING/XINFO GROUPS)
+-            2) Check DB latency (write stalls)
+-            3) If lag rising with db_fail_total: fix DB first
+-
+-      - alert: DecisionSnapshotWriterRedisLagP95Extreme
+-        expr: decision_snapshot_writer_redis_lag_ms_p95 > 30000
+-        for: 2m
+-        labels:
+-          severity: critical
+-          component: decision_snapshot_writer
+-        annotations:
+-          summary: "DecisionSnapshotWriter redis lag p95 is extreme (>30s)"
+-          runbook: |
+-            1) Verify writer running and scraping OK
+-            2) Check DB health (locks, disk, CPU)
+-            3) Consider temporarily increasing batch_size/upsert_chunk
+-
+-      - alert: DecisionSnapshotWriterDLQSpiking
+-        expr: rate(decision_snapshot_writer_dlq_total[5m]) > 0
+-        for: 10m
+-        labels:
+-          severity: warning
+-          component: decision_snapshot_writer
+-        annotations:
+-          summary: "DecisionSnapshotWriter DLQ is receiving bad payloads"
+-          runbook: |
+-            1) Inspect DLQ stream: XREVRANGE stream:decision_snapshot:dlq + - COUNT 20
+-            2) Identify producer/version producing malformed payload
+-            3) Fix contract mismatch (payload JSON / required keys sid/decision_ts_ms)
++diff --git a/monitoring/prometheus/rules/orderflow_services/prometheus_alerts_decision_snapshot_writer_v1.yml b/monitoring/prometheus/rules/orderflow_services/prometheus_alerts_decision_snapshot_writer_v1.yml
++new file mode 100644
++index 0000000..63eece2
++--- /dev/null
+++++ b/monitoring/prometheus/rules/orderflow_services/prometheus_alerts_decision_snapshot_writer_v1.yml
++@@ -0,0 +1,84 @@
+++# DecisionSnapshotWriter (A4) — alerts + recording rules
+++# Notes:
+++# - We record p95 from histogram buckets to provide a stable metric name.
+++# - Alerts are written to avoid depending on a specific scrape job label.
+++
+++groups:
+++  - name: decision_snapshot_writer_recording_v1
+++    interval: 30s
+++    rules:
+++      - record: decision_snapshot_writer_redis_lag_ms_p95
+++        expr: |
+++          histogram_quantile(
+++            0.95,
+++            sum(rate(decision_snapshot_writer_redis_lag_ms_bucket[5m])) by (le)
+++          )
+++
+++  - name: decision_snapshot_writer_alerts_v1
+++    interval: 30s
+++    rules:
+++      - alert: DecisionSnapshotWriterMetricsAbsent
+++        expr: absent(decision_snapshot_writer_processed_total)
+++        for: 2m
+++        labels:
+++          severity: critical
+++          component: decision_snapshot_writer
+++        annotations:
+++          summary: "DecisionSnapshotWriter metrics are absent (writer down or not scraped)"
+++          runbook: |
+++            1) Check container: docker ps | grep decision-snapshot-writer
+++            2) Check /metrics: curl http://<writer>:9825/metrics
+++            3) Check Redis connectivity: redis-cli -h redis-worker-1 ping
+++            4) Check Timescale DSN (TRADES_DB_DSN) and DB health: pg_isready -h postgres -U trading -d scanner_analytics
+++
+++      - alert: DecisionSnapshotWriterDBFailing
+++        expr: rate(decision_snapshot_writer_db_fail_total[5m]) > 0
+++        for: 2m
+++        labels:
+++          severity: critical
+++          component: decision_snapshot_writer
+++        annotations:
+++          summary: "DecisionSnapshotWriter DB upserts are failing"
+++          runbook: |
+++            1) Check Timescale connectivity and credentials (TRADES_DB_DSN)
+++            2) Check DB health: pg_isready; look for disk full / locks
+++            3) Inspect logs: docker logs scanner-decision-snapshot-writer --tail=200
+++
+++      - alert: DecisionSnapshotWriterRedisLagP95High
+++        expr: decision_snapshot_writer_redis_lag_ms_p95 > 5000
+++        for: 5m
+++        labels:
+++          severity: warning
+++          component: decision_snapshot_writer
+++        annotations:
+++          summary: "DecisionSnapshotWriter redis lag p95 is high (>5s)"
+++          runbook: |
+++            1) Check backlog in consumer group (XPENDING/XINFO GROUPS)
+++            2) Check DB latency (write stalls)
+++            3) If lag rising with db_fail_total: fix DB first
+++
+++      - alert: DecisionSnapshotWriterRedisLagP95Extreme
+++        expr: decision_snapshot_writer_redis_lag_ms_p95 > 30000
+++        for: 2m
+++        labels:
+++          severity: critical
+++          component: decision_snapshot_writer
+++        annotations:
+++          summary: "DecisionSnapshotWriter redis lag p95 is extreme (>30s)"
+++          runbook: |
+++            1) Verify writer running and scraping OK
+++            2) Check DB health (locks, disk, CPU)
+++            3) Consider temporarily increasing batch_size/upsert_chunk
+++
+++      - alert: DecisionSnapshotWriterDLQSpiking
+++        expr: rate(decision_snapshot_writer_dlq_total[5m]) > 0
+++        for: 10m
+++        labels:
+++          severity: warning
+++          component: decision_snapshot_writer
+++        annotations:
+++          summary: "DecisionSnapshotWriter DLQ is receiving bad payloads"
+++          runbook: |
+++            1) Inspect DLQ stream: XREVRANGE stream:decision_snapshot:dlq + - COUNT 20
+++            2) Identify producer/version producing malformed payload
+++            3) Fix contract mismatch (payload JSON / required keys sid/decision_ts_ms)
++
++diff --git a/monitoring/prometheus/prometheus.yml b/monitoring/prometheus/prometheus.yml
++index 3e8f2aa..0b4f7c1 100644
++--- a/monitoring/prometheus/prometheus.yml
+++++ b/monitoring/prometheus/prometheus.yml
++@@ -31,6 +31,8 @@ rule_files:
++   # P99 OFInputs DLQ DB rollup alerts (DB exporter: of_inputs_dlq_db_* gauges)
++   - /etc/prometheus/rules/orderflow_services/prometheus_alerts_of_inputs_dlq_db_p99.yml
++   # P2/F Strict DQ stream health v1 (latency & continuity)
++   - /etc/prometheus/rules/orderflow_services/prometheus_alerts_strict_dq_stream_health_v1.yml
+++  # A4 DecisionSnapshotWriter (DLQ/PEL/lag) alerts
+++  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_decision_snapshot_writer_v1.yml
++
++@@ -74,6 +76,14 @@ scrape_configs:
++   - job_name: prometheus
++     static_configs:
++       - targets:
++           - localhost:9090
++
+++  # DecisionSnapshotWriter (A4) — Redis Stream -> Timescale
+++  - job_name: decision_snapshot_writer
+++    scrape_interval: 15s
+++    metrics_path: /metrics
+++    static_configs:
+++      - targets:
+++          - scanner-decision-snapshot-writer:9825
++
+ diff --git a/python-worker/services/posttrade/decision_snapshot_writer.py b/python-worker/services/posttrade/decision_snapshot_writer.py
+ index acb394c..7dfc92d 100644
+ --- a/python-worker/services/posttrade/decision_snapshot_writer.py
+ +++ b/python-worker/services/posttrade/decision_snapshot_writer.py
+@@ -117,8 +117,15 @@ class DecisionSnapshotWriterConfig:
+     # DB
+     db_type: str = _env("DECISION_SNAPSHOT_DB_TYPE", "postgres")
+-    timescale_dsn: str = _env("TIMESCALE_DSN", _env("DATABASE_URL", ""))
++    # Canonical DB DSN naming in scanner_infra:
++    # - TRADES_DB_DSN (python workers, archivers)
++    # - PG_DSN (go services)
++    # - ANALYTICS_DB_DSN / ANALYTICS_DSN (backend)
++    # - DATABASE_URL (backend)
++    # Writer accepts all, with priority on TRADES_DB_DSN.
++    timescale_dsn: str = _env(
++        "TRADES_DB_DSN",
++        _env("TIMESCALE_DSN", _env("ANALYTICS_DB_DSN", _env("ANALYTICS_DSN", _env("PG_DSN", _env("DATABASE_URL", ""))))),
++    )
+     ensure_schema: bool = bool(_env_int("DECISION_SNAPSHOT_DB_ENSURE_SCHEMA", 0))
+     upsert_chunk: int = _env_int("DECISION_SNAPSHOT_DB_UPSERT_CHUNK", 500)
+@@ -761,7 +768,7 @@ async def main() -> None:
+     if cfg.db_type.lower() == "sqlite":
+         import sqlite3
+@@
+     else:
+         if not cfg.timescale_dsn:
+-            raise RuntimeError("TIMESCALE_DSN (or DATABASE_URL) is required for DECISION_SNAPSHOT_DB_TYPE=postgres")
++            raise RuntimeError("TRADES_DB_DSN (or TIMESCALE_DSN/DATABASE_URL) is required for DECISION_SNAPSHOT_DB_TYPE=postgres")
+         db = PostgresDecisionSnapshotDB(dsn=cfg.timescale_dsn)

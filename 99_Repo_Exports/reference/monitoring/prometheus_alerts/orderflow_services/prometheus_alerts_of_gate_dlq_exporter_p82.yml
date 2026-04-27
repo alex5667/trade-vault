@@ -1,0 +1,44 @@
+groups:
+- name: of-gate-dlq-exporter-p82
+  rules:
+  - alert: OF_Gate_DLQ_ExporterStale
+    expr: (time() - (of_gate_dlq_exporter_poll_ts_ms / 1000)) > 1800
+    for: 15m
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "OF-gate DLQ exporter is stale"
+      description: "DLQ exporter has not successfully polled Redis for >30m. Check
+        REDIS_URL connectivity and exporter process. Age(sec)={{ $value }}"
+      runbook: "orderflow_services/runbook_of_gate_dlq_exporter_p82.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: OF_Gate_DLQ_NonZero
+    expr: sum(of_gate_dlq_len) > 0
+    for: 10m
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "OF-gate DLQ has pending messages"
+      description: "At least one DLQ stream is non-empty for >10m. Investigate archiver/DB
+        errors and DLQ contents. total={{ $value }}"
+      runbook: "orderflow_services/runbook_of_gate_dlq_exporter_p82.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: OF_Gate_DLQ_Large
+    expr: sum(of_gate_dlq_len) > 1000
+    for: 5m
+    labels:
+      severity: critical
+      component: trade
+    annotations:
+      summary: "OF-gate DLQ is large"
+      description: "DLQ backlog > 1000. This usually indicates persistent write/parsing
+        failures. total={{ $value }}"
+      runbook: "orderflow_services/runbook_of_gate_dlq_exporter_p82.md"
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd

@@ -1,0 +1,252 @@
+diff --git a/.github/workflows/news-notification-schema-rollout.yml b/.github/workflows/news-notification-schema-rollout.yml
+new file mode 100644
+index 0000000..46000001
+--- /dev/null
++++ b/.github/workflows/news-notification-schema-rollout.yml
+@@ -0,0 +1,183 @@
++name: news-notification-schema-rollout
++
++on:
++  workflow_dispatch:
++    inputs:
++      current_phase:
++        description: "Current rollout phase"
++        required: true
++        default: "off"
++      dwell_minutes:
++        description: "Minutes spent in current phase"
++        required: true
++        default: "0"
++      approved:
++        description: "Apply approved proposal"
++        required: true
++        default: "false"
++      apply:
++        description: "Perform real apply instead of dry-run"
++        required: true
++        default: "false"
++      env_path:
++        description: "Env/config file to update"
++        required: true
++        default: ".env.notification-relay"
++
++jobs:
++  decision:
++    runs-on: ubuntu-latest
++    timeout-minutes: 10
++    steps:
++      - name: checkout
++        uses: actions/checkout@v4
++
++      - name: setup python
++        uses: actions/setup-python@v5
++        with:
++          python-version: "3.11"
++
++      - name: install deps
++        run: |
++          pip install -r requirements-dev.txt
++
++      - name: create rollout snapshot
++        run: |
++          mkdir -p artifacts/notification_rollout
++          cat > artifacts/notification_rollout/snapshot.json <<'INNER_EOF'
++          {
++            "relay_health_ok": true,
++            "schema_cooldown_active": false,
++            "dlq_ratio_30m": 0.0,
++            "retry_ratio_30m": 0.0,
++            "webhook_failures_10m": 0,
++            "delivery_success_ratio_30m": 1.0
++          }
++          INNER_EOF
++
++      - name: build rollout decision
++        run: |
++          python -m tools.notification_rollout_decision \
++            --snapshot-json artifacts/notification_rollout/snapshot.json \
++            --current-phase "${{ github.event.inputs.current_phase }}" \
++            --dwell-minutes "${{ github.event.inputs.dwell_minutes }}" \
++            --out-json artifacts/notification_rollout/decision.json \
++            --out-md artifacts/notification_rollout/decision.md
++
++      - name: upload decision artifacts
++        uses: actions/upload-artifact@v4
++        with:
++          name: notification-rollout-decision
++          path: |
++            artifacts/notification_rollout/snapshot.json
++            artifacts/notification_rollout/decision.json
++            artifacts/notification_rollout/decision.md
++
++  proposal:
++    runs-on: ubuntu-latest
++    timeout-minutes: 10
++    needs: decision
++    steps:
++      - name: checkout
++        uses: actions/checkout@v4
++
++      - name: setup python
++        uses: actions/setup-python@v5
++        with:
++          python-version: "3.11"
++
++      - name: install deps
++        run: |
++          pip install -r requirements-dev.txt
++
++      - name: download decision artifacts
++        uses: actions/download-artifact@v4
++        with:
++          name: notification-rollout-decision
++          path: artifacts/notification_rollout
++
++      - name: build proposal
++        run: |
++          python -m tools.notification_rollout_proposal \
++            --decision-json artifacts/notification_rollout/decision.json \
++            --out-json artifacts/notification_rollout/proposal.json \
++            --out-md artifacts/notification_rollout/proposal.md
++
++      - name: mark proposal approval from workflow input
++        run: |
++          python - <<'PY'
++          import json
++          from pathlib import Path
++          approved = "${{ github.event.inputs.approved }}".strip().lower() == "true"
++          p = Path("artifacts/notification_rollout/proposal.json")
++          data = json.loads(p.read_text(encoding="utf-8"))
++          data["approved"] = approved
++          p.write_text(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
++          print(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True))
++          PY
++
++      - name: upload proposal artifacts
++        uses: actions/upload-artifact@v4
++        with:
++          name: notification-rollout-proposal
++          path: |
++            artifacts/notification_rollout/proposal.json
++            artifacts/notification_rollout/proposal.md
++
++  apply:
++    runs-on: ubuntu-latest
++    timeout-minutes: 10
++    needs: proposal
++    if: ${{ github.event.inputs.approved == 'true' }}
++    steps:
++      - name: checkout
++        uses: actions/checkout@v4
++
++      - name: setup python
++        uses: actions/setup-python@v5
++        with:
++          python-version: "3.11"
++
++      - name: install deps
++        run: |
++          pip install -r requirements-dev.txt
++
++      - name: download proposal artifacts
++        uses: actions/download-artifact@v4
++        with:
++          name: notification-rollout-proposal
++          path: artifacts/notification_rollout
++
++      - name: apply rollout proposal
++        run: |
++          python -m tools.notification_rollout_apply \
++            --proposal-json artifacts/notification_rollout/proposal.json \
++            --env-path "${{ github.event.inputs.env_path }}" \
++            --out-json artifacts/notification_rollout/apply.json \
++            --out-md artifacts/notification_rollout/apply.md \
++            ${{ github.event.inputs.apply == 'true' && '--apply' || '' }}
++
++      - name: upload apply artifacts
++        uses: actions/upload-artifact@v4
++        with:
++          name: notification-rollout-apply
++          path: |
++            artifacts/notification_rollout/apply.json
++            artifacts/notification_rollout/apply.md
++            ${{ github.event.inputs.env_path }}
++
++  verify:
++    runs-on: ubuntu-latest
++    timeout-minutes: 10
++    needs: [proposal, apply]
++    if: ${{ always() }}
++    steps:
++      - name: checkout
++        uses: actions/checkout@v4
++
++      - name: verify summary
++        run: |
++          mkdir -p artifacts/notification_rollout
++          {
++            echo "# Notification Rollout Workflow Summary";
++            echo;
++            echo "- approved: \`${{ github.event.inputs.approved }}\`";
++            echo "- apply: \`${{ github.event.inputs.apply }}\`";
++            echo "- current_phase: \`${{ github.event.inputs.current_phase }}\`";
++            echo "- dwell_minutes: \`${{ github.event.inputs.dwell_minutes }}\`";
++            echo "- env_path: \`${{ github.event.inputs.env_path }}\`";
++          } > artifacts/notification_rollout/verify.md
++
++      - name: upload verify artifact
++        uses: actions/upload-artifact@v4
++        with:
++          name: notification-rollout-verify
++          path: artifacts/notification_rollout/verify.md
++
++diff --git a/tests/test_notification_rollout_workflow_contract.py b/tests/test_notification_rollout_workflow_contract.py
+new file mode 100644
+index 0000000..46000002
+--- /dev/null
++++ b/tests/test_notification_rollout_workflow_contract.py
+@@ -0,0 +1,53 @@
++from pathlib import Path
++
++import yaml
++
++
++ROOT = Path(__file__).resolve().parents[1]
++
++
++def _read_yaml(rel_path: str):
++    return yaml.safe_load((ROOT / rel_path).read_text(encoding="utf-8"))
++
++
++def test_rollout_workflow_exists_and_has_dispatch_inputs():
++    wf = _read_yaml(".github/workflows/news-notification-schema-rollout.yml")
++    assert "on" in wf
++    assert "workflow_dispatch" in wf["on"]
++    inputs = wf["on"]["workflow_dispatch"]["inputs"]
++    for key in ("current_phase", "dwell_minutes", "approved", "apply", "env_path"):
++        assert key in inputs
++
++
++def test_rollout_workflow_has_expected_jobs():
++    wf = _read_yaml(".github/workflows/news-notification-schema-rollout.yml")
++    jobs = wf["jobs"]
++    assert "decision" in jobs
++    assert "proposal" in jobs
++    assert "apply" in jobs
++    assert "verify" in jobs
++
++
++def test_rollout_workflow_references_tools():
++    text = (ROOT / ".github/workflows/news-notification-schema-rollout.yml").read_text(encoding="utf-8")
++    assert "tools.notification_rollout_decision" in text
++    assert "tools.notification_rollout_proposal" in text
++    assert "tools.notification_rollout_apply" in text
++    assert "notification-rollout-decision" in text
++    assert "notification-rollout-proposal" in text
++    assert "notification-rollout-apply" in text
++
++
++def test_rollout_workflow_apply_is_gated_by_approval():
++    text = (ROOT / ".github/workflows/news-notification-schema-rollout.yml").read_text(encoding="utf-8")
++    assert "if: \${{ github.event.inputs.approved == 'true' }}" in text
++

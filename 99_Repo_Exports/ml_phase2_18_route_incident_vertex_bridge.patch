@@ -1,0 +1,794 @@
+diff --git a/orderflow_services/operator_routing_incident_rca_route_incident_to_vertex_bridge_v2_18.py b/orderflow_services/operator_routing_incident_rca_route_incident_to_vertex_bridge_v2_18.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/operator_routing_incident_rca_route_incident_to_vertex_bridge_v2_18.py
+@@ -0,0 +1,246 @@
++from __future__ import annotations
++
++import hashlib
++import json
++import os
++import time
++from typing import Any, Dict, List, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++
++APP_NAME = "operator_routing_incident_rca_route_incident_to_vertex_bridge_v2_18"
++INPUT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_INCIDENT_BUNDLE_RESULTS_STREAM",
++    "stream:ml:operator_routing_incident_rca_route_incident_bundle_results",
++)
++RCA_REQUESTS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_RCA_REQUESTS_STREAM",
++    "stream:ml:operator_routing_incident_rca_route_rca_requests",
++)
++AUDIT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_RCA_AUDIT_STREAM",
++    "stream:ml:operator_routing_incident_rca_route_rca_audit",
++)
++GROUP = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_RCA_BRIDGE_GROUP", APP_NAME)
++CONSUMER = os.getenv("HOSTNAME", APP_NAME)
++PORT = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_RCA_BRIDGE_PORT", "9900"))
++MAXLEN = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_RCA_BRIDGE_MAXLEN", "20000"))
++PROMPT_VERSION = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_RCA_PROMPT_VERSION", "routing_incident_route_rca_v1")
++POLICY_VERSION = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_RCA_POLICY_VERSION", "policy_v1")
++TASK_TYPE = "routing_incident_route_root_cause_analysis"
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter(
++    "ml_operator_routing_incident_rca_route_rca_bridge_runs_total",
++    "Route-incident RCA bridge runs",
++    ("status", "severity"),
++)
++LAT = _hist(
++    "ml_operator_routing_incident_rca_route_rca_bridge_latency_seconds",
++    "Route-incident RCA bridge latency seconds",
++)
++UP = _gauge(
++    "ml_operator_routing_incident_rca_route_rca_bridge_up",
++    "Route-incident RCA bridge up",
++)
++LAST_RUN_TS = _gauge(
++    "ml_operator_routing_incident_rca_route_rca_bridge_last_run_ts_seconds",
++    "Route-incident RCA bridge last run timestamp",
++)
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        if isinstance(v, (bytes, bytearray)):
++            try:
++                out[kk] = v.decode()
++            except Exception:
++                out[kk] = v.hex()
++        else:
++            out[kk] = v
++    return out
++
++
++def maybe_json(value: Any, default: Any = None) -> Any:
++    if value is None:
++        return default
++    if isinstance(value, (dict, list)):
++        return value
++    try:
++        return json.loads(value)
++    except Exception:
++        return default
++
++
++def stable_json(obj: Any) -> str:
++    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++def compact_timeline(timeline: List[Dict[str, Any]], limit: int = 30) -> List[Dict[str, Any]]:
++    timeline = sorted(timeline, key=lambda x: int(x.get("ts_ms", 0) or 0))
++    if len(timeline) <= limit:
++        return timeline
++    head = timeline[: max(limit // 2, 1)]
++    tail = timeline[-max(limit - len(head), 1):]
++    return head + tail
++
++
++def build_route_incident_rca_pack(bundle_row: Dict[str, Any]) -> Dict[str, Any]:
++    bundle = maybe_json(bundle_row.get("bundle_json"), {}) or {}
++    incident_id = str(bundle.get("incident_id") or bundle_row.get("incident_id") or "")
++    primary_reason_codes = bundle.get("primary_reason_codes") or maybe_json(bundle_row.get("primary_reason_codes_json"), [])
++    summary = bundle.get("summary") or maybe_json(bundle_row.get("summary_json"), {})
++    timeline = compact_timeline(bundle.get("timeline_json") or [])
++    route_diff = bundle.get("route_diff_json") or maybe_json(bundle_row.get("route_diff_json"), {})
++    sections = bundle.get("sections_json") or {}
++    severity = str(bundle.get("severity") or bundle_row.get("severity") or "info")
++
++    key_material = {
++        "incident_id": incident_id,
++        "severity": severity,
++        "primary_reason_codes": primary_reason_codes,
++        "route_diff": route_diff,
++        "timeline": timeline,
++        "prompt_version": PROMPT_VERSION,
++        "policy_version": POLICY_VERSION,
++    }
++    compact_hash = hashlib.sha256(stable_json(key_material).encode("utf-8")).hexdigest()[:16]
++
++    return {
++        "schema_version": 1,
++        "task_type": TASK_TYPE,
++        "incident_id": incident_id,
++        "severity": severity,
++        "primary_reason_codes": primary_reason_codes,
++        "summary": summary,
++        "route_diff": route_diff,
++        "timeline": timeline,
++        "section_counts": {k: len(v) for k, v in sections.items() if isinstance(v, list)},
++        "baseline_route": bundle.get("baseline_route_json") or {},
++        "target_route": bundle.get("target_route_json") or {},
++        "current_route": bundle.get("current_route_json") or {},
++        "bundle_hash": bundle.get("bundle_hash") or bundle_row.get("bundle_id") or "",
++        "compact_hash": compact_hash,
++        "prompt_version": PROMPT_VERSION,
++        "policy_version": POLICY_VERSION,
++        "ts_ms": now_ms(),
++    }
++
++
++async def ensure_group(client: Any, stream_key: str, group: str) -> None:
++    try:
++        await client.xgroup_create(stream_key, group, id="$", mkstream=True)
++    except Exception:
++        return
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    await ensure_group(r, INPUT_STREAM, GROUP)
++    while True:
++        rows = await r.xreadgroup(GROUP, CONSUMER, {INPUT_STREAM: ">"}, count=32, block=5000)
++        if not rows:
++            continue
++        for _stream, messages in rows:
++            for msg_id, payload in messages:
++                started = time.perf_counter()
++                status = "ok"
++                severity = "info"
++                try:
++                    row = as_dict(payload)
++                    pack = build_route_incident_rca_pack(row)
++                    severity = pack["severity"]
++                    await r.xadd(
++                        RCA_REQUESTS_STREAM,
++                        {
++                            "schema_version": 1,
++                            "incident_id": pack["incident_id"],
++                            "task_type": pack["task_type"],
++                            "compact_hash": pack["compact_hash"],
++                            "prompt_version": pack["prompt_version"],
++                            "policy_version": pack["policy_version"],
++                            "severity": pack["severity"],
++                            "payload_json": stable_json(pack),
++                            "ts_ms": str(now_ms()),
++                        },
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                    if LAST_RUN_TS:
++                        LAST_RUN_TS.set(time.time())
++                except Exception as exc:
++                    status = "error"
++                    await r.xadd(
++                        AUDIT_STREAM,
++                        {
++                            "event_type": "ROUTING_INCIDENT_RCA_ROUTE_RCA_BRIDGE_FAILED",
++                            "incident_id": row.get("incident_id", ""),
++                            "error": str(exc),
++                            "ts_ms": str(now_ms()),
++                        },
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                finally:
++                    if RUNS:
++                        RUNS.labels(status=status, severity=severity).inc()
++                    if LAT:
++                        LAT.observe(max(time.perf_counter() - started, 0.0))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    import asyncio
++    asyncio.run(main())
+diff --git a/orderflow_services/providers/vertex_routing_incident_route_rca_provider_v2_18.py b/orderflow_services/providers/vertex_routing_incident_route_rca_provider_v2_18.py
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/orderflow_services/providers/vertex_routing_incident_route_rca_provider_v2_18.py
+@@ -0,0 +1,141 @@
++from __future__ import annotations
++
++import json
++import os
++from typing import Any, Dict
++
++try:  # pragma: no cover
++    from google import genai  # type: ignore
++    from google.genai import types  # type: ignore
++except Exception:  # pragma: no cover
++    genai = None
++    types = None
++
++
++def _schema() -> Dict[str, Any]:
++    return {
++        "type": "object",
++        "properties": {
++            "schema_version": {"type": "integer"},
++            "incident_id": {"type": "string"},
++            "status": {"type": "string"},
++            "summary": {"type": "string"},
++            "findings": {
++                "type": "array",
++                "items": {
++                    "type": "object",
++                    "properties": {
++                        "kind": {"type": "string"},
++                        "target": {"type": "string"},
++                        "confidence": {"type": "number"},
++                        "evidence": {"type": "array", "items": {"type": "string"}},
++                    },
++                    "required": ["kind", "target", "confidence", "evidence"],
++                },
++            },
++            "recommendations": {
++                "type": "array",
++                "items": {
++                    "type": "object",
++                    "properties": {
++                        "action": {"type": "string"},
++                        "target": {"type": "string"},
++                        "risk": {"type": "string"},
++                        "reason_code": {"type": "string"},
++                    },
++                    "required": ["action", "target", "risk", "reason_code"],
++                },
++            },
++        },
++        "required": ["schema_version", "incident_id", "status", "summary", "findings", "recommendations"],
++    }
++
++
++def _system_instruction() -> str:
++    return (
++        "You are analyzing a routing-policy safety incident in a quantitative trading control-plane. "
++        "Return strict JSON only. Recommendations must remain advisory-only and bounded to "
++        "routing/provider/prompt/policy governance of the route-safety contour."
++    )
++
++
++class VertexRoutingIncidentRouteRCAProviderV218:
++    def __init__(self) -> None:
++        self._project = os.getenv("VERTEX_PROJECT_ID", "")
++        self._location = os.getenv("VERTEX_LOCATION", "global")
++        self._model = os.getenv("VERTEX_ROUTING_INCIDENT_ROUTE_RCA_MODEL", "gemini-2.5-flash-lite")
++
++    def is_available(self) -> bool:
++        return bool(self._project and genai is not None and types is not None)
++
++    def analyze(self, payload: Dict[str, Any]) -> Dict[str, Any]:
++        if not self.is_available():  # pragma: no cover
++            raise RuntimeError("vertex_genai_unavailable")
++        client = genai.Client(vertexai=True, project=self._project, location=self._location)
++        content = json.dumps(payload, ensure_ascii=False)
++        response = client.models.generate_content(
++            model=self._model,
++            contents=content,
++            config=types.GenerateContentConfig(
++                temperature=0.2,
++                response_mime_type="application/json",
++                response_schema=_schema(),
++                system_instruction=_system_instruction(),
++            ),
++        )
++        text = getattr(response, "text", "") or ""
++        if not text:
++            raise RuntimeError("vertex_empty_response")
++        parsed = json.loads(text)
++        parsed["provider"] = "vertex"
++        parsed["model_name"] = self._model
++        return parsed
+diff --git a/orderflow_services/ml_operator_routing_incident_route_rca_orchestrator_v2_18.py b/orderflow_services/ml_operator_routing_incident_route_rca_orchestrator_v2_18.py
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/orderflow_services/ml_operator_routing_incident_route_rca_orchestrator_v2_18.py
+@@ -0,0 +1,272 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from typing import Any, Dict, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    import psycopg
++except Exception:  # pragma: no cover
++    psycopg = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++from orderflow_services.providers.vertex_routing_incident_route_rca_provider_v2_18 import (
++    VertexRoutingIncidentRouteRCAProviderV218,
++)
++
++
++APP_NAME = "ml_operator_routing_incident_route_rca_orchestrator_v2_18"
++REQUESTS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_RCA_REQUESTS_STREAM",
++    "stream:ml:operator_routing_incident_rca_route_rca_requests",
++)
++RESULTS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_RCA_RESULTS_STREAM",
++    "stream:ml:operator_routing_incident_rca_route_rca_results",
++)
++PROPOSALS_STREAM = os.getenv(
++    "ML_RECOMMENDATION_PROPOSALS_STREAM",
++    "stream:ml:recommendation_proposals",
++)
++DLQ_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_RCA_DLQ_STREAM",
++    "stream:ml:operator_routing_incident_rca_route_rca_dlq",
++)
++AUDIT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_RCA_AUDIT_STREAM",
++    "stream:ml:operator_routing_incident_rca_route_rca_audit",
++)
++GROUP = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_RCA_GROUP", APP_NAME)
++CONSUMER = os.getenv("HOSTNAME", APP_NAME)
++PORT = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_RCA_PORT", "9901"))
++MAXLEN = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_RCA_MAXLEN", "20000"))
++DRY_RUN = int(os.getenv("VERTEX_ROUTING_INCIDENT_ROUTE_RCA_DRY_RUN", "1"))
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter(
++    "ml_operator_routing_incident_route_rca_runs_total",
++    "Route-incident route RCA runs",
++    ("status", "provider"),
++)
++LAT = _hist(
++    "ml_operator_routing_incident_route_rca_latency_seconds",
++    "Route-incident route RCA latency seconds",
++)
++UP = _gauge(
++    "ml_operator_routing_incident_route_rca_up",
++    "Route-incident route RCA orchestrator up",
++)
++LAST_RUN_TS = _gauge(
++    "ml_operator_routing_incident_route_rca_last_run_ts_seconds",
++    "Route-incident route RCA orchestrator last run timestamp",
++)
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        if isinstance(v, (bytes, bytearray)):
++            try:
++                out[kk] = v.decode()
++            except Exception:
++                out[kk] = v.hex()
++        else:
++            out[kk] = v
++    return out
++
++
++def stable_json(obj: Any) -> str:
++    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++async def ensure_group(client: Any, stream_key: str, group: str) -> None:
++    try:
++        await client.xgroup_create(stream_key, group, id="$", mkstream=True)
++    except Exception:
++        return
++
++
++async def persist_if_configured(db_url: str, row: Dict[str, Any]) -> None:
++    if not db_url or psycopg is None:
++        return
++    try:  # pragma: no cover
++        with psycopg.connect(db_url) as conn:
++            with conn.cursor() as cur:
++                cur.execute(
++                    """
++                    INSERT INTO llm_operator_routing_incident_rca_route_rca_results (
++                        incident_id,
++                        ts_ms,
++                        provider,
++                        model_name,
++                        prompt_version,
++                        policy_version,
++                        result_json
++                    ) VALUES (
++                        %(incident_id)s,
++                        %(ts_ms)s,
++                        %(provider)s,
++                        %(model_name)s,
++                        %(prompt_version)s,
++                        %(policy_version)s,
++                        %(result_json)s
++                    )
++                    """,
++                    {
++                        "incident_id": row["incident_id"],
++                        "ts_ms": row["ts_ms"],
++                        "provider": row["provider"],
++                        "model_name": row["model_name"],
++                        "prompt_version": row["prompt_version"],
++                        "policy_version": row["policy_version"],
++                        "result_json": json.dumps(row["result"]),
++                    },
++                )
++                conn.commit()
++    except Exception:
++        return
++
++
++async def publish_recommendations(r: Any, incident_id: str, result: Dict[str, Any], maxlen: int) -> None:
++    for idx, reco in enumerate(result.get("recommendations", []) or []):
++        payload = {
++            "schema_version": 1,
++            "source": "operator_routing_incident_route_rca_v2_18",
++            "incident_id": incident_id,
++            "recommendation_id": f"{incident_id}:{idx}",
++            "action_type": reco.get("action", ""),
++            "target_kind": "operator_routing_incident_rca_route_policy",
++            "target_ref": reco.get("target", "routing_incident_rca_route_default"),
++            "risk_level": reco.get("risk", "low"),
++            "recommendation_json": stable_json(reco),
++            "review_only": "1",
++            "ts_ms": str(now_ms()),
++        }
++        await r.xadd(PROPOSALS_STREAM, payload, maxlen=maxlen, approximate=True)
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    await ensure_group(r, REQUESTS_STREAM, GROUP)
++    provider = VertexRoutingIncidentRouteRCAProviderV218()
++    db_url = os.getenv("DATABASE_URL", "")
++    while True:
++        rows = await r.xreadgroup(GROUP, CONSUMER, {REQUESTS_STREAM: ">"}, count=16, block=5000)
++        if not rows:
++            continue
++        for _stream, messages in rows:
++            for msg_id, payload in messages:
++                started = time.perf_counter()
++                status = "ok"
++                provider_name = "vertex"
++                try:
++                    row = as_dict(payload)
++                    incident_id = row.get("incident_id", "")
++                    request_payload = json.loads(row.get("payload_json", "{}"))
++                    if DRY_RUN == 1:
++                        result = {
++                            "schema_version": 1,
++                            "incident_id": incident_id,
++                            "status": "dry_run",
++                            "summary": "dry-run placeholder RCA result for route-governance incident",
++                            "findings": [],
++                            "recommendations": [],
++                            "provider": "vertex",
++                            "model_name": os.getenv("VERTEX_ROUTING_INCIDENT_ROUTE_RCA_MODEL", "gemini-2.5-flash-lite"),
++                        }
++                    else:
++                        result = provider.analyze(request_payload)
++                    out = {
++                        "schema_version": 1,
++                        "incident_id": incident_id,
++                        "task_type": row.get("task_type", ""),
++                        "compact_hash": row.get("compact_hash", ""),
++                        "prompt_version": row.get("prompt_version", ""),
++                        "policy_version": row.get("policy_version", ""),
++                        "provider": result.get("provider", "vertex"),
++                        "model_name": result.get("model_name", ""),
++                        "result_json": stable_json(result),
++                        "ts_ms": str(now_ms()),
++                    }
++                    await r.xadd(RESULTS_STREAM, out, maxlen=MAXLEN, approximate=True)
++                    await publish_recommendations(r, incident_id, result, MAXLEN)
++                    await persist_if_configured(
++                        db_url,
++                        {
++                            "incident_id": incident_id,
++                            "ts_ms": now_ms(),
++                            "provider": out["provider"],
++                            "model_name": out["model_name"],
++                            "prompt_version": out["prompt_version"],
++                            "policy_version": out["policy_version"],
++                            "result": result,
++                        },
++                    )
++                    await r.xack(REQUESTS_STREAM, GROUP, msg_id)
++                    if LAST_RUN_TS:
++                        LAST_RUN_TS.set(time.time())
++                except Exception as exc:
++                    status = "error"
++                    await r.xadd(
++                        DLQ_STREAM,
++                        {
++                            "incident_id": row.get("incident_id", ""),
++                            "payload_json": row.get("payload_json", "{}"),
++                            "error": str(exc),
++                            "ts_ms": str(now_ms()),
++                        },
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.xack(REQUESTS_STREAM, GROUP, msg_id)
++                finally:
++                    if RUNS:
++                        RUNS.labels(status=status, provider=provider_name).inc()
++                    if LAT:
++                        LAT.observe(max(time.perf_counter() - started, 0.0))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    import asyncio
++    asyncio.run(main())
+diff --git a/orderflow_services/sql/ml_phase2_18_v1.sql b/orderflow_services/sql/ml_phase2_18_v1.sql
+new file mode 100644
+index 0000000..4444444
+--- /dev/null
++++ b/orderflow_services/sql/ml_phase2_18_v1.sql
+@@ -0,0 +1,31 @@
++BEGIN;
++
++CREATE TABLE IF NOT EXISTS llm_operator_routing_incident_rca_route_rca_results (
++    id               bigserial PRIMARY KEY,
++    incident_id      text NOT NULL,
++    ts_ms            bigint NOT NULL,
++    provider         text NOT NULL,
++    model_name       text NOT NULL,
++    prompt_version   text NOT NULL,
++    policy_version   text NOT NULL,
++    result_json      jsonb NOT NULL
++);
++
++CREATE INDEX IF NOT EXISTS idx_llm_operator_routing_incident_rca_route_rca_results_incident_id
++    ON llm_operator_routing_incident_rca_route_rca_results(incident_id);
++
++CREATE INDEX IF NOT EXISTS idx_llm_operator_routing_incident_rca_route_rca_results_ts_ms
++    ON llm_operator_routing_incident_rca_route_rca_results(ts_ms DESC);
++
++COMMIT;
+diff --git a/orderflow_services/docker_compose_fragment_ml_phase2_18_v1.yml b/orderflow_services/docker_compose_fragment_ml_phase2_18_v1.yml
+new file mode 100644
+index 0000000..5555555
+--- /dev/null
++++ b/orderflow_services/docker_compose_fragment_ml_phase2_18_v1.yml
+@@ -0,0 +1,49 @@
++services:
++  scanner-operator-routing-incident-rca-route-incident-to-vertex-bridge-v2-18:
++    build:
++      context: .
++      dockerfile: python-worker/Dockerfile.gpu
++    command: ["python", "-m", "orderflow_services.operator_routing_incident_rca_route_incident_to_vertex_bridge_v2_18"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_RCA_BRIDGE_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_RCA_BRIDGE_PORT:-9900}
++    ports:
++      - "${ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_RCA_BRIDGE_PORT:-9900}:9900"
++    depends_on:
++      - redis-worker-1
++
++  scanner-operator-routing-incident-rca-route-rca-orchestrator-v2-18:
++    build:
++      context: .
++      dockerfile: python-worker/Dockerfile.gpu
++    command: ["python", "-m", "orderflow_services.ml_operator_routing_incident_route_rca_orchestrator_v2_18"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      VERTEX_PROJECT_ID: ${VERTEX_PROJECT_ID:-}
++      VERTEX_LOCATION: ${VERTEX_LOCATION:-global}
++      VERTEX_ROUTING_INCIDENT_ROUTE_RCA_MODEL: ${VERTEX_ROUTING_INCIDENT_ROUTE_RCA_MODEL:-gemini-2.5-flash-lite}
++      VERTEX_ROUTING_INCIDENT_ROUTE_RCA_DRY_RUN: ${VERTEX_ROUTING_INCIDENT_ROUTE_RCA_DRY_RUN:-1}
++      ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_RCA_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_RCA_PORT:-9901}
++    ports:
++      - "${ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_RCA_PORT:-9901}:9901"
++    depends_on:
++      - redis-worker-1
+diff --git a/orderflow_services/prometheus_alerts_ml_phase2_18_v1.yml b/orderflow_services/prometheus_alerts_ml_phase2_18_v1.yml
+new file mode 100644
+index 0000000..6666666
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_ml_phase2_18_v1.yml
+@@ -0,0 +1,31 @@
++groups:
++  - name: ml_phase2_18_operator_routing_incident_rca_route_vertex_bridge_v1
++    rules:
++      - alert: MLOperatorRoutingIncidentRCARouteRCABridgeDown
++        expr: ml_operator_routing_incident_rca_route_rca_bridge_up == 0
++        for: 5m
++        labels:
++          severity: warning
++        annotations:
++          summary: "operator routing incident route RCA bridge is down"
++
++      - alert: MLOperatorRoutingIncidentRCARouteRCABridgeStale
++        expr: time() - ml_operator_routing_incident_rca_route_rca_bridge_last_run_ts_seconds > 1800
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: "operator routing incident route RCA bridge is stale"
++
++      - alert: MLOperatorRoutingIncidentRouteRCAOrchestratorStale
++        expr: time() - ml_operator_routing_incident_route_rca_last_run_ts_seconds > 1800
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: "operator routing incident route RCA orchestrator is stale"
+diff --git a/orderflow_services/runbook_ml_phase2_18_v1.md b/orderflow_services/runbook_ml_phase2_18_v1.md
+new file mode 100644
+index 0000000..7777777
+--- /dev/null
++++ b/orderflow_services/runbook_ml_phase2_18_v1.md
+@@ -0,0 +1,43 @@
++# Phase 2.18 — Route Incident Bundle → Vertex RCA Bridge
++
++## Цель
++Преобразовать forensic bundle по route-governance incident в compact Vertex RCA input и получить structured RCA result.
++
++## Компоненты
++- `operator_routing_incident_rca_route_incident_to_vertex_bridge_v2_18.py`
++- `vertex_routing_incident_route_rca_provider_v2_18.py`
++- `ml_operator_routing_incident_route_rca_orchestrator_v2_18.py`
++
++## Потоки
++- input: `stream:ml:operator_routing_incident_rca_route_incident_bundle_results`
++- request: `stream:ml:operator_routing_incident_rca_route_rca_requests`
++- result: `stream:ml:operator_routing_incident_rca_route_rca_results`
++- proposals: `stream:ml:recommendation_proposals`
++- dlq: `stream:ml:operator_routing_incident_rca_route_rca_dlq`
++
++## Safe start
++```bash
++export VERTEX_ROUTING_INCIDENT_ROUTE_RCA_DRY_RUN=1
++export VERTEX_PROJECT_ID=...
++export VERTEX_LOCATION=global
++export VERTEX_ROUTING_INCIDENT_ROUTE_RCA_MODEL=gemini-2.5-flash-lite
++```
++
++## Smoke checks
++```bash
++redis-cli XREVRANGE stream:ml:operator_routing_incident_rca_route_incident_bundle_results + - COUNT 3
++redis-cli XREVRANGE stream:ml:operator_routing_incident_rca_route_rca_requests + - COUNT 3
++redis-cli XREVRANGE stream:ml:operator_routing_incident_rca_route_rca_results + - COUNT 3
++redis-cli XREVRANGE stream:ml:recommendation_proposals + - COUNT 3
++curl -s localhost:9900/metrics | grep '^ml_operator_routing_incident_rca_route_rca_bridge_'
++curl -s localhost:9901/metrics | grep '^ml_operator_routing_incident_route_rca_'
++```
++
++## Notes
++- scope только `scanner_infra`
++- hot path не затронут
++- advisory-only
++- proposals выходят review-only
+diff --git a/orderflow_services/tests/test_operator_routing_incident_rca_route_incident_to_vertex_bridge_v2_18.py b/orderflow_services/tests/test_operator_routing_incident_rca_route_incident_to_vertex_bridge_v2_18.py
+new file mode 100644
+index 0000000..8888888
+--- /dev/null
++++ b/orderflow_services/tests/test_operator_routing_incident_rca_route_incident_to_vertex_bridge_v2_18.py
+@@ -0,0 +1,46 @@
++from orderflow_services.operator_routing_incident_rca_route_incident_to_vertex_bridge_v2_18 import (
++    build_route_incident_rca_pack,
++    compact_timeline,
++)
++
++
++def test_compact_timeline_keeps_order_and_limits_size():
++    timeline = [{"ts_ms": i, "event_type": "x"} for i in range(50)]
++    compact = compact_timeline(timeline, limit=10)
++    assert len(compact) == 10
++    assert compact[0]["ts_ms"] == 0
++    assert compact[-1]["ts_ms"] == 49
++
++
++def test_build_route_incident_rca_pack_extracts_core_fields():
++    row = {
++        "severity": "critical",
++        "bundle_json": """
++        {
++          "incident_id": "route-inc-9",
++          "bundle_hash": "abc123",
++          "primary_reason_codes": ["ROUTE_MTTR_SLO_BREACH", "USEFULNESS_DROP"],
++          "summary": {"verify_results_n": 1},
++          "route_diff_json": {"model_name": {"before": "a", "after": "b"}},
++          "timeline_json": [{"ts_ms": 100, "event_type": "APPLY"}, {"ts_ms": 200, "event_type": "VERIFY"}],
++          "sections_json": {"apply_results": [{"x": 1}], "verify_results": [{"y": 2}]},
++          "baseline_route_json": {"provider": "vertex", "model_name": "gemini-2.5-flash-lite"},
++          "target_route_json": {"provider": "vertex", "model_name": "gemini-2.5-flash"},
++          "current_route_json": {"provider": "vertex", "model_name": "gemini-2.5-flash"}
++        }
++        """,
++    }
++    pack = build_route_incident_rca_pack(row)
++    assert pack["incident_id"] == "route-inc-9"
++    assert pack["severity"] == "critical"
++    assert "ROUTE_MTTR_SLO_BREACH" in pack["primary_reason_codes"]
++    assert pack["section_counts"]["apply_results"] == 1
++    assert pack["baseline_route"]["model_name"] == "gemini-2.5-flash-lite"
++    assert pack["current_route"]["model_name"] == "gemini-2.5-flash"
++    assert pack["compact_hash"]

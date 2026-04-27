@@ -1,0 +1,28 @@
+{
+  "title": "Latency Contract P4.14 Warning Policy Binding",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "title": "Route binding mismatch total",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "latency_contract_deploy_lint_summary_dual_control_route_binding_mismatch_total"}
+      ]
+    },
+    {
+      "title": "Approval notifier route class match",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "latency_contract_deploy_lint_silence_approval_notifier_route_class_match"}
+      ]
+    },
+    {
+      "title": "Approval warning policy match",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "latency_contract_deploy_lint_silence_approval_warning_policy_match"}
+      ]
+    }
+  ]
+}

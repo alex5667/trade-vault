@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/ml_feature_schema_v3.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 1000.0, '1', 'LONG', 'SHORT', 'abs_lvl_ok', 'adverse_proxy', 'book_staleness_ms', 'bucket:other', 'bucket:range', 'bucket:trend', 'cancel_spike_veto', 'delta_z', 'dir:LONG', 'dir:SHORT', 'direction', 'exec_risk_norm', 'fp_edge_absorb', 'iceberg_strict', 'indicators', 'lambda_cancel', 'lambda_spread_widen', 'lambda_taker', 'liq_score', 'mae_r', 'mfe_r', 'obi', 'obi_stable', 'obi_z', 'ofi_dir_ok', 'ofi_stability_score', 'ofi_stable', 'ofi_z', 'ok', 'pressure', 'range', 'reclaim_recent', 'rule_have', 'rule_need', 'rule_score', 'scenario', 'scenario_v4', 'spread_bps', 'sweep_recent', 'symbol', 'trend', 'triggers_per_min', 'true', 'ts_ms', 'y', 'yes']

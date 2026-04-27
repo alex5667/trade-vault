@@ -1,0 +1,17 @@
+[Unit]
+Description=Trade Recs Callback Worker v2 (two-phase propose: preview2 -> confirm)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Restart=always
+RestartSec=2
+EnvironmentFile=/etc/trade/of_reports.env
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+ExecStart=/usr/bin/python3 -m services.recs_callback_worker_v2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+

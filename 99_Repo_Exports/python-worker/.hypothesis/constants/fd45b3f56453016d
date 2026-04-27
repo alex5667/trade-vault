@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/bench_of_confirm_engine.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.5, 0.95, 0.99, 1.0, 2.0, 50000.0, 1000000.0, 2000, 20000, 1700000000000, '--n', '--out', '--warmup', '1s', 'BTCUSDT', 'LONG', '__main__', 'bucket_id', 'cancel_ask_rate_ema', 'cancel_bid_rate_ema', 'max_us', 'n', 'na', 'p50_us', 'p95_us', 'p99_us', 'spread_bps', 'taker_buy_rate_ema', 'taker_sell_rate_ema', 'utf-8', 'w', 'weak_any', 'wp']

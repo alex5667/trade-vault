@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/special/_logsumexp.py
+# hypothesis_version: 6.148.10
+
+[0.0, 'ignore', 'log_softmax', 'logsumexp', 'softmax']

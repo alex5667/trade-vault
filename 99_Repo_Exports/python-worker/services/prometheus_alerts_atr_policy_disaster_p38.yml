@@ -1,0 +1,189 @@
+---
+# ATR Policy Phase 3.8 — Disaster Layer Alerts
+# Prometheus alerting rules for: verify failures, rollback, kill_switch, callback silence,
+# flip storm, corruption, last_good coverage.
+
+groups:
+  - name: atr_policy_disaster_layer_p38
+
+    rules:
+
+      # ── WARN: Verify failures accumulating ───────────────────────────────
+      - alert: AtrPolicyVerifyFailAccumulating
+        expr: >
+          increase(atr_policy_verify_fail_total[30m]) > 3
+        for: 5m
+        labels:
+          severity: warning
+          component: atr_policy
+          phase: "3.8"
+        annotations:
+          summary: "ATR policy verify failures accumulating"
+          description: >
+            atr_policy_verify_fail_total increased by >3 in the last 30m.
+            Check stream:atr_policy:verify_results for reason_code breakdown.
+            reason_code={{ $labels.reason_code }}
+
+      # ── PAGE: Active policy corruption without rollback ──────────────────
+      - alert: AtrPolicyActiveCorruptionNoRollback
+        expr: >
+          increase(atr_policy_active_corruption_total[15m]) > 0
+          and increase(atr_policy_rollback_total{reason_code="ROLLBACK_TO_LAST_GOOD"}[15m]) == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: atr_policy
+          phase: "3.8"
+        annotations:
+          summary: "ATR active policy corrupted but NO rollback succeeded"
+          description: >
+            Active policy corruption detected but ROLLBACK_TO_LAST_GOOD counter
+            did NOT increment. Manual intervention required.
+            Check stream:atr_policy:escalations and cfg:atr_policy:kill_switch:*.
+
+      # ── PAGE: Kill-switch activation ─────────────────────────────────────
+      - alert: AtrPolicyKillSwitchArmed
+        expr: >
+          increase(atr_policy_kill_switch_total[15m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: atr_policy
+          phase: "3.8"
+        annotations:
+          summary: "ATR policy kill_switch was armed for a cohort"
+          description: >
+            atr_policy_kill_switch_total incremented.
+            Reason: {{ $labels.reason_code }}.
+            Runtime for affected cohort will fall back to canary/shadow.
+            Manual clear required: atr_policy_rollback_watcher.clear_kill_switch().
+
+      # ── PAGE: Multiple cohorts under kill_switch ─────────────────────────
+      - alert: AtrPolicyMultipleKillSwitchActive
+        expr: >
+          atr_policy_disaster_kill_switch_active_count > 2
+        for: 2m
+        labels:
+          severity: critical
+          component: atr_policy
+          phase: "3.8"
+        annotations:
+          summary: "Multiple ATR cohorts under kill_switch (>2)"
+          description: >
+            atr_policy_disaster_kill_switch_active_count={{ $value }}.
+            More than 2 cohorts are simultaneously kill-switched.
+            Likely a systemic failure — investigate Redis state and apply_runner.
+
+      # ── WARN: Last-good mirror coverage dropping ─────────────────────────
+      - alert: AtrPolicyLastGoodCoverageLow
+        expr: >
+          atr_policy_disaster_last_good_coverage_pct < 80
+        for: 10m
+        labels:
+          severity: warning
+          component: atr_policy
+          phase: "3.8"
+        annotations:
+          summary: "ATR last_good mirror coverage below 80%"
+          description: >
+            last_good_coverage={{ $value | humanize }}%.
+            Some active policies don't have a last_good mirror.
+            Recovery may fall back to kill_switch if active key is lost.
+
+      # ── PAGE: No last_good after failure ─────────────────────────────────
+      - alert: AtrPolicyNoLastGoodAfterFailure
+        expr: >
+          increase(atr_policy_rollback_total{reason_code="NO_LAST_GOOD_KILL_SWITCHED"}[15m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: atr_policy
+          phase: "3.8"
+        annotations:
+          summary: "ATR rollback found no last_good — kill_switch armed"
+          description: >
+            NO_LAST_GOOD_KILL_SWITCHED rollback triggered.
+            Active policy was lost AND no mirror exists.
+            Cohort will run canary/shadow until manual operator clear.
+
+      # ── PAGE: No reconcile success for >15m ──────────────────────────────
+      - alert: AtrPolicyReconcileStuck
+        expr: >
+          atr_policy_reconcile_last_success_age_sec > 900
+        for: 5m
+        labels:
+          severity: critical
+          component: atr_policy
+          phase: "3.8"
+        annotations:
+          summary: "ATR policy reconcile has not succeeded in >15m"
+          description: >
+            atr_policy_reconcile_last_success_age_sec={{ $value | humanizeTimestamp }}s.
+            Approved proposals may not be being applied to active keys.
+            Runtime continues on existing active/last_good policy.
+
+      # ── WARN: Callback silence with pending backlog ───────────────────────
+      - alert: AtrPolicyCallbackSilenceWarn
+        expr: >
+          atr_policy_callback_watchdog_total{severity="WARN"} > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: atr_policy
+          phase: "3.8"
+        annotations:
+          summary: "ATR Telegram callback silence with pending proposals (WARN)"
+          description: >
+            callback_silence_pending={{ $value }} submitted proposals are waiting.
+            Telegram callbacks have been silent > warn threshold.
+            Check bot health and notify:telegram stream.
+            NO auto-revoke — operator action required.
+
+      # ── PAGE: Callback silence critical ──────────────────────────────────
+      - alert: AtrPolicyCallbackSilenceCritical
+        expr: >
+          atr_policy_callback_watchdog_total{severity="CRITICAL"} > 0
+        for: 2m
+        labels:
+          severity: critical
+          component: atr_policy
+          phase: "3.8"
+        annotations:
+          summary: "ATR Telegram callback CRITICAL silence — proposals pending"
+          description: >
+            Telegram callbacks have been silent > critical threshold with open proposals.
+            Ops must send fallback instruction via alternative channel.
+            NO auto-revoke is performed — manual operator decision required.
+
+      # ── WARN: Flip storm detected ─────────────────────────────────────────
+      - alert: AtrPolicyFlipStormDetected
+        expr: >
+          increase(atr_policy_flip_storm_total{action="detected"}[1h]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          component: atr_policy
+          phase: "3.8"
+        annotations:
+          summary: "ATR policy flip-storm detected for a cohort"
+          description: >
+            A cohort received >= threshold APPROVE/REVOKE flips in 24h.
+            Kill-switch may have been armed. Cohort A/B becomes unreliable.
+            Check stream:atr_policy:escalations and clear manually after investigation.
+
+      # ── WARN: Partial loss recovery ───────────────────────────────────────
+      - alert: AtrPolicyPartialLossRecovery
+        expr: >
+          increase(atr_policy_partial_loss_recovery_total[1h]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          component: atr_policy
+          phase: "3.8"
+        annotations:
+          summary: "ATR partial loss recovery triggered"
+          description: >
+            active policy key was restored from last_good or kill_switch was armed
+            due to Redis partial loss.
+            status={{ $labels.status }}.
+            Verify Redis cluster health.

@@ -1,0 +1,87 @@
+# prometheus_alerts_conf_score_guardrails_v1.yml
+# World practice: actionable alerts + runbook pointers for confidence score guardrails.
+
+groups:
+- name: conf_score_guardrails
+  rules:
+  - alert: ConfScoreGuardStateStale
+    expr: conf_score_guard_status_age_seconds > 300
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Confidence score guard state is stale"
+      description: "Guard exporter can't find a fresh state file (age={{ $value }}s)."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: ConfScoreGuardFreezeActive
+    expr: conf_score_guard_freeze == 1
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Confidence scorer freeze active"
+      description: "Regime shaping is disabled for {{ $labels.symbol }} (freeze=1).
+        Check drift report & data health."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: ConfScoreGuardFreezeLatched
+    expr: conf_score_guard_latch_remaining_sec > 0
+    for: 5m
+    labels:
+      severity: info
+    annotations:
+      summary: "Confidence freeze is latched"
+      description: "Symbol {{ $labels.symbol }} is in hysteresis latch for {{ $value
+        }} more seconds."
+
+  - alert: ConfScoreGuardFreezeLatchedTooLong
+    expr: conf_score_guard_latch_remaining_sec > 7200
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Confidence freeze latched > 2h"
+      description: "Symbol {{ $labels.symbol }} has been latched for > 2 hours. Check
+        if deep drift persists."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: ConfScoreGuardRecoveryStuck
+    expr: conf_score_guard_freeze == 1 and conf_score_guard_latch_remaining_sec 
+      == 0 and conf_score_guard_stable_streak >= 3
+    for: 30m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Recovery appears stuck"
+      description: "Symbol {{ $labels.symbol }} is frozen, not latched, and has stable
+        streak >= 3 but not unfreezing? Check config."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: ConfScoreGuardHighDrift
+    expr: conf_score_guard_drift_max_abs_z >= 6
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "High drift in confidence parts"
+      description: "Drift max abs z={{ $value }} for {{ $labels.symbol }} (freeze/scale
+        may be active)."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: ConfScoreGuardScaleReduced
+    expr: conf_score_guard_scale < 0.9
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Confidence score scale reduced"
+      description: "Confidence scaling <0.9 for {{ $labels.symbol }} (scale={{ $value
+        }})."
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd

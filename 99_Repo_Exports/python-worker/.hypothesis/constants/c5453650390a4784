@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/switch_budget.py
+# hypothesis_version: 6.148.10
+
+[1000, 'SwitchState', 'budget', 'day_id', 'last_switch_ts_ms', 'min_gap', 'ok', 'paused', 'paused_until_ts_ms', 'switches']

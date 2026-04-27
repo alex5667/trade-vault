@@ -1,0 +1,475 @@
+--- services/binance_dust_cleanup_worker.py
++++ services/binance_dust_cleanup_worker.py
+@@ -53,7 +53,9 @@
+         EXECUTION_DUST_CLEANUP_TOTAL,
+         EXECUTION_DUST_RESIDUAL_QTY,
+         EXECUTION_DUST_SWEEP_CANDIDATES,
++        EXECUTION_DUST_SWEEP_COOLDOWN_REMAINING_SEC,
+         EXECUTION_DUST_SWEEP_LAST_RUN_TS,
++        EXECUTION_DUST_SWEEP_SKIP_TOTAL,
+         EXECUTION_DUST_SWEEP_TOTAL,
+         EXECUTION_FORCE_FLAT_VERIFY_TOTAL,
+     )
+@@ -63,7 +65,9 @@
+             EXECUTION_DUST_CLEANUP_TOTAL,
+             EXECUTION_DUST_RESIDUAL_QTY,
+             EXECUTION_DUST_SWEEP_CANDIDATES,
++            EXECUTION_DUST_SWEEP_COOLDOWN_REMAINING_SEC,
+             EXECUTION_DUST_SWEEP_LAST_RUN_TS,
++            EXECUTION_DUST_SWEEP_SKIP_TOTAL,
+             EXECUTION_DUST_SWEEP_TOTAL,
+             EXECUTION_FORCE_FLAT_VERIFY_TOTAL,
+         )
+@@ -71,7 +75,9 @@
+         EXECUTION_DUST_CLEANUP_TOTAL = None  # type: ignore
+         EXECUTION_DUST_RESIDUAL_QTY = None  # type: ignore
+         EXECUTION_DUST_SWEEP_CANDIDATES = None  # type: ignore
++        EXECUTION_DUST_SWEEP_COOLDOWN_REMAINING_SEC = None  # type: ignore
+         EXECUTION_DUST_SWEEP_LAST_RUN_TS = None  # type: ignore
++        EXECUTION_DUST_SWEEP_SKIP_TOTAL = None  # type: ignore
+         EXECUTION_DUST_SWEEP_TOTAL = None  # type: ignore
+         EXECUTION_FORCE_FLAT_VERIFY_TOTAL = None  # type: ignore
+ 
+@@ -99,7 +105,7 @@
+     return int(time.time() * 1000)
+ 
+ 
+-def _load_allowlist(raw: str) -> Set[str]:
++def _load_symbol_set(raw: str) -> Set[str]:
+     return {part.strip().upper() for part in str(raw or '').split(',') if part.strip()}
+ 
+ 
+@@ -141,6 +147,9 @@
+         verify_timeout_ms: Optional[int] = None,
+         verify_poll_ms: Optional[int] = None,
+         allowlist: Optional[Set[str]] = None,
++        denylist: Optional[Set[str]] = None,
++        cooldown_sec: Optional[int] = None,
++        error_cooldown_sec: Optional[int] = None,
+     ) -> None:
+         self.client = client or BinanceFuturesClient.from_env()
+         if redis_client is not None:
+@@ -160,9 +169,16 @@
+         self.verify_timeout_ms = max(250, int(verify_timeout_ms if verify_timeout_ms is not None else os.getenv('BINANCE_DUST_VERIFY_TIMEOUT_MS', '3000')) )
+         self.verify_poll_ms = max(100, int(verify_poll_ms if verify_poll_ms is not None else os.getenv('BINANCE_DUST_VERIFY_POLL_MS', '250')) )
+         self.position_mode = str(os.getenv('BINANCE_POSITION_MODE') or 'oneway').strip().lower()
+-        self.allowlist = {s.upper() for s in (allowlist or _load_allowlist(os.getenv('BINANCE_SYMBOL_ALLOWLIST', '')))}
++        self.allowlist = {s.upper() for s in (allowlist or _load_symbol_set(os.getenv('BINANCE_SYMBOL_ALLOWLIST', '')))}
++        self.denylist = {s.upper() for s in (denylist or _load_symbol_set(os.getenv('BINANCE_DUST_SWEEP_DENYLIST', '')))}
++        self.cooldown_sec = max(0, int(cooldown_sec if cooldown_sec is not None else os.getenv('BINANCE_DUST_SWEEP_COOLDOWN_SEC', '300')) )
++        self.error_cooldown_sec = max(0, int(error_cooldown_sec if error_cooldown_sec is not None else os.getenv('BINANCE_DUST_SWEEP_ERROR_COOLDOWN_SEC', str(self.cooldown_sec or 60))) )
++        self.dynamic_denylist_set_key = os.getenv('BINANCE_DUST_SWEEP_DENYLIST_SET_KEY', 'orders:dust_cleanup:denylist')
++        self.dynamic_denylist_prefix = os.getenv('BINANCE_DUST_SWEEP_DENYLIST_PREFIX', 'orders:dust_cleanup:denylist:')
++        self.cooldown_prefix = os.getenv('BINANCE_DUST_SWEEP_COOLDOWN_PREFIX', 'orders:dust_cleanup:cooldown:')
+         self._filters: Dict[str, SymbolFilter] = {}
+         self._confirm_seen: Dict[str, int] = {}
++        self._cooldown_local_until_ms: Dict[str, int] = {}
+ 
+     def _metric_inc(self, symbol: str, result: str) -> None:
+         if EXECUTION_DUST_SWEEP_TOTAL is None:
+@@ -171,6 +187,117 @@
+             EXECUTION_DUST_SWEEP_TOTAL.labels(symbol=symbol, result=result).inc()
+         except Exception:
+             pass
++
++
++    def _skip_metric_inc(self, symbol: str, reason: str) -> None:
++        if EXECUTION_DUST_SWEEP_SKIP_TOTAL is None:
++            return
++        try:
++            EXECUTION_DUST_SWEEP_SKIP_TOTAL.labels(symbol=symbol, reason=reason).inc()
++        except Exception:
++            pass
++
++    def _set_cooldown_metric(self, symbol: str, seconds: float) -> None:
++        if EXECUTION_DUST_SWEEP_COOLDOWN_REMAINING_SEC is None:
++            return
++        try:
++            EXECUTION_DUST_SWEEP_COOLDOWN_REMAINING_SEC.labels(symbol=symbol).set(max(0.0, float(seconds)))
++        except Exception:
++            pass
++
++    def _cooldown_key(self, symbol: str) -> str:
++        return f"{self.cooldown_prefix}{str(symbol).upper().strip()}"
++
++    def _dynamic_denylist_key(self, symbol: str) -> str:
++        return f"{self.dynamic_denylist_prefix}{str(symbol).upper().strip()}"
++
++    def _is_symbol_denylisted(self, symbol: str) -> bool:
++        target = str(symbol or '').upper().strip()
++        if not target:
++            return False
++        if target in self.denylist:
++            return True
++        if self.r is None:
++            return False
++        try:
++            if hasattr(self.r, 'sismember') and self.r.sismember(self.dynamic_denylist_set_key, target):
++                return True
++        except Exception:
++            pass
++        try:
++            raw = self.r.get(self._dynamic_denylist_key(target))
++            if raw not in (None, '', '0', 'false', 'False'):
++                return True
++        except Exception:
++            pass
++        return False
++
++    def _cooldown_remaining_sec(self, symbol: str) -> int:
++        target = str(symbol or '').upper().strip()
++        if not target:
++            return 0
++        if self.r is not None:
++            key = self._cooldown_key(target)
++            try:
++                if hasattr(self.r, 'pttl'):
++                    ttl_ms = int(self.r.pttl(key) or -2)
++                    if ttl_ms > 0:
++                        rem = int(math.ceil(ttl_ms / 1000.0))
++                        self._set_cooldown_metric(target, rem)
++                        return rem
++            except Exception:
++                pass
++            try:
++                raw = self.r.get(key)
++                if raw:
++                    data = json.loads(raw) if str(raw).startswith('{') else {'until_ms': int(raw)}
++                    until_ms = int(data.get('until_ms') or 0)
++                    rem_ms = until_ms - _now_ms()
++                    if rem_ms > 0:
++                        rem = int(math.ceil(rem_ms / 1000.0))
++                        self._set_cooldown_metric(target, rem)
++                        return rem
++            except Exception:
++                pass
++        until_ms = int(self._cooldown_local_until_ms.get(target, 0) or 0)
++        rem_ms = until_ms - _now_ms()
++        if rem_ms > 0:
++            rem = int(math.ceil(rem_ms / 1000.0))
++            self._set_cooldown_metric(target, rem)
++            return rem
++        self._cooldown_local_until_ms.pop(target, None)
++        self._set_cooldown_metric(target, 0.0)
++        return 0
++
++    def _set_cooldown(self, symbol: str, *, seconds: int, reason: str) -> None:
++        target = str(symbol or '').upper().strip()
++        if not target or int(seconds or 0) <= 0:
++            self._set_cooldown_metric(target, 0.0)
++            return
++        until_ms = _now_ms() + (int(seconds) * 1000)
++        payload = json.dumps({'until_ms': until_ms, 'reason': str(reason)}, ensure_ascii=False, separators=(",", ":"))
++        key = self._cooldown_key(target)
++        if self.r is not None:
++            try:
++                if hasattr(self.r, 'setex'):
++                    self.r.setex(key, int(seconds), payload)
++                else:
++                    self.r.set(key, payload)
++            except Exception:
++                self._cooldown_local_until_ms[target] = until_ms
++        else:
++            self._cooldown_local_until_ms[target] = until_ms
++        self._set_cooldown_metric(target, float(seconds))
++
++    def _clear_cooldown(self, symbol: str) -> None:
++        target = str(symbol or '').upper().strip()
++        self._cooldown_local_until_ms.pop(target, None)
++        if self.r is not None:
++            try:
++                self.r.delete(self._cooldown_key(target))
++            except Exception:
++                pass
++        self._set_cooldown_metric(target, 0.0)
+ 
+     def _emit_exec_event(self, *, symbol: str, event_type: str, status: str, payload: Dict[str, Any]) -> None:
+         if self.r is None:
+@@ -432,12 +559,14 @@
+         current_candidates: Set[str] = set()
+         pending_symbols: List[str] = []
+         acted: List[Dict[str, Any]] = []
++        skipped: List[Dict[str, Any]] = []
+         for row in rows:
+             symbol = str(row.get('symbol') or '').upper().strip()
+             if not symbol:
+                 continue
+             if self.allowlist and symbol not in self.allowlist:
+                 self._confirm_seen.pop(symbol, None)
++                self._clear_cooldown(symbol)
+                 continue
+             snapshot = {
+                 'symbol': symbol,
+@@ -447,8 +576,35 @@
+             }
+             if not self._is_dust_position(snapshot):
+                 self._confirm_seen.pop(symbol, None)
++                self._clear_cooldown(symbol)
+                 continue
+             current_candidates.add(symbol)
++            if self._is_symbol_denylisted(symbol):
++                self._confirm_seen.pop(symbol, None)
++                self._skip_metric_inc(symbol, 'denylist')
++                self._metric_inc(symbol, 'skip_denylist')
++                doc = {
++                    'symbol': symbol,
++                    'skip_reason': 'denylist',
++                    **snapshot,
++                }
++                self._emit_exec_event(symbol=symbol, event_type='dust_cleanup_skip', status='denylist', payload=doc)
++                skipped.append(doc)
++                continue
++            cooldown_remaining = self._cooldown_remaining_sec(symbol)
++            if cooldown_remaining > 0:
++                self._confirm_seen.pop(symbol, None)
++                self._skip_metric_inc(symbol, 'cooldown')
++                self._metric_inc(symbol, 'skip_cooldown')
++                doc = {
++                    'symbol': symbol,
++                    'skip_reason': 'cooldown',
++                    'cooldown_remaining_sec': cooldown_remaining,
++                    **snapshot,
++                }
++                self._emit_exec_event(symbol=symbol, event_type='dust_cleanup_skip', status='cooldown', payload=doc)
++                skipped.append(doc)
++                continue
+             seen = int(self._confirm_seen.get(symbol, 0)) + 1
+             self._confirm_seen[symbol] = seen
+             if seen < self.confirm_passes:
+@@ -462,9 +618,16 @@
+                 })
+                 continue
+             try:
+-                acted.append(self._cleanup_symbol(symbol, dict(row)))
++                result = self._cleanup_symbol(symbol, dict(row))
++                acted.append(result)
++                status = str(result.get('status') or '').strip() or 'unknown'
++                if status != 'already_flat' and self.cooldown_sec > 0:
++                    self._set_cooldown(symbol, seconds=self.cooldown_sec, reason=status)
+             except Exception as exc:
+                 self._metric_inc(symbol, 'error')
++                self._skip_metric_inc(symbol, 'error')
++                if self.error_cooldown_sec > 0:
++                    self._set_cooldown(symbol, seconds=self.error_cooldown_sec, reason='error')
+                 self._emit_exec_event(symbol=symbol, event_type='dust_cleanup_worker', status='error', payload={
+                     'symbol': symbol,
+                     'error': str(exc),
+@@ -483,6 +646,7 @@
+             'ts_ms': _now_ms(),
+             'candidates': sorted(current_candidates),
+             'pending': pending_symbols,
++            'skipped': skipped,
+             'acted': acted,
+         }
+ 
+--- services/execution_metrics.py
++++ services/execution_metrics.py
+@@ -91,6 +91,19 @@
+     "Unix timestamp of the latest periodic dust cleanup worker sweep.",
+ )
+ 
++EXECUTION_DUST_SWEEP_SKIP_TOTAL = _metric(
++    Counter,
++    "execution_dust_sweep_skip_total",
++    "Periodic dust cleanup worker skips by symbol and reason.",
++    ["symbol", "reason"],
++)
++EXECUTION_DUST_SWEEP_COOLDOWN_REMAINING_SEC = _metric(
++    Gauge,
++    "execution_dust_sweep_cooldown_remaining_sec",
++    "Remaining cooldown seconds before the dust cleanup worker may act on the symbol again.",
++    ["symbol"],
++)
++
+ MARK_CONTRACT_SPREAD_BPS = _metric(
+     Gauge,
+     "mark_contract_spread_bps",
+--- services/prometheus_alerts_binance_dust_cleanup_worker_v1.yml
++++ services/prometheus_alerts_binance_dust_cleanup_worker_v1.yml
+@@ -18,3 +18,21 @@
+         annotations:
+           summary: "Residual Binance dust positions remain after cleanup"
+           description: "The worker attempted to flatten residual positions but some tails still remain after the verify loop."
++
++      - alert: BinanceDustCleanupCooldownHotSymbols
++        expr: increase(execution_dust_sweep_skip_total{reason="cooldown"}[15m]) >= 3
++        for: 5m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Dust cleanup worker is repeatedly rate-limited by cooldown"
++          description: "The same symbols are repeatedly being skipped by cooldown, which usually means the worker is chasing a sticky residual tail."
++
++      - alert: BinanceDustCleanupDenylistedResidualsPresent
++        expr: increase(execution_dust_sweep_skip_total{reason="denylist"}[30m]) > 0
++        for: 10m
++        labels:
++          severity: info
++        annotations:
++          summary: "Denylisted symbols still have dust residuals"
++          description: "A symbol on the dust cleanup denylist still appears as a dust candidate. Review whether the denylist entry is still intentional."
+--- services/tests/test_binance_dust_cleanup_worker_v1.py
++++ services/tests/test_binance_dust_cleanup_worker_v1.py
+@@ -6,10 +6,62 @@
+ class FakeRedis:
+     def __init__(self):
+         self.events = []
++        self.kv = {}
++        self.expiry_ms = {}
++        self.sets = {}
++        self.now_ms = 0
++
++    def _purge(self, key=None):
++        if key is not None:
++            exp = self.expiry_ms.get(key)
++            if exp is not None and exp <= self.now_ms:
++                self.kv.pop(key, None)
++                self.expiry_ms.pop(key, None)
++            return
++        for k in list(self.expiry_ms.keys()):
++            self._purge(k)
++
++    def advance(self, sec: float):
++        self.now_ms += int(sec * 1000)
++        self._purge()
+ 
+     def xadd(self, stream, fields, **kwargs):
+         self.events.append((stream, dict(fields), dict(kwargs)))
+         return f"{len(self.events)}-0"
++
++    def setex(self, key, ttl_sec, value):
++        self.kv[str(key)] = str(value)
++        self.expiry_ms[str(key)] = self.now_ms + (int(ttl_sec) * 1000)
++        return True
++
++    def get(self, key):
++        key = str(key)
++        self._purge(key)
++        return self.kv.get(key)
++
++    def delete(self, key):
++        self.kv.pop(str(key), None)
++        self.expiry_ms.pop(str(key), None)
++        return 1
++
++    def pttl(self, key):
++        key = str(key)
++        self._purge(key)
++        if key not in self.kv:
++            return -2
++        exp = self.expiry_ms.get(key)
++        if exp is None:
++            return -1
++        return max(0, exp - self.now_ms)
++
++    def sadd(self, key, *values):
++        bucket = self.sets.setdefault(str(key), set())
++        for v in values:
++            bucket.add(str(v))
++        return len(values)
++
++    def sismember(self, key, value):
++        return str(value) in self.sets.get(str(key), set())
+ 
+ 
+ class FakeClient:
+@@ -22,10 +74,14 @@
+             'BTCUSDT': [
+                 {'symbol': 'BTCUSDT', 'positionAmt': '0.005', 'notional': '350.0', 'isolatedMargin': '18.0'},
+             ],
++            'SUIUSDT': [
++                {'symbol': 'SUIUSDT', 'positionAmt': '0.1', 'notional': '0.11', 'isolatedMargin': '0.01'},
++                {'symbol': 'SUIUSDT', 'positionAmt': '0.0', 'notional': '0.0', 'isolatedMargin': '0.0'},
++            ],
+         }
+-        self.current_idx = {'APTUSDT': 0, 'BTCUSDT': 0}
+-        self.plain_orders = {'APTUSDT': [{'orderId': 1, 'clientOrderId': 'plain-1'}], 'BTCUSDT': []}
+-        self.algo_orders = {'APTUSDT': [{'algoId': 11, 'clientAlgoId': 'algo-11'}], 'BTCUSDT': []}
++        self.current_idx = {'APTUSDT': 0, 'BTCUSDT': 0, 'SUIUSDT': 0}
++        self.plain_orders = {'APTUSDT': [{'orderId': 1, 'clientOrderId': 'plain-1'}], 'BTCUSDT': [], 'SUIUSDT': []}
++        self.algo_orders = {'APTUSDT': [{'algoId': 11, 'clientAlgoId': 'algo-11'}], 'BTCUSDT': [], 'SUIUSDT': []}
+         self.cancel_all_calls = []
+         self.post_plain_calls = []
+ 
+@@ -34,6 +90,7 @@
+             'symbols': [
+                 {'symbol': 'APTUSDT', 'filters': [{'filterType': 'LOT_SIZE', 'stepSize': '0.1', 'minQty': '0.1'}]},
+                 {'symbol': 'BTCUSDT', 'filters': [{'filterType': 'LOT_SIZE', 'stepSize': '0.001', 'minQty': '0.001'}]},
++                {'symbol': 'SUIUSDT', 'filters': [{'filterType': 'LOT_SIZE', 'stepSize': '0.1', 'minQty': '0.1'}]},
+             ]
+         }
+ 
+@@ -87,6 +144,7 @@
+         verify_timeout_ms=50,
+         verify_poll_ms=10,
+         allowlist={'APTUSDT', 'BTCUSDT'},
++        cooldown_sec=0,
+     )
+ 
+     first = worker.sweep_once()
+@@ -112,6 +170,7 @@
+         redis_client=FakeRedis(),
+         confirm_passes=1,
+         allowlist={'BTCUSDT'},
++        cooldown_sec=0,
+     )
+     res = worker.sweep_once()
+     assert res['candidates'] == []
+@@ -133,7 +192,57 @@
+         verify_timeout_ms=50,
+         verify_poll_ms=10,
+         allowlist={'APTUSDT'},
++        error_cooldown_sec=0,
+     )
+     res = worker.sweep_once()
+     assert res['acted'][0]['status'] == 'error'
+     assert any(fields['status'] == 'error' for _, fields, _ in fake_redis.events)
++
++
++def test_dust_worker_respects_static_and_dynamic_denylist():
++    fake_client = FakeClient()
++    fake_redis = FakeRedis()
++    fake_redis.sadd('orders:dust_cleanup:denylist', 'SUIUSDT')
++    worker = BinanceDustCleanupWorker(
++        client=fake_client,
++        redis_client=fake_redis,
++        confirm_passes=1,
++        allowlist={'APTUSDT', 'SUIUSDT'},
++        denylist={'APTUSDT'},
++        cooldown_sec=0,
++    )
++    res = worker.sweep_once()
++    assert sorted(res['candidates']) == ['APTUSDT', 'SUIUSDT']
++    assert res['acted'] == []
++    reasons = sorted(item['skip_reason'] for item in res['skipped'])
++    assert reasons == ['denylist', 'denylist']
++    assert fake_client.post_plain_calls == []
++
++
++
++def test_dust_worker_applies_cleanup_cooldown_per_symbol():
++    fake_client = FakeClient()
++    fake_redis = FakeRedis()
++    worker = BinanceDustCleanupWorker(
++        client=fake_client,
++        redis_client=fake_redis,
++        confirm_passes=1,
++        allowlist={'APTUSDT'},
++        cooldown_sec=60,
++        verify_timeout_ms=50,
++        verify_poll_ms=10,
++    )
++    first = worker.sweep_once()
++    assert first['acted'][0]['status'] == 'closed'
++    assert len(fake_client.post_plain_calls) == 1
++
++    # Simulate that the symbol became dusty again immediately after the close.
++    fake_client.current_idx['APTUSDT'] = 0
++    fake_client.plain_orders['APTUSDT'] = []
++    fake_client.algo_orders['APTUSDT'] = []
++
++    second = worker.sweep_once()
++    assert second['acted'] == []
++    assert second['skipped'][0]['skip_reason'] == 'cooldown'
++    assert second['skipped'][0]['cooldown_remaining_sec'] > 0
++    assert len(fake_client.post_plain_calls) == 1

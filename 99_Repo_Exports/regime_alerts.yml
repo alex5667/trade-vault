@@ -1,0 +1,29 @@
+groups:
+  - name: regime_alerts
+    rules:
+      - alert: RegimeQuantilesStale
+        expr: regime_quantiles_fresh_seconds > 86400
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Market regime quantiles are stale for timeframe {{ $labels.timeframe }}"
+          description: "Quantiles haven't been updated for more than 24 hours."
+
+      - alert: RegimeSampleCountLow
+        expr: regime_quantiles_sample_count < 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low sample count for {{ $labels.symbol }} {{ $labels.timeframe }}"
+          description: "Sample count is {{ $value }}, which is below the threshold of 80."
+
+      - alert: HighAtrGateVetoRate
+        expr: rate(atr_gate_veto_total{mode="ENFORCE"}[1h]) / rate(signals_total[1h]) > 0.5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High ATR Gate veto rate for {{ $labels.symbol }}"
+          description: "More than 50% of signals are being vetoed by the ATR gate in ENFORCE mode."

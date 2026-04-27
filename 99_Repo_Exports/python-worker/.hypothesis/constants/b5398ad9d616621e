@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/liquidity_resiliency.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.02, 0.2, 0.5, 0.6, 1.0, 1.2, 1.75, 1000, 'liq_depth_ema_usd', 'liq_depth_ratio', 'liq_fragility_score', 'liq_recovery_time_ms', 'liq_spread_ema', 'liq_spread_ratio', 'liq_stress_active']

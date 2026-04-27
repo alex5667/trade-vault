@@ -1,0 +1,169 @@
+groups:
+  - name: python_worker_health_alerts
+    rules:
+      - alert: PythonWorkerDown
+        expr: up{container_name="scanner-python-worker"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: infrastructure
+          team: sre
+        annotations:
+          summary: "scanner-python-worker is down"
+          description: "The scanner-python-worker container could not be scraped by Prometheus for over 5 minutes. The process has likely crashed."
+
+      - alert: PythonWorkerSignalsAbsent
+        expr: absent_over_time(signals_total[15m])
+        for: 15m
+        labels:
+          severity: critical
+          component: orderflow
+          team: sre
+        annotations:
+          summary: "signals_total metric absent"
+          description: "No signals_total metric is found in Prometheus for over 15 minutes. The worker might be running but failing to execute business logic."
+
+      - alert: TsRejectedSpike
+        expr: increase(ts_rejected_total[5m]) > 10
+        for: 0m
+        labels:
+          severity: warning
+          component: data_quality
+          team: sre
+        annotations:
+          summary: "TS rejection spike: {{ $labels.source }} / {{ $labels.reason }}"
+          description: >
+            ts_rejected_total{source="{{ $labels.source }}", reason="{{ $labels.reason }}"}
+            increased by {{ $value | printf "%.0f" }} in the last 5 minutes.
+            DLQ records written during this window have ts_ms=0 and dq_flags=ts_invalid,
+            which breaks replay correlation and Grafana time-range filtering.
+            Investigate upstream producer for wrong time scale (sec vs ms) or stale context.
+            Grep DLQ stream for dq_flags=ts_invalid to quantify blast radius.
+
+      # GAP-3: Orchestrator stage latency SLO (added after stage histogram instrumented)
+      - alert: OrchestratorGatesLatencyHigh
+        expr: >
+          histogram_quantile(0.95,
+            sum by (le, kind) (rate(orchestrator_stage_ms_bucket{stage="gates"}[5m]))
+          ) > 250
+        for: 5m
+        labels:
+          severity: warning
+          component: orderflow
+          team: sre
+        annotations:
+          summary: "Orchestrator gates p95 latency high: {{ $labels.kind }}"
+          description: >
+            orchestrator_stage_ms{stage="gates"} p95 > 250ms for kind={{ $labels.kind }}.
+            Could indicate a slow quality/regime/SMT/consistency gate.
+            Check which gate is taking time via stage breakdown.
+            Latency budget: p95 < 100ms normal, p95 > 250ms investigate.
+
+      - alert: OrchestratorEmitLatencyHigh
+        expr: >
+          histogram_quantile(0.95,
+            sum by (le, kind) (rate(orchestrator_stage_ms_bucket{stage="emit"}[5m]))
+          ) > 500
+        for: 5m
+        labels:
+          severity: warning
+          component: orderflow
+          team: sre
+        annotations:
+          summary: "Orchestrator emit p95 latency high: {{ $labels.kind }}"
+          description: >
+            orchestrator_stage_ms{stage="emit"} p95 > 500ms for kind={{ $labels.kind }}.
+            Could indicate Redis backpressure or emitter queue saturation.
+
+      # GAP-5: Shadow contract validation violations becoming visible
+      - alert: OrchestratorPayloadContractViolation
+        expr: increase(signal_payload_contract_violation_total[10m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: orderflow
+          team: sre
+        annotations:
+          summary: "Orchestrator payload contract violation: {{ $labels.symbol }}"
+          description: >
+            signal_payload_contract_violation_total{symbol="{{ $labels.symbol }}"}
+            fired in SHADOW mode — payload built by Orchestrator failed assert_tradeable_dict.
+            This does NOT block emission yet (shadow mode). Investigate payload schema drift.
+            Set PAYLOAD_CONTRACT_MODE=enforce to block bad payloads. Check orchestrator logs
+            for 'contract violation' messages with full field details.
+
+      - alert: PayloadTsAnomalySpike
+        expr: increase(payload_ts_anomaly_total[5m]) > 5
+        for: 0m
+        labels:
+          severity: warning
+          component: data_quality
+          team: sre
+        annotations:
+          summary: "Payload ts anomaly spike: {{ $labels.symbol }}"
+          description: >
+            payload_ts_anomaly_total{symbol="{{ $labels.symbol }}"} increased by
+            {{ $value | printf "%.0f" }} in 5m. Orchestrator _build_payload received
+            ts outside [now-7d, now+1m] range and normalized to 0.
+            Grafana time-range filtering and replay correlation.
+            Source: ctx.ts_ms or ctx.ts from the handler. Check Go-worker clock or ctx reuse.
+
+      - alert: GateVetoSpike
+        expr: sum by (kind, reason_code) (increase(pipeline_veto_total[5m])) > 10
+        for: 1m
+        labels:
+          severity: warning
+          component: orderflow
+          team: sre
+        annotations:
+          summary: "Gate veto spike: {{ $labels.kind }} / {{ $labels.reason_code }}"
+          description: >
+            pipeline_veto_total{kind="{{ $labels.kind }}", reason_code="{{ $labels.reason_code }}"}
+            increased by {{ $value | printf "%.0f" }} in 5m.
+            This alert is segmented by kind (orderflow, news, ml_gate, etc).
+            Review the gate thresholds or check for degraded market state.
+
+      - alert: OutboxDedupCollisionsSpike
+        expr: sum by (kind, symbol) (increase(outbox_dedup_collisions_total[5m])) > 10
+        for: 1m
+        labels:
+          severity: warning
+          component: infrastructure
+          team: sre
+        annotations:
+          summary: "High outbox dedup collisions: {{ $labels.kind }} / {{ $labels.symbol }}"
+          description: >
+            outbox_dedup_collisions_total{kind="{{ $labels.kind }}", symbol="{{ $labels.symbol }}"}
+            increased by {{ $value | printf "%.0f" }} in 5m.
+            This tracks signal_id collisions caught by Redis dedup (in OutboxWriter or Go-worker).
+
+      - alert: OutboxLuaErrorsSpike
+        expr: increase(outbox_lua_errors_total[1m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: infrastructure
+          team: sre
+        annotations:
+          summary: "Outbox Lua XADD failed: {{ $labels.kind }} / {{ $labels.symbol }}"
+          description: >
+            outbox_lua_errors_total{kind="{{ $labels.kind }}", symbol="{{ $labels.symbol }}"}
+            increased by {{ $value | printf "%.0f" }} in 1m. Atomic Lua script for deduplicated XADD
+            failed. Check Redis cluster health and script arguments.
+
+      - alert: LowSignalConfidenceSLO
+        expr: >
+          sum by (kind) (rate(confidence_pct_sum[10m]))
+          /
+          sum by (kind) (rate(confidence_pct_count[10m])) < 40
+        for: 5m
+        labels:
+          severity: warning
+          component: orderflow
+          team: sre
+        annotations:
+          summary: "Low Signal Confidence (SLO Miss): {{ $labels.kind }}"
+          description: >
+            The 10-minute average confidence_pct for {{ $labels.kind }} signals has dropped below 40%.
+            This indicates potential ML model drift or severely degraded market regime conditions.
+            Check feature calibrations, drift metrics, and consider adjusting the confidence_threshold.

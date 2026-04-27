@@ -1,0 +1,1255 @@
+--- a/orderflow_services/prometheus_alerts_of_gate_archiver_p78.yml
++++ b/orderflow_services/prometheus_alerts_of_gate_archiver_p78.yml
+@@ -1,188 +1,234 @@
++# P78/P80/P81 — OF gate archiver + rollups health alerts.
++#
++# Dashboards:
++#   - orderflow_services/grafana/of_gate_archiver_health_p78.json
++#   - orderflow_services/grafana/of_gate_rollups_freshness_p80.json
++#   - orderflow_services/grafana/of_gate_timescale_policies_p81.json
++#
++# Runbooks:
++#   - orderflow_services/runbook_of_gate_archiver_exporter_p78.md
++#   - orderflow_services/runbook_of_gate_metrics_rollups_p2.md
++#   - orderflow_services/runbook_of_gate_timescale_policies_p81.md
++
+ groups:
+-- name: of_gate_archiver_p78
+-  rules:
+-      # ── Staleness alerts ────────────────────────────────────────────────────
+-      # metrics archiver: no update for >15m means the archiver process is likely stuck/dead
+-  - alert: OF_Gate_Archiver_Metrics_Stale
+-    expr: (time()*1000 - of_gate_archiver_last_run_ts_ms{kind="metrics"})/1000 >
+-      900
+-    for: 10m
+-    labels:
+-      severity: page
+-    annotations:
+-      summary: of_gate metrics archiver is stale
+-      description: >
+-        No updates from of_gate metrics archiver for >15m.
+-        Check stream_archiver container logs and Redis connectivity.
+-        OF_GATE_METRICS_ARCHIVE_ENABLED must be 1.
+-        Age(s)={{ $value | humanizeDuration }}
+-
+-      # quarantine archiver: lower severity (no quarantine traffic is also ok)
+-  - alert: OF_Gate_Archiver_Quarantine_Stale
+-    expr: (time()*1000 - 
+-      of_gate_archiver_last_run_ts_ms{kind="quarantine"})/1000 > 900
+-    for: 10m
+-    labels:
+-      severity: warn
+-    annotations:
+-      summary: of_gate quarantine archiver is stale
+-      description: >
+-        No updates from of_gate quarantine archiver for >15m.
+-        Check stream_archiver container and Redis connectivity.
+-        OF_GATE_QUARANTINE_ARCHIVE_ENABLED must be 1.
+-        Age(s)={{ $value | humanizeDuration }}
+-
+-      # rollups refresh: alert only if it has ever run (gated on last_run_ts_ms > 0)
+-      # to avoid noise when manual refresh has never been triggered
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
+-  - alert: OF_Gate_RollupsRefresh_Stale
+-    expr: of_gate_archiver_last_run_ts_ms{kind="rollups_refresh"} > 0 and 
+-      (time()*1000 - 
+-      of_gate_archiver_last_run_ts_ms{kind="rollups_refresh"})/1000 > 86400
+-    for: 1h
+-    labels:
+-      severity: warn
+-    annotations:
+-      summary: of_gate rollups refresh job is stale
+-      description: >
+-        No updates from of_gate rollups refresh for >24h.
+-        If you rely on manual refresh, check the nightly timer job.
+-        Run: python -m orderflow_services.of_gate_history_migration_v1 refresh --days
+-        7
+-        Age(s)={{ $value | humanizeDuration }}
+-
+-      # ── Error alerts ─────────────────────────────────────────────────────────
+-      # Monotonic-ish gauges: alert on any increase over 10m
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
+-  - alert: OF_Gate_Archiver_Errors
+-    expr: increase(of_gate_archiver_error_total{kind="metrics"}[10m]) > 0
+-    for: 5m
+-    labels:
+-      severity: page
+-    annotations:
+-      summary: of_gate metrics archiver errors detected
+-      description: >
+-        Error count increased in the last 10m.
+-        Inspect DLQ stream: stream:dlq:of_gate_metrics
+-        Check archiver logs for parse_error / pg_batch_error.
+-
+-  - alert: OF_Gate_QuarantineArchiver_Errors
+-    expr: increase(of_gate_archiver_error_total{kind="quarantine"}[10m]) > 0
+-    for: 5m
+-    labels:
+-      severity: warn
+-    annotations:
+-      summary: of_gate quarantine archiver errors detected
+-      description: >
+-        Error count increased in the last 10m.
+-        Inspect DLQ stream: stream:dlq:of_gate_quarantine
+-        Check archiver logs for parse_error / pg_batch_error.
+-
+-
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
+-  - alert: OF_Gate_RollupsRefresh_Errors
+-    expr: increase(of_gate_archiver_error_total{kind="rollups_refresh"}[24h]) > 
+-      0
+-    for: 10m
+-    labels:
+-      severity: warn
+-    annotations:
+-      summary: of_gate rollups refresh job errors detected
+-      description: "Errors increased for rollups_refresh in last 24h. Check of_gate_history_migration
+-        logs and DB connectivity."
+-
+-      # P80: Rollups freshness probe (DB view max(bucket))
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
+-  - alert: OF_Gate_RollupsFreshnessProbe_Stale
+-    expr: (time()*1000 - 
+-      of_gate_archiver_last_run_ts_ms{kind="rollups_freshness"})/1000 > 1800
+-    for: 15m
+-    labels:
+-      severity: warn
+-    annotations:
+-      summary: of_gate rollups freshness probe is stale
+-      description: "No updates from rollups freshness probe for >30m. Ensure of_timers_worker
+-        runs of_gate_rollups_freshness_probe_v1 and DB is reachable. Age(s)={{ $value
+-        }}"
+-
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
+-  - alert: OF_Gate_Rollups_5m_Stale
+-    expr: of_gate_rollups_freshness_ok == 1 and 
+-      of_gate_rollups_bucket_age_sec{view="5m"} > 1800
+-    for: 15m
+-    labels:
+-      severity: warn
+-    annotations:
+-      summary: of_gate_ok_rate_5m rollup is stale
+-      description: "Latest bucket in of_gate_ok_rate_5m is older than 30m. Age(s)={{
+-        $value }}"
+-
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
+-  - alert: OF_Gate_Rollups_1h_Stale
+-    expr: of_gate_rollups_freshness_ok == 1 and 
+-      of_gate_rollups_bucket_age_sec{view="1h"} > 10800
+-    for: 30m
+-    labels:
+-      severity: warn
+-    annotations:
+-      summary: of_gate_ok_rate_1h rollup is stale
+-      description: "Latest bucket in of_gate_ok_rate_1h is older than 3h. Age(s)={{
+-        $value }}"
+-
+-      # P81: Timescale policy probe (jobs/policies existence)
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
+-  - alert: OF_Gate_TimescalePolicyProbe_Stale
+-    expr: (time()*1000 - 
+-      of_gate_archiver_last_run_ts_ms{kind="timescale_policy_probe"})/1000 > 
+-      7200
+-    for: 20m
+-    labels:
+-      severity: warn
+-    annotations:
+-      summary: of_gate timescale policy probe is stale
+-      description: "No updates from timescale policy probe for >2h. Ensure of_timers_worker
+-        runs of_gate_timescale_policy_probe_v1 and DB is reachable. Age(s)={{ $value
+-        }}"
+-
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
+-  - alert: OF_Gate_TimescaleMissing
+-    expr: of_gate_timescale_expect == 1 and of_gate_timescale_present == 0
+-    for: 30m
+-    labels:
+-      severity: page
+-    annotations:
+-      summary: timescaledb extension missing (expected)
+-      description: "Timescale extension is missing but expected. Rollups/retention
+-        policies will not run."
+-
+-  - alert: OF_Gate_TimescalePoliciesMissing
+-    expr: of_gate_timescale_present == 1 and of_gate_timescale_policies_missing 
+-      > 0
+-    for: 20m
+-    labels:
+-      severity: page
+-    annotations:
+-      summary: missing Timescale policies for OF-gate rollups
+-      description: "One or more required policies are missing. See of_gate_timescale_policy_present
+-        panel. missing={{ $value }}"
+-
+-  - alert: OF_Gate_TimescalePoliciesDisabled
+-    expr: of_gate_timescale_present == 1 and of_gate_timescale_policies_disabled
+-      > 0
+-    for: 20m
+-    labels:
+-      severity: warn
+-    annotations:
+-      summary: Timescale policies disabled for OF-gate rollups
+-      description: "One or more required policies are disabled (scheduled=false).
+-        disabled={{ $value }}"
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
++  - name: of_gate_archiver_p78
++    rules:
++      # ── Staleness ─────────────────────────────────────────────────────────
++
++      # Metrics archiver: no update for >15m means the archiver process is likely stuck/dead.
++      - alert: OF_Gate_Archiver_Metrics_Stale
++        expr: (time() * 1000 - of_gate_archiver_last_run_ts_ms{kind="metrics"}) / 1000 > 900
++        for: 10m
++        labels:
++          severity: critical
++          component: of_gate
++          p_ref: P78
++        annotations:
++          summary: "OF-gate metrics archiver stale (>15m)"
++          description: >-
++            No updates from of-gate metrics archiver for >15 minutes.
++            Check stream_archiver container logs and Redis connectivity.
++            Ensure OF_GATE_METRICS_ARCHIVE_ENABLED=1.
++            Age={{ $value | humanizeDuration }}
++          runbook_path: orderflow_services/runbook_of_gate_archiver_exporter_p78.md
++          dashboard_path: orderflow_services/grafana/of_gate_archiver_health_p78.json
++
++      # Quarantine archiver: lower severity (no quarantine traffic is also OK).
++      - alert: OF_Gate_Archiver_Quarantine_Stale
++        expr: (time() * 1000 - of_gate_archiver_last_run_ts_ms{kind="quarantine"}) / 1000 > 900
++        for: 10m
++        labels:
++          severity: warning
++          component: of_gate
++          p_ref: P78
++        annotations:
++          summary: "OF-gate quarantine archiver stale (>15m)"
++          description: >-
++            No updates from of-gate quarantine archiver for >15 minutes.
++            Check stream_archiver container and Redis connectivity.
++            Ensure OF_GATE_QUARANTINE_ARCHIVE_ENABLED=1.
++            Age={{ $value | humanizeDuration }}
++          runbook_path: orderflow_services/runbook_of_gate_archiver_exporter_p78.md
++          dashboard_path: orderflow_services/grafana/of_gate_archiver_health_p78.json
++
++      # Rollups refresh: alert only if it has ever run (gated on last_run_ts_ms > 0)
++      # to avoid noise when manual refresh has never been triggered.
++      - alert: OF_Gate_RollupsRefresh_Stale
++        expr: >-
++          of_gate_archiver_last_run_ts_ms{kind="rollups_refresh"} > 0
++          and (time() * 1000 - of_gate_archiver_last_run_ts_ms{kind="rollups_refresh"}) / 1000 > 86400
++        for: 1h
++        labels:
++          severity: warning
++          component: of_gate
++          p_ref: P78
++        annotations:
++          summary: "OF-gate rollups refresh job stale (>24h)"
++          description: >-
++            No updates from of-gate rollups refresh for >24 hours.
++            If you rely on manual refresh, check the nightly timer job.
++            Run: python -m orderflow_services.of_gate_history_migration_v1 refresh --days 7
++            Age={{ $value | humanizeDuration }}
++          runbook_path: orderflow_services/runbook_of_gate_metrics_rollups_p2.md
++          dashboard_path: orderflow_services/grafana/of_gate_rollups_freshness_p80.json
++
++      # ── Errors ────────────────────────────────────────────────────────────
++      # Monotonic-ish counters: alert on any increase.
++
++      - alert: OF_Gate_Archiver_Errors
++        expr: increase(of_gate_archiver_error_total{kind="metrics"}[10m]) > 0
++        for: 5m
++        labels:
++          severity: critical
++          component: of_gate
++          p_ref: P78
++        annotations:
++          summary: "OF-gate metrics archiver errors detected"
++          description: >-
++            Error count increased in the last 10m.
++            Inspect DLQ stream: stream:dlq:of_gate_metrics.
++            Check archiver logs for parse_error / pg_batch_error.
++          runbook_path: orderflow_services/runbook_of_gate_archiver_exporter_p78.md
++          dashboard_path: orderflow_services/grafana/of_gate_archiver_health_p78.json
++
++      - alert: OF_Gate_QuarantineArchiver_Errors
++        expr: increase(of_gate_archiver_error_total{kind="quarantine"}[10m]) > 0
++        for: 5m
++        labels:
++          severity: warning
++          component: of_gate
++          p_ref: P78
++        annotations:
++          summary: "OF-gate quarantine archiver errors detected"
++          description: >-
++            Error count increased in the last 10m.
++            Inspect DLQ stream: stream:dlq:of_gate_quarantine.
++            Check archiver logs for parse_error / pg_batch_error.
++          runbook_path: orderflow_services/runbook_of_gate_archiver_exporter_p78.md
++          dashboard_path: orderflow_services/grafana/of_gate_archiver_health_p78.json
++
++      - alert: OF_Gate_RollupsRefresh_Errors
++        expr: increase(of_gate_archiver_error_total{kind="rollups_refresh"}[24h]) > 0
++        for: 10m
++        labels:
++          severity: warning
++          component: of_gate
++          p_ref: P78
++        annotations:
++          summary: "OF-gate rollups refresh job errors detected"
++          description: >-
++            Errors increased for rollups_refresh in last 24h.
++            Check of_gate_history_migration logs and DB connectivity.
++          runbook_path: orderflow_services/runbook_of_gate_metrics_rollups_p2.md
++          dashboard_path: orderflow_services/grafana/of_gate_rollups_freshness_p80.json
++
++      # ── P80: Rollups freshness probe ───────────────────────────────────────
++
++      - alert: OF_Gate_RollupsFreshnessProbe_Stale
++        expr: (time() * 1000 - of_gate_archiver_last_run_ts_ms{kind="rollups_freshness"}) / 1000 > 1800
++        for: 15m
++        labels:
++          severity: warning
++          component: of_gate
++          p_ref: P80
++        annotations:
++          summary: "OF-gate rollups freshness probe stale (>30m)"
++          description: >-
++            No updates from rollups freshness probe for >30 minutes.
++            Ensure of_timers_worker runs of_gate_rollups_freshness_probe_v1 and DB is reachable.
++            Age={{ $value | humanizeDuration }}
++          runbook_path: orderflow_services/runbook_of_gate_metrics_rollups_p2.md
++          dashboard_path: orderflow_services/grafana/of_gate_rollups_freshness_p80.json
++
++      - alert: OF_Gate_Rollups_5m_Stale
++        expr: of_gate_rollups_freshness_ok == 1 and of_gate_rollups_bucket_age_sec{view="5m"} > 1800
++        for: 15m
++        labels:
++          severity: warning
++          component: of_gate
++          p_ref: P80
++        annotations:
++          summary: "OF-gate rollup 5m stale (>30m)"
++          description: >-
++            Latest bucket in of_gate_ok_rate_5m is older than 30 minutes.
++            bucket_age={{ $value | humanizeDuration }}
++          runbook_path: orderflow_services/runbook_of_gate_metrics_rollups_p2.md
++          dashboard_path: orderflow_services/grafana/of_gate_rollups_freshness_p80.json
++
++      - alert: OF_Gate_Rollups_1h_Stale
++        expr: of_gate_rollups_freshness_ok == 1 and of_gate_rollups_bucket_age_sec{view="1h"} > 10800
++        for: 30m
++        labels:
++          severity: warning
++          component: of_gate
++          p_ref: P80
++        annotations:
++          summary: "OF-gate rollup 1h stale (>3h)"
++          description: >-
++            Latest bucket in of_gate_ok_rate_1h is older than 3 hours.
++            bucket_age={{ $value | humanizeDuration }}
++          runbook_path: orderflow_services/runbook_of_gate_metrics_rollups_p2.md
++          dashboard_path: orderflow_services/grafana/of_gate_rollups_freshness_p80.json
++
++      # ── P81: Timescale policy probe ────────────────────────────────────────
++
++      - alert: OF_Gate_TimescalePolicyProbe_Stale
++        expr: (time() * 1000 - of_gate_archiver_last_run_ts_ms{kind="timescale_policy_probe"}) / 1000 > 7200
++        for: 20m
++        labels:
++          severity: warning
++          component: of_gate
++          p_ref: P81
++        annotations:
++          summary: "OF-gate Timescale policy probe stale (>2h)"
++          description: >-
++            No updates from timescale policy probe for >2 hours.
++            Ensure of_timers_worker runs of_gate_timescale_policy_probe_v1 and DB is reachable.
++            Age={{ $value | humanizeDuration }}
++          runbook_path: orderflow_services/runbook_of_gate_timescale_policies_p81.md
++          dashboard_path: orderflow_services/grafana/of_gate_timescale_policies_p81.json
++
++      - alert: OF_Gate_TimescaleMissing
++        expr: of_gate_timescale_expect == 1 and of_gate_timescale_present == 0
++        for: 30m
++        labels:
++          severity: critical
++          component: of_gate
++          p_ref: P81
++        annotations:
++          summary: "TimescaleDB extension missing (expected)"
++          description: >-
++            Timescale extension is missing but expected.
++            Rollups/retention policies will not run.
++          runbook_path: orderflow_services/runbook_of_gate_timescale_policies_p81.md
++          dashboard_path: orderflow_services/grafana/of_gate_timescale_policies_p81.json
++
++      - alert: OF_Gate_TimescalePoliciesMissing
++        expr: of_gate_timescale_present == 1 and of_gate_timescale_policies_missing > 0
++        for: 20m
++        labels:
++          severity: critical
++          component: of_gate
++          p_ref: P81
++        annotations:
++          summary: "Missing Timescale policies for OF-gate rollups"
++          description: >-
++            One or more required policies are missing.
++            missing={{ $value }}
++          runbook_path: orderflow_services/runbook_of_gate_timescale_policies_p81.md
++          dashboard_path: orderflow_services/grafana/of_gate_timescale_policies_p81.json
++
++      - alert: OF_Gate_TimescalePoliciesDisabled
++        expr: of_gate_timescale_present == 1 and of_gate_timescale_policies_disabled > 0
++        for: 20m
++        labels:
++          severity: warning
++          component: of_gate
++          p_ref: P81
++        annotations:
++          summary: "Timescale policies disabled for OF-gate rollups"
++          description: >-
++            One or more required policies are disabled (scheduled=false).
++            disabled={{ $value }}
++          runbook_path: orderflow_services/runbook_of_gate_timescale_policies_p81.md
++          dashboard_path: orderflow_services/grafana/of_gate_timescale_policies_p81.json
+--- a/orderflow_services/prometheus_alerts_of_gate_dlq_p82.yml
++++ b/orderflow_services/prometheus_alerts_of_gate_dlq_p82.yml
+@@ -1,39 +1,60 @@
++# P82 — OF gate DLQ alerts.
++#
++# Requires: of_gate_dlq_exporter_v1.py (port 9154)
++# Dashboard: orderflow_services/grafana/of_gate_dlq_p82.json
++# Runbook: orderflow_services/runbook_of_gate_dlq_exporter_p82.md
++
+ groups:
+-- name: of_gate_dlq_p82
+-  rules:
+-  - alert: OF_Gate_DLQ_ExporterDown
+-    expr: of_gate_dlq_exporter_up == 0
+-    for: 5m
+-    labels:
+-      severity: warn
+-    annotations:
+-      summary: of_gate DLQ exporter is down
+-      description: >
+-        Prometheus cannot observe DLQ streams. Check exporter container logs.
+-        Expected: python -m orderflow_services.of_gate_dlq_exporter_v1 (port 9154).
++  - name: of_gate_dlq_p82
++    rules:
++      - alert: OF_Gate_DLQ_ExporterDown
++        expr: of_gate_dlq_exporter_up == 0
++        for: 5m
++        labels:
++          severity: critical
++          component: of_gate
++          p_ref: P82
++        annotations:
++          summary: "OF-gate DLQ exporter is down"
++          description: >-
++            Prometheus cannot observe DLQ streams.
++            Expected: python -m orderflow_services.of_gate_dlq_exporter_v1 (port 9154).
++            Check exporter container logs and Redis connectivity.
++          runbook_path: orderflow_services/runbook_of_gate_dlq_exporter_p82.md
++          dashboard_path: orderflow_services/grafana/of_gate_dlq_p82.json
+ 
+-  - alert: OF_Gate_DLQ_NonZero15m
+-    expr: sum(of_gate_dlq_len) > 0
+-    for: 15m
+-    labels:
+-      severity: warn
+-    annotations:
+-      summary: of_gate DLQ is non-empty
+-      description: >
+-        DLQ length is > 0 for 15m.
+-        Inspect with: python -m orderflow_services.of_gate_dlq_drilldown_p83 top --limit 5000
+-        If fixes are safe: enable auto replay timer (ENABLE_OF_GATE_DLQ_AUTO_REPLAY_TIMER=1).
++      - alert: OF_Gate_DLQ_NonZero15m
++        expr: sum(of_gate_dlq_len) > 0
++        for: 15m
++        labels:
++          severity: warning
++          component: of_gate
++          p_ref: P82
++        annotations:
++          summary: "OF-gate DLQ is non-empty"
++          description: >-
++            DLQ length is > 0 for 15 minutes.
++            Inspect with:
++              python -m orderflow_services.of_gate_dlq_drilldown_p83 top --limit 5000
++            If safe to replay:
++              ENABLE_OF_GATE_DLQ_AUTO_REPLAY_TIMER=1
++          runbook_path: orderflow_services/runbook_of_gate_dlq_exporter_p82.md
++          dashboard_path: orderflow_services/grafana/of_gate_dlq_p82.json
+ 
+-  - alert: OF_Gate_DLQ_OldestAgeHigh
+-    expr: max(of_gate_dlq_oldest_age_sec) > 3600
+-    for: 10m
+-    labels:
+-      severity: page
+-    annotations:
+-      summary: of_gate DLQ backlog is old
+-      description: >
+-        Oldest DLQ entry is older than 1 hour.
+-        This usually indicates a stuck archiver, persistent parse errors, or DB issues.
+-        1) Check archiver alerts/logs
+-        2) Drilldown: python -m orderflow_services.of_gate_dlq_drilldown_p83 stats
+-        3) Safe replay: python -m orderflow_services.of_gate_dlq_fixed_replay_p84 auto --commit --delete-after-replay
++      - alert: OF_Gate_DLQ_OldestAgeHigh
++        expr: max(of_gate_dlq_oldest_age_sec) > 3600
++        for: 10m
++        labels:
++          severity: critical
++          component: of_gate
++          p_ref: P82
++        annotations:
++          summary: "OF-gate DLQ backlog is old (>1h)"
++          description: >-
++            Oldest DLQ entry is older than 1 hour.
++            This usually indicates a stuck archiver, persistent parse errors, or DB issues.
++            1) Check archiver alerts/logs
++            2) Drilldown: python -m orderflow_services.of_gate_dlq_drilldown_p83 stats
++            3) Safe replay: python -m orderflow_services.of_gate_dlq_fixed_replay_p84 auto --commit --delete-after-replay
++          runbook_path: orderflow_services/runbook_of_gate_dlq_exporter_p82.md
++          dashboard_path: orderflow_services/grafana/of_gate_dlq_p82.json
+--- a/orderflow_services/prometheus_alerts_of_gate_dlq_exporter_p82.yml
++++ b/orderflow_services/prometheus_alerts_of_gate_dlq_exporter_p82.yml
+@@ -1,44 +1,38 @@
+-groups:
+-- name: of-gate-dlq-exporter-p82
+-  rules:
+-  - alert: OF_Gate_DLQ_ExporterStale
+-    expr: (time() - (of_gate_dlq_exporter_poll_ts_ms / 1000)) > 1800
+-    for: 15m
+-    labels:
+-      severity: warn
+-      component: trade
+-    annotations:
+-      summary: "OF-gate DLQ exporter is stale"
+-      description: "DLQ exporter has not successfully polled Redis for >30m. Check
+-        REDIS_URL connectivity and exporter process. Age(sec)={{ $value }}"
+-      runbook: "orderflow_services/runbook_of_gate_dlq_exporter_p82.md"
++# P82 — OF gate DLQ exporter additional alerts (size-based).
++#
++# Requires: of_gate_dlq_exporter_v1.py (port 9154)
++# Dashboard: orderflow_services/grafana/of_gate_dlq_p82.json
++# Runbook: orderflow_services/runbook_of_gate_dlq_exporter_p82.md
+ 
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
+-  - alert: OF_Gate_DLQ_NonZero
+-    expr: sum(of_gate_dlq_len) > 0
+-    for: 10m
+-    labels:
+-      severity: warn
+-      component: trade
+-    annotations:
+-      summary: "OF-gate DLQ has pending messages"
+-      description: "At least one DLQ stream is non-empty for >10m. Investigate archiver/DB
+-        errors and DLQ contents. total={{ $value }}"
+-      runbook: "orderflow_services/runbook_of_gate_dlq_exporter_p82.md"
++groups:
++  - name: of_gate_dlq_exporter_p82
++    rules:
++      - alert: OF_Gate_DLQ_NonZero
++        expr: sum(of_gate_dlq_len) > 0
++        for: 10m
++        labels:
++          severity: warning
++          component: of_gate
++          p_ref: P82
++        annotations:
++          summary: "OF-gate DLQ is non-empty"
++          description: >-
++            DLQ length is > 0 for 10 minutes.
++            Check the DLQ stream and decide whether to triage or replay.
++          runbook_path: orderflow_services/runbook_of_gate_dlq_exporter_p82.md
++          dashboard_path: orderflow_services/grafana/of_gate_dlq_p82.json
+ 
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
+-  - alert: OF_Gate_DLQ_Large
+-    expr: sum(of_gate_dlq_len) > 1000
+-    for: 5m
+-    labels:
+-      severity: critical
+-      component: trade
+-    annotations:
+-      summary: "OF-gate DLQ is large"
+-      description: "DLQ backlog > 1000. This usually indicates persistent write/parsing
+-        failures. total={{ $value }}"
+-      runbook: "orderflow_services/runbook_of_gate_dlq_exporter_p82.md"
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
++      - alert: OF_Gate_DLQ_Large
++        expr: sum(of_gate_dlq_len) > 1000
++        for: 10m
++        labels:
++          severity: critical
++          component: of_gate
++          p_ref: P82
++        annotations:
++          summary: "OF-gate DLQ is large (>1000 entries)"
++          description: >-
++            DLQ length exceeded 1000 for >10 minutes.
++            Treat as production incident: investigate archiver errors and DB health.
++          runbook_path: orderflow_services/runbook_of_gate_dlq_exporter_p82.md
++          dashboard_path: orderflow_services/grafana/of_gate_dlq_p82.json
+--- a/orderflow_services/prometheus_alerts_of_gate_ok_rate_v1.yml
++++ b/orderflow_services/prometheus_alerts_of_gate_ok_rate_v1.yml
+@@ -1,186 +1,207 @@
++# OF gate OK-rate + DQ (including P76 contract smoke-check) alerts.
++#
++# Dashboards:
++#   - orderflow_services/grafana/of_gate_ok_rate_and_dq_v1.json
++#   - orderflow_services/grafana/of_gate_contract_smoke_p76.json
++# Runbooks:
++#   - orderflow_services/runbook_of_gate_ok_rate_v1.md
++#   - orderflow_services/grafana/README_of_gate_p76.md
++
+ groups:
+-- name: of_gate_ok_rate_v1
+-  interval: 30s
+-  rules:
++  - name: of_gate_ok_rate_v1
++    interval: 30s
++    rules:
+       # ─────────────────────────────
+       # Recording rules
+       # ─────────────────────────────
+-  - record: of_gate:eligible_rate5m
+-    expr: sum by (symbol) (rate(of_gate_eligible_total[5m]))
++      - record: of_gate:eligible_rate5m
++        expr: sum by (symbol) (rate(of_gate_eligible_total[5m]))
++
++      - record: of_gate:ok_rate_strict5m
++        expr: sum(rate(of_gate_ok_hard_total[5m])) / sum(rate(of_gate_eligible_total[5m]))
++
++      - record: of_gate:ok_rate_soft5m
++        expr: (sum(rate(of_gate_ok_hard_total[5m])) + sum(rate(of_gate_ok_soft_total[5m]))) / sum(rate(of_gate_eligible_total[5m]))
+ 
+-  - record: of_gate:ok_rate_strict5m
+-    expr: sum(rate(of_gate_ok_hard_total[5m])) / 
+-      sum(rate(of_gate_eligible_total[5m]))
+-
+-  - record: of_gate:ok_rate_soft5m
+-    expr: (sum(rate(of_gate_ok_hard_total[5m])) + 
+-      sum(rate(of_gate_ok_soft_total[5m]))) / 
+-      sum(rate(of_gate_eligible_total[5m]))
+-
+-  - record: of_gate:soft_share5m
+-    expr: sum(rate(of_gate_ok_soft_total[5m])) / 
+-      clamp_min(sum(rate(of_gate_ok_soft_total[5m])) + 
+-      sum(rate(of_gate_ok_hard_total[5m])), 1e-9)
+-
+-  - record: of_gate:quarantine_rate5m
+-    expr: sum(rate(of_gate_quarantined_total[5m]))
+-
+-  - record: of_gate:quarantine_share5m
+-    expr: sum(rate(of_gate_quarantined_total[5m])) / 
+-      clamp_min(sum(rate(of_gate_quarantined_total[5m])) + 
+-      sum(rate(of_gate_eligible_total[5m])), 1e-9)
+-
+-      # ─────────────────────────────
+-      # Alerts
+-      # ─────────────────────────────
+-  - alert: OF_Gate_EligibleAbsent15m
+-    expr: absent_over_time(of_gate_eligible_total[15m])
+-    for: 15m
+-    labels:
+-      severity: warning
+-    annotations:
+-      summary: "OF gate: of_gate_eligible_total absent"
+-      description: "Metric of_gate_eligible_total has been absent for 15m (scrape
+-        or pipeline down)."
+-
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
+-  - alert: OF_Gate_NoEligible15m
+-    expr: sum(increase(of_gate_eligible_total[15m])) == 0
+-    for: 15m
+-    labels:
+-      severity: warning
+-    annotations:
+-      summary: "OF gate: no eligible rows in 15m"
+-      description: "No new of_gate eligible rows were emitted in the last 15 minutes
+-        (could be pipeline down, or metrics emission disabled)."
+-
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
+-  - alert: OF_Gate_OkRateStrictLow
+-    expr: (sum(rate(of_gate_ok_hard_total[5m])) / 
+-      sum(rate(of_gate_eligible_total[5m])) < 0.10) and 
+-      (sum(rate(of_gate_eligible_total[5m])) > 0)
+-    for: 10m
+-    labels:
+-      severity: critical
+-    annotations:
+-      summary: "OF gate: ok_rate_strict low"
+-      description: "Hard ok_rate dropped below 0.10 for 10 minutes (denominator >
+-        0). Investigate data quality, gating regressions, or upstream feeds."
+-
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
+-  - alert: OF_Gate_SoftShareHigh
+-    expr: (sum(rate(of_gate_ok_soft_total[5m])) / 
+-      clamp_min(sum(rate(of_gate_ok_soft_total[5m])) + 
+-      sum(rate(of_gate_ok_hard_total[5m])), 1e-9) > 0.50) and 
+-      (sum(rate(of_gate_ok_soft_total[5m])) + 
+-      sum(rate(of_gate_ok_hard_total[5m])) > 0)
+-    for: 10m
+-    labels:
+-      severity: warning
+-    annotations:
+-      summary: "OF gate: soft_share high"
+-      description: "Share of ok_soft among all oks is above 0.50 for 10 minutes. This
+-        indicates degraded quality even when still passing."
+-
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
+-  - alert: OF_Gate_QuarantineShareHigh
+-    expr: (of_gate:quarantine_share5m > 0.01) and 
+-      (sum(rate(of_gate_quarantined_total[5m])) + 
+-      sum(rate(of_gate_eligible_total[5m])) > 0)
+-    for: 10m
+-    labels:
+-      severity: warning
+-    annotations:
+-      summary: "OF gate: DQ quarantine share high"
+-      description: "More than 1% of of-gate rows are being quarantined (DQ validation
+-        failures). Check top 'why' labels and contract check output."
+-
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
+-  - alert: OF_Gate_QuarantineRateHigh
+-    expr: of_gate:quarantine_rate5m > 1
+-    for: 10m
+-    labels:
+-      severity: warning
+-    annotations:
+-      summary: "OF gate: DQ quarantine rate high"
+-      description: "Quarantine rate above 1/s for 10 minutes. Likely schema breakage
+-        or time normalization issues."
+-
+-      # ─────────────────────────────
+-      # Recording rules: contract smoke-check (P76)
+-      # ─────────────────────────────
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
+-  - record: of_gate:contract_bad_share2h
+-    expr: max_over_time(of_gate_contract_smoke_bad_share[2h])
+-
+-  - record: of_gate:contract_missing_schema_share2h
+-    expr: max_over_time(of_gate_contract_smoke_missing_schema_share[2h])
+-
+-  - record: of_gate:contract_schema_version_mode2h
+-    expr: max_over_time(of_gate_contract_smoke_schema_version_mode[2h])
+-
+-  - record: of_gate:contract_last_ts_ms2h
+-    expr: max_over_time(of_gate_contract_smoke_last_ts_ms[2h])
+-
+-  - record: of_gate:contract_age_seconds
+-    expr: (time() * 1000 - of_gate:contract_last_ts_ms2h) / 1000
+-
+-      # ─────────────────────────────
+-      # P76 — contract smoke-check alerts
+-      # ─────────────────────────────
+-  - alert: OF_Gate_ContractSmokeStale2h
+-    expr: of_gate:contract_age_seconds > 7200
+-    for: 10m
+-    labels:
+-      severity: critical
+-    annotations:
+-      summary: "OF gate: contract smoke-check stale"
+-      description: "No fresh contract smoke-check data for >2h. Timers/cron/exporter
+-        may be down."
+-
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
+-  - alert: OF_Gate_ContractBadShareHigh
+-    expr: (of_gate:contract_bad_share2h > 0.01) and 
+-      (max_over_time(of_gate_contract_smoke_n_total[2h]) > 0)
+-    for: 10m
+-    labels:
+-      severity: critical
+-    annotations:
+-      summary: "OF gate: contract bad_share high"
+-      description: "Contract smoke-check reports >1% invalid rows in metrics:of_gate
+-        (2h window). Check top dq_code and producers."
+-
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
+-  - alert: OF_Gate_ContractMissingSchemaShareHigh
+-    expr: (of_gate:contract_missing_schema_share2h > 0.25) and 
+-      (max_over_time(of_gate_contract_smoke_n_total[2h]) > 0)
+-    for: 30m
+-    labels:
+-      severity: warning
+-    annotations:
+-      summary: "OF gate: schema markers missing"
+-      description: "More than 25% rows miss schema_name/schema_version/reason_code.
+-        Producers should call enrich_schema_fields()."
+-
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
+-  - alert: OF_Gate_ContractSchemaVersionMissing
+-    expr: (of_gate:contract_schema_version_mode2h == 0) and 
+-      (max_over_time(of_gate_contract_smoke_n_total[2h]) > 0)
+-    for: 30m
+-    labels:
+-      severity: warning
+-    annotations:
+-      summary: "OF gate: schema_version missing"
+-      description: "schema_version_mode is 0 in smoke-check window: schema_version
+-        not set or not parseable."
+-      runbook_path: /runbooks/tbd.md
+-      dashboard_path: /d/tbd
++      - record: of_gate:soft_share5m
++        expr: sum(rate(of_gate_ok_soft_total[5m])) /
++          clamp_min(sum(rate(of_gate_ok_soft_total[5m])) + sum(rate(of_gate_ok_hard_total[5m])), 1e-9)
++
++      - record: of_gate:quarantine_rate5m
++        expr: sum(rate(of_gate_quarantined_total[5m]))
++
++      - record: of_gate:quarantine_share5m
++        expr: sum(rate(of_gate_quarantined_total[5m])) /
++          clamp_min(sum(rate(of_gate_quarantined_total[5m])) + sum(rate(of_gate_eligible_total[5m])), 1e-9)
++
++      # ─────────────────────────────
++      # Alerts (OK-rate + DQ)
++      # ─────────────────────────────
++
++      - alert: OF_Gate_EligibleAbsent15m
++        expr: absent_over_time(of_gate_eligible_total[15m])
++        for: 15m
++        labels:
++          severity: warning
++          component: of_gate
++        annotations:
++          summary: "OF-gate: of_gate_eligible_total absent"
++          description: >-
++            Metric of_gate_eligible_total has been absent for 15 minutes.
++            This usually means scrape/pipeline down or exporter not running.
++          runbook_path: orderflow_services/runbook_of_gate_ok_rate_v1.md
++          dashboard_path: orderflow_services/grafana/of_gate_ok_rate_and_dq_v1.json
++
++      - alert: OF_Gate_NoEligible15m
++        expr: sum(increase(of_gate_eligible_total[15m])) == 0
++        for: 15m
++        labels:
++          severity: warning
++          component: of_gate
++        annotations:
++          summary: "OF-gate: no eligible rows in 15m"
++          description: >-
++            No new OF-gate eligible rows were emitted in the last 15 minutes.
++            Could be pipeline down or eligibility emission disabled.
++          runbook_path: orderflow_services/runbook_of_gate_ok_rate_v1.md
++          dashboard_path: orderflow_services/grafana/of_gate_ok_rate_and_dq_v1.json
++
++      - alert: OF_Gate_OkRateStrictLow
++        expr: (sum(rate(of_gate_ok_hard_total[5m])) / sum(rate(of_gate_eligible_total[5m])) < 0.10)
++          and (sum(rate(of_gate_eligible_total[5m])) > 0)
++        for: 10m
++        labels:
++          severity: critical
++          component: of_gate
++        annotations:
++          summary: "OF-gate: ok_rate_strict low"
++          description: >-
++            Hard ok_rate dropped below 0.10 for 10 minutes (denominator > 0).
++            Investigate data quality, gating regressions, or upstream feeds.
++          runbook_path: orderflow_services/runbook_of_gate_ok_rate_v1.md
++          dashboard_path: orderflow_services/grafana/of_gate_ok_rate_and_dq_v1.json
++
++      - alert: OF_Gate_SoftShareHigh
++        expr: (of_gate:soft_share5m > 0.50)
++          and (sum(rate(of_gate_ok_soft_total[5m])) + sum(rate(of_gate_ok_hard_total[5m])) > 0)
++        for: 10m
++        labels:
++          severity: warning
++          component: of_gate
++        annotations:
++          summary: "OF-gate: soft_share high"
++          description: >-
++            Share of ok_soft among all oks is above 0.50 for 10 minutes.
++            This indicates degraded quality even when still passing.
++          runbook_path: orderflow_services/runbook_of_gate_ok_rate_v1.md
++          dashboard_path: orderflow_services/grafana/of_gate_ok_rate_and_dq_v1.json
++
++      - alert: OF_Gate_QuarantineShareHigh
++        expr: (of_gate:quarantine_share5m > 0.01)
++          and (sum(rate(of_gate_quarantined_total[5m])) + sum(rate(of_gate_eligible_total[5m])) > 0)
++        for: 10m
++        labels:
++          severity: warning
++          component: of_gate
++        annotations:
++          summary: "OF-gate: DQ quarantine share high"
++          description: >-
++            More than 1% of OF-gate rows are being quarantined (DQ validation failures).
++            Check top dq_code / reason labels and contract check output.
++          runbook_path: orderflow_services/runbook_of_gate_ok_rate_v1.md
++          dashboard_path: orderflow_services/grafana/of_gate_ok_rate_and_dq_v1.json
++
++      - alert: OF_Gate_QuarantineRateHigh
++        expr: of_gate:quarantine_rate5m > 1
++        for: 10m
++        labels:
++          severity: warning
++          component: of_gate
++        annotations:
++          summary: "OF-gate: DQ quarantine rate high"
++          description: >-
++            Quarantine rate above 1/s for 10 minutes.
++            Likely schema breakage, validation regression, or time normalization issues.
++          runbook_path: orderflow_services/runbook_of_gate_ok_rate_v1.md
++          dashboard_path: orderflow_services/grafana/of_gate_ok_rate_and_dq_v1.json
++
++      # ─────────────────────────────
++      # Recording rules: P76 contract smoke-check
++      # ─────────────────────────────
++      - record: of_gate:contract_bad_share2h
++        expr: max_over_time(of_gate_contract_smoke_bad_share[2h])
++
++      - record: of_gate:contract_missing_schema_share2h
++        expr: max_over_time(of_gate_contract_smoke_missing_schema_share[2h])
++
++      - record: of_gate:contract_schema_version_mode2h
++        expr: max_over_time(of_gate_contract_smoke_schema_version_mode[2h])
++
++      - record: of_gate:contract_last_ts_ms2h
++        expr: max_over_time(of_gate_contract_smoke_last_ts_ms[2h])
++
++      - record: of_gate:contract_age_seconds
++        expr: (time() * 1000 - of_gate:contract_last_ts_ms2h) / 1000
++
++      # ─────────────────────────────
++      # Alerts: P76 contract smoke-check
++      # ─────────────────────────────
++
++      - alert: OF_Gate_ContractSmokeStale2h
++        expr: of_gate:contract_age_seconds > 7200
++        for: 10m
++        labels:
++          severity: critical
++          component: of_gate
++          p_ref: P76
++        annotations:
++          summary: "OF-gate: contract smoke-check stale"
++          description: >-
++            No fresh contract smoke-check data for >2 hours.
++            Timers/cron/exporter may be down.
++          runbook_path: orderflow_services/grafana/README_of_gate_p76.md
++          dashboard_path: orderflow_services/grafana/of_gate_contract_smoke_p76.json
++
++      - alert: OF_Gate_ContractBadShareHigh
++        expr: (of_gate:contract_bad_share2h > 0.01) and (max_over_time(of_gate_contract_smoke_n_total[2h]) > 0)
++        for: 10m
++        labels:
++          severity: critical
++          component: of_gate
++          p_ref: P76
++        annotations:
++          summary: "OF-gate: contract bad_share high"
++          description: >-
++            Contract smoke-check reports >1% invalid rows in metrics:of_gate (2h window).
++            Check top dq_code and producers.
++          runbook_path: orderflow_services/grafana/README_of_gate_p76.md
++          dashboard_path: orderflow_services/grafana/of_gate_contract_smoke_p76.json
++
++      - alert: OF_Gate_ContractMissingSchemaShareHigh
++        expr: (of_gate:contract_missing_schema_share2h > 0.25) and (max_over_time(of_gate_contract_smoke_n_total[2h]) > 0)
++        for: 30m
++        labels:
++          severity: warning
++          component: of_gate
++          p_ref: P76
++        annotations:
++          summary: "OF-gate: schema markers missing"
++          description: >-
++            More than 25% of rows miss schema_name/schema_version/reason_code.
++            Producers should call enrich_schema_fields().
++          runbook_path: orderflow_services/grafana/README_of_gate_p76.md
++          dashboard_path: orderflow_services/grafana/of_gate_contract_smoke_p76.json
++
++      - alert: OF_Gate_ContractSchemaVersionMissing
++        expr: (of_gate:contract_schema_version_mode2h == 0) and (max_over_time(of_gate_contract_smoke_n_total[2h]) > 0)
++        for: 30m
++        labels:
++          severity: warning
++          component: of_gate
++          p_ref: P76
++        annotations:
++          summary: "OF-gate: schema_version missing"
++          description: >-
++            schema_version_mode is 0 in smoke-check window: schema_version not set or not parseable.
++          runbook_path: orderflow_services/grafana/README_of_gate_p76.md
++          dashboard_path: orderflow_services/grafana/of_gate_contract_smoke_p76.json
+--- a/orderflow_services/rules_bundle_discovery_v1.py
++++ b/orderflow_services/rules_bundle_discovery_v1.py
+@@ -41,6 +41,32 @@
+ ]
+ 
+ 
++# Files that are *not* Prometheus rule files but may match the bundle glob patterns.
++# Example: bundle manifests themselves (they are YAML but not `groups:` rule docs).
++EXCLUDE_BASENAME_PREFIXES: tuple[str, ...] = (
++    "prometheus_rules_bundle_manifest_",
++)
++
++
++def _looks_like_include_stub(*, path: Path) -> bool:
++    """Detect small YAML "include" stubs used by legacy repos.
++
++    Example content:
++      include: ../orderflow_services/prometheus_alerts_enforce_health_v82.yml
++
++    These stubs are not valid Prometheus rule files (no `groups:`), so they must
++    be excluded from discovery to keep validation and probes deterministic.
++    """
++
++    try:
++        with open(path, "r", encoding="utf-8") as fh:
++            doc = yaml.safe_load(fh)
++    except Exception:
++        return False
++
++    return isinstance(doc, dict) and ("include" in doc) and ("groups" not in doc)
++
++
+ @dataclass(frozen=True)
+ class BundleDiscoveryResult:
+     manifest_path: Optional[Path]
+@@ -121,6 +147,12 @@
+         for m in matches:
+             p = Path(m)
+             if p.is_file() and p.suffix.lower() in (".yml", ".yaml"):
++                base = p.name
++                if any(base.startswith(pref) for pref in EXCLUDE_BASENAME_PREFIXES):
++                    continue
++                # Exclude legacy include stubs (not valid Prometheus rules).
++                if _looks_like_include_stub(path=p):
++                    continue
+                 files.append(p)
+ 
+     # De-dupe + sort
+--- a/tick_flow_full/orderflow_services/rules_bundle_discovery_v1.py
++++ b/tick_flow_full/orderflow_services/rules_bundle_discovery_v1.py
+@@ -41,6 +41,32 @@
+ ]
+ 
+ 
++# Files that are *not* Prometheus rule files but may match the bundle glob patterns.
++# Example: bundle manifests themselves (they are YAML but not `groups:` rule docs).
++EXCLUDE_BASENAME_PREFIXES: tuple[str, ...] = (
++    "prometheus_rules_bundle_manifest_",
++)
++
++
++def _looks_like_include_stub(*, path: Path) -> bool:
++    """Detect small YAML "include" stubs used by legacy repos.
++
++    Example content:
++      include: ../orderflow_services/prometheus_alerts_enforce_health_v82.yml
++
++    These stubs are not valid Prometheus rule files (no `groups:`), so they must
++    be excluded from discovery to keep validation and probes deterministic.
++    """
++
++    try:
++        with open(path, "r", encoding="utf-8") as fh:
++            doc = yaml.safe_load(fh)
++    except Exception:
++        return False
++
++    return isinstance(doc, dict) and ("include" in doc) and ("groups" not in doc)
++
++
+ @dataclass(frozen=True)
+ class BundleDiscoveryResult:
+     manifest_path: Optional[Path]
+@@ -121,6 +147,12 @@
+         for m in matches:
+             p = Path(m)
+             if p.is_file() and p.suffix.lower() in (".yml", ".yaml"):
++                base = p.name
++                if any(base.startswith(pref) for pref in EXCLUDE_BASENAME_PREFIXES):
++                    continue
++                # Exclude legacy include stubs (not valid Prometheus rules).
++                if _looks_like_include_stub(path=p):
++                    continue
+                 files.append(p)
+ 
+     # De-dupe + sort
+--- a/orderflow_services/runbook_of_gate_ok_rate_v1.md
++++ b/orderflow_services/runbook_of_gate_ok_rate_v1.md
+@@ -0,0 +1,82 @@
++# OF gate OK-rate + DQ (runbook)
++
++## What this covers
++Alerts from `prometheus_alerts_of_gate_ok_rate_v1.yml`:
++- eligible_total absent / no eligible rows
++- ok_rate_strict low
++- soft_share high
++- quarantine share/rate high
++- P76 contract smoke-check staleness / bad_share
++
++Dashboards:
++- OK-rate + DQ: `orderflow_services/grafana/of_gate_ok_rate_and_dq_v1.json`
++- Contract smoke-check (P76): `orderflow_services/grafana/of_gate_contract_smoke_p76.json`
++
++Related alerts:
++- DLQ (P82): `prometheus_alerts_of_gate_dlq_p82.yml`
++- Archiver/rollups (P78/P80/P81): `prometheus_alerts_of_gate_archiver_p78.yml`
++
++## 60-second triage
++1) Is OF-gate metrics pipeline alive?
++- Check `OF_Gate_EligibleAbsent15m` / `OF_Gate_NoEligible15m`.
++- Verify exporter targets respond:
++  - `curl -sS http://of-gate-archiver-exporter:9152/metrics | head`
++  - `curl -sS http://of-gate-dlq-exporter:9154/metrics | head`
++
++2) If OK-rate dropped:
++- Open dashboard `of_gate_ok_rate_and_dq_v1`.
++- Look at:
++  - `of_gate:ok_rate_strict5m`, `of_gate:ok_rate_soft5m`, `of_gate:soft_share5m`
++  - `of_gate:quarantine_share5m`, `of_gate:quarantine_rate5m`
++
++3) Check DLQ immediately:
++- If `of_gate_dlq_len > 0`, run:
++  - `python -m orderflow_services.of_gate_dlq_drilldown_p83 stats`
++  - `python -m orderflow_services.of_gate_dlq_drilldown_p83 top --limit 2000`
++
++## Root cause patterns
++### A) Upstream ingest/feed down
++Symptoms:
++- eligible_total absent or no eligible rows
++Actions:
++- Check the upstream producer(s) that emit OF-gate metrics.
++- Check Redis connectivity + Prometheus scrape targets.
++
++### B) Validation regression / schema break
++Symptoms:
++- quarantine share/rate high
++- P76 contract bad_share high
++Actions:
++- Open contract dashboard (P76): `of_gate_contract_smoke_p76`.
++- Identify top `dq_code` / missing schema markers.
++- Roll back the producer deploy or hotfix schema enrichment.
++
++### C) OK-rate strict low, but eligible present
++Symptoms:
++- ok_rate_strict low while eligible is non-zero
++- soft_share may spike
++Actions:
++- Correlate with recent changes (config, gating thresholds, feature flags).
++- Check for time normalization anomalies (ts_ms leaps, monotonicity breaks).
++- Inspect recent quarantined samples if available.
++
++### D) Archiver / DB issues
++Symptoms:
++- DLQ oldest age grows
++- Archiver errors in P78
++Actions:
++- Check archiver logs.
++- Verify Postgres/Timescale connectivity and slow queries.
++- Consider pausing auto-replay until DB is stable.
++
++## Manual checks / commands
++- DLQ drilldown:
++  - `python -m orderflow_services.of_gate_dlq_drilldown_p83 stats`
++  - `python -m orderflow_services.of_gate_dlq_drilldown_p83 top --limit 5000`
++- Safe replay (only after triage):
++  - `python -m orderflow_services.of_gate_dlq_fixed_replay_p84 auto --commit --delete-after-replay`
++
++## When to page
++- `OF_Gate_OkRateStrictLow` persists >10m.
++- `OF_Gate_ContractBadShareHigh` persists >10m.
++- `OF_Gate_DLQ_OldestAgeHigh` >1h.
+--- a/orderflow_services/runbook_of_gate_exporters_smoke_p111.md
++++ b/orderflow_services/runbook_of_gate_exporters_smoke_p111.md
+@@ -0,0 +1,74 @@
++# P111 — OF-gate exporters smoke-check (runbook)
++
++## What it is
++A lightweight periodic smoke-check that hits `/metrics` of the OF-gate exporters and fails with **exit=2** if one or more targets are unavailable or missing expected metric names.
++
++This is meant to catch wiring regressions early:
++- exporter container not running / crashloop
++- wrong service name / port
++- network/compose changes
++- exporter serving empty metrics
++
++## Targets (default)
++- `of-gate-archiver-exporter:9152`  (must contain `of_gate_archiver_last_run_ts_ms`)
++- `of-gate-dlq-exporter:9154`       (must contain `of_gate_dlq_len`)
++
++Manual run:
++- `python -m orderflow_services.of_gate_exporters_smoke_p111`
++
++## Where it runs
++Timer worker: `services/of_timers_worker.py` (and `tick_flow_full/services/of_timers_worker.py`).
++
++By default it runs **hourly**.
++
++## What happens on failure
++- Sends a notification event to the Telegram notifier stream (with dedup/cooldown).
++- (Optional, default ON) sets a **fail-closed auto-apply block**:
++  - key prefix: `AUTO_APPLY_BLOCK_PREFIX` (default: `cfg:suggestions:entry_policy:auto_apply_block`)
++  - reason suffix: `OF_GATE_EXPORTERS_SMOKE_BLOCK_REASON` (default: `of_gate_exporters_smoke`)
++  - keys:
++    - `cfg:suggestions:entry_policy:auto_apply_block:of_gate_exporters_smoke`
++    - `cfg:suggestions:entry_policy:auto_apply_block:of_gate_exporters_smoke:meta`
++    - `cfg:suggestions:entry_policy:auto_apply_block:of_gate_exporters_smoke:ts_ms`
++  - TTL: `OF_GATE_EXPORTERS_SMOKE_BLOCK_TTL_S` (default: `max(3600, OF_GATE_EXPORTERS_SMOKE_COOLDOWN_S)`).
++
++On the next successful run (rc=0), the timers worker clears the block **only if** `meta.owner == of_gate_exporters_smoke` (to avoid clobbering manual blocks).
++
++## Quick triage checklist
++1) Confirm which exporters failed:
++- Look at the alert payload (`failed=[...]`) or run manually:
++  - `python -m orderflow_services.of_gate_exporters_smoke_p111`
++
++2) Check containers / processes:
++- `docker ps | egrep 'of-gate-.*exporter'`
++- `docker logs --tail=200 <container>`
++
++3) Check endpoints from inside the compose network:
++- `curl -sS http://of-gate-archiver-exporter:9152/metrics | head`
++- `curl -sS http://of-gate-dlq-exporter:9154/metrics | head`
++
++4) Common root causes
++- service renamed in compose but smoke targets not updated
++- exporter port changed
++- exporter crashed due to missing Redis URL env
++- network policy / firewall
++
++## Tuning
++Enable/disable:
++- `ENABLE_OF_GATE_EXPORTERS_SMOKE_P111=1|0`
++
++Timeout:
++- `OF_GATE_EXPORTERS_SMOKE_TIMEOUT_S=30`
++
++Dedup/cooldown:
++- `OF_GATE_EXPORTERS_SMOKE_DEDUP=1`
++- `OF_GATE_EXPORTERS_SMOKE_COOLDOWN_S=21600`
++- `OF_GATE_EXPORTERS_SMOKE_DEDUP_PREFIX=dedup:alert:of_gate_exporters:`
++
++Override targets:
++- `OF_GATE_EXPORTERS_SMOKE_TARGETS="archiver=host:port|metric_substr,dlq=..."`
++
++## Manual clear (if needed)
++- `DEL cfg:suggestions:entry_policy:auto_apply_block:of_gate_exporters_smoke`
++- `DEL cfg:suggestions:entry_policy:auto_apply_block:of_gate_exporters_smoke:meta`
++- `DEL cfg:suggestions:entry_policy:auto_apply_block:of_gate_exporters_smoke:ts_ms`

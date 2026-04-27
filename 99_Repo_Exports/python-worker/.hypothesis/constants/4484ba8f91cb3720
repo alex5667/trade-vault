@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/lcb_evaluator.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.05, 0.051, 0.07, 0.1, 0.101, 0.201, 0.6745, 0.8416, 1.2816, 1.6449, 'A', 'illiquid', 'na', 'news', 'no_data', 'thin', 'trend', 'trending_bear', 'trending_bull']

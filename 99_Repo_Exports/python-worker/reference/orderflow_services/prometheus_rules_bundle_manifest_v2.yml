@@ -1,0 +1,31 @@
+# Prometheus rules bundle manifest (v2)
+#
+# Purpose
+#   Single include-list for deployment + validation of Prometheus rule files.
+#   This manifest is used by:
+#     - validate_prometheus_rules_bundle_v1.py (discovery)
+#     - promtool_check_rules_wrapper_v1.py (promtool check)
+#     - prom_rules_loaded_probe_v1.py (runtime "is file actually loaded" probe)
+#
+# Key design choice
+#   Keep patterns explicit (include-list) so "file not deployed/loaded" is detectable
+#   and reproducible across environments.
+
+version: 2
+bundle: orderflow_rules_bundle
+
+# Relative paths (glob patterns) from repo root.
+# Keep this list in sync with your Prometheus `rule_files:` config.
+rule_files:
+  # Primary: shared rule sets
+  - orderflow_services/prometheus_alerts_*.yml
+  - orderflow_services/prometheus_rules_*.yml
+
+  # Mirror: tick_flow_full copy (kept for backward compatibility)
+  - tick_flow_full/orderflow_services/prometheus_alerts_*.yml
+  - tick_flow_full/orderflow_services/prometheus_rules_*.yml
+
+  # Legacy / extra repos that may still be deployed
+  - ok_rate_logic/prometheus_alerts_*.yml
+  - services/orderflow/prometheus_alerts_*.yml
+  - tick_flow_full/services/orderflow/prometheus_alerts_*.yml

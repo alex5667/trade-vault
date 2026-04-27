@@ -1,0 +1,23 @@
+# Reference docker-compose fragment for Phase 3.3 Offline Debug Handoff Rewire.
+# The actual service definition is in docker-compose-timers.yml.
+# This file kept as documentation reference consistent with earlier phases.
+services:
+  scanner-offline-debug-handoff-rewire-v3-3:
+    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
+    command: ["python", "-m", "orderflow_services.offline_debug_handoff_rewire_adapter_v3_3"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
+      ANALYTICS_DB_DSN: ${ANALYTICS_DB_DSN:-}
+      ML_OFFLINE_DEBUG_HANDOFF_REWIRE_PORT: ${ML_OFFLINE_DEBUG_HANDOFF_REWIRE_PORT:-9919}
+      ML_OFFLINE_DEBUG_HANDOFF_SOURCE_STREAM: ${ML_OFFLINE_DEBUG_HANDOFF_SOURCE_STREAM:-stream:ml:offline_debug_handoff_source}
+      ML_VERTEX_LOCAL_HANDOFF_INPUT_STREAM: ${ML_VERTEX_LOCAL_HANDOFF_INPUT_STREAM:-stream:ml:vertex_local_handoff_requests}
+      ML_OFFLINE_DEBUG_HANDOFF_REWIRE_ENABLED: ${ML_OFFLINE_DEBUG_HANDOFF_REWIRE_ENABLED:-1}
+      ML_OFFLINE_DEBUG_HANDOFF_REWIRE_MODE: ${ML_OFFLINE_DEBUG_HANDOFF_REWIRE_MODE:-ENABLED}
+      ML_OFFLINE_DEBUG_HANDOFF_REWIRE_MAX_PAYLOAD_BYTES: ${ML_OFFLINE_DEBUG_HANDOFF_REWIRE_MAX_PAYLOAD_BYTES:-131072}
+      ML_OFFLINE_DEBUG_HANDOFF_REWIRE_MAX_PROMPT_CHARS: ${ML_OFFLINE_DEBUG_HANDOFF_REWIRE_MAX_PROMPT_CHARS:-16000}
+    ports: ["${ML_OFFLINE_DEBUG_HANDOFF_REWIRE_PORT:-9919}:9919"]
+    depends_on: [redis-worker-1]
+    networks:
+      - scanner-timers
+      - scanner-infra

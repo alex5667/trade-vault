@@ -1,0 +1,26 @@
+groups:
+  - name: ml_phase2_16_operator_routing_incident_rca_route_governance_v1
+    rules:
+      - alert: MLOperatorRoutingIncidentRCARouteSLOStale
+        expr: time() - ml_operator_routing_incident_rca_route_slo_last_run_ts_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Routing incident RCA Route SLO analytics is stale"
+
+      - alert: MLOperatorRoutingIncidentRCARouteRetryStale
+        expr: time() - ml_operator_routing_incident_rca_route_retry_last_run_ts_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Routing incident RCA Route Retry controller is stale"
+
+      - alert: MLOperatorRoutingIncidentRCARouteEscalationStale
+        expr: time() - ml_operator_routing_incident_rca_route_escalation_last_run_ts_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Routing incident RCA Route Escalation summarizer is stale"

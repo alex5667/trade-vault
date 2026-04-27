@@ -1,0 +1,30 @@
+groups:
+  - name: active-symbol-guard-p5
+    rules:
+      # Fire when the guard is repeatedly stuck: indicates local FSM says closed
+      # but Binance still shows live exposure or open orders.
+      - alert: ActiveSymbolGuardStuckHigh
+        expr: increase(execution_active_symbol_guard_stuck_total[10m]) > 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Active symbol guard remains blocked by exchange truth"
+          description: >
+            single_active_position_per_symbol guard could not be released because
+            Binance still reports live position or open orders for {{ $labels.symbol }}.
+            Reason: {{ $labels.reason }}.
+
+      # Fire when exchange-truth checks are failing — guard decisions cannot be
+      # trusted and may either over-block (safe) or silently miss releases.
+      - alert: ActiveSymbolGuardExchangeCheckErrors
+        expr: increase(execution_active_symbol_guard_exchange_check_total{result="error"}[10m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Active symbol guard exchange checks are failing"
+          description: >
+            Executor/repair worker could not confirm flat/no-orders state while
+            deciding whether to release a per-symbol execution guard for {{ $labels.symbol }}.
+            Check Binance API connectivity and credentials.

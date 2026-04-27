@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/export_closed_trades_ndjson.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1000, 2000, 200000, ',', '--count', '--max', '--out', '--redis', '--since-id', '--stream', '0-0', ':', 'POSITION_CLOSED', 'REDIS_URL', 'TRADE_EVENTS_STREAM', 'XREAD batch size', '__main__', 'ab_arm', 'ab_group', 'ab_key', 'abs_lvl_tier', 'arm_ver', 'close_reason', 'continuation', 'default', 'event', 'event_type', 'events:trades', 'max records to scan', 'meta', 'metadata', 'na', 'of_confirm_ok', 'pnl', 'r_mult', 'regime', 'reversal', 'risk_usd', 'scenario', 'sid', 'symbol', 'timestamp', 'ts', 'ts_ms', 'utf-8', 'w']

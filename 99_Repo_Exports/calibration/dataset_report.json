@@ -1,0 +1,1852 @@
+{
+  "signal_stream": "signals:of:inputs",
+  "closed_stream": "trades:closed",
+  "signals_raw": 5000,
+  "signals_parsed": 5000,
+  "closes_raw": 5007,
+  "closes_parsed": 5007,
+  "joined": 3098,
+  "unmatched_closes": 1909,
+  "y_min_r": 0.1,
+  "since_ms": 1775916008000,
+  "until_ms": 1776520808000,
+  "generated_ms": 1776520854904,
+  "strict_feature_cols": 0,
+  "forbid_scenario_v4_onehot": 0,
+  "drop": {
+    "counts": {
+      "join_no_signal": 1909,
+      "join_nearest_too_far": 1573,
+      "join_nearest_no_candidates": 315,
+      "join_secondary_no_match": 21
+    },
+    "examples": {
+      "join_nearest_no_candidates": [
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776520775429",
+          "close_ts_ms": 1776520801698
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776518982753",
+          "close_ts_ms": 1776518984386
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776518803154",
+          "close_ts_ms": 1776518893361
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776518585695",
+          "close_ts_ms": 1776518586000
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776518437680",
+          "close_ts_ms": 1776518438000
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776517911283",
+          "close_ts_ms": 1776517912000
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776516735942",
+          "close_ts_ms": 1776516749721
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776516679762",
+          "close_ts_ms": 1776516682479
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776516450456",
+          "close_ts_ms": 1776516457976
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776516368604",
+          "close_ts_ms": 1776516434219
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776516346813",
+          "close_ts_ms": 1776516347000
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776516073761",
+          "close_ts_ms": 1776516316185
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776514682937",
+          "close_ts_ms": 1776514685839
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776514406661",
+          "close_ts_ms": 1776514408001
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776513823543",
+          "close_ts_ms": 1776513884671
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776513740054",
+          "close_ts_ms": 1776513758717
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776513689954",
+          "close_ts_ms": 1776513734510
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776513661664",
+          "close_ts_ms": 1776513679160
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776513650526",
+          "close_ts_ms": 1776513652677
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776513061770",
+          "close_ts_ms": 1776513062000
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776512806918",
+          "close_ts_ms": 1776512807000
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776512512279",
+          "close_ts_ms": 1776512513000
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776511132531",
+          "close_ts_ms": 1776511133580
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776510950555",
+          "close_ts_ms": 1776510954060
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776510808424",
+          "close_ts_ms": 1776510809506
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776510537447",
+          "close_ts_ms": 1776510539702
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776510446951",
+          "close_ts_ms": 1776510447000
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776510266925",
+          "close_ts_ms": 1776510270630
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776510208807",
+          "close_ts_ms": 1776510263022
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776510148747",
+          "close_ts_ms": 1776510153111
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776509958592",
+          "close_ts_ms": 1776509959599
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776509340726",
+          "close_ts_ms": 1776509401521
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776509252466",
+          "close_ts_ms": 1776509259676
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776509177954",
+          "close_ts_ms": 1776509178000
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776509027998",
+          "close_ts_ms": 1776509028000
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776508974502",
+          "close_ts_ms": 1776508975644
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776508777509",
+          "close_ts_ms": 1776508974503
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776508606992",
+          "close_ts_ms": 1776508607000
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776507304467",
+          "close_ts_ms": 1776507305311
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776507065041",
+          "close_ts_ms": 1776507066090
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776506938921",
+          "close_ts_ms": 1776507001523
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776506869687",
+          "close_ts_ms": 1776506916626
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776506848994",
+          "close_ts_ms": 1776506849547
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776506691051",
+          "close_ts_ms": 1776506790544
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776506643310",
+          "close_ts_ms": 1776506677520
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776506183651",
+          "close_ts_ms": 1776506469802
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776506160146",
+          "close_ts_ms": 1776506167139
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776505981657",
+          "close_ts_ms": 1776506000372
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776505926526",
+          "close_ts_ms": 1776505929130
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sid_close": "crypto-of:SOLUSDT:1776505767731",
+          "close_ts_ms": 1776505768874
+        }
+      ],
+      "join_no_signal": [
+        {
+          "sid": "crypto-of:SOLUSDT:1776520775429",
+          "symbol": "SOLUSDT",
+          "close_ts_ms": 1776520801698
+        },
+        {
+          "sid": "crypto-of:ETHUSDT:1776520754566",
+          "symbol": "ETHUSDT",
+          "close_ts_ms": 1776520755000
+        },
+        {
+          "sid": "crypto-of:BTCUSDT:1776520578672",
+          "symbol": "BTCUSDT",
+          "close_ts_ms": 1776520579000
+        },
+        {
+          "sid": "crypto-of:BTCUSDT:1776520354664",
+          "symbol": "BTCUSDT",
+          "close_ts_ms": 1776520355000
+        },
+        {
+          "sid": "crypto-of:ETHUSDT:1776520285919",
+          "symbol": "ETHUSDT",
+          "close_ts_ms": 1776520286000
+        },
+        {
+          "sid": "crypto-of:BTCUSDT:1776520335802",
+          "symbol": "BTCUSDT",
+          "close_ts_ms": 1776520336000
+        },
+        {
+          "sid": "crypto-of:BTCUSDT:1776519547931",
+          "symbol": "BTCUSDT",
+          "close_ts_ms": 1776520157439
+        },
+        {
+          "sid": "crypto-of:BTCUSDT:1776519447568",
+          "symbol": "BTCUSDT",
+          "close_ts_ms": 1776519554393
+        },
+        {
+          "sid": "crypto-of:BTCUSDT:1776519493846",
+          "symbol": "BTCUSDT",
+          "close_ts_ms": 1776519548112
+        },
+        {
+          "sid": "crypto-of:ETHUSDT:1776519447565",
+          "symbol": "ETHUSDT",
+          "close_ts_ms": 1776519534871
+        },
+        {
+          "sid": "crypto-of:ETHUSDT:1776519426849",
+          "symbol": "ETHUSDT",
+          "close_ts_ms": 1776519429553
+        },
+        {
+          "sid": "crypto-of:BTCUSDT:1776519261393",
+          "symbol": "BTCUSDT",
+          "close_ts_ms": 1776519416232
+        },
+        {
+          "sid": "crypto-of:ETHUSDT:1776519358501",
+          "symbol": "ETHUSDT",
+          "close_ts_ms": 1776519390037
+        },
+        {
+          "sid": "crypto-of:BTCUSDT:1776519250325",
+          "symbol": "BTCUSDT",
+          "close_ts_ms": 1776519358652
+        },
+        {
+          "sid": "crypto-of:BTCUSDT:1776519201345",
+          "symbol": "BTCUSDT",
+          "close_ts_ms": 1776519349942
+        },
+        {
+          "sid": "crypto-of:BTCUSDT:1776519036952",
+          "symbol": "BTCUSDT",
+          "close_ts_ms": 1776519037000
+        },
+        {
+          "sid": "crypto-of:SOLUSDT:1776518982753",
+          "symbol": "SOLUSDT",
+          "close_ts_ms": 1776518984386
+        },
+        {
+          "sid": "crypto-of:BTCUSDT:1776518907998",
+          "symbol": "BTCUSDT",
+          "close_ts_ms": 1776518937397
+        },
+        {
+          "sid": "crypto-of:SOLUSDT:1776518803154",
+          "symbol": "SOLUSDT",
+          "close_ts_ms": 1776518893361
+        },
+        {
+          "sid": "crypto-of:ETHUSDT:1776518623155",
+          "symbol": "ETHUSDT",
+          "close_ts_ms": 1776518887635
+        },
+        {
+          "sid": "crypto-of:BTCUSDT:1776518726820",
+          "symbol": "BTCUSDT",
+          "close_ts_ms": 1776518887633
+        },
+        {
+          "sid": "crypto-of:SOLUSDT:1776518585695",
+          "symbol": "SOLUSDT",
+          "close_ts_ms": 1776518586000
+        },
+        {
+          "sid": "crypto-of:ETHUSDT:1776518493491",
+          "symbol": "ETHUSDT",
+          "close_ts_ms": 1776518494000
+        },
+        {
+          "sid": "crypto-of:SOLUSDT:1776518437680",
+          "symbol": "SOLUSDT",
+          "close_ts_ms": 1776518438000
+        },
+        {
+          "sid": "crypto-of:ETHUSDT:1776518237953",
+          "symbol": "ETHUSDT",
+          "close_ts_ms": 1776518238000
+        },
+        {
+          "sid": "crypto-of:BTCUSDT:1776517896201",
+          "symbol": "BTCUSDT",
+          "close_ts_ms": 1776517980792
+        },
+        {
+          "sid": "crypto-of:ETHUSDT:1776518153918",
+          "symbol": "ETHUSDT",
+          "close_ts_ms": 1776518154000
+        },
+        {
+          "sid": "crypto-of:SOLUSDT:1776517911283",
+          "symbol": "SOLUSDT",
+          "close_ts_ms": 1776517912000
+        },
+        {
+          "sid": "crypto-of:ETHUSDT:1776517940902",
+          "symbol": "ETHUSDT",
+          "close_ts_ms": 1776517941000
+        },
+        {
+          "sid": "crypto-of:BTCUSDT:1776517880574",
+          "symbol": "BTCUSDT",
+          "close_ts_ms": 1776517881000
+        },
+        {
+          "sid": "crypto-of:ETHUSDT:1776517754494",
+          "symbol": "ETHUSDT",
+          "close_ts_ms": 1776517755000
+        },
+        {
+          "sid": "crypto-of:BTCUSDT:1776516795642",
+          "symbol": "BTCUSDT",
+          "close_ts_ms": 1776517753025
+        },
+        {
+          "sid": "crypto-of:BTCUSDT:1776516767856",
+          "symbol": "BTCUSDT",
+          "close_ts_ms": 1776517753025
+        },
+        {
+          "sid": "crypto-of:SOLUSDT:1776516735942",
+          "symbol": "SOLUSDT",
+          "close_ts_ms": 1776516749721
+        },
+        {
+          "sid": "crypto-of:BTCUSDT:1776516700909",
+          "symbol": "BTCUSDT",
+          "close_ts_ms": 1776516701000
+        },
+        {
+          "sid": "crypto-of:SOLUSDT:1776516679762",
+          "symbol": "SOLUSDT",
+          "close_ts_ms": 1776516682479
+        },
+        {
+          "sid": "crypto-of:SOLUSDT:1776516450456",
+          "symbol": "SOLUSDT",
+          "close_ts_ms": 1776516457976
+        },
+        {
+          "sid": "crypto-of:ETHUSDT:1776516457528",
+          "symbol": "ETHUSDT",
+          "close_ts_ms": 1776516458000
+        },
+        {
+          "sid": "crypto-of:SOLUSDT:1776516368604",
+          "symbol": "SOLUSDT",
+          "close_ts_ms": 1776516434219
+        },
+        {
+          "sid": "crypto-of:SOLUSDT:1776516346813",
+          "symbol": "SOLUSDT",
+          "close_ts_ms": 1776516347000
+        },
+        {
+          "sid": "crypto-of:ETHUSDT:1776516295531",
+          "symbol": "ETHUSDT",
+          "close_ts_ms": 1776516296000
+        },
+        {
+          "sid": "crypto-of:BTCUSDT:1776516346789",
+          "symbol": "BTCUSDT",
+          "close_ts_ms": 1776516347000
+        },
+        {
+          "sid": "crypto-of:SOLUSDT:1776516073761",
+          "symbol": "SOLUSDT",
+          "close_ts_ms": 1776516316185
+        },
+        {
+          "sid": "crypto-of:BTCUSDT:1776516290873",
+          "symbol": "BTCUSDT",
+          "close_ts_ms": 1776516291000
+        },
+        {
+          "sid": "crypto-of:ETHUSDT:1776516265065",
+          "symbol": "ETHUSDT",
+          "close_ts_ms": 1776516266000
+        },
+        {
+          "sid": "crypto-of:ETHUSDT:1776515962052",
+          "symbol": "ETHUSDT",
+          "close_ts_ms": 1776515963000
+        },
+        {
+          "sid": "crypto-of:BTCUSDT:1776515936732",
+          "symbol": "BTCUSDT",
+          "close_ts_ms": 1776515937000
+        },
+        {
+          "sid": "crypto-of:ETHUSDT:1776515039067",
+          "symbol": "ETHUSDT",
+          "close_ts_ms": 1776515131009
+        },
+        {
+          "sid": "crypto-of:BTCUSDT:1776515084954",
+          "symbol": "BTCUSDT",
+          "close_ts_ms": 1776515127063
+        },
+        {
+          "sid": "crypto-of:BTCUSDT:1776514673898",
+          "symbol": "BTCUSDT",
+          "close_ts_ms": 1776514821968
+        }
+      ],
+      "join_nearest_too_far": [
+        {
+          "symbol": "ETHUSDT",
+          "sid_close": "crypto-of:ETHUSDT:1776520754566",
+          "close_ts_ms": 1776520755000,
+          "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+          "delta_ms": 5715000,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776520578672",
+          "close_ts_ms": 1776520579000,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 64082000,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776520354664",
+          "close_ts_ms": 1776520355000,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 63858000,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sid_close": "crypto-of:ETHUSDT:1776520285919",
+          "close_ts_ms": 1776520286000,
+          "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+          "delta_ms": 5246000,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776520335802",
+          "close_ts_ms": 1776520336000,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 63839000,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776519547931",
+          "close_ts_ms": 1776520157439,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 63660439,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776519447568",
+          "close_ts_ms": 1776519554393,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 63057393,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776519493846",
+          "close_ts_ms": 1776519548112,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 63051112,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sid_close": "crypto-of:ETHUSDT:1776519447565",
+          "close_ts_ms": 1776519534871,
+          "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+          "delta_ms": 4494871,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sid_close": "crypto-of:ETHUSDT:1776519426849",
+          "close_ts_ms": 1776519429553,
+          "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+          "delta_ms": 4389553,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776519261393",
+          "close_ts_ms": 1776519416232,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 62919232,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sid_close": "crypto-of:ETHUSDT:1776519358501",
+          "close_ts_ms": 1776519390037,
+          "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+          "delta_ms": 4350037,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776519250325",
+          "close_ts_ms": 1776519358652,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 62861652,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776519201345",
+          "close_ts_ms": 1776519349942,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 62852942,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776519036952",
+          "close_ts_ms": 1776519037000,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 62540000,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776518907998",
+          "close_ts_ms": 1776518937397,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 62440397,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sid_close": "crypto-of:ETHUSDT:1776518623155",
+          "close_ts_ms": 1776518887635,
+          "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+          "delta_ms": 3847635,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776518726820",
+          "close_ts_ms": 1776518887633,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 62390633,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sid_close": "crypto-of:ETHUSDT:1776518493491",
+          "close_ts_ms": 1776518494000,
+          "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+          "delta_ms": 3454000,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sid_close": "crypto-of:ETHUSDT:1776518237953",
+          "close_ts_ms": 1776518238000,
+          "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+          "delta_ms": 3198000,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776517896201",
+          "close_ts_ms": 1776517980792,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 61483792,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sid_close": "crypto-of:ETHUSDT:1776518153918",
+          "close_ts_ms": 1776518154000,
+          "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+          "delta_ms": 3114000,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sid_close": "crypto-of:ETHUSDT:1776517940902",
+          "close_ts_ms": 1776517941000,
+          "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+          "delta_ms": 2901000,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776517880574",
+          "close_ts_ms": 1776517881000,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 61384000,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sid_close": "crypto-of:ETHUSDT:1776517754494",
+          "close_ts_ms": 1776517755000,
+          "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+          "delta_ms": 2715000,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776516795642",
+          "close_ts_ms": 1776517753025,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 61256025,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776516767856",
+          "close_ts_ms": 1776517753025,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 61256025,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776516700909",
+          "close_ts_ms": 1776516701000,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 60204000,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sid_close": "crypto-of:ETHUSDT:1776516457528",
+          "close_ts_ms": 1776516458000,
+          "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+          "delta_ms": 1418000,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sid_close": "crypto-of:ETHUSDT:1776516295531",
+          "close_ts_ms": 1776516296000,
+          "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+          "delta_ms": 1256000,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776516346789",
+          "close_ts_ms": 1776516347000,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 59850000,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776516290873",
+          "close_ts_ms": 1776516291000,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 59794000,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sid_close": "crypto-of:ETHUSDT:1776516265065",
+          "close_ts_ms": 1776516266000,
+          "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+          "delta_ms": 1226000,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sid_close": "crypto-of:ETHUSDT:1776515962052",
+          "close_ts_ms": 1776515963000,
+          "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+          "delta_ms": 923000,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776515936732",
+          "close_ts_ms": 1776515937000,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 59440000,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sid_close": "crypto-of:ETHUSDT:1776515039067",
+          "close_ts_ms": 1776515131009,
+          "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+          "delta_ms": 91009,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776515084954",
+          "close_ts_ms": 1776515127063,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 58630063,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776514673898",
+          "close_ts_ms": 1776514821968,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 58324968,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776514753980",
+          "close_ts_ms": 1776514772822,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 58275822,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sid_close": "crypto-of:ETHUSDT:1776514740730",
+          "close_ts_ms": 1776514770831,
+          "nearest_signal_sid": "crypto-of:ETHUSDT:1776514782562",
+          "delta_ms": -12169,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776514398668",
+          "close_ts_ms": 1776514683190,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 58186190,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sid_close": "crypto-of:ETHUSDT:1776514023141",
+          "close_ts_ms": 1776514683106,
+          "nearest_signal_sid": "crypto-of:ETHUSDT:1776514734722",
+          "delta_ms": -51894,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776514564128",
+          "close_ts_ms": 1776514606336,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 58109336,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776513799818",
+          "close_ts_ms": 1776514391823,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 57894823,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sid_close": "crypto-of:ETHUSDT:1776513823550",
+          "close_ts_ms": 1776513882018,
+          "nearest_signal_sid": "crypto-of:ETHUSDT:1776513922952",
+          "delta_ms": -40982,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776513760472",
+          "close_ts_ms": 1776513780353,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 57283353,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776513725740",
+          "close_ts_ms": 1776513739137,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 57242137,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776513700341",
+          "close_ts_ms": 1776513709820,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 57212820,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776513670336",
+          "close_ts_ms": 1776513687722,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 57190722,
+          "tolerance_ms": 10000
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776513606289",
+          "close_ts_ms": 1776513668310,
+          "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+          "delta_ms": 57171310,
+          "tolerance_ms": 10000
+        }
+      ],
+      "join_secondary_no_match": [
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776455975773",
+          "close_ts_ms": 1776455999155,
+          "join_secondary": "dir_scenario_soft",
+          "bucket_keys": [],
+          "nearest_candidates": [
+            {
+              "sid": "crypto-of:BTCUSDT:1776455998946",
+              "ts_ms": 1776455999000,
+              "delta_ms": 155
+            }
+          ]
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776455863597",
+          "close_ts_ms": 1776455998945,
+          "join_secondary": "dir_scenario_soft",
+          "bucket_keys": [],
+          "nearest_candidates": [
+            {
+              "sid": "crypto-of:BTCUSDT:1776455998946",
+              "ts_ms": 1776455999000,
+              "delta_ms": -55
+            }
+          ]
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776455865374",
+          "close_ts_ms": 1776455998945,
+          "join_secondary": "dir_scenario_soft",
+          "bucket_keys": [],
+          "nearest_candidates": [
+            {
+              "sid": "crypto-of:BTCUSDT:1776455998946",
+              "ts_ms": 1776455999000,
+              "delta_ms": -55
+            }
+          ]
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776453289511",
+          "close_ts_ms": 1776455955084,
+          "join_secondary": "dir_scenario_soft",
+          "bucket_keys": [],
+          "nearest_candidates": [
+            {
+              "sid": "crypto-of:BTCUSDT:1776455955071",
+              "ts_ms": 1776455956000,
+              "delta_ms": -916
+            }
+          ]
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776455261858",
+          "close_ts_ms": 1776455900716,
+          "join_secondary": "dir_scenario_soft",
+          "bucket_keys": [],
+          "nearest_candidates": [
+            {
+              "sid": "crypto-of:BTCUSDT:1776455892831",
+              "ts_ms": 1776455893000,
+              "delta_ms": 7716
+            }
+          ]
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776455657709",
+          "close_ts_ms": 1776455900716,
+          "join_secondary": "dir_scenario_soft",
+          "bucket_keys": [],
+          "nearest_candidates": [
+            {
+              "sid": "crypto-of:BTCUSDT:1776455892831",
+              "ts_ms": 1776455893000,
+              "delta_ms": 7716
+            }
+          ]
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776453550929",
+          "close_ts_ms": 1776455899274,
+          "join_secondary": "dir_scenario_soft",
+          "bucket_keys": [],
+          "nearest_candidates": [
+            {
+              "sid": "crypto-of:BTCUSDT:1776455892831",
+              "ts_ms": 1776455893000,
+              "delta_ms": 6274
+            }
+          ]
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776453520565",
+          "close_ts_ms": 1776455899274,
+          "join_secondary": "dir_scenario_soft",
+          "bucket_keys": [],
+          "nearest_candidates": [
+            {
+              "sid": "crypto-of:BTCUSDT:1776455892831",
+              "ts_ms": 1776455893000,
+              "delta_ms": 6274
+            }
+          ]
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776452836884",
+          "close_ts_ms": 1776452890899,
+          "join_secondary": "dir_scenario_soft",
+          "bucket_keys": [],
+          "nearest_candidates": [
+            {
+              "sid": "crypto-of:BTCUSDT:1776452895986",
+              "ts_ms": 1776452896000,
+              "delta_ms": -5101
+            }
+          ]
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776452609285",
+          "close_ts_ms": 1776452717275,
+          "join_secondary": "dir_scenario_soft",
+          "bucket_keys": [],
+          "nearest_candidates": [
+            {
+              "sid": "crypto-of:BTCUSDT:1776452717220",
+              "ts_ms": 1776452718000,
+              "delta_ms": -725
+            },
+            {
+              "sid": "crypto-of:BTCUSDT:1776452718575",
+              "ts_ms": 1776452719000,
+              "delta_ms": -1725
+            }
+          ]
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776452597032",
+          "close_ts_ms": 1776452717274,
+          "join_secondary": "dir_scenario_soft",
+          "bucket_keys": [],
+          "nearest_candidates": [
+            {
+              "sid": "crypto-of:BTCUSDT:1776452717220",
+              "ts_ms": 1776452718000,
+              "delta_ms": -726
+            },
+            {
+              "sid": "crypto-of:BTCUSDT:1776452718575",
+              "ts_ms": 1776452719000,
+              "delta_ms": -1726
+            }
+          ]
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776452115850",
+          "close_ts_ms": 1776452717212,
+          "join_secondary": "dir_scenario_soft",
+          "bucket_keys": [],
+          "nearest_candidates": [
+            {
+              "sid": "crypto-of:BTCUSDT:1776452717220",
+              "ts_ms": 1776452718000,
+              "delta_ms": -788
+            },
+            {
+              "sid": "crypto-of:BTCUSDT:1776452718575",
+              "ts_ms": 1776452719000,
+              "delta_ms": -1788
+            }
+          ]
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776452214430",
+          "close_ts_ms": 1776452717199,
+          "join_secondary": "dir_scenario_soft",
+          "bucket_keys": [],
+          "nearest_candidates": [
+            {
+              "sid": "crypto-of:BTCUSDT:1776452717220",
+              "ts_ms": 1776452718000,
+              "delta_ms": -801
+            },
+            {
+              "sid": "crypto-of:BTCUSDT:1776452718575",
+              "ts_ms": 1776452719000,
+              "delta_ms": -1801
+            }
+          ]
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776452284688",
+          "close_ts_ms": 1776452717142,
+          "join_secondary": "dir_scenario_soft",
+          "bucket_keys": [],
+          "nearest_candidates": [
+            {
+              "sid": "crypto-of:BTCUSDT:1776452717220",
+              "ts_ms": 1776452718000,
+              "delta_ms": -858
+            },
+            {
+              "sid": "crypto-of:BTCUSDT:1776452718575",
+              "ts_ms": 1776452719000,
+              "delta_ms": -1858
+            }
+          ]
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776452421472",
+          "close_ts_ms": 1776452709261,
+          "join_secondary": "dir_scenario_soft",
+          "bucket_keys": [],
+          "nearest_candidates": [
+            {
+              "sid": "crypto-of:BTCUSDT:1776452717220",
+              "ts_ms": 1776452718000,
+              "delta_ms": -8739
+            },
+            {
+              "sid": "crypto-of:BTCUSDT:1776452718575",
+              "ts_ms": 1776452719000,
+              "delta_ms": -9739
+            }
+          ]
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776452304507",
+          "close_ts_ms": 1776452709260,
+          "join_secondary": "dir_scenario_soft",
+          "bucket_keys": [],
+          "nearest_candidates": [
+            {
+              "sid": "crypto-of:BTCUSDT:1776452717220",
+              "ts_ms": 1776452718000,
+              "delta_ms": -8740
+            },
+            {
+              "sid": "crypto-of:BTCUSDT:1776452718575",
+              "ts_ms": 1776452719000,
+              "delta_ms": -9740
+            }
+          ]
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776451393668",
+          "close_ts_ms": 1776451787140,
+          "join_secondary": "dir_scenario_soft",
+          "bucket_keys": [],
+          "nearest_candidates": [
+            {
+              "sid": "crypto-of:BTCUSDT:1776451785947",
+              "ts_ms": 1776451786000,
+              "delta_ms": 1140
+            }
+          ]
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776451282859",
+          "close_ts_ms": 1776451787140,
+          "join_secondary": "dir_scenario_soft",
+          "bucket_keys": [],
+          "nearest_candidates": [
+            {
+              "sid": "crypto-of:BTCUSDT:1776451785947",
+              "ts_ms": 1776451786000,
+              "delta_ms": 1140
+            }
+          ]
+        },
+        {
+          "symbol": "BTCUSDT",
+          "sid_close": "crypto-of:BTCUSDT:1776451249437",
+          "close_ts_ms": 1776451785947,
+          "join_secondary": "dir_scenario_soft",
+          "bucket_keys": [],
+          "nearest_candidates": [
+            {
+              "sid": "crypto-of:BTCUSDT:1776451785947",
+              "ts_ms": 1776451786000,
+              "delta_ms": -53
+            }
+          ]
+        },
+        {
+          "symbol": "1000PEPEUSDT",
+          "sid_close": "crypto-of:1000PEPEUSDT:1776416727773",
+          "close_ts_ms": 1776417145327,
+          "join_secondary": "dir_scenario_soft",
+          "bucket_keys": [],
+          "nearest_candidates": [
+            {
+              "sid": "crypto-of:1000PEPEUSDT:1776417147498",
+              "ts_ms": 1776417147498,
+              "delta_ms": -2171
+            },
+            {
+              "sid": "crypto-of:1000PEPEUSDT:1776417147509",
+              "ts_ms": 1776417147509,
+              "delta_ms": -2182
+            }
+          ]
+        },
+        {
+          "symbol": "1000PEPEUSDT",
+          "sid_close": "crypto-of:1000PEPEUSDT:1776416443471",
+          "close_ts_ms": 1776417145269,
+          "join_secondary": "dir_scenario_soft",
+          "bucket_keys": [],
+          "nearest_candidates": [
+            {
+              "sid": "crypto-of:1000PEPEUSDT:1776417147498",
+              "ts_ms": 1776417147498,
+              "delta_ms": -2229
+            },
+            {
+              "sid": "crypto-of:1000PEPEUSDT:1776417147509",
+              "ts_ms": 1776417147509,
+              "delta_ms": -2240
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "join_strategy": "sid_or_nearest",
+  "join_tolerance_ms": 10000,
+  "join_secondary": "dir_scenario_soft",
+  "nearest_max_scan": 50,
+  "join_bucket_keys": [],
+  "nearest_join": {
+    "n": 1952,
+    "cand_p50": 0,
+    "cand_p95": 0,
+    "cand2_p50": 0,
+    "cand2_p95": 0,
+    "ambiguous": 7,
+    "ambiguous_examples": [
+      {
+        "symbol": "ETHUSDT",
+        "sid_close": "crypto-of:ETHUSDT:1776513746409",
+        "close_ts_ms": 1776514163834,
+        "join_secondary": "dir_scenario_soft",
+        "bucket_keys": [],
+        "candidates": [
+          {
+            "sid": "crypto-of:ETHUSDT:1776514163831",
+            "ts_ms": 1776514164000,
+            "delta_ms": -166,
+            "bucket_score": 0
+          },
+          {
+            "sid": "crypto-of:ETHUSDT:1776514160889",
+            "ts_ms": 1776514161000,
+            "delta_ms": 2834,
+            "bucket_score": 0
+          }
+        ]
+      },
+      {
+        "symbol": "ETHUSDT",
+        "sid_close": "crypto-of:ETHUSDT:1776513644619",
+        "close_ts_ms": 1776513739244,
+        "join_secondary": "dir_scenario_soft",
+        "bucket_keys": [],
+        "candidates": [
+          {
+            "sid": "crypto-of:ETHUSDT:1776513739249",
+            "ts_ms": 1776513740000,
+            "delta_ms": -756,
+            "bucket_score": 0
+          },
+          {
+            "sid": "crypto-of:ETHUSDT:1776513737302",
+            "ts_ms": 1776513738000,
+            "delta_ms": 1244,
+            "bucket_score": 0
+          }
+        ]
+      },
+      {
+        "symbol": "TAOUSDT",
+        "sid_close": "crypto-of:TAOUSDT:1776416743919",
+        "close_ts_ms": 1776417204069,
+        "join_secondary": "dir_scenario_soft",
+        "bucket_keys": [],
+        "candidates": [
+          {
+            "sid": "crypto-of:TAOUSDT:1776417204070",
+            "ts_ms": 1776417204070,
+            "delta_ms": -1,
+            "bucket_score": 0
+          },
+          {
+            "sid": "crypto-of:TAOUSDT:1776417204069",
+            "ts_ms": 1776417205000,
+            "delta_ms": -931,
+            "bucket_score": 0
+          }
+        ]
+      },
+      {
+        "symbol": "TAOUSDT",
+        "sid_close": "crypto-of:TAOUSDT:1776415724276",
+        "close_ts_ms": 1776417204069,
+        "join_secondary": "dir_scenario_soft",
+        "bucket_keys": [],
+        "candidates": [
+          {
+            "sid": "crypto-of:TAOUSDT:1776417204070",
+            "ts_ms": 1776417204070,
+            "delta_ms": -1,
+            "bucket_score": 0
+          },
+          {
+            "sid": "crypto-of:TAOUSDT:1776417204069",
+            "ts_ms": 1776417205000,
+            "delta_ms": -931,
+            "bucket_score": 0
+          }
+        ]
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "sid_close": "crypto-of:1000PEPEUSDT:1776416597371",
+        "close_ts_ms": 1776417176524,
+        "join_secondary": "dir_scenario_soft",
+        "bucket_keys": [],
+        "candidates": [
+          {
+            "sid": "crypto-of:1000PEPEUSDT:1776417176522",
+            "ts_ms": 1776417176522,
+            "delta_ms": 2,
+            "bucket_score": 0
+          },
+          {
+            "sid": "crypto-of:1000PEPEUSDT:1776417169371",
+            "ts_ms": 1776417169371,
+            "delta_ms": 7153,
+            "bucket_score": 0
+          }
+        ]
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "sid_close": "crypto-of:1000PEPEUSDT:1776416477171",
+        "close_ts_ms": 1776417169406,
+        "join_secondary": "dir_scenario_soft",
+        "bucket_keys": [],
+        "candidates": [
+          {
+            "sid": "crypto-of:1000PEPEUSDT:1776417169371",
+            "ts_ms": 1776417169371,
+            "delta_ms": 35,
+            "bucket_score": 0
+          },
+          {
+            "sid": "crypto-of:1000PEPEUSDT:1776417176522",
+            "ts_ms": 1776417176522,
+            "delta_ms": -7116,
+            "bucket_score": 0
+          }
+        ]
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "sid_close": "crypto-of:1000PEPEUSDT:1776416675330",
+        "close_ts_ms": 1776417167458,
+        "join_secondary": "dir_scenario_soft",
+        "bucket_keys": [],
+        "candidates": [
+          {
+            "sid": "crypto-of:1000PEPEUSDT:1776417169371",
+            "ts_ms": 1776417169371,
+            "delta_ms": -1913,
+            "bucket_score": 0
+          },
+          {
+            "sid": "crypto-of:1000PEPEUSDT:1776417176522",
+            "ts_ms": 1776417176522,
+            "delta_ms": -9064,
+            "bucket_score": 0
+          }
+        ]
+      }
+    ],
+    "bucket_used": 0
+  },
+  "joined_by_sid": 3055,
+  "joined_by_nearest": 43,
+  "mismatch": {
+    "counts": {
+      "<=1s": 10,
+      "<=10s": 11,
+      "<=60s": 31,
+      "<=5m": 22,
+      ">5m": 1520
+    },
+    "examples": [
+      {
+        "symbol": "ETHUSDT",
+        "sid_close": "crypto-of:ETHUSDT:1776520754566",
+        "close_ts_ms": 1776520755000,
+        "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+        "nearest_signal_ts_ms": 1776515040000,
+        "delta_ms": 5715000
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776520578672",
+        "close_ts_ms": 1776520579000,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 64082000
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776520354664",
+        "close_ts_ms": 1776520355000,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 63858000
+      },
+      {
+        "symbol": "ETHUSDT",
+        "sid_close": "crypto-of:ETHUSDT:1776520285919",
+        "close_ts_ms": 1776520286000,
+        "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+        "nearest_signal_ts_ms": 1776515040000,
+        "delta_ms": 5246000
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776520335802",
+        "close_ts_ms": 1776520336000,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 63839000
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776519547931",
+        "close_ts_ms": 1776520157439,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 63660439
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776519447568",
+        "close_ts_ms": 1776519554393,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 63057393
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776519493846",
+        "close_ts_ms": 1776519548112,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 63051112
+      },
+      {
+        "symbol": "ETHUSDT",
+        "sid_close": "crypto-of:ETHUSDT:1776519447565",
+        "close_ts_ms": 1776519534871,
+        "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+        "nearest_signal_ts_ms": 1776515040000,
+        "delta_ms": 4494871
+      },
+      {
+        "symbol": "ETHUSDT",
+        "sid_close": "crypto-of:ETHUSDT:1776519426849",
+        "close_ts_ms": 1776519429553,
+        "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+        "nearest_signal_ts_ms": 1776515040000,
+        "delta_ms": 4389553
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776519261393",
+        "close_ts_ms": 1776519416232,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 62919232
+      },
+      {
+        "symbol": "ETHUSDT",
+        "sid_close": "crypto-of:ETHUSDT:1776519358501",
+        "close_ts_ms": 1776519390037,
+        "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+        "nearest_signal_ts_ms": 1776515040000,
+        "delta_ms": 4350037
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776519250325",
+        "close_ts_ms": 1776519358652,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 62861652
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776519201345",
+        "close_ts_ms": 1776519349942,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 62852942
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776519036952",
+        "close_ts_ms": 1776519037000,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 62540000
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776518907998",
+        "close_ts_ms": 1776518937397,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 62440397
+      },
+      {
+        "symbol": "ETHUSDT",
+        "sid_close": "crypto-of:ETHUSDT:1776518623155",
+        "close_ts_ms": 1776518887635,
+        "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+        "nearest_signal_ts_ms": 1776515040000,
+        "delta_ms": 3847635
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776518726820",
+        "close_ts_ms": 1776518887633,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 62390633
+      },
+      {
+        "symbol": "ETHUSDT",
+        "sid_close": "crypto-of:ETHUSDT:1776518493491",
+        "close_ts_ms": 1776518494000,
+        "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+        "nearest_signal_ts_ms": 1776515040000,
+        "delta_ms": 3454000
+      },
+      {
+        "symbol": "ETHUSDT",
+        "sid_close": "crypto-of:ETHUSDT:1776518237953",
+        "close_ts_ms": 1776518238000,
+        "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+        "nearest_signal_ts_ms": 1776515040000,
+        "delta_ms": 3198000
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776517896201",
+        "close_ts_ms": 1776517980792,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 61483792
+      },
+      {
+        "symbol": "ETHUSDT",
+        "sid_close": "crypto-of:ETHUSDT:1776518153918",
+        "close_ts_ms": 1776518154000,
+        "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+        "nearest_signal_ts_ms": 1776515040000,
+        "delta_ms": 3114000
+      },
+      {
+        "symbol": "ETHUSDT",
+        "sid_close": "crypto-of:ETHUSDT:1776517940902",
+        "close_ts_ms": 1776517941000,
+        "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+        "nearest_signal_ts_ms": 1776515040000,
+        "delta_ms": 2901000
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776517880574",
+        "close_ts_ms": 1776517881000,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 61384000
+      },
+      {
+        "symbol": "ETHUSDT",
+        "sid_close": "crypto-of:ETHUSDT:1776517754494",
+        "close_ts_ms": 1776517755000,
+        "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+        "nearest_signal_ts_ms": 1776515040000,
+        "delta_ms": 2715000
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776516795642",
+        "close_ts_ms": 1776517753025,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 61256025
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776516767856",
+        "close_ts_ms": 1776517753025,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 61256025
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776516700909",
+        "close_ts_ms": 1776516701000,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 60204000
+      },
+      {
+        "symbol": "ETHUSDT",
+        "sid_close": "crypto-of:ETHUSDT:1776516457528",
+        "close_ts_ms": 1776516458000,
+        "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+        "nearest_signal_ts_ms": 1776515040000,
+        "delta_ms": 1418000
+      },
+      {
+        "symbol": "ETHUSDT",
+        "sid_close": "crypto-of:ETHUSDT:1776516295531",
+        "close_ts_ms": 1776516296000,
+        "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+        "nearest_signal_ts_ms": 1776515040000,
+        "delta_ms": 1256000
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776516346789",
+        "close_ts_ms": 1776516347000,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 59850000
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776516290873",
+        "close_ts_ms": 1776516291000,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 59794000
+      },
+      {
+        "symbol": "ETHUSDT",
+        "sid_close": "crypto-of:ETHUSDT:1776516265065",
+        "close_ts_ms": 1776516266000,
+        "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+        "nearest_signal_ts_ms": 1776515040000,
+        "delta_ms": 1226000
+      },
+      {
+        "symbol": "ETHUSDT",
+        "sid_close": "crypto-of:ETHUSDT:1776515962052",
+        "close_ts_ms": 1776515963000,
+        "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+        "nearest_signal_ts_ms": 1776515040000,
+        "delta_ms": 923000
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776515936732",
+        "close_ts_ms": 1776515937000,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 59440000
+      },
+      {
+        "symbol": "ETHUSDT",
+        "sid_close": "crypto-of:ETHUSDT:1776515039067",
+        "close_ts_ms": 1776515131009,
+        "nearest_signal_sid": "crypto-of:ETHUSDT:1776515039106",
+        "nearest_signal_ts_ms": 1776515040000,
+        "delta_ms": 91009
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776515084954",
+        "close_ts_ms": 1776515127063,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 58630063
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776514673898",
+        "close_ts_ms": 1776514821968,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 58324968
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776514753980",
+        "close_ts_ms": 1776514772822,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 58275822
+      },
+      {
+        "symbol": "ETHUSDT",
+        "sid_close": "crypto-of:ETHUSDT:1776514740730",
+        "close_ts_ms": 1776514770831,
+        "nearest_signal_sid": "crypto-of:ETHUSDT:1776514782562",
+        "nearest_signal_ts_ms": 1776514783000,
+        "delta_ms": -12169
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776514398668",
+        "close_ts_ms": 1776514683190,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 58186190
+      },
+      {
+        "symbol": "ETHUSDT",
+        "sid_close": "crypto-of:ETHUSDT:1776514023141",
+        "close_ts_ms": 1776514683106,
+        "nearest_signal_sid": "crypto-of:ETHUSDT:1776514734722",
+        "nearest_signal_ts_ms": 1776514735000,
+        "delta_ms": -51894
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776514564128",
+        "close_ts_ms": 1776514606336,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 58109336
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776513799818",
+        "close_ts_ms": 1776514391823,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 57894823
+      },
+      {
+        "symbol": "ETHUSDT",
+        "sid_close": "crypto-of:ETHUSDT:1776513823550",
+        "close_ts_ms": 1776513882018,
+        "nearest_signal_sid": "crypto-of:ETHUSDT:1776513922952",
+        "nearest_signal_ts_ms": 1776513923000,
+        "delta_ms": -40982
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776513760472",
+        "close_ts_ms": 1776513780353,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 57283353
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776513725740",
+        "close_ts_ms": 1776513739137,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 57242137
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776513700341",
+        "close_ts_ms": 1776513709820,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 57212820
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776513670336",
+        "close_ts_ms": 1776513687722,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 57190722
+      },
+      {
+        "symbol": "BTCUSDT",
+        "sid_close": "crypto-of:BTCUSDT:1776513606289",
+        "close_ts_ms": 1776513668310,
+        "nearest_signal_sid": "crypto-of:BTCUSDT:1776456496492",
+        "nearest_signal_ts_ms": 1776456497000,
+        "delta_ms": 57171310
+      }
+    ]
+  },
+  "pos_rate": 0.36507424144609424,
+  "r_mult_p50": -0.5498348270304407,
+  "r_mult_p95": 0.737853938825539
+}

@@ -1,0 +1,23 @@
+[Unit]
+Description=Execution audit-chain runbook server (P5.7)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=trade
+Group=trade
+WorkingDirectory=/opt/trade/python-worker
+EnvironmentFile=-/etc/default/execution-audit-chain
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /opt/trade/python-worker/runbooks/server/runbook_server.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadOnlyPaths=/var/lib/trade/runbooks
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/ab_winner_eval_store.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1000, 2000, 5000, 200000, '-', 'A', 'B', 'C', 'CLOSE', 'CLOSED', 'POSITION_CLOSED', 'ab:eval:ctx:set:v1', 'ab:eval:ctx:ts:v1', 'ab:eval:cursor:v1', 'ab:eval:r:z:v1', 'ab_arm', 'ab_group', 'cont', 'continuation', 'decision', 'default', 'event', 'event_type', 'na', 'pnl', 'r_mult', 'regime', 'rev', 'reversal', 'risk_usd', 'scenario', 'symbol', 'ts', 'type', '|']

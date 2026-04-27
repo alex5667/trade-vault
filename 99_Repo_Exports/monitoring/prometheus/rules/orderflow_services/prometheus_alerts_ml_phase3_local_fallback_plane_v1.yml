@@ -1,0 +1,26 @@
+groups:
+  - name: ml_phase3_local_fallback_plane_v1
+    rules:
+      - alert: MLLocalFallbackPlaneStale
+        expr: time() - ml_local_fallback_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "local fallback plane is stale"
+          runbook: "See ML Phase 3 documentation for Fallback Plane"
+
+      - alert: MLLocalFallbackPlaneErrors
+        expr: increase(ml_local_fallback_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "local fallback plane has errors"
+          runbook: "See ML Phase 3 documentation for Fallback Plane"
+
+      - alert: MLLocalFallbackPlaneRejectionsSpike
+        expr: increase(ml_local_fallback_rejected_total[30m]) > 20
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "local fallback plane rejection volume is elevated"
+          runbook: "See ML Phase 3 documentation for Fallback Plane"

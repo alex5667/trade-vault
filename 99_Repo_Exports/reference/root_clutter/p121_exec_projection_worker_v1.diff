@@ -1,0 +1,1093 @@
+--- confidence_calculation/docker-compose-crypto-orderflow.yml	2026-03-08 06:01:10.925848368 +0000
++++ confidence_calculation/docker-compose-crypto-orderflow.yml	2026-03-08 06:13:19.138060938 +0000
+@@ -187,6 +187,8 @@
+       - EXEC_POLICY_DEFAULT=SAFETY_FIRST
+       - EXEC_POLICY_MAKER_ALLOWED_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT
+       - EXEC_REQUIRE_USER_STREAM_LIVE=1
++      - EXEC_INLINE_STATE_PROJECTION=0
++      - EXEC_PROJECTION_CURSOR_KEY=orders:exec:projection:cursor
+       - PARTIAL_FILL_POLICY=CANCEL_REMAINDER_AND_PROTECT_FILLED
+       - PROTECTION_ARM_TIMEOUT_MS=2500
+       - TRAIL_WORKING_TYPE=MARK_PRICE
+@@ -1884,6 +1886,27 @@
+     deploy: *id006
+     container_name: execution-gate-service
+ 
++  execution-state-projection-worker:
++    build: *id001
++    command: python /app/services/execution_projection_worker.py
++    environment:
++      - REDIS_URL=redis://redis-worker-1:6379/0
++      - PYTHONUNBUFFERED=1
++      - EXEC_STREAM=orders:exec
++      - ORDERS_STATE_KEY_PREFIX=orders:state:
++      - ORDERS_STATE_TTL_SEC=86400
++      - EXEC_PROJECTION_CURSOR_KEY=orders:exec:projection:cursor
++      - EXEC_PROJECTION_BATCH_SIZE=500
++      - EXEC_PROJECTION_IDLE_SLEEP_MS=500
++      - EXECUTION_JOURNAL_DSN=${EXECUTION_JOURNAL_DSN:-}
++      - PYTHONPATH=/app
++    depends_on: *id003
++    networks: *id004
++    volumes: *id005
++    restart: on-failure:5
++    deploy: *id006
++    container_name: execution-state-projection-worker
++
+   ml-confirm-sre-poller:
+     build: *id001
+     command: ["python", "-m", "services.ml_confirm_sre_poller.main"]
+
+--- deploy/execution_safe_defaults_p104.env.example	2026-03-08 06:01:10.926218267 +0000
++++ deploy/execution_safe_defaults_p104.env.example	2026-03-08 06:13:38.922357504 +0000
+@@ -21,3 +21,7 @@
+ RISK_LEADER_OVERRIDE_DRAWDOWN_BPS=250
+ RISK_NEWS_BLACKOUT_FORCE_DENY=1
+ STRATEGY_SHADOW_ONLY=0
++EXEC_INLINE_STATE_PROJECTION=0
++EXEC_PROJECTION_CURSOR_KEY=orders:exec:projection:cursor
++EXEC_PROJECTION_BATCH_SIZE=500
++EXEC_PROJECTION_IDLE_SLEEP_MS=500
+
+--- /dev/null	2026-03-08 05:48:09.525032697 +0000
++++ orderflow_services/prometheus_alerts_execution_projection_p121.yml	2026-03-08 06:13:51.365306593 +0000
+@@ -0,0 +1,24 @@
++groups:
++  - name: execution_projection_p121
++    rules:
++      - alert: TradeExecutionProjectionLagHigh
++        expr: trade_execution_projection_lag_ms > 15000
++        for: 2m
++        labels:
++          severity: warning
++          domain: execution
++          component: execution-projection-worker
++        annotations:
++          summary: "execution projection lag is high"
++          description: "Derived orders:state cache is lagging behind orders:exec by more than 15s."
++
++      - alert: TradeExecutionProjectionCursorStalled
++        expr: (time() * 1000 - trade_execution_projection_cursor_ts_ms) > 60000
++        for: 5m
++        labels:
++          severity: critical
++          domain: execution
++          component: execution-projection-worker
++        annotations:
++          summary: "execution projection cursor is stale"
++          description: "Projection worker has not advanced its cursor for more than 60s."
+
+--- services/binance_executor.py	2026-03-08 06:01:10.919845018 +0000
++++ services/binance_executor.py	2026-03-08 06:16:13.510153009 +0000
+@@ -76,7 +76,6 @@
+ 
+ from services.binance_futures_client import BinanceAPIError, BinanceFuturesClient
+ from services.execution_contracts import ExecutionEvent, build_materialized_state_view
+-from services.execution_contracts import ExecutionEvent, build_materialized_state_view
+ from services.execution_intent_validator import validate_exit_intent
+ try:
+     from services.execution_policy import (
+@@ -91,6 +90,8 @@
+         rebuild_state_from_stream,
+         rebuild_state_with_fallback,
+         persist_state_snapshot,
++        replay_sid_state,
++        project_event_into_state,
+     )
+     from services.rollout_flags import RolloutFlags
+ except Exception:  # pragma: no cover - standalone bundle / local tests
+@@ -112,6 +113,8 @@
+         rebuild_state_from_stream,
+         rebuild_state_with_fallback,
+         persist_state_snapshot,
++        replay_sid_state,
++        project_event_into_state,
+     )
+     from rollout_flags import RolloutFlags
+ 
+@@ -715,6 +718,9 @@
+         # rather than treating a miss as a fresh signal.
+         self.exec_replay_scan_count = int(os.getenv("EXEC_REPLAY_SCAN_COUNT", "20000"))
+         self.exec_rehydrate_on_state_miss = _bool_env("EXEC_REHYDRATE_ON_STATE_MISS", True)
++        self.exec_journal_primary = _bool_env("EXEC_JOURNAL_PRIMARY", True)
++        self.exec_state_derived_view = _bool_env("EXEC_STATE_DERIVED_VIEW", True)
++        self.exec_inline_state_projection = _bool_env("EXEC_INLINE_STATE_PROJECTION", False)
+ 
+         # Counter to limit trailing arm notifications per symbol/side
+         self._trail_arm_counts = {}
+@@ -853,32 +859,74 @@
+ 
+ 
+     def _exec_event(self, fields: Dict[str, Any]) -> None:
+-        """Write one execution fact to orders:exec stream using canonical time fields."""
+-        fields = dict(fields)
++        """Write one canonical fact to ``orders:exec``.
++
++        The executor appends to the primary journal synchronously. Projection into
++        ``orders:state:{sid}`` is optional and disabled by default so derived
++        state materialization can run in a separate deterministic worker.
++        """
++        raw = dict(fields or {})
++        sid = str(raw.get('sid') or '').strip()
++        symbol = str(raw.get('symbol') or '').strip().upper()
++        action = str(raw.get('action') or raw.get('event_type') or 'event').strip() or 'event'
++        event_type = str(raw.get('event_type') or action).strip() or 'event'
++        status = str(raw.get('status') or 'ok').strip() or 'ok'
++        ts_event_ms = int(raw.get('ts_event_ms') or raw.get('ts_ms') or _ms_now())
++        core_keys = {
++            'sid', 'symbol', 'action', 'event_type', 'status', 'severity',
++            'ts_event_ms', 'ts_exec_start_ms', 'ts_queue_ms', 'ts_state_commit_ms',
++            'ts_ms', 'mono_ms',
++        }
++        payload = {k: v for k, v in raw.items() if k not in core_keys and v is not None}
+         event = ExecutionEvent(
+-            sid=str(fields.pop("sid", "") or ""),
+-            symbol=str(fields.pop("symbol", "") or ""),
+-            action=str(fields.pop("action", "event") or "event"),
+-            event_type=str(fields.pop("event_type", fields.get("status") or "event") or "event"),
+-            status=str(fields.pop("status", "ok") or "ok"),
+-            ts_event_ms=int(fields.pop("ts_event_ms", fields.pop("ts_ms", _ms_now())) or _ms_now()),
+-            ts_exec_start_ms=int(fields.pop("ts_exec_start_ms", 0) or 0) or None,
+-            ts_queue_ms=int(fields.pop("ts_queue_ms", 0) or 0) or None,
+-            ts_state_commit_ms=int(fields.pop("ts_state_commit_ms", 0) or 0) or None,
+-            severity=str(fields.pop("severity", "") or "") or None,
+-            payload={**fields, "mono_ms": str(_mono_ms()), "venue": "binance"},
++            sid=sid,
++            symbol=symbol,
++            action=action,
++            event_type=event_type,
++            status=status,
++            ts_event_ms=ts_event_ms,
++            ts_exec_start_ms=_i(raw.get('ts_exec_start_ms')) or None,
++            ts_queue_ms=_i(raw.get('ts_queue_ms')) or None,
++            ts_state_commit_ms=_i(raw.get('ts_state_commit_ms')) or None,
++            severity=str(raw.get('severity') or '').strip() or None,
++            payload={**payload, 'mono_ms': str(_mono_ms()), 'venue': 'binance'},
+         )
+         stream_fields = event.to_stream_fields()
++        stream_fields.setdefault('ts_ms', str(ts_event_ms))
++        stream_id = ''
+         try:
+-            self.r.xadd(self.exec_stream, {k: str(v) for k, v in stream_fields.items() if v is not None})
++            stream_id = str(self.r.xadd(self.exec_stream, {k: str(v) for k, v in stream_fields.items() if v is not None}) or '')
+         except Exception:
+-            pass
++            stream_id = ''
+         try:
+             sink = getattr(self, "execution_journal", None)
+             if sink is not None:
+                 sink.record_event(stream_fields)
+         except Exception:
+             pass
++        if not getattr(self, 'exec_inline_state_projection', False):
++            return
++        try:
++            if sid:
++                self._project_materialized_state_from_event(sid, stream_fields, stream_id=stream_id)
++        except Exception:
++            pass
++
++    def _append_state_patch_event(self, sid: str, patch: Dict[str, Any]) -> None:
++        """Append a derived-state patch event instead of mutating Redis state inline."""
++        doc = dict(patch or {})
++        if not sid:
++            return
++        symbol = str(doc.get('symbol') or '').strip().upper()
++        action = str(doc.get('action') or 'state_patch').strip() or 'state_patch'
++        self._exec_event({
++            'sid': sid,
++            'symbol': symbol,
++            'action': action,
++            'event_type': 'state_patch',
++            'status': str(doc.get('status') or 'ok').strip() or 'ok',
++            **doc,
++        })
+ 
+     def _dlq(self, raw: str, reason: str) -> None:
+         """Push unprocessable message to DLQ list (fail-open)."""
+@@ -909,46 +957,24 @@
+             # Can't requeue: DLQ the original
+             self._dlq(raw, f"requeue_failed:{reason}")
+ 
+-    def _save_order_state(self, sid: str, state: Dict[str, Any]) -> None:
+-        """Write orders:state:{sid} Redis key for fast SID→Binance ID lookup.
++    def _load_materialized_state_cache(self, sid: str) -> Dict[str, Any]:
++        """Return the raw orders:state cache document without replay side effects."""
++        try:
++            raw = self.r.get(f"{self.state_key_prefix}{sid}")
++            if raw:
++                doc = json.loads(raw)
++                if isinstance(doc, dict):
++                    return doc
++        except Exception:
++            pass
++        return {}
+ 
+-        P5 note: the Redis state key is a *materialized view*, not the primary
+-        event log.  We therefore merge new fields into the existing snapshot so
+-        durable chain fields (signal_id, execution_plan_id, entry/exit refs,
+-        closed_trade_id) survive partial updates such as TP watchdog or trail
+-        arming.
+-
+-        Schema (fields written on open):
+-          ts_ms            — unix ms timestamp
+-          venue            — always 'binance'
+-          action           — open | cancel | modify
+-          status           — filled | closed | ...
+-          symbol, side, qty, exec_price
+-          binance_order_id — Binance entry order ID
+-          sl_algo_id      — SL STOP_MARKET algo ID
+-          tp1_algo_id, tp2_algo_id, ...  — TP algo IDs
+-          trail_algo_id   — TRAILING_STOP_MARKET algo ID (written when arming fires)
+-          signal_id, execution_plan_id   — P5 chain fields (never overwritten once set)
+-          entry_order_ref, exit_order_ref, closed_trade_id — P5 order chain refs
+-
+-        Consumers: r.get(f"orders:state:{sid}") → json.loads()
+-        TTL: ORDERS_STATE_TTL_SEC (default 86400 = 24h).
+-        Fail-open: all Redis errors silently swallowed.
+-        """
++    def _persist_materialized_state_cache(self, sid: str, state: Dict[str, Any]) -> Dict[str, Any]:
++        """Persist one derived orders:state snapshot."""
+         try:
+-            # P5: read-merge-write to preserve chain fields across partial updates
+-            existing: Dict[str, Any] = {}
+-            try:
+-                raw_prev = self.r.get(f"{self.state_key_prefix}{sid}")
+-                if raw_prev:
+-                    parsed_prev = json.loads(raw_prev)
+-                    if isinstance(parsed_prev, dict):
+-                        existing = parsed_prev
+-            except Exception:
+-                existing = {}
++            existing = self._load_materialized_state_cache(sid)
+             merged = dict(existing)
+             merged.update(state or {})
+-            # Preserve original created_at_ms (set once on open)
+             if 'created_at_ms' not in merged:
+                 merged['created_at_ms'] = int(existing.get('created_at_ms') or _ms_now())
+             merged['updated_at_ms'] = _ms_now()
+@@ -959,15 +985,51 @@
+                 ex=self.state_ttl if self.state_ttl > 0 else None,
+             )
+             try:
+-                # Mirror state snapshot and protection refs to SQL journal (fail-open)
+                 sink = getattr(self, "execution_journal", None)
+                 if sink is not None:
+                     sink.upsert_order_snapshot(doc)
+                     sink.upsert_protection_refs(doc)
+             except Exception:
+                 pass
++            return doc
++        except Exception:
++            return dict(state or {})
++
++    def _save_order_state(self, sid: str, state: Dict[str, Any]) -> None:
++        """Persist a derived state change.
++
++        In journal-primary mode this should not mutate Redis cache directly from
++        the executor hot path. We therefore append a ``state_patch`` event and
++        let the projection worker materialize ``orders:state:{sid}``. Inline
++        projection remains available for tests and emergency rollback.
++        """
++        try:
++            if getattr(self, 'exec_journal_primary', True) and not getattr(self, 'exec_inline_state_projection', False):
++                self._append_state_patch_event(sid, state)
++                return
++            base: Dict[str, Any] = {}
++            if getattr(self, 'exec_journal_primary', True):
++                base = self._recover_state_from_exec_stream(sid) or {}
++            if not base:
++                base = self._load_materialized_state_cache(sid)
++            merged = dict(base)
++            merged.update(state or {})
++            self._persist_materialized_state_cache(sid, merged)
+         except Exception:
+-            pass  # fail-open: state is best-effort; exec stream is authoritative
++            pass
++
++    def _project_materialized_state_from_event(self, sid: str, event_fields: Dict[str, Any], *, stream_id: str = '') -> Dict[str, Any]:
++        """Project one newly appended exec event into the materialized state cache."""
++        if not sid or not getattr(self, 'exec_state_derived_view', True):
++            return {}
++        try:
++            base = self._load_materialized_state_cache(sid)
++            ev = dict(event_fields or {})
++            projected = project_event_into_state(ev, base_state=base, stream_id=stream_id)
++            projected['ts_state_commit_ms'] = _ms_now()
++            return self._persist_materialized_state_cache(sid, projected)
++        except Exception:
++            return {}
+ 
+     def _replay_checkpoint_key(self, sid: str) -> str:
+         """Return the Redis key under which the replay checkpoint cursor for *sid* is stored.
+@@ -1078,20 +1140,18 @@
+             return {}
+ 
+     def _load_order_state(self, sid: str) -> Dict[str, Any]:
+-        """Load persisted orders:state:{sid} document.
+-
+-        The executor treats this key as a fast materialized view. It is used to
+-        recover a previously-submitted order path after a worker restart and to
+-        enforce idempotent state transitions for the same signal id. If the hot
+-        state key is missing, the worker replays ``orders:exec`` to rehydrate the
+-        snapshot before continuing.
+-        """
++        """Load execution state, preferring the primary journal over the cache."""
++        if getattr(self, 'exec_journal_primary', True):
++            state = self._recover_state_from_exec_stream(sid)
++            if state:
++                return build_materialized_state_view(state)
++            return self._load_materialized_state_cache(sid)
+         try:
+             raw = self.r.get(f"{self.state_key_prefix}{sid}")
+             if raw:
+                 doc = json.loads(raw)
+                 if isinstance(doc, dict):
+-                    return doc
++                    return build_materialized_state_view(doc)
+             return self._recover_state_from_exec_stream(sid)
+         except Exception:
+             return self._recover_state_from_exec_stream(sid)
+@@ -1105,33 +1165,34 @@
+         next_state: str,
+         details: Optional[Dict[str, Any]] = None,
+     ) -> Dict[str, Any]:
+-        """Persist one idempotent FSM transition and mirror it into orders:exec."""
++        """Append one idempotent FSM transition to the journal and project the cache."""
+         prev = self._load_order_state(sid)
+         prev_state = str(prev.get("fsm_state") or "")
+         if prev_state == next_state:
+             return prev
+-        doc = dict(prev)
+-        doc.update(details or {})
+-        doc["sid"] = sid
+-        doc["symbol"] = symbol
+-        doc["action"] = action
+-        doc["fsm_prev_state"] = prev_state
+-        doc["fsm_state"] = next_state
+-        doc["fsm_ts_ms"] = _ms_now()
+-        doc["fsm_mono_ms"] = _mono_ms()
+-        self._save_order_state(sid, doc)
+-        if EXECUTION_STATE_TRANSITION_TOTAL:
+-            EXECUTION_STATE_TRANSITION_TOTAL.labels(action=action, symbol=symbol, next_state=next_state).inc()
+-        self._exec_event({
++        event_doc = dict(details or {})
++        event_doc.update({
+             "sid": sid,
+             "symbol": symbol,
+             "action": action,
+             "event_type": "state_transition",
+             "prev_state": prev_state,
++            "fsm_prev_state": prev_state,
+             "fsm_state": next_state,
+-            **(details or {}),
++            "fsm_ts_ms": _ms_now(),
++            "fsm_mono_ms": _mono_ms(),
+         })
+-        return doc
++        if EXECUTION_STATE_TRANSITION_TOTAL:
++            EXECUTION_STATE_TRANSITION_TOTAL.labels(action=action, symbol=symbol, next_state=next_state).inc()
++        self._exec_event(event_doc)
++        merged = dict(prev)
++        merged.update(details or {})
++        merged["sid"] = sid
++        merged["symbol"] = symbol
++        merged["action"] = action
++        merged["fsm_prev_state"] = prev_state
++        merged["fsm_state"] = next_state
++        return build_materialized_state_view(merged)
+ 
+     def _mark_pending_reconcile(self, sid: str, *, symbol: str, action: str, reason: str) -> None:
+         if EXECUTION_RECONCILE_PENDING_TOTAL:
+
+--- /dev/null	2026-03-08 05:48:09.525032697 +0000
++++ services/execution_projection_worker.py	2026-03-08 06:11:33.517437249 +0000
+@@ -0,0 +1,259 @@
++from __future__ import annotations
++
++"""Deterministic projection worker for ``orders:exec`` -> ``orders:state:{sid}``.
++
++The executor appends only to the primary execution journal. This worker consumes
++journal events in stream order and materializes the latest SID snapshot into the
++Redis cache used by dashboards, downstream readers and restart fast-paths.
++
++Design goals
++------------
++- deterministic ordering: one global cursor over ``orders:exec``
++- idempotent projection: replaying the same stream window yields the same state
++- fail-open: projection lag must not block execution appends
++- journal-first: executor never needs to mutate the derived cache inline
++"""
++
++from dataclasses import dataclass
++from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
++import json
++import os
++import time
++
++try:  # pragma: no cover
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, REGISTRY
++except Exception:  # pragma: no cover
++    Counter = None  # type: ignore
++    Gauge = None  # type: ignore
++    REGISTRY = None  # type: ignore
++
++try:  # pragma: no cover
++    from services.execution_contracts import build_materialized_state_view
++    from services.execution_journal import ExecutionJournalSink
++    from services.execution_state_replay import project_event_into_state
++except Exception:  # pragma: no cover
++    from execution_contracts import build_materialized_state_view
++    from execution_journal import ExecutionJournalSink
++    from execution_state_replay import project_event_into_state
++
++
++def _metric(factory, name: str, *args, **kwargs):
++    if factory is None:
++        return None
++    try:
++        return factory(name, *args, **kwargs)
++    except ValueError:
++        return getattr(REGISTRY, '_names_to_collectors', {}).get(name) if REGISTRY is not None else None
++
++
++def _ms_now() -> int:
++    return int(time.time() * 1000)
++
++
++def _s(v: Any) -> str:
++    if v is None:
++        return ''
++    if isinstance(v, bytes):
++        return v.decode('utf-8', 'replace')
++    return str(v)
++
++
++def _stream_sort_key(stream_id: str) -> Tuple[int, int]:
++    try:
++        left, right = str(stream_id).split('-', 1)
++        return int(left), int(right)
++    except Exception:
++        return (0, 0)
++
++
++TRADE_EXECUTION_PROJECTION_EVENT_TOTAL = _metric(
++    Counter,
++    'trade_execution_projection_event_total',
++    'Projected execution journal events processed by the derived-state worker.',
++    ['result'],
++)
++
++TRADE_EXECUTION_PROJECTION_LAG_MS = _metric(
++    Gauge,
++    'trade_execution_projection_lag_ms',
++    'Age of the most recently projected execution journal event.',
++)
++
++TRADE_EXECUTION_PROJECTION_CURSOR_TS_MS = _metric(
++    Gauge,
++    'trade_execution_projection_cursor_ts_ms',
++    'Timestamp component of the latest projected orders:exec stream ID.',
++)
++
++
++@dataclass
++class ProjectionBatchResult:
++    processed: int = 0
++    last_stream_id: str = ''
++    idle: bool = True
++
++
++class ExecutionProjectionWorker:
++    """Read ``orders:exec`` sequentially and maintain ``orders:state:{sid}``."""
++
++    def __init__(
++        self,
++        redis_client: Any,
++        *,
++        exec_stream: str = 'orders:exec',
++        state_key_prefix: str = 'orders:state:',
++        state_ttl_sec: int = 86400,
++        cursor_key: str = 'orders:exec:projection:cursor',
++        batch_size: int = 500,
++        execution_journal: Optional[ExecutionJournalSink] = None,
++    ) -> None:
++        self.r = redis_client
++        self.exec_stream = str(exec_stream or 'orders:exec')
++        self.state_key_prefix = str(state_key_prefix or 'orders:state:').rstrip(':') + ':'
++        self.state_ttl_sec = int(state_ttl_sec)
++        self.cursor_key = str(cursor_key or 'orders:exec:projection:cursor')
++        self.batch_size = max(int(batch_size or 500), 1)
++        self.execution_journal = execution_journal
++
++    def _cursor(self) -> str:
++        try:
++            return _s(self.r.get(self.cursor_key))
++        except Exception:
++            return ''
++
++    def _set_cursor(self, stream_id: str) -> None:
++        if not stream_id:
++            return
++        try:
++            self.r.set(self.cursor_key, stream_id)
++        except Exception:
++            pass
++        try:
++            if TRADE_EXECUTION_PROJECTION_CURSOR_TS_MS:
++                TRADE_EXECUTION_PROJECTION_CURSOR_TS_MS.set(float(_stream_sort_key(stream_id)[0]))
++        except Exception:
++            pass
++
++    def _load_state(self, sid: str) -> Dict[str, Any]:
++        try:
++            raw = self.r.get(f'{self.state_key_prefix}{sid}')
++            if raw:
++                doc = json.loads(raw)
++                if isinstance(doc, dict):
++                    return doc
++        except Exception:
++            pass
++        return {}
++
++    def _persist_state(self, sid: str, state_doc: Mapping[str, Any]) -> Dict[str, Any]:
++        doc = build_materialized_state_view(dict(state_doc or {}))
++        doc['updated_at_ms'] = int(doc.get('updated_at_ms') or _ms_now())
++        if 'created_at_ms' not in doc:
++            doc['created_at_ms'] = doc['updated_at_ms']
++        payload = json.dumps(doc, ensure_ascii=False, default=str)
++        try:
++            if self.state_ttl_sec > 0:
++                self.r.set(f'{self.state_key_prefix}{sid}', payload, ex=self.state_ttl_sec)
++            else:
++                self.r.set(f'{self.state_key_prefix}{sid}', payload)
++        except Exception:
++            pass
++        try:
++            if self.execution_journal is not None:
++                self.execution_journal.upsert_order_snapshot(doc)
++                self.execution_journal.upsert_protection_refs(doc)
++        except Exception:
++            pass
++        return doc
++
++    def _rows_after_cursor(self, cursor: str) -> List[Tuple[Any, Mapping[str, Any]]]:
++        try:
++            rows = list(self.r.xrange(self.exec_stream, '-', '+', count=self.batch_size + 1))
++        except Exception:
++            rows = []
++        if not rows:
++            return []
++        if cursor:
++            rows = [row for row in rows if _stream_sort_key(_s(row[0])) > _stream_sort_key(cursor)]
++        rows.sort(key=lambda row: _stream_sort_key(_s(row[0])))
++        return rows[: self.batch_size]
++
++    def _project_row(self, stream_id: str, fields: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
++        ev = {_s(k): _s(v) for k, v in dict(fields or {}).items()}
++        sid = _s(ev.get('sid'))
++        if not sid:
++            return None
++        base = self._load_state(sid)
++        projected = project_event_into_state(ev, base_state=base, stream_id=_s(stream_id))
++        projected['ts_state_commit_ms'] = _ms_now()
++        doc = self._persist_state(sid, projected)
++        try:
++            ts_event_ms = int(ev.get('ts_event_ms') or ev.get('ts_ms') or 0)
++            if ts_event_ms > 0 and TRADE_EXECUTION_PROJECTION_LAG_MS:
++                TRADE_EXECUTION_PROJECTION_LAG_MS.set(max(0.0, float(_ms_now() - ts_event_ms)))
++        except Exception:
++            pass
++        return doc
++
++    def run_once(self) -> ProjectionBatchResult:
++        cursor = self._cursor()
++        rows = self._rows_after_cursor(cursor)
++        if not rows:
++            return ProjectionBatchResult(processed=0, last_stream_id=cursor, idle=True)
++        processed = 0
++        last_stream_id = cursor
++        for stream_id, fields in rows:
++            try:
++                self._project_row(_s(stream_id), fields)
++                processed += 1
++                last_stream_id = _s(stream_id)
++                self._set_cursor(last_stream_id)
++                if TRADE_EXECUTION_PROJECTION_EVENT_TOTAL:
++                    TRADE_EXECUTION_PROJECTION_EVENT_TOTAL.labels(result='ok').inc()
++            except Exception:
++                if TRADE_EXECUTION_PROJECTION_EVENT_TOTAL:
++                    TRADE_EXECUTION_PROJECTION_EVENT_TOTAL.labels(result='error').inc()
++        return ProjectionBatchResult(processed=processed, last_stream_id=last_stream_id, idle=False)
++
++    def run_until_idle(self, *, max_loops: int = 1000) -> int:
++        total = 0
++        for _ in range(max(int(max_loops or 1), 1)):
++            batch = self.run_once()
++            total += batch.processed
++            if batch.idle or batch.processed <= 0:
++                break
++        return total
++
++
++def _redis_from_env() -> Any:  # pragma: no cover
++    url = os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0')
++    if redis is None:
++        raise RuntimeError('redis package is required for execution_projection_worker')
++    return redis.from_url(url, decode_responses=True)
++
++
++def main() -> int:  # pragma: no cover
++    r = _redis_from_env()
++    worker = ExecutionProjectionWorker(
++        r,
++        exec_stream=os.getenv('EXEC_STREAM', 'orders:exec'),
++        state_key_prefix=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'),
++        state_ttl_sec=int(os.getenv('ORDERS_STATE_TTL_SEC', '86400')),
++        cursor_key=os.getenv('EXEC_PROJECTION_CURSOR_KEY', 'orders:exec:projection:cursor'),
++        batch_size=int(os.getenv('EXEC_PROJECTION_BATCH_SIZE', '500')),
++        execution_journal=ExecutionJournalSink(dsn=os.getenv('EXECUTION_JOURNAL_DSN', '')),
++    )
++    sleep_ms = int(os.getenv('EXEC_PROJECTION_IDLE_SLEEP_MS', '500'))
++    while True:
++        batch = worker.run_once()
++        if batch.processed <= 0:
++            time.sleep(max(0.05, sleep_ms / 1000.0))
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+
+--- services/execution_state_replay.py	2026-03-07 06:32:50.000000000 +0000
++++ services/execution_state_replay.py	2026-03-08 06:09:04.924605084 +0000
+@@ -154,9 +154,15 @@
+ STATE_PRIORITY_FIELDS = {
+     'sid', 'symbol', 'action', 'status', 'venue', 'execution_policy',
+     'fsm_state', 'fsm_prev_state', 'entry_client_order_id', 'binance_order_id',
++    'entry_order_id', 'entry_order_ref', 'exit_order_ref', 'closed_trade_id',
++    'signal_id', 'execution_plan_id', 'decision_id',
+     'filled_qty', 'avg_price', 'entry_status', 'side', 'qty', 'exec_price',
+-    'sl_algo_id', 'tp1_algo_id', 'tp2_algo_id', 'tp3_algo_id', 'trail_algo_id',
++    'sl_algo_id', 'sl_client_algo_id', 'trail_algo_id', 'trail_client_algo_id',
++    'tp1_algo_id', 'tp2_algo_id', 'tp3_algo_id',
++    'tp_algo_ids', 'tp_client_algo_ids',
+     'tp1_state', 'tp2_state', 'tp3_state',
++    'ts_event_ms', 'ts_queue_ms', 'ts_exec_start_ms', 'ts_state_commit_ms',
++    'state_schema_ver', 'state_source_stream',
+ }
+ 
+ 
+@@ -196,6 +202,54 @@
+         return (0, 0)
+ 
+ 
++
++
++def project_event_into_state(
++    event: Mapping[str, Any],
++    *,
++    base_state: Optional[Mapping[str, Any]] = None,
++    stream_id: str = '',
++) -> Dict[str, Any]:
++    """Project a single orders:exec event into the materialized state document.
++
++    Unlike ``replay_sid_state()``, this helper is intended for online projection
++    workers and therefore does not mark the state as rehydrated.  It applies the
++    same deterministic field-precedence rules as the bounded replay path.
++    """
++    state: Dict[str, Any] = dict(base_state or {})
++    ev: Dict[str, Any] = dict(event or {})
++    if stream_id and not ev.get('stream_id'):
++        ev['stream_id'] = stream_id
++    for key, value in ev.items():
++        if key in TRANSIENT_FIELDS:
++            continue
++        if value in (None, ''):
++            continue
++        if key in STATE_PRIORITY_FIELDS or key.startswith('tp') or key.startswith('trail_') or key.startswith('fsm_'):
++            state[key] = value
++    if _s(ev.get('action')):
++        state['action'] = _s(ev.get('action'))
++    if _s(ev.get('status')):
++        state['status'] = _s(ev.get('status'))
++    if _s(ev.get('symbol')):
++        state['symbol'] = _s(ev.get('symbol'))
++    if _s(ev.get('sid')):
++        state['sid'] = _s(ev.get('sid'))
++    if _s(ev.get('event_type')) == 'state_transition' and _s(ev.get('fsm_state')):
++        state['fsm_state'] = _s(ev.get('fsm_state'))
++        state['fsm_prev_state'] = _s(ev.get('prev_state') or ev.get('fsm_prev_state'))
++    if _s(ev.get('ts_event_ms') or ev.get('ts_ms')):
++        state['ts_ms'] = _i(ev.get('ts_event_ms') or ev.get('ts_ms'))
++    if _s(ev.get('mono_ms')):
++        state['last_event_mono_ms'] = _i(ev.get('mono_ms'))
++    if _s(ev.get('stream_id')):
++        state['stream_last_id'] = _s(ev.get('stream_id'))
++    state['state_source_stream'] = 'orders:exec'
++    state['projected_from_exec_stream'] = True
++    state['last_projection_ts_ms'] = int(time.time() * 1000)
++    state['stream_projected_events'] = int(state.get('stream_projected_events') or 0) + 1
++    return state
++
+ def replay_sid_state(events: Sequence[Mapping[str, Any]], *, base_state: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+     """Replay one SID's event list into a materialized state snapshot.
+ 
+@@ -234,6 +288,14 @@
+             state['fsm_prev_state'] = _s(ev.get('prev_state') or ev.get('fsm_prev_state'))
+         if _s(ev.get('ts_ms')):
+             state['ts_ms'] = _i(ev.get('ts_ms'))
++        if _s(ev.get('ts_event_ms')):
++            state['ts_event_ms'] = _i(ev.get('ts_event_ms'))
++        if _s(ev.get('ts_queue_ms')):
++            state['ts_queue_ms'] = _i(ev.get('ts_queue_ms'))
++        if _s(ev.get('ts_exec_start_ms')):
++            state['ts_exec_start_ms'] = _i(ev.get('ts_exec_start_ms'))
++        if _s(ev.get('ts_state_commit_ms')):
++            state['ts_state_commit_ms'] = _i(ev.get('ts_state_commit_ms'))
+         if _s(ev.get('mono_ms')):
+             state['last_event_mono_ms'] = _i(ev.get('mono_ms'))
+     if replay_count:
+
+--- /dev/null	2026-03-08 05:48:09.525032697 +0000
++++ services/tests/test_execution_journal_primary_p112_v1.py	2026-03-08 06:12:25.923001180 +0000
+@@ -0,0 +1,134 @@
++from pathlib import Path
++import importlib.util
++import json
++import sys
++
++mod_path = Path(__file__).parent.parent / 'binance_executor.py'
++spec = importlib.util.spec_from_file_location('binance_executor_p112', mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++class FakeRedis:
++    def __init__(self):
++        self.kv = {}
++        self.streams = {}
++        self._seq = 0
++
++    def get(self, key):
++        return self.kv.get(key)
++
++    def set(self, key, value, ex=None):
++        self.kv[key] = value
++
++    def scan_iter(self, match=None):
++        return iter([])
++
++    def xadd(self, key, fields, maxlen=None, approximate=None):
++        self._seq += 1
++        sid = f"{1700000000000 + self._seq}-0"
++        self.streams.setdefault(key, []).append((sid, dict(fields)))
++        return sid
++
++    def xrange(self, key, start='-', end='+', count=None):
++        rows = list(self.streams.get(key, []))
++        if count is not None:
++            rows = rows[: int(count)]
++        return rows
++
++    def xrevrange(self, key, start='+', end='-', count=None):
++        rows = list(reversed(self.streams.get(key, [])))
++        if start not in ('+', None):
++            rows = [r for r in rows if r[0] <= str(start)]
++        if end not in ('-', None):
++            rows = [r for r in rows if r[0] >= str(end)]
++        if count is not None:
++            rows = rows[: int(count)]
++        return rows
++
++
++
++def _mk_exec():
++    ex = mod.BinanceExecutor.__new__(mod.BinanceExecutor)
++    ex.r = FakeRedis()
++    ex.exec_stream = 'orders:exec'
++    ex.state_key_prefix = 'orders:state:'
++    ex.state_ttl = 86400
++    ex.exec_rehydrate_on_state_miss = True
++    ex.exec_replay_scan_count = 500
++    ex.exec_replay_checkpoint_key_prefix = 'orders:exec:replay:cursor:'
++    ex.exec_replay_quarantine_on_mismatch = False
++    ex.exec_journal_primary = True
++    ex.exec_state_derived_view = True
++    ex.exec_inline_state_projection = True
++    ex.execution_journal = None
++    return ex
++
++
++def test_load_order_state_prefers_exec_stream_over_stale_cache():
++    ex = _mk_exec()
++    sid = 'sid-1'
++    stale = {
++        'sid': sid,
++        'symbol': 'BTCUSDT',
++        'action': 'open',
++        'fsm_state': 'FAILED',
++        'status': 'failed',
++    }
++    ex.r.set(f'orders:state:{sid}', json.dumps(stale))
++    ex._exec_event({
++        'sid': sid,
++        'symbol': 'BTCUSDT',
++        'action': 'open',
++        'event_type': 'state_transition',
++        'status': 'ok',
++        'fsm_state': 'PROTECTED',
++        'prev_state': 'ENTRY_FILLED',
++        'binance_order_id': 101,
++        'sl_algo_id': 202,
++    })
++    state = ex._load_order_state(sid)
++    assert state['fsm_state'] == 'PROTECTED'
++    assert int(state['protective']['sl_algo_id']) == 202
++    assert int(state['entry']['order_id']) == 101
++
++
++def test_transition_state_is_journal_first_and_updates_cache():
++    ex = _mk_exec()
++    sid = 'sid-2'
++    out = ex._transition_state(
++        sid,
++        symbol='ETHUSDT',
++        action='open',
++        next_state='ENTRY_ACKED',
++        details={'entry_client_order_id': 'cid-1', 'binance_order_id': 777},
++    )
++    assert out['fsm_state'] == 'ENTRY_ACKED'
++    cache = json.loads(ex.r.get(f'orders:state:{sid}'))
++    assert cache['fsm_state'] == 'ENTRY_ACKED'
++    assert cache['entry']['client_order_id'] == 'cid-1'
++    assert ex.r.streams['orders:exec'][-1][1]['event_type'] == 'state_transition'
++
++
++def test_save_order_state_merges_patch_on_top_of_journal_state():
++    ex = _mk_exec()
++    sid = 'sid-3'
++    ex._exec_event({
++        'sid': sid,
++        'symbol': 'SOLUSDT',
++        'action': 'open',
++        'event_type': 'state_transition',
++        'status': 'ok',
++        'fsm_state': 'PROTECTED',
++        'binance_order_id': 501,
++        'tp1_algo_id': 601,
++        'tp1_client_algo_id': 'tp1-a',
++    })
++    ex._save_order_state(sid, {'trail_algo_id': 701, 'trail_client_algo_id': 'trail-a'})
++    state = json.loads(ex.r.get(f'orders:state:{sid}'))
++    assert state['fsm_state'] == 'PROTECTED'
++    assert int(state['entry']['order_id']) == 501
++    assert int(state['trailing']['algo_id']) == 701
++    assert state['protective']['tp_algo_ids'] == [601]
+
+--- /dev/null	2026-03-08 05:48:09.525032697 +0000
++++ services/tests/test_execution_projection_assets_p121_v1.py	2026-03-08 06:14:05.239106341 +0000
+@@ -0,0 +1,20 @@
++from pathlib import Path
++import yaml
++
++
++def test_projection_alert_rules_yaml_loads():
++    path = Path(__file__).parents[2] / 'orderflow_services' / 'prometheus_alerts_execution_projection_p121.yml'
++    data = yaml.safe_load(path.read_text())
++    assert isinstance(data, dict)
++    rules = data['groups'][0]['rules']
++    alerts = {rule['alert'] for rule in rules}
++    assert 'TradeExecutionProjectionLagHigh' in alerts
++    assert 'TradeExecutionProjectionCursorStalled' in alerts
++
++
++def test_compose_contains_projection_worker_and_inline_projection_disabled():
++    path = Path(__file__).parents[2] / 'confidence_calculation' / 'docker-compose-crypto-orderflow.yml'
++    text = path.read_text()
++    assert 'execution-state-projection-worker:' in text
++    assert 'EXEC_INLINE_STATE_PROJECTION=0' in text
++    assert 'EXEC_PROJECTION_CURSOR_KEY=orders:exec:projection:cursor' in text
+
+--- /dev/null	2026-03-08 05:48:09.525032697 +0000
++++ services/tests/test_execution_projection_worker_p121_v1.py	2026-03-08 06:12:55.999457417 +0000
+@@ -0,0 +1,137 @@
++from pathlib import Path
++import importlib.util
++import json
++import sys
++
++exec_mod_path = Path(__file__).parent.parent / 'binance_executor.py'
++exec_spec = importlib.util.spec_from_file_location('binance_executor_p121', exec_mod_path)
++exec_mod = importlib.util.module_from_spec(exec_spec)
++sys.modules[exec_spec.name] = exec_mod
++assert exec_spec.loader is not None
++exec_spec.loader.exec_module(exec_mod)
++
++worker_mod_path = Path(__file__).parent.parent / 'execution_projection_worker.py'
++worker_spec = importlib.util.spec_from_file_location('execution_projection_worker_p121', worker_mod_path)
++worker_mod = importlib.util.module_from_spec(worker_spec)
++sys.modules[worker_spec.name] = worker_mod
++assert worker_spec.loader is not None
++worker_spec.loader.exec_module(worker_mod)
++
++
++class FakeRedis:
++    def __init__(self):
++        self.kv = {}
++        self.streams = {}
++        self._seq = 0
++
++    def get(self, key):
++        return self.kv.get(key)
++
++    def set(self, key, value, ex=None):
++        self.kv[key] = value
++
++    def xadd(self, key, fields, maxlen=None, approximate=None):
++        self._seq += 1
++        sid = f"{1700000000000 + self._seq}-0"
++        self.streams.setdefault(key, []).append((sid, dict(fields)))
++        return sid
++
++    def xrange(self, key, start='-', end='+', count=None):
++        rows = list(self.streams.get(key, []))
++        if count is not None:
++            rows = rows[: int(count)]
++        return rows
++
++
++def _mk_exec(redis_obj, *, inline_projection=False):
++    ex = exec_mod.BinanceExecutor.__new__(exec_mod.BinanceExecutor)
++    ex.r = redis_obj
++    ex.exec_stream = 'orders:exec'
++    ex.state_key_prefix = 'orders:state:'
++    ex.state_ttl = 86400
++    ex.exec_rehydrate_on_state_miss = True
++    ex.exec_replay_scan_count = 500
++    ex.exec_replay_checkpoint_key_prefix = 'orders:exec:replay:cursor:'
++    ex.exec_replay_quarantine_on_mismatch = False
++    ex.exec_journal_primary = True
++    ex.exec_state_derived_view = True
++    ex.exec_inline_state_projection = inline_projection
++    ex.execution_journal = None
++    return ex
++
++
++def test_executor_does_not_materialize_cache_inline_when_projection_worker_is_enabled():
++    r = FakeRedis()
++    ex = _mk_exec(r, inline_projection=False)
++    sid = 'sid-inline-off'
++    ex._transition_state(
++        sid,
++        symbol='BTCUSDT',
++        action='open',
++        next_state='ENTRY_ACKED',
++        details={'entry_client_order_id': 'cid-1', 'binance_order_id': 111},
++    )
++    assert r.get(f'orders:state:{sid}') in (None, '')
++
++    worker = worker_mod.ExecutionProjectionWorker(r, exec_stream='orders:exec', state_key_prefix='orders:state:')
++    processed = worker.run_until_idle()
++    assert processed >= 1
++    state = json.loads(r.get(f'orders:state:{sid}'))
++    assert state['fsm_state'] == 'ENTRY_ACKED'
++    assert int(state['entry']['order_id']) == 111
++    assert state['entry']['client_order_id'] == 'cid-1'
++
++
++def test_save_order_state_emits_state_patch_and_worker_applies_it_in_order():
++    r = FakeRedis()
++    ex = _mk_exec(r, inline_projection=False)
++    sid = 'sid-patch'
++    ex._exec_event({
++        'sid': sid,
++        'symbol': 'ETHUSDT',
++        'action': 'open',
++        'event_type': 'state_transition',
++        'status': 'ok',
++        'fsm_state': 'PROTECTED',
++        'binance_order_id': 501,
++        'tp1_algo_id': 601,
++        'tp1_client_algo_id': 'tp1-a',
++    })
++    ex._save_order_state(sid, {'trail_algo_id': 701, 'trail_client_algo_id': 'trail-a', 'symbol': 'ETHUSDT'})
++    assert r.get(f'orders:state:{sid}') in (None, '')
++    assert [row[1]['event_type'] for row in r.streams['orders:exec']] == ['state_transition', 'state_patch']
++
++    worker = worker_mod.ExecutionProjectionWorker(r, exec_stream='orders:exec', state_key_prefix='orders:state:')
++    worker.run_until_idle()
++    state = json.loads(r.get(f'orders:state:{sid}'))
++    assert state['fsm_state'] == 'PROTECTED'
++    assert state['protective']['tp_algo_ids'] == [601]
++    assert int(state['trailing']['algo_id']) == 701
++
++
++def test_projection_worker_cursor_makes_repeated_runs_idempotent():
++    r = FakeRedis()
++    ex = _mk_exec(r, inline_projection=False)
++    sid = 'sid-cursor'
++    ex._exec_event({
++        'sid': sid,
++        'symbol': 'SOLUSDT',
++        'action': 'open',
++        'event_type': 'state_transition',
++        'status': 'ok',
++        'fsm_state': 'ENTRY_FILLED',
++        'binance_order_id': 901,
++    })
++    worker = worker_mod.ExecutionProjectionWorker(
++        r,
++        exec_stream='orders:exec',
++        state_key_prefix='orders:state:',
++        cursor_key='orders:exec:projection:cursor',
++    )
++    first = worker.run_once()
++    second = worker.run_once()
++    state = json.loads(r.get(f'orders:state:{sid}'))
++    assert first.processed == 1
++    assert second.processed == 0
++    assert state['fsm_state'] == 'ENTRY_FILLED'
++    assert r.get('orders:exec:projection:cursor') == first.last_stream_id
+
+--- /dev/null	2026-03-08 05:48:09.525032697 +0000
++++ p121_projection_worker_report.md	2026-03-08 06:17:42.198898080 +0000
+@@ -0,0 +1,32 @@
++# P1.2.1 — projection worker hardening
++
++## Цель
++Убрать прямую materialization `orders:state:{sid}` из hot-path executor и вынести derived-view projection в отдельный deterministic worker.
++
++## Что сделано
++- `orders:exec` остаётся primary journal.
++- `services/execution_projection_worker.py` добавлен как отдельный stream->state projector.
++- `BinanceExecutor._exec_event()` больше **по умолчанию** не пишет `orders:state:{sid}` inline.
++- `BinanceExecutor._save_order_state()` в journal-primary режиме теперь пишет `state_patch` событие в `orders:exec`, а не мутирует cache напрямую.
++- `services/execution_state_replay.py` получил `project_event_into_state(...)` для online projection без флага `rehydrated_from_stream`.
++- Добавлены compose wiring + env knobs + Prometheus rules для projection lag/cursor stall.
++
++## Новый контракт
++- Primary SoT: `orders:exec`
++- Derived view: `orders:state:{sid}`
++- Projection cursor key: `orders:exec:projection:cursor`
++
++## Новые ENV
++- `EXEC_INLINE_STATE_PROJECTION=0`
++- `EXEC_PROJECTION_CURSOR_KEY=orders:exec:projection:cursor`
++- `EXEC_PROJECTION_BATCH_SIZE=500`
++- `EXEC_PROJECTION_IDLE_SLEEP_MS=500`
++
++## Проверки
++- pytest: 8 passed
++- py_compile: ok
++
++## Что остаётся после P1.2.1
++- projection всё ещё single-worker, без consumer-group/lease election
++- нет отдельного supervisor, который блокирует старт executor при отсутствии projection worker
++- нет dedicated runbook/API по projection lag кроме Prometheus alerts

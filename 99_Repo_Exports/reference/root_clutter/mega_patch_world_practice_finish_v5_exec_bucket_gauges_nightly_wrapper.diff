@@ -1,0 +1,612 @@
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=*.sql' '--exclude=sql' /mnt/data/proj/ml_analysis/tests/test_slippage_calibrator_wrapper_compile_v1.py /mnt/data/proj_next/ml_analysis/tests/test_slippage_calibrator_wrapper_compile_v1.py
+--- /mnt/data/proj/ml_analysis/tests/test_slippage_calibrator_wrapper_compile_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj_next/ml_analysis/tests/test_slippage_calibrator_wrapper_compile_v1.py	2026-02-24 16:16:19.196865571 +0000
+@@ -0,0 +1,9 @@
++from __future__ import annotations
++
++import py_compile
++from pathlib import Path
++
++
++def test_wrapper_compiles() -> None:
++    p = Path(__file__).resolve().parents[1] / "tools" / "nightly_slippage_calibrator_v1.py"
++    py_compile.compile(str(p), doraise=True)
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=*.sql' '--exclude=sql' /mnt/data/proj/ml_analysis/tools/nightly_slippage_calibrator_v1.py /mnt/data/proj_next/ml_analysis/tools/nightly_slippage_calibrator_v1.py
+--- /mnt/data/proj/ml_analysis/tools/nightly_slippage_calibrator_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj_next/ml_analysis/tools/nightly_slippage_calibrator_v1.py	2026-02-24 16:16:06.578395770 +0000
+@@ -0,0 +1,18 @@
++from __future__ import annotations
++
++"""Nightly slippage calibrator entrypoint (compat wrapper).
++
++`services/of_timers_worker.py` expects this module path:
++  ml_analysis.tools.nightly_slippage_calibrator_v1
++
++The actual implementation lives in:
++  tick_flow_full.tools.nightly_slippage_calibrator_v1
++
++This wrapper keeps the orchestration stable.
++"""
++
++from tick_flow_full.tools.nightly_slippage_calibrator_v1 import main
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=*.sql' '--exclude=sql' /mnt/data/proj/services/orderflow/components/tick_processor.py /mnt/data/proj_next/services/orderflow/components/tick_processor.py
+--- /mnt/data/proj/services/orderflow/components/tick_processor.py	2026-02-24 05:36:03.000000000 +0000
++++ /mnt/data/proj_next/services/orderflow/components/tick_processor.py	2026-02-24 16:15:00.006199544 +0000
+@@ -73,6 +73,7 @@
+ from core.confirmations_schema_v1 import apply_confirmations_to_indicators
+ from core.of_inputs_contract import OFInputsV1, OFInputsV2
+ from core.instrument_config import get_default_delta_tiers
++from core.exec_regime_bucket_v1 import compute_exec_regime_bucket
+ 
+ from handlers.crypto_orderflow.utils.log_sampler import sampled_info, sampled_warning, sampled_debug, LogSamplerFactory
+ 
+@@ -1059,28 +1060,37 @@
+         # Fail-open: never raises; all indicators default to 0.0 on error.
+         # ---------------------------------------------------------------
+ 
+-        # vol_regime_label — from VolRegimeTracker (already tracked in runtime)
++        # vol_regime_label — from VolRegimeTracker (written by bar_processor into dynamic_cfg)
++        # NOTE: VolRegimeTracker exposes the label via snapshot()['vol_regime_label'], not via `.label`.
+         try:
+-            vrl = str(getattr(runtime.vol_regime, "label", None) or "na")
+-            indicators.setdefault("vol_regime_label", vrl)
++            vrl = str(getattr(runtime, "dynamic_cfg", {}).get("vol_regime_label", "") or "")
++            if not vrl:
++                try:
++                    vrl = str(runtime.vol_regime.snapshot().get("vol_regime_label", "na"))
++                except Exception:
++                    vrl = "na"
++            indicators["vol_regime_label"] = str(vrl or "na")
+         except Exception:
+             indicators.setdefault("vol_regime_label", "na")
+ 
+-        # Exec regime bucket: 2x2 cross of liq × vol regime
+-        # LOW_LIQ if last_liq_regime in {low, very_low}; HIGH_VOL if vol_regime_label in {high, extreme}
++        # liq_regime_label — from liquidity guard (book_processor attaches runtime.last_liq_regime)
+         try:
+-            liq_r = str(indicators.get("liq_regime_label", getattr(runtime, "last_liq_regime", "na")) or "na").lower()
+-            vol_r = str(indicators.get("vol_regime_label", "na") or "na").lower()
+-            _liq  = liq_r in ("low", "very_low", "low_liq", "extreme_low")
+-            _hvol = vol_r in ("high", "extreme", "high_vol", "extreme_vol")
+-            if _liq and _hvol:
+-                bucket = "HIGH_VOL_LOW_LIQ"
+-            elif _hvol:
+-                bucket = "HIGH_VOL"
+-            elif _liq:
+-                bucket = "LOW_LIQ"
+-            else:
+-                bucket = "NORMAL"
++            lrl = str(indicators.get("liq_regime_label", "") or "")
++            if not lrl:
++                lrl = str(getattr(runtime, "dynamic_cfg", {}).get("liq_regime", "") or "")
++            if not lrl:
++                lrl = str(getattr(runtime, "last_liq_regime", "na") or "na")
++            indicators["liq_regime_label"] = str(lrl or "na")
++        except Exception:
++            indicators.setdefault("liq_regime_label", "na")
++
++        # Exec regime bucket: deterministic mapping (liq × vol)
++        try:
++            b = compute_exec_regime_bucket(
++                liq_regime_label=str(indicators.get("liq_regime_label", "na") or "na"),
++                vol_regime_label=str(indicators.get("vol_regime_label", "na") or "na"),
++            )
++            bucket = str(b.bucket)
+             indicators["exec_regime_bucket"] = bucket
+         except Exception:
+             indicators.setdefault("exec_regime_bucket", "NORMAL")
+@@ -1239,6 +1249,46 @@
+         p_snap = runtime.pressure.snapshot(now_ms=int(tick_ts))
+         indicators["pressure_per_min"] = float(p_snap.per_min_ema)
+         indicators["cooldown_hit_rate"] = float(p_snap.cd_rate_ema)
++
++
++        # Attach L3-lite stats snapshot (taker/cancel/eta-fill) to indicators
++        try:
++            if getattr(runtime, "l3_stats", None) is not None:
++                s3 = runtime.l3_stats.snap
++                indicators["taker_buy_rate_ema"] = float(getattr(s3, "taker_buy_rate_ema", 0.0) or 0.0)
++                indicators["taker_sell_rate_ema"] = float(getattr(s3, "taker_sell_rate_ema", 0.0) or 0.0)
++                indicators["cancel_bid_rate_ema"] = float(getattr(s3, "cancel_bid_rate_ema", 0.0) or 0.0)
++                indicators["cancel_ask_rate_ema"] = float(getattr(s3, "cancel_ask_rate_ema", 0.0) or 0.0)
++                indicators["cancel_to_trade_bid"] = float(getattr(s3, "cancel_to_trade_bid", 0.0) or 0.0)
++                indicators["cancel_to_trade_ask"] = float(getattr(s3, "cancel_to_trade_ask", 0.0) or 0.0)
++                indicators["eta_fill_bid_sec"] = float(getattr(s3, "eta_fill_bid_sec", 0.0) or 0.0)
++                indicators["eta_fill_ask_sec"] = float(getattr(s3, "eta_fill_ask_sec", 0.0) or 0.0)
++        except Exception:
++            pass
++
++        # Attach vol regime snapshot to indicators
++        try:
++            if getattr(runtime, "vol_regime", None) is not None:
++                vs = runtime.vol_regime.snapshot()
++                indicators["vol_fast_bps"] = float(vs.get("vol_fast_bps", 0.0))
++                indicators["vol_slow_bps"] = float(vs.get("vol_slow_bps", 0.0))
++                indicators["vol_ratio"] = float(vs.get("vol_ratio", 0.0))
++                indicators["vol_ratio_z"] = float(vs.get("vol_ratio_z", 0.0))
++        except Exception:
++            pass
++
++        # Attach resilience snapshot to indicators
++        try:
++            if getattr(runtime, "resilience", None) is not None:
++                rs = runtime.resilience.snapshot()
++                indicators["res_active"] = int(rs.get("res_active", 0))
++                indicators["res_min_ratio"] = float(rs.get("res_min_ratio", 1.0))
++                indicators["res_curr_ratio"] = float(rs.get("res_curr_ratio", 1.0))
++                indicators["res_recovered"] = int(rs.get("res_recovered", 0))
++                indicators["res_recovery_ms"] = int(rs.get("res_recovery_ms", 0))
++                indicators["res_speed_per_s"] = float(rs.get("res_speed_per_s", 0.0))
++        except Exception:
++            pass
+         
+         # Delta Notional Tier Check already done? No, strictly DN Gate happens earlier. 
+         # But we need indicators["dn_tier"] etc populated. Done above.
+@@ -1259,6 +1309,36 @@
+         t_build_us = int((time.perf_counter_ns() - t_build_ns0) / 1000)
+         indicators["of_build_us"] = int(t_build_us)
+ 
++
++        # ---------------------------------------------------------------
++        # World-practice tracker gauges (low-cardinality: sym × exec_regime_bucket)
++        # Fail-open: never raises in the hot path.
++        # ---------------------------------------------------------------
++        try:
++            _sym = str(runtime.symbol)
++            _bk  = str(indicators.get("exec_regime_bucket", "NORMAL") or "NORMAL")
++            trade_vol_fast_bps.labels(sym=_sym, bucket=_bk).set(float(indicators.get("vol_fast_bps", 0.0) or 0.0))
++            trade_vol_slow_bps.labels(sym=_sym, bucket=_bk).set(float(indicators.get("vol_slow_bps", 0.0) or 0.0))
++            trade_vol_ratio.labels(sym=_sym, bucket=_bk).set(float(indicators.get("vol_ratio", 0.0) or 0.0))
++            trade_vol_ratio_z.labels(sym=_sym, bucket=_bk).set(float(indicators.get("vol_ratio_z", 0.0) or 0.0))
++            trade_res_recovered.labels(sym=_sym, bucket=_bk).set(float(indicators.get("res_recovered", 0) or 0))
++            trade_res_recovery_ms.labels(sym=_sym, bucket=_bk).set(float(indicators.get("res_recovery_ms", 0) or 0))
++            trade_res_speed_per_s.labels(sym=_sym, bucket=_bk).set(float(indicators.get("res_speed_per_s", 0.0) or 0.0))
++            trade_fill_prob.labels(sym=_sym, bucket=_bk).set(float(indicators.get("fill_prob_proxy", 0.0) or 0.0))
++            _eta = float(indicators.get("eta_fill_sec", 0.0) or 0.0)
++            if _eta <= 0:
++                eb = float(indicators.get("eta_fill_bid_sec", 0.0) or 0.0)
++                ea = float(indicators.get("eta_fill_ask_sec", 0.0) or 0.0)
++                _eta = (eb + ea) / 2.0 if (eb > 0 or ea > 0) else 0.0
++            trade_eta_fill_sec.labels(sym=_sym, bucket=_bk).set(_eta)
++            trade_exec_fill_pen.labels(sym=_sym, bucket=_bk).set(float(indicators.get("exec_fill_pen", 0.0) or 0.0))
++            if "max_expected_slippage_bps_eff" in indicators:
++                trade_max_expected_slippage_bps_eff.labels(sym=_sym, bucket=_bk).set(
++                    float(indicators.get("max_expected_slippage_bps_eff", 0.0) or 0.0)
++                )
++        except Exception:
++            pass
++
+         # Fail-safe: if engine returns None (should not happen), reconstruct default to avoid bypass
+         if not ofc:
+              try:
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=*.sql' '--exclude=sql' /mnt/data/proj/services/orderflow/metrics.py /mnt/data/proj_next/services/orderflow/metrics.py
+--- /mnt/data/proj/services/orderflow/metrics.py	2026-02-24 04:53:12.000000000 +0000
++++ /mnt/data/proj_next/services/orderflow/metrics.py	2026-02-24 16:10:44.918682640 +0000
+@@ -1305,3 +1305,71 @@
+     "Veto count by top1 mechanical reason code (low-cardinality, sanitized)",
+     ["symbol", "scenario_v4", "reason_code_top1"],
+ )
++
++# --- World-practice tracker snapshots (low-cardinality gauges) ---
++# Labels: sym, bucket (bucket is exec_regime_bucket: NORMAL|LOW_LIQ|HIGH_VOL|HIGH_VOL_LOW_LIQ)
++trade_vol_fast_bps = _get_or_create_prom_gauge(
++    "trade_vol_fast_bps",
++    "Fast EWMA realized vol (bps)",
++    ["sym", "bucket"],
++)
++
++trade_vol_slow_bps = _get_or_create_prom_gauge(
++    "trade_vol_slow_bps",
++    "Slow EWMA realized vol (bps)",
++    ["sym", "bucket"],
++)
++
++trade_vol_ratio = _get_or_create_prom_gauge(
++    "trade_vol_ratio",
++    "Volatility ratio: fast/slow",
++    ["sym", "bucket"],
++)
++
++trade_vol_ratio_z = _get_or_create_prom_gauge(
++    "trade_vol_ratio_z",
++    "Robust z-score of vol_ratio",
++    ["sym", "bucket"],
++)
++
++trade_res_recovered = _get_or_create_prom_gauge(
++    "trade_res_recovered",
++    "Book resilience recovered flag (0/1)",
++    ["sym", "bucket"],
++)
++
++trade_res_recovery_ms = _get_or_create_prom_gauge(
++    "trade_res_recovery_ms",
++    "Book resilience recovery time (ms)",
++    ["sym", "bucket"],
++)
++
++trade_res_speed_per_s = _get_or_create_prom_gauge(
++    "trade_res_speed_per_s",
++    "Book resilience replenishment speed proxy (per second)",
++    ["sym", "bucket"],
++)
++
++trade_fill_prob = _get_or_create_prom_gauge(
++    "trade_fill_prob",
++    "Passive fill probability proxy (0..1)",
++    ["sym", "bucket"],
++)
++
++trade_eta_fill_sec = _get_or_create_prom_gauge(
++    "trade_eta_fill_sec",
++    "ETA-to-fill proxy for passive execution (seconds)",
++    ["sym", "bucket"],
++)
++
++trade_exec_fill_pen = _get_or_create_prom_gauge(
++    "trade_exec_fill_pen",
++    "Execution penalty component derived from fill_prob (0..1)",
++    ["sym", "bucket"],
++)
++
++trade_max_expected_slippage_bps_eff = _get_or_create_prom_gauge(
++    "trade_max_expected_slippage_bps_eff",
++    "Effective max expected slippage cap after regime tightening (bps)",
++    ["sym", "bucket"],
++)
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=*.sql' '--exclude=sql' /mnt/data/proj/services/orderflow_strategy.py /mnt/data/proj_next/services/orderflow_strategy.py
+--- /mnt/data/proj/services/orderflow_strategy.py	2026-02-23 16:30:18.000000000 +0000
++++ /mnt/data/proj_next/services/orderflow_strategy.py	2026-02-24 16:10:14.239647808 +0000
+@@ -193,6 +193,7 @@
+ from core.eq_pools import EQPoolTracker, EQPool
+ from core.data_health import compute_data_health, apply_book_evidence_policy, apply_shadow_only_policy
+ from core.slippage_model import expected_slippage_bps
++from core.exec_regime_bucket_v1 import compute_exec_regime_bucket
+ from core.expected_slippage_decomp_v1 import expected_slippage_decomp_bps
+ 
+ 
+@@ -1553,14 +1554,12 @@
+             max_expected_slippage_bps = float(cfg.get("max_expected_slippage_bps", 18.0))
+ 
+             # Discrete execution regime buckets (liq×vol)
+-            liq_regime = str(getattr(runtime, "liq_regime", "normal") or "normal")
++            liq_label = str(getattr(runtime, "last_liq_regime", getattr(runtime, "liq_regime", "na")) or "na")
+             vol_label = str(getattr(runtime, "dynamic_cfg", {}).get("vol_regime_label", "na") or "na")
+-            bucket = "NORMAL"
+-            if liq_regime in ("stressed","illiquid"):
+-                bucket = "LOW_LIQ"
+-            if vol_label == "shock":
+-                bucket = "HIGH_VOL_LOW_LIQ" if bucket == "LOW_LIQ" else "HIGH_VOL"
++            b = compute_exec_regime_bucket(liq_regime_label=liq_label, vol_regime_label=vol_label)
++            bucket = str(b.bucket)
+             indicators["exec_regime_bucket"] = bucket
++            indicators["liq_regime_label"] = liq_label
+             indicators["vol_regime_label"] = vol_label
+             indicators["vol_ratio_z"] = float(getattr(runtime, "dynamic_cfg", {}).get("vol_ratio_z", 0.0) or 0.0)
+ 
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=*.sql' '--exclude=sql' /mnt/data/proj/tick_flow_full/core/exec_regime_bucket_v1.py /mnt/data/proj_next/tick_flow_full/core/exec_regime_bucket_v1.py
+--- /mnt/data/proj/tick_flow_full/core/exec_regime_bucket_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj_next/tick_flow_full/core/exec_regime_bucket_v1.py	2026-02-24 16:08:06.714666164 +0000
+@@ -0,0 +1,68 @@
++from __future__ import annotations
++
++"""Execution-regime bucket classifier (liq × vol).
++
++Why
++----
++Multiple components need a consistent *discrete* execution regime bucket
++for guards, allowlists and observability. VolRegimeTracker emits
++`shock|normal|calm|na`, while liquidity guard emits labels like
++`normal|low|very_low|stressed|illiquid`.
++
++Buckets
++-------
++  - NORMAL
++  - LOW_LIQ
++  - HIGH_VOL
++  - HIGH_VOL_LOW_LIQ
++
++This mapping is intentionally conservative and low-cardinality.
++"""
++
++from dataclasses import dataclass
++
++
++@dataclass(frozen=True)
++class ExecRegimeBucketResult:
++    bucket: str
++    low_liq: int
++    high_vol: int
++
++
++def _norm(s: str) -> str:
++    return str(s or "").strip().lower().replace("-", "_").replace(" ", "_")
++
++
++def compute_exec_regime_bucket(*, liq_regime_label: str, vol_regime_label: str) -> ExecRegimeBucketResult:
++    lr = _norm(liq_regime_label)
++    vr = _norm(vol_regime_label)
++
++    low_liq = 1 if lr in (
++        "low",
++        "very_low",
++        "stressed",
++        "illiquid",
++        "low_liq",
++        "extreme_low",
++        "thin",
++    ) else 0
++
++    # VolRegimeTracker emits: shock|normal|calm|na
++    high_vol = 1 if vr in (
++        "shock",
++        "high",
++        "extreme",
++        "high_vol",
++        "extreme_vol",
++    ) else 0
++
++    if low_liq and high_vol:
++        b = "HIGH_VOL_LOW_LIQ"
++    elif high_vol:
++        b = "HIGH_VOL"
++    elif low_liq:
++        b = "LOW_LIQ"
++    else:
++        b = "NORMAL"
++
++    return ExecRegimeBucketResult(bucket=b, low_liq=low_liq, high_vol=high_vol)
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=*.sql' '--exclude=sql' /mnt/data/proj/tick_flow_full/services/orderflow/components/tick_processor.py /mnt/data/proj_next/tick_flow_full/services/orderflow/components/tick_processor.py
+--- /mnt/data/proj/tick_flow_full/services/orderflow/components/tick_processor.py	2026-02-24 05:36:14.000000000 +0000
++++ /mnt/data/proj_next/tick_flow_full/services/orderflow/components/tick_processor.py	2026-02-24 16:15:54.826562907 +0000
+@@ -46,8 +46,13 @@
+     cvd_reclaim_ratio_gauge, cvd_reclaim_age_ms_gauge, cvd_reclaim_window_ms_gauge,
+     cvd_reclaim_ratio_gauge, cvd_reclaim_age_ms_gauge, cvd_reclaim_window_ms_gauge,
+     of_inputs_version_total, of_inputs_missing_ofi_total, of_inputs_missing_fp_total,
+-    track_confirmations, evidence_used_total_session, record_confirmation_seen, record_evidence_used
++    track_confirmations, evidence_used_total_session, record_confirmation_seen, record_evidence_used,
++    trade_vol_fast_bps, trade_vol_slow_bps, trade_vol_ratio, trade_vol_ratio_z,
++    trade_res_recovered, trade_res_recovery_ms, trade_res_speed_per_s,
++    trade_fill_prob, trade_eta_fill_sec, trade_exec_fill_pen,
++    trade_max_expected_slippage_bps_eff
+ )
++
+ from services.orderflow.side_policy import is_unknown_side_tick
+ from common.tick_time import TickTimeGuard, TickTimePolicy
+ from services.orderflow.tick_time_quarantine_integration import TickTimeQuarantineIntegration
+@@ -63,6 +68,7 @@
+ from core.bucket_allowlist_v1 import bucket_allowed
+ from core.of_inputs_contract import OFInputsV1, OFInputsV2
+ from core.instrument_config import get_default_delta_tiers
++from core.exec_regime_bucket_v1 import compute_exec_regime_bucket
+ 
+ from handlers.crypto_orderflow.utils.log_sampler import sampled_info, sampled_warning, sampled_debug, LogSamplerFactory
+ 
+@@ -1203,28 +1209,37 @@
+         # Fail-open: never raises; all indicators default to 0.0 on error.
+         # ---------------------------------------------------------------
+ 
+-        # vol_regime_label — from VolRegimeTracker (already tracked in runtime)
++        # vol_regime_label — from VolRegimeTracker (written by bar_processor into dynamic_cfg)
++        # NOTE: VolRegimeTracker exposes the label via snapshot()['vol_regime_label'], not via `.label`.
+         try:
+-            vrl = str(getattr(runtime.vol_regime, "label", None) or "na")
+-            indicators.setdefault("vol_regime_label", vrl)
++            vrl = str(getattr(runtime, "dynamic_cfg", {}).get("vol_regime_label", "") or "")
++            if not vrl:
++                try:
++                    vrl = str(runtime.vol_regime.snapshot().get("vol_regime_label", "na"))
++                except Exception:
++                    vrl = "na"
++            indicators["vol_regime_label"] = str(vrl or "na")
+         except Exception:
+             indicators.setdefault("vol_regime_label", "na")
+ 
+-        # Exec regime bucket: 2x2 cross of liq × vol regime
+-        # LOW_LIQ if last_liq_regime in {low, very_low}; HIGH_VOL if vol_regime_label in {high, extreme}
++        # liq_regime_label — from liquidity guard (book_processor attaches runtime.last_liq_regime)
+         try:
+-            liq_r = str(indicators.get("liq_regime_label", getattr(runtime, "last_liq_regime", "na")) or "na").lower()
+-            vol_r = str(indicators.get("vol_regime_label", "na") or "na").lower()
+-            _liq  = liq_r in ("low", "very_low", "low_liq", "extreme_low")
+-            _hvol = vol_r in ("high", "extreme", "high_vol", "extreme_vol")
+-            if _liq and _hvol:
+-                _bucket = "HIGH_VOL_LOW_LIQ"
+-            elif _hvol:
+-                _bucket = "HIGH_VOL"
+-            elif _liq:
+-                _bucket = "LOW_LIQ"
+-            else:
+-                _bucket = "NORMAL"
++            lrl = str(indicators.get("liq_regime_label", "") or "")
++            if not lrl:
++                lrl = str(getattr(runtime, "dynamic_cfg", {}).get("liq_regime", "") or "")
++            if not lrl:
++                lrl = str(getattr(runtime, "last_liq_regime", "na") or "na")
++            indicators["liq_regime_label"] = str(lrl or "na")
++        except Exception:
++            indicators.setdefault("liq_regime_label", "na")
++
++        # Exec regime bucket: deterministic mapping (liq × vol)
++        try:
++            b = compute_exec_regime_bucket(
++                liq_regime_label=str(indicators.get("liq_regime_label", "na") or "na"),
++                vol_regime_label=str(indicators.get("vol_regime_label", "na") or "na"),
++            )
++            _bucket = str(b.bucket)
+             indicators["exec_regime_bucket"] = _bucket
+         except Exception:
+             indicators.setdefault("exec_regime_bucket", "NORMAL")
+@@ -1430,6 +1445,36 @@
+         t_build_us = int((time.perf_counter_ns() - t_build_ns0) / 1000)
+         indicators["of_build_us"] = int(t_build_us)
+ 
++
++        # ---------------------------------------------------------------
++        # World-practice tracker gauges (low-cardinality: sym × exec_regime_bucket)
++        # Fail-open: never raises in the hot path.
++        # ---------------------------------------------------------------
++        try:
++            _sym = str(runtime.symbol)
++            _bk  = str(indicators.get("exec_regime_bucket", "NORMAL") or "NORMAL")
++            trade_vol_fast_bps.labels(sym=_sym, bucket=_bk).set(float(indicators.get("vol_fast_bps", 0.0) or 0.0))
++            trade_vol_slow_bps.labels(sym=_sym, bucket=_bk).set(float(indicators.get("vol_slow_bps", 0.0) or 0.0))
++            trade_vol_ratio.labels(sym=_sym, bucket=_bk).set(float(indicators.get("vol_ratio", 0.0) or 0.0))
++            trade_vol_ratio_z.labels(sym=_sym, bucket=_bk).set(float(indicators.get("vol_ratio_z", 0.0) or 0.0))
++            trade_res_recovered.labels(sym=_sym, bucket=_bk).set(float(indicators.get("res_recovered", 0) or 0))
++            trade_res_recovery_ms.labels(sym=_sym, bucket=_bk).set(float(indicators.get("res_recovery_ms", 0) or 0))
++            trade_res_speed_per_s.labels(sym=_sym, bucket=_bk).set(float(indicators.get("res_speed_per_s", 0.0) or 0.0))
++            trade_fill_prob.labels(sym=_sym, bucket=_bk).set(float(indicators.get("fill_prob_proxy", 0.0) or 0.0))
++            _eta = float(indicators.get("eta_fill_sec", 0.0) or 0.0)
++            if _eta <= 0:
++                eb = float(indicators.get("eta_fill_bid_sec", 0.0) or 0.0)
++                ea = float(indicators.get("eta_fill_ask_sec", 0.0) or 0.0)
++                _eta = (eb + ea) / 2.0 if (eb > 0 or ea > 0) else 0.0
++            trade_eta_fill_sec.labels(sym=_sym, bucket=_bk).set(_eta)
++            trade_exec_fill_pen.labels(sym=_sym, bucket=_bk).set(float(indicators.get("exec_fill_pen", 0.0) or 0.0))
++            if "max_expected_slippage_bps_eff" in indicators:
++                trade_max_expected_slippage_bps_eff.labels(sym=_sym, bucket=_bk).set(
++                    float(indicators.get("max_expected_slippage_bps_eff", 0.0) or 0.0)
++                )
++        except Exception:
++            pass
++
+         # Fail-safe: if engine returns None (should not happen), reconstruct default to avoid bypass
+         if not ofc:
+              try:
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=*.sql' '--exclude=sql' /mnt/data/proj/tick_flow_full/services/orderflow/metrics.py /mnt/data/proj_next/tick_flow_full/services/orderflow/metrics.py
+--- /mnt/data/proj/tick_flow_full/services/orderflow/metrics.py	2026-02-24 04:53:41.000000000 +0000
++++ /mnt/data/proj_next/tick_flow_full/services/orderflow/metrics.py	2026-02-24 16:10:44.924205897 +0000
+@@ -1136,3 +1136,71 @@
+     "Total of-gate rows quarantined by DQ validation",
+     ["symbol", "why"],
+ )
++
++# --- World-practice tracker snapshots (low-cardinality gauges) ---
++# Labels: sym, bucket (bucket is exec_regime_bucket: NORMAL|LOW_LIQ|HIGH_VOL|HIGH_VOL_LOW_LIQ)
++trade_vol_fast_bps = _get_or_create_prom_gauge(
++    "trade_vol_fast_bps",
++    "Fast EWMA realized vol (bps)",
++    ["sym", "bucket"],
++)
++
++trade_vol_slow_bps = _get_or_create_prom_gauge(
++    "trade_vol_slow_bps",
++    "Slow EWMA realized vol (bps)",
++    ["sym", "bucket"],
++)
++
++trade_vol_ratio = _get_or_create_prom_gauge(
++    "trade_vol_ratio",
++    "Volatility ratio: fast/slow",
++    ["sym", "bucket"],
++)
++
++trade_vol_ratio_z = _get_or_create_prom_gauge(
++    "trade_vol_ratio_z",
++    "Robust z-score of vol_ratio",
++    ["sym", "bucket"],
++)
++
++trade_res_recovered = _get_or_create_prom_gauge(
++    "trade_res_recovered",
++    "Book resilience recovered flag (0/1)",
++    ["sym", "bucket"],
++)
++
++trade_res_recovery_ms = _get_or_create_prom_gauge(
++    "trade_res_recovery_ms",
++    "Book resilience recovery time (ms)",
++    ["sym", "bucket"],
++)
++
++trade_res_speed_per_s = _get_or_create_prom_gauge(
++    "trade_res_speed_per_s",
++    "Book resilience replenishment speed proxy (per second)",
++    ["sym", "bucket"],
++)
++
++trade_fill_prob = _get_or_create_prom_gauge(
++    "trade_fill_prob",
++    "Passive fill probability proxy (0..1)",
++    ["sym", "bucket"],
++)
++
++trade_eta_fill_sec = _get_or_create_prom_gauge(
++    "trade_eta_fill_sec",
++    "ETA-to-fill proxy for passive execution (seconds)",
++    ["sym", "bucket"],
++)
++
++trade_exec_fill_pen = _get_or_create_prom_gauge(
++    "trade_exec_fill_pen",
++    "Execution penalty component derived from fill_prob (0..1)",
++    ["sym", "bucket"],
++)
++
++trade_max_expected_slippage_bps_eff = _get_or_create_prom_gauge(
++    "trade_max_expected_slippage_bps_eff",
++    "Effective max expected slippage cap after regime tightening (bps)",
++    ["sym", "bucket"],
++)
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=*.sql' '--exclude=sql' /mnt/data/proj/tick_flow_full/services/orderflow_strategy.py /mnt/data/proj_next/tick_flow_full/services/orderflow_strategy.py
+--- /mnt/data/proj/tick_flow_full/services/orderflow_strategy.py	2026-02-23 16:30:15.000000000 +0000
++++ /mnt/data/proj_next/tick_flow_full/services/orderflow_strategy.py	2026-02-24 16:10:14.243332186 +0000
+@@ -193,6 +193,7 @@
+ from core.eq_pools import EQPoolTracker, EQPool
+ from core.data_health import compute_data_health, apply_book_evidence_policy, apply_shadow_only_policy
+ from core.slippage_model import expected_slippage_bps
++from core.exec_regime_bucket_v1 import compute_exec_regime_bucket
+ from core.expected_slippage_decomp_v1 import expected_slippage_decomp_bps
+ 
+ 
+@@ -1555,14 +1556,12 @@
+             max_expected_slippage_bps = float(cfg.get("max_expected_slippage_bps", 18.0))
+ 
+             # Discrete execution regime buckets (liq×vol)
+-            liq_regime = str(getattr(runtime, "liq_regime", "normal") or "normal")
++            liq_label = str(getattr(runtime, "last_liq_regime", getattr(runtime, "liq_regime", "na")) or "na")
+             vol_label = str(getattr(runtime, "dynamic_cfg", {}).get("vol_regime_label", "na") or "na")
+-            bucket = "NORMAL"
+-            if liq_regime in ("stressed","illiquid"):
+-                bucket = "LOW_LIQ"
+-            if vol_label == "shock":
+-                bucket = "HIGH_VOL_LOW_LIQ" if bucket == "LOW_LIQ" else "HIGH_VOL"
++            b = compute_exec_regime_bucket(liq_regime_label=liq_label, vol_regime_label=vol_label)
++            bucket = str(b.bucket)
+             indicators["exec_regime_bucket"] = bucket
++            indicators["liq_regime_label"] = liq_label
+             indicators["vol_regime_label"] = vol_label
+             indicators["vol_ratio_z"] = float(getattr(runtime, "dynamic_cfg", {}).get("vol_ratio_z", 0.0) or 0.0)
+ 
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=*.sql' '--exclude=sql' /mnt/data/proj/tick_flow_full/tests/core/test_exec_regime_bucket_v1.py /mnt/data/proj_next/tick_flow_full/tests/core/test_exec_regime_bucket_v1.py
+--- /mnt/data/proj/tick_flow_full/tests/core/test_exec_regime_bucket_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj_next/tick_flow_full/tests/core/test_exec_regime_bucket_v1.py	2026-02-24 16:16:31.411750318 +0000
+@@ -0,0 +1,23 @@
++from __future__ import annotations
++
++from core.exec_regime_bucket_v1 import compute_exec_regime_bucket
++
++
++def test_exec_regime_bucket_normal() -> None:
++    r = compute_exec_regime_bucket(liq_regime_label="normal", vol_regime_label="normal")
++    assert r.bucket == "NORMAL"
++
++
++def test_exec_regime_bucket_low_liq() -> None:
++    r = compute_exec_regime_bucket(liq_regime_label="very_low", vol_regime_label="calm")
++    assert r.bucket == "LOW_LIQ"
++
++
++def test_exec_regime_bucket_high_vol() -> None:
++    r = compute_exec_regime_bucket(liq_regime_label="normal", vol_regime_label="shock")
++    assert r.bucket == "HIGH_VOL"
++
++
++def test_exec_regime_bucket_high_vol_low_liq() -> None:
++    r = compute_exec_regime_bucket(liq_regime_label="stressed", vol_regime_label="shock")
++    assert r.bucket == "HIGH_VOL_LOW_LIQ"

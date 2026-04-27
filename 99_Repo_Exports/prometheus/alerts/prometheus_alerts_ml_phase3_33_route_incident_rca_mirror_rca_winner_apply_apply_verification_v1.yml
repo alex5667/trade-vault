@@ -1,0 +1,30 @@
+groups:
+  - name: ml_phase3_33_route_incident_rca_mirror_rca_winner_apply_apply_verification_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyVerificationStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_verification_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror RCA winner-apply apply verification loop is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyVerificationErrors
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_verification_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror RCA winner-apply apply verification loop has errors"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyRollbackTriggered
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_rollbacks_total[30m]) > 0
+        for: 5m
+        labels: { severity: info }
+        annotations:
+          summary: "route incident RCA mirror RCA winner-apply apply verification triggered rollback"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyPrimaryMismatch
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_primary_match_rate < 0.80
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror RCA winner-apply apply primary match rate is low"

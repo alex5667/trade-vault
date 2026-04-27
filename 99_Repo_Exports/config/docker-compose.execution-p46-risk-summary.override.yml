@@ -1,0 +1,11 @@
+
+# P4.6 docker-compose override for trade-runbook-server.
+# Mounts Grafana dashboards, runbooks, and the report directory so the server
+# can serve risk canary and summary JSON files via the new API endpoints.
+
+services:
+  trade-runbook-server:
+    volumes:
+      - ./monitoring/grafana/dashboards:/opt/trade/monitoring/grafana/dashboards:ro
+      - ./python-worker/runbooks:/opt/trade/runbooks:ro
+      - ./var/runbook-reports:/var/lib/trade-runbook/reports

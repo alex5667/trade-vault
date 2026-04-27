@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/orderflow_services/of_gate_dlq_exporter_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 1000.0, '(empty)', '+', ',', '-', '10', '2000', '64', '9154', ':', 'DLQ exporter errors', 'DLQ stream length', 'OF_GATE_DLQ_STREAMS', 'REDIS_URL', '__main__', 'err', 'err_prefix', 'error', 'nan', 'of_gate_dlq_age_sec', 'of_gate_dlq_len', 'stream']

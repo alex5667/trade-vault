@@ -1,0 +1,1062 @@
+diff --git a/orderflow_services/sql/create_mv_exec_slippage_eval_1h_stats_p89.sql b/orderflow_services/sql/create_mv_exec_slippage_eval_1h_stats_p89.sql
+new file mode 100644
+index 0000000..307c7f1
+--- /dev/null
++++ b/orderflow_services/sql/create_mv_exec_slippage_eval_1h_stats_p89.sql
+@@ -0,0 +1,32 @@
++-- P89: Materialized view for fast slippage QA / enforce-bucket guardrails
++-- Depends on TimescaleDB (time_bucket) and view v_exec_slippage_eval providing:
++--   ts, sym, exec_regime_bucket, slippage_residual_bps, edge_minus_expected_bps
++--
++-- Apply with psql:
++--   psql "$DATABASE_URL" -f orderflow_services/sql/create_mv_exec_slippage_eval_1h_stats_p89.sql
++--
++-- Refresh periodically (see orderflow_services/refresh_exec_slip_stats_p80.py):
++--   REFRESH MATERIALIZED VIEW mv_exec_slippage_eval_1h_stats;
++
++BEGIN;
++
++CREATE MATERIALIZED VIEW IF NOT EXISTS mv_exec_slippage_eval_1h_stats AS
++SELECT
++  sym,
++  time_bucket('1 hour', ts) AS t,
++  exec_regime_bucket,
++  count(*)::bigint AS n,
++  percentile_cont(0.95) WITHIN GROUP (ORDER BY slippage_residual_bps) AS resid_p95_bps,
++  percentile_cont(0.99) WITHIN GROUP (ORDER BY slippage_residual_bps) AS resid_p99_bps,
++  avg(CASE WHEN edge_minus_expected_bps < 0 THEN 1.0 ELSE 0.0 END) AS edge_neg_share
++FROM v_exec_slippage_eval
++GROUP BY 1,2,3;
++
++-- Useful indexes for typical queries: (sym, t, bucket)
++CREATE INDEX IF NOT EXISTS mv_exec_slippage_eval_1h_stats_sym_t_idx
++  ON mv_exec_slippage_eval_1h_stats (sym, t DESC);
++
++CREATE INDEX IF NOT EXISTS mv_exec_slippage_eval_1h_stats_bucket_t_idx
++  ON mv_exec_slippage_eval_1h_stats (exec_regime_bucket, t DESC);
++
++COMMIT;
+
+diff --git a/ml_analysis/tests/test_enforce_bucket_promoter_logic_v1.py b/ml_analysis/tests/test_enforce_bucket_promoter_logic_v1.py
+index 2a3cf2a..debb34c 100644
+--- a/ml_analysis/tests/test_enforce_bucket_promoter_logic_v1.py
++++ b/ml_analysis/tests/test_enforce_bucket_promoter_logic_v1.py
+@@ -6,9 +6,9 @@ from ml_analysis.tools.nightly_enforce_bucket_promoter_v1 import (
+ 
+ def test_decide_promotes_high_vol_first():
+     health = {
+-        "HIGH_VOL_LOW_LIQ": BucketHealth("HIGH_VOL_LOW_LIQ", db_n=500, resid_p95=1.0, resid_p99=3.0, eligible_n=1000, ok_soft_rate=0.20),
+-        "HIGH_VOL": BucketHealth("HIGH_VOL", db_n=400, resid_p95=1.5, resid_p99=4.0, eligible_n=800, ok_soft_rate=0.15),
+-        "LOW_LIQ": BucketHealth("LOW_LIQ", db_n=400, resid_p95=1.0, resid_p99=4.0, eligible_n=800, ok_soft_rate=0.15),
++        "HIGH_VOL_LOW_LIQ": BucketHealth("HIGH_VOL_LOW_LIQ", db_n=500, resid_p95=1.0, resid_p99=3.0, edge_neg_share=0.10, eligible_n=1000, ok_soft_rate=0.20),
++        "HIGH_VOL": BucketHealth("HIGH_VOL", db_n=400, resid_p95=1.5, resid_p99=4.0, edge_neg_share=0.10, eligible_n=800, ok_soft_rate=0.15),
++        "LOW_LIQ": BucketHealth("LOW_LIQ", db_n=400, resid_p95=1.0, resid_p99=4.0, edge_neg_share=0.10, eligible_n=800, ok_soft_rate=0.15),
+     }
+     dec = decide_next_allowlist(
+         current_allow="HIGH_VOL_LOW_LIQ",
+@@ -18,6 +18,7 @@ def test_decide_promotes_high_vol_first():
+         min_db_n=100,
+         max_p95=3.0,
+         max_p99=8.0,
++        max_edge_neg_share=0.40,
+         min_eligible_n=200,
+         min_ok_soft_rate=0.05,
+     )
+@@ -28,8 +29,8 @@ def test_decide_promotes_high_vol_first():
+ 
+ def test_decide_skips_when_residual_high():
+     health = {
+-        "HIGH_VOL_LOW_LIQ": BucketHealth("HIGH_VOL_LOW_LIQ", db_n=500, resid_p95=1.0, resid_p99=3.0, eligible_n=1000, ok_soft_rate=0.20),
+-        "HIGH_VOL": BucketHealth("HIGH_VOL", db_n=400, resid_p95=5.0, resid_p99=9.0, eligible_n=800, ok_soft_rate=0.15),
++        "HIGH_VOL_LOW_LIQ": BucketHealth("HIGH_VOL_LOW_LIQ", db_n=500, resid_p95=1.0, resid_p99=3.0, edge_neg_share=0.10, eligible_n=1000, ok_soft_rate=0.20),
++        "HIGH_VOL": BucketHealth("HIGH_VOL", db_n=400, resid_p95=5.0, resid_p99=9.0, edge_neg_share=0.10, eligible_n=800, ok_soft_rate=0.15),
+     }
+     dec = decide_next_allowlist(
+         current_allow="HIGH_VOL_LOW_LIQ",
+@@ -39,6 +40,7 @@ def test_decide_skips_when_residual_high():
+         min_db_n=100,
+         max_p95=3.0,
+         max_p99=8.0,
++        max_edge_neg_share=0.40,
+         min_eligible_n=200,
+         min_ok_soft_rate=0.05,
+     )
+@@ -48,7 +50,7 @@ def test_decide_skips_when_residual_high():
+ 
+ def test_decide_skips_when_gate_n_low():
+     health = {
+-        "HIGH_VOL": BucketHealth("HIGH_VOL", db_n=400, resid_p95=1.0, resid_p99=2.0, eligible_n=50, ok_soft_rate=0.20),
++        "HIGH_VOL": BucketHealth("HIGH_VOL", db_n=400, resid_p95=1.0, resid_p99=2.0, edge_neg_share=0.10, eligible_n=50, ok_soft_rate=0.20),
+     }
+     dec = decide_next_allowlist(
+         current_allow="HIGH_VOL_LOW_LIQ",
+@@ -58,6 +60,7 @@ def test_decide_skips_when_gate_n_low():
+         min_db_n=100,
+         max_p95=3.0,
+         max_p99=8.0,
++        max_edge_neg_share=0.40,
+         min_eligible_n=200,
+         min_ok_soft_rate=0.05,
+     )
+diff --git a/ml_analysis/tools/nightly_enforce_bucket_promoter_v1.py b/ml_analysis/tools/nightly_enforce_bucket_promoter_v1.py
+index 5891838..9963816 100644
+--- a/ml_analysis/tools/nightly_enforce_bucket_promoter_v1.py
++++ b/ml_analysis/tools/nightly_enforce_bucket_promoter_v1.py
+@@ -5,6 +5,7 @@ import json
+ import time
+ import logging
+ import asyncio
++import re
+ from dataclasses import dataclass
+ from typing import Any, Dict, List, Tuple, Optional
+ 
+@@ -49,6 +50,16 @@ def _env_float(name: str, default: str) -> float:
+         return float(default)
+ 
+ 
++def _safe_ident(name: str, default: str) -> str:
++    s = str(name or "").strip()
++    if not s:
++        return default
++    # allow schema-qualified identifiers (letters/digits/_/.)
++    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_\.]*", s):
++        return s
++    return default
++
++
+ def _now_ms() -> int:
+     return int(time.time() * 1000)
+ 
+@@ -162,6 +173,7 @@ class BucketHealth:
+     db_n: int
+     resid_p95: float
+     resid_p99: float
++    edge_neg_share: float
+     eligible_n: int
+     ok_soft_rate: float
+ 
+@@ -183,6 +195,7 @@ def decide_next_allowlist(
+     min_db_n: int,
+     max_p95: float,
+     max_p99: float,
++    max_edge_neg_share: float,
+     min_eligible_n: int,
+     min_ok_soft_rate: float,
+ ) -> PromotionDecision:
+@@ -202,6 +215,8 @@ def decide_next_allowlist(
+             return False, f"p95_high:{h.resid_p95:.2f}"
+         if h.resid_p99 > max_p99:
+             return False, f"p99_high:{h.resid_p99:.2f}"
++        if h.edge_neg_share > max_edge_neg_share:
++            return False, f"edge_neg_high:{h.edge_neg_share:.3f}"
+         if h.eligible_n < min_eligible_n:
+             return False, f"low_gate_n:{h.eligible_n}"
+         if h.ok_soft_rate < min_ok_soft_rate:
+@@ -224,22 +239,74 @@ def decide_next_allowlist(
+ 
+ # ------------------------ DB + Redis aggregation ------------------------
+ 
+-async def _fetch_db_health(conn: Any, *, lookback_h: int) -> Dict[str, Dict[str, BucketHealth]]:
+-    # Returns sym -> bucket -> health(partial, without gate metrics)
+-    q = f"""
++async def _fetch_db_health(
++    conn: Any,
++    *,
++    lookback_h: int,
++    mv: str,
++    view: str,
++) -> Dict[str, Dict[str, BucketHealth]]:
++    """Returns sym -> bucket -> health (DB-side residuals and edge-neg share).
++
++    Strategy:
++      1) Try materialized view (fast): mv_exec_slippage_eval_1h_stats
++      2) Fallback to raw view (slow): v_exec_slippage_eval
++    """
++    mv = _safe_ident(mv, "mv_exec_slippage_eval_1h_stats")
++    view = _safe_ident(view, "v_exec_slippage_eval")
++
++    out: Dict[str, Dict[str, BucketHealth]] = {}
++
++    # Fast path: MV aggregated per hour
++    try:
++        q = f"""
++        SELECT
++          sym,
++          exec_regime_bucket,
++          sum(n)::bigint as n,
++          max(resid_p95_bps) as p95_resid,
++          max(resid_p99_bps) as p99_resid,
++          max(edge_neg_share) as edge_neg_share
++        FROM {mv}
++        WHERE t >= now() - interval '{int(lookback_h)} hours'
++        GROUP BY sym, exec_regime_bucket
++        """
++
++        rows = await conn.fetch(q)
++        for r in rows:
++            sym = str(r.get("sym") or "").upper()
++            if not sym:
++                continue
++            b = _norm_bucket(r.get("exec_regime_bucket") or "NORMAL")
++            out.setdefault(sym, {})[b] = BucketHealth(
++                bucket=b,
++                db_n=_i(r.get("n"), 0),
++                resid_p95=_f(r.get("p95_resid"), 0.0),
++                resid_p99=_f(r.get("p99_resid"), 0.0),
++                edge_neg_share=_f(r.get("edge_neg_share"), 0.0),
++                eligible_n=0,
++                ok_soft_rate=0.0,
++            )
++        return out
++    except Exception as e:
++        logger.warning("MV query failed (%s), falling back to raw view=%s", type(e).__name__, view)
++
++    # Slow path: compute percentiles on raw view
++    q2 = f"""
+     SELECT
+       sym,
+       exec_regime_bucket,
+       count(*) as n,
+       percentile_cont(0.95) within group (order by slippage_residual_bps) as p95_resid,
+-      percentile_cont(0.99) within group (order by slippage_residual_bps) as p99_resid
+-    FROM v_exec_slippage_eval
++      percentile_cont(0.99) within group (order by slippage_residual_bps) as p99_resid,
++      avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share
++    FROM {view}
+     WHERE ts >= now() - interval '{int(lookback_h)} hours'
+     GROUP BY sym, exec_regime_bucket
+     """
+-    rows = await conn.fetch(q)
+-    out: Dict[str, Dict[str, BucketHealth]] = {}
+-    for r in rows:
++
++    rows2 = await conn.fetch(q2)
++    for r in rows2:
+         sym = str(r.get("sym") or "").upper()
+         if not sym:
+             continue
+@@ -249,6 +316,7 @@ async def _fetch_db_health(conn: Any, *, lookback_h: int) -> Dict[str, Dict[str,
+             db_n=_i(r.get("n"), 0),
+             resid_p95=_f(r.get("p95_resid"), 0.0),
+             resid_p99=_f(r.get("p99_resid"), 0.0),
++            edge_neg_share=_f(r.get("edge_neg_share"), 0.0),
+             eligible_n=0,
+             ok_soft_rate=0.0,
+         )
+@@ -324,6 +392,7 @@ def _merge_gate_health(db: Dict[str, Dict[str, BucketHealth]], gate_rows: List[D
+                 db_n=h.db_n,
+                 resid_p95=h.resid_p95,
+                 resid_p99=h.resid_p99,
++                edge_neg_share=h.edge_neg_share,
+                 eligible_n=n,
+                 ok_soft_rate=ok_soft_rate,
+             )
+@@ -335,7 +404,7 @@ def _merge_gate_health(db: Dict[str, Dict[str, BucketHealth]], gate_rows: List[D
+         if b not in out[sym]:
+             n = int(a["n"])
+             ok_soft_rate = float((a["ok"] + a["ok_soft"]) / n) if n > 0 else 0.0
+-            out[sym][b] = BucketHealth(bucket=b, db_n=0, resid_p95=0.0, resid_p99=0.0, eligible_n=n, ok_soft_rate=ok_soft_rate)
++            out[sym][b] = BucketHealth(bucket=b, db_n=0, resid_p95=0.0, resid_p99=0.0, edge_neg_share=0.0, eligible_n=n, ok_soft_rate=ok_soft_rate)
+ 
+     return out
+ 
+@@ -346,11 +415,12 @@ def _aggregate_global_by_bucket(sym_map: Dict[str, Dict[str, BucketHealth]]) ->
+     for sym, buckets in sym_map.items():
+         for b, h in buckets.items():
+             b = _norm_bucket(b)
+-            a = by_b.setdefault(b, {"db_n": 0.0, "p95_sum": 0.0, "p99_sum": 0.0, "gate_n": 0.0, "ok_sum": 0.0})
++            a = by_b.setdefault(b, {"db_n": 0.0, "p95_sum": 0.0, "p99_sum": 0.0, "neg_sum": 0.0, "gate_n": 0.0, "ok_sum": 0.0})
+             # residual weighting by db_n
+             a["db_n"] += float(h.db_n)
+             a["p95_sum"] += float(h.resid_p95) * float(max(h.db_n, 0))
+             a["p99_sum"] += float(h.resid_p99) * float(max(h.db_n, 0))
++            a["neg_sum"] += float(h.edge_neg_share) * float(max(h.db_n, 0))
+             # ok_soft_rate weighting by eligible_n
+             a["gate_n"] += float(h.eligible_n)
+             a["ok_sum"] += float(h.ok_soft_rate) * float(max(h.eligible_n, 0))
+@@ -361,8 +431,9 @@ def _aggregate_global_by_bucket(sym_map: Dict[str, Dict[str, BucketHealth]]) ->
+         gate_n = int(a["gate_n"])
+         p95 = float(a["p95_sum"] / a["db_n"]) if a["db_n"] > 0 else 0.0
+         p99 = float(a["p99_sum"] / a["db_n"]) if a["db_n"] > 0 else 0.0
++        neg = float(a["neg_sum"] / a["db_n"]) if a["db_n"] > 0 else 0.0
+         ok_soft_rate = float(a["ok_sum"] / a["gate_n"]) if a["gate_n"] > 0 else 0.0
+-        out[b] = BucketHealth(bucket=b, db_n=db_n, resid_p95=p95, resid_p99=p99, eligible_n=gate_n, ok_soft_rate=ok_soft_rate)
++        out[b] = BucketHealth(bucket=b, db_n=db_n, resid_p95=p95, resid_p99=p99, edge_neg_share=neg, eligible_n=gate_n, ok_soft_rate=ok_soft_rate)
+     return out
+ 
+ 
+@@ -388,6 +459,7 @@ async def run() -> bool:
+     min_db_n = _env_int("PROMOTE_MIN_DB_SAMPLES", "100")
+     max_p95 = _env_float("PROMOTE_MAX_P95_RESID_BPS", "3.0")
+     max_p99 = _env_float("PROMOTE_MAX_P99_RESID_BPS", "8.0")
++    max_edge_neg_share = _env_float("PROMOTE_MAX_EDGE_NEG_SHARE", "0.40")
+     min_gate_n = _env_int("PROMOTE_MIN_ELIGIBLE", "200")
+     min_ok_soft = _env_float("PROMOTE_MIN_OK_SOFT", "0.05")
+     default_bucket = str(os.getenv("PROMOTE_DEFAULT_BUCKET", "HIGH_VOL_LOW_LIQ") or "HIGH_VOL_LOW_LIQ").strip().upper()
+@@ -442,7 +514,7 @@ async def run() -> bool:
+         return False
+ 
+     # 1) DB: residual health per sym,bucket
+-    db_sym = await _fetch_db_health(conn, lookback_h=lookback_h)
++    db_sym = await _fetch_db_health(conn, lookback_h=lookback_h, mv=stats_mv, view=stats_view)
+ 
+     # 2) Redis stream: ok_rate per sym,bucket
+     start_ms = _now_ms() - int(lookback_h * 3600 * 1000)
+@@ -507,6 +579,7 @@ async def run() -> bool:
+             min_db_n=min_db_n,
+             max_p95=max_p95,
+             max_p99=max_p99,
++            max_edge_neg_share=max_edge_neg_share,
+             min_eligible_n=min_gate_n,
+             min_ok_soft_rate=min_ok_soft,
+         )
+@@ -518,6 +591,7 @@ async def run() -> bool:
+             min_db_n=min_db_n,
+             max_p95=max_p95,
+             max_p99=max_p99,
++            max_edge_neg_share=max_edge_neg_share,
+             min_eligible_n=min_gate_n,
+             min_ok_soft_rate=min_ok_soft,
+         )
+@@ -561,6 +635,7 @@ async def run() -> bool:
+                 "db_n": h.db_n,
+                 "resid_p95": h.resid_p95,
+                 "resid_p99": h.resid_p99,
++                "edge_neg_share": h.edge_neg_share,
+                 "gate_n": h.eligible_n,
+                 "ok_soft_rate": h.ok_soft_rate,
+             }
+diff --git a/orderflow_services/enforce_bucket_state_exporter_v1.py b/orderflow_services/enforce_bucket_state_exporter_v1.py
+index 6b9d91a..8bb351a 100644
+--- a/orderflow_services/enforce_bucket_state_exporter_v1.py
++++ b/orderflow_services/enforce_bucket_state_exporter_v1.py
+@@ -51,6 +51,7 @@ Outputs:
+   of_enforce_promoter_last_added_bucket{component,bucket} = 1 for last added bucket else 0
+   of_enforce_promoter_bucket_resid_p95_bps{bucket}
+   of_enforce_promoter_bucket_resid_p99_bps{bucket}
++  of_enforce_promoter_bucket_edge_neg_share{bucket}
+   of_enforce_promoter_bucket_db_n{bucket}
+   of_enforce_promoter_bucket_gate_n{bucket}
+   of_enforce_promoter_bucket_ok_soft_rate{bucket}
+@@ -206,6 +207,12 @@ of_enforce_promoter_bucket_ok_soft_rate = Gauge(
+     "of_enforce_promoter_bucket_ok_soft_rate", "ok_soft rate by bucket", ["bucket"]
+ )
+ 
++of_enforce_promoter_bucket_edge_neg_share = Gauge(
++    "of_enforce_promoter_bucket_edge_neg_share",
++    "DB edge_minus_expected_bps < 0 share for bucket (lookback window)",
++    ["bucket"],
++)
++
+ of_enforce_promoter_last_apply_ts_ms = Gauge(
+     "of_enforce_promoter_last_apply_ts_ms", "last apply timestamp ms (state key)"
+ )
+@@ -380,6 +387,7 @@ class Exporter:
+             of_enforce_promoter_bucket_db_n.labels(bucket=b).set(_as_float(h.get("db_n"), 0.0))
+             of_enforce_promoter_bucket_resid_p95_bps.labels(bucket=b).set(_as_float(h.get("resid_p95"), 0.0))
+             of_enforce_promoter_bucket_resid_p99_bps.labels(bucket=b).set(_as_float(h.get("resid_p99"), 0.0))
++            of_enforce_promoter_bucket_edge_neg_share.labels(bucket=b).set(_as_float(h.get("edge_neg_share"), 0.0))
+             of_enforce_promoter_bucket_gate_n.labels(bucket=b).set(_as_float(h.get("gate_n"), 0.0))
+             of_enforce_promoter_bucket_ok_soft_rate.labels(bucket=b).set(_as_float(h.get("ok_soft_rate"), 0.0))
+ 
+diff --git a/orderflow_services/grafana/slippage_qa_p77.json b/orderflow_services/grafana/slippage_qa_p77.json
+index 3aacb29..44c2afe 100644
+--- a/orderflow_services/grafana/slippage_qa_p77.json
++++ b/orderflow_services/grafana/slippage_qa_p77.json
+@@ -1,58 +1,246 @@
+ {
+-  "annotations": {"list": [{"builtIn": 1, "datasource": {"type": "grafana", "uid": "-- Grafana --"}, "enable": true, "hide": true, "iconColor": "rgba(0, 211, 255, 1)", "name": "Annotations & Alerts", "type": "dashboard"}]},
+-  "editable": true,
+-  "fiscalYearStartMonth": 0,
+-  "graphTooltip": 0,
+-  "id": null,
+-  "links": [],
+-  "liveNow": false,
+-  "refresh": "30s",
+-  "panels": [
++  "annotations":{
++    "list":[
++      {
++        "builtIn":1,
++        "datasource":{
++          "type":"grafana",
++          "uid":"-- Grafana --"
++        },
++        "enable":true,
++        "hide":true,
++        "iconColor":"rgba(0, 211, 255, 1)",
++        "name":"Annotations & Alerts",
++        "type":"dashboard"
++      }
++    ]
++  },
++  "editable":true,
++  "fiscalYearStartMonth":0,
++  "graphTooltip":0,
++  "id":null,
++  "links":[],
++  "liveNow":false,
++  "refresh":"30s",
++  "panels":[
+     {
+-      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+-      "fieldConfig": {"defaults": {"unit": "bps", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never"}}},
+-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+-      "id": 1,
+-      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+-      "targets": [
+-        {"expr": "of_gate:expected_slip_decomp_p99:10m", "refId": "A", "legendFormat": "{{sym}} {{bucket}}"}
++      "datasource":{
++        "type":"prometheus",
++        "uid":"${DS_PROMETHEUS}"
++      },
++      "fieldConfig":{
++        "defaults":{
++          "unit":"bps",
++          "custom":{
++            "drawStyle":"line",
++            "lineInterpolation":"linear",
++            "lineWidth":1,
++            "fillOpacity":10,
++            "showPoints":"never"
++          }
++        }
++      },
++      "gridPos":{
++        "h":8,
++        "w":24,
++        "x":0,
++        "y":0
++      },
++      "id":1,
++      "options":{
++        "legend":{
++          "displayMode":"table",
++          "placement":"bottom"
++        }
++      },
++      "targets":[
++        {
++          "expr":"of_gate:expected_slip_decomp_p99:10m",
++          "refId":"A",
++          "legendFormat":"{{sym}}"
++        }
+       ],
+-      "title": "P99 expected slippage (decomp) by bucket",
+-      "type": "timeseries"
++      "title":"Expected slippage (decomp) P99 (10m) by sym",
++      "type":"timeseries"
+     },
+     {
+-      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+-      "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never"}}},
+-      "gridPos": {"h": 6, "w": 12, "x": 0, "y": 8},
+-      "id": 2,
+-      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+-      "targets": [
+-        {"expr": "of_enforce_promoter_report_age_sec", "refId": "A", "legendFormat": "age"}
++      "datasource":{
++        "type":"prometheus",
++        "uid":"${DS_PROMETHEUS}"
++      },
++      "fieldConfig":{
++        "defaults":{
++          "unit":"s",
++          "custom":{
++            "drawStyle":"line",
++            "lineInterpolation":"linear",
++            "lineWidth":1,
++            "fillOpacity":10,
++            "showPoints":"never"
++          }
++        }
++      },
++      "gridPos":{
++        "h":6,
++        "w":12,
++        "x":0,
++        "y":8
++      },
++      "id":2,
++      "options":{
++        "legend":{
++          "displayMode":"table",
++          "placement":"bottom"
++        }
++      },
++      "targets":[
++        {
++          "expr":"of_enforce_promoter_report_age_sec",
++          "refId":"A",
++          "legendFormat":"age"
++        }
+       ],
+-      "title": "Promoter report age",
+-      "type": "timeseries"
++      "title":"Promoter report age",
++      "type":"timeseries"
+     },
+     {
+-      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+-      "fieldConfig": {"defaults": {"unit": "none", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never"}}},
+-      "gridPos": {"h": 6, "w": 12, "x": 12, "y": 8},
+-      "id": 3,
+-      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+-      "targets": [
+-        {"expr": "of_enforce_bucket_flag{component=\"slippage\",sym=\"global\"}", "refId": "A", "legendFormat": "{{bucket}}"}
++      "datasource":{
++        "type":"prometheus",
++        "uid":"${DS_PROMETHEUS}"
++      },
++      "fieldConfig":{
++        "defaults":{
++          "unit":"none",
++          "custom":{
++            "drawStyle":"line",
++            "lineInterpolation":"linear",
++            "lineWidth":1,
++            "fillOpacity":10,
++            "showPoints":"never"
++          }
++        }
++      },
++      "gridPos":{
++        "h":6,
++        "w":12,
++        "x":12,
++        "y":8
++      },
++      "id":3,
++      "options":{
++        "legend":{
++          "displayMode":"table",
++          "placement":"bottom"
++        }
++      },
++      "targets":[
++        {
++          "expr":"of_enforce_bucket_flag{component=\"slippage\",sym=\"global\"}",
++          "refId":"A",
++          "legendFormat":"{{bucket}}"
++        }
+       ],
+-      "title": "Enforced buckets (slippage)",
+-      "type": "timeseries"
++      "title":"Enforced buckets (slippage)",
++      "type":"timeseries"
++    },
++    {
++      "datasource":{
++        "type":"prometheus",
++        "uid":"${DS_PROMETHEUS}"
++      },
++      "fieldConfig":{
++        "defaults":{
++          "unit":"bps",
++          "custom":{
++            "drawStyle":"line",
++            "lineInterpolation":"linear",
++            "lineWidth":1,
++            "fillOpacity":10,
++            "showPoints":"never"
++          }
++        }
++      },
++      "gridPos":{
++        "h":6,
++        "w":12,
++        "x":0,
++        "y":14
++      },
++      "id":4,
++      "options":{
++        "legend":{
++          "displayMode":"table",
++          "placement":"bottom"
++        }
++      },
++      "targets":[
++        {
++          "expr":"of_enforce_promoter_bucket_resid_p99_bps",
++          "refId":"A",
++          "legendFormat":"{{bucket}}"
++        }
++      ],
++      "title":"Promoter bucket residual p99 (bps)",
++      "type":"timeseries"
++    },
++    {
++      "datasource":{
++        "type":"prometheus",
++        "uid":"${DS_PROMETHEUS}"
++      },
++      "fieldConfig":{
++        "defaults":{
++          "unit":"percentunit",
++          "custom":{
++            "drawStyle":"line",
++            "lineInterpolation":"linear",
++            "lineWidth":1,
++            "fillOpacity":10,
++            "showPoints":"never"
++          }
++        }
++      },
++      "gridPos":{
++        "h":6,
++        "w":12,
++        "x":12,
++        "y":14
++      },
++      "id":5,
++      "options":{
++        "legend":{
++          "displayMode":"table",
++          "placement":"bottom"
++        }
++      },
++      "targets":[
++        {
++          "expr":"of_enforce_promoter_bucket_edge_neg_share",
++          "refId":"A",
++          "legendFormat":"{{bucket}}"
++        }
++      ],
++      "title":"Promoter bucket edge-neg share",
++      "type":"timeseries"
+     }
+   ],
+-  "schemaVersion": 39,
+-  "style": "dark",
+-  "tags": ["orderflow", "slippage", "qa"],
+-  "templating": {"list": []},
+-  "time": {"from": "now-6h", "to": "now"},
+-  "timepicker": {},
+-  "timezone": "browser",
+-  "title": "Slippage QA + Bucket Promotion (P77)",
+-  "uid": "slippage_qa_p77",
+-  "version": 1
+-}
++  "schemaVersion":39,
++  "style":"dark",
++  "tags":[
++    "orderflow",
++    "slippage",
++    "qa"
++  ],
++  "templating":{
++    "list":[]
++  },
++  "time":{
++    "from":"now-6h",
++    "to":"now"
++  },
++  "timepicker":{},
++  "timezone":"browser",
++  "title":"Slippage QA + Bucket Promotion (P77)",
++  "uid":"slippage_qa_p77",
++  "version":2
++}
+\ No newline at end of file
+diff --git a/orderflow_services/prometheus_alerts_enforce_bucket_promoter_v1.yml b/orderflow_services/prometheus_alerts_enforce_bucket_promoter_v1.yml
+index d0f8044..d0e7318 100644
+--- a/orderflow_services/prometheus_alerts_enforce_bucket_promoter_v1.yml
++++ b/orderflow_services/prometheus_alerts_enforce_bucket_promoter_v1.yml
+@@ -56,3 +56,30 @@ groups:
+         and re-calibrate impact coeffs.'
+       runbook_path: /runbooks/tbd.md
+       dashboard_path: /d/tbd
++- alert: OF_EnforcedBucketEdgeNegShareHigh_Warn
++    expr: >
++      (of_enforce_promoter_bucket_edge_neg_share > 0.40)
++      * on(bucket) group_left()
++      (of_enforce_bucket_flag{component="slippage", sym="global"} == 1)
++    for: 30m
++    labels:
++      severity: warning
++    annotations:
++      summary: 'Edge-neg share high while slippage enforcement enabled (bucket={{ $labels.bucket }})'
++      description: 'edge_minus_expected_bps < 0 share > 40% in an enforced bucket. Indicates expected slippage too optimistic or regime mismatch; consider narrowing enforcement and re-calibrating.'
++      runbook_path: /runbooks/tbd.md
++      dashboard_path: /d/tbd
++
++  - alert: OF_EnforcedBucketEdgeNegShareHigh_Crit
++    expr: >
++      (of_enforce_promoter_bucket_edge_neg_share > 0.55)
++      * on(bucket) group_left()
++      (of_enforce_bucket_flag{component="slippage", sym="global"} == 1)
++    for: 20m
++    labels:
++      severity: critical
++    annotations:
++      summary: 'CRIT: Edge-neg share very high while slippage enforcement enabled (bucket={{ $labels.bucket }})'
++      description: 'edge_minus_expected_bps < 0 share > 55% in an enforced bucket. Roll back enforcement and re-check slippage decomposition / impact coeffs.'
++      runbook_path: /runbooks/tbd.md
++      dashboard_path: /d/tbd
+diff --git a/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py b/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py
+index 6b9d91a..8bb351a 100644
+--- a/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py
++++ b/tick_flow_full/orderflow_services/enforce_bucket_state_exporter_v1.py
+@@ -51,6 +51,7 @@ Outputs:
+   of_enforce_promoter_last_added_bucket{component,bucket} = 1 for last added bucket else 0
+   of_enforce_promoter_bucket_resid_p95_bps{bucket}
+   of_enforce_promoter_bucket_resid_p99_bps{bucket}
++  of_enforce_promoter_bucket_edge_neg_share{bucket}
+   of_enforce_promoter_bucket_db_n{bucket}
+   of_enforce_promoter_bucket_gate_n{bucket}
+   of_enforce_promoter_bucket_ok_soft_rate{bucket}
+@@ -206,6 +207,12 @@ of_enforce_promoter_bucket_ok_soft_rate = Gauge(
+     "of_enforce_promoter_bucket_ok_soft_rate", "ok_soft rate by bucket", ["bucket"]
+ )
+ 
++of_enforce_promoter_bucket_edge_neg_share = Gauge(
++    "of_enforce_promoter_bucket_edge_neg_share",
++    "DB edge_minus_expected_bps < 0 share for bucket (lookback window)",
++    ["bucket"],
++)
++
+ of_enforce_promoter_last_apply_ts_ms = Gauge(
+     "of_enforce_promoter_last_apply_ts_ms", "last apply timestamp ms (state key)"
+ )
+@@ -380,6 +387,7 @@ class Exporter:
+             of_enforce_promoter_bucket_db_n.labels(bucket=b).set(_as_float(h.get("db_n"), 0.0))
+             of_enforce_promoter_bucket_resid_p95_bps.labels(bucket=b).set(_as_float(h.get("resid_p95"), 0.0))
+             of_enforce_promoter_bucket_resid_p99_bps.labels(bucket=b).set(_as_float(h.get("resid_p99"), 0.0))
++            of_enforce_promoter_bucket_edge_neg_share.labels(bucket=b).set(_as_float(h.get("edge_neg_share"), 0.0))
+             of_enforce_promoter_bucket_gate_n.labels(bucket=b).set(_as_float(h.get("gate_n"), 0.0))
+             of_enforce_promoter_bucket_ok_soft_rate.labels(bucket=b).set(_as_float(h.get("ok_soft_rate"), 0.0))
+ 
+diff --git a/tick_flow_full/orderflow_services/grafana/slippage_qa_p77.json b/tick_flow_full/orderflow_services/grafana/slippage_qa_p77.json
+index 3aacb29..44c2afe 100644
+--- a/tick_flow_full/orderflow_services/grafana/slippage_qa_p77.json
++++ b/tick_flow_full/orderflow_services/grafana/slippage_qa_p77.json
+@@ -1,58 +1,246 @@
+ {
+-  "annotations": {"list": [{"builtIn": 1, "datasource": {"type": "grafana", "uid": "-- Grafana --"}, "enable": true, "hide": true, "iconColor": "rgba(0, 211, 255, 1)", "name": "Annotations & Alerts", "type": "dashboard"}]},
+-  "editable": true,
+-  "fiscalYearStartMonth": 0,
+-  "graphTooltip": 0,
+-  "id": null,
+-  "links": [],
+-  "liveNow": false,
+-  "refresh": "30s",
+-  "panels": [
++  "annotations":{
++    "list":[
++      {
++        "builtIn":1,
++        "datasource":{
++          "type":"grafana",
++          "uid":"-- Grafana --"
++        },
++        "enable":true,
++        "hide":true,
++        "iconColor":"rgba(0, 211, 255, 1)",
++        "name":"Annotations & Alerts",
++        "type":"dashboard"
++      }
++    ]
++  },
++  "editable":true,
++  "fiscalYearStartMonth":0,
++  "graphTooltip":0,
++  "id":null,
++  "links":[],
++  "liveNow":false,
++  "refresh":"30s",
++  "panels":[
+     {
+-      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+-      "fieldConfig": {"defaults": {"unit": "bps", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never"}}},
+-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+-      "id": 1,
+-      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+-      "targets": [
+-        {"expr": "of_gate:expected_slip_decomp_p99:10m", "refId": "A", "legendFormat": "{{sym}} {{bucket}}"}
++      "datasource":{
++        "type":"prometheus",
++        "uid":"${DS_PROMETHEUS}"
++      },
++      "fieldConfig":{
++        "defaults":{
++          "unit":"bps",
++          "custom":{
++            "drawStyle":"line",
++            "lineInterpolation":"linear",
++            "lineWidth":1,
++            "fillOpacity":10,
++            "showPoints":"never"
++          }
++        }
++      },
++      "gridPos":{
++        "h":8,
++        "w":24,
++        "x":0,
++        "y":0
++      },
++      "id":1,
++      "options":{
++        "legend":{
++          "displayMode":"table",
++          "placement":"bottom"
++        }
++      },
++      "targets":[
++        {
++          "expr":"of_gate:expected_slip_decomp_p99:10m",
++          "refId":"A",
++          "legendFormat":"{{sym}}"
++        }
+       ],
+-      "title": "P99 expected slippage (decomp) by bucket",
+-      "type": "timeseries"
++      "title":"Expected slippage (decomp) P99 (10m) by sym",
++      "type":"timeseries"
+     },
+     {
+-      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+-      "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never"}}},
+-      "gridPos": {"h": 6, "w": 12, "x": 0, "y": 8},
+-      "id": 2,
+-      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+-      "targets": [
+-        {"expr": "of_enforce_promoter_report_age_sec", "refId": "A", "legendFormat": "age"}
++      "datasource":{
++        "type":"prometheus",
++        "uid":"${DS_PROMETHEUS}"
++      },
++      "fieldConfig":{
++        "defaults":{
++          "unit":"s",
++          "custom":{
++            "drawStyle":"line",
++            "lineInterpolation":"linear",
++            "lineWidth":1,
++            "fillOpacity":10,
++            "showPoints":"never"
++          }
++        }
++      },
++      "gridPos":{
++        "h":6,
++        "w":12,
++        "x":0,
++        "y":8
++      },
++      "id":2,
++      "options":{
++        "legend":{
++          "displayMode":"table",
++          "placement":"bottom"
++        }
++      },
++      "targets":[
++        {
++          "expr":"of_enforce_promoter_report_age_sec",
++          "refId":"A",
++          "legendFormat":"age"
++        }
+       ],
+-      "title": "Promoter report age",
+-      "type": "timeseries"
++      "title":"Promoter report age",
++      "type":"timeseries"
+     },
+     {
+-      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+-      "fieldConfig": {"defaults": {"unit": "none", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never"}}},
+-      "gridPos": {"h": 6, "w": 12, "x": 12, "y": 8},
+-      "id": 3,
+-      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+-      "targets": [
+-        {"expr": "of_enforce_bucket_flag{component=\"slippage\",sym=\"global\"}", "refId": "A", "legendFormat": "{{bucket}}"}
++      "datasource":{
++        "type":"prometheus",
++        "uid":"${DS_PROMETHEUS}"
++      },
++      "fieldConfig":{
++        "defaults":{
++          "unit":"none",
++          "custom":{
++            "drawStyle":"line",
++            "lineInterpolation":"linear",
++            "lineWidth":1,
++            "fillOpacity":10,
++            "showPoints":"never"
++          }
++        }
++      },
++      "gridPos":{
++        "h":6,
++        "w":12,
++        "x":12,
++        "y":8
++      },
++      "id":3,
++      "options":{
++        "legend":{
++          "displayMode":"table",
++          "placement":"bottom"
++        }
++      },
++      "targets":[
++        {
++          "expr":"of_enforce_bucket_flag{component=\"slippage\",sym=\"global\"}",
++          "refId":"A",
++          "legendFormat":"{{bucket}}"
++        }
+       ],
+-      "title": "Enforced buckets (slippage)",
+-      "type": "timeseries"
++      "title":"Enforced buckets (slippage)",
++      "type":"timeseries"
++    },
++    {
++      "datasource":{
++        "type":"prometheus",
++        "uid":"${DS_PROMETHEUS}"
++      },
++      "fieldConfig":{
++        "defaults":{
++          "unit":"bps",
++          "custom":{
++            "drawStyle":"line",
++            "lineInterpolation":"linear",
++            "lineWidth":1,
++            "fillOpacity":10,
++            "showPoints":"never"
++          }
++        }
++      },
++      "gridPos":{
++        "h":6,
++        "w":12,
++        "x":0,
++        "y":14
++      },
++      "id":4,
++      "options":{
++        "legend":{
++          "displayMode":"table",
++          "placement":"bottom"
++        }
++      },
++      "targets":[
++        {
++          "expr":"of_enforce_promoter_bucket_resid_p99_bps",
++          "refId":"A",
++          "legendFormat":"{{bucket}}"
++        }
++      ],
++      "title":"Promoter bucket residual p99 (bps)",
++      "type":"timeseries"
++    },
++    {
++      "datasource":{
++        "type":"prometheus",
++        "uid":"${DS_PROMETHEUS}"
++      },
++      "fieldConfig":{
++        "defaults":{
++          "unit":"percentunit",
++          "custom":{
++            "drawStyle":"line",
++            "lineInterpolation":"linear",
++            "lineWidth":1,
++            "fillOpacity":10,
++            "showPoints":"never"
++          }
++        }
++      },
++      "gridPos":{
++        "h":6,
++        "w":12,
++        "x":12,
++        "y":14
++      },
++      "id":5,
++      "options":{
++        "legend":{
++          "displayMode":"table",
++          "placement":"bottom"
++        }
++      },
++      "targets":[
++        {
++          "expr":"of_enforce_promoter_bucket_edge_neg_share",
++          "refId":"A",
++          "legendFormat":"{{bucket}}"
++        }
++      ],
++      "title":"Promoter bucket edge-neg share",
++      "type":"timeseries"
+     }
+   ],
+-  "schemaVersion": 39,
+-  "style": "dark",
+-  "tags": ["orderflow", "slippage", "qa"],
+-  "templating": {"list": []},
+-  "time": {"from": "now-6h", "to": "now"},
+-  "timepicker": {},
+-  "timezone": "browser",
+-  "title": "Slippage QA + Bucket Promotion (P77)",
+-  "uid": "slippage_qa_p77",
+-  "version": 1
+-}
++  "schemaVersion":39,
++  "style":"dark",
++  "tags":[
++    "orderflow",
++    "slippage",
++    "qa"
++  ],
++  "templating":{
++    "list":[]
++  },
++  "time":{
++    "from":"now-6h",
++    "to":"now"
++  },
++  "timepicker":{},
++  "timezone":"browser",
++  "title":"Slippage QA + Bucket Promotion (P77)",
++  "uid":"slippage_qa_p77",
++  "version":2
++}
+\ No newline at end of file
+diff --git a/tick_flow_full/orderflow_services/prometheus_alerts_enforce_bucket_promoter_v1.yml b/tick_flow_full/orderflow_services/prometheus_alerts_enforce_bucket_promoter_v1.yml
+index d0f8044..d0e7318 100644
+--- a/tick_flow_full/orderflow_services/prometheus_alerts_enforce_bucket_promoter_v1.yml
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_enforce_bucket_promoter_v1.yml
+@@ -56,3 +56,30 @@ groups:
+         and re-calibrate impact coeffs.'
+       runbook_path: /runbooks/tbd.md
+       dashboard_path: /d/tbd
++- alert: OF_EnforcedBucketEdgeNegShareHigh_Warn
++    expr: >
++      (of_enforce_promoter_bucket_edge_neg_share > 0.40)
++      * on(bucket) group_left()
++      (of_enforce_bucket_flag{component="slippage", sym="global"} == 1)
++    for: 30m
++    labels:
++      severity: warning
++    annotations:
++      summary: 'Edge-neg share high while slippage enforcement enabled (bucket={{ $labels.bucket }})'
++      description: 'edge_minus_expected_bps < 0 share > 40% in an enforced bucket. Indicates expected slippage too optimistic or regime mismatch; consider narrowing enforcement and re-calibrating.'
++      runbook_path: /runbooks/tbd.md
++      dashboard_path: /d/tbd
++
++  - alert: OF_EnforcedBucketEdgeNegShareHigh_Crit
++    expr: >
++      (of_enforce_promoter_bucket_edge_neg_share > 0.55)
++      * on(bucket) group_left()
++      (of_enforce_bucket_flag{component="slippage", sym="global"} == 1)
++    for: 20m
++    labels:
++      severity: critical
++    annotations:
++      summary: 'CRIT: Edge-neg share very high while slippage enforcement enabled (bucket={{ $labels.bucket }})'
++      description: 'edge_minus_expected_bps < 0 share > 55% in an enforced bucket. Roll back enforcement and re-check slippage decomposition / impact coeffs.'
++      runbook_path: /runbooks/tbd.md
++      dashboard_path: /d/tbd

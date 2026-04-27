@@ -1,0 +1,168 @@
+{
+	"dashboard": {
+		"id": null,
+		"title": "WebSocket Monitoring Dashboard",
+		"tags": ["websocket", "binance", "monitoring"],
+		"style": "dark",
+		"timezone": "browser",
+		"panels": [
+			{
+				"id": 1,
+				"title": "WebSocket Connection Status",
+				"type": "stat",
+				"targets": [
+					{
+						"expr": "sum(websocket_connection_status)",
+						"legendFormat": "Active Connections"
+					}
+				],
+				"fieldConfig": {
+					"defaults": {
+						"color": {
+							"mode": "thresholds"
+						},
+						"thresholds": {
+							"steps": [
+								{ "color": "red", "value": 0 },
+								{ "color": "green", "value": 1 }
+							]
+						}
+					}
+				},
+				"gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
+			},
+			{
+				"id": 2,
+				"title": "Messages Received per Second",
+				"type": "graph",
+				"targets": [
+					{
+						"expr": "rate(websocket_messages_received_total[1m])",
+						"legendFormat": "{{symbol}}@{{timeframe}}"
+					}
+				],
+				"gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
+			},
+			{
+				"id": 3,
+				"title": "Messages Published to Redis",
+				"type": "graph",
+				"targets": [
+					{
+						"expr": "rate(websocket_messages_published_total[1m])",
+						"legendFormat": "{{symbol}}@{{timeframe}}"
+					}
+				],
+				"gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 }
+			},
+			{
+				"id": 4,
+				"title": "WebSocket Errors",
+				"type": "graph",
+				"targets": [
+					{
+						"expr": "rate(websocket_errors_total[1m])",
+						"legendFormat": "{{symbol}}@{{timeframe}} - {{error_type}}"
+					}
+				],
+				"gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 }
+			},
+			{
+				"id": 5,
+				"title": "Reconnection Rate",
+				"type": "graph",
+				"targets": [
+					{
+						"expr": "rate(websocket_reconnections_total[1m])",
+						"legendFormat": "{{symbol}}@{{timeframe}} - {{reason}}"
+					}
+				],
+				"gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 }
+			},
+			{
+				"id": 6,
+				"title": "Connection Duration",
+				"type": "graph",
+				"targets": [
+					{
+						"expr": "websocket_connection_duration_seconds",
+						"legendFormat": "{{symbol}}@{{timeframe}}"
+					}
+				],
+				"gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 }
+			},
+			{
+				"id": 7,
+				"title": "Active Alerts",
+				"type": "table",
+				"targets": [
+					{
+						"expr": "websocket_alert_high_reconnections > 0 or websocket_alert_connection_loss > 0 or websocket_alert_high_error_rate > 0",
+						"format": "table",
+						"instant": true
+					}
+				],
+				"transformations": [
+					{
+						"id": "organize",
+						"options": {
+							"excludeByName": {
+								"Time": true,
+								"__name__": true,
+								"job": true,
+								"instance": true
+							},
+							"renameByName": {
+								"symbol": "Symbol",
+								"timeframe": "Timeframe",
+								"value": "Value"
+							}
+						}
+					}
+				],
+				"gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 }
+			},
+			{
+				"id": 8,
+				"title": "Last Message Timestamp",
+				"type": "stat",
+				"targets": [
+					{
+						"expr": "websocket_last_message_timestamp",
+						"legendFormat": "{{symbol}}@{{timeframe}}"
+					}
+				],
+				"fieldConfig": {
+					"defaults": {
+						"unit": "dateTimeFromNow"
+					}
+				},
+				"gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 }
+			},
+			{
+				"id": 9,
+				"title": "Publish Success Rate",
+				"type": "graph",
+				"targets": [
+					{
+						"expr": "rate(websocket_messages_published_total[5m]) / rate(websocket_messages_received_total[5m]) * 100",
+						"legendFormat": "{{symbol}}@{{timeframe}}"
+					}
+				],
+				"fieldConfig": {
+					"defaults": {
+						"unit": "percent",
+						"min": 0,
+						"max": 100
+					}
+				},
+				"gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 }
+			}
+		],
+		"time": {
+			"from": "now-1h",
+			"to": "now"
+		},
+		"refresh": "10s"
+	}
+}

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/error_handler.py
+# hypothesis_version: 6.148.10
+
+[1.0, -4000, 100, 104, 110, 111, 1000, 3000, 5000, 20000, 'ErrorHandler', 'ORDERFLOW_DLQ_STREAM', 'add_dlq', 'broken pipe', 'busy loading', 'client', 'connection', 'connection error', 'connection refused', 'eof', 'errno', 'error', 'error_type', 'fail_count', 'fields', 'handler', 'i/o error', 'loading the dataset', 'location', 'msg_id', 'next_sleep', 'read only', 'readonly', 'reset by peer', 'stream', 'stream:dlq:orderflow', 'symbol', 'temporarily', 'timed out', 'timeout', 'trace', 'try again', 'ts', 'unknown', 'wait', 'xadd']

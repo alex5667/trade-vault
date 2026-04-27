@@ -1,0 +1,523 @@
+diff --git a/ml_analysis/tests/test_feature_registry.py b/ml_analysis/tests/test_feature_registry.py
+index a26a872..0d55541 100644
+--- a/ml_analysis/tests/test_feature_registry.py
++++ b/ml_analysis/tests/test_feature_registry.py
+@@ -219,3 +219,44 @@ def test_feature_registry_schema_versions_include_v5_v6():
+         # must contain direction + bucket fields
+         assert any(x.startswith("dir") for x in info.feature_names)
+         assert any(x.startswith("bucket") for x in info.feature_names)
++
++def test_feature_registry_schema_versions_include_v7():
++    """Smoke: v7_of/v7_of_stable schemas resolve and are deterministic."""
++    from core.feature_registry import get_schema_info
++
++    for ver in ("v7_of", "v7_of_stable"):
++        info = get_schema_info(ver)
++        assert info.ver == ver
++        assert isinstance(info.feature_names, list)
++        assert len(info.feature_names) > 10
++        assert len(set(info.feature_names)) == len(info.feature_names)
++        assert any(x.startswith("dir") for x in info.feature_names)
++        assert any(x.startswith("bucket") for x in info.feature_names)
++
++
++def test_v7_stable_applies_denylist(tmp_path, monkeypatch):
++    """v7_of_stable must drop denylisted keys (by ML_FEATURE_DENYLIST_PATH)."""
++    import importlib
++
++    # Deny one of A5 bool keys
++    deny_path = tmp_path / "deny.json"
++    deny_path.write_text('{"deny_bool":["flag_high_vol"]}', encoding="utf-8")
++
++    monkeypatch.setenv("ML_FEATURE_DENYLIST_PATH", str(deny_path))
++
++    # Clear caches (both denylist loader and registry module-level caches)
++    import core.feature_denylist_v1 as dl
++    dl.clear_denylist_cache()
++
++    import core.feature_registry as fr
++    importlib.reload(fr)
++
++    v7 = fr.get_schema_info("v7_of")
++    v7s = fr.get_schema_info("v7_of_stable")
++
++    assert "b:flag_high_vol" in set(v7.feature_names)
++    assert "b:flag_high_vol" not in set(v7s.feature_names)
++
++    # hash deterministic
++    assert v7s.schema_hash == fr.get_schema_info("v7_of_stable").schema_hash
++
+diff --git a/tick_flow_full/core/feature_denylist_v1.py b/tick_flow_full/core/feature_denylist_v1.py
+new file mode 100644
+index 0000000..c1ec963
+--- /dev/null
++++ b/tick_flow_full/core/feature_denylist_v1.py
+@@ -0,0 +1,159 @@
++"""Feature denylist loader (v1).
++
++Purpose
++-------
++Provide a single, deterministic way to apply a denylist to ML feature schemas.
++
++This module is intentionally tiny and dependency-free, because it is imported
++both by training tooling and runtime services.
++
++Denylist formats
++----------------
++Path is resolved as:
++  - ML_FEATURE_DENYLIST_PATH (if set)
++  - otherwise: <this_dir>/feature_denylist_v1.json
++
++Supported file formats:
++  1) JSON dict with keys:
++        - deny_num:  ["key", ...]   (raw indicator keys)
++        - deny_bool: ["key", ...]
++        - deny_all:  ["key", ...]   (applied to both num and bool)
++        - deny:      ["key", ...]   (alias for deny_all)
++
++  2) JSON list of strings:
++        ["key", "key2", ...]   (treated as deny_all)
++
++  3) Plain text (.txt): one key per line (comments with '#', ';').
++
++Notes
++-----
++- Denylist keys are raw indicator keys (without 'n:'/'b:' prefixes).
++- Loader is fail-open: any read/parse error returns an empty denylist.
++"""
++
++from __future__ import annotations
++
++import json
++import os
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
++
++
++_DEFAULT_FILENAME = "feature_denylist_v1.json"
++_ENV_PATH = "ML_FEATURE_DENYLIST_PATH"
++
++
++@dataclass(frozen=True)
++class FeatureDenylist:
++    deny_num: Set[str]
++    deny_bool: Set[str]
++    deny_all: Set[str]
++
++    def flat(self) -> Set[str]:
++        return set(self.deny_all) | set(self.deny_num) | set(self.deny_bool)
++
++
++# Cache by absolute path string → parsed denylist
++_CACHE: Dict[str, FeatureDenylist] = {}
++
++
++def denylist_path() -> Path:
++    p = (os.environ.get(_ENV_PATH) or "").strip()
++    if p:
++        return Path(p)
++    return Path(__file__).with_name(_DEFAULT_FILENAME)
++
++
++def _parse_txt(text: str) -> FeatureDenylist:
++    keys: List[str] = []
++    for raw in (text or "").splitlines():
++        line = raw.strip()
++        if not line:
++            continue
++        if line.startswith("#") or line.startswith(";"):
++            continue
++        # inline comments
++        for sep in ("#", ";"):
++            if sep in line:
++                line = line.split(sep, 1)[0].strip()
++        if line:
++            keys.append(line)
++
++    s = set(keys)
++    return FeatureDenylist(deny_num=set(), deny_bool=set(), deny_all=s)
++
++
++def _as_str_list(v: Any) -> List[str]:
++    if v is None:
++        return []
++    if isinstance(v, (list, tuple)):
++        out: List[str] = []
++        for x in v:
++            if x is None:
++                continue
++            try:
++                sx = str(x).strip()
++            except Exception:
++                continue
++            if sx:
++                out.append(sx)
++        return out
++    # single scalar
++    try:
++        sx = str(v).strip()
++        return [sx] if sx else []
++    except Exception:
++        return []
++
++
++def _parse_json(obj: Any) -> FeatureDenylist:
++    # list → deny_all
++    if isinstance(obj, list):
++        s = set(_as_str_list(obj))
++        return FeatureDenylist(deny_num=set(), deny_bool=set(), deny_all=s)
++
++    if not isinstance(obj, dict):
++        return FeatureDenylist(deny_num=set(), deny_bool=set(), deny_all=set())
++
++    deny_all = set(_as_str_list(obj.get("deny_all") or obj.get("deny") or []))
++    deny_num = set(_as_str_list(obj.get("deny_num") or []))
++    deny_bool = set(_as_str_list(obj.get("deny_bool") or []))
++
++    # Some teams keep a single flat list in "deny".
++    if deny_all:
++        pass
++
++    return FeatureDenylist(deny_num=deny_num, deny_bool=deny_bool, deny_all=deny_all)
++
++
++def load_feature_denylist(path: Optional[Path] = None) -> FeatureDenylist:
++    """Load denylist from path (or env/default). Fail-open."""
++    p = Path(path) if path is not None else denylist_path()
++    key = str(p.resolve())
++    if key in _CACHE:
++        return _CACHE[key]
++
++    dl = FeatureDenylist(deny_num=set(), deny_bool=set(), deny_all=set())
++    try:
++        if not p.exists():
++            _CACHE[key] = dl
++            return dl
++        text = p.read_text(encoding="utf-8")
++        if p.suffix.lower() == ".txt":
++            dl = _parse_txt(text)
++        else:
++            dl = _parse_json(json.loads(text))
++    except Exception:
++        dl = FeatureDenylist(deny_num=set(), deny_bool=set(), deny_all=set())
++
++    _CACHE[key] = dl
++    return dl
++
++
++def denylist_flat(path: Optional[Path] = None) -> Set[str]:
++    return load_feature_denylist(path).flat()
++
++
++def clear_denylist_cache() -> None:
++    _CACHE.clear()
+diff --git a/tick_flow_full/core/feature_registry.py b/tick_flow_full/core/feature_registry.py
+index ba4e3b8..440c901 100644
+--- a/tick_flow_full/core/feature_registry.py
++++ b/tick_flow_full/core/feature_registry.py
+@@ -25,6 +25,8 @@ import json
+ import os
+ from pathlib import Path
+ 
++from core.feature_denylist_v1 import denylist_flat, load_feature_denylist
++
+ from dataclasses import dataclass
+ from typing import Dict, List, Optional, Tuple
+ 
+@@ -292,6 +294,17 @@ def _get_v5_of_keys():
+         # fallback: best-effort superset over v4_of (keeps code runnable in minimal env)
+         return _get_v4_of_keys()
+ 
++def _get_v5_of_stable_keys():
++    """v5_of_stable = v5_of minus denylisted keys."""
++    num_keys, bool_keys = _get_v5_of_keys()
++    dn, db = _load_feature_denylist()
++    if not dn and not db:
++        return num_keys, bool_keys
++    num_f = [k for k in num_keys if str(k) not in dn]
++    bool_f = [k for k in bool_keys if str(k) not in db]
++    return num_f, bool_f
++
++
+ 
+ 
+ 
+@@ -321,78 +334,55 @@ def _get_v6_of_stable_keys():
+     return num_f, bool_f
+ 
+ 
+-# ---------------------------------------------------------------------------
+-# v5_of_stable schema — v5_of minus denylist (feature_denylist_v1.json)
+-# ---------------------------------------------------------------------------
+ 
+-_DENYLIST_CACHE: Optional[dict] = None
++def _get_v7_of_keys() -> tuple[list[str], list[str]]:
++    from core.ml_feature_schema_v7_of import MLFeatureSchemaV7OF
++    s = MLFeatureSchemaV7OF()
++    return list(s.num_keys), list(s.bool_keys)
+ 
+ 
+-def _denylist_path() -> Path:
+-    """Path to denylist JSON.
++def _get_v7_of_stable_keys() -> tuple[list[str], list[str]]:
++    from core.ml_feature_schema_v7_of import MLFeatureSchemaV7OFStable
++    s = MLFeatureSchemaV7OFStable()
++    return list(s.num_keys), list(s.bool_keys)
+ 
+-    Override via ML_FEATURE_DENYLIST_PATH.
+-    """
+-    p = (os.environ.get("ML_FEATURE_DENYLIST_PATH") or "").strip()
+-    if p:
+-        return Path(p)
+-    return Path(__file__).with_name("feature_denylist_v1.json")
+-
+-
+-def _load_feature_denylist() -> Tuple[set, set]:
+-    """Load denylist as (deny_num, deny_bool)."""
+-    global _DENYLIST_CACHE
+-    if _DENYLIST_CACHE is not None:
+-        dn = set((_DENYLIST_CACHE.get("deny_num") or []))
+-        db = set((_DENYLIST_CACHE.get("deny_bool") or []))
+-        return dn, db
+-
+-    path = _denylist_path()
+-    obj: dict = {}
+-    try:
+-        if path.exists():
+-            obj = json.loads(path.read_text(encoding="utf-8"))
+-    except Exception:
+-        obj = {}
++# ---------------------------------------------------------------------------
++# v5_of_stable / v6_of_stable / v7_of_stable — apply denylist (feature_denylist_v1)
++# ---------------------------------------------------------------------------
++
++# ---------------------------------------------------------------------------
++# Caches (module-level, deterministic)
++# ---------------------------------------------------------------------------
+ 
+-    if not isinstance(obj, dict):
+-        obj = {}
++_SCHEMA_CACHE: dict[str, FeatureSchemaInfo] = {}
++_EDGE_CACHE: dict[str, EdgeStackFeatureSpec] = {}
+ 
+-    _DENYLIST_CACHE = obj
+-    dn = set(obj.get("deny_num") or [])
+-    db = set(obj.get("deny_bool") or [])
+-    return dn, db
+ 
+ 
+-def _get_v5_of_stable_keys():
+-    """v5_of_stable = v5_of minus denylisted keys.
++def _load_feature_denylist() -> tuple[set, set]:
++    """Load denylist as (deny_num, deny_bool).
++
++    Backward-compatible wrapper used by v5_of_stable/v6_of_stable.
++    Denylist keys are raw indicator keys.
+ 
+-    Motivation:
+-      - keep online schema superset (v5_of)
+-      - allow training to start from stable subset (v5_of_stable)
+-      - move noisy features to denylist via controlled proposal+AB workflow
++    Fail-open: any error returns empty sets.
+     """
+-    num_keys, bool_keys = _get_v5_of_keys()
+-    dn, db = _load_feature_denylist()
+-    if not dn and not db:
+-        return num_keys, bool_keys
++    dl = load_feature_denylist()
++    dn = set(dl.deny_num) | (set(dl.deny_all) if dl.deny_all else set())
++    db = set(dl.deny_bool) | (set(dl.deny_all) if dl.deny_all else set())
++    return dn, db
+ 
+-    num_f = [k for k in num_keys if str(k) not in dn]
+-    bool_f = [k for k in bool_keys if str(k) not in db]
+-    return num_f, bool_f
+-# ---------------------------------------------------------------------------
+-# Кэш: чтобы не пересчитывать хэши на каждый вызов
+-# ---------------------------------------------------------------------------
+ 
+-_SCHEMA_CACHE: Dict[str, FeatureSchemaInfo] = {}
+-_EDGE_CACHE: Dict[str, EdgeStackFeatureSpec] = {}
++def _denylist_features() -> set[str]:
++    """Flat denylist set applied to both num/bool keys (used by v7_of_stable)."""
++    return set(denylist_flat())
+ 
+ 
+ def get_schema_info(ver: str) -> FeatureSchemaInfo:
+     """Возвращает FeatureSchemaInfo для заданной версии схемы.
+ 
+     Args:
+-        ver: одно из "v2", "v3", "v4_of", "v5_of", "v5_of_stable", "v6_of", "v6_of_stable"
++        ver: одно из "v2", "v3", "v4_of", "v5_of", "v5_of_stable", "v6_of", "v6_of_stable", "v7_of", "v7_of_stable"
+ 
+     Returns:
+         FeatureSchemaInfo — неизменяемый дескриптор схемы.
+@@ -420,6 +410,14 @@ def get_schema_info(ver: str) -> FeatureSchemaInfo:
+         num_keys, bool_keys = _get_v5_of_stable_keys()
+         names = _build_feature_names(num_keys, bool_keys)
+         v = "v5_of_stable"
++    elif v in ("v7_of", "v7"):
++        num_keys, bool_keys = _get_v7_of_keys()
++        names = _build_feature_names(num_keys, bool_keys)
++        v = "v7_of"
++    elif v in ("v7_of_stable", "v7_stable", "v7stable"):
++        num_keys, bool_keys = _get_v7_of_stable_keys()
++        names = _build_feature_names(num_keys, bool_keys)
++        v = "v7_of_stable"
+     elif v in ("v6_of", "v6"):
+         num_keys, bool_keys = _get_v6_of_keys()
+         names = _build_feature_names(num_keys, bool_keys)
+@@ -431,7 +429,7 @@ def get_schema_info(ver: str) -> FeatureSchemaInfo:
+     else:
+         raise ValueError(
+             f"Unsupported feature schema version: {ver!r}. "
+-            f"Supported: 'v2', 'v3', 'v4_of', 'v5_of', 'v5_of_stable', 'v6_of', 'v6_of_stable'."
++            f"Supported: 'v2', 'v3', 'v4_of', 'v5_of', 'v5_of_stable', 'v6_of', 'v6_of_stable', 'v7_of', 'v7_of_stable'."
+         )
+ 
+     info = _make_schema_info(v, names)
+@@ -449,8 +447,9 @@ def get_edge_stack_feature_spec(
+     max_numeric: int = 128,
+     strict_feature_cols: bool = False,
+     forbid_scenario_v4_onehot: bool = False,
++    include_session_onehot: Optional[bool] = None,
+ ) -> EdgeStackFeatureSpec:
+-    """Детерминированный edge-stack feature_cols из MLFeatureSchema (v2/v3/v4/v4_of).
++    """Детерминированный edge-stack feature_cols из MLFeatureSchema (v2/v3/v4_of/v5_of/v6_of/v7_of).
+ 
+     Заменяет sample-зависимый infer_feature_cols() версионным allowlist-ом —
+     training не может дрейфовать по составу колонок.
+@@ -481,16 +480,20 @@ def get_edge_stack_feature_spec(
+         ver = "v6_of"
+     if ver in ("v6_of_stable", "v6stable", "v6_stable"):
+         ver = "v6_of_stable"
++    if ver == "v7of":
++        ver = "v7_of"
++    if ver in ("v7_of_stable", "v7stable", "v7_stable"):
++        ver = "v7_of_stable"
+ 
+-    # расширенный allowlist: v2/v3/v4/v4_of/v5_of/v5_of_stable/v6_of/v6_of_stable
+-    if ver not in ("v2", "v3", "v4", "v4_of", "v5", "v5_of", "v5_of_stable", "v6", "v6_of", "v6_of_stable"):
++    # расширенный allowlist: v2/v3/v4/v4_of/v5_of/v5_of_stable/v6_of/v6_of_stable/v7_of/v7_of_stable
++    if ver not in ("v2", "v3", "v4", "v4_of", "v5", "v5_of", "v5_of_stable", "v6", "v6_of", "v6_of_stable", "v7", "v7_of", "v7_of_stable"):
+         raise ValueError(
+-            f"edge-stack registry supports v2/v3/v4/v4_of/v5_of/v5_of_stable/v6_of/v6_of_stable only, got {schema_ver!r}"
++            f"edge-stack registry supports v2/v3/v4/v4_of/v5_of/v5_of_stable/v6_of/v6_of_stable/v7_of/v7_of_stable only, got {schema_ver!r}"
+         )
+ 
+     # Числовой номер версии для умолчаний (v4_of → 4)
+     try:
+-        ver_num = 6 if ver in ("v6_of", "v6_of_stable") else (5 if ver in ("v5_of", "v5_of_stable") else (4 if ver == "v4_of" else int(ver.lstrip("v"))))
++        ver_num = 7 if ver in ("v7_of", "v7_of_stable") else (6 if ver in ("v6_of", "v6_of_stable") else (5 if ver in ("v5_of", "v5_of_stable") else (4 if ver == "v4_of" else int(ver.lstrip("v")))))
+     except Exception:
+         ver_num = 0
+ 
+@@ -502,8 +505,14 @@ def get_edge_stack_feature_spec(
+     elif ver in ("v4", "v4_of"):
+         num_keys, bool_keys = _get_v4_of_keys()
+         ver = "v4_of"  # канонизируем v4 → v4_of для кэша
+-    else:  # v5/v6 allowlist
+-        if ver in ("v6_of", "v6"):
++    else:  # v5/v6/v7 allowlist
++        if ver in ("v7_of", "v7"):
++            num_keys, bool_keys = _get_v7_of_keys()
++            ver = "v7_of"
++        elif ver == "v7_of_stable":
++            num_keys, bool_keys = _get_v7_of_stable_keys()
++            ver = "v7_of_stable"
++        elif ver in ("v6_of", "v6"):
+             num_keys, bool_keys = _get_v6_of_keys()
+             ver = "v6_of"
+         elif ver == "v6_of_stable":
+@@ -589,9 +598,22 @@ def get_edge_stack_feature_spec(
+         cols += [f"hour:{h}" for h in range(24)]
+         cols += [f"dow:{d}" for d in range(7)]
+ 
++    # session one-hots: default = v7+ (ver_num >= 7)
++    if include_session_onehot is None:
++        include_session_onehot = ver_num >= 7
++    if include_session_onehot:
++        cols += ["session_asia", "session_eu", "session_us", "session_off"]
++
++
+     spec = _make_edge_stack_spec(ver, cols)
+     # кэшируем только простой вызов (без доп. параметров) — с параметрами создаём свежий объект
+-    if max_numeric == 128 and not strict_feature_cols and not forbid_scenario_v4_onehot and include_time_onehot is not False:
++    if (
++        max_numeric == 128
++        and not strict_feature_cols
++        and not forbid_scenario_v4_onehot
++        and include_time_onehot is not False
++        and include_session_onehot is not False
++    ):
+         _EDGE_CACHE.setdefault(ver, spec)
+     return spec
+ 
+diff --git a/tick_flow_full/core/ml_feature_schema_v7_of.py b/tick_flow_full/core/ml_feature_schema_v7_of.py
+new file mode 100644
+index 0000000..2191bf7
+--- /dev/null
++++ b/tick_flow_full/core/ml_feature_schema_v7_of.py
+@@ -0,0 +1,61 @@
++"""MLFeatureSchemaV7OF
++
++v7_of = v6_of + A5 flags (bool -> 0/1) + session one-hot in edge-stack spec.
++
++Важно:
++- В сам schema добавлены только A5 flags (bool_keys).
++- Session one-hot (session_asia/eu/us/off) не является частью schema-ключей, потому что
++  эти колонки генерируются gate-слоем детерминированно из ts_ms (train==serve).
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++
++from core.feature_denylist_v1 import denylist_flat
++from core.ml_feature_schema_v6_of import MLFeatureSchemaV6OF
++
++
++_A5_BOOL_KEYS = [
++    # A5: runtime flags (encoded as 0/1)
++    "flag_high_vol",
++    "flag_low_liquidity",
++    "flag_large_trade",
++    "flag_mean_reversion_mode",
++    "flag_session_open",
++    "flag_session_close",
++    "flag_macro_event",
++]
++
++
++@dataclass
++class MLFeatureSchemaV7OF(MLFeatureSchemaV6OF):
++    """v7_of = v6_of + A5 flags."""
++
++    def __post_init__(self) -> None:
++        super().__post_init__()
++        # keep order stable and de-dup
++        bk = list(self.bool_keys or [])
++        for k in _A5_BOOL_KEYS:
++            if k not in bk:
++                bk.append(k)
++        self.bool_keys = bk
++
++@dataclass
++class MLFeatureSchemaV7OFStable(MLFeatureSchemaV7OF):
++    """v7_of_stable = v7_of minus denylisted keys (ML_FEATURE_DENYLIST_PATH).
++
++    Denylist is applied symmetrically to num_keys and bool_keys.
++    Keys are raw indicator keys (without n:/b:).
++
++    Fail-open: missing/invalid denylist keeps schema identical to v7_of.
++    """
++
++    def __post_init__(self) -> None:  # noqa: D401
++        super().__post_init__()
++        deny = set(denylist_flat())
++        if not deny:
++            return
++        self.num_keys = [k for k in (self.num_keys or []) if k not in deny]
++        self.bool_keys = [k for k in (self.bool_keys or []) if k not in deny]
++

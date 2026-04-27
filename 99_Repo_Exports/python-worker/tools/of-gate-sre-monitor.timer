@@ -1,0 +1,12 @@
+[Unit]
+Description=Run OF Gate SRE Monitor every 10 minutes
+Requires=of-gate-sre-monitor.service
+
+[Timer]
+# OnCalendar=*:0/10
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
+

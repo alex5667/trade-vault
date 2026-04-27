@@ -1,0 +1,13 @@
+[Unit]
+Description=OF Gate SRE Monitor (metrics:of_gate -> alerts)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/trade/of_gate_sre.env
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+ExecStart=/usr/bin/python3 -m tools.of_gate_sre_monitor
+StandardOutput=journal
+StandardError=journal
+

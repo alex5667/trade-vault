@@ -1,0 +1,1067 @@
+diff --git a/services/orderflow/runtime.py b/services/orderflow/runtime.py
+--- a/services/orderflow/runtime.py
++++ b/services/orderflow/runtime.py
+@@ -215,6 +215,8 @@
+ from core.instrument_config import get_specs
+ from services.l3_queue_events_proxy import L3QueueEventsProxy
+ from services.l3_lite_tracker import L3LiteTracker
++from services.orderflow.message_rate import MessageRateTracker
++from services.orderflow.manip_patterns import ManipulationTracker
+ from core.vol_regime_tracker import VolRegimeTracker
+ from core.book_resilience import BookResilienceTracker
+ from core.rolling_vwap_tracker import RollingVWAPTracker
+@@ -285,6 +287,23 @@
+     l3_queue: L3QueueEventsProxy = field(init=False)
+     liquidity: CryptoLiquidity = field(init=False)
+     l3_stats: Optional[Any] = None  # Stores L3BucketStats
++
++    # Phase E (P4): message-rate / OTR trackers (bounded, 1Hz robust stats)
++    msg_rate: MessageRateTracker = field(init=False)
++
++    # Phase E (P4): manipulative pattern proxies (layering / quote-stuffing)
++    manip: ManipulationTracker = field(init=False)
++
++    # Exposed latest outputs (mirrored into indicators for gates & ML)
++    book_update_rate_hz: float = 0.0
++    book_update_rate_z: float = 0.0
++    trade_msg_rate_hz: float = 0.0
++    otr: float = 0.0
++    otr_z: float = 0.0
++    cancel_rate_z: float = 0.0
++    quote_stuffing_score: float = 0.0
++    layering_score: float = 0.0
++    manip_flags: str = ""
+     vol_regime: Any = field(init=False)
+     resilience: Any = field(init=False)
+ 
+@@ -906,6 +925,32 @@
+             self.l3_stats = L3LiteTracker(bucket_ms=bucket_ms, alpha=l3_alpha)
+         except Exception:
+             self.l3_stats = None
++
++        # ------------------------------------------------------------------
++        # Phase E (P4): Message-rate / OTR + Manipulation trackers
++        # ------------------------------------------------------------------
++        # We update robust z-scores at 1Hz to keep hot-path O(1).
++        try:
++            mr_alpha = float(os.getenv("MSG_RATE_ALPHA", self.config.get("msg_rate_alpha", 0.20)) or 0.20)
++            mr_win = int(os.getenv("MSG_RATE_Z_WINDOW", self.config.get("msg_rate_z_window", 120)) or 120)
++            self.msg_rate = MessageRateTracker(alpha=mr_alpha, window=mr_win)
++        except Exception:
++            # Fail-open: disable tracker rather than crash runtime init
++            self.msg_rate = MessageRateTracker(alpha=0.20, window=120)
++
++        try:
++            self.manip = ManipulationTracker(
++                layering_build_mult=float(os.getenv("LAYERING_BUILD_MULT", "1.6") or 1.6),
++                layering_ratio_min=float(os.getenv("LAYERING_RATIO_MIN", "0.45") or 0.45),
++                layering_revert_frac=float(os.getenv("LAYERING_REVERT_FRAC", "0.35") or 0.35),
++                layering_revert_ms=int(os.getenv("LAYERING_REVERT_MS", "900") or 900),
++                layering_min_peak_usd=float(os.getenv("LAYERING_MIN_PEAK_USD", "5000") or 5000),
++                quote_msg_z_thr=float(os.getenv("QUOTE_STUFF_MSG_Z_THR", "4.0") or 4.0),
++                quote_cancel_z_thr=float(os.getenv("QUOTE_STUFF_CANCEL_Z_THR", "3.5") or 3.5),
++                trade_rate_low_hz=float(os.getenv("LAYERING_TRADE_RATE_LOW_HZ", "2.0") or 2.0),
++            )
++        except Exception:
++            self.manip = ManipulationTracker()
+ 
+         # Volatility regime tracker (fast/slow realized vol ratio + robust z)
+         try:
+diff --git a/services/orderflow/components/tick_processor.py b/services/orderflow/components/tick_processor.py
+--- a/services/orderflow/components/tick_processor.py
++++ b/services/orderflow/components/tick_processor.py
+@@ -1287,6 +1287,16 @@
+         if tt is None:
+             return None
+         tick_ts = int(tt["tick_ts_ms"])
++
++        # Phase E (P4): trade message rate (OTR denominator)
++        # We treat each processed tick as a trade-message for OTR proxy.
++        # Fail-open: tracker is optional.
++        try:
++            mr = getattr(runtime, "msg_rate", None)
++            if mr is not None:
++                mr.on_trade_msg(int(tick_ts))
++        except Exception:
++            pass
+         tt_decision = str(tt.get("decision", "ok") or "ok")
+         tt_meta = tt.get("meta") or {}
+ 
+diff --git a/services/orderflow/components/book_processor.py b/services/orderflow/components/book_processor.py
+--- a/services/orderflow/components/book_processor.py
++++ b/services/orderflow/components/book_processor.py
+@@ -545,6 +545,42 @@
+                      try:
+                          if getattr(runtime, "l3_stats", None) is not None:
+                              runtime.l3_stats.on_book(book_ts_ms, depth_bid_5=float(db), depth_ask_5=float(da))
++                     except Exception:
++                         pass
++
++                     # Phase E (P4): message-rate / cancel-rate (for quote stuffing + OTR)
++                     try:
++                         mr = getattr(runtime, "msg_rate", None)
++                         if mr is not None:
++                             mr.on_book_msg(int(book_ts_ms))
++                             # cancel burstiness proxy from L3-lite (qty/sec)
++                             try:
++                                 l3 = getattr(runtime, "l3_stats", None)
++                                 snap_l3 = getattr(l3, "snap", None) if l3 is not None else None
++                                 if snap_l3 is not None:
++                                     cancel_total = float(getattr(snap_l3, "cancel_bid_rate_ema", 0.0) or 0.0) + float(getattr(snap_l3, "cancel_ask_rate_ema", 0.0) or 0.0)
++                                     mr.observe_cancel_rate_ema(int(book_ts_ms), float(cancel_total))
++                             except Exception:
++                                 pass
++                     except Exception:
++                         pass
++
++                     # Phase E (P4): manipulative pattern proxies (L2 approximation)
++                     try:
++                         mp = getattr(runtime, "manip", None)
++                         mr = getattr(runtime, "msg_rate", None)
++                         if mp is not None and mr is not None:
++                             out = mp.update_from_book(
++                                 ts_ms=int(book_ts_ms),
++                                 bids=list(getattr(snap, "top5_bids", []) or []),
++                                 asks=list(getattr(snap, "top5_asks", []) or []),
++                                 best_bid=float(getattr(snap, "best_bid_px", 0.0) or 0.0),
++                                 best_ask=float(getattr(snap, "best_ask_px", 0.0) or 0.0),
++                                 msg=mr,
++                             )
++                             runtime.quote_stuffing_score = float(out.get("quote_stuffing_score", 0.0) or 0.0)
++                             runtime.layering_score = float(out.get("layering_score", 0.0) or 0.0)
++                             runtime.manip_flags = str(out.get("manip_flags", "") or "")
+                      except Exception:
+                          pass
+ 
+diff --git a/services/orderflow/strategy.py b/services/orderflow/strategy.py
+--- a/services/orderflow/strategy.py
++++ b/services/orderflow/strategy.py
+@@ -1081,6 +1081,25 @@
+             # Ensure basic indicators for compute_data_health
+             indicators["book_ts_gap_ms"] = int(tick_ts - int(getattr(runtime, "last_book_ts_ms", 0) or 0))
+             indicators["book_rate_hz"] = float(getattr(runtime, "book_rate_ema", 0.0) or 0.0)
++
++            # Phase E (P4): message-rate / OTR + manip proxies (L2)
++            try:
++                mr = getattr(runtime, "msg_rate", None)
++                if mr is not None:
++                    indicators["book_update_rate_hz"] = float(getattr(mr, "book_update_rate_hz", 0.0) or 0.0)
++                    indicators["book_update_rate_z"] = float(getattr(mr, "book_update_rate_z", 0.0) or 0.0)
++                    indicators["trade_msg_rate_hz"] = float(getattr(mr, "trade_msg_rate_hz", 0.0) or 0.0)
++                    indicators["otr"] = float(getattr(mr, "otr", 0.0) or 0.0)
++                    indicators["otr_z"] = float(getattr(mr, "otr_z", 0.0) or 0.0)
++                    indicators["cancel_rate_z"] = float(getattr(mr, "cancel_rate_z", 0.0) or 0.0)
++            except Exception:
++                pass
++            try:
++                indicators["quote_stuffing_score"] = float(getattr(runtime, "quote_stuffing_score", 0.0) or 0.0)
++                indicators["layering_score"] = float(getattr(runtime, "layering_score", 0.0) or 0.0)
++                indicators["manip_flags"] = str(getattr(runtime, "manip_flags", "") or "")
++            except Exception:
++                pass
+             
+             # Use most recent spread from book snapshot if MicroBar hasn't updated yet or ticks lack bid/ask
+             spr = float(getattr(runtime, "last_spread_bps", 0.0) or 0.0)
+@@ -1327,6 +1346,67 @@
+             )
+             indicators["expected_slippage_bps"] = float(est.expected_bps)
+             indicators["slippage_reason"] = str(est.reason)
++
++            # ------------------------------------------------------------
++            # Phase E (P4): Manipulation-aware execution tightening
++            # ------------------------------------------------------------
++            # Rationale:
++            #  - During quote stuffing / layering-like behavior, effective execution cost rises.
++            #  - We do NOT hard-veto here (that is handled in SignalPipeline under hard profile).
++            #  - In strict profiles we "tighten" by increasing expected_slippage_bps, which
++            #    flows into EdgeCostGate / sizing and reduces false-positive entries.
++            try:
++                mode_env = str(os.getenv("MANIP_MODE", "auto") or "auto").lower()
++                profile = str(os.getenv("GATE_PROFILE", cfg.get("gate_profile", "default") or "default") or "default").lower()
++                if mode_env in {"monitor", "tighten", "veto"}:
++                    mode = mode_env
++                else:
++                    mode = "tighten" if profile == "strict" else ("veto" if profile == "hard" else "monitor")
++
++                max_otr = float(os.getenv("MANIP_MAX_OTR", cfg.get("manip_max_otr", 0.0)) or 0.0)
++                max_msg_z = float(os.getenv("MANIP_MAX_MSG_RATE_Z", cfg.get("manip_max_msg_rate_z", 0.0)) or 0.0)
++                min_layer = float(os.getenv("MANIP_MIN_LAYERING_SCORE", cfg.get("manip_min_layering_score", 0.0)) or 0.0)
++                min_qs = float(os.getenv("MANIP_MIN_QUOTE_STUFFING_SCORE", cfg.get("manip_min_quote_stuffing_score", 0.0)) or 0.0)
++
++                mr = getattr(runtime, "msg_rate", None)
++                book_z = float(getattr(mr, "book_update_rate_z", 0.0) or 0.0) if mr is not None else 0.0
++                otr = float(getattr(mr, "otr", 0.0) or 0.0) if mr is not None else 0.0
++                qs = float(getattr(runtime, "quote_stuffing_score", 0.0) or 0.0)
++                layer = float(getattr(runtime, "layering_score", 0.0) or 0.0)
++
++                hit = False
++                flags = []
++                if max_msg_z > 0.0 and book_z >= max_msg_z:
++                    hit = True; flags.append("msg_rate_z")
++                if max_otr > 0.0 and otr >= max_otr:
++                    hit = True; flags.append("otr")
++                if min_qs > 0.0 and qs >= min_qs:
++                    hit = True; flags.append("quote_stuff")
++                if min_layer > 0.0 and layer >= min_layer:
++                    hit = True; flags.append("layering")
++
++                if hit:
++                    indicators["manip_monitor_hit"] = 1
++                    indicators["manip_flags"] = ",".join(flags)
++                    indicators["manip_mode"] = str(mode)
++                    if mode in {"tighten", "veto"}:
++                        mult = float(os.getenv("MANIP_TIGHTEN_ADD_MULT", "1.0") or 1.0)
++                        cap = float(os.getenv("MANIP_TIGHTEN_ADD_CAP_BPS", "6.0") or 6.0)
++                        add = 0.0
++                        if max_msg_z > 0.0 and book_z > max_msg_z:
++                            add += (book_z - max_msg_z) * 0.8
++                        if max_otr > 0.0 and otr > max_otr:
++                            add += (otr - max_otr) * 0.6
++                        if min_qs > 0.0 and qs > min_qs:
++                            add += (qs - min_qs) * 0.9
++                        if min_layer > 0.0 and layer >= min_layer:
++                            add += 2.0
++                        add = float(min(cap, max(0.0, add * mult)))
++                        if add > 0:
++                            indicators["expected_slippage_bps"] = float(indicators.get("expected_slippage_bps", 0.0) or 0.0) + add
++                            indicators["manip_tighten_add_bps"] = float(add)
++            except Exception:
++                pass
+             # Optional OFI add-on: convert best-level OFI into extra impact bps
+             # Default k=0 => disabled. Enable via cfg['slip_ofi_k'] or env SLIP_OFI_K.
+             try:
+@@ -4451,6 +4531,26 @@
+                 key = f"smt:snap:{runtime.symbol}"
+                 # БАТЧ: Используем MetricsBatcher для снимков SMT (без аллокаций тасок)
+                 self._mbatch.put("set", key, snap.to_json(), ex=ttl_sec)
++
++                # Phase E sidecar: extra features without changing SymbolSnapshot schema.
++                try:
++                    extra_key = f"{os.getenv('SMT_SNAP_EXTRA_PREFIX', 'smt:snap_extra:')}{runtime.symbol}"
++                    mr = getattr(runtime, "msg_rate", None)
++                    extra = {
++                        "ts_ms": int(tick_ts or 0),
++                        "book_update_rate_hz": float(getattr(mr, "book_update_rate_hz", 0.0) or 0.0) if mr is not None else 0.0,
++                        "book_update_rate_z": float(getattr(mr, "book_update_rate_z", 0.0) or 0.0) if mr is not None else 0.0,
++                        "trade_msg_rate_hz": float(getattr(mr, "trade_msg_rate_hz", 0.0) or 0.0) if mr is not None else 0.0,
++                        "otr": float(getattr(mr, "otr", 0.0) or 0.0) if mr is not None else 0.0,
++                        "otr_z": float(getattr(mr, "otr_z", 0.0) or 0.0) if mr is not None else 0.0,
++                        "cancel_rate_z": float(getattr(mr, "cancel_rate_z", 0.0) or 0.0) if mr is not None else 0.0,
++                        "quote_stuffing_score": float(getattr(runtime, "quote_stuffing_score", 0.0) or 0.0),
++                        "layering_score": float(getattr(runtime, "layering_score", 0.0) or 0.0),
++                        "manip_flags": str(getattr(runtime, "manip_flags", "") or ""),
++                    }
++                    self._mbatch.put("set", extra_key, json.dumps(extra, separators=(",", ":"), sort_keys=True), ex=ttl_sec)
++                except Exception:
++                    pass
+         except Exception:
+             pass
+ 
+diff --git a/services/orderflow/signal_pipeline.py b/services/orderflow/signal_pipeline.py
+--- a/services/orderflow/signal_pipeline.py
++++ b/services/orderflow/signal_pipeline.py
+@@ -24,7 +24,8 @@
+ 
+ # Metrics
+ from services.orderflow.metrics import (
+-    signals_total, strong_gate_veto_total, pre_publish_veto_total, of_session_outcome_total
++    signals_total, strong_gate_veto_total, pre_publish_veto_total, of_session_outcome_total,
++    manip_gate_events_total,
+ )
+ from services.orderflow.utils import session_utc
+ from handlers.crypto_orderflow.utils.log_sampler import LogSamplerFactory, sampled_info
+@@ -468,6 +469,66 @@
+         curr_stale_ms = int(indicators.get("book_ts_gap_ms", 0) or 0)
+         if curr_stale_ms <= 0:
+             curr_stale_ms = int(indicators.get("liq_book_stale_ms", 0) or 0)
++
++
++        # ------------------------------------------------------------------
++        # 🧨 MANIPULATION / MICROSTRUCTURE ABUSE GATE (Phase E / P4)
++        # ------------------------------------------------------------------
++        # Signals:
++        #   - book_update_rate_z: robust z-score of book msg rate (1Hz)
++        #   - otr: book_msgs/sec divided by trade_msgs/sec (OTR proxy)
++        #   - quote_stuffing_score: f(update_rate_z, cancel_rate_z)
++        #   - layering_score: L2 ladder build->pull proxy (stateful)
++        #
++        # Policy:
++        #   default/soft: annotate only (never block)
++        #   strict: tighten execution (increase expected_slippage_bps via strategy)
++        #   hard: veto on threshold breach with explicit reason_code
++        try:
++            mode_env = str(os.getenv("MANIP_MODE", "auto") or "auto").lower()
++            profile = str(os.getenv("GATE_PROFILE", cfg.get("gate_profile", "default") or "default") or "default").lower()
++            if mode_env in {"monitor", "tighten", "veto"}:
++                mode = mode_env
++            else:
++                mode = "tighten" if profile == "strict" else ("veto" if profile == "hard" else "monitor")
++
++            max_otr = float(os.getenv("MANIP_MAX_OTR", cfg.get("manip_max_otr", 0.0)) or 0.0)
++            max_msg_z = float(os.getenv("MANIP_MAX_MSG_RATE_Z", cfg.get("manip_max_msg_rate_z", 0.0)) or 0.0)
++            min_layer = float(os.getenv("MANIP_MIN_LAYERING_SCORE", cfg.get("manip_min_layering_score", 0.0)) or 0.0)
++            min_qs = float(os.getenv("MANIP_MIN_QUOTE_STUFFING_SCORE", cfg.get("manip_min_quote_stuffing_score", 0.0)) or 0.0)
++
++            book_z = float(indicators.get("book_update_rate_z", 0.0) or 0.0)
++            otr = float(indicators.get("otr", 0.0) or 0.0)
++            qs = float(indicators.get("quote_stuffing_score", 0.0) or 0.0)
++            layer = float(indicators.get("layering_score", 0.0) or 0.0)
++
++            m_flags: List[str] = []
++            m_reason = ""
++            if max_msg_z > 0.0 and book_z >= max_msg_z:
++                m_flags.append("msg_rate_z"); m_reason = "VETO_QUOTE_STUFFING"
++            if max_otr > 0.0 and otr >= max_otr:
++                m_flags.append("otr"); m_reason = "VETO_OTR_SPIKE"
++            if min_qs > 0.0 and qs >= min_qs:
++                m_flags.append("quote_stuff"); m_reason = "VETO_QUOTE_STUFFING"
++            if min_layer > 0.0 and layer >= min_layer:
++                m_flags.append("layering"); m_reason = "VETO_LAYERING"
++
++            if m_flags:
++                indicators["manip_gate_hit"] = 1
++                indicators["manip_gate_flags"] = ",".join(m_flags)
++                manip_gate_events_total.labels(symbol=symbol, mode=str(mode), reason="hit").inc()
++
++                # Veto only in hard/veto mode
++                if mode == "veto":
++                    passed = False
++                    reason = m_reason or "VETO_MANIP"
++                    gate_meta["manip_flags"] = ",".join(m_flags)
++                    pre_publish_veto_total.labels(symbol=symbol, reason=reason).inc()
++                    manip_gate_events_total.labels(symbol=symbol, mode=str(mode), reason=str(reason)).inc()
++            else:
++                manip_gate_events_total.labels(symbol=symbol, mode=str(mode), reason="ok").inc()
++        except Exception:
++            pass
+ 
+         spread_veto = False
+         spread_reason = ""
+diff --git a/services/orderflow/metrics.py b/services/orderflow/metrics.py
+--- a/services/orderflow/metrics.py
++++ b/services/orderflow/metrics.py
+@@ -1833,3 +1833,12 @@
+ 
+ # pre_publish_veto_total → pre_publish_gate_veto_total
+ pre_publish_veto_total = pre_publish_gate_veto_total  # noqa: F811
++
++# Phase E (P4): Manipulation gate telemetry.
++# Note: we keep labels minimal; per-symbol is still used elsewhere in this codebase.
++manip_gate_events_total = _get_or_create_prom_counter(
++    "manip_gate_events_total",
++    "Manipulation gate events (monitor/tighten/veto).",
++    ["symbol", "mode", "reason"],
++)
++
+diff --git a/services/entry_policy_core.py b/services/entry_policy_core.py
+--- a/services/entry_policy_core.py
++++ b/services/entry_policy_core.py
+@@ -204,3 +204,54 @@
+         return EntryPolicyDecision(ok=False, reason_code="DEDUP", notes="", emit=False)
+ 
+     return EntryPolicyDecision(ok=True, reason_code="ALLOW", notes="", emit=True)
++    return EntryPolicyDecision(ok=True, reason_code="ALLOW", notes="", emit=True)
++
++# ─────────────────────────────────────────────────────────────
++# Phase E (P4): manipulation / quote-stuffing / layering overlay
++# ─────────────────────────────────────────────────────────────
++
++def manip_gate_ok(snap: Dict[str, Any]) -> Tuple[bool, str]:
++    """
++    Lightweight entry-policy overlay.
++
++    This does not replace orderflow-side execution tightening. It provides a final
++    "do not enter during obvious microstructure abuse" guard.
++
++    Inputs are expected to come from `smt:snap_extra:<SYM>` sidecar merged into `snap`.
++    """
++    mode = _s(snap.get("manip_mode", os.getenv("MANIP_MODE", "auto")), "auto").lower()
++    profile = _s(snap.get("gate_profile", os.getenv("ENTRY_POLICY_PROFILE", os.getenv("GATE_PROFILE", "default"))), "default").lower()
++    if mode not in ("monitor", "tighten", "veto"):
++        mode = "tighten" if profile == "strict" else ("veto" if profile == "hard" else "monitor")
++
++    max_otr = _f(os.getenv("MANIP_MAX_OTR", "0") or 0.0)
++    max_msg_z = _f(os.getenv("MANIP_MAX_MSG_RATE_Z", "0") or 0.0)
++    min_layer = _f(os.getenv("MANIP_MIN_LAYERING_SCORE", "0") or 0.0)
++    min_qs = _f(os.getenv("MANIP_MIN_QUOTE_STUFFING_SCORE", "0") or 0.0)
++
++    book_z = _f(snap.get("book_update_rate_z", 0.0), 0.0)
++    otr = _f(snap.get("otr", 0.0), 0.0)
++    qs = _f(snap.get("quote_stuffing_score", 0.0), 0.0)
++    layer = _f(snap.get("layering_score", 0.0), 0.0)
++
++    flags = []
++    if max_msg_z > 0 and book_z >= max_msg_z:
++        flags.append("msg_rate_z")
++    if max_otr > 0 and otr >= max_otr:
++        flags.append("otr")
++    if min_qs > 0 and qs >= min_qs:
++        flags.append("quote_stuff")
++    if min_layer > 0 and layer >= min_layer:
++        flags.append("layering")
++
++    if not flags:
++        return True, "ok"
++
++    if mode == "veto":
++        if "layering" in flags:
++            return False, "VETO_LAYERING"
++        if "otr" in flags:
++            return False, "VETO_OTR_SPIKE"
++        return False, "VETO_QUOTE_STUFFING"
++
++    return True, "monitor:" + ",".join(flags)
+diff --git a/services/smt_entry_policy_service.py b/services/smt_entry_policy_service.py
+--- a/services/smt_entry_policy_service.py
++++ b/services/smt_entry_policy_service.py
+@@ -12,6 +12,7 @@
+ from core.entry_policy_freeze import EntryPolicyFreezeV1
+ from core.entry_policy_overrides_v1 import EntryPolicyOverridesV1
+ from core.active_arm_stabilizer import ActiveArmStabilizer
++from services.entry_policy_core import manip_gate_ok
+ 
+ def _now_ms() -> int:
+     return int(time.time() * 1000)
+@@ -186,8 +187,26 @@
+         return snap, bundle
+ 
+     async def _get_snap(self, sym: str) -> Dict[str, Any]:
+-        raw = await self.r.get(f"{self.cfg.snap_prefix}{sym.upper()}")
+-        return json.loads(raw) if raw else {}
++        """
++        Get SMT snapshot for symbol.
++
++        We also merge a sidecar key `SMT_SNAP_EXTRA_PREFIX` (default: smt:snap_extra:)
++        to carry additional features without changing core SymbolSnapshot schema.
++        """
++        sym_u = sym.upper()
++        key = f"{self.cfg.snap_prefix}{sym_u}"
++        extra_key = f"{os.getenv('SMT_SNAP_EXTRA_PREFIX', 'smt:snap_extra:')}{sym_u}"
++        raw, raw_extra = await self.r.mget(key, extra_key)
++        base = json.loads(raw) if raw else {}
++        if raw_extra:
++            try:
++                extra = json.loads(raw_extra)
++                if isinstance(extra, dict):
++                    for k, v in extra.items():
++                        base.setdefault(k, v)
++            except Exception:
++                pass
++        return base
+ 
+     async def _get_bundle(self, bid: str) -> Dict[str, Any]:
+         d = await self.r.hgetall(f"{self.cfg.bundle_prefix}{bid}")
+@@ -374,6 +393,25 @@
+ 
+         grp = str(cand.get("ab_group") or "default").lower()
+         snap, bundle = await self._get_context(cand)
++
++        # Phase E (P4): manipulation overlay (sidecar snap_extra)
++        # Policy:
++        #   - monitor/tighten: annotate-only (do not block entry)
++        #   - hard/veto: deny entry to avoid predictable adverse execution.
++        try:
++            ok_manip, manip_reason = manip_gate_ok(snap)
++            if not ok_manip:
++                await self._audit(
++                    now_ms=_now_ms(), cand=cand, ok=False,
++                    reason_code=str(manip_reason),
++                    notes="manip_gate",
++                    snap=snap, bundle=bundle, ovr=None
++                )
++                return
++            if manip_reason and str(manip_reason).startswith("monitor:"):
++                cand.setdefault("payload", {}).setdefault("manip_notes", str(manip_reason))
++        except Exception:
++            pass
+         scn = str(bundle.get("decision", "na")).lower()
+         
+         await self._maybe_poll_overrides(now, cand=cand, snap=snap, bundle=bundle)
+diff --git a/services/orderflow/message_rate.py b/services/orderflow/message_rate.py
+new file mode 100644
+--- /dev/null
++++ b/services/orderflow/message_rate.py
+@@ -0,0 +1,216 @@
++from __future__ import annotations
++
++"""
++Message-rate / OTR trackers (Phase E, P4)
++
++Why this module exists
++----------------------
++Mature trading systems treat "market data message health" and "order-to-trade-like"
++ratios as first-class signals for microstructure risk:
++
++- Quote stuffing / burstiness: book update rate spikes often correlate with degraded
++  execution quality, higher slippage, and higher stale-book probability.
++- OTR (order-to-trade ratio) is widely used as a proxy for excessive message churn.
++  On venues where we only see L2/aggTrade, we approximate:
++      OTR ≈ (book_update_msgs/sec) / (trade_msgs/sec)
++
++Design principles
++-----------------
++- Hot-path safe: O(1) per event, robust stats updated at 1Hz, not per message.
++- Deterministic time: consumes epoch-ms timestamps (UTC).
++- Fail-open: if timestamps are missing, we do nothing.
++- Low latency: uses bounded deques and occasional (1Hz) median/MAD recomputation.
++
++We use rolling median/MAD to compute robust z-scores on per-second rates, because
++rates are heavy-tailed and non-Gaussian during market stress.
++"""
++
++import math
++import statistics
++from dataclasses import dataclass, field
++from collections import deque
++from typing import Deque, Optional, Tuple
++
++
++_EPS = 1e-9
++_MAD_SCALE = 1.4826  # MAD -> robust std estimate for normal data
++
++
++@dataclass
++class RollingMedianMAD:
++    """Rolling median/MAD over a bounded window.
++
++    Updated at low frequency (1Hz recommended).
++    """
++    window: int = 120
++    values: Deque[float] = field(default_factory=deque)
++
++    def push(self, x: float) -> None:
++        try:
++            xf = float(x)
++        except Exception:
++            return
++        if not math.isfinite(xf):
++            return
++        self.values.append(xf)
++        while len(self.values) > int(self.window):
++            self.values.popleft()
++
++    def median_mad(self) -> Tuple[float, float]:
++        if not self.values:
++            return 0.0, 0.0
++        vals = list(self.values)
++        med = float(statistics.median(vals))
++        mad = float(statistics.median([abs(v - med) for v in vals])) if vals else 0.0
++        return med, mad
++
++    def zscore(self, x: float) -> float:
++        med, mad = self.median_mad()
++        scale = _MAD_SCALE * (mad if mad > _EPS else 0.0)
++        if scale <= _EPS:
++            return 0.0
++        return float((float(x) - med) / scale)
++
++
++@dataclass
++class MessageRateTracker:
++    """Tracks book/trade message rates and OTR.
++
++    We maintain per-second counters and update EMA + robust z on bucket rotation.
++    """
++    alpha: float = 0.20
++    window: int = 120
++
++    # Current second bucket
++    _sec_book: int = 0
++    _sec_trade: int = 0
++    _book_cnt: int = 0
++    _trade_cnt: int = 0
++
++    # EMA rates (msgs/sec)
++    book_update_rate_hz: float = 0.0
++    trade_msg_rate_hz: float = 0.0
++
++    # Robust z on per-second rates
++    book_update_rate_z: float = 0.0
++    trade_msg_rate_z: float = 0.0
++
++    # Cancel-rate (qty/sec) robust z (optional input from L3-lite)
++    cancel_rate_ema: float = 0.0
++    cancel_rate_z: float = 0.0
++
++    # OTR proxy: book_msgs/sec divided by trade_msgs/sec
++    otr: float = 0.0
++    otr_z: float = 0.0
++
++    # Internals
++    _rm_book: RollingMedianMAD = field(default_factory=lambda: RollingMedianMAD(window=120))
++    _rm_trade: RollingMedianMAD = field(default_factory=lambda: RollingMedianMAD(window=120))
++    _rm_cancel: RollingMedianMAD = field(default_factory=lambda: RollingMedianMAD(window=120))
++    _rm_otr: RollingMedianMAD = field(default_factory=lambda: RollingMedianMAD(window=120))
++
++    _last_otr_sec: int = 0
++
++    def __post_init__(self) -> None:
++        self.alpha = max(0.01, min(0.5, float(self.alpha)))
++        w = int(self.window)
++        if w < 30:
++            w = 30
++        self.window = w
++        self._rm_book.window = w
++        self._rm_trade.window = w
++        self._rm_cancel.window = w
++        self._rm_otr.window = w
++
++    @staticmethod
++    def _sec(ts_ms: int) -> int:
++        return int(ts_ms) // 1000
++
++    def on_book_msg(self, ts_ms: int) -> None:
++        """Call on each processed book snapshot/update."""
++        if ts_ms <= 0:
++            return
++        sec = self._sec(ts_ms)
++        if self._sec_book <= 0:
++            self._sec_book = sec
++        if sec != self._sec_book:
++            self._rotate_book(sec)
++        self._book_cnt += 1
++
++    def on_trade_msg(self, ts_ms: int) -> None:
++        """Call on each processed trade message (aggTrade / tick)."""
++        if ts_ms <= 0:
++            return
++        sec = self._sec(ts_ms)
++        if self._sec_trade <= 0:
++            self._sec_trade = sec
++        if sec != self._sec_trade:
++            self._rotate_trade(sec)
++        self._trade_cnt += 1
++
++    def observe_cancel_rate_ema(self, ts_ms: int, cancel_rate_ema: float) -> None:
++        """Optional: feed aggregated cancel rate (qty/sec) from L3-lite snapshot.
++
++        We update robust z at 1Hz similarly to msg rates (bucketed by event time).
++        """
++        if ts_ms <= 0:
++            return
++        sec = self._sec(ts_ms)
++        # We update cancel robust stats on the same cadence as book rotation
++        if self._sec_book <= 0:
++            self._sec_book = sec
++        if sec != self._sec_book:
++            # ensure rotations happen before we store cancel snapshot (keeps temporal alignment)
++            self._rotate_book(sec)
++        try:
++            cr = float(cancel_rate_ema or 0.0)
++        except Exception:
++            cr = 0.0
++        if not math.isfinite(cr):
++            cr = 0.0
++        self.cancel_rate_ema = cr
++        # push once per second (only when sec changes)
++        if sec != self._last_otr_sec:
++            self._rm_cancel.push(cr)
++            self.cancel_rate_z = float(self._rm_cancel.zscore(cr))
++
++    def _rotate_book(self, new_sec: int) -> None:
++        # Fill gaps with zeros (bounded) to keep baseline stable after reconnects.
++        gap = max(1, min(10, int(new_sec - self._sec_book)))
++        # last bucket rate = count / 1s (we normalize per second)
++        rate = float(self._book_cnt) / 1.0
++        # push previous bucket + zeros for missing seconds beyond 1
++        self._rm_book.push(rate)
++        for _ in range(gap - 1):
++            self._rm_book.push(0.0)
++        self.book_update_rate_z = float(self._rm_book.zscore(rate))
++        self.book_update_rate_hz = (1.0 - self.alpha) * float(self.book_update_rate_hz) + self.alpha * rate
++        self._book_cnt = 0
++        self._sec_book = int(new_sec)
++        self._maybe_update_otr(int(new_sec))
++
++    def _rotate_trade(self, new_sec: int) -> None:
++        gap = max(1, min(10, int(new_sec - self._sec_trade)))
++        rate = float(self._trade_cnt) / 1.0
++        self._rm_trade.push(rate)
++        for _ in range(gap - 1):
++            self._rm_trade.push(0.0)
++        self.trade_msg_rate_z = float(self._rm_trade.zscore(rate))
++        self.trade_msg_rate_hz = (1.0 - self.alpha) * float(self.trade_msg_rate_hz) + self.alpha * rate
++        self._trade_cnt = 0
++        self._sec_trade = int(new_sec)
++        self._maybe_update_otr(int(new_sec))
++
++    def _maybe_update_otr(self, sec: int) -> None:
++        """Update OTR once per second when either stream rotates."""
++        if sec <= 0:
++            return
++        if sec == self._last_otr_sec:
++            return
++        self._last_otr_sec = sec
++        tr = float(self.trade_msg_rate_hz)
++        br = float(self.book_update_rate_hz)
++        otr = br / max(tr, 1.0)  # trade rate can be 0 for illiquid symbols; cap denominator to avoid inf
++        self.otr = float(otr)
++        self._rm_otr.push(float(otr))
++        self.otr_z = float(self._rm_otr.zscore(float(otr)))
+diff --git a/services/orderflow/manip_patterns.py b/services/orderflow/manip_patterns.py
+new file mode 100644
+--- /dev/null
++++ b/services/orderflow/manip_patterns.py
+@@ -0,0 +1,217 @@
++from __future__ import annotations
++
++"""
++Manipulative / destructive pattern proxies (Phase E, P4)
++
++We avoid heavy L3 surveillance logic here. The goal is to provide:
++- lightweight, explainable heuristics that correlate with execution risk
++- bounded compute suitable for hot path
++
++Signals implemented:
++1) quote_stuffing_score:
++   Derived from message rate burstiness and cancellation burstiness.
++2) layering_score (L2 approximation):
++   Detects "ladder build" (visible depth distributed across several levels)
++   followed by a quick revert, under low trade activity.
++3) OTR spike:
++   book_msgs/sec divided by trade_msgs/sec.
++
++These are proxies: they should *tighten* execution cost in strict profiles,
++and only become hard vetoes when combined with other evidence (e.g. TCA).
++"""
++
++import math
++from dataclasses import dataclass, field
++from typing import Dict, List, Optional, Tuple
++
++from services.orderflow.message_rate import MessageRateTracker
++
++
++def _safe_f(x: object, d: float = 0.0) -> float:
++    try:
++        v = float(x)  # type: ignore[arg-type]
++    except Exception:
++        return float(d)
++    if not math.isfinite(v):
++        return float(d)
++    return float(v)
++
++
++def _mid_from_bbo(bid: float, ask: float) -> float:
++    if bid > 0 and ask > 0:
++        return 0.5 * (bid + ask)
++    return 0.0
++
++
++def _notional(levels: List[Tuple[float, float]], mid: float, exclude_best: bool) -> float:
++    if mid <= 0:
++        return 0.0
++    out = 0.0
++    for i, (px, qty) in enumerate(levels or []):
++        if exclude_best and i == 0:
++            continue
++        try:
++            out += float(qty) * float(px)
++        except Exception:
++            continue
++    return float(out)
++
++
++def _ladder_ratio(levels: List[Tuple[float, float]], mid: float) -> float:
++    """Ratio of off-top visible notional to total top5 notional."""
++    tot = _notional(levels, mid, exclude_best=False)
++    off = _notional(levels, mid, exclude_best=True)
++    if tot <= 1e-9:
++        return 0.0
++    return float(off / tot)
++
++
++@dataclass
++class ManipulationTracker:
++    """Stateful L2 proxy detector for layering + quote stuffing.
++
++    State is per (symbol,venue) via the SymbolRuntime instance.
++    """
++    # thresholds (tunable)
++    layering_build_mult: float = 1.6     # ladder mass must exceed baseline by this factor
++    layering_ratio_min: float = 0.45     # off-top mass fraction
++    layering_revert_frac: float = 0.35   # revert below peak * frac to count as pull
++    layering_revert_ms: int = 900        # max time between build and revert
++    layering_min_peak_usd: float = 5_000 # ignore tiny books
++
++    quote_msg_z_thr: float = 4.0
++    quote_cancel_z_thr: float = 3.5
++
++    # trade activity guard: layering under low trade msg rate is more suspicious
++    trade_rate_low_hz: float = 2.0
++
++    # EMA baselines
++    ema_alpha: float = 0.05
++    ladder_bid_ema_usd: float = 0.0
++    ladder_ask_ema_usd: float = 0.0
++
++    # state machine
++    _armed_side: str = ""   # "bid"|"ask"|"" 
++    _armed_ts_ms: int = 0
++    _armed_peak_usd: float = 0.0
++
++    # outputs
++    layering_score: float = 0.0
++    quote_stuffing_score: float = 0.0
++    flags: List[str] = field(default_factory=list)
++
++    def update_from_book(
++        self,
++        *,
++        ts_ms: int,
++        bids: List[Tuple[float, float]],
++        asks: List[Tuple[float, float]],
++        best_bid: float,
++        best_ask: float,
++        msg: MessageRateTracker,
++    ) -> Dict[str, object]:
++        """Update tracker on each book snapshot.
++
++        Returns a dict of *compact* outputs to be inserted into indicators/ctx.
++        """
++        self.flags = []
++        if ts_ms <= 0:
++            return self._out(ts_ms)
++
++        mid = _mid_from_bbo(_safe_f(best_bid), _safe_f(best_ask))
++        if mid <= 0:
++            self.flags.append("bad_mid")
++            return self._out(ts_ms)
++
++        # 1) Quote stuffing score (continuous)
++        self.quote_stuffing_score = self._quote_stuffing_score(msg)
++
++        if self.quote_stuffing_score > 0:
++            self.flags.append("quote_stuff")
++
++        # 2) Layering / ladder build & pull
++        self._update_layering(ts_ms=ts_ms, bids=bids, asks=asks, mid=mid, msg=msg)
++
++        if self.layering_score > 0:
++            self.flags.append("layering")
++
++        return self._out(ts_ms)
++
++    def _quote_stuffing_score(self, msg: MessageRateTracker) -> float:
++        mz = float(getattr(msg, "book_update_rate_z", 0.0) or 0.0)
++        cz = float(getattr(msg, "cancel_rate_z", 0.0) or 0.0)
++        s = 0.0
++        if mz > self.quote_msg_z_thr:
++            s += (mz - self.quote_msg_z_thr)
++        if cz > self.quote_cancel_z_thr:
++            s += 0.75 * (cz - self.quote_cancel_z_thr)
++        return float(max(0.0, min(10.0, s)))
++
++    def _update_layering(self, *, ts_ms: int, bids, asks, mid: float, msg: MessageRateTracker) -> None:
++        bid_ladder = _notional(bids, mid, exclude_best=True)
++        ask_ladder = _notional(asks, mid, exclude_best=True)
++        bid_ratio = _ladder_ratio(bids, mid)
++        ask_ratio = _ladder_ratio(asks, mid)
++
++        # Update EMA baselines (slow)
++        a = float(self.ema_alpha)
++        self.ladder_bid_ema_usd = (1.0 - a) * float(self.ladder_bid_ema_usd) + a * float(bid_ladder)
++        self.ladder_ask_ema_usd = (1.0 - a) * float(self.ladder_ask_ema_usd) + a * float(ask_ladder)
++
++        # Determine if we should arm a side
++        tr_hz = float(getattr(msg, "trade_msg_rate_hz", 0.0) or 0.0)
++        low_trade = bool(tr_hz <= float(self.trade_rate_low_hz))
++
++        def _arm(side: str, peak: float) -> None:
++            self._armed_side = side
++            self._armed_ts_ms = int(ts_ms)
++            self._armed_peak_usd = float(peak)
++
++        def _disarm() -> None:
++            self._armed_side = ""
++            self._armed_ts_ms = 0
++            self._armed_peak_usd = 0.0
++
++        # If already armed, check revert/timeout
++        if self._armed_side:
++            age = int(ts_ms - self._armed_ts_ms)
++            if age > int(self.layering_revert_ms):
++                _disarm()
++            else:
++                curr = bid_ladder if self._armed_side == "bid" else ask_ladder
++                if curr <= float(self._armed_peak_usd) * float(self.layering_revert_frac):
++                    # layering hit: built then pulled quickly
++                    # score scaled by peak size and revert strength
++                    peak = max(_safe_f(self._armed_peak_usd), 1.0)
++                    drop_frac = max(0.0, min(1.0, (peak - curr) / peak))
++                    size_boost = min(1.0, peak / max(float(self.layering_min_peak_usd), 1.0))
++                    self.layering_score = float(max(self.layering_score, 10.0 * drop_frac * size_boost))
++                    _disarm()
++                return
++
++        # Not armed: detect build on either side
++        if not low_trade:
++            # Under high trade activity, visible depth oscillations are less suspicious.
++            self.layering_score = 0.0
++            return
++
++        # Bid side build
++        if bid_ladder >= float(self.layering_min_peak_usd) and self.ladder_bid_ema_usd > 1e-6:
++            if (bid_ladder >= float(self.ladder_bid_ema_usd) * float(self.layering_build_mult) and bid_ratio >= float(self.layering_ratio_min)):
++                _arm("bid", bid_ladder)
++
++        # Ask side build
++        if ask_ladder >= float(self.layering_min_peak_usd) and self.ladder_ask_ema_usd > 1e-6:
++            if (ask_ladder >= float(self.ladder_ask_ema_usd) * float(self.layering_build_mult) and ask_ratio >= float(self.layering_ratio_min)):
++                _arm("ask", ask_ladder)
++
++        # decay if nothing happened
++        self.layering_score = float(max(0.0, self.layering_score * 0.85))
++
++    def _out(self, ts_ms: int) -> Dict[str, object]:
++        return {
++            "manip_ts_ms": int(ts_ms or 0),
++            "quote_stuffing_score": float(self.quote_stuffing_score or 0.0),
++            "layering_score": float(self.layering_score or 0.0),
++            "manip_flags": ",".join(self.flags or []),
++        }
+diff --git a/services/orderflow/tests/test_message_rate_tracker_p4_v1.py b/services/orderflow/tests/test_message_rate_tracker_p4_v1.py
+new file mode 100644
+--- /dev/null
++++ b/services/orderflow/tests/test_message_rate_tracker_p4_v1.py
+@@ -0,0 +1,67 @@
++"""
++Phase E (P4) unit tests: MessageRateTracker
++
++These tests are deterministic and do not require Redis.
++"""
++
++import os
++import sys
++import math
++
++# Ensure repo root is importable
++_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
++if _ROOT not in sys.path:
++    sys.path.insert(0, _ROOT)
++
++from services.orderflow.message_rate import MessageRateTracker
++
++
++class TestMessageRateTracker:
++    def test_basic_rates_and_otr(self):
++        mr = MessageRateTracker(alpha=0.5, window=60)
++
++        # Simulate 3 seconds:
++        # sec 1: 10 book msgs, 2 trade msgs
++        # sec 2: 0 book msgs, 2 trade msgs
++        # sec 3: 6 book msgs, 1 trade msg
++        base = 1_700_000_000_000  # ms
++        # sec1
++        for i in range(10):
++            mr.on_book_msg(base + 100 + i)
++        for i in range(2):
++            mr.on_trade_msg(base + 200 + i)
++        # rotate by jumping to next second
++        mr.on_book_msg(base + 1100)
++        mr.on_trade_msg(base + 1100)
++
++        assert mr.book_update_rate_hz >= 0.0
++        assert mr.trade_msg_rate_hz >= 0.0
++        assert mr.otr >= 0.0
++
++        # sec2 (book=0, trade=2)
++        for i in range(2):
++            mr.on_trade_msg(base + 2100 + i)
++        mr.on_trade_msg(base + 3100)  # rotate to sec3
++
++        # sec3 (book=6, trade=1)
++        for i in range(6):
++            mr.on_book_msg(base + 3100 + 10 + i)
++        mr.on_trade_msg(base + 3100 + 30)
++
++        # rotate out
++        mr.on_book_msg(base + 4100)
++
++        # OTR should be finite (denom capped)
++        assert math.isfinite(mr.otr)
++        assert mr.otr >= 0.0
++
++    def test_cancel_rate_z_updates(self):
++        mr = MessageRateTracker(alpha=0.2, window=30)
++        base = 1_700_000_010_000
++        # Build baseline
++        for s in range(35):
++            ts = base + s * 1000
++            mr.observe_cancel_rate_ema(ts, 1.0)
++        # Spike
++        mr.observe_cancel_rate_ema(base + 36_000, 20.0)
++        assert math.isfinite(mr.cancel_rate_z)
+diff --git a/services/orderflow/tests/test_manip_patterns_p4_v1.py b/services/orderflow/tests/test_manip_patterns_p4_v1.py
+new file mode 100644
+--- /dev/null
++++ b/services/orderflow/tests/test_manip_patterns_p4_v1.py
+@@ -0,0 +1,68 @@
++"""
++Phase E (P4) unit tests: ManipulationTracker
++
++We test:
++- quote stuffing score > 0 when msg_rate_z and cancel_rate_z exceed thresholds
++- layering score triggers on build->pull under low trade rate
++"""
++
++import os
++import sys
++import math
++
++_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
++if _ROOT not in sys.path:
++    sys.path.insert(0, _ROOT)
++
++from services.orderflow.message_rate import MessageRateTracker
++from services.orderflow.manip_patterns import ManipulationTracker
++
++
++class TestManipulationTracker:
++    def test_quote_stuffing_score(self):
++        mr = MessageRateTracker(alpha=0.2, window=60)
++        # fake elevated z-scores
++        mr.book_update_rate_z = 6.0
++        mr.cancel_rate_z = 5.0
++
++        mp = ManipulationTracker(quote_msg_z_thr=4.0, quote_cancel_z_thr=3.5)
++        out = mp.update_from_book(
++            ts_ms=1_700_000_000_000,
++            bids=[(100.0, 1.0)]*5,
++            asks=[(101.0, 1.0)]*5,
++            best_bid=100.0,
++            best_ask=101.0,
++            msg=mr,
++        )
++        assert float(out["quote_stuffing_score"]) > 0.0
++        assert "quote_stuff" in str(out["manip_flags"])
++
++    def test_layering_build_and_pull(self):
++        mr = MessageRateTracker(alpha=0.2, window=60)
++        mr.trade_msg_rate_hz = 0.5  # low trade activity
++
++        mp = ManipulationTracker(
++            layering_build_mult=1.2,
++            layering_ratio_min=0.3,
++            layering_revert_frac=0.4,
++            layering_revert_ms=1000,
++            layering_min_peak_usd=100.0,
++            trade_rate_low_hz=2.0,
++        )
++
++        ts0 = 1_700_000_100_000
++        # baseline small ladder
++        bids0 = [(100.0, 1.0), (99.9, 0.2), (99.8, 0.2), (99.7, 0.2), (99.6, 0.2)]
++        asks0 = [(100.1, 1.0), (100.2, 0.2), (100.3, 0.2), (100.4, 0.2), (100.5, 0.2)]
++        mp.update_from_book(ts_ms=ts0, bids=bids0, asks=asks0, best_bid=100.0, best_ask=100.1, msg=mr)
++
++        # build: ladder mass increases
++        bids1 = [(100.0, 1.0), (99.9, 5.0), (99.8, 5.0), (99.7, 5.0), (99.6, 5.0)]
++        mp.update_from_book(ts_ms=ts0+200, bids=bids1, asks=asks0, best_bid=100.0, best_ask=100.1, msg=mr)
++
++        # pull quickly
++        bids2 = [(100.0, 1.0), (99.9, 0.1), (99.8, 0.1), (99.7, 0.1), (99.6, 0.1)]
++        out = mp.update_from_book(ts_ms=ts0+600, bids=bids2, asks=asks0, best_bid=100.0, best_ask=100.1, msg=mr)
++
++        assert math.isfinite(float(out["layering_score"]))
++        assert float(out["layering_score"]) > 0.0

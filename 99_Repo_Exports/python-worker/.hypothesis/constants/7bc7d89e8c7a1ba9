@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/v13_runtime_tracker.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-12, 1e-06, 0.34, 0.5, 1.0, 1.34, 2.0, 4.0, 10.0, 100.0, 10000.0, 100, 'BUY', '_adf_cache_ts', '_bar_buf', '_buy_vol_buf', '_depth_post_times', '_depth_pre_sweep', '_depth_recovery_buf', '_last_book_mid', '_mid_vwap_diff_buf', '_pin_cache_ts', '_price_buf', '_return_buf', '_sell_vol_buf', '_side_buf', '_size_buf', '_sweep_level_count', '_total_trade_count', '_vol_bps_buf', '_volume_buf', 'adf_pvalue_50', 'amihud_illiquidity', 'c', 'close', 'end_ts_ms', 'garman_klass_vol', 'hasbrouck_info_share', 'high', 'kyle_lambda_buy', 'kyle_lambda_sell', 'low', 'mid_vwap_diff_std', 'open', 'order_size_gini', 'parkinson_vol', 'pin_estimate', 'price_entropy_50', 'vol', 'vol_of_vol', 'volume', 'vwap', 'yang_zhang_vol']

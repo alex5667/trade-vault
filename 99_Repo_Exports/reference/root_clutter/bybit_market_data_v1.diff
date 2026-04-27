@@ -1,0 +1,790 @@
+diff -ruN /mnt/data/repo_orig/go-worker/.env.example /mnt/data/repo/go-worker/.env.example
+--- /mnt/data/repo_orig/go-worker/.env.example	2026-02-28 07:10:30.000000000 +0000
++++ /mnt/data/repo/go-worker/.env.example	2026-03-05 16:23:40.131551924 +0000
+@@ -37,3 +37,22 @@
+ # LIQ_DEDUP_ENABLED=true
+ # LIQ_DEDUP_TTL_MS=60000
+ # LIQ_DEDUP_MAX_KEYS=20000
++
++# --- Market Data snapshots (REST, hourly) ---
++# Включается внутри cmd/worker через ENABLE_DATA_COLLECTION=true.
++# Binance сбор данных (тикеры+funding) — как и раньше.
++# Bybit — опционально:
++#
++# ENABLE_DATA_COLLECTION=true
++# BYBIT_DATA_COLLECTION_ENABLED=true
++#
++# Bybit REST base URL (prod/testnet)
++# BYBIT_BASE_URL=https://api.bybit.com
++#
++# Toggle конкретных типов данных
++# BYBIT_TICKERS_ENABLED=true
++# BYBIT_FUNDING_ENABLED=true
++#
++# Funding on Bybit requires symbol (allowlist)
++# BYBIT_FUNDING_SYMBOLS=BTCUSDT,ETHUSDT
++# BYBIT_FUNDING_MAX_CONCURRENCY=5
+diff -ruN /mnt/data/repo_orig/go-worker/bybit/api_client.go /mnt/data/repo/go-worker/bybit/api_client.go
+--- /mnt/data/repo_orig/go-worker/bybit/api_client.go	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo/go-worker/bybit/api_client.go	2026-03-05 16:25:25.116572223 +0000
+@@ -0,0 +1,390 @@
++package bybit
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"io"
++	"log"
++	"net"
++	"net/http"
++	"net/url"
++	"os"
++	"strings"
++	"sync"
++	"time"
++
++	"go-worker/internal/monitoring"
++)
++
++// Bybit V5 Market Data REST.
++// Документация:
++//   - Get Tickers: /v5/market/tickers (category=linear|inverse|spot|option)
++//   - Get Funding Rate History: /v5/market/funding/history (category=linear|inverse, symbol required)
++//
++// ВАЖНО:
++// - В отличие от Binance, funding history на Bybit требует symbol → поэтому
++//   мы запрашиваем funding rate только по списку BYBIT_FUNDING_SYMBOLS.
++// - Для «все тикеры за 24ч» используем /v5/market/tickers?category=linear.
++
++const (
++	DefaultBaseURL = "https://api.bybit.com"
++
++	// Redis streams
++	TICKER_24H_STREAM  = "stream:bybit:ticker-24h"
++	FUNDING_RATE_STREAM = "stream:bybit:funding-rate"
++)
++
++// APIClient — клиент Bybit REST API для публичных market endpoints.
++// Не использует ключи, только публичные вызовы.
++type APIClient struct {
++	baseURL    string
++	httpClient *http.Client
++	publisher  *StreamPublisher
++}
++
++// NewAPIClient создаёт Bybit API client.
++// ENV:
++//   BYBIT_BASE_URL           (default https://api.bybit.com)
++//   BYBIT_HTTP_TIMEOUT       (default 10s)
++//   BYBIT_HTTP_KEEPALIVE     (default 30s)
++//   BYBIT_HTTP_IDLE_CONN     (default 90s)
++//   BYBIT_HTTP_MAX_IDLE_CONS (default 50)
++func NewAPIClient() *APIClient {
++	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("BYBIT_BASE_URL")), "/")
++	if baseURL == "" {
++		baseURL = DefaultBaseURL
++	}
++
++	timeout := getEnvDuration("BYBIT_HTTP_TIMEOUT", 10*time.Second)
++	keepAlive := getEnvDuration("BYBIT_HTTP_KEEPALIVE", 30*time.Second)
++	idleConnTimeout := getEnvDuration("BYBIT_HTTP_IDLE_CONN", 90*time.Second)
++	maxIdleConns := getEnvInt("BYBIT_HTTP_MAX_IDLE_CONS", 50)
++
++	transport := &http.Transport{
++		Proxy: http.ProxyFromEnvironment,
++		DialContext: (&net.Dialer{
++			Timeout:   timeout,
++			KeepAlive: keepAlive,
++		}).DialContext,
++		MaxIdleConns:          maxIdleConns,
++		MaxIdleConnsPerHost:   maxIdleConns,
++		IdleConnTimeout:       idleConnTimeout,
++		TLSHandshakeTimeout:   5 * time.Second,
++		ExpectContinueTimeout: 1 * time.Second,
++		ForceAttemptHTTP2:     true,
++	}
++
++	return &APIClient{
++		baseURL: baseURL,
++		httpClient: &http.Client{
++			Timeout:   timeout,
++			Transport: transport,
++		},
++		publisher: NewStreamPublisher(),
++	}
++}
++
++// Ticker24h — часть payload'а /v5/market/tickers (Linear/Inverse).
++// Храним строки как есть (без float), чтобы не терять точность и не ломать контракт.
++type Ticker24h struct {
++	Symbol            string `json:"symbol"`
++	LastPrice         string `json:"lastPrice"`
++	PrevPrice24h      string `json:"prevPrice24h"`
++	Price24hPcnt      string `json:"price24hPcnt"`
++	HighPrice24h      string `json:"highPrice24h"`
++	LowPrice24h       string `json:"lowPrice24h"`
++	Volume24h         string `json:"volume24h"`
++	Turnover24h       string `json:"turnover24h"`
++	OpenInterest      string `json:"openInterest"`
++	OpenInterestValue string `json:"openInterestValue"`
++	FundingRate       string `json:"fundingRate"`
++	NextFundingTime   string `json:"nextFundingTime"`
++	Bid1Price         string `json:"bid1Price"`
++	Bid1Size          string `json:"bid1Size"`
++	Ask1Price         string `json:"ask1Price"`
++	Ask1Size          string `json:"ask1Size"`
++}
++
++type tickersResp struct {
++	RetCode int    `json:"retCode"`
++	RetMsg  string `json:"retMsg"`
++	Result  struct {
++		Category string      `json:"category"`
++		List     []Ticker24h `json:"list"`
++	} `json:"result"`
++	Time int64 `json:"time"` // server time in ms
++}
++
++// FundingRatePoint — элемент ответа /v5/market/funding/history.
++type FundingRatePoint struct {
++	Symbol                string `json:"symbol"`
++	FundingRate           string `json:"fundingRate"`
++	FundingRateTimestamp  string `json:"fundingRateTimestamp"` // ms as string per docs
++}
++
++type fundingHistoryResp struct {
++	RetCode int    `json:"retCode"`
++	RetMsg  string `json:"retMsg"`
++	Result  struct {
++		Category string             `json:"category"`
++		List     []FundingRatePoint `json:"list"`
++	} `json:"result"`
++	Time int64 `json:"time"`
++}
++
++// Fetch24hTickers возвращает 24h тикеры (snapshot) для linear.
++// Возвращаем также tsMs (server time), чтобы downstream мог иметь детерминизм.
++func (c *APIClient) Fetch24hTickers(ctx context.Context) ([]Ticker24h, int64, error) {
++	if c == nil {
++		return nil, 0, fmt.Errorf("nil bybit client")
++	}
++
++	u, err := url.Parse(c.baseURL + "/v5/market/tickers")
++	if err != nil {
++		return nil, 0, fmt.Errorf("parse base url: %w", err)
++	}
++	q := u.Query()
++	q.Set("category", "linear")
++	u.RawQuery = q.Encode()
++
++	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
++	if err != nil {
++		return nil, 0, fmt.Errorf("create request: %w", err)
++	}
++
++	resp, err := c.httpClient.Do(req)
++	if err != nil {
++		monitoring.RecordBybitRest("/v5/market/tickers", false)
++		return nil, 0, fmt.Errorf("http do: %w", err)
++	}
++	defer resp.Body.Close()
++
++	body, err := io.ReadAll(resp.Body)
++	if err != nil {
++		return nil, 0, fmt.Errorf("read body: %w", err)
++	}
++	if resp.StatusCode != http.StatusOK {
++		monitoring.RecordBybitRest("/v5/market/tickers", false)
++		return nil, 0, fmt.Errorf("bybit tickers bad status: %d body=%s", resp.StatusCode, string(body))
++	}
++
++	var decoded tickersResp
++	if err := json.Unmarshal(body, &decoded); err != nil {
++		monitoring.RecordBybitRest("/v5/market/tickers", false)
++		return nil, 0, fmt.Errorf("decode tickers: %w", err)
++	}
++	if decoded.RetCode != 0 {
++		monitoring.RecordBybitRest("/v5/market/tickers", false)
++		return nil, decoded.Time, fmt.Errorf("bybit tickers retCode=%d retMsg=%s", decoded.RetCode, decoded.RetMsg)
++	}
++
++	monitoring.RecordBybitRest("/v5/market/tickers", true)
++
++	ts := decoded.Time
++	if ts <= 0 {
++		ts = time.Now().UnixMilli()
++	}
++
++	return decoded.Result.List, ts, nil
++}
++
++// FetchFundingRateLatest запрашивает последнюю запись funding rate для одного символа.
++func (c *APIClient) FetchFundingRateLatest(ctx context.Context, symbol string) (*FundingRatePoint, int64, error) {
++	if c == nil {
++		return nil, 0, fmt.Errorf("nil bybit client")
++	}
++	symbol = strings.ToUpper(strings.TrimSpace(symbol))
++	if symbol == "" {
++		return nil, 0, fmt.Errorf("empty symbol")
++	}
++
++	u, err := url.Parse(c.baseURL + "/v5/market/funding/history")
++	if err != nil {
++		return nil, 0, fmt.Errorf("parse base url: %w", err)
++	}
++	q := u.Query()
++	q.Set("category", "linear")
++	q.Set("symbol", symbol)
++	q.Set("limit", "1")
++	u.RawQuery = q.Encode()
++
++	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
++	if err != nil {
++		return nil, 0, fmt.Errorf("create request: %w", err)
++	}
++
++	resp, err := c.httpClient.Do(req)
++	if err != nil {
++		monitoring.RecordBybitRest("/v5/market/funding/history", false)
++		return nil, 0, fmt.Errorf("http do: %w", err)
++	}
++	defer resp.Body.Close()
++
++	body, err := io.ReadAll(resp.Body)
++	if err != nil {
++		return nil, 0, fmt.Errorf("read body: %w", err)
++	}
++	if resp.StatusCode != http.StatusOK {
++		monitoring.RecordBybitRest("/v5/market/funding/history", false)
++		return nil, 0, fmt.Errorf("bybit funding bad status: %d body=%s", resp.StatusCode, string(body))
++	}
++
++	var decoded fundingHistoryResp
++	if err := json.Unmarshal(body, &decoded); err != nil {
++		monitoring.RecordBybitRest("/v5/market/funding/history", false)
++		return nil, 0, fmt.Errorf("decode funding: %w", err)
++	}
++	if decoded.RetCode != 0 {
++		monitoring.RecordBybitRest("/v5/market/funding/history", false)
++		return nil, decoded.Time, fmt.Errorf("bybit funding retCode=%d retMsg=%s", decoded.RetCode, decoded.RetMsg)
++	}
++	monitoring.RecordBybitRest("/v5/market/funding/history", true)
++
++	ts := decoded.Time
++	if ts <= 0 {
++		ts = time.Now().UnixMilli()
++	}
++
++	if len(decoded.Result.List) == 0 {
++		return nil, ts, nil
++	}
++	pt := decoded.Result.List[0]
++	if pt.Symbol == "" {
++		pt.Symbol = symbol
++	}
++	return &pt, ts, nil
++}
++
++// FetchAndPublishMarketData — Bybit аналог binance.FetchAndPublishMarketData.
++// Публикует:
++//  - stream:bybit:ticker-24h  (все linear тикеры за 24ч)
++//  - stream:bybit:funding-rate (последние funding rates по allowlist symbols)
++//
++// ENV:
++//   BYBIT_TICKERS_ENABLED           (default true)
++//   BYBIT_FUNDING_ENABLED           (default true)
++//   BYBIT_FUNDING_SYMBOLS           (default BTCUSDT,ETHUSDT)
++//   BYBIT_FUNDING_MAX_CONCURRENCY   (default 5)
++func FetchAndPublishMarketData(ctx context.Context) error {
++	client := NewAPIClient()
++
++	// По умолчанию включаем оба типа данных, но позволяем отключить точечно.
++	tickersEnabled := os.Getenv("BYBIT_TICKERS_ENABLED")
++	if tickersEnabled == "" {
++		tickersEnabled = "true"
++	}
++	fundingEnabled := os.Getenv("BYBIT_FUNDING_ENABLED")
++	if fundingEnabled == "" {
++		fundingEnabled = "true"
++	}
++
++	if tickersEnabled == "true" {
++		tickers, tsMs, err := client.Fetch24hTickers(ctx)
++		if err != nil {
++			return err
++		}
++		if err := client.publisher.PublishTicker24h(ctx, tickers, tsMs, TICKER_24H_STREAM); err != nil {
++			return err
++		}
++	}
++
++	if fundingEnabled == "true" {
++		symbols := parseSymbols(getEnv("BYBIT_FUNDING_SYMBOLS", "BTCUSDT,ETHUSDT"))
++		maxConc := getEnvInt("BYBIT_FUNDING_MAX_CONCURRENCY", 5)
++		if maxConc <= 0 {
++			maxConc = 5
++		}
++		points, tsMs, err := fetchFundingMulti(ctx, client, symbols, maxConc)
++		if err != nil {
++			// Funding — вспомогательная телеметрия: не роняем общий сбор, если
++			// тикеры отработали. Логируем и продолжаем.
++			log.Printf("⚠️ Bybit funding fetch failed: %v", err)
++		} else if len(points) > 0 {
++			_ = client.publisher.PublishFundingRates(ctx, points, tsMs, FUNDING_RATE_STREAM)
++		}
++	}
++
++	return nil
++}
++
++func fetchFundingMulti(ctx context.Context, client *APIClient, symbols []string, maxConc int) ([]FundingRatePoint, int64, error) {
++	if len(symbols) == 0 {
++		return nil, 0, nil
++	}
++
++	sem := make(chan struct{}, maxConc)
++	var wg sync.WaitGroup
++	mu := sync.Mutex{}
++	var out []FundingRatePoint
++	var lastTs int64
++	var firstErr error
++
++	for _, s := range symbols {
++		sym := s
++		if sym == "" {
++			continue
++		}
++		wg.Add(1)
++		go func() {
++			defer wg.Done()
++			select {
++			case sem <- struct{}{}:
++				defer func() { <-sem }()
++			case <-ctx.Done():
++				return
++			}
++
++			pt, ts, err := client.FetchFundingRateLatest(ctx, sym)
++			if err != nil {
++				mu.Lock()
++				if firstErr == nil {
++					firstErr = err
++				}
++				mu.Unlock()
++				return
++			}
++			if pt == nil {
++				return
++			}
++			mu.Lock()
++			out = append(out, *pt)
++			if ts > lastTs {
++				lastTs = ts
++			}
++			mu.Unlock()
++		}()
++	}
++
++	wg.Wait()
++	if lastTs <= 0 {
++		lastTs = time.Now().UnixMilli()
++	}
++	return out, lastTs, firstErr
++}
++
++func getEnv(key, def string) string {
++	v := strings.TrimSpace(os.Getenv(key))
++	if v == "" {
++		return def
++	}
++	return v
++}
++
++func parseSymbols(symbolsStr string) []string {
++	parts := strings.Split(symbolsStr, ",")
++	out := make([]string, 0, len(parts))
++	seen := make(map[string]struct{}, len(parts))
++	for _, p := range parts {
++		s := strings.ToUpper(strings.TrimSpace(p))
++		if s == "" {
++			continue
++		}
++		if _, ok := seen[s]; ok {
++			continue
++		}
++		seen[s] = struct{}{}
++		out = append(out, s)
++	}
++	return out
++}
+diff -ruN /mnt/data/repo_orig/go-worker/bybit/api_client_test.go /mnt/data/repo/go-worker/bybit/api_client_test.go
+--- /mnt/data/repo_orig/go-worker/bybit/api_client_test.go	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo/go-worker/bybit/api_client_test.go	2026-03-05 16:22:57.433537242 +0000
+@@ -0,0 +1,112 @@
++package bybit
++
++import (
++	"context"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++)
++
++func TestAPIClient_Fetch24hTickers(t *testing.T) {
++	// Fake Bybit server
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if r.URL.Path != "/v5/market/tickers" {
++			w.WriteHeader(http.StatusNotFound)
++			return
++		}
++		if got := r.URL.Query().Get("category"); got != "linear" {
++			w.WriteHeader(http.StatusBadRequest)
++			w.Write([]byte("bad category"))
++			return
++		}
++		w.Header().Set("Content-Type", "application/json")
++		w.WriteHeader(http.StatusOK)
++		w.Write([]byte(`{
++			"retCode":0,
++			"retMsg":"OK",
++			"result":{
++				"category":"linear",
++				"list":[
++					{"symbol":"BTCUSDT","lastPrice":"65000","price24hPcnt":"0.01"},
++					{"symbol":"ETHUSDT","lastPrice":"3500","price24hPcnt":"-0.02"}
++				]
++			},
++			"time":1710000000000
++		}`))
++	}))
++	defer srv.Close()
++
++	t.Setenv("BYBIT_BASE_URL", srv.URL)
++	client := NewAPIClient()
++
++	data, ts, err := client.Fetch24hTickers(context.Background())
++	if err != nil {
++		t.Fatalf("Fetch24hTickers error: %v", err)
++	}
++	if ts != 1710000000000 {
++		t.Fatalf("unexpected ts: %d", ts)
++	}
++	if len(data) != 2 {
++		t.Fatalf("expected 2 tickers, got %d", len(data))
++	}
++	if strings.ToUpper(data[0].Symbol) != "BTCUSDT" {
++		t.Fatalf("unexpected symbol: %s", data[0].Symbol)
++	}
++}
++
++func TestAPIClient_FetchFundingRateLatest(t *testing.T) {
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if r.URL.Path != "/v5/market/funding/history" {
++			w.WriteHeader(http.StatusNotFound)
++			return
++		}
++		if got := r.URL.Query().Get("category"); got != "linear" {
++			w.WriteHeader(http.StatusBadRequest)
++			w.Write([]byte("bad category"))
++			return
++		}
++		if got := r.URL.Query().Get("symbol"); got != "BTCUSDT" {
++			w.WriteHeader(http.StatusBadRequest)
++			w.Write([]byte("bad symbol"))
++			return
++		}
++		if got := r.URL.Query().Get("limit"); got != "1" {
++			w.WriteHeader(http.StatusBadRequest)
++			w.Write([]byte("bad limit"))
++			return
++		}
++		w.Header().Set("Content-Type", "application/json")
++		w.WriteHeader(http.StatusOK)
++		w.Write([]byte(`{
++			"retCode":0,
++			"retMsg":"OK",
++			"result":{
++				"category":"linear",
++				"list":[{"symbol":"BTCUSDT","fundingRate":"0.0001","fundingRateTimestamp":"1710000000000"}]
++			},
++			"time":1710000001234
++		}`))
++	}))
++	defer srv.Close()
++
++	t.Setenv("BYBIT_BASE_URL", srv.URL)
++	client := NewAPIClient()
++
++	pt, ts, err := client.FetchFundingRateLatest(context.Background(), "btcusdt")
++	if err != nil {
++		t.Fatalf("FetchFundingRateLatest error: %v", err)
++	}
++	if ts != 1710000001234 {
++		t.Fatalf("unexpected ts: %d", ts)
++	}
++	if pt == nil {
++		t.Fatalf("expected non-nil funding point")
++	}
++	if pt.Symbol != "BTCUSDT" {
++		t.Fatalf("unexpected symbol: %s", pt.Symbol)
++	}
++	if pt.FundingRate != "0.0001" {
++		t.Fatalf("unexpected funding rate: %s", pt.FundingRate)
++	}
++}
+diff -ruN /mnt/data/repo_orig/go-worker/bybit/stream_publisher.go /mnt/data/repo/go-worker/bybit/stream_publisher.go
+--- /mnt/data/repo_orig/go-worker/bybit/stream_publisher.go	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo/go-worker/bybit/stream_publisher.go	2026-03-05 16:25:38.173239829 +0000
+@@ -0,0 +1,115 @@
++package bybit
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"strings"
++	"time"
++
++	"go-worker/infra/redisclient"
++	"go-worker/internal/monitoring"
++
++	"github.com/go-redis/redis/v8"
++)
++
++// StreamPublisher — публикация market snapshots в Redis Streams.
++// Структура и поля намеренно близки к go-worker/binance/stream_publisher.go,
++// чтобы downstream мог легко потреблять данные.
++type StreamPublisher struct {
++	redisClient *redis.Client
++}
++
++func NewStreamPublisher() *StreamPublisher {
++	return &StreamPublisher{redisClient: redisclient.Client}
++}
++
++func (sp *StreamPublisher) PublishTicker24h(ctx context.Context, data []Ticker24h, snapshotTsMs int64, streamName string) error {
++	if sp == nil || sp.redisClient == nil {
++		return fmt.Errorf("redis client not initialised")
++	}
++	if streamName == "" {
++		streamName = TICKER_24H_STREAM
++	}
++
++	jsonData, err := json.Marshal(data)
++	if err != nil {
++		return fmt.Errorf("marshal tickers: %w", err)
++	}
++
++	// В отличие от Binance, timestamp берём как server time (resp.time).
++	// Если upstream не дал time, APIClient подставляет time.Now().UnixMilli().
++	values := map[string]any{
++		"data":        string(jsonData),
++		"type":        "ticker_24h",
++		"timestamp":   snapshotTsMs,
++		"count":       len(data),
++		"venue":       "bybit",
++		"category":    "linear",
++		"written_at":  time.Now().UnixMilli(),
++	}
++
++	if _, err := redisclient.XAddWithRetry(ctx, sp.redisClient, &redis.XAddArgs{
++		Stream: streamName,
++		Values: values,
++	}); err != nil {
++		monitoring.RecordBybitPublish(streamName, false)
++		return fmt.Errorf("publish tickers to %s: %w", streamName, err)
++	}
++	monitoring.RecordBybitPublish(streamName, true)
++	return nil
++}
++
++func (sp *StreamPublisher) PublishFundingRates(ctx context.Context, data []FundingRatePoint, snapshotTsMs int64, streamName string) error {
++	if sp == nil || sp.redisClient == nil {
++		return fmt.Errorf("redis client not initialised")
++	}
++	if streamName == "" {
++		streamName = FUNDING_RATE_STREAM
++	}
++
++	jsonData, err := json.Marshal(data)
++	if err != nil {
++		return fmt.Errorf("marshal funding: %w", err)
++	}
++
++	values := map[string]any{
++		"data":       string(jsonData),
++		"type":       "funding_rate",
++		"timestamp":  snapshotTsMs,
++		"count":      len(data),
++		"venue":      "bybit",
++		"category":   "linear",
++		"written_at": time.Now().UnixMilli(),
++	}
++
++	if _, err := redisclient.XAddWithRetry(ctx, sp.redisClient, &redis.XAddArgs{
++		Stream: streamName,
++		Values: values,
++	}); err != nil {
++		monitoring.RecordBybitPublish(streamName, false)
++		return fmt.Errorf("publish funding to %s: %w", streamName, err)
++	}
++	monitoring.RecordBybitPublish(streamName, true)
++	return nil
++}
++
++// CreateConsumerGroup создает consumer group для стрима.
++// Повторяем поведение Binance: BUSYGROUP не считаем ошибкой.
++func (sp *StreamPublisher) CreateConsumerGroup(ctx context.Context, streamName, groupName string) error {
++	if sp == nil || sp.redisClient == nil {
++		return fmt.Errorf("redis client not initialised")
++	}
++	err := sp.redisClient.XGroupCreate(ctx, streamName, groupName, "$").Err()
++	if err == nil {
++		return nil
++	}
++	if err.Error() == "BUSYGROUP Consumer Group name already exists" {
++		return nil
++	}
++	// Redis may be loading — не считаем фатальным.
++	if strings.Contains(err.Error(), "Redis is loading the dataset in memory") {
++		return nil
++	}
++	return err
++}
+diff -ruN /mnt/data/repo_orig/go-worker/bybit/utils.go /mnt/data/repo/go-worker/bybit/utils.go
+--- /mnt/data/repo_orig/go-worker/bybit/utils.go	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo/go-worker/bybit/utils.go	2026-03-05 16:22:32.175027426 +0000
+@@ -0,0 +1,38 @@
++package bybit
++
++import (
++	"log"
++	"os"
++	"strconv"
++	"time"
++)
++
++// getEnvDuration читает duration из переменной окружения или возвращает значение по умолчанию.
++func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
++	value := os.Getenv(key)
++	if value == "" {
++		return defaultValue
++	}
++
++	duration, err := time.ParseDuration(value)
++	if err != nil {
++		log.Printf("⚠️ Неверный формат %s=%s, используем значение по умолчанию %v", key, value, defaultValue)
++		return defaultValue
++	}
++
++	return duration
++}
++
++// getEnvInt читает int из переменной окружения или возвращает значение по умолчанию.
++func getEnvInt(key string, defaultValue int) int {
++	value := os.Getenv(key)
++	if value == "" {
++		return defaultValue
++	}
++	parsed, err := strconv.Atoi(value)
++	if err != nil {
++		log.Printf("⚠️ Неверный формат %s=%s, используем значение по умолчанию %d", key, value, defaultValue)
++		return defaultValue
++	}
++	return parsed
++}
+diff -ruN /mnt/data/repo_orig/go-worker/internal/app/init.go /mnt/data/repo/go-worker/internal/app/init.go
+--- /mnt/data/repo_orig/go-worker/internal/app/init.go	2025-10-18 14:03:30.000000000 +0000
++++ /mnt/data/repo/go-worker/internal/app/init.go	2026-03-05 16:24:09.214229772 +0000
+@@ -8,6 +8,7 @@
+ 	"os"
+ 	"time"
+ 
++	"go-worker/bybit"
+ 	"go-worker/binance"
+ 	"go-worker/infra/redisclient"
+ 
+@@ -43,6 +44,13 @@
+ // StartDataCollection запускает фоновый сбор рыночных данных
+ func StartDataCollection() {
+ 	go func() {
++		// Bybit сбор данных — опциональный (отдельный тумблер), чтобы не увеличивать
++		// нагрузку на API без явного решения.
++		// Включение:
++		//   ENABLE_DATA_COLLECTION=true
++		//   BYBIT_DATA_COLLECTION_ENABLED=true
++		bybitEnabled := os.Getenv("BYBIT_DATA_COLLECTION_ENABLED") == "true"
++
+ 		// Функция для периодического сбора данных
+ 		fetchData := func() {
+ 			if err := binance.FetchAndPublishMarketData(redisclient.Ctx); err != nil {
+@@ -50,6 +58,14 @@
+ 			} else {
+ 				log.Println("✅ Сбор данных завершён успешно")
+ 			}
++
++			if bybitEnabled {
++				if err := bybit.FetchAndPublishMarketData(redisclient.Ctx); err != nil {
++					log.Printf("❌ Ошибка при сборе данных Bybit: %v", err)
++				} else {
++					log.Println("✅ Сбор данных Bybit завершён успешно")
++				}
++			}
+ 		}
+ 
+ 		// Выполняем сбор данных сразу при запуске
+diff -ruN /mnt/data/repo_orig/go-worker/internal/monitoring/bybit_rest_metrics.go /mnt/data/repo/go-worker/internal/monitoring/bybit_rest_metrics.go
+--- /mnt/data/repo_orig/go-worker/internal/monitoring/bybit_rest_metrics.go	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo/go-worker/internal/monitoring/bybit_rest_metrics.go	2026-03-05 16:25:04.398705163 +0000
+@@ -0,0 +1,49 @@
++package monitoring
++
++import (
++	"github.com/prometheus/client_golang/prometheus"
++	"github.com/prometheus/client_golang/prometheus/promauto"
++)
++
++// Метрики Bybit REST (market snapshots).
++// Цель: быстро диагностировать деградации (rate limit, таймауты, ошибки формата).
++
++var (
++	BybitRestRequestsTotal = promauto.NewCounterVec(
++		prometheus.CounterOpts{
++			Name: "bybit_rest_requests_total",
++			Help: "Total number of Bybit REST requests by endpoint and result",
++		},
++		[]string{"endpoint", "result"}, // result: ok|error
++	)
++
++	BybitRedisPublishesTotal = promauto.NewCounterVec(
++		prometheus.CounterOpts{
++			Name: "bybit_redis_publishes_total",
++			Help: "Total number of Bybit Redis stream publish attempts by stream and result",
++		},
++		[]string{"stream", "result"}, // result: ok|error
++	)
++)
++
++func RecordBybitRest(endpoint string, ok bool) {
++	if endpoint == "" {
++		endpoint = "unknown"
++	}
++	if ok {
++		BybitRestRequestsTotal.WithLabelValues(endpoint, "ok").Inc()
++		return
++	}
++	BybitRestRequestsTotal.WithLabelValues(endpoint, "error").Inc()
++}
++
++func RecordBybitPublish(stream string, ok bool) {
++	if stream == "" {
++		stream = "unknown"
++	}
++	if ok {
++		BybitRedisPublishesTotal.WithLabelValues(stream, "ok").Inc()
++		return
++	}
++	BybitRedisPublishesTotal.WithLabelValues(stream, "error").Inc()
++}

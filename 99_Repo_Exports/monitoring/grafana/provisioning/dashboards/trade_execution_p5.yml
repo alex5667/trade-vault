@@ -1,0 +1,22 @@
+apiVersion: 1
+
+providers:
+  - name: trade-execution-unified
+    orgId: 1
+    folder: Trade Execution
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards-json
+  # P5X: dedicated provisioning for risk-drift drilldown dashboards
+  - name: trade-risk-drift-drilldown
+    orgId: 1
+    folder: Trade Risk Drift
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards-json

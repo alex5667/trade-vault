@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/cleanup_promoted_models_v1.py
+# hypothesis_version: 6.148.10
+
+[86400, '--dry-run', '--keep-days', '--keep-last', '--promote-dir', 'META_PROMOTE_DIR', 'No files to delete.', '__main__', 'meta_model_*.json', 'store_true']

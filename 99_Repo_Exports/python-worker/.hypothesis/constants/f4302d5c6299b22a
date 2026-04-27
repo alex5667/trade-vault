@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/atr_policy_provenance.py
+# hypothesis_version: 6.148.10
+
+[1000, 'REDIS_URL', 'active_key', 'atr_policy_snapshot', 'attached_at_ms', 'canary', 'kind', 'meta', 'policy_source', 'policy_tag', 'policy_updated_at_ms', 'policy_ver', 'recovery_run_id', 'regime', 'restore_cert_id', 'restore_cert_status', 'risk_horizon_bucket', 'scenario', 'source', 'stop_ttl_mode', 'symbol', 'trailing_mode', 'updated_at_ms', 'utf-8', '|']

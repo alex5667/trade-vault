@@ -1,0 +1,18 @@
+# Prometheus rules bundle manifest (v1)
+#
+# Purpose
+#   Single include-list for deployment of Prometheus rule files.
+#
+# Typical usage
+#   1) Copy repo directories into your Prometheus rules dir (example):
+#        /etc/prometheus/rules/<repo_root>/...
+#   2) In prometheus.yml, set rule_files to these globs.
+#
+# Notes
+#   - This intentionally uses globs so new rule files are auto-included.
+#   - Keep the rules directory layout stable.
+
+rule_file_globs:
+  - orderflow_services/prometheus_alerts_*.yml
+  - ok_rate_logic/prometheus_alerts_*.yml
+  - services/orderflow/prometheus_alerts_*.yml

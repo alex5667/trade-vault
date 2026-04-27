@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/dtypes/inference.py
+# hypothesis_version: 6.148.10
+
+['__contains__', '__getitem__', '__iter__', '__len__', '_fields', 'dtype', 'keys', 'read', 'write']

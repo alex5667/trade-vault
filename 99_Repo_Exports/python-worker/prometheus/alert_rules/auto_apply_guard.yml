@@ -1,0 +1,47 @@
+groups:
+- name: auto_apply_guard
+  rules:
+  - alert: AutoApplyGuardExporterDown
+    expr: up{job="auto-apply-guard-exporter"} == 0
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Auto Apply Guard Exporter is down"
+      description: "The exporter service is not reachable."
+
+  - alert: AutoApplyGuardBlockedSpike
+    expr: auto_apply_guard_blocked_ratio{window="10m"} > 0.50 and auto_apply_guard_run_total{window="10m"} > 10
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High blocked ratio (>50%) in Auto Apply Guard"
+      description: "More than 50% of runs are being blocked in the last 10 minutes. Check reasons."
+
+  - alert: AutoApplyGuardBlockedStuck
+    expr: auto_apply_guard_blocked_ratio{window="30m"} > 0.90
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Auto Apply Guard is Stuck (>90% blocked)"
+      description: "System is effectively stuck blocked for the last 30 minutes."
+
+  - alert: AutoApplyGuardExecFailures
+    expr: auto_apply_guard_exec_err_ratio{window="10m"} > 0.20
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: "High execution failure ratio (>20%)"
+      description: "More than 20% of allowed runs are failing execution."
+
+  - alert: AutoApplyGuardNoRuns
+    expr: auto_apply_guard_run_total{window="60m"} == 0
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "No Auto Apply Guard runs in last hour"
+      description: "The guard seems to have effectively stopped running or recording metrics."

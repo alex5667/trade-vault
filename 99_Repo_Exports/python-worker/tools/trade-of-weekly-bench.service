@@ -1,0 +1,20 @@
+[Unit]
+Description=Trade OF weekly latency bench (engine replay throughput)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/trade/of_reports.env
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+ExecStart=/bin/bash -lc '\
+  mkdir -p /var/lib/trade/of_reports/out/bench && \
+  /usr/bin/python3 -m tools.bench_replay_throughput \
+    --inputs ${BASELINE_INPUTS} \
+    --out /var/lib/trade/of_reports/out/bench/bench.json && \
+  /usr/bin/python3 -m tools.assert_latency_budget \
+    --bench-json /var/lib/trade/of_reports/out/bench/bench.json \
+'
+StandardOutput=journal
+StandardError=journal
+

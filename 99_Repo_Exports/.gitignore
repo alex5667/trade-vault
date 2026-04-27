@@ -1,0 +1,162 @@
+# Environment variables
+.env
+go-worker/.env
+**/.env
+.env.*
+*.env
+telegram-worker/.env
+
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.env/
+venv/
+ENV/
+env/
+.env.bak/
+venv.bak/
+.venv/
+
+# Telethon session files (if created locally)
+*.session
+*.session-journal
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo 
+# Logs directory (keep structure, ignore log files)
+logs/*.log
+logs/*.txt
+!logs/.gitkeep
+!logs/README.md
+
+# Redis AOF files
+*.aof
+
+# Temporary output files
+tmp_out/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# Python build artifacts
+*.egg-info/
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Large data files and datasets
+*.csv
+*.parquet
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+*.db
+*.sqlite
+*.sqlite3
+data/*.csv
+data/*.parquet
+data/*.h5
+data/*.db
+datasets/
+*.dump
+*.rdb
+
+# Logs
+*.log
+*.log.*
+logs/
+*.txt
+!README.txt
+!requirements.txt
+!package.json
+!package-lock.json
+
+# Archives (except source code archives)
+*.zip
+*.tar.gz
+*.tar
+*.rar
+!hawkes_step_b_patch.zip
+!ml_audit.zip
+!ml_confirm_v1.zip
+!ml_context.zip
+!ml_higher_v2_canary_freeze_unfreeze.zip
+!ml_integration_v6.zip
+!ml_integration_v7.zip
+!ml_next_level_v10_triple_barrier_ticks.zip
+!ml_next_level_v4_bucket_dualwindow.zip
+!ml_next_level_v6_threshold_proposals.zip
+!ml_next_level_v8_training_gbdt_calib.zip
+!ml_nightly_pipeline_step_next_v1.zip
+!ml_nightly_train_report_v1.zip
+!ml_step_5_6_7_v1.zip
+!ml_step_c1d4_v1.zip
+!news_patch_tests_v1.zip
+!news_patch_v2.zip
+
+# Docker volumes and data
+appendonlydir/
+dump.rdb
+*.rdb
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Backup files
+*.bak
+*.backup
+*.old
+*.orig
+*.swp
+*~
+
+# Python test outputs
+python-worker/of_reports_out/
+*.jsonl
+
+# Large exports
+exports/
+*.ndjson
+*.ndjson.gz

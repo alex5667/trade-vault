@@ -1,0 +1,82 @@
+events {}
+
+http {
+    resolver 127.0.0.11 ipv6=off valid=10s;
+    resolver_timeout 2s;
+
+    server {
+        listen 9200;
+        server_name _;
+
+        # Базовая безопасность
+        allow 127.0.0.1;
+        allow 192.168.0.121;
+        allow 172.16.0.0/12;
+        deny all;
+
+        access_log /dev/stdout;
+        error_log /dev/stderr warn;
+
+        proxy_connect_timeout 3s;
+        proxy_send_timeout 10s;
+        proxy_read_timeout 10s;
+
+        # Системные роуты
+        location = / {
+            add_header Content-Type text/plain;
+            return 200 "metrics-proxy\n";
+        }
+        location = /healthz {
+            add_header Content-Type text/plain;
+            return 200 "ok\n";
+        }
+        location = /whoami {
+            add_header Content-Type text/plain;
+            return 200 "$remote_addr\n";
+        }
+
+        # === ML & Feature Exporters ===
+        location = /m/scanner-edge-stack-shadow-exporter-p60 { set $up scanner-ml-nightly-edge-stack-train-bundle:8012; proxy_pass http://$up/metrics; }
+        location = /m/scanner-feature-selection-loop-exporter { set $up scanner-feature-selection-loop-exporter:9821; proxy_pass http://$up/metrics; }
+        location = /m/scanner-feature-drift-exporter { set $up scanner-feature-drift-exporter:9136; proxy_pass http://$up/metrics; }
+        location = /m/feature-registry-contract-exporter { set $up scanner-feature-drift-exporter:9822; proxy_pass http://$up/metrics; }
+        location = /m/scanner-meta-ab-v2-report-exporter { set $up scanner-meta-ab-v2-report-exporter:9634; proxy_pass http://$up/metrics; }
+
+        # === Signal Quality, Tuning & Coverage ===
+        location = /m/scanner-confirmations-coverage-exporter { set $up scanner-confirmations-coverage-exporter:9628; proxy_pass http://$up/metrics; }
+        location = /m/scanner-conf-score-tuning-exporter { set $up scanner-conf-score-tuning-exporter:9117; proxy_pass http://$up/metrics; }
+        location = /m/scanner-conf-cal-live-exporter { set $up scanner-conf-cal-live-exporter:9134; proxy_pass http://$up/metrics; }
+        location = /m/scanner-conf-score-guard-exporter { set $up scanner-conf-score-guard-exporter:9135; proxy_pass http://$up/metrics; }
+        location = /m/scanner-decision-coverage-exporter { set $up scanner-decision-coverage-exporter:9820; proxy_pass http://$up/metrics; }
+        location = /m/decision-coverage-exporter { set $up scanner-decision-coverage-exporter:9820; proxy_pass http://$up/metrics; }
+        location = /m/signal-quality-regime-exporter-p66 { set $up scanner-signal-quality-exporter:9143; proxy_pass http://$up/metrics; }
+        location = /m/scanner-signal-quality-exporter { set $up scanner-signal-quality-exporter:9143; proxy_pass http://$up/metrics; }
+
+        # === Gatings, Policies & Enforcement ===
+        location = /m/policy-mode-exporter-p66 { set $up policy-mode-exporter-p66:9818; proxy_pass http://$up/metrics; }
+        location = /m/scanner-of-inputs-dlq-db-exporter { set $up scanner_infra-of-gate-dlq-exporter-1:9154; proxy_pass http://$up/metrics; }
+        location = /m/scanner-of-inputs-dlq-exporter { set $up scanner_infra-of-gate-dlq-exporter-1:9154; proxy_pass http://$up/metrics; }
+        location = /m/scanner_infra-of-gate-dlq-exporter-1 { set $up scanner_infra-of-gate-dlq-exporter-1:9154; proxy_pass http://$up/metrics; }
+        location = /m/scanner-of-gate-smoke-exporter { set $up scanner-of-gate-smoke-exporter:9148; proxy_pass http://$up/metrics; }
+        location = /m/scanner-of-inputs-archiver-exporter-p98 { set $up scanner-of-gate-archiver-exporter:9152; proxy_pass http://$up/metrics; }
+        location = /m/scanner-of-gate-archiver-exporter { set $up scanner-of-gate-archiver-exporter:9152; proxy_pass http://$up/metrics; }
+        location = /m/scanner-of-inputs-v3-circuit-state-exporter { set $up scanner-of-inputs-v3-circuit-state-exporter:9164; proxy_pass http://$up/metrics; }
+        location = /m/auto-apply-tick-gate-exporter { set $up auto-apply-tick-gate-exporter:9118; proxy_pass http://$up/metrics; }
+        location = /m/scanner-meta-enforce-guard-exporter { set $up scanner-meta-enforce-guard-exporter:9133; proxy_pass http://$up/metrics; }
+        location = /m/scanner-enforce-bucket-state-exporter { set $up scanner-enforce-bucket-state-exporter:9142; proxy_pass http://$up/metrics; }
+
+        # === Другие системные экспортеры ===
+        location = /m/scanner-meta-cov-rollout-exporter { set $up scanner-meta-cov-rollout-exporter:9132; proxy_pass http://$up/metrics; }
+        location = /m/scanner-close-wait-drainer-exporter-v1 { set $up scanner-close-wait-drainer-exporter-v1:9139; proxy_pass http://$up/metrics; }
+        location = /m/scanner-close-backfill-exporter { set $up scanner-close-backfill-exporter:9141; proxy_pass http://$up/metrics; }
+        location = /m/trade-blackbox-exporter { set $up trade-blackbox-exporter:9115; proxy_pass http://$up/metrics; }
+        location = /m/monitoring-smoke-exporter { set $up monitoring-smoke-exporter:9814; proxy_pass http://$up/metrics; }
+        location = /m/chatops-metrics-exporter { set $up chatops-metrics-exporter:9817; proxy_pass http://$up/metrics; }
+
+        # === Redis Worker Exporters ===
+        location = /m/redis-exporter-worker-1  { set $up redis-exporter-worker-1:9121;  proxy_pass http://$up/metrics; }
+        location = /m/redis-exporter-worker-2  { set $up redis-exporter-worker-2:9121;  proxy_pass http://$up/metrics; }
+        location = /m/redis-exporter-worker-1b { set $up redis-exporter-worker-1b:9121; proxy_pass http://$up/metrics; }
+        location = /m/redis-exporter-worker-2b { set $up redis-exporter-worker-2b:9121; proxy_pass http://$up/metrics; }
+    }
+}

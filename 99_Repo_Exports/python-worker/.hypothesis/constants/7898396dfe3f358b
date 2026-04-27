@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/message_handler.py
+# hypothesis_version: 6.148.10
+
+[1.0, 600.0, 100, 1000, 5000, 20000, 60000, '%s=%s tags=%s', '0', '0-0', '1', 'HealthMetrics', 'PARSER_STRICT', '_is_transient_error', '_normalize_ts', 'ack_retry_max', 'ack_retry_ttl_s', 'batch', 'book', 'book_stream', 'claim_count', 'claim_min_idle_ms', 'config', 'data', 'data_parser', 'data_processor', 'error_handler', 'false', 'fields', 'gauge', 'handle_message_error', 'health_metrics', 'id', 'is_transient_error', 'l3', 'l3_stream', 'max_fail_retries', 'metrics', 'msg_id', 'next_sleep', 'on_bar_closed', 'on_bucket_closed', 'on_bucket_event', 'on_l3_event', 'parser_strict', 'reset', 'set_gauge', 'stream', 'symbol', 'tick_stream', 'ticks', 'true', 'ts', 'ts_ms', 'unknown', 'wait']

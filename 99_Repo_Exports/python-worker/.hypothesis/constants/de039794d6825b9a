@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/handler_factory.py
+# hypothesis_version: 6.148.10
+
+['ADA', 'ADAUSD', 'ADAUSDT', 'BNB', 'BNBUSD', 'BNBUSDT', 'BTC', 'BTCUSD', 'BTCUSDT', 'CRYPTO', 'CUSTOM', 'ETH', 'ETHUSD', 'ETHUSDT', 'FOREX', 'SOL', 'SOLUSD', 'SOLUSDT', 'XAGUSD', 'XAUUSD', 'XRPUSD', 'XRPUSDT', '__main__', '═']

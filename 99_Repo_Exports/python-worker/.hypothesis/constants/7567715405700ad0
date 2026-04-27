@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/regime/crypto_conf_scorer.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.15, 0.25, 0.35, 1.0, 2.0, 'L3Thresholds', 'by_symbol', 'cancel_hard', 'cancel_soft', 'crypto_conf_scorer', 'default', 'l3', 'l3_score', 'long', 'mp_drift_max_bps', 'neutral', 'obi_bad_max', 'obi_good_min', 'profile', 'r', 'short', 'spread_max_ok_bps', 'spread_ok_score', 'terms', 'utf-8']

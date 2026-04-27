@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/enricher_shadow.py
+# hypothesis_version: 6.148.10
+
+[200, 250, 256, 1000, 1500, 30000, 60000, 300000, 'GLOBAL', 'data_quality_flags', 'news_cache_miss', 'news_cache_stale', 'news_enricher_shadow']

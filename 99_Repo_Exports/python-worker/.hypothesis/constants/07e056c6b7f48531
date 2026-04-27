@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/golden_replay_of_confirm_from_redis.py
+# hypothesis_version: 6.148.10
+
+[1000, 200000, '--baseline', '--candidate', '--debug-out', '--fail-on-mismatch', '--field', '--inputs', '--max-records', '--notify', '--notify-stream', '--out', '--out-dir', '--redis-url', '--resume', '--since-hours', '--state-file', '--stream', '-m', '0', '1', '24', '250000', 'OF_INPUTS_RESUME', 'OF_INPUTS_STATE_FILE', 'OF_INPUTS_STREAM', 'OF_REPLAY_BASELINE', 'OF_REPLAY_NOTIFY', 'REDIS_URL', '__main__', 'candidate', 'debug', 'diff', 'failed', 'inputs', 'k', 'mismatches', 'missing_in_baseline', 'missing_in_candidate', 'notify:telegram', 'of_confirm_replay', 'of_inputs.ndjson', 'of_replay_diff.json', 'ok', 'payload', 'python', 'r', 'report', 'samples', 'signals:of:inputs', 'subtype', 'text', 'top_groups', 'ts_ms', 'type', 'utf-8']

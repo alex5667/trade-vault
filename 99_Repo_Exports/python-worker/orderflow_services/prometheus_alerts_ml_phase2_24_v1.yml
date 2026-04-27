@@ -1,0 +1,18 @@
+groups:
+  - name: ml_phase2_24_operator_routing_incident_route_rca_route_safety_v1
+    rules:
+      - alert: MLOperatorRoutingIncidentRouteRCARoutingVerifyStale
+        expr: time() - ml_operator_routing_incident_route_rca_routing_verify_last_run_ts_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Routing incident Route RCA Post-Apply Verifier is stale"
+
+      - alert: MLOperatorRoutingIncidentRouteRCARoutingRollbackStale
+        expr: time() - ml_operator_routing_incident_route_rca_routing_rollback_last_run_ts_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Routing incident Route RCA Rollback Executor is stale"

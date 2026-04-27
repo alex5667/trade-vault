@@ -1,0 +1,16 @@
+[Unit]
+Description=Trade conf_score_guardrails_autopromo_controller (latency-contract gated)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/default/trade-latency-sensitive-jobs-staging
+Environment=LATENCY_CONTRACT_ENV_FILE=/etc/default/trade-latency-sensitive-jobs-staging
+Environment=LATENCY_CONTRACT_DEPLOY_LINT_REPORT_PATH=/var/lib/trade/reports/latency_contract_deploy_lint.json
+ExecStart=/bin/bash -lc 'cd "${TRADE_REPO_ROOT:?}" && ./python-worker/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh'
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target

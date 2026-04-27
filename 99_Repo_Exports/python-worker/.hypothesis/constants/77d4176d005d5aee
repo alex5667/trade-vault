@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/quarantine_denylist.py
+# hypothesis_version: 6.148.10
+
+['allowed', 'candidates', 'execution_sid', 'matched_sid', 'parent_sid', 'sid', 'signal_sid', 'source_sid']

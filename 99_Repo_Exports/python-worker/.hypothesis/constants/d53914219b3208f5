@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/divergence_engine.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-12, 0.5, 1.0, 2.5, 5.0, 10000.0, 'bearish_hidden', 'bearish_regular', 'bullish_hidden', 'bullish_regular', 'div_min_price_bp', 'div_strength_min', 'down', 'high', 'low', 'none', 'up']

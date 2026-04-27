@@ -1,0 +1,24 @@
+groups:
+- name: slippage_calibrator_v1
+  rules:
+  - alert: OF_SlippageCalibratorStale_Warn
+    expr: of_slippage_calibrator_last_ok_age_sec > 30*3600
+    for: 30m
+    labels:
+      severity: warning
+    annotations:
+      summary: 'Slippage calibrator stale'
+      description: 'Nightly slippage calibrator has not reported OK for >30h. Check timers/DB connectivity and ml_analysis/tools/nightly_slippage_calibrator_v1.py.'
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+
+  - alert: OF_SlippageCalibratorStale_Crit
+    expr: of_slippage_calibrator_last_ok_age_sec > 48*3600
+    for: 20m
+    labels:
+      severity: critical
+    annotations:
+      summary: 'CRIT: Slippage calibrator very stale'
+      description: 'Nightly slippage calibrator has not reported OK for >48h. Impact coefficients may be stale; slippage QA / enforcement may degrade.'
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/of/candle_of_worker.py
+# hypothesis_version: 6.148.10
+
+[-1.0, 0.0, 1e-12, 1e-09, 0.01, 0.1, 1.0, 100.0, 100, 300, '$', '+', '-', '0', '1', '10', '1m', '5.0', '>', 'BUSYGROUP', 'CANDLE_BATCH_SIZE', 'NOGROUP', 'T', 'V', 'absorbed', 'atr', 'bodyATR', 'body_atr', 'buyVol', 'buy_vols', 'c', 'close', 'closeTime', 'closed', 'common', 'cvd', 'data', 'delta', 'deltaRatio', 'delta_ratio', 'deltas', 'dir', 'direction', 'false', 'h', 'high', 'i', 'isSpike', 'k', 'l', 'long', 'low', 'message_id', 'no', 'o', 'of_bar', 'of_spike', 'open', 's', 'sellVol', 'sell_vols', 'short', 'symbol', 'takerBuyVolume', 'timeframe', 'timestamp', 'true', 'ts', 'type', 'unknown', 'v', 'volume', 'volumeQ', 'windowN', 'x', 'yes', 'zDelta', 'z_deltas']

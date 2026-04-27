@@ -1,0 +1,592 @@
+diff -ruN repo_p44_base/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example repo_p44_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
+--- repo_p44_base/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example	2026-03-08 08:40:37.724507474 +0000
++++ repo_p44_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example	2026-03-08 08:39:48.438490886 +0000
+@@ -14,3 +14,4 @@
+ META_COV_ROLLOUT_LOOKBACK_MIN=60
+ META_COV_ROLLOUT_MIN_HOLD_SEC=600
+ CONF_SCORE_GUARD_AUTOPROMO_APPLY=1
++LATENCY_CONTRACT_DEPLOY_LINT_REPORT_PATH=/var/lib/trade/reports/latency_contract_deploy_lint.json
+diff -ruN repo_p44_base/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example repo_p44_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
+--- repo_p44_base/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example	2026-03-08 08:40:37.724609715 +0000
++++ repo_p44_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example	2026-03-08 08:39:48.438247038 +0000
+@@ -14,3 +14,4 @@
+ META_COV_ROLLOUT_LOOKBACK_MIN=60
+ META_COV_ROLLOUT_MIN_HOLD_SEC=600
+ CONF_SCORE_GUARD_AUTOPROMO_APPLY=1
++LATENCY_CONTRACT_DEPLOY_LINT_REPORT_PATH=/var/lib/trade/reports/latency_contract_deploy_lint.json
+diff -ruN repo_p44_base/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh repo_p44_work/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh
+--- repo_p44_base/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh	2026-03-08 08:40:37.724777786 +0000
++++ repo_p44_work/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh	2026-03-08 08:39:48.436955583 +0000
+@@ -1,6 +1,8 @@
+ #!/usr/bin/env bash
+ set -euo pipefail
+ REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
++export LATENCY_CONTRACT_DEPLOY_WRAPPER_FILE="$REPO_ROOT/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh"
++export LATENCY_CONTRACT_DEPLOY_UNIT_FILE="$REPO_ROOT/orderflow_services/deploy/systemd/trade-conf-score-guardrails-apply.service"
+ exec "$REPO_ROOT/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh" \
+   "$REPO_ROOT/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-apply-v1.yml" \
+   "conf-score-guardrails-apply" \
+diff -ruN repo_p44_base/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh repo_p44_work/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh
+--- repo_p44_base/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh	2026-03-08 08:40:37.724895266 +0000
++++ repo_p44_work/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh	2026-03-08 08:39:48.437465560 +0000
+@@ -1,6 +1,8 @@
+ #!/usr/bin/env bash
+ set -euo pipefail
+ REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
++export LATENCY_CONTRACT_DEPLOY_WRAPPER_FILE="$REPO_ROOT/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh"
++export LATENCY_CONTRACT_DEPLOY_UNIT_FILE="$REPO_ROOT/orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.service"
+ exec "$REPO_ROOT/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh" \
+   "$REPO_ROOT/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-autopromo-controller-v1.yml" \
+   "conf-score-guardrails-autopromo-controller" \
+diff -ruN repo_p44_base/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh repo_p44_work/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh
+--- repo_p44_base/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh	2026-03-08 08:40:37.725002495 +0000
++++ repo_p44_work/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh	2026-03-08 08:39:48.437154519 +0000
+@@ -1,6 +1,8 @@
+ #!/usr/bin/env bash
+ set -euo pipefail
+ REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
++export LATENCY_CONTRACT_DEPLOY_WRAPPER_FILE="$REPO_ROOT/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh"
++export LATENCY_CONTRACT_DEPLOY_UNIT_FILE="$REPO_ROOT/orderflow_services/deploy/systemd/trade-conf-score-guardrails-promote.service"
+ exec "$REPO_ROOT/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh" \
+   "$REPO_ROOT/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-promote-v1.yml" \
+   "conf-score-guardrails-promote" \
+diff -ruN repo_p44_base/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh repo_p44_work/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh
+--- repo_p44_base/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh	2026-03-08 08:40:37.725139702 +0000
++++ repo_p44_work/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh	2026-03-08 08:39:48.436610039 +0000
+@@ -17,5 +17,17 @@
+ 
+ cd "$REPO_ROOT"
+ export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
++WRAPPER_FILE="${LATENCY_CONTRACT_DEPLOY_WRAPPER_FILE:-}"
++UNIT_FILE="${LATENCY_CONTRACT_DEPLOY_UNIT_FILE:-}"
++LINT_REPORT_PATH="${LATENCY_CONTRACT_DEPLOY_LINT_REPORT_PATH:-}"
++LINT_ENV_FILE="${LATENCY_CONTRACT_ENV_FILE:-}"
++"$PYTHON_BIN" -m orderflow_services.latency_contract_deploy_lint_v1 \
++  --purpose "$PURPOSE" \
++  --repo-root "$REPO_ROOT" \
++  --compose-file "$COMPOSE_FILE" \
++  ${WRAPPER_FILE:+--wrapper-file "$WRAPPER_FILE"} \
++  ${UNIT_FILE:+--unit-file "$UNIT_FILE"} \
++  ${LINT_ENV_FILE:+--env-file "$LINT_ENV_FILE"} \
++  ${LINT_REPORT_PATH:+--json-out "$LINT_REPORT_PATH"}
+ "$PYTHON_BIN" -m orderflow_services.latency_contract_rollout_preflight_v1 --purpose "$PURPOSE"
+ exec "$DOCKER_BIN" compose -f "$COMPOSE_FILE" run --rm "$SERVICE_NAME" "$@"
+diff -ruN repo_p44_base/orderflow_services/deploy/systemd/run_trade_meta_cov_rollout_controller_v1.sh repo_p44_work/orderflow_services/deploy/systemd/run_trade_meta_cov_rollout_controller_v1.sh
+--- repo_p44_base/orderflow_services/deploy/systemd/run_trade_meta_cov_rollout_controller_v1.sh	2026-03-08 08:40:37.725269178 +0000
++++ repo_p44_work/orderflow_services/deploy/systemd/run_trade_meta_cov_rollout_controller_v1.sh	2026-03-08 08:39:48.437317304 +0000
+@@ -1,6 +1,8 @@
+ #!/usr/bin/env bash
+ set -euo pipefail
+ REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
++export LATENCY_CONTRACT_DEPLOY_WRAPPER_FILE="$REPO_ROOT/orderflow_services/deploy/systemd/run_trade_meta_cov_rollout_controller_v1.sh"
++export LATENCY_CONTRACT_DEPLOY_UNIT_FILE="$REPO_ROOT/orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.service"
+ exec "$REPO_ROOT/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh" \
+   "$REPO_ROOT/orderflow_services/deploy/compose/docker-compose.meta-cov-rollout-controller-v1.yml" \
+   "meta-cov-rollout-controller" \
+diff -ruN repo_p44_base/orderflow_services/deploy/systemd/trade-conf-score-guardrails-apply.service repo_p44_work/orderflow_services/deploy/systemd/trade-conf-score-guardrails-apply.service
+--- repo_p44_base/orderflow_services/deploy/systemd/trade-conf-score-guardrails-apply.service	2026-03-08 08:40:37.725365059 +0000
++++ repo_p44_work/orderflow_services/deploy/systemd/trade-conf-score-guardrails-apply.service	2026-03-08 08:39:48.437632819 +0000
+@@ -7,6 +7,8 @@
+ [Service]
+ Type=oneshot
+ EnvironmentFile=/etc/default/trade-latency-sensitive-jobs-staging
++Environment=LATENCY_CONTRACT_ENV_FILE=/etc/default/trade-latency-sensitive-jobs-staging
++Environment=LATENCY_CONTRACT_DEPLOY_LINT_REPORT_PATH=/var/lib/trade/reports/latency_contract_deploy_lint.json
+ ExecStart=/bin/bash -lc 'cd "${TRADE_REPO_ROOT:?}" && ./orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh'
+ 
+ [Install]
+diff -ruN repo_p44_base/orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.service repo_p44_work/orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.service
+--- repo_p44_base/orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.service	2026-03-08 08:40:37.725465850 +0000
++++ repo_p44_work/orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.service	2026-03-08 08:39:48.438087684 +0000
+@@ -7,6 +7,8 @@
+ [Service]
+ Type=oneshot
+ EnvironmentFile=/etc/default/trade-latency-sensitive-jobs-staging
++Environment=LATENCY_CONTRACT_ENV_FILE=/etc/default/trade-latency-sensitive-jobs-staging
++Environment=LATENCY_CONTRACT_DEPLOY_LINT_REPORT_PATH=/var/lib/trade/reports/latency_contract_deploy_lint.json
+ ExecStart=/bin/bash -lc 'cd "${TRADE_REPO_ROOT:?}" && ./orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh'
+ RemainAfterExit=no
+ 
+diff -ruN repo_p44_base/orderflow_services/deploy/systemd/trade-conf-score-guardrails-promote.service repo_p44_work/orderflow_services/deploy/systemd/trade-conf-score-guardrails-promote.service
+--- repo_p44_base/orderflow_services/deploy/systemd/trade-conf-score-guardrails-promote.service	2026-03-08 08:40:37.725654665 +0000
++++ repo_p44_work/orderflow_services/deploy/systemd/trade-conf-score-guardrails-promote.service	2026-03-08 08:39:48.437787534 +0000
+@@ -7,6 +7,8 @@
+ [Service]
+ Type=oneshot
+ EnvironmentFile=/etc/default/trade-latency-sensitive-jobs-staging
++Environment=LATENCY_CONTRACT_ENV_FILE=/etc/default/trade-latency-sensitive-jobs-staging
++Environment=LATENCY_CONTRACT_DEPLOY_LINT_REPORT_PATH=/var/lib/trade/reports/latency_contract_deploy_lint.json
+ ExecStart=/bin/bash -lc 'cd "${TRADE_REPO_ROOT:?}" && ./orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh'
+ 
+ [Install]
+diff -ruN repo_p44_base/orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.service repo_p44_work/orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.service
+--- repo_p44_base/orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.service	2026-03-08 08:40:37.725750936 +0000
++++ repo_p44_work/orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.service	2026-03-08 08:39:48.437927088 +0000
+@@ -7,6 +7,8 @@
+ [Service]
+ Type=oneshot
+ EnvironmentFile=/etc/default/trade-latency-sensitive-jobs-staging
++Environment=LATENCY_CONTRACT_ENV_FILE=/etc/default/trade-latency-sensitive-jobs-staging
++Environment=LATENCY_CONTRACT_DEPLOY_LINT_REPORT_PATH=/var/lib/trade/reports/latency_contract_deploy_lint.json
+ ExecStart=/bin/bash -lc 'cd "${TRADE_REPO_ROOT:?}" && ./orderflow_services/deploy/systemd/run_trade_meta_cov_rollout_controller_v1.sh'
+ RemainAfterExit=no
+ 
+diff -ruN repo_p44_base/orderflow_services/latency_contract_deploy_lint_v1.py repo_p44_work/orderflow_services/latency_contract_deploy_lint_v1.py
+--- repo_p44_base/orderflow_services/latency_contract_deploy_lint_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p44_work/orderflow_services/latency_contract_deploy_lint_v1.py	2026-03-08 08:39:46.593144910 +0000
+@@ -0,0 +1,49 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Pre-deploy linter for latency-contract sensitive rollout jobs.
++
++Checks three layers from one source of truth:
++1. file layout/binding: compose <-> wrapper <-> systemd unit
++2. presence of EnvironmentFile in the systemd unit
++3. required runtime env for the chosen sensitive job
++"""
++
++import argparse
++from pathlib import Path
++import os
++
++from services.observability.latency_deploy_contract import lint_deploy_contract, render_json
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser()
++    ap.add_argument('--purpose', required=True)
++    ap.add_argument('--repo-root', default=os.getenv('TRADE_REPO_ROOT') or os.getcwd())
++    ap.add_argument('--compose-file', default='')
++    ap.add_argument('--wrapper-file', default='')
++    ap.add_argument('--unit-file', default='')
++    ap.add_argument('--env-file', default=os.getenv('LATENCY_CONTRACT_ENV_FILE', ''))
++    ap.add_argument('--json-out', default=os.getenv('LATENCY_CONTRACT_DEPLOY_LINT_REPORT_PATH', ''))
++    ns = ap.parse_args()
++
++    report = lint_deploy_contract(
++        repo_root=ns.repo_root,
++        purpose=ns.purpose,
++        env=dict(os.environ),
++        compose_file=ns.compose_file or None,
++        wrapper_file=ns.wrapper_file or None,
++        unit_file=ns.unit_file or None,
++        env_file=ns.env_file or None,
++    )
++    payload = render_json(report)
++    if ns.json_out:
++        p = Path(ns.json_out)
++        p.parent.mkdir(parents=True, exist_ok=True)
++        p.write_text(payload, encoding='utf-8')
++    print(payload)
++    return 0 if report.get('ok') else 26
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+diff -ruN repo_p44_base/orderflow_services/runbook_latency_contract_p44_v1.md repo_p44_work/orderflow_services/runbook_latency_contract_p44_v1.md
+--- repo_p44_base/orderflow_services/runbook_latency_contract_p44_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ repo_p44_work/orderflow_services/runbook_latency_contract_p44_v1.md	2026-03-08 08:39:48.438583760 +0000
+@@ -0,0 +1,32 @@
++# Latency Contract P4.4 deploy lint
++
++This lint runs **before** latency rollout preflight and validates:
++
++- correct compose file for the sensitive purpose
++- correct host-side wrapper binding
++- presence of `EnvironmentFile=` in the systemd unit
++- required runtime env for the chosen job
++
++## Manual usage
++
++```bash
++python3 -m orderflow_services.latency_contract_deploy_lint_v1 \
++  --purpose conf_score_guardrails_apply \
++  --repo-root "$TRADE_REPO_ROOT" \
++  --compose-file "$TRADE_REPO_ROOT/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-apply-v1.yml" \
++  --wrapper-file "$TRADE_REPO_ROOT/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh" \
++  --unit-file "$TRADE_REPO_ROOT/orderflow_services/deploy/systemd/trade-conf-score-guardrails-apply.service" \
++  --env-file /etc/default/trade-latency-sensitive-jobs-staging
++```
++
++Exit code `26` means deploy lint failed.
++
++## Automatic path
++
++Sensitive host-side wrappers now call:
++
++1. `latency_contract_deploy_lint_v1`
++2. `latency_contract_rollout_preflight_v1`
++3. `docker compose run --rm ...`
++
++So rollout can be blocked before the container starts when file binding or env is broken.
+diff -ruN repo_p44_base/orderflow_services/tests/test_latency_contract_p44_deploy_lint_v1.py repo_p44_work/orderflow_services/tests/test_latency_contract_p44_deploy_lint_v1.py
+--- repo_p44_base/orderflow_services/tests/test_latency_contract_p44_deploy_lint_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p44_work/orderflow_services/tests/test_latency_contract_p44_deploy_lint_v1.py	2026-03-08 08:39:48.438688112 +0000
+@@ -0,0 +1,57 @@
++from __future__ import annotations
++
++from pathlib import Path
++import importlib
++
++ROOT = Path(__file__).resolve().parents[2]
++
++
++def _read(rel: str) -> str:
++    return (ROOT / rel).read_text(encoding='utf-8')
++
++
++def test_generic_wrapper_calls_deploy_lint_before_preflight() -> None:
++    txt = _read('orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh')
++    assert 'latency_contract_deploy_lint_v1' in txt
++    assert txt.index('latency_contract_deploy_lint_v1') < txt.index('latency_contract_rollout_preflight_v1')
++
++
++def test_specific_wrappers_export_wrapper_and_unit_paths() -> None:
++    files = [
++        'orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh',
++        'orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh',
++        'orderflow_services/deploy/systemd/run_trade_meta_cov_rollout_controller_v1.sh',
++        'orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh',
++    ]
++    for rel in files:
++        txt = _read(rel)
++        assert 'LATENCY_CONTRACT_DEPLOY_WRAPPER_FILE' in txt
++        assert 'LATENCY_CONTRACT_DEPLOY_UNIT_FILE' in txt
++
++
++def test_systemd_units_export_env_file_and_lint_report_path() -> None:
++    files = [
++        'orderflow_services/deploy/systemd/trade-conf-score-guardrails-apply.service',
++        'orderflow_services/deploy/systemd/trade-conf-score-guardrails-promote.service',
++        'orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.service',
++        'orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.service',
++    ]
++    for rel in files:
++        txt = _read(rel)
++        assert 'EnvironmentFile=' in txt
++        assert 'Environment=LATENCY_CONTRACT_ENV_FILE=' in txt
++        assert 'Environment=LATENCY_CONTRACT_DEPLOY_LINT_REPORT_PATH=' in txt
++
++
++def test_env_examples_include_deploy_lint_report_path() -> None:
++    for rel in [
++        'orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example',
++        'orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example',
++    ]:
++        txt = _read(rel)
++        assert 'LATENCY_CONTRACT_DEPLOY_LINT_REPORT_PATH=' in txt
++
++
++def test_deploy_lint_cli_module_loads() -> None:
++    mod = importlib.import_module('orderflow_services.latency_contract_deploy_lint_v1')
++    assert hasattr(mod, 'main')
+diff -ruN repo_p44_base/services/observability/latency_deploy_contract.py repo_p44_work/services/observability/latency_deploy_contract.py
+--- repo_p44_base/services/observability/latency_deploy_contract.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p44_work/services/observability/latency_deploy_contract.py	2026-03-08 08:39:46.586279228 +0000
+@@ -0,0 +1,262 @@
++from __future__ import annotations
++
++"""Canonical deploy contract for latency-contract sensitive rollout jobs.
++
++This module keeps the file layout, wrapper binding and runtime environment
++requirements in one place so host-side wrappers and CI/pre-deploy linting use the
++same source of truth.
++"""
++
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any, Dict, Iterable
++import json
++import os
++import re
++
++COMMON_RUNTIME_ENV = (
++    'TRADE_REPO_ROOT',
++    'TRADE_ORDERFLOW_IMAGE',
++    'REDIS_URL',
++    'LATENCY_CONTRACT_ROLLOUT_GATE_STATE_KEY',
++    'LATENCY_CONTRACT_ROLLOUT_GATE_KEY',
++)
++
++
++@dataclass(frozen=True)
++class SensitiveJobContract:
++    purpose: str
++    compose_rel: str
++    service_name: str
++    wrapper_rel: str
++    unit_rel: str
++    timer_rel: str | None
++    expected_env_file: str
++    required_runtime_env: tuple[str, ...]
++
++
++CONTRACTS: dict[str, SensitiveJobContract] = {
++    'conf_score_guardrails_apply': SensitiveJobContract(
++        purpose='conf_score_guardrails_apply',
++        compose_rel='orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-apply-v1.yml',
++        service_name='conf-score-guardrails-apply',
++        wrapper_rel='orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh',
++        unit_rel='orderflow_services/deploy/systemd/trade-conf-score-guardrails-apply.service',
++        timer_rel=None,
++        expected_env_file='/etc/default/trade-latency-sensitive-jobs-staging',
++        required_runtime_env=(
++            'CONF_SCORE_GUARD_BUNDLE_DIR',
++            'CONF_SCORE_GUARD_BUNDLE_STAGED_POINTER',
++            'CONF_SCORE_GUARD_LOCK_PATH',
++            'CONF_SCORE_GUARD_DRIFT_REPORT_PATH',
++            'CONF_SCORE_GUARD_APPLY',
++            'CONF_SCORE_GUARD_STAGE',
++        ),
++    ),
++    'conf_score_guardrails_promote': SensitiveJobContract(
++        purpose='conf_score_guardrails_promote',
++        compose_rel='orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-promote-v1.yml',
++        service_name='conf-score-guardrails-promote',
++        wrapper_rel='orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh',
++        unit_rel='orderflow_services/deploy/systemd/trade-conf-score-guardrails-promote.service',
++        timer_rel=None,
++        expected_env_file='/etc/default/trade-latency-sensitive-jobs-staging',
++        required_runtime_env=(
++            'CONF_SCORE_GUARD_BUNDLE_DIR',
++            'CONF_SCORE_GUARD_HEALTH_STATE_PATH',
++        ),
++    ),
++    'meta_cov_rollout_controller': SensitiveJobContract(
++        purpose='meta_cov_rollout_controller',
++        compose_rel='orderflow_services/deploy/compose/docker-compose.meta-cov-rollout-controller-v1.yml',
++        service_name='meta-cov-rollout-controller',
++        wrapper_rel='orderflow_services/deploy/systemd/run_trade_meta_cov_rollout_controller_v1.sh',
++        unit_rel='orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.service',
++        timer_rel='orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.timer',
++        expected_env_file='/etc/default/trade-latency-sensitive-jobs-staging',
++        required_runtime_env=(
++            'META_COV_ROLLOUT_LOOKBACK_MIN',
++            'META_COV_ROLLOUT_MIN_HOLD_SEC',
++        ),
++    ),
++    'conf_score_guardrails_autopromo_controller': SensitiveJobContract(
++        purpose='conf_score_guardrails_autopromo_controller',
++        compose_rel='orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-autopromo-controller-v1.yml',
++        service_name='conf-score-guardrails-autopromo-controller',
++        wrapper_rel='orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh',
++        unit_rel='orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.service',
++        timer_rel='orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.timer',
++        expected_env_file='/etc/default/trade-latency-sensitive-jobs-staging',
++        required_runtime_env=(
++            'CONF_SCORE_GUARD_BUNDLE_DIR',
++            'CONF_SCORE_GUARD_BUNDLE_STAGED_POINTER',
++            'CONF_SCORE_GUARD_HEALTH_STATE_PATH',
++            'CONF_SCORE_GUARD_LOCK_PATH',
++            'CONF_SCORE_GUARD_AUTOPROMO_APPLY',
++        ),
++    ),
++}
++
++
++def contract_for_purpose(purpose: str) -> SensitiveJobContract:
++    if purpose not in CONTRACTS:
++        raise KeyError(f'unknown purpose: {purpose}')
++    return CONTRACTS[purpose]
++
++
++def parse_env_file_text(text: str) -> dict[str, str]:
++    out: dict[str, str] = {}
++    for raw_line in text.splitlines():
++        line = raw_line.strip()
++        if not line or line.startswith('#'):
++            continue
++        if '=' not in line:
++            continue
++        key, value = line.split('=', 1)
++        out[key.strip()] = value.strip().strip('"').strip("'")
++    return out
++
++
++def parse_env_file(path: Path) -> dict[str, str]:
++    return parse_env_file_text(path.read_text(encoding='utf-8'))
++
++
++def _contains_environmentfile(text: str) -> list[str]:
++    vals: list[str] = []
++    for line in text.splitlines():
++        line = line.strip()
++        if line.startswith('EnvironmentFile='):
++            vals.append(line.split('=', 1)[1].strip())
++    return vals
++
++
++def lint_deploy_contract(
++    *,
++    repo_root: str | Path,
++    purpose: str,
++    env: dict[str, str] | None = None,
++    compose_file: str | Path | None = None,
++    wrapper_file: str | Path | None = None,
++    unit_file: str | Path | None = None,
++    env_file: str | Path | None = None,
++) -> dict[str, Any]:
++    repo_root = Path(repo_root)
++    contract = contract_for_purpose(purpose)
++    runtime_env = dict(os.environ if env is None else env)
++
++    compose_path = repo_root / (str(compose_file) if compose_file else contract.compose_rel)
++    wrapper_path = repo_root / (str(wrapper_file) if wrapper_file else contract.wrapper_rel)
++    unit_path = repo_root / (str(unit_file) if unit_file else contract.unit_rel)
++    timer_path = repo_root / contract.timer_rel if contract.timer_rel else None
++
++    errors: list[str] = []
++    warnings: list[str] = []
++    checks: dict[str, Any] = {
++        'purpose': purpose,
++        'compose_file': str(compose_path),
++        'wrapper_file': str(wrapper_path),
++        'unit_file': str(unit_path),
++        'timer_file': str(timer_path) if timer_path else '',
++        'env_file': str(env_file) if env_file else '',
++    }
++
++    # Compose file
++    if not compose_path.exists():
++        errors.append(f'missing_compose_file:{contract.compose_rel}')
++    else:
++        txt = compose_path.read_text(encoding='utf-8')
++        checks['compose_has_service'] = contract.service_name in txt
++        checks['compose_has_preflight_wrapper'] = 'run_with_latency_contract_rollout_preflight_v1.sh' in txt
++        checks['compose_has_purpose'] = f'LATENCY_CONTRACT_PREFLIGHT_PURPOSE: {purpose}' in txt
++        if not checks['compose_has_service']:
++            errors.append(f'compose_wrong_service:{contract.service_name}')
++        if not checks['compose_has_preflight_wrapper']:
++            errors.append('compose_missing_preflight_wrapper')
++        if not checks['compose_has_purpose']:
++            errors.append(f'compose_wrong_purpose:{purpose}')
++
++    # Specific wrapper
++    if not wrapper_path.exists():
++        errors.append(f'missing_wrapper_file:{contract.wrapper_rel}')
++    else:
++        txt = wrapper_path.read_text(encoding='utf-8')
++        checks['wrapper_calls_generic'] = 'run_trade_latency_gated_compose_job_v1.sh' in txt
++        checks['wrapper_has_compose_path'] = Path(contract.compose_rel).name in txt
++        checks['wrapper_has_service_name'] = contract.service_name in txt
++        checks['wrapper_has_purpose'] = f'"{purpose}"' in txt or f"'{purpose}'" in txt
++        if not checks['wrapper_calls_generic']:
++            errors.append('wrapper_missing_generic_delegate')
++        if not checks['wrapper_has_compose_path']:
++            errors.append('wrapper_wrong_compose_file')
++        if not checks['wrapper_has_service_name']:
++            errors.append('wrapper_wrong_service_name')
++        if not checks['wrapper_has_purpose']:
++            errors.append('wrapper_wrong_purpose')
++
++    # Systemd unit
++    env_file_values: list[str] = []
++    if not unit_path.exists():
++        errors.append(f'missing_unit_file:{contract.unit_rel}')
++    else:
++        txt = unit_path.read_text(encoding='utf-8')
++        env_file_values = _contains_environmentfile(txt)
++        checks['unit_has_environmentfile'] = bool(env_file_values)
++        checks['unit_exec_calls_wrapper'] = Path(contract.wrapper_rel).name in txt
++        if not checks['unit_has_environmentfile']:
++            errors.append('unit_missing_environmentfile')
++        if not checks['unit_exec_calls_wrapper']:
++            errors.append('unit_wrong_execstart_wrapper')
++        if env_file_values and contract.expected_env_file not in env_file_values:
++            warnings.append(f'unexpected_environmentfile:{env_file_values}')
++
++    if timer_path:
++        checks['timer_exists'] = timer_path.exists()
++        if not checks['timer_exists']:
++            errors.append(f'missing_timer_file:{contract.timer_rel}')
++
++    # Runtime env
++    required_env = list(COMMON_RUNTIME_ENV) + list(contract.required_runtime_env)
++    missing_env = [k for k in required_env if not str(runtime_env.get(k, '')).strip()]
++    checks['required_env'] = required_env
++    checks['missing_runtime_env'] = missing_env
++    if missing_env:
++        errors.append('missing_runtime_env:' + ','.join(missing_env))
++
++    # Optional env file parse for machine-readable diff.
++    env_file_data: dict[str, str] = {}
++    if env_file:
++        p = Path(env_file)
++        if not p.exists():
++            errors.append(f'missing_env_file:{p}')
++        else:
++            env_file_data = parse_env_file(p)
++            checks['env_file_present'] = True
++            missing_in_file = [k for k in required_env if not str(env_file_data.get(k, '')).strip()]
++            checks['missing_env_file_vars'] = missing_in_file
++            if missing_in_file:
++                errors.append('missing_env_file_vars:' + ','.join(missing_in_file))
++    else:
++        checks['env_file_present'] = False
++        checks['unit_environmentfiles'] = env_file_values
++
++    ok = not errors
++    return {
++        'ok': ok,
++        'purpose': purpose,
++        'errors': errors,
++        'warnings': warnings,
++        'checks': checks,
++        'contract': {
++            'compose_rel': contract.compose_rel,
++            'service_name': contract.service_name,
++            'wrapper_rel': contract.wrapper_rel,
++            'unit_rel': contract.unit_rel,
++            'timer_rel': contract.timer_rel or '',
++            'expected_env_file': contract.expected_env_file,
++            'required_runtime_env': list(required_env),
++        },
++    }
++
++
++def render_json(report: dict[str, Any]) -> str:
++    return json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True)
+diff -ruN repo_p44_base/services/tests/test_latency_deploy_contract_v1.py repo_p44_work/services/tests/test_latency_deploy_contract_v1.py
+--- repo_p44_base/services/tests/test_latency_deploy_contract_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p44_work/services/tests/test_latency_deploy_contract_v1.py	2026-03-08 08:39:48.438636322 +0000
+@@ -0,0 +1,39 @@
++from __future__ import annotations
++
++from services.observability.latency_deploy_contract import parse_env_file_text, lint_deploy_contract
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[2]
++
++
++def test_parse_env_file_text_skips_comments() -> None:
++    env = parse_env_file_text("#x\nA=1\nB='two'\n")
++    assert env['A'] == '1'
++    assert env['B'] == 'two'
++
++
++def test_lint_contract_ok_against_repo_examples() -> None:
++    report = lint_deploy_contract(
++        repo_root=ROOT,
++        purpose='conf_score_guardrails_apply',
++        env={
++            'TRADE_REPO_ROOT': '/opt/trade/staging/repo',
++            'TRADE_ORDERFLOW_IMAGE': 'trade-orderflow:staging',
++            'REDIS_URL': 'redis://redis-worker-1:6379/0',
++            'LATENCY_CONTRACT_ROLLOUT_GATE_STATE_KEY': 'metrics:latency_contract:rollout_gate:last',
++            'LATENCY_CONTRACT_ROLLOUT_GATE_KEY': 'cfg:orderflow:latency_contract:rollout_gate:v1',
++            'CONF_SCORE_GUARD_BUNDLE_DIR': '/var/lib/trade/conf_score_guard_bundles',
++            'CONF_SCORE_GUARD_BUNDLE_STAGED_POINTER': '/var/lib/trade/conf_score_guard_bundles/staged.json',
++            'CONF_SCORE_GUARD_LOCK_PATH': '/var/lib/trade/conf_score_guardrails.lock',
++            'CONF_SCORE_GUARD_DRIFT_REPORT_PATH': '/var/lib/trade/reports/conf_parts_drift.json',
++            'CONF_SCORE_GUARD_APPLY': '1',
++            'CONF_SCORE_GUARD_STAGE': '0',
++        },
++    )
++    assert report['ok'], report
++
++
++def test_lint_contract_missing_env_fails() -> None:
++    report = lint_deploy_contract(repo_root=ROOT, purpose='meta_cov_rollout_controller', env={'TRADE_REPO_ROOT': '/x'})
++    assert not report['ok']
++    assert any('missing_runtime_env:' in e for e in report['errors'])

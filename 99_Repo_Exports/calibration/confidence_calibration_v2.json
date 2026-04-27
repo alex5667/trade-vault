@@ -1,0 +1,12 @@
+{
+  "schema_version": 3,
+  "input_key": "confidence_v1",
+  "generated_at": 1775295894.6540864,
+  "meta": {
+    "method_global": "platt",
+    "training_source": "/var/lib/trade/of_reports/out/confidence_cal/dataset_20260404_094439.jsonl",
+    "hierarchical": true
+  },
+  "buckets": {},
+  "train_report": {}
+}

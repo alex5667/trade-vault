@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/strict_mode.py
+# hypothesis_version: 6.148.10
+
+['0', '1', 'on', 'true', 'yes']

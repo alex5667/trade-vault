@@ -1,0 +1,1716 @@
+diff -ruN /mnt/data/go-worker_orig/.env.example /mnt/data/go-worker_mod/.env.example
+--- /mnt/data/go-worker_orig/.env.example	2026-02-28 07:10:30.000000000 +0000
++++ /mnt/data/go-worker_mod/.env.example	2026-03-05 17:46:37.493166030 +0000
+@@ -2,6 +2,26 @@
+ # FUTURES_WS_ENABLED=true
+ # FUTURES_SYMBOLS=BTCUSDT,ETHUSDT
+ 
++# --- Bybit Futures WS (ticks + books) ---
++# Opt-in:
++# BYBIT_FUTURES_WS_ENABLED=true
++# Symbols (если пусто — берём FUTURES_SYMBOLS):
++# BYBIT_FUTURES_SYMBOLS=BTCUSDT,ETHUSDT
++# Endpoint:
++# BYBIT_FUTURES_WS_URL=wss://stream.bybit.com/v5/public/linear
++# Orderbook depth (1/50/200/1000). Рекомендуется 50:
++# BYBIT_BOOK_DEPTH=50
++# Application-level ping period (Bybit requires op:ping):
++# BYBIT_WS_PING_PERIOD=20s
++# Limits:
++# BYBIT_MAX_SYMBOLS_PER_CONN=50
++# Timeouts:
++# BYBIT_WS_READ_TIMEOUT=90s
++# BYBIT_WS_HANDSHAKE_TIMEOUT=45s
++# BYBIT_WS_DIAL_TIMEOUT=30s
++# BYBIT_WS_TCP_KEEPALIVE=60s
++# BYBIT_WS_WRITE_WAIT=5s
++
+ # --- A1: Liquidations (SAFE defaults) ---
+ # Enable ingestion:
+ # LIQ_WS_ENABLED=true
+diff -ruN /mnt/data/go-worker_orig/cmd/worker/main.go /mnt/data/go-worker_mod/cmd/worker/main.go
+--- /mnt/data/go-worker_orig/cmd/worker/main.go	2026-02-28 06:20:41.000000000 +0000
++++ /mnt/data/go-worker_mod/cmd/worker/main.go	2026-03-05 17:46:18.036488956 +0000
+@@ -16,6 +16,7 @@
+ 	"go-worker/infra/redisclient"
+ 	"go-worker/internal/app"
+ 	internalbinance "go-worker/internal/binance"
++	internalbybit "go-worker/internal/bybit"
+ 	"go-worker/internal/connections"
+ 	"go-worker/internal/liquidation"
+ 	"go-worker/internal/logging"
+@@ -136,6 +137,38 @@
+ 	}
+ }
+ 
++func parseBybitFuturesEnabled(raw string) bool {
++	// Bybit futures ingestion is opt-in by default to avoid mixing venues unexpectedly.
++	if strings.TrimSpace(raw) == "" {
++		return false
++	}
++	switch strings.ToLower(strings.TrimSpace(raw)) {
++	case "1", "true", "on", "yes":
++		return true
++	default:
++		return false
++	}
++}
++
++func parseBybitFuturesSymbols(raw string, fallback []string) []string {
++	// If BYBIT_FUTURES_SYMBOLS is empty, reuse FUTURES_SYMBOLS fallback.
++	if strings.TrimSpace(raw) == "" {
++		return fallback
++	}
++	parts := strings.Split(raw, ",")
++	result := make([]string, 0, len(parts))
++	for _, part := range parts {
++		s := strings.ToUpper(strings.TrimSpace(part))
++		if s != "" {
++			result = append(result, s)
++		}
++	}
++	if len(result) == 0 {
++		return fallback
++	}
++	return result
++}
++
+ func main() {
+ 	// Инициализируем файловое логирование
+ 	// Логи записываются в /app/logs (монтируется в ./logs на хосте)
+@@ -221,6 +254,9 @@
+ 	futuresSymbols := parseFuturesSymbols(os.Getenv("FUTURES_SYMBOLS"))
+ 	isFuturesEnabled := parseFuturesEnabled(os.Getenv("FUTURES_WS_ENABLED"))
+ 
++	bybitFuturesSymbols := parseBybitFuturesSymbols(os.Getenv("BYBIT_FUTURES_SYMBOLS"), futuresSymbols)
++	isBybitFuturesEnabled := parseBybitFuturesEnabled(os.Getenv("BYBIT_FUTURES_WS_ENABLED"))
++
+ 	// --- A1: Liquidation WS ingestion (forceOrder / allLiquidation) ---
+ 	//
+ 	// Поток ликвидаций включается отдельно от тик/книги, чтобы можно было безопасно
+@@ -238,27 +274,31 @@
+ 	liqController := liquidation.NewController(redisclient.Client, liqCfg, liqLogger)
+ 	liqController.Start(ctx)
+ 
++	
+ 	var futuresController *internalbinance.FuturesStreamController
++	var bybitFuturesController *internalbybit.FuturesStreamController
+ 	var batchPublisher *redis.BatchTickPublisher
+ 
++	// Shared publisher for both Binance and Bybit ticks/books.
++	if isFuturesEnabled || isBybitFuturesEnabled {
++		batchPublisher = redis.NewBatchTickPublisher(redisclient.ClientTicks, 100, 10*time.Millisecond)
++		batchPublisher.Start(ctx)
++	}
++
++	// Configure staleness thresholds (shared).
++	stalenessConfig := orderflow.StalenessConfig{
++		MaxAgeTickMs: 150,  // 150ms for signal gating (relative to tick)
++		MaxAgeNowMs:  1000, // 1sec for SRE alerts (relative to now)
++	}
++
+ 	if isFuturesEnabled {
+ 		log.Printf("✅ Binance Futures WS включён для символов: %v", futuresSymbols)
+ 
+ 		futuresLogger := log.New(os.Stdout, "[futures] ", log.LstdFlags|log.Lmicroseconds)
+ 
+-		// Priority 2: Используем BatchTickPublisher для мультиплексных Futures (высокая нагрузка)
+-		batchPublisher = redis.NewBatchTickPublisher(redisclient.ClientTicks, 100, 10*time.Millisecond)
+-		batchPublisher.Start(ctx)
+-
+-		// Configure staleness thresholds
+-		stalenessConfig := orderflow.StalenessConfig{
+-			MaxAgeTickMs: 150,  // 150ms for signal gating (relative to tick)
+-			MaxAgeNowMs:  1000, // 1sec for SRE alerts (relative to now)
+-		}
+-
+ 		futuresController = internalbinance.NewFuturesStreamController(
+ 			redisclient.Client,
+-			batchPublisher, // Подходит под интерфейс Publisher
++			batchPublisher, // Publisher interface
+ 			futuresLogger,
+ 			"binance:futures:usdtm:symbols",
+ 			30*time.Second,
+@@ -271,6 +311,28 @@
+ 		log.Printf("⚠️ Binance Futures WS отключён (FUTURES_WS_ENABLED=false)")
+ 	}
+ 
++	if isBybitFuturesEnabled {
++		log.Printf("✅ Bybit Futures WS включён для символов: %v", bybitFuturesSymbols)
++
++		bybitLogger := log.New(os.Stdout, "[bybit-futures] ", log.LstdFlags|log.Lmicroseconds)
++
++		bybitFuturesController = internalbybit.NewFuturesStreamController(
++			redisclient.Client,
++			batchPublisher, // Publisher interface
++			bybitLogger,
++			"bybit:futures:linear:symbols",
++			30*time.Second,
++			healthMetrics,
++			stalenessConfig,
++			0, // bookDepth from env BYBIT_BOOK_DEPTH (default 50)
++			0, // pingPeriod from env BYBIT_WS_PING_PERIOD (default 20s)
++		)
++
++		go bybitFuturesController.Run(ctx, bybitFuturesSymbols)
++	} else {
++		log.Printf("⚠️ Bybit Futures WS отключён (BYBIT_FUTURES_WS_ENABLED=false)")
++	}
++
+ 	// Используем уникальные имена для общих стримов (volatility и т.д.),
+ 	// чтобы каждый воркер (1m, 5m...) получал свою копию сообщения.
+ 	hostname, _ := os.Hostname()
+@@ -328,6 +390,9 @@
+ 	if futuresController != nil {
+ 		futuresController.Stop()
+ 	}
++	if bybitFuturesController != nil {
++		bybitFuturesController.Stop()
++	}
+ 
+ 	// Stop liquidation ingestion (best-effort flush)
+ 	if liqController != nil {
+diff -ruN /mnt/data/go-worker_orig/internal/bybit/futures_normalizer.go /mnt/data/go-worker_mod/internal/bybit/futures_normalizer.go
+--- /mnt/data/go-worker_orig/internal/bybit/futures_normalizer.go	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/go-worker_mod/internal/bybit/futures_normalizer.go	2026-03-05 17:47:44.745631669 +0000
+@@ -0,0 +1,484 @@
++package bybit
++
++import (
++	"bytes"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"hash/fnv"
++	"sort"
++	"strconv"
++	"strings"
++	"time"
++
++	"go-worker/pkg/timeutil"
++)
++
++// Bybit V5 public WS endpoints:
++//   Linear (USDT perpetual): wss://stream.bybit.com/v5/public/linear
++// Topics used here:
++//   - publicTrade.{symbol}
++//   - orderbook.{depth}.{symbol}
++//
++// Цель нормализации: привести Bybit trades/books к тому же плоскому контракту,
++// который уже используется Python worker для Binance:
++//   stream:tick_<SYMBOL> и stream:book_<SYMBOL>
++// Поля должны быть совместимыми: symbol, ts, price, qty, side, source, market, trade_id, ...
++
++// NormalizedTick — нормализованный тик сделки.
++// ВАЖНО: Bybit trade id — строковый UUID. Для совместимости с существующим контрактом
++// (trade_id int64) мы:
++//   - если trade_id выглядит как число — парсим в int64
++//   - иначе считаем FNV-1a 64-bit hash (стабильный) и используем его как int64
++// При этом в RedisValues также кладём trade_id_raw (строка), чтобы downstream мог
++// при необходимости восстановить точный идентификатор.
++//
++// Side: BUY/SELL (taker side, как в Bybit docs: S=Buy/Sell).
++// Ts: epoch ms (T из trade row; fallback to msg.ts; fallback to now).
++// Source/Market: фиксированные строки для фильтрации downstream.
++//
++// Доп. поле Seq сохраняем (cross sequence), если оно есть.
++// См. docs: https://bybit-exchange.github.io/docs/v5/websocket/public/trade
++//
++// NOTE: Bybit может отправлять up to 1024 trades в одном сообщении.
++type NormalizedTick struct {
++	Symbol     string `json:"symbol"`
++	Ts         int64  `json:"ts"`
++	Price      string `json:"price"`
++	Qty        string `json:"qty"`
++	Side       string `json:"side"` // BUY/SELL
++	Source     string `json:"source"`
++	Market     string `json:"market"`
++	TradeID    int64  `json:"trade_id"`
++	TradeIDRaw string `json:"trade_id_raw,omitempty"`
++	Seq        int64  `json:"seq,omitempty"`
++}
++
++func (t NormalizedTick) RedisValues() map[string]any {
++	vals := map[string]any{
++		"symbol":     strings.ToUpper(t.Symbol),
++		"ts":         t.Ts,
++		"price":      t.Price,
++		"qty":        t.Qty,
++		"side":       t.Side,
++		"source":     t.Source,
++		"market":     t.Market,
++		"trade_id":   t.TradeID,
++		"written_at": timeutil.GetCurrentTimestampMs(),
++	}
++	if t.TradeIDRaw != "" {
++		vals["trade_id_raw"] = t.TradeIDRaw
++	}
++	if t.Seq != 0 {
++		vals["seq"] = t.Seq
++	}
++	return vals
++}
++
++// NormalizedDepth — нормализованный top-N orderbook snapshot.
++//
++// В Binance depth20@100ms — это всегда полноценный top-N snapshot.
++// В Bybit orderbook.{depth} — это snapshot + delta.
++// Чтобы не заставлять Python worker держать локальную книгу, мы в контроллере
++// поддерживаем локальное состояние (apply delta) и публикуем *полный* top-N
++// в том же контракте, что и Binance.
++//
++// FirstID/FinalID/PrevFinal:
++//   Bybit отдаёт u (update id) и seq (cross seq). Диапазона U..u как в Binance нет.
++//   Поэтому:
++//     FinalID = u
++//     FirstID = u
++//     PrevFinal = предыдущий u (0 если неизвестно)
++//
++// Ts: используем cts (matching engine ts) если есть, иначе msg.ts.
++type NormalizedDepth struct {
++	Symbol    string     `json:"symbol"`
++	Ts        int64      `json:"ts"`
++	FirstID   int64      `json:"first_id"`
++	FinalID   int64      `json:"final_id"`
++	PrevFinal int64      `json:"prev_final"`
++	Bids      [][]string `json:"bids"`
++	Asks      [][]string `json:"asks"`
++	Source    string     `json:"source"`
++	Market    string     `json:"market"`
++	Seq       int64      `json:"seq,omitempty"`
++}
++
++func (d NormalizedDepth) RedisValues() map[string]any {
++	bidsJSON, err := json.Marshal(d.Bids)
++	if err != nil {
++		bidsJSON = []byte("[]")
++	}
++	asksJSON, err := json.Marshal(d.Asks)
++	if err != nil {
++		asksJSON = []byte("[]")
++	}
++
++	vals := map[string]any{
++		"symbol":     strings.ToUpper(d.Symbol),
++		"ts":         d.Ts,
++		"first_id":   d.FirstID,
++		"final_id":   d.FinalID,
++		"prev_final": d.PrevFinal,
++		"bids":       string(bidsJSON),
++		"asks":       string(asksJSON),
++		"source":     d.Source,
++		"market":     d.Market,
++		"written_at": timeutil.GetCurrentTimestampMs(),
++	}
++	if d.Seq != 0 {
++		vals["seq"] = d.Seq
++	}
++	return vals
++}
++
++var (
++	errEmptyPayload = errors.New("empty bybit ws payload")
++)
++
++// Bybit publicTrade message.
++type bybitTradeMsg struct {
++	Topic string          `json:"topic"`
++	Type  string          `json:"type"` // snapshot
++	Ts    int64           `json:"ts"`
++	Data  []bybitTradeRow `json:"data"`
++
++	// server/control messages
++	Op      string `json:"op"`
++	Success *bool  `json:"success"`
++	RetMsg  string `json:"ret_msg"`
++}
++
++type bybitTradeRow struct {
++	T   int64  `json:"T"` // fill time ms
++	Sym string `json:"s"`
++	S   string `json:"S"` // Buy/Sell
++	V   string `json:"v"` // qty
++	P   string `json:"p"` // price
++	ID  string `json:"i"` // trade id (uuid)
++	Seq int64  `json:"seq"`
++}
++
++// Bybit orderbook message (snapshot/delta).
++type bybitOrderbookMsg struct {
++	Topic string `json:"topic"`
++	Type  string `json:"type"` // snapshot|delta
++	Ts    int64  `json:"ts"`
++	Cts   int64  `json:"cts"`
++	Data  struct {
++		Sym string     `json:"s"`
++		B   [][]string `json:"b"`
++		A   [][]string `json:"a"`
++		U   int64      `json:"u"`
++		Seq int64      `json:"seq"`
++	} `json:"data"`
++
++	// server/control messages
++	Op      string `json:"op"`
++	Success *bool  `json:"success"`
++	RetMsg  string `json:"ret_msg"`
++}
++
++// OrderbookUpdate — распарсенный orderbook update (snapshot or delta).
++// Состояние/агрегация делаются снаружи (в контроллере).
++type OrderbookUpdate struct {
++	Symbol     string
++	IsSnapshot bool
++	UpdateID   int64
++	Seq        int64
++	TsMs       int64
++	Bids       [][]string
++	Asks       [][]string
++}
++
++// ParsePublicTrade parses one WS message and returns normalized ticks.
++// Returns (nil, nil) for non-trade messages or control frames.
++func ParsePublicTrade(raw []byte) ([]NormalizedTick, error) {
++	if len(bytes.TrimSpace(raw)) == 0 {
++		return nil, errEmptyPayload
++	}
++	var msg bybitTradeMsg
++	if err := json.Unmarshal(raw, &msg); err != nil {
++		return nil, fmt.Errorf("decode trade msg: %w", err)
++	}
++	if msg.Op != "" {
++		return nil, nil
++	}
++	if !strings.HasPrefix(msg.Topic, "publicTrade.") {
++		return nil, nil
++	}
++	if len(msg.Data) == 0 {
++		return nil, nil
++	}
++
++	out := make([]NormalizedTick, 0, len(msg.Data))
++	for _, row := range msg.Data {
++		sym := strings.ToUpper(strings.TrimSpace(row.Sym))
++		if sym == "" {
++			// fallback: topic contains symbol
++			sym = strings.ToUpper(strings.TrimPrefix(msg.Topic, "publicTrade."))
++		}
++		if sym == "" {
++			return nil, errors.New("missing symbol")
++		}
++
++		side := strings.ToUpper(strings.TrimSpace(row.S))
++		switch side {
++		case "BUY", "SELL":
++			// ok
++		default:
++			// Bybit uses Buy/Sell
++			if strings.EqualFold(row.S, "Buy") {
++				side = "BUY"
++			} else if strings.EqualFold(row.S, "Sell") {
++				side = "SELL"
++			} else {
++				return nil, fmt.Errorf("unknown side: %q", row.S)
++			}
++		}
++
++		ts := row.T
++		if ts <= 0 {
++			ts = msg.Ts
++		}
++		if ts <= 0 {
++			ts = time.Now().UnixMilli()
++		}
++
++		tradeID := normalizeTradeID(row.ID)
++		out = append(out, NormalizedTick{
++			Symbol:     sym,
++			Ts:         ts,
++			Price:      strings.TrimSpace(row.P),
++			Qty:        strings.TrimSpace(row.V),
++			Side:       side,
++			Source:     "bybit-linear",
++			Market:     "USDT-M",
++			TradeID:    tradeID,
++			TradeIDRaw: strings.TrimSpace(row.ID),
++			Seq:        row.Seq,
++		})
++	}
++	return out, nil
++}
++
++func normalizeTradeID(raw string) int64 {
++	raw = strings.TrimSpace(raw)
++	if raw == "" {
++		return 0
++	}
++	if n, err := strconv.ParseInt(raw, 10, 64); err == nil {
++		return n
++	}
++	h := fnv.New64a()
++	_, _ = h.Write([]byte(raw))
++	// Convert uint64 -> int64 deterministically.
++	return int64(h.Sum64())
++}
++
++// ParseOrderbook parses one WS message and returns orderbook update.
++// Returns (nil, nil) for non-orderbook or control messages.
++func ParseOrderbook(raw []byte) (*OrderbookUpdate, error) {
++	if len(bytes.TrimSpace(raw)) == 0 {
++		return nil, errEmptyPayload
++	}
++	var msg bybitOrderbookMsg
++	if err := json.Unmarshal(raw, &msg); err != nil {
++		return nil, fmt.Errorf("decode orderbook msg: %w", err)
++	}
++	if msg.Op != "" {
++		return nil, nil
++	}
++	if !strings.HasPrefix(msg.Topic, "orderbook.") {
++		return nil, nil
++	}
++	if msg.Data.Sym == "" {
++		// topic is orderbook.<depth>.<symbol>
++		parts := strings.Split(msg.Topic, ".")
++		if len(parts) >= 3 {
++			msg.Data.Sym = parts[len(parts)-1]
++		}
++	}
++	sym := strings.ToUpper(strings.TrimSpace(msg.Data.Sym))
++	if sym == "" {
++		return nil, errors.New("missing symbol")
++	}
++
++	isSnapshot := strings.EqualFold(strings.TrimSpace(msg.Type), "snapshot")
++	isDelta := strings.EqualFold(strings.TrimSpace(msg.Type), "delta")
++	if !isSnapshot && !isDelta {
++		// unknown type; ignore silently (Bybit may add fields)
++		return nil, nil
++	}
++
++	ts := msg.Cts
++	if ts <= 0 {
++		ts = msg.Ts
++	}
++	if ts <= 0 {
++		ts = time.Now().UnixMilli()
++	}
++
++	upd := &OrderbookUpdate{
++		Symbol:     sym,
++		IsSnapshot: isSnapshot,
++		UpdateID:   msg.Data.U,
++		Seq:        msg.Data.Seq,
++		TsMs:       ts,
++		Bids:       msg.Data.B,
++		Asks:       msg.Data.A,
++	}
++	return upd, nil
++}
++
++// --- Local in-memory orderbook state (top-N) ---
++
++// priceLevel is an internal struct used to keep stable string value while sorting by float.
++// For top-N book this is acceptable (N <= 200). We do not keep deep levels.
++//
++// NOTE: float sorting is a tradeoff: simpler and fast, but may be sensitive to very long decimals.
++// For exchange prices this is typically safe. If you later need strict decimal ordering,
++// replace float with fixed-point int64 (requires tick-size aware parsing).
++type priceLevel struct {
++	PriceStr string
++	PriceF   float64
++	SizeStr  string
++}
++
++// BookSideState keeps top levels for one side.
++type BookSideState struct {
++	levels map[string]priceLevel // key = PriceStr
++}
++
++func newBookSideState() *BookSideState {
++	return &BookSideState{levels: make(map[string]priceLevel, 256)}
++}
++
++func (s *BookSideState) reset(levels [][]string) {
++	s.levels = make(map[string]priceLevel, 256)
++	for _, lv := range levels {
++		if len(lv) < 2 {
++			continue
++		}
++		p := strings.TrimSpace(lv[0])
++		q := strings.TrimSpace(lv[1])
++		if p == "" {
++			continue
++		}
++		pf, err := strconv.ParseFloat(p, 64)
++		if err != nil {
++			continue
++		}
++		if q == "0" || q == "0.0" || q == "0.00" {
++			continue
++		}
++		s.levels[p] = priceLevel{PriceStr: p, PriceF: pf, SizeStr: q}
++	}
++}
++
++// applyDelta applies Bybit delta updates.
++// size==0 means remove.
++func (s *BookSideState) applyDelta(delta [][]string) {
++	for _, lv := range delta {
++		if len(lv) < 2 {
++			continue
++		}
++		p := strings.TrimSpace(lv[0])
++		q := strings.TrimSpace(lv[1])
++		if p == "" {
++			continue
++		}
++		// remove on zero
++		if q == "0" || q == "0.0" || q == "0.00" {
++			delete(s.levels, p)
++			continue
++		}
++		pf, err := strconv.ParseFloat(p, 64)
++		if err != nil {
++			continue
++		}
++		s.levels[p] = priceLevel{PriceStr: p, PriceF: pf, SizeStr: q}
++	}
++}
++
++func (s *BookSideState) toSortedSlice(desc bool) []priceLevel {
++	out := make([]priceLevel, 0, len(s.levels))
++	for _, lv := range s.levels {
++		out = append(out, lv)
++	}
++	if desc {
++		sort.Slice(out, func(i, j int) bool { return out[i].PriceF > out[j].PriceF })
++	} else {
++		sort.Slice(out, func(i, j int) bool { return out[i].PriceF < out[j].PriceF })
++	}
++	return out
++}
++
++// trimToN keeps only top N levels (by sorted order) and drops the rest.
++func (s *BookSideState) trimToN(sorted []priceLevel, n int) []priceLevel {
++	if n <= 0 {
++		s.levels = make(map[string]priceLevel, 16)
++		return nil
++	}
++	if len(sorted) > n {
++		sorted = sorted[:n]
++	}
++	newMap := make(map[string]priceLevel, n*2)
++	for _, lv := range sorted {
++		newMap[lv.PriceStr] = lv
++	}
++	s.levels = newMap
++	return sorted
++}
++
++// BookState stores both sides and last update IDs.
++type BookState struct {
++	Bids *BookSideState
++	Asks *BookSideState
++	// lastUpdateID used to fill PrevFinal
++	LastUpdateID int64
++}
++
++func newBookState() *BookState {
++	return &BookState{Bids: newBookSideState(), Asks: newBookSideState(), LastUpdateID: 0}
++}
++
++// ApplyUpdate applies snapshot/delta and returns a full snapshot (topN) ready for publishing.
++func (bs *BookState) ApplyUpdate(upd *OrderbookUpdate, topN int) (bids [][]string, asks [][]string, prevU int64) {
++	if upd == nil {
++		return nil, nil, bs.LastUpdateID
++	}
++	prevU = bs.LastUpdateID
++	// Safety: ignore deltas until we have at least one snapshot.
++	// Bybit гарантирует первый snapshot после subscribe, но при reconnect/lag
++	// возможны ситуации, когда delta придёт раньше.
++	if !upd.IsSnapshot && len(bs.Bids.levels) == 0 && len(bs.Asks.levels) == 0 {
++		return nil, nil, prevU
++	}
++	if upd.IsSnapshot {
++		bs.Bids.reset(upd.Bids)
++		bs.Asks.reset(upd.Asks)
++	} else {
++		bs.Bids.applyDelta(upd.Bids)
++		bs.Asks.applyDelta(upd.Asks)
++	}
++
++	b := bs.Bids.toSortedSlice(true)
++	b = bs.Bids.trimToN(b, topN)
++	a := bs.Asks.toSortedSlice(false)
++	a = bs.Asks.trimToN(a, topN)
++
++	bids = make([][]string, 0, len(b))
++	for _, lv := range b {
++		bids = append(bids, []string{lv.PriceStr, lv.SizeStr})
++	}
++	asks = make([][]string, 0, len(a))
++	for _, lv := range a {
++		asks = append(asks, []string{lv.PriceStr, lv.SizeStr})
++	}
++
++	if upd.UpdateID > 0 {
++		bs.LastUpdateID = upd.UpdateID
++	}
++	return bids, asks, prevU
++}
+diff -ruN /mnt/data/go-worker_orig/internal/bybit/futures_normalizer_test.go /mnt/data/go-worker_mod/internal/bybit/futures_normalizer_test.go
+--- /mnt/data/go-worker_orig/internal/bybit/futures_normalizer_test.go	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/go-worker_mod/internal/bybit/futures_normalizer_test.go	2026-03-05 17:43:51.409335976 +0000
+@@ -0,0 +1,132 @@
++package bybit
++
++import "testing"
++
++func TestParsePublicTrade_OK(t *testing.T) {
++	raw := []byte(`{
++		"topic": "publicTrade.BTCUSDT",
++		"type": "snapshot",
++		"ts": 1672304486868,
++		"data": [
++			{
++				"T": 1672304486865,
++				"s": "BTCUSDT",
++				"S": "Buy",
++				"v": "0.001",
++				"p": "16578.50",
++				"i": "20f43950-d8dd-5b31-9112-a178eb6023af",
++				"seq": 1783284617
++			}
++		]
++	}`)
++
++	ticks, err := ParsePublicTrade(raw)
++	if err != nil {
++		t.Fatalf("unexpected err: %v", err)
++	}
++	if len(ticks) != 1 {
++		t.Fatalf("expected 1 tick, got %d", len(ticks))
++	}
++	tk := ticks[0]
++	if tk.Symbol != "BTCUSDT" {
++		t.Fatalf("symbol mismatch: %s", tk.Symbol)
++	}
++	if tk.Side != "BUY" {
++		t.Fatalf("side mismatch: %s", tk.Side)
++	}
++	if tk.Price != "16578.50" || tk.Qty != "0.001" {
++		t.Fatalf("price/qty mismatch: %s/%s", tk.Price, tk.Qty)
++	}
++	if tk.Ts != 1672304486865 {
++		t.Fatalf("ts mismatch: %d", tk.Ts)
++	}
++	if tk.TradeID == 0 {
++		t.Fatalf("expected non-zero TradeID hash")
++	}
++	if tk.TradeIDRaw == "" {
++		t.Fatalf("expected trade_id_raw")
++	}
++}
++
++func TestParseOrderbook_Snapshot_OK(t *testing.T) {
++	raw := []byte(`{
++		"topic": "orderbook.50.BTCUSDT",
++		"type": "snapshot",
++		"ts": 1672304484978,
++		"data": {
++			"s": "BTCUSDT",
++			"b": [["16493.50","0.006"],["16493.00","0.100"]],
++			"a": [["16611.00","0.029"],["16612.00","0.213"]],
++			"u": 18521288,
++			"seq": 7961638724
++		},
++		"cts": 1672304484976
++	}`)
++
++	upd, err := ParseOrderbook(raw)
++	if err != nil {
++		t.Fatalf("unexpected err: %v", err)
++	}
++	if upd == nil {
++		t.Fatalf("expected update")
++	}
++	if upd.Symbol != "BTCUSDT" {
++		t.Fatalf("symbol mismatch: %s", upd.Symbol)
++	}
++	if !upd.IsSnapshot {
++		t.Fatalf("expected snapshot")
++	}
++	if upd.UpdateID != 18521288 {
++		t.Fatalf("u mismatch: %d", upd.UpdateID)
++	}
++	if upd.TsMs != 1672304484976 {
++		t.Fatalf("cts mismatch: %d", upd.TsMs)
++	}
++	if len(upd.Bids) != 2 || len(upd.Asks) != 2 {
++		t.Fatalf("levels mismatch")
++	}
++}
++
++func TestBookState_ApplySnapshotAndDelta(t *testing.T) {
++	bs := newBookState()
++
++	snap := &OrderbookUpdate{
++		Symbol:     "BTCUSDT",
++		IsSnapshot: true,
++		UpdateID:   10,
++		TsMs:       1000,
++		Bids:       [][]string{{"100", "1"}, {"99", "2"}},
++		Asks:       [][]string{{"101", "1"}, {"102", "2"}},
++	}
++	bids, asks, prev := bs.ApplyUpdate(snap, 50)
++	if prev != 0 {
++		t.Fatalf("prev should be 0, got %d", prev)
++	}
++	if len(bids) != 2 || bids[0][0] != "100" {
++		t.Fatalf("bids snapshot wrong: %#v", bids)
++	}
++	if len(asks) != 2 || asks[0][0] != "101" {
++		t.Fatalf("asks snapshot wrong: %#v", asks)
++	}
++
++	delta := &OrderbookUpdate{
++		Symbol:     "BTCUSDT",
++		IsSnapshot: false,
++		UpdateID:   11,
++		TsMs:       1010,
++		Bids:       [][]string{{"99", "0"}, {"98", "5"}},
++		Asks:       [][]string{{"101", "0"}, {"103", "3"}},
++	}
++	bids, asks, prev = bs.ApplyUpdate(delta, 50)
++	if prev != 10 {
++		t.Fatalf("prev should be 10, got %d", prev)
++	}
++	// bid 99 removed, bid 98 added
++	if len(bids) != 2 || bids[0][0] != "100" || bids[1][0] != "98" {
++		t.Fatalf("bids delta wrong: %#v", bids)
++	}
++	// ask 101 removed, ask 103 added
++	if len(asks) != 2 || asks[0][0] != "102" || asks[1][0] != "103" {
++		t.Fatalf("asks delta wrong: %#v", asks)
++	}
++}
+diff -ruN /mnt/data/go-worker_orig/internal/bybit/futures_streams.go /mnt/data/go-worker_mod/internal/bybit/futures_streams.go
+--- /mnt/data/go-worker_orig/internal/bybit/futures_streams.go	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/go-worker_mod/internal/bybit/futures_streams.go	2026-03-05 17:42:49.937298728 +0000
+@@ -0,0 +1,690 @@
++package bybit
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"log"
++	"net"
++	"os"
++	"strings"
++	"sync"
++	"sync/atomic"
++	"time"
++
++	"go-worker/internal/metrics"
++	"go-worker/internal/monitoring"
++	"go-worker/internal/orderflow"
++	internalredis "go-worker/internal/redis"
++	"go-worker/internal/wsconn"
++
++	"github.com/go-redis/redis/v8"
++	"github.com/gorilla/websocket"
++)
++
++// Bybit Futures/Perps public WS endpoint (Linear USDT-M):
++//   wss://stream.bybit.com/v5/public/linear
++// Overridable via ENV BYBIT_FUTURES_WS_URL.
++const defaultBybitFuturesWsEndpoint = "wss://stream.bybit.com/v5/public/linear"
++
++// BybitWSCommand represents V5 subscribe/unsubscribe/ping.
++//
++// Example:
++//   {"op":"subscribe","args":["publicTrade.BTCUSDT","orderbook.50.BTCUSDT"]}
++//
++// Docs:
++//   https://bybit-exchange.github.io/docs/v5/websocket/public/trade
++//   https://bybit-exchange.github.io/docs/v5/websocket/public/orderbook
++//
++// NOTE: Bybit requires application-level heartbeat (op:ping).
++// We send it periodically in ReadLoop.
++type BybitWSCommand struct {
++	Op   string   `json:"op"`
++	Args []string `json:"args,omitempty"`
++}
++
++// FuturesMultiplexManager manages one Bybit WS connection subscribed to multiple symbols.
++// Unlike Binance URL-multiplexing, Bybit uses subscribe messages.
++type FuturesMultiplexManager struct {
++	symbols []string
++	conn    *websocket.Conn
++	log     *log.Logger
++
++	mu      sync.Mutex
++	writeMu sync.Mutex // protects concurrent conn.Write*
++
++	bookDepth  int
++	pingPeriod time.Duration
++}
++
++func NewFuturesMultiplexManager(symbols []string, logger *log.Logger, bookDepth int, pingPeriod time.Duration) *FuturesMultiplexManager {
++	if bookDepth <= 0 {
++		bookDepth = 50
++	}
++	if pingPeriod <= 0 {
++		pingPeriod = 20 * time.Second
++	}
++	return &FuturesMultiplexManager{symbols: symbols, log: logger, bookDepth: bookDepth, pingPeriod: pingPeriod}
++}
++
++func (m *FuturesMultiplexManager) endpoint() string {
++	return getEnvString("BYBIT_FUTURES_WS_URL", defaultBybitFuturesWsEndpoint)
++}
++
++// Connect establishes WS and subscribes to required topics.
++func (m *FuturesMultiplexManager) Connect(ctx context.Context) error {
++	m.mu.Lock()
++	defer m.mu.Unlock()
++
++	if m.conn != nil {
++		_ = m.conn.Close()
++		m.conn = nil
++	}
++
++	url := m.endpoint()
++
++	cfg := wsconn.DefaultConfig()
++	cfg.HandshakeTimeout = getEnvDuration("BYBIT_WS_HANDSHAKE_TIMEOUT", cfg.HandshakeTimeout)
++	cfg.DialTimeout = getEnvDuration("BYBIT_WS_DIAL_TIMEOUT", cfg.DialTimeout)
++	cfg.TCPKeepAlive = getEnvDuration("BYBIT_WS_TCP_KEEPALIVE", cfg.TCPKeepAlive)
++	cfg.ReadTimeout = getEnvDuration("BYBIT_WS_READ_TIMEOUT", 90*time.Second)
++	cfg.WriteWait = getEnvDuration("BYBIT_WS_WRITE_WAIT", cfg.WriteWait)
++
++	conn, err := wsconn.Dial(ctx, url, cfg)
++	if err != nil {
++		return err
++	}
++
++	// Setup WS ping/pong handlers (frame-level). Bybit main heartbeat is op:ping.
++	wsconn.SetupPingPong(conn, cfg.ReadTimeout, cfg.WriteWait, func(msg []byte) error {
++		m.writeMu.Lock()
++		defer m.writeMu.Unlock()
++		return conn.WriteControl(websocket.PongMessage, msg, time.Now().Add(cfg.WriteWait))
++	})
++
++	m.conn = conn
++
++	// Subscribe for symbols
++	args := make([]string, 0, len(m.symbols)*2)
++	for _, sym := range m.symbols {
++		s := strings.ToUpper(strings.TrimSpace(sym))
++		if s == "" {
++			continue
++		}
++		args = append(args, "publicTrade."+s)
++		args = append(args, fmt.Sprintf("orderbook.%d.%s", m.bookDepth, s))
++	}
++	cmd := BybitWSCommand{Op: "subscribe", Args: args}
++
++	m.writeMu.Lock()
++	err = conn.WriteJSON(cmd)
++	m.writeMu.Unlock()
++	if err != nil {
++		_ = conn.Close()
++		m.conn = nil
++		return fmt.Errorf("subscribe write failed: %w", err)
++	}
++
++	monitoring.RecordBybitLiveSubscription("subscribe")
++
++	return nil
++}
++
++// ReadLoop reads messages and dispatches them to handler.
++// handler is called with a best-effort symbol extracted from topic.
++func (m *FuturesMultiplexManager) ReadLoop(ctx context.Context, handler func(symbol string, msg []byte)) error {
++	m.mu.Lock()
++	conn := m.conn
++	m.mu.Unlock()
++	if conn == nil {
++		return errors.New("websocket connection is nil")
++	}
++
++	readTimeout := getEnvDuration("BYBIT_WS_READ_TIMEOUT", 90*time.Second)
++	_ = conn.SetReadDeadline(time.Now().Add(readTimeout))
++
++	lastMessageTime := time.Now()
++	msgChan := make(chan []byte, 5000)
++
++	handlerDone := make(chan struct{})
++	go func() {
++		defer close(handlerDone)
++		for msg := range msgChan {
++			// Minimal envelope to route by symbol.
++			var env struct {
++				Topic string `json:"topic"`
++				Op    string `json:"op"`
++			}
++			if err := json.Unmarshal(msg, &env); err != nil {
++				continue
++			}
++			if env.Op != "" {
++				continue
++			}
++			sym := extractSymbolFromTopic(env.Topic)
++			handler(sym, msg)
++		}
++	}()
++
++	pingCtx, cancel := context.WithCancel(ctx)
++	defer cancel()
++
++	errCh := make(chan error, 1)
++	go func() {
++		// Bybit V5 requires op:ping heartbeat.
++		ticker := time.NewTicker(m.pingPeriod)
++		defer ticker.Stop()
++		for {
++			select {
++			case <-pingCtx.Done():
++				return
++			case <-ticker.C:
++				m.writeMu.Lock()
++				err := conn.WriteJSON(BybitWSCommand{Op: "ping"})
++				m.writeMu.Unlock()
++				if err != nil {
++					errCh <- err
++					return
++				}
++				_ = conn.SetReadDeadline(time.Now().Add(readTimeout))
++			}
++		}
++	}()
++
++	defer func() {
++		close(msgChan)
++		<-handlerDone
++	}()
++
++	for {
++		select {
++		case err := <-errCh:
++			return err
++		case <-ctx.Done():
++			return ctx.Err()
++		default:
++		}
++
++		_, msg, err := conn.ReadMessage()
++		if err != nil {
++			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
++				if time.Since(lastMessageTime) > readTimeout {
++					return fmt.Errorf("read timeout: %w", err)
++				}
++				continue
++			}
++			return fmt.Errorf("read error: %w", err)
++		}
++
++		lastMessageTime = time.Now()
++		select {
++		case msgChan <- msg:
++		default:
++			// load-shed instead of reconnect.
++			monitoring.RecordFuturesMessageDropped("BYBIT_MULTIPLEX")
++		}
++	}
++}
++
++// UpdateSubscriptions sends SUBSCRIBE/UNSUBSCRIBE to update topics without reconnect.
++func (m *FuturesMultiplexManager) UpdateSubscriptions(addSymbols, removeSymbols []string) error {
++	m.mu.Lock()
++	conn := m.conn
++	m.mu.Unlock()
++	if conn == nil {
++		return errors.New("no active connection")
++	}
++
++	m.writeMu.Lock()
++	defer m.writeMu.Unlock()
++
++	if len(addSymbols) > 0 {
++		args := make([]string, 0, len(addSymbols)*2)
++		for _, sym := range addSymbols {
++			s := strings.ToUpper(strings.TrimSpace(sym))
++			if s == "" {
++				continue
++			}
++			args = append(args, "publicTrade."+s)
++			args = append(args, fmt.Sprintf("orderbook.%d.%s", m.bookDepth, s))
++		}
++		cmd := BybitWSCommand{Op: "subscribe", Args: args}
++		if err := conn.WriteJSON(cmd); err != nil {
++			return fmt.Errorf("subscribe failed: %w", err)
++		}
++		monitoring.RecordBybitLiveSubscription("subscribe")
++		m.mu.Lock()
++		m.symbols = append(m.symbols, addSymbols...)
++		m.mu.Unlock()
++	}
++
++	if len(removeSymbols) > 0 {
++		args := make([]string, 0, len(removeSymbols)*2)
++		for _, sym := range removeSymbols {
++			s := strings.ToUpper(strings.TrimSpace(sym))
++			if s == "" {
++				continue
++			}
++			args = append(args, "publicTrade."+s)
++			args = append(args, fmt.Sprintf("orderbook.%d.%s", m.bookDepth, s))
++		}
++		cmd := BybitWSCommand{Op: "unsubscribe", Args: args}
++		if err := conn.WriteJSON(cmd); err != nil {
++			return fmt.Errorf("unsubscribe failed: %w", err)
++		}
++		monitoring.RecordBybitLiveSubscription("unsubscribe")
++
++		m.mu.Lock()
++		removeSet := make(map[string]struct{}, len(removeSymbols))
++		for _, s := range removeSymbols {
++			removeSet[strings.ToUpper(s)] = struct{}{}
++		}
++		newSymbols := make([]string, 0, len(m.symbols))
++		for _, s := range m.symbols {
++			if _, ok := removeSet[strings.ToUpper(s)]; !ok {
++				newSymbols = append(newSymbols, s)
++			}
++		}
++		m.symbols = newSymbols
++		m.mu.Unlock()
++	}
++
++	return nil
++}
++
++func (m *FuturesMultiplexManager) Close() {
++	m.mu.Lock()
++	defer m.mu.Unlock()
++	if m.conn != nil {
++		_ = m.conn.Close()
++		m.conn = nil
++	}
++}
++
++// extractSymbolFromTopic extracts symbol from topic name.
++// Supported patterns:
++//   publicTrade.BTCUSDT
++//   orderbook.50.BTCUSDT
++func extractSymbolFromTopic(topic string) string {
++	topic = strings.TrimSpace(topic)
++	if topic == "" {
++		return ""
++	}
++	parts := strings.Split(topic, ".")
++	if len(parts) == 0 {
++		return ""
++	}
++	sym := parts[len(parts)-1]
++	return strings.ToUpper(strings.TrimSpace(sym))
++}
++
++// FuturesStreamController manages dynamic symbol list and keeps Bybit WS running.
++type FuturesStreamController struct {
++	client          *redis.Client
++	publisher       internalredis.Publisher
++	logger          *log.Logger
++	symbolsKey      string
++	refreshInterval time.Duration
++	healthMetrics   *metrics.HealthMetrics
++	stalenessConfig orderflow.StalenessConfig
++
++	bookDepth  int
++	pingPeriod time.Duration
++
++	mu                  sync.Mutex
++	currentSymbols      []string
++	activeManagerCancel context.CancelFunc
++	activeManager       *FuturesMultiplexManager
++	errorCount          int64
++
++	// local book state (top-N) per symbol (needed for Bybit delta processing)
++	bookMu     sync.Mutex
++	bookStates map[string]*BookState
++}
++
++func NewFuturesStreamController(
++	client *redis.Client,
++	publisher internalredis.Publisher,
++	logger *log.Logger,
++	symbolsKey string,
++	refreshInterval time.Duration,
++	healthMetrics *metrics.HealthMetrics,
++	stalenessConfig orderflow.StalenessConfig,
++	bookDepth int,
++	pingPeriod time.Duration,
++) *FuturesStreamController {
++	if bookDepth <= 0 {
++		bookDepth = getEnvInt("BYBIT_BOOK_DEPTH", 50)
++	}
++	if pingPeriod <= 0 {
++		pingPeriod = getEnvDuration("BYBIT_WS_PING_PERIOD", 20*time.Second)
++	}
++	return &FuturesStreamController{
++		client:          client,
++		publisher:       publisher,
++		logger:          logger,
++		symbolsKey:      symbolsKey,
++		refreshInterval: refreshInterval,
++		healthMetrics:   healthMetrics,
++		stalenessConfig: stalenessConfig,
++		bookDepth:       bookDepth,
++		pingPeriod:      pingPeriod,
++		bookStates:      make(map[string]*BookState, 128),
++	}
++}
++
++func (c *FuturesStreamController) Run(ctx context.Context, baseSymbols []string) {
++	c.logger.Printf("Bybit futures controller start. Redis key: %s", c.symbolsKey)
++
++	desired := c.loadSymbols(ctx, baseSymbols)
++	desired = c.applyConnLimits(desired)
++	c.reconcile(ctx, desired)
++
++	ticker := time.NewTicker(c.refreshInterval)
++	defer ticker.Stop()
++
++	for {
++		select {
++		case <-ctx.Done():
++			c.logger.Println("Bybit futures controller stop (ctx)")
++			c.Stop()
++			return
++		case <-ticker.C:
++			desired = c.loadSymbols(ctx, baseSymbols)
++			desired = c.applyConnLimits(desired)
++			c.reconcile(ctx, desired)
++		}
++	}
++}
++
++func (c *FuturesStreamController) Stop() {
++	c.mu.Lock()
++	defer c.mu.Unlock()
++	if c.activeManagerCancel != nil {
++		c.activeManagerCancel()
++		c.activeManagerCancel = nil
++	}
++}
++
++func (c *FuturesStreamController) applyConnLimits(symbols []string) []string {
++	maxSymbols := getEnvInt("BYBIT_MAX_SYMBOLS_PER_CONN", 50)
++	if maxSymbols <= 0 {
++		maxSymbols = 50
++	}
++	if len(symbols) <= maxSymbols {
++		return symbols
++	}
++	c.logger.Printf("⚠️ BYBIT_MAX_SYMBOLS_PER_CONN=%d: truncating symbols %d -> %d", maxSymbols, len(symbols), maxSymbols)
++	return symbols[:maxSymbols]
++}
++
++func (c *FuturesStreamController) loadSymbols(ctx context.Context, base []string) []string {
++	symbolSet := make(map[string]struct{}, len(base))
++	for _, s := range base {
++		if s == "" {
++			continue
++		}
++		symbolSet[strings.ToUpper(s)] = struct{}{}
++	}
++
++	if c.client != nil && c.symbolsKey != "" {
++		symbols, err := c.client.SMembers(ctx, c.symbolsKey).Result()
++		if err != nil && err != redis.Nil {
++			c.logger.Printf("Redis read error %s: %v", c.symbolsKey, err)
++		} else {
++			for _, s := range symbols {
++				if s == "" {
++					continue
++				}
++				symbolSet[strings.ToUpper(s)] = struct{}{}
++			}
++		}
++	}
++
++	out := make([]string, 0, len(symbolSet))
++	for s := range symbolSet {
++		out = append(out, s)
++	}
++	return out
++}
++
++func (c *FuturesStreamController) reconcile(ctx context.Context, symbols []string) {
++	c.mu.Lock()
++	defer c.mu.Unlock()
++
++	if len(symbols) == len(c.currentSymbols) {
++		match := true
++		currSet := make(map[string]struct{}, len(c.currentSymbols))
++		for _, s := range c.currentSymbols {
++			currSet[s] = struct{}{}
++		}
++		for _, s := range symbols {
++			if _, ok := currSet[strings.ToUpper(s)]; !ok {
++				match = false
++				break
++			}
++		}
++		if match {
++			return
++		}
++	}
++
++	currSet := make(map[string]struct{}, len(c.currentSymbols))
++	for _, s := range c.currentSymbols {
++		currSet[s] = struct{}{}
++	}
++	newSet := make(map[string]struct{}, len(symbols))
++	for _, s := range symbols {
++		newSet[strings.ToUpper(s)] = struct{}{}
++	}
++
++	var toAdd, toRemove []string
++	for s := range newSet {
++		if _, ok := currSet[s]; !ok {
++			toAdd = append(toAdd, s)
++		}
++	}
++	for s := range currSet {
++		if _, ok := newSet[s]; !ok {
++			toRemove = append(toRemove, s)
++		}
++	}
++
++	maxSymbols := getEnvInt("BYBIT_MAX_SYMBOLS_PER_CONN", 50)
++	if c.activeManager != nil && len(symbols) <= maxSymbols {
++		c.logger.Printf("Bybit live update: add=%d remove=%d", len(toAdd), len(toRemove))
++		err := c.activeManager.UpdateSubscriptions(toAdd, toRemove)
++		if err == nil {
++			c.currentSymbols = make([]string, len(symbols))
++			for i, s := range symbols {
++				c.currentSymbols[i] = strings.ToUpper(s)
++			}
++			return
++		}
++		c.logger.Printf("⚠️ Bybit live update failed, reconnect: %v", err)
++	}
++
++	c.logger.Printf("Bybit futures symbols changed (%d -> %d), reconnect", len(c.currentSymbols), len(symbols))
++	if c.activeManagerCancel != nil {
++		c.activeManagerCancel()
++	}
++	c.currentSymbols = make([]string, len(symbols))
++	for i, s := range symbols {
++		c.currentSymbols[i] = strings.ToUpper(s)
++	}
++
++	runCtx, cancel := context.WithCancel(ctx)
++	c.activeManagerCancel = cancel
++
++	go c.runMultiplexed(runCtx, c.currentSymbols)
++}
++
++func (c *FuturesStreamController) runMultiplexed(ctx context.Context, symbols []string) {
++	if len(symbols) == 0 {
++		return
++	}
++
++	backoff := wsconn.DefaultReconnectBackoff
++	for {
++		if ctx.Err() != nil {
++			return
++		}
++
++		manager := NewFuturesMultiplexManager(symbols, c.logger, c.bookDepth, c.pingPeriod)
++		c.mu.Lock()
++		c.activeManager = manager
++		c.mu.Unlock()
++
++		if err := manager.Connect(ctx); err != nil {
++			c.logger.Printf("Bybit connect error: %v", err)
++			monitoring.RecordBybitFuturesReconnect("MULTIPLEX", "connect_error")
++			select {
++			case <-ctx.Done():
++				return
++			case <-time.After(backoff):
++			}
++			backoff = wsconn.NextBackoff(backoff)
++			continue
++		}
++
++		backoff = wsconn.DefaultReconnectBackoff
++		c.logger.Printf("✅ Bybit WS connected for %d symbols", len(symbols))
++
++		err := manager.ReadLoop(ctx, func(symbol string, msg []byte) {
++			c.processMessage(ctx, symbol, msg)
++		})
++
++		if err != nil {
++			if err == context.Canceled {
++				return
++			}
++			currentErrorCount := atomic.AddInt64(&c.errorCount, 1)
++
++			isConnReset := wsconn.IsConnectionReset(err)
++			isTimeout := wsconn.IsTimeout(err)
++			isCtx := wsconn.IsContextError(err)
++
++			monitoring.RecordBybitFuturesReconnect("MULTIPLEX", "read_error")
++			if isCtx {
++				return
++			}
++
++			if isConnReset || isTimeout {
++				if currentErrorCount <= 5 || currentErrorCount%1000 == 0 {
++					t := "connection reset"
++					if isTimeout {
++						t = "timeout"
++					}
++					c.logger.Printf("⚠️ Bybit ReadLoop ended (%s, errors=%d): %v", t, currentErrorCount, err)
++				}
++			} else {
++				if currentErrorCount <= 5 || currentErrorCount%100 == 0 {
++					c.logger.Printf("⚠️ Bybit ReadLoop ended (errors=%d): %v", currentErrorCount, err)
++				}
++			}
++
++			select {
++			case <-ctx.Done():
++				return
++			case <-time.After(backoff):
++			}
++			backoff = wsconn.NextBackoff(backoff)
++			continue
++		}
++	}
++}
++
++func (c *FuturesStreamController) processMessage(ctx context.Context, symbol string, payload []byte) {
++	// nowMs computed once per message
++	nowMs := time.Now().UnixMilli()
++
++	// Trades
++	ticks, err := ParsePublicTrade(payload)
++	if err != nil {
++		// ignore decode errors: noisy messages should not crash ingestion
++		return
++	}
++	if len(ticks) > 0 {
++		for _, tick := range ticks {
++			monitoring.RecordBybitFuturesMessage(tick.Symbol, "publicTrade")
++
++			if c.healthMetrics != nil {
++				orderflowCtx := orderflow.NewOrderflowCtx(tick.Symbol, tick.Ts, nowMs)
++				orderflowCtx.ComputeStaleness(c.stalenessConfig)
++				c.healthMetrics.OnTick(metrics.TickMetricsInput{
++					Symbol:       tick.Symbol,
++					L2AgeMs:      orderflowCtx.L2AgeMsNow,
++					L2AgeMsTick:  orderflowCtx.L2AgeMsTick,
++					L2IsStale:    orderflowCtx.L2IsStale,
++					L2IsStaleNow: orderflowCtx.L2IsStaleNow,
++				})
++			}
++
++			if err := c.publisher.PublishTick(ctx, tick.Symbol, tick.RedisValues()); err != nil {
++				if err == context.Canceled {
++					return
++				}
++				// best-effort: log only occasionally
++				c.logger.Printf("Bybit publish tick error (%s): %v", tick.Symbol, err)
++			}
++		}
++		return
++	}
++
++	// Orderbook
++	upd, err := ParseOrderbook(payload)
++	if err != nil {
++		return
++	}
++	if upd == nil {
++		return
++	}
++	monitoring.RecordBybitFuturesMessage(upd.Symbol, "orderbook")
++
++	c.bookMu.Lock()
++	bs, ok := c.bookStates[upd.Symbol]
++	if !ok {
++		bs = newBookState()
++		c.bookStates[upd.Symbol] = bs
++	}
++	bids, asks, prevU := bs.ApplyUpdate(upd, c.bookDepth)
++	c.bookMu.Unlock()
++
++	book := NormalizedDepth{
++		Symbol:    upd.Symbol,
++		Ts:        upd.TsMs,
++		FirstID:   upd.UpdateID,
++		FinalID:   upd.UpdateID,
++		PrevFinal: prevU,
++		Bids:      bids,
++		Asks:      asks,
++		Source:    "bybit-linear",
++		Market:    "USDT-M",
++		Seq:       upd.Seq,
++	}
++
++	if c.healthMetrics != nil {
++		orderflowCtx := orderflow.NewOrderflowCtx(book.Symbol, nowMs, book.Ts)
++		orderflowCtx.ComputeStaleness(c.stalenessConfig)
++		c.healthMetrics.OnTick(metrics.TickMetricsInput{
++			Symbol:       book.Symbol,
++			L2AgeMs:      orderflowCtx.L2AgeMsNow,
++			L2AgeMsTick:  orderflowCtx.L2AgeMsTick,
++			L2IsStale:    orderflowCtx.L2IsStale,
++			L2IsStaleNow: orderflowCtx.L2IsStaleNow,
++		})
++	}
++
++	if err := c.publisher.PublishBook(ctx, book.Symbol, book.RedisValues()); err != nil {
++		if err == context.Canceled {
++			return
++		}
++		c.logger.Printf("Bybit publish book error (%s): %v", book.Symbol, err)
++	}
++
++	// If symbol was missing from envelope extract, keep drift metric anyway.
++	if symbol != "" {
++		_ = symbol
++	}
++}
+diff -ruN /mnt/data/go-worker_orig/internal/bybit/futures_streams_test.go /mnt/data/go-worker_mod/internal/bybit/futures_streams_test.go
+--- /mnt/data/go-worker_orig/internal/bybit/futures_streams_test.go	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/go-worker_mod/internal/bybit/futures_streams_test.go	2026-03-05 17:44:16.677529474 +0000
+@@ -0,0 +1,108 @@
++package bybit
++
++import (
++	"context"
++	"log"
++	"os"
++	"sort"
++	"strings"
++	"testing"
++
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++)
++
++// noopPublisher satisfies internalredis.Publisher interface for tests.
++type noopPublisher struct{
++	ticks []string
++	books []string
++}
++
++func (p *noopPublisher) PublishTick(_ context.Context, symbol string, _ map[string]any) error {
++	p.ticks = append(p.ticks, symbol)
++	return nil
++}
++
++func (p *noopPublisher) PublishBook(_ context.Context, symbol string, _ map[string]any) error {
++	p.books = append(p.books, symbol)
++	return nil
++}
++
++func newTestController() *FuturesStreamController {
++	logger := log.New(os.Stdout, "[test] ", 0)
++	return &FuturesStreamController{
++		publisher:  &noopPublisher{},
++		logger:     logger,
++		bookDepth:  50,
++		pingPeriod: 1,
++		bookStates: make(map[string]*BookState),
++	}
++}
++
++func sortedStrings(ss []string) []string {
++	out := make([]string, len(ss))
++	copy(out, ss)
++	sort.Strings(out)
++	return out
++}
++
++func TestReconcile_NoOpOnSameSymbols(t *testing.T) {
++	c := newTestController()
++	symbols := []string{"BTCUSDT", "ETHUSDT"}
++	c.currentSymbols = []string{"BTCUSDT", "ETHUSDT"}
++
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++
++	c.reconcile(ctx, symbols)
++	assert.Nil(t, c.activeManager, "no manager should be created")
++}
++
++func TestReconcile_NewSymbolsTriggersReconnect(t *testing.T) {
++	c := newTestController()
++	c.currentSymbols = []string{}
++
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++
++	symbols := []string{"BTCUSDT", "ETHUSDT", "SOLUSDT"}
++	c.reconcile(ctx, symbols)
++
++	require.Equal(t, 3, len(c.currentSymbols))
++	got := sortedStrings(c.currentSymbols)
++	want := []string{"BTCUSDT", "ETHUSDT", "SOLUSDT"}
++	for i := range want {
++		assert.Equal(t, want[i], got[i])
++	}
++	cancel()
++}
++
++func TestReconcile_SymbolsCaseNormalized(t *testing.T) {
++	c := newTestController()
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++
++	c.reconcile(ctx, []string{"btcusdt", "ethusdt"})
++	cancel()
++
++	for _, s := range c.currentSymbols {
++		assert.Equal(t, strings.ToUpper(s), s)
++	}
++}
++
++func TestLoadSymbols_BaseFallback(t *testing.T) {
++	c := newTestController()
++	c.client = nil
++	ctx := context.Background()
++	base := []string{"BTCUSDT", "ETHUSDT"}
++	got := sortedStrings(c.loadSymbols(ctx, base))
++	want := sortedStrings(base)
++	assert.Equal(t, want, got)
++}
++
++func TestFuturesMultiplexManager_UpdateSubscriptions_NoConn(t *testing.T) {
++	m := NewFuturesMultiplexManager([]string{"BTCUSDT"}, log.New(os.Stdout, "", 0), 50, 1)
++	err := m.UpdateSubscriptions([]string{"ETHUSDT"}, nil)
++	assert.Error(t, err)
++	assert.Contains(t, err.Error(), "no active connection")
++}
+diff -ruN /mnt/data/go-worker_orig/internal/bybit/utils.go /mnt/data/go-worker_mod/internal/bybit/utils.go
+--- /mnt/data/go-worker_orig/internal/bybit/utils.go	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/go-worker_mod/internal/bybit/utils.go	2026-03-05 17:38:49.858326348 +0000
+@@ -0,0 +1,42 @@
++package bybit
++
++import (
++	"log"
++	"os"
++	"strconv"
++	"strings"
++	"time"
++)
++
++func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
++	value := os.Getenv(key)
++	if strings.TrimSpace(value) == "" {
++		return defaultValue
++	}
++	duration, err := time.ParseDuration(value)
++	if err != nil {
++		log.Printf("⚠️ invalid %s=%q, using default %v", key, value, defaultValue)
++		return defaultValue
++	}
++	return duration
++}
++
++func getEnvInt(key string, defaultValue int) int {
++	value := strings.TrimSpace(os.Getenv(key))
++	if value == "" {
++		return defaultValue
++	}
++	n, err := strconv.Atoi(value)
++	if err != nil {
++		return defaultValue
++	}
++	return n
++}
++
++func getEnvString(key string, defaultValue string) string {
++	value := strings.TrimSpace(os.Getenv(key))
++	if value == "" {
++		return defaultValue
++	}
++	return value
++}
+diff -ruN /mnt/data/go-worker_orig/internal/monitoring/bybit_futures_metrics.go /mnt/data/go-worker_mod/internal/monitoring/bybit_futures_metrics.go
+--- /mnt/data/go-worker_orig/internal/monitoring/bybit_futures_metrics.go	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/go-worker_mod/internal/monitoring/bybit_futures_metrics.go	2026-03-05 17:42:59.162439342 +0000
+@@ -0,0 +1,64 @@
++package monitoring
++
++import (
++	"strings"
++
++	"github.com/prometheus/client_golang/prometheus"
++	"github.com/prometheus/client_golang/prometheus/promauto"
++)
++
++// Отдельные метрики для Bybit futures ingestion.
++// Не используем binance_* имена, чтобы не смешивать источники.
++
++var (
++	bybitFuturesMessagesTotal = promauto.NewCounterVec(
++		prometheus.CounterOpts{
++			Name: "bybit_futures_messages_total",
++			Help: "Количество обработанных сообщений Bybit Futures по типам",
++		},
++		[]string{"symbol", "type"},
++	)
++
++	bybitFuturesReconnectsTotal = promauto.NewCounterVec(
++		prometheus.CounterOpts{
++			Name: "bybit_futures_reconnects_total",
++			Help: "Количество переподключений Bybit Futures WebSocket по причинам",
++		},
++		[]string{"symbol", "reason"},
++	)
++
++	bybitWSLiveSubscriptionsTotal = promauto.NewCounterVec(
++		prometheus.CounterOpts{
++			Name: "bybit_ws_live_subscriptions_total",
++			Help: "Количество успешно отправленных live-команд subscribe/unsubscribe (Bybit)",
++		},
++		[]string{"method"},
++	)
++)
++
++// RecordBybitFuturesMessage увеличивает счётчик сообщений для символа и типа.
++func RecordBybitFuturesMessage(symbol, msgType string) {
++	if symbol == "" || msgType == "" {
++		return
++	}
++	bybitFuturesMessagesTotal.WithLabelValues(strings.ToUpper(symbol), msgType).Inc()
++}
++
++// RecordBybitFuturesReconnect увеличивает счётчик переподключений.
++func RecordBybitFuturesReconnect(symbol, reason string) {
++	if symbol == "" {
++		return
++	}
++	if reason == "" {
++		reason = "unknown"
++	}
++	bybitFuturesReconnectsTotal.WithLabelValues(strings.ToUpper(symbol), reason).Inc()
++}
++
++// RecordBybitLiveSubscription фиксирует успешную subscribe/unsubscribe.
++func RecordBybitLiveSubscription(method string) {
++	if method == "" {
++		method = "unknown"
++	}
++	bybitWSLiveSubscriptionsTotal.WithLabelValues(method).Inc()
++}

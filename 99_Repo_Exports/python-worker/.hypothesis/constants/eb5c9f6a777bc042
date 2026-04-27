@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/smt_bundle_aggregator.py
+# hypothesis_version: 6.148.10
+
+[-1.0, 0.0, 1e-18, 0.2, 0.3, 0.5, 0.55, 1.0, 12.0, 10000.0, 180, 1000, 7000, ',', '0.2', '0.3', '0.5', ':', 'DOWN', 'SMT_COH_MAX_LAG', 'SMT_COH_MIN_CORR', 'SMT_COH_WINDOW_N', 'SMT_COH_W_DIR', 'SMT_COH_W_QUAL', 'SMT_COH_W_TIME', 'SMT_PRICE_STALE_MS', 'SmtAggregatorConfig', 'UP', 'bundle_id', 'coh', 'ignore', 'leader', 'leader_confirm', 'leader_dir', 'mid', 'smt:bundle:v1:', 'ts_ms', 'utf-8']

@@ -1,0 +1,17 @@
+apiVersion: 1
+
+datasources:
+  - name: TimescaleDB
+    type: postgres
+    access: proxy
+    url: 192.168.0.168:5434
+    database: scanner_analytics
+    user: trading
+    secureJsonData:
+      password: R0xU1KuRUygJqfxeOBTzQh423Qw0DOG8
+    jsonData:
+      sslmode: 'disable' # adjust if needed
+      postgresVersion: 15 # adjust if needed
+      timescaledb: true
+    isDefault: false
+    editable: true

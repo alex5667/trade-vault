@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/execution_cost_ema.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.05, 1.0, 1000, '0', '0.05', '1', '20', 'EXEC_COST_EMA_ALPHA', 'EXEC_COST_EMA_PREFIX', 'ExecCostEmaConfig', 'ema_slip_bps', 'ema_spread_bps', 'execost:', 'key_prefix', 'last_ts_ms', 'min_samples_to_trust', 'on', 'samples', 'session_from_ts_ms', 'true', 'update_exec_cost_ema', 'yes']

@@ -1,0 +1,14 @@
+[Unit]
+Description=Trade OF nightly meta ENFORCE ramp proposal (guarded with stratified DiD)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/trade/of_reports.env
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+ExecStart=/usr/bin/python3 -m tools.nightly_meta_enforce_ramp_guarded_bundle
+
+[Install]
+WantedBy=multi-user.target
+

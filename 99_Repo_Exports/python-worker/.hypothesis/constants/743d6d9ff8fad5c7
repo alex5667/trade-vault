@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/atr_horizon_live_surface_canary.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 10000.0, 10000, ',', 'LIVE_SURFACE_OFF', 'canary', 'enforce', 'mode', 'na', 'off', 'reason_code', 'shadow', 'share_used', 'should_apply', 'sticky_key', 'utf-8']

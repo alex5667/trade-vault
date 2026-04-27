@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/_lib/_threadsafety.py
+# hypothesis_version: 6.148.10
+
+['%s is not re-entrant', 'ReentrancyError', 'ReentrancyLock', 'non_reentrant']

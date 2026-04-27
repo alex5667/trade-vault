@@ -1,0 +1,662 @@
+*** Begin Patch
+*** Add File: orderflow_services/vertex_budget_guard_v1.py
++from __future__ import annotations
++
++import json
++import os
++import time
++from dataclasses import dataclass, asdict
++from typing import Any, Dict, Tuple
++
++try:
++    import redis
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++
++@dataclass
++class BudgetDecision:
++    allowed: bool
++    reason: str
++    estimated_cost_usd: float
++    daily_spend_usd: float
++    daily_limit_usd: float
++    hourly_calls: int
++    hourly_limit: int
++
++    def to_dict(self) -> Dict[str, Any]:
++        return asdict(self)
++
++
++class VertexBudgetGuardV1:
++    """Simple Redis-backed budget/call-rate guard for Vertex triage.
++
++    Properties:
++      - deterministic UTC buckets (day/hour)
++      - fail-open when Redis is unavailable if VERTEX_BUDGET_FAIL_POLICY=OPEN
++      - tracks both estimated USD and request counts
++    """
++
++    def __init__(self, redis_url: str) -> None:
++        self._redis_url = redis_url
++        self._daily_limit_usd = float(os.getenv("VERTEX_MAX_DAILY_USD", "25") or 25.0)
++        self._hourly_limit = int(os.getenv("VERTEX_MAX_CALLS_PER_HOUR", "300") or 300)
++        self._fail_policy = str(os.getenv("VERTEX_BUDGET_FAIL_POLICY", "OPEN") or "OPEN").upper()
++        self._r = None
++        if redis is not None:
++            self._r = redis.Redis.from_url(redis_url, decode_responses=True)
++
++    @staticmethod
++    def _utc_day(ts: int) -> str:
++        return time.strftime("%Y%m%d", time.gmtime(ts))
++
++    @staticmethod
++    def _utc_hour(ts: int) -> str:
++        return time.strftime("%Y%m%d%H", time.gmtime(ts))
++
++    def _keys(self, provider: str, model: str, ts: int) -> Tuple[str, str]:
++        d = self._utc_day(ts)
++        h = self._utc_hour(ts)
++        return (
++            f"metrics:vertex:budget:usd:{provider}:{model}:{d}",
++            f"metrics:vertex:budget:calls:{provider}:{model}:{h}",
++        )
++
++    def check_and_reserve(self, *, provider: str, model: str, estimated_cost_usd: float, ts: int) -> BudgetDecision:
++        if self._r is None:
++            allowed = self._fail_policy == "OPEN"
++            return BudgetDecision(allowed=allowed, reason="redis_unavailable", estimated_cost_usd=estimated_cost_usd,
++                                  daily_spend_usd=0.0, daily_limit_usd=self._daily_limit_usd,
++                                  hourly_calls=0, hourly_limit=self._hourly_limit)
++        day_key, hour_key = self._keys(provider, model, ts)
++        try:
++            p = self._r.pipeline()
++            p.get(day_key)
++            p.get(hour_key)
++            day_raw, hour_raw = p.execute()
++            current_usd = float(day_raw or 0.0)
++            current_calls = int(hour_raw or 0)
++            if (current_usd + estimated_cost_usd) > self._daily_limit_usd:
++                return BudgetDecision(False, "daily_budget_exceeded", estimated_cost_usd, current_usd,
++                                      self._daily_limit_usd, current_calls, self._hourly_limit)
++            if (current_calls + 1) > self._hourly_limit:
++                return BudgetDecision(False, "hourly_call_limit_exceeded", estimated_cost_usd, current_usd,
++                                      self._daily_limit_usd, current_calls, self._hourly_limit)
++            p = self._r.pipeline()
++            p.incrbyfloat(day_key, float(estimated_cost_usd))
++            p.expire(day_key, 3 * 86400)
++            p.incr(hour_key, 1)
++            p.expire(hour_key, 2 * 86400)
++            p.execute()
++            return BudgetDecision(True, "ok", estimated_cost_usd, current_usd + estimated_cost_usd,
++                                  self._daily_limit_usd, current_calls + 1, self._hourly_limit)
++        except Exception:
++            allowed = self._fail_policy == "OPEN"
++            return BudgetDecision(allowed=allowed, reason="guard_error", estimated_cost_usd=estimated_cost_usd,
++                                  daily_spend_usd=0.0, daily_limit_usd=self._daily_limit_usd,
++                                  hourly_calls=0, hourly_limit=self._hourly_limit)
++
++
++def estimate_vertex_triage_cost_usd(input_chars: int, output_chars: int) -> float:
++    """Conservative local estimate for budget-guarding only.
++
++    Intentionally rough. Real billing should come from provider metadata when/if available.
++    """
++    per_million_chars = float(os.getenv("VERTEX_TRIAGE_EST_USD_PER_MCHARS", "0.35") or 0.35)
++    total = max(0, int(input_chars)) + max(0, int(output_chars))
++    return (float(total) / 1_000_000.0) * per_million_chars
++
+*** Add File: orderflow_services/ml_context_pack_compactor_v1.py
++from __future__ import annotations
++
++import hashlib
++import json
++import os
++import time
++from typing import Any, Dict, List
++
++from prometheus_client import Counter, Gauge, Histogram, start_http_server
++
++try:
++    import redis
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++
++RUNS = Counter("ml_context_pack_compactor_runs_total", "Compactor runs", ["status"])
++PACKS = Counter("ml_context_pack_compactor_packs_total", "Compacted packs built", ["family"])
++INPUT_BYTES = Histogram("ml_context_pack_input_bytes", "Input request payload bytes")
++OUTPUT_BYTES = Histogram("ml_context_pack_output_bytes", "Compacted request payload bytes")
++LAST_RUN = Gauge("ml_context_pack_compactor_last_run_ts_seconds", "Last run ts")
++QUEUE_LAG_MS = Gauge("ml_context_pack_compactor_queue_lag_ms", "Queue lag")
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _sha16(obj: Any) -> str:
++    return hashlib.sha256(json.dumps(obj, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:16]
++
++
++def compact_request(req: Dict[str, Any]) -> Dict[str, Any]:
++    """Keep only stable, high-signal fields for deterministic triage."""
++    payload = req.get("payload") if isinstance(req.get("payload"), dict) else req
++    snapshot = payload.get("model_snapshot") or {}
++    training = payload.get("training") or {}
++    out = {
++        "schema_version": 1,
++        "request_id": str(req.get("request_id") or req.get("id") or _sha16(req)),
++        "ts_ms": int(req.get("ts_ms") or _now_ms()),
++        "task_type": str(req.get("task_type") or "root_cause_degradation"),
++        "priority": str(req.get("priority") or "normal"),
++        "scope": {
++            "model_id": snapshot.get("model_id"),
++            "family": snapshot.get("family"),
++            "kind": snapshot.get("kind"),
++            "symbols": snapshot.get("hot_symbols_json") or [],
++        },
++        "context": {
++            "status": snapshot.get("status"),
++            "reason_codes": snapshot.get("reason_codes_json") or [],
++            "latency_p95_max_ms": snapshot.get("latency_p95_max_ms"),
++            "error_rate_max": snapshot.get("error_rate_max"),
++            "missing_critical_rate_max": snapshot.get("missing_critical_rate_max"),
++            "ece_max": snapshot.get("ece_max"),
++            "brier_max": snapshot.get("brier_max"),
++            "psi_top_json": snapshot.get("psi_top_json") or [],
++            "ks_top_json": snapshot.get("ks_top_json") or [],
++            "promotion_state": snapshot.get("promotion_state"),
++            "champion_flag": snapshot.get("champion_flag"),
++            "schema_ver": snapshot.get("schema_ver"),
++            "training": {
++                "run_id": training.get("run_id"),
++                "sample_n": training.get("sample_n"),
++                "pos_rate": training.get("pos_rate"),
++                "metrics_json": training.get("metrics_json") or {},
++                "promotion_state": training.get("promotion_state"),
++            },
++        },
++    }
++    out["compact_hash"] = _sha16(out)
++    out["prompt_version"] = str(os.getenv("ML_TRIAGE_PROMPT_VERSION", "ml_triage_v1"))
++    out["policy_version"] = str(os.getenv("ML_TRIAGE_POLICY_VERSION", "policy_v1"))
++    return out
++
++
++def main() -> None:
++    if redis is None:
++        raise RuntimeError("redis package is required")
++    start_http_server(int(os.getenv("ML_CONTEXT_PACK_COMPACTOR_PORT", "9849")))
++    r = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True)
++    in_stream = os.getenv("ML_ANALYSIS_REQUESTS_STREAM", "stream:ml:analysis_requests")
++    out_stream = os.getenv("ML_ANALYSIS_REQUESTS_COMPACT_STREAM", "stream:ml:analysis_requests_compact")
++    group = os.getenv("ML_CONTEXT_PACK_GROUP", "cg:ml_context_pack_compactor")
++    consumer = os.getenv("ML_CONTEXT_PACK_CONSUMER", "ml-context-pack-1")
++    try:
++        r.xgroup_create(in_stream, group, id="0", mkstream=True)
++    except Exception:
++        pass
++    while True:
++        rows = r.xreadgroup(groupname=group, consumername=consumer, streams={in_stream: ">"}, count=64, block=5000)
++        if not rows:
++            LAST_RUN.set(time.time())
++            continue
++        for _, msgs in rows:
++            for msg_id, fields in msgs:
++                try:
++                    req = json.loads(fields.get("payload", "{}")) if "payload" in fields else fields
++                    raw = json.dumps(req, ensure_ascii=False)
++                    INPUT_BYTES.observe(len(raw.encode("utf-8")))
++                    compact = compact_request(req)
++                    family = str(((compact.get("scope") or {}).get("family") or "unknown"))
++                    packed = json.dumps(compact, ensure_ascii=False)
++                    OUTPUT_BYTES.observe(len(packed.encode("utf-8")))
++                    r.xadd(out_stream, {"payload": packed}, maxlen=int(os.getenv("ML_ANALYSIS_REQUESTS_COMPACT_MAXLEN", "200000")), approximate=True)
++                    PACKS.labels(family=family).inc()
++                    RUNS.labels(status="ok").inc()
++                    try:
++                        q_lag = max(0, _now_ms() - int(compact.get("ts_ms") or _now_ms()))
++                        QUEUE_LAG_MS.set(q_lag)
++                    except Exception:
++                        pass
++                except Exception:
++                    RUNS.labels(status="err").inc()
++                finally:
++                    try:
++                        r.xack(in_stream, group, msg_id)
++                    except Exception:
++                        pass
++                    LAST_RUN.set(time.time())
++
++
++if __name__ == "__main__":  # pragma: no cover
++    main()
++
+*** Add File: orderflow_services/providers/vertex_genai_provider_v1_1.py
++from __future__ import annotations
++
++import json
++import os
++import random
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, Optional
++
++from orderflow_services.vertex_budget_guard_v1 import VertexBudgetGuardV1, estimate_vertex_triage_cost_usd
++
++try:
++    from google import genai  # type: ignore
++    from google.genai import types as genai_types  # type: ignore
++except Exception:  # pragma: no cover
++    genai = None  # type: ignore
++    genai_types = None  # type: ignore
++
++
++PROMPT_TEMPLATE = """You are a production ML triage analyst for a low-latency trading system.
++Return JSON only.
++Policy version: {policy_version}
++Prompt version: {prompt_version}
++
++Allowed actions: require_shadow_retrain, freeze_candidate, unfreeze_candidate,
++request_calibration_refresh, propose_threshold_canary, open_incident, draft_postmortem.
++
++Input pack:
++{payload}
++"""
++
++
++@dataclass
++class ProviderResult:
++    raw_text: str
++    parsed: Optional[Dict[str, Any]]
++    latency_ms: int
++    estimated_cost_usd: float
++    prompt_version: str
++    policy_version: str
++    model_name: str
++    provider: str = "vertex"
++
++
++class VertexGenAIProviderV1_1:
++    def __init__(self, redis_url: str) -> None:
++        self._project = os.getenv("VERTEX_PROJECT_ID", "")
++        self._location = os.getenv("VERTEX_LOCATION", "global")
++        self._model = os.getenv("VERTEX_TRIAGE_MODEL", "gemini-2.5-flash-lite")
++        self._timeout_ms = int(os.getenv("VERTEX_TIMEOUT_MS", "45000") or 45000)
++        self._max_retries = int(os.getenv("VERTEX_RETRY_MAX", "5") or 5)
++        self._base_backoff_ms = int(os.getenv("VERTEX_RETRY_BASE_MS", "500") or 500)
++        self._budget = VertexBudgetGuardV1(redis_url)
++        if genai is None:
++            raise RuntimeError("google-genai is required for Vertex provider")
++        self._client = genai.Client(vertexai=True, project=self._project, location=self._location)
++
++    def _sleep_backoff(self, attempt: int) -> None:
++        base = self._base_backoff_ms * (2 ** max(0, attempt - 1))
++        jitter = random.randint(0, max(50, base // 4))
++        time.sleep((base + jitter) / 1000.0)
++
++    def analyze(self, compact_pack: Dict[str, Any]) -> ProviderResult:
++        prompt_version = str(compact_pack.get("prompt_version") or os.getenv("ML_TRIAGE_PROMPT_VERSION", "ml_triage_v1"))
++        policy_version = str(compact_pack.get("policy_version") or os.getenv("ML_TRIAGE_POLICY_VERSION", "policy_v1"))
++        payload_json = json.dumps(compact_pack, ensure_ascii=False, sort_keys=True)
++        prompt = PROMPT_TEMPLATE.format(prompt_version=prompt_version, policy_version=policy_version, payload=payload_json)
++        est_cost = estimate_vertex_triage_cost_usd(len(prompt), int(os.getenv("VERTEX_TRIAGE_EST_OUTPUT_CHARS", "2500") or 2500))
++        budget = self._budget.check_and_reserve(provider="vertex", model=self._model, estimated_cost_usd=est_cost, ts=int(time.time()))
++        if not budget.allowed:
++            raise RuntimeError(f"vertex_budget_blocked:{budget.reason}")
++        started = time.time()
++        last_exc: Optional[Exception] = None
++        for attempt in range(1, self._max_retries + 1):
++            try:
++                cfg = genai_types.GenerateContentConfig(
++                    temperature=0.1,
++                    max_output_tokens=int(os.getenv("VERTEX_TRIAGE_MAX_OUTPUT_TOKENS", "1500") or 1500),
++                    response_mime_type="application/json",
++                )
++                resp = self._client.models.generate_content(
++                    model=self._model,
++                    contents=prompt,
++                    config=cfg,
++                )
++                text = getattr(resp, "text", None) or "{}"
++                parsed = json.loads(text)
++                return ProviderResult(
++                    raw_text=text,
++                    parsed=parsed,
++                    latency_ms=int((time.time() - started) * 1000),
++                    estimated_cost_usd=est_cost,
++                    prompt_version=prompt_version,
++                    policy_version=policy_version,
++                    model_name=self._model,
++                )
++            except Exception as exc:
++                last_exc = exc
++                msg = str(exc).lower()
++                retriable = ("429" in msg) or ("rate" in msg) or ("timeout" in msg) or ("503" in msg)
++                if attempt >= self._max_retries or not retriable:
++                    break
++                self._sleep_backoff(attempt)
++        raise RuntimeError(f"vertex_request_failed:{last_exc}")
++
+*** Add File: orderflow_services/ml_vertex_triage_orchestrator_v1_1.py
++from __future__ import annotations
++
++import json
++import os
++import time
++from typing import Any, Dict, List
++
++from prometheus_client import Counter, Gauge, Histogram, start_http_server
++
++from orderflow_services.llm_recommendation_guard_v1 import guard_analysis_output
++from orderflow_services.providers.vertex_genai_provider_v1_1 import VertexGenAIProviderV1_1
++
++try:
++    import redis
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++try:
++    import psycopg
++except Exception:  # pragma: no cover
++    psycopg = None  # type: ignore
++
++
++REQS = Counter("ml_vertex_triage_requests_total", "Vertex requests", ["status"])
++LAT = Histogram("ml_vertex_triage_latency_seconds", "Vertex triage latency")
++PARSE_FAIL = Counter("ml_vertex_triage_parse_fail_total", "Parse/guard failures")
++QUEUE_LAG = Gauge("ml_vertex_triage_queue_lag_ms", "Queue lag")
++LAST_RUN = Gauge("ml_vertex_triage_last_run_ts_seconds", "Last run ts")
++EST_COST = Counter("ml_vertex_triage_estimated_cost_usd_total", "Estimated cost usd", ["model"])
++
++
++def _write_pg(db_url: str, provider_result: Dict[str, Any], compact_pack: Dict[str, Any], guarded: Dict[str, Any]) -> None:
++    if not db_url or psycopg is None:
++        return
++    with psycopg.connect(db_url) as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                """
++                INSERT INTO llm_analysis_runs (
++                  analysis_run_id, ts_ms, provider, model_name, task_type,
++                  scope_json, input_refs_json, output_json, status, latency_ms, cost_usd
++                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
++                ON CONFLICT (analysis_run_id) DO NOTHING
++                """,
++                (
++                    str(guarded.get("analysis_run_id") or compact_pack.get("request_id")),
++                    int(compact_pack.get("ts_ms") or int(time.time() * 1000)),
++                    "vertex",
++                    str(provider_result.get("model_name") or "unknown"),
++                    str(compact_pack.get("task_type") or "root_cause_degradation"),
++                    json.dumps(compact_pack.get("scope") or {}, ensure_ascii=False),
++                    json.dumps({"compact_hash": compact_pack.get("compact_hash")}, ensure_ascii=False),
++                    json.dumps(guarded, ensure_ascii=False),
++                    str(guarded.get("status") or "unknown"),
++                    int(provider_result.get("latency_ms") or 0),
++                    float(provider_result.get("estimated_cost_usd") or 0.0),
++                ),
++            )
++        conn.commit()
++
++
++def main() -> None:
++    if redis is None:
++        raise RuntimeError("redis package is required")
++    start_http_server(int(os.getenv("ML_VERTEX_TRIAGE_ORCH_PORT", "9850")))
++    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
++    r = redis.Redis.from_url(redis_url, decode_responses=True)
++    provider = VertexGenAIProviderV1_1(redis_url=redis_url)
++    in_stream = os.getenv("ML_ANALYSIS_REQUESTS_COMPACT_STREAM", "stream:ml:analysis_requests_compact")
++    out_results = os.getenv("ML_ANALYSIS_RESULTS_STREAM", "stream:ml:analysis_results")
++    out_recos = os.getenv("ML_RECOMMENDATION_PROPOSALS_STREAM", "stream:ml:recommendation_proposals")
++    dlq = os.getenv("ML_ANALYSIS_DLQ_STREAM", "stream:ml:analysis_dlq")
++    group = os.getenv("ML_VERTEX_TRIAGE_GROUP", "cg:ml_vertex_triage_v1_1")
++    consumer = os.getenv("ML_VERTEX_TRIAGE_CONSUMER", "ml-vertex-triage-1")
++    db_url = os.getenv("DATABASE_URL", "")
++    try:
++        r.xgroup_create(in_stream, group, id="0", mkstream=True)
++    except Exception:
++        pass
++    while True:
++        rows = r.xreadgroup(groupname=group, consumername=consumer, streams={in_stream: ">"}, count=32, block=5000)
++        if not rows:
++            LAST_RUN.set(time.time())
++            continue
++        for _, msgs in rows:
++            for msg_id, fields in msgs:
++                try:
++                    compact = json.loads(fields.get("payload", "{}"))
++                    try:
++                        QUEUE_LAG.set(max(0, int(time.time() * 1000) - int(compact.get("ts_ms") or int(time.time() * 1000))))
++                    except Exception:
++                        pass
++                    t0 = time.time()
++                    provider_result = provider.analyze(compact)
++                    guarded = guard_analysis_output(provider_result.parsed or {}, review_only=True)
++                    result_payload = {
++                        "analysis_run_id": guarded.get("analysis_run_id") or compact.get("request_id"),
++                        "request_id": compact.get("request_id"),
++                        "task_type": compact.get("task_type"),
++                        "provider": "vertex",
++                        "model_name": provider_result.model_name,
++                        "prompt_version": provider_result.prompt_version,
++                        "policy_version": provider_result.policy_version,
++                        "compact_hash": compact.get("compact_hash"),
++                        "status": guarded.get("status", "ok"),
++                        "payload": guarded,
++                    }
++                    r.xadd(out_results, {"payload": json.dumps(result_payload, ensure_ascii=False)}, maxlen=int(os.getenv("ML_ANALYSIS_RESULTS_MAXLEN", "200000")), approximate=True)
++                    for reco in (guarded.get("recommendations") or []):
++                        reco_payload = dict(reco)
++                        reco_payload["analysis_run_id"] = result_payload["analysis_run_id"]
++                        reco_payload["prompt_version"] = provider_result.prompt_version
++                        reco_payload["policy_version"] = provider_result.policy_version
++                        reco_payload["compact_hash"] = compact.get("compact_hash")
++                        r.xadd(out_recos, {"payload": json.dumps(reco_payload, ensure_ascii=False)}, maxlen=int(os.getenv("ML_RECOMMENDATION_PROPOSALS_MAXLEN", "200000")), approximate=True)
++                    _write_pg(db_url, provider_result.__dict__, compact, guarded)
++                    LAT.observe(max(0.0, time.time() - t0))
++                    EST_COST.labels(model=provider_result.model_name).inc(provider_result.estimated_cost_usd)
++                    REQS.labels(status="ok").inc()
++                except Exception as exc:
++                    REQS.labels(status="err").inc()
++                    PARSE_FAIL.inc()
++                    r.xadd(dlq, {"error": str(exc), "payload": json.dumps(fields, ensure_ascii=False)}, maxlen=int(os.getenv("ML_ANALYSIS_DLQ_MAXLEN", "50000")), approximate=True)
++                finally:
++                    try:
++                        r.xack(in_stream, group, msg_id)
++                    except Exception:
++                        pass
++                    LAST_RUN.set(time.time())
++
++
++if __name__ == "__main__":  # pragma: no cover
++    main()
++
+*** Add File: orderflow_services/sql/ml_phase1_1_v1.sql
++ALTER TABLE llm_analysis_runs
++  ADD COLUMN IF NOT EXISTS prompt_version text,
++  ADD COLUMN IF NOT EXISTS policy_version text,
++  ADD COLUMN IF NOT EXISTS compact_hash text;
++
++ALTER TABLE llm_recommendations
++  ADD COLUMN IF NOT EXISTS prompt_version text,
++  ADD COLUMN IF NOT EXISTS policy_version text,
++  ADD COLUMN IF NOT EXISTS compact_hash text;
++
++CREATE INDEX IF NOT EXISTS idx_llm_analysis_runs_ts_provider
++  ON llm_analysis_runs (ts_ms DESC, provider);
++
++CREATE INDEX IF NOT EXISTS idx_llm_analysis_runs_compact_hash
++  ON llm_analysis_runs (compact_hash);
++
+*** Add File: orderflow_services/docker_compose_fragment_ml_phase1_1_v1.yml
++services:
++  scanner-ml-context-pack-compactor-v1:
++    command: ["python", "-m", "orderflow_services.ml_context_pack_compactor_v1"]
++    environment:
++      REDIS_URL: ${REDIS_URL}
++      ML_CONTEXT_PACK_COMPACTOR_PORT: 9849
++      ML_ANALYSIS_REQUESTS_STREAM: stream:ml:analysis_requests
++      ML_ANALYSIS_REQUESTS_COMPACT_STREAM: stream:ml:analysis_requests_compact
++      ML_TRIAGE_PROMPT_VERSION: ml_triage_v1
++      ML_TRIAGE_POLICY_VERSION: policy_v1
++    ports:
++      - "9849:9849"
++    restart: unless-stopped
++
++  scanner-ml-vertex-triage-v1-1:
++    command: ["python", "-m", "orderflow_services.ml_vertex_triage_orchestrator_v1_1"]
++    environment:
++      REDIS_URL: ${REDIS_URL}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_VERTEX_TRIAGE_ORCH_PORT: 9850
++      VERTEX_PROJECT_ID: ${VERTEX_PROJECT_ID}
++      VERTEX_LOCATION: ${VERTEX_LOCATION:-global}
++      VERTEX_TRIAGE_MODEL: ${VERTEX_TRIAGE_MODEL:-gemini-2.5-flash-lite}
++      VERTEX_TIMEOUT_MS: ${VERTEX_TIMEOUT_MS:-45000}
++      VERTEX_RETRY_MAX: ${VERTEX_RETRY_MAX:-5}
++      VERTEX_RETRY_BASE_MS: ${VERTEX_RETRY_BASE_MS:-500}
++      VERTEX_MAX_DAILY_USD: ${VERTEX_MAX_DAILY_USD:-25}
++      VERTEX_MAX_CALLS_PER_HOUR: ${VERTEX_MAX_CALLS_PER_HOUR:-300}
++      VERTEX_BUDGET_FAIL_POLICY: ${VERTEX_BUDGET_FAIL_POLICY:-OPEN}
++      ML_ANALYSIS_REQUESTS_COMPACT_STREAM: stream:ml:analysis_requests_compact
++      ML_ANALYSIS_RESULTS_STREAM: stream:ml:analysis_results
++      ML_RECOMMENDATION_PROPOSALS_STREAM: stream:ml:recommendation_proposals
++      ML_ANALYSIS_DLQ_STREAM: stream:ml:analysis_dlq
++    ports:
++      - "9850:9850"
++    restart: unless-stopped
++
+*** Add File: orderflow_services/prometheus_alerts_ml_phase1_1_v1.yml
++groups:
++  - name: ml_phase1_1_vertex_hardening
++    rules:
++      - alert: MLContextPackCompactorStale
++        expr: time() - ml_context_pack_compactor_last_run_ts_seconds > 900
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: "ML context pack compactor is stale"
++
++      - alert: MLVertexTriageQueueLagHigh
++        expr: ml_vertex_triage_queue_lag_ms > 300000
++        for: 15m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Vertex triage queue lag is high"
++
++      - alert: MLVertexTriageParseFailures
++        expr: increase(ml_vertex_triage_parse_fail_total[30m]) > 10
++        for: 10m
++        labels:
++          severity: ticket
++        annotations:
++          summary: "Vertex triage parse/guard failures exceeded threshold"
++
+*** Add File: orderflow_services/runbook_ml_phase1_1_v1.md
++# ML Phase 1.1 — Vertex hardening / compact packs / prompt versioning
++
++## Scope
++
++- scanner_infra only
++- advisory-only triage
++- no auto-apply
++- no hot-path changes
++
++## What changes
++
++1. `ml_context_pack_compactor_v1`
++   - reads `stream:ml:analysis_requests`
++   - emits compact deterministic packs to `stream:ml:analysis_requests_compact`
++2. `vertex_genai_provider_v1_1`
++   - retry/backoff for 429/timeout/503
++   - Redis-backed daily budget + hourly call guard
++3. `ml_vertex_triage_orchestrator_v1_1`
++   - writes prompt/policy version and compact hash to DB/streams
++
++## Rollout
++
++1. Apply SQL:
++
++```sql
++\i orderflow_services/sql/ml_phase1_1_v1.sql
++```
++
++2. Add compose fragment.
++3. Ensure `google-genai` is present in the image.
++4. Set env:
++
++```bash
++VERTEX_PROJECT_ID=...
++VERTEX_LOCATION=global
++VERTEX_TRIAGE_MODEL=gemini-2.5-flash-lite
++VERTEX_MAX_DAILY_USD=25
++VERTEX_MAX_CALLS_PER_HOUR=300
++ML_TRIAGE_PROMPT_VERSION=ml_triage_v1
++ML_TRIAGE_POLICY_VERSION=policy_v1
++```
++
++## Smoke checks
++
++```bash
++redis-cli XREVRANGE stream:ml:analysis_requests_compact + - COUNT 5
++redis-cli XREVRANGE stream:ml:analysis_results + - COUNT 5
++redis-cli XREVRANGE stream:ml:recommendation_proposals + - COUNT 5
++redis-cli XREVRANGE stream:ml:analysis_dlq + - COUNT 5
++curl -s localhost:9849/metrics | grep '^ml_context_pack_'
++curl -s localhost:9850/metrics | grep '^ml_vertex_'
++```
++
++## Rollback
++
++- stop `scanner-ml-context-pack-compactor-v1`
++- stop `scanner-ml-vertex-triage-v1-1`
++- keep tables/streams intact
++
+*** Add File: orderflow_services/tests/test_ml_context_pack_compactor_v1.py
++from orderflow_services.ml_context_pack_compactor_v1 import compact_request
++
++
++def test_compact_request_keeps_core_fields_only():
++    req = {
++        "request_id": "r1",
++        "ts_ms": 123,
++        "task_type": "root_cause_degradation",
++        "payload": {
++            "model_snapshot": {
++                "model_id": "m1",
++                "family": "edge_stack_v1",
++                "kind": "edge_stack_v1",
++                "hot_symbols_json": ["BTCUSDT"],
++                "status": "warning",
++                "reason_codes_json": ["HIGH_ERROR_RATE"],
++                "latency_p95_max_ms": 4.2,
++            },
++            "training": {
++                "run_id": "t1",
++                "sample_n": 100,
++                "pos_rate": 0.2,
++                "metrics_json": {"brier": 0.12},
++            },
++        },
++    }
++    out = compact_request(req)
++    assert out["scope"]["model_id"] == "m1"
++    assert out["context"]["status"] == "warning"
++    assert out["prompt_version"]
++    assert out["policy_version"]
++    assert out["compact_hash"]
++
+*** Add File: orderflow_services/tests/test_vertex_budget_guard_v1.py
++from orderflow_services.vertex_budget_guard_v1 import estimate_vertex_triage_cost_usd
++
++
++def test_estimate_cost_is_positive_for_nonempty_io():
++    cost = estimate_vertex_triage_cost_usd(10000, 2000)
++    assert cost > 0.0
++
+*** End Patch

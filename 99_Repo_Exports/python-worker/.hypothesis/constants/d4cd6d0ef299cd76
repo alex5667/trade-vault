@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/meta_freeze_file.py
+# hypothesis_version: 6.148.10
+
+[1.0, 'ab_share_cap', 'comment', 'enforce_share_cap', 'fallback_default', 'freeze', 'ok', 'r', 'utf-8']

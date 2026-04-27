@@ -1,0 +1,76 @@
+# Overlay compose for DecisionSnapshotWriter (A4)
+# Usage (standalone):
+#   docker compose \
+#     -f config/docker-compose-infrastructure.yml \
+#     -f config/docker-compose-crypto-orderflow.yml \
+#     -f config/docker-compose.decision-snapshot-writer.yml \
+#     up -d --build decision-snapshot-writer
+#
+# When integrated in docker-compose-python-workers.yml (make up),
+# this overlay is not needed — the service is already defined there.
+
+services:
+  decision-snapshot-writer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-decision-snapshot-writer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - DECISION_SNAPSHOT_STREAM=events:decision_snapshot
+      - DECISION_SNAPSHOT_CG=decision_snapshot_writer
+      - DECISION_SNAPSHOT_BATCH_SIZE=200
+      - DECISION_SNAPSHOT_XREAD_BLOCK_MS=2000
+      - DECISION_SNAPSHOT_DB_TYPE=postgres
+      # Canonical DSN (compose service hostname is always `postgres`, never container_name)
+      - TRADES_DB_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+      # Back-compat: writer also accepts TIMESCALE_DSN/DATABASE_URL
+      - TIMESCALE_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/scanner_analytics
+      - DECISION_SNAPSHOT_DB_ENSURE_SCHEMA=0
+
+      # DLQ for malformed payloads (poison pills)
+      - DECISION_SNAPSHOT_DLQ_ENABLE=1
+      - DECISION_SNAPSHOT_DLQ_STREAM=stream:decision_snapshot:dlq
+      - DECISION_SNAPSHOT_DLQ_MAXLEN=200000
+
+      # PEL recovery (stuck pending entries)
+      - DECISION_SNAPSHOT_PEL_ENABLE=1
+      - DECISION_SNAPSHOT_PEL_RECOVERY_EVERY_SEC=30
+      - DECISION_SNAPSHOT_PEL_MIN_IDLE_MS=15000
+      - DECISION_SNAPSHOT_PEL_CLAIM_COUNT=100
+      - DECISION_SNAPSHOT_PEL_CLAIM_MAX_ITERS=2
+
+      # Metrics
+      - DECISION_SNAPSHOT_WRITER_METRICS_ENABLE=1
+      - DECISION_SNAPSHOT_WRITER_METRICS_PORT=9825
+
+      # Imports: repository root + /app (python-worker) must be on PYTHONPATH
+      - PYTHONPATH=.:/app
+
+    volumes:
+      - ./python-worker:/app
+
+    command: ["python", "-m", "services.posttrade.decision_snapshot_writer"]
+
+    expose:
+      - "9825"
+
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+    networks:
+      # Writer must be reachable by the Prometheus instance which loads its alert rules.
+      # In most stacks, trade-prometheus lives on trade-network while producers live on scanner-network.
+      - scanner-network
+      - trade-network
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9825/metrics', timeout=2).read(); print('OK')\" >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s

@@ -1,0 +1,5 @@
+=== START 2026-04-18T21:11:12+03:00 ===
+done: copied=19 skipped=174066 export_root=/home/alex/Apps/Obsidian/trade-vault/99_Repo_Exports
+lint failed:
+ - /home/alex/Apps/Obsidian/trade-vault/2026-04-18.md: invalid type `journal`
+ - /home/alex/Apps/Obsidian/trade-vault/2026-04-18.md: missing H1 title

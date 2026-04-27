@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/funding_handler_impl.py
+# hypothesis_version: 6.148.10
+
+[0.01, 3600, 'funding_rates', 'lastFundingRate', 'negative', 'neutral', 'positive', 'symbol', 'total']

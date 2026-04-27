@@ -1,0 +1,57 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Critical drift features",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [{"expr": "feature_drift_batch_crit_n", "refId": "A"}]
+    },
+    {
+      "type": "stat",
+      "title": "Warn drift features",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "targets": [{"expr": "feature_drift_batch_warn_n", "refId": "A"}]
+    },
+    {
+      "type": "stat",
+      "title": "Denylist suggestions",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "targets": [{"expr": "feature_drift_batch_denylist_suggest_n", "refId": "A"}]
+    },
+    {
+      "type": "stat",
+      "title": "Report age (s)",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "targets": [{"expr": "feature_drift_batch_last_age_seconds", "refId": "A"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Per-feature PSI",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [{"expr": "feature_drift_batch_feature_psi", "legendFormat": "{{feature}}", "refId": "A"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Per-feature KS statistic",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [{"expr": "feature_drift_batch_feature_ks_stat", "legendFormat": "{{feature}}", "refId": "A"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Per-feature rate deltas",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 12},
+      "targets": [
+        {"expr": "feature_drift_batch_feature_delta{kind=\"missing_rate\"}", "legendFormat": "missing {{feature}}", "refId": "A"},
+        {"expr": "feature_drift_batch_feature_delta{kind=\"zero_rate\"}", "legendFormat": "zero {{feature}}", "refId": "B"},
+        {"expr": "feature_drift_batch_feature_delta{kind=\"clip_rate\"}", "legendFormat": "clip {{feature}}", "refId": "C"}
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["trade", "feature-drift", "batch"],
+  "title": "Feature Drift Batch (v1)",
+  "version": 1
+}

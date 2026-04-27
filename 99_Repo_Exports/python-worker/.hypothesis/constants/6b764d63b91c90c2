@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/spatial/qhull.py
+# hypothesis_version: 6.148.10
+
+['ConvexHull', 'Delaunay', 'QhullError', 'Voronoi', 'os', 'sys', 'tempfile', 'threading', 'tsearch']

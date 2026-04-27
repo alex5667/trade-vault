@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/news_reco_reader/cache.py
+# hypothesis_version: 6.148.10
+
+[2000, '-', ':', '_', 'expires_ms', 'map is not an object', 'map_ts_ms', 'reco', 'symbol', 'ts_ms']

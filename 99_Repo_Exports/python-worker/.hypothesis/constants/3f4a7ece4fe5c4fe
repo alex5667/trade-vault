@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/decision_binding_v1.py
+# hypothesis_version: 6.148.10
+
+['0', '1', '2', 'DQ_BAD__DENY', 'DRIFT_BLOCK', 'RULE_DENY', 'RULE_SOFT__ML_ALLOW', 'RULE_SOFT__ML_DENY', '_DRIFT_WARN', 'abstain', 'action', 'allow', 'bad', 'block', 'both', 'deny', 'dq', 'drift', 'error', 'fail', 'ml', 'na', 'off', 'on', 'reason_code', 'recommended_action', 'rule', 'soft', 'source', 'strong', 'true', 'unknown', 'veto', 'warn', 'yes']

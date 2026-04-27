@@ -1,0 +1,30 @@
+groups:
+  - name: ml_phase3_16_route_incident_rca_mirror_rca_winner_apply_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror RCA winner apply controller is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyErrors
+        expr: rate(ml_route_incident_rca_mirror_rca_winner_apply_runs_total{status="error"}[5m]) > 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "route incident RCA mirror RCA winner apply controller has errors"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyVertex
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_transitions_total{winner_arm="vertex_candidate"}[1d]) > 0
+        for: 1m
+        labels: { severity: info }
+        annotations:
+          summary: "vertex_candidate promoted"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplySingleArm
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_transitions_total{apply_strategy="SINGLE_ARM"}[1d]) > 0
+        for: 1m
+        labels: { severity: info }
+        annotations:
+          summary: "experiment transitioned to SINGLE_ARM"

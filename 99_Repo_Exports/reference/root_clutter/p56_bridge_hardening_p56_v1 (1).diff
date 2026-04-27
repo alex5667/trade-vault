@@ -1,0 +1,954 @@
+diff -ruN repo_p56/.pytest_cache/.gitignore repo_p56_mod/.pytest_cache/.gitignore
+--- repo_p56/.pytest_cache/.gitignore	1970-01-01 00:00:00.000000000 +0000
++++ repo_p56_mod/.pytest_cache/.gitignore	2026-03-07 15:38:36.098630852 +0000
+@@ -0,0 +1,2 @@
++# Created by pytest automatically.
++*
+diff -ruN repo_p56/.pytest_cache/CACHEDIR.TAG repo_p56_mod/.pytest_cache/CACHEDIR.TAG
+--- repo_p56/.pytest_cache/CACHEDIR.TAG	1970-01-01 00:00:00.000000000 +0000
++++ repo_p56_mod/.pytest_cache/CACHEDIR.TAG	2026-03-07 15:38:36.098676375 +0000
+@@ -0,0 +1,4 @@
++Signature: 8a477f597d28d172789f06886806bc55
++# This file is a cache directory tag created by pytest.
++# For information about cache directory tags, see:
++#	https://bford.info/cachedir/spec.html
+diff -ruN repo_p56/.pytest_cache/README.md repo_p56_mod/.pytest_cache/README.md
+--- repo_p56/.pytest_cache/README.md	1970-01-01 00:00:00.000000000 +0000
++++ repo_p56_mod/.pytest_cache/README.md	2026-03-07 15:38:36.098524338 +0000
+@@ -0,0 +1,8 @@
++# pytest cache directory #
++
++This directory contains data from the pytest's cache plugin,
++which provides the `--lf` and `--ff` options, as well as the `cache` fixture.
++
++**Do not** commit this to version control.
++
++See [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.
+diff -ruN repo_p56/.pytest_cache/v/cache/lastfailed repo_p56_mod/.pytest_cache/v/cache/lastfailed
+--- repo_p56/.pytest_cache/v/cache/lastfailed	1970-01-01 00:00:00.000000000 +0000
++++ repo_p56_mod/.pytest_cache/v/cache/lastfailed	2026-03-07 15:39:29.891361980 +0000
+@@ -0,0 +1 @@
++{}
+\ No newline at end of file
+diff -ruN repo_p56/.pytest_cache/v/cache/nodeids repo_p56_mod/.pytest_cache/v/cache/nodeids
+--- repo_p56/.pytest_cache/v/cache/nodeids	1970-01-01 00:00:00.000000000 +0000
++++ repo_p56_mod/.pytest_cache/v/cache/nodeids	2026-03-07 15:39:29.891090858 +0000
+@@ -0,0 +1,7 @@
++[
++  "services/tests/test_check_execution_audit_chain_p56_v1.py::test_analyze_chain_rows_detects_broken_links",
++  "services/tests/test_check_execution_audit_chain_p56_v1.py::test_render_textfile_metrics_contains_expected_metrics",
++  "services/tests/test_p56_audit_chain_assets_v1.py::test_grafana_dashboard_valid_json",
++  "services/tests/test_p56_audit_chain_assets_v1.py::test_prometheus_rules_exist",
++  "services/tests/test_runbook_server_audit_chain_v1.py::test_filter_report_by_sid_and_kind"
++]
+\ No newline at end of file
+diff -ruN repo_p56/monitoring/grafana/dashboards/trade_execution_p56_audit_chain_health.json repo_p56_mod/monitoring/grafana/dashboards/trade_execution_p56_audit_chain_health.json
+--- repo_p56/monitoring/grafana/dashboards/trade_execution_p56_audit_chain_health.json	1970-01-01 00:00:00.000000000 +0000
++++ repo_p56_mod/monitoring/grafana/dashboards/trade_execution_p56_audit_chain_health.json	2026-03-07 15:38:22.151540513 +0000
+@@ -0,0 +1,59 @@
++{
++  "annotations": {"list": []},
++  "editable": true,
++  "graphTooltip": 0,
++  "links": [
++    {
++      "title": "Runbook API",
++      "type": "link",
++      "url": "/api/audit-chain/latest"
++    }
++  ],
++  "panels": [
++    {
++      "type": "stat",
++      "title": "Broken chain total",
++      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
++      "targets": [{"expr": "trade_execution_audit_chain_total_broken", "refId": "A"}]
++    },
++    {
++      "type": "stat",
++      "title": "Report freshness (s)",
++      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
++      "targets": [{"expr": "trade_execution_audit_chain_report_freshness_seconds", "refId": "A"}]
++    },
++    {
++      "type": "stat",
++      "title": "Signal / plan broken",
++      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
++      "targets": [{"expr": "sum(trade_execution_audit_chain_broken_total{kind=~\"broken_signal_link|broken_signal_plan|broken_entry_policy_link\"})", "refId": "A"}]
++    },
++    {
++      "type": "stat",
++      "title": "Trade / analytics broken",
++      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
++      "targets": [{"expr": "sum(trade_execution_audit_chain_broken_total{kind=~\"broken_trade_link|broken_position_event_link|broken_analytics_link\"})", "refId": "A"}]
++    },
++    {
++      "type": "timeseries",
++      "title": "Broken by kind",
++      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
++      "targets": [{"expr": "trade_execution_audit_chain_broken_total", "legendFormat": "{{kind}}", "refId": "A"}]
++    },
++    {
++      "type": "timeseries",
++      "title": "Report stale flag",
++      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
++      "targets": [{"expr": "trade_execution_audit_chain_report_stale", "refId": "A"}]
++    }
++  ],
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": ["execution", "audit", "p56"],
++  "templating": {"list": []},
++  "time": {"from": "now-24h", "to": "now"},
++  "timezone": "browser",
++  "title": "Trade Execution P5.6 Audit Chain Health",
++  "uid": "trade-exec-audit-p56",
++  "version": 1
++}
+diff -ruN repo_p56/monitoring/prometheus_rules_execution_p56_audit_chain.yml repo_p56_mod/monitoring/prometheus_rules_execution_p56_audit_chain.yml
+--- repo_p56/monitoring/prometheus_rules_execution_p56_audit_chain.yml	1970-01-01 00:00:00.000000000 +0000
++++ repo_p56_mod/monitoring/prometheus_rules_execution_p56_audit_chain.yml	2026-03-07 15:38:22.142718689 +0000
+@@ -0,0 +1,47 @@
++groups:
++  - name: trade-execution-audit-chain-p56
++    interval: 30s
++    rules:
++      - alert: TradeExecutionAuditChainReportStale
++        expr: trade_execution_audit_chain_report_stale > 0
++        for: 10m
++        labels:
++          severity: warning
++          domain: execution-audit
++        annotations:
++          summary: Execution audit-chain report is stale
++          description: >-
++            check_execution_audit_chain.py has not refreshed its textfile report within the expected freshness window.
++
++      - alert: TradeExecutionAuditChainBrokenSignalPlan
++        expr: sum(trade_execution_audit_chain_broken_total{kind=~"broken_signal_link|broken_signal_plan|broken_entry_policy_link"}) > 0
++        for: 15m
++        labels:
++          severity: warning
++          domain: execution-audit
++        annotations:
++          summary: Broken signal/plan execution audit chain detected
++          description: >-
++            One or more execution rows lost linkage to signals, signal_execution_plan, or entry_policy_audit.
++
++      - alert: TradeExecutionAuditChainBrokenTradeLink
++        expr: sum(trade_execution_audit_chain_broken_total{kind=~"broken_trade_link|broken_position_event_link"}) > 0
++        for: 15m
++        labels:
++          severity: critical
++          domain: execution-audit
++        annotations:
++          summary: Broken closed-trade execution audit chain detected
++          description: >-
++            One or more execution rows lost linkage to trades_closed or position_events.
++
++      - alert: TradeExecutionAuditChainBrokenAnalyticsLink
++        expr: sum(trade_execution_audit_chain_broken_total{kind="broken_analytics_link"}) > 0
++        for: 15m
++        labels:
++          severity: warning
++          domain: execution-audit
++        annotations:
++          summary: Broken analytics execution audit chain detected
++          description: >-
++            One or more execution rows are missing downstream decision_snapshot linkage.
+diff -ruN repo_p56/runbooks/P56_AUDIT_CHAIN.md repo_p56_mod/runbooks/P56_AUDIT_CHAIN.md
+--- repo_p56/runbooks/P56_AUDIT_CHAIN.md	1970-01-01 00:00:00.000000000 +0000
++++ repo_p56_mod/runbooks/P56_AUDIT_CHAIN.md	2026-03-07 15:38:22.159211129 +0000
+@@ -0,0 +1,50 @@
++# P5.6 Audit Chain
++
++## Что проверяется
++
++`check_execution_audit_chain.py` берет seed rows из `execution_orders` и проверяет, что для них сохраняется связность:
++
++- `signals`
++- `signal_execution_plan`
++- `trades_closed`
++- `position_events`
++- `entry_policy_audit`
++- `decision_snapshot`
++
++## Артефакты
++
++- JSON report: `latest_execution_audit_chain.json`
++- Prometheus textfile: `latest_execution_audit_chain.prom`
++- Runbook API: `GET /api/audit-chain/latest`
++
++## Базовый запуск
++
++```bash
++python scripts/check_execution_audit_chain.py \
++  --dsn "$TRADES_DB_DSN" \
++  --report-json /var/lib/node_exporter/textfile_collector/latest_execution_audit_chain.json \
++  --report-prom /var/lib/node_exporter/textfile_collector/latest_execution_audit_chain.prom
++```
++
++## Основные метрики
++
++- `trade_execution_audit_chain_report_freshness_seconds`
++- `trade_execution_audit_chain_report_stale`
++- `trade_execution_audit_chain_total_broken`
++- `trade_execution_audit_chain_broken_total{kind=...}`
++
++## Типы ошибок
++
++- `broken_signal_link`
++- `broken_signal_plan`
++- `broken_trade_link`
++- `broken_position_event_link`
++- `broken_entry_policy_link`
++- `broken_analytics_link`
++
++## Диагностика
++
++1. Открыть `/api/audit-chain/latest?limit=100`
++2. Отфильтровать по `sid`, `signal_id` или `closed_trade_id`
++3. Проверить, где впервые теряется linkage
++4. Если broken count растет сериями, смотреть backfill/bridge pipeline между execution и analytics слоями
+Binary files repo_p56/runbooks/server/__pycache__/runbook_server.cpython-313.pyc and repo_p56_mod/runbooks/server/__pycache__/runbook_server.cpython-313.pyc differ
+diff -ruN repo_p56/runbooks/server/runbook_server.py repo_p56_mod/runbooks/server/runbook_server.py
+--- repo_p56/runbooks/server/runbook_server.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p56_mod/runbooks/server/runbook_server.py	2026-03-07 15:38:22.095322772 +0000
+@@ -0,0 +1,110 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import json
++import os
++from http.server import BaseHTTPRequestHandler, HTTPServer
++from pathlib import Path
++from typing import Any, Dict, List, Mapping, Optional
++from urllib.parse import parse_qs, urlparse
++
++REPORT_JSON_PATH = os.getenv("EXEC_AUDIT_REPORT_JSON", "latest_execution_audit_chain.json")
++RUNBOOK_BIND = os.getenv("RUNBOOK_SERVER_BIND", "0.0.0.0")
++RUNBOOK_PORT = int(os.getenv("RUNBOOK_SERVER_PORT", "8777"))
++
++
++def load_report(path: Optional[str] = None) -> Dict[str, Any]:
++    p = Path(path or REPORT_JSON_PATH)
++    if not p.exists():
++        return {
++            "schema_version": "p5.6.v1",
++            "generated_at_ts": None,
++            "total_broken": 0,
++            "broken_by_kind": {},
++            "broken": [],
++            "error": f"report not found: {p}",
++        }
++    return json.loads(p.read_text(encoding="utf-8"))
++
++
++def filter_report(report: Mapping[str, Any], query: Mapping[str, List[str]]) -> Dict[str, Any]:
++    rows = list(report.get("broken") or [])
++
++    def first(name: str) -> str:
++        vals = query.get(name) or []
++        return str(vals[0]).strip() if vals else ""
++
++    sid = first("sid")
++    signal_id = first("signal_id")
++    closed_trade_id = first("closed_trade_id")
++    kind = first("kind")
++    limit_raw = first("limit")
++    limit = int(limit_raw) if limit_raw.isdigit() else 200
++
++    def ok(row: Mapping[str, Any]) -> bool:
++        if sid and str(row.get("sid") or "") != sid:
++            return False
++        if signal_id and str(row.get("signal_id") or "") != signal_id:
++            return False
++        if closed_trade_id and str(row.get("closed_trade_id") or "") != closed_trade_id:
++            return False
++        if kind and str(row.get("kind") or "") != kind:
++            return False
++        return True
++
++    filtered = [row for row in rows if ok(row)][: max(1, limit)]
++    broken_by_kind: Dict[str, int] = {}
++    for row in filtered:
++        k = str(row.get("kind") or "unknown")
++        broken_by_kind[k] = broken_by_kind.get(k, 0) + 1
++
++    out = dict(report)
++    out["broken"] = filtered
++    out["broken_by_kind"] = dict(sorted(broken_by_kind.items()))
++    out["total_broken"] = len(filtered)
++    return out
++
++
++class Handler(BaseHTTPRequestHandler):
++    server_version = "p56-runbook/1.0"
++
++    def _send_json(self, payload: Mapping[str, Any], status: int = 200) -> None:
++        body = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")
++        self.send_response(status)
++        self.send_header("Content-Type", "application/json; charset=utf-8")
++        self.send_header("Content-Length", str(len(body)))
++        self.end_headers()
++        self.wfile.write(body)
++
++    def do_GET(self) -> None:  # noqa: N802
++        parsed = urlparse(self.path)
++        if parsed.path == "/healthz":
++            self._send_json({"ok": True, "service": "runbook_server"})
++            return
++        if parsed.path == "/api/audit-chain/latest":
++            report = load_report()
++            self._send_json(filter_report(report, parse_qs(parsed.query)))
++            return
++        self._send_json({"ok": False, "error": "not found"}, status=404)
++
++    def log_message(self, fmt: str, *args: Any) -> None:  # quiet server in tests
++        return
++
++
++def build_server(bind: str = RUNBOOK_BIND, port: int = RUNBOOK_PORT) -> HTTPServer:
++    return HTTPServer((bind, int(port)), Handler)
++
++
++def main() -> int:
++    server = build_server()
++    try:
++        server.serve_forever()
++    except KeyboardInterrupt:
++        pass
++    finally:
++        server.server_close()
++    return 0
++
++
++if __name__ == "__main__":  # pragma: no cover
++    raise SystemExit(main())
+Binary files repo_p56/scripts/__pycache__/check_execution_audit_chain.cpython-313.pyc and repo_p56_mod/scripts/__pycache__/check_execution_audit_chain.cpython-313.pyc differ
+diff -ruN repo_p56/scripts/check_execution_audit_chain.py repo_p56_mod/scripts/check_execution_audit_chain.py
+--- repo_p56/scripts/check_execution_audit_chain.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p56_mod/scripts/check_execution_audit_chain.py	2026-03-07 15:38:22.086538158 +0000
+@@ -0,0 +1,352 @@
++#!/usr/bin/env python3
++"""
++P5.6 execution audit-chain checker.
++
++Purpose
++-------
++Validate that execution linkage is preserved across the most important entities:
++
++- execution_orders            -> seed execution events / orders
++- signals                     -> signal envelope exists
++- signal_execution_plan       -> plan row exists
++- trades_closed               -> closed trade row exists
++- position_events             -> position lifecycle references exist
++- entry_policy_audit          -> entry-policy evidence exists
++- decision_snapshot           -> analytics snapshot row exists
++
++Outputs
++-------
++1) JSON report for runbook/UI consumption
++2) Prometheus textfile exporter for node_exporter textfile collector
++
++The checker is intentionally conservative and read-only.
++It supports partial environments: if some downstream tables are not present yet,
++this is surfaced in the report rather than silently ignored.
++"""
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import sys
++import time
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set
++
++try:
++    import psycopg2  # type: ignore
++except Exception:  # pragma: no cover - optional in unit tests
++    psycopg2 = None  # type: ignore
++
++
++DEFAULT_REPORT_JSON = "latest_execution_audit_chain.json"
++DEFAULT_REPORT_PROM = "latest_execution_audit_chain.prom"
++DEFAULT_LOOKBACK_HOURS = 24
++DEFAULT_LIMIT = 1000
++
++
++@dataclass(frozen=True)
++class AuditRow:
++    sid: str
++    signal_id: str
++    closed_trade_id: str
++    symbol: str
++    source_ts: Optional[float] = None
++
++
++def env_str(name: str, default: str) -> str:
++    value = os.getenv(name)
++    return str(value).strip() if value is not None and str(value).strip() else default
++
++
++def env_int(name: str, default: int) -> int:
++    raw = os.getenv(name)
++    if raw is None or not str(raw).strip():
++        return default
++    try:
++        return int(str(raw).strip())
++    except Exception:
++        return default
++
++
++def normalize_id(value: Any) -> str:
++    if value is None:
++        return ""
++    return str(value).strip()
++
++
++def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
++    parser = argparse.ArgumentParser(description="Check execution audit-chain health")
++    parser.add_argument("--dsn", default=env_str("TRADES_DB_DSN", env_str("DATABASE_URL", "")))
++    parser.add_argument("--lookback-hours", type=int, default=env_int("EXEC_AUDIT_LOOKBACK_HOURS", DEFAULT_LOOKBACK_HOURS))
++    parser.add_argument("--limit", type=int, default=env_int("EXEC_AUDIT_LIMIT", DEFAULT_LIMIT))
++    parser.add_argument("--report-json", default=env_str("EXEC_AUDIT_REPORT_JSON", DEFAULT_REPORT_JSON))
++    parser.add_argument("--report-prom", default=env_str("EXEC_AUDIT_REPORT_PROM", DEFAULT_REPORT_PROM))
++    return parser.parse_args(argv)
++
++
++def table_name(env_name: str, default: str) -> str:
++    return env_str(env_name, default)
++
++
++def get_table_map() -> Dict[str, str]:
++    return {
++        "execution_orders": table_name("EXEC_AUDIT_TBL_EXECUTION_ORDERS", "execution_orders"),
++        "signals": table_name("EXEC_AUDIT_TBL_SIGNALS", "signals"),
++        "signal_execution_plan": table_name("EXEC_AUDIT_TBL_SIGNAL_EXECUTION_PLAN", "signal_execution_plan"),
++        "trades_closed": table_name("EXEC_AUDIT_TBL_TRADES_CLOSED", "trades_closed"),
++        "position_events": table_name("EXEC_AUDIT_TBL_POSITION_EVENTS", "position_events"),
++        "entry_policy_audit": table_name("EXEC_AUDIT_TBL_ENTRY_POLICY_AUDIT", "entry_policy_audit"),
++        "decision_snapshot": table_name("EXEC_AUDIT_TBL_DECISION_SNAPSHOT", "decision_snapshot"),
++    }
++
++
++def _split_table_name(name: str) -> Sequence[str]:
++    parts = [p for p in str(name).split(".") if p]
++    if len(parts) == 1:
++        return ("public", parts[0])
++    if len(parts) >= 2:
++        return (parts[-2], parts[-1])
++    return ("public", str(name))
++
++
++def discover_existing_tables(conn: Any, tables: Mapping[str, str]) -> Set[str]:
++    wanted_pairs = {_split_table_name(v) for v in tables.values()}
++    with conn.cursor() as cur:
++        cur.execute(
++            """
++            select table_schema, table_name
++            from information_schema.tables
++            where (table_schema, table_name) in (
++                values %s
++            )
++            """.replace("%s", ", ".join(["(%s,%s)"] * len(wanted_pairs))),
++            [item for pair in wanted_pairs for item in pair],
++        )
++        rows = cur.fetchall()
++    existing_pairs = {(str(r[0]), str(r[1])) for r in rows}
++    existing: Set[str] = set()
++    for logical, table in tables.items():
++        if tuple(_split_table_name(table)) in existing_pairs:
++            existing.add(logical)
++    return existing
++
++
++def read_seed_execution_orders(conn: Any, table: str, lookback_hours: int, limit: int) -> List[AuditRow]:
++    schema, raw_table = _split_table_name(table)
++    sql = f"""
++        select
++            coalesce(cast(sid as text), '') as sid,
++            coalesce(cast(signal_id as text), '') as signal_id,
++            coalesce(cast(closed_trade_id as text), '') as closed_trade_id,
++            coalesce(cast(symbol as text), '') as symbol,
++            extract(epoch from created_at) as source_ts
++        from {schema}.{raw_table}
++        where created_at >= now() - (%s || ' hours')::interval
++        order by created_at desc
++        limit %s
++    """
++    with conn.cursor() as cur:
++        cur.execute(sql, (int(lookback_hours), int(limit)))
++        rows = cur.fetchall()
++    return [
++        AuditRow(
++            sid=normalize_id(r[0]),
++            signal_id=normalize_id(r[1]),
++            closed_trade_id=normalize_id(r[2]),
++            symbol=normalize_id(r[3]),
++            source_ts=float(r[4]) if r[4] is not None else None,
++        )
++        for r in rows
++    ]
++
++
++def build_lookup_set(conn: Any, table: str, columns: Sequence[str]) -> Set[str]:
++    schema, raw_table = _split_table_name(table)
++    expr = " || '|' || ".join([f"coalesce(cast({c} as text), '')" for c in columns])
++    sql = f"select distinct {expr} as k from {schema}.{raw_table}"
++    with conn.cursor() as cur:
++        cur.execute(sql)
++        return {normalize_id(row[0]) for row in cur.fetchall()}
++
++
++def analyze_chain_rows(
++    seed_rows: Sequence[AuditRow],
++    signal_keys: Set[str],
++    plan_keys: Set[str],
++    trade_keys: Set[str],
++    position_event_keys: Set[str],
++    entry_policy_keys: Set[str],
++    decision_snapshot_keys: Set[str],
++    *,
++    now_ts: Optional[float] = None,
++    existing_tables: Optional[Iterable[str]] = None,
++    lookback_hours: int = DEFAULT_LOOKBACK_HOURS,
++) -> Dict[str, Any]:
++    existing = set(existing_tables or [])
++    broken: List[Dict[str, Any]] = []
++    counts: Dict[str, int] = {}
++
++    def add(kind: str, row: AuditRow, details: Optional[Mapping[str, Any]] = None) -> None:
++        counts[kind] = counts.get(kind, 0) + 1
++        item: Dict[str, Any] = {
++            "kind": kind,
++            "sid": row.sid,
++            "signal_id": row.signal_id,
++            "closed_trade_id": row.closed_trade_id,
++            "symbol": row.symbol,
++            "source_ts": row.source_ts,
++        }
++        if details:
++            item.update(dict(details))
++        broken.append(item)
++
++    for row in seed_rows:
++        sid_signal = f"{row.sid}|{row.signal_id}"
++        sid_trade = f"{row.sid}|{row.closed_trade_id}"
++
++        if "signals" in existing and sid_signal not in signal_keys:
++            add("broken_signal_link", row)
++        if "signal_execution_plan" in existing and sid_signal not in plan_keys:
++            add("broken_signal_plan", row)
++        if "trades_closed" in existing and row.closed_trade_id and sid_trade not in trade_keys:
++            add("broken_trade_link", row)
++        if "position_events" in existing and sid_trade not in position_event_keys:
++            add("broken_position_event_link", row)
++        if "entry_policy_audit" in existing and sid_signal not in entry_policy_keys:
++            add("broken_entry_policy_link", row)
++        if "decision_snapshot" in existing and sid_signal not in decision_snapshot_keys:
++            add("broken_analytics_link", row)
++
++    now_ts = float(now_ts if now_ts is not None else time.time())
++    report = {
++        "schema_version": "p5.6.v1",
++        "generated_at_ts": now_ts,
++        "generated_at_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now_ts)),
++        "lookback_hours": int(lookback_hours),
++        "seed_rows": len(seed_rows),
++        "existing_tables": sorted(existing),
++        "total_broken": sum(counts.values()),
++        "broken_by_kind": dict(sorted(counts.items())),
++        "broken": broken,
++    }
++    return report
++
++
++def render_textfile_metrics(report: Mapping[str, Any], *, now_ts: Optional[float] = None) -> str:
++    generated_at_ts = float(report.get("generated_at_ts") or 0.0)
++    now_ts = float(now_ts if now_ts is not None else time.time())
++    freshness = max(0.0, now_ts - generated_at_ts) if generated_at_ts > 0 else float("nan")
++    stale_threshold = float(env_int("EXEC_AUDIT_REPORT_STALE_SECONDS", 900))
++    stale = 1 if freshness != freshness or freshness > stale_threshold else 0  # NaN check
++
++    lines = [
++        "# HELP trade_execution_audit_chain_report_timestamp_seconds Unix timestamp of the last generated audit-chain report",
++        "# TYPE trade_execution_audit_chain_report_timestamp_seconds gauge",
++        f"trade_execution_audit_chain_report_timestamp_seconds {generated_at_ts:.0f}",
++        "# HELP trade_execution_audit_chain_report_freshness_seconds Age of the last generated audit-chain report",
++        "# TYPE trade_execution_audit_chain_report_freshness_seconds gauge",
++        f"trade_execution_audit_chain_report_freshness_seconds {0.0 if freshness != freshness else freshness:.6f}",
++        "# HELP trade_execution_audit_chain_report_stale 1 when the report is stale beyond configured threshold",
++        "# TYPE trade_execution_audit_chain_report_stale gauge",
++        f"trade_execution_audit_chain_report_stale {stale}",
++        "# HELP trade_execution_audit_chain_total_broken Total number of broken execution audit-chain links",
++        "# TYPE trade_execution_audit_chain_total_broken gauge",
++        f"trade_execution_audit_chain_total_broken {int(report.get('total_broken') or 0)}",
++        "# HELP trade_execution_audit_chain_broken_total Broken execution audit-chain rows by kind",
++        "# TYPE trade_execution_audit_chain_broken_total gauge",
++    ]
++    for kind, value in sorted(dict(report.get("broken_by_kind") or {}).items()):
++        safe_kind = str(kind).replace('"', '\\"')
++        lines.append(f'trade_execution_audit_chain_broken_total{{kind="{safe_kind}"}} {int(value)}')
++    return "\n".join(lines) + "\n"
++
++
++def atomic_write_text(path: str, text: str) -> None:
++    target = Path(path)
++    target.parent.mkdir(parents=True, exist_ok=True)
++    tmp = target.with_suffix(target.suffix + ".tmp")
++    tmp.write_text(text, encoding="utf-8")
++    tmp.replace(target)
++
++
++def write_json_report(path: str, report: Mapping[str, Any]) -> None:
++    atomic_write_text(path, json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
++
++
++def write_textfile_report(path: str, report: Mapping[str, Any], *, now_ts: Optional[float] = None) -> None:
++    atomic_write_text(path, render_textfile_metrics(report, now_ts=now_ts))
++
++
++def build_report_from_db(dsn: str, *, lookback_hours: int, limit: int) -> Dict[str, Any]:
++    if not dsn:
++        raise RuntimeError("missing TRADES_DB_DSN/DATABASE_URL")
++    if psycopg2 is None:
++        raise RuntimeError("psycopg2 is required to read audit-chain data")
++
++    tables = get_table_map()
++    conn = psycopg2.connect(dsn)
++    try:
++        existing = discover_existing_tables(conn, tables)
++        if "execution_orders" not in existing:
++            raise RuntimeError(f"required table missing: {tables['execution_orders']}")
++
++        seed_rows = read_seed_execution_orders(conn, tables["execution_orders"], lookback_hours, limit)
++        signal_keys = build_lookup_set(conn, tables["signals"], ["sid", "signal_id"]) if "signals" in existing else set()
++        plan_keys = build_lookup_set(conn, tables["signal_execution_plan"], ["sid", "signal_id"]) if "signal_execution_plan" in existing else set()
++        trade_keys = build_lookup_set(conn, tables["trades_closed"], ["sid", "closed_trade_id"]) if "trades_closed" in existing else set()
++        position_event_keys = build_lookup_set(conn, tables["position_events"], ["sid", "closed_trade_id"]) if "position_events" in existing else set()
++        entry_policy_keys = build_lookup_set(conn, tables["entry_policy_audit"], ["sid", "signal_id"]) if "entry_policy_audit" in existing else set()
++        decision_snapshot_keys = build_lookup_set(conn, tables["decision_snapshot"], ["sid", "signal_id"]) if "decision_snapshot" in existing else set()
++        return analyze_chain_rows(
++            seed_rows,
++            signal_keys,
++            plan_keys,
++            trade_keys,
++            position_event_keys,
++            entry_policy_keys,
++            decision_snapshot_keys,
++            existing_tables=existing,
++            lookback_hours=lookback_hours,
++        )
++    finally:
++        conn.close()
++
++
++def main(argv: Optional[Sequence[str]] = None) -> int:
++    args = parse_args(argv)
++    try:
++        report = build_report_from_db(args.dsn, lookback_hours=args.lookback_hours, limit=args.limit)
++        write_json_report(args.report_json, report)
++        write_textfile_report(args.report_prom, report)
++        print(json.dumps({
++            "ok": True,
++            "report_json": args.report_json,
++            "report_prom": args.report_prom,
++            "total_broken": int(report.get("total_broken") or 0),
++        }, ensure_ascii=False))
++        return 0
++    except Exception as exc:
++        failure_ts = time.time()
++        failure_report = {
++            "schema_version": "p5.6.v1",
++            "generated_at_ts": failure_ts,
++            "generated_at_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(failure_ts)),
++            "error": str(exc),
++            "total_broken": 0,
++            "broken_by_kind": {},
++            "broken": [],
++            "seed_rows": 0,
++        }
++        try:
++            write_json_report(args.report_json, failure_report)
++            write_textfile_report(args.report_prom, failure_report, now_ts=failure_ts)
++        except Exception:
++            pass
++        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
++        return 2
++
++
++if __name__ == "__main__":  # pragma: no cover
++    raise SystemExit(main())
+Binary files repo_p56/services/__pycache__/__init__.cpython-313.pyc and repo_p56_mod/services/__pycache__/__init__.cpython-313.pyc differ
+Binary files repo_p56/services/tests/__pycache__/conftest.cpython-313-pytest-9.0.2.pyc and repo_p56_mod/services/tests/__pycache__/conftest.cpython-313-pytest-9.0.2.pyc differ
+Binary files repo_p56/services/tests/__pycache__/test_check_execution_audit_chain_p56_v1.cpython-313-pytest-9.0.2.pyc and repo_p56_mod/services/tests/__pycache__/test_check_execution_audit_chain_p56_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files repo_p56/services/tests/__pycache__/test_p56_audit_chain_assets_v1.cpython-313-pytest-9.0.2.pyc and repo_p56_mod/services/tests/__pycache__/test_p56_audit_chain_assets_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files repo_p56/services/tests/__pycache__/test_runbook_server_audit_chain_v1.cpython-313-pytest-9.0.2.pyc and repo_p56_mod/services/tests/__pycache__/test_runbook_server_audit_chain_v1.cpython-313-pytest-9.0.2.pyc differ
+diff -ruN repo_p56/services/tests/test_check_execution_audit_chain_p56_v1.py repo_p56_mod/services/tests/test_check_execution_audit_chain_p56_v1.py
+--- repo_p56/services/tests/test_check_execution_audit_chain_p56_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p56_mod/services/tests/test_check_execution_audit_chain_p56_v1.py	2026-03-07 15:39:25.849657532 +0000
+@@ -0,0 +1,63 @@
++from __future__ import annotations
++
++import importlib.util
++import sys
++from pathlib import Path
++
++
++ROOT = Path(__file__).resolve().parents[2]
++MOD_PATH = ROOT / "scripts" / "check_execution_audit_chain.py"
++spec = importlib.util.spec_from_file_location("check_execution_audit_chain", MOD_PATH)
++mod = importlib.util.module_from_spec(spec)
++assert spec and spec.loader
++sys.modules[spec.name] = mod
++spec.loader.exec_module(mod)
++
++
++AuditRow = mod.AuditRow
++analyze_chain_rows = mod.analyze_chain_rows
++render_textfile_metrics = mod.render_textfile_metrics
++
++
++def test_analyze_chain_rows_detects_broken_links() -> None:
++    rows = [
++        AuditRow(sid="sid-1", signal_id="sig-1", closed_trade_id="ct-1", symbol="BTCUSDT", source_ts=1700000000.0),
++        AuditRow(sid="sid-2", signal_id="sig-2", closed_trade_id="ct-2", symbol="ETHUSDT", source_ts=1700000001.0),
++    ]
++    report = analyze_chain_rows(
++        rows,
++        signal_keys={"sid-1|sig-1"},
++        plan_keys={"sid-1|sig-1", "sid-2|sig-2"},
++        trade_keys={"sid-1|ct-1"},
++        position_event_keys={"sid-1|ct-1", "sid-2|ct-2"},
++        entry_policy_keys={"sid-1|sig-1"},
++        decision_snapshot_keys=set(),
++        existing_tables={
++            "signals",
++            "signal_execution_plan",
++            "trades_closed",
++            "position_events",
++            "entry_policy_audit",
++            "decision_snapshot",
++        },
++        now_ts=1700000100.0,
++    )
++    assert report["total_broken"] == 5
++    assert report["broken_by_kind"] == {
++        "broken_analytics_link": 2,
++        "broken_entry_policy_link": 1,
++        "broken_signal_link": 1,
++        "broken_trade_link": 1,
++    }
++
++
++def test_render_textfile_metrics_contains_expected_metrics() -> None:
++    report = {
++        "generated_at_ts": 1700000000.0,
++        "total_broken": 3,
++        "broken_by_kind": {"broken_trade_link": 2, "broken_analytics_link": 1},
++    }
++    text = render_textfile_metrics(report, now_ts=1700000100.0)
++    assert "trade_execution_audit_chain_report_freshness_seconds 100.000000" in text
++    assert 'trade_execution_audit_chain_broken_total{kind="broken_trade_link"} 2' in text
++    assert "trade_execution_audit_chain_total_broken 3" in text
+diff -ruN repo_p56/services/tests/test_p56_audit_chain_assets_v1.py repo_p56_mod/services/tests/test_p56_audit_chain_assets_v1.py
+--- repo_p56/services/tests/test_p56_audit_chain_assets_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p56_mod/services/tests/test_p56_audit_chain_assets_v1.py	2026-03-07 15:38:22.181439386 +0000
+@@ -0,0 +1,21 @@
++from __future__ import annotations
++
++import json
++from pathlib import Path
++
++
++ROOT = Path(__file__).resolve().parents[2]
++
++
++def test_prometheus_rules_exist() -> None:
++    path = ROOT / "monitoring" / "prometheus_rules_execution_p56_audit_chain.yml"
++    text = path.read_text(encoding="utf-8")
++    assert "TradeExecutionAuditChainReportStale" in text
++    assert "domain: execution-audit" in text
++
++
++def test_grafana_dashboard_valid_json() -> None:
++    path = ROOT / "monitoring" / "grafana" / "dashboards" / "trade_execution_p56_audit_chain_health.json"
++    doc = json.loads(path.read_text(encoding="utf-8"))
++    assert doc["uid"] == "trade-exec-audit-p56"
++    assert any(panel["title"] == "Broken chain total" for panel in doc["panels"])
+diff -ruN repo_p56/services/tests/test_runbook_server_audit_chain_v1.py repo_p56_mod/services/tests/test_runbook_server_audit_chain_v1.py
+--- repo_p56/services/tests/test_runbook_server_audit_chain_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p56_mod/services/tests/test_runbook_server_audit_chain_v1.py	2026-03-07 15:39:10.985203279 +0000
+@@ -0,0 +1,34 @@
++from __future__ import annotations
++
++import importlib.util
++import json
++import sys
++from pathlib import Path
++
++
++ROOT = Path(__file__).resolve().parents[2]
++MOD_PATH = ROOT / "runbooks" / "server" / "runbook_server.py"
++spec = importlib.util.spec_from_file_location("runbook_server", MOD_PATH)
++mod = importlib.util.module_from_spec(spec)
++assert spec and spec.loader
++sys.modules[spec.name] = mod
++spec.loader.exec_module(mod)
++
++
++filter_report = mod.filter_report
++
++
++def test_filter_report_by_sid_and_kind() -> None:
++    report = {
++        "broken": [
++            {"kind": "broken_trade_link", "sid": "a", "signal_id": "s1", "closed_trade_id": "t1"},
++            {"kind": "broken_analytics_link", "sid": "a", "signal_id": "s1", "closed_trade_id": "t1"},
++            {"kind": "broken_trade_link", "sid": "b", "signal_id": "s2", "closed_trade_id": "t2"},
++        ],
++        "total_broken": 3,
++        "broken_by_kind": {"broken_trade_link": 2, "broken_analytics_link": 1},
++    }
++    out = filter_report(report, {"sid": ["a"], "kind": ["broken_trade_link"]})
++    assert out["total_broken"] == 1
++    assert out["broken_by_kind"] == {"broken_trade_link": 1}
++    assert out["broken"][0]["closed_trade_id"] == "t1"
+Binary files repo_p56/tick_flow_full/services/__pycache__/__init__.cpython-313.pyc and repo_p56_mod/tick_flow_full/services/__pycache__/__init__.cpython-313.pyc differ
+Binary files repo_p56/tick_flow_full/services/tests/__pycache__/conftest.cpython-313-pytest-9.0.2.pyc and repo_p56_mod/tick_flow_full/services/tests/__pycache__/conftest.cpython-313-pytest-9.0.2.pyc differ
+Binary files repo_p56/tick_flow_full/services/tests/__pycache__/test_check_execution_audit_chain_p56_v1.cpython-313-pytest-9.0.2.pyc and repo_p56_mod/tick_flow_full/services/tests/__pycache__/test_check_execution_audit_chain_p56_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files repo_p56/tick_flow_full/services/tests/__pycache__/test_p56_audit_chain_assets_v1.cpython-313-pytest-9.0.2.pyc and repo_p56_mod/tick_flow_full/services/tests/__pycache__/test_p56_audit_chain_assets_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files repo_p56/tick_flow_full/services/tests/__pycache__/test_runbook_server_audit_chain_v1.cpython-313-pytest-9.0.2.pyc and repo_p56_mod/tick_flow_full/services/tests/__pycache__/test_runbook_server_audit_chain_v1.cpython-313-pytest-9.0.2.pyc differ
+diff -ruN repo_p56/tick_flow_full/services/tests/test_check_execution_audit_chain_p56_v1.py repo_p56_mod/tick_flow_full/services/tests/test_check_execution_audit_chain_p56_v1.py
+--- repo_p56/tick_flow_full/services/tests/test_check_execution_audit_chain_p56_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p56_mod/tick_flow_full/services/tests/test_check_execution_audit_chain_p56_v1.py	2026-03-07 15:39:25.849657532 +0000
+@@ -0,0 +1,63 @@
++from __future__ import annotations
++
++import importlib.util
++import sys
++from pathlib import Path
++
++
++ROOT = Path(__file__).resolve().parents[2]
++MOD_PATH = ROOT / "scripts" / "check_execution_audit_chain.py"
++spec = importlib.util.spec_from_file_location("check_execution_audit_chain", MOD_PATH)
++mod = importlib.util.module_from_spec(spec)
++assert spec and spec.loader
++sys.modules[spec.name] = mod
++spec.loader.exec_module(mod)
++
++
++AuditRow = mod.AuditRow
++analyze_chain_rows = mod.analyze_chain_rows
++render_textfile_metrics = mod.render_textfile_metrics
++
++
++def test_analyze_chain_rows_detects_broken_links() -> None:
++    rows = [
++        AuditRow(sid="sid-1", signal_id="sig-1", closed_trade_id="ct-1", symbol="BTCUSDT", source_ts=1700000000.0),
++        AuditRow(sid="sid-2", signal_id="sig-2", closed_trade_id="ct-2", symbol="ETHUSDT", source_ts=1700000001.0),
++    ]
++    report = analyze_chain_rows(
++        rows,
++        signal_keys={"sid-1|sig-1"},
++        plan_keys={"sid-1|sig-1", "sid-2|sig-2"},
++        trade_keys={"sid-1|ct-1"},
++        position_event_keys={"sid-1|ct-1", "sid-2|ct-2"},
++        entry_policy_keys={"sid-1|sig-1"},
++        decision_snapshot_keys=set(),
++        existing_tables={
++            "signals",
++            "signal_execution_plan",
++            "trades_closed",
++            "position_events",
++            "entry_policy_audit",
++            "decision_snapshot",
++        },
++        now_ts=1700000100.0,
++    )
++    assert report["total_broken"] == 5
++    assert report["broken_by_kind"] == {
++        "broken_analytics_link": 2,
++        "broken_entry_policy_link": 1,
++        "broken_signal_link": 1,
++        "broken_trade_link": 1,
++    }
++
++
++def test_render_textfile_metrics_contains_expected_metrics() -> None:
++    report = {
++        "generated_at_ts": 1700000000.0,
++        "total_broken": 3,
++        "broken_by_kind": {"broken_trade_link": 2, "broken_analytics_link": 1},
++    }
++    text = render_textfile_metrics(report, now_ts=1700000100.0)
++    assert "trade_execution_audit_chain_report_freshness_seconds 100.000000" in text
++    assert 'trade_execution_audit_chain_broken_total{kind="broken_trade_link"} 2' in text
++    assert "trade_execution_audit_chain_total_broken 3" in text
+diff -ruN repo_p56/tick_flow_full/services/tests/test_p56_audit_chain_assets_v1.py repo_p56_mod/tick_flow_full/services/tests/test_p56_audit_chain_assets_v1.py
+--- repo_p56/tick_flow_full/services/tests/test_p56_audit_chain_assets_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p56_mod/tick_flow_full/services/tests/test_p56_audit_chain_assets_v1.py	2026-03-07 15:38:22.181439386 +0000
+@@ -0,0 +1,21 @@
++from __future__ import annotations
++
++import json
++from pathlib import Path
++
++
++ROOT = Path(__file__).resolve().parents[2]
++
++
++def test_prometheus_rules_exist() -> None:
++    path = ROOT / "monitoring" / "prometheus_rules_execution_p56_audit_chain.yml"
++    text = path.read_text(encoding="utf-8")
++    assert "TradeExecutionAuditChainReportStale" in text
++    assert "domain: execution-audit" in text
++
++
++def test_grafana_dashboard_valid_json() -> None:
++    path = ROOT / "monitoring" / "grafana" / "dashboards" / "trade_execution_p56_audit_chain_health.json"
++    doc = json.loads(path.read_text(encoding="utf-8"))
++    assert doc["uid"] == "trade-exec-audit-p56"
++    assert any(panel["title"] == "Broken chain total" for panel in doc["panels"])
+diff -ruN repo_p56/tick_flow_full/services/tests/test_runbook_server_audit_chain_v1.py repo_p56_mod/tick_flow_full/services/tests/test_runbook_server_audit_chain_v1.py
+--- repo_p56/tick_flow_full/services/tests/test_runbook_server_audit_chain_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p56_mod/tick_flow_full/services/tests/test_runbook_server_audit_chain_v1.py	2026-03-07 15:39:10.985203279 +0000
+@@ -0,0 +1,34 @@
++from __future__ import annotations
++
++import importlib.util
++import json
++import sys
++from pathlib import Path
++
++
++ROOT = Path(__file__).resolve().parents[2]
++MOD_PATH = ROOT / "runbooks" / "server" / "runbook_server.py"
++spec = importlib.util.spec_from_file_location("runbook_server", MOD_PATH)
++mod = importlib.util.module_from_spec(spec)
++assert spec and spec.loader
++sys.modules[spec.name] = mod
++spec.loader.exec_module(mod)
++
++
++filter_report = mod.filter_report
++
++
++def test_filter_report_by_sid_and_kind() -> None:
++    report = {
++        "broken": [
++            {"kind": "broken_trade_link", "sid": "a", "signal_id": "s1", "closed_trade_id": "t1"},
++            {"kind": "broken_analytics_link", "sid": "a", "signal_id": "s1", "closed_trade_id": "t1"},
++            {"kind": "broken_trade_link", "sid": "b", "signal_id": "s2", "closed_trade_id": "t2"},
++        ],
++        "total_broken": 3,
++        "broken_by_kind": {"broken_trade_link": 2, "broken_analytics_link": 1},
++    }
++    out = filter_report(report, {"sid": ["a"], "kind": ["broken_trade_link"]})
++    assert out["total_broken"] == 1
++    assert out["broken_by_kind"] == {"broken_trade_link": 1}
++    assert out["broken"][0]["closed_trade_id"] == "t1"

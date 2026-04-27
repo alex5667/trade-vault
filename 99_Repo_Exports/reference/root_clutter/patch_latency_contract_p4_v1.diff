@@ -1,0 +1,1088 @@
+diff -ruN repo_orig/.pytest_cache/.gitignore repo_p4_work/.pytest_cache/.gitignore
+--- repo_orig/.pytest_cache/.gitignore	1970-01-01 00:00:00.000000000 +0000
++++ repo_p4_work/.pytest_cache/.gitignore	2026-03-08 07:36:12.318275797 +0000
+@@ -0,0 +1,2 @@
++# Created by pytest automatically.
++*
+diff -ruN repo_orig/.pytest_cache/CACHEDIR.TAG repo_p4_work/.pytest_cache/CACHEDIR.TAG
+--- repo_orig/.pytest_cache/CACHEDIR.TAG	1970-01-01 00:00:00.000000000 +0000
++++ repo_p4_work/.pytest_cache/CACHEDIR.TAG	2026-03-08 07:36:12.318330884 +0000
+@@ -0,0 +1,4 @@
++Signature: 8a477f597d28d172789f06886806bc55
++# This file is a cache directory tag created by pytest.
++# For information about cache directory tags, see:
++#	https://bford.info/cachedir/spec.html
+diff -ruN repo_orig/.pytest_cache/README.md repo_p4_work/.pytest_cache/README.md
+--- repo_orig/.pytest_cache/README.md	1970-01-01 00:00:00.000000000 +0000
++++ repo_p4_work/.pytest_cache/README.md	2026-03-08 07:36:12.318214935 +0000
+@@ -0,0 +1,8 @@
++# pytest cache directory #
++
++This directory contains data from the pytest's cache plugin,
++which provides the `--lf` and `--ff` options, as well as the `cache` fixture.
++
++**Do not** commit this to version control.
++
++See [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.
+diff -ruN repo_orig/.pytest_cache/v/cache/nodeids repo_p4_work/.pytest_cache/v/cache/nodeids
+--- repo_orig/.pytest_cache/v/cache/nodeids	1970-01-01 00:00:00.000000000 +0000
++++ repo_p4_work/.pytest_cache/v/cache/nodeids	2026-03-08 07:36:12.318695290 +0000
+@@ -0,0 +1,8 @@
++[
++  "orderflow_services/tests/test_latency_contract_alerts_yaml_v1.py::test_alerts_yaml_valid",
++  "orderflow_services/tests/test_latency_contract_dashboard_json_v1.py::test_dashboard_json_valid",
++  "orderflow_services/tests/test_latency_contract_exporter_v1.py::test_parse_key_roundtrip",
++  "services/tests/test_latency_contract_integration_v1.py::test_synthetic_signal_path_records_hashes",
++  "services/tests/test_latency_contract_v1.py::test_missing_fields_fail_open",
++  "services/tests/test_latency_contract_v1.py::test_monotonic_contract_deltas"
++]
+\ No newline at end of file
+Binary files repo_orig/orderflow_services/__pycache__/__init__.cpython-313.pyc and repo_p4_work/orderflow_services/__pycache__/__init__.cpython-313.pyc differ
+Binary files repo_orig/orderflow_services/__pycache__/latency_contract_exporter_v1.cpython-313.pyc and repo_p4_work/orderflow_services/__pycache__/latency_contract_exporter_v1.cpython-313.pyc differ
+diff -ruN repo_orig/orderflow_services/grafana/latency_contract_v1.json repo_p4_work/orderflow_services/grafana/latency_contract_v1.json
+--- repo_orig/orderflow_services/grafana/latency_contract_v1.json	1970-01-01 00:00:00.000000000 +0000
++++ repo_p4_work/orderflow_services/grafana/latency_contract_v1.json	2026-03-08 07:34:51.397350919 +0000
+@@ -0,0 +1,43 @@
++{
++  "title": "Latency Contract (v1)",
++  "schemaVersion": 39,
++  "version": 1,
++  "panels": [
++    {
++      "type": "timeseries",
++      "title": "feature_to_emit p95",
++      "targets": [
++        {
++          "expr": "histogram_quantile(0.95, sum by (le) (rate(latency_contract_stage_ms_bucket{service='python_worker',stage='feature_to_emit'}[15m])))"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "end_to_end_event p95",
++      "targets": [
++        {
++          "expr": "histogram_quantile(0.95, sum by (le) (rate(latency_contract_stage_ms_bucket{service='python_worker',stage='end_to_end_event'}[15m])))"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "latest stage duration",
++      "targets": [
++        {
++          "expr": "latency_contract_stage_last_duration_ms"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "latest stage age",
++      "targets": [
++        {
++          "expr": "latency_contract_stage_last_age_seconds"
++        }
++      ]
++    }
++  ]
++}
+\ No newline at end of file
+diff -ruN repo_orig/orderflow_services/latency_contract_exporter_v1.py repo_p4_work/orderflow_services/latency_contract_exporter_v1.py
+--- repo_orig/orderflow_services/latency_contract_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p4_work/orderflow_services/latency_contract_exporter_v1.py	2026-03-08 07:34:51.397083007 +0000
+@@ -0,0 +1,129 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Prometheus exporter for unified latency contract state hashes.
++
++Reads Redis hashes written by Python services (and future Go/NestJS writers) under
++`metrics:latency_contract:last:<service>:<stage>:<symbol>` and exposes latest/freshness
++metrics plus static stage budgets for dashboarding/alerts.
++"""
++
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict
++
++from prometheus_client import Gauge, start_http_server
++
++
++def _env(name: str, default: str = "") -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return d
++
++
++def _f(v: Any, d: float = 0.0) -> float:
++    try:
++        return float(v)
++    except Exception:
++        try:
++            return float(str(v).strip())
++        except Exception:
++            return d
++
++
++G_UP = Gauge('latency_contract_exporter_up', 'latency contract exporter loop running')
++G_STAGE_LAST = Gauge('latency_contract_stage_last_duration_ms', 'Latest stage duration from Redis state hash', ['service', 'stage', 'symbol'])
++G_STAGE_AGE = Gauge('latency_contract_stage_last_age_seconds', 'Age of latest stage update', ['service', 'stage', 'symbol'])
++G_STAGE_COUNT = Gauge('latency_contract_stage_last_count', 'Synthetic state write count (1 per live hash)', ['service', 'stage', 'symbol'])
++G_STAGE_BUDGET = Gauge('latency_contract_stage_budget_ms', 'Configured SLO budget (ms) per stage', ['stage'])
++G_EXPORTER_KEYS = Gauge('latency_contract_exporter_keys', 'Number of latency contract keys seen in Redis')
++G_EXPORTER_READ_OK = Gauge('latency_contract_exporter_read_ok', 'Exporter Redis read status')
++
++
++@dataclass
++class Cfg:
++    redis_url: str
++    port: int
++    interval_s: float
++    key_prefix: str
++    stale_s: int
++
++
++def load_cfg() -> Cfg:
++    return Cfg(
++        redis_url=_env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
++        port=_i(_env('LATENCY_CONTRACT_EXPORTER_PORT', '9833'), 9833),
++        interval_s=float(_env('LATENCY_CONTRACT_EXPORTER_INTERVAL_S', '10') or 10),
++        key_prefix=_env('LATENCY_CONTRACT_KEY_PREFIX', 'metrics:latency_contract:last'),
++        stale_s=_i(_env('LATENCY_CONTRACT_EXPORTER_STALE_S', '300'), 300),
++    )
++
++
++def _budget(stage: str) -> float:
++    env_map = {
++        'ingest_to_redis': 'LATENCY_BUDGET_INGEST_TO_REDIS_MS',
++        'redis_to_feature': 'LATENCY_BUDGET_REDIS_TO_FEATURE_MS',
++        'feature_to_emit': 'LATENCY_BUDGET_FEATURE_TO_EMIT_MS',
++        'emit_to_ws': 'LATENCY_BUDGET_EMIT_TO_WS_MS',
++        'end_to_end_event': 'LATENCY_BUDGET_END_TO_END_EVENT_MS',
++    }
++    return _f(os.getenv(env_map.get(stage, ''), '0') or '0', 0.0)
++
++
++def _iter_hashes(r: Any, prefix: str):
++    cur = 0
++    match = f"{prefix}:*"
++    while True:
++        cur, keys = r.scan(cur, match=match, count=500)
++        for k in keys or []:
++            yield k
++        if not cur:
++            break
++
++
++def _parse_key(key: str, prefix: str) -> tuple[str, str, str]:
++    rest = str(key)[len(prefix):].lstrip(':')
++    parts = rest.split(':')
++    if len(parts) < 3:
++        return ('unknown', 'unknown', '__other__')
++    return parts[0], parts[1], ':'.join(parts[2:])
++
++
++def main() -> int:
++    cfg = load_cfg()
++    import redis  # type: ignore
++
++    r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
++    start_http_server(cfg.port)
++    for st in ('ingest_to_redis', 'redis_to_feature', 'feature_to_emit', 'emit_to_ws', 'end_to_end_event'):
++        G_STAGE_BUDGET.labels(stage=st).set(_budget(st))
++    while True:
++        G_UP.set(1.0)
++        now = time.time()
++        try:
++            n = 0
++            for k in _iter_hashes(r, cfg.key_prefix):
++                service, stage, symbol = _parse_key(k, cfg.key_prefix)
++                raw = r.hgetall(k) or {}
++                last_duration_ms = _f(raw.get('last_duration_ms'), 0.0)
++                last_ts_ms = _i(raw.get('last_ts_ms'), 0)
++                age_s = max(0.0, now - (float(last_ts_ms) / 1000.0)) if last_ts_ms > 0 else float(cfg.stale_s)
++                G_STAGE_LAST.labels(service=service, stage=stage, symbol=symbol).set(last_duration_ms)
++                G_STAGE_AGE.labels(service=service, stage=stage, symbol=symbol).set(age_s)
++                G_STAGE_COUNT.labels(service=service, stage=stage, symbol=symbol).set(1.0)
++                n += 1
++            G_EXPORTER_KEYS.set(float(n))
++            G_EXPORTER_READ_OK.set(1.0)
++        except Exception:
++            G_EXPORTER_READ_OK.set(0.0)
++        time.sleep(cfg.interval_s)
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+diff -ruN repo_orig/orderflow_services/prometheus_alerts_latency_contract_v1.yml repo_p4_work/orderflow_services/prometheus_alerts_latency_contract_v1.yml
+--- repo_orig/orderflow_services/prometheus_alerts_latency_contract_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ repo_p4_work/orderflow_services/prometheus_alerts_latency_contract_v1.yml	2026-03-08 07:34:51.397228698 +0000
+@@ -0,0 +1,29 @@
++groups:
++  - name: latency_contract_v1
++    rules:
++      - alert: OF_LatencyContract_ExporterStale_Warn
++        expr: max_over_time(latency_contract_exporter_read_ok[10m]) < 1
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Latency contract exporter stale"
++          description: "latency_contract_exporter_v1 has not read Redis state successfully in 10 minutes."
++
++      - alert: OF_LatencyContract_FeatureToEmitBudget_Crit
++        expr: histogram_quantile(0.95, sum by (le) (rate(latency_contract_stage_ms_bucket{service="python_worker",stage="feature_to_emit",symbol!="__other__"}[15m]))) > 250
++        for: 15m
++        labels:
++          severity: critical
++        annotations:
++          summary: "feature_to_emit p95 budget breached"
++          description: "python_worker feature_to_emit p95 exceeded 250ms for 15m."
++
++      - alert: OF_LatencyContract_EndToEndBudget_Crit
++        expr: histogram_quantile(0.95, sum by (le) (rate(latency_contract_stage_ms_bucket{service="python_worker",stage="end_to_end_event",symbol!="__other__"}[15m]))) > 2000
++        for: 15m
++        labels:
++          severity: critical
++        annotations:
++          summary: "end_to_end_event p95 budget breached"
++          description: "python_worker end_to_end_event p95 exceeded 2000ms for 15m."
+diff -ruN repo_orig/orderflow_services/runbook_latency_contract_v1.md repo_p4_work/orderflow_services/runbook_latency_contract_v1.md
+--- repo_orig/orderflow_services/runbook_latency_contract_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ repo_p4_work/orderflow_services/runbook_latency_contract_v1.md	2026-03-08 07:34:51.397409870 +0000
+@@ -0,0 +1,19 @@
++# Latency Contract v1
++
++This contract standardises event-time fields across services:
++- `ts_event_ms`
++- `ts_redis_read_ms`
++- `ts_feature_ms`
++- `ts_emit_ms`
++- `ts_ws_emit_ms`
++
++Python coverage in this patch:
++- `redis_to_feature`
++- `feature_to_emit`
++- `end_to_end_event`
++
++External service contract placeholders:
++- Go ingest should publish `ts_redis_xadd_ms` and expose `ingest_to_redis` with the same stage names.
++- NestJS WS gateway should stamp `ts_ws_emit_ms` and expose `emit_to_ws`.
++
++All timestamps must be epoch milliseconds UTC. No timezone strings. No monotonic clocks in payloads.
+Binary files repo_orig/orderflow_services/tests/__pycache__/__init__.cpython-313.pyc and repo_p4_work/orderflow_services/tests/__pycache__/__init__.cpython-313.pyc differ
+Binary files repo_orig/orderflow_services/tests/__pycache__/test_latency_contract_alerts_yaml_v1.cpython-313-pytest-9.0.2.pyc and repo_p4_work/orderflow_services/tests/__pycache__/test_latency_contract_alerts_yaml_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files repo_orig/orderflow_services/tests/__pycache__/test_latency_contract_dashboard_json_v1.cpython-313-pytest-9.0.2.pyc and repo_p4_work/orderflow_services/tests/__pycache__/test_latency_contract_dashboard_json_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files repo_orig/orderflow_services/tests/__pycache__/test_latency_contract_exporter_v1.cpython-313-pytest-9.0.2.pyc and repo_p4_work/orderflow_services/tests/__pycache__/test_latency_contract_exporter_v1.cpython-313-pytest-9.0.2.pyc differ
+diff -ruN repo_orig/orderflow_services/tests/test_latency_contract_alerts_yaml_v1.py repo_p4_work/orderflow_services/tests/test_latency_contract_alerts_yaml_v1.py
+--- repo_orig/orderflow_services/tests/test_latency_contract_alerts_yaml_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p4_work/orderflow_services/tests/test_latency_contract_alerts_yaml_v1.py	2026-03-08 07:34:51.397750959 +0000
+@@ -0,0 +1,9 @@
++import os
++import yaml
++
++
++def test_alerts_yaml_valid():
++    path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'prometheus_alerts_latency_contract_v1.yml'))
++    with open(path, 'r', encoding='utf-8') as f:
++        data = yaml.safe_load(f)
++    assert 'groups' in data and data['groups']
+diff -ruN repo_orig/orderflow_services/tests/test_latency_contract_dashboard_json_v1.py repo_p4_work/orderflow_services/tests/test_latency_contract_dashboard_json_v1.py
+--- repo_orig/orderflow_services/tests/test_latency_contract_dashboard_json_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p4_work/orderflow_services/tests/test_latency_contract_dashboard_json_v1.py	2026-03-08 07:34:51.397802485 +0000
+@@ -0,0 +1,9 @@
++import json
++import os
++
++
++def test_dashboard_json_valid():
++    path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'grafana', 'latency_contract_v1.json'))
++    with open(path, 'r', encoding='utf-8') as f:
++        data = json.load(f)
++    assert data['title'] == 'Latency Contract (v1)'
+diff -ruN repo_orig/orderflow_services/tests/test_latency_contract_exporter_v1.py repo_p4_work/orderflow_services/tests/test_latency_contract_exporter_v1.py
+--- repo_orig/orderflow_services/tests/test_latency_contract_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p4_work/orderflow_services/tests/test_latency_contract_exporter_v1.py	2026-03-08 07:34:51.397701417 +0000
+@@ -0,0 +1,8 @@
++from orderflow_services.latency_contract_exporter_v1 import _parse_key
++
++
++def test_parse_key_roundtrip():
++    service, stage, symbol = _parse_key('metrics:latency_contract:last:python_worker:feature_to_emit:BTCUSDT', 'metrics:latency_contract:last')
++    assert service == 'python_worker'
++    assert stage == 'feature_to_emit'
++    assert symbol == 'BTCUSDT'
+Binary files repo_orig/services/__pycache__/__init__.cpython-313.pyc and repo_p4_work/services/__pycache__/__init__.cpython-313.pyc differ
+Binary files repo_orig/services/__pycache__/crypto_orderflow_service.cpython-313.pyc and repo_p4_work/services/__pycache__/crypto_orderflow_service.cpython-313.pyc differ
+diff -ruN repo_orig/services/crypto_orderflow_service.py repo_p4_work/services/crypto_orderflow_service.py
+--- repo_orig/services/crypto_orderflow_service.py	2026-03-08 06:29:37.942758506 +0000
++++ repo_p4_work/services/crypto_orderflow_service.py	2026-03-08 07:33:27.617116833 +0000
+@@ -54,6 +54,7 @@
+ from services.orderflow.runtime import SymbolRuntime
+ from services.orderflow.strategy import OrderFlowStrategy
+ from services.signal_preprocess import preprocess_signal_for_publish
++from services.observability.latency_contract import stamp_feature_ready, observe_feature_ready_async
+ from services.persistence_manager import get_persistence_manager
+ from services.orderflow.calibration_repo import CalibrationRepository
+ from services.orderflow.calibration_service import CalibrationService
+@@ -1534,7 +1535,9 @@
+ 
+                         # Единая модель времени (event/ingest/process)
+                         ingest_ts_ms = _utc_epoch_ms()
++                        # Legacy name kept for compatibility; canonical P4 field is ts_redis_read_ms.
+                         tick["ingest_ts_ms"] = ingest_ts_ms
++                        tick["ts_redis_read_ms"] = ingest_ts_ms
+                         
+                         # Deterministic event-time (prefer tick.ts_ms if sane; else Redis msg_id ms)
+                         now_ms = ingest_ts_ms
+@@ -1757,6 +1760,19 @@
+                                 signal = burst_signal
+ 
+                         if signal:
++                            # P4 latency contract: feature-ready is the moment strategy/gates produced
++                            # a publishable signal object for this tick. We stamp event/read/feature times
++                            # once here so downstream stages reuse the same contract fields.
++                            try:
++                                stamp_feature_ready(signal, tick=tick, now_ms=_utc_epoch_ms())
++                                await observe_feature_ready_async(
++                                    signal,
++                                    redis_client=self.main,
++                                    service="python_worker",
++                                    symbol=str(symbol),
++                                )
++                            except Exception as exc:
++                                logger.debug("(%s) latency contract feature-ready failed: %s", symbol, exc)
+                             try:
+                                 preprocess_signal_for_publish(
+                                     signal,
+diff -ruN repo_orig/services/observability/__init__.py repo_p4_work/services/observability/__init__.py
+--- repo_orig/services/observability/__init__.py	2026-03-08 06:29:38.100214783 +0000
++++ repo_p4_work/services/observability/__init__.py	2026-03-08 06:29:38.100214783 +0000
+@@ -1,2 +0,0 @@
+-# Observability services: Prometheus metrics and SRE alerts
+-
+Binary files repo_orig/services/observability/__pycache__/__init__.cpython-313.pyc and repo_p4_work/services/observability/__pycache__/__init__.cpython-313.pyc differ
+Binary files repo_orig/services/observability/__pycache__/latency_contract.cpython-313.pyc and repo_p4_work/services/observability/__pycache__/latency_contract.cpython-313.pyc differ
+Binary files repo_orig/services/observability/__pycache__/latency_semconv.cpython-313.pyc and repo_p4_work/services/observability/__pycache__/latency_semconv.cpython-313.pyc differ
+diff -ruN repo_orig/services/observability/latency_contract.py repo_p4_work/services/observability/latency_contract.py
+--- repo_orig/services/observability/latency_contract.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p4_work/services/observability/latency_contract.py	2026-03-08 07:32:47.701108090 +0000
+@@ -0,0 +1,207 @@
++from __future__ import annotations
++
++"""Unified latency contract recorder for Python services.
++
++This module is intentionally lightweight:
++- Prometheus histograms are the primary source for p95/p99 via histogram_quantile().
++- Redis hashes are an auxiliary SoT for latest/freshness/cross-service contract coverage.
++- Writers are fail-open and rate-limited to avoid hurting hot-path latency.
++"""
++
++from dataclasses import dataclass, field
++from typing import Any, Dict, Optional, Set
++import asyncio
++import os
++import time
++
++from prometheus_client import Counter, Gauge, Histogram, REGISTRY
++
++from services.observability.latency_semconv import (
++    STAGE_END_TO_END_EVENT,
++    STAGE_FEATURE_TO_EMIT,
++    STAGE_REDIS_TO_FEATURE,
++    FIELD_TS_EMIT_MS,
++    FIELD_TS_EVENT_MS,
++    FIELD_TS_FEATURE_MS,
++    FIELD_TS_REDIS_READ_MS,
++    SERVICE_PYTHON_WORKER,
++    compute_contract_deltas,
++    default_symbol_allowlist,
++    ensure_epoch_ms_fields,
++    label_symbol,
++    now_wall_ms,
++)
++
++
++def _get_or_create_histogram(name: str, documentation: str, labelnames: list[str], buckets: list[float]) -> Histogram:
++    try:
++        return Histogram(name, documentation, labelnames, buckets=buckets)
++    except ValueError:
++        for collector, names in getattr(REGISTRY, '_collector_to_names', {}).items():
++            if name in names:
++                return collector  # type: ignore[return-value]
++        raise
++
++
++def _get_or_create_counter(name: str, documentation: str, labelnames: list[str]) -> Counter:
++    try:
++        return Counter(name, documentation, labelnames)
++    except ValueError:
++        for collector, names in getattr(REGISTRY, '_collector_to_names', {}).items():
++            if name in names:
++                return collector  # type: ignore[return-value]
++        raise
++
++
++def _get_or_create_gauge(name: str, documentation: str, labelnames: list[str]) -> Gauge:
++    try:
++        return Gauge(name, documentation, labelnames)
++    except ValueError:
++        for collector, names in getattr(REGISTRY, '_collector_to_names', {}).items():
++            if name in names:
++                return collector  # type: ignore[return-value]
++        raise
++
++
++LATENCY_BUCKETS = [0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0]
++
++latency_contract_stage_ms = _get_or_create_histogram(
++    'latency_contract_stage_ms',
++    'Unified stage latency histogram (ms) for cross-service latency contract',
++    ['service', 'stage', 'symbol'],
++    LATENCY_BUCKETS,
++)
++latency_contract_obs_total = _get_or_create_counter(
++    'latency_contract_obs_total',
++    'Unified latency contract observations total',
++    ['service', 'stage', 'symbol'],
++)
++latency_contract_invalid_total = _get_or_create_counter(
++    'latency_contract_invalid_total',
++    'Unified latency contract invalid/missing timestamp paths',
++    ['service', 'stage', 'reason'],
++)
++latency_contract_latest_ms = _get_or_create_gauge(
++    'latency_contract_latest_ms',
++    'Latest observed stage latency in current process (ms)',
++    ['service', 'stage', 'symbol'],
++)
++latency_contract_state_writes_total = _get_or_create_counter(
++    'latency_contract_state_writes_total',
++    'Redis state hash writes for unified latency contract',
++    ['service', 'stage', 'result'],
++)
++
++
++def _safe_int(x: Any, default: int = 0) -> int:
++    try:
++        if x is None or isinstance(x, bool):
++            return int(default)
++        if isinstance(x, (int, float)):
++            return int(x)
++        s = str(x).strip()
++        return int(float(s)) if s else int(default)
++    except Exception:
++        return int(default)
++
++
++@dataclass
++class LatencyStateWriter:
++    service: str = SERVICE_PYTHON_WORKER
++    key_prefix: str = field(default_factory=lambda: os.getenv('LATENCY_CONTRACT_KEY_PREFIX', 'metrics:latency_contract:last'))
++    ttl_s: int = field(default_factory=lambda: _safe_int(os.getenv('LATENCY_CONTRACT_TTL_S', '172800'), 172800))
++    min_update_ms: int = field(default_factory=lambda: _safe_int(os.getenv('LATENCY_CONTRACT_STATE_MIN_UPDATE_MS', '3000'), 3000))
++    allowlist: Set[str] = field(default_factory=default_symbol_allowlist)
++    symbol_mode: str = field(default_factory=lambda: os.getenv('LATENCY_CONTRACT_SYMBOL_LABEL_MODE', 'collapse'))
++    _last_write_ms: Dict[str, int] = field(default_factory=dict)
++
++    def _symbol_label(self, symbol: Any) -> Optional[str]:
++        return label_symbol(symbol, allowlist=self.allowlist, mode=self.symbol_mode)
++
++    def state_key(self, stage: str, symbol: Any) -> Optional[str]:
++        sym = self._symbol_label(symbol)
++        if sym is None:
++            return None
++        return f"{self.key_prefix}:{self.service}:{stage}:{sym}"
++
++    async def write_async(self, redis_client: Any, *, stage: str, symbol: Any, duration_ms: int, payload: Dict[str, Any]) -> None:
++        if redis_client is None:
++            return
++        key = self.state_key(stage, symbol)
++        if not key:
++            return
++        now_ms = now_wall_ms()
++        prev = int(self._last_write_ms.get(key, 0) or 0)
++        if prev > 0 and (now_ms - prev) < int(self.min_update_ms):
++            return
++        self._last_write_ms[key] = int(now_ms)
++        mapping = {
++            'schema_version': '1',
++            'service': str(self.service),
++            'stage': str(stage),
++            'symbol': key.rsplit(':', 1)[-1],
++            'last_duration_ms': str(int(max(0, duration_ms))),
++            'last_ts_ms': str(int(now_ms)),
++            'ts_event_ms': str(_safe_int(payload.get(FIELD_TS_EVENT_MS), 0)),
++            'ts_redis_read_ms': str(_safe_int(payload.get(FIELD_TS_REDIS_READ_MS), 0)),
++            'ts_feature_ms': str(_safe_int(payload.get(FIELD_TS_FEATURE_MS), 0)),
++            'ts_emit_ms': str(_safe_int(payload.get(FIELD_TS_EMIT_MS), 0)),
++        }
++        try:
++            await redis_client.hset(key, mapping=mapping)
++            if int(self.ttl_s) > 0:
++                await redis_client.expire(key, int(self.ttl_s))
++            latency_contract_state_writes_total.labels(service=self.service, stage=stage, result='ok').inc()
++        except Exception:
++            latency_contract_state_writes_total.labels(service=self.service, stage=stage, result='error').inc()
++
++
++_DEFAULT_WRITER = LatencyStateWriter()
++
++
++def _observe(service: str, stage: str, symbol: Any, duration_ms: int) -> None:
++    sym = _DEFAULT_WRITER._symbol_label(symbol)
++    if sym is None:
++        return
++    latency_contract_stage_ms.labels(service=service, stage=stage, symbol=sym).observe(float(max(0, duration_ms)))
++    latency_contract_obs_total.labels(service=service, stage=stage, symbol=sym).inc()
++    latency_contract_latest_ms.labels(service=service, stage=stage, symbol=sym).set(float(max(0, duration_ms)))
++
++
++def stamp_feature_ready(signal: Dict[str, Any], *, tick: Optional[Dict[str, Any]] = None, now_ms: Optional[int] = None) -> Dict[str, Any]:
++    now_v = int(now_ms or now_wall_ms())
++    if tick:
++        if 'ts_event_ms' not in signal:
++            signal['ts_event_ms'] = _safe_int(tick.get('event_ts_ms') or tick.get('ts_ms') or 0, 0)
++        if 'ts_redis_read_ms' not in signal:
++            signal['ts_redis_read_ms'] = _safe_int(tick.get('ts_redis_read_ms') or tick.get('ingest_ts_ms') or 0, 0)
++    ensure_epoch_ms_fields(signal, default_feature_ms=now_v)
++    signal[FIELD_TS_FEATURE_MS] = int(now_v)
++    return signal
++
++
++async def observe_feature_ready_async(signal: Dict[str, Any], *, redis_client: Any = None, service: str = SERVICE_PYTHON_WORKER, symbol: Any = None, writer: Optional[LatencyStateWriter] = None) -> Dict[str, Any]:
++    payload = ensure_epoch_ms_fields(signal)
++    d = compute_contract_deltas(payload)
++    dur = int(d.get(STAGE_REDIS_TO_FEATURE, 0))
++    if dur <= 0:
++        latency_contract_invalid_total.labels(service=service, stage=STAGE_REDIS_TO_FEATURE, reason='missing_or_non_monotonic').inc()
++    else:
++        _observe(service, STAGE_REDIS_TO_FEATURE, symbol or payload.get('symbol'), dur)
++        await (writer or _DEFAULT_WRITER).write_async(redis_client, stage=STAGE_REDIS_TO_FEATURE, symbol=symbol or payload.get('symbol'), duration_ms=dur, payload=payload)
++    return payload
++
++
++async def stamp_emit_and_observe_async(payload: Dict[str, Any], *, redis_client: Any = None, service: str = SERVICE_PYTHON_WORKER, symbol: Any = None, writer: Optional[LatencyStateWriter] = None, now_ms: Optional[int] = None) -> Dict[str, Any]:
++    emit_ms = int(now_ms or now_wall_ms())
++    ensure_epoch_ms_fields(payload, default_emit_ms=emit_ms)
++    payload[FIELD_TS_EMIT_MS] = int(emit_ms)
++    d = compute_contract_deltas(payload)
++    for stage in (STAGE_FEATURE_TO_EMIT, STAGE_END_TO_END_EVENT):
++        dur = int(d.get(stage, 0) or 0)
++        if dur <= 0:
++            latency_contract_invalid_total.labels(service=service, stage=stage, reason='missing_or_non_monotonic').inc()
++            continue
++        _observe(service, stage, symbol or payload.get('symbol'), dur)
++        await (writer or _DEFAULT_WRITER).write_async(redis_client, stage=stage, symbol=symbol or payload.get('symbol'), duration_ms=dur, payload=payload)
++    return payload
+diff -ruN repo_orig/services/observability/latency_semconv.py repo_p4_work/services/observability/latency_semconv.py
+--- repo_orig/services/observability/latency_semconv.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p4_work/services/observability/latency_semconv.py	2026-03-08 07:32:47.700858057 +0000
+@@ -0,0 +1,130 @@
++from __future__ import annotations
++
++"""Low-cardinality latency semantic conventions for cross-service stage timing.
++
++Goals
++-----
++- Single timestamp contract across services using epoch milliseconds only.
++- Deterministic helpers that never throw on bad input.
++- Explicit stage names so Prometheus/Grafana queries stay stable across runtimes.
++- Optional symbol cardinality control via allowlist/collapse semantics.
++"""
++
++from typing import Any, Iterable, Optional, Set
++import math
++import os
++import time
++
++SCHEMA_VERSION = 1
++
++FIELD_TS_EVENT_MS = "ts_event_ms"
++FIELD_TS_REDIS_READ_MS = "ts_redis_read_ms"
++FIELD_TS_FEATURE_MS = "ts_feature_ms"
++FIELD_TS_EMIT_MS = "ts_emit_ms"
++FIELD_TS_WS_EMIT_MS = "ts_ws_emit_ms"
++
++SERVICE_GO_INGEST = "go_ingest"
++SERVICE_PYTHON_WORKER = "python_worker"
++SERVICE_NEST_GATEWAY = "nest_gateway"
++SERVICE_UI = "ui"
++
++STAGE_INGEST_TO_REDIS = "ingest_to_redis"
++STAGE_REDIS_TO_FEATURE = "redis_to_feature"
++STAGE_FEATURE_TO_EMIT = "feature_to_emit"
++STAGE_EMIT_TO_WS = "emit_to_ws"
++STAGE_END_TO_END_EVENT = "end_to_end_event"
++
++ALL_STAGES = (
++    STAGE_INGEST_TO_REDIS,
++    STAGE_REDIS_TO_FEATURE,
++    STAGE_FEATURE_TO_EMIT,
++    STAGE_EMIT_TO_WS,
++    STAGE_END_TO_END_EVENT,
++)
++
++
++def now_wall_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def as_int_ms(x: Any, default: int = 0) -> int:
++    try:
++        if x is None or isinstance(x, bool):
++            return int(default)
++        if isinstance(x, (int, float)):
++            return int(x)
++        s = str(x).strip()
++        return int(float(s)) if s else int(default)
++    except Exception:
++        return int(default)
++
++
++def non_negative_delta_ms(start_ms: Any, end_ms: Any) -> int:
++    s = as_int_ms(start_ms, 0)
++    e = as_int_ms(end_ms, 0)
++    if s <= 0 or e <= 0:
++        return 0
++    if e < s:
++        return 0
++    return int(e - s)
++
++
++def ensure_epoch_ms_fields(payload: dict[str, Any], *, default_event_ms: int = 0, default_feature_ms: int = 0, default_emit_ms: int = 0) -> dict[str, Any]:
++    """Mutates payload in-place and returns it.
++
++    Rules:
++    - ts_event_ms is the canonical source event timestamp.
++    - ts_feature_ms is the point where Python finished feature/gate computation.
++    - ts_emit_ms is the point where a publishable payload is emitted to a sink/outbox.
++    - All timestamps are epoch ms UTC, no timezone objects/strings.
++    """
++    event_ms = as_int_ms(payload.get(FIELD_TS_EVENT_MS) or payload.get('event_ts_ms') or payload.get('ts_ms') or default_event_ms, 0)
++    if event_ms > 0:
++        payload[FIELD_TS_EVENT_MS] = int(event_ms)
++    redis_read_ms = as_int_ms(payload.get(FIELD_TS_REDIS_READ_MS) or payload.get('ingest_ts_ms') or 0, 0)
++    if redis_read_ms > 0:
++        payload[FIELD_TS_REDIS_READ_MS] = int(redis_read_ms)
++    feature_ms = as_int_ms(payload.get(FIELD_TS_FEATURE_MS) or default_feature_ms or event_ms, 0)
++    if feature_ms > 0:
++        payload[FIELD_TS_FEATURE_MS] = int(feature_ms)
++    emit_ms = as_int_ms(payload.get(FIELD_TS_EMIT_MS) or default_emit_ms or 0, 0)
++    if emit_ms > 0:
++        payload[FIELD_TS_EMIT_MS] = int(emit_ms)
++    return payload
++
++
++def compute_contract_deltas(payload: dict[str, Any]) -> dict[str, int]:
++    payload = ensure_epoch_ms_fields(payload)
++    out = {
++        STAGE_REDIS_TO_FEATURE: non_negative_delta_ms(payload.get(FIELD_TS_REDIS_READ_MS), payload.get(FIELD_TS_FEATURE_MS)),
++        STAGE_FEATURE_TO_EMIT: non_negative_delta_ms(payload.get(FIELD_TS_FEATURE_MS), payload.get(FIELD_TS_EMIT_MS)),
++        STAGE_END_TO_END_EVENT: non_negative_delta_ms(payload.get(FIELD_TS_EVENT_MS), payload.get(FIELD_TS_EMIT_MS)),
++    }
++    # External stages may be stamped by Go / NestJS in the same contract later.
++    out[STAGE_INGEST_TO_REDIS] = non_negative_delta_ms(payload.get('ts_ingest_source_ms'), payload.get('ts_redis_xadd_ms'))
++    out[STAGE_EMIT_TO_WS] = non_negative_delta_ms(payload.get(FIELD_TS_EMIT_MS), payload.get(FIELD_TS_WS_EMIT_MS))
++    return out
++
++
++def parse_allowlist(raw: Optional[str]) -> Set[str]:
++    if not raw:
++        return set()
++    return {str(x).strip().upper() for x in str(raw).split(',') if str(x).strip()}
++
++
++def label_symbol(symbol: Any, *, allowlist: Optional[Set[str]] = None, mode: str = "collapse") -> Optional[str]:
++    s = str(symbol or "").strip().upper()
++    if not s:
++        return None
++    allow = allowlist or set()
++    if not allow:
++        return s
++    if s in allow:
++        return s
++    if str(mode or 'collapse').strip().lower() == 'drop':
++        return None
++    return '__other__'
++
++
++def default_symbol_allowlist() -> Set[str]:
++    return parse_allowlist(os.getenv('LATENCY_CONTRACT_SYMBOL_ALLOWLIST', 'BTCUSDT,ETHUSDT'))
+Binary files repo_orig/services/orderflow/__pycache__/signal_pipeline.cpython-313.pyc and repo_p4_work/services/orderflow/__pycache__/signal_pipeline.cpython-313.pyc differ
+Binary files repo_orig/services/orderflow/__pycache__/strategy.cpython-313.pyc and repo_p4_work/services/orderflow/__pycache__/strategy.cpython-313.pyc differ
+diff -ruN repo_orig/services/orderflow/signal_pipeline.py repo_p4_work/services/orderflow/signal_pipeline.py
+--- repo_orig/services/orderflow/signal_pipeline.py	2026-03-08 06:29:37.981580711 +0000
++++ repo_p4_work/services/orderflow/signal_pipeline.py	2026-03-08 07:33:27.621083510 +0000
+@@ -17,6 +17,8 @@
+ # Imports for publishing logic
+ from services.pnl_math import calculate_position_size
+ from services.signal_preprocess import preprocess_signal_for_publish
++from services.observability.latency_contract import stamp_emit_and_observe_async
++from services.observability.latency_semconv import ensure_epoch_ms_fields
+ from core.crypto_signal_formatter import CryptoSignal, CryptoSignalFormatter
+ from services.outbox.envelope_builder import build_outbox_envelope, dumps_env, build_trace_sidecar_meta_from_ctx
+ from services.outbox.atomic_outbox import atomic_xadd_async
+@@ -1261,6 +1263,10 @@
+         except Exception:
+             pass
+ 
++        # P4 latency contract: raw payload is expected to carry canonical event/feature timestamps.
++        # Missing fields are filled conservatively so downstream exporters can explain stale/malformed paths.
++        ensure_epoch_ms_fields(enriched_signal, default_event_ms=int(ts_ms), default_feature_ms=int(enriched_signal.get('ts_feature_ms') or ts_ms))
++
+         # Contract normalization (FAIL-OPEN)
+         preprocess_signal_for_publish(enriched_signal, symbol=str(symbol), source="CryptoOrderFlow", logger=logger)
+ 
+@@ -1356,6 +1362,8 @@
+                     "atr": atr,
+                     "ts": ts_ms,
+                     "ts_ms": ts_ms,
++                    "ts_event_ms": enriched_signal.get("ts_event_ms") or ts_ms,
++                    "ts_feature_ms": enriched_signal.get("ts_feature_ms") or ts_ms,
+                     "pre_publish_veto": True,
+                     "pre_publish_gate": str(veto_dec.gate),
+                     "pre_publish_reason": str(veto_dec.reason_code),
+@@ -1554,6 +1562,25 @@
+             logger.error(f"❌ ({symbol}) Error building outbox envelope: {err}", exc_info=True)
+             env_json = ""
+ 
++        # P4 latency contract: stamp emit just before any sink write so feature->emit and
++        # event->emit deltas are comparable across all successful publish paths. We keep this
++        # fail-open and reuse the same timestamps for raw/audit/notify/outbox payloads.
++        try:
++            await stamp_emit_and_observe_async(
++                enriched_signal,
++                redis_client=self.publisher.r,
++                service="python_worker",
++                symbol=str(symbol),
++                now_ms=int(time.time() * 1000),
++            )
++            for _k in ("ts_event_ms", "ts_redis_read_ms", "ts_feature_ms", "ts_emit_ms"):
++                if _k in enriched_signal:
++                    audit_payload[_k] = enriched_signal.get(_k)
++                    if telegram_payload is not None:
++                        telegram_payload.setdefault(_k, str(enriched_signal.get(_k)))
++        except Exception as exc:
++            logger.debug("(%s) latency contract emit stamping failed: %s", symbol, exc)
++
+         # Outbox path:
+         #   - outbox-only: no direct publishing (dispatcher does it)
+         #   - shadow: publish legacy + outbox (audit/compare during rollout)
+diff -ruN repo_orig/services/orderflow/strategy.py repo_p4_work/services/orderflow/strategy.py
+--- repo_orig/services/orderflow/strategy.py	2026-03-08 06:29:38.082291375 +0000
++++ repo_p4_work/services/orderflow/strategy.py	2026-03-08 07:35:51.899677031 +0000
+@@ -2840,7 +2840,10 @@
+             "symbol": runtime.symbol,
+             "ts_ms": int(tick_ts),
+             "tick_ts": int(tick_ts),
+-            "ts_emit_ms": int(tick_ts),  # A1: deterministic decision/emit time (epoch ms)
++            # P4 latency contract: candidate feature time is known here, final emit time is stamped
++            # later in SignalPipeline when a sink/outbox write is about to happen.
++            "ts_feature_ms": int(tick_ts),
++            "ts_emit_ms": int(tick_ts),  # legacy mirror; overwritten by SignalPipeline on real emit
+             "price": float(price),
+             "entry": float(executable_entry),
+             "direction": direction,
+Binary files repo_orig/services/tests/__pycache__/conftest.cpython-313-pytest-9.0.2.pyc and repo_p4_work/services/tests/__pycache__/conftest.cpython-313-pytest-9.0.2.pyc differ
+Binary files repo_orig/services/tests/__pycache__/test_latency_contract_integration_v1.cpython-313-pytest-9.0.2.pyc and repo_p4_work/services/tests/__pycache__/test_latency_contract_integration_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files repo_orig/services/tests/__pycache__/test_latency_contract_v1.cpython-313-pytest-9.0.2.pyc and repo_p4_work/services/tests/__pycache__/test_latency_contract_v1.cpython-313-pytest-9.0.2.pyc differ
+diff -ruN repo_orig/services/tests/test_latency_contract_integration_v1.py repo_p4_work/services/tests/test_latency_contract_integration_v1.py
+--- repo_orig/services/tests/test_latency_contract_integration_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p4_work/services/tests/test_latency_contract_integration_v1.py	2026-03-08 07:34:51.397648511 +0000
+@@ -0,0 +1,28 @@
++import asyncio
++
++from services.observability.latency_contract import stamp_feature_ready, observe_feature_ready_async, stamp_emit_and_observe_async
++
++
++class FakeRedis:
++    def __init__(self):
++        self.hashes = {}
++        self.ttls = {}
++    async def hset(self, key, mapping=None, **kwargs):
++        self.hashes.setdefault(key, {}).update(mapping or {})
++    async def expire(self, key, ttl):
++        self.ttls[key] = ttl
++
++
++def test_synthetic_signal_path_records_hashes():
++    async def _run():
++        r = FakeRedis()
++        signal = {'symbol': 'BTCUSDT'}
++        tick = {'event_ts_ms': 1000, 'ts_redis_read_ms': 1200}
++        stamp_feature_ready(signal, tick=tick, now_ms=1500)
++        await observe_feature_ready_async(signal, redis_client=r, symbol='BTCUSDT')
++        await stamp_emit_and_observe_async(signal, redis_client=r, symbol='BTCUSDT', now_ms=1700)
++        keys = sorted(r.hashes)
++        assert any(':redis_to_feature:' in k for k in keys)
++        assert any(':feature_to_emit:' in k for k in keys)
++        assert any(':end_to_end_event:' in k for k in keys)
++    asyncio.run(_run())
+diff -ruN repo_orig/services/tests/test_latency_contract_v1.py repo_p4_work/services/tests/test_latency_contract_v1.py
+--- repo_orig/services/tests/test_latency_contract_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p4_work/services/tests/test_latency_contract_v1.py	2026-03-08 07:34:51.397582025 +0000
+@@ -0,0 +1,20 @@
++from services.observability.latency_semconv import ensure_epoch_ms_fields, compute_contract_deltas
++from services.observability.latency_contract import stamp_feature_ready
++
++
++def test_monotonic_contract_deltas():
++    payload = {'ts_event_ms': 1000, 'ts_redis_read_ms': 1100}
++    stamp_feature_ready(payload, tick=None, now_ms=1300)
++    payload['ts_emit_ms'] = 1500
++    d = compute_contract_deltas(payload)
++    assert d['redis_to_feature'] == 200
++    assert d['feature_to_emit'] == 200
++    assert d['end_to_end_event'] == 500
++
++
++def test_missing_fields_fail_open():
++    payload = {'ts_ms': 1000}
++    ensure_epoch_ms_fields(payload, default_feature_ms=1000, default_emit_ms=1200)
++    d = compute_contract_deltas(payload)
++    assert d['feature_to_emit'] == 200
++    assert d['redis_to_feature'] == 0
+diff -ruN repo_orig/tick_flow_full/orderflow_services/grafana/latency_contract_v1.json repo_p4_work/tick_flow_full/orderflow_services/grafana/latency_contract_v1.json
+--- repo_orig/tick_flow_full/orderflow_services/grafana/latency_contract_v1.json	1970-01-01 00:00:00.000000000 +0000
++++ repo_p4_work/tick_flow_full/orderflow_services/grafana/latency_contract_v1.json	2026-03-08 07:35:51.900489659 +0000
+@@ -0,0 +1,43 @@
++{
++  "title": "Latency Contract (v1)",
++  "schemaVersion": 39,
++  "version": 1,
++  "panels": [
++    {
++      "type": "timeseries",
++      "title": "feature_to_emit p95",
++      "targets": [
++        {
++          "expr": "histogram_quantile(0.95, sum by (le) (rate(latency_contract_stage_ms_bucket{service='python_worker',stage='feature_to_emit'}[15m])))"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "end_to_end_event p95",
++      "targets": [
++        {
++          "expr": "histogram_quantile(0.95, sum by (le) (rate(latency_contract_stage_ms_bucket{service='python_worker',stage='end_to_end_event'}[15m])))"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "latest stage duration",
++      "targets": [
++        {
++          "expr": "latency_contract_stage_last_duration_ms"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "latest stage age",
++      "targets": [
++        {
++          "expr": "latency_contract_stage_last_age_seconds"
++        }
++      ]
++    }
++  ]
++}
+\ No newline at end of file
+diff -ruN repo_orig/tick_flow_full/orderflow_services/latency_contract_exporter_v1.py repo_p4_work/tick_flow_full/orderflow_services/latency_contract_exporter_v1.py
+--- repo_orig/tick_flow_full/orderflow_services/latency_contract_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p4_work/tick_flow_full/orderflow_services/latency_contract_exporter_v1.py	2026-03-08 07:35:51.900045554 +0000
+@@ -0,0 +1,129 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Prometheus exporter for unified latency contract state hashes.
++
++Reads Redis hashes written by Python services (and future Go/NestJS writers) under
++`metrics:latency_contract:last:<service>:<stage>:<symbol>` and exposes latest/freshness
++metrics plus static stage budgets for dashboarding/alerts.
++"""
++
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict
++
++from prometheus_client import Gauge, start_http_server
++
++
++def _env(name: str, default: str = "") -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return d
++
++
++def _f(v: Any, d: float = 0.0) -> float:
++    try:
++        return float(v)
++    except Exception:
++        try:
++            return float(str(v).strip())
++        except Exception:
++            return d
++
++
++G_UP = Gauge('latency_contract_exporter_up', 'latency contract exporter loop running')
++G_STAGE_LAST = Gauge('latency_contract_stage_last_duration_ms', 'Latest stage duration from Redis state hash', ['service', 'stage', 'symbol'])
++G_STAGE_AGE = Gauge('latency_contract_stage_last_age_seconds', 'Age of latest stage update', ['service', 'stage', 'symbol'])
++G_STAGE_COUNT = Gauge('latency_contract_stage_last_count', 'Synthetic state write count (1 per live hash)', ['service', 'stage', 'symbol'])
++G_STAGE_BUDGET = Gauge('latency_contract_stage_budget_ms', 'Configured SLO budget (ms) per stage', ['stage'])
++G_EXPORTER_KEYS = Gauge('latency_contract_exporter_keys', 'Number of latency contract keys seen in Redis')
++G_EXPORTER_READ_OK = Gauge('latency_contract_exporter_read_ok', 'Exporter Redis read status')
++
++
++@dataclass
++class Cfg:
++    redis_url: str
++    port: int
++    interval_s: float
++    key_prefix: str
++    stale_s: int
++
++
++def load_cfg() -> Cfg:
++    return Cfg(
++        redis_url=_env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
++        port=_i(_env('LATENCY_CONTRACT_EXPORTER_PORT', '9833'), 9833),
++        interval_s=float(_env('LATENCY_CONTRACT_EXPORTER_INTERVAL_S', '10') or 10),
++        key_prefix=_env('LATENCY_CONTRACT_KEY_PREFIX', 'metrics:latency_contract:last'),
++        stale_s=_i(_env('LATENCY_CONTRACT_EXPORTER_STALE_S', '300'), 300),
++    )
++
++
++def _budget(stage: str) -> float:
++    env_map = {
++        'ingest_to_redis': 'LATENCY_BUDGET_INGEST_TO_REDIS_MS',
++        'redis_to_feature': 'LATENCY_BUDGET_REDIS_TO_FEATURE_MS',
++        'feature_to_emit': 'LATENCY_BUDGET_FEATURE_TO_EMIT_MS',
++        'emit_to_ws': 'LATENCY_BUDGET_EMIT_TO_WS_MS',
++        'end_to_end_event': 'LATENCY_BUDGET_END_TO_END_EVENT_MS',
++    }
++    return _f(os.getenv(env_map.get(stage, ''), '0') or '0', 0.0)
++
++
++def _iter_hashes(r: Any, prefix: str):
++    cur = 0
++    match = f"{prefix}:*"
++    while True:
++        cur, keys = r.scan(cur, match=match, count=500)
++        for k in keys or []:
++            yield k
++        if not cur:
++            break
++
++
++def _parse_key(key: str, prefix: str) -> tuple[str, str, str]:
++    rest = str(key)[len(prefix):].lstrip(':')
++    parts = rest.split(':')
++    if len(parts) < 3:
++        return ('unknown', 'unknown', '__other__')
++    return parts[0], parts[1], ':'.join(parts[2:])
++
++
++def main() -> int:
++    cfg = load_cfg()
++    import redis  # type: ignore
++
++    r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
++    start_http_server(cfg.port)
++    for st in ('ingest_to_redis', 'redis_to_feature', 'feature_to_emit', 'emit_to_ws', 'end_to_end_event'):
++        G_STAGE_BUDGET.labels(stage=st).set(_budget(st))
++    while True:
++        G_UP.set(1.0)
++        now = time.time()
++        try:
++            n = 0
++            for k in _iter_hashes(r, cfg.key_prefix):
++                service, stage, symbol = _parse_key(k, cfg.key_prefix)
++                raw = r.hgetall(k) or {}
++                last_duration_ms = _f(raw.get('last_duration_ms'), 0.0)
++                last_ts_ms = _i(raw.get('last_ts_ms'), 0)
++                age_s = max(0.0, now - (float(last_ts_ms) / 1000.0)) if last_ts_ms > 0 else float(cfg.stale_s)
++                G_STAGE_LAST.labels(service=service, stage=stage, symbol=symbol).set(last_duration_ms)
++                G_STAGE_AGE.labels(service=service, stage=stage, symbol=symbol).set(age_s)
++                G_STAGE_COUNT.labels(service=service, stage=stage, symbol=symbol).set(1.0)
++                n += 1
++            G_EXPORTER_KEYS.set(float(n))
++            G_EXPORTER_READ_OK.set(1.0)
++        except Exception:
++            G_EXPORTER_READ_OK.set(0.0)
++        time.sleep(cfg.interval_s)
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+diff -ruN repo_orig/tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_v1.yml repo_p4_work/tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_v1.yml
+--- repo_orig/tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ repo_p4_work/tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_v1.yml	2026-03-08 07:35:51.900195338 +0000
+@@ -0,0 +1,29 @@
++groups:
++  - name: latency_contract_v1
++    rules:
++      - alert: OF_LatencyContract_ExporterStale_Warn
++        expr: max_over_time(latency_contract_exporter_read_ok[10m]) < 1
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Latency contract exporter stale"
++          description: "latency_contract_exporter_v1 has not read Redis state successfully in 10 minutes."
++
++      - alert: OF_LatencyContract_FeatureToEmitBudget_Crit
++        expr: histogram_quantile(0.95, sum by (le) (rate(latency_contract_stage_ms_bucket{service="python_worker",stage="feature_to_emit",symbol!="__other__"}[15m]))) > 250
++        for: 15m
++        labels:
++          severity: critical
++        annotations:
++          summary: "feature_to_emit p95 budget breached"
++          description: "python_worker feature_to_emit p95 exceeded 250ms for 15m."
++
++      - alert: OF_LatencyContract_EndToEndBudget_Crit
++        expr: histogram_quantile(0.95, sum by (le) (rate(latency_contract_stage_ms_bucket{service="python_worker",stage="end_to_end_event",symbol!="__other__"}[15m]))) > 2000
++        for: 15m
++        labels:
++          severity: critical
++        annotations:
++          summary: "end_to_end_event p95 budget breached"
++          description: "python_worker end_to_end_event p95 exceeded 2000ms for 15m."
+diff -ruN repo_orig/tick_flow_full/orderflow_services/runbook_latency_contract_v1.md repo_p4_work/tick_flow_full/orderflow_services/runbook_latency_contract_v1.md
+--- repo_orig/tick_flow_full/orderflow_services/runbook_latency_contract_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ repo_p4_work/tick_flow_full/orderflow_services/runbook_latency_contract_v1.md	2026-03-08 07:35:51.900349670 +0000
+@@ -0,0 +1,19 @@
++# Latency Contract v1
++
++This contract standardises event-time fields across services:
++- `ts_event_ms`
++- `ts_redis_read_ms`
++- `ts_feature_ms`
++- `ts_emit_ms`
++- `ts_ws_emit_ms`
++
++Python coverage in this patch:
++- `redis_to_feature`
++- `feature_to_emit`
++- `end_to_end_event`
++
++External service contract placeholders:
++- Go ingest should publish `ts_redis_xadd_ms` and expose `ingest_to_redis` with the same stage names.
++- NestJS WS gateway should stamp `ts_ws_emit_ms` and expose `emit_to_ws`.
++
++All timestamps must be epoch milliseconds UTC. No timezone strings. No monotonic clocks in payloads.

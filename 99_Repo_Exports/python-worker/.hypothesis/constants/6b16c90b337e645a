@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/optimize/_root.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.49012e-08, 100, 'Unknown solver %s', 'anderson', 'armijo', 'broyden1', 'broyden2', 'df-sane', 'diagbroyden', 'excitingmixing', 'fatol', 'ftol', 'fvec', 'hybr', 'krylov', 'linearmixing', 'lm', 'root', 'xatol', 'xtol']

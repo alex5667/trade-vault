@@ -1,0 +1,107 @@
+--- /mnt/data/zip_base/services/orderflow/metrics.py	2026-02-26 07:23:10.000000000 +0000
++++ /mnt/data/repo/services/orderflow/metrics.py	2026-02-26 10:31:30.718623566 +0000
+@@ -555,3 +555,63 @@
+     'Total OF inputs skipped due to invalid tick_ts_ms (non-deterministic / bad tick time)',
+     ['symbol']
+ )
++
++# --- OF Inputs V3 downgrade / quarantine / DLQ observability (P96) ---
++of_inputs_missing_lob_total = _get_or_create_prom_counter(
++    'of_inputs_missing_lob_total',
++    'Total OF inputs where v3 was requested but LOB fields were missing/degraded (downgraded to v2)',
++    ['symbol', 'reason']
++)
++
++of_inputs_downgrade_total = _get_or_create_prom_counter(
++    'of_inputs_downgrade_total',
++    'Total OF inputs automatic version downgrades (e.g., v3->v2) with reason',
++    ['symbol', 'from_version', 'to_version', 'reason']
++)
++
++of_inputs_quarantined_total = _get_or_create_prom_counter(
++    'of_inputs_quarantined_total',
++    'Total OF inputs written to quarantine stream for triage (low-cardinality reasons)',
++    ['symbol', 'reason', 'attempt_version', 'published_version']
++)
++
++of_inputs_publish_error_total = _get_or_create_prom_counter(
++    'of_inputs_publish_error_total',
++    'Total OF inputs publish errors (DLQ writes) by stage',
++    ['symbol', 'stage']
++)
++
++
++# --- OF Inputs V3 circuit breaker (P100) ---
++of_inputs_v3_forced_v2_total = _get_or_create_prom_counter(
++    "of_inputs_v3_forced_v2_total",
++    "Total times V3 was requested but V2 was published (forced downgrade), by reason",
++    ["symbol", "reason"],
++)
++
++of_inputs_v3_circuit_trip_total = _get_or_create_prom_counter(
++    "of_inputs_v3_circuit_trip_total",
++    "Total times OFInputs V3 circuit breaker tripped (set cfg disable), by downgrade reason",
++    ["symbol", "reason"],
++)
++
++of_inputs_v3_circuit_disabled = _get_or_create_prom_gauge(
++    "of_inputs_v3_circuit_disabled",
++    "Gauge: OFInputs V3 is currently disabled by circuit breaker (1/0)",
++    ["symbol"],
++)
++
++of_inputs_v3_circuit_disabled_until_ms = _get_or_create_prom_gauge(
++    "of_inputs_v3_circuit_disabled_until_ms",
++    "If disabled, wall-clock epoch ms until which V3 remains disabled (best-effort)",
++    ["symbol"],
++)
++
++
++
++of_inputs_v3_circuit_hard_disabled_until_ms = _get_or_create_prom_gauge(
++    "of_inputs_v3_circuit_hard_disabled_until_ms",
++    "If disabled, epoch ms until which HARD-disable phase ends (before cooldown) (best-effort)",
++    ["symbol"],
++)
++
+--- /mnt/data/zip_base/services/orderflow/runtime.py	2026-02-07 14:14:03.000000000 +0000
++++ /mnt/data/repo/services/orderflow/runtime.py	2026-02-26 10:31:30.720884299 +0000
+@@ -322,6 +322,14 @@
+     last_book_health_ok: int = 1
+     last_book_health: str = "OK"
+     last_book_age_ms: int = 0
++
++    # OFInputs V3 circuit breaker cache (P100)
++    of_inputs_v3_disabled_until_ms: int = 0
++    of_inputs_v3_disabled_hard_until_ms: int = 0
++    of_inputs_v3_disabled_reason: str = ""
++    of_inputs_v3_disabled_phase: str = ""
++    of_inputs_v3_cb_last_refresh_ts_ms: int = 0
++
+     
+     # Separate: last emitted signal (even if strong gate did NOT pass)
+     last_emit_ts_ms: int = 0
+--- /mnt/data/zip_base/tick_flow_full/services/orderflow/runtime.py	2026-02-25 20:59:37.000000000 +0000
++++ /mnt/data/repo/tick_flow_full/services/orderflow/runtime.py	2026-02-26 10:31:30.725752065 +0000
+@@ -357,10 +357,20 @@
+ 
+     # OFInputs V3 circuit breaker cache (P100)
+     of_inputs_v3_disabled_until_ms: int = 0
+-    of_inputs_v3_hard_disabled_until_ms: int = 0
++    of_inputs_v3_disabled_hard_until_ms: int = 0
+     of_inputs_v3_disabled_reason: str = ""
+     of_inputs_v3_cb_last_refresh_ts_ms: int = 0
+ 
++    # Backward-compat alias: older name -> canonical disabled_hard_until_ms
++    @property
++    def of_inputs_v3_hard_disabled_until_ms(self) -> int:
++        return int(self.of_inputs_v3_disabled_hard_until_ms or 0)
++
++    @of_inputs_v3_hard_disabled_until_ms.setter
++    def of_inputs_v3_hard_disabled_until_ms(self, v: int) -> None:
++        self.of_inputs_v3_disabled_hard_until_ms = int(v or 0)
++
++
+     
+     # Separate: last emitted signal (even if strong gate did NOT pass)
+     last_emit_ts_ms: int = 0

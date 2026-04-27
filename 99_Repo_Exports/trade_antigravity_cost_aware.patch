@@ -1,0 +1,889 @@
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/MODEL_ROUTING.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/MODEL_ROUTING.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/MODEL_ROUTING.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/MODEL_ROUTING.md	2026-04-01 04:58:03.177060699 +0000
+@@ -0,0 +1,33 @@
++# Trade model routing for Antigravity
++
++This repository uses a cost-aware routing policy for Antigravity.
++
++## Default
++- Model lane: **Gemini Flash**
++- Conversation mode: **Fast**
++
++Use this by default for:
++- small local fixes
++- repo/file lookup
++- additive contract checks
++- DTO updates
++- test scaffolding
++- docs updates
++- bounded benchmark setup
++- log summarization
++
++## Escalate to premium reasoning model
++Switch the current conversation/agent to a premium model in **Planning** mode when:
++- more than 2 subsystems are affected
++- architecture or rollout policy is being redesigned
++- the incident root cause is ambiguous
++- backward compatibility is at risk
++- ML/replay/regime/execution logic is being redesigned
++- DB lifecycle / retention / compression strategy is changing
++
++## Process
++1. Use Flash first to narrow the scope and produce a draft.
++2. Escalate only when explicit triggers fire.
++3. Keep premium sessions focused on high-risk decisions.
++4. Prefer `/trade-fast-*` workflows for routine work.
++5. Prefer `/trade-pro-*` workflows for complex and high-risk work.
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/agents.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/agents.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/agents.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/agents.md	2026-04-01 04:58:03.175723540 +0000
+@@ -177,6 +177,58 @@
+ **Constraint**:
+ - Every drill must define triggers, expected behavior, rollback, and evidence of success.
+ 
++
++## Cost-aware model routing policy
++Use the cheapest model lane that can preserve quality for the current task.
++
++### Default lane
++- Default model lane: **Gemini Flash**
++- Default execution mode: **Fast**
++- Use this lane for bounded, local, additive, low-risk tasks.
++
++### Premium lane
++Use a premium reasoning model in **Planning** mode only when at least one trigger fires:
++- the change spans more than 2 subsystems
++- architecture or policy redesign is required
++- the root cause is ambiguous
++- the change is non-backward-compatible or may break contracts
++- the task touches ML, replay, execution-risk, regime logic, or DB lifecycle strategy
++- repository-wide reasoning is required to preserve correctness
++
++### Mandatory escalation process
++1. Start with Flash triage whenever possible.
++2. Keep scope minimal: touched files plus nearest dependencies only.
++3. Escalate to premium only after an explicit trigger fires.
++4. If Flash can prepare a draft diff, test skeleton, contract summary, or incident timeline safely, do that first.
++5. Use premium review for high-risk decisions, not for routine boilerplate.
++
++### Task taxonomy
++**Flash-only or Flash-first**
++- grep/search/inventory
++- local bug fixes
++- additive DTO/schema checks
++- boilerplate tests
++- docs updates
++- log triage
++- bounded benchmark setup
++- alert/dashboard boilerplate
++- local refactors without contract redesign
++
++**Premium by default**
++- cross-service redesign
++- ambiguous production RCA
++- execution-risk or regime-policy redesign
++- ML/replay/gating redesign
++- retention/compression/schema-lifecycle redesign
++- high-stakes rollout approval
++- security-sensitive reviews
++
++### Token discipline
++- Read the smallest relevant file set first.
++- Prefer focused diffs over repository-wide rewrites.
++- Reuse existing contracts and patterns before inventing new abstractions.
++- Do not expand to broad architecture discussion unless the user asked for it or an escalation trigger fired.
++
+ ## Specialist routing hints
+ - Use `trade-project-core` for almost any TRADE request.
+ - Use `trade-data-quality-time` for timestamp, out-of-order, sanitize/quarantine, bad bars, sequencing, or source-consistency issues.
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-api-ui-contracts/SKILL.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-api-ui-contracts/SKILL.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-api-ui-contracts/SKILL.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-api-ui-contracts/SKILL.md	2026-04-01 04:58:03.178717454 +0000
+@@ -59,3 +59,22 @@
+ 
+ ## Output style
+ Prefer exact filenames, DTO definitions, event names, sample payloads, and migration notes.
++
++
++## Default lane
++Assume **Gemini Flash + Fast mode** by default for this skill. Escalate only when the triggers below fire.
++
++## Scope rules
++- DTO / schema / WS changes are additive or bounded
++- scope is limited to touched files and nearest contracts
++
++## Escalate to premium if
++- breaking or non-backward-compatible contract change is possible
++- multiple transport boundaries change together
++- UI/API redesign is required rather than local compatibility work
++
++## Token discipline
++- Read the smallest relevant set of files first.
++- Prefer concise diffs, checklists, and test cases over long theory.
++- Reuse existing repository patterns before proposing redesign.
++- Avoid repository-wide scans unless an escalation trigger fires.
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-contract-regression/SKILL.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-contract-regression/SKILL.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-contract-regression/SKILL.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-contract-regression/SKILL.md	2026-04-01 04:58:03.179511580 +0000
+@@ -47,3 +47,22 @@
+ - Keep timestamps and units explicit in every contract.
+ - When changing schemas, define fallback behavior for old consumers.
+ - When breaking changes are necessary, make blast radius explicit.
++
++
++## Default lane
++Assume **Gemini Flash + Fast mode** by default for this skill. Escalate only when the triggers below fire.
++
++## Scope rules
++- validate only the changed producer/consumer boundaries
++- prefer field-level diff and golden fixture recommendations
++
++## Escalate to premium if
++- compatibility cannot be proven locally
++- the change spans Redis + REST + WS + DB together
++- migration/deprecation strategy requires architectural reasoning
++
++## Token discipline
++- Read the smallest relevant set of files first.
++- Prefer concise diffs, checklists, and test cases over long theory.
++- Reuse existing repository patterns before proposing redesign.
++- Avoid repository-wide scans unless an escalation trigger fires.
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-data-quality-time/SKILL.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-data-quality-time/SKILL.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-data-quality-time/SKILL.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-data-quality-time/SKILL.md	2026-04-01 04:58:03.180101494 +0000
+@@ -70,3 +70,22 @@
+ - `event_out_of_order`
+ - `duplicate_event`
+ - `ohlc_invalid`
++
++
++## Default lane
++Assume **Gemini Flash + Fast mode** by default for this skill. Escalate only when the triggers below fire.
++
++## Scope rules
++- focus on the changed timestamp fields, units, and ordering assumptions
++- prefer local sanitize/quarantine fixes over system-wide redesign
++
++## Escalate to premium if
++- source-of-truth ambiguity remains unresolved
++- multiple services disagree on time semantics
++- a repo-wide time contract redesign is needed
++
++## Token discipline
++- Read the smallest relevant set of files first.
++- Prefer concise diffs, checklists, and test cases over long theory.
++- Reuse existing repository patterns before proposing redesign.
++- Avoid repository-wide scans unless an escalation trigger fires.
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-go-redis-ingest/SKILL.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-go-redis-ingest/SKILL.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-go-redis-ingest/SKILL.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-go-redis-ingest/SKILL.md	2026-04-01 04:58:03.180822155 +0000
+@@ -67,3 +67,22 @@
+ 
+ ## Output style
+ Prefer concrete file diffs, interfaces, config keys, and benchmark guidance.
++
++
++## Default lane
++Assume **Gemini Flash + Fast mode** by default for this skill. Escalate only when the triggers below fire.
++
++## Scope rules
++- keep work bounded to reader/decoder/publisher/reconnect hot paths
++- prefer local fixes and benchmark-backed improvements
++
++## Escalate to premium if
++- the change alters cross-service contracts or end-to-end sequencing policy
++- root cause spans Go, Redis, and downstream consumers
++- a full ingest architecture redesign is needed
++
++## Token discipline
++- Read the smallest relevant set of files first.
++- Prefer concise diffs, checklists, and test cases over long theory.
++- Reuse existing repository patterns before proposing redesign.
++- Avoid repository-wide scans unless an escalation trigger fires.
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-latency-benchmarking/SKILL.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-latency-benchmarking/SKILL.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-latency-benchmarking/SKILL.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-latency-benchmarking/SKILL.md	2026-04-01 04:58:03.181376864 +0000
+@@ -44,3 +44,22 @@
+ - Use the same data/profile before and after changes.
+ - Report both absolute values and percent deltas.
+ - Include pass/fail thresholds, not just raw numbers.
++
++
++## Default lane
++Assume **Gemini Flash + Fast mode** by default for this skill. Escalate only when the triggers below fire.
++
++## Scope rules
++- benchmark one hot path at a time
++- keep the first pass focused on baseline, budgets, and method
++
++## Escalate to premium if
++- latency regression spans multiple services
++- trade-off requires architecture redesign rather than local tuning
++- measurement is blocked by ambiguous system behavior
++
++## Token discipline
++- Read the smallest relevant set of files first.
++- Prefer concise diffs, checklists, and test cases over long theory.
++- Reuse existing repository patterns before proposing redesign.
++- Avoid repository-wide scans unless an escalation trigger fires.
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-ml-replay-gating/SKILL.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-ml-replay-gating/SKILL.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-ml-replay-gating/SKILL.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-ml-replay-gating/SKILL.md	2026-04-01 04:58:03.181946611 +0000
+@@ -64,3 +64,20 @@
+ 
+ ## Output style
+ Provide exact files, config keys, stream names, dataset requirements, and promotion guards.
++
++
++## Default lane
++Assume a **premium reasoning model + Planning mode** by default for this skill because shallow reasoning here can create expensive mistakes.
++
++## Scope rules
++- treat replay, ML gating, calibration, and promotion logic as high-risk by default
++- prefer Planning mode and explicit baseline/failure thresholds
++
++## Escalate to premium if
++- always stay premium unless the task is only file lookup or documentation
++
++## Token discipline
++- Read the smallest relevant set of files first.
++- Prefer concise diffs, checklists, and test cases over long theory.
++- Reuse existing repository patterns before proposing redesign.
++- Avoid repository-wide scans unless an escalation trigger fires.
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-observability-rollout/SKILL.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-observability-rollout/SKILL.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-observability-rollout/SKILL.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-observability-rollout/SKILL.md	2026-04-01 04:58:03.182477923 +0000
+@@ -65,3 +65,22 @@
+ 
+ ## Output style
+ Be operationally concrete. Avoid vague statements like "monitor closely" without metrics or thresholds.
++
++
++## Default lane
++Assume **Gemini Flash + Fast mode** by default for this skill. Escalate only when the triggers below fire.
++
++## Scope rules
++- use Flash for bounded metrics/alert/dashboard boilerplate and checklist generation
++- keep rollout advice tied to the affected subsystem only
++
++## Escalate to premium if
++- rollout policy spans multiple services or customer-visible blast radius
++- automatic rollback logic or SLO policy is being redesigned
++- incident ambiguity requires deeper reasoning
++
++## Token discipline
++- Read the smallest relevant set of files first.
++- Prefer concise diffs, checklists, and test cases over long theory.
++- Reuse existing repository patterns before proposing redesign.
++- Avoid repository-wide scans unless an escalation trigger fires.
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-project-core/SKILL.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-project-core/SKILL.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-project-core/SKILL.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-project-core/SKILL.md	2026-04-01 04:58:03.177912131 +0000
+@@ -68,3 +68,22 @@
+ - "Review this Redis -> Python -> NestJS flow"
+ - "Make this prod-ready"
+ - "Reduce latency in orderflow processing"
++
++
++## Default lane
++Assume **Gemini Flash + Fast mode** by default for this skill. Escalate only when the triggers below fire.
++
++## Scope rules
++- user asks for repo understanding, task triage, or implementation framing
++- the task is still local and bounded
++
++## Escalate to premium if
++- architecture redesign is required
++- more than 2 subsystems are implicated
++- the request is a production incident with unclear cause
++
++## Token discipline
++- Read the smallest relevant set of files first.
++- Prefer concise diffs, checklists, and test cases over long theory.
++- Reuse existing repository patterns before proposing redesign.
++- Avoid repository-wide scans unless an escalation trigger fires.
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-python-signal-engine/SKILL.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-python-signal-engine/SKILL.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-python-signal-engine/SKILL.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-python-signal-engine/SKILL.md	2026-04-01 04:58:03.183108286 +0000
+@@ -69,3 +69,22 @@
+ 
+ ## Output style
+ Return file-by-file changes, exact function names, ENV/config additions, and test cases.
++
++
++## Default lane
++Assume **Gemini Flash + Fast mode** by default for this skill. Escalate only when the triggers below fire.
++
++## Scope rules
++- use Flash for bounded detector changes, threshold tweaks, and test scaffolding
++- limit scope to touched detectors, features, and fixtures first
++
++## Escalate to premium if
++- regime logic, execution-risk policy, or detector architecture is being redesigned
++- ML/replay coupling changes materially
++- the change affects multiple detectors or system-wide state semantics
++
++## Token discipline
++- Read the smallest relevant set of files first.
++- Prefer concise diffs, checklists, and test cases over long theory.
++- Reuse existing repository patterns before proposing redesign.
++- Avoid repository-wide scans unless an escalation trigger fires.
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-quality-gates/SKILL.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-quality-gates/SKILL.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-quality-gates/SKILL.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-quality-gates/SKILL.md	2026-04-01 04:58:03.183951072 +0000
+@@ -59,3 +59,22 @@
+ - Avoid vague statements such as "enough tests" or "looks stable".
+ - Make non-functional requirements explicit.
+ - Separate blockers from follow-up items.
++
++
++## Default lane
++Assume **Gemini Flash + Fast mode** by default for this skill. Escalate only when the triggers below fire.
++
++## Scope rules
++- use Flash for bounded acceptance criteria, checklists, and release evidence
++- prefer measurable local gates over broad process redesign
++
++## Escalate to premium if
++- quality gates require cross-service governance redesign
++- release policy itself must change
++- proof requires ambiguous multi-service reasoning
++
++## Token discipline
++- Read the smallest relevant set of files first.
++- Prefer concise diffs, checklists, and test cases over long theory.
++- Reuse existing repository patterns before proposing redesign.
++- Avoid repository-wide scans unless an escalation trigger fires.
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-resilience-failure-drills/SKILL.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-resilience-failure-drills/SKILL.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-resilience-failure-drills/SKILL.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-resilience-failure-drills/SKILL.md	2026-04-01 04:58:03.184487928 +0000
+@@ -46,3 +46,22 @@
+ - Prefer small blast radius and reversible changes.
+ - Make kill switches and manual runbooks explicit.
+ - State whether the intended safety posture is fail-open or fail-closed.
++
++
++## Default lane
++Assume **Gemini Flash + Fast mode** by default for this skill. Escalate only when the triggers below fire.
++
++## Scope rules
++- design one drill/scenario at a time
++- prefer limited blast radius and explicit evidence checklist
++
++## Escalate to premium if
++- the drill spans multiple teams/subsystems with unclear recovery ownership
++- fail-open/fail-closed policy requires architecture-level review
++- incident history is ambiguous and needs deeper RCA first
++
++## Token discipline
++- Read the smallest relevant set of files first.
++- Prefer concise diffs, checklists, and test cases over long theory.
++- Reuse existing repository patterns before proposing redesign.
++- Avoid repository-wide scans unless an escalation trigger fires.
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-timescale-postgres/SKILL.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-timescale-postgres/SKILL.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/skills/trade-timescale-postgres/SKILL.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/skills/trade-timescale-postgres/SKILL.md	2026-04-01 04:58:03.184957449 +0000
+@@ -59,3 +59,22 @@
+ 
+ ## Output style
+ Return concrete SQL/migration files, index rationale, and rollback notes.
++
++
++## Default lane
++Assume **Gemini Flash + Fast mode** by default for this skill. Escalate only when the triggers below fire.
++
++## Scope rules
++- use Flash for bounded DDL, additive indexes, and local query tuning
++- limit scope to touched tables, migrations, and queries first
++
++## Escalate to premium if
++- retention/compression/hypertable lifecycle is being redesigned
++- write-path pressure or storage strategy spans multiple services
++- schema compatibility risk is high or migration sequencing is complex
++
++## Token discipline
++- Read the smallest relevant set of files first.
++- Prefer concise diffs, checklists, and test cases over long theory.
++- Reuse existing repository patterns before proposing redesign.
++- Avoid repository-wide scans unless an escalation trigger fires.
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-audit.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-audit.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-audit.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-audit.md	2026-04-01 04:58:03.185714469 +0000
+@@ -43,3 +43,10 @@
+ - Explicitly evaluate time-unit consistency and out-of-order handling.
+ - Explicitly evaluate backward compatibility for Redis and WebSocket payloads.
+ - Explicitly evaluate whether the proposed change is replayable and observable.
++
++
++## Model lane
++Default to a **premium reasoning model + Planning** mode for this workflow.
++
++## Escalation guidance
++- comprehensive production readiness audits are cross-cutting and usually merit premium reasoning
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-contract-check.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-contract-check.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-contract-check.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-contract-check.md	2026-04-01 04:58:03.186233481 +0000
+@@ -29,3 +29,11 @@
+ - Be explicit about timestamp fields and units.
+ - Never treat field rename/type change as non-breaking without proof.
+ - Always recommend golden payload tests for changed boundaries.
++
++
++## Model lane
++Default to **Gemini Flash + Fast** for the first pass. Escalate to premium when the triggers below fire.
++
++## Escalation guidance
++- use Flash first for bounded compatibility checks
++- escalate if compatibility cannot be proven locally or if migration strategy is non-trivial
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-failure-drill.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-failure-drill.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-failure-drill.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-failure-drill.md	2026-04-01 04:58:03.188171831 +0000
+@@ -28,3 +28,11 @@
+ - Prefer limited blast radius.
+ - Make manual operator steps explicit.
+ - Do not declare a drill complete without measurable success criteria.
++
++
++## Model lane
++Default to **Gemini Flash + Fast** for the first pass. Escalate to premium when the triggers below fire.
++
++## Escalation guidance
++- use Flash first for a single bounded scenario
++- escalate for cross-system drills or policy redesign
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-fast-contract-check.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-fast-contract-check.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-fast-contract-check.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-fast-contract-check.md	2026-04-01 04:58:03.193971524 +0000
+@@ -0,0 +1,26 @@
++---
++description: Low-cost contract compatibility check for bounded Redis, DTO, WebSocket, REST, or DB changes in the trade project
++---
++
++When the user types `/trade-fast-contract-check <scope>`, do a bounded compatibility review first.
++
++## Model lane
++Use **Gemini Flash + Fast** by default.
++
++## Mission
++Validate `<scope>` for local compatibility with minimal token usage.
++
++## Execution sequence
++1. Act as **@trade-lead** and list changed producers, consumers, and schemas.
++2. Load **trade-project-core** and **trade-contract-regression**.
++3. Produce:
++   - current contract
++   - proposed contract
++   - field-level diff
++   - compatibility verdict
++   - required fixture/tests
++
++## Escalate to premium if
++- breaking compatibility is possible
++- migration/deprecation sequencing is non-trivial
++- more than 2 transport/storage boundaries change together
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-fast-doc-update.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-fast-doc-update.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-fast-doc-update.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-fast-doc-update.md	2026-04-01 04:58:03.194786459 +0000
+@@ -0,0 +1,23 @@
++---
++description: Low-cost documentation and playbook update workflow for the trade project
++---
++
++When the user types `/trade-fast-doc-update <scope>`, update repository docs with minimal token cost.
++
++## Model lane
++Use **Gemini Flash + Fast** by default.
++
++## Mission
++Update docs for `<scope>` in a concise, repository-ready way.
++
++## Execution sequence
++1. Identify which docs should change.
++2. Reuse existing terminology and repository truth.
++3. Produce:
++   - exact files to update
++   - concise replacement text
++   - consistency notes
++
++## Escalate to premium if
++- documentation reflects a new architecture or new operational policy
++- multiple subsystems need cross-consistent redesign language
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-fast-fix.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-fast-fix.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-fast-fix.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-fast-fix.md	2026-04-01 04:58:03.193726296 +0000
+@@ -0,0 +1,28 @@
++---
++description: Low-cost fast workflow for bounded trade-project fixes with minimal token usage
++---
++
++When the user types `/trade-fast-fix <scope>` or asks for a small/local trade fix, use a low-cost lane first.
++
++## Model lane
++Use **Gemini Flash + Fast** by default.
++
++## Mission
++Fix `<scope>` with the minimum safe scope and token budget.
++
++## Execution sequence
++1. Act as **@trade-lead** and identify only the touched files plus nearest dependencies.
++2. Load **trade-project-core** and the smallest relevant subsystem skill.
++3. Do not redesign architecture.
++4. Produce:
++   - Facts
++   - Risks
++   - Minimal file-by-file diff
++   - Tests
++   - Rollback notes
++
++## Escalate to premium if
++- more than 2 subsystems are affected
++- a boundary contract may break
++- the root cause remains ambiguous after local inspection
++- rollout policy or architecture must change
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-fast-log-triage.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-fast-log-triage.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-fast-log-triage.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-fast-log-triage.md	2026-04-01 04:58:03.194494148 +0000
+@@ -0,0 +1,26 @@
++---
++description: Low-cost log and terminal triage workflow for the trade project
++---
++
++When the user types `/trade-fast-log-triage <scope>`, do a bounded incident triage first.
++
++## Model lane
++Use **Gemini Flash + Fast** by default.
++
++## Mission
++Summarize likely causes and next checks for `<scope>` from logs/output.
++
++## Execution sequence
++1. Build a short timeline from the provided evidence.
++2. Identify the most likely local causes.
++3. Produce:
++   - Facts
++   - Most likely cause(s)
++   - Unknowns
++   - Next file/metric/log checks
++   - Safe immediate mitigation
++
++## Escalate to premium if
++- root cause remains ambiguous
++- multiple subsystems show conflicting evidence
++- capital-risk or prod-risk is high
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-fast-test-gen.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-fast-test-gen.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-fast-test-gen.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-fast-test-gen.md	2026-04-01 04:58:03.194271387 +0000
+@@ -0,0 +1,24 @@
++---
++description: Low-cost workflow for generating or tightening tests for bounded trade-project changes
++---
++
++When the user types `/trade-fast-test-gen <scope>`, generate the smallest high-value test pack first.
++
++## Model lane
++Use **Gemini Flash + Fast** by default.
++
++## Mission
++Create practical tests for `<scope>` without broad redesign.
++
++## Execution sequence
++1. Identify touched files and the closest boundary.
++2. Load the smallest relevant subsystem skill plus **trade-quality-gates** if useful.
++3. Produce:
++   - unit tests
++   - integration tests if boundary changed
++   - fixtures
++   - exact files to add/change
++
++## Escalate to premium if
++- test design requires replay/ML/architecture reasoning
++- the change spans multiple services with shared invariants
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-latency-audit.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-latency-audit.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-latency-audit.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-latency-audit.md	2026-04-01 04:58:03.188603639 +0000
+@@ -33,3 +33,11 @@
+ - Use baseline -> change -> re-measure.
+ - Prefer deterministic/replayable inputs where possible.
+ - Tie recommendations to concrete code paths and services.
++
++
++## Model lane
++Default to **Gemini Flash + Fast** for the first pass. Escalate to premium when the triggers below fire.
++
++## Escalation guidance
++- use Flash first for one hot path and one benchmark target
++- escalate if the regression spans multiple services or requires redesign
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-new-signal.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-new-signal.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-new-signal.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-new-signal.md	2026-04-01 04:58:03.189008904 +0000
+@@ -45,3 +45,11 @@
+ - For noisy thresholds prefer robust stats (median/MAD or bounded robust z) when appropriate.
+ - Preserve backward compatibility unless the user explicitly approves a breaking change.
+ - If labels or outcomes are required, define the storage and replay contract explicitly.
++
++
++## Model lane
++Default to **Gemini Flash + Fast** for the first pass. Escalate to premium when the triggers below fire.
++
++## Escalation guidance
++- use Flash first for problem framing, local detector diffs, and test scaffolding
++- escalate when regime / ML / execution policy redesign is required
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-postmortem.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-postmortem.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-postmortem.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-postmortem.md	2026-04-01 04:58:03.190903717 +0000
+@@ -41,3 +41,10 @@
+ - Distinguish observed facts from inference.
+ - Identify missing guardrails, not just the triggering bug.
+ - Every root cause must map to at least one concrete preventive action.
++
++
++## Model lane
++Default to a **premium reasoning model + Planning** mode for this workflow.
++
++## Escalation guidance
++- ambiguous incidents and production regressions should default to premium reasoning
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-pro-architecture.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-pro-architecture.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-pro-architecture.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-pro-architecture.md	2026-04-01 04:58:03.194966531 +0000
+@@ -0,0 +1,26 @@
++---
++description: Premium workflow for cross-service architecture and policy redesign in the trade project
++---
++
++When the user types `/trade-pro-architecture <scope>`, run a deep design review.
++
++## Model lane
++Use a **premium reasoning model + Planning**.
++
++## Mission
++Design or review `<scope>` with explicit trade-offs and production safety.
++
++## Execution sequence
++1. Act as **@trade-lead** and define scope, constraints, and blast radius.
++2. Load **trade-project-core** plus all relevant subsystem skills.
++3. Produce:
++   - Goal
++   - Facts
++   - Assumptions
++   - Risks
++   - 2-3 design options
++   - recommended option
++   - file-by-file change plan
++   - tests
++   - metrics/alerts
++   - rollout/rollback
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-pro-incident.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-pro-incident.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-pro-incident.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-pro-incident.md	2026-04-01 04:58:03.195084771 +0000
+@@ -0,0 +1,28 @@
++---
++description: Premium workflow for ambiguous production incidents and deep RCA in the trade project
++---
++
++When the user types `/trade-pro-incident <scope>`, run a deep incident workflow.
++
++## Model lane
++Use a **premium reasoning model + Planning**.
++
++## Mission
++Produce a high-confidence RCA for `<scope>`.
++
++## Execution sequence
++1. Load **trade-project-core**, **trade-observability-rollout**, and relevant subsystem skills.
++2. Build a timeline.
++3. Separate observed facts from inference.
++4. Produce:
++   - Incident summary
++   - Facts
++   - Assumptions
++   - Risks
++   - Timeline
++   - Root cause(s)
++   - Contributing factors
++   - Missing guardrails
++   - Corrective actions
++   - Tests/alerts
++   - Rollout/rollback changes
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-pro-ml-gate-review.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-pro-ml-gate-review.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-pro-ml-gate-review.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-pro-ml-gate-review.md	2026-04-01 04:58:03.195273707 +0000
+@@ -0,0 +1,23 @@
++---
++description: Premium workflow for ML, replay, calibration, and gating redesign in the trade project
++---
++
++When the user types `/trade-pro-ml-gate-review <scope>`, use deep reasoning.
++
++## Model lane
++Use a **premium reasoning model + Planning**.
++
++## Mission
++Review `<scope>` for replayability, calibration safety, and rollout risk.
++
++## Execution sequence
++1. Load **trade-project-core**, **trade-ml-replay-gating**, **trade-python-signal-engine**, and **trade-observability-rollout**.
++2. Produce:
++   - Goal
++   - Facts
++   - Assumptions
++   - Risks
++   - dataset/replay contract
++   - model/gate implications
++   - validation metrics
++   - rollout/rollback
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-pro-rollout-review.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-pro-rollout-review.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-pro-rollout-review.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-pro-rollout-review.md	2026-04-01 04:58:03.195183820 +0000
+@@ -0,0 +1,21 @@
++---
++description: Premium rollout review workflow for risky production-affecting trade changes
++---
++
++When the user types `/trade-pro-rollout-review <scope>`, review the release ladder deeply.
++
++## Model lane
++Use a **premium reasoning model + Planning**.
++
++## Mission
++Validate whether `<scope>` is safe to release and under which staged conditions.
++
++## Execution sequence
++1. Load **trade-project-core**, **trade-observability-rollout**, **trade-quality-gates**, and affected subsystem skills.
++2. Produce:
++   - preconditions
++   - shadow/canary/enforce ladder
++   - SLI/SLO thresholds
++   - rollback triggers
++   - degraded safe mode
++   - release evidence checklist
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-pro-schema-change.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-pro-schema-change.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-pro-schema-change.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-pro-schema-change.md	2026-04-01 04:58:03.195493461 +0000
+@@ -0,0 +1,22 @@
++---
++description: Premium workflow for risky Postgres Timescale schema lifecycle and migration changes in the trade project
++---
++
++When the user types `/trade-pro-schema-change <scope>`, do a deep schema and migration review.
++
++## Model lane
++Use a **premium reasoning model + Planning**.
++
++## Mission
++Review `<scope>` for migration safety, lifecycle risk, and performance impact.
++
++## Execution sequence
++1. Load **trade-project-core**, **trade-timescale-postgres**, **trade-contract-regression**, and affected subsystem skills.
++2. Produce:
++   - schema diff
++   - migration sequence
++   - backward compatibility assessment
++   - write/read path impact
++   - tests
++   - metrics/alerts
++   - rollout/rollback
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-quality-gate.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-quality-gate.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-quality-gate.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-quality-gate.md	2026-04-01 04:58:03.191498166 +0000
+@@ -36,3 +36,11 @@
+ - Every gate must be measurable or directly testable.
+ - Do not use vague wording.
+ - Prefer repository-ready file/test/metric actions.
++
++
++## Model lane
++Default to **Gemini Flash + Fast** for the first pass. Escalate to premium when the triggers below fire.
++
++## Escalation guidance
++- use Flash first for bounded go/no-go checklists
++- escalate if release governance itself must change
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-regression-pack.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-regression-pack.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-regression-pack.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-regression-pack.md	2026-04-01 04:58:03.192251888 +0000
+@@ -35,3 +35,11 @@
+ - Optimize for maximum risk reduction per test artifact.
+ - Prefer deterministic fixtures over ad-hoc manual checks.
+ - Keep the pack small but high-signal.
++
++
++## Model lane
++Default to **Gemini Flash + Fast** for the first pass. Escalate to premium when the triggers below fire.
++
++## Escalation guidance
++- use Flash first to assemble the smallest high-value regression pack
++- escalate if cross-system selection requires deeper redesign
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-replay.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-replay.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-replay.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-replay.md	2026-04-01 04:58:03.192727651 +0000
+@@ -35,3 +35,10 @@
+ - Remove or isolate wall-clock dependencies inside replayed logic.
+ - Make pass/fail criteria measurable, not subjective.
+ - If historical data is incomplete, say so clearly and propose a safe fallback.
++
++
++## Model lane
++Default to a **premium reasoning model + Planning** mode for this workflow.
++
++## Escalation guidance
++- replay, baseline diffing, and offline validation are high-risk and often deserve premium reasoning
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-rollout.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-rollout.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/.agents/workflows/trade-rollout.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/.agents/workflows/trade-rollout.md	2026-04-01 04:58:03.193434595 +0000
+@@ -39,3 +39,10 @@
+ - Prefer config-gated rollback over emergency code rollback where feasible.
+ - Define degraded safe mode explicitly.
+ - If user asks for direct production enablement, still provide the safer staged alternative first.
++
++
++## Model lane
++Default to a **premium reasoning model + Planning** mode for this workflow.
++
++## Escalation guidance
++- production-affecting rollout ladders should default to premium reasoning
+diff -ruN /tmp/agpack/trade_antigravity_workspace_pack/README.md /mnt/data/trade_antigravity_workspace_pack_cost_aware/README.md
+--- /tmp/agpack/trade_antigravity_workspace_pack/README.md	2026-03-29 08:49:02.000000000 +0000
++++ /mnt/data/trade_antigravity_workspace_pack_cost_aware/README.md	2026-04-01 04:58:03.195764553 +0000
+@@ -43,3 +43,43 @@
+ - `/trade-regression-pack <change>`
+ 
+ These additions raise quality by making release gates, contract safety, performance validation, and failure-mode readiness explicit rather than implicit.
++
++
++## Cost-aware model policy
++Default usage:
++- **Gemini Flash + Fast** for bounded/local tasks
++- premium model + **Planning** only for architecture, ambiguous RCA, ML/replay redesign, breaking contracts, or multi-subsystem changes
++
++Recommended operator flow:
++1. Start with `TRADE:` or a `/trade-fast-*` workflow in Flash/Fast.
++2. Escalate to `/trade-pro-*` only if explicit triggers fire.
++3. Let Flash produce the first diff/test/checklist where possible, then use premium for review of risky decisions.
++
++Quick routing matrix:
++
++| Task type | Default lane | Mode | Escalate when |
++|---|---|---|---|
++| Small code fix | Flash | Fast | touches >2 subsystems |
++| Contract check | Flash | Fast | breaking change suspected |
++| Log triage | Flash | Fast | root cause remains ambiguous |
++| Test generation | Flash | Fast | test plan requires cross-service redesign |
++| New signal | Flash first | Fast -> Planning | regime / ML / execution redesign |
++| Incident RCA | Premium | Planning | production ambiguity or unclear cause |
++| Architecture | Premium | Planning | always |
++| Schema lifecycle / retention | Premium | Planning | always |
++
++
++## Cost-aware workflows added
++Flash-first workflows:
++- `/trade-fast-fix <scope>`
++- `/trade-fast-contract-check <scope>`
++- `/trade-fast-test-gen <scope>`
++- `/trade-fast-log-triage <scope>`
++- `/trade-fast-doc-update <scope>`
++
++Premium workflows:
++- `/trade-pro-architecture <scope>`
++- `/trade-pro-incident <scope>`
++- `/trade-pro-rollout-review <scope>`
++- `/trade-pro-ml-gate-review <scope>`
++- `/trade-pro-schema-change <scope>`

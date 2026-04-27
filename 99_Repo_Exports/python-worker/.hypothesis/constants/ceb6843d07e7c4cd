@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/meta_features_v7.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, ',', '=1', 'clip', 'conf_', 'conf_div_match', 'conf_iceberg_strict', 'conf_obi_stable', 'conf_reclaim', 'conf_rsi_agree', 'conf_sweep_any', 'conf_sweep_eqh', 'conf_sweep_eql', 'conf_weak_progress', 'confirmations', 'hi', 'lo', 'meta_feat_v7', 'type', 'utf-8']

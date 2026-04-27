@@ -1,0 +1,71 @@
+services:
+  scanner-of-gate-sre:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-of-gate-sre
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - OF_GATE_METRICS_STREAM=metrics:of_gate
+      - NOTIFY_TELEGRAM_STREAM=notify:telegram
+      - OF_INPUTS_STREAM=signals:of:inputs
+      - TRADE_EVENTS_STREAM=events:trades
+      # Confidence Calibration A/B (Propagated for benchmarks/snapshots)
+      - CONF_CAL_AB_SHADOW=${CONF_CAL_AB_SHADOW:-false}
+    volumes:
+      - /var/lib/trade:/var/lib/trade
+      - ./python-worker/persistence:/app/persistence
+    networks:
+      - scanner-network
+    command: >
+      sh -c "
+        echo '[OF-GATE-SRE] Starting monitoring loop...'
+        mkdir -p /var/lib/trade/of_bench /var/lib/trade/of_gate_golden /var/lib/trade/of_replay
+
+        echo '[OF-GATE-SRE] Waiting for redis-worker-1...'
+        for i in $$(seq 1 12); do
+          python -c \"import redis; r=redis.from_url('${REDIS_URL:-redis://redis-worker-1:6379/0}'); r.ping()\" 2>/dev/null && echo '[OF-GATE-SRE] Redis ready.' && break
+          echo \"[OF-GATE-SRE] Redis not ready, retry \$\$i/12...\"
+          sleep 5
+        done
+
+        while true; do
+          HOUR=\$$(date +%-H)
+          MINUTE=\$$(date +%-M)
+          
+          # Hourly: SRE monitor + latency benchmark (every hour at :00 and :30)
+          if [ \"$$MINUTE\" -eq 0 ] || [ \"$$MINUTE\" -eq 30 ]; then
+            echo \"[\$$(date)] Running hourly checks...\"
+            python -m tools.bench_of_gate_latency --window-min 60 --out /var/lib/trade/of_bench/latency_bench_last.json || echo 'Benchmark failed'
+          fi
+          
+          # Nightly at 02:00: Golden snapshot (24h vs 72h baseline)
+          if [ \"$$HOUR\" -eq 2 ] && [ \"$$MINUTE\" -eq 0 ]; then
+            echo \"[\$$(date)] Running nightly golden snapshot...\"
+            python -m tools.of_gate_golden_snapshot --window-hours 24 --baseline /var/lib/trade/of_gate_golden/baseline.json --out-dir /var/lib/trade/of_gate_golden --fail-on-drift 0 --notify 1 || echo 'Golden snapshot failed'
+          fi
+          
+          # Nightly at 03:00: OF Confirm replay + diff
+          if [ \"$$HOUR\" -eq 3 ] && [ \"$$MINUTE\" -eq 0 ]; then
+            echo \"[\$$(date)] Running nightly OF Confirm replay...\"
+            python -m tools.golden_replay_of_confirm_from_redis --out-dir /var/lib/trade/of_replay --stream signals:of:inputs --field payload --since-hours 24 --max-records 200000 --baseline /var/lib/trade/of_replay/baseline.ndjson --fail-on-mismatch 0 || echo 'Replay failed'
+          fi
+          
+          # Nightly at 04:00: ML calibration health monitor
+          if [ \"$$HOUR\" -eq 4 ] && [ \"$$MINUTE\" -eq 0 ]; then
+            echo \"[\$$(date)] Running ML calibration health monitor...\"
+            python -m tools.ml_calibration_health_monitor || echo 'ML health monitor failed'
+          fi
+          
+          # Sleep 60 seconds
+          sleep 60
+        done
+      "

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/eff_quote_calibrator.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.1, 0.2, 0.3, 1.0, 1000000000000.0, 300, '+qd_p30', 'calib_p10', 'calib_p20', 'calib_p30', 'eff_q20', 'min_samples', 'n', 'na', 'qd_p30', 'qd_q30', 'regime', 'static', 'symbol', 'updated_ts_ms', 'v']

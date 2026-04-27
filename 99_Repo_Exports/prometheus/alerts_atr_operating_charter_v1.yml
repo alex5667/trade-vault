@@ -1,0 +1,57 @@
+groups:
+  - name: atr_operating_charter_alerts
+    rules:
+      # --- WARN ---
+      - alert: ATRCharterComplianceWarning
+        expr: atr_charter_compliance_total{status="warning"} > 0
+        for: 5m
+        labels:
+          severity: warn
+          domain: trade
+          subsystem: governance
+        annotations:
+          summary: "Operating Charter Compliance Warning"
+          description: "Domain {{ $labels.domain }} has compliance warnings. Review atr_charter_compliance_checks table."
+
+      - alert: ATRCharterAmendmentPending
+        expr: atr_charter_amendments_total{status="requested"} > 0
+        for: 24h
+        labels:
+          severity: warn
+          domain: trade
+          subsystem: governance
+        annotations:
+          summary: "Charter Amendment Pending for > 24h"
+          description: "Amendment request {{ $labels.amendment_id }} is pending approval for more than 24 hours."
+
+      # --- PAGE / CRITICAL ---
+      - alert: ATRCharterForbiddenActionDetected
+        expr: increase(atr_charter_forbidden_action_total[5m]) > 0
+        labels:
+          severity: page
+          domain: trade
+          subsystem: governance
+        annotations:
+          summary: "Forbidden Action Detected: {{ $labels.reason_code }}"
+          description: "A forbidden action was detected in the trade pipeline: {{ $labels.reason_code }}. Immediate investigation required."
+
+      - alert: ATRCharterComplianceFailed
+        expr: atr_charter_compliance_total{status="failed"} > 0
+        for: 1m
+        labels:
+          severity: page
+          domain: trade
+          subsystem: governance
+        annotations:
+          summary: "Critical Charter Compliance Failure: {{ $labels.domain }}"
+          description: "Domain {{ $labels.domain }} failed mandatory operating charter compliance. System integrity at risk."
+
+      - alert: ATRCharterManualReleaseViolation
+        expr: atr_charter_forbidden_action_total{reason_code="release_on_quarantine"} > 0
+        labels:
+          severity: page
+          domain: trade
+          subsystem: governance
+        annotations:
+          summary: "Release Executed on Quarantined Scope"
+          description: "A release was detected on a scope currently under quarantine. This violates the Operating Charter Phase 10."

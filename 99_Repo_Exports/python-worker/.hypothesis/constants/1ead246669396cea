@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/news_reco_reader/metrics.py
+# hypothesis_version: 6.148.10
+
+[1.0, 'Redis IO errors', '_NoopMetric']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/enricher_shadow.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 1000.0, 250, 256, 1000, 1500, 'GLOBAL', 'asof_ts_ms', 'asset_class', 'confidence', 'crypto', 'event_grade_id', 'event_tminus_sec', 'horizon_sec', 'news:analysis:', 'news_enricher_shadow', 'news_grade_id', 'primary_tag_id', 'ref', 'risk_ema', 'surprise_ema', 'symbol', 'tags_mask']

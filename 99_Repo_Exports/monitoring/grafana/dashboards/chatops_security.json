@@ -1,0 +1,183 @@
+{
+  "uid": "chatops_security",
+  "title": "ChatOps Security (Telegram Freeze Bot)",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "15s",
+  "time": { "from": "now-24h", "to": "now" },
+  "tags": ["trade", "chatops", "security"],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Unauthorized (increase 10m)",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 6 },
+      "targets": [
+        { "expr": "increase(chatops_unauthorized_total[10m])", "legendFormat": "unauth_10m", "refId": "A" }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "horizontal",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 5 } ] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Rate-limited (increase 10m)",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 6 },
+      "targets": [
+        { "expr": "increase(chatops_rate_limited_total[10m])", "legendFormat": "rl_10m", "refId": "A" }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "horizontal",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 10 } ] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Clear pending started (increase 1h)",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 6 },
+      "targets": [
+        { "expr": "increase(chatops_clear_pending_started_total[1h])", "legendFormat": "pending_1h", "refId": "A" }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "horizontal",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "none" },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Commands total (increase 10m)",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 6 },
+      "targets": [
+        { "expr": "sum(increase(chatops_cmd_total[10m]))", "legendFormat": "cmd_10m", "refId": "A" }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "horizontal",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Unauthorized rate (per 1m)",
+      "gridPos": { "x": 0, "y": 6, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "rate(chatops_unauthorized_total[1m])", "legendFormat": "unauth/s", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Rate-limited rate (per 1m)",
+      "gridPos": { "x": 12, "y": 6, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "rate(chatops_rate_limited_total[1m])", "legendFormat": "rl/s", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Top cmd usage (rate, 5m)",
+      "gridPos": { "x": 0, "y": 14, "w": 12, "h": 9 },
+      "targets": [
+        { "expr": "topk(5, sum by (cmd) (rate(chatops_cmd_total[5m])))", "legendFormat": "{{cmd}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" } }
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Cmd totals (since start)",
+      "gridPos": { "x": 12, "y": 14, "w": 12, "h": 9 },
+      "targets": [
+        { "expr": "sum by (cmd) (chatops_cmd_total)", "legendFormat": "{{cmd}}", "refId": "A" }
+      ],
+      "options": { "showHeader": true },
+      "fieldConfig": {
+        "defaults": { "unit": "none" },
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "Age since last unauthorized (s)",
+      "gridPos": { "x": 0, "y": 23, "w": 12, "h": 6 },
+      "targets": [
+        {
+          "expr": "(chatops_last_unauthorized_ts_ms > 0) * ((time() * 1000 - chatops_last_unauthorized_ts_ms) / 1000)",
+          "legendFormat": "age_s",
+          "refId": "A"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "orange", "value": 60 }, { "color": "green", "value": 600 } ] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Age since last rate-limited (s)",
+      "gridPos": { "x": 12, "y": 23, "w": 12, "h": 6 },
+      "targets": [
+        {
+          "expr": "(chatops_last_rate_limited_ts_ms > 0) * ((time() * 1000 - chatops_last_rate_limited_ts_ms) / 1000)",
+          "legendFormat": "age_s",
+          "refId": "A"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    }
+  ]
+}

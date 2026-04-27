@@ -1,0 +1,29 @@
+groups:
+  - name: active-symbol-guard-p10
+    rules:
+      - alert: ActiveSymbolGuardCasConflictHot5m
+        expr: max by (symbol) (execution_active_symbol_guard_window_hot_symbols{window="5m"}) >= 3
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Active-symbol guard CAS conflict hot symbol over 5m"
+          description: "Symbol {{ $labels.symbol }} has repeated active-symbol CAS/resurrection incidents within the last 5 minutes."
+
+      - alert: ActiveSymbolGuardCasConflictHot1h
+        expr: max by (symbol) (execution_active_symbol_guard_window_hot_symbols{window="1h"}) >= 8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Active-symbol guard CAS conflict hot symbol over 1h"
+          description: "Symbol {{ $labels.symbol }} remains hot across the last hour and should be investigated."
+
+      - alert: ActiveSymbolGuardRaceChainsPresent
+        expr: max by (symbol, chain_type) (execution_active_symbol_guard_race_chain_total) >= 1
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Suspicious active-symbol writer race chain detected"
+          description: "Symbol {{ $labels.symbol }} has race chain type {{ $labels.chain_type }} in recent guard diagnostics."

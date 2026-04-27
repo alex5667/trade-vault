@@ -1,0 +1,20 @@
+[Unit]
+Description=Trade execution journal backfill from Redis orders:exec
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=trade
+Group=trade
+WorkingDirectory=/opt/trade
+EnvironmentFile=-/etc/trade/trade-execution.env
+# Backfills missing rows in execution_orders from the orders:exec Redis stream.
+# Run by the companion timer every 15 minutes to close gaps from transient DB failures.
+ExecStart=/usr/bin/python3 /opt/trade/python-worker/scripts/backfill_execution_journal_from_orders_exec.py --stream ${EXEC_STREAM:-orders:exec}
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target

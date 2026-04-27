@@ -1,0 +1,23 @@
+groups:
+  - name: ml_phase3_12_route_incident_rca_mirror_rca_bridge_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCABridgeStale
+        expr: time() - ml_route_incident_rca_mirror_rca_bridge_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror RCA bridge is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCABridgeErrors
+        expr: rate(ml_route_incident_rca_mirror_rca_bridge_runs_total{status="error"}[5m]) > 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "route incident RCA mirror RCA bridge has errors"
+
+      - alert: MLRouteIncidentRCAMirrorRCABridgeLocalRouting
+        expr: increase(ml_route_incident_rca_mirror_rca_bridge_routed_total{route="ROUTE_LOCAL"}[15m]) > 0
+        for: 1m
+        labels: { severity: info }
+        annotations:
+          summary: "route incident RCA mirror bundle routed to local fallback"

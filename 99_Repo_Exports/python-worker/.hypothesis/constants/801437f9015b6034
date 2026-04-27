@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/signal_scoring/calibration_store.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 5.0, 300, '*', 'global', 'groups', 'isotonic', 'linear', 'mode', 'n', 'p', 'r', 'type', 'utf-8', 'x']

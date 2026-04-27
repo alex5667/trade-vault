@@ -1,0 +1,32 @@
+  tb-pipeline-runner:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-tb-pipeline-runner
+    restart: "no"
+    runtime: nvidia
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - PYTHONPATH=.:/app
+      - GPU_ENABLED=true
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    working_dir: /app
+    volumes:
+      - ./python-worker:/app
+      - /var/lib/trade/ml_runs:/var/lib/trade/ml_runs
+      - /tmp:/tmp
+      - /var/lib/trade/of_reports:/var/lib/trade/of_reports:ro
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - scanner-network

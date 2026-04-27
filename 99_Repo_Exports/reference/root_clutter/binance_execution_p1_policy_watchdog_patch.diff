@@ -1,0 +1,2401 @@
+diff -ruN /tmp/orig/binance_execution/.pytest_cache/.gitignore work_mod/p1/binance_execution/.pytest_cache/.gitignore
+--- /tmp/orig/binance_execution/.pytest_cache/.gitignore	1970-01-01 00:00:00.000000000 +0000
++++ work_mod/p1/binance_execution/.pytest_cache/.gitignore	2026-03-06 17:44:21.547016669 +0000
+@@ -0,0 +1,2 @@
++# Created by pytest automatically.
++*
+diff -ruN /tmp/orig/binance_execution/.pytest_cache/CACHEDIR.TAG work_mod/p1/binance_execution/.pytest_cache/CACHEDIR.TAG
+--- /tmp/orig/binance_execution/.pytest_cache/CACHEDIR.TAG	1970-01-01 00:00:00.000000000 +0000
++++ work_mod/p1/binance_execution/.pytest_cache/CACHEDIR.TAG	2026-03-06 17:44:21.547098395 +0000
+@@ -0,0 +1,4 @@
++Signature: 8a477f597d28d172789f06886806bc55
++# This file is a cache directory tag created by pytest.
++# For information about cache directory tags, see:
++#	https://bford.info/cachedir/spec.html
+diff -ruN /tmp/orig/binance_execution/.pytest_cache/README.md work_mod/p1/binance_execution/.pytest_cache/README.md
+--- /tmp/orig/binance_execution/.pytest_cache/README.md	1970-01-01 00:00:00.000000000 +0000
++++ work_mod/p1/binance_execution/.pytest_cache/README.md	2026-03-06 17:44:21.546819917 +0000
+@@ -0,0 +1,8 @@
++# pytest cache directory #
++
++This directory contains data from the pytest's cache plugin,
++which provides the `--lf` and `--ff` options, as well as the `cache` fixture.
++
++**Do not** commit this to version control.
++
++See [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.
+diff -ruN /tmp/orig/binance_execution/.pytest_cache/v/cache/lastfailed work_mod/p1/binance_execution/.pytest_cache/v/cache/lastfailed
+--- /tmp/orig/binance_execution/.pytest_cache/v/cache/lastfailed	1970-01-01 00:00:00.000000000 +0000
++++ work_mod/p1/binance_execution/.pytest_cache/v/cache/lastfailed	2026-03-06 17:47:09.420270622 +0000
+@@ -0,0 +1 @@
++{}
+\ No newline at end of file
+diff -ruN /tmp/orig/binance_execution/.pytest_cache/v/cache/nodeids work_mod/p1/binance_execution/.pytest_cache/v/cache/nodeids
+--- /tmp/orig/binance_execution/.pytest_cache/v/cache/nodeids	1970-01-01 00:00:00.000000000 +0000
++++ work_mod/p1/binance_execution/.pytest_cache/v/cache/nodeids	2026-03-06 17:47:09.415518773 +0000
+@@ -0,0 +1,57 @@
++[
++  "test_binance_account_reporter_p0_v1.py::TestAvailableHistory::test_no_history_returns_none",
++  "test_binance_account_reporter_p0_v1.py::TestAvailableHistory::test_store_and_read_1h_delta",
++  "test_binance_account_reporter_p0_v1.py::TestAvailableHistory::test_store_and_read_24h_delta",
++  "test_binance_account_reporter_p0_v1.py::TestAvailableHistory::test_ttl_cleanup",
++  "test_binance_account_reporter_p0_v1.py::TestBinanceAccountReporterP0::test_fmt_delta",
++  "test_binance_account_reporter_p0_v1.py::TestBinanceAccountReporterP0::test_report_contains_key_fields",
++  "test_binance_account_reporter_p0_v1.py::TestBinanceAccountReporterP0::test_report_with_deltas_block",
++  "test_binance_account_reporter_p0_v1.py::TestBinanceAccountReporterP0::test_report_with_none_deltas",
++  "test_binance_account_reporter_p0_v1.py::TestBinanceAccountReporterP0::test_side_detection",
++  "test_binance_account_reporter_p0_v1.py::TestBinanceAccountReporterP0::test_snapshot_aggregation_and_counts",
++  "test_binance_account_reporter_p0_v1.py::TestBinanceAccountReporterP0::test_snapshot_positions_sorted_by_notional",
++  "test_binance_algo_client_v1.py::test_post_order_routes_algo_and_maps_compat_fields",
++  "test_binance_algo_client_v1.py::test_post_order_routes_plain_market",
++  "test_binance_executor_p1_policy_v1.py::test_place_protective_maker_first_uses_take_profit_limit",
++  "test_binance_executor_p1_policy_v1.py::test_place_protective_safety_first_uses_take_profit_market",
++  "test_binance_executor_p1_policy_v1.py::test_submit_reduce_only_market_exit_uses_plain_order_path",
++  "test_binance_executor_p1_policy_v1.py::test_trailing_activate_price_guard_for_long_exit",
++  "test_binance_trailing_unit_v1.py::test_classify_binance_insufficient_margin",
++  "test_binance_trailing_unit_v1.py::test_classify_binance_rate_limit",
++  "test_binance_trailing_unit_v1.py::test_classify_binance_timestamp_error",
++  "test_binance_trailing_unit_v1.py::test_classify_binance_unknown_code",
++  "test_binance_trailing_unit_v1.py::test_classify_generic_valueerror",
++  "test_binance_trailing_unit_v1.py::test_classify_network_timeout",
++  "test_binance_trailing_unit_v1.py::test_make_cid_contains_tag",
++  "test_binance_trailing_unit_v1.py::test_make_cid_deterministic",
++  "test_binance_trailing_unit_v1.py::test_make_cid_different_tags",
++  "test_binance_trailing_unit_v1.py::test_make_cid_length",
++  "test_binance_trailing_unit_v1.py::test_round_half_up_normal",
++  "test_binance_trailing_unit_v1.py::test_round_half_up_stable",
++  "test_binance_trailing_unit_v1.py::test_sha1_8_deterministic",
++  "test_binance_trailing_unit_v1.py::test_sha1_8_different",
++  "test_binance_trailing_unit_v1.py::test_sha1_8_len",
++  "test_binance_trailing_unit_v1.py::test_trailing_callback_bps_10",
++  "test_binance_trailing_unit_v1.py::test_trailing_callback_bps_to_pct",
++  "test_binance_trailing_unit_v1.py::test_trailing_callback_clamp_max",
++  "test_binance_trailing_unit_v1.py::test_trailing_callback_clamp_min",
++  "test_binance_trailing_unit_v1.py::test_trailing_callback_explicit_pct_aliases",
++  "test_binance_trailing_unit_v1.py::test_trailing_callback_explicit_pct_rounding",
++  "test_binance_trailing_unit_v1.py::test_trailing_callback_fallback_to_default",
++  "test_binance_trailing_unit_v1.py::test_trailing_callback_from_atr",
++  "test_binance_trailing_unit_v1.py::test_trailing_callback_from_atr_with_mult",
++  "test_binance_trailing_unit_v1.py::test_trailing_callback_priority_pct_over_bps",
++  "test_binance_trailing_unit_v1.py::test_truthy_bool_false",
++  "test_binance_trailing_unit_v1.py::test_truthy_bool_true",
++  "test_binance_trailing_unit_v1.py::test_truthy_float_nonzero",
++  "test_binance_trailing_unit_v1.py::test_truthy_int_nonzero",
++  "test_binance_trailing_unit_v1.py::test_truthy_int_zero",
++  "test_binance_trailing_unit_v1.py::test_truthy_none",
++  "test_binance_trailing_unit_v1.py::test_truthy_string_false",
++  "test_binance_trailing_unit_v1.py::test_truthy_string_true",
++  "test_execution_intent_validator_v1.py::test_algo_close_position_incompatible_with_quantity",
++  "test_execution_intent_validator_v1.py::test_hedge_requires_position_side",
++  "test_execution_intent_validator_v1.py::test_plain_oneway_reduce_only_market_close_is_valid",
++  "test_execution_policy_v1.py::test_allowlisted_major_gets_maker_first_when_healthy",
++  "test_execution_policy_v1.py::test_forced_safety_on_infra_degraded"
++]
+\ No newline at end of file
+Binary files /tmp/orig/binance_execution/__pycache__/binance_account_reporter.cpython-313.pyc and work_mod/p1/binance_execution/__pycache__/binance_account_reporter.cpython-313.pyc differ
+Binary files /tmp/orig/binance_execution/__pycache__/binance_executor.cpython-313.pyc and work_mod/p1/binance_execution/__pycache__/binance_executor.cpython-313.pyc differ
+Binary files /tmp/orig/binance_execution/__pycache__/binance_futures_client.cpython-313.pyc and work_mod/p1/binance_execution/__pycache__/binance_futures_client.cpython-313.pyc differ
+Binary files /tmp/orig/binance_execution/__pycache__/execution_intent_validator.cpython-313.pyc and work_mod/p1/binance_execution/__pycache__/execution_intent_validator.cpython-313.pyc differ
+Binary files /tmp/orig/binance_execution/__pycache__/execution_policy.cpython-313.pyc and work_mod/p1/binance_execution/__pycache__/execution_policy.cpython-313.pyc differ
+Binary files /tmp/orig/binance_execution/__pycache__/test_binance_account_reporter_p0_v1.cpython-313-pytest-9.0.2.pyc and work_mod/p1/binance_execution/__pycache__/test_binance_account_reporter_p0_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files /tmp/orig/binance_execution/__pycache__/test_binance_algo_client_v1.cpython-313-pytest-9.0.2.pyc and work_mod/p1/binance_execution/__pycache__/test_binance_algo_client_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files /tmp/orig/binance_execution/__pycache__/test_binance_executor_p1_policy_v1.cpython-313-pytest-9.0.2.pyc and work_mod/p1/binance_execution/__pycache__/test_binance_executor_p1_policy_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files /tmp/orig/binance_execution/__pycache__/test_binance_trailing_unit_v1.cpython-313-pytest-9.0.2.pyc and work_mod/p1/binance_execution/__pycache__/test_binance_trailing_unit_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files /tmp/orig/binance_execution/__pycache__/test_execution_intent_validator_v1.cpython-313-pytest-9.0.2.pyc and work_mod/p1/binance_execution/__pycache__/test_execution_intent_validator_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files /tmp/orig/binance_execution/__pycache__/test_execution_policy_v1.cpython-313-pytest-9.0.2.pyc and work_mod/p1/binance_execution/__pycache__/test_execution_policy_v1.cpython-313-pytest-9.0.2.pyc differ
+diff -ruN /tmp/orig/binance_execution/binance_account_reporter.py work_mod/p1/binance_execution/binance_account_reporter.py
+--- /tmp/orig/binance_execution/binance_account_reporter.py	2026-03-06 05:49:29.000000000 +0000
++++ work_mod/p1/binance_execution/binance_account_reporter.py	2026-03-06 17:46:30.306790288 +0000
+@@ -75,9 +75,27 @@
+     Histogram = None  # type: ignore
+     start_http_server = None  # type: ignore
+ 
+-from common.log import setup_logger
+-from services.binance_futures_client import BinanceFuturesREST, BinanceHTTPError
+-from services.telegram.telegram_client import TelegramClient
++try:
++    from common.log import setup_logger
++except Exception:  # pragma: no cover - standalone bundle
++    import logging
++    def setup_logger(name: str):
++        return logging.getLogger(name)
++try:
++    from services.binance_futures_client import BinanceFuturesREST, BinanceHTTPError
++except Exception:  # pragma: no cover - standalone bundle
++    from binance_futures_client import BinanceFuturesREST, BinanceHTTPError
++
++try:
++    from services.telegram.telegram_client import TelegramClient
++except Exception:  # pragma: no cover - tests / standalone bundle
++    class TelegramClient:  # type: ignore[override]
++        @staticmethod
++        def from_env():
++            return None
++
++        def send_text(self, text: str) -> None:
++            return None
+ 
+ 
+ log = setup_logger("binance_account_reporter")
+diff -ruN /tmp/orig/binance_execution/binance_executor.py work_mod/p1/binance_execution/binance_executor.py
+--- /tmp/orig/binance_execution/binance_executor.py	2026-03-06 05:49:28.000000000 +0000
++++ work_mod/p1/binance_execution/binance_executor.py	2026-03-06 17:42:34.326381459 +0000
+@@ -74,8 +74,35 @@
+ except Exception:  # pragma: no cover
+     redis = None  # type: ignore
+ 
+-from services.binance_futures_client import BinanceAPIError, BinanceFuturesClient
+-from services.telegram.telegram_client import TelegramClient
++try:
++    from services.binance_futures_client import BinanceAPIError, BinanceFuturesClient
++    from services.execution_intent_validator import validate_exit_intent
++    from services.execution_policy import (
++        MAKER_FIRST,
++        SAFETY_FIRST,
++        ExecutionPolicyDecision,
++        resolve_execution_policy,
++    )
++except Exception:  # pragma: no cover - standalone bundle / local tests
++    from binance_futures_client import BinanceAPIError, BinanceFuturesClient
++    from execution_intent_validator import validate_exit_intent
++    from execution_policy import (
++        MAKER_FIRST,
++        SAFETY_FIRST,
++        ExecutionPolicyDecision,
++        resolve_execution_policy,
++    )
++
++try:
++    from services.telegram.telegram_client import TelegramClient
++except Exception:  # pragma: no cover - tests / standalone bundle
++    class TelegramClient:  # type: ignore[override]
++        @staticmethod
++        def from_env() -> Optional["TelegramClient"]:
++            return None
++
++        def send_text(self, text: str) -> None:
++            return None
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -233,6 +260,78 @@
+     return _round_half_up(v, 1)
+ 
+ 
++def compute_limit_tp_price(tp_trigger_price: float, logical_side: str, *, offset_bps: float, tick_size: float) -> float:
++    """Compute the passive limit price used by maker TP ladder.
++
++    For LONG exits (SELL), a positive offset places the limit *above* the
++    trigger so the order is less likely to cross the book immediately.
++    For SHORT exits (BUY), a positive offset places the limit *below* the
++    trigger.
++    """
++    px = float(tp_trigger_price)
++    off = abs(float(offset_bps)) / 10000.0
++    raw = px * (1.0 + off) if logical_side == "LONG" else px * (1.0 - off)
++    tick = float(tick_size or 0.0)
++    if tick <= 0:
++        return raw
++    if logical_side == "LONG":
++        return math.ceil(raw / tick) * tick
++    return math.floor(raw / tick) * tick
++
++
++def compute_trailing_activate_price(
++    logical_side: str,
++    *,
++    latest_price: float,
++    tick_size: float,
++    buffer_bps: float,
++    user_activate_price: Optional[float] = None,
++) -> float:
++    """Return a valid activatePrice for Binance TRAILING_STOP_MARKET.
++
++    Binance requires:
++      * BUY trailing (used to close SHORT): activatePrice < latest price
++      * SELL trailing (used to close LONG): activatePrice > latest price
++
++    We encode the same rule locally to avoid -2021 immediately-triggered errors.
++    """
++    latest = float(latest_price)
++    if latest <= 0:
++        raise ValueError("latest_price must be > 0 for trailing activation")
++
++    tick = float(tick_size or 0.0)
++    buf = abs(float(buffer_bps)) / 10000.0
++    if user_activate_price is not None:
++        raw = float(user_activate_price)
++    else:
++        raw = latest * (1.0 + buf) if logical_side == "LONG" else latest * (1.0 - buf)
++
++    if tick > 0:
++        if logical_side == "LONG":
++            px = math.ceil(raw / tick) * tick
++            if px <= latest:
++                px += tick
++        else:
++            px = math.floor(raw / tick) * tick
++            if px >= latest:
++                px -= tick
++        if px <= 0:
++            raise ValueError("computed activatePrice <= 0")
++    else:
++        px = raw
++
++    if logical_side == "LONG" and not (px > latest):
++        raise ValueError("activatePrice must be above latest price for LONG trailing exit")
++    if logical_side == "SHORT" and not (px < latest):
++        raise ValueError("activatePrice must be below latest price for SHORT trailing exit")
++    return px
++
++
++def _tp_state_name(level: int, state: str) -> str:
++    return f"TP{int(level)}_{str(state).strip().upper()}"
++
++
++
+ # ---------------------------------------------------------------------------
+ # Symbol filter cache (LOT_SIZE / PRICE_FILTER)
+ # ---------------------------------------------------------------------------
+@@ -450,6 +549,40 @@
+         self.trail_arm_timeout_s = float(os.getenv("BINANCE_TRAIL_ARM_TIMEOUT_S", "7200"))
+         self.trail_notify = _bool_env("BINANCE_TRAIL_NOTIFY", True)
+ 
++        # --- Explicit trigger/workingType policy ---
++        # Binance defaults workingType to CONTRACT_PRICE; we require explicit
++        # policy values so risk-critical protection does not silently inherit
++        # exchange defaults.
++        self.sl_working_type = (os.getenv("SL_WORKING_TYPE") or "MARK_PRICE").strip().upper()
++        self.tp_market_working_type = (os.getenv("TP_MARKET_WORKING_TYPE") or "MARK_PRICE").strip().upper()
++        self.tp_limit_trigger_working_type = (os.getenv("TP_LIMIT_TRIGGER_WORKING_TYPE") or "MARK_PRICE").strip().upper()
++        self.trail_working_type = (os.getenv("TRAIL_WORKING_TYPE") or "MARK_PRICE").strip().upper()
++
++        # Official execution policies
++        self.exec_policy_default = (os.getenv("EXEC_POLICY_DEFAULT") or SAFETY_FIRST).strip().replace("-", "_").replace(" ", "_").upper()
++        maker_allow = (os.getenv("EXEC_POLICY_MAKER_ALLOWED_SYMBOLS") or "BTCUSDT,ETHUSDT").strip()
++        self.exec_policy_maker_allowed_symbols = {s.strip().upper() for s in maker_allow.split(",") if s.strip()}
++        self.tp_limit_time_in_force = (os.getenv("TP_LIMIT_TIME_IN_FORCE") or "GTX").strip().upper()
++        self.tp_limit_watchdog_enable = _bool_env("TP_LIMIT_WATCHDOG_ENABLE", True)
++        self.tp_limit_watchdog_timeout_ms = int(os.getenv("TP_LIMIT_WATCHDOG_TIMEOUT_MS", "4000"))
++        self.tp_trigger_monitor_timeout_s = float(os.getenv("TP_TRIGGER_MONITOR_TIMEOUT_S", "7200"))
++        self.tp_limit_price_offset_bps = float(os.getenv("TP_LIMIT_PRICE_OFFSET_BPS", "0.0"))
++        self.safety_entry_time_in_force = (os.getenv("SAFETY_ENTRY_TIME_IN_FORCE") or "IOC").strip().upper()
++
++        # Trailing activation guard
++        self.trail_activate_price_bps = float(os.getenv("TRAIL_ACTIVATE_PRICE_BPS", "5.0"))
++
++        # Anti-blowup invariant: after entry fill, protection must be confirmed
++        # within this window, otherwise the executor will emergency-flatten.
++        self.protection_arm_timeout_ms = int(os.getenv("PROTECTION_ARM_TIMEOUT_MS", "2500"))
++
++        # Local protection headroom reserve. Binance does not perform a margin
++        # check before algo trigger; we keep a small local reserve to avoid
++        # standing a protection order that becomes non-viable at trigger time.
++        self.protection_fee_buffer_bps = float(os.getenv("PROTECTION_FEE_BUFFER_BPS", "8.0"))
++        self.protection_slippage_buffer_bps = float(os.getenv("PROTECTION_SLIPPAGE_BUFFER_BPS", "15.0"))
++        self.account_available_floor_usd = float(os.getenv("ACCOUNT_AVAILABLE_FLOOR_USD", "25.0"))
++
+         self.r = redis.from_url(self.redis_url, decode_responses=True)
+ 
+         # --- orders:state:{sid} — fast lookup of Binance IDs by signal ID ---
+@@ -540,9 +673,9 @@
+           status           — filled | closed | ...
+           symbol, side, qty, exec_price
+           binance_order_id — Binance entry order ID
+-          sl_order_id      — SL STOP_MARKET order ID
+-          tp1_order_id, tp2_order_id, ...  — TP order IDs
+-          trail_order_id   — TRAILING_STOP_MARKET order ID (written when arming fires)
++          sl_algo_id      — SL STOP_MARKET algo ID
++          tp1_algo_id, tp2_algo_id, ...  — TP algo IDs
++          trail_algo_id   — TRAILING_STOP_MARKET algo ID (written when arming fires)
+ 
+         Consumers: r.get(f"orders:state:{sid}") → json.loads()
+         TTL: ORDERS_STATE_TTL_SEC (default 86400 = 24h).
+@@ -652,65 +785,406 @@
+             parts[-1] = _round_down(parts[-1] - (s - total_qty), step)
+         return [q for q in parts if q > 0]
+ 
++
++    def _local_headroom_check(
++        self,
++        *,
++        client: "BinanceFuturesClient",
++        symbol: str,
++        qty: float,
++        reference_price: Optional[float],
++    ) -> None:
++        """Best-effort reserve check before submitting conditional protection.
++
++        Binance Algo Service does not run a full margin check before trigger.
++        We therefore require a small local headroom floor so a freshly-opened
++        position is not considered protected when the future trigger cannot
++        realistically be carried.
++        """
++        try:
++            acct = client.get_account() or {}
++            avail = _f(acct.get("availableBalance"), 0.0)
++            px = float(reference_price or 0.0)
++            notional = abs(float(qty)) * px if px > 0 else 0.0
++            reserve = notional * (self.protection_fee_buffer_bps + self.protection_slippage_buffer_bps) / 10000.0
++            if avail - reserve < self.account_available_floor_usd:
++                raise RuntimeError(
++                    f"insufficient protection headroom: available={avail:.8f} reserve={reserve:.8f} "
++                    f"floor={self.account_available_floor_usd:.8f}"
++                )
++        except RuntimeError:
++            raise
++        except Exception:
++            # Fail-open on telemetry errors; the executor remains bounded by
++            # exchange-side validation and account risk settings.
++            return
++
++    def _validate_exit_contract(
++        self,
++        *,
++        position_side: Optional[str],
++        reduce_only: bool,
++        close_position: bool,
++        quantity: Optional[float],
++        order_type: str,
++        working_type: Optional[str],
++        is_algo: bool,
++    ) -> None:
++        result = validate_exit_intent(
++            position_mode=self.position_mode,
++            position_side=position_side,
++            exit_intent="close",
++            reduce_only=reduce_only,
++            close_position=close_position,
++            quantity=quantity,
++            order_type=order_type,
++            working_type=working_type,
++            is_algo=is_algo,
++        )
++        if not result.is_valid_exit_contract:
++            raise ValueError(f"invalid_exit_contract:{result.reason}")
++
++    def _resolve_execution_policy(self, payload: Dict[str, Any], symbol: str) -> ExecutionPolicyDecision:
++        return resolve_execution_policy(
++            payload=payload,
++            symbol=symbol,
++            default_policy=self.exec_policy_default,
++            maker_allowed_symbols=self.exec_policy_maker_allowed_symbols,
++            tp_market_working_type=self.tp_market_working_type,
++            tp_limit_trigger_working_type=self.tp_limit_trigger_working_type,
++            tp_limit_time_in_force=self.tp_limit_time_in_force,
++            watchdog_enabled=self.tp_limit_watchdog_enable,
++            watchdog_timeout_ms=self.tp_limit_watchdog_timeout_ms,
++        )
++
++    def _position_qty_tolerance(self, symbol: str, *, filters: "FiltersCache") -> float:
++        try:
++            return max(float(filters.get(symbol).step_size or 0.0), 1e-12)
++        except Exception:
++            return 1e-12
++
++    def _emit_tp_state(self, sid: str, symbol: str, level: int, state: str, **extra: Any) -> None:
++        tp_state = _tp_state_name(level, state)
++        ev = {
++            "sid": sid,
++            "symbol": symbol,
++            "action": "tp_state",
++            "tp_level": int(level),
++            "tp_state": tp_state,
++            **extra,
++        }
++        self._exec_event(ev)
++        state_doc = {f"tp{int(level)}_state": tp_state}
++        for k, v in extra.items():
++            state_doc[f"tp{int(level)}_{k}"] = v
++        self._save_order_state(sid, state_doc)
++
++    def _submit_reduce_only_market_exit(
++        self,
++        *,
++        sid: str,
++        symbol: str,
++        logical_side: str,
++        qty: float,
++        reason_tag: str,
++        client: "BinanceFuturesClient",
++        filters: "FiltersCache",
++    ) -> Dict[str, Any]:
++        """Submit a highest-priority plain MARKET exit used by emergency flows.
++
++        This path intentionally bypasses batching and extra retry logic. The goal is
++        to reduce exposure immediately using the plain order endpoint where Binance
++        documents explicit prioritisation for reduce-only / close-position traffic
++        under -1008 overload conditions.
++        """
++        exit_side = "SELL" if logical_side == "LONG" else "BUY"
++        pos_side = _position_side_for_mode(self.position_mode, logical_side)
++        q_close, _ = self._quantize(symbol, qty, None, filters=filters)
++        params: Dict[str, Any] = {
++            "symbol": symbol,
++            "side": exit_side,
++            "type": "MARKET",
++            "quantity": q_close,
++            "newClientOrderId": _make_cid(sid, reason_tag),
++            "newOrderRespType": "RESULT",
++        }
++        if self.position_mode == "oneway":
++            params["reduceOnly"] = True
++            self._validate_exit_contract(
++                position_side=pos_side,
++                reduce_only=True,
++                close_position=False,
++                quantity=float(q_close),
++                order_type="MARKET",
++                working_type=None,
++                is_algo=False,
++            )
++        elif pos_side:
++            params["positionSide"] = pos_side
++            self._validate_exit_contract(
++                position_side=pos_side,
++                reduce_only=False,
++                close_position=False,
++                quantity=float(q_close),
++                order_type="MARKET",
++                working_type=None,
++                is_algo=False,
++            )
++        j = client.post_plain_order(params)
++        return {
++            "close_order_id": j.get("orderId"),
++            "close_client_id": params["newClientOrderId"],
++            "close_order_status": j.get("status"),
++            "close_reason_tag": reason_tag,
++        }
++
++    def _protection_confirmed(self, prot: Dict[str, Any], tps: List[float], trail_enabled: bool) -> bool:
++        if prot.get("sl_algo_id") in (None, "", 0):
++            return False
++        for idx, _ in enumerate(tps, start=1):
++            if prot.get(f"tp{idx}_algo_id") in (None, "", 0):
++                return False
++        if trail_enabled and not (prot.get("trail_client_id") or prot.get("trail_algo_id") or prot.get("trail_pending")):
++            return False
++        return True
++
++    def _emit_protection_incident(self, sid: str, symbol: str, reason: str) -> None:
++        self._exec_event({
++            "sid": sid,
++            "symbol": symbol,
++            "action": "protection_invariant",
++            "status": "failed",
++            "reason": reason,
++            "severity": "critical",
++        })
++        self._save_order_state(sid, {
++            "action": "protection_invariant",
++            "status": "failed",
++            "symbol": symbol,
++            "incident_flag": "protection_missing",
++            "incident_reason": reason,
++        })
++
++    def _emergency_flatten_position(
++        self,
++        *,
++        sid: str,
++        symbol: str,
++        logical_side: str,
++        qty: float,
++        client: "BinanceFuturesClient",
++        filters: "FiltersCache",
++    ) -> Dict[str, Any]:
++        close = self._submit_reduce_only_market_exit(
++            sid=sid,
++            symbol=symbol,
++            logical_side=logical_side,
++            qty=qty,
++            reason_tag="emerg",
++            client=client,
++            filters=filters,
++        )
++        return {
++            "emergency_order_id": close.get("close_order_id"),
++            "emergency_client_id": close.get("close_client_id"),
++        }
++
+     # --- Protective orders (SL + TPs) ---
+ 
+     def _place_protective(
+         self, *, sid: str, symbol: str, logical_side: str,
+         qty: float, sl: Optional[float], tps: List[float],
++        policy: ExecutionPolicyDecision,
+         client: "BinanceFuturesClient",
+         filters: "FiltersCache",
+     ) -> Dict[str, Any]:
+-        """Place SL (STOP_MARKET) and TP (TAKE_PROFIT_MARKET) orders.
++        """Place SL and TP orders via the Binance Algo Service.
+ 
+-        One-way mode:
+-          - SL: closePosition=True (automatically closes full remaining position)
+-          - TP: reduceOnly=True
+-        Hedge mode:
+-          - SL: quantity + positionSide (reduceOnly forbidden by Binance)
+-          - TP: positionSide
++        The official execution policy decides whether TP legs are placed as
++        deterministic `TAKE_PROFIT_MARKET` orders (safety-first) or as
++        `TAKE_PROFIT` limit ladders (maker-first) with watchdog fallback.
+         """
+-        out: Dict[str, Any] = {}
++        out: Dict[str, Any] = {
++            "execution_policy": policy.name,
++            "execution_policy_reason": policy.reason,
++            "tp_watchdog_enabled": bool(policy.tp_watchdog_enabled),
++        }
+         exit_side = "SELL" if logical_side == "LONG" else "BUY"
+         pos_side = _position_side_for_mode(self.position_mode, logical_side)
+         reduce_only_allowed = self.position_mode == "oneway"
+ 
++        ref_price = None
++        if sl and sl > 0:
++            ref_price = sl
++        elif tps:
++            ref_price = float(tps[0])
++        self._local_headroom_check(client=client, symbol=symbol, qty=qty, reference_price=ref_price)
++
+         if sl is not None and sl > 0:
+             q_sl, sl_q = self._quantize(symbol, qty, sl, filters=filters)
+             p: Dict[str, Any] = {
+                 "symbol": symbol,
+                 "side": exit_side,
+                 "type": "STOP_MARKET",
+-                "stopPrice": sl_q,
+-                "quantity": q_sl,
+-                "newClientOrderId": _make_cid(sid, "sl"),
++                "triggerPrice": sl_q,
++                "workingType": self.sl_working_type,
++                "clientAlgoId": _make_cid(sid, "sl"),
+             }
+             if reduce_only_allowed:
+                 p["reduceOnly"] = True
++                self._validate_exit_contract(
++                    position_side=pos_side,
++                    reduce_only=True,
++                    close_position=False,
++                    quantity=float(q_sl),
++                    order_type="STOP_MARKET",
++                    working_type=self.sl_working_type,
++                    is_algo=True,
++                )
++                p["quantity"] = q_sl
+             elif pos_side:
+                 p["positionSide"] = pos_side
+-            j = client.post_order(p)
+-            out["sl_order_id"] = j.get("orderId")
+-            out["sl_client_id"] = p["newClientOrderId"]
++                p["closePosition"] = True
++                self._validate_exit_contract(
++                    position_side=pos_side,
++                    reduce_only=False,
++                    close_position=True,
++                    quantity=None,
++                    order_type="STOP_MARKET",
++                    working_type=self.sl_working_type,
++                    is_algo=True,
++                )
++            j = client.post_algo_order(p)
++            out["sl_algo_id"] = j.get("algoId")
++            out["sl_client_algo_id"] = p["clientAlgoId"]
++            out["sl_working_type"] = p["workingType"]
++            out["sl_order_type"] = "STOP_MARKET"
+ 
+         if tps:
+             parts = self._split_tp_qtys(symbol, qty, len(tps), filters=filters)
++            filters_obj = filters.get(symbol)
++            cumulative = 0.0
+             for idx, (tp, q_tp) in enumerate(zip(tps, parts), start=1):
++                cumulative += float(q_tp)
+                 q_tp2, tp_q = self._quantize(symbol, q_tp, tp, filters=filters)
+-                p = {
++                expected_remaining = max(0.0, float(qty) - cumulative)
++                common: Dict[str, Any] = {
+                     "symbol": symbol,
+                     "side": exit_side,
+-                    "type": "TAKE_PROFIT_MARKET",
+-                    "stopPrice": tp_q,
+-                    "quantity": q_tp2,
+-                    "newClientOrderId": _make_cid(sid, f"tp{idx}"),
++                    "workingType": policy.tp_working_type,
++                    "clientAlgoId": _make_cid(sid, f"tp{idx}"),
+                 }
+-                if reduce_only_allowed:
+-                    p["reduceOnly"] = True
+-                elif pos_side:
+-                    p["positionSide"] = pos_side
+-                j = client.post_order(p)
+-                out[f"tp{idx}_order_id"] = j.get("orderId")
+-                out[f"tp{idx}_client_id"] = p["newClientOrderId"]
++                if policy.name == MAKER_FIRST:
++                    limit_px = compute_limit_tp_price(
++                        float(tp_q),
++                        logical_side,
++                        offset_bps=self.tp_limit_price_offset_bps,
++                        tick_size=float(filters_obj.tick_size or 0.0),
++                    )
++                    limit_px_s = _format_float(limit_px, float(filters_obj.tick_size or 0.0))
++                    p = {
++                        **common,
++                        "type": "TAKE_PROFIT",
++                        "triggerPrice": tp_q,
++                        "price": limit_px_s,
++                        "timeInForce": policy.tp_limit_time_in_force,
++                        "quantity": q_tp2,
++                    }
++                    if reduce_only_allowed:
++                        p["reduceOnly"] = True
++                        self._validate_exit_contract(
++                            position_side=pos_side,
++                            reduce_only=True,
++                            close_position=False,
++                            quantity=float(q_tp2),
++                            order_type="TAKE_PROFIT",
++                            working_type=policy.tp_working_type,
++                            is_algo=True,
++                        )
++                    elif pos_side:
++                        p["positionSide"] = pos_side
++                        self._validate_exit_contract(
++                            position_side=pos_side,
++                            reduce_only=False,
++                            close_position=False,
++                            quantity=float(q_tp2),
++                            order_type="TAKE_PROFIT",
++                            working_type=policy.tp_working_type,
++                            is_algo=True,
++                        )
++                    j = client.post_algo_order(p)
++                    out[f"tp{idx}_algo_id"] = j.get("algoId")
++                    out[f"tp{idx}_client_algo_id"] = p["clientAlgoId"]
++                    out[f"tp{idx}_working_type"] = p["workingType"]
++                    out[f"tp{idx}_order_type"] = "TAKE_PROFIT"
++                    out[f"tp{idx}_time_in_force"] = p["timeInForce"]
++                    out[f"tp{idx}_qty"] = q_tp2
++                    out[f"tp{idx}_trigger_price"] = tp_q
++                    out[f"tp{idx}_limit_price"] = limit_px_s
++                    out[f"tp{idx}_expected_remaining_qty"] = expected_remaining
++                    out[f"tp{idx}_state"] = _tp_state_name(idx, "ARMED")
++                    self._emit_tp_state(
++                        sid,
++                        symbol,
++                        idx,
++                        "ARMED",
++                        order_type="TAKE_PROFIT",
++                        policy=policy.name,
++                        qty=q_tp2,
++                        trigger_price=tp_q,
++                        limit_price=limit_px_s,
++                    )
++                else:
++                    p = {
++                        **common,
++                        "type": "TAKE_PROFIT_MARKET",
++                        "triggerPrice": tp_q,
++                    }
++                    if reduce_only_allowed:
++                        p["reduceOnly"] = True
++                        p["quantity"] = q_tp2
++                        self._validate_exit_contract(
++                            position_side=pos_side,
++                            reduce_only=True,
++                            close_position=False,
++                            quantity=float(q_tp2),
++                            order_type="TAKE_PROFIT_MARKET",
++                            working_type=policy.tp_working_type,
++                            is_algo=True,
++                        )
++                    elif pos_side:
++                        p["positionSide"] = pos_side
++                        p["closePosition"] = True if idx == len(tps) and len(tps) == 1 else False
++                        if p["closePosition"]:
++                            self._validate_exit_contract(
++                                position_side=pos_side,
++                                reduce_only=False,
++                                close_position=True,
++                                quantity=None,
++                                order_type="TAKE_PROFIT_MARKET",
++                                working_type=policy.tp_working_type,
++                                is_algo=True,
++                            )
++                        else:
++                            p["quantity"] = q_tp2
++                            self._validate_exit_contract(
++                                position_side=pos_side,
++                                reduce_only=False,
++                                close_position=False,
++                                quantity=float(q_tp2),
++                                order_type="TAKE_PROFIT_MARKET",
++                                working_type=policy.tp_working_type,
++                                is_algo=True,
++                            )
++                    j = client.post_algo_order(p)
++                    out[f"tp{idx}_algo_id"] = j.get("algoId")
++                    out[f"tp{idx}_client_algo_id"] = p["clientAlgoId"]
++                    out[f"tp{idx}_working_type"] = p["workingType"]
++                    out[f"tp{idx}_order_type"] = "TAKE_PROFIT_MARKET"
++                    out[f"tp{idx}_qty"] = q_tp2
++                    out[f"tp{idx}_trigger_price"] = tp_q
++                    out[f"tp{idx}_expected_remaining_qty"] = expected_remaining
++                    out[f"tp{idx}_state"] = _tp_state_name(idx, "ARMED")
+         return out
+ 
+     # --- Order cancellation by token ---
+@@ -718,9 +1192,10 @@
+     def _cancel_by_token(
+         self, symbol: str, sid: str, *, client: "BinanceFuturesClient"
+     ) -> int:
+-        """Cancel all open orders for symbol whose clientOrderId contains our sid token."""
+-        token = _sha1_8(sid)
++        """Cancel all open plain/algo orders for symbol whose client IDs match sid token."""
++        token = _sha1_8(sid) if sid else ""
+         canceled = 0
++
+         orders = client.get_open_orders(symbol) or []
+         for o in orders:
+             cid = str(o.get("clientOrderId") or "")
+@@ -729,14 +1204,13 @@
+             try:
+                 oid = _i(o.get("orderId"), 0)
+                 if oid:
+-                    client.delete_order(symbol, order_id=oid)
++                    client.cancel_plain_order(symbol, order_id=oid)
+                     canceled += 1
+             except Exception:
+                 continue
+-                
+-        # Also clean up Algo Orders specifically to avoid max stop limit errors on Testnet
++
+         try:
+-            algo_orders = client._request("GET", "/fapi/v1/openAlgoOrders", params={"symbol": symbol}, signed=True) or []
++            algo_orders = client.get_open_algo_orders(symbol) or []
+             for o in algo_orders:
+                 cid = str(o.get("clientAlgoId") or "")
+                 if token and token not in cid:
+@@ -744,14 +1218,14 @@
+                 try:
+                     oid = _i(o.get("algoId"), 0)
+                     if oid:
+-                        client.delete_order(symbol, order_id=oid, is_algo=True)
++                        client.cancel_algo_order(symbol, algo_id=oid)
+                         canceled += 1
+                 except Exception:
+                     continue
+         except BinanceAPIError as e:
+             if e.status not in (404, 400):
+                 pass
+-                
++
+         return canceled
+ 
+     # --- Position quantity query ---
+@@ -777,7 +1251,242 @@
+             return abs(amt)
+         return 0.0
+ 
+-    # --- Trailing stop placement ---
++    # --- Trailing stop placement / maker TP watchdog ---
++
++    def _cancel_algo_order_best_effort(
++        self,
++        *,
++        symbol: str,
++        client: "BinanceFuturesClient",
++        algo_id: Optional[int] = None,
++        client_algo_id: Optional[str] = None,
++    ) -> None:
++        try:
++            if algo_id:
++                client.cancel_algo_order(symbol, algo_id=int(algo_id))
++                return
++            if client_algo_id:
++                client.cancel_algo_order(symbol, client_algo_id=str(client_algo_id))
++        except Exception:
++            return
++
++    def _try_arm_trailing_after_confirmed_tp(
++        self,
++        *,
++        sid: str,
++        symbol: str,
++        logical_side: str,
++        sl_algo_id: Optional[int],
++        callback_rate_pct: float,
++        client: "BinanceFuturesClient",
++        filters: "FiltersCache",
++    ) -> Dict[str, Any]:
++        qty = self._get_position_qty(symbol, logical_side=logical_side, client=client)
++        if qty <= 0:
++            self._exec_event({
++                "sid": sid, "symbol": symbol, "action": "trail_arm", "status": "no_position_after_tp"
++            })
++            return {}
++        if sl_algo_id:
++            self._cancel_algo_order_best_effort(symbol=symbol, client=client, algo_id=sl_algo_id)
++        trail = self._place_trailing_stop(
++            sid=sid, symbol=symbol, logical_side=logical_side, qty=qty,
++            callback_rate_pct=callback_rate_pct, client=client, filters=filters,
++        )
++        self._exec_event({
++            "sid": sid, "symbol": symbol, "action": "trail_arm", "status": "armed",
++            "side": logical_side, "qty": qty, "trail_callback_rate_pct": callback_rate_pct, **trail,
++        })
++        self._save_order_state(sid, {
++            "action": "trail_arm", "status": "armed", "symbol": symbol, "side": logical_side,
++            "trail_pending": False, **trail,
++        })
++        if self.tg is not None and self.trail_notify:
++            self.tg.send_text(
++                f"🧷 BINANCE trailing armed\n"
++                f"symbol={symbol} side={logical_side}\n"
++                f"sid={sid[:24]}...\n"
++                f"cb={callback_rate_pct:.1f}%"
++            )
++        return trail
++
++    def _track_maker_tp_level_thread(
++        self,
++        *,
++        sid: str,
++        symbol: str,
++        logical_side: str,
++        level: int,
++        trigger_price: float,
++        planned_qty: float,
++        target_remaining_qty: float,
++        initial_qty: float,
++        working_type: str,
++        algo_id: Optional[int],
++        client_algo_id: Optional[str],
++        sl_algo_id: Optional[int],
++        trail_after_tp1: bool,
++        callback_rate_pct: Optional[float],
++        client: "BinanceFuturesClient",
++        filters: "FiltersCache",
++    ) -> None:
++        try:
++            deadline = time.time() + float(self.tp_trigger_monitor_timeout_s)
++            poll_s = max(0.2, float(self.trail_arm_poll_s))
++            touched = False
++            partial_emitted = False
++            trail_armed = False
++            tol = self._position_qty_tolerance(symbol, filters=filters)
++            touch_ts_ms: Optional[int] = None
++
++            while time.time() < deadline:
++                px = float(client.get_working_price(symbol, working_type) or 0.0)
++                if px <= 0:
++                    time.sleep(poll_s)
++                    continue
++
++                if not touched:
++                    touched = (px >= float(trigger_price)) if logical_side == "LONG" else (px <= float(trigger_price))
++                    if touched:
++                        touch_ts_ms = _ms_now()
++                        self._emit_tp_state(
++                            sid, symbol, level, "TRIGGERED",
++                            working_price=px, trigger_price=trigger_price, working_type=working_type,
++                        )
++
++                if touched:
++                    current_qty = self._get_position_qty(symbol, logical_side=logical_side, client=client)
++                    if current_qty <= target_remaining_qty + tol:
++                        self._emit_tp_state(
++                            sid, symbol, level, "FILLED",
++                            current_qty=current_qty, target_remaining_qty=target_remaining_qty, planned_qty=planned_qty,
++                        )
++                        if level == 1 and trail_after_tp1 and callback_rate_pct is not None and not trail_armed:
++                            self._try_arm_trailing_after_confirmed_tp(
++                                sid=sid, symbol=symbol, logical_side=logical_side, sl_algo_id=sl_algo_id,
++                                callback_rate_pct=callback_rate_pct, client=client, filters=filters,
++                            )
++                        return
++                    if current_qty < initial_qty - tol and not partial_emitted:
++                        partial_emitted = True
++                        self._emit_tp_state(
++                            sid, symbol, level, "PARTIAL",
++                            current_qty=current_qty, target_remaining_qty=target_remaining_qty, planned_qty=planned_qty,
++                        )
++                        if level == 1 and trail_after_tp1 and callback_rate_pct is not None and not trail_armed:
++                            self._try_arm_trailing_after_confirmed_tp(
++                                sid=sid, symbol=symbol, logical_side=logical_side, sl_algo_id=sl_algo_id,
++                                callback_rate_pct=callback_rate_pct, client=client, filters=filters,
++                            )
++                            trail_armed = True
++
++                    if touch_ts_ms is not None and (_ms_now() - touch_ts_ms) >= int(self.tp_limit_watchdog_timeout_ms):
++                        self._cancel_algo_order_best_effort(
++                            symbol=symbol, client=client, algo_id=algo_id, client_algo_id=client_algo_id,
++                        )
++                        current_qty = self._get_position_qty(symbol, logical_side=logical_side, client=client)
++                        missing_qty = max(0.0, current_qty - float(target_remaining_qty))
++                        if missing_qty > tol:
++                            close = self._submit_reduce_only_market_exit(
++                                sid=sid, symbol=symbol, logical_side=logical_side, qty=missing_qty,
++                                reason_tag=f"tp{int(level)}wd", client=client, filters=filters,
++                            )
++                            self._emit_tp_state(
++                                sid, symbol, level, "WATCHDOG_MARKET_FALLBACK",
++                                current_qty=current_qty, target_remaining_qty=target_remaining_qty,
++                                missing_qty=missing_qty, close_order_id=close.get("close_order_id"),
++                            )
++                            if level == 1 and trail_after_tp1 and callback_rate_pct is not None and not trail_armed:
++                                time.sleep(0.2)
++                                self._try_arm_trailing_after_confirmed_tp(
++                                    sid=sid, symbol=symbol, logical_side=logical_side, sl_algo_id=sl_algo_id,
++                                    callback_rate_pct=callback_rate_pct, client=client, filters=filters,
++                                )
++                            return
++                        self._emit_tp_state(
++                            sid, symbol, level, "FILLED",
++                            current_qty=current_qty, target_remaining_qty=target_remaining_qty, planned_qty=planned_qty,
++                        )
++                        return
++
++                time.sleep(poll_s)
++
++            if not touched:
++                self._emit_tp_state(sid, symbol, level, "MONITOR_TIMEOUT", trigger_price=trigger_price)
++        except Exception as e:
++            self._emit_tp_state(sid, symbol, level, "ERROR", msg=str(e)[:400])
++
++    def _start_maker_tp_watchdogs(
++        self,
++        *,
++        payload: Dict[str, Any],
++        sid: str,
++        symbol: str,
++        logical_side: str,
++        filled_qty: float,
++        prot: Dict[str, Any],
++        tps: List[float],
++        client: "BinanceFuturesClient",
++        filters: "FiltersCache",
++    ) -> Dict[str, Any]:
++        if prot.get("execution_policy") != MAKER_FIRST or not tps or not _truthy(prot.get("tp_watchdog_enabled")):
++            return {}
++
++        trail_enabled = _truthy(payload.get("trail_after_tp1")) and bool(tps)
++        callback_rate_pct: Optional[float] = None
++        if trail_enabled:
++            atr = None
++            if payload.get("atr") is not None:
++                try:
++                    atr = float(payload.get("atr"))
++                except Exception:
++                    atr = None
++            callback_rate_pct = compute_trailing_callback_rate_pct(
++                payload,
++                entry_price=float(payload.get("entry")) if payload.get("entry") not in (None, "", 0, "0") else None,
++                atr=atr,
++                min_pct=float(self.trail_cb_min),
++                max_pct=float(self.trail_cb_max),
++                default_pct=float(self.trail_cb_default),
++                atr_mult_default=float(self.trail_atr_mult_default),
++            )
++
++        summary = {"tp_watchdog_status": "started", "tp_watchdog_timeout_ms": self.tp_limit_watchdog_timeout_ms}
++        if callback_rate_pct is not None:
++            summary["trail_callback_rate_pct"] = callback_rate_pct
++
++        for idx, _ in enumerate(tps, start=1):
++            algo_id = _i(prot.get(f"tp{idx}_algo_id"), 0) or None
++            if algo_id is None and not prot.get(f"tp{idx}_client_algo_id"):
++                continue
++            planned_qty = _f(prot.get(f"tp{idx}_qty"), 0.0)
++            target_remaining_qty = _f(prot.get(f"tp{idx}_expected_remaining_qty"), 0.0)
++            trigger_price = _f(prot.get(f"tp{idx}_trigger_price"), 0.0)
++            working_type = str(prot.get(f"tp{idx}_working_type") or self.tp_limit_trigger_working_type).upper()
++            t = threading.Thread(
++                target=self._track_maker_tp_level_thread,
++                kwargs={
++                    "sid": sid,
++                    "symbol": symbol,
++                    "logical_side": logical_side,
++                    "level": idx,
++                    "trigger_price": trigger_price,
++                    "planned_qty": planned_qty,
++                    "target_remaining_qty": target_remaining_qty,
++                    "initial_qty": float(filled_qty),
++                    "working_type": working_type,
++                    "algo_id": algo_id,
++                    "client_algo_id": prot.get(f"tp{idx}_client_algo_id"),
++                    "sl_algo_id": _i(prot.get("sl_algo_id"), 0) or None,
++                    "trail_after_tp1": bool(trail_enabled and idx == 1),
++                    "callback_rate_pct": callback_rate_pct if idx == 1 else None,
++                    "client": client,
++                    "filters": filters,
++                },
++                daemon=True,
++            )
++            t.start()
++        return summary
+ 
+     def _place_trailing_stop(
+         self, *, sid: str, symbol: str, logical_side: str,
+@@ -785,144 +1494,113 @@
+         client: "BinanceFuturesClient",
+         filters: "FiltersCache",
+     ) -> Dict[str, Any]:
+-        """Place TRAILING_STOP_MARKET order.
+-
+-        In one-way mode: reduceOnly=True ensures it only reduces the position.
+-        In hedge mode: positionSide is set; reduceOnly is forbidden by Binance.
+-        """
++        """Place TRAILING_STOP_MARKET through the Algo API with local guards."""
+         exit_side = "SELL" if logical_side == "LONG" else "BUY"
+         pos_side = _position_side_for_mode(self.position_mode, logical_side)
+         q, _ = self._quantize(symbol, qty, None, filters=filters)
+         if float(q) <= 0:
+             raise ValueError("trail qty <= 0")
+ 
++        latest = float(client.get_working_price(symbol, self.trail_working_type) or 0.0)
++        if latest <= 0:
++            raise ValueError("latest working price unavailable for trailing activation")
++        tick_size = float(filters.get(symbol).tick_size or 0.0)
++        activate_price = compute_trailing_activate_price(
++            logical_side, latest_price=latest, tick_size=tick_size,
++            buffer_bps=self.trail_activate_price_bps,
++            user_activate_price=None,
++        )
++
+         p: Dict[str, Any] = {
+             "symbol": symbol,
+             "side": exit_side,
+             "type": "TRAILING_STOP_MARKET",
+             "quantity": q,
+             "callbackRate": float(callback_rate_pct),
+-            "newClientOrderId": _make_cid(sid, "trail"),
++            "activatePrice": _format_float(activate_price, tick_size),
++            "workingType": self.trail_working_type,
++            "clientAlgoId": _make_cid(sid, "trail"),
+         }
+         if self.position_mode == "oneway":
+             p["reduceOnly"] = True
++            self._validate_exit_contract(
++                position_side=pos_side, reduce_only=True, close_position=False,
++                quantity=float(q), order_type="TRAILING_STOP_MARKET",
++                working_type=self.trail_working_type, is_algo=True,
++            )
+         if pos_side:
+             p["positionSide"] = pos_side
+ 
+-        j = client.post_order(p)
++        j = client.post_algo_order(p)
+         return {
+-            "trail_order_id": j.get("orderId"),
+-            "trail_client_id": p["newClientOrderId"],
++            "trail_algo_id": j.get("algoId"),
++            "trail_client_id": p["clientAlgoId"],
++            "trail_working_type": p["workingType"],
++            "trail_activate_price": p["activatePrice"],
+         }
+ 
+-    # --- Trailing arming background thread ---
+-
+     def _arm_trailing_after_tp1_thread(
+         self, *, sid: str, symbol: str, logical_side: str,
+-        tp1: float, callback_rate_pct: float, sl_order_id: Optional[int],
++        tp1: float, callback_rate_pct: float, sl_algo_id: Optional[int],
++        initial_qty: float, tp1_working_type: str,
+         client: "BinanceFuturesClient",
+         filters: "FiltersCache",
+     ) -> None:
+-        """Daemon thread: poll mark price → when TP1 touched, replace SL with trailing stop.
+-
+-        Rationale:
+-          - Keep hard SL active until TP1 is reached (protects downside before runners)
+-          - After TP1: cancel hard SL, arm trailing stop for remainder
+-          - This matches the upstream trail_after_tp1 strategy pattern
+-        """
++        """Wait for TP1 touch and confirmed reduction before arming trailing."""
+         try:
+             deadline = time.time() + float(self.trail_arm_timeout_s)
+             poll_s = max(0.2, float(self.trail_arm_poll_s))
+             touched = False
++            touch_ts_ms: Optional[int] = None
++            tol = self._position_qty_tolerance(symbol, filters=filters)
+ 
+             while time.time() < deadline:
+-                # Use mark price (less noisy than last trade price)
+-                mp = float(client.get_mark_price(symbol) or 0.0)
+-                if mp <= 0:
++                px = float(client.get_working_price(symbol, tp1_working_type) or 0.0)
++                if px <= 0:
+                     time.sleep(poll_s)
+                     continue
+ 
+-                if logical_side == "LONG":
+-                    touched = mp >= float(tp1)
+-                else:
+-                    touched = mp <= float(tp1)
++                if not touched:
++                    touched = (px >= float(tp1)) if logical_side == "LONG" else (px <= float(tp1))
++                    if touched:
++                        touch_ts_ms = _ms_now()
++                        self._exec_event({
++                            "sid": sid, "symbol": symbol, "action": "trail_gate",
++                            "status": "tp1_touched", "tp1": tp1, "working_price": px,
++                        })
+ 
+                 if touched:
+-                    break
++                    current_qty = self._get_position_qty(symbol, logical_side=logical_side, client=client)
++                    if current_qty < float(initial_qty) - tol:
++                        self._try_arm_trailing_after_confirmed_tp(
++                            sid=sid, symbol=symbol, logical_side=logical_side, sl_algo_id=sl_algo_id,
++                            callback_rate_pct=callback_rate_pct, client=client, filters=filters,
++                        )
++                        return
++                    if touch_ts_ms is not None and (_ms_now() - touch_ts_ms) >= int(self.tp_limit_watchdog_timeout_ms):
++                        self._exec_event({
++                            "sid": sid, "symbol": symbol, "action": "trail_gate",
++                            "status": "tp1_touch_without_confirmed_reduction", "tp1": tp1,
++                        })
++                        return
+                 time.sleep(poll_s)
+ 
+-            if not touched:
+-                # Timed out without TP1 touch — log and exit silently
+-                self._exec_event({
+-                    "sid": sid, "symbol": symbol, "action": "trail_arm",
+-                    "status": "timeout", "trail_tp1": tp1,
+-                    "trail_callback_rate_pct": callback_rate_pct,
+-                })
+-                return
+-
+-            # Verify position is still open
+-            qty = self._get_position_qty(symbol, logical_side=logical_side, client=client)
+-            if qty <= 0:
+-                self._exec_event({
+-                    "sid": sid, "symbol": symbol,
+-                    "action": "trail_arm", "status": "no_position",
+-                })
+-                return
+-
+-            # Cancel the hard SL (best-effort: might already be cancelled by partial TP)
+-            if sl_order_id:
+-                try:
+-                    client.delete_order(symbol, order_id=int(sl_order_id))
+-                except Exception:
+-                    pass
+-
+-            trail = self._place_trailing_stop(
+-                sid=sid, symbol=symbol, logical_side=logical_side,
+-                qty=qty, callback_rate_pct=callback_rate_pct,
+-                client=client, filters=filters,
+-            )
+-
+-            ev = {
+-                "sid": sid, "symbol": symbol, "action": "trail_arm",
+-                "status": "armed", "side": logical_side, "qty": qty,
+-                "trail_tp1": tp1, "trail_callback_rate_pct": callback_rate_pct,
+-                **trail,
+-            }
+-            self._exec_event(ev)
+-
+-            # Update orders:state:{sid} with trail_order_id so lookup shows full picture
+-            self._save_order_state(sid, {
+-                "action": "trail_arm",
+-                "status": "armed",
+-                "symbol": symbol,
+-                "side": logical_side,
+-                "trail_order_id": trail.get("trail_order_id"),
+-                "trail_client_id": trail.get("trail_client_id"),
+-                "trail_tp1": tp1,
+-                "trail_callback_rate_pct": callback_rate_pct,
++            self._exec_event({
++                "sid": sid, "symbol": symbol, "action": "trail_gate", "status": "timeout", "tp1": tp1,
+             })
+-
+-            if self.tg is not None and self.trail_notify:
+-                self.tg.send_text(
+-                    f"🧷 BINANCE trailing armed\n"
+-                    f"symbol={symbol} side={logical_side}\n"
+-                    f"sid={sid[:24]}...\n"
+-                    f"tp1={tp1} cb={callback_rate_pct:.1f}%"
+-                )
+         except Exception as e:
+             self._exec_event({
+-                "sid": sid, "symbol": symbol, "action": "trail_arm",
+-                "status": "error", "msg": str(e)[:900],
++                "sid": sid, "symbol": symbol, "action": "trail_gate", "status": "error", "msg": str(e)[:400],
+             })
+ 
+     def _maybe_start_trailing_after_tp1(
+         self, *, payload: Dict[str, Any], sid: str, symbol: str,
+-        logical_side: str, entry_price: Optional[float],
+-        sl_order_id: Optional[int], tp_levels: List[float],
++        logical_side: str, entry_price: Optional[float], initial_qty: float,
++        sl_algo_id: Optional[int], tp_levels: List[float], tp1_working_type: str,
++        policy: ExecutionPolicyDecision,
+         client: "BinanceFuturesClient",
+         filters: "FiltersCache",
+     ) -> Dict[str, Any]:
+-        """Start trailing arming daemon thread if trail_after_tp1=true in payload."""
+         if not _truthy(payload.get("trail_after_tp1")):
+             return {}
+         if not tp_levels:
+@@ -936,33 +1614,37 @@
+                 atr = None
+ 
+         cb = compute_trailing_callback_rate_pct(
+-            payload,
+-            entry_price=entry_price, atr=atr,
+-            min_pct=float(self.trail_cb_min),
+-            max_pct=float(self.trail_cb_max),
+-            default_pct=float(self.trail_cb_default),
+-            atr_mult_default=float(self.trail_atr_mult_default),
++            payload, entry_price=entry_price, atr=atr,
++            min_pct=float(self.trail_cb_min), max_pct=float(self.trail_cb_max),
++            default_pct=float(self.trail_cb_default), atr_mult_default=float(self.trail_atr_mult_default),
+         )
+-        tp1 = float(tp_levels[0])
+ 
++        if policy.name == MAKER_FIRST:
++            return {
++                "trail_after_tp1": True,
++                "trail_callback_rate_pct": cb,
++                "trail_status": "managed_by_tp_watchdog",
++                "trail_pending": True,
++            }
++
++        tp1 = float(tp_levels[0])
+         t = threading.Thread(
+             target=self._arm_trailing_after_tp1_thread,
+             kwargs={
+                 "sid": sid, "symbol": symbol, "logical_side": logical_side,
+-                "tp1": tp1, "callback_rate_pct": cb,
+-                "sl_order_id": int(sl_order_id) if sl_order_id else None,
+-                "client": client,
+-                "filters": filters,
++                "tp1": tp1, "callback_rate_pct": cb, "sl_algo_id": sl_algo_id,
++                "initial_qty": initial_qty, "tp1_working_type": tp1_working_type,
++                "client": client, "filters": filters,
+             },
+-            daemon=True,  # won't block process exit
++            daemon=True,
+         )
+         t.start()
+-
+         return {
+             "trail_after_tp1": True,
+             "trail_tp1": tp1,
+             "trail_callback_rate_pct": cb,
+             "trail_status": "arming",
++            "trail_pending": True,
+         }
+ 
+     # --- Action handlers ---
+@@ -985,6 +1667,7 @@
+         self._ensure_symbol_settings(symbol, client=client)
+ 
+         side, logical = _normalize_side(payload)
++        policy = self._resolve_execution_policy(payload, symbol)
+         
+         # --- Dirty Reversal & Orphan Cleanup ---
+         # If opening a position, we must clean up old orphaned algo orders.
+@@ -1018,24 +1701,19 @@
+                 # Actually, _cancel_by_token filters by token. We should just cancel all.
+                 client.cancel_all_orders(symbol)
+                 
+-                # Market close the opposing position
+-                exit_side = "SELL" if current_amt > 0 else "BUY"
+-                close_qty = abs(current_amt)
+-                q_close, _ = self._quantize(symbol, close_qty, None, filters=filters)
+-                close_params: Dict[str, Any] = {
+-                    "symbol": symbol,
+-                    "side": exit_side,
+-                    "type": "MARKET",
+-                    "quantity": q_close,
+-                    "reduceOnly": True,
+-                    "newClientOrderId": _make_cid(sid, "rev_close"),
+-                }
+-                client.post_order(close_params)
++                # Market close the opposing position through the dedicated
++                # reduce-exposure path; this bypasses non-critical execution
++                # logic and keeps the reversal deterministic.
++                current_logical = "LONG" if current_amt > 0 else "SHORT"
++                self._submit_reduce_only_market_exit(
++                    sid=sid, symbol=symbol, logical_side=current_logical, qty=abs(current_amt),
++                    reason_tag="revcls", client=client, filters=filters,
++                )
+                 
+             # 3. If position is 0 (or just became 0), clean up any lingering Algo orders
+             # that might be stuck as orphans.
+             if current_amt == 0.0 or is_opposing:
+-                algo_orders = client._request("GET", "/fapi/v1/openAlgoOrders", params={"symbol": symbol}, signed=True) or []
++                algo_orders = client.get_open_algo_orders(symbol) or []
+                 pos_side_cleanup = _position_side_for_mode(self.position_mode, logical)
+                 for o in algo_orders:
+                     try:
+@@ -1044,7 +1722,7 @@
+                             continue
+                         oid = _i(o.get("algoId"), 0)
+                         if oid:
+-                            client.delete_order(symbol, order_id=oid, is_algo=True)
++                            client.cancel_algo_order(symbol, algo_id=oid)
+                     except Exception:
+                         pass
+         except Exception:
+@@ -1080,9 +1758,9 @@
+             if p is None or float(p) <= 0:
+                 raise ValueError("LIMIT order requires a valid entry price")
+             params["price"] = p
+-            params["timeInForce"] = "GTC"
++            params["timeInForce"] = self.safety_entry_time_in_force if policy.name == SAFETY_FIRST else "GTC"
+ 
+-        j_entry = client.post_order(params)
++        j_entry = client.post_plain_order(params)
+         order_id = _i(j_entry.get("orderId"), 0)
+         if not order_id:
+             raise RuntimeError(f"no orderId in response: {j_entry}")
+@@ -1104,18 +1782,33 @@
+ 
+         prot = self._place_protective(
+             sid=sid, symbol=symbol, logical_side=logical,
+-            qty=filled_qty, sl=sl, tps=tps,
++            qty=filled_qty, sl=sl, tps=tps, policy=policy,
+             client=client, filters=filters,
+         )
+ 
+         trail = self._maybe_start_trailing_after_tp1(
+             payload=payload, sid=sid, symbol=symbol, logical_side=logical,
+-            entry_price=avg_price if avg_price > 0 else (p or None),
+-            sl_order_id=_i(prot.get("sl_order_id"), 0) or None,
+-            tp_levels=tps,
+-            client=client, filters=filters,
++            entry_price=avg_price if avg_price > 0 else (p or None), initial_qty=filled_qty,
++            sl_algo_id=_i(prot.get("sl_algo_id"), 0) or None,
++            tp_levels=tps, tp1_working_type=str(prot.get("tp1_working_type") or policy.tp_working_type),
++            policy=policy, client=client, filters=filters,
+         )
++        maker_watchdogs = self._start_maker_tp_watchdogs(
++            payload=payload, sid=sid, symbol=symbol, logical_side=logical, filled_qty=filled_qty,
++            prot=prot, tps=tps, client=client, filters=filters,
++        )
++
+ 
++        # Anti-blowup invariant: a filled entry must not remain naked. We treat
++        # missing protection refs as a critical incident and immediately flatten.
++        trail_enabled = _truthy(payload.get("trail_after_tp1")) and bool(tps)
++        if not self._protection_confirmed({**prot, **trail}, tps, trail_enabled):
++            self._emit_protection_incident(sid, symbol, "entry_filled_without_confirmed_protection")
++            emerg = self._emergency_flatten_position(
++                sid=sid, symbol=symbol, logical_side=logical, qty=filled_qty,
++                client=client, filters=filters,
++            )
++            prot = {**prot, **emerg, "protection_invariant_failed": True}
+         result = {
+             "sid": sid, "symbol": symbol, "action": "open",
+             "status": status.lower(), "side": logical,
+@@ -1123,9 +1816,10 @@
+             "binance_order_id": order_id,
+             "is_virtual": str(is_virtual).lower(),
+             "venue": f"binance_{'demo' if is_virtual else 'prod'}",
+-            **prot, **trail,
++            "execution_policy": policy.name,
++            **prot, **trail, **maker_watchdogs,
+             "json": json.dumps(
+-                {"entry": j_final, "protective": prot, "trailing": trail},
++                {"entry": j_final, "protective": prot, "trailing": trail, "tp_watchdogs": maker_watchdogs},
+                 ensure_ascii=False, default=str,
+             ),
+         }
+@@ -1141,7 +1835,8 @@
+             "binance_order_id": order_id,
+             "is_virtual": is_virtual,
+             "venue": f"binance_{'demo' if is_virtual else 'prod'}",
+-            **prot,
++            "execution_policy": policy.name,
++            **prot, **trail, **maker_watchdogs,
+         })
+         return result
+ 
+@@ -1175,6 +1870,7 @@
+ 
+         logical = "LONG" if amt > 0 else "SHORT"
+         qty = abs(amt)
++        policy = self._resolve_execution_policy(payload, symbol)
+ 
+         sl = _f(payload.get("sl"), 0.0) if payload.get("sl") is not None else None
+         sl = sl if sl and sl > 0 else None
+@@ -1184,7 +1880,7 @@
+ 
+         prot = self._place_protective(
+             sid=sid, symbol=symbol, logical_side=logical,
+-            qty=qty, sl=sl, tps=tps,
++            qty=qty, sl=sl, tps=tps, policy=policy,
+             client=client, filters=filters,
+         )
+ 
+@@ -1204,18 +1900,22 @@
+ 
+         trail = self._maybe_start_trailing_after_tp1(
+             payload=payload, sid=sid, symbol=symbol, logical_side=logical,
+-            entry_price=entry_price,
+-            sl_order_id=_i(prot.get("sl_order_id"), 0) or None,
+-            tp_levels=tps,
+-            client=client, filters=filters,
++            entry_price=entry_price, initial_qty=qty,
++            sl_algo_id=_i(prot.get("sl_algo_id"), 0) or None,
++            tp_levels=tps, tp1_working_type=str(prot.get("tp1_working_type") or policy.tp_working_type),
++            policy=policy, client=client, filters=filters,
++        )
++        maker_watchdogs = self._start_maker_tp_watchdogs(
++            payload=payload, sid=sid, symbol=symbol, logical_side=logical, filled_qty=qty,
++            prot=prot, tps=tps, client=client, filters=filters,
+         )
+         return {
+             "sid": sid, "symbol": symbol, "action": "modify",
+             "status": "ok", "side": logical, "qty": qty,
+-            "canceled_orders": canceled,
+-            **prot, **trail,
++            "canceled_orders": canceled, "execution_policy": policy.name,
++            **prot, **trail, **maker_watchdogs,
+             "json": json.dumps(
+-                {"canceled": canceled, "protective": prot, "trailing": trail},
++                {"canceled": canceled, "protective": prot, "trailing": trail, "tp_watchdogs": maker_watchdogs},
+                 ensure_ascii=False, default=str,
+             ),
+         }
+@@ -1249,22 +1949,11 @@
+         if amt != 0.0:
+             logical = "LONG" if amt > 0 else "SHORT"
+             qty = abs(amt)
+-            exit_side = "SELL" if amt > 0 else "BUY"
+-            pos_side = _position_side_for_mode(self.position_mode, logical)
+-            q, _ = self._quantize(symbol, qty, None, filters=filters)
+-            p: Dict[str, Any] = {
+-                "symbol": symbol,
+-                "side": exit_side,
+-                "type": "MARKET",
+-                "quantity": q,
+-                "newClientOrderId": _make_cid(sid, "close"),
+-            }
+-            if self.position_mode == "oneway":
+-                p["reduceOnly"] = True
+-            if pos_side:
+-                p["positionSide"] = pos_side
+-            j = client.post_order(p)
+-            close_order_id = _i(j.get("orderId"), 0) or None
++            close = self._submit_reduce_only_market_exit(
++                sid=sid, symbol=symbol, logical_side=logical, qty=qty,
++                reason_tag="close", client=client, filters=filters,
++            )
++            close_order_id = _i(close.get("close_order_id"), 0) or None
+             closed = True
+ 
+         result = {
+diff -ruN /tmp/orig/binance_execution/binance_futures_client.py work_mod/p1/binance_execution/binance_futures_client.py
+--- /tmp/orig/binance_execution/binance_futures_client.py	2026-03-06 05:49:28.000000000 +0000
++++ work_mod/p1/binance_execution/binance_futures_client.py	2026-03-06 17:31:25.993013250 +0000
+@@ -28,6 +28,7 @@
+   - GET  /fapi/v1/openOrders
+   - GET  /fapi/v1/exchangeInfo       (symbol filters for quantisation)
+   - GET  /fapi/v1/premiumIndex       (mark price for trailing arming)
++  - GET  /fapi/v1/ticker/price       (contract/last price for trigger monitoring)
+   - POST /fapi/v1/order              (entry / SL / TP / trailing)
+   - GET  /fapi/v1/order
+   - DELETE /fapi/v1/order
+@@ -75,6 +76,34 @@
+         self.payload = payload  # parsed dict or {"_raw": ...} fallback
+ 
+ 
++@dataclass(frozen=True)
++class PlainOrderRef:
++    """Reference to a plain /fapi/v1/order order.
++
++    Stored separately from algo references because Binance uses a different
++    identifier family for conditional orders after the Algo Service migration.
++    """
++
++    order_id: Optional[int]
++    client_order_id: Optional[str]
++    type: str
++    side: str
++    position_side: Optional[str] = None
++
++
++@dataclass(frozen=True)
++class AlgoOrderRef:
++    """Reference to a conditional /fapi/v1/algoOrder order."""
++
++    algo_id: Optional[int]
++    client_algo_id: Optional[str]
++    type: str
++    working_type: str
++    trigger_price: Optional[float] = None
++    close_position: bool = False
++    reduce_only: bool = False
++
++
+ # ---------------------------------------------------------------------------
+ # Shared utilities
+ # ---------------------------------------------------------------------------
+@@ -371,6 +400,21 @@
+         except Exception:
+             return 0.0
+ 
++    def get_ticker_price(self, symbol: str) -> float:
++        """Return last / contract price for symbol; 0.0 on any error (fail-open)."""
++        try:
++            j = self._request("GET", "/fapi/v1/ticker/price", params={"symbol": str(symbol).upper()})
++            return float(j.get("price"))
++        except Exception:
++            return 0.0
++
++    def get_working_price(self, symbol: str, working_type: str) -> float:
++        """Resolve the effective trigger price source for watchdog / trigger checks."""
++        wt = str(working_type or "MARK_PRICE").strip().upper()
++        if wt == "CONTRACT_PRICE":
++            return self.get_ticker_price(symbol)
++        return self.get_mark_price(symbol)
++
+     # --- signed account endpoints ---
+ 
+     def get_account(self) -> Any:
+@@ -380,19 +424,30 @@
+         return self._request("GET", "/fapi/v2/positionRisk", signed=True)
+ 
+     def get_open_orders(self, symbol: Optional[str] = None) -> Any:
+-        """List open orders. Pass symbol to narrow the result."""
++        """List open plain orders. Pass symbol to narrow the result."""
+         params: Dict[str, Any] = {}
+         if symbol:
+             params["symbol"] = symbol
+         return self._request("GET", "/fapi/v1/openOrders", params=params, signed=True)
+ 
++    def get_open_algo_orders(self, symbol: Optional[str] = None) -> Any:
++        """List open conditional orders routed via Algo Service.
++
++        Binance exposes algo orders through a dedicated endpoint and a dedicated
++        identifier family (`algoId` / `clientAlgoId`), so callers must not mix
++        the result with plain order refs.
++        """
++        params: Dict[str, Any] = {}
++        if symbol:
++            params["symbol"] = symbol
++        return self._request("GET", "/fapi/v1/openAlgoOrders", params=params, signed=True)
++
+     # --- signed trading endpoints ---
+ 
+     def cancel_all_orders(self, symbol: str) -> Any:
+         """Cancel all active regular and conditional orders for the symbol."""
+         res_regular = self._request("DELETE", "/fapi/v1/allOpenOrders", params={"symbol": symbol}, signed=True)
+         try:
+-            # New Binance Testnet requirement to clear Algo Orders explicitly
+             self._request("DELETE", "/fapi/v1/algoOpenOrders", params={"symbol": symbol}, signed=True)
+         except Exception:
+             pass
+@@ -416,77 +471,104 @@
+             params={"symbol": symbol, "marginType": str(margin_type).upper()}, signed=True,
+         )
+ 
++    def post_plain_order(self, params: Dict[str, Any]) -> Any:
++        """Submit a non-conditional order via /fapi/v1/order."""
++        return self._request("POST", "/fapi/v1/order", params=params, signed=True)
++
++    def post_algo_order(self, params: Dict[str, Any]) -> Any:
++        """Submit a conditional order via /fapi/v1/algoOrder.
++
++        The Binance Algo API uses `triggerPrice` and `clientAlgoId`. For
++        backward compatibility with older executor payloads we accept
++        `stopPrice` and `newClientOrderId` and normalise them here.
++        """
++        algo_params = dict(params)
++        if "stopPrice" in algo_params and "triggerPrice" not in algo_params:
++            algo_params["triggerPrice"] = algo_params.pop("stopPrice")
++        if "newClientOrderId" in algo_params and "clientAlgoId" not in algo_params:
++            algo_params["clientAlgoId"] = algo_params.pop("newClientOrderId")
++        algo_params.setdefault("workingType", algo_params.get("workingType") or "MARK_PRICE")
++        return self._request("POST", "/fapi/v1/algoOrder", params=algo_params, signed=True)
++
+     def post_order(self, params: Dict[str, Any]) -> Any:
+-        """Place an order.
++        """Backward-compatible routing wrapper.
+ 
+-        Required param keys: symbol, side, type, quantity (or closePosition=True for SL).
+-        Optional keys vary by order type (price, stopPrice, callbackRate,
+-        timeInForce, positionSide, reduceOnly, newClientOrderId, ...).
++        New code should explicitly call post_plain_order()/post_algo_order().
++        The wrapper remains to avoid breaking old call-sites while we migrate
++        the executor and tests.
+         """
+-        # Route conditional orders to the new Algo Order API
+         algo_types = {"STOP_MARKET", "TAKE_PROFIT_MARKET", "STOP", "TAKE_PROFIT", "TRAILING_STOP_MARKET"}
+         order_type = str(params.get("type", "")).upper()
+-        
+         if order_type in algo_types:
+-            # Prepare algoOrder payload
+-            algo_params = dict(params)
+-            algo_params["algoType"] = "CONDITIONAL"
+-            
+-            # Binance Algo API expects 'triggerPrice' instead of 'stopPrice' for Stop/TP orders
+-            if "stopPrice" in algo_params and order_type in {"STOP_MARKET", "TAKE_PROFIT_MARKET", "STOP", "TAKE_PROFIT"}:
+-                algo_params["triggerPrice"] = algo_params.pop("stopPrice")
+-                
+-            return self._request("POST", "/fapi/v1/algoOrder", params=algo_params, signed=True)
+-            
+-        return self._request("POST", "/fapi/v1/order", params=params, signed=True)
++            return self.post_algo_order(params)
++        return self.post_plain_order(params)
+ 
+-    def get_order(
++    def query_plain_order(
+         self, symbol: str, *,
+         order_id: Optional[int] = None,
+         client_order_id: Optional[str] = None,
+-        is_algo: bool = False
+     ) -> Any:
+-        """Query order status by orderId or origClientOrderId."""
+         p: Dict[str, Any] = {"symbol": symbol}
+         if order_id is not None:
+             p["orderId"] = int(order_id)
+         if client_order_id is not None:
+             p["origClientOrderId"] = client_order_id
+-        
+-        path = "/fapi/v1/openAlgoOrders" if is_algo else "/fapi/v1/order"
+-        try:
+-            return self._request("GET", path, params=p, signed=True)
+-        except BinanceAPIError as e:
+-            # If not found and we didn't explicitly ask for algo, try algo (order might be conditional)
+-            if not is_algo and e.status in (400, 404):
+-                try:
+-                    return self._request("GET", "/fapi/v1/openAlgoOrders", params=p, signed=True)
+-                except Exception:
+-                    pass
+-            raise
++        return self._request("GET", "/fapi/v1/order", params=p, signed=True)
+ 
+-    def delete_order(
++    def query_algo_order(
++        self, symbol: str, *,
++        algo_id: Optional[int] = None,
++        client_algo_id: Optional[str] = None,
++    ) -> Any:
++        p: Dict[str, Any] = {"symbol": symbol}
++        if algo_id is not None:
++            p["algoId"] = int(algo_id)
++        if client_algo_id is not None:
++            p["clientAlgoId"] = client_algo_id
++        return self._request("GET", "/fapi/v1/algoOrder", params=p, signed=True)
++
++    def get_order(
+         self, symbol: str, *,
+         order_id: Optional[int] = None,
+         client_order_id: Optional[str] = None,
+         is_algo: bool = False
+     ) -> Any:
+-        """Cancel order by orderId or origClientOrderId."""
++        """Backward-compatible query wrapper."""
++        if is_algo:
++            return self.query_algo_order(symbol, algo_id=order_id, client_algo_id=client_order_id)
++        return self.query_plain_order(symbol, order_id=order_id, client_order_id=client_order_id)
++
++    def cancel_plain_order(
++        self, symbol: str, *,
++        order_id: Optional[int] = None,
++        client_order_id: Optional[str] = None,
++    ) -> Any:
+         p: Dict[str, Any] = {"symbol": symbol}
+         if order_id is not None:
+             p["orderId"] = int(order_id)
+         if client_order_id is not None:
+             p["origClientOrderId"] = client_order_id
+-            
+-        path = "/fapi/v1/algoOrder" if is_algo else "/fapi/v1/order"
+-        try:
+-            return self._request("DELETE", path, params=p, signed=True)
+-        except BinanceAPIError as e:
+-            if not is_algo and e.status in (400, 404):
+-                try:
+-                    # Binance requires `algoId` for `DELETE /fapi/v1/algoOrder`. 
+-                    # If we only have `orderId` or `origClientOrderId` we pass it. The API will accept either one.
+-                    return self._request("DELETE", "/fapi/v1/algoOrder", params=p, signed=True)
+-                except Exception:
+-                    pass
+-            raise
++        return self._request("DELETE", "/fapi/v1/order", params=p, signed=True)
++
++    def cancel_algo_order(
++        self, symbol: str, *,
++        algo_id: Optional[int] = None,
++        client_algo_id: Optional[str] = None,
++    ) -> Any:
++        p: Dict[str, Any] = {"symbol": symbol}
++        if algo_id is not None:
++            p["algoId"] = int(algo_id)
++        if client_algo_id is not None:
++            p["clientAlgoId"] = client_algo_id
++        return self._request("DELETE", "/fapi/v1/algoOrder", params=p, signed=True)
++
++    def delete_order(
++        self, symbol: str, *,
++        order_id: Optional[int] = None,
++        client_order_id: Optional[str] = None,
++        is_algo: bool = False
++    ) -> Any:
++        """Backward-compatible cancel wrapper."""
++        if is_algo:
++            return self.cancel_algo_order(symbol, algo_id=order_id, client_algo_id=client_order_id)
++        return self.cancel_plain_order(symbol, order_id=order_id, client_order_id=client_order_id)
+diff -ruN /tmp/orig/binance_execution/execution_intent_validator.py work_mod/p1/binance_execution/execution_intent_validator.py
+--- /tmp/orig/binance_execution/execution_intent_validator.py	1970-01-01 00:00:00.000000000 +0000
++++ work_mod/p1/binance_execution/execution_intent_validator.py	2026-03-06 17:28:17.438161445 +0000
+@@ -0,0 +1,73 @@
++from __future__ import annotations
++
++"""Local exit-intent validator for Binance Futures execution.
++
++The goal is to reject malformed exit contracts *before* they hit Binance:
++- in Hedge mode `positionSide` is mandatory
++- `reduceOnly` is not a universal close flag
++- Algo orders must not combine `closePosition=true` with `quantity`
++- Algo orders must not combine `closePosition=true` with `reduceOnly`
++"""
++
++from dataclasses import dataclass
++from typing import Optional
++
++
++@dataclass(frozen=True)
++class ExitIntentResult:
++    will_reduce_exposure: bool
++    will_open_new_exposure: bool
++    is_valid_exit_contract: bool
++    reason: str = ""
++
++
++def validate_exit_intent(
++    *,
++    position_mode: str,
++    position_side: Optional[str],
++    exit_intent: str,
++    reduce_only: bool,
++    close_position: bool,
++    quantity: Optional[float],
++    order_type: str,
++    working_type: Optional[str],
++    is_algo: bool,
++) -> ExitIntentResult:
++    pm = (position_mode or "oneway").strip().lower()
++    ps = (position_side or "").strip().upper() or None
++    ei = (exit_intent or "").strip().lower()
++    ot = (order_type or "").strip().upper()
++    wt = (working_type or "").strip().upper() or None
++    qty = float(quantity) if quantity is not None else None
++
++    if pm not in {"oneway", "hedge"}:
++        return ExitIntentResult(False, True, False, "invalid_position_mode")
++
++    if pm == "hedge" and ps not in {"LONG", "SHORT"}:
++        return ExitIntentResult(False, True, False, "positionSide_required_in_hedge")
++
++    if wt is not None and wt not in {"MARK_PRICE", "CONTRACT_PRICE"}:
++        return ExitIntentResult(False, True, False, "invalid_workingType")
++
++    if is_algo and close_position and qty not in (None, 0.0):
++        return ExitIntentResult(False, True, False, "algo_closePosition_incompatible_with_quantity")
++
++    if is_algo and close_position and reduce_only:
++        return ExitIntentResult(False, True, False, "algo_closePosition_incompatible_with_reduceOnly")
++
++    if not is_algo and pm == "hedge" and reduce_only:
++        return ExitIntentResult(False, True, False, "reduceOnly_forbidden_in_hedge_plain_order")
++
++    if ei not in {"reduce", "close"}:
++        return ExitIntentResult(False, True, False, "unsupported_exit_intent")
++
++    if close_position:
++        return ExitIntentResult(True, False, True, "close_position")
++
++    if reduce_only:
++        return ExitIntentResult(True, False, True, "reduce_only")
++
++    # In hedge mode a SELL on LONG side / BUY on SHORT side can still be a valid
++    # reducing order, but without reduceOnly/closePosition we cannot prove this
++    # contract is safe enough for the executor.
++    return ExitIntentResult(False, True, False, "exit_contract_not_provably_reducing")
+diff -ruN /tmp/orig/binance_execution/execution_policy.py work_mod/p1/binance_execution/execution_policy.py
+--- /tmp/orig/binance_execution/execution_policy.py	1970-01-01 00:00:00.000000000 +0000
++++ work_mod/p1/binance_execution/execution_policy.py	2026-03-06 17:31:00.145815510 +0000
+@@ -0,0 +1,157 @@
++from __future__ import annotations
++
++"""Execution policy resolver for Binance Futures exits.
++
++Two official policies are supported:
++- SAFETY_FIRST: deterministic risk reduction, market TP/SL semantics
++- MAKER_FIRST : limit TP ladder + watchdog + market fallback
++
++The resolver is intentionally simple and deterministic so it can be used in
++both executor runtime and unit tests without extra dependencies.
++"""
++
++from dataclasses import dataclass
++from typing import Any, Dict, Iterable, Optional, Set
++
++
++SAFETY_FIRST = "SAFETY_FIRST"
++MAKER_FIRST = "MAKER_FIRST"
++
++
++@dataclass(frozen=True)
++class ExecutionPolicyDecision:
++    name: str
++    reason: str
++    tp_order_type: str
++    tp_working_type: str
++    tp_limit_time_in_force: Optional[str]
++    tp_watchdog_enabled: bool
++    tp_watchdog_timeout_ms: int
++    trailing_requires_confirmed_tp: bool = True
++
++
++
++def _truthy(v: Any) -> bool:
++    if v is None:
++        return False
++    if isinstance(v, bool):
++        return v
++    if isinstance(v, (int, float)):
++        return float(v) != 0.0
++    return str(v).strip().lower() in {"1", "true", "yes", "on"}
++
++
++
++def _normalise_policy_name(v: Optional[str]) -> Optional[str]:
++    if not v:
++        return None
++    s = str(v).strip().replace("-", "_").replace(" ", "_").upper()
++    if s in {SAFETY_FIRST, "SAFE", "SAFE_FIRST"}:
++        return SAFETY_FIRST
++    if s in {MAKER_FIRST, "MAKER"}:
++        return MAKER_FIRST
++    return None
++
++
++
++def resolve_execution_policy(
++    *,
++    payload: Dict[str, Any],
++    symbol: str,
++    default_policy: str,
++    maker_allowed_symbols: Iterable[str],
++    tp_market_working_type: str,
++    tp_limit_trigger_working_type: str,
++    tp_limit_time_in_force: str,
++    watchdog_enabled: bool,
++    watchdog_timeout_ms: int,
++) -> ExecutionPolicyDecision:
++    """Resolve one of the official policies.
++
++    Resolution priority:
++    1. explicit payload override (`execution_policy` / `exit_policy`)
++    2. forced safety flags: emergency/infra/high-vol/thin-book/tier-C
++    3. maker-first only for allowlisted symbols under healthy conditions
++    4. executor default
++    """
++    symbol_u = str(symbol or "").upper()
++    maker_allow: Set[str] = {str(x).upper() for x in maker_allowed_symbols if str(x).strip()}
++
++    explicit = _normalise_policy_name(payload.get("execution_policy") or payload.get("exit_policy"))
++    if explicit == SAFETY_FIRST:
++        return ExecutionPolicyDecision(
++            name=SAFETY_FIRST,
++            reason="payload_override",
++            tp_order_type="TAKE_PROFIT_MARKET",
++            tp_working_type=tp_market_working_type,
++            tp_limit_time_in_force=None,
++            tp_watchdog_enabled=False,
++            tp_watchdog_timeout_ms=0,
++        )
++    if explicit == MAKER_FIRST:
++        return ExecutionPolicyDecision(
++            name=MAKER_FIRST,
++            reason="payload_override",
++            tp_order_type="TAKE_PROFIT",
++            tp_working_type=tp_limit_trigger_working_type,
++            tp_limit_time_in_force=tp_limit_time_in_force,
++            tp_watchdog_enabled=bool(watchdog_enabled),
++            tp_watchdog_timeout_ms=int(watchdog_timeout_ms),
++        )
++
++    forced_safety_flags = {
++        "infra_degraded": _truthy(payload.get("infra_degraded")),
++        "high_vol": _truthy(payload.get("high_vol")) or _truthy(payload.get("regime_high_vol")),
++        "thin_book": _truthy(payload.get("thin_book")) or _truthy(payload.get("thin_books")),
++        "emergency_mode": _truthy(payload.get("emergency_mode")) or _truthy(payload.get("panic_mode")),
++        "tier_c": str(payload.get("symbol_tier") or payload.get("tier") or "").strip().upper() in {"C", "TIER_C"},
++    }
++    for key, enabled in forced_safety_flags.items():
++        if enabled:
++            return ExecutionPolicyDecision(
++                name=SAFETY_FIRST,
++                reason=f"forced_{key}",
++                tp_order_type="TAKE_PROFIT_MARKET",
++                tp_working_type=tp_market_working_type,
++                tp_limit_time_in_force=None,
++                tp_watchdog_enabled=False,
++                tp_watchdog_timeout_ms=0,
++            )
++
++    healthy_infra = not _truthy(payload.get("infra_unhealthy"))
++    narrow_spread = not _truthy(payload.get("wide_spread"))
++    latency_ok = not _truthy(payload.get("latency_budget_breached"))
++    thin_book = _truthy(payload.get("thin_book"))
++
++    if symbol_u in maker_allow and healthy_infra and narrow_spread and latency_ok and not thin_book:
++        return ExecutionPolicyDecision(
++            name=MAKER_FIRST,
++            reason="allowlisted_symbol_healthy_regime",
++            tp_order_type="TAKE_PROFIT",
++            tp_working_type=tp_limit_trigger_working_type,
++            tp_limit_time_in_force=tp_limit_time_in_force,
++            tp_watchdog_enabled=bool(watchdog_enabled),
++            tp_watchdog_timeout_ms=int(watchdog_timeout_ms),
++        )
++
++    default_norm = _normalise_policy_name(default_policy) or SAFETY_FIRST
++    if default_norm == MAKER_FIRST and symbol_u in maker_allow:
++        return ExecutionPolicyDecision(
++            name=MAKER_FIRST,
++            reason="default_policy_allowlisted_symbol",
++            tp_order_type="TAKE_PROFIT",
++            tp_working_type=tp_limit_trigger_working_type,
++            tp_limit_time_in_force=tp_limit_time_in_force,
++            tp_watchdog_enabled=bool(watchdog_enabled),
++            tp_watchdog_timeout_ms=int(watchdog_timeout_ms),
++        )
++
++    return ExecutionPolicyDecision(
++        name=SAFETY_FIRST,
++        reason="default_fallback",
++        tp_order_type="TAKE_PROFIT_MARKET",
++        tp_working_type=tp_market_working_type,
++        tp_limit_time_in_force=None,
++        tp_watchdog_enabled=False,
++        tp_watchdog_timeout_ms=0,
++    )
+diff -ruN /tmp/orig/binance_execution/test_binance_account_reporter_p0_v1.py work_mod/p1/binance_execution/test_binance_account_reporter_p0_v1.py
+--- /tmp/orig/binance_execution/test_binance_account_reporter_p0_v1.py	2026-03-06 05:49:29.000000000 +0000
++++ work_mod/p1/binance_execution/test_binance_account_reporter_p0_v1.py	2026-03-06 17:45:50.695975798 +0000
+@@ -9,24 +9,24 @@
+ """
+ 
+ import unittest
++import importlib.util
+ import sys
+-import os
++from pathlib import Path
+ 
+-# Add repo root to path to import services.*
+-repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
+-if repo_root not in sys.path:
+-    sys.path.insert(0, repo_root)
+-
+-
+-from services.binance_account_reporter import (
+-    build_snapshot,
+-    format_report,
+-    _store_history,
+-    _read_delta_available,
+-    _fmt_delta,
+-    _MS_1H,
+-    _MS_24H,
+-)
++mod_path = Path(__file__).with_name("binance_account_reporter.py")
++spec = importlib.util.spec_from_file_location("binance_account_reporter", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++build_snapshot = mod.build_snapshot
++format_report = mod.format_report
++_store_history = mod._store_history
++_read_delta_available = mod._read_delta_available
++_fmt_delta = mod._fmt_delta
++_MS_1H = mod._MS_1H
++_MS_24H = mod._MS_24H
+ 
+ 
+ class DummyClient:
+diff -ruN /tmp/orig/binance_execution/test_binance_algo_client_v1.py work_mod/p1/binance_execution/test_binance_algo_client_v1.py
+--- /tmp/orig/binance_execution/test_binance_algo_client_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ work_mod/p1/binance_execution/test_binance_algo_client_v1.py	2026-03-06 17:44:37.441632351 +0000
+@@ -0,0 +1,60 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++mod_path = Path(__file__).with_name("binance_futures_client.py")
++spec = importlib.util.spec_from_file_location("binance_futures_client", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++def test_post_order_routes_algo_and_maps_compat_fields(monkeypatch):
++    calls = []
++
++    client = mod.BinanceFuturesClient(api_key="k", api_secret="s")
++
++    def fake_request(method, path, params=None, signed=False):
++        calls.append((method, path, dict(params or {}), signed))
++        return {"algoId": 123}
++
++    monkeypatch.setattr(client, "_request", fake_request)
++
++    client.post_order({
++        "symbol": "BTCUSDT",
++        "side": "SELL",
++        "type": "STOP_MARKET",
++        "stopPrice": "100.0",
++        "newClientOrderId": "cid-1",
++    })
++
++    assert calls
++    method, path, params, signed = calls[0]
++    assert method == "POST"
++    assert path == "/fapi/v1/algoOrder"
++    assert params["triggerPrice"] == "100.0"
++    assert params["clientAlgoId"] == "cid-1"
++    assert signed is True
++
++
++def test_post_order_routes_plain_market(monkeypatch):
++    calls = []
++    client = mod.BinanceFuturesClient(api_key="k", api_secret="s")
++
++    def fake_request(method, path, params=None, signed=False):
++        calls.append((method, path, dict(params or {}), signed))
++        return {"orderId": 456}
++
++    monkeypatch.setattr(client, "_request", fake_request)
++
++    client.post_order({
++        "symbol": "BTCUSDT",
++        "side": "BUY",
++        "type": "MARKET",
++        "quantity": "0.01",
++    })
++
++    method, path, params, signed = calls[0]
++    assert path == "/fapi/v1/order"
++    assert params["type"] == "MARKET"
+diff -ruN /tmp/orig/binance_execution/test_binance_executor_p1_policy_v1.py work_mod/p1/binance_execution/test_binance_executor_p1_policy_v1.py
+--- /tmp/orig/binance_execution/test_binance_executor_p1_policy_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ work_mod/p1/binance_execution/test_binance_executor_p1_policy_v1.py	2026-03-06 17:44:37.442618846 +0000
+@@ -0,0 +1,150 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++mod_path = Path(__file__).with_name("binance_executor.py")
++spec = importlib.util.spec_from_file_location("binance_executor", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++pol_path = Path(__file__).with_name("execution_policy.py")
++pspec = importlib.util.spec_from_file_location("execution_policy", pol_path)
++pol = importlib.util.module_from_spec(pspec)
++sys.modules[pspec.name] = pol
++assert pspec.loader is not None
++pspec.loader.exec_module(pol)
++
++
++class DummyFilters:
++    class Obj:
++        tick_size = 0.1
++        step_size = 0.001
++
++    def get(self, symbol):
++        return self.Obj()
++
++
++class DummyClient:
++    def __init__(self):
++        self.calls = []
++        self._n = 100
++
++    def post_algo_order(self, params):
++        self.calls.append(dict(params))
++        self._n += 1
++        return {"algoId": self._n}
++
++    def post_plain_order(self, params):
++        self.calls.append(dict(params))
++        self._n += 1
++        return {"orderId": self._n, "status": "FILLED"}
++
++    def get_working_price(self, symbol, working_type):
++        return 100.0
++
++
++def _make_exec():
++    ex = mod.BinanceExecutor.__new__(mod.BinanceExecutor)
++    ex.position_mode = "oneway"
++    ex.sl_working_type = "MARK_PRICE"
++    ex.tp_market_working_type = "MARK_PRICE"
++    ex.tp_limit_trigger_working_type = "MARK_PRICE"
++    ex.tp_limit_time_in_force = "GTX"
++    ex.tp_limit_price_offset_bps = 0.0
++    ex.trail_working_type = "MARK_PRICE"
++    ex.trail_activate_price_bps = 5.0
++    ex._local_headroom_check = lambda **kwargs: None
++    ex._split_tp_qtys = lambda symbol, total_qty, n, filters: [total_qty / n] * n
++    ex._quantize = lambda symbol, qty, price, filters: (f"{qty}", f"{price}" if price is not None else None)
++    ex._validate_exit_contract = lambda **kwargs: None
++    ex._emit_tp_state = lambda *args, **kwargs: None
++    return ex
++
++
++def test_place_protective_maker_first_uses_take_profit_limit():
++    ex = _make_exec()
++    client = DummyClient()
++    filters = DummyFilters()
++    policy = pol.ExecutionPolicyDecision(
++        name=pol.MAKER_FIRST,
++        reason="test",
++        tp_order_type="TAKE_PROFIT",
++        tp_working_type="MARK_PRICE",
++        tp_limit_time_in_force="GTX",
++        tp_watchdog_enabled=True,
++        tp_watchdog_timeout_ms=4000,
++    )
++    out = ex._place_protective(
++        sid="sid-1",
++        symbol="BTCUSDT",
++        logical_side="LONG",
++        qty=1.0,
++        sl=95.0,
++        tps=[101.0, 102.0],
++        policy=policy,
++        client=client,
++        filters=filters,
++    )
++    assert out["sl_algo_id"]
++    tp_calls = [c for c in client.calls if c.get("type") in {"TAKE_PROFIT", "TAKE_PROFIT_MARKET"}]
++    assert tp_calls[0]["type"] == "TAKE_PROFIT"
++    assert tp_calls[0]["timeInForce"] == "GTX"
++    assert "price" in tp_calls[0]
++    assert out["tp1_state"] == "TP1_ARMED"
++
++
++def test_place_protective_safety_first_uses_take_profit_market():
++    ex = _make_exec()
++    client = DummyClient()
++    filters = DummyFilters()
++    policy = pol.ExecutionPolicyDecision(
++        name=pol.SAFETY_FIRST,
++        reason="test",
++        tp_order_type="TAKE_PROFIT_MARKET",
++        tp_working_type="MARK_PRICE",
++        tp_limit_time_in_force=None,
++        tp_watchdog_enabled=False,
++        tp_watchdog_timeout_ms=0,
++    )
++    out = ex._place_protective(
++        sid="sid-2",
++        symbol="BTCUSDT",
++        logical_side="LONG",
++        qty=1.0,
++        sl=95.0,
++        tps=[101.0],
++        policy=policy,
++        client=client,
++        filters=filters,
++    )
++    tp_calls = [c for c in client.calls if c.get("type") in {"TAKE_PROFIT", "TAKE_PROFIT_MARKET"}]
++    assert tp_calls[0]["type"] == "TAKE_PROFIT_MARKET"
++    assert out["tp1_order_type"] == "TAKE_PROFIT_MARKET"
++
++
++def test_trailing_activate_price_guard_for_long_exit():
++    px = mod.compute_trailing_activate_price(
++        "LONG", latest_price=100.0, tick_size=0.1, buffer_bps=5.0
++    )
++    assert px > 100.0
++
++
++def test_submit_reduce_only_market_exit_uses_plain_order_path():
++    ex = _make_exec()
++    client = DummyClient()
++    filters = DummyFilters()
++    close = ex._submit_reduce_only_market_exit(
++        sid="sid-3",
++        symbol="BTCUSDT",
++        logical_side="LONG",
++        qty=0.5,
++        reason_tag="emerg",
++        client=client,
++        filters=filters,
++    )
++    assert close["close_order_id"]
++    last = client.calls[-1]
++    assert last["type"] == "MARKET"
++    assert last["reduceOnly"] is True
+diff -ruN /tmp/orig/binance_execution/test_binance_trailing_unit_v1.py work_mod/p1/binance_execution/test_binance_trailing_unit_v1.py
+--- /tmp/orig/binance_execution/test_binance_trailing_unit_v1.py	2026-03-06 05:49:29.000000000 +0000
++++ work_mod/p1/binance_execution/test_binance_trailing_unit_v1.py	2026-03-06 17:46:57.915527393 +0000
+@@ -14,16 +14,31 @@
+ """
+ 
+ import math
++import importlib.util
++import sys
++from pathlib import Path
+ 
+-from services.binance_executor import (
+-    _truthy,
+-    _round_half_up,
+-    _make_cid,
+-    _sha1_8,
+-    _classify_error,
+-    compute_trailing_callback_rate_pct,
+-)
+-from services.binance_futures_client import BinanceAPIError
++mod_path = Path(__file__).with_name("binance_executor.py")
++spec = importlib.util.spec_from_file_location("binance_executor", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++client_path = Path(__file__).with_name("binance_futures_client.py")
++cspec = importlib.util.spec_from_file_location("binance_futures_client", client_path)
++client_mod = importlib.util.module_from_spec(cspec)
++sys.modules[cspec.name] = client_mod
++assert cspec.loader is not None
++cspec.loader.exec_module(client_mod)
++
++_truthy = mod._truthy
++_round_half_up = mod._round_half_up
++_make_cid = mod._make_cid
++_sha1_8 = mod._sha1_8
++_classify_error = mod._classify_error
++compute_trailing_callback_rate_pct = mod.compute_trailing_callback_rate_pct
++BinanceAPIError = mod.BinanceAPIError
+ 
+ 
+ # ---------------------------------------------------------------------------
+diff -ruN /tmp/orig/binance_execution/test_execution_intent_validator_v1.py work_mod/p1/binance_execution/test_execution_intent_validator_v1.py
+--- /tmp/orig/binance_execution/test_execution_intent_validator_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ work_mod/p1/binance_execution/test_execution_intent_validator_v1.py	2026-03-06 17:44:37.441131098 +0000
+@@ -0,0 +1,59 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++mod_path = Path(__file__).with_name("execution_intent_validator.py")
++spec = importlib.util.spec_from_file_location("execution_intent_validator", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++def test_hedge_requires_position_side():
++    res = mod.validate_exit_intent(
++        position_mode="hedge",
++        position_side=None,
++        exit_intent="close",
++        reduce_only=False,
++        close_position=True,
++        quantity=None,
++        order_type="STOP_MARKET",
++        working_type="MARK_PRICE",
++        is_algo=True,
++    )
++    assert res.is_valid_exit_contract is False
++    assert res.reason == "positionSide_required_in_hedge"
++
++
++def test_algo_close_position_incompatible_with_quantity():
++    res = mod.validate_exit_intent(
++        position_mode="hedge",
++        position_side="LONG",
++        exit_intent="close",
++        reduce_only=False,
++        close_position=True,
++        quantity=1.0,
++        order_type="TAKE_PROFIT_MARKET",
++        working_type="MARK_PRICE",
++        is_algo=True,
++    )
++    assert res.is_valid_exit_contract is False
++    assert "quantity" in res.reason
++
++
++def test_plain_oneway_reduce_only_market_close_is_valid():
++    res = mod.validate_exit_intent(
++        position_mode="oneway",
++        position_side=None,
++        exit_intent="close",
++        reduce_only=True,
++        close_position=False,
++        quantity=1.0,
++        order_type="MARKET",
++        working_type=None,
++        is_algo=False,
++    )
++    assert res.is_valid_exit_contract is True
++    assert res.will_reduce_exposure is True
++    assert res.will_open_new_exposure is False
+diff -ruN /tmp/orig/binance_execution/test_execution_policy_v1.py work_mod/p1/binance_execution/test_execution_policy_v1.py
+--- /tmp/orig/binance_execution/test_execution_policy_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ work_mod/p1/binance_execution/test_execution_policy_v1.py	2026-03-06 17:44:37.442181773 +0000
+@@ -0,0 +1,45 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++mod_path = Path(__file__).with_name("execution_policy.py")
++spec = importlib.util.spec_from_file_location("execution_policy", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++def test_forced_safety_on_infra_degraded():
++    decision = mod.resolve_execution_policy(
++        payload={"infra_degraded": True},
++        symbol="BTCUSDT",
++        default_policy="MAKER_FIRST",
++        maker_allowed_symbols={"BTCUSDT"},
++        tp_market_working_type="MARK_PRICE",
++        tp_limit_trigger_working_type="MARK_PRICE",
++        tp_limit_time_in_force="GTX",
++        watchdog_enabled=True,
++        watchdog_timeout_ms=4000,
++    )
++    assert decision.name == mod.SAFETY_FIRST
++    assert decision.tp_order_type == "TAKE_PROFIT_MARKET"
++    assert decision.reason == "forced_infra_degraded"
++
++
++def test_allowlisted_major_gets_maker_first_when_healthy():
++    decision = mod.resolve_execution_policy(
++        payload={},
++        symbol="ETHUSDT",
++        default_policy="SAFETY_FIRST",
++        maker_allowed_symbols={"BTCUSDT", "ETHUSDT"},
++        tp_market_working_type="MARK_PRICE",
++        tp_limit_trigger_working_type="MARK_PRICE",
++        tp_limit_time_in_force="GTX",
++        watchdog_enabled=True,
++        watchdog_timeout_ms=4000,
++    )
++    assert decision.name == mod.MAKER_FIRST
++    assert decision.tp_order_type == "TAKE_PROFIT"
++    assert decision.tp_limit_time_in_force == "GTX"
++    assert decision.tp_watchdog_enabled is True

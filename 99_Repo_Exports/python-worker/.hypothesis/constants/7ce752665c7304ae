@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/optimize/_cobyla_py.py
+# hypothesis_version: 6.148.10
+
+[0.0001, 0.0002, 1.0, 1000, 'Unknown exit status.', 'args', 'callback', 'catol', 'disp', 'fmin_cobyla', 'fun', 'ineq', 'maxiter', 'rhobeg', 'success', 'tol', 'type', 'x']

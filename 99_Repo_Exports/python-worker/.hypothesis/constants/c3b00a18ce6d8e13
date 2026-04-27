@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/backoff.py
+# hypothesis_version: 6.148.10
+
+[0.5, 1.0, 2.0, 60.0, 'Retry logic failed']

@@ -1,0 +1,1080 @@
+diff --git a/orderflow_services/route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_rollup_v3_51.py b/orderflow_services/route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_rollup_v3_51.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_rollup_v3_51.py
+@@ -0,0 +1,486 @@
++from __future__ import annotations
++
++import asyncio
++import json
++import math
++import os
++import time
++from typing import Any, Dict, List, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    import psycopg
++except Exception:  # pragma: no cover
++    psycopg = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++
++APP_NAME = "route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_rollup_v3_51"
++INPUT_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_VERIFICATION_RESULTS_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_verification_results",
++)
++ROLLBACK_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_ROLLBACK_JOURNAL_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_rollback_journal",
++)
++RETRY_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_RESULTS_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry_results",
++)
++ESCALATIONS_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_ESCALATIONS_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_escalations",
++)
++OUTPUT_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_SLO_ROLLUPS_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_rollups",
++)
++AUDIT_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_SLO_AUDIT_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_audit",
++)
++LAST_HASH = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_SLO_LAST_HASH",
++    "metrics:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo:last",
++)
++GROUP = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_SLO_GROUP",
++    APP_NAME,
++)
++CONSUMER = os.getenv("HOSTNAME", APP_NAME)
++PORT = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_SLO_PORT", "9984"))
++MAXLEN = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_SLO_MAXLEN", "20000"))
++LOOKBACK_COUNT = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_SLO_LOOKBACK_COUNT", "1000"))
++WINDOW_MIN = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_SLO_WINDOW_MIN", "10080"))
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter(
++    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_runs_total",
++    "Apply-flow experiment SLO rollup runs",
++    ("status",),
++)
++LAT = _hist(
++    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_latency_seconds",
++    "Apply-flow experiment SLO rollup latency seconds",
++)
++UP = _gauge(
++    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_up",
++    "Apply-flow experiment SLO rollup up",
++)
++LAST_RUN_TS = _gauge(
++    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_last_run_ts_seconds",
++    "Apply-flow experiment SLO rollup last run timestamp",
++)
++VERIFY_KEEP_RATE = _gauge(
++    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_verify_keep_rate",
++    "Apply-flow experiment verify keep rate",
++)
++ROLLBACK_PLAN_RATE = _gauge(
++    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_rollback_plan_rate",
++    "Apply-flow experiment rollback plan rate",
++)
++ROLLBACK_APPLIED_RATE = _gauge(
++    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_rollback_applied_rate",
++    "Apply-flow experiment rollback applied rate",
++)
++ROLLBACK_MTTR_P95 = _gauge(
++    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_rollback_mttr_p95_sec",
++    "Apply-flow experiment rollback mttr p95 sec",
++)
++ESCALATIONS_RATE = _gauge(
++    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_escalation_rate",
++    "Apply-flow experiment escalation rate",
++)
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def parse_int(value: Any, default: int = 0) -> int:
++    try:
++        return int(float(value))
++    except Exception:
++        return default
++
++
++def parse_float(value: Any, default: float = 0.0) -> float:
++    try:
++        return float(value)
++    except Exception:
++        return default
++
++
++def stable_json(obj: Any) -> str:
++    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        if isinstance(v, (bytes, bytearray)):
++            try:
++                out[kk] = v.decode()
++            except Exception:
++                out[kk] = v.hex()
++        else:
++            out[kk] = v
++    return out
++
++
++def percentile(values: List[float], q: float) -> float:
++    if not values:
++        return 0.0
++    vals = sorted(values)
++    idx = max(0, min(len(vals) - 1, math.ceil(q * len(vals)) - 1))
++    return round(vals[idx], 6)
++
++
++def recent(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
++    cutoff = now_ms() - WINDOW_MIN * 60 * 1000
++    return [r for r in rows if parse_int(r.get("ts_ms"), 0) >= cutoff]
++
++
++async def ensure_group(client: Any, stream_key: str, group: str) -> None:
++    try:
++        await client.xgroup_create(stream_key, group, id="$", mkstream=True)
++    except Exception:
++        return
++
++
++async def xr_recent(r: Any, stream_key: str, count: int) -> List[Dict[str, Any]]:
++    try:
++        rows = await r.xrevrange(stream_key, count=count)
++    except Exception:
++        return []
++    out: List[Dict[str, Any]] = []
++    for entry_id, payload in rows:
++        row = as_dict(payload)
++        row["_stream_id"] = entry_id.decode() if isinstance(entry_id, (bytes, bytearray)) else str(entry_id)
++        out.append(row)
++    return out
++
++
++def build_rollup(
++    verification_rows: List[Dict[str, Any]],
++    rollback_rows: List[Dict[str, Any]],
++    retry_rows: List[Dict[str, Any]],
++    escalation_rows: List[Dict[str, Any]],
++) -> Dict[str, Any]:
++    vr = recent(verification_rows)
++    rr = recent(rollback_rows)
++    tr = recent(retry_rows)
++    er = recent(escalation_rows)
++
++    verification_n = len(vr)
++    verified_n = sum(1 for r in vr if str(r.get("decision") or "") == "VERIFIED")
++    rollback_planned_n = sum(1 for r in vr if str(r.get("decision") or "") == "ROLLBACK_PREVIOUS_PROFILE")
++    rollback_applied_n = sum(1 for r in rr if parse_int(r.get("applied"), 0) == 1)
++    escalation_n = len(er)
++    retry_n = len(tr)
++
++    verify_keep_rate = round((verified_n / verification_n), 6) if verification_n else 0.0
++    rollback_plan_rate = round((rollback_planned_n / verification_n), 6) if verification_n else 0.0
++    rollback_applied_rate = round((rollback_applied_n / verification_n), 6) if verification_n else 0.0
++    escalation_rate = round((escalation_n / verification_n), 6) if verification_n else 0.0
++
++    mttr_vals: List[float] = []
++    by_source_verification_ts = {
++        parse_int(r.get("source_verification_ts_ms"), 0): r for r in rr if parse_int(r.get("applied"), 0) == 1
++    }
++    for v in vr:
++        v_ts = parse_int(v.get("ts_ms"), 0)
++        r = by_source_verification_ts.get(v_ts)
++        if r:
++            mttr_vals.append(max(parse_int(r.get("ts_ms"), 0) - v_ts, 0) / 1000.0)
++
++    return {
++        "verification_n": verification_n,
++        "verified_n": verified_n,
++        "rollback_planned_n": rollback_planned_n,
++        "rollback_applied_n": rollback_applied_n,
++        "retry_n": retry_n,
++        "escalation_n": escalation_n,
++        "verify_keep_rate": verify_keep_rate,
++        "rollback_plan_rate": rollback_plan_rate,
++        "rollback_applied_rate": rollback_applied_rate,
++        "rollback_mttr_p95_sec": percentile(mttr_vals, 0.95),
++        "escalation_rate": escalation_rate,
++    }
++
++
++async def persist_if_configured(db_url: str, rollup: Dict[str, Any]) -> None:
++    if not db_url or psycopg is None:
++        return
++    with psycopg.connect(db_url) as conn:  # pragma: no cover
++        with conn.cursor() as cur:
++            cur.execute(
++                """
++                INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_rollups (
++                    ts_ms, window_min, verification_n, verified_n, rollback_planned_n, rollback_applied_n,
++                    retry_n, escalation_n, verify_keep_rate, rollback_plan_rate, rollback_applied_rate,
++                    rollback_mttr_p95_sec, escalation_rate, rollup_json
++                ) VALUES (
++                    %(ts_ms)s, %(window_min)s, %(verification_n)s, %(verified_n)s, %(rollback_planned_n)s, %(rollback_applied_n)s,
++                    %(retry_n)s, %(escalation_n)s, %(verify_keep_rate)s, %(rollback_plan_rate)s, %(rollback_applied_rate)s,
++                    %(rollback_mttr_p95_sec)s, %(escalation_rate)s, %(rollup_json)s
++                )
++                """,
++                {
++                    "ts_ms": now_ms(),
++                    "window_min": WINDOW_MIN,
++                    **rollup,
++                    "rollup_json": json.dumps(rollup),
++                },
++            )
++            conn.commit()
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    await ensure_group(r, INPUT_STREAM, GROUP)
++    db_url = os.getenv("DATABASE_URL", "")
++
++    while True:
++        rows = await r.xreadgroup(GROUP, CONSUMER, {INPUT_STREAM: ">"}, count=32, block=5000)
++        if not rows:
++            continue
++        for _stream, messages in rows:
++            for msg_id, _payload in messages:
++                started = time.perf_counter()
++                status = "ok"
++                try:
++                    verification_rows = await xr_recent(r, INPUT_STREAM, LOOKBACK_COUNT)
++                    rollback_rows = await xr_recent(r, ROLLBACK_STREAM, LOOKBACK_COUNT)
++                    retry_rows = await xr_recent(r, RETRY_STREAM, LOOKBACK_COUNT)
++                    escalation_rows = await xr_recent(r, ESCALATIONS_STREAM, LOOKBACK_COUNT)
++                    rollup = build_rollup(verification_rows, rollback_rows, retry_rows, escalation_rows)
++                    await persist_if_configured(db_url, rollup)
++                    await r.xadd(
++                        OUTPUT_STREAM,
++                        {"schema_version": 1, "rollup_json": stable_json(rollup), "ts_ms": str(now_ms())},
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.hset(
++                        LAST_HASH,
++                        mapping={**{k: str(v) for k, v in rollup.items()}, "ts_ms": str(now_ms())},
++                    )
++                    await r.xadd(
++                        AUDIT_STREAM,
++                        {"event_type": "APPLY_FLOW_EXPERIMENT_SLO_ROLLUP", "rollup_json": stable_json(rollup), "ts_ms": str(now_ms())},
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    if VERIFY_KEEP_RATE:
++                        VERIFY_KEEP_RATE.set(rollup["verify_keep_rate"])
++                    if ROLLBACK_PLAN_RATE:
++                        ROLLBACK_PLAN_RATE.set(rollup["rollback_plan_rate"])
++                    if ROLLBACK_APPLIED_RATE:
++                        ROLLBACK_APPLIED_RATE.set(rollup["rollback_applied_rate"])
++                    if ROLLBACK_MTTR_P95:
++                        ROLLBACK_MTTR_P95.set(rollup["rollback_mttr_p95_sec"])
++                    if ESCALATIONS_RATE:
++                        ESCALATIONS_RATE.set(rollup["escalation_rate"])
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                    if LAST_RUN_TS:
++                        LAST_RUN_TS.set(time.time())
++                except Exception as exc:
++                    status = "error"
++                    await r.xadd(
++                        AUDIT_STREAM,
++                        {"event_type": "APPLY_FLOW_EXPERIMENT_SLO_FAILED", "error": str(exc), "ts_ms": str(now_ms())},
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                finally:
++                    if RUNS:
++                        RUNS.labels(status=status).inc()
++                    if LAT:
++                        LAT.observe(max(time.perf_counter() - started, 0.0))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    asyncio.run(main())
+diff --git a/orderflow_services/route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry_escalation_controller_v3_51.py b/orderflow_services/route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry_escalation_controller_v3_51.py
+new file mode 100644
+index 0000000..1111112
+--- /dev/null
++++ b/orderflow_services/route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry_escalation_controller_v3_51.py
+@@ -0,0 +1,618 @@
++from __future__ import annotations
++
++import asyncio
++import json
++import os
++import time
++from typing import Any, Dict, List, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    import psycopg
++except Exception:  # pragma: no cover
++    psycopg = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++
++APP_NAME = "route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry_escalation_controller_v3_51"
++INPUT_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_VERIFICATION_RESULTS_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_verification_results",
++)
++RETRY_RESULTS_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_RESULTS_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry_results",
++)
++ESCALATIONS_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_ESCALATIONS_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_escalations",
++)
++AUDIT_STREAM = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_AUDIT_STREAM",
++    "stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry_audit",
++)
++LAST_HASH = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_LAST_HASH",
++    "metrics:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry:last",
++)
++GLOBAL_POLICY_KEY = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_GLOBAL_POLICY_KEY",
++    "cfg:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry:global",
++)
++EXPERIMENT_POLICY_KEY = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_GLOBAL_POLICY_KEY",
++    "cfg:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment:global",
++)
++WINNER_POLICY_KEY = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_WINNER_GLOBAL_POLICY_KEY",
++    "cfg:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_winner:global",
++)
++STATE_KEY_PREFIX = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_STATE_KEY_PREFIX",
++    "state:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry",
++)
++GROUP = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_GROUP",
++    APP_NAME,
++)
++CONSUMER = os.getenv("HOSTNAME", APP_NAME)
++PORT = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_PORT", "9985"))
++MAXLEN = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_MAXLEN", "20000"))
++
++DEFAULT_ADVISORY_ONLY = int(os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_ADVISORY_ONLY",
++    "1",
++))
++DEFAULT_EXECUTOR_MODE = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_EXECUTOR_MODE",
++    "DRY_RUN",
++).upper()
++DEFAULT_ALLOW_COMMIT = int(os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_ALLOW_COMMIT",
++    "0",
++))
++DEFAULT_MAX_ATTEMPTS = int(os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_MAX_ATTEMPTS",
++    "2",
++))
++DEFAULT_ALLOWED_RETRY_REASONS_JSON = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_ALLOWED_REASONS_JSON",
++    '["TARGET_SHARE_TOO_LOW_AFTER_APPLY"]',
++)
++DEFAULT_WARNING_REASONS_JSON = os.getenv(
++    "ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_WARNING_REASONS_JSON",
++    '["TARGET_SHARE_TOO_LOW_AFTER_APPLY"]',
++)
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter(
++    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry_runs_total",
++    "Apply-flow experiment retry runs",
++    ("status", "decision"),
++)
++LAT = _hist(
++    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry_latency_seconds",
++    "Apply-flow experiment retry latency seconds",
++)
++UP = _gauge(
++    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry_up",
++    "Apply-flow experiment retry up",
++)
++LAST_RUN_TS = _gauge(
++    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry_last_run_ts_seconds",
++    "Apply-flow experiment retry last run timestamp",
++)
++RETRIES_TOTAL = _counter(
++    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retries_total",
++    "Apply-flow experiment retries total",
++    ("decision", "applied"),
++)
++ESCALATIONS_TOTAL = _counter(
++    "ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_escalations_total",
++    "Apply-flow experiment escalations total",
++    ("severity", "reason_code"),
++)
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def parse_int(value: Any, default: int = 0) -> int:
++    try:
++        return int(float(value))
++    except Exception:
++        return default
++
++
++def stable_json(obj: Any) -> str:
++    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        if isinstance(v, (bytes, bytearray)):
++            try:
++                out[kk] = v.decode()
++            except Exception:
++                out[kk] = v.hex()
++        else:
++            out[kk] = v
++    return out
++
++
++def maybe_json(value: Any, default: Any = None) -> Any:
++    if value is None:
++        return default
++    if isinstance(value, (dict, list)):
++        return value
++    try:
++        return json.loads(value)
++    except Exception:
++        return default
++
++
++def normalize_weights(raw: Any) -> Dict[str, int]:
++    obj = maybe_json(raw, {})
++    if not isinstance(obj, dict):
++        obj = {}
++    return {
++        "vertex_primary_weight": parse_int(obj.get("vertex_primary_weight"), 0),
++        "vertex_compact_weight": parse_int(obj.get("vertex_compact_weight"), 0),
++        "local_candidate_weight": parse_int(obj.get("local_candidate_weight"), 0),
++    }
++
++
++def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
++    allowed_retry = maybe_json(raw.get("allowed_retry_reasons_json"), maybe_json(DEFAULT_ALLOWED_RETRY_REASONS_JSON, []))
++    warning_reasons = maybe_json(raw.get("warning_reasons_json"), maybe_json(DEFAULT_WARNING_REASONS_JSON, []))
++    if not isinstance(allowed_retry, list):
++        allowed_retry = []
++    if not isinstance(warning_reasons, list):
++        warning_reasons = []
++    return {
++        "enabled": parse_int(raw.get("enabled"), 1),
++        "kill_switch": parse_int(raw.get("kill_switch"), 0),
++        "advisory_only": parse_int(raw.get("advisory_only"), DEFAULT_ADVISORY_ONLY),
++        "executor_mode": str(raw.get("executor_mode") or DEFAULT_EXECUTOR_MODE).upper(),
++        "allow_commit": parse_int(raw.get("allow_commit"), DEFAULT_ALLOW_COMMIT),
++        "max_attempts": parse_int(raw.get("max_attempts"), DEFAULT_MAX_ATTEMPTS),
++        "allowed_retry_reasons": {str(x) for x in allowed_retry},
++        "warning_reasons": {str(x) for x in warning_reasons},
++    }
++
++
++def build_state_key(target_profile: str, target_incumbent_arm: str, reason_code: str) -> str:
++    return f"{STATE_KEY_PREFIX}:{target_profile}:{target_incumbent_arm}:{reason_code}"
++
++
++def evaluate_action(verification_row: Dict[str, Any], attempts: int, policy: Dict[str, Any]) -> Dict[str, Any]:
++    reason_code = str(verification_row.get("reason_code") or "")
++    decision = str(verification_row.get("decision") or "")
++    out = {
++        "decision": "HOLD",
++        "reason_code": "NO_ACTION",
++        "severity": "info",
++        "target_profile": str(verification_row.get("target_profile") or ""),
++        "target_incumbent_arm": str(verification_row.get("target_incumbent_arm") or ""),
++        "target_weights": normalize_weights(verification_row.get("target_weights_json")),
++    }
++    if policy["kill_switch"] == 1:
++        out["reason_code"] = "KILL_SWITCH"
++        return out
++    if policy["enabled"] != 1:
++        out["reason_code"] = "DISABLED"
++        return out
++    if decision != "ROLLBACK_PREVIOUS_PROFILE":
++        out["reason_code"] = "VERIFICATION_NOT_ACTIONABLE"
++        return out
++    if reason_code in policy["allowed_retry_reasons"] and attempts < policy["max_attempts"]:
++        out["decision"] = "RETRY_REAPPLY_TARGET_PROFILE"
++        out["reason_code"] = reason_code
++        out["severity"] = "warning"
++        return out
++    out["decision"] = "ESCALATE"
++    out["reason_code"] = reason_code or "UNKNOWN_REASON"
++    out["severity"] = "warning" if reason_code in policy["warning_reasons"] else "critical"
++    return out
++
++
++async def ensure_group(client: Any, stream_key: str, group: str) -> None:
++    try:
++        await client.xgroup_create(stream_key, group, id="$", mkstream=True)
++    except Exception:
++        return
++
++
++async def persist_if_configured(db_url: str, verification_row: Dict[str, Any], action_out: Dict[str, Any], attempts: int, applied: int) -> None:
++    if not db_url or psycopg is None:
++        return
++    with psycopg.connect(db_url) as conn:  # pragma: no cover
++        with conn.cursor() as cur:
++            if action_out["decision"] == "RETRY_REAPPLY_TARGET_PROFILE":
++                cur.execute(
++                    """
++                    INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry_results (
++                        ts_ms, decision, reason_code, target_profile, target_incumbent_arm,
++                        target_weights_json, attempts, applied, result_json
++                    ) VALUES (
++                        %(ts_ms)s, %(decision)s, %(reason_code)s, %(target_profile)s, %(target_incumbent_arm)s,
++                        %(target_weights_json)s, %(attempts)s, %(applied)s, %(result_json)s
++                    )
++                    """,
++                    {
++                        "ts_ms": now_ms(),
++                        "decision": action_out["decision"],
++                        "reason_code": action_out["reason_code"],
++                        "target_profile": action_out["target_profile"],
++                        "target_incumbent_arm": action_out["target_incumbent_arm"],
++                        "target_weights_json": json.dumps(action_out["target_weights"]),
++                        "attempts": attempts,
++                        "applied": applied,
++                        "result_json": json.dumps({"verification_row": verification_row, "action_out": action_out}),
++                    },
++                )
++            if action_out["decision"] == "ESCALATE":
++                cur.execute(
++                    """
++                    INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_escalations (
++                        ts_ms, severity, reason_code, target_profile, target_incumbent_arm, escalation_json
++                    ) VALUES (
++                        %(ts_ms)s, %(severity)s, %(reason_code)s, %(target_profile)s, %(target_incumbent_arm)s, %(escalation_json)s
++                    )
++                    """,
++                    {
++                        "ts_ms": now_ms(),
++                        "severity": action_out["severity"],
++                        "reason_code": action_out["reason_code"],
++                        "target_profile": action_out["target_profile"],
++                        "target_incumbent_arm": action_out["target_incumbent_arm"],
++                        "escalation_json": json.dumps({"verification_row": verification_row, "action_out": action_out, "attempts": attempts}),
++                    },
++                )
++            conn.commit()
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    await ensure_group(r, INPUT_STREAM, GROUP)
++    db_url = os.getenv("DATABASE_URL", "")
++
++    while True:
++        rows = await r.xreadgroup(GROUP, CONSUMER, {INPUT_STREAM: ">"}, count=32, block=5000)
++        if not rows:
++            continue
++        for _stream, messages in rows:
++            for msg_id, payload in messages:
++                started = time.perf_counter()
++                status = "ok"
++                decision_label = "HOLD"
++                try:
++                    verification_row = as_dict(payload)
++                    policy = policy_from_hash(as_dict(await r.hgetall(GLOBAL_POLICY_KEY)))
++                    state_key = build_state_key(
++                        str(verification_row.get("target_profile") or ""),
++                        str(verification_row.get("target_incumbent_arm") or ""),
++                        str(verification_row.get("reason_code") or ""),
++                    )
++                    attempts = parse_int(await r.get(state_key), 0)
++                    action_out = evaluate_action(verification_row, attempts, policy)
++                    decision_label = action_out["decision"]
++
++                    applied = 0
++                    if action_out["decision"] == "RETRY_REAPPLY_TARGET_PROFILE":
++                        attempts += 1
++                        await r.set(state_key, str(attempts))
++                        if (
++                            policy["advisory_only"] == 0
++                            and policy["executor_mode"] == "COMMIT"
++                            and policy["allow_commit"] == 1
++                        ):
++                            weights = action_out["target_weights"]
++                            await r.hset(
++                                EXPERIMENT_POLICY_KEY,
++                                mapping={
++                                    "mode": "SHADOW",
++                                    "vertex_primary_weight": str(weights["vertex_primary_weight"]),
++                                    "vertex_compact_weight": str(weights["vertex_compact_weight"]),
++                                    "local_candidate_weight": str(weights["local_candidate_weight"]),
++                                    "last_weight_rebalance_ts_ms": str(now_ms()),
++                                    "last_weight_rebalance_source": APP_NAME,
++                                    "last_weight_rebalance_reason_code": action_out["reason_code"],
++                                    "last_weight_rebalance_profile": action_out["target_profile"],
++                                },
++                            )
++                            await r.hset(
++                                WINNER_POLICY_KEY,
++                                mapping={
++                                    "incumbent_arm": action_out["target_incumbent_arm"],
++                                    "last_incumbent_apply_ts_ms": str(now_ms()),
++                                    "last_incumbent_apply_source": APP_NAME,
++                                    "last_incumbent_apply_reason_code": action_out["reason_code"],
++                                },
++                            )
++                            applied = 1
++                        await r.xadd(
++                            RETRY_RESULTS_STREAM,
++                            {
++                                "schema_version": 1,
++                                "decision": action_out["decision"],
++                                "reason_code": action_out["reason_code"],
++                                "target_profile": action_out["target_profile"],
++                                "target_incumbent_arm": action_out["target_incumbent_arm"],
++                                "target_weights_json": stable_json(action_out["target_weights"]),
++                                "attempts": str(attempts),
++                                "applied": str(applied),
++                                "source_verification_ts_ms": str(parse_int(verification_row.get("ts_ms"), 0)),
++                                "ts_ms": str(now_ms()),
++                            },
++                            maxlen=MAXLEN,
++                            approximate=True,
++                        )
++                        if RETRIES_TOTAL:
++                            RETRIES_TOTAL.labels(decision=action_out["decision"], applied=str(applied)).inc()
++                    elif action_out["decision"] == "ESCALATE":
++                        await r.xadd(
++                            ESCALATIONS_STREAM,
++                            {
++                                "schema_version": 1,
++                                "severity": action_out["severity"],
++                                "reason_code": action_out["reason_code"],
++                                "target_profile": action_out["target_profile"],
++                                "target_incumbent_arm": action_out["target_incumbent_arm"],
++                                "attempts": str(attempts),
++                                "source_verification_ts_ms": str(parse_int(verification_row.get("ts_ms"), 0)),
++                                "ts_ms": str(now_ms()),
++                            },
++                            maxlen=MAXLEN,
++                            approximate=True,
++                        )
++                        if ESCALATIONS_TOTAL:
++                            ESCALATIONS_TOTAL.labels(severity=action_out["severity"], reason_code=action_out["reason_code"]).inc()
++
++                    await persist_if_configured(db_url, verification_row, action_out, attempts, applied)
++                    await r.hset(
++                        LAST_HASH,
++                        mapping={
++                            "decision": action_out["decision"],
++                            "reason_code": action_out["reason_code"],
++                            "severity": action_out["severity"],
++                            "target_profile": action_out["target_profile"],
++                            "attempts": str(attempts),
++                            "applied": str(applied),
++                            "ts_ms": str(now_ms()),
++                        },
++                    )
++                    await r.xadd(
++                        AUDIT_STREAM,
++                        {
++                            "event_type": "APPLY_FLOW_EXPERIMENT_RETRY_ESCALATION",
++                            "decision": action_out["decision"],
++                            "reason_code": action_out["reason_code"],
++                            "severity": action_out["severity"],
++                            "attempts": str(attempts),
++                            "applied": str(applied),
++                            "ts_ms": str(now_ms()),
++                        },
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                    if LAST_RUN_TS:
++                        LAST_RUN_TS.set(time.time())
++                except Exception as exc:
++                    status = "error"
++                    await r.xadd(
++                        AUDIT_STREAM,
++                        {"event_type": "APPLY_FLOW_EXPERIMENT_RETRY_FAILED", "error": str(exc), "ts_ms": str(now_ms())},
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                finally:
++                    if RUNS:
++                        RUNS.labels(status=status, decision=decision_label).inc()
++                    if LAT:
++                        LAT.observe(max(time.perf_counter() - started, 0.0))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    asyncio.run(main())
+diff --git a/orderflow_services/sql/ml_phase3_51_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_retry_escalation_v1.sql b/orderflow_services/sql/ml_phase3_51_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_retry_escalation_v1.sql
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/orderflow_services/sql/ml_phase3_51_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_retry_escalation_v1.sql
+@@ -0,0 +1,53 @@
++BEGIN;
++
++CREATE TABLE IF NOT EXISTS llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_rollups (
++    id                     bigserial PRIMARY KEY,
++    ts_ms                  bigint NOT NULL,
++    window_min             integer NOT NULL,
++    verification_n         integer NOT NULL,
++    verified_n             integer NOT NULL,
++    rollback_planned_n     integer NOT NULL,
++    rollback_applied_n     integer NOT NULL,
++    retry_n                integer NOT NULL,
++    escalation_n           integer NOT NULL,
++    verify_keep_rate       double precision NOT NULL,
++    rollback_plan_rate     double precision NOT NULL,
++    rollback_applied_rate  double precision NOT NULL,
++    rollback_mttr_p95_sec  double precision NOT NULL,
++    escalation_rate        double precision NOT NULL,
++    rollup_json            jsonb NOT NULL
++);
++CREATE INDEX IF NOT EXISTS idx_llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_rollups_ts
++    ON llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_rollups(ts_ms DESC);
++
++CREATE TABLE IF NOT EXISTS llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry_results (
++    id                    bigserial PRIMARY KEY,
++    ts_ms                 bigint NOT NULL,
++    decision              text NOT NULL,
++    reason_code           text NOT NULL,
++    target_profile        text NOT NULL,
++    target_incumbent_arm  text NOT NULL,
++    target_weights_json   jsonb NOT NULL,
++    attempts              integer NOT NULL,
++    applied               integer NOT NULL,
++    result_json           jsonb NOT NULL
++);
++CREATE INDEX IF NOT EXISTS idx_llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry_results_ts
++    ON llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry_results(ts_ms DESC);
++
++CREATE TABLE IF NOT EXISTS llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_escalations (
++    id                    bigserial PRIMARY KEY,
++    ts_ms                 bigint NOT NULL,
++    severity              text NOT NULL,
++    reason_code           text NOT NULL,
++    target_profile        text NOT NULL,
++    target_incumbent_arm  text NOT NULL,
++    escalation_json       jsonb NOT NULL
++);
++CREATE INDEX IF NOT EXISTS idx_llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_escalations_ts
++    ON llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_escalations(ts_ms DESC);
++
++COMMIT;
+diff --git a/orderflow_services/docker_compose_fragment_ml_phase3_51_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_retry_escalation_v1.yml b/orderflow_services/docker_compose_fragment_ml_phase3_51_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_retry_escalation_v1.yml
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/orderflow_services/docker_compose_fragment_ml_phase3_51_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_retry_escalation_v1.yml
+@@ -0,0 +1,39 @@
++services:
++  scanner-apply-flow-experiment-slo-v3-51:
++    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
++    command: ["python", "-m", "orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_rollup_v3_51"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_SLO_PORT: ${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_SLO_PORT:-9984}
++      ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_SLO_WINDOW_MIN: ${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_SLO_WINDOW_MIN:-10080}
++    ports: ["${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_SLO_PORT:-9984}:9984"]
++    depends_on: [redis-worker-1]
++
++  scanner-apply-flow-experiment-retry-v3-51:
++    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
++    command: ["python", "-m", "orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry_escalation_controller_v3_51"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_PORT: ${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_PORT:-9985}
++      ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_ADVISORY_ONLY: ${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_ADVISORY_ONLY:-1}
++      ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_EXECUTOR_MODE: ${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_EXECUTOR_MODE:-DRY_RUN}
++      ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_ALLOW_COMMIT: ${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_ALLOW_COMMIT:-0}
++      ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_MAX_ATTEMPTS: ${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_MAX_ATTEMPTS:-2}
++    ports: ["${ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_PORT:-9985}:9985"]
++    depends_on: [redis-worker-1]
+diff --git a/orderflow_services/prometheus_alerts_ml_phase3_51_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_retry_escalation_v1.yml b/orderflow_services/prometheus_alerts_ml_phase3_51_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_retry_escalation_v1.yml
+new file mode 100644
+index 0000000..4444444
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_ml_phase3_51_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_retry_escalation_v1.yml
+@@ -0,0 +1,45 @@
++groups:
++  - name: ml_phase3_51_apply_flow_experiment_slo_retry_escalation_v1
++    rules:
++      - alert: MLApplyFlowExperimentSLOStale
++        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_last_run_ts_seconds > 1800
++        for: 10m
++        labels: { severity: warning }
++        annotations: { summary: "apply-flow experiment SLO rollup is stale" }
++
++      - alert: MLApplyFlowExperimentRetryStale
++        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry_last_run_ts_seconds > 1800
++        for: 10m
++        labels: { severity: warning }
++        annotations: { summary: "apply-flow experiment retry controller is stale" }
++
++      - alert: MLApplyFlowExperimentVerifyKeepLow
++        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_verify_keep_rate < 0.60
++        for: 15m
++        labels: { severity: warning }
++        annotations: { summary: "apply-flow experiment verify keep rate is low" }
++
++      - alert: MLApplyFlowExperimentRollbackMTTRHigh
++        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_rollback_mttr_p95_sec > 900
++        for: 15m
++        labels: { severity: warning }
++        annotations: { summary: "apply-flow experiment rollback mttr p95 is high" }
++
++      - alert: MLApplyFlowExperimentEscalationsPresent
++        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_escalations_total[30m]) > 0
++        for: 5m
++        labels: { severity: info }
++        annotations: { summary: "apply-flow experiment escalations were produced" }
+diff --git a/orderflow_services/runbook_ml_phase3_51_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_retry_escalation_v1.md b/orderflow_services/runbook_ml_phase3_51_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_retry_escalation_v1.md
+new file mode 100644
+index 0000000..5555555
+--- /dev/null
++++ b/orderflow_services/runbook_ml_phase3_51_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_retry_escalation_v1.md
+@@ -0,0 +1,93 @@
++# Phase 3.51 — Apply-Flow Experiment SLO/MTTR + Retry/Escalation
++
++## Цель
++Дать новому experiment verification/rollback contour полный governance layer:
++- SLO rollups
++- rollback MTTR
++- bounded retry
++- escalation
++
++## Что делает
++- `experiment_slo_rollup`:
++  - читает verification results
++  - читает rollback journal
++  - читает retry results
++  - читает escalations
++  - пишет `stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_rollups`
++
++- `experiment_retry_escalation_controller`:
++  - читает verification results
++  - решает:
++    - `HOLD`
++    - `RETRY_REAPPLY_TARGET_PROFILE`
++    - `ESCALATE`
++  - пишет:
++    - `stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry_results`
++    - `stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_escalations`
++
++## SLO fields
++- `verify_keep_rate`
++- `rollback_plan_rate`
++- `rollback_applied_rate`
++- `rollback_mttr_p95_sec`
++- `escalation_rate`
++
++## Retry policy
++- retry only for bounded reasons
++- default retry reason:
++  - `TARGET_SHARE_TOO_LOW_AFTER_APPLY`
++- mismatch reasons escalate directly
++- retry attempts tracked by:
++  - target profile
++  - target incumbent arm
++  - reason_code
++
++## Safe behavior
++- retry controller default:
++  - `ADVISORY_ONLY=1`
++  - `EXECUTOR_MODE=DRY_RUN`
++  - `ALLOW_COMMIT=0`
++- no infinite retries
++- escalation after attempts exhausted or non-retryable reason
++
++## Safe start
++```bash
++export ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_ADVISORY_ONLY=1
++export ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_EXECUTOR_MODE=DRY_RUN
++export ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_ALLOW_COMMIT=0
++export ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_RETRY_MAX_ATTEMPTS=2
++```
++
++## Smoke checks
++```bash
++curl -s localhost:9984/metrics | grep '^ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_'
++curl -s localhost:9985/metrics | grep '^ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_'
++redis-cli HGETALL metrics:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo:last
++redis-cli HGETALL metrics:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry:last
++redis-cli XREVRANGE stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_rollups + - COUNT 5
++redis-cli XREVRANGE stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry_results + - COUNT 5
++redis-cli XREVRANGE stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_escalations + - COUNT 5
++```
++
++## Notes
++- scope only `scanner_infra`
++- hot path untouched
++- retry remains bounded and opt-in
++- next step can add forensic bundle builder for this experiment safety contour
+diff --git a/orderflow_services/tests/test_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_retry_escalation_v3_51.py b/orderflow_services/tests/test_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_retry_escalation_v3_51.py
+new file mode 100644
+index 0000000..6666666
+--- /dev/null
++++ b/orderflow_services/tests/test_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_retry_escalation_v3_51.py
+@@ -0,0 +1,116 @@
++from orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_slo_rollup_v3_51 import (
++    build_rollup,
++)
++from orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_retry_escalation_controller_v3_51 import (
++    evaluate_action,
++)
++
++
++def test_build_rollup_computes_basic_rates():
++    verification_rows = [
++        {"decision": "VERIFIED", "ts_ms": "9999999999999"},
++        {"decision": "ROLLBACK_PREVIOUS_PROFILE", "ts_ms": "9999999999998"},
++    ]
++    rollback_rows = [
++        {"applied": "1", "source_verification_ts_ms": "9999999999998", "ts_ms": "10000000000998"},
++    ]
++    retry_rows = [{"ts_ms": "9999999999997"}]
++    escalation_rows = [{"ts_ms": "9999999999996"}]
++    rollup = build_rollup(verification_rows, rollback_rows, retry_rows, escalation_rows)
++    assert rollup["verification_n"] == 2
++    assert rollup["verified_n"] == 1
++    assert rollup["rollback_planned_n"] == 1
++    assert rollup["rollback_applied_n"] == 1
++    assert rollup["retry_n"] == 1
++    assert rollup["escalation_n"] == 1
++
++
++def test_retry_for_allowed_reason_before_max_attempts():
++    verification_row = {
++        "decision": "ROLLBACK_PREVIOUS_PROFILE",
++        "reason_code": "TARGET_SHARE_TOO_LOW_AFTER_APPLY",
++        "target_profile": "local_profile",
++        "target_incumbent_arm": "local_candidate",
++        "target_weights_json": '{"vertex_primary_weight":25,"vertex_compact_weight":25,"local_candidate_weight":50}',
++    }
++    policy = {
++        "enabled": 1,
++        "kill_switch": 0,
++        "advisory_only": 1,
++        "executor_mode": "DRY_RUN",
++        "allow_commit": 0,
++        "max_attempts": 2,
++        "allowed_retry_reasons": {"TARGET_SHARE_TOO_LOW_AFTER_APPLY"},
++        "warning_reasons": {"TARGET_SHARE_TOO_LOW_AFTER_APPLY"},
++    }
++    out = evaluate_action(verification_row, attempts=1, policy=policy)
++    assert out["decision"] == "RETRY_REAPPLY_TARGET_PROFILE"
++
++
++def test_escalate_for_non_retryable_reason():
++    verification_row = {
++        "decision": "ROLLBACK_PREVIOUS_PROFILE",
++        "reason_code": "WEIGHTS_MISMATCH_AFTER_APPLY",
++        "target_profile": "local_profile",
++        "target_incumbent_arm": "local_candidate",
++        "target_weights_json": '{"vertex_primary_weight":25,"vertex_compact_weight":25,"local_candidate_weight":50}',
++    }
++    policy = {
++        "enabled": 1,
++        "kill_switch": 0,
++        "advisory_only": 1,
++        "executor_mode": "DRY_RUN",
++        "allow_commit": 0,
++        "max_attempts": 2,
++        "allowed_retry_reasons": {"TARGET_SHARE_TOO_LOW_AFTER_APPLY"},
++        "warning_reasons": {"TARGET_SHARE_TOO_LOW_AFTER_APPLY"},
++    }
++    out = evaluate_action(verification_row, attempts=0, policy=policy)
++    assert out["decision"] == "ESCALATE"
++    assert out["severity"] == "critical"

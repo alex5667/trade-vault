@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core_snapshot/dq_thresholds.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.02, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 1.0, 100, 150, 350, 750, 3000, 5000, 15000, 20000, 30000, 'BOOK_INTERVAL_MS', 'BOOK_SEQ_MODE', 'DQ_GAP_EXTREME_MS', 'DQ_GAP_HARD_MS', 'DQ_GAP_MIN_SAMPLES', 'DQ_GAP_P95_HARD_MS', 'DQ_GAP_P95_SOFT_MS', 'DQ_GAP_SOFT_MS', 'DQ_MODE', 'book_interval_ms', 'book_seq_mode', 'dq_book_hard', 'dq_book_soft', 'dq_gap_extreme_ms', 'dq_gap_hard_ms', 'dq_gap_min_samples', 'dq_gap_p95_hard_ms', 'dq_gap_p95_soft_ms', 'dq_gap_soft_ms', 'dq_mode', 'dq_tick_hard', 'dq_tick_soft', 'safe', 'strict']

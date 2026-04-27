@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/calibration_service.py
+# hypothesis_version: 6.148.10
+
+['_atr_bps_loaded', '_atr_sanity_loaded', '_atr_tf_loaded', '_book_calib_loaded', '_calib_loaded', '_dn_calib_loaded', 'calib_load_failure', 'calib_svc:persist_dn', 'persist_failure']

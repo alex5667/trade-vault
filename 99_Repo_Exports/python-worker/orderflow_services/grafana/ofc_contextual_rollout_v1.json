@@ -1,0 +1,446 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(ofc_ctx_rollout_current_mode{mode=~\"$mode\"})",
+          "legendFormat": "current_mode",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(ofc_ctx_rollout_desired_mode{mode=~\"$mode\"})",
+          "legendFormat": "desired_mode",
+          "refId": "B"
+        }
+      ],
+      "title": "Current / desired rollout mode",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "ofc_ctx_rollout_shadow_disagree_rate",
+          "legendFormat": "shadow_disagree_rate",
+          "refId": "A"
+        },
+        {
+          "expr": "ofc_ctx_rollout_fail_open_rate",
+          "legendFormat": "fail_open_rate",
+          "refId": "B"
+        },
+        {
+          "expr": "ofc_ctx_rollout_fallback_rate",
+          "legendFormat": "fallback_rate",
+          "refId": "C"
+        }
+      ],
+      "title": "Safety rates",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "ofc_ctx_rollout_bundle_age_seconds",
+          "legendFormat": "bundle_age_seconds",
+          "refId": "A"
+        },
+        {
+          "expr": "ofc_ctx_rollout_writer_lag_seconds",
+          "legendFormat": "writer_lag_seconds",
+          "refId": "B"
+        }
+      ],
+      "title": "Bundle freshness / writer lag",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 4,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "ofc_ctx_rollout_observations",
+          "legendFormat": "observations",
+          "refId": "A"
+        },
+        {
+          "expr": "ofc_ctx_rollout_canary_symbols_count",
+          "legendFormat": "canary_symbols_count",
+          "refId": "B"
+        },
+        {
+          "expr": "ofc_ctx_rollout_rollback_requested",
+          "legendFormat": "rollback_requested",
+          "refId": "C"
+        }
+      ],
+      "title": "Rollout population / rollback",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "id": 5,
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "ofc_ctx_runtime_reloader_child_pid",
+          "legendFormat": "child_pid",
+          "refId": "A"
+        },
+        {
+          "expr": "ofc_ctx_runtime_reloader_restart_count",
+          "legendFormat": "restart_count",
+          "refId": "B"
+        },
+        {
+          "expr": "ofc_ctx_runtime_reloader_state_age_seconds",
+          "legendFormat": "state_age_s",
+          "refId": "C"
+        }
+      ],
+      "title": "Runtime reloader pid / restart count / state age",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "id": 6,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "ofc_ctx_runtime_reloader_child_uptime_seconds",
+          "legendFormat": "child_uptime_seconds",
+          "refId": "A"
+        },
+        {
+          "expr": "ofc_ctx_runtime_reloader_cooldown_remaining_seconds",
+          "legendFormat": "cooldown_remaining_seconds",
+          "refId": "B"
+        },
+        {
+          "expr": "ofc_ctx_runtime_reloader_defer_until_seconds",
+          "legendFormat": "defer_until_seconds",
+          "refId": "C"
+        }
+      ],
+      "title": "Runtime child uptime / cooldown / defer",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "ofc_ctx_runtime_reloader_overlay_dirty",
+          "legendFormat": "overlay_dirty",
+          "refId": "A"
+        },
+        {
+          "expr": "ofc_ctx_runtime_reloader_defer_active",
+          "legendFormat": "defer_active",
+          "refId": "B"
+        },
+        {
+          "expr": "ofc_ctx_runtime_reloader_rollback_flag_present",
+          "legendFormat": "rollback_flag_present",
+          "refId": "C"
+        }
+      ],
+      "title": "Overlay dirty / defer / rollback flag",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "id": 8,
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Value"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "expr": "ofc_ctx_runtime_reloader_info",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "runtime_info",
+          "refId": "A"
+        }
+      ],
+      "title": "Active overlay fingerprint / last restart reason / defer reason",
+      "type": "table"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": [
+    "trade",
+    "ofc",
+    "contextual",
+    "rollout",
+    "runtime",
+    "reloader"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            ".*"
+          ],
+          "value": [
+            ".*"
+          ]
+        },
+        "hide": 0,
+        "includeAll": true,
+        "label": "mode",
+        "multi": true,
+        "name": "mode",
+        "options": [],
+        "query": "shadow,tighten_only,replace_score_veto,off",
+        "type": "custom"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timezone": "utc",
+  "title": "OFC Contextual Rollout + Runtime Reloader (v2)",
+  "version": 2,
+  "weekStart": ""
+}

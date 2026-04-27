@@ -1,0 +1,607 @@
+diff --git a/orderflow_services/operator_routing_incident_route_rca_routing_controller_v2_21.py b/orderflow_services/operator_routing_incident_route_rca_routing_controller_v2_21.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/operator_routing_incident_route_rca_routing_controller_v2_21.py
+@@ -0,0 +1,435 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from typing import Any, Dict, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    import psycopg
++except Exception:  # pragma: no cover
++    psycopg = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++
++APP_NAME = "operator_routing_incident_route_rca_routing_controller_v2_21"
++INPUT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_INPUT_STREAM",
++    "stream:ml:operator_routing_incident_rca_route_rca_requests",
++)
++OUTPUT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_OUTPUT_STREAM",
++    "stream:ml:operator_routing_incident_rca_route_rca_requests_routed",
++)
++DECISIONS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_DECISIONS_STREAM",
++    "stream:ml:operator_routing_incident_route_rca_routing_decisions",
++)
++AUDIT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_AUDIT_STREAM",
++    "stream:ml:operator_routing_incident_route_rca_routing_audit",
++)
++LAST_HASH = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_LAST_HASH",
++    "metrics:ml:operator_routing_incident_route_rca_routing:last",
++)
++GROUP = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_GROUP", APP_NAME)
++CONSUMER = os.getenv("HOSTNAME", APP_NAME)
++PORT = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_PORT", "9906"))
++MAXLEN = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_MAXLEN", "20000"))
++
++MODE = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_MODE", "DRY_RUN").upper()
++DEFAULT_PROVIDER = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_PROVIDER", "vertex")
++DEFAULT_MODEL = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_MODEL", "gemini-2.5-flash-lite")
++DEFAULT_PROMPT_VERSION = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_PROMPT_VERSION", "routing_incident_route_rca_v1")
++DEFAULT_POLICY_VERSION = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_POLICY_VERSION", "policy_v1")
++
++CONTROL_PROVIDER = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_CONTROL_PROVIDER", "vertex")
++CONTROL_MODEL = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_CONTROL_MODEL", "gemini-2.5-flash-lite")
++CONTROL_PROMPT_VERSION = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_CONTROL_PROMPT_VERSION", "routing_incident_route_rca_v1")
++CONTROL_POLICY_VERSION = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_CONTROL_POLICY_VERSION", "policy_v1")
++CHALLENGER_PROVIDER = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_CHALLENGER_PROVIDER", "vertex")
++CHALLENGER_MODEL = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_CHALLENGER_MODEL", "gemini-2.5-flash")
++CHALLENGER_PROMPT_VERSION = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_CHALLENGER_PROMPT_VERSION", "routing_incident_route_rca_v2")
++CHALLENGER_POLICY_VERSION = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_CHALLENGER_POLICY_VERSION", "policy_v1")
++
++ACTION_PREFIX = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_ACTION_PREFIX",
++    "cfg:ml:operator_routing_incident_route_rca_governor:action:",
++)
++PROVIDER_PREFIX = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_GOVERNOR_PROVIDER_PREFIX",
++    "cfg:ml:operator_routing_incident_route_rca_governor:provider:",
++)
++STATE_KEY = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_DEFAULT_KEY",
++    "cfg:ml:operator_routing_incident_route_rca_routing:default",
++)
++
++ALLOWED_PROVIDERS = {
++    x.strip() for x in os.getenv(
++        "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_ALLOWED_PROVIDERS",
++        "vertex",
++    ).split(",") if x.strip()
++}
++ALLOWED_MODELS = {
++    x.strip() for x in os.getenv(
++        "ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_ALLOWED_MODELS",
++        "gemini-2.5-flash-lite,gemini-2.5-flash",
++    ).split(",") if x.strip()
++}
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter(
++    "ml_operator_routing_incident_route_rca_routing_runs_total",
++    "Route-incident RCA routing controller runs",
++    ("status", "route_source"),
++)
++LAT = _hist(
++    "ml_operator_routing_incident_route_rca_routing_latency_seconds",
++    "Route-incident RCA routing controller latency seconds",
++)
++UP = _gauge(
++    "ml_operator_routing_incident_route_rca_routing_up",
++    "Route-incident RCA routing controller up",
++)
++LAST_RUN_TS = _gauge(
++    "ml_operator_routing_incident_route_rca_routing_last_run_ts_seconds",
++    "Route-incident RCA routing controller last run timestamp",
++)
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        if isinstance(v, (bytes, bytearray)):
++            try:
++                out[kk] = v.decode()
++            except Exception:
++                out[kk] = v.hex()
++        else:
++            out[kk] = v
++    return out
++
++
++def maybe_json(value: Any, default: Any = None) -> Any:
++    if value is None:
++        return default
++    if isinstance(value, (dict, list)):
++        return value
++    try:
++        return json.loads(value)
++    except Exception:
++        return default
++
++
++def stable_json(obj: Any) -> str:
++    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++def provider_key(provider: str, model_name: str, prompt_version: str) -> str:
++    return f"{provider}:{model_name}:{prompt_version}"
++
++
++def action_key(action_type: str, prompt_version: str, policy_version: str) -> str:
++    return f"{action_type}:{prompt_version}:{policy_version}"
++
++
++def control_route() -> Dict[str, str]:
++    return {
++        "provider": CONTROL_PROVIDER,
++        "model_name": CONTROL_MODEL,
++        "prompt_version": CONTROL_PROMPT_VERSION,
++        "policy_version": CONTROL_POLICY_VERSION,
++    }
++
++
++def challenger_route() -> Dict[str, str]:
++    return {
++        "provider": CHALLENGER_PROVIDER,
++        "model_name": CHALLENGER_MODEL,
++        "prompt_version": CHALLENGER_PROMPT_VERSION,
++        "policy_version": CHALLENGER_POLICY_VERSION,
++    }
++
++
++def default_route() -> Dict[str, str]:
++    return {
++        "provider": DEFAULT_PROVIDER,
++        "model_name": DEFAULT_MODEL,
++        "prompt_version": DEFAULT_PROMPT_VERSION,
++        "policy_version": DEFAULT_POLICY_VERSION,
++    }
++
++
++def governor_decision_score(decision: str) -> int:
++    if decision == "SUPPRESS":
++        return -1
++    if decision == "PROMOTE":
++        return 1
++    return 0
++
++
++def allowed(route: Dict[str, str]) -> bool:
++    return route.get("provider") in ALLOWED_PROVIDERS and route.get("model_name") in ALLOWED_MODELS
++
++
++async def ensure_group(client: Any, stream_key: str, group: str) -> None:
++    try:
++        await client.xgroup_create(stream_key, group, id="$", mkstream=True)
++    except Exception:
++        return
++
++
++async def read_hash(r: Any, key: str) -> Dict[str, Any]:
++    raw = await r.hgetall(key)
++    return as_dict(raw)
++
++
++def read_action_types(request_payload: Dict[str, Any]) -> Tuple[str, ...]:
++    recos = request_payload.get("recommendations") or []
++    actions = []
++    if isinstance(recos, list):
++        for reco in recos:
++            if isinstance(reco, dict):
++                action = str(reco.get("action") or "").strip()
++                if action:
++                    actions.append(action)
++    if not actions:
++        actions = ["open_incident"]
++    return tuple(sorted(set(actions)))
++
++
++async def choose_route(
++    r: Any,
++    request_row: Dict[str, Any],
++) -> Tuple[Dict[str, str], Dict[str, Any]]:
++    payload = maybe_json(request_row.get("payload_json"), {}) or {}
++    actions = read_action_types(payload)
++
++    base = default_route()
++    route_source = "default"
++    notes = {
++        "mode": MODE,
++        "provider_governor_decision": "HOLD",
++        "action_governor_decisions_json": "[]",
++    }
++
++    provider_route = dict(base)
++    provider_policy = await read_hash(r, f"{PROVIDER_PREFIX}{provider_key(base['provider'], base['model_name'], base['prompt_version'])}")
++    provider_decision = str(provider_policy.get("decision") or "HOLD")
++    notes["provider_governor_decision"] = provider_decision
++
++    if provider_decision == "SUPPRESS":
++        # prefer challenger when default is suppressed
++        candidate = challenger_route() if base == control_route() else control_route()
++        if allowed(candidate):
++            provider_route = candidate
++            route_source = "provider_governor_fallback"
++    elif provider_decision == "PROMOTE":
++        provider_route = dict(base)
++        route_source = "provider_governor_promote"
++
++    action_decisions = []
++    promote_n = 0
++    suppress_n = 0
++    for action_type in actions:
++        key = f"{ACTION_PREFIX}{action_key(action_type, provider_route['prompt_version'], provider_route['policy_version'])}"
++        ap = await read_hash(r, key)
++        decision = str(ap.get("decision") or "HOLD")
++        action_decisions.append({"action_type": action_type, "decision": decision})
++        if decision == "PROMOTE":
++            promote_n += 1
++        elif decision == "SUPPRESS":
++            suppress_n += 1
++
++    notes["action_governor_decisions_json"] = stable_json(action_decisions)
++
++    selected = dict(provider_route)
++    if promote_n > suppress_n:
++        if allowed(challenger_route()):
++            selected = challenger_route()
++            route_source = "action_governor_promote"
++    elif suppress_n > promote_n:
++        if allowed(control_route()):
++            selected = control_route()
++            route_source = "action_governor_suppress_fallback"
++
++    if MODE == "COMMIT":
++        state_payload = {
++            **selected,
++            "last_routed_ts_ms": str(now_ms()),
++            "source": "operator_routing_incident_route_rca_routing_controller_v2_21",
++        }
++        await r.hset(STATE_KEY, mapping=state_payload)
++
++    return selected, {
++        **notes,
++        "route_source": route_source,
++    }
++
++
++async def persist_if_configured(db_url: str, row: Dict[str, Any], chosen: Dict[str, str], meta: Dict[str, Any]) -> None:
++    if not db_url or psycopg is None:
++        return
++    with psycopg.connect(db_url) as conn:  # pragma: no cover
++        with conn.cursor() as cur:
++            cur.execute(
++                """
++                INSERT INTO llm_operator_routing_incident_route_rca_routing_decisions (
++                    incident_id,
++                    ts_ms,
++                    provider,
++                    model_name,
++                    prompt_version,
++                    policy_version,
++                    route_source,
++                    meta_json
++                ) VALUES (
++                    %(incident_id)s,
++                    %(ts_ms)s,
++                    %(provider)s,
++                    %(model_name)s,
++                    %(prompt_version)s,
++                    %(policy_version)s,
++                    %(route_source)s,
++                    %(meta_json)s
++                )
++                """,
++                {
++                    "incident_id": row.get("incident_id", ""),
++                    "ts_ms": now_ms(),
++                    "provider": chosen["provider"],
++                    "model_name": chosen["model_name"],
++                    "prompt_version": chosen["prompt_version"],
++                    "policy_version": chosen["policy_version"],
++                    "route_source": meta["route_source"],
++                    "meta_json": json.dumps(meta),
++                },
++            )
++            conn.commit()
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    await ensure_group(r, INPUT_STREAM, GROUP)
++    db_url = os.getenv("DATABASE_URL", "")
++
++    while True:
++        rows = await r.xreadgroup(GROUP, CONSUMER, {INPUT_STREAM: ">"}, count=32, block=5000)
++        if not rows:
++            continue
++        for _stream, messages in rows:
++            for msg_id, payload in messages:
++                started = time.perf_counter()
++                status = "ok"
++                route_source = "default"
++                try:
++                    row = as_dict(payload)
++                    chosen, meta = await choose_route(r, row)
++                    route_source = meta["route_source"]
++                    routed_payload = {
++                        "schema_version": 1,
++                        "incident_id": row.get("incident_id", ""),
++                        "task_type": row.get("task_type", ""),
++                        "compact_hash": row.get("compact_hash", ""),
++                        "severity": row.get("severity", "info"),
++                        "payload_json": row.get("payload_json", "{}"),
++                        "provider": chosen["provider"],
++                        "model_name": chosen["model_name"],
++                        "prompt_version": chosen["prompt_version"],
++                        "policy_version": chosen["policy_version"],
++                        "route_source": route_source,
++                        "meta_json": stable_json(meta),
++                        "ts_ms": str(now_ms()),
++                    }
++                    await persist_if_configured(db_url, row, chosen, meta)
++                    await r.xadd(OUTPUT_STREAM, routed_payload, maxlen=MAXLEN, approximate=True)
++                    await r.xadd(
++                        DECISIONS_STREAM,
++                        {
++                            "schema_version": 1,
++                            "incident_id": row.get("incident_id", ""),
++                            "provider": chosen["provider"],
++                            "model_name": chosen["model_name"],
++                            "prompt_version": chosen["prompt_version"],
++                            "policy_version": chosen["policy_version"],
++                            "route_source": route_source,
++                            "meta_json": stable_json(meta),
++                            "ts_ms": str(now_ms()),
++                        },
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.xadd(
++                        AUDIT_STREAM,
++                        {
++                            "event_type": "ROUTE_INCIDENT_RCA_ROUTING_DECIDED",
++                            "incident_id": row.get("incident_id", ""),
++                            "route_source": route_source,
++                            "provider": chosen["provider"],
++                            "model_name": chosen["model_name"],
++                            "prompt_version": chosen["prompt_version"],
++                            "policy_version": chosen["policy_version"],
++                            "ts_ms": str(now_ms()),
++                        },
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.hset(
++                        LAST_HASH,
++                        mapping={
++                            "incident_id": row.get("incident_id", ""),
++                            "provider": chosen["provider"],
++                            "model_name": chosen["model_name"],
++                            "prompt_version": chosen["prompt_version"],
++                            "policy_version": chosen["policy_version"],
++                            "route_source": route_source,
++                            "ts_ms": str(now_ms()),
++                        },
++                    )
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                    if LAST_RUN_TS:
++                        LAST_RUN_TS.set(time.time())
++                except Exception as exc:
++                    status = "error"
++                    await r.xadd(
++                        AUDIT_STREAM,
++                        {
++                            "event_type": "ROUTE_INCIDENT_RCA_ROUTING_FAILED",
++                            "error": str(exc),
++                            "ts_ms": str(now_ms()),
++                        },
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                finally:
++                    if RUNS:
++                        RUNS.labels(status=status, route_source=route_source).inc()
++                    if LAT:
++                        LAT.observe(max(time.perf_counter() - started, 0.0))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    import asyncio
++    asyncio.run(main())
+diff --git a/orderflow_services/sql/ml_phase2_21_v1.sql b/orderflow_services/sql/ml_phase2_21_v1.sql
+new file mode 100644
+index 0000000..2222223
+--- /dev/null
++++ b/orderflow_services/sql/ml_phase2_21_v1.sql
+@@ -0,0 +1,25 @@
++BEGIN;
++
++CREATE TABLE IF NOT EXISTS llm_operator_routing_incident_route_rca_routing_decisions (
++    id              bigserial PRIMARY KEY,
++    incident_id     text NOT NULL,
++    ts_ms           bigint NOT NULL,
++    provider        text NOT NULL,
++    model_name      text NOT NULL,
++    prompt_version  text NOT NULL,
++    policy_version  text NOT NULL,
++    route_source    text NOT NULL,
++    meta_json       jsonb NOT NULL
++);
++
++CREATE INDEX IF NOT EXISTS idx_llm_operator_routing_incident_route_rca_routing_decisions_incident_id
++    ON llm_operator_routing_incident_route_rca_routing_decisions(incident_id);
++
++CREATE INDEX IF NOT EXISTS idx_llm_operator_routing_incident_route_rca_routing_decisions_ts_ms
++    ON llm_operator_routing_incident_route_rca_routing_decisions(ts_ms DESC);
++
++COMMIT;
+diff --git a/orderflow_services/docker_compose_fragment_ml_phase2_21_v1.yml b/orderflow_services/docker_compose_fragment_ml_phase2_21_v1.yml
+new file mode 100644
+index 0000000..3333334
+--- /dev/null
++++ b/orderflow_services/docker_compose_fragment_ml_phase2_21_v1.yml
+@@ -0,0 +1,24 @@
++services:
++  scanner-operator-routing-incident-route-rca-routing-controller-v2-21:
++    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
++    command: ["python", "-m", "orderflow_services.operator_routing_incident_route_rca_routing_controller_v2_21"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_PORT:-9906}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_MODE: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_MODE:-DRY_RUN}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_PROVIDER: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_PROVIDER:-vertex}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_MODEL: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_MODEL:-gemini-2.5-flash-lite}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_PROMPT_VERSION: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_PROMPT_VERSION:-routing_incident_route_rca_v1}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_POLICY_VERSION: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_POLICY_VERSION:-policy_v1}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_ALLOWED_PROVIDERS: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_ALLOWED_PROVIDERS:-vertex}
++      ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_ALLOWED_MODELS: ${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_ALLOWED_MODELS:-gemini-2.5-flash-lite,gemini-2.5-flash}
++    ports: ["${ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_PORT:-9906}:9906"]
++    depends_on: [redis-worker-1]
+diff --git a/orderflow_services/prometheus_alerts_ml_phase2_21_v1.yml b/orderflow_services/prometheus_alerts_ml_phase2_21_v1.yml
+new file mode 100644
+index 0000000..3333335
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_ml_phase2_21_v1.yml
+@@ -0,0 +1,24 @@
++groups:
++  - name: ml_phase2_21_operator_routing_incident_route_rca_routing_v1
++    rules:
++      - alert: MLOperatorRoutingIncidentRouteRCARoutingStale
++        expr: time() - ml_operator_routing_incident_route_rca_routing_last_run_ts_seconds > 1800
++        for: 10m
++        labels: { severity: warning }
++        annotations:
++          summary: "route incident RCA routing controller is stale"
++
++      - alert: MLOperatorRoutingIncidentRouteRCARoutingErrors
++        expr: increase(ml_operator_routing_incident_route_rca_routing_runs_total{status="error"}[30m]) > 0
++        for: 5m
++        labels: { severity: warning }
++        annotations:
++          summary: "route incident RCA routing controller has errors"
+diff --git a/orderflow_services/runbook_ml_phase2_21_v1.md b/orderflow_services/runbook_ml_phase2_21_v1.md
+new file mode 100644
+index 0000000..4444445
+--- /dev/null
++++ b/orderflow_services/runbook_ml_phase2_21_v1.md
+@@ -0,0 +1,46 @@
++# Phase 2.21 — Route Incident RCA Provider/Prompt Routing Controller
++
++## Цель
++Использовать отдельный usefulness governor для `route incident RCA` и централизованно выбирать:
++- provider
++- model_name
++- prompt_version
++- policy_version
++
++## Потоки
++- input: `stream:ml:operator_routing_incident_rca_route_rca_requests`
++- routed: `stream:ml:operator_routing_incident_rca_route_rca_requests_routed`
++- decisions: `stream:ml:operator_routing_incident_route_rca_routing_decisions`
++- audit: `stream:ml:operator_routing_incident_route_rca_routing_audit`
++
++## Safe start
++```bash
++export ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_ROUTING_MODE=DRY_RUN
++export ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_PROVIDER=vertex
++export ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_MODEL=gemini-2.5-flash-lite
++export ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_PROMPT_VERSION=routing_incident_route_rca_v1
++export ML_OPERATOR_ROUTING_INCIDENT_ROUTE_RCA_DEFAULT_POLICY_VERSION=policy_v1
++```
++
++## Smoke checks
++```bash
++redis-cli XREVRANGE stream:ml:operator_routing_incident_route_rca_governor_decisions + - COUNT 5
++redis-cli XREVRANGE stream:ml:operator_routing_incident_route_rca_routing_decisions + - COUNT 5
++redis-cli XREVRANGE stream:ml:operator_routing_incident_route_rca_routing_audit + - COUNT 5
++redis-cli XREVRANGE stream:ml:operator_routing_incident_rca_route_rca_requests_routed + - COUNT 5
++redis-cli HGETALL metrics:ml:operator_routing_incident_route_rca_routing:last
++curl -s localhost:9906/metrics | grep '^ml_operator_routing_incident_route_rca_routing_'
++```
++
++## Notes
++- scope только `scanner_infra`
++- hot path не затронут
++- default mode = `DRY_RUN`
++- suppress/promote влияет только на `route incident RCA`
+diff --git a/orderflow_services/tests/test_operator_routing_incident_route_rca_routing_controller_v2_21.py b/orderflow_services/tests/test_operator_routing_incident_route_rca_routing_controller_v2_21.py
+new file mode 100644
+index 0000000..5555556
+--- /dev/null
++++ b/orderflow_services/tests/test_operator_routing_incident_route_rca_routing_controller_v2_21.py
+@@ -0,0 +1,54 @@
++from orderflow_services.operator_routing_incident_route_rca_routing_controller_v2_21 import (
++    action_key,
++    allowed,
++    control_route,
++    default_route,
++    provider_key,
++)
++
++
++def test_provider_key_and_action_key():
++    pk = provider_key("vertex", "gemini-2.5-flash-lite", "routing_incident_route_rca_v1")
++    ak = action_key("open_incident", "routing_incident_route_rca_v1", "policy_v1")
++    assert "gemini-2.5-flash-lite" in pk
++    assert "open_incident" in ak
++
++
++def test_allowed_accepts_known_defaults():
++    assert allowed(default_route()) is True
++    assert allowed(control_route()) is True
++
++
++def test_default_route_contains_required_fields():
++    route = default_route()
++    assert route["provider"]
++    assert route["model_name"]
++    assert route["prompt_version"]
++    assert route["policy_version"]

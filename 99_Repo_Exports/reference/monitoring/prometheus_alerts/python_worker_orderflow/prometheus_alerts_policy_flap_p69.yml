@@ -1,0 +1,30 @@
+groups:
+- name: decision_policy_p69
+  rules:
+  - alert: PolicyModeBlockShareHigh
+    expr: decision_policy_mode_share_24h{mode="block"} > 0.20
+    for: 30m
+    labels:
+      severity: warning
+      team: orderflow
+    annotations:
+      summary: "High policy block share ({{ $value }})"
+      description: "Over 20% of decisions are blocked by policy logic in the last
+        24h window. Check dq_state and drift_state."
+      runbook: "runbooks/orderflow/runbook_policy_hysteresis_p69.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: PolicyModeUnknownShareHigh
+    expr: decision_policy_mode_share_24h{mode="unknown"} > 0.02
+    for: 30m
+    labels:
+      severity: warning
+      team: orderflow
+    annotations:
+      summary: "High unknown policy mode share ({{ $value }})"
+      description: "Over 2% of decisions have unknown policy mode. Check decision
+        record indicators and worker logic."
+      runbook: "runbooks/orderflow/runbook_policy_hysteresis_p69.md"
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd

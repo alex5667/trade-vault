@@ -1,0 +1,5 @@
+- job_name: auto-apply-tick-gate-exporter
+  metrics_path: /metrics
+  static_configs:
+    - targets:
+        - "localhost:9115"

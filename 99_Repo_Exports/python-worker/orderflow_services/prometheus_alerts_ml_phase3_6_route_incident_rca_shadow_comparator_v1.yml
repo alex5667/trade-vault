@@ -1,0 +1,23 @@
+groups:
+  - name: ml_phase3_6_route_incident_rca_shadow_comparator_v1
+    rules:
+      - alert: MLRouteIncidentRCAShadowComparatorStale
+        expr: time() - ml_route_incident_rca_shadow_comparator_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA shadow comparator is stale"
+
+      - alert: MLRouteIncidentRCAShadowComparatorErrors
+        expr: increase(ml_route_incident_rca_shadow_comparator_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA shadow comparator has errors"
+
+      - alert: MLRouteIncidentRCAShadowComparatorMismatchs
+        expr: increase(ml_route_incident_rca_shadow_comparisons_total{status="MISMATCH"}[30m]) > 0
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA shadow comparator detected mismatches"

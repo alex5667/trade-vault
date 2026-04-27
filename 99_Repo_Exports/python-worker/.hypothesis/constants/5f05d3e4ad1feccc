@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/matplotlib/colors.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-10, 1e-06, 0.5, 1.0, 2.0, 4.0, 6.0, 255, 256, 315, 512, ' colormap', '#', ', ', '02x', 'Abstract class only', 'Accent', 'Author', 'Dark2', 'Description', 'Invalid vmin or vmax', 'LogNorm', 'Paired', 'Pastel1', 'Pastel2', 'Set1', 'Set2', 'Set3', 'Software', 'Title', '\\A#[a-fA-F0-9]{3}\\Z', '\\A#[a-fA-F0-9]{4}\\Z', '\\A#[a-fA-F0-9]{6}\\Z', '\\A#[a-fA-F0-9]{8}\\Z', '\\AC[0-9]+\\Z', '_r', '_resample', 'alpha', 'ascii', 'axes.prop_cycle', 'blue', 'both', 'changed', 'clip', 'color', 'f', 'from_list', 'gray', 'green', 'grey', 'hsv', 'if', 'ignore', 'k', 'mask', 'max', 'min', 'neither', 'none', 'overlay', 'png', 'red', 'self', 'soft', 'tab10', 'tab20', 'tab20b', 'tab20c', 'vmax', 'vmin']

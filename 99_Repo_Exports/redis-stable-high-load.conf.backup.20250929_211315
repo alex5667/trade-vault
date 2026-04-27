@@ -1,0 +1,161 @@
+# Redis Configuration для стабильной работы с высокими нагрузками
+# Оптимизировано для scanner-infra системы
+
+# ========================================
+# СЕТЕВЫЕ НАСТРОЙКИ
+# ========================================
+port 6379
+bind 0.0.0.0
+protected-mode no
+
+# Улучшенные настройки TCP для стабильности
+tcp-keepalive 300
+tcp-backlog 65535
+timeout 300
+
+# Максимальное количество клиентских соединений
+maxclients 20000
+
+# ========================================
+# НАСТРОЙКИ ПАМЯТИ (оптимизированы)
+# ========================================
+# Увеличено до 4GB для стабильной работы
+maxmemory 4gb
+maxmemory-policy allkeys-lru
+maxmemory-samples 10
+
+# Оптимизация структур данных
+hash-max-ziplist-entries 1024
+hash-max-ziplist-value 128
+list-max-ziplist-size -2
+list-compress-depth 0
+set-max-intset-entries 1024
+zset-max-ziplist-entries 256
+zset-max-ziplist-value 128
+hll-sparse-max-bytes 3000
+
+# ========================================
+# НАСТРОЙКИ PERSISTENCE (оптимизированы)
+# ========================================
+# RDB снимки для быстрого восстановления
+save 900 1
+save 300 10
+save 60 10000
+
+# AOF для надежности
+appendonly yes
+appendfilename "appendonly.aof"
+appendfsync everysec
+no-appendfsync-on-rewrite yes
+auto-aof-rewrite-percentage 100
+auto-aof-rewrite-min-size 64mb
+aof-load-truncated yes
+aof-use-rdb-preamble yes
+
+# Оптимизация RDB
+rdbcompression yes
+rdbchecksum yes
+dbfilename dump.rdb
+stop-writes-on-bgsave-error no
+
+# ========================================
+# НАСТРОЙКИ STREAMS (критично для системы)
+# ========================================
+# Увеличены лимиты для стримов
+stream-node-max-bytes 8192
+stream-node-max-entries 200
+
+# ========================================
+# НАСТРОЙКИ КЛИЕНТОВ (оптимизированы)
+# ========================================
+# Увеличены буферы для высоких нагрузок
+client-output-buffer-limit normal 0 0 0
+client-output-buffer-limit replica 512mb 128mb 60
+client-output-buffer-limit pubsub 64mb 16mb 60
+
+# Увеличен лимит запросов
+client-query-buffer-limit 2gb
+proto-max-bulk-len 1gb
+
+# ========================================
+# НАСТРОЙКИ ПРОИЗВОДИТЕЛЬНОСТИ
+# ========================================
+# Увеличена частота обновления
+hz 20
+dynamic-hz yes
+
+# Включен активный rehashing
+activerehashing yes
+
+# Оптимизация для многопоточности
+io-threads 8
+io-threads-do-reads yes
+
+# ========================================
+# НАСТРОЙКИ REPLICATION
+# ========================================
+replica-serve-stale-data yes
+replica-read-only yes
+repl-diskless-sync no
+repl-diskless-sync-delay 5
+repl-ping-replica-period 10
+repl-timeout 60
+repl-disable-tcp-nodelay no
+repl-backlog-size 2mb
+repl-backlog-ttl 3600
+
+# ========================================
+# НАСТРОЙКИ LOGGING
+# ========================================
+loglevel notice
+logfile ""
+syslog-enabled no
+
+# Slow log для мониторинга
+slowlog-log-slower-than 10000
+slowlog-max-len 256
+
+# Latency мониторинг
+latency-monitor-threshold 100
+
+# ========================================
+# НАСТРОЙКИ БЕЗОПАСНОСТИ
+# ========================================
+# Отключение опасных команд
+rename-command FLUSHDB ""
+rename-command FLUSHALL ""
+rename-command KEYS ""
+rename-command CONFIG ""
+
+# ========================================
+# НАСТРОЙКИ LAZY FREEING
+# ========================================
+lazyfree-lazy-eviction yes
+lazyfree-lazy-expire yes
+lazyfree-lazy-server-del yes
+replica-lazy-flush yes
+
+# ========================================
+# НАСТРОЙКИ JEMALLOC
+# ========================================
+jemalloc-bg-thread yes
+
+# ========================================
+# НАСТРОЙКИ LUA
+# ========================================
+lua-time-limit 10000
+
+# ========================================
+# НАСТРОЙКИ NOTIFY
+# ========================================
+notify-keyspace-events ""
+
+# ========================================
+# ДОПОЛНИТЕЛЬНЫЕ ОПТИМИЗАЦИИ
+# ========================================
+# Увеличено количество баз данных
+databases 16
+
+# Оптимизация для больших объектов
+rdb-save-incremental-fsync yes
+aof-rewrite-incremental-fsync yes

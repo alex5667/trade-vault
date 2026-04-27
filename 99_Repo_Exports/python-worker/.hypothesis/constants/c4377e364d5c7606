@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/internals/base.py
+# hypothesis_version: 6.148.10
+
+['_replace_regex', 'apply', 'cond', 'fillna', 'inplace', 'interpolate', 'mask', 'new', 'object', 'other', 'pad_or_backfill', 'putmask', 'replace', 'replace_list', 'round', 'shift', 'where']

@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/matplotlib/streamplot.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.003, 0.1, 0.5, 0.85, 1.0, 2.0, 4.0, '-|>', '3.5', 'backward', 'both', 'color', 'down', 'forward', 'left', 'lines.linewidth', 'linewidth', 'right', 'streamplot', 'up', 'zorder']

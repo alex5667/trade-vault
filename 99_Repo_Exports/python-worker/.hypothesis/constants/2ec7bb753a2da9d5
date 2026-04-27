@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/meta_features_v2.py
+# hypothesis_version: 6.148.10
+
+[0.0, ',', 'exec_risk_bps', 'exec_risk_norm', 'have', 'indicators_with_v4', 'legs', 'meta_feat_v2', 'ml_scenario', 'need', 'ofi_ml', 'ofi_ml_norm', 'ofi_ml_wsum', 'ok_soft', 'qimb_l1', 'qimb_l2', 'qimb_l3', 'qimb_l4', 'qimb_l5', 'qimb_wmean', 'rule_score', 'runtime_prev_snap', 'runtime_snap', 'utf-8']

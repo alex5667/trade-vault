@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/matplotlib/style/core.py
+# hypothesis_version: 6.148.10
+
+['([\\S]+).%s$', '- {}', '3.5', '3.6', 'In %s: %s', 'available', 'backend', 'backend_fallback', 'classic', 'context', 'date.epoch', 'default', 'docstring.hardcopy', 'figure.raise_window', 'interactive', 'keys', 'library', 'mpl15', 'mpl20', 'mplstyle', 'reload_library', 'savefig.directory', 'seaborn', 'seaborn-bright', 'seaborn-colorblind', 'seaborn-dark', 'seaborn-dark-palette', 'seaborn-darkgrid', 'seaborn-deep', 'seaborn-muted', 'seaborn-notebook', 'seaborn-paper', 'seaborn-pastel', 'seaborn-poster', 'seaborn-talk', 'seaborn-ticks', 'seaborn-v0_8', 'seaborn-white', 'seaborn-whitegrid', 'stylelib', 'timezone', 'tk.window_focus', 'toolbar', 'use', 'webagg.address', 'webagg.port', 'webagg.port_retries']

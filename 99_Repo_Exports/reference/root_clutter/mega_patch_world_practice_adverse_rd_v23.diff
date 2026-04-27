@@ -1,0 +1,1148 @@
+diff --git a/orderflow_services/grafana/README_world_practice_adverse_rd_v1.md b/orderflow_services/grafana/README_world_practice_adverse_rd_v1.md
+new file mode 100644
+index 0000000..e757392
+--- /dev/null
++++ b/orderflow_services/grafana/README_world_practice_adverse_rd_v1.md
+@@ -0,0 +1,19 @@
++# Grafana: World-practice Adverse Realized Drift v1
++
++Файлы:
++- `world_practice_adverse_rd_v1.json` — дашборд
++- `orderflow_services/runbook_world_practice_adverse_rd_v1.md` — runbook
++
++## Метрики
++- `trade_adverse_rd_mean_bps{sym,bucket}` — EWMA mean adverse drift (bps)
++- `trade_adverse_rd_sigma_bps{sym,bucket}` — EWMA sigma (bps)
++- `trade_adverse_rd_z{sym,bucket}` — robust z-score
++- `trade_adverse_rd_bad_share{sym,bucket}` — доля «плохих» дрейфов
++- `trade_adverse_rd_n{sym,bucket}` — эффективный sample size
++- `trade_adverse_rd_veto{sym,bucket}` — 0/1
++- `adverse_rd_eval_total{sym,bucket}` — счётчик дозреваний (rate показывает активность)
++
++## Как читать
++- Рост `mean_bps` + рост `bad_share` означает ухудшение качества входов (adverse selection).
++- `n` должен быть достаточным (>= `adverse_rd_min_n`), иначе статистика нестабильна.
++- Если `eval_rate` > 0, но `n` остаётся 0 → проблема проводки (см. алерт WiringStuck).
+diff --git a/orderflow_services/grafana/world_practice_adverse_rd_v1.json b/orderflow_services/grafana/world_practice_adverse_rd_v1.json
+new file mode 100644
+index 0000000..e814c0c
+--- /dev/null
++++ b/orderflow_services/grafana/world_practice_adverse_rd_v1.json
+@@ -0,0 +1,264 @@
++{
++  "annotations": {
++    "list": [
++      {
++        "builtIn": 1,
++        "datasource": {
++          "type": "grafana",
++          "uid": "-- Grafana --"
++        },
++        "enable": true,
++        "hide": true,
++        "iconColor": "rgba(0, 211, 255, 1)",
++        "name": "Annotations & Alerts",
++        "type": "dashboard"
++      }
++    ]
++  },
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "id": null,
++  "links": [],
++  "panels": [
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "bps"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 0,
++        "y": 0
++      },
++      "id": 1,
++      "options": {
++        "legend": {
++          "displayMode": "table",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "targets": [
++        {
++          "editorMode": "code",
++          "expr": "trade_adverse_rd_mean_bps{sym=~\"$sym\", bucket=~\"$bucket\"}",
++          "legendFormat": "mean {{bucket}}",
++          "refId": "A"
++        },
++        {
++          "editorMode": "code",
++          "expr": "trade_adverse_rd_sigma_bps{sym=~\"$sym\", bucket=~\"$bucket\"}",
++          "legendFormat": "sigma {{bucket}}",
++          "refId": "B"
++        }
++      ],
++      "title": "Adverse RD: mean/sigma (bps)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {},
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 12,
++        "y": 0
++      },
++      "id": 2,
++      "options": {
++        "legend": {
++          "displayMode": "table",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "targets": [
++        {
++          "editorMode": "code",
++          "expr": "trade_adverse_rd_z{sym=~\"$sym\", bucket=~\"$bucket\"}",
++          "legendFormat": "z {{bucket}}",
++          "refId": "A"
++        },
++        {
++          "editorMode": "code",
++          "expr": "trade_adverse_rd_bad_share{sym=~\"$sym\", bucket=~\"$bucket\"}",
++          "legendFormat": "bad_share {{bucket}}",
++          "refId": "B"
++        }
++      ],
++      "title": "Adverse RD: z-score + bad_share",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {},
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 0,
++        "y": 8
++      },
++      "id": 3,
++      "options": {
++        "legend": {
++          "displayMode": "table",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "targets": [
++        {
++          "editorMode": "code",
++          "expr": "trade_adverse_rd_n{sym=~\"$sym\", bucket=~\"$bucket\"}",
++          "legendFormat": "n {{bucket}}",
++          "refId": "A"
++        },
++        {
++          "editorMode": "code",
++          "expr": "sum by (sym, bucket) (rate(adverse_rd_eval_total{sym=~\"$sym\", bucket=~\"$bucket\"}[5m]))",
++          "legendFormat": "eval_rate {{bucket}}",
++          "refId": "B"
++        }
++      ],
++      "title": "Sample size + eval rate",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {},
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 12,
++        "y": 8
++      },
++      "id": 4,
++      "options": {
++        "legend": {
++          "displayMode": "table",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "targets": [
++        {
++          "editorMode": "code",
++          "expr": "trade_adverse_rd_veto{sym=~\"$sym\", bucket=~\"$bucket\"}",
++          "legendFormat": "veto {{bucket}}",
++          "refId": "A"
++        }
++      ],
++      "title": "Veto flag (0/1)",
++      "type": "timeseries"
++    }
++  ],
++  "refresh": "10s",
++  "schemaVersion": 38,
++  "tags": [
++    "orderflow",
++    "world_practice"
++  ],
++  "templating": {
++    "list": [
++      {
++        "current": {
++          "selected": false,
++          "text": "default",
++          "value": "default"
++        },
++        "hide": 0,
++        "includeAll": false,
++        "label": "Prometheus",
++        "multi": false,
++        "name": "DS_PROMETHEUS",
++        "options": [],
++        "query": "prometheus",
++        "refresh": 1,
++        "type": "datasource"
++      },
++      {
++        "current": {
++          "selected": false,
++          "text": "BTCUSDT",
++          "value": "BTCUSDT"
++        },
++        "datasource": {
++          "type": "prometheus",
++          "uid": "${DS_PROMETHEUS}"
++        },
++        "definition": "label_values(trade_adverse_rd_mean_bps, sym)",
++        "hide": 0,
++        "includeAll": false,
++        "label": "Symbol",
++        "multi": false,
++        "name": "sym",
++        "options": [],
++        "query": {
++          "query": "label_values(trade_adverse_rd_mean_bps, sym)",
++          "refId": "StandardVariableQuery"
++        },
++        "refresh": 2,
++        "type": "query"
++      },
++      {
++        "current": {
++          "selected": false,
++          "text": "NORMAL",
++          "value": "NORMAL"
++        },
++        "datasource": {
++          "type": "prometheus",
++          "uid": "${DS_PROMETHEUS}"
++        },
++        "definition": "label_values(trade_adverse_rd_mean_bps, bucket)",
++        "hide": 0,
++        "includeAll": true,
++        "label": "Bucket",
++        "multi": true,
++        "name": "bucket",
++        "options": [],
++        "query": {
++          "query": "label_values(trade_adverse_rd_mean_bps, bucket)",
++          "refId": "StandardVariableQuery"
++        },
++        "refresh": 2,
++        "type": "query"
++      }
++    ]
++  },
++  "time": {
++    "from": "now-6h",
++    "to": "now"
++  },
++  "timepicker": {},
++  "timezone": "browser",
++  "title": "World-practice: Adverse Realized Drift v1",
++  "uid": "world_practice_adverse_rd_v1",
++  "version": 1
++}
+diff --git a/orderflow_services/prometheus_alerts_world_practice_adverse_rd_v1.yml b/orderflow_services/prometheus_alerts_world_practice_adverse_rd_v1.yml
+new file mode 100644
+index 0000000..3acab3e
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_world_practice_adverse_rd_v1.yml
+@@ -0,0 +1,39 @@
++groups:
++  - name: orderflow_world_practice_adverse_rd_v1
++    interval: 30s
++    rules:
++      - alert: OF_WP_AdverseRdVeto_Crit
++        expr: trade_adverse_rd_veto == 1
++        for: 5m
++        labels:
++          severity: critical
++          component: orderflow
++          scope: world_practice
++          playbook: orderflow_services/runbook_world_practice_adverse_rd_v1.md
++        annotations:
++          summary: "{{ $labels.sym }} ({{ $labels.bucket }}): adverse selection veto (realized drift)"
++          description: "Realized drift after signal horizon is consistently adverse. Investigate symbol/market microstructure, spreads, depth, and execution settings."
++
++      - alert: OF_WP_AdverseRdBadShareHigh_Warn
++        expr: trade_adverse_rd_bad_share > 0.60 and trade_adverse_rd_n >= 40
++        for: 15m
++        labels:
++          severity: warning
++          component: orderflow
++          scope: world_practice
++          playbook: orderflow_services/runbook_world_practice_adverse_rd_v1.md
++        annotations:
++          summary: "{{ $labels.sym }} ({{ $labels.bucket }}): high adverse drift share"
++          description: "A large fraction of realized drift evaluations are adverse beyond threshold. Confirm spread/slippage, LOB pressure, and risk filters."
++
++      - alert: OF_WP_AdverseRdWiringStuck_Crit
++        expr: (increase(adverse_rd_eval_total[30m]) > 0) and on(sym, bucket) (max_over_time(trade_adverse_rd_n[30m]) == 0)
++        for: 10m
++        labels:
++          severity: critical
++          component: orderflow
++          scope: world_practice
++          playbook: orderflow_services/runbook_world_practice_adverse_rd_v1.md
++        annotations:
++          summary: "{{ $labels.sym }} ({{ $labels.bucket }}): adverse-rd evals seen but gauges not updating"
++          description: "Eval counter increased but gauge n stayed at 0. Likely wiring/config issue (tracker not instantiated / snapshot not exported / labels mismatch)."
+diff --git a/orderflow_services/runbook_world_practice_adverse_rd_v1.md b/orderflow_services/runbook_world_practice_adverse_rd_v1.md
+new file mode 100644
+index 0000000..730dc07
+--- /dev/null
++++ b/orderflow_services/runbook_world_practice_adverse_rd_v1.md
+@@ -0,0 +1,65 @@
++# Runbook: World-practice Adverse Realized Drift (adverse_rd) v1
++
++## Что это
++**Adverse realized drift** — измерение «adverse selection» после момента сигнала: насколько быстро mid-price уходит *против* направления сигнала в течение короткого горизонта (по умолчанию ~120s), в bps.
++
++Метрика считается **только по факту эмиссии сигналов** (arm) и затем **дозревает на следующих тиках** (update).
++
++## Симптомы
++Алерты из `prometheus_alerts_world_practice_adverse_rd_v1.yml`:
++- `WorldPracticeAdverseRD_HighMeanBps`: выросла `trade_adverse_rd_mean_bps` (EWMA) в одном из bucket’ов.
++- `WorldPracticeAdverseRD_HighBadShare`: доля «плохих» дрейфов `trade_adverse_rd_bad_share` > порога.
++- `WorldPracticeAdverseRD_WiringStuck`: `adverse_rd_eval_total` растёт, но `trade_adverse_rd_n` остаётся 0 (счётчик дозреваний есть, статистика не обновляется).
++
++## Быстрый triage (5 минут)
++1) **Проверить, есть ли arm-события**:
++- `increase(adverse_rd_eval_total{sym="$SYM"}[30m])` > 0 означает, что дозревания происходят.
++- Если 0 — возможно, сигналов нет (или arm не вызывается для этого типа сигналов).
++
++2) **Проверить статистику по bucket**:
++- `trade_adverse_rd_mean_bps{sym="$SYM"}`
++- `trade_adverse_rd_bad_share{sym="$SYM"}`
++- `trade_adverse_rd_z{sym="$SYM"}`
++- `trade_adverse_rd_n{sym="$SYM"}`
++
++3) **Проверить, не «сломана проводка»**:
++- Если `increase(adverse_rd_eval_total[30m])>0`, но `trade_adverse_rd_n==0` длительно → искать исключения/return в месте обновления, либо несоответствие аргументов (arm/update).
++
++## Диагностика причин
++### A) Реальная деградация качества исполнения/сигналов
++Типичные причины:
++- ухудшение ликвидности (спред/глубина), агрессивное движение против входа;
++- «погоня» за движением (late entries), плохая синхронизация ts;
++- смена режима рынка (volatility, funding, news spikes).
++
++Проверить рядом:
++- LOB pressure: `trade_micro_mid_div_bps`, `trade_dw_obi_stability`, `trade_depth_slope_*`.
++- Execution risk: `trade_exec_risk_norm`, `trade_expected_slippage_bps`.
++
++### B) Артефакт времени/данных
++- сравнить `tick_ts_ms` vs `server_ts_ms`, лаги, монотоничность;
++- проверка, что `mid_px_submit` > 0 и соответствует моменту сигнала.
++
++### C) Неподходящие пороги для bucket
++- Режимные bucket’ы могут различаться по baseline drift.
++- Смотрите `trade_adverse_rd_mean_bps` распределение по времени/сессиям.
++
++## Конфигурация (ключи)
++Берутся из `runtime.config`:
++- `adverse_rd_horizon_ms` (default 120000)
++- `adverse_rd_alpha` (default 0.03)
++- `adverse_rd_min_n` (default 40)
++- `adverse_rd_mean_th_bps` (default 0.8)
++- `adverse_rd_bad_share_th` (default 0.60)
++- `adverse_rd_z_th` (default 1.5)
++- `adverse_rd_sigma_floor_bps` (default 0.05)
++- `adverse_rd_max_pending` (default 4096)
++
++## Митигации
++- Временно поднять пороги (mean/bad_share/z) для конкретного `sym`/bucket.
++- Снизить частоту сигналов / включить дополнительные гейты (exec_risk, LOB pressure).
++- Если `WiringStuck`: откатить изменения или отключить алерт до фикса проводки.
++
++## Rollback / disable
++- Отключить правило в bundle (удалить/закомментировать алерт в YAML) или исключить файл из include-list.
++- В коде: временно выключить arming (`rd.on_signal`) или `rd.update` блок, сохранив fail-open.
+diff --git a/services/orderflow/components/tick_processor.py b/services/orderflow/components/tick_processor.py
+index ba0b2d8..aadbf93 100644
+--- a/services/orderflow/components/tick_processor.py
++++ b/services/orderflow/components/tick_processor.py
+@@ -58,6 +58,10 @@ from services.orderflow.metrics import (
+     trade_exec_risk_bps,
+     trade_exec_risk_norm,
+     trade_exec_pen,
++    # World-practice adverse selection / realized drift (P92)
++    adverse_rd_eval_total,
++    trade_adverse_rd_mean_bps, trade_adverse_rd_sigma_bps, trade_adverse_rd_z,
++    trade_adverse_rd_bad_share, trade_adverse_rd_n, trade_adverse_rd_veto,
+     trade_expected_slippage_limit_exceed_total,
+ )
+ from services.orderflow.side_policy import is_unknown_side_tick
+@@ -83,6 +87,8 @@ from core.instrument_config import get_default_delta_tiers
+ from core.fill_prob_proxy import compute_fill_prob_proxy
+ from core.exec_regime_bucket_v1 import compute_exec_regime_bucket
+ 
++from services.orderflow.world_practice.realized_drift_tracker_v1 import RealizedDriftTrackerV1
++
+ from handlers.crypto_orderflow.utils.log_sampler import sampled_info, sampled_warning, sampled_debug, LogSamplerFactory
+ 
+ import redis.asyncio as aioredis
+@@ -637,6 +643,49 @@ class TickProcessor:
+         except Exception:
+             pass
+ 
++        # ------------------------------------------------------------
++        # P92: World-practice adverse selection tracker (realized drift)
++        # Update even when no delta event (cheap). Must run before early return
++        # so that due evaluations are processed on every tick.
++        # ------------------------------------------------------------
++        try:
++            if getattr(runtime, "adverse_rd_tracker", None) is None:
++                cfg = runtime.config if hasattr(runtime, "config") else {}
++                runtime.adverse_rd_tracker = RealizedDriftTrackerV1(
++                    horizon_ms=int(cfg.get("adverse_rd_horizon_ms", 120_000)),
++                    alpha=float(cfg.get("adverse_rd_alpha", 0.03)),
++                    min_n=int(cfg.get("adverse_rd_min_n", 40)),
++                    mean_th_bps=float(cfg.get("adverse_rd_mean_th_bps", 0.8)),
++                    bad_share_th=float(cfg.get("adverse_rd_bad_share_th", 0.60)),
++                    z_th=float(cfg.get("adverse_rd_z_th", 1.5)),
++                    sigma_floor_bps=float(cfg.get("adverse_rd_sigma_floor_bps", 0.05)),
++                    max_pending=int(cfg.get("adverse_rd_max_pending", 4096)),
++                )
++
++            _rdind = indicators
++            try:
++                _bkt = str(_rdind.get("exec_regime_bucket", "NORMAL") or "NORMAL")
++            except Exception:
++                _bkt = "NORMAL"
++
++            rd = runtime.adverse_rd_tracker
++            processed = rd.update(ts_ms=int(tick_ts), px_now=float(price))
++            if processed:
++                for bb, nn in processed.items():
++                    adverse_rd_eval_total.labels(sym=str(runtime.symbol), bucket=str(bb)).inc(int(nn))
++
++            snap = rd.snapshot(str(_bkt))
++            _rdind.update(snap)
++
++            trade_adverse_rd_mean_bps.labels(sym=str(runtime.symbol), bucket=str(_bkt)).set(float(snap.get("adverse_rd_mean_bps", 0.0)))
++            trade_adverse_rd_sigma_bps.labels(sym=str(runtime.symbol), bucket=str(_bkt)).set(float(snap.get("adverse_rd_sigma_bps", 0.0)))
++            trade_adverse_rd_z.labels(sym=str(runtime.symbol), bucket=str(_bkt)).set(float(snap.get("adverse_rd_z", 0.0)))
++            trade_adverse_rd_bad_share.labels(sym=str(runtime.symbol), bucket=str(_bkt)).set(float(snap.get("adverse_rd_bad_share", 0.0)))
++            trade_adverse_rd_n.labels(sym=str(runtime.symbol), bucket=str(_bkt)).set(float(snap.get("adverse_rd_n", 0.0)))
++            trade_adverse_rd_veto.labels(sym=str(runtime.symbol), bucket=str(_bkt)).set(float(snap.get("adverse_rd_veto", 0.0)))
++        except Exception:
++            pass
++
+         if not delta_event:
+             # Usually means no significant delta spike
+             # We return None early unless we are in a mode that processes every tick for continuous metrics
+@@ -2478,7 +2527,32 @@ class TickProcessor:
+ 
+         # 1. Enrich with server timestamp
+         payload["server_ts_ms"] = int(time.time() * 1000)
+-        
++
++        # --- Arm realized-drift tracker (P92) ---
++        # When a signal is emitted, arm a short-horizon drift measurement using mid_px_submit.
++        try:
++            if getattr(runtime, "adverse_rd_tracker", None) is None:
++                cfg = runtime.config if hasattr(runtime, "config") else {}
++                runtime.adverse_rd_tracker = RealizedDriftTrackerV1(
++                    horizon_ms=int(cfg.get("adverse_rd_horizon_ms", 120_000)),
++                    alpha=float(cfg.get("adverse_rd_alpha", 0.03)),
++                    min_n=int(cfg.get("adverse_rd_min_n", 40)),
++                    mean_th_bps=float(cfg.get("adverse_rd_mean_th_bps", 0.8)),
++                    bad_share_th=float(cfg.get("adverse_rd_bad_share_th", 0.60)),
++                    z_th=float(cfg.get("adverse_rd_z_th", 1.5)),
++                    sigma_floor_bps=float(cfg.get("adverse_rd_sigma_floor_bps", 0.05)),
++                    max_pending=int(cfg.get("adverse_rd_max_pending", 4096)),
++                )
++
++            rd = runtime.adverse_rd_tracker
++            ind = payload.get("indicators") or {}
++            bkt = str(ind.get("exec_regime_bucket", "NORMAL") or "NORMAL")
++            px0 = float(ind.get("mid_px_submit") or entry or 0.0)
++            if px0 > 0:
++                rd.on_signal(ts_ms=int(tick_ts), direction=str(direction), px0=px0, bucket=bkt)
++        except Exception:
++            pass
++
+         # 2. Publish to RAW stream
+         raw_stream = runtime.config.get("raw_signal_stream", "signals:crypto:raw")
+         await self.publisher.xadd_json(
+diff --git a/services/orderflow/metrics.py b/services/orderflow/metrics.py
+index f5ae316..e28c6ee 100644
+--- a/services/orderflow/metrics.py
++++ b/services/orderflow/metrics.py
+@@ -1510,3 +1510,48 @@ trade_max_expected_slippage_bps_eff = _get_or_create_prom_gauge(
+     "Effective max expected slippage cap after regime tightening (bps)",
+     ["sym", "bucket"],
+ )
++
++
++# --- World-practice adverse selection / realized drift (P92) ---
++# Counter increments when pending evaluations mature (on every tick).
++adverse_rd_eval_total = _get_or_create_prom_counter(
++    "adverse_rd_eval_total",
++    "Adverse RD evaluations processed (matured pending)",
++    ["sym", "bucket"],
++)
++
++trade_adverse_rd_mean_bps = _get_or_create_prom_gauge(
++    "trade_adverse_rd_mean_bps",
++    "EWMA mean of adverse realized drift (bps)",
++    ["sym", "bucket"],
++)
++
++trade_adverse_rd_sigma_bps = _get_or_create_prom_gauge(
++    "trade_adverse_rd_sigma_bps",
++    "EWMA sigma of adverse realized drift (bps)",
++    ["sym", "bucket"],
++)
++
++trade_adverse_rd_z = _get_or_create_prom_gauge(
++    "trade_adverse_rd_z",
++    "Robust z-score of adverse realized drift",
++    ["sym", "bucket"],
++)
++
++trade_adverse_rd_bad_share = _get_or_create_prom_gauge(
++    "trade_adverse_rd_bad_share",
++    "Share of adverse drift worse than mean_th (0..1)",
++    ["sym", "bucket"],
++)
++
++trade_adverse_rd_n = _get_or_create_prom_gauge(
++    "trade_adverse_rd_n",
++    "Effective sample size for adverse RD EWMA",
++    ["sym", "bucket"],
++)
++
++trade_adverse_rd_veto = _get_or_create_prom_gauge(
++    "trade_adverse_rd_veto",
++    "Adverse RD veto flag (0/1)",
++    ["sym", "bucket"],
++)
+diff --git a/services/orderflow/world_practice/__init__.py b/services/orderflow/world_practice/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/services/orderflow/world_practice/realized_drift_tracker_v1.py b/services/orderflow/world_practice/realized_drift_tracker_v1.py
+new file mode 100644
+index 0000000..5f4a378
+--- /dev/null
++++ b/services/orderflow/world_practice/realized_drift_tracker_v1.py
+@@ -0,0 +1,170 @@
++from __future__ import annotations
++
++"""World-practice: Adverse Selection via Realized Drift (v1).
++
++Tracks post-signal realized drift (bps) at a fixed horizon. Provides:
++- EW mean drift (bps)
++- EW sigma drift (bps)
++- EW adverse share
++- VETO bit (derived)
++
++Design goals:
++- deterministic time: uses tick ts_ms only
++- cheap: update() O(k) for due evaluations, k typically small
++- low cardinality output: sym × exec_regime_bucket
++"""
++
++import math
++from dataclasses import dataclass
++from typing import Deque, Dict, Tuple
++from collections import deque
++
++
++def _dir_sign(direction: str) -> float:
++    d = (direction or "").strip().upper()
++    return 1.0 if d == "LONG" else -1.0
++
++
++@dataclass
++class _BucketState:
++    n: int = 0
++    mean_bps: float = 0.0
++    var_bps2: float = 0.0
++    bad_share: float = 0.0
++
++
++class RealizedDriftTrackerV1:
++    def __init__(
++        self,
++        *,
++        horizon_ms: int = 120_000,
++        alpha: float = 0.03,
++        min_n: int = 40,
++        mean_th_bps: float = 0.8,
++        bad_share_th: float = 0.60,
++        z_th: float = 1.5,
++        sigma_floor_bps: float = 0.05,
++        max_pending: int = 4096,
++    ) -> None:
++        self.horizon_ms = int(max(1, horizon_ms))
++        self.alpha = float(min(max(alpha, 1e-6), 1.0))
++
++        self.min_n = int(max(1, min_n))
++        self.mean_th_bps = float(max(0.0, mean_th_bps))
++        self.bad_share_th = float(min(max(bad_share_th, 0.0), 1.0))
++        self.z_th = float(max(0.0, z_th))
++        self.sigma_floor_bps = float(max(1e-9, sigma_floor_bps))
++        self.max_pending = int(max(8, max_pending))
++
++        # Each pending item: (due_ts_ms, direction, px0, bucket)
++        self._pending: Deque[Tuple[int, str, float, str]] = deque()
++        self._st: Dict[str, _BucketState] = {}
++
++    def on_signal(self, *, ts_ms: int, direction: str, px0: float, bucket: str) -> None:
++        """Arm a realized drift evaluation at ts_ms + horizon."""
++        try:
++            due = int(ts_ms) + int(self.horizon_ms)
++            px0f = float(px0)
++            if not math.isfinite(px0f) or px0f <= 0:
++                return
++            b = str(bucket or "NORMAL")
++            d = str(direction or "").upper()
++            if d not in ("LONG", "SHORT"):
++                return
++
++            # backpressure: cap pending queue
++            if len(self._pending) >= self.max_pending:
++                self._pending.popleft()
++
++            self._pending.append((due, d, px0f, b))
++        except Exception:
++            return
++
++    def update(self, *, ts_ms: int, px_now: float) -> Dict[str, int]:
++        """Process due evaluations. Returns dict bucket->n_processed."""
++        out: Dict[str, int] = {}
++
++        try:
++            now = int(ts_ms)
++            px = float(px_now)
++            if (not math.isfinite(px)) or px <= 0:
++                return out
++
++            while self._pending and self._pending[0][0] <= now:
++                due, direction, px0, bucket = self._pending.popleft()
++
++                sign = _dir_sign(direction)
++                r_bps = sign * ((px - px0) / px0) * 10_000.0
++                if not math.isfinite(r_bps):
++                    continue
++
++                st = self._st.get(bucket)
++                if st is None:
++                    st = _BucketState()
++                    self._st[bucket] = st
++
++                a = self.alpha
++                old_mean = st.mean_bps
++                new_mean = (1.0 - a) * old_mean + a * r_bps
++
++                # EW variance update (stable form)
++                dv = (r_bps - old_mean) * (r_bps - new_mean)
++                new_var = (1.0 - a) * st.var_bps2 + a * dv
++                if not math.isfinite(new_var) or new_var < 0.0:
++                    new_var = 0.0
++
++                # Bad if drift is adverse beyond mean threshold
++                is_bad = 1.0 if (r_bps < -self.mean_th_bps) else 0.0
++                new_bad = (1.0 - a) * st.bad_share + a * is_bad
++
++                st.n += 1
++                st.mean_bps = float(new_mean)
++                st.var_bps2 = float(new_var)
++                st.bad_share = float(new_bad)
++
++                out[bucket] = int(out.get(bucket, 0) + 1)
++
++        except Exception:
++            return out
++
++        return out
++
++    def snapshot(self, bucket: str) -> Dict[str, float]:
++        """Return current stats for bucket (safe defaults if none)."""
++        b = str(bucket or "NORMAL")
++        st = self._st.get(b)
++        if st is None:
++            return {
++                "adverse_rd_mean_bps": 0.0,
++                "adverse_rd_sigma_bps": float(self.sigma_floor_bps),
++                "adverse_rd_z": 0.0,
++                "adverse_rd_bad_share": 0.0,
++                "adverse_rd_n": 0.0,
++                "adverse_rd_veto": 0.0,
++            }
++
++        sigma = math.sqrt(max(float(st.var_bps2), 0.0))
++        if (not math.isfinite(sigma)) or sigma < float(self.sigma_floor_bps):
++            sigma = float(self.sigma_floor_bps)
++
++        mean = float(st.mean_bps)
++        z = mean / sigma if sigma > 0 else 0.0
++        if not math.isfinite(z):
++            z = 0.0
++
++        bad = float(st.bad_share)
++        n = float(st.n)
++
++        veto = 0.0
++        if n >= float(self.min_n):
++            if (mean < -float(self.mean_th_bps)) and (bad >= float(self.bad_share_th)) and (z < -float(self.z_th)):
++                veto = 1.0
++
++        return {
++            "adverse_rd_mean_bps": mean,
++            "adverse_rd_sigma_bps": float(sigma),
++            "adverse_rd_z": float(z),
++            "adverse_rd_bad_share": bad,
++            "adverse_rd_n": n,
++            "adverse_rd_veto": veto,
++        }
+diff --git a/tick_flow_full/orderflow_services/grafana/README_world_practice_adverse_rd_v1.md b/tick_flow_full/orderflow_services/grafana/README_world_practice_adverse_rd_v1.md
+new file mode 100644
+index 0000000..e757392
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/grafana/README_world_practice_adverse_rd_v1.md
+@@ -0,0 +1,19 @@
++# Grafana: World-practice Adverse Realized Drift v1
++
++Файлы:
++- `world_practice_adverse_rd_v1.json` — дашборд
++- `orderflow_services/runbook_world_practice_adverse_rd_v1.md` — runbook
++
++## Метрики
++- `trade_adverse_rd_mean_bps{sym,bucket}` — EWMA mean adverse drift (bps)
++- `trade_adverse_rd_sigma_bps{sym,bucket}` — EWMA sigma (bps)
++- `trade_adverse_rd_z{sym,bucket}` — robust z-score
++- `trade_adverse_rd_bad_share{sym,bucket}` — доля «плохих» дрейфов
++- `trade_adverse_rd_n{sym,bucket}` — эффективный sample size
++- `trade_adverse_rd_veto{sym,bucket}` — 0/1
++- `adverse_rd_eval_total{sym,bucket}` — счётчик дозреваний (rate показывает активность)
++
++## Как читать
++- Рост `mean_bps` + рост `bad_share` означает ухудшение качества входов (adverse selection).
++- `n` должен быть достаточным (>= `adverse_rd_min_n`), иначе статистика нестабильна.
++- Если `eval_rate` > 0, но `n` остаётся 0 → проблема проводки (см. алерт WiringStuck).
+diff --git a/tick_flow_full/orderflow_services/grafana/world_practice_adverse_rd_v1.json b/tick_flow_full/orderflow_services/grafana/world_practice_adverse_rd_v1.json
+new file mode 100644
+index 0000000..e814c0c
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/grafana/world_practice_adverse_rd_v1.json
+@@ -0,0 +1,264 @@
++{
++  "annotations": {
++    "list": [
++      {
++        "builtIn": 1,
++        "datasource": {
++          "type": "grafana",
++          "uid": "-- Grafana --"
++        },
++        "enable": true,
++        "hide": true,
++        "iconColor": "rgba(0, 211, 255, 1)",
++        "name": "Annotations & Alerts",
++        "type": "dashboard"
++      }
++    ]
++  },
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "id": null,
++  "links": [],
++  "panels": [
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "bps"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 0,
++        "y": 0
++      },
++      "id": 1,
++      "options": {
++        "legend": {
++          "displayMode": "table",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "targets": [
++        {
++          "editorMode": "code",
++          "expr": "trade_adverse_rd_mean_bps{sym=~\"$sym\", bucket=~\"$bucket\"}",
++          "legendFormat": "mean {{bucket}}",
++          "refId": "A"
++        },
++        {
++          "editorMode": "code",
++          "expr": "trade_adverse_rd_sigma_bps{sym=~\"$sym\", bucket=~\"$bucket\"}",
++          "legendFormat": "sigma {{bucket}}",
++          "refId": "B"
++        }
++      ],
++      "title": "Adverse RD: mean/sigma (bps)",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {},
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 12,
++        "y": 0
++      },
++      "id": 2,
++      "options": {
++        "legend": {
++          "displayMode": "table",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "targets": [
++        {
++          "editorMode": "code",
++          "expr": "trade_adverse_rd_z{sym=~\"$sym\", bucket=~\"$bucket\"}",
++          "legendFormat": "z {{bucket}}",
++          "refId": "A"
++        },
++        {
++          "editorMode": "code",
++          "expr": "trade_adverse_rd_bad_share{sym=~\"$sym\", bucket=~\"$bucket\"}",
++          "legendFormat": "bad_share {{bucket}}",
++          "refId": "B"
++        }
++      ],
++      "title": "Adverse RD: z-score + bad_share",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {},
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 0,
++        "y": 8
++      },
++      "id": 3,
++      "options": {
++        "legend": {
++          "displayMode": "table",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "targets": [
++        {
++          "editorMode": "code",
++          "expr": "trade_adverse_rd_n{sym=~\"$sym\", bucket=~\"$bucket\"}",
++          "legendFormat": "n {{bucket}}",
++          "refId": "A"
++        },
++        {
++          "editorMode": "code",
++          "expr": "sum by (sym, bucket) (rate(adverse_rd_eval_total{sym=~\"$sym\", bucket=~\"$bucket\"}[5m]))",
++          "legendFormat": "eval_rate {{bucket}}",
++          "refId": "B"
++        }
++      ],
++      "title": "Sample size + eval rate",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {},
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 8,
++        "w": 12,
++        "x": 12,
++        "y": 8
++      },
++      "id": 4,
++      "options": {
++        "legend": {
++          "displayMode": "table",
++          "placement": "bottom",
++          "showLegend": true
++        }
++      },
++      "targets": [
++        {
++          "editorMode": "code",
++          "expr": "trade_adverse_rd_veto{sym=~\"$sym\", bucket=~\"$bucket\"}",
++          "legendFormat": "veto {{bucket}}",
++          "refId": "A"
++        }
++      ],
++      "title": "Veto flag (0/1)",
++      "type": "timeseries"
++    }
++  ],
++  "refresh": "10s",
++  "schemaVersion": 38,
++  "tags": [
++    "orderflow",
++    "world_practice"
++  ],
++  "templating": {
++    "list": [
++      {
++        "current": {
++          "selected": false,
++          "text": "default",
++          "value": "default"
++        },
++        "hide": 0,
++        "includeAll": false,
++        "label": "Prometheus",
++        "multi": false,
++        "name": "DS_PROMETHEUS",
++        "options": [],
++        "query": "prometheus",
++        "refresh": 1,
++        "type": "datasource"
++      },
++      {
++        "current": {
++          "selected": false,
++          "text": "BTCUSDT",
++          "value": "BTCUSDT"
++        },
++        "datasource": {
++          "type": "prometheus",
++          "uid": "${DS_PROMETHEUS}"
++        },
++        "definition": "label_values(trade_adverse_rd_mean_bps, sym)",
++        "hide": 0,
++        "includeAll": false,
++        "label": "Symbol",
++        "multi": false,
++        "name": "sym",
++        "options": [],
++        "query": {
++          "query": "label_values(trade_adverse_rd_mean_bps, sym)",
++          "refId": "StandardVariableQuery"
++        },
++        "refresh": 2,
++        "type": "query"
++      },
++      {
++        "current": {
++          "selected": false,
++          "text": "NORMAL",
++          "value": "NORMAL"
++        },
++        "datasource": {
++          "type": "prometheus",
++          "uid": "${DS_PROMETHEUS}"
++        },
++        "definition": "label_values(trade_adverse_rd_mean_bps, bucket)",
++        "hide": 0,
++        "includeAll": true,
++        "label": "Bucket",
++        "multi": true,
++        "name": "bucket",
++        "options": [],
++        "query": {
++          "query": "label_values(trade_adverse_rd_mean_bps, bucket)",
++          "refId": "StandardVariableQuery"
++        },
++        "refresh": 2,
++        "type": "query"
++      }
++    ]
++  },
++  "time": {
++    "from": "now-6h",
++    "to": "now"
++  },
++  "timepicker": {},
++  "timezone": "browser",
++  "title": "World-practice: Adverse Realized Drift v1",
++  "uid": "world_practice_adverse_rd_v1",
++  "version": 1
++}
+diff --git a/tick_flow_full/orderflow_services/prometheus_alerts_world_practice_adverse_rd_v1.yml b/tick_flow_full/orderflow_services/prometheus_alerts_world_practice_adverse_rd_v1.yml
+index 2a33f51..3acab3e 100644
+--- a/tick_flow_full/orderflow_services/prometheus_alerts_world_practice_adverse_rd_v1.yml
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_world_practice_adverse_rd_v1.yml
+@@ -9,7 +9,7 @@ groups:
+           severity: critical
+           component: orderflow
+           scope: world_practice
+-          playbook: runbooks/world_practice_adverse_rd_v1.md
++          playbook: orderflow_services/runbook_world_practice_adverse_rd_v1.md
+         annotations:
+           summary: "{{ $labels.sym }} ({{ $labels.bucket }}): adverse selection veto (realized drift)"
+           description: "Realized drift after signal horizon is consistently adverse. Investigate symbol/market microstructure, spreads, depth, and execution settings."
+@@ -21,7 +21,7 @@ groups:
+           severity: warning
+           component: orderflow
+           scope: world_practice
+-          playbook: runbooks/world_practice_adverse_rd_v1.md
++          playbook: orderflow_services/runbook_world_practice_adverse_rd_v1.md
+         annotations:
+           summary: "{{ $labels.sym }} ({{ $labels.bucket }}): high adverse drift share"
+           description: "A large fraction of realized drift evaluations are adverse beyond threshold. Confirm spread/slippage, LOB pressure, and risk filters."
+@@ -33,7 +33,7 @@ groups:
+           severity: critical
+           component: orderflow
+           scope: world_practice
+-          playbook: runbooks/world_practice_adverse_rd_v1.md
++          playbook: orderflow_services/runbook_world_practice_adverse_rd_v1.md
+         annotations:
+           summary: "{{ $labels.sym }} ({{ $labels.bucket }}): adverse-rd evals seen but gauges not updating"
+           description: "Eval counter increased but gauge n stayed at 0. Likely wiring/config issue (tracker not instantiated / snapshot not exported / labels mismatch)."
+diff --git a/tick_flow_full/orderflow_services/runbook_world_practice_adverse_rd_v1.md b/tick_flow_full/orderflow_services/runbook_world_practice_adverse_rd_v1.md
+new file mode 100644
+index 0000000..730dc07
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/runbook_world_practice_adverse_rd_v1.md
+@@ -0,0 +1,65 @@
++# Runbook: World-practice Adverse Realized Drift (adverse_rd) v1
++
++## Что это
++**Adverse realized drift** — измерение «adverse selection» после момента сигнала: насколько быстро mid-price уходит *против* направления сигнала в течение короткого горизонта (по умолчанию ~120s), в bps.
++
++Метрика считается **только по факту эмиссии сигналов** (arm) и затем **дозревает на следующих тиках** (update).
++
++## Симптомы
++Алерты из `prometheus_alerts_world_practice_adverse_rd_v1.yml`:
++- `WorldPracticeAdverseRD_HighMeanBps`: выросла `trade_adverse_rd_mean_bps` (EWMA) в одном из bucket’ов.
++- `WorldPracticeAdverseRD_HighBadShare`: доля «плохих» дрейфов `trade_adverse_rd_bad_share` > порога.
++- `WorldPracticeAdverseRD_WiringStuck`: `adverse_rd_eval_total` растёт, но `trade_adverse_rd_n` остаётся 0 (счётчик дозреваний есть, статистика не обновляется).
++
++## Быстрый triage (5 минут)
++1) **Проверить, есть ли arm-события**:
++- `increase(adverse_rd_eval_total{sym="$SYM"}[30m])` > 0 означает, что дозревания происходят.
++- Если 0 — возможно, сигналов нет (или arm не вызывается для этого типа сигналов).
++
++2) **Проверить статистику по bucket**:
++- `trade_adverse_rd_mean_bps{sym="$SYM"}`
++- `trade_adverse_rd_bad_share{sym="$SYM"}`
++- `trade_adverse_rd_z{sym="$SYM"}`
++- `trade_adverse_rd_n{sym="$SYM"}`
++
++3) **Проверить, не «сломана проводка»**:
++- Если `increase(adverse_rd_eval_total[30m])>0`, но `trade_adverse_rd_n==0` длительно → искать исключения/return в месте обновления, либо несоответствие аргументов (arm/update).
++
++## Диагностика причин
++### A) Реальная деградация качества исполнения/сигналов
++Типичные причины:
++- ухудшение ликвидности (спред/глубина), агрессивное движение против входа;
++- «погоня» за движением (late entries), плохая синхронизация ts;
++- смена режима рынка (volatility, funding, news spikes).
++
++Проверить рядом:
++- LOB pressure: `trade_micro_mid_div_bps`, `trade_dw_obi_stability`, `trade_depth_slope_*`.
++- Execution risk: `trade_exec_risk_norm`, `trade_expected_slippage_bps`.
++
++### B) Артефакт времени/данных
++- сравнить `tick_ts_ms` vs `server_ts_ms`, лаги, монотоничность;
++- проверка, что `mid_px_submit` > 0 и соответствует моменту сигнала.
++
++### C) Неподходящие пороги для bucket
++- Режимные bucket’ы могут различаться по baseline drift.
++- Смотрите `trade_adverse_rd_mean_bps` распределение по времени/сессиям.
++
++## Конфигурация (ключи)
++Берутся из `runtime.config`:
++- `adverse_rd_horizon_ms` (default 120000)
++- `adverse_rd_alpha` (default 0.03)
++- `adverse_rd_min_n` (default 40)
++- `adverse_rd_mean_th_bps` (default 0.8)
++- `adverse_rd_bad_share_th` (default 0.60)
++- `adverse_rd_z_th` (default 1.5)
++- `adverse_rd_sigma_floor_bps` (default 0.05)
++- `adverse_rd_max_pending` (default 4096)
++
++## Митигации
++- Временно поднять пороги (mean/bad_share/z) для конкретного `sym`/bucket.
++- Снизить частоту сигналов / включить дополнительные гейты (exec_risk, LOB pressure).
++- Если `WiringStuck`: откатить изменения или отключить алерт до фикса проводки.
++
++## Rollback / disable
++- Отключить правило в bundle (удалить/закомментировать алерт в YAML) или исключить файл из include-list.
++- В коде: временно выключить arming (`rd.on_signal`) или `rd.update` блок, сохранив fail-open.

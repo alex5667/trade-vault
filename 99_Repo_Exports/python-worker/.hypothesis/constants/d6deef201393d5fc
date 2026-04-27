@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/ofc_exec_cost_model_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 1.0, 1.5, 10.0, 'artifact_version', 'cost_add_bps', 'cost_mult', 'cost_p90_mult', 'ecm_v1', 'exec_risk_ref_bps', 'exec_risk_ref_mult', 'global', 'groups', 'model_version', 'spread_bps']

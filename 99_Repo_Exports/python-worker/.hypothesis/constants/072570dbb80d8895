@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/weak_progress.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.02, 0.25, 0.35, 10000.0, 'close', 'delta_sum', 'fp_bucket_px', 'high', 'low', 'open', 'tick_size_bp', 'tick_size_px']

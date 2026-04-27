@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/matplotlib/cm.py
+# hypothesis_version: 6.148.10
+
+[1.0, 255, ', ', '3.5', '3.6', 'callbacks', 'changed', 'f', 'get_cmap', 'image.cmap', 'image.lut', 'listed', 'mask', 'red', 'same_kind']

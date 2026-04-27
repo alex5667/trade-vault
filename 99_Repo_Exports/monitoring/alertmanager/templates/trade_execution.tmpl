@@ -1,0 +1,38 @@
+{{ define "trade.subject" -}}
+[{{ .Status | toUpper }}][{{ .CommonLabels.severity }}] {{ .CommonLabels.alertname }}{{ if .CommonLabels.symbol }} {{ .CommonLabels.symbol }}{{ end }}
+{{- end }}
+
+{{ define "trade.text" -}}
+Status: {{ .Status }}
+Alert: {{ .CommonLabels.alertname }}
+Severity: {{ .CommonLabels.severity }}
+{{- if .CommonLabels.symbol }}
+Symbol: {{ .CommonLabels.symbol }}
+{{- end }}
+{{- if .CommonLabels.cluster }}
+Cluster: {{ .CommonLabels.cluster }}
+{{- end }}
+
+{{ range .Alerts }}
+- {{ .Annotations.summary }}
+  {{ .Annotations.description }}
+{{ end }}
+
+Runbooks: http://trade-runbook-server:18080/
+Latest health JSON: http://trade-runbook-server:18080/api/health/latest
+Risk Canary: http://trade-runbook-server:18080/api/risk-canary/latest
+Risk Summary: http://trade-runbook-server:18080/api/risk-summary/latest
+Risk Drift: http://trade-runbook-server:18080/api/risk-mismatch/latest
+Risk Drift Summary: http://trade-runbook-server:18080/api/risk-mismatch-summary/latest
+Risk Drift Drilldown: http://grafana:3000/d/trade-execution-p49-risk-drift-drilldown/trade-execution-p49-risk-drift-drilldown
+Unified Ops Dashboard: http://grafana:3000/d/trade-execution-p48-unified/trade-execution-p48-unified
+Silence: {{ .ExternalURL }}/#/silences/new?filter=%7Balertname%3D%22{{ .CommonLabels.alertname }}%22%7D
+Auto Silence (Risk Drift): {{ .ExternalURL }}/#/silences/new?filter=%7Bdomain%3D%22risk-drift%22%7D
+Risk Drift Summary: http://trade-runbook-server:18080/api/risk-mismatch-summary/latest
+Risk Drift Archive Consistency: http://trade-runbook-server:18080/api/risk-mismatch-archive-consistency/latest
+Runbook: http://trade-runbook-server:18080/runbooks/REPAIR_AND_QUARANTINE.md
+{{- end }}
+
+{{ define "trade.html" -}}
+<pre>{{ template "trade.text" . }}</pre>
+{{- end }}

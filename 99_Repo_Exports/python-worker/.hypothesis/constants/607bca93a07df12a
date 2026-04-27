@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/cooldown_policy_suggester_service.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.05, 0.06, 0.12, 0.15, 0.3, 0.8, 0.9, 1.0, 1.15, 1.2, 1.25, 5.0, 8.0, 18.0, 25.0, 120.0, 180.0, 1000, 3600, ',', '--interval', '--once', '0.12', '15', '30', '900', ':', 'COOLDOWN_CON_DEFAULT', 'COOLDOWN_REV_DEFAULT', 'PRESSURE_HI_DEFAULT', 'REDIS_URL', '__main__', 'allow_keys', 'apply', 'blocked', 'continuation', 'cooldown_policy_v1', 'emit_current', 'emit_pending', 'groups', 'illiquid', 'input_report_ts_ms', 'kind', 'news', 'override_key', 'p90_pressure_sps', 'p90_spread_bp', 'pressure_hi_sps', 'proposed', 'rationale', 'regime', 'replaced', 'reports:burst:last', 'reversal', 'scenario', 'stats', 'store_true', 'symbol', 'thin', 'ts_ms', 'utf-8', '|']

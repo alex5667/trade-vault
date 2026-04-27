@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/atr_redis_publisher.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1000, '15m', '1d', '1h', '1m', '4h', '5m', 'ts', 'v']

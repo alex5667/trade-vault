@@ -1,0 +1,453 @@
+diff -ruN --no-dereference -x .pytest_cache -x __pycache__ -x '*.pyc' -x '*.pyo' /mnt/data/proj_orig2/orderflow_services/runbook_slippage_qa_p77.md /mnt/data/proj/orderflow_services/runbook_slippage_qa_p77.md
+--- /mnt/data/proj_orig2/orderflow_services/runbook_slippage_qa_p77.md	2026-02-24 10:39:48.000000000 +0000
++++ /mnt/data/proj/orderflow_services/runbook_slippage_qa_p77.md	2026-02-25 03:58:04.582118330 +0000
+@@ -148,3 +148,23 @@
+ 2) Inspect `mv_exec_slippage_eval_1h_stats` (or fallback view) for:
+    - `resid_p95_bps`, `resid_p99_bps`, `edge_neg_share`.
+ 3) Keep auto-apply blocked until residual returns to baseline.
++
++
++## Prometheus rules validation (CI / local)
++
++### Python validator (recommended)
++Validates YAML schema + rule structure for **all** `prometheus_alerts_*.yml` under:
++- `./orderflow_services/`
++- `./tick_flow_full/orderflow_services/` (if present)
++
++Run (no promtool required):
++- `python -m orderflow_services.validate_prometheus_rules_bundle_v1 --promtool off`
++
++Exit codes:
++- `0` OK
++- `2` invalid rules/YAML
++
++### promtool (if available on the Prometheus node/container)
++Examples:
++- `promtool check rules orderflow_services/prometheus_alerts_slippage_qa_v1.yml`
++- `find orderflow_services -maxdepth 1 -name 'prometheus_alerts_*.yml' -print0 | xargs -0 -n1 promtool check rules`
+diff -ruN --no-dereference -x .pytest_cache -x __pycache__ -x '*.pyc' -x '*.pyo' /mnt/data/proj_orig2/orderflow_services/tests/test_prometheus_rules_bundle_validator_v1.py /mnt/data/proj/orderflow_services/tests/test_prometheus_rules_bundle_validator_v1.py
+--- /mnt/data/proj_orig2/orderflow_services/tests/test_prometheus_rules_bundle_validator_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj/orderflow_services/tests/test_prometheus_rules_bundle_validator_v1.py	2026-02-25 04:00:40.698886676 +0000
+@@ -0,0 +1,12 @@
++from pathlib import Path
++
++
++def test_prometheus_rules_bundle_validator_passes_without_promtool():
++    # tests/ -> orderflow_services/ -> repo root
++    repo_root = Path(__file__).resolve().parents[2]
++
++    from orderflow_services.validate_prometheus_rules_bundle_v1 import validate_repo_rules
++
++    res = validate_repo_rules(repo_root=repo_root, use_promtool=False)
++    assert res.files_checked > 0, "expected to discover at least 1 prometheus rules file"
++    assert res.ok, "\n".join(res.errors)
+diff -ruN --no-dereference -x .pytest_cache -x __pycache__ -x '*.pyc' -x '*.pyo' /mnt/data/proj_orig2/orderflow_services/validate_prometheus_rules_bundle_v1.py /mnt/data/proj/orderflow_services/validate_prometheus_rules_bundle_v1.py
+--- /mnt/data/proj_orig2/orderflow_services/validate_prometheus_rules_bundle_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj/orderflow_services/validate_prometheus_rules_bundle_v1.py	2026-02-25 04:00:13.875466263 +0000
+@@ -0,0 +1,195 @@
++from __future__ import annotations
++
++"""Prometheus rules bundle validator (CI/local).
++
++Goal
++----
++Catch invalid YAML / malformed alert rules *before* deploy.
++Designed for low-friction usage in CI (pytest) and local dev.
++
++What it validates
++-----------------
++- All `prometheus_alerts_*.yml` files under:
++    - ./orderflow_services/
++    - ./tick_flow_full/orderflow_services/ (if exists)
++- YAML parses
++- Top-level has `groups: [...]`
++- Each group has non-empty `rules: [...]`
++- Each rule has exactly one of: `alert` | `record`
++- Each rule has non-empty `expr`
++- (Optional) runs `promtool check rules` if available
++
++Exit codes
++----------
++- 0: OK
++- 2: validation failed
++"""
++
++import argparse
++import shutil
++import subprocess
++from dataclasses import dataclass
++from pathlib import Path
++
++import yaml
++
++
++@dataclass(frozen=True)
++class ValidationResult:
++    ok: bool
++    files_checked: int
++    errors: list[str]
++
++
++def _repo_root_from_file() -> Path:
++    # file: <repo>/orderflow_services/validate_prometheus_rules_bundle_v1.py
++    return Path(__file__).resolve().parents[1]
++
++
++def _iter_rule_files_in_dir(dir_path: Path) -> list[Path]:
++    if not dir_path.exists() or not dir_path.is_dir():
++        return []
++    files = sorted(dir_path.glob("prometheus_alerts_*.yml"))
++    # Some repos keep recording rules in separate files.
++    files.extend(sorted(dir_path.glob("prometheus_rules_*.yml")))
++    # De-dupe while preserving sort.
++    uniq: dict[str, Path] = {}
++    for p in files:
++        uniq[str(p)] = p
++    return list(uniq.values())
++
++
++def _validate_rules_yaml_doc(doc: object, *, path: Path) -> list[str]:
++    errs: list[str] = []
++    if not isinstance(doc, dict):
++        return [f"{path}: top-level must be a dict"]
++
++    groups = doc.get("groups")
++    if not isinstance(groups, list) or len(groups) == 0:
++        return [f"{path}: missing/invalid groups (expected non-empty list)"]
++
++    seen_alerts: set[str] = set()
++    for gi, g in enumerate(groups):
++        if not isinstance(g, dict):
++            errs.append(f"{path}: groups[{gi}] must be a dict")
++            continue
++        rules = g.get("rules")
++        if not isinstance(rules, list) or len(rules) == 0:
++            errs.append(f"{path}: groups[{gi}] missing/empty rules list")
++            continue
++        for ri, r in enumerate(rules):
++            if not isinstance(r, dict):
++                errs.append(f"{path}: groups[{gi}].rules[{ri}] must be a dict")
++                continue
++
++            has_alert = "alert" in r
++            has_record = "record" in r
++            if has_alert == has_record:
++                errs.append(
++                    f"{path}: groups[{gi}].rules[{ri}] must contain exactly one of 'alert' or 'record'"
++                )
++                continue
++
++            expr = r.get("expr")
++            if not isinstance(expr, str) or not expr.strip():
++                errs.append(f"{path}: groups[{gi}].rules[{ri}] missing/empty expr")
++
++            if has_alert:
++                alert = r.get("alert")
++                if not isinstance(alert, str) or not alert.strip():
++                    errs.append(f"{path}: groups[{gi}].rules[{ri}] missing/empty alert name")
++                else:
++                    if alert in seen_alerts:
++                        errs.append(f"{path}: duplicate alert name: {alert}")
++                    seen_alerts.add(alert)
++
++            for k in ("labels", "annotations"):
++                if k in r and not isinstance(r.get(k), dict):
++                    errs.append(f"{path}: groups[{gi}].rules[{ri}] '{k}' must be a dict")
++    return errs
++
++
++def validate_repo_rules(*, repo_root: Path, use_promtool: bool) -> ValidationResult:
++    errors: list[str] = []
++    all_files: list[Path] = []
++
++    dirs = [repo_root / "orderflow_services", repo_root / "tick_flow_full" / "orderflow_services"]
++    for d in dirs:
++        all_files.extend(_iter_rule_files_in_dir(d))
++
++    # De-dupe
++    uniq: dict[str, Path] = {}
++    for p in all_files:
++        uniq[str(p)] = p
++    files = list(uniq.values())
++
++    for path in files:
++        try:
++            with open(path, "r", encoding="utf-8") as fh:
++                doc = yaml.safe_load(fh)
++        except Exception as e:
++            errors.append(f"{path}: YAML parse error: {type(e).__name__}: {e}")
++            continue
++        errors.extend(_validate_rules_yaml_doc(doc, path=path))
++
++    if use_promtool:
++        promtool = shutil.which("promtool")
++        if not promtool:
++            errors.append("promtool requested but not found in PATH")
++        else:
++            for path in files:
++                proc = subprocess.run(
++                    [promtool, "check", "rules", str(path)],
++                    capture_output=True,
++                    text=True,
++                )
++                if proc.returncode != 0:
++                    out = (proc.stdout or "") + (proc.stderr or "")
++                    out = out.strip()
++                    if len(out) > 800:
++                        out = out[:800] + "…"
++                    errors.append(f"promtool check failed for {path}: {out}")
++
++    return ValidationResult(ok=(len(errors) == 0), files_checked=len(files), errors=errors)
++
++
++def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
++    p = argparse.ArgumentParser()
++    p.add_argument(
++        "--root",
++        default=None,
++        help="Repo root (defaults to auto-detected root)",
++    )
++    p.add_argument(
++        "--promtool",
++        choices=("auto", "on", "off"),
++        default="auto",
++        help="Run promtool check rules: auto|on|off",
++    )
++    return p.parse_args(argv)
++
++
++def main(argv: list[str] | None = None) -> int:
++    args = _parse_args(argv)
++    repo_root = Path(args.root).resolve() if args.root else _repo_root_from_file()
++
++    if args.promtool == "on":
++        use_promtool = True
++    elif args.promtool == "off":
++        use_promtool = False
++    else:
++        use_promtool = bool(shutil.which("promtool"))
++
++    res = validate_repo_rules(repo_root=repo_root, use_promtool=use_promtool)
++    if res.ok:
++        print(f"OK: validated {res.files_checked} Prometheus rules files")
++        return 0
++
++    print(f"FAIL: {len(res.errors)} error(s) while validating {res.files_checked} rules files")
++    for e in res.errors:
++        print(f"- {e}")
++    return 2
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff -ruN --no-dereference -x .pytest_cache -x __pycache__ -x '*.pyc' -x '*.pyo' /mnt/data/proj_orig2/tick_flow_full/orderflow_services/runbook_slippage_qa_p77.md /mnt/data/proj/tick_flow_full/orderflow_services/runbook_slippage_qa_p77.md
+--- /mnt/data/proj_orig2/tick_flow_full/orderflow_services/runbook_slippage_qa_p77.md	2026-02-24 10:39:48.000000000 +0000
++++ /mnt/data/proj/tick_flow_full/orderflow_services/runbook_slippage_qa_p77.md	2026-02-25 03:58:12.509257903 +0000
+@@ -148,3 +148,22 @@
+ 2) Inspect `mv_exec_slippage_eval_1h_stats` (or fallback view) for:
+    - `resid_p95_bps`, `resid_p99_bps`, `edge_neg_share`.
+ 3) Keep auto-apply blocked until residual returns to baseline.
++
++
++## Prometheus rules validation (CI / local)
++
++### Python validator (recommended)
++Validates YAML schema + rule structure for **all** `prometheus_alerts_*.yml` under:
++- `./orderflow_services/` (this tree)
++
++Run (no promtool required):
++- `python -m orderflow_services.validate_prometheus_rules_bundle_v1 --promtool off`
++
++Exit codes:
++- `0` OK
++- `2` invalid rules/YAML
++
++### promtool (if available on the Prometheus node/container)
++Examples:
++- `promtool check rules orderflow_services/prometheus_alerts_slippage_qa_v1.yml`
++- `find orderflow_services -maxdepth 1 -name 'prometheus_alerts_*.yml' -print0 | xargs -0 -n1 promtool check rules`
+diff -ruN --no-dereference -x .pytest_cache -x __pycache__ -x '*.pyc' -x '*.pyo' /mnt/data/proj_orig2/tick_flow_full/orderflow_services/validate_prometheus_rules_bundle_v1.py /mnt/data/proj/tick_flow_full/orderflow_services/validate_prometheus_rules_bundle_v1.py
+--- /mnt/data/proj_orig2/tick_flow_full/orderflow_services/validate_prometheus_rules_bundle_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/proj/tick_flow_full/orderflow_services/validate_prometheus_rules_bundle_v1.py	2026-02-25 04:00:34.493152014 +0000
+@@ -0,0 +1,181 @@
++from __future__ import annotations
++
++"""Prometheus rules bundle validator (CI/local) — tick_flow_full mirror.
++
++This file is intentionally kept in sync with:
++  - orderflow_services/validate_prometheus_rules_bundle_v1.py
++
++It validates all `prometheus_alerts_*.yml` files under this package directory.
++If the repo root contains the top-level `orderflow_services/`, it validates those
++as well (useful when running from the mono-tree).
++"""
++
++import argparse
++import shutil
++import subprocess
++from dataclasses import dataclass
++from pathlib import Path
++
++import yaml
++
++
++@dataclass(frozen=True)
++class ValidationResult:
++    ok: bool
++    files_checked: int
++    errors: list[str]
++
++
++def _repo_root_from_file() -> Path:
++    # file: <repo>/tick_flow_full/orderflow_services/validate_prometheus_rules_bundle_v1.py
++    # repo root is typically parents[2].
++    return Path(__file__).resolve().parents[2]
++
++
++def _iter_rule_files_in_dir(dir_path: Path) -> list[Path]:
++    if not dir_path.exists() or not dir_path.is_dir():
++        return []
++    files = sorted(dir_path.glob("prometheus_alerts_*.yml"))
++    files.extend(sorted(dir_path.glob("prometheus_rules_*.yml")))
++    uniq: dict[str, Path] = {}
++    for p in files:
++        uniq[str(p)] = p
++    return list(uniq.values())
++
++
++def _validate_rules_yaml_doc(doc: object, *, path: Path) -> list[str]:
++    errs: list[str] = []
++    if not isinstance(doc, dict):
++        return [f"{path}: top-level must be a dict"]
++
++    groups = doc.get("groups")
++    if not isinstance(groups, list) or len(groups) == 0:
++        return [f"{path}: missing/invalid groups (expected non-empty list)"]
++
++    seen_alerts: set[str] = set()
++    for gi, g in enumerate(groups):
++        if not isinstance(g, dict):
++            errs.append(f"{path}: groups[{gi}] must be a dict")
++            continue
++        rules = g.get("rules")
++        if not isinstance(rules, list) or len(rules) == 0:
++            errs.append(f"{path}: groups[{gi}] missing/empty rules list")
++            continue
++        for ri, r in enumerate(rules):
++            if not isinstance(r, dict):
++                errs.append(f"{path}: groups[{gi}].rules[{ri}] must be a dict")
++                continue
++
++            has_alert = "alert" in r
++            has_record = "record" in r
++            if has_alert == has_record:
++                errs.append(
++                    f"{path}: groups[{gi}].rules[{ri}] must contain exactly one of 'alert' or 'record'"
++                )
++                continue
++
++            expr = r.get("expr")
++            if not isinstance(expr, str) or not expr.strip():
++                errs.append(f"{path}: groups[{gi}].rules[{ri}] missing/empty expr")
++
++            if has_alert:
++                alert = r.get("alert")
++                if not isinstance(alert, str) or not alert.strip():
++                    errs.append(f"{path}: groups[{gi}].rules[{ri}] missing/empty alert name")
++                else:
++                    if alert in seen_alerts:
++                        errs.append(f"{path}: duplicate alert name: {alert}")
++                    seen_alerts.add(alert)
++
++            for k in ("labels", "annotations"):
++                if k in r and not isinstance(r.get(k), dict):
++                    errs.append(f"{path}: groups[{gi}].rules[{ri}] '{k}' must be a dict")
++    return errs
++
++
++def validate_repo_rules(*, repo_root: Path, use_promtool: bool) -> ValidationResult:
++    errors: list[str] = []
++
++    this_dir = Path(__file__).resolve().parent
++    candidates = [this_dir]
++
++    # If mono-tree root exists, also validate top-level rules.
++    top = repo_root / "orderflow_services"
++    if top.exists() and top.is_dir():
++        candidates.append(top)
++
++    files: list[Path] = []
++    for d in candidates:
++        files.extend(_iter_rule_files_in_dir(d))
++
++    uniq: dict[str, Path] = {}
++    for p in files:
++        uniq[str(p)] = p
++    files = list(uniq.values())
++
++    for path in files:
++        try:
++            with open(path, "r", encoding="utf-8") as fh:
++                doc = yaml.safe_load(fh)
++        except Exception as e:
++            errors.append(f"{path}: YAML parse error: {type(e).__name__}: {e}")
++            continue
++        errors.extend(_validate_rules_yaml_doc(doc, path=path))
++
++    if use_promtool:
++        promtool = shutil.which("promtool")
++        if not promtool:
++            errors.append("promtool requested but not found in PATH")
++        else:
++            for path in files:
++                proc = subprocess.run(
++                    [promtool, "check", "rules", str(path)],
++                    capture_output=True,
++                    text=True,
++                )
++                if proc.returncode != 0:
++                    out = (proc.stdout or "") + (proc.stderr or "")
++                    out = out.strip()
++                    if len(out) > 800:
++                        out = out[:800] + "…"
++                    errors.append(f"promtool check failed for {path}: {out}")
++
++    return ValidationResult(ok=(len(errors) == 0), files_checked=len(files), errors=errors)
++
++
++def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
++    p = argparse.ArgumentParser()
++    p.add_argument("--root", default=None, help="Repo root (defaults to auto-detected root)")
++    p.add_argument(
++        "--promtool",
++        choices=("auto", "on", "off"),
++        default="auto",
++        help="Run promtool check rules: auto|on|off",
++    )
++    return p.parse_args(argv)
++
++
++def main(argv: list[str] | None = None) -> int:
++    args = _parse_args(argv)
++    repo_root = Path(args.root).resolve() if args.root else _repo_root_from_file()
++
++    if args.promtool == "on":
++        use_promtool = True
++    elif args.promtool == "off":
++        use_promtool = False
++    else:
++        use_promtool = bool(shutil.which("promtool"))
++
++    res = validate_repo_rules(repo_root=repo_root, use_promtool=use_promtool)
++    if res.ok:
++        print(f"OK: validated {res.files_checked} Prometheus rules files")
++        return 0
++
++    print(f"FAIL: {len(res.errors)} error(s) while validating {res.files_checked} rules files")
++    for e in res.errors:
++        print(f"- {e}")
++    return 2
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())

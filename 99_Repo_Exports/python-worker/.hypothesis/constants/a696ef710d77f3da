@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/experiment_manager.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.5, 4294967295, 'PG_DSN', 'completed', 'config', 'control', 'direction', 'draft', 'end_at_ms', 'experiment_id', 'experiment_manager', 'filter_name', 'running', 'signal_family', 'start_at_ms', 'status', 'stopped', 'target_metric', 'treatment', 'utf-8', 'variant']

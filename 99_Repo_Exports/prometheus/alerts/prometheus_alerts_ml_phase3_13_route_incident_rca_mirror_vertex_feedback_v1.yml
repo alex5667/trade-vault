@@ -1,0 +1,30 @@
+groups:
+  - name: ml_phase3_13_route_incident_rca_mirror_vertex_feedback_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorVertexRCAStale
+        expr: time() - ml_route_incident_rca_mirror_vertex_rca_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror vertex RCA consumer is stale"
+
+      - alert: MLRouteIncidentRCAMirrorVertexGovernanceStale
+        expr: time() - ml_route_incident_rca_mirror_vertex_governance_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror vertex feedback governor is stale"
+
+      - alert: MLRouteIncidentRCAMirrorVertexGovernanceLowUsefulness
+        expr: ml_route_incident_rca_mirror_vertex_governance_avg_usefulness < 0.60
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror vertex governance reports low usefulness"
+
+      - alert: MLRouteIncidentRCAMirrorVertexGovernanceLowQuality
+        expr: ml_route_incident_rca_mirror_vertex_governance_avg_quality < 0.55
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror vertex governance reports low quality"

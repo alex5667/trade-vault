@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/config.py
+# hypothesis_version: 6.148.10
+
+['0.01', '172800', '1800', '200000', '259200', '3600', '60', '604800', '8', 'CALENDAR_AGG_TTL_SEC', 'CALENDAR_EVENTS_DLQ', 'GEMINI_API_KEY', 'GEMINI_MODEL', 'NEWS_AGG_TTL_SEC', 'NEWS_ANALYSIS_DLQ', 'NEWS_ANALYSIS_STREAM', 'NEWS_ANALYZER_GROUP', 'NEWS_DEDUPE_TTL_SEC', 'NEWS_FEATURE_GROUP', 'NEWS_RAW_DLQ', 'NEWS_RAW_STREAM', 'NEWS_STREAM_MAXLEN', 'NEWS_TS_BUCKET_SEC', 'calendar:events', 'calendar:events:dlq', 'gemini-1.5-pro', 'news-analyzer', 'news-feature-store', 'news:analysis', 'news:analysis:dlq', 'news:ingestor:leader', 'news:raw', 'news:raw:dlq']

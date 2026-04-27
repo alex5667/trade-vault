@@ -1,0 +1,155 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - 'websocket_alerts.yml'
+  - 'regime_alerts.yml'
+  - 'prometheus/ml_confirm_alerts.yml'
+  - 'prometheus/tick_quality_alerts.yml'
+  - 'prometheus/tick_ingest_latency_alerts.yml'
+  - 'prometheus/alerts_meta_dq.yml'
+  - 'orderflow_services/prometheus_alerts_slo_tradeoff_p66.yml'
+  - 'orderflow_services/prometheus_alerts_contract_v4.yml'
+  - 'orderflow_services/prometheus_alerts_of_gate_ok_rate_v1.yml'
+  # P59/P60 Edge Stack train + shadow eval alerts
+  - 'orderflow_services/prometheus_alerts_edge_stack_train_p59.yml'
+  - 'orderflow_services/prometheus_alerts_edge_stack_shadow_p60.yml'
+  # P77 enforce bucket promoter + residual alerts
+  - 'orderflow_services/prometheus_alerts_enforce_bucket_promoter_v1.yml'
+  # P77 enforce bucket promoter rollback alerts
+  - 'orderflow_services/prometheus_alerts_enforce_bucket_promoter_rollback_v1.yml'
+  # P86 DB-based residual/edge validation alerts (active when ENFORCE_STATE_EXPORTER_DB_STATS=1)
+  - 'orderflow_services/prometheus_alerts_exec_slip_residual_validation_p86.yml'
+  # P90 Exporter self-health + auto-apply block + SLO freezer + exec_slip_stats refresh staleness
+  - 'orderflow_services/prometheus_alerts_enforce_bucket_state_exporter_p90.yml'
+  # V8: Nightly slippage decomp calibrator staleness + impact coeff age alerts
+  - 'orderflow_services/prometheus_alerts_slippage_calibrator_health_v1.yml'
+  # P91/P92: LOB pressure (queue imbalance, microprice, depth slope, DW OBI) alerts
+  - 'orderflow_services/prometheus_alerts_lob_pressure_p92.yml'
+  # P94: Feature Registry contract / schema pinning alerts
+  - 'orderflow_services/prometheus_alerts_feature_registry_p94.yml'
+  # A1.1: LiqMap snapshot staleness & parse error alerts (liqmap_snapshot_age_ms, liqmap_parse_errors_total)
+  - 'orderflow_services/prometheus_alerts_liqmap_observability_v1.yml'
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  # Prometheus сам себя мониторит
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Go Workers метрики - 10 воркеров для всех таймфреймов
+  - job_name: 'go-workers'
+    static_configs:
+      - targets:
+          - 'go-worker-1m:2112'
+          - 'go-worker-5m:2113'
+          - 'go-worker-15m:2114'
+          - 'go-worker-1h:2115'
+          - 'go-worker-4h:2116'
+          - 'go-worker-1d:2117'
+          - 'go-worker-1w:2118'
+          - 'go-worker-1month:2119'
+          - 'go-worker-3month:2120'
+          - 'go-worker-1y:2121'
+        labels:
+          service: 'go-worker'
+    scrape_interval: 10s
+    metrics_path: '/metrics'
+
+  # Redis метрики — по одному экспортеру на каждый redis-worker
+  - job_name: 'redis-workers'
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['redis-exporter-worker-1:9121']
+        labels:
+          instance: 'redis-worker-1'
+      - targets: ['redis-exporter-worker-2:9121']
+        labels:
+          instance: 'redis-worker-2'
+      - targets: ['redis-exporter-worker-1b:9121']
+        labels:
+          instance: 'redis-worker-1b'
+      - targets: ['redis-exporter-worker-2b:9121']
+        labels:
+          instance: 'redis-worker-2b'
+
+  # Python Worker метрики (если добавлен экспортер)
+  - job_name: 'python-worker'
+    static_configs:
+      - targets: ['python-worker:8000']
+    scrape_interval: 15s
+
+  # Regime Quantiles Job метрики
+  - job_name: 'regime-quantiles'
+    static_configs:
+      - targets: ['regime-quantiles-job:8001']
+    scrape_interval: 30s
+
+  # Metrics Exporter (Redis-based) метрики
+  - job_name: 'metrics-exporter-redis'
+    static_configs:
+      - targets: ['scanner-metrics-server-timer:9109']
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+
+  # OF Confirm Service метрики
+  - job_name: 'of-confirm-service'
+    static_configs:
+      - targets: ['of-confirm-service:8003']
+    scrape_interval: 15s
+
+  # Execution Gate Service метрики
+  - job_name: 'execution-gate-service'
+    static_configs:
+      - targets: ['execution-gate-service:8004']
+    scrape_interval: 15s
+
+  # ML Confirm SRE Poller метрики
+  - job_name: 'ml-confirm-sre-poller'
+    static_configs:
+      - targets: ['ml-confirm-sre-poller:8005']
+    scrape_interval: 15s
+
+  # P76 — OF gate contract smoke-check exporter (port 9148)
+  # Exposes bad_share, missing_schema_share, dq_code/reason_code breakdowns
+  - job_name: 'of-gate-contract-smoke'
+    static_configs:
+      - targets: ['of-gate-contract-smoke-exporter:9148']
+    scrape_interval: 30s
+
+  # P59 — Edge Stack v1 nightly train metrics exporter (port 9813)
+  # Reads Redis hash metrics:edge_stack_train:last; alerts in prometheus_alerts_edge_stack_train_p59.yml
+  - job_name: edge_stack_train_p59
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - scanner-edge-stack-train-exporter-p59:9813
+
+  # P60 — Edge Stack v1 shadow eval status exporter (port 8012)
+  # Reads shadow_status.json; alerts in prometheus_alerts_edge_stack_shadow_p60.yml
+  - job_name: edge_stack_shadow_p60
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          - scanner-edge-stack-shadow-exporter-p60:8012
+
+  # P77 — Enforce bucket state exporter (port 9142)
+  # Exports of_enforce_bucket_flag, impact_coeff, promoter report age/residuals.
+  # Alerts in orderflow_services/prometheus_alerts_enforce_bucket_promoter_v1.yml
+  - job_name: enforce_bucket_state_p77
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - scanner-enforce-bucket-state-exporter:9142
+
+  # P94 — Feature Registry contract exporter (port 9817)
+  # Reads metrics:feature_registry_contract:last; alerts in prometheus_alerts_feature_registry_p94.yml
+  - job_name: feature_registry_contract_p94
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - feature-registry-contract-exporter:9822

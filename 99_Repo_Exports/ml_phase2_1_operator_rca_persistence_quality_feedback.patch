@@ -1,0 +1,921 @@
+diff --git a/orderflow_services/operator_rca_results_persister_v2_1.py b/orderflow_services/operator_rca_results_persister_v2_1.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/operator_rca_results_persister_v2_1.py
+@@ -0,0 +1,301 @@
++from __future__ import annotations
++
++import hashlib
++import json
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, Optional, Tuple
++
++try:
++    import redis.asyncio as redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++try:
++    import asyncpg  # type: ignore
++except Exception:  # pragma: no cover
++    asyncpg = None  # type: ignore
++
++from prometheus_client import Counter, Gauge, Histogram, start_http_server
++
++
++RESULTS_STREAM = os.getenv("ML_OPERATOR_RCA_RESULTS_STREAM", "stream:ml:operator_rca_results")
++QUALITY_STREAM = os.getenv("ML_OPERATOR_RCA_QUALITY_STREAM", "stream:ml:operator_rca_quality")
++STATE_KEY = os.getenv("ML_OPERATOR_RCA_RESULTS_PERSISTER_STATE_KEY", "metrics:ml:operator_rca_results_persister:last")
++RESULT_HASH_PREFIX = os.getenv("ML_OPERATOR_RCA_RESULT_HASH_PREFIX", "metrics:ml:operator_rca_result:")
++GROUP = os.getenv("ML_OPERATOR_RCA_RESULTS_PERSISTER_GROUP", "cg:ml_operator_rca_results_persister_v2_1")
++CONSUMER = os.getenv("ML_OPERATOR_RCA_RESULTS_PERSISTER_CONSUMER", "ml-operator-rca-results-persist-v2-1")
++PROM_PORT = int(os.getenv("ML_OPERATOR_RCA_RESULTS_PERSISTER_PORT", "9870"))
++
++UPSERTED = Counter("ml_operator_rca_results_upserted_total", "RCA results upserted", ["status"])
++DEDUPED = Counter("ml_operator_rca_results_deduped_total", "RCA results deduped")
++DB_ERRORS = Counter("ml_operator_rca_results_db_errors_total", "RCA DB errors")
++LAST_RUN_TS = Gauge("ml_operator_rca_results_persister_last_run_ts_seconds", "Last persister run ts")
++QUEUE_LAG_MS = Gauge("ml_operator_rca_results_persister_queue_lag_ms", "Approximate queue lag")
++LOOP_SECONDS = Histogram("ml_operator_rca_results_persister_loop_seconds", "Persister loop seconds")
++
++
++def _b2s(v: Any) -> str:
++    if isinstance(v, bytes):
++        return v.decode("utf-8", errors="replace")
++    return str(v)
++
++
++def _loads(v: Any, default: Any) -> Any:
++    try:
++        if v in (None, "", b""):
++            return default
++        return json.loads(_b2s(v))
++    except Exception:
++        return default
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _json_hash(output_json: Dict[str, Any]) -> str:
++    payload = json.dumps(output_json, separators=(",", ":"), sort_keys=True)
++    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
++
++
++@dataclass
++class RCAResult:
++    recommendation_id: str
++    ts_ms: int
++    provider: str
++    model_name: str
++    status: str
++    latency_ms: int
++    estimated_cost_usd: float
++    output_json: Dict[str, Any]
++    prompt_version: str
++    policy_version: str
++
++    @property
++    def output_hash(self) -> str:
++        return _json_hash(self.output_json)
++
++
++def parse_result(fields: Dict[Any, Any]) -> RCAResult:
++    return RCAResult(
++        recommendation_id=_b2s(fields.get(b"recommendation_id", b"")),
++        ts_ms=int(_b2s(fields.get(b"ts_ms", b"0")) or "0"),
++        provider=_b2s(fields.get(b"provider", b"")),
++        model_name=_b2s(fields.get(b"model_name", b"")),
++        status=_b2s(fields.get(b"status", b"")),
++        latency_ms=int(_b2s(fields.get(b"latency_ms", b"0")) or "0"),
++        estimated_cost_usd=float(_b2s(fields.get(b"estimated_cost_usd", b"0.0")) or "0.0"),
++        output_json=_loads(fields.get(b"output_json"), {}),
++        prompt_version=_b2s(fields.get(b"prompt_version", b"")),
++        policy_version=_b2s(fields.get(b"policy_version", b"")),
++    )
++
++
++def build_quality_event(result: RCAResult) -> Dict[str, Any]:
++    findings = result.output_json.get("findings", []) if isinstance(result.output_json, dict) else []
++    recs = result.output_json.get("recommendations", []) if isinstance(result.output_json, dict) else []
++    return {
++        "schema_version": 1,
++        "recommendation_id": result.recommendation_id,
++        "ts_ms": str(_now_ms()),
++        "provider": result.provider,
++        "model_name": result.model_name,
++        "status": result.status,
++        "output_hash": result.output_hash,
++        "prompt_version": result.prompt_version,
++        "policy_version": result.policy_version,
++        "findings_n": str(len(findings) if isinstance(findings, list) else 0),
++        "recommendations_n": str(len(recs) if isinstance(recs, list) else 0),
++        "output_json": json.dumps(result.output_json, separators=(",", ":"), sort_keys=True),
++    }
++
++
++async def _ensure_group(r: Any) -> None:
++    try:
++        await r.xgroup_create(RESULTS_STREAM, GROUP, id="0", mkstream=True)
++    except Exception:
++        pass
++
++
++async def _upsert_sql(conn: Any, result: RCAResult) -> None:
++    if conn is None:
++        return
++    output_json = json.dumps(result.output_json, separators=(",", ":"), sort_keys=True)
++    await conn.execute(
++        """
++        INSERT INTO llm_incident_rca_runs (
++            analysis_run_id, recommendation_id, ts_ms, provider, model_name,
++            prompt_version, policy_version, status, latency_ms, estimated_cost_usd, output_json
++        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)
++        ON CONFLICT (analysis_run_id)
++        DO UPDATE SET
++            status = EXCLUDED.status,
++            latency_ms = EXCLUDED.latency_ms,
++            estimated_cost_usd = EXCLUDED.estimated_cost_usd,
++            output_json = EXCLUDED.output_json
++        """,
++        f"{result.recommendation_id}:{result.ts_ms}:{result.output_hash}",
++        result.recommendation_id,
++        result.ts_ms,
++        result.provider,
++        result.model_name,
++        result.prompt_version or None,
++        result.policy_version or None,
++        result.status,
++        result.latency_ms,
++        result.estimated_cost_usd,
++        output_json,
++    )
++    await conn.execute(
++        """
++        INSERT INTO llm_incident_rca_results (
++            recommendation_id, latest_analysis_run_id, latest_ts_ms, provider, model_name,
++            severity, prompt_version, policy_version, output_hash, quality_score,
++            usefulness_score, output_json
++        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULL,NULL,$10::jsonb)
++        ON CONFLICT (recommendation_id)
++        DO UPDATE SET
++            latest_analysis_run_id = EXCLUDED.latest_analysis_run_id,
++            latest_ts_ms = EXCLUDED.latest_ts_ms,
++            provider = EXCLUDED.provider,
++            model_name = EXCLUDED.model_name,
++            severity = EXCLUDED.severity,
++            prompt_version = EXCLUDED.prompt_version,
++            policy_version = EXCLUDED.policy_version,
++            output_hash = EXCLUDED.output_hash,
++            output_json = EXCLUDED.output_json
++        WHERE llm_incident_rca_results.output_hash IS DISTINCT FROM EXCLUDED.output_hash
++           OR llm_incident_rca_results.latest_ts_ms < EXCLUDED.latest_ts_ms
++        """,
++        result.recommendation_id,
++        f"{result.recommendation_id}:{result.ts_ms}:{result.output_hash}",
++        result.ts_ms,
++        result.provider,
++        result.model_name,
++        str(result.output_json.get("severity", "")) if isinstance(result.output_json, dict) else None,
++        result.prompt_version or None,
++        result.policy_version or None,
++        result.output_hash,
++        output_json,
++    )
++
++
++async def run_forever() -> None:
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PROM_PORT)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=False)
++    await _ensure_group(r)
++    dsn = os.getenv("DATABASE_URL", "").strip()
++    conn = None
++    if dsn and asyncpg is not None:
++        conn = await asyncpg.connect(dsn)
++    block_ms = int(os.getenv("ML_OPERATOR_RCA_RESULTS_PERSISTER_BLOCK_MS", "5000"))
++    count = int(os.getenv("ML_OPERATOR_RCA_RESULTS_PERSISTER_READ_COUNT", "32"))
++    while True:
++        t0 = time.perf_counter()
++        rows = await r.xreadgroup(GROUP, CONSUMER, {RESULTS_STREAM: ">"}, count=count, block=block_ms)
++        for _stream, messages in rows:
++            for msg_id, fields in messages:
++                result = parse_result(fields)
++                try:
++                    QUEUE_LAG_MS.set(max(0, _now_ms() - result.ts_ms))
++                except Exception:
++                    pass
++                latest_key = f"{RESULT_HASH_PREFIX}{result.recommendation_id}"
++                prev_hash = _b2s(await r.hget(latest_key, b"output_hash") or "")
++                if prev_hash and prev_hash == result.output_hash:
++                    DEDUPED.inc()
++                    await r.xack(RESULTS_STREAM, GROUP, msg_id)
++                    continue
++                try:
++                    await _upsert_sql(conn, result)
++                    await r.hset(
++                        latest_key,
++                        mapping={
++                            "recommendation_id": result.recommendation_id,
++                            "latest_ts_ms": str(result.ts_ms),
++                            "provider": result.provider,
++                            "model_name": result.model_name,
++                            "status": result.status,
++                            "output_hash": result.output_hash,
++                            "prompt_version": result.prompt_version,
++                            "policy_version": result.policy_version,
++                        },
++                    )
++                    await r.hset(
++                        STATE_KEY,
++                        mapping={
++                            "last_recommendation_id": result.recommendation_id,
++                            "last_ts_ms": str(result.ts_ms),
++                            "last_output_hash": result.output_hash,
++                            "last_provider": result.provider,
++                            "last_model_name": result.model_name,
++                        },
++                    )
++                    await r.xadd(QUALITY_STREAM, build_quality_event(result), maxlen=50000, approximate=True)
++                    UPSERTED.labels(status=result.status or "unknown").inc()
++                except Exception:
++                    DB_ERRORS.inc()
++                    raise
++                await r.xack(RESULTS_STREAM, GROUP, msg_id)
++        LAST_RUN_TS.set(time.time())
++        LOOP_SECONDS.observe(time.perf_counter() - t0)
++
++
++if __name__ == "__main__":  # pragma: no cover
++    import asyncio
++    asyncio.run(run_forever())
++diff --git a/orderflow_services/operator_rca_quality_scorer_v2_1.py b/orderflow_services/operator_rca_quality_scorer_v2_1.py
++new file mode 100644
++index 0000000..2222222
++--- /dev/null
+++++ b/orderflow_services/operator_rca_quality_scorer_v2_1.py
++@@ -0,0 +1,280 @@
+++from __future__ import annotations
+++
+++import json
+++import os
+++import time
+++from dataclasses import dataclass
+++from typing import Any, Dict, List, Tuple
+++
+++try:
+++    import redis.asyncio as redis  # type: ignore
+++except Exception:  # pragma: no cover
+++    redis = None  # type: ignore
+++
+++try:
+++    import asyncpg  # type: ignore
+++except Exception:  # pragma: no cover
+++    asyncpg = None  # type: ignore
+++
+++from prometheus_client import Counter, Gauge, Histogram, start_http_server
+++
+++QUALITY_STREAM = os.getenv("ML_OPERATOR_RCA_QUALITY_STREAM", "stream:ml:operator_rca_quality")
+++QUALITY_RESULTS_STREAM = os.getenv("ML_OPERATOR_RCA_QUALITY_RESULTS_STREAM", "stream:ml:operator_rca_quality_results")
+++STATE_KEY = os.getenv("ML_OPERATOR_RCA_QUALITY_STATE_KEY", "metrics:ml:operator_rca_quality:last")
+++GROUP = os.getenv("ML_OPERATOR_RCA_QUALITY_GROUP", "cg:ml_operator_rca_quality_v2_1")
+++CONSUMER = os.getenv("ML_OPERATOR_RCA_QUALITY_CONSUMER", "ml-operator-rca-quality-v2-1")
+++PROM_PORT = int(os.getenv("ML_OPERATOR_RCA_QUALITY_PORT", "9871"))
+++
+++SCORED = Counter("ml_operator_rca_quality_scored_total", "RCA quality scores computed")
+++LOW_QUALITY = Counter("ml_operator_rca_quality_low_total", "Low RCA quality count")
+++LAST_RUN_TS = Gauge("ml_operator_rca_quality_last_run_ts_seconds", "Last RCA quality run ts")
+++LAST_SCORE = Gauge("ml_operator_rca_quality_last_score", "Last RCA quality score")
+++LOOP_SECONDS = Histogram("ml_operator_rca_quality_loop_seconds", "RCA quality loop seconds")
+++
+++
+++def _b2s(v: Any) -> str:
+++    if isinstance(v, bytes):
+++        return v.decode("utf-8", errors="replace")
+++    return str(v)
+++
+++
+++def _loads(v: Any, default: Any) -> Any:
+++    try:
+++        if v in (None, "", b""):
+++            return default
+++        return json.loads(_b2s(v))
+++    except Exception:
+++        return default
+++
+++
+++def _now_ms() -> int:
+++    return int(time.time() * 1000)
+++
+++
+++@dataclass
+++class RCAQualityInput:
+++    recommendation_id: str
+++    ts_ms: int
+++    provider: str
+++    model_name: str
+++    status: str
+++    output_hash: str
+++    prompt_version: str
+++    policy_version: str
+++    findings_n: int
+++    recommendations_n: int
+++    output_json: Dict[str, Any]
+++
+++
+++def parse_input(fields: Dict[Any, Any]) -> RCAQualityInput:
+++    return RCAQualityInput(
+++        recommendation_id=_b2s(fields.get(b"recommendation_id", b"")),
+++        ts_ms=int(_b2s(fields.get(b"ts_ms", b"0")) or "0"),
+++        provider=_b2s(fields.get(b"provider", b"")),
+++        model_name=_b2s(fields.get(b"model_name", b"")),
+++        status=_b2s(fields.get(b"status", b"")),
+++        output_hash=_b2s(fields.get(b"output_hash", b"")),
+++        prompt_version=_b2s(fields.get(b"prompt_version", b"")),
+++        policy_version=_b2s(fields.get(b"policy_version", b"")),
+++        findings_n=int(_b2s(fields.get(b"findings_n", b"0")) or "0"),
+++        recommendations_n=int(_b2s(fields.get(b"recommendations_n", b"0")) or "0"),
+++        output_json=_loads(fields.get(b"output_json"), {}),
+++    )
+++
+++
+++def score_output(payload: Dict[str, Any]) -> Tuple[float, List[str], Dict[str, float]]:
+++    reasons: List[str] = []
+++    parts: Dict[str, float] = {}
+++    total = 0.0
+++    if isinstance(payload, dict):
+++        total += 20.0
+++        parts["object"] = 20.0
+++    else:
+++        return 0.0, ["NOT_OBJECT"], {"object": 0.0}
+++
+++    summary = str(payload.get("summary", "")).strip()
+++    if summary:
+++        total += 15.0
+++        parts["summary"] = 15.0
+++    else:
+++        reasons.append("MISSING_SUMMARY")
+++        parts["summary"] = 0.0
+++
+++    findings = payload.get("findings", []) if isinstance(payload.get("findings", []), list) else []
+++    recs = payload.get("recommendations", []) if isinstance(payload.get("recommendations", []), list) else []
+++    if findings:
+++        add = min(20.0, 5.0 * len(findings))
+++        total += add
+++        parts["findings"] = add
+++    else:
+++        reasons.append("NO_FINDINGS")
+++        parts["findings"] = 0.0
+++
+++    if recs:
+++        add = min(15.0, 5.0 * len(recs))
+++        total += add
+++        parts["recommendations"] = add
+++    else:
+++        reasons.append("NO_RECOMMENDATIONS")
+++        parts["recommendations"] = 0.0
+++
+++    evidence_hits = 0
+++    for finding in findings[:10]:
+++        if isinstance(finding, dict) and isinstance(finding.get("evidence", []), list) and finding.get("evidence"):
+++            evidence_hits += 1
+++    evidence_add = min(15.0, 5.0 * evidence_hits)
+++    total += evidence_add
+++    parts["evidence_density"] = evidence_add
+++    if evidence_add == 0.0:
+++        reasons.append("NO_EVIDENCE")
+++
+++    allowed_actions = {
+++        "require_shadow_retrain",
+++        "freeze_candidate",
+++        "unfreeze_candidate",
+++        "request_calibration_refresh",
+++        "propose_threshold_canary",
+++        "open_incident",
+++        "draft_postmortem",
+++    }
+++    allowed_n = 0
+++    for rec in recs[:10]:
+++        if isinstance(rec, dict) and str(rec.get("action", "")) in allowed_actions:
+++            allowed_n += 1
+++    allowed_add = min(15.0, 5.0 * allowed_n)
+++    total += allowed_add
+++    parts["allowed_actions"] = allowed_add
+++    if recs and allowed_n == 0:
+++        reasons.append("NO_ALLOWED_ACTIONS")
+++
+++    total = max(0.0, min(100.0, total))
+++    if total < 60.0:
+++        reasons.append("QUALITY_BELOW_THRESHOLD")
+++    return total, reasons, parts
+++
+++
+++async def _ensure_group(r: Any) -> None:
+++    try:
+++        await r.xgroup_create(QUALITY_STREAM, GROUP, id="0", mkstream=True)
+++    except Exception:
+++        pass
+++
+++
+++async def _persist(conn: Any, item: RCAQualityInput, score: float, reasons: List[str], parts: Dict[str, float]) -> None:
+++    if conn is None:
+++        return
+++    await conn.execute(
+++        """
+++        INSERT INTO llm_incident_rca_quality (
+++            recommendation_id, ts_ms, output_hash, quality_score, quality_reasons_json,
+++            parts_json, prompt_version, policy_version
+++        ) VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8)
+++        ON CONFLICT (recommendation_id, output_hash)
+++        DO UPDATE SET
+++            quality_score = EXCLUDED.quality_score,
+++            quality_reasons_json = EXCLUDED.quality_reasons_json,
+++            parts_json = EXCLUDED.parts_json
+++        """,
+++        item.recommendation_id,
+++        item.ts_ms,
+++        item.output_hash,
+++        score,
+++        json.dumps(reasons, separators=(",", ":")),
+++        json.dumps(parts, separators=(",", ":"), sort_keys=True),
+++        item.prompt_version or None,
+++        item.policy_version or None,
+++    )
+++    await conn.execute(
+++        """
+++        UPDATE llm_incident_rca_results
+++        SET quality_score = $2
+++        WHERE recommendation_id = $1
+++        """,
+++        item.recommendation_id,
+++        score,
+++    )
+++
+++
+++async def run_forever() -> None:
+++    if redis is None:
+++        raise RuntimeError("redis.asyncio is required")
+++    start_http_server(PROM_PORT)
+++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=False)
+++    await _ensure_group(r)
+++    dsn = os.getenv("DATABASE_URL", "").strip()
+++    conn = await asyncpg.connect(dsn) if dsn and asyncpg is not None else None
+++    block_ms = int(os.getenv("ML_OPERATOR_RCA_QUALITY_BLOCK_MS", "5000"))
+++    count = int(os.getenv("ML_OPERATOR_RCA_QUALITY_READ_COUNT", "32"))
+++    while True:
+++        t0 = time.perf_counter()
+++        rows = await r.xreadgroup(GROUP, CONSUMER, {QUALITY_STREAM: ">"}, count=count, block=block_ms)
+++        for _stream, messages in rows:
+++            for msg_id, fields in messages:
+++                item = parse_input(fields)
+++                score, reasons, parts = score_output(item.output_json)
+++                await _persist(conn, item, score, reasons, parts)
+++                await r.xadd(
+++                    QUALITY_RESULTS_STREAM,
+++                    {
+++                        "schema_version": 1,
+++                        "recommendation_id": item.recommendation_id,
+++                        "ts_ms": str(_now_ms()),
+++                        "output_hash": item.output_hash,
+++                        "quality_score": f"{score:.2f}",
+++                        "quality_reasons_json": json.dumps(reasons, separators=(",", ":")),
+++                        "parts_json": json.dumps(parts, separators=(",", ":"), sort_keys=True),
+++                    },
+++                    maxlen=50000,
+++                    approximate=True,
+++                )
+++                await r.hset(STATE_KEY, mapping={"last_recommendation_id": item.recommendation_id, "last_ts_ms": str(_now_ms()), "last_quality_score": f"{score:.2f}"})
+++                SCORED.inc()
+++                LAST_SCORE.set(score)
+++                if score < 60.0:
+++                    LOW_QUALITY.inc()
+++                await r.xack(QUALITY_STREAM, GROUP, msg_id)
+++        LAST_RUN_TS.set(time.time())
+++        LOOP_SECONDS.observe(time.perf_counter() - t0)
+++
+++
+++if __name__ == "__main__":  # pragma: no cover
+++    import asyncio
+++    asyncio.run(run_forever())
++diff --git a/orderflow_services/operator_rca_feedback_loop_v2_1.py b/orderflow_services/operator_rca_feedback_loop_v2_1.py
++new file mode 100644
++index 0000000..3333333
++--- /dev/null
+++++ b/orderflow_services/operator_rca_feedback_loop_v2_1.py
++@@ -0,0 +1,247 @@
+++from __future__ import annotations
+++
+++import json
+++import os
+++import time
+++from dataclasses import dataclass
+++from typing import Any, Dict, Tuple
+++
+++try:
+++    import redis.asyncio as redis  # type: ignore
+++except Exception:  # pragma: no cover
+++    redis = None  # type: ignore
+++
+++try:
+++    import asyncpg  # type: ignore
+++except Exception:  # pragma: no cover
+++    asyncpg = None  # type: ignore
+++
+++from prometheus_client import Counter, Gauge, Histogram, start_http_server
+++
+++FEEDBACK_STREAM = os.getenv("ML_OPERATOR_RCA_FEEDBACK_STREAM", "stream:ml:operator_rca_feedback")
+++FEEDBACK_SUMMARY_STREAM = os.getenv("ML_OPERATOR_RCA_FEEDBACK_SUMMARY_STREAM", "stream:ml:operator_rca_feedback_summary")
+++STATE_KEY = os.getenv("ML_OPERATOR_RCA_FEEDBACK_STATE_KEY", "metrics:ml:operator_rca_feedback:last")
+++SUMMARY_HASH_PREFIX = os.getenv("ML_OPERATOR_RCA_FEEDBACK_SUMMARY_HASH_PREFIX", "metrics:ml:operator_rca_feedback:")
+++GROUP = os.getenv("ML_OPERATOR_RCA_FEEDBACK_GROUP", "cg:ml_operator_rca_feedback_v2_1")
+++CONSUMER = os.getenv("ML_OPERATOR_RCA_FEEDBACK_CONSUMER", "ml-operator-rca-feedback-v2-1")
+++PROM_PORT = int(os.getenv("ML_OPERATOR_RCA_FEEDBACK_PORT", "9872"))
+++
+++INGESTED = Counter("ml_operator_rca_feedback_ingested_total", "RCA feedback ingested", ["decision"])
+++LAST_RUN_TS = Gauge("ml_operator_rca_feedback_last_run_ts_seconds", "Last feedback run ts")
+++LAST_USEFULNESS = Gauge("ml_operator_rca_feedback_last_usefulness_score", "Last usefulness score")
+++LOOP_SECONDS = Histogram("ml_operator_rca_feedback_loop_seconds", "RCA feedback loop seconds")
+++
+++
+++def _b2s(v: Any) -> str:
+++    if isinstance(v, bytes):
+++        return v.decode("utf-8", errors="replace")
+++    return str(v)
+++
+++
+++def _loads(v: Any, default: Any) -> Any:
+++    try:
+++        if v in (None, "", b""):
+++            return default
+++        return json.loads(_b2s(v))
+++    except Exception:
+++        return default
+++
+++
+++def _now_ms() -> int:
+++    return int(time.time() * 1000)
+++
+++
+++def usefulness_from_feedback(decision: str) -> float:
+++    d = (decision or "").upper()
+++    if d == "VERY_USEFUL":
+++        return 1.0
+++    if d == "USEFUL":
+++        return 0.75
+++    if d == "MIXED":
+++        return 0.50
+++    if d == "NOT_USEFUL":
+++        return 0.0
+++    return 0.25
+++
+++
+++@dataclass
+++class FeedbackEvent:
+++    recommendation_id: str
+++    ts_ms: int
+++    reviewer: str
+++    decision: str
+++    action_type: str
+++    note: str
+++
+++
+++def parse_feedback(fields: Dict[Any, Any]) -> FeedbackEvent:
+++    return FeedbackEvent(
+++        recommendation_id=_b2s(fields.get(b"recommendation_id", b"")),
+++        ts_ms=int(_b2s(fields.get(b"ts_ms", b"0")) or "0"),
+++        reviewer=_b2s(fields.get(b"reviewer", b"")),
+++        decision=_b2s(fields.get(b"decision", b"MIXED")),
+++        action_type=_b2s(fields.get(b"action_type", b"")),
+++        note=_b2s(fields.get(b"note", b"")),
+++    )
+++
+++
+++async def _ensure_group(r: Any) -> None:
+++    try:
+++        await r.xgroup_create(FEEDBACK_STREAM, GROUP, id="0", mkstream=True)
+++    except Exception:
+++        pass
+++
+++
+++async def _persist(conn: Any, fb: FeedbackEvent, usefulness_score: float) -> None:
+++    if conn is None:
+++        return
+++    await conn.execute(
+++        """
+++        INSERT INTO llm_incident_rca_feedback (
+++            recommendation_id, ts_ms, reviewer, decision, action_type, usefulness_score, note
+++        ) VALUES ($1,$2,$3,$4,$5,$6,$7)
+++        """,
+++        fb.recommendation_id,
+++        fb.ts_ms,
+++        fb.reviewer,
+++        fb.decision,
+++        fb.action_type or None,
+++        usefulness_score,
+++        fb.note or None,
+++    )
+++    await conn.execute(
+++        """
+++        UPDATE llm_incident_rca_results r
+++        SET usefulness_score = sub.avg_usefulness
+++        FROM (
+++            SELECT recommendation_id, AVG(usefulness_score)::double precision AS avg_usefulness
+++            FROM llm_incident_rca_feedback
+++            WHERE recommendation_id = $1
+++            GROUP BY recommendation_id
+++        ) sub
+++        WHERE r.recommendation_id = sub.recommendation_id
+++        """,
+++        fb.recommendation_id,
+++    )
+++
+++
+++async def _update_summary(r: Any, action_type: str, usefulness_score: float) -> Dict[str, Any]:
+++    key = f"{SUMMARY_HASH_PREFIX}{action_type or 'unknown'}"
+++    current = await r.hgetall(key)
+++    total_n = int(_b2s(current.get(b"total_n", b"0")) or "0") + 1
+++    prev_avg = float(_b2s(current.get(b"avg_usefulness", b"0.0")) or "0.0")
+++    new_avg = ((prev_avg * (total_n - 1)) + usefulness_score) / max(1, total_n)
+++    mapping = {
+++        "action_type": action_type or "unknown",
+++        "total_n": str(total_n),
+++        "avg_usefulness": f"{new_avg:.4f}",
+++        "last_ts_ms": str(_now_ms()),
+++    }
+++    await r.hset(key, mapping=mapping)
+++    return mapping
+++
+++
+++async def run_forever() -> None:
+++    if redis is None:
+++        raise RuntimeError("redis.asyncio is required")
+++    start_http_server(PROM_PORT)
+++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=False)
+++    await _ensure_group(r)
+++    dsn = os.getenv("DATABASE_URL", "").strip()
+++    conn = await asyncpg.connect(dsn) if dsn and asyncpg is not None else None
+++    block_ms = int(os.getenv("ML_OPERATOR_RCA_FEEDBACK_BLOCK_MS", "5000"))
+++    count = int(os.getenv("ML_OPERATOR_RCA_FEEDBACK_READ_COUNT", "32"))
+++    while True:
+++        t0 = time.perf_counter()
+++        rows = await r.xreadgroup(GROUP, CONSUMER, {FEEDBACK_STREAM: ">"}, count=count, block=block_ms)
+++        for _stream, messages in rows:
+++            for msg_id, fields in messages:
+++                fb = parse_feedback(fields)
+++                usefulness_score = usefulness_from_feedback(fb.decision)
+++                await _persist(conn, fb, usefulness_score)
+++                summary = await _update_summary(r, fb.action_type, usefulness_score)
+++                await r.xadd(FEEDBACK_SUMMARY_STREAM, summary, maxlen=20000, approximate=True)
+++                await r.hset(STATE_KEY, mapping={"last_recommendation_id": fb.recommendation_id, "last_usefulness_score": f"{usefulness_score:.2f}", "last_action_type": fb.action_type, "last_ts_ms": str(_now_ms())})
+++                LAST_USEFULNESS.set(usefulness_score)
+++                INGESTED.labels(decision=fb.decision.upper()).inc()
+++                await r.xack(FEEDBACK_STREAM, GROUP, msg_id)
+++        LAST_RUN_TS.set(time.time())
+++        LOOP_SECONDS.observe(time.perf_counter() - t0)
+++
+++
+++if __name__ == "__main__":  # pragma: no cover
+++    import asyncio
+++    asyncio.run(run_forever())
++diff --git a/orderflow_services/sql/ml_phase2_1_v1.sql b/orderflow_services/sql/ml_phase2_1_v1.sql
++new file mode 100644
++index 0000000..4444444
++--- /dev/null
+++++ b/orderflow_services/sql/ml_phase2_1_v1.sql
++@@ -0,0 +1,64 @@
+++ALTER TABLE llm_incident_rca_results
+++  ADD COLUMN IF NOT EXISTS prompt_version text,
+++  ADD COLUMN IF NOT EXISTS policy_version text,
+++  ADD COLUMN IF NOT EXISTS output_hash text,
+++  ADD COLUMN IF NOT EXISTS quality_score double precision,
+++  ADD COLUMN IF NOT EXISTS usefulness_score double precision;
+++
+++CREATE TABLE IF NOT EXISTS llm_incident_rca_quality (
+++  recommendation_id       text NOT NULL,
+++  ts_ms                   bigint NOT NULL,
+++  output_hash             text NOT NULL,
+++  quality_score           double precision NOT NULL,
+++  quality_reasons_json    jsonb NOT NULL,
+++  parts_json              jsonb NOT NULL,
+++  prompt_version          text,
+++  policy_version          text,
+++  PRIMARY KEY (recommendation_id, output_hash)
+++);
+++
+++CREATE INDEX IF NOT EXISTS idx_llm_incident_rca_quality_rec_ts
+++  ON llm_incident_rca_quality (recommendation_id, ts_ms DESC);
+++
+++CREATE TABLE IF NOT EXISTS llm_incident_rca_feedback (
+++  recommendation_id       text NOT NULL,
+++  ts_ms                   bigint NOT NULL,
+++  reviewer                text NOT NULL,
+++  decision                text NOT NULL,
+++  action_type             text,
+++  usefulness_score        double precision NOT NULL,
+++  note                    text,
+++  PRIMARY KEY (recommendation_id, ts_ms, reviewer)
+++);
+++
+++CREATE INDEX IF NOT EXISTS idx_llm_incident_rca_feedback_action_ts
+++  ON llm_incident_rca_feedback (action_type, ts_ms DESC);
+++
+++CREATE INDEX IF NOT EXISTS idx_llm_incident_rca_results_latest_ts
+++  ON llm_incident_rca_results (latest_ts_ms DESC);
++diff --git a/orderflow_services/docker_compose_fragment_ml_phase2_1_v1.yml b/orderflow_services/docker_compose_fragment_ml_phase2_1_v1.yml
++new file mode 100644
++index 0000000..5555555
++--- /dev/null
+++++ b/orderflow_services/docker_compose_fragment_ml_phase2_1_v1.yml
++@@ -0,0 +1,42 @@
+++services:
+++  scanner-ml-operator-rca-results-persist-v2-1:
+++    restart: unless-stopped
+++    command: ["python", "-m", "orderflow_services.operator_rca_results_persister_v2_1"]
+++    environment:
+++      REDIS_URL: ${REDIS_URL}
+++      DATABASE_URL: ${DATABASE_URL}
+++      ML_OPERATOR_RCA_RESULTS_PERSISTER_PORT: "9870"
+++    ports:
+++      - "9870:9870"
+++
+++  scanner-ml-operator-rca-quality-v2-1:
+++    restart: unless-stopped
+++    command: ["python", "-m", "orderflow_services.operator_rca_quality_scorer_v2_1"]
+++    environment:
+++      REDIS_URL: ${REDIS_URL}
+++      DATABASE_URL: ${DATABASE_URL}
+++      ML_OPERATOR_RCA_QUALITY_PORT: "9871"
+++    ports:
+++      - "9871:9871"
+++
+++  scanner-ml-operator-rca-feedback-v2-1:
+++    restart: unless-stopped
+++    command: ["python", "-m", "orderflow_services.operator_rca_feedback_loop_v2_1"]
+++    environment:
+++      REDIS_URL: ${REDIS_URL}
+++      DATABASE_URL: ${DATABASE_URL}
+++      ML_OPERATOR_RCA_FEEDBACK_PORT: "9872"
+++    ports:
+++      - "9872:9872"
++diff --git a/orderflow_services/prometheus_alerts_ml_phase2_1_v1.yml b/orderflow_services/prometheus_alerts_ml_phase2_1_v1.yml
++new file mode 100644
++index 0000000..6666666
++--- /dev/null
+++++ b/orderflow_services/prometheus_alerts_ml_phase2_1_v1.yml
++@@ -0,0 +1,31 @@
+++groups:
+++  - name: ml_phase2_1_operator_rca
+++    rules:
+++      - alert: MLOperatorRCAResultsPersisterStale
+++        expr: time() - ml_operator_rca_results_persister_last_run_ts_seconds > 900
+++        for: 10m
+++        labels:
+++          severity: warning
+++        annotations:
+++          summary: "operator_rca_results_persister is stale"
+++
+++      - alert: MLOperatorRCAQualityLow
+++        expr: ml_operator_rca_quality_last_score < 60
+++        for: 15m
+++        labels:
+++          severity: warning
+++        annotations:
+++          summary: "Latest operator RCA quality score is below threshold"
+++
+++      - alert: MLOperatorRCAFeedbackStale
+++        expr: time() - ml_operator_rca_feedback_last_run_ts_seconds > 1800
+++        for: 15m
+++        labels:
+++          severity: warning
+++        annotations:
+++          summary: "operator_rca_feedback_loop is stale"
++diff --git a/orderflow_services/runbook_ml_phase2_1_v1.md b/orderflow_services/runbook_ml_phase2_1_v1.md
++new file mode 100644
++index 0000000..7777777
++--- /dev/null
+++++ b/orderflow_services/runbook_ml_phase2_1_v1.md
++@@ -0,0 +1,40 @@
+++# Phase 2.1 — operator RCA persistence / quality / feedback
+++
+++## Scope
+++- only `scanner_infra`
+++- advisory-only
+++- no UI
+++- no hot-path changes
+++
+++## Components
+++- `operator_rca_results_persister_v2_1`
+++- `operator_rca_quality_scorer_v2_1`
+++- `operator_rca_feedback_loop_v2_1`
+++
+++## Rollout
+++1. apply SQL:
+++```sql
+++\i orderflow_services/sql/ml_phase2_1_v1.sql
+++```
+++2. connect compose fragment:
+++- `orderflow_services/docker_compose_fragment_ml_phase2_1_v1.yml`
+++3. connect Prometheus rules:
+++- `orderflow_services/prometheus_alerts_ml_phase2_1_v1.yml`
+++
+++## Smoke checks
+++```bash
+++redis-cli XREVRANGE stream:ml:operator_rca_results + - COUNT 3
+++redis-cli XREVRANGE stream:ml:operator_rca_quality_results + - COUNT 3
+++redis-cli XREVRANGE stream:ml:operator_rca_feedback_summary + - COUNT 3
+++curl -s localhost:9870/metrics | grep '^ml_operator_rca_results_'
+++curl -s localhost:9871/metrics | grep '^ml_operator_rca_quality_'
+++curl -s localhost:9872/metrics | grep '^ml_operator_rca_feedback_'
+++```
+++
+++## Feedback event example
+++```json
+++{
+++  "recommendation_id": "rec-123",
+++  "ts_ms": 1775370000123,
+++  "reviewer": "ops_user",
+++  "decision": "USEFUL",
+++  "action_type": "propose_threshold_canary",
+++  "note": "helped narrow RCA quickly"
+++}
+++```
++diff --git a/orderflow_services/tests/test_operator_rca_quality_scorer_v2_1.py b/orderflow_services/tests/test_operator_rca_quality_scorer_v2_1.py
++new file mode 100644
++index 0000000..8888888
++--- /dev/null
+++++ b/orderflow_services/tests/test_operator_rca_quality_scorer_v2_1.py
++@@ -0,0 +1,47 @@
+++from orderflow_services.operator_rca_quality_scorer_v2_1 import score_output
+++
+++
+++def test_score_output_good_payload():
+++    payload = {
+++        "summary": "Drift on top feature after promote.",
+++        "findings": [{"kind": "drift", "evidence": ["psi", "ece"]}],
+++        "recommendations": [{"action": "require_shadow_retrain", "risk": "low"}],
+++    }
+++    score, reasons, parts = score_output(payload)
+++    assert score >= 60.0
+++    assert parts["summary"] > 0
+++    assert "QUALITY_BELOW_THRESHOLD" not in reasons
+++
+++
+++def test_score_output_bad_payload():
+++    payload = {"summary": "", "findings": [], "recommendations": []}
+++    score, reasons, _parts = score_output(payload)
+++    assert score < 60.0
+++    assert "MISSING_SUMMARY" in reasons
+++    assert "NO_FINDINGS" in reasons
+++
++diff --git a/orderflow_services/tests/test_operator_rca_feedback_loop_v2_1.py b/orderflow_services/tests/test_operator_rca_feedback_loop_v2_1.py
++new file mode 100644
++index 0000000..9999999
++--- /dev/null
+++++ b/orderflow_services/tests/test_operator_rca_feedback_loop_v2_1.py
++@@ -0,0 +1,20 @@
+++from orderflow_services.operator_rca_feedback_loop_v2_1 import usefulness_from_feedback
+++
+++
+++def test_usefulness_mapping():
+++    assert usefulness_from_feedback("VERY_USEFUL") == 1.0
+++    assert usefulness_from_feedback("USEFUL") == 0.75
+++    assert usefulness_from_feedback("MIXED") == 0.50
+++    assert usefulness_from_feedback("NOT_USEFUL") == 0.0
+++
++diff --git a/orderflow_services/tests/test_operator_rca_results_persister_v2_1.py b/orderflow_services/tests/test_operator_rca_results_persister_v2_1.py
++new file mode 100644
++index 0000000..aaaaaaa
++--- /dev/null
+++++ b/orderflow_services/tests/test_operator_rca_results_persister_v2_1.py
++@@ -0,0 +1,32 @@
+++from orderflow_services.operator_rca_results_persister_v2_1 import _json_hash, build_quality_event, RCAResult
+++
+++
+++def test_json_hash_stable():
+++    payload = {"b": 2, "a": 1}
+++    assert _json_hash(payload) == _json_hash({"a": 1, "b": 2})
+++
+++
+++def test_build_quality_event_fields():
+++    result = RCAResult(
+++        recommendation_id="rec-1",
+++        ts_ms=1,
+++        provider="vertex",
+++        model_name="gemini",
+++        status="ok",
+++        latency_ms=123,
+++        estimated_cost_usd=0.01,
+++        output_json={"findings": [{"kind": "drift"}], "recommendations": [{"action": "open_incident"}]},
+++        prompt_version="p1",
+++        policy_version="pol1",
+++    )
+++    evt = build_quality_event(result)
+++    assert evt["recommendation_id"] == "rec-1"
+++    assert evt["findings_n"] == "1"
+++    assert evt["recommendations_n"] == "1"
++

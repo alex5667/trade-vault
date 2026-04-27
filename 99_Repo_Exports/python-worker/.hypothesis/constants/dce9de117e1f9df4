@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/utils.py
+# hypothesis_version: 6.148.10
+
+[0.0, 100000000000.0, 1000, 946684800, 946684800000, '+00:00', '0', '1', 'Z', 'close', 'date', 'f', 'false', 'high', 'hlc', 'low', 'n', 'no', 'off', 'on', 'pivot', 'pivots', 'r1', 'r2', 'replace', 's1', 's2', 't', 'true', 'ts', 'ts_ms', 'updated_at_ms', 'updated_ts_ms', 'utf-8', 'y', 'yes']

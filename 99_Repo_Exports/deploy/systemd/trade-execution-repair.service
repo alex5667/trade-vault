@@ -1,0 +1,15 @@
+[Unit]
+Description=Trade execution SQL mirror repair from Redis mirrors
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=trade
+Group=trade
+WorkingDirectory=/opt/trade
+EnvironmentFile=-/etc/trade/trade-execution.env
+# Applies SQL mirror repairs from Redis state snapshots and stream events.
+# Use --dry-run for a safe preview (no writes).
+ExecStart=/usr/bin/python3 /opt/trade/python-worker/scripts/repair_execution_inconsistencies.py
+SuccessExitStatus=0

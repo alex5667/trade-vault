@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/lcb_r_adj.py
+# hypothesis_version: 6.148.10
+
+[-999.0, 0.0, 1e-12, 1e-09, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 1.0, 1.28, 1.65, 3.0, 4.0, 5000, 'entry_cooldown_sps', 'entry_news_blocked', 'entry_obi_age_ms', 'entry_pressure_sps', 'entry_spread_z', 'illiquid', 'na', 'news', 'p_bookstale', 'p_cooldown', 'p_news', 'p_pressure', 'p_spread', 'p_unstable', 'pen', 'pnl', 'range', 'reversal', 'risk_usd', 'thin', 'trend', 'trending_bear', 'trending_bull']

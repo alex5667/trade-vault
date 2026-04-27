@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/analyzer_worker.py
+# hypothesis_version: 6.148.10
+
+[0.0, 100, 1000, 2000, 60000, '1', '200000', '259200', '300', '604800', 'GLOBAL', 'HOSTNAME', 'INFO', 'LOG_LEVEL', 'NEWS_ANALYSIS_MAXLEN', 'NEWS_ANALYSIS_STREAM', 'NEWS_ANALYZER_DLQ', 'NEWS_ANALYZER_GROUP', 'NEWS_RAW_STREAM', 'REDIS_URL', '__main__', 'analysis', 'confidence', 'ingested_ts_ms', 'news-analyzer', 'news-analyzer-1', 'news:analysis', 'news:raw', 'news:raw:dlq', 'news_analyzer', 'primary_tag_id', 'published_ts_ms', 'raw', 'risk', 'source', 'summary', 'surprise', 'symbol', 'symbols', 'tags', 'tags_mask', 'title', 'ts_ms', 'uid', 'url']

@@ -1,0 +1,930 @@
+diff -ruN python-worker/services/mt5_event_executor.py python-worker/services/mt5_event_executor.py
+--- python-worker/services/mt5_event_executor.py	2026-03-04 18:20:29.000000000 +0000
++++ python-worker/services/mt5_event_executor.py	2026-03-06 21:20:42.268580961 +0000
+@@ -441,24 +441,46 @@
+             except Exception:
+                 pass
+ 
++            # A3: POSITION_CLOSED must carry join-critical fields (sid/order_id/ts_fill_ms/qty/fee_bps/side/venue).
++            # We keep it fail-open and route any contract violations to DLQ inside TradeEventsLogger.
++            close_ts_ms = int(event.ts or now_ms or int(time.time() * 1000))
++            side_norm = str(signal.get("side") or (signal.get("payload") or {}).get("side") or "LONG").upper()
++            # For MT5 we map deal id as order_id (unique per fill), position id remains position_id.
+             events_logger.log_position_closed(
+                 sid=sid,
+                 symbol=event.symbol,
+-                close_price=event.price,
+-                pnl=event.profit,
++                close_price=float(event.price),
++                pnl=float(event.profit),
+                 position_id=str(event.position),
+-                lot=event.volume,
++                lot=float(event.volume or 0.0),
+                 source="mt5",
+                 close_reason=close_reason,
+-                ab_arm=ab_arm,
+-                ab_group=ab_group,
+-                ab_key=ab_key,
+-                regime=regime,
+-                zone_id=zone_id,
++                ts_ms=close_ts_ms,
++                exit_ts_ms=close_ts_ms,
++                order_id=str(event.deal),
++                side=side_norm,
++                venue="mt5",
++                qty=float(event.volume or 0.0),
++                fee_bps=0.0,
++                metadata={
++                    "close_reason": close_reason,
++                    "ab_arm": ab_arm,
++                    "ab_group": ab_group,
++                    "ab_key": ab_key,
++                    "regime": regime,
++                    "zone_id": zone_id,
++                },
+                 payload={
+                     "risk_usd": float(risk_usd),
+-                    "r_mult": float(r_mult)
+-                }
++                    "r_mult": float(r_mult),
++                    "exit_ts_ms": int(close_ts_ms),
++                    "ts_fill_ms": int(close_ts_ms),
++                    "order_id": str(event.deal),
++                    "qty": float(event.volume or 0.0),
++                    "side": side_norm,
++                    "venue": "mt5",
++                    "fee_bps": 0.0,
++                },
+             )
+     
+     # 6. Сохраняем обновлённый state
+diff -ruN python-worker/services/posttrade/__init__.py python-worker/services/posttrade/__init__.py
+--- python-worker/services/posttrade/__init__.py	1970-01-01 00:00:00.000000000 +0000
++++ python-worker/services/posttrade/__init__.py	2026-03-06 21:16:28.754920642 +0000
+@@ -0,0 +1 @@
++# posttrade utilities
+Binary files a/python-worker/services/posttrade/__pycache__/__init__.cpython-313.pyc and b/python-worker/services/posttrade/__pycache__/__init__.cpython-313.pyc differ
+Binary files a/python-worker/services/posttrade/__pycache__/trade_events_contract.cpython-313.pyc and b/python-worker/services/posttrade/__pycache__/trade_events_contract.cpython-313.pyc differ
+diff -ruN python-worker/services/posttrade/redis_stream_dlq.py python-worker/services/posttrade/redis_stream_dlq.py
+--- python-worker/services/posttrade/redis_stream_dlq.py	1970-01-01 00:00:00.000000000 +0000
++++ python-worker/services/posttrade/redis_stream_dlq.py	2026-03-06 21:16:28.756467863 +0000
+@@ -0,0 +1,38 @@
++# -*- coding: utf-8 -*-
++"""Redis Stream DLQ helper."""
++from __future__ import annotations
++
++import json
++import time
++from typing import Any, Dict
++
++
++def publish_dlq(
++    redis_client: Any,
++    *,
++    dlq_stream: str,
++    reason: str,
++    error: str,
++    src_stream: str,
++    src_entry_id: str,
++    payload: Dict[str, Any],
++    maxlen: int = 200000,
++    approximate: bool = True,
++    payload_max_bytes: int = 8192,
++) -> None:
++    """Best-effort publish to DLQ stream. Never raises."""
++    try:
++        raw = json.dumps(payload, ensure_ascii=False, default=str)
++        if len(raw.encode("utf-8")) > payload_max_bytes:
++            raw = raw.encode("utf-8")[:payload_max_bytes].decode("utf-8", errors="ignore")
++        fields = {
++            "ts_ms": str(int(time.time() * 1000)),
++            "reason": str(reason or "unknown"),
++            "error": str(error or ""),
++            "src_stream": str(src_stream or ""),
++            "src_entry_id": str(src_entry_id or ""),
++            "payload": raw,
++        }
++        redis_client.xadd(dlq_stream, fields, maxlen=int(maxlen), approximate=bool(approximate))
++    except Exception:
++        return
+diff -ruN python-worker/services/posttrade/trade_events_contract.py python-worker/services/posttrade/trade_events_contract.py
+--- python-worker/services/posttrade/trade_events_contract.py	1970-01-01 00:00:00.000000000 +0000
++++ python-worker/services/posttrade/trade_events_contract.py	2026-03-06 21:16:28.755761263 +0000
+@@ -0,0 +1,257 @@
++# -*- coding: utf-8 -*-
++"""
++Trade events contract (Redis Stream: events:trades)
++
++Goal
++-----
++Provide a strict, unit-testable contract for POSITION_CLOSED events *as they are written
++into Redis Streams*. This contract exists to guarantee the join key (`sid`) and time semantics
++(epoch ms), which are required for downstream labelers, joiners and TCA.
++
++Important constraints
++---------------------
++- Redis Streams store only strings; nested dict/list must be JSON-serialized.
++- Fail-open: producer (trade_events_logger) MUST NOT crash the trading flow.
++  Instead, invalid events should be routed to a DLQ stream.
++
++This module therefore provides:
++- normalize_position_closed_event(): best-effort normalization + defaults
++- validate_position_closed_event(): strict validation (returns list of errors)
++
++Design rules
++------------
++- No high-cardinality labels or extra fields are forbidden here; we only enforce correctness
++  of critical fields for downstream joins.
++- We keep backward compatibility: accept legacy keys (`lot` -> qty, `source` -> venue, etc).
++"""
++from __future__ import annotations
++
++import json
++import re
++from typing import Any, Dict, List, Tuple, Optional
++
++_SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
++
++
++def _json_dumps(v: Any) -> str:
++    return json.dumps(v, ensure_ascii=False, separators=(",", ":"), default=str)
++
++
++def _as_str(v: Any) -> str:
++    if v is None:
++        return ""
++    if isinstance(v, str):
++        return v
++    return str(v)
++
++
++def _as_float_str(v: Any) -> str:
++    if v is None or v == "":  # allow 0.0
++        return ""
++    try:
++        return str(float(v))
++    except Exception:
++        return ""
++
++
++def _as_int_ms_str(v: Any) -> str:
++    if v is None or v == "":
++        return ""
++    try:
++        i = int(float(v))
++        return str(i)
++    except Exception:
++        return ""
++
++
++def _norm_side(v: Any) -> str:
++    s = _as_str(v).strip().upper()
++    if s in ("LONG", "SHORT"):
++        return s
++    if s == "BUY":
++        return "LONG"
++    if s == "SELL":
++        return "SHORT"
++    return s
++
++
++def _compute_fee_bps(*, fees_usd: Optional[float], turnover_roundtrip: Optional[float], qty: Optional[float], price: Optional[float]) -> Optional[float]:
++    """Compute fee_bps from available data."""
++    try:
++        f = float(fees_usd) if fees_usd is not None else None
++    except Exception:
++        f = None
++    if f is None or f < 0:
++        return None
++
++    try:
++        t = float(turnover_roundtrip) if turnover_roundtrip is not None else 0.0
++    except Exception:
++        t = 0.0
++    if t and t > 0:
++        return (f / t) * 10000.0
++
++    try:
++        q = float(qty) if qty is not None else 0.0
++        p = float(price) if price is not None else 0.0
++        notional = abs(q) * p
++        if notional > 0:
++            return (f / notional) * 10000.0
++    except Exception:
++        return None
++    return None
++
++
++def normalize_position_closed_event(doc: Dict[str, Any]) -> Tuple[Dict[str, str], List[str]]:
++    d = dict(doc or {})
++    errs: List[str] = []
++
++    if _as_str(d.get("event_type") or "").strip() != "POSITION_CLOSED":
++        errs.append("event_type!=POSITION_CLOSED")
++    d["event_type"] = "POSITION_CLOSED"
++
++    event_id = _as_str(d.get("event_id") or "").strip()
++    if not event_id or not _SHA1_RE.match(event_id):
++        errs.append("bad_event_id")
++    d["event_id"] = event_id
++
++    sid = _as_str(d.get("sid") or "").strip()
++    if not sid:
++        errs.append("missing_sid")
++    d["sid"] = sid
++
++    symbol = _as_str(d.get("symbol") or "").strip().upper()
++    if not symbol:
++        errs.append("missing_symbol")
++    d["symbol"] = symbol
++
++    source = _as_str(d.get("source") or d.get("venue") or "").strip() or "unknown"
++    d["source"] = source
++    if not _as_str(d.get("venue") or "").strip():
++        d["venue"] = source
++
++    ts = _as_int_ms_str(d.get("ts"))
++    exit_ts_ms = _as_int_ms_str(d.get("exit_ts_ms"))
++    if exit_ts_ms:
++        if not ts:
++            ts = exit_ts_ms
++        else:
++            try:
++                if abs(int(ts) - int(exit_ts_ms)) > 60_000:
++                    ts = exit_ts_ms
++            except Exception:
++                ts = exit_ts_ms
++    if not ts:
++        errs.append("missing_ts")
++    if not exit_ts_ms:
++        exit_ts_ms = ts
++        errs.append("missing_exit_ts_ms")
++    d["ts"] = ts
++    d["exit_ts_ms"] = exit_ts_ms
++
++    ts_fill_ms = _as_int_ms_str(d.get("ts_fill_ms") or d.get("fill_ts_ms") or "")
++    if not ts_fill_ms:
++        ts_fill_ms = exit_ts_ms or ts
++    d["ts_fill_ms"] = ts_fill_ms
++
++    price = _as_float_str(d.get("price") or d.get("px") or "")
++    if not price:
++        errs.append("missing_price")
++    d["price"] = price
++    if not _as_str(d.get("px") or "").strip():
++        d["px"] = price
++
++    pnl = _as_float_str(d.get("pnl") or "")
++    if not pnl:
++        errs.append("missing_pnl")
++    d["pnl"] = pnl
++
++    side = _norm_side(d.get("side") or d.get("direction") or "")
++    if not side:
++        errs.append("missing_side")
++    d["side"] = side
++
++    qty = _as_float_str(d.get("qty") or d.get("quantity") or d.get("lot") or "")
++    if not qty:
++        errs.append("missing_qty")
++    d["qty"] = qty
++    if "lot" not in d and qty:
++        d["lot"] = qty
++
++    order_id = _as_str(d.get("order_id") or d.get("client_order_id") or d.get("position_id") or "").strip()
++    if not order_id:
++        errs.append("missing_order_id")
++    d["order_id"] = order_id
++
++    fee_bps = _as_float_str(d.get("fee_bps") or d.get("fees_bps") or "")
++    if not fee_bps:
++        try:
++            fees_usd = float(d.get("fees_usd")) if d.get("fees_usd") not in (None, "") else None
++        except Exception:
++            fees_usd = None
++        try:
++            turnover = float(d.get("turnover_roundtrip")) if d.get("turnover_roundtrip") not in (None, "") else None
++        except Exception:
++            turnover = None
++        try:
++            qv = float(qty) if qty else None
++        except Exception:
++            qv = None
++        try:
++            pv = float(price) if price else None
++        except Exception:
++            pv = None
++        fb = _compute_fee_bps(fees_usd=fees_usd, turnover_roundtrip=turnover, qty=qv, price=pv)
++        if fb is not None:
++            fee_bps = str(float(fb))
++    if not fee_bps:
++        errs.append("missing_fee_bps")
++        fee_bps = "0.0"
++    d["fee_bps"] = fee_bps
++
++    risk_usd = _as_float_str(d.get("risk_usd") or "")
++    if not risk_usd:
++        errs.append("missing_risk_usd")
++    d["risk_usd"] = risk_usd or "0.0"
++
++    r_mult = _as_float_str(d.get("r_mult") or "")
++    if not r_mult:
++        errs.append("missing_r_mult")
++    d["r_mult"] = r_mult or "0.0"
++
++    md = d.get("metadata")
++    meta = d.get("meta")
++    if isinstance(md, (dict, list)):
++        md_s = _json_dumps(md)
++    elif isinstance(md, str):
++        md_s = md
++    else:
++        md_s = ""
++    if isinstance(meta, (dict, list)):
++        meta_s = _json_dumps(meta)
++    elif isinstance(meta, str):
++        meta_s = meta
++    else:
++        meta_s = ""
++    if md_s and not meta_s:
++        meta_s = md_s
++    if meta_s and not md_s:
++        md_s = meta_s
++    if md_s:
++        d["metadata"] = md_s
++        d["meta"] = meta_s
++
++    out: Dict[str, str] = {}
++    for k, v in d.items():
++        if v is None:
++            continue
++        if isinstance(v, (dict, list)):
++            out[k] = _json_dumps(v)
++        else:
++            out[k] = _as_str(v)
++    return out, errs
++
++
++def validate_position_closed_event(doc: Dict[str, Any]) -> Tuple[bool, List[str]]:
++    _, errs = normalize_position_closed_event(doc)
++    return len(errs) == 0, errs
+Binary files a/python-worker/services/tests/__pycache__/test_trade_events_contract_v1.cpython-313.pyc and b/python-worker/services/tests/__pycache__/test_trade_events_contract_v1.cpython-313.pyc differ
+diff -ruN python-worker/services/tests/test_trade_events_contract_v1.py python-worker/services/tests/test_trade_events_contract_v1.py
+--- python-worker/services/tests/test_trade_events_contract_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ python-worker/services/tests/test_trade_events_contract_v1.py	2026-03-06 21:21:59.253135531 +0000
+@@ -0,0 +1,76 @@
++# -*- coding: utf-8 -*-
++import unittest
++import hashlib
++import os
++import sys
++from pathlib import Path
++
++# Ensure imports work when running tests from repo root
++PYWORKER_ROOT = Path(__file__).resolve().parents[2]
++if str(PYWORKER_ROOT) not in sys.path:
++    sys.path.insert(0, str(PYWORKER_ROOT))
++
++
++try:
++    from services.posttrade.trade_events_contract import normalize_position_closed_event, validate_position_closed_event
++except Exception:
++    from posttrade.trade_events_contract import normalize_position_closed_event, validate_position_closed_event  # type: ignore
++
++
++class TestTradeEventsContractV1(unittest.TestCase):
++    def test_normalize_ok_computes_fee_bps_and_fill_ts(self):
++        base = {
++            "event_type": "POSITION_CLOSED",
++            "sid": "sig-BTCUSDT-1741284000-42",
++            "symbol": "BTCUSDT",
++            "source": "binance",
++            "side": "LONG",
++            "order_id": "order-123",
++            "qty": "0.003",
++            "price": "85400.5",
++            "pnl": "127.35",
++            "risk_usd": "18.45",
++            "r_mult": "6.91",
++            "exit_ts_ms": "1741284125000",
++            "ts": "1741284125000",
++            "fees_usd": "1.28",
++            "turnover_roundtrip": "2000.0",
++        }
++        # stable event_id
++        eid = hashlib.sha1(b"POSITION_CLOSED|sig|ts").hexdigest()
++        base["event_id"] = eid
++
++        norm, errs = normalize_position_closed_event(base)
++        self.assertEqual(errs, [], f"unexpected errs: {errs}")
++        self.assertEqual(norm["sid"], base["sid"])
++        self.assertEqual(norm["symbol"], "BTCUSDT")
++        self.assertEqual(norm["ts"], base["exit_ts_ms"])
++        self.assertEqual(norm["ts_fill_ms"], base["exit_ts_ms"])
++        self.assertEqual(norm["px"], norm["price"])
++        # fee_bps computed: 1.28/2000*10000 = 6.4
++        self.assertAlmostEqual(float(norm["fee_bps"]), 6.4, places=6)
++
++    def test_missing_sid_goes_error(self):
++        base = {
++            "event_type": "POSITION_CLOSED",
++            "event_id": "0"*40,
++            "symbol": "BTCUSDT",
++            "source": "binance",
++            "side": "LONG",
++            "order_id": "o",
++            "qty": "1",
++            "price": "100",
++            "pnl": "1",
++            "risk_usd": "1",
++            "r_mult": "1",
++            "exit_ts_ms": "1741284125000",
++            "ts": "1741284125000",
++            "fee_bps": "1.0",
++        }
++        ok, errs = validate_position_closed_event(base)
++        self.assertFalse(ok)
++        self.assertIn("missing_sid", errs)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff -ruN python-worker/services/trade_events_logger.py python-worker/services/trade_events_logger.py
+--- python-worker/services/trade_events_logger.py	2026-03-04 18:20:29.000000000 +0000
++++ python-worker/services/trade_events_logger.py	2026-03-06 21:18:17.075504984 +0000
+@@ -30,6 +30,14 @@
+ 
+ from common.log import setup_logger
+ 
++# Contract + DLQ helpers for POSITION_CLOSED stream events
++try:
++    from services.posttrade.trade_events_contract import normalize_position_closed_event
++    from services.posttrade.redis_stream_dlq import publish_dlq
++except Exception:  # pragma: no cover
++    from posttrade.trade_events_contract import normalize_position_closed_event  # type: ignore
++    from posttrade.redis_stream_dlq import publish_dlq  # type: ignore
++
+ log = setup_logger("trade_events_logger")
+ 
+ 
+@@ -149,6 +157,10 @@
+         # archiver читает из stream и ack'ает -> можно держать меньший буфер
+         # если archiver отстает, события накапливаются до maxlen, затем trimming
+         self.events_stream_maxlen = int(os.getenv("TRADE_EVENTS_MAXLEN", "200000"))
++        # DLQ stream for malformed POSITION_CLOSED events (fail-open)
++        self.events_dlq_stream = os.getenv("TRADE_EVENTS_DLQ_STREAM", "events:trades:dlq")
++        self.events_dlq_maxlen = int(os.getenv("TRADE_EVENTS_DLQ_MAXLEN", "200000"))
++        self.bad_idempo_ttl_sec = int(os.getenv("TRADE_EVENTS_BAD_IDEMPO_TTL_SEC", "86400"))  # 1d
+         self.events_ttl = int(os.getenv("TRADE_EVENTS_TTL", "604800"))  # 7 дней
+         self.per_sid_list_maxlen = int(os.getenv("TRADE_EVENTS_PER_SID_MAXLEN", "10000"))
+         self.idempo_ttl_days = int(os.getenv("TRADE_EVENTS_IDEMPOTENCY_TTL_DAYS", "14"))
+@@ -178,72 +190,100 @@
+         base = f"{e.event_type}|{e.sid}|{e.ts}|{e.price or ''}|{e.lot or ''}|{e.pnl or ''}|{e.position_id or ''}"
+         return hashlib.sha1(base.encode("utf-8")).hexdigest()
+ 
++
+     def log_event(self, event: TradeEvent) -> str:
+         """
+         Записать событие в Redis с идемпотентностью.
+-        
++
+         Пишет в:
+-        1. events:trades stream - глобальный поток
+-        2. trade:events:{sid} - list история
+-        3. trade:timeline:{sid} - sorted set
++          1) events:trades (stream)      — онлайн шина событий для downstream
++          2) trade:events:{sid} (list)   — история по сигналу (полная, без trimming тяжелых полей)
++          3) trade:timeline:{sid} (zset) — временной индекс
++
++        Особый случай: POSITION_CLOSED
++        -----------------------------
++        Для закрытия позиции downstream критичны поля:
++          sid, symbol, ts/exit_ts_ms (epoch ms), side, order_id, qty, fee_bps, risk_usd, r_mult.
++
++        Поэтому POSITION_CLOSED проходит строгую нормализацию/валидацию
++        (см. services.posttrade.trade_events_contract). Если событие не соответствует
++        контракту — оно уходит в DLQ stream (TRADE_EVENTS_DLQ_STREAM) и НЕ блокирует торговый поток.
+         """
+         try:
+             event_id = self._mk_event_id(event)
+-            idempo_key = f"idempo:trade_event:{event_id}"
+-
+-            # Idempotency: SETNX - если уже писали, выходим "успешно"
+-            if not self.r.set(idempo_key, "1", nx=True, ex=self.idempo_ttl_sec):
+-                return event_id  # уже писали, выходим "успешно"
+ 
++            # --- Build stream payload (dict) ---
+             event_dict = event.to_dict()
+-            
+-            # Extract payload for root expansion if present
+             extra_payload = event_dict.pop("payload", None)
+ 
+-            # Добавляем event_id в payload (local dict for streaming)
+-            stream_payload: Dict[str, Any] = {
+-                "event_id": event_id,
+-                **event_dict
+-            }
+-            
+-            # Merge extra payload into root stream payload
++            stream_payload: Dict[str, Any] = {"event_id": event_id, **event_dict}
+             if isinstance(extra_payload, dict):
+                 stream_payload.update(extra_payload)
+-            
+-            # 1. Stream
+-            stream_data = {}
+-            for key, value in stream_payload.items():
+-                if isinstance(value, (dict, list)):
+-                    stream_data[key] = json.dumps(value, ensure_ascii=False)
+-                else:
+-                    stream_data[key] = str(value)
+-            
+-            # Ensure 'meta' field exists (alias for metadata)
+-            if "metadata" in stream_data and "meta" not in stream_data:
+-                stream_data["meta"] = stream_data["metadata"]
+-            
+-            # P2: Strip heavy analytics fields from stream — они раздувают events:trades до 4KB/entry.
+-            # Полный payload лежит в PostgreSQL через stream-archiver и в trade:events:{sid} Redis list.
++
++            # Ensure meta alias exists (backward compatibility for consumers)
++            if "metadata" in stream_payload and "meta" not in stream_payload:
++                stream_payload["meta"] = stream_payload.get("metadata")
++
++            # POSITION_CLOSED: validate before idempotency.
++            if str(event.event_type) == "POSITION_CLOSED":
++                # Deduplicate repeated bad events (avoid DLQ spam)
++                bad_key = f"idempo:trade_event_bad:{event_id}"
++                try:
++                    if self.r.get(bad_key):
++                        return event_id
++                except Exception:
++                    pass
++
++                normalized, errs = normalize_position_closed_event(stream_payload)
++                if errs:
++                    publish_dlq(
++                        self.r,
++                        dlq_stream=self.events_dlq_stream,
++                        reason="position_closed_contract_violation",
++                        error=";".join(errs),
++                        src_stream=self.events_stream,
++                        src_entry_id="*",
++                        payload=stream_payload,
++                        maxlen=self.events_dlq_maxlen,
++                    )
++                    try:
++                        # do not block later corrected events with the main idempotency key
++                        self.r.set(bad_key, "1", nx=True, ex=self.bad_idempo_ttl_sec)
++                    except Exception:
++                        pass
++                    return event_id
++
++                stream_data = dict(normalized)  # already strings
++            else:
++                # Generic event: stringify values for Redis Stream
++                stream_data: Dict[str, str] = {}
++                for key, value in stream_payload.items():
++                    if isinstance(value, (dict, list)):
++                        stream_data[key] = json.dumps(value, ensure_ascii=False)
++                    else:
++                        stream_data[key] = str(value)
++
++                if "metadata" in stream_data and "meta" not in stream_data:
++                    stream_data["meta"] = stream_data["metadata"]
++
++            # Idempotency: only for events that we actually accept.
++            idempo_key = f"idempo:trade_event:{event_id}"
++            if not self.r.set(idempo_key, "1", nx=True, ex=self.idempo_ttl_sec):
++                return event_id  # already written
++
++            # Strip heavy analytics fields from stream (they live in SQL mirror / per-sid list)
+             _STREAM_STRIP_FIELDS = frozenset({
+                 "config_snapshot", "calibrated_specs", "indicators_snapshot",
+                 "trail_profile_config", "evidence", "feature_vector",
+                 "trail_profile", "raw_signal", "signal_payload",
+             })
+-            stripped_stream_data = {
+-                k: v for k, v in stream_data.items()
+-                if k not in _STREAM_STRIP_FIELDS
+-            }
++            stripped_stream_data = {k: v for k, v in stream_data.items() if k not in _STREAM_STRIP_FIELDS}
+ 
++            # 1) Stream (online)
+             self.r.xadd(self.events_stream, stripped_stream_data, maxlen=self.events_stream_maxlen, approximate=True)
+-            
+-            # 2. List (Store event_dict + event_id + payload kept together/nested or flat? 
+-            # Existing specific logic seemed to just dump the full dict. 
+-            # Let's reconstruct the full intended dict for storage)
+-            
+-            full_storage_payload = {
+-                "event_id": event_id,
+-                **event_dict
+-            }
++
++            # 2) Per-sid list (full dict, nested payload preserved)
++            full_storage_payload = {"event_id": event_id, **event_dict}
+             if extra_payload:
+                 full_storage_payload["payload"] = extra_payload
+ 
+@@ -252,47 +292,25 @@
+             self.r.rpush(events_key, per_list)
+             self.r.ltrim(events_key, -self.per_sid_list_maxlen, -1)
+             self.r.expire(events_key, self.events_ttl)
+-            
+-            # 3. Timeline
++
++            # 3) Timeline zset (full payload)
+             timeline_key = f"trade:timeline:{event.sid}"
+             timeline_value = json.dumps(full_storage_payload, ensure_ascii=False)
+             self.r.zadd(timeline_key, {timeline_value: float(event.ts)})
+             self.r.expire(timeline_key, self.events_ttl)
+-            
++
+             self.stats["events_written"] += 1
+             event_type_key = event.event_type.lower().replace("_hit", "_hits")
+             if event_type_key in self.stats:
+                 self.stats[event_type_key] += 1
+-            
+-            log.debug(
+-                "📝 Event logged: %s for %s (event_id=%s)",
+-                event.event_type, event.sid, event_id
+-            )
++
++            log.debug("📝 Event logged: %s for %s (event_id=%s)", event.event_type, event.sid, event_id)
+             return event_id
+-            
++
+         except Exception as e:
+-            log.error(
+-                "❌ Failed to log event %s for %s: %s",
+-                event.event_type, event.sid, str(e)
+-            )
++            log.error("❌ Failed to log event %s for %s: %s", getattr(event, "event_type", "?"), getattr(event, "sid", "?"), str(e))
+             return ""
+ 
+-    # ... log_tpX_hit / sl_hit / trailing_move ... (omitted, assuming unchanged if not targeted)
+-    # Re-declare log_position_closed with new signature
+-
+-    def log_tp1_hit(self, sid: str, symbol: str, price: float, position_id: Optional[str] = None, lot: Optional[float] = None, source: str = "mt5") -> str:
+-        # Re-implementation to ensure contiguous block if replacing whole class
+-        event = TradeEvent(event_type="TP1_HIT", sid=sid, symbol=symbol, ts=int(time.time() * 1000), price=price, position_id=position_id, lot=lot, source=source)
+-        return self.log_event(event)
+-
+-    def log_tp2_hit(self, sid: str, symbol: str, price: float, position_id: Optional[str] = None, lot: Optional[float] = None, source: str = "mt5") -> str:
+-        event = TradeEvent(event_type="TP2_HIT", sid=sid, symbol=symbol, ts=int(time.time() * 1000), price=price, position_id=position_id, lot=lot, source=source)
+-        return self.log_event(event)
+-
+-    def log_tp3_hit(self, sid: str, symbol: str, price: float, position_id: Optional[str] = None, lot: Optional[float] = None, source: str = "mt5") -> str:
+-        event = TradeEvent(event_type="TP3_HIT", sid=sid, symbol=symbol, ts=int(time.time() * 1000), price=price, position_id=position_id, lot=lot, source=source)
+-        return self.log_event(event)
+-
+     def log_sl_hit(self, sid: str, symbol: str, price: float, position_id: Optional[str] = None, lot: Optional[float] = None, source: str = "mt5", reason: Optional[str] = None) -> str:
+         metadata = {"reason": reason} if reason else None
+         event = TradeEvent(event_type="SL_HIT", sid=sid, symbol=symbol, ts=int(time.time() * 1000), price=price, position_id=position_id, lot=lot, source=source, metadata=metadata)
+@@ -317,6 +335,7 @@
+         event = TradeEvent(event_type="POSITION_OPENED", sid=sid, symbol=symbol, ts=int(time.time() * 1000), price=price, lot=lot, position_id=position_id, source=source, metadata={"sl": sl, "tp_levels": tp_levels, "entry": price})
+         return self.log_event(event)
+ 
++
+     def log_position_closed(
+         self,
+         sid: str,
+@@ -327,51 +346,119 @@
+         lot: Optional[float] = None,
+         source: str = "mt5",
+         close_reason: Optional[str] = None,
+-        # NEW (backward-compatible): allow caller to pass structured metadata and extra payload
++        # NEW: explicit time + fill join fields (A3)
++        ts_ms: Optional[int] = None,
++        exit_ts_ms: Optional[int] = None,
++        order_id: Optional[str] = None,
++        side: Optional[str] = None,
++        venue: Optional[str] = None,
++        qty: Optional[float] = None,
++        fee_bps: Optional[float] = None,
++        bid_at_fill: Optional[float] = None,
++        ask_at_fill: Optional[float] = None,
++        mid_at_fill: Optional[float] = None,
++        # Existing: structured metadata and extra payload
+         metadata: Optional[Dict[str, Any]] = None,
+         payload: Optional[Dict[str, Any]] = None,
+         extra_payload: Optional[Dict[str, Any]] = None,
++        # Backward-compatible sink for older callsites that pass ab_arm/regime/etc
++        **legacy_kwargs: Any,
+     ) -> str:
+         """
+         Записать событие POSITION_CLOSED.
+ 
+-        ВАЖНО:
+-        - metadata остается отдельным полем (и алиасом meta) в events:trades
+-        - payload/extra_payload разворачиваются в корень stream payload через log_event()
+-          (это нужно для AB/winner и последующего разбора без JSON-парсинга)
++        Contract notes (важно для downstream):
++        - sid: join key
++        - ts/exit_ts_ms/ts_fill_ms: epoch ms
++        - side (LONG/SHORT), order_id, qty, fee_bps: required for TCA/execution joins
++
++        Fail-open:
++        - Мы никогда не бросаем исключение из этого метода.
++        - Валидация контракта происходит в log_event(); при нарушениях событие уйдет в DLQ.
+         """
+-        # Build metadata (keep close_reason in meta; do NOT overwrite caller keys)
++        # --- metadata ---
+         md: Dict[str, Any] = {}
+-        try:
+-            if isinstance(metadata, dict):
+-                md.update(deepcopy(metadata))
+-        except Exception:
+-            md = {}
++        if isinstance(metadata, dict):
++            md.update(deepcopy(metadata))
++
++        # Accept legacy fields into metadata/payload in a deterministic way
++        # (mt5_event_executor historically passed ab_arm/regime/zone_id as kwargs).
++        for k in ("ab_arm", "ab_group", "ab_key", "regime", "zone_id", "scenario", "scenario_v4"):
++            if k in legacy_kwargs and legacy_kwargs.get(k) is not None:
++                md.setdefault(k, legacy_kwargs.get(k))
++
+         if close_reason and "close_reason" not in md:
+             md["close_reason"] = str(close_reason)
+ 
+-        # Build payload (merged into root fields by log_event)
++        # --- payload (root-expanded in stream) ---
+         pl: Dict[str, Any] = {}
+-        try:
+-            if isinstance(payload, dict):
+-                pl.update(deepcopy(payload))
+-        except Exception:
+-            pl = {}
+-        try:
+-            if isinstance(extra_payload, dict):
+-                # extra_payload has lower priority than explicit payload? choose higher priority for payload:
+-                # keep payload keys if already exist.
+-                for k, v in extra_payload.items():
+-                    if k not in pl:
+-                        pl[k] = v
+-        except Exception:
+-            pass
++        if isinstance(payload, dict):
++            pl.update(deepcopy(payload))
++        if isinstance(extra_payload, dict):
++            for k, v in extra_payload.items():
++                if k not in pl:
++                    pl[k] = v
++
++        # Explicit A3 fields (override payload if caller passed via args)
++        if exit_ts_ms is not None and "exit_ts_ms" not in pl:
++            pl["exit_ts_ms"] = int(exit_ts_ms)
++        if "ts_fill_ms" not in pl:
++            # Prefer explicit ts_ms, otherwise exit_ts_ms, otherwise current ts (filled below)
++            if ts_ms is not None:
++                pl["ts_fill_ms"] = int(ts_ms)
++            elif exit_ts_ms is not None:
++                pl["ts_fill_ms"] = int(exit_ts_ms)
++
++        # order_id / qty / side / venue
++        if order_id is not None:
++            pl["order_id"] = str(order_id)
++        if "order_id" not in pl:
++            # Fallback: use position_id for MT5 (still joinable)
++            if position_id:
++                pl["order_id"] = str(position_id)
++
++        if qty is not None:
++            pl["qty"] = float(qty)
++        if "qty" not in pl and lot is not None:
++            pl["qty"] = float(lot)
++
++        if fee_bps is not None:
++            pl["fee_bps"] = float(fee_bps)
++
++        if side is not None:
++            pl["side"] = str(side).upper()
++        if "side" not in pl and "direction" in pl:
++            pl["side"] = str(pl.get("direction")).upper()
++
++        if venue is not None:
++            pl["venue"] = str(venue)
++        if "venue" not in pl:
++            pl["venue"] = str(source or "unknown")
++
++        # Optional BBO-at-fill fields for future TCA refinements
++        if bid_at_fill is not None:
++            pl["bid_at_fill"] = float(bid_at_fill)
++        if ask_at_fill is not None:
++            pl["ask_at_fill"] = float(ask_at_fill)
++        if mid_at_fill is not None:
++            pl["mid_at_fill"] = float(mid_at_fill)
++
++        # Prefer exchange close timestamp if available
++        ts_final = int(ts_ms) if ts_ms is not None else None
++        if ts_final is None and exit_ts_ms is not None:
++            ts_final = int(exit_ts_ms)
++        if ts_final is None:
++            ts_final = int(time.time() * 1000)
++
++        # If ts_fill_ms still missing - fill now (deterministic for this call)
++        if "ts_fill_ms" not in pl:
++            pl["ts_fill_ms"] = int(ts_final)
+ 
+         event = TradeEvent(
+             event_type="POSITION_CLOSED",
+             sid=sid,
+             symbol=symbol,
+-            ts=int(time.time() * 1000),
++            ts=int(ts_final),
+             price=close_price,
+             pnl=pnl,
+             position_id=position_id,
+@@ -381,7 +468,8 @@
+             payload=(pl or None),
+         )
+         return self.log_event(event)
+-    
++
++
+     def get_signal_events(self, sid: str) -> List[Dict[str, Any]]:
+         """
+         Получить все события по сигналу.
+diff -ruN python-worker/services/trade_monitor.py python-worker/services/trade_monitor.py
+--- python-worker/services/trade_monitor.py	2026-03-04 18:20:29.000000000 +0000
++++ python-worker/services/trade_monitor.py	2026-03-06 21:21:19.363450003 +0000
+@@ -3751,9 +3751,66 @@
+             except Exception:
+                 exit_ts_ms = int(time.time() * 1000)
+ 
++
++            # A3: enrich POSITION_CLOSED with join-critical execution fields.
++
++            # We keep this fail-open: if any attribute is missing, we fall back to safe defaults.
++
++            order_id = ""
++
++            fee_bps = 0.0
++
++            try:
++
++                order_id = str(
++
++                    getattr(closed, "order_id", None)
++
++                    or getattr(closed, "exit_order_id", None)
++
++                    or getattr(pos, "close_order_id", None)
++
++                    or getattr(pos, "order_id", None)
++
++                    or getattr(pos, "id", "")
++
++                    or ""
++
++                )
++
++            except Exception:
++
++                order_id = str(getattr(pos, "id", "") or "")
++
++
++            try:
++
++                fees_usd_val = float(getattr(closed, "fees", 0.0) or getattr(pos, "fees", 0.0) or 0.0)
++
++                turnover_val = float(getattr(closed, "turnover_roundtrip", 0.0) or 0.0)
++
++                if turnover_val > 0:
++
++                    fee_bps = (fees_usd_val / turnover_val) * 10000.0
++
++            except Exception:
++
++                fee_bps = 0.0
++
++
++            
+             self.events_logger.log_position_closed(
+                 sid=str(getattr(pos, "sid", "")),
+                 symbol=str(getattr(pos, "symbol", "")),
++                # Time contract: use exchange close timestamp as primary ts
++                ts_ms=int(exit_ts_ms or 0),
++                exit_ts_ms=int(exit_ts_ms or 0),
++                # Join-critical exec fields (A3)
++                order_id=order_id,
++                side=str(getattr(pos, "direction", "") or "").upper(),
++                venue=str(getattr(pos, "source", "") or ""),
++                qty=float(getattr(pos, "lot", 0.0) or 0.0),
++                fee_bps=float(fee_bps),
+                 close_price=float(getattr(closed, "exit_price", 0.0) or 0.0),
+                 pnl=float(getattr(closed, "total_pnl", 0.0) or 0.0),
+                 position_id=str(getattr(pos, "pos_id", "") or getattr(pos, "id", "")),
+@@ -3773,6 +3830,12 @@
+                     "risk_usd": float(risk_usd),
+                     "r_mult": float(r_mult),
+                     "exit_ts_ms": int(exit_ts_ms or 0),
++                    "ts_fill_ms": int(exit_ts_ms or 0),
++                    "order_id": str(order_id),
++                    "qty": float(getattr(pos, "lot", 0.0) or 0.0),
++                    "side": str(getattr(pos, "direction", "") or "").upper(),
++                    "venue": str(getattr(pos, "source", "") or ""),
++                    "fee_bps": float(fee_bps),
+                     "abs_lvl_tier": int(abs_lvl_tier),
+                     "dn_tier": int(dn_tier),
+                     "book_health_ok": int(book_health_ok),

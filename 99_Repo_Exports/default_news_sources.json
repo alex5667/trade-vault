@@ -1,0 +1,14 @@
+{
+  "providers": ["rss"],
+  "rss": {
+    "enabled": true,
+    "urls": [
+      "https://www.ecb.europa.eu/rss/press.html",
+      "https://cointelegraph.com/rss",
+      "https://decrypt.co/feed",
+      "https://news.bitcoin.com/feed/",
+      "https://www.coindesk.com/arc/outboundfeeds/rss/",
+      "https://www.newsbtc.com/feed/"
+    ]
+  }
+}

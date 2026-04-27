@@ -1,0 +1,17 @@
+groups:
+  - name: ml_phase1_4_executor
+    rules:
+      - alert: MLRecommendationExecutorDown
+        expr: ml_recommendation_executor_up == 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "ML recommendation executor is down"
+      - alert: MLRecommendationExecutorStale
+        expr: time() - ml_recommendation_executor_last_run_ts_seconds > 900
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "ML recommendation executor stale"

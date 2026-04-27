@@ -1,0 +1,28 @@
+[Unit]
+Description=XAUUSD Error Monitor (retcode notifications)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=%h/front/trade/scanner_infra/python-worker
+ExecStart=/usr/bin/python3 %h/front/trade/scanner_infra/python-worker/services/error_monitor.py
+
+Restart=always
+RestartSec=3
+
+# Redis connection
+Environment=REDIS_URL=redis://scanner-redis:6379/0
+
+# Streams
+Environment=EXEC_STREAM=orders:exec
+Environment=NOTIFY_STREAM=notify:telegram
+
+# Error filters
+Environment=MIN_SEVERITY=warning  # info | warning | error
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
+

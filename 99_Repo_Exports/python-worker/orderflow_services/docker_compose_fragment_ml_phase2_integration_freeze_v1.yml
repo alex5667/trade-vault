@@ -1,0 +1,29 @@
+services:
+  scanner-phase2-integration-freeze-auditor-v2-if1:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    command: ["python", "-m", "orderflow_services.phase2_integration_freeze_auditor_v2_if1"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      ML_PHASE2_INTEGRATION_FREEZE_PORT: ${ML_PHASE2_INTEGRATION_FREEZE_PORT:-9915}
+      ML_PHASE2_INTEGRATION_FREEZE_RUN_EVERY_SEC: ${ML_PHASE2_INTEGRATION_FREEZE_RUN_EVERY_SEC:-300}
+      ML_PHASE2_INTEGRATION_FREEZE_DEFAULT_MAX_AGE_MS: ${ML_PHASE2_INTEGRATION_FREEZE_DEFAULT_MAX_AGE_MS:-7200000}
+      ML_PHASE2_INTEGRATION_FREEZE_CRITICAL_MAX_AGE_MS: ${ML_PHASE2_INTEGRATION_FREEZE_CRITICAL_MAX_AGE_MS:-3600000}
+    ports:
+      - "${ML_PHASE2_INTEGRATION_FREEZE_PORT:-9915}:9915"
+    networks:
+      - scanner-network
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9915/metrics >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 384M

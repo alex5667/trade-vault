@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/fft/_backend.py
+# hypothesis_version: 6.148.10
+
+['numpy.scipy.fft', 'scipy']

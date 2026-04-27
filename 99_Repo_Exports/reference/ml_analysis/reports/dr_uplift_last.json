@@ -1,0 +1,17 @@
+{
+  "version": "dr_uplift_eval_v1",
+  "reward": "binary",
+  "n_joined": 0,
+  "n_used": 0,
+  "mean_uplift": NaN,
+  "skipped": {
+    "no_sid": 0,
+    "no_outcome": 0,
+    "no_conf_cal": 0,
+    "no_q": 0,
+    "bad_p": 0,
+    "policy_fallback": 0,
+    "nan": 0
+  },
+  "ci": {}
+}

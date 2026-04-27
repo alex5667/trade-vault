@@ -1,0 +1,344 @@
+--- /tmp/trade_p6_base/services/binance_executor.py	2026-03-16 13:44:44.438432949 +0000
++++ /tmp/trade_p6/services/binance_executor.py	2026-03-16 13:42:25.319329865 +0000
+@@ -1229,6 +1229,7 @@
+         if not bool(getattr(self, "exec_single_active_position_guard_repair_enable", True)):
+             return
+         try:
++            state_terminalish = bool(self._state_is_terminalish(blocked_state_doc))
+             updated = dict(guard or {})
+             updated.update({
+                 "symbol": str(symbol or "").strip().upper(),
+@@ -1241,6 +1242,10 @@
+                 "exchange_open_plain_orders": int(exchange_truth.get("open_plain_orders") or 0),
+                 "exchange_open_algo_orders": int(exchange_truth.get("open_algo_orders") or 0),
+                 "exchange_guard_reason": str(reason or "exchange_truth_active"),
++                "guard_release_policy": "exchange_truth" if bool(getattr(self, "exec_single_active_position_exchange_truth_release", True)) else "local_terminal",
++                "guard_release_pending": bool(state_terminalish and bool(getattr(self, "exec_single_active_position_exchange_truth_release", True))),
++                "guard_release_reason": "await_exchange_flat_no_orders" if state_terminalish and bool(getattr(self, "exec_single_active_position_exchange_truth_release", True)) else "",
++                "state_terminalish": bool(state_terminalish),
+                 "user_stream_stale": bool(self._user_stream_is_stale_for_active_guard()),
+             })
+             self.r.set(
+@@ -1378,9 +1383,32 @@
+                 if symbol:
+                     if not self._state_is_terminalish(doc):
+                         try:
++                            guard_doc = dict(doc)
++                            guard_doc.update({
++                                "guard_release_policy": "exchange_truth" if bool(getattr(self, "exec_single_active_position_exchange_truth_release", True)) else "local_terminal",
++                                "guard_release_pending": False,
++                                "guard_release_reason": "",
++                                "state_terminalish": False,
++                            })
+                             self.r.set(
+                                 self._active_symbol_state_key(symbol),
+-                                json.dumps(doc, ensure_ascii=False, default=str),
++                                json.dumps(guard_doc, ensure_ascii=False, default=str),
++                                ex=self.state_ttl if self.state_ttl > 0 else None,
++                            )
++                        except Exception:
++                            pass
++                    elif bool(getattr(self, "exec_single_active_position_exchange_truth_release", True)):
++                        try:
++                            guard_doc = dict(doc)
++                            guard_doc.update({
++                                "guard_release_policy": "exchange_truth",
++                                "guard_release_pending": True,
++                                "guard_release_reason": "await_exchange_flat_no_orders",
++                                "state_terminalish": True,
++                            })
++                            self.r.set(
++                                self._active_symbol_state_key(symbol),
++                                json.dumps(guard_doc, ensure_ascii=False, default=str),
+                                 ex=self.state_ttl if self.state_ttl > 0 else None,
+                             )
+                         except Exception:
+--- /tmp/trade_p6_base/services/binance_active_symbol_guard_repair_worker.py	2026-03-16 13:44:44.439088091 +0000
++++ /tmp/trade_p6/services/binance_active_symbol_guard_repair_worker.py	2026-03-16 13:42:40.530588197 +0000
+@@ -178,6 +178,10 @@
+             "exchange_open_plain_orders": int(truth.get("open_plain_orders") or 0),
+             "exchange_open_algo_orders": int(truth.get("open_algo_orders") or 0),
+             "exchange_guard_reason": reason,
++            "guard_release_policy": "exchange_truth",
++            "guard_release_pending": bool(self._state_is_terminalish(state)),
++            "guard_release_reason": "await_exchange_flat_no_orders" if self._state_is_terminalish(state) else "",
++            "state_terminalish": bool(self._state_is_terminalish(state)),
+         })
+         try:
+             if not self.dry_run:
+--- /tmp/trade_p6_base/services/execution_projection_worker.py	2026-03-08 14:26:28.000000000 +0000
++++ /tmp/trade_p6/services/execution_projection_worker.py	2026-03-16 13:41:49.105498106 +0000
+@@ -324,6 +324,7 @@
+         exec_stream: str = 'orders:exec',
+         state_key_prefix: str = 'orders:state:',
+         active_symbol_key_prefix: str = 'orders:active_symbol_sid:',
++        exchange_truth_release: bool = False,
+         state_ttl_sec: int = 86400,
+         cursor_key: str = 'orders:exec:projection:cursor',
+         batch_size: int = 500,
+@@ -334,6 +335,7 @@
+         self.exec_stream = str(exec_stream or 'orders:exec')
+         self.state_key_prefix = str(state_key_prefix or 'orders:state:').rstrip(':') + ':'
+         self.active_symbol_key_prefix = str(active_symbol_key_prefix or 'orders:active_symbol_sid:').rstrip(':') + ':'
++        self.exchange_truth_release = bool(exchange_truth_release)
+         self.state_ttl_sec = int(state_ttl_sec)
+         self.cursor_key = str(cursor_key or 'orders:exec:projection:cursor')
+         self.batch_size = max(int(batch_size or 500), 1)
+@@ -404,7 +406,8 @@
+         if not symbol or not sid:
+             return
+         key = self._active_symbol_key(symbol)
+-        if self._state_is_terminalish(doc):
++        is_terminalish = self._state_is_terminalish(doc)
++        if is_terminalish and not self.exchange_truth_release:
+             try:
+                 raw = self.r.get(key)
+                 if raw:
+@@ -422,6 +425,10 @@
+             'side': str(doc.get('side') or ''),
+             'updated_at_ms': int(doc.get('updated_at_ms') or doc.get('ts_state_commit_ms') or _ms_now()),
+             'ts_state_commit_ms': int(doc.get('ts_state_commit_ms') or _ms_now()),
++            'guard_release_policy': 'exchange_truth' if self.exchange_truth_release else 'local_terminal',
++            'guard_release_pending': bool(is_terminalish and self.exchange_truth_release),
++            'guard_release_reason': 'await_exchange_flat_no_orders' if is_terminalish and self.exchange_truth_release else '',
++            'state_terminalish': bool(is_terminalish),
+         }, ensure_ascii=False, default=str)
+         try:
+             if self.state_ttl_sec > 0:
+@@ -779,6 +786,7 @@
+         exec_stream=os.getenv('EXEC_STREAM', 'orders:exec'),
+         state_key_prefix=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'),
+         active_symbol_key_prefix=os.getenv('ORDERS_ACTIVE_SYMBOL_KEY_PREFIX', 'orders:active_symbol_sid:'),
++        exchange_truth_release=os.getenv('EXEC_SINGLE_ACTIVE_POSITION_EXCHANGE_TRUTH_RELEASE', '1').strip() == '1',
+         state_ttl_sec=int(os.getenv('ORDERS_STATE_TTL_SEC', '86400')),
+         cursor_key=os.getenv('EXEC_PROJECTION_CURSOR_KEY', 'orders:exec:projection:cursor'),
+         batch_size=int(os.getenv('EXEC_PROJECTION_BATCH_SIZE', '500')),
+--- /dev/null	2026-03-16 13:37:40.265400714 +0000
++++ /tmp/trade_p6/services/tests/test_execution_projection_worker_p6_exchange_truth_guard_semantics_v1.py	2026-03-16 13:43:57.821265853 +0000
+@@ -0,0 +1,226 @@
++from pathlib import Path
++import importlib.util
++import json
++import sys
++
++root = Path(__file__).resolve().parents[2]
++if str(root) not in sys.path:
++    sys.path.insert(0, str(root))
++
++exec_mod_path = root / 'services' / 'binance_executor.py'
++exec_spec = importlib.util.spec_from_file_location('services.binance_executor_p6_guard_semantics', exec_mod_path)
++exec_mod = importlib.util.module_from_spec(exec_spec)
++sys.modules[exec_spec.name] = exec_mod
++assert exec_spec.loader is not None
++exec_spec.loader.exec_module(exec_mod)
++
++worker_mod_path = root / 'services' / 'execution_projection_worker.py'
++worker_spec = importlib.util.spec_from_file_location('services.execution_projection_worker_p6_guard_semantics', worker_mod_path)
++worker_mod = importlib.util.module_from_spec(worker_spec)
++sys.modules[worker_spec.name] = worker_mod
++assert worker_spec.loader is not None
++worker_spec.loader.exec_module(worker_mod)
++
++repair_mod_path = root / 'services' / 'binance_active_symbol_guard_repair_worker.py'
++repair_spec = importlib.util.spec_from_file_location('services.binance_guard_repair_p6_guard_semantics', repair_mod_path)
++repair_mod = importlib.util.module_from_spec(repair_spec)
++sys.modules[repair_spec.name] = repair_mod
++assert repair_spec.loader is not None
++repair_spec.loader.exec_module(repair_mod)
++
++
++class FakeRedis:
++    def __init__(self):
++        self.kv = {}
++        self.streams = {}
++        self._seq = 0
++
++    def get(self, key):
++        return self.kv.get(key)
++
++    def set(self, key, value, ex=None):
++        self.kv[key] = value
++
++    def delete(self, key):
++        self.kv.pop(key, None)
++
++    def xadd(self, key, fields, maxlen=None, approximate=None):
++        self._seq += 1
++        sid = f"{1700000000000 + self._seq}-0"
++        self.streams.setdefault(key, []).append((sid, dict(fields)))
++        return sid
++
++    def xrange(self, key, start='-', end='+', count=None):
++        rows = list(self.streams.get(key, []))
++        if start not in ('', '-'):
++            exclusive = start.startswith('(')
++            target = start[1:] if exclusive else start
++            rows = [row for row in rows if (row[0] > target if exclusive else row[0] >= target)]
++        if count is not None:
++            rows = rows[: int(count)]
++        return rows
++
++    def xrevrange(self, key, start='+', end='-', count=None):
++        rows = list(reversed(self.streams.get(key, [])))
++        if count is not None:
++            rows = rows[: int(count)]
++        return rows
++
++    def scan_iter(self, match=None):
++        prefix = str(match or '').rstrip('*')
++        for key in list(self.kv.keys()):
++            if key.startswith(prefix):
++                yield key
++
++
++class FlatClient:
++    def get_position_risk(self):
++        return [{'symbol': 'BTCUSDT', 'positionAmt': '0'}]
++    def get_open_orders(self, symbol=None):
++        return []
++    def get_open_algo_orders(self, symbol=None):
++        return []
++
++
++def _mk_inline_exec(redis_obj):
++    ex = exec_mod.BinanceExecutor.__new__(exec_mod.BinanceExecutor)
++    ex.r = redis_obj
++    ex.exec_single_active_position_per_symbol = True
++    ex.exec_single_active_position_release_on_terminal = True
++    ex.exec_single_active_position_exchange_truth_release = True
++    ex.active_symbol_key_prefix = 'orders:active_symbol_sid:'
++    ex.state_key_prefix = 'orders:state:'
++    ex.state_ttl = 86400
++    ex.exec_journal_primary = False
++    ex.exec_state_derived_view = True
++    ex.exec_inline_state_projection = True
++    ex.execution_journal = None
++    return ex
++
++
++def test_projection_worker_keeps_terminal_guard_pending_when_exchange_truth_release_enabled():
++    r = FakeRedis()
++    worker = worker_mod.ExecutionProjectionWorker(
++        r,
++        exec_stream='orders:exec',
++        state_key_prefix='orders:state:',
++        active_symbol_key_prefix='orders:active_symbol_sid:',
++        exchange_truth_release=True,
++        cursor_key='orders:exec:projection:cursor',
++    )
++    r.xadd('orders:exec', {
++        'sid': 'sid-1',
++        'symbol': 'BTCUSDT',
++        'action': 'open',
++        'event_type': 'state_transition',
++        'status': 'ok',
++        'fsm_state': 'PROTECTED',
++        'ts_event_ms': '1700000000001',
++    })
++    r.xadd('orders:exec', {
++        'sid': 'sid-1',
++        'symbol': 'BTCUSDT',
++        'action': 'close',
++        'event_type': 'state_transition',
++        'status': 'closed',
++        'fsm_state': 'EXIT_FILLED',
++        'ts_event_ms': '1700000000002',
++    })
++    worker.run_until_idle()
++    guard = json.loads(r.get('orders:active_symbol_sid:BTCUSDT'))
++    assert guard['sid'] == 'sid-1'
++    assert guard['guard_release_policy'] == 'exchange_truth'
++    assert guard['guard_release_pending'] is True
++    assert guard['state_terminalish'] is True
++    assert guard['guard_release_reason'] == 'await_exchange_flat_no_orders'
++
++
++def test_projection_worker_still_deletes_terminal_guard_when_exchange_truth_release_disabled():
++    r = FakeRedis()
++    worker = worker_mod.ExecutionProjectionWorker(
++        r,
++        exec_stream='orders:exec',
++        state_key_prefix='orders:state:',
++        active_symbol_key_prefix='orders:active_symbol_sid:',
++        exchange_truth_release=False,
++        cursor_key='orders:exec:projection:cursor',
++    )
++    r.xadd('orders:exec', {
++        'sid': 'sid-2',
++        'symbol': 'ETHUSDT',
++        'action': 'open',
++        'event_type': 'state_transition',
++        'status': 'ok',
++        'fsm_state': 'PROTECTED',
++        'ts_event_ms': '1700000000001',
++    })
++    worker.run_until_idle()
++    assert json.loads(r.get('orders:active_symbol_sid:ETHUSDT'))['sid'] == 'sid-2'
++    r.xadd('orders:exec', {
++        'sid': 'sid-2',
++        'symbol': 'ETHUSDT',
++        'action': 'close',
++        'event_type': 'state_transition',
++        'status': 'closed',
++        'fsm_state': 'EXIT_FILLED',
++        'ts_event_ms': '1700000000002',
++    })
++    worker.run_until_idle()
++    assert r.get('orders:active_symbol_sid:ETHUSDT') in (None, '')
++
++
++def test_inline_executor_and_projection_worker_use_same_pending_release_contract():
++    r = FakeRedis()
++    ex = _mk_inline_exec(r)
++    ex._persist_materialized_state_cache('sid-inline', {
++        'sid': 'sid-inline',
++        'symbol': 'SOLUSDT',
++        'fsm_state': 'EXIT_FILLED',
++        'status': 'closed',
++        'closed': True,
++    })
++    inline_guard = json.loads(r.get('orders:active_symbol_sid:SOLUSDT'))
++    assert inline_guard['guard_release_policy'] == 'exchange_truth'
++    assert inline_guard['guard_release_pending'] is True
++    assert inline_guard['state_terminalish'] is True
++
++    r2 = FakeRedis()
++    worker = worker_mod.ExecutionProjectionWorker(
++        r2,
++        exec_stream='orders:exec',
++        state_key_prefix='orders:state:',
++        active_symbol_key_prefix='orders:active_symbol_sid:',
++        exchange_truth_release=True,
++        cursor_key='orders:exec:projection:cursor',
++    )
++    r2.xadd('orders:exec', {
++        'sid': 'sid-inline',
++        'symbol': 'SOLUSDT',
++        'action': 'close',
++        'event_type': 'state_transition',
++        'status': 'closed',
++        'fsm_state': 'EXIT_FILLED',
++        'ts_event_ms': '1700000000002',
++    })
++    worker.run_until_idle()
++    projected_guard = json.loads(r2.get('orders:active_symbol_sid:SOLUSDT'))
++    assert projected_guard['guard_release_policy'] == inline_guard['guard_release_policy']
++    assert projected_guard['guard_release_pending'] == inline_guard['guard_release_pending']
++    assert projected_guard['state_terminalish'] == inline_guard['state_terminalish']
++    assert projected_guard['guard_release_reason'] == inline_guard['guard_release_reason']
++
++
++def test_guard_repair_worker_clears_projection_pending_release_after_exchange_flat():
++    r = FakeRedis()
++    r.set('orders:active_symbol_sid:BTCUSDT', json.dumps({
++        'symbol': 'BTCUSDT',
++        'sid': 'sid-flat',
++        'guard_release_policy': 'exchange_truth',
++        'guard_release_pending': True,
++        'state_terminalish': True,
++        'guard_release_reason': 'await_exchange_flat_no_orders',
++    }))
++    worker = repair_mod.BinanceActiveSymbolGuardRepairWorker(redis_client=r, client=FlatClient())
++    out = worker.run_once()
++    assert out[0]['status'] == 'released'
++    assert r.get('orders:active_symbol_sid:BTCUSDT') in (None, '')

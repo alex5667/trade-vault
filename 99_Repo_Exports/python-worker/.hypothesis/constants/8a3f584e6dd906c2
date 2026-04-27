@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/ofi_tracker.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.02, 0.1, 1.0, 3.0, 1000.0, 128, 500, 3000]

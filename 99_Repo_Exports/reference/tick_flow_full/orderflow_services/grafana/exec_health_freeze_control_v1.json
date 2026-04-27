@@ -1,0 +1,53 @@
+{
+  "title": "ExecHealth Freeze Control (v1)",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Effective Freeze",
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0},
+      "targets": [{"expr": "exec_health_freeze_control_effective_active", "refId": "A"}],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []}
+    },
+    {
+      "type": "stat",
+      "title": "Manual Ack Required",
+      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0},
+      "targets": [{"expr": "exec_health_freeze_control_manual_ack_required", "refId": "A"}],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []}
+    },
+    {
+      "type": "stat",
+      "title": "Manual Override Active",
+      "gridPos": {"h": 6, "w": 6, "x": 12, "y": 0},
+      "targets": [{"expr": "exec_health_freeze_control_manual_override_active", "refId": "A"}],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}]}}, "overrides": []}
+    },
+    {
+      "type": "stat",
+      "title": "State Age Seconds",
+      "gridPos": {"h": 6, "w": 6, "x": 18, "y": 0},
+      "targets": [{"expr": "exec_health_freeze_control_state_age_seconds", "refId": "A"}],
+      "fieldConfig": {"defaults": {}, "overrides": []}
+    },
+    {
+      "type": "timeseries",
+      "title": "Manual Ack / Trigger / Freeze Totals",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 6},
+      "targets": [
+        {"expr": "exec_health_freeze_control_trigger_total", "legendFormat": "trigger_total", "refId": "A"},
+        {"expr": "exec_health_freeze_control_thaw_total", "legendFormat": "thaw_total", "refId": "B"},
+        {"expr": "exec_health_freeze_control_manual_freeze_total", "legendFormat": "manual_freeze_total", "refId": "C"}
+      ],
+      "fieldConfig": {"defaults": {}, "overrides": []}
+    },
+    {
+      "type": "timeseries",
+      "title": "Source One-Hot",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 14},
+      "targets": [{"expr": "exec_health_freeze_control_source", "legendFormat": "{{source}}", "refId": "A"}],
+      "fieldConfig": {"defaults": {}, "overrides": []}
+    }
+  ]
+}

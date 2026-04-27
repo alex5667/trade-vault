@@ -1,0 +1,57 @@
+groups:
+  - name: edge_stack_train_p59
+    rules:
+      - alert: EdgeStackTrainFailed
+        expr: edge_stack_train_last_success == 0
+        for: 30m
+        labels:
+          severity: critical
+          team: trade
+          component: edge_stack
+          service: of-timers
+        annotations:
+          summary: "edge_stack_v1 training failed"
+          description: "Last edge_stack_v1 nightly bundle status is not ok. Check tools.nightly_edge_stack_v1_train_bundle logs and metrics:edge_stack_train:last in Redis."
+          runbook_path: "/edge_stack_train_p59.md"
+          runbook: |
+            1) Check timers worker logs for nightly bundle failures (edge_stack_v1).
+            2) Inspect Redis hash metrics:edge_stack_train:last (success/reason/feature_cols_hash/schema_hash).
+            3) Verify Prometheus targets: edge-stack-train-exporter-p59 is UP.
+            4) If feature hash mismatch: rebuild dataset with pinned --feature_schema_ver and retrain.
+          dashboard_path: "/d/edge_stack_overview/edge-stack-overview?orgId=1"
+
+      - alert: EdgeStackTrainStale
+        expr: (time() * 1000 - edge_stack_train_last_updated_ts_ms) > 36 * 3600 * 1000
+        for: 30m
+        labels:
+          severity: warning
+          team: trade
+          component: edge_stack
+          service: of-timers
+        annotations:
+          summary: "edge_stack_v1 training stale (>36h)"
+          description: "No successful edge_stack_v1 training metrics update in >36h. Check timers worker and archiver retention."
+          runbook_path: "/edge_stack_train_p59.md"
+          runbook: |
+            1) Confirm timers schedule ran (systemd/docker timers).
+            2) Check Redis connectivity + stream retention (dataset window needs enough samples).
+            3) Ensure exporters are UP and Prometheus scraping works.
+          dashboard_path: "/d/edge_stack_overview/edge-stack-overview?orgId=1"
+
+      - alert: EdgeStackTrainQualityDegraded
+        expr: (edge_stack_train_last_oof_meta_brier > 0.30) or (edge_stack_train_last_oof_meta_ece > 0.08)
+        for: 2h
+        labels:
+          severity: warning
+          team: trade
+          component: edge_stack
+          service: of-timers
+        annotations:
+          summary: "edge_stack_v1 OOF quality degraded"
+          description: "OOF meta brier/ece exceed thresholds. Investigate dataset drift, label join, and DQ/Drift gating regimes."
+          runbook_path: "/edge_stack_train_p59.md"
+          runbook: |
+            1) Compare candidate vs champion in P60 shadow eval (brier/ece).
+            2) Check joined/pos_rate; if too low/high, tune window/filters.
+            3) Inspect drift: distributions for ofi_z/spread/mp_mid_bps.
+          dashboard_path: "/d/edge_stack_overview/edge-stack-overview?orgId=1"

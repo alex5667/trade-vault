@@ -1,0 +1,20 @@
+groups:
+- name: meta_promote
+  rules:
+  - alert: MetaPromoteDirNotOk
+    expr: meta_promote_dir_ok == 0
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Meta promote directory is not healthy"
+      description: "Produce directory check failed (exists/writable/space). Check /var/lib/trade/meta_promote permissions and disk space."
+
+  - alert: MetaPromoteDirLowFreeSpace
+    expr: meta_promote_dir_free_pct < 5
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Meta promote directory low free space"
+      description: "Free space in promote directory is less than 5%. Current: {{ $value }}%"

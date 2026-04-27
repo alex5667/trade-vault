@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/metric_labels.py
+# hypothesis_version: 6.148.10
+
+[250, ',', '__empty__', '__other__', 'allow', 'collapse', 'skip']

@@ -1,0 +1,31 @@
+--- python-worker/services/atr_policy_budget_monitor.py
++++ python-worker/services/atr_policy_budget_monitor.py
+@@ -34,18 +34,18 @@
+             # This is a simplified proxy: we find cohorts whose slippage is excessively bad
+             # over the last 50 trades.
+             query = """
+                 SELECT
+-                    source, symbol,
+-                    (payload->'meta'->'policy_provenance'->>'scenario') as scenario,
+-                    (payload->'meta'->'policy_provenance'->>'regime') as regime,
+-                    (payload->'meta'->'policy_provenance'->>'risk_horizon_bucket') as risk_horizon_bucket,
+-                    AVG(NULLIF((payload->>'slippage_bps')::numeric, 0)) as avg_slippage_bps,
+-                    COUNT(CASE WHEN (payload->>'is_stop_loss')::boolean = true THEN 1 END) as sl_count,
+-                    SUM((payload->>'pnl_usd')::numeric) as daily_pnl
+-                FROM closed_trades
+-                WHERE created_at >= NOW() - INTERVAL '1 day'
+-                  AND payload->'meta'->'policy_provenance' IS NOT NULL
++                    t.atr_policy_source as source, t.symbol,
++                    t.atr_policy_scenario as scenario,
++                    t.atr_policy_regime as regime,
++                    t.sc_risk_horizon_bucket as risk_horizon_bucket,
++                    AVG(NULLIF(p.slippage_bps_est, 0)) as avg_slippage_bps,
++                    COUNT(CASE WHEN t.close_reason LIKE '%SL%' THEN 1 END) as sl_count,
++                    SUM(t.pnl_net) as daily_pnl
++                FROM trades_closed t
++                LEFT JOIN trades_closed_p0 p ON t.order_id = p.order_id
++                WHERE t.created_at >= NOW() - INTERVAL '1 day'
++                  AND t.atr_policy_scenario IS NOT NULL
+                 GROUP BY 1, 2, 3, 4, 5
+             """
+             

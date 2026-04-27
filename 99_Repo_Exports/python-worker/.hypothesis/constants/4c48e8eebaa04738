@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/linalg/interpolative.py
+# hypothesis_version: 6.148.10
+
+['__len__', 'default', 'estimate_rank', 'id_to_svd', 'interp_decomp', 'invalid input size', 'rand', 'seed', 'svd']

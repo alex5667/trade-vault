@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/smart_cluster_analyzer.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 1.7, 3.0, 20.0, 100.0, 'asks', 'available', 'bids', 'cluster_score', 'imb_dn', 'imb_up', 'stacked_buy', 'stacked_sell']

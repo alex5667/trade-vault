@@ -1,0 +1,35 @@
+groups:
+  - name: ml_phase1_5_commit_policy
+    rules:
+      - alert: MLCommitPolicyControllerStale
+        expr: time() - ml_commit_policy_last_run_ts_seconds > 900
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ML commit policy controller stale"
+
+      - alert: MLCommitPolicyQueueLagHigh
+        expr: ml_commit_policy_queue_lag_ms > 300000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ML commit policy queue lag high"
+
+      - alert: MLCommitExecutorStale
+        expr: time() - ml_recommendation_commit_executor_last_run_ts_seconds > 900
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ML recommendation commit executor stale"
+
+      - alert: MLCommitExecutorErrors
+        expr: increase(ml_recommendation_commit_executor_runs_total{status="error"}[15m]) > 0
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "ML recommendation commit executor errors detected"
+

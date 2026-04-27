@@ -1,0 +1,1342 @@
+--- orderflow_services/exec_health_slo_autoguard_v1.py
++++ orderflow_services/exec_health_slo_autoguard_v1.py
+@@ -15,6 +15,7 @@
+ )
+ from services.orderflow.exec_health_freeze_sealed_state import asealed_set
+ from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_async
++from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_async
+ 
+ try:
+     import redis.asyncio as aioredis  # type: ignore
+@@ -239,6 +240,7 @@
+         if not self._identity_checked:
+             await ensure_service_identity_async(self.r, "exec_health_slo_autoguard_v1")
+             self._identity_checked = True
++        await heal_service_identity_async(self.r, "exec_health_slo_autoguard_v1")
+         now = _now_ms()
+         summary = await self._read_hash(self.cfg.summary_key)
+         if not summary:
+--- orderflow_services/exec_health_freeze_tamper_guard_v1.py
++++ orderflow_services/exec_health_freeze_tamper_guard_v1.py
+@@ -18,6 +18,7 @@
+ from services.orderflow.exec_health_freeze_integrity import evaluate_freeze_integrity
+ from services.orderflow.exec_health_freeze_request_log import DEFAULT_REQUEST_STREAM
+ from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
++from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
+ 
+ 
+ def _now_ms() -> int:
+@@ -86,6 +87,7 @@
+         self.request_count = max(10, int(os.getenv('EXEC_HEALTH_FREEZE_REQUEST_EVENT_COUNT', '200') or 200))
+         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
+         ensure_service_identity_sync(self.r, "exec_health_freeze_tamper_guard_v1")
++        heal_service_identity_sync(self.r, "exec_health_freeze_tamper_guard_v1", force=True)
+ 
+     def _read_hash(self, key: str) -> Dict[str, Any]:
+         try:
+@@ -125,6 +127,10 @@
+             pass
+ 
+     def run_once(self) -> Dict[str, Any]:
++        try:
++            heal_service_identity_sync(self.r, "exec_health_freeze_tamper_guard_v1")
++        except Exception:
++            pass
+         now = _now_ms()
+         control = self._read_hash(self.control_key)
+         state = self._read_hash(self.state_key)
+--- orderflow_services/exec_health_freeze_acl_drift_exporter_v1.py
++++ orderflow_services/exec_health_freeze_acl_drift_exporter_v1.py
+@@ -12,6 +12,7 @@
+ from prometheus_client import Counter, Gauge, start_http_server
+ 
+ from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
++from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
+ from services.orderflow.exec_health_freeze_acl_contract import (
+     AUDIT_USER,
+     BOOTSTRAP_USER,
+@@ -61,6 +62,7 @@
+         self.loop_s = max(5, int(os.getenv('EXEC_HEALTH_FREEZE_ACL_DRIFT_INTERVAL_S', '30') or 30))
+         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
+         ensure_service_identity_sync(self.r, "exec_health_freeze_acl_drift_exporter_v1")
++        heal_service_identity_sync(self.r, "exec_health_freeze_acl_drift_exporter_v1", force=True)
+ 
+     def _read_state(self) -> Dict[str, Any]:
+         try:
+@@ -76,6 +78,10 @@
+             pass
+ 
+     def run_once(self) -> Dict[str, Any]:
++        try:
++            heal_service_identity_sync(self.r, "exec_health_freeze_acl_drift_exporter_v1")
++        except Exception:
++            pass
+         now = _now_ms()
+         acl_lines = self.r.execute_command('ACL', 'LIST') or []
+         drift = compare_acl_contract(acl_lines)
+--- orderflow_services/exec_health_freeze_acl_audit_exporter_v1.py
++++ orderflow_services/exec_health_freeze_acl_audit_exporter_v1.py
+@@ -1,6 +1,7 @@
+ #!/usr/bin/env python3
+ from __future__ import annotations
+ from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
++from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
+ 
+ import os
+ import time
+@@ -74,6 +75,7 @@
+         self.loop_s = max(5, int(os.getenv('EXEC_HEALTH_FREEZE_ACL_AUDIT_INTERVAL_S', '30') or 30))
+         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
+         ensure_service_identity_sync(self.r, "exec_health_freeze_acl_audit_exporter_v1")
++        heal_service_identity_sync(self.r, "exec_health_freeze_acl_audit_exporter_v1", force=True)
+         self._seen_ids: set[str] = set()
+ 
+     def _read_state(self) -> Dict[str, Any]:
+@@ -90,6 +92,10 @@
+             pass
+ 
+     def run_once(self) -> Dict[str, Any]:
++        try:
++            heal_service_identity_sync(self.r, "exec_health_freeze_acl_audit_exporter_v1")
++        except Exception:
++            pass
+         now = _now_ms()
+         rows = self.r.execute_command('ACL', 'LOG', 64) or []
+         matches: List[Dict[str, Any]] = []
+--- orderflow_services/exec_health_freeze_client_name_audit_exporter_v1.py
++++ orderflow_services/exec_health_freeze_client_name_audit_exporter_v1.py
+@@ -13,6 +13,7 @@
+ 
+ from services.orderflow.exec_health_freeze_client_name_policy import evaluate_client_name_policy
+ from services.orderflow.exec_health_freeze_service_identity import build_service_identity_contract, ensure_service_identity_sync
++from services.orderflow.exec_health_freeze_reconnect_healing import get_heal_state_key, heal_service_identity_sync
+ 
+ UP = Gauge('exec_health_freeze_client_name_policy_up', '1 if Redis-side ExecHealth client-name policy exporter loop is healthy')
+ STATE_AGE_S = Gauge('exec_health_freeze_client_name_policy_state_age_seconds', 'Age of ExecHealth client-name policy exporter state in seconds')
+@@ -21,6 +22,9 @@
+ ACTIVE_CONNECTIONS = Gauge('exec_health_freeze_client_name_active_connections', 'Current CLIENT LIST connections per trusted ExecHealth client name', ['service'])
+ DISTINCT_ADDRS = Gauge('exec_health_freeze_client_name_distinct_addrs', 'Distinct addr count per trusted ExecHealth client name', ['service'])
+ VIOLATION = Gauge('exec_health_freeze_client_name_violation', 'One-hot Redis-side client-name policy violation', ['kind', 'service'])
++RECOVERY_TOTAL = Gauge('exec_health_freeze_client_name_recovery_total', 'Self-healing recoveries after Redis reconnect identity drift', ['service'])
++LAST_RECOVERY_TS_MS = Gauge('exec_health_freeze_client_name_last_recovery_ts_ms', 'Last successful client identity recovery timestamp', ['service'])
++REPAIR_FAILED_TOTAL = Gauge('exec_health_freeze_client_name_repair_failed_total', 'Failed self-healing attempts after Redis reconnect identity drift', ['service'])
+ 
+ KNOWN_KINDS = [
+     'service_started_unnamed_client',
+@@ -50,10 +54,17 @@
+         self.loop_s = max(5, int(os.getenv('EXEC_HEALTH_FREEZE_CLIENT_NAME_POLICY_INTERVAL_S', '30') or 30))
+         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
+         ensure_service_identity_sync(self.r, 'exec_health_freeze_client_name_audit_exporter_v1')
++        heal_service_identity_sync(self.r, 'exec_health_freeze_client_name_audit_exporter_v1', force=True)
+ 
+     def _read_state(self) -> Dict[str, Any]:
+         try:
+             return self.r.hgetall(self.state_key) or {}
++        except Exception:
++            return {}
++
++    def _read_heal_state(self, service: str) -> Dict[str, Any]:
++        try:
++            return self.r.hgetall(get_heal_state_key(service)) or {}
+         except Exception:
+             return {}
+ 
+@@ -65,6 +76,7 @@
+             pass
+ 
+     def run_once(self) -> Dict[str, Any]:
++        heal_service_identity_sync(self.r, 'exec_health_freeze_client_name_audit_exporter_v1')
+         now = _now_ms()
+         raw = self.r.execute_command('CLIENT', 'LIST') or ''
+         res = evaluate_client_name_policy(raw)
+@@ -75,6 +87,10 @@
+             MATCH.labels(service=service, field='name').set(float(int(row.get('name_match', 0) or 0)))
+             MATCH.labels(service=service, field='lib_name').set(float(int(row.get('lib_name_match', 0) or 0)))
+             DISTINCT_ADDRS.labels(service=service).set(float(int(row.get('distinct_addrs', 0) or 0)))
++            heal = self._read_heal_state(service)
++            RECOVERY_TOTAL.labels(service=service).set(float(int(heal.get('recovery_total', 0) or 0)))
++            LAST_RECOVERY_TS_MS.labels(service=service).set(float(int(heal.get('last_recovery_ts_ms', 0) or 0)))
++            REPAIR_FAILED_TOTAL.labels(service=service).set(float(int(heal.get('repair_failed_total', 0) or 0)))
+         active = {(str(v.get('kind')), str(v.get('service'))): 1 for v in list(res.get('violations', []) or [])}
+         for kind in KNOWN_KINDS:
+             for service in list(contract.keys()) + ['unknown']:
+--- orderflow_services/exec_health_freeze_override_v1.py
++++ orderflow_services/exec_health_freeze_override_v1.py
+@@ -15,6 +15,7 @@
+     redis = None
+ 
+ from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
++from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
+ from services.orderflow.exec_health_freeze_control import (
+     ACK_SIGNING_SECRET_ENV,
+     build_dual_control_commit_thaw_update,
+@@ -54,6 +55,7 @@
+         self.request_stream = os.getenv("EXEC_HEALTH_FREEZE_REQUEST_STREAM", DEFAULT_REQUEST_STREAM)
+         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
+         ensure_service_identity_sync(self.r, "exec_health_freeze_override_v1")
++        heal_service_identity_sync(self.r, "exec_health_freeze_override_v1", force=True)
+ 
+     def _read_hash(self, key: str) -> Dict[str, Any]:
+         try:
+@@ -62,6 +64,7 @@
+             return {}
+ 
+     def status(self) -> Dict[str, Any]:
++        heal_service_identity_sync(self.r, "exec_health_freeze_override_v1")
+         ctl = parse_exec_health_freeze_control(self._read_hash(self.control_key))
+         st = parse_exec_health_freeze_control(self._read_hash(self.state_key))
+         try:
+@@ -117,6 +120,7 @@
+         return prev_ctl, prev_state, ctl, st
+ 
+     def prepare_thaw(self, *, operator: str, reason: str, ticket: str, nonce: str) -> Dict[str, Any]:
++        heal_service_identity_sync(self.r, "exec_health_freeze_override_v1")
+         now = _now_ms()
+         if not operator.strip() or not reason.strip() or not nonce.strip():
+             raise ValueError("operator, reason and nonce are required")
+@@ -166,6 +170,7 @@
+         return {"ok": True, "action": "prepare-thaw", **event_payload, "request_event_id": request_event_id, "effective_freeze_active": 1}
+ 
+     def approve_thaw(self, *, operator: str, request_id: str) -> Dict[str, Any]:
++        heal_service_identity_sync(self.r, "exec_health_freeze_override_v1")
+         now = _now_ms()
+         if not operator.strip() or not request_id.strip():
+             raise ValueError("operator and request_id are required")
+@@ -196,6 +201,7 @@
+         return {"ok": True, "action": "approve-thaw", **event_payload, "request_event_id": request_event_id, "effective_freeze_active": 1}
+ 
+     def commit_thaw(self, *, operator: str, request_id: str) -> Dict[str, Any]:
++        heal_service_identity_sync(self.r, "exec_health_freeze_override_v1")
+         now = _now_ms()
+         if not operator.strip() or not request_id.strip():
+             raise ValueError("operator and request_id are required")
+--- orderflow_services/exec_health_freeze_acl_policy_v1.py
++++ orderflow_services/exec_health_freeze_acl_policy_v1.py
+@@ -14,6 +14,7 @@
+ 
+ from services.orderflow.exec_health_freeze_acl_contract import compare_acl_contract, render_acl_save_load_commands, render_acl_setuser_commands, render_auth_dsn_templates
+ from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync, render_service_identity_env_templates
++from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
+ 
+ 
+ def _jprint(obj: Dict[str, Any]) -> None:
+@@ -26,6 +27,7 @@
+         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True) if redis is not None else None
+         if self.r is not None:
+             ensure_service_identity_sync(self.r, "exec_health_freeze_acl_policy_v1")
++            heal_service_identity_sync(self.r, "exec_health_freeze_acl_policy_v1", force=True)
+ 
+     def render(self) -> Dict[str, Any]:
+         return {
+@@ -38,6 +40,7 @@
+     def apply(self, *, save: bool = True, reload_check: bool = False) -> Dict[str, Any]:
+         if self.r is None:
+             raise RuntimeError('redis dependency missing')
++        heal_service_identity_sync(self.r, "exec_health_freeze_acl_policy_v1")
+         applied: List[str] = []
+         for cmd in render_acl_setuser_commands():
+             argv = cmd.split()
+@@ -55,6 +58,7 @@
+     def check(self) -> Dict[str, Any]:
+         if self.r is None:
+             raise RuntimeError('redis dependency missing')
++        heal_service_identity_sync(self.r, "exec_health_freeze_acl_policy_v1")
+         drift = compare_acl_contract(self.r.execute_command('ACL', 'LIST') or [])
+         return {'ok': bool(drift.get('ok')), 'drift': drift}
+ 
+--- orderflow_services/prometheus_alerts_exec_health_freeze_client_name_v1.yml
++++ orderflow_services/prometheus_alerts_exec_health_freeze_client_name_v1.yml
+@@ -32,3 +32,11 @@
+           severity: crit
+         annotations:
+           summary: Duplicate trusted ExecHealth Redis client name across hosts or deploys
++      - alert: OF_ExecHealth_FreezeClientNameAudit_SelfHealingFailed_Crit
++        expr: exec_health_freeze_client_name_repair_failed_total > 0
++        for: 2m
++        labels:
++          severity: crit
++        annotations:
++          summary: ExecHealth Redis client-name self-healing attempted but failed
++
+--- orderflow_services/grafana/exec_health_freeze_client_name_v1.json
++++ orderflow_services/grafana/exec_health_freeze_client_name_v1.json
+@@ -4,19 +4,46 @@
+     {
+       "type": "timeseries",
+       "title": "Client-name policy violations",
+-      "targets": [{"expr": "exec_health_freeze_client_name_violation"}]
++      "targets": [
++        {
++          "expr": "exec_health_freeze_client_name_violation"
++        }
++      ]
+     },
+     {
+       "type": "timeseries",
+       "title": "Trusted client field match",
+-      "targets": [{"expr": "exec_health_freeze_client_name_match"}]
++      "targets": [
++        {
++          "expr": "exec_health_freeze_client_name_match"
++        }
++      ]
+     },
+     {
+       "type": "timeseries",
+       "title": "Trusted client connections and origins",
+       "targets": [
+-        {"expr": "exec_health_freeze_client_name_active_connections"},
+-        {"expr": "exec_health_freeze_client_name_distinct_addrs"}
++        {
++          "expr": "exec_health_freeze_client_name_active_connections"
++        },
++        {
++          "expr": "exec_health_freeze_client_name_distinct_addrs"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Reconnect self-healing recoveries",
++      "targets": [
++        {
++          "expr": "exec_health_freeze_client_name_recovery_total"
++        },
++        {
++          "expr": "exec_health_freeze_client_name_repair_failed_total"
++        },
++        {
++          "expr": "exec_health_freeze_client_name_last_recovery_ts_ms"
++        }
+       ]
+     }
+   ],
+--- orderflow_services/runbook_exec_health_freeze_client_name_v1.md
++++ orderflow_services/runbook_exec_health_freeze_client_name_v1.md
+@@ -21,3 +21,20 @@
+ 2. Verify Redis user, `CLIENT SETNAME`, and `CLIENT SETINFO LIB-NAME` in the service startup path.
+ 3. If duplicates exist, correlate `addr`/host with the rollout/deploy that introduced the extra connection.
+ 4. If `lib-name` is wrong after reconnect, inspect the reconnect code path for missing `CLIENT SETINFO LIB-NAME`.
++
++## Self-healing
++
++Trusted writer/audit/bootstrap services now attempt reconnect self-healing on live connections:
++
++- `CLIENT SETNAME` re-assert
++- `CLIENT SETINFO LIB-NAME` re-assert
++- recovery event: `kind=redis_client_identity_recovered` in `ops:exec_health:freeze_events:v1`
++
++Additional metrics:
++
++- `exec_health_freeze_client_name_recovery_total{service}`
++- `exec_health_freeze_client_name_last_recovery_ts_ms{service}`
++- `exec_health_freeze_client_name_repair_failed_total{service}`
++
++If `repair_failed_total` increases, treat it as a hard regression in reconnect or Redis client auth/identity setup.
++
+--- orderflow_services/tests/test_exec_health_freeze_client_name_exporter_v1.py
++++ orderflow_services/tests/test_exec_health_freeze_client_name_exporter_v1.py
+@@ -2,11 +2,18 @@
+ 
+ import orderflow_services.exec_health_freeze_client_name_audit_exporter_v1 as exp_mod
+ from orderflow_services.exec_health_freeze_client_name_audit_exporter_v1 import Exporter
++from services.orderflow.exec_health_freeze_reconnect_healing import get_heal_state_key
+ 
+ 
+ class FakeRedis:
+     def __init__(self):
+-        self.hashes = {}
++        self.hashes = {
++            get_heal_state_key('exec_health_freeze_override_v1'): {
++                'recovery_total': '2',
++                'last_recovery_ts_ms': '123456',
++                'repair_failed_total': '1',
++            }
++        }
+         self.client_name = ''
+         self.lib_name = ''
+         self.client_id = 88
+@@ -57,3 +64,5 @@
+     out = ex.run_once()
+     assert out['ok'] is True
+     assert int(fake.hashes[ex.state_key]['violation_count']) == 0
++    assert exp_mod.RECOVERY_TOTAL.labels(service='exec_health_freeze_override_v1')._value.get() == 2.0
++    assert exp_mod.REPAIR_FAILED_TOTAL.labels(service='exec_health_freeze_override_v1')._value.get() == 1.0
+--- services/orderflow/exec_health_freeze_reconnect_healing.py
++++ services/orderflow/exec_health_freeze_reconnect_healing.py
+@@ -0,0 +1,259 @@
++from __future__ import annotations
++
++"""Reconnect self-healing for ExecHealth Redis service identity.
++
++P15 closes the operational gap left after P13/P14: CLIENT LIST/exporters can
++see wrong name/lib-name after reconnect, but trusted services should also try to
++repair themselves on the live connection and emit an explicit recovery signal.
++
++This module keeps a tiny in-process cache keyed by (service, redis object id)
++so long-running loops can cheaply detect a new CLIENT ID, re-assert
++CLIENT SETNAME / CLIENT SETINFO LIB-NAME, and write recovery state/events for
++Prometheus export.
++"""
++
++import json
++import os
++import time
++from typing import Any, Dict, Tuple
++
++from services.orderflow.exec_health_freeze_service_identity import (
++    IDENTITY_ENFORCE_ENV,
++    IDENTITY_REQUIRE_LIBNAME_ENV,
++    _b,
++    _read_current_client_line_async,
++    _read_current_client_line_sync,
++    get_expected_service,
++    normalize_client_entry,
++    verify_entry_against_expected,
++)
++
++DEFAULT_EVENT_STREAM = 'ops:exec_health:freeze_events:v1'
++HEAL_STATE_PREFIX_ENV = 'EXEC_HEALTH_FREEZE_CLIENT_HEAL_STATE_PREFIX'
++HEAL_CHECK_MS_ENV = 'EXEC_HEALTH_FREEZE_CLIENT_HEAL_CHECK_MS'
++HEAL_EVENT_STREAM_ENV = 'EXEC_HEALTH_FREEZE_EVENT_STREAM'
++
++_CACHE: Dict[Tuple[str, int], Dict[str, Any]] = {}
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++def _s(x: Any, d: str = '') -> str:
++    try:
++        return str(x) if x is not None else str(d)
++    except Exception:
++        return str(d)
++
++
++def get_heal_state_key(service: str) -> str:
++    prefix = os.getenv(HEAL_STATE_PREFIX_ENV, 'metrics:exec_health:freeze_client_heal:last')
++    return f'{prefix}:{service}'
++
++
++def _event_stream() -> str:
++    return os.getenv(HEAL_EVENT_STREAM_ENV, DEFAULT_EVENT_STREAM)
++
++
++def _check_ms() -> int:
++    return max(500, _i(os.getenv(HEAL_CHECK_MS_ENV, '3000'), 3000))
++
++
++def _cache_key(r: Any, service: str) -> Tuple[str, int]:
++    return (service, id(r))
++
++
++def _read_state_sync(r: Any, service: str) -> Dict[str, Any]:
++    try:
++        return r.hgetall(get_heal_state_key(service)) or {}
++    except Exception:
++        return {}
++
++
++async def _read_state_async(r: Any, service: str) -> Dict[str, Any]:
++    try:
++        return await r.hgetall(get_heal_state_key(service)) or {}
++    except Exception:
++        return {}
++
++
++def _write_state_sync(r: Any, service: str, mapping: Dict[str, Any]) -> None:
++    try:
++        r.hset(get_heal_state_key(service), mapping={str(k): str(v) for k, v in mapping.items()})
++        r.expire(get_heal_state_key(service), 86400 * 14)
++    except Exception:
++        pass
++
++
++async def _write_state_async(r: Any, service: str, mapping: Dict[str, Any]) -> None:
++    try:
++        await r.hset(get_heal_state_key(service), mapping={str(k): str(v) for k, v in mapping.items()})
++        await r.expire(get_heal_state_key(service), 86400 * 14)
++    except Exception:
++        pass
++
++
++def _emit_event_sync(r: Any, payload: Dict[str, Any]) -> str:
++    try:
++        return _s(r.xadd(_event_stream(), {str(k): str(v) for k, v in payload.items()}, maxlen=5000) or '')
++    except Exception:
++        return ''
++
++
++async def _emit_event_async(r: Any, payload: Dict[str, Any]) -> str:
++    try:
++        return _s(await r.xadd(_event_stream(), {str(k): str(v) for k, v in payload.items()}, maxlen=5000) or '')
++    except Exception:
++        return ''
++
++
++def _should_attempt_repair(violations: Any) -> bool:
++    bad = set(str(v) for v in list(violations or []))
++    return bool(bad) and bad.issubset({'wrong_name', 'wrong_lib_name'})
++
++
++def _build_state(prev: Dict[str, Any], *, service: str, client_id: int, before: Dict[str, Any], after: Dict[str, Any], recovered: bool, reconnect_detected: bool, event_id: str, now_ms: int, repair_attempted: bool) -> Dict[str, Any]:
++    entry = dict(after.get('entry') or before.get('entry') or {})
++    out = dict(prev or {})
++    out.update({
++        'schema_name': 'exec_health_freeze_client_heal_state',
++        'schema_version': 1,
++        'service': service,
++        'updated_ts_ms': int(now_ms),
++        'last_check_ts_ms': int(now_ms),
++        'last_client_id': int(client_id),
++        'last_user': _s(entry.get('user')),
++        'last_name': _s(entry.get('name')),
++        'last_lib_name': _s(entry.get('lib-name')),
++        'last_result_ok': 1 if after.get('ok') else 0,
++        'last_reconnect_detected': 1 if reconnect_detected else 0,
++        'last_repair_attempted': 1 if repair_attempted else 0,
++        'last_recovered': 1 if recovered else 0,
++        'last_before_violations_json': json.dumps(list(before.get('violations') or []), ensure_ascii=False),
++        'last_after_violations_json': json.dumps(list(after.get('violations') or []), ensure_ascii=False),
++    })
++    if reconnect_detected:
++        out['reconnect_seen_total'] = int(_i(prev.get('reconnect_seen_total'), 0) + 1)
++    if repair_attempted and not recovered:
++        out['repair_failed_total'] = int(_i(prev.get('repair_failed_total'), 0) + 1)
++    if recovered:
++        out['recovery_total'] = int(_i(prev.get('recovery_total'), 0) + 1)
++        out['last_recovery_ts_ms'] = int(now_ms)
++        out['last_recovery_client_id'] = int(client_id)
++        out['last_recovery_event_id'] = _s(event_id)
++        out['last_recovery_reason'] = ','.join(list(before.get('violations') or []))
++    return out
++
++
++def _repair_sync(r: Any, service: str, before: Dict[str, Any]) -> Dict[str, Any]:
++    expected = get_expected_service(service)
++    require_lib_name = _b(os.getenv(IDENTITY_REQUIRE_LIBNAME_ENV, '1'), True)
++    if 'wrong_name' in list(before.get('violations') or []):
++        r.execute_command('CLIENT', 'SETNAME', expected.client_name)
++    if require_lib_name and 'wrong_lib_name' in list(before.get('violations') or []):
++        r.execute_command('CLIENT', 'SETINFO', 'LIB-NAME', expected.lib_name)
++    entry = normalize_client_entry(_read_current_client_line_sync(r))
++    return verify_entry_against_expected(entry, expected, require_lib_name=require_lib_name)
++
++
++async def _repair_async(r: Any, service: str, before: Dict[str, Any]) -> Dict[str, Any]:
++    expected = get_expected_service(service)
++    require_lib_name = _b(os.getenv(IDENTITY_REQUIRE_LIBNAME_ENV, '1'), True)
++    if 'wrong_name' in list(before.get('violations') or []):
++        await r.execute_command('CLIENT', 'SETNAME', expected.client_name)
++    if require_lib_name and 'wrong_lib_name' in list(before.get('violations') or []):
++        await r.execute_command('CLIENT', 'SETINFO', 'LIB-NAME', expected.lib_name)
++    entry = normalize_client_entry(await _read_current_client_line_async(r))
++    return verify_entry_against_expected(entry, expected, require_lib_name=require_lib_name)
++
++
++def heal_service_identity_sync(r: Any, service: str, *, enforce: bool | None = None, force: bool = False) -> Dict[str, Any]:
++    expected = get_expected_service(service)
++    enforce = _b(os.getenv(IDENTITY_ENFORCE_ENV, '1'), True) if enforce is None else bool(enforce)
++    now = _now_ms()
++    cache = _CACHE.get(_cache_key(r, service), {})
++    client_id = int(r.execute_command('CLIENT', 'ID'))
++    reconnect_detected = int(cache.get('last_client_id') or 0) not in {0, int(client_id)}
++    if (not force) and (not reconnect_detected) and (now - _i(cache.get('last_check_ts_ms'), 0) < _check_ms()):
++        return {'ok': True, 'cached': True, 'recovered': False, 'client_id': client_id}
++    entry = normalize_client_entry(_read_current_client_line_sync(r))
++    before = verify_entry_against_expected(entry, expected, require_lib_name=_b(os.getenv(IDENTITY_REQUIRE_LIBNAME_ENV, '1'), True))
++    after = before
++    recovered = False
++    repair_attempted = False
++    event_id = ''
++    if not before.get('ok') and _should_attempt_repair(before.get('violations')):
++        repair_attempted = True
++        after = _repair_sync(r, service, before)
++        recovered = bool(after.get('ok'))
++        if recovered:
++            event_id = _emit_event_sync(r, {
++                'ts_ms': now,
++                'kind': 'redis_client_identity_recovered',
++                'service': service,
++                'role': expected.role,
++                'redis_user': expected.redis_user,
++                'client_id': int(client_id),
++                'reconnect_detected': 1 if reconnect_detected else 0,
++                'before_violations_json': json.dumps(list(before.get('violations') or []), ensure_ascii=False),
++                'client_name': expected.client_name,
++                'lib_name': expected.lib_name,
++                'source': service,
++            })
++    state = _build_state(_read_state_sync(r, service), service=service, client_id=client_id, before=before, after=after, recovered=recovered, reconnect_detected=bool(reconnect_detected), event_id=event_id, now_ms=now, repair_attempted=repair_attempted)
++    _write_state_sync(r, service, state)
++    _CACHE[_cache_key(r, service)] = {'last_client_id': int(client_id), 'last_check_ts_ms': int(now)}
++    result = {'ok': bool(after.get('ok')), 'cached': False, 'recovered': recovered, 'repair_attempted': repair_attempted, 'client_id': int(client_id), 'before': before, 'after': after, 'event_id': event_id, 'reconnect_detected': bool(reconnect_detected)}
++    if enforce and not result['ok']:
++        raise RuntimeError(f'ExecHealth Redis service identity healing failed for {service}: {after.get("violations")}; entry={after.get("entry")}')
++    return result
++
++
++async def heal_service_identity_async(r: Any, service: str, *, enforce: bool | None = None, force: bool = False) -> Dict[str, Any]:
++    expected = get_expected_service(service)
++    enforce = _b(os.getenv(IDENTITY_ENFORCE_ENV, '1'), True) if enforce is None else bool(enforce)
++    now = _now_ms()
++    cache = _CACHE.get(_cache_key(r, service), {})
++    client_id = int(await r.execute_command('CLIENT', 'ID'))
++    reconnect_detected = int(cache.get('last_client_id') or 0) not in {0, int(client_id)}
++    if (not force) and (not reconnect_detected) and (now - _i(cache.get('last_check_ts_ms'), 0) < _check_ms()):
++        return {'ok': True, 'cached': True, 'recovered': False, 'client_id': client_id}
++    entry = normalize_client_entry(await _read_current_client_line_async(r))
++    before = verify_entry_against_expected(entry, expected, require_lib_name=_b(os.getenv(IDENTITY_REQUIRE_LIBNAME_ENV, '1'), True))
++    after = before
++    recovered = False
++    repair_attempted = False
++    event_id = ''
++    if not before.get('ok') and _should_attempt_repair(before.get('violations')):
++        repair_attempted = True
++        after = await _repair_async(r, service, before)
++        recovered = bool(after.get('ok'))
++        if recovered:
++            event_id = await _emit_event_async(r, {
++                'ts_ms': now,
++                'kind': 'redis_client_identity_recovered',
++                'service': service,
++                'role': expected.role,
++                'redis_user': expected.redis_user,
++                'client_id': int(client_id),
++                'reconnect_detected': 1 if reconnect_detected else 0,
++                'before_violations_json': json.dumps(list(before.get('violations') or []), ensure_ascii=False),
++                'client_name': expected.client_name,
++                'lib_name': expected.lib_name,
++                'source': service,
++            })
++    state = _build_state(await _read_state_async(r, service), service=service, client_id=client_id, before=before, after=after, recovered=recovered, reconnect_detected=bool(reconnect_detected), event_id=event_id, now_ms=now, repair_attempted=repair_attempted)
++    await _write_state_async(r, service, state)
++    _CACHE[_cache_key(r, service)] = {'last_client_id': int(client_id), 'last_check_ts_ms': int(now)}
++    result = {'ok': bool(after.get('ok')), 'cached': False, 'recovered': recovered, 'repair_attempted': repair_attempted, 'client_id': int(client_id), 'before': before, 'after': after, 'event_id': event_id, 'reconnect_detected': bool(reconnect_detected)}
++    if enforce and not result['ok']:
++        raise RuntimeError(f'ExecHealth Redis service identity healing failed for {service}: {after.get("violations")}; entry={after.get("entry")}')
++    return result
+--- services/orderflow/tests/test_exec_health_freeze_reconnect_healing_v1.py
++++ services/orderflow/tests/test_exec_health_freeze_reconnect_healing_v1.py
+@@ -0,0 +1,67 @@
++from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync, get_heal_state_key
++
++
++class FakeRedis:
++    def __init__(self, *, user='exec_health_freeze_writer', name='bad', lib_name='bad-lib', client_id=77):
++        self.user = user
++        self.client_name = name
++        self.lib_name = lib_name
++        self.client_id = client_id
++        self.hashes = {}
++        self.events = []
++
++    def execute_command(self, *argv):
++        cmd = tuple(str(x) for x in argv)
++        if cmd[:2] == ('CLIENT', 'ID'):
++            return self.client_id
++        if cmd[:2] == ('CLIENT', 'SETNAME'):
++            self.client_name = cmd[2]
++            return 'OK'
++        if cmd[:3] == ('CLIENT', 'SETINFO', 'LIB-NAME'):
++            self.lib_name = cmd[3]
++            return 'OK'
++        if cmd[:2] == ('CLIENT', 'LIST') and len(cmd) >= 4 and cmd[2] == 'ID':
++            return f'id={self.client_id} user={self.user} name={self.client_name} lib-name={self.lib_name}'
++        raise AssertionError(cmd)
++
++    def hgetall(self, key):
++        return dict(self.hashes.get(key, {}))
++
++    def hset(self, key, mapping=None):
++        self.hashes.setdefault(key, {}).update({str(k): str(v) for k, v in (mapping or {}).items()})
++        return 1
++
++    def expire(self, key, ttl):
++        return 1
++
++    def xadd(self, key, mapping, maxlen=None):
++        self.events.append((key, dict(mapping)))
++        return f'{len(self.events)}-0'
++
++
++def test_reconnect_healing_repairs_name_and_libname(monkeypatch):
++    monkeypatch.setenv('EXEC_HEALTH_FREEZE_CLIENT_HEAL_CHECK_MS', '0')
++    r = FakeRedis(name='', lib_name='wrong-lib')
++    out = heal_service_identity_sync(r, 'exec_health_freeze_override_v1', force=True)
++    assert out['ok'] is True
++    assert out['recovered'] is True
++    assert r.client_name == 'exec-health-freeze-override-v1'
++    assert r.lib_name == 'exec-health-freeze-writer'
++    st = r.hashes[get_heal_state_key('exec_health_freeze_override_v1')]
++    assert int(st['recovery_total']) == 1
++    assert st['last_recovery_reason'] == 'wrong_name,wrong_lib_name'
++    assert r.events and r.events[0][1]['kind'] == 'redis_client_identity_recovered'
++
++
++def test_reconnect_healing_wrong_user_is_not_repairable(monkeypatch):
++    monkeypatch.setenv('EXEC_HEALTH_FREEZE_CLIENT_HEAL_CHECK_MS', '0')
++    r = FakeRedis(user='default', name='exec-health-freeze-override-v1', lib_name='exec-health-freeze-writer')
++    try:
++        heal_service_identity_sync(r, 'exec_health_freeze_override_v1', force=True)
++    except RuntimeError as exc:
++        assert 'wrong_user' in str(exc)
++    else:
++        raise AssertionError('expected RuntimeError')
++    st = r.hashes[get_heal_state_key('exec_health_freeze_override_v1')]
++    assert int(st['last_result_ok']) == 0
++    assert int(st.get('repair_failed_total', 0) or 0) == 0
+--- tick_flow_full/orderflow_services/exec_health_freeze_acl_audit_exporter_v1.py
++++ tick_flow_full/orderflow_services/exec_health_freeze_acl_audit_exporter_v1.py
+@@ -1,5 +1,7 @@
+ #!/usr/bin/env python3
+ from __future__ import annotations
++from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
++from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
+ 
+ import os
+ import time
+@@ -72,6 +74,8 @@
+         self.state_key = os.getenv('EXEC_HEALTH_FREEZE_ACL_AUDIT_STATE_KEY', 'metrics:exec_health:freeze_acl_audit:last')
+         self.loop_s = max(5, int(os.getenv('EXEC_HEALTH_FREEZE_ACL_AUDIT_INTERVAL_S', '30') or 30))
+         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
++        ensure_service_identity_sync(self.r, "exec_health_freeze_acl_audit_exporter_v1")
++        heal_service_identity_sync(self.r, "exec_health_freeze_acl_audit_exporter_v1", force=True)
+         self._seen_ids: set[str] = set()
+ 
+     def _read_state(self) -> Dict[str, Any]:
+@@ -88,6 +92,10 @@
+             pass
+ 
+     def run_once(self) -> Dict[str, Any]:
++        try:
++            heal_service_identity_sync(self.r, "exec_health_freeze_acl_audit_exporter_v1")
++        except Exception:
++            pass
+         now = _now_ms()
+         rows = self.r.execute_command('ACL', 'LOG', 64) or []
+         matches: List[Dict[str, Any]] = []
+--- tick_flow_full/orderflow_services/exec_health_freeze_acl_drift_exporter_v1.py
++++ tick_flow_full/orderflow_services/exec_health_freeze_acl_drift_exporter_v1.py
+@@ -0,0 +1,168 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import os
++import time
++from typing import Any, Dict, Iterable, List
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++from prometheus_client import Counter, Gauge, start_http_server
++
++from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
++from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
++from services.orderflow.exec_health_freeze_acl_contract import (
++    AUDIT_USER,
++    BOOTSTRAP_USER,
++    DEFAULT_USER,
++    READER_USER,
++    WRITER_USER,
++    compare_acl_contract,
++    parse_client_list_users,
++)
++
++UP = Gauge('exec_health_freeze_acl_drift_up', '1 if ExecHealth ACL drift exporter loop is healthy')
++STATE_AGE_S = Gauge('exec_health_freeze_acl_drift_state_age_seconds', 'Age of ExecHealth ACL drift exporter state in seconds')
++LAST_TS_MS = Gauge('exec_health_freeze_acl_drift_last_check_ts_ms', 'Last ACL drift check timestamp in epoch ms')
++CONTRACT_MATCH = Gauge('exec_health_freeze_acl_contract_match', '1 if actual ACL LIST matches expected contract for user', ['user'])
++VIOLATION = Gauge('exec_health_freeze_acl_drift_violation', 'One-hot ACL drift violation', ['kind', 'user'])
++DEFAULT_DISABLED = Gauge('exec_health_freeze_acl_default_user_disabled', '1 if Redis default user is disabled and has no commands')
++DEFAULT_CLIENTS = Gauge('exec_health_freeze_acl_default_user_connections', 'Current CLIENT LIST connections on default user')
++UNKNOWN_CLIENTS = Gauge('exec_health_freeze_acl_unknown_user_connections', 'Current CLIENT LIST connections on unknown users')
++ACLFILE_CONFIGURED = Gauge('exec_health_freeze_acl_aclfile_configured', '1 if Redis aclfile config is non-empty')
++DRIFT_TOTAL = Counter('exec_health_freeze_acl_drift_total', 'ExecHealth ACL drift observations', ['kind', 'user'])
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _s(x: Any, d: str = '') -> str:
++    try:
++        return str(x) if x is not None else str(d)
++    except Exception:
++        return str(d)
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++class Exporter:
++    def __init__(self) -> None:
++        if redis is None:
++            raise RuntimeError('redis dependency missing')
++        self.redis_url = os.getenv('EXEC_HEALTH_REDIS_AUDIT_URL') or os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0')
++        self.state_key = os.getenv('EXEC_HEALTH_FREEZE_ACL_DRIFT_STATE_KEY', 'metrics:exec_health:freeze_acl_drift:last')
++        self.loop_s = max(5, int(os.getenv('EXEC_HEALTH_FREEZE_ACL_DRIFT_INTERVAL_S', '30') or 30))
++        self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
++        ensure_service_identity_sync(self.r, "exec_health_freeze_acl_drift_exporter_v1")
++        heal_service_identity_sync(self.r, "exec_health_freeze_acl_drift_exporter_v1", force=True)
++
++    def _read_state(self) -> Dict[str, Any]:
++        try:
++            return self.r.hgetall(self.state_key) or {}
++        except Exception:
++            return {}
++
++    def _write_state(self, mapping: Dict[str, Any]) -> None:
++        try:
++            self.r.hset(self.state_key, mapping={str(k): str(v) for k, v in mapping.items()})
++            self.r.expire(self.state_key, 86400 * 7)
++        except Exception:
++            pass
++
++    def run_once(self) -> Dict[str, Any]:
++        try:
++            heal_service_identity_sync(self.r, "exec_health_freeze_acl_drift_exporter_v1")
++        except Exception:
++            pass
++        now = _now_ms()
++        acl_lines = self.r.execute_command('ACL', 'LIST') or []
++        drift = compare_acl_contract(acl_lines)
++        actual = dict(drift.get('actual', {}) or {})
++        expected_users = [DEFAULT_USER, READER_USER, WRITER_USER, AUDIT_USER, BOOTSTRAP_USER]
++        for user in expected_users:
++            CONTRACT_MATCH.labels(user=user).set(1.0 if actual.get(user) == drift['expected'].get(user) else 0.0)
++        active_keys = set()
++        for viol in drift.get('violations', []):
++            kind = _s(viol.get('kind') or 'unknown')
++            user = _s(viol.get('user') or 'unknown')
++            active_keys.add((kind, user))
++            VIOLATION.labels(kind=kind, user=user).set(1.0)
++            DRIFT_TOTAL.labels(kind=kind, user=user).inc()
++        # keep a bounded known list reset
++        for kind in ['user_missing', 'user_rule_mismatch', 'unexpected_user', 'default_user_enabled', 'default_user_missing', 'default_user_connection', 'unknown_user_connection', 'aclfile_missing']:
++            for user in expected_users + ['unknown']:
++                if (kind, user) not in active_keys:
++                    VIOLATION.labels(kind=kind, user=user).set(0.0)
++        DEFAULT_DISABLED.set(1.0 if drift.get('default_user_disabled') else 0.0)
++
++        client_list = self.r.execute_command('CLIENT', 'LIST') or ''
++        user_counts = parse_client_list_users(client_list)
++        default_clients = int(user_counts.get(DEFAULT_USER, 0))
++        unknown_clients = int(sum(v for u, v in user_counts.items() if u not in set(expected_users)))
++        if default_clients > 0:
++            VIOLATION.labels(kind='default_user_connection', user=DEFAULT_USER).set(1.0)
++            DRIFT_TOTAL.labels(kind='default_user_connection', user=DEFAULT_USER).inc()
++        if unknown_clients > 0:
++            VIOLATION.labels(kind='unknown_user_connection', user='unknown').set(1.0)
++            DRIFT_TOTAL.labels(kind='unknown_user_connection', user='unknown').inc()
++        DEFAULT_CLIENTS.set(float(default_clients))
++        UNKNOWN_CLIENTS.set(float(unknown_clients))
++
++        aclfile = ''
++        try:
++            raw = self.r.execute_command('CONFIG', 'GET', 'aclfile') or []
++            if isinstance(raw, (list, tuple)) and len(raw) >= 2:
++                aclfile = _s(raw[1])
++        except Exception:
++            aclfile = ''
++        if not aclfile:
++            VIOLATION.labels(kind='aclfile_missing', user='unknown').set(1.0)
++            DRIFT_TOTAL.labels(kind='aclfile_missing', user='unknown').inc()
++        ACLFILE_CONFIGURED.set(1.0 if aclfile else 0.0)
++
++        st = self._read_state()
++        st.update({
++            'updated_ts_ms': int(now),
++            'last_check_ts_ms': int(now),
++            'drift_ok': 1 if drift.get('ok') else 0,
++            'default_user_disabled': 1 if drift.get('default_user_disabled') else 0,
++            'default_user_connections': int(default_clients),
++            'unknown_user_connections': int(unknown_clients),
++            'aclfile_configured': 1 if aclfile else 0,
++            'violation_count': int(len(drift.get('violations', []))),
++        })
++        self._write_state(st)
++        LAST_TS_MS.set(float(now))
++        age_s = max(0.0, float(_now_ms() - int(now)) / 1000.0)
++        STATE_AGE_S.set(age_s)
++        UP.set(1.0)
++        return {
++            'ok': bool(drift.get('ok')) and default_clients == 0 and unknown_clients == 0 and bool(aclfile),
++            'violation_count': int(len(drift.get('violations', []))),
++            'default_user_connections': int(default_clients),
++            'unknown_user_connections': int(unknown_clients),
++            'aclfile_configured': bool(aclfile),
++        }
++
++
++def main() -> None:
++    ex = Exporter()
++    start_http_server(int(os.getenv('EXEC_HEALTH_FREEZE_ACL_DRIFT_EXPORTER_PORT', '9832')))
++    while True:
++        try:
++            ex.run_once()
++        except Exception:
++            UP.set(0.0)
++        time.sleep(ex.loop_s)
++
++
++if __name__ == '__main__':
++    main()
+--- tick_flow_full/orderflow_services/exec_health_freeze_client_name_audit_exporter_v1.py
++++ tick_flow_full/orderflow_services/exec_health_freeze_client_name_audit_exporter_v1.py
+@@ -13,6 +13,7 @@
+ 
+ from services.orderflow.exec_health_freeze_client_name_policy import evaluate_client_name_policy
+ from services.orderflow.exec_health_freeze_service_identity import build_service_identity_contract, ensure_service_identity_sync
++from services.orderflow.exec_health_freeze_reconnect_healing import get_heal_state_key, heal_service_identity_sync
+ 
+ UP = Gauge('exec_health_freeze_client_name_policy_up', '1 if Redis-side ExecHealth client-name policy exporter loop is healthy')
+ STATE_AGE_S = Gauge('exec_health_freeze_client_name_policy_state_age_seconds', 'Age of ExecHealth client-name policy exporter state in seconds')
+@@ -21,6 +22,9 @@
+ ACTIVE_CONNECTIONS = Gauge('exec_health_freeze_client_name_active_connections', 'Current CLIENT LIST connections per trusted ExecHealth client name', ['service'])
+ DISTINCT_ADDRS = Gauge('exec_health_freeze_client_name_distinct_addrs', 'Distinct addr count per trusted ExecHealth client name', ['service'])
+ VIOLATION = Gauge('exec_health_freeze_client_name_violation', 'One-hot Redis-side client-name policy violation', ['kind', 'service'])
++RECOVERY_TOTAL = Gauge('exec_health_freeze_client_name_recovery_total', 'Self-healing recoveries after Redis reconnect identity drift', ['service'])
++LAST_RECOVERY_TS_MS = Gauge('exec_health_freeze_client_name_last_recovery_ts_ms', 'Last successful client identity recovery timestamp', ['service'])
++REPAIR_FAILED_TOTAL = Gauge('exec_health_freeze_client_name_repair_failed_total', 'Failed self-healing attempts after Redis reconnect identity drift', ['service'])
+ 
+ KNOWN_KINDS = [
+     'service_started_unnamed_client',
+@@ -50,10 +54,17 @@
+         self.loop_s = max(5, int(os.getenv('EXEC_HEALTH_FREEZE_CLIENT_NAME_POLICY_INTERVAL_S', '30') or 30))
+         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
+         ensure_service_identity_sync(self.r, 'exec_health_freeze_client_name_audit_exporter_v1')
++        heal_service_identity_sync(self.r, 'exec_health_freeze_client_name_audit_exporter_v1', force=True)
+ 
+     def _read_state(self) -> Dict[str, Any]:
+         try:
+             return self.r.hgetall(self.state_key) or {}
++        except Exception:
++            return {}
++
++    def _read_heal_state(self, service: str) -> Dict[str, Any]:
++        try:
++            return self.r.hgetall(get_heal_state_key(service)) or {}
+         except Exception:
+             return {}
+ 
+@@ -65,6 +76,7 @@
+             pass
+ 
+     def run_once(self) -> Dict[str, Any]:
++        heal_service_identity_sync(self.r, 'exec_health_freeze_client_name_audit_exporter_v1')
+         now = _now_ms()
+         raw = self.r.execute_command('CLIENT', 'LIST') or ''
+         res = evaluate_client_name_policy(raw)
+@@ -75,6 +87,10 @@
+             MATCH.labels(service=service, field='name').set(float(int(row.get('name_match', 0) or 0)))
+             MATCH.labels(service=service, field='lib_name').set(float(int(row.get('lib_name_match', 0) or 0)))
+             DISTINCT_ADDRS.labels(service=service).set(float(int(row.get('distinct_addrs', 0) or 0)))
++            heal = self._read_heal_state(service)
++            RECOVERY_TOTAL.labels(service=service).set(float(int(heal.get('recovery_total', 0) or 0)))
++            LAST_RECOVERY_TS_MS.labels(service=service).set(float(int(heal.get('last_recovery_ts_ms', 0) or 0)))
++            REPAIR_FAILED_TOTAL.labels(service=service).set(float(int(heal.get('repair_failed_total', 0) or 0)))
+         active = {(str(v.get('kind')), str(v.get('service'))): 1 for v in list(res.get('violations', []) or [])}
+         for kind in KNOWN_KINDS:
+             for service in list(contract.keys()) + ['unknown']:
+--- tick_flow_full/orderflow_services/exec_health_freeze_override_v1.py
++++ tick_flow_full/orderflow_services/exec_health_freeze_override_v1.py
+@@ -14,6 +14,8 @@
+ except Exception:  # pragma: no cover
+     redis = None
+ 
++from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
++from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
+ from services.orderflow.exec_health_freeze_control import (
+     ACK_SIGNING_SECRET_ENV,
+     build_dual_control_commit_thaw_update,
+@@ -24,6 +26,7 @@
+     sign_dual_control_commit,
+     stringify_mapping,
+ )
++from services.orderflow.exec_health_freeze_sealed_state import sealed_set_sync
+ from services.orderflow.exec_health_freeze_request_log import (
+     DEFAULT_REQUEST_STREAM,
+     eval_approve_cas,
+@@ -51,6 +54,8 @@
+         self.event_stream = os.getenv("EXEC_HEALTH_FREEZE_EVENT_STREAM", "ops:exec_health:freeze_events:v1")
+         self.request_stream = os.getenv("EXEC_HEALTH_FREEZE_REQUEST_STREAM", DEFAULT_REQUEST_STREAM)
+         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
++        ensure_service_identity_sync(self.r, "exec_health_freeze_override_v1")
++        heal_service_identity_sync(self.r, "exec_health_freeze_override_v1", force=True)
+ 
+     def _read_hash(self, key: str) -> Dict[str, Any]:
+         try:
+@@ -59,6 +64,7 @@
+             return {}
+ 
+     def status(self) -> Dict[str, Any]:
++        heal_service_identity_sync(self.r, "exec_health_freeze_override_v1")
+         ctl = parse_exec_health_freeze_control(self._read_hash(self.control_key))
+         st = parse_exec_health_freeze_control(self._read_hash(self.state_key))
+         try:
+@@ -79,9 +85,20 @@
+             "raw_freeze": json.loads(raw) if raw else {},
+         }
+ 
+-    def _write_hash(self, key: str, payload: Dict[str, Any]) -> None:
+-        self.r.hset(key, mapping=stringify_mapping(payload))
+-        self.r.expire(key, 86400 * 30)
++    def _write_hash(self, key: str, payload: Dict[str, Any], *, entrypoint: str, force: bool = False, force_reason: str = '') -> None:
++        prev = self._read_hash(key)
++        res = sealed_set_sync(
++            self.r,
++            key=key,
++            prev_raw=prev,
++            mapping=stringify_mapping(payload),
++            entrypoint=entrypoint,
++            ttl_s=86400 * 30,
++            force=force,
++            force_reason=force_reason,
++        )
++        if not res.get('ok'):
++            raise ValueError(f"sealed write failed for {key}: {res.get('error') or res.get('rc')}")
+ 
+     def _emit_event(self, payload: Dict[str, Any]) -> str:
+         try:
+@@ -103,6 +120,7 @@
+         return prev_ctl, prev_state, ctl, st
+ 
+     def prepare_thaw(self, *, operator: str, reason: str, ticket: str, nonce: str) -> Dict[str, Any]:
++        heal_service_identity_sync(self.r, "exec_health_freeze_override_v1")
+         now = _now_ms()
+         if not operator.strip() or not reason.strip() or not nonce.strip():
+             raise ValueError("operator, reason and nonce are required")
+@@ -152,6 +170,7 @@
+         return {"ok": True, "action": "prepare-thaw", **event_payload, "request_event_id": request_event_id, "effective_freeze_active": 1}
+ 
+     def approve_thaw(self, *, operator: str, request_id: str) -> Dict[str, Any]:
++        heal_service_identity_sync(self.r, "exec_health_freeze_override_v1")
+         now = _now_ms()
+         if not operator.strip() or not request_id.strip():
+             raise ValueError("operator and request_id are required")
+@@ -182,6 +201,7 @@
+         return {"ok": True, "action": "approve-thaw", **event_payload, "request_event_id": request_event_id, "effective_freeze_active": 1}
+ 
+     def commit_thaw(self, *, operator: str, request_id: str) -> Dict[str, Any]:
++        heal_service_identity_sync(self.r, "exec_health_freeze_override_v1")
+         now = _now_ms()
+         if not operator.strip() or not request_id.strip():
+             raise ValueError("operator and request_id are required")
+@@ -255,13 +275,13 @@
+         until = now + mins * 60 * 1000
+         prev_ctl = self._read_hash(self.control_key)
+         upd = build_manual_freeze_update(prev=prev_ctl, now_ms=now, operator=operator, reason=reason, ticket=ticket, until_ts_ms=until)
+-        self._write_hash(self.control_key, upd)
++        self._write_hash(self.control_key, upd, entrypoint='manual_freeze_control', force=True, force_reason='manual_freeze')
+ 
+         prev_state = self._read_hash(self.state_key)
+         state_upd = dict(prev_state)
+         state_upd.update(upd)
+         state_upd["state_manual_freeze_written_ts_ms"] = int(now)
+-        self._write_hash(self.state_key, state_upd)
++        self._write_hash(self.state_key, state_upd, entrypoint='manual_freeze_state', force=True, force_reason='manual_freeze')
+ 
+         raw = {
+             "schema_name": "exec_health_auto_freeze",
+--- tick_flow_full/orderflow_services/exec_health_freeze_tamper_guard_v1.py
++++ tick_flow_full/orderflow_services/exec_health_freeze_tamper_guard_v1.py
+@@ -14,8 +14,11 @@
+ from prometheus_client import Counter, Gauge, start_http_server
+ 
+ from services.orderflow.exec_health_freeze_control import build_autoguard_latch_update, stringify_mapping
++from services.orderflow.exec_health_freeze_sealed_state import sealed_set_sync
+ from services.orderflow.exec_health_freeze_integrity import evaluate_freeze_integrity
+ from services.orderflow.exec_health_freeze_request_log import DEFAULT_REQUEST_STREAM
++from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
++from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
+ 
+ 
+ def _now_ms() -> int:
+@@ -41,6 +44,8 @@
+     'control_state_missing_without_valid_ack',
+     'thaw_without_valid_ack_event',
+     'invalid_control_ack_signature',
++    'control_seal_invalid',
++    'state_seal_invalid',
+     'request_log_prepare_missing',
+     'request_log_approve_missing',
+     'request_log_commit_missing',
+@@ -81,6 +86,8 @@
+         self.event_count = max(10, int(os.getenv('EXEC_HEALTH_FREEZE_INTEGRITY_EVENT_COUNT', '100') or 100))
+         self.request_count = max(10, int(os.getenv('EXEC_HEALTH_FREEZE_REQUEST_EVENT_COUNT', '200') or 200))
+         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
++        ensure_service_identity_sync(self.r, "exec_health_freeze_tamper_guard_v1")
++        heal_service_identity_sync(self.r, "exec_health_freeze_tamper_guard_v1", force=True)
+ 
+     def _read_hash(self, key: str) -> Dict[str, Any]:
+         try:
+@@ -88,9 +95,24 @@
+         except Exception:
+             return {}
+ 
+-    def _write_hash(self, key: str, payload: Dict[str, Any]) -> None:
+-        self.r.hset(key, mapping=stringify_mapping(payload))
+-        self.r.expire(key, 86400 * 7)
++    def _write_hash(self, key: str, payload: Dict[str, Any], *, entrypoint: str, force: bool = False, force_reason: str = '') -> None:
++        if key == self.guard_state_key:
++            self.r.hset(key, mapping=stringify_mapping(payload))
++            self.r.expire(key, 86400 * 7)
++            return
++        prev = self._read_hash(key)
++        res = sealed_set_sync(
++            self.r,
++            key=key,
++            prev_raw=prev,
++            mapping=stringify_mapping(payload),
++            entrypoint=entrypoint,
++            ttl_s=86400 * 7,
++            force=force,
++            force_reason=force_reason,
++        )
++        if not res.get('ok'):
++            raise RuntimeError(f"tamper guard sealed write failed for {key}: {res.get('error') or res.get('rc')}")
+ 
+     def _emit_event(self, payload: Dict[str, Any]) -> str:
+         try:
+@@ -105,6 +127,10 @@
+             pass
+ 
+     def run_once(self) -> Dict[str, Any]:
++        try:
++            heal_service_identity_sync(self.r, "exec_health_freeze_tamper_guard_v1")
++        except Exception:
++            pass
+         now = _now_ms()
+         control = self._read_hash(self.control_key)
+         state = self._read_hash(self.state_key)
+@@ -147,11 +173,11 @@
+             self.r.set(self.freeze_key, json.dumps(raw, separators=(',', ':')))
+             self.r.pexpire(self.freeze_key, self.freeze_minutes * 60 * 1000)
+             latch = build_autoguard_latch_update(prev=control, now_ms=now, reasons=reasons, freeze_until_ts_ms=freeze_until_ts_ms, ack_nonce=ack_nonce, trigger_event_id=trigger_event_id)
+-            self._write_hash(self.control_key, latch)
++            self._write_hash(self.control_key, latch, entrypoint='tamper_refreeze_control', force=True, force_reason='tamper_refreeze')
+             state_upd = dict(state)
+             state_upd.update(latch)
+             state_upd['state_tamper_refreeze_written_ts_ms'] = int(now)
+-            self._write_hash(self.state_key, state_upd)
++            self._write_hash(self.state_key, state_upd, entrypoint='tamper_refreeze_state', force=True, force_reason='tamper_refreeze')
+             guard_state.update({
+                 'schema_name': 'exec_health_freeze_tamper_guard_state',
+                 'schema_version': 1,
+@@ -162,7 +188,7 @@
+                 'request_id': str(integ.request_log_request_id or ''),
+                 'refreeze_total': _i(guard_state.get('refreeze_total'), 0) + 1,
+             })
+-            self._write_hash(self.guard_state_key, guard_state)
++            self._write_hash(self.guard_state_key, guard_state, entrypoint='guard_state')
+             self._notify(f'ExecHealth tamper detected -> auto re-freeze: {", ".join(reasons)}')
+             REFREEZE_TOTAL.labels(reason='freeze_control_tamper').inc()
+             out.update({'refreeze_performed': 1, 'last_refreeze_ts_ms': int(now), 'cooldown_until_ts_ms': int(now + self.cooldown_s * 1000)})
+@@ -177,7 +203,7 @@
+                 'request_id': str(integ.request_log_request_id or guard_state.get('request_id', '')),
+                 'refreeze_total': _i(guard_state.get('refreeze_total'), 0),
+             })
+-            self._write_hash(self.guard_state_key, guard_state)
++            self._write_hash(self.guard_state_key, guard_state, entrypoint='guard_state')
+             out['refreeze_performed'] = 0
+ 
+         UP.set(1.0)
+--- tick_flow_full/orderflow_services/exec_health_freeze_acl_policy_v1.py
++++ tick_flow_full/orderflow_services/exec_health_freeze_acl_policy_v1.py
+@@ -0,0 +1,92 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import sys
++from typing import Any, Dict, Iterable, List
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++from services.orderflow.exec_health_freeze_acl_contract import compare_acl_contract, render_acl_save_load_commands, render_acl_setuser_commands, render_auth_dsn_templates
++from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync, render_service_identity_env_templates
++from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
++
++
++def _jprint(obj: Dict[str, Any]) -> None:
++    print(json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True))
++
++
++class PolicyController:
++    def __init__(self, redis_url: str | None = None) -> None:
++        self.redis_url = redis_url or os.getenv('EXEC_HEALTH_REDIS_BOOTSTRAP_URL') or os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0')
++        self.r = redis.Redis.from_url(self.redis_url, decode_responses=True) if redis is not None else None
++        if self.r is not None:
++            ensure_service_identity_sync(self.r, "exec_health_freeze_acl_policy_v1")
++            heal_service_identity_sync(self.r, "exec_health_freeze_acl_policy_v1", force=True)
++
++    def render(self) -> Dict[str, Any]:
++        return {
++            'acl_commands': render_acl_setuser_commands(),
++            'acl_save_load_commands': render_acl_save_load_commands(),
++            'mandatory_auth_dsn_templates': render_auth_dsn_templates(),
++            'service_identity_env_templates': render_service_identity_env_templates(),
++        }
++
++    def apply(self, *, save: bool = True, reload_check: bool = False) -> Dict[str, Any]:
++        if self.r is None:
++            raise RuntimeError('redis dependency missing')
++        heal_service_identity_sync(self.r, "exec_health_freeze_acl_policy_v1")
++        applied: List[str] = []
++        for cmd in render_acl_setuser_commands():
++            argv = cmd.split()
++            self.r.execute_command(*argv)
++            applied.append(cmd)
++        save_rc = None
++        load_rc = None
++        if save:
++            save_rc = self.r.execute_command('ACL', 'SAVE')
++        if reload_check:
++            load_rc = self.r.execute_command('ACL', 'LOAD')
++        drift = compare_acl_contract(self.r.execute_command('ACL', 'LIST') or [])
++        return {'ok': bool(drift.get('ok')), 'applied_commands': applied, 'acl_save': save_rc, 'acl_load': load_rc, 'drift': drift}
++
++    def check(self) -> Dict[str, Any]:
++        if self.r is None:
++            raise RuntimeError('redis dependency missing')
++        heal_service_identity_sync(self.r, "exec_health_freeze_acl_policy_v1")
++        drift = compare_acl_contract(self.r.execute_command('ACL', 'LIST') or [])
++        return {'ok': bool(drift.get('ok')), 'drift': drift}
++
++
++def main(argv: List[str] | None = None) -> int:
++    ap = argparse.ArgumentParser(description='ExecHealth Redis ACL deployment policy')
++    sub = ap.add_subparsers(dest='cmd', required=False)
++    sub.add_parser('render')
++    ap_apply = sub.add_parser('apply')
++    ap_apply.add_argument('--no-save', action='store_true')
++    ap_apply.add_argument('--reload-check', action='store_true')
++    sub.add_parser('check')
++    ns = ap.parse_args(argv)
++    cmd = ns.cmd or 'render'
++    ctl = PolicyController()
++    if cmd == 'render':
++        _jprint(ctl.render())
++        return 0
++    if cmd == 'apply':
++        out = ctl.apply(save=not bool(ns.no_save), reload_check=bool(ns.reload_check))
++        _jprint(out)
++        return 0 if out.get('ok') else 1
++    if cmd == 'check':
++        out = ctl.check()
++        _jprint(out)
++        return 0 if out.get('ok') else 1
++    raise SystemExit(2)
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+--- tick_flow_full/orderflow_services/prometheus_alerts_exec_health_freeze_client_name_v1.yml
++++ tick_flow_full/orderflow_services/prometheus_alerts_exec_health_freeze_client_name_v1.yml
+@@ -32,3 +32,11 @@
+           severity: crit
+         annotations:
+           summary: Duplicate trusted ExecHealth Redis client name across hosts or deploys
++      - alert: OF_ExecHealth_FreezeClientNameAudit_SelfHealingFailed_Crit
++        expr: exec_health_freeze_client_name_repair_failed_total > 0
++        for: 2m
++        labels:
++          severity: crit
++        annotations:
++          summary: ExecHealth Redis client-name self-healing attempted but failed
++
+--- tick_flow_full/orderflow_services/grafana/exec_health_freeze_client_name_v1.json
++++ tick_flow_full/orderflow_services/grafana/exec_health_freeze_client_name_v1.json
+@@ -4,19 +4,46 @@
+     {
+       "type": "timeseries",
+       "title": "Client-name policy violations",
+-      "targets": [{"expr": "exec_health_freeze_client_name_violation"}]
++      "targets": [
++        {
++          "expr": "exec_health_freeze_client_name_violation"
++        }
++      ]
+     },
+     {
+       "type": "timeseries",
+       "title": "Trusted client field match",
+-      "targets": [{"expr": "exec_health_freeze_client_name_match"}]
++      "targets": [
++        {
++          "expr": "exec_health_freeze_client_name_match"
++        }
++      ]
+     },
+     {
+       "type": "timeseries",
+       "title": "Trusted client connections and origins",
+       "targets": [
+-        {"expr": "exec_health_freeze_client_name_active_connections"},
+-        {"expr": "exec_health_freeze_client_name_distinct_addrs"}
++        {
++          "expr": "exec_health_freeze_client_name_active_connections"
++        },
++        {
++          "expr": "exec_health_freeze_client_name_distinct_addrs"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Reconnect self-healing recoveries",
++      "targets": [
++        {
++          "expr": "exec_health_freeze_client_name_recovery_total"
++        },
++        {
++          "expr": "exec_health_freeze_client_name_repair_failed_total"
++        },
++        {
++          "expr": "exec_health_freeze_client_name_last_recovery_ts_ms"
++        }
+       ]
+     }
+   ],
+--- tick_flow_full/orderflow_services/runbook_exec_health_freeze_client_name_v1.md
++++ tick_flow_full/orderflow_services/runbook_exec_health_freeze_client_name_v1.md
+@@ -21,3 +21,20 @@
+ 2. Verify Redis user, `CLIENT SETNAME`, and `CLIENT SETINFO LIB-NAME` in the service startup path.
+ 3. If duplicates exist, correlate `addr`/host with the rollout/deploy that introduced the extra connection.
+ 4. If `lib-name` is wrong after reconnect, inspect the reconnect code path for missing `CLIENT SETINFO LIB-NAME`.
++
++## Self-healing
++
++Trusted writer/audit/bootstrap services now attempt reconnect self-healing on live connections:
++
++- `CLIENT SETNAME` re-assert
++- `CLIENT SETINFO LIB-NAME` re-assert
++- recovery event: `kind=redis_client_identity_recovered` in `ops:exec_health:freeze_events:v1`
++
++Additional metrics:
++
++- `exec_health_freeze_client_name_recovery_total{service}`
++- `exec_health_freeze_client_name_last_recovery_ts_ms{service}`
++- `exec_health_freeze_client_name_repair_failed_total{service}`
++
++If `repair_failed_total` increases, treat it as a hard regression in reconnect or Redis client auth/identity setup.
++

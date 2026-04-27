@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/l3_lite_tracker.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.01, 0.08, 0.5, 1.0, 1000.0, '_acc_buy_qty', '_acc_sell_qty', '_last_book_ts', '_prev_depth_ask_5', '_prev_depth_bid_5', 'alpha', 'cancel_ask_rate_ema', 'cancel_bid_rate_ema', 'cancel_to_trade_ask', 'cancel_to_trade_bid', 'enabled', 'eps', 'eta_fill_ask_sec', 'eta_fill_bid_sec', 'min_dt_ms', 'snap', 'taker_buy_rate_ema', 'taker_sell_rate_ema']

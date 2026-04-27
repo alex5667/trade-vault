@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signals/pivots.py
+# hypothesis_version: 6.148.10
+
+[0.5, 3.0, 10000.0, 'P', 'R1', 'R2', 'R3', 'S1', 'S2', 'S3', 'and', 'atr', 'atr_only', 'bad_atr', 'bad_price', 'close', 'closest_key', 'closest_level', 'dist_atr', 'dist_bps', 'high', 'inf', 'low', 'min_distance', 'mode', 'near_atr', 'near_bps', 'no_levels', 'or', 'price', 'reason', 'thr_atr', 'thr_bp']

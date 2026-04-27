@@ -1,0 +1,72 @@
+groups:
+  - name: trade_execution_p67_runtime
+    rules:
+      - alert: TradeExecutionProtectionArmTimeout
+        expr: increase(execution_protection_arm_timeout_total[10m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          domain: execution-runtime
+        annotations:
+          summary: Protection arm timeout in Binance executor
+          description: Entry filled but protection was not confirmed within the configured timeout.
+
+      - alert: TradeExecutionEmergencyFlatten
+        expr: increase(execution_emergency_flatten_total[10m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          domain: execution-runtime
+        annotations:
+          summary: Emergency flatten executed
+          description: Executor had to force-close exposure.
+
+      - alert: TradeExecutionWatchdogFallbackSpike
+        expr: increase(tp_watchdog_fallback_total[15m]) >= 3
+        for: 2m
+        labels:
+          severity: warning
+          domain: execution-runtime
+        annotations:
+          summary: Maker TP watchdog fallback spike
+          description: Multiple maker TP levels needed market fallback.
+
+      - alert: TradeExecutionMarkContractDivergence
+        expr: abs(mark_contract_spread_bps) >= 25
+        for: 2m
+        labels:
+          severity: warning
+          domain: execution-runtime
+        annotations:
+          summary: Mark/contract divergence spike
+          description: Trigger semantics may diverge because mark and contract prices are drifting apart.
+
+      - alert: TradeExecutionReconcileSpike
+        expr: increase(binance_algo_reconcile_total[15m]) >= 3
+        for: 2m
+        labels:
+          severity: warning
+          domain: execution-runtime
+        annotations:
+          summary: Reconcile-first path is hot
+          description: Ambiguous Binance responses required repeated reconcile recovery.
+
+      - alert: TradeExecutionQueueLagBreach
+        expr: queue_lag_ms > 5000
+        for: 5m
+        labels:
+          severity: warning
+          domain: execution-runtime
+        annotations:
+          summary: Execution/orderflow queue lag breach
+          description: Queue lag exceeded 5 seconds.
+
+      - alert: TradeExecutionUserStreamStale
+        expr: user_stream_connected == 0 or user_stream_last_event_age_ms > 120000
+        for: 2m
+        labels:
+          severity: critical
+          domain: execution-runtime
+        annotations:
+          summary: Binance user stream disconnected or stale
+          description: User stream worker is disconnected or has not seen a fresh event for >120s.

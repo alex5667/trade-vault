@@ -1,0 +1,226 @@
+--- a/orderflow_services/prometheus_alerts_orchestration_composite_preflight_strategy_research_stats_p65.yml
++++ b/orderflow_services/prometheus_alerts_orchestration_composite_preflight_strategy_research_stats_p65.yml
+@@ -0,0 +1,88 @@
++groups:
++  - name: orchestration_composite_preflight_strategy_research_stats_p65
++    rules:
++      - alert: TradeStrategyResearchStatsPboHighSustained24h
++        expr: |
++          sum by (purpose) (
++            orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window="24h",decision_status=~"block|invalid",family="pbo_high"}
++          ) >= 3
++        for: 1h
++        labels:
++          severity: warning
++          team: trade
++          component: orchestration_composite_preflight
++          source: strategy_research_stats
++        annotations:
++          summary: "Sustained strategy_research_stats pbo_high blocks over 24h"
++          description: "The composite preflight history shows repeated rollout blocks/invalid decisions driven by strategy_research_stats family=pbo_high for purpose={{ $labels.purpose }} in the last 24h. Review nightly research stats bundle, CSCV/PBO inputs and current promote thresholds before allowing rollout."
++
++      - alert: TradeStrategyResearchStatsReportStaleRecurring7d
++        expr: |
++          sum by (purpose) (
++            orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window="7d",decision_status=~"block|invalid",family="report_stale"}
++          ) >= 5
++        for: 30m
++        labels:
++          severity: warning
++          team: trade
++          component: orchestration_composite_preflight
++          source: strategy_research_stats
++        annotations:
++          summary: "Recurring strategy_research_stats report_stale over 7d"
++          description: "Composite preflight has repeatedly blocked or invalidated rollout for purpose={{ $labels.purpose }} because strategy_research_stats reports were stale. Check nightly timer wiring, exporter freshness and Redis summary/blocker state."
++
++      - alert: TradeStrategyResearchStatsPsrDsrLowShareRising24hVs7d
++        expr: |
++          (
++            sum by (purpose) (
++              orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window="24h",decision_status=~"block|invalid",family=~"psr_low|dsr_low"}
++            )
++            /
++            clamp_min(
++              sum by (purpose) (
++                orchestration_composite_preflight_history_events_total{window="24h",selected_source="strategy_research_stats",decision_status=~"block|invalid"}
++              ),
++              1
++            )
++          ) > 0.60
++          and
++          sum by (purpose) (
++            orchestration_composite_preflight_history_events_total{window="24h",selected_source="strategy_research_stats",decision_status=~"block|invalid"}
++          ) >= 4
++          and
++          (
++            (
++              sum by (purpose) (
++                orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window="24h",decision_status=~"block|invalid",family=~"psr_low|dsr_low"}
++              )
++              /
++              clamp_min(
++                sum by (purpose) (
++                  orchestration_composite_preflight_history_events_total{window="24h",selected_source="strategy_research_stats",decision_status=~"block|invalid"}
++                ),
++                1
++              )
++            )
++            -
++            (
++              sum by (purpose) (
++                orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window="7d",decision_status=~"block|invalid",family=~"psr_low|dsr_low"}
++              )
++              /
++              clamp_min(
++                sum by (purpose) (
++                  orchestration_composite_preflight_history_events_total{window="7d",selected_source="strategy_research_stats",decision_status=~"block|invalid"}
++                ),
++                1
++              )
++            )
++          ) > 0.15
++        for: 1h
++        labels:
++          severity: warning
++          team: trade
++          component: orchestration_composite_preflight
++          source: strategy_research_stats
++        annotations:
++          summary: "Rising PSR/DSR low share in strategy_research_stats rollout stops"
++          description: "For purpose={{ $labels.purpose }}, the share of strategy_research_stats-driven block/invalid decisions attributed to psr_low or dsr_low is materially higher in 24h than in 7d baseline. Review probability-of-success assumptions, DSR/PSR thresholds and recent research dataset quality."
+--- a/tick_flow_full/orderflow_services/prometheus_alerts_orchestration_composite_preflight_strategy_research_stats_p65.yml
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_orchestration_composite_preflight_strategy_research_stats_p65.yml
+@@ -0,0 +1,88 @@
++groups:
++  - name: orchestration_composite_preflight_strategy_research_stats_p65
++    rules:
++      - alert: TradeStrategyResearchStatsPboHighSustained24h
++        expr: |
++          sum by (purpose) (
++            orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window="24h",decision_status=~"block|invalid",family="pbo_high"}
++          ) >= 3
++        for: 1h
++        labels:
++          severity: warning
++          team: trade
++          component: orchestration_composite_preflight
++          source: strategy_research_stats
++        annotations:
++          summary: "Sustained strategy_research_stats pbo_high blocks over 24h"
++          description: "The composite preflight history shows repeated rollout blocks/invalid decisions driven by strategy_research_stats family=pbo_high for purpose={{ $labels.purpose }} in the last 24h. Review nightly research stats bundle, CSCV/PBO inputs and current promote thresholds before allowing rollout."
++
++      - alert: TradeStrategyResearchStatsReportStaleRecurring7d
++        expr: |
++          sum by (purpose) (
++            orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window="7d",decision_status=~"block|invalid",family="report_stale"}
++          ) >= 5
++        for: 30m
++        labels:
++          severity: warning
++          team: trade
++          component: orchestration_composite_preflight
++          source: strategy_research_stats
++        annotations:
++          summary: "Recurring strategy_research_stats report_stale over 7d"
++          description: "Composite preflight has repeatedly blocked or invalidated rollout for purpose={{ $labels.purpose }} because strategy_research_stats reports were stale. Check nightly timer wiring, exporter freshness and Redis summary/blocker state."
++
++      - alert: TradeStrategyResearchStatsPsrDsrLowShareRising24hVs7d
++        expr: |
++          (
++            sum by (purpose) (
++              orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window="24h",decision_status=~"block|invalid",family=~"psr_low|dsr_low"}
++            )
++            /
++            clamp_min(
++              sum by (purpose) (
++                orchestration_composite_preflight_history_events_total{window="24h",selected_source="strategy_research_stats",decision_status=~"block|invalid"}
++              ),
++              1
++            )
++          ) > 0.60
++          and
++          sum by (purpose) (
++            orchestration_composite_preflight_history_events_total{window="24h",selected_source="strategy_research_stats",decision_status=~"block|invalid"}
++          ) >= 4
++          and
++          (
++            (
++              sum by (purpose) (
++                orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window="24h",decision_status=~"block|invalid",family=~"psr_low|dsr_low"}
++              )
++              /
++              clamp_min(
++                sum by (purpose) (
++                  orchestration_composite_preflight_history_events_total{window="24h",selected_source="strategy_research_stats",decision_status=~"block|invalid"}
++                ),
++                1
++              )
++            )
++            -
++            (
++              sum by (purpose) (
++                orchestration_composite_preflight_history_strategy_research_stats_reason_family_total{window="7d",decision_status=~"block|invalid",family=~"psr_low|dsr_low"}
++              )
++              /
++              clamp_min(
++                sum by (purpose) (
++                  orchestration_composite_preflight_history_events_total{window="7d",selected_source="strategy_research_stats",decision_status=~"block|invalid"}
++                ),
++                1
++              )
++            )
++          ) > 0.15
++        for: 1h
++        labels:
++          severity: warning
++          team: trade
++          component: orchestration_composite_preflight
++          source: strategy_research_stats
++        annotations:
++          summary: "Rising PSR/DSR low share in strategy_research_stats rollout stops"
++          description: "For purpose={{ $labels.purpose }}, the share of strategy_research_stats-driven block/invalid decisions attributed to psr_low or dsr_low is materially higher in 24h than in 7d baseline. Review probability-of-success assumptions, DSR/PSR thresholds and recent research dataset quality."
+--- a/orderflow_services/tests/test_orchestration_composite_preflight_strategy_research_stats_p65_alerts_yaml_v1.py
++++ b/orderflow_services/tests/test_orchestration_composite_preflight_strategy_research_stats_p65_alerts_yaml_v1.py
+@@ -0,0 +1,41 @@
++from __future__ import annotations
++
++import os
++import yaml
++import pytest
++
++
++def _alerts_path(tick_flow_full: bool = False) -> str:
++    base = os.path.dirname(__file__)
++    root = os.path.abspath(os.path.join(base, '..'))
++    if tick_flow_full:
++        return os.path.abspath(
++            os.path.join(base, '..', '..', 'tick_flow_full', 'orderflow_services', 'prometheus_alerts_orchestration_composite_preflight_strategy_research_stats_p65.yml')
++        )
++    return os.path.join(root, 'prometheus_alerts_orchestration_composite_preflight_strategy_research_stats_p65.yml')
++
++
++@pytest.mark.parametrize('tick_flow_full', [False, True])
++def test_strategy_research_stats_p65_alerts_yaml_parses(tick_flow_full: bool) -> None:
++    path = _alerts_path(tick_flow_full)
++    with open(path, 'r', encoding='utf-8') as f:
++        doc = yaml.safe_load(f)
++    assert 'groups' in doc and doc['groups']
++    rules = doc['groups'][0].get('rules', [])
++    names = {r.get('alert') for r in rules}
++    assert 'TradeStrategyResearchStatsPboHighSustained24h' in names
++    assert 'TradeStrategyResearchStatsReportStaleRecurring7d' in names
++    assert 'TradeStrategyResearchStatsPsrDsrLowShareRising24hVs7d' in names
++
++
++@pytest.mark.parametrize('tick_flow_full', [False, True])
++def test_strategy_research_stats_p65_alert_exprs_reference_history_metrics(tick_flow_full: bool) -> None:
++    path = _alerts_path(tick_flow_full)
++    with open(path, 'r', encoding='utf-8') as f:
++        doc = yaml.safe_load(f)
++    exprs = '\n'.join(str(rule.get('expr') or '') for rule in doc['groups'][0].get('rules', []))
++    assert 'orchestration_composite_preflight_history_strategy_research_stats_reason_family_total' in exprs
++    assert 'orchestration_composite_preflight_history_events_total' in exprs
++    assert 'family="pbo_high"' in exprs
++    assert 'family="report_stale"' in exprs
++    assert 'family=~"psr_low|dsr_low"' in exprs

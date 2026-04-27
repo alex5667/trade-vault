@@ -1,0 +1,415 @@
+diff --git a/monitoring/chatops/telegram_freeze_bot/bot.py b/monitoring/chatops/telegram_freeze_bot/bot.py
+index ed1b46f..d46a01d 100644
+--- a/monitoring/chatops/telegram_freeze_bot/bot.py
++++ b/monitoring/chatops/telegram_freeze_bot/bot.py
+@@ -1,14 +1,13 @@
+ from __future__ import annotations
+
+ import json
+ import os
+ import re
+ import sys
+ import time
+-from dataclasses import asdict
+ from typing import Any, Dict, List, Optional, Tuple
+
+ import requests
+ import redis
+
+ from tick_flow_full.core.promote_freeze import read_freeze, set_freeze, clear_freeze
+@@ -21,33 +20,71 @@ def _env(name: str, default: str = "") -> str:
+
+ BOT_TOKEN = _env("TELEGRAM_BOT_TOKEN", "")
+ REDIS_URL = _env("REDIS_URL", "redis://redis-worker-1:6379/0")
+ OPS_EVENT_STREAM = _env("OPS_EVENT_STREAM", "ops:eventlog")
+
+-# Security: allowlist (fail-closed if empty)
+-ADMIN_USER_IDS = [x for x in re.split(r"[,\s]+", _env("TELEGRAM_ADMIN_USER_IDS", "")) if x]
+-ALLOWED_CHAT_ID = _env("TELEGRAM_ALLOWED_CHAT_ID", _env("TELEGRAM_CHAT_ID", ""))
++# Security: allowlist (fail-closed if empty). Can be provided via ENV or Redis cfg keys (hot-reload).
++ADMIN_USER_IDS_ENV = [x for x in re.split(r"[,\s]+", _env("TELEGRAM_ADMIN_USER_IDS", "")) if x]
++ALLOWED_CHAT_ID_ENV = _env("TELEGRAM_ALLOWED_CHAT_ID", _env("TELEGRAM_CHAT_ID", ""))
++
++# Redis-backed config keys (preferred in prod)
++CFG_ALLOWED_CHAT_ID_KEY = _env("CHATOPS_CFG_ALLOWED_CHAT_ID_KEY", "cfg:chatops:allowed_chat_id")
++CFG_ADMINS_SET_KEY = _env("CHATOPS_CFG_ADMINS_SET_KEY", "cfg:chatops:admins")
++CFG_TWO_PERSON_CLEAR_KEY = _env("CHATOPS_CFG_TWO_PERSON_CLEAR_KEY", "cfg:chatops:two_person_clear")
++CFG_TWO_PERSON_WINDOW_S_KEY = _env("CHATOPS_CFG_TWO_PERSON_WINDOW_S_KEY", "cfg:chatops:two_person_window_s")
+
+ # Bot state
+ OFFSET_KEY = _env("TELEGRAM_BOT_OFFSET_KEY", "ops:telegram_freeze_bot:offset")
+ POLL_INTERVAL_S = float(_env("TELEGRAM_BOT_POLL_INTERVAL_S", "2.0"))
+ TIMEOUT_S = int(_env("TELEGRAM_BOT_LONGPOLL_TIMEOUT_S", "25"))
+
+ # Default freeze duration
+ DEFAULT_FREEZE_S = int(_env("EDGE_STACK_PROMOTE_FREEZE_DURATION_S", "86400"))
+
+ # Operational knobs
+ MAX_REASON_LEN = 240
+
++# Two-person rule state (stored in Redis for shared state)
++PENDING_CLEAR_KEY = _env("CHATOPS_PENDING_CLEAR_KEY", "ops:chatops:freeze_clear_pending")
++PENDING_CLEAR_APPROVERS_KEY = _env("CHATOPS_PENDING_CLEAR_APPROVERS_KEY", "ops:chatops:freeze_clear_pending:approvers")
++
++# Config caching
++CFG_CACHE_TTL_S = float(_env("CHATOPS_CFG_CACHE_TTL_S", "10.0"))
++_cfg_cache: Dict[str, Any] = {"ts": 0.0}
++
+
+ def _redis() -> redis.Redis:
+     return redis.Redis.from_url(REDIS_URL, decode_responses=True)
+
+@@ -91,23 +128,95 @@ def _write_ops_event(event: Dict[str, Any]) -> None:
+         # best-effort
+         pass
+
+
+-def _is_admin(user_id: Optional[int]) -> bool:
+-    if user_id is None:
+-        return False
+-    if not ADMIN_USER_IDS:
+-        return False
+-    return str(user_id) in set(ADMIN_USER_IDS)
++def _load_cfg(r: redis.Redis) -> Dict[str, Any]:
++    now = time.time()
++    if (now - float(_cfg_cache.get("ts", 0.0))) < CFG_CACHE_TTL_S:
++        return dict(_cfg_cache.get("cfg", {}) or {})
++
++    cfg: Dict[str, Any] = {}
++    # allowed chat id
++    try:
++        v = r.get(CFG_ALLOWED_CHAT_ID_KEY)
++        if v:
++            cfg["allowed_chat_id"] = str(v).strip()
++    except Exception:
++        pass
++    if not cfg.get("allowed_chat_id"):
++        cfg["allowed_chat_id"] = ALLOWED_CHAT_ID_ENV
++
++    # admins
++    admins: List[str] = []
++    try:
++        admins = sorted([str(x).strip() for x in (r.smembers(CFG_ADMINS_SET_KEY) or []) if str(x).strip()])
++    except Exception:
++        admins = []
++    if not admins:
++        admins = ADMIN_USER_IDS_ENV
++    cfg["admins"] = admins
++
++    # two-person clear
++    two_person = ""
++    try:
++        two_person = str(r.get(CFG_TWO_PERSON_CLEAR_KEY) or "").strip()
++    except Exception:
++        two_person = ""
++    if not two_person:
++        two_person = _env("CHATOPS_TWO_PERSON_CLEAR", "1")  # default on
++    cfg["two_person_clear"] = two_person in ("1", "true", "yes", "on")
++
++    window_s = ""
++    try:
++        window_s = str(r.get(CFG_TWO_PERSON_WINDOW_S_KEY) or "").strip()
++    except Exception:
++        window_s = ""
++    if not window_s:
++        window_s = _env("CHATOPS_TWO_PERSON_WINDOW_S", "300")
++    try:
++        cfg["two_person_window_s"] = max(60, int(window_s))
++    except Exception:
++        cfg["two_person_window_s"] = 300
++
++    _cfg_cache["ts"] = now
++    _cfg_cache["cfg"] = dict(cfg)
++    return cfg
++
++
++def _is_admin(user_id: Optional[int], cfg: Dict[str, Any]) -> bool:
++    if user_id is None:
++        return False
++    admins = cfg.get("admins") or []
++    if not admins:
++        return False
++    return str(user_id) in set([str(x) for x in admins])
+
+
+-def _chat_allowed(chat_id: Optional[int]) -> bool:
+-    if not ALLOWED_CHAT_ID:
++def _chat_allowed(chat_id: Optional[int], cfg: Dict[str, Any]) -> bool:
++    allowed = str(cfg.get("allowed_chat_id") or "").strip()
++    if not allowed:
+         return False
+     if chat_id is None:
+         return False
+-    return str(chat_id) == str(ALLOWED_CHAT_ID)
++    return str(chat_id) == allowed
+
+
+ HELP = """ChatOps: Edge Stack promote-freeze
+
+ Commands:
+   /freeze status
+   /freeze set <duration_s> <reason...>
+   /freeze clear
+@@ -119,8 +228,12 @@ Examples:
+   /freeze status
+
+ Security:
+-  - only TELEGRAM_ALLOWED_CHAT_ID is accepted
+-  - only TELEGRAM_ADMIN_USER_IDS are allowed (fail-closed if empty)
++  - only allowed chat id is accepted (Redis cfg or TELEGRAM_ALLOWED_CHAT_ID)
++  - only admin user ids are allowed (Redis set or TELEGRAM_ADMIN_USER_IDS)
++
++Two-person rule (recommended):
++  - /freeze clear requires 2 different admin confirmations within a time window.
+ """
+@@ -155,16 +268,78 @@ def _format_status() -> str:
+         ensure_ascii=False,
+     )
+
+
+-def _handle_cmd(cmd: str, args: List[str], actor: Dict[str, Any]) -> Tuple[bool, str]:
++def _pending_clear_get(r: redis.Redis) -> Dict[str, str]:
++    try:
++        d = r.hgetall(PENDING_CLEAR_KEY) or {}
++        return {str(k): str(v) for k, v in d.items()}
++    except Exception:
++        return {}
++
++
++def _pending_clear_start(r: redis.Redis, *, window_s: int, initiator: Dict[str, Any], reason: str = "") -> None:
++    now_ms = int(time.time() * 1000)
++    payload = {
++        "created_ts_ms": str(now_ms),
++        "expires_ts_ms": str(now_ms + int(window_s) * 1000),
++        "initiator": str(initiator.get("actor", "")),
++        "reason": str(reason or "")[:MAX_REASON_LEN],
++    }
++    try:
++        r.hset(PENDING_CLEAR_KEY, mapping=payload)
++        r.sadd(PENDING_CLEAR_APPROVERS_KEY, str(initiator.get("actor", "")))
++        r.expire(PENDING_CLEAR_KEY, int(window_s))
++        r.expire(PENDING_CLEAR_APPROVERS_KEY, int(window_s))
++    except Exception:
++        pass
++
++
++def _pending_clear_reset(r: redis.Redis) -> None:
++    try:
++        r.delete(PENDING_CLEAR_KEY)
++        r.delete(PENDING_CLEAR_APPROVERS_KEY)
++    except Exception:
++        pass
++
++
++def _pending_clear_approve(r: redis.Redis, actor_id: str) -> int:
++    try:
++        r.sadd(PENDING_CLEAR_APPROVERS_KEY, actor_id)
++        return int(r.scard(PENDING_CLEAR_APPROVERS_KEY))
++    except Exception:
++        return 0
++
++
++def _handle_cmd(cmd: str, args: List[str], actor: Dict[str, Any], cfg: Dict[str, Any], r: redis.Redis) -> Tuple[bool, str]:
+     """Returns (ok, response_text)."""
+     if cmd in ("help", "h", "?"):
+         return True, HELP
+     if cmd == "status":
+         return True, _format_status()
+     if cmd == "clear":
+-        ok = clear_freeze(REDIS_URL)
+-        _write_ops_event({"type": "promote_freeze_clear", "ok": ok, **actor})
+-        return ok, json.dumps({"ok": ok}, ensure_ascii=False)
++        # Two-person rule: require 2 different admins within window.
++        if bool(cfg.get("two_person_clear", True)):
++            window_s = int(cfg.get("two_person_window_s", 300))
++            pend = _pending_clear_get(r)
++            now_ms = int(time.time() * 1000)
++            if not pend:
++                _pending_clear_start(r, window_s=window_s, initiator=actor)
++                _write_ops_event({"type": "chatops_clear_pending_started", "window_s": window_s, **actor})
++                return True, f"Clear pending started. Need 2nd admin confirm within {window_s}s: send /freeze clear"
++            try:
++                exp_ms = int(float(pend.get("expires_ts_ms", "0") or 0))
++            except Exception:
++                exp_ms = 0
++            if exp_ms and exp_ms < now_ms:
++                _pending_clear_reset(r)
++                _pending_clear_start(r, window_s=window_s, initiator=actor)
++                _write_ops_event({"type": "chatops_clear_pending_restarted", "window_s": window_s, **actor})
++                return True, f"Previous pending expired. Restarted. Need 2nd admin within {window_s}s: send /freeze clear"
++
++            actor_id = str(actor.get("actor", ""))
++            n = _pending_clear_approve(r, actor_id)
++            if n < 2:
++                return True, f"Confirmation recorded ({n}/2). Need another admin to send /freeze clear (within {window_s}s)."
++
++            ok = clear_freeze(REDIS_URL)
++            approvers = []
++            try:
++                approvers = sorted([str(x) for x in (r.smembers(PENDING_CLEAR_APPROVERS_KEY) or []) if str(x)])
++            except Exception:
++                approvers = [actor_id]
++            _pending_clear_reset(r)
++            _write_ops_event({"type": "promote_freeze_clear", "ok": ok, "approvers": approvers, **actor})
++            return ok, json.dumps({"ok": ok, "approvers": approvers}, ensure_ascii=False)
++
++        # one-person mode
++        ok = clear_freeze(REDIS_URL)
++        _write_ops_event({"type": "promote_freeze_clear", "ok": ok, **actor})
++        return ok, json.dumps({"ok": ok}, ensure_ascii=False)
+     if cmd == "set":
+         if len(args) < 2:
+             return False, "Usage: /freeze set <duration_s> <reason...>"
+         try:
+             duration_s = int(args[0])
+@@ -173,10 +348,16 @@ def _handle_cmd(cmd: str, args: List[str], actor: Dict[str, Any]) -> Tuple[bool,
+         except Exception:
+             return False, "duration_s must be integer seconds"
+         reason = " ".join(args[1:]).strip()[:MAX_REASON_LEN]
+         if duration_s <= 0:
+             return False, "duration_s must be > 0"
++        # any explicit set should cancel pending clear approvals
++        _pending_clear_reset(r)
+         ok = set_freeze(REDIS_URL, duration_s=duration_s, reason=reason, source="chatops", extra={"actor": actor.get("actor", "unknown")})
+         _write_ops_event({"type": "promote_freeze_set", "ok": ok, "duration_s": duration_s, "reason": reason, **actor})
+         return ok, json.dumps({"ok": ok, "duration_s": duration_s}, ensure_ascii=False)
+     return False, f"Unknown subcommand: {cmd}\n\n{HELP}"
+@@ -199,25 +380,18 @@ def main() -> int:
+     if not BOT_TOKEN:
+         print("TELEGRAM_BOT_TOKEN is required", file=sys.stderr)
+         return 2
+-    if not ALLOWED_CHAT_ID:
+-        print("TELEGRAM_ALLOWED_CHAT_ID (or TELEGRAM_CHAT_ID) is required", file=sys.stderr)
+-        return 2
+-    if not ADMIN_USER_IDS:
+-        print("TELEGRAM_ADMIN_USER_IDS is empty; bot is fail-closed (no one can run commands)", file=sys.stderr)
+-        return 2
+
+     r = _redis()
+     offset = _load_offset(r)
+-    print(json.dumps({"ok": True, "offset": offset, "allowed_chat_id": ALLOWED_CHAT_ID, "admin_user_ids": ADMIN_USER_IDS}, ensure_ascii=False))
++    cfg0 = _load_cfg(r)
++    print(json.dumps({"ok": True, "offset": offset, "allowed_chat_id": cfg0.get("allowed_chat_id"), "admins": cfg0.get("admins"), "two_person_clear": cfg0.get("two_person_clear"), "two_person_window_s": cfg0.get("two_person_window_s")}, ensure_ascii=False))
+
+     while True:
+         try:
+             updates = _tg_get_updates(offset=offset + 1 if offset else 0)
+             for u in updates:
+@@ -232,15 +406,18 @@ def main() -> int:
+                 offset = max(offset, upd_id)
+                 _save_offset(r, offset)
+
++                cfg = _load_cfg(r)
+                 # scope + auth
+-                if not _chat_allowed(chat_id):
++                if not _chat_allowed(chat_id, cfg):
+                     continue
+-                if not _is_admin(user_id):
++                if not _is_admin(user_id, cfg):
+                     # minimal response to unauthorized attempts
+                     try:
+                         _tg_send(str(chat_id), "Unauthorized", reply_to=msg_id)
+                     except Exception:
+                         pass
+                     _write_ops_event({"type": "chatops_unauthorized", "user_id": user_id, "chat_id": chat_id, "text": text[:200]})
+                     continue
+
+                 parsed = _parse_freeze_cmd(text)
+                 if not parsed:
+                     continue
+                 subcmd, args = parsed
+@@ -252,7 +429,7 @@ def main() -> int:
+                     "username": str(from_.get("username") or ""),
+                     "name": f"{from_.get('first_name','')}".strip(),
+                 }
+-                ok, resp = _handle_cmd(subcmd, args, actor)
++                ok, resp = _handle_cmd(subcmd, args, actor, cfg, r)
+                 try:
+                     _tg_send(str(chat_id), resp, reply_to=msg_id)
+                 except Exception as e:
+                     _write_ops_event({"type": "chatops_send_failed", "err": str(e)[:200], **actor})
+                 else:
+                     _write_ops_event({"type": "chatops_freeze_cmd", "cmd": subcmd, "ok": ok, "args": args[:10], **actor})
+diff --git a/monitoring/runbooks/chatops_freeze.md b/monitoring/runbooks/chatops_freeze.md
+index 4692c6e..19b9784 100644
+--- a/monitoring/runbooks/chatops_freeze.md
++++ b/monitoring/runbooks/chatops_freeze.md
+@@ -4,17 +4,21 @@
+ Allow a trusted operator to set/clear/status promotion freeze directly from Telegram,
+ with audit trail to `ops:eventlog`.
+
+ ## Security model (fail-closed)
+-- Only messages from **one** chat id are accepted: `TELEGRAM_ALLOWED_CHAT_ID`
+-- Only users in allowlist are accepted: `TELEGRAM_ADMIN_USER_IDS` (comma-separated Telegram user ids)
+-- If `TELEGRAM_ADMIN_USER_IDS` is empty → bot exits and no one can run commands.
++- Only messages from **one** chat id are accepted.
++- Only users in allowlist are accepted.
++- Allowlist/chat can be configured via **Redis** (hot reload) or ENV fallback.
+
+ ## Setup
+ 1) Create Telegram bot token.
+ 2) Add bot to the target group (or use direct chat).
+ 3) Disable privacy mode for group command handling if needed (BotFather → /setprivacy).
+-4) Set env vars:
++4) Configure allowlist & chat (recommended: Redis cfg keys):
++
++```bash
++redis-cli SET cfg:chatops:allowed_chat_id "-1001234567890"
++redis-cli SADD cfg:chatops:admins "11111111" "22222222"
++redis-cli SET cfg:chatops:two_person_clear "1"
++redis-cli SET cfg:chatops:two_person_window_s "300"
++```
++
++5) Set env vars (token + Redis URL; ENV allowlist is fallback only):
+
+ ```bash
+ export TELEGRAM_BOT_TOKEN="123456:ABC..."
+ export TELEGRAM_ALLOWED_CHAT_ID="-1001234567890"
+ export TELEGRAM_ADMIN_USER_IDS="11111111,22222222"
+@@ -33,6 +37,11 @@
+ /freeze set 3600 manual investigation
+ /freeze clear
+ ```
+
++## Two-person rule for clear (recommended)
++`/freeze clear` requires **2 different admin confirmations** within `cfg:chatops:two_person_window_s`.
++
+ ## Audit
+ Tail:
+ ```bash
+diff --git a/monitoring/README_chatops_config.md b/monitoring/README_chatops_config.md
+new file mode 100644
+index 0000000..c39f53e
+--- /dev/null
++++ b/monitoring/README_chatops_config.md
+@@ -0,0 +1,54 @@
++# ChatOps config (Redis-backed, hot reload)
++
++## Keys
++
++Allowed chat id:
++- `cfg:chatops:allowed_chat_id` (string)
++
++Admins allowlist:
++- `cfg:chatops:admins` (set of telegram user ids)
++
++Two-person rule:
++- `cfg:chatops:two_person_clear` = 1/0
++- `cfg:chatops:two_person_window_s` = seconds (min 60)
++
++## Examples
++
++```bash
++redis-cli SET cfg:chatops:allowed_chat_id "-1001234567890"
++redis-cli SADD cfg:chatops:admins "11111111" "22222222"
++redis-cli SET cfg:chatops:two_person_clear "1"
++redis-cli SET cfg:chatops:two_person_window_s "300"
++```
++
++## Fail-closed
++
++If `cfg:chatops:admins` is empty and `TELEGRAM_ADMIN_USER_IDS` is empty,
++no one can execute ChatOps commands.
++
++Same for allowed chat id.
++

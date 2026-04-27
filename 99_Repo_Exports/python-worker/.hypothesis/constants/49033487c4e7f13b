@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/metrics_stream_integrity_p5.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.1, 0.25, 0.5, 1.0, 2.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, '0', 'Collector', 'TCollector', '_names_to_collectors', 'dup_burst_z', 'dup_rate_ema', 'gap_max_window', 'gap_rate_ema', 'reason', 'schema_changed', 'schema_hash', 'stream', 'stream_dup_burst_z', 'stream_event_lag_ms', 'stream_schema_hash', 'symbol']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/bucket2_v1.py
+# hypothesis_version: 6.148.10
+
+[':', '@', 'EXTREME', 'HIGH_VAR', 'HIGH_VOL', 'HIGH_VOL_LOW_LIQ', 'LOW_LIQ', 'breakout', 'exec_regime_bucket', 'flag_high_mom', 'high_var', 'highvar', 'mean_revert', 'meanrev', 'news', 'reclaim', 'reversal', 'sweep', 'vol_shock', '|']

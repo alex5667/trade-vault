@@ -1,0 +1,90 @@
+groups:
+  - name: news_agent_p6
+    rules:
+      # ── 1. JSON repair success ratio < 50% (last 15m, min 20 attempts) ────────
+      - alert: NewsJSONRepairLowSuccess
+        expr: |
+          (sum(increase(news_json_repair_success_total[15m])) /
+           clamp_min(sum(increase(news_llm_repair_attempts_total[15m])), 1)) < 0.5
+          and sum(increase(news_llm_repair_attempts_total[15m])) >= 20
+        for: 5m
+        labels:
+          severity: warn
+        annotations:
+          summary: "news_agent JSON repair success ratio < 50%"
+          description: >
+            Repair prompts fail frequently. Likely provider output drift or
+            schema mismatch. Pin provider/model or tighten prompts.
+
+      # ── 2. Daily LLM call budget exhausted (uses metric, not hardcoded 2500) ──
+      - alert: NewsBudgetOverLimit
+        expr: news_budget_calls_used > 0 and news_budget_calls_used >= news_budget_calls_limit
+        for: 1m
+        labels:
+          severity: warn
+        annotations:
+          summary: "news_agent daily LLM call budget exhausted"
+          description: >
+            Reasoner will DLQ new items as overbudget.
+            Tighten prefilter/dedup or raise NEWS_LLM_MAX_CALLS_PER_DAY.
+
+      # ── 3. USD budget at 90% ───────────────────────────────────────────────────
+      - alert: NewsBudgetUSDWarn90
+        expr: news_budget_usd_limit > 0 and (news_budget_usd_used / news_budget_usd_limit) > 0.9
+        for: 5m
+        labels:
+          severity: warn
+        annotations:
+          summary: "news_agent USD budget > 90%"
+          description: >
+            LLM USD budget almost exhausted. Expect increasing overbudget DLQ.
+
+      # ── 4. USD budget exhausted ───────────────────────────────────────────────
+      - alert: NewsBudgetUSDExhausted
+        expr: news_budget_usd_limit > 0 and news_budget_usd_used >= news_budget_usd_limit
+        for: 1m
+        labels:
+          severity: crit
+        annotations:
+          summary: "news_agent USD budget exhausted"
+          description: >
+            Reasoner rejects LLM calls (overbudget).
+            Reduce traffic or increase NEWS_LLM_BUDGET_DAILY_USD.
+
+      # ── 5. DLQ spike ──────────────────────────────────────────────────────────
+      - alert: NewsDLQSpike
+        expr: sum(rate(news_dlq_total[5m])) > 5
+        for: 5m
+        labels:
+          severity: warn
+        annotations:
+          summary: "news_agent DLQ spike"
+          description: >
+            DLQ rate > 5/s. Check reasons via news_dlq_total{reason=...}
+            and stream news:raw:dlq.
+
+      # ── 6. news_norm consumer group backlog growing ───────────────────────────
+      - alert: NewsNormBacklogGrowing
+        expr: |
+          max_over_time(news_stream_pending_n{stream="news:analysis",group="news-feature-store"}[10m]) > 1000
+          or max_over_time(news_stream_lag_ms{stream="news:analysis",group="news-feature-store"}[10m]) > 60000
+        for: 10m
+        labels:
+          severity: warn
+        annotations:
+          summary: "news_agent feature-store consumer backlog growing"
+          description: >
+            Pending or lag is high on news:analysis consumer group.
+            Check feature-store throughput, Redis latency, or LLM slowdowns.
+
+      # ── 7. Prior published rate drops to zero ────────────────────────────────
+      - alert: NewsPriorPublishedDrop
+        expr: rate(news_llm_cost_usd_total[15m]) < 0.00001
+        for: 30m
+        labels:
+          severity: warn
+        annotations:
+          summary: "news_agent LLM cost suspiciously low (analyzer may have stopped)"
+          description: >
+            news_llm_cost_usd_total rate near zero for 30m.
+            Check if news-analyzer container is running and receiving messages.

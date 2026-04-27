@@ -1,0 +1,18 @@
+services:
+  ofc-contextual-rollout-exporter:
+    image: ${TRADE_ORDERFLOW_IMAGE:?}
+    working_dir: /app
+    environment:
+      PYTHONPATH: /app
+      REDIS_URL: ${REDIS_URL:?}
+      OFC_CTX_ROLLOUT_SUMMARY_KEY: ${OFC_CTX_ROLLOUT_SUMMARY_KEY:-metrics:ofc_contextual_rollout:last}
+      OFC_CTX_ROLLOUT_EXPORTER_PORT: ${OFC_CTX_ROLLOUT_EXPORTER_PORT:-9848}
+      OFC_CTX_ROLLOUT_EXPORTER_INTERVAL_S: ${OFC_CTX_ROLLOUT_EXPORTER_INTERVAL_S:-15}
+    volumes:
+      - ${TRADE_REPO_ROOT:?}:/app:ro
+    expose:
+      - "${OFC_CTX_ROLLOUT_EXPORTER_PORT:-9848}"
+    command:
+      - python3
+      - -m
+      - orderflow_services.ofc_contextual_rollout_exporter_v1

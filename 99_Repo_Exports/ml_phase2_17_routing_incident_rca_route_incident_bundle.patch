@@ -1,0 +1,686 @@
+diff --git a/orderflow_services/operator_routing_incident_rca_route_incident_bundle_builder_v2_17.py b/orderflow_services/operator_routing_incident_rca_route_incident_bundle_builder_v2_17.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/operator_routing_incident_rca_route_incident_bundle_builder_v2_17.py
+@@ -0,0 +1,541 @@
++from __future__ import annotations
++
++import hashlib
++import json
++import os
++import time
++from typing import Any, Dict, Iterable, List, Optional, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    import psycopg
++except Exception:  # pragma: no cover
++    psycopg = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++
++APP_NAME = "operator_routing_incident_rca_route_incident_bundle_builder_v2_17"
++REQUESTS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_INCIDENT_BUNDLE_REQUESTS_STREAM",
++    "stream:ml:operator_routing_incident_rca_route_incident_bundle_requests",
++)
++RESULTS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_INCIDENT_BUNDLE_RESULTS_STREAM",
++    "stream:ml:operator_routing_incident_rca_route_incident_bundle_results",
++)
++APPLY_RESULTS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_APPLY_RESULTS_STREAM",
++    "stream:ml:operator_routing_incident_rca_routing_apply_results",
++)
++VERIFY_RESULTS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_VERIFY_RESULTS_STREAM",
++    "stream:ml:operator_routing_incident_rca_routing_verify_results",
++)
++ROLLBACK_REQUESTS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_ROLLBACK_REQUESTS_STREAM",
++    "stream:ml:operator_routing_incident_rca_routing_rollback_requests",
++)
++ROLLBACK_RESULTS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_ROLLBACK_RESULTS_STREAM",
++    "stream:ml:operator_routing_incident_rca_routing_rollback_results",
++)
++ROLLBACK_JOURNAL_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_ROLLBACK_JOURNAL_STREAM",
++    "stream:ml:operator_routing_incident_rca_routing_rollback_journal",
++)
++RETRY_REQUESTS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_RETRY_REQUESTS_STREAM",
++    "stream:ml:operator_routing_incident_rca_route_retry_requests",
++)
++SLO_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_SLO_ROLLUPS_STREAM",
++    "stream:ml:operator_routing_incident_rca_route_slo_rollups",
++)
++ESCALATIONS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_ESCALATIONS_STREAM",
++    "stream:ml:operator_routing_incident_rca_route_escalations",
++)
++AUDIT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_APPLY_AUDIT_STREAM",
++    "stream:ml:operator_routing_incident_rca_routing_apply_audit",
++)
++LAST_HASH = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_INCIDENT_BUNDLE_LAST_HASH",
++    "metrics:ml:operator_routing_incident_rca_route_incident_bundle:last",
++)
++PER_ID_PREFIX = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_INCIDENT_BUNDLE_PER_ID_PREFIX",
++    "metrics:ml:operator_routing_incident_rca_route_incident_bundle:",
++)
++GROUP = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_INCIDENT_BUNDLE_GROUP", APP_NAME)
++CONSUMER = os.getenv("HOSTNAME", APP_NAME)
++PORT = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_INCIDENT_BUNDLE_PORT", "9899"))
++MAXLEN = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_INCIDENT_BUNDLE_MAXLEN", "20000"))
++LOOKBACK = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_INCIDENT_BUNDLE_LOOKBACK", "200"))
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter(
++    "ml_operator_routing_incident_rca_route_incident_bundle_runs_total",
++    "Route incident bundle runs",
++    ("status", "severity"),
++)
++LAT = _hist(
++    "ml_operator_routing_incident_rca_route_incident_bundle_latency_seconds",
++    "Route incident bundle build latency seconds",
++)
++UP = _gauge(
++    "ml_operator_routing_incident_rca_route_incident_bundle_up",
++    "Route incident bundle builder up",
++)
++LAST_RUN_TS = _gauge(
++    "ml_operator_routing_incident_rca_route_incident_bundle_last_run_ts_seconds",
++    "Route incident bundle builder last run timestamp",
++)
++TIMELINE_EVENTS = _gauge(
++    "ml_operator_routing_incident_rca_route_incident_bundle_timeline_events",
++    "Timeline events in latest route incident bundle",
++    ("severity",),
++)
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        if isinstance(v, (bytes, bytearray)):
++            try:
++                out[kk] = v.decode()
++            except Exception:
++                out[kk] = v.hex()
++        else:
++            out[kk] = v
++    return out
++
++
++def maybe_json(v: Any, default: Any = None) -> Any:
++    if v is None:
++        return default
++    if isinstance(v, (dict, list)):
++        return v
++    try:
++        return json.loads(v)
++    except Exception:
++        return default
++
++
++def safe_int(v: Any, default: int = 0) -> int:
++    try:
++        if v is None:
++            return default
++        return int(float(v))
++    except Exception:
++        return default
++
++
++def stable_json(obj: Any) -> str:
++    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++def bundle_hash(obj: Any) -> str:
++    return hashlib.sha256(stable_json(obj).encode("utf-8")).hexdigest()[:16]
++
++
++def route_incident_id_from_row(row: Dict[str, Any]) -> Optional[str]:
++    for key in (
++        "route_change_id",
++        "experiment_id",
++        "request_id",
++        "incident_id",
++    ):
++        value = row.get(key)
++        if value:
++            return str(value)
++    return None
++
++
++def severity_from_reason_codes(reason_codes: Iterable[str]) -> str:
++    codes = {str(x) for x in reason_codes if x}
++    critical = {
++        "ROUTE_MTTR_SLO_BREACH",
++        "ROUTE_MTTR_P95_HIGH",
++        "ROUTE_SUCCESS_RATE_LOW",
++        "ROUTE_MISMATCH",
++        "FEEDBACK_STALE",
++        "ROUTING_POLICY_CORRUPTED",
++    }
++    warning = {
++        "LOW_EXPOSURE",
++        "USEFULNESS_DROP",
++        "RETRY_SCHEDULED",
++        "INCONCLUSIVE",
++    }
++    if codes & critical:
++        return "critical"
++    if codes & warning:
++        return "warning"
++    return "info"
++
++
++def compact_row(row: Dict[str, Any]) -> Dict[str, Any]:
++    keys = (
++        "experiment_id",
++        "route_change_id",
++        "ts_ms",
++        "status",
++        "decision",
++        "winner",
++        "reason_code",
++        "verification_status",
++        "verification_reason_code",
++        "retry_attempt",
++        "mode",
++        "severity",
++        "reason_codes_json",
++        "baseline_route_json",
++        "target_route_json",
++        "current_route_json",
++        "restored_route_json",
++        "payload_json",
++        "summary_json",
++    )
++    return {k: row.get(k) for k in keys if k in row and row.get(k) not in (None, "", [])}
++
++
++def primary_reason_codes(sections: Dict[str, List[Dict[str, Any]]]) -> List[str]:
++    seen = set()
++    out: List[str] = []
++    for rows in sections.values():
++        for row in rows:
++            for key in ("reason_code", "verification_reason_code"):
++                value = row.get(key)
++                if value and value not in seen:
++                    seen.add(str(value))
++                    out.append(str(value))
++            rc_json = maybe_json(row.get("reason_codes_json"), [])
++            if isinstance(rc_json, list):
++                for value in rc_json:
++                    if value and value not in seen:
++                        seen.add(str(value))
++                        out.append(str(value))
++    return out[:16]
++
++
++def latest_json_field(rows: List[Dict[str, Any]], field: str) -> Dict[str, Any]:
++    for row in rows:
++        parsed = maybe_json(row.get(field), {})
++        if isinstance(parsed, dict) and parsed:
++            return parsed
++    return {}
++
++
++def summarize_route_diff(before: Dict[str, Any], after: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
++    keys = ("provider", "model_name", "prompt_version", "policy_version", "source")
++    diff: Dict[str, Dict[str, Any]] = {}
++    for key in keys:
++        if before.get(key) != after.get(key):
++            diff[key] = {"before": before.get(key), "after": after.get(key)}
++    return diff
++
++
++def build_timeline(sections: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
++    timeline: List[Dict[str, Any]] = []
++    for section_name, rows in sections.items():
++        for row in rows:
++            timeline.append(
++                {
++                    "section": section_name,
++                    "ts_ms": safe_int(row.get("ts_ms"), 0),
++                    "event_type": row.get("event_type") or row.get("status") or row.get("verification_status") or section_name,
++                    "reason_code": row.get("reason_code") or row.get("verification_reason_code"),
++                }
++            )
++    timeline.sort(key=lambda x: (x["ts_ms"], str(x["section"])))
++    return timeline
++
++
++async def xr_recent(client: Any, stream_key: str, limit: int) -> List[Dict[str, Any]]:
++    try:
++        rows = await client.xrevrange(stream_key, count=limit)
++    except Exception:
++        return []
++    out: List[Dict[str, Any]] = []
++    for entry_id, payload in rows:
++        row = as_dict(payload)
++        row["_stream_id"] = entry_id.decode() if isinstance(entry_id, (bytes, bytearray)) else str(entry_id)
++        out.append(row)
++    return out
++
++
++def filter_by_incident_id(rows: List[Dict[str, Any]], incident_id: str) -> List[Dict[str, Any]]:
++    return [row for row in rows if route_incident_id_from_row(row) == incident_id]
++
++
++async def fetch_sections(client: Any, incident_id: str) -> Dict[str, List[Dict[str, Any]]]:
++    sources = {
++        "apply_results": APPLY_RESULTS_STREAM,
++        "verify_results": VERIFY_RESULTS_STREAM,
++        "rollback_requests": ROLLBACK_REQUESTS_STREAM,
++        "rollback_results": ROLLBACK_RESULTS_STREAM,
++        "rollback_journal": ROLLBACK_JOURNAL_STREAM,
++        "retry_requests": RETRY_REQUESTS_STREAM,
++        "slo_rollups": SLO_STREAM,
++        "escalations": ESCALATIONS_STREAM,
++        "audit": AUDIT_STREAM,
++    }
++    out: Dict[str, List[Dict[str, Any]]] = {}
++    for name, stream_key in sources.items():
++        rows = await xr_recent(client, stream_key, LOOKBACK)
++        out[name] = [compact_row(x) for x in filter_by_incident_id(rows, incident_id)]
++    return out
++
++
++def build_bundle(incident_id: str, request_row: Dict[str, Any], sections: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
++    baseline_route = latest_json_field(sections.get("apply_results", []), "baseline_route_json")
++    target_route = latest_json_field(sections.get("apply_results", []), "target_route_json")
++    current_route = latest_json_field(sections.get("verify_results", []), "current_route_json")
++    restored_route = latest_json_field(sections.get("rollback_results", []), "restored_route_json")
++    effective_current = restored_route or current_route or target_route
++
++    reason_codes = primary_reason_codes(sections)
++    severity = severity_from_reason_codes(reason_codes)
++    timeline = build_timeline(sections)
++    route_diff = summarize_route_diff(baseline_route, effective_current)
++
++    summary = {
++        "incident_id": incident_id,
++        "severity": severity,
++        "timeline_events_n": len(timeline),
++        "apply_results_n": len(sections.get("apply_results", [])),
++        "verify_results_n": len(sections.get("verify_results", [])),
++        "rollback_requests_n": len(sections.get("rollback_requests", [])),
++        "rollback_results_n": len(sections.get("rollback_results", [])),
++        "retry_requests_n": len(sections.get("retry_requests", [])),
++        "slo_rollups_n": len(sections.get("slo_rollups", [])),
++        "escalations_n": len(sections.get("escalations", [])),
++    }
++
++    bundle = {
++        "schema_version": 1,
++        "bundle_type": "operator_routing_incident_rca_route_incident_bundle",
++        "incident_id": incident_id,
++        "requested_ts_ms": safe_int(request_row.get("ts_ms"), now_ms()),
++        "built_ts_ms": now_ms(),
++        "severity": severity,
++        "primary_reason_codes": reason_codes,
++        "summary": summary,
++        "baseline_route_json": baseline_route,
++        "target_route_json": target_route,
++        "current_route_json": effective_current,
++        "route_diff_json": route_diff,
++        "timeline_json": timeline,
++        "sections_json": sections,
++    }
++    bundle["bundle_hash"] = bundle_hash(bundle)
++    return bundle
++
++
++async def persist_if_configured(db_url: str, bundle: Dict[str, Any]) -> None:
++    if not db_url or psycopg is None:
++        return
++    with psycopg.connect(db_url) as conn:  # pragma: no cover
++        with conn.cursor() as cur:
++            cur.execute(
++                """
++                INSERT INTO llm_operator_routing_incident_rca_route_incident_bundles (
++                    bundle_id,
++                    incident_id,
++                    built_ts_ms,
++                    severity,
++                    bundle_hash,
++                    primary_reason_codes_json,
++                    summary_json,
++                    bundle_json
++                ) VALUES (
++                    %(bundle_id)s,
++                    %(incident_id)s,
++                    %(built_ts_ms)s,
++                    %(severity)s,
++                    %(bundle_hash)s,
++                    %(primary_reason_codes_json)s,
++                    %(summary_json)s,
++                    %(bundle_json)s
++                )
++                ON CONFLICT (bundle_id) DO UPDATE SET
++                    built_ts_ms = EXCLUDED.built_ts_ms,
++                    severity = EXCLUDED.severity,
++                    bundle_hash = EXCLUDED.bundle_hash,
++                    primary_reason_codes_json = EXCLUDED.primary_reason_codes_json,
++                    summary_json = EXCLUDED.summary_json,
++                    bundle_json = EXCLUDED.bundle_json
++                """,
++                {
++                    "bundle_id": bundle["bundle_hash"],
++                    "incident_id": bundle["incident_id"],
++                    "built_ts_ms": bundle["built_ts_ms"],
++                    "severity": bundle["severity"],
++                    "bundle_hash": bundle["bundle_hash"],
++                    "primary_reason_codes_json": json.dumps(bundle["primary_reason_codes"]),
++                    "summary_json": json.dumps(bundle["summary"]),
++                    "bundle_json": json.dumps(bundle),
++                },
++            )
++            conn.commit()
++
++
++async def ensure_group(client: Any, stream_key: str, group: str) -> None:
++    try:
++        await client.xgroup_create(stream_key, group, id="$", mkstream=True)
++    except Exception:
++        return
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    await ensure_group(r, REQUESTS_STREAM, GROUP)
++    db_url = os.getenv("DATABASE_URL", "")
++    while True:
++        rows = await r.xreadgroup(GROUP, CONSUMER, {REQUESTS_STREAM: ">"}, count=32, block=5000)
++        if not rows:
++            continue
++        for _stream, messages in rows:
++            for msg_id, payload in messages:
++                started = time.perf_counter()
++                severity = "info"
++                status = "ok"
++                try:
++                    request_row = as_dict(payload)
++                    incident_id = route_incident_id_from_row(request_row)
++                    if not incident_id:
++                        raise ValueError("missing incident_id")
++                    sections = await fetch_sections(r, incident_id)
++                    bundle = build_bundle(incident_id, request_row, sections)
++                    severity = bundle["severity"]
++                    await persist_if_configured(db_url, bundle)
++                    await r.xadd(
++                        RESULTS_STREAM,
++                        {
++                            "schema_version": 1,
++                            "incident_id": incident_id,
++                            "bundle_id": bundle["bundle_hash"],
++                            "severity": bundle["severity"],
++                            "primary_reason_codes_json": stable_json(bundle["primary_reason_codes"]),
++                            "summary_json": stable_json(bundle["summary"]),
++                            "route_diff_json": stable_json(bundle["route_diff_json"]),
++                            "timeline_json": stable_json(bundle["timeline_json"]),
++                            "bundle_json": stable_json(bundle),
++                            "ts_ms": str(now_ms()),
++                        },
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.hset(
++                        LAST_HASH,
++                        mapping={
++                            "incident_id": incident_id,
++                            "bundle_id": bundle["bundle_hash"],
++                            "severity": bundle["severity"],
++                            "timeline_events_n": str(len(bundle["timeline_json"])),
++                            "ts_ms": str(now_ms()),
++                        },
++                    )
++                    await r.hset(
++                        f"{PER_ID_PREFIX}{incident_id}",
++                        mapping={
++                            "bundle_id": bundle["bundle_hash"],
++                            "severity": bundle["severity"],
++                            "primary_reason_codes_json": stable_json(bundle["primary_reason_codes"]),
++                            "summary_json": stable_json(bundle["summary"]),
++                            "ts_ms": str(now_ms()),
++                        },
++                    )
++                    if TIMELINE_EVENTS:
++                        TIMELINE_EVENTS.labels(severity=severity).set(len(bundle["timeline_json"]))
++                    if LAST_RUN_TS:
++                        LAST_RUN_TS.set(time.time())
++                    await r.xack(REQUESTS_STREAM, GROUP, msg_id)
++                except Exception as exc:
++                    status = "error"
++                    await r.xadd(
++                        AUDIT_STREAM,
++                        {
++                            "event_type": "ROUTING_INCIDENT_RCA_ROUTE_INCIDENT_BUNDLE_FAILED",
++                            "error": str(exc),
++                            "ts_ms": str(now_ms()),
++                        },
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.xack(REQUESTS_STREAM, GROUP, msg_id)
++                finally:
++                    if RUNS:
++                        RUNS.labels(status=status, severity=severity).inc()
++                    if LAT:
++                        LAT.observe(max(time.perf_counter() - started, 0.0))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    import asyncio
++    asyncio.run(main())
+diff --git a/orderflow_services/sql/ml_phase2_17_v1.sql b/orderflow_services/sql/ml_phase2_17_v1.sql
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/orderflow_services/sql/ml_phase2_17_v1.sql
+@@ -0,0 +1,22 @@
++BEGIN;
++
++CREATE TABLE IF NOT EXISTS llm_operator_routing_incident_rca_route_incident_bundles (
++    bundle_id                   text PRIMARY KEY,
++    incident_id                 text NOT NULL,
++    built_ts_ms                 bigint NOT NULL,
++    severity                    text NOT NULL,
++    bundle_hash                 text NOT NULL,
++    primary_reason_codes_json   jsonb NOT NULL,
++    summary_json                jsonb NOT NULL,
++    bundle_json                 jsonb NOT NULL
++);
++
++CREATE INDEX IF NOT EXISTS idx_llm_operator_routing_incident_rca_route_incident_bundles_incident_id
++    ON llm_operator_routing_incident_rca_route_incident_bundles(incident_id);
++
++CREATE INDEX IF NOT EXISTS idx_llm_operator_routing_incident_rca_route_incident_bundles_built_ts
++    ON llm_operator_routing_incident_rca_route_incident_bundles(built_ts_ms DESC);
++
++COMMIT;
+diff --git a/orderflow_services/docker_compose_fragment_ml_phase2_17_v1.yml b/orderflow_services/docker_compose_fragment_ml_phase2_17_v1.yml
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/orderflow_services/docker_compose_fragment_ml_phase2_17_v1.yml
+@@ -0,0 +1,19 @@
++services:
++  scanner-operator-routing-incident-rca-route-incident-bundle-builder-v2-17:
++    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
++    command: ["python", "-m", "orderflow_services.operator_routing_incident_rca_route_incident_bundle_builder_v2_17"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_INCIDENT_BUNDLE_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_INCIDENT_BUNDLE_PORT:-9899}
++      ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_INCIDENT_BUNDLE_LOOKBACK: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_INCIDENT_BUNDLE_LOOKBACK:-200}
++    ports: ["${ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_INCIDENT_BUNDLE_PORT:-9899}:9899"]
++    depends_on: [redis-worker-1]
+diff --git a/orderflow_services/prometheus_alerts_ml_phase2_17_v1.yml b/orderflow_services/prometheus_alerts_ml_phase2_17_v1.yml
+new file mode 100644
+index 0000000..4444444
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_ml_phase2_17_v1.yml
+@@ -0,0 +1,23 @@
++groups:
++  - name: ml_phase2_17_operator_routing_incident_rca_route_incident_bundle_v1
++    rules:
++      - alert: MLOperatorRoutingIncidentRCARouteIncidentBundleBuilderDown
++        expr: ml_operator_routing_incident_rca_route_incident_bundle_up == 0
++        for: 5m
++        labels: { severity: warning }
++        annotations:
++          summary: "routing incident RCA route incident bundle builder is down"
++
++      - alert: MLOperatorRoutingIncidentRCARouteIncidentBundleBuilderStale
++        expr: time() - ml_operator_routing_incident_rca_route_incident_bundle_last_run_ts_seconds > 1800
++        for: 10m
++        labels: { severity: warning }
++        annotations:
++          summary: "routing incident RCA route incident bundle builder is stale"
+diff --git a/orderflow_services/runbook_ml_phase2_17_v1.md b/orderflow_services/runbook_ml_phase2_17_v1.md
+new file mode 100644
+index 0000000..5555555
+--- /dev/null
++++ b/orderflow_services/runbook_ml_phase2_17_v1.md
+@@ -0,0 +1,43 @@
++# Phase 2.17 — Routing Incident RCA Route Incident Bundle Builder
++
++## Цель
++Построить единый forensic bundle именно по route-governance contour нового `routing incident RCA`.
++
++## Источники
++- `stream:ml:operator_routing_incident_rca_routing_apply_results`
++- `stream:ml:operator_routing_incident_rca_routing_verify_results`
++- `stream:ml:operator_routing_incident_rca_routing_rollback_requests`
++- `stream:ml:operator_routing_incident_rca_routing_rollback_results`
++- `stream:ml:operator_routing_incident_rca_routing_rollback_journal`
++- `stream:ml:operator_routing_incident_rca_route_retry_requests`
++- `stream:ml:operator_routing_incident_rca_route_slo_rollups`
++- `stream:ml:operator_routing_incident_rca_route_escalations`
++- `stream:ml:operator_routing_incident_rca_routing_apply_audit`
++
++## Выходы
++- `stream:ml:operator_routing_incident_rca_route_incident_bundle_results`
++- `metrics:ml:operator_routing_incident_rca_route_incident_bundle:last`
++- `metrics:ml:operator_routing_incident_rca_route_incident_bundle:<incident_id>`
++- `llm_operator_routing_incident_rca_route_incident_bundles`
++
++## Smoke checks
++```bash
++redis-cli XADD stream:ml:operator_routing_incident_rca_route_incident_bundle_requests * experiment_id exp-1 ts_ms $(date +%s%3N)
++redis-cli XREVRANGE stream:ml:operator_routing_incident_rca_route_incident_bundle_results + - COUNT 3
++redis-cli HGETALL metrics:ml:operator_routing_incident_rca_route_incident_bundle:last
++curl -s localhost:9899/metrics | grep '^ml_operator_routing_incident_rca_route_incident_bundle_'
++```
++
++## Notes
++- scope только `scanner_infra`
++- hot path не затронут
++- bundle пригоден для operator review и дальнейшего RCA bridge
+diff --git a/orderflow_services/tests/test_operator_routing_incident_rca_route_incident_bundle_builder_v2_17.py b/orderflow_services/tests/test_operator_routing_incident_rca_route_incident_bundle_builder_v2_17.py
+new file mode 100644
+index 0000000..6666666
+--- /dev/null
++++ b/orderflow_services/tests/test_operator_routing_incident_rca_route_incident_bundle_builder_v2_17.py
+@@ -0,0 +1,57 @@
++from orderflow_services.operator_routing_incident_rca_route_incident_bundle_builder_v2_17 import (
++    build_bundle,
++    primary_reason_codes,
++    severity_from_reason_codes,
++    summarize_route_diff,
++)
++
++
++def test_summarize_route_diff_detects_changes():
++    before = {
++        "provider": "vertex",
++        "model_name": "gemini-2.5-flash-lite",
++        "prompt_version": "v1",
++        "policy_version": "policy_v1",
++    }
++    after = {
++        "provider": "vertex",
++        "model_name": "gemini-2.5-flash",
++        "prompt_version": "v2",
++        "policy_version": "policy_v1",
++    }
++    diff = summarize_route_diff(before, after)
++    assert diff["model_name"]["before"] == "gemini-2.5-flash-lite"
++    assert diff["model_name"]["after"] == "gemini-2.5-flash"
++    assert diff["prompt_version"]["after"] == "v2"
++
++
++def test_primary_reason_codes_and_severity():
++    sections = {
++        "verify_results": [{"verification_reason_code": "USEFULNESS_DROP"}],
++        "slo_rollups": [{"reason_codes_json": '["ROUTE_MTTR_SLO_BREACH","ROUTE_SUCCESS_RATE_LOW"]'}],
++    }
++    reasons = primary_reason_codes(sections)
++    assert "ROUTE_MTTR_SLO_BREACH" in reasons
++    assert severity_from_reason_codes(reasons) == "critical"
++
++
++def test_build_bundle_contains_timeline_and_hash():
++    request_row = {"experiment_id": "exp-1", "ts_ms": "1000"}
++    sections = {
++        "apply_results": [{"baseline_route_json": '{"provider":"vertex","model_name":"gemini-2.5-flash-lite","prompt_version":"v1"}',
++                           "target_route_json": '{"provider":"vertex","model_name":"gemini-2.5-flash","prompt_version":"v2"}',
++                           "ts_ms": "1010"}],
++        "verify_results": [{"current_route_json": '{"provider":"vertex","model_name":"gemini-2.5-flash","prompt_version":"v2"}',
++                            "verification_reason_code": "USEFULNESS_DROP",
++                            "verification_status": "ROLLBACK_REQUIRED",
++                            "ts_ms": "1020"}],
++        "rollback_requests": [],
++        "rollback_results": [],
++        "rollback_journal": [],
++        "retry_requests": [],
++        "slo_rollups": [],
++        "escalations": [],
++        "audit": [],
++    }
++    bundle = build_bundle("exp-1", request_row, sections)
++    assert bundle["incident_id"] == "exp-1"
++    assert bundle["timeline_json"]
++    assert bundle["bundle_hash"]

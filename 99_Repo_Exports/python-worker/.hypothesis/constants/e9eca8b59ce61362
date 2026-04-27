@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signal_exec/repository.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.15, 0.3, 0.4, 0.5, 0.7, 0.85, 1.0, 1.5, 2.0, 3.0, 5.0, 'SignalPerformance', 'atr_1m', 'bars_to_entry', 'bars_to_exit', 'created_at', 'entry_price', 'entry_zone_high', 'entry_zone_low', 'exit_price', 'experiment_id', 'experiment_variant', 'expiry_bars', 'extra', 'final_score', 'mae_R', 'meta', 'mfe_R', 'notes', 'outcome', 'partials', 'pos_risk_R', 'position_size', 'price_at_signal', 'raw_ctx', 'realized_R', 'risk_usd', 'setup_type', 'side', 'signal_id', 'stop_price', 'symbol', 'to_dict', 'tp_levels', 'ts_entry', 'ts_exit', 'ts_signal', 'ttd_bars', 'ttd_seconds']

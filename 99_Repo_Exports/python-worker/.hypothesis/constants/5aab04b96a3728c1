@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/meta_promote_dir_check_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, 5.0, 100.0, '--min-free-pct', '--out', '--promote-dir', 'META_PROMOTE_DIR', '__main__', 'meta_promote_dir_ok']

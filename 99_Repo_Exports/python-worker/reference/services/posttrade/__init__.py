@@ -1,0 +1,3 @@
+# Post-trade services package.
+# Do NOT auto-import writer here — redis.asyncio import at module level blocks test collection.
+# Import directly from submodules: from services.posttrade.decision_snapshot_writer import ...

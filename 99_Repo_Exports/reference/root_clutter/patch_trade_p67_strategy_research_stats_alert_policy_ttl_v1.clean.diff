@@ -1,0 +1,1028 @@
+--- orderflow_services/deploy/compose/docker-compose.strategy-research-stats-alert-policy-exporter-v1.yml
++++ orderflow_services/deploy/compose/docker-compose.strategy-research-stats-alert-policy-exporter-v1.yml
+@@ -7,6 +7,7 @@
+       REDIS_URL: ${REDIS_URL:?}
+       STRATEGY_RESEARCH_STATS_ALERT_POLICY_PREFIX: ${STRATEGY_RESEARCH_STATS_ALERT_POLICY_PREFIX:-cfg:strategy_research_stats:alert_policy:v1}
+       STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULTS_KEY: ${STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULTS_KEY:-cfg:strategy_research_stats:alert_policy:v1:defaults}
++      STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_PREFIX: ${STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_PREFIX:-cfg:strategy_research_stats:alert_policy:suppress_override:v1}
+       STRATEGY_RESEARCH_STATS_ALERT_POLICY_PURPOSES: ${STRATEGY_RESEARCH_STATS_ALERT_POLICY_PURPOSES:-conf_score_guardrails_apply,conf_score_guardrails_promote,conf_score_guardrails_autopromo_controller,meta_cov_rollout_controller}
+       STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_PBO_HIGH_MIN_EVENTS_24H: ${STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_PBO_HIGH_MIN_EVENTS_24H:-3}
+       STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_REPORT_STALE_MIN_EVENTS_7D: ${STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_REPORT_STALE_MIN_EVENTS_7D:-5}
+--- orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
++++ orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
+@@ -53,6 +53,10 @@
+ 
+ STRATEGY_RESEARCH_STATS_ALERT_POLICY_PREFIX=cfg:strategy_research_stats:alert_policy:v1
+ STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULTS_KEY=cfg:strategy_research_stats:alert_policy:v1:defaults
++STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_PREFIX=cfg:strategy_research_stats:alert_policy:suppress_override:v1
++STRATEGY_RESEARCH_STATS_ALERT_POLICY_OPS_STREAM=ops:strategy_research_stats:alert_policy:v1
++STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_TTL_S=86400
++STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_MAX_TTL_S=604800
+ STRATEGY_RESEARCH_STATS_ALERT_POLICY_PURPOSES=conf_score_guardrails_apply,conf_score_guardrails_promote,conf_score_guardrails_autopromo_controller,meta_cov_rollout_controller
+ STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_PBO_HIGH_MIN_EVENTS_24H=3
+ STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_REPORT_STALE_MIN_EVENTS_7D=5
+--- orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
++++ orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
+@@ -53,6 +53,10 @@
+ 
+ STRATEGY_RESEARCH_STATS_ALERT_POLICY_PREFIX=cfg:strategy_research_stats:alert_policy:v1
+ STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULTS_KEY=cfg:strategy_research_stats:alert_policy:v1:defaults
++STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_PREFIX=cfg:strategy_research_stats:alert_policy:suppress_override:v1
++STRATEGY_RESEARCH_STATS_ALERT_POLICY_OPS_STREAM=ops:strategy_research_stats:alert_policy:v1
++STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_TTL_S=86400
++STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_MAX_TTL_S=604800
+ STRATEGY_RESEARCH_STATS_ALERT_POLICY_PURPOSES=conf_score_guardrails_apply,conf_score_guardrails_promote,conf_score_guardrails_autopromo_controller,meta_cov_rollout_controller
+ STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_PBO_HIGH_MIN_EVENTS_24H=3
+ STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_REPORT_STALE_MIN_EVENTS_7D=5
+--- orderflow_services/strategy_research_stats_alert_policy_exporter_v1.py
++++ orderflow_services/strategy_research_stats_alert_policy_exporter_v1.py
+@@ -3,7 +3,7 @@
+ import logging
+ import os
+ import time
+-from typing import Any, Dict, Iterable
++from typing import Any, Dict
+ 
+ from prometheus_client import Gauge, start_http_server
+ 
+@@ -94,6 +94,54 @@
+     return f'{prefix}:{purpose}'
+ 
+ 
++def _override_key(purpose: str, family: str) -> str:
++    prefix = _env(
++        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_PREFIX',
++        'cfg:strategy_research_stats:alert_policy:suppress_override:v1',
++    ).rstrip(':')
++    return f'{prefix}:{purpose}:{family}'
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _resolve_override(client: Any, purpose: str, family: str, now_ms: int) -> Dict[str, Any]:
++    raw = _read_hash(client, _override_key(purpose, family))
++    if not raw:
++        return {'present': 0.0, 'active': 0.0, 'created_ts_ms': 0, 'expire_ts_ms': 0, 'remaining_s': 0.0}
++    created_ts_ms = int(_to_float(raw.get('created_ts_ms'), 0.0))
++    expire_ts_ms = int(_to_float(raw.get('expire_ts_ms'), 0.0))
++    has_ticket = 1.0 if str(raw.get('ticket') or '').strip() else 0.0
++    has_operator = 1.0 if str(raw.get('operator') or '').strip() else 0.0
++    has_reason = 1.0 if str(raw.get('reason') or '').strip() else 0.0
++    if expire_ts_ms <= now_ms:
++        try:
++            client.delete(_override_key(purpose, family))
++        except Exception:
++            pass
++        return {
++            'present': 0.0,
++            'active': 0.0,
++            'created_ts_ms': created_ts_ms,
++            'expire_ts_ms': expire_ts_ms,
++            'remaining_s': 0.0,
++            'has_ticket': has_ticket,
++            'has_operator': has_operator,
++            'has_reason': has_reason,
++        }
++    return {
++        'present': 1.0,
++        'active': 1.0,
++        'created_ts_ms': created_ts_ms,
++        'expire_ts_ms': expire_ts_ms,
++        'remaining_s': max(0.0, (expire_ts_ms - now_ms) / 1000.0),
++        'has_ticket': has_ticket,
++        'has_operator': has_operator,
++        'has_reason': has_reason,
++    }
++
++
+ def _family_default(family: str, field: str) -> float:
+     env_map = {
+         ('pbo_high', 'min_events_24h'): 'STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_PBO_HIGH_MIN_EVENTS_24H',
+@@ -131,7 +179,17 @@
+ UP = Gauge('strategy_research_stats_alert_policy_exporter_up', '1 if alert policy exporter loop is running')
+ REDIS_READ_OK = Gauge('strategy_research_stats_alert_policy_redis_read_ok', '1 if alert policy exporter can read Redis')
+ POLICY_ENABLED = Gauge('strategy_research_stats_alert_policy_enabled', '1 if family alerting is enabled for purpose', ['purpose', 'family'])
+-POLICY_SUPPRESS = Gauge('strategy_research_stats_alert_policy_suppress_active', '1 if family alerting is suppressed for purpose', ['purpose', 'family'])
++POLICY_SUPPRESS = Gauge('strategy_research_stats_alert_policy_suppress_active', '1 if family alerting is suppressed for purpose after TTL-aware overrides are applied', ['purpose', 'family'])
++POLICY_STATIC_SUPPRESS = Gauge('strategy_research_stats_alert_policy_static_suppress_active', '1 if family alerting is statically suppressed by policy hash for purpose', ['purpose', 'family'])
++POLICY_OVERRIDE_ACTIVE = Gauge('strategy_research_stats_alert_policy_override_active', '1 if a TTL-backed suppress override is active for purpose/family', ['purpose', 'family'])
++POLICY_OVERRIDE_PRESENT = Gauge('strategy_research_stats_alert_policy_override_present', '1 if an override hash is present and still active for purpose/family', ['purpose', 'family'])
++POLICY_OVERRIDE_CREATED_UNIX = Gauge('strategy_research_stats_alert_policy_override_created_unixtime', 'Creation time of the active suppress override for purpose/family', ['purpose', 'family'])
++POLICY_OVERRIDE_EXPIRE_UNIX = Gauge('strategy_research_stats_alert_policy_override_expire_unixtime', 'Expiry time of the active suppress override for purpose/family', ['purpose', 'family'])
++POLICY_OVERRIDE_REMAINING = Gauge('strategy_research_stats_alert_policy_override_remaining_seconds', 'Seconds until suppress override expiry for purpose/family', ['purpose', 'family'])
++POLICY_OVERRIDE_HAS_TICKET = Gauge('strategy_research_stats_alert_policy_override_ticket_present', '1 if active suppress override contains a ticket for purpose/family', ['purpose', 'family'])
++POLICY_OVERRIDE_HAS_OPERATOR = Gauge('strategy_research_stats_alert_policy_override_operator_present', '1 if active suppress override contains an operator for purpose/family', ['purpose', 'family'])
++POLICY_OVERRIDE_HAS_REASON = Gauge('strategy_research_stats_alert_policy_override_reason_present', '1 if active suppress override contains a reason for purpose/family', ['purpose', 'family'])
++POLICY_ACTIVE_SUPPRESSIONS_TOTAL = Gauge('strategy_research_stats_alert_policy_active_suppressions_total', 'Number of active TTL-backed suppress overrides by family', ['family'])
+ POLICY_MIN_24H = Gauge('strategy_research_stats_alert_policy_min_events_24h', 'Minimum 24h events threshold for purpose/family alerts', ['purpose', 'family'])
+ POLICY_MIN_7D = Gauge('strategy_research_stats_alert_policy_min_events_7d', 'Minimum 7d events threshold for purpose/family alerts', ['purpose', 'family'])
+ POLICY_SHARE_24H = Gauge('strategy_research_stats_alert_policy_share_threshold_24h', '24h share threshold for purpose/family alerts', ['purpose', 'family'])
+@@ -149,17 +207,35 @@
+     REDIS_READ_OK.set(1.0)
+     defaults_hash = _read_hash(client, _defaults_key())
+     POLICY_DEFAULTS_PRESENT.set(1.0 if defaults_hash else 0.0)
++    active_totals = {family: 0.0 for family in FAMILIES}
++    now_ms = _now_ms()
+     for purpose in _purposes():
+         purpose_hash = _read_hash(client, _purpose_key(purpose))
+         POLICY_HASH_PRESENT.labels(purpose=purpose).set(1.0 if purpose_hash else 0.0)
+         for family in FAMILIES:
+             policy = resolve_family_policy(family, defaults_hash, purpose_hash)
++            override = _resolve_override(client, purpose, family, now_ms)
++            static_suppress = 1.0 if policy['suppress_active'] else 0.0
++            effective_suppress = 1.0 if static_suppress or override['active'] else 0.0
+             POLICY_ENABLED.labels(purpose=purpose, family=family).set(policy['enabled'])
+-            POLICY_SUPPRESS.labels(purpose=purpose, family=family).set(policy['suppress_active'])
++            POLICY_STATIC_SUPPRESS.labels(purpose=purpose, family=family).set(static_suppress)
++            POLICY_SUPPRESS.labels(purpose=purpose, family=family).set(effective_suppress)
++            POLICY_OVERRIDE_ACTIVE.labels(purpose=purpose, family=family).set(override['active'])
++            POLICY_OVERRIDE_PRESENT.labels(purpose=purpose, family=family).set(override['present'])
++            POLICY_OVERRIDE_CREATED_UNIX.labels(purpose=purpose, family=family).set(override['created_ts_ms'] / 1000.0 if override['created_ts_ms'] else 0.0)
++            POLICY_OVERRIDE_EXPIRE_UNIX.labels(purpose=purpose, family=family).set(override['expire_ts_ms'] / 1000.0 if override['expire_ts_ms'] else 0.0)
++            POLICY_OVERRIDE_REMAINING.labels(purpose=purpose, family=family).set(override['remaining_s'])
++            POLICY_OVERRIDE_HAS_TICKET.labels(purpose=purpose, family=family).set(override.get('has_ticket', 0.0) if override['active'] else 0.0)
++            POLICY_OVERRIDE_HAS_OPERATOR.labels(purpose=purpose, family=family).set(override.get('has_operator', 0.0) if override['active'] else 0.0)
++            POLICY_OVERRIDE_HAS_REASON.labels(purpose=purpose, family=family).set(override.get('has_reason', 0.0) if override['active'] else 0.0)
++            if override['active']:
++                active_totals[family] += 1.0
+             POLICY_MIN_24H.labels(purpose=purpose, family=family).set(policy['min_events_24h'])
+             POLICY_MIN_7D.labels(purpose=purpose, family=family).set(policy['min_events_7d'])
+             POLICY_SHARE_24H.labels(purpose=purpose, family=family).set(policy['share_threshold_24h'])
+             POLICY_DELTA_7D.labels(purpose=purpose, family=family).set(policy['delta_vs_7d'])
++    for family, value in active_totals.items():
++        POLICY_ACTIVE_SUPPRESSIONS_TOTAL.labels(family=family).set(value)
+ 
+ 
+ def main() -> None:
+--- orderflow_services/tests/test_strategy_research_stats_alert_policy_exporter_v1.py
++++ orderflow_services/tests/test_strategy_research_stats_alert_policy_exporter_v1.py
+@@ -1,6 +1,12 @@
+ from __future__ import annotations
+ 
+-from orderflow_services.strategy_research_stats_alert_policy_exporter_v1 import resolve_family_policy
++from orderflow_services.strategy_research_stats_alert_policy_exporter_v1 import (
++    POLICY_OVERRIDE_ACTIVE,
++    POLICY_OVERRIDE_REMAINING,
++    POLICY_SUPPRESS,
++    publish,
++    resolve_family_policy,
++)
+ 
+ 
+ def test_resolve_family_policy_applies_defaults_then_purpose_override() -> None:
+@@ -17,3 +23,56 @@
+     assert policy['share_threshold_24h'] == 0.7
+     assert policy['delta_vs_7d'] == 0.2
+     assert policy['min_events_24h'] >= 1.0
++
++
++class _FakeRedis:
++    def __init__(self, hashes: dict[str, dict[str, str]]) -> None:
++        self.hashes = hashes
++    def hgetall(self, key: str) -> dict[str, str]:
++        return dict(self.hashes.get(key, {}))
++    def delete(self, key: str) -> int:
++        self.hashes.pop(key, None)
++        return 1
++
++
++def test_publish_applies_ttl_override_to_effective_suppression(monkeypatch) -> None:
++    now_ms = 1_700_000_000_000
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_PURPOSES', 'conf_score_guardrails_apply')
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_PREFIX', 'cfg:strategy_research_stats:alert_policy:suppress_override:v1')
++    hashes = {
++        'cfg:strategy_research_stats:alert_policy:suppress_override:v1:conf_score_guardrails_apply:pbo_high': {
++            'ticket': 'INC-9',
++            'operator': 'alex',
++            'reason': 'temporary noise suppression',
++            'created_ts_ms': str(now_ms - 1000),
++            'expire_ts_ms': str(now_ms + 120_000),
++        }
++    }
++    from orderflow_services import strategy_research_stats_alert_policy_exporter_v1 as m
++    monkeypatch.setattr(m, '_now_ms', lambda: now_ms)
++    publish(_FakeRedis(hashes))
++    assert POLICY_SUPPRESS.labels(purpose='conf_score_guardrails_apply', family='pbo_high')._value.get() == 1.0
++    assert POLICY_OVERRIDE_ACTIVE.labels(purpose='conf_score_guardrails_apply', family='pbo_high')._value.get() == 1.0
++    assert POLICY_OVERRIDE_REMAINING.labels(purpose='conf_score_guardrails_apply', family='pbo_high')._value.get() >= 100.0
++
++
++def test_publish_clears_expired_override(monkeypatch) -> None:
++    now_ms = 1_700_000_000_000
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_PURPOSES', 'conf_score_guardrails_apply')
++    monkeypatch.setenv('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_PREFIX', 'cfg:strategy_research_stats:alert_policy:suppress_override:v1')
++    key = 'cfg:strategy_research_stats:alert_policy:suppress_override:v1:conf_score_guardrails_apply:report_stale'
++    hashes = {
++        key: {
++            'ticket': 'INC-10',
++            'operator': 'ops',
++            'reason': 'expired',
++            'created_ts_ms': str(now_ms - 1000),
++            'expire_ts_ms': str(now_ms - 1),
++        }
++    }
++    from orderflow_services import strategy_research_stats_alert_policy_exporter_v1 as m
++    monkeypatch.setattr(m, '_now_ms', lambda: now_ms)
++    r = _FakeRedis(hashes)
++    publish(r)
++    assert key not in r.hashes
++    assert POLICY_OVERRIDE_ACTIVE.labels(purpose='conf_score_guardrails_apply', family='report_stale')._value.get() == 0.0
+--- orderflow_services/tests/test_strategy_research_stats_p66_assets_v1.py
++++ orderflow_services/tests/test_strategy_research_stats_p66_assets_v1.py
+@@ -10,6 +10,7 @@
+     assert (base / 'strategy_research_stats_alert_policy_exporter_v1.py').exists()
+     assert (base / 'deploy' / 'compose' / 'docker-compose.strategy-research-stats-alert-policy-exporter-v1.yml').exists()
+     assert (base / 'integrations' / 'metrics-proxy.strategy-research-stats-alert-policy-exporter-v1.conf').exists()
++    assert (base / 'strategy_research_stats_alert_policy_override_v1.py').exists()
+ 
+ 
+ def test_p66_alerts_use_policy_metrics() -> None:
+@@ -21,3 +22,14 @@
+     assert 'strategy_research_stats_alert_policy_suppress_active' in text
+     assert 'strategy_research_stats_alert_policy_share_threshold_24h' in text
+     assert 'strategy_research_stats_alert_policy_delta_vs_7d' in text
++
++
++def test_p67_exporter_exposes_override_metrics() -> None:
++    base = Path(__file__).resolve().parents[1]
++    text = (base / 'strategy_research_stats_alert_policy_exporter_v1.py').read_text()
++    assert 'strategy_research_stats_alert_policy_override_active' in text
++    assert 'strategy_research_stats_alert_policy_override_remaining_seconds' in text
++    assert 'strategy_research_stats_alert_policy_override_expire_unixtime' in text
++    env = (base / 'deploy' / 'env' / 'latency-contract-sensitive-jobs.prod.env.example').read_text()
++    assert 'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_PREFIX' in env
++    assert 'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_TTL_S' in env
+--- tick_flow_full/orderflow_services/strategy_research_stats_alert_policy_exporter_v1.py
++++ tick_flow_full/orderflow_services/strategy_research_stats_alert_policy_exporter_v1.py
+@@ -3,7 +3,7 @@
+ import logging
+ import os
+ import time
+-from typing import Any, Dict, Iterable
++from typing import Any, Dict
+ 
+ from prometheus_client import Gauge, start_http_server
+ 
+@@ -94,6 +94,54 @@
+     return f'{prefix}:{purpose}'
+ 
+ 
++def _override_key(purpose: str, family: str) -> str:
++    prefix = _env(
++        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_PREFIX',
++        'cfg:strategy_research_stats:alert_policy:suppress_override:v1',
++    ).rstrip(':')
++    return f'{prefix}:{purpose}:{family}'
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _resolve_override(client: Any, purpose: str, family: str, now_ms: int) -> Dict[str, Any]:
++    raw = _read_hash(client, _override_key(purpose, family))
++    if not raw:
++        return {'present': 0.0, 'active': 0.0, 'created_ts_ms': 0, 'expire_ts_ms': 0, 'remaining_s': 0.0}
++    created_ts_ms = int(_to_float(raw.get('created_ts_ms'), 0.0))
++    expire_ts_ms = int(_to_float(raw.get('expire_ts_ms'), 0.0))
++    has_ticket = 1.0 if str(raw.get('ticket') or '').strip() else 0.0
++    has_operator = 1.0 if str(raw.get('operator') or '').strip() else 0.0
++    has_reason = 1.0 if str(raw.get('reason') or '').strip() else 0.0
++    if expire_ts_ms <= now_ms:
++        try:
++            client.delete(_override_key(purpose, family))
++        except Exception:
++            pass
++        return {
++            'present': 0.0,
++            'active': 0.0,
++            'created_ts_ms': created_ts_ms,
++            'expire_ts_ms': expire_ts_ms,
++            'remaining_s': 0.0,
++            'has_ticket': has_ticket,
++            'has_operator': has_operator,
++            'has_reason': has_reason,
++        }
++    return {
++        'present': 1.0,
++        'active': 1.0,
++        'created_ts_ms': created_ts_ms,
++        'expire_ts_ms': expire_ts_ms,
++        'remaining_s': max(0.0, (expire_ts_ms - now_ms) / 1000.0),
++        'has_ticket': has_ticket,
++        'has_operator': has_operator,
++        'has_reason': has_reason,
++    }
++
++
+ def _family_default(family: str, field: str) -> float:
+     env_map = {
+         ('pbo_high', 'min_events_24h'): 'STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_PBO_HIGH_MIN_EVENTS_24H',
+@@ -131,7 +179,17 @@
+ UP = Gauge('strategy_research_stats_alert_policy_exporter_up', '1 if alert policy exporter loop is running')
+ REDIS_READ_OK = Gauge('strategy_research_stats_alert_policy_redis_read_ok', '1 if alert policy exporter can read Redis')
+ POLICY_ENABLED = Gauge('strategy_research_stats_alert_policy_enabled', '1 if family alerting is enabled for purpose', ['purpose', 'family'])
+-POLICY_SUPPRESS = Gauge('strategy_research_stats_alert_policy_suppress_active', '1 if family alerting is suppressed for purpose', ['purpose', 'family'])
++POLICY_SUPPRESS = Gauge('strategy_research_stats_alert_policy_suppress_active', '1 if family alerting is suppressed for purpose after TTL-aware overrides are applied', ['purpose', 'family'])
++POLICY_STATIC_SUPPRESS = Gauge('strategy_research_stats_alert_policy_static_suppress_active', '1 if family alerting is statically suppressed by policy hash for purpose', ['purpose', 'family'])
++POLICY_OVERRIDE_ACTIVE = Gauge('strategy_research_stats_alert_policy_override_active', '1 if a TTL-backed suppress override is active for purpose/family', ['purpose', 'family'])
++POLICY_OVERRIDE_PRESENT = Gauge('strategy_research_stats_alert_policy_override_present', '1 if an override hash is present and still active for purpose/family', ['purpose', 'family'])
++POLICY_OVERRIDE_CREATED_UNIX = Gauge('strategy_research_stats_alert_policy_override_created_unixtime', 'Creation time of the active suppress override for purpose/family', ['purpose', 'family'])
++POLICY_OVERRIDE_EXPIRE_UNIX = Gauge('strategy_research_stats_alert_policy_override_expire_unixtime', 'Expiry time of the active suppress override for purpose/family', ['purpose', 'family'])
++POLICY_OVERRIDE_REMAINING = Gauge('strategy_research_stats_alert_policy_override_remaining_seconds', 'Seconds until suppress override expiry for purpose/family', ['purpose', 'family'])
++POLICY_OVERRIDE_HAS_TICKET = Gauge('strategy_research_stats_alert_policy_override_ticket_present', '1 if active suppress override contains a ticket for purpose/family', ['purpose', 'family'])
++POLICY_OVERRIDE_HAS_OPERATOR = Gauge('strategy_research_stats_alert_policy_override_operator_present', '1 if active suppress override contains an operator for purpose/family', ['purpose', 'family'])
++POLICY_OVERRIDE_HAS_REASON = Gauge('strategy_research_stats_alert_policy_override_reason_present', '1 if active suppress override contains a reason for purpose/family', ['purpose', 'family'])
++POLICY_ACTIVE_SUPPRESSIONS_TOTAL = Gauge('strategy_research_stats_alert_policy_active_suppressions_total', 'Number of active TTL-backed suppress overrides by family', ['family'])
+ POLICY_MIN_24H = Gauge('strategy_research_stats_alert_policy_min_events_24h', 'Minimum 24h events threshold for purpose/family alerts', ['purpose', 'family'])
+ POLICY_MIN_7D = Gauge('strategy_research_stats_alert_policy_min_events_7d', 'Minimum 7d events threshold for purpose/family alerts', ['purpose', 'family'])
+ POLICY_SHARE_24H = Gauge('strategy_research_stats_alert_policy_share_threshold_24h', '24h share threshold for purpose/family alerts', ['purpose', 'family'])
+@@ -149,17 +207,35 @@
+     REDIS_READ_OK.set(1.0)
+     defaults_hash = _read_hash(client, _defaults_key())
+     POLICY_DEFAULTS_PRESENT.set(1.0 if defaults_hash else 0.0)
++    active_totals = {family: 0.0 for family in FAMILIES}
++    now_ms = _now_ms()
+     for purpose in _purposes():
+         purpose_hash = _read_hash(client, _purpose_key(purpose))
+         POLICY_HASH_PRESENT.labels(purpose=purpose).set(1.0 if purpose_hash else 0.0)
+         for family in FAMILIES:
+             policy = resolve_family_policy(family, defaults_hash, purpose_hash)
++            override = _resolve_override(client, purpose, family, now_ms)
++            static_suppress = 1.0 if policy['suppress_active'] else 0.0
++            effective_suppress = 1.0 if static_suppress or override['active'] else 0.0
+             POLICY_ENABLED.labels(purpose=purpose, family=family).set(policy['enabled'])
+-            POLICY_SUPPRESS.labels(purpose=purpose, family=family).set(policy['suppress_active'])
++            POLICY_STATIC_SUPPRESS.labels(purpose=purpose, family=family).set(static_suppress)
++            POLICY_SUPPRESS.labels(purpose=purpose, family=family).set(effective_suppress)
++            POLICY_OVERRIDE_ACTIVE.labels(purpose=purpose, family=family).set(override['active'])
++            POLICY_OVERRIDE_PRESENT.labels(purpose=purpose, family=family).set(override['present'])
++            POLICY_OVERRIDE_CREATED_UNIX.labels(purpose=purpose, family=family).set(override['created_ts_ms'] / 1000.0 if override['created_ts_ms'] else 0.0)
++            POLICY_OVERRIDE_EXPIRE_UNIX.labels(purpose=purpose, family=family).set(override['expire_ts_ms'] / 1000.0 if override['expire_ts_ms'] else 0.0)
++            POLICY_OVERRIDE_REMAINING.labels(purpose=purpose, family=family).set(override['remaining_s'])
++            POLICY_OVERRIDE_HAS_TICKET.labels(purpose=purpose, family=family).set(override.get('has_ticket', 0.0) if override['active'] else 0.0)
++            POLICY_OVERRIDE_HAS_OPERATOR.labels(purpose=purpose, family=family).set(override.get('has_operator', 0.0) if override['active'] else 0.0)
++            POLICY_OVERRIDE_HAS_REASON.labels(purpose=purpose, family=family).set(override.get('has_reason', 0.0) if override['active'] else 0.0)
++            if override['active']:
++                active_totals[family] += 1.0
+             POLICY_MIN_24H.labels(purpose=purpose, family=family).set(policy['min_events_24h'])
+             POLICY_MIN_7D.labels(purpose=purpose, family=family).set(policy['min_events_7d'])
+             POLICY_SHARE_24H.labels(purpose=purpose, family=family).set(policy['share_threshold_24h'])
+             POLICY_DELTA_7D.labels(purpose=purpose, family=family).set(policy['delta_vs_7d'])
++    for family, value in active_totals.items():
++        POLICY_ACTIVE_SUPPRESSIONS_TOTAL.labels(family=family).set(value)
+ 
+ 
+ def main() -> None:
+--- /dev/null
++++ orderflow_services/strategy_research_stats_alert_policy_override_v1.py
+@@ -0,0 +1,262 @@
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import sys
++import time
++from typing import Any, Dict
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++from orderflow_services.strategy_research_stats_alert_policy_exporter_v1 import FAMILIES
++
++
++SUPPORTED_OVERRIDE_FAMILIES = ('pbo_high', 'report_stale', 'psr_dsr_low')
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _to_int(v: Any, default: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return default
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _redis_client() -> Any:
++    if redis is None:  # pragma: no cover
++        raise RuntimeError('redis package is not available')
++    return redis.Redis.from_url(_env('REDIS_URL', 'redis://redis-worker-1:6379/0'), decode_responses=True)
++
++
++def override_key(purpose: str, family: str) -> str:
++    prefix = _env(
++        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_PREFIX',
++        'cfg:strategy_research_stats:alert_policy:suppress_override:v1',
++    ).rstrip(':')
++    return f'{prefix}:{purpose}:{family}'
++
++
++def ops_stream() -> str:
++    return _env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OPS_STREAM', 'ops:strategy_research_stats:alert_policy:v1')
++
++
++def default_ttl_s() -> int:
++    return max(300, _to_int(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_TTL_S', '86400'), 86400))
++
++
++def max_ttl_s() -> int:
++    return max(default_ttl_s(), _to_int(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_MAX_TTL_S', '604800'), 604800))
++
++
++def _validate_family(family: str) -> str:
++    family = (family or '').strip()
++    if family not in SUPPORTED_OVERRIDE_FAMILIES:
++        raise SystemExit(f'unsupported family: {family!r}; expected one of {SUPPORTED_OVERRIDE_FAMILIES}')
++    return family
++
++
++def _validate_nonempty(name: str, value: str) -> str:
++    value = (value or '').strip()
++    if not value:
++        raise SystemExit(f'{name} is required')
++    return value
++
++
++def _emit_event(client: Any, kind: str, payload: Dict[str, Any]) -> None:
++    fields = {
++        'ts_ms': str(_now_ms()),
++        'kind': kind,
++        'source': 'strategy_research_stats_alert_policy_override_v1',
++    }
++    for key, value in payload.items():
++        if isinstance(value, (dict, list, tuple)):
++            fields[key] = json.dumps(value, sort_keys=True)
++        else:
++            fields[key] = '' if value is None else str(value)
++    client.xadd(ops_stream(), fields, maxlen=200000, approximate=True)
++
++
++def set_override(
++    client: Any,
++    *,
++    purpose: str,
++    family: str,
++    ticket: str,
++    operator: str,
++    reason: str,
++    ttl_s: int,
++) -> Dict[str, Any]:
++    purpose = _validate_nonempty('purpose', purpose)
++    family = _validate_family(family)
++    ticket = _validate_nonempty('ticket', ticket)
++    operator = _validate_nonempty('operator', operator)
++    reason = _validate_nonempty('reason', reason)
++    ttl_s = max(300, min(int(ttl_s), max_ttl_s()))
++    now_ms = _now_ms()
++    expire_ts_ms = now_ms + ttl_s * 1000
++    key = override_key(purpose, family)
++    payload = {
++        'purpose': purpose,
++        'family': family,
++        'ticket': ticket,
++        'operator': operator,
++        'reason': reason,
++        'created_ts_ms': str(now_ms),
++        'expire_ts_ms': str(expire_ts_ms),
++        'ttl_s': str(ttl_s),
++        'suppress_active': '1',
++    }
++    client.hset(key, mapping=payload)
++    client.expire(key, ttl_s)
++    _emit_event(
++        client,
++        'strategy_research_stats_alert_policy_suppress_override_set',
++        {
++            'purpose': purpose,
++            'family': family,
++            'ticket': ticket,
++            'operator': operator,
++            'reason': reason,
++            'ttl_s': ttl_s,
++            'expire_ts_ms': expire_ts_ms,
++            'override_key': key,
++        },
++    )
++    return payload
++
++
++def clear_override(
++    client: Any,
++    *,
++    purpose: str,
++    family: str,
++    ticket: str,
++    operator: str,
++    reason: str,
++) -> Dict[str, Any]:
++    purpose = _validate_nonempty('purpose', purpose)
++    family = _validate_family(family)
++    ticket = _validate_nonempty('ticket', ticket)
++    operator = _validate_nonempty('operator', operator)
++    reason = _validate_nonempty('reason', reason)
++    key = override_key(purpose, family)
++    existing = client.hgetall(key) or {}
++    client.delete(key)
++    _emit_event(
++        client,
++        'strategy_research_stats_alert_policy_suppress_override_cleared',
++        {
++            'purpose': purpose,
++            'family': family,
++            'ticket': ticket,
++            'operator': operator,
++            'reason': reason,
++            'previous_ticket': existing.get('ticket', ''),
++            'previous_operator': existing.get('operator', ''),
++            'previous_reason': existing.get('reason', ''),
++            'previous_expire_ts_ms': existing.get('expire_ts_ms', ''),
++            'override_key': key,
++        },
++    )
++    return existing
++
++
++def list_active_overrides(client: Any, *, purpose: str = '') -> list[Dict[str, Any]]:
++    prefix = _env(
++        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_PREFIX',
++        'cfg:strategy_research_stats:alert_policy:suppress_override:v1',
++    ).rstrip(':')
++    pattern = f'{prefix}:{purpose}:*' if purpose else f'{prefix}:*'
++    now_ms = _now_ms()
++    items: list[Dict[str, Any]] = []
++    for key in sorted(client.keys(pattern) or []):
++        raw = client.hgetall(key) or {}
++        if not raw:
++            continue
++        expire_ts_ms = _to_int(raw.get('expire_ts_ms'), 0)
++        if expire_ts_ms and expire_ts_ms <= now_ms:
++            continue
++        items.append(
++            {
++                'key': key,
++                'purpose': raw.get('purpose', ''),
++                'family': raw.get('family', ''),
++                'ticket': raw.get('ticket', ''),
++                'operator': raw.get('operator', ''),
++                'reason': raw.get('reason', ''),
++                'created_ts_ms': _to_int(raw.get('created_ts_ms'), 0),
++                'expire_ts_ms': expire_ts_ms,
++                'remaining_s': max(0, (expire_ts_ms - now_ms) // 1000),
++            }
++        )
++    return items
++
++
++def build_arg_parser() -> argparse.ArgumentParser:
++    p = argparse.ArgumentParser(description='Manage TTL-backed strategy_research_stats alert-policy suppression overrides')
++    sub = p.add_subparsers(dest='cmd', required=True)
++
++    ps = sub.add_parser('suppress', help='Create or replace a TTL-backed suppress override')
++    ps.add_argument('--purpose', required=True)
++    ps.add_argument('--family', required=True, choices=SUPPORTED_OVERRIDE_FAMILIES)
++    ps.add_argument('--ticket', required=True)
++    ps.add_argument('--operator', required=True)
++    ps.add_argument('--reason', required=True)
++    ps.add_argument('--ttl-s', type=int, default=default_ttl_s())
++
++    pc = sub.add_parser('clear', help='Clear an active suppress override')
++    pc.add_argument('--purpose', required=True)
++    pc.add_argument('--family', required=True, choices=SUPPORTED_OVERRIDE_FAMILIES)
++    pc.add_argument('--ticket', required=True)
++    pc.add_argument('--operator', required=True)
++    pc.add_argument('--reason', required=True)
++
++    pst = sub.add_parser('status', help='Print active suppress overrides as JSON')
++    pst.add_argument('--purpose', default='')
++    return p
++
++
++def main(argv: list[str] | None = None) -> int:
++    ns = build_arg_parser().parse_args(argv)
++    client = _redis_client()
++    if ns.cmd == 'suppress':
++        payload = set_override(
++            client,
++            purpose=ns.purpose,
++            family=ns.family,
++            ticket=ns.ticket,
++            operator=ns.operator,
++            reason=ns.reason,
++            ttl_s=ns.ttl_s,
++        )
++        sys.stdout.write(json.dumps(payload, sort_keys=True) + '\n')
++        return 0
++    if ns.cmd == 'clear':
++        payload = clear_override(
++            client,
++            purpose=ns.purpose,
++            family=ns.family,
++            ticket=ns.ticket,
++            operator=ns.operator,
++            reason=ns.reason,
++        )
++        sys.stdout.write(json.dumps(payload, sort_keys=True) + '\n')
++        return 0
++    rows = list_active_overrides(client, purpose=ns.purpose)
++    sys.stdout.write(json.dumps(rows, sort_keys=True) + '\n')
++    return 0
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+--- /dev/null
++++ orderflow_services/tests/test_strategy_research_stats_alert_policy_override_v1.py
+@@ -0,0 +1,117 @@
++from __future__ import annotations
++
++import json
++import time
++from typing import Any
++
++from orderflow_services.strategy_research_stats_alert_policy_override_v1 import (
++    clear_override,
++    list_active_overrides,
++    override_key,
++    set_override,
++)
++
++
++class FakeRedis:
++    def __init__(self) -> None:
++        self.hashes: dict[str, dict[str, str]] = {}
++        self.expiry_s: dict[str, int] = {}
++        self.events: list[tuple[str, dict[str, str]]] = []
++
++    def hgetall(self, key: str) -> dict[str, str]:
++        return dict(self.hashes.get(key, {}))
++
++    def hset(self, key: str, mapping: dict[str, str]) -> None:
++        self.hashes[key] = {**self.hashes.get(key, {}), **mapping}
++
++    def expire(self, key: str, ttl_s: int) -> None:
++        self.expiry_s[key] = ttl_s
++
++    def delete(self, key: str) -> int:
++        existed = 1 if key in self.hashes else 0
++        self.hashes.pop(key, None)
++        self.expiry_s.pop(key, None)
++        return existed
++
++    def xadd(self, stream: str, fields: dict[str, str], maxlen: int | None = None, approximate: bool = True) -> str:
++        self.events.append((stream, dict(fields)))
++        return '1-0'
++
++    def keys(self, pattern: str) -> list[str]:
++        prefix = pattern.rstrip('*')
++        return [k for k in self.hashes if k.startswith(prefix)]
++
++
++def test_set_override_writes_ttl_and_audit_event() -> None:
++    r = FakeRedis()
++    payload = set_override(
++        r,
++        purpose='conf_score_guardrails_promote',
++        family='pbo_high',
++        ticket='INC-123',
++        operator='alex',
++        reason='hold repeated false positives',
++        ttl_s=7200,
++    )
++    key = override_key('conf_score_guardrails_promote', 'pbo_high')
++    raw = r.hgetall(key)
++    assert raw['ticket'] == 'INC-123'
++    assert raw['operator'] == 'alex'
++    assert raw['reason'] == 'hold repeated false positives'
++    assert int(raw['expire_ts_ms']) > int(raw['created_ts_ms'])
++    assert r.expiry_s[key] == 7200
++    assert payload['suppress_active'] == '1'
++    assert r.events and r.events[-1][1]['kind'] == 'strategy_research_stats_alert_policy_suppress_override_set'
++
++
++def test_clear_override_removes_key_and_emits_audit_event() -> None:
++    r = FakeRedis()
++    set_override(
++        r,
++        purpose='conf_score_guardrails_apply',
++        family='report_stale',
++        ticket='OPS-1',
++        operator='ops',
++        reason='waiting for upstream dataset refresh',
++        ttl_s=3600,
++    )
++    existing = clear_override(
++        r,
++        purpose='conf_score_guardrails_apply',
++        family='report_stale',
++        ticket='OPS-2',
++        operator='ops2',
++        reason='refresh completed',
++    )
++    assert existing['ticket'] == 'OPS-1'
++    assert not r.hgetall(override_key('conf_score_guardrails_apply', 'report_stale'))
++    assert r.events[-1][1]['kind'] == 'strategy_research_stats_alert_policy_suppress_override_cleared'
++
++
++def test_list_active_overrides_filters_expired_rows() -> None:
++    r = FakeRedis()
++    now_ms = int(time.time() * 1000)
++    active_key = override_key('conf_score_guardrails_apply', 'pbo_high')
++    expired_key = override_key('conf_score_guardrails_apply', 'report_stale')
++    r.hset(active_key, {
++        'purpose': 'conf_score_guardrails_apply',
++        'family': 'pbo_high',
++        'ticket': 'A',
++        'operator': 'alice',
++        'reason': 'investigate',
++        'created_ts_ms': str(now_ms - 1000),
++        'expire_ts_ms': str(now_ms + 60_000),
++    })
++    r.hset(expired_key, {
++        'purpose': 'conf_score_guardrails_apply',
++        'family': 'report_stale',
++        'ticket': 'B',
++        'operator': 'bob',
++        'reason': 'stale',
++        'created_ts_ms': str(now_ms - 120_000),
++        'expire_ts_ms': str(now_ms - 1),
++    })
++    rows = list_active_overrides(r, purpose='conf_score_guardrails_apply')
++    assert len(rows) == 1
++    assert rows[0]['family'] == 'pbo_high'
++    assert rows[0]['remaining_s'] >= 0
+--- /dev/null
++++ tick_flow_full/orderflow_services/strategy_research_stats_alert_policy_override_v1.py
+@@ -0,0 +1,262 @@
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import sys
++import time
++from typing import Any, Dict
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++from orderflow_services.strategy_research_stats_alert_policy_exporter_v1 import FAMILIES
++
++
++SUPPORTED_OVERRIDE_FAMILIES = ('pbo_high', 'report_stale', 'psr_dsr_low')
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _to_int(v: Any, default: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return default
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _redis_client() -> Any:
++    if redis is None:  # pragma: no cover
++        raise RuntimeError('redis package is not available')
++    return redis.Redis.from_url(_env('REDIS_URL', 'redis://redis-worker-1:6379/0'), decode_responses=True)
++
++
++def override_key(purpose: str, family: str) -> str:
++    prefix = _env(
++        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_PREFIX',
++        'cfg:strategy_research_stats:alert_policy:suppress_override:v1',
++    ).rstrip(':')
++    return f'{prefix}:{purpose}:{family}'
++
++
++def ops_stream() -> str:
++    return _env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OPS_STREAM', 'ops:strategy_research_stats:alert_policy:v1')
++
++
++def default_ttl_s() -> int:
++    return max(300, _to_int(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_TTL_S', '86400'), 86400))
++
++
++def max_ttl_s() -> int:
++    return max(default_ttl_s(), _to_int(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_MAX_TTL_S', '604800'), 604800))
++
++
++def _validate_family(family: str) -> str:
++    family = (family or '').strip()
++    if family not in SUPPORTED_OVERRIDE_FAMILIES:
++        raise SystemExit(f'unsupported family: {family!r}; expected one of {SUPPORTED_OVERRIDE_FAMILIES}')
++    return family
++
++
++def _validate_nonempty(name: str, value: str) -> str:
++    value = (value or '').strip()
++    if not value:
++        raise SystemExit(f'{name} is required')
++    return value
++
++
++def _emit_event(client: Any, kind: str, payload: Dict[str, Any]) -> None:
++    fields = {
++        'ts_ms': str(_now_ms()),
++        'kind': kind,
++        'source': 'strategy_research_stats_alert_policy_override_v1',
++    }
++    for key, value in payload.items():
++        if isinstance(value, (dict, list, tuple)):
++            fields[key] = json.dumps(value, sort_keys=True)
++        else:
++            fields[key] = '' if value is None else str(value)
++    client.xadd(ops_stream(), fields, maxlen=200000, approximate=True)
++
++
++def set_override(
++    client: Any,
++    *,
++    purpose: str,
++    family: str,
++    ticket: str,
++    operator: str,
++    reason: str,
++    ttl_s: int,
++) -> Dict[str, Any]:
++    purpose = _validate_nonempty('purpose', purpose)
++    family = _validate_family(family)
++    ticket = _validate_nonempty('ticket', ticket)
++    operator = _validate_nonempty('operator', operator)
++    reason = _validate_nonempty('reason', reason)
++    ttl_s = max(300, min(int(ttl_s), max_ttl_s()))
++    now_ms = _now_ms()
++    expire_ts_ms = now_ms + ttl_s * 1000
++    key = override_key(purpose, family)
++    payload = {
++        'purpose': purpose,
++        'family': family,
++        'ticket': ticket,
++        'operator': operator,
++        'reason': reason,
++        'created_ts_ms': str(now_ms),
++        'expire_ts_ms': str(expire_ts_ms),
++        'ttl_s': str(ttl_s),
++        'suppress_active': '1',
++    }
++    client.hset(key, mapping=payload)
++    client.expire(key, ttl_s)
++    _emit_event(
++        client,
++        'strategy_research_stats_alert_policy_suppress_override_set',
++        {
++            'purpose': purpose,
++            'family': family,
++            'ticket': ticket,
++            'operator': operator,
++            'reason': reason,
++            'ttl_s': ttl_s,
++            'expire_ts_ms': expire_ts_ms,
++            'override_key': key,
++        },
++    )
++    return payload
++
++
++def clear_override(
++    client: Any,
++    *,
++    purpose: str,
++    family: str,
++    ticket: str,
++    operator: str,
++    reason: str,
++) -> Dict[str, Any]:
++    purpose = _validate_nonempty('purpose', purpose)
++    family = _validate_family(family)
++    ticket = _validate_nonempty('ticket', ticket)
++    operator = _validate_nonempty('operator', operator)
++    reason = _validate_nonempty('reason', reason)
++    key = override_key(purpose, family)
++    existing = client.hgetall(key) or {}
++    client.delete(key)
++    _emit_event(
++        client,
++        'strategy_research_stats_alert_policy_suppress_override_cleared',
++        {
++            'purpose': purpose,
++            'family': family,
++            'ticket': ticket,
++            'operator': operator,
++            'reason': reason,
++            'previous_ticket': existing.get('ticket', ''),
++            'previous_operator': existing.get('operator', ''),
++            'previous_reason': existing.get('reason', ''),
++            'previous_expire_ts_ms': existing.get('expire_ts_ms', ''),
++            'override_key': key,
++        },
++    )
++    return existing
++
++
++def list_active_overrides(client: Any, *, purpose: str = '') -> list[Dict[str, Any]]:
++    prefix = _env(
++        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_PREFIX',
++        'cfg:strategy_research_stats:alert_policy:suppress_override:v1',
++    ).rstrip(':')
++    pattern = f'{prefix}:{purpose}:*' if purpose else f'{prefix}:*'
++    now_ms = _now_ms()
++    items: list[Dict[str, Any]] = []
++    for key in sorted(client.keys(pattern) or []):
++        raw = client.hgetall(key) or {}
++        if not raw:
++            continue
++        expire_ts_ms = _to_int(raw.get('expire_ts_ms'), 0)
++        if expire_ts_ms and expire_ts_ms <= now_ms:
++            continue
++        items.append(
++            {
++                'key': key,
++                'purpose': raw.get('purpose', ''),
++                'family': raw.get('family', ''),
++                'ticket': raw.get('ticket', ''),
++                'operator': raw.get('operator', ''),
++                'reason': raw.get('reason', ''),
++                'created_ts_ms': _to_int(raw.get('created_ts_ms'), 0),
++                'expire_ts_ms': expire_ts_ms,
++                'remaining_s': max(0, (expire_ts_ms - now_ms) // 1000),
++            }
++        )
++    return items
++
++
++def build_arg_parser() -> argparse.ArgumentParser:
++    p = argparse.ArgumentParser(description='Manage TTL-backed strategy_research_stats alert-policy suppression overrides')
++    sub = p.add_subparsers(dest='cmd', required=True)
++
++    ps = sub.add_parser('suppress', help='Create or replace a TTL-backed suppress override')
++    ps.add_argument('--purpose', required=True)
++    ps.add_argument('--family', required=True, choices=SUPPORTED_OVERRIDE_FAMILIES)
++    ps.add_argument('--ticket', required=True)
++    ps.add_argument('--operator', required=True)
++    ps.add_argument('--reason', required=True)
++    ps.add_argument('--ttl-s', type=int, default=default_ttl_s())
++
++    pc = sub.add_parser('clear', help='Clear an active suppress override')
++    pc.add_argument('--purpose', required=True)
++    pc.add_argument('--family', required=True, choices=SUPPORTED_OVERRIDE_FAMILIES)
++    pc.add_argument('--ticket', required=True)
++    pc.add_argument('--operator', required=True)
++    pc.add_argument('--reason', required=True)
++
++    pst = sub.add_parser('status', help='Print active suppress overrides as JSON')
++    pst.add_argument('--purpose', default='')
++    return p
++
++
++def main(argv: list[str] | None = None) -> int:
++    ns = build_arg_parser().parse_args(argv)
++    client = _redis_client()
++    if ns.cmd == 'suppress':
++        payload = set_override(
++            client,
++            purpose=ns.purpose,
++            family=ns.family,
++            ticket=ns.ticket,
++            operator=ns.operator,
++            reason=ns.reason,
++            ttl_s=ns.ttl_s,
++        )
++        sys.stdout.write(json.dumps(payload, sort_keys=True) + '\n')
++        return 0
++    if ns.cmd == 'clear':
++        payload = clear_override(
++            client,
++            purpose=ns.purpose,
++            family=ns.family,
++            ticket=ns.ticket,
++            operator=ns.operator,
++            reason=ns.reason,
++        )
++        sys.stdout.write(json.dumps(payload, sort_keys=True) + '\n')
++        return 0
++    rows = list_active_overrides(client, purpose=ns.purpose)
++    sys.stdout.write(json.dumps(rows, sort_keys=True) + '\n')
++    return 0
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())

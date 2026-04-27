@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/computation/eval.py
+# hypothesis_version: 6.148.10
+
+['@', '__getitem__', 'inplace', 'numexpr', 'operand_types', 'pandas', 'python']

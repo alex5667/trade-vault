@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tick_flow_full/core/ml_feature_schema_v4.py
+# hypothesis_version: 6.148.10
+
+[0.0, 'abs_age_ms', 'abs_lvl_ok', 'abs_strength', 'cancel_spike_veto', 'confirmations', 'cont_ctx_age_ms', 'cont_ctx_score', 'cvd_z', 'delta_z', 'direction', 'div_match', 'fp_edge_absorb', 'fp_edge_age_ms', 'hidden_ctx_age_ms', 'hidden_ctx_score', 'iceberg_score', 'iceberg_strict', 'indicators', 'macro_bias', 'macro_bias_conf', 'micro_structure', 'micro_structure_conf', 'obi', 'obi_slope', 'obi_stable', 'of_imbalance', 'ofi_dir_ok', 'ofi_stable', 'price_z', 'reclaim_age_ms', 'reclaim_recent', 'regime_group', 'regime_score', 'rsi_agree', 'sweep_age_ms', 'sweep_any', 'sweep_eqh', 'sweep_eql', 'sweep_recent']

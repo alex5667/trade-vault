@@ -1,0 +1,1037 @@
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p3orig/audit_data_collection/code/crypto_orderflow_service.py p3mod/audit_data_collection/code/crypto_orderflow_service.py
+--- p3orig/audit_data_collection/code/crypto_orderflow_service.py	2026-03-06 14:27:07.000000000 +0000
++++ p3mod/audit_data_collection/code/crypto_orderflow_service.py	2026-03-07 05:49:05.392964681 +0000
+@@ -62,6 +62,14 @@
+ import time as _time
+ 
+ try:
++    from services.redis_dq_policy import RedisDQSnapshot, RedisDQThresholds, evaluate_redis_dq
++except Exception:
++    try:
++        from redis_dq_policy import RedisDQSnapshot, RedisDQThresholds, evaluate_redis_dq
++    except Exception:  # pragma: no cover
++        RedisDQSnapshot = RedisDQThresholds = evaluate_redis_dq = None  # type: ignore
++
++try:
+     # Step 16 (optional): collapse label cardinality
+     from services.orderflow.metric_labels import symbol_label as _symbol_label
+ except Exception:
+@@ -103,7 +111,21 @@
+ _symbols_added_counter = 0
+ 
+ 
++def _utc_epoch_ms() -> int:
++    """Canonical wall-clock timestamp for emitted payloads (epoch ms, UTC)."""
++    return int(time.time() * 1000)
++
++
++def _mono_ms() -> int:
++    """Monotonic timestamp used only for local latency deltas."""
++    return int(_time.monotonic() * 1000)
++
+ 
++def _safe_latency_delta_ms(start_mono_ms: int, end_mono_ms: int) -> int:
++    try:
++        return max(0, int(end_mono_ms) - int(start_mono_ms))
++    except Exception:
++        return 0
+ 
+ 
+ # ──────────────────────────────────────────────────────────────────────────────
+@@ -221,6 +243,10 @@
+ 
+         self.health_metrics = HealthMetrics(redis_url=self.redis_dsn, window_sec=5)
+ 
++        # P3: Redis/data-quality hard veto before signal publication.
++        self.redis_dq_thresholds = RedisDQThresholds.from_env() if RedisDQThresholds else None
++        self.dq_hard_veto_enable = str(os.getenv("TRADE_DQ_HARD_VETO_ENABLE", "1")).strip().lower() in {"1", "true", "yes", "on"}
++
+         # --- Local caches for snapshot publisher (avoid Redis GET per tick) ---
+         # regime:q:{symbol}:1m is slow-changing -> cache 60s
+         self._rq_cache: Dict[str, Tuple[int, Dict[str, Any]]] = {}
+@@ -932,7 +958,7 @@
+                 except Exception:
+                     pass
+ 
+-                if self.strategy:
++                if self.strategy and self._pre_publish_allows_signal(runtime, out):
+                     await self.strategy.publish_signal(runtime, out)
+                     if signals_published_total:
+                         signals_published_total.labels(symbol=runtime.symbol).inc()
+@@ -940,6 +966,55 @@
+             return out
+         return None
+ 
++    def _build_redis_dq_snapshot(self, runtime: Any, *, now_ms: int) -> Optional["RedisDQSnapshot"]:
++        if RedisDQSnapshot is None:
++            return None
++        last_tick_ms = int(getattr(runtime, "last_tick_ts", 0) or 0)
++        last_book_ms = int(getattr(runtime, "last_book_ts", 0) or 0)
++        queue_lag_ms = max(0, now_ms - last_tick_ms) if last_tick_ms > 0 else 0
++        tick_staleness_ms = max(0, now_ms - last_tick_ms) if last_tick_ms > 0 else 0
++        book_staleness_ms = max(0, now_ms - last_book_ms) if last_book_ms > 0 else 0
++        outbox_backlog = 0
++        try:
++            pending = getattr(self.publisher, "_q", None)
++            if pending is not None and hasattr(pending, "qsize"):
++                outbox_backlog = int(pending.qsize())
++        except Exception:
++            outbox_backlog = 0
++        return RedisDQSnapshot(
++            symbol=str(getattr(runtime, "symbol", "") or "UNKNOWN"),
++            queue_lag_ms=queue_lag_ms,
++            tick_staleness_ms=tick_staleness_ms,
++            book_staleness_ms=book_staleness_ms,
++            redis_timeout_events=int(getattr(runtime, "redis_timeout_events", 0) or 0),
++            negative_age_events=int(getattr(runtime, "negative_age_events", 0) or 0),
++            xack_fail_events=int(getattr(runtime, "xack_fail_events", 0) or 0),
++            outbox_backlog=outbox_backlog,
++            stream_timeout_burst=int(getattr(runtime, "stream_timeout_burst", 0) or 0),
++            force_hard_veto=bool(getattr(runtime, "force_hard_veto", False)),
++        )
++
++    def _pre_publish_allows_signal(self, runtime: Any, signal: Dict[str, Any]) -> bool:
++        now_ms = _utc_epoch_ms()
++        if self.redis_dq_thresholds and evaluate_redis_dq is not None:
++            snap = self._build_redis_dq_snapshot(runtime, now_ms=now_ms)
++            if snap is not None:
++                dq_decision = evaluate_redis_dq(snap, self.redis_dq_thresholds)
++                signal["dq_snapshot"] = dq_decision.to_dict()
++                signal["dq_level"] = int(dq_decision.level)
++                signal["dq_hard_veto"] = not bool(dq_decision.allow_trade_publish)
++                signal.setdefault("schema_ver", os.getenv("OUTBOX_SCHEMA_VER", "execution_intent:v1"))
++                signal.setdefault("ts_event_ms", int(signal.get("ts_ms") or now_ms))
++                signal["ts_publish_ms"] = now_ms
++                if not dq_decision.allow_trade_publish and self.dq_hard_veto_enable:
++                    logger.warning(
++                        "🚫 (%s) Hard DQ veto before publish: reasons=%s snapshot=%s",
++                        getattr(runtime, "symbol", "?"), dq_decision.reasons, dq_decision.snapshot,
++                    )
++                    return False
++        return True
++
++
+     async def _get_adx_cached(self, *, symbol: str, now_ms: int) -> float:
+         """
+         Read ADX14 from Redis:
+@@ -1081,6 +1156,11 @@
+                         pass
+                     continue
+                 elif is_timeout:
++                    try:
++                        runtime.redis_timeout_events = int(getattr(runtime, "redis_timeout_events", 0) or 0) + 1
++                        runtime.stream_timeout_burst = int(getattr(runtime, "stream_timeout_burst", 0) or 0) + 1
++                    except Exception:
++                        pass
+                     if redis_errors_total:
+                         redis_errors_total.labels(op="read_ticks_timeout", symbol=symbol).inc()
+                     delay = backoff.get_delay()
+@@ -1263,13 +1343,15 @@
+                         tick["process_ts_ms"] = process_ts_ms
+                         
+                         runtime.last_ts_ms = int(event_ts_ms)
++                        runtime.last_tick_ts = int(event_ts_ms)
+ 
+                         # worker_lag_ms observability (+ pressure drop)
+                         lag_ms = 0
+                         try:
+-                            lag_ms = int(now_ms - int(event_ts_ms))
+-                            if lag_ms < 0:
+-                                lag_ms = 0
++                            raw_lag_ms = int(now_ms - int(event_ts_ms))
++                            if raw_lag_ms < 0:
++                                runtime.negative_age_events = int(getattr(runtime, "negative_age_events", 0) or 0) + 1
++                            lag_ms = raw_lag_ms if raw_lag_ms >= 0 else 0
+                             if worker_lag_ms_gauge:
+                                 worker_lag_ms_gauge.labels(symbol=symbol).set(float(lag_ms))
+                             
+@@ -1417,7 +1499,7 @@
+                                 )
+                             except Exception:
+                                 pass
+-                            if self.strategy:
++                            if self.strategy and self._pre_publish_allows_signal(runtime, signal):
+                                 await self.strategy.publish_signal(runtime, signal)
+                                 signals_published_total.labels(symbol=symbol).inc()
+                         processed_ok = True
+@@ -1556,6 +1638,11 @@
+                     backoff.reset()
+                     continue
+                 elif is_timeout:
++                    try:
++                        runtime.redis_timeout_events = int(getattr(runtime, "redis_timeout_events", 0) or 0) + 1
++                        runtime.stream_timeout_burst = int(getattr(runtime, "stream_timeout_burst", 0) or 0) + 1
++                    except Exception:
++                        pass
+                     if redis_errors_total:
+                         redis_errors_total.labels(op="read_books_timeout", symbol=symbol).inc()
+                     delay = backoff.get_delay()
+@@ -1621,6 +1708,7 @@
+                             ingest_ts_ms = int(time.time() * 1000)
+ 
+                         await self.strategy.process_book(runtime, payload, ingest_ts_ms)
++                        runtime.last_book_ts = int(ingest_ts_ms)
+                     except Exception as exc:  # noqa: BLE001
+                         logger.exception("❌ (%s) Ошибка обработки книги %s: %s", symbol, msg_id, exc)
+                     finally:
+@@ -1756,6 +1844,12 @@
+                     pipe.xack(stream, group, mid)
+                 await pipe.execute()
+         except Exception as exc:
++            try:
++                rt = self.symbol_contexts.get(str(symbol))
++                if rt is not None:
++                    rt.xack_fail_events = int(getattr(rt, "xack_fail_events", 0) or 0) + len(ids)
++            except Exception:
++                pass
+             if redis_errors_total:
+                 redis_errors_total.labels(op=op, symbol=symbol).inc()
+             logger.warning("⚠️ (%s) XACK pipeline failed (stream=%s group=%s n=%d): %s",
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p3orig/audit_data_collection/code/outbox/atomic_outbox.py p3mod/audit_data_collection/code/outbox/atomic_outbox.py
+--- p3orig/audit_data_collection/code/outbox/atomic_outbox.py	2026-03-06 14:27:07.000000000 +0000
++++ p3mod/audit_data_collection/code/outbox/atomic_outbox.py	2026-03-07 05:48:35.681722804 +0000
+@@ -2,32 +2,36 @@
+ 
+ """
+ AtomicOutboxXADD
+-===============
+-Единая атомарная запись в Redis Stream + meta sidecar (trace) без зависимости от OutboxWriter.
+-
+-Нужно для сервисов, которые сейчас делают прямой xadd(... {"data": env_json} ...),
+-и из-за этого НЕ создают meta sidecar (OUTBOX_META_PREFIX + sid).
++================
++Единая атомарная запись в Redis Stream + meta sidecar (trace) без зависимости
++от OutboxWriter.
++
++P3 additions:
++- payload contract is normalized into an explicit execution intent before XADD
++- `orders:exec` can be mirrored atomically as the source-of-truth event log
++- event-time and publish-time use a shared epoch-ms contract
+ 
+ Поддерживаем:
+-  - sync redis.Redis (binance_iceberg_detector.py)
+-  - async aioredis.Redis (crypto_orderflow_service.py)
+-
+-Важно:
+-  - Поле в stream пишем как 'payload' (dispatcher уже умеет fields['payload']).
+-    Это нормализует формат и позволяет переиспользовать Lua контракт OutboxWriter.
+-  - Meta sidecar пишем только после успешного XADD.
++  - sync redis.Redis
++  - async redis.asyncio.Redis
+ """
+ 
+-import os
+ import json
++import os
+ from typing import Any, Dict, Optional
+ 
++try:
++    from .time_contract import utc_epoch_ms, monotonic_ms
++except Exception:
++    from time_contract import utc_epoch_ms, monotonic_ms
++
+ 
+ _LUA_ATOMIC_XADD = r"""
+ -- KEYS[1] = dedup_key (signal_id)
+ -- KEYS[2] = semantic_key (or "__none__" to disable)
+ -- KEYS[3] = stream_key
+ -- KEYS[4] = meta_key (or "__none__" to disable)
++-- KEYS[5] = event_stream_key (or "__none__" to disable)
+ -- ARGV[1] = dedup_ttl_sec
+ -- ARGV[2] = pending_ttl_sec
+ -- ARGV[3] = signal_id
+@@ -40,6 +44,7 @@
+ -- ARGV[10] = sem_pending_ttl_sec
+ -- ARGV[11] = meta_json
+ -- ARGV[12] = meta_ttl_sec
++-- ARGV[13] = event_json
+ -- returns: {1, entry_id} on success
+ --          {0, entry_id} on dedup hit (already sent)
+ --          {2, err} on xadd failure (dedup key is rolled back)
+@@ -48,30 +53,25 @@
+ local sem_enabled = (KEYS[2] ~= '__none__')
+ local maxlen = tonumber(ARGV[8]) or 0
+ 
+--- 1. Проверяем существование (Уже успешно отправлено)
+ local current_dedup = redis.call('GET', KEYS[1])
+ if current_dedup and current_dedup ~= 'PENDING' then
+-  return {0, current_dedup} -- Уже отправлено, возвращаем старый ID
++  return {0, current_dedup}
+ end
+-
+--- 2. Если висит PENDING, значит другой процесс/ретрай прямо сейчас это пишет
+ if current_dedup == 'PENDING' then
+-  return {3, "CONCURRENT_WRITE"} -- Ошибка конкуренции, клиент должен сделать backoff и ретрай
++  return {3, 'CONCURRENT_WRITE'}
+ end
+ 
+--- 3. Захватываем блокировку PENDING
+ local ok = redis.call('SET', KEYS[1], 'PENDING', 'NX', 'EX', tonumber(ARGV[2]))
+-if not ok then return {3, "CONCURRENT_WRITE"} end
++if not ok then return {3, 'CONCURRENT_WRITE'} end
+ 
+ if sem_enabled then
+   local ok2 = redis.call('SET', KEYS[2], 'PENDING', 'NX', 'EX', tonumber(ARGV[10]))
+   if not ok2 then
+     redis.call('DEL', KEYS[1])
+-    return {3, "CONCURRENT_WRITE_SEM"}
++    return {3, 'CONCURRENT_WRITE_SEM'}
+   end
+ end
+ 
+--- 4. Выполняем XADD
+ local xadd_ok, entry_id
+ if maxlen > 0 then
+   xadd_ok, entry_id = pcall(redis.call, 'XADD', KEYS[3], 'MAXLEN', '~', maxlen, '*',
+@@ -93,25 +93,35 @@
+   )
+ end
+ 
+--- 5. Обработка ошибки XADD
+ if not xadd_ok then
+-  -- КРИТИЧНО: Освобождаем блокировку PENDING, чтобы ретрай мог сработать немедленно!
+   redis.call('DEL', KEYS[1])
+   if sem_enabled then redis.call('DEL', KEYS[2]) end
+   return {2, tostring(entry_id)}
+ end
+ 
+--- 6. Фиксируем успех
+ redis.call('SET', KEYS[1], entry_id, 'XX', 'EX', tonumber(ARGV[1]))
+ if sem_enabled then redis.call('SET', KEYS[2], entry_id, 'XX', 'EX', tonumber(ARGV[9])) end
+ 
+--- 7. Пишем Meta Sidecar (если есть)
+ local meta_json = ARGV[11]
+ local meta_ttl  = tonumber(ARGV[12]) or 0
+ if KEYS[4] ~= '__none__' and meta_ttl > 0 and meta_json ~= nil and meta_json ~= '' then
+   redis.call('SET', KEYS[4], meta_json, 'NX', 'EX', meta_ttl)
+ end
+ 
++local event_json = ARGV[13]
++if KEYS[5] ~= '__none__' and event_json ~= nil and event_json ~= '' then
++  redis.call('XADD', KEYS[5], '*',
++    'signal_id', ARGV[3],
++    'kind',      ARGV[4],
++    'symbol',    ARGV[5],
++    'ts',        ARGV[6],
++    'event_type','INTENT_PUBLISHED',
++    'main_entry_id', entry_id,
++    'payload',   event_json,
++    'data',      event_json
++  )
++end
++
+ return {1, entry_id}
+ """
+ 
+@@ -130,8 +140,19 @@
+     return f"{p}{signal_id}"
+ 
+ 
++def _event_stream_key() -> str:
++    if str(os.getenv("OUTBOX_EVENT_STREAM_ENABLE", "1")).strip().lower() not in {"1", "true", "yes", "on"}:
++        return "__none__"
++    raw = str(os.getenv("OUTBOX_EVENT_STREAM_KEY", "orders:exec")).strip()
++    return raw or "__none__"
++
++
++def _producer_instance_id() -> str:
++    host = os.getenv("HOSTNAME") or os.getenv("COMPUTERNAME") or "unknown-host"
++    return str(os.getenv("PRODUCER_INSTANCE_ID") or f"{host}:{os.getpid()}")
++
++
+ def _defaults() -> Dict[str, int]:
+-    # align with UnifiedSignalEmitter defaults
+     dedup_ttl_sec = max(1, int(int(os.getenv("EMIT_DEDUP_TTL_MS", "60000")) / 1000))
+     pending_ttl_sec = max(1, int(int(os.getenv("EMIT_DEDUP_PENDING_TTL_MS", "60000")) / 1000))
+     maxlen = int(os.getenv("OUTBOX_STREAM_MAXLEN", "100000"))
+@@ -144,6 +165,60 @@
+     }
+ 
+ 
++def _prepare_contract_payload(
++    signal_id: str,
++    kind: str,
++    symbol: str,
++    payload_obj: Dict[str, Any],
++    meta_obj: Optional[Dict[str, Any]],
++) -> Dict[str, Any]:
++    payload = dict(payload_obj or {})
++    meta = dict(meta_obj or {})
++    now_ms = utc_epoch_ms()
++    payload.setdefault("sid", str(signal_id))
++    payload.setdefault("kind", str(kind or payload.get("kind") or ""))
++    payload.setdefault("symbol", str(symbol or payload.get("symbol") or ""))
++    payload.setdefault("schema_ver", str(payload.get("schema_ver") or meta.get("schema_ver") or os.getenv("OUTBOX_SCHEMA_VER", "execution_intent:v1")))
++    payload.setdefault("decision_id", str(payload.get("decision_id") or meta.get("decision_id") or signal_id))
++    payload.setdefault("execution_policy", str(payload.get("execution_policy") or meta.get("execution_policy") or os.getenv("EXECUTION_POLICY_DEFAULT", "SAFETY_FIRST")).upper())
++    payload.setdefault("producer_instance_id", str(payload.get("producer_instance_id") or meta.get("producer_instance_id") or _producer_instance_id()))
++    payload.setdefault("ts_event_ms", utc_epoch_ms(payload.get("ts_event_ms") or meta.get("ts_event_ms")))
++    payload["ts_publish_ms"] = now_ms
++    payload.setdefault("mono_ms", monotonic_ms())
++    payload.setdefault("working_type_policy", meta.get("working_type_policy") or payload.get("working_type_policy") or {
++        "sl": os.getenv("SL_WORKING_TYPE", "MARK_PRICE"),
++        "tp_market": os.getenv("TP_MARKET_WORKING_TYPE", "MARK_PRICE"),
++        "tp_limit_trigger": os.getenv("TP_LIMIT_TRIGGER_WORKING_TYPE", "MARK_PRICE"),
++        "trail": os.getenv("TRAIL_WORKING_TYPE", "MARK_PRICE"),
++    })
++    payload.setdefault("exit_policy", meta.get("exit_policy") or payload.get("exit_policy") or {
++        "mode": str(os.getenv("EXIT_POLICY_MODE", "SAFETY_FIRST")).upper(),
++        "watchdog_timeout_ms": int(os.getenv("TP_LIMIT_WATCHDOG_TIMEOUT_MS", "4000")),
++        "market_fallback": str(os.getenv("TP_LIMIT_WATCHDOG_MARKET_FALLBACK", "1")).strip().lower() in {"1", "true", "yes", "on"},
++    })
++    payload.setdefault("risk_snapshot", meta.get("risk_snapshot") or payload.get("risk_snapshot") or {})
++    return payload
++
++
++def _build_exec_event(signal_id: str, stream_key: str, payload_obj: Dict[str, Any]) -> Dict[str, Any]:
++    return {
++        "event_type": "INTENT_PUBLISHED",
++        "sid": str(payload_obj.get("sid") or signal_id),
++        "decision_id": str(payload_obj.get("decision_id") or signal_id),
++        "schema_ver": str(payload_obj.get("schema_ver") or "execution_intent:v1"),
++        "kind": str(payload_obj.get("kind") or ""),
++        "symbol": str(payload_obj.get("symbol") or ""),
++        "execution_policy": str(payload_obj.get("execution_policy") or "SAFETY_FIRST"),
++        "stream_key": str(stream_key),
++        "ts_event_ms": int(payload_obj.get("ts_event_ms") or utc_epoch_ms()),
++        "ts_publish_ms": int(payload_obj.get("ts_publish_ms") or utc_epoch_ms()),
++        "producer_instance_id": str(payload_obj.get("producer_instance_id") or _producer_instance_id()),
++        "risk_snapshot": payload_obj.get("risk_snapshot") or {},
++        "working_type_policy": payload_obj.get("working_type_policy") or {},
++        "exit_policy": payload_obj.get("exit_policy") or {},
++    }
++
++
+ def atomic_xadd_sync(
+     redis: Any,
+     *,
+@@ -155,45 +230,44 @@
+     ts: str = "",
+     meta_obj: Optional[Dict[str, Any]] = None,
+ ) -> Optional[str]:
+-    """
+-    Возвращает entry_id:
+-      - str => success
+-      - None => dedup hit
+-    """
+     d = _defaults()
++    payload_obj = _prepare_contract_payload(signal_id, kind, symbol, payload_obj, meta_obj)
+     payload_json = _dumps(payload_obj)
+     meta_json = _dumps(meta_obj) if isinstance(meta_obj, dict) and meta_obj else ""
+     meta_key = _meta_key(signal_id) if meta_json else "__none__"
++    event_stream_key = _event_stream_key()
++    event_json = _dumps(_build_exec_event(signal_id, stream_key, payload_obj)) if event_stream_key != "__none__" else ""
+     res = redis.eval(
+         _LUA_ATOMIC_XADD,
+-        4,
++        5,
+         _dedup_key(signal_id),
+-        "__none__",  # semantic dedup disabled here (can be added later)
++        "__none__",
+         stream_key,
+         meta_key,
++        event_stream_key,
+         int(d["dedup_ttl_sec"]),
+         int(d["pending_ttl_sec"]),
+         str(signal_id),
+-        str(kind or ""),
+-        str(symbol or ""),
+-        str(ts or ""),
++        str(kind or payload_obj.get("kind") or ""),
++        str(symbol or payload_obj.get("symbol") or ""),
++        str(ts or payload_obj.get("ts_event_ms") or ""),
+         payload_json,
+         int(d["maxlen"]),
+         1,
+         1,
+         meta_json,
+         int(d["meta_ttl_sec"] if meta_json else 0),
++        event_json,
+     )
+     if isinstance(res, (list, tuple)) and res:
+         code = int(res[0])
+         if code == 0:
+-            return str(res[1]) if len(res) > 1 else None # Return old ID if exists
++            return str(res[1]) if len(res) > 1 else None
+         if code == 1 and len(res) >= 2:
+             return str(res[1])
+         if code == 2:
+             raise RuntimeError(f"atomic_xadd_failed_redis:{res[1] if len(res)>1 else 'unknown'}")
+         if code == 3:
+-            # Concurrent write error. Raising so high-level retry logic can handle it.
+             raise RuntimeError(f"atomic_xadd_concurrent_lock:{res[1] if len(res)>1 else 'unknown'}")
+     raise RuntimeError("atomic_xadd_bad_response")
+ 
+@@ -209,42 +283,43 @@
+     ts: str = "",
+     meta_obj: Optional[Dict[str, Any]] = None,
+ ) -> Optional[str]:
+-    """
+-    Async версия для aioredis.Redis
+-    """
+     d = _defaults()
++    payload_obj = _prepare_contract_payload(signal_id, kind, symbol, payload_obj, meta_obj)
+     payload_json = _dumps(payload_obj)
+     meta_json = _dumps(meta_obj) if isinstance(meta_obj, dict) and meta_obj else ""
+     meta_key = _meta_key(signal_id) if meta_json else "__none__"
++    event_stream_key = _event_stream_key()
++    event_json = _dumps(_build_exec_event(signal_id, stream_key, payload_obj)) if event_stream_key != "__none__" else ""
+     res = await redis.eval(
+         _LUA_ATOMIC_XADD,
+-        4,
++        5,
+         _dedup_key(signal_id),
+         "__none__",
+         stream_key,
+         meta_key,
++        event_stream_key,
+         int(d["dedup_ttl_sec"]),
+         int(d["pending_ttl_sec"]),
+         str(signal_id),
+-        str(kind or ""),
+-        str(symbol or ""),
+-        str(ts or ""),
++        str(kind or payload_obj.get("kind") or ""),
++        str(symbol or payload_obj.get("symbol") or ""),
++        str(ts or payload_obj.get("ts_event_ms") or ""),
+         payload_json,
+         int(d["maxlen"]),
+         1,
+         1,
+         meta_json,
+         int(d["meta_ttl_sec"] if meta_json else 0),
++        event_json,
+     )
+     if isinstance(res, (list, tuple)) and res:
+         code = int(res[0])
+         if code == 0:
+-            return str(res[1]) if len(res) > 1 else None # Return old ID if exists
++            return str(res[1]) if len(res) > 1 else None
+         if code == 1 and len(res) >= 2:
+             return str(res[1])
+         if code == 2:
+             raise RuntimeError(f"atomic_xadd_failed_redis:{res[1] if len(res)>1 else 'unknown'}")
+         if code == 3:
+-            # Concurrent write error. Raising so high-level retry logic can handle it.
+             raise RuntimeError(f"atomic_xadd_concurrent_lock:{res[1] if len(res)>1 else 'unknown'}")
+     raise RuntimeError("atomic_xadd_bad_response")
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p3orig/audit_data_collection/code/outbox/envelope_builder.py p3mod/audit_data_collection/code/outbox/envelope_builder.py
+--- p3orig/audit_data_collection/code/outbox/envelope_builder.py	2026-03-06 14:27:07.000000000 +0000
++++ p3mod/audit_data_collection/code/outbox/envelope_builder.py	2026-03-07 05:47:50.403628465 +0000
+@@ -3,7 +3,12 @@
+ import logging
+ import os
+ import time
+-from typing import Any, Dict, Optional
++
++try:
++    from .time_contract import utc_epoch_ms, monotonic_ms
++except Exception:
++    from time_contract import utc_epoch_ms, monotonic_ms
++from typing import Any, Dict, List, Optional
+ 
+ from common.json_fast import dumps1
+ from common.json_safe import to_json_safe
+@@ -173,7 +178,36 @@
+ # New functions from fixes patch
+ 
+ def _now_ms() -> int:
+-    return int(time.time() * 1000)
++    return utc_epoch_ms()
++
++
++def _producer_instance_id() -> str:
++    host = os.getenv("HOSTNAME") or os.getenv("COMPUTERNAME") or "unknown-host"
++    return str(os.getenv("PRODUCER_INSTANCE_ID") or f"{host}:{os.getpid()}")
++
++
++def _default_working_type_policy(payload: Dict[str, Any], meta: Dict[str, Any]) -> Dict[str, Any]:
++    src = payload.get("working_type_policy") or meta.get("working_type_policy") or {}
++    if not isinstance(src, dict):
++        src = {}
++    out = dict(src)
++    out.setdefault("sl", os.getenv("SL_WORKING_TYPE", "MARK_PRICE"))
++    out.setdefault("tp_market", os.getenv("TP_MARKET_WORKING_TYPE", "MARK_PRICE"))
++    out.setdefault("tp_limit_trigger", os.getenv("TP_LIMIT_TRIGGER_WORKING_TYPE", "MARK_PRICE"))
++    out.setdefault("trail", os.getenv("TRAIL_WORKING_TYPE", "MARK_PRICE"))
++    return out
++
++
++def _default_exit_policy(payload: Dict[str, Any], meta: Dict[str, Any]) -> Dict[str, Any]:
++    src = payload.get("exit_policy") or meta.get("exit_policy") or {}
++    if not isinstance(src, dict):
++        src = {}
++    out = dict(src)
++    out.setdefault("mode", os.getenv("EXIT_POLICY_MODE", "SAFETY_FIRST"))
++    out.setdefault("maker_tp_ladder", str(out.get("mode", "")).upper() == "MAKER_FIRST")
++    out.setdefault("watchdog_timeout_ms", int(os.getenv("TP_LIMIT_WATCHDOG_TIMEOUT_MS", "4000")))
++    out.setdefault("market_fallback", os.getenv("TP_LIMIT_WATCHDOG_MARKET_FALLBACK", "1").strip().lower() in {"1", "true", "yes", "on"})
++    return out
+ 
+ 
+ def _derive_req_targets(targets_obj: Dict[str, Any]) -> List[str]:
+@@ -196,6 +230,26 @@
+     return out
+ 
+ 
++
++def _normalize_execution_policy(payload: Dict[str, Any], meta: Dict[str, Any]) -> str:
++    raw = str(payload.get("execution_policy") or meta.get("execution_policy") or os.getenv("EXECUTION_POLICY_DEFAULT", "SAFETY_FIRST")).strip().upper()
++    return raw if raw in {"SAFETY_FIRST", "MAKER_FIRST"} else "SAFETY_FIRST"
++
++
++def _risk_snapshot(payload: Dict[str, Any], meta: Dict[str, Any]) -> Dict[str, Any]:
++    src = payload.get("risk_snapshot") or meta.get("risk_snapshot") or {}
++    return dict(src) if isinstance(src, dict) else {}
++
++
++def _decision_id(sid: str, payload: Dict[str, Any], meta: Dict[str, Any]) -> str:
++    raw = payload.get("decision_id") or meta.get("decision_id")
++    return str(raw or sid)
++
++
++def _schema_ver(payload: Dict[str, Any], meta: Dict[str, Any]) -> str:
++    raw = payload.get("schema_ver") or meta.get("schema_ver") or os.getenv("OUTBOX_SCHEMA_VER", "execution_intent:v1")
++    return str(raw)
++
+ def build_trace_sidecar_meta_from_ctx(*, ctx: Any, sid: str) -> Dict[str, Any]:
+     """Build sidecar meta for DecisionTrace (stored outside tradeable payload)."""
+     try:
+@@ -244,6 +298,22 @@
+     t_obj: Dict[str, Any] = targets_obj if isinstance(targets_obj, dict) else {}
+     m_obj: Dict[str, Any] = meta if isinstance(meta, dict) else {}
+ 
++    # P3 contract: tradeable payload is a concrete execution intent rather than
++    # a raw signal. Materialize stable policy/risk/timing fields at the envelope
++    # level so downstream services can route and replay deterministically.
++    event_ms = utc_epoch_ms(payload.get("ts_event_ms") if isinstance(payload, dict) else None)
++    publish_ms = utc_epoch_ms()
++    env["schema_ver"] = _schema_ver(payload if isinstance(payload, dict) else {}, m_obj)
++    env["decision_id"] = _decision_id(str(sid), payload if isinstance(payload, dict) else {}, m_obj)
++    env["producer_instance_id"] = str((payload or {}).get("producer_instance_id") or m_obj.get("producer_instance_id") or _producer_instance_id())
++    env["execution_policy"] = _normalize_execution_policy(payload if isinstance(payload, dict) else {}, m_obj)
++    env["working_type_policy"] = _default_working_type_policy(payload if isinstance(payload, dict) else {}, m_obj)
++    env["exit_policy"] = _default_exit_policy(payload if isinstance(payload, dict) else {}, m_obj)
++    env["risk_snapshot"] = _risk_snapshot(payload if isinstance(payload, dict) else {}, m_obj)
++    env["ts_event_ms"] = event_ms
++    env["ts_publish_ms"] = publish_ms
++    env["mono_ms"] = monotonic_ms()
++
+     # Ensure required targets set survives retries (dispatcher relies on meta.req_targets).
+     try:
+         m_obj.setdefault("req_targets", _derive_req_targets(t_obj))
+@@ -256,6 +326,12 @@
+     except Exception:
+         pass
+ 
++    # P3.3: downstream recovery must treat orders:exec as the source of truth.
++    # We annotate the authoritative event stream and keep orders:state:* as a
++    # materialized view hint only.
++    m_obj.setdefault("state_source_stream", os.getenv("OUTBOX_EVENT_STREAM_KEY", "orders:exec"))
++    m_obj.setdefault("state_view_prefix", os.getenv("ORDERS_STATE_KEY_PREFIX", "orders:state:"))
++
+     env["targets"] = t_obj
+     env["meta"] = m_obj
+ 
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p3orig/audit_data_collection/code/outbox/test_atomic_outbox_p3_contract_v1.py p3mod/audit_data_collection/code/outbox/test_atomic_outbox_p3_contract_v1.py
+--- p3orig/audit_data_collection/code/outbox/test_atomic_outbox_p3_contract_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p3mod/audit_data_collection/code/outbox/test_atomic_outbox_p3_contract_v1.py	2026-03-07 05:49:46.258913062 +0000
+@@ -0,0 +1,42 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++mod_path = Path(__file__).with_name("atomic_outbox.py")
++spec = importlib.util.spec_from_file_location("atomic_outbox", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++class FakeRedis:
++    def __init__(self):
++        self.args = None
++    def eval(self, *args):
++        self.args = args
++        return [1, '1741-0']
++
++
++def test_atomic_xadd_adds_exec_event_and_contract_fields(monkeypatch):
++    monkeypatch.setenv('OUTBOX_EVENT_STREAM_ENABLE', '1')
++    monkeypatch.setenv('OUTBOX_EVENT_STREAM_KEY', 'orders:exec')
++    r = FakeRedis()
++    entry_id = mod.atomic_xadd_sync(
++        r,
++        stream_key='signals:crypto:raw',
++        signal_id='sid-1',
++        payload_obj={'symbol': 'BTCUSDT'},
++        kind='flow',
++        symbol='BTCUSDT',
++        meta_obj={'risk_snapshot': {'risk_level': 'ok'}},
++    )
++    assert entry_id == '1741-0'
++    assert r.args is not None
++    assert r.args[1] == 5
++    assert r.args[6] == 'orders:exec'
++    payload_json = r.args[-7]
++    event_json = r.args[-1]
++    assert 'execution_intent:v1' in payload_json
++    assert 'ts_publish_ms' in payload_json
++    assert 'INTENT_PUBLISHED' in event_json
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p3orig/audit_data_collection/code/outbox/test_envelope_builder_p3_contract_v1.py p3mod/audit_data_collection/code/outbox/test_envelope_builder_p3_contract_v1.py
+--- p3orig/audit_data_collection/code/outbox/test_envelope_builder_p3_contract_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p3mod/audit_data_collection/code/outbox/test_envelope_builder_p3_contract_v1.py	2026-03-07 05:49:46.259006404 +0000
+@@ -0,0 +1,56 @@
++from pathlib import Path
++import importlib.util
++import json
++import sys
++import types
++
++# minimal stubs for external dependencies
++mods = {}
++mods['common.json_fast'] = types.SimpleNamespace(dumps1=lambda obj: json.dumps(obj, ensure_ascii=False, separators=(',', ':')))
++mods['common.json_safe'] = types.SimpleNamespace(to_json_safe=lambda obj: obj)
++
++class Trace:  # minimal DecisionTrace
++    def __init__(self, trace_id='', sid=''):
++        self.trace_id = trace_id
++        self.sid = sid
++
++mods['common.decision_trace'] = types.SimpleNamespace(
++    DecisionTrace=Trace,
++    ensure_trace=lambda ctx, sid='': Trace(trace_id=sid, sid=sid),
++    set_summary_fields=lambda *a, **k: None,
++    trace_enabled=lambda: False,
++    build_sidecar_meta=lambda trace: {'decision_trace': {'trace_id': getattr(trace, 'trace_id', '')}},
++)
++mods['common.outbox_contract'] = types.SimpleNamespace(
++    contract_check_best_effort=lambda **kwargs: None,
++    strip_forbidden_keys=lambda obj, forbidden: obj,
++    FORBIDDEN_TARGET_KEYS=set(),
++)
++mods['common.payload_fingerprint'] = types.SimpleNamespace(fingerprint_tradeable_payload=lambda obj: ('sha1', 123))
++for name, module in mods.items():
++    sys.modules[name] = module
++
++mod_path = Path(__file__).with_name('envelope_builder.py')
++spec = importlib.util.spec_from_file_location('envelope_builder', mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++def test_build_envelope_materializes_execution_intent(monkeypatch):
++    monkeypatch.setenv('OUTBOX_SCHEMA_VER', 'execution_intent:v1')
++    env = mod.build_envelope(
++        sid='sid-123',
++        payload={'symbol': 'BTCUSDT', 'risk_snapshot': {'risk_level': 'ok'}},
++        meta={'execution_policy': 'maker_first'},
++        targets_obj={'notify': {'text': 'ok'}},
++    )
++    assert env['schema_ver'] == 'execution_intent:v1'
++    assert env['decision_id'] == 'sid-123'
++    assert env['execution_policy'] == 'MAKER_FIRST'
++    assert env['working_type_policy']['sl'] == 'MARK_PRICE'
++    assert env['exit_policy']['mode']
++    assert env['risk_snapshot']['risk_level'] == 'ok'
++    assert 'ts_event_ms' in env and 'ts_publish_ms' in env
++    assert env['meta']['state_source_stream'] == 'orders:exec'
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p3orig/audit_data_collection/code/outbox/time_contract.py p3mod/audit_data_collection/code/outbox/time_contract.py
+--- p3orig/audit_data_collection/code/outbox/time_contract.py	1970-01-01 00:00:00.000000000 +0000
++++ p3mod/audit_data_collection/code/outbox/time_contract.py	2026-03-07 05:47:23.701055963 +0000
+@@ -0,0 +1,25 @@
++from __future__ import annotations
++
++import time
++from typing import Any
++
++
++def utc_epoch_ms(value: Any = None) -> int:
++    if value is None:
++        return int(time.time() * 1000)
++    try:
++        return int(float(value))
++    except Exception:
++        return int(time.time() * 1000)
++
++
++def monotonic_ms() -> int:
++    return int(time.monotonic() * 1000)
++
++
++def clamp_non_negative_ms(value: Any) -> int:
++    try:
++        v = int(float(value))
++    except Exception:
++        return 0
++    return v if v >= 0 else 0
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p3orig/audit_data_collection/code/redis_dq_policy.py p3mod/audit_data_collection/code/redis_dq_policy.py
+--- p3orig/audit_data_collection/code/redis_dq_policy.py	1970-01-01 00:00:00.000000000 +0000
++++ p3mod/audit_data_collection/code/redis_dq_policy.py	2026-03-07 05:50:10.406102959 +0000
+@@ -0,0 +1,217 @@
++from __future__ import annotations
++
++"""Deterministic Redis/data-quality veto policy for pre-trade publishing."""
++
++from dataclasses import asdict, dataclass
++from typing import Any, Dict, List, Optional
++import os
++
++try:
++    from prometheus_client import Counter, Gauge, REGISTRY
++except Exception:  # pragma: no cover
++    Counter = Gauge = None  # type: ignore
++    REGISTRY = None  # type: ignore
++
++
++def _metric(factory, name: str, *args, **kwargs):
++    if factory is None:
++        return None
++    try:
++        return factory(name, *args, **kwargs)
++    except ValueError:
++        return getattr(REGISTRY, "_names_to_collectors", {}).get(name) if REGISTRY is not None else None
++
++
++TRADE_DQ_LEVEL = _metric(
++    Gauge,
++    "trade_dq_level",
++    "Current hard/soft data-quality level for trade publication (0=OK,1=soft,2=hard).",
++    ["symbol"],
++)
++TRADE_DQ_HARD_VETO_TOTAL = _metric(
++    Counter,
++    "trade_dq_hard_veto_total",
++    "Number of times trade publication was blocked by Redis/data-quality hard veto.",
++    ["symbol", "reason"],
++)
++TRADE_DQ_SOFT_VETO_TOTAL = _metric(
++    Counter,
++    "trade_dq_soft_veto_total",
++    "Number of times trade publication entered soft-veto/tightened mode due to data quality.",
++    ["symbol", "reason"],
++)
++
++
++@dataclass(frozen=True)
++class RedisDQThresholds:
++    queue_lag_soft_ms: int = 2_000
++    queue_lag_hard_ms: int = 10_000
++    tick_staleness_soft_ms: int = 1_500
++    tick_staleness_hard_ms: int = 5_000
++    book_staleness_soft_ms: int = 1_500
++    book_staleness_hard_ms: int = 5_000
++    redis_timeout_soft_events: int = 2
++    redis_timeout_hard_events: int = 5
++    negative_age_hard_events: int = 1
++    xack_fail_soft_events: int = 2
++    xack_fail_hard_events: int = 5
++    outbox_backlog_soft: int = 100
++    outbox_backlog_hard: int = 500
++    stream_timeout_burst_soft: int = 2
++    stream_timeout_burst_hard: int = 5
++
++    @classmethod
++    def from_env(cls) -> "RedisDQThresholds":
++        def _i(name: str, default: int) -> int:
++            try:
++                return int(os.getenv(name, str(default)))
++            except Exception:
++                return int(default)
++        return cls(
++            queue_lag_soft_ms=_i("DQ_QUEUE_LAG_SOFT_MS", cls.queue_lag_soft_ms),
++            queue_lag_hard_ms=_i("DQ_QUEUE_LAG_HARD_MS", cls.queue_lag_hard_ms),
++            tick_staleness_soft_ms=_i("DQ_TICK_STALENESS_SOFT_MS", cls.tick_staleness_soft_ms),
++            tick_staleness_hard_ms=_i("DQ_TICK_STALENESS_HARD_MS", cls.tick_staleness_hard_ms),
++            book_staleness_soft_ms=_i("DQ_BOOK_STALENESS_SOFT_MS", cls.book_staleness_soft_ms),
++            book_staleness_hard_ms=_i("DQ_BOOK_STALENESS_HARD_MS", cls.book_staleness_hard_ms),
++            redis_timeout_soft_events=_i("DQ_REDIS_TIMEOUT_SOFT_EVENTS", cls.redis_timeout_soft_events),
++            redis_timeout_hard_events=_i("DQ_REDIS_TIMEOUT_HARD_EVENTS", cls.redis_timeout_hard_events),
++            negative_age_hard_events=_i("DQ_NEGATIVE_AGE_HARD_EVENTS", cls.negative_age_hard_events),
++            xack_fail_soft_events=_i("DQ_XACK_FAIL_SOFT_EVENTS", cls.xack_fail_soft_events),
++            xack_fail_hard_events=_i("DQ_XACK_FAIL_HARD_EVENTS", cls.xack_fail_hard_events),
++            outbox_backlog_soft=_i("DQ_OUTBOX_BACKLOG_SOFT", cls.outbox_backlog_soft),
++            outbox_backlog_hard=_i("DQ_OUTBOX_BACKLOG_HARD", cls.outbox_backlog_hard),
++            stream_timeout_burst_soft=_i("DQ_STREAM_TIMEOUT_BURST_SOFT", cls.stream_timeout_burst_soft),
++            stream_timeout_burst_hard=_i("DQ_STREAM_TIMEOUT_BURST_HARD", cls.stream_timeout_burst_hard),
++        )
++
++
++@dataclass(frozen=True)
++class RedisDQSnapshot:
++    symbol: str
++    queue_lag_ms: int = 0
++    tick_staleness_ms: int = 0
++    book_staleness_ms: int = 0
++    redis_timeout_events: int = 0
++    negative_age_events: int = 0
++    xack_fail_events: int = 0
++    outbox_backlog: int = 0
++    stream_timeout_burst: int = 0
++    force_hard_veto: bool = False
++
++
++@dataclass(frozen=True)
++class RedisDQDecision:
++    level: int
++    allow_trade_publish: bool
++    reasons: List[str]
++    tightened_mode: bool
++    snapshot: Dict[str, Any]
++
++    def to_dict(self) -> Dict[str, Any]:
++        return {
++            "level": int(self.level),
++            "allow_trade_publish": bool(self.allow_trade_publish),
++            "reasons": list(self.reasons),
++            "tightened_mode": bool(self.tightened_mode),
++            "snapshot": dict(self.snapshot),
++        }
++
++
++def _positive_int(v: Any) -> int:
++    try:
++        return max(0, int(v))
++    except Exception:
++        return 0
++
++
++def evaluate_redis_dq(snapshot: RedisDQSnapshot, thresholds: Optional[RedisDQThresholds] = None) -> RedisDQDecision:
++    t = thresholds or RedisDQThresholds()
++    s = RedisDQSnapshot(
++        symbol=str(snapshot.symbol or ""),
++        queue_lag_ms=_positive_int(snapshot.queue_lag_ms),
++        tick_staleness_ms=_positive_int(snapshot.tick_staleness_ms),
++        book_staleness_ms=_positive_int(snapshot.book_staleness_ms),
++        redis_timeout_events=_positive_int(snapshot.redis_timeout_events),
++        negative_age_events=_positive_int(snapshot.negative_age_events),
++        xack_fail_events=_positive_int(snapshot.xack_fail_events),
++        outbox_backlog=_positive_int(snapshot.outbox_backlog),
++        stream_timeout_burst=_positive_int(snapshot.stream_timeout_burst),
++        force_hard_veto=bool(snapshot.force_hard_veto),
++    )
++
++    hard: List[str] = []
++    soft: List[str] = []
++
++    if s.force_hard_veto:
++        hard.append("force_hard_veto")
++    if s.queue_lag_ms >= t.queue_lag_hard_ms:
++        hard.append("queue_lag")
++    elif s.queue_lag_ms >= t.queue_lag_soft_ms:
++        soft.append("queue_lag")
++
++    if s.tick_staleness_ms >= t.tick_staleness_hard_ms:
++        hard.append("tick_staleness")
++    elif s.tick_staleness_ms >= t.tick_staleness_soft_ms:
++        soft.append("tick_staleness")
++
++    if s.book_staleness_ms >= t.book_staleness_hard_ms:
++        hard.append("book_staleness")
++    elif s.book_staleness_ms >= t.book_staleness_soft_ms:
++        soft.append("book_staleness")
++
++    if s.redis_timeout_events >= t.redis_timeout_hard_events:
++        hard.append("redis_timeout_events")
++    elif s.redis_timeout_events >= t.redis_timeout_soft_events:
++        soft.append("redis_timeout_events")
++
++    if s.negative_age_events >= t.negative_age_hard_events:
++        hard.append("negative_age_events")
++
++    if s.xack_fail_events >= t.xack_fail_hard_events:
++        hard.append("xack_fail_events")
++    elif s.xack_fail_events >= t.xack_fail_soft_events:
++        soft.append("xack_fail_events")
++
++    if s.outbox_backlog >= t.outbox_backlog_hard:
++        hard.append("outbox_backlog")
++    elif s.outbox_backlog >= t.outbox_backlog_soft:
++        soft.append("outbox_backlog")
++
++    if s.stream_timeout_burst >= t.stream_timeout_burst_hard:
++        hard.append("stream_timeout_burst")
++    elif s.stream_timeout_burst >= t.stream_timeout_burst_soft:
++        soft.append("stream_timeout_burst")
++
++    if hard:
++        level = 2
++        allow = False
++        tightened = False
++        reasons = sorted(set(hard))
++    elif soft:
++        level = 1
++        allow = True
++        tightened = True
++        reasons = sorted(set(soft))
++    else:
++        level = 0
++        allow = True
++        tightened = False
++        reasons = []
++
++    if TRADE_DQ_LEVEL:
++        TRADE_DQ_LEVEL.labels(symbol=s.symbol or "UNKNOWN").set(level)
++    if hard and TRADE_DQ_HARD_VETO_TOTAL:
++        for reason in sorted(set(hard)):
++            TRADE_DQ_HARD_VETO_TOTAL.labels(symbol=s.symbol or "UNKNOWN", reason=reason).inc()
++    if soft and TRADE_DQ_SOFT_VETO_TOTAL:
++        for reason in sorted(set(soft)):
++            TRADE_DQ_SOFT_VETO_TOTAL.labels(symbol=s.symbol or "UNKNOWN", reason=reason).inc()
++
++    return RedisDQDecision(
++        level=level,
++        allow_trade_publish=allow,
++        reasons=reasons,
++        tightened_mode=tightened,
++        snapshot=asdict(s),
++    )
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p3orig/audit_data_collection/code/test_crypto_orderflow_service_p3_contract_v1.py p3mod/audit_data_collection/code/test_crypto_orderflow_service_p3_contract_v1.py
+--- p3orig/audit_data_collection/code/test_crypto_orderflow_service_p3_contract_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p3mod/audit_data_collection/code/test_crypto_orderflow_service_p3_contract_v1.py	2026-03-07 05:49:46.259076107 +0000
+@@ -0,0 +1,11 @@
++from pathlib import Path
++
++
++def test_crypto_orderflow_service_contains_p3_guards():
++    src = Path(__file__).with_name('crypto_orderflow_service.py').read_text(encoding='utf-8')
++    assert '_build_redis_dq_snapshot' in src
++    assert '_pre_publish_allows_signal' in src
++    assert 'Hard DQ veto before publish' in src
++    assert 'dq_snapshot' in src
++    assert 'last_tick_ts' in src
++    assert 'xack_fail_events' in src
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p3orig/audit_data_collection/code/test_redis_dq_policy_v1.py p3mod/audit_data_collection/code/test_redis_dq_policy_v1.py
+--- p3orig/audit_data_collection/code/test_redis_dq_policy_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p3mod/audit_data_collection/code/test_redis_dq_policy_v1.py	2026-03-07 05:49:46.258709838 +0000
+@@ -0,0 +1,27 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++mod_path = Path(__file__).with_name("redis_dq_policy.py")
++spec = importlib.util.spec_from_file_location("redis_dq_policy", mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++def test_hard_veto_on_tick_and_timeouts():
++    snap = mod.RedisDQSnapshot(symbol="BTCUSDT", tick_staleness_ms=9000, redis_timeout_events=7)
++    decision = mod.evaluate_redis_dq(snap)
++    assert decision.level == 2
++    assert decision.allow_trade_publish is False
++    assert "tick_staleness" in decision.reasons
++    assert "redis_timeout_events" in decision.reasons
++
++
++def test_soft_veto_tightens_without_blocking():
++    snap = mod.RedisDQSnapshot(symbol="ETHUSDT", queue_lag_ms=2500, outbox_backlog=120)
++    decision = mod.evaluate_redis_dq(snap)
++    assert decision.level == 1
++    assert decision.allow_trade_publish is True
++    assert decision.tightened_mode is True

@@ -1,0 +1,1126 @@
+--- a/orderflow_services/latency_contract_exporter_v1.py
++++ b/orderflow_services/latency_contract_exporter_v1.py
+@@ -26,7 +26,7 @@
+ import time
+ from typing import Any, Dict, Optional, Tuple
+ 
+-from prometheus_client import Gauge, Counter, start_http_server
++from prometheus_client import Gauge, Counter, Histogram, start_http_server
+ 
+ from services.observability.latency_semconv import required_stage_owners, default_symbol_allowlist
+ 
+@@ -66,6 +66,56 @@
+     [],
+ )
+ 
++
++_LATENCY_STAGE_BUCKETS = (1, 2, 5, 10, 20, 30, 50, 75, 100, 150, 200, 300, 500, 750, 1000, 1500, 2000, 5000)
++_LATENCY_EVENT_LAG_BUCKETS = (1, 2, 5, 10, 20, 30, 50, 75, 100, 150, 200, 300, 500, 750, 1000, 1500, 2000, 5000, 10000)
++
++latency_contract_stage_ms = Histogram(
++    "latency_contract_stage_ms",
++    "Observed latency-contract stage durations (ms), de-duplicated by last_ts_ms per key",
++    ["service", "stage", "symbol"],
++    buckets=_LATENCY_STAGE_BUCKETS,
++)
++latency_contract_event_lag_ms = Histogram(
++    "latency_contract_event_lag_ms",
++    "Observed event-time lag (last_ts_ms - ts_event_ms) in ms, de-duplicated by last_ts_ms per key",
++    ["service", "stage", "symbol"],
++    buckets=_LATENCY_EVENT_LAG_BUCKETS,
++)
++latency_contract_event_lag_latest_ms = Gauge(
++    "latency_contract_event_lag_latest_ms",
++    "Latest event-time lag (last_ts_ms - ts_event_ms) in ms",
++    ["service", "stage", "symbol"],
++)
++
++# Dedupe repeated scrapes of the same Redis hash row.
++# Keyed by the exact Redis key so one unchanged row contributes to histograms only once.
++_HISTOGRAM_OBSERVED_TOKENS: Dict[str, Tuple[int, int, int]] = {}
++
++
++def _extract_event_lag_ms(row: Dict[str, Any]) -> int:
++    ts_event_ms = _safe_int(row.get("ts_event_ms"), 0)
++    last_ts_ms = _safe_int(row.get("last_ts_ms"), 0)
++    if ts_event_ms <= 0 or last_ts_ms <= 0 or last_ts_ms < ts_event_ms:
++        return 0
++    return max(0, int(last_ts_ms - ts_event_ms))
++
++
++def _observe_histograms_if_fresh(obs_key: str, service: str, stage: str, symbol: str, row: Dict[str, Any]) -> None:
++    last_ts_ms = _safe_int(row.get("last_ts_ms"), 0)
++    dur_ms = max(0, _safe_int(row.get("last_duration_ms"), 0))
++    event_lag_ms = max(0, _extract_event_lag_ms(row))
++    token = (int(last_ts_ms), int(dur_ms), int(event_lag_ms))
++    if last_ts_ms <= 0:
++        return
++    if _HISTOGRAM_OBSERVED_TOKENS.get(obs_key) == token:
++        return
++    _HISTOGRAM_OBSERVED_TOKENS[obs_key] = token
++    latency_contract_stage_ms.labels(service=service, stage=stage, symbol=symbol).observe(float(dur_ms))
++    if event_lag_ms > 0:
++        latency_contract_event_lag_ms.labels(service=service, stage=stage, symbol=symbol).observe(float(event_lag_ms))
++
++
+ # ------------------------------------------------------------------
+ # P4.1 — required stage coverage and SLO gate
+ # ------------------------------------------------------------------
+@@ -210,10 +260,13 @@
+         dur_ms = _safe_int(row.get("last_duration_ms"), 0)
+         last_ts_ms = _safe_int(row.get("last_ts_ms"), 0)
+         age_ms = int(now_ms - last_ts_ms) if last_ts_ms > 0 else 0
++        event_lag_ms = _extract_event_lag_ms(row)
+ 
+         # Update gauges
+         latency_contract_exporter_stage_latest_ms.labels(service=service, stage=stage, symbol=symbol).set(float(max(0, dur_ms)))
+         latency_contract_exporter_stage_age_ms.labels(service=service, stage=stage, symbol=symbol).set(float(max(0, age_ms)))
++        latency_contract_event_lag_latest_ms.labels(service=service, stage=stage, symbol=symbol).set(float(max(0, event_lag_ms)))
++        _observe_histograms_if_fresh(str(key), service, stage, symbol, row)
+ 
+         # Budget ratio
+         budget = budgets.get(stage, 0)
+
+--- a/tick_flow_full/orderflow_services/latency_contract_exporter_v1.py
++++ b/tick_flow_full/orderflow_services/latency_contract_exporter_v1.py
+@@ -26,7 +26,7 @@
+ import time
+ from typing import Any, Dict, Optional, Tuple
+ 
+-from prometheus_client import Gauge, Counter, start_http_server
++from prometheus_client import Gauge, Counter, Histogram, start_http_server
+ 
+ from services.observability.latency_semconv import required_stage_owners, default_symbol_allowlist
+ 
+@@ -66,6 +66,56 @@
+     [],
+ )
+ 
++
++_LATENCY_STAGE_BUCKETS = (1, 2, 5, 10, 20, 30, 50, 75, 100, 150, 200, 300, 500, 750, 1000, 1500, 2000, 5000)
++_LATENCY_EVENT_LAG_BUCKETS = (1, 2, 5, 10, 20, 30, 50, 75, 100, 150, 200, 300, 500, 750, 1000, 1500, 2000, 5000, 10000)
++
++latency_contract_stage_ms = Histogram(
++    "latency_contract_stage_ms",
++    "Observed latency-contract stage durations (ms), de-duplicated by last_ts_ms per key",
++    ["service", "stage", "symbol"],
++    buckets=_LATENCY_STAGE_BUCKETS,
++)
++latency_contract_event_lag_ms = Histogram(
++    "latency_contract_event_lag_ms",
++    "Observed event-time lag (last_ts_ms - ts_event_ms) in ms, de-duplicated by last_ts_ms per key",
++    ["service", "stage", "symbol"],
++    buckets=_LATENCY_EVENT_LAG_BUCKETS,
++)
++latency_contract_event_lag_latest_ms = Gauge(
++    "latency_contract_event_lag_latest_ms",
++    "Latest event-time lag (last_ts_ms - ts_event_ms) in ms",
++    ["service", "stage", "symbol"],
++)
++
++# Dedupe repeated scrapes of the same Redis hash row.
++# Keyed by the exact Redis key so one unchanged row contributes to histograms only once.
++_HISTOGRAM_OBSERVED_TOKENS: Dict[str, Tuple[int, int, int]] = {}
++
++
++def _extract_event_lag_ms(row: Dict[str, Any]) -> int:
++    ts_event_ms = _safe_int(row.get("ts_event_ms"), 0)
++    last_ts_ms = _safe_int(row.get("last_ts_ms"), 0)
++    if ts_event_ms <= 0 or last_ts_ms <= 0 or last_ts_ms < ts_event_ms:
++        return 0
++    return max(0, int(last_ts_ms - ts_event_ms))
++
++
++def _observe_histograms_if_fresh(obs_key: str, service: str, stage: str, symbol: str, row: Dict[str, Any]) -> None:
++    last_ts_ms = _safe_int(row.get("last_ts_ms"), 0)
++    dur_ms = max(0, _safe_int(row.get("last_duration_ms"), 0))
++    event_lag_ms = max(0, _extract_event_lag_ms(row))
++    token = (int(last_ts_ms), int(dur_ms), int(event_lag_ms))
++    if last_ts_ms <= 0:
++        return
++    if _HISTOGRAM_OBSERVED_TOKENS.get(obs_key) == token:
++        return
++    _HISTOGRAM_OBSERVED_TOKENS[obs_key] = token
++    latency_contract_stage_ms.labels(service=service, stage=stage, symbol=symbol).observe(float(dur_ms))
++    if event_lag_ms > 0:
++        latency_contract_event_lag_ms.labels(service=service, stage=stage, symbol=symbol).observe(float(event_lag_ms))
++
++
+ # ------------------------------------------------------------------
+ # P4.1 — required stage coverage and SLO gate
+ # ------------------------------------------------------------------
+@@ -181,10 +231,13 @@
+         dur_ms = _safe_int(row.get("last_duration_ms"), 0)
+         last_ts_ms = _safe_int(row.get("last_ts_ms"), 0)
+         age_ms = int(now_ms - last_ts_ms) if last_ts_ms > 0 else 0
++        event_lag_ms = _extract_event_lag_ms(row)
+ 
+         # Update gauges
+         latency_contract_exporter_stage_latest_ms.labels(service=service, stage=stage, symbol=symbol).set(float(max(0, dur_ms)))
+         latency_contract_exporter_stage_age_ms.labels(service=service, stage=stage, symbol=symbol).set(float(max(0, age_ms)))
++        latency_contract_event_lag_latest_ms.labels(service=service, stage=stage, symbol=symbol).set(float(max(0, event_lag_ms)))
++        _observe_histograms_if_fresh(str(key), service, stage, symbol, row)
+ 
+         # Budget ratio
+         budget = budgets.get(stage, 0)
+
+--- a/services/of_timers_worker.py
++++ b/services/of_timers_worker.py
+@@ -2143,6 +2143,18 @@
+     return run_tool("ml_analysis.tools.nightly_slippage_calibrator_v1", timeout=timeout_s)
+ 
+ 
++def run_nightly_tca_report() -> bool:
++    """Run nightly TCA report bundle over tca_fill_metrics."""
++    if os.getenv("ENABLE_TCA_NIGHTLY_REPORT", "1") != "1":
++        return True
++    timeout_s = 1800
++    try:
++        timeout_s = int(str(os.getenv("TCA_NIGHTLY_REPORT_TIMEOUT_S", "1800")).strip())
++    except Exception:
++        timeout_s = 1800
++    return run_tool("services.posttrade.tca_nightly_report_v1", timeout=timeout_s)
++
++
+ def run_exec_slippage_eval_rowcount_probe() -> bool:
+     """Hourly probe: v_exec_slippage_eval rowcount by bucket (P77).
+ 
+@@ -3230,6 +3242,7 @@
+                 ("conf_cal", 5, 25, run_confidence_calibrator),
+                 ("nightly_calib", 5, 30, run_nightly_calibration),
+                 ("slippage_calib", 5, 32, run_nightly_slippage_calibrator),
++                ("tca_nightly_report", 5, 34, run_nightly_tca_report),
+                 ("conf_cal_v2", 5, 35, run_nightly_confidence_calibrator_v2),
+                 ("archive_maint", 5, 40, run_archive_maintenance),
+                 ("meta_ab_v2", 5, 55, run_meta_ab_v2_nightly_job_v1),
+
+--- a/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
++++ b/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
+@@ -130,3 +130,17 @@
+ 
+ # Strategy research stats alert-policy dual-control (P6.11)
+ STRATEGY_RESEARCH_STATS_ALERT_POLICY_DUAL_CONTROL_ON_LIMIT=1
++
++
++# TCA nightly report / exporter
++ENABLE_TCA_NIGHTLY_REPORT=1
++TCA_NIGHTLY_REPORT_TIMEOUT_S=1800
++TCA_NIGHTLY_REPORT_STATE_KEY=state:tca_nightly_report:last
++TCA_NIGHTLY_STATUS_PATH=/var/lib/trade/tca/tca_nightly_report_status.json
++TCA_NIGHTLY_REPORT_PATH=/var/lib/trade/tca/tca_nightly_report.json
++TCA_REPORT_MAX_IS_P95_BPS=12.0
++TCA_REPORT_MAX_PERM_IMPACT_P95_BPS=8.0
++TCA_REPORT_MIN_REALIZED_SPREAD_P50_BPS=-1.0
++TCA_REPORT_MAX_EFF_SPREAD_P95_BPS=6.0
++TCA_NIGHTLY_REPORT_EXPORTER_PORT=9866
++TCA_NIGHTLY_REPORT_EXPORTER_INTERVAL_S=30
+
+--- a/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
++++ b/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
+@@ -131,3 +131,17 @@
+ 
+ # Strategy research stats alert-policy dual-control (P6.11)
+ STRATEGY_RESEARCH_STATS_ALERT_POLICY_DUAL_CONTROL_ON_LIMIT=1
++
++
++# TCA nightly report / exporter
++ENABLE_TCA_NIGHTLY_REPORT=1
++TCA_NIGHTLY_REPORT_TIMEOUT_S=1800
++TCA_NIGHTLY_REPORT_STATE_KEY=state:tca_nightly_report:last
++TCA_NIGHTLY_STATUS_PATH=/var/lib/trade/tca/tca_nightly_report_status.json
++TCA_NIGHTLY_REPORT_PATH=/var/lib/trade/tca/tca_nightly_report.json
++TCA_REPORT_MAX_IS_P95_BPS=12.0
++TCA_REPORT_MAX_PERM_IMPACT_P95_BPS=8.0
++TCA_REPORT_MIN_REALIZED_SPREAD_P50_BPS=-1.0
++TCA_REPORT_MAX_EFF_SPREAD_P95_BPS=6.0
++TCA_NIGHTLY_REPORT_EXPORTER_PORT=9866
++TCA_NIGHTLY_REPORT_EXPORTER_INTERVAL_S=30
+
+--- a/orderflow_services/tests/test_latency_contract_histograms_v1.py
++++ b/orderflow_services/tests/test_latency_contract_histograms_v1.py
+@@ -0,0 +1,60 @@
++from __future__ import annotations
++
++import asyncio
++
++from orderflow_services.latency_contract_exporter_v1 import (
++    _HISTOGRAM_OBSERVED_TOKENS,
++    _extract_event_lag_ms,
++    _observe_histograms_if_fresh,
++    _scrape_once,
++    latency_contract_event_lag_latest_ms,
++    latency_contract_event_lag_ms,
++    latency_contract_stage_ms,
++)
++
++
++class FakeRedisAsync:
++    def __init__(self, rows: dict[str, dict[str, str]]) -> None:
++        self.rows = rows
++
++    async def keys(self, pattern: str):
++        prefix = pattern.rstrip('*')
++        return [k for k in self.rows if k.startswith(prefix)]
++
++    async def hgetall(self, key: str):
++        return dict(self.rows.get(key, {}))
++
++
++def test_extract_event_lag_ms_handles_missing_or_reversed() -> None:
++    assert _extract_event_lag_ms({}) == 0
++    assert _extract_event_lag_ms({'ts_event_ms': '10', 'last_ts_ms': '5'}) == 0
++    assert _extract_event_lag_ms({'ts_event_ms': '10', 'last_ts_ms': '25'}) == 15
++
++
++def test_observe_histograms_if_fresh_dedupes_same_token() -> None:
++    obs_key = 'unit:test:latency:btc'
++    _HISTOGRAM_OBSERVED_TOKENS.pop(obs_key, None)
++    row = {'last_ts_ms': '1000', 'last_duration_ms': '42', 'ts_event_ms': '960'}
++    before_stage = latency_contract_stage_ms.labels(service='svc_ut', stage='feature_to_emit', symbol='BTCUSDT_UH1')._sum.get()
++    before_lag_sum = latency_contract_event_lag_ms.labels(service='svc_ut', stage='feature_to_emit', symbol='BTCUSDT_UH1')._sum.get()
++
++    _observe_histograms_if_fresh(obs_key, 'svc_ut', 'feature_to_emit', 'BTCUSDT_UH1', row)
++    _observe_histograms_if_fresh(obs_key, 'svc_ut', 'feature_to_emit', 'BTCUSDT_UH1', row)
++
++    assert latency_contract_stage_ms.labels(service='svc_ut', stage='feature_to_emit', symbol='BTCUSDT_UH1')._sum.get() == before_stage + 42.0
++    assert latency_contract_event_lag_ms.labels(service='svc_ut', stage='feature_to_emit', symbol='BTCUSDT_UH1')._sum.get() == before_lag_sum + 40.0
++
++
++def test_scrape_once_updates_event_lag_latest_and_histograms() -> None:
++    key = 'metrics:latency_contract:last:python_worker:feature_to_emit:ETHUSDT_UH2'
++    _HISTOGRAM_OBSERVED_TOKENS.pop(key, None)
++    redis = FakeRedisAsync({
++        key: {
++            'last_duration_ms': '55',
++            'last_ts_ms': '5000',
++            'ts_event_ms': '4925',
++        }
++    })
++    asyncio.run(_scrape_once(redis, 'metrics:latency_contract:last', stale_s=60, budgets={'feature_to_emit': 100}))
++
++    assert latency_contract_event_lag_latest_ms.labels(service='python_worker', stage='feature_to_emit', symbol='ETHUSDT_UH2')._value.get() == 75.0
+
+--- a/services/posttrade/tca_nightly_report_v1.py
++++ b/services/posttrade/tca_nightly_report_v1.py
+@@ -0,0 +1,331 @@
++from __future__ import annotations
++
++"""Nightly TCA report bundle (P6 gap-closure).
++
++Computes compact 24h/7d TCA rollups from ``tca_fill_metrics`` and publishes:
++  - JSON status/report files for offline inspection
++  - Redis summary hash for Prometheus exporter / alerts
++
++The design is intentionally low-cardinality: Prometheus gets only summary counts
++and worst-case values, while the detailed offenders remain in the JSON report.
++"""
++
++import argparse
++import json
++import os
++import re
++import time
++from typing import Any, Dict, List, Optional, Sequence
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _env(name: str, default: str) -> str:
++    v = os.getenv(name)
++    return v if v is not None and v != '' else default
++
++
++def _env_int(name: str, default: str) -> int:
++    try:
++        return int(float(_env(name, default)))
++    except Exception:
++        return int(float(default))
++
++
++def _env_float(name: str, default: str) -> float:
++    try:
++        return float(_env(name, default))
++    except Exception:
++        return float(default)
++
++
++def pick_dsn() -> str:
++    return (
++        os.getenv('TCA_DB_DSN')
++        or os.getenv('TRADES_DB_DSN')
++        or os.getenv('TIMESCALE_DSN')
++        or os.getenv('ANALYTICS_DB_DSN')
++        or os.getenv('ANALYTICS_DSN')
++        or os.getenv('PG_DSN')
++        or os.getenv('DATABASE_URL')
++        or ''
++    )
++
++
++def _safe_ident(name: str, default: str) -> str:
++    s = str(name or '').strip()
++    if not s or not re.fullmatch(r'[A-Za-z0-9_\.]+', s):
++        return default
++    return s
++
++
++def _write_json_atomic(path: str, obj: Dict[str, Any]) -> None:
++    p = str(path or '').strip()
++    if not p:
++        return
++    os.makedirs(os.path.dirname(os.path.abspath(p)), exist_ok=True)
++    tmp = p + '.tmp'
++    with open(tmp, 'w', encoding='utf-8') as fh:
++        json.dump(obj, fh, ensure_ascii=False, indent=2, sort_keys=True)
++        fh.flush()
++        os.fsync(fh.fileno())
++    os.replace(tmp, p)
++
++
++def _connect_redis(url: str):
++    try:
++        import redis  # type: ignore
++        return redis.Redis.from_url(url, decode_responses=True)
++    except Exception:
++        return None
++
++
++def _pg_connect(dsn: str):
++    try:
++        import psycopg2  # type: ignore
++        return psycopg2.connect(dsn)
++    except Exception:
++        return None
++
++
++def _f(x: Any, default: float = 0.0) -> float:
++    try:
++        v = float(x)
++    except Exception:
++        return float(default)
++    return float(v)
++
++
++def _i(x: Any, default: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(default)
++
++
++def _fetch_rollups(cur, *, table: str, lookback_h: int, min_rows: int) -> List[Dict[str, Any]]:
++    q = f"""
++      select
++        sym,
++        venue,
++        session,
++        tf,
++        kind,
++        side,
++        count(*)::bigint as n,
++        percentile_cont(0.50) within group (order by is_bps) as is_p50_bps,
++        percentile_cont(0.95) within group (order by is_bps) as is_p95_bps,
++        percentile_cont(0.99) within group (order by is_bps) as is_p99_bps,
++        percentile_cont(0.95) within group (order by eff_spread_bps) as eff_spread_p95_bps,
++        percentile_cont(0.50) within group (order by realized_spread_1s_bps) as realized_spread_1s_p50_bps,
++        percentile_cont(0.95) within group (order by perm_impact_1s_bps) as perm_impact_1s_p95_bps,
++        avg(case when realized_spread_1s_bps < 0 then 1 else 0 end) as realized_spread_1s_neg_share
++      from {table}
++      where ts > now() - (%s * interval '1 hour')
++      group by sym, venue, session, tf, kind, side
++      having count(*) >= %s
++    """
++    cur.execute(q, (int(lookback_h), int(min_rows)))
++    rows = []
++    for row in cur.fetchall() or []:
++        rows.append({
++            'sym': str(row[0] or '').upper(),
++            'venue': str(row[1] or '').lower(),
++            'session': str(row[2] or 'na'),
++            'tf': str(row[3] or 'na'),
++            'kind': str(row[4] or 'na'),
++            'side': str(row[5] or 'na').upper(),
++            'n': _i(row[6], 0),
++            'is_p50_bps': _f(row[7], 0.0),
++            'is_p95_bps': _f(row[8], 0.0),
++            'is_p99_bps': _f(row[9], 0.0),
++            'eff_spread_p95_bps': _f(row[10], 0.0),
++            'realized_spread_1s_p50_bps': _f(row[11], 0.0),
++            'perm_impact_1s_p95_bps': _f(row[12], 0.0),
++            'realized_spread_1s_neg_share': _f(row[13], 0.0),
++        })
++    return rows
++
++
++def _row_key(row: Dict[str, Any]) -> str:
++    return ':'.join([
++        str(row.get('sym') or ''),
++        str(row.get('venue') or ''),
++        str(row.get('session') or ''),
++        str(row.get('tf') or ''),
++        str(row.get('kind') or ''),
++        str(row.get('side') or ''),
++    ])
++
++
++def _top_rows(rows: Sequence[Dict[str, Any]], *, field: str, reverse: bool, top_n: int) -> List[Dict[str, Any]]:
++    ranked = sorted(rows, key=lambda r: (_f(r.get(field), 0.0), _i(r.get('n'), 0)), reverse=reverse)
++    out: List[Dict[str, Any]] = []
++    for row in ranked[: max(1, int(top_n))]:
++        out.append({
++            'key': _row_key(row),
++            'value': _f(row.get(field), 0.0),
++            'n': _i(row.get('n'), 0),
++            'sym': str(row.get('sym') or ''),
++            'venue': str(row.get('venue') or ''),
++            'session': str(row.get('session') or ''),
++            'tf': str(row.get('tf') or ''),
++            'kind': str(row.get('kind') or ''),
++            'side': str(row.get('side') or ''),
++        })
++    return out
++
++
++def build_report(*, rows_24h: Sequence[Dict[str, Any]], rows_7d: Sequence[Dict[str, Any]], thresholds: Dict[str, float], top_n: int) -> Dict[str, Any]:
++    def _total_rows(rows: Sequence[Dict[str, Any]]) -> int:
++        return int(sum(max(0, _i(r.get('n'), 0)) for r in rows))
++
++    max_is = _f(thresholds.get('max_is_p95_bps'), 0.0)
++    max_imp = _f(thresholds.get('max_perm_impact_p95_bps'), 0.0)
++    min_rs = _f(thresholds.get('min_realized_spread_p50_bps'), -999.0)
++    max_eff = _f(thresholds.get('max_eff_spread_p95_bps'), 0.0)
++
++    def _breach_counts(rows: Sequence[Dict[str, Any]]) -> Dict[str, int]:
++        return {
++            'is_p95': int(sum(1 for r in rows if _f(r.get('is_p95_bps'), 0.0) >= max_is)) if max_is > 0 else 0,
++            'perm_impact_p95': int(sum(1 for r in rows if _f(r.get('perm_impact_1s_p95_bps'), 0.0) >= max_imp)) if max_imp > 0 else 0,
++            'realized_spread_p50': int(sum(1 for r in rows if _f(r.get('realized_spread_1s_p50_bps'), 0.0) <= min_rs)),
++            'eff_spread_p95': int(sum(1 for r in rows if _f(r.get('eff_spread_p95_bps'), 0.0) >= max_eff)) if max_eff > 0 else 0,
++        }
++
++    b24 = _breach_counts(rows_24h)
++    b7 = _breach_counts(rows_7d)
++
++    report = {
++        'schema_name': 'tca_nightly_report',
++        'schema_version': 1,
++        'thresholds': dict(thresholds),
++        'summary': {
++            'rows_24h_total': _total_rows(rows_24h),
++            'rows_7d_total': _total_rows(rows_7d),
++            'groups_24h': int(len(rows_24h)),
++            'groups_7d': int(len(rows_7d)),
++            'breach_groups_24h': b24,
++            'breach_groups_7d': b7,
++        },
++        'top_offenders_24h': {
++            'is_p95_bps': _top_rows(rows_24h, field='is_p95_bps', reverse=True, top_n=top_n),
++            'perm_impact_1s_p95_bps': _top_rows(rows_24h, field='perm_impact_1s_p95_bps', reverse=True, top_n=top_n),
++            'eff_spread_p95_bps': _top_rows(rows_24h, field='eff_spread_p95_bps', reverse=True, top_n=top_n),
++            'adverse_realized_spread_1s_p50_bps': _top_rows(rows_24h, field='realized_spread_1s_p50_bps', reverse=False, top_n=top_n),
++        },
++        'top_offenders_7d': {
++            'is_p95_bps': _top_rows(rows_7d, field='is_p95_bps', reverse=True, top_n=top_n),
++            'perm_impact_1s_p95_bps': _top_rows(rows_7d, field='perm_impact_1s_p95_bps', reverse=True, top_n=top_n),
++            'eff_spread_p95_bps': _top_rows(rows_7d, field='eff_spread_p95_bps', reverse=True, top_n=top_n),
++            'adverse_realized_spread_1s_p50_bps': _top_rows(rows_7d, field='realized_spread_1s_p50_bps', reverse=False, top_n=top_n),
++        },
++    }
++    return report
++
++
++def build_summary_state(*, report: Dict[str, Any], now_ms: int, dur_ms: int, ok: bool) -> Dict[str, str]:
++    s = dict((report or {}).get('summary') or {})
++    top24 = dict((report or {}).get('top_offenders_24h') or {})
++
++    def _top_value(name: str) -> float:
++        rows = list(top24.get(name) or [])
++        if not rows:
++            return 0.0
++        return _f(rows[0].get('value'), 0.0)
++
++    return {
++        'schema_name': 'tca_nightly_report_state',
++        'schema_version': '1',
++        'updated_ts_ms': str(int(now_ms)),
++        'dur_ms': str(int(dur_ms)),
++        'ok': '1' if ok else '0',
++        'rows_24h_total': str(_i(s.get('rows_24h_total'), 0)),
++        'rows_7d_total': str(_i(s.get('rows_7d_total'), 0)),
++        'groups_24h': str(_i(s.get('groups_24h'), 0)),
++        'groups_7d': str(_i(s.get('groups_7d'), 0)),
++        'breach_is_p95_24h': str(_i(((s.get('breach_groups_24h') or {}).get('is_p95')), 0)),
++        'breach_perm_impact_p95_24h': str(_i(((s.get('breach_groups_24h') or {}).get('perm_impact_p95')), 0)),
++        'breach_realized_spread_p50_24h': str(_i(((s.get('breach_groups_24h') or {}).get('realized_spread_p50')), 0)),
++        'breach_eff_spread_p95_24h': str(_i(((s.get('breach_groups_24h') or {}).get('eff_spread_p95')), 0)),
++        'worst_is_p95_bps_24h': f"{_top_value('is_p95_bps'):.6f}",
++        'worst_perm_impact_p95_bps_24h': f"{_top_value('perm_impact_1s_p95_bps'):.6f}",
++        'worst_realized_spread_p50_bps_24h': f"{_top_value('adverse_realized_spread_1s_p50_bps'):.6f}",
++        'worst_eff_spread_p95_bps_24h': f"{_top_value('eff_spread_p95_bps'):.6f}",
++    }
++
++
++def main(argv: Optional[Sequence[str]] = None) -> int:
++    ap = argparse.ArgumentParser(description='Nightly TCA report bundle')
++    ap.add_argument('--dsn', default=pick_dsn())
++    ap.add_argument('--redis-url', default=os.getenv('REDIS_URL') or os.getenv('CRYPTO_NOTIFY_REDIS_URL') or '')
++    ap.add_argument('--table', default=_safe_ident(os.getenv('TCA_NIGHTLY_SOURCE_TABLE', 'tca_fill_metrics'), 'tca_fill_metrics'))
++    ap.add_argument('--min-rows', type=int, default=_env_int('TCA_NIGHTLY_MIN_ROWS_PER_GROUP', '8'))
++    ap.add_argument('--lookback-24h', type=int, default=_env_int('TCA_NIGHTLY_LOOKBACK_24H', '24'))
++    ap.add_argument('--lookback-7d', type=int, default=_env_int('TCA_NIGHTLY_LOOKBACK_7D_H', '168'))
++    ap.add_argument('--top-n', type=int, default=_env_int('TCA_NIGHTLY_TOP_N', '10'))
++    ap.add_argument('--status-path', default=os.getenv('TCA_NIGHTLY_STATUS_PATH', '/tmp/tca_nightly_report_status.json'))
++    ap.add_argument('--report-path', default=os.getenv('TCA_NIGHTLY_REPORT_PATH', '/tmp/tca_nightly_report.json'))
++    ap.add_argument('--state-key', default=os.getenv('TCA_NIGHTLY_REPORT_STATE_KEY', 'state:tca_nightly_report:last'))
++    args = ap.parse_args(list(argv) if argv is not None else None)
++
++    t0 = _now_ms()
++    status: Dict[str, Any] = {'ts_ms': t0, 'ok': False, 'dur_ms': 0}
++    dsn = str(args.dsn or '').strip()
++    if not dsn:
++        status['reason'] = 'missing_dsn'
++        _write_json_atomic(args.status_path, status)
++        return 2
++
++    conn = _pg_connect(dsn)
++    if conn is None:
++        status['reason'] = 'db_connect_failed'
++        _write_json_atomic(args.status_path, status)
++        return 1
++
++    try:
++        cur = conn.cursor()
++        rows_24h = _fetch_rollups(cur, table=args.table, lookback_h=int(args.lookback_24h), min_rows=int(args.min_rows))
++        rows_7d = _fetch_rollups(cur, table=args.table, lookback_h=int(args.lookback_7d), min_rows=int(args.min_rows))
++        thresholds = {
++            'max_is_p95_bps': _env_float('TCA_REPORT_MAX_IS_P95_BPS', '12.0'),
++            'max_perm_impact_p95_bps': _env_float('TCA_REPORT_MAX_PERM_IMPACT_P95_BPS', '8.0'),
++            'min_realized_spread_p50_bps': _env_float('TCA_REPORT_MIN_REALIZED_SPREAD_P50_BPS', '-1.0'),
++            'max_eff_spread_p95_bps': _env_float('TCA_REPORT_MAX_EFF_SPREAD_P95_BPS', '6.0'),
++        }
++        report = build_report(rows_24h=rows_24h, rows_7d=rows_7d, thresholds=thresholds, top_n=int(args.top_n))
++        now_ms = _now_ms()
++        dur_ms = max(0, now_ms - t0)
++        status = {
++            'ts_ms': now_ms,
++            'ok': True,
++            'dur_ms': dur_ms,
++            'rows_24h_total': int((report.get('summary') or {}).get('rows_24h_total', 0)),
++            'groups_24h': int((report.get('summary') or {}).get('groups_24h', 0)),
++        }
++        _write_json_atomic(args.report_path, report)
++        _write_json_atomic(args.status_path, status)
++
++        r = _connect_redis(str(args.redis_url or ''))
++        if r is not None:
++            summary = build_summary_state(report=report, now_ms=now_ms, dur_ms=dur_ms, ok=True)
++            try:
++                r.hset(str(args.state_key), mapping=summary)
++                r.expire(str(args.state_key), 60 * 60 * 48)
++                r.set('state:tca_nightly_report:last_ok_ts_ms', str(now_ms), ex=60 * 60 * 48)
++                r.set('state:tca_nightly_report:last_dur_ms', str(dur_ms), ex=60 * 60 * 48)
++                r.set('state:tca_nightly_report:last_ok', '1', ex=60 * 60 * 48)
++            except Exception:
++                pass
++        return 0
++    finally:
++        try:
++            conn.close()
++        except Exception:
++            pass
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+
+--- a/services/posttrade/tests/test_tca_nightly_report_v1.py
++++ b/services/posttrade/tests/test_tca_nightly_report_v1.py
+@@ -0,0 +1,72 @@
++from __future__ import annotations
++
++from services.posttrade.tca_nightly_report_v1 import build_report, build_summary_state
++
++
++def _row(sym: str, is_p95: float, imp_p95: float, rs_p50: float, eff_p95: float, n: int = 20):
++    return {
++        'sym': sym,
++        'venue': 'binance',
++        'session': 'eu',
++        'tf': '1m',
++        'kind': 'breakout',
++        'side': 'LONG',
++        'n': n,
++        'is_p50_bps': is_p95 / 2.0,
++        'is_p95_bps': is_p95,
++        'is_p99_bps': is_p95 * 1.1,
++        'eff_spread_p95_bps': eff_p95,
++        'realized_spread_1s_p50_bps': rs_p50,
++        'perm_impact_1s_p95_bps': imp_p95,
++        'realized_spread_1s_neg_share': 0.5 if rs_p50 < 0 else 0.1,
++    }
++
++
++def test_build_report_counts_breaches_and_ranks_offenders():
++    thr = {
++        'max_is_p95_bps': 10.0,
++        'max_perm_impact_p95_bps': 7.0,
++        'min_realized_spread_p50_bps': -1.0,
++        'max_eff_spread_p95_bps': 5.0,
++    }
++    rows_24h = [
++        _row('BTCUSDT', 12.0, 8.0, -2.0, 6.0),
++        _row('ETHUSDT', 9.0, 6.0, 0.5, 3.0),
++    ]
++    rows_7d = [
++        _row('BTCUSDT', 11.0, 8.5, -1.5, 5.5, n=100),
++        _row('ETHUSDT', 8.0, 5.0, 0.2, 2.5, n=80),
++    ]
++
++    report = build_report(rows_24h=rows_24h, rows_7d=rows_7d, thresholds=thr, top_n=5)
++    s = report['summary']
++    assert s['rows_24h_total'] == 40
++    assert s['groups_24h'] == 2
++    assert s['breach_groups_24h']['is_p95'] == 1
++    assert s['breach_groups_24h']['perm_impact_p95'] == 1
++    assert s['breach_groups_24h']['realized_spread_p50'] == 1
++    assert s['breach_groups_24h']['eff_spread_p95'] == 1
++    assert report['top_offenders_24h']['is_p95_bps'][0]['sym'] == 'BTCUSDT'
++    assert report['top_offenders_24h']['adverse_realized_spread_1s_p50_bps'][0]['value'] == -2.0
++
++
++def test_build_summary_state_extracts_top_values():
++    thr = {
++        'max_is_p95_bps': 10.0,
++        'max_perm_impact_p95_bps': 7.0,
++        'min_realized_spread_p50_bps': -1.0,
++        'max_eff_spread_p95_bps': 5.0,
++    }
++    report = build_report(
++        rows_24h=[_row('BTCUSDT', 12.5, 8.25, -2.25, 6.5)],
++        rows_7d=[],
++        thresholds=thr,
++        top_n=3,
++    )
++    state = build_summary_state(report=report, now_ms=123456, dur_ms=789, ok=True)
++    assert state['ok'] == '1'
++    assert state['rows_24h_total'] == '20'
++    assert state['breach_is_p95_24h'] == '1'
++    assert state['worst_is_p95_bps_24h'] == '12.500000'
++    assert state['worst_perm_impact_p95_bps_24h'] == '8.250000'
++    assert state['worst_realized_spread_p50_bps_24h'] == '-2.250000'
+
+--- a/orderflow_services/tca_nightly_report_exporter_v1.py
++++ b/orderflow_services/tca_nightly_report_exporter_v1.py
+@@ -0,0 +1,76 @@
++from __future__ import annotations
++
++import os
++import time
++from typing import Any, Dict
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++from prometheus_client import Gauge, start_http_server
++
++UP = Gauge('tca_nightly_report_exporter_up', '1 if exporter can read TCA nightly report state')
++LAST_UPDATED_TS_MS = Gauge('tca_nightly_report_last_updated_ts_ms', 'Last successful TCA nightly report timestamp in epoch ms')
++LAST_AGE_SECONDS = Gauge('tca_nightly_report_last_age_seconds', 'Age of last TCA nightly report in seconds')
++DURATION_MS = Gauge('tca_nightly_report_last_duration_ms', 'Duration of last TCA nightly report run in ms')
++ROWS_TOTAL = Gauge('tca_nightly_report_rows_total', 'Rows covered by nightly TCA report', ['window'])
++GROUPS_TOTAL = Gauge('tca_nightly_report_groups_total', 'Distinct group count in nightly TCA report', ['window'])
++BREACH_GROUPS = Gauge('tca_nightly_report_breach_groups', 'Number of 24h TCA groups breaching thresholds', ['metric'])
++WORST_VALUE_BPS = Gauge('tca_nightly_report_worst_value_bps', 'Worst 24h summary value by metric (bps)', ['metric'])
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++def _f(x: Any, d: float = 0.0) -> float:
++    try:
++        return float(x)
++    except Exception:
++        return float(d)
++
++
++def publish_from_mapping(m: Dict[str, Any]) -> None:
++    updated_ms = _i(m.get('updated_ts_ms'), 0)
++    now_s = time.time()
++    LAST_UPDATED_TS_MS.set(float(updated_ms))
++    LAST_AGE_SECONDS.set((now_s - (updated_ms / 1000.0)) if updated_ms > 0 else float('nan'))
++    DURATION_MS.set(float(_i(m.get('dur_ms'), 0)))
++    ROWS_TOTAL.labels(window='24h').set(float(_i(m.get('rows_24h_total'), 0)))
++    ROWS_TOTAL.labels(window='7d').set(float(_i(m.get('rows_7d_total'), 0)))
++    GROUPS_TOTAL.labels(window='24h').set(float(_i(m.get('groups_24h'), 0)))
++    GROUPS_TOTAL.labels(window='7d').set(float(_i(m.get('groups_7d'), 0)))
++    BREACH_GROUPS.labels(metric='is_p95').set(float(_i(m.get('breach_is_p95_24h'), 0)))
++    BREACH_GROUPS.labels(metric='perm_impact_p95').set(float(_i(m.get('breach_perm_impact_p95_24h'), 0)))
++    BREACH_GROUPS.labels(metric='realized_spread_p50').set(float(_i(m.get('breach_realized_spread_p50_24h'), 0)))
++    BREACH_GROUPS.labels(metric='eff_spread_p95').set(float(_i(m.get('breach_eff_spread_p95_24h'), 0)))
++    WORST_VALUE_BPS.labels(metric='is_p95').set(float(_f(m.get('worst_is_p95_bps_24h'), 0.0)))
++    WORST_VALUE_BPS.labels(metric='perm_impact_p95').set(float(_f(m.get('worst_perm_impact_p95_bps_24h'), 0.0)))
++    WORST_VALUE_BPS.labels(metric='realized_spread_p50').set(float(_f(m.get('worst_realized_spread_p50_bps_24h'), 0.0)))
++    WORST_VALUE_BPS.labels(metric='eff_spread_p95').set(float(_f(m.get('worst_eff_spread_p95_bps_24h'), 0.0)))
++    UP.set(1.0 if _i(m.get('ok'), 0) == 1 else 0.0)
++
++
++def main() -> None:
++    if redis is None:
++        raise RuntimeError('redis dependency missing')
++    redis_url = os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0')
++    key = os.getenv('TCA_NIGHTLY_REPORT_STATE_KEY', 'state:tca_nightly_report:last')
++    port = int(os.getenv('TCA_NIGHTLY_REPORT_EXPORTER_PORT', '9866'))
++    interval_s = float(os.getenv('TCA_NIGHTLY_REPORT_EXPORTER_INTERVAL_S', '30') or 30)
++    r = redis.Redis.from_url(redis_url, decode_responses=True)
++    start_http_server(port)
++    while True:
++        try:
++            publish_from_mapping(r.hgetall(key) or {})
++        except Exception:
++            UP.set(0.0)
++        time.sleep(interval_s)
++
++
++if __name__ == '__main__':
++    main()
+
+--- a/tick_flow_full/orderflow_services/tca_nightly_report_exporter_v1.py
++++ b/tick_flow_full/orderflow_services/tca_nightly_report_exporter_v1.py
+@@ -0,0 +1,76 @@
++from __future__ import annotations
++
++import os
++import time
++from typing import Any, Dict
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++from prometheus_client import Gauge, start_http_server
++
++UP = Gauge('tca_nightly_report_exporter_up', '1 if exporter can read TCA nightly report state')
++LAST_UPDATED_TS_MS = Gauge('tca_nightly_report_last_updated_ts_ms', 'Last successful TCA nightly report timestamp in epoch ms')
++LAST_AGE_SECONDS = Gauge('tca_nightly_report_last_age_seconds', 'Age of last TCA nightly report in seconds')
++DURATION_MS = Gauge('tca_nightly_report_last_duration_ms', 'Duration of last TCA nightly report run in ms')
++ROWS_TOTAL = Gauge('tca_nightly_report_rows_total', 'Rows covered by nightly TCA report', ['window'])
++GROUPS_TOTAL = Gauge('tca_nightly_report_groups_total', 'Distinct group count in nightly TCA report', ['window'])
++BREACH_GROUPS = Gauge('tca_nightly_report_breach_groups', 'Number of 24h TCA groups breaching thresholds', ['metric'])
++WORST_VALUE_BPS = Gauge('tca_nightly_report_worst_value_bps', 'Worst 24h summary value by metric (bps)', ['metric'])
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++def _f(x: Any, d: float = 0.0) -> float:
++    try:
++        return float(x)
++    except Exception:
++        return float(d)
++
++
++def publish_from_mapping(m: Dict[str, Any]) -> None:
++    updated_ms = _i(m.get('updated_ts_ms'), 0)
++    now_s = time.time()
++    LAST_UPDATED_TS_MS.set(float(updated_ms))
++    LAST_AGE_SECONDS.set((now_s - (updated_ms / 1000.0)) if updated_ms > 0 else float('nan'))
++    DURATION_MS.set(float(_i(m.get('dur_ms'), 0)))
++    ROWS_TOTAL.labels(window='24h').set(float(_i(m.get('rows_24h_total'), 0)))
++    ROWS_TOTAL.labels(window='7d').set(float(_i(m.get('rows_7d_total'), 0)))
++    GROUPS_TOTAL.labels(window='24h').set(float(_i(m.get('groups_24h'), 0)))
++    GROUPS_TOTAL.labels(window='7d').set(float(_i(m.get('groups_7d'), 0)))
++    BREACH_GROUPS.labels(metric='is_p95').set(float(_i(m.get('breach_is_p95_24h'), 0)))
++    BREACH_GROUPS.labels(metric='perm_impact_p95').set(float(_i(m.get('breach_perm_impact_p95_24h'), 0)))
++    BREACH_GROUPS.labels(metric='realized_spread_p50').set(float(_i(m.get('breach_realized_spread_p50_24h'), 0)))
++    BREACH_GROUPS.labels(metric='eff_spread_p95').set(float(_i(m.get('breach_eff_spread_p95_24h'), 0)))
++    WORST_VALUE_BPS.labels(metric='is_p95').set(float(_f(m.get('worst_is_p95_bps_24h'), 0.0)))
++    WORST_VALUE_BPS.labels(metric='perm_impact_p95').set(float(_f(m.get('worst_perm_impact_p95_bps_24h'), 0.0)))
++    WORST_VALUE_BPS.labels(metric='realized_spread_p50').set(float(_f(m.get('worst_realized_spread_p50_bps_24h'), 0.0)))
++    WORST_VALUE_BPS.labels(metric='eff_spread_p95').set(float(_f(m.get('worst_eff_spread_p95_bps_24h'), 0.0)))
++    UP.set(1.0 if _i(m.get('ok'), 0) == 1 else 0.0)
++
++
++def main() -> None:
++    if redis is None:
++        raise RuntimeError('redis dependency missing')
++    redis_url = os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0')
++    key = os.getenv('TCA_NIGHTLY_REPORT_STATE_KEY', 'state:tca_nightly_report:last')
++    port = int(os.getenv('TCA_NIGHTLY_REPORT_EXPORTER_PORT', '9866'))
++    interval_s = float(os.getenv('TCA_NIGHTLY_REPORT_EXPORTER_INTERVAL_S', '30') or 30)
++    r = redis.Redis.from_url(redis_url, decode_responses=True)
++    start_http_server(port)
++    while True:
++        try:
++            publish_from_mapping(r.hgetall(key) or {})
++        except Exception:
++            UP.set(0.0)
++        time.sleep(interval_s)
++
++
++if __name__ == '__main__':
++    main()
+
+--- a/orderflow_services/tests/test_tca_nightly_report_exporter_v1.py
++++ b/orderflow_services/tests/test_tca_nightly_report_exporter_v1.py
+@@ -0,0 +1,37 @@
++from __future__ import annotations
++
++from orderflow_services.tca_nightly_report_exporter_v1 import (
++    BREACH_GROUPS,
++    GROUPS_TOTAL,
++    LAST_UPDATED_TS_MS,
++    ROWS_TOTAL,
++    UP,
++    WORST_VALUE_BPS,
++    publish_from_mapping,
++)
++
++
++def test_publish_from_mapping_sets_gauges():
++    publish_from_mapping({
++        'updated_ts_ms': '1700000000000',
++        'dur_ms': '912',
++        'ok': '1',
++        'rows_24h_total': '120',
++        'rows_7d_total': '700',
++        'groups_24h': '9',
++        'groups_7d': '21',
++        'breach_is_p95_24h': '2',
++        'breach_perm_impact_p95_24h': '1',
++        'breach_realized_spread_p50_24h': '3',
++        'breach_eff_spread_p95_24h': '4',
++        'worst_is_p95_bps_24h': '12.5',
++        'worst_perm_impact_p95_bps_24h': '7.2',
++        'worst_realized_spread_p50_bps_24h': '-2.3',
++        'worst_eff_spread_p95_bps_24h': '6.8',
++    })
++    assert UP._value.get() == 1.0
++    assert LAST_UPDATED_TS_MS._value.get() == 1700000000000.0
++    assert ROWS_TOTAL.labels(window='24h')._value.get() == 120.0
++    assert GROUPS_TOTAL.labels(window='7d')._value.get() == 21.0
++    assert BREACH_GROUPS.labels(metric='realized_spread_p50')._value.get() == 3.0
++    assert WORST_VALUE_BPS.labels(metric='realized_spread_p50')._value.get() == -2.3
+
+--- a/orderflow_services/prometheus_alerts_tca_nightly_report_v1.yml
++++ b/orderflow_services/prometheus_alerts_tca_nightly_report_v1.yml
+@@ -0,0 +1,21 @@
++groups:
++  - name: tca_nightly_report_v1
++    interval: 60s
++    rules:
++      - alert: TCANightlyReportStale
++        expr: tca_nightly_report_last_age_seconds > 129600
++        for: 30m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Nightly TCA report stale (>36h)"
++          description: "state:tca_nightly_report:last has not been refreshed recently. Check services.posttrade.tca_nightly_report_v1 and DB connectivity."
++
++      - alert: TCANightlyReportExecHealthBreaches
++        expr: (tca_nightly_report_breach_groups{metric="is_p95"} + tca_nightly_report_breach_groups{metric="perm_impact_p95"} + tca_nightly_report_breach_groups{metric="realized_spread_p50"}) > 0
++        for: 15m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Nightly TCA report detected execution-health breaches"
++          description: "One or more 24h TCA groups exceeded IS/impact/adverse-selection thresholds. Review the JSON report and promotion gates before rollout."
+
+--- a/orderflow_services/runbook_tca_nightly_report_v1.md
++++ b/orderflow_services/runbook_tca_nightly_report_v1.md
+@@ -0,0 +1,22 @@
++# Runbook: Nightly TCA report v1
++
++## Purpose
++Summarise post-trade execution quality from `tca_fill_metrics` over 24h and 7d so rollout/promotion decisions do not rely only on inline Redis rollups.
++
++## Outputs
++- Redis hash: `state:tca_nightly_report:last`
++- Status JSON: `TCA_NIGHTLY_STATUS_PATH`
++- Full report JSON: `TCA_NIGHTLY_REPORT_PATH`
++- Prometheus exporter: `orderflow_services/tca_nightly_report_exporter_v1.py`
++
++## Main thresholds
++- `TCA_REPORT_MAX_IS_P95_BPS`
++- `TCA_REPORT_MAX_PERM_IMPACT_P95_BPS`
++- `TCA_REPORT_MIN_REALIZED_SPREAD_P50_BPS`
++- `TCA_REPORT_MAX_EFF_SPREAD_P95_BPS`
++
++## Triage
++1. Check `tca_nightly_report_last_age_seconds` and `tca_nightly_report_rows_total{window="24h"}`.
++2. Open the JSON report and inspect `top_offenders_24h`.
++3. Cross-check the same dims in `tca_fill_metrics` / `v_exec_slippage_eval`.
++4. If breaches coincide with a new deploy, hold promotion and review execution settings / liquidity filters.
+
+--- a/services/posttrade/sql/tca_rollups_p6.sql
++++ b/services/posttrade/sql/tca_rollups_p6.sql
+@@ -0,0 +1,82 @@
++-- P6 gap-closure: persisted TCA rollups for nightly/reporting workloads.
++--
++-- Goal: avoid repeated full scans of tca_fill_metrics for common 1h / 1d rollups.
++--
++-- We prefer Timescale continuous aggregates where available, but some deployments
++-- may reject ordered-set percentile aggregates inside CAGG depending on version.
++-- Therefore this file installs a safe two-layer approach:
++--   1) low-risk CAGG with count/avg/min/max
++--   2) percentile materialized views refreshed by a scheduler / nightly job
++
++CREATE EXTENSION IF NOT EXISTS timescaledb;
++
++CREATE MATERIALIZED VIEW IF NOT EXISTS tca_fill_metrics_1h_base
++WITH (timescaledb.continuous) AS
++SELECT
++  time_bucket(INTERVAL '1 hour', ts) AS bucket,
++  sym, venue, session, tf, kind, side,
++  count(*)::bigint AS n,
++  avg(is_bps) AS is_avg_bps,
++  avg(eff_spread_bps) AS eff_spread_avg_bps,
++  avg(realized_spread_1s_bps) AS realized_spread_1s_avg_bps,
++  avg(perm_impact_1s_bps) AS perm_impact_1s_avg_bps,
++  min(is_bps) AS is_min_bps,
++  max(is_bps) AS is_max_bps,
++  min(eff_spread_bps) AS eff_spread_min_bps,
++  max(eff_spread_bps) AS eff_spread_max_bps
++FROM tca_fill_metrics
++GROUP BY 1,2,3,4,5,6,7
++WITH NO DATA;
++
++CREATE UNIQUE INDEX IF NOT EXISTS tca_fill_metrics_1h_base_ux
++  ON tca_fill_metrics_1h_base(bucket, sym, venue, session, tf, kind, side);
++
++DO $$
++BEGIN
++  PERFORM add_continuous_aggregate_policy(
++    'tca_fill_metrics_1h_base',
++    start_offset => INTERVAL '14 days',
++    end_offset => INTERVAL '5 minutes',
++    schedule_interval => INTERVAL '30 minutes'
++  );
++EXCEPTION WHEN OTHERS THEN
++  NULL;
++END $$;
++
++CREATE MATERIALIZED VIEW IF NOT EXISTS mv_tca_fill_metrics_1h_percentiles AS
++SELECT
++  time_bucket(INTERVAL '1 hour', ts) AS bucket,
++  sym, venue, session, tf, kind, side,
++  count(*)::bigint AS n,
++  percentile_cont(0.50) WITHIN GROUP (ORDER BY is_bps) AS is_p50_bps,
++  percentile_cont(0.95) WITHIN GROUP (ORDER BY is_bps) AS is_p95_bps,
++  percentile_cont(0.99) WITHIN GROUP (ORDER BY is_bps) AS is_p99_bps,
++  percentile_cont(0.95) WITHIN GROUP (ORDER BY eff_spread_bps) AS eff_spread_p95_bps,
++  percentile_cont(0.50) WITHIN GROUP (ORDER BY realized_spread_1s_bps) AS realized_spread_1s_p50_bps,
++  percentile_cont(0.95) WITHIN GROUP (ORDER BY perm_impact_1s_bps) AS perm_impact_1s_p95_bps,
++  avg(CASE WHEN realized_spread_1s_bps < 0 THEN 1 ELSE 0 END) AS realized_spread_1s_neg_share
++FROM tca_fill_metrics
++GROUP BY 1,2,3,4,5,6,7
++WITH NO DATA;
++
++CREATE UNIQUE INDEX IF NOT EXISTS mv_tca_fill_metrics_1h_percentiles_ux
++  ON mv_tca_fill_metrics_1h_percentiles(bucket, sym, venue, session, tf, kind, side);
++
++CREATE MATERIALIZED VIEW IF NOT EXISTS mv_tca_fill_metrics_1d_percentiles AS
++SELECT
++  time_bucket(INTERVAL '1 day', ts) AS bucket,
++  sym, venue, session, tf, kind, side,
++  count(*)::bigint AS n,
++  percentile_cont(0.50) WITHIN GROUP (ORDER BY is_bps) AS is_p50_bps,
++  percentile_cont(0.95) WITHIN GROUP (ORDER BY is_bps) AS is_p95_bps,
++  percentile_cont(0.99) WITHIN GROUP (ORDER BY is_bps) AS is_p99_bps,
++  percentile_cont(0.95) WITHIN GROUP (ORDER BY eff_spread_bps) AS eff_spread_p95_bps,
++  percentile_cont(0.50) WITHIN GROUP (ORDER BY realized_spread_1s_bps) AS realized_spread_1s_p50_bps,
++  percentile_cont(0.95) WITHIN GROUP (ORDER BY perm_impact_1s_bps) AS perm_impact_1s_p95_bps,
++  avg(CASE WHEN realized_spread_1s_bps < 0 THEN 1 ELSE 0 END) AS realized_spread_1s_neg_share
++FROM tca_fill_metrics
++GROUP BY 1,2,3,4,5,6,7
++WITH NO DATA;
++
++CREATE UNIQUE INDEX IF NOT EXISTS mv_tca_fill_metrics_1d_percentiles_ux
++  ON mv_tca_fill_metrics_1d_percentiles(bucket, sym, venue, session, tf, kind, side);
+
+--- a/services/posttrade/tests/test_tca_rollups_sql_p6.py
++++ b/services/posttrade/tests/test_tca_rollups_sql_p6.py
+@@ -0,0 +1,10 @@
++from pathlib import Path
++
++
++def test_tca_rollups_sql_contains_hourly_and_daily_rollups():
++    sql = Path('services/posttrade/sql/tca_rollups_p6.sql').read_text(encoding='utf-8', errors='replace')
++    assert 'tca_fill_metrics_1h_base' in sql
++    assert 'mv_tca_fill_metrics_1h_percentiles' in sql
++    assert 'mv_tca_fill_metrics_1d_percentiles' in sql
++    assert 'percentile_cont(0.95)' in sql
++    assert 'realized_spread_1s_neg_share' in sql
+
+--- a/orderflow_services/deploy/compose/docker-compose.tca-nightly-report-exporter-v1.yml
++++ b/orderflow_services/deploy/compose/docker-compose.tca-nightly-report-exporter-v1.yml
+@@ -0,0 +1,18 @@
++services:
++  tca-nightly-report-exporter:
++    image: ${TRADE_ORDERFLOW_IMAGE:?}
++    working_dir: /app
++    environment:
++      PYTHONPATH: /app
++      REDIS_URL: ${REDIS_URL:?}
++      TCA_NIGHTLY_REPORT_STATE_KEY: ${TCA_NIGHTLY_REPORT_STATE_KEY:-state:tca_nightly_report:last}
++      TCA_NIGHTLY_REPORT_EXPORTER_PORT: ${TCA_NIGHTLY_REPORT_EXPORTER_PORT:-9866}
++      TCA_NIGHTLY_REPORT_EXPORTER_INTERVAL_S: ${TCA_NIGHTLY_REPORT_EXPORTER_INTERVAL_S:-30}
++    volumes:
++      - ${TRADE_REPO_ROOT:?}:/app:ro
++    ports:
++      - "${TCA_NIGHTLY_REPORT_EXPORTER_PORT:-9866}:${TCA_NIGHTLY_REPORT_EXPORTER_PORT:-9866}"
++    command:
++      - python3
++      - -m
++      - orderflow_services.tca_nightly_report_exporter_v1
+
+--- a/orderflow_services/deploy/systemd/run_trade_tca_nightly_report_exporter_v1.sh
++++ b/orderflow_services/deploy/systemd/run_trade_tca_nightly_report_exporter_v1.sh
+@@ -0,0 +1,4 @@
++#!/usr/bin/env bash
++set -euo pipefail
++cd "${TRADE_REPO_ROOT:?}"
++exec python3 -m orderflow_services.tca_nightly_report_exporter_v1
+
+--- a/orderflow_services/deploy/systemd/trade-tca-nightly-report-exporter.service
++++ b/orderflow_services/deploy/systemd/trade-tca-nightly-report-exporter.service
+@@ -0,0 +1,15 @@
++[Unit]
++Description=Trade TCA nightly report exporter
++After=network-online.target docker.service
++Wants=network-online.target
++
++[Service]
++Type=simple
++WorkingDirectory=%E{TRADE_REPO_ROOT}
++EnvironmentFile=%E{TRADE_ENV_FILE}
++ExecStart=/usr/bin/env bash %E{TRADE_REPO_ROOT}/orderflow_services/deploy/systemd/run_trade_tca_nightly_report_exporter_v1.sh
++Restart=always
++RestartSec=5
++
++[Install]
++WantedBy=multi-user.target
+
+--- a/orderflow_services/integrations/metrics-proxy.tca-nightly-report-exporter-v1.conf
++++ b/orderflow_services/integrations/metrics-proxy.tca-nightly-report-exporter-v1.conf
+@@ -0,0 +1,8 @@
++# Include snippet for metrics-proxy nginx.conf
++location /m/tca-nightly-report-exporter {
++  proxy_pass http://tca-nightly-report-exporter:9866/metrics;
++  proxy_http_version 1.1;
++  proxy_set_header Host $host;
++  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
++  proxy_set_header X-Forwarded-Proto $scheme;
++}
+

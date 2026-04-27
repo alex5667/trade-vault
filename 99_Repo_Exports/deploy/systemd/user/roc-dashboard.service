@@ -1,0 +1,23 @@
+[Unit]
+Description=ROC/AUC Dashboard (Plotly visualization)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=%h/front/trade/scanner_infra
+ExecStart=/usr/bin/python3 -m dashboard.app
+
+Restart=always
+RestartSec=5
+
+# Configuration
+Environment=DASHBOARD_DATA=data/labels/joined_pnl.parquet
+Environment=DASHBOARD_CONFIG=config/defaults/xauusd.yaml
+Environment=DASHBOARD_PORT=8091
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
+

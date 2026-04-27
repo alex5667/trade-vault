@@ -1,0 +1,1030 @@
+diff --git a/confidence_calculation/docker-compose-crypto-orderflow.yml b/confidence_calculation/docker-compose-crypto-orderflow.yml
+index 3da4560..55a3ad9 100644
+--- a/confidence_calculation/docker-compose-crypto-orderflow.yml
++++ b/confidence_calculation/docker-compose-crypto-orderflow.yml
+@@ -1898,6 +1898,13 @@ services:
+       - EXEC_PROJECTION_CURSOR_KEY=orders:exec:projection:cursor
+       - EXEC_PROJECTION_BATCH_SIZE=500
+       - EXEC_PROJECTION_IDLE_SLEEP_MS=500
++      - EXEC_PROJECTION_LEADER_LEASE_ENABLE=1
++      - EXEC_PROJECTION_LEASE_KEY=orders:exec:projection:leader
++      - EXEC_PROJECTION_FENCING_KEY=orders:exec:projection:fencing
++      - EXEC_PROJECTION_LEASE_TTL_MS=10000
++      - EXEC_PROJECTION_OWNER_ID=${HOSTNAME:-execution-state-projection-worker}
++      - EXEC_PROJECTION_HEALTH_MAX_LAG_MS=15000
++      - EXEC_PROJECTION_HEALTH_MAX_CURSOR_AGE_MS=60000
+       - EXECUTION_JOURNAL_DSN=${EXECUTION_JOURNAL_DSN:-}
+       - PYTHONPATH=/app
+     depends_on: *id003
+@@ -1907,6 +1914,31 @@ services:
+     deploy: *id006
+     container_name: execution-state-projection-worker
+ 
++  execution-state-projection-health:
++    build: *id001
++    command: python /app/services/execution_projection_health_server.py
++    environment:
++      - REDIS_URL=redis://redis-worker-1:6379/0
++      - PYTHONUNBUFFERED=1
++      - EXEC_STREAM=orders:exec
++      - EXEC_PROJECTION_CURSOR_KEY=orders:exec:projection:cursor
++      - EXEC_PROJECTION_LEADER_LEASE_ENABLE=1
++      - EXEC_PROJECTION_LEASE_KEY=orders:exec:projection:leader
++      - EXEC_PROJECTION_FENCING_KEY=orders:exec:projection:fencing
++      - EXEC_PROJECTION_LEASE_TTL_MS=10000
++      - EXEC_PROJECTION_HEALTH_PORT=8786
++      - EXEC_PROJECTION_HEALTH_MAX_LAG_MS=15000
++      - EXEC_PROJECTION_HEALTH_MAX_CURSOR_AGE_MS=60000
++      - PYTHONPATH=/app
++    depends_on: *id003
++    ports:
++      - "8786:8786"
++    networks: *id004
++    volumes: *id005
++    restart: on-failure:5
++    deploy: *id006
++    container_name: execution-state-projection-health
++
+   ml-confirm-sre-poller:
+     build: *id001
+     command: ["python", "-m", "services.ml_confirm_sre_poller.main"]
+diff --git a/deploy/execution_safe_defaults_p104.env.example b/deploy/execution_safe_defaults_p104.env.example
+index 0d2d8b0..df05294 100644
+--- a/deploy/execution_safe_defaults_p104.env.example
++++ b/deploy/execution_safe_defaults_p104.env.example
+@@ -25,3 +25,9 @@ EXEC_INLINE_STATE_PROJECTION=0
+ EXEC_PROJECTION_CURSOR_KEY=orders:exec:projection:cursor
+ EXEC_PROJECTION_BATCH_SIZE=500
+ EXEC_PROJECTION_IDLE_SLEEP_MS=500
++EXEC_PROJECTION_LEADER_LEASE_ENABLE=1
++EXEC_PROJECTION_LEASE_KEY=orders:exec:projection:leader
++EXEC_PROJECTION_FENCING_KEY=orders:exec:projection:fencing
++EXEC_PROJECTION_LEASE_TTL_MS=10000
++EXEC_PROJECTION_HEALTH_MAX_LAG_MS=15000
++EXEC_PROJECTION_HEALTH_MAX_CURSOR_AGE_MS=60000
+diff --git a/services/execution_projection_worker.py b/services/execution_projection_worker.py
+index c88289d..6af5009 100644
+--- a/services/execution_projection_worker.py
++++ b/services/execution_projection_worker.py
+@@ -6,16 +6,17 @@ The executor appends only to the primary execution journal. This worker consumes
+ journal events in stream order and materializes the latest SID snapshot into the
+ Redis cache used by dashboards, downstream readers and restart fast-paths.
+ 
+-Design goals
+-------------
+-- deterministic ordering: one global cursor over ``orders:exec``
+-- idempotent projection: replaying the same stream window yields the same state
+-- fail-open: projection lag must not block execution appends
+-- journal-first: executor never needs to mutate the derived cache inline
++P1.2.2 additions
++----------------
++- HA-safe leader lease with fencing token
++- cluster-health snapshot helpers (lag-aware)
++- optional bootstrap / rebuild commands for restoring derived state from
++  ``orders:exec``
+ """
+ 
+-from dataclasses import dataclass
+-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
++from dataclasses import asdict, dataclass
++from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
++import argparse
+ import json
+ import os
+ import time
+@@ -63,6 +64,13 @@ def _s(v: Any) -> str:
+     return str(v)
+ 
+ 
++def _i(v: Any, default: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return default
++
++
+ def _stream_sort_key(stream_id: str) -> Tuple[int, int]:
+     try:
+         left, right = str(stream_id).split('-', 1)
+@@ -90,12 +98,80 @@ TRADE_EXECUTION_PROJECTION_CURSOR_TS_MS = _metric(
+     'Timestamp component of the latest projected orders:exec stream ID.',
+ )
+ 
++TRADE_EXECUTION_PROJECTION_IS_LEADER = _metric(
++    Gauge,
++    'trade_execution_projection_is_leader',
++    'Whether this projection worker currently owns the write lease (1 or 0).',
++)
++
++TRADE_EXECUTION_PROJECTION_FENCING_TOKEN = _metric(
++    Gauge,
++    'trade_execution_projection_fencing_token',
++    'Current fencing token held by the active projection writer.',
++)
++
++TRADE_EXECUTION_PROJECTION_LEASE_ACQUIRE_TOTAL = _metric(
++    Counter,
++    'trade_execution_projection_lease_acquire_total',
++    'Projection leader-lease acquisition / refresh attempts.',
++    ['result'],
++)
++
++TRADE_EXECUTION_PROJECTION_HEALTH_READY = _metric(
++    Gauge,
++    'trade_execution_projection_health_ready',
++    'Cluster readiness for derived execution-state projection (1 or 0).',
++)
++
+ 
+ @dataclass
+ class ProjectionBatchResult:
+     processed: int = 0
+     last_stream_id: str = ''
+     idle: bool = True
++    is_leader: bool = True
++    fencing_token: int = 0
++
++
++@dataclass
++class ProjectionLeadership:
++    enabled: bool = False
++    owner_id: str = ''
++    is_leader: bool = True
++    fencing_token: int = 0
++    lease_expires_at_ms: int = 0
++    lease_key: str = ''
++
++
++@dataclass
++class ProjectionRebuildResult:
++    processed_events: int = 0
++    rebuilt_sids: int = 0
++    last_stream_id: str = ''
++    cursor_updated: bool = False
++
++
++@dataclass
++class ProjectionHealthSnapshot:
++    ok: bool
++    ready: bool
++    reason: str
++    exec_stream: str
++    cursor_key: str
++    cursor_stream_id: str
++    latest_stream_id: str
++    cursor_ts_ms: int
++    latest_stream_ts_ms: int
++    cursor_lag_ms: int
++    cursor_age_ms: int
++    has_leader: bool
++    leader_owner_id: str
++    leader_fencing_token: int
++    leader_lease_expires_at_ms: int
++    leader_lease_ttl_remaining_ms: int
++
++    def to_dict(self) -> Dict[str, Any]:
++        return asdict(self)
+ 
+ 
+ class ExecutionProjectionWorker:
+@@ -111,6 +187,13 @@ class ExecutionProjectionWorker:
+         cursor_key: str = 'orders:exec:projection:cursor',
+         batch_size: int = 500,
+         execution_journal: Optional[ExecutionJournalSink] = None,
++        leader_lease_enable: bool = False,
++        lease_key: str = 'orders:exec:projection:leader',
++        lease_ttl_ms: int = 10000,
++        fencing_key: str = 'orders:exec:projection:fencing',
++        owner_id: str = '',
++        health_max_lag_ms: int = 15000,
++        health_max_cursor_age_ms: int = 60000,
+     ) -> None:
+         self.r = redis_client
+         self.exec_stream = str(exec_stream or 'orders:exec')
+@@ -119,6 +202,21 @@ class ExecutionProjectionWorker:
+         self.cursor_key = str(cursor_key or 'orders:exec:projection:cursor')
+         self.batch_size = max(int(batch_size or 500), 1)
+         self.execution_journal = execution_journal
++        self.leader_lease_enable = bool(leader_lease_enable)
++        self.lease_key = str(lease_key or 'orders:exec:projection:leader')
++        self.lease_ttl_ms = max(int(lease_ttl_ms or 10000), 1000)
++        self.fencing_key = str(fencing_key or 'orders:exec:projection:fencing')
++        self.owner_id = str(owner_id or os.getenv('HOSTNAME') or 'execution-projection-worker')
++        self.health_max_lag_ms = max(int(health_max_lag_ms or 15000), 1000)
++        self.health_max_cursor_age_ms = max(int(health_max_cursor_age_ms or 60000), 1000)
++        self._leadership = ProjectionLeadership(
++            enabled=self.leader_lease_enable,
++            owner_id=self.owner_id,
++            is_leader=not self.leader_lease_enable,
++            fencing_token=0,
++            lease_expires_at_ms=0,
++            lease_key=self.lease_key,
++        )
+ 
+     def _cursor(self) -> str:
+         try:
+@@ -150,11 +248,14 @@ class ExecutionProjectionWorker:
+             pass
+         return {}
+ 
+-    def _persist_state(self, sid: str, state_doc: Mapping[str, Any]) -> Dict[str, Any]:
++    def _persist_state(self, sid: str, state_doc: Mapping[str, Any], *, fencing_token: int = 0) -> Dict[str, Any]:
+         doc = build_materialized_state_view(dict(state_doc or {}))
+         doc['updated_at_ms'] = int(doc.get('updated_at_ms') or _ms_now())
+         if 'created_at_ms' not in doc:
+             doc['created_at_ms'] = doc['updated_at_ms']
++        if fencing_token > 0:
++            doc['projection_fencing_token'] = int(fencing_token)
++            doc['projection_owner_id'] = self.owner_id
+         payload = json.dumps(doc, ensure_ascii=False, default=str)
+         try:
+             if self.state_ttl_sec > 0:
+@@ -171,19 +272,186 @@ class ExecutionProjectionWorker:
+             pass
+         return doc
+ 
+-    def _rows_after_cursor(self, cursor: str) -> List[Tuple[Any, Mapping[str, Any]]]:
++    def _rows_page_after(self, after_stream_id: str = '') -> List[Tuple[Any, Mapping[str, Any]]]:
++        start = after_stream_id or '-'
+         try:
+-            rows = list(self.r.xrange(self.exec_stream, '-', '+', count=self.batch_size + 1))
++            rows = list(self.r.xrange(self.exec_stream, start, '+', count=self.batch_size + 1))
+         except Exception:
+             rows = []
+         if not rows:
+             return []
+-        if cursor:
+-            rows = [row for row in rows if _stream_sort_key(_s(row[0])) > _stream_sort_key(cursor)]
++        if after_stream_id:
++            rows = [row for row in rows if _stream_sort_key(_s(row[0])) > _stream_sort_key(after_stream_id)]
+         rows.sort(key=lambda row: _stream_sort_key(_s(row[0])))
+         return rows[: self.batch_size]
+ 
+-    def _project_row(self, stream_id: str, fields: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
++    def _rows_after_cursor(self, cursor: str) -> List[Tuple[Any, Mapping[str, Any]]]:
++        return self._rows_page_after(cursor)
++
++    def _latest_stream_id(self) -> str:
++        try:
++            if hasattr(self.r, 'xrevrange'):
++                rows = list(self.r.xrevrange(self.exec_stream, '+', '-', count=1))
++                if rows:
++                    return _s(rows[0][0])
++        except Exception:
++            pass
++        try:
++            rows = list(self.r.xrange(self.exec_stream, '-', '+', count=1000000))
++            if rows:
++                return _s(rows[-1][0])
++        except Exception:
++            pass
++        return ''
++
++    def _load_lease(self) -> Dict[str, Any]:
++        try:
++            raw = self.r.get(self.lease_key)
++        except Exception:
++            raw = None
++        if not raw:
++            return {}
++        try:
++            doc = json.loads(_s(raw))
++            return doc if isinstance(doc, dict) else {}
++        except Exception:
++            return {}
++
++    def _write_lease(self, payload: Mapping[str, Any], *, nx: bool = False, xx: bool = False) -> bool:
++        try:
++            res = self.r.set(self.lease_key, json.dumps(dict(payload), ensure_ascii=False), nx=nx, xx=xx, px=self.lease_ttl_ms)
++            if isinstance(res, bool):
++                return bool(res)
++            return bool(res)
++        except TypeError:
++            try:
++                existing = self.r.get(self.lease_key)
++            except Exception:
++                existing = None
++            if nx and existing not in (None, ''):
++                return False
++            if xx and existing in (None, ''):
++                return False
++            try:
++                self.r.set(self.lease_key, json.dumps(dict(payload), ensure_ascii=False), ex=max(1, int(self.lease_ttl_ms / 1000)))
++                return True
++            except Exception:
++                return False
++        except Exception:
++            return False
++
++    def _update_leader_metrics(self, leadership: ProjectionLeadership) -> None:
++        try:
++            if TRADE_EXECUTION_PROJECTION_IS_LEADER:
++                TRADE_EXECUTION_PROJECTION_IS_LEADER.set(1.0 if leadership.is_leader else 0.0)
++            if TRADE_EXECUTION_PROJECTION_FENCING_TOKEN:
++                TRADE_EXECUTION_PROJECTION_FENCING_TOKEN.set(float(max(0, int(leadership.fencing_token or 0))))
++        except Exception:
++            pass
++
++    def _acquire_or_refresh_leadership(self) -> ProjectionLeadership:
++        if not self.leader_lease_enable:
++            self._leadership = ProjectionLeadership(
++                enabled=False,
++                owner_id=self.owner_id,
++                is_leader=True,
++                fencing_token=int(self._leadership.fencing_token or 0),
++                lease_expires_at_ms=_ms_now() + self.lease_ttl_ms,
++                lease_key=self.lease_key,
++            )
++            self._update_leader_metrics(self._leadership)
++            return self._leadership
++
++        now_ms = _ms_now()
++        current = self._load_lease()
++        current_owner = _s(current.get('owner_id'))
++        current_token = _i(current.get('fencing_token'))
++        current_expires = _i(current.get('lease_expires_at_ms'))
++
++        if current_owner == self.owner_id and current_token > 0:
++            payload = {
++                'owner_id': self.owner_id,
++                'fencing_token': current_token,
++                'lease_acquired_at_ms': _i(current.get('lease_acquired_at_ms')) or now_ms,
++                'lease_expires_at_ms': now_ms + self.lease_ttl_ms,
++            }
++            if self._write_lease(payload, xx=True):
++                if TRADE_EXECUTION_PROJECTION_LEASE_ACQUIRE_TOTAL:
++                    TRADE_EXECUTION_PROJECTION_LEASE_ACQUIRE_TOTAL.labels(result='refresh_ok').inc()
++                self._leadership = ProjectionLeadership(
++                    enabled=True,
++                    owner_id=self.owner_id,
++                    is_leader=True,
++                    fencing_token=current_token,
++                    lease_expires_at_ms=payload['lease_expires_at_ms'],
++                    lease_key=self.lease_key,
++                )
++                self._update_leader_metrics(self._leadership)
++                return self._leadership
++
++        if current_owner and current_expires > now_ms:
++            if TRADE_EXECUTION_PROJECTION_LEASE_ACQUIRE_TOTAL:
++                TRADE_EXECUTION_PROJECTION_LEASE_ACQUIRE_TOTAL.labels(result='contended').inc()
++            self._leadership = ProjectionLeadership(
++                enabled=True,
++                owner_id=self.owner_id,
++                is_leader=False,
++                fencing_token=current_token,
++                lease_expires_at_ms=current_expires,
++                lease_key=self.lease_key,
++            )
++            self._update_leader_metrics(self._leadership)
++            return self._leadership
++
++        try:
++            new_token = _i(self.r.incr(self.fencing_key), 0)
++        except Exception:
++            new_token = int(self._leadership.fencing_token or 0) + 1
++        payload = {
++            'owner_id': self.owner_id,
++            'fencing_token': new_token,
++            'lease_acquired_at_ms': now_ms,
++            'lease_expires_at_ms': now_ms + self.lease_ttl_ms,
++        }
++        if self._write_lease(payload, nx=True):
++            if TRADE_EXECUTION_PROJECTION_LEASE_ACQUIRE_TOTAL:
++                TRADE_EXECUTION_PROJECTION_LEASE_ACQUIRE_TOTAL.labels(result='acquired').inc()
++            self._leadership = ProjectionLeadership(
++                enabled=True,
++                owner_id=self.owner_id,
++                is_leader=True,
++                fencing_token=new_token,
++                lease_expires_at_ms=payload['lease_expires_at_ms'],
++                lease_key=self.lease_key,
++            )
++            self._update_leader_metrics(self._leadership)
++            return self._leadership
++
++        current = self._load_lease()
++        if TRADE_EXECUTION_PROJECTION_LEASE_ACQUIRE_TOTAL:
++            TRADE_EXECUTION_PROJECTION_LEASE_ACQUIRE_TOTAL.labels(result='lost_race').inc()
++        self._leadership = ProjectionLeadership(
++            enabled=True,
++            owner_id=self.owner_id,
++            is_leader=False,
++            fencing_token=_i(current.get('fencing_token')),
++            lease_expires_at_ms=_i(current.get('lease_expires_at_ms')),
++            lease_key=self.lease_key,
++        )
++        self._update_leader_metrics(self._leadership)
++        return self._leadership
++
++    def _has_write_fence(self, fencing_token: int) -> bool:
++        if not self.leader_lease_enable:
++            return True
++        current = self._load_lease()
++        return (
++            _s(current.get('owner_id')) == self.owner_id
++            and _i(current.get('fencing_token')) == int(fencing_token or 0)
++            and _i(current.get('lease_expires_at_ms')) > _ms_now()
++        )
++
++    def _project_row(self, stream_id: str, fields: Mapping[str, Any], *, fencing_token: int = 0) -> Optional[Dict[str, Any]]:
+         ev = {_s(k): _s(v) for k, v in dict(fields or {}).items()}
+         sid = _s(ev.get('sid'))
+         if not sid:
+@@ -191,7 +459,7 @@ class ExecutionProjectionWorker:
+         base = self._load_state(sid)
+         projected = project_event_into_state(ev, base_state=base, stream_id=_s(stream_id))
+         projected['ts_state_commit_ms'] = _ms_now()
+-        doc = self._persist_state(sid, projected)
++        doc = self._persist_state(sid, projected, fencing_token=fencing_token)
+         try:
+             ts_event_ms = int(ev.get('ts_event_ms') or ev.get('ts_ms') or 0)
+             if ts_event_ms > 0 and TRADE_EXECUTION_PROJECTION_LAG_MS:
+@@ -200,16 +468,70 @@ class ExecutionProjectionWorker:
+             pass
+         return doc
+ 
++    def health_snapshot(self) -> ProjectionHealthSnapshot:
++        now_ms = _ms_now()
++        cursor = self._cursor()
++        latest = self._latest_stream_id()
++        lease = self._load_lease() if self.leader_lease_enable else {}
++        has_leader = (not self.leader_lease_enable) or bool(_s(lease.get('owner_id')) and _i(lease.get('lease_expires_at_ms')) > now_ms)
++        cursor_ts_ms = _stream_sort_key(cursor)[0] if cursor else 0
++        latest_ts_ms = _stream_sort_key(latest)[0] if latest else 0
++        cursor_lag_ms = max(0, latest_ts_ms - cursor_ts_ms) if latest_ts_ms and cursor_ts_ms else (0 if not latest_ts_ms else latest_ts_ms)
++        cursor_age_ms = max(0, now_ms - cursor_ts_ms) if cursor_ts_ms else (0 if not latest_ts_ms else now_ms)
++        reason = 'ok'
++        ready = True
++        if not has_leader:
++            ready = False
++            reason = 'no_leader'
++        elif latest and not cursor:
++            ready = False
++            reason = 'cursor_missing'
++        elif cursor_lag_ms > self.health_max_lag_ms:
++            ready = False
++            reason = 'lag_high'
++        elif cursor and cursor_age_ms > self.health_max_cursor_age_ms:
++            ready = False
++            reason = 'cursor_stale'
++        snap = ProjectionHealthSnapshot(
++            ok=ready,
++            ready=ready,
++            reason=reason,
++            exec_stream=self.exec_stream,
++            cursor_key=self.cursor_key,
++            cursor_stream_id=cursor,
++            latest_stream_id=latest,
++            cursor_ts_ms=cursor_ts_ms,
++            latest_stream_ts_ms=latest_ts_ms,
++            cursor_lag_ms=cursor_lag_ms,
++            cursor_age_ms=cursor_age_ms,
++            has_leader=has_leader,
++            leader_owner_id=_s(lease.get('owner_id')),
++            leader_fencing_token=_i(lease.get('fencing_token')),
++            leader_lease_expires_at_ms=_i(lease.get('lease_expires_at_ms')),
++            leader_lease_ttl_remaining_ms=max(0, _i(lease.get('lease_expires_at_ms')) - now_ms),
++        )
++        try:
++            if TRADE_EXECUTION_PROJECTION_HEALTH_READY:
++                TRADE_EXECUTION_PROJECTION_HEALTH_READY.set(1.0 if snap.ready else 0.0)
++        except Exception:
++            pass
++        return snap
++
+     def run_once(self) -> ProjectionBatchResult:
++        leadership = self._acquire_or_refresh_leadership()
++        if not leadership.is_leader:
++            return ProjectionBatchResult(processed=0, last_stream_id=self._cursor(), idle=True, is_leader=False, fencing_token=int(leadership.fencing_token or 0))
+         cursor = self._cursor()
+         rows = self._rows_after_cursor(cursor)
+         if not rows:
+-            return ProjectionBatchResult(processed=0, last_stream_id=cursor, idle=True)
++            return ProjectionBatchResult(processed=0, last_stream_id=cursor, idle=True, is_leader=True, fencing_token=int(leadership.fencing_token or 0))
+         processed = 0
+         last_stream_id = cursor
+         for stream_id, fields in rows:
++            if not self._has_write_fence(int(leadership.fencing_token or 0)):
++                break
+             try:
+-                self._project_row(_s(stream_id), fields)
++                self._project_row(_s(stream_id), fields, fencing_token=int(leadership.fencing_token or 0))
+                 processed += 1
+                 last_stream_id = _s(stream_id)
+                 self._set_cursor(last_stream_id)
+@@ -218,7 +540,7 @@ class ExecutionProjectionWorker:
+             except Exception:
+                 if TRADE_EXECUTION_PROJECTION_EVENT_TOTAL:
+                     TRADE_EXECUTION_PROJECTION_EVENT_TOTAL.labels(result='error').inc()
+-        return ProjectionBatchResult(processed=processed, last_stream_id=last_stream_id, idle=False)
++        return ProjectionBatchResult(processed=processed, last_stream_id=last_stream_id, idle=processed <= 0, is_leader=True, fencing_token=int(leadership.fencing_token or 0))
+ 
+     def run_until_idle(self, *, max_loops: int = 1000) -> int:
+         total = 0
+@@ -229,6 +551,83 @@ class ExecutionProjectionWorker:
+                 break
+         return total
+ 
++    def _delete_existing_projection_states(self) -> int:
++        deleted = 0
++        pattern = f'{self.state_key_prefix}*'
++        try:
++            if hasattr(self.r, 'scan_iter'):
++                for key in self.r.scan_iter(match=pattern):
++                    try:
++                        deleted += int(bool(self.r.delete(key)))
++                    except Exception:
++                        pass
++                return deleted
++        except Exception:
++            pass
++        kv = getattr(self.r, 'kv', None)
++        if isinstance(kv, dict):
++            for key in list(kv.keys()):
++                if str(key).startswith(self.state_key_prefix):
++                    kv.pop(key, None)
++                    deleted += 1
++        return deleted
++
++    def rebuild_from_journal(
++        self,
++        *,
++        sid: str = '',
++        reset_existing: bool = False,
++        set_cursor_to_tip: bool = False,
++    ) -> ProjectionRebuildResult:
++        target_sid = _s(sid)
++        if reset_existing:
++            if target_sid:
++                try:
++                    self.r.delete(f'{self.state_key_prefix}{target_sid}')
++                except Exception:
++                    pass
++            else:
++                self._delete_existing_projection_states()
++        states: Dict[str, Dict[str, Any]] = {}
++        processed = 0
++        rebuilt_sids: set[str] = set()
++        after = ''
++        last_stream_id = ''
++        while True:
++            rows = self._rows_page_after(after)
++            if not rows:
++                break
++            for stream_id, fields in rows:
++                sid_val = _s(dict(fields or {}).get('sid'))
++                if target_sid and sid_val != target_sid:
++                    after = _s(stream_id)
++                    last_stream_id = after
++                    continue
++                if not sid_val:
++                    after = _s(stream_id)
++                    last_stream_id = after
++                    continue
++                base = states.get(sid_val) or self._load_state(sid_val)
++                ev = {_s(k): _s(v) for k, v in dict(fields or {}).items()}
++                states[sid_val] = project_event_into_state(ev, base_state=base, stream_id=_s(stream_id))
++                processed += 1
++                rebuilt_sids.add(sid_val)
++                after = _s(stream_id)
++                last_stream_id = after
++            if len(rows) < self.batch_size:
++                break
++        for sid_val, state in states.items():
++            state['ts_state_commit_ms'] = _ms_now()
++            self._persist_state(sid_val, state)
++        if set_cursor_to_tip and last_stream_id:
++            self._set_cursor(last_stream_id)
++        return ProjectionRebuildResult(
++            processed_events=processed,
++            rebuilt_sids=len(rebuilt_sids),
++            last_stream_id=last_stream_id,
++            cursor_updated=bool(set_cursor_to_tip and last_stream_id),
++        )
++
+ 
+ def _redis_from_env() -> Any:  # pragma: no cover
+     url = os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0')
+@@ -237,17 +636,55 @@ def _redis_from_env() -> Any:  # pragma: no cover
+     return redis.from_url(url, decode_responses=True)
+ 
+ 
+-def main() -> int:  # pragma: no cover
+-    r = _redis_from_env()
+-    worker = ExecutionProjectionWorker(
+-        r,
++def _worker_from_env(redis_client: Any) -> ExecutionProjectionWorker:
++    return ExecutionProjectionWorker(
++        redis_client,
+         exec_stream=os.getenv('EXEC_STREAM', 'orders:exec'),
+         state_key_prefix=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'),
+         state_ttl_sec=int(os.getenv('ORDERS_STATE_TTL_SEC', '86400')),
+         cursor_key=os.getenv('EXEC_PROJECTION_CURSOR_KEY', 'orders:exec:projection:cursor'),
+         batch_size=int(os.getenv('EXEC_PROJECTION_BATCH_SIZE', '500')),
+         execution_journal=ExecutionJournalSink(dsn=os.getenv('EXECUTION_JOURNAL_DSN', '')),
++        leader_lease_enable=_s(os.getenv('EXEC_PROJECTION_LEADER_LEASE_ENABLE', '0')).lower() in {'1', 'true', 'yes', 'on'},
++        lease_key=os.getenv('EXEC_PROJECTION_LEASE_KEY', 'orders:exec:projection:leader'),
++        lease_ttl_ms=int(os.getenv('EXEC_PROJECTION_LEASE_TTL_MS', '10000')),
++        fencing_key=os.getenv('EXEC_PROJECTION_FENCING_KEY', 'orders:exec:projection:fencing'),
++        owner_id=os.getenv('EXEC_PROJECTION_OWNER_ID', os.getenv('HOSTNAME', 'execution-projection-worker')),
++        health_max_lag_ms=int(os.getenv('EXEC_PROJECTION_HEALTH_MAX_LAG_MS', '15000')),
++        health_max_cursor_age_ms=int(os.getenv('EXEC_PROJECTION_HEALTH_MAX_CURSOR_AGE_MS', '60000')),
+     )
++
++
++def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:  # pragma: no cover
++    p = argparse.ArgumentParser(description='orders:exec -> orders:state projection worker')
++    p.add_argument('--once', action='store_true', help='process one batch and exit')
++    p.add_argument('--rebuild-all', action='store_true', help='rebuild all derived states from orders:exec and exit')
++    p.add_argument('--rebuild-sid', default='', help='rebuild one sid from orders:exec and exit')
++    p.add_argument('--reset-derived-state', action='store_true', help='delete derived state keys before rebuild')
++    p.add_argument('--set-cursor-to-tip', action='store_true', help='set projection cursor to the latest rebuilt stream id')
++    p.add_argument('--print-health', action='store_true', help='print one JSON health snapshot and exit')
++    return p.parse_args(argv)
++
++
++def main(argv: Optional[Sequence[str]] = None) -> int:  # pragma: no cover
++    args = _parse_args(argv)
++    r = _redis_from_env()
++    worker = _worker_from_env(r)
++    if args.print_health:
++        print(json.dumps(worker.health_snapshot().to_dict(), ensure_ascii=False, indent=2))
++        return 0
++    if args.rebuild_all or args.rebuild_sid:
++        result = worker.rebuild_from_journal(
++            sid=args.rebuild_sid,
++            reset_existing=bool(args.reset_derived_state),
++            set_cursor_to_tip=bool(args.set_cursor_to_tip),
++        )
++        print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
++        return 0
++    if args.once:
++        batch = worker.run_once()
++        print(json.dumps(asdict(batch), ensure_ascii=False, indent=2))
++        return 0
+     sleep_ms = int(os.getenv('EXEC_PROJECTION_IDLE_SLEEP_MS', '500'))
+     while True:
+         batch = worker.run_once()
+diff --git a/orderflow_services/prometheus_alerts_execution_projection_ha_p122.yml b/orderflow_services/prometheus_alerts_execution_projection_ha_p122.yml
+new file mode 100644
+index 0000000..7fcb503
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_execution_projection_ha_p122.yml
+@@ -0,0 +1,22 @@
++groups:
++  - name: execution_projection_ha_p122
++    rules:
++      - alert: TradeExecutionProjectionNoLeader
++        expr: max(trade_execution_projection_is_leader) < 1
++        for: 1m
++        labels:
++          severity: critical
++          component: execution-projection-worker
++        annotations:
++          summary: "execution projection has no active leader"
++          description: "No projection worker currently owns the orders:exec derived-state write lease."
++
++      - alert: TradeExecutionProjectionClusterNotReady
++        expr: max(trade_execution_projection_health_ready) < 1
++        for: 2m
++        labels:
++          severity: warning
++          component: execution-projection-worker
++        annotations:
++          summary: "execution projection cluster is not ready"
++          description: "Projection cursor is missing/stale or lag exceeds configured thresholds."
+diff --git a/services/execution_projection_health_server.py b/services/execution_projection_health_server.py
+new file mode 100644
+index 0000000..549eea9
+--- /dev/null
++++ b/services/execution_projection_health_server.py
+@@ -0,0 +1,59 @@
++from __future__ import annotations
++
++import json
++import os
++from http.server import BaseHTTPRequestHandler, HTTPServer
++from typing import Any
++
++try:  # pragma: no cover
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++try:  # pragma: no cover
++    from services.execution_projection_worker import _worker_from_env
++except Exception:  # pragma: no cover
++    from execution_projection_worker import _worker_from_env
++
++
++def _redis_from_env() -> Any:  # pragma: no cover
++    url = os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0')
++    if redis is None:
++        raise RuntimeError('redis package is required for execution_projection_health_server')
++    return redis.from_url(url, decode_responses=True)
++
++
++class _Handler(BaseHTTPRequestHandler):  # pragma: no cover
++    def do_GET(self):
++        if self.path not in ('/healthz', '/readyz', '/api/execution-projection/health'):
++            self.send_response(404)
++            self.end_headers()
++            return
++        worker = self.server.worker  # type: ignore[attr-defined]
++        snap = worker.health_snapshot().to_dict()
++        is_ready_path = self.path in ('/readyz', '/api/execution-projection/health')
++        status = 200 if (snap.get('ready') if is_ready_path else snap.get('ok')) else 503
++        body = json.dumps(snap, ensure_ascii=False).encode('utf-8')
++        self.send_response(status)
++        self.send_header('Content-Type', 'application/json; charset=utf-8')
++        self.send_header('Content-Length', str(len(body)))
++        self.end_headers()
++        self.wfile.write(body)
++
++    def log_message(self, fmt, *args):
++        return
++
++
++def main() -> int:  # pragma: no cover
++    r = _redis_from_env()
++    worker = _worker_from_env(r)
++    host = os.getenv('EXEC_PROJECTION_HEALTH_HOST', '0.0.0.0')
++    port = int(os.getenv('EXEC_PROJECTION_HEALTH_PORT', '8786'))
++    server = HTTPServer((host, port), _Handler)
++    server.worker = worker  # type: ignore[attr-defined]
++    server.serve_forever()
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+diff --git a/services/tests/test_execution_projection_ha_p122_v1.py b/services/tests/test_execution_projection_ha_p122_v1.py
+new file mode 100644
+index 0000000..95a0b18
+--- /dev/null
++++ b/services/tests/test_execution_projection_ha_p122_v1.py
+@@ -0,0 +1,235 @@
++from pathlib import Path
++import importlib.util
++import json
++import socket
++import sys
++import threading
++import urllib.request
++
++exec_mod_path = Path(__file__).parent.parent / 'binance_executor.py'
++exec_spec = importlib.util.spec_from_file_location('binance_executor_p122', exec_mod_path)
++exec_mod = importlib.util.module_from_spec(exec_spec)
++sys.modules[exec_spec.name] = exec_mod
++assert exec_spec.loader is not None
++exec_spec.loader.exec_module(exec_mod)
++
++worker_mod_path = Path(__file__).parent.parent / 'execution_projection_worker.py'
++worker_spec = importlib.util.spec_from_file_location('execution_projection_worker_p122', worker_mod_path)
++worker_mod = importlib.util.module_from_spec(worker_spec)
++sys.modules[worker_spec.name] = worker_mod
++assert worker_spec.loader is not None
++worker_spec.loader.exec_module(worker_mod)
++
++health_mod_path = Path(__file__).parent.parent / 'execution_projection_health_server.py'
++health_spec = importlib.util.spec_from_file_location('execution_projection_health_server_p122', health_mod_path)
++health_mod = importlib.util.module_from_spec(health_spec)
++sys.modules[health_spec.name] = health_mod
++assert health_spec.loader is not None
++health_spec.loader.exec_module(health_mod)
++
++
++class FakeRedis:
++    def __init__(self):
++        self.kv = {}
++        self.streams = {}
++        self._seq = 0
++
++    def get(self, key):
++        return self.kv.get(key)
++
++    def set(self, key, value, ex=None, nx=False, xx=False, px=None):
++        exists = key in self.kv
++        if nx and exists:
++            return False
++        if xx and not exists:
++            return False
++        self.kv[key] = value
++        return True
++
++    def incr(self, key):
++        cur = int(self.kv.get(key) or 0)
++        cur += 1
++        self.kv[key] = str(cur)
++        return cur
++
++    def delete(self, key):
++        existed = key in self.kv
++        self.kv.pop(key, None)
++        return 1 if existed else 0
++
++    def scan_iter(self, match=None):
++        if not match or match == '*':
++            yield from list(self.kv.keys())
++            return
++        if match.endswith('*'):
++            prefix = match[:-1]
++            for key in list(self.kv.keys()):
++                if str(key).startswith(prefix):
++                    yield key
++            return
++        for key in list(self.kv.keys()):
++            if key == match:
++                yield key
++
++    def xadd(self, key, fields, maxlen=None, approximate=None):
++        self._seq += 1
++        import time
++        sid = f"{int(time.time() * 1000) + self._seq}-0"
++        self.streams.setdefault(key, []).append((sid, dict(fields)))
++        return sid
++
++    def xrange(self, key, start='-', end='+', count=None):
++        rows = list(self.streams.get(key, []))
++        def _gt(stream_id, ref):
++            a, b = stream_id.split('-', 1)
++            c, d = ref.split('-', 1)
++            return (int(a), int(b)) >= (int(c), int(d))
++        if start not in ('-', '+'):
++            rows = [row for row in rows if _gt(row[0], start)]
++        if count is not None:
++            rows = rows[: int(count)]
++        return rows
++
++    def xrevrange(self, key, end='+', start='-', count=None):
++        rows = list(reversed(self.streams.get(key, [])))
++        if count is not None:
++            rows = rows[: int(count)]
++        return rows
++
++
++def _mk_exec(redis_obj, *, inline_projection=False):
++    ex = exec_mod.BinanceExecutor.__new__(exec_mod.BinanceExecutor)
++    ex.r = redis_obj
++    ex.exec_stream = 'orders:exec'
++    ex.state_key_prefix = 'orders:state:'
++    ex.state_ttl = 86400
++    ex.exec_rehydrate_on_state_miss = True
++    ex.exec_replay_scan_count = 500
++    ex.exec_replay_checkpoint_key_prefix = 'orders:exec:replay:cursor:'
++    ex.exec_replay_quarantine_on_mismatch = False
++    ex.exec_journal_primary = True
++    ex.exec_state_derived_view = True
++    ex.exec_inline_state_projection = inline_projection
++    ex.execution_journal = None
++    return ex
++
++
++def test_projection_worker_leader_lease_blocks_follower_writes():
++    r = FakeRedis()
++    ex = _mk_exec(r, inline_projection=False)
++    sid = 'sid-leader'
++    ex._exec_event({
++        'sid': sid,
++        'symbol': 'BTCUSDT',
++        'action': 'open',
++        'event_type': 'state_transition',
++        'status': 'ok',
++        'fsm_state': 'ENTRY_FILLED',
++        'binance_order_id': 11,
++    })
++    leader = worker_mod.ExecutionProjectionWorker(
++        r,
++        exec_stream='orders:exec',
++        state_key_prefix='orders:state:',
++        leader_lease_enable=True,
++        lease_key='orders:exec:projection:leader',
++        fencing_key='orders:exec:projection:fencing',
++        owner_id='leader-a',
++    )
++    follower = worker_mod.ExecutionProjectionWorker(
++        r,
++        exec_stream='orders:exec',
++        state_key_prefix='orders:state:',
++        leader_lease_enable=True,
++        lease_key='orders:exec:projection:leader',
++        fencing_key='orders:exec:projection:fencing',
++        owner_id='leader-b',
++    )
++    first = leader.run_once()
++    second = follower.run_once()
++    state = json.loads(r.get(f'orders:state:{sid}'))
++    assert first.processed == 1
++    assert first.is_leader is True
++    assert first.fencing_token == 1
++    assert second.processed == 0
++    assert second.is_leader is False
++    assert int(state['projection_fencing_token']) == 1
++    assert state['projection_owner_id'] == 'leader-a'
++
++
++def test_rebuild_from_journal_restores_materialized_state_and_cursor():
++    r = FakeRedis()
++    ex = _mk_exec(r, inline_projection=False)
++    sid = 'sid-rebuild'
++    ex._exec_event({
++        'sid': sid,
++        'symbol': 'ETHUSDT',
++        'action': 'open',
++        'event_type': 'state_transition',
++        'status': 'ok',
++        'fsm_state': 'PROTECTED',
++        'binance_order_id': 21,
++        'tp1_algo_id': 31,
++        'tp1_client_algo_id': 'tp1-a',
++    })
++    worker = worker_mod.ExecutionProjectionWorker(r, exec_stream='orders:exec', state_key_prefix='orders:state:')
++    rebuilt = worker.rebuild_from_journal(reset_existing=True, set_cursor_to_tip=True)
++    state = json.loads(r.get(f'orders:state:{sid}'))
++    assert rebuilt.processed_events == 1
++    assert rebuilt.rebuilt_sids == 1
++    assert rebuilt.cursor_updated is True
++    assert r.get('orders:exec:projection:cursor') == rebuilt.last_stream_id
++    assert state['fsm_state'] == 'PROTECTED'
++    assert state['protective']['tp_algo_ids'] == [31]
++
++
++def test_health_snapshot_and_http_endpoint_are_lag_aware():
++    r = FakeRedis()
++    ex = _mk_exec(r, inline_projection=False)
++    sid = 'sid-health'
++    ex._exec_event({
++        'sid': sid,
++        'symbol': 'SOLUSDT',
++        'action': 'open',
++        'event_type': 'state_transition',
++        'status': 'ok',
++        'fsm_state': 'ENTRY_ACKED',
++        'binance_order_id': 41,
++    })
++    worker = worker_mod.ExecutionProjectionWorker(
++        r,
++        exec_stream='orders:exec',
++        state_key_prefix='orders:state:',
++        leader_lease_enable=True,
++        lease_key='orders:exec:projection:leader',
++        fencing_key='orders:exec:projection:fencing',
++        owner_id='leader-health',
++        health_max_lag_ms=10,
++        health_max_cursor_age_ms=100000,
++    )
++    snap_before = worker.health_snapshot()
++    assert snap_before.ready is False
++    assert snap_before.reason == 'no_leader' or snap_before.reason == 'cursor_missing'
++
++    worker.run_once()
++    snap_after = worker.health_snapshot()
++    assert snap_after.ready is True
++    assert snap_after.has_leader is True
++
++    sock = socket.socket()
++    sock.bind(('127.0.0.1', 0))
++    host, port = sock.getsockname()
++    sock.close()
++    server = health_mod.HTTPServer((host, port), health_mod._Handler)
++    server.worker = worker
++    th = threading.Thread(target=server.serve_forever, daemon=True)
++    th.start()
++    try:
++        with urllib.request.urlopen(f'http://{host}:{port}/readyz', timeout=2) as resp:
++            payload = json.loads(resp.read().decode('utf-8'))
++            assert resp.status == 200
++            assert payload['ready'] is True
++            assert payload['leader_owner_id'] == 'leader-health'
++    finally:
++        server.shutdown()
++        th.join(timeout=2)
+diff --git a/services/tests/test_execution_projection_ha_assets_p122_v1.py b/services/tests/test_execution_projection_ha_assets_p122_v1.py
+new file mode 100644
+index 0000000..577a893
+--- /dev/null
++++ b/services/tests/test_execution_projection_ha_assets_p122_v1.py
+@@ -0,0 +1,22 @@
++from pathlib import Path
++import yaml
++
++
++def test_projection_ha_alert_rules_yaml_loads():
++    path = Path(__file__).parents[2] / 'orderflow_services' / 'prometheus_alerts_execution_projection_ha_p122.yml'
++    data = yaml.safe_load(path.read_text())
++    assert isinstance(data, dict)
++    rules = data['groups'][0]['rules']
++    alerts = {rule['alert'] for rule in rules}
++    assert 'TradeExecutionProjectionNoLeader' in alerts
++    assert 'TradeExecutionProjectionClusterNotReady' in alerts
++
++
++def test_compose_contains_projection_health_service_and_lease_envs():
++    path = Path(__file__).parents[2] / 'confidence_calculation' / 'docker-compose-crypto-orderflow.yml'
++    text = path.read_text()
++    assert 'execution-state-projection-health:' in text
++    assert 'EXEC_PROJECTION_LEADER_LEASE_ENABLE=1' in text
++    assert 'EXEC_PROJECTION_LEASE_KEY=orders:exec:projection:leader' in text
++    assert 'EXEC_PROJECTION_FENCING_KEY=orders:exec:projection:fencing' in text
++    assert 'EXEC_PROJECTION_HEALTH_PORT=8786' in text

@@ -1,0 +1,22 @@
+{
+  "title": "Latency Contract Deploy Lint P46",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Deploy-lint notifier active",
+      "targets": [{"expr": "latency_contract_deploy_lint_notifier_active"}]
+    },
+    {
+      "type": "stat",
+      "title": "Notifier last run age",
+      "targets": [{"expr": "latency_contract_deploy_lint_notifier_last_run_age_seconds"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Persistent gate active total",
+      "targets": [{"expr": "latency_contract_deploy_lint_summary_gate_active_total"}]
+    }
+  ]
+}

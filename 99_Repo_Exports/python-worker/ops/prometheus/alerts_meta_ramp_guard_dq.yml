@@ -1,0 +1,57 @@
+groups:
+  - name: meta_loop_alerts
+    rules:
+      # 1. Guard Freeze Latch
+      - alert: MetaGuardFrozen
+        expr: meta_status_guard_freeze == 1
+        for: 1h
+        labels:
+          severity: warning
+          component: meta-ramp
+        annotations:
+          summary: "Meta loop ramp is frozen by guardrails"
+          description: "guard_freeze_latch is 1 in settings:dynamic_cfg. Ramp updates are blocked. Check meta_report degradation."
+
+      # 2. Low DQ Coverage
+      - alert: MetaLowDQCoverage
+        expr: meta_status_dq_present_n < 500
+        for: 24h
+        labels:
+          severity: warning
+          component: meta-dq
+        annotations:
+          summary: "Low DQ coverage in meta report"
+          description: "dq_present_n is {{ $value }}, which is below 500. DQ metrics may be unreliable."
+
+      # 3. Low DQ Health
+      - alert: MetaLowDQHealth
+        expr: meta_status_dq_health_mean < 0.85
+        for: 24h
+        labels:
+          severity: warning
+          component: meta-dq
+        annotations:
+          summary: "Low meta DQ health score"
+          description: "dq_health_mean is {{ $value }}. Check tick quality and e2e latencies."
+
+      # 4. Negative Correlation MetaP vs DQ
+      - alert: MetaNegativeDQCorrelation
+        expr: meta_status_corr_meta_p_dq_health < -0.1
+        for: 24h
+        labels:
+          severity: warning
+          component: meta-dq
+        annotations:
+          summary: "Negative correlation between meta_p and DQ health"
+          description: "Correlation is {{ $value }}. Higher probability of trade corresponds to lower DQ health - potential bias."
+
+      # 5. Worst Bucket Degradation
+      - alert: MetaWorstBucketDegraded
+        expr: meta_status_worst_pr_auc < 0.12
+        for: 24h
+        labels:
+          severity: warning
+          component: meta-performance
+        annotations:
+          summary: "Meta model worst bucket PR-AUC is low"
+          description: "Worst bucket PR-AUC is {{ $value }}. Significant degradation in specific regime/DQ bucket."

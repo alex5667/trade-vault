@@ -1,0 +1,893 @@
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p4orig/audit_code/crypto_orderflow_service.py p4work/audit_code/crypto_orderflow_service.py
+--- p4orig/audit_code/crypto_orderflow_service.py	2026-03-07 06:54:57.000000000 +0000
++++ p4work/audit_code/crypto_orderflow_service.py	2026-03-07 07:10:14.123378574 +0000
+@@ -117,6 +117,14 @@
+                 RISK_FORCE_FLATTEN = "FORCE_FLATTEN"
+ 
+ try:
++    from services.risk.risk_audit_sql import RiskAuditSqlSink
++except Exception:
++    try:
++        from risk.risk_audit_sql import RiskAuditSqlSink
++    except Exception:  # pragma: no cover
++        RiskAuditSqlSink = None  # type: ignore
++
++try:
+     from services.quarantine_denylist import check_signal_against_quarantine_cache
+ except Exception:
+     try:
+@@ -293,6 +301,8 @@
+         self.redis_dq_thresholds = RedisDQThresholds.from_env() if (RedisDQThresholds and self.trade_dq_hard_veto_enable) else None
+         self.portfolio_risk_limits = PortfolioRiskLimits.from_env() if (PortfolioRiskLimits and self.trade_risk_engine_v2_enable) else None
+         self.portfolio_risk_hard_veto = str(os.getenv("PORTFOLIO_RISK_HARD_VETO", "1")).strip().lower() in {"1", "true", "yes", "on"}
++        self.trade_risk_sql_audit_enable = str(os.getenv("TRADE_RISK_SQL_AUDIT_ENABLE", "1")).strip().lower() in {"1", "true", "yes", "on"}
++        self.risk_audit_sql_sink = RiskAuditSqlSink.from_env() if (RiskAuditSqlSink and self.trade_risk_sql_audit_enable) else None
+         self.exec_quarantine_denylist_enable = str(os.getenv("EXEC_QUARANTINE_DENYLIST_ENABLE", "1")).strip().lower() in {"1", "true", "yes", "on"}
+         self.orders_quarantine_sids_key = str(os.getenv("ORDERS_QUARANTINE_SIDS_KEY", "orders:quarantine:state:sids")).strip() or "orders:quarantine:state:sids"
+         self.quarantine_denylist_cache_ms = int(os.getenv("QUARANTINE_DENYLIST_CACHE_MS", "1000") or 1000)
+@@ -1120,8 +1130,35 @@
+         except Exception:
+             return
+ 
++
++    def _persist_risk_decision_audit(self, *, signal: Dict[str, Any], risk_input: Any, risk_decision: Any) -> None:
++        """Best-effort SQL mirror for risk decisions.
++
++        The publish path must remain available when SQL is unavailable, so every
++        exception is swallowed after being logged once.
++        """
++        if not self.risk_audit_sql_sink:
++            return
++        try:
++            import uuid
++            decision_id = str(signal.get('decision_id') or signal.get('id') or uuid.uuid4().hex)
++            signal['decision_id'] = decision_id
++            self.risk_audit_sql_sink.record_decision(
++                decision_id=decision_id,
++                signal=signal,
++                risk_input=risk_input,
++                risk_decision=risk_decision,
++            )
++        except Exception as exc:
++            logger.warning(
++                "⚠️ (%s) Risk SQL audit write failed: %s",
++                str(signal.get('symbol') or '?'), exc,
++            )
++
+     async def _pre_publish_allows_signal(self, runtime: Any, signal: Dict[str, Any]) -> bool:
+         now_ms = _utc_epoch_ms()
++        signal.setdefault('ts_event_ms', int(signal.get('ts_event_ms') or now_ms))
++        signal['ts_publish_ms'] = int(now_ms)
+         if self.exec_quarantine_denylist_enable and check_signal_against_quarantine_cache is not None:
+             await self._refresh_quarantine_sid_cache(now_ms=now_ms)
+             deny_decision = check_signal_against_quarantine_cache(signal, self._quarantine_sid_cache)
+@@ -1161,6 +1198,9 @@
+                 signal["risk_maker_policy_allowed"] = bool(risk_decision.maker_policy_allowed)
+                 signal["symbol_tier"] = str(risk_decision.tier_policy.name)
+                 signal["execution_policy"] = str(risk_decision.effective_execution_policy)
++                signal["risk_decision_latency_ms"] = float((risk_decision.snapshot or {}).get('decision_latency_ms') or 0.0)
++                signal["risk_clamp_ratio"] = float((risk_decision.snapshot or {}).get('clamp_ratio') or 0.0)
++                self._persist_risk_decision_audit(signal=signal, risk_input=risk_input, risk_decision=risk_decision)
+                 if risk_decision.level in {RISK_DENY_SOFT, RISK_DENY_HARD, RISK_FORCE_FLATTEN} and self.portfolio_risk_hard_veto:
+                     logger.warning(
+                         "🚫 (%s) Portfolio risk veto before publish: level=%s reasons=%s snapshot=%s",
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p4orig/audit_code/risk/risk_audit_sql.py p4work/audit_code/risk/risk_audit_sql.py
+--- p4orig/audit_code/risk/risk_audit_sql.py	1970-01-01 00:00:00.000000000 +0000
++++ p4work/audit_code/risk/risk_audit_sql.py	2026-03-07 07:10:14.117924362 +0000
+@@ -0,0 +1,181 @@
++
++from __future__ import annotations
++
++"""Best-effort SQL audit sink for risk decisions.
++
++The sink mirrors pre-publish risk decisions into Postgres without making the
++signal path dependent on SQL availability. If the DB is unavailable, the caller
++continues fail-open and Prometheus counters reflect the write failure.
++"""
++
++from dataclasses import dataclass
++from typing import Any, Dict
++import json
++import os
++import time
++
++try:
++    import psycopg  # type: ignore
++except Exception:  # pragma: no cover
++    psycopg = None  # type: ignore
++
++try:
++    from prometheus_client import Counter, REGISTRY
++except Exception:  # pragma: no cover
++    Counter = None  # type: ignore
++    REGISTRY = None  # type: ignore
++
++
++def _metric(factory, name: str, *args, **kwargs):
++    if factory is None:
++        return None
++    try:
++        return factory(name, *args, **kwargs)
++    except ValueError:
++        return getattr(REGISTRY, '_names_to_collectors', {}).get(name) if REGISTRY is not None else None
++
++
++TRADE_RISK_AUDIT_WRITE_FAIL_TOTAL = _metric(
++    Counter,
++    'trade_risk_audit_write_fail_total',
++    'Number of failed SQL writes for risk decision audit storage.',
++    ['stage'],
++)
++TRADE_RISK_AUDIT_WRITE_TOTAL = _metric(
++    Counter,
++    'trade_risk_audit_write_total',
++    'Number of successful SQL writes for risk decision audit storage.',
++    ['table'],
++)
++
++
++def _json(v: Any) -> str:
++    return json.dumps(v, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
++
++
++@dataclass
++class RiskAuditSqlSink:
++    dsn: str = ''
++    enabled: bool = False
++
++    @classmethod
++    def from_env(cls) -> 'RiskAuditSqlSink':
++        dsn = str(os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')) or '').strip()
++        enabled = str(os.getenv('TRADE_RISK_SQL_AUDIT_ENABLE', '1')).strip().lower() in {'1', 'true', 'yes', 'on'}
++        return cls(dsn=dsn, enabled=bool(enabled and dsn))
++
++    def _connect(self):
++        if not self.enabled or not self.dsn or psycopg is None:
++            return None
++        return psycopg.connect(self.dsn)
++
++    def record_decision(self, *, decision_id: str, signal: Dict[str, Any], risk_input: Any, risk_decision: Any) -> bool:
++        conn = self._connect()
++        if conn is None:
++            return False
++        created_ts_ms = int(signal.get('ts_event_ms') or signal.get('ts_publish_ms') or int(time.time() * 1000))
++        snapshot = dict(getattr(risk_decision, 'snapshot', {}) or {})
++        snapshot.setdefault('decision_latency_ms', int(snapshot.get('decision_latency_ms') or 0))
++        reasons = list(getattr(risk_decision, 'reasons', []) or [])
++        symbol = str(signal.get('symbol') or getattr(risk_input, 'symbol', '') or '').upper()
++        sid = str(signal.get('sid') or '') or None
++        signal_id = str(signal.get('signal_id') or signal.get('id') or '') or None
++        tier = str(getattr(getattr(risk_decision, 'tier_policy', None), 'name', signal.get('risk_tier') or signal.get('symbol_tier') or '')) or 'B'
++        cluster = str(signal.get('risk_cluster') or signal.get('cluster') or getattr(risk_input, 'cluster', symbol) or symbol)
++        level = str(getattr(risk_decision, 'level', signal.get('risk_level') or 'UNKNOWN'))
++        allow_trade_publish = bool(getattr(risk_decision, 'allow_trade_publish', False))
++        effective_execution_policy = str(getattr(risk_decision, 'effective_execution_policy', signal.get('execution_policy') or 'SAFETY_FIRST'))
++        requested_notional_usd = float(getattr(risk_input, 'requested_notional_usd', signal.get('requested_notional_usd') or 0.0) or 0.0)
++        adjusted_notional_usd = float(getattr(risk_decision, 'adjusted_notional_usd', signal.get('planned_notional_usd') or 0.0) or 0.0)
++        leverage_cap = float(getattr(risk_decision, 'leverage_cap', signal.get('risk_leverage_cap') or 0.0) or 0.0)
++        risk_multiplier = float(getattr(risk_decision, 'risk_multiplier', 0.0) or 0.0)
++        clamp_ratio = float(snapshot.get('clamp_ratio') or 0.0)
++        decision_latency_ms = float(snapshot.get('decision_latency_ms') or 0.0)
++        try:
++            with conn:
++                with conn.cursor() as cur:
++                    cur.execute(
++                        """
++                        insert into risk_decision_audit (
++                            decision_id, signal_id, sid, symbol, cluster, tier, level,
++                            allow_trade_publish, effective_execution_policy,
++                            requested_notional_usd, adjusted_notional_usd,
++                            leverage_cap, risk_multiplier, clamp_ratio,
++                            decision_latency_ms, reasons_jsonb, snapshot_jsonb,
++                            signal_jsonb, created_ts_ms
++                        ) values (
++                            %s,%s,%s,%s,%s,%s,%s,
++                            %s,%s,
++                            %s,%s,
++                            %s,%s,%s,
++                            %s,%s::jsonb,%s::jsonb,
++                            %s::jsonb,%s
++                        )
++                        on conflict (decision_id) do update set
++                            signal_id = excluded.signal_id,
++                            sid = excluded.sid,
++                            symbol = excluded.symbol,
++                            cluster = excluded.cluster,
++                            tier = excluded.tier,
++                            level = excluded.level,
++                            allow_trade_publish = excluded.allow_trade_publish,
++                            effective_execution_policy = excluded.effective_execution_policy,
++                            requested_notional_usd = excluded.requested_notional_usd,
++                            adjusted_notional_usd = excluded.adjusted_notional_usd,
++                            leverage_cap = excluded.leverage_cap,
++                            risk_multiplier = excluded.risk_multiplier,
++                            clamp_ratio = excluded.clamp_ratio,
++                            decision_latency_ms = excluded.decision_latency_ms,
++                            reasons_jsonb = excluded.reasons_jsonb,
++                            snapshot_jsonb = excluded.snapshot_jsonb,
++                            signal_jsonb = excluded.signal_jsonb,
++                            created_ts_ms = excluded.created_ts_ms
++                        """,
++                        (
++                            decision_id, signal_id, sid, symbol, cluster, tier, level,
++                            allow_trade_publish, effective_execution_policy,
++                            requested_notional_usd, adjusted_notional_usd,
++                            leverage_cap, risk_multiplier, clamp_ratio,
++                            decision_latency_ms, _json(reasons), _json(snapshot),
++                            _json(signal), created_ts_ms,
++                        ),
++                    )
++                    if TRADE_RISK_AUDIT_WRITE_TOTAL:
++                        TRADE_RISK_AUDIT_WRITE_TOTAL.labels(table='risk_decision_audit').inc()
++                    cur.execute(
++                        """
++                        insert into risk_snapshot (
++                            decision_id, sid, signal_id, symbol, cluster, tier, level,
++                            effective_execution_policy, adjusted_notional_usd, leverage_cap,
++                            clamp_ratio, decision_latency_ms, snapshot_jsonb, updated_ts_ms
++                        ) values (
++                            %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s
++                        )
++                        on conflict (decision_id) do update set
++                            sid = excluded.sid,
++                            signal_id = excluded.signal_id,
++                            symbol = excluded.symbol,
++                            cluster = excluded.cluster,
++                            tier = excluded.tier,
++                            level = excluded.level,
++                            effective_execution_policy = excluded.effective_execution_policy,
++                            adjusted_notional_usd = excluded.adjusted_notional_usd,
++                            leverage_cap = excluded.leverage_cap,
++                            clamp_ratio = excluded.clamp_ratio,
++                            decision_latency_ms = excluded.decision_latency_ms,
++                            snapshot_jsonb = excluded.snapshot_jsonb,
++                            updated_ts_ms = excluded.updated_ts_ms
++                        """,
++                        (
++                            decision_id, sid, signal_id, symbol, cluster, tier, level,
++                            effective_execution_policy, adjusted_notional_usd, leverage_cap,
++                            clamp_ratio, decision_latency_ms, _json(snapshot), created_ts_ms,
++                        ),
++                    )
++                    if TRADE_RISK_AUDIT_WRITE_TOTAL:
++                        TRADE_RISK_AUDIT_WRITE_TOTAL.labels(table='risk_snapshot').inc()
++            return True
++        except Exception:
++            if TRADE_RISK_AUDIT_WRITE_FAIL_TOTAL:
++                TRADE_RISK_AUDIT_WRITE_FAIL_TOTAL.labels(stage='record_decision').inc()
++            return False
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p4orig/audit_code/risk/risk_policy_engine.py p4work/audit_code/risk/risk_policy_engine.py
+--- p4orig/audit_code/risk/risk_policy_engine.py	2026-03-07 06:56:58.000000000 +0000
++++ p4work/audit_code/risk/risk_policy_engine.py	2026-03-07 07:10:14.119124886 +0000
+@@ -18,11 +18,12 @@
+ from dataclasses import dataclass, field
+ from typing import Any, Dict, Iterable, List, Mapping, Optional
+ import os
++import time
+ 
+ try:
+-    from prometheus_client import Counter, Gauge, REGISTRY
++    from prometheus_client import Counter, Gauge, Histogram, REGISTRY
+ except Exception:  # pragma: no cover
+-    Counter = Gauge = None  # type: ignore
++    Counter = Gauge = Histogram = None  # type: ignore
+     REGISTRY = None  # type: ignore
+ 
+ 
+@@ -95,6 +96,32 @@
+     ["symbol", "tier"],
+ )
+ 
++TRADE_RISK_DECISION_TOTAL = _metric(
++    Counter,
++    "trade_risk_decision_total",
++    "Total number of risk-engine decisions.",
++    ["tier", "level"],
++)
++TRADE_RISK_DECISION_LATENCY_MS = _metric(
++    Histogram,
++    "trade_risk_decision_latency_ms",
++    "Risk-engine decision latency in milliseconds.",
++    ["tier", "level"],
++    buckets=(1, 2, 5, 10, 20, 50, 100, 250, 500, 1000),
++)
++TRADE_RISK_CLAMP_TOTAL = _metric(
++    Counter,
++    "trade_risk_clamp_total",
++    "Number of times requested notional was clamped by the risk engine.",
++    ["tier"],
++)
++TRADE_RISK_CONFIDENCE_DENY_TOTAL = _metric(
++    Counter,
++    "trade_risk_confidence_deny_total",
++    "Number of denials caused by confidence floor by tier.",
++    ["tier"],
++)
++
+ RISK_ALLOW = "ALLOW"
+ RISK_ALLOW_TIGHTENED = "ALLOW_TIGHTENED"
+ RISK_DENY_SOFT = "DENY_SOFT"
+@@ -342,6 +369,7 @@
+ 
+ 
+ def evaluate_risk_policy(inp: RiskPolicyInput, limits: Optional[RiskPolicyLimits] = None) -> RiskPolicyDecision:
++    started = time.perf_counter()
+     lim = limits or RiskPolicyLimits.from_env()
+     symbol = str(inp.symbol or "UNKNOWN").upper()
+     tier = _tier(inp.tier) if str(inp.tier or '').strip() else infer_symbol_tier(symbol, lim)
+@@ -411,6 +439,8 @@
+         level = RISK_DENY_SOFT
+         allow = False
+         reasons.append('confidence_below_tier_floor')
++        if TRADE_RISK_CONFIDENCE_DENY_TOTAL:
++            TRADE_RISK_CONFIDENCE_DENY_TOTAL.labels(tier=tier).inc()
+ 
+     spread_bps = _f(inp.spread_bps)
+     expected_slippage_bps = _f(inp.expected_slippage_bps)
+@@ -465,6 +495,8 @@
+         reasons.append('no_residual_risk_capacity')
+     elif allow and requested_target_notional > adjusted:
+         reasons.append('notional_clamped_by_risk_engine')
++        if TRADE_RISK_CLAMP_TOTAL:
++            TRADE_RISK_CLAMP_TOTAL.labels(tier=tier).inc()
+         if level == RISK_ALLOW:
+             level = RISK_ALLOW_TIGHTENED
+ 
+@@ -492,6 +524,7 @@
+         'infra_degraded': bool(inp.infra_degraded),
+         'high_vol': bool(inp.high_vol),
+         'kill_switch': bool(lim.kill_switch or inp.kill_switch),
++        'clamp_ratio': float((adjusted / requested_target_notional) if requested_target_notional > 0 else 1.0),
+     }
+ 
+     if TRADE_RISK_LEVEL:
+@@ -504,6 +537,13 @@
+         TRADE_RISK_MIN_CONFIDENCE_REQUIRED.labels(symbol=symbol, tier=tier).set(float(tier_policy.min_confidence))
+     if TRADE_RISK_MAKER_ALLOWED:
+         TRADE_RISK_MAKER_ALLOWED.labels(symbol=symbol, tier=tier).set(1.0 if maker_allowed else 0.0)
++    if TRADE_RISK_DECISION_TOTAL:
++        TRADE_RISK_DECISION_TOTAL.labels(tier=tier, level=level).inc()
++    latency_ms = max(0.0, (time.perf_counter() - started) * 1000.0)
++    snapshot['decision_latency_ms'] = float(latency_ms)
++    if TRADE_RISK_DECISION_LATENCY_MS:
++        TRADE_RISK_DECISION_LATENCY_MS.labels(tier=tier, level=level).observe(float(latency_ms))
++
+     if level in {RISK_DENY_SOFT, RISK_DENY_HARD} and TRADE_RISK_DENY_TOTAL:
+         for reason in sorted(set(reasons)):
+             TRADE_RISK_DENY_TOTAL.labels(symbol=symbol, reason=reason, level=level).inc()
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p4orig/audit_code/risk/test_risk_audit_sql_v1.py p4work/audit_code/risk/test_risk_audit_sql_v1.py
+--- p4orig/audit_code/risk/test_risk_audit_sql_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p4work/audit_code/risk/test_risk_audit_sql_v1.py	2026-03-07 07:11:01.441846264 +0000
+@@ -0,0 +1,56 @@
++
++from pathlib import Path
++import importlib.util
++import sys
++
++mod_path = Path(__file__).resolve().parent / 'risk_audit_sql.py'
++spec = importlib.util.spec_from_file_location('risk_audit_sql', mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++spec.loader.exec_module(mod)
++
++
++class _Cur:
++    def __init__(self):
++        self.calls = []
++    def execute(self, sql, params=None):
++        self.calls.append((sql, params))
++    def __enter__(self):
++        return self
++    def __exit__(self, exc_type, exc, tb):
++        return False
++
++
++class _Conn:
++    def __init__(self):
++        self.cur = _Cur()
++    def cursor(self):
++        return self.cur
++    def __enter__(self):
++        return self
++    def __exit__(self, exc_type, exc, tb):
++        return False
++
++
++def test_record_decision_writes_two_tables():
++    sink = mod.RiskAuditSqlSink(dsn='postgres://x', enabled=True)
++    fake = _Conn()
++    sink._connect = lambda: fake
++    class _Tier: name = 'A'
++    class _Decision:
++        level = 'ALLOW'
++        allow_trade_publish = True
++        adjusted_notional_usd = 100.0
++        leverage_cap = 10.0
++        risk_multiplier = 1.0
++        reasons = ['ok']
++        snapshot = {'decision_latency_ms': 3, 'clamp_ratio': 1.0}
++        tier_policy = _Tier()
++        effective_execution_policy = 'SAFETY_FIRST'
++    class _Input:
++        symbol = 'BTCUSDT'
++        cluster = 'majors'
++        requested_notional_usd = 100.0
++    ok = sink.record_decision(decision_id='d1', signal={'symbol': 'BTCUSDT', 'sid': 's1'}, risk_input=_Input(), risk_decision=_Decision())
++    assert ok is True
++    assert len(fake.cur.calls) == 2
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p4orig/audit_code/risk/test_risk_policy_engine_metrics_pack_v1.py p4work/audit_code/risk/test_risk_policy_engine_metrics_pack_v1.py
+--- p4orig/audit_code/risk/test_risk_policy_engine_metrics_pack_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p4work/audit_code/risk/test_risk_policy_engine_metrics_pack_v1.py	2026-03-07 07:11:01.442675335 +0000
+@@ -0,0 +1,21 @@
++
++from pathlib import Path
++import importlib.util
++import sys
++
++mod_path = Path(__file__).resolve().parent / 'risk_policy_engine.py'
++spec = importlib.util.spec_from_file_location('risk_policy_engine', mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++spec.loader.exec_module(mod)
++
++
++def test_decision_snapshot_contains_latency_and_clamp_ratio():
++    inp = mod.RiskPolicyInput(
++        symbol='BTCUSDT', cluster='majors', tier='A', requested_notional_usd=1000,
++        equity_usd=1000, stop_distance_bps=50, volatility_bps=25, spread_bps=1,
++        expected_slippage_bps=1, confidence=0.8,
++    )
++    dec = mod.evaluate_risk_policy(inp, mod.RiskPolicyLimits.from_env())
++    assert 'decision_latency_ms' in dec.snapshot
++    assert 'clamp_ratio' in dec.snapshot
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p4orig/audit_code/test_crypto_orderflow_service_p45_risk_audit_v1.py p4work/audit_code/test_crypto_orderflow_service_p45_risk_audit_v1.py
+--- p4orig/audit_code/test_crypto_orderflow_service_p45_risk_audit_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p4work/audit_code/test_crypto_orderflow_service_p45_risk_audit_v1.py	2026-03-07 07:10:14.134729229 +0000
+@@ -0,0 +1,9 @@
++
++from pathlib import Path
++
++
++def test_crypto_service_contains_risk_audit_integration():
++    src = (Path(__file__).resolve().parent / 'crypto_orderflow_service.py').read_text(encoding='utf-8')
++    assert 'RiskAuditSqlSink' in src
++    assert '_persist_risk_decision_audit' in src
++    assert 'risk_decision_latency_ms' in src
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p4orig/binance_execution/test_risk_engine_canary_assets_v1.py p4work/binance_execution/test_risk_engine_canary_assets_v1.py
+--- p4orig/binance_execution/test_risk_engine_canary_assets_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p4work/binance_execution/test_risk_engine_canary_assets_v1.py	2026-03-07 07:10:14.135048152 +0000
+@@ -0,0 +1,10 @@
++
++from pathlib import Path
++
++
++def test_p45_assets_exist():
++    root = Path(__file__).resolve().parents[1]
++    assert (root / 'monitoring' / 'prometheus_rules_execution_p45_risk.yml').exists()
++    assert (root / 'monitoring' / 'grafana' / 'dashboards' / 'trade_execution_p45_risk_quality.json').exists()
++    assert (root / 'scripts' / 'build_risk_engine_canary_report.py').exists()
++    assert (root / 'db' / 'migrations' / '20260306_09_risk_decision_audit.sql').exists()
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p4orig/binance_execution/test_runbook_server_risk_canary_v1.py p4work/binance_execution/test_runbook_server_risk_canary_v1.py
+--- p4orig/binance_execution/test_runbook_server_risk_canary_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p4work/binance_execution/test_runbook_server_risk_canary_v1.py	2026-03-07 07:10:14.135330865 +0000
+@@ -0,0 +1,7 @@
++
++from pathlib import Path
++
++
++def test_runbook_server_has_risk_canary_endpoint():
++    src = (Path(__file__).resolve().parents[1] / 'runbooks' / 'server' / 'runbook_server.py').read_text(encoding='utf-8')
++    assert '/api/risk-canary/latest' in src
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p4orig/config/docker-compose.execution-p45-risk-audit.override.yml p4work/config/docker-compose.execution-p45-risk-audit.override.yml
+--- p4orig/config/docker-compose.execution-p45-risk-audit.override.yml	1970-01-01 00:00:00.000000000 +0000
++++ p4work/config/docker-compose.execution-p45-risk-audit.override.yml	2026-03-07 07:10:14.133376858 +0000
+@@ -0,0 +1,7 @@
++
++services:
++  trade-runbook-server:
++    volumes:
++      - ./monitoring/grafana/dashboards:/opt/trade/monitoring/grafana/dashboards:ro
++      - ./runbooks:/opt/trade/runbooks:ro
++      - ./var/runbook-reports:/var/lib/trade-runbook/reports
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p4orig/config/env.execution-p45-risk-audit.example p4work/config/env.execution-p45-risk-audit.example
+--- p4orig/config/env.execution-p45-risk-audit.example	1970-01-01 00:00:00.000000000 +0000
++++ p4work/config/env.execution-p45-risk-audit.example	2026-03-07 07:10:14.129173178 +0000
+@@ -0,0 +1,5 @@
++
++TRADE_RISK_SQL_AUDIT_ENABLE=1
++RISK_AUDIT_SQL_DSN=postgresql://trade:trade@postgres:5432/trade
++RISK_CANARY_LOOKBACK_HOURS=24
++RISK_CANARY_REPORT_PATH=/var/lib/trade-runbook/reports/latest_risk_engine_canary.json
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p4orig/db/migrations/20260306_09_risk_decision_audit.sql p4work/db/migrations/20260306_09_risk_decision_audit.sql
+--- p4orig/db/migrations/20260306_09_risk_decision_audit.sql	1970-01-01 00:00:00.000000000 +0000
++++ p4work/db/migrations/20260306_09_risk_decision_audit.sql	2026-03-07 07:10:14.124580515 +0000
+@@ -0,0 +1,41 @@
++
++-- P4.4/P4.5: SQL audit storage for risk decisions and snapshots.
++
++create table if not exists risk_decision_audit (
++  decision_id text primary key,
++  signal_id text null,
++  sid text null,
++  symbol text not null,
++  cluster text not null,
++  tier text not null,
++  level text not null,
++  allow_trade_publish boolean not null,
++  effective_execution_policy text not null,
++  requested_notional_usd double precision not null,
++  adjusted_notional_usd double precision not null,
++  leverage_cap double precision not null,
++  risk_multiplier double precision not null,
++  clamp_ratio double precision not null default 0,
++  decision_latency_ms double precision not null default 0,
++  reasons_jsonb jsonb not null default '[]'::jsonb,
++  snapshot_jsonb jsonb not null default '{}'::jsonb,
++  signal_jsonb jsonb not null default '{}'::jsonb,
++  created_ts_ms bigint not null
++);
++
++create table if not exists risk_snapshot (
++  decision_id text primary key,
++  sid text null,
++  signal_id text null,
++  symbol text not null,
++  cluster text not null,
++  tier text not null,
++  level text not null,
++  effective_execution_policy text not null,
++  adjusted_notional_usd double precision not null,
++  leverage_cap double precision not null,
++  clamp_ratio double precision not null default 0,
++  decision_latency_ms double precision not null default 0,
++  snapshot_jsonb jsonb not null default '{}'::jsonb,
++  updated_ts_ms bigint not null
++);
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p4orig/db/migrations/20260306_10_risk_decision_audit_indexes.sql p4work/db/migrations/20260306_10_risk_decision_audit_indexes.sql
+--- p4orig/db/migrations/20260306_10_risk_decision_audit_indexes.sql	1970-01-01 00:00:00.000000000 +0000
++++ p4work/db/migrations/20260306_10_risk_decision_audit_indexes.sql	2026-03-07 07:10:14.125107176 +0000
+@@ -0,0 +1,6 @@
++
++create index if not exists risk_decision_audit_symbol_ts_idx on risk_decision_audit (symbol, created_ts_ms desc);
++create index if not exists risk_decision_audit_tier_level_ts_idx on risk_decision_audit (tier, level, created_ts_ms desc);
++create index if not exists risk_decision_audit_sid_ts_idx on risk_decision_audit (sid, created_ts_ms desc) where sid is not null;
++create index if not exists risk_snapshot_symbol_idx on risk_snapshot (symbol, updated_ts_ms desc);
++create index if not exists risk_snapshot_sid_idx on risk_snapshot (sid, updated_ts_ms desc) where sid is not null;
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p4orig/monitoring/grafana/dashboards/trade_execution_p45_risk_quality.json p4work/monitoring/grafana/dashboards/trade_execution_p45_risk_quality.json
+--- p4orig/monitoring/grafana/dashboards/trade_execution_p45_risk_quality.json	1970-01-01 00:00:00.000000000 +0000
++++ p4work/monitoring/grafana/dashboards/trade_execution_p45_risk_quality.json	2026-03-07 07:10:14.126761861 +0000
+@@ -0,0 +1,160 @@
++{
++  "title": "Trade Risk Engine Quality P4.4-P4.5",
++  "schemaVersion": 38,
++  "version": 1,
++  "refresh": "30s",
++  "panels": [
++    {
++      "type": "timeseries",
++      "title": "Risk Decision p95 Latency (ms)",
++      "gridPos": {
++        "x": 0,
++        "y": 0,
++        "w": 12,
++        "h": 8
++      },
++      "targets": [
++        {
++          "expr": "histogram_quantile(0.95, sum(rate(trade_risk_decision_latency_ms_bucket[5m])) by (le))"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Risk Clamp Rate",
++      "gridPos": {
++        "x": 12,
++        "y": 0,
++        "w": 12,
++        "h": 8
++      },
++      "targets": [
++        {
++          "expr": "sum(rate(trade_risk_clamp_total[5m])) / clamp_min(sum(rate(trade_risk_decision_total[5m])), 1)"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Confidence Denials by Tier",
++      "gridPos": {
++        "x": 0,
++        "y": 8,
++        "w": 12,
++        "h": 8
++      },
++      "targets": [
++        {
++          "expr": "sum(rate(trade_risk_confidence_deny_total[5m])) by (tier)"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Decision Volume by Tier/Level",
++      "gridPos": {
++        "x": 12,
++        "y": 8,
++        "w": 12,
++        "h": 8
++      },
++      "targets": [
++        {
++          "expr": "sum(rate(trade_risk_decision_total[5m])) by (tier, level)"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Recommended Notional USD",
++      "gridPos": {
++        "x": 0,
++        "y": 16,
++        "w": 12,
++        "h": 8
++      },
++      "targets": [
++        {
++          "expr": "avg(trade_risk_recommended_notional_usd) by (symbol)"
++        }
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Exposure Ratios",
++      "gridPos": {
++        "x": 12,
++        "y": 16,
++        "w": 12,
++        "h": 8
++      },
++      "targets": [
++        {
++          "expr": "trade_portfolio_total_exposure_ratio"
++        },
++        {
++          "expr": "avg(trade_portfolio_symbol_exposure_ratio)"
++        },
++        {
++          "expr": "avg(trade_portfolio_cluster_exposure_ratio)"
++        }
++      ]
++    },
++    {
++      "type": "stat",
++      "title": "Risk Audit Write Failures",
++      "gridPos": {
++        "x": 0,
++        "y": 24,
++        "w": 6,
++        "h": 4
++      },
++      "targets": [
++        {
++          "expr": "sum(increase(trade_risk_audit_write_fail_total[1h]))"
++        }
++      ]
++    },
++    {
++      "type": "stat",
++      "title": "Risk Canary Score",
++      "gridPos": {
++        "x": 6,
++        "y": 24,
++        "w": 6,
++        "h": 4
++      },
++      "targets": []
++    },
++    {
++      "type": "stat",
++      "title": "Maker Allowed (avg)",
++      "gridPos": {
++        "x": 12,
++        "y": 24,
++        "w": 6,
++        "h": 4
++      },
++      "targets": [
++        {
++          "expr": "avg(trade_risk_maker_allowed)"
++        }
++      ]
++    },
++    {
++      "type": "stat",
++      "title": "Min Confidence Required (avg)",
++      "gridPos": {
++        "x": 18,
++        "y": 24,
++        "w": 6,
++        "h": 4
++      },
++      "targets": [
++        {
++          "expr": "avg(trade_risk_min_confidence_required)"
++        }
++      ]
++    }
++  ]
++}
+\ No newline at end of file
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p4orig/monitoring/prometheus_rules_execution_p45_risk.yml p4work/monitoring/prometheus_rules_execution_p45_risk.yml
+--- p4orig/monitoring/prometheus_rules_execution_p45_risk.yml	1970-01-01 00:00:00.000000000 +0000
++++ p4work/monitoring/prometheus_rules_execution_p45_risk.yml	2026-03-07 07:10:14.125704988 +0000
+@@ -0,0 +1,47 @@
++
++groups:
++  - name: trade-risk-engine-p45
++    rules:
++      - alert: TradeRiskDecisionLatencyP95High
++        expr: |
++          histogram_quantile(0.95, sum(rate(trade_risk_decision_latency_ms_bucket[10m])) by (le)) > 50
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Risk engine p95 decision latency is high"
++          runbook: "P4 risk engine quality"
++
++      - alert: TradeRiskClampRateHigh
++        expr: |
++          (
++            sum(rate(trade_risk_clamp_total[15m]))
++            /
++            clamp_min(sum(rate(trade_risk_decision_total[15m])), 1)
++          ) > 0.35
++        for: 15m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Risk engine clamp rate is high"
++          runbook: "P4 risk engine quality"
++
++      - alert: TradeRiskConfidenceDenialSpike
++        expr: |
++          sum(rate(trade_risk_confidence_deny_total[15m])) > 0.05
++        for: 15m
++        labels:
++          severity: warning
++        annotations:
++          summary: "Confidence floor denials are spiking"
++          runbook: "P4 risk engine quality"
++
++      - alert: TradeRiskAuditWriteFailures
++        expr: |
++          sum(rate(trade_risk_audit_write_fail_total[15m])) > 0
++        for: 10m
++        labels:
++          severity: critical
++        annotations:
++          summary: "Risk SQL audit writes are failing"
++          runbook: "P4 risk engine quality"
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p4orig/runbooks/server/runbook_server.py p4work/runbooks/server/runbook_server.py
+--- p4orig/runbooks/server/runbook_server.py	2026-03-07 06:36:56.000000000 +0000
++++ p4work/runbooks/server/runbook_server.py	2026-03-07 07:10:14.128508051 +0000
+@@ -43,7 +43,7 @@
+ <style>body{{font-family:sans-serif;margin:2rem;max-width:1100px}}code{{background:#f4f4f4;padding:.1rem .3rem}}.badge{{padding:.15rem .5rem;border-radius:4px;background:#eee}}.ok{{background:#d1fae5}}.warning{{background:#fef3c7}}.critical{{background:#fee2e2}}</style>
+ </head><body>
+ <h1>Trade Execution Runbooks</h1>
+-<p>Latest health: <span class="badge {badge}">{html.escape(badge)}</span> — <a href="/api/health/latest">Health JSON</a> | <a href="/api/rebuild/latest">Rebuild JSON</a> | <a href="/api/autonomy/latest">Autonomy JSON</a> | <a href="/api/replay-slo/latest">Replay SLO JSON</a></p>
++<p>Latest health: <span class="badge {badge}">{html.escape(badge)}</span> — <a href="/api/health/latest">Health JSON</a> | <a href="/api/rebuild/latest">Rebuild JSON</a> | <a href="/api/autonomy/latest">Autonomy JSON</a> | <a href="/api/replay-slo/latest">Replay SLO JSON</a> | <a href="/api/risk-canary/latest">Risk Canary JSON</a></p>
+ <h2>Runbooks</h2><ul>{''.join(items) or '<li>no runbooks found</li>'}</ul>
+ <h2>Reports</h2><ul>{''.join(report_items) or '<li>no reports found</li>'}</ul>
+ <p><code>/healthz</code> returns 200 if the server process is alive.</p>
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p4orig/scripts/build_risk_engine_canary_report.py p4work/scripts/build_risk_engine_canary_report.py
+--- p4orig/scripts/build_risk_engine_canary_report.py	1970-01-01 00:00:00.000000000 +0000
++++ p4work/scripts/build_risk_engine_canary_report.py	2026-03-07 07:10:14.127364314 +0000
+@@ -0,0 +1,86 @@
++
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++from pathlib import Path
++
++try:
++    import psycopg  # type: ignore
++except Exception:  # pragma: no cover
++    psycopg = None  # type: ignore
++
++
++def _bucket(score: float) -> str:
++    if score >= 90:
++        return 'green'
++    if score >= 75:
++        return 'yellow'
++    return 'red'
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description='Build risk-engine quality canary report from SQL audit tables.')
++    parser.add_argument('--dsn', default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')))
++    parser.add_argument('--hours', type=int, default=int(os.getenv('RISK_CANARY_LOOKBACK_HOURS', '24')))
++    parser.add_argument('--out', default=os.getenv('RISK_CANARY_REPORT_PATH', '/var/lib/trade-runbook/reports/latest_risk_engine_canary.json'))
++    args = parser.parse_args()
++    if not args.dsn or psycopg is None:
++        raise RuntimeError('psycopg + RISK_AUDIT_SQL_DSN required')
++    with psycopg.connect(args.dsn) as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                """
++                with base as (
++                  select * from risk_decision_audit
++                  where created_ts_ms >= ((extract(epoch from now()) * 1000)::bigint - (%s * 3600 * 1000))
++                )
++                select
++                  count(*) as total_decisions,
++                  coalesce(sum(case when clamp_ratio < 0.999 then 1 else 0 end), 0) as clamp_count,
++                  coalesce(sum(case when reasons_jsonb::text ilike '%%confidence_below_tier_floor%%' then 1 else 0 end), 0) as confidence_denials,
++                  coalesce(sum(case when allow_trade_publish then 1 else 0 end), 0) as allow_count,
++                  coalesce(sum(case when not allow_trade_publish then 1 else 0 end), 0) as deny_count,
++                  coalesce(percentile_cont(0.95) within group (order by decision_latency_ms), 0) as decision_latency_p95_ms,
++                  coalesce(avg(clamp_ratio), 1.0) as avg_clamp_ratio
++                from base
++                """,
++                (args.hours,),
++            )
++            row = cur.fetchone() or (0, 0, 0, 0, 0, 0.0, 1.0)
++    total, clamp_count, conf_denials, allow_count, deny_count, p95, avg_clamp = row
++    clamp_rate = (float(clamp_count) / float(total)) if total else 0.0
++    deny_rate = (float(deny_count) / float(total)) if total else 0.0
++    conf_rate = (float(conf_denials) / float(total)) if total else 0.0
++    score = 100.0
++    score -= min(clamp_rate * 60.0, 25.0)
++    score -= min(conf_rate * 200.0, 25.0)
++    score -= min(deny_rate * 40.0, 20.0)
++    score -= min(max(0.0, float(p95) - 20.0) * 0.5, 20.0)
++    score += min(max(0.0, (float(avg_clamp) - 0.8)) * 20.0, 5.0)
++    report = {
++        'window_hours': int(args.hours),
++        'total_decisions': int(total),
++        'allow_count': int(allow_count),
++        'deny_count': int(deny_count),
++        'clamp_count': int(clamp_count),
++        'confidence_denials': int(conf_denials),
++        'clamp_rate': float(clamp_rate),
++        'deny_rate': float(deny_rate),
++        'confidence_denial_rate': float(conf_rate),
++        'decision_latency_p95_ms': float(p95),
++        'avg_clamp_ratio': float(avg_clamp),
++        'score': round(max(0.0, score), 2),
++        'bucket': _bucket(score),
++    }
++    out = Path(args.out)
++    out.parent.mkdir(parents=True, exist_ok=True)
++    out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
++    print(json.dumps(report, ensure_ascii=False, indent=2))
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p4orig/scripts/test_build_risk_engine_canary_report_v1.py p4work/scripts/test_build_risk_engine_canary_report_v1.py
+--- p4orig/scripts/test_build_risk_engine_canary_report_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p4work/scripts/test_build_risk_engine_canary_report_v1.py	2026-03-07 07:11:01.443606652 +0000
+@@ -0,0 +1,16 @@
++
++from pathlib import Path
++import importlib.util
++import sys
++
++mod_path = Path(__file__).resolve().parent / 'build_risk_engine_canary_report.py'
++spec = importlib.util.spec_from_file_location('build_risk_engine_canary_report', mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++spec.loader.exec_module(mod)
++
++
++def test_bucket():
++    assert mod._bucket(95) == 'green'
++    assert mod._bucket(80) == 'yellow'
++    assert mod._bucket(50) == 'red'

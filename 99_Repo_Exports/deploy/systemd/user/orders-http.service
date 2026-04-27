@@ -1,0 +1,27 @@
+[Unit]
+Description=Orders HTTP Bridge (REST <-> Redis queue)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# %h = home directory
+WorkingDirectory=%h/front/trade/scanner_infra/python-worker
+ExecStart=/usr/bin/python3 -m uvicorn services.orders_http_bridge:app --host 0.0.0.0 --port 8089
+
+Restart=always
+RestartSec=2
+
+# Redis connection
+Environment=REDIS_URL=redis://scanner-redis:6379/0
+
+# Queues and streams
+Environment=ORDERS_QUEUE=orders:queue
+Environment=EXEC_STREAM=orders:exec
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
+

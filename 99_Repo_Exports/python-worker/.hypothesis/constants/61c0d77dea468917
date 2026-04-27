@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/scoring/scoring_engine.py
+# hypothesis_version: 6.148.10
+
+['A', 'B', 'C', 'REJECT']

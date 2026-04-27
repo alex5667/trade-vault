@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/sparse/linalg/_isolve/lsqr.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-06, 100000000.0, 'LSQR finished', 'lsqr']

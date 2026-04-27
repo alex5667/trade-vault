@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/eq_pools.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.08, 1.0, 6.0, 10000.0, 10000, 3600000, 'EQH', 'EQL', 'eq_max_pools', 'eq_min_touches', 'eq_tol_atr_mult', 'eq_tol_bp', 'eq_ttl_ms', 'high', 'inf']

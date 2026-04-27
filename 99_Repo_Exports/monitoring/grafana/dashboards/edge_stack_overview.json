@@ -1,0 +1,130 @@
+{
+  "uid": "edge_stack_overview",
+  "title": "Edge Stack Overview (P59 Train + P60 Shadow)",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "15s",
+  "time": { "from": "now-48h", "to": "now" },
+  "tags": ["trade", "edge_stack", "p59", "p60"],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "P59 Train: last_success",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 6 },
+      "targets": [
+        {
+          "expr": "edge_stack_train_last_success",
+          "legendFormat": "success",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "horizontal",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+             "mode": "absolute",
+             "steps": [
+               { "color": "red", "value": null },
+               { "color": "green", "value": 1 }
+             ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "P59 Train: staleness (hours)",
+      "gridPos": { "x": 6, "y": 0, "w": 18, "h": 6 },
+      "targets": [
+        {
+          "expr": "(time() * 1000 - edge_stack_train_last_updated_ts_ms) / 3600000",
+          "legendFormat": "staleness_h",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "h" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "P59 Train: OOF meta (brier / ece)",
+      "gridPos": { "x": 0, "y": 6, "w": 24, "h": 8 },
+      "targets": [
+        { "expr": "edge_stack_train_last_oof_meta_brier", "legendFormat": "brier", "refId": "A" },
+        { "expr": "edge_stack_train_last_oof_meta_ece", "legendFormat": "ece", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "P60 Shadow: last_success",
+      "gridPos": { "x": 0, "y": 14, "w": 6, "h": 6 },
+      "targets": [
+        { "expr": "edge_stack_shadow_last_success", "legendFormat": "success", "refId": "A" }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "horizontal",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+             "mode": "absolute",
+             "steps": [
+               { "color": "red", "value": null },
+               { "color": "green", "value": 1 }
+             ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "P60 Shadow: staleness (hours)",
+      "gridPos": { "x": 6, "y": 14, "w": 18, "h": 6 },
+      "targets": [
+        { "expr": "(time() * 1000 - edge_stack_shadow_last_updated_ts_ms) / 3600000", "legendFormat": "staleness_h", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "h" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "P60 Shadow: champion brier",
+      "gridPos": { "x": 0, "y": 20, "w": 24, "h": 8 },
+      "targets": [
+        { "expr": "edge_stack_shadow_champion_brier", "legendFormat": "champion_brier", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    }
+  ]
+}

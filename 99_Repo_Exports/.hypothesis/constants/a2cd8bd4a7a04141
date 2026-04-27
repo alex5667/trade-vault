@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/contracts/tradeable_contracts.py
+# hypothesis_version: 6.148.10
+
+[256, 512, 1024, 2048, 64000, ',', ':', 'events', 'ignore', 'parts_full', 'payload_meta', 'trace', 'trace.', 'trace_', 'trace_id', 'trace_meta_key', 'trace_summary', 'utf-8']

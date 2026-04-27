@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/dispatcher/trace_writer.py
+# hypothesis_version: 6.148.10
+
+[200, 86400, ',', ':', 'corr_id', 'data', 'diagnostic', 'extra', 'kind', 'meta', 'outbox_meta_prefix', 'outbox_meta_ttl_sec', 'reason', 'sid', 'signal:meta:', 'stage', 'symbol', 'trace', 'trace_id', 'tradeable', 'ts_ms', 'type']

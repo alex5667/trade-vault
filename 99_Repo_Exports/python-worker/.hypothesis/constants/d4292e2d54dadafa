@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/stats/kde.py
+# hypothesis_version: 6.148.10
+
+['atleast_1d', 'atleast_2d', 'check_random_state', 'cov', 'exp', 'gaussian_kde', 'linalg', 'logsumexp', 'newaxis', 'power', 'ravel', 'reshape', 'squeeze', 'sum', 'transpose']

@@ -1,0 +1,15 @@
+groups:
+  - name: monitoring-smoke-targets
+    rules:
+      - alert: MonitoringSmokeTargetsStale
+        expr: monitoring_smoke_targets_stale == 1
+        for: 2h
+        labels:
+          severity: warning
+          team: trade
+          component: monitoring
+        annotations:
+          summary: "Monitoring smoke targets stale"
+          description: "cfg:monitoring_smoke:targets is missing or older than MONITORING_SMOKE_TARGETS_MAX_AGE_S. Smoke contract may miss new alert links."
+          runbook_path: "/monitoring_smoke.md"
+          dashboard_path: "/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1"

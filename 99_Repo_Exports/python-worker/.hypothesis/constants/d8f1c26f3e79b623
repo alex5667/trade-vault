@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/sweep_detector.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1000, 5000, 60000, 120000, 'EQH', 'EQH_SWEEP', 'EQL', 'EQL_SWEEP', 'LONG', 'SHORT', 'sweep_confirm_bars', 'sweep_cooldown_ms', 'sweep_valid_ms', 'tf_ms']

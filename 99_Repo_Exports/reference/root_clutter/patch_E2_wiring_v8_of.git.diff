@@ -1,0 +1,212 @@
+diff --git a/tick_flow_full/core/feature_registry.py b/tick_flow_full/core/feature_registry.py
+--- a/tick_flow_full/core/feature_registry.py
++++ b/tick_flow_full/core/feature_registry.py
+@@ -10,6 +10,12 @@
+   v4_of — полная онлайн-схема v4 (48 num, 21 bool) из MLFeatureSchemaV4OF
+   v5_of — v4_of + расширения (core+extras) из MLFeatureSchemaV5OF
+   v5_of_stable — v5_of минус denylist (feature_denylist_v1.json), для stable training baseline
++  v6_of — v5_of + microstructure/DQ expansions из MLFeatureSchemaV6OF
++  v6_of_stable — v6_of минус denylist (stable training baseline)
++  v7_of — v6_of + Hawkes/VPIN/extended OF features из MLFeatureSchemaV7OF
++  v7_of_stable — v7_of минус denylist
++  v8_of — v7_of + DQ (gap/missing_seq) + liqmap (+ optional levels) из MLFeatureSchemaV8OF
++  v8_of_stable — v8_of минус denylist
+ 
+ Публичный API:
+   get_schema_info(ver: str) → FeatureSchemaInfo
+@@ -358,6 +364,25 @@
+     s = MLFeatureSchemaV7OFStable()
+     return list(s.num_keys), list(s.bool_keys)
+ 
++
++
++def _get_v8_of_keys():
++    """Импортирует num_keys + bool_keys из MLFeatureSchemaV8OF."""
++    try:
++        from core.ml_feature_schema_v8_of import MLFeatureSchemaV8OF  # type: ignore
++        schema = MLFeatureSchemaV8OF()
++        return list(schema.num_keys), list(schema.bool_keys)
++    except ImportError:
++        # fallback: best-effort superset over v7_of
++        return _get_v7_of_keys()
++
++
++def _get_v8_of_stable_keys():
++    """v8_of_stable = v8_of minus denylisted keys."""
++    from core.ml_feature_schema_v8_of import MLFeatureSchemaV8OFStable
++    s = MLFeatureSchemaV8OFStable()
++    return list(s.num_keys), list(s.bool_keys)
++
+ # ---------------------------------------------------------------------------
+ # v5_of_stable / v6_of_stable / v7_of_stable — apply denylist (feature_denylist_v1)
+ # ---------------------------------------------------------------------------
+@@ -409,7 +434,7 @@
+     """Возвращает FeatureSchemaInfo для заданной версии схемы.
+ 
+     Args:
+-        ver: одно из "v2", "v3", "v4_of", "v5_of", "v5_of_stable", "v6_of", "v6_of_stable", "v7_of", "v7_of_stable"
++        ver: одно из "v2", "v3", "v4_of", "v5_of", "v5_of_stable", "v6_of", "v6_of_stable", "v7_of", "v7_of_stable", "v8_of", "v8_of_stable"
+ 
+     Returns:
+         FeatureSchemaInfo — неизменяемый дескриптор схемы.
+@@ -461,10 +486,19 @@
+         num_keys, bool_keys = _get_v7_of_stable_keys()
+         names = _build_feature_names(num_keys, bool_keys)
+         v = "v7_of_stable"
++elif v in ("v8_of", "v8"):
++    num_keys, bool_keys = _get_v8_of_keys()
++    names = _build_feature_names(num_keys, bool_keys)
++    v = "v8_of"
++elif v in ("v8_of_stable", "v8_stable", "v8stable"):
++    num_keys, bool_keys = _get_v8_of_stable_keys()
++    names = _build_feature_names(num_keys, bool_keys)
++    v = "v8_of_stable"
++
+     else:
+         raise ValueError(
+             f"Unsupported feature schema version: {ver!r}. "
+-            f"Supported: 'v2', 'v3', 'v4_of', 'v5_of', 'v5_of_stable', 'v6_of', 'v6_of_stable', 'v7_of', 'v7_of_stable'."
++            f"Supported: 'v2', 'v3', 'v4_of', 'v5_of', 'v5_of_stable', 'v6_of', 'v6_of_stable', 'v7_of', 'v7_of_stable', 'v8_of', 'v8_of_stable'."
+         )
+ 
+     info = _make_schema_info(v, names)
+diff --git a/ml_analysis/tools/schema_choices_v1.py b/ml_analysis/tools/schema_choices_v1.py
+--- a/ml_analysis/tools/schema_choices_v1.py
++++ b/ml_analysis/tools/schema_choices_v1.py
+@@ -39,6 +39,11 @@
+     "v7_of",
+     "v7_of_stable",
+     "v7_stable",
++    # v8
++    "v8",
++    "v8_of",
++    "v8_of_stable",
++    "v8_stable",
+ ]
+ 
+ 
+@@ -64,6 +69,8 @@
+         return ""
+     vv = v.lower().replace("-", "_")
+     # stable aliases
++    if vv in ("v8stable", "v8_stable"):
++        return "v8_of_stable"
+     if vv in ("v7stable", "v7_stable"):
+         return "v7_of_stable"
+     if vv in ("v6stable", "v6_stable"):
+@@ -71,6 +78,8 @@
+     if vv in ("v5stable", "v5_stable"):
+         return "v5_of_stable"
+     # base aliases
++    if vv == "v8":
++        return "v8_of"
+     if vv == "v7":
+         return "v7_of"
+     if vv == "v6":
+diff --git a/ml_analysis/tools/build_dataset_from_inputs_outcomes_v2.py b/ml_analysis/tools/build_dataset_from_inputs_outcomes_v2.py
+--- a/ml_analysis/tools/build_dataset_from_inputs_outcomes_v2.py
++++ b/ml_analysis/tools/build_dataset_from_inputs_outcomes_v2.py
+@@ -188,7 +188,7 @@
+     feat_names = schema_info.feature_names  # оригинальные имена (n:key, b:key, ...)
+ 
+     # Для vectorize нам нужна сама схема (train==serve порядок фич).
+-    # Поддерживаем v4_of..v7_of (+ stable варианты).
++    # Поддерживаем v4_of..v8_of (+ stable варианты).
+     _schema_obj = None
+     try:
+         v = _norm_schema_ver(str(schema_ver))
+@@ -213,6 +213,12 @@
+         elif v in ("v7_of_stable", "v7_stable"):
+             from core.ml_feature_schema_v7_of import MLFeatureSchemaV7OFStable  # type: ignore
+             _schema_obj = MLFeatureSchemaV7OFStable()
++        elif v in ("v8_of", "v8"):
++            from core.ml_feature_schema_v8_of import MLFeatureSchemaV8OF  # type: ignore
++            _schema_obj = MLFeatureSchemaV8OF()
++        elif v in ("v8_of_stable", "v8_stable"):
++            from core.ml_feature_schema_v8_of import MLFeatureSchemaV8OFStable  # type: ignore
++            _schema_obj = MLFeatureSchemaV8OFStable()
+     except Exception:
+         _schema_obj = None
+ 
+diff --git a/ml_analysis/tests/test_feature_registry.py b/ml_analysis/tests/test_feature_registry.py
+--- a/ml_analysis/tests/test_feature_registry.py
++++ b/ml_analysis/tests/test_feature_registry.py
+@@ -121,9 +121,9 @@
+ def test_v5_v6_v7_schema_smoke():
+     """Smoke: feature_registry должен уметь отдавать OF-схемы v5/v6/v7 (+stable)."""
+     reg = _import_registry()
+-    for ver in ("v5_of", "v5_of_stable", "v6_of", "v6_of_stable", "v7_of", "v7_of_stable"):
++    for ver in ("v5_of", "v5_of_stable", "v6_of", "v6_of_stable", "v7_of", "v7_of_stable", "v8_of", "v8_of_stable"):
+         info = reg.get_schema_info(ver)
+-        assert info.ver in (ver, "v5_of", "v5_of_stable", "v6_of", "v6_of_stable", "v7_of", "v7_of_stable")
++        assert info.ver in (ver, "v5_of", "v5_of_stable", "v6_of", "v6_of_stable", "v7_of", "v7_of_stable", "v8_of", "v8_of_stable")
+         assert len(info.feature_names) > 0
+         assert len(info.feature_names) == len(info.column_names)
+         assert len(info.schema_hash) == 64
+@@ -223,9 +223,9 @@
+     """Smoke: v5_of/v6_of/v7_of schemas resolve and have deterministic non-empty feature list."""
+     reg = _import_registry()
+ 
+-    for ver in ("v5_of", "v5_of_stable", "v6_of", "v6_of_stable", "v7_of", "v7_of_stable"):
++    for ver in ("v5_of", "v5_of_stable", "v6_of", "v6_of_stable", "v7_of", "v7_of_stable", "v8_of", "v8_of_stable"):
+         info = reg.get_schema_info(ver)
+-        assert info.ver in (ver, "v5_of", "v5_of_stable", "v6_of", "v6_of_stable", "v7_of", "v7_of_stable")
++        assert info.ver in (ver, "v5_of", "v5_of_stable", "v6_of", "v6_of_stable", "v7_of", "v7_of_stable", "v8_of", "v8_of_stable")
+         assert isinstance(info.feature_names, list)
+         assert len(info.feature_names) > 10
+         # must be unique and stable order
+@@ -268,6 +268,40 @@
+         )
+ 
+ 
++def test_feature_registry_schema_versions_include_v8():
++    """Smoke: v8_of/v8_of_stable schemas resolve, extend v7_of, contain DQ + liqmap keys."""
++    from core.feature_registry import get_schema_info
++
++    info_v7 = get_schema_info("v7_of")
++    for ver in ("v8_of", "v8_of_stable"):
++        info = get_schema_info(ver)
++        assert info.ver == ver
++        assert isinstance(info.feature_names, list)
++        assert len(info.feature_names) > 10
++        # must be unique
++        assert len(set(info.feature_names)) == len(info.feature_names)
++        # v8 must contain DQ keys (as num)
++        for k in ("n:tick_gap_p95_ms", "n:tick_missing_seq_ema", "n:book_missing_seq_ema"):
++            assert k in set(info.feature_names), f"{ver} missing DQ key: {k}"
++        # v8 must contain liqmap keys (1h baseline)
++        for k in (
++            "n:liqmap_1h_total_usd",
++            "n:liqmap_1h_near_total_usd",
++            "n:liqmap_1h_near_imb",
++            "n:liqmap_1h_dist_up_bps",
++            "n:liqmap_1h_dist_dn_bps",
++            "n:liqmap_1h_peak_up1_usd",
++            "n:liqmap_1h_peak_dn1_usd",
++            "n:liqmap_1h_age_ms",
++        ):
++            assert k in set(info.feature_names), f"{ver} missing liqmap key: {k}"
++
++        # v8_of must be superset of v7_of (modulo stable denylist)
++        if ver == "v8_of":
++            assert len(info.feature_names) >= len(info_v7.feature_names), (
++                f"v8_of only has {len(info.feature_names)} vs v7_of {len(info_v7.feature_names)}"
++            )
++
+ def test_v7_stable_applies_denylist(tmp_path, monkeypatch):
+     """v7_of_stable must drop denylisted keys (by ML_FEATURE_DENYLIST_PATH)."""
+     import importlib
+@@ -292,5 +326,12 @@
+     assert "b:flag_high_vol" not in set(v7s.feature_names)
+ 
+     # hash deterministic
++
++    # v8 stable also must apply denylist consistently (same denylist file).
++    v8 = fr.get_schema_info("v8_of")
++    v8s = fr.get_schema_info("v8_of_stable")
++    assert "b:flag_high_vol" in set(v8.feature_names)
++    assert "b:flag_high_vol" not in set(v8s.feature_names)
++
++    # hash deterministic
+     assert v7s.schema_hash == fr.get_schema_info("v7_of_stable").schema_hash
+-

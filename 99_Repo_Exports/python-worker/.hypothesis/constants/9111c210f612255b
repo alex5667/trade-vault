@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/slippage_ema_stats.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.05, 1.0, 604800, '0.05', '1', '604800', 'SLIPPAGE_EMA_ALPHA', 'SLIPPAGE_EMA_TTL_S', 'close_time', 'closed_time', 'ema', 'ema_bps', 'ema_slippage_bps', 'entry_ts_ms', 'exit_ts_ms', 'expire', 'id', 'ignore', 'is_final_close', 'kind', 'last_ts_ms', 'n', 'na', 'on', 'orderId', 'order_id', 'samples', 'strategy', 'symbol', 'tf', 'true', 'utf-8', 'venue', 'yes']

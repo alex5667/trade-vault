@@ -1,0 +1,115 @@
+version: '3.9'
+
+services:
+  # ──────────────────────────────────────────────────────────────────────────
+  # ML Control Plane Phase 0 — Inventory Exporter
+  # ──────────────────────────────────────────────────────────────────────────
+  scanner-ml-inventory-exporter-v1:
+    build:
+      context: /home/alex/front/trade/scanner_infra
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-ml-inventory-exporter-v1
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.10"
+          memory: 128M
+        reservations:
+          devices:
+            # - driver: nvidia
+              # count: 1
+              # capabilities: [gpu]
+    environment:
+      - REDIS_URL=redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0
+      - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
+      - ML_INVENTORY_DB_ENABLE=${ML_INVENTORY_DB_ENABLE:-1}
+      - ML_INVENTORY_STREAM=${ML_INVENTORY_STREAM:-stream:ml:model_inventory}
+      - ML_INVENTORY_SUMMARY_KEY=${ML_INVENTORY_SUMMARY_KEY:-metrics:ml:model_inventory:last}
+      - ML_INVENTORY_EXPORTER_PORT=${ML_INVENTORY_EXPORTER_PORT:-9852}
+      - ML_INVENTORY_EXPORTER_INTERVAL_S=${ML_INVENTORY_EXPORTER_INTERVAL_S:-60}
+      - ML_INVENTORY_STREAM_MAXLEN=${ML_INVENTORY_STREAM_MAXLEN:-20000}
+      - ML_CFG_CHAMPION_KEY=${ML_CFG_CHAMPION_KEY:-cfg:ml_confirm:champion}
+      - ML_CFG_CHALLENGER_KEY=${ML_CFG_CHALLENGER_KEY:-cfg:ml_confirm:challenger}
+      - ML_CFG_HASH_KEY=${ML_CFG_HASH_KEY:-cfg:ml_confirm}
+      - ML_CONFIRM_MODE=${ML_CONFIRM_MODE:-OFF}
+      - ML_CONFIRM_FAIL_POLICY=${ML_CONFIRM_FAIL_POLICY:-OPEN}
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "${ML_INVENTORY_EXPORTER_PORT:-9852}:${ML_INVENTORY_EXPORTER_PORT:-9852}"
+    volumes:
+      - /home/alex/front/trade/scanner_infra/python-worker:/app
+      - /var/lib/trade:/var/lib/trade
+    working_dir: /app
+    command:
+      - sh
+      - -c
+      - |
+        sleep 35 &&
+        exec python3 -m orderflow_services.ml_inventory_exporter_v1
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-timers
+      - scanner-infra
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # ML Control Plane Phase 0 — Health Rollup Worker
+  # ──────────────────────────────────────────────────────────────────────────
+  scanner-ml-health-rollup-v1:
+    build:
+      context: /home/alex/front/trade/scanner_infra
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-ml-health-rollup-v1
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.15"
+          memory: 256M
+        reservations:
+          devices:
+            # - driver: nvidia
+              # count: 1
+              # capabilities: [gpu]
+    environment:
+      - REDIS_URL=redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0
+      - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
+      - ML_HEALTH_DB_ENABLE=${ML_HEALTH_DB_ENABLE:-1}
+      - ML_CONFIRM_METRICS_STREAM=${ML_CONFIRM_METRICS_STREAM:-metrics:ml_confirm}
+      - ML_HEALTH_OUT_STREAM=${ML_HEALTH_OUT_STREAM:-stream:ml:health_snapshot}
+      - ML_HEALTH_OUT_SUMMARY_KEY=${ML_HEALTH_OUT_SUMMARY_KEY:-metrics:ml:health_snapshot:last}
+      - ML_HEALTH_GROUP=${ML_HEALTH_GROUP:-cg:ml_health_rollup_v1}
+      - ML_HEALTH_CONSUMER=${ML_HEALTH_CONSUMER:-scanner-ml-health-rollup-v1}
+      - ML_HEALTH_EXPORTER_PORT=${ML_HEALTH_EXPORTER_PORT:-9853}
+      - ML_HEALTH_BLOCK_MS=${ML_HEALTH_BLOCK_MS:-5000}
+      - ML_HEALTH_READ_COUNT=${ML_HEALTH_READ_COUNT:-500}
+      - ML_HEALTH_FINALIZE_LAG_MIN=${ML_HEALTH_FINALIZE_LAG_MIN:-1}
+      - ML_HEALTH_BUCKET_TTL_S=${ML_HEALTH_BUCKET_TTL_S:-259200}
+      - PYTHONPATH=.:/app
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "${ML_HEALTH_EXPORTER_PORT:-9853}:${ML_HEALTH_EXPORTER_PORT:-9853}"
+    volumes:
+      - /home/alex/front/trade/scanner_infra/python-worker:/app
+    working_dir: /app
+    command:
+      - sh
+      - -c
+      - |
+        sleep 35 &&
+        exec python3 -m orderflow_services.ml_health_rollup_worker_v1
+    depends_on:
+      redis-worker-1:
+        condition: service_healthy
+    networks:
+      - scanner-timers
+      - scanner-infra
+
+networks:
+  scanner-timers:
+    external: true
+  scanner-infra:
+    external: true

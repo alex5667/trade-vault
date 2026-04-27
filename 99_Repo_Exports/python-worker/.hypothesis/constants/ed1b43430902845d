@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/queue_eta_estimator.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-12, 1e-09, 1.0, 300.0, 'eps', 'eta_cap_sec']

@@ -1,0 +1,26 @@
+services:
+  scanner-operator-routing-incident-rca-route-incident-bundle-builder-v2-17:
+    image: scanner_infra-scanner-ml-operator-rca-routing-v2-3
+    volumes:
+      - ./python-worker:/app
+    command: ["python", "-m", "orderflow_services.operator_routing_incident_rca_route_incident_bundle_builder_v2_17"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_INCIDENT_BUNDLE_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_INCIDENT_BUNDLE_PORT:-9899}
+    ports:
+      - "${ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTE_INCIDENT_BUNDLE_PORT:-9899}:9899"
+    networks:
+      - scanner-network
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9899/metrics >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 384M

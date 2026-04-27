@@ -1,0 +1,9 @@
+# Separate Makefile for OFC golden replay tooling.
+# Usage:
+#   make -f Makefile.ofc ofc-golden-suite OFC_CAPTURE=/tmp/ofc_inputs.ndjson OFC_GOLDEN=/tmp/ofc_golden.ndjson
+#
+# If you prefer integrating into your existing Makefile, add:
+#   -include make.ofc.mk
+#
+include make.ofc.mk
+

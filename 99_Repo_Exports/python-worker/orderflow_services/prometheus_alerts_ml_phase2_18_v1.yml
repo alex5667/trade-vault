@@ -1,0 +1,18 @@
+groups:
+  - name: ml_phase2_18_operator_routing_incident_rca_route_vertex_bridge_v1
+    rules:
+      - alert: MLOperatorRoutingIncidentRCABridgeStale
+        expr: time() - ml_operator_routing_incident_rca_route_rca_bridge_last_run_ts_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Routing incident RCA Route Incident Bridge is stale"
+      
+      - alert: MLOperatorRoutingIncidentRCAOrchestratorStale
+        expr: time() - ml_operator_routing_incident_route_rca_last_run_ts_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Routing incident RCA Route Orchestrator is stale"

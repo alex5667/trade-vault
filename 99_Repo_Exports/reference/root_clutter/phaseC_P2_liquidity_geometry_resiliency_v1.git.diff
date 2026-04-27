@@ -1,0 +1,508 @@
+diff --git a/python-worker/services/orderflow/book_geometry.py b/python-worker/services/orderflow/book_geometry.py
+new file mode 100644
+index 0000000..7054617
+--- /dev/null
++++ b/python-worker/services/orderflow/book_geometry.py
+@@ -0,0 +1,149 @@
++"""Book geometry features (Phase C / P2).
++
++Adds bounded microstructure liquidity geometry on top of spread/depth:
++- book slope (liquidity gradient): USD per bps on each side
++- depth-weighted spread (DWS): VWAP(asks)-VWAP(bids) within X bps, in bps
++- notional within X bps: reachable notional (USD) within a price band
++
++Hot-path constraints:
++- deterministic, bounded CPU/memory
++- uses top-N levels only (this project keeps top5 in BookSnapshot)
++- fail-open: returns 0.0 on bad inputs
++"""
++
++from __future__ import annotations
++
++import math
++from typing import Any, Iterable, List, Optional, Sequence, Tuple
++
++Level = Tuple[float, float]  # (price, qty)
++
++
++def _safe_f(v: Any) -> Optional[float]:
++    try:
++        x = float(v)
++    except Exception:
++        return None
++    if not math.isfinite(x):
++        return None
++    return float(x)
++
++
++def _iter_levels(levels: Any) -> Iterable[Level]:
++    if not levels or not isinstance(levels, (list, tuple)):
++        return
++    for it in levels:
++        try:
++            px = _safe_f(it[0])
++            qty = _safe_f(it[1])
++        except Exception:
++            continue
++        if px is None or qty is None or px <= 0 or qty <= 0:
++            continue
++        yield (float(px), float(qty))
++
++
++def _mid_from_bbo(best_bid: float, best_ask: float) -> float:
++    if best_bid > 0 and best_ask > 0:
++        return 0.5 * (best_bid + best_ask)
++    return 0.0
++
++
++def calc_cost_to_cross(levels: Sequence[Level], mid: float, *, xbps: float) -> float:
++    """Total notional (USD) available within X bps from mid on ONE side."""
++    mid = float(mid or 0.0)
++    if mid <= 0 or xbps <= 0:
++        return 0.0
++    band = float(xbps)
++    out = 0.0
++    for px, qty in _iter_levels(levels):
++        dist_bps = abs(px - mid) / mid * 10_000.0
++        if dist_bps <= band + 1e-9:
++            out += px * qty
++    if not math.isfinite(out) or out < 0:
++        return 0.0
++    return float(out)
++
++
++def calc_book_slope(bids: Sequence[Level], asks: Sequence[Level], mid: float, *, eps_bps: float = 0.10) -> Tuple[float, float]:
++    """Liquidity gradient (USD per bps) for each side."""
++    mid = float(mid or 0.0)
++    if mid <= 0:
++        return (0.0, 0.0)
++
++    def _side(levels: Sequence[Level]) -> float:
++        s = 0.0
++        for px, qty in _iter_levels(levels):
++            dist_bps = abs(px - mid) / mid * 10_000.0
++            dist_bps = max(float(dist_bps), float(eps_bps))
++            s += (px * qty) / dist_bps
++        if not math.isfinite(s) or s < 0:
++            return 0.0
++        return float(s)
++
++    return (_side(bids), _side(asks))
++
++
++def calc_depth_weighted_spread(bids: Sequence[Level], asks: Sequence[Level], mid: float, *, xbps: float = 5.0) -> float:
++    """Depth-weighted spread (DWS) within X bps around mid, returned in bps."""
++    mid = float(mid or 0.0)
++    if mid <= 0 or xbps <= 0:
++        return 0.0
++
++    def _vwap(levels: Sequence[Level]) -> Optional[float]:
++        num = 0.0
++        den = 0.0
++        for px, qty in _iter_levels(levels):
++            dist_bps = abs(px - mid) / mid * 10_000.0
++            if dist_bps <= float(xbps) + 1e-9:
++                num += px * qty
++                den += qty
++        if den <= 0:
++            return None
++        v = num / den
++        if not math.isfinite(v) or v <= 0:
++            return None
++        return float(v)
++
++    vb = _vwap(bids)
++    va = _vwap(asks)
++    if vb is None or va is None:
++        return 0.0
++
++    dws = (va - vb) / mid * 10_000.0
++    if not math.isfinite(dws):
++        return 0.0
++    return float(max(0.0, min(float(dws), 50_000.0)))
++
++
++def extract_levels_from_runtime(runtime: Any) -> Tuple[List[Level], List[Level], float]:
++    """Best-effort extraction of (bids, asks, mid) from SymbolRuntime."""
++    bids: List[Level] = []
++    asks: List[Level] = []
++    mid = 0.0
++
++    try:
++        snap = getattr(runtime, "last_book", None)
++        if snap is not None:
++            bids = list(getattr(snap, "top5_bids", None) or getattr(snap, "bids", None) or [])
++            asks = list(getattr(snap, "top5_asks", None) or getattr(snap, "asks", None) or [])
++            bb = float(getattr(snap, "best_bid_px", 0.0) or 0.0)
++            ba = float(getattr(snap, "best_ask_px", 0.0) or 0.0)
++            mid = _mid_from_bbo(bb, ba)
++    except Exception:
++        pass
++
++    if mid <= 0:
++        try:
++            bs = getattr(runtime, "book_state", None)
++            snap = getattr(bs, "snap", None) if bs is not None else None
++            if snap is not None:
++                bids = list(getattr(snap, "top5_bids", None) or getattr(snap, "bids", None) or bids)
++                asks = list(getattr(snap, "top5_asks", None) or getattr(snap, "asks", None) or asks)
++                bb = float(getattr(snap, "best_bid_px", 0.0) or 0.0)
++                ba = float(getattr(snap, "best_ask_px", 0.0) or 0.0)
++                mid = _mid_from_bbo(bb, ba)
++        except Exception:
++            pass
++
++    return (bids, asks, float(mid))
+diff --git a/python-worker/services/orderflow/liquidity_resiliency.py b/python-worker/services/orderflow/liquidity_resiliency.py
+new file mode 100644
+index 0000000..313ce44
+--- /dev/null
++++ b/python-worker/services/orderflow/liquidity_resiliency.py
+@@ -0,0 +1,109 @@
++"""Liquidity resiliency / recovery-time tracker (Phase C / P2).
++
++Measures how quickly spread/depth return to baseline after a stress episode.
++This is complementary to BookResilienceTracker (depth replenishment after sweeps).
++
++Outputs:
++- liq_recovery_time_ms: elapsed time since stress start (if stress active), else 0
++- liq_fragility_score: 0..1 (higher => more fragile)
++"""
++
++from __future__ import annotations
++
++import math
++from dataclasses import dataclass
++from typing import Any, Dict
++
++
++def _clamp01(x: float) -> float:
++    if not math.isfinite(x):
++        return 0.0
++    return float(max(0.0, min(1.0, x)))
++
++
++@dataclass
++class LiquidityResiliencyTracker:
++    spread_ema: float = 0.0
++    depth_ema_usd: float = 0.0
++
++    stress_active: bool = False
++    stress_start_ms: int = 0
++    last_recovery_ms: int = 0
++
++    ema_alpha: float = 0.02
++    stress_spread_mult: float = 1.75
++    stress_depth_drop_frac: float = 0.50
++    recover_spread_mult: float = 1.20
++    recover_depth_drop_frac: float = 0.20
++    recover_hold_ms: int = 1000
++
++    _recover_candidate_ms: int = 0
++
++    def update(self, *, ts_ms: int, spread_bps: float, depth_usd: float) -> Dict[str, Any]:
++        ts_ms = int(ts_ms or 0)
++        sb = float(spread_bps or 0.0)
++        du = float(depth_usd or 0.0)
++
++        if ts_ms <= 0 or not math.isfinite(sb) or not math.isfinite(du) or sb < 0 or du < 0:
++            return {
++                "liq_recovery_time_ms": int(0),
++                "liq_fragility_score": float(0.0),
++                "liq_stress_active": int(1 if self.stress_active else 0),
++                "liq_spread_ema": float(self.spread_ema),
++                "liq_depth_ema_usd": float(self.depth_ema_usd),
++            }
++
++        # EMA init/update
++        if self.spread_ema <= 0:
++            self.spread_ema = sb
++        else:
++            self.spread_ema = (1.0 - self.ema_alpha) * self.spread_ema + self.ema_alpha * sb
++
++        if self.depth_ema_usd <= 0:
++            self.depth_ema_usd = du
++        else:
++            self.depth_ema_usd = (1.0 - self.ema_alpha) * self.depth_ema_usd + self.ema_alpha * du
++
++        base_spread = max(self.spread_ema, 1e-9)
++        base_depth = max(self.depth_ema_usd, 1e-9)
++
++        spread_ratio = sb / base_spread
++        depth_ratio = du / base_depth
++
++        wide = max(0.0, spread_ratio - 1.0)
++        shallow = max(0.0, 1.0 - depth_ratio)
++        frag = _clamp01(0.6 * (wide / 1.0) + 0.6 * (shallow / 0.5))
++
++        is_stress = (spread_ratio >= self.stress_spread_mult) or (depth_ratio <= (1.0 - self.stress_depth_drop_frac))
++        is_recover = (spread_ratio <= self.recover_spread_mult) and (depth_ratio >= (1.0 - self.recover_depth_drop_frac))
++
++        if not self.stress_active:
++            if is_stress:
++                self.stress_active = True
++                self.stress_start_ms = ts_ms
++                self._recover_candidate_ms = 0
++        else:
++            if is_recover:
++                if self._recover_candidate_ms <= 0:
++                    self._recover_candidate_ms = ts_ms
++                if (ts_ms - self._recover_candidate_ms) >= self.recover_hold_ms:
++                    self.stress_active = False
++                    self.last_recovery_ms = int(ts_ms - self.stress_start_ms) if self.stress_start_ms > 0 else 0
++                    self.stress_start_ms = 0
++                    self._recover_candidate_ms = 0
++            else:
++                self._recover_candidate_ms = 0
++
++        rec_ms = 0
++        if self.stress_active and self.stress_start_ms > 0:
++            rec_ms = int(max(0, ts_ms - self.stress_start_ms))
++
++        return {
++            "liq_recovery_time_ms": int(rec_ms),
++            "liq_fragility_score": float(frag),
++            "liq_stress_active": int(1 if self.stress_active else 0),
++            "liq_spread_ema": float(self.spread_ema),
++            "liq_depth_ema_usd": float(self.depth_ema_usd),
++            "liq_spread_ratio": float(spread_ratio),
++            "liq_depth_ratio": float(depth_ratio),
++        }
+diff --git a/python-worker/services/orderflow/runtime.py b/python-worker/services/orderflow/runtime.py
+index d54d4be..39bbebb 100644
+--- a/python-worker/services/orderflow/runtime.py
++++ b/python-worker/services/orderflow/runtime.py
+@@ -217,6 +217,7 @@ from services.l3_queue_events_proxy import L3QueueEventsProxy
+ from services.l3_lite_tracker import L3LiteTracker
+ from core.vol_regime_tracker import VolRegimeTracker
+ from core.book_resilience import BookResilienceTracker
++from services.orderflow.liquidity_resiliency import LiquidityResiliencyTracker
+ from core.rolling_vwap_tracker import RollingVWAPTracker
+ from core.rolling_momentum_tracker import RollingMomentumTracker
+ from core.rolling_volatility_tracker import RollingVolatilityTracker
+@@ -287,6 +288,30 @@ class SymbolRuntime:
+     l3_stats: Optional[Any] = None  # Stores L3BucketStats
+     vol_regime: Any = field(init=False)
+     resilience: Any = field(init=False)
++    # Phase C/P2: liquidity resiliency (spread/depth recovery-time)
++    liq_resiliency: LiquidityResiliencyTracker = field(init=False)
++
++
++        # Phase C/P2: liquidity resiliency tracker (spread/depth recovery time).
++        # Complementary to BookResilienceTracker (depth replenishment after sweeps).
++        try:
++            import os
++            a = float(self.config.get("liq_res_alpha", float(os.getenv("LIQ_RES_ALPHA", "0.02"))))
++            s_mult = float(self.config.get("liq_res_stress_spread_mult", float(os.getenv("LIQ_RES_STRESS_SPREAD_MULT", "1.75"))))
++            d_drop = float(self.config.get("liq_res_stress_depth_drop_frac", float(os.getenv("LIQ_RES_STRESS_DEPTH_DROP_FRAC", "0.50"))))
++            r_mult = float(self.config.get("liq_res_recover_spread_mult", float(os.getenv("LIQ_RES_RECOVER_SPREAD_MULT", "1.20"))))
++            r_drop = float(self.config.get("liq_res_recover_depth_drop_frac", float(os.getenv("LIQ_RES_RECOVER_DEPTH_DROP_FRAC", "0.20"))))
++            hold = int(self.config.get("liq_res_recover_hold_ms", int(os.getenv("LIQ_RES_RECOVER_HOLD_MS", "1000"))))
++            self.liq_resiliency = LiquidityResiliencyTracker(
++                ema_alpha=a,
++                stress_spread_mult=s_mult,
++                stress_depth_drop_frac=d_drop,
++                recover_spread_mult=r_mult,
++                recover_depth_drop_frac=r_drop,
++                recover_hold_ms=hold,
++            )
++        except Exception:
++            self.liq_resiliency = LiquidityResiliencyTracker()
+ 
+     # Rolling trackers (A3). Updated on microbar close (bar_processor) and
+     # exposed to tick_processor through `runtime.dynamic_cfg`.
+diff --git a/python-worker/services/orderflow/strategy.py b/python-worker/services/orderflow/strategy.py
+index 018b3e2..a051502 100644
+--- a/python-worker/services/orderflow/strategy.py
++++ b/python-worker/services/orderflow/strategy.py
+@@ -60,6 +60,15 @@ from services.signal_preprocess import preprocess_signal_for_publish
+ from services.orderflow.market_state import MarketStateService
+ from services.orderflow.liqmap_features import try_parse_liqmap_snapshot_json, compute_liqmap_features_from_snapshot
+ 
++# Phase C/P2: liquidity geometry + resiliency (hot-path)
++from services.orderflow.book_geometry import (
++    extract_levels_from_runtime,
++    calc_book_slope,
++    calc_depth_weighted_spread,
++    calc_cost_to_cross,
++)
++
++
+ 
+ 
+ 
+@@ -1087,6 +1096,70 @@ class OrderFlowStrategy:
+             if spr <= 0 and runtime.last_book:
+                 spr = float(runtime.last_book.spread_bps)
+             indicators["spread_bps"] = spr
++
++            # ------------------------------------------------------------------
++            # Phase C/P2: Book geometry features (slope, DWS, notional bands)
++            # Written to indicators so downstream gates / decision snapshot can consume.
++            # ------------------------------------------------------------------
++            try:
++                bids, asks, mid = extract_levels_from_runtime(runtime)
++                if mid > 0:
++                    slope_bid, slope_ask = calc_book_slope(bids, asks, mid)
++                    dws_bps = calc_depth_weighted_spread(bids, asks, mid, xbps=5.0)
++                    nb1 = calc_cost_to_cross(bids, mid, xbps=1.0)
++                    na1 = calc_cost_to_cross(asks, mid, xbps=1.0)
++                    nb5 = calc_cost_to_cross(bids, mid, xbps=5.0)
++                    na5 = calc_cost_to_cross(asks, mid, xbps=5.0)
++
++                    indicators["book_slope_bid"] = float(slope_bid)
++                    indicators["book_slope_ask"] = float(slope_ask)
++                    indicators["dws_bps"] = float(dws_bps)
++                    indicators["notional_within_1bp"] = float(nb1 + na1)
++                    indicators["notional_within_5bp"] = float(nb5 + na5)
++                    indicators["notional_bid_within_1bp"] = float(nb1)
++                    indicators["notional_ask_within_1bp"] = float(na1)
++                    indicators["notional_bid_within_5bp"] = float(nb5)
++                    indicators["notional_ask_within_5bp"] = float(na5)
++
++                    # Liquidity resiliency (recovery time after stress).
++                    try:
++                        res = getattr(runtime, "liq_resiliency", None)
++                        if res is not None:
++                            out = res.update(
++                                ts_ms=int(tick_ts),
++                                spread_bps=float(indicators.get("spread_bps", 0.0) or 0.0),
++                                depth_usd=float(indicators.get("notional_within_5bp", 0.0) or 0.0),
++                            )
++                            indicators.update(out)
++                    except Exception:
++                        pass
++
++                    # Monitor-only annotations (no veto here).
++                    # LiquidityGate/EntryPolicyGate should consume these in monitor mode first.
++                    try:
++                        import os
++                        liq_min_slope = float(os.getenv("LIQ_MIN_BOOK_SLOPE", "0") or 0)
++                        liq_max_dws = float(os.getenv("LIQ_MAX_DWS_BPS", "0") or 0)
++                        liq_max_rec = float(os.getenv("LIQ_MAX_RECOVERY_TIME_MS", "0") or 0)
++                        flags = []
++                        smin = min(float(slope_bid), float(slope_ask))
++                        if liq_min_slope > 0 and smin > 0 and smin < liq_min_slope:
++                            flags.append("slope_low")
++                        if liq_max_dws > 0 and float(dws_bps) > liq_max_dws:
++                            flags.append("dws_high")
++                        rec_ms = float(indicators.get("liq_recovery_time_ms", 0) or 0)
++                        if liq_max_rec > 0 and rec_ms > liq_max_rec:
++                            flags.append("recovery_slow")
++                        if flags:
++                            indicators["liq_geom_monitor_hit"] = 1
++                            indicators["liq_geom_flags"] = ",".join(flags)
++                        else:
++                            indicators.setdefault("liq_geom_monitor_hit", 0)
++                    except Exception:
++                        pass
++            except Exception:
++                pass
++
+             
+             if (runtime.symbol == "ETHUSDT" or "PEPE" in runtime.symbol):
+                 # Sample every 10000th message to reduce log spam
+@@ -2490,9 +2563,9 @@ class OrderFlowStrategy:
+             runtime.last_liq = {"score": liq_ev.score, "regime": liq_ev.regime}
+ 
+             indicators["liq_depth_usd_min_5"] = float(depth_usd_min_5)
+-            indicators["liq_spread_bps"] = float(liq.spread_bps)
+-            indicators["liq_book_rate_hz"] = float(liq.book_rate_ema_hz)
+-            indicators["liq_book_stale_ms"] = int(liq.book_stale_ms)
++            indicators["liq_spread_bps"] = float(spread_bps)
++            indicators["liq_book_rate_hz"] = float(getattr(runtime, "book_rate_ema", 0.0) or 0.0)
++            indicators["liq_book_stale_ms"] = int(book_stale_ms)
+             if liq.why:
+                 indicators["liq_why"] = str(liq.why)
+         except Exception:
+diff --git a/python-worker/tests/test_book_geometry_v1.py b/python-worker/tests/test_book_geometry_v1.py
+new file mode 100644
+index 0000000..6802b41
+--- /dev/null
++++ b/python-worker/tests/test_book_geometry_v1.py
+@@ -0,0 +1,38 @@
++import sys
++from pathlib import Path
++import unittest
++
++# Make imports work regardless of how tests are executed.
++# Repo layout: <repo>/python-worker/services/orderflow/...
++PYWORKER = Path(__file__).resolve().parents[1]
++sys.path.insert(0, str(PYWORKER))
++
++from services.orderflow.book_geometry import (
++    calc_book_slope,
++    calc_depth_weighted_spread,
++    calc_cost_to_cross,
++)
++
++
++class TestBookGeometry(unittest.TestCase):
++    def test_slope_and_dws(self):
++        bids = [(99.9, 2.0), (99.8, 2.0), (99.5, 2.0)]
++        asks = [(100.1, 2.0), (100.2, 2.0), (100.5, 2.0)]
++        mid = 100.0
++        sb, sa = calc_book_slope(bids, asks, mid)
++        self.assertGreater(sb, 0.0)
++        self.assertGreater(sa, 0.0)
++        dws = calc_depth_weighted_spread(bids, asks, mid, xbps=50)
++        self.assertGreater(dws, 0.0)
++
++    def test_cost_to_cross(self):
++        bids = [(99.99, 1.0), (99.0, 10.0)]
++        mid = 100.0
++        n1 = calc_cost_to_cross(bids, mid, xbps=1.0)
++        self.assertGreater(n1, 0.0)
++        n01 = calc_cost_to_cross(bids, mid, xbps=0.1)
++        self.assertLessEqual(n01, n1)
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/python-worker/tests/test_liquidity_resiliency_v1.py b/python-worker/tests/test_liquidity_resiliency_v1.py
+new file mode 100644
+index 0000000..0797634
+--- /dev/null
++++ b/python-worker/tests/test_liquidity_resiliency_v1.py
+@@ -0,0 +1,41 @@
++import sys
++from pathlib import Path
++import unittest
++
++PYWORKER = Path(__file__).resolve().parents[1]
++sys.path.insert(0, str(PYWORKER))
++
++from services.orderflow.liquidity_resiliency import LiquidityResiliencyTracker
++
++
++class TestLiquidityResiliency(unittest.TestCase):
++    def test_stress_and_recovery(self):
++        tr = LiquidityResiliencyTracker(
++            ema_alpha=0.5,
++            stress_spread_mult=1.5,
++            stress_depth_drop_frac=0.5,
++            recover_spread_mult=1.1,
++            recover_depth_drop_frac=0.2,
++            recover_hold_ms=100,
++        )
++
++        # baseline
++        out = tr.update(ts_ms=1000, spread_bps=10.0, depth_usd=10000.0)
++        self.assertEqual(out['liq_stress_active'], 0)
++
++        # enter stress
++        out = tr.update(ts_ms=1100, spread_bps=30.0, depth_usd=10000.0)
++        self.assertEqual(out['liq_stress_active'], 1)
++
++        # still stressed => timer grows
++        out = tr.update(ts_ms=1150, spread_bps=30.0, depth_usd=10000.0)
++        self.assertGreater(out['liq_recovery_time_ms'], 0)
++
++        # recover (hold)
++        out = tr.update(ts_ms=1300, spread_bps=10.0, depth_usd=10000.0)
++        out = tr.update(ts_ms=1500, spread_bps=10.0, depth_usd=10000.0)
++        self.assertEqual(out['liq_stress_active'], 0)
++
++
++if __name__ == '__main__':
++    unittest.main()

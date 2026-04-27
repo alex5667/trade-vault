@@ -1,0 +1,48 @@
+# P82: Alerts for enforce health gates + health report
+
+groups:
+  - name: of_enforce_health_v82
+    rules:
+      - alert: EnforceHealthReportStale
+        expr: of_enforce_health_report_age_sec > 900
+        for: 15m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Enforce health report is stale"
+          description: "No recent health report (P82). Check ENABLE_ENFORCE_HEALTH_REPORT and timers."
+          dashboard_path: "/d/enforce-buckets"
+          runbook_path: "/runbooks/enforce_buckets_qa"
+
+      - alert: EnforceApplyBlockedHard
+        expr: of_enforce_apply_blocked{severity="hard"} > 0
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "Enforce automation apply is blocked (hard)"
+          description: "Health gates blocked apply due to infra errors. Investigate Redis/DB connectivity and status files."
+          dashboard_path: "/d/enforce-buckets"
+          runbook_path: "/runbooks/enforce_buckets_qa"
+
+      - alert: EnforceRedisStreamStale
+        expr: of_enforce_redis_stream_age_sec > 900
+        for: 20m
+        labels:
+          severity: warn
+        annotations:
+          summary: "metrics:of_gate stream appears stale"
+          description: "Redis stream last entry age too high. Promoter/freezer/rollback will skip apply."
+          dashboard_path: "/d/enforce-buckets"
+          runbook_path: "/runbooks/enforce_buckets_qa"
+
+      - alert: EnforceDbViewStale
+        expr: of_enforce_db_view_age_sec > 1800
+        for: 30m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Exec slippage DB view/MV appears stale"
+          description: "DB view last_ts is too old. Ensure refresher runs and v_exec_slippage_eval is populated."
+          dashboard_path: "/d/enforce-buckets"
+          runbook_path: "/runbooks/enforce_buckets_qa"

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/analytics/svg_renderer.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 1.5, 10.0, 320, 420, 640, '#2a7', '#c33', '</svg>', 'INFO', 'SVGRenderer', 'fpr', 'tpr', 'utf-8', 'w']

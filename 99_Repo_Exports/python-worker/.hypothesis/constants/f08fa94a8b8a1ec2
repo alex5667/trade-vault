@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/binance_data_handler.py
+# hypothesis_version: 6.148.10
+
+[1000, '>', 'NOGROUP', 'data', 'redis_client', 'stream:funding-rates', 'stream:ticker-24h', 'stream:ws-new-pairs']

@@ -1,0 +1,50 @@
+# P103: Feature denylist actionable output guardrails
+# Alerts are intentionally low-cardinality.
+
+groups:
+- name: feature_denylist_p103
+  rules:
+
+  - alert: FeatureDenylistPendingABStale
+    expr: feature_denylist_oldest_pending_age_seconds > 72*3600
+    for: 30m
+    labels:
+      severity: warning
+      tier: P103
+      owner: ml
+    annotations:
+      summary: "Feature denylist proposal pending AB is stale"
+      description: "Oldest pending_ab proposal age {{ $value }}s (>72h). Run nightly_feature_denylist_ab_runner_v1 or investigate AB failures."
+
+  - alert: FeatureDenylistApprovedNotAppliedStale
+    expr: feature_denylist_oldest_approved_not_applied_age_seconds > 24*3600
+    for: 30m
+    labels:
+      severity: warning
+      tier: P106
+      owner: ml
+    annotations:
+      summary: "Feature denylist proposal approved but not applied"
+      description: "Oldest approved proposal age {{ $value }}s (>24h). Apply it: python -m ml_analysis.tools.apply_feature_denylist_proposal_v1 --manifest <...> --apply 1."
+
+  - alert: FeatureDenylistABRunnerStale
+    expr: feature_denylist_ab_runner_age_seconds > 6*3600
+    for: 30m
+    labels:
+      severity: warning
+      tier: P103
+      owner: ml
+    annotations:
+      summary: "Feature denylist AB runner hasn't reported recently"
+      description: "AB runner last tick age {{ $value }}s (>6h). Timers worker may be disabled or exporter not updating."
+
+  - alert: FeatureDenylistABRunnerFailing
+    expr: feature_denylist_ab_runner_fail > 0
+    for: 10m
+    labels:
+      severity: warning
+      tier: P103
+      owner: ml
+    annotations:
+      summary: "Feature denylist AB runner had failures"
+      description: "AB runner processed failures count={{ $value }}. Check logs; proposal manifests may be stuck in pending_ab."

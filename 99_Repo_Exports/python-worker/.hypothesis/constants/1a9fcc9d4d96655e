@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/dependency_policy.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.1, 0.5, 0.75, 0.85, 1.0, 1500, 'age_ms', 'breakout', 'data_quality_flags', 'extreme', 'geometry_score', 'hlc_fallback', 'hlc_fallback_used', 'htf_missing', 'l2', 'l2_stale', 'l2_ts_ms', 'l3_missing', 'l3_score', 'stale', 'ts', 'ts_ms']

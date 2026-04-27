@@ -1,0 +1,521 @@
+diff -ruN /mnt/data/repo_p43_base/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-apply-v1.yml /mnt/data/repo_p42_work/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-apply-v1.yml
+--- /mnt/data/repo_p43_base/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-apply-v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo_p42_work/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-apply-v1.yml	2026-03-08 08:22:10.815277111 +0000
+@@ -0,0 +1,31 @@
++services:
++  conf-score-guardrails-apply:
++    image: ${TRADE_ORDERFLOW_IMAGE:?}
++    working_dir: /app
++    environment:
++      PYTHONPATH: /app
++      REDIS_URL: ${REDIS_URL:?}
++      CONF_SCORE_GUARD_BUNDLE_DIR: ${CONF_SCORE_GUARD_BUNDLE_DIR:?}
++      CONF_SCORE_GUARD_BUNDLE_STAGED_POINTER: ${CONF_SCORE_GUARD_BUNDLE_STAGED_POINTER:-}
++      CONF_SCORE_GUARD_LOCK_PATH: ${CONF_SCORE_GUARD_LOCK_PATH:?}
++      CONF_SCORE_GUARD_DRIFT_REPORT_PATH: ${CONF_SCORE_GUARD_DRIFT_REPORT_PATH:?}
++      CONF_SCORE_GUARD_APPLY: ${CONF_SCORE_GUARD_APPLY:-1}
++      CONF_SCORE_GUARD_STAGE: ${CONF_SCORE_GUARD_STAGE:-0}
++      LATENCY_CONTRACT_PREFLIGHT_PURPOSE: conf_score_guardrails_apply
++    volumes:
++      - ${TRADE_REPO_ROOT:?}:/app:ro
++      - /var/lib/trade:/var/lib/trade
++    command:
++      - bash
++      - -lc
++      - >-
++        /app/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh
++        python3 -m orderflow_services.conf_score_guardrails_apply_v1
++        --drift-report "${CONF_SCORE_GUARD_DRIFT_REPORT_PATH:?}"
++        --apply "${CONF_SCORE_GUARD_APPLY:-1}"
++        --redis-url "${REDIS_URL:?}"
++        --bundle-enable 1
++        --bundle-dir "${CONF_SCORE_GUARD_BUNDLE_DIR:?}"
++        --lock-path "${CONF_SCORE_GUARD_LOCK_PATH:?}"
++        --stage "${CONF_SCORE_GUARD_STAGE:-0}"
++        --bundle-staged-pointer-path "${CONF_SCORE_GUARD_BUNDLE_STAGED_POINTER:-}" 
+diff -ruN /mnt/data/repo_p43_base/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-autopromo-controller-v1.yml /mnt/data/repo_p42_work/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-autopromo-controller-v1.yml
+--- /mnt/data/repo_p43_base/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-autopromo-controller-v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo_p42_work/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-autopromo-controller-v1.yml	2026-03-08 08:22:10.815514146 +0000
+@@ -0,0 +1,28 @@
++services:
++  conf-score-guardrails-autopromo-controller:
++    image: ${TRADE_ORDERFLOW_IMAGE:?}
++    working_dir: /app
++    environment:
++      PYTHONPATH: /app
++      REDIS_URL: ${REDIS_URL:?}
++      CONF_SCORE_GUARD_BUNDLE_DIR: ${CONF_SCORE_GUARD_BUNDLE_DIR:?}
++      CONF_SCORE_GUARD_BUNDLE_STAGED_POINTER: ${CONF_SCORE_GUARD_BUNDLE_STAGED_POINTER:-}
++      CONF_SCORE_GUARD_HEALTH_STATE_PATH: ${CONF_SCORE_GUARD_HEALTH_STATE_PATH:?}
++      CONF_SCORE_GUARD_LOCK_PATH: ${CONF_SCORE_GUARD_LOCK_PATH:?}
++      CONF_SCORE_GUARD_AUTOPROMO_APPLY: ${CONF_SCORE_GUARD_AUTOPROMO_APPLY:-1}
++      LATENCY_CONTRACT_PREFLIGHT_PURPOSE: conf_score_guardrails_autopromo_controller
++    volumes:
++      - ${TRADE_REPO_ROOT:?}:/app:ro
++      - /var/lib/trade:/var/lib/trade
++    command:
++      - bash
++      - -lc
++      - >-
++        /app/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh
++        python3 -m orderflow_services.conf_score_guardrails_autopromo_controller_v1
++        --redis-url "${REDIS_URL:?}"
++        --bundle-dir "${CONF_SCORE_GUARD_BUNDLE_DIR:?}"
++        --staged-pointer-path "${CONF_SCORE_GUARD_BUNDLE_STAGED_POINTER:-}"
++        --health-state-path "${CONF_SCORE_GUARD_HEALTH_STATE_PATH:?}"
++        --lock-path "${CONF_SCORE_GUARD_LOCK_PATH:?}"
++        --apply "${CONF_SCORE_GUARD_AUTOPROMO_APPLY:-1}"
+diff -ruN /mnt/data/repo_p43_base/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-promote-v1.yml /mnt/data/repo_p42_work/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-promote-v1.yml
+--- /mnt/data/repo_p43_base/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-promote-v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo_p42_work/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-promote-v1.yml	2026-03-08 08:22:10.815378200 +0000
+@@ -0,0 +1,24 @@
++services:
++  conf-score-guardrails-promote:
++    image: ${TRADE_ORDERFLOW_IMAGE:?}
++    working_dir: /app
++    environment:
++      PYTHONPATH: /app
++      REDIS_URL: ${REDIS_URL:?}
++      CONF_SCORE_GUARD_BUNDLE_DIR: ${CONF_SCORE_GUARD_BUNDLE_DIR:?}
++      CONF_SCORE_GUARD_HEALTH_STATE_PATH: ${CONF_SCORE_GUARD_HEALTH_STATE_PATH:?}
++      LATENCY_CONTRACT_PREFLIGHT_PURPOSE: conf_score_guardrails_promote
++    volumes:
++      - ${TRADE_REPO_ROOT:?}:/app:ro
++      - /var/lib/trade:/var/lib/trade
++    command:
++      - bash
++      - -lc
++      - >-
++        /app/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh
++        python3 -m orderflow_services.conf_score_guardrails_promote_v1
++        --redis-url "${REDIS_URL:?}"
++        --bundle-dir "${CONF_SCORE_GUARD_BUNDLE_DIR:?}"
++        --health-state-path "${CONF_SCORE_GUARD_HEALTH_STATE_PATH:?}"
++        --require-health 1
++        --dry-run 0
+diff -ruN /mnt/data/repo_p43_base/orderflow_services/deploy/compose/docker-compose.meta-cov-rollout-controller-v1.yml /mnt/data/repo_p42_work/orderflow_services/deploy/compose/docker-compose.meta-cov-rollout-controller-v1.yml
+--- /mnt/data/repo_p43_base/orderflow_services/deploy/compose/docker-compose.meta-cov-rollout-controller-v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo_p42_work/orderflow_services/deploy/compose/docker-compose.meta-cov-rollout-controller-v1.yml	2026-03-08 08:22:10.815447482 +0000
+@@ -0,0 +1,23 @@
++services:
++  meta-cov-rollout-controller:
++    image: ${TRADE_ORDERFLOW_IMAGE:?}
++    working_dir: /app
++    environment:
++      PYTHONPATH: /app
++      REDIS_URL: ${REDIS_URL:?}
++      META_COV_ROLLOUT_LOOKBACK_MIN: ${META_COV_ROLLOUT_LOOKBACK_MIN:-60}
++      META_COV_ROLLOUT_MIN_HOLD_SEC: ${META_COV_ROLLOUT_MIN_HOLD_SEC:-600}
++      LATENCY_CONTRACT_PREFLIGHT_PURPOSE: meta_cov_rollout_controller
++    volumes:
++      - ${TRADE_REPO_ROOT:?}:/app:ro
++      - /var/lib/trade:/var/lib/trade
++    command:
++      - bash
++      - -lc
++      - >-
++        /app/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh
++        python3 -m orderflow_services.meta_cov_rollout_controller_v1
++        --redis-url "${REDIS_URL:?}"
++        --lookback-min "${META_COV_ROLLOUT_LOOKBACK_MIN:-60}"
++        --min-hold-sec "${META_COV_ROLLOUT_MIN_HOLD_SEC:-600}"
++        --apply 1
+diff -ruN /mnt/data/repo_p43_base/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example /mnt/data/repo_p42_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
+--- /mnt/data/repo_p43_base/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo_p42_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example	2026-03-08 08:22:10.815196321 +0000
+@@ -0,0 +1,16 @@
++# Copy to /etc/default/trade-latency-sensitive-jobs-prod and fill real values.
++TRADE_REPO_ROOT=/opt/trade/prod/repo
++TRADE_ORDERFLOW_IMAGE=trade-orderflow:prod
++REDIS_URL=redis://redis-worker-1:6379/0
++LATENCY_CONTRACT_ROLLOUT_GATE_STATE_KEY=metrics:latency_contract:rollout_gate:last
++LATENCY_CONTRACT_ROLLOUT_GATE_KEY=cfg:orderflow:latency_contract:rollout_gate:v1
++CONF_SCORE_GUARD_BUNDLE_DIR=/var/lib/trade/conf_score_guard_bundles
++CONF_SCORE_GUARD_BUNDLE_STAGED_POINTER=/var/lib/trade/conf_score_guard_bundles/staged.json
++CONF_SCORE_GUARD_HEALTH_STATE_PATH=/var/lib/trade/conf_cal_proof_state.json
++CONF_SCORE_GUARD_LOCK_PATH=/var/lib/trade/conf_score_guardrails.lock
++CONF_SCORE_GUARD_DRIFT_REPORT_PATH=/var/lib/trade/reports/conf_parts_drift.json
++CONF_SCORE_GUARD_APPLY=1
++CONF_SCORE_GUARD_STAGE=0
++META_COV_ROLLOUT_LOOKBACK_MIN=60
++META_COV_ROLLOUT_MIN_HOLD_SEC=600
++CONF_SCORE_GUARD_AUTOPROMO_APPLY=1
+diff -ruN /mnt/data/repo_p43_base/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example /mnt/data/repo_p42_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
+--- /mnt/data/repo_p43_base/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo_p42_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example	2026-03-08 08:22:10.815124695 +0000
+@@ -0,0 +1,16 @@
++# Copy to /etc/default/trade-latency-sensitive-jobs-staging and fill real values.
++TRADE_REPO_ROOT=/opt/trade/staging/repo
++TRADE_ORDERFLOW_IMAGE=trade-orderflow:staging
++REDIS_URL=redis://redis-worker-1:6379/0
++LATENCY_CONTRACT_ROLLOUT_GATE_STATE_KEY=metrics:latency_contract:rollout_gate:last
++LATENCY_CONTRACT_ROLLOUT_GATE_KEY=cfg:orderflow:latency_contract:rollout_gate:v1
++CONF_SCORE_GUARD_BUNDLE_DIR=/var/lib/trade/conf_score_guard_bundles
++CONF_SCORE_GUARD_BUNDLE_STAGED_POINTER=/var/lib/trade/conf_score_guard_bundles/staged.json
++CONF_SCORE_GUARD_HEALTH_STATE_PATH=/var/lib/trade/conf_cal_proof_state.json
++CONF_SCORE_GUARD_LOCK_PATH=/var/lib/trade/conf_score_guardrails.lock
++CONF_SCORE_GUARD_DRIFT_REPORT_PATH=/var/lib/trade/reports/conf_parts_drift.json
++CONF_SCORE_GUARD_APPLY=1
++CONF_SCORE_GUARD_STAGE=0
++META_COV_ROLLOUT_LOOKBACK_MIN=60
++META_COV_ROLLOUT_MIN_HOLD_SEC=600
++CONF_SCORE_GUARD_AUTOPROMO_APPLY=1
+diff -ruN /mnt/data/repo_p43_base/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh /mnt/data/repo_p42_work/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh
+--- /mnt/data/repo_p43_base/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo_p42_work/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh	2026-03-08 08:22:10.814763939 +0000
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++set -euo pipefail
++REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
++exec "$REPO_ROOT/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh" \
++  "$REPO_ROOT/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-apply-v1.yml" \
++  "conf-score-guardrails-apply" \
++  "conf_score_guardrails_apply" \
++  "$@"
+diff -ruN /mnt/data/repo_p43_base/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh /mnt/data/repo_p42_work/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh
+--- /mnt/data/repo_p43_base/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo_p42_work/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh	2026-03-08 08:22:10.815060519 +0000
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++set -euo pipefail
++REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
++exec "$REPO_ROOT/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh" \
++  "$REPO_ROOT/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-autopromo-controller-v1.yml" \
++  "conf-score-guardrails-autopromo-controller" \
++  "conf_score_guardrails_autopromo_controller" \
++  "$@"
+diff -ruN /mnt/data/repo_p43_base/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh /mnt/data/repo_p42_work/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh
+--- /mnt/data/repo_p43_base/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo_p42_work/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh	2026-03-08 08:22:10.814904883 +0000
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++set -euo pipefail
++REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
++exec "$REPO_ROOT/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh" \
++  "$REPO_ROOT/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-promote-v1.yml" \
++  "conf-score-guardrails-promote" \
++  "conf_score_guardrails_promote" \
++  "$@"
+diff -ruN /mnt/data/repo_p43_base/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh /mnt/data/repo_p42_work/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh
+--- /mnt/data/repo_p43_base/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo_p42_work/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh	2026-03-08 08:22:10.814618919 +0000
+@@ -0,0 +1,21 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++if [[ $# -lt 3 ]]; then
++  echo "usage: $0 <compose-file> <service> <purpose> [compose-run-args...]" >&2
++  exit 64
++fi
++
++COMPOSE_FILE="$1"
++SERVICE_NAME="$2"
++PURPOSE="$3"
++shift 3
++
++REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
++PYTHON_BIN="${PYTHON_BIN:-python3}"
++DOCKER_BIN="${DOCKER_BIN:-docker}"
++
++cd "$REPO_ROOT"
++export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
++"$PYTHON_BIN" -m orderflow_services.latency_contract_rollout_preflight_v1 --purpose "$PURPOSE"
++exec "$DOCKER_BIN" compose -f "$COMPOSE_FILE" run --rm "$SERVICE_NAME" "$@"
+diff -ruN /mnt/data/repo_p43_base/orderflow_services/deploy/systemd/run_trade_meta_cov_rollout_controller_v1.sh /mnt/data/repo_p42_work/orderflow_services/deploy/systemd/run_trade_meta_cov_rollout_controller_v1.sh
+--- /mnt/data/repo_p43_base/orderflow_services/deploy/systemd/run_trade_meta_cov_rollout_controller_v1.sh	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo_p42_work/orderflow_services/deploy/systemd/run_trade_meta_cov_rollout_controller_v1.sh	2026-03-08 08:22:10.814988264 +0000
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++set -euo pipefail
++REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
++exec "$REPO_ROOT/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh" \
++  "$REPO_ROOT/orderflow_services/deploy/compose/docker-compose.meta-cov-rollout-controller-v1.yml" \
++  "meta-cov-rollout-controller" \
++  "meta_cov_rollout_controller" \
++  "$@"
+diff -ruN /mnt/data/repo_p43_base/orderflow_services/deploy/systemd/trade-conf-score-guardrails-apply.service /mnt/data/repo_p42_work/orderflow_services/deploy/systemd/trade-conf-score-guardrails-apply.service
+--- /mnt/data/repo_p43_base/orderflow_services/deploy/systemd/trade-conf-score-guardrails-apply.service	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo_p42_work/orderflow_services/deploy/systemd/trade-conf-score-guardrails-apply.service	2026-03-08 08:22:10.815579561 +0000
+@@ -0,0 +1,13 @@
++[Unit]
++Description=Trade conf_score_guardrails_apply (latency-contract gated)
++After=network-online.target docker.service
++Wants=network-online.target
++Requires=docker.service
++
++[Service]
++Type=oneshot
++EnvironmentFile=/etc/default/trade-latency-sensitive-jobs-staging
++ExecStart=/bin/bash -lc 'cd "${TRADE_REPO_ROOT:?}" && ./orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh'
++
++[Install]
++WantedBy=multi-user.target
+diff -ruN /mnt/data/repo_p43_base/orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.service /mnt/data/repo_p42_work/orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.service
+--- /mnt/data/repo_p43_base/orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.service	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo_p42_work/orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.service	2026-03-08 08:22:10.815888323 +0000
+@@ -0,0 +1,14 @@
++[Unit]
++Description=Trade conf_score_guardrails_autopromo_controller (latency-contract gated)
++After=network-online.target docker.service
++Wants=network-online.target
++Requires=docker.service
++
++[Service]
++Type=oneshot
++EnvironmentFile=/etc/default/trade-latency-sensitive-jobs-staging
++ExecStart=/bin/bash -lc 'cd "${TRADE_REPO_ROOT:?}" && ./orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh'
++RemainAfterExit=no
++
++[Install]
++WantedBy=multi-user.target
+diff -ruN /mnt/data/repo_p43_base/orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.timer /mnt/data/repo_p42_work/orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.timer
+--- /mnt/data/repo_p43_base/orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.timer	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo_p42_work/orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.timer	2026-03-08 08:22:10.816083427 +0000
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Run trade conf-score guardrails autopromo every 15 minutes (latency-contract gated)
++
++[Timer]
++OnCalendar=*:0/15
++Persistent=true
++Unit=trade-conf-score-guardrails-autopromo-controller.service
++
++[Install]
++WantedBy=timers.target
+diff -ruN /mnt/data/repo_p43_base/orderflow_services/deploy/systemd/trade-conf-score-guardrails-promote.service /mnt/data/repo_p42_work/orderflow_services/deploy/systemd/trade-conf-score-guardrails-promote.service
+--- /mnt/data/repo_p43_base/orderflow_services/deploy/systemd/trade-conf-score-guardrails-promote.service	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo_p42_work/orderflow_services/deploy/systemd/trade-conf-score-guardrails-promote.service	2026-03-08 08:22:10.815681276 +0000
+@@ -0,0 +1,13 @@
++[Unit]
++Description=Trade conf_score_guardrails_promote (latency-contract gated)
++After=network-online.target docker.service
++Wants=network-online.target
++Requires=docker.service
++
++[Service]
++Type=oneshot
++EnvironmentFile=/etc/default/trade-latency-sensitive-jobs-staging
++ExecStart=/bin/bash -lc 'cd "${TRADE_REPO_ROOT:?}" && ./orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh'
++
++[Install]
++WantedBy=multi-user.target
+diff -ruN /mnt/data/repo_p43_base/orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.service /mnt/data/repo_p42_work/orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.service
+--- /mnt/data/repo_p43_base/orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.service	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo_p42_work/orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.service	2026-03-08 08:22:10.815754332 +0000
+@@ -0,0 +1,14 @@
++[Unit]
++Description=Trade meta_cov_rollout_controller (latency-contract gated)
++After=network-online.target docker.service
++Wants=network-online.target
++Requires=docker.service
++
++[Service]
++Type=oneshot
++EnvironmentFile=/etc/default/trade-latency-sensitive-jobs-staging
++ExecStart=/bin/bash -lc 'cd "${TRADE_REPO_ROOT:?}" && ./orderflow_services/deploy/systemd/run_trade_meta_cov_rollout_controller_v1.sh'
++RemainAfterExit=no
++
++[Install]
++WantedBy=multi-user.target
+diff -ruN /mnt/data/repo_p43_base/orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.timer /mnt/data/repo_p42_work/orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.timer
+--- /mnt/data/repo_p43_base/orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.timer	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo_p42_work/orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.timer	2026-03-08 08:22:10.815999408 +0000
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Run trade meta-cov rollout controller every 10 minutes (latency-contract gated)
++
++[Timer]
++OnCalendar=*:0/10
++Persistent=true
++Unit=trade-meta-cov-rollout-controller.service
++
++[Install]
++WantedBy=timers.target
+diff -ruN /mnt/data/repo_p43_base/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh /mnt/data/repo_p42_work/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh
+--- /mnt/data/repo_p43_base/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh	2026-03-08 08:22:43.899623188 +0000
++++ /mnt/data/repo_p42_work/orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh	2026-03-08 08:22:10.814221910 +0000
+@@ -6,5 +6,8 @@
+   exit 64
+ fi
+ 
+-python3 -m orderflow_services.latency_contract_rollout_preflight_v1 --purpose latency_contract_sensitive_apply
++PURPOSE="${LATENCY_CONTRACT_PREFLIGHT_PURPOSE:-latency_contract_sensitive_apply}"
++PYTHON_BIN="${PYTHON_BIN:-python3}"
++
++"$PYTHON_BIN" -m orderflow_services.latency_contract_rollout_preflight_v1 --purpose "$PURPOSE"
+ exec "$@"
+diff -ruN /mnt/data/repo_p43_base/orderflow_services/latency_contract_rollout_preflight_v1.py /mnt/data/repo_p42_work/orderflow_services/latency_contract_rollout_preflight_v1.py
+--- /mnt/data/repo_p43_base/orderflow_services/latency_contract_rollout_preflight_v1.py	2026-03-08 08:22:43.900494823 +0000
++++ /mnt/data/repo_p42_work/orderflow_services/latency_contract_rollout_preflight_v1.py	2026-03-08 08:22:10.813850274 +0000
+@@ -13,6 +13,14 @@
+ import os
+ from typing import Any
+ 
++ALLOWED_PURPOSES = {
++    'latency_contract_sensitive_apply',
++    'conf_score_guardrails_apply',
++    'conf_score_guardrails_promote',
++    'meta_cov_rollout_controller',
++    'conf_score_guardrails_autopromo_controller',
++}
++
+ 
+ def _env(name: str, default: str = '') -> str:
+     return (os.getenv(name) or default).strip()
+@@ -29,6 +37,9 @@
+     ap = argparse.ArgumentParser()
+     ap.add_argument('--purpose', default='latency_contract_sensitive_apply')
+     ns = ap.parse_args()
++    if ns.purpose not in ALLOWED_PURPOSES:
++        print(f'LATENCY_CONTRACT_PREFLIGHT_INVALID purpose={ns.purpose} reason=unknown_purpose')
++        return 64
+ 
+     import redis  # type: ignore
+     redis_url = _env('REDIS_URL', 'redis://redis-worker-1:6379/0')
+diff -ruN /mnt/data/repo_p43_base/orderflow_services/runbook_latency_contract_p43_v1.md /mnt/data/repo_p42_work/orderflow_services/runbook_latency_contract_p43_v1.md
+--- /mnt/data/repo_p43_base/orderflow_services/runbook_latency_contract_p43_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo_p42_work/orderflow_services/runbook_latency_contract_p43_v1.md	2026-03-08 08:22:10.816140557 +0000
+@@ -0,0 +1,39 @@
++# P4.3 Latency Contract Operational Wiring
++
++This layer binds the P4.2 rollout gate into concrete staging/prod apply/rollout jobs.
++
++Sensitive jobs covered:
++- `conf_score_guardrails_apply_v1`
++- `conf_score_guardrails_promote_v1`
++- `meta_cov_rollout_controller_v1`
++- `conf_score_guardrails_autopromo_controller_v1`
++
++## Guarantees
++- host-side preflight runs before `docker compose run`
++- in-container preflight runs again before Python entrypoint
++- `LATENCY_CONTRACT_PREFLIGHT_PURPOSE` is fixed per job
++- jobs fail fast with rc=24 when rollout gate is active
++
++## Host-side wrappers
++Located in `orderflow_services/deploy/systemd/`.
++
++## Compose jobs
++Located in `orderflow_services/deploy/compose/`.
++
++## Recommended install
++1. Copy one of the example env files to `/etc/default/...`.
++2. Adjust `TRADE_REPO_ROOT`, `TRADE_ORDERFLOW_IMAGE`, `REDIS_URL`, bundle/state paths.
++3. Install the `.service` and `.timer` units.
++4. Enable timers only for recurring jobs; keep apply/promote as manual oneshot units.
++
++## Smoke checks
++```bash
++systemctl cat trade-meta-cov-rollout-controller.service
++systemctl start trade-meta-cov-rollout-controller.service
++systemctl start trade-conf-score-guardrails-promote.service
++```
++
++Expected when blocked:
++- host-side wrapper exits before compose starts
++- stderr/stdout contains `LATENCY_CONTRACT_PREFLIGHT_BLOCK`
++- no sensitive container is started
+diff -ruN /mnt/data/repo_p43_base/orderflow_services/tests/test_latency_contract_p43_deploy_v1.py /mnt/data/repo_p42_work/orderflow_services/tests/test_latency_contract_p43_deploy_v1.py
+--- /mnt/data/repo_p43_base/orderflow_services/tests/test_latency_contract_p43_deploy_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo_p42_work/orderflow_services/tests/test_latency_contract_p43_deploy_v1.py	2026-03-08 08:22:10.816204721 +0000
+@@ -0,0 +1,82 @@
++from __future__ import annotations
++
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[2]
++
++
++def _read(rel: str) -> str:
++    return (ROOT / rel).read_text(encoding='utf-8')
++
++
++def test_preflight_wrapper_uses_env_purpose() -> None:
++    txt = _read('orderflow_services/integrations/run_with_latency_contract_rollout_preflight_v1.sh')
++    assert 'LATENCY_CONTRACT_PREFLIGHT_PURPOSE' in txt
++    assert 'latency_contract_rollout_preflight_v1' in txt
++
++
++def test_specific_systemd_wrappers_delegate_to_generic_host_wrapper() -> None:
++    files = [
++        'orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh',
++        'orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh',
++        'orderflow_services/deploy/systemd/run_trade_meta_cov_rollout_controller_v1.sh',
++        'orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh',
++    ]
++    for rel in files:
++        txt = _read(rel)
++        assert 'run_trade_latency_gated_compose_job_v1.sh' in txt
++        assert 'TRADE_REPO_ROOT' in txt
++
++
++def test_compose_jobs_use_in_container_preflight_wrapper() -> None:
++    mapping = {
++        'orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-apply-v1.yml': 'conf_score_guardrails_apply_v1',
++        'orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-promote-v1.yml': 'conf_score_guardrails_promote_v1',
++        'orderflow_services/deploy/compose/docker-compose.meta-cov-rollout-controller-v1.yml': 'meta_cov_rollout_controller_v1',
++        'orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-autopromo-controller-v1.yml': 'conf_score_guardrails_autopromo_controller_v1',
++    }
++    for rel, module in mapping.items():
++        txt = _read(rel)
++        assert 'run_with_latency_contract_rollout_preflight_v1.sh' in txt
++        assert module in txt
++        assert 'LATENCY_CONTRACT_PREFLIGHT_PURPOSE' in txt
++
++
++def test_systemd_units_call_specific_wrappers() -> None:
++    mapping = {
++        'orderflow_services/deploy/systemd/trade-conf-score-guardrails-apply.service': 'run_trade_conf_score_guardrails_apply_v1.sh',
++        'orderflow_services/deploy/systemd/trade-conf-score-guardrails-promote.service': 'run_trade_conf_score_guardrails_promote_v1.sh',
++        'orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.service': 'run_trade_meta_cov_rollout_controller_v1.sh',
++        'orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.service': 'run_trade_conf_score_guardrails_autopromo_controller_v1.sh',
++    }
++    for rel, wrapper in mapping.items():
++        txt = _read(rel)
++        assert 'EnvironmentFile=' in txt
++        assert wrapper in txt
++        assert 'docker.service' in txt
++
++
++def test_timer_units_present_for_recurring_rollout_jobs() -> None:
++    for rel in [
++        'orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.timer',
++        'orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.timer',
++    ]:
++        txt = _read(rel)
++        assert 'OnCalendar=' in txt
++        assert '.service' in txt
++
++
++def test_env_examples_cover_required_runtime_fields() -> None:
++    for rel in [
++        'orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example',
++        'orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example',
++    ]:
++        txt = _read(rel)
++        for needle in [
++            'TRADE_REPO_ROOT=',
++            'TRADE_ORDERFLOW_IMAGE=',
++            'REDIS_URL=',
++            'CONF_SCORE_GUARD_BUNDLE_DIR=',
++            'CONF_SCORE_GUARD_HEALTH_STATE_PATH=',
++        ]:
++            assert needle in txt
+diff -ruN /mnt/data/repo_p43_base/orderflow_services/tests/test_latency_contract_p43_preflight_v1.py /mnt/data/repo_p42_work/orderflow_services/tests/test_latency_contract_p43_preflight_v1.py
+--- /mnt/data/repo_p43_base/orderflow_services/tests/test_latency_contract_p43_preflight_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo_p42_work/orderflow_services/tests/test_latency_contract_p43_preflight_v1.py	2026-03-08 08:22:10.816261302 +0000
+@@ -0,0 +1,14 @@
++from __future__ import annotations
++
++import importlib
++
++
++def test_allowed_purposes_include_sensitive_jobs() -> None:
++    mod = importlib.import_module('orderflow_services.latency_contract_rollout_preflight_v1')
++    for item in [
++        'conf_score_guardrails_apply',
++        'conf_score_guardrails_promote',
++        'meta_cov_rollout_controller',
++        'conf_score_guardrails_autopromo_controller',
++    ]:
++        assert item in mod.ALLOWED_PURPOSES

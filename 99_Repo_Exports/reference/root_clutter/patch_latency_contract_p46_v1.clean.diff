@@ -1,0 +1,724 @@
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example repo_p46_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
+--- repo_p45_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example	2026-03-08 09:03:09.235338981 +0000
++++ repo_p46_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example	2026-03-08 09:17:53.722401500 +0000
+@@ -22,3 +22,10 @@
+ LATENCY_CONTRACT_DEPLOY_LINT_SUMMARY_KEY=metrics:latency_contract:deploy_lint:summary:last
+ LATENCY_CONTRACT_DEPLOY_LINT_EXPORTER_PORT=9834
+ LATENCY_CONTRACT_DEPLOY_LINT_EXPORTER_INTERVAL_S=15
++
++LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_KEY=metrics:latency_contract:deploy_lint:notifier:last
++LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_TTL_S=172800
++LATENCY_CONTRACT_DEPLOY_LINT_OPS_EVENT_STREAM=ops:latency_contract:events:v1
++LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_ENABLE=1
++LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_STREAM=notify:telegram
++LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_REMINDER_S=21600
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example repo_p46_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
+--- repo_p45_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example	2026-03-08 09:03:09.235009759 +0000
++++ repo_p46_work/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example	2026-03-08 09:17:53.722093440 +0000
+@@ -22,3 +22,10 @@
+ LATENCY_CONTRACT_DEPLOY_LINT_SUMMARY_KEY=metrics:latency_contract:deploy_lint:summary:last
+ LATENCY_CONTRACT_DEPLOY_LINT_EXPORTER_PORT=9834
+ LATENCY_CONTRACT_DEPLOY_LINT_EXPORTER_INTERVAL_S=15
++
++LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_KEY=metrics:latency_contract:deploy_lint:notifier:last
++LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_TTL_S=172800
++LATENCY_CONTRACT_DEPLOY_LINT_OPS_EVENT_STREAM=ops:latency_contract:events:v1
++LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_ENABLE=1
++LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_STREAM=notify:telegram
++LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_REMINDER_S=21600
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_exporter_v1.sh repo_p46_work/orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_exporter_v1.sh
+--- repo_p45_work/orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_exporter_v1.sh	1970-01-01 00:00:00.000000000 +0000
++++ repo_p46_work/orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_exporter_v1.sh	2026-03-08 09:17:49.873417037 +0000
+@@ -0,0 +1,4 @@
++#!/usr/bin/env bash
++set -euo pipefail
++cd "${TRADE_REPO_ROOT:?}"
++exec python3 -m orderflow_services.latency_contract_deploy_lint_exporter_v1
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_notifier_v1.sh repo_p46_work/orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_notifier_v1.sh
+--- repo_p45_work/orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_notifier_v1.sh	1970-01-01 00:00:00.000000000 +0000
++++ repo_p46_work/orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_notifier_v1.sh	2026-03-08 09:17:49.892989585 +0000
+@@ -0,0 +1,4 @@
++#!/usr/bin/env bash
++set -euo pipefail
++cd "${TRADE_REPO_ROOT:?}"
++exec python3 -m orderflow_services.latency_contract_deploy_lint_notifier_v1
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-exporter.service repo_p46_work/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-exporter.service
+--- repo_p45_work/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-exporter.service	1970-01-01 00:00:00.000000000 +0000
++++ repo_p46_work/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-exporter.service	2026-03-08 09:17:49.905234082 +0000
+@@ -0,0 +1,15 @@
++[Unit]
++Description=Trade latency-contract deploy-lint exporter
++After=network-online.target
++Wants=network-online.target
++
++[Service]
++Type=simple
++EnvironmentFile=/etc/default/trade-latency-sensitive-jobs-staging
++Environment=PYTHONUNBUFFERED=1
++ExecStart=/bin/bash -lc 'cd "${TRADE_REPO_ROOT:?}" && ./orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_exporter_v1.sh'
++Restart=always
++RestartSec=5
++
++[Install]
++WantedBy=multi-user.target
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-notifier.service repo_p46_work/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-notifier.service
+--- repo_p45_work/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-notifier.service	1970-01-01 00:00:00.000000000 +0000
++++ repo_p46_work/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-notifier.service	2026-03-08 09:17:49.911936117 +0000
+@@ -0,0 +1,13 @@
++[Unit]
++Description=Trade latency-contract deploy-lint notifier
++After=network-online.target
++Wants=network-online.target
++
++[Service]
++Type=oneshot
++EnvironmentFile=/etc/default/trade-latency-sensitive-jobs-staging
++Environment=PYTHONUNBUFFERED=1
++ExecStart=/bin/bash -lc 'cd "${TRADE_REPO_ROOT:?}" && ./orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_notifier_v1.sh'
++
++[Install]
++WantedBy=multi-user.target
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-notifier.timer repo_p46_work/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-notifier.timer
+--- repo_p45_work/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-notifier.timer	1970-01-01 00:00:00.000000000 +0000
++++ repo_p46_work/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-notifier.timer	2026-03-08 09:17:49.918420165 +0000
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Run trade latency-contract deploy-lint notifier every 5 minutes
++
++[Timer]
++OnCalendar=*:0/5
++Persistent=true
++Unit=trade-latency-contract-deploy-lint-notifier.service
++
++[Install]
++WantedBy=timers.target
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/orderflow_services/grafana/latency_contract_p46_v1.json repo_p46_work/orderflow_services/grafana/latency_contract_p46_v1.json
+--- repo_p45_work/orderflow_services/grafana/latency_contract_p46_v1.json	1970-01-01 00:00:00.000000000 +0000
++++ repo_p46_work/orderflow_services/grafana/latency_contract_p46_v1.json	2026-03-08 09:17:50.028467891 +0000
+@@ -0,0 +1,22 @@
++{
++  "title": "Latency Contract Deploy Lint P46",
++  "schemaVersion": 39,
++  "version": 1,
++  "panels": [
++    {
++      "type": "stat",
++      "title": "Deploy-lint notifier active",
++      "targets": [{"expr": "latency_contract_deploy_lint_notifier_active"}]
++    },
++    {
++      "type": "stat",
++      "title": "Notifier last run age",
++      "targets": [{"expr": "latency_contract_deploy_lint_notifier_last_run_age_seconds"}]
++    },
++    {
++      "type": "timeseries",
++      "title": "Persistent gate active total",
++      "targets": [{"expr": "latency_contract_deploy_lint_summary_gate_active_total"}]
++    }
++  ]
++}
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/orderflow_services/latency_contract_deploy_lint_exporter_v1.py repo_p46_work/orderflow_services/latency_contract_deploy_lint_exporter_v1.py
+--- repo_p45_work/orderflow_services/latency_contract_deploy_lint_exporter_v1.py	2026-03-08 09:01:41.730289108 +0000
++++ repo_p46_work/orderflow_services/latency_contract_deploy_lint_exporter_v1.py	2026-03-08 09:17:51.792680069 +0000
+@@ -17,6 +17,7 @@
+ 
+ from services.observability.latency_deploy_contract import CONTRACTS
+ from services.observability.latency_deploy_lint_state import state_key
++from services.observability.latency_deploy_lint_notify_state import state_key as notifier_state_key
+ 
+ 
+ def _env(name: str, default: str = '') -> str:
+@@ -48,6 +49,9 @@
+ G_GATE_ACTIVE = Gauge('latency_contract_deploy_lint_gate_active', 'persistent deploy lint gate active', ['purpose'])
+ G_SUMMARY_FAIL_TOTAL = Gauge('latency_contract_deploy_lint_summary_fail_total', 'number of purposes currently failing deploy lint')
+ G_SUMMARY_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_gate_active_total', 'number of purposes with persistent deploy lint gate active')
++G_NOTIFIER_STATE_PRESENT = Gauge('latency_contract_deploy_lint_notifier_state_present', 'deploy lint notifier state present')
++G_NOTIFIER_LAST_RUN_AGE = Gauge('latency_contract_deploy_lint_notifier_last_run_age_seconds', 'age of deploy lint notifier last run')
++G_NOTIFIER_ACTIVE = Gauge('latency_contract_deploy_lint_notifier_active', 'deploy lint notifier sees active persistent drift')
+ 
+ 
+ @dataclass
+@@ -112,6 +116,14 @@
+                 'fail_total': str(fail_total),
+                 'gate_active_total': str(gate_total),
+             })
++            nraw = r.hgetall(notifier_state_key(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_KEY', 'metrics:latency_contract:deploy_lint:notifier:last'))) or {}
++            npresent = 1.0 if nraw else 0.0
++            nlast_ms = _i(nraw.get('last_run_ts_ms'), 0)
++            nage = max(0.0, now - (nlast_ms / 1000.0)) if nlast_ms > 0 else 0.0
++            nactive = 1.0 if str(nraw.get('last_status', 'ok')) == 'active' else 0.0
++            G_NOTIFIER_STATE_PRESENT.set(npresent)
++            G_NOTIFIER_LAST_RUN_AGE.set(nage)
++            G_NOTIFIER_ACTIVE.set(nactive)
+             G_READ_OK.set(1.0)
+         except Exception:
+             G_READ_OK.set(0.0)
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/orderflow_services/latency_contract_deploy_lint_notifier_v1.py repo_p46_work/orderflow_services/latency_contract_deploy_lint_notifier_v1.py
+--- repo_p45_work/orderflow_services/latency_contract_deploy_lint_notifier_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p46_work/orderflow_services/latency_contract_deploy_lint_notifier_v1.py	2026-03-08 09:17:49.867473626 +0000
+@@ -0,0 +1,153 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Emit ops-event/Telegram summaries for persistent latency deploy-lint drift.
++
++This notifier is intentionally separate from the Prometheus exporter:
++- exporter => continuous pull-based visibility
++- notifier => push-based ops summary when persistent config drift remains active
++
++It reads the Redis-backed state created by the deploy-lint CLI (P4.5) and emits
++an event only on status changes or after a reminder cooldown.
++"""
++
++import json
++import os
++import time
++from dataclasses import dataclass
++from typing import Any
++
++from services.observability.latency_deploy_contract import CONTRACTS
++from services.observability.latency_deploy_lint_state import state_key as lint_state_key
++from services.observability.latency_deploy_lint_notify_state import (
++    purposes_hash,
++    state_key as notify_state_key,
++    update_notifier_state,
++)
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return d
++
++
++@dataclass
++class Cfg:
++    redis_url: str
++    state_prefix: str
++    notifier_state_key: str
++    ops_stream: str
++    notify_stream: str
++    notify_enable: bool
++    reminder_s: int
++    state_ttl_s: int
++
++
++def load_cfg() -> Cfg:
++    return Cfg(
++        redis_url=_env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
++        state_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_STATE_PREFIX', 'metrics:latency_contract:deploy_lint:last'),
++        notifier_state_key=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_KEY', 'metrics:latency_contract:deploy_lint:notifier:last'),
++        ops_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_OPS_EVENT_STREAM', 'ops:latency_contract:events:v1'),
++        notify_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_STREAM', os.getenv('NOTIFY_TELEGRAM_STREAM') or 'notify:telegram'),
++        notify_enable=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_ENABLE', '1').lower() in ('1', 'true', 'yes', 'on'),
++        reminder_s=max(60, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_REMINDER_S', '21600'), 21600)),
++        state_ttl_s=max(600, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_TTL_S', '172800'), 172800)),
++    )
++
++
++def _active_state_payload(r: Any, prefix: str) -> tuple[list[str], dict[str, dict[str, str]]]:
++    active: list[str] = []
++    details: dict[str, dict[str, str]] = {}
++    for purpose in sorted(CONTRACTS.keys()):
++        raw = r.hgetall(lint_state_key(prefix, purpose)) or {}
++        details[purpose] = raw
++        if str(raw.get('gate_active', '0')) == '1':
++            active.append(purpose)
++    return active, details
++
++
++def _summary_text(active: list[str], details: dict[str, dict[str, str]]) -> str:
++    if not active:
++        return 'Latency deploy-lint persistent drift recovered: no active config-drift gates.'
++    parts: list[str] = []
++    for purpose in active:
++        raw = details.get(purpose) or {}
++        codes = str(raw.get('error_codes') or 'unknown')[:240]
++        parts.append(f'{purpose}: {codes}')
++    return 'Latency deploy-lint persistent config drift active\n' + '\n'.join(parts)
++
++
++def _emit_ops_event(r: Any, cfg: Cfg, *, event_kind: str, active: list[str], details: dict[str, dict[str, str]], now_ms: int) -> None:
++    fields = {
++        'ts_ms': str(now_ms),
++        'kind': event_kind,
++        'source': 'latency_contract_deploy_lint_notifier_v1',
++        'active_purposes_csv': ','.join(active) if active else 'none',
++        'active_purposes_count': str(len(active)),
++        'active_hash': purposes_hash(active),
++        'details_json': json.dumps({p: details.get(p) or {} for p in active}, sort_keys=True),
++    }
++    r.xadd(cfg.ops_stream, fields, maxlen=200000, approximate=True)
++
++
++def _emit_notify(r: Any, cfg: Cfg, *, event_kind: str, text: str, now_ms: int) -> None:
++    if not cfg.notify_enable:
++        return
++    fields = {
++        'type': 'report',
++        'severity': 'crit' if event_kind == 'latency_deploy_lint_persistent_drift' else 'info',
++        'text': text[:3500],
++        'ts': str(now_ms),
++        'source': 'latency_contract_deploy_lint_notifier_v1',
++    }
++    r.xadd(cfg.notify_stream, fields, maxlen=200000, approximate=True)
++
++
++def main() -> int:
++    cfg = load_cfg()
++    import redis  # type: ignore
++
++    r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
++    now_ms = int(time.time() * 1000)
++    active, details = _active_state_payload(r, cfg.state_prefix)
++    prev = r.hgetall(notify_state_key(cfg.notifier_state_key)) or {}
++    prev_hash = str(prev.get('active_hash') or '')
++    prev_status = str(prev.get('last_status') or 'unknown')
++    last_emit_ts_ms = _i(prev.get('last_emit_ts_ms'), 0)
++    current_hash = purposes_hash(active)
++    current_status = 'active' if active else 'ok'
++
++    emit = False
++    event_kind = 'noop'
++    if current_status != prev_status or current_hash != prev_hash:
++        emit = True
++        event_kind = 'latency_deploy_lint_persistent_drift' if active else 'latency_deploy_lint_recovered'
++    elif active and (now_ms - last_emit_ts_ms) >= cfg.reminder_s * 1000:
++        emit = True
++        event_kind = 'latency_deploy_lint_persistent_drift'
++
++    if emit:
++        text = _summary_text(active, details)
++        _emit_ops_event(r, cfg, event_kind=event_kind, active=active, details=details, now_ms=now_ms)
++        _emit_notify(r, cfg, event_kind=event_kind, text=text, now_ms=now_ms)
++    update_notifier_state(
++        r,
++        prefix=cfg.notifier_state_key,
++        active_purposes=active,
++        emitted=emit,
++        event_kind=event_kind,
++        ttl_s=cfg.state_ttl_s,
++        now_ms=now_ms,
++    )
++    return 0
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/orderflow_services/prometheus_alerts_latency_contract_p46_v1.yml repo_p46_work/orderflow_services/prometheus_alerts_latency_contract_p46_v1.yml
+--- repo_p45_work/orderflow_services/prometheus_alerts_latency_contract_p46_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ repo_p46_work/orderflow_services/prometheus_alerts_latency_contract_p46_v1.yml	2026-03-08 09:17:50.014315376 +0000
+@@ -0,0 +1,19 @@
++groups:
++  - name: latency-contract-p46
++    rules:
++      - alert: OF_LatencyDeployLint_NotifierStale_Warn
++        expr: latency_contract_deploy_lint_notifier_last_run_age_seconds > 900
++        for: 10m
++        labels:
++          severity: warn
++        annotations:
++          summary: "Latency deploy-lint notifier stale"
++          description: "Notifier has not updated recently; persistent config drift may no longer be pushed to Telegram/ops-event."
++      - alert: OF_LatencyDeployLint_PersistentDriftNotified_Crit
++        expr: latency_contract_deploy_lint_notifier_active > 0 and latency_contract_deploy_lint_summary_gate_active_total > 0
++        for: 5m
++        labels:
++          severity: crit
++        annotations:
++          summary: "Latency deploy-lint persistent drift active"
++          description: "Persistent deploy-lint config drift remains active and notifier is reporting it via Telegram/ops-event."
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/orderflow_services/runbook_latency_contract_p46_v1.md repo_p46_work/orderflow_services/runbook_latency_contract_p46_v1.md
+--- repo_p45_work/orderflow_services/runbook_latency_contract_p46_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ repo_p46_work/orderflow_services/runbook_latency_contract_p46_v1.md	2026-03-08 09:17:50.041392513 +0000
+@@ -0,0 +1,25 @@
++# P4.6 — latency-contract deploy-lint exporter service + notifier
++
++## Что добавлено
++- systemd service для `latency_contract_deploy_lint_exporter_v1`
++- oneshot service + timer для `latency_contract_deploy_lint_notifier_v1`
++- Redis ops-event stream + Telegram summary при persistent deploy-lint drift
++
++## Units
++- `trade-latency-contract-deploy-lint-exporter.service`
++- `trade-latency-contract-deploy-lint-notifier.service`
++- `trade-latency-contract-deploy-lint-notifier.timer`
++
++## Рекомендуемый запуск
++```bash
++sudo systemctl daemon-reload
++sudo systemctl enable --now trade-latency-contract-deploy-lint-exporter.service
++sudo systemctl enable --now trade-latency-contract-deploy-lint-notifier.timer
++```
++
++## Redis keys / streams
++- state: `metrics:latency_contract:deploy_lint:last:<purpose>`
++- summary: `metrics:latency_contract:deploy_lint:summary:last`
++- notifier state: `metrics:latency_contract:deploy_lint:notifier:last`
++- ops stream: `ops:latency_contract:events:v1`
++- telegram stream: `notify:telegram` or env override
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/orderflow_services/tests/test_latency_contract_p46_alerts_yaml_v1.py repo_p46_work/orderflow_services/tests/test_latency_contract_p46_alerts_yaml_v1.py
+--- repo_p45_work/orderflow_services/tests/test_latency_contract_p46_alerts_yaml_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p46_work/orderflow_services/tests/test_latency_contract_p46_alerts_yaml_v1.py	2026-03-08 09:17:53.907164579 +0000
+@@ -0,0 +1,7 @@
++from pathlib import Path
++
++
++def test_p46_alerts_have_notifier_rules() -> None:
++    txt = Path(__file__).resolve().parents[2].joinpath('orderflow_services/prometheus_alerts_latency_contract_p46_v1.yml').read_text(encoding='utf-8')
++    assert 'OF_LatencyDeployLint_NotifierStale_Warn' in txt
++    assert 'OF_LatencyDeployLint_PersistentDriftNotified_Crit' in txt
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/orderflow_services/tests/test_latency_contract_p46_dashboard_json_v1.py repo_p46_work/orderflow_services/tests/test_latency_contract_p46_dashboard_json_v1.py
+--- repo_p45_work/orderflow_services/tests/test_latency_contract_p46_dashboard_json_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p46_work/orderflow_services/tests/test_latency_contract_p46_dashboard_json_v1.py	2026-03-08 09:17:53.914337346 +0000
+@@ -0,0 +1,8 @@
++from pathlib import Path
++import json
++
++
++def test_p46_dashboard_has_notifier_panels() -> None:
++    obj = json.loads(Path(__file__).resolve().parents[2].joinpath('orderflow_services/grafana/latency_contract_p46_v1.json').read_text(encoding='utf-8'))
++    titles = [p.get('title', '') for p in obj.get('panels', [])]
++    assert 'Deploy-lint notifier active' in titles
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/orderflow_services/tests/test_latency_contract_p46_deploy_files_v1.py repo_p46_work/orderflow_services/tests/test_latency_contract_p46_deploy_files_v1.py
+--- repo_p45_work/orderflow_services/tests/test_latency_contract_p46_deploy_files_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p46_work/orderflow_services/tests/test_latency_contract_p46_deploy_files_v1.py	2026-03-08 09:17:53.899246958 +0000
+@@ -0,0 +1,22 @@
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[2]
++
++
++def test_systemd_files_exist() -> None:
++    for rel in [
++        'orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-exporter.service',
++        'orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-notifier.service',
++        'orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-notifier.timer',
++    ]:
++        assert (ROOT / rel).exists(), rel
++
++
++def test_env_examples_include_notifier_vars() -> None:
++    for rel in [
++        'orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example',
++        'orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example',
++    ]:
++        txt = (ROOT / rel).read_text(encoding='utf-8')
++        assert 'LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_KEY=' in txt
++        assert 'LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_STREAM=' in txt
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/orderflow_services/tests/test_latency_contract_p46_notifier_v1.py repo_p46_work/orderflow_services/tests/test_latency_contract_p46_notifier_v1.py
+--- repo_p45_work/orderflow_services/tests/test_latency_contract_p46_notifier_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p46_work/orderflow_services/tests/test_latency_contract_p46_notifier_v1.py	2026-03-08 09:17:53.890328686 +0000
+@@ -0,0 +1,31 @@
++from orderflow_services import latency_contract_deploy_lint_notifier_v1 as mod
++
++
++class FakeRedis:
++    def __init__(self):
++        self.h = {}
++        self.streams = []
++        self.exp = {}
++    def hgetall(self, k):
++        return dict(self.h.get(k, {}))
++    def hset(self, k, mapping=None, **kwargs):
++        cur = self.h.setdefault(k, {})
++        cur.update(mapping or kwargs)
++    def expire(self, k, ttl):
++        self.exp[k] = ttl
++    def xadd(self, stream, fields, maxlen=None, approximate=None):
++        self.streams.append((stream, dict(fields)))
++        return '1-0'
++
++
++def test_summary_text_mentions_purpose() -> None:
++    txt = mod._summary_text(['meta_cov_rollout_controller'], {'meta_cov_rollout_controller': {'error_codes': 'missing_env'}})
++    assert 'meta_cov_rollout_controller' in txt
++
++
++def test_active_state_payload_reads_gate_flags() -> None:
++    r = FakeRedis()
++    r.h['metrics:latency_contract:deploy_lint:last:conf_score_guardrails_apply'] = {'gate_active': '1'}
++    active, details = mod._active_state_payload(r, 'metrics:latency_contract:deploy_lint:last')
++    assert 'conf_score_guardrails_apply' in active
++    assert 'conf_score_guardrails_apply' in details
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/services/observability/latency_deploy_lint_notify_state.py repo_p46_work/services/observability/latency_deploy_lint_notify_state.py
+--- repo_p45_work/services/observability/latency_deploy_lint_notify_state.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p46_work/services/observability/latency_deploy_lint_notify_state.py	2026-03-08 09:17:49.861469867 +0000
+@@ -0,0 +1,65 @@
++from __future__ import annotations
++
++"""State helpers for latency deploy-lint notifier.
++
++The deploy-lint exporter already makes persistent configuration drift visible in
++Prometheus/Grafana.  This module keeps the notification state in Redis so a
++separate notifier can emit Telegram/ops-event summaries without spamming on
++every timer tick.
++"""
++
++from typing import Any
++import hashlib
++import time
++
++
++def _i(v: Any, d: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return d
++
++
++def _csv(items: list[str] | tuple[str, ...]) -> str:
++    return ','.join(sorted({str(x).strip() for x in items if str(x).strip()}))
++
++
++def purposes_hash(items: list[str] | tuple[str, ...]) -> str:
++    return hashlib.sha1(_csv(list(items)).encode('utf-8')).hexdigest()
++
++
++def state_key(prefix: str) -> str:
++    return prefix.rstrip(':')
++
++
++def update_notifier_state(
++    r: Any,
++    *,
++    prefix: str,
++    active_purposes: list[str],
++    emitted: bool,
++    event_kind: str,
++    ttl_s: int,
++    now_ms: int | None = None,
++) -> dict[str, str]:
++    now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
++    skey = state_key(prefix)
++    prev = r.hgetall(skey) or {}
++    active_csv = _csv(active_purposes)
++    active_hash = purposes_hash(active_purposes)
++    mapping = {
++        'schema_version': '1',
++        'last_run_ts_ms': str(now_ms),
++        'active_purposes_csv': active_csv or 'none',
++        'active_purposes_count': str(len([x for x in active_purposes if str(x).strip()])),
++        'active_hash': active_hash,
++        'last_status': 'active' if active_purposes else 'ok',
++        'last_event_kind': str(event_kind or 'noop'),
++        'last_emit_ts_ms': str(now_ms if emitted else _i(prev.get('last_emit_ts_ms'), 0)),
++    }
++    r.hset(skey, mapping=mapping)
++    try:
++        r.expire(skey, max(1, int(ttl_s)))
++    except Exception:
++        pass
++    return mapping
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/services/tests/test_latency_deploy_lint_notify_state_v1.py repo_p46_work/services/tests/test_latency_deploy_lint_notify_state_v1.py
+--- repo_p45_work/services/tests/test_latency_deploy_lint_notify_state_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_p46_work/services/tests/test_latency_deploy_lint_notify_state_v1.py	2026-03-08 09:17:53.880837653 +0000
+@@ -0,0 +1,22 @@
++from services.observability import latency_deploy_lint_notify_state as mod
++
++
++class FakeRedis:
++    def __init__(self):
++        self.h = {}
++        self.exp = {}
++    def hgetall(self, k):
++        return dict(self.h.get(k, {}))
++    def hset(self, k, mapping=None, **kwargs):
++        cur = self.h.setdefault(k, {})
++        cur.update(mapping or kwargs)
++    def expire(self, k, ttl):
++        self.exp[k] = ttl
++
++
++def test_update_notifier_state_sets_fields() -> None:
++    r = FakeRedis()
++    out = mod.update_notifier_state(r, prefix='x:notifier:last', active_purposes=['a','b'], emitted=True, event_kind='drift', ttl_s=60, now_ms=1000)
++    assert out['last_status'] == 'active'
++    assert out['active_purposes_count'] == '2'
++    assert r.h['x:notifier:last']['last_emit_ts_ms'] == '1000'
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/tick_flow_full/orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_exporter_v1.sh repo_p46_work/tick_flow_full/orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_exporter_v1.sh
+--- repo_p45_work/tick_flow_full/orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_exporter_v1.sh	1970-01-01 00:00:00.000000000 +0000
++++ repo_p46_work/tick_flow_full/orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_exporter_v1.sh	2026-03-08 09:17:49.926141686 +0000
+@@ -0,0 +1,4 @@
++#!/usr/bin/env bash
++set -euo pipefail
++cd "${TRADE_REPO_ROOT:?}"
++exec python3 -m orderflow_services.latency_contract_deploy_lint_exporter_v1
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/tick_flow_full/orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_notifier_v1.sh repo_p46_work/tick_flow_full/orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_notifier_v1.sh
+--- repo_p45_work/tick_flow_full/orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_notifier_v1.sh	1970-01-01 00:00:00.000000000 +0000
++++ repo_p46_work/tick_flow_full/orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_notifier_v1.sh	2026-03-08 09:17:49.933452942 +0000
+@@ -0,0 +1,4 @@
++#!/usr/bin/env bash
++set -euo pipefail
++cd "${TRADE_REPO_ROOT:?}"
++exec python3 -m orderflow_services.latency_contract_deploy_lint_notifier_v1
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/tick_flow_full/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-exporter.service repo_p46_work/tick_flow_full/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-exporter.service
+--- repo_p45_work/tick_flow_full/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-exporter.service	1970-01-01 00:00:00.000000000 +0000
++++ repo_p46_work/tick_flow_full/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-exporter.service	2026-03-08 09:17:49.990131465 +0000
+@@ -0,0 +1,15 @@
++[Unit]
++Description=Trade latency-contract deploy-lint exporter
++After=network-online.target
++Wants=network-online.target
++
++[Service]
++Type=simple
++EnvironmentFile=/etc/default/trade-latency-sensitive-jobs-staging
++Environment=PYTHONUNBUFFERED=1
++ExecStart=/bin/bash -lc 'cd "${TRADE_REPO_ROOT:?}" && ./orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_exporter_v1.sh'
++Restart=always
++RestartSec=5
++
++[Install]
++WantedBy=multi-user.target
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/tick_flow_full/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-notifier.service repo_p46_work/tick_flow_full/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-notifier.service
+--- repo_p45_work/tick_flow_full/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-notifier.service	1970-01-01 00:00:00.000000000 +0000
++++ repo_p46_work/tick_flow_full/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-notifier.service	2026-03-08 09:17:49.999568494 +0000
+@@ -0,0 +1,13 @@
++[Unit]
++Description=Trade latency-contract deploy-lint notifier
++After=network-online.target
++Wants=network-online.target
++
++[Service]
++Type=oneshot
++EnvironmentFile=/etc/default/trade-latency-sensitive-jobs-staging
++Environment=PYTHONUNBUFFERED=1
++ExecStart=/bin/bash -lc 'cd "${TRADE_REPO_ROOT:?}" && ./orderflow_services/deploy/systemd/run_trade_latency_contract_deploy_lint_notifier_v1.sh'
++
++[Install]
++WantedBy=multi-user.target
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/tick_flow_full/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-notifier.timer repo_p46_work/tick_flow_full/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-notifier.timer
+--- repo_p45_work/tick_flow_full/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-notifier.timer	1970-01-01 00:00:00.000000000 +0000
++++ repo_p46_work/tick_flow_full/orderflow_services/deploy/systemd/trade-latency-contract-deploy-lint-notifier.timer	2026-03-08 09:17:50.008102113 +0000
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Run trade latency-contract deploy-lint notifier every 5 minutes
++
++[Timer]
++OnCalendar=*:0/5
++Persistent=true
++Unit=trade-latency-contract-deploy-lint-notifier.service
++
++[Install]
++WantedBy=timers.target
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/tick_flow_full/orderflow_services/grafana/latency_contract_p46_v1.json repo_p46_work/tick_flow_full/orderflow_services/grafana/latency_contract_p46_v1.json
+--- repo_p45_work/tick_flow_full/orderflow_services/grafana/latency_contract_p46_v1.json	1970-01-01 00:00:00.000000000 +0000
++++ repo_p46_work/tick_flow_full/orderflow_services/grafana/latency_contract_p46_v1.json	2026-03-08 09:17:50.035563844 +0000
+@@ -0,0 +1,22 @@
++{
++  "title": "Latency Contract Deploy Lint P46",
++  "schemaVersion": 39,
++  "version": 1,
++  "panels": [
++    {
++      "type": "stat",
++      "title": "Deploy-lint notifier active",
++      "targets": [{"expr": "latency_contract_deploy_lint_notifier_active"}]
++    },
++    {
++      "type": "stat",
++      "title": "Notifier last run age",
++      "targets": [{"expr": "latency_contract_deploy_lint_notifier_last_run_age_seconds"}]
++    },
++    {
++      "type": "timeseries",
++      "title": "Persistent gate active total",
++      "targets": [{"expr": "latency_contract_deploy_lint_summary_gate_active_total"}]
++    }
++  ]
++}
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/tick_flow_full/orderflow_services/latency_contract_deploy_lint_exporter_v1.py repo_p46_work/tick_flow_full/orderflow_services/latency_contract_deploy_lint_exporter_v1.py
+--- repo_p45_work/tick_flow_full/orderflow_services/latency_contract_deploy_lint_exporter_v1.py	2026-03-08 09:04:20.136025473 +0000
++++ repo_p46_work/tick_flow_full/orderflow_services/latency_contract_deploy_lint_exporter_v1.py	2026-03-08 09:17:51.793199850 +0000
+@@ -17,6 +17,7 @@
+ 
+ from services.observability.latency_deploy_contract import CONTRACTS
+ from services.observability.latency_deploy_lint_state import state_key
++from services.observability.latency_deploy_lint_notify_state import state_key as notifier_state_key
+ 
+ 
+ def _env(name: str, default: str = '') -> str:
+@@ -48,6 +49,9 @@
+ G_GATE_ACTIVE = Gauge('latency_contract_deploy_lint_gate_active', 'persistent deploy lint gate active', ['purpose'])
+ G_SUMMARY_FAIL_TOTAL = Gauge('latency_contract_deploy_lint_summary_fail_total', 'number of purposes currently failing deploy lint')
+ G_SUMMARY_GATE_ACTIVE_TOTAL = Gauge('latency_contract_deploy_lint_summary_gate_active_total', 'number of purposes with persistent deploy lint gate active')
++G_NOTIFIER_STATE_PRESENT = Gauge('latency_contract_deploy_lint_notifier_state_present', 'deploy lint notifier state present')
++G_NOTIFIER_LAST_RUN_AGE = Gauge('latency_contract_deploy_lint_notifier_last_run_age_seconds', 'age of deploy lint notifier last run')
++G_NOTIFIER_ACTIVE = Gauge('latency_contract_deploy_lint_notifier_active', 'deploy lint notifier sees active persistent drift')
+ 
+ 
+ @dataclass
+@@ -112,6 +116,14 @@
+                 'fail_total': str(fail_total),
+                 'gate_active_total': str(gate_total),
+             })
++            nraw = r.hgetall(notifier_state_key(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_KEY', 'metrics:latency_contract:deploy_lint:notifier:last'))) or {}
++            npresent = 1.0 if nraw else 0.0
++            nlast_ms = _i(nraw.get('last_run_ts_ms'), 0)
++            nage = max(0.0, now - (nlast_ms / 1000.0)) if nlast_ms > 0 else 0.0
++            nactive = 1.0 if str(nraw.get('last_status', 'ok')) == 'active' else 0.0
++            G_NOTIFIER_STATE_PRESENT.set(npresent)
++            G_NOTIFIER_LAST_RUN_AGE.set(nage)
++            G_NOTIFIER_ACTIVE.set(nactive)
+             G_READ_OK.set(1.0)
+         except Exception:
+             G_READ_OK.set(0.0)
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_p46_v1.yml repo_p46_work/tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_p46_v1.yml
+--- repo_p45_work/tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_p46_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ repo_p46_work/tick_flow_full/orderflow_services/prometheus_alerts_latency_contract_p46_v1.yml	2026-03-08 09:17:50.021863650 +0000
+@@ -0,0 +1,19 @@
++groups:
++  - name: latency-contract-p46
++    rules:
++      - alert: OF_LatencyDeployLint_NotifierStale_Warn
++        expr: latency_contract_deploy_lint_notifier_last_run_age_seconds > 900
++        for: 10m
++        labels:
++          severity: warn
++        annotations:
++          summary: "Latency deploy-lint notifier stale"
++          description: "Notifier has not updated recently; persistent config drift may no longer be pushed to Telegram/ops-event."
++      - alert: OF_LatencyDeployLint_PersistentDriftNotified_Crit
++        expr: latency_contract_deploy_lint_notifier_active > 0 and latency_contract_deploy_lint_summary_gate_active_total > 0
++        for: 5m
++        labels:
++          severity: crit
++        annotations:
++          summary: "Latency deploy-lint persistent drift active"
++          description: "Persistent deploy-lint config drift remains active and notifier is reporting it via Telegram/ops-event."
+diff -ruN '--exclude=.pytest_cache' '--exclude=__pycache__' '--exclude=*.pyc' repo_p45_work/tick_flow_full/orderflow_services/runbook_latency_contract_p46_v1.md repo_p46_work/tick_flow_full/orderflow_services/runbook_latency_contract_p46_v1.md
+--- repo_p45_work/tick_flow_full/orderflow_services/runbook_latency_contract_p46_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ repo_p46_work/tick_flow_full/orderflow_services/runbook_latency_contract_p46_v1.md	2026-03-08 09:17:50.087740369 +0000
+@@ -0,0 +1,25 @@
++# P4.6 — latency-contract deploy-lint exporter service + notifier
++
++## Что добавлено
++- systemd service для `latency_contract_deploy_lint_exporter_v1`
++- oneshot service + timer для `latency_contract_deploy_lint_notifier_v1`
++- Redis ops-event stream + Telegram summary при persistent deploy-lint drift
++
++## Units
++- `trade-latency-contract-deploy-lint-exporter.service`
++- `trade-latency-contract-deploy-lint-notifier.service`
++- `trade-latency-contract-deploy-lint-notifier.timer`
++
++## Рекомендуемый запуск
++```bash
++sudo systemctl daemon-reload
++sudo systemctl enable --now trade-latency-contract-deploy-lint-exporter.service
++sudo systemctl enable --now trade-latency-contract-deploy-lint-notifier.timer
++```
++
++## Redis keys / streams
++- state: `metrics:latency_contract:deploy_lint:last:<purpose>`
++- summary: `metrics:latency_contract:deploy_lint:summary:last`
++- notifier state: `metrics:latency_contract:deploy_lint:notifier:last`
++- ops stream: `ops:latency_contract:events:v1`
++- telegram stream: `notify:telegram` or env override

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/footprint_policy.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.35, 0.65, 0.8, 1.0, '=', 'LONG', 'NONE', 'SHORT', 'fp_absorb_min_score', 'fp_absorb_score', 'fp_absorption_bias', 'fp_enabled', 'fp_imb', 'fp_imb_min', 'fp_imb_min_buckets', 'fp_max_imbalance', 'fp_n_buckets', 'fp_progress']

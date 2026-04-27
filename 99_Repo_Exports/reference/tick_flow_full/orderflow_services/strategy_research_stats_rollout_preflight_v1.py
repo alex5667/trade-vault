@@ -1,0 +1,99 @@
+from __future__ import annotations
+
+"""CLI preflight for strategy research stats gate (P6.2).
+
+Blocks sensitive rollout jobs before entering python -m conf_score_guardrails_*.
+This wrapper is intended for both host-level orchestration and in-container
+preflight wrappers.
+"""
+
+import argparse
+import os
+import sys
+from typing import Any, Dict
+
+from orderflow_services.strategy_research_stats_gate_v1 import (
+    evaluate_strategy_research_stats_gate,
+    gate_check_message,
+)
+
+
+EXIT_BLOCK = 24
+EXIT_INVALID = 25
+
+
+def _env(name: str, default: str = '') -> str:
+    return (os.getenv(name) or default).strip()
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = _env(name, str(default))
+    try:
+        return int(float(raw))
+    except Exception:
+        return int(default)
+
+
+def evaluate_rollout_preflight(
+    *,
+    purpose: str,
+    client: Any | None = None,
+) -> Dict[str, Any]:
+    if _env_int('ENABLE_STRATEGY_RESEARCH_STATS_HARD_GATE', 1) != 1:
+        return {
+            'status': 'ok',
+            'reason': 'hard_gate_disabled',
+            'allowed': True,
+            'exit_code': 0,
+            'purpose': purpose,
+        }
+
+    fail_closed_missing = _env_int('STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING', 0)
+    configured_gate_mode = _env('STRATEGY_RESEARCH_STATS_GATE_MODE', '').strip().lower()
+    state = evaluate_strategy_research_stats_gate(
+        _env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
+        _env('STRATEGY_RESEARCH_STATS_BLOCKER_KEY', 'cfg:strategy_research_stats:blocker:v1'),
+        _env('STRATEGY_RESEARCH_STATS_SUMMARY_KEY', 'metrics:strategy_research_stats:last'),
+        max_age_sec=float(_env('STRATEGY_RESEARCH_STATS_MAX_AGE_SEC', '129600') or 129600),
+        fail_closed_missing=fail_closed_missing,
+        client=client,
+    )
+    if str(state.get('reason') or '') == 'state_missing_allowed' and fail_closed_missing == 1 and configured_gate_mode in ('soft', 'hard'):
+        state = dict(state)
+        state['status'] = 'invalid' if configured_gate_mode == 'hard' else 'soft'
+        state['reason'] = 'state_missing'
+        state['gate_mode'] = configured_gate_mode
+    status = str(state.get('status') or 'ok').strip().lower()
+    invalid_as_block = _env_int('STRATEGY_RESEARCH_STATS_INVALID_AS_BLOCK', 1) == 1
+    block_exit = _env_int('STRATEGY_RESEARCH_STATS_PREFLIGHT_EXIT_CODE', EXIT_BLOCK)
+    invalid_exit = _env_int('STRATEGY_RESEARCH_STATS_PREFLIGHT_INVALID_EXIT_CODE', EXIT_INVALID)
+    out = dict(state)
+    out['purpose'] = purpose
+    out['allowed'] = True
+    out['exit_code'] = 0
+    if status == 'block':
+        out['allowed'] = False
+        out['exit_code'] = block_exit
+        return out
+    if status == 'invalid' and invalid_as_block:
+        out['allowed'] = False
+        out['exit_code'] = invalid_exit
+        return out
+    return out
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description='Strategy research stats rollout preflight')
+    parser.add_argument('--purpose', default=_env('STRATEGY_RESEARCH_STATS_PREFLIGHT_PURPOSE', _env('LATENCY_CONTRACT_PREFLIGHT_PURPOSE', 'strategy_research_stats_sensitive_rollout')))
+    args = parser.parse_args(argv)
+    result = evaluate_rollout_preflight(purpose=args.purpose)
+    if result.get('allowed'):
+        if str(result.get('status') or '') in ('soft', 'invalid'):
+            print(gate_check_message(result, purpose=args.purpose))
+        return 0
+    print(gate_check_message(result, purpose=args.purpose))
+    return int(result.get('exit_code') or EXIT_BLOCK)
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

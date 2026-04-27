@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/core/crypto_orderflow_calibration.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 1.25, 100.0, 2000, '_test_hist', 'confidence_pct', 'pct', 'score_to_pct']

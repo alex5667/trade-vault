@@ -1,0 +1,277 @@
+--- 777_orig/tick_flow_full/core/book_microstructure_v4.py	2026-02-25 14:55:22.000000000 +0000
++++ 777/tick_flow_full/core/book_microstructure_v4.py	2026-02-25 15:35:00.735180630 +0000
+@@ -3,6 +3,11 @@
+ import math
+ from typing import Any, Dict, List, Optional, Tuple
+ 
++from core.book_microstructure_v2 import (
++    compute_ofi_multilevel_topn,
++    compute_queue_imbalance_topn,
++)
++
+ Level = Tuple[float, float]  # (price, qty)
+ 
+ def _is_finite(x: float) -> bool:
+@@ -58,6 +63,12 @@
+         book_slope_bid, book_slope_ask: log(cum5/cum1)/4
+         book_convex_bid, book_convex_ask: simple convexity measure
+         obi_dw: depth-weighted imbalance
++
++        # v4.1 extras (cheap, high-ROI for ML / diagnostics)
++        qimb_wmean: weighted mean queue imbalance (L1..L5)
++        qimb_l1/qimb_l5/qimb_slope: queue imbalance shape proxies
++        ofi_ml_norm/ofi_ml_wsum: multi-level OFI proxy (normalized + weighted)
++        depth_top5_sum/depth_total_5/depth_imbalance_5: depth aggregates
+     """
+     out: Dict[str, float] = {}
+ 
+@@ -72,6 +83,17 @@
+     out["book_convex_ask"] = 0.0
+     out["obi_dw"] = 0.0
+ 
++    # v4.1 extras defaults
++    out["qimb_wmean"] = 0.0
++    out["qimb_l1"] = 0.0
++    out["qimb_l5"] = 0.0
++    out["qimb_slope"] = 0.0
++    out["ofi_ml_norm"] = 0.0
++    out["ofi_ml_wsum"] = 0.0
++    out["depth_top5_sum"] = 0.0
++    out["depth_total_5"] = 0.0
++    out["depth_imbalance_5"] = 0.0
++
+     if snap is None:
+         return out
+ 
+@@ -233,4 +255,35 @@
+     else:
+         out["obi_dw"] = 0.0
+ 
++    # --- v4.1 extras: depth aggregates / qimb / multilevel OFI ---
++    try:
++        out["depth_total_5"] = float(out.get("depth_bid_5", 0.0) or 0.0) + float(out.get("depth_ask_5", 0.0) or 0.0)
++        denom_depth = float(out["depth_total_5"])
++        if denom_depth > 0.0:
++            out["depth_imbalance_5"] = (
++                (float(out.get("depth_bid_5", 0.0) or 0.0) - float(out.get("depth_ask_5", 0.0) or 0.0)) / denom_depth
++            )
++    except Exception:
++        pass
++
++    try:
++        q = compute_queue_imbalance_topn(snap, levels=int(levels))
++        out["qimb_wmean"] = float(q.get("qimb_wmean", 0.0) or 0.0)
++        out["qimb_l1"] = float(q.get("qimb_l1", 0.0) or 0.0)
++        out["qimb_l5"] = float(q.get("qimb_l5", 0.0) or 0.0)
++        out["qimb_slope"] = float(out["qimb_l1"] - out["qimb_l5"])
++    except Exception:
++        pass
++
++    try:
++        if prev_snap is not None:
++            ofi_ml = compute_ofi_multilevel_topn(prev_snap, snap, levels=int(levels))
++            out["ofi_ml_norm"] = float(ofi_ml.get("ofi_ml_norm", 0.0) or 0.0)
++            out["ofi_ml_wsum"] = float(ofi_ml.get("ofi_ml_wsum", 0.0) or 0.0)
++            out["depth_top5_sum"] = float(ofi_ml.get("depth_top5_sum", out.get("depth_total_5", 0.0)) or 0.0)
++        else:
++            out["depth_top5_sum"] = float(out.get("depth_total_5", 0.0) or 0.0)
++    except Exception:
++        pass
++
+     return out
+--- 777_orig/tick_flow_full/core/feature_registry.py	2026-02-25 14:55:22.000000000 +0000
++++ 777/tick_flow_full/core/feature_registry.py	2026-02-25 15:36:56.120869911 +0000
+@@ -274,6 +274,21 @@
+ 
+ 
+ # ---------------------------------------------------------------------------
++# v5_of schema — v4_of + extras (MLFeatureSchemaV5OF)
++# ---------------------------------------------------------------------------
++
++def _get_v5_of_keys():
++    """Импортирует num_keys + bool_keys из MLFeatureSchemaV5OF."""
++    try:
++        from core.ml_feature_schema_v5_of import MLFeatureSchemaV5OF  # type: ignore
++        schema = MLFeatureSchemaV5OF()
++        return list(schema.num_keys), list(schema.bool_keys)
++    except ImportError:
++        # fallback: best-effort superset over v4_of (keeps code runnable in minimal env)
++        return _get_v4_of_keys()
++
++
++# ---------------------------------------------------------------------------
+ # Кэш: чтобы не пересчитывать хэши на каждый вызов
+ # ---------------------------------------------------------------------------
+ 
+@@ -285,7 +300,7 @@
+     """Возвращает FeatureSchemaInfo для заданной версии схемы.
+ 
+     Args:
+-        ver: одно из "v2", "v3", "v4_of"
++        ver: одно из "v2", "v3", "v4_of", "v5_of"
+ 
+     Returns:
+         FeatureSchemaInfo — неизменяемый дескриптор схемы.
+@@ -305,10 +320,14 @@
+         num_keys, bool_keys = _get_v4_of_keys()
+         names = _build_feature_names(num_keys, bool_keys)
+         v = "v4_of"
++    elif v in ("v5_of", "v5"):
++        num_keys, bool_keys = _get_v5_of_keys()
++        names = _build_feature_names(num_keys, bool_keys)
++        v = "v5_of"
+     else:
+         raise ValueError(
+             f"Unsupported feature schema version: {ver!r}. "
+-            f"Supported: 'v2', 'v3', 'v4_of'."
++            f"Supported: 'v2', 'v3', 'v4_of', 'v5_of'."
+         )
+ 
+     info = _make_schema_info(v, names)
+@@ -350,16 +369,18 @@
+     # нормализация алиасов
+     if ver == "v4of":
+         ver = "v4_of"
++    if ver == "v5of":
++        ver = "v5_of"
+ 
+     # расширенный allowlist: v2/v3/v4/v4_of
+-    if ver not in ("v2", "v3", "v4", "v4_of"):
++    if ver not in ("v2", "v3", "v4", "v4_of", "v5", "v5_of"):
+         raise ValueError(
+-            f"edge-stack registry supports v2/v3/v4/v4_of only, got {schema_ver!r}"
++            f"edge-stack registry supports v2/v3/v4/v4_of/v5_of only, got {schema_ver!r}"
+         )
+ 
+     # Числовой номер версии для умолчаний (v4_of → 4)
+     try:
+-        ver_num = 4 if ver == "v4_of" else int(ver.lstrip("v"))
++        ver_num = 4 if ver in ("v4_of", "v5_of") else int(ver.lstrip("v"))
+     except Exception:
+         ver_num = 0
+ 
+@@ -368,9 +389,12 @@
+         num_keys, bool_keys = list(_V2_NUM_KEYS), list(_V2_BOOL_KEYS)
+     elif ver == "v3":
+         num_keys, bool_keys = list(_V3_NUM_KEYS), list(_V3_BOOL_KEYS)
+-    else:  # v4 / v4_of
++    elif ver in ("v4", "v4_of"):
+         num_keys, bool_keys = _get_v4_of_keys()
+         ver = "v4_of"  # канонизируем v4 → v4_of для кэша
++    else:  # v5 / v5_of
++        num_keys, bool_keys = _get_v5_of_keys()
++        ver = "v5_of"
+ 
+     # Строим f_* колонки детерминированно
+     fkeys: List[str] = []
+--- 777_orig/tick_flow_full/services/ml_confirm_gate_dynamic_v8_stack_schema_v3.py	2026-02-25 14:55:22.000000000 +0000
++++ 777/tick_flow_full/services/ml_confirm_gate_dynamic_v8_stack_schema_v3.py	2026-02-25 15:38:24.449095559 +0000
+@@ -22,6 +22,11 @@
+ except Exception:
+     MLFeatureSchemaV4OF = None
+ 
++try:
++    from core.ml_feature_schema_v5_of import MLFeatureSchemaV5OF
++except Exception:
++    MLFeatureSchemaV5OF = None
++
+ from core.confirmations_schema_v1 import parse_confirmations_v1
+ 
+ 
+@@ -179,7 +184,9 @@
+             pass
+ 
+         schema_ver = (os.getenv("ML_FEATURE_SCHEMA_VER", "v3") or "v3").lower()
+-        if schema_ver in ("v4_of", "v5") and MLFeatureSchemaV4OF is not None:
++        if schema_ver in ("v5_of", "v5") and MLFeatureSchemaV5OF is not None:
++            self._schema = MLFeatureSchemaV5OF()
++        elif schema_ver in ("v4_of", "v4") and MLFeatureSchemaV4OF is not None:
+             self._schema = MLFeatureSchemaV4OF()
+         else:
+             self._schema = MLFeatureSchemaV3()
+--- /dev/null	2026-02-25 15:17:53.185290417 +0000
++++ 777/tick_flow_full/core/ml_feature_schema_v5_of.py	2026-02-25 15:36:09.035142472 +0000
+@@ -0,0 +1,83 @@
++"""ML feature schema v5 (OrderFlow).
++
++This schema is a strict superset of MLFeatureSchemaV4OF.
++
++Goal:
++  - keep v4_of stable for deployed models
++  - introduce v5_of for training/online gating with extra low-latency microstructure features
++
++Design constraints:
++  - deterministic order of features
++  - low-latency (only features that already exist in indicators, or are computed in cheap book_microstructure_v4)
++  - backward compatibility: v4_of unchanged
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import List
++
++from core.ml_feature_schema_v4_of import MLFeatureSchemaV4OF
++
++
++@dataclass
++class MLFeatureSchemaV5OF(MLFeatureSchemaV4OF):
++    """v5_of = v4_of + extra microstructure/regime/fill features.
++
++    Notes:
++      - extras are appended to preserve v4 feature order
++      - do not remove/reorder existing keys without bumping schema version
++    """
++
++    def __post_init__(self) -> None:  # noqa: D401
++        super().__post_init__()
++
++        extra_num: List[str] = [
++            # Vol regime (more informative than raw fast/slow)
++            "vol_ratio",
++            "vol_ratio_z",
++
++            # Execution/fill proxy
++            "fill_prob_proxy",
++            "eta_fill_sec",
++            "fill_prob_p_base",
++            "fill_prob_p_wait",
++            "exec_fill_pen",
++            "max_expected_slippage_bps_eff",
++
++            # LOB pressure (already produced under lob_* keys)
++            "lob_qi_mean",
++            "lob_qi_max_abs",
++            "lob_qi_slope",
++            "lob_micro_mid_div_bps",
++            "lob_micro_shift_bps",
++            "lob_depth_slope_imb",
++            "lob_depth_convexity_imb",
++            "lob_dw_obi_z",
++            "lob_dw_obi_stability_score",
++            "lob_dw_obi_stable_secs",
++
++            # Cheap multilevel depth/imbalance/OFI (added to book_microstructure_v4)
++            "depth_total_5",
++            "depth_imbalance_5",
++            "depth_top5_sum",
++            "qimb_wmean",
++            "qimb_l1",
++            "qimb_l5",
++            "qimb_slope",
++            "ofi_ml_norm",
++            "ofi_ml_wsum",
++        ]
++
++        extra_bool: List[str] = [
++            "res_recovered",
++            "lob_dw_obi_stable",
++        ]
++
++        # Append extras without duplicates (stable deterministic order).
++        for k in extra_num:
++            if k not in self.num_keys:
++                self.num_keys.append(k)
++        for k in extra_bool:
++            if k not in self.bool_keys:
++                self.bool_keys.append(k)

@@ -1,0 +1,9 @@
+[Unit]
+Description=Trade execution retention purge
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/trade
+EnvironmentFile=-/etc/default/trade-execution-p9
+ExecStart=/usr/bin/python3 /opt/trade/scripts/purge_execution_hot_tables.py

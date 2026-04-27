@@ -1,0 +1,52 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(make *)",
+      "Bash(docker *)",
+      "Bash(docker-compose *)",
+      "Bash(go build *)",
+      "Bash(go test *)",
+      "Bash(go vet *)",
+      "Bash(go run *)",
+      "Bash(python3 *)",
+      "Bash(pip *)",
+      "Bash(pytest *)",
+      "Bash(redis-cli *)",
+      "Bash(psql *)",
+      "Bash(cat *)",
+      "Bash(grep *)",
+      "Bash(find *)",
+      "Bash(ls *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(jq *)",
+      "Bash(curl http://localhost:*)",
+      "Bash(curl https://localhost:*)",
+      "Bash(source .env *)",
+      "Bash(ssh main *)",
+      "Bash(ssh minik *)",
+      "Bash(scp *)",
+      "Bash(rsync *)",
+      "Bash(systemctl status *)",
+      "Bash(journalctl *)",
+      "Bash(prometheus-query *)",
+      "Bash(node *)",
+      "Bash(npm run *)",
+      "Bash(pnpm *)"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(DROP TABLE *)",
+      "Bash(DROP DATABASE *)",
+      "Bash(DELETE FROM * WHERE 1=1)",
+      "Bash(redis-cli FLUSHALL)",
+      "Bash(redis-cli FLUSHDB)"
+    ]
+  },
+  "env": {
+    "SLASH_COMMAND_TOOL_CHAR_BUDGET": "50000",
+    "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "8192"
+  }
+}

@@ -1,0 +1,10 @@
+[Unit]
+Description=Run trade OFC contextual rollout controller every 10 minutes
+
+[Timer]
+OnCalendar=*:0/10
+Persistent=true
+Unit=trade-ofc-contextual-rollout-controller.service
+
+[Install]
+WantedBy=timers.target

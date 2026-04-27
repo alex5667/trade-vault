@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/_pytest/mark/__init__.py
+# hypothesis_version: 6.148.10
+
+['--markers', '-k', '-m', ':', '@pytest.mark.%s:', 'EXPRESSION', 'Item', 'KeywordMatcher', 'List[Item]', 'MARKEXPR', 'MARK_GEN', 'Mark', 'MarkDecorator', 'MarkGenerator', 'MarkMatcher', 'ParameterSet', '_names', 'fail_at_collect', 'function', 'general', 'keyword', 'linelist', 'markers', 'markexpr', 'own_mark_names', 'skip', 'store', 'store_true', 'xfail']

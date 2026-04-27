@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signals/featurizer.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-12, 1e-09, 0.5, 1.0, 100, 120, 'ask', 'asks', 'bid', 'bids', 'delta', 'delta_z', 'last', 'mid', 'obi', 'spread', 'ts', 'volume']

@@ -1,0 +1,14 @@
+groups:
+  - name: ml_phase3_57_4_incident_rca_apply_replay_gate
+    rules:
+      - alert: MLIncidentRCAApplyReplayGateStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_replay_gate_v3_57_4_last_run_ts_seconds > 90000
+        for: 30m
+        labels: { severity: warning }
+        annotations: { summary: "Incident RCA apply replay gate stale" }
+
+      - alert: MLIncidentRCAApplyReplayGateBlocked
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_replay_gate_v3_57_4_gate_pass == 0
+        for: 15m
+        labels: { severity: critical }
+        annotations: { summary: "Incident RCA apply replay gate blocked" }

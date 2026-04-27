@@ -1,0 +1,14 @@
+[Unit]
+Description=OFC contextual runtime health exporter v1
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/ofc-contextual-runtime-health-exporter-v1
+WorkingDirectory=${TRADE_REPO_ROOT}
+ExecStart=/usr/bin/env python3 -m orderflow_services.ofc_contextual_runtime_health_exporter_v1
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

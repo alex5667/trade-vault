@@ -1,0 +1,39 @@
+groups:
+  - name: orderflow_world_practice_adverse_rd_v1
+    interval: 30s
+    rules:
+      - alert: OF_WP_AdverseRdVeto_Crit
+        expr: trade_adverse_rd_veto == 1
+        for: 5m
+        labels:
+          severity: critical
+          component: orderflow
+          scope: world_practice
+          playbook: orderflow_services/runbook_world_practice_adverse_rd_v1.md
+        annotations:
+          summary: "{{ $labels.sym }} ({{ $labels.bucket }}): adverse selection veto (realized drift)"
+          description: "Realized drift after signal horizon is consistently adverse. Investigate symbol/market microstructure, spreads, depth, and execution settings."
+
+      - alert: OF_WP_AdverseRdBadShareHigh_Warn
+        expr: trade_adverse_rd_bad_share > 0.60 and trade_adverse_rd_n >= 40
+        for: 15m
+        labels:
+          severity: warning
+          component: orderflow
+          scope: world_practice
+          playbook: orderflow_services/runbook_world_practice_adverse_rd_v1.md
+        annotations:
+          summary: "{{ $labels.sym }} ({{ $labels.bucket }}): high adverse drift share"
+          description: "A large fraction of realized drift evaluations are adverse beyond threshold. Confirm spread/slippage, LOB pressure, and risk filters."
+
+      - alert: OF_WP_AdverseRdWiringStuck_Crit
+        expr: (increase(adverse_rd_eval_total[30m]) > 0) and on(sym, bucket) (max_over_time(trade_adverse_rd_n[30m]) == 0)
+        for: 10m
+        labels:
+          severity: critical
+          component: orderflow
+          scope: world_practice
+          playbook: orderflow_services/runbook_world_practice_adverse_rd_v1.md
+        annotations:
+          summary: "{{ $labels.sym }} ({{ $labels.bucket }}): adverse-rd evals seen but gauges not updating"
+          description: "Eval counter increased but gauge n stayed at 0. Likely wiring/config issue (tracker not instantiated / snapshot not exported / labels mismatch)."

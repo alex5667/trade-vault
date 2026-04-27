@@ -1,0 +1,24 @@
+groups:
+  - name: trade-execution-p33-ops-complete
+    rules:
+      # Alert when any replay checkpoint is behind Redis stream retention.
+      # This means the executor might replay fewer events than expected on restart.
+      - alert: TradeExecutionReplayRetentionGuard
+        expr: trade_execution_replay_retention_guard_breached > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Replay checkpoint is behind Redis stream retention
+          runbook: REPAIR_AND_QUARANTINE.md
+
+      # Alert when p95 replay latency is elevated.
+      # High latency may indicate large stream scans or Redis under pressure.
+      - alert: TradeExecutionReplayP95High
+        expr: histogram_quantile(0.95, sum(rate(trade_execution_replay_latency_ms_bucket[15m])) by (le)) > 500
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Replay p95 latency is elevated
+          runbook: P33_HARDENING_REPLAY_AND_RECOVERY.md

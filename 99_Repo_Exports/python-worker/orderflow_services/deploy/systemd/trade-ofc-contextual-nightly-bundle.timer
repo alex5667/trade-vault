@@ -1,0 +1,10 @@
+[Unit]
+Description=Run trade OFC contextual nightly bundle every day at 03:11 UTC
+
+[Timer]
+OnCalendar=*-*-* 03:11:00
+Persistent=true
+Unit=trade-ofc-contextual-nightly-bundle.service
+
+[Install]
+WantedBy=timers.target

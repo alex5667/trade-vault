@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/bar_manager.py
+# hypothesis_version: 6.148.10
+
+[60000, 180000, 300000, 900000, 1800000, 3600000, 14400000, 86400000, '15m', '1d', '1h', '1m', '30m', '4h', '5m', 'D1', 'H1', 'H4', 'M1', 'M15', 'M30', 'M5', 'd1', 'h1', 'h4', 'm1', 'm15', 'm30', 'm5']

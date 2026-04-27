@@ -1,0 +1,14 @@
+groups:
+- name: horizon-attach-metrics
+  rules:
+  - alert: HorizonAttachFailureSpike
+    expr: rate(horizon_attach_error_total[5m]) > 0.05
+    for: 5m
+    labels:
+      severity: warning
+      service: orderflow
+    annotations:
+      summary: "High rate of Horizon Phase 0 attach failures"
+      description: "Horizon attach errors on {{ $labels.symbol }}: {{ $value }} errors/sec. Check python-worker logs for 'orchestrator Phase 0 Horizon attach failed' (typically ImportError or runtime err)."
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd

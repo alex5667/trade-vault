@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/bbo_store.py
+# hypothesis_version: 6.148.10
+
+[2.0, 100, 5000, ',', '1', '100', '5000', ':', 'BBOStoreCfg', 'BBO_TS_STREAM', 'BBO_TS_STREAM_MAXLEN', 'BBO_TS_SYMBOLS_ALLOW', 'BBO_TS_VENUE_DEFAULT', 'SERVICE_NAME', 'ask', 'asks', 'best_ask_px', 'best_bid_px', 'bid', 'bids', 'binance', 'book_state', 'config', 'events:bbo_ts', 'last_book', 'mid', 'payload', 'producer', 'python-worker', 'schema_version', 'snap', 'symbol', 'ts_ms', 'venue']

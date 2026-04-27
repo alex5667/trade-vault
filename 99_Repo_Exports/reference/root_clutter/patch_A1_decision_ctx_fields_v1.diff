@@ -1,0 +1,324 @@
+diff --git a/python-worker/services/orderflow/decision_ctx_fields.py b/python-worker/services/orderflow/decision_ctx_fields.py
+new file mode 100644
+index 0000000..7202985
+--- /dev/null
++++ b/python-worker/services/orderflow/decision_ctx_fields.py
+@@ -0,0 +1,250 @@
++"""Decision-time context enrichment (A1).
++
++This module is intended to be called in the hot-path right before EMIT/publish of a
++candidate/signal. Its purpose is to *freeze* the decision-time market microstructure
++snapshot into the ctx payload so that post-trade TCA (effective/realized spread,
++implementation shortfall, impact) can be computed reliably by joining:
++
++  - decision_snapshot (this ctx)
++  - fills / acks (executor)
++  - BBO / mid series (for mid_{t+Δ})
++
++Design goals:
++  - Deterministic: decision_ts_ms should come from the pipeline timestamp (ts_emit_ms)
++    and not from wall-clock, unless explicitly provided.
++  - Fail-open: if some microstructure fields are missing, we annotate flags and set
++    tca_ready=False, but we do not raise.
++  - Low coupling: we accept both flat ctx keys and nested ctx['of'] keys.
++
++Integration point (expected):
++  Call ensure_decision_ctx_fields(ctx, indicators) at the end of ctx construction,
++  *after* all indicators are computed and before publish.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Any, Dict, Iterable, List, Optional, Tuple
++
++
++def _coalesce(*vals: Any) -> Any:
++    for v in vals:
++        if v is not None:
++            return v
++    return None
++
++
++def _get_nested(d: Dict[str, Any], path: Iterable[str]) -> Any:
++    cur: Any = d
++    for p in path:
++        if not isinstance(cur, dict) or p not in cur:
++            return None
++        cur = cur[p]
++    return cur
++
++
++def _f(v: Any) -> Optional[float]:
++    """Best-effort float conversion."""
++    if v is None:
++        return None
++    try:
++        return float(v)
++    except Exception:
++        return None
++
++
++def _calc_mid(bid: Optional[float], ask: Optional[float]) -> Optional[float]:
++    if bid is None or ask is None:
++        return None
++    return (bid + ask) / 2.0
++
++
++def _calc_spread_bps(bid: Optional[float], ask: Optional[float]) -> Optional[float]:
++    mid = _calc_mid(bid, ask)
++    if mid is None or mid <= 0 or bid is None or ask is None:
++        return None
++    return (ask - bid) / mid * 10_000.0
++
++
++@dataclass(frozen=True)
++class DecisionCtxConfig:
++    """Optional knobs for mapping and strictness.
++
++    Keep this minimal; most users should not need to configure anything.
++    """
++
++    # If True, decision_ts_ms must be present (ts_emit_ms/decision_ts_ms). Otherwise
++    # we allow now_ms as a last resort.
++    require_decision_ts: bool = False
++
++
++def ensure_decision_ctx_fields(
++    ctx: Dict[str, Any],
++    indicators: Optional[Dict[str, Any]] = None,
++    *,
++    now_ms: Optional[int] = None,
++    cfg: DecisionCtxConfig = DecisionCtxConfig(),
++) -> Dict[str, Any]:
++    """Mutate and return ctx with decision-time fields required for TCA.
++
++    Parameters
++    ----------
++    ctx:
++        Context dict that will be published with a signal.
++    indicators:
++        Optional dict of computed indicators (microstructure, liquidity, etc).
++    now_ms:
++        Optional wall-clock timestamp in epoch-ms. Only used if decision timestamps
++        are missing and cfg.require_decision_ts=False.
++    cfg:
++        Optional strictness toggles.
++
++    Returns
++    -------
++    ctx:
++        The same dict instance (mutated) for convenience.
++    """
++
++    ind = indicators or {}
++
++    # Support both flat ctx and nested ctx['of'].
++    of = ctx.get("of") if isinstance(ctx.get("of"), dict) else {}
++
++    # Decision timestamp: prefer explicit decision_ts_ms, then ts_emit_ms.
++    ts_emit_ms = _coalesce(
++        ctx.get("decision_ts_ms"),
++        ctx.get("ts_emit_ms"),
++        ctx.get("ts_emit"),
++        ctx.get("emit_ts_ms"),
++        _get_nested(ctx, ("timing", "ts_emit_ms")),
++    )
++    if ts_emit_ms is None and not cfg.require_decision_ts:
++        ts_emit_ms = now_ms
++
++    # BBO (decision snapshot).
++    # We try a few common key variants to reduce coupling with upstream naming.
++    bid = _f(
++        _coalesce(
++            ctx.get("decision_bid"),
++            ctx.get("best_bid"),
++            ctx.get("bid"),
++            of.get("best_bid"),
++            of.get("bid"),
++            ind.get("best_bid"),
++        )
++    )
++    ask = _f(
++        _coalesce(
++            ctx.get("decision_ask"),
++            ctx.get("best_ask"),
++            ctx.get("ask"),
++            of.get("best_ask"),
++            of.get("ask"),
++            ind.get("best_ask"),
++        )
++    )
++
++    mid = _f(
++        _coalesce(
++            ctx.get("decision_mid"),
++            ctx.get("mid"),
++            of.get("mid"),
++            ind.get("mid"),
++            _calc_mid(bid, ask),
++        )
++    )
++    spread_bps = _f(
++        _coalesce(
++            ctx.get("decision_spread_bps"),
++            ctx.get("spread_bps"),
++            of.get("spread_bps"),
++            ind.get("spread_bps"),
++            _calc_spread_bps(bid, ask),
++        )
++    )
++
++    # Depth (5/20) - if present.
++    depth_bid_5 = _f(_coalesce(ctx.get("decision_depth_bid_5"), ctx.get("depth_bid_5"), of.get("depth_bid_5"), ind.get("depth_bid_5")))
++    depth_ask_5 = _f(_coalesce(ctx.get("decision_depth_ask_5"), ctx.get("depth_ask_5"), of.get("depth_ask_5"), ind.get("depth_ask_5")))
++    depth_bid_20 = _f(_coalesce(ctx.get("decision_depth_bid_20"), ctx.get("depth_bid_20"), of.get("depth_bid_20"), ind.get("depth_bid_20")))
++    depth_ask_20 = _f(_coalesce(ctx.get("decision_depth_ask_20"), ctx.get("depth_ask_20"), of.get("depth_ask_20"), ind.get("depth_ask_20")))
++
++    # Book geometry (optional; calculated in later phases).
++    slope_bid = _f(_coalesce(ctx.get("decision_book_slope_bid"), ind.get("book_slope_bid"), of.get("book_slope_bid")))
++    slope_ask = _f(_coalesce(ctx.get("decision_book_slope_ask"), ind.get("book_slope_ask"), of.get("book_slope_ask")))
++    dws_bps = _f(_coalesce(ctx.get("decision_dws_bps"), ind.get("dws_bps"), of.get("dws_bps")))
++
++    # OFI normalized by depth (optional).
++    ofi_norm = _f(_coalesce(ctx.get("decision_ofi_norm"), ind.get("ofi_norm"), of.get("ofi_norm")))
++
++    # Execution inputs used by EdgeCostGate.
++    expected_slip_bps = _f(
++        _coalesce(
++            ctx.get("decision_expected_slippage_bps"),
++            ctx.get("expected_slippage_bps"),
++            of.get("expected_slippage_bps"),
++            ind.get("expected_slippage_bps"),
++        )
++    )
++    exec_risk_norm = _f(
++        _coalesce(
++            ctx.get("decision_exec_risk_norm"),
++            ctx.get("exec_risk_norm"),
++            of.get("exec_risk_norm"),
++            ind.get("exec_risk_norm"),
++        )
++    )
++
++    # decision_price: for now we freeze as mid (standard for arrival/decision price).
++    # If you later define a different rule, keep it explicit here.
++    decision_price = _f(_coalesce(ctx.get("decision_price"), mid))
++
++    # Book sanity flags (annotation only at this stage).
++    flags: List[str] = list(ctx.get("book_sanity_flags") or [])
++    if bid is None or ask is None:
++        flags.append("missing_bbo")
++    else:
++        if bid >= ask:
++            flags.append("crossed_bbo")
++        if bid <= 0 or ask <= 0:
++            flags.append("non_positive_bbo")
++    if spread_bps is not None and spread_bps < 0:
++        flags.append("negative_spread_bps")
++
++    # tca_ready: decision snapshot is sufficient to later compute TCA join.
++    # Minimal requirement: decision_ts_ms + decision_price + (bid/ask or mid).
++    tca_ready = bool(
++        (ts_emit_ms is not None)
++        and (decision_price is not None)
++        and ((mid is not None) or (bid is not None and ask is not None))
++    )
++    if cfg.require_decision_ts and ts_emit_ms is None:
++        tca_ready = False
++        flags.append("missing_decision_ts")
++
++    # Write back into ctx as *flat* fields (stable contract for downstream joiners).
++    # We use setdefault so upstream can override explicitly.
++    ctx.setdefault("decision_ts_ms", int(ts_emit_ms) if ts_emit_ms is not None else None)
++    ctx.setdefault("decision_bid", bid)
++    ctx.setdefault("decision_ask", ask)
++    ctx.setdefault("decision_mid", mid)
++    ctx.setdefault("decision_spread_bps", spread_bps)
++
++    ctx.setdefault("decision_depth_bid_5", depth_bid_5)
++    ctx.setdefault("decision_depth_ask_5", depth_ask_5)
++    ctx.setdefault("decision_depth_bid_20", depth_bid_20)
++    ctx.setdefault("decision_depth_ask_20", depth_ask_20)
++
++    ctx.setdefault("decision_book_slope_bid", slope_bid)
++    ctx.setdefault("decision_book_slope_ask", slope_ask)
++    ctx.setdefault("decision_dws_bps", dws_bps)
++    ctx.setdefault("decision_ofi_norm", ofi_norm)
++
++    ctx.setdefault("decision_expected_slippage_bps", expected_slip_bps)
++    ctx.setdefault("decision_exec_risk_norm", exec_risk_norm)
++    ctx.setdefault("decision_price", decision_price)
++
++    ctx["tca_ready"] = bool(tca_ready)
++    ctx["book_sanity_flags"] = flags
++
++    return ctx
+diff --git a/python-worker/tests/test_decision_ctx_fields.py b/python-worker/tests/test_decision_ctx_fields.py
+new file mode 100644
+index 0000000..43cca84
+--- /dev/null
++++ b/python-worker/tests/test_decision_ctx_fields.py
+@@ -0,0 +1,62 @@
++import unittest
++
++
++# Repo layouts differ across environments. Prefer the canonical import used by the
++# python-worker runtime (usually `services.*`). Fall back to alternative namespace
++# if a monorepo wrapper is used.
++try:
++    from services.orderflow.decision_ctx_fields import ensure_decision_ctx_fields  # type: ignore
++except Exception:  # pragma: no cover
++    from python_worker.services.orderflow.decision_ctx_fields import ensure_decision_ctx_fields  # type: ignore
++
++
++class TestDecisionCtxFields(unittest.TestCase):
++    def test_happy_path_computes_mid_and_spread(self):
++        ctx = {
++            "symbol": "BTCUSDT",
++            "ts_emit_ms": 1700000000123,
++            "best_bid": 100.0,
++            "best_ask": 100.2,
++            "depth_bid_5": 12345.0,
++            "depth_ask_5": 12000.0,
++        }
++        ensure_decision_ctx_fields(ctx)
++
++        self.assertEqual(ctx["decision_ts_ms"], 1700000000123)
++        self.assertAlmostEqual(ctx["decision_mid"], 100.1, places=10)
++        # spread = (0.2 / 100.1) * 10000 ≈ 19.98 bps
++        self.assertAlmostEqual(ctx["decision_spread_bps"], (0.2 / 100.1) * 10000.0, places=6)
++        self.assertTrue(ctx["tca_ready"])
++        self.assertIsInstance(ctx["book_sanity_flags"], list)
++        self.assertNotIn("crossed_bbo", ctx["book_sanity_flags"])
++
++        # decision_price defaults to mid
++        self.assertAlmostEqual(ctx["decision_price"], ctx["decision_mid"], places=10)
++
++    def test_missing_bbo_sets_flags_and_tca_ready_false(self):
++        ctx = {
++            "symbol": "BTCUSDT",
++            "ts_emit_ms": 1700000000123,
++            "best_bid": 100.0,
++            # best_ask missing
++        }
++        ensure_decision_ctx_fields(ctx)
++
++        self.assertFalse(ctx["tca_ready"])
++        self.assertIn("missing_bbo", ctx["book_sanity_flags"])
++
++    def test_crossed_bbo_flag(self):
++        ctx = {
++            "symbol": "BTCUSDT",
++            "ts_emit_ms": 1700000000123,
++            "best_bid": 100.5,
++            "best_ask": 100.4,
++        }
++        ensure_decision_ctx_fields(ctx)
++        self.assertIn("crossed_bbo", ctx["book_sanity_flags"])
++        # Still can be tca_ready (mid computable), but flagged for later BookSanityGate.
++        self.assertTrue(ctx["tca_ready"])
++
++
++if __name__ == "__main__":
++    unittest.main()

@@ -1,0 +1,14 @@
+# HELP trade_execution_audit_chain_report_timestamp_seconds Unix timestamp of the last generated audit-chain report
+# TYPE trade_execution_audit_chain_report_timestamp_seconds gauge
+trade_execution_audit_chain_report_timestamp_seconds 1776522413
+# HELP trade_execution_audit_chain_report_freshness_seconds Age of the last generated audit-chain report
+# TYPE trade_execution_audit_chain_report_freshness_seconds gauge
+trade_execution_audit_chain_report_freshness_seconds 0.000000
+# HELP trade_execution_audit_chain_report_stale 1 when the report is stale beyond configured threshold
+# TYPE trade_execution_audit_chain_report_stale gauge
+trade_execution_audit_chain_report_stale 0
+# HELP trade_execution_audit_chain_total_broken Total number of broken execution audit-chain links
+# TYPE trade_execution_audit_chain_total_broken gauge
+trade_execution_audit_chain_total_broken 0
+# HELP trade_execution_audit_chain_broken_total Broken execution audit-chain rows by kind
+# TYPE trade_execution_audit_chain_broken_total gauge

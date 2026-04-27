@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/shadow_cache.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.025, 0.25, 1.0, 1000.0, 250, 256, 1000, 30000, 60000, ':', 'GLOBAL', 'asof_ts_ms', 'calendar:agg:', 'confidence', 'data_quality_flags', 'event_grade_id', 'event_tminus_sec', 'horizon_sec', 'news-shadow-refresh', 'news:agg:', 'news:analysis:', 'news_grade_id', 'news_shadow_cache', 'primary_tag_id', 'ref', 'risk_ema', 'surprise_ema', 'tags_mask']

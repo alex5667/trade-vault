@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/execution_gate_service.py
+# hypothesis_version: 6.148.10
+
+[1.0, 30.0, 1000, 8004, '$', '0', '1', '2000', '5.0', 'CRYPTO_RAW_STREAM', 'EXEC_GATE_MATCH_MS', 'EXEC_GATE_TTL_S', 'INFO', 'LOG_LEVEL', 'LONG', 'OF_CONFIRM_STREAM', 'ORDERS_QUEUE_BINANCE', 'PROMETHEUS_PORT', 'REDIS_URL', 'SHORT', '__main__', 'action', 'bypassed', 'confirm_score', 'confirmed', 'direction', 'failed', 'false', 'gate_ts_ms', 'gate_verified', 'generated_at', 'is_virtual', 'loading', 'long', 'lot', 'ok', 'on', 'open', 'passed', 'payload', 'qty', 'quantity', 'reason', 'score', 'shadow_pass', 'short', 'sid', 'side', 'sl', 'symbol', 'tp_levels', 'true', 'ts_ms', 'validation_reason', 'validation_status', 'yes']

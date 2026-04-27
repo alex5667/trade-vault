@@ -1,0 +1,32 @@
+{
+	"streams": {
+		"symbols": [
+			"XAUUSD",
+			"BTCUSDT",
+			"ETHUSDT",
+			"SOLUSDT",
+			"XRPUSDT",
+			"BNBUSDT"
+		],
+		"strategies": ["orderflow", "ta", "aggregated", "cryptoorderflow"]
+	},
+	"consumer_group": "signal-tracker-group",
+	"consumer_name": "tracker-main",
+	"monitor": {
+		"default_lot": 1.0,
+		"risk_pct": 1.0,
+		"stop_atr_mult": 1.0,
+		"rr_levels": [1.0, 2.0, 3.0],
+		"tp_ratio": [0.5, 0.3, 0.2],
+		"notify_on_trade_close": false
+	},
+	"telegram": {
+		"bot_token": null,
+		"chat_id": null
+	},
+	"reporting": {
+		"periodic_interval_hours": 1,
+		"daily_summary_enabled": true,
+		"daily_summary_hour": 0
+	}
+}

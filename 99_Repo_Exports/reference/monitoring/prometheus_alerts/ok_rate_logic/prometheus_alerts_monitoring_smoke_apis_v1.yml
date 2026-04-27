@@ -1,0 +1,28 @@
+groups:
+  - name: monitoring-smoke-apis
+    rules:
+      - alert: MonitoringSmokeAlertmanagerApiBroken
+        expr: monitoring_smoke_alertmanager_api_ok == 0
+        for: 20m
+        labels:
+          severity: warning
+          team: trade
+          component: monitoring
+        annotations:
+          summary: "Monitoring smoke: Alertmanager API broken"
+          description: "Nightly monitoring smoke detected Alertmanager /api/v2/status under public-proxy is not OK."
+          runbook_path: "/monitoring_smoke.md"
+          dashboard_path: "/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1"
+
+      - alert: MonitoringSmokePrometheusApiBroken
+        expr: monitoring_smoke_prometheus_api_ok == 0
+        for: 20m
+        labels:
+          severity: warning
+          team: trade
+          component: monitoring
+        annotations:
+          summary: "Monitoring smoke: Prometheus API broken"
+          description: "Nightly monitoring smoke detected Prometheus /api/v1/status/runtimeinfo under public-proxy is not OK."
+          runbook_path: "/monitoring_smoke.md"
+          dashboard_path: "/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1"

@@ -1,0 +1,546 @@
+diff --git a/src/modules/liqmap/INTEGRATION_LIQMAP.md b/src/modules/liqmap/INTEGRATION_LIQMAP.md
+new file mode 100644
+index 0000000..b4b6b2d
+--- /dev/null
++++ b/src/modules/liqmap/INTEGRATION_LIQMAP.md
+@@ -0,0 +1,158 @@
++# Phase C — Liquidation Map → NestJS (/signals) → UI
++
++This folder is a **drop-in module** for your `trade_back` (NestJS) repository.
++
++It provides a background bridge from Redis → Socket.IO namespace `/signals` event `liqmap_snapshot`.
++
++## What it supports
++
++### Sources
++
++1) **Redis Streams** (recommended):
++   - reads `stream:liqmap_snapshot:<SYMBOL>:<WINDOW>`
++   - field `data` is compact JSON from Python liquidation_map_service
++
++2) **Redis Keys polling** (fallback):
++   - polls `liqmap:snapshot:<SYMBOL>:<WINDOW>`
++   - emits on change (`ts_ms` monotonic)
++
++## Minimal integration steps
++
++1) Copy folder `src/modules/liqmap/` into your `trade_back/src/modules/liqmap/`.
++
++2) Add the module into your NestJS root module:
++
++```ts
++// src/app.module.ts
++import { LiqmapModule } from './modules/liqmap/liqmap.module';
++
++@Module({
++  imports: [
++    // ...
++    LiqmapModule,
++  ],
++})
++export class AppModule {}
++```
++
++3) ENV (examples):
++
++```ini
++REDIS_URL=redis://localhost:6379
++
++# C-source: stream (preferred) or key
++LIQMAP_WS_SOURCE=stream
++
++LIQMAP_SYMBOLS=BTCUSDT,ETHUSDT
++LIQMAP_WINDOWS=1h,4h,24h
++
++# Python (Phase B) defaults
++LIQMAP_SNAPSHOT_KEY_PREFIX=liqmap:snapshot
++LIQMAP_SNAPSHOT_STREAM_PREFIX=stream:liqmap_snapshot
++
++# Streams (consumer groups)
++LIQMAP_STREAM_GROUP=tb_liqmap
++LIQMAP_STREAM_CONSUMER=tb-1
++LIQMAP_STREAM_BLOCK_MS=1000
++LIQMAP_STREAM_COUNT=200
++
++# Polling fallback
++LIQMAP_POLL_INTERVAL_MS=500
++
++# Safety
++LIQMAP_MAX_PAYLOAD_BYTES=262144
++```
++
++4) UI event:
++
++Socket.IO namespace: `/signals`
++
++Event: `liqmap_snapshot`
++
++Payload schema: see `liqmap.types.ts` (LiqmapSnapshotV1).
++
++## Runbook
++
++- If UI shows nothing:
++  - verify Python publishes either keys or stream
++    - `GET liqmap:snapshot:BTCUSDT:1h`
++    - `XRANGE stream:liqmap_snapshot:BTCUSDT:1h - + COUNT 1`
++  - check Nest logs for `liqmap_bridge_*` counters.
++
++- If using stream source:
++  - check groups: `XINFO GROUPS stream:liqmap_snapshot:BTCUSDT:1h`
++  - pending: `XPENDING stream:liqmap_snapshot:BTCUSDT:1h tb_liqmap`
++
++## Notes
++
++- The bridge is **fail-open** for trading: it only impacts UI.
++- For very large symbol lists, prefer Streams (reduces polling load).
++
+diff --git a/src/modules/liqmap/liqmap.config.ts b/src/modules/liqmap/liqmap.config.ts
+new file mode 100644
+index 0000000..9d3a59d
+--- /dev/null
++++ b/src/modules/liqmap/liqmap.config.ts
+@@ -0,0 +1,148 @@
++/* eslint-disable @typescript-eslint/no-non-null-assertion */
++
++export type LiqmapSource = 'stream' | 'key';
++
++export type LiqmapConfig = {
++  redisUrl: string;
++
++  source: LiqmapSource;
++  symbols: string[];
++  windows: string[];
++
++  snapshotKeyPrefix: string;
++  snapshotStreamPrefix: string;
++
++  // stream mode
++  streamGroup: string;
++  streamConsumer: string;
++  streamBlockMs: number;
++  streamCount: number;
++
++  // key mode
++  pollIntervalMs: number;
++
++  // safety
++  maxPayloadBytes: number;
++};
++
++function splitCsv(v: string | undefined): string[] {
++  if (!v) return [];
++  return v
++    .split(',')
++    .map((s) => s.trim())
++    .filter(Boolean);
++}
++
++function envInt(name: string, def: number): number {
++  const v = process.env[name];
++  if (!v) return def;
++  const n = Number(v);
++  return Number.isFinite(n) ? Math.trunc(n) : def;
++}
++
++export function loadLiqmapConfig(): LiqmapConfig {
++  const redisUrl =
++    process.env.REDIS_URL ||
++    process.env.REDIS_WORKER_URL ||
++    process.env.REDIS_URI ||
++    'redis://localhost:6379';
++
++  const source = (process.env.LIQMAP_WS_SOURCE || 'stream').toLowerCase() as LiqmapSource;
++  const symbols = splitCsv(process.env.LIQMAP_SYMBOLS);
++  const windows = splitCsv(process.env.LIQMAP_WINDOWS);
++
++  return {
++    redisUrl,
++    source: source === 'key' ? 'key' : 'stream',
++
++    // If user didn't pass symbols/windows, we still keep the module alive.
++    // It will log warnings and do nothing (safe).
++    symbols: symbols.map((s) => s.toUpperCase()),
++    windows: windows.length ? windows : ['1h', '4h', '24h'],
++
++    snapshotKeyPrefix: process.env.LIQMAP_SNAPSHOT_KEY_PREFIX || 'liqmap:snapshot',
++    snapshotStreamPrefix: process.env.LIQMAP_SNAPSHOT_STREAM_PREFIX || 'stream:liqmap_snapshot',
++
++    streamGroup: process.env.LIQMAP_STREAM_GROUP || 'tb_liqmap',
++    streamConsumer: process.env.LIQMAP_STREAM_CONSUMER || `tb-${process.pid}`,
++    streamBlockMs: envInt('LIQMAP_STREAM_BLOCK_MS', 1000),
++    streamCount: envInt('LIQMAP_STREAM_COUNT', 200),
++
++    pollIntervalMs: envInt('LIQMAP_POLL_INTERVAL_MS', 500),
++
++    maxPayloadBytes: envInt('LIQMAP_MAX_PAYLOAD_BYTES', 262144),
++  };
++}
++
+diff --git a/src/modules/liqmap/liqmap.types.ts b/src/modules/liqmap/liqmap.types.ts
+new file mode 100644
+index 0000000..6d88e30
+--- /dev/null
++++ b/src/modules/liqmap/liqmap.types.ts
+@@ -0,0 +1,74 @@
++export type LiqmapWindow = string; // e.g. "1h"|"4h"|"24h"
++
++export type LiqmapLevelV1 = {
++  price: string; // decimal-as-string
++  bucket: string; // abs: bucket price string; log_*: integer index string
++  long_usd: string; // decimal-as-string
++  short_usd: string; // decimal-as-string
++  total_usd: string; // decimal-as-string
++};
++
++export type LiqmapSnapshotV1 = {
++  ts_ms: number;
++  symbol: string;
++  window: LiqmapWindow;
++
++  bucket_mode: 'log_bps' | 'log_pct' | 'abs' | string;
++  bucket_bps?: number | null;
++  bucket_pct?: number | null;
++  bucket_abs?: string | null;
++  range_pct?: number | null;
++
++  levels: LiqmapLevelV1[];
++};
++
++export type LiqmapWsEnvelope = {
++  event: 'liqmap_snapshot';
++  schema: 1;
++  payload: LiqmapSnapshotV1;
++};
++
++export function isLiqmapSnapshotV1(x: unknown): x is LiqmapSnapshotV1 {
++  if (!x || typeof x !== 'object') return false;
++  const o = x as any;
++  return (
++    typeof o.ts_ms === 'number' &&
++    typeof o.symbol === 'string' &&
++    typeof o.window === 'string' &&
++    typeof o.bucket_mode === 'string' &&
++    Array.isArray(o.levels)
++  );
++}
++
+diff --git a/src/modules/liqmap/liqmap.parse.ts b/src/modules/liqmap/liqmap.parse.ts
+new file mode 100644
+index 0000000..b0ab1c3
+--- /dev/null
++++ b/src/modules/liqmap/liqmap.parse.ts
+@@ -0,0 +1,56 @@
++import { isLiqmapSnapshotV1, LiqmapSnapshotV1 } from './liqmap.types';
++
++export function parseSnapshotJson(json: string, maxBytes: number): LiqmapSnapshotV1 | null {
++  if (!json) return null;
++  // Safety: avoid parsing huge payloads.
++  if (Buffer.byteLength(json, 'utf8') > maxBytes) return null;
++
++  let obj: unknown;
++  try {
++    obj = JSON.parse(json);
++  } catch {
++    return null;
++  }
++  if (!isLiqmapSnapshotV1(obj)) return null;
++  return obj;
++}
++
++export function snapshotKey(prefix: string, symbol: string, window: string): string {
++  return `${prefix}:${symbol}:${window}`;
++}
++
++export function snapshotStream(prefix: string, symbol: string, window: string): string {
++  return `${prefix}:${symbol}:${window}`;
++}
++
+diff --git a/src/modules/liqmap/liqmap.redis.ts b/src/modules/liqmap/liqmap.redis.ts
+new file mode 100644
+index 0000000..3a4f05b
+--- /dev/null
++++ b/src/modules/liqmap/liqmap.redis.ts
+@@ -0,0 +1,39 @@
++import Redis from 'ioredis';
++
++export type RedisClient = Redis;
++
++export function createRedisClient(redisUrl: string): RedisClient {
++  const r = new Redis(redisUrl, {
++    // Keep retry logic bounded and predictable.
++    maxRetriesPerRequest: 3,
++    enableReadyCheck: true,
++    lazyConnect: true,
++  });
++  return r;
++}
++
+diff --git a/src/modules/liqmap/liqmap.gateway.ts b/src/modules/liqmap/liqmap.gateway.ts
+new file mode 100644
+index 0000000..a35bb63
+--- /dev/null
++++ b/src/modules/liqmap/liqmap.gateway.ts
+@@ -0,0 +1,44 @@
++import {
++  WebSocketGateway,
++  WebSocketServer,
++  OnGatewayConnection,
++} from '@nestjs/websockets';
++import { Server, Socket } from 'socket.io';
++import { Logger } from '@nestjs/common';
++import { LiqmapSnapshotV1 } from './liqmap.types';
++
++@WebSocketGateway({ namespace: '/signals', cors: { origin: '*', credentials: true } })
++export class LiqmapGateway implements OnGatewayConnection {
++  private readonly logger = new Logger('LiqmapGateway');
++
++  @WebSocketServer()
++  server!: Server;
++
++  // latest snapshot cache (symbol|window -> payload)
++  private latest = new Map<string, LiqmapSnapshotV1>();
++
++  handleConnection(client: Socket) {
++    // Best-effort: on connect, emit last known snapshots.
++    try {
++      for (const s of this.latest.values()) {
++        client.emit('liqmap_snapshot', { schema: 1, payload: s });
++      }
++    } catch (e) {
++      this.logger.debug(`handleConnection emit failed: ${(e as Error).message}`);
++    }
++  }
++
++  publish(snapshot: LiqmapSnapshotV1) {
++    const key = `${snapshot.symbol}|${snapshot.window}`;
++    this.latest.set(key, snapshot);
++    this.server.emit('liqmap_snapshot', { schema: 1, payload: snapshot });
++  }
++}
++
+diff --git a/src/modules/liqmap/liqmap.bridge.service.ts b/src/modules/liqmap/liqmap.bridge.service.ts
+new file mode 100644
+index 0000000..4453ff9
+--- /dev/null
++++ b/src/modules/liqmap/liqmap.bridge.service.ts
+@@ -0,0 +1,293 @@
++import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
++import type { RedisClient } from './liqmap.redis';
++import { createRedisClient } from './liqmap.redis';
++import { loadLiqmapConfig } from './liqmap.config';
++import { LiqmapGateway } from './liqmap.gateway';
++import { parseSnapshotJson, snapshotKey, snapshotStream } from './liqmap.parse';
++
++type StreamMsg = [string, Array<[string, Record<string, string>]>];
++
++@Injectable()
++export class LiqmapBridgeService implements OnModuleInit, OnModuleDestroy {
++  private readonly logger = new Logger('LiqmapBridgeService');
++
++  private r!: RedisClient;
++  private stop = false;
++  private pollTimer: NodeJS.Timeout | null = null;
++
++  private lastTsByKey = new Map<string, number>();
++
++  constructor(private readonly gw: LiqmapGateway) {}
++
++  async onModuleInit() {
++    const cfg = loadLiqmapConfig();
++    this.r = createRedisClient(cfg.redisUrl);
++    await this.r.connect();
++
++    if (!cfg.symbols.length) {
++      this.logger.warn('LIQMAP_SYMBOLS is empty: bridge is idle (safe).');
++      return;
++    }
++
++    if (cfg.source === 'key') {
++      this.startKeyPolling(cfg);
++    } else {
++      await this.startStreamLoop(cfg);
++    }
++  }
++
++  async onModuleDestroy() {
++    this.stop = true;
++    if (this.pollTimer) {
++      clearInterval(this.pollTimer);
++      this.pollTimer = null;
++    }
++    try {
++      if (this.r) await this.r.quit();
++    } catch {
++      // ignore
++    }
++  }
++
++  private keysToTrack(cfg: ReturnType<typeof loadLiqmapConfig>) {
++    const out: Array<{ sym: string; win: string; key: string }> = [];
++    for (const sym of cfg.symbols) {
++      for (const w of cfg.windows) {
++        out.push({ sym, win: w, key: snapshotKey(cfg.snapshotKeyPrefix, sym, w) });
++      }
++    }
++    return out;
++  }
++
++  private streamsToTrack(cfg: ReturnType<typeof loadLiqmapConfig>) {
++    const out: string[] = [];
++    for (const sym of cfg.symbols) {
++      for (const w of cfg.windows) {
++        out.push(snapshotStream(cfg.snapshotStreamPrefix, sym, w));
++      }
++    }
++    return out;
++  }
++
++  private startKeyPolling(cfg: ReturnType<typeof loadLiqmapConfig>) {
++    const tracked = this.keysToTrack(cfg);
++    this.logger.log(`LIQMAP key polling enabled: keys=${tracked.length} interval=${cfg.pollIntervalMs}ms`);
++
++    this.pollTimer = setInterval(async () => {
++      if (this.stop) return;
++      try {
++        const keys = tracked.map((t) => t.key);
++        const vals = await this.r.mget(...keys);
++        for (let i = 0; i < keys.length; i++) {
++          const key = keys[i];
++          const json = vals[i];
++          if (!json) continue;
++          const snap = parseSnapshotJson(json, cfg.maxPayloadBytes);
++          if (!snap) continue;
++          const last = this.lastTsByKey.get(key) || 0;
++          if (snap.ts_ms <= last) continue;
++          this.lastTsByKey.set(key, snap.ts_ms);
++          this.gw.publish(snap);
++        }
++      } catch (e) {
++        this.logger.warn(`key polling error: ${(e as Error).message}`);
++      }
++    }, cfg.pollIntervalMs);
++  }
++
++  private async ensureGroups(cfg: ReturnType<typeof loadLiqmapConfig>, streams: string[]) {
++    for (const s of streams) {
++      try {
++        // XGROUP CREATE <key> <groupname> $ MKSTREAM
++        // ioredis: xgroup('CREATE', key, group, '$', 'MKSTREAM')
++        await this.r.xgroup('CREATE', s, cfg.streamGroup, '$', 'MKSTREAM');
++      } catch (e) {
++        const msg = (e as Error).message || '';
++        if (msg.includes('BUSYGROUP')) {
++          continue;
++        }
++        // In case the stream doesn't exist yet, MKSTREAM should create it.
++        // Other errors should be visible.
++        this.logger.warn(`xgroup create failed stream=${s}: ${msg}`);
++      }
++    }
++  }
++
++  private async startStreamLoop(cfg: ReturnType<typeof loadLiqmapConfig>) {
++    const streams = this.streamsToTrack(cfg);
++    this.logger.log(
++      `LIQMAP stream mode enabled: streams=${streams.length} group=${cfg.streamGroup} consumer=${cfg.streamConsumer}`,
++    );
++
++    await this.ensureGroups(cfg, streams);
++
++    // Start background loop (non-blocking for Nest init): fire and forget
++    // NOTE: OnModuleInit allows async, but we don't want to block the app start forever.
++    void this.streamLoop(cfg, streams);
++  }
++
++  private async streamLoop(cfg: ReturnType<typeof loadLiqmapConfig>, streams: string[]) {
++    // We use XREADGROUP to read from ALL streams in one blocking call.
++    // Format: XREADGROUP GROUP g c COUNT N BLOCK ms STREAMS k1 k2 ... > > ...
++    const ids = streams.map(() => '>');
++
++    while (!this.stop) {
++      try {
++        const resp = (await this.r.xreadgroup(
++          'GROUP',
++          cfg.streamGroup,
++          cfg.streamConsumer,
++          'COUNT',
++          cfg.streamCount,
++          'BLOCK',
++          cfg.streamBlockMs,
++          'STREAMS',
++          ...streams,
++          ...ids,
++        )) as unknown as StreamMsg[] | null;
++
++        if (!resp || !resp.length) continue;
++
++        for (const [stream, entries] of resp) {
++          for (const [id, fields] of entries) {
++            const json = fields?.data;
++            if (typeof json === 'string' && json) {
++              const snap = parseSnapshotJson(json, cfg.maxPayloadBytes);
++              if (snap) {
++                this.gw.publish(snap);
++              }
++            }
++            // Always ACK to prevent PEL growth (UI is best-effort).
++            try {
++              await this.r.xack(stream, cfg.streamGroup, id);
++            } catch (e) {
++              this.logger.debug(`xack failed stream=${stream} id=${id}: ${(e as Error).message}`);
++            }
++          }
++        }
++      } catch (e) {
++        this.logger.warn(`stream loop error: ${(e as Error).message}`);
++        // bounded backoff
++        await new Promise((r) => setTimeout(r, 250));
++      }
++    }
++  }
++}
++
+diff --git a/src/modules/liqmap/liqmap.module.ts b/src/modules/liqmap/liqmap.module.ts
+new file mode 100644
+index 0000000..60e0d35
+--- /dev/null
++++ b/src/modules/liqmap/liqmap.module.ts
+@@ -0,0 +1,18 @@
++import { Module } from '@nestjs/common';
++import { LiqmapGateway } from './liqmap.gateway';
++import { LiqmapBridgeService } from './liqmap.bridge.service';
++
++@Module({
++  providers: [LiqmapGateway, LiqmapBridgeService],
++  exports: [],
++})
++export class LiqmapModule {}
++
+diff --git a/src/modules/liqmap/__tests__/liqmap.parse.spec.ts b/src/modules/liqmap/__tests__/liqmap.parse.spec.ts
+new file mode 100644
+index 0000000..a9f2bc5
+--- /dev/null
++++ b/src/modules/liqmap/__tests__/liqmap.parse.spec.ts
+@@ -0,0 +1,44 @@
++import { parseSnapshotJson } from '../liqmap.parse';
++
++describe('liqmap.parse', () => {
++  test('parseSnapshotJson rejects huge payload', () => {
++    const json = JSON.stringify({ ts_ms: 1, symbol: 'BTCUSDT', window: '1h', bucket_mode: 'log_bps', levels: [] });
++    expect(parseSnapshotJson(json, 10)).toBeNull();
++  });
++
++  test('parseSnapshotJson accepts valid payload', () => {
++    const json = JSON.stringify({
++      ts_ms: 123,
++      symbol: 'BTCUSDT',
++      window: '1h',
++      bucket_mode: 'log_bps',
++      levels: [{ price: '100', bucket: '1', long_usd: '1', short_usd: '2', total_usd: '3' }],
++    });
++    const out = parseSnapshotJson(json, 100000);
++    expect(out).not.toBeNull();
++    expect(out?.symbol).toBe('BTCUSDT');
++  });
++});
++

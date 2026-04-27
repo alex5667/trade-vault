@@ -1,0 +1,126 @@
+groups:
+  - name: orderflow_strict_dq_stream_health_v1
+    # Align rule eval cadence with the low-latency DQ surface.
+    # NOTE: Scrape interval should be <= 15s for the 10s 'extreme' alert to be meaningful.
+    interval: 30s
+    rules:
+      # -------------------------------------------------------------------
+      # P2/F — Strict DQ alerts (stream-level)
+      #
+      # These alerts are designed to be *actionable*:
+      #   - They point at the exact root dimension: latency (gap_p95) vs continuity (missing_seq).
+      #   - They are per-symbol (low-cardinality).
+      #   - Thresholds match DQ gate v2 strict defaults (see core/dq_gate_v1.py):
+      #       gap_soft=3000ms, gap_hard=4500ms, gap_extreme=9000ms
+      #       tick_seq_soft=0.05, tick_seq_hard=0.15
+      #       book_seq_hard=0.10
+      #
+      # IMPORTANT
+      # If you run DQ_MODE=safe, consider increasing thresholds or rely primarily on dq_level alerts.
+      # -------------------------------------------------------------------
+
+      # Tick gap p95 — sustained degradation (warn)
+      - alert: OF_DQ_TickGapP95High_Warn
+        expr: tick_gap_p95_ms > 3000 and on(symbol) tick_gap_n >= 50
+        for: 2m
+        labels:
+          severity: warning
+          component: orderflow
+          scope: dq
+          playbook: orderflow_services/runbook_strict_dq_stream_health_v1.md
+        annotations:
+          summary: "{{ $labels.symbol }}: tick gap p95 high (warn)"
+          description: |
+            Tick stream latency is degraded: tick_gap_p95_ms > 3000ms for 2m (n>=50).
+            This typically indicates WS/network jitter, upstream throttling, or local CPU stalls.
+
+      # Tick gap p95 — hard sustained degradation (crit)
+      - alert: OF_DQ_TickGapP95High_Crit
+        expr: tick_gap_p95_ms > 4500 and on(symbol) tick_gap_n >= 50
+        for: 30s
+        labels:
+          severity: critical
+          component: orderflow
+          scope: dq
+          playbook: orderflow_services/runbook_strict_dq_stream_health_v1.md
+        annotations:
+          summary: "{{ $labels.symbol }}: tick gap p95 high (crit)"
+          description: |
+            Tick stream latency is severely degraded: tick_gap_p95_ms > 4500ms for 30s (n>=50).
+            Expect DQ gate to escalate dq_level and potentially hard-veto (depending on mode).
+
+      # Tick gap p95 — extreme short spike (crit)
+      - alert: OF_DQ_TickGapP95Extreme_Crit
+        expr: tick_gap_p95_ms > 9000 and on(symbol) tick_gap_n >= 50
+        for: 10s
+        labels:
+          severity: critical
+          component: orderflow
+          scope: dq
+          playbook: orderflow_services/runbook_strict_dq_stream_health_v1.md
+        annotations:
+          summary: "{{ $labels.symbol }}: tick gap p95 extreme"
+          description: |
+            Extreme tick stream latency spike: tick_gap_p95_ms > 9000ms for 10s (n>=50).
+            Usually correlates with transient WS disconnect/reconnect, host stalls, or network drops.
+
+      # Tick continuity (trade_id gap) — sustained soft degradation (warn)
+      - alert: OF_DQ_TickMissingSeqEmaHigh_Warn
+        expr: tick_missing_seq_ema > 0.05
+        for: 2m
+        labels:
+          severity: warning
+          component: orderflow
+          scope: dq
+          playbook: orderflow_services/runbook_strict_dq_stream_health_v1.md
+        annotations:
+          summary: "{{ $labels.symbol }}: tick continuity degrading (warn)"
+          description: |
+            Tick continuity degradation: tick_missing_seq_ema > 0.05 for 2m.
+            This indicates true gaps in trade_id continuity (tid jumps forward by >1).
+            Investigate WS stream drops and reconnection logic.
+
+      # Tick continuity — hard degradation (crit)
+      - alert: OF_DQ_TickMissingSeqEmaHigh_Crit
+        expr: tick_missing_seq_ema > 0.15
+        for: 30s
+        labels:
+          severity: critical
+          component: orderflow
+          scope: dq
+          playbook: orderflow_services/runbook_strict_dq_stream_health_v1.md
+        annotations:
+          summary: "{{ $labels.symbol }}: tick continuity broken (crit)"
+          description: |
+            Tick continuity broken: tick_missing_seq_ema > 0.15 for 30s.
+            This is a strong indicator of persistent WS gaps or a parsing/sequence bug.
+
+      # Book continuity (diff-depth seq chain) — hard degradation (crit)
+      - alert: OF_DQ_BookMissingSeqEmaHigh_Crit
+        expr: book_missing_seq_ema > 0.10
+        for: 30s
+        labels:
+          severity: critical
+          component: orderflow
+          scope: dq
+          playbook: orderflow_services/runbook_strict_dq_stream_health_v1.md
+        annotations:
+          summary: "{{ $labels.symbol }}: book continuity broken (crit)"
+          description: |
+            Book continuity broken: book_missing_seq_ema > 0.10 for 30s.
+            This typically means diff-depth (U/u/pu) chain is broken (missing seq) and you must resync snapshot.
+
+      # DQ hard-level share: dq_level == 2 for a large fraction of scrapes
+      - alert: OF_DQ_LevelHardShareHigh_Crit
+        expr: avg_over_time((dq_level == bool 2)[5m:30s]) > 0.20
+        for: 1m
+        labels:
+          severity: critical
+          component: orderflow
+          scope: dq
+          playbook: orderflow_services/runbook_strict_dq_stream_health_v1.md
+        annotations:
+          summary: "{{ $labels.symbol }}: DQ hard-level share high"
+          description: |
+            DQ hard-level is sticky: dq_level==2 for >20% of scrapes over 5m.
+            This is a system-level integrity issue: trading decisions may be hard-vetoed frequently.

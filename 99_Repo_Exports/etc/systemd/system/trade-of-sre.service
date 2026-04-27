@@ -1,0 +1,11 @@
+[Unit]
+Description=Trade OF Gate SRE monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/trade/of_reports.env
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+ExecStart=/usr/bin/python3 -m tools.of_gate_sre_monitor --window-min 10 --min-n 40
+

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/ofc_contextual_gate_v1.py
+# hypothesis_version: 6.148.10
+
+[-2.0, 0.0, 0.6, 1.0, 'allow', 'cost_p50_bps', 'cost_p90_bps', 'edge_floor_p50_bps', 'edge_floor_p90_bps', 'fallback_level', 'legacy_of_score_min', 'off', 'p_min_default', 'p_rule_cal', 'score_min_ctx', 'spread_bps']

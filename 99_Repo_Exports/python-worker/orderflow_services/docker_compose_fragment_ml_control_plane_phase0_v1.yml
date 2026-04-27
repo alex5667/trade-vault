@@ -1,0 +1,59 @@
+
+services:
+  scanner-ml-inventory-exporter-v1:
+    container_name: scanner-ml-inventory-exporter-v1
+    build:
+      context: ../../
+      dockerfile: python-worker/Dockerfile
+    working_dir: /app
+    command: ["python", "-u", "-m", "orderflow_services.ml_inventory_exporter_v1"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0
+      TRADES_DB_DSN: ${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD}@scanner-pgbouncer:5432/scanner_analytics?sslmode=disable}
+      ML_INVENTORY_DB_ENABLE: 1
+      ML_INVENTORY_STREAM: stream:ml:model_inventory
+      ML_INVENTORY_SUMMARY_KEY: metrics:ml:model_inventory:last
+      ML_INVENTORY_EXPORTER_PORT: 9852
+      ML_INVENTORY_EXPORTER_INTERVAL_S: 60
+      ML_CFG_CHAMPION_KEY: cfg:ml_confirm:champion
+      ML_CFG_CHALLENGER_KEY: cfg:ml_confirm:challenger
+      ML_CFG_HASH_KEY: cfg:ml_confirm
+      ML_CONFIRM_MODE: ${ML_CONFIRM_MODE:-OFF}
+      ML_CONFIRM_FAIL_POLICY: ${ML_CONFIRM_FAIL_POLICY:-OPEN}
+    ports:
+      - "9852:9852"
+    networks:
+      - scanner-network
+
+  scanner-ml-health-rollup-v1:
+    container_name: scanner-ml-health-rollup-v1
+    build:
+      context: ../../
+      dockerfile: python-worker/Dockerfile
+    working_dir: /app
+    command: ["python", "-u", "-m", "orderflow_services.ml_health_rollup_worker_v1"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0
+      TRADES_DB_DSN: ${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD}@scanner-pgbouncer:5432/scanner_analytics?sslmode=disable}
+      ML_HEALTH_DB_ENABLE: 1
+      ML_CONFIRM_METRICS_STREAM: metrics:ml_confirm
+      ML_HEALTH_OUT_STREAM: stream:ml:health_snapshot
+      ML_HEALTH_OUT_SUMMARY_KEY: metrics:ml:health_snapshot:last
+      ML_HEALTH_GROUP: cg:ml_health_rollup_v1
+      ML_HEALTH_CONSUMER: scanner-ml-health-rollup-v1
+      ML_HEALTH_EXPORTER_PORT: 9853
+      ML_HEALTH_BLOCK_MS: 5000
+      ML_HEALTH_READ_COUNT: 500
+      ML_HEALTH_FINALIZE_LAG_MIN: 1
+      ML_HEALTH_BUCKET_TTL_S: 259200
+    ports:
+      - "9853:9853"
+    networks:
+      - scanner-network
+
+networks:
+  scanner-network:
+    external: true
+    name: scanner-network

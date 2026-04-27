@@ -1,0 +1,23 @@
+# Reference docker-compose fragment for Phase 3.2 Local Report Handoff Rewire.
+# The actual service definition is in docker-compose-timers.yml.
+# This file kept as documentation reference consistent with earlier phases.
+services:
+  scanner-local-report-handoff-rewire-v3-2:
+    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
+    command: ["python", "-m", "orderflow_services.local_report_handoff_rewire_adapter_v3_2"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
+      ANALYTICS_DB_DSN: ${ANALYTICS_DB_DSN:-}
+      ML_LOCAL_REPORT_HANDOFF_REWIRE_PORT: ${ML_LOCAL_REPORT_HANDOFF_REWIRE_PORT:-9918}
+      ML_LOCAL_REPORT_HANDOFF_SOURCE_STREAM: ${ML_LOCAL_REPORT_HANDOFF_SOURCE_STREAM:-stream:ml:local_report_handoff_source}
+      ML_VERTEX_LOCAL_HANDOFF_INPUT_STREAM: ${ML_VERTEX_LOCAL_HANDOFF_INPUT_STREAM:-stream:ml:vertex_local_handoff_requests}
+      ML_LOCAL_REPORT_HANDOFF_REWIRE_ENABLED: ${ML_LOCAL_REPORT_HANDOFF_REWIRE_ENABLED:-1}
+      ML_LOCAL_REPORT_HANDOFF_REWIRE_MODE: ${ML_LOCAL_REPORT_HANDOFF_REWIRE_MODE:-ENABLED}
+      ML_LOCAL_REPORT_HANDOFF_REWIRE_MAX_PAYLOAD_BYTES: ${ML_LOCAL_REPORT_HANDOFF_REWIRE_MAX_PAYLOAD_BYTES:-65536}
+      ML_LOCAL_REPORT_HANDOFF_REWIRE_MAX_PROMPT_CHARS: ${ML_LOCAL_REPORT_HANDOFF_REWIRE_MAX_PROMPT_CHARS:-12000}
+    ports: ["${ML_LOCAL_REPORT_HANDOFF_REWIRE_PORT:-9918}:9918"]
+    depends_on: [redis-worker-1]
+    networks:
+      - scanner-timers
+      - scanner-infra

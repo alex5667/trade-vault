@@ -1,0 +1,1344 @@
+diff -ruN --no-dereference /mnt/data/repo_p104_base/ml_analysis/tools/feature_schema_compare_exporter_v1.py /mnt/data/repo/ml_analysis/tools/feature_schema_compare_exporter_v1.py
+--- /mnt/data/repo_p104_base/ml_analysis/tools/feature_schema_compare_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo/ml_analysis/tools/feature_schema_compare_exporter_v1.py	2026-02-26 10:09:50.696814658 +0000
+@@ -0,0 +1,144 @@
++from __future__ import annotations
++
++import os
++import time
++from typing import Dict, Tuple
++
++from fastapi import FastAPI
++from fastapi.responses import PlainTextResponse
++import uvicorn
++
++
++def _env(name: str, default: str = "") -> str:
++    return (os.getenv(name) or default).strip()
++
++
++REDIS_URL = _env("REDIS_URL", "")
++METRICS_KEY = _env("FEATURE_SCHEMA_COMPARE_METRICS_KEY", "metrics:feature_schema_compare:last")
++PORT = int(_env("FEATURE_SCHEMA_COMPARE_EXPORTER_PORT", "9822"))
++
++app = FastAPI()
++
++
++def _read_redis() -> Dict[str, str]:
++    if not REDIS_URL:
++        return {}
++    try:
++        import redis  # type: ignore
++
++        r = redis.Redis.from_url(REDIS_URL)
++        d = r.hgetall(METRICS_KEY)
++        out: Dict[str, str] = {}
++        for k, v in d.items():
++            try:
++                out[k.decode("utf-8")] = v.decode("utf-8")
++            except Exception:
++                pass
++        return out
++    except Exception:
++        return {}
++
++
++def _f(d: Dict[str, str], k: str, default: float = 0.0) -> float:
++    try:
++        return float(d.get(k, str(default)) or default)
++    except Exception:
++        return float(default)
++
++
++def _schema_pair(d: Dict[str, str]) -> Tuple[str, str]:
++    a = (d.get("schema_a") or "v5_of").strip() or "v5_of"
++    b = (d.get("schema_b") or "v6_of").strip() or "v6_of"
++    return a, b
++
++
++@app.get("/metrics")
++def metrics() -> PlainTextResponse:
++    d = _read_redis()
++
++    success = 0.0
++    updated_ts = 0.0
++    age_s = 0.0
++    if d:
++        success = 1.0 if _f(d, "success", 0.0) > 0 else 0.0
++        updated_ts = _f(d, "updated_ts_ms", 0.0)
++    if updated_ts > 0:
++        age_s = max(0.0, (time.time() * 1000.0 - updated_ts) / 1000.0)
++
++    schema_a, schema_b = _schema_pair(d)
++
++    # metrics
++    auc_a = _f(d, "auc_a", 0.0)
++    auc_b = _f(d, "auc_b", 0.0)
++    brier_a = _f(d, "brier_a", 0.0)
++    brier_b = _f(d, "brier_b", 0.0)
++    noise_share_a = _f(d, "noise_share_a", 0.0)
++    noise_share_b = _f(d, "noise_share_b", 0.0)
++    delta_auc = _f(d, "delta_auc", 0.0)
++    delta_brier = _f(d, "delta_brier", 0.0)
++    n_rows = _f(d, "n_rows", 0.0)
++    new_features_n = _f(d, "new_features_n", 0.0)
++    top_new_mean_auc_drop = _f(d, "top_new_mean_auc_drop", 0.0)
++
++    lines = []
++    lines.append("# HELP feature_schema_compare_exporter_up Exporter up")
++    lines.append("# TYPE feature_schema_compare_exporter_up gauge")
++    lines.append("feature_schema_compare_exporter_up 1")
++
++    lines.append("# HELP feature_schema_compare_last_success Last compare bundle success (1/0)")
++    lines.append("# TYPE feature_schema_compare_last_success gauge")
++    lines.append(f"feature_schema_compare_last_success {success}")
++
++    lines.append("# HELP feature_schema_compare_last_updated_ts_ms Last updated timestamp (ms)")
++    lines.append("# TYPE feature_schema_compare_last_updated_ts_ms gauge")
++    lines.append(f"feature_schema_compare_last_updated_ts_ms {updated_ts}")
++
++    lines.append("# HELP feature_schema_compare_age_seconds Age since last update (s)")
++    lines.append("# TYPE feature_schema_compare_age_seconds gauge")
++    lines.append(f"feature_schema_compare_age_seconds {age_s}")
++
++    lines.append("# HELP feature_schema_compare_rows Number of joined rows used")
++    lines.append("# TYPE feature_schema_compare_rows gauge")
++    lines.append(f"feature_schema_compare_rows {n_rows}")
++
++    lines.append("# HELP feature_schema_compare_auc Validation AUC by schema")
++    lines.append("# TYPE feature_schema_compare_auc gauge")
++    lines.append(f'feature_schema_compare_auc{{schema="{schema_a}"}} {auc_a}')
++    lines.append(f'feature_schema_compare_auc{{schema="{schema_b}"}} {auc_b}')
++
++    lines.append("# HELP feature_schema_compare_brier Validation Brier score by schema")
++    lines.append("# TYPE feature_schema_compare_brier gauge")
++    lines.append(f'feature_schema_compare_brier{{schema="{schema_a}"}} {brier_a}')
++    lines.append(f'feature_schema_compare_brier{{schema="{schema_b}"}} {brier_b}')
++
++    lines.append("# HELP feature_schema_compare_noise_share Share of noisy candidates (0..1) by schema")
++    lines.append("# TYPE feature_schema_compare_noise_share gauge")
++    lines.append(f'feature_schema_compare_noise_share{{schema="{schema_a}"}} {noise_share_a}')
++    lines.append(f'feature_schema_compare_noise_share{{schema="{schema_b}"}} {noise_share_b}')
++
++    lines.append("# HELP feature_schema_compare_delta_auc AUC(schema_b) - AUC(schema_a)")
++    lines.append("# TYPE feature_schema_compare_delta_auc gauge")
++    lines.append(f"feature_schema_compare_delta_auc {delta_auc}")
++
++    lines.append("# HELP feature_schema_compare_delta_brier Brier(schema_b) - Brier(schema_a) (negative is good)")
++    lines.append("# TYPE feature_schema_compare_delta_brier gauge")
++    lines.append(f"feature_schema_compare_delta_brier {delta_brier}")
++
++    lines.append("# HELP feature_schema_compare_new_features_n Number of features present in schema_b but not in schema_a")
++    lines.append("# TYPE feature_schema_compare_new_features_n gauge")
++    lines.append(f"feature_schema_compare_new_features_n {new_features_n}")
++
++    lines.append("# HELP feature_schema_compare_top_new_mean_auc_drop Mean perm AUC drop for top new features")
++    lines.append("# TYPE feature_schema_compare_top_new_mean_auc_drop gauge")
++    lines.append(f"feature_schema_compare_top_new_mean_auc_drop {top_new_mean_auc_drop}")
++
++    return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
++
++
++@app.get("/healthz")
++def healthz() -> Dict[str, str]:
++    return {"ok": "1"}
++
++
++if __name__ == "__main__":
++    uvicorn.run(app, host="0.0.0.0", port=PORT)
+diff -ruN --no-dereference /mnt/data/repo_p104_base/ml_analysis/tools/nightly_feature_schema_compare_bundle_v1.py /mnt/data/repo/ml_analysis/tools/nightly_feature_schema_compare_bundle_v1.py
+--- /mnt/data/repo_p104_base/ml_analysis/tools/nightly_feature_schema_compare_bundle_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo/ml_analysis/tools/nightly_feature_schema_compare_bundle_v1.py	2026-02-26 10:09:18.001265798 +0000
+@@ -0,0 +1,446 @@
++"""Nightly bundle: compare two ML feature schemas via minimal feature-selection loop.
++
++Purpose
++  - Быстро и детерминированно сравнить качество (AUC/Brier) и стабильность фич
++    между schema_a и schema_b (по режимам + по часам UTC).
++  - Используется как smoke/guardrail перед расширением фич-пула (например v5_of -> v6_of).
++
++Pipeline
++  1) Build one dataset window from Redis using *schema_b* (superset expected)
++  2) Run ml_analysis.tools.feature_selection_loop_v1 twice:
++       - on schema_a (subset)
++       - on schema_b
++  3) Compute deltas + "new features" summary
++  4) Publish low-cardinality summary to Redis hash (metrics:feature_schema_compare:last)
++
++Outputs (out_dir)
++  <out_dir>/runs/<run_id>/edge_train.jsonl
++  <out_dir>/runs/<run_id>/schema_a/*
++  <out_dir>/runs/<run_id>/schema_b/*
++  <out_dir>/runs/<run_id>/schema_compare/report.md
++  <out_dir>/runs/<run_id>/schema_compare/compare_summary.json
++
++Redis fields (low-cardinality)
++  success, status, reason, run_id, schema_a, schema_b,
++  n_rows, auc_a, auc_b, brier_a, brier_b,
++  noise_n_a, noise_n_b, noise_share_a, noise_share_b,
++  delta_auc, delta_brier,
++  new_features_n, top_new_mean_auc_drop,
++  out_dir, run_dir, report_path
++"""
++
++from __future__ import annotations
++
++import argparse
++import csv
++import json
++import logging
++import os
++import subprocess
++import sys
++from datetime import datetime
++from typing import Any, Dict, List, Optional, Tuple
++
++from ml_analysis.tools.edge_stack_train_bundle_utils_p59 import atomic_write_json, now_ms, write_train_metrics
++
++
++logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
++logger = logging.getLogger("nightly_feature_schema_compare_bundle_v1")
++
++
++def _run(module: str, args: list, timeout: int = 3600) -> Tuple[bool, int]:
++    cmd = [sys.executable, "-m", module] + list(args)
++    logger.info("Running: %s", " ".join(cmd))
++    p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
++    if p.returncode != 0:
++        logger.error("Command failed code=%s\nSTDOUT:%s\nSTDERR:%s", p.returncode, p.stdout, p.stderr)
++    return p.returncode == 0, int(p.returncode)
++
++
++def _load_json(path: str) -> Dict[str, Any]:
++    try:
++        with open(path, "r", encoding="utf-8") as f:
++            obj = json.load(f)
++        return obj if isinstance(obj, dict) else {}
++    except Exception:
++        return {}
++
++
++def _read_stability_table(path: str) -> List[Dict[str, Any]]:
++    rows: List[Dict[str, Any]] = []
++    try:
++        with open(path, "r", encoding="utf-8", newline="") as f:
++            r = csv.DictReader(f)
++            for row in r:
++                if not row:
++                    continue
++                rows.append(dict(row))
++    except Exception:
++        return []
++    return rows
++
++
++def _count_noise(stab_rows: List[Dict[str, Any]]) -> int:
++    n = 0
++    for r in stab_rows:
++        try:
++            if int(float(r.get("flag_noise", "0") or 0)) == 1:
++                n += 1
++        except Exception:
++            continue
++    return int(n)
++
++
++def _top_new_features(
++    *,
++    stab_b: List[Dict[str, Any]],
++    feats_a: set[str],
++    top_k: int = 10,
++) -> Tuple[int, float, List[Tuple[str, float]]]:
++    items: List[Tuple[str, float]] = []
++    for r in stab_b:
++        f = str(r.get("feature") or "").strip()
++        if not f or f in feats_a:
++            continue
++        try:
++            auc_drop = float(r.get("global_perm_auc_drop", "0") or 0.0)
++        except Exception:
++            auc_drop = 0.0
++        items.append((f, float(auc_drop)))
++    items.sort(key=lambda x: (-float(x[1]), x[0]))
++    top = items[: int(top_k)]
++    mean_top = float(sum([x[1] for x in top]) / max(1, len(top)))
++    return int(len(items)), float(mean_top), top
++
++
++def _write_metrics(redis_url: str, metrics_key: str, mapping: Dict[str, Any]) -> None:
++    try:
++        write_train_metrics(str(redis_url), str(metrics_key), mapping)
++    except Exception:
++        return
++
++
++def _fail(
++    *,
++    redis_url: str,
++    metrics_key: str,
++    run_id: str,
++    out_dir: str,
++    run_dir: str,
++    status: str,
++    reason: str,
++    exit_code: int,
++    latest_json: str,
++    version_json: str,
++) -> int:
++    mapping: Dict[str, Any] = {
++        "status": status,
++        "reason": reason,
++        "success": 0,
++        "run_id": run_id,
++        "exit_code": int(exit_code),
++        "updated_ts_ms": now_ms(),
++        "out_dir": str(out_dir),
++        "run_dir": str(run_dir),
++    }
++    _write_metrics(redis_url, metrics_key, mapping)
++    atomic_write_json(version_json, mapping)
++    atomic_write_json(latest_json, mapping)
++    return 2
++
++
++def main(argv: Optional[list] = None) -> int:
++    ap = argparse.ArgumentParser(description="Nightly feature schema compare bundle (P104)")
++    ap.add_argument("--redis_url", default=os.environ.get("REDIS_URL", "redis://redis-worker-1:6379/0"))
++    ap.add_argument(
++        "--metrics_key",
++        default=os.environ.get("FEATURE_SCHEMA_COMPARE_METRICS_KEY", "metrics:feature_schema_compare:last"),
++    )
++
++    ap.add_argument(
++        "--out_dir",
++        default=os.environ.get("FEATURE_SCHEMA_COMPARE_OUT_DIR", "/var/lib/trade/ml_models/feature_schema_compare_p104"),
++    )
++    ap.add_argument("--signals_stream", default=os.environ.get("EDGE_STACK_SIGNALS_STREAM", "signals:of:inputs"))
++    ap.add_argument("--closed_stream", default=os.environ.get("EDGE_STACK_CLOSED_STREAM", "trades:closed"))
++    ap.add_argument("--window_hours", type=int, default=int(os.environ.get("FEATURE_SCHEMA_COMPARE_WINDOW_HOURS", "168")))
++    ap.add_argument("--signals_count", type=int, default=int(os.environ.get("FEATURE_SCHEMA_COMPARE_SIGNALS_COUNT", "250000")))
++    ap.add_argument("--closes_count", type=int, default=int(os.environ.get("FEATURE_SCHEMA_COMPARE_CLOSES_COUNT", "250000")))
++    ap.add_argument("--y_min_r", type=float, default=float(os.environ.get("Y_MIN_R", "0.10")))
++
++    ap.add_argument("--schema_a", default=os.environ.get("FEATURE_SCHEMA_COMPARE_SCHEMA_A", "v5_of"))
++    ap.add_argument("--schema_b", default=os.environ.get("FEATURE_SCHEMA_COMPARE_SCHEMA_B", "v6_of"))
++
++    ap.add_argument("--scenario_prefix", default=os.environ.get("EDGE_STACK_SCENARIO_PREFIX", "bucket:"))
++    ap.add_argument("--include_time_onehot", type=int, default=int(os.environ.get("EDGE_STACK_INCLUDE_TIME_ONEHOT", "1")))
++    ap.add_argument("--strict_feature_cols", type=int, default=int(os.environ.get("ML_STRICT_FEATURE_COLS", "0")))
++    ap.add_argument("--forbid_scenario_v4_onehot", type=int, default=int(os.environ.get("ML_FORBID_SCENARIO_V4_ONEHOT", "0")))
++
++    ap.add_argument("--model", default=os.environ.get("FEATURE_SCHEMA_COMPARE_MODEL", "lr"), choices=["lr", "gbdt"])
++    ap.add_argument("--min_rows", type=int, default=int(os.environ.get("FEATURE_SCHEMA_COMPARE_MIN_ROWS", "4000")))
++    ap.add_argument("--min_group_rows", type=int, default=int(os.environ.get("FEATURE_SCHEMA_COMPARE_MIN_GROUP_ROWS", "300")))
++    ap.add_argument("--n_repeats", type=int, default=int(os.environ.get("FEATURE_SCHEMA_COMPARE_N_REPEATS", "3")))
++    ap.add_argument("--seed", type=int, default=int(os.environ.get("FEATURE_SCHEMA_COMPARE_SEED", "7")))
++    ap.add_argument("--top_new_k", type=int, default=int(os.environ.get("FEATURE_SCHEMA_COMPARE_TOP_NEW_K", "10")))
++
++    args = ap.parse_args(argv)
++
++    run_id = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
++    out_dir = os.path.abspath(str(args.out_dir))
++    run_dir = os.path.join(out_dir, "runs", run_id)
++    os.makedirs(run_dir, exist_ok=True)
++    os.makedirs(os.path.join(out_dir, "versions"), exist_ok=True)
++
++    latest_json = os.path.join(out_dir, "feature_schema_compare_latest.json")
++    version_json = os.path.join(out_dir, "versions", f"feature_schema_compare_{run_id}.json")
++
++    dataset_jsonl = os.path.join(run_dir, "edge_train.jsonl")
++    dataset_report = os.path.join(run_dir, "edge_dataset_report.json")
++    quarantine_jsonl = os.path.join(run_dir, "edge_quarantine.jsonl")
++    feature_cols_json = os.path.join(run_dir, "feature_cols.json")
++
++    a_dir = os.path.join(run_dir, "schema_a")
++    b_dir = os.path.join(run_dir, "schema_b")
++    cmp_dir = os.path.join(run_dir, "schema_compare")
++    os.makedirs(a_dir, exist_ok=True)
++    os.makedirs(b_dir, exist_ok=True)
++    os.makedirs(cmp_dir, exist_ok=True)
++
++    end_ms = now_ms()
++    start_ms = end_ms - int(args.window_hours) * 3600 * 1000
++
++    # Build once using schema_b (expected superset) so schema_a can reuse a subset of columns.
++    build_args = [
++        "--redis_url",
++        str(args.redis_url),
++        "--signal_stream",
++        str(args.signals_stream),
++        "--closed_stream",
++        str(args.closed_stream),
++        "--signals_count",
++        str(args.signals_count),
++        "--closes_count",
++        str(args.closes_count),
++        "--since_ms",
++        str(start_ms),
++        "--until_ms",
++        str(end_ms),
++        "--y_min_r",
++        str(args.y_min_r),
++        "--out_jsonl",
++        dataset_jsonl,
++        "--out_report_json",
++        dataset_report,
++        "--out_quarantine_jsonl",
++        quarantine_jsonl,
++        "--emit_feature_cols_json",
++        feature_cols_json,
++        "--feature_schema_ver",
++        str(args.schema_b).strip(),
++        "--scenario_prefix",
++        str(args.scenario_prefix),
++        "--include_time_onehot",
++        str(int(args.include_time_onehot)),
++        "--strict_feature_cols",
++        str(int(args.strict_feature_cols)),
++        "--forbid_scenario_v4_onehot",
++        str(int(args.forbid_scenario_v4_onehot)),
++    ]
++    ok_build, rc_build = _run("ml_analysis.tools.build_edge_stack_dataset_from_redis", build_args, timeout=3600)
++    if (not ok_build) or (not os.path.exists(dataset_report)):
++        return _fail(
++            redis_url=str(args.redis_url),
++            metrics_key=str(args.metrics_key),
++            run_id=run_id,
++            out_dir=out_dir,
++            run_dir=run_dir,
++            status="fail_build",
++            reason="dataset_build_failed",
++            exit_code=rc_build,
++            latest_json=latest_json,
++            version_json=version_json,
++        )
++
++    rep = _load_json(dataset_report)
++    joined = int(rep.get("joined", 0) or 0)
++    if joined < int(args.min_rows):
++        return _fail(
++            redis_url=str(args.redis_url),
++            metrics_key=str(args.metrics_key),
++            run_id=run_id,
++            out_dir=out_dir,
++            run_dir=run_dir,
++            status="fail_validate",
++            reason=f"too_few_rows joined={joined} min_rows={int(args.min_rows)}",
++            exit_code=3,
++            latest_json=latest_json,
++            version_json=version_json,
++        )
++
++    def _run_loop(schema_ver: str, out_dir_loop: str) -> Tuple[bool, int, str, str]:
++        loop_args = [
++            "--data_path",
++            dataset_jsonl,
++            "--schema_ver",
++            str(schema_ver),
++            "--out_dir",
++            out_dir_loop,
++            "--model",
++            str(args.model),
++            "--min_group_rows",
++            str(int(args.min_group_rows)),
++            "--n_repeats",
++            str(int(args.n_repeats)),
++            "--seed",
++            str(int(args.seed)),
++        ]
++        ok, rc = _run("ml_analysis.tools.feature_selection_loop_v1", loop_args, timeout=3600)
++        return ok, rc, os.path.join(out_dir_loop, "summary.json"), os.path.join(out_dir_loop, "stability_table.csv")
++
++    ok_a, rc_a, summary_a_path, stab_a_path = _run_loop(str(args.schema_a).strip(), a_dir)
++    if (not ok_a) or (not os.path.exists(summary_a_path)):
++        return _fail(
++            redis_url=str(args.redis_url),
++            metrics_key=str(args.metrics_key),
++            run_id=run_id,
++            out_dir=out_dir,
++            run_dir=run_dir,
++            status="fail_loop_a",
++            reason="feature_selection_loop_failed schema_a",
++            exit_code=rc_a,
++            latest_json=latest_json,
++            version_json=version_json,
++        )
++
++    ok_b, rc_b, summary_b_path, stab_b_path = _run_loop(str(args.schema_b).strip(), b_dir)
++    if (not ok_b) or (not os.path.exists(summary_b_path)):
++        return _fail(
++            redis_url=str(args.redis_url),
++            metrics_key=str(args.metrics_key),
++            run_id=run_id,
++            out_dir=out_dir,
++            run_dir=run_dir,
++            status="fail_loop_b",
++            reason="feature_selection_loop_failed schema_b",
++            exit_code=rc_b,
++            latest_json=latest_json,
++            version_json=version_json,
++        )
++
++    s_a = _load_json(summary_a_path)
++    s_b = _load_json(summary_b_path)
++
++    stab_a = _read_stability_table(stab_a_path)
++    stab_b = _read_stability_table(stab_b_path)
++    feats_a = set([str(r.get("feature") or "") for r in stab_a if str(r.get("feature") or "").strip()])
++
++    noise_n_a = _count_noise(stab_a)
++    noise_n_b = _count_noise(stab_b)
++
++    n_feat_a = int(s_a.get("n_features", 0) or 0)
++    n_feat_b = int(s_b.get("n_features", 0) or 0)
++    auc_a = float(s_a.get("auc_val", 0.0) or 0.0)
++    auc_b = float(s_b.get("auc_val", 0.0) or 0.0)
++    brier_a = float(s_a.get("brier_val", 0.0) or 0.0)
++    brier_b = float(s_b.get("brier_val", 0.0) or 0.0)
++
++    noise_share_a = float(noise_n_a) / float(max(1, n_feat_a))
++    noise_share_b = float(noise_n_b) / float(max(1, n_feat_b))
++
++    new_n, top_new_mean, top_new = _top_new_features(stab_b=stab_b, feats_a=feats_a, top_k=int(args.top_new_k))
++
++    delta_auc = float(auc_b - auc_a)
++    delta_brier = float(brier_b - brier_a)
++
++    report_path = os.path.join(cmp_dir, "report.md")
++    compare_json = os.path.join(cmp_dir, "compare_summary.json")
++
++    compare_summary: Dict[str, Any] = {
++        "ts": int(now_ms()),
++        "run_id": run_id,
++        "schema_a": str(args.schema_a),
++        "schema_b": str(args.schema_b),
++        "n_rows": int(joined),
++        "auc_a": float(auc_a),
++        "auc_b": float(auc_b),
++        "brier_a": float(brier_a),
++        "brier_b": float(brier_b),
++        "delta_auc": float(delta_auc),
++        "delta_brier": float(delta_brier),
++        "n_features_a": int(n_feat_a),
++        "n_features_b": int(n_feat_b),
++        "noise_n_a": int(noise_n_a),
++        "noise_n_b": int(noise_n_b),
++        "noise_share_a": float(noise_share_a),
++        "noise_share_b": float(noise_share_b),
++        "new_features_n": int(new_n),
++        "top_new_mean_auc_drop": float(top_new_mean),
++        "top_new_features": [{"feature": k, "auc_drop": float(v)} for (k, v) in top_new],
++        "schema_hash_a": str(s_a.get("schema_hash", "")),
++        "schema_hash_b": str(s_b.get("schema_hash", "")),
++        "summary_a_path": summary_a_path,
++        "summary_b_path": summary_b_path,
++        "report_a_path": os.path.join(a_dir, "report.md"),
++        "report_b_path": os.path.join(b_dir, "report.md"),
++    }
++    atomic_write_json(compare_json, compare_summary)
++
++    with open(report_path, "w", encoding="utf-8") as f:
++        f.write("# Feature schema compare (P104)\n\n")
++        f.write(f"schema_a=**{args.schema_a}**  hash={str(s_a.get('schema_hash',''))[:16]}…\n\n")
++        f.write(f"schema_b=**{args.schema_b}**  hash={str(s_b.get('schema_hash',''))[:16]}…\n\n")
++        f.write(f"Rows(joined): **{joined}**\n\n")
++        f.write("## Quality (val)\n\n")
++        f.write("|schema|AUC|Brier|noise_n|noise_share|\n|---|---:|---:|---:|---:|\n")
++        f.write(
++            f"|{args.schema_a}|{auc_a:.4f}|{brier_a:.6f}|{noise_n_a}|{noise_share_a:.3f}|\n"
++        )
++        f.write(
++            f"|{args.schema_b}|{auc_b:.4f}|{brier_b:.6f}|{noise_n_b}|{noise_share_b:.3f}|\n\n"
++        )
++        f.write(f"Delta: **delta_auc={delta_auc:+.4f}**, **delta_brier={delta_brier:+.6f}** (neg brier is good)\n\n")
++
++        f.write("## New features in schema_b\n\n")
++        f.write(f"count={new_n}  top{int(args.top_new_k)} mean_auc_drop={top_new_mean:.6f}\n\n")
++        f.write("|rank|feature|perm_auc_drop|\n|---:|---|---:|\n")
++        for i, (k, v) in enumerate(top_new, start=1):
++            f.write(f"|{i}|{k}|{float(v):.6f}|\n")
++        f.write("\n")
++        f.write("## Detailed reports\n\n")
++        f.write(f"- schema_a report: `{os.path.join(a_dir, 'report.md')}`\n")
++        f.write(f"- schema_b report: `{os.path.join(b_dir, 'report.md')}`\n")
++        f.write(f"- compare summary: `{compare_json}`\n")
++
++    mapping: Dict[str, Any] = {
++        "status": "ok",
++        "reason": "ok",
++        "success": 1,
++        "run_id": run_id,
++        "schema_a": str(args.schema_a),
++        "schema_b": str(args.schema_b),
++        "n_rows": int(joined),
++        "auc_a": float(auc_a),
++        "auc_b": float(auc_b),
++        "brier_a": float(brier_a),
++        "brier_b": float(brier_b),
++        "noise_n_a": int(noise_n_a),
++        "noise_n_b": int(noise_n_b),
++        "noise_share_a": float(noise_share_a),
++        "noise_share_b": float(noise_share_b),
++        "delta_auc": float(delta_auc),
++        "delta_brier": float(delta_brier),
++        "new_features_n": int(new_n),
++        "top_new_mean_auc_drop": float(top_new_mean),
++        "out_dir": str(out_dir),
++        "run_dir": str(run_dir),
++        "report_path": str(report_path),
++    }
++    _write_metrics(str(args.redis_url), str(args.metrics_key), mapping)
++    atomic_write_json(version_json, mapping)
++    atomic_write_json(latest_json, mapping)
++    logger.info("OK: wrote metrics_key=%s", str(args.metrics_key))
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff -ruN --no-dereference /mnt/data/repo_p104_base/orderflow_services/grafana/README_p104_feature_schema_compare.md /mnt/data/repo/orderflow_services/grafana/README_p104_feature_schema_compare.md
+--- /mnt/data/repo_p104_base/orderflow_services/grafana/README_p104_feature_schema_compare.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo/orderflow_services/grafana/README_p104_feature_schema_compare.md	2026-02-26 10:11:55.122894860 +0000
+@@ -0,0 +1,34 @@
++# Feature Schema Compare (P104) Dashboard — README
++
++## Dashboard: `feature_schema_compare_p104.json`
++
++### Import
++
++Grafana → **Dashboards** → **Import** → upload `feature_schema_compare_p104.json`.
++
++Select your Prometheus datasource when prompted.
++
++### Panels
++
++| Panel | Metrics | Notes |
++|---|---|---|
++| Last success | `feature_schema_compare_last_success` | 1 = OK, 0 = failed |
++| Age seconds | `feature_schema_compare_age_seconds` | Staleness from `updated_ts_ms` |
++| delta_auc | `feature_schema_compare_delta_auc` | AUC(schema_b) − AUC(schema_a) |
++| delta_brier | `feature_schema_compare_delta_brier` | Brier(schema_b) − Brier(schema_a); **negative is good** |
++| AUC by schema | `feature_schema_compare_auc{schema=...}` | Compares validation AUC |
++| Noise share by schema | `feature_schema_compare_noise_share{schema=...}` | Stability proxy (regime/hour) |
++| New features count | `feature_schema_compare_new_features_n` | Features present in schema_b but not schema_a |
++| Top-new mean AUC drop | `feature_schema_compare_top_new_mean_auc_drop` | Mean perm-AUC-drop for top new features |
++
++### Alert file
++
++```
++orderflow_services/prometheus_alerts_feature_schema_compare_p104.yml
++```
++
++Add to `prometheus.yml` → `rule_files:` (if you do not use the bundle manifest):
++
++```yaml
++  - orderflow_services/prometheus_alerts_feature_schema_compare_p104.yml
++```
+diff -ruN --no-dereference /mnt/data/repo_p104_base/orderflow_services/grafana/feature_schema_compare_p104.json /mnt/data/repo/orderflow_services/grafana/feature_schema_compare_p104.json
+--- /mnt/data/repo_p104_base/orderflow_services/grafana/feature_schema_compare_p104.json	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo/orderflow_services/grafana/feature_schema_compare_p104.json	2026-02-26 10:12:41.541621807 +0000
+@@ -0,0 +1,222 @@
++{
++  "annotations": {
++    "list": [
++      {
++        "builtIn": 1,
++        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
++        "enable": true,
++        "hide": true,
++        "iconColor": "rgba(0, 211, 255, 1)",
++        "name": "Annotations & Alerts",
++        "type": "dashboard"
++      }
++    ]
++  },
++  "editable": true,
++  "graphTooltip": 0,
++  "id": null,
++  "panels": [
++    {
++      "collapsed": false,
++      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
++      "id": 1,
++      "panels": [],
++      "title": "Feature Schema Compare (P104)",
++      "type": "row"
++    },
++    {
++      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "none",
++          "thresholds": {
++            "mode": "absolute",
++            "steps": [
++              { "color": "red", "value": null },
++              { "color": "green", "value": 1 }
++            ]
++          }
++        },
++        "overrides": []
++      },
++      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 1 },
++      "id": 2,
++      "options": {
++        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
++        "orientation": "auto",
++        "textMode": "auto"
++      },
++      "targets": [
++        { "editorMode": "code", "expr": "feature_schema_compare_last_success", "legendFormat": "success", "range": true, "refId": "A" }
++      ],
++      "title": "Last success",
++      "type": "stat"
++    },
++    {
++      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "s",
++          "thresholds": {
++            "mode": "absolute",
++            "steps": [
++              { "color": "green", "value": null },
++              { "color": "orange", "value": 21600 },
++              { "color": "red", "value": 43200 }
++            ]
++          }
++        },
++        "overrides": []
++      },
++      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 1 },
++      "id": 3,
++      "options": {
++        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
++        "orientation": "auto",
++        "textMode": "auto"
++      },
++      "targets": [
++        { "editorMode": "code", "expr": "feature_schema_compare_age_seconds", "legendFormat": "age", "range": true, "refId": "A" }
++      ],
++      "title": "Age seconds",
++      "type": "stat"
++    },
++    {
++      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "none",
++          "thresholds": {
++            "mode": "absolute",
++            "steps": [
++              { "color": "red", "value": null },
++              { "color": "orange", "value": -0.01 },
++              { "color": "green", "value": 0 }
++            ]
++          }
++        },
++        "overrides": []
++      },
++      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 1 },
++      "id": 4,
++      "options": {
++        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
++        "orientation": "auto",
++        "textMode": "auto"
++      },
++      "targets": [
++        { "editorMode": "code", "expr": "feature_schema_compare_delta_auc", "legendFormat": "delta_auc", "range": true, "refId": "A" }
++      ],
++      "title": "delta_auc (b - a)",
++      "type": "stat"
++    },
++    {
++      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "none",
++          "thresholds": {
++            "mode": "absolute",
++            "steps": [
++              { "color": "green", "value": null },
++              { "color": "orange", "value": 0.0005 },
++              { "color": "red", "value": 0.0015 }
++            ]
++          }
++        },
++        "overrides": []
++      },
++      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 1 },
++      "id": 5,
++      "options": {
++        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
++        "orientation": "auto",
++        "textMode": "auto"
++      },
++      "targets": [
++        { "editorMode": "code", "expr": "feature_schema_compare_delta_brier", "legendFormat": "delta_brier", "range": true, "refId": "A" }
++      ],
++      "title": "delta_brier (b - a)",
++      "type": "stat"
++    },
++    {
++      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "none",
++          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never", "spanNulls": true }
++        },
++        "overrides": []
++      },
++      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 7 },
++      "id": 6,
++      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single" } },
++      "targets": [
++        { "editorMode": "code", "expr": "feature_schema_compare_auc", "legendFormat": "{{schema}}", "range": true, "refId": "A" }
++      ],
++      "title": "AUC by schema",
++      "type": "timeseries"
++    },
++    {
++      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "percentunit",
++          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never", "spanNulls": true }
++        },
++        "overrides": []
++      },
++      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 7 },
++      "id": 7,
++      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single" } },
++      "targets": [
++        { "editorMode": "code", "expr": "feature_schema_compare_noise_share", "legendFormat": "{{schema}}", "range": true, "refId": "A" }
++      ],
++      "title": "Noise share by schema",
++      "type": "timeseries"
++    },
++    {
++      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
++      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
++      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 15 },
++      "id": 8,
++      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "auto", "textMode": "auto" },
++      "targets": [
++        { "editorMode": "code", "expr": "feature_schema_compare_new_features_n", "legendFormat": "new_features", "range": true, "refId": "A" }
++      ],
++      "title": "New features count (b \u2216 a)",
++      "type": "stat"
++    },
++    {
++      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
++      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
++      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 15 },
++      "id": 9,
++      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "auto", "textMode": "auto" },
++      "targets": [
++        { "editorMode": "code", "expr": "feature_schema_compare_top_new_mean_auc_drop", "legendFormat": "mean_auc_drop", "range": true, "refId": "A" }
++      ],
++      "title": "Top-new mean perm AUC drop",
++      "type": "stat"
++    }
++  ],
++  "refresh": "30s",
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": ["ml", "schema", "compare", "p104"],
++  "templating": {
++    "list": [
++      {
++        "name": "DS_PROMETHEUS",
++        "type": "datasource",
++        "query": "prometheus",
++        "current": { "selected": false, "text": "Prometheus", "value": "Prometheus" }
++      }
++    ]
++  },
++  "time": { "from": "now-24h", "to": "now" },
++  "timezone": "",
++  "title": "Feature Schema Compare (P104)",
++  "uid": "feature_schema_compare_p104",
++  "version": 1
++}
+diff -ruN --no-dereference /mnt/data/repo_p104_base/orderflow_services/prometheus_alerts_feature_schema_compare_p104.yml /mnt/data/repo/orderflow_services/prometheus_alerts_feature_schema_compare_p104.yml
+--- /mnt/data/repo_p104_base/orderflow_services/prometheus_alerts_feature_schema_compare_p104.yml	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo/orderflow_services/prometheus_alerts_feature_schema_compare_p104.yml	2026-02-26 10:15:23.483401047 +0000
+@@ -0,0 +1,68 @@
++groups:
++  - name: feature_schema_compare_p104
++    rules:
++      - alert: FeatureSchemaCompareExporterDown
++        expr: absent(feature_schema_compare_exporter_up) OR (feature_schema_compare_exporter_up == 0)
++        for: 5m
++        labels:
++          severity: page
++          tier: P104
++          owner: ML
++        annotations:
++          summary: "Feature schema compare exporter is down"
++          description: "Prometheus cannot scrape feature schema compare metrics (feature_schema_compare_exporter_up)."
++
++      - alert: FeatureSchemaCompareStale
++        expr: feature_schema_compare_age_seconds > 129600
++        for: 30m
++        labels:
++          severity: page
++          tier: P104
++          owner: ML
++        annotations:
++          summary: "Feature schema compare report is stale"
++          description: "No successful schema compare update for >36h. Check of_timers_worker schedule and bundle logs."
++
++      - alert: FeatureSchemaCompareFailed
++        expr: (feature_schema_compare_last_success == 0) AND (feature_schema_compare_age_seconds < 21600)
++        for: 15m
++        labels:
++          severity: page
++          tier: P104
++          owner: ML
++        annotations:
++          summary: "Feature schema compare failed"
++          description: "Nightly schema compare bundle failed recently. Inspect metrics:feature_schema_compare:last and report_path."
++
++      - alert: FeatureSchemaCompareAUCRegression
++        expr: (feature_schema_compare_delta_auc < -0.010) AND (feature_schema_compare_age_seconds < 21600)
++        for: 30m
++        labels:
++          severity: warn
++          tier: P104
++          owner: ML
++        annotations:
++          summary: "Schema compare shows AUC regression (delta_auc < -0.010)"
++          description: "schema_b underperforms schema_a on the same window. Do not promote schema_b; review top new features + stability tables."
++
++      - alert: FeatureSchemaCompareBrierRegression
++        expr: (feature_schema_compare_delta_brier > 0.000500) AND (feature_schema_compare_age_seconds < 21600)
++        for: 30m
++        labels:
++          severity: warn
++          tier: P104
++          owner: ML
++        annotations:
++          summary: "Schema compare shows Brier regression (delta_brier > 0.0005)"
++          description: "schema_b increases Brier error vs schema_a (worse calibration). Consider pruning/regularizing new features or increasing min_group_rows."
++
++      - alert: FeatureSchemaCompareNoiseHigh
++        expr: (feature_schema_compare_noise_share{schema=~".*"} > 0.60)
++        for: 2h
++        labels:
++          severity: warn
++          tier: P104
++          owner: ML
++        annotations:
++          summary: "High noise share in schema compare"
++          description: "A large fraction of features are flagged as low-importance or unstable across regimes/hours. Review report.md and stability_table.csv."
+diff -ruN --no-dereference /mnt/data/repo_p104_base/orderflow_services/runbook_feature_schema_compare_p104.md /mnt/data/repo/orderflow_services/runbook_feature_schema_compare_p104.md
+--- /mnt/data/repo_p104_base/orderflow_services/runbook_feature_schema_compare_p104.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo/orderflow_services/runbook_feature_schema_compare_p104.md	2026-02-26 10:10:49.186814258 +0000
+@@ -0,0 +1,107 @@
++# Runbook: Feature Schema Compare (P104)
++
++## Purpose
++
++Nightly job compares two ML feature schemas (default `v5_of` vs `v6_of`) on the **same** recent data window:
++
++- builds one dataset from Redis (`signals:of:inputs` + `trades:closed`),
++- runs `feature_selection_loop_v1` twice (per schema),
++- publishes a low-cardinality summary to Redis hash `metrics:feature_schema_compare:last`,
++- exporter exposes Prometheus metrics used by alerts and the Grafana dashboard.
++
++The goal is to catch regressions early and provide a quick view of:
++
++- **delta_auc = AUC(schema_b) - AUC(schema_a)** (positive is good),
++- **delta_brier = Brier(schema_b) - Brier(schema_a)** (negative is good),
++- **noise_share** stability proxy (share of "noisy" features by regime/hour).
++
++## Alerts
++
++- `FeatureSchemaCompareFailed`: last run failed.
++- `FeatureSchemaCompareStale`: no update for > 6h.
++- `FeatureSchemaCompareExporterDown`: exporter cannot expose metrics.
++- `FeatureSchemaCompareQualityRegression`: `delta_auc < -0.010`.
++- `FeatureSchemaCompareCalibrationRegression`: `delta_brier > 0.0005`.
++
++## Quick checks
++
++### 1) Check Prometheus / Grafana
++
++Open dashboard: **Feature Schema Compare (P104)**
++
++- Last success
++- Age seconds
++- delta_auc / delta_brier
++- AUC/Brier and noise_share by schema
++
++### 2) Check Redis summary (source of truth)
++
++```bash
++redis-cli HGETALL metrics:feature_schema_compare:last
++```
++
++Key fields:
++
++- `status`, `reason`, `success`, `run_id`
++- `schema_a`, `schema_b`
++- `auc_a`, `auc_b`, `brier_a`, `brier_b`
++- `delta_auc`, `delta_brier`
++- `noise_share_a`, `noise_share_b`
++- `report_path` (compare report in filesystem)
++
++### 3) Inspect the compare report
++
++On the host where the job runs:
++
++```bash
++cat "$(redis-cli HGET metrics:feature_schema_compare:last report_path)"
++```
++
++It contains:
++
++- quality table
++- top new features in schema_b (by perm AUC drop)
++- links to per-schema reports
++
++## Remediation
++
++### If `FeatureSchemaCompareFailed`
++
++1) Verify the job ran (systemd timer / docker-compose timers / cron).
++2) Inspect logs of the runner container/service.
++3) Validate connectivity:
++
++- Redis URL / credentials (`REDIS_URL`)
++- stream names exist (`signals:of:inputs`, `trades:closed`)
++
++4) Re-run manually:
++
++```bash
++python -m ml_analysis.tools.nightly_feature_schema_compare_bundle_v1 \
++  --schema_a v5_of --schema_b v6_of \
++  --window_hours 168
++```
++
++### If `delta_auc` regression / `delta_brier` regression
++
++1) **Do not promote** schema_b.
++2) Review **top new features** (compare report) and remove/denylist the worst offenders.
++3) Increase robustness:
++
++- raise `FEATURE_SCHEMA_COMPARE_MIN_GROUP_ROWS`
++- increase `FEATURE_SCHEMA_COMPARE_WINDOW_HOURS`
++- consider `model=gbdt` for a nonlinear check (still quick)
++
++4) Re-run compare after changes.
++
++## Config (env)
++
++- `FEATURE_SCHEMA_COMPARE_SCHEMA_A` (default `v5_of`)
++- `FEATURE_SCHEMA_COMPARE_SCHEMA_B` (default `v6_of`)
++- `FEATURE_SCHEMA_COMPARE_OUT_DIR` (default `/var/lib/trade/ml_models/feature_schema_compare_p104`)
++- `FEATURE_SCHEMA_COMPARE_WINDOW_HOURS` (default `168`)
++- `FEATURE_SCHEMA_COMPARE_MIN_ROWS` (default `4000`)
++- `FEATURE_SCHEMA_COMPARE_MIN_GROUP_ROWS` (default `300`)
++- `FEATURE_SCHEMA_COMPARE_MODEL` (`lr` or `gbdt`)
++- `FEATURE_SCHEMA_COMPARE_METRICS_KEY` (default `metrics:feature_schema_compare:last`)
++- `FEATURE_SCHEMA_COMPARE_EXPORTER_PORT` (default `9822`)
+diff -ruN --no-dereference /mnt/data/repo_p104_base/services/of_timers_worker.py /mnt/data/repo/services/of_timers_worker.py
+--- /mnt/data/repo_p104_base/services/of_timers_worker.py	2026-02-25 17:59:12.000000000 +0000
++++ /mnt/data/repo/services/of_timers_worker.py	2026-02-26 10:17:29.210674124 +0000
+@@ -1459,6 +1459,46 @@
+     return run_tool("ml_analysis.tools.feature_selection_loop_v1", args, timeout=7200)
+ 
+ 
++def run_feature_schema_compare_bundle_v1() -> bool:
++    """Run Feature Schema Compare bundle (P104): v5_of vs v6_of (importance + stability).
++
++    Disabled by default. Enable with:
++      ENABLE_FEATURE_SCHEMA_COMPARE=1
++
++    Notes:
++      - bundle builds its own dataset window from Redis (signals:of:inputs + trades:closed)
++      - publishes summary to metrics:feature_schema_compare:last
++    """
++    enabled = os.getenv("ENABLE_FEATURE_SCHEMA_COMPARE", "0")
++    if str(enabled).lower() not in ("1", "true", "yes", "on"):
++        return True
++
++    schema_a = os.getenv("FEATURE_SCHEMA_COMPARE_SCHEMA_A", "v5_of")
++    schema_b = os.getenv("FEATURE_SCHEMA_COMPARE_SCHEMA_B", "v6_of")
++    window_hours = os.getenv("FEATURE_SCHEMA_COMPARE_WINDOW_HOURS", "168")
++    out_dir = os.getenv("FEATURE_SCHEMA_COMPARE_OUT_DIR", "/var/lib/trade/ml_models/feature_schema_compare_p104")
++    model = os.getenv("FEATURE_SCHEMA_COMPARE_MODEL", "lr")
++
++    args = [
++        "--schema_a",
++        schema_a,
++        "--schema_b",
++        schema_b,
++        "--window_hours",
++        window_hours,
++        "--out_dir",
++        out_dir,
++        "--model",
++        model,
++    ]
++    timeout_s = 7200
++    try:
++        timeout_s = int(str(os.getenv("FEATURE_SCHEMA_COMPARE_TIMEOUT_S", "7200")).strip())
++    except Exception:
++        timeout_s = 7200
++    return run_tool("ml_analysis.tools.nightly_feature_schema_compare_bundle_v1", args, timeout=timeout_s)
++
++
+ 
+ def run_edge_stack_shadow_eval() -> bool:
+     """Run Edge Stack Shadow Eval (P60)."""
+@@ -2537,6 +2577,7 @@
+                 ("edge_stack_v1_train", 4, 10, run_ml_train_edge_stack_v1),
+                 ("edge_stack_shadow", 4, 12, run_edge_stack_shadow_eval),
+                 ("feature_selection_loop", 4, 15, run_feature_selection_loop_v1),
++                ("feature_schema_compare", 4, 17, run_feature_schema_compare_bundle_v1),
+                 ("edge_stack_mh_train", 4, 20, run_ml_train_edge_stack_mh_v1),
+                 ("regress_safe", 4, 20, run_nightly_regress_safe),
+                 # P59 bundle: dataset+validate+train+promote in one step (05:10)
+diff -ruN --no-dereference /mnt/data/repo_p104_base/tick_flow_full/orderflow_services/prometheus_alerts_feature_schema_compare_p104.yml /mnt/data/repo/tick_flow_full/orderflow_services/prometheus_alerts_feature_schema_compare_p104.yml
+--- /mnt/data/repo_p104_base/tick_flow_full/orderflow_services/prometheus_alerts_feature_schema_compare_p104.yml	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo/tick_flow_full/orderflow_services/prometheus_alerts_feature_schema_compare_p104.yml	2026-02-26 10:15:38.310574882 +0000
+@@ -0,0 +1,68 @@
++groups:
++  - name: feature_schema_compare_p104
++    rules:
++      - alert: FeatureSchemaCompareExporterDown
++        expr: absent(feature_schema_compare_exporter_up) OR (feature_schema_compare_exporter_up == 0)
++        for: 5m
++        labels:
++          severity: page
++          tier: P104
++          owner: ML
++        annotations:
++          summary: "Feature schema compare exporter is down"
++          description: "Prometheus cannot scrape feature schema compare metrics (feature_schema_compare_exporter_up)."
++
++      - alert: FeatureSchemaCompareStale
++        expr: feature_schema_compare_age_seconds > 129600
++        for: 30m
++        labels:
++          severity: page
++          tier: P104
++          owner: ML
++        annotations:
++          summary: "Feature schema compare report is stale"
++          description: "No successful schema compare update for >36h. Check of_timers_worker schedule and bundle logs."
++
++      - alert: FeatureSchemaCompareFailed
++        expr: (feature_schema_compare_last_success == 0) AND (feature_schema_compare_age_seconds < 21600)
++        for: 15m
++        labels:
++          severity: page
++          tier: P104
++          owner: ML
++        annotations:
++          summary: "Feature schema compare failed"
++          description: "Nightly schema compare bundle failed recently. Inspect metrics:feature_schema_compare:last and report_path."
++
++      - alert: FeatureSchemaCompareAUCRegression
++        expr: (feature_schema_compare_delta_auc < -0.010) AND (feature_schema_compare_age_seconds < 21600)
++        for: 30m
++        labels:
++          severity: warn
++          tier: P104
++          owner: ML
++        annotations:
++          summary: "Schema compare shows AUC regression (delta_auc < -0.010)"
++          description: "schema_b underperforms schema_a on the same window. Do not promote schema_b; review top new features + stability tables."
++
++      - alert: FeatureSchemaCompareBrierRegression
++        expr: (feature_schema_compare_delta_brier > 0.000500) AND (feature_schema_compare_age_seconds < 21600)
++        for: 30m
++        labels:
++          severity: warn
++          tier: P104
++          owner: ML
++        annotations:
++          summary: "Schema compare shows Brier regression (delta_brier > 0.0005)"
++          description: "schema_b increases Brier error vs schema_a (worse calibration). Consider pruning/regularizing new features or increasing min_group_rows."
++
++      - alert: FeatureSchemaCompareNoiseHigh
++        expr: (feature_schema_compare_noise_share{schema=~".*"} > 0.60)
++        for: 2h
++        labels:
++          severity: warn
++          tier: P104
++          owner: ML
++        annotations:
++          summary: "High noise share in schema compare"
++          description: "A large fraction of features are flagged as low-importance or unstable across regimes/hours. Review report.md and stability_table.csv."
+diff -ruN --no-dereference /mnt/data/repo_p104_base/tick_flow_full/orderflow_services/runbook_feature_schema_compare_p104.md /mnt/data/repo/tick_flow_full/orderflow_services/runbook_feature_schema_compare_p104.md
+--- /mnt/data/repo_p104_base/tick_flow_full/orderflow_services/runbook_feature_schema_compare_p104.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/repo/tick_flow_full/orderflow_services/runbook_feature_schema_compare_p104.md	2026-02-26 10:13:38.924457606 +0000
+@@ -0,0 +1,107 @@
++# Runbook: Feature Schema Compare (P104)
++
++## Purpose
++
++Nightly job compares two ML feature schemas (default `v5_of` vs `v6_of`) on the **same** recent data window:
++
++- builds one dataset from Redis (`signals:of:inputs` + `trades:closed`),
++- runs `feature_selection_loop_v1` twice (per schema),
++- publishes a low-cardinality summary to Redis hash `metrics:feature_schema_compare:last`,
++- exporter exposes Prometheus metrics used by alerts and the Grafana dashboard.
++
++The goal is to catch regressions early and provide a quick view of:
++
++- **delta_auc = AUC(schema_b) - AUC(schema_a)** (positive is good),
++- **delta_brier = Brier(schema_b) - Brier(schema_a)** (negative is good),
++- **noise_share** stability proxy (share of "noisy" features by regime/hour).
++
++## Alerts
++
++- `FeatureSchemaCompareFailed`: last run failed.
++- `FeatureSchemaCompareStale`: no update for > 6h.
++- `FeatureSchemaCompareExporterDown`: exporter cannot expose metrics.
++- `FeatureSchemaCompareQualityRegression`: `delta_auc < -0.010`.
++- `FeatureSchemaCompareCalibrationRegression`: `delta_brier > 0.0005`.
++
++## Quick checks
++
++### 1) Check Prometheus / Grafana
++
++Open dashboard: **Feature Schema Compare (P104)**
++
++- Last success
++- Age seconds
++- delta_auc / delta_brier
++- AUC/Brier and noise_share by schema
++
++### 2) Check Redis summary (source of truth)
++
++```bash
++redis-cli HGETALL metrics:feature_schema_compare:last
++```
++
++Key fields:
++
++- `status`, `reason`, `success`, `run_id`
++- `schema_a`, `schema_b`
++- `auc_a`, `auc_b`, `brier_a`, `brier_b`
++- `delta_auc`, `delta_brier`
++- `noise_share_a`, `noise_share_b`
++- `report_path` (compare report in filesystem)
++
++### 3) Inspect the compare report
++
++On the host where the job runs:
++
++```bash
++cat "$(redis-cli HGET metrics:feature_schema_compare:last report_path)"
++```
++
++It contains:
++
++- quality table
++- top new features in schema_b (by perm AUC drop)
++- links to per-schema reports
++
++## Remediation
++
++### If `FeatureSchemaCompareFailed`
++
++1) Verify the job ran (systemd timer / docker-compose timers / cron).
++2) Inspect logs of the runner container/service.
++3) Validate connectivity:
++
++- Redis URL / credentials (`REDIS_URL`)
++- stream names exist (`signals:of:inputs`, `trades:closed`)
++
++4) Re-run manually:
++
++```bash
++python -m ml_analysis.tools.nightly_feature_schema_compare_bundle_v1 \
++  --schema_a v5_of --schema_b v6_of \
++  --window_hours 168
++```
++
++### If `delta_auc` regression / `delta_brier` regression
++
++1) **Do not promote** schema_b.
++2) Review **top new features** (compare report) and remove/denylist the worst offenders.
++3) Increase robustness:
++
++- raise `FEATURE_SCHEMA_COMPARE_MIN_GROUP_ROWS`
++- increase `FEATURE_SCHEMA_COMPARE_WINDOW_HOURS`
++- consider `model=gbdt` for a nonlinear check (still quick)
++
++4) Re-run compare after changes.
++
++## Config (env)
++
++- `FEATURE_SCHEMA_COMPARE_SCHEMA_A` (default `v5_of`)
++- `FEATURE_SCHEMA_COMPARE_SCHEMA_B` (default `v6_of`)
++- `FEATURE_SCHEMA_COMPARE_OUT_DIR` (default `/var/lib/trade/ml_models/feature_schema_compare_p104`)
++- `FEATURE_SCHEMA_COMPARE_WINDOW_HOURS` (default `168`)
++- `FEATURE_SCHEMA_COMPARE_MIN_ROWS` (default `4000`)
++- `FEATURE_SCHEMA_COMPARE_MIN_GROUP_ROWS` (default `300`)
++- `FEATURE_SCHEMA_COMPARE_MODEL` (`lr` or `gbdt`)
++- `FEATURE_SCHEMA_COMPARE_METRICS_KEY` (default `metrics:feature_schema_compare:last`)
++- `FEATURE_SCHEMA_COMPARE_EXPORTER_PORT` (default `9822`)
+diff -ruN --no-dereference /mnt/data/repo_p104_base/tick_flow_full/services/of_timers_worker.py /mnt/data/repo/tick_flow_full/services/of_timers_worker.py
+--- /mnt/data/repo_p104_base/tick_flow_full/services/of_timers_worker.py	2026-02-25 19:59:24.000000000 +0000
++++ /mnt/data/repo/tick_flow_full/services/of_timers_worker.py	2026-02-26 10:18:03.084785627 +0000
+@@ -1535,6 +1535,46 @@
+     return run_tool("ml_analysis.tools.feature_selection_loop_v1", args, timeout=7200)
+ 
+ 
++def run_feature_schema_compare_bundle_v1() -> bool:
++    """Run Feature Schema Compare bundle (P104): v5_of vs v6_of (importance + stability).
++
++    Disabled by default. Enable with:
++      ENABLE_FEATURE_SCHEMA_COMPARE=1
++
++    Notes:
++      - bundle builds its own dataset window from Redis (signals:of:inputs + trades:closed)
++      - publishes summary to metrics:feature_schema_compare:last
++    """
++    enabled = os.getenv("ENABLE_FEATURE_SCHEMA_COMPARE", "0")
++    if str(enabled).lower() not in ("1", "true", "yes", "on"):
++        return True
++
++    schema_a = os.getenv("FEATURE_SCHEMA_COMPARE_SCHEMA_A", "v5_of")
++    schema_b = os.getenv("FEATURE_SCHEMA_COMPARE_SCHEMA_B", "v6_of")
++    window_hours = os.getenv("FEATURE_SCHEMA_COMPARE_WINDOW_HOURS", "168")
++    out_dir = os.getenv("FEATURE_SCHEMA_COMPARE_OUT_DIR", "/var/lib/trade/ml_models/feature_schema_compare_p104")
++    model = os.getenv("FEATURE_SCHEMA_COMPARE_MODEL", "lr")
++
++    args = [
++        "--schema_a",
++        schema_a,
++        "--schema_b",
++        schema_b,
++        "--window_hours",
++        window_hours,
++        "--out_dir",
++        out_dir,
++        "--model",
++        model,
++    ]
++    timeout_s = 7200
++    try:
++        timeout_s = int(str(os.getenv("FEATURE_SCHEMA_COMPARE_TIMEOUT_S", "7200")).strip())
++    except Exception:
++        timeout_s = 7200
++    return run_tool("ml_analysis.tools.nightly_feature_schema_compare_bundle_v1", args, timeout=timeout_s)
++
++
+ 
+ def run_feature_selection_loop_bundle_v1() -> bool:
+     """Nightly minimal feature selection loop (importance + stability by regime/hour).
+@@ -2653,6 +2693,7 @@
+                 ("edge_stack_v1_train", 4, 10, run_ml_train_edge_stack_v1),
+                 ("edge_stack_shadow", 4, 12, run_edge_stack_shadow_eval),
+                 ("feature_selection_loop", 4, 15, run_feature_selection_loop_v1),
++                ("feature_schema_compare", 4, 17, run_feature_schema_compare_bundle_v1),
+                 ("edge_stack_mh_train", 4, 20, run_ml_train_edge_stack_mh_v1),
+                 ("regress_safe", 4, 20, run_nightly_regress_safe),
+                 # P59 bundle: dataset+validate+train+promote in one step (05:10)

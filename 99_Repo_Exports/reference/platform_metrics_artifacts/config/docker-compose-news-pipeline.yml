@@ -1,0 +1,310 @@
+services:
+  # Go news ingestor (primary)
+  news-ingestor-go:
+    build:
+      context: .
+      dockerfile: Dockerfile.go
+      args:
+        BINARY_NAME: news-ingestor
+        SOURCE_PATH: cmd/news-ingestor
+    image: trade-news-ingestor-go:latest
+    container_name: news-ingestor-go
+    restart: unless-stopped
+    env_file:
+      - ./news-pipeline.env
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - NEWS_REDIS_SOCKET_TIMEOUT_MS=50
+      - NEWS_REDIS_CONNECT_TIMEOUT_MS=200
+      - NEWS_REDIS_MAX_CONNECTIONS=16
+      - NEWS_RAW_STREAM=news:raw
+      - NEWS_RAW_DLQ=news:raw:dlq
+      - NEWS_INGESTOR_LEADER_KEY=news:ingestor:leader
+      - NEWS_INGESTOR_LEADER_TTL_SEC=8
+      - POLL_INTERVAL=10s
+      - HTTP_TIMEOUT=6s
+      - DEDUPE_TTL=30m
+      - MAX_STREAM_LEN=100000
+      - HEARTBEAT_TTL=30s
+      - INSTANCE_ID=news-ingestor-go-1
+      - USER_AGENT=trade-news-ingestor/1.0
+      - HTTP_LISTEN=:8097
+      - LOG_LEVEL=INFO
+    networks:
+      - scanner-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8097/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+
+  # Python fallback news ingestor (legacy)
+  news-ingestor-py:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+      args:
+        WORKDIR: /app
+    image: trade-news-ingestor-py:latest
+    container_name: news-ingestor-py
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - NEWS_REDIS_SOCKET_TIMEOUT_MS=50
+      - NEWS_REDIS_CONNECT_TIMEOUT_MS=200
+      - NEWS_REDIS_MAX_CONNECTIONS=16
+      - NEWS_RAW_STREAM=news:raw
+      - NEWS_RAW_DLQ=news:raw:dlq
+      - NEWS_INGESTOR_LEADER_KEY=news:ingestor:leader
+      - NEWS_INGESTOR_LEADER_TTL_SEC=8
+      - NEWS_POLL_SEC=10
+      - NEWS_DEDUPE_TTL_SEC=1800
+      - NEWS_STREAM_MAXLEN=100000
+      - LOG_LEVEL=INFO
+      - HOSTNAME=news-ingestor-py-1
+    env_file:
+      - ./news-pipeline.env
+    working_dir: /app/services/news_ingestor_py
+    command: ["sh", "-c", "sleep 90 && python main.py"]
+    networks:
+      - scanner-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+  # Python standby news ingestor (updated with trade_patch)
+  news-ingestor-py-standby:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+      args:
+        WORKDIR: /app
+    image: trade-news-ingestor-py-standby:latest
+    container_name: news-ingestor-py-standby
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - NEWS_REDIS_SOCKET_TIMEOUT_MS=50
+      - NEWS_REDIS_CONNECT_TIMEOUT_MS=200
+      - NEWS_REDIS_MAX_CONNECTIONS=16
+      - STANDBY_INGESTOR_ENABLE=1
+      - NEWS_INGESTOR_LEADER_KEY=news:ingestor:leader
+      - NEWS_INGESTOR_LEADER_TTL_MS=8000
+      - LOG_LEVEL=INFO
+    working_dir: /app/python-worker
+    command: ["python", "-m", "news_pipeline.standby_ingestor"]
+    networks:
+      - scanner-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+  # Python news analyzer (LLM)
+  news-analyzer:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+      args:
+        WORKDIR: /app
+    image: trade-news-analyzer:latest
+    container_name: news-analyzer
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - NEWS_REDIS_SOCKET_TIMEOUT_MS=50
+      - NEWS_REDIS_CONNECT_TIMEOUT_MS=200
+      - NEWS_REDIS_MAX_CONNECTIONS=16
+      - PG_DSN=${NEWS_POSTGRES_DSN:-postgresql://trading:trading_password@postgres:5432/scanner_analytics}
+      - NEWS_RAW_STREAM=news:raw
+      - NEWS_ANALYSIS_STREAM=news:analysis
+      - NEWS_RAW_DLQ=news:raw:dlq
+      - NEWS_ANALYZER_GROUP=news-analyzer
+      - NEWS_ANALYZER_CONSUMER=news-analyzer-1
+      - NEWS_ANALYSIS_TTL_SEC=604800
+      - LOG_LEVEL=INFO
+      - HOSTNAME=news-analyzer-1
+    env_file:
+      - ./news-pipeline.env
+    working_dir: /app/python-worker
+    command: ["python", "-m", "news_pipeline.analyzer_worker"]
+    networks:
+      - scanner-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+
+  # Python news feature store
+  news-feature-store:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+      args:
+        WORKDIR: /app
+    image: trade-news-feature-store:latest
+    container_name: news-feature-store
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - NEWS_REDIS_SOCKET_TIMEOUT_MS=50
+      - NEWS_REDIS_CONNECT_TIMEOUT_MS=200
+      - NEWS_REDIS_MAX_CONNECTIONS=16
+      - PG_DSN=${NEWS_POSTGRES_DSN:-postgresql://trading:trading_password@postgres:5432/scanner_analytics}
+      - NEWS_ANALYSIS_STREAM=news:analysis
+      - NEWS_ANALYSIS_DLQ=news:analysis:dlq
+      - NEWS_FEATURE_GROUP=news-feature-store
+      - NEWS_FEATURE_CONSUMER=news-feature-store-1
+      - NEWS_AGG_TTL_SEC=7200
+      - NEWS_RISK_HALF_LIFE_SEC=1800
+      - NEWS_SHADOW_REFRESH_MS=250
+      - NEWS_SHADOW_CAL_REFRESH_MS=1000
+      - NEWS_SHADOW_SYMBOL_TTL_MS=60000
+      - NEWS_ENRICHER_MAX_STALE_SEC=300
+      - LOG_LEVEL=INFO
+      - HOSTNAME=news-feature-store-1
+    env_file:
+      - ./news-pipeline.env
+    working_dir: /app/python-worker
+    command: ["sh", "-c", "sleep 90 && python -m news_pipeline.feature_store_worker"]
+    networks:
+      - scanner-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+  # Python calendar feature store
+  calendar-feature-store:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+      args:
+        WORKDIR: /app
+    image: trade-calendar-feature-store:latest
+    container_name: calendar-feature-store
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - NEWS_REDIS_SOCKET_TIMEOUT_MS=50
+      - NEWS_REDIS_CONNECT_TIMEOUT_MS=200
+      - NEWS_REDIS_MAX_CONNECTIONS=16
+      - PG_DSN=${NEWS_POSTGRES_DSN:-postgresql://trading:trading_password@postgres:5432/scanner_analytics}
+      - CALENDAR_STREAM=calendar:events
+      - CALENDAR_DLQ=calendar:events:dlq
+      - CALENDAR_GROUP=calendar-feature-store
+      - CALENDAR_CONSUMER=calendar-feature-store-1
+      - CALENDAR_AGG_TTL_SEC=21600
+      - LOG_LEVEL=INFO
+      - HOSTNAME=calendar-feature-store-1
+    env_file:
+      - ./news-pipeline.env
+    working_dir: /app/python-worker
+    command: ["python", "-m", "news_pipeline.calendar_store_worker"]
+    networks:
+      - scanner-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+  # Go news watchdog
+  news-watchdog:
+    build:
+      context: .
+      dockerfile: Dockerfile.go
+      args:
+        BINARY_NAME: news-watchdog
+        SOURCE_PATH: cmd/news-watchdog
+    image: trade-news-watchdog:latest
+    container_name: news-watchdog
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - NEWS_REDIS_SOCKET_TIMEOUT_MS=50
+      - NEWS_REDIS_CONNECT_TIMEOUT_MS=200
+      - NEWS_REDIS_MAX_CONNECTIONS=16
+      - HB_MAX_AGE=45s
+    networks:
+      - scanner-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.25'
+        reservations:
+          memory: 64M
+          cpus: '0.1'
+
+networks:
+  scanner-network:
+    external: true

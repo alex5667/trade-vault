@@ -1,0 +1,12 @@
+{
+  "bad_streak": 0,
+  "canary_share": 0.0,
+  "evidence_ts": 0,
+  "good_streak": 0,
+  "last_bump_ts": 0,
+  "ramp_started_ts": 0,
+  "status_path": "/var/lib/trade/of_reports/out/confidence_cal_live/confidence_calibration_live_status.json",
+  "status_path_reason": "found:confidence_calibration_live_status.json",
+  "ts": 1772165147,
+  "valid": false
+}

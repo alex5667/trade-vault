@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/stream_integrity_gate.py
+# hypothesis_version: 6.148.10
+
+[0.0, '0', '1', 'DATA_MAX_DUP_RATE', 'GATE_PROFILE', 'STREAM_INTEGRITY', 'StreamIntegrityGate', 'VETO_DUP_RATE', 'VETO_SCHEMA_DRIFT', 'VETO_SEQ_GAP_RATE', 'VETO_SEQ_GAP_WINDOW', 'auto', 'default', 'dup_rate_ema_high', 'gap_rate_ema_high', 'gap_window_high', 'hard', 'monitor', 'schema_changed', 'strict', 'tick_schema_changed', 'tighten', 'veto']

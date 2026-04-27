@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/sorting.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 'argmax', 'argmin', 'first', 'i8', 'last', 'mergesort', 'quicksort']

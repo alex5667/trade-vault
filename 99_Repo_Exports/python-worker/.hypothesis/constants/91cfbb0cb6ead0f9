@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/auto_apply_guard_prom_exporter_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, '%Y%m%d%H%M', ',', '10', '5,10,30,60', '9126', 'Blocked runs count', 'Exporter stopped', 'Failed runs count', 'LOADING', 'REDIS_URL', 'Total runs count', '__main__', 'blocked:', 'blocked_total', 'reason', 'run_err_total', 'run_ok_total', 'window']

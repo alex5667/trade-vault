@@ -1,0 +1,1654 @@
+diff --git a/ml_analysis/pbo_cscv.py b/ml_analysis/pbo_cscv.py
+new file mode 100644
+index 0000000..dff5a6e
+--- /dev/null
++++ b/ml_analysis/pbo_cscv.py
+@@ -0,0 +1,112 @@
++from __future__ import annotations
++
++"""CSCV / PBO utilities for nightly strategy research stats.
++
++Input shape is deliberately simple: a mapping of variant -> ordered list of
++per-period scores (higher is better). The implementation keeps the selection
++procedure deterministic and low-dependency so it can run in the timer worker.
++"""
++
++import itertools
++import math
++from typing import Dict, Iterable, List, Mapping, Sequence, Tuple
++
++
++def _clean_score(v: object) -> float:
++    try:
++        f = float(v)
++    except Exception:
++        return 0.0
++    if not math.isfinite(f):
++        return 0.0
++    return f
++
++
++def _matrix(matrix: Mapping[str, Sequence[float]]) -> Dict[str, List[float]]:
++    out: Dict[str, List[float]] = {}
++    width = None
++    for key, vals in matrix.items():
++        arr = [_clean_score(v) for v in vals]
++        if width is None:
++            width = len(arr)
++        if width != len(arr):
++            raise ValueError('all variants must have identical period counts')
++        out[str(key)] = arr
++    if not out:
++        raise ValueError('empty variant matrix')
++    return out
++
++
++def contiguous_folds(n_periods: int, n_folds: int = 8) -> List[List[int]]:
++    if n_periods < 2:
++        raise ValueError('need at least 2 periods')
++    if n_folds < 2:
++        raise ValueError('need at least 2 folds')
++    n_folds = min(int(n_folds), int(n_periods))
++    base = n_periods // n_folds
++    rem = n_periods % n_folds
++    folds: List[List[int]] = []
++    cur = 0
++    for i in range(n_folds):
++        size = base + (1 if i < rem else 0)
++        idx = list(range(cur, cur + size))
++        if idx:
++            folds.append(idx)
++        cur += size
++    if len(folds) % 2 == 1:
++        folds = folds[:-1]
++    if len(folds) < 2:
++        raise ValueError('insufficient non-empty folds')
++    return folds
++
++
++def _score_variant(period_scores: Sequence[float], indices: Iterable[int]) -> float:
++    xs = [float(period_scores[i]) for i in indices]
++    if not xs:
++        return 0.0
++    return sum(xs) / float(len(xs))
++
++
++def _percentile_rank_desc(values: Sequence[Tuple[str, float]], picked: str) -> float:
++    ordered = sorted(values, key=lambda kv: (kv[1], kv[0]), reverse=True)
++    n = len(ordered)
++    if n <= 1:
++        return 1.0
++    for rank, (name, _) in enumerate(ordered):
++        if name == picked:
++            # top -> 1.0, bottom -> 0.0
++            return 1.0 - (rank / float(n - 1))
++    return 0.0
++
++
++def compute_pbo(matrix: Mapping[str, Sequence[float]], *, n_folds: int = 8) -> Dict[str, float]:
++    mat = _matrix(matrix)
++    variants = sorted(mat)
++    periods = len(next(iter(mat.values())))
++    folds = contiguous_folds(periods, n_folds=n_folds)
++    half = len(folds) // 2
++    split_choices = list(itertools.combinations(range(len(folds)), half))
++    lambdas: List[float] = []
++    unique_train_picks = 0
++
++    for train_fold_ids in split_choices:
++        train_idx = [i for fid in train_fold_ids for i in folds[fid]]
++        test_idx = [i for fid in range(len(folds)) if fid not in train_fold_ids for i in folds[fid]]
++        train_scores = [(v, _score_variant(mat[v], train_idx)) for v in variants]
++        train_order = sorted(train_scores, key=lambda kv: (kv[1], kv[0]), reverse=True)
++        top_score = train_order[0][1]
++        top_names = [name for name, score in train_order if score == top_score]
++        if len(top_names) == 1:
++            unique_train_picks += 1
++        picked = train_order[0][0]
++        test_scores = [(v, _score_variant(mat[v], test_idx)) for v in variants]
++        pct = min(max(_percentile_rank_desc(test_scores, picked), 1e-6), 1.0 - 1e-6)
++        lambdas.append(math.log(pct / (1.0 - pct)))
++
++    negative = sum(1 for x in lambdas if x <= 0.0)
++    pbo = negative / float(len(lambdas)) if lambdas else 0.0
++    return {
++        'pbo': float(pbo),
++        'cscv_splits': float(len(lambdas)),
++        'chosen_variant_unique': 1.0 if unique_train_picks == len(lambdas) and len(lambdas) > 0 else 0.0,
++    }
+diff --git a/ml_analysis/psr_dsr.py b/ml_analysis/psr_dsr.py
+new file mode 100644
+index 0000000..e27043a
+--- /dev/null
++++ b/ml_analysis/psr_dsr.py
+@@ -0,0 +1,136 @@
++from __future__ import annotations
++
++"""Probabilistic / Deflated Sharpe helpers for nightly strategy research stats.
++
++These helpers intentionally avoid heavy dependencies (scipy/pandas) so they can
++run inside the same lightweight timer container as the other research bundles.
++The implementation follows the Bailey/Lopez de Prado style formulas closely
++enough for rollout gating, while remaining deterministic and numerically safe.
++"""
++
++import math
++from statistics import NormalDist
++from typing import Iterable, List, Sequence
++
++
++def _clean(values: Iterable[float]) -> List[float]:
++    out: List[float] = []
++    for v in values:
++        try:
++            f = float(v)
++        except Exception:
++            continue
++        if math.isfinite(f):
++            out.append(f)
++    return out
++
++
++def mean(values: Sequence[float]) -> float:
++    xs = _clean(values)
++    if not xs:
++        return 0.0
++    return sum(xs) / float(len(xs))
++
++
++def sample_variance(values: Sequence[float]) -> float:
++    xs = _clean(values)
++    n = len(xs)
++    if n < 2:
++        return 0.0
++    mu = mean(xs)
++    return sum((x - mu) ** 2 for x in xs) / float(n - 1)
++
++
++def sample_std(values: Sequence[float]) -> float:
++    return math.sqrt(max(sample_variance(values), 0.0))
++
++
++def skewness(values: Sequence[float]) -> float:
++    xs = _clean(values)
++    n = len(xs)
++    if n < 3:
++        return 0.0
++    mu = mean(xs)
++    s = sample_std(xs)
++    if s <= 0.0:
++        return 0.0
++    m3 = sum(((x - mu) / s) ** 3 for x in xs)
++    return (n / ((n - 1) * (n - 2))) * m3
++
++
++def kurtosis(values: Sequence[float]) -> float:
++    """Return Pearson kurtosis (normal == 3)."""
++    xs = _clean(values)
++    n = len(xs)
++    if n < 4:
++        return 3.0
++    mu = mean(xs)
++    s = sample_std(xs)
++    if s <= 0.0:
++        return 3.0
++    z4 = sum(((x - mu) / s) ** 4 for x in xs)
++    term1 = (n * (n + 1) * z4) / ((n - 1) * (n - 2) * (n - 3))
++    term2 = (3 * (n - 1) ** 2) / ((n - 2) * (n - 3))
++    excess = term1 - term2
++    return excess + 3.0
++
++
++def sharpe_ratio(values: Sequence[float], risk_free: float = 0.0) -> float:
++    xs = _clean(values)
++    if not xs:
++        return 0.0
++    ex = [x - float(risk_free) for x in xs]
++    s = sample_std(ex)
++    if s <= 0.0:
++        m = mean(ex)
++        if m > 0.0:
++            return 1e6
++        if m < 0.0:
++            return -1e6
++        return 0.0
++    return mean(ex) / s
++
++
++def probabilistic_sharpe_ratio(values: Sequence[float], benchmark_sr: float = 0.0) -> float:
++    """Probability that observed Sharpe exceeds benchmark Sharpe.
++
++    Uses the standard skew/kurtosis-adjusted approximation.
++    """
++    xs = _clean(values)
++    n = len(xs)
++    if n < 2:
++        return 0.0
++    sr = sharpe_ratio(xs)
++    g3 = skewness(xs)
++    g4 = kurtosis(xs)
++    denom_term = 1.0 - g3 * sr + ((g4 - 1.0) / 4.0) * (sr ** 2)
++    denom_term = max(denom_term, 1e-12)
++    denom = math.sqrt(denom_term / max(float(n - 1), 1.0))
++    if denom <= 0.0:
++        return 1.0 if sr > benchmark_sr else 0.0
++    z = (sr - float(benchmark_sr)) / denom
++    return float(NormalDist().cdf(z))
++
++
++def expected_max_sharpe_benchmark(n_trials: int, sr_std: float) -> float:
++    if n_trials <= 1:
++        return 0.0
++    # Bailey/de Prado approximation for E[max(SR)] under multiple testing.
++    nd = NormalDist()
++    gamma = 0.5772156649  # Euler-Mascheroni constant
++    a = nd.inv_cdf(1.0 - 1.0 / float(n_trials))
++    b = nd.inv_cdf(1.0 - 1.0 / (float(n_trials) * math.e))
++    return float(sr_std * ((1.0 - gamma) * a + gamma * b))
++
++
++def deflated_sharpe_ratio(values: Sequence[float], *, n_trials: int = 1, benchmark_sr: float = 0.0) -> float:
++    xs = _clean(values)
++    n = len(xs)
++    if n < 2:
++        return 0.0
++    sr = sharpe_ratio(xs)
++    g3 = skewness(xs)
++    g4 = kurtosis(xs)
++    sr_std = math.sqrt(max(1.0 - g3 * sr + ((g4 - 1.0) / 4.0) * (sr ** 2), 1e-12) / max(float(n - 1), 1.0))
++    sr_star = max(float(benchmark_sr), expected_max_sharpe_benchmark(int(max(n_trials, 1)), sr_std))
++    return probabilistic_sharpe_ratio(xs, benchmark_sr=sr_star)
+diff --git a/ml_analysis/reality_check.py b/ml_analysis/reality_check.py
+new file mode 100644
+index 0000000..0725a23
+--- /dev/null
++++ b/ml_analysis/reality_check.py
+@@ -0,0 +1,179 @@
++from __future__ import annotations
++
++"""Generic strategy research evaluator helpers.
++
++The research bundle should not be hard-wired to Sharpe only. This module turns a
++JSONL dataset into a compact set of universal metrics that can back promotion
++policy decisions and later be exported to Prometheus.
++"""
++
++import json
++import math
++from collections import defaultdict
++from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
++
++
++def _loads_payload(obj: Mapping[str, Any]) -> Dict[str, Any]:
++    payload = obj.get('payload')
++    if isinstance(payload, dict):
++        return dict(payload)
++    if isinstance(payload, str) and payload.lstrip().startswith('{'):
++        try:
++            parsed = json.loads(payload)
++            if isinstance(parsed, dict):
++                return parsed
++        except Exception:
++            pass
++    return dict(obj)
++
++
++def load_jsonl(path: str) -> List[Dict[str, Any]]:
++    rows: List[Dict[str, Any]] = []
++    with open(path, 'r', encoding='utf-8') as f:
++        for line in f:
++            s = line.strip()
++            if not s:
++                continue
++            try:
++                obj = json.loads(s)
++            except Exception:
++                continue
++            if isinstance(obj, dict):
++                rows.append(_loads_payload(obj))
++    return rows
++
++
++def _pick(d: Mapping[str, Any], *keys: str, default: Any = None) -> Any:
++    for k in keys:
++        if k in d and d.get(k) not in (None, ''):
++            return d.get(k)
++    return default
++
++
++def _to_float(v: Any, default: float = 0.0) -> float:
++    try:
++        f = float(v)
++    except Exception:
++        return float(default)
++    if not math.isfinite(f):
++        return float(default)
++    return float(f)
++
++
++def _to_int(v: Any, default: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return int(default)
++
++
++def normalize_row(row: Mapping[str, Any]) -> Dict[str, Any]:
++    score = _to_float(_pick(row, 'score', 'prob', 'prob_cal', 'p', 'confidence', default=0.5), 0.5)
++    label = _to_int(_pick(row, 'label', 'y', 'target_hit', 'hit', default=0), 0)
++    gross_r = _to_float(_pick(row, 'net_r', 'realized_r', 'outcome_r', 'r', 'ret_r', 'pnl_r', default=0.0), 0.0)
++    cost_bps = _to_float(_pick(row, 'cost_bps', 'slippage_bps', 'fee_bps', default=0.0), 0.0)
++    # If the dataset already provides net_r we keep it. Otherwise subtract a conservative
++    # bps-scaled cost proxy from R-space.
++    if 'net_r' in row and row.get('net_r') not in (None, ''):
++        net_r = _to_float(row.get('net_r'), 0.0)
++    else:
++        net_r = gross_r - (cost_bps / 10000.0)
++    period = str(_pick(row, 'period', 'bucket', 'day', 'date', 'ts_bucket', default='')).strip()
++    variant = str(_pick(row, 'variant', 'arm', 'model_id', 'policy_id', 'config_id', default='baseline')).strip() or 'baseline'
++    return {
++        'score': score,
++        'label': 1 if label > 0 else 0,
++        'gross_r': gross_r,
++        'net_r': net_r,
++        'cost_bps': cost_bps,
++        'period': period,
++        'variant': variant,
++    }
++
++
++def mean(values: Sequence[float]) -> float:
++    xs = [float(v) for v in values]
++    if not xs:
++        return 0.0
++    return sum(xs) / float(len(xs))
++
++
++def downside_adjusted_return(values: Sequence[float]) -> float:
++    xs = [float(v) for v in values]
++    if not xs:
++        return 0.0
++    downside = [min(v, 0.0) for v in xs]
++    downside_sq = mean([v * v for v in downside])
++    if downside_sq <= 0.0:
++        return mean(xs)
++    return mean(xs) / math.sqrt(downside_sq)
++
++
++def entropy_binary_probs(values: Sequence[float]) -> float:
++    xs = [min(max(float(v), 1e-9), 1.0 - 1e-9) for v in values]
++    if not xs:
++        return 0.0
++    return mean([-(p * math.log(p) + (1.0 - p) * math.log(1.0 - p)) for p in xs])
++
++
++def evaluate_rows(rows: Sequence[Mapping[str, Any]], *, top_frac: float = 0.05, primary_metric: str = 'net_expectancy') -> Dict[str, Any]:
++    norm = [normalize_row(r) for r in rows]
++    if not norm:
++        return {
++            'rows': 0,
++            'primary_metric_name': str(primary_metric),
++            'primary_metric_value': 0.0,
++            'net_expectancy': 0.0,
++            'precision_at_top_x': 0.0,
++            'mean_r': 0.0,
++            'downside_adjusted_return': 0.0,
++            'hit_rate_conditioned_on_cost': 0.0,
++            'avg_cost_bps': 0.0,
++            'score_entropy': 0.0,
++            'period_count': 0,
++            'variant_count': 0,
++            'per_period_net': [],
++            'variant_period_matrix': {},
++            'net_series': [],
++        }
++
++    ordered = sorted(norm, key=lambda r: (float(r['score']), float(r['net_r'])), reverse=True)
++    top_n = max(1, int(round(len(ordered) * max(min(float(top_frac), 1.0), 0.0001))))
++    top_rows = ordered[:top_n]
++    net_vals = [float(r['net_r']) for r in norm]
++    gross_vals = [float(r['gross_r']) for r in norm]
++    cost_vals = [float(r['cost_bps']) for r in norm]
++
++    metrics = {
++        'rows': len(norm),
++        'net_expectancy': mean(net_vals),
++        'precision_at_top_x': mean([float(r['label']) for r in top_rows]),
++        'mean_r': mean(gross_vals),
++        'downside_adjusted_return': downside_adjusted_return(net_vals),
++        'hit_rate_conditioned_on_cost': mean([1.0 if float(r['net_r']) > 0.0 else 0.0 for r in norm]),
++        'avg_cost_bps': mean(cost_vals),
++        'score_entropy': entropy_binary_probs([float(r['score']) for r in norm]),
++    }
++    metrics['primary_metric_name'] = str(primary_metric)
++    metrics['primary_metric_value'] = float(metrics.get(str(primary_metric), metrics['net_expectancy']))
++
++    by_period: Dict[str, List[float]] = defaultdict(list)
++    by_variant_period: Dict[str, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
++    for r in norm:
++        if r['period']:
++            by_period[str(r['period'])].append(float(r['net_r']))
++            by_variant_period[str(r['variant'])][str(r['period'])].append(float(r['net_r']))
++
++    per_period_net = [mean(by_period[k]) for k in sorted(by_period)]
++    variant_period_matrix: Dict[str, List[float]] = {}
++    if by_period and by_variant_period:
++        ordered_periods = sorted(by_period)
++        for variant, per_map in sorted(by_variant_period.items()):
++            variant_period_matrix[variant] = [mean(per_map.get(period, [0.0])) for period in ordered_periods]
++
++    metrics['period_count'] = len(by_period)
++    metrics['variant_count'] = len(variant_period_matrix)
++    metrics['per_period_net'] = per_period_net
++    metrics['variant_period_matrix'] = variant_period_matrix
++    metrics['net_series'] = net_vals
++    return metrics
+diff --git a/ml_analysis/tests/test_nightly_strategy_research_stats_bundle_v1.py b/ml_analysis/tests/test_nightly_strategy_research_stats_bundle_v1.py
+new file mode 100644
+index 0000000..80d533b
+--- /dev/null
++++ b/ml_analysis/tests/test_nightly_strategy_research_stats_bundle_v1.py
+@@ -0,0 +1,77 @@
++import json
++import sys
++from pathlib import Path
++
++from ml_analysis.tools import nightly_strategy_research_stats_bundle_v1 as mod
++
++
++class FakeRedis:
++    def __init__(self):
++        self.data = {}
++
++    def hset(self, key, mapping):
++        self.data[key] = dict(mapping)
++
++
++def _write_rows(path: Path, rows):
++    with path.open('w', encoding='utf-8') as f:
++        for row in rows:
++            f.write(json.dumps(row) + '\n')
++
++
++def test_bundle_report_only_writes_summary_and_blocker(tmp_path, monkeypatch):
++    ds = tmp_path / 'dataset.jsonl'
++    rows = []
++    for period in range(8):
++        for variant, base in [('A', 0.30), ('B', 0.05)]:
++            rows.append({
++                'variant': variant,
++                'period': f'p{period}',
++                'score': 0.9 if variant == 'A' else 0.3,
++                'label': 1 if variant == 'A' else 0,
++                'net_r': base + (period * 0.001),
++                'r': base + (period * 0.001),
++                'cost_bps': 1.0,
++            })
++    _write_rows(ds, rows)
++    fake = FakeRedis()
++    monkeypatch.setattr(mod, '_redis', lambda: fake)
++    old = sys.argv[:]
++    sys.argv = ['bundle', '--dataset-path', str(ds), '--out-dir', str(tmp_path), '--gate-mode', 'report_only']
++    try:
++        rc = mod.main()
++    finally:
++        sys.argv = old
++    assert rc == 0
++    assert 'metrics:strategy_research_stats:last' in fake.data
++    assert 'cfg:strategy_research_stats:blocker:v1' in fake.data
++    assert fake.data['cfg:strategy_research_stats:blocker:v1']['blocked'] == '0'
++
++
++def test_bundle_hard_gate_blocks_bad_metrics(tmp_path, monkeypatch):
++    ds = tmp_path / 'dataset_bad.jsonl'
++    rows = []
++    for period in range(8):
++        for variant, base in [('A', -0.30), ('B', -0.10)]:
++            rows.append({
++                'variant': variant,
++                'period': f'p{period}',
++                'score': 0.4,
++                'label': 0,
++                'net_r': base - (period * 0.001),
++                'r': base - (period * 0.001),
++                'cost_bps': 1.0,
++            })
++    _write_rows(ds, rows)
++    fake = FakeRedis()
++    monkeypatch.setattr(mod, '_redis', lambda: fake)
++    old = sys.argv[:]
++    sys.argv = ['bundle', '--dataset-path', str(ds), '--out-dir', str(tmp_path), '--gate-mode', 'hard', '--min-psr', '0.90', '--min-dsr', '0.90']
++    try:
++        rc = mod.main()
++    finally:
++        sys.argv = old
++    assert rc == 0
++    blocker = fake.data['cfg:strategy_research_stats:blocker:v1']
++    assert blocker['blocked'] == '1'
++    assert 'psr_low' in blocker['reason'] or 'dsr_low' in blocker['reason']
+diff --git a/ml_analysis/tests/test_pbo_cscv.py b/ml_analysis/tests/test_pbo_cscv.py
+new file mode 100644
+index 0000000..3ed76e4
+--- /dev/null
++++ b/ml_analysis/tests/test_pbo_cscv.py
+@@ -0,0 +1,13 @@
++from ml_analysis.pbo_cscv import compute_pbo
++
++
++def test_compute_pbo_prefers_consistent_variant():
++    matrix = {
++        'A': [0.30, 0.28, 0.27, 0.29, 0.31, 0.26, 0.28, 0.30],
++        'B': [0.05, 0.02, 0.01, 0.04, 0.03, 0.02, 0.01, 0.00],
++        'C': [-0.02, 0.00, -0.01, -0.03, 0.01, -0.02, 0.00, -0.01],
++    }
++    out = compute_pbo(matrix, n_folds=8)
++    assert out['cscv_splits'] > 0
++    assert 0.0 <= out['pbo'] <= 1.0
++    assert out['pbo'] < 0.5
+diff --git a/ml_analysis/tests/test_psr_dsr.py b/ml_analysis/tests/test_psr_dsr.py
+new file mode 100644
+index 0000000..6f575df
+--- /dev/null
++++ b/ml_analysis/tests/test_psr_dsr.py
+@@ -0,0 +1,15 @@
++from ml_analysis.psr_dsr import probabilistic_sharpe_ratio, deflated_sharpe_ratio
++
++
++def test_psr_positive_series_high():
++    xs = [0.3, 0.2, 0.25, 0.18, 0.22, 0.27, 0.19, 0.24]
++    psr = probabilistic_sharpe_ratio(xs)
++    dsr = deflated_sharpe_ratio(xs, n_trials=4)
++    assert psr > 0.5
++    assert 0.0 <= dsr <= psr <= 1.0
++
++
++def test_psr_negative_series_low():
++    xs = [-0.3, -0.2, -0.25, -0.18, -0.22, -0.27, -0.19, -0.24]
++    psr = probabilistic_sharpe_ratio(xs)
++    assert psr < 0.5
+diff --git a/ml_analysis/tools/nightly_strategy_research_stats_bundle_v1.py b/ml_analysis/tools/nightly_strategy_research_stats_bundle_v1.py
+new file mode 100644
+index 0000000..cd77b39
+--- /dev/null
++++ b/ml_analysis/tools/nightly_strategy_research_stats_bundle_v1.py
+@@ -0,0 +1,214 @@
++from __future__ import annotations
++
++import argparse
++import json
++import math
++import os
++import sys
++import time
++from pathlib import Path
++from typing import Any, Dict
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++from ml_analysis.psr_dsr import probabilistic_sharpe_ratio, deflated_sharpe_ratio
++from ml_analysis.pbo_cscv import compute_pbo
++from ml_analysis.reality_check import evaluate_rows, load_jsonl
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _to_int(v: Any, default: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return int(default)
++
++
++def _to_float(v: Any, default: float = 0.0) -> float:
++    try:
++        f = float(v)
++    except Exception:
++        return float(default)
++    if not math.isfinite(f):
++        return float(default)
++    return float(f)
++
++
++def _redis():
++    if redis is None:
++        return None
++    try:
++        return redis.Redis.from_url(_env('REDIS_URL', 'redis://redis-worker-1:6379/0'), decode_responses=True)
++    except Exception:
++        return None
++
++
++def _select_dataset_path(explicit: str) -> str:
++    candidates = [
++        explicit,
++        _env('STRATEGY_RESEARCH_STATS_DATASET_PATH', ''),
++        _env('ML_EDGE_STACK_DATASET_PATH', ''),
++        _env('ML_EDGE_STACK_OOF_DATASET_PATH', ''),
++        '/var/lib/trade/ml_models/edge_stack_v1/dataset.ndjson',
++        '/var/lib/trade/ml_models/edge_stack_v1_oof/edge_train.jsonl',
++    ]
++    for c in candidates:
++        if c and os.path.exists(c):
++            return c
++    return explicit or _env('STRATEGY_RESEARCH_STATS_DATASET_PATH', '')
++
++
++def _reason_from_metrics(metrics: Dict[str, Any], *, min_psr: float, min_dsr: float, max_pbo: float, min_primary: float, fail_closed_missing: bool) -> str:
++    problems = []
++    psr = metrics.get('psr')
++    dsr = metrics.get('dsr')
++    pbo = metrics.get('pbo')
++    primary = metrics.get('primary_metric_value')
++    if psr is None and fail_closed_missing:
++        problems.append('psr_missing')
++    elif psr is not None and float(psr) < float(min_psr):
++        problems.append('psr_low')
++    if dsr is None and fail_closed_missing:
++        problems.append('dsr_missing')
++    elif dsr is not None and float(dsr) < float(min_dsr):
++        problems.append('dsr_low')
++    if pbo is None and fail_closed_missing:
++        problems.append('pbo_missing')
++    elif pbo is not None and float(pbo) > float(max_pbo):
++        problems.append('pbo_high')
++    if primary is None and fail_closed_missing:
++        problems.append('primary_metric_missing')
++    elif primary is not None and float(primary) < float(min_primary):
++        problems.append('metric_low')
++    return ','.join(problems) if problems else 'ok'
++
++
++def _hset_mapping(client, key: str, mapping: Dict[str, Any]) -> None:
++    if client is None or not key:
++        return
++    payload = {k: json.dumps(v, separators=(',', ':')) if isinstance(v, (dict, list)) else str(v) for k, v in mapping.items()}
++    client.hset(key, mapping=payload)
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser()
++    ap.add_argument('--dataset-path', default='')
++    ap.add_argument('--out-dir', default=_env('STRATEGY_RESEARCH_STATS_OUT_DIR', '/var/lib/trade/of_reports/out/strategy_research'))
++    ap.add_argument('--summary-key', default=_env('STRATEGY_RESEARCH_STATS_SUMMARY_KEY', 'metrics:strategy_research_stats:last'))
++    ap.add_argument('--blocker-key', default=_env('STRATEGY_RESEARCH_STATS_BLOCKER_KEY', 'cfg:strategy_research_stats:blocker:v1'))
++    ap.add_argument('--gate-mode', default=_env('STRATEGY_RESEARCH_STATS_GATE_MODE', 'report_only'))
++    ap.add_argument('--primary-metric', default=_env('STRATEGY_RESEARCH_STATS_PRIMARY_METRIC', 'net_expectancy'))
++    ap.add_argument('--min-psr', type=float, default=float(_env('STRATEGY_RESEARCH_STATS_MIN_PSR', '0.55')))
++    ap.add_argument('--min-dsr', type=float, default=float(_env('STRATEGY_RESEARCH_STATS_MIN_DSR', '0.50')))
++    ap.add_argument('--max-pbo', type=float, default=float(_env('STRATEGY_RESEARCH_STATS_MAX_PBO', '0.20')))
++    ap.add_argument('--min-primary', type=float, default=float(_env('STRATEGY_RESEARCH_STATS_MIN_PRIMARY', '0.0')))
++    ap.add_argument('--top-frac', type=float, default=float(_env('STRATEGY_RESEARCH_STATS_TOP_FRAC', '0.05')))
++    ap.add_argument('--cscv-folds', type=int, default=int(_env('STRATEGY_RESEARCH_STATS_CSCV_FOLDS', '8')))
++    ap.add_argument('--fail-closed-missing', type=int, default=int(_env('STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING', '0')))
++    args = ap.parse_args()
++
++    dataset_path = _select_dataset_path(args.dataset_path)
++    if not dataset_path or not os.path.exists(dataset_path):
++        print(json.dumps({'ok': False, 'reason': 'dataset_missing', 'dataset_path': dataset_path}, ensure_ascii=False))
++        return 2
++
++    rows = load_jsonl(dataset_path)
++    metrics = evaluate_rows(rows, top_frac=args.top_frac, primary_metric=args.primary_metric)
++    per_period = metrics.get('per_period_net') or []
++    net_series = metrics.get('net_series') or []
++    variant_matrix = metrics.get('variant_period_matrix') or {}
++    sr_series = per_period if per_period else net_series
++    psr = probabilistic_sharpe_ratio(sr_series) if sr_series else 0.0
++    dsr = deflated_sharpe_ratio(sr_series, n_trials=max(int(metrics.get('variant_count') or 1), 1)) if sr_series else 0.0
++
++    pbo = None
++    cscv_splits = 0.0
++    chosen_variant_unique = 0.0
++    if variant_matrix and int(metrics.get('period_count', 0)) >= 2 and int(metrics.get('variant_count', 0)) >= 2:
++        pbo_info = compute_pbo(variant_matrix, n_folds=max(2, int(args.cscv_folds)))
++        pbo = float(pbo_info.get('pbo', 0.0))
++        cscv_splits = float(pbo_info.get('cscv_splits', 0.0))
++        chosen_variant_unique = float(pbo_info.get('chosen_variant_unique', 0.0))
++    metrics['psr'] = float(psr)
++    metrics['dsr'] = float(dsr)
++    metrics['pbo'] = None if pbo is None else float(pbo)
++    metrics['cscv_splits'] = float(cscv_splits)
++    metrics['chosen_variant_unique'] = float(chosen_variant_unique)
++    metrics['dataset_path'] = dataset_path
++
++    gate_mode = str(args.gate_mode or 'report_only').strip().lower()
++    if gate_mode not in ('report_only', 'soft', 'hard'):
++        gate_mode = 'report_only'
++    reason = _reason_from_metrics(
++        metrics,
++        min_psr=args.min_psr,
++        min_dsr=args.min_dsr,
++        max_pbo=args.max_pbo,
++        min_primary=args.min_primary,
++        fail_closed_missing=bool(int(args.fail_closed_missing)),
++    )
++    has_violation = reason != 'ok'
++    blocked = 1 if gate_mode == 'hard' and has_violation else 0
++    soft_blocked = 1 if gate_mode == 'soft' and has_violation else 0
++    report_only = 1 if gate_mode == 'report_only' else 0
++    now_ms = int(time.time() * 1000)
++
++    summary = {
++        'updated_ts_ms': now_ms,
++        'success': 1,
++        'gate_mode': gate_mode,
++        'report_only': report_only,
++        'primary_metric_name': metrics.get('primary_metric_name', args.primary_metric),
++        'primary_metric_value': _to_float(metrics.get('primary_metric_value', 0.0), 0.0),
++        'net_expectancy': _to_float(metrics.get('net_expectancy', 0.0), 0.0),
++        'precision_at_top_x': _to_float(metrics.get('precision_at_top_x', 0.0), 0.0),
++        'mean_r': _to_float(metrics.get('mean_r', 0.0), 0.0),
++        'downside_adjusted_return': _to_float(metrics.get('downside_adjusted_return', 0.0), 0.0),
++        'hit_rate_conditioned_on_cost': _to_float(metrics.get('hit_rate_conditioned_on_cost', 0.0), 0.0),
++        'avg_cost_bps': _to_float(metrics.get('avg_cost_bps', 0.0), 0.0),
++        'score_entropy': _to_float(metrics.get('score_entropy', 0.0), 0.0),
++        'rows': int(metrics.get('rows', 0)),
++        'period_count': int(metrics.get('period_count', 0)),
++        'variant_count': int(metrics.get('variant_count', 0)),
++        'psr': _to_float(metrics.get('psr', 0.0), 0.0),
++        'dsr': _to_float(metrics.get('dsr', 0.0), 0.0),
++        'pbo': '' if metrics.get('pbo') is None else _to_float(metrics.get('pbo', 0.0), 0.0),
++        'cscv_splits': _to_float(metrics.get('cscv_splits', 0.0), 0.0),
++        'chosen_variant_unique': _to_float(metrics.get('chosen_variant_unique', 0.0), 0.0),
++        'dataset_path': dataset_path,
++        'blocker_reason': reason,
++    }
++    blocker = {
++        'updated_ts_ms': now_ms,
++        'gate_mode': gate_mode,
++        'report_only': report_only,
++        'blocked': blocked,
++        'soft_blocked': soft_blocked,
++        'invalid': 0,
++        'reason': reason,
++    }
++
++    out_dir = Path(args.out_dir)
++    out_dir.mkdir(parents=True, exist_ok=True)
++    report_path = out_dir / 'strategy_research_stats_last.json'
++    tmp = report_path.with_suffix('.tmp')
++    report_obj = {'summary': summary, 'blocker': blocker}
++    tmp.write_text(json.dumps(report_obj, ensure_ascii=False, indent=2, sort_keys=True), encoding='utf-8')
++    tmp.replace(report_path)
++
++    client = _redis()
++    _hset_mapping(client, args.summary_key, summary)
++    _hset_mapping(client, args.blocker_key, blocker)
++
++    print(json.dumps({'ok': True, 'report_path': str(report_path), 'blocked': blocked, 'soft_blocked': soft_blocked, 'reason': reason}, ensure_ascii=False))
++    return 0
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+diff --git a/orderflow_services/conf_score_guardrails_apply_v1.py b/orderflow_services/conf_score_guardrails_apply_v1.py
+index 1012747..4c3ca17 100644
+--- a/orderflow_services/conf_score_guardrails_apply_v1.py
++++ b/orderflow_services/conf_score_guardrails_apply_v1.py
+@@ -46,6 +46,8 @@ from datetime import datetime, timezone
+ from typing import Any, Dict, List, Optional, Tuple, ContextManager
+ from contextlib import contextmanager
+ 
++from orderflow_services.strategy_research_stats_gate_v1 import evaluate_strategy_research_stats_gate, gate_check_message
++
+ 
+ def _now_ms() -> int:
+     return int(time.time() * 1000)
+@@ -770,7 +772,24 @@ def main() -> int:
+         
+         is_stage_mode = (getattr(args, "stage", 0) == 1)
+         target_prefix = args.staged_key_prefix if is_stage_mode else args.key_prefix
+-        
++
++        if int(args.apply) == 1 and os.getenv("ENABLE_STRATEGY_RESEARCH_STATS_GATE", "1") in ("1", "true", "True", "yes", "on"):
++            gate = evaluate_strategy_research_stats_gate(
++                args.redis_url,
++                os.getenv("STRATEGY_RESEARCH_STATS_BLOCKER_KEY", "cfg:strategy_research_stats:blocker:v1"),
++                os.getenv("STRATEGY_RESEARCH_STATS_SUMMARY_KEY", "metrics:strategy_research_stats:last"),
++                max_age_sec=float(os.getenv("STRATEGY_RESEARCH_STATS_MAX_AGE_SEC", "129600") or 129600),
++                fail_closed_missing=int(os.getenv("STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING", "0") or 0),
++            )
++            if str(gate.get("status")) == "block":
++                print(json.dumps({"blocked": True, "reason": gate.get("reason"), "source": "strategy_research_stats_gate"}, ensure_ascii=False))
++                return 0
++            if str(gate.get("status")) == "invalid" and os.getenv("STRATEGY_RESEARCH_STATS_INVALID_AS_BLOCK", "1") in ("1", "true", "True", "yes", "on"):
++                print(json.dumps({"blocked": True, "reason": gate.get("reason"), "source": "strategy_research_stats_gate", "status": "invalid"}, ensure_ascii=False))
++                return 0
++            if str(gate.get("status")) == "soft":
++                print(gate_check_message(gate, purpose="conf_score_guardrails_apply"))
++
+         # 4. Redis Apply
+         applied_info = None
+         
+diff --git a/orderflow_services/conf_score_guardrails_autopromo_controller_v1.py b/orderflow_services/conf_score_guardrails_autopromo_controller_v1.py
+index 18e2d05..1868ef3 100644
+--- a/orderflow_services/conf_score_guardrails_autopromo_controller_v1.py
++++ b/orderflow_services/conf_score_guardrails_autopromo_controller_v1.py
+@@ -56,6 +56,8 @@ from dataclasses import dataclass
+ from pathlib import Path
+ from typing import Any, Dict, List, Optional, Tuple
+ 
++from orderflow_services.strategy_research_stats_gate_v1 import evaluate_strategy_research_stats_gate, gate_check_message
++
+ 
+ # ----------------------- utils -----------------------
+ 
+@@ -518,6 +520,22 @@ def main() -> int:
+     args = ap.parse_args()
+ 
+     lock = acquire_flock(args.lock_path)
++    if os.getenv("ENABLE_STRATEGY_RESEARCH_STATS_GATE", "1") in ("1", "true", "True", "yes", "on"):
++        gate = evaluate_strategy_research_stats_gate(
++            args.redis_url,
++            os.getenv("STRATEGY_RESEARCH_STATS_BLOCKER_KEY", "cfg:strategy_research_stats:blocker:v1"),
++            os.getenv("STRATEGY_RESEARCH_STATS_SUMMARY_KEY", "metrics:strategy_research_stats:last"),
++            max_age_sec=float(os.getenv("STRATEGY_RESEARCH_STATS_MAX_AGE_SEC", "129600") or 129600),
++            fail_closed_missing=int(os.getenv("STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING", "0") or 0),
++        )
++        if str(gate.get("status")) == "block":
++            print(gate_check_message(gate, purpose="conf_score_guardrails_autopromo"))
++            return 0
++        if str(gate.get("status")) == "invalid" and os.getenv("STRATEGY_RESEARCH_STATS_INVALID_AS_BLOCK", "1") in ("1", "true", "True", "yes", "on"):
++            print(gate_check_message(gate, purpose="conf_score_guardrails_autopromo"))
++            return 0
++        if str(gate.get("status")) == "soft":
++            print(gate_check_message(gate, purpose="conf_score_guardrails_autopromo"))
+     if lock is None:
+         # Another writer is active; exit quietly (timer will retry).
+         return 0
+diff --git a/orderflow_services/conf_score_guardrails_promote_v1.py b/orderflow_services/conf_score_guardrails_promote_v1.py
+index 1c67e25..0dcf4de 100644
+--- a/orderflow_services/conf_score_guardrails_promote_v1.py
++++ b/orderflow_services/conf_score_guardrails_promote_v1.py
+@@ -35,6 +35,8 @@ from typing import Any, Dict, Optional, Tuple
+ 
+ import redis
+ 
++from orderflow_services.strategy_research_stats_gate_v1 import evaluate_strategy_research_stats_gate, gate_check_message
++
+ # -------------------------------------------------------------------------
+ # Health Check Logic
+ # -------------------------------------------------------------------------
+@@ -236,6 +238,24 @@ def main():
+         
+     print(f"Candidate bundle: {fname}")
+ 
++    # 1.5 Strategy research stats gate (P6.1).
++    if os.getenv("ENABLE_STRATEGY_RESEARCH_STATS_GATE", "1") in ("1", "true", "True", "yes", "on"):
++        gate = evaluate_strategy_research_stats_gate(
++            args.redis_url,
++            os.getenv("STRATEGY_RESEARCH_STATS_BLOCKER_KEY", "cfg:strategy_research_stats:blocker:v1"),
++            os.getenv("STRATEGY_RESEARCH_STATS_SUMMARY_KEY", "metrics:strategy_research_stats:last"),
++            max_age_sec=float(os.getenv("STRATEGY_RESEARCH_STATS_MAX_AGE_SEC", "129600") or 129600),
++            fail_closed_missing=int(os.getenv("STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING", "0") or 0),
++        )
++        if str(gate.get("status")) == "block":
++            print(gate_check_message(gate, purpose="conf_score_guardrails_promote"))
++            sys.exit(0)
++        if str(gate.get("status")) == "invalid" and os.getenv("STRATEGY_RESEARCH_STATS_INVALID_AS_BLOCK", "1") in ("1", "true", "True", "yes", "on"):
++            print(gate_check_message(gate, purpose="conf_score_guardrails_promote"))
++            sys.exit(0)
++        if str(gate.get("status")) == "soft":
++            print(gate_check_message(gate, purpose="conf_score_guardrails_promote"))
++
+     # 2. Check Health
+     if args.require_health:
+         is_healthy, reason, hdata = check_health_gates(
+diff --git a/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example b/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
+index 7b53433..356fcea 100644
+--- a/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
++++ b/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
+@@ -29,3 +29,18 @@ LATENCY_CONTRACT_DEPLOY_LINT_OPS_EVENT_STREAM=ops:latency_contract:events:v1
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_ENABLE=1
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_STREAM=notify:telegram
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_REMINDER_S=21600
++
++# Strategy research stats gate (P6.1)
++ENABLE_STRATEGY_RESEARCH_STATS_BUNDLE=1
++ENABLE_STRATEGY_RESEARCH_STATS_GATE=1
++STRATEGY_RESEARCH_STATS_GATE_MODE=report_only
++STRATEGY_RESEARCH_STATS_DATASET_PATH=/var/lib/trade/ml_models/edge_stack_v1/dataset.ndjson
++STRATEGY_RESEARCH_STATS_SUMMARY_KEY=metrics:strategy_research_stats:last
++STRATEGY_RESEARCH_STATS_BLOCKER_KEY=cfg:strategy_research_stats:blocker:v1
++STRATEGY_RESEARCH_STATS_MAX_AGE_SEC=129600
++STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING=0
++STRATEGY_RESEARCH_STATS_MIN_PSR=0.55
++STRATEGY_RESEARCH_STATS_MIN_DSR=0.50
++STRATEGY_RESEARCH_STATS_MAX_PBO=0.20
++STRATEGY_RESEARCH_STATS_MIN_PRIMARY=0.0
++STRATEGY_RESEARCH_STATS_EXPORTER_PORT=9837
+diff --git a/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example b/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
+index c75f139..ce5dc11 100644
+--- a/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
++++ b/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
+@@ -29,3 +29,18 @@ LATENCY_CONTRACT_DEPLOY_LINT_OPS_EVENT_STREAM=ops:latency_contract:events:v1
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_ENABLE=1
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_STREAM=notify:telegram
+ LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_REMINDER_S=21600
++
++# Strategy research stats gate (P6.1)
++ENABLE_STRATEGY_RESEARCH_STATS_BUNDLE=1
++ENABLE_STRATEGY_RESEARCH_STATS_GATE=1
++STRATEGY_RESEARCH_STATS_GATE_MODE=report_only
++STRATEGY_RESEARCH_STATS_DATASET_PATH=/var/lib/trade/ml_models/edge_stack_v1/dataset.ndjson
++STRATEGY_RESEARCH_STATS_SUMMARY_KEY=metrics:strategy_research_stats:last
++STRATEGY_RESEARCH_STATS_BLOCKER_KEY=cfg:strategy_research_stats:blocker:v1
++STRATEGY_RESEARCH_STATS_MAX_AGE_SEC=129600
++STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING=0
++STRATEGY_RESEARCH_STATS_MIN_PSR=0.55
++STRATEGY_RESEARCH_STATS_MIN_DSR=0.50
++STRATEGY_RESEARCH_STATS_MAX_PBO=0.20
++STRATEGY_RESEARCH_STATS_MIN_PRIMARY=0.0
++STRATEGY_RESEARCH_STATS_EXPORTER_PORT=9837
+diff --git a/orderflow_services/strategy_research_stats_exporter_v1.py b/orderflow_services/strategy_research_stats_exporter_v1.py
+new file mode 100644
+index 0000000..a85f70c
+--- /dev/null
++++ b/orderflow_services/strategy_research_stats_exporter_v1.py
+@@ -0,0 +1,148 @@
++from __future__ import annotations
++
++import logging
++import os
++import time
++from typing import Any, Dict
++
++from prometheus_client import Gauge, start_http_server
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++from orderflow_services.strategy_research_stats_gate_v1 import evaluate_strategy_research_stats_gate
++
++logger = logging.getLogger(__name__)
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _to_float(v: Any, default: float = 0.0) -> float:
++    try:
++        return float(v)
++    except Exception:
++        return float(default)
++
++
++def _read_hash(client: Any, key: str) -> Dict[str, str]:
++    if client is None or not key:
++        return {}
++    try:
++        data = client.hgetall(key)
++        return data if isinstance(data, dict) else {}
++    except Exception:
++        return {}
++
++
++def _redis_client():
++    if redis is None:
++        return None
++    try:
++        return redis.Redis.from_url(_env('REDIS_URL', 'redis://redis-worker-1:6379/0'), decode_responses=True)
++    except Exception:
++        return None
++
++
++UP = Gauge('strategy_research_stats_exporter_up', '1 if exporter loop is running')
++REDIS_READ_OK = Gauge('strategy_research_stats_exporter_redis_read_ok', '1 if exporter read redis successfully')
++SUMMARY_PRESENT = Gauge('strategy_research_stats_summary_present', '1 if summary hash exists')
++BLOCKER_PRESENT = Gauge('strategy_research_stats_blocker_present', '1 if blocker hash exists')
++REPORT_AGE = Gauge('strategy_research_stats_report_age_seconds', 'Age of latest strategy research stats report')
++PRIMARY = Gauge('strategy_research_stats_primary_metric_value', 'Primary strategy research metric')
++NET_EXPECTANCY = Gauge('strategy_research_stats_net_expectancy', 'Net expectancy')
++PRECISION_TOPX = Gauge('strategy_research_stats_precision_at_top_x', 'Precision@topX')
++MEAN_R = Gauge('strategy_research_stats_mean_r', 'Mean R')
++DOWNSIDE_RETURN = Gauge('strategy_research_stats_downside_adjusted_return', 'Downside adjusted return')
++HIT_RATE_COST = Gauge('strategy_research_stats_hit_rate_conditioned_on_cost', 'Hit rate conditioned on cost')
++PSR = Gauge('strategy_research_stats_psr', 'Probabilistic Sharpe ratio proxy')
++DSR = Gauge('strategy_research_stats_dsr', 'Deflated Sharpe ratio proxy')
++PBO = Gauge('strategy_research_stats_pbo', 'Probability of backtest overfitting')
++ROWS = Gauge('strategy_research_stats_rows', 'Row count used in latest report')
++PERIODS = Gauge('strategy_research_stats_period_count', 'Period count used in latest report')
++VARIANTS = Gauge('strategy_research_stats_variant_count', 'Variant count used in latest report')
++BLOCKED = Gauge('strategy_research_stats_blocker_active', '1 if hard blocker is active')
++SOFT_BLOCKED = Gauge('strategy_research_stats_soft_block_active', '1 if soft blocker is active')
++INVALID = Gauge('strategy_research_stats_invalid_state', '1 if gate state is invalid')
++GATE_MODE = Gauge('strategy_research_stats_gate_mode', 'One-hot gate mode', ['mode'])
++STATUS = Gauge('strategy_research_stats_gate_status', 'One-hot gate status', ['status'])
++REASON = Gauge('strategy_research_stats_reason', 'One-hot blocker reason', ['kind'])
++
++KNOWN_REASONS = ('ok', 'psr_low', 'dsr_low', 'pbo_high', 'metric_low', 'report_stale', 'state_missing', 'invalid', 'other')
++KNOWN_STATUSES = ('ok', 'soft', 'block', 'invalid')
++KNOWN_MODES = ('report_only', 'soft', 'hard')
++
++
++def _reason_kind(reason: str) -> str:
++    s = (reason or '').strip().lower()
++    if not s:
++        return 'ok'
++    for k in ('psr_low', 'dsr_low', 'pbo_high', 'metric_low', 'report_stale', 'state_missing', 'invalid'):
++        if k in s:
++            return k
++    if s == 'ok':
++        return 'ok'
++    return 'other'
++
++
++def main() -> None:
++    port = int(_env('STRATEGY_RESEARCH_STATS_EXPORTER_PORT', '9837') or 9837)
++    interval_s = float(_env('STRATEGY_RESEARCH_STATS_EXPORTER_INTERVAL_S', '15') or 15)
++    summary_key = _env('STRATEGY_RESEARCH_STATS_SUMMARY_KEY', 'metrics:strategy_research_stats:last')
++    blocker_key = _env('STRATEGY_RESEARCH_STATS_BLOCKER_KEY', 'cfg:strategy_research_stats:blocker:v1')
++    max_age_sec = float(_env('STRATEGY_RESEARCH_STATS_MAX_AGE_SEC', '129600') or 129600)
++    fail_closed_missing = int(_env('STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING', '0') or 0)
++    start_http_server(port)
++    logger.info('strategy research stats exporter listening on %s', port)
++    while True:
++        UP.set(1.0)
++        client = _redis_client()
++        if client is None:
++            REDIS_READ_OK.set(0.0)
++            time.sleep(interval_s)
++            continue
++        summary = _read_hash(client, summary_key)
++        blocker = _read_hash(client, blocker_key)
++        state = evaluate_strategy_research_stats_gate(
++            _env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
++            blocker_key,
++            summary_key,
++            max_age_sec=max_age_sec,
++            fail_closed_missing=fail_closed_missing,
++            client=client,
++        )
++        REDIS_READ_OK.set(1.0)
++        SUMMARY_PRESENT.set(1.0 if summary else 0.0)
++        BLOCKER_PRESENT.set(1.0 if blocker else 0.0)
++        REPORT_AGE.set(float(state.get('age_sec') or 0.0))
++        PRIMARY.set(_to_float(summary.get('primary_metric_value', 0.0), 0.0))
++        NET_EXPECTANCY.set(_to_float(summary.get('net_expectancy', 0.0), 0.0))
++        PRECISION_TOPX.set(_to_float(summary.get('precision_at_top_x', 0.0), 0.0))
++        MEAN_R.set(_to_float(summary.get('mean_r', 0.0), 0.0))
++        DOWNSIDE_RETURN.set(_to_float(summary.get('downside_adjusted_return', 0.0), 0.0))
++        HIT_RATE_COST.set(_to_float(summary.get('hit_rate_conditioned_on_cost', 0.0), 0.0))
++        PSR.set(_to_float(summary.get('psr', 0.0), 0.0))
++        DSR.set(_to_float(summary.get('dsr', 0.0), 0.0))
++        PBO.set(_to_float(summary.get('pbo', 0.0), 0.0))
++        ROWS.set(_to_float(summary.get('rows', 0.0), 0.0))
++        PERIODS.set(_to_float(summary.get('period_count', 0.0), 0.0))
++        VARIANTS.set(_to_float(summary.get('variant_count', 0.0), 0.0))
++        BLOCKED.set(1.0 if str(state.get('status')) == 'block' else 0.0)
++        SOFT_BLOCKED.set(1.0 if str(state.get('status')) == 'soft' else 0.0)
++        INVALID.set(1.0 if str(state.get('status')) == 'invalid' else 0.0)
++        for mode in KNOWN_MODES:
++            GATE_MODE.labels(mode=mode).set(1.0 if mode == str(state.get('gate_mode')) else 0.0)
++        for status in KNOWN_STATUSES:
++            STATUS.labels(status=status).set(1.0 if status == str(state.get('status')) else 0.0)
++        rk = _reason_kind(str(state.get('reason') or ''))
++        for reason in KNOWN_REASONS:
++            REASON.labels(kind=reason).set(1.0 if reason == rk else 0.0)
++        time.sleep(interval_s)
++
++
++if __name__ == '__main__':
++    logging.basicConfig(level=logging.INFO)
++    main()
+diff --git a/orderflow_services/strategy_research_stats_gate_v1.py b/orderflow_services/strategy_research_stats_gate_v1.py
+new file mode 100644
+index 0000000..6f9cb11
+--- /dev/null
++++ b/orderflow_services/strategy_research_stats_gate_v1.py
+@@ -0,0 +1,104 @@
++from __future__ import annotations
++
++"""Shared gate helpers for nightly strategy research stats (P6.1)."""
++
++import os
++import time
++from typing import Any, Dict, Mapping
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _to_int(v: Any, default: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return int(default)
++
++
++def _read_hash(client: Any, key: str) -> Dict[str, str]:
++    if client is None or not key:
++        return {}
++    try:
++        data = client.hgetall(key)
++        return data if isinstance(data, dict) else {}
++    except Exception:
++        return {}
++
++
++def _extract_updated_ts_ms(blocker: Mapping[str, str], summary: Mapping[str, str]) -> int:
++    for src in (blocker, summary):
++        for key in ('updated_ts_ms', 'ts_ms', 'last_updated_ts_ms'):
++            raw = src.get(key)
++            if raw not in (None, ''):
++                try:
++                    v = int(float(raw))
++                except Exception:
++                    continue
++                if v > 0:
++                    return v
++    return 0
++
++
++def evaluate_strategy_research_stats_gate(
++    redis_url: str,
++    blocker_key: str,
++    summary_key: str,
++    *,
++    max_age_sec: float = 0.0,
++    fail_closed_missing: int = 1,
++    client: Any | None = None,
++) -> Dict[str, Any]:
++    if client is None:
++        if redis is None:
++            return {'status': 'invalid', 'reason': 'redis_unavailable', 'blocked': True, 'soft_blocked': False, 'gate_mode': 'hard'}
++        try:
++            client = redis.Redis.from_url(redis_url, decode_responses=True)
++        except Exception:
++            return {'status': 'invalid', 'reason': 'redis_connect_failed', 'blocked': True, 'soft_blocked': False, 'gate_mode': 'hard'}
++
++    blocker = _read_hash(client, blocker_key)
++    summary = _read_hash(client, summary_key)
++    gate_mode = str(blocker.get('gate_mode') or summary.get('gate_mode') or 'report_only').strip().lower()
++    if gate_mode not in ('report_only', 'soft', 'hard'):
++        gate_mode = 'report_only'
++    updated_ts_ms = _extract_updated_ts_ms(blocker, summary)
++    age_sec = 0.0
++    if updated_ts_ms > 0:
++        age_sec = max(0.0, (int(time.time() * 1000) - updated_ts_ms) / 1000.0)
++
++    if not blocker and not summary:
++        if int(fail_closed_missing) == 1 and gate_mode != 'report_only':
++            return {'status': 'invalid', 'reason': 'state_missing', 'blocked': True, 'soft_blocked': False, 'gate_mode': gate_mode, 'age_sec': 0.0}
++        return {'status': 'ok', 'reason': 'state_missing_allowed', 'blocked': False, 'soft_blocked': False, 'gate_mode': gate_mode, 'age_sec': 0.0}
++
++    if max_age_sec > 0 and updated_ts_ms > 0 and age_sec > float(max_age_sec):
++        if gate_mode == 'soft':
++            return {'status': 'soft', 'reason': 'report_stale', 'blocked': False, 'soft_blocked': True, 'gate_mode': gate_mode, 'age_sec': age_sec}
++        if gate_mode == 'hard':
++            return {'status': 'block', 'reason': 'report_stale', 'blocked': True, 'soft_blocked': False, 'gate_mode': gate_mode, 'age_sec': age_sec}
++
++    if _to_int(blocker.get('invalid', '0'), 0) > 0:
++        if gate_mode == 'soft':
++            return {'status': 'soft', 'reason': str(blocker.get('reason') or 'invalid'), 'blocked': False, 'soft_blocked': True, 'gate_mode': gate_mode, 'age_sec': age_sec}
++        if gate_mode == 'hard':
++            return {'status': 'invalid', 'reason': str(blocker.get('reason') or 'invalid'), 'blocked': True, 'soft_blocked': False, 'gate_mode': gate_mode, 'age_sec': age_sec}
++
++    if _to_int(blocker.get('blocked', '0'), 0) > 0:
++        return {'status': 'block', 'reason': str(blocker.get('reason') or 'strategy_research_stats_blocked'), 'blocked': True, 'soft_blocked': False, 'gate_mode': gate_mode, 'age_sec': age_sec}
++
++    if _to_int(blocker.get('soft_blocked', '0'), 0) > 0:
++        return {'status': 'soft', 'reason': str(blocker.get('reason') or 'strategy_research_stats_soft_block'), 'blocked': False, 'soft_blocked': True, 'gate_mode': gate_mode, 'age_sec': age_sec}
++
++    return {'status': 'ok', 'reason': 'ok', 'blocked': False, 'soft_blocked': False, 'gate_mode': gate_mode, 'age_sec': age_sec}
++
++
++def gate_check_message(state: Mapping[str, Any], *, purpose: str) -> str:
++    return f"STRATEGY_RESEARCH_STATS_GATE purpose={purpose} status={state.get('status')} reason={state.get('reason')} gate_mode={state.get('gate_mode')}"
+diff --git a/orderflow_services/tests/test_strategy_research_stats_exporter_v1.py b/orderflow_services/tests/test_strategy_research_stats_exporter_v1.py
+new file mode 100644
+index 0000000..bb83d84
+--- /dev/null
++++ b/orderflow_services/tests/test_strategy_research_stats_exporter_v1.py
+@@ -0,0 +1,7 @@
++from orderflow_services.strategy_research_stats_exporter_v1 import _reason_kind
++
++
++def test_reason_kind_mapping():
++    assert _reason_kind('psr_low,dsr_low') == 'psr_low'
++    assert _reason_kind('report_stale') == 'report_stale'
++    assert _reason_kind('weird_thing') == 'other'
+diff --git a/orderflow_services/tests/test_strategy_research_stats_gate_v1.py b/orderflow_services/tests/test_strategy_research_stats_gate_v1.py
+new file mode 100644
+index 0000000..1c8fac6
+--- /dev/null
++++ b/orderflow_services/tests/test_strategy_research_stats_gate_v1.py
+@@ -0,0 +1,35 @@
++from orderflow_services.strategy_research_stats_gate_v1 import evaluate_strategy_research_stats_gate
++
++
++class FakeRedis:
++    def __init__(self, hashes):
++        self.hashes = hashes
++
++    def hgetall(self, key):
++        return dict(self.hashes.get(key, {}))
++
++
++def test_hard_block_from_blocker():
++    r = FakeRedis({
++        'blocker': {'gate_mode': 'hard', 'blocked': '1', 'reason': 'psr_low', 'updated_ts_ms': '9999999999999'},
++        'summary': {'gate_mode': 'hard', 'updated_ts_ms': '9999999999999'},
++    })
++    state = evaluate_strategy_research_stats_gate('redis://unused', 'blocker', 'summary', client=r)
++    assert state['status'] == 'block'
++    assert state['reason'] == 'psr_low'
++
++
++def test_soft_block_from_blocker():
++    r = FakeRedis({
++        'blocker': {'gate_mode': 'soft', 'soft_blocked': '1', 'reason': 'pbo_high', 'updated_ts_ms': '9999999999999'},
++        'summary': {'gate_mode': 'soft', 'updated_ts_ms': '9999999999999'},
++    })
++    state = evaluate_strategy_research_stats_gate('redis://unused', 'blocker', 'summary', client=r)
++    assert state['status'] == 'soft'
++    assert state['reason'] == 'pbo_high'
++
++
++def test_missing_state_fail_open_in_report_only():
++    r = FakeRedis({})
++    state = evaluate_strategy_research_stats_gate('redis://unused', 'blocker', 'summary', client=r, fail_closed_missing=1)
++    assert state['status'] in ('ok', 'invalid')
+diff --git a/services/of_timers_worker.py b/services/of_timers_worker.py
+index d1d4c99..254a7a5 100644
+--- a/services/of_timers_worker.py
++++ b/services/of_timers_worker.py
+@@ -21,6 +21,7 @@ Runs periodic tasks:
+   - Archive retention+manifest: daily at 03:40
+   - Edge-stack dataset build: daily at 03:50
+   - Feature selection loop (importance+stability): daily at 04:02
++  - Strategy research stats (PSR/DSR/PBO): daily at 04:35
+   - Confidence cal live health: hourly at :45 minutes
+   - P99 OFInputs DLQ DB drilldown: hourly at :46 minutes
+    - P104 Feature denylist proposal exporter: hourly at :46 minutes (after nightly AB-runner)
+@@ -1836,6 +1837,16 @@ def run_feature_selection_loop_bundle_v1() -> bool:
+     return run_tool("ml_analysis.tools.nightly_feature_selection_loop_bundle_v1", timeout=timeout_s)
+ 
+ 
++def run_strategy_research_stats_bundle() -> bool:
++    """Nightly strategy research stats bundle (P6.1)."""
++    if os.getenv("ENABLE_STRATEGY_RESEARCH_STATS_BUNDLE", "1") not in ("1", "true", "True", "yes", "on"):
++        return True
++    return run_tool(
++        "ml_analysis.tools.nightly_strategy_research_stats_bundle_v1",
++        timeout=int(os.getenv("STRATEGY_RESEARCH_STATS_TIMEOUT_S", "1800")),
++    )
++
++
+ def run_edge_stack_shadow_eval() -> bool:
+     """Run Edge Stack Shadow Eval (P60)."""
+     args = []
+@@ -2959,6 +2970,7 @@ def main() -> None:
+                 ("edge_dataset_build", 3, 50, run_edge_stack_dataset_build),
+                 ("side_sign_audit", 4, 0, run_side_sign_audit),
+                 ("feature_selection_loop", 4, 2, run_feature_selection_loop_bundle_v1),
++                ("strategy_research_stats", 4, 35, run_strategy_research_stats_bundle),
+                 ("edge_stack_v1_train", 4, 10, run_ml_train_edge_stack_v1),
+                 ("edge_stack_shadow", 4, 12, run_edge_stack_shadow_eval),
+                 ("feature_selection_loop", 4, 15, run_feature_selection_loop_v1),
+diff --git a/services/tests/test_of_timers_worker_strategy_research_stats_p61.py b/services/tests/test_of_timers_worker_strategy_research_stats_p61.py
+new file mode 100644
+index 0000000..bc7835a
+--- /dev/null
++++ b/services/tests/test_of_timers_worker_strategy_research_stats_p61.py
+@@ -0,0 +1,7 @@
++from pathlib import Path
++
++
++def test_timers_worker_has_strategy_research_stats_job():
++    text = Path('services/of_timers_worker.py').read_text(encoding='utf-8')
++    assert 'def run_strategy_research_stats_bundle()' in text
++    assert '("strategy_research_stats", 4, 35, run_strategy_research_stats_bundle)' in text
+diff --git a/tick_flow_full/orderflow_services/conf_score_guardrails_apply_v1.py b/tick_flow_full/orderflow_services/conf_score_guardrails_apply_v1.py
+index 1012747..4c3ca17 100644
+--- a/tick_flow_full/orderflow_services/conf_score_guardrails_apply_v1.py
++++ b/tick_flow_full/orderflow_services/conf_score_guardrails_apply_v1.py
+@@ -46,6 +46,8 @@ from datetime import datetime, timezone
+ from typing import Any, Dict, List, Optional, Tuple, ContextManager
+ from contextlib import contextmanager
+ 
++from orderflow_services.strategy_research_stats_gate_v1 import evaluate_strategy_research_stats_gate, gate_check_message
++
+ 
+ def _now_ms() -> int:
+     return int(time.time() * 1000)
+@@ -770,7 +772,24 @@ def main() -> int:
+         
+         is_stage_mode = (getattr(args, "stage", 0) == 1)
+         target_prefix = args.staged_key_prefix if is_stage_mode else args.key_prefix
+-        
++
++        if int(args.apply) == 1 and os.getenv("ENABLE_STRATEGY_RESEARCH_STATS_GATE", "1") in ("1", "true", "True", "yes", "on"):
++            gate = evaluate_strategy_research_stats_gate(
++                args.redis_url,
++                os.getenv("STRATEGY_RESEARCH_STATS_BLOCKER_KEY", "cfg:strategy_research_stats:blocker:v1"),
++                os.getenv("STRATEGY_RESEARCH_STATS_SUMMARY_KEY", "metrics:strategy_research_stats:last"),
++                max_age_sec=float(os.getenv("STRATEGY_RESEARCH_STATS_MAX_AGE_SEC", "129600") or 129600),
++                fail_closed_missing=int(os.getenv("STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING", "0") or 0),
++            )
++            if str(gate.get("status")) == "block":
++                print(json.dumps({"blocked": True, "reason": gate.get("reason"), "source": "strategy_research_stats_gate"}, ensure_ascii=False))
++                return 0
++            if str(gate.get("status")) == "invalid" and os.getenv("STRATEGY_RESEARCH_STATS_INVALID_AS_BLOCK", "1") in ("1", "true", "True", "yes", "on"):
++                print(json.dumps({"blocked": True, "reason": gate.get("reason"), "source": "strategy_research_stats_gate", "status": "invalid"}, ensure_ascii=False))
++                return 0
++            if str(gate.get("status")) == "soft":
++                print(gate_check_message(gate, purpose="conf_score_guardrails_apply"))
++
+         # 4. Redis Apply
+         applied_info = None
+         
+diff --git a/tick_flow_full/orderflow_services/conf_score_guardrails_autopromo_controller_v1.py b/tick_flow_full/orderflow_services/conf_score_guardrails_autopromo_controller_v1.py
+index 18e2d05..1868ef3 100644
+--- a/tick_flow_full/orderflow_services/conf_score_guardrails_autopromo_controller_v1.py
++++ b/tick_flow_full/orderflow_services/conf_score_guardrails_autopromo_controller_v1.py
+@@ -56,6 +56,8 @@ from dataclasses import dataclass
+ from pathlib import Path
+ from typing import Any, Dict, List, Optional, Tuple
+ 
++from orderflow_services.strategy_research_stats_gate_v1 import evaluate_strategy_research_stats_gate, gate_check_message
++
+ 
+ # ----------------------- utils -----------------------
+ 
+@@ -518,6 +520,22 @@ def main() -> int:
+     args = ap.parse_args()
+ 
+     lock = acquire_flock(args.lock_path)
++    if os.getenv("ENABLE_STRATEGY_RESEARCH_STATS_GATE", "1") in ("1", "true", "True", "yes", "on"):
++        gate = evaluate_strategy_research_stats_gate(
++            args.redis_url,
++            os.getenv("STRATEGY_RESEARCH_STATS_BLOCKER_KEY", "cfg:strategy_research_stats:blocker:v1"),
++            os.getenv("STRATEGY_RESEARCH_STATS_SUMMARY_KEY", "metrics:strategy_research_stats:last"),
++            max_age_sec=float(os.getenv("STRATEGY_RESEARCH_STATS_MAX_AGE_SEC", "129600") or 129600),
++            fail_closed_missing=int(os.getenv("STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING", "0") or 0),
++        )
++        if str(gate.get("status")) == "block":
++            print(gate_check_message(gate, purpose="conf_score_guardrails_autopromo"))
++            return 0
++        if str(gate.get("status")) == "invalid" and os.getenv("STRATEGY_RESEARCH_STATS_INVALID_AS_BLOCK", "1") in ("1", "true", "True", "yes", "on"):
++            print(gate_check_message(gate, purpose="conf_score_guardrails_autopromo"))
++            return 0
++        if str(gate.get("status")) == "soft":
++            print(gate_check_message(gate, purpose="conf_score_guardrails_autopromo"))
+     if lock is None:
+         # Another writer is active; exit quietly (timer will retry).
+         return 0
+diff --git a/tick_flow_full/orderflow_services/strategy_research_stats_exporter_v1.py b/tick_flow_full/orderflow_services/strategy_research_stats_exporter_v1.py
+new file mode 100644
+index 0000000..a85f70c
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/strategy_research_stats_exporter_v1.py
+@@ -0,0 +1,148 @@
++from __future__ import annotations
++
++import logging
++import os
++import time
++from typing import Any, Dict
++
++from prometheus_client import Gauge, start_http_server
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++from orderflow_services.strategy_research_stats_gate_v1 import evaluate_strategy_research_stats_gate
++
++logger = logging.getLogger(__name__)
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _to_float(v: Any, default: float = 0.0) -> float:
++    try:
++        return float(v)
++    except Exception:
++        return float(default)
++
++
++def _read_hash(client: Any, key: str) -> Dict[str, str]:
++    if client is None or not key:
++        return {}
++    try:
++        data = client.hgetall(key)
++        return data if isinstance(data, dict) else {}
++    except Exception:
++        return {}
++
++
++def _redis_client():
++    if redis is None:
++        return None
++    try:
++        return redis.Redis.from_url(_env('REDIS_URL', 'redis://redis-worker-1:6379/0'), decode_responses=True)
++    except Exception:
++        return None
++
++
++UP = Gauge('strategy_research_stats_exporter_up', '1 if exporter loop is running')
++REDIS_READ_OK = Gauge('strategy_research_stats_exporter_redis_read_ok', '1 if exporter read redis successfully')
++SUMMARY_PRESENT = Gauge('strategy_research_stats_summary_present', '1 if summary hash exists')
++BLOCKER_PRESENT = Gauge('strategy_research_stats_blocker_present', '1 if blocker hash exists')
++REPORT_AGE = Gauge('strategy_research_stats_report_age_seconds', 'Age of latest strategy research stats report')
++PRIMARY = Gauge('strategy_research_stats_primary_metric_value', 'Primary strategy research metric')
++NET_EXPECTANCY = Gauge('strategy_research_stats_net_expectancy', 'Net expectancy')
++PRECISION_TOPX = Gauge('strategy_research_stats_precision_at_top_x', 'Precision@topX')
++MEAN_R = Gauge('strategy_research_stats_mean_r', 'Mean R')
++DOWNSIDE_RETURN = Gauge('strategy_research_stats_downside_adjusted_return', 'Downside adjusted return')
++HIT_RATE_COST = Gauge('strategy_research_stats_hit_rate_conditioned_on_cost', 'Hit rate conditioned on cost')
++PSR = Gauge('strategy_research_stats_psr', 'Probabilistic Sharpe ratio proxy')
++DSR = Gauge('strategy_research_stats_dsr', 'Deflated Sharpe ratio proxy')
++PBO = Gauge('strategy_research_stats_pbo', 'Probability of backtest overfitting')
++ROWS = Gauge('strategy_research_stats_rows', 'Row count used in latest report')
++PERIODS = Gauge('strategy_research_stats_period_count', 'Period count used in latest report')
++VARIANTS = Gauge('strategy_research_stats_variant_count', 'Variant count used in latest report')
++BLOCKED = Gauge('strategy_research_stats_blocker_active', '1 if hard blocker is active')
++SOFT_BLOCKED = Gauge('strategy_research_stats_soft_block_active', '1 if soft blocker is active')
++INVALID = Gauge('strategy_research_stats_invalid_state', '1 if gate state is invalid')
++GATE_MODE = Gauge('strategy_research_stats_gate_mode', 'One-hot gate mode', ['mode'])
++STATUS = Gauge('strategy_research_stats_gate_status', 'One-hot gate status', ['status'])
++REASON = Gauge('strategy_research_stats_reason', 'One-hot blocker reason', ['kind'])
++
++KNOWN_REASONS = ('ok', 'psr_low', 'dsr_low', 'pbo_high', 'metric_low', 'report_stale', 'state_missing', 'invalid', 'other')
++KNOWN_STATUSES = ('ok', 'soft', 'block', 'invalid')
++KNOWN_MODES = ('report_only', 'soft', 'hard')
++
++
++def _reason_kind(reason: str) -> str:
++    s = (reason or '').strip().lower()
++    if not s:
++        return 'ok'
++    for k in ('psr_low', 'dsr_low', 'pbo_high', 'metric_low', 'report_stale', 'state_missing', 'invalid'):
++        if k in s:
++            return k
++    if s == 'ok':
++        return 'ok'
++    return 'other'
++
++
++def main() -> None:
++    port = int(_env('STRATEGY_RESEARCH_STATS_EXPORTER_PORT', '9837') or 9837)
++    interval_s = float(_env('STRATEGY_RESEARCH_STATS_EXPORTER_INTERVAL_S', '15') or 15)
++    summary_key = _env('STRATEGY_RESEARCH_STATS_SUMMARY_KEY', 'metrics:strategy_research_stats:last')
++    blocker_key = _env('STRATEGY_RESEARCH_STATS_BLOCKER_KEY', 'cfg:strategy_research_stats:blocker:v1')
++    max_age_sec = float(_env('STRATEGY_RESEARCH_STATS_MAX_AGE_SEC', '129600') or 129600)
++    fail_closed_missing = int(_env('STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING', '0') or 0)
++    start_http_server(port)
++    logger.info('strategy research stats exporter listening on %s', port)
++    while True:
++        UP.set(1.0)
++        client = _redis_client()
++        if client is None:
++            REDIS_READ_OK.set(0.0)
++            time.sleep(interval_s)
++            continue
++        summary = _read_hash(client, summary_key)
++        blocker = _read_hash(client, blocker_key)
++        state = evaluate_strategy_research_stats_gate(
++            _env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
++            blocker_key,
++            summary_key,
++            max_age_sec=max_age_sec,
++            fail_closed_missing=fail_closed_missing,
++            client=client,
++        )
++        REDIS_READ_OK.set(1.0)
++        SUMMARY_PRESENT.set(1.0 if summary else 0.0)
++        BLOCKER_PRESENT.set(1.0 if blocker else 0.0)
++        REPORT_AGE.set(float(state.get('age_sec') or 0.0))
++        PRIMARY.set(_to_float(summary.get('primary_metric_value', 0.0), 0.0))
++        NET_EXPECTANCY.set(_to_float(summary.get('net_expectancy', 0.0), 0.0))
++        PRECISION_TOPX.set(_to_float(summary.get('precision_at_top_x', 0.0), 0.0))
++        MEAN_R.set(_to_float(summary.get('mean_r', 0.0), 0.0))
++        DOWNSIDE_RETURN.set(_to_float(summary.get('downside_adjusted_return', 0.0), 0.0))
++        HIT_RATE_COST.set(_to_float(summary.get('hit_rate_conditioned_on_cost', 0.0), 0.0))
++        PSR.set(_to_float(summary.get('psr', 0.0), 0.0))
++        DSR.set(_to_float(summary.get('dsr', 0.0), 0.0))
++        PBO.set(_to_float(summary.get('pbo', 0.0), 0.0))
++        ROWS.set(_to_float(summary.get('rows', 0.0), 0.0))
++        PERIODS.set(_to_float(summary.get('period_count', 0.0), 0.0))
++        VARIANTS.set(_to_float(summary.get('variant_count', 0.0), 0.0))
++        BLOCKED.set(1.0 if str(state.get('status')) == 'block' else 0.0)
++        SOFT_BLOCKED.set(1.0 if str(state.get('status')) == 'soft' else 0.0)
++        INVALID.set(1.0 if str(state.get('status')) == 'invalid' else 0.0)
++        for mode in KNOWN_MODES:
++            GATE_MODE.labels(mode=mode).set(1.0 if mode == str(state.get('gate_mode')) else 0.0)
++        for status in KNOWN_STATUSES:
++            STATUS.labels(status=status).set(1.0 if status == str(state.get('status')) else 0.0)
++        rk = _reason_kind(str(state.get('reason') or ''))
++        for reason in KNOWN_REASONS:
++            REASON.labels(kind=reason).set(1.0 if reason == rk else 0.0)
++        time.sleep(interval_s)
++
++
++if __name__ == '__main__':
++    logging.basicConfig(level=logging.INFO)
++    main()
+diff --git a/tick_flow_full/orderflow_services/strategy_research_stats_gate_v1.py b/tick_flow_full/orderflow_services/strategy_research_stats_gate_v1.py
+new file mode 100644
+index 0000000..6f9cb11
+--- /dev/null
++++ b/tick_flow_full/orderflow_services/strategy_research_stats_gate_v1.py
+@@ -0,0 +1,104 @@
++from __future__ import annotations
++
++"""Shared gate helpers for nightly strategy research stats (P6.1)."""
++
++import os
++import time
++from typing import Any, Dict, Mapping
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _to_int(v: Any, default: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return int(default)
++
++
++def _read_hash(client: Any, key: str) -> Dict[str, str]:
++    if client is None or not key:
++        return {}
++    try:
++        data = client.hgetall(key)
++        return data if isinstance(data, dict) else {}
++    except Exception:
++        return {}
++
++
++def _extract_updated_ts_ms(blocker: Mapping[str, str], summary: Mapping[str, str]) -> int:
++    for src in (blocker, summary):
++        for key in ('updated_ts_ms', 'ts_ms', 'last_updated_ts_ms'):
++            raw = src.get(key)
++            if raw not in (None, ''):
++                try:
++                    v = int(float(raw))
++                except Exception:
++                    continue
++                if v > 0:
++                    return v
++    return 0
++
++
++def evaluate_strategy_research_stats_gate(
++    redis_url: str,
++    blocker_key: str,
++    summary_key: str,
++    *,
++    max_age_sec: float = 0.0,
++    fail_closed_missing: int = 1,
++    client: Any | None = None,
++) -> Dict[str, Any]:
++    if client is None:
++        if redis is None:
++            return {'status': 'invalid', 'reason': 'redis_unavailable', 'blocked': True, 'soft_blocked': False, 'gate_mode': 'hard'}
++        try:
++            client = redis.Redis.from_url(redis_url, decode_responses=True)
++        except Exception:
++            return {'status': 'invalid', 'reason': 'redis_connect_failed', 'blocked': True, 'soft_blocked': False, 'gate_mode': 'hard'}
++
++    blocker = _read_hash(client, blocker_key)
++    summary = _read_hash(client, summary_key)
++    gate_mode = str(blocker.get('gate_mode') or summary.get('gate_mode') or 'report_only').strip().lower()
++    if gate_mode not in ('report_only', 'soft', 'hard'):
++        gate_mode = 'report_only'
++    updated_ts_ms = _extract_updated_ts_ms(blocker, summary)
++    age_sec = 0.0
++    if updated_ts_ms > 0:
++        age_sec = max(0.0, (int(time.time() * 1000) - updated_ts_ms) / 1000.0)
++
++    if not blocker and not summary:
++        if int(fail_closed_missing) == 1 and gate_mode != 'report_only':
++            return {'status': 'invalid', 'reason': 'state_missing', 'blocked': True, 'soft_blocked': False, 'gate_mode': gate_mode, 'age_sec': 0.0}
++        return {'status': 'ok', 'reason': 'state_missing_allowed', 'blocked': False, 'soft_blocked': False, 'gate_mode': gate_mode, 'age_sec': 0.0}
++
++    if max_age_sec > 0 and updated_ts_ms > 0 and age_sec > float(max_age_sec):
++        if gate_mode == 'soft':
++            return {'status': 'soft', 'reason': 'report_stale', 'blocked': False, 'soft_blocked': True, 'gate_mode': gate_mode, 'age_sec': age_sec}
++        if gate_mode == 'hard':
++            return {'status': 'block', 'reason': 'report_stale', 'blocked': True, 'soft_blocked': False, 'gate_mode': gate_mode, 'age_sec': age_sec}
++
++    if _to_int(blocker.get('invalid', '0'), 0) > 0:
++        if gate_mode == 'soft':
++            return {'status': 'soft', 'reason': str(blocker.get('reason') or 'invalid'), 'blocked': False, 'soft_blocked': True, 'gate_mode': gate_mode, 'age_sec': age_sec}
++        if gate_mode == 'hard':
++            return {'status': 'invalid', 'reason': str(blocker.get('reason') or 'invalid'), 'blocked': True, 'soft_blocked': False, 'gate_mode': gate_mode, 'age_sec': age_sec}
++
++    if _to_int(blocker.get('blocked', '0'), 0) > 0:
++        return {'status': 'block', 'reason': str(blocker.get('reason') or 'strategy_research_stats_blocked'), 'blocked': True, 'soft_blocked': False, 'gate_mode': gate_mode, 'age_sec': age_sec}
++
++    if _to_int(blocker.get('soft_blocked', '0'), 0) > 0:
++        return {'status': 'soft', 'reason': str(blocker.get('reason') or 'strategy_research_stats_soft_block'), 'blocked': False, 'soft_blocked': True, 'gate_mode': gate_mode, 'age_sec': age_sec}
++
++    return {'status': 'ok', 'reason': 'ok', 'blocked': False, 'soft_blocked': False, 'gate_mode': gate_mode, 'age_sec': age_sec}
++
++
++def gate_check_message(state: Mapping[str, Any], *, purpose: str) -> str:
++    return f"STRATEGY_RESEARCH_STATS_GATE purpose={purpose} status={state.get('status')} reason={state.get('reason')} gate_mode={state.get('gate_mode')}"

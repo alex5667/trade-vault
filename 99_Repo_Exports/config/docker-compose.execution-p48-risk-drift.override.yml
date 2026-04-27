@@ -1,0 +1,56 @@
+# P4.8 docker-compose override: wires auto-refresh timers for risk summary, risk mismatch
+# summary, and operator score report. Mounts /var/lib/trade-runbook/reports as shared volume.
+#
+# Usage:
+#   docker compose -f docker-compose-timers.yml -f config/docker-compose.execution-p48-risk-drift.override.yml up -d
+#
+# Or include in Makefile COMPOSE_FILES list under the 'up' target.
+
+services:
+  # Extend the existing trade-runbook-server with mismatch report dir
+  trade-runbook-server:
+    environment:
+      RUNBOOK_REPORT_DIR: /var/lib/trade-runbook/reports
+    volumes:
+      - ./var/runbook-reports:/var/lib/trade-runbook/reports
+
+  # P4.8: Fetch risk decision summary from CAGG (already started by risk-decision-summary-refresh).
+  # This override adds RISK_SUMMARY_TEXTFILE_PATH for node_exporter textfile_collector.
+  trade-risk-summary-refresher:
+    image: python:3.12-slim
+    working_dir: /opt/trade
+    command: ["bash", "-lc", "while true; do python3 /opt/trade/scripts/refresh_risk_decision_summary.py; sleep ${RISK_SUMMARY_REFRESH_INTERVAL_SEC:-600}; done"]
+    environment:
+      RISK_AUDIT_SQL_DSN: ${RISK_AUDIT_SQL_DSN:-}
+      RISK_DECISION_SUMMARY_REPORT_PATH: /var/lib/trade-runbook/reports/latest_risk_decision_summary.json
+      RISK_SUMMARY_TEXTFILE_PATH: /var/lib/node_exporter/textfile_collector/risk_summary.prom
+    volumes:
+      - ./:/opt/trade
+      - ./var/runbook-reports:/var/lib/trade-runbook/reports
+      - ./var/node-exporter:/var/lib/node_exporter/textfile_collector
+
+  # P4.8: Refresh risk_mismatch_summary_mv materialized view every 15 minutes.
+  # Writes latest_risk_mismatch_summary.json served at /api/risk-mismatch/latest.
+  trade-risk-mismatch-refresher:
+    image: python:3.12-slim
+    working_dir: /opt/trade
+    command: ["bash", "-lc", "while true; do python3 /opt/trade/scripts/refresh_risk_mismatch_summary.py; sleep ${RISK_MISMATCH_REFRESH_INTERVAL_SEC:-900}; done"]
+    environment:
+      RISK_AUDIT_SQL_DSN: ${RISK_AUDIT_SQL_DSN:-}
+      RISK_MISMATCH_SUMMARY_REPORT_PATH: /var/lib/trade-runbook/reports/latest_risk_mismatch_summary.json
+    volumes:
+      - ./:/opt/trade
+      - ./var/runbook-reports:/var/lib/trade-runbook/reports
+
+  # P4.8: Rebuild operator score report every 15 minutes.
+  # Merges execution canary, replay SLO, and risk canary scores into a single readiness score.
+  trade-operator-score-reporter:
+    image: python:3.12-slim
+    working_dir: /opt/trade
+    command: ["bash", "-lc", "while true; do python3 /opt/trade/scripts/build_operator_score_report.py; sleep ${OPERATOR_SCORE_REFRESH_INTERVAL_SEC:-900}; done"]
+    environment:
+      RUNBOOK_REPORT_DIR: /var/lib/trade-runbook/reports
+      OPERATOR_SCORE_REPORT_PATH: /var/lib/trade-runbook/reports/latest_operator_score.json
+    volumes:
+      - ./:/opt/trade
+      - ./var/runbook-reports:/var/lib/trade-runbook/reports

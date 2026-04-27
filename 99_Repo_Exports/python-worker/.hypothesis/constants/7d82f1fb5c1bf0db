@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/linalg/_decomp_svd.py
+# hypothesis_version: 6.148.10
+
+[-1.0, 0.0, 0.5, 1.0, '-1', 'SVD did not converge', '_lwork', 'diagsvd', 'expected matrix', 'gesdd', 'gesvd', 'null_space', 'orth', 'preferred', 'subspace_angles', 'svd', 'svdvals']

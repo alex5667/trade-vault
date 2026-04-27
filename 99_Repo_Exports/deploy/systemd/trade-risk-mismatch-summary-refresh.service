@@ -1,0 +1,9 @@
+[Unit]
+Description=Refresh risk mismatch summary materialized view
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/trade
+EnvironmentFile=-/etc/default/trade-risk-p48
+ExecStart=/usr/bin/python3 /opt/trade/scripts/refresh_risk_mismatch_summary.py

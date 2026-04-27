@@ -1,0 +1,13 @@
+# Prometheus scrape config snippet for Tick Gate Aggregator
+#
+# Add this under `scrape_configs:` in your Prometheus config.
+# Targets:
+# - If Prometheus runs in docker:  tick-gate-aggregator:9112
+# - If Prometheus runs on host:   localhost:9112
+
+- job_name: "tick-gate-aggregator"
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  static_configs:
+    - targets:
+        - "tick-gate-aggregator:9112"

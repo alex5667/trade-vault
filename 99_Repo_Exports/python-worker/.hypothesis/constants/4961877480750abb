@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/auto_apply_tick_gate_exporter.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 1000.0, ',', '1', '5', '9115', 'REDIS_URL', '_', '__main__', '__other__', '__skipped__', 'allow', 'collapse', 'fail_reason', 'pinned_reason', 'reason', 'replace', 'skip', 'status', 'unknown', 'utf-8']

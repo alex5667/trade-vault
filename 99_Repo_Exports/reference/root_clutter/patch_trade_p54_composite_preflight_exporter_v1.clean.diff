@@ -1,0 +1,895 @@
+--- a/orderflow_services/orchestration_composite_preflight_exporter_v1.py
++++ b/orderflow_services/orchestration_composite_preflight_exporter_v1.py
+@@ -0,0 +1,275 @@
++from __future__ import annotations
++
++"""Prometheus exporter for composite orchestration preflight state (P5.4).
++
++The composite preflight already persists one compact Redis hash per rollout-sensitive
++purpose. This exporter turns that control-plane state into low-cardinality metrics so
++Prometheus/Grafana can answer:
++  - which purpose is blocked / invalid right now
++  - which source currently dominates the orchestration decision
++  - which normalized reason-code family is active
++  - whether the persisted decision is stale
++
++The exporter intentionally keeps labels bounded. Raw reason strings from Redis are
++normalized into a finite reason-code family set; unknown values collapse into
++``<source>:other`` instead of exploding cardinality.
++"""
++
++import logging
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, Iterable, Mapping
++
++from prometheus_client import Gauge, start_http_server
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++
++logger = logging.getLogger(__name__)
++
++ALLOWED_PURPOSES = (
++    'latency_contract_sensitive_apply',
++    'conf_score_guardrails_apply',
++    'conf_score_guardrails_promote',
++    'meta_cov_rollout_controller',
++    'conf_score_guardrails_autopromo_controller',
++)
++KNOWN_STATUSES = ('ok', 'block', 'invalid')
++KNOWN_SOURCES = ('none', 'deploy_lint', 'latency_contract', 'research_guard')
++KNOWN_REASON_CODES = (
++    'ok',
++    'deploy_lint:persistent_config_drift',
++    'deploy_lint:state_missing',
++    'deploy_lint:redis_unavailable',
++    'deploy_lint:redis_connect_failed',
++    'deploy_lint:other',
++    'latency_contract:external_missing',
++    'latency_contract:state_missing',
++    'latency_contract:redis_unavailable',
++    'latency_contract:redis_connect_failed',
++    'latency_contract:other',
++    'research_guard:report_stale',
++    'research_guard:state_missing',
++    'research_guard:report_only',
++    'research_guard:redis_unavailable',
++    'research_guard:redis_connect_failed',
++    'research_guard:other',
++    'none:ok',
++)
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _f(value: Any, default: float = 0.0) -> float:
++    try:
++        return float(value)
++    except Exception:
++        return float(default)
++
++
++def _parse_purposes(raw: str) -> list[str]:
++    values = [v.strip() for v in str(raw or '').split(',') if v.strip()]
++    if not values:
++        return list(ALLOWED_PURPOSES)
++    out: list[str] = []
++    seen: set[str] = set()
++    for value in values:
++        if value in seen:
++            continue
++        out.append(value)
++        seen.add(value)
++    return out
++
++
++def _redis_client():
++    if redis is None:
++        return None
++    try:
++        return redis.Redis.from_url(_env('REDIS_URL', 'redis://redis-worker-1:6379/0'), decode_responses=True)
++    except Exception:
++        return None
++
++
++def _read_hash(client: Any, key: str) -> Dict[str, str]:
++    if client is None or not key:
++        return {}
++    try:
++        data = client.hgetall(key)
++        return data if isinstance(data, dict) else {}
++    except Exception:
++        return {}
++
++
++def _state_key(prefix: str, purpose: str) -> str:
++    return f'{prefix.rstrip(":")}:{purpose}'
++
++
++def normalize_reason_code(source: str, reason_code: str) -> str:
++    src = (source or 'none').strip() or 'none'
++    raw = (reason_code or '').strip()
++    if not raw:
++        return 'none:ok' if src == 'none' else f'{src}:other'
++
++    # Composite state sometimes stores the full source-prefixed code already.
++    if ':' in raw:
++        prefix, suffix = raw.split(':', 1)
++        if prefix:
++            src = prefix
++            raw = suffix
++
++    suffix = raw.strip()
++    known_for_source = {
++        'deploy_lint': {'persistent_config_drift', 'state_missing', 'redis_unavailable', 'redis_connect_failed'},
++        'latency_contract': {'external_missing', 'state_missing', 'redis_unavailable', 'redis_connect_failed'},
++        'research_guard': {'report_stale', 'state_missing', 'report_only', 'redis_unavailable', 'redis_connect_failed'},
++        'none': {'ok'},
++    }
++    if suffix in known_for_source.get(src, set()):
++        return f'{src}:{suffix}'
++    if src == 'none':
++        return 'none:ok'
++    return f'{src}:other'
++
++
++@dataclass(frozen=True)
++class PurposeState:
++    purpose: str
++    present: float = 0.0
++    age_seconds: float = 0.0
++    selected_priority_rank: float = 999.0
++    decision_status: str = 'invalid'
++    selected_source: str = 'none'
++    selected_reason_code: str = 'none:ok'
++
++
++def compute_purpose_state(purpose: str, raw: Mapping[str, str], now_ms: int | None = None) -> PurposeState:
++    now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
++    if not raw:
++        return PurposeState(
++            purpose=purpose,
++            present=0.0,
++            age_seconds=0.0,
++            selected_priority_rank=999.0,
++            decision_status='invalid',
++            selected_source='none',
++            selected_reason_code='none:ok',
++        )
++
++    updated_ts_ms = _f(raw.get('updated_ts_ms') or 0.0)
++    age_seconds = 0.0
++    if updated_ts_ms > 0:
++        age_seconds = max(0.0, (now_ms - updated_ts_ms) / 1000.0)
++
++    status = str(raw.get('status') or 'invalid').strip() or 'invalid'
++    if status not in KNOWN_STATUSES:
++        status = 'invalid'
++    source = str(raw.get('selected_source') or 'none').strip() or 'none'
++    if source not in KNOWN_SOURCES:
++        source = 'none'
++
++    return PurposeState(
++        purpose=purpose,
++        present=1.0,
++        age_seconds=age_seconds,
++        selected_priority_rank=_f(raw.get('selected_priority_rank') or 999.0),
++        decision_status=status,
++        selected_source=source,
++        selected_reason_code=normalize_reason_code(source, str(raw.get('selected_reason_code') or raw.get('selected_reason') or '')),
++    )
++
++
++@dataclass(frozen=True)
++class SummaryState:
++    purposes_total: float
++    present_total: float
++    block_total: float
++    invalid_total: float
++    ok_total: float
++
++
++def summarize(states: Iterable[PurposeState]) -> SummaryState:
++    values = list(states)
++    return SummaryState(
++        purposes_total=float(len(values)),
++        present_total=float(sum(1 for s in values if s.present > 0)),
++        block_total=float(sum(1 for s in values if s.decision_status == 'block')),
++        invalid_total=float(sum(1 for s in values if s.decision_status == 'invalid')),
++        ok_total=float(sum(1 for s in values if s.decision_status == 'ok')),
++    )
++
++
++UP = Gauge('orchestration_composite_preflight_exporter_up', '1 if composite preflight exporter loop is alive')
++REDIS_READ_OK = Gauge('orchestration_composite_preflight_exporter_redis_read_ok', '1 if exporter read Redis successfully')
++PURPOSE_PRESENT = Gauge('orchestration_composite_preflight_state_present', '1 if persisted composite preflight state exists for the purpose', ['purpose'])
++AGE_SECONDS = Gauge('orchestration_composite_preflight_state_age_seconds', 'Age of latest persisted composite preflight decision', ['purpose'])
++PRIORITY_RANK = Gauge('orchestration_composite_preflight_selected_priority_rank', 'Priority rank of the selected composite reason', ['purpose'])
++DECISION_STATUS = Gauge('orchestration_composite_preflight_decision_status', 'One-hot composite decision status', ['purpose', 'status'])
++SELECTED_SOURCE = Gauge('orchestration_composite_preflight_selected_source', 'One-hot selected source dominating the composite decision', ['purpose', 'source'])
++SELECTED_REASON_CODE = Gauge('orchestration_composite_preflight_selected_reason_code', 'One-hot normalized selected reason code', ['purpose', 'reason_code'])
++SUMMARY_PURPOSES = Gauge('orchestration_composite_preflight_purposes_total', 'Configured orchestration purposes covered by exporter')
++SUMMARY_PRESENT = Gauge('orchestration_composite_preflight_present_total', 'Number of purposes with persisted state')
++SUMMARY_BLOCK = Gauge('orchestration_composite_preflight_block_total', 'Number of purposes currently blocked')
++SUMMARY_INVALID = Gauge('orchestration_composite_preflight_invalid_total', 'Number of purposes currently invalid')
++SUMMARY_OK = Gauge('orchestration_composite_preflight_ok_total', 'Number of purposes currently OK')
++
++
++def export_states(states: list[PurposeState]) -> None:
++    summary = summarize(states)
++    SUMMARY_PURPOSES.set(summary.purposes_total)
++    SUMMARY_PRESENT.set(summary.present_total)
++    SUMMARY_BLOCK.set(summary.block_total)
++    SUMMARY_INVALID.set(summary.invalid_total)
++    SUMMARY_OK.set(summary.ok_total)
++
++    active_reason_codes = {state.purpose: state.selected_reason_code for state in states}
++    for state in states:
++        PURPOSE_PRESENT.labels(purpose=state.purpose).set(state.present)
++        AGE_SECONDS.labels(purpose=state.purpose).set(state.age_seconds)
++        PRIORITY_RANK.labels(purpose=state.purpose).set(state.selected_priority_rank)
++        for status in KNOWN_STATUSES:
++            DECISION_STATUS.labels(purpose=state.purpose, status=status).set(1.0 if status == state.decision_status else 0.0)
++        for source in KNOWN_SOURCES:
++            SELECTED_SOURCE.labels(purpose=state.purpose, source=source).set(1.0 if source == state.selected_source else 0.0)
++        for reason_code in KNOWN_REASON_CODES:
++            SELECTED_REASON_CODE.labels(purpose=state.purpose, reason_code=reason_code).set(1.0 if reason_code == active_reason_codes[state.purpose] else 0.0)
++
++
++def main() -> None:
++    port = int(_env('ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PORT', '9837') or 9837)
++    interval_s = float(_env('ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_INTERVAL_S', '15') or 15)
++    state_prefix = _env('ORCHESTRATION_PREFLIGHT_STATE_PREFIX', 'metrics:orchestration:preflight:last')
++    purposes = _parse_purposes(_env('ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PURPOSES', ','.join(ALLOWED_PURPOSES)))
++
++    start_http_server(port)
++    logger.info('orchestration composite preflight exporter listening on %s for purposes=%s', port, ','.join(purposes))
++
++    while True:
++        UP.set(1.0)
++        client = _redis_client()
++        if client is None:
++            REDIS_READ_OK.set(0.0)
++            time.sleep(interval_s)
++            continue
++        try:
++            now_ms = int(time.time() * 1000)
++            states = [
++                compute_purpose_state(purpose, _read_hash(client, _state_key(state_prefix, purpose)), now_ms=now_ms)
++                for purpose in purposes
++            ]
++            export_states(states)
++            REDIS_READ_OK.set(1.0)
++        except Exception:
++            logger.exception('orchestration composite preflight exporter iteration failed')
++            REDIS_READ_OK.set(0.0)
++        time.sleep(interval_s)
++
++
++if __name__ == '__main__':
++    logging.basicConfig(level=logging.INFO)
++    main()
+--- a/tick_flow_full/orderflow_services/orchestration_composite_preflight_exporter_v1.py
++++ b/tick_flow_full/orderflow_services/orchestration_composite_preflight_exporter_v1.py
+@@ -0,0 +1,275 @@
++from __future__ import annotations
++
++"""Prometheus exporter for composite orchestration preflight state (P5.4).
++
++The composite preflight already persists one compact Redis hash per rollout-sensitive
++purpose. This exporter turns that control-plane state into low-cardinality metrics so
++Prometheus/Grafana can answer:
++  - which purpose is blocked / invalid right now
++  - which source currently dominates the orchestration decision
++  - which normalized reason-code family is active
++  - whether the persisted decision is stale
++
++The exporter intentionally keeps labels bounded. Raw reason strings from Redis are
++normalized into a finite reason-code family set; unknown values collapse into
++``<source>:other`` instead of exploding cardinality.
++"""
++
++import logging
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, Iterable, Mapping
++
++from prometheus_client import Gauge, start_http_server
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++
++logger = logging.getLogger(__name__)
++
++ALLOWED_PURPOSES = (
++    'latency_contract_sensitive_apply',
++    'conf_score_guardrails_apply',
++    'conf_score_guardrails_promote',
++    'meta_cov_rollout_controller',
++    'conf_score_guardrails_autopromo_controller',
++)
++KNOWN_STATUSES = ('ok', 'block', 'invalid')
++KNOWN_SOURCES = ('none', 'deploy_lint', 'latency_contract', 'research_guard')
++KNOWN_REASON_CODES = (
++    'ok',
++    'deploy_lint:persistent_config_drift',
++    'deploy_lint:state_missing',
++    'deploy_lint:redis_unavailable',
++    'deploy_lint:redis_connect_failed',
++    'deploy_lint:other',
++    'latency_contract:external_missing',
++    'latency_contract:state_missing',
++    'latency_contract:redis_unavailable',
++    'latency_contract:redis_connect_failed',
++    'latency_contract:other',
++    'research_guard:report_stale',
++    'research_guard:state_missing',
++    'research_guard:report_only',
++    'research_guard:redis_unavailable',
++    'research_guard:redis_connect_failed',
++    'research_guard:other',
++    'none:ok',
++)
++
++
++def _env(name: str, default: str = '') -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _f(value: Any, default: float = 0.0) -> float:
++    try:
++        return float(value)
++    except Exception:
++        return float(default)
++
++
++def _parse_purposes(raw: str) -> list[str]:
++    values = [v.strip() for v in str(raw or '').split(',') if v.strip()]
++    if not values:
++        return list(ALLOWED_PURPOSES)
++    out: list[str] = []
++    seen: set[str] = set()
++    for value in values:
++        if value in seen:
++            continue
++        out.append(value)
++        seen.add(value)
++    return out
++
++
++def _redis_client():
++    if redis is None:
++        return None
++    try:
++        return redis.Redis.from_url(_env('REDIS_URL', 'redis://redis-worker-1:6379/0'), decode_responses=True)
++    except Exception:
++        return None
++
++
++def _read_hash(client: Any, key: str) -> Dict[str, str]:
++    if client is None or not key:
++        return {}
++    try:
++        data = client.hgetall(key)
++        return data if isinstance(data, dict) else {}
++    except Exception:
++        return {}
++
++
++def _state_key(prefix: str, purpose: str) -> str:
++    return f'{prefix.rstrip(":")}:{purpose}'
++
++
++def normalize_reason_code(source: str, reason_code: str) -> str:
++    src = (source or 'none').strip() or 'none'
++    raw = (reason_code or '').strip()
++    if not raw:
++        return 'none:ok' if src == 'none' else f'{src}:other'
++
++    # Composite state sometimes stores the full source-prefixed code already.
++    if ':' in raw:
++        prefix, suffix = raw.split(':', 1)
++        if prefix:
++            src = prefix
++            raw = suffix
++
++    suffix = raw.strip()
++    known_for_source = {
++        'deploy_lint': {'persistent_config_drift', 'state_missing', 'redis_unavailable', 'redis_connect_failed'},
++        'latency_contract': {'external_missing', 'state_missing', 'redis_unavailable', 'redis_connect_failed'},
++        'research_guard': {'report_stale', 'state_missing', 'report_only', 'redis_unavailable', 'redis_connect_failed'},
++        'none': {'ok'},
++    }
++    if suffix in known_for_source.get(src, set()):
++        return f'{src}:{suffix}'
++    if src == 'none':
++        return 'none:ok'
++    return f'{src}:other'
++
++
++@dataclass(frozen=True)
++class PurposeState:
++    purpose: str
++    present: float = 0.0
++    age_seconds: float = 0.0
++    selected_priority_rank: float = 999.0
++    decision_status: str = 'invalid'
++    selected_source: str = 'none'
++    selected_reason_code: str = 'none:ok'
++
++
++def compute_purpose_state(purpose: str, raw: Mapping[str, str], now_ms: int | None = None) -> PurposeState:
++    now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
++    if not raw:
++        return PurposeState(
++            purpose=purpose,
++            present=0.0,
++            age_seconds=0.0,
++            selected_priority_rank=999.0,
++            decision_status='invalid',
++            selected_source='none',
++            selected_reason_code='none:ok',
++        )
++
++    updated_ts_ms = _f(raw.get('updated_ts_ms') or 0.0)
++    age_seconds = 0.0
++    if updated_ts_ms > 0:
++        age_seconds = max(0.0, (now_ms - updated_ts_ms) / 1000.0)
++
++    status = str(raw.get('status') or 'invalid').strip() or 'invalid'
++    if status not in KNOWN_STATUSES:
++        status = 'invalid'
++    source = str(raw.get('selected_source') or 'none').strip() or 'none'
++    if source not in KNOWN_SOURCES:
++        source = 'none'
++
++    return PurposeState(
++        purpose=purpose,
++        present=1.0,
++        age_seconds=age_seconds,
++        selected_priority_rank=_f(raw.get('selected_priority_rank') or 999.0),
++        decision_status=status,
++        selected_source=source,
++        selected_reason_code=normalize_reason_code(source, str(raw.get('selected_reason_code') or raw.get('selected_reason') or '')),
++    )
++
++
++@dataclass(frozen=True)
++class SummaryState:
++    purposes_total: float
++    present_total: float
++    block_total: float
++    invalid_total: float
++    ok_total: float
++
++
++def summarize(states: Iterable[PurposeState]) -> SummaryState:
++    values = list(states)
++    return SummaryState(
++        purposes_total=float(len(values)),
++        present_total=float(sum(1 for s in values if s.present > 0)),
++        block_total=float(sum(1 for s in values if s.decision_status == 'block')),
++        invalid_total=float(sum(1 for s in values if s.decision_status == 'invalid')),
++        ok_total=float(sum(1 for s in values if s.decision_status == 'ok')),
++    )
++
++
++UP = Gauge('orchestration_composite_preflight_exporter_up', '1 if composite preflight exporter loop is alive')
++REDIS_READ_OK = Gauge('orchestration_composite_preflight_exporter_redis_read_ok', '1 if exporter read Redis successfully')
++PURPOSE_PRESENT = Gauge('orchestration_composite_preflight_state_present', '1 if persisted composite preflight state exists for the purpose', ['purpose'])
++AGE_SECONDS = Gauge('orchestration_composite_preflight_state_age_seconds', 'Age of latest persisted composite preflight decision', ['purpose'])
++PRIORITY_RANK = Gauge('orchestration_composite_preflight_selected_priority_rank', 'Priority rank of the selected composite reason', ['purpose'])
++DECISION_STATUS = Gauge('orchestration_composite_preflight_decision_status', 'One-hot composite decision status', ['purpose', 'status'])
++SELECTED_SOURCE = Gauge('orchestration_composite_preflight_selected_source', 'One-hot selected source dominating the composite decision', ['purpose', 'source'])
++SELECTED_REASON_CODE = Gauge('orchestration_composite_preflight_selected_reason_code', 'One-hot normalized selected reason code', ['purpose', 'reason_code'])
++SUMMARY_PURPOSES = Gauge('orchestration_composite_preflight_purposes_total', 'Configured orchestration purposes covered by exporter')
++SUMMARY_PRESENT = Gauge('orchestration_composite_preflight_present_total', 'Number of purposes with persisted state')
++SUMMARY_BLOCK = Gauge('orchestration_composite_preflight_block_total', 'Number of purposes currently blocked')
++SUMMARY_INVALID = Gauge('orchestration_composite_preflight_invalid_total', 'Number of purposes currently invalid')
++SUMMARY_OK = Gauge('orchestration_composite_preflight_ok_total', 'Number of purposes currently OK')
++
++
++def export_states(states: list[PurposeState]) -> None:
++    summary = summarize(states)
++    SUMMARY_PURPOSES.set(summary.purposes_total)
++    SUMMARY_PRESENT.set(summary.present_total)
++    SUMMARY_BLOCK.set(summary.block_total)
++    SUMMARY_INVALID.set(summary.invalid_total)
++    SUMMARY_OK.set(summary.ok_total)
++
++    active_reason_codes = {state.purpose: state.selected_reason_code for state in states}
++    for state in states:
++        PURPOSE_PRESENT.labels(purpose=state.purpose).set(state.present)
++        AGE_SECONDS.labels(purpose=state.purpose).set(state.age_seconds)
++        PRIORITY_RANK.labels(purpose=state.purpose).set(state.selected_priority_rank)
++        for status in KNOWN_STATUSES:
++            DECISION_STATUS.labels(purpose=state.purpose, status=status).set(1.0 if status == state.decision_status else 0.0)
++        for source in KNOWN_SOURCES:
++            SELECTED_SOURCE.labels(purpose=state.purpose, source=source).set(1.0 if source == state.selected_source else 0.0)
++        for reason_code in KNOWN_REASON_CODES:
++            SELECTED_REASON_CODE.labels(purpose=state.purpose, reason_code=reason_code).set(1.0 if reason_code == active_reason_codes[state.purpose] else 0.0)
++
++
++def main() -> None:
++    port = int(_env('ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PORT', '9837') or 9837)
++    interval_s = float(_env('ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_INTERVAL_S', '15') or 15)
++    state_prefix = _env('ORCHESTRATION_PREFLIGHT_STATE_PREFIX', 'metrics:orchestration:preflight:last')
++    purposes = _parse_purposes(_env('ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PURPOSES', ','.join(ALLOWED_PURPOSES)))
++
++    start_http_server(port)
++    logger.info('orchestration composite preflight exporter listening on %s for purposes=%s', port, ','.join(purposes))
++
++    while True:
++        UP.set(1.0)
++        client = _redis_client()
++        if client is None:
++            REDIS_READ_OK.set(0.0)
++            time.sleep(interval_s)
++            continue
++        try:
++            now_ms = int(time.time() * 1000)
++            states = [
++                compute_purpose_state(purpose, _read_hash(client, _state_key(state_prefix, purpose)), now_ms=now_ms)
++                for purpose in purposes
++            ]
++            export_states(states)
++            REDIS_READ_OK.set(1.0)
++        except Exception:
++            logger.exception('orchestration composite preflight exporter iteration failed')
++            REDIS_READ_OK.set(0.0)
++        time.sleep(interval_s)
++
++
++if __name__ == '__main__':
++    logging.basicConfig(level=logging.INFO)
++    main()
+--- a/orderflow_services/prometheus_alerts_orchestration_composite_preflight_p54.yml
++++ b/orderflow_services/prometheus_alerts_orchestration_composite_preflight_p54.yml
+@@ -0,0 +1,41 @@
++groups:
++  - name: orchestration_composite_preflight_p54
++    rules:
++      - alert: TradeOrchestrationCompositePreflightBlockedCrit
++        expr: orchestration_composite_preflight_decision_status{status="block"} > 0
++        for: 10m
++        labels:
++          severity: crit
++          component: orchestration_composite_preflight
++        annotations:
++          summary: "Composite orchestration preflight is blocking rollout"
++          description: >-
++            The rollout-sensitive purpose {{ $labels.purpose }} is currently blocked by the
++            composite preflight control-plane. Inspect selected_source/selected_reason_code
++            and the latest ops:orchestration:preflight:v1 event before forcing any rollout.
++
++      - alert: TradeOrchestrationCompositePreflightInvalidWarn
++        expr: orchestration_composite_preflight_decision_status{status="invalid"} > 0
++        for: 15m
++        labels:
++          severity: warn
++          component: orchestration_composite_preflight
++        annotations:
++          summary: "Composite orchestration preflight state is invalid"
++          description: >-
++            The rollout-sensitive purpose {{ $labels.purpose }} is not in a clean OK/BLOCK
++            state. This usually means missing/stale control-plane state or Redis connectivity
++            issues. Review selected_source and selected_reason_code.
++
++      - alert: TradeOrchestrationCompositePreflightStateStaleWarn
++        expr: (orchestration_composite_preflight_state_present > 0) and (orchestration_composite_preflight_state_age_seconds > 6 * 3600)
++        for: 30m
++        labels:
++          severity: warn
++          component: orchestration_composite_preflight
++        annotations:
++          summary: "Composite orchestration preflight state is stale"
++          description: >-
++            Persisted orchestration control-plane state for {{ $labels.purpose }} is older than
++            six hours. Check whether rollout-sensitive jobs or wrappers stopped publishing
++            composite decisions.
+--- a/tick_flow_full/orderflow_services/prometheus_alerts_orchestration_composite_preflight_p54.yml
++++ b/tick_flow_full/orderflow_services/prometheus_alerts_orchestration_composite_preflight_p54.yml
+@@ -0,0 +1,41 @@
++groups:
++  - name: orchestration_composite_preflight_p54
++    rules:
++      - alert: TradeOrchestrationCompositePreflightBlockedCrit
++        expr: orchestration_composite_preflight_decision_status{status="block"} > 0
++        for: 10m
++        labels:
++          severity: crit
++          component: orchestration_composite_preflight
++        annotations:
++          summary: "Composite orchestration preflight is blocking rollout"
++          description: >-
++            The rollout-sensitive purpose {{ $labels.purpose }} is currently blocked by the
++            composite preflight control-plane. Inspect selected_source/selected_reason_code
++            and the latest ops:orchestration:preflight:v1 event before forcing any rollout.
++
++      - alert: TradeOrchestrationCompositePreflightInvalidWarn
++        expr: orchestration_composite_preflight_decision_status{status="invalid"} > 0
++        for: 15m
++        labels:
++          severity: warn
++          component: orchestration_composite_preflight
++        annotations:
++          summary: "Composite orchestration preflight state is invalid"
++          description: >-
++            The rollout-sensitive purpose {{ $labels.purpose }} is not in a clean OK/BLOCK
++            state. This usually means missing/stale control-plane state or Redis connectivity
++            issues. Review selected_source and selected_reason_code.
++
++      - alert: TradeOrchestrationCompositePreflightStateStaleWarn
++        expr: (orchestration_composite_preflight_state_present > 0) and (orchestration_composite_preflight_state_age_seconds > 6 * 3600)
++        for: 30m
++        labels:
++          severity: warn
++          component: orchestration_composite_preflight
++        annotations:
++          summary: "Composite orchestration preflight state is stale"
++          description: >-
++            Persisted orchestration control-plane state for {{ $labels.purpose }} is older than
++            six hours. Check whether rollout-sensitive jobs or wrappers stopped publishing
++            composite decisions.
+--- a/orderflow_services/grafana/orchestration_composite_preflight_p54.json
++++ b/orderflow_services/grafana/orchestration_composite_preflight_p54.json
+@@ -0,0 +1,66 @@
++{
++  "annotations": {"list": []},
++  "editable": true,
++  "graphTooltip": 0,
++  "panels": [
++    {
++      "type": "stat",
++      "title": "Blocked purposes",
++      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
++      "targets": [{"expr": "orchestration_composite_preflight_block_total", "refId": "A"}],
++      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "values": false, "fields": ""}}
++    },
++    {
++      "type": "stat",
++      "title": "Invalid purposes",
++      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
++      "targets": [{"expr": "orchestration_composite_preflight_invalid_total", "refId": "A"}],
++      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "values": false, "fields": ""}}
++    },
++    {
++      "type": "stat",
++      "title": "Present state total",
++      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
++      "targets": [{"expr": "orchestration_composite_preflight_present_total", "refId": "A"}],
++      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "values": false, "fields": ""}}
++    },
++    {
++      "type": "stat",
++      "title": "Exporter Redis OK",
++      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
++      "targets": [{"expr": "orchestration_composite_preflight_exporter_redis_read_ok", "refId": "A"}],
++      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "values": false, "fields": ""}}
++    },
++    {
++      "type": "timeseries",
++      "title": "Decision status by purpose",
++      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
++      "targets": [{"expr": "orchestration_composite_preflight_decision_status", "legendFormat": "{{purpose}} {{status}}", "refId": "A"}]
++    },
++    {
++      "type": "timeseries",
++      "title": "Selected source by purpose",
++      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
++      "targets": [{"expr": "orchestration_composite_preflight_selected_source", "legendFormat": "{{purpose}} {{source}}", "refId": "A"}]
++    },
++    {
++      "type": "timeseries",
++      "title": "Selected reason code by purpose",
++      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 12},
++      "targets": [{"expr": "orchestration_composite_preflight_selected_reason_code", "legendFormat": "{{purpose}} {{reason_code}}", "refId": "A"}]
++    },
++    {
++      "type": "timeseries",
++      "title": "State age seconds",
++      "gridPos": {"h": 7, "w": 24, "x": 0, "y": 20},
++      "targets": [{"expr": "orchestration_composite_preflight_state_age_seconds", "legendFormat": "{{purpose}}", "refId": "A"}]
++    }
++  ],
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": ["trade", "orchestration", "control-plane", "p54"],
++  "templating": {"list": []},
++  "time": {"from": "now-24h", "to": "now"},
++  "title": "Orchestration Composite Preflight P5.4",
++  "version": 1
++}
+--- a/orderflow_services/deploy/compose/docker-compose.orchestration-composite-preflight-exporter-v1.yml
++++ b/orderflow_services/deploy/compose/docker-compose.orchestration-composite-preflight-exporter-v1.yml
+@@ -0,0 +1,20 @@
++services:
++  orchestration-composite-preflight-exporter:
++    image: ${TRADE_ORDERFLOW_IMAGE:?}
++    working_dir: /app
++    environment:
++      PYTHONPATH: /app
++      REDIS_URL: ${REDIS_URL:?}
++      ORCHESTRATION_PREFLIGHT_STATE_PREFIX: ${ORCHESTRATION_PREFLIGHT_STATE_PREFIX:-metrics:orchestration:preflight:last}
++      ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PURPOSES: ${ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PURPOSES:-latency_contract_sensitive_apply,conf_score_guardrails_apply,conf_score_guardrails_promote,meta_cov_rollout_controller,conf_score_guardrails_autopromo_controller}
++      ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PORT: ${ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PORT:-9837}
++      ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_INTERVAL_S: ${ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_INTERVAL_S:-15}
++    volumes:
++      - ${TRADE_REPO_ROOT:?}:/app:ro
++    expose:
++      - "${ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PORT:-9837}"
++    command:
++      - bash
++      - -lc
++      - >-
++        python3 -m orderflow_services.orchestration_composite_preflight_exporter_v1
+--- a/orderflow_services/deploy/systemd/run_trade_orchestration_composite_preflight_exporter_v1.sh
++++ b/orderflow_services/deploy/systemd/run_trade_orchestration_composite_preflight_exporter_v1.sh
+@@ -0,0 +1,4 @@
++#!/usr/bin/env bash
++set -euo pipefail
++cd "${TRADE_REPO_ROOT:?}"
++exec python3 -m orderflow_services.orchestration_composite_preflight_exporter_v1
+--- a/orderflow_services/deploy/systemd/trade-orchestration-composite-preflight-exporter.service
++++ b/orderflow_services/deploy/systemd/trade-orchestration-composite-preflight-exporter.service
+@@ -0,0 +1,15 @@
++[Unit]
++Description=Trade Orchestration Composite Preflight Exporter
++After=network-online.target
++Wants=network-online.target
++
++[Service]
++Type=simple
++EnvironmentFile=%h/.config/trade/latency-contract-sensitive-jobs.env
++WorkingDirectory=%h/trade/orderflow_services
++ExecStart=%h/trade/orderflow_services/deploy/systemd/run_trade_orchestration_composite_preflight_exporter_v1.sh
++Restart=always
++RestartSec=5
++
++[Install]
++WantedBy=multi-user.target
+--- a/orderflow_services/integrations/metrics-proxy.orchestration-composite-preflight-exporter-v1.conf
++++ b/orderflow_services/integrations/metrics-proxy.orchestration-composite-preflight-exporter-v1.conf
+@@ -0,0 +1,7 @@
++location /m/orchestration-composite-preflight-exporter {
++    proxy_pass http://orchestration-composite-preflight-exporter:${ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PORT:-9837}/metrics;
++    proxy_http_version 1.1;
++    proxy_set_header Host $host;
++    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
++    proxy_set_header X-Forwarded-Proto $scheme;
++}
+--- a/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
++++ b/orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example
+@@ -42,3 +42,7 @@
+ ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM=ops:orchestration:preflight:v1
+ ORCHESTRATION_PREFLIGHT_STATE_PREFIX=metrics:orchestration:preflight:last
+ ORCHESTRATION_PREFLIGHT_STATE_TTL_S=172800
++ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PORT=9837
++ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_INTERVAL_S=15
++ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PURPOSES=latency_contract_sensitive_apply,conf_score_guardrails_apply,conf_score_guardrails_promote,meta_cov_rollout_controller,conf_score_guardrails_autopromo_controller
++
+--- a/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
++++ b/orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example
+@@ -42,3 +42,7 @@
+ ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM=ops:orchestration:preflight:v1
+ ORCHESTRATION_PREFLIGHT_STATE_PREFIX=metrics:orchestration:preflight:last
+ ORCHESTRATION_PREFLIGHT_STATE_TTL_S=172800
++ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PORT=9837
++ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_INTERVAL_S=15
++ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PURPOSES=latency_contract_sensitive_apply,conf_score_guardrails_apply,conf_score_guardrails_promote,meta_cov_rollout_controller,conf_score_guardrails_autopromo_controller
++
+--- a/orderflow_services/tests/test_orchestration_composite_preflight_exporter_v1.py
++++ b/orderflow_services/tests/test_orchestration_composite_preflight_exporter_v1.py
+@@ -0,0 +1,44 @@
++from __future__ import annotations
++
++from orderflow_services.orchestration_composite_preflight_exporter_v1 import (
++    compute_purpose_state,
++    normalize_reason_code,
++    summarize,
++)
++
++
++def test_normalize_reason_code_bounds_unknown_values() -> None:
++    assert normalize_reason_code('latency_contract', 'latency_contract:external_missing') == 'latency_contract:external_missing'
++    assert normalize_reason_code('research_guard', 'weird_runtime_failure') == 'research_guard:other'
++    assert normalize_reason_code('none', '') == 'none:ok'
++
++
++def test_compute_purpose_state_uses_present_status_source_reason() -> None:
++    raw = {
++        'updated_ts_ms': '1000',
++        'status': 'block',
++        'selected_source': 'deploy_lint',
++        'selected_reason_code': 'deploy_lint:persistent_config_drift',
++        'selected_priority_rank': '0',
++    }
++    state = compute_purpose_state('conf_score_guardrails_promote', raw, now_ms=31_000)
++    assert state.present == 1.0
++    assert state.age_seconds == 30.0
++    assert state.decision_status == 'block'
++    assert state.selected_source == 'deploy_lint'
++    assert state.selected_reason_code == 'deploy_lint:persistent_config_drift'
++    assert state.selected_priority_rank == 0.0
++
++
++def test_summarize_counts_ok_block_invalid() -> None:
++    states = [
++        compute_purpose_state('a', {'status': 'ok', 'selected_source': 'none', 'selected_reason_code': 'ok'}),
++        compute_purpose_state('b', {'status': 'block', 'selected_source': 'latency_contract', 'selected_reason_code': 'latency_contract:external_missing'}),
++        compute_purpose_state('c', {}),
++    ]
++    summary = summarize(states)
++    assert summary.purposes_total == 3.0
++    assert summary.present_total == 2.0
++    assert summary.ok_total == 1.0
++    assert summary.block_total == 1.0
++    assert summary.invalid_total == 1.0
+--- a/orderflow_services/tests/test_orchestration_composite_preflight_p54_assets_v1.py
++++ b/orderflow_services/tests/test_orchestration_composite_preflight_p54_assets_v1.py
+@@ -0,0 +1,45 @@
++from __future__ import annotations
++
++from pathlib import Path
++
++
++def _read(path: str) -> str:
++    return Path(path).read_text(encoding='utf-8')
++
++
++def test_compose_and_systemd_assets_exist() -> None:
++    compose_txt = _read('orderflow_services/deploy/compose/docker-compose.orchestration-composite-preflight-exporter-v1.yml')
++    assert 'orchestration-composite-preflight-exporter' in compose_txt
++    assert 'orchestration_composite_preflight_exporter_v1' in compose_txt
++
++    service_txt = _read('orderflow_services/deploy/systemd/trade-orchestration-composite-preflight-exporter.service')
++    assert 'run_trade_orchestration_composite_preflight_exporter_v1.sh' in service_txt
++
++    wrapper_txt = _read('orderflow_services/deploy/systemd/run_trade_orchestration_composite_preflight_exporter_v1.sh')
++    assert 'orchestration_composite_preflight_exporter_v1' in wrapper_txt
++
++
++def test_alerts_and_grafana_reference_composite_metrics() -> None:
++    alerts = _read('orderflow_services/prometheus_alerts_orchestration_composite_preflight_p54.yml')
++    assert 'orchestration_composite_preflight_decision_status' in alerts
++    assert 'orchestration_composite_preflight_state_age_seconds' in alerts
++
++    dashboard = _read('orderflow_services/grafana/orchestration_composite_preflight_p54.json')
++    assert 'orchestration_composite_preflight_selected_reason_code' in dashboard
++    assert 'orchestration_composite_preflight_selected_source' in dashboard
++    assert 'orchestration_composite_preflight_decision_status' in dashboard
++
++
++def test_metrics_proxy_and_env_examples_include_exporter() -> None:
++    proxy = _read('orderflow_services/integrations/metrics-proxy.orchestration-composite-preflight-exporter-v1.conf')
++    assert '/m/orchestration-composite-preflight-exporter' in proxy
++    assert 'ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PORT' in proxy
++
++    for rel in [
++        'orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example',
++        'orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example',
++    ]:
++        txt = _read(rel)
++        assert 'ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PORT=' in txt
++        assert 'ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_INTERVAL_S=' in txt
++        assert 'ORCHESTRATION_COMPOSITE_PREFLIGHT_EXPORTER_PURPOSES=' in txt
+--- a/orderflow_services/tests/test_orchestration_composite_preflight_exporter_compile_v1.py
++++ b/orderflow_services/tests/test_orchestration_composite_preflight_exporter_compile_v1.py
+@@ -0,0 +1,6 @@
++import py_compile
++
++
++def test_compile_main_and_mirror() -> None:
++    py_compile.compile('orderflow_services/orchestration_composite_preflight_exporter_v1.py', doraise=True)
++    py_compile.compile('tick_flow_full/orderflow_services/orchestration_composite_preflight_exporter_v1.py', doraise=True)

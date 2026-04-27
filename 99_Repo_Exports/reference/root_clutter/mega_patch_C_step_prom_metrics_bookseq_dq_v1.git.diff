@@ -1,0 +1,210 @@
+diff --git a/services/orderflow/components/book_processor.py b/services/orderflow/components/book_processor.py
+index 8606eb7..3f95d79 100644
+--- a/services/orderflow/components/book_processor.py
++++ b/services/orderflow/components/book_processor.py
+@@ -8,6 +8,10 @@ from services.orderflow.runtime import SymbolRuntime, BookSnapshot, BookState
+ from services.orderflow.configuration import _safe_int, _safe_float
+ from services.orderflow.metrics import (
+     log_silent_error, book_missing_seq_events_total, book_rate_ema_gauge, book_rate_z_gauge,
++    # Step C: expose book seq DQ telemetry into Prometheus.
++    # Gauge exists in metrics module already (tick_processor also emits it);
++    # we additionally emit it here to make book-only pipelines observable.
++    book_missing_seq_ema_gauge,
+     of_lob_queue_imbalance_gauge, of_lob_queue_imbalance_mean_gauge,
+     of_lob_queue_imbalance_max_abs_gauge, of_lob_queue_imbalance_slope_gauge,
+     of_lob_micro_mid_div_bps_gauge, of_lob_micro_shift_bps_gauge,
+@@ -15,6 +19,10 @@ from services.orderflow.metrics import (
+     of_lob_dw_obi_gauge, of_lob_dw_obi_z_gauge, of_lob_dw_obi_stability_score_gauge,
+     of_lob_dw_obi_stable_secs_gauge, of_lob_dw_obi_stable_gauge,
+ )
++
++# Step C: optional gauge for last detected seq gap size (count of missing updates)
++# Keep it in a dedicated module to avoid bloating the already huge metrics.py.
++from services.orderflow.metrics_stepC_dq_policy_v1 import book_seq_last_gap_gauge
+ from services.orderflow.utils import _fields_to_dict
+ from services.orderflow.components.parsing import OrderFlowParsing
+ from core.book_churn import compute_churn_from_z
+@@ -96,6 +104,7 @@ class BookProcessor:
+         alpha = float(runtime.config.get("book_missing_seq_ema_alpha", 0.1) or 0.1)
+ 
+         miss_event = 0.0
++        last_gap = 0
+         reason = "init"
+ 
+         if cur_u <= 0:
+@@ -111,6 +120,7 @@ class BookProcessor:
+             elif cur_U > expected_U:
+                 # Gap: missing updates between prev_u and cur_U.
+                 miss_event = 1.0
++                    last_gap = int(cur_U - expected_U)
+                 reason = "gap"
+                 try:
+                     book_missing_seq_events_total.labels(symbol=str(runtime.symbol)).inc()
+@@ -127,6 +137,16 @@ class BookProcessor:
+         else:
+             runtime.book_missing_seq_ema = float(prev_ema)
+ 
++        # Step C: expose gauge values. Fail-open: Prom emission must never affect the hot path.
++        try:
++            _sym = str(runtime.symbol)
++            book_missing_seq_ema_gauge.labels(symbol=_sym).set(float(runtime.book_missing_seq_ema))
++            # last_gap is 0 for non-gap cases; still useful to see recent gap size.
++            book_seq_last_gap_gauge.labels(symbol=_sym).set(float(last_gap))
++            runtime.book_seq_last_gap = int(last_gap)
++        except Exception:
++            pass
++
+         runtime.book_seq_last_reason = str(reason)
+ 
+         # Advance last_u only when monotonic; this is robust against duplicates / reorders.
+diff --git a/services/orderflow/components/tick_processor.py b/services/orderflow/components/tick_processor.py
+index e7d2d0c..fa3310e 100644
+--- a/services/orderflow/components/tick_processor.py
++++ b/services/orderflow/components/tick_processor.py
+@@ -120,6 +120,9 @@ from services.orderflow.metrics import (
+     trade_adverse_rd_veto,
+ )
+ 
++# Step C: DQ policy metrics (minimal, low-cardinality labels).
++from services.orderflow.metrics_stepC_dq_policy_v1 import dq_level_gauge, dq_veto_total, sanitize_dq_bucket
++
+ from services.orderflow.world_practice.realized_drift_tracker_v1 import RealizedDriftTrackerV1
+ 
+ from services.orderflow.side_policy import is_unknown_side_tick
+@@ -2037,6 +2040,31 @@ class TickProcessor:
+         t_build_us = int((time.perf_counter_ns() - t_build_ns0) / 1000)
+         indicators["of_build_us"] = int(t_build_us)
+ 
++        # ---------------------------------------------------------------
++        # Step C: export DQ-gate summary to Prometheus.
++        #
++        # Source of truth is OFConfirmEngine, which surfaces these into indicators:
++        #   dq_level: 0/1/2
++        #   dq_veto: 0/1
++        #   dq_reason_bucket: one of a small bucket set (sanitized below)
++        #
++        # Rules:
++        #   - dq_level_gauge is always set (cheap, low-cardinality)
++        #   - dq_veto_total is incremented ONLY when dq_veto==1
++        #   - bucket is sanitized to avoid label cardinality explosion
++        # Fail-open: must never break the tick pipeline.
++        # ---------------------------------------------------------------
++        try:
++            _sym = str(runtime.symbol)
++            _dq_level = int(indicators.get("dq_level", 0) or 0)
++            dq_level_gauge.labels(symbol=_sym).set(float(_dq_level))
++            _dq_veto = int(indicators.get("dq_veto", 0) or 0)
++            if _dq_veto == 1:
++                _b = sanitize_dq_bucket(indicators.get("dq_reason_bucket"))
++                dq_veto_total.labels(symbol=_sym, bucket=_b).inc()
++        except Exception:
++            pass
++
+         # Fill-prob / exec_fill_pen fallback (smoke-check: detect broken wiring)
+         # If OFConfirmEngine already computed these fields, we do NOT override them.
+         try:
+diff --git a/tick_flow_full/services/orderflow/components/book_processor.py b/tick_flow_full/services/orderflow/components/book_processor.py
+index 8606eb7..3f95d79 100644
+--- a/tick_flow_full/services/orderflow/components/book_processor.py
++++ b/tick_flow_full/services/orderflow/components/book_processor.py
+@@ -8,6 +8,10 @@ from services.orderflow.runtime import SymbolRuntime, BookSnapshot, BookState
+ from services.orderflow.configuration import _safe_int, _safe_float
+ from services.orderflow.metrics import (
+     log_silent_error, book_missing_seq_events_total, book_rate_ema_gauge, book_rate_z_gauge,
++    # Step C: expose book seq DQ telemetry into Prometheus.
++    # Gauge exists in metrics module already (tick_processor also emits it);
++    # we additionally emit it here to make book-only pipelines observable.
++    book_missing_seq_ema_gauge,
+     of_lob_queue_imbalance_gauge, of_lob_queue_imbalance_mean_gauge,
+     of_lob_queue_imbalance_max_abs_gauge, of_lob_queue_imbalance_slope_gauge,
+     of_lob_micro_mid_div_bps_gauge, of_lob_micro_shift_bps_gauge,
+@@ -15,6 +19,10 @@ from services.orderflow.metrics import (
+     of_lob_dw_obi_gauge, of_lob_dw_obi_z_gauge, of_lob_dw_obi_stability_score_gauge,
+     of_lob_dw_obi_stable_secs_gauge, of_lob_dw_obi_stable_gauge,
+ )
++
++# Step C: optional gauge for last detected seq gap size (count of missing updates)
++# Keep it in a dedicated module to avoid bloating the already huge metrics.py.
++from services.orderflow.metrics_stepC_dq_policy_v1 import book_seq_last_gap_gauge
+ from services.orderflow.utils import _fields_to_dict
+ from services.orderflow.components.parsing import OrderFlowParsing
+ from core.book_churn import compute_churn_from_z
+@@ -96,6 +104,7 @@ class BookProcessor:
+         alpha = float(runtime.config.get("book_missing_seq_ema_alpha", 0.1) or 0.1)
+ 
+         miss_event = 0.0
++        last_gap = 0
+         reason = "init"
+ 
+         if cur_u <= 0:
+@@ -111,6 +120,7 @@ class BookProcessor:
+             elif cur_U > expected_U:
+                 # Gap: missing updates between prev_u and cur_U.
+                 miss_event = 1.0
++                    last_gap = int(cur_U - expected_U)
+                 reason = "gap"
+                 try:
+                     book_missing_seq_events_total.labels(symbol=str(runtime.symbol)).inc()
+@@ -127,6 +137,16 @@ class BookProcessor:
+         else:
+             runtime.book_missing_seq_ema = float(prev_ema)
+ 
++        # Step C: expose gauge values. Fail-open: Prom emission must never affect the hot path.
++        try:
++            _sym = str(runtime.symbol)
++            book_missing_seq_ema_gauge.labels(symbol=_sym).set(float(runtime.book_missing_seq_ema))
++            # last_gap is 0 for non-gap cases; still useful to see recent gap size.
++            book_seq_last_gap_gauge.labels(symbol=_sym).set(float(last_gap))
++            runtime.book_seq_last_gap = int(last_gap)
++        except Exception:
++            pass
++
+         runtime.book_seq_last_reason = str(reason)
+ 
+         # Advance last_u only when monotonic; this is robust against duplicates / reorders.
+diff --git a/tick_flow_full/services/orderflow/components/tick_processor.py b/tick_flow_full/services/orderflow/components/tick_processor.py
+index e7d2d0c..fa3310e 100644
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -120,6 +120,9 @@ from services.orderflow.metrics import (
+     trade_adverse_rd_veto,
+ )
+ 
++# Step C: DQ policy metrics (minimal, low-cardinality labels).
++from services.orderflow.metrics_stepC_dq_policy_v1 import dq_level_gauge, dq_veto_total, sanitize_dq_bucket
++
+ from services.orderflow.world_practice.realized_drift_tracker_v1 import RealizedDriftTrackerV1
+ 
+ from services.orderflow.side_policy import is_unknown_side_tick
+@@ -2037,6 +2040,31 @@ class TickProcessor:
+         t_build_us = int((time.perf_counter_ns() - t_build_ns0) / 1000)
+         indicators["of_build_us"] = int(t_build_us)
+ 
++        # ---------------------------------------------------------------
++        # Step C: export DQ-gate summary to Prometheus.
++        #
++        # Source of truth is OFConfirmEngine, which surfaces these into indicators:
++        #   dq_level: 0/1/2
++        #   dq_veto: 0/1
++        #   dq_reason_bucket: one of a small bucket set (sanitized below)
++        #
++        # Rules:
++        #   - dq_level_gauge is always set (cheap, low-cardinality)
++        #   - dq_veto_total is incremented ONLY when dq_veto==1
++        #   - bucket is sanitized to avoid label cardinality explosion
++        # Fail-open: must never break the tick pipeline.
++        # ---------------------------------------------------------------
++        try:
++            _sym = str(runtime.symbol)
++            _dq_level = int(indicators.get("dq_level", 0) or 0)
++            dq_level_gauge.labels(symbol=_sym).set(float(_dq_level))
++            _dq_veto = int(indicators.get("dq_veto", 0) or 0)
++            if _dq_veto == 1:
++                _b = sanitize_dq_bucket(indicators.get("dq_reason_bucket"))
++                dq_veto_total.labels(symbol=_sym, bucket=_b).inc()
++        except Exception:
++            pass
++
+         # Fill-prob / exec_fill_pen fallback (smoke-check: detect broken wiring)
+         # If OFConfirmEngine already computed these fields, we do NOT override them.
+         try:

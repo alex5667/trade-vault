@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/core/crypto_orderflow_detector.py
+# hypothesis_version: 6.148.10
+
+[0.0, 'absorption', 'breakout', 'extreme', 'last_price', 'na', 'obi_avg', 'obi_spike', 'obi_sustained', 'pivots', 'price', 'z_delta']

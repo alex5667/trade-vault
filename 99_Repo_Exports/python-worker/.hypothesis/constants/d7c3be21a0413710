@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/components/sampler.py
+# hypothesis_version: 6.148.10
+
+['_last_ms', 'every_ms']

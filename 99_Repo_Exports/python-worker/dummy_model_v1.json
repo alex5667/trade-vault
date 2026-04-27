@@ -1,0 +1,12 @@
+{
+    "kind": "util_mh_fastlinear_v1",
+    "feature_cols": ["f_spread_bps"],
+    "horizons_ms": [60000],
+    "weights": {
+        "60000": {
+            "intercept": 0.0,
+            "coef": [0.0],
+            "unc": 0.0
+        }
+    }
+}

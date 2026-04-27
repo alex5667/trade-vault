@@ -1,0 +1,157 @@
+# Trade Latency Audit — Prometheus Alert Rules
+# Deploy: cp to prometheus/rules/ and reload
+# Owner: SRE / Trade-Infra team
+# SLO Source: implementation_plan.md §5 (pass/fail thresholds)
+
+groups:
+  - name: trade_latency_slo
+    interval: 30s
+    rules:
+
+      # ── Recording rules ──
+      - record: signal_latency_p95_slo_budget_ms
+        expr: 200
+
+      # ── Alert rules ──
+      # ── H1: Go ingest → Redis XADD ──
+      - alert: GoProcessMessageP99High
+        expr: |
+          histogram_quantile(0.99,
+            rate(go_worker_process_message_duration_ms_bucket[5m])
+          ) > 8
+        for: 5m
+        labels:
+          severity: warning
+          component: go-worker
+          budget: H1
+        annotations:
+          summary: "Go processMessage p99 > 8ms (SLO: < 8ms)"
+          description: |
+            exchange={{ $labels.exchange }}, type={{ $labels.type }}
+            p99={{ $value | printf "%.1f" }}ms.
+            Check normalization overhead, Redis XADD latency, and cross-asset hook.
+
+      - alert: GoRedisXaddP99High
+        expr: |
+          histogram_quantile(0.99,
+            rate(go_worker_redis_xadd_duration_ms_bucket[5m])
+          ) > 3
+        for: 5m
+        labels:
+          severity: warning
+          component: go-worker
+          budget: H1
+        annotations:
+          summary: "Go Redis XADD p99 > 3ms (SLO: < 3ms)"
+          description: |
+            exchange={{ $labels.exchange }}, type={{ $labels.type }}
+            p99={{ $value | printf "%.1f" }}ms.
+            Check Redis latency, network, and MAXLEN trimming.
+
+      # ── H2: XADD → Python pickup (worker lag) ──
+      - alert: WorkerLagP99High
+        expr: worker_lag_ms_p99 > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: python-worker
+          budget: H2
+        annotations:
+          summary: "Worker lag p99 > 100ms for {{ $labels.symbol }}"
+          description: |
+            symbol={{ $labels.symbol }}, lag_p99={{ $value | printf "%.0f" }}ms.
+            Check XREADGROUP block time, Redis Stream backlog, consumer group lag.
+
+      # ── H3: process_tick() ──
+      - alert: ProcessTickP99High
+        expr: |
+          histogram_quantile(0.99,
+            rate(processing_time_us_bucket[5m])
+          ) > 40000
+        for: 5m
+        labels:
+          severity: warning
+          component: python-worker
+          budget: H3
+        annotations:
+          summary: "process_tick p99 > 40ms for {{ $labels.symbol }}"
+          description: |
+            symbol={{ $labels.symbol }}, p99={{ $value | printf "%.0f" }}μs.
+            Check sub-stage histograms: validate_time, cvd_update, liqmap, gates.
+
+      - alert: ProcessTickP99Critical
+        expr: |
+          histogram_quantile(0.99,
+            rate(processing_time_us_bucket[5m])
+          ) > 100000
+        for: 2m
+        labels:
+          severity: critical
+          component: python-worker
+          budget: H3
+        annotations:
+          summary: "CRITICAL: process_tick p99 > 100ms for {{ $labels.symbol }}"
+          description: |
+            Possible stuck coroutine or Redis timeout.
+            symbol={{ $labels.symbol }}, p99={{ $value | printf "%.0f" }}μs.
+
+      # ── H3 sub-stages: liqmap is the most likely offender ──
+      - alert: LiqmapSubstageP99High
+        expr: |
+          histogram_quantile(0.99,
+            rate(process_tick_liqmap_us_bucket[5m])
+          ) > 20000
+        for: 5m
+        labels:
+          severity: warning
+          component: python-worker
+          budget: H3_substage
+        annotations:
+          summary: "Liqmap enrichment p99 > 20ms for {{ $labels.symbol }}"
+          description: |
+            Redis GET timeout or parse overhead.
+            Check if orjson parsing is functioning correctly, or if Redis is lagging.
+
+      # ── H4: Signal emit → Redis XADD ──
+      - alert: SignalEmitP99High
+        expr: |
+          histogram_quantile(0.99,
+            rate(signal_emit_latency_us_bucket[5m])
+          ) > 8000
+        for: 5m
+        labels:
+          severity: warning
+          component: python-worker
+          budget: H4
+        annotations:
+          summary: "Signal emit XADD p99 > 8ms for {{ $labels.symbol }}"
+          description: |
+            symbol={{ $labels.symbol }}, stream={{ $labels.stream }}
+            p99={{ $value | printf "%.0f" }}μs.
+            Check Redis write latency and BusyLoadingError rate.
+
+      # ── Backpressure indicators ──
+      - alert: GoWorkerMsgDrops
+        expr: rate(go_worker_futures_messages_dropped_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: go-worker
+        annotations:
+          summary: "Go worker dropping WS messages (backpressure)"
+          description: |
+            Messages are being dropped due to msgChan overflow.
+            Increase *_WS_MSG_CHAN_CAP or reduce downstream processing time.
+
+      - alert: GoWSChanFillRatioHigh
+        expr: go_worker_ws_msg_chan_fill_ratio > 0.9
+        for: 30s
+        labels:
+          severity: warning
+          component: go-worker
+        annotations:
+          summary: "Go WS message channel > 90% full"
+          description: |
+            exchange={{ $labels.exchange }}
+            ratio={{ $value | printf "%.2f" }}.
+            Leading indicator for message drops. Increase channel capacity.

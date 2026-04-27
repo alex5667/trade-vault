@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/signal_outbox.py
+# hypothesis_version: 6.148.10
+
+[1000, 3600, 10000, 60000, 1000000000, 100000000000, 946684800000, 1600000000000, 4102444800000, ',', ':', 'meta', 'ts_ms']

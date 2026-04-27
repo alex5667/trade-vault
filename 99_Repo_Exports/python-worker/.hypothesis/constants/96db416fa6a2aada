@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/observability/latency_semconv.py
+# hypothesis_version: 6.148.10
+
+[',', 'BTCUSDT,ETHUSDT', '__other__', 'collapse', 'drop', 'emit_to_ws', 'end_to_end_event', 'event_ts_ms', 'feature_to_emit', 'go_ingest', 'ingest_to_redis', 'ingest_ts_ms', 'instance_id', 'last_duration_ms', 'last_ts_ms', 'nest_gateway', 'python_worker', 'redis_to_feature', 'schema_version', 'service', 'source', 'stage', 'symbol', 'ts_emit_ms', 'ts_event_ms', 'ts_feature_ms', 'ts_ingest_source_ms', 'ts_ms', 'ts_redis_read_ms', 'ts_redis_xadd_ms', 'ts_ws_emit_ms', 'ui']

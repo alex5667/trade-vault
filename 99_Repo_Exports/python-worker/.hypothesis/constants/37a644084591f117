@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/tick_time.py
+# hypothesis_version: 6.148.10
+
+[100, 250, 500, 1000, 5000, '1', '120000', '1500', '1e12', '1e15', '5000', 'actual_bucket_ms', 'actual_ts_ms', 'bad_ts', 'bucket_disabled', 'bucket_ms', 'clamped_soft_future', 'diff_ms', 'drop_reason', 'expected_bucket_ms', 'expected_ts_ms', 'flags', 'future_hard', 'hard_ms', 'ignore', 'normalized_micros', 'normalized_seconds', 'ok', 'past_hard', 'reason', 'reorder_hard', 'reorder_soft', 'replay_ts_mismatch', 'replay_ts_ok', 'severe', 'severity', 'tol_ms', 'true', 'ts_ms', 'utf-8', 'warn', 'yes']

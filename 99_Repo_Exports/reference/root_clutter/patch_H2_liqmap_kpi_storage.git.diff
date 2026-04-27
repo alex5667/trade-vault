@@ -1,0 +1,775 @@
+--- a/reference/services/archivers/stream_archiver.py
++++ b/reference/services/archivers/stream_archiver.py
+@@ -408,6 +408,86 @@
+         return len(rows)
+ 
+ 
++    # ------------------------------------------------------------------
++    # trades:post_sl -> trade_kpi_liqmap_v1 (H2: liqmap KPIs persistence)
++    # ------------------------------------------------------------------
++    #
++    # Purpose:
++    # - Persist post-trade analysis outputs (post_sl_analyzer) into
++    #   Postgres/Timescale for reporting by symbol/regime/mode.
++    # - Keep it optional and fail-open: disabled by default.
++    #
++    # Enable with:
++    #   POST_SL_LIQMAP_KPI_ARCHIVE_ENABLED=1
++    #   POST_SL_LIQMAP_KPI_AUTO_MIGRATE=1   (optional; default True)
++
++    def ensure_trade_kpi_liqmap_v1_table(self) -> None:
++        """Create trade_kpi_liqmap_v1 table (+ hypertable if Timescale present).
++
++        The table stores one row per post_sl_analyzer event, keyed by (stream_id, ts).
++        JSONB columns:
++        - liqmap_kpi: only liqmap-related keys + liqmap KPIs (compact for reporting)
++        - payload_json: full original post_sl payload (for forensic/debug)
++        """
++        ddl = """
++        CREATE TABLE IF NOT EXISTS trade_kpi_liqmap_v1 (
++          stream_id TEXT NOT NULL,
++          ts_ms BIGINT NOT NULL,
++          ts TIMESTAMPTZ NOT NULL,
++          trade_id TEXT NOT NULL,
++          symbol TEXT NOT NULL,
++          side TEXT NOT NULL,
++          regime TEXT NOT NULL,
++          sl_hit_near_liqmap_peak SMALLINT,
++          tp1_anchored SMALLINT,
++          tp1_anchored_and_hit SMALLINT,
++          sl_liqmap_peak_dist_bps DOUBLE PRECISION,
++          sl_liqmap_peak_usd DOUBLE PRECISION,
++          liqmap_kpi JSONB NOT NULL,
++          payload_json JSONB NOT NULL,
++          PRIMARY KEY (stream_id, ts)
++        );
++        """
++        idx = """
++        CREATE INDEX IF NOT EXISTS trade_kpi_liqmap_v1_symbol_ts_idx
++          ON trade_kpi_liqmap_v1 (symbol, ts DESC);
++        CREATE INDEX IF NOT EXISTS trade_kpi_liqmap_v1_trade_id_ts_idx
++          ON trade_kpi_liqmap_v1 (trade_id, ts DESC);
++        -- Fast JSON queries (optional).
++        CREATE INDEX IF NOT EXISTS trade_kpi_liqmap_v1_liqmap_kpi_gin
++          ON trade_kpi_liqmap_v1 USING GIN (liqmap_kpi jsonb_path_ops);
++        """
++        with self._conn() as conn:
++            with conn.cursor() as cur:
++                cur.execute(ddl)
++                try:
++                    cur.execute("SELECT create_hypertable('trade_kpi_liqmap_v1','ts', if_not_exists => TRUE);")
++                except Exception:
++                    # Timescale not installed; table is still valid in plain Postgres.
++                    conn.rollback()
++                cur.execute(idx)
++            conn.commit()
++
++    def insert_trade_kpi_liqmap_v1(self, rows: List[Tuple[Any, ...]]) -> int:
++        """Batch insert trade_kpi_liqmap_v1 (idempotent)."""
++        if not rows:
++            return 0
++        sql = """
++        INSERT INTO trade_kpi_liqmap_v1 (
++          stream_id, ts_ms, ts,
++          trade_id, symbol, side, regime,
++          sl_hit_near_liqmap_peak, tp1_anchored, tp1_anchored_and_hit,
++          sl_liqmap_peak_dist_bps, sl_liqmap_peak_usd,
++          liqmap_kpi, payload_json
++        ) VALUES %s
++        ON CONFLICT (stream_id, ts) DO NOTHING
++        """
++        with self._conn() as conn:
++            with conn.cursor() as cur:
++                execute_values(cur, sql, rows, page_size=2000)
++        return len(rows)
++
++
+ class StreamArchiver:
+     """Main archiver service"""
+ 
+@@ -420,6 +500,9 @@
+         self.events_stream = env("TRADE_EVENTS_STREAM", "events:trades")
+         self.conf_scores_stream = env("CONF_SCORES_STREAM", "signals:confidence:scores")
+ 
++        # Post-trade analysis stream (post_sl_analyzer).
++        self.post_sl_stream = env("POST_SL_STREAM", "trades:post_sl")
++
+         # OF gate metrics streams
+         self.of_gate_metrics_stream = env("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+         self.of_gate_quarantine_stream = env("OF_GATE_QUARANTINE_STREAM", "quarantine:metrics:of_gate")
+@@ -455,6 +538,17 @@
+         self.conf_scores_block_ms = env_int("CONF_SCORES_BLOCK_MS", 1000)
+         self.conf_scores_min_idle = env_int("CONF_SCORES_MIN_IDLE_MS", 60000)
+         self.conf_scores_dlq = env("CONF_SCORES_DLQ_STREAM", "stream:dlq:conf_scores")
++
++
++        # Post-SL liqmap KPI consumer config (disabled by default).
++        self.post_sl_liqmap_cg = env("POST_SL_LIQMAP_KPI_CG", "post_sl_liqmap_kpi_archiver")
++        self.post_sl_liqmap_consumer = env("POST_SL_LIQMAP_KPI_CONSUMER", "archiver_post_sl_1")
++        self.post_sl_liqmap_batch = env_int("POST_SL_LIQMAP_KPI_BATCH", 2000)
++        self.post_sl_liqmap_block_ms = env_int("POST_SL_LIQMAP_KPI_BLOCK_MS", 1000)
++        self.post_sl_liqmap_min_idle = env_int("POST_SL_LIQMAP_KPI_MIN_IDLE_MS", 60000)
++        self.post_sl_liqmap_dlq = env("POST_SL_LIQMAP_KPI_DLQ_STREAM", "stream:dlq:post_sl_liqmap_kpi")
++        self.post_sl_liqmap_auto_migrate = env_bool("POST_SL_LIQMAP_KPI_AUTO_MIGRATE", True)
++        self.post_sl_liqmap_status_hash = env("POST_SL_LIQMAP_KPI_ARCHIVER_STATUS_HASH", "metrics:post_sl_liqmap_kpi_archiver")
+         # of_gate_metrics consumer config (P2: ok_rate history / SRE archive)
+         # Enabled by: OF_GATE_METRICS_ARCHIVE_ENABLED=1
+         self.of_gate_metrics_stream = env("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+@@ -680,6 +774,65 @@
+             json.dumps(inner_obj, ensure_ascii=False),
+         )
+ 
++
++
++    def post_sl_liqmap_kpi_row(self, stream_id: str, payload: Dict[str, Any]) -> Tuple[Any, ...]:
++        """Build trade_kpi_liqmap_v1 row from trades:post_sl payload.
++
++        We intentionally keep this function pure/deterministic so it can be unit-tested
++        without Redis/Postgres.
++
++        liqmap_kpi is a compact JSONB subset for fast reporting; payload_json keeps the
++        full original payload for forensic/debug.
++        """
++        ts_ms = coalesce_ts_ms(payload, stream_id)
++        ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.timezone.utc)
++
++        trade_id = str(payload.get("trade_id") or payload.get("id") or "").strip()
++        symbol = str(payload.get("symbol") or "").strip().upper()
++        side = str(payload.get("side") or "").strip().upper()
++        regime = str(payload.get("regime") or payload.get("market_regime") or "unknown").strip().lower()
++        if not trade_id or not symbol or not side:
++            raise ValueError(f"missing_required_fields trade_id={trade_id!r} symbol={symbol!r} side={side!r}")
++
++        # Compact KPI subset: all liqmap_* keys + explicit liqmap KPIs if present.
++        liqmap_kpi: Dict[str, Any] = {}
++        for k, v in payload.items():
++            if not isinstance(k, str):
++                continue
++            if k.startswith("liqmap_"):
++                liqmap_kpi[k] = v
++
++        # KPIs emitted by post_sl_analyzer (optional; filled when H1/H2 patches applied).
++        for k in (
++            "sl_hit_near_liqmap_peak",
++            "sl_liqmap_peak_dist_bps",
++            "sl_liqmap_peak_usd",
++            "tp1_anchored",
++            "tp1_anchored_and_hit",
++            "liqmap_levels_applied",
++            "liqmap_tp1_adj_bps",
++            "liqmap_sl_adj_bps",
++            "liqmap_levels_reason",
++        ):
++            if k in payload:
++                liqmap_kpi[k] = payload.get(k)
++
++        # Convenience scalar columns for dashboards/SQL filters (NULL when not present).
++        sl_hit = safe_int(payload.get("sl_hit_near_liqmap_peak"))
++        tp1_anchored = safe_int(payload.get("tp1_anchored"))
++        tp1_hit = safe_int(payload.get("tp1_anchored_and_hit"))
++        sl_peak_dist_bps = safe_float(payload.get("sl_liqmap_peak_dist_bps"))
++        sl_peak_usd = safe_float(payload.get("sl_liqmap_peak_usd"))
++
++        return (
++            stream_id, ts_ms, ts,
++            trade_id, symbol, side, regime,
++            sl_hit, tp1_anchored, tp1_hit,
++            sl_peak_dist_bps, sl_peak_usd,
++            json.dumps(liqmap_kpi, ensure_ascii=False),
++            json.dumps(payload, ensure_ascii=False),
++        )
+     async def _status_bump(self, key: str, inserted_delta: int, last_stream_ts_ms: int, err: Optional[str] = None) -> None:
+         try:
+             now_ms = int(time.time() * 1000)
+@@ -869,6 +1022,83 @@
+                 await self.dlq(self.conf_scores_dlq, self.conf_scores_stream, ack_ids[0], f"pg_batch_error:{e}", {"batch_size": len(rows)})
+                 await asyncio.sleep(1.0)
+ 
++
++
++    async def consume_post_sl_liqmap_kpi(self) -> None:
++        """Consume trades:post_sl and persist liqmap KPIs to Postgres/Timescale.
++
++        This is intentionally optional: enable only when you need reporting in SQL.
++        """
++        await self.ensure_group(self.post_sl_stream, self.post_sl_liqmap_cg)
++        loop = asyncio.get_running_loop()
++
++        while True:
++            pending = await self._claim_pending(
++                self.post_sl_stream,
++                self.post_sl_liqmap_cg,
++                self.post_sl_liqmap_consumer,
++                self.post_sl_liqmap_min_idle,
++                self.post_sl_liqmap_batch,
++            )
++            if pending:
++                msgs = pending
++            else:
++                resp = await self._read_new(
++                    self.post_sl_stream,
++                    self.post_sl_liqmap_cg,
++                    self.post_sl_liqmap_consumer,
++                    self.post_sl_liqmap_batch,
++                    self.post_sl_liqmap_block_ms,
++                )
++                if not resp:
++                    continue
++                _, msgs = resp[0]
++
++            rows: List[Tuple[Any, ...]] = []
++            ack_ids: List[str] = []
++
++            for mid, fields in msgs:
++                try:
++                    payload = parse_stream_payload(fields)
++                    rows.append(self.post_sl_liqmap_kpi_row(mid, payload))
++                    ack_ids.append(mid)
++                except Exception as e:
++                    await self.dlq(
++                        self.post_sl_liqmap_dlq,
++                        self.post_sl_stream,
++                        mid,
++                        f"parse_error:{e}",
++                        {"fields": str(fields)[:2000]},
++                    )
++                    await self.r.xack(self.post_sl_stream, self.post_sl_liqmap_cg, mid)
++
++            if not rows:
++                continue
++
++            try:
++                await loop.run_in_executor(None, self.pg.insert_trade_kpi_liqmap_v1, rows)
++                await self.r.xack(self.post_sl_stream, self.post_sl_liqmap_cg, *ack_ids)
++                await self._status_bump(
++                    self.post_sl_liqmap_status_hash,
++                    inserted_delta=len(rows),
++                    last_stream_ts_ms=ts_ms_from_stream_id(ack_ids[-1]),
++                    err=None,
++                )
++            except Exception as e:
++                await self.dlq(
++                    self.post_sl_liqmap_dlq,
++                    self.post_sl_stream,
++                    ack_ids[0],
++                    f"pg_batch_error:{e}",
++                    {"batch_size": len(rows)},
++                )
++                await self._status_bump(
++                    self.post_sl_liqmap_status_hash,
++                    inserted_delta=0,
++                    last_stream_ts_ms=ts_ms_from_stream_id(ack_ids[-1]),
++                    err=str(e),
++                )
++                await asyncio.sleep(1.0)
+     async def consume_of_gate_metrics(self) -> None:
+         await self.ensure_group(self.of_gate_metrics_stream, self.of_gate_cg)
+         loop = asyncio.get_running_loop()
+@@ -1077,6 +1307,9 @@
+         # Auto-DDL for of_gate_metrics table (P2: ok_rate history)
+         if self.of_gate_metrics_enabled and self.of_gate_metrics_auto_migrate:
+             await loop.run_in_executor(None, self.pg.ensure_of_gate_metrics_table)
++        if self.post_sl_liqmap_enabled and self.post_sl_liqmap_auto_migrate:
++            await loop.run_in_executor(None, self.pg.ensure_trade_kpi_liqmap_v1_table)
++
+ 
+         tasks = []
+         if self.entry_enabled:
+@@ -1085,6 +1318,8 @@
+             tasks.append(asyncio.create_task(self.consume_position_events()))
+         if self.conf_scores_enabled:
+             tasks.append(asyncio.create_task(self.consume_confidence_scores()))
++        if self.post_sl_liqmap_enabled:
++            tasks.append(asyncio.create_task(self.consume_post_sl_liqmap_kpi()))
+         if self.of_gate_enabled:
+             tasks.append(asyncio.create_task(self.consume_of_gate_metrics()))
+         if self.of_gate_quarantine_enabled:
+--- a/python-worker/services/archivers/stream_archiver.py
++++ b/python-worker/services/archivers/stream_archiver.py
+@@ -336,6 +336,72 @@
+             conn.commit()
+ 
+ 
++    # ------------------------------------------------------------------
++    # trades:post_sl -> trade_kpi_liqmap_v1 (H2: liqmap KPIs persistence)
++    # ------------------------------------------------------------------
++
++    def ensure_trade_kpi_liqmap_v1_table(self) -> None:
++        """Create trade_kpi_liqmap_v1 table (+ hypertable if Timescale present).
++
++        See services/archivers/sql/20260301_trade_kpi_liqmap_v1.sql for the reference DDL.
++        """
++        ddl = """
++        CREATE TABLE IF NOT EXISTS trade_kpi_liqmap_v1 (
++          stream_id TEXT NOT NULL,
++          ts_ms BIGINT NOT NULL,
++          ts TIMESTAMPTZ NOT NULL,
++          trade_id TEXT NOT NULL,
++          symbol TEXT NOT NULL,
++          side TEXT NOT NULL,
++          regime TEXT NOT NULL,
++          sl_hit_near_liqmap_peak SMALLINT,
++          tp1_anchored SMALLINT,
++          tp1_anchored_and_hit SMALLINT,
++          sl_liqmap_peak_dist_bps DOUBLE PRECISION,
++          sl_liqmap_peak_usd DOUBLE PRECISION,
++          liqmap_kpi JSONB NOT NULL,
++          payload_json JSONB NOT NULL,
++          PRIMARY KEY (stream_id, ts)
++        );
++        """
++        idx = """
++        CREATE INDEX IF NOT EXISTS trade_kpi_liqmap_v1_symbol_ts_idx
++          ON trade_kpi_liqmap_v1 (symbol, ts DESC);
++        CREATE INDEX IF NOT EXISTS trade_kpi_liqmap_v1_trade_id_ts_idx
++          ON trade_kpi_liqmap_v1 (trade_id, ts DESC);
++        CREATE INDEX IF NOT EXISTS trade_kpi_liqmap_v1_liqmap_kpi_gin
++          ON trade_kpi_liqmap_v1 USING GIN (liqmap_kpi jsonb_path_ops);
++        """
++        with self._conn() as conn:
++            with conn.cursor() as cur:
++                cur.execute(ddl)
++                try:
++                    cur.execute("SELECT create_hypertable('trade_kpi_liqmap_v1','ts', if_not_exists => TRUE);")
++                except Exception:
++                    conn.rollback()
++                cur.execute(idx)
++            conn.commit()
++
++    def insert_trade_kpi_liqmap_v1(self, rows: List[Tuple[Any, ...]]) -> int:
++        """Batch insert trade_kpi_liqmap_v1 (idempotent)."""
++        if not rows:
++            return 0
++        sql = """
++        INSERT INTO trade_kpi_liqmap_v1 (
++          stream_id, ts_ms, ts,
++          trade_id, symbol, side, regime,
++          sl_hit_near_liqmap_peak, tp1_anchored, tp1_anchored_and_hit,
++          sl_liqmap_peak_dist_bps, sl_liqmap_peak_usd,
++          liqmap_kpi, payload_json
++        ) VALUES %s
++        ON CONFLICT (stream_id, ts) DO NOTHING
++        """
++        with self._conn() as conn:
++            with conn.cursor() as cur:
++                execute_values(cur, sql, rows, page_size=2000)
++        return len(rows)
++
++
+     def ensure_of_gate_metrics_rollups_timescale(self) -> None:
+         """Create continuous aggregates + retention policy (Timescale). Safe to run multiple times.
+ 
+@@ -626,6 +692,9 @@
+         self.entry_stream = env("TRADE_ENTRY_AUDIT_STREAM", "stream:trade:entry_audit")
+         self.events_stream = env("TRADE_EVENTS_STREAM", "events:trades")
+         self.conf_scores_stream = env("CONF_SCORES_STREAM", "signals:confidence:scores")
++        # Post-trade analysis stream (post_sl_analyzer).
++        self.post_sl_stream = env("POST_SL_STREAM", "trades:post_sl")
++
+ 
+         # OF gate metrics streams
+         self.of_gate_metrics_stream = env("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+@@ -642,6 +711,7 @@
+         self.entry_enabled = env_int("ENTRY_AUDIT_ARCHIVE_ENABLED", 1) == 1
+         self.events_enabled = env_int("POSITION_EVENTS_ARCHIVE_ENABLED", 1) == 1
+         self.conf_scores_enabled = env_int("CONFIDENCE_SCORES_ARCHIVE_ENABLED", 0) == 1
++        self.post_sl_liqmap_enabled = env_int("POST_SL_LIQMAP_KPI_ARCHIVE_ENABLED", 0) == 1
+         # P3 enable flags (default off — opt-in)
+         self.of_gate_enabled = env_int("OF_GATE_METRICS_ARCHIVE_ENABLED", 0) == 1
+         self.of_gate_quarantine_enabled = env_int("OF_GATE_QUARANTINE_ARCHIVE_ENABLED", 0) == 1
+@@ -673,6 +743,17 @@
+         self.conf_scores_store_context = env_bool("CONF_SCORES_STORE_CONTEXT", True)
+         self.conf_scores_store_evidence = env_bool("CONF_SCORES_STORE_EVIDENCE", True)
+ 
++
++        # Post-SL liqmap KPI consumer config (disabled by default).
++        self.post_sl_liqmap_cg = env("POST_SL_LIQMAP_KPI_CG", "post_sl_liqmap_kpi_archiver")
++        self.post_sl_liqmap_consumer = env("POST_SL_LIQMAP_KPI_CONSUMER", "archiver_post_sl_1")
++        self.post_sl_liqmap_batch = env_int("POST_SL_LIQMAP_KPI_BATCH", 2000)
++        self.post_sl_liqmap_block_ms = env_int("POST_SL_LIQMAP_KPI_BLOCK_MS", 1000)
++        self.post_sl_liqmap_min_idle = env_int("POST_SL_LIQMAP_KPI_MIN_IDLE_MS", 60000)
++        self.post_sl_liqmap_dlq = env("POST_SL_LIQMAP_KPI_DLQ_STREAM", "stream:dlq:post_sl_liqmap_kpi")
++        self.post_sl_liqmap_auto_migrate = env_bool("POST_SL_LIQMAP_KPI_AUTO_MIGRATE", True)
++        self.post_sl_liqmap_status_hash = env("POST_SL_LIQMAP_KPI_ARCHIVER_STATUS_HASH", "metrics:post_sl_liqmap_kpi_archiver")
++
+         # P3: OF-gate metrics consumer config
+         self.of_gate_cg = env("OF_GATE_METRICS_CG", "of_gate_metrics_archiver")
+         self.of_gate_consumer = env("OF_GATE_METRICS_CONSUMER", "archiver_of_gate_1")
+@@ -732,6 +813,56 @@
+         types_csv = env("POSITION_EVENTS_TYPES", "")
+         self.events_types = {t.strip() for t in types_csv.split(",") if t.strip()}
+ 
++
++
++    def post_sl_liqmap_kpi_row(self, stream_id: str, payload: Dict[str, Any]) -> Tuple[Any, ...]:
++        """Build trade_kpi_liqmap_v1 row from trades:post_sl payload.
++
++        liqmap_kpi: compact JSONB subset (liqmap_* + liqmap KPIs)
++        payload_json: full original payload
++        """
++        ts_ms = coalesce_ts_ms(payload, stream_id)
++        ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.timezone.utc)
++
++        trade_id = str(payload.get("trade_id") or payload.get("id") or "").strip()
++        symbol = str(payload.get("symbol") or "").strip().upper()
++        side = str(payload.get("side") or "").strip().upper()
++        regime = str(payload.get("regime") or payload.get("market_regime") or "unknown").strip().lower()
++        if not trade_id or not symbol or not side:
++            raise ValueError(f"missing_required_fields trade_id={trade_id!r} symbol={symbol!r} side={side!r}")
++
++        liqmap_kpi: Dict[str, Any] = {}
++        for k, v in payload.items():
++            if isinstance(k, str) and k.startswith("liqmap_"):
++                liqmap_kpi[k] = v
++        for k in (
++            "sl_hit_near_liqmap_peak",
++            "sl_liqmap_peak_dist_bps",
++            "sl_liqmap_peak_usd",
++            "tp1_anchored",
++            "tp1_anchored_and_hit",
++            "liqmap_levels_applied",
++            "liqmap_tp1_adj_bps",
++            "liqmap_sl_adj_bps",
++            "liqmap_levels_reason",
++        ):
++            if k in payload:
++                liqmap_kpi[k] = payload.get(k)
++
++        sl_hit = safe_int(payload.get("sl_hit_near_liqmap_peak"))
++        tp1_anchored = safe_int(payload.get("tp1_anchored"))
++        tp1_hit = safe_int(payload.get("tp1_anchored_and_hit"))
++        sl_peak_dist_bps = safe_float(payload.get("sl_liqmap_peak_dist_bps"))
++        sl_peak_usd = safe_float(payload.get("sl_liqmap_peak_usd"))
++
++        return (
++            stream_id, ts_ms, ts,
++            trade_id, symbol, side, regime,
++            sl_hit, tp1_anchored, tp1_hit,
++            sl_peak_dist_bps, sl_peak_usd,
++            json.dumps(liqmap_kpi, ensure_ascii=False),
++            json.dumps(payload, ensure_ascii=False),
++        )
+     async def ensure_group(self, stream: str, group: str) -> None:
+         """Create consumer group if not exists."""
+         try:
+@@ -1082,6 +1213,8 @@
+     async def consume_entry_audit(self) -> None:
+         await self.ensure_group(self.entry_stream, self.entry_cg)
+         loop = asyncio.get_running_loop()
++        if self.post_sl_liqmap_enabled and self.post_sl_liqmap_auto_migrate:
++            await loop.run_in_executor(None, self.pg.ensure_trade_kpi_liqmap_v1_table)
+ 
+         while True:
+             pending = await self._claim_pending(
+@@ -1500,6 +1633,74 @@
+                 )
+                 await asyncio.sleep(1.0)
+ 
++
++
++    async def consume_post_sl_liqmap_kpi(self) -> None:
++        """Consume trades:post_sl and persist liqmap KPIs to Postgres/Timescale."""
++        await self.ensure_group(self.post_sl_stream, self.post_sl_liqmap_cg)
++        loop = asyncio.get_running_loop()
++
++        while True:
++            pending = await self._claim_pending(
++                self.post_sl_stream,
++                self.post_sl_liqmap_cg,
++                self.post_sl_liqmap_consumer,
++                self.post_sl_liqmap_min_idle,
++                self.post_sl_liqmap_batch,
++            )
++            if pending:
++                msgs = pending
++            else:
++                resp = await self._read_new(
++                    self.post_sl_stream,
++                    self.post_sl_liqmap_cg,
++                    self.post_sl_liqmap_consumer,
++                    self.post_sl_liqmap_batch,
++                    self.post_sl_liqmap_block_ms,
++                )
++                if not resp:
++                    continue
++                _, msgs = resp[0]
++
++            rows = []
++            ack_ids = []
++
++            for mid, fields in msgs:
++                try:
++                    payload = parse_stream_payload(fields)
++                    rows.append(self.post_sl_liqmap_kpi_row(mid, payload))
++                    ack_ids.append(mid)
++                except Exception as e:
++                    await self.dlq(
++                        self.post_sl_liqmap_dlq, self.post_sl_stream,
++                        mid, f"parse_error:{e}", {"fields": str(fields)[:2000]}
++                    )
++                    await self.r.xack(self.post_sl_stream, self.post_sl_liqmap_cg, mid)
++
++            if not rows:
++                continue
++
++            try:
++                await loop.run_in_executor(None, self.pg.insert_trade_kpi_liqmap_v1, rows)
++                await self.r.xack(self.post_sl_stream, self.post_sl_liqmap_cg, *ack_ids)
++                await self._status_bump(
++                    self.post_sl_liqmap_status_hash,
++                    inserted_delta=len(rows),
++                    last_stream_ts_ms=ts_ms_from_stream_id(ack_ids[-1]),
++                    err=None,
++                )
++            except Exception as e:
++                await self.dlq(
++                    self.post_sl_liqmap_dlq, self.post_sl_stream,
++                    ack_ids[0], f"pg_batch_error:{e}", {"batch_size": len(rows)}
++                )
++                await self._status_bump(
++                    self.post_sl_liqmap_status_hash,
++                    inserted_delta=0,
++                    last_stream_ts_ms=ts_ms_from_stream_id(ack_ids[-1]),
++                    err=str(e),
++                )
++                await asyncio.sleep(1.0)
+     async def run(self) -> None:
+         loop = asyncio.get_running_loop()
+ 
+@@ -1524,6 +1725,8 @@
+             tasks.append(asyncio.create_task(self.consume_position_events()))
+         if self.conf_scores_enabled:
+             tasks.append(asyncio.create_task(self.consume_confidence_scores()))
++        if self.post_sl_liqmap_enabled:
++            tasks.append(asyncio.create_task(self.consume_post_sl_liqmap_kpi()))
+         if self.of_gate_enabled:
+             tasks.append(asyncio.create_task(self.consume_of_gate_metrics()))
+         if self.of_gate_quarantine_enabled:
+--- a/python-worker/services/archivers/sql/20260301_trade_kpi_liqmap_v1.sql
++++ b/python-worker/services/archivers/sql/20260301_trade_kpi_liqmap_v1.sql
+@@ -0,0 +1,39 @@
++-- H2: trade_kpi_liqmap_v1
++-- Purpose: persist liqmap-related post-trade KPIs (from trades:post_sl) for reporting.
++-- Safe to run multiple times.
++
++CREATE TABLE IF NOT EXISTS trade_kpi_liqmap_v1 (
++  stream_id TEXT NOT NULL,
++  ts_ms BIGINT NOT NULL,
++  ts TIMESTAMPTZ NOT NULL,
++  trade_id TEXT NOT NULL,
++  symbol TEXT NOT NULL,
++  side TEXT NOT NULL,
++  regime TEXT NOT NULL,
++
++  -- Convenience columns (nullable; populated only when corresponding KPI exists).
++  sl_hit_near_liqmap_peak SMALLINT,
++  tp1_anchored SMALLINT,
++  tp1_anchored_and_hit SMALLINT,
++  sl_liqmap_peak_dist_bps DOUBLE PRECISION,
++  sl_liqmap_peak_usd DOUBLE PRECISION,
++
++  -- Compact KPI subset and full raw payload.
++  liqmap_kpi JSONB NOT NULL,
++  payload_json JSONB NOT NULL,
++
++  PRIMARY KEY (stream_id, ts)
++);
++
++-- If TimescaleDB is present, convert to hypertable (no-op otherwise in auto-migrate).
++-- SELECT create_hypertable('trade_kpi_liqmap_v1','ts', if_not_exists => TRUE);
++
++CREATE INDEX IF NOT EXISTS trade_kpi_liqmap_v1_symbol_ts_idx
++  ON trade_kpi_liqmap_v1 (symbol, ts DESC);
++
++CREATE INDEX IF NOT EXISTS trade_kpi_liqmap_v1_trade_id_ts_idx
++  ON trade_kpi_liqmap_v1 (trade_id, ts DESC);
++
++-- Optional: JSON queries acceleration.
++CREATE INDEX IF NOT EXISTS trade_kpi_liqmap_v1_liqmap_kpi_gin
++  ON trade_kpi_liqmap_v1 USING GIN (liqmap_kpi jsonb_path_ops);
+--- a/reference/services/archivers/sql/20260301_trade_kpi_liqmap_v1.sql
++++ b/reference/services/archivers/sql/20260301_trade_kpi_liqmap_v1.sql
+@@ -0,0 +1,39 @@
++-- H2: trade_kpi_liqmap_v1
++-- Purpose: persist liqmap-related post-trade KPIs (from trades:post_sl) for reporting.
++-- Safe to run multiple times.
++
++CREATE TABLE IF NOT EXISTS trade_kpi_liqmap_v1 (
++  stream_id TEXT NOT NULL,
++  ts_ms BIGINT NOT NULL,
++  ts TIMESTAMPTZ NOT NULL,
++  trade_id TEXT NOT NULL,
++  symbol TEXT NOT NULL,
++  side TEXT NOT NULL,
++  regime TEXT NOT NULL,
++
++  -- Convenience columns (nullable; populated only when corresponding KPI exists).
++  sl_hit_near_liqmap_peak SMALLINT,
++  tp1_anchored SMALLINT,
++  tp1_anchored_and_hit SMALLINT,
++  sl_liqmap_peak_dist_bps DOUBLE PRECISION,
++  sl_liqmap_peak_usd DOUBLE PRECISION,
++
++  -- Compact KPI subset and full raw payload.
++  liqmap_kpi JSONB NOT NULL,
++  payload_json JSONB NOT NULL,
++
++  PRIMARY KEY (stream_id, ts)
++);
++
++-- If TimescaleDB is present, convert to hypertable (no-op otherwise in auto-migrate).
++-- SELECT create_hypertable('trade_kpi_liqmap_v1','ts', if_not_exists => TRUE);
++
++CREATE INDEX IF NOT EXISTS trade_kpi_liqmap_v1_symbol_ts_idx
++  ON trade_kpi_liqmap_v1 (symbol, ts DESC);
++
++CREATE INDEX IF NOT EXISTS trade_kpi_liqmap_v1_trade_id_ts_idx
++  ON trade_kpi_liqmap_v1 (trade_id, ts DESC);
++
++-- Optional: JSON queries acceleration.
++CREATE INDEX IF NOT EXISTS trade_kpi_liqmap_v1_liqmap_kpi_gin
++  ON trade_kpi_liqmap_v1 USING GIN (liqmap_kpi jsonb_path_ops);
+--- a/python-worker/services/tests/test_post_sl_liqmap_kpi_storage_v1.py
++++ b/python-worker/services/tests/test_post_sl_liqmap_kpi_storage_v1.py
+@@ -0,0 +1,75 @@
++import json
++import pytest
++
++pytest.importorskip("psycopg2")
++import sys
++from pathlib import Path
++
++# Make the test runnable both from repo root and directly.
++REPO_ROOT = Path(__file__).resolve().parents[2]
++if str(REPO_ROOT) not in sys.path:
++    sys.path.insert(0, str(REPO_ROOT))
++
++from services.archivers.stream_archiver import StreamArchiver
++
++
++def _dummy_archiver():
++    # StreamArchiver needs env for Redis/PG in __init__, but this test calls only the pure row builder.
++    # We bypass __init__ by constructing the object without running it.
++    a = StreamArchiver.__new__(StreamArchiver)
++    return a
++
++
++def test_post_sl_liqmap_kpi_row_extracts_liqmap_subset_and_scalars():
++    a = _dummy_archiver()
++    payload = {
++        "trade_id": "t-001",
++        "symbol": "BTCUSDT",
++        "side": "LONG",
++        "regime": "trend",
++        "event_ts_ms": 1700000000123,
++        "liqmap_1h_peak_up_usd": 123456.0,
++        "liqmap_1h_peak_up_dist_bps": 42.0,
++        "liqmap_1h_age_ms": 90000,
++        "sl_hit_near_liqmap_peak": 1,
++        "sl_liqmap_peak_dist_bps": 7.5,
++        "sl_liqmap_peak_usd": 250000.0,
++        "tp1_anchored": 1,
++        "tp1_anchored_and_hit": 0,
++        "liqmap_levels_applied": 1,
++        "liqmap_tp1_adj_bps": -5.0,
++        "liqmap_levels_reason": "tp1_before_peak",
++        "something_else": "ignored_in_liqmap_kpi",
++    }
++
++    row = a.post_sl_liqmap_kpi_row("1700000000123-0", payload)
++    # unpack tail jsonb strings
++    liqmap_kpi = json.loads(row[-2])
++    full_payload = json.loads(row[-1])
++
++    assert full_payload["trade_id"] == "t-001"
++
++    # liqmap subset contains liqmap_* keys
++    assert liqmap_kpi["liqmap_1h_peak_up_usd"] == 123456.0
++    assert liqmap_kpi["liqmap_1h_age_ms"] == 90000
++
++    # and explicit KPIs
++    assert liqmap_kpi["sl_hit_near_liqmap_peak"] == 1
++    assert liqmap_kpi["tp1_anchored"] == 1
++    assert liqmap_kpi["liqmap_levels_reason"] == "tp1_before_peak"
++
++    # convenience scalar columns
++    assert row[7] == 1  # sl_hit_near_liqmap_peak
++    assert row[8] == 1  # tp1_anchored
++    assert row[9] == 0  # tp1_anchored_and_hit
++    assert row[10] == 7.5  # sl_liqmap_peak_dist_bps
++    assert row[11] == 250000.0  # sl_liqmap_peak_usd
++
++
++def test_post_sl_liqmap_kpi_row_requires_trade_symbol_side():
++    a = _dummy_archiver()
++    try:
++        a.post_sl_liqmap_kpi_row("1700000000123-0", {"symbol": "BTCUSDT", "side": "LONG"})
++        assert False, "expected ValueError"
++    except ValueError:
++        pass
+--- a/reference/tests/test_post_sl_liqmap_kpi_storage_v1.py
++++ b/reference/tests/test_post_sl_liqmap_kpi_storage_v1.py
+@@ -0,0 +1,63 @@
++import json
++import pytest
++
++pytest.importorskip("psycopg2")
++import sys
++from pathlib import Path
++
++# Make the test runnable both from tick_flow_full root (CI) and directly.
++# In CI, tick_flow_full/tests/conftest.py already inserts tick_flow_full/ into sys.path.
++TICK_FLOW_ROOT = Path(__file__).resolve().parents[1]
++if str(TICK_FLOW_ROOT) not in sys.path:
++    sys.path.insert(0, str(TICK_FLOW_ROOT))
++
++from services.archivers.stream_archiver import StreamArchiver
++
++
++def _dummy_archiver():
++    a = StreamArchiver.__new__(StreamArchiver)
++    return a
++
++
++def test_post_sl_liqmap_kpi_row_extracts_liqmap_subset_and_scalars():
++    a = _dummy_archiver()
++    payload = {
++        "trade_id": "t-001",
++        "symbol": "BTCUSDT",
++        "side": "LONG",
++        "regime": "trend",
++        "event_ts_ms": 1700000000123,
++        "liqmap_1h_peak_up_usd": 123456.0,
++        "liqmap_1h_peak_up_dist_bps": 42.0,
++        "liqmap_1h_age_ms": 90000,
++        "sl_hit_near_liqmap_peak": 1,
++        "sl_liqmap_peak_dist_bps": 7.5,
++        "sl_liqmap_peak_usd": 250000.0,
++        "tp1_anchored": 1,
++        "tp1_anchored_and_hit": 0,
++        "liqmap_levels_applied": 1,
++        "liqmap_tp1_adj_bps": -5.0,
++        "liqmap_levels_reason": "tp1_before_peak",
++        "something_else": "ignored_in_liqmap_kpi",
++    }
++
++    row = a.post_sl_liqmap_kpi_row("1700000000123-0", payload)
++    liqmap_kpi = json.loads(row[-2])
++    full_payload = json.loads(row[-1])
++
++    assert full_payload["trade_id"] == "t-001"
++    assert liqmap_kpi["liqmap_1h_peak_up_usd"] == 123456.0
++    assert liqmap_kpi["sl_hit_near_liqmap_peak"] == 1
++
++    assert row[7] == 1
++    assert row[8] == 1
++    assert row[9] == 0
++
++
++def test_post_sl_liqmap_kpi_row_requires_trade_symbol_side():
++    a = _dummy_archiver()
++    try:
++        a.post_sl_liqmap_kpi_row("1700000000123-0", {"symbol": "BTCUSDT", "side": "LONG"})
++        assert False, "expected ValueError"
++    except ValueError:
++        pass

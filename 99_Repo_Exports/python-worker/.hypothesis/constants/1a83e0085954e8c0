@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/orderflow_services/of_gate_dlq_archive_to_db_v1.py
+# hypothesis_version: 6.148.10
+
+[1000.0, 5000, '+', ',', '-', '--auto-migrate', '--batch', '--delete-after', '--interval-s', '--loop', '--no-checkpoint', '--once', '--streams', '--tail', '--yes', '1', 'ANALYTICS_DB_DSN', 'ARCHIVER_PG_DSN', 'DATABASE_URL', 'OF_GATE_DLQ_STREAMS', 'PG_DSN', 'REDIS_TICKS_URL', 'REDIS_URL', 'TRADES_DB_DSN', '__main__', 'data', 'dq_code', 'err', 'error', 'ignore', 'inserted', 'on', 'payload', 'reason_code', 'schema_version', 'src_stream', 'src_stream_id', 'store_true', 'stream', 'stream_id', 'streams', 'timestamp_ms', 'true', 'ts', 'ts_event_ms', 'ts_ms', 'utf-8', 'why', 'y', 'yes']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/meta_dq_rules_v1.py
+# hypothesis_version: 6.148.10
+
+[-0.1, 0.12, 0.52, 0.75, 500, '.', 'counts.dq_present_n', 'dq.health_mean', 'dq.present_n', 'dq_corr_negative', 'dq_coverage_too_low', 'dq_health_mean', 'dq_present_n', 'metrics.dq_present_n', 'ok', 'ramp_dq_corr_min', 'ramp_dq_present_min', 'thr_corr_min', 'thr_dq_present_min', 'thr_worst_ece_max', 'thr_worst_pr_auc_min', 'worst.dq_bucket', 'worst.dq_bucket_ece', 'worst_dq_bucket', 'worst_dq_bucket_ece']

@@ -1,0 +1,21 @@
+{
+  "title": "ExecHealth Freeze ACL / Sealed State (v1)",
+  "panels": [
+    {
+      "title": "ACL violations",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "sum by (command) (increase(exec_health_freeze_acl_violation_total[$__rate_interval]))"}
+      ]
+    },
+    {
+      "title": "ACL audit exporter state age",
+      "type": "stat",
+      "targets": [
+        {"expr": "max(exec_health_freeze_acl_audit_state_age_seconds)"}
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}

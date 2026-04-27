@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/ticks_redis_client.py
+# hypothesis_version: 6.148.10
+
+[100, 1000, 6379, '$', '0', '1.0', '1234567890', '3955.50', '3955.55', '3955.60', '=', 'BUSYGROUP', 'REDIS_TICKS_URL', 'REDIS_URL', '__main__', 'ask', 'bid', 'decode_responses', 'flags', 'last', 'max_connections', 'socket_keepalive', 'socket_timeout', 'stream:tick_XAUUSD', 'test:tick_stream', 'ticks-test-group', 'ts', 'volume']

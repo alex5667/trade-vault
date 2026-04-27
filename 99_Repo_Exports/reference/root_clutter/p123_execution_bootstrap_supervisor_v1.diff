@@ -1,0 +1,818 @@
+--- /dev/null	2026-03-08 07:18:40.493835261 +0000
++++ services/execution_bootstrap_supervisor.py	2026-03-08 07:24:56.632129233 +0000
+@@ -0,0 +1,287 @@
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import time
++from dataclasses import asdict, dataclass
++from typing import Any, Dict, Optional, Sequence
++
++try:  # pragma: no cover
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++try:  # pragma: no cover
++    from prometheus_client import Gauge, REGISTRY
++except Exception:  # pragma: no cover
++    Gauge = None  # type: ignore
++    REGISTRY = None  # type: ignore
++
++try:  # pragma: no cover
++    from services.execution_projection_worker import ExecutionProjectionWorker, _worker_from_env
++except Exception:  # pragma: no cover
++    from execution_projection_worker import ExecutionProjectionWorker, _worker_from_env
++
++
++def _metric(factory, name: str, *args, **kwargs):
++    if factory is None:
++        return None
++    try:
++        return factory(name, *args, **kwargs)
++    except ValueError:
++        return getattr(REGISTRY, '_names_to_collectors', {}).get(name) if REGISTRY is not None else None
++
++
++def _ms_now() -> int:
++    return int(time.time() * 1000)
++
++
++def _s(v: Any) -> str:
++    if v is None:
++        return ''
++    if isinstance(v, bytes):
++        return v.decode('utf-8', 'replace')
++    return str(v)
++
++
++def _i(v: Any, default: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return default
++
++
++def _b(v: Any, default: bool = False) -> bool:
++    if v is None:
++        return default
++    if isinstance(v, bool):
++        return v
++    s = _s(v).strip().lower()
++    if s in {'1', 'true', 'yes', 'on', 'y'}:
++        return True
++    if s in {'0', 'false', 'no', 'off', 'n'}:
++        return False
++    return default
++
++
++TRADE_EXECUTION_BOOTSTRAP_READY = _metric(
++    Gauge,
++    'trade_execution_bootstrap_ready',
++    'Whether projection cluster and user-stream contour are healthy enough for executor startup (1 or 0).',
++)
++TRADE_EXECUTION_BOOTSTRAP_PROJECTION_READY = _metric(
++    Gauge,
++    'trade_execution_bootstrap_projection_ready',
++    'Projection-cluster dependency readiness for executor bootstrap (1 or 0).',
++)
++TRADE_EXECUTION_BOOTSTRAP_USER_STREAM_READY = _metric(
++    Gauge,
++    'trade_execution_bootstrap_user_stream_ready',
++    'User-stream contour readiness for executor bootstrap (1 or 0).',
++)
++
++
++@dataclass
++class BootstrapDependencyStatus:
++    ready: bool
++    reason: str
++    detail: Dict[str, Any]
++
++    def to_dict(self) -> Dict[str, Any]:
++        return asdict(self)
++
++
++@dataclass
++class BootstrapHealthSnapshot:
++    ok: bool
++    ready: bool
++    reason: str
++    projection: Dict[str, Any]
++    user_stream: Dict[str, Any]
++    checked_at_ms: int
++
++    def to_dict(self) -> Dict[str, Any]:
++        return asdict(self)
++
++
++class ExecutionBootstrapSupervisor:
++    def __init__(
++        self,
++        redis_client: Any,
++        *,
++        projection_worker: Optional[ExecutionProjectionWorker] = None,
++        user_stream_status_key: str = 'orders:user_stream:status',
++        user_stream_max_stale_ms: int = 45000,
++        user_stream_bootstrap_grace_ms: int = 45000,
++        require_projection_ready: bool = True,
++        require_user_stream_ready: bool = True,
++    ) -> None:
++        self.r = redis_client
++        self.projection_worker = projection_worker or _worker_from_env(redis_client)
++        self.user_stream_status_key = str(user_stream_status_key or 'orders:user_stream:status')
++        self.user_stream_max_stale_ms = max(int(user_stream_max_stale_ms or 45000), 1000)
++        self.user_stream_bootstrap_grace_ms = max(int(user_stream_bootstrap_grace_ms or 45000), 1000)
++        self.require_projection_ready = bool(require_projection_ready)
++        self.require_user_stream_ready = bool(require_user_stream_ready)
++
++    def projection_status(self) -> BootstrapDependencyStatus:
++        try:
++            snap = self.projection_worker.health_snapshot().to_dict()
++            ready = bool(snap.get('ready'))
++            reason = _s(snap.get('reason') or ('ok' if ready else 'projection_unready'))
++        except Exception as exc:
++            snap = {'error': str(exc)}
++            ready = False
++            reason = 'projection_exception'
++        return BootstrapDependencyStatus(ready=(ready or not self.require_projection_ready), reason=reason, detail=snap)
++
++    def user_stream_status(self) -> BootstrapDependencyStatus:
++        now_ms = _ms_now()
++        try:
++            raw = self.r.get(self.user_stream_status_key)
++            doc = json.loads(raw) if raw else {}
++            if not isinstance(doc, dict):
++                doc = {}
++        except Exception as exc:
++            return BootstrapDependencyStatus(ready=False, reason='user_stream_status_error', detail={'error': str(exc)})
++        if not doc:
++            return BootstrapDependencyStatus(ready=(not self.require_user_stream_ready), reason='user_stream_missing', detail={})
++        connected = _b(doc.get('connected'), False)
++        last_event_ms = _i(doc.get('last_event_ms'))
++        last_ingest_ms = _i(doc.get('last_ingest_ms'))
++        last_keepalive_ms = _i(doc.get('last_keepalive_ms'))
++        ws_connected_ms = _i(doc.get('ws_connected_ms'))
++        listen_key_started_ms = _i(doc.get('listen_key_started_ms'))
++        freshest_ms = max(last_event_ms, last_ingest_ms, last_keepalive_ms, ws_connected_ms, listen_key_started_ms)
++        age_ms = max(0, now_ms - freshest_ms) if freshest_ms else now_ms
++        have_listen_key = bool(_s(doc.get('listen_key')))
++        status = _s(doc.get('status'))
++        ready = False
++        reason = 'user_stream_missing'
++        if not connected:
++            reason = 'user_stream_disconnected'
++        elif freshest_ms <= 0:
++            reason = 'user_stream_no_freshness_anchor'
++        elif age_ms <= self.user_stream_max_stale_ms:
++            ready = True
++            reason = 'ok'
++        elif ws_connected_ms and (now_ms - ws_connected_ms) <= self.user_stream_bootstrap_grace_ms and have_listen_key:
++            ready = True
++            reason = 'bootstrap_grace'
++        else:
++            reason = 'user_stream_stale'
++        detail = {
++            'status_key': self.user_stream_status_key,
++            'connected': connected,
++            'status': status,
++            'have_listen_key': have_listen_key,
++            'freshest_ms': freshest_ms,
++            'age_ms': age_ms,
++            'last_event_ms': last_event_ms,
++            'last_ingest_ms': last_ingest_ms,
++            'last_keepalive_ms': last_keepalive_ms,
++            'ws_connected_ms': ws_connected_ms,
++            'listen_key_started_ms': listen_key_started_ms,
++        }
++        detail.update(doc)
++        return BootstrapDependencyStatus(ready=(ready or not self.require_user_stream_ready), reason=reason, detail=detail)
++
++    def health_snapshot(self) -> BootstrapHealthSnapshot:
++        projection = self.projection_status()
++        user_stream = self.user_stream_status()
++        checked_at_ms = _ms_now()
++        ready = bool(projection.ready and user_stream.ready)
++        reason = 'ok'
++        if not projection.ready:
++            reason = f'projection:{projection.reason}'
++        elif not user_stream.ready:
++            reason = f'user_stream:{user_stream.reason}'
++        try:
++            if TRADE_EXECUTION_BOOTSTRAP_PROJECTION_READY:
++                TRADE_EXECUTION_BOOTSTRAP_PROJECTION_READY.set(1.0 if projection.ready else 0.0)
++            if TRADE_EXECUTION_BOOTSTRAP_USER_STREAM_READY:
++                TRADE_EXECUTION_BOOTSTRAP_USER_STREAM_READY.set(1.0 if user_stream.ready else 0.0)
++            if TRADE_EXECUTION_BOOTSTRAP_READY:
++                TRADE_EXECUTION_BOOTSTRAP_READY.set(1.0 if ready else 0.0)
++        except Exception:
++            pass
++        return BootstrapHealthSnapshot(
++            ok=ready,
++            ready=ready,
++            reason=reason,
++            projection=projection.to_dict(),
++            user_stream=user_stream.to_dict(),
++            checked_at_ms=checked_at_ms,
++        )
++
++    def wait_until_ready(self, *, timeout_ms: int = 0, poll_ms: int = 500) -> BootstrapHealthSnapshot:
++        deadline_ms = (_ms_now() + max(int(timeout_ms or 0), 0)) if int(timeout_ms or 0) > 0 else 0
++        last = self.health_snapshot()
++        while not last.ready:
++            if deadline_ms and _ms_now() >= deadline_ms:
++                return last
++            time.sleep(max(0.05, int(poll_ms or 500) / 1000.0))
++            last = self.health_snapshot()
++        return last
++
++
++def _redis_from_env() -> Any:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError('redis package is required for execution_bootstrap_supervisor')
++    return redis.from_url(os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0'), decode_responses=True)
++
++
++def _supervisor_from_env(redis_client: Any) -> ExecutionBootstrapSupervisor:
++    return ExecutionBootstrapSupervisor(
++        redis_client,
++        projection_worker=_worker_from_env(redis_client),
++        user_stream_status_key=os.getenv('USER_STREAM_STATUS_KEY', 'orders:user_stream:status'),
++        user_stream_max_stale_ms=int(os.getenv('USER_STREAM_MAX_STALE_MS', '45000')),
++        user_stream_bootstrap_grace_ms=int(os.getenv('EXEC_BOOTSTRAP_USER_STREAM_GRACE_MS', os.getenv('USER_STREAM_MAX_STALE_MS', '45000'))),
++        require_projection_ready=_b(os.getenv('EXEC_BOOTSTRAP_REQUIRE_PROJECTION_READY', '1'), True),
++        require_user_stream_ready=_b(os.getenv('EXEC_BOOTSTRAP_REQUIRE_USER_STREAM_READY', '1'), True),
++    )
++
++
++def wait_until_env_ready(*, timeout_ms: int = 0, poll_ms: int = 500) -> BootstrapHealthSnapshot:
++    r = _redis_from_env()
++    sup = _supervisor_from_env(r)
++    return sup.wait_until_ready(timeout_ms=timeout_ms, poll_ms=poll_ms)
++
++
++def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:  # pragma: no cover
++    p = argparse.ArgumentParser(description='Execution bootstrap supervisor')
++    p.add_argument('--print-health', action='store_true', help='print one combined bootstrap health snapshot and exit')
++    p.add_argument('--wait-until-ready', action='store_true', help='block until projection cluster and user-stream contour are healthy')
++    p.add_argument('--timeout-ms', type=int, default=int(os.getenv('EXEC_BOOTSTRAP_TIMEOUT_MS', '0')))
++    p.add_argument('--poll-ms', type=int, default=int(os.getenv('EXEC_BOOTSTRAP_POLL_MS', '500')))
++    p.add_argument('--run-executor', action='store_true', help='wait until ready and then start BinanceExecutor in-process')
++    return p.parse_args(argv)
++
++
++def main(argv: Optional[Sequence[str]] = None) -> int:  # pragma: no cover
++    args = _parse_args(argv)
++    r = _redis_from_env()
++    sup = _supervisor_from_env(r)
++    if args.print_health:
++        print(json.dumps(sup.health_snapshot().to_dict(), ensure_ascii=False, indent=2))
++        return 0
++    if args.wait_until_ready or args.run_executor:
++        snap = sup.wait_until_ready(timeout_ms=int(args.timeout_ms or 0), poll_ms=int(args.poll_ms or 500))
++        print(json.dumps(snap.to_dict(), ensure_ascii=False, indent=2))
++        if not snap.ready:
++            return 2
++        if args.run_executor:
++            try:
++                from services.binance_executor import BinanceExecutor
++            except Exception:
++                from binance_executor import BinanceExecutor
++            BinanceExecutor().run_forever()
++        return 0
++    print(json.dumps(sup.health_snapshot().to_dict(), ensure_ascii=False, indent=2))
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+--- /dev/null	2026-03-08 07:18:40.493835261 +0000
++++ services/execution_bootstrap_health_server.py	2026-03-08 07:24:56.657361291 +0000
+@@ -0,0 +1,46 @@
++from __future__ import annotations
++
++import json
++import os
++from http.server import BaseHTTPRequestHandler, HTTPServer
++
++try:  # pragma: no cover
++    from services.execution_bootstrap_supervisor import _redis_from_env, _supervisor_from_env
++except Exception:  # pragma: no cover
++    from execution_bootstrap_supervisor import _redis_from_env, _supervisor_from_env
++
++
++class _Handler(BaseHTTPRequestHandler):  # pragma: no cover
++    def do_GET(self):
++        if self.path not in ('/healthz', '/readyz', '/api/execution-bootstrap/health'):
++            self.send_response(404)
++            self.end_headers()
++            return
++        sup = self.server.supervisor  # type: ignore[attr-defined]
++        snap = sup.health_snapshot().to_dict()
++        is_ready = self.path in ('/readyz', '/api/execution-bootstrap/health')
++        status = 200 if (snap.get('ready') if is_ready else snap.get('ok')) else 503
++        body = json.dumps(snap, ensure_ascii=False).encode('utf-8')
++        self.send_response(status)
++        self.send_header('Content-Type', 'application/json; charset=utf-8')
++        self.send_header('Content-Length', str(len(body)))
++        self.end_headers()
++        self.wfile.write(body)
++
++    def log_message(self, fmt, *args):
++        return
++
++
++def main() -> int:  # pragma: no cover
++    r = _redis_from_env()
++    sup = _supervisor_from_env(r)
++    host = os.getenv('EXEC_BOOTSTRAP_HEALTH_HOST', '0.0.0.0')
++    port = int(os.getenv('EXEC_BOOTSTRAP_HEALTH_PORT', '8787'))
++    server = HTTPServer((host, port), _Handler)
++    server.supervisor = sup  # type: ignore[attr-defined]
++    server.serve_forever()
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+--- services/binance_user_stream_worker.py	2026-03-08 05:52:21.000000000 +0000
++++ services/binance_user_stream_worker.py	2026-03-08 07:25:29.970449189 +0000
+@@ -96,6 +96,23 @@
+     def _cache_key(self, kind: str, ref: str) -> str:
+         return f"{self.cache_prefix}{kind}:{ref}"
+ 
++    def _status_doc(self) -> Dict[str, Any]:
++        try:
++            raw = self.r.get(self.status_key)
++            doc = json.loads(raw) if raw else {}
++            return doc if isinstance(doc, dict) else {}
++        except Exception:
++            return {}
++
++    def _write_status(self, **patch: Any) -> None:
++        doc = self._status_doc()
++        doc.update({k: v for k, v in patch.items() if v is not None})
++        doc['updated_at_ms'] = _ms_now()
++        try:
++            self.r.set(self.status_key, json.dumps(doc, ensure_ascii=False), ex=self.cache_ttl_sec)
++        except Exception:
++            pass
++
+     def _normalise(self, payload: Dict[str, Any]) -> Optional[NormalizedUserStreamEvent]:
+         e = str(payload.get("e") or "").upper()
+         event_time_ms = int(payload.get("E") or 0)
+@@ -144,7 +161,13 @@
+                 self.r.set(self._cache_key("order", event.client_order_id), json.dumps({"event": fields, "order": event.raw.get("o") or {}}, ensure_ascii=False), ex=self.cache_ttl_sec)
+             if event.client_algo_id:
+                 self.r.set(self._cache_key("algo", event.client_algo_id), json.dumps({"event": fields, "algo": event.raw.get("ao") or event.raw.get("a") or event.raw.get("o") or {}}, ensure_ascii=False), ex=self.cache_ttl_sec)
+-            self.r.set(self.status_key, json.dumps({"last_event_ms": int(event.event_time_ms), "last_ingest_ms": _ms_now()}, ensure_ascii=False), ex=self.cache_ttl_sec)
++            self._write_status(
++                status='stream_live',
++                connected=True,
++                listen_key=self.listen_key or '',
++                last_event_ms=int(event.event_time_ms),
++                last_ingest_ms=_ms_now(),
++            )
+             return True
+         except Exception:
+             return False
+@@ -160,12 +183,24 @@
+         self.listen_key = self.client.start_user_stream()
+         if not self.listen_key:
+             raise RuntimeError("empty listenKey")
++        self._write_status(
++            status='listen_key_started',
++            connected=False,
++            listen_key=self.listen_key,
++            listen_key_started_ms=_ms_now(),
++            last_keepalive_ms=_ms_now(),
++        )
+         return self.listen_key
+ 
+     def keepalive_listen_key(self) -> None:
+         if not self.listen_key:
+             return
+         self.client.keepalive_user_stream(self.listen_key)
++        self._write_status(
++            status='listen_key_keepalive',
++            listen_key=self.listen_key,
++            last_keepalive_ms=_ms_now(),
++        )
+ 
+     def close_listen_key(self) -> None:
+         if not self.listen_key:
+@@ -173,6 +208,7 @@
+         try:
+             self.client.close_user_stream(self.listen_key)
+         finally:
++            self._write_status(status='closed', connected=False, listen_key='')
+             self.listen_key = None
+ 
+     def run_forever(self) -> None:
+@@ -183,6 +219,7 @@
+         last_keepalive = time.time()
+         while True:
+             ws = websocket.create_connection(ws_url, timeout=30)
++            self._write_status(status='ws_connected', connected=True, listen_key=listen_key, ws_connected_ms=_ms_now())
+             try:
+                 while True:
+                     if time.time() - last_keepalive >= self.keepalive_interval_sec:
+@@ -193,6 +230,7 @@
+                         continue
+                     self.handle_message(message)
+             finally:
++                self._write_status(status='reconnecting', connected=False, listen_key=listen_key, ws_disconnected_ms=_ms_now())
+                 try:
+                     ws.close()
+                 except Exception:
+--- services/binance_executor.py	2026-03-08 06:16:13.000000000 +0000
++++ services/binance_executor.py	2026-03-08 07:25:47.169806091 +0000
+@@ -735,6 +735,9 @@
+         self.user_stream_status_key = os.getenv("USER_STREAM_STATUS_KEY", "orders:user_stream:status")
+         self.user_stream_max_stale_ms = int(os.getenv("USER_STREAM_MAX_STALE_MS", "45000"))
+         self.exec_require_user_stream_live = bool(self.rollout_flags.exec_user_stream_enable and _bool_env("EXEC_REQUIRE_USER_STREAM_LIVE", False))
++        self.exec_bootstrap_require_ready = _bool_env("EXEC_BOOTSTRAP_REQUIRE_READY", False)
++        self.exec_bootstrap_timeout_ms = int(os.getenv("EXEC_BOOTSTRAP_TIMEOUT_MS", "0"))
++        self.exec_bootstrap_poll_ms = int(os.getenv("EXEC_BOOTSTRAP_POLL_MS", "500"))
+         self.partial_fill_policy = str(os.getenv("PARTIAL_FILL_POLICY") or PARTIAL_FILL_CANCEL_REMAINDER_AND_PROTECT_FILLED).strip().upper()
+         if self.partial_fill_policy not in VALID_PARTIAL_FILL_POLICIES:
+             self.partial_fill_policy = PARTIAL_FILL_CANCEL_REMAINDER_AND_PROTECT_FILLED
+@@ -3394,6 +3397,17 @@
+ 
+ 
+ def main() -> None:
++    if _bool_env("EXEC_BOOTSTRAP_REQUIRE_READY", False):
++        try:
++            from services.execution_bootstrap_supervisor import wait_until_env_ready
++        except Exception:
++            from execution_bootstrap_supervisor import wait_until_env_ready
++        snap = wait_until_env_ready(
++            timeout_ms=int(os.getenv("EXEC_BOOTSTRAP_TIMEOUT_MS", "0")),
++            poll_ms=int(os.getenv("EXEC_BOOTSTRAP_POLL_MS", "500")),
++        )
++        if not bool(getattr(snap, 'ready', False)):
++            raise RuntimeError(f"execution bootstrap dependencies not ready: {getattr(snap, 'reason', 'unknown')}")
+     BinanceExecutor().run_forever()
+ 
+ 
+--- confidence_calculation/docker-compose-crypto-orderflow.yml	2026-03-08 07:03:37.000000000 +0000
++++ confidence_calculation/docker-compose-crypto-orderflow.yml	2026-03-08 07:27:26.714037895 +0000
+@@ -1939,6 +1939,37 @@
+     deploy: *id006
+     container_name: execution-state-projection-health
+ 
++  execution-bootstrap-health:
++    build: *id001
++    command: python /app/services/execution_bootstrap_health_server.py
++    environment:
++      - REDIS_URL=redis://redis-worker-1:6379/0
++      - PYTHONUNBUFFERED=1
++      - EXEC_STREAM=orders:exec
++      - EXEC_PROJECTION_CURSOR_KEY=orders:exec:projection:cursor
++      - EXEC_PROJECTION_LEADER_LEASE_ENABLE=1
++      - EXEC_PROJECTION_LEASE_KEY=orders:exec:projection:leader
++      - EXEC_PROJECTION_FENCING_KEY=orders:exec:projection:fencing
++      - EXEC_PROJECTION_LEASE_TTL_MS=10000
++      - EXEC_PROJECTION_HEALTH_MAX_LAG_MS=15000
++      - EXEC_PROJECTION_HEALTH_MAX_CURSOR_AGE_MS=60000
++      - USER_STREAM_STATUS_KEY=orders:user_stream:status
++      - USER_STREAM_MAX_STALE_MS=45000
++      - EXEC_BOOTSTRAP_REQUIRE_PROJECTION_READY=1
++      - EXEC_BOOTSTRAP_REQUIRE_USER_STREAM_READY=1
++      - EXEC_BOOTSTRAP_USER_STREAM_GRACE_MS=45000
++      - EXEC_BOOTSTRAP_HEALTH_PORT=8787
++      - PYTHONPATH=/app
++    depends_on: *id003
++    ports:
++      - "8787:8787"
++    networks: *id004
++    volumes: *id005
++    restart: on-failure:5
++    deploy: *id006
++    container_name: execution-bootstrap-health
++
++
+   ml-confirm-sre-poller:
+     build: *id001
+     command: ["python", "-m", "services.ml_confirm_sre_poller.main"]
+--- deploy/execution_safe_defaults_p104.env.example	2026-03-08 07:03:47.000000000 +0000
++++ deploy/execution_safe_defaults_p104.env.example	2026-03-08 07:27:26.711845076 +0000
+@@ -31,3 +31,10 @@
+ EXEC_PROJECTION_LEASE_TTL_MS=10000
+ EXEC_PROJECTION_HEALTH_MAX_LAG_MS=15000
+ EXEC_PROJECTION_HEALTH_MAX_CURSOR_AGE_MS=60000
++EXEC_BOOTSTRAP_REQUIRE_READY=1
++EXEC_BOOTSTRAP_REQUIRE_PROJECTION_READY=1
++EXEC_BOOTSTRAP_REQUIRE_USER_STREAM_READY=1
++EXEC_BOOTSTRAP_TIMEOUT_MS=120000
++EXEC_BOOTSTRAP_POLL_MS=500
++EXEC_BOOTSTRAP_USER_STREAM_GRACE_MS=45000
++EXEC_BOOTSTRAP_HEALTH_PORT=8787
+--- /dev/null	2026-03-08 07:18:40.493835261 +0000
++++ orderflow_services/prometheus_alerts_execution_bootstrap_p123.yml	2026-03-08 07:27:26.712240976 +0000
+@@ -0,0 +1,22 @@
++groups:
++  - name: trade-execution-bootstrap-p123
++    rules:
++      - alert: TradeExecutionBootstrapNotReady
++        expr: trade_execution_bootstrap_ready == 0
++        for: 2m
++        labels:
++          severity: page
++          domain: execution-bootstrap
++        annotations:
++          summary: Execution bootstrap dependencies are not ready
++          description: Projection cluster and/or Binance user-stream contour are unhealthy; executor startup should remain blocked.
++
++      - alert: TradeExecutionBootstrapUserStreamNotReady
++        expr: trade_execution_bootstrap_user_stream_ready == 0
++        for: 2m
++        labels:
++          severity: page
++          domain: execution-bootstrap
++        annotations:
++          summary: Binance user-stream contour is not ready
++          description: User-stream heartbeat or listenKey lifecycle is stale/disconnected.
+--- /dev/null	2026-03-08 07:18:40.493835261 +0000
++++ services/tests/test_execution_bootstrap_supervisor_p123_v1.py	2026-03-08 07:27:26.714491056 +0000
+@@ -0,0 +1,249 @@
++from pathlib import Path
++import importlib.util
++import json
++import socket
++import sys
++import threading
++import time
++import urllib.request
++
++exec_mod_path = Path(__file__).parent.parent / 'binance_executor.py'
++exec_spec = importlib.util.spec_from_file_location('binance_executor_p123', exec_mod_path)
++exec_mod = importlib.util.module_from_spec(exec_spec)
++sys.modules[exec_spec.name] = exec_mod
++assert exec_spec.loader is not None
++exec_spec.loader.exec_module(exec_mod)
++
++worker_mod_path = Path(__file__).parent.parent / 'execution_projection_worker.py'
++worker_spec = importlib.util.spec_from_file_location('execution_projection_worker_p123', worker_mod_path)
++worker_mod = importlib.util.module_from_spec(worker_spec)
++sys.modules[worker_spec.name] = worker_mod
++assert worker_spec.loader is not None
++worker_spec.loader.exec_module(worker_mod)
++
++sup_mod_path = Path(__file__).parent.parent / 'execution_bootstrap_supervisor.py'
++sup_spec = importlib.util.spec_from_file_location('execution_bootstrap_supervisor_p123', sup_mod_path)
++sup_mod = importlib.util.module_from_spec(sup_spec)
++sys.modules[sup_spec.name] = sup_mod
++assert sup_spec.loader is not None
++sup_spec.loader.exec_module(sup_mod)
++
++health_mod_path = Path(__file__).parent.parent / 'execution_bootstrap_health_server.py'
++health_spec = importlib.util.spec_from_file_location('execution_bootstrap_health_server_p123', health_mod_path)
++health_mod = importlib.util.module_from_spec(health_spec)
++sys.modules[health_spec.name] = health_mod
++assert health_spec.loader is not None
++health_spec.loader.exec_module(health_mod)
++
++
++class FakeRedis:
++    def __init__(self):
++        self.kv = {}
++        self.streams = {}
++        self._seq = 0
++
++    def get(self, key):
++        return self.kv.get(key)
++
++    def set(self, key, value, ex=None, nx=False, xx=False, px=None):
++        exists = key in self.kv
++        if nx and exists:
++            return False
++        if xx and not exists:
++            return False
++        self.kv[key] = value
++        return True
++
++    def incr(self, key):
++        cur = int(self.kv.get(key) or 0)
++        cur += 1
++        self.kv[key] = str(cur)
++        return cur
++
++    def delete(self, key):
++        existed = key in self.kv
++        self.kv.pop(key, None)
++        return 1 if existed else 0
++
++    def scan_iter(self, match=None):
++        if not match or match == '*':
++            yield from list(self.kv.keys())
++            return
++        if match.endswith('*'):
++            prefix = match[:-1]
++            for key in list(self.kv.keys()):
++                if str(key).startswith(prefix):
++                    yield key
++            return
++        for key in list(self.kv.keys()):
++            if key == match:
++                yield key
++
++    def xadd(self, key, fields, maxlen=None, approximate=None):
++        self._seq += 1
++        sid = f"{int(time.time() * 1000) + self._seq}-0"
++        self.streams.setdefault(key, []).append((sid, dict(fields)))
++        return sid
++
++    def xrange(self, key, start='-', end='+', count=None):
++        rows = list(self.streams.get(key, []))
++        def _gt(stream_id, ref):
++            a, b = stream_id.split('-', 1)
++            c, d = ref.split('-', 1)
++            return (int(a), int(b)) >= (int(c), int(d))
++        if start not in ('-', '+'):
++            rows = [row for row in rows if _gt(row[0], start)]
++        if count is not None:
++            rows = rows[: int(count)]
++        return rows
++
++    def xrevrange(self, key, end='+', start='-', count=None):
++        rows = list(reversed(self.streams.get(key, [])))
++        if count is not None:
++            rows = rows[: int(count)]
++        return rows
++
++
++def _mk_exec(redis_obj, *, inline_projection=False):
++    ex = exec_mod.BinanceExecutor.__new__(exec_mod.BinanceExecutor)
++    ex.r = redis_obj
++    ex.exec_stream = 'orders:exec'
++    ex.state_key_prefix = 'orders:state:'
++    ex.state_ttl = 86400
++    ex.exec_rehydrate_on_state_miss = True
++    ex.exec_replay_scan_count = 500
++    ex.exec_replay_checkpoint_key_prefix = 'orders:exec:replay:cursor:'
++    ex.exec_replay_quarantine_on_mismatch = False
++    ex.exec_journal_primary = True
++    ex.exec_state_derived_view = True
++    ex.exec_inline_state_projection = inline_projection
++    ex.execution_journal = None
++    return ex
++
++
++def test_bootstrap_supervisor_ready_when_projection_and_user_stream_are_healthy():
++    r = FakeRedis()
++    ex = _mk_exec(r, inline_projection=False)
++    ex._exec_event({
++        'sid': 'sid-bootstrap',
++        'symbol': 'BTCUSDT',
++        'action': 'open',
++        'event_type': 'state_transition',
++        'status': 'ok',
++        'fsm_state': 'PROTECTED',
++        'binance_order_id': 101,
++    })
++    worker = worker_mod.ExecutionProjectionWorker(
++        r,
++        exec_stream='orders:exec',
++        state_key_prefix='orders:state:',
++        leader_lease_enable=True,
++        lease_key='orders:exec:projection:leader',
++        fencing_key='orders:exec:projection:fencing',
++        owner_id='leader-bootstrap',
++    )
++    worker.run_once()
++    now_ms = int(time.time() * 1000)
++    r.set('orders:user_stream:status', json.dumps({
++        'connected': True,
++        'listen_key': 'lk-1',
++        'status': 'stream_live',
++        'last_keepalive_ms': now_ms,
++        'last_ingest_ms': now_ms,
++        'last_event_ms': now_ms,
++        'ws_connected_ms': now_ms,
++    }))
++    sup = sup_mod.ExecutionBootstrapSupervisor(r, projection_worker=worker)
++    snap = sup.health_snapshot()
++    assert snap.ready is True
++    assert snap.reason == 'ok'
++    assert snap.projection['ready'] is True
++    assert snap.user_stream['ready'] is True
++
++
++def test_bootstrap_supervisor_fails_when_user_stream_is_stale():
++    r = FakeRedis()
++    ex = _mk_exec(r, inline_projection=False)
++    ex._exec_event({
++        'sid': 'sid-stale',
++        'symbol': 'ETHUSDT',
++        'action': 'open',
++        'event_type': 'state_transition',
++        'status': 'ok',
++        'fsm_state': 'ENTRY_ACKED',
++    })
++    worker = worker_mod.ExecutionProjectionWorker(
++        r,
++        exec_stream='orders:exec',
++        state_key_prefix='orders:state:',
++        leader_lease_enable=True,
++        lease_key='orders:exec:projection:leader',
++        fencing_key='orders:exec:projection:fencing',
++        owner_id='leader-stale',
++    )
++    worker.run_once()
++    stale_ms = int(time.time() * 1000) - 120000
++    r.set('orders:user_stream:status', json.dumps({
++        'connected': True,
++        'listen_key': 'lk-stale',
++        'status': 'stream_live',
++        'last_keepalive_ms': stale_ms,
++        'last_ingest_ms': stale_ms,
++        'last_event_ms': stale_ms,
++        'ws_connected_ms': stale_ms,
++    }))
++    sup = sup_mod.ExecutionBootstrapSupervisor(r, projection_worker=worker, user_stream_max_stale_ms=1000)
++    snap = sup.wait_until_ready(timeout_ms=5, poll_ms=1)
++    assert snap.ready is False
++    assert snap.reason == 'user_stream:user_stream_stale'
++
++
++def test_bootstrap_health_http_endpoint_reports_combined_readiness():
++    r = FakeRedis()
++    ex = _mk_exec(r, inline_projection=False)
++    ex._exec_event({
++        'sid': 'sid-http',
++        'symbol': 'SOLUSDT',
++        'action': 'open',
++        'event_type': 'state_transition',
++        'status': 'ok',
++        'fsm_state': 'PROTECTED',
++    })
++    worker = worker_mod.ExecutionProjectionWorker(
++        r,
++        exec_stream='orders:exec',
++        state_key_prefix='orders:state:',
++        leader_lease_enable=True,
++        lease_key='orders:exec:projection:leader',
++        fencing_key='orders:exec:projection:fencing',
++        owner_id='leader-http',
++    )
++    worker.run_once()
++    now_ms = int(time.time() * 1000)
++    r.set('orders:user_stream:status', json.dumps({
++        'connected': True,
++        'listen_key': 'lk-http',
++        'status': 'stream_live',
++        'last_keepalive_ms': now_ms,
++        'last_ingest_ms': now_ms,
++        'ws_connected_ms': now_ms,
++    }))
++    sup = sup_mod.ExecutionBootstrapSupervisor(r, projection_worker=worker)
++
++    sock = socket.socket()
++    sock.bind(('127.0.0.1', 0))
++    host, port = sock.getsockname()
++    sock.close()
++    server = health_mod.HTTPServer((host, port), health_mod._Handler)
++    server.supervisor = sup
++    th = threading.Thread(target=server.serve_forever, daemon=True)
++    th.start()
++    try:
++        with urllib.request.urlopen(f'http://{host}:{port}/readyz', timeout=2) as resp:
++            payload = json.loads(resp.read().decode('utf-8'))
++            assert resp.status == 200
++            assert payload['ready'] is True
++            assert payload['projection']['detail']['leader_owner_id'] == 'leader-http'
++    finally:
++        server.shutdown()
++        th.join(timeout=2)
+--- /dev/null	2026-03-08 07:18:40.493835261 +0000
++++ services/tests/test_execution_bootstrap_assets_p123_v1.py	2026-03-08 07:27:26.714855054 +0000
+@@ -0,0 +1,26 @@
++from pathlib import Path
++import yaml
++
++
++def test_bootstrap_alert_rules_yaml_loads():
++    path = Path(__file__).parents[2] / 'orderflow_services' / 'prometheus_alerts_execution_bootstrap_p123.yml'
++    doc = yaml.safe_load(path.read_text())
++    assert isinstance(doc, dict)
++    assert doc['groups'][0]['name'] == 'trade-execution-bootstrap-p123'
++
++
++def test_compose_contains_bootstrap_health_service_and_envs():
++    path = Path(__file__).parents[2] / 'confidence_calculation' / 'docker-compose-crypto-orderflow.yml'
++    text = path.read_text()
++    assert 'execution-bootstrap-health:' in text
++    assert 'command: python /app/services/execution_bootstrap_health_server.py' in text
++    assert 'EXEC_BOOTSTRAP_REQUIRE_PROJECTION_READY=1' in text
++    assert 'EXEC_BOOTSTRAP_REQUIRE_USER_STREAM_READY=1' in text
++
++
++def test_env_example_contains_bootstrap_guards():
++    path = Path(__file__).parents[2] / 'deploy' / 'execution_safe_defaults_p104.env.example'
++    text = path.read_text()
++    assert 'EXEC_BOOTSTRAP_REQUIRE_READY=1' in text
++    assert 'EXEC_BOOTSTRAP_TIMEOUT_MS=120000' in text
++    assert 'EXEC_BOOTSTRAP_HEALTH_PORT=8787' in text

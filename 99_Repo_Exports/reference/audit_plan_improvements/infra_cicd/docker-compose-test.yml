@@ -1,0 +1,61 @@
+version: '3.8'
+services:
+  redis-worker-1:
+    image: redis:7-alpine
+    container_name: redis-worker-1
+    expose:
+      - '6379'
+    volumes:
+      - redis-worker-1-data:/data
+      - ./redis-worker-stable.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      scanner-network:
+        aliases:
+          - redis-worker-1
+          - scanner-redis-worker-1
+    depends_on:
+      - redis
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - 0.0.0.0:6379:6379
+    volumes:
+      - redis-data:/data
+      - ./redis-external-access.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf --save "" --appendonly yes
+    networks:
+      - scanner-network
+    healthcheck:
+      test:
+        - CMD
+        - sh
+        - -c
+        - redis-cli -h localhost -p 6379 ping | grep -q PONG && redis-cli -h localhost
+          -p 6379 SET __healthcheck__ test && redis-cli -h localhost -p 6379 GET __healthcheck__
+          | grep -q test && redis-cli -h localhost -p 6379 DEL __healthcheck__
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    restart: unless-stopped
+
+networks:
+  scanner-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+  redis-worker-1-data:

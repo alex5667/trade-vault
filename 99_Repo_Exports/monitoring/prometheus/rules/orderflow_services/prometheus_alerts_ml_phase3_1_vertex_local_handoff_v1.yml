@@ -1,0 +1,23 @@
+groups:
+  - name: ml_phase3_1_vertex_local_handoff_v1
+    rules:
+      - alert: MLVertexLocalHandoffStale
+        expr: time() - ml_vertex_local_handoff_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "vertex local fallback handoff controller is stale"
+
+      - alert: MLVertexLocalHandoffErrors
+        expr: increase(ml_vertex_local_handoff_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "vertex local fallback handoff controller has errors"
+
+      - alert: MLVertexLocalHandoffExcessiveLocalRouting
+        expr: increase(ml_vertex_local_handoff_routed_total{route="local"}[30m]) > 20
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "vertex local handoff is routing many requests to local fallback"

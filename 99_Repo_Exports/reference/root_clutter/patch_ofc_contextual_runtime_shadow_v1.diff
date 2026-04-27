@@ -1,0 +1,924 @@
+
+diff --git a/tick_flow_full/common/contextual_bundle_store_v1.py b/tick_flow_full/common/contextual_bundle_store_v1.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/tick_flow_full/common/contextual_bundle_store_v1.py
+@@ -0,0 +1,95 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict
++
++
++@dataclass(frozen=True)
++class ContextualBundleInfo:
++    version: str
++    created_ts_ms: int
++    path: str
++    sha256: str = ""
++
++
++class ContextualBundleStoreV1:
++    """
++    Lightweight bundle loader for OFC contextual artifacts.
++    Bundle layout:
++      manifest.json
++      exec_cost_model.json
++      rule_success_model.json
++      gate_cfg.json
++    """
++    def __init__(self, path: str, reload_sec: int = 30) -> None:
++        self.path = str(path or "")
++        self.reload_sec = int(reload_sec or 30)
++        self._last_check_ms = 0
++        self._mtime_ns = -1
++        self._manifest: Dict[str, Any] = {}
++        self._exec_cost_payload: Dict[str, Any] = {}
++        self._rule_success_payload: Dict[str, Any] = {}
++        self._gate_cfg: Dict[str, Any] = {}
++
++    def _bundle_mtime_ns(self) -> int:
++        try:
++            return int(os.stat(self.path).st_mtime_ns)
++        except Exception:
++            return -1
++
++    def _read_json(self, name: str) -> Dict[str, Any]:
++        p = os.path.join(self.path, name)
++        with open(p, "r", encoding="utf-8") as f:
++            data = json.load(f)
++        return data if isinstance(data, dict) else {}
++
++    def load(self) -> None:
++        if not self.path:
++            raise ValueError("empty bundle path")
++        self._manifest = self._read_json("manifest.json")
++        self._exec_cost_payload = self._read_json("exec_cost_model.json")
++        self._rule_success_payload = self._read_json("rule_success_model.json")
++        self._gate_cfg = self._read_json("gate_cfg.json")
++        self._mtime_ns = self._bundle_mtime_ns()
++        self._last_check_ms = int(time.time() * 1000)
++
++    def maybe_reload(self) -> None:
++        now_ms = int(time.time() * 1000)
++        if self._last_check_ms > 0 and (now_ms - self._last_check_ms) < (self.reload_sec * 1000):
++            return
++        cur = self._bundle_mtime_ns()
++        if cur < 0:
++            self._last_check_ms = now_ms
++            return
++        if cur != self._mtime_ns or not self._manifest:
++            self.load()
++        else:
++            self._last_check_ms = now_ms
++
++    def get_manifest(self) -> Dict[str, Any]:
++        return dict(self._manifest or {})
++
++    def get_gate_cfg(self) -> Dict[str, Any]:
++        return dict(self._gate_cfg or {})
++
++    def get_exec_cost_payload(self) -> Dict[str, Any]:
++        return dict(self._exec_cost_payload or {})
++
++    def get_rule_success_payload(self) -> Dict[str, Any]:
++        return dict(self._rule_success_payload or {})
++
++    def get_info(self) -> ContextualBundleInfo:
++        m = self._manifest or {}
++        return ContextualBundleInfo(
++            version=str(m.get("bundle_version", "") or ""),
++            created_ts_ms=int(m.get("created_ts_ms", 0) or 0),
++            path=str(self.path),
++            sha256=str(m.get("sha256", "") or ""),
++        )
+diff --git a/tick_flow_full/core/ofc_context_v1.py b/tick_flow_full/core/ofc_context_v1.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/tick_flow_full/core/ofc_context_v1.py
+@@ -0,0 +1,97 @@
++from __future__ import annotations
++
++from dataclasses import dataclass
++from datetime import datetime, timezone
++from typing import Any, Dict
++
++
++@dataclass(frozen=True)
++class OFCContextV1:
++    symbol: str
++    direction: str
++    ts_ms: int
++    session: str
++    dow: int
++    hour_utc: int
++    scenario_base: str
++    scenario_v4: str
++    liq_regime: str
++    vol_regime: str
++    book_regime: str
++    notional_bucket: str
++    artifact_version: str = ""
++
++
++def _pick_session(indicators: Dict[str, Any]) -> str:
++    for key in ("ctx_session", "session_name", "session"):
++        v = str(indicators.get(key, "") or "").strip().lower()
++        if v:
++            return v
++    for key in ("session_asia", "session_eu", "session_us", "session_off"):
++        try:
++            if int(indicators.get(key, 0) or 0) == 1:
++                return key.replace("session_", "")
++        except Exception:
++            continue
++    return "off"
++
++
++def build_ofc_context(
++    *,
++    symbol: str,
++    direction: str,
++    ts_ms: int,
++    indicators: Dict[str, Any],
++    runtime: Any,
++    scenario_base: str,
++    scenario_v4: str,
++) -> OFCContextV1:
++    dt = datetime.fromtimestamp(max(0, int(ts_ms)) / 1000.0, tz=timezone.utc)
++    liq_regime = str(
++        indicators.get("liq_regime", getattr(runtime, "liq_regime", getattr(runtime, "last_regime", "na"))) or "na"
++    )
++    vol_regime = str(
++        indicators.get("vol_regime", indicators.get("vol_shock_regime", getattr(runtime, "vol_regime", "na"))) or "na"
++    )
++    book_regime = str(
++        indicators.get("book_regime", indicators.get("book_health_regime", "na")) or "na"
++    )
++    notional_bucket = str(
++        indicators.get("dn_tier_active", indicators.get("notional_bucket", "na")) or "na"
++    )
++    return OFCContextV1(
++        symbol=str(symbol or ""),
++        direction=str(direction or "").upper(),
++        ts_ms=int(ts_ms or 0),
++        session=_pick_session(indicators),
++        dow=int(dt.weekday()),
++        hour_utc=int(dt.hour),
++        scenario_base=str(scenario_base or ""),
++        scenario_v4=str(scenario_v4 or scenario_base or ""),
++        liq_regime=liq_regime,
++        vol_regime=vol_regime,
++        book_regime=book_regime,
++        notional_bucket=notional_bucket,
++        artifact_version="",
++    )
+diff --git a/tick_flow_full/core/ofc_context_key_v1.py b/tick_flow_full/core/ofc_context_key_v1.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/tick_flow_full/core/ofc_context_key_v1.py
+@@ -0,0 +1,29 @@
++from __future__ import annotations
++
++from typing import List
++
++from core.ofc_context_v1 import OFCContextV1
++
++
++def make_ctx_key(ctx: OFCContextV1) -> str:
++    scn = str(ctx.scenario_v4 or ctx.scenario_base or "na")
++    return (
++        f"symbol={ctx.symbol}|session={ctx.session}|liq={ctx.liq_regime}|"
++        f"vol={ctx.vol_regime}|scenario={scn}"
++    )
++
++
++def iter_ctx_fallback_keys(ctx: OFCContextV1) -> List[str]:
++    scn = str(ctx.scenario_v4 or ctx.scenario_base or "na")
++    return [
++        f"symbol={ctx.symbol}|session={ctx.session}|liq={ctx.liq_regime}|vol={ctx.vol_regime}|scenario={scn}",
++        f"symbol={ctx.symbol}|session={ctx.session}|liq={ctx.liq_regime}|vol={ctx.vol_regime}",
++        f"symbol={ctx.symbol}|session={ctx.session}|liq={ctx.liq_regime}",
++        f"symbol={ctx.symbol}",
++        "global",
++    ]
+diff --git a/tick_flow_full/core/ofc_exec_cost_model_v1.py b/tick_flow_full/core/ofc_exec_cost_model_v1.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/tick_flow_full/core/ofc_exec_cost_model_v1.py
+@@ -0,0 +1,75 @@
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Any, Dict, List
++
++
++@dataclass(frozen=True)
++class ExecCostPrediction:
++    cost_p50_bps: float
++    cost_p90_bps: float
++    exec_risk_ref_bps_ctx: float
++    fallback_level: str
++    model_version: str
++    artifact_version: str
++
++
++class ExecCostModelV1:
++    """
++    Minimal deterministic runtime.
++    payload example:
++      {
++        "model_version": "ecm_v1",
++        "artifact_version": "20260314_...",
++        "groups": {
++          "symbol=BTCUSDT|session=eu|liq=normal|vol=normal|scenario=continuation": {
++              "cost_mult": 1.00,
++              "cost_add_bps": 0.20,
++              "cost_p90_mult": 1.50,
++              "exec_risk_ref_mult": 1.00
++          }
++        },
++        "global": {"cost_mult": 1.0, "cost_add_bps": 0.0, "cost_p90_mult": 1.5, "exec_risk_ref_mult": 1.0}
++      }
++    """
++    def __init__(self, payload: Dict[str, Any]) -> None:
++        self.payload = dict(payload or {})
++        self.groups = dict(self.payload.get("groups", {}) or {})
++        self.global_group = dict(self.payload.get("global", {}) or {})
++        self.model_version = str(self.payload.get("model_version", "ecm_v1") or "ecm_v1")
++        self.artifact_version = str(self.payload.get("artifact_version", "") or "")
++
++    def predict(self, *, features: Dict[str, float], ctx_key: str, fallback_keys: List[str]) -> ExecCostPrediction:
++        grp = None
++        level = "global"
++        for key in [ctx_key] + list(fallback_keys or []):
++            if key in self.groups:
++                grp = self.groups[key]
++                level = key
++                break
++        if grp is None:
++            grp = self.global_group
++        spread_bps = float(features.get("spread_bps", 0.0) or 0.0)
++        slip_bps = float(features.get("expected_slippage_bps", 0.0) or 0.0)
++        legacy_ref = float(features.get("exec_risk_ref_bps", 10.0) or 10.0)
++        cost_mult = float(grp.get("cost_mult", 1.0) or 1.0)
++        cost_add = float(grp.get("cost_add_bps", 0.0) or 0.0)
++        cost_p90_mult = float(grp.get("cost_p90_mult", 1.5) or 1.5)
++        ref_mult = float(grp.get("exec_risk_ref_mult", 1.0) or 1.0)
++        p50 = max(0.0, (slip_bps * cost_mult) + cost_add)
++        p90 = max(p50, ((max(0.0, spread_bps) + max(0.0, slip_bps)) * cost_p90_mult) + cost_add)
++        return ExecCostPrediction(
++            cost_p50_bps=float(p50),
++            cost_p90_bps=float(p90),
++            exec_risk_ref_bps_ctx=float(max(1e-9, legacy_ref * ref_mult)),
++            fallback_level=str(level),
++            model_version=self.model_version,
++            artifact_version=self.artifact_version,
++        )
+diff --git a/tick_flow_full/core/ofc_rule_success_model_v1.py b/tick_flow_full/core/ofc_rule_success_model_v1.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/tick_flow_full/core/ofc_rule_success_model_v1.py
+@@ -0,0 +1,77 @@
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Any, Dict, List
++
++
++def _clamp01(x: float) -> float:
++    return 0.0 if x <= 0.0 else 1.0 if x >= 1.0 else float(x)
++
++
++@dataclass(frozen=True)
++class RuleSuccessPrediction:
++    p_rule_raw: float
++    p_rule_cal: float
++    score_min_ctx: float
++    fallback_level: str
++    model_version: str
++    artifact_version: str
++
++
++class RuleSuccessModelV1:
++    """
++    Minimal deterministic runtime.
++    payload example:
++      {
++        "model_version": "rsm_v1",
++        "artifact_version": "20260314_...",
++        "groups": {
++          "symbol=BTCUSDT|session=eu|liq=normal|vol=normal|scenario=continuation": {
++              "score_mult": 1.0,
++              "score_add": 0.0,
++              "score_min_ctx": 0.58
++          }
++        },
++        "global": {"score_mult": 1.0, "score_add": 0.0, "score_min_ctx": 0.60}
++      }
++    """
++    def __init__(self, payload: Dict[str, Any]) -> None:
++        self.payload = dict(payload or {})
++        self.groups = dict(self.payload.get("groups", {}) or {})
++        self.global_group = dict(self.payload.get("global", {}) or {})
++        self.model_version = str(self.payload.get("model_version", "rsm_v1") or "rsm_v1")
++        self.artifact_version = str(self.payload.get("artifact_version", "") or "")
++
++    def predict(self, *, features: Dict[str, float], ctx_key: str, fallback_keys: List[str]) -> RuleSuccessPrediction:
++        grp = None
++        level = "global"
++        for key in [ctx_key] + list(fallback_keys or []):
++            if key in self.groups:
++                grp = self.groups[key]
++                level = key
++                break
++        if grp is None:
++            grp = self.global_group
++        score = float(features.get("of_score_final", features.get("raw_score", 0.0)) or 0.0)
++        score_mult = float(grp.get("score_mult", 1.0) or 1.0)
++        score_add = float(grp.get("score_add", 0.0) or 0.0)
++        p_raw = _clamp01(score)
++        p_cal = _clamp01((p_raw * score_mult) + score_add)
++        score_min_ctx = float(grp.get("score_min_ctx", features.get("legacy_of_score_min", 0.60)) or 0.60)
++        return RuleSuccessPrediction(
++            p_rule_raw=float(p_raw),
++            p_rule_cal=float(p_cal),
++            score_min_ctx=float(score_min_ctx),
++            fallback_level=str(level),
++            model_version=self.model_version,
++            artifact_version=self.artifact_version,
++        )
+diff --git a/tick_flow_full/core/ofc_contextual_gate_v1.py b/tick_flow_full/core/ofc_contextual_gate_v1.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/tick_flow_full/core/ofc_contextual_gate_v1.py
+@@ -0,0 +1,68 @@
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Any, Dict
++
++
++@dataclass(frozen=True)
++class ContextualGateDecision:
++    allow: bool
++    reason: str
++    edge_net_p50_bps: float
++    edge_net_p90_bps: float
++    p_rule_cal: float
++    cost_p50_bps: float
++    cost_p90_bps: float
++    score_min_ctx: float
++    fallback_level: str
++    mode: str
++
++
++class ContextualGateV1:
++    def __init__(self, gate_cfg: Dict[str, Any]) -> None:
++        self.gate_cfg = dict(gate_cfg or {})
++
++    def evaluate(
++        self,
++        *,
++        raw_score: float,
++        ctx_features: Dict[str, float],
++        exec_cost_pred: Any,
++        rule_pred: Any,
++        tp_bps: float,
++        sl_bps: float,
++        mode: str,
++    ) -> ContextualGateDecision:
++        p_rule_cal = float(getattr(rule_pred, "p_rule_cal", raw_score) or raw_score)
++        score_min_ctx = float(
++            getattr(rule_pred, "score_min_ctx", self.gate_cfg.get("p_min_default", ctx_features.get("legacy_of_score_min", 0.60)))
++            or ctx_features.get("legacy_of_score_min", 0.60)
++        )
++        cost_p50 = float(getattr(exec_cost_pred, "cost_p50_bps", ctx_features.get("expected_slippage_bps", 0.0)) or 0.0)
++        cost_p90 = float(getattr(exec_cost_pred, "cost_p90_bps", (ctx_features.get("spread_bps", 0.0) + ctx_features.get("expected_slippage_bps", 0.0))) or 0.0)
++        edge_p50 = (p_rule_cal * float(tp_bps)) - ((1.0 - p_rule_cal) * float(sl_bps)) - cost_p50
++        edge_p90 = (p_rule_cal * float(tp_bps)) - ((1.0 - p_rule_cal) * float(sl_bps)) - cost_p90
++        floor_p50 = float(self.gate_cfg.get("edge_floor_p50_bps", 0.0) or 0.0)
++        floor_p90 = float(self.gate_cfg.get("edge_floor_p90_bps", -2.0) or -2.0)
++        allow = bool((p_rule_cal >= score_min_ctx) and (edge_p50 >= floor_p50) and (edge_p90 >= floor_p90))
++        reason = "allow" if allow else "ctx_edge_or_prob_veto"
++        return ContextualGateDecision(
++            allow=allow,
++            reason=str(reason),
++            edge_net_p50_bps=float(edge_p50),
++            edge_net_p90_bps=float(edge_p90),
++            p_rule_cal=float(p_rule_cal),
++            cost_p50_bps=float(cost_p50),
++            cost_p90_bps=float(cost_p90),
++            score_min_ctx=float(score_min_ctx),
++            fallback_level=str(getattr(rule_pred, "fallback_level", getattr(exec_cost_pred, "fallback_level", ""))),
++            mode=str(mode or "off"),
++        )
+diff --git a/tick_flow_full/core/ofc_bundle_loader_v1.py b/tick_flow_full/core/ofc_bundle_loader_v1.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/tick_flow_full/core/ofc_bundle_loader_v1.py
+@@ -0,0 +1,52 @@
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Optional
++
++from common.contextual_bundle_store_v1 import ContextualBundleStoreV1
++from core.ofc_contextual_gate_v1 import ContextualGateV1
++from core.ofc_exec_cost_model_v1 import ExecCostModelV1
++from core.ofc_rule_success_model_v1 import RuleSuccessModelV1
++
++
++@dataclass(frozen=True)
++class OFCBundleV1:
++    version: str
++    exec_cost_model: ExecCostModelV1
++    rule_success_model: RuleSuccessModelV1
++    gate: ContextualGateV1
++    manifest: dict
++
++
++class OFCBundleLoaderV1:
++    def __init__(self, bundle_path: str, reload_sec: int = 30) -> None:
++        self.store = ContextualBundleStoreV1(bundle_path, reload_sec=reload_sec)
++        self.bundle: Optional[OFCBundleV1] = None
++
++    def maybe_reload(self) -> None:
++        self.store.maybe_reload()
++        manifest = self.store.get_manifest()
++        if not manifest:
++            return
++        version = str(manifest.get("bundle_version", "") or "")
++        if self.bundle is not None and self.bundle.version == version:
++            return
++        self.bundle = OFCBundleV1(
++            version=version,
++            exec_cost_model=ExecCostModelV1(self.store.get_exec_cost_payload()),
++            rule_success_model=RuleSuccessModelV1(self.store.get_rule_success_payload()),
++            gate=ContextualGateV1(self.store.get_gate_cfg()),
++            manifest=dict(manifest),
++        )
++
++    def get(self) -> Optional[OFCBundleV1]:
++        return self.bundle
+diff --git a/tick_flow_full/core/instrument_config.py b/tick_flow_full/core/instrument_config.py
+index 1111111..2222222 100644
+--- a/tick_flow_full/core/instrument_config.py
++++ b/tick_flow_full/core/instrument_config.py
+@@ -638,6 +638,17 @@ class OrderFlowConfig:
+     exec_risk_ref_bps: float = 12.0        # Reference BPS for normalization (12-15 crypto)
+     scenario_v4_enable: bool = False       # Enable Range/Trend V4 logic
+     of_score_min_range: Optional[float] = None
++    # OFC contextual bundle (shadow/tighten/replace score veto family only)
++    ofc_ctx_enable: bool = False
++    ofc_ctx_mode: str = "off"              # off|shadow|tighten_only|replace_score_veto
++    ofc_ctx_fail_mode: str = "open"
++    ofc_ctx_bundle_path: str = ""
++    ofc_ctx_reload_sec: int = 30
++    ofc_ctx_p_min_default: float = 0.55
++    ofc_ctx_edge_floor_p50_bps: float = 0.0
++    ofc_ctx_edge_floor_p90_bps: float = -2.0
++    ofc_ctx_canary_symbols: str = ""
++    ofc_ctx_reasons_replace: str = "score_veto,vol_shock_score_veto,saw_chop_score_veto"
+     strong_need_range: int = 3             # Required legs for range scenarios
+     strong_need_escalated: int = 3         # Escalate to this many legs when thin/unstables
+     of_score_agg: str = "weighted_mean"    # weighted_mean | sum
+@@ -877,6 +888,17 @@ def get_config_from_env(symbol: str = "", prefix: str = "") -> OrderFlowConfig:
+             exec_risk_ref_bps=_env_one(f"{prefix}_EXEC_RISK_REF_BPS", float, 
+                                        _env_one("EXEC_RISK_REF_BPS", float, base_cfg.exec_risk_ref_bps)),
+             scenario_v4_enable=_env_one(f"{prefix}_SCENARIO_V4_ENABLE", _to_bool, _env_one("SCENARIO_V4_ENABLE", _to_bool, base_cfg.scenario_v4_enable)),
++            ofc_ctx_enable=_env_one(f"{prefix}_OFC_CTX_ENABLE", _to_bool, _env_one("OFC_CTX_ENABLE", _to_bool, base_cfg.ofc_ctx_enable)),
++            ofc_ctx_mode=_env_one(f"{prefix}_OFC_CTX_MODE", str, _env_one("OFC_CTX_MODE", str, base_cfg.ofc_ctx_mode)),
++            ofc_ctx_fail_mode=_env_one(f"{prefix}_OFC_CTX_FAIL_MODE", str, _env_one("OFC_CTX_FAIL_MODE", str, base_cfg.ofc_ctx_fail_mode)),
++            ofc_ctx_bundle_path=_env_one(f"{prefix}_OFC_CTX_BUNDLE_PATH", str, _env_one("OFC_CTX_BUNDLE_PATH", str, base_cfg.ofc_ctx_bundle_path)),
++            ofc_ctx_reload_sec=_env_one(f"{prefix}_OFC_CTX_RELOAD_SEC", int, _env_one("OFC_CTX_RELOAD_SEC", int, base_cfg.ofc_ctx_reload_sec)),
++            ofc_ctx_p_min_default=_env_one(f"{prefix}_OFC_CTX_P_MIN_DEFAULT", float, _env_one("OFC_CTX_P_MIN_DEFAULT", float, base_cfg.ofc_ctx_p_min_default)),
++            ofc_ctx_edge_floor_p50_bps=_env_one(f"{prefix}_OFC_CTX_EDGE_FLOOR_P50_BPS", float, _env_one("OFC_CTX_EDGE_FLOOR_P50_BPS", float, base_cfg.ofc_ctx_edge_floor_p50_bps)),
++            ofc_ctx_edge_floor_p90_bps=_env_one(f"{prefix}_OFC_CTX_EDGE_FLOOR_P90_BPS", float, _env_one("OFC_CTX_EDGE_FLOOR_P90_BPS", float, base_cfg.ofc_ctx_edge_floor_p90_bps)),
++            ofc_ctx_canary_symbols=_env_one(f"{prefix}_OFC_CTX_CANARY_SYMBOLS", str, _env_one("OFC_CTX_CANARY_SYMBOLS", str, base_cfg.ofc_ctx_canary_symbols)),
++            ofc_ctx_reasons_replace=_env_one(f"{prefix}_OFC_CTX_REASONS_REPLACE", str, _env_one("OFC_CTX_REASONS_REPLACE", str, base_cfg.ofc_ctx_reasons_replace)),
+             of_score_min_range=_env_one(f"{prefix}_OF_SCORE_MIN_RANGE", float,
+                                         _env_one("OF_SCORE_MIN_RANGE", float, base_cfg.of_score_min_range)),
+             strong_need_range=_env_one(f"{prefix}_STRONG_NEED_RANGE", int,
+diff --git a/tick_flow_full/services/orderflow/configuration.py b/tick_flow_full/services/orderflow/configuration.py
+index 1111111..2222222 100644
+--- a/tick_flow_full/services/orderflow/configuration.py
++++ b/tick_flow_full/services/orderflow/configuration.py
+@@ -309,6 +309,15 @@ class OrderFlowConfigLoader:
+                 "exec_risk_ref_bps": getattr(base_cfg, "exec_risk_ref_bps", 12.0),
+                 "scenario_v4_enable": getattr(base_cfg, "scenario_v4_enable", False),
+                 "of_score_min_range": getattr(base_cfg, "of_score_min_range", None),
++                "ofc_ctx_enable": getattr(base_cfg, "ofc_ctx_enable", False),
++                "ofc_ctx_mode": getattr(base_cfg, "ofc_ctx_mode", "off"),
++                "ofc_ctx_fail_mode": getattr(base_cfg, "ofc_ctx_fail_mode", "open"),
++                "ofc_ctx_bundle_path": getattr(base_cfg, "ofc_ctx_bundle_path", ""),
++                "ofc_ctx_reload_sec": getattr(base_cfg, "ofc_ctx_reload_sec", 30),
++                "ofc_ctx_p_min_default": getattr(base_cfg, "ofc_ctx_p_min_default", 0.55),
++                "ofc_ctx_edge_floor_p50_bps": getattr(base_cfg, "ofc_ctx_edge_floor_p50_bps", 0.0),
++                "ofc_ctx_edge_floor_p90_bps": getattr(base_cfg, "ofc_ctx_edge_floor_p90_bps", -2.0),
++                "ofc_ctx_reasons_replace": getattr(base_cfg, "ofc_ctx_reasons_replace", "score_veto,vol_shock_score_veto,saw_chop_score_veto"),
+                 "strong_need_range": getattr(base_cfg, "strong_need_range", 3),
+                 "strong_need_escalated": getattr(base_cfg, "strong_need_escalated", 3),
+                 "of_score_agg": getattr(base_cfg, "of_score_agg", "weighted_mean"),
+@@ -393,6 +402,15 @@ class OrderFlowConfigLoader:
+             "exec_risk_ref_bps": ("exec_risk_ref_bps", _safe_float),
+             "scenario_v4_enable": ("scenario_v4_enable", _to_bool),
+             "of_score_min_range": ("of_score_min_range", _safe_float),
++            "ofc_ctx_enable": ("ofc_ctx_enable", _to_bool),
++            "ofc_ctx_mode": ("ofc_ctx_mode", str),
++            "ofc_ctx_fail_mode": ("ofc_ctx_fail_mode", str),
++            "ofc_ctx_bundle_path": ("ofc_ctx_bundle_path", str),
++            "ofc_ctx_reload_sec": ("ofc_ctx_reload_sec", _safe_int),
++            "ofc_ctx_p_min_default": ("ofc_ctx_p_min_default", _safe_float),
++            "ofc_ctx_edge_floor_p50_bps": ("ofc_ctx_edge_floor_p50_bps", _safe_float),
++            "ofc_ctx_edge_floor_p90_bps": ("ofc_ctx_edge_floor_p90_bps", _safe_float),
++            "ofc_ctx_reasons_replace": ("ofc_ctx_reasons_replace", str),
+             "strong_need_range": ("strong_need_range", _safe_int),
+             "strong_need_escalated": ("strong_need_escalated", _safe_int),
+             "of_score_agg": ("of_score_agg", str),
+diff --git a/tick_flow_full/core/of_confirm_engine.py b/tick_flow_full/core/of_confirm_engine.py
+index 1111111..2222222 100644
+--- a/tick_flow_full/core/of_confirm_engine.py
++++ b/tick_flow_full/core/of_confirm_engine.py
+@@ -16,6 +16,9 @@ from core.strong_of_gate import eval_reversal, eval_continuation, hidden_trend_d
+ from core.absorption_level_score import compute_absorption_level_score
+ from core.of_confirm_contract import OFConfirmV3, pack_bits
+ from core.cfg_merge import merged_cfg
++from core.ofc_bundle_loader_v1 import OFCBundleLoaderV1
++from core.ofc_context_key_v1 import iter_ctx_fallback_keys, make_ctx_key
++from core.ofc_context_v1 import build_ofc_context
+ from core.strong_need_policy import compute_strong_need_same_tick
+ from common.metrics_stage import (
+     veto_total, dist,
+@@ -280,6 +283,9 @@ class OFConfirmEngine:
+         self._replay_now_ms: Optional[int] = None
+         # Startup timestamp (ms) - used by _should_apply_dq_veto for warmup checks.
+         self._start_ms: int = int(time.time() * 1000)
++        self._ofc_ctx_loader = None
++        self._ofc_ctx_bundle = None
++        self._ofc_ctx_last_check_ms = 0
+
+     @property
+     def ml_gate(self) -> Optional[Any]:
+@@ -339,6 +345,93 @@ class OFConfirmEngine:
+             return False
+
+     # ------------------------------------------------------------------
++    # OFC contextual bundle state
++    # ------------------------------------------------------------------
++    def _ensure_ofc_ctx_bundle(self, cfg: Dict[str, Any]) -> None:
++        try:
++            enabled = bool(cfg.get("ofc_ctx_enable", False))
++            path = str(cfg.get("ofc_ctx_bundle_path", "") or "")
++            reload_sec = int(cfg.get("ofc_ctx_reload_sec", 30) or 30)
++            if not enabled or not path:
++                self._ofc_ctx_loader = None
++                self._ofc_ctx_bundle = None
++                return
++            if self._ofc_ctx_loader is None:
++                self._ofc_ctx_loader = OFCBundleLoaderV1(path, reload_sec=reload_sec)
++            self._ofc_ctx_loader.maybe_reload()
++            self._ofc_ctx_bundle = self._ofc_ctx_loader.get()
++        except Exception:
++            self._ofc_ctx_bundle = None
++
++    def _build_ofc_ctx_features(
++        self,
++        *,
++        indicators: Dict[str, Any],
++        score: float,
++        score_raw: float,
++        exec_risk_bps: float,
++        exec_risk_norm: float,
++        exec_ref: float,
++        spread_bps: float,
++        slip_bps: float,
++        score_min: float,
++        now_ts: int,
++    ) -> Dict[str, float]:
++        dt_h = int((int(now_ts) // 1000) // 3600 % 24)
++        dt_d = int((int(now_ts) // 1000) // 86400 + 3) % 7  # stable UTC weekday proxy
++        h_ang = (2.0 * math.pi * float(dt_h)) / 24.0
++        d_ang = (2.0 * math.pi * float(dt_d)) / 7.0
++        out: Dict[str, float] = {
++            "raw_score": float(score),
++            "score_raw": float(score_raw),
++            "of_score_final": float(score),
++            "of_score_final_raw": float(score_raw),
++            "legacy_of_score_min": float(score_min),
++            "exec_risk_bps": float(exec_risk_bps),
++            "exec_risk_norm": float(exec_risk_norm),
++            "exec_risk_ref_bps": float(exec_ref),
++            "spread_bps": float(spread_bps),
++            "expected_slippage_bps": float(slip_bps),
++            "slip_spread_bps": float(indicators.get("slip_spread_bps", 0.0) or 0.0),
++            "slip_impact_bps": float(indicators.get("slip_impact_bps", 0.0) or 0.0),
++            "fill_prob_proxy": float(indicators.get("fill_prob_proxy", 0.0) or 0.0),
++            "eta_fill_sec": float(indicators.get("eta_fill_sec", 0.0) or 0.0),
++            "delta_z": float(indicators.get("delta_z", 0.0) or 0.0),
++            "ofi_z": float(indicators.get("ofi_z", 0.0) or 0.0),
++            "ofi_stability_score": float(indicators.get("ofi_stability_score", 0.0) or 0.0),
++            "obi": float(indicators.get("obi", 0.0) or 0.0),
++            "obi_z": float(indicators.get("obi_z", 0.0) or 0.0),
++            "book_staleness_ms": float(indicators.get("book_staleness_ms", 0.0) or 0.0),
++            "dq_health_score": float(indicators.get("dq_health_score", indicators.get("data_health", 1.0)) or 1.0),
++            "dq_level": float(indicators.get("dq_level", 0.0) or 0.0),
++            "liqmap_gate_risk_bps": float(indicators.get("liqmap_gate_risk_bps", 0.0) or 0.0),
++            "liqmap_gate_reward_bps": float(indicators.get("liqmap_gate_reward_bps", 0.0) or 0.0),
++            "liqmap_gate_rr": float(indicators.get("liqmap_gate_rr", 0.0) or 0.0),
++            "hour_utc": float(dt_h),
++            "dow": float(dt_d),
++            "hour_sin": float(math.sin(h_ang)),
++            "hour_cos": float(math.cos(h_ang)),
++            "dow_sin": float(math.sin(d_ang)),
++            "dow_cos": float(math.cos(d_ang)),
++        }
++        return out
++
++    # ------------------------------------------------------------------
+     # Gate state snapshot API (for deterministic golden replay)
+     # ------------------------------------------------------------------
+@@ -1464,6 +1557,53 @@ class OFConfirmEngine:
+         }
+         indicators["score_breakdown"] = score_breakdown
+         indicators["dq_pen"] = dq_pen
++        self._ensure_ofc_ctx_bundle(cfg2)
++        ctx_mode = str(cfg2.get("ofc_ctx_mode", "off") or "off").lower()
++        ctx = build_ofc_context(
++            symbol=str(symbol),
++            direction=str(direction),
++            ts_ms=int(now_ts),
++            indicators=indicators,
++            runtime=runtime,
++            scenario_base=str(scenario),
++            scenario_v4=str(scenario_v4),
++        )
++        ctx_key = make_ctx_key(ctx)
++        ctx_fallback_keys = iter_ctx_fallback_keys(ctx)
++        ctx_features = self._build_ofc_ctx_features(
++            indicators=indicators,
++            score=float(score),
++            score_raw=float(score_raw),
++            exec_risk_bps=float(exec_risk_bps),
++            exec_risk_norm=float(exec_risk_norm),
++            exec_ref=float(exec_ref),
++            spread_bps=float(spread_bps),
++            slip_bps=float(slip_bps),
++            score_min=float(cfg2.get("of_score_min", 0.65) or 0.65),
++            now_ts=int(now_ts),
++        )
++        indicators["ctx_key"] = str(ctx_key)
++        indicators["ctx_session"] = str(ctx.session)
++        indicators["ctx_hour_utc"] = int(ctx.hour_utc)
++        indicators["ctx_dow"] = int(ctx.dow)
++        ctx_decision = None
++        exec_pred = None
++        rule_pred = None
++        ctx_infer_latency_us = 0
++        if bool(cfg2.get("ofc_ctx_enable", False)) and self._ofc_ctx_bundle is not None and ctx_mode != "off":
++            _ctx_t0 = time.perf_counter()
++            try:
++                bundle = self._ofc_ctx_bundle
++                exec_pred = bundle.exec_cost_model.predict(features=ctx_features, ctx_key=ctx_key, fallback_keys=ctx_fallback_keys)
++                rule_pred = bundle.rule_success_model.predict(features=ctx_features, ctx_key=ctx_key, fallback_keys=ctx_fallback_keys)
++                tp_bps = float(indicators.get("tp1_bps", indicators.get("liqmap_gate_reward_bps", 0.0)) or 0.0)
++                sl_bps = float(indicators.get("sl_bps", indicators.get("liqmap_gate_risk_bps", 0.0)) or 0.0)
++                ctx_decision = bundle.gate.evaluate(
++                    raw_score=float(score), ctx_features=ctx_features, exec_cost_pred=exec_pred,
++                    rule_pred=rule_pred, tp_bps=float(tp_bps), sl_bps=float(sl_bps), mode=ctx_mode,
++                )
++            except Exception as _ctx_e:
++                indicators["ctx_error"] = str(_ctx_e)[:200]
++            finally:
++                ctx_infer_latency_us = int((time.perf_counter() - _ctx_t0) * 1_000_000.0)
+         indicators["dq_veto"] = dq_veto
+         indicators["dq_reason"] = dq_reason
+         indicators["dq_health_score"] = dq_health
+@@ -2325,6 +2465,20 @@ class OFConfirmEngine:
+             "meta_p": -1.0,
+             "meta_veto": 0,
+             "meta_reason": "",
++            "ctx_enable": int(bool(cfg2.get("ofc_ctx_enable", False))),
++            "ctx_mode": str(ctx_mode),
++            "ctx_key": str(ctx_key),
++            "ctx_bundle_ver": str(getattr(self._ofc_ctx_bundle, "version", "") if self._ofc_ctx_bundle else ""),
++            "ctx_exec_model_ver": str(getattr(exec_pred, "model_version", "")) if exec_pred is not None else "",
++            "ctx_rule_model_ver": str(getattr(rule_pred, "model_version", "")) if rule_pred is not None else "",
++            "ctx_p_rule_raw": float(getattr(rule_pred, "p_rule_raw", -1.0)) if rule_pred is not None else -1.0,
++            "ctx_p_rule_cal": float(getattr(rule_pred, "p_rule_cal", -1.0)) if rule_pred is not None else -1.0,
++            "ctx_cost_p50_bps": float(getattr(exec_pred, "cost_p50_bps", -1.0)) if exec_pred is not None else -1.0,
++            "ctx_cost_p90_bps": float(getattr(exec_pred, "cost_p90_bps", -1.0)) if exec_pred is not None else -1.0,
++            "ctx_exec_risk_ref_bps": float(getattr(exec_pred, "exec_risk_ref_bps_ctx", exec_ref)) if exec_pred is not None else float(exec_ref),
++            "ctx_score_min": float(getattr(rule_pred, "score_min_ctx", cfg2.get("of_score_min", 0.65))) if rule_pred is not None else float(cfg2.get("of_score_min", 0.65)),
++            "ctx_reason": str(getattr(ctx_decision, "reason", "")) if ctx_decision is not None else "",
++            "ctx_infer_latency_us": int(ctx_infer_latency_us),
+         })
+
+@@ -2638,6 +2792,25 @@ class OFConfirmEngine:
+                     "runtime_snapshot": OFConfirmEngine.export_runtime_snapshot(runtime, indicators),
+                 }
+             except Exception:
+                 pass
++
++        legacy_reason = str(final_reason)
++        score_veto_family = {
++            "score_veto",
++            "vol_shock_score_veto",
++            "saw_chop_score_veto",
++        }
++        ctx_shadow_disagree = 0
++        if ctx_decision is not None:
++            ctx_allow = bool(getattr(ctx_decision, "allow", False))
++            ctx_shadow_disagree = 1 if int(ok) != int(ctx_allow) else 0
++            evidence["ctx_shadow_disagree"] = int(ctx_shadow_disagree)
++            evidence["ctx_allow"] = int(ctx_allow)
++            evidence["ctx_edge_net_p50_bps"] = float(getattr(ctx_decision, "edge_net_p50_bps", -999.0))
++            evidence["ctx_edge_net_p90_bps"] = float(getattr(ctx_decision, "edge_net_p90_bps", -999.0))
++            evidence["ctx_fallback_level"] = str(getattr(ctx_decision, "fallback_level", ""))
++            if ctx_mode == "tighten_only" and int(ok) == 1 and not ctx_allow:
++                ok = 0
++                final_reason = f"ctx_tighten:{getattr(ctx_decision, 'reason', 'deny')}"
++            elif ctx_mode == "replace_score_veto" and str(legacy_reason) in score_veto_family:
++                ok = 1 if ctx_allow else 0
++                final_reason = f"ctx_replace:{getattr(ctx_decision, 'reason', 'deny')}"
+
+         ofc = OFConfirmV3(
+             v=3,
+diff --git a/tick_flow_full/services/orderflow/decision_record_v1.py b/tick_flow_full/services/orderflow/decision_record_v1.py
+index 1111111..2222222 100644
+--- a/tick_flow_full/services/orderflow/decision_record_v1.py
++++ b/tick_flow_full/services/orderflow/decision_record_v1.py
+@@ -484,6 +484,21 @@ class DecisionRecordV1(TypedDict, total=False):
+     policy_raw_mode: str
+     policy_effective_mode: str
+     policy_hysteresis_debug: str
+     policy_changed: bool
++    # OFC contextual shadow / gate
++    ctx_enabled: bool
++    ctx_mode: str
++    ctx_key: str
++    ctx_bundle_ver: str
++    ctx_exec_model_ver: str
++    ctx_rule_model_ver: str
++    ctx_p_rule_raw: Optional[float]
++    ctx_p_rule_cal: Optional[float]
++    ctx_cost_p50_bps: Optional[float]
++    ctx_cost_p90_bps: Optional[float]
++    ctx_exec_risk_ref_bps: Optional[float]
++    ctx_edge_net_p50_bps: Optional[float]
++    ctx_edge_net_p90_bps: Optional[float]
++    ctx_reason: str
++    ctx_fallback_level: str
++    ctx_shadow_disagree: bool
++    ctx_infer_latency_us: Optional[int]
+@@ -519,6 +534,22 @@ def extract_fields_best_effort(stub: Dict[str, Any]) -> Dict[str, Any]:
+     meta_bucket = str(_g("meta_enforce_cov_bucket", "unknown"))
+     meta_applied = bool(int(_g("meta_enforce_applied", 0) or 0))
+
++    ctx_enabled = bool(int(ev.get("ctx_enable", 0) or 0))
++    ctx_mode = str(ev.get("ctx_mode", "off") or "off")
++    ctx_key = str(ev.get("ctx_key", "") or "")
++    ctx_bundle_ver = str(ev.get("ctx_bundle_ver", "") or "")
++    ctx_exec_model_ver = str(ev.get("ctx_exec_model_ver", "") or "")
++    ctx_rule_model_ver = str(ev.get("ctx_rule_model_ver", "") or "")
++    ctx_p_rule_raw = float(ev.get("ctx_p_rule_raw", -1.0) or -1.0) if "ctx_p_rule_raw" in ev else None
++    ctx_p_rule_cal = float(ev.get("ctx_p_rule_cal", -1.0) or -1.0) if "ctx_p_rule_cal" in ev else None
++    ctx_cost_p50_bps = float(ev.get("ctx_cost_p50_bps", -1.0) or -1.0) if "ctx_cost_p50_bps" in ev else None
++    ctx_cost_p90_bps = float(ev.get("ctx_cost_p90_bps", -1.0) or -1.0) if "ctx_cost_p90_bps" in ev else None
++    ctx_exec_risk_ref_bps = float(ev.get("ctx_exec_risk_ref_bps", -1.0) or -1.0) if "ctx_exec_risk_ref_bps" in ev else None
++    ctx_edge_net_p50_bps = float(ev.get("ctx_edge_net_p50_bps", -999.0) or -999.0) if "ctx_edge_net_p50_bps" in ev else None
++    ctx_edge_net_p90_bps = float(ev.get("ctx_edge_net_p90_bps", -999.0) or -999.0) if "ctx_edge_net_p90_bps" in ev else None
++    ctx_reason = str(ev.get("ctx_reason", "") or "")
++    ctx_fallback_level = str(ev.get("ctx_fallback_level", "") or "")
++    ctx_shadow_disagree = bool(int(ev.get("ctx_shadow_disagree", 0) or 0))
++    ctx_infer_latency_us = int(ev.get("ctx_infer_latency_us", 0) or 0) if "ctx_infer_latency_us" in ev else None
++
+     return {
+         "rule_score": rule_score,
+         "rule_ok": rule_ok,
+@@ -545,6 +576,21 @@ def extract_fields_best_effort(stub: Dict[str, Any]) -> Dict[str, Any]:
+         "policy_raw_mode": str(_g("policy_raw_mode", "")),
+         "policy_effective_mode": str(_g("policy_effective_mode", "")),
+         "policy_hysteresis_debug": str(_g("policy_hysteresis_debug", "")),
+         "policy_changed": bool(int(_g("policy_changed", 0) or 0)),
++        "ctx_enabled": ctx_enabled,
++        "ctx_mode": ctx_mode,
++        "ctx_key": ctx_key,
++        "ctx_bundle_ver": ctx_bundle_ver,
++        "ctx_exec_model_ver": ctx_exec_model_ver,
++        "ctx_rule_model_ver": ctx_rule_model_ver,
++        "ctx_p_rule_raw": ctx_p_rule_raw,
++        "ctx_p_rule_cal": ctx_p_rule_cal,
++        "ctx_cost_p50_bps": ctx_cost_p50_bps,
++        "ctx_cost_p90_bps": ctx_cost_p90_bps,
++        "ctx_exec_risk_ref_bps": ctx_exec_risk_ref_bps,
++        "ctx_edge_net_p50_bps": ctx_edge_net_p50_bps,
++        "ctx_edge_net_p90_bps": ctx_edge_net_p90_bps,
++        "ctx_reason": ctx_reason,
++        "ctx_fallback_level": ctx_fallback_level,
++        "ctx_shadow_disagree": ctx_shadow_disagree,
++        "ctx_infer_latency_us": ctx_infer_latency_us,
+     }
+diff --git a/tick_flow_full/services/orderflow/components/tick_processor.py b/tick_flow_full/services/orderflow/components/tick_processor.py
+index 1111111..2222222 100644
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -4237,6 +4237,22 @@ class TickProcessor:
+                 policy_raw_mode=str(f.get("policy_raw_mode", "")),
+                 policy_effective_mode=str(f.get("policy_effective_mode", "")),
+                 policy_hysteresis_debug=str(f.get("policy_hysteresis_debug", "")),
+                 policy_changed=bool(f.get("policy_changed", False)),
++                ctx_enabled=bool(f.get("ctx_enabled", False)),
++                ctx_mode=str(f.get("ctx_mode", "off")),
++                ctx_key=str(f.get("ctx_key", "")),
++                ctx_bundle_ver=str(f.get("ctx_bundle_ver", "")),
++                ctx_exec_model_ver=str(f.get("ctx_exec_model_ver", "")),
++                ctx_rule_model_ver=str(f.get("ctx_rule_model_ver", "")),
++                ctx_p_rule_raw=f.get("ctx_p_rule_raw", None),
++                ctx_p_rule_cal=f.get("ctx_p_rule_cal", None),
++                ctx_cost_p50_bps=f.get("ctx_cost_p50_bps", None),
++                ctx_cost_p90_bps=f.get("ctx_cost_p90_bps", None),
++                ctx_exec_risk_ref_bps=f.get("ctx_exec_risk_ref_bps", None),
++                ctx_edge_net_p50_bps=f.get("ctx_edge_net_p50_bps", None),
++                ctx_edge_net_p90_bps=f.get("ctx_edge_net_p90_bps", None),
++                ctx_reason=str(f.get("ctx_reason", "")),
++                ctx_fallback_level=str(f.get("ctx_fallback_level", "")),
++                ctx_shadow_disagree=bool(f.get("ctx_shadow_disagree", False)),
++                ctx_infer_latency_us=f.get("ctx_infer_latency_us", None),
+                 payload_summary={
+                     "stage": "tick_processor_emit",
+                     "direction": str(direction).upper(),
+@@ -4244,6 +4260,9 @@ class TickProcessor:
+                     "p_delta": float(indicators.get("p_delta", 0.0)),
++                    "ctx_reason": str(f.get("ctx_reason", "")),
++                    "ctx_edge_net_p50_bps": f.get("ctx_edge_net_p50_bps", None),
++                    "ctx_shadow_disagree": int(bool(f.get("ctx_shadow_disagree", False))),
+                 },
+             )
+diff --git a/tick_flow_full/services/archivers/sql/20260314_ofc_contextual_decisions_v1.sql b/tick_flow_full/services/archivers/sql/20260314_ofc_contextual_decisions_v1.sql
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/tick_flow_full/services/archivers/sql/20260314_ofc_contextual_decisions_v1.sql
+@@ -0,0 +1,32 @@
++create table if not exists ofc_contextual_decisions (
++    decision_ts_ms bigint not null,
++    sid text not null,
++    symbol text not null,
++    direction text not null,
++    session text,
++    dow smallint,
++    hour_utc smallint,
++    scenario_v4 text,
++    legacy_rule_score double precision,
++    legacy_rule_ok boolean,
++    legacy_reason text,
++    ctx_enabled boolean,
++    ctx_mode text,
++    ctx_key text,
++    ctx_bundle_ver text,
++    ctx_p_rule_raw double precision,
++    ctx_p_rule_cal double precision,
++    ctx_cost_p50_bps double precision,
++    ctx_cost_p90_bps double precision,
++    ctx_exec_risk_ref_bps double precision,
++    ctx_edge_net_p50_bps double precision,
++    ctx_edge_net_p90_bps double precision,
++    ctx_reason text,
++    ctx_fallback_level text,
++    ctx_shadow_disagree boolean,
++    ctx_infer_latency_us integer,
++    created_at timestamptz default now(),
++    primary key (decision_ts_ms, sid)
++);
++create index if not exists idx_ofc_ctx_symbol_ts on ofc_contextual_decisions(symbol, decision_ts_ms desc);
++create index if not exists idx_ofc_ctx_bundle_ts on ofc_contextual_decisions(ctx_bundle_ver, decision_ts_ms desc);
++create index if not exists idx_ofc_ctx_disagree_ts on ofc_contextual_decisions(ctx_shadow_disagree, decision_ts_ms desc);
+diff --git a/tick_flow_full/ops_examples/ofc_contextual_v1.env.example b/tick_flow_full/ops_examples/ofc_contextual_v1.env.example
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/tick_flow_full/ops_examples/ofc_contextual_v1.env.example
+@@ -0,0 +1,12 @@
++OFC_CTX_ENABLE=0
++OFC_CTX_MODE=off
++OFC_CTX_FAIL_MODE=open
++OFC_CTX_BUNDLE_PATH=/opt/trade/models/ofc_ctx/current
++OFC_CTX_RELOAD_SEC=30
++OFC_CTX_P_MIN_DEFAULT=0.55
++OFC_CTX_EDGE_FLOOR_P50_BPS=0.0
++OFC_CTX_EDGE_FLOOR_P90_BPS=-2.0
++OFC_CTX_CANARY_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT
++OFC_CTX_REASONS_REPLACE=score_veto,vol_shock_score_veto,saw_chop_score_veto
++SPREAD_BPS_MISSING_DEFAULT=15.0
++SLIPPAGE_BPS_MISSING_DEFAULT=4.0

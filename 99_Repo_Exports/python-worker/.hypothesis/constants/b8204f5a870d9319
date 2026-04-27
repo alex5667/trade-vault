@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/autopilot_fields.py
+# hypothesis_version: 6.148.10
+
+[0.0, 'abs_lvl_tier', 'abs_lvl_tier_used', 'book_health_ok', 'config_snapshot', 'cont', 'continuation', 'continuation_gate', 'counter', 'countertrend', 'ctx', 'decision', 'dn_tier', 'entry_regime', 'indicators', 'micro', 'na', 'of_confirm_ok', 'pressure_sps', 'regime', 'rev', 'reversal', 'reversal_gate', 'scenario', 'smt_reversal', 'strong_continuation', 'strong_gate_ok', 'strong_gate_scn', 'strong_reversal', 'symbol', 'tier', 'trend', 'trend_continuation']

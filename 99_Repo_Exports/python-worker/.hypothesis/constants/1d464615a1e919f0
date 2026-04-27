@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signals/level_enricher.py
+# hypothesis_version: 6.148.10
+
+[0.0, 10000.0, ',', '-', '/', '1m', ':', 'ATR', 'ATR_LEGACY', 'BUY', 'LONG', 'SELL', 'SHORT', 'TP_ATR_MULTS', 'TRAILING_MIN_LOCK_R', 'TRAIL_PROFILE', '_levels_attach_cache', 'atr', 'atr14', 'atr_1m', 'attached', 'baseline_cfg', 'cfg:err', 'emp_time_bucket_ms', 'emp_time_n_alive', 'entry', 'entry_price', 'floor_micro_stop', 'floor_tiny_tp1', 'ignore', 'levels_samples', 'levels_source', 'levels_ttd_tp1_ms', 'levels_v1', 'mode', 'name', 'of', 'ok', 'price', 'reason', 'rr', 'side', 'skipped', 'sl', 'sl_price', 'status', 'stop_dist', 'symbol', 'tp', 'tp1', 'tp1_atr_mult', 'tp1_price', 'tp_atr_mults', 'tp_levels', 'tp_mode', 'tp_mode_used', 'tp_rr', 'trail_profile', 'trailing_min_lock_r', 'utf-8', 'value', 'write_ctx_failed']

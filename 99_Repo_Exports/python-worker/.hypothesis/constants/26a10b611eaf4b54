@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/volatility_service.py
+# hypothesis_version: 6.148.10
+
+[b'ts', b'v', 0.0, 0.0003, 1000, 1500, 2000, 4000, 8000, 20000, 30000, 60000, 3600000, '1440m', '15m', '15min', '15minute', '1d', '1day', '1h', '1hour', '1m', '1min', '1minute', '240m', '24h', '300s', '300sec', '3600s', '4h', '4hour', '5m', '5min', '5minute', '60m', '60s', '60sec', '900s', 'atr', 'ignore', 'inf', 'lastCloseTime', 'ts', 'utf-8', 'v']

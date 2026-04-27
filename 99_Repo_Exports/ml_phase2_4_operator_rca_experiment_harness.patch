@@ -1,0 +1,590 @@
+*** Begin Patch
+*** Add File: orderflow_services/operator_rca_experiment_router_v2_4.py
++from __future__ import annotations
++
++import hashlib
++import json
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, Iterable, List, Optional, Tuple
++
++try:
++    import redis.asyncio as redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++from prometheus_client import Counter, Gauge, start_http_server
++
++
++STREAM_IN = os.getenv("ML_OPERATOR_RCA_ROUTED_IN_STREAM", "stream:ml:operator_rca_requests_routed")
++STREAM_OUT = os.getenv("ML_OPERATOR_RCA_EXPERIMENT_OUT_STREAM", "stream:ml:operator_rca_requests_experimented")
++STREAM_EXPOSURES = os.getenv("ML_OPERATOR_RCA_EXPOSURES_STREAM", "stream:ml:operator_rca_exposures")
++STREAM_AUDIT = os.getenv("ML_OPERATOR_RCA_EXPERIMENT_AUDIT_STREAM", "stream:ml:operator_rca_experiment_audit")
++GROUP = os.getenv("ML_OPERATOR_RCA_EXPERIMENT_GROUP", "cg:ml_operator_rca_experiment_router")
++CONSUMER = os.getenv("ML_OPERATOR_RCA_EXPERIMENT_CONSUMER", os.getenv("HOSTNAME", "ml-operator-rca-experiment-router"))
++
++EXPERIMENTS_TOTAL = Counter(
++    "ml_operator_rca_experiment_assignments_total",
++    "Experiment arm assignments",
++    ["experiment", "arm", "provider", "model_name", "prompt_version"],
++)
++EXPERIMENT_LAST_RUN_TS = Gauge(
++    "ml_operator_rca_experiment_router_last_run_ts_seconds",
++    "Last successful router loop timestamp",
++)
++EXPERIMENT_UP = Gauge(
++    "ml_operator_rca_experiment_router_up",
++    "Router heartbeat",
++)
++
++
++@dataclass(frozen=True)
++class ArmSpec:
++    name: str
++    weight: float
++    provider: str
++    model_name: str
++    prompt_version: str
++    policy_version: str
++
++
++def _safe_json_loads(raw: str, default: Any) -> Any:
++    try:
++        return json.loads(raw)
++    except Exception:
++        return default
++
++
++def _hash_bucket(seed: str) -> float:
++    h = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
++    return int(h, 16) / float(0xFFFFFFFFFFFFFFFF)
++
++
++def _normalize_weights(arms: Iterable[ArmSpec]) -> List[ArmSpec]:
++    lst = [a for a in arms if a.weight > 0.0]
++    total = sum(a.weight for a in lst)
++    if total <= 0:
++        return []
++    return [ArmSpec(**{**a.__dict__, "weight": a.weight / total}) for a in lst]
++
++
++def parse_experiment_arms(raw_json: str) -> List[ArmSpec]:
++    data = _safe_json_loads(raw_json, [])
++    out: List[ArmSpec] = []
++    for item in data:
++        if not isinstance(item, dict):
++            continue
++        out.append(
++            ArmSpec(
++                name=str(item.get("name", "control")),
++                weight=float(item.get("weight", 0.0) or 0.0),
++                provider=str(item.get("provider", "vertex")),
++                model_name=str(item.get("model_name", os.getenv("ML_OPERATOR_RCA_DEFAULT_MODEL", "gemini-2.5-flash-lite"))),
++                prompt_version=str(item.get("prompt_version", os.getenv("ML_OPERATOR_RCA_DEFAULT_PROMPT_VERSION", "ml_triage_v1"))),
++                policy_version=str(item.get("policy_version", os.getenv("ML_OPERATOR_RCA_DEFAULT_POLICY_VERSION", "policy_v1"))),
++            )
++        )
++    return _normalize_weights(out)
++
++
++def choose_arm(experiment_id: str, request_id: str, arms: List[ArmSpec]) -> Optional[ArmSpec]:
++    if not arms:
++        return None
++    x = _hash_bucket(f"{experiment_id}:{request_id}")
++    acc = 0.0
++    for arm in arms:
++        acc += arm.weight
++        if x <= acc:
++            return arm
++    return arms[-1]
++
++
++def build_experiment_assignment(payload: Dict[str, Any], experiment_id: str, arm: ArmSpec) -> Tuple[Dict[str, Any], Dict[str, Any]]:
++    request_id = str(payload.get("request_id") or payload.get("analysis_run_id") or payload.get("recommendation_id") or "na")
++    ts_ms = int(payload.get("ts_ms") or time.time() * 1000)
++    assigned = dict(payload)
++    assigned["experiment_id"] = experiment_id
++    assigned["experiment_arm"] = arm.name
++    assigned["provider"] = arm.provider
++    assigned["model_name"] = arm.model_name
++    assigned["prompt_version"] = arm.prompt_version
++    assigned["policy_version"] = arm.policy_version
++    assigned["experiment_assigned_ts_ms"] = ts_ms
++    exposure = {
++        "schema_version": 1,
++        "ts_ms": ts_ms,
++        "request_id": request_id,
++        "experiment_id": experiment_id,
++        "arm": arm.name,
++        "provider": arm.provider,
++        "model_name": arm.model_name,
++        "prompt_version": arm.prompt_version,
++        "policy_version": arm.policy_version,
++        "incident_id": str(payload.get("incident_id", "")),
++        "recommendation_id": str(payload.get("recommendation_id", "")),
++    }
++    return assigned, exposure
++
++
++async def _ensure_group(r: Any, stream: str, group: str) -> None:
++    try:
++        await r.xgroup_create(stream, group, id="0", mkstream=True)
++    except Exception:
++        return
++
++
++async def run() -> None:
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(int(os.getenv("ML_OPERATOR_RCA_EXPERIMENT_ROUTER_METRICS_PORT", "9875")))
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True)
++    await _ensure_group(r, STREAM_IN, GROUP)
++    EXPERIMENT_UP.set(1)
++    enabled = int(os.getenv("ML_OPERATOR_RCA_EXPERIMENT_ENABLE", "1") or 1)
++    experiment_id = os.getenv("ML_OPERATOR_RCA_EXPERIMENT_ID", "operator_rca_ab_v1")
++    arms = parse_experiment_arms(os.getenv(
++        "ML_OPERATOR_RCA_EXPERIMENT_ARMS_JSON",
++        '[{"name":"control","weight":0.5,"provider":"vertex","model_name":"gemini-2.5-flash-lite","prompt_version":"ml_triage_v1","policy_version":"policy_v1"},'
++        '{"name":"challenger","weight":0.5,"provider":"vertex","model_name":"gemini-2.5-flash","prompt_version":"ml_triage_v2","policy_version":"policy_v1"}]'
++    ))
++    while True:
++        rows = await r.xreadgroup(GROUP, CONSUMER, {STREAM_IN: ">"}, count=100, block=5000)
++        now_ts = time.time()
++        for _stream, messages in rows:
++            for msg_id, payload in messages:
++                try:
++                    if not enabled:
++                        await r.xack(STREAM_IN, GROUP, msg_id)
++                        continue
++                    request_id = str(payload.get("request_id") or payload.get("analysis_run_id") or msg_id)
++                    arm = choose_arm(experiment_id, request_id, arms)
++                    if arm is None:
++                        await r.xadd(STREAM_AUDIT, {"ts_ms": int(now_ts * 1000), "event": "NO_ARM", "request_id": request_id, "experiment_id": experiment_id}, maxlen=50000, approximate=True)
++                        await r.xack(STREAM_IN, GROUP, msg_id)
++                        continue
++                    assigned, exposure = build_experiment_assignment(payload, experiment_id, arm)
++                    await r.xadd(STREAM_OUT, assigned, maxlen=200000, approximate=True)
++                    await r.xadd(STREAM_EXPOSURES, exposure, maxlen=200000, approximate=True)
++                    await r.xadd(STREAM_AUDIT, {"ts_ms": int(now_ts * 1000), "event": "ASSIGNED", "request_id": request_id, "experiment_id": experiment_id, "arm": arm.name}, maxlen=50000, approximate=True)
++                    EXPERIMENTS_TOTAL.labels(experiment_id, arm.name, arm.provider, arm.model_name, arm.prompt_version).inc()
++                    await r.xack(STREAM_IN, GROUP, msg_id)
++                except Exception as exc:
++                    await r.xadd(STREAM_AUDIT, {"ts_ms": int(time.time() * 1000), "event": "ERROR", "message_id": msg_id, "error": str(exc)[:500]}, maxlen=50000, approximate=True)
++                    await r.xack(STREAM_IN, GROUP, msg_id)
++        EXPERIMENT_LAST_RUN_TS.set(now_ts)
++
++
++if __name__ == "__main__":  # pragma: no cover
++    import asyncio
++    asyncio.run(run())
+*** Add File: orderflow_services/operator_rca_experiment_winner_selector_v2_4.py
++from __future__ import annotations
++
++import json
++import math
++import os
++import time
++from collections import defaultdict
++from dataclasses import dataclass
++from statistics import mean
++from typing import Any, DefaultDict, Dict, Iterable, List, Optional, Tuple
++
++try:
++    import redis.asyncio as redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++from prometheus_client import Counter, Gauge, start_http_server
++
++
++EXPOSURES_STREAM = os.getenv("ML_OPERATOR_RCA_EXPOSURES_STREAM", "stream:ml:operator_rca_exposures")
++FEEDBACK_STREAM = os.getenv("ML_OPERATOR_RCA_FEEDBACK_STREAM", "stream:ml:operator_rca_feedback")
++QUALITY_STREAM = os.getenv("ML_OPERATOR_RCA_QUALITY_STREAM", "stream:ml:operator_rca_quality_results")
++DECISIONS_STREAM = os.getenv("ML_OPERATOR_RCA_EXPERIMENT_DECISIONS_STREAM", "stream:ml:operator_rca_experiment_winner_decisions")
++AUDIT_STREAM = os.getenv("ML_OPERATOR_RCA_EXPERIMENT_AUDIT_STREAM", "stream:ml:operator_rca_experiment_audit")
++
++WINNERS_TOTAL = Counter(
++    "ml_operator_rca_experiment_winner_decisions_total",
++    "Experiment winner decisions",
++    ["experiment", "decision", "winning_arm"],
++)
++WINNER_SCORE = Gauge(
++    "ml_operator_rca_experiment_winner_score",
++    "Winning arm composite score",
++    ["experiment", "arm"],
++)
++WINNER_LAST_RUN_TS = Gauge(
++    "ml_operator_rca_experiment_winner_last_run_ts_seconds",
++    "Last run timestamp",
++)
++WINNER_UP = Gauge(
++    "ml_operator_rca_experiment_winner_up",
++    "Winner selector heartbeat",
++)
++
++
++def usefulness_to_score(decision: str) -> float:
++    return {
++        "VERY_USEFUL": 1.0,
++        "USEFUL": 0.75,
++        "MIXED": 0.50,
++        "NOT_USEFUL": 0.0,
++    }.get(str(decision).upper(), 0.50)
++
++
++@dataclass
++class ArmStats:
++    experiment_id: str
++    arm: str
++    provider: str
++    model_name: str
++    prompt_version: str
++    exposures: int = 0
++    quality: List[float] = None  # type: ignore
++    usefulness: List[float] = None  # type: ignore
++
++    def __post_init__(self) -> None:
++        self.quality = self.quality or []
++        self.usefulness = self.usefulness or []
++
++    @property
++    def quality_avg(self) -> float:
++        return float(mean(self.quality)) if self.quality else 0.0
++
++    @property
++    def usefulness_avg(self) -> float:
++        return float(mean(self.usefulness)) if self.usefulness else 0.0
++
++    @property
++    def composite(self) -> float:
++        # usefulness matters more than shape quality
++        return 0.35 * self.quality_avg + 0.65 * self.usefulness_avg
++
++
++def _within_window(ts_ms: int, now_ms: int, window_min: int) -> bool:
++    return ts_ms > 0 and now_ms - ts_ms <= window_min * 60_000
++
++
++def aggregate_arm_stats(
++    exposures: Iterable[Dict[str, Any]],
++    quality_rows: Iterable[Dict[str, Any]],
++    feedback_rows: Iterable[Dict[str, Any]],
++    now_ms: int,
++    window_min: int,
++) -> Dict[Tuple[str, str], ArmStats]:
++    by_req: Dict[str, Tuple[str, str]] = {}
++    stats: Dict[Tuple[str, str], ArmStats] = {}
++    for row in exposures:
++        ts_ms = int(row.get("ts_ms", 0) or 0)
++        if not _within_window(ts_ms, now_ms, window_min):
++            continue
++        exp = str(row.get("experiment_id", ""))
++        arm = str(row.get("arm", ""))
++        if not exp or not arm:
++            continue
++        key = (exp, arm)
++        if key not in stats:
++            stats[key] = ArmStats(exp, arm, str(row.get("provider", "")), str(row.get("model_name", "")), str(row.get("prompt_version", "")))
++        stats[key].exposures += 1
++        req_id = str(row.get("request_id", ""))
++        if req_id:
++            by_req[req_id] = key
++
++    for row in quality_rows:
++        ts_ms = int(row.get("ts_ms", 0) or 0)
++        if not _within_window(ts_ms, now_ms, window_min):
++            continue
++        req_id = str(row.get("request_id", ""))
++        key = by_req.get(req_id)
++        if not key or key not in stats:
++            continue
++        try:
++            stats[key].quality.append(float(row.get("quality_score", 0.0) or 0.0))
++        except Exception:
++            continue
++
++    for row in feedback_rows:
++        ts_ms = int(row.get("ts_ms", 0) or 0)
++        if not _within_window(ts_ms, now_ms, window_min):
++            continue
++        req_id = str(row.get("request_id", "")) or str(row.get("recommendation_id", ""))
++        key = by_req.get(req_id)
++        if not key or key not in stats:
++            continue
++        stats[key].usefulness.append(usefulness_to_score(str(row.get("decision", "MIXED"))))
++    return stats
++
++
++def choose_winner(stats: Dict[Tuple[str, str], ArmStats], min_sample: int) -> List[Dict[str, Any]]:
++    grouped: DefaultDict[str, List[ArmStats]] = defaultdict(list)
++    for (exp, _arm), st in stats.items():
++        grouped[exp].append(st)
++
++    out: List[Dict[str, Any]] = []
++    for experiment_id, arms in grouped.items():
++        eligible = [a for a in arms if a.exposures >= min_sample]
++        if len(eligible) < 2:
++            out.append({
++                "experiment_id": experiment_id,
++                "decision": "HOLD",
++                "winning_arm": "",
++                "reason": "INSUFFICIENT_SAMPLE",
++            })
++            continue
++        eligible = sorted(eligible, key=lambda x: (x.composite, x.usefulness_avg, x.quality_avg), reverse=True)
++        winner = eligible[0]
++        runner_up = eligible[1]
++        delta = winner.composite - runner_up.composite
++        decision = "PROMOTE" if delta >= 0.08 else "HOLD"
++        out.append({
++            "experiment_id": experiment_id,
++            "decision": decision,
++            "winning_arm": winner.arm,
++            "winning_provider": winner.provider,
++            "winning_model_name": winner.model_name,
++            "winning_prompt_version": winner.prompt_version,
++            "winning_score": round(winner.composite, 6),
++            "runner_up_arm": runner_up.arm,
++            "runner_up_score": round(runner_up.composite, 6),
++            "delta_score": round(delta, 6),
++            "reason": "BEST_COMPOSITE_USEFULNESS",
++        })
++    return out
++
++
++async def _xrevrange_all(r: Any, stream: str, count: int) -> List[Dict[str, Any]]:
++    try:
++        rows = await r.xrevrange(stream, count=count)
++    except Exception:
++        return []
++    out: List[Dict[str, Any]] = []
++    for _msg_id, payload in rows:
++        out.append(dict(payload))
++    return out
++
++
++async def run() -> None:
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(int(os.getenv("ML_OPERATOR_RCA_EXPERIMENT_WINNER_METRICS_PORT", "9876")))
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True)
++    WINNER_UP.set(1)
++    window_min = int(os.getenv("ML_OPERATOR_RCA_EXPERIMENT_WINDOW_MIN", "1440") or 1440)
++    min_sample = int(os.getenv("ML_OPERATOR_RCA_EXPERIMENT_MIN_SAMPLE", "8") or 8)
++    scan_count = int(os.getenv("ML_OPERATOR_RCA_EXPERIMENT_SCAN_COUNT", "2000") or 2000)
++    loop_sec = float(os.getenv("ML_OPERATOR_RCA_EXPERIMENT_WINNER_LOOP_SEC", "300") or 300)
++    while True:
++        now_ms = int(time.time() * 1000)
++        exposures = await _xrevrange_all(r, EXPOSURES_STREAM, scan_count)
++        quality_rows = await _xrevrange_all(r, QUALITY_STREAM, scan_count)
++        feedback_rows = await _xrevrange_all(r, FEEDBACK_STREAM, scan_count)
++        stats = aggregate_arm_stats(exposures, quality_rows, feedback_rows, now_ms, window_min)
++        decisions = choose_winner(stats, min_sample)
++        for row in decisions:
++            exp = str(row.get("experiment_id", ""))
++            arm = str(row.get("winning_arm", ""))
++            decision = str(row.get("decision", "HOLD"))
++            await r.xadd(DECISIONS_STREAM, {"ts_ms": now_ms, **row}, maxlen=100000, approximate=True)
++            await r.xadd(AUDIT_STREAM, {"ts_ms": now_ms, "event": "WINNER_DECISION", **row}, maxlen=50000, approximate=True)
++            await r.hset(f"cfg:ml:operator_rca_experiment:winner:{exp}", mapping={k: json.dumps(v) if isinstance(v, (dict, list)) else v for k, v in row.items()})
++            WINNERS_TOTAL.labels(exp, decision, arm).inc()
++            if arm:
++                WINNER_SCORE.labels(exp, arm).set(float(row.get("winning_score", 0.0) or 0.0))
++        WINNER_LAST_RUN_TS.set(time.time())
++        await r.hset("metrics:ml:operator_rca_experiment:last", mapping={"ts_ms": now_ms, "decisions_n": len(decisions)})
++        await r.xadd(AUDIT_STREAM, {"ts_ms": now_ms, "event": "WINNER_LOOP_COMPLETE", "decisions_n": len(decisions)}, maxlen=50000, approximate=True)
++        import asyncio
++        await asyncio.sleep(loop_sec)
++
++
++if __name__ == "__main__":  # pragma: no cover
++    import asyncio
++    asyncio.run(run())
+*** Add File: orderflow_services/sql/ml_phase2_4_v1.sql
++CREATE TABLE IF NOT EXISTS llm_operator_rca_experiment_exposures (
++  request_id text NOT NULL,
++  experiment_id text NOT NULL,
++  arm text NOT NULL,
++  provider text,
++  model_name text,
++  prompt_version text,
++  policy_version text,
++  ts_ms bigint NOT NULL,
++  created_at timestamptz NOT NULL DEFAULT now(),
++  PRIMARY KEY (request_id, experiment_id)
++);
++
++CREATE TABLE IF NOT EXISTS llm_operator_rca_experiment_winner_decisions (
++  experiment_id text NOT NULL,
++  ts_ms bigint NOT NULL,
++  decision text NOT NULL,
++  winning_arm text,
++  winning_provider text,
++  winning_model_name text,
++  winning_prompt_version text,
++  winning_score double precision,
++  runner_up_arm text,
++  runner_up_score double precision,
++  delta_score double precision,
++  reason text,
++  created_at timestamptz NOT NULL DEFAULT now(),
++  PRIMARY KEY (experiment_id, ts_ms)
++);
++
++CREATE INDEX IF NOT EXISTS idx_llm_operator_rca_experiment_winner_decisions_exp_ts
++  ON llm_operator_rca_experiment_winner_decisions (experiment_id, ts_ms DESC);
+*** Add File: orderflow_services/docker_compose_fragment_ml_phase2_4_v1.yml
++services:
++  scanner-ml-operator-rca-experiment-router-v2-4:
++    command: ["python", "-m", "orderflow_services.operator_rca_experiment_router_v2_4"]
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      ML_OPERATOR_RCA_EXPERIMENT_ENABLE: ${ML_OPERATOR_RCA_EXPERIMENT_ENABLE:-1}
++      ML_OPERATOR_RCA_EXPERIMENT_ID: ${ML_OPERATOR_RCA_EXPERIMENT_ID:-operator_rca_ab_v1}
++      ML_OPERATOR_RCA_EXPERIMENT_ROUTER_METRICS_PORT: ${ML_OPERATOR_RCA_EXPERIMENT_ROUTER_METRICS_PORT:-9875}
++      ML_OPERATOR_RCA_EXPERIMENT_ARMS_JSON: ${ML_OPERATOR_RCA_EXPERIMENT_ARMS_JSON:-[{"name":"control","weight":0.5,"provider":"vertex","model_name":"gemini-2.5-flash-lite","prompt_version":"ml_triage_v1","policy_version":"policy_v1"},{"name":"challenger","weight":0.5,"provider":"vertex","model_name":"gemini-2.5-flash","prompt_version":"ml_triage_v2","policy_version":"policy_v1"}]}
++    ports:
++      - "9875:9875"
++
++  scanner-ml-operator-rca-experiment-winner-v2-4:
++    command: ["python", "-m", "orderflow_services.operator_rca_experiment_winner_selector_v2_4"]
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      ML_OPERATOR_RCA_EXPERIMENT_WINDOW_MIN: ${ML_OPERATOR_RCA_EXPERIMENT_WINDOW_MIN:-1440}
++      ML_OPERATOR_RCA_EXPERIMENT_MIN_SAMPLE: ${ML_OPERATOR_RCA_EXPERIMENT_MIN_SAMPLE:-8}
++      ML_OPERATOR_RCA_EXPERIMENT_SCAN_COUNT: ${ML_OPERATOR_RCA_EXPERIMENT_SCAN_COUNT:-2000}
++      ML_OPERATOR_RCA_EXPERIMENT_WINNER_LOOP_SEC: ${ML_OPERATOR_RCA_EXPERIMENT_WINNER_LOOP_SEC:-300}
++      ML_OPERATOR_RCA_EXPERIMENT_WINNER_METRICS_PORT: ${ML_OPERATOR_RCA_EXPERIMENT_WINNER_METRICS_PORT:-9876}
++    ports:
++      - "9876:9876"
+*** Add File: orderflow_services/prometheus_alerts_ml_phase2_4_v1.yml
++groups:
++  - name: ml_phase2_4_operator_rca_experiments
++    rules:
++      - alert: MLOperatorRCAExperimentRouterStale
++        expr: time() - ml_operator_rca_experiment_router_last_run_ts_seconds > 900
++        for: 10m
++        labels:
++          severity: warning
++        annotations:
++          summary: "operator_rca experiment router stale"
++
++      - alert: MLOperatorRCAExperimentWinnerStale
++        expr: time() - ml_operator_rca_experiment_winner_last_run_ts_seconds > 1800
++        for: 15m
++        labels:
++          severity: warning
++        annotations:
++          summary: "operator_rca experiment winner selector stale"
+*** Add File: orderflow_services/runbook_ml_phase2_4_v1.md
++# Phase 2.4 — operator RCA experiment harness
++
++## Scope
++
++Только `scanner_infra`. Никакого влияния на hot path.
++
++## Что добавляется
++
++- A/B routing buckets для `operator_rca`
++- exposure logging
++- winner selection на базе `quality_score + usefulness_score`
++
++## Streams
++
++- input: `stream:ml:operator_rca_requests_routed`
++- output: `stream:ml:operator_rca_requests_experimented`
++- exposures: `stream:ml:operator_rca_exposures`
++- winner decisions: `stream:ml:operator_rca_experiment_winner_decisions`
++- audit: `stream:ml:operator_rca_experiment_audit`
++
++## Safe start
++
++1. Включить router и winner selector.
++2. Держать только два arms: control/challenger.
++3. Не менять provider defaults в routing controller до накопления sample.
++4. Использовать winner decisions advisory-only.
++
++## Example rollout
++
++```bash
++export ML_OPERATOR_RCA_EXPERIMENT_ENABLE=1
++export ML_OPERATOR_RCA_EXPERIMENT_ID=operator_rca_ab_v1
++export ML_OPERATOR_RCA_EXPERIMENT_MIN_SAMPLE=8
++```
++
++## Smoke checks
++
++```bash
++redis-cli XREVRANGE stream:ml:operator_rca_exposures + - COUNT 5
++redis-cli XREVRANGE stream:ml:operator_rca_experiment_winner_decisions + - COUNT 5
++curl -s localhost:9875/metrics | grep '^ml_operator_rca_experiment_'
++curl -s localhost:9876/metrics | grep '^ml_operator_rca_experiment_'
++```
+*** Add File: orderflow_services/tests/test_operator_rca_experiment_harness_v2_4.py
++from orderflow_services.operator_rca_experiment_router_v2_4 import (
++    ArmSpec,
++    build_experiment_assignment,
++    choose_arm,
++    parse_experiment_arms,
++)
++from orderflow_services.operator_rca_experiment_winner_selector_v2_4 import (
++    aggregate_arm_stats,
++    choose_winner,
++)
++
++
++def test_parse_and_choose_arm_is_deterministic():
++    arms = parse_experiment_arms(
++        '[{"name":"control","weight":0.7,"provider":"vertex","model_name":"a","prompt_version":"p1","policy_version":"pv1"},'
++        '{"name":"challenger","weight":0.3,"provider":"vertex","model_name":"b","prompt_version":"p2","policy_version":"pv1"}]'
++    )
++    a1 = choose_arm("exp1", "req-123", arms)
++    a2 = choose_arm("exp1", "req-123", arms)
++    assert a1 is not None
++    assert a1 == a2
++
++
++def test_build_experiment_assignment_sets_arm_fields():
++    arm = ArmSpec("challenger", 1.0, "vertex", "gemini-2.5-flash", "ml_triage_v2", "policy_v1")
++    assigned, exposure = build_experiment_assignment({"request_id": "r1", "ts_ms": 1000}, "exp1", arm)
++    assert assigned["experiment_arm"] == "challenger"
++    assert assigned["model_name"] == "gemini-2.5-flash"
++    assert exposure["experiment_id"] == "exp1"
++
++
++def test_winner_selection_prefers_high_usefulness():
++    now_ms = 1_700_000_000_000
++    exposures = [
++        {"request_id": "r1", "experiment_id": "exp1", "arm": "control", "provider": "vertex", "model_name": "lite", "prompt_version": "p1", "ts_ms": now_ms},
++        {"request_id": "r2", "experiment_id": "exp1", "arm": "control", "provider": "vertex", "model_name": "lite", "prompt_version": "p1", "ts_ms": now_ms},
++        {"request_id": "r3", "experiment_id": "exp1", "arm": "challenger", "provider": "vertex", "model_name": "flash", "prompt_version": "p2", "ts_ms": now_ms},
++        {"request_id": "r4", "experiment_id": "exp1", "arm": "challenger", "provider": "vertex", "model_name": "flash", "prompt_version": "p2", "ts_ms": now_ms},
++    ]
++    quality = [
++        {"request_id": "r1", "quality_score": 0.8, "ts_ms": now_ms},
++        {"request_id": "r2", "quality_score": 0.8, "ts_ms": now_ms},
++        {"request_id": "r3", "quality_score": 0.75, "ts_ms": now_ms},
++        {"request_id": "r4", "quality_score": 0.75, "ts_ms": now_ms},
++    ]
++    feedback = [
++        {"request_id": "r1", "decision": "MIXED", "ts_ms": now_ms},
++        {"request_id": "r2", "decision": "MIXED", "ts_ms": now_ms},
++        {"request_id": "r3", "decision": "VERY_USEFUL", "ts_ms": now_ms},
++        {"request_id": "r4", "decision": "VERY_USEFUL", "ts_ms": now_ms},
++    ]
++    stats = aggregate_arm_stats(exposures, quality, feedback, now_ms, 1440)
++    decisions = choose_winner(stats, min_sample=2)
++    assert len(decisions) == 1
++    assert decisions[0]["winning_arm"] == "challenger"
++    assert decisions[0]["decision"] == "PROMOTE"
++
++
++def test_winner_selection_holds_when_not_enough_sample():
++    now_ms = 1_700_000_000_000
++    exposures = [{"request_id": "r1", "experiment_id": "exp1", "arm": "control", "provider": "vertex", "model_name": "lite", "prompt_version": "p1", "ts_ms": now_ms}]
++    stats = aggregate_arm_stats(exposures, [], [], now_ms, 1440)
++    decisions = choose_winner(stats, min_sample=2)
++    assert decisions[0]["decision"] == "HOLD"
++    assert decisions[0]["reason"] == "INSUFFICIENT_SAMPLE"
+*** End Patch

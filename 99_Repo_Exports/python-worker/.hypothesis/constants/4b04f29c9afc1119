@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/dual_redis_client.py
+# hypothesis_version: 6.148.10
+
+[100, 120, 1000, '6379', 'REDIS_SIGNALS_HOST', 'REDIS_SIGNALS_HOST_2', 'REDIS_SIGNALS_PORT', 'REDIS_SIGNALS_PORT_2', 'redis-worker-1', 'redis-worker-2']

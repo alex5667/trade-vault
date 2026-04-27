@@ -1,0 +1,186 @@
+groups:
+- name: of_gate_ok_rate_v1
+  interval: 30s
+  rules:
+      # ─────────────────────────────
+      # Recording rules
+      # ─────────────────────────────
+  - record: of_gate:eligible_rate5m
+    expr: sum by (symbol) (rate(of_gate_eligible_total[5m]))
+
+  - record: of_gate:ok_rate_strict5m
+    expr: sum(rate(of_gate_ok_hard_total[5m])) / 
+      sum(rate(of_gate_eligible_total[5m]))
+
+  - record: of_gate:ok_rate_soft5m
+    expr: (sum(rate(of_gate_ok_hard_total[5m])) + 
+      sum(rate(of_gate_ok_soft_total[5m]))) / 
+      sum(rate(of_gate_eligible_total[5m]))
+
+  - record: of_gate:soft_share5m
+    expr: sum(rate(of_gate_ok_soft_total[5m])) / 
+      clamp_min(sum(rate(of_gate_ok_soft_total[5m])) + 
+      sum(rate(of_gate_ok_hard_total[5m])), 1e-9)
+
+  - record: of_gate:quarantine_rate5m
+    expr: sum(rate(of_gate_quarantined_total[5m]))
+
+  - record: of_gate:quarantine_share5m
+    expr: sum(rate(of_gate_quarantined_total[5m])) / 
+      clamp_min(sum(rate(of_gate_quarantined_total[5m])) + 
+      sum(rate(of_gate_eligible_total[5m])), 1e-9)
+
+      # ─────────────────────────────
+      # Alerts
+      # ─────────────────────────────
+  - alert: OF_Gate_EligibleAbsent15m
+    expr: absent_over_time(of_gate_eligible_total[15m])
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: "OF gate: of_gate_eligible_total absent"
+      description: "Metric of_gate_eligible_total has been absent for 15m (scrape
+        or pipeline down)."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: OF_Gate_NoEligible15m
+    expr: sum(increase(of_gate_eligible_total[15m])) == 0
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: "OF gate: no eligible rows in 15m"
+      description: "No new of_gate eligible rows were emitted in the last 15 minutes
+        (could be pipeline down, or metrics emission disabled)."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: OF_Gate_OkRateStrictLow
+    expr: (sum(rate(of_gate_ok_hard_total[5m])) / 
+      sum(rate(of_gate_eligible_total[5m])) < 0.10) and 
+      (sum(rate(of_gate_eligible_total[5m])) > 0)
+    for: 10m
+    labels:
+      severity: critical
+    annotations:
+      summary: "OF gate: ok_rate_strict low"
+      description: "Hard ok_rate dropped below 0.10 for 10 minutes (denominator >
+        0). Investigate data quality, gating regressions, or upstream feeds."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: OF_Gate_SoftShareHigh
+    expr: (sum(rate(of_gate_ok_soft_total[5m])) / 
+      clamp_min(sum(rate(of_gate_ok_soft_total[5m])) + 
+      sum(rate(of_gate_ok_hard_total[5m])), 1e-9) > 0.50) and 
+      (sum(rate(of_gate_ok_soft_total[5m])) + 
+      sum(rate(of_gate_ok_hard_total[5m])) > 0)
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "OF gate: soft_share high"
+      description: "Share of ok_soft among all oks is above 0.50 for 10 minutes. This
+        indicates degraded quality even when still passing."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: OF_Gate_QuarantineShareHigh
+    expr: (of_gate:quarantine_share5m > 0.01) and 
+      (sum(rate(of_gate_quarantined_total[5m])) + 
+      sum(rate(of_gate_eligible_total[5m])) > 0)
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "OF gate: DQ quarantine share high"
+      description: "More than 1% of of-gate rows are being quarantined (DQ validation
+        failures). Check top 'why' labels and contract check output."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: OF_Gate_QuarantineRateHigh
+    expr: of_gate:quarantine_rate5m > 1
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "OF gate: DQ quarantine rate high"
+      description: "Quarantine rate above 1/s for 10 minutes. Likely schema breakage
+        or time normalization issues."
+
+      # ─────────────────────────────
+      # Recording rules: contract smoke-check (P76)
+      # ─────────────────────────────
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - record: of_gate:contract_bad_share2h
+    expr: max_over_time(of_gate_contract_smoke_bad_share[2h])
+
+  - record: of_gate:contract_missing_schema_share2h
+    expr: max_over_time(of_gate_contract_smoke_missing_schema_share[2h])
+
+  - record: of_gate:contract_schema_version_mode2h
+    expr: max_over_time(of_gate_contract_smoke_schema_version_mode[2h])
+
+  - record: of_gate:contract_last_ts_ms2h
+    expr: max_over_time(of_gate_contract_smoke_last_ts_ms[2h])
+
+  - record: of_gate:contract_age_seconds
+    expr: (time() * 1000 - of_gate:contract_last_ts_ms2h) / 1000
+
+      # ─────────────────────────────
+      # P76 — contract smoke-check alerts
+      # ─────────────────────────────
+  - alert: OF_Gate_ContractSmokeStale2h
+    expr: of_gate:contract_age_seconds > 7200
+    for: 10m
+    labels:
+      severity: critical
+    annotations:
+      summary: "OF gate: contract smoke-check stale"
+      description: "No fresh contract smoke-check data for >2h. Timers/cron/exporter
+        may be down."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: OF_Gate_ContractBadShareHigh
+    expr: (of_gate:contract_bad_share2h > 0.01) and 
+      (max_over_time(of_gate_contract_smoke_n_total[2h]) > 0)
+    for: 10m
+    labels:
+      severity: critical
+    annotations:
+      summary: "OF gate: contract bad_share high"
+      description: "Contract smoke-check reports >1% invalid rows in metrics:of_gate
+        (2h window). Check top dq_code and producers."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: OF_Gate_ContractMissingSchemaShareHigh
+    expr: (of_gate:contract_missing_schema_share2h > 0.25) and 
+      (max_over_time(of_gate_contract_smoke_n_total[2h]) > 0)
+    for: 30m
+    labels:
+      severity: warning
+    annotations:
+      summary: "OF gate: schema markers missing"
+      description: "More than 25% rows miss schema_name/schema_version/reason_code.
+        Producers should call enrich_schema_fields()."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: OF_Gate_ContractSchemaVersionMissing
+    expr: (of_gate:contract_schema_version_mode2h == 0) and 
+      (max_over_time(of_gate_contract_smoke_n_total[2h]) > 0)
+    for: 30m
+    labels:
+      severity: warning
+    annotations:
+      summary: "OF gate: schema_version missing"
+      description: "schema_version_mode is 0 in smoke-check window: schema_version
+        not set or not parseable."
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd

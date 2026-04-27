@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/interpolate/_fitpack2.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-16, 1.0, 2.0, 'BivariateSpline', 'LSQBivariateSpline', 'LSQUnivariateSpline', 'RectBivariateSpline', 'UnivariateSpline', 'attribute "fp" %s', 'const', 'extrapolate', 'ier=%s', 'raise', 's should be positive', 's should be s >= 0.0', 'w should be positive', 'x must be increasing', 'zeros']

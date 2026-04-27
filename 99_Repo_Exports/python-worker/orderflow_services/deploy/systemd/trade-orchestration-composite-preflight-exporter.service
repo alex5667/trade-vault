@@ -1,0 +1,15 @@
+[Unit]
+Description=Trade Orchestration Composite Preflight Exporter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/trade/latency-contract-sensitive-jobs.env
+WorkingDirectory=%h/trade/orderflow_services
+ExecStart=%h/trade/orderflow_services/deploy/systemd/run_trade_orchestration_composite_preflight_exporter_v1.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

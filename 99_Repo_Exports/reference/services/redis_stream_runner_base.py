@@ -1,0 +1,159 @@
+# -*- coding: utf-8 -*-
+# python-worker/services/redis_stream_runner_base.py
+from __future__ import annotations
+
+import os
+import time
+import socket
+from dataclasses import dataclass
+from typing import Dict, List, Tuple, Optional, Iterable
+
+import redis
+
+
+@dataclass(frozen=True)
+class StreamMsg:
+    stream: str
+    msg_id: str
+    fields: Dict[str, str]
+
+
+class RedisStreamRunner:
+    """
+    SRE-grade runner:
+      - ensure consumer-group exists (MKSTREAM)
+      - read with XREADGROUP (>)
+      - periodically XAUTOCLAIM pending (min_idle_ms)
+      - ACK only on success
+      - poison messages -> DLQ + ACK (чтобы не стопорить партицию)
+    """
+
+    def __init__(
+        self,
+        r: redis.Redis,
+        group: str,
+        consumer: Optional[str] = None,
+        block_ms: int = 2000,
+        read_count: int = 50,
+        autoclaim_min_idle_ms: int = 45000,
+        autoclaim_count: int = 100,
+        dlq_prefix: str = "dlq",
+    ):
+        self.r = r
+        self.group = group
+        self.consumer = consumer or f"{socket.gethostname()}:{os.getpid()}"
+        self.block_ms = block_ms
+        self.read_count = read_count
+        self.autoclaim_min_idle_ms = autoclaim_min_idle_ms
+        self.autoclaim_count = autoclaim_count
+        self.dlq_prefix = dlq_prefix
+
+    def ensure_group(self, stream: str) -> None:
+        import logging
+        logger = logging.getLogger("redis_stream_runner")
+        while True:
+            try:
+                # MKSTREAM: создаст stream, если его нет
+                self.r.xgroup_create(stream, self.group, id="0-0", mkstream=True)
+                break
+            except redis.ResponseError as e:
+                # BUSYGROUP -> ok
+                if "BUSYGROUP" not in str(e):
+                    raise
+                break
+            except redis.exceptions.BusyLoadingError:
+                logger.warning("ensure_group: Redis is loading dataset in memory, sleeping 2s...")
+                time.sleep(2.0)
+            except redis.exceptions.ConnectionError as e:
+                logger.warning(f"ensure_group: Redis connection error: {e}, sleeping 1s...")
+                time.sleep(1.0)
+
+    def ensure_groups(self, streams: Iterable[str]) -> None:
+        for s in streams:
+            self.ensure_group(s)
+
+    def _xautoclaim(self, stream: str, start_id: str = "0-0") -> Tuple[str, List[StreamMsg]]:
+        """
+        redis-py: xautoclaim(stream, group, consumer, min_idle_time, start_id, count=?)
+        return: (next_start_id, [(msg_id, {field:val}),...], deleted_ids?)
+        """
+        try:
+            res = self.r.xautoclaim(
+                name=stream,
+                groupname=self.group,
+                consumername=self.consumer,
+                min_idle_time=self.autoclaim_min_idle_ms,
+                start_id=start_id,
+                count=self.autoclaim_count,
+            )
+        except Exception:
+            # fallback if xautoclaim missing in older redis-py
+            res = self.r.execute_command(
+                "XAUTOCLAIM",
+                stream,
+                self.group,
+                self.consumer,
+                self.autoclaim_min_idle_ms,
+                start_id,
+                "COUNT",
+                self.autoclaim_count,
+            )
+
+        next_id = res[0]
+        raw_msgs = res[1] or []
+        msgs: List[StreamMsg] = []
+        for msg_id, fields in raw_msgs:
+            msgs.append(StreamMsg(stream=stream, msg_id=msg_id, fields={k: v for k, v in fields.items()}))
+        return next_id, msgs
+
+    def claim_cycle(self, streams: List[str]) -> List[StreamMsg]:
+        """
+        Один проход autoclaim по всем streams: возвращает пачку полученных сообщений.
+        """
+        out: List[StreamMsg] = []
+        for s in streams:
+            start = "0-0"
+            # один проход (можно сделать while, но лучше дозировать)
+            nxt, msgs = self._xautoclaim(s, start_id=start)
+            out.extend(msgs)
+        return out
+
+    def read_new(self, streams: List[str]) -> List[StreamMsg]:
+        """
+        Читает новые (>) из нескольких стримов сразу.
+        """
+        if not streams:
+            return []
+
+        streams_map = {s: ">" for s in streams}
+        res = self.r.xreadgroup(
+            groupname=self.group,
+            consumername=self.consumer,
+            streams=streams_map,
+            count=self.read_count,
+            block=self.block_ms,
+        )
+        out: List[StreamMsg] = []
+        for stream_name, items in res:
+            for msg_id, fields in items:
+                out.append(StreamMsg(stream=stream_name, msg_id=msg_id, fields={k: v for k, v in fields.items()}))
+        return out
+
+    def ack(self, stream: str, msg_id: str) -> None:
+        self.r.xack(stream, self.group, msg_id)
+
+    def to_dlq(self, stream: str, msg: StreamMsg, reason: str) -> None:
+        key = f"{self.dlq_prefix}:{stream}"
+        now_ms = int(time.time() * 1000)
+        payload = {
+            "ts": str(now_ms),
+            "reason": reason,
+            "src_stream": msg.stream,
+            "src_id": msg.msg_id,
+            "fields": str(msg.fields),
+            "consumer": self.consumer,
+            "group": self.group,
+        }
+        # DLQ тоже тримим
+        self.r.xadd(key, payload, maxlen=100000, approximate=True)
+

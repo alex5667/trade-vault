@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signals/formatters.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1000, '0', 'binance', 'change', 'changePercent', 'change_percent', 'change_percent_float', 'closeTime', 'entry', 'funding', 'fundingRate', 'fundingRatePercent', 'fundingTime', 'lastPrice', 'nextFundingTime', 'price', 'priceChangePercent', 'quantity', 'quoteVolume', 'rate', 'side', 'source', 'symbol', 'telegram', 'ticker', 'timestamp', 'type', 'volume']

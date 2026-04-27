@@ -1,0 +1,29 @@
+groups:
+  - name: ml_phase2_2_operator_rca_governor
+    rules:
+      - alert: MLOperatorRCAGovernorStale
+        expr: (time() - ml_operator_rca_governor_last_run_ts_seconds) > 1800
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "RCA usefulness governor stale"
+          description: "No fresh governor run in 30 minutes."
+
+      - alert: MLOperatorRCASuppressPatternsSpike
+        expr: ml_operator_rca_governor_suppress_patterns > 20
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Too many RCA action patterns suppressed"
+          description: "Usefulness governor is suppressing many patterns; inspect prompt/provider drift."
+
+      - alert: MLOperatorRCAPromotePatternsDrop
+        expr: ml_operator_rca_governor_promote_patterns == 0
+        for: 12h
+        labels:
+          severity: info
+        annotations:
+          summary: "No RCA patterns promoted"
+          description: "All RCA action patterns are held or suppressed; inspect usefulness quality."

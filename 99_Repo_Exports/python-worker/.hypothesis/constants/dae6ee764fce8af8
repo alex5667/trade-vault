@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/stream_handlers.py
+# hypothesis_version: 6.148.10
+
+['%H:%M:%S UTC', 'N/A', 'avgRange', 'bulk', 'count', 'data', 'items', 'pairs', 'priceChangePercent', 'range', 'raw', 'symbol', 'threshold', 'top-gainers', 'top-losers', 'type', 'unknown', 'volatility', 'volatilityRange', 'volatilitySpike', 'volume', 'ws-new-pairs']

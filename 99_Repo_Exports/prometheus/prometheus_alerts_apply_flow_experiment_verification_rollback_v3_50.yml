@@ -1,0 +1,37 @@
+groups:
+  - name: ml_phase3_50_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_verification_rollback_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowExperimentVerificationStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_verification_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "apply-flow experiment post-apply verifier is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowExperimentRollbackStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_rollback_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "apply-flow experiment rollback controller is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowExperimentVerificationErrors
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_verification_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "apply-flow experiment verifier has errors"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowExperimentRollbackPlanned
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_rollbacks_total{applied="0"}[30m]) > 0
+        for: 5m
+        labels: { severity: info }
+        annotations:
+          summary: "apply-flow experiment rollback plan was produced"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceApplyFlowExperimentObservedShareLow
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_verification_observed_target_share < 0.25
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "apply-flow experiment observed target share is low after apply"

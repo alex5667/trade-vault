@@ -1,0 +1,49 @@
+groups:
+- name: policy-effectiveness-p71
+  rules:
+  - alert: PolicyEffectivenessReportStale
+    expr: policy_effectiveness_staleness_sec > 7200
+    for: 30m
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "policy effectiveness report is stale"
+      description: "No fresh policy effectiveness snapshot in cfg2 for >2h. The worker
+        may be stopped, crashing, or Redis stream reads may be failing."
+      runbook: "orderflow_services/runbook_policy_effectiveness_p71.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: PolicyEffectivenessUnknownShareHigh
+    expr: policy_effectiveness_share_24h{mode="unknown"} > 0.02 and 
+      signal_quality_n_24h > 200
+    for: 1h
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "high share of trades with policy mode=unknown"
+      description: "More than 2% of trades in last 24h are missing/unknown policy_effective_mode.
+        This breaks calibration of policy thresholds."
+      runbook: "orderflow_services/runbook_policy_effectiveness_p71.md"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: PolicyEffectivenessWarnMuchWorseThanOk
+    expr: policy_effectiveness_baseline_ok_present == 1 and 
+      signal_quality_n_24h_by_policy_mode{mode="ok"} >= 50 and 
+      signal_quality_n_24h_by_policy_mode{mode="warn"} >= 30 and 
+      policy_effectiveness_expectancy_r_delta_24h{mode="warn"} < -0.25
+    for: 2h
+    labels:
+      severity: warn
+      component: trade
+    annotations:
+      summary: "warn-mode expectancy much worse than ok"
+      description: "Expected return under policy_effective_mode=warn is materially
+        worse than ok (delta < -0.25R). Consider adjusting warn threshold, quarantine
+        behavior, or data-quality gate sensitivity."
+      runbook: "orderflow_services/runbook_policy_effectiveness_p71.md"
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd

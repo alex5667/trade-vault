@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/signal_quality_service.py
+# hypothesis_version: 6.148.10
+
+[0.0, 2000, 'BE', 'LOSS', 'WIN', '__main__', 'be', 'count', 'dlq:signal_quality', 'global', 'losses', 'lossless', 'pnl', 'r_multiple', 'result', 'sid', 'signal-quality', 'sum_pnl', 'sum_r', 'symbol', 'trades:closed', 'wins', 'worker-1']

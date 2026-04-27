@@ -1,0 +1,25 @@
+[Unit]
+Description=Trade Confidence Score Guardrails (Promote Mode)
+After=network.target redis.service
+
+[Service]
+Type=oneshot
+User=alex
+Group=alex
+WorkingDirectory=/home/alex/front/trade/scanner_infra
+EnvironmentFile=/home/alex/front/trade/scanner_infra/.env
+EnvironmentFile=-/home/alex/front/trade/scanner_infra/deploy/systemd/conf-score-guardrails.env
+
+# Promote staged -> live if healthy
+ExecStart=/usr/bin/python3 -m orderflow_services.conf_score_guardrails_promote_v1 \
+    --redis-url ${REDIS_URL} \
+    --bundle-dir ${CONF_SCORE_GUARD_BUNDLE_DIR:-/var/lib/trade/conf_score_guard_bundles} \
+    --health-state-path ${CONF_SCORE_GUARD_HEALTH_STATE_PATH:-/tmp/conf_cal_proof_state.json} \
+    --require-health 1 \
+    --max-age-sec 600 \
+    --ece-margin 0.01 \
+    --brier-margin 0.01 \
+    --min-n 300
+
+[Install]
+WantedBy=multi-user.target

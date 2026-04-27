@@ -1,0 +1,26 @@
+groups:
+  - name: ml_phase3_57_4_1_incident_rca_apply_replay_gate_persist_dashboard
+    rules:
+      - alert: MLIncidentRCAApplyReplayGatePersisterStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_replay_gate_decisions_persister_v3_57_4_1_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "Incident RCA replay gate persister stale" }
+
+      - alert: MLIncidentRCAApplyReplayGatePersisterDLQ
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_replay_gate_decisions_persister_v3_57_4_1_dlq_total[30m]) > 0
+        for: 5m
+        labels: { severity: critical }
+        annotations: { summary: "Incident RCA replay gate persister DLQ has new entries" }
+
+      - alert: MLIncidentRCAApplyReplayDashboardStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_replay_dashboard_snapshot_v3_57_4_1_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "Incident RCA replay dashboard snapshot stale" }
+
+      - alert: MLIncidentRCAApplyReplayDashboardBlocked
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_replay_dashboard_snapshot_v3_57_4_1_gate_pass == 0
+        for: 15m
+        labels: { severity: critical }
+        annotations: { summary: "Incident RCA replay dashboard shows blocked gate" }

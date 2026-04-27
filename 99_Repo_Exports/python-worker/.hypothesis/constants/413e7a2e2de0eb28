@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/matplotlib/backend_managers.py
+# hypothesis_version: 6.148.10
+
+['3.5', '3.6', 'cursor', 'key_press_event', 'toggled', 'tool_added_event', 'tool_message_event', 'tool_removed_event', 'tool_trigger_%s', 'toolmanager']

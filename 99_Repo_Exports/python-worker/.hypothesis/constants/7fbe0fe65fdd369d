@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signal_scoring/weak_progress/scorer.py
+# hypothesis_version: 6.148.10
+
+[-100, 100, 'continuation', 'fade', 'fade_confirmation', 'fade_preconditions', 'is_valid', 'pattern_family', 'progress_score', 'progress_strength', 'reasons', 'weak_progress']

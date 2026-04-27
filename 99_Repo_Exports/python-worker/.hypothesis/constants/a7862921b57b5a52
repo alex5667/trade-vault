@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/redis_streams_runtime.py
+# hypothesis_version: 6.148.10
+
+[1000.0, 200, 500, 1000, '$', '0', '0-0', '>', 'BUSYGROUP', 'NOGROUP', 'ignore', 'stream', 'utf-8']

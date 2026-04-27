@@ -1,0 +1,30 @@
+groups:
+  - name: ml_phase3_25_route_incident_rca_mirror_rca_winner_apply_verification_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyVerificationStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_verification_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror RCA winner apply verification is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyVerificationErrors
+        expr: rate(ml_route_incident_rca_mirror_rca_winner_apply_verification_runs_total{status="error"}[5m]) > 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "route incident RCA mirror RCA winner apply verification has errors"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyRollbackTriggered
+        expr: rate(ml_route_incident_rca_mirror_rca_winner_apply_rollbacks_total[5m]) > 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "winner apply contour rollback was triggered by verification loop"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyPrimaryMismatch
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_primary_match_rate < 0.60
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "winner apply contour primary match rate is suspiciously low"

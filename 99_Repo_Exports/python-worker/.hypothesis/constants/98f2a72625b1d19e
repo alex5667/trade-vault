@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/mt5_bridge/redis_consumer.py
+# hypothesis_version: 6.148.10
+
+[500, '$', '0', 'payload', 'plan', 'stream:signals:plans']

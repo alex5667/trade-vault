@@ -1,0 +1,752 @@
+--- a/tick_flow_full/services/orderflow/liqmap_features.py	2026-02-28 16:03:07.000000000 +0000
++++ b/tick_flow_full/services/orderflow/liqmap_features.py	2026-03-01 12:09:11.379982660 +0000
+@@ -7,8 +7,7 @@
+ 
+ import json
+ import logging
+-from typing import Optional, Dict
+-
++from typing import Optional, Dict, Any, Tuple
+ logger = logging.getLogger(__name__)
+ 
+ def try_parse_liqmap_snapshot_json(raw: Optional[bytes | str]) -> Optional[Dict]:
+@@ -147,3 +146,254 @@
+         feats["sl_reco_bps_short"] = dist_bps + sl_buffer_bps
+ 
+     return feats
++
++# --- apply_liqmap_tp_sl_adjustment v1 (MIRROR SYNC D1) BEGIN ---
++def apply_liqmap_tp_sl_adjustment(
++    *,
++    entry: float,
++    side: str,  # "LONG"/"SHORT" (also accepts "BUY"/"SELL")
++    base_sl: float,
++    base_tp1: float,
++    indicators: Dict[str, Any],  # already contains liqmap_{w}_* keys from injection
++    window: str = "1h",
++    min_usd: float,
++    buffer_bps: float,
++    max_sl_widen_bps: float,
++    enable_tp1: bool,
++    enable_sl: bool,
++) -> Tuple[float, float, Dict[str, Any]]:
++    """Apply liquidation-map TP1/SL overlay (safe v1).
++
++    Deterministic, side-effect-minimal helper for _calculate_levels().
++    It reads *already injected* liqmap features from `indicators` and proposes
++    adjusted TP1/SL levels using a "front-run / behind peak" policy.
++
++    Inputs:
++      - entry: trade entry price
++      - side: "LONG"/"SHORT" (aliases: "BUY"/"SELL")
++      - base_sl/base_tp1: levels produced by the base system (ATR/structure/etc.)
++      - indicators: runtime indicators dict (must contain liqmap features)
++      - window: liqmap window routing key (default "1h")
++      - min_usd: minimum peak USD to consider it as an anchor
++      - buffer_bps: safety buffer in bps (10 bps = 0.10%)
++      - max_sl_widen_bps: maximum additional widening allowed for SL (risk control)
++      - enable_tp1/enable_sl: feature flags for incremental rollout
++
++    Contract:
++      - Returns (new_sl, new_tp1, out_patch).
++      - `out_patch` is safe to do `indicators.update(out_patch)` by the caller.
++
++    Notes:
++      - We support two naming styles in indicators:
++          A) explicit peak price keys (new):
++             liqmap_<w>_peak_up_price / peak_dn_price
++             liqmap_<w>_peak_up_usd   / peak_dn_usd
++             liqmap_<w>_peak_up_dist_bps / peak_dn_dist_bps
++          B) compact core.liqmap_features_v1 keys (current injection):
++             liqmap_<w>_dist_up_bps / dist_dn_bps
++             liqmap_<w>_peak_up1_usd / peak_dn1_usd
++        If price is missing we derive it from entry and dist_bps.
++
++      - "Safe v1" policy is intentionally conservative:
++        * TP1: avoid a strong peak if it sits between entry and base TP1.
++        * SL: hide behind a strong adverse peak if it sits between base SL and entry,
++              but cap any widening (max_sl_widen_bps) to avoid uncontrolled risk.
++    """
++
++    def _f(x: Any, default: float = 0.0) -> float:
++        try:
++            v = float(x)
++            # avoid NaN/inf silently contaminating levels
++            if v != v or v == float("inf") or v == float("-inf"):
++                return float(default)
++            return v
++        except Exception:
++            return float(default)
++
++    def _norm_side(s: str) -> str:
++        ss = (s or "").strip().upper()
++        if ss in ("BUY", "LONG"):
++            return "LONG"
++        if ss in ("SELL", "SHORT"):
++            return "SHORT"
++        return ss  # keep as-is for debugging / fallback
++
++    def _tp_bps(entry_px: float, tp_px: float, s: str) -> float:
++        if entry_px <= 0:
++            return 0.0
++        if s == "LONG":
++            return max(0.0, (tp_px - entry_px) / entry_px * 10000.0)
++        # SHORT
++        return max(0.0, (entry_px - tp_px) / entry_px * 10000.0)
++
++    def _sl_bps(entry_px: float, sl_px: float, s: str) -> float:
++        if entry_px <= 0:
++            return 0.0
++        if s == "LONG":
++            return max(0.0, (entry_px - sl_px) / entry_px * 10000.0)
++        # SHORT
++        return max(0.0, (sl_px - entry_px) / entry_px * 10000.0)
++
++    # ---- validate inputs ----
++    entry_px = _f(entry, 0.0)
++    base_sl_px = _f(base_sl, 0.0)
++    base_tp1_px = _f(base_tp1, 0.0)
++    s_side = _norm_side(side)
++
++    out: Dict[str, Any] = {
++        "liqmap_levels_applied": 0.0,
++        "liqmap_tp1_adj_bps": 0.0,
++        "liqmap_sl_adj_bps": 0.0,
++        "liqmap_tp1_anchor_price": 0.0,
++        "liqmap_sl_anchor_price": 0.0,
++        "liqmap_tp1_anchor_usd": 0.0,
++        "liqmap_sl_anchor_usd": 0.0,
++        "liqmap_levels_reason": "no_peak",
++    }
++
++    # hard fail-open: if inputs are invalid, return base levels and zero patch
++    if entry_px <= 0.0 or base_sl_px <= 0.0 or base_tp1_px <= 0.0 or s_side not in ("LONG", "SHORT"):
++        return base_sl_px, base_tp1_px, out
++
++    w = (window or "1h").strip()
++    pref = f"liqmap_{w}_"
++
++    buf = max(0.0, float(buffer_bps)) / 10000.0
++    min_usd_f = max(0.0, float(min_usd))
++    max_widen = max(0.0, float(max_sl_widen_bps))
++
++    # Helper: fetch peak meta; derive price from dist if not provided.
++    def _get_peak(direction: str) -> Tuple[float, float, float]:
++        # price, usd, dist_bps
++        dir_up = direction == "up"
++        # explicit keys (preferred if present)
++        px = _f(indicators.get(f"{pref}peak_{direction}_price", 0.0), 0.0)
++        usd = _f(indicators.get(f"{pref}peak_{direction}_usd", 0.0), 0.0)
++        dist = _f(indicators.get(f"{pref}peak_{direction}_dist_bps", 0.0), 0.0)
++
++        # v1 core keys
++        if usd <= 0.0:
++            usd = _f(indicators.get(f"{pref}peak_{direction}1_usd", 0.0), 0.0)
++            if dir_up and usd <= 0.0:
++                usd = _f(indicators.get(f"{pref}peak_up1_usd", 0.0), 0.0)
++            if (not dir_up) and usd <= 0.0:
++                usd = _f(indicators.get(f"{pref}peak_dn1_usd", 0.0), 0.0)
++
++        if dist <= 0.0:
++            # core dist keys: dist_up_bps / dist_dn_bps
++            dist = _f(indicators.get(f"{pref}dist_{direction}_bps", 0.0), 0.0)
++            if dir_up and dist <= 0.0:
++                dist = _f(indicators.get(f"{pref}dist_up_bps", 0.0), 0.0)
++            if (not dir_up) and dist <= 0.0:
++                dist = _f(indicators.get(f"{pref}dist_dn_bps", 0.0), 0.0)
++
++        if px <= 0.0 and dist > 0.0:
++            # derive peak price from entry and distance (deterministic)
++            if dir_up:
++                px = entry_px * (1.0 + dist / 10000.0)
++            else:
++                px = entry_px * (1.0 - dist / 10000.0)
++
++        return px, usd, dist
++
++    up_px, up_usd, _ = _get_peak("up")
++    dn_px, dn_usd, _ = _get_peak("dn")
++
++    # Defaults: keep base
++    new_sl_px = base_sl_px
++    new_tp1_px = base_tp1_px
++
++    # Compute base distances in bps (for adjustment reporting)
++    base_tp_bps = _tp_bps(entry_px, base_tp1_px, s_side)
++    base_stop_bps = _sl_bps(entry_px, base_sl_px, s_side)
++
++    reasons = []
++
++    # ────────────────────────────────────────────────
++    # TP1 overlay
++    # ────────────────────────────────────────────────
++    if enable_tp1:
++        if s_side == "LONG":
++            # LONG: favorable peak is ABOVE entry.
++            # Apply only if it sits between entry and base TP1.
++            if up_usd >= min_usd_f and up_px > entry_px and up_px < base_tp1_px:
++                cand = up_px * (1.0 - buf)  # front-run: TP just before the peak
++                if cand > entry_px:
++                    new_tp1_px = cand
++                    out["liqmap_tp1_anchor_price"] = float(up_px)
++                    out["liqmap_tp1_anchor_usd"] = float(up_usd)
++                    reasons.append("tp1_before_peak")
++        else:
++            # SHORT: favorable peak is BELOW entry.
++            # Apply only if it sits between base TP1 and entry.
++            if dn_usd >= min_usd_f and dn_px < entry_px and dn_px > base_tp1_px:
++                cand = dn_px * (1.0 - buf)  # "after" cluster: go a bit beyond (lower)
++                if cand < entry_px:
++                    new_tp1_px = cand
++                    out["liqmap_tp1_anchor_price"] = float(dn_px)
++                    out["liqmap_tp1_anchor_usd"] = float(dn_usd)
++                    reasons.append("tp1_after_peak")
++
++    # ────────────────────────────────────────────────
++    # SL overlay
++    # ────────────────────────────────────────────────
++    cap_applied = False
++    if enable_sl:
++        if s_side == "LONG":
++            # LONG: adverse peak is BELOW entry (liquidation cluster of longs).
++                # Peak may be between (base_sl, entry) or beyond base_sl; widening is capped.
++            if dn_usd >= min_usd_f and dn_px < entry_px and dn_px > 0.0:
++                cand = dn_px * (1.0 - buf)  # hide SL behind the peak (lower)
++                if cand < entry_px:
++                    cand_stop_bps = _sl_bps(entry_px, cand, s_side)
++                    # cap widening to control risk
++                    if cand_stop_bps - base_stop_bps > max_widen:
++                        cap_stop_bps = base_stop_bps + max_widen
++                        new_sl_px = entry_px * (1.0 - cap_stop_bps / 10000.0)
++                        cap_applied = True
++                    else:
++                        new_sl_px = cand
++                    out["liqmap_sl_anchor_price"] = float(dn_px)
++                    out["liqmap_sl_anchor_usd"] = float(dn_usd)
++                    reasons.append("sl_behind_peak")
++        else:
++            # SHORT: adverse peak is ABOVE entry.
++                # Peak may be between (entry, base_sl) or beyond base_sl; widening is capped.
++            if up_usd >= min_usd_f and up_px > entry_px and up_px > 0.0:
++                cand = up_px * (1.0 + buf)  # hide SL behind the peak (higher)
++                if cand > entry_px:
++                    cand_stop_bps = _sl_bps(entry_px, cand, s_side)
++                    if cand_stop_bps - base_stop_bps > max_widen:
++                        cap_stop_bps = base_stop_bps + max_widen
++                        new_sl_px = entry_px * (1.0 + cap_stop_bps / 10000.0)
++                        cap_applied = True
++                    else:
++                        new_sl_px = cand
++                    out["liqmap_sl_anchor_price"] = float(up_px)
++                    out["liqmap_sl_anchor_usd"] = float(up_usd)
++                    reasons.append("sl_behind_peak")
++
++    # ---- export adjustments (bps) ----
++    new_tp_bps = _tp_bps(entry_px, new_tp1_px, s_side)
++    new_stop_bps = _sl_bps(entry_px, new_sl_px, s_side)
++
++    if abs(new_tp1_px - base_tp1_px) > 1e-12:
++        out["liqmap_tp1_adj_bps"] = float(new_tp_bps - base_tp_bps)
++    if abs(new_sl_px - base_sl_px) > 1e-12:
++        out["liqmap_sl_adj_bps"] = float(new_stop_bps - base_stop_bps)
++
++    applied = (abs(new_tp1_px - base_tp1_px) > 1e-12) or (abs(new_sl_px - base_sl_px) > 1e-12)
++    out["liqmap_levels_applied"] = 1.0 if applied else 0.0
++
++    if cap_applied:
++        out["liqmap_levels_reason"] = "cap_sl_widen"
++    elif applied and len(reasons) >= 2:
++        out["liqmap_levels_reason"] = "tp1_sl"
++    elif applied and len(reasons) == 1:
++        out["liqmap_levels_reason"] = reasons[0]
++    else:
++        out["liqmap_levels_reason"] = "no_peak"
++
++    return new_sl_px, new_tp1_px, out
++# --- apply_liqmap_tp_sl_adjustment v1 (MIRROR SYNC D1) END ---
++
+--- a/services/orderflow/liqmap_features.py	2026-03-01 04:46:55.000000000 +0000
++++ b/services/orderflow/liqmap_features.py	2026-03-01 12:09:11.380627936 +0000
+@@ -7,8 +7,7 @@
+ 
+ import json
+ import logging
+-from typing import Optional, Dict
+-
++from typing import Optional, Dict, Any, Tuple
+ logger = logging.getLogger(__name__)
+ 
+ def try_parse_liqmap_snapshot_json(raw: Optional[bytes | str]) -> Optional[Dict]:
+@@ -147,3 +146,254 @@
+         feats["sl_reco_bps_short"] = dist_bps + sl_buffer_bps
+ 
+     return feats
++
++# --- apply_liqmap_tp_sl_adjustment v1 (MIRROR SYNC D1) BEGIN ---
++def apply_liqmap_tp_sl_adjustment(
++    *,
++    entry: float,
++    side: str,  # "LONG"/"SHORT" (also accepts "BUY"/"SELL")
++    base_sl: float,
++    base_tp1: float,
++    indicators: Dict[str, Any],  # already contains liqmap_{w}_* keys from injection
++    window: str = "1h",
++    min_usd: float,
++    buffer_bps: float,
++    max_sl_widen_bps: float,
++    enable_tp1: bool,
++    enable_sl: bool,
++) -> Tuple[float, float, Dict[str, Any]]:
++    """Apply liquidation-map TP1/SL overlay (safe v1).
++
++    Deterministic, side-effect-minimal helper for _calculate_levels().
++    It reads *already injected* liqmap features from `indicators` and proposes
++    adjusted TP1/SL levels using a "front-run / behind peak" policy.
++
++    Inputs:
++      - entry: trade entry price
++      - side: "LONG"/"SHORT" (aliases: "BUY"/"SELL")
++      - base_sl/base_tp1: levels produced by the base system (ATR/structure/etc.)
++      - indicators: runtime indicators dict (must contain liqmap features)
++      - window: liqmap window routing key (default "1h")
++      - min_usd: minimum peak USD to consider it as an anchor
++      - buffer_bps: safety buffer in bps (10 bps = 0.10%)
++      - max_sl_widen_bps: maximum additional widening allowed for SL (risk control)
++      - enable_tp1/enable_sl: feature flags for incremental rollout
++
++    Contract:
++      - Returns (new_sl, new_tp1, out_patch).
++      - `out_patch` is safe to do `indicators.update(out_patch)` by the caller.
++
++    Notes:
++      - We support two naming styles in indicators:
++          A) explicit peak price keys (new):
++             liqmap_<w>_peak_up_price / peak_dn_price
++             liqmap_<w>_peak_up_usd   / peak_dn_usd
++             liqmap_<w>_peak_up_dist_bps / peak_dn_dist_bps
++          B) compact core.liqmap_features_v1 keys (current injection):
++             liqmap_<w>_dist_up_bps / dist_dn_bps
++             liqmap_<w>_peak_up1_usd / peak_dn1_usd
++        If price is missing we derive it from entry and dist_bps.
++
++      - "Safe v1" policy is intentionally conservative:
++        * TP1: avoid a strong peak if it sits between entry and base TP1.
++        * SL: hide behind a strong adverse peak if it sits between base SL and entry,
++              but cap any widening (max_sl_widen_bps) to avoid uncontrolled risk.
++    """
++
++    def _f(x: Any, default: float = 0.0) -> float:
++        try:
++            v = float(x)
++            # avoid NaN/inf silently contaminating levels
++            if v != v or v == float("inf") or v == float("-inf"):
++                return float(default)
++            return v
++        except Exception:
++            return float(default)
++
++    def _norm_side(s: str) -> str:
++        ss = (s or "").strip().upper()
++        if ss in ("BUY", "LONG"):
++            return "LONG"
++        if ss in ("SELL", "SHORT"):
++            return "SHORT"
++        return ss  # keep as-is for debugging / fallback
++
++    def _tp_bps(entry_px: float, tp_px: float, s: str) -> float:
++        if entry_px <= 0:
++            return 0.0
++        if s == "LONG":
++            return max(0.0, (tp_px - entry_px) / entry_px * 10000.0)
++        # SHORT
++        return max(0.0, (entry_px - tp_px) / entry_px * 10000.0)
++
++    def _sl_bps(entry_px: float, sl_px: float, s: str) -> float:
++        if entry_px <= 0:
++            return 0.0
++        if s == "LONG":
++            return max(0.0, (entry_px - sl_px) / entry_px * 10000.0)
++        # SHORT
++        return max(0.0, (sl_px - entry_px) / entry_px * 10000.0)
++
++    # ---- validate inputs ----
++    entry_px = _f(entry, 0.0)
++    base_sl_px = _f(base_sl, 0.0)
++    base_tp1_px = _f(base_tp1, 0.0)
++    s_side = _norm_side(side)
++
++    out: Dict[str, Any] = {
++        "liqmap_levels_applied": 0.0,
++        "liqmap_tp1_adj_bps": 0.0,
++        "liqmap_sl_adj_bps": 0.0,
++        "liqmap_tp1_anchor_price": 0.0,
++        "liqmap_sl_anchor_price": 0.0,
++        "liqmap_tp1_anchor_usd": 0.0,
++        "liqmap_sl_anchor_usd": 0.0,
++        "liqmap_levels_reason": "no_peak",
++    }
++
++    # hard fail-open: if inputs are invalid, return base levels and zero patch
++    if entry_px <= 0.0 or base_sl_px <= 0.0 or base_tp1_px <= 0.0 or s_side not in ("LONG", "SHORT"):
++        return base_sl_px, base_tp1_px, out
++
++    w = (window or "1h").strip()
++    pref = f"liqmap_{w}_"
++
++    buf = max(0.0, float(buffer_bps)) / 10000.0
++    min_usd_f = max(0.0, float(min_usd))
++    max_widen = max(0.0, float(max_sl_widen_bps))
++
++    # Helper: fetch peak meta; derive price from dist if not provided.
++    def _get_peak(direction: str) -> Tuple[float, float, float]:
++        # price, usd, dist_bps
++        dir_up = direction == "up"
++        # explicit keys (preferred if present)
++        px = _f(indicators.get(f"{pref}peak_{direction}_price", 0.0), 0.0)
++        usd = _f(indicators.get(f"{pref}peak_{direction}_usd", 0.0), 0.0)
++        dist = _f(indicators.get(f"{pref}peak_{direction}_dist_bps", 0.0), 0.0)
++
++        # v1 core keys
++        if usd <= 0.0:
++            usd = _f(indicators.get(f"{pref}peak_{direction}1_usd", 0.0), 0.0)
++            if dir_up and usd <= 0.0:
++                usd = _f(indicators.get(f"{pref}peak_up1_usd", 0.0), 0.0)
++            if (not dir_up) and usd <= 0.0:
++                usd = _f(indicators.get(f"{pref}peak_dn1_usd", 0.0), 0.0)
++
++        if dist <= 0.0:
++            # core dist keys: dist_up_bps / dist_dn_bps
++            dist = _f(indicators.get(f"{pref}dist_{direction}_bps", 0.0), 0.0)
++            if dir_up and dist <= 0.0:
++                dist = _f(indicators.get(f"{pref}dist_up_bps", 0.0), 0.0)
++            if (not dir_up) and dist <= 0.0:
++                dist = _f(indicators.get(f"{pref}dist_dn_bps", 0.0), 0.0)
++
++        if px <= 0.0 and dist > 0.0:
++            # derive peak price from entry and distance (deterministic)
++            if dir_up:
++                px = entry_px * (1.0 + dist / 10000.0)
++            else:
++                px = entry_px * (1.0 - dist / 10000.0)
++
++        return px, usd, dist
++
++    up_px, up_usd, _ = _get_peak("up")
++    dn_px, dn_usd, _ = _get_peak("dn")
++
++    # Defaults: keep base
++    new_sl_px = base_sl_px
++    new_tp1_px = base_tp1_px
++
++    # Compute base distances in bps (for adjustment reporting)
++    base_tp_bps = _tp_bps(entry_px, base_tp1_px, s_side)
++    base_stop_bps = _sl_bps(entry_px, base_sl_px, s_side)
++
++    reasons = []
++
++    # ────────────────────────────────────────────────
++    # TP1 overlay
++    # ────────────────────────────────────────────────
++    if enable_tp1:
++        if s_side == "LONG":
++            # LONG: favorable peak is ABOVE entry.
++            # Apply only if it sits between entry and base TP1.
++            if up_usd >= min_usd_f and up_px > entry_px and up_px < base_tp1_px:
++                cand = up_px * (1.0 - buf)  # front-run: TP just before the peak
++                if cand > entry_px:
++                    new_tp1_px = cand
++                    out["liqmap_tp1_anchor_price"] = float(up_px)
++                    out["liqmap_tp1_anchor_usd"] = float(up_usd)
++                    reasons.append("tp1_before_peak")
++        else:
++            # SHORT: favorable peak is BELOW entry.
++            # Apply only if it sits between base TP1 and entry.
++            if dn_usd >= min_usd_f and dn_px < entry_px and dn_px > base_tp1_px:
++                cand = dn_px * (1.0 - buf)  # "after" cluster: go a bit beyond (lower)
++                if cand < entry_px:
++                    new_tp1_px = cand
++                    out["liqmap_tp1_anchor_price"] = float(dn_px)
++                    out["liqmap_tp1_anchor_usd"] = float(dn_usd)
++                    reasons.append("tp1_after_peak")
++
++    # ────────────────────────────────────────────────
++    # SL overlay
++    # ────────────────────────────────────────────────
++    cap_applied = False
++    if enable_sl:
++        if s_side == "LONG":
++            # LONG: adverse peak is BELOW entry (liquidation cluster of longs).
++                # Peak may be between (base_sl, entry) or beyond base_sl; widening is capped.
++            if dn_usd >= min_usd_f and dn_px < entry_px and dn_px > 0.0:
++                cand = dn_px * (1.0 - buf)  # hide SL behind the peak (lower)
++                if cand < entry_px:
++                    cand_stop_bps = _sl_bps(entry_px, cand, s_side)
++                    # cap widening to control risk
++                    if cand_stop_bps - base_stop_bps > max_widen:
++                        cap_stop_bps = base_stop_bps + max_widen
++                        new_sl_px = entry_px * (1.0 - cap_stop_bps / 10000.0)
++                        cap_applied = True
++                    else:
++                        new_sl_px = cand
++                    out["liqmap_sl_anchor_price"] = float(dn_px)
++                    out["liqmap_sl_anchor_usd"] = float(dn_usd)
++                    reasons.append("sl_behind_peak")
++        else:
++            # SHORT: adverse peak is ABOVE entry.
++                # Peak may be between (entry, base_sl) or beyond base_sl; widening is capped.
++            if up_usd >= min_usd_f and up_px > entry_px and up_px > 0.0:
++                cand = up_px * (1.0 + buf)  # hide SL behind the peak (higher)
++                if cand > entry_px:
++                    cand_stop_bps = _sl_bps(entry_px, cand, s_side)
++                    if cand_stop_bps - base_stop_bps > max_widen:
++                        cap_stop_bps = base_stop_bps + max_widen
++                        new_sl_px = entry_px * (1.0 + cap_stop_bps / 10000.0)
++                        cap_applied = True
++                    else:
++                        new_sl_px = cand
++                    out["liqmap_sl_anchor_price"] = float(up_px)
++                    out["liqmap_sl_anchor_usd"] = float(up_usd)
++                    reasons.append("sl_behind_peak")
++
++    # ---- export adjustments (bps) ----
++    new_tp_bps = _tp_bps(entry_px, new_tp1_px, s_side)
++    new_stop_bps = _sl_bps(entry_px, new_sl_px, s_side)
++
++    if abs(new_tp1_px - base_tp1_px) > 1e-12:
++        out["liqmap_tp1_adj_bps"] = float(new_tp_bps - base_tp_bps)
++    if abs(new_sl_px - base_sl_px) > 1e-12:
++        out["liqmap_sl_adj_bps"] = float(new_stop_bps - base_stop_bps)
++
++    applied = (abs(new_tp1_px - base_tp1_px) > 1e-12) or (abs(new_sl_px - base_sl_px) > 1e-12)
++    out["liqmap_levels_applied"] = 1.0 if applied else 0.0
++
++    if cap_applied:
++        out["liqmap_levels_reason"] = "cap_sl_widen"
++    elif applied and len(reasons) >= 2:
++        out["liqmap_levels_reason"] = "tp1_sl"
++    elif applied and len(reasons) == 1:
++        out["liqmap_levels_reason"] = reasons[0]
++    else:
++        out["liqmap_levels_reason"] = "no_peak"
++
++    return new_sl_px, new_tp1_px, out
++# --- apply_liqmap_tp_sl_adjustment v1 (MIRROR SYNC D1) END ---
++
+--- /dev/null	2026-03-01 11:56:45.665480448 +0000
++++ b/tick_flow_full/services/orderflow/tests/test_liqmap_tp_sl_overlay_v1.py	2026-03-01 12:07:48.506258781 +0000
+@@ -0,0 +1,168 @@
++# -*- coding: utf-8 -*-
++"""Unit tests for liqmap TP/SL overlay (D1).
++
++Focus:
++- Deterministic behavior for LONG/SHORT.
++- Supports current injected key style (dist_*_bps + peak_*1_usd) and explicit peak price style.
++- Enforces SL widening cap.
++
++These tests are pure and do not touch Redis or time.
++"""
++
++import math
++
++import os
++import sys
++from pathlib import Path
++
++import pytest
++
++# Ensure we import the SoT copy (tick_flow_full/services/...) first.
++_PW_ROOT = Path(__file__).resolve().parents[4]
++_TF_ROOT = _PW_ROOT / "tick_flow_full"
++sys.path.insert(0, str(_TF_ROOT))
++
++from services.orderflow.liqmap_features import apply_liqmap_tp_sl_adjustment
++
++
++def _approx(a: float, b: float, tol: float = 1e-9) -> bool:
++    return abs(a - b) <= tol
++
++
++class TestLiqMapTpSlOverlayV1:
++    def test_long_tp1_before_peak_derived_price(self):
++        # entry=100, base_tp1=105, peak_up at +300 bps => 103, strong enough
++        ind = {
++            "liqmap_1h_dist_up_bps": 300.0,
++            "liqmap_1h_peak_up1_usd": 200_000.0,
++        }
++        new_sl, new_tp1, out = apply_liqmap_tp_sl_adjustment(
++            entry=100.0,
++            side="LONG",
++            base_sl=99.0,
++            base_tp1=105.0,
++            indicators=ind,
++            window="1h",
++            min_usd=50_000.0,
++            buffer_bps=10.0,
++            max_sl_widen_bps=50.0,
++            enable_tp1=True,
++            enable_sl=False,
++        )
++
++        assert _approx(new_sl, 99.0)
++        # peak_up_price = 103.0 => tp1 = 103*(1-0.001)=102.897
++        assert abs(new_tp1 - 102.897) < 1e-6
++        assert out["liqmap_levels_applied"] == 1.0
++        assert out["liqmap_levels_reason"] == "tp1_before_peak"
++        assert abs(out["liqmap_tp1_anchor_price"] - 103.0) < 1e-12
++        assert out["liqmap_tp1_anchor_usd"] == 200_000.0
++
++        base_tp_bps = (105.0 - 100.0) / 100.0 * 10000.0
++        new_tp_bps = (new_tp1 - 100.0) / 100.0 * 10000.0
++        assert abs(out["liqmap_tp1_adj_bps"] - (new_tp_bps - base_tp_bps)) < 1e-6
++
++    def test_long_sl_behind_peak_cap(self):
++        # entry=100, base_sl=99 (100 bps), dn peak at -150 bps => 98.5, strong enough
++        ind = {
++            "liqmap_1h_dist_dn_bps": 150.0,
++            "liqmap_1h_peak_dn1_usd": 150_000.0,
++        }
++        new_sl, new_tp1, out = apply_liqmap_tp_sl_adjustment(
++            entry=100.0,
++            side="LONG",
++            base_sl=99.0,
++            base_tp1=105.0,
++            indicators=ind,
++            window="1h",
++            min_usd=50_000.0,
++            buffer_bps=10.0,
++            max_sl_widen_bps=50.0,  # cap widening to +50 bps (150 total)
++            enable_tp1=False,
++            enable_sl=True,
++        )
++
++        assert _approx(new_tp1, 105.0)
++
++        # Proposed: 98.5*(1-0.001)=98.4015 => stop_bps ~159.85, would widen by ~59.85 -> capped to 150 bps.
++        assert abs(new_sl - 98.5) < 1e-6
++        assert out["liqmap_levels_applied"] == 1.0
++        assert out["liqmap_levels_reason"] == "cap_sl_widen"
++        assert abs(out["liqmap_sl_anchor_price"] - 98.5) < 1e-12
++        assert out["liqmap_sl_anchor_usd"] == 150_000.0
++
++        base_stop_bps = (100.0 - 99.0) / 100.0 * 10000.0
++        new_stop_bps = (100.0 - new_sl) / 100.0 * 10000.0
++        assert abs(out["liqmap_sl_adj_bps"] - (new_stop_bps - base_stop_bps)) < 1e-6
++        assert abs(out["liqmap_sl_adj_bps"] - 50.0) < 1e-6
++
++    def test_short_tp1_after_peak_explicit_price(self):
++        ind = {
++            "liqmap_1h_peak_dn_price": 97.0,
++            "liqmap_1h_peak_dn_usd": 200_000.0,
++        }
++        new_sl, new_tp1, out = apply_liqmap_tp_sl_adjustment(
++            entry=100.0,
++            side="SHORT",
++            base_sl=101.0,
++            base_tp1=95.0,
++            indicators=ind,
++            window="1h",
++            min_usd=50_000.0,
++            buffer_bps=10.0,
++            max_sl_widen_bps=50.0,
++            enable_tp1=True,
++            enable_sl=False,
++        )
++
++        assert _approx(new_sl, 101.0)
++        # SHORT: tp1 = peak_dn*(1-0.001)=96.903
++        assert abs(new_tp1 - 96.903) < 1e-6
++        assert out["liqmap_levels_reason"] == "tp1_after_peak"
++        assert abs(out["liqmap_tp1_anchor_price"] - 97.0) < 1e-12
++        assert out["liqmap_tp1_anchor_usd"] == 200_000.0
++
++    def test_short_sl_behind_peak_tighten_ok(self):
++        # entry=100, base_sl=101, up peak at 100.8 => proposed sl 100.9008 (tightens)
++        ind = {
++            "liqmap_1h_peak_up_price": 100.8,
++            "liqmap_1h_peak_up_usd": 120_000.0,
++        }
++        new_sl, new_tp1, out = apply_liqmap_tp_sl_adjustment(
++            entry=100.0,
++            side="SELL",  # alias
++            base_sl=101.0,
++            base_tp1=95.0,
++            indicators=ind,
++            window="1h",
++            min_usd=50_000.0,
++            buffer_bps=10.0,
++            max_sl_widen_bps=50.0,
++            enable_tp1=False,
++            enable_sl=True,
++        )
++
++        assert _approx(new_tp1, 95.0)
++        assert abs(new_sl - 100.9008) < 1e-6
++        assert out["liqmap_levels_reason"] in ("sl_behind_peak", "tp1_sl")
++        assert out["liqmap_sl_adj_bps"] < 0.0  # tightening
++
++    def test_no_peak_returns_base(self):
++        ind = {}
++        new_sl, new_tp1, out = apply_liqmap_tp_sl_adjustment(
++            entry=100.0,
++            side="LONG",
++            base_sl=99.0,
++            base_tp1=105.0,
++            indicators=ind,
++            window="1h",
++            min_usd=50_000.0,
++            buffer_bps=10.0,
++            max_sl_widen_bps=50.0,
++            enable_tp1=True,
++            enable_sl=True,
++        )
++        assert _approx(new_sl, 99.0)
++        assert _approx(new_tp1, 105.0)
++        assert out["liqmap_levels_applied"] == 0.0
++        assert out["liqmap_levels_reason"] == "no_peak"
+--- /dev/null	2026-03-01 11:56:45.665480448 +0000
++++ b/services/orderflow/tests/test_liqmap_tp_sl_overlay_sync_d1.py	2026-03-01 12:05:04.491583607 +0000
+@@ -0,0 +1,44 @@
++# -*- coding: utf-8 -*-
++"""Mirror sync test for D1 (apply_liqmap_tp_sl_adjustment).
++
++We keep the overlay logic 1:1 between:
++  - tick_flow_full/services/orderflow/liqmap_features.py (SoT)
++  - services/orderflow/liqmap_features.py (mirror)
++
++This reduces Train!=Serve drift and avoids silent behavioral differences.
++"""
++
++import os
++import sys
++from pathlib import Path
++
++import pytest
++
++
++def _extract_block(text: str) -> str:
++    begin = "# --- apply_liqmap_tp_sl_adjustment v1 (MIRROR SYNC D1) BEGIN ---"
++    end = "# --- apply_liqmap_tp_sl_adjustment v1 (MIRROR SYNC D1) END ---"
++    i = text.find(begin)
++    j = text.find(end)
++    assert i >= 0, "BEGIN marker missing"
++    assert j >= 0, "END marker missing"
++    assert j > i, "invalid markers order"
++    return text[i : j + len(end)].strip() + "\n"
++
++
++def test_d1_overlay_block_is_identical_between_sot_and_mirror():
++    # The repo typically looks like:
++    #   <repo_root>/python-worker/services/orderflow/tests/...
++    repo_root = Path(__file__).resolve().parents[4]
++    pw = repo_root / "python-worker"
++
++    sot = pw / "tick_flow_full" / "services" / "orderflow" / "liqmap_features.py"
++    mirror = pw / "services" / "orderflow" / "liqmap_features.py"
++
++    assert sot.exists(), f"SoT file missing: {sot}"
++    assert mirror.exists(), f"Mirror file missing: {mirror}"
++
++    sot_block = _extract_block(sot.read_text(encoding="utf-8"))
++    mir_block = _extract_block(mirror.read_text(encoding="utf-8"))
++
++    assert sot_block == mir_block

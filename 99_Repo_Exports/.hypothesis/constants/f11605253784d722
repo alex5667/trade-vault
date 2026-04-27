@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/numpy/_typing/_dtype_like.py
+# hypothesis_version: 6.148.10
+
+['_DType_co', '_SCT']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/regime/detector.py
+# hypothesis_version: 6.148.10
+
+[-1.0, 0.0, 0.5, 1.0, 2.0, 25.0, 50.0, 75.0, 10000.0, 240, 'atr_14_bps', 'daily_open', 'last_price', 'maxlen', 'nan', 'pdh', 'pdl', 'pdm', 'price', 'regime_window_size', 'symbol', 'ts_utc', 'vwap', 'weak_progress_raw']

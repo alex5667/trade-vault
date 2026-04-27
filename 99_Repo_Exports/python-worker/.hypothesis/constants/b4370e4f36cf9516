@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/metrics/quality_metrics.py
+# hypothesis_version: 6.148.10
+
+['atr_fallback', 'health', 'health_metrics', 'hlc_fallback', 'htf_missing', 'inc', 'l2_missing', 'l2_no_ts', 'l2_stale', 'l3_missing']

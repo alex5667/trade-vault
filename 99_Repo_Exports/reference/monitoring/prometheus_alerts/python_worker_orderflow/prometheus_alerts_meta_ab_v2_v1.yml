@@ -1,0 +1,55 @@
+groups:
+- name: meta-ab-v2-p70
+  rules:
+  - alert: MetaAbV2ReportMissing
+    expr: meta_ab_v2_report_parsed_ok < 0.5
+    for: 10m
+    labels:
+      severity: warning
+      service: quantity-meta-ab
+    annotations:
+      summary: "Meta AB v2 report missing / parse error"
+      description: "meta_ab_v2_report_parsed_ok is 0. Exporter cannot parse the nightly
+        report. Check exporter logs and the nightly job output."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: MetaAbV2RunFailed
+    expr: meta_ab_v2_run_ok < 0.5
+    for: 10m
+    labels:
+      severity: warning
+      service: quantity-meta-ab
+    annotations:
+      summary: "Meta AB v2 run failed (reason present)"
+      description: "The latest report contains 'reason' (job failure / insufficient
+        data / guard triggered). Check meta_ab_v2_report_exporter logs and the report
+        JSON for 'reason'."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: MetaAbV2ReportStale
+    expr: meta_ab_v2_report_age_sec > 36*3600
+    for: 30m
+    labels:
+      severity: warning
+      service: quantity-meta-ab
+    annotations:
+      summary: "Meta AB v2 report stale (>36h)"
+      description: "The meta AB nightly job may be failing or not scheduled. Check
+        of_timers_worker scheduling and tools.meta_ab_v2_nightly_job_v1 logs. Current
+        age (sec): {{ $value }}"
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: MetaAbV2IncreaseShareButNoEdge
+    expr: (meta_ab_v2_action{action="increase_share"} > 0.5) and 
+      (meta_ab_v2_delta_exp_r_per_candidate < 0.0)
+    for: 15m
+    labels:
+      severity: info
+      service: quantity-meta-ab
+    annotations:
+      summary: "Meta AB v2 recommends increase, but delta_exp_r < 0"
+      description: "Sanity check: action=increase_share while the reported delta_exp_r_per_candidate
+        is negative. Verify evaluator thresholds/config and report integrity."

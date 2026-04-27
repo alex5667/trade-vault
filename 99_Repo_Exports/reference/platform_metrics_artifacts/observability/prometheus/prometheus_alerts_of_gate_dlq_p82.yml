@@ -1,0 +1,60 @@
+# P82 — OF gate DLQ alerts.
+#
+# Requires: of_gate_dlq_exporter_v1.py (port 9154)
+# Dashboard: orderflow_services/grafana/of_gate_dlq_p82.json
+# Runbook: orderflow_services/runbook_of_gate_dlq_exporter_p82.md
+
+groups:
+  - name: of_gate_dlq_p82
+    rules:
+      - alert: OF_Gate_DLQ_ExporterDown
+        expr: of_gate_dlq_exporter_up == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: of_gate
+          p_ref: P82
+        annotations:
+          summary: "OF-gate DLQ exporter is down"
+          description: >-
+            Prometheus cannot observe DLQ streams.
+            Expected: python -m orderflow_services.of_gate_dlq_exporter_v1 (port 9154).
+            Check exporter container logs and Redis connectivity.
+          runbook_path: orderflow_services/runbook_of_gate_dlq_exporter_p82.md
+          dashboard_path: orderflow_services/grafana/of_gate_dlq_p82.json
+
+      - alert: OF_Gate_DLQ_NonZero15m
+        expr: sum(of_gate_dlq_len) > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: of_gate
+          p_ref: P82
+        annotations:
+          summary: "OF-gate DLQ is non-empty"
+          description: >-
+            DLQ length is > 0 for 15 minutes.
+            Inspect with:
+              python -m orderflow_services.of_gate_dlq_drilldown_p83 top --limit 5000
+            If safe to replay:
+              ENABLE_OF_GATE_DLQ_AUTO_REPLAY_TIMER=1
+          runbook_path: orderflow_services/runbook_of_gate_dlq_exporter_p82.md
+          dashboard_path: orderflow_services/grafana/of_gate_dlq_p82.json
+
+      - alert: OF_Gate_DLQ_OldestAgeHigh
+        expr: max(of_gate_dlq_oldest_age_sec) > 3600
+        for: 10m
+        labels:
+          severity: critical
+          component: of_gate
+          p_ref: P82
+        annotations:
+          summary: "OF-gate DLQ backlog is old (>1h)"
+          description: >-
+            Oldest DLQ entry is older than 1 hour.
+            This usually indicates a stuck archiver, persistent parse errors, or DB issues.
+            1) Check archiver alerts/logs
+            2) Drilldown: python -m orderflow_services.of_gate_dlq_drilldown_p83 stats
+            3) Safe replay: python -m orderflow_services.of_gate_dlq_fixed_replay_p84 auto --commit --delete-after-replay
+          runbook_path: orderflow_services/runbook_of_gate_dlq_exporter_p82.md
+          dashboard_path: orderflow_services/grafana/of_gate_dlq_p82.json

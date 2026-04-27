@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/tick_gate_group_reaper.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1000000000.0, 200, 9113, 300000, '0-0', 'COUNT', 'REDIS_URL', 'Total reaper errors', 'XAUTOCLAIM', '__main__', 'min', 'name', 'pending', 'reaper', 'redis.Redis', 'tick_gate_agg']

@@ -1,0 +1,35 @@
+groups:
+  - name: trade-execution-p4-risk
+    rules:
+      - alert: TradeRiskForceFlatten
+        expr: increase(trade_risk_force_flatten_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: Trade risk engine requested force flatten
+          description: >
+            The P4 risk engine issued a FORCE_FLATTEN decision (kill_switch or
+            daily_loss_limit). Check RISK_KILL_SWITCH and daily PnL.
+
+      - alert: TradeRiskDenySpike
+        expr: increase(trade_risk_deny_total[10m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Trade risk engine denials are spiking
+          description: >
+            More than 10 risk-engine denials in a 10-minute window.
+            Check spread/slippage, confidence, or exposure caps.
+
+      - alert: TradePortfolioExposureHigh
+        expr: trade_portfolio_total_exposure_ratio > 2.0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Total portfolio exposure is high
+          description: >
+            Portfolio total notional / equity > 2.0 for 5 minutes.
+            Review open positions and compare to RISK_MAX_TOTAL_EXPOSURE_RATIO.

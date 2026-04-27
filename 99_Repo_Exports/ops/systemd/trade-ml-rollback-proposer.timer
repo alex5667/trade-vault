@@ -1,0 +1,10 @@
+[Unit]
+Description=Run ML rollback proposer hourly
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+

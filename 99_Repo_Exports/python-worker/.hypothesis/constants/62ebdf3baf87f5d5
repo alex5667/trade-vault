@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signals/signal_publisher.py
+# hypothesis_version: 6.148.10
+
+[1000, 60000, 'ENTRY', 'LONG', 'SHORT', 'UNKNOWN', 'context', 'direction', 'kind', 'level_key', 'orderflow', 'price', 'side', 'signal_type', 'symbol', 'ts', 'ts_ms', 'unknown']

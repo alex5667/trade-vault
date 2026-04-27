@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signals/calibration_service.py
+# hypothesis_version: 6.148.10
+
+['atr_local_q', 'atr_q_14', 'atr_quantile', 'delta_spike_z', 'obi', 'obi_local_q', 'unknown', 'weak_progress', 'z_delta']

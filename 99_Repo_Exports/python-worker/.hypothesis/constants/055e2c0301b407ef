@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/redis_lock.py
+# hypothesis_version: 6.148.10
+
+[b'OK', 1000.0, 1000, '%Y%m%d', 'OK']

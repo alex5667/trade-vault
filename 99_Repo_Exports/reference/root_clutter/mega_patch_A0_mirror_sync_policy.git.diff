@@ -1,0 +1,169 @@
+diff --git a/MIRROR_SYNC_POLICY.md b/MIRROR_SYNC_POLICY.md
+new file mode 100644
+index 0000000..f18c199
+--- /dev/null
++++ b/MIRROR_SYNC_POLICY.md
+@@ -0,0 +1,64 @@
++# Mirror Sync Policy (Source-of-Truth vs Mirrors)
++
++This repository intentionally contains duplicated (“mirrored”) implementation trees.
++The duplication exists to support different packaging / deployment footprints while
++keeping runtime semantics identical (train==serve, contract checks, observability).
++
++## Rule 0 — Source of Truth (SoT)
++
++**SoT tree:** `tick_flow_full/`.
++
++When you change code under `tick_flow_full/`, you **MUST** apply the exact same
++functional change to the corresponding mirror under `services/` (and, when
++applicable, to `orderflow_services/`).
++
++If you change only one side, the system can silently diverge:
++
++* **train==serve drift** (feature keys/order, gating behavior, thresholds)
++* **replay drift** (golden replays stop matching prod)
++* **SRE drift** (metrics names/labels and alert semantics)
++
++## What counts as “functional change”
++
++Any of the following must be mirrored 1:1:
++
++* feature extraction / indicator keys / schema versions
++* gating / veto logic / risk policy
++* time handling (ts_ms normalization, quarantine logic)
++* metrics / alerts / exporters
++* Redis keys / streams / config flags
++* serialization (NDJSON fields, schema_version, ordering)
++
++Formatting-only changes (whitespace, comments) are allowed, but still recommended
++to keep mirrored files visually identical.
++
++## Known mirror pairs
++
++### Runtime processors
++
++* `tick_flow_full/services/orderflow/components/tick_processor.py`
++  ↔ `services/orderflow/components/tick_processor.py`
++* `tick_flow_full/services/orderflow/components/bar_processor.py`
++  ↔ `services/orderflow/components/bar_processor.py`
++
++### Runtime state / configuration
++
++* `tick_flow_full/services/orderflow/runtime.py`
++  ↔ `services/orderflow/runtime.py`
++* `tick_flow_full/services/orderflow/metrics.py`
++  ↔ `services/orderflow/metrics.py`
++
++### Gate / feature wiring
++
++* `tick_flow_full/services/ml_confirm_gate.py`
++  ↔ `services/ml_confirm_gate.py`
++* `tick_flow_full/orderflow_services/feature_registry_contract_check_v1.py`
++  ↔ `orderflow_services/feature_registry_contract_check_v1.py`
++
++## Recommended workflow
++
++1. Make the change in **SoT** (`tick_flow_full/...`).
++2. Copy the same change into the **mirror** file(s).
++3. Run unit tests + contract checks.
++4. If the change affects schemas/features: run a small replay smoke (golden replay)
++   and verify train==serve equivalence.
+diff --git a/services/orderflow/components/tick_processor.py b/services/orderflow/components/tick_processor.py
+index e345141..e8d4d5c 100644
+--- a/services/orderflow/components/tick_processor.py
++++ b/services/orderflow/components/tick_processor.py
+@@ -1,5 +1,22 @@
+ from __future__ import annotations
+ 
++# -----------------------------------------------------------------------------
++# MIRROR SYNC POLICY (A0)
++#
++# Source-of-Truth (SoT):
++#   tick_flow_full/services/orderflow/components/tick_processor.py
++# Mirror (MUST be kept 1:1 for any functional change):
++#   services/orderflow/components/tick_processor.py
++#
++# Why: this project intentionally ships duplicated trees to support different
++# deployment footprints. Any functional drift between SoT and mirror can cause:
++#   - train==serve mismatch (feature keys/order, gating semantics)
++#   - replay drift (golden replay ≠ prod)
++#   - observability drift (metrics/alerts no longer comparable)
++#
++# Before committing functional edits, read: MIRROR_SYNC_POLICY.md
++# -----------------------------------------------------------------------------
++
+ import os
+ import time
+ import json
+diff --git a/services/orderflow/tests/test_mirror_sync_policy_a0.py b/services/orderflow/tests/test_mirror_sync_policy_a0.py
+new file mode 100644
+index 0000000..086293c
+--- /dev/null
++++ b/services/orderflow/tests/test_mirror_sync_policy_a0.py
+@@ -0,0 +1,39 @@
++from __future__ import annotations
++
++from pathlib import Path
++
++
++def test_a0_mirror_sync_policy_markers_present() -> None:
++    """A0 groundwork: prevent silent loss of mirror sync intent.
++
++    This test is intentionally *lightweight*:
++    - It does NOT enforce full 1:1 equivalence of the mirrored files yet.
++      (At A0 we only document the policy and add markers; full sync is done in
++      later commits where we intentionally align the implementations.)
++    - It DOES ensure that both trees keep an explicit, greppable marker so that
++      reviewers will notice when a change touches only one side.
++    """
++
++    repo_root = Path(__file__).resolve().parents[3]
++
++    sot = repo_root / "tick_flow_full/services/orderflow/components/tick_processor.py"
++    mirror = repo_root / "services/orderflow/components/tick_processor.py"
++
++    assert sot.exists(), f"missing SoT file: {sot}"
++    assert mirror.exists(), f"missing mirror file: {mirror}"
++
++    sot_text = sot.read_text(encoding="utf-8", errors="replace")
++    mirror_text = mirror.read_text(encoding="utf-8", errors="replace")
++
++    marker = "MIRROR SYNC POLICY (A0)"
++    for text, name in ((sot_text, "SoT"), (mirror_text, "mirror")):
++        assert marker in text, f"{name} file missing mirror policy marker"
++        assert "MIRROR_SYNC_POLICY.md" in text, f"{name} file missing policy doc link"
++        assert "tick_flow_full/services/orderflow/components/tick_processor.py" in text
++        assert "services/orderflow/components/tick_processor.py" in text
++
++    # The marker block itself should stay identical at the top of both files.
++    # (This does not guarantee full equality of the implementations.)
++    sot_head = "\n".join(sot_text.splitlines()[:30])
++    mirror_head = "\n".join(mirror_text.splitlines()[:30])
++    assert sot_head == mirror_head
+diff --git a/tick_flow_full/services/orderflow/components/tick_processor.py b/tick_flow_full/services/orderflow/components/tick_processor.py
+index d7d325c..d546716 100644
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -1,5 +1,22 @@
+ from __future__ import annotations
+ 
++# -----------------------------------------------------------------------------
++# MIRROR SYNC POLICY (A0)
++#
++# Source-of-Truth (SoT):
++#   tick_flow_full/services/orderflow/components/tick_processor.py
++# Mirror (MUST be kept 1:1 for any functional change):
++#   services/orderflow/components/tick_processor.py
++#
++# Why: this project intentionally ships duplicated trees to support different
++# deployment footprints. Any functional drift between SoT and mirror can cause:
++#   - train==serve mismatch (feature keys/order, gating semantics)
++#   - replay drift (golden replay ≠ prod)
++#   - observability drift (metrics/alerts no longer comparable)
++#
++# Before committing functional edits, read: MIRROR_SYNC_POLICY.md
++# -----------------------------------------------------------------------------
++
+ import os
+ import time
+ import json

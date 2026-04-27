@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/calendar_mapping.py
+# hypothesis_version: 6.148.10
+
+['AUD', 'BRL', 'CAD', 'CHF', 'CNY', 'CZK', 'DKK', 'EU', 'EUR', 'EUROZONE', 'GBP', 'HKD', 'HUF', 'INR', 'JPY', 'KRW', 'MXN', 'NOK', 'NZD', 'PLN', 'SEK', 'SGD', 'TRY', 'UNITED STATES', 'US', 'USA', 'USD', 'ZAR', 'crypto', 'ecb', 'fed', 'fomc', 'forex', 'metals']

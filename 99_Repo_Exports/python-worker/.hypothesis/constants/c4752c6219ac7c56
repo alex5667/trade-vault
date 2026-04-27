@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signals/volatility_by_range.py
+# hypothesis_version: 6.148.10
+
+[0.0, 100, 1000, '1m', 'avgRange', 'c', 'close', 'h', 'high', 'i', 'interval', 'k', 'l', 'low', 'o', 'open', 'priceChangePct', 'range', 'rangeRatio', 's', 'symbol', 't', 'threshold', 'timestamp', 'type', 'v', 'volatility', 'volatilityRange', 'volume', 'x']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/l2_microstructure_engine.py
+# hypothesis_version: 6.148.10
+
+[-1.0, 0.0, 1e-06, 0.1, 0.2, 0.35, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0, 20.0, 200.0, 10000.0, 1e+18, 200, '20', '5', '_obi20_ema', '_obi20_samples', '_obi_ema', '_obi_samples', 'ask', 'bid', 'bps', 'gpu_offload_enabled', 'obi20_samples_maxlen', 'obi_band_20_bps', 'obi_band_5_bps', 'obi_band_k_spread_20', 'obi_band_k_spread_5', 'obi_band_max_bps', 'obi_band_min_bps', 'obi_band_mode', 'obi_ema_alpha', 'obi_min_total_depth', 'obi_samples_maxlen', 'obi_sustain_k20', 'obi_sustain_k5', 'obi_thr', 'spread', 'wall_drop_ratio_min', 'wall_hist_m', 'wall_mult_vs_avg', 'wall_near_bps', 'wall_persist_p', 'wall_price_tol_bps']

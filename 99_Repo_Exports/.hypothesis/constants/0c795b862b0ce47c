@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/numpy/core/_dtype_ctypes.py
+# hypothesis_version: 6.148.10
+
+['<', '>', '__ctype_be__', '__ctype_le__', '_pack_', '_type_']

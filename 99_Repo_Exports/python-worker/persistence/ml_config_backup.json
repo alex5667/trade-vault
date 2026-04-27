@@ -1,0 +1,44 @@
+{
+  "kind": "util_mh_v1",
+  "run_id": "auto_init_1770440031",
+  "created_ms": 1770440031075,
+  "model_path": "/var/lib/trade/ml_models/tb_v10_4_20260204_180848_830d27/model.joblib",
+  "util_floors": {
+    "global": {
+      "floor": -0.05,
+      "n_take": 0,
+      "take_rate": 1.0,
+      "mean_util": 0.0,
+      "sum_util": 0.0
+    },
+    "by_bucket": {
+      "trend": {
+        "floor": -0.05,
+        "n_take": 0,
+        "take_rate": 1.0,
+        "mean_util": 0.0,
+        "sum_util": 0.0
+      },
+      "range": {
+        "floor": -0.05,
+        "n_take": 0,
+        "take_rate": 1.0,
+        "mean_util": 0.0,
+        "sum_util": 0.0
+      },
+      "other": {
+        "floor": -0.05,
+        "n_take": 0,
+        "take_rate": 1.0,
+        "mean_util": 0.0,
+        "sum_util": 0.0
+      }
+    },
+    "horizons": [
+      60000,
+      180000,
+      300000
+    ],
+    "unc_k": 0.5
+  }
+}

@@ -1,0 +1,1693 @@
+--- a/services/orderflow/components/book_processor.py
++++ b/services/orderflow/components/book_processor.py
+@@ -7,11 +7,16 @@
+ from services.orderflow.runtime import SymbolRuntime, BookSnapshot, BookState
+
+ from services.orderflow.configuration import _safe_int, _safe_float
+
+ from services.orderflow.metrics import (
+
+-    log_silent_error, book_rate_ema_gauge, book_rate_z_gauge
+
++    log_silent_error, book_rate_ema_gauge, book_rate_z_gauge,
+
++    of_lob_queue_imbalance_gauge, of_lob_queue_imbalance_mean_gauge, of_lob_queue_imbalance_max_abs_gauge, of_lob_queue_imbalance_slope_gauge,
+
++    of_lob_micro_mid_div_bps_gauge, of_lob_micro_shift_bps_gauge,
+
++    of_lob_depth_slope_gauge, of_lob_depth_convexity_gauge,
+
++    of_lob_dw_obi_gauge, of_lob_dw_obi_z_gauge, of_lob_dw_obi_stability_score_gauge, of_lob_dw_obi_stable_secs_gauge, of_lob_dw_obi_stable_gauge,
+
+ )
+
+ from services.orderflow.utils import _fields_to_dict
+
+ from services.orderflow.components.parsing import OrderFlowParsing
+
+ from core.book_churn import compute_churn_from_z
+
++from core.lob_pressure import compute_lob_pressure
+
+ from core.cvd_reclaim import compute_cvd_reclaim
+
+ from core.ofi_tracker import OFIEvent
+
+ 
+
+@@ -68,6 +73,105 @@
+             runtime.last_book_raw = book_raw
+
+             runtime.prev_book = prev_snap
+
+             runtime.last_book = snap
+
++
+
++            # 2b. LOB pressure features (P91)
+
++            try:
+
++                lp = compute_lob_pressure(
+
++                    bids=list(snap.top5_bids or []),
+
++                    asks=list(snap.top5_asks or []),
+
++                    prev_bids=list(prev_snap.top5_bids) if prev_snap else None,
+
++                    prev_asks=list(prev_snap.top5_asks) if prev_snap else None,
+
++                    depth=int(runtime.config.get("lob_depth", 5) or 5),
+
++                )
+
++
+
++                runtime.lob_qi_mean = float(lp.get("qi_mean", 0.0) or 0.0)
+
++                runtime.lob_qi_max_abs = float(lp.get("qi_max_abs", 0.0) or 0.0)
+
++                runtime.lob_qi_slope = float(lp.get("qi_slope", 0.0) or 0.0)
+
++
+
++                runtime.lob_micro_mid_div_bps = float(lp.get("micro_mid_div_bps", 0.0) or 0.0)
+
++                runtime.lob_micro_shift_bps = float(lp.get("micro_shift_bps", 0.0) or 0.0)
+
++
+
++                runtime.lob_depth_slope_bid = float(lp.get("depth_slope_bid", 0.0) or 0.0)
+
++                runtime.lob_depth_slope_ask = float(lp.get("depth_slope_ask", 0.0) or 0.0)
+
++                runtime.lob_depth_slope_imb = float(lp.get("depth_slope_imb", 0.0) or 0.0)
+
++
+
++                runtime.lob_depth_convexity_bid = float(lp.get("depth_convexity_bid", 0.0) or 0.0)
+
++                runtime.lob_depth_convexity_ask = float(lp.get("depth_convexity_ask", 0.0) or 0.0)
+
++                runtime.lob_depth_convexity_imb = float(lp.get("depth_convexity_imb", 0.0) or 0.0)
+
++
+
++                runtime.lob_dw_obi = float(lp.get("dw_obi", 0.0) or 0.0)
+
++
+
++                # dw_obi z + stability (deterministic, fail-open)
+
++                try:
+
++                    runtime.dw_obi_stats.update(float(runtime.lob_dw_obi))
+
++                    runtime.dw_obi_z = float(runtime.dw_obi_stats.z(float(runtime.lob_dw_obi)))
+
++                except Exception:
+
++                    runtime.dw_obi_z = 0.0
+
++                try:
+
++                    q, secs = runtime.dw_obi_tracker.update(ts_ms=int(book_ts_ms), obi=float(runtime.lob_dw_obi))
+
++                    runtime.dw_obi_stability_score = float(q)
+
++                    runtime.dw_obi_stable_secs = float(secs)
+
++                    min_secs = float(runtime.config.get("dw_obi_stable_min_secs", 1.5) or 1.5)
+
++                    min_q = float(runtime.config.get("dw_obi_stability_min_score", 0.60) or 0.60)
+
++                    runtime.dw_obi_stable = bool((secs >= min_secs) and (q >= min_q))
+
++                except Exception:
+
++                    runtime.dw_obi_stability_score = 0.0
+
++                    runtime.dw_obi_stable_secs = 0.0
+
++                    runtime.dw_obi_stable = False
+
++
+
++                runtime.last_lob_event = {
+
++                    "ts_ms": int(book_ts_ms),
+
++                    **{k: float(v) for k, v in lp.items() if isinstance(v, (int, float))},
+
++                    "dw_obi_z": float(getattr(runtime, "dw_obi_z", 0.0) or 0.0),
+
++                    "dw_obi_stability_score": float(getattr(runtime, "dw_obi_stability_score", 0.0) or 0.0),
+
++                    "dw_obi_stable_secs": float(getattr(runtime, "dw_obi_stable_secs", 0.0) or 0.0),
+
++                    "dw_obi_stable": 1 if bool(getattr(runtime, "dw_obi_stable", False)) else 0,
+
++                }
+
++
+
++                # Prometheus (best-effort)
+
++                sym = str(runtime.symbol)
+
++                try:
+
++                    for i in range(1, 6):
+
++                        lv = f"L{i}"
+
++                        qv = float(lp.get(f"qi_l{i}", 0.0) or 0.0)
+
++                        if of_lob_queue_imbalance_gauge:
+
++                            of_lob_queue_imbalance_gauge.labels(symbol=sym, level=lv).set(qv)
+
++                    if of_lob_queue_imbalance_mean_gauge:
+
++                        of_lob_queue_imbalance_mean_gauge.labels(symbol=sym).set(float(runtime.lob_qi_mean))
+
++                    if of_lob_queue_imbalance_max_abs_gauge:
+
++                        of_lob_queue_imbalance_max_abs_gauge.labels(symbol=sym).set(float(runtime.lob_qi_max_abs))
+
++                    if of_lob_queue_imbalance_slope_gauge:
+
++                        of_lob_queue_imbalance_slope_gauge.labels(symbol=sym).set(float(runtime.lob_qi_slope))
+
++
+
++                    if of_lob_micro_mid_div_bps_gauge:
+
++                        of_lob_micro_mid_div_bps_gauge.labels(symbol=sym).set(float(runtime.lob_micro_mid_div_bps))
+
++                    if of_lob_micro_shift_bps_gauge:
+
++                        of_lob_micro_shift_bps_gauge.labels(symbol=sym).set(float(runtime.lob_micro_shift_bps))
+
++
+
++                    if of_lob_depth_slope_gauge:
+
++                        of_lob_depth_slope_gauge.labels(symbol=sym, side="bid").set(float(runtime.lob_depth_slope_bid))
+
++                        of_lob_depth_slope_gauge.labels(symbol=sym, side="ask").set(float(runtime.lob_depth_slope_ask))
+
++                        of_lob_depth_slope_gauge.labels(symbol=sym, side="imb").set(float(runtime.lob_depth_slope_imb))
+
++                    if of_lob_depth_convexity_gauge:
+
++                        of_lob_depth_convexity_gauge.labels(symbol=sym, side="bid").set(float(runtime.lob_depth_convexity_bid))
+
++                        of_lob_depth_convexity_gauge.labels(symbol=sym, side="ask").set(float(runtime.lob_depth_convexity_ask))
+
++                        of_lob_depth_convexity_gauge.labels(symbol=sym, side="imb").set(float(runtime.lob_depth_convexity_imb))
+
++
+
++                    if of_lob_dw_obi_gauge:
+
++                        of_lob_dw_obi_gauge.labels(symbol=sym).set(float(runtime.lob_dw_obi))
+
++                    if of_lob_dw_obi_z_gauge:
+
++                        of_lob_dw_obi_z_gauge.labels(symbol=sym).set(float(runtime.dw_obi_z))
+
++                    if of_lob_dw_obi_stability_score_gauge:
+
++                        of_lob_dw_obi_stability_score_gauge.labels(symbol=sym).set(float(runtime.dw_obi_stability_score))
+
++                    if of_lob_dw_obi_stable_secs_gauge:
+
++                        of_lob_dw_obi_stable_secs_gauge.labels(symbol=sym).set(float(runtime.dw_obi_stable_secs))
+
++                    if of_lob_dw_obi_stable_gauge:
+
++                        of_lob_dw_obi_stable_gauge.labels(symbol=sym).set(1.0 if bool(runtime.dw_obi_stable) else 0.0)
+
++                except Exception:
+
++                    pass
+
++
+
++            except Exception as exc:
+
++                log_silent_error(exc, "lob_pressure_failure", runtime.symbol, "BookProcessor:lob_pressure")
+
+ 
+
+             # 3. Book Rate & Churn Metrics
+
+             if book_ts_ms > 0:
+
+
+--- a/tick_flow_full/services/orderflow/components/book_processor.py
++++ b/tick_flow_full/services/orderflow/components/book_processor.py
+@@ -7,11 +7,16 @@
+ from services.orderflow.runtime import SymbolRuntime, BookSnapshot, BookState
+
+ from services.orderflow.configuration import _safe_int, _safe_float
+
+ from services.orderflow.metrics import (
+
+-    log_silent_error, book_rate_ema_gauge, book_rate_z_gauge
+
++    log_silent_error, book_rate_ema_gauge, book_rate_z_gauge,
+
++    of_lob_queue_imbalance_gauge, of_lob_queue_imbalance_mean_gauge, of_lob_queue_imbalance_max_abs_gauge, of_lob_queue_imbalance_slope_gauge,
+
++    of_lob_micro_mid_div_bps_gauge, of_lob_micro_shift_bps_gauge,
+
++    of_lob_depth_slope_gauge, of_lob_depth_convexity_gauge,
+
++    of_lob_dw_obi_gauge, of_lob_dw_obi_z_gauge, of_lob_dw_obi_stability_score_gauge, of_lob_dw_obi_stable_secs_gauge, of_lob_dw_obi_stable_gauge,
+
+ )
+
+ from services.orderflow.utils import _fields_to_dict
+
+ from services.orderflow.components.parsing import OrderFlowParsing
+
+ from core.book_churn import compute_churn_from_z
+
++from core.lob_pressure import compute_lob_pressure
+
+ from core.cvd_reclaim import compute_cvd_reclaim
+
+ from core.ofi_tracker import OFIEvent
+
+ 
+
+@@ -78,6 +83,105 @@
+             runtime.last_book_raw = book_raw
+
+             runtime.prev_book = prev_snap
+
+             runtime.last_book = snap
+
++
+
++            # 2b. LOB pressure features (P91)
+
++            try:
+
++                lp = compute_lob_pressure(
+
++                    bids=list(snap.top5_bids or []),
+
++                    asks=list(snap.top5_asks or []),
+
++                    prev_bids=list(prev_snap.top5_bids) if prev_snap else None,
+
++                    prev_asks=list(prev_snap.top5_asks) if prev_snap else None,
+
++                    depth=int(runtime.config.get("lob_depth", 5) or 5),
+
++                )
+
++
+
++                runtime.lob_qi_mean = float(lp.get("qi_mean", 0.0) or 0.0)
+
++                runtime.lob_qi_max_abs = float(lp.get("qi_max_abs", 0.0) or 0.0)
+
++                runtime.lob_qi_slope = float(lp.get("qi_slope", 0.0) or 0.0)
+
++
+
++                runtime.lob_micro_mid_div_bps = float(lp.get("micro_mid_div_bps", 0.0) or 0.0)
+
++                runtime.lob_micro_shift_bps = float(lp.get("micro_shift_bps", 0.0) or 0.0)
+
++
+
++                runtime.lob_depth_slope_bid = float(lp.get("depth_slope_bid", 0.0) or 0.0)
+
++                runtime.lob_depth_slope_ask = float(lp.get("depth_slope_ask", 0.0) or 0.0)
+
++                runtime.lob_depth_slope_imb = float(lp.get("depth_slope_imb", 0.0) or 0.0)
+
++
+
++                runtime.lob_depth_convexity_bid = float(lp.get("depth_convexity_bid", 0.0) or 0.0)
+
++                runtime.lob_depth_convexity_ask = float(lp.get("depth_convexity_ask", 0.0) or 0.0)
+
++                runtime.lob_depth_convexity_imb = float(lp.get("depth_convexity_imb", 0.0) or 0.0)
+
++
+
++                runtime.lob_dw_obi = float(lp.get("dw_obi", 0.0) or 0.0)
+
++
+
++                # dw_obi z + stability (deterministic, fail-open)
+
++                try:
+
++                    runtime.dw_obi_stats.update(float(runtime.lob_dw_obi))
+
++                    runtime.dw_obi_z = float(runtime.dw_obi_stats.z(float(runtime.lob_dw_obi)))
+
++                except Exception:
+
++                    runtime.dw_obi_z = 0.0
+
++                try:
+
++                    q, secs = runtime.dw_obi_tracker.update(ts_ms=int(book_ts_ms), obi=float(runtime.lob_dw_obi))
+
++                    runtime.dw_obi_stability_score = float(q)
+
++                    runtime.dw_obi_stable_secs = float(secs)
+
++                    min_secs = float(runtime.config.get("dw_obi_stable_min_secs", 1.5) or 1.5)
+
++                    min_q = float(runtime.config.get("dw_obi_stability_min_score", 0.60) or 0.60)
+
++                    runtime.dw_obi_stable = bool((secs >= min_secs) and (q >= min_q))
+
++                except Exception:
+
++                    runtime.dw_obi_stability_score = 0.0
+
++                    runtime.dw_obi_stable_secs = 0.0
+
++                    runtime.dw_obi_stable = False
+
++
+
++                runtime.last_lob_event = {
+
++                    "ts_ms": int(book_ts_ms),
+
++                    **{k: float(v) for k, v in lp.items() if isinstance(v, (int, float))},
+
++                    "dw_obi_z": float(getattr(runtime, "dw_obi_z", 0.0) or 0.0),
+
++                    "dw_obi_stability_score": float(getattr(runtime, "dw_obi_stability_score", 0.0) or 0.0),
+
++                    "dw_obi_stable_secs": float(getattr(runtime, "dw_obi_stable_secs", 0.0) or 0.0),
+
++                    "dw_obi_stable": 1 if bool(getattr(runtime, "dw_obi_stable", False)) else 0,
+
++                }
+
++
+
++                # Prometheus (best-effort)
+
++                sym = str(runtime.symbol)
+
++                try:
+
++                    for i in range(1, 6):
+
++                        lv = f"L{i}"
+
++                        qv = float(lp.get(f"qi_l{i}", 0.0) or 0.0)
+
++                        if of_lob_queue_imbalance_gauge:
+
++                            of_lob_queue_imbalance_gauge.labels(symbol=sym, level=lv).set(qv)
+
++                    if of_lob_queue_imbalance_mean_gauge:
+
++                        of_lob_queue_imbalance_mean_gauge.labels(symbol=sym).set(float(runtime.lob_qi_mean))
+
++                    if of_lob_queue_imbalance_max_abs_gauge:
+
++                        of_lob_queue_imbalance_max_abs_gauge.labels(symbol=sym).set(float(runtime.lob_qi_max_abs))
+
++                    if of_lob_queue_imbalance_slope_gauge:
+
++                        of_lob_queue_imbalance_slope_gauge.labels(symbol=sym).set(float(runtime.lob_qi_slope))
+
++
+
++                    if of_lob_micro_mid_div_bps_gauge:
+
++                        of_lob_micro_mid_div_bps_gauge.labels(symbol=sym).set(float(runtime.lob_micro_mid_div_bps))
+
++                    if of_lob_micro_shift_bps_gauge:
+
++                        of_lob_micro_shift_bps_gauge.labels(symbol=sym).set(float(runtime.lob_micro_shift_bps))
+
++
+
++                    if of_lob_depth_slope_gauge:
+
++                        of_lob_depth_slope_gauge.labels(symbol=sym, side="bid").set(float(runtime.lob_depth_slope_bid))
+
++                        of_lob_depth_slope_gauge.labels(symbol=sym, side="ask").set(float(runtime.lob_depth_slope_ask))
+
++                        of_lob_depth_slope_gauge.labels(symbol=sym, side="imb").set(float(runtime.lob_depth_slope_imb))
+
++                    if of_lob_depth_convexity_gauge:
+
++                        of_lob_depth_convexity_gauge.labels(symbol=sym, side="bid").set(float(runtime.lob_depth_convexity_bid))
+
++                        of_lob_depth_convexity_gauge.labels(symbol=sym, side="ask").set(float(runtime.lob_depth_convexity_ask))
+
++                        of_lob_depth_convexity_gauge.labels(symbol=sym, side="imb").set(float(runtime.lob_depth_convexity_imb))
+
++
+
++                    if of_lob_dw_obi_gauge:
+
++                        of_lob_dw_obi_gauge.labels(symbol=sym).set(float(runtime.lob_dw_obi))
+
++                    if of_lob_dw_obi_z_gauge:
+
++                        of_lob_dw_obi_z_gauge.labels(symbol=sym).set(float(runtime.dw_obi_z))
+
++                    if of_lob_dw_obi_stability_score_gauge:
+
++                        of_lob_dw_obi_stability_score_gauge.labels(symbol=sym).set(float(runtime.dw_obi_stability_score))
+
++                    if of_lob_dw_obi_stable_secs_gauge:
+
++                        of_lob_dw_obi_stable_secs_gauge.labels(symbol=sym).set(float(runtime.dw_obi_stable_secs))
+
++                    if of_lob_dw_obi_stable_gauge:
+
++                        of_lob_dw_obi_stable_gauge.labels(symbol=sym).set(1.0 if bool(runtime.dw_obi_stable) else 0.0)
+
++                except Exception:
+
++                    pass
+
++
+
++            except Exception as exc:
+
++                log_silent_error(exc, "lob_pressure_failure", runtime.symbol, "BookProcessor:lob_pressure")
+
+ 
+
+             # 3. Book Rate & Churn Metrics
+
+             if book_ts_ms > 0:
+
+
+--- a/services/orderflow/runtime.py
++++ b/services/orderflow/runtime.py
+@@ -428,6 +428,27 @@
+     book_churn_hi: int = 0
+
+     last_obi_event: Optional[Dict[str, Any]] = None
+
+     last_iceberg_event: Optional[Dict[str, Any]] = None
+
++
+
++    # --- LOB pressure (P91) ---
+
++    last_lob_event: Optional[Dict[str, Any]] = None
+
++    lob_qi_mean: float = 0.0
+
++    lob_qi_max_abs: float = 0.0
+
++    lob_qi_slope: float = 0.0
+
++    lob_micro_mid_div_bps: float = 0.0
+
++    lob_micro_shift_bps: float = 0.0
+
++    lob_depth_slope_bid: float = 0.0
+
++    lob_depth_slope_ask: float = 0.0
+
++    lob_depth_slope_imb: float = 0.0
+
++    lob_depth_convexity_bid: float = 0.0
+
++    lob_depth_convexity_ask: float = 0.0
+
++    lob_depth_convexity_imb: float = 0.0
+
++    lob_dw_obi: float = 0.0
+
++    dw_obi_z: float = 0.0
+
++    dw_obi_stability_score: float = 0.0
+
++    dw_obi_stable_secs: float = 0.0
+
++    dw_obi_stable: bool = False
+
++    dw_obi_stats: RollingRobustZ = field(init=False)
+
++    dw_obi_tracker: OBIStabilityTracker = field(init=False)
+
+     last_signal_ts: int = 0
+
+     # Overtrading/churn proxy: cooldown filtered rate (EMA, signals/sec)
+
+     cooldown_hits_ema: float = 0.0
+
+
+--- a/tick_flow_full/services/orderflow/runtime.py
++++ b/tick_flow_full/services/orderflow/runtime.py
+@@ -440,6 +440,27 @@
+     book_churn_hi: int = 0
+
+     last_obi_event: Optional[Dict[str, Any]] = None
+
+     last_iceberg_event: Optional[Dict[str, Any]] = None
+
++
+
++    # --- LOB pressure (P91) ---
+
++    last_lob_event: Optional[Dict[str, Any]] = None
+
++    lob_qi_mean: float = 0.0
+
++    lob_qi_max_abs: float = 0.0
+
++    lob_qi_slope: float = 0.0
+
++    lob_micro_mid_div_bps: float = 0.0
+
++    lob_micro_shift_bps: float = 0.0
+
++    lob_depth_slope_bid: float = 0.0
+
++    lob_depth_slope_ask: float = 0.0
+
++    lob_depth_slope_imb: float = 0.0
+
++    lob_depth_convexity_bid: float = 0.0
+
++    lob_depth_convexity_ask: float = 0.0
+
++    lob_depth_convexity_imb: float = 0.0
+
++    lob_dw_obi: float = 0.0
+
++    dw_obi_z: float = 0.0
+
++    dw_obi_stability_score: float = 0.0
+
++    dw_obi_stable_secs: float = 0.0
+
++    dw_obi_stable: bool = False
+
++    dw_obi_stats: RollingRobustZ = field(init=False)
+
++    dw_obi_tracker: OBIStabilityTracker = field(init=False)
+
+     last_signal_ts: int = 0
+
+     # Overtrading/churn proxy: cooldown filtered rate (EMA, signals/sec)
+
+     cooldown_hits_ema: float = 0.0
+
+
+--- a/services/orderflow/metrics.py
++++ b/services/orderflow/metrics.py
+@@ -803,6 +803,76 @@
+     ['symbol']
+
+ )
+
+ 
+
++
+
++# --- LOB pressure metrics (P91) ---
+
++of_lob_queue_imbalance_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_queue_imbalance",
+
++    "Queue imbalance per LOB level (bid_qty-ask_qty)/(bid_qty+ask_qty)",
+
++    ["symbol", "level"],
+
++)
+
++of_lob_queue_imbalance_mean_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_queue_imbalance_mean",
+
++    "Mean queue imbalance over L1..L5 (signed)",
+
++    ["symbol"],
+
++)
+
++of_lob_queue_imbalance_max_abs_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_queue_imbalance_max_abs",
+
++    "Max absolute queue imbalance over L1..L5",
+
++    ["symbol"],
+
++)
+
++of_lob_queue_imbalance_slope_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_queue_imbalance_slope",
+
++    "Slope of queue imbalance over depth levels (least squares, signed)",
+
++    ["symbol"],
+
++)
+
++
+
++of_lob_micro_mid_div_bps_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_micro_mid_div_bps",
+
++    "Microprice divergence vs mid (bps)",
+
++    ["symbol"],
+
++)
+
++of_lob_micro_shift_bps_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_micro_shift_bps",
+
++    "Microprice shift vs previous snapshot (bps)",
+
++    ["symbol"],
+
++)
+
++
+
++of_lob_depth_slope_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_depth_slope",
+
++    "Depth curve slope by side (cumulative qty, per level)",
+
++    ["symbol", "side"],
+
++)
+
++of_lob_depth_convexity_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_depth_convexity",
+
++    "Depth curve convexity by side (second-diff of cumulative qty, normalized)",
+
++    ["symbol", "side"],
+
++)
+
++
+
++of_lob_dw_obi_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_dw_obi",
+
++    "Depth-weighted OBI (weights 1/level)",
+
++    ["symbol"],
+
++)
+
++of_lob_dw_obi_z_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_dw_obi_z",
+
++    "Z-score of depth-weighted OBI (robust rolling)",
+
++    ["symbol"],
+
++)
+
++of_lob_dw_obi_stability_score_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_dw_obi_stability_score",
+
++    "Stability score [0..1] for depth-weighted OBI",
+
++    ["symbol"],
+
++)
+
++of_lob_dw_obi_stable_secs_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_dw_obi_stable_secs",
+
++    "Continuous stable seconds for depth-weighted OBI direction",
+
++    ["symbol"],
+
++)
+
++of_lob_dw_obi_stable_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_dw_obi_stable",
+
++    "Flag: depth-weighted OBI is stable enough (1/0)",
+
++    ["symbol"],
+
++)
+
+ # --- OF Inputs Version & Missing Fields Metrics ---
+
+ of_inputs_version_total = _get_or_create_prom_counter(
+
+     'of_inputs_version_total',
+
+
+--- a/tick_flow_full/services/orderflow/metrics.py
++++ b/tick_flow_full/services/orderflow/metrics.py
+@@ -766,6 +766,76 @@
+     ['symbol']
+
+ )
+
+ 
+
++
+
++# --- LOB pressure metrics (P91) ---
+
++of_lob_queue_imbalance_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_queue_imbalance",
+
++    "Queue imbalance per LOB level (bid_qty-ask_qty)/(bid_qty+ask_qty)",
+
++    ["symbol", "level"],
+
++)
+
++of_lob_queue_imbalance_mean_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_queue_imbalance_mean",
+
++    "Mean queue imbalance over L1..L5 (signed)",
+
++    ["symbol"],
+
++)
+
++of_lob_queue_imbalance_max_abs_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_queue_imbalance_max_abs",
+
++    "Max absolute queue imbalance over L1..L5",
+
++    ["symbol"],
+
++)
+
++of_lob_queue_imbalance_slope_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_queue_imbalance_slope",
+
++    "Slope of queue imbalance over depth levels (least squares, signed)",
+
++    ["symbol"],
+
++)
+
++
+
++of_lob_micro_mid_div_bps_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_micro_mid_div_bps",
+
++    "Microprice divergence vs mid (bps)",
+
++    ["symbol"],
+
++)
+
++of_lob_micro_shift_bps_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_micro_shift_bps",
+
++    "Microprice shift vs previous snapshot (bps)",
+
++    ["symbol"],
+
++)
+
++
+
++of_lob_depth_slope_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_depth_slope",
+
++    "Depth curve slope by side (cumulative qty, per level)",
+
++    ["symbol", "side"],
+
++)
+
++of_lob_depth_convexity_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_depth_convexity",
+
++    "Depth curve convexity by side (second-diff of cumulative qty, normalized)",
+
++    ["symbol", "side"],
+
++)
+
++
+
++of_lob_dw_obi_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_dw_obi",
+
++    "Depth-weighted OBI (weights 1/level)",
+
++    ["symbol"],
+
++)
+
++of_lob_dw_obi_z_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_dw_obi_z",
+
++    "Z-score of depth-weighted OBI (robust rolling)",
+
++    ["symbol"],
+
++)
+
++of_lob_dw_obi_stability_score_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_dw_obi_stability_score",
+
++    "Stability score [0..1] for depth-weighted OBI",
+
++    ["symbol"],
+
++)
+
++of_lob_dw_obi_stable_secs_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_dw_obi_stable_secs",
+
++    "Continuous stable seconds for depth-weighted OBI direction",
+
++    ["symbol"],
+
++)
+
++of_lob_dw_obi_stable_gauge = _get_or_create_prom_gauge(
+
++    "of_lob_dw_obi_stable",
+
++    "Flag: depth-weighted OBI is stable enough (1/0)",
+
++    ["symbol"],
+
++)
+
+ # --- OF Inputs Version & Missing Fields Metrics ---
+
+ of_inputs_version_total = _get_or_create_prom_counter(
+
+     'of_inputs_version_total',
+
+
+--- a/services/orderflow/components/tick_processor.py
++++ b/services/orderflow/components/tick_processor.py
+@@ -1402,6 +1402,40 @@
+                         if indicators["obi_sustained"]:
+
+                             confirmations.append(f"obi_stable={float(indicators['obi_stable_secs']):.2f}")
+
+ 
+
++
+
++
+
++                # LOB pressure (P91) — queue imbalance / microprice / slope / depth-weighted OBI
+
++                try:
+
++                    lp = getattr(runtime, "last_lob_event", None)
+
++                    if lp and isinstance(lp, dict):
+
++                        indicators["lob_qi_l1"] = float(lp.get("qi_l1", 0.0) or 0.0)
+
++                        indicators["lob_qi_l2"] = float(lp.get("qi_l2", 0.0) or 0.0)
+
++                        indicators["lob_qi_l3"] = float(lp.get("qi_l3", 0.0) or 0.0)
+
++                        indicators["lob_qi_l4"] = float(lp.get("qi_l4", 0.0) or 0.0)
+
++                        indicators["lob_qi_l5"] = float(lp.get("qi_l5", 0.0) or 0.0)
+
++
+
++                        indicators["lob_qi_mean"] = float(lp.get("qi_mean", getattr(runtime, "lob_qi_mean", 0.0)) or 0.0)
+
++                        indicators["lob_qi_max_abs"] = float(lp.get("qi_max_abs", getattr(runtime, "lob_qi_max_abs", 0.0)) or 0.0)
+
++                        indicators["lob_qi_slope"] = float(lp.get("qi_slope", getattr(runtime, "lob_qi_slope", 0.0)) or 0.0)
+
++
+
++                        indicators["lob_micro_mid_div_bps"] = float(lp.get("micro_mid_div_bps", getattr(runtime, "lob_micro_mid_div_bps", 0.0)) or 0.0)
+
++                        indicators["lob_micro_shift_bps"] = float(lp.get("micro_shift_bps", getattr(runtime, "lob_micro_shift_bps", 0.0)) or 0.0)
+
++
+
++                        indicators["lob_depth_slope_bid"] = float(lp.get("depth_slope_bid", getattr(runtime, "lob_depth_slope_bid", 0.0)) or 0.0)
+
++                        indicators["lob_depth_slope_ask"] = float(lp.get("depth_slope_ask", getattr(runtime, "lob_depth_slope_ask", 0.0)) or 0.0)
+
++                        indicators["lob_depth_slope_imb"] = float(lp.get("depth_slope_imb", getattr(runtime, "lob_depth_slope_imb", 0.0)) or 0.0)
+
++
+
++                        indicators["lob_depth_convexity_bid"] = float(lp.get("depth_convexity_bid", getattr(runtime, "lob_depth_convexity_bid", 0.0)) or 0.0)
+
++                        indicators["lob_depth_convexity_ask"] = float(lp.get("depth_convexity_ask", getattr(runtime, "lob_depth_convexity_ask", 0.0)) or 0.0)
+
++                        indicators["lob_depth_convexity_imb"] = float(lp.get("depth_convexity_imb", getattr(runtime, "lob_depth_convexity_imb", 0.0)) or 0.0)
+
++
+
++                        indicators["lob_dw_obi"] = float(lp.get("dw_obi", getattr(runtime, "lob_dw_obi", 0.0)) or 0.0)
+
++                        indicators["lob_dw_obi_z"] = float(lp.get("dw_obi_z", getattr(runtime, "dw_obi_z", 0.0)) or 0.0)
+
++                        indicators["lob_dw_obi_stability_score"] = float(lp.get("dw_obi_stability_score", getattr(runtime, "dw_obi_stability_score", 0.0)) or 0.0)
+
++                        indicators["lob_dw_obi_stable_secs"] = float(lp.get("dw_obi_stable_secs", getattr(runtime, "dw_obi_stable_secs", 0.0)) or 0.0)
+
++                        indicators["lob_dw_obi_stable"] = int(lp.get("dw_obi_stable", 1 if bool(getattr(runtime, "dw_obi_stable", False)) else 0) or 0)
+
++                except Exception:
+
++                    pass
+
+             # Footprint edge absorb (recent, no range expansion)
+
+             fe = getattr(runtime, "last_fp_edge", None)
+
+             if fe is not None:
+
+
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -1584,6 +1584,40 @@
+                         if indicators["obi_sustained"]:
+
+                             confirmations.append(f"obi_stable={float(indicators['obi_stable_secs']):.2f}")
+
+ 
+
++
+
++
+
++                # LOB pressure (P91) — queue imbalance / microprice / slope / depth-weighted OBI
+
++                try:
+
++                    lp = getattr(runtime, "last_lob_event", None)
+
++                    if lp and isinstance(lp, dict):
+
++                        indicators["lob_qi_l1"] = float(lp.get("qi_l1", 0.0) or 0.0)
+
++                        indicators["lob_qi_l2"] = float(lp.get("qi_l2", 0.0) or 0.0)
+
++                        indicators["lob_qi_l3"] = float(lp.get("qi_l3", 0.0) or 0.0)
+
++                        indicators["lob_qi_l4"] = float(lp.get("qi_l4", 0.0) or 0.0)
+
++                        indicators["lob_qi_l5"] = float(lp.get("qi_l5", 0.0) or 0.0)
+
++
+
++                        indicators["lob_qi_mean"] = float(lp.get("qi_mean", getattr(runtime, "lob_qi_mean", 0.0)) or 0.0)
+
++                        indicators["lob_qi_max_abs"] = float(lp.get("qi_max_abs", getattr(runtime, "lob_qi_max_abs", 0.0)) or 0.0)
+
++                        indicators["lob_qi_slope"] = float(lp.get("qi_slope", getattr(runtime, "lob_qi_slope", 0.0)) or 0.0)
+
++
+
++                        indicators["lob_micro_mid_div_bps"] = float(lp.get("micro_mid_div_bps", getattr(runtime, "lob_micro_mid_div_bps", 0.0)) or 0.0)
+
++                        indicators["lob_micro_shift_bps"] = float(lp.get("micro_shift_bps", getattr(runtime, "lob_micro_shift_bps", 0.0)) or 0.0)
+
++
+
++                        indicators["lob_depth_slope_bid"] = float(lp.get("depth_slope_bid", getattr(runtime, "lob_depth_slope_bid", 0.0)) or 0.0)
+
++                        indicators["lob_depth_slope_ask"] = float(lp.get("depth_slope_ask", getattr(runtime, "lob_depth_slope_ask", 0.0)) or 0.0)
+
++                        indicators["lob_depth_slope_imb"] = float(lp.get("depth_slope_imb", getattr(runtime, "lob_depth_slope_imb", 0.0)) or 0.0)
+
++
+
++                        indicators["lob_depth_convexity_bid"] = float(lp.get("depth_convexity_bid", getattr(runtime, "lob_depth_convexity_bid", 0.0)) or 0.0)
+
++                        indicators["lob_depth_convexity_ask"] = float(lp.get("depth_convexity_ask", getattr(runtime, "lob_depth_convexity_ask", 0.0)) or 0.0)
+
++                        indicators["lob_depth_convexity_imb"] = float(lp.get("depth_convexity_imb", getattr(runtime, "lob_depth_convexity_imb", 0.0)) or 0.0)
+
++
+
++                        indicators["lob_dw_obi"] = float(lp.get("dw_obi", getattr(runtime, "lob_dw_obi", 0.0)) or 0.0)
+
++                        indicators["lob_dw_obi_z"] = float(lp.get("dw_obi_z", getattr(runtime, "dw_obi_z", 0.0)) or 0.0)
+
++                        indicators["lob_dw_obi_stability_score"] = float(lp.get("dw_obi_stability_score", getattr(runtime, "dw_obi_stability_score", 0.0)) or 0.0)
+
++                        indicators["lob_dw_obi_stable_secs"] = float(lp.get("dw_obi_stable_secs", getattr(runtime, "dw_obi_stable_secs", 0.0)) or 0.0)
+
++                        indicators["lob_dw_obi_stable"] = int(lp.get("dw_obi_stable", 1 if bool(getattr(runtime, "dw_obi_stable", False)) else 0) or 0)
+
++                except Exception:
+
++                    pass
+
+             indicators.setdefault("obi_stable", 0)
+
+             # Footprint edge absorb (recent, no range expansion)
+
+             fe = getattr(runtime, "last_fp_edge", None)
+
+
+--- /dev/null
++++ b/tick_flow_full/core/lob_pressure.py
+@@ -0,0 +1,204 @@
++# -*- coding: utf-8 -*-
+
++"""LOB Pressure features (P91).
+
++
+
++Designed for low-latency / deterministic runtime:
+
++- Pure Python, no numpy/pandas.
+
++- Bounded depth (default top-5).
+
++- Fail-open: if inputs are incomplete/invalid -> returns zeros.
+
++
+
++Features:
+
++1) Queue imbalance per level (L1..L5) + aggregates (mean, max_abs, slope)
+
++2) Microprice divergence vs mid (bps) + microprice shift (bps)
+
++3) Book slope/convexity (by cumulative depth) per side + imbalance
+
++4) Depth-weighted OBI (weights 1/(level)) for stronger near-touch emphasis
+
++"""
+
++
+
++from __future__ import annotations
+
++
+
++from typing import Any, Dict, List, Optional, Tuple
+
++import math
+
++
+
++
+
++def _sf(x: Any, default: float = 0.0) -> float:
+
++    try:
+
++        v = float(x)
+
++        if math.isnan(v) or math.isinf(v):
+
++            return float(default)
+
++        return v
+
++    except Exception:
+
++        return float(default)
+
++
+
++
+
++def _lin_slope(y: List[float]) -> float:
+
++    """Slope of y over x=1..n (least squares), fail-open."""
+
++    n = len(y)
+
++    if n <= 1:
+
++        return 0.0
+
++    x_mean = (n + 1) * 0.5
+
++    y_mean = sum(y) / float(n)
+
++    num = 0.0
+
++    den = 0.0
+
++    for i, yi in enumerate(y, 1):
+
++        dx = float(i) - x_mean
+
++        dy = float(yi) - y_mean
+
++        num += dx * dy
+
++        den += dx * dx
+
++    if den <= 0:
+
++        return 0.0
+
++    return num / den
+
++
+
++
+
++def _microprice(best_bid_px: float, best_bid_qty: float, best_ask_px: float, best_ask_qty: float) -> float:
+
++    denom = best_bid_qty + best_ask_qty
+
++    if denom <= 0:
+
++        return 0.0
+
++    return (best_ask_px * best_bid_qty + best_bid_px * best_ask_qty) / denom
+
++
+
++
+
++def compute_lob_pressure(
+
++    *,
+
++    bids: List[Tuple[float, float]],
+
++    asks: List[Tuple[float, float]],
+
++    prev_bids: Optional[List[Tuple[float, float]]] = None,
+
++    prev_asks: Optional[List[Tuple[float, float]]] = None,
+
++    depth: int = 5,
+
++) -> Dict[str, float]:
+
++    """Compute LOB pressure features from top-of-book levels."""
+
++    depth = int(max(1, min(10, depth)))
+
++    eps = 1e-12
+
++
+
++    # Normalize levels
+
++    bq: List[float] = []
+
++    aq: List[float] = []
+
++    bp: List[float] = []
+
++    ap: List[float] = []
+
++    for i in range(depth):
+
++        if i < len(bids):
+
++            bp.append(_sf(bids[i][0], 0.0))
+
++            bq.append(max(0.0, _sf(bids[i][1], 0.0)))
+
++        else:
+
++            bp.append(0.0)
+
++            bq.append(0.0)
+
++        if i < len(asks):
+
++            ap.append(_sf(asks[i][0], 0.0))
+
++            aq.append(max(0.0, _sf(asks[i][1], 0.0)))
+
++        else:
+
++            ap.append(0.0)
+
++            aq.append(0.0)
+
++
+
++    # --- Queue imbalance per level ---
+
++    qi_levels: List[float] = []
+
++    for i in range(depth):
+
++        # Require both sides to be present to avoid extreme (1/-1) on partial snapshots.
+
++        if bq[i] <= 0.0 or aq[i] <= 0.0:
+
++            qi = 0.0
+
++        else:
+
++            denom = bq[i] + aq[i]
+
++            qi = (bq[i] - aq[i]) / denom if denom > 0.0 else 0.0
+
++        qi_levels.append(float(qi))
+
++
+
++    qi_mean = sum(qi_levels) / float(max(1, len(qi_levels)))
+
++    qi_max_abs = 0.0
+
++    for q in qi_levels:
+
++        qi_max_abs = max(qi_max_abs, abs(float(q)))
+
++    qi_slope = _lin_slope(qi_levels)
+
++
+
++    out: Dict[str, float] = {
+
++        "qi_mean": float(qi_mean),
+
++        "qi_max_abs": float(qi_max_abs),
+
++        "qi_slope": float(qi_slope),
+
++    }
+
++    for i, q in enumerate(qi_levels, 1):
+
++        out[f"qi_l{i}"] = float(q)
+
++
+
++    # --- Microprice divergence + shift ---
+
++    best_bid_px = bp[0] if bp else 0.0
+
++    best_ask_px = ap[0] if ap else 0.0
+
++    best_bid_qty = bq[0] if bq else 0.0
+
++    best_ask_qty = aq[0] if aq else 0.0
+
++
+
++    mid = 0.0
+
++    if best_bid_px > 0.0 and best_ask_px > 0.0:
+
++        mid = 0.5 * (best_bid_px + best_ask_px)
+
++
+
++    mp = 0.0
+
++    if best_bid_px > 0.0 and best_ask_px > 0.0 and (best_bid_qty + best_ask_qty) > 0.0:
+
++        mp = _microprice(best_bid_px, best_bid_qty, best_ask_px, best_ask_qty)
+
++
+
++    mp_mid_div_bps = 0.0
+
++    if mid > 0.0 and mp > 0.0:
+
++        mp_mid_div_bps = ((mp - mid) / mid) * 10_000.0
+
++
+
++    mp_shift_bps = 0.0
+
++    if prev_bids and prev_asks and len(prev_bids) > 0 and len(prev_asks) > 0:
+
++        pbid_px = _sf(prev_bids[0][0], 0.0)
+
++        pask_px = _sf(prev_asks[0][0], 0.0)
+
++        pbid_qty = max(0.0, _sf(prev_bids[0][1], 0.0))
+
++        pask_qty = max(0.0, _sf(prev_asks[0][1], 0.0))
+
++        pmid = 0.0
+
++        if pbid_px > 0.0 and pask_px > 0.0:
+
++            pmid = 0.5 * (pbid_px + pask_px)
+
++        pmp = 0.0
+
++        if pbid_px > 0.0 and pask_px > 0.0 and (pbid_qty + pask_qty) > 0.0:
+
++            pmp = _microprice(pbid_px, pbid_qty, pask_px, pask_qty)
+
++        if pmid > 0.0 and mp > 0.0 and pmp > 0.0:
+
++            mp_shift_bps = ((mp - pmp) / pmid) * 10_000.0
+
++
+
++    out["micro_mid_div_bps"] = float(mp_mid_div_bps)
+
++    out["micro_shift_bps"] = float(mp_shift_bps)
+
++
+
++    # --- Depth curve slope/convexity ---
+
++    # Cumulative depth is more stable than raw per-level sizes.
+
++    cum_bid: List[float] = []
+
++    cum_ask: List[float] = []
+
++    s = 0.0
+
++    for q in bq:
+
++        s += float(q)
+
++        cum_bid.append(float(s))
+
++    s = 0.0
+
++    for q in aq:
+
++        s += float(q)
+
++        cum_ask.append(float(s))
+
++
+
++    def _slope(cum: List[float]) -> float:
+
++        n = len(cum)
+
++        if n <= 1:
+
++            return 0.0
+
++        return (cum[-1] - cum[0]) / float(n - 1)
+
++
+
++    def _convexity(cum: List[float]) -> float:
+
++        n = len(cum)
+
++        if n < 3:
+
++            return 0.0
+
++        mid_i = n // 2  # for 5 -> 2 (L3)
+
++        a = cum[0]
+
++        m = cum[mid_i]
+
++        z = cum[-1]
+
++        # second difference around mid (normalized)
+
++        return ((z - m) - (m - a)) / float(max(eps, abs(z)))
+
++
+
++    slope_bid = _slope(cum_bid)
+
++    slope_ask = _slope(cum_ask)
+
++    conv_bid = _convexity(cum_bid)
+
++    conv_ask = _convexity(cum_ask)
+
++
+
++    out["depth_slope_bid"] = float(slope_bid)
+
++    out["depth_slope_ask"] = float(slope_ask)
+
++    out["depth_slope_imb"] = float(slope_bid - slope_ask)
+
++
+
++    out["depth_convexity_bid"] = float(conv_bid)
+
++    out["depth_convexity_ask"] = float(conv_ask)
+
++    out["depth_convexity_imb"] = float(conv_bid - conv_ask)
+
++
+
++    # --- Depth-weighted OBI (1/level weights) ---
+
++    wb = 0.0
+
++    wa = 0.0
+
++    for i in range(depth):
+
++        w = 1.0 / float(i + 1)
+
++        wb += w * float(bq[i])
+
++        wa += w * float(aq[i])
+
++    denom = wb + wa
+
++    dw_obi = (wb - wa) / denom if denom > eps else 0.0
+
++    out["dw_obi"] = float(dw_obi)
+
++
+
++    return out
+
+
+--- /dev/null
++++ b/services/orderflow/tests/test_lob_pressure_v1.py
+@@ -0,0 +1,45 @@
++# -*- coding: utf-8 -*-
+
++import os
+
++import sys
+
++import math
+
++
+
++# Ensure `core.*` resolves to tick_flow_full/core in this repo layout.
+
++_TFF_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "tick_flow_full"))
+
++if _TFF_ROOT not in sys.path:
+
++    sys.path.insert(0, _TFF_ROOT)
+
++
+
++from core.lob_pressure import compute_lob_pressure
+
++
+
++
+
++def _approx(a, b, tol=1e-6):
+
++    return abs(float(a) - float(b)) <= float(tol)
+
++
+
++
+
++def test_compute_lob_pressure_basic():
+
++    bids = [(100.0, 10.0), (99.0, 20.0), (98.0, 30.0), (97.0, 40.0), (96.0, 50.0)]
+
++    asks = [(101.0, 5.0), (102.0, 5.0), (103.0, 5.0), (104.0, 5.0), (105.0, 5.0)]
+
++
+
++    out = compute_lob_pressure(bids=bids, asks=asks, depth=5)
+
++
+
++    # L1 queue imbalance: (10-5)/(10+5)=1/3
+
++    assert _approx(out["qi_l1"], 1.0 / 3.0, tol=1e-6)
+
++    # L2: (20-5)/25 = 0.6
+
++    assert _approx(out["qi_l2"], 0.6, tol=1e-6)
+
++
+
++    # Microprice divergence should be positive (hidden bid pressure)
+
++    assert out["micro_mid_div_bps"] > 0.0
+
++
+
++    # Depth-weighted OBI should be positive
+
++    assert out["dw_obi"] > 0.0
+
++
+
++    # Slope should be positive (imbalance grows deeper)
+
++    assert out["qi_slope"] > 0.0
+
++
+
++
+
++def test_compute_lob_pressure_fail_open_on_partial():
+
++    # Missing ask levels -> qi should not explode to 1; we require both sides -> 0.
+
++    bids = [(100.0, 10.0)]
+
++    asks = [(101.0, 0.0)]
+
++    out = compute_lob_pressure(bids=bids, asks=asks, depth=5)
+
++    assert _approx(out["qi_l1"], 0.0)
+
++    assert _approx(out["qi_mean"], 0.0)
+
+
+--- /dev/null
++++ b/tick_flow_full/services/orderflow/tests/test_lob_pressure_v1.py
+@@ -0,0 +1,45 @@
++# -*- coding: utf-8 -*-
+
++import os
+
++import sys
+
++import math
+
++
+
++# Ensure `core.*` resolves to tick_flow_full/core in this repo layout.
+
++_TFF_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "tick_flow_full"))
+
++if _TFF_ROOT not in sys.path:
+
++    sys.path.insert(0, _TFF_ROOT)
+
++
+
++from core.lob_pressure import compute_lob_pressure
+
++
+
++
+
++def _approx(a, b, tol=1e-6):
+
++    return abs(float(a) - float(b)) <= float(tol)
+
++
+
++
+
++def test_compute_lob_pressure_basic():
+
++    bids = [(100.0, 10.0), (99.0, 20.0), (98.0, 30.0), (97.0, 40.0), (96.0, 50.0)]
+
++    asks = [(101.0, 5.0), (102.0, 5.0), (103.0, 5.0), (104.0, 5.0), (105.0, 5.0)]
+
++
+
++    out = compute_lob_pressure(bids=bids, asks=asks, depth=5)
+
++
+
++    # L1 queue imbalance: (10-5)/(10+5)=1/3
+
++    assert _approx(out["qi_l1"], 1.0 / 3.0, tol=1e-6)
+
++    # L2: (20-5)/25 = 0.6
+
++    assert _approx(out["qi_l2"], 0.6, tol=1e-6)
+
++
+
++    # Microprice divergence should be positive (hidden bid pressure)
+
++    assert out["micro_mid_div_bps"] > 0.0
+
++
+
++    # Depth-weighted OBI should be positive
+
++    assert out["dw_obi"] > 0.0
+
++
+
++    # Slope should be positive (imbalance grows deeper)
+
++    assert out["qi_slope"] > 0.0
+
++
+
++
+
++def test_compute_lob_pressure_fail_open_on_partial():
+
++    # Missing ask levels -> qi should not explode to 1; we require both sides -> 0.
+
++    bids = [(100.0, 10.0)]
+
++    asks = [(101.0, 0.0)]
+
++    out = compute_lob_pressure(bids=bids, asks=asks, depth=5)
+
++    assert _approx(out["qi_l1"], 0.0)
+
++    assert _approx(out["qi_mean"], 0.0)
+

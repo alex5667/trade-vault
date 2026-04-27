@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/entry_policy_suggestion_meta_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.1, ',', ':', 'A', 'B', 'C', 'alpha', 'approvals_required', 'arm_metrics', 'bad_version', 'baseline_arm', 'continuation', 'created_ts_ms', 'default', 'expires_ts_ms', 'group', 'min_edge_r', 'min_n', 'na', 'ok', 'parse_error', 'reason', 'regime', 'reversal', 'scenario', 'scenario_invalid', 'sid', 'sid_empty', 'symbol', 'symbol_empty', 'updated_ts_ms', 'v', 'winner', 'winner_arm', 'winner_arm_invalid']

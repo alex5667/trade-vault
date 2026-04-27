@@ -1,0 +1,688 @@
+diff --git a/orderflow_services/operator_rca_routing_slo_analytics_v2_7.py b/orderflow_services/operator_rca_routing_slo_analytics_v2_7.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/operator_rca_routing_slo_analytics_v2_7.py
+@@ -0,0 +1,278 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from dataclasses import dataclass
++from statistics import median
++from typing import Any, Dict, Iterable, List, Tuple
++
++try:
++    import redis.asyncio as redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++from prometheus_client import Counter, Gauge, Histogram, start_http_server
++
++METRIC_RUNS = Counter("ml_operator_rca_routing_slo_runs_total", "Routing SLO runs", ["status"])
++METRIC_EVENTS = Gauge("ml_operator_rca_routing_slo_events_window", "Events in analysis window")
++METRIC_SUCCESS_RATE = Gauge("ml_operator_rca_routing_slo_success_rate", "Routing verification success rate")
++METRIC_MTTR_P50 = Gauge("ml_operator_rca_routing_slo_mttr_p50_seconds", "Routing MTTR p50")
++METRIC_MTTR_P95 = Gauge("ml_operator_rca_routing_slo_mttr_p95_seconds", "Routing MTTR p95")
++METRIC_BREACHES = Gauge("ml_operator_rca_routing_slo_breaches", "Routing SLO breaches")
++METRIC_LAST = Gauge("ml_operator_rca_routing_slo_last_run_ts_seconds", "Last run")
++METRIC_LAT = Histogram("ml_operator_rca_routing_slo_loop_seconds", "Loop seconds")
++
++VERIFY_STREAM = os.getenv("ML_OPERATOR_RCA_ROUTING_VERIFY_STREAM", "stream:ml:operator_rca_routing_verify_results")
++ROLLBACK_STREAM = os.getenv("ML_OPERATOR_RCA_ROUTING_ROLLBACK_RESULTS_STREAM", "stream:ml:operator_rca_routing_rollback_results")
++OUT_STREAM = os.getenv("ML_OPERATOR_RCA_ROUTING_SLO_STREAM", "stream:ml:operator_rca_routing_slo_rollups")
++LAST_HASH = os.getenv("ML_OPERATOR_RCA_ROUTING_SLO_LAST_HASH", "metrics:ml:operator_rca_routing_slo:last")
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _to_str_dict(raw: Dict[Any, Any]) -> Dict[str, str]:
++    out: Dict[str, str] = {}
++    for k, v in raw.items():
++        ks = k.decode() if isinstance(k, bytes) else str(k)
++        vs = v.decode() if isinstance(v, bytes) else str(v)
++        out[ks] = vs
++    return out
++
++
++def _pctile(values: List[float], q: float) -> float:
++    if not values:
++        return 0.0
++    arr = sorted(values)
++    if len(arr) == 1:
++        return float(arr[0])
++    idx = (len(arr) - 1) * q
++    lo = int(idx)
++    hi = min(lo + 1, len(arr) - 1)
++    frac = idx - lo
++    return float(arr[lo] * (1.0 - frac) + arr[hi] * frac)
++
++
++def _reason_codes(success_rate: float, mttr_p95: float, breaches: int, cfg: Dict[str, Any]) -> List[str]:
++    codes: List[str] = []
++    if success_rate < float(cfg["success_rate_min"]):
++        codes.append("ROUTE_VERIFY_SUCCESS_RATE_LOW")
++    if mttr_p95 > float(cfg["mttr_p95_max_sec"]):
++        codes.append("ROUTE_VERIFY_MTTR_P95_HIGH")
++    if breaches > 0:
++        codes.append("ROUTE_VERIFY_SLO_BREACH")
++    return codes
++
++
++@dataclass
++class RoutingEvent:
++    recommendation_id: str
++    route_change_id: str
++    ts_ms: int
++    verify_status: str
++    rollback_required: int
++    reason_code: str
++
++
++async def _read_recent(cli: "redis.Redis", stream: str, count: int) -> List[Dict[str, str]]:
++    rows = await cli.xrevrange(stream, max="+", min="-", count=count)
++    out: List[Dict[str, str]] = []
++    for _id, payload in rows:
++        d = _to_str_dict(payload)
++        d["stream_id"] = _id.decode() if isinstance(_id, bytes) else str(_id)
++        out.append(d)
++    return out
++
++
++def _extract_events(rows: Iterable[Dict[str, str]]) -> List[RoutingEvent]:
++    out: List[RoutingEvent] = []
++    for r in rows:
++        try:
++            out.append(
++                RoutingEvent(
++                    recommendation_id=str(r.get("recommendation_id", "")),
++                    route_change_id=str(r.get("route_change_id", "")),
++                    ts_ms=int(r.get("ts_ms", "0") or 0),
++                    verify_status=str(r.get("verify_status", "UNKNOWN")),
++                    rollback_required=int(r.get("rollback_required", "0") or 0),
++                    reason_code=str(r.get("reason_code", "")),
++                )
++            )
++        except Exception:
++            continue
++    return out
++
++
++async def run_once(cli: "redis.Redis", cfg: Dict[str, Any]) -> Dict[str, Any]:
++    t0 = time.perf_counter()
++    win = int(cfg["window_count"])
++    verify_rows = await _read_recent(cli, VERIFY_STREAM, win)
++    rb_rows = await _read_recent(cli, ROLLBACK_STREAM, win)
++    events = _extract_events(verify_rows)
++    rb = _extract_events(rb_rows)
++
++    rb_by_change: Dict[str, int] = {}
++    for e in rb:
++        if e.route_change_id:
++            rb_by_change[e.route_change_id] = e.ts_ms
++
++    mttrs: List[float] = []
++    success = 0
++    failed = 0
++    breaches = 0
++    for e in events:
++        if e.verify_status == "PASS":
++            success += 1
++        elif e.verify_status in ("ROLLBACK_REQUIRED", "FAIL"):
++            failed += 1
++            breaches += 1
++            rb_ts = rb_by_change.get(e.route_change_id)
++            if rb_ts and rb_ts >= e.ts_ms > 0:
++                mttrs.append((rb_ts - e.ts_ms) / 1000.0)
++        elif e.verify_status == "INCONCLUSIVE":
++            failed += 1
++
++    total = success + failed
++    success_rate = (success / total) if total > 0 else 1.0
++    mttr_p50 = median(mttrs) if mttrs else 0.0
++    mttr_p95 = _pctile(mttrs, 0.95) if mttrs else 0.0
++    codes = _reason_codes(success_rate, mttr_p95, breaches, cfg)
++
++    payload = {
++        "schema_version": 1,
++        "ts_ms": _now_ms(),
++        "window_count": win,
++        "events_n": total,
++        "success_n": success,
++        "failed_n": failed,
++        "success_rate": round(success_rate, 6),
++        "mttr_p50_sec": round(mttr_p50, 6),
++        "mttr_p95_sec": round(mttr_p95, 6),
++        "breaches": breaches,
++        "reason_codes_json": json.dumps(codes, separators=(",", ":")),
++    }
++    await cli.xadd(OUT_STREAM, payload, maxlen=int(cfg["stream_maxlen"]), approximate=True)
++    await cli.hset(LAST_HASH, mapping={k: str(v) for k, v in payload.items()})
++
++    METRIC_EVENTS.set(total)
++    METRIC_SUCCESS_RATE.set(success_rate)
++    METRIC_MTTR_P50.set(mttr_p50)
++    METRIC_MTTR_P95.set(mttr_p95)
++    METRIC_BREACHES.set(breaches)
++    METRIC_LAST.set(time.time())
++    METRIC_RUNS.labels(status="ok").inc()
++    METRIC_LAT.observe(time.perf_counter() - t0)
++    return payload
++
++
++async def main() -> None:
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(int(os.getenv("ML_OPERATOR_RCA_ROUTING_SLO_METRICS_PORT", "9880")))
++    cli = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    cfg = {
++        "window_count": int(os.getenv("ML_OPERATOR_RCA_ROUTING_SLO_WINDOW_COUNT", "500")),
++        "stream_maxlen": int(os.getenv("ML_OPERATOR_RCA_ROUTING_SLO_STREAM_MAXLEN", "2000")),
++        "success_rate_min": float(os.getenv("ML_OPERATOR_RCA_ROUTING_SLO_SUCCESS_RATE_MIN", "0.80")),
++        "mttr_p95_max_sec": float(os.getenv("ML_OPERATOR_RCA_ROUTING_SLO_MTTR_P95_MAX_SEC", "900")),
++        "interval_sec": float(os.getenv("ML_OPERATOR_RCA_ROUTING_SLO_INTERVAL_SEC", "60")),
++    }
++    while True:
++        try:
++            await run_once(cli, cfg)
++        except Exception:
++            METRIC_RUNS.labels(status="err").inc()
++        await asyncio.sleep(cfg["interval_sec"])
++
++
++if __name__ == "__main__":
++    import asyncio
++    asyncio.run(main())
+diff --git a/orderflow_services/rollback_retry_controller_v2_7.py b/orderflow_services/rollback_retry_controller_v2_7.py
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/orderflow_services/rollback_retry_controller_v2_7.py
+@@ -0,0 +1,306 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional
++
++try:
++    import redis.asyncio as redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++from prometheus_client import Counter, Gauge, Histogram, start_http_server
++
++IN_STREAM = os.getenv("ML_OPERATOR_RCA_ROUTING_VERIFY_STREAM", "stream:ml:operator_rca_routing_verify_results")
++OUT_STREAM = os.getenv("ML_OPERATOR_RCA_ROUTING_RETRY_REQUESTS_STREAM", "stream:ml:operator_rca_routing_retry_requests")
++AUDIT_STREAM = os.getenv("ML_OPERATOR_RCA_ROUTING_RETRY_AUDIT_STREAM", "stream:ml:operator_rca_routing_retry_audit")
++STATE_HASH = os.getenv("ML_OPERATOR_RCA_ROUTING_RETRY_STATE_HASH", "metrics:ml:operator_rca_routing_retry:last")
++GROUP = os.getenv("ML_OPERATOR_RCA_ROUTING_RETRY_GROUP", "cg:ml:operator_rca_routing_retry")
++CONSUMER = os.getenv("ML_OPERATOR_RCA_ROUTING_RETRY_CONSUMER", "retry-ctrl-1")
++
++RUNS = Counter("ml_operator_rca_routing_retry_runs_total", "Retry controller runs", ["status"])
++RETRY_REQ = Counter("ml_operator_rca_routing_retry_requests_total", "Retry requests emitted", ["reason_code"])
++SUPPRESS = Counter("ml_operator_rca_routing_retry_suppressed_total", "Retry suppressed", ["reason"])
++LAST = Gauge("ml_operator_rca_routing_retry_last_run_ts_seconds", "Last retry run")
++LAT = Histogram("ml_operator_rca_routing_retry_loop_seconds", "Retry loop latency")
++
++RETRYABLE = {
++    "ROUTE_VERIFY_INCONCLUSIVE",
++    "ROUTE_PROVIDER_TIMEOUT",
++    "ROUTE_PROVIDER_UNAVAILABLE",
++    "ROUTE_STATE_RACE",
++}
++NON_RETRYABLE = {
++    "ROUTE_POLICY_DENIED",
++    "ROUTE_BASELINE_MISSING",
++    "ROUTE_TARGET_MISSING",
++    "ROUTE_GOVERNOR_DENIED",
++}
++
++
++def _to_str_dict(raw: Dict[Any, Any]) -> Dict[str, str]:
++    out: Dict[str, str] = {}
++    for k, v in raw.items():
++        out[k.decode() if isinstance(k, bytes) else str(k)] = v.decode() if isinstance(v, bytes) else str(v)
++    return out
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++@dataclass
++class VerifyEvent:
++    recommendation_id: str
++    route_change_id: str
++    verify_status: str
++    reason_code: str
++    ts_ms: int
++
++
++def _parse(raw: Dict[str, str]) -> Optional[VerifyEvent]:
++    try:
++        return VerifyEvent(
++            recommendation_id=str(raw.get("recommendation_id", "")),
++            route_change_id=str(raw.get("route_change_id", "")),
++            verify_status=str(raw.get("verify_status", "")),
++            reason_code=str(raw.get("reason_code", "")),
++            ts_ms=int(raw.get("ts_ms", "0") or 0),
++        )
++    except Exception:
++        return None
++
++
++async def _state_get(cli: "redis.Redis", rid: str) -> Dict[str, str]:
++    raw = await cli.hgetall(f"metrics:ml:operator_rca_routing_retry:{rid}")
++    return _to_str_dict(raw)
++
++
++async def _state_set(cli: "redis.Redis", rid: str, mapping: Dict[str, Any]) -> None:
++    await cli.hset(f"metrics:ml:operator_rca_routing_retry:{rid}", mapping={k: str(v) for k, v in mapping.items()})
++
++
++def _backoff_sec(attempt: int, base: float, max_backoff: float) -> float:
++    return min(max_backoff, base * (2 ** max(0, attempt - 1)))
++
++
++async def process_event(cli: "redis.Redis", ev: VerifyEvent, cfg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
++    if ev.verify_status not in ("FAIL", "INCONCLUSIVE", "ROLLBACK_REQUIRED"):
++        SUPPRESS.labels(reason="verify_status_not_retryable").inc()
++        return None
++    if ev.reason_code in NON_RETRYABLE:
++        SUPPRESS.labels(reason="non_retryable_reason").inc()
++        return None
++    if ev.reason_code and ev.reason_code not in RETRYABLE and ev.verify_status != "INCONCLUSIVE":
++        SUPPRESS.labels(reason="unknown_reason_not_retryable").inc()
++        return None
++    state = await _state_get(cli, ev.recommendation_id)
++    attempts = int(state.get("attempts", "0") or 0)
++    if attempts >= int(cfg["max_attempts"]):
++        SUPPRESS.labels(reason="max_attempts").inc()
++        return None
++    now = _now_ms()
++    not_before_ms = int(state.get("not_before_ms", "0") or 0)
++    if now < not_before_ms:
++        SUPPRESS.labels(reason="backoff_active").inc()
++        return None
++
++    attempt = attempts + 1
++    delay_sec = _backoff_sec(attempt, float(cfg["base_backoff_sec"]), float(cfg["max_backoff_sec"]))
++    req = {
++        "schema_version": 1,
++        "ts_ms": now,
++        "recommendation_id": ev.recommendation_id,
++        "route_change_id": ev.route_change_id,
++        "retry_attempt": attempt,
++        "reason_code": ev.reason_code or "ROUTE_VERIFY_INCONCLUSIVE",
++        "retry_after_sec": round(delay_sec, 3),
++    }
++    await cli.xadd(OUT_STREAM, req, maxlen=int(cfg["stream_maxlen"]), approximate=True)
++    await cli.xadd(AUDIT_STREAM, {**req, "event": "ROUTING_RETRY_REQUESTED"}, maxlen=int(cfg["stream_maxlen"]), approximate=True)
++    await _state_set(
++        cli,
++        ev.recommendation_id,
++        {
++            "attempts": attempt,
++            "last_reason_code": ev.reason_code or "ROUTE_VERIFY_INCONCLUSIVE",
++            "last_ts_ms": now,
++            "not_before_ms": now + int(delay_sec * 1000),
++        },
++    )
++    RETRY_REQ.labels(reason_code=ev.reason_code or "ROUTE_VERIFY_INCONCLUSIVE").inc()
++    return req
++
++
++async def main() -> None:
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(int(os.getenv("ML_OPERATOR_RCA_ROUTING_RETRY_METRICS_PORT", "9881")))
++    cli = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    try:
++        await cli.xgroup_create(IN_STREAM, GROUP, id="0", mkstream=True)
++    except Exception:
++        pass
++    cfg = {
++        "max_attempts": int(os.getenv("ML_OPERATOR_RCA_ROUTING_RETRY_MAX_ATTEMPTS", "3")),
++        "base_backoff_sec": float(os.getenv("ML_OPERATOR_RCA_ROUTING_RETRY_BASE_BACKOFF_SEC", "60")),
++        "max_backoff_sec": float(os.getenv("ML_OPERATOR_RCA_ROUTING_RETRY_MAX_BACKOFF_SEC", "900")),
++        "stream_maxlen": int(os.getenv("ML_OPERATOR_RCA_ROUTING_RETRY_STREAM_MAXLEN", "2000")),
++    }
++    while True:
++        t0 = time.perf_counter()
++        try:
++            rows = await cli.xreadgroup(GROUP, CONSUMER, {IN_STREAM: ">"}, count=50, block=5000)
++            for _, items in rows:
++                for msg_id, payload in items:
++                    raw = _to_str_dict(payload)
++                    ev = _parse(raw)
++                    if ev is not None:
++                        await process_event(cli, ev, cfg)
++                    await cli.xack(IN_STREAM, GROUP, msg_id)
++            RUNS.labels(status="ok").inc()
++        except Exception:
++            RUNS.labels(status="err").inc()
++        LAST.set(time.time())
++        LAT.observe(time.perf_counter() - t0)
++
++
++if __name__ == "__main__":
++    import asyncio
++    asyncio.run(main())
+diff --git a/orderflow_services/rollback_auto_escalation_summarizer_v2_7.py b/orderflow_services/rollback_auto_escalation_summarizer_v2_7.py
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/orderflow_services/rollback_auto_escalation_summarizer_v2_7.py
+@@ -0,0 +1,272 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from collections import Counter as CCounter
++from typing import Any, Dict, List
++
++try:
++    import redis.asyncio as redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++from prometheus_client import Counter, Gauge, Histogram, start_http_server
++
++IN_STREAMS = [
++    os.getenv("ML_OPERATOR_RCA_ROUTING_VERIFY_STREAM", "stream:ml:operator_rca_routing_verify_results"),
++    os.getenv("ML_OPERATOR_RCA_ROUTING_RETRY_AUDIT_STREAM", "stream:ml:operator_rca_routing_retry_audit"),
++    os.getenv("ML_OPERATOR_RCA_ROUTING_ROLLBACK_RESULTS_STREAM", "stream:ml:operator_rca_routing_rollback_results"),
++]
++OUT_STREAM = os.getenv("ML_OPERATOR_RCA_ROUTING_ESCALATION_STREAM", "stream:ml:operator_rca_routing_escalations")
++LAST_HASH = os.getenv("ML_OPERATOR_RCA_ROUTING_ESCALATION_LAST_HASH", "metrics:ml:operator_rca_routing_escalations:last")
++
++RUNS = Counter("ml_operator_rca_routing_escalation_runs_total", "Escalation summarizer runs", ["status"])
++OPEN = Gauge("ml_operator_rca_routing_escalation_open_items", "Open escalation items")
++CRIT = Gauge("ml_operator_rca_routing_escalation_critical_items", "Critical escalation items")
++LAST = Gauge("ml_operator_rca_routing_escalation_last_run_ts_seconds", "Last run")
++LAT = Histogram("ml_operator_rca_routing_escalation_loop_seconds", "Loop seconds")
++
++
++def _to_str_dict(raw: Dict[Any, Any]) -> Dict[str, str]:
++    out: Dict[str, str] = {}
++    for k, v in raw.items():
++        out[k.decode() if isinstance(k, bytes) else str(k)] = v.decode() if isinstance(v, bytes) else str(v)
++    return out
++
++
++async def _read(cli: "redis.Redis", stream: str, count: int) -> List[Dict[str, str]]:
++    rows = await cli.xrevrange(stream, max="+", min="-", count=count)
++    out: List[Dict[str, str]] = []
++    for _id, payload in rows:
++        d = _to_str_dict(payload)
++        d["stream_id"] = _id.decode() if isinstance(_id, bytes) else str(_id)
++        out.append(d)
++    return out
++
++
++def _severity(open_n: int, critical_n: int, cfg: Dict[str, Any]) -> str:
++    if critical_n >= int(cfg["critical_open_threshold"]):
++        return "critical"
++    if open_n >= int(cfg["warning_open_threshold"]):
++        return "warning"
++    return "info"
++
++
++async def run_once(cli: "redis.Redis", cfg: Dict[str, Any]) -> Dict[str, Any]:
++    t0 = time.perf_counter()
++    events: List[Dict[str, str]] = []
++    for s in IN_STREAMS:
++        events.extend(await _read(cli, s, int(cfg["window_count"])))
++    by_reason = CCounter()
++    open_ids = set()
++    critical_ids = set()
++    for e in events:
++        rid = str(e.get("recommendation_id", "") or e.get("route_change_id", ""))
++        reason = str(e.get("reason_code", "UNKNOWN"))
++        if rid:
++            open_ids.add(rid)
++        if reason in ("ERROR_RATE_SPIKE", "PARSE_FAIL_RATE_HIGH", "LATENCY_P95_REGRESSION"):
++            if rid:
++                critical_ids.add(rid)
++        by_reason[reason] += 1
++    sev = _severity(len(open_ids), len(critical_ids), cfg)
++    payload = {
++        "schema_version": 1,
++        "ts_ms": int(time.time() * 1000),
++        "severity": sev,
++        "open_items_n": len(open_ids),
++        "critical_items_n": len(critical_ids),
++        "top_reason_codes_json": json.dumps(by_reason.most_common(5), separators=(",", ":")),
++        "summary": f"route_change open={len(open_ids)} critical={len(critical_ids)}",
++    }
++    await cli.xadd(OUT_STREAM, payload, maxlen=int(cfg["stream_maxlen"]), approximate=True)
++    await cli.hset(LAST_HASH, mapping={k: str(v) for k, v in payload.items()})
++    OPEN.set(len(open_ids))
++    CRIT.set(len(critical_ids))
++    LAST.set(time.time())
++    RUNS.labels(status="ok").inc()
++    LAT.observe(time.perf_counter() - t0)
++    return payload
++
++
++async def main() -> None:
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(int(os.getenv("ML_OPERATOR_RCA_ROUTING_ESCALATION_METRICS_PORT", "9882")))
++    cli = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    cfg = {
++        "window_count": int(os.getenv("ML_OPERATOR_RCA_ROUTING_ESCALATION_WINDOW_COUNT", "500")),
++        "stream_maxlen": int(os.getenv("ML_OPERATOR_RCA_ROUTING_ESCALATION_STREAM_MAXLEN", "2000")),
++        "warning_open_threshold": int(os.getenv("ML_OPERATOR_RCA_ROUTING_ESCALATION_WARNING_OPEN_THRESHOLD", "3")),
++        "critical_open_threshold": int(os.getenv("ML_OPERATOR_RCA_ROUTING_ESCALATION_CRITICAL_OPEN_THRESHOLD", "5")),
++        "interval_sec": float(os.getenv("ML_OPERATOR_RCA_ROUTING_ESCALATION_INTERVAL_SEC", "60")),
++    }
++    while True:
++        try:
++            await run_once(cli, cfg)
++        except Exception:
++            RUNS.labels(status="err").inc()
++        await asyncio.sleep(cfg["interval_sec"])
++
++
++if __name__ == "__main__":
++    import asyncio
++    asyncio.run(main())
+diff --git a/orderflow_services/sql/ml_phase2_7_v1.sql b/orderflow_services/sql/ml_phase2_7_v1.sql
+new file mode 100644
+index 0000000..4444444
+--- /dev/null
++++ b/orderflow_services/sql/ml_phase2_7_v1.sql
+@@ -0,0 +1,48 @@
++BEGIN;
++
++ALTER TABLE llm_recommendations
++    ADD COLUMN IF NOT EXISTS route_retry_attempts integer NOT NULL DEFAULT 0,
++    ADD COLUMN IF NOT EXISTS route_retry_state text NOT NULL DEFAULT 'IDLE',
++    ADD COLUMN IF NOT EXISTS route_escalation_state text NOT NULL DEFAULT 'NONE',
++    ADD COLUMN IF NOT EXISTS route_last_escalated_ts_ms bigint;
++
++CREATE TABLE IF NOT EXISTS llm_operator_rca_route_slo_rollups (
++    ts_ms bigint PRIMARY KEY,
++    events_n integer NOT NULL,
++    success_n integer NOT NULL,
++    failed_n integer NOT NULL,
++    success_rate double precision NOT NULL,
++    mttr_p50_sec double precision NOT NULL,
++    mttr_p95_sec double precision NOT NULL,
++    breaches integer NOT NULL,
++    reason_codes_json jsonb NOT NULL DEFAULT '[]'::jsonb
++);
++
++CREATE TABLE IF NOT EXISTS llm_operator_rca_route_retry_events (
++    event_id text PRIMARY KEY,
++    recommendation_id text NOT NULL,
++    route_change_id text,
++    ts_ms bigint NOT NULL,
++    retry_attempt integer NOT NULL,
++    reason_code text NOT NULL,
++    retry_after_sec double precision NOT NULL
++);
++
++CREATE TABLE IF NOT EXISTS llm_operator_rca_route_escalations (
++    escalation_id text PRIMARY KEY,
++    ts_ms bigint NOT NULL,
++    severity text NOT NULL,
++    open_items_n integer NOT NULL,
++    critical_items_n integer NOT NULL,
++    top_reason_codes_json jsonb NOT NULL DEFAULT '[]'::jsonb,
++    summary text NOT NULL
++);
++
++CREATE INDEX IF NOT EXISTS idx_llm_operator_rca_route_slo_rollups_ts
++    ON llm_operator_rca_route_slo_rollups (ts_ms DESC);
++CREATE INDEX IF NOT EXISTS idx_llm_operator_rca_route_retry_events_rec
++    ON llm_operator_rca_route_retry_events (recommendation_id, ts_ms DESC);
++CREATE INDEX IF NOT EXISTS idx_llm_operator_rca_route_escalations_ts
++    ON llm_operator_rca_route_escalations (ts_ms DESC);
++
++COMMIT;
+diff --git a/orderflow_services/docker_compose_fragment_ml_phase2_7_v1.yml b/orderflow_services/docker_compose_fragment_ml_phase2_7_v1.yml
+new file mode 100644
+index 0000000..5555555
+--- /dev/null
++++ b/orderflow_services/docker_compose_fragment_ml_phase2_7_v1.yml
+@@ -0,0 +1,38 @@
++version: "3.9"
++
++services:
++  scanner-ml-operator-rca-routing-slo-v2-7:
++    command: ["python", "-m", "orderflow_services.operator_rca_routing_slo_analytics_v2_7"]
++    environment:
++      ML_OPERATOR_RCA_ROUTING_SLO_METRICS_PORT: "9880"
++    ports:
++      - "9880:9880"
++
++  scanner-ml-operator-rca-routing-retry-v2-7:
++    command: ["python", "-m", "orderflow_services.rollback_retry_controller_v2_7"]
++    environment:
++      ML_OPERATOR_RCA_ROUTING_RETRY_METRICS_PORT: "9881"
++    ports:
++      - "9881:9881"
++
++  scanner-ml-operator-rca-routing-escalation-v2-7:
++    command: ["python", "-m", "orderflow_services.rollback_auto_escalation_summarizer_v2_7"]
++    environment:
++      ML_OPERATOR_RCA_ROUTING_ESCALATION_METRICS_PORT: "9882"
++    ports:
++      - "9882:9882"
+diff --git a/orderflow_services/prometheus_alerts_ml_phase2_7_v1.yml b/orderflow_services/prometheus_alerts_ml_phase2_7_v1.yml
+new file mode 100644
+index 0000000..6666666
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_ml_phase2_7_v1.yml
+@@ -0,0 +1,37 @@
++groups:
++  - name: ml_phase2_7_operator_rca_routing_governance
++    rules:
++      - alert: MLOperatorRCARoutingSLOLow
++        expr: ml_operator_rca_routing_slo_success_rate < 0.80
++        for: 15m
++        labels: {severity: warning}
++        annotations:
++          summary: "operator_rca routing SLO success rate low"
++
++      - alert: MLOperatorRCARoutingMTTRHigh
++        expr: ml_operator_rca_routing_slo_mttr_p95_seconds > 900
++        for: 15m
++        labels: {severity: warning}
++        annotations:
++          summary: "operator_rca routing MTTR p95 high"
++
++      - alert: MLOperatorRCARoutingEscalationCritical
++        expr: ml_operator_rca_routing_escalation_critical_items >= 5
++        for: 10m
++        labels: {severity: critical}
++        annotations:
++          summary: "operator_rca routing escalation critical"
+diff --git a/orderflow_services/runbook_ml_phase2_7_v1.md b/orderflow_services/runbook_ml_phase2_7_v1.md
+new file mode 100644
+index 0000000..7777777
+--- /dev/null
++++ b/orderflow_services/runbook_ml_phase2_7_v1.md
+@@ -0,0 +1,42 @@
++# ML Phase 2.7 — operator RCA routing SLO / retry / escalation
++
++## Scope
++- scanner_infra only
++- advisory / governance only
++- no hot-path impact
++
++## Components
++- `operator_rca_routing_slo_analytics_v2_7.py`
++- `rollback_retry_controller_v2_7.py`
++- `rollback_auto_escalation_summarizer_v2_7.py`
++
++## Streams
++- input:
++  - `stream:ml:operator_rca_routing_verify_results`
++  - `stream:ml:operator_rca_routing_rollback_results`
++  - `stream:ml:operator_rca_routing_retry_audit`
++- output:
++  - `stream:ml:operator_rca_routing_slo_rollups`
++  - `stream:ml:operator_rca_routing_retry_requests`
++  - `stream:ml:operator_rca_routing_escalations`
++
++## Safe start
++```bash
++export ML_OPERATOR_RCA_ROUTING_RETRY_MAX_ATTEMPTS=3
++export ML_OPERATOR_RCA_ROUTING_RETRY_BASE_BACKOFF_SEC=60
++export ML_OPERATOR_RCA_ROUTING_RETRY_MAX_BACKOFF_SEC=900
++```
++
++## Smoke checks
++```bash
++curl -s localhost:9880/metrics | grep '^ml_operator_rca_routing_slo_'
++curl -s localhost:9881/metrics | grep '^ml_operator_rca_routing_retry_'
++curl -s localhost:9882/metrics | grep '^ml_operator_rca_routing_escalation_'
++redis-cli HGETALL metrics:ml:operator_rca_routing_slo:last
++redis-cli XREVRANGE stream:ml:operator_rca_routing_retry_requests + - COUNT 5
++redis-cli XREVRANGE stream:ml:operator_rca_routing_escalations + - COUNT 5
++```
+diff --git a/orderflow_services/tests/test_operator_rca_routing_slo_retry_escalation_v2_7.py b/orderflow_services/tests/test_operator_rca_routing_slo_retry_escalation_v2_7.py
+new file mode 100644
+index 0000000..8888888
+--- /dev/null
++++ b/orderflow_services/tests/test_operator_rca_routing_slo_retry_escalation_v2_7.py
+@@ -0,0 +1,82 @@
++from orderflow_services.operator_rca_routing_slo_analytics_v2_7 import _reason_codes
++from orderflow_services.rollback_retry_controller_v2_7 import _backoff_sec, RETRYABLE, NON_RETRYABLE
++from orderflow_services.rollback_auto_escalation_summarizer_v2_7 import _severity
++
++
++def test_reason_codes():
++    cfg = {"success_rate_min": 0.8, "mttr_p95_max_sec": 900}
++    codes = _reason_codes(0.5, 1200, 2, cfg)
++    assert "ROUTE_VERIFY_SUCCESS_RATE_LOW" in codes
++    assert "ROUTE_VERIFY_MTTR_P95_HIGH" in codes
++    assert "ROUTE_VERIFY_SLO_BREACH" in codes
++
++
++def test_backoff_bounded():
++    assert _backoff_sec(1, 60, 900) == 60
++    assert _backoff_sec(2, 60, 900) == 120
++    assert _backoff_sec(10, 60, 900) == 900
++
++
++def test_retry_reason_sets():
++    assert "ROUTE_PROVIDER_TIMEOUT" in RETRYABLE
++    assert "ROUTE_POLICY_DENIED" in NON_RETRYABLE
++
++
++def test_escalation_severity():
++    cfg = {"warning_open_threshold": 3, "critical_open_threshold": 5}
++    assert _severity(1, 0, cfg) == "info"
++    assert _severity(3, 0, cfg) == "warning"
++    assert _severity(6, 5, cfg) == "critical"

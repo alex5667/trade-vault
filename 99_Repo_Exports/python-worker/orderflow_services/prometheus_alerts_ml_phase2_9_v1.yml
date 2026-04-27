@@ -1,0 +1,26 @@
+groups:
+  - name: ml_phase2_9_operator_rca_routing_vertex_bridge_v1
+    rules:
+      - alert: MLOperatorRCARoutingRCABridgeDown
+        expr: ml_operator_rca_routing_rca_bridge_up == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "operator RCA routing incident bridge is down"
+
+      - alert: MLOperatorRCARoutingRCABridgeStale
+        expr: time() - ml_operator_rca_routing_rca_bridge_last_run_ts_seconds > 1800
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "operator RCA routing incident bridge is stale"
+
+      - alert: MLOperatorRoutingIncidentRCAOrchestratorStale
+        expr: time() - ml_operator_routing_incident_rca_last_run_ts_seconds > 1800
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "routing incident RCA orchestrator is stale"

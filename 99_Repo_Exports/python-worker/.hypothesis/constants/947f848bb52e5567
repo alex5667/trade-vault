@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/meta_model_guard.py
+# hypothesis_version: 6.148.10
+
+['bad_signature', 'feature_cols_hash', 'features', 'missing_schema_hash', 'model_signature', 'ok', 'schema_hash', 'schema_hash_mismatch', 'schema_name', 'schema_version', 'sig_ok', 'sig_present', 'signature_ok']

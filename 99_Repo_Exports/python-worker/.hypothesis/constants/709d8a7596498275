@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/base.py
+# hypothesis_version: 6.148.10
+
+[1000, 'Index', 'IndexOpsMixin', '__frozen', '__setstate__', '_cache', 'duplicated', 'first', 'ignore', 'inplace', 'klass', 'largest', 'left', 'max', 'memory_usage', 'min', 'right', 'searchsorted', 'smallest', 'tolist', 'unique']

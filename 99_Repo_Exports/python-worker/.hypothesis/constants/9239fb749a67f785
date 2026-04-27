@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/stream_worker.py
+# hypothesis_version: 6.148.10
+
+[0.05, 0.1, 500, 2000, 60000, 200000, '0-0', '>', 'BUSYGROUP', 'NOGROUP', '__err', '__src_id', '__src_stream']

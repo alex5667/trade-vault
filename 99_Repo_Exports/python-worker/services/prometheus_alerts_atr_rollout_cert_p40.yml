@@ -1,0 +1,31 @@
+groups:
+  - name: atr_policy_rollout_cert
+    rules:
+      - alert: AtrRolloutCertificationPendingTooLong
+        expr: atr_rollout_cert_pending_total > 5
+        for: 12h
+        labels:
+          severity: warning
+          team: trade-platform
+        annotations:
+          summary: "Too many pending certifications for {{ $labels.stage }}"
+          description: "There are >5 pending certifications stuck in {{ $labels.stage }}. This might indicate insufficient trade volume or process stuck."
+
+      - alert: AtrRolloutStopConditionHit
+        expr: increase(atr_rollout_stop_condition_total[1h]) > 0
+        labels:
+          severity: page
+          team: trade-research
+        annotations:
+          summary: "Hard stop-condition hit for {{ $labels.stage }}"
+          description: "The stage {{ $labels.stage }} triggered {{ $labels.reason_code }}. Rollback may be required."
+
+      - alert: AtrRolloutSlippageDegrading
+        expr: atr_rollout_cert_avg_slippage_bps{stage=~"canary_.*"} > 5.5
+        for: 2h
+        labels:
+          severity: warning
+          team: execution
+        annotations:
+          summary: "Slippage degrading in canary"
+          description: "Average slippage across all pending canary certifications is over 5.5 bps."

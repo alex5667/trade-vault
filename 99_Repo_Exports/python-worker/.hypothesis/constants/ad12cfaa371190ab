@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/linalg/_matfuncs.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.5, 2.0, 1000.0, 1000000.0, 100, 1000, 'D', 'F', 'coshm', 'cosm', 'd', 'expm', 'expm_cond', 'expm_frechet', 'f', 'funm', 'i', 'ii->i', 'khatri_rao', 'l', 'logm', 'signm', 'sinhm', 'sinm', 'sqrtm', 'tanhm', 'tanm']

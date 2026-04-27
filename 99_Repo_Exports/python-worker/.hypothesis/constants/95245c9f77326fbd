@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/experiment_metrics.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.05, 0.1, 0.2, '.2f', '.3f', 'cl_ratio', 'control', 'dd', 'differences', 'expectancy_r', 'f1', 'losers_total', 'max_dd_r', 'precision', 'recall', 'sharpe_r', 'signals_total', 'traded_total', 'treatment', 'winners_total', 'winrate']

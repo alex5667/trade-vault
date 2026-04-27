@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/outbox_contract.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.05, 1.0, 512, '$', '$env', '$env.targets', '$meta', '$payload', 'OUTBOX_CONTRACT_MODE', 'dict_key_not_str', 'envelope', 'envelope_not_dict', 'event', 'events', 'ignore', 'kind', 'meta', 'meta_not_dict', 'nan_or_inf', 'not_json_safe_type', 'parts_full', 'path', 'payload', 'payload_meta', 'payload_not_dict', 'raise', 'reason', 'sid', 'targets', 'trace', 'utf-8', 'warn', 'where']

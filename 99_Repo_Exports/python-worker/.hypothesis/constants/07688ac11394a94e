@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/health_metrics.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.5, 0.8, 'avg_book_lag_ms', 'avg_burst_ratio', 'avg_eta_fill_ms', 'avg_imbalance_min', 'avg_l2_age_ms', 'avg_l2_age_tick_ms', 'avg_l3_lag_ms', 'avg_ticks_lag_ms', 'bar', 'book', 'bucket', 'bucket_event_rate', 'cooldown_hit_rate', 'cooldown_miss_rate', 'dlq_rate', 'l2_stale_ratio_now', 'l2_stale_ratio_tick', 'l3', 'pending_book', 'pending_l3', 'pending_len', 'pending_ticks', 'signal_bar_fail_rate', 'signal_bar_rate', 'signal_bucket_rate', 'signal_emit_rate', 'signals_high_conf', 'signals_low_conf', 'signals_med_conf', 'tick', 'ticks', 'ticks_total', 'ticks_with_l2', 'ts', 'window_sec']

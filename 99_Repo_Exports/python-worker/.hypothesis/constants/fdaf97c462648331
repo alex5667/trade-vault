@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/local_calibration/store.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 'atr_quantile', 'cdf_points', 'chosen_threshold', 'count_samples', 'delta_spike_z', 'metric', 'mixed', 'nan', 'obi', 'q', 'q90', 'q95', 'q98', 'regime', 'session', 'symbol', 'value', 'weak_progress']

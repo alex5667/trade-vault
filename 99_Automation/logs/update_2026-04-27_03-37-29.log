@@ -1,0 +1,12 @@
+=== START 2026-04-27T03:37:29+03:00 ===
+done: copied=33 skipped=208650 export_root=/home/alex/Apps/Obsidian/trade-vault/99_Repo_Exports
+lint ok: checked 108 notes under /home/alex/Apps/Obsidian/trade-vault (vault notes only)
+reason_code=skip_unchanged pack=ml-gate-incident-pack
+reason_code=skip_unchanged pack=mt5-executor-pack
+reason_code=skip_unchanged pack=pre-publish-gates-pack
+reason_code=skip_unchanged pack=signal-dispatch-pack
+written: /home/alex/Apps/Obsidian/trade-vault/95_Context_Packs/active/post-trade-risk-pack.md
+reason_code=pack_rebuilt_review_stale pack=post-trade-risk-pack msg=ollama_down_existing_review_left_as_is
+reason_code=review_pending_ollama_down pack=post-trade-risk-pack
+auto_context_jobs: done
+=== END 2026-04-27T03:37:40+03:00 ===

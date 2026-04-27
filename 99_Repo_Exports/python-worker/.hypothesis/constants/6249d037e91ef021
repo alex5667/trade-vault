@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/world_practice/realized_drift_tracker_v1.py
+# hypothesis_version: 6.148.10
+
+[-1.0, 0.0, 1e-09, 1e-06, 0.03, 0.05, 0.6, 0.8, 1.0, 1.5, 10000.0, 4096, 120000, 'LONG', 'NORMAL', 'SHORT', 'adverse_rd_bad_share', 'adverse_rd_mean_bps', 'adverse_rd_n', 'adverse_rd_sigma_bps', 'adverse_rd_veto', 'adverse_rd_z']

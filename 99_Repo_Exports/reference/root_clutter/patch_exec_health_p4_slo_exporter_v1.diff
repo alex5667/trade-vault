@@ -1,0 +1,1841 @@
+--- services/orderflow/exec_health_slo_contract.py
++++ services/orderflow/exec_health_slo_contract.py
+@@ -0,0 +1,316 @@
++from __future__ import annotations
++
++"""Low-overhead ExecHealth rollout contract state writer.
++
++Purpose
++-------
++Keep a compact, process-local snapshot of ExecHealth behaviour and periodically
++flush it to Redis. A separate SLO-checker / exporter can then validate:
++  - rollout drift across edge / pipeline / entry_policy
++  - apply / veto / pass share by scope
++  - mode / threshold mismatches across instances and deployments
++
++Design constraints
++------------------
++- No extra Redis write per event on the hot path.
++- In-memory counters are updated for every SoT decision.
++- Redis flush is rate-limited (default every 5s per scope/process).
++- Fail-open: contract writing must never affect trading decisions.
++"""
++
++import math
++import os
++import socket
++import threading
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, Mapping, MutableMapping, Optional
++
++from services.orderflow.exec_health_rollups import ExecHealthDecision, get_exec_health_policy_from_env
++
++_SCOPE_SET = ("edge", "pipeline", "entry_policy")
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _f(x: Any, d: float = 0.0) -> float:
++    try:
++        v = float(x)
++    except Exception:
++        return float(d)
++    if not math.isfinite(v):
++        return float(d)
++    return float(v)
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++def _s(x: Any, d: str = "") -> str:
++    try:
++        if x is None:
++            return str(d)
++        return str(x)
++    except Exception:
++        return str(d)
++
++
++@dataclass
++class _LocalScopeState:
++    scope: str
++    instance_id: str
++    deploy_id: str
++    service_name: str
++    process_pid: int
++    started_ts_ms: int
++    updated_ts_ms: int
++    last_flush_ts_ms: int
++    last_event_ts_ms: int
++    last_profile: str = "default"
++    last_mode: str = "monitor"
++    last_symbol: str = "UNKNOWN"
++    last_reason_code: str = ""
++    last_flags_csv: str = ""
++    threshold_is_p95_bps: float = 0.0
++    threshold_perm_impact_p95_bps: float = 0.0
++    threshold_realized_spread_p50_bps: float = -999.0
++    total_n: int = 0
++    apply_n: int = 0
++    veto_n: int = 0
++    pass_n: int = 0
++    reader_error_n: int = 0
++
++
++_LOCK = threading.RLock()
++_STATE: Dict[str, _LocalScopeState] = {}
++
++
++def _instance_id() -> str:
++    return (
++        os.getenv("EXEC_HEALTH_INSTANCE_ID")
++        or os.getenv("HOSTNAME")
++        or socket.gethostname()
++        or "unknown-instance"
++    ).strip()
++
++
++
++def _deploy_id() -> str:
++    return (
++        os.getenv("EXEC_HEALTH_DEPLOY_ID")
++        or os.getenv("DEPLOY_ID")
++        or os.getenv("RELEASE_VERSION")
++        or os.getenv("GIT_SHA")
++        or "unknown-deploy"
++    ).strip()
++
++
++
++def _service_name(scope: str) -> str:
++    return (
++        os.getenv("EXEC_HEALTH_SERVICE_NAME")
++        or os.getenv("SERVICE_NAME")
++        or f"exec-health-{scope}"
++    ).strip()
++
++
++
++def _flush_interval_ms() -> int:
++    return max(500, _i(os.getenv("EXEC_HEALTH_STATE_FLUSH_INTERVAL_MS", "5000"), 5000))
++
++
++
++def _ttl_s() -> int:
++    return max(30, _i(os.getenv("EXEC_HEALTH_STATE_TTL_S", "900"), 900))
++
++
++
++def _state_prefix() -> str:
++    return _s(os.getenv("EXEC_HEALTH_SCOPE_STATE_PREFIX", "metrics:exec_health:scope_state"), "metrics:exec_health:scope_state")
++
++
++
++def _state_key(scope: str, instance_id: str) -> str:
++    return f"{_state_prefix()}:{scope}:{instance_id}"
++
++
++
++def _build_hash(state: _LocalScopeState) -> Dict[str, str]:
++    return {
++        "schema_name": "exec_health_scope_state",
++        "schema_version": "1",
++        "scope": str(state.scope),
++        "instance_id": str(state.instance_id),
++        "deploy_id": str(state.deploy_id),
++        "service_name": str(state.service_name),
++        "process_pid": str(int(state.process_pid)),
++        "started_ts_ms": str(int(state.started_ts_ms)),
++        "updated_ts_ms": str(int(state.updated_ts_ms)),
++        "last_flush_ts_ms": str(int(state.last_flush_ts_ms)),
++        "last_event_ts_ms": str(int(state.last_event_ts_ms)),
++        "last_profile": str(state.last_profile),
++        "last_mode": str(state.last_mode),
++        "last_symbol": str(state.last_symbol),
++        "last_reason_code": str(state.last_reason_code),
++        "last_flags_csv": str(state.last_flags_csv),
++        "threshold_is_p95_bps": f"{float(state.threshold_is_p95_bps):.9f}",
++        "threshold_perm_impact_p95_bps": f"{float(state.threshold_perm_impact_p95_bps):.9f}",
++        "threshold_realized_spread_p50_bps": f"{float(state.threshold_realized_spread_p50_bps):.9f}",
++        "total_n": str(int(state.total_n)),
++        "apply_n": str(int(state.apply_n)),
++        "veto_n": str(int(state.veto_n)),
++        "pass_n": str(int(state.pass_n)),
++        "reader_error_n": str(int(state.reader_error_n)),
++    }
++
++
++
++def _get_state(scope: str) -> _LocalScopeState:
++    sc = str(scope or "unknown")
++    now = _now_ms()
++    with _LOCK:
++        st = _STATE.get(sc)
++        if st is None:
++            st = _LocalScopeState(
++                scope=sc,
++                instance_id=_instance_id(),
++                deploy_id=_deploy_id(),
++                service_name=_service_name(sc),
++                process_pid=os.getpid(),
++                started_ts_ms=now,
++                updated_ts_ms=now,
++                last_flush_ts_ms=0,
++                last_event_ts_ms=0,
++            )
++            _STATE[sc] = st
++        return st
++
++
++
++def _should_flush(st: _LocalScopeState, now_ms: int) -> bool:
++    return int(now_ms - int(st.last_flush_ts_ms)) >= _flush_interval_ms()
++
++
++
++def record_exec_health_contract_state(
++    *,
++    scope: str,
++    profile: str,
++    symbol: str,
++    decision: Optional[ExecHealthDecision],
++    now_ms: Optional[int] = None,
++) -> None:
++    """Update in-memory counters/state from the already computed SoT decision."""
++    ts = int(now_ms or _now_ms())
++    st = _get_state(scope)
++    pol = get_exec_health_policy_from_env(profile=profile, scope=scope)
++    thr = pol.thresholds
++    dec = decision
++    with _LOCK:
++        st.updated_ts_ms = ts
++        st.last_event_ts_ms = ts
++        st.last_profile = str(profile or pol.profile)
++        st.last_mode = str((dec.mode if dec is not None else pol.mode) or pol.mode)
++        st.last_symbol = str(symbol or st.last_symbol or "UNKNOWN").upper()
++        st.threshold_is_p95_bps = _f(thr.max_is_p95_bps, 0.0)
++        st.threshold_perm_impact_p95_bps = _f(thr.max_perm_impact_p95_bps, 0.0)
++        st.threshold_realized_spread_p50_bps = _f(thr.min_realized_spread_p50_bps, -999.0)
++        st.total_n += 1
++        if dec is None:
++            st.pass_n += 1
++            st.last_reason_code = ""
++            st.last_flags_csv = ""
++            return
++        st.last_reason_code = str(dec.reason_code or "")
++        st.last_flags_csv = ",".join(list(dec.flags or []))
++        if bool(dec.veto):
++            st.veto_n += 1
++        elif bool(dec.apply):
++            st.apply_n += 1
++        else:
++            st.pass_n += 1
++
++
++
++def record_exec_health_contract_reader_error(*, scope: str) -> None:
++    st = _get_state(scope)
++    with _LOCK:
++        st.updated_ts_ms = _now_ms()
++        st.reader_error_n += 1
++
++
++
++def _sync_write_hash(redis_client: Any, *, key: str, payload: Mapping[str, str], ttl_s: int) -> None:
++    if redis_client is None:
++        return
++    try:
++        pipe = redis_client.pipeline(transaction=False)
++        pipe.hset(key, mapping=dict(payload))
++        pipe.expire(key, int(ttl_s))
++        pipe.execute()
++    except Exception:
++        # Fallback for thin clients / mocks without pipeline
++        redis_client.hset(key, mapping=dict(payload))
++        try:
++            redis_client.expire(key, int(ttl_s))
++        except Exception:
++            pass
++
++
++async def _async_write_hash(redis_client: Any, *, key: str, payload: Mapping[str, str], ttl_s: int) -> None:
++    if redis_client is None:
++        return
++    try:
++        pipe = redis_client.pipeline(transaction=False)
++        pipe.hset(key, mapping=dict(payload))
++        pipe.expire(key, int(ttl_s))
++        await pipe.execute()
++    except Exception:
++        await redis_client.hset(key, mapping=dict(payload))
++        try:
++            await redis_client.expire(key, int(ttl_s))
++        except Exception:
++            pass
++
++
++
++def flush_exec_health_contract_state_sync(*, redis_client: Any, scope: str, force: bool = False) -> bool:
++    st = _get_state(scope)
++    now = _now_ms()
++    with _LOCK:
++        if (not force) and (not _should_flush(st, now)):
++            return False
++        st.updated_ts_ms = max(int(st.updated_ts_ms), now)
++        st.last_flush_ts_ms = now
++        payload = _build_hash(st)
++        key = _state_key(st.scope, st.instance_id)
++    _sync_write_hash(redis_client, key=key, payload=payload, ttl_s=_ttl_s())
++    return True
++
++
++async def flush_exec_health_contract_state_async(*, redis_client: Any, scope: str, force: bool = False) -> bool:
++    st = _get_state(scope)
++    now = _now_ms()
++    with _LOCK:
++        if (not force) and (not _should_flush(st, now)):
++            return False
++        st.updated_ts_ms = max(int(st.updated_ts_ms), now)
++        st.last_flush_ts_ms = now
++        payload = _build_hash(st)
++        key = _state_key(st.scope, st.instance_id)
++    await _async_write_hash(redis_client, key=key, payload=payload, ttl_s=_ttl_s())
++    return True
++
++
++__all__ = [
++    "record_exec_health_contract_state",
++    "record_exec_health_contract_reader_error",
++    "flush_exec_health_contract_state_sync",
++    "flush_exec_health_contract_state_async",
++]
+--- services/smt_entry_policy_service.py
++++ services/smt_entry_policy_service.py
+@@ -17,6 +17,11 @@
+ from services.orderflow.utils import session_utc
+ from services.orderflow.exec_health_rollups import aread_exec_health_rollups, decide_exec_health_from_env
+ from services.orderflow.exec_health_observability import record_exec_health_observability, record_exec_health_reader_error
++from services.orderflow.exec_health_slo_contract import (
++    record_exec_health_contract_state,
++    record_exec_health_contract_reader_error,
++    flush_exec_health_contract_state_async,
++)
+ 
+ def _now_ms() -> int:
+     return int(time.time() * 1000)
+@@ -260,6 +265,7 @@
+                 )
+             except Exception:
+                 record_exec_health_reader_error(scope="entry_policy", where="read_rollups")
++                record_exec_health_contract_reader_error(scope="entry_policy")
+                 raise
+ 
+             dec = decide_exec_health_from_env(profile=profile, rollups=roll, scope="entry_policy") if roll else None
+--- services/orderflow/signal_pipeline.py
++++ services/orderflow/signal_pipeline.py
+@@ -40,6 +40,11 @@
+ from services.orderflow.stream_integrity_gate import StreamIntegrityGate
+ from services.orderflow.exec_health_rollups import aread_exec_health_rollups, decide_exec_health_from_env
+ from services.orderflow.exec_health_observability import record_exec_health_observability, record_exec_health_reader_error
++from services.orderflow.exec_health_slo_contract import (
++    record_exec_health_contract_state,
++    record_exec_health_contract_reader_error,
++    flush_exec_health_contract_state_async,
++)
+ 
+ _book_sanity_gate = BookSanityGate.from_env()
+ _stream_integrity_gate = StreamIntegrityGate.from_env()
+@@ -1331,6 +1336,7 @@
+                         )
+                     except Exception:
+                         record_exec_health_reader_error(scope="pipeline", where="read_rollups")
++                        record_exec_health_contract_reader_error(scope="pipeline")
+                         raise
+                 exec_dec = decide_exec_health_from_env(profile=exec_profile, rollups=exec_roll, scope="pipeline") if exec_roll else None
+                 record_exec_health_observability(
+@@ -1341,6 +1347,18 @@
+                     decision=exec_dec,
+                     now_ms=int(enriched_signal.get("ts_ms") or 0),
+                 )
++                record_exec_health_contract_state(
++                    scope="pipeline",
++                    profile=exec_profile,
++                    symbol=str(symbol),
++                    decision=exec_dec,
++                    now_ms=int(enriched_signal.get("ts_ms") or 0),
++                )
++                if redis_client is not None:
++                    try:
++                        await flush_exec_health_contract_state_async(redis_client=redis_client, scope="pipeline")
++                    except Exception:
++                        pass
+                 if exec_roll and exec_dec is not None:
+                     indicators["tca_is_p95_bps"] = float(exec_roll.get("is_p95_bps", 0.0) or 0.0)
+                     indicators["tca_perm_impact_p95_bps"] = float(exec_roll.get("perm_impact_p95_bps", 0.0) or 0.0)
+--- tick_flow_full/handlers/crypto_orderflow/utils/edge_cost_gate.py
++++ tick_flow_full/handlers/crypto_orderflow/utils/edge_cost_gate.py
+@@ -111,9 +111,19 @@
+ try:
+     from services.orderflow.exec_health_rollups import read_exec_health_rollups_sync, decide_exec_health_from_env
+     from services.orderflow.exec_health_observability import record_exec_health_observability, record_exec_health_reader_error
++    from services.orderflow.exec_health_slo_contract import (
++        record_exec_health_contract_state,
++        record_exec_health_contract_reader_error,
++        flush_exec_health_contract_state_sync,
++    )
+ except Exception:  # pragma: no cover - mixed deployments may import from mirror path
+     from tick_flow_full.services.orderflow.exec_health_rollups import read_exec_health_rollups_sync, decide_exec_health_from_env
+     from tick_flow_full.services.orderflow.exec_health_observability import record_exec_health_observability, record_exec_health_reader_error
++    from services.orderflow.exec_health_slo_contract import (
++        record_exec_health_contract_state,
++        record_exec_health_contract_reader_error,
++        flush_exec_health_contract_state_sync,
++    )
+ 
+ # Single source of truth for epoch-ms normalization (already used in TradeMonitor)
+ from domain.time_utils import normalize_ts_ms
+@@ -1360,6 +1370,7 @@
+                     )
+                 except Exception:
+                     record_exec_health_reader_error(scope="edge", where="read_rollups")
++                    record_exec_health_contract_reader_error(scope="edge")
+                     raise
+             exec_dec = decide_exec_health_from_env(profile=exec_profile, rollups=exec_rollups, scope="edge") if exec_rollups else None
+             record_exec_health_observability(
+--- services/orderflow/tests/test_exec_health_slo_contract_v1.py
++++ services/orderflow/tests/test_exec_health_slo_contract_v1.py
+@@ -0,0 +1,90 @@
++from __future__ import annotations
++
++from contextlib import contextmanager
++import os
++
++from services.orderflow.exec_health_rollups import ExecHealthDecision
++from services.orderflow.exec_health_slo_contract import (
++    record_exec_health_contract_state,
++    record_exec_health_contract_reader_error,
++    flush_exec_health_contract_state_sync,
++)
++
++
++class FakePipe:
++    def __init__(self, redis):
++        self.redis = redis
++        self.ops = []
++    def hset(self, key, mapping):
++        self.ops.append(("hset", key, dict(mapping)))
++        return self
++    def expire(self, key, ttl):
++        self.ops.append(("expire", key, int(ttl)))
++        return self
++    def execute(self):
++        for op, a, b in self.ops:
++            if op == "hset":
++                self.redis.hset(a, mapping=b)
++            elif op == "expire":
++                self.redis.expire(a, b)
++        self.ops = []
++        return True
++
++
++class FakeRedis:
++    def __init__(self):
++        self.hashes = {}
++        self.expires = {}
++    def pipeline(self, transaction=False):
++        return FakePipe(self)
++    def hset(self, key, mapping):
++        self.hashes.setdefault(key, {}).update({str(k): str(v) for k, v in mapping.items()})
++        return True
++    def expire(self, key, ttl):
++        self.expires[key] = int(ttl)
++        return True
++
++
++@contextmanager
++def _env(**kwargs):
++    old = {k: os.environ.get(k) for k in kwargs}
++    try:
++        for k, v in kwargs.items():
++            os.environ[k] = str(v)
++        yield
++    finally:
++        for k, v in old.items():
++            if v is None:
++                os.environ.pop(k, None)
++            else:
++                os.environ[k] = v
++
++
++def test_exec_health_slo_contract_flushes_scope_state_hash() -> None:
++    r = FakeRedis()
++    dec = ExecHealthDecision(apply=True, veto=True, mode="veto", flags=["is_p95_high"], reason_code="VETO_IMPL_SHORTFALL_P95")
++    with _env(
++        EXEC_HEALTH_INSTANCE_ID="inst-A",
++        EXEC_HEALTH_DEPLOY_ID="deploy-1",
++        EXEC_HEALTH_SERVICE_NAME="svc-A",
++        EXEC_HEALTH_STATE_FLUSH_INTERVAL_MS="1",
++    ):
++        record_exec_health_contract_state(scope="edge", profile="hard", symbol="BTCUSDT", decision=dec, now_ms=1000)
++        record_exec_health_contract_reader_error(scope="edge")
++        ok = flush_exec_health_contract_state_sync(redis_client=r, scope="edge", force=True)
++
++    assert ok is True
++    key = "metrics:exec_health:scope_state:edge:inst-A"
++    assert key in r.hashes
++    h = r.hashes[key]
++    assert h["schema_name"] == "exec_health_scope_state"
++    assert h["scope"] == "edge"
++    assert h["instance_id"] == "inst-A"
++    assert h["deploy_id"] == "deploy-1"
++    assert h["service_name"] == "svc-A"
++    assert h["last_mode"] == "veto"
++    assert h["last_reason_code"] == "VETO_IMPL_SHORTFALL_P95"
++    assert int(h["total_n"]) >= 1
++    assert int(h["veto_n"]) >= 1
++    assert int(h["reader_error_n"]) >= 1
++    assert key in r.expires
+--- orderflow_services/exec_health_slo_checker_v1.py
++++ orderflow_services/exec_health_slo_checker_v1.py
+@@ -0,0 +1,270 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""ExecHealth rollout SLO-checker.
++
++Reads compact per-process scope-state hashes written by:
++  - EdgeCostGate
++  - SignalPipeline
++  - EntryPolicyService
++
++Produces a low-cardinality summary hash suitable for a dedicated exporter.
++"""
++
++import argparse
++import json
++import logging
++import os
++import sys
++import time
++from collections import Counter, defaultdict
++from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Sequence
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++logger = logging.getLogger("exec_health_slo_checker_v1")
++
++SCOPES: Sequence[str] = ("edge", "pipeline", "entry_policy")
++THR_METRICS: Sequence[str] = (
++    "threshold_is_p95_bps",
++    "threshold_perm_impact_p95_bps",
++    "threshold_realized_spread_p50_bps",
++)
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++def _f(x: Any, d: float = 0.0) -> float:
++    try:
++        return float(x)
++    except Exception:
++        return float(d)
++
++
++def _s(x: Any, d: str = "") -> str:
++    try:
++        if x is None:
++            return str(d)
++        return str(x)
++    except Exception:
++        return str(d)
++
++
++def _scan_keys(r, prefix: str) -> List[str]:
++    patt = f"{prefix}:*"
++    out: List[str] = []
++    try:
++        cur = 0
++        while True:
++            cur, batch = r.scan(cursor=cur, match=patt, count=500)
++            out.extend([str(x) for x in batch or []])
++            if int(cur) == 0:
++                break
++    except Exception:
++        return []
++    return out
++
++
++def _read_rows(r, keys: Sequence[str]) -> List[Dict[str, Any]]:
++    rows: List[Dict[str, Any]] = []
++    for key in keys:
++        try:
++            d = r.hgetall(key) or {}
++        except Exception:
++            continue
++        if not isinstance(d, dict):
++            continue
++        d = {str(k): v for k, v in d.items()}
++        d["_key"] = key
++        rows.append(d)
++    return rows
++
++
++def _norm_thr(v: Any) -> str:
++    return f"{_f(v, 0.0):.6f}"
++
++
++def summarize_scope_rows(rows: Sequence[Mapping[str, Any]], *, now_ms: int, stale_ms: int) -> Dict[str, Any]:
++    active = [dict(r) for r in rows if max(0, now_ms - _i(r.get("updated_ts_ms"), 0)) <= stale_ms]
++    stale = len(rows) - len(active)
++
++    out: Dict[str, Any] = {
++        "active_instances": int(len(active)),
++        "stale_instances": int(max(0, stale)),
++        "total_n": 0,
++        "apply_n": 0,
++        "veto_n": 0,
++        "pass_n": 0,
++        "reader_error_n": 0,
++        "mode_distinct": 0,
++        "deploy_distinct": 0,
++        "rollout_drift_instances": 0,
++        "top_modes_json": "[]",
++        "top_deploys_json": "[]",
++    }
++    for metric in THR_METRICS:
++        out[f"distinct_{metric}"] = 0
++
++    if not active:
++        return out
++
++    mode_counter: Counter[str] = Counter(_s(r.get("last_mode"), "unknown") for r in active)
++    deploy_counter: Counter[str] = Counter(_s(r.get("deploy_id"), "unknown") for r in active)
++    out["mode_distinct"] = len(mode_counter)
++    out["deploy_distinct"] = len(deploy_counter)
++    out["top_modes_json"] = json.dumps(mode_counter.most_common(5), ensure_ascii=False)
++    out["top_deploys_json"] = json.dumps(deploy_counter.most_common(5), ensure_ascii=False)
++
++    modal_mode = mode_counter.most_common(1)[0][0]
++    modal_thr: Dict[str, str] = {}
++    for metric in THR_METRICS:
++        thr_counter = Counter(_norm_thr(r.get(metric)) for r in active)
++        out[f"distinct_{metric}"] = len(thr_counter)
++        modal_thr[metric] = thr_counter.most_common(1)[0][0]
++
++    drift_n = 0
++    for r in active:
++        if _s(r.get("last_mode"), "unknown") != modal_mode:
++            drift_n += 1
++            continue
++        if any(_norm_thr(r.get(metric)) != modal_thr[metric] for metric in THR_METRICS):
++            drift_n += 1
++    out["rollout_drift_instances"] = int(drift_n)
++
++    for row in active:
++        out["total_n"] += _i(row.get("total_n"), 0)
++        out["apply_n"] += _i(row.get("apply_n"), 0)
++        out["veto_n"] += _i(row.get("veto_n"), 0)
++        out["pass_n"] += _i(row.get("pass_n"), 0)
++        out["reader_error_n"] += _i(row.get("reader_error_n"), 0)
++
++    return out
++
++
++def build_summary(rows: Sequence[Mapping[str, Any]], *, now_ms: int, stale_ms: int) -> Dict[str, str]:
++    by_scope: Dict[str, List[Mapping[str, Any]]] = defaultdict(list)
++    for row in rows:
++        by_scope[_s(row.get("scope"), "unknown")].append(row)
++
++    out: Dict[str, str] = {
++        "schema_name": "exec_health_slo_summary",
++        "schema_version": "1",
++        "updated_ts_ms": str(int(now_ms)),
++        "stale_ms": str(int(stale_ms)),
++        "active_instances_total": "0",
++        "stale_instances_total": "0",
++        "rollout_drift_instances_total": "0",
++        "cross_scope_mode_distinct": "0",
++    }
++    for metric in THR_METRICS:
++        out[f"cross_scope_distinct_{metric}"] = "0"
++
++    scope_modal_mode: Dict[str, str] = {}
++    scope_modal_thr: Dict[str, str] = {m: "" for m in THR_METRICS}
++
++    active_total = 0
++    stale_total = 0
++    drift_total = 0
++    for scope in SCOPES:
++        ss = summarize_scope_rows(by_scope.get(scope, []), now_ms=now_ms, stale_ms=stale_ms)
++        active_total += int(ss["active_instances"])
++        stale_total += int(ss["stale_instances"])
++        drift_total += int(ss["rollout_drift_instances"])
++        total_n = max(0, int(ss["total_n"]))
++        apply_n = max(0, int(ss["apply_n"]))
++        veto_n = max(0, int(ss["veto_n"]))
++        pass_n = max(0, int(ss["pass_n"]))
++        denom = float(total_n) if total_n > 0 else 1.0
++
++        out[f"active_instances_{scope}"] = str(int(ss["active_instances"]))
++        out[f"stale_instances_{scope}"] = str(int(ss["stale_instances"]))
++        out[f"reader_error_n_{scope}"] = str(int(ss["reader_error_n"]))
++        out[f"share_apply_{scope}"] = f"{(float(apply_n) / denom):.9f}"
++        out[f"share_veto_{scope}"] = f"{(float(veto_n) / denom):.9f}"
++        out[f"share_pass_{scope}"] = f"{(float(pass_n) / denom):.9f}"
++        out[f"mode_distinct_{scope}"] = str(int(ss["mode_distinct"]))
++        out[f"deploy_distinct_{scope}"] = str(int(ss["deploy_distinct"]))
++        out[f"rollout_drift_instances_{scope}"] = str(int(ss["rollout_drift_instances"]))
++        out[f"top_modes_json_{scope}"] = str(ss["top_modes_json"])
++        out[f"top_deploys_json_{scope}"] = str(ss["top_deploys_json"])
++        if by_scope.get(scope):
++            active = [dict(r) for r in by_scope[scope] if max(0, now_ms - _i(r.get("updated_ts_ms"), 0)) <= stale_ms]
++            if active:
++                scope_modal_mode[scope] = Counter(_s(r.get("last_mode"), "unknown") for r in active).most_common(1)[0][0]
++                for metric in THR_METRICS:
++                    thr = Counter(_norm_thr(r.get(metric)) for r in active).most_common(1)[0][0]
++                    scope_modal_thr[metric] = json.dumps(scope_modal_thr.get(metric)) if False else scope_modal_thr.get(metric, "")
++                    out[f"threshold_distinct_{scope}_{metric}"] = str(int(ss[f"distinct_{metric}"]))
++                    out[f"threshold_modal_{scope}_{metric}"] = thr
++            else:
++                out[f"threshold_distinct_{scope}_{THR_METRICS[0]}"] = str(int(ss[f"distinct_{THR_METRICS[0]}"]))
++                out[f"threshold_distinct_{scope}_{THR_METRICS[1]}"] = str(int(ss[f"distinct_{THR_METRICS[1]}"]))
++                out[f"threshold_distinct_{scope}_{THR_METRICS[2]}"] = str(int(ss[f"distinct_{THR_METRICS[2]}"]))
++        else:
++            for metric in THR_METRICS:
++                out[f"threshold_distinct_{scope}_{metric}"] = "0"
++                out[f"threshold_modal_{scope}_{metric}"] = ""
++
++    # cross-scope modal config drift
++    mode_values = {v for v in scope_modal_mode.values() if v}
++    out["cross_scope_mode_distinct"] = str(len(mode_values))
++    for metric in THR_METRICS:
++        modal_vals: set[str] = set()
++        for scope in SCOPES:
++            modal_val = out.get(f"threshold_modal_{scope}_{metric}", "")
++            if modal_val != "":
++                modal_vals.add(modal_val)
++        out[f"cross_scope_distinct_{metric}"] = str(len(modal_vals))
++
++    out["active_instances_total"] = str(int(active_total))
++    out["stale_instances_total"] = str(int(stale_total))
++    out["rollout_drift_instances_total"] = str(int(drift_total))
++    return out
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser(description="ExecHealth rollout SLO checker")
++    ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
++    ap.add_argument("--state-prefix", default=os.getenv("EXEC_HEALTH_SCOPE_STATE_PREFIX", "metrics:exec_health:scope_state"))
++    ap.add_argument("--out-key", default=os.getenv("EXEC_HEALTH_SLO_SUMMARY_KEY", "metrics:exec_health:slo:last"))
++    ap.add_argument("--stale-ms", type=int, default=int(os.getenv("EXEC_HEALTH_SLO_STALE_MS", "90000")))
++    ap.add_argument("--notify", action="store_true")
++    ap.add_argument("--notify-stream", default=os.getenv("EXEC_HEALTH_SLO_NOTIFY_STREAM", "notify:telegram"))
++    args = ap.parse_args()
++
++    if redis is None:
++        logger.error("redis dependency missing")
++        return 1
++
++    r = redis.Redis.from_url(args.redis_url, decode_responses=True)
++    try:
++        keys = _scan_keys(r, args.state_prefix)
++        rows = _read_rows(r, keys)
++        summary = build_summary(rows, now_ms=_now_ms(), stale_ms=max(1000, int(args.stale_ms)))
++        r.hset(args.out_key, mapping=summary)
++        r.expire(args.out_key, max(60, int(args.stale_ms / 1000) * 3))
++        return 0
++    except Exception as exc:
++        logger.exception("exec health slo checker failed: %s", exc)
++        if args.notify:
++            try:
++                r.xadd(args.notify_stream, {"ts_ms": str(_now_ms()), "source": "exec_health_slo_checker_v1", "text": f"ExecHealth SLO checker ERROR: {exc}"}, maxlen=5000, approximate=True)
++            except Exception:
++                pass
++        return 1
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+--- orderflow_services/exec_health_slo_exporter_v1.py
++++ orderflow_services/exec_health_slo_exporter_v1.py
+@@ -0,0 +1,104 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import os
++import time
++from typing import Any, Dict
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++from prometheus_client import Gauge, start_http_server
++
++SCOPES = ("edge", "pipeline", "entry_policy")
++THR_METRICS = (
++    "threshold_is_p95_bps",
++    "threshold_perm_impact_p95_bps",
++    "threshold_realized_spread_p50_bps",
++)
++OUTCOMES = ("apply", "veto", "pass")
++
++
++def _now_s() -> float:
++    return time.time()
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++def _f(x: Any, d: float = 0.0) -> float:
++    try:
++        return float(x)
++    except Exception:
++        return float(d)
++
++
++UP = Gauge("exec_health_slo_exporter_up", "1 if exporter can read Redis summary")
++LAST_UPDATED_MS = Gauge("exec_health_slo_last_updated_ts_ms", "Last SLO summary updated_ts_ms")
++LAST_AGE_S = Gauge("exec_health_slo_last_age_seconds", "Age of last SLO summary in seconds")
++ACTIVE = Gauge("exec_health_slo_active_instances", "Active ExecHealth instances by scope", ["scope"])
++STALE = Gauge("exec_health_slo_stale_instances", "Stale ExecHealth instances by scope", ["scope"])
++SHARE = Gauge("exec_health_slo_share", "ExecHealth share by scope/outcome", ["scope", "outcome"])
++MODE_DISTINCT = Gauge("exec_health_slo_scope_mode_distinct", "Distinct effective modes by scope", ["scope"])
++DEPLOY_DISTINCT = Gauge("exec_health_slo_scope_deploy_distinct", "Distinct deploy ids by scope", ["scope"])
++THRESH_DISTINCT = Gauge("exec_health_slo_scope_threshold_distinct", "Distinct threshold values by scope/metric", ["scope", "metric"])
++CROSS_SCOPE_MODE_DISTINCT = Gauge("exec_health_slo_cross_scope_mode_distinct", "Distinct modal modes across scopes")
++CROSS_SCOPE_THRESH_DISTINCT = Gauge("exec_health_slo_cross_scope_threshold_distinct", "Distinct modal thresholds across scopes", ["metric"])
++DRIFT_TOTAL = Gauge("exec_health_slo_rollout_drift_instances_total", "Total instances with rollout drift")
++DRIFT_SCOPE = Gauge("exec_health_slo_rollout_drift_instances", "Instances with rollout drift by scope", ["scope"])
++STALE_TOTAL = Gauge("exec_health_slo_stale_instances_total", "Total stale instances")
++
++
++def main() -> None:
++    redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++    key = os.getenv("EXEC_HEALTH_SLO_SUMMARY_KEY", "metrics:exec_health:slo:last")
++    port = int(os.getenv("EXEC_HEALTH_SLO_EXPORTER_PORT", "9824"))
++    interval_s = float(os.getenv("EXEC_HEALTH_SLO_EXPORTER_INTERVAL_S", "10") or 10)
++    stale_s = float(os.getenv("EXEC_HEALTH_SLO_EXPORTER_STALE_S", "180") or 180)
++
++    if redis is None:
++        raise RuntimeError("redis dependency missing")
++    r = redis.Redis.from_url(redis_url, decode_responses=True)
++    start_http_server(port)
++
++    while True:
++        try:
++            m: Dict[str, Any] = r.hgetall(key) or {}
++            UP.set(1.0)
++            updated_ms = _i(m.get("updated_ts_ms"), 0)
++            LAST_UPDATED_MS.set(float(updated_ms))
++            age_s = max(0.0, _now_s() - (float(updated_ms) / 1000.0 if updated_ms > 0 else 0.0))
++            LAST_AGE_S.set(age_s)
++
++            ACTIVE.labels(scope="all").set(float(_i(m.get("active_instances_total"), 0)))
++            STALE_TOTAL.set(float(_i(m.get("stale_instances_total"), 0)))
++            DRIFT_TOTAL.set(float(_i(m.get("rollout_drift_instances_total"), 0)))
++            CROSS_SCOPE_MODE_DISTINCT.set(float(_i(m.get("cross_scope_mode_distinct"), 0)))
++            for metric in THR_METRICS:
++                CROSS_SCOPE_THRESH_DISTINCT.labels(metric=metric).set(float(_i(m.get(f"cross_scope_distinct_{metric}"), 0)))
++
++            for scope in SCOPES:
++                ACTIVE.labels(scope=scope).set(float(_i(m.get(f"active_instances_{scope}"), 0)))
++                STALE.labels(scope=scope).set(float(_i(m.get(f"stale_instances_{scope}"), 0)))
++                MODE_DISTINCT.labels(scope=scope).set(float(_i(m.get(f"mode_distinct_{scope}"), 0)))
++                DEPLOY_DISTINCT.labels(scope=scope).set(float(_i(m.get(f"deploy_distinct_{scope}"), 0)))
++                DRIFT_SCOPE.labels(scope=scope).set(float(_i(m.get(f"rollout_drift_instances_{scope}"), 0)))
++                for outcome in OUTCOMES:
++                    SHARE.labels(scope=scope, outcome=outcome).set(float(_f(m.get(f"share_{outcome}_{scope}"), 0.0)))
++                for metric in THR_METRICS:
++                    THRESH_DISTINCT.labels(scope=scope, metric=metric).set(float(_i(m.get(f"threshold_distinct_{scope}_{metric}"), 0)))
++
++            if age_s > stale_s:
++                UP.set(0.0)
++        except Exception:
++            UP.set(0.0)
++        time.sleep(interval_s)
++
++
++if __name__ == "__main__":
++    main()
+--- orderflow_services/prometheus_alerts_exec_health_slo_v1.yml
++++ orderflow_services/prometheus_alerts_exec_health_slo_v1.yml
+@@ -0,0 +1,72 @@
++groups:
++  - name: exec_health_slo_v1
++    rules:
++      - alert: OF_ExecHealth_SLO_ExporterStale_Warn
++        expr: exec_health_slo_exporter_up < 1
++        for: 5m
++        labels:
++          severity: warning
++          team: trade
++        annotations:
++          summary: "ExecHealth SLO exporter is stale"
++          description: "The ExecHealth SLO exporter cannot read its Redis summary or the summary is older than the configured staleness budget."
++
++      - alert: OF_ExecHealth_RolloutDrift_Warn
++        expr: exec_health_slo_rollout_drift_instances_total > 0
++        for: 10m
++        labels:
++          severity: warning
++          team: trade
++        annotations:
++          summary: "ExecHealth rollout drift detected"
++          description: "At least one active ExecHealth instance differs from the modal mode/threshold configuration for its scope."
++
++      - alert: OF_ExecHealth_RolloutDrift_Crit
++        expr: exec_health_slo_rollout_drift_instances_total > 1
++        for: 15m
++        labels:
++          severity: critical
++          team: trade
++        annotations:
++          summary: "ExecHealth rollout drift is widespread"
++          description: "More than one active ExecHealth instance differs from the expected scope configuration."
++
++      - alert: OF_ExecHealth_CrossScopeModeMismatch_Crit
++        expr: exec_health_slo_cross_scope_mode_distinct > 1
++        for: 10m
++        labels:
++          severity: critical
++          team: trade
++        annotations:
++          summary: "ExecHealth mode mismatch across scopes"
++          description: "edge / pipeline / entry_policy do not agree on the effective ExecHealth mode."
++
++      - alert: OF_ExecHealth_CrossScopeThresholdMismatch_Warn
++        expr: max(exec_health_slo_cross_scope_threshold_distinct) > 1
++        for: 10m
++        labels:
++          severity: warning
++          team: trade
++        annotations:
++          summary: "ExecHealth threshold mismatch across scopes"
++          description: "The modal ExecHealth thresholds differ between scopes."
++
++      - alert: OF_ExecHealth_VetoShareHigh_Warn
++        expr: max(exec_health_slo_share{outcome="veto"}) > 0.20
++        for: 15m
++        labels:
++          severity: warning
++          team: trade
++        annotations:
++          summary: "ExecHealth veto share is elevated"
++          description: "At least one scope has veto share above 20%. Investigate thresholds, rollout drift, or market degradation."
++
++      - alert: OF_ExecHealth_VetoShareHigh_Crit
++        expr: max(exec_health_slo_share{outcome="veto"}) > 0.35
++        for: 15m
++        labels:
++          severity: critical
++          team: trade
++        annotations:
++          summary: "ExecHealth veto share is critically high"
++          description: "At least one scope has veto share above 35%. Confirm whether this is intended hardening or a bad rollout / degraded market state."
+--- orderflow_services/runbook_exec_health_slo_v1.md
++++ orderflow_services/runbook_exec_health_slo_v1.md
+@@ -0,0 +1,26 @@
++# ExecHealth Rollout SLO (v1)
++
++## What it checks
++- rollout drift inside each scope (`edge`, `pipeline`, `entry_policy`)
++- cross-scope mode mismatch
++- cross-scope threshold mismatch
++- apply / veto / pass share by scope
++- deploy fan-out inside a scope
++
++## Data flow
++1. Each scope updates a local in-process ExecHealth snapshot.
++2. Snapshot is flushed to Redis hash `metrics:exec_health:scope_state:<scope>:<instance>`.
++3. `exec_health_slo_checker_v1.py` scans these hashes and writes compact summary to `metrics:exec_health:slo:last`.
++4. `exec_health_slo_exporter_v1.py` exposes Prometheus metrics.
++
++## Primary queries
++- `exec_health_slo_rollout_drift_instances_total`
++- `exec_health_slo_cross_scope_mode_distinct`
++- `exec_health_slo_cross_scope_threshold_distinct`
++- `exec_health_slo_share{outcome="veto"}`
++
++## First actions on alert
++1. Check whether a new deploy is partially rolled out.
++2. Compare `mode_distinct_*` and `threshold_distinct_*` for the affected scope.
++3. Confirm `GATE_PROFILE`, `EXEC_HEALTH_MODE`, scope overrides and threshold env vars.
++4. If veto share jumped without intended hardening, roll back the new config or deployment.
+--- orderflow_services/grafana/exec_health_slo_v1.json
++++ orderflow_services/grafana/exec_health_slo_v1.json
+@@ -0,0 +1,58 @@
++{
++  "title": "ExecHealth Rollout SLO (v1)",
++  "schemaVersion": 39,
++  "version": 1,
++  "panels": [
++    {
++      "type": "timeseries",
++      "title": "Active / stale instances",
++      "targets": [
++        {"expr": "exec_health_slo_active_instances{scope=~\"$scope|all\"}", "legendFormat": "active {{scope}}"},
++        {"expr": "exec_health_slo_stale_instances{scope=~\"$scope\"}", "legendFormat": "stale {{scope}}"}
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Share by scope",
++      "targets": [
++        {"expr": "exec_health_slo_share{scope=~\"$scope\", outcome=~\"$outcome\"}", "legendFormat": "{{scope}} {{outcome}}"}
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Mode / rollout drift",
++      "targets": [
++        {"expr": "exec_health_slo_scope_mode_distinct{scope=~\"$scope\"}", "legendFormat": "mode distinct {{scope}}"},
++        {"expr": "exec_health_slo_rollout_drift_instances{scope=~\"$scope\"}", "legendFormat": "drift {{scope}}"},
++        {"expr": "exec_health_slo_cross_scope_mode_distinct", "legendFormat": "cross-scope mode distinct"}
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Threshold mismatch",
++      "targets": [
++        {"expr": "exec_health_slo_scope_threshold_distinct{scope=~\"$scope\", metric=~\"$metric\"}", "legendFormat": "{{scope}} {{metric}}"},
++        {"expr": "exec_health_slo_cross_scope_threshold_distinct{metric=~\"$metric\"}", "legendFormat": "cross {{metric}}"}
++      ]
++    }
++  ],
++  "templating": {
++    "list": [
++      {
++        "name": "scope",
++        "type": "custom",
++        "query": "edge,pipeline,entry_policy"
++      },
++      {
++        "name": "outcome",
++        "type": "custom",
++        "query": "apply,veto,pass"
++      },
++      {
++        "name": "metric",
++        "type": "custom",
++        "query": "threshold_is_p95_bps,threshold_perm_impact_p95_bps,threshold_realized_spread_p50_bps"
++      }
++    ]
++  }
++}
+--- orderflow_services/tests/test_exec_health_slo_checker_v1.py
++++ orderflow_services/tests/test_exec_health_slo_checker_v1.py
+@@ -0,0 +1,75 @@
++from __future__ import annotations
++
++from orderflow_services.exec_health_slo_checker_v1 import build_summary
++
++
++def test_exec_health_slo_checker_builds_drift_and_share_summary() -> None:
++    rows = [
++        {
++            "scope": "edge",
++            "instance_id": "edge-a",
++            "deploy_id": "dep-1",
++            "updated_ts_ms": "100000",
++            "last_mode": "tighten",
++            "threshold_is_p95_bps": "5",
++            "threshold_perm_impact_p95_bps": "3",
++            "threshold_realized_spread_p50_bps": "-999",
++            "total_n": "100",
++            "apply_n": "20",
++            "veto_n": "10",
++            "pass_n": "70",
++            "reader_error_n": "1",
++        },
++        {
++            "scope": "edge",
++            "instance_id": "edge-b",
++            "deploy_id": "dep-2",
++            "updated_ts_ms": "100000",
++            "last_mode": "veto",
++            "threshold_is_p95_bps": "5",
++            "threshold_perm_impact_p95_bps": "3",
++            "threshold_realized_spread_p50_bps": "-999",
++            "total_n": "100",
++            "apply_n": "5",
++            "veto_n": "50",
++            "pass_n": "45",
++            "reader_error_n": "0",
++        },
++        {
++            "scope": "pipeline",
++            "instance_id": "pipe-a",
++            "deploy_id": "dep-1",
++            "updated_ts_ms": "100000",
++            "last_mode": "tighten",
++            "threshold_is_p95_bps": "5",
++            "threshold_perm_impact_p95_bps": "3",
++            "threshold_realized_spread_p50_bps": "-999",
++            "total_n": "60",
++            "apply_n": "15",
++            "veto_n": "6",
++            "pass_n": "39",
++            "reader_error_n": "0",
++        },
++        {
++            "scope": "entry_policy",
++            "instance_id": "entry-a",
++            "deploy_id": "dep-1",
++            "updated_ts_ms": "100000",
++            "last_mode": "tighten",
++            "threshold_is_p95_bps": "6",
++            "threshold_perm_impact_p95_bps": "3",
++            "threshold_realized_spread_p50_bps": "-999",
++            "total_n": "50",
++            "apply_n": "10",
++            "veto_n": "5",
++            "pass_n": "35",
++            "reader_error_n": "0",
++        },
++    ]
++    s = build_summary(rows, now_ms=110000, stale_ms=20000)
++    assert s["active_instances_total"] == "4"
++    assert s["rollout_drift_instances_total"] == "1"
++    assert s["mode_distinct_edge"] == "2"
++    assert s["cross_scope_mode_distinct"] == "1"
++    assert s["cross_scope_distinct_threshold_is_p95_bps"] == "2"
++    assert float(s["share_veto_edge"]) > 0.25
+--- orderflow_services/tests/test_exec_health_slo_exporter_v1.py
++++ orderflow_services/tests/test_exec_health_slo_exporter_v1.py
+@@ -0,0 +1,68 @@
++from __future__ import annotations
++
++from unittest.mock import patch, MagicMock
++
++from orderflow_services import exec_health_slo_exporter_v1 as exp
++
++
++def test_exec_health_slo_exporter_sets_gauges_from_summary() -> None:
++    mock_redis_mod = MagicMock()
++    mock_client = MagicMock()
++    mock_redis_mod.Redis.from_url.return_value = mock_client
++    mock_client.hgetall.return_value = {
++        "updated_ts_ms": "1000",
++        "active_instances_total": "3",
++        "stale_instances_total": "1",
++        "rollout_drift_instances_total": "2",
++        "cross_scope_mode_distinct": "2",
++        "cross_scope_distinct_threshold_is_p95_bps": "1",
++        "cross_scope_distinct_threshold_perm_impact_p95_bps": "2",
++        "cross_scope_distinct_threshold_realized_spread_p50_bps": "1",
++        "active_instances_edge": "1",
++        "stale_instances_edge": "0",
++        "mode_distinct_edge": "1",
++        "deploy_distinct_edge": "1",
++        "rollout_drift_instances_edge": "0",
++        "share_apply_edge": "0.2",
++        "share_veto_edge": "0.1",
++        "share_pass_edge": "0.7",
++        "threshold_distinct_edge_threshold_is_p95_bps": "1",
++        "threshold_distinct_edge_threshold_perm_impact_p95_bps": "1",
++        "threshold_distinct_edge_threshold_realized_spread_p50_bps": "1",
++        "active_instances_pipeline": "1",
++        "stale_instances_pipeline": "0",
++        "mode_distinct_pipeline": "1",
++        "deploy_distinct_pipeline": "1",
++        "rollout_drift_instances_pipeline": "1",
++        "share_apply_pipeline": "0.3",
++        "share_veto_pipeline": "0.2",
++        "share_pass_pipeline": "0.5",
++        "threshold_distinct_pipeline_threshold_is_p95_bps": "1",
++        "threshold_distinct_pipeline_threshold_perm_impact_p95_bps": "1",
++        "threshold_distinct_pipeline_threshold_realized_spread_p50_bps": "1",
++        "active_instances_entry_policy": "1",
++        "stale_instances_entry_policy": "1",
++        "mode_distinct_entry_policy": "1",
++        "deploy_distinct_entry_policy": "1",
++        "rollout_drift_instances_entry_policy": "1",
++        "share_apply_entry_policy": "0.1",
++        "share_veto_entry_policy": "0.4",
++        "share_pass_entry_policy": "0.5",
++        "threshold_distinct_entry_policy_threshold_is_p95_bps": "2",
++        "threshold_distinct_entry_policy_threshold_perm_impact_p95_bps": "1",
++        "threshold_distinct_entry_policy_threshold_realized_spread_p50_bps": "1",
++    }
++
++    with patch("orderflow_services.exec_health_slo_exporter_v1.redis", mock_redis_mod), \
++         patch("orderflow_services.exec_health_slo_exporter_v1.start_http_server"), \
++         patch("orderflow_services.exec_health_slo_exporter_v1.time.sleep", side_effect=KeyboardInterrupt):
++        try:
++            exp.main()
++        except KeyboardInterrupt:
++            pass
++
++    assert exp.UP._value.get() in (0.0, 1.0)
++    assert exp.DRIFT_TOTAL._value.get() == 2.0
++    assert exp.CROSS_SCOPE_MODE_DISTINCT._value.get() == 2.0
++    assert exp.SHARE.labels(scope="entry_policy", outcome="veto")._value.get() == 0.4
++    assert exp.THRESH_DISTINCT.labels(scope="entry_policy", metric="threshold_is_p95_bps")._value.get() == 2.0
+--- orderflow_services/tests/test_exec_health_slo_alerts_yaml_v1.py
++++ orderflow_services/tests/test_exec_health_slo_alerts_yaml_v1.py
+@@ -0,0 +1,42 @@
++from __future__ import annotations
++
++import os
++import yaml
++import pytest
++
++
++def _alerts_path(tick_flow_full: bool = False) -> str:
++    base = os.path.dirname(__file__)
++    root = os.path.abspath(os.path.join(base, ".."))
++    if tick_flow_full:
++        tf_root = os.path.abspath(os.path.join(base, "..", "..", "tick_flow_full", "orderflow_services"))
++        return os.path.join(tf_root, "prometheus_alerts_exec_health_slo_v1.yml")
++    return os.path.join(root, "prometheus_alerts_exec_health_slo_v1.yml")
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_exec_health_slo_alerts_yaml_parses(tick_flow_full: bool):
++    path = _alerts_path(tick_flow_full)
++    with open(path) as fh:
++        doc = yaml.safe_load(fh)
++    assert isinstance(doc, dict)
++    assert "groups" in doc
++    assert len(doc["groups"][0].get("rules", [])) >= 1
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_exec_health_slo_alerts_contain_expected_names(tick_flow_full: bool):
++    path = _alerts_path(tick_flow_full)
++    with open(path) as fh:
++        doc = yaml.safe_load(fh)
++    names = {r.get("alert") for r in doc["groups"][0].get("rules", []) if "alert" in r}
++    expected = {
++        "OF_ExecHealth_SLO_ExporterStale_Warn",
++        "OF_ExecHealth_RolloutDrift_Warn",
++        "OF_ExecHealth_RolloutDrift_Crit",
++        "OF_ExecHealth_CrossScopeModeMismatch_Crit",
++        "OF_ExecHealth_CrossScopeThresholdMismatch_Warn",
++        "OF_ExecHealth_VetoShareHigh_Warn",
++        "OF_ExecHealth_VetoShareHigh_Crit",
++    }
++    assert expected.issubset(names)
+--- orderflow_services/tests/test_exec_health_slo_dashboard_json_v1.py
++++ orderflow_services/tests/test_exec_health_slo_dashboard_json_v1.py
+@@ -0,0 +1,49 @@
++from __future__ import annotations
++
++import json
++import os
++import pytest
++
++
++def _dashboard_path(tick_flow_full: bool = False) -> str:
++    base = os.path.dirname(__file__)
++    root = os.path.abspath(os.path.join(base, "..", "grafana"))
++    if tick_flow_full:
++        tf_root = os.path.abspath(os.path.join(base, "..", "..", "tick_flow_full", "orderflow_services", "grafana"))
++        return os.path.join(tf_root, "exec_health_slo_v1.json")
++    return os.path.join(root, "exec_health_slo_v1.json")
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_exec_health_slo_dashboard_parses(tick_flow_full: bool):
++    path = _dashboard_path(tick_flow_full)
++    with open(path) as fh:
++        doc = json.load(fh)
++    assert doc.get("title") == "ExecHealth Rollout SLO (v1)"
++    assert len(doc.get("panels", [])) >= 4
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_exec_health_slo_dashboard_contains_expected_queries(tick_flow_full: bool):
++    path = _dashboard_path(tick_flow_full)
++    with open(path) as fh:
++        doc = json.load(fh)
++    exprs = []
++    for panel in doc.get("panels", []):
++        for target in panel.get("targets", []) or []:
++            if isinstance(target, dict) and target.get("expr"):
++                exprs.append(target["expr"])
++    joined = "\n".join(exprs)
++    assert "exec_health_slo_active_instances" in joined
++    assert "exec_health_slo_share" in joined
++    assert "exec_health_slo_scope_mode_distinct" in joined
++    assert "exec_health_slo_scope_threshold_distinct" in joined
++
++
++@pytest.mark.parametrize("tick_flow_full", [False, True])
++def test_exec_health_slo_dashboard_has_template_variables(tick_flow_full: bool):
++    path = _dashboard_path(tick_flow_full)
++    with open(path) as fh:
++        doc = json.load(fh)
++    var_names = {v.get("name") for v in doc.get("templating", {}).get("list", [])}
++    assert {"scope", "outcome", "metric"}.issubset(var_names)
+--- tick_flow_full/orderflow_services/exec_health_slo_checker_v1.py
++++ tick_flow_full/orderflow_services/exec_health_slo_checker_v1.py
+@@ -0,0 +1,270 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""ExecHealth rollout SLO-checker.
++
++Reads compact per-process scope-state hashes written by:
++  - EdgeCostGate
++  - SignalPipeline
++  - EntryPolicyService
++
++Produces a low-cardinality summary hash suitable for a dedicated exporter.
++"""
++
++import argparse
++import json
++import logging
++import os
++import sys
++import time
++from collections import Counter, defaultdict
++from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Sequence
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++logger = logging.getLogger("exec_health_slo_checker_v1")
++
++SCOPES: Sequence[str] = ("edge", "pipeline", "entry_policy")
++THR_METRICS: Sequence[str] = (
++    "threshold_is_p95_bps",
++    "threshold_perm_impact_p95_bps",
++    "threshold_realized_spread_p50_bps",
++)
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++def _f(x: Any, d: float = 0.0) -> float:
++    try:
++        return float(x)
++    except Exception:
++        return float(d)
++
++
++def _s(x: Any, d: str = "") -> str:
++    try:
++        if x is None:
++            return str(d)
++        return str(x)
++    except Exception:
++        return str(d)
++
++
++def _scan_keys(r, prefix: str) -> List[str]:
++    patt = f"{prefix}:*"
++    out: List[str] = []
++    try:
++        cur = 0
++        while True:
++            cur, batch = r.scan(cursor=cur, match=patt, count=500)
++            out.extend([str(x) for x in batch or []])
++            if int(cur) == 0:
++                break
++    except Exception:
++        return []
++    return out
++
++
++def _read_rows(r, keys: Sequence[str]) -> List[Dict[str, Any]]:
++    rows: List[Dict[str, Any]] = []
++    for key in keys:
++        try:
++            d = r.hgetall(key) or {}
++        except Exception:
++            continue
++        if not isinstance(d, dict):
++            continue
++        d = {str(k): v for k, v in d.items()}
++        d["_key"] = key
++        rows.append(d)
++    return rows
++
++
++def _norm_thr(v: Any) -> str:
++    return f"{_f(v, 0.0):.6f}"
++
++
++def summarize_scope_rows(rows: Sequence[Mapping[str, Any]], *, now_ms: int, stale_ms: int) -> Dict[str, Any]:
++    active = [dict(r) for r in rows if max(0, now_ms - _i(r.get("updated_ts_ms"), 0)) <= stale_ms]
++    stale = len(rows) - len(active)
++
++    out: Dict[str, Any] = {
++        "active_instances": int(len(active)),
++        "stale_instances": int(max(0, stale)),
++        "total_n": 0,
++        "apply_n": 0,
++        "veto_n": 0,
++        "pass_n": 0,
++        "reader_error_n": 0,
++        "mode_distinct": 0,
++        "deploy_distinct": 0,
++        "rollout_drift_instances": 0,
++        "top_modes_json": "[]",
++        "top_deploys_json": "[]",
++    }
++    for metric in THR_METRICS:
++        out[f"distinct_{metric}"] = 0
++
++    if not active:
++        return out
++
++    mode_counter: Counter[str] = Counter(_s(r.get("last_mode"), "unknown") for r in active)
++    deploy_counter: Counter[str] = Counter(_s(r.get("deploy_id"), "unknown") for r in active)
++    out["mode_distinct"] = len(mode_counter)
++    out["deploy_distinct"] = len(deploy_counter)
++    out["top_modes_json"] = json.dumps(mode_counter.most_common(5), ensure_ascii=False)
++    out["top_deploys_json"] = json.dumps(deploy_counter.most_common(5), ensure_ascii=False)
++
++    modal_mode = mode_counter.most_common(1)[0][0]
++    modal_thr: Dict[str, str] = {}
++    for metric in THR_METRICS:
++        thr_counter = Counter(_norm_thr(r.get(metric)) for r in active)
++        out[f"distinct_{metric}"] = len(thr_counter)
++        modal_thr[metric] = thr_counter.most_common(1)[0][0]
++
++    drift_n = 0
++    for r in active:
++        if _s(r.get("last_mode"), "unknown") != modal_mode:
++            drift_n += 1
++            continue
++        if any(_norm_thr(r.get(metric)) != modal_thr[metric] for metric in THR_METRICS):
++            drift_n += 1
++    out["rollout_drift_instances"] = int(drift_n)
++
++    for row in active:
++        out["total_n"] += _i(row.get("total_n"), 0)
++        out["apply_n"] += _i(row.get("apply_n"), 0)
++        out["veto_n"] += _i(row.get("veto_n"), 0)
++        out["pass_n"] += _i(row.get("pass_n"), 0)
++        out["reader_error_n"] += _i(row.get("reader_error_n"), 0)
++
++    return out
++
++
++def build_summary(rows: Sequence[Mapping[str, Any]], *, now_ms: int, stale_ms: int) -> Dict[str, str]:
++    by_scope: Dict[str, List[Mapping[str, Any]]] = defaultdict(list)
++    for row in rows:
++        by_scope[_s(row.get("scope"), "unknown")].append(row)
++
++    out: Dict[str, str] = {
++        "schema_name": "exec_health_slo_summary",
++        "schema_version": "1",
++        "updated_ts_ms": str(int(now_ms)),
++        "stale_ms": str(int(stale_ms)),
++        "active_instances_total": "0",
++        "stale_instances_total": "0",
++        "rollout_drift_instances_total": "0",
++        "cross_scope_mode_distinct": "0",
++    }
++    for metric in THR_METRICS:
++        out[f"cross_scope_distinct_{metric}"] = "0"
++
++    scope_modal_mode: Dict[str, str] = {}
++    scope_modal_thr: Dict[str, str] = {m: "" for m in THR_METRICS}
++
++    active_total = 0
++    stale_total = 0
++    drift_total = 0
++    for scope in SCOPES:
++        ss = summarize_scope_rows(by_scope.get(scope, []), now_ms=now_ms, stale_ms=stale_ms)
++        active_total += int(ss["active_instances"])
++        stale_total += int(ss["stale_instances"])
++        drift_total += int(ss["rollout_drift_instances"])
++        total_n = max(0, int(ss["total_n"]))
++        apply_n = max(0, int(ss["apply_n"]))
++        veto_n = max(0, int(ss["veto_n"]))
++        pass_n = max(0, int(ss["pass_n"]))
++        denom = float(total_n) if total_n > 0 else 1.0
++
++        out[f"active_instances_{scope}"] = str(int(ss["active_instances"]))
++        out[f"stale_instances_{scope}"] = str(int(ss["stale_instances"]))
++        out[f"reader_error_n_{scope}"] = str(int(ss["reader_error_n"]))
++        out[f"share_apply_{scope}"] = f"{(float(apply_n) / denom):.9f}"
++        out[f"share_veto_{scope}"] = f"{(float(veto_n) / denom):.9f}"
++        out[f"share_pass_{scope}"] = f"{(float(pass_n) / denom):.9f}"
++        out[f"mode_distinct_{scope}"] = str(int(ss["mode_distinct"]))
++        out[f"deploy_distinct_{scope}"] = str(int(ss["deploy_distinct"]))
++        out[f"rollout_drift_instances_{scope}"] = str(int(ss["rollout_drift_instances"]))
++        out[f"top_modes_json_{scope}"] = str(ss["top_modes_json"])
++        out[f"top_deploys_json_{scope}"] = str(ss["top_deploys_json"])
++        if by_scope.get(scope):
++            active = [dict(r) for r in by_scope[scope] if max(0, now_ms - _i(r.get("updated_ts_ms"), 0)) <= stale_ms]
++            if active:
++                scope_modal_mode[scope] = Counter(_s(r.get("last_mode"), "unknown") for r in active).most_common(1)[0][0]
++                for metric in THR_METRICS:
++                    thr = Counter(_norm_thr(r.get(metric)) for r in active).most_common(1)[0][0]
++                    scope_modal_thr[metric] = json.dumps(scope_modal_thr.get(metric)) if False else scope_modal_thr.get(metric, "")
++                    out[f"threshold_distinct_{scope}_{metric}"] = str(int(ss[f"distinct_{metric}"]))
++                    out[f"threshold_modal_{scope}_{metric}"] = thr
++            else:
++                out[f"threshold_distinct_{scope}_{THR_METRICS[0]}"] = str(int(ss[f"distinct_{THR_METRICS[0]}"]))
++                out[f"threshold_distinct_{scope}_{THR_METRICS[1]}"] = str(int(ss[f"distinct_{THR_METRICS[1]}"]))
++                out[f"threshold_distinct_{scope}_{THR_METRICS[2]}"] = str(int(ss[f"distinct_{THR_METRICS[2]}"]))
++        else:
++            for metric in THR_METRICS:
++                out[f"threshold_distinct_{scope}_{metric}"] = "0"
++                out[f"threshold_modal_{scope}_{metric}"] = ""
++
++    # cross-scope modal config drift
++    mode_values = {v for v in scope_modal_mode.values() if v}
++    out["cross_scope_mode_distinct"] = str(len(mode_values))
++    for metric in THR_METRICS:
++        modal_vals: set[str] = set()
++        for scope in SCOPES:
++            modal_val = out.get(f"threshold_modal_{scope}_{metric}", "")
++            if modal_val != "":
++                modal_vals.add(modal_val)
++        out[f"cross_scope_distinct_{metric}"] = str(len(modal_vals))
++
++    out["active_instances_total"] = str(int(active_total))
++    out["stale_instances_total"] = str(int(stale_total))
++    out["rollout_drift_instances_total"] = str(int(drift_total))
++    return out
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser(description="ExecHealth rollout SLO checker")
++    ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
++    ap.add_argument("--state-prefix", default=os.getenv("EXEC_HEALTH_SCOPE_STATE_PREFIX", "metrics:exec_health:scope_state"))
++    ap.add_argument("--out-key", default=os.getenv("EXEC_HEALTH_SLO_SUMMARY_KEY", "metrics:exec_health:slo:last"))
++    ap.add_argument("--stale-ms", type=int, default=int(os.getenv("EXEC_HEALTH_SLO_STALE_MS", "90000")))
++    ap.add_argument("--notify", action="store_true")
++    ap.add_argument("--notify-stream", default=os.getenv("EXEC_HEALTH_SLO_NOTIFY_STREAM", "notify:telegram"))
++    args = ap.parse_args()
++
++    if redis is None:
++        logger.error("redis dependency missing")
++        return 1
++
++    r = redis.Redis.from_url(args.redis_url, decode_responses=True)
++    try:
++        keys = _scan_keys(r, args.state_prefix)
++        rows = _read_rows(r, keys)
++        summary = build_summary(rows, now_ms=_now_ms(), stale_ms=max(1000, int(args.stale_ms)))
++        r.hset(args.out_key, mapping=summary)
++        r.expire(args.out_key, max(60, int(args.stale_ms / 1000) * 3))
++        return 0
++    except Exception as exc:
++        logger.exception("exec health slo checker failed: %s", exc)
++        if args.notify:
++            try:
++                r.xadd(args.notify_stream, {"ts_ms": str(_now_ms()), "source": "exec_health_slo_checker_v1", "text": f"ExecHealth SLO checker ERROR: {exc}"}, maxlen=5000, approximate=True)
++            except Exception:
++                pass
++        return 1
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+--- tick_flow_full/orderflow_services/exec_health_slo_exporter_v1.py
++++ tick_flow_full/orderflow_services/exec_health_slo_exporter_v1.py
+@@ -0,0 +1,104 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import os
++import time
++from typing import Any, Dict
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++from prometheus_client import Gauge, start_http_server
++
++SCOPES = ("edge", "pipeline", "entry_policy")
++THR_METRICS = (
++    "threshold_is_p95_bps",
++    "threshold_perm_impact_p95_bps",
++    "threshold_realized_spread_p50_bps",
++)
++OUTCOMES = ("apply", "veto", "pass")
++
++
++def _now_s() -> float:
++    return time.time()
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(float(x))
++    except Exception:
++        return int(d)
++
++
++def _f(x: Any, d: float = 0.0) -> float:
++    try:
++        return float(x)
++    except Exception:
++        return float(d)
++
++
++UP = Gauge("exec_health_slo_exporter_up", "1 if exporter can read Redis summary")
++LAST_UPDATED_MS = Gauge("exec_health_slo_last_updated_ts_ms", "Last SLO summary updated_ts_ms")
++LAST_AGE_S = Gauge("exec_health_slo_last_age_seconds", "Age of last SLO summary in seconds")
++ACTIVE = Gauge("exec_health_slo_active_instances", "Active ExecHealth instances by scope", ["scope"])
++STALE = Gauge("exec_health_slo_stale_instances", "Stale ExecHealth instances by scope", ["scope"])
++SHARE = Gauge("exec_health_slo_share", "ExecHealth share by scope/outcome", ["scope", "outcome"])
++MODE_DISTINCT = Gauge("exec_health_slo_scope_mode_distinct", "Distinct effective modes by scope", ["scope"])
++DEPLOY_DISTINCT = Gauge("exec_health_slo_scope_deploy_distinct", "Distinct deploy ids by scope", ["scope"])
++THRESH_DISTINCT = Gauge("exec_health_slo_scope_threshold_distinct", "Distinct threshold values by scope/metric", ["scope", "metric"])
++CROSS_SCOPE_MODE_DISTINCT = Gauge("exec_health_slo_cross_scope_mode_distinct", "Distinct modal modes across scopes")
++CROSS_SCOPE_THRESH_DISTINCT = Gauge("exec_health_slo_cross_scope_threshold_distinct", "Distinct modal thresholds across scopes", ["metric"])
++DRIFT_TOTAL = Gauge("exec_health_slo_rollout_drift_instances_total", "Total instances with rollout drift")
++DRIFT_SCOPE = Gauge("exec_health_slo_rollout_drift_instances", "Instances with rollout drift by scope", ["scope"])
++STALE_TOTAL = Gauge("exec_health_slo_stale_instances_total", "Total stale instances")
++
++
++def main() -> None:
++    redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++    key = os.getenv("EXEC_HEALTH_SLO_SUMMARY_KEY", "metrics:exec_health:slo:last")
++    port = int(os.getenv("EXEC_HEALTH_SLO_EXPORTER_PORT", "9824"))
++    interval_s = float(os.getenv("EXEC_HEALTH_SLO_EXPORTER_INTERVAL_S", "10") or 10)
++    stale_s = float(os.getenv("EXEC_HEALTH_SLO_EXPORTER_STALE_S", "180") or 180)
++
++    if redis is None:
++        raise RuntimeError("redis dependency missing")
++    r = redis.Redis.from_url(redis_url, decode_responses=True)
++    start_http_server(port)
++
++    while True:
++        try:
++            m: Dict[str, Any] = r.hgetall(key) or {}
++            UP.set(1.0)
++            updated_ms = _i(m.get("updated_ts_ms"), 0)
++            LAST_UPDATED_MS.set(float(updated_ms))
++            age_s = max(0.0, _now_s() - (float(updated_ms) / 1000.0 if updated_ms > 0 else 0.0))
++            LAST_AGE_S.set(age_s)
++
++            ACTIVE.labels(scope="all").set(float(_i(m.get("active_instances_total"), 0)))
++            STALE_TOTAL.set(float(_i(m.get("stale_instances_total"), 0)))
++            DRIFT_TOTAL.set(float(_i(m.get("rollout_drift_instances_total"), 0)))
++            CROSS_SCOPE_MODE_DISTINCT.set(float(_i(m.get("cross_scope_mode_distinct"), 0)))
++            for metric in THR_METRICS:
++                CROSS_SCOPE_THRESH_DISTINCT.labels(metric=metric).set(float(_i(m.get(f"cross_scope_distinct_{metric}"), 0)))
++
++            for scope in SCOPES:
++                ACTIVE.labels(scope=scope).set(float(_i(m.get(f"active_instances_{scope}"), 0)))
++                STALE.labels(scope=scope).set(float(_i(m.get(f"stale_instances_{scope}"), 0)))
++                MODE_DISTINCT.labels(scope=scope).set(float(_i(m.get(f"mode_distinct_{scope}"), 0)))
++                DEPLOY_DISTINCT.labels(scope=scope).set(float(_i(m.get(f"deploy_distinct_{scope}"), 0)))
++                DRIFT_SCOPE.labels(scope=scope).set(float(_i(m.get(f"rollout_drift_instances_{scope}"), 0)))
++                for outcome in OUTCOMES:
++                    SHARE.labels(scope=scope, outcome=outcome).set(float(_f(m.get(f"share_{outcome}_{scope}"), 0.0)))
++                for metric in THR_METRICS:
++                    THRESH_DISTINCT.labels(scope=scope, metric=metric).set(float(_i(m.get(f"threshold_distinct_{scope}_{metric}"), 0)))
++
++            if age_s > stale_s:
++                UP.set(0.0)
++        except Exception:
++            UP.set(0.0)
++        time.sleep(interval_s)
++
++
++if __name__ == "__main__":
++    main()
+--- tick_flow_full/orderflow_services/prometheus_alerts_exec_health_slo_v1.yml
++++ tick_flow_full/orderflow_services/prometheus_alerts_exec_health_slo_v1.yml
+@@ -0,0 +1,72 @@
++groups:
++  - name: exec_health_slo_v1
++    rules:
++      - alert: OF_ExecHealth_SLO_ExporterStale_Warn
++        expr: exec_health_slo_exporter_up < 1
++        for: 5m
++        labels:
++          severity: warning
++          team: trade
++        annotations:
++          summary: "ExecHealth SLO exporter is stale"
++          description: "The ExecHealth SLO exporter cannot read its Redis summary or the summary is older than the configured staleness budget."
++
++      - alert: OF_ExecHealth_RolloutDrift_Warn
++        expr: exec_health_slo_rollout_drift_instances_total > 0
++        for: 10m
++        labels:
++          severity: warning
++          team: trade
++        annotations:
++          summary: "ExecHealth rollout drift detected"
++          description: "At least one active ExecHealth instance differs from the modal mode/threshold configuration for its scope."
++
++      - alert: OF_ExecHealth_RolloutDrift_Crit
++        expr: exec_health_slo_rollout_drift_instances_total > 1
++        for: 15m
++        labels:
++          severity: critical
++          team: trade
++        annotations:
++          summary: "ExecHealth rollout drift is widespread"
++          description: "More than one active ExecHealth instance differs from the expected scope configuration."
++
++      - alert: OF_ExecHealth_CrossScopeModeMismatch_Crit
++        expr: exec_health_slo_cross_scope_mode_distinct > 1
++        for: 10m
++        labels:
++          severity: critical
++          team: trade
++        annotations:
++          summary: "ExecHealth mode mismatch across scopes"
++          description: "edge / pipeline / entry_policy do not agree on the effective ExecHealth mode."
++
++      - alert: OF_ExecHealth_CrossScopeThresholdMismatch_Warn
++        expr: max(exec_health_slo_cross_scope_threshold_distinct) > 1
++        for: 10m
++        labels:
++          severity: warning
++          team: trade
++        annotations:
++          summary: "ExecHealth threshold mismatch across scopes"
++          description: "The modal ExecHealth thresholds differ between scopes."
++
++      - alert: OF_ExecHealth_VetoShareHigh_Warn
++        expr: max(exec_health_slo_share{outcome="veto"}) > 0.20
++        for: 15m
++        labels:
++          severity: warning
++          team: trade
++        annotations:
++          summary: "ExecHealth veto share is elevated"
++          description: "At least one scope has veto share above 20%. Investigate thresholds, rollout drift, or market degradation."
++
++      - alert: OF_ExecHealth_VetoShareHigh_Crit
++        expr: max(exec_health_slo_share{outcome="veto"}) > 0.35
++        for: 15m
++        labels:
++          severity: critical
++          team: trade
++        annotations:
++          summary: "ExecHealth veto share is critically high"
++          description: "At least one scope has veto share above 35%. Confirm whether this is intended hardening or a bad rollout / degraded market state."
+--- tick_flow_full/orderflow_services/runbook_exec_health_slo_v1.md
++++ tick_flow_full/orderflow_services/runbook_exec_health_slo_v1.md
+@@ -0,0 +1,26 @@
++# ExecHealth Rollout SLO (v1)
++
++## What it checks
++- rollout drift inside each scope (`edge`, `pipeline`, `entry_policy`)
++- cross-scope mode mismatch
++- cross-scope threshold mismatch
++- apply / veto / pass share by scope
++- deploy fan-out inside a scope
++
++## Data flow
++1. Each scope updates a local in-process ExecHealth snapshot.
++2. Snapshot is flushed to Redis hash `metrics:exec_health:scope_state:<scope>:<instance>`.
++3. `exec_health_slo_checker_v1.py` scans these hashes and writes compact summary to `metrics:exec_health:slo:last`.
++4. `exec_health_slo_exporter_v1.py` exposes Prometheus metrics.
++
++## Primary queries
++- `exec_health_slo_rollout_drift_instances_total`
++- `exec_health_slo_cross_scope_mode_distinct`
++- `exec_health_slo_cross_scope_threshold_distinct`
++- `exec_health_slo_share{outcome="veto"}`
++
++## First actions on alert
++1. Check whether a new deploy is partially rolled out.
++2. Compare `mode_distinct_*` and `threshold_distinct_*` for the affected scope.
++3. Confirm `GATE_PROFILE`, `EXEC_HEALTH_MODE`, scope overrides and threshold env vars.
++4. If veto share jumped without intended hardening, roll back the new config or deployment.
+--- tick_flow_full/orderflow_services/grafana/exec_health_slo_v1.json
++++ tick_flow_full/orderflow_services/grafana/exec_health_slo_v1.json
+@@ -0,0 +1,58 @@
++{
++  "title": "ExecHealth Rollout SLO (v1)",
++  "schemaVersion": 39,
++  "version": 1,
++  "panels": [
++    {
++      "type": "timeseries",
++      "title": "Active / stale instances",
++      "targets": [
++        {"expr": "exec_health_slo_active_instances{scope=~\"$scope|all\"}", "legendFormat": "active {{scope}}"},
++        {"expr": "exec_health_slo_stale_instances{scope=~\"$scope\"}", "legendFormat": "stale {{scope}}"}
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Share by scope",
++      "targets": [
++        {"expr": "exec_health_slo_share{scope=~\"$scope\", outcome=~\"$outcome\"}", "legendFormat": "{{scope}} {{outcome}}"}
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Mode / rollout drift",
++      "targets": [
++        {"expr": "exec_health_slo_scope_mode_distinct{scope=~\"$scope\"}", "legendFormat": "mode distinct {{scope}}"},
++        {"expr": "exec_health_slo_rollout_drift_instances{scope=~\"$scope\"}", "legendFormat": "drift {{scope}}"},
++        {"expr": "exec_health_slo_cross_scope_mode_distinct", "legendFormat": "cross-scope mode distinct"}
++      ]
++    },
++    {
++      "type": "timeseries",
++      "title": "Threshold mismatch",
++      "targets": [
++        {"expr": "exec_health_slo_scope_threshold_distinct{scope=~\"$scope\", metric=~\"$metric\"}", "legendFormat": "{{scope}} {{metric}}"},
++        {"expr": "exec_health_slo_cross_scope_threshold_distinct{metric=~\"$metric\"}", "legendFormat": "cross {{metric}}"}
++      ]
++    }
++  ],
++  "templating": {
++    "list": [
++      {
++        "name": "scope",
++        "type": "custom",
++        "query": "edge,pipeline,entry_policy"
++      },
++      {
++        "name": "outcome",
++        "type": "custom",
++        "query": "apply,veto,pass"
++      },
++      {
++        "name": "metric",
++        "type": "custom",
++        "query": "threshold_is_p95_bps,threshold_perm_impact_p95_bps,threshold_realized_spread_p50_bps"
++      }
++    ]
++  }
++}

@@ -1,0 +1,504 @@
+diff --git a/confidence_calculation/docker-compose-crypto-orderflow.yml b/confidence_calculation/docker-compose-crypto-orderflow.yml
+index 581bef1..9d87df1 100644
+--- a/confidence_calculation/docker-compose-crypto-orderflow.yml
++++ b/confidence_calculation/docker-compose-crypto-orderflow.yml
+@@ -2990,6 +2990,58 @@ services:
+     command: ["python", "-m", "services.of_timers_worker"]
+     profiles: ["default"]
+ 
++
++  # P5.7 Execution audit-chain periodic checker (compose wiring)
++  execution-audit-chain-checker:
++    build: *id001
++    container_name: scanner-execution-audit-chain-checker
++    image: scanner-python-worker-gpu
++    restart: unless-stopped
++    environment:
++      - PYTHONPATH=/app
++      - TRADES_DB_DSN=${TRADES_DB_DSN:-}
++      - EXEC_AUDIT_LOOKBACK_HOURS=${EXEC_AUDIT_LOOKBACK_HOURS:-24}
++      - EXEC_AUDIT_LIMIT=${EXEC_AUDIT_LIMIT:-1000}
++      - EXEC_AUDIT_REPORT_STALE_SECONDS=${EXEC_AUDIT_REPORT_STALE_SECONDS:-900}
++      - EXEC_AUDIT_REPORT_JSON=/var/lib/trade/runbooks/latest_execution_audit_chain.json
++      - EXEC_AUDIT_REPORT_PROM=/var/lib/node_exporter/textfile_collector/latest_execution_audit_chain.prom
++      - EXEC_AUDIT_LOOP_INTERVAL_SECONDS=${EXEC_AUDIT_LOOP_INTERVAL_SECONDS:-300}
++      - EXEC_AUDIT_LOOP_FAILURE_SLEEP_SECONDS=${EXEC_AUDIT_LOOP_FAILURE_SLEEP_SECONDS:-30}
++      - EXEC_AUDIT_LOOP_INITIAL_DELAY_SECONDS=${EXEC_AUDIT_LOOP_INITIAL_DELAY_SECONDS:-20}
++      - EXEC_AUDIT_LOOP_RUN_ON_START=${EXEC_AUDIT_LOOP_RUN_ON_START:-1}
++    depends_on: *id003
++    networks: *id004
++    volumes:
++      - .:/app
++      - ./runtime/execution_audit_chain:/var/lib/trade/runbooks
++      - ./runtime/node_exporter_textfile:/var/lib/node_exporter/textfile_collector
++    working_dir: /app
++    command: ["python3", "/app/scripts/run_execution_audit_chain_scheduler.py"]
++    profiles: ["ops"]
++
++  # P5.7 Runbook server for latest execution audit-chain report
++  execution-audit-runbook-server:
++    build: *id001
++    container_name: scanner-execution-audit-runbook-server
++    image: scanner-python-worker-gpu
++    restart: unless-stopped
++    environment:
++      - PYTHONPATH=/app
++      - EXEC_AUDIT_REPORT_JSON=/var/lib/trade/runbooks/latest_execution_audit_chain.json
++      - RUNBOOK_SERVER_BIND=0.0.0.0
++      - RUNBOOK_SERVER_PORT=8777
++    depends_on:
++      - execution-audit-chain-checker
++    networks: *id004
++    volumes:
++      - .:/app
++      - ./runtime/execution_audit_chain:/var/lib/trade/runbooks:ro
++    working_dir: /app
++    ports:
++      - '8777:8777'
++    command: ["python3", "/app/runbooks/server/runbook_server.py"]
++    profiles: ["ops"]
++
+ networks:
+   scanner-network:
+     external: true
+
+diff --git a/deploy/systemd/execution-audit-chain-check.service b/deploy/systemd/execution-audit-chain-check.service
+new file mode 100644
+index 0000000..643b863
+--- /dev/null
++++ b/deploy/systemd/execution-audit-chain-check.service
+@@ -0,0 +1,28 @@
++[Unit]
++Description=Execution audit-chain checker (P5.7)
++After=network-online.target
++Wants=network-online.target
++
++[Service]
++Type=oneshot
++User=trade
++Group=trade
++WorkingDirectory=/opt/trade
++EnvironmentFile=-/etc/default/execution-audit-chain
++ExecStart=/usr/bin/python3 /opt/trade/scripts/check_execution_audit_chain.py \
++  --dsn ${TRADES_DB_DSN} \
++  --lookback-hours ${EXEC_AUDIT_LOOKBACK_HOURS:-24} \
++  --limit ${EXEC_AUDIT_LIMIT:-1000} \
++  --report-json ${EXEC_AUDIT_REPORT_JSON:-/var/lib/trade/runbooks/latest_execution_audit_chain.json} \
++  --report-prom ${EXEC_AUDIT_REPORT_PROM:-/var/lib/node_exporter/textfile_collector/latest_execution_audit_chain.prom}
++Nice=10
++IOSchedulingClass=best-effort
++IOSchedulingPriority=7
++NoNewPrivileges=true
++PrivateTmp=true
++ProtectSystem=full
++ProtectHome=true
++ReadWritePaths=/var/lib/trade/runbooks /var/lib/node_exporter/textfile_collector
++
++[Install]
++WantedBy=multi-user.target
+
+diff --git a/deploy/systemd/execution-audit-chain-check.timer b/deploy/systemd/execution-audit-chain-check.timer
+new file mode 100644
+index 0000000..9155cd5
+--- /dev/null
++++ b/deploy/systemd/execution-audit-chain-check.timer
+@@ -0,0 +1,12 @@
++[Unit]
++Description=Periodic execution audit-chain checker timer (P5.7)
++
++[Timer]
++OnBootSec=2min
++OnUnitActiveSec=5min
++RandomizedDelaySec=15s
++Persistent=true
++Unit=execution-audit-chain-check.service
++
++[Install]
++WantedBy=timers.target
+
+diff --git a/deploy/systemd/execution-audit-chain.env.example b/deploy/systemd/execution-audit-chain.env.example
+new file mode 100644
+index 0000000..a20aab0
+--- /dev/null
++++ b/deploy/systemd/execution-audit-chain.env.example
+@@ -0,0 +1,22 @@
++# Postgres
++TRADES_DB_DSN=postgresql://user:pass@127.0.0.1:5432/trade
++
++# P5.6 checker params
++EXEC_AUDIT_LOOKBACK_HOURS=24
++EXEC_AUDIT_LIMIT=1000
++EXEC_AUDIT_REPORT_JSON=/var/lib/trade/runbooks/latest_execution_audit_chain.json
++EXEC_AUDIT_REPORT_PROM=/var/lib/node_exporter/textfile_collector/latest_execution_audit_chain.prom
++EXEC_AUDIT_REPORT_STALE_SECONDS=900
++
++# Optional table overrides
++# EXEC_AUDIT_TBL_EXECUTION_ORDERS=execution_orders
++# EXEC_AUDIT_TBL_SIGNALS=signals
++# EXEC_AUDIT_TBL_SIGNAL_EXECUTION_PLAN=signal_execution_plan
++# EXEC_AUDIT_TBL_TRADES_CLOSED=trades_closed
++# EXEC_AUDIT_TBL_POSITION_EVENTS=position_events
++# EXEC_AUDIT_TBL_ENTRY_POLICY_AUDIT=entry_policy_audit
++# EXEC_AUDIT_TBL_DECISION_SNAPSHOT=decision_snapshot
++
++# Runbook server
++RUNBOOK_SERVER_BIND=0.0.0.0
++RUNBOOK_SERVER_PORT=8777
+
+diff --git a/deploy/systemd/execution-audit-runbook-server.service b/deploy/systemd/execution-audit-runbook-server.service
+new file mode 100644
+index 0000000..310ea10
+--- /dev/null
++++ b/deploy/systemd/execution-audit-runbook-server.service
+@@ -0,0 +1,23 @@
++[Unit]
++Description=Execution audit-chain runbook server (P5.7)
++After=network-online.target
++Wants=network-online.target
++
++[Service]
++Type=simple
++User=trade
++Group=trade
++WorkingDirectory=/opt/trade
++EnvironmentFile=-/etc/default/execution-audit-chain
++Environment=PYTHONUNBUFFERED=1
++ExecStart=/usr/bin/python3 /opt/trade/runbooks/server/runbook_server.py
++Restart=always
++RestartSec=5
++NoNewPrivileges=true
++PrivateTmp=true
++ProtectSystem=full
++ProtectHome=true
++ReadOnlyPaths=/var/lib/trade/runbooks
++
++[Install]
++WantedBy=multi-user.target
+
+diff --git a/runbooks/P57_AUDIT_CHAIN_TIMER_AND_COMPOSE.md b/runbooks/P57_AUDIT_CHAIN_TIMER_AND_COMPOSE.md
+new file mode 100644
+index 0000000..467046a
+--- /dev/null
++++ b/runbooks/P57_AUDIT_CHAIN_TIMER_AND_COMPOSE.md
+@@ -0,0 +1,83 @@
++# P5.7 — Execution audit-chain timer / compose wiring
++
++## Цель
++Сделать production-эксплуатацию P5.6 полной:
++- checker запускается периодически без ручного участия
++- JSON report и `.prom` публикуются в стабильные SoT-пути
++- runbook server читает тот же JSON report
++- compose и systemd используют один и тот же output contract
++
++## SoT пути
++- JSON: `/var/lib/trade/runbooks/latest_execution_audit_chain.json`
++- Prometheus textfile: `/var/lib/node_exporter/textfile_collector/latest_execution_audit_chain.prom`
++
++## Вариант A — systemd (рекомендовано для host/node_exporter)
++### Файлы
++- `deploy/systemd/execution-audit-chain-check.service`
++- `deploy/systemd/execution-audit-chain-check.timer`
++- `deploy/systemd/execution-audit-runbook-server.service`
++- `deploy/systemd/execution-audit-chain.env.example`
++
++### Установка
++```bash
++sudo install -D -m 0644 deploy/systemd/execution-audit-chain-check.service /etc/systemd/system/execution-audit-chain-check.service
++sudo install -D -m 0644 deploy/systemd/execution-audit-chain-check.timer /etc/systemd/system/execution-audit-chain-check.timer
++sudo install -D -m 0644 deploy/systemd/execution-audit-runbook-server.service /etc/systemd/system/execution-audit-runbook-server.service
++sudo install -D -m 0644 deploy/systemd/execution-audit-chain.env.example /etc/default/execution-audit-chain
++sudo mkdir -p /var/lib/trade/runbooks /var/lib/node_exporter/textfile_collector
++sudo systemctl daemon-reload
++sudo systemctl enable --now execution-audit-chain-check.timer
++sudo systemctl enable --now execution-audit-runbook-server.service
++```
++
++### Проверка
++```bash
++systemctl status execution-audit-chain-check.timer --no-pager
++systemctl list-timers --all | grep execution-audit-chain
++journalctl -u execution-audit-chain-check.service -n 100 --no-pager
++curl -s http://127.0.0.1:8777/api/audit-chain/latest | jq .
++```
++
++## Вариант B — docker-compose
++Новый scheduler-раннер:
++- `scripts/run_execution_audit_chain_scheduler.py`
++
++Новые сервисы в `confidence_calculation/docker-compose-crypto-orderflow.yml`:
++- `execution-audit-chain-checker`
++- `execution-audit-runbook-server`
++
++### Что важно
++1. Scheduler **не** дублирует checker-логику — он вызывает тот же P5.6 checker.
++2. JSON и `.prom` пишутся в bind-mounted директории:
++   - `./runtime/execution_audit_chain`
++   - `./runtime/node_exporter_textfile`
++3. Если node_exporter живёт в другом compose/host stack — он должен читать ту же директорию textfile collector.
++
++### Запуск
++```bash
++mkdir -p runtime/execution_audit_chain runtime/node_exporter_textfile
++COMPOSE_PROFILES=ops docker compose -f confidence_calculation/docker-compose-crypto-orderflow.yml up -d \
++  execution-audit-chain-checker execution-audit-runbook-server
++```
++
++## Метрики / алерты
++- `.prom` пишет те же P5.6 метрики, без нового формата.
++- `monitoring/prometheus_rules_execution_p56_audit_chain.yml` остаётся SoT rules bundle.
++
++## Диагностика
++### 1) JSON есть, а `.prom` нет
++- проверить права на `/var/lib/node_exporter/textfile_collector`
++- проверить `EXEC_AUDIT_REPORT_PROM`
++
++### 2) report stale
++- timer/compose runner не стартует
++- checker падает до записи report
++- невалидный `TRADES_DB_DSN`
++
++### 3) runbook endpoint пустой
++- проверить, что `EXEC_AUDIT_REPORT_JSON` у server и checker совпадает
++
++## Rollback
++- остановить timer или compose service
++- удалить новые systemd units
++- JSON и `.prom` можно оставить как last-known snapshot
+
+diff --git a/scripts/run_execution_audit_chain_scheduler.py b/scripts/run_execution_audit_chain_scheduler.py
+new file mode 100755
+index 0000000..0cad73b
+--- /dev/null
++++ b/scripts/run_execution_audit_chain_scheduler.py
+@@ -0,0 +1,135 @@
++#!/usr/bin/env python3
++"""
++P5.7 execution audit-chain scheduler / compose runner.
++
++Purpose
++-------
++Run the existing P5.6 checker periodically and publish the same SoT artifacts:
++- JSON report for runbook/UI consumers
++- Prometheus textfile for node_exporter textfile collector
++
++This wrapper keeps the checker logic single-sourced in `check_execution_audit_chain.py`.
++It only adds orchestration suitable for:
++- docker-compose long-running service
++- ad-hoc manual loop execution
++
++Systemd timer should still invoke the checker directly as a one-shot job.
++"""
++from __future__ import annotations
++
++import importlib.util
++import logging
++import os
++import sys
++import time
++from pathlib import Path
++from typing import Optional
++
++
++ROOT = Path(__file__).resolve().parents[1]
++CHECKER_PATH = ROOT / "scripts" / "check_execution_audit_chain.py"
++
++logging.basicConfig(
++    level=getattr(logging, os.getenv("EXEC_AUDIT_LOG_LEVEL", "INFO").upper(), logging.INFO),
++    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
++    datefmt="%Y-%m-%d %H:%M:%S",
++)
++logger = logging.getLogger("execution_audit_chain_scheduler")
++
++
++def env_int(name: str, default: int) -> int:
++    raw = os.getenv(name)
++    if raw is None or not str(raw).strip():
++        return default
++    try:
++        return int(str(raw).strip())
++    except Exception:
++        return default
++
++
++def env_bool(name: str, default: bool) -> bool:
++    raw = os.getenv(name)
++    if raw is None:
++        return default
++    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
++
++
++def load_checker_module():
++    spec = importlib.util.spec_from_file_location("check_execution_audit_chain", CHECKER_PATH)
++    if spec is None or spec.loader is None:
++        raise RuntimeError(f"cannot load checker from {CHECKER_PATH}")
++    module = importlib.util.module_from_spec(spec)
++    sys.modules[spec.name] = module
++    spec.loader.exec_module(module)
++    return module
++
++
++CHECKER = load_checker_module()
++
++
++def run_once() -> int:
++    argv = [
++        "--dsn",
++        os.getenv("TRADES_DB_DSN", os.getenv("DATABASE_URL", "")),
++        "--lookback-hours",
++        str(env_int("EXEC_AUDIT_LOOKBACK_HOURS", 24)),
++        "--limit",
++        str(env_int("EXEC_AUDIT_LIMIT", 1000)),
++        "--report-json",
++        os.getenv("EXEC_AUDIT_REPORT_JSON", "latest_execution_audit_chain.json"),
++        "--report-prom",
++        os.getenv("EXEC_AUDIT_REPORT_PROM", "latest_execution_audit_chain.prom"),
++    ]
++    return int(CHECKER.main(argv))
++
++
++def sleep_with_stop(total_seconds: int) -> None:
++    deadline = time.time() + max(0, int(total_seconds))
++    while True:
++        remaining = deadline - time.time()
++        if remaining <= 0:
++            return
++        time.sleep(min(1.0, remaining))
++
++
++def main() -> int:
++    run_on_start = env_bool("EXEC_AUDIT_LOOP_RUN_ON_START", True)
++    interval_seconds = env_int("EXEC_AUDIT_LOOP_INTERVAL_SECONDS", 300)
++    failure_sleep_seconds = env_int("EXEC_AUDIT_LOOP_FAILURE_SLEEP_SECONDS", 30)
++    max_iterations = env_int("EXEC_AUDIT_LOOP_MAX_ITERATIONS", 0)
++    initial_delay_seconds = env_int("EXEC_AUDIT_LOOP_INITIAL_DELAY_SECONDS", 0)
++
++    if initial_delay_seconds > 0:
++        logger.info("initial sleep before first run: %ss", initial_delay_seconds)
++        sleep_with_stop(initial_delay_seconds)
++
++    iteration = 0
++    first = True
++    while True:
++        iteration += 1
++        should_run = run_on_start or not first
++        first = False
++        rc = 0
++        if should_run:
++            started = time.time()
++            try:
++                rc = run_once()
++            except Exception:
++                logger.exception("execution audit-chain run crashed")
++                rc = 2
++            elapsed = time.time() - started
++            if rc == 0:
++                logger.info("execution audit-chain run ok iteration=%s elapsed=%.3fs", iteration, elapsed)
++            else:
++                logger.warning("execution audit-chain run failed iteration=%s rc=%s elapsed=%.3fs", iteration, rc, elapsed)
++        else:
++            logger.info("skipping first run due to EXEC_AUDIT_LOOP_RUN_ON_START=0")
++
++        if max_iterations > 0 and iteration >= max_iterations:
++            return rc
++
++        sleep_with_stop(interval_seconds if rc == 0 else failure_sleep_seconds)
++
++
++if __name__ == "__main__":  # pragma: no cover
++    raise SystemExit(main())
+
+diff --git a/services/tests/test_execution_audit_chain_scheduler_p57_v1.py b/services/tests/test_execution_audit_chain_scheduler_p57_v1.py
+new file mode 100644
+index 0000000..24900b4
+--- /dev/null
++++ b/services/tests/test_execution_audit_chain_scheduler_p57_v1.py
+@@ -0,0 +1,35 @@
++from __future__ import annotations
++
++import importlib.util
++import sys
++from pathlib import Path
++
++
++ROOT = Path(__file__).resolve().parents[2]
++MOD_PATH = ROOT / "scripts" / "run_execution_audit_chain_scheduler.py"
++spec = importlib.util.spec_from_file_location("run_execution_audit_chain_scheduler", MOD_PATH)
++mod = importlib.util.module_from_spec(spec)
++assert spec and spec.loader
++sys.modules[spec.name] = mod
++spec.loader.exec_module(mod)
++
++
++def test_scheduler_loads_checker_module() -> None:
++    assert mod.CHECKER is not None
++    assert hasattr(mod.CHECKER, "main")
++
++
++def test_scheduler_main_single_iteration(monkeypatch) -> None:
++    calls = []
++
++    def fake_run_once() -> int:
++        calls.append("run")
++        return 0
++
++    monkeypatch.setattr(mod, "run_once", fake_run_once)
++    monkeypatch.setenv("EXEC_AUDIT_LOOP_MAX_ITERATIONS", "1")
++    monkeypatch.setenv("EXEC_AUDIT_LOOP_RUN_ON_START", "1")
++    monkeypatch.setenv("EXEC_AUDIT_LOOP_INTERVAL_SECONDS", "1")
++    monkeypatch.setenv("EXEC_AUDIT_LOOP_FAILURE_SLEEP_SECONDS", "1")
++    assert mod.main() == 0
++    assert calls == ["run"]
+
+diff --git a/services/tests/test_p57_execution_audit_assets_v1.py b/services/tests/test_p57_execution_audit_assets_v1.py
+new file mode 100644
+index 0000000..7c254cb
+--- /dev/null
++++ b/services/tests/test_p57_execution_audit_assets_v1.py
+@@ -0,0 +1,25 @@
++from __future__ import annotations
++
++from pathlib import Path
++
++
++ROOT = Path(__file__).resolve().parents[2]
++
++
++def test_systemd_units_exist_and_reference_expected_paths() -> None:
++    service = (ROOT / "deploy" / "systemd" / "execution-audit-chain-check.service").read_text(encoding="utf-8")
++    timer = (ROOT / "deploy" / "systemd" / "execution-audit-chain-check.timer").read_text(encoding="utf-8")
++    runbook = (ROOT / "deploy" / "systemd" / "execution-audit-runbook-server.service").read_text(encoding="utf-8")
++    env_example = (ROOT / "deploy" / "systemd" / "execution-audit-chain.env.example").read_text(encoding="utf-8")
++
++    assert "check_execution_audit_chain.py" in service
++    assert "/var/lib/node_exporter/textfile_collector/latest_execution_audit_chain.prom" in service
++    assert "OnUnitActiveSec=5min" in timer
++    assert "runbook_server.py" in runbook
++    assert "EXEC_AUDIT_REPORT_JSON=/var/lib/trade/runbooks/latest_execution_audit_chain.json" in env_example
++
++
++def test_p57_runbook_mentions_compose_and_systemd() -> None:
++    text = (ROOT / "runbooks" / "P57_AUDIT_CHAIN_TIMER_AND_COMPOSE.md").read_text(encoding="utf-8")
++    assert "execution-audit-chain-check.timer" in text
++    assert "execution-audit-chain-checker" in text
+
+diff --git a/services/tests/test_p57_execution_audit_compose_wiring_v1.py b/services/tests/test_p57_execution_audit_compose_wiring_v1.py
+new file mode 100644
+index 0000000..41ee14b
+--- /dev/null
++++ b/services/tests/test_p57_execution_audit_compose_wiring_v1.py
+@@ -0,0 +1,14 @@
++from __future__ import annotations
++
++from pathlib import Path
++
++
++ROOT = Path(__file__).resolve().parents[2]
++
++
++def test_compose_contains_execution_audit_services() -> None:
++    text = (ROOT / "confidence_calculation" / "docker-compose-crypto-orderflow.yml").read_text(encoding="utf-8")
++    assert "execution-audit-chain-checker:" in text
++    assert "execution-audit-runbook-server:" in text
++    assert "EXEC_AUDIT_REPORT_PROM=/var/lib/node_exporter/textfile_collector/latest_execution_audit_chain.prom" in text
++    assert "./runtime/execution_audit_chain:/var/lib/trade/runbooks" in text
+

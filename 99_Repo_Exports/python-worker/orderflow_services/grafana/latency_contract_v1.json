@@ -1,0 +1,162 @@
+{
+  "title": "Latency Contract v1",
+  "uid": "latency_contract_v1",
+  "schemaVersion": 36,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-1h", "to": "now"},
+  "templating": {
+    "list": [
+      {
+        "name": "symbol",
+        "type": "query",
+        "label": "Symbol",
+        "datasource": "${datasource}",
+        "query": "label_values(latency_contract_stage_ms_count, symbol)",
+        "current": {"text": "BTCUSDT", "value": "BTCUSDT"},
+        "refresh": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "feature_to_emit p95 (ms)",
+      "type": "stat",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(latency_contract_stage_ms_bucket{stage=\"feature_to_emit\",symbol=~\"$symbol\"}[5m]))",
+          "legendFormat": "p95 feature_to_emit"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 100},
+              {"color": "red", "value": 200}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "end_to_end_event p95 (ms)",
+      "type": "stat",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(latency_contract_stage_ms_bucket{stage=\"end_to_end_event\",symbol=~\"$symbol\"}[5m]))",
+          "legendFormat": "p95 end_to_end_event"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 200},
+              {"color": "red", "value": 500}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "redis_to_feature p95 (ms)",
+      "type": "stat",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(latency_contract_stage_ms_bucket{stage=\"redis_to_feature\",symbol=~\"$symbol\"}[5m]))",
+          "legendFormat": "p95 redis_to_feature"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 50},
+              {"color": "red", "value": 100}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Stage Latest Duration (ms) - from Redis state",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "latency_contract_exporter_stage_latest_ms{symbol=~\"$symbol\"}",
+          "legendFormat": "{{service}}/{{stage}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "ms"}}
+    },
+    {
+      "id": 5,
+      "title": "State Hash Age (ms)",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "latency_contract_exporter_stage_age_ms{symbol=~\"$symbol\"}",
+          "legendFormat": "{{service}}/{{stage}} age"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 30000},
+              {"color": "red", "value": 120000}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Budget Ratio by Stage",
+      "type": "bargauge",
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 6},
+      "targets": [
+        {
+          "expr": "latency_contract_exporter_stage_budget_ratio{symbol=~\"$symbol\"}",
+          "legendFormat": "{{stage}}"
+        }
+      ],
+      "options": {"orientation": "horizontal"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 0.75},
+              {"color": "red", "value": 1.0}
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

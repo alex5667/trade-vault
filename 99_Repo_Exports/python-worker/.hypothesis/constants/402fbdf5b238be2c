@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/analytics/metrics_publisher.py
+# hypothesis_version: 6.148.10
+
+[0.0, 100, 5000, 'INFO', 'MetricsPublisher', 'REDIS_URL', 'auc', 'avg_pnl', 'avg_pnl_usd', 'id', 'strategy', 'symbol', 'thr', 'total_pnl', 'total_trades', 'ts', 'winrate']

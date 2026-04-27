@@ -1,0 +1,22 @@
+version: '3.9'
+
+services:
+  grafana:
+    volumes:
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards-json:ro
+
+  trade-execution-auto-repair:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    profiles: ["ops"]
+    working_dir: /app
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+      - EXEC_STREAM=${EXEC_STREAM:-orders:exec}
+      - EXECUTION_JOURNAL_DSN=${EXECUTION_JOURNAL_DSN:-}
+      - EXECUTION_QUARANTINE_LEDGER_DSN=${EXECUTION_QUARANTINE_LEDGER_DSN:-${EXECUTION_JOURNAL_DSN:-}}
+      - EXEC_AUTO_REPAIR_MAX_CRITICAL=${EXEC_AUTO_REPAIR_MAX_CRITICAL:-25}
+      - EXEC_QUARANTINE_MIN_SEVERITY=${EXEC_QUARANTINE_MIN_SEVERITY:-critical}
+    command: ["python", "/app/scripts/automated_execution_repair_policy.py", "--dry-run"]

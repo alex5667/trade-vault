@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/touch_level_tracker.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.5, 0.501, 0.9, 1.0, 1.5, 250, 500, 'cancel', 'depletion', 'none', 'refill']

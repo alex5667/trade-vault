@@ -1,0 +1,44 @@
+{
+  "title": "ExecHealth Freeze Tamper Guard (v1)",
+  "uid": "exec-health-freeze-tamper-guard-v1",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "title": "Tamper Active",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "exec_health_freeze_tamper_guard_tamper_active"
+        }
+      ]
+    },
+    {
+      "title": "Automatic Re-freeze Total",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "exec_health_freeze_tamper_guard_refreeze_total"
+        }
+      ]
+    },
+    {
+      "title": "Violation Kinds",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "exec_health_freeze_tamper_guard_violation"
+        }
+      ]
+    },
+    {
+      "title": "Last Re-freeze",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "exec_health_freeze_tamper_guard_last_refreeze_ts_ms"
+        }
+      ]
+    }
+  ]
+}

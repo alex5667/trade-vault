@@ -1,0 +1,46 @@
+--- python-worker/services/crypto_orderflow_service.py
++++ python-worker/services/crypto_orderflow_service.py
+@@ -1030,6 +1030,9 @@
+             except Exception as exc:
+                 log_silent_error(exc, 'config_update_failure', symbol, 'consume_ticks:specs_refresh_wrapper')
+                 pass
++                
++            tick_sample_rate = float(os.getenv("TICK_SAMPLE_RATE", "1.0"))
++            tick_sample_every_n = int(1.0 / tick_sample_rate) if tick_sample_rate > 0 and tick_sample_rate <= 1.0 else 1
+ 
+             # --- Corrected consume_ticks logic (Expert Fix) ---
+             block_ms = int(runtime.config.get("read_block_ms", 250))
+@@ -1158,11 +1161,22 @@
+                 if runtime.throttle_log_sampler.should_log("stream_processing"):
+                     logger.debug("🔍 (%s) Processing %d stream entries", symbol, len(messages))
+             
++            sampled_ticks_dropped = 0
+             for stream_name, entries in messages:
+                 ack_ids: List[str] = []
++                entry_idx = 0
+                 for msg_id, fields in entries:
+                     processed_ok = False
+                     tick = None
++                    
++                    entry_idx += 1
++                    if tick_sample_every_n > 1 and (entry_idx % tick_sample_every_n) != 0:
++                        # Drop tick due to sampling
++                        ack_ids.append(msg_id)
++                        sampled_ticks_dropped += 1
++                        if ticks_dropped_total:
++                            ticks_dropped_total.labels(symbol=symbol, reason="sampled").inc()
++                        continue
++                        
+                     _t0 = _time.perf_counter()
+                     try:
+                         ticks_read_total.labels(symbol=symbol).inc()
+@@ -1470,6 +1484,10 @@
+                             pass
+                         if processed_ok:
+                             ack_ids.append(msg_id)
++                            
++            if sampled_ticks_dropped > 0 and runtime.throttle_log_sampler.should_log("tick_sampling"):
++                logger.info("🔪 (%s) Sampled and dropped %d ticks (rate=%.2f)", symbol, sampled_ticks_dropped, tick_sample_rate)
+ 
+                 # Batch ACK for throughput (XACK via pipeline)
+                 if ack_ids:

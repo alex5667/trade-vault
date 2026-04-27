@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/redis_errors.py
+# hypothesis_version: 6.148.10
+
+['ask', 'broken pipe', 'busy loading', 'cluster down', 'connection', 'connection aborted', 'connection refused', 'connection reset', 'eof', 'failover', 'i/o error', 'io error', 'loading', 'loading the dataset', 'master is down', 'moved', 'read only', 'readonly', 'reset by peer', 'timed out', 'timeout', 'try again']

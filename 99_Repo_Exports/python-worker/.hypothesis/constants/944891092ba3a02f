@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/trade_report_contract.py
+# hypothesis_version: 6.148.10
+
+[-1.0, 0.0, 1.0, 10000000000, 100000000000, 'SL', 'STOP', 'STOPLOSS', 'STOP_LOSS', 'TAKE', 'TAKEPROFIT', 'TAKE_PROFIT', 'TP', 'TRAIL_SL', 'UNKNOWN', 'add', 'counter', 'entry_ts_ms', 'exit_before_entry', 'exit_ts_ms', 'inc', 'max_back_ms', 'push', 'raw', 'tp1_hit', 'tp2_hit', 'tp3_hit', 'tp_hits', 'trailing_active', 'trailing_moves', 'trailing_moves_count', 'trailing_started', 'ts_not_int', 'ts_unit_mismatch']

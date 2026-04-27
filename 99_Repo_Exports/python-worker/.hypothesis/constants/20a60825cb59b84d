@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/config/gpu_config.py
+# hypothesis_version: 6.148.10
+
+['100', 'GPU_BACKEND', 'GPU_ENABLED', 'GPU_MIN_N', 'cpu', 'false', 'true']

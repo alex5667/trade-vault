@@ -1,0 +1,492 @@
+--- p8base/services/active_symbol_guard_semantics.py	1970-01-01 00:00:00.000000000 +0000
++++ p8work/services/active_symbol_guard_semantics.py	2026-03-16 16:22:15.344421766 +0000
+@@ -0,0 +1,75 @@
++from __future__ import annotations
++
++import time
++from typing import Any, Dict
++
++
++def _ms_now() -> int:
++    return int(time.time() * 1000)
++
++
++def _i(v: Any, default: int = 0) -> int:
++    try:
++        return int(v)
++    except Exception:
++        return int(default)
++
++
++
++def guard_view(doc: Dict[str, Any] | None, *, now_ms: int | None = None) -> Dict[str, Any]:
++    """Return the canonical reader-facing semantics for active_symbol guard docs.
++
++    This utility is the single contract for all readers of
++    orders:active_symbol_sid:{SYMBOL}. Writers may add more fields, but readers
++    should derive blocking / released / pending-release meaning only via this
++    function so tombstone semantics remain consistent across executor,
++    projection, repair-worker, exporters and tests.
++    """
++    raw = dict(doc or {})
++    now = int(now_ms or _ms_now())
++    symbol = str(raw.get("symbol") or "").strip().upper()
++    sid = str(raw.get("sid") or "").strip()
++    status = str(raw.get("guard_status") or "active").strip().lower()
++    if status not in {"active", "released"}:
++        status = "active"
++    released_at_ms = _i(raw.get("released_at_ms") or raw.get("updated_at_ms") or raw.get("guard_writer_ts_ms"), 0)
++    updated_at_ms = _i(raw.get("updated_at_ms") or raw.get("guard_writer_ts_ms") or raw.get("guard_lease_epoch_ms"), 0)
++    guard_version = _i(raw.get("guard_version"), 0)
++    pending_release = bool(raw.get("guard_release_pending"))
++    terminalish = bool(raw.get("state_terminalish"))
++    tombstone_age_ms = 0
++    if status == "released" and released_at_ms > 0:
++        tombstone_age_ms = max(0, now - released_at_ms)
++
++    is_blocking = bool(symbol and sid and status == "active")
++    return {
++        "symbol": symbol,
++        "sid": sid,
++        "status": status,
++        "is_present": bool(raw),
++        "is_active": status == "active",
++        "is_released": status == "released",
++        "is_blocking": is_blocking,
++        "guard_version": guard_version,
++        "guard_release_pending": pending_release,
++        "guard_release_policy": str(raw.get("guard_release_policy") or ""),
++        "guard_release_reason": str(raw.get("guard_release_reason") or raw.get("release_reason") or ""),
++        "state_terminalish": terminalish,
++        "released_at_ms": released_at_ms,
++        "updated_at_ms": updated_at_ms,
++        "tombstone_age_ms": tombstone_age_ms,
++        "guard_writer": str(raw.get("guard_writer") or ""),
++        "guard_lease_token": str(raw.get("guard_lease_token") or ""),
++    }
++
++
++
++def active_guard_doc(doc: Dict[str, Any] | None, *, now_ms: int | None = None) -> Dict[str, Any]:
++    raw = dict(doc or {})
++    return raw if guard_view(raw, now_ms=now_ms).get("is_blocking") else {}
++
++
++
++def released_tombstone_doc(doc: Dict[str, Any] | None, *, now_ms: int | None = None) -> Dict[str, Any]:
++    raw = dict(doc or {})
++    return raw if guard_view(raw, now_ms=now_ms).get("is_released") else {}
+--- p8base/services/active_symbol_guard_store.py	2026-03-16 15:53:02.938534247 +0000
++++ p8work/services/active_symbol_guard_store.py	2026-03-16 16:23:07.761806349 +0000
+@@ -5,6 +5,22 @@
+ import uuid
+ from typing import Any, Dict, Optional
+ 
++try:
++    from services.active_symbol_guard_semantics import active_guard_doc, guard_view
++except Exception:  # pragma: no cover
++    from active_symbol_guard_semantics import active_guard_doc, guard_view  # type: ignore
++
++try:
++    from services.execution_metrics import (
++        EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_CONFLICT_TOTAL,
++        EXECUTION_ACTIVE_SYMBOL_GUARD_RESURRECTION_ATTEMPT_TOTAL,
++    )
++except Exception:  # pragma: no cover
++    from execution_metrics import (  # type: ignore
++        EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_CONFLICT_TOTAL,
++        EXECUTION_ACTIVE_SYMBOL_GUARD_RESURRECTION_ATTEMPT_TOTAL,
++    )
++
+ 
+ def _ms_now() -> int:
+     return int(time.time() * 1000)
+@@ -91,11 +107,33 @@
+         except Exception:
+             return {}
+ 
++    def load_view(self, symbol: str) -> Dict[str, Any]:
++        return guard_view(self.load_raw(symbol))
++
+     def load_active(self, symbol: str) -> Dict[str, Any]:
+-        doc = self.load_raw(symbol)
+-        if str(doc.get('guard_status') or 'active').strip().lower() == 'released':
+-            return {}
+-        return doc
++        return active_guard_doc(self.load_raw(symbol))
++
++    def _record_conflict(self, *, writer: str, operation: str, reason: str) -> None:
++        try:
++            if EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_CONFLICT_TOTAL is not None:
++                EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_CONFLICT_TOTAL.labels(
++                    writer=str(writer or ''),
++                    operation=str(operation or ''),
++                    reason=str(reason or ''),
++                ).inc()
++        except Exception:
++            pass
++
++    def _record_resurrection_attempt(self, *, writer: str, reason: str) -> None:
++        try:
++            if EXECUTION_ACTIVE_SYMBOL_GUARD_RESURRECTION_ATTEMPT_TOTAL is not None:
++                EXECUTION_ACTIVE_SYMBOL_GUARD_RESURRECTION_ATTEMPT_TOTAL.labels(
++                    writer=str(writer or ''),
++                    reason=str(reason or ''),
++                ).inc()
++        except Exception:
++            pass
++
+ 
+     def _fallback_cas_set(
+         self,
+@@ -191,11 +229,14 @@
+         if current:
+             if current_status == 'released':
+                 if current_sid and current_sid == sid:
++                    self._record_conflict(writer=writer, operation='acquire_or_refresh', reason='released_tombstone_same_sid')
++                    self._record_resurrection_attempt(writer=writer, reason='released_tombstone_same_sid')
+                     return {'applied': False, 'reason': 'released_tombstone_same_sid', 'doc': current}
+                 expected_sid = ''
+             elif current_sid == sid:
+                 expected_sid = sid
+             else:
++                self._record_conflict(writer=writer, operation='acquire_or_refresh', reason='held_by_other_sid')
+                 return {'applied': False, 'reason': 'held_by_other_sid', 'doc': current}
+         lease_token = f"{writer}:{now_ms}:{uuid.uuid4().hex[:8]}"
+         new_doc = dict(current if current_sid == sid and current_status != 'released' else {})
+@@ -219,6 +260,8 @@
+             expected_lease_token=expected_lease,
+             ttl_sec=ttl,
+         )
++        if not result.get('applied'):
++            self._record_conflict(writer=writer, operation='acquire_or_refresh', reason=str(result.get('reason') or 'cas_rejected'))
+         if (not result.get('applied')) and retry_once and str(result.get('reason') or '').startswith('version_mismatch'):
+             return self.acquire_or_refresh(symbol=symbol, sid=sid, payload_patch=payload_patch, writer=writer, ttl_sec=ttl, retry_once=False)
+         return result
+@@ -240,6 +283,7 @@
+             return {'applied': False, 'reason': 'absent', 'doc': {}}
+         current_sid = str(current.get('sid') or '').strip()
+         if expected_sid and current_sid != str(expected_sid or '').strip():
++            self._record_conflict(writer=writer, operation='mark_released', reason='sid_mismatch')
+             return {'applied': False, 'reason': 'sid_mismatch', 'doc': current}
+         expected_version = _i(current.get('guard_version'), 0)
+         expected_lease = str(current.get('guard_lease_token') or '').strip()
+@@ -269,6 +313,8 @@
+             expected_lease_token=expected_lease,
+             ttl_sec=ttl,
+         )
++        if not result.get('applied'):
++            self._record_conflict(writer=writer, operation='mark_released', reason=str(result.get('reason') or 'cas_rejected'))
+         if (not result.get('applied')) and retry_once and str(result.get('reason') or '').startswith('version_mismatch'):
+             return self.mark_released(symbol=symbol, expected_sid=expected_sid, release_reason=release_reason, writer=writer, tombstone_ttl_sec=ttl, extra_patch=extra_patch, retry_once=False)
+         return result
+--- p8base/services/binance_active_symbol_guard_repair_worker.py	2026-03-16 15:51:31.711529808 +0000
++++ p8work/services/binance_active_symbol_guard_repair_worker.py	2026-03-16 16:27:53.563313143 +0000
+@@ -12,9 +12,11 @@
+     redis = None  # type: ignore
+ 
+ try:
++    from services.active_symbol_guard_semantics import guard_view
+     from services.active_symbol_guard_store import ActiveSymbolGuardStore
+     from services.binance_futures_client import BinanceFuturesClient
+ except Exception:  # pragma: no cover
++    from active_symbol_guard_semantics import guard_view  # type: ignore
+     from active_symbol_guard_store import ActiveSymbolGuardStore  # type: ignore
+     from binance_futures_client import BinanceFuturesClient  # type: ignore
+ 
+@@ -23,6 +25,7 @@
+         EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_TOTAL,
+         EXECUTION_ACTIVE_SYMBOL_GUARD_EXCHANGE_CHECK_TOTAL,
+         EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASE_TOTAL,
++        EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASED_TOMBSTONE_AGE_MS,
+         EXECUTION_ACTIVE_SYMBOL_GUARD_STUCK_TOTAL,
+     )
+ except Exception:  # pragma: no cover
+@@ -30,6 +33,7 @@
+         EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_TOTAL,
+         EXECUTION_ACTIVE_SYMBOL_GUARD_EXCHANGE_CHECK_TOTAL,
+         EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASE_TOTAL,
++        EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASED_TOMBSTONE_AGE_MS,
+         EXECUTION_ACTIVE_SYMBOL_GUARD_STUCK_TOTAL,
+     )
+ 
+@@ -106,6 +110,14 @@
+         except Exception:
+             pass
+ 
++
++    def _set_tombstone_age_metric(self, symbol: str, age_ms: int) -> None:
++        try:
++            if EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASED_TOMBSTONE_AGE_MS is not None:
++                EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASED_TOMBSTONE_AGE_MS.labels(symbol=str(symbol or '').strip().upper()).set(max(0, int(age_ms or 0)))
++        except Exception:
++            pass
++
+     def _read_exchange_truth(self, symbol: str) -> Dict[str, Any]:
+         symbol = str(symbol or "").strip().upper()
+         out: Dict[str, Any] = {
+@@ -168,10 +180,12 @@
+ 
+     def repair_one(self, symbol: str) -> Dict[str, Any]:
+         symbol = str(symbol or "").strip().upper()
+-        key = f"{self.active_symbol_key_prefix}{symbol}"
+         guard = self._guard_store().load_raw(symbol)
+-        if str(guard.get('guard_status') or '').strip().lower() == 'released':
+-            return {"symbol": symbol, "sid": str(guard.get('sid') or ''), "status": "released_tombstone", "reason": "already_released"}
++        view = guard_view(guard)
++        if view.get('is_released'):
++            self._set_tombstone_age_metric(symbol, int(view.get('tombstone_age_ms') or 0))
++            return {"symbol": symbol, "sid": str(view.get('sid') or ''), "status": "released_tombstone", "reason": "already_released", "tombstone_age_ms": int(view.get('tombstone_age_ms') or 0)}
++        self._set_tombstone_age_metric(symbol, 0)
+         sid = str(guard.get("sid") or "").strip()
+         state = self._load_json(f"{self.state_key_prefix}{sid}") if sid else {}
+         truth = self._read_exchange_truth(symbol)
+@@ -226,11 +240,19 @@
+ 
+     def run_once(self):
+         out = []
++        released_seen = set()
+         prefix = f"{self.active_symbol_key_prefix}*"
+         for key in list(self.r.scan_iter(match=prefix)):
+             symbol = str(key).replace(self.active_symbol_key_prefix, "", 1).strip().upper()
+-            if symbol:
+-                out.append(self.repair_one(symbol))
++            if not symbol:
++                continue
++            result = self.repair_one(symbol)
++            if str(result.get('status') or '') == 'released_tombstone':
++                released_seen.add(symbol)
++            out.append(result)
++        for symbol in set(getattr(self, '_last_released_tombstone_symbols', set())) - released_seen:
++            self._set_tombstone_age_metric(symbol, 0)
++        self._last_released_tombstone_symbols = released_seen
+         return out
+ 
+     def run_forever(self):  # pragma: no cover
+--- p8base/services/execution_metrics.py	2026-03-16 15:44:54.195882236 +0000
++++ p8work/services/execution_metrics.py	2026-03-16 16:23:46.354524300 +0000
+@@ -113,6 +113,26 @@
+     ["writer", "operation", "result"],
+ )
+ 
++
++EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_CONFLICT_TOTAL = _metric(
++    Counter,
++    "execution_active_symbol_guard_cas_conflict_total",
++    "CAS/store conflicts while updating or releasing active-symbol guard keys.",
++    ["writer", "operation", "reason"],
++)
++EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASED_TOMBSTONE_AGE_MS = _metric(
++    Gauge,
++    "execution_active_symbol_guard_released_tombstone_age_ms",
++    "Age in milliseconds of released active-symbol tombstones that are still present in Redis.",
++    ["symbol"],
++)
++EXECUTION_ACTIVE_SYMBOL_GUARD_RESURRECTION_ATTEMPT_TOTAL = _metric(
++    Counter,
++    "execution_active_symbol_guard_resurrection_attempt_total",
++    "Suspicious attempts to resurrect an already released active-symbol guard.",
++    ["writer", "reason"],
++)
++
+ MARK_CONTRACT_SPREAD_BPS = _metric(
+     Gauge,
+     "mark_contract_spread_bps",
+--- p8base/services/prometheus_alerts_active_symbol_guard_p8.yml	1970-01-01 00:00:00.000000000 +0000
++++ p8work/services/prometheus_alerts_active_symbol_guard_p8.yml	2026-03-16 16:25:38.848789721 +0000
+@@ -0,0 +1,32 @@
++groups:
++  - name: active_symbol_guard_p8
++    rules:
++      - alert: ActiveSymbolGuardCASConflictsSpike
++        expr: sum by (writer, operation, reason) (increase(execution_active_symbol_guard_cas_conflict_total[15m])) > 5
++        for: 10m
++        labels:
++          severity: warning
++          service: execution
++        annotations:
++          summary: "Active-symbol guard CAS conflicts are spiking"
++          description: "execution_active_symbol_guard_cas_conflict_total increased for writer={{ $labels.writer }}, operation={{ $labels.operation }}, reason={{ $labels.reason }}. Competing writers or stale leases may be fighting over orders:active_symbol_sid:{symbol}."
++
++      - alert: ActiveSymbolGuardReleasedTombstoneTooOld
++        expr: max by (symbol) (execution_active_symbol_guard_released_tombstone_age_ms) > 600000
++        for: 10m
++        labels:
++          severity: warning
++          service: execution
++        annotations:
++          summary: "Released active-symbol tombstone is older than expected"
++          description: "Released tombstone for {{ $labels.symbol }} has remained in Redis for more than 10 minutes. This may indicate a reader not respecting tombstone semantics or an unhealthy cleanup cadence."
++
++      - alert: ActiveSymbolGuardResurrectionAttempt
++        expr: sum by (writer, reason) (increase(execution_active_symbol_guard_resurrection_attempt_total[15m])) > 0
++        for: 0m
++        labels:
++          severity: critical
++          service: execution
++        annotations:
++          summary: "Suspicious active-symbol guard resurrection attempt detected"
++          description: "A writer attempted to recreate a released active-symbol guard. writer={{ $labels.writer }}, reason={{ $labels.reason }}. Check replay ordering, stale executor paths, and CAS lease ownership."
+--- p8base/services/tests/test_active_symbol_guard_semantics_p8_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p8work/services/tests/test_active_symbol_guard_semantics_p8_v1.py	2026-03-16 16:26:38.070103014 +0000
+@@ -0,0 +1,28 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++root = Path(__file__).resolve().parents[2]
++if str(root) not in sys.path:
++    sys.path.insert(0, str(root))
++
++mod_path = root / 'services' / 'active_symbol_guard_semantics.py'
++spec = importlib.util.spec_from_file_location('services.active_symbol_guard_semantics_p8', mod_path)
++mod = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = mod
++assert spec.loader is not None
++spec.loader.exec_module(mod)
++
++
++def test_guard_view_active_vs_released_tombstone():
++    active = mod.guard_view({'symbol': 'btcusdt', 'sid': 'sid-1', 'guard_status': 'active', 'guard_version': 2}, now_ms=2000)
++    assert active['symbol'] == 'BTCUSDT'
++    assert active['is_blocking'] is True
++    assert active['is_released'] is False
++    assert active['tombstone_age_ms'] == 0
++
++    released = mod.guard_view({'symbol': 'ETHUSDT', 'sid': 'sid-2', 'guard_status': 'released', 'released_at_ms': 1000}, now_ms=3500)
++    assert released['is_blocking'] is False
++    assert released['is_released'] is True
++    assert released['tombstone_age_ms'] == 2500
++    assert mod.active_guard_doc({'symbol': 'ETHUSDT', 'sid': 'sid-2', 'guard_status': 'released'}) == {}
+--- p8base/services/tests/test_active_symbol_guard_store_p8_metrics_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p8work/services/tests/test_active_symbol_guard_store_p8_metrics_v1.py	2026-03-16 16:27:16.954325513 +0000
+@@ -0,0 +1,57 @@
++from pathlib import Path
++import importlib
++import sys
++
++root = Path(__file__).resolve().parents[2]
++if str(root) not in sys.path:
++    sys.path.insert(0, str(root))
++
++metrics_mod = importlib.import_module('services.execution_metrics')
++store_mod = importlib.import_module('services.active_symbol_guard_store')
++
++
++class FakeRedis:
++    def __init__(self):
++        self.kv = {}
++
++    def get(self, key):
++        return self.kv.get(key)
++
++    def set(self, key, value, ex=None):
++        self.kv[key] = value
++        return True
++
++    def scan_iter(self, match=None):
++        prefix = str(match or '').rstrip('*')
++        for key in list(self.kv.keys()):
++            if key.startswith(prefix):
++                yield key
++
++
++ActiveSymbolGuardStore = store_mod.ActiveSymbolGuardStore
++
++
++def _counter_value(metric, **labels):
++    if metric is None:
++        return 0.0
++    return float(metric.labels(**labels)._value.get())
++
++
++def test_resurrection_attempt_and_conflict_metrics_increment():
++    r = FakeRedis()
++    store = ActiveSymbolGuardStore(r, key_prefix='orders:active_symbol_sid:', active_ttl_sec=86400, tombstone_ttl_sec=120)
++
++    before_res = _counter_value(metrics_mod.EXECUTION_ACTIVE_SYMBOL_GUARD_RESURRECTION_ATTEMPT_TOTAL, writer='projection', reason='released_tombstone_same_sid')
++    before_conf = _counter_value(metrics_mod.EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_CONFLICT_TOTAL, writer='projection', operation='acquire_or_refresh', reason='released_tombstone_same_sid')
++
++    first = store.acquire_or_refresh(symbol='BTCUSDT', sid='sid-A', payload_patch={'fsm_state': 'OPEN'}, writer='projection')
++    assert first['applied'] is True
++    store.mark_released(symbol='BTCUSDT', expected_sid='sid-A', release_reason='flat', writer='guard_repair')
++    late = store.acquire_or_refresh(symbol='BTCUSDT', sid='sid-A', payload_patch={'fsm_state': 'OPEN_LATE'}, writer='projection')
++    assert late['applied'] is False
++    assert late['reason'] == 'released_tombstone_same_sid'
++
++    after_res = _counter_value(metrics_mod.EXECUTION_ACTIVE_SYMBOL_GUARD_RESURRECTION_ATTEMPT_TOTAL, writer='projection', reason='released_tombstone_same_sid')
++    after_conf = _counter_value(metrics_mod.EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_CONFLICT_TOTAL, writer='projection', operation='acquire_or_refresh', reason='released_tombstone_same_sid')
++    assert after_res >= before_res + 1
++    assert after_conf >= before_conf + 1
+--- p8base/services/tests/test_binance_active_symbol_guard_repair_worker_p8_tombstone_metrics_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p8work/services/tests/test_binance_active_symbol_guard_repair_worker_p8_tombstone_metrics_v1.py	2026-03-16 16:27:16.962834716 +0000
+@@ -0,0 +1,58 @@
++from pathlib import Path
++import importlib
++import json
++import sys
++import time
++
++root = Path(__file__).resolve().parents[2]
++if str(root) not in sys.path:
++    sys.path.insert(0, str(root))
++
++metrics_mod = importlib.import_module('services.execution_metrics')
++worker_mod = importlib.import_module('services.binance_active_symbol_guard_repair_worker')
++
++
++class FakeRedis:
++    def __init__(self):
++        self.kv = {}
++
++    def get(self, key):
++        return self.kv.get(key)
++
++    def set(self, key, value, ex=None):
++        self.kv[key] = value
++        return True
++
++    def scan_iter(self, match=None):
++        prefix = str(match or '').rstrip('*')
++        for key in list(self.kv.keys()):
++            if key.startswith(prefix):
++                yield key
++
++
++class DummyClient:
++    def get_position_risk(self):
++        return []
++
++    def get_open_orders(self, symbol):
++        return []
++
++    def get_open_algo_orders(self, symbol):
++        return []
++
++
++def test_repair_worker_exports_released_tombstone_age_metric():
++    r = FakeRedis()
++    now_ms = int(time.time() * 1000)
++    r.set('orders:active_symbol_sid:BTCUSDT', json.dumps({
++        'symbol': 'BTCUSDT',
++        'sid': 'sid-old',
++        'guard_status': 'released',
++        'released_at_ms': now_ms - 15_000,
++        'guard_version': 3,
++    }))
++    worker = worker_mod.BinanceActiveSymbolGuardRepairWorker(redis_client=r, client=DummyClient())
++    out = worker.run_once()
++    assert out and out[0]['status'] == 'released_tombstone'
++    value = float(metrics_mod.EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASED_TOMBSTONE_AGE_MS.labels(symbol='BTCUSDT')._value.get())
++    assert value >= 10_000
+--- p8base/services/tests/test_active_symbol_guard_assets_p8_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p8work/services/tests/test_active_symbol_guard_assets_p8_v1.py	2026-03-16 16:26:38.093398232 +0000
+@@ -0,0 +1,8 @@
++from pathlib import Path
++
++
++def test_p8_alert_rules_cover_conflicts_tombstones_and_resurrection():
++    text = Path('services/prometheus_alerts_active_symbol_guard_p8.yml').read_text()
++    assert 'execution_active_symbol_guard_cas_conflict_total' in text
++    assert 'execution_active_symbol_guard_released_tombstone_age_ms' in text
++    assert 'execution_active_symbol_guard_resurrection_attempt_total' in text

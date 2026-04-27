@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/dq_policy.py
+# hypothesis_version: 6.148.10
+
+[2000, 10000, 100000000000, '65000', 'E', 'KLINE_DQ_MAX_AGE_MS', 'TICK_DQ_MAX_AGE_MS', 'TICK_DQ_MAX_OOO_MS', 'TICK_DQ_MAX_SKEW_MS', 'bad_ts', 'bad_ts_unit', 'event_time', 'future_skew', 'missing_symbol', 'out_of_order', 'pass', 's', 'stale', 'symbol', 'time', 'ts', 'ts_ms', 'written_at']

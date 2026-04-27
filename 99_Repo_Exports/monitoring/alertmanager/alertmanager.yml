@@ -1,0 +1,123 @@
+# Alertmanager config (Telegram notifications via internal webhook service + quiet hours + inhibition).
+#
+# Requirements:
+# - docker service `alertmanager-telegram-webhook` must be running on the same network
+# - env vars TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID must be set (see compose)
+# - optional: TELEGRAM_PAGE_CHAT_ID for a dedicated oncall channel (falls back to TELEGRAM_CHAT_ID)
+#
+# Routing logic:
+#   severity=page      → telegram_page     (oncall channel, repeats every 15m, NO quiet hours)
+#   severity=critical  → telegram_critical (sends resolved too, repeats every 30m)
+#   severity=warning   → telegram_warning  (sends resolved too, muted during quiet hours)
+#   severity=info      → null (silent, no notification)
+#   default            → null (silent)
+#
+# P0 alerts routed via severity=page:
+#   PositionUnprotectedTooLong, BinanceDLQGrowth, ExecutionFSMStuck,
+#   OrphanPositionsDetected, LiqQuarantineRateCritical
+
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: "null"
+  # Expanded group_by to support team/component routing labels set in alert rules
+  group_by: ["alertname", "severity", "team", "component", "job", "instance"]
+  group_wait: 10s
+  group_interval: 2m
+  repeat_interval: 2h
+  routes:
+    # PAGE alerts → oncall channel, no quiet hours, repeat every 15m.
+    # Covers: PositionUnprotectedTooLong, BinanceDLQGrowth, ExecutionFSMStuck,
+    #         OrphanPositionsDetected, LiqQuarantineRateCritical
+    - receiver: "telegram_page"
+      matchers:
+        - severity="page"
+      repeat_interval: 15m
+      continue: false
+
+    # Critical alerts → immediate Telegram notification, repeat every 30m
+    - receiver: "telegram_critical"
+      matchers:
+        - severity="critical"
+      repeat_interval: 30m
+      continue: false
+
+    - receiver: "telegram_warning"
+      matchers:
+        - severity="warning"
+      # don't spam warnings during quiet hours (local time)
+      mute_time_intervals:
+        - quiet_hours
+      repeat_interval: 2h
+      continue: false
+
+    # info/debug stays silent by default
+    - receiver: "null"
+      matchers:
+        - severity="info"
+
+# Quiet hours: mute warning-level alerts at night (Mon-Fri 23:00-07:00 Zaporozhye time).
+# Adjust weekdays/location/times to match ops team schedule.
+time_intervals:
+  - name: quiet_hours
+    time_intervals:
+      - weekdays: ["monday:friday"]
+        location: "Europe/Kyiv"
+        times:
+          - start_time: "23:00"
+            end_time: "24:00"
+          - start_time: "00:00"
+            end_time: "07:00"
+
+# Inhibit: suppress lower-severity alerts if a higher-severity fires for the same scope.
+inhibit_rules:
+  # critical suppresses page (avoid duplicate oncall noise)
+  - source_matchers:
+      - severity="critical"
+    target_matchers:
+      - severity="page"
+    equal: ["alertname", "team", "component", "job", "instance"]
+
+  - source_matchers:
+      - severity="critical"
+    target_matchers:
+      - severity="warning"
+    equal: ["alertname", "team", "component", "job", "instance"]
+
+  - source_matchers:
+      - severity="critical"
+    target_matchers:
+      - severity="info"
+    equal: ["alertname", "team", "component", "job", "instance"]
+
+  # Example: suppress "stale" warning when "failed" critical is already firing
+  # (works if both alerts share alertname scope labels)
+  # - source_matchers:
+  #     - alertname="EdgeStackTrainFailed"
+  #   target_matchers:
+  #     - alertname="EdgeStackTrainStale"
+  #   equal: ["team","component"]
+
+receivers:
+  # Oncall pager: dedicated channel for P0/page-severity alerts.
+  # Uses TELEGRAM_PAGE_CHAT_ID if set in the webhook service; falls back to default chat.
+  # No quiet-hours muting — these must wake the oncall engineer.
+  - name: "telegram_page"
+    webhook_configs:
+      - url: "http://alertmanager-telegram-webhook:8081/alert?channel=page"
+        send_resolved: true
+
+  - name: "telegram_critical"
+    webhook_configs:
+      # Internal webhook service converting AM payloads to Telegram messages
+      - url: "http://alertmanager-telegram-webhook:8081/alert"
+        send_resolved: true
+
+  - name: "telegram_warning"
+    webhook_configs:
+      - url: "http://alertmanager-telegram-webhook:8081/alert"
+        send_resolved: true
+
+  - name: "null"
+    # Intentionally empty — swallows all matched alerts silently

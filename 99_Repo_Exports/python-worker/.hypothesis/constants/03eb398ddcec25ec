@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tick_flow_full/common/gpu_service.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-12, 1e-09, 1.0, 1.4826, 2.0, 'GPU not available', 'atr', 'available', 'body_atr', 'buy_vols', 'close', 'compute_capability', 'current_device', 'cvd', 'delta_ratio', 'deltas', 'device_count', 'error', 'high', 'ignore', 'low', 'name', 'obi_ratio', 'obi_signed', 'open', 'sell_vols', 'takerBuyVolume', 'totalGlobalMem', 'total_memory', 'volume', 'z_deltas']

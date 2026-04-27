@@ -1,0 +1,24 @@
+services:
+  ofc-contextual-runtime-summary-writer-v1:
+    image: ${TRADE_ORDERFLOW_IMAGE:?}
+    restart: unless-stopped
+    working_dir: /app
+    environment:
+      PYTHONPATH: /app:/app/python-worker
+      REDIS_URL: ${REDIS_URL:?}
+      OFC_CTX_RUNTIME_RELOADER_STATE_PATH: ${OFC_CTX_RUNTIME_RELOADER_STATE_PATH:-/var/lib/trade/ofc_contextual_runtime_reloader_state.json}
+      OFC_CTX_RUNTIME_SUMMARY_KEY: ${OFC_CTX_RUNTIME_SUMMARY_KEY:-metrics:ofc_contextual_runtime:last}
+      OFC_CTX_RUNTIME_SUMMARY_TEXTFILE_PATH: ${OFC_CTX_RUNTIME_SUMMARY_TEXTFILE_PATH:-/var/lib/node_exporter/textfile_collector/ofc_contextual_runtime.prom}
+      OFC_CTX_RUNTIME_SUMMARY_INTERVAL_S: ${OFC_CTX_RUNTIME_SUMMARY_INTERVAL_S:-15}
+    volumes:
+    - ${TRADE_REPO_ROOT:?}/python-worker:/app:ro
+    - /var/lib/trade:/var/lib/trade
+    - /var/lib/node_exporter/textfile_collector:/var/lib/node_exporter/textfile_collector
+    command:
+    - python3
+    - -m
+    - orderflow_services.ofc_contextual_runtime_summary_writer_v1
+    deploy:
+      resources:
+        reservations:
+          memory: 24M

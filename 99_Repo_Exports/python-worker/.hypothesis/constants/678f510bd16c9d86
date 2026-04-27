@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/fp_edge_absorb.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.35, 0.9, 1.0, 200, 1800, 'LONG', 'SHORT', 'end_ts_ms', 'fp_bucket_px', 'fp_edge_eps_ticks', 'fp_edge_max_progress', 'fp_edge_min_buckets', 'fp_edge_p90_mult', 'fp_edge_window_bars', 'fp_enabled', 'fp_n_buckets', 'fp_peak_delta', 'fp_progress', 'high', 'low', 'maxlen', 'tick_size_px']

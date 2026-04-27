@@ -1,0 +1,133 @@
+diff --git a/tick_flow_full/core/of_confirm_engine.py b/tick_flow_full/core/of_confirm_engine.py
+index 7ba3e39..9f1fe78 100644
+--- a/tick_flow_full/core/of_confirm_engine.py
++++ b/tick_flow_full/core/of_confirm_engine.py
+@@ -43,6 +43,7 @@ from core.meta_features_v2 import (
+ from core.burst_gate_v1 import eval_burst_gate
+ from core.liq_pressure_gate_v1 import eval_liq_pressure_gate
+ from core.taker_flow_gate_v1 import eval_taker_flow_gate
++from core.liqmap_gate_v1 import evaluate_liqmap_gate_v1
+ from core.fill_prob_proxy import compute_fill_prob_proxy
+ from core.meta_features_v3 import (
+     META_FEAT_V3_NAME,
+@@ -229,6 +230,7 @@ class OFConfirmEngine:
+     GATE_BIT_CANCEL_SPIKE = 1 << 28
+     GATE_BIT_META_VETO = 1 << 27
+     GATE_BIT_TAKER_FLOW = 1 << 26
++    GATE_BIT_LIQMAP = 1 << 25
+ 
+     # --- Golden replay: runtime snapshot (minimal set of fields engine reads) ---
+     RUNTIME_SNAPSHOT_VERSION: int = 1
+@@ -1241,6 +1243,55 @@ class OFConfirmEngine:
+         except Exception:
+             pass
+ 
++        # ------------------------------------------------------------------
++        # P15: LiqMap hard-risk gate (liquidation map proximity / RR)
++        # ------------------------------------------------------------------
++        # Consumes compact liqmap_<window>_* features injected by TickProcessor.
++        # IMPORTANT: gate window (cfg2[liqmap_gate_window]) must be present in
++        # LIQMAP_FEATURES_WINDOWS, otherwise gate stays neutral (all zeros).
++        liqmap_shadow_veto = 0
++        liqmap_veto = 0
++        liqmap_reason = "off"
++        liqmap_risk_bps = 0.0
++        liqmap_reward_bps = 0.0
++        liqmap_rr = 0.0
++        liqmap_adverse_peak_usd = 0.0
++        liqmap_favorable_peak_usd = 0.0
++        try:
++            lmg = evaluate_liqmap_gate_v1(direction=direction, indicators=indicators, cfg2=cfg2)
++            liqmap_shadow_veto = int(getattr(lmg, "shadow_veto", 0) or 0)
++            liqmap_veto = int(getattr(lmg, "veto", 0) or 0)
++            liqmap_reason = str(getattr(lmg, "reason", "ok") or "ok")
++            liqmap_risk_bps = float(getattr(lmg, "risk_bps", 0.0) or 0.0)
++            liqmap_reward_bps = float(getattr(lmg, "reward_bps", 0.0) or 0.0)
++            liqmap_rr = float(getattr(lmg, "rr", 0.0) or 0.0)
++            liqmap_adverse_peak_usd = float(getattr(lmg, "adverse_peak_usd", 0.0) or 0.0)
++            liqmap_favorable_peak_usd = float(getattr(lmg, "favorable_peak_usd", 0.0) or 0.0)
++
++            # Mark gate bit for downstream analytics/decision-record.
++            if liqmap_shadow_veto == 1 or liqmap_veto == 1:
++                try:
++                    setattr(dec, "gate_bits", int(getattr(dec, "gate_bits", 0)) | self.GATE_BIT_LIQMAP)
++                except Exception:
++                    pass
++        except Exception:
++            # Fail-open: if liqmap gate code/config is broken we keep pipeline running.
++            pass
++
++        # Export stable keys (Train==Serve / decision record)
++        try:
++            indicators["liqmap_gate_shadow_veto"] = int(liqmap_shadow_veto)
++            indicators["liqmap_gate_veto"] = int(liqmap_veto)
++            # small enum string, keep short to avoid cardinality explosions
++            indicators["liqmap_gate_reason"] = str(liqmap_reason)[:40]
++            indicators["liqmap_gate_risk_bps"] = float(liqmap_risk_bps)
++            indicators["liqmap_gate_reward_bps"] = float(liqmap_reward_bps)
++            indicators["liqmap_gate_rr"] = float(liqmap_rr)
++            indicators["liqmap_gate_adverse_peak_usd"] = float(liqmap_adverse_peak_usd)
++            indicators["liqmap_gate_favorable_peak_usd"] = float(liqmap_favorable_peak_usd)
++        except Exception:
++            pass
++
+         # Volatility shock regime guard (fail-closed option)
+         try:
+             if int(cfg2.get("vol_shock_guard_enable", 1) or 1) == 1:
+@@ -1360,6 +1411,15 @@ class OFConfirmEngine:
+         # --- B2 scenario policies enforcement (post-score, pre-final reason) ---
+         hard_veto = ""
+         
++        # P15: LiqMap Gate Veto (already respects cfg2[liqmap_gate_mode])
++        if liqmap_veto:
++            try:
++                ok = 0
++                hard_veto = "liqmap_gate"
++                veto_total(self, reason_code=f"liqmap_{str(liqmap_reason or 'na')[:32]}")
++            except Exception:
++                pass
++
+         # P14: DQ Gate Veto
+         if dq_veto and str(cfg2.get("dq_gate_mode", "off")).lower() in ("enforce", "both", "veto", "hard"):
+             try:
+diff --git a/tick_flow_full/tests/core/test_of_confirm_engine_liqmap_gate_wiring_v1.py b/tick_flow_full/tests/core/test_of_confirm_engine_liqmap_gate_wiring_v1.py
+new file mode 100644
+index 0000000..f12c016
+--- /dev/null
++++ b/tick_flow_full/tests/core/test_of_confirm_engine_liqmap_gate_wiring_v1.py
+@@ -0,0 +1,35 @@
++from pathlib import Path
++
++
++def test_of_confirm_engine_has_liqmap_gate_wiring_markers():
++    """Static regression test.
++
++    We avoid importing OFConfirmEngine here because it has heavy optional deps
++    in some environments. This test ensures the wiring stays in place:
++      - evaluate_liqmap_gate_v1 is called
++      - stable indicator keys are exported
++      - hard veto is enforced when liqmap_veto==1
++
++    If this test fails, Train==Serve parity for meta_feat_v9 degrades to zeros.
++    """
++    src = Path(__file__).resolve().parents[2] / "core" / "of_confirm_engine.py"
++    text = src.read_text(encoding="utf-8")
++
++    assert "from core.liqmap_gate_v1 import evaluate_liqmap_gate_v1" in text
++    assert "evaluate_liqmap_gate_v1(" in text
++
++    # Stable exported keys used by meta_feat_v9
++    for k in (
++        "liqmap_gate_shadow_veto",
++        "liqmap_gate_veto",
++        "liqmap_gate_reason",
++        "liqmap_gate_risk_bps",
++        "liqmap_gate_reward_bps",
++        "liqmap_gate_rr",
++        "liqmap_gate_adverse_peak_usd",
++        "liqmap_gate_favorable_peak_usd",
++    ):
++        assert k in text
++
++    # Ensure enforce mode actually vetoes trades
++    assert "hard_veto = \"liqmap_gate\"" in text

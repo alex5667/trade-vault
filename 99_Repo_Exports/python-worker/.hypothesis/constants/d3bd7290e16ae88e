@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/core_snapshot/dq_observe_only.py
+# hypothesis_version: 6.148.10
+
+[86400, '1', 'DQ_BOOK_VETO_ENABLED', 'DQ_OBSERVE_ONLY_SEC', 'book', 'book-gap', 'book_gap', 'book_hard', 'book_missing_seq', 'book_seq', 'book_veto_disabled', 'bookseq', 'dq_book_veto_enabled', 'dq_observe_only_sec', 'observe_only', 'on', 'true', 'y', 'yes']

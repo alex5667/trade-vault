@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/telegram_confirmations.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, ', ', '1', '=', 'cvdR', 'cvd_reclaim', 'cvd_reclaim_ratio', 'fp', 'fp_edge_absorb', 'fp_edge_strength', 'hDiv', 'hidden_div_used', 'ice', 'iceberg_strict', 'liq_regime', 'liq_score', 'normal', 'obi_q', 'obi_stability_score', 'obi_stable', 'obi_stable_secs', 'ofi_q', 'ofi_stable', 'ofi_stable_secs', 'reclaim', 's', 'weak_progress_atr', 'weak_range_atr', 'weak_recent_cnt', 'weak_recent_count', 'weak_recent_window']

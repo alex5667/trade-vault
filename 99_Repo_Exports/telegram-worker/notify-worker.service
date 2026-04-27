@@ -1,0 +1,17 @@
+[Unit]
+Description=Telegram Notify Worker
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=simple
+User=alex
+Group=alex
+WorkingDirectory=/home/alex/front/trade/scanner_infra/telegram-worker
+Environment=PATH=/home/alex/front/trade/scanner_infra/telegram-worker/venv/bin
+ExecStart=/home/alex/front/trade/scanner_infra/telegram-worker/venv/bin/python3 notify_worker.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target 

@@ -1,0 +1,42 @@
+groups:
+  - name: trade-orchestration-composite-preflight-history-p55
+    rules:
+      - alert: TradeOrchestrationCompositePreflightHistoryWindowIncomplete7dWarn
+        expr: orchestration_composite_preflight_history_window_complete{window="7d"} < 1
+        for: 30m
+        labels:
+          severity: warning
+          component: orchestration-composite-preflight-history
+        annotations:
+          summary: "Composite preflight history 7d window incomplete"
+          description: "Redis stream retention does not fully cover the requested 7d orchestration preflight history window. SLO views may be partial."
+
+      - alert: TradeOrchestrationCompositePreflightBlockRatioHigh24h
+        expr: orchestration_composite_preflight_history_block_ratio{window="24h"} > 0.10 and orchestration_composite_preflight_history_total{window="24h"} >= 20
+        for: 20m
+        labels:
+          severity: warning
+          component: orchestration-composite-preflight-history
+        annotations:
+          summary: "Composite preflight block ratio high over 24h"
+          description: "Purpose {{ $labels.purpose }} has block_ratio > 10% over the last 24h with at least 20 orchestration decisions."
+
+      - alert: TradeOrchestrationCompositePreflightInvalidRatioHigh24h
+        expr: orchestration_composite_preflight_history_invalid_ratio{window="24h"} > 0.03 and orchestration_composite_preflight_history_total{window="24h"} >= 20
+        for: 20m
+        labels:
+          severity: critical
+          component: orchestration-composite-preflight-history
+        annotations:
+          summary: "Composite preflight invalid ratio high over 24h"
+          description: "Purpose {{ $labels.purpose }} has invalid_ratio > 3% over the last 24h with at least 20 orchestration decisions."
+
+      - alert: TradeOrchestrationCompositePreflightHistoryScanTruncatedWarn
+        expr: orchestration_composite_preflight_history_scan_truncated > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: orchestration-composite-preflight-history
+        annotations:
+          summary: "Composite preflight history scan hit MAX_SCAN"
+          description: "History exporter reached ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_MAX_SCAN. Rollup windows may be partial even if stream retention is long enough."

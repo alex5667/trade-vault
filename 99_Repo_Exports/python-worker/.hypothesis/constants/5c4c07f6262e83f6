@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/runners/__init__.py
+# hypothesis_version: 6.148.10
+
+['trade_monitor_main']

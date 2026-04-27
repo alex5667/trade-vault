@@ -1,0 +1,28 @@
+[Unit]
+Description=Trade ML calibration health monitor (ECE/Brier/LogLoss -> notify)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/home/alex/front/trade/scanner_infra/python-worker/.env
+Environment="NOTIFY_TELEGRAM_STREAM=notify:telegram"
+ExecStart=/usr/bin/python3 -m tools.ml_calibration_health_monitor
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,171 @@
+---
+# LOB Pressure (P92) — Recording rules and alert rules
+# Metrics source: of_lob_* gauges set by BookProcessor on every book snapshot.
+# See: orderflow_services/runbook_lob_pressure_p92.md for triage guidance.
+
+groups:
+  - name: lob_pressure_p92
+    interval: 30s
+    rules:
+
+      # -----------------------------------------------------------------------
+      # Recording rules (P92) — 10-min rolling quantiles for SLO math
+      # -----------------------------------------------------------------------
+
+      - record: of_lob:micro_mid_div_p99_10m
+        expr: quantile_over_time(0.99, of_lob_micro_mid_div_bps[10m])
+
+      - record: of_lob:micro_mid_div_p01_10m
+        expr: quantile_over_time(0.01, of_lob_micro_mid_div_bps[10m])
+
+      - record: of_lob:micro_shift_p99_10m
+        expr: quantile_over_time(0.99, of_lob_micro_shift_bps[10m])
+
+      - record: of_lob:micro_shift_p01_10m
+        expr: quantile_over_time(0.01, of_lob_micro_shift_bps[10m])
+
+      - record: of_lob:qi_mean_p99_10m
+        expr: quantile_over_time(0.99, of_lob_queue_imbalance_mean[10m])
+
+      - record: of_lob:qi_mean_p01_10m
+        expr: quantile_over_time(0.01, of_lob_queue_imbalance_mean[10m])
+
+      - record: of_lob:dw_obi_p99_10m
+        expr: quantile_over_time(0.99, of_lob_dw_obi[10m])
+
+      # -----------------------------------------------------------------------
+      # Alerts — LOB Pressure (P92)
+      # -----------------------------------------------------------------------
+
+      # --- Microprice divergence vs mid: extreme sustained bias ---
+      - alert: OF_LOB_MicroMidDivExtreme_Warn
+        expr: >-
+          (of_lob:micro_mid_div_p99_10m > 12)
+          or (of_lob:micro_mid_div_p01_10m < -12)
+        for: 10m
+        labels:
+          severity: warning
+          team: orderflow
+          dashboard: lob_pressure_p92
+        annotations:
+          summary: "LOB microprice divergence extreme ({{ $labels.symbol }})"
+          description: >-
+            Microprice vs mid divergence P99 or P01 exceeded ±12 bps for 10 min on {{ $labels.symbol }}.
+            Indicates structural queue asymmetry or data anomaly.
+            Runbook: orderflow_services/runbook_lob_pressure_p92.md#microprice-divergence
+
+      - alert: OF_LOB_MicroMidDivExtreme_Crit
+        expr: >-
+          (of_lob:micro_mid_div_p99_10m > 25)
+          or (of_lob:micro_mid_div_p01_10m < -25)
+        for: 5m
+        labels:
+          severity: critical
+          team: orderflow
+          dashboard: lob_pressure_p92
+        annotations:
+          summary: "LOB microprice divergence CRITICAL ({{ $labels.symbol }})"
+          description: >-
+            Microprice vs mid divergence P99/P01 exceeded ±25 bps on {{ $labels.symbol }}.
+            Likely exchange microstructure anomaly or book data corruption.
+            Runbook: orderflow_services/runbook_lob_pressure_p92.md#microprice-divergence
+
+      # --- Microprice shift: extreme persistent directional pressure ---
+      - alert: OF_LOB_MicroShiftExtreme_Warn
+        expr: >-
+          (of_lob:micro_shift_p99_10m > 15)
+          or (of_lob:micro_shift_p01_10m < -15)
+        for: 10m
+        labels:
+          severity: warning
+          team: orderflow
+          dashboard: lob_pressure_p92
+        annotations:
+          summary: "LOB microprice shift extreme ({{ $labels.symbol }})"
+          description: >-
+            Microprice shift P99/P01 exceeded ±15 bps for 10 min on {{ $labels.symbol }}.
+            Persistent directional pressure; may precede significant price move.
+            Runbook: orderflow_services/runbook_lob_pressure_p92.md#microprice-shift
+
+      - alert: OF_LOB_MicroShiftExtreme_Crit
+        expr: >-
+          (of_lob:micro_shift_p99_10m > 40)
+          or (of_lob:micro_shift_p01_10m < -40)
+        for: 5m
+        labels:
+          severity: critical
+          team: orderflow
+          dashboard: lob_pressure_p92
+        annotations:
+          summary: "LOB microprice shift CRITICAL ({{ $labels.symbol }})"
+          description: >-
+            Microprice shift P99/P01 exceeded ±40 bps on {{ $labels.symbol }}.
+            Extreme directional pressure or book update anomaly.
+            Runbook: orderflow_services/runbook_lob_pressure_p92.md#microprice-shift
+
+      # --- Persistent queue imbalance: sustained one-sided book ---
+      - alert: OF_LOB_PersistentImbalance_Warn
+        expr: >-
+          (of_lob:qi_mean_p99_10m > 0.60)
+          or (of_lob:qi_mean_p01_10m < -0.60)
+        for: 15m
+        labels:
+          severity: warning
+          team: orderflow
+          dashboard: lob_pressure_p92
+        annotations:
+          summary: "LOB persistent queue imbalance ({{ $labels.symbol }})"
+          description: >-
+            Mean queue imbalance P99/P01 exceeded ±0.60 for 15 min on {{ $labels.symbol }}.
+            Sustained one-sided book; may indicate spoofing or strong directional order flow.
+            Runbook: orderflow_services/runbook_lob_pressure_p92.md#queue-imbalance
+
+      - alert: OF_LOB_PersistentImbalance_Crit
+        expr: >-
+          (of_lob:qi_mean_p99_10m > 0.80)
+          or (of_lob:qi_mean_p01_10m < -0.80)
+        for: 10m
+        labels:
+          severity: critical
+          team: orderflow
+          dashboard: lob_pressure_p92
+        annotations:
+          summary: "LOB queue imbalance CRITICAL ({{ $labels.symbol }})"
+          description: >-
+            Mean queue imbalance P99/P01 exceeded ±0.80 on {{ $labels.symbol }}.
+            Near-maximum book asymmetry; check for spoofing or stale book data.
+            Runbook: orderflow_services/runbook_lob_pressure_p92.md#queue-imbalance
+
+      # --- DW OBI stability: unstable depth-weighted OBI under elevated pressure ---
+      - alert: OF_LOB_DwObiUnstableUnderPressure_Warn
+        expr: >-
+          (of_lob_dw_obi_stability_score < 0.35)
+          and (abs(of_lob_dw_obi) > 0.30)
+        for: 10m
+        labels:
+          severity: warning
+          team: orderflow
+          dashboard: lob_pressure_p92
+        annotations:
+          summary: "DW OBI unstable under elevated pressure ({{ $labels.symbol }})"
+          description: >-
+            Depth-weighted OBI is elevated (|dw_obi| > 0.30) but stability score < 0.35
+            for 10 min on {{ $labels.symbol }}.
+            Indicates rapidly flipping direction under pressure — noisy signal.
+            Runbook: orderflow_services/runbook_lob_pressure_p92.md#dw-obi-stability
+
+      - alert: OF_LOB_DwObiUnstableUnderPressure_Crit
+        expr: >-
+          (of_lob_dw_obi_stability_score < 0.15)
+          and (abs(of_lob_dw_obi) > 0.50)
+        for: 5m
+        labels:
+          severity: critical
+          team: orderflow
+          dashboard: lob_pressure_p92
+        annotations:
+          summary: "DW OBI critically unstable ({{ $labels.symbol }})"
+          description: >-
+            DW OBI stability score < 0.15 with |dw_obi| > 0.50 on {{ $labels.symbol }}.
+            Extreme signal instability — signals from this symbol may be unreliable.
+            Runbook: orderflow_services/runbook_lob_pressure_p92.md#dw-obi-stability

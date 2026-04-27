@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/bottleneck/benchmark/bench.py
+# hypothesis_version: 6.148.10
+
+[100, 1000, '%11.1f', '%7.1f', 'C', 'NaN', 'Unknow function name', 'argpartition', 'axis=', 'bench', 'bn_func(a, 5, axis)', 'bn_func(a, axis)', 'bn_func(a, n, axis)', 'bn_func(a, nan, 0)', 'float64', 'ignore', 'move', 'name', 'nanrankdata', 'no NaN', 'partition', 'push', 'rankdata', 'reduce', 'replace', 'setups', 'sl_func(a, axis)', 'sl_func(a, n, axis)', 'slow_func(a, nan, 0)', 'statements']

@@ -1,0 +1,95 @@
+groups:
+  - name: atr_policy_guardrails_p36
+    interval: 60s
+    rules:
+
+      # ── Guardrail BLOCK rate ──────────────────────────────────────────────
+      - alert: AtrPolicyGuardrailBlockSpike
+        expr: |
+          increase(atr_policy_guardrail_block_total[15m]) > 5
+        for: 0m
+        labels:
+          severity: warning
+          component: atr_policy
+          phase: "3.6"
+        annotations:
+          summary: "ATR policy guard rail: unusual BLOCK rate"
+          description: >
+            More than 5 BLOCK guardrail decisions in 15 minutes.
+            action={{ $labels.action }}, reason={{ $labels.reason_code }}.
+            Check if operators are hitting cooldowns or sample thresholds unexpectedly.
+
+      # ── Cooldown arms spike ───────────────────────────────────────────────
+      - alert: AtrPolicyGuardrailCooldownSpike
+        expr: |
+          increase(atr_policy_guardrail_cooldown_total[30m]) > 10
+        for: 0m
+        labels:
+          severity: warning
+          component: atr_policy
+          phase: "3.6"
+        annotations:
+          summary: "ATR policy guard rail: high cooldown arm rate"
+          description: >
+            More than 10 cooldown arms in 30 minutes.
+            Possible operator flip-flop or automation issue.
+
+      # ── Flip counter spike ────────────────────────────────────────────────
+      - alert: AtrPolicyGuardrailFlipSpike
+        expr: |
+          increase(atr_policy_guardrail_flip_total[1h]) > 20
+        for: 0m
+        labels:
+          severity: warning
+          component: atr_policy
+          phase: "3.6"
+        annotations:
+          summary: "ATR policy guard rail: excessive flip-flops"
+          description: >
+            More than 20 flip increments in 1 hour across all cohorts.
+            Investigate operator approval patterns or automation loops.
+
+      # ── Confirm token expiry rate high ────────────────────────────────────
+      - alert: AtrPolicyConfirmTokenExpiredHigh
+        expr: |
+          increase(atr_policy_confirm_token_total{status="expired"}[30m]) > 10
+        for: 0m
+        labels:
+          severity: warning
+          component: atr_policy
+          phase: "3.6"
+        annotations:
+          summary: "ATR policy: many confirm tokens expired unused"
+          description: >
+            More than 10 confirm tokens expired without being consumed in 30 minutes.
+            Operators may be ignoring WARN dialogs or losing Telegram context.
+
+      # ── Actor mismatch on confirm ─────────────────────────────────────────
+      - alert: AtrPolicyConfirmActorMismatch
+        expr: |
+          increase(atr_policy_confirm_token_total{status="mismatch"}[15m]) > 2
+        for: 0m
+        labels:
+          severity: warning
+          component: atr_policy
+          phase: "3.6"
+        annotations:
+          summary: "ATR policy: confirm token actor mismatch"
+          description: >
+            More than 2 actor-mismatch attempts on confirm tokens in 15 minutes.
+            Possible shared account usage or replay attempt.
+
+      # ── REVOKE attempt rate spike ─────────────────────────────────────────
+      - alert: AtrPolicyRevokeAttemptSpike
+        expr: |
+          increase(atr_policy_guardrail_total{action="REVOKE"}[15m]) > 8
+        for: 0m
+        labels:
+          severity: warning
+          component: atr_policy
+          phase: "3.6"
+        annotations:
+          summary: "ATR policy: unusual REVOKE attempt rate"
+          description: >
+            More than 8 REVOKE evaluations in 15 minutes.
+            Likely an automation loop or multiple operators acting simultaneously.

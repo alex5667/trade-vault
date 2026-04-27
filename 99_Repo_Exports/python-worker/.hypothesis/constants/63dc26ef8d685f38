@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/decision_trace.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.02, 0.05, 0.5, 1000.0, 128, 240, 256, 400, 512, 1000, 5000, 16000, 20000, 120000, 4294967295, ',', '...', '0', '0.000ms', '1', ':', 'DecisionTrace', 'ERR', 'OK', 'Span', 'VETO', '_decision_trace', '_decision_trace_obj', '_span', '_t0', '_t1', 'attempt', 'corr_id', 'correlation_id', 'created_ts_ms', 'decision_trace', 'dispatcher', 'duration_ms', 'enabled', 'err', 'error', 'events', 'events_truncated', 'gate', 'generic', 'ignore', 'kind', 'loaded_mono_ms', 'log_sample_rate', 'max_events', 'metrics', 'ms', 'name', 'ok', 'on', 'passed', 'reason_code', 'schema', 'serialization_failed', 'sid', 'sidecar_max_bytes', 'stage', 'summary_max_len', 'symbol', 't_ms', 'tags', 'target', 'trace', 'trace_error', 'trace_id', 'trace_summary', 'trace_too_large', 'true', 'ts_ms', 'type', 'updated_ms', 'utf-8', 'v', 'veto', 'y', 'yes']

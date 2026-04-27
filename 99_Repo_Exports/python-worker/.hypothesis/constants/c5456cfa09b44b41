@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/PIL/PaletteFile.py
+# hypothesis_version: 6.148.10
+
+[b'#', 100, 255, 256, 'RGB', 'bad palette file']

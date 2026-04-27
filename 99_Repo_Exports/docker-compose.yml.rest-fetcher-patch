@@ -1,0 +1,159 @@
+# Патч для docker-compose.yml - Замена WebSocket воркеров на REST fetchers
+# Используйте этот файл как референс для обновления docker-compose.yml
+
+# ============================================================================
+# СЕКЦИЯ 1: Go REST Fetcher 3M (Quarterly)
+# Замените секцию go-worker-3month (строки ~667-728) на эту:
+# ============================================================================
+
+  # Go REST Fetcher 3M (Quarterly) - REST API polling для квартальных свечей
+  # Binance WebSocket не поддерживает kline_3M, используем REST API
+  go-rest-fetcher-3month:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile.rest-fetcher
+    container_name: scanner-go-rest-fetcher-3month
+    environment:
+      - REDIS_HOST=redis-worker-1
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_POOL_SIZE=50
+      - REDIS_MIN_IDLE_CONNS=5
+      - REDIS_MAX_RETRIES=5
+      - REDIS_RETRY_MIN_BACKOFF=100ms
+      - REDIS_RETRY_MAX_BACKOFF=3s
+      - REDIS_DIAL_TIMEOUT=10s
+      - REDIS_READ_TIMEOUT=30s
+      - REDIS_WRITE_TIMEOUT=30s
+      - REDIS_POOL_TIMEOUT=10s
+      - BINANCE_WS_TIMEFRAME=kline_3M
+      - BINANCE_WS_SYMBOLS=${BINANCE_WS_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT}
+      - POLL_INTERVAL_HOURS=1
+      - HTTP_PORT=8091
+      - REDIS_CANDLES_HOST=redis-worker-1
+      - REDIS_CANDLES_PORT=6379
+      - REDIS_CANDLES_HOST_2=redis-worker-2
+      - REDIS_CANDLES_PORT_2=6379
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 128M
+        reservations:
+          cpus: '0.1'
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8091/health"]
+      interval: 120s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+# ============================================================================
+# СЕКЦИЯ 2: Go REST Fetcher 1y (Yearly)
+# Замените секцию go-worker-1y (строки ~733-794) на эту:
+# ============================================================================
+
+  # Go REST Fetcher 1y (Yearly) - REST API polling для годовых свечей
+  # Binance WebSocket не поддерживает kline_1y, используем REST API
+  go-rest-fetcher-1y:
+    build:
+      context: ./go-worker
+      dockerfile: Dockerfile.rest-fetcher
+    container_name: scanner-go-rest-fetcher-1y
+    environment:
+      - REDIS_HOST=redis-worker-2
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_POOL_SIZE=50
+      - REDIS_MIN_IDLE_CONNS=5
+      - REDIS_MAX_RETRIES=5
+      - REDIS_RETRY_MIN_BACKOFF=100ms
+      - REDIS_RETRY_MAX_BACKOFF=3s
+      - REDIS_DIAL_TIMEOUT=10s
+      - REDIS_READ_TIMEOUT=30s
+      - REDIS_WRITE_TIMEOUT=30s
+      - REDIS_POOL_TIMEOUT=10s
+      - BINANCE_WS_TIMEFRAME=kline_1y
+      - BINANCE_WS_SYMBOLS=${BINANCE_WS_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT}
+      - POLL_INTERVAL_HOURS=6
+      - HTTP_PORT=8092
+      - REDIS_CANDLES_HOST=redis-worker-1
+      - REDIS_CANDLES_PORT=6379
+      - REDIS_CANDLES_HOST_2=redis-worker-2
+      - REDIS_CANDLES_PORT_2=6379
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-worker-1:
+        condition: service_healthy
+      redis-worker-2:
+        condition: service_healthy
+    networks:
+      - scanner-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 128M
+        reservations:
+          cpus: '0.1'
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8092/health"]
+      interval: 240s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+# ============================================================================
+# ИНСТРУКЦИИ ПО ПРИМЕНЕНИЮ:
+# ============================================================================
+#
+# 1. Остановите старые воркеры:
+#    docker-compose stop go-worker-3month go-worker-1y
+#    docker-compose rm -f go-worker-3month go-worker-1y
+#
+# 2. Откройте docker-compose.yml в редакторе
+#
+# 3. Найдите секцию go-worker-3month (строка ~667) и замените её на
+#    секцию go-rest-fetcher-3month из этого файла
+#
+# 4. Найдите секцию go-worker-1y (строка ~733) и замените её на
+#    секцию go-rest-fetcher-1y из этого файла
+#
+# 5. Соберите новые образы:
+#    docker-compose build go-rest-fetcher-3month go-rest-fetcher-1y
+#
+# 6. Запустите:
+#    docker-compose up -d go-rest-fetcher-3month go-rest-fetcher-1y
+#
+# 7. Проверьте:
+#    curl http://localhost:8091/health
+#    curl http://localhost:8092/health
+#
+# ============================================================================
+

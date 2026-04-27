@@ -1,0 +1,57 @@
+diff --git a/monitoring/grafana/dashboards/monitoring_smoke.json b/monitoring/grafana/dashboards/monitoring_smoke.json
+index 1a6b3fd..7e92a8f 100644
+--- a/monitoring/grafana/dashboards/monitoring_smoke.json
++++ b/monitoring/grafana/dashboards/monitoring_smoke.json
+@@ -5,7 +5,7 @@
+   "timezone": "browser",
+   "schemaVersion": 39,
+-  "version": 2,
++  "version": 3,
+   "editable": true,
+   "refresh": "30s",
+   "time": { "from": "now-48h", "to": "now" },
+@@ -82,6 +82,18 @@
+       "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
+       "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] }
+     },
++    {
++      "id": 13,
++      "type": "stat",
++      "title": "Blackbox exporter OK (last, internal)",
++      "gridPos": { "x": 12, "y": 6, "w": 6, "h": 6 },
++      "targets": [{ "expr": "monitoring_smoke_blackbox_exporter_ok", "refId": "A" }],
++      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
++      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] }
++    },
+     {
+       "id": 5,
+       "type": "stat",
+       "title": "Smoke age (seconds)",
+-      "gridPos": { "x": 12, "y": 6, "w": 12, "h": 6 },
++      "gridPos": { "x": 18, "y": 6, "w": 6, "h": 6 },
+       "targets": [{ "expr": "monitoring_smoke_age_seconds", "refId": "A" }],
+       "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "horizontal", "colorMode": "value", "graphMode": "none" },
+       "fieldConfig": {
+@@ -105,7 +117,8 @@
+         { "expr": "monitoring_smoke_last_success", "legendFormat": "success", "refId": "A" },
+         { "expr": "monitoring_smoke_runbooks_ok", "legendFormat": "runbooks_ok", "refId": "B" },
+         { "expr": "monitoring_smoke_dashboards_ok", "legendFormat": "dashboards_ok", "refId": "C" },
+         { "expr": "monitoring_smoke_alertmanager_api_ok", "legendFormat": "am_api_ok", "refId": "D" },
+-        { "expr": "monitoring_smoke_prometheus_api_ok", "legendFormat": "prom_api_ok", "refId": "E" }
++        { "expr": "monitoring_smoke_prometheus_api_ok", "legendFormat": "prom_api_ok", "refId": "E" },
++        { "expr": "monitoring_smoke_blackbox_exporter_ok", "legendFormat": "blackbox_ok", "refId": "F" }
+       ],
+       "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+       "options": { "legend": { "displayMode": "table", "placement": "bottom" } }
+     },
+     {
+       "id": 7,
+       "type": "timeseries",
+       "title": "Failed checks total (trend)",
+       "gridPos": { "x": 0, "y": 22, "w": 24, "h": 8 },
+       "targets": [{ "expr": "monitoring_smoke_failed_checks_total", "legendFormat": "failed_total", "refId": "A" }],
+       "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+       "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+     }
+   ]
+ }

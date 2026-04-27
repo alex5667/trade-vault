@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly ExecHealth reconnect chaos smoke timer
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+RandomizedDelaySec=20m
+Persistent=true
+Unit=exec-health-freeze-reconnect-nightly.service
+
+[Install]
+WantedBy=timers.target

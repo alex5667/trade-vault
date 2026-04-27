@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/domain/calculators.py
+# hypothesis_version: 6.148.10
+
+[0.0, 100.0, 'LONG', 'buy', 'ceil', 'direction', 'floor', 'is_long', 'long', 'mae_pnl', 'mae_pnl_before_tp1', 'mae_price_before_tp1', 'mae_ts_before_tp1', 'max_adverse_price', 'max_adverse_ts', 'max_favorable_price', 'max_favorable_ts', 'max_price_seen', 'mfe_pnl', 'mfe_pnl_at_tp1', 'mfe_price_at_tp1', 'mfe_ts_at_tp1', 'min_price_seen', 'tp1_hit_ts_ms']

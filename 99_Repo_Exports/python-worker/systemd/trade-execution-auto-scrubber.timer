@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic trade execution auto-trigger checkpoint scrubber
+
+[Timer]
+OnBootSec=6m
+OnUnitActiveSec=10m
+Unit=trade-execution-auto-scrubber.service
+
+[Install]
+WantedBy=timers.target

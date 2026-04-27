@@ -1,0 +1,30 @@
+# Scanner Infrastructure - Quick Links
+
+## 📚 Documentation
+- Main: [DOCUMENTATION.md](DOCUMENTATION.md)
+- README: [README.md](README.md)
+- Full Index: [docs/README_INDEX.md](docs/README_INDEX.md)
+
+## 🎯 TP1 Trailing System
+- Index: [docs/tp1-trailing/README.md](docs/tp1-trailing/README.md)
+- Quick Start: [docs/tp1-trailing/QUICKSTART.md](docs/tp1-trailing/QUICKSTART.md)
+- Technical: [docs/tp1-trailing/TP1_TRAILING_SYSTEM.md](docs/tp1-trailing/TP1_TRAILING_SYSTEM.md)
+
+## 🚀 Quick Commands
+```bash
+make up                    # Start all (including TP Event Listener)
+make trailing-test         # Test TP1 Trailing
+make status                # Check status
+make help                  # All commands
+```
+
+## 📖 Categories
+- tp1-trailing/ - TP1 Trailing System (9 files)
+- guides/ - Quick starts (5 files)
+- setup/ - Installation (8 files)  
+- fixes/ - Fixes (7 files)
+- metrics/ - Metrics (8 files)
+- sessions/ - Sessions (7 files)
+- archives/ - Archives (6 files)
+
+Total: 73 documentation files

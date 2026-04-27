@@ -1,0 +1,168 @@
+diff --git a/tick_flow_full/services/orderflow/components/tick_processor.py b/tick_flow_full/services/orderflow/components/tick_processor.py
+index a542ddb..d9c1d21 100644
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -270,9 +270,35 @@ class TickProcessor:
+         self.liqmap_levels_enable = os.getenv("LIQMAP_LEVELS_ENABLE", "0").strip().lower() in ("1", "true", "yes", "on")
+         self.liqmap_levels_window = os.getenv("LIQMAP_LEVELS_WINDOW", "1h") or "1h"
+         self.liqmap_levels_min_usd = float(os.getenv("LIQMAP_LEVELS_MIN_USD", "250000") or 250000)
+         self.liqmap_levels_buffer_bps = float(os.getenv("LIQMAP_LEVELS_BUFFER_BPS", "5") or 5.0)
+-        self.liqmap_levels_max_sl_widen_bps = float(os.getenv("LIQMAP_LEVELS_MAX_SL_WIDEN_BPS", "30") or 30.0)
+-        self.liqmap_levels_enable_tp1 = os.getenv("LIQMAP_LEVELS_ENABLE_TP1", "1").strip().lower() in ("1", "true", "yes", "on")
+-        self.liqmap_levels_enable_sl = os.getenv("LIQMAP_LEVELS_ENABLE_SL", "0").strip().lower() in ("1", "true", "yes", "on")
++        # NOTE (D3): normalize env var names to a minimal production set:
++        #   LIQMAP_LEVELS_ENABLE=0/1
++        #   LIQMAP_LEVELS_WINDOW=1h
++        #   LIQMAP_LEVELS_MIN_USD=... (e.g. 250000 for BTC, lower for alts)
++        #   LIQMAP_LEVELS_BUFFER_BPS=5
++        #   LIQMAP_LEVELS_SL_MAX_WIDEN_BPS=20
++        #   LIQMAP_LEVELS_TP1_ENABLE=1
++        #   LIQMAP_LEVELS_SL_ENABLE=0   (stage-1: TP1 only)
++        #
++        # Back-compat aliases are supported:
++        #   LIQMAP_LEVELS_MAX_SL_WIDEN_BPS, LIQMAP_LEVELS_ENABLE_TP1, LIQMAP_LEVELS_ENABLE_SL
++        _slw_raw = (os.getenv("LIQMAP_LEVELS_SL_MAX_WIDEN_BPS") or "").strip()
++        if not _slw_raw:
++            _slw_raw = (os.getenv("LIQMAP_LEVELS_MAX_SL_WIDEN_BPS") or "20").strip()
++        self.liqmap_levels_sl_max_widen_bps = float(_slw_raw or 20.0)
++        # legacy alias used by older patches / call-sites
++        self.liqmap_levels_max_sl_widen_bps = self.liqmap_levels_sl_max_widen_bps
++
++        _tp1_raw = (os.getenv("LIQMAP_LEVELS_TP1_ENABLE") or "").strip()
++        if not _tp1_raw:
++            _tp1_raw = (os.getenv("LIQMAP_LEVELS_ENABLE_TP1") or "1").strip()
++        self.liqmap_levels_tp1_enable = str(_tp1_raw).strip().lower() in ("1", "true", "yes", "on")
++        # legacy alias used by older patches / call-sites
++        self.liqmap_levels_enable_tp1 = self.liqmap_levels_tp1_enable
++
++        _sl_raw = (os.getenv("LIQMAP_LEVELS_SL_ENABLE") or "").strip()
++        if not _sl_raw:
++            _sl_raw = (os.getenv("LIQMAP_LEVELS_ENABLE_SL") or "0").strip()
++        self.liqmap_levels_sl_enable = str(_sl_raw).strip().lower() in ("1", "true", "yes", "on")
++        # legacy alias used by older patches / call-sites
++        self.liqmap_levels_enable_sl = self.liqmap_levels_sl_enable
+
+         # P69: Circuit Breaker State (Hysteresis)
+         self.cb_state_enabled = os.getenv("CB_STATE_ENABLED", "0") == "1"
+diff --git a/services/orderflow/components/tick_processor.py b/services/orderflow/components/tick_processor.py
+index a542ddb..d9c1d21 100644
+--- a/services/orderflow/components/tick_processor.py
++++ b/services/orderflow/components/tick_processor.py
+@@ -270,9 +270,35 @@ class TickProcessor:
+         self.liqmap_levels_enable = os.getenv("LIQMAP_LEVELS_ENABLE", "0").strip().lower() in ("1", "true", "yes", "on")
+         self.liqmap_levels_window = os.getenv("LIQMAP_LEVELS_WINDOW", "1h") or "1h"
+         self.liqmap_levels_min_usd = float(os.getenv("LIQMAP_LEVELS_MIN_USD", "250000") or 250000)
+         self.liqmap_levels_buffer_bps = float(os.getenv("LIQMAP_LEVELS_BUFFER_BPS", "5") or 5.0)
+-        self.liqmap_levels_max_sl_widen_bps = float(os.getenv("LIQMAP_LEVELS_MAX_SL_WIDEN_BPS", "30") or 30.0)
+-        self.liqmap_levels_enable_tp1 = os.getenv("LIQMAP_LEVELS_ENABLE_TP1", "1").strip().lower() in ("1", "true", "yes", "on")
+-        self.liqmap_levels_enable_sl = os.getenv("LIQMAP_LEVELS_ENABLE_SL", "0").strip().lower() in ("1", "true", "yes", "on")
++        # NOTE (D3): normalize env var names to a minimal production set:
++        #   LIQMAP_LEVELS_ENABLE=0/1
++        #   LIQMAP_LEVELS_WINDOW=1h
++        #   LIQMAP_LEVELS_MIN_USD=... (e.g. 250000 for BTC, lower for alts)
++        #   LIQMAP_LEVELS_BUFFER_BPS=5
++        #   LIQMAP_LEVELS_SL_MAX_WIDEN_BPS=20
++        #   LIQMAP_LEVELS_TP1_ENABLE=1
++        #   LIQMAP_LEVELS_SL_ENABLE=0   (stage-1: TP1 only)
++        #
++        # Back-compat aliases are supported:
++        #   LIQMAP_LEVELS_MAX_SL_WIDEN_BPS, LIQMAP_LEVELS_ENABLE_TP1, LIQMAP_LEVELS_ENABLE_SL
++        _slw_raw = (os.getenv("LIQMAP_LEVELS_SL_MAX_WIDEN_BPS") or "").strip()
++        if not _slw_raw:
++            _slw_raw = (os.getenv("LIQMAP_LEVELS_MAX_SL_WIDEN_BPS") or "20").strip()
++        self.liqmap_levels_sl_max_widen_bps = float(_slw_raw or 20.0)
++        # legacy alias used by older patches / call-sites
++        self.liqmap_levels_max_sl_widen_bps = self.liqmap_levels_sl_max_widen_bps
++
++        _tp1_raw = (os.getenv("LIQMAP_LEVELS_TP1_ENABLE") or "").strip()
++        if not _tp1_raw:
++            _tp1_raw = (os.getenv("LIQMAP_LEVELS_ENABLE_TP1") or "1").strip()
++        self.liqmap_levels_tp1_enable = str(_tp1_raw).strip().lower() in ("1", "true", "yes", "on")
++        # legacy alias used by older patches / call-sites
++        self.liqmap_levels_enable_tp1 = self.liqmap_levels_tp1_enable
++
++        _sl_raw = (os.getenv("LIQMAP_LEVELS_SL_ENABLE") or "").strip()
++        if not _sl_raw:
++            _sl_raw = (os.getenv("LIQMAP_LEVELS_ENABLE_SL") or "0").strip()
++        self.liqmap_levels_sl_enable = str(_sl_raw).strip().lower() in ("1", "true", "yes", "on")
++        # legacy alias used by older patches / call-sites
++        self.liqmap_levels_enable_sl = self.liqmap_levels_sl_enable
+
+         # P69: Circuit Breaker State (Hysteresis)
+         self.cb_state_enabled = os.getenv("CB_STATE_ENABLED", "0") == "1"
+diff --git a/tick_flow_full/services/orderflow/tests/test_tick_processor_liqmap_levels_overlay_d2.py b/tick_flow_full/services/orderflow/tests/test_tick_processor_liqmap_levels_overlay_d2.py
+index 089ae6d..2c9a6b4 100644
+--- a/tick_flow_full/services/orderflow/tests/test_tick_processor_liqmap_levels_overlay_d2.py
++++ b/tick_flow_full/services/orderflow/tests/test_tick_processor_liqmap_levels_overlay_d2.py
+@@ -28,13 +28,13 @@ def _mk_tp(overlay_enable: bool):
+     os.environ["LIQMAP_LEVELS_WINDOW"] = "1h"
+     os.environ["LIQMAP_LEVELS_MIN_USD"] = "250000"
+     os.environ["LIQMAP_LEVELS_BUFFER_BPS"] = "5"
+-    os.environ["LIQMAP_LEVELS_MAX_SL_WIDEN_BPS"] = "30"
+-    os.environ["LIQMAP_LEVELS_ENABLE_TP1"] = "1"
+-    os.environ["LIQMAP_LEVELS_ENABLE_SL"] = "0"
++    os.environ["LIQMAP_LEVELS_SL_MAX_WIDEN_BPS"] = "20"
++    os.environ["LIQMAP_LEVELS_TP1_ENABLE"] = "1"
++    os.environ["LIQMAP_LEVELS_SL_ENABLE"] = "0"
+     return TickProcessor(
+         redis=None,
+         ticks=None,
+         publisher=None,
+diff --git a/tick_flow_full/services/README_LIQUIDATION_MAP.md b/tick_flow_full/services/README_LIQUIDATION_MAP.md
+index 9e8a3c1..7c4f0c2 100644
+--- a/tick_flow_full/services/README_LIQUIDATION_MAP.md
++++ b/tick_flow_full/services/README_LIQUIDATION_MAP.md
+@@ -96,3 +96,28 @@ Bad/poison messages are sent to DLQ:
+ - `LIQMAP_PUBLISH_STREAM_ENABLED=0|1`
+ - `LIQMAP_SNAPSHOT_STREAM_PREFIX=stream:liqmap_snapshot`
+ - `LIQMAP_SNAPSHOT_STREAM_MAXLEN=2000`
++
++## Runtime (TickProcessor): TP1/SL anchoring overlay
++
++This is an optional *execution-side* overlay that adjusts **TP1** and/or **SL** by nearby LiqMap peaks.
++It is feature-flagged and fail-open: if disabled, behavior is unchanged.
++
++Minimal production env flags:
++
++- `LIQMAP_LEVELS_ENABLE=0|1`
++- `LIQMAP_LEVELS_WINDOW=1h`
++- `LIQMAP_LEVELS_MIN_USD=250000` (BTC baseline; lower for alts)
++- `LIQMAP_LEVELS_BUFFER_BPS=5`
++- `LIQMAP_LEVELS_SL_MAX_WIDEN_BPS=20`
++- `LIQMAP_LEVELS_TP1_ENABLE=1`
++- `LIQMAP_LEVELS_SL_ENABLE=0` (stage-1: TP1 only; enable SL later)
++
++Back-compat aliases (supported, but prefer the names above):
++
++- `LIQMAP_LEVELS_MAX_SL_WIDEN_BPS`
++- `LIQMAP_LEVELS_ENABLE_TP1`
++- `LIQMAP_LEVELS_ENABLE_SL`
+diff --git a/services/README_LIQUIDATION_MAP.md b/services/README_LIQUIDATION_MAP.md
+index 9e8a3c1..7c4f0c2 100644
+--- a/services/README_LIQUIDATION_MAP.md
++++ b/services/README_LIQUIDATION_MAP.md
+@@ -96,3 +96,28 @@ Bad/poison messages are sent to DLQ:
+ - `LIQMAP_PUBLISH_STREAM_ENABLED=0|1`
+ - `LIQMAP_SNAPSHOT_STREAM_PREFIX=stream:liqmap_snapshot`
+ - `LIQMAP_SNAPSHOT_STREAM_MAXLEN=2000`
++
++## Runtime (TickProcessor): TP1/SL anchoring overlay
++
++This is an optional *execution-side* overlay that adjusts **TP1** and/or **SL** by nearby LiqMap peaks.
++It is feature-flagged and fail-open: if disabled, behavior is unchanged.
++
++Minimal production env flags:
++
++- `LIQMAP_LEVELS_ENABLE=0|1`
++- `LIQMAP_LEVELS_WINDOW=1h`
++- `LIQMAP_LEVELS_MIN_USD=250000` (BTC baseline; lower for alts)
++- `LIQMAP_LEVELS_BUFFER_BPS=5`
++- `LIQMAP_LEVELS_SL_MAX_WIDEN_BPS=20`
++- `LIQMAP_LEVELS_TP1_ENABLE=1`
++- `LIQMAP_LEVELS_SL_ENABLE=0` (stage-1: TP1 only; enable SL later)
++
++Back-compat aliases (supported, but prefer the names above):
++
++- `LIQMAP_LEVELS_MAX_SL_WIDEN_BPS`
++- `LIQMAP_LEVELS_ENABLE_TP1`
++- `LIQMAP_LEVELS_ENABLE_SL`

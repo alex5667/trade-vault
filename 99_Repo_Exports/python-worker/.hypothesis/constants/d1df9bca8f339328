@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/orderflow_services/confidence_calibrator_bundle_runtime.py
+# hypothesis_version: 6.148.10
+
+[-100.0, -15.0, 0.0, 1.0, 15.0, 100.0, 5000, 'OFF', 'a', 'b', 'beta', 'beta_simplified', 'boundaries', 'bucket_by', 'bucket_key', 'bucket_level', 'buckets', 'c', 'f_x', 'f_y', 'fallback_depth', 'global', 'identity', 'input', 'intercept', 'isotonic', 'meta', 'method', 'neutral', 'none', 'params', 'platt', 'platt_logit', 'r', 'regime', 'result', 'schema_version', 'session', 'session_regime', 'slope', 'symbol', 'temp_logit', 'temperature', 'temperature_scaling', 'unknown', 'utf-8', 'values', '|']

@@ -1,0 +1,69 @@
+services:
+  scanner-ml-batch-review-scheduler-v1:
+    build:
+      context: ../../
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-ml-batch-review-scheduler-v1
+    command: ["python", "-u", "-m", "orderflow_services.ml_fleet_batch_review_scheduler_v1"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0
+      ML_BATCH_REVIEW_SCHEDULER_PORT: 9861
+    ports:
+      - "9861:9861"
+    networks:
+      - scanner-network
+
+  scanner-ml-context-cache-manager-v1:
+    build:
+      context: ../../
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-ml-context-cache-manager-v1
+    command: ["python", "-u", "-m", "orderflow_services.ml_context_cache_manager_v1"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0
+      ML_CONTEXT_CACHE_MANAGER_PORT: 9862
+    ports:
+      - "9862:9862"
+    networks:
+      - scanner-network
+
+  scanner-ml-vertex-batch-review-v1:
+    build:
+      context: ../../
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-ml-vertex-batch-review-v1
+    command: ["python", "-u", "-m", "orderflow_services.ml_vertex_batch_review_orchestrator_v1"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0
+      DATABASE_URL: ${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD}@scanner-pgbouncer:5432/scanner_analytics?sslmode=disable}
+      VERTEX_PROJECT_ID: ${VERTEX_PROJECT_ID:-trade-agent-ml}
+      VERTEX_LOCATION: ${VERTEX_LOCATION:-global}
+      VERTEX_BATCH_TRIAGE_MODEL: ${VERTEX_BATCH_TRIAGE_MODEL:-gemini-2.5-flash-lite}
+      ML_VERTEX_BATCH_REVIEW_METRICS_PORT: 9863
+    ports:
+      - "9863:9863"
+    networks:
+      - scanner-network
+
+  scanner-ml-recommendation-feedback-v1:
+    build:
+      context: ../../
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-ml-recommendation-feedback-v1
+    command: ["python", "-u", "-m", "orderflow_services.llm_recommendation_feedback_loop_v1"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0
+      DATABASE_URL: ${ANALYTICS_DB_DSN:-postgresql://trading:${TRADING_PASSWORD}@scanner-pgbouncer:5432/scanner_analytics?sslmode=disable}
+      ML_RECOMMENDATION_FEEDBACK_PORT: 9864
+    ports:
+      - "9864:9864"
+    networks:
+      - scanner-network
+
+networks:
+  scanner-network:
+    external: true

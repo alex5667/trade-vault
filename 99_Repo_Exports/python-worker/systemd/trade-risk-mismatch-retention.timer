@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic purge of risk mismatch quarantine ledger hot rows
+
+[Timer]
+OnCalendar=*-*-* 03:35:00
+Persistent=true
+Unit=trade-risk-mismatch-retention.service
+
+[Install]
+WantedBy=timers.target

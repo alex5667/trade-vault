@@ -1,0 +1,49 @@
+{
+  "sid": "crypto-of:BTCUSDT:123456789",
+  "signal_id": "crypto-of:BTCUSDT:123456789",
+  "symbol": "BTCUSDT",
+  "venue": "binance",
+  "session": "NY",
+  "tf": "1m",
+  "direction": "LONG",
+  "side": "LONG",
+  "entry": 65000.5,
+  "sl": 64800.0,
+  "tp_levels": [
+    65500.0,
+    66000.0,
+    66500.0
+  ],
+  "lot": 0.05,
+  "position_size_usd": 3250.0,
+  "deposit": 10000.0,
+  "leverage": 10.0,
+  "atr": 45.0,
+  "confidence": 0.85,
+  "confidence_raw": 0.82,
+  "confidence_final": 0.85,
+  "ts_emit_ms": 1774783092386,
+  "tick_ts": 1774783092386,
+  "decision_mid_at_emit": 65000.0,
+  "expected_slippage_bps_at_emit": 2.5,
+  "decision_expected_slippage_bps": 2.5,
+  "source": "OrderFlowStrategy",
+  "producer": "python-worker",
+  "schema_version": 1,
+  "evidence_map": {
+    "book_health_ok": 1.0,
+    "liq_geom_monitor_hit": 1.0,
+    "book_stale_ms": 150.0,
+    "spread_bps": 3.2,
+    "rsi_agree": 1.0,
+    "div_strength": 0.75,
+    "market_mode": 1.0
+  },
+  "data_quality_flags": [
+    "wide_spread",
+    "stale_l2"
+  ],
+  "liquidity_regime": "tight",
+  "trail_profile": "rocket_v1",
+  "trail_after_tp1": true
+}

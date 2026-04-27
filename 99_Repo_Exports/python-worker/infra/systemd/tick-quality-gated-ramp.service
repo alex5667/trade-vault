@@ -1,0 +1,30 @@
+[Unit]
+Description=Tick-Quality Gated Ramp (Step 20)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+
+# Load env (copy example to /etc/default/tick-quality-gated-ramp or similar)
+EnvironmentFile=-/etc/default/tick-quality-gated-ramp
+
+# Recommended defaults (can be overridden in EnvironmentFile)
+Environment=TICK_GATE_METRICS_URL=http://127.0.0.1:8000/metrics
+Environment=TICK_GATE_WINDOW_S=60
+Environment=TICK_GATE_FAIL_MODE=fail_open
+
+# Example ramp command (adjust to your actual entrypoint)
+ExecStart=/usr/bin/python3 -m tools.run_tick_quality_gated_command \
+  --metrics-url ${TICK_GATE_METRICS_URL} \
+  --window-s ${TICK_GATE_WINDOW_S} \
+  --fail-mode ${TICK_GATE_FAIL_MODE} \
+  -- \
+  /usr/bin/python3 -m tools.nightly_meta_enforce_ramp_bundle
+
+# Best-effort redis publish is controlled by env vars (REDIS_URL, TICK_GATE_PUBLISH_REDIS, ...)
+
+User=alex
+Group=alex
+Nice=5

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/auto_apply_tick_gate_blocker.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.1, 1.0, 120, 600, 1000, 2000, 4000, 9114, 20000, ',', '--json', '--metrics-url', '--once', '--symbol', '--window-s', '-m', '0', '1', 'REDIS_URL', 'TICK_GATE_SYMBOL', 'TICK_GATE_WINDOW_S', '__main__', '__other__', 'allow', 'blocked', 'collapse', 'decided_block', 'error', 'exc', 'exception', 'fail', 'fail_closed', 'fail_mode', 'fail_open', 'fail_reasons', 'gate_payload', 'gate_rc', 'gate_status', 'hold_active', 'hold_s', 'insufficient', 'meta', 'metrics_url', 'pass', 'raw_stderr', 'raw_stdout', 'rc', 'reason', 'reasons', 'status', 'symbol', 'tick_gate', 'tick_gate:meta', 'tick_gate:ts_ms', 'truncated', 'ts_ms', 'ttl_s', 'unknown', 'window_s']

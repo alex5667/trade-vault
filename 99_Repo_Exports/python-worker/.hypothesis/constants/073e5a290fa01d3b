@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/exec_regime_bucket_v1.py
+# hypothesis_version: 6.148.10
+
+['-', 'HIGH_VOL', 'HIGH_VOL_LOW_LIQ', 'LOW_LIQ', 'NORMAL', '_', 'extreme', 'extreme_low', 'extreme_vol', 'high', 'high_vol', 'illiquid', 'low', 'low_liq', 'news', 'shock', 'stressed', 'thin', 'very_low']

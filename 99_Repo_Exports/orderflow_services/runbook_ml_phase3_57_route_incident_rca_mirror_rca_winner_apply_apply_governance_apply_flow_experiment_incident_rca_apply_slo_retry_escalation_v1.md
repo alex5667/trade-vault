@@ -1,0 +1,75 @@
+# Phase 3.57 runbook
+
+## Purpose
+
+This layer adds governance on top of Phase 3.55 and 3.56 for the dedicated incident RCA bridge-mode apply contour:
+
+- SLO/MTTR rollup
+- bounded rollback retry
+- escalation output
+
+The retry controller reads only rollback journal events and never re-applies the failing target mode.
+
+## Streams
+
+Reads:
+
+- stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_verification_results
+- stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_rollback_journal
+
+Writes:
+
+- stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_slo_rollups
+- stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_slo_audit
+- stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_retry_results
+- stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_escalations
+- stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_retry_audit
+
+Single writer target for commit:
+
+- cfg:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_bridge:global.mode
+
+## Safe start
+
+Run in advisory only:
+
+```bash
+export ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_INCIDENT_RCA_APPLY_RETRY_ADVISORY_ONLY=1
+export ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_INCIDENT_RCA_APPLY_RETRY_ALLOW_COMMIT=0
+docker compose -f orderflow_services/docker_compose_fragment_ml_phase3_57_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_slo_retry_escalation_v1.yml up -d
+```
+
+## Smoke checks
+
+```bash
+curl -s localhost:9993/metrics | grep '^ml_phase3_57_slo_rollup_'
+curl -s localhost:9994/metrics | grep '^ml_phase3_57_retry_escalation_'
+redis-cli HGETALL metrics:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_slo:last
+redis-cli HGETALL metrics:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_retry:last
+redis-cli XREVRANGE stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_slo_rollups + - COUNT 3
+redis-cli XREVRANGE stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_retry_results + - COUNT 3
+redis-cli XREVRANGE stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_escalations + - COUNT 3
+```
+
+## Promote to commit
+
+Enable only after:
+
+- 48h+ advisory run
+- no unexpected escalations
+- rollback_mttr_p95_sec within SLO
+- retries produce correct rollback target only
+
+```bash
+export ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_INCIDENT_RCA_APPLY_RETRY_ADVISORY_ONLY=0
+export ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_INCIDENT_RCA_APPLY_RETRY_ALLOW_COMMIT=1
+docker compose -f orderflow_services/docker_compose_fragment_ml_phase3_57_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_slo_retry_escalation_v1.yml up -d
+```
+
+## Rollback
+
+```bash
+export ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_INCIDENT_RCA_APPLY_RETRY_ADVISORY_ONLY=1
+export ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_INCIDENT_RCA_APPLY_RETRY_ALLOW_COMMIT=0
+docker compose -f orderflow_services/docker_compose_fragment_ml_phase3_57_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_slo_retry_escalation_v1.yml up -d
+```

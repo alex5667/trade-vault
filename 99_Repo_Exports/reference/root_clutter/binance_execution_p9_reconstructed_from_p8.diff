@@ -1,0 +1,576 @@
+diff -ruN /tmp/p8/binance_execution/binance_executor.py /tmp/p9recon/binance_execution/binance_executor.py
+--- /tmp/p8/binance_execution/binance_executor.py	2026-03-06 19:54:12.000000000 +0000
++++ /tmp/p9recon/binance_execution/binance_executor.py	2026-03-07 05:30:00.203464357 +0000
+@@ -67,7 +67,7 @@
+ import threading
+ import time
+ from dataclasses import dataclass
+-from typing import Any, Dict, List, Optional, Tuple
++from typing import Any, Dict, List, Optional, Set, Tuple
+ 
+ try:
+     import redis  # type: ignore
+@@ -657,6 +657,8 @@
+         self.reconcile_enable = bool(self.rollout_flags.exec_reconcile_enable and _bool_env("EXEC_RECONCILE_ENABLE", True))
+         self.user_stream_cache_prefix = (os.getenv("USER_STREAM_CACHE_PREFIX") or "orders:user_stream:").rstrip(":") + ":"
+         self.user_stream_stream = os.getenv("USER_STREAM_STREAM", "orders:user_stream")
++        self.orders_quarantine_sids_key = (os.getenv("ORDERS_QUARANTINE_SIDS_KEY") or "orders:quarantine:state:sids").strip()
++        self.exec_quarantine_resume_guard_enable = _bool_env("EXEC_QUARANTINE_RESUME_GUARD_ENABLE", True)
+         self.binance_recv_window_ms = int(os.getenv("BINANCE_RECV_WINDOW_MS", os.getenv("BINANCE_RECV_WINDOW", "5000")))
+         self.binance_time_sync_interval_ms = int(os.getenv("BINANCE_TIME_SYNC_INTERVAL_MS", "30000"))
+         self.max_clock_drift_ms = int(os.getenv("MAX_CLOCK_DRIFT_MS", "250"))
+@@ -666,6 +668,23 @@
+         # remains the online source of truth; Postgres journal is auxiliary.
+         self.execution_journal = ExecutionJournalSink() if self.rollout_flags.exec_journal_sql_enable else ExecutionJournalSink(dsn="")
+ 
++    def _is_sid_quarantined(self, sid: str) -> bool:
++        if not self.exec_quarantine_resume_guard_enable or not sid or not self.orders_quarantine_sids_key:
++            return False
++        try:
++            return bool(self.r.sismember(self.orders_quarantine_sids_key, sid))
++        except Exception:
++            return False
++
++    def _guard_sid_not_quarantined(self, sid: str, *, symbol: str, action: str) -> None:
++        if not self._is_sid_quarantined(sid):
++            return
++        self._exec_event({
++            'sid': sid, 'symbol': symbol, 'action': action, 'severity': 'warning',
++            'msg': 'resume/open blocked: sid is quarantined', 'event_type': 'RESUME_GUARD_BLOCKED',
++        })
++        raise RuntimeError(f'sid is quarantined: {sid}')
++
+     def _resolve_client(
+         self, payload: Dict[str, Any]
+     ) -> Tuple["BinanceFuturesClient", "FiltersCache"]:
+@@ -1927,6 +1946,7 @@
+         symbol = str(payload.get("symbol") or "").strip().upper()
+         if not sid or not symbol:
+             raise ValueError("sid/symbol required")
++        self._guard_sid_not_quarantined(sid, symbol=symbol, action='open')
+         if self.allowlist and symbol not in self.allowlist:
+             raise ValueError(f"symbol not in allowlist: {symbol}")
+ 
+@@ -2139,6 +2159,7 @@
+         symbol = str(payload.get("symbol") or "").strip().upper()
+         if not sid or not symbol:
+             raise ValueError("sid/symbol required")
++        self._guard_sid_not_quarantined(sid, symbol=symbol, action='modify')
+         if self.allowlist and symbol not in self.allowlist:
+             raise ValueError(f"symbol not in allowlist: {symbol}")
+ 
+@@ -2274,6 +2295,7 @@
+         """
+         sid = str(payload.get("sid") or "").strip()
+         symbol = str(payload.get("symbol") or "").strip().upper()
++        self._guard_sid_not_quarantined(sid, symbol=symbol, action='resize')
+         raise RuntimeError(f"resize not implemented yet (sid={sid} symbol={symbol})")
+ 
+     # --- Main processing loop ---
+diff -ruN /tmp/p8/binance_execution/test_alertmanager_p9_deeplinks_v1.py /tmp/p9recon/binance_execution/test_alertmanager_p9_deeplinks_v1.py
+--- /tmp/p8/binance_execution/test_alertmanager_p9_deeplinks_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p9recon/binance_execution/test_alertmanager_p9_deeplinks_v1.py	2026-03-07 05:29:29.494228240 +0000
+@@ -0,0 +1,7 @@
++from pathlib import Path
++
++
++def test_alertmanager_template_contains_deeplinks():
++    src = (Path(__file__).resolve().parents[1] / 'monitoring' / 'alertmanager' / 'templates' / 'trade_execution.tmpl').read_text(encoding='utf-8')
++    assert 'silence' in src.lower()
++    assert 'runbook' in src.lower()
+diff -ruN /tmp/p8/binance_execution/test_auto_unquarantine_policy_v1.py /tmp/p9recon/binance_execution/test_auto_unquarantine_policy_v1.py
+--- /tmp/p8/binance_execution/test_auto_unquarantine_policy_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p9recon/binance_execution/test_auto_unquarantine_policy_v1.py	2026-03-07 05:29:29.494072548 +0000
+@@ -0,0 +1,17 @@
++from pathlib import Path
++import importlib.util
++
++mod_path = Path(__file__).resolve().parents[1] / 'scripts' / 'auto_unquarantine_policy.py'
++spec = importlib.util.spec_from_file_location('auto_unquarantine_policy', mod_path)
++mod = importlib.util.module_from_spec(spec)
++spec.loader.exec_module(mod)
++
++
++def test_release_healthy_sid():
++    dec = mod.decide_auto_unquarantine(sid='s1', quarantine_payload={'quarantined_ts_ms': 0, 'severity': 'soft'}, sql_snapshot_exists=True)
++    assert dec.release is True
++
++
++def test_keep_when_sql_missing():
++    dec = mod.decide_auto_unquarantine(sid='s1', quarantine_payload={'quarantined_ts_ms': 0, 'severity': 'soft'}, sql_snapshot_exists=False)
++    assert dec.release is False
+diff -ruN /tmp/p8/binance_execution/test_build_canary_scoring_report_v1.py /tmp/p9recon/binance_execution/test_build_canary_scoring_report_v1.py
+--- /tmp/p8/binance_execution/test_build_canary_scoring_report_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p9recon/binance_execution/test_build_canary_scoring_report_v1.py	2026-03-07 05:29:29.494279443 +0000
+@@ -0,0 +1,5 @@
++from pathlib import Path
++
++
++def test_canary_script_exists():
++    assert (Path(__file__).resolve().parents[1] / 'scripts' / 'build_canary_scoring_report.py').exists()
+diff -ruN /tmp/p8/binance_execution/test_executor_resume_guard_v1.py /tmp/p9recon/binance_execution/test_executor_resume_guard_v1.py
+--- /tmp/p8/binance_execution/test_executor_resume_guard_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p9recon/binance_execution/test_executor_resume_guard_v1.py	2026-03-07 05:29:29.494175555 +0000
+@@ -0,0 +1,7 @@
++from pathlib import Path
++
++
++def test_placeholder_resume_guard_contract():
++    src = (Path(__file__).resolve().parent / 'binance_executor.py').read_text(encoding='utf-8')
++    assert 'RESUME_GUARD_BLOCKED' in src
++    assert '_guard_sid_not_quarantined' in src
+diff -ruN /tmp/p8/binance_execution/test_p9_retention_sql_v1.py /tmp/p9recon/binance_execution/test_p9_retention_sql_v1.py
+--- /tmp/p8/binance_execution/test_p9_retention_sql_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p9recon/binance_execution/test_p9_retention_sql_v1.py	2026-03-07 05:29:29.494333502 +0000
+@@ -0,0 +1,7 @@
++from pathlib import Path
++
++
++def test_retention_sql_contains_partition_helpers():
++    sql = (Path(__file__).resolve().parents[1] / 'db' / 'migrations' / '20260306_05_retention_partitioning.sql').read_text(encoding='utf-8')
++    assert 'ensure_monthly_range_partition' in sql
++    assert 'purge_execution_hot_tables' in sql
+diff -ruN /tmp/p8/config/docker-compose.execution-p9.override.yml /tmp/p9recon/config/docker-compose.execution-p9.override.yml
+--- /tmp/p8/config/docker-compose.execution-p9.override.yml	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p9recon/config/docker-compose.execution-p9.override.yml	2026-03-07 05:29:29.493583903 +0000
+@@ -0,0 +1,8 @@
++services:
++  trade-runbook-server:
++    environment:
++      RUNBOOK_REPORT_DIR: /var/lib/trade-runbook/reports
++    volumes:
++      - ./monitoring/grafana/dashboards:/opt/trade/monitoring/grafana/dashboards:ro
++      - ./runbooks:/opt/trade/runbooks:ro
++      - ./var/runbook-reports:/var/lib/trade-runbook/reports
+diff -ruN /tmp/p8/config/env.execution-p9.example /tmp/p9recon/config/env.execution-p9.example
+--- /tmp/p8/config/env.execution-p9.example	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p9recon/config/env.execution-p9.example	2026-03-07 05:29:29.493537359 +0000
+@@ -0,0 +1,5 @@
++EXEC_QUARANTINE_RESUME_GUARD_ENABLE=1
++EXECUTION_RETENTION_DAYS=14
++ALERTMANAGER_EXTERNAL_URL=http://alertmanager:9093
++RUNBOOK_BASE_URL=http://trade-runbook-server:18080
++CANARY_REPORT_PATH=/var/lib/trade-runbook/reports/latest_canary_scoring.json
+diff -ruN /tmp/p8/db/migrations/20260306_05_retention_partitioning.sql /tmp/p9recon/db/migrations/20260306_05_retention_partitioning.sql
+--- /tmp/p8/db/migrations/20260306_05_retention_partitioning.sql	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p9recon/db/migrations/20260306_05_retention_partitioning.sql	2026-03-07 05:29:29.464200688 +0000
+@@ -0,0 +1,49 @@
++-- P9: retention + partitioning helpers for execution journal/quarantine ledger
++
++create table if not exists execution_order_events_archive (
++  like execution_order_events including all
++) partition by range (event_ts_ms);
++
++create table if not exists execution_quarantine_ledger_archive (
++  id bigserial primary key,
++  sid text not null,
++  event_type text not null,
++  payload_jsonb jsonb not null default '{}'::jsonb,
++  created_ts_ms bigint not null
++) partition by range (created_ts_ms);
++
++create or replace function ensure_monthly_range_partition(parent_table text, partition_prefix text, ts_ms bigint)
++returns void language plpgsql as $$
++declare
++  start_ts timestamptz;
++  end_ts timestamptz;
++  part_name text;
++  from_ms bigint;
++  to_ms bigint;
++begin
++  start_ts := date_trunc('month', to_timestamp(ts_ms / 1000.0) at time zone 'utc');
++  end_ts := start_ts + interval '1 month';
++  part_name := partition_prefix || to_char(start_ts, 'YYYYMM');
++  from_ms := (extract(epoch from start_ts) * 1000)::bigint;
++  to_ms := (extract(epoch from end_ts) * 1000)::bigint;
++  execute format('create table if not exists %I partition of %I for values from (%s) to (%s)', part_name, parent_table, from_ms, to_ms);
++end$$;
++
++create or replace function purge_execution_hot_tables(cutoff_ts_ms bigint)
++returns table(purged_events bigint, purged_quarantine bigint) language plpgsql as $$
++declare
++  ev_count bigint := 0;
++  q_count bigint := 0;
++begin
++  insert into execution_order_events_archive
++  select * from execution_order_events where event_ts_ms < cutoff_ts_ms;
++  get diagnostics ev_count = row_count;
++  delete from execution_order_events where event_ts_ms < cutoff_ts_ms;
++
++  insert into execution_quarantine_ledger_archive (sid, event_type, payload_jsonb, created_ts_ms)
++  select sid, event_type, payload_jsonb, created_ts_ms from execution_quarantine_ledger where created_ts_ms < cutoff_ts_ms;
++  get diagnostics q_count = row_count;
++  delete from execution_quarantine_ledger where created_ts_ms < cutoff_ts_ms;
++
++  return query select ev_count, q_count;
++end$$;
+diff -ruN /tmp/p8/db/migrations/20260306_06_retention_partitioning_indexes.sql /tmp/p9recon/db/migrations/20260306_06_retention_partitioning_indexes.sql
+--- /tmp/p8/db/migrations/20260306_06_retention_partitioning_indexes.sql	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p9recon/db/migrations/20260306_06_retention_partitioning_indexes.sql	2026-03-07 05:29:29.464258246 +0000
+@@ -0,0 +1,2 @@
++create index if not exists execution_order_events_archive_sid_idx on execution_order_events_archive (sid, event_ts_ms desc);
++create index if not exists execution_quarantine_ledger_archive_sid_idx on execution_quarantine_ledger_archive (sid, created_ts_ms desc);
+diff -ruN /tmp/p8/deploy/systemd/trade-execution-auto-unquarantine.service /tmp/p9recon/deploy/systemd/trade-execution-auto-unquarantine.service
+--- /tmp/p8/deploy/systemd/trade-execution-auto-unquarantine.service	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p9recon/deploy/systemd/trade-execution-auto-unquarantine.service	2026-03-07 05:29:29.493199853 +0000
+@@ -0,0 +1,9 @@
++[Unit]
++Description=Trade execution auto-unquarantine policy
++After=network-online.target
++
++[Service]
++Type=oneshot
++WorkingDirectory=/opt/trade
++EnvironmentFile=-/etc/default/trade-execution-p9
++ExecStart=/usr/bin/python3 /opt/trade/scripts/auto_unquarantine_policy.py
+diff -ruN /tmp/p8/deploy/systemd/trade-execution-auto-unquarantine.timer /tmp/p9recon/deploy/systemd/trade-execution-auto-unquarantine.timer
+--- /tmp/p8/deploy/systemd/trade-execution-auto-unquarantine.timer	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p9recon/deploy/systemd/trade-execution-auto-unquarantine.timer	2026-03-07 05:29:29.493285499 +0000
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Periodic trade execution auto-unquarantine
++
++[Timer]
++OnBootSec=3m
++OnUnitActiveSec=10m
++Unit=trade-execution-auto-unquarantine.service
++
++[Install]
++WantedBy=timers.target
+diff -ruN /tmp/p8/deploy/systemd/trade-execution-canary-report.service /tmp/p9recon/deploy/systemd/trade-execution-canary-report.service
+--- /tmp/p8/deploy/systemd/trade-execution-canary-report.service	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p9recon/deploy/systemd/trade-execution-canary-report.service	2026-03-07 05:29:29.493337305 +0000
+@@ -0,0 +1,9 @@
++[Unit]
++Description=Trade execution canary scoring report
++After=network-online.target
++
++[Service]
++Type=oneshot
++WorkingDirectory=/opt/trade
++EnvironmentFile=-/etc/default/trade-execution-p9
++ExecStart=/usr/bin/python3 /opt/trade/scripts/build_canary_scoring_report.py
+diff -ruN /tmp/p8/deploy/systemd/trade-execution-canary-report.timer /tmp/p9recon/deploy/systemd/trade-execution-canary-report.timer
+--- /tmp/p8/deploy/systemd/trade-execution-canary-report.timer	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p9recon/deploy/systemd/trade-execution-canary-report.timer	2026-03-07 05:29:29.493388003 +0000
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Periodic trade execution canary report
++
++[Timer]
++OnBootSec=4m
++OnUnitActiveSec=15m
++Unit=trade-execution-canary-report.service
++
++[Install]
++WantedBy=timers.target
+diff -ruN /tmp/p8/deploy/systemd/trade-execution-retention.service /tmp/p9recon/deploy/systemd/trade-execution-retention.service
+--- /tmp/p8/deploy/systemd/trade-execution-retention.service	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p9recon/deploy/systemd/trade-execution-retention.service	2026-03-07 05:29:29.493433639 +0000
+@@ -0,0 +1,9 @@
++[Unit]
++Description=Trade execution retention purge
++After=network-online.target
++
++[Service]
++Type=oneshot
++WorkingDirectory=/opt/trade
++EnvironmentFile=-/etc/default/trade-execution-p9
++ExecStart=/usr/bin/python3 /opt/trade/scripts/purge_execution_hot_tables.py
+diff -ruN /tmp/p8/deploy/systemd/trade-execution-retention.timer /tmp/p9recon/deploy/systemd/trade-execution-retention.timer
+--- /tmp/p8/deploy/systemd/trade-execution-retention.timer	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p9recon/deploy/systemd/trade-execution-retention.timer	2026-03-07 05:29:29.493481722 +0000
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Nightly trade execution retention purge
++
++[Timer]
++OnCalendar=*-*-* 03:20:00
++Persistent=true
++Unit=trade-execution-retention.service
++
++[Install]
++WantedBy=timers.target
+diff -ruN /tmp/p8/monitoring/alertmanager/templates/trade_execution.tmpl /tmp/p9recon/monitoring/alertmanager/templates/trade_execution.tmpl
+--- /tmp/p8/monitoring/alertmanager/templates/trade_execution.tmpl	2026-03-06 20:13:39.000000000 +0000
++++ /tmp/p9recon/monitoring/alertmanager/templates/trade_execution.tmpl	2026-03-07 05:29:29.464091150 +0000
+@@ -20,6 +20,8 @@
+ 
+ Runbooks: http://trade-runbook-server:18080/
+ Latest health JSON: http://trade-runbook-server:18080/api/health/latest
++Silence: {{ .ExternalURL }}/#/silences/new?filter=%7Balertname%3D%22{{ .CommonLabels.alertname }}%22%7D
++Runbook: http://trade-runbook-server:18080/runbooks/REPAIR_AND_QUARANTINE.md
+ {{- end }}
+ 
+ {{ define "trade.html" -}}
+diff -ruN /tmp/p8/monitoring/alertmanager/trade_execution_alertmanager.yml /tmp/p9recon/monitoring/alertmanager/trade_execution_alertmanager.yml
+--- /tmp/p8/monitoring/alertmanager/trade_execution_alertmanager.yml	2026-03-06 20:13:39.000000000 +0000
++++ /tmp/p9recon/monitoring/alertmanager/trade_execution_alertmanager.yml	2026-03-07 05:29:29.463720135 +0000
+@@ -1,6 +1,8 @@
+ global:
+   resolve_timeout: 5m
+ 
++external_url: http://alertmanager:9093
++
+ templates:
+   - /etc/alertmanager/templates/*.tmpl
+ 
+diff -ruN /tmp/p8/monitoring/grafana/dashboards/trade_execution_p9_canary.json /tmp/p9recon/monitoring/grafana/dashboards/trade_execution_p9_canary.json
+--- /tmp/p8/monitoring/grafana/dashboards/trade_execution_p9_canary.json	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p9recon/monitoring/grafana/dashboards/trade_execution_p9_canary.json	2026-03-07 05:29:29.493634886 +0000
+@@ -0,0 +1,11 @@
++{
++  "title": "Trade Execution P9 Canary",
++  "schemaVersion": 38,
++  "version": 1,
++  "panels": [
++    {"type": "stat", "title": "Canary Score", "gridPos": {"x":0,"y":0,"w":6,"h":4}, "targets": []},
++    {"type": "stat", "title": "Quarantined SID", "gridPos": {"x":6,"y":0,"w":6,"h":4}, "targets": []},
++    {"type": "stat", "title": "Auto-unquarantined SID", "gridPos": {"x":12,"y":0,"w":6,"h":4}, "targets": []},
++    {"type": "stat", "title": "Emergency Flatten Count", "gridPos": {"x":18,"y":0,"w":6,"h":4}, "targets": []}
++  ]
++}
+diff -ruN /tmp/p8/runbooks/P9_AUTO_UNQUARANTINE_AND_RETENTION.md /tmp/p9recon/runbooks/P9_AUTO_UNQUARANTINE_AND_RETENTION.md
+--- /tmp/p8/runbooks/P9_AUTO_UNQUARANTINE_AND_RETENTION.md	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p9recon/runbooks/P9_AUTO_UNQUARANTINE_AND_RETENTION.md	2026-03-07 05:29:29.493087377 +0000
+@@ -0,0 +1,6 @@
++# P9: Auto-unquarantine and retention
++
++1. Run auto-unquarantine in dry-run mode first.
++2. Verify canary score and quarantine ledger.
++3. Run retention purge outside peak hours.
++4. If resume guard blocks hot traffic, keep degraded mode enabled and inspect quarantine ledger.
+diff -ruN /tmp/p8/runbooks/server/runbook_server.py /tmp/p9recon/runbooks/server/runbook_server.py
+--- /tmp/p8/runbooks/server/runbook_server.py	2026-03-06 20:15:11.000000000 +0000
++++ /tmp/p9recon/runbooks/server/runbook_server.py	2026-03-07 05:29:29.493862277 +0000
+@@ -43,7 +43,7 @@
+ <style>body{{font-family:sans-serif;margin:2rem;max-width:1100px}}code{{background:#f4f4f4;padding:.1rem .3rem}}.badge{{padding:.15rem .5rem;border-radius:4px;background:#eee}}.ok{{background:#d1fae5}}.warning{{background:#fef3c7}}.critical{{background:#fee2e2}}</style>
+ </head><body>
+ <h1>Trade Execution Runbooks</h1>
+-<p>Latest health: <span class="badge {badge}">{html.escape(badge)}</span> — <a href="/api/health/latest">JSON</a></p>
++<p>Latest health: <span class="badge {badge}">{html.escape(badge)}</span> — <a href="/api/health/latest">JSON</a> | <a href="/api/canary/latest">Canary</a></p>
+ <h2>Runbooks</h2><ul>{''.join(items) or '<li>no runbooks found</li>'}</ul>
+ <h2>Reports</h2><ul>{''.join(report_items) or '<li>no reports found</li>'}</ul>
+ <p><code>/healthz</code> returns 200 if the server process is alive.</p>
+@@ -64,6 +64,18 @@
+             self.end_headers()
+             self.wfile.write(body)
+             return
++        if parsed.path == '/api/canary/latest':
++            latest = self.report_root / 'latest_canary_scoring.json'
++            if latest.exists():
++                body = latest.read_bytes()
++                self.send_response(200)
++                self.send_header('Content-Type', 'application/json; charset=utf-8')
++                self.send_header('Content-Length', str(len(body)))
++                self.end_headers()
++                self.wfile.write(body)
++                return
++            self.send_error(404, 'canary report not found')
++            return
+         if parsed.path == '/api/health/latest':
+             latest = self.report_root / 'latest_execution_health.json'
+             if latest.exists():
+diff -ruN /tmp/p8/scripts/auto_unquarantine_policy.py /tmp/p9recon/scripts/auto_unquarantine_policy.py
+--- /tmp/p8/scripts/auto_unquarantine_policy.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p9recon/scripts/auto_unquarantine_policy.py	2026-03-07 05:29:29.460967178 +0000
+@@ -0,0 +1,88 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, Iterable, List, Optional, Tuple
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++try:
++    import psycopg  # type: ignore
++except Exception:  # pragma: no cover
++    psycopg = None  # type: ignore
++
++
++@dataclass
++class AutoUnquarantineDecision:
++    sid: str
++    release: bool
++    reason: str
++    recent_repair_count: int = 0
++    recent_quarantine_count: int = 0
++    quarantine_age_sec: float = 0.0
++
++
++def decide_auto_unquarantine(*, sid: str, quarantine_payload: Dict[str, Any], sql_snapshot_exists: bool, max_recent_requarantine: int = 1, min_quarantine_age_sec: float = 900.0) -> AutoUnquarantineDecision:
++    now_ms = int(time.time() * 1000)
++    ts_ms = int(float(quarantine_payload.get('quarantined_ts_ms') or 0))
++    age_sec = max(0.0, (now_ms - ts_ms) / 1000.0) if ts_ms else 0.0
++    sev = str(quarantine_payload.get('severity') or 'unknown').lower()
++    recent_req = int(quarantine_payload.get('recent_requarantine_count') or 0)
++    recent_rep = int(quarantine_payload.get('recent_repair_count') or 0)
++    if not sql_snapshot_exists:
++        return AutoUnquarantineDecision(sid=sid, release=False, reason='sql_snapshot_missing', recent_repair_count=recent_rep, recent_quarantine_count=recent_req, quarantine_age_sec=age_sec)
++    if age_sec < float(min_quarantine_age_sec):
++        return AutoUnquarantineDecision(sid=sid, release=False, reason='quarantine_too_fresh', recent_repair_count=recent_rep, recent_quarantine_count=recent_req, quarantine_age_sec=age_sec)
++    if recent_req > int(max_recent_requarantine):
++        return AutoUnquarantineDecision(sid=sid, release=False, reason='recent_requarantine_exceeded', recent_repair_count=recent_rep, recent_quarantine_count=recent_req, quarantine_age_sec=age_sec)
++    if sev in {'critical', 'hard'}:
++        return AutoUnquarantineDecision(sid=sid, release=False, reason='severity_too_high', recent_repair_count=recent_rep, recent_quarantine_count=recent_req, quarantine_age_sec=age_sec)
++    return AutoUnquarantineDecision(sid=sid, release=True, reason='healthy_after_repair', recent_repair_count=recent_rep, recent_quarantine_count=recent_req, quarantine_age_sec=age_sec)
++
++
++def _sql_snapshot_exists(dsn: str, sid: str) -> bool:
++    if not dsn or psycopg is None:
++        return False
++    with psycopg.connect(dsn) as conn:
++        with conn.cursor() as cur:
++            cur.execute('select 1 from execution_orders where sid=%s limit 1', (sid,))
++            return cur.fetchone() is not None
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description='Release quarantine sid automatically after healthy repair.')
++    parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
++    parser.add_argument('--dsn', default=os.getenv('EXECUTION_JOURNAL_DSN', ''))
++    parser.add_argument('--quarantine-prefix', default=os.getenv('ORDERS_QUARANTINE_PREFIX', 'orders:quarantine:state:'))
++    parser.add_argument('--quarantine-sids-key', default=os.getenv('ORDERS_QUARANTINE_SIDS_KEY', 'orders:quarantine:state:sids'))
++    parser.add_argument('--dry-run', action='store_true')
++    args = parser.parse_args()
++
++    if redis is None:
++        raise RuntimeError('redis package required')
++    r = redis.from_url(args.redis_url, decode_responses=True)
++    sids = sorted(r.smembers(args.quarantine_sids_key) or set())
++    report: List[Dict[str, Any]] = []
++    for sid in sids:
++        raw = r.get(f"{args.quarantine_prefix}{sid}")
++        payload = json.loads(raw) if raw else {}
++        ok = _sql_snapshot_exists(args.dsn, sid)
++        dec = decide_auto_unquarantine(sid=sid, quarantine_payload=payload, sql_snapshot_exists=ok)
++        report.append(dec.__dict__)
++        if dec.release and not args.dry_run:
++            r.srem(args.quarantine_sids_key, sid)
++            r.delete(f"{args.quarantine_prefix}{sid}")
++            r.xadd('orders:quarantine:events', {'sid': sid, 'event': 'AUTO_UNQUARANTINED', 'reason': dec.reason, 'ts_ms': str(int(time.time()*1000))}, maxlen=10000, approximate=True)
++    print(json.dumps({'items': report}, ensure_ascii=False, indent=2))
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+diff -ruN /tmp/p8/scripts/build_canary_scoring_report.py /tmp/p9recon/scripts/build_canary_scoring_report.py
+--- /tmp/p8/scripts/build_canary_scoring_report.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p9recon/scripts/build_canary_scoring_report.py	2026-03-07 05:29:29.492856083 +0000
+@@ -0,0 +1,59 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++from pathlib import Path
++
++try:
++    import psycopg  # type: ignore
++except Exception:  # pragma: no cover
++    psycopg = None  # type: ignore
++
++
++def bucket(score: float) -> str:
++    if score >= 90:
++        return 'green'
++    if score >= 70:
++        return 'yellow'
++    return 'red'
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description='Build canary report for repaired/quarantined sid.')
++    parser.add_argument('--dsn', default=os.getenv('EXECUTION_JOURNAL_DSN', ''))
++    parser.add_argument('--out', default=os.getenv('CANARY_REPORT_PATH', '/var/lib/trade-runbook/reports/latest_canary_scoring.json'))
++    args = parser.parse_args()
++    if not args.dsn or psycopg is None:
++        raise RuntimeError('psycopg + EXECUTION_JOURNAL_DSN required')
++    metrics = {
++        'quarantined_sid_count': 0,
++        'auto_unquarantined_sid_count': 0,
++        'repair_run_count': 0,
++        'emergency_flatten_count': 0,
++    }
++    with psycopg.connect(args.dsn) as conn:
++        with conn.cursor() as cur:
++            cur.execute("select count(distinct sid) from execution_quarantine_ledger where event_type in ('QUARANTINED','AUTO_QUARANTINED')")
++            metrics['quarantined_sid_count'] = int((cur.fetchone() or [0])[0])
++            cur.execute("select count(distinct sid) from execution_quarantine_ledger where event_type='AUTO_UNQUARANTINED'")
++            metrics['auto_unquarantined_sid_count'] = int((cur.fetchone() or [0])[0])
++            cur.execute("select count(*) from execution_quarantine_ledger where event_type in ('REPAIR_APPLIED','AUTO_REPAIR_APPLIED')")
++            metrics['repair_run_count'] = int((cur.fetchone() or [0])[0])
++            cur.execute("select count(*) from execution_order_events where event_type='EMERGENCY_FLATTENED'")
++            metrics['emergency_flatten_count'] = int((cur.fetchone() or [0])[0])
++    score = 100.0
++    score -= min(metrics['quarantined_sid_count'] * 2.0, 40.0)
++    score -= min(metrics['emergency_flatten_count'] * 5.0, 40.0)
++    score += min(metrics['auto_unquarantined_sid_count'] * 1.0, 10.0)
++    report = {**metrics, 'score': round(score, 2), 'bucket': bucket(score)}
++    out = Path(args.out)
++    out.parent.mkdir(parents=True, exist_ok=True)
++    out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
++    print(json.dumps(report, ensure_ascii=False, indent=2))
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+diff -ruN /tmp/p8/scripts/purge_execution_hot_tables.py /tmp/p9recon/scripts/purge_execution_hot_tables.py
+--- /tmp/p8/scripts/purge_execution_hot_tables.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p9recon/scripts/purge_execution_hot_tables.py	2026-03-07 05:29:29.464308477 +0000
+@@ -0,0 +1,44 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import time
++
++try:
++    import psycopg  # type: ignore
++except Exception:  # pragma: no cover
++    psycopg = None  # type: ignore
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description='Archive and purge hot execution/quarantine rows older than retention window.')
++    parser.add_argument('--dsn', default=os.getenv('EXECUTION_JOURNAL_DSN', ''))
++    parser.add_argument('--retention-days', type=int, default=int(os.getenv('EXECUTION_RETENTION_DAYS', '14')) )
++    parser.add_argument('--dry-run', action='store_true')
++    args = parser.parse_args()
++    if not args.dsn or psycopg is None:
++        raise RuntimeError('psycopg + EXECUTION_JOURNAL_DSN required')
++    cutoff_ms = int((time.time() - args.retention_days * 86400) * 1000)
++    out = {'cutoff_ts_ms': cutoff_ms, 'dry_run': bool(args.dry_run)}
++    with psycopg.connect(args.dsn) as conn:
++        with conn.cursor() as cur:
++            if args.dry_run:
++                cur.execute('select count(*) from execution_order_events where event_ts_ms < %s', (cutoff_ms,))
++                out['events_to_purge'] = int(cur.fetchone()[0])
++                cur.execute('select count(*) from execution_quarantine_ledger where created_ts_ms < %s', (cutoff_ms,))
++                out['quarantine_to_purge'] = int(cur.fetchone()[0])
++            else:
++                cur.execute('select * from purge_execution_hot_tables(%s)', (cutoff_ms,))
++                row = cur.fetchone() or (0, 0)
++                out['purged_events'] = int(row[0])
++                out['purged_quarantine'] = int(row[1])
++        if not args.dry_run:
++            conn.commit()
++    print(json.dumps(out, ensure_ascii=False, indent=2))
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())

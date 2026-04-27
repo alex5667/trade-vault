@@ -1,0 +1,52 @@
+groups:
+  - name: TradeScannerP0P1Alerts
+    rules:
+      - alert: OrderPushFailingRapidly
+        expr: rate(order_push_errors_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: page
+          component: order_push_dispatcher
+        annotations:
+          summary: "Order push to gateway is failing"
+          description: "order_push_errors_total is increasing ({{ $value }} errors/sec). Check HTTP Go Gateway."
+
+      - alert: OrderDLQDepthHigh
+        expr: order_push_dlq_depth > 10
+        for: 1m
+        labels:
+          severity: page
+          component: order_push_dispatcher
+        annotations:
+          summary: "orders:dlq depth is too high"
+          description: "There are currently {{ $value }} failed orders in the DLQ. Requires immediate attention."
+
+      - alert: SignalGatesDegraded
+        expr: sum by (gate, reason) (rate(gates_error_total[5m])) > 0.016  # approx 1 per minute => ~5 per 5m across all processes? Wait, >5 per 5m is sum(rate(..)[5m]) * 300 > 5 => sum(rate(..)) > 0.016
+        for: 2m
+        labels:
+          severity: ticket
+          component: gates
+        annotations:
+          summary: "Signal Gates are experiencing high error rates and failing open"
+          description: "Gate {{ $labels.gate }} is failing with reason {{ $labels.reason }} ({{ $value }} errors/sec)."
+
+      - alert: PositionFSMInvalidTransition
+        expr: rate(position_fsm_invalid_transition_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: ticket
+          component: trade_monitor
+        annotations:
+          summary: "Invalid FSM transitions detected"
+          description: "The PositionFSM blocked invalid state transitions. Check trade_monitor logs."
+
+      - alert: PayloadBuildFailed
+        expr: sum by (symbol) (rate(signal_dq_flag_total{flag="payload_build_failed"}[5m])) > 0
+        for: 1m
+        labels:
+          severity: ticket
+          component: orchestrator
+        annotations:
+          summary: "Payload build failures detected"
+          description: "Orchestrator failed to build payloads for symbol {{ $labels.symbol }}."

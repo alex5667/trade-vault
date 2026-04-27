@@ -1,0 +1,787 @@
+diff --git a/orderflow_services/operator_routing_incident_rca_routing_post_apply_verifier_v2_15.py b/orderflow_services/operator_routing_incident_rca_routing_post_apply_verifier_v2_15.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/operator_routing_incident_rca_routing_post_apply_verifier_v2_15.py
+@@ -0,0 +1,381 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from typing import Any, Dict, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    import psycopg
++except Exception:  # pragma: no cover
++    psycopg = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++
++APP_NAME = "operator_routing_incident_rca_routing_post_apply_verifier_v2_15"
++INPUT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_APPLY_RESULTS_STREAM",
++    "stream:ml:operator_routing_incident_rca_routing_apply_results",
++)
++VERIFY_RESULTS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_VERIFY_RESULTS_STREAM",
++    "stream:ml:operator_routing_incident_rca_routing_verify_results",
++)
++ROLLBACK_REQUESTS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_ROLLBACK_REQUESTS_STREAM",
++    "stream:ml:operator_routing_incident_rca_routing_rollback_requests",
++)
++AUDIT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_APPLY_AUDIT_STREAM",
++    "stream:ml:operator_routing_incident_rca_routing_apply_audit",
++)
++STATE_KEY = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_DEFAULT_KEY",
++    "cfg:ml:operator_routing_incident_rca_routing:default",
++)
++FEEDBACK_LAST_HASH = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_FEEDBACK_LAST_HASH",
++    "metrics:ml:operator_rca_routing_rca_feedback:last",
++)
++GROUP = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_VERIFY_GROUP", APP_NAME)
++CONSUMER = os.getenv("HOSTNAME", APP_NAME)
++PORT = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_VERIFY_PORT", "9894"))
++MAXLEN = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_VERIFY_MAXLEN", "20000"))
++
++MIN_USEFULNESS = float(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_VERIFY_MIN_USEFULNESS", "0.50"))
++MAX_FEEDBACK_STALENESS_MS = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_VERIFY_MAX_FEEDBACK_STALENESS_MS", "7200000"))
++MIN_EXPOSURE = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_VERIFY_MIN_EXPOSURE", "3"))
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter(
++    "ml_operator_routing_incident_rca_routing_verify_runs_total",
++    "Routing-incident RCA routing verifier runs",
++    ("status", "decision"),
++)
++LAT = _hist(
++    "ml_operator_routing_incident_rca_routing_verify_latency_seconds",
++    "Routing-incident RCA routing verifier latency seconds",
++)
++UP = _gauge(
++    "ml_operator_routing_incident_rca_routing_verify_up",
++    "Routing-incident RCA routing verifier up",
++)
++LAST_RUN_TS = _gauge(
++    "ml_operator_routing_incident_rca_routing_verify_last_run_ts_seconds",
++    "Routing-incident RCA routing verifier last run timestamp",
++)
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        if isinstance(v, (bytes, bytearray)):
++            try:
++                out[kk] = v.decode()
++            except Exception:
++                out[kk] = v.hex()
++        else:
++            out[kk] = v
++    return out
++
++
++def stable_json(obj: Any) -> str:
++    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++def maybe_json(value: Any, default: Any = None) -> Any:
++    if value is None:
++        return default
++    if isinstance(value, (dict, list)):
++        return value
++    try:
++        return json.loads(value)
++    except Exception:
++        return default
++
++
++def safe_int(value: Any, default: int = 0) -> int:
++    try:
++        return int(float(value))
++    except Exception:
++        return default
++
++
++def safe_float(value: Any, default: float = 0.0) -> float:
++    try:
++        return float(value)
++    except Exception:
++        return default
++
++
++def evaluate_verification(
++    apply_row: Dict[str, Any],
++    current_route: Dict[str, Any],
++    feedback_snapshot: Dict[str, Any],
++    now_ts_ms: int,
++) -> Dict[str, Any]:
++    baseline = maybe_json(apply_row.get("baseline_route_json"), {}) or {}
++    target = maybe_json(apply_row.get("target_route_json"), {}) or {}
++    route_match = (
++        current_route.get("provider") == target.get("provider")
++        and current_route.get("model_name") == target.get("model_name")
++        and current_route.get("prompt_version") == target.get("prompt_version")
++        and current_route.get("policy_version") == target.get("policy_version")
++    )
++    feedback_ts_ms = safe_int(feedback_snapshot.get("ts_ms"), 0)
++    staleness_ms = max(0, now_ts_ms - feedback_ts_ms) if feedback_ts_ms > 0 else 10**12
++    usefulness = safe_float(feedback_snapshot.get("usefulness_score"), 0.5)
++    exposure_n = safe_int(feedback_snapshot.get("exposure_n"), 0)
++
++    out = {
++        "verification_status": "PASS",
++        "verification_reason_code": "OK",
++        "baseline_route_json": stable_json(baseline),
++        "target_route_json": stable_json(target),
++        "current_route_json": stable_json(current_route),
++        "feedback_snapshot_json": stable_json(feedback_snapshot),
++        "usefulness_score": usefulness,
++        "feedback_staleness_ms": staleness_ms,
++        "exposure_n": exposure_n,
++    }
++    if exposure_n < MIN_EXPOSURE:
++        out["verification_status"] = "INCONCLUSIVE"
++        out["verification_reason_code"] = "LOW_EXPOSURE"
++        return out
++    if not route_match:
++        out["verification_status"] = "ROLLBACK_REQUIRED"
++        out["verification_reason_code"] = "ROUTE_MISMATCH"
++        return out
++    if staleness_ms > MAX_FEEDBACK_STALENESS_MS:
++        out["verification_status"] = "ROLLBACK_REQUIRED"
++        out["verification_reason_code"] = "FEEDBACK_STALE"
++        return out
++    if usefulness < MIN_USEFULNESS:
++        out["verification_status"] = "ROLLBACK_REQUIRED"
++        out["verification_reason_code"] = "USEFULNESS_DROP"
++        return out
++    return out
++
++
++async def ensure_group(client: Any, stream_key: str, group: str) -> None:
++    try:
++        await client.xgroup_create(stream_key, group, id="$", mkstream=True)
++    except Exception:
++        return
++
++
++async def persist_if_configured(db_url: str, apply_row: Dict[str, Any], verification: Dict[str, Any]) -> None:
++    if not db_url or psycopg is None:
++        return
++    with psycopg.connect(db_url) as conn:  # pragma: no cover
++        with conn.cursor() as cur:
++            cur.execute(
++                """
++                INSERT INTO llm_operator_routing_incident_rca_route_apply_verifications (
++                    experiment_id,
++                    ts_ms,
++                    status,
++                    reason_code,
++                    usefulness_score,
++                    exposure_n,
++                    baseline_route_json,
++                    target_route_json,
++                    current_route_json,
++                    feedback_snapshot_json
++                ) VALUES (
++                    %(experiment_id)s,
++                    %(ts_ms)s,
++                    %(status)s,
++                    %(reason_code)s,
++                    %(usefulness_score)s,
++                    %(exposure_n)s,
++                    %(baseline_route_json)s,
++                    %(target_route_json)s,
++                    %(current_route_json)s,
++                    %(feedback_snapshot_json)s
++                )
++                """,
++                {
++                    "experiment_id": apply_row.get("experiment_id", ""),
++                    "ts_ms": now_ms(),
++                    "status": verification["verification_status"],
++                    "reason_code": verification["verification_reason_code"],
++                    "usefulness_score": verification["usefulness_score"],
++                    "exposure_n": verification["exposure_n"],
++                    "baseline_route_json": verification["baseline_route_json"],
++                    "target_route_json": verification["target_route_json"],
++                    "current_route_json": verification["current_route_json"],
++                    "feedback_snapshot_json": verification["feedback_snapshot_json"],
++                },
++            )
++            conn.commit()
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    await ensure_group(r, INPUT_STREAM, GROUP)
++    db_url = os.getenv("DATABASE_URL", "")
++    while True:
++        rows = await r.xreadgroup(GROUP, CONSUMER, {INPUT_STREAM: ">"}, count=32, block=5000)
++        if not rows:
++            continue
++        for _stream, messages in rows:
++            for msg_id, payload in messages:
++                started = time.perf_counter()
++                status = "ok"
++                decision_label = "PASS"
++                try:
++                    apply_row = as_dict(payload)
++                    current_route = as_dict(await r.hgetall(STATE_KEY))
++                    feedback_snapshot = as_dict(await r.hgetall(FEEDBACK_LAST_HASH))
++                    verification = evaluate_verification(apply_row, current_route, feedback_snapshot, now_ms())
++                    decision_label = verification["verification_status"]
++
++                    result_payload = {
++                        "schema_version": 1,
++                        "experiment_id": apply_row.get("experiment_id", ""),
++                        "decision": apply_row.get("decision", ""),
++                        "winner": apply_row.get("winner", ""),
++                        "uplift": apply_row.get("uplift", "0"),
++                        "verification_status": verification["verification_status"],
++                        "verification_reason_code": verification["verification_reason_code"],
++                        "usefulness_score": str(verification["usefulness_score"]),
++                        "exposure_n": str(verification["exposure_n"]),
++                        "baseline_route_json": verification["baseline_route_json"],
++                        "target_route_json": verification["target_route_json"],
++                        "current_route_json": verification["current_route_json"],
++                        "feedback_snapshot_json": verification["feedback_snapshot_json"],
++                        "ts_ms": str(now_ms()),
++                    }
++                    await persist_if_configured(db_url, apply_row, verification)
++                    await r.xadd(VERIFY_RESULTS_STREAM, result_payload, maxlen=MAXLEN, approximate=True)
++                    await r.xadd(
++                        AUDIT_STREAM,
++                        {
++                            "event_type": "ROUTING_INCIDENT_RCA_ROUTE_APPLY_VERIFIED",
++                            "experiment_id": apply_row.get("experiment_id", ""),
++                            "verification_status": verification["verification_status"],
++                            "verification_reason_code": verification["verification_reason_code"],
++                            "ts_ms": str(now_ms()),
++                        },
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    if verification["verification_status"] == "ROLLBACK_REQUIRED":
++                        await r.xadd(
++                            ROLLBACK_REQUESTS_STREAM,
++                            {
++                                "schema_version": 1,
++                                "experiment_id": apply_row.get("experiment_id", ""),
++                                "reason_code": verification["verification_reason_code"],
++                                "baseline_route_json": verification["baseline_route_json"],
++                                "target_route_json": verification["target_route_json"],
++                                "ts_ms": str(now_ms()),
++                            },
++                            maxlen=MAXLEN,
++                            approximate=True,
++                        )
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                    if LAST_RUN_TS:
++                        LAST_RUN_TS.set(time.time())
++                except Exception as exc:
++                    status = "error"
++                    await r.xadd(
++                        AUDIT_STREAM,
++                        {
++                            "event_type": "ROUTING_INCIDENT_RCA_ROUTE_APPLY_VERIFY_FAILED",
++                            "error": str(exc),
++                            "ts_ms": str(now_ms()),
++                        },
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                finally:
++                    if RUNS:
++                        RUNS.labels(status=status, decision=decision_label).inc()
++                    if LAT:
++                        LAT.observe(max(time.perf_counter() - started, 0.0))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    import asyncio
++    asyncio.run(main())
+diff --git a/orderflow_services/operator_routing_incident_rca_routing_rollback_executor_v2_15.py b/orderflow_services/operator_routing_incident_rca_routing_rollback_executor_v2_15.py
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/orderflow_services/operator_routing_incident_rca_routing_rollback_executor_v2_15.py
+@@ -0,0 +1,320 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from typing import Any, Dict, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    import psycopg
++except Exception:  # pragma: no cover
++    psycopg = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++
++APP_NAME = "operator_routing_incident_rca_routing_rollback_executor_v2_15"
++INPUT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_ROLLBACK_REQUESTS_STREAM",
++    "stream:ml:operator_routing_incident_rca_routing_rollback_requests",
++)
++RESULTS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_ROLLBACK_RESULTS_STREAM",
++    "stream:ml:operator_routing_incident_rca_routing_rollback_results",
++)
++JOURNAL_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_ROLLBACK_JOURNAL_STREAM",
++    "stream:ml:operator_routing_incident_rca_routing_rollback_journal",
++)
++AUDIT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_APPLY_AUDIT_STREAM",
++    "stream:ml:operator_routing_incident_rca_routing_apply_audit",
++)
++STATE_KEY = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_DEFAULT_KEY",
++    "cfg:ml:operator_routing_incident_rca_routing:default",
++)
++GROUP = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_ROLLBACK_GROUP", APP_NAME)
++CONSUMER = os.getenv("HOSTNAME", APP_NAME)
++PORT = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_ROLLBACK_PORT", "9895"))
++MAXLEN = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_ROLLBACK_MAXLEN", "20000"))
++MODE = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_ROLLBACK_MODE", "DRY_RUN").upper()
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter(
++    "ml_operator_routing_incident_rca_routing_rollback_runs_total",
++    "Routing-incident RCA routing rollback runs",
++    ("status", "mode"),
++)
++LAT = _hist(
++    "ml_operator_routing_incident_rca_routing_rollback_latency_seconds",
++    "Routing-incident RCA routing rollback latency seconds",
++)
++UP = _gauge(
++    "ml_operator_routing_incident_rca_routing_rollback_up",
++    "Routing-incident RCA routing rollback executor up",
++)
++LAST_RUN_TS = _gauge(
++    "ml_operator_routing_incident_rca_routing_rollback_last_run_ts_seconds",
++    "Routing-incident RCA routing rollback executor last run timestamp",
++)
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        if isinstance(v, (bytes, bytearray)):
++            try:
++                out[kk] = v.decode()
++            except Exception:
++                out[kk] = v.hex()
++        else:
++            out[kk] = v
++    return out
++
++
++def stable_json(obj: Any) -> str:
++    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++def maybe_json(value: Any, default: Any = None) -> Any:
++    if value is None:
++        return default
++    if isinstance(value, (dict, list)):
++        return value
++    try:
++        return json.loads(value)
++    except Exception:
++        return default
++
++
++async def ensure_group(client: Any, stream_key: str, group: str) -> None:
++    try:
++        await client.xgroup_create(stream_key, group, id="$", mkstream=True)
++    except Exception:
++        return
++
++
++async def persist_if_configured(db_url: str, request_row: Dict[str, Any], restored_route: Dict[str, Any], status: str) -> None:
++    if not db_url or psycopg is None:
++        return
++    with psycopg.connect(db_url) as conn:  # pragma: no cover
++        with conn.cursor() as cur:
++            cur.execute(
++                """
++                INSERT INTO llm_operator_routing_incident_rca_route_rollback_journal (
++                    experiment_id,
++                    ts_ms,
++                    mode,
++                    status,
++                    reason_code,
++                    baseline_route_json,
++                    restored_route_json
++                ) VALUES (
++                    %(experiment_id)s,
++                    %(ts_ms)s,
++                    %(mode)s,
++                    %(status)s,
++                    %(reason_code)s,
++                    %(baseline_route_json)s,
++                    %(restored_route_json)s
++                )
++                """,
++                {
++                    "experiment_id": request_row.get("experiment_id", ""),
++                    "ts_ms": now_ms(),
++                    "mode": MODE,
++                    "status": status,
++                    "reason_code": request_row.get("reason_code", ""),
++                    "baseline_route_json": request_row.get("baseline_route_json", "{}"),
++                    "restored_route_json": stable_json(restored_route),
++                },
++            )
++            conn.commit()
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    await ensure_group(r, INPUT_STREAM, GROUP)
++    db_url = os.getenv("DATABASE_URL", "")
++
++    while True:
++        rows = await r.xreadgroup(GROUP, CONSUMER, {INPUT_STREAM: ">"}, count=32, block=5000)
++        if not rows:
++            continue
++        for _stream, messages in rows:
++            for msg_id, payload in messages:
++                started = time.perf_counter()
++                status = "ok"
++                try:
++                    request_row = as_dict(payload)
++                    baseline = maybe_json(request_row.get("baseline_route_json"), {}) or {}
++                    current = as_dict(await r.hgetall(STATE_KEY))
++                    restored = dict(baseline)
++                    if MODE == "COMMIT" and baseline:
++                        await r.hset(STATE_KEY, mapping=baseline)
++                    result_payload = {
++                        "schema_version": 1,
++                        "experiment_id": request_row.get("experiment_id", ""),
++                        "reason_code": request_row.get("reason_code", ""),
++                        "mode": MODE,
++                        "status": "ROLLED_BACK" if baseline else "INCONCLUSIVE",
++                        "baseline_route_json": request_row.get("baseline_route_json", "{}"),
++                        "target_route_json": request_row.get("target_route_json", "{}"),
++                        "restored_route_json": stable_json(restored),
++                        "previous_route_json": stable_json(current),
++                        "ts_ms": str(now_ms()),
++                    }
++                    await persist_if_configured(db_url, request_row, restored, result_payload["status"])
++                    await r.xadd(RESULTS_STREAM, result_payload, maxlen=MAXLEN, approximate=True)
++                    await r.xadd(
++                        JOURNAL_STREAM,
++                        {
++                            "schema_version": 1,
++                            "experiment_id": request_row.get("experiment_id", ""),
++                            "mode": MODE,
++                            "status": result_payload["status"],
++                            "reason_code": request_row.get("reason_code", ""),
++                            "baseline_route_json": request_row.get("baseline_route_json", "{}"),
++                            "restored_route_json": stable_json(restored),
++                            "ts_ms": str(now_ms()),
++                        },
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.xadd(
++                        AUDIT_STREAM,
++                        {
++                            "event_type": "ROUTING_INCIDENT_RCA_ROUTE_ROLLBACK_EXECUTED",
++                            "experiment_id": request_row.get("experiment_id", ""),
++                            "mode": MODE,
++                            "status": result_payload["status"],
++                            "reason_code": request_row.get("reason_code", ""),
++                            "ts_ms": str(now_ms()),
++                        },
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                    if LAST_RUN_TS:
++                        LAST_RUN_TS.set(time.time())
++                except Exception as exc:
++                    status = "error"
++                    await r.xadd(
++                        AUDIT_STREAM,
++                        {
++                            "event_type": "ROUTING_INCIDENT_RCA_ROUTE_ROLLBACK_FAILED",
++                            "error": str(exc),
++                            "mode": MODE,
++                            "ts_ms": str(now_ms()),
++                        },
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                finally:
++                    if RUNS:
++                        RUNS.labels(status=status, mode=MODE).inc()
++                    if LAT:
++                        LAT.observe(max(time.perf_counter() - started, 0.0))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    import asyncio
++    asyncio.run(main())
+diff --git a/orderflow_services/sql/ml_phase2_15_v1.sql b/orderflow_services/sql/ml_phase2_15_v1.sql
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/orderflow_services/sql/ml_phase2_15_v1.sql
+@@ -0,0 +1,41 @@
++BEGIN;
++
++CREATE TABLE IF NOT EXISTS llm_operator_routing_incident_rca_route_apply_verifications (
++    id                     bigserial PRIMARY KEY,
++    experiment_id          text NOT NULL,
++    ts_ms                  bigint NOT NULL,
++    status                 text NOT NULL,
++    reason_code            text NOT NULL,
++    usefulness_score       double precision,
++    exposure_n             integer,
++    baseline_route_json    jsonb NOT NULL,
++    target_route_json      jsonb NOT NULL,
++    current_route_json     jsonb NOT NULL,
++    feedback_snapshot_json jsonb NOT NULL
++);
++
++CREATE INDEX IF NOT EXISTS idx_llm_operator_routing_incident_rca_route_apply_verifications_exp_ts
++    ON llm_operator_routing_incident_rca_route_apply_verifications(experiment_id, ts_ms DESC);
++
++CREATE TABLE IF NOT EXISTS llm_operator_routing_incident_rca_route_rollback_journal (
++    id                   bigserial PRIMARY KEY,
++    experiment_id        text NOT NULL,
++    ts_ms                bigint NOT NULL,
++    mode                 text NOT NULL,
++    status               text NOT NULL,
++    reason_code          text NOT NULL,
++    baseline_route_json  jsonb NOT NULL,
++    restored_route_json  jsonb NOT NULL
++);
++
++CREATE INDEX IF NOT EXISTS idx_llm_operator_routing_incident_rca_route_rollback_journal_exp_ts
++    ON llm_operator_routing_incident_rca_route_rollback_journal(experiment_id, ts_ms DESC);
++
++COMMIT;
+diff --git a/orderflow_services/docker_compose_fragment_ml_phase2_15_v1.yml b/orderflow_services/docker_compose_fragment_ml_phase2_15_v1.yml
+new file mode 100644
+index 0000000..4444444
+--- /dev/null
++++ b/orderflow_services/docker_compose_fragment_ml_phase2_15_v1.yml
+@@ -0,0 +1,36 @@
++services:
++  scanner-operator-routing-incident-rca-routing-post-apply-verifier-v2-15:
++    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
++    command: ["python", "-m", "orderflow_services.operator_routing_incident_rca_routing_post_apply_verifier_v2_15"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_VERIFY_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_VERIFY_PORT:-9894}
++      ML_OPERATOR_ROUTING_INCIDENT_RCA_VERIFY_MIN_USEFULNESS: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_VERIFY_MIN_USEFULNESS:-0.50}
++      ML_OPERATOR_ROUTING_INCIDENT_RCA_VERIFY_MAX_FEEDBACK_STALENESS_MS: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_VERIFY_MAX_FEEDBACK_STALENESS_MS:-7200000}
++      ML_OPERATOR_ROUTING_INCIDENT_RCA_VERIFY_MIN_EXPOSURE: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_VERIFY_MIN_EXPOSURE:-3}
++    ports: ["${ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_VERIFY_PORT:-9894}:9894"]
++    depends_on: [redis-worker-1]
++
++  scanner-operator-routing-incident-rca-routing-rollback-executor-v2-15:
++    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
++    command: ["python", "-m", "orderflow_services.operator_routing_incident_rca_routing_rollback_executor_v2_15"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_ROLLBACK_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_ROLLBACK_PORT:-9895}
++      ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_ROLLBACK_MODE: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_ROLLBACK_MODE:-DRY_RUN}
++    ports: ["${ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_ROLLBACK_PORT:-9895}:9895"]
++    depends_on: [redis-worker-1]
+diff --git a/orderflow_services/prometheus_alerts_ml_phase2_15_v1.yml b/orderflow_services/prometheus_alerts_ml_phase2_15_v1.yml
+new file mode 100644
+index 0000000..5555555
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_ml_phase2_15_v1.yml
+@@ -0,0 +1,31 @@
++groups:
++  - name: ml_phase2_15_operator_routing_incident_rca_route_safety_v1
++    rules:
++      - alert: MLOperatorRoutingIncidentRCARouteVerifierStale
++        expr: time() - ml_operator_routing_incident_rca_routing_verify_last_run_ts_seconds > 1800
++        for: 10m
++        labels: { severity: warning }
++        annotations:
++          summary: "routing incident RCA route verifier is stale"
++
++      - alert: MLOperatorRoutingIncidentRCARouteRollbackExecutorStale
++        expr: time() - ml_operator_routing_incident_rca_routing_rollback_last_run_ts_seconds > 1800
++        for: 10m
++        labels: { severity: warning }
++        annotations:
++          summary: "routing incident RCA route rollback executor is stale"
+diff --git a/orderflow_services/runbook_ml_phase2_15_v1.md b/orderflow_services/runbook_ml_phase2_15_v1.md
+new file mode 100644
+index 0000000..6666666
+--- /dev/null
++++ b/orderflow_services/runbook_ml_phase2_15_v1.md
+@@ -0,0 +1,49 @@
++# Phase 2.15 — Routing Incident RCA Post-Apply Verification + Rollback
++
++## Цель
++Замкнуть safety loop для `routing incident RCA` routing policy:
++- post-apply verification
++- bounded rollback request
++- rollback executor
++
++## Потоки
++- input apply results: `stream:ml:operator_routing_incident_rca_routing_apply_results`
++- verify results: `stream:ml:operator_routing_incident_rca_routing_verify_results`
++- rollback requests: `stream:ml:operator_routing_incident_rca_routing_rollback_requests`
++- rollback results: `stream:ml:operator_routing_incident_rca_routing_rollback_results`
++- rollback journal: `stream:ml:operator_routing_incident_rca_routing_rollback_journal`
++
++## Safe start
++```bash
++export ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_ROLLBACK_MODE=DRY_RUN
++export ML_OPERATOR_ROUTING_INCIDENT_RCA_VERIFY_MIN_USEFULNESS=0.50
++export ML_OPERATOR_ROUTING_INCIDENT_RCA_VERIFY_MIN_EXPOSURE=3
++```
++
++## Smoke checks
++```bash
++redis-cli XREVRANGE stream:ml:operator_routing_incident_rca_routing_apply_results + - COUNT 5
++redis-cli XREVRANGE stream:ml:operator_routing_incident_rca_routing_verify_results + - COUNT 5
++redis-cli XREVRANGE stream:ml:operator_routing_incident_rca_routing_rollback_requests + - COUNT 5
++redis-cli XREVRANGE stream:ml:operator_routing_incident_rca_routing_rollback_results + - COUNT 5
++redis-cli XREVRANGE stream:ml:operator_routing_incident_rca_routing_rollback_journal + - COUNT 5
++curl -s localhost:9894/metrics | grep '^ml_operator_routing_incident_rca_routing_verify_'
++curl -s localhost:9895/metrics | grep '^ml_operator_routing_incident_rca_routing_rollback_'
++```
++
++## Notes
++- scope только `scanner_infra`
++- hot path не затронут
++- `LOW_EXPOSURE` => `INCONCLUSIVE`
++- `USEFULNESS_DROP / FEEDBACK_STALE / ROUTE_MISMATCH` => `ROLLBACK_REQUIRED`
++- rollback executor default = `DRY_RUN`
+diff --git a/orderflow_services/tests/test_operator_routing_incident_rca_route_safety_v2_15.py b/orderflow_services/tests/test_operator_routing_incident_rca_route_safety_v2_15.py
+new file mode 100644
+index 0000000..7777777
+--- /dev/null
++++ b/orderflow_services/tests/test_operator_routing_incident_rca_route_safety_v2_15.py
+@@ -0,0 +1,53 @@
++from orderflow_services.operator_routing_incident_rca_routing_post_apply_verifier_v2_15 import (
++    evaluate_verification,
++)
++
++
++def test_evaluate_verification_low_exposure_is_inconclusive():
++    apply_row = {
++        "baseline_route_json": '{"provider":"vertex","model_name":"gemini-2.5-flash-lite","prompt_version":"v1","policy_version":"policy_v1"}',
++        "target_route_json": '{"provider":"vertex","model_name":"gemini-2.5-flash","prompt_version":"v2","policy_version":"policy_v1"}',
++    }
++    current_route = {
++        "provider": "vertex",
++        "model_name": "gemini-2.5-flash",
++        "prompt_version": "v2",
++        "policy_version": "policy_v1",
++    }
++    feedback = {"usefulness_score": "0.8", "exposure_n": "1", "ts_ms": "1000"}
++    out = evaluate_verification(apply_row, current_route, feedback, 2000)
++    assert out["verification_status"] == "INCONCLUSIVE"
++    assert out["verification_reason_code"] == "LOW_EXPOSURE"
++
++
++def test_evaluate_verification_requires_rollback_on_usefulness_drop():
++    apply_row = {
++        "baseline_route_json": '{"provider":"vertex","model_name":"gemini-2.5-flash-lite","prompt_version":"v1","policy_version":"policy_v1"}',
++        "target_route_json": '{"provider":"vertex","model_name":"gemini-2.5-flash","prompt_version":"v2","policy_version":"policy_v1"}',
++    }
++    current_route = {
++        "provider": "vertex",
++        "model_name": "gemini-2.5-flash",
++        "prompt_version": "v2",
++        "policy_version": "policy_v1",
++    }
++    feedback = {"usefulness_score": "0.2", "exposure_n": "5", "ts_ms": "1500"}
++    out = evaluate_verification(apply_row, current_route, feedback, 2000)
++    assert out["verification_status"] == "ROLLBACK_REQUIRED"
++    assert out["verification_reason_code"] == "USEFULNESS_DROP"
++

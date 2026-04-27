@@ -1,0 +1,3401 @@
+diff --git a/services/binance_account_reporter.py b/services/binance_account_reporter.py
+new file mode 100644
+index 0000000..d5cd0df
+--- /dev/null
++++ b/services/binance_account_reporter.py
+@@ -0,0 +1,242 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Binance USDT-M account reporter → Telegram (hourly).
++
++Primary job (P0):
++  - once per hour, fetch factual account state from Binance Futures
++  - send a compact report to Telegram
++
++This service is intentionally standalone and fail-open:
++  - if Binance is temporarily unavailable, it logs and retries next interval
++  - if Telegram is unavailable, it drops the message (no crash)
++
++Env (required):
++  BINANCE_API_KEY
++  BINANCE_API_SECRET
++  TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID   (or legacy BOT_TOKEN/CHAT_ID)
++
++Env (optional):
++  BINANCE_FUTURES_BASE_URL (default https://fapi.binance.com)
++  BINANCE_TIME_SYNC=1      (sync server time offset for signatures)
++
++  REPORT_INTERVAL_SEC=3600
++  REPORT_ALIGN_TO_HOUR=1      (align to UTC hour boundaries)
++  REPORT_TOPN_POSITIONS=5
++  REPORT_INCLUDE_OPEN_ORDERS=1
++
++  REDIS_URL=redis://redis-worker-1:6379/0
++  ACCOUNT_SNAPSHOT_KEY=account:snapshot:binance_usdtm
++  ACCOUNT_SNAPSHOT_TTL_SEC=7200
++"""
++
++import json
++import os
++import time
++from typing import Any, Dict, List, Optional, Tuple
++
++import redis
++
++from services.binance_futures_client import BinanceFuturesClient
++from services.telegram.telegram_client import TelegramClient
++
++
++def _f(x: Any, default: float = 0.0) -> float:
++    try:
++        if x is None:
++            return default
++        return float(x)
++    except Exception:
++        return default
++
++
++def _i(x: Any, default: int = 0) -> int:
++    try:
++        if x is None:
++            return default
++        return int(float(x))
++    except Exception:
++        return default
++
++
++def _bool_env(name: str, default: bool = False) -> bool:
++    v = (os.getenv(name) or "").strip().lower()
++    if not v:
++        return default
++    return v in {"1", "true", "yes", "on"}
++
++
++def _fmt_money(x: float) -> str:
++    return f"{x:,.2f}"
++
++
++def _align_sleep(interval_s: int) -> None:
++    # Align to UTC hour boundary to make reports easier to reason about.
++    now = int(time.time())
++    next_tick = ((now // interval_s) + 1) * interval_s
++    sleep_s = max(1, next_tick - now)
++    time.sleep(sleep_s)
++
++
++def build_snapshot(client: BinanceFuturesClient, *, top_n: int, include_open_orders: bool) -> Dict[str, Any]:
++    acc = client.get_account()
++    risks = client.get_position_risk()
++    orders: List[Dict[str, Any]] = []
++    if include_open_orders:
++        try:
++            orders = client.get_open_orders() or []
++        except Exception:
++            orders = []
++
++    wallet = _f(acc.get("totalWalletBalance"))
++    margin = _f(acc.get("totalMarginBalance"))
++    available = _f(acc.get("availableBalance"))
++    upnl = _f(acc.get("totalUnrealizedProfit"))
++    im = _f(acc.get("totalInitialMargin"))
++    mm = _f(acc.get("totalMaintMargin"))
++
++    open_positions: List[Dict[str, Any]] = []
++    notional_sum = 0.0
++
++    for p in risks or []:
++        amt = _f(p.get("positionAmt"))
++        if abs(amt) <= 0.0:
++            continue
++        notional = abs(_f(p.get("notional")))
++        notional_sum += notional
++        sym = str(p.get("symbol") or "")
++        side = "LONG" if amt > 0 else "SHORT"
++        open_positions.append(
++            {
++                "symbol": sym,
++                "side": side,
++                "amt": amt,
++                "notional": notional,
++                "entry": _f(p.get("entryPrice")),
++                "mark": _f(p.get("markPrice")),
++                "upnl": _f(p.get("unRealizedProfit")),
++                "liq": _f(p.get("liquidationPrice")),
++                "leverage": _i(p.get("leverage"), 0),
++            }
++        )
++
++    open_positions_sorted = sorted(open_positions, key=lambda x: abs(float(x.get("notional") or 0.0)), reverse=True)
++    top_positions = open_positions_sorted[: max(0, int(top_n))]
++
++    snap = {
++        "ts_ms": int(time.time() * 1000),
++        "wallet_balance_usdt": wallet,
++        "margin_balance_usdt": margin,
++        "available_balance_usdt": available,
++        "unrealized_pnl_usdt": upnl,
++        "initial_margin_usdt": im,
++        "maint_margin_usdt": mm,
++        "open_positions_n": len(open_positions_sorted),
++        "open_notional_abs_usdt": notional_sum,
++        "open_orders_n": len(orders) if orders else 0,
++        "top_positions": top_positions,
++    }
++    return snap
++
++
++def format_report(snap: Dict[str, Any]) -> str:
++    ts_ms = _i(snap.get("ts_ms"), int(time.time() * 1000))
++    dt = time.gmtime(ts_ms / 1000.0)
++    ts = time.strftime("%Y-%m-%d %H:%M:%S UTC", dt)
++
++    wallet = _f(snap.get("wallet_balance_usdt"))
++    margin = _f(snap.get("margin_balance_usdt"))
++    available = _f(snap.get("available_balance_usdt"))
++    upnl = _f(snap.get("unrealized_pnl_usdt"))
++    im = _f(snap.get("initial_margin_usdt"))
++    mm = _f(snap.get("maint_margin_usdt"))
++    pos_n = _i(snap.get("open_positions_n"))
++    notional = _f(snap.get("open_notional_abs_usdt"))
++    ord_n = _i(snap.get("open_orders_n"))
++
++    # Conservative, Telegram-safe HTML (no links, no markdown)
++    lines: List[str] = []
++    lines.append("<b>Binance Futures Account</b>")
++    lines.append(f"<i>{ts}</i>")
++    lines.append("")
++    lines.append(f"Wallet: <b>{_fmt_money(wallet)}</b> USDT")
++    lines.append(f"Margin: <b>{_fmt_money(margin)}</b> USDT")
++    lines.append(f"Available: <b>{_fmt_money(available)}</b> USDT")
++    lines.append(f"uPnL: <b>{_fmt_money(upnl)}</b> USDT")
++    lines.append(f"IM/MM: <b>{_fmt_money(im)}</b> / <b>{_fmt_money(mm)}</b> USDT")
++    lines.append("")
++    lines.append(f"Open positions: <b>{pos_n}</b> | Notional(abs): <b>{_fmt_money(notional)}</b> USDT")
++    lines.append(f"Open orders: <b>{ord_n}</b>")
++
++    top = snap.get("top_positions") or []
++    if top:
++        lines.append("")
++        lines.append("<b>Top positions</b>")
++        for p in top[:10]:
++            sym = str(p.get("symbol") or "")
++            side = str(p.get("side") or "")
++            notional_p = _f(p.get("notional"))
++            upnl_p = _f(p.get("upnl"))
++            lev = _i(p.get("leverage"), 0)
++            lines.append(f"• {sym} {side} | notional { _fmt_money(notional_p) } | uPnL { _fmt_money(upnl_p) } | lev {lev}")
++
++    # Telegram has 4096 limit. Truncate defensively.
++    text = "\n".join(lines)
++    return text[:3900]
++
++
++def maybe_store_snapshot(r: Optional[redis.Redis], key: str, ttl_sec: int, snap: Dict[str, Any]) -> None:
++    if not r or not key:
++        return
++    try:
++        r.set(key, json.dumps(snap, ensure_ascii=False), ex=int(ttl_sec) if ttl_sec > 0 else None)
++    except Exception:
++        return
++
++
++def main() -> None:
++    interval_sec = int(os.getenv("REPORT_INTERVAL_SEC", "3600"))
++    align = _bool_env("REPORT_ALIGN_TO_HOUR", True)
++    top_n = int(os.getenv("REPORT_TOPN_POSITIONS", "5"))
++    include_orders = _bool_env("REPORT_INCLUDE_OPEN_ORDERS", True)
++
++    snapshot_key = (os.getenv("ACCOUNT_SNAPSHOT_KEY") or "").strip()
++    snapshot_ttl = int(os.getenv("ACCOUNT_SNAPSHOT_TTL_SEC", "7200"))
++
++    redis_url = (os.getenv("REDIS_URL") or "").strip()
++    r: Optional[redis.Redis] = None
++    if redis_url:
++        try:
++            r = redis.from_url(redis_url, decode_responses=True)
++        except Exception:
++            r = None
++
++    tg = TelegramClient.from_env()
++    if tg is None:
++        raise RuntimeError("Telegram is not configured (TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID or BOT_TOKEN/CHAT_ID)")
++
++    client = BinanceFuturesClient.from_env()
++
++    print("📣 Binance account reporter starting")
++    print(f"   interval_sec={interval_sec} align_to_hour={align}")
++    print(f"   top_n={top_n} include_open_orders={include_orders}")
++    print(f"   snapshot_key={snapshot_key or '(disabled)'}")
++
++    while True:
++        try:
++            snap = build_snapshot(client, top_n=top_n, include_open_orders=include_orders)
++            maybe_store_snapshot(r, snapshot_key, snapshot_ttl, snap)
++            text = format_report(snap)
++            _ = tg.send_text(text)
++        except Exception as e:
++            # Fail-open: do not crash the service.
++            print(f"❌ reporter error: {e}")
++
++        if align:
++            _align_sleep(interval_sec)
++        else:
++            time.sleep(max(1, int(interval_sec)))
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/services/binance_executor.py b/services/binance_executor.py
+new file mode 100644
+index 0000000..91b8cb2
+--- /dev/null
++++ b/services/binance_executor.py
+@@ -0,0 +1,1024 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Binance USDT-M Futures executor (reads Redis queue → places orders → writes exec facts).
++
++Queue contract (already in your project):
++  action: open | modify | cancel | resize
++  sid, symbol, timestamp are required.
++
++Binance specifics:
++  - Entry is an order (MARKET or LIMIT)
++  - SL/TP must be separate reduceOnly orders
++  - For production we need ack/retry/DLQ, and factual `orders:exec` events.
++
++This implementation focuses on correctness and safety:
++  - BRPOPLPUSH queue → processing list (at-least-once)
++  - errors are classified into transient vs fatal
++  - fatal → DLQ (so queue doesn't grow forever)
++  - writes `orders:exec` events for both success and failures
++
++Env:
++  REDIS_URL=redis://redis-worker-1:6379/0
++  ORDERS_QUEUE_BINANCE=orders:queue:binance
++  ORDERS_QUEUE_BINANCE_PROCESSING=orders:queue:binance:processing
++  ORDERS_QUEUE_BINANCE_DLQ=orders:queue:binance:dlq
++  EXEC_STREAM=orders:exec
++
++  BINANCE_API_KEY, BINANCE_API_SECRET
++  BINANCE_POSITION_MODE=oneway|hedge (default oneway)
++  BINANCE_SYMBOL_ALLOWLIST=BTCUSDT,ETHUSDT,... (optional)
++
++  BINANCE_INIT_SYMBOL_SETTINGS=1
++  BINANCE_MARGIN_TYPE=ISOLATED|CROSSED (default ISOLATED)
++  BINANCE_DEFAULT_LEVERAGE=20
++
++  BINANCE_ASSUME_LOT_IS_QTY=0  (default: require qty/quantity)
++  BINANCE_MAX_RETRY=3
++  BINANCE_FILL_TIMEOUT_S=8.0
++  BINANCE_FILL_POLL_S=0.25
++
++Telegram (optional, for errors):
++  TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (or legacy BOT_TOKEN/CHAT_ID)
++"""
++
++import hashlib
++import json
++import math
++import os
++import threading
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional, Tuple
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++from services.binance_futures_client import BinanceAPIError, BinanceFuturesClient
++from services.telegram.telegram_client import TelegramClient
++
++
++def _bool_env(name: str, default: bool = False) -> bool:
++    v = (os.getenv(name) or "").strip().lower()
++    if not v:
++        return default
++    return v in {"1", "true", "yes", "on"}
++
++
++def _ms_now() -> int:
++    return int(time.time() * 1000)
++
++
++def _f(x: Any, default: float = 0.0) -> float:
++    try:
++        if x is None:
++            return default
++        return float(x)
++    except Exception:
++        return default
++
++
++def _i(x: Any, default: int = 0) -> int:
++    try:
++        if x is None:
++            return default
++        return int(float(x))
++    except Exception:
++        return default
++
++
++def _sha1_8(s: str) -> str:
++    return hashlib.sha1(s.encode("utf-8")).hexdigest()[:8]
++
++
++def _make_cid(sid: str, tag: str) -> str:
++    # Futures newClientOrderId max is 36 chars (keep safe).
++    token = _sha1_8(sid)
++    base = sid.replace(" ", "").replace(":", "-")
++    base = base[: max(6, 36 - (len(tag) + len(token) + 2))]
++    cid = f"{base}-{token}-{tag}"
++    return cid[:36]
++
++
++def _round_down(x: float, step: float) -> float:
++    if step <= 0:
++        return x
++    return math.floor(x / step) * step
++
++
++def _truthy(v: Any) -> bool:
++    if v is None:
++        return False
++    if isinstance(v, bool):
++        return v
++    if isinstance(v, (int, float)):
++        return float(v) != 0.0
++    s = str(v).strip().lower()
++    return s in {"1", "true", "yes", "on"}
++
++
++def _clamp(x: float, lo: float, hi: float) -> float:
++    return max(lo, min(hi, x))
++
++
++def _round_half_up(x: float, decimals: int = 1) -> float:
++    """Round halves up (unlike Python's bankers rounding).
++
++    Binance trailing callbackRate uses 0.1% steps. With floats, `round(0.35, 1)`
++    can yield 0.3 due to binary representation; this helper keeps it stable.
++    """
++    p = 10 ** int(decimals)
++    return math.floor(x * p + 0.5) / p
++
++
++def compute_trailing_callback_rate_pct(
++    payload: Dict[str, Any],
++    *,
++    entry_price: Optional[float],
++    atr: Optional[float],
++    min_pct: float,
++    max_pct: float,
++    default_pct: float,
++    atr_mult_default: float,
++) -> float:
++    """Compute Binance callbackRate (percent) for TRAILING_STOP_MARKET.
++
++    Supported payload overrides:
++      - trail_callback_rate / trail_callback_pct / trail_callback_percent : percent (0.1..5)
++      - trail_callback_bps : bps (10 bps = 0.10%)
++      - trail_atr_mult : multiplier used when deriving from ATR
++
++    Fallback: derive from ATR as: (atr * mult / entry_price) * 100.
++    """
++
++    # Explicit percent.
++    for k in ("trail_callback_rate", "trail_callback_pct", "trail_callback_percent"):
++        if payload.get(k) is not None:
++            try:
++                v = float(payload.get(k))
++                v = _clamp(v, min_pct, max_pct)
++                return _round_half_up(v, 1)  # Binance uses 0.1% step
++            except Exception:
++                pass
++
++    # Explicit bps.
++    if payload.get("trail_callback_bps") is not None:
++        try:
++            bps = float(payload.get("trail_callback_bps"))
++            v = bps / 100.0
++            v = _clamp(v, min_pct, max_pct)
++            return _round_half_up(v, 1)
++        except Exception:
++            pass
++
++    # Derive from ATR.
++    try:
++        if atr is not None and entry_price is not None and entry_price > 0 and atr > 0:
++            mult = atr_mult_default
++            if payload.get("trail_atr_mult") is not None:
++                try:
++                    mult = float(payload.get("trail_atr_mult"))
++                except Exception:
++                    mult = atr_mult_default
++            v = (float(atr) * float(mult) / float(entry_price)) * 100.0
++            v = _clamp(v, min_pct, max_pct)
++            return _round_half_up(v, 1)
++    except Exception:
++        pass
++
++    v = _clamp(float(default_pct), min_pct, max_pct)
++    return _round_half_up(v, 1)
++
++
++@dataclass
++class SymbolFilters:
++    tick_size: float
++    step_size: float
++    min_qty: float
++    min_notional: float
++
++
++class FiltersCache:
++    def __init__(self, client: BinanceFuturesClient):
++        self.client = client
++        self._cache: Dict[str, SymbolFilters] = {}
++
++    def get(self, symbol: str) -> SymbolFilters:
++        s = symbol.upper()
++        if s in self._cache:
++            return self._cache[s]
++
++        info = self.client.get_exchange_info()
++        sym_list = info.get("symbols") or []
++        by_symbol = {str(x.get("symbol")).upper(): x for x in sym_list if x.get("symbol")}
++        if s not in by_symbol:
++            raise RuntimeError(f"Unknown Binance symbol: {s}")
++
++        filters = by_symbol[s].get("filters") or []
++        tick = 0.0
++        step = 0.0
++        min_qty = 0.0
++        min_notional = 0.0
++        for f in filters:
++            t = str(f.get("filterType") or "")
++            if t == "PRICE_FILTER":
++                tick = _f(f.get("tickSize"), tick)
++            elif t == "LOT_SIZE":
++                step = _f(f.get("stepSize"), step)
++                min_qty = _f(f.get("minQty"), min_qty)
++            elif t == "MIN_NOTIONAL":
++                min_notional = _f(f.get("notional"), min_notional)
++
++        sf = SymbolFilters(tick_size=tick or 0.0, step_size=step or 0.0, min_qty=min_qty or 0.0, min_notional=min_notional or 0.0)
++        self._cache[s] = sf
++        return sf
++
++
++def _normalize_side(payload: Dict[str, Any]) -> Tuple[str, str]:
++    # returns (binance_side, logical_side)
++    side = str(payload.get("side") or payload.get("direction") or "").upper().strip()
++    if side in {"BUY", "SELL"}:
++        return side, "LONG" if side == "BUY" else "SHORT"
++    if side in {"LONG", "SHORT"}:
++        return ("BUY" if side == "LONG" else "SELL"), side
++    raise ValueError(f"bad side: {payload.get('side')}")
++
++
++def _normalize_qty(payload: Dict[str, Any], assume_lot_is_qty: bool) -> float:
++    if payload.get("qty") is not None:
++        return _f(payload.get("qty"))
++    if payload.get("quantity") is not None:
++        return _f(payload.get("quantity"))
++    if assume_lot_is_qty and payload.get("lot") is not None:
++        return _f(payload.get("lot"))
++    raise ValueError("missing qty (provide qty/quantity; lot is MT5-specific)")
++
++
++def _classify_error(e: Exception) -> str:
++    """Return 'transient' or 'fatal'."""
++    if isinstance(e, BinanceAPIError):
++        payload = e.payload if isinstance(e.payload, dict) else {}
++        code = payload.get("code")
++        # transient-ish
++        if code in (-1021, -1003, -1001, -1007, -1100):
++            return "transient"
++        # insufficient margin, reduceOnly violations, invalid params are fatal
++        return "fatal"
++    # network-ish
++    msg = str(e).lower()
++    if "timed out" in msg or "temporary" in msg or "connection" in msg:
++        return "transient"
++    return "fatal"
++
++
++def _position_side_for_mode(position_mode: str, logical_side: str) -> Optional[str]:
++    # Binance hedge mode requires positionSide LONG/SHORT. One-way doesn't.
++    if position_mode != "hedge":
++        return None
++    return "LONG" if logical_side == "LONG" else "SHORT"
++
++
++class BinanceExecutor:
++    def __init__(self):
++        if redis is None:
++            raise RuntimeError("redis-py is required (pip install redis)")
++        self.redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++
++        # Default queue: keep compatibility with the existing project contract (orders:queue).
++        self.queue = os.getenv("ORDERS_QUEUE_BINANCE") or os.getenv("ORDERS_QUEUE") or "orders:queue"
++        self.queue_processing = os.getenv("ORDERS_QUEUE_BINANCE_PROCESSING") or f"{self.queue}:processing"
++        self.queue_dlq = os.getenv("ORDERS_QUEUE_BINANCE_DLQ") or f"{self.queue}:dlq"
++        self.exec_stream = os.getenv("EXEC_STREAM", "orders:exec")
++
++        allow = (os.getenv("BINANCE_SYMBOL_ALLOWLIST") or "").strip()
++        self.allowlist = {s.strip().upper() for s in allow.split(",") if s.strip()} if allow else set()
++
++        self.position_mode = (os.getenv("BINANCE_POSITION_MODE") or "oneway").strip().lower()
++        if self.position_mode not in {"oneway", "hedge"}:
++            self.position_mode = "oneway"
++
++        self.assume_lot_is_qty = _bool_env("BINANCE_ASSUME_LOT_IS_QTY", False)
++        self.max_retry = int(os.getenv("BINANCE_MAX_RETRY", "3"))
++        self.fill_timeout_s = float(os.getenv("BINANCE_FILL_TIMEOUT_S", "8.0"))
++        self.fill_poll_s = float(os.getenv("BINANCE_FILL_POLL_S", "0.25"))
++
++        self.init_symbol_settings = _bool_env("BINANCE_INIT_SYMBOL_SETTINGS", False)
++        self.margin_type = (os.getenv("BINANCE_MARGIN_TYPE") or "ISOLATED").strip().upper()
++        self.default_leverage = int(os.getenv("BINANCE_DEFAULT_LEVERAGE", "20"))
++
++        self.tg = TelegramClient.from_env()
++        self.client = BinanceFuturesClient.from_env()
++        self.filters = FiltersCache(self.client)
++
++        # Trailing stop settings (Binance futures TRAILING_STOP_MARKET).
++        # Your upstream pipeline sets `trail_after_tp1` flag; executor will only use trailing when the flag is true.
++        self.trail_cb_min = float(os.getenv("BINANCE_TRAIL_CALLBACK_MIN", "0.1"))
++        self.trail_cb_max = float(os.getenv("BINANCE_TRAIL_CALLBACK_MAX", "5.0"))
++        self.trail_cb_default = float(os.getenv("BINANCE_TRAIL_CALLBACK_DEFAULT", "0.3"))
++        self.trail_atr_mult_default = float(os.getenv("BINANCE_TRAIL_ATR_MULT", "1.0"))
++        self.trail_arm_poll_s = float(os.getenv("BINANCE_TRAIL_ARM_POLL_S", "1.0"))
++        self.trail_arm_timeout_s = float(os.getenv("BINANCE_TRAIL_ARM_TIMEOUT_S", "7200"))
++        self.trail_notify = _bool_env("BINANCE_TRAIL_NOTIFY", True)
++
++        self.r = redis.from_url(self.redis_url, decode_responses=True)
++
++    def _exec_event(self, fields: Dict[str, Any]) -> None:
++        # Ensure minimal fields
++        fields = dict(fields)
++        fields.setdefault("ts_ms", str(_ms_now()))
++        fields.setdefault("venue", "binance")
++        try:
++            self.r.xadd(self.exec_stream, {k: str(v) for k, v in fields.items() if v is not None})
++        except Exception:
++            # fail-open
++            return
++
++    def _dlq(self, raw: str, reason: str) -> None:
++        try:
++            self.r.lpush(self.queue_dlq, json.dumps({"reason": reason, "raw": raw, "ts_ms": _ms_now()}))
++        except Exception:
++            pass
++
++    def _ack_processing(self, raw: str) -> None:
++        # remove one occurrence
++        try:
++            self.r.lrem(self.queue_processing, 1, raw)
++        except Exception:
++            pass
++
++    def _requeue(self, payload: Dict[str, Any], raw: str, reason: str) -> None:
++        retry_n = int(payload.get("retry_n") or 0)
++        payload["retry_n"] = retry_n + 1
++        payload["retry_reason"] = reason
++        new_raw = json.dumps(payload, ensure_ascii=False, default=str)
++        try:
++            self.r.rpush(self.queue, new_raw)
++        except Exception:
++            # if we cannot requeue, DLQ the original
++            self._dlq(raw, f"requeue_failed:{reason}")
++
++    def _ensure_symbol_settings(self, symbol: str) -> None:
++        if not self.init_symbol_settings:
++            return
++        try:
++            _ = self.client.post_margin_type(symbol, self.margin_type)
++        except Exception:
++            # marginType is idempotent-ish: Binance returns error if unchanged; ignore
++            pass
++        try:
++            _ = self.client.post_leverage(symbol, self.default_leverage)
++        except Exception:
++            pass
++
++    def _quantize(self, symbol: str, qty: float, price: Optional[float]) -> Tuple[float, Optional[float]]:
++        f = self.filters.get(symbol)
++        q = qty
++        if f.step_size and f.step_size > 0:
++            q = _round_down(qty, f.step_size)
++        if f.min_qty and q < f.min_qty:
++            raise ValueError(f"qty below minQty: {q} < {f.min_qty}")
++        p = price
++        if price is not None and f.tick_size and f.tick_size > 0:
++            p = _round_down(price, f.tick_size)
++        return q, p
++
++    def _wait_fill(self, symbol: str, order_id: int, *, timeout_s: float) -> Dict[str, Any]:
++        deadline = time.time() + timeout_s
++        last = None
++        while time.time() < deadline:
++            j = self.client.get_order(symbol, order_id=order_id)
++            last = j
++            st = str(j.get("status") or "").upper()
++            if st == "FILLED":
++                return j
++            if st in {"CANCELED", "REJECTED", "EXPIRED"}:
++                return j
++            time.sleep(max(0.05, self.fill_poll_s))
++        return last or {}
++
++    def _split_tp_qtys(self, symbol: str, total_qty: float, n: int) -> List[float]:
++        if n <= 0:
++            return []
++        f = self.filters.get(symbol)
++        step = f.step_size or 0.0
++        if n == 1:
++            return [total_qty]
++
++        base = total_qty / float(n)
++        parts = []
++        remaining = total_qty
++        for i in range(n):
++            if i == n - 1:
++                q = remaining
++            else:
++                q = base
++                if step > 0:
++                    q = _round_down(q, step)
++                remaining -= q
++            if q <= 0:
++                continue
++            parts.append(q)
++        # ensure sum <= total_qty (rounding can leave dust)
++        s = sum(parts)
++        if s > total_qty and step > 0:
++            parts[-1] = _round_down(parts[-1] - (s - total_qty), step)
++        return [q for q in parts if q > 0]
++
++    def _place_protective(self, *, sid: str, symbol: str, logical_side: str, qty: float, sl: Optional[float], tps: List[float]) -> Dict[str, Any]:
++        # place SL/TP reduceOnly orders opposite to entry side
++        out: Dict[str, Any] = {}
++        exit_side = "SELL" if logical_side == "LONG" else "BUY"
++        pos_side = _position_side_for_mode(self.position_mode, logical_side)
++        reduce_only_allowed = self.position_mode == "oneway"
++
++        if sl is not None and sl > 0:
++            q_sl, sl_q = self._quantize(symbol, qty, sl)
++            p: Dict[str, Any] = {
++                "symbol": symbol,
++                "side": exit_side,
++                "type": "STOP_MARKET",
++                "stopPrice": sl_q,
++                "newClientOrderId": _make_cid(sid, "sl"),
++            }
++            # In one-way mode, prefer closePosition SL (it always closes the remaining position,
++            # even after partial TP fills).
++            if reduce_only_allowed:
++                p["closePosition"] = True
++            else:
++                # Hedge mode: reduceOnly is forbidden by Binance, so we specify quantity + positionSide.
++                p["quantity"] = q_sl
++                if pos_side:
++                    p["positionSide"] = pos_side
++            j = self.client.post_order(p)
++            out["sl_order_id"] = j.get("orderId")
++            out["sl_client_id"] = p["newClientOrderId"]
++
++        if tps:
++            parts = self._split_tp_qtys(symbol, qty, len(tps))
++            for idx, (tp, q_tp) in enumerate(zip(tps, parts), start=1):
++                q_tp2, tp_q = self._quantize(symbol, q_tp, tp)
++                p = {
++                    "symbol": symbol,
++                    "side": exit_side,
++                    "type": "TAKE_PROFIT_MARKET",
++                    "stopPrice": tp_q,
++                    "quantity": q_tp2,
++                    "newClientOrderId": _make_cid(sid, f"tp{idx}"),
++                }
++                if reduce_only_allowed:
++                    p["reduceOnly"] = True
++                elif pos_side:
++                    p["positionSide"] = pos_side
++                j = self.client.post_order(p)
++                out[f"tp{idx}_order_id"] = j.get("orderId")
++                out[f"tp{idx}_client_id"] = p["newClientOrderId"]
++        return out
++
++    def _cancel_by_token(self, symbol: str, sid: str) -> int:
++        token = _sha1_8(sid)
++        canceled = 0
++        orders = self.client.get_open_orders(symbol) or []
++        for o in orders:
++            cid = str(o.get("clientOrderId") or "")
++            if token and token not in cid:
++                continue
++            try:
++                oid = _i(o.get("orderId"), 0)
++                if oid:
++                    _ = self.client.delete_order(symbol, order_id=oid)
++                    canceled += 1
++            except Exception:
++                continue
++        return canceled
++
++    def _get_position_qty(self, symbol: str, logical_side: Optional[str] = None) -> float:
++        risks = self.client.get_position_risk() or []
++        for p in risks:
++            if str(p.get("symbol") or "").upper() != symbol.upper():
++                continue
++            amt = _f(p.get("positionAmt"))
++            if self.position_mode == "oneway":
++                return abs(amt)
++            # hedge: prefer the matching positionSide if present
++            ps = str(p.get("positionSide") or "").upper().strip()
++            if logical_side and ps and ps in {"LONG", "SHORT"}:
++                if logical_side.upper() == ps and abs(amt) > 0:
++                    return abs(amt)
++                continue
++            # fallback to abs net
++            return abs(amt)
++        return 0.0
++
++    def _place_trailing_stop(
++        self,
++        *,
++        sid: str,
++        symbol: str,
++        logical_side: str,
++        qty: float,
++        callback_rate_pct: float,
++    ) -> Dict[str, Any]:
++        """Place TRAILING_STOP_MARKET for the current position (reduce-only in one-way).
++
++        Important: In hedge mode Binance forbids reduceOnly param. We rely on positionSide to ensure it reduces.
++        """
++        exit_side = "SELL" if logical_side == "LONG" else "BUY"
++        pos_side = _position_side_for_mode(self.position_mode, logical_side)
++        q, _ = self._quantize(symbol, qty, None)
++        if q <= 0:
++            raise ValueError("trail qty <= 0")
++
++        p: Dict[str, Any] = {
++            "symbol": symbol,
++            "side": exit_side,
++            "type": "TRAILING_STOP_MARKET",
++            "quantity": q,
++            "callbackRate": float(callback_rate_pct),
++            "newClientOrderId": _make_cid(sid, "trail"),
++        }
++        if self.position_mode == "oneway":
++            p["reduceOnly"] = True
++        if pos_side:
++            p["positionSide"] = pos_side
++
++        j = self.client.post_order(p)
++        return {
++            "trail_order_id": j.get("orderId"),
++            "trail_client_id": p["newClientOrderId"],
++        }
++
++    def _arm_trailing_after_tp1_thread(
++        self,
++        *,
++        sid: str,
++        symbol: str,
++        logical_side: str,
++        tp1: float,
++        callback_rate_pct: float,
++        sl_order_id: Optional[int],
++    ) -> None:
++        """Background worker: when TP1 touched → replace SL with trailing stop.
++
++        Rationale:
++          - upstream strategy uses `trail_after_tp1`
++          - we keep the hard SL until TP1 is reached
++          - after TP1, trailing stop manages the remainder
++        """
++        try:
++            deadline = time.time() + float(self.trail_arm_timeout_s)
++            poll_s = max(0.2, float(self.trail_arm_poll_s))
++            touched = False
++
++            while time.time() < deadline:
++                # mark price is less noisy than last trade
++                mp = float(self.client.get_mark_price(symbol) or 0.0)
++                if mp <= 0:
++                    time.sleep(poll_s)
++                    continue
++
++                if logical_side == "LONG":
++                    touched = mp >= float(tp1)
++                else:
++                    touched = mp <= float(tp1)
++
++                if touched:
++                    break
++                time.sleep(poll_s)
++
++            if not touched:
++                self._exec_event({
++                    "sid": sid,
++                    "symbol": symbol,
++                    "action": "trail_arm",
++                    "status": "timeout",
++                    "trail_tp1": tp1,
++                    "trail_callback_rate_pct": callback_rate_pct,
++                })
++                return
++
++            # Ensure position is still open.
++            qty = self._get_position_qty(symbol, logical_side=logical_side)
++            if qty <= 0:
++                self._exec_event({
++                    "sid": sid,
++                    "symbol": symbol,
++                    "action": "trail_arm",
++                    "status": "no_position",
++                })
++                return
++
++            # Best effort: cancel the previous SL (avoid double-stops).
++            if sl_order_id:
++                try:
++                    _ = self.client.delete_order(symbol, order_id=int(sl_order_id))
++                except Exception:
++                    pass
++
++            trail = self._place_trailing_stop(
++                sid=sid,
++                symbol=symbol,
++                logical_side=logical_side,
++                qty=qty,
++                callback_rate_pct=callback_rate_pct,
++            )
++
++            ev = {
++                "sid": sid,
++                "symbol": symbol,
++                "action": "trail_arm",
++                "status": "armed",
++                "side": logical_side,
++                "qty": qty,
++                "trail_tp1": tp1,
++                "trail_callback_rate_pct": callback_rate_pct,
++                **trail,
++            }
++            self._exec_event(ev)
++
++            if self.tg is not None and self.trail_notify:
++                self.tg.send_text(
++                    f"🧷 BINANCE trailing armed\n"
++                    f"symbol={symbol} side={logical_side}\n"
++                    f"sid={sid[:24]}...\n"
++                    f"tp1={tp1} cb={callback_rate_pct:.1f}%"
++                )
++        except Exception as e:
++            self._exec_event({
++                "sid": sid,
++                "symbol": symbol,
++                "action": "trail_arm",
++                "status": "error",
++                "msg": str(e)[:900],
++            })
++
++    def _maybe_start_trailing_after_tp1(
++        self,
++        *,
++        payload: Dict[str, Any],
++        sid: str,
++        symbol: str,
++        logical_side: str,
++        entry_price: Optional[float],
++        sl_order_id: Optional[int],
++        tp_levels: List[float],
++    ) -> Dict[str, Any]:
++        """Start background trailing arming if upstream requests it."""
++        if not _truthy(payload.get("trail_after_tp1")):
++            return {}
++        if not tp_levels:
++            return {"trail_after_tp1": True, "trail_status": "no_tp_levels"}
++
++        atr = None
++        if payload.get("atr") is not None:
++            try:
++                atr = float(payload.get("atr"))
++            except Exception:
++                atr = None
++
++        cb = compute_trailing_callback_rate_pct(
++            payload,
++            entry_price=entry_price,
++            atr=atr,
++            min_pct=float(self.trail_cb_min),
++            max_pct=float(self.trail_cb_max),
++            default_pct=float(self.trail_cb_default),
++            atr_mult_default=float(self.trail_atr_mult_default),
++        )
++        tp1 = float(tp_levels[0])
++
++        t = threading.Thread(
++            target=self._arm_trailing_after_tp1_thread,
++            kwargs={
++                "sid": sid,
++                "symbol": symbol,
++                "logical_side": logical_side,
++                "tp1": tp1,
++                "callback_rate_pct": cb,
++                "sl_order_id": int(sl_order_id) if sl_order_id else None,
++            },
++            daemon=True,
++        )
++        t.start()
++
++        return {
++            "trail_after_tp1": True,
++            "trail_tp1": tp1,
++            "trail_callback_rate_pct": cb,
++            "trail_status": "arming",
++        }
++
++    def handle_open(self, payload: Dict[str, Any]) -> Dict[str, Any]:
++        sid = str(payload.get("sid") or "").strip()
++        symbol = str(payload.get("symbol") or "").strip().upper()
++        if not sid or not symbol:
++            raise ValueError("sid/symbol required")
++        if self.allowlist and symbol not in self.allowlist:
++            raise ValueError(f"symbol not in allowlist: {symbol}")
++
++        self._ensure_symbol_settings(symbol)
++
++        side, logical = _normalize_side(payload)
++        qty = _normalize_qty(payload, self.assume_lot_is_qty)
++        entry = payload.get("entry")
++        price = None
++        if entry not in (None, 0, "", "0"):
++            price = _f(entry)
++
++        order_type = str(payload.get("type") or ("limit" if price else "market")).upper()
++        order_type = "MARKET" if order_type in {"MARKET", "MKT"} else "LIMIT"
++
++        q, p = self._quantize(symbol, qty, price)
++        if q <= 0:
++            raise ValueError("qty <= 0")
++
++        params: Dict[str, Any] = {
++            "symbol": symbol,
++            "side": side,
++            "type": order_type,
++            "quantity": q,
++            "newClientOrderId": _make_cid(sid, "entry"),
++        }
++
++        pos_side = _position_side_for_mode(self.position_mode, logical)
++        if pos_side:
++            params["positionSide"] = pos_side
++
++        if order_type == "LIMIT":
++            if p is None or p <= 0:
++                raise ValueError("limit order requires entry price")
++            params["price"] = p
++            params["timeInForce"] = "GTC"
++
++        j_entry = self.client.post_order(params)
++        order_id = _i(j_entry.get("orderId"), 0)
++        if not order_id:
++            raise RuntimeError(f"no orderId in response: {j_entry}")
++
++        j_final = self._wait_fill(symbol, order_id, timeout_s=self.fill_timeout_s)
++        status = str(j_final.get("status") or "").upper()
++        filled_qty = _f(j_final.get("executedQty"), 0.0)
++        avg_price = _f(j_final.get("avgPrice"), 0.0)
++        if status not in {"FILLED", "PARTIALLY_FILLED"}:
++            raise RuntimeError(f"entry not filled: status={status} order={j_final}")
++        if filled_qty <= 0:
++            raise RuntimeError(f"filled_qty=0: order={j_final}")
++
++        sl = _f(payload.get("sl"), 0.0) if payload.get("sl") is not None else None
++        sl = sl if sl and sl > 0 else None
++        tps_raw = payload.get("tp_levels") or []
++        tps = [float(x) for x in tps_raw if x not in (None, "")]
++        tps = [tp for tp in tps if tp > 0]
++
++        prot = self._place_protective(sid=sid, symbol=symbol, logical_side=logical, qty=filled_qty, sl=sl, tps=tps)
++
++        trail = self._maybe_start_trailing_after_tp1(
++            payload=payload,
++            sid=sid,
++            symbol=symbol,
++            logical_side=logical,
++            entry_price=avg_price if avg_price > 0 else (p or None),
++            sl_order_id=_i(prot.get("sl_order_id"), 0) or None,
++            tp_levels=tps,
++        )
++
++        return {
++            "sid": sid,
++            "symbol": symbol,
++            "action": "open",
++            "status": status.lower(),
++            "side": logical,
++            "qty": filled_qty,
++            "exec_price": avg_price,
++            "binance_order_id": order_id,
++            **prot,
++            **trail,
++            "json": json.dumps({"entry": j_final, "protective": prot, "trailing": trail}, ensure_ascii=False, default=str),
++        }
++
++    def handle_modify(self, payload: Dict[str, Any]) -> Dict[str, Any]:
++        sid = str(payload.get("sid") or "").strip()
++        symbol = str(payload.get("symbol") or "").strip().upper()
++        if not sid or not symbol:
++            raise ValueError("sid/symbol required")
++        if self.allowlist and symbol not in self.allowlist:
++            raise ValueError(f"symbol not in allowlist: {symbol}")
++
++        canceled = self._cancel_by_token(symbol, sid)
++
++        # determine current position side/qty
++        risks = self.client.get_position_risk() or []
++        amt = 0.0
++        for p in risks:
++            if str(p.get("symbol") or "").upper() != symbol:
++                continue
++            amt = _f(p.get("positionAmt"), 0.0)
++            break
++
++        if amt == 0.0:
++            return {
++                "sid": sid,
++                "symbol": symbol,
++                "action": "modify",
++                "status": "no_position",
++                "canceled_orders": canceled,
++            }
++
++        logical = "LONG" if amt > 0 else "SHORT"
++        qty = abs(amt)
++
++        sl = _f(payload.get("sl"), 0.0) if payload.get("sl") is not None else None
++        sl = sl if sl and sl > 0 else None
++        tps_raw = payload.get("tp_levels") or []
++        tps = [float(x) for x in tps_raw if x not in (None, "")]
++        tps = [tp for tp in tps if tp > 0]
++
++        prot = self._place_protective(sid=sid, symbol=symbol, logical_side=logical, qty=qty, sl=sl, tps=tps)
++
++        entry_price = None
++        if payload.get("entry") not in (None, 0, "", "0"):
++            try:
++                entry_price = float(payload.get("entry"))
++            except Exception:
++                entry_price = None
++        if entry_price is None:
++            try:
++                mp = float(self.client.get_mark_price(symbol) or 0.0)
++                entry_price = mp if mp > 0 else None
++            except Exception:
++                entry_price = None
++
++        trail = self._maybe_start_trailing_after_tp1(
++            payload=payload,
++            sid=sid,
++            symbol=symbol,
++            logical_side=logical,
++            entry_price=entry_price,
++            sl_order_id=_i(prot.get("sl_order_id"), 0) or None,
++            tp_levels=tps,
++        )
++        return {
++            "sid": sid,
++            "symbol": symbol,
++            "action": "modify",
++            "status": "ok",
++            "side": logical,
++            "qty": qty,
++            "canceled_orders": canceled,
++            **prot,
++            **trail,
++            "json": json.dumps({"canceled": canceled, "protective": prot, "trailing": trail}, ensure_ascii=False, default=str),
++        }
++
++    def handle_cancel(self, payload: Dict[str, Any]) -> Dict[str, Any]:
++        sid = str(payload.get("sid") or "").strip()
++        symbol = str(payload.get("symbol") or "").strip().upper()
++        if not sid or not symbol:
++            raise ValueError("sid/symbol required")
++        if self.allowlist and symbol not in self.allowlist:
++            raise ValueError(f"symbol not in allowlist: {symbol}")
++
++        canceled = self._cancel_by_token(symbol, sid)
++
++        # close position if exists
++        risks = self.client.get_position_risk() or []
++        amt = 0.0
++        for p in risks:
++            if str(p.get("symbol") or "").upper() != symbol:
++                continue
++            amt = _f(p.get("positionAmt"), 0.0)
++            break
++
++        closed = False
++        close_order_id = None
++        logical = None
++        qty = 0.0
++        if amt != 0.0:
++            logical = "LONG" if amt > 0 else "SHORT"
++            qty = abs(amt)
++            exit_side = "SELL" if amt > 0 else "BUY"
++            pos_side = _position_side_for_mode(self.position_mode, logical)
++            q, _ = self._quantize(symbol, qty, None)
++            p = {
++                "symbol": symbol,
++                "side": exit_side,
++                "type": "MARKET",
++                "quantity": q,
++                "newClientOrderId": _make_cid(sid, "close"),
++            }
++            if self.position_mode == "oneway":
++                p["reduceOnly"] = True
++            if pos_side:
++                p["positionSide"] = pos_side
++            j = self.client.post_order(p)
++            close_order_id = _i(j.get("orderId"), 0)
++            closed = True
++
++        return {
++            "sid": sid,
++            "symbol": symbol,
++            "action": "cancel",
++            "status": "ok",
++            "side": logical or "",
++            "qty": qty,
++            "canceled_orders": canceled,
++            "close_order_id": close_order_id or "",
++            "closed": str(closed).lower(),
++        }
++
++    def handle_resize(self, payload: Dict[str, Any]) -> Dict[str, Any]:
++        # TODO: implement as: compute target qty, then market order delta.
++        sid = str(payload.get("sid") or "").strip()
++        symbol = str(payload.get("symbol") or "").strip().upper()
++        raise RuntimeError(f"resize not implemented yet (sid={sid} symbol={symbol})")
++
++    def process_one(self, raw: str) -> None:
++        try:
++            payload = json.loads(raw)
++        except Exception:
++            self._dlq(raw, "bad_json")
++            self._ack_processing(raw)
++            return
++
++        action = str(payload.get("action") or "").strip().lower()
++        sid = str(payload.get("sid") or "").strip()
++        symbol = str(payload.get("symbol") or "").strip().upper()
++
++        if not action or not sid or not symbol:
++            self._dlq(raw, "missing_required_fields")
++            self._exec_event({"sid": sid or "", "symbol": symbol or "", "action": action or "", "severity": "error", "msg": "missing_required_fields"})
++            self._ack_processing(raw)
++            return
++
++        try:
++            if action == "open":
++                out = self.handle_open(payload)
++            elif action == "modify":
++                out = self.handle_modify(payload)
++            elif action == "cancel":
++                out = self.handle_cancel(payload)
++            elif action == "resize":
++                out = self.handle_resize(payload)
++            else:
++                raise ValueError(f"unknown action: {action}")
++
++            self._exec_event(out)
++            self._ack_processing(raw)
++        except Exception as e:
++            cls = _classify_error(e)
++            msg = str(e)
++            self._exec_event({"sid": sid, "symbol": symbol, "action": action, "severity": "error", "msg": msg, "error_class": cls})
++            if self.tg is not None:
++                # keep it very short
++                self.tg.send_text(f"❌ BINANCE EXEC error\naction={action} symbol={symbol}\nsid={sid[:24]}...\n{msg[:500]}")
++
++            if isinstance(e, BinanceAPIError):
++                # timestamp drift: attempt time sync once and retry
++                payload_e = e.payload if isinstance(e.payload, dict) else {}
++                if payload_e.get("code") == -1021:
++                    try:
++                        self.client.sync_time()
++                        cls = "transient"
++                    except Exception:
++                        pass
++
++            if cls == "transient":
++                retry_n = int(payload.get("retry_n") or 0)
++                if retry_n < self.max_retry:
++                    self._requeue(payload, raw, msg)
++                    self._ack_processing(raw)
++                    time.sleep(0.25)
++                    return
++            # fatal OR exceeded retries
++            self._dlq(raw, f"{cls}:{msg}")
++            self._ack_processing(raw)
++
++    def run_forever(self) -> None:
++        print("🚀 BinanceExecutor starting")
++        print(f"   queue={self.queue}")
++        print(f"   processing={self.queue_processing}")
++        print(f"   dlq={self.queue_dlq}")
++        print(f"   exec_stream={self.exec_stream}")
++        print(f"   position_mode={self.position_mode}")
++        if self.allowlist:
++            print(f"   allowlist={sorted(self.allowlist)}")
++
++        while True:
++            try:
++                raw = self.r.brpoplpush(self.queue, self.queue_processing, timeout=5)
++                if not raw:
++                    continue
++                self.process_one(raw)
++            except Exception as e:
++                # Global fail-open loop protection
++                print(f"❌ executor loop error: {e}")
++                time.sleep(1.0)
++
++
++def main() -> None:
++    BinanceExecutor().run_forever()
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/services/binance_futures_client.py b/services/binance_futures_client.py
+new file mode 100644
+index 0000000..4e07f45
+--- /dev/null
++++ b/services/binance_futures_client.py
+@@ -0,0 +1,218 @@
++from __future__ import annotations
++
++"""Binance USDT-M Futures REST client (stdlib-only).
++
++Goal: provide a minimal, production-safe building block for:
++  - account reporting (P0)
++  - execution (P1)
++
++Design goals:
++  - Deterministic signing (HMAC SHA256)
++  - Conservative timeouts
++  - Clear error surfaces (raise with response payload)
++  - No external deps (requests/httpx)
++
++Notes:
++  - Binance requires `timestamp` in ms and `signature`.
++  - If server time skew exists, enable time sync (BINANCE_TIME_SYNC=1).
++"""
++
++import hashlib
++import hmac
++import json
++import os
++import time
++import urllib.parse
++import urllib.request
++from dataclasses import dataclass
++from typing import Any, Dict, Optional, Tuple
++
++
++class BinanceAPIError(RuntimeError):
++    def __init__(self, status: int, payload: Any, message: str = ""):
++        super().__init__(message or f"Binance API error status={status} payload={payload}")
++        self.status = status
++        self.payload = payload
++
++
++def _ms_now() -> int:
++    return int(time.time() * 1000)
++
++
++def _safe_json_loads(raw: bytes) -> Any:
++    try:
++        return json.loads(raw.decode("utf-8"))
++    except Exception:
++        # preserve raw for debugging
++        return {"_raw": raw[:4096].decode("utf-8", errors="replace")}
++
++
++def _hmac_sha256(secret: str, msg: str) -> str:
++    return hmac.new(secret.encode("utf-8"), msg.encode("utf-8"), hashlib.sha256).hexdigest()
++
++
++def _encode_params(params: Dict[str, Any]) -> str:
++    # Binance expects standard querystring; keep a stable encoding.
++    items = []
++    for k in sorted(params.keys()):
++        v = params[k]
++        if v is None:
++            continue
++        if isinstance(v, bool):
++            v = "true" if v else "false"
++        items.append((k, str(v)))
++    return urllib.parse.urlencode(items)
++
++
++@dataclass
++class BinanceFuturesClient:
++    api_key: str
++    api_secret: str
++    base_url: str = "https://fapi.binance.com"
++    timeout_s: float = 8.0
++    recv_window: int = 5000
++    timestamp_offset_ms: int = 0
++
++    @staticmethod
++    def from_env() -> "BinanceFuturesClient":
++        key = (os.getenv("BINANCE_API_KEY") or "").strip()
++        sec = (os.getenv("BINANCE_API_SECRET") or "").strip()
++        if not key or not sec:
++            raise RuntimeError("BINANCE_API_KEY/BINANCE_API_SECRET are required")
++
++        base = (os.getenv("BINANCE_FUTURES_BASE_URL") or "https://fapi.binance.com").strip()
++        timeout_s = float(os.getenv("BINANCE_HTTP_TIMEOUT_S", "8.0"))
++        recv_window = int(os.getenv("BINANCE_RECV_WINDOW", "5000"))
++        c = BinanceFuturesClient(api_key=key, api_secret=sec, base_url=base, timeout_s=timeout_s, recv_window=recv_window)
++
++        if (os.getenv("BINANCE_TIME_SYNC") or "").strip().lower() in {"1", "true", "yes", "on"}:
++            c.sync_time()
++        return c
++
++    # ---------------------------- core HTTP ----------------------------
++
++    def _request(self, method: str, path: str, *, params: Optional[Dict[str, Any]] = None, signed: bool = False) -> Any:
++        method = method.upper()
++        params = dict(params or {})
++        headers = {
++            "X-MBX-APIKEY": self.api_key,
++            "User-Agent": "scanner_infra/binance_client_v1",
++        }
++
++        qs = ""
++        body: Optional[bytes] = None
++
++        if signed:
++            params.setdefault("timestamp", _ms_now() + int(self.timestamp_offset_ms))
++            params.setdefault("recvWindow", int(self.recv_window))
++            qs = _encode_params(params)
++            sig = _hmac_sha256(self.api_secret, qs)
++            qs = qs + "&signature=" + sig
++        else:
++            qs = _encode_params(params) if params else ""
++
++        url = self.base_url.rstrip("/") + path
++        if method in {"GET", "DELETE"}:
++            if qs:
++                url = url + ("?" if "?" not in url else "&") + qs
++        else:
++            # POST: send as application/x-www-form-urlencoded (Binance accepts both)
++            body = qs.encode("utf-8") if qs else b""
++
++        req = urllib.request.Request(url, data=body, method=method)
++        for k, v in headers.items():
++            req.add_header(k, v)
++        if method in {"POST", "PUT"}:
++            req.add_header("Content-Type", "application/x-www-form-urlencoded")
++
++        try:
++            with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
++                raw = resp.read()
++                if 200 <= resp.status < 300:
++                    return _safe_json_loads(raw)
++                raise BinanceAPIError(resp.status, _safe_json_loads(raw))
++        except urllib.error.HTTPError as e:
++            raw = e.read() if hasattr(e, "read") else b""
++            payload = _safe_json_loads(raw) if raw else {"_error": str(e)}
++            raise BinanceAPIError(getattr(e, "code", 0) or 0, payload)
++
++    # ---------------------------- public endpoints ----------------------------
++
++    def ping(self) -> Any:
++        return self._request("GET", "/fapi/v1/ping")
++
++    def get_server_time(self) -> int:
++        j = self._request("GET", "/fapi/v1/time")
++        return int(j.get("serverTime"))
++
++    def sync_time(self) -> None:
++        """Compute local->server offset to reduce signature rejections due to time drift."""
++        try:
++            t0 = _ms_now()
++            st = self.get_server_time()
++            t1 = _ms_now()
++            # Assume serverTime corresponds to mid-point of local request.
++            mid = (t0 + t1) // 2
++            self.timestamp_offset_ms = int(st - mid)
++        except Exception:
++            # fail-open: offset remains 0
++            self.timestamp_offset_ms = 0
++
++    def get_exchange_info(self) -> Any:
++        return self._request("GET", "/fapi/v1/exchangeInfo")
++
++    def get_premium_index(self, symbol: str) -> Any:
++        """Return premium index payload, including markPrice.
++
++        Endpoint: GET /fapi/v1/premiumIndex (public).
++        This is a convenient and cheap way to fetch mark price for trailing arming.
++        """
++        return self._request("GET", "/fapi/v1/premiumIndex", params={"symbol": str(symbol).upper()})
++
++    def get_mark_price(self, symbol: str) -> float:
++        j = self.get_premium_index(symbol)
++        try:
++            return float(j.get("markPrice"))
++        except Exception:
++            return 0.0
++
++    # ---------------------------- signed/account endpoints ----------------------------
++
++    def get_account(self) -> Any:
++        return self._request("GET", "/fapi/v2/account", signed=True)
++
++    def get_position_risk(self) -> Any:
++        return self._request("GET", "/fapi/v2/positionRisk", signed=True)
++
++    def get_open_orders(self, symbol: Optional[str] = None) -> Any:
++        params: Dict[str, Any] = {}
++        if symbol:
++            params["symbol"] = symbol
++        return self._request("GET", "/fapi/v1/openOrders", params=params, signed=True)
++
++    # ---------------------------- signed/trading endpoints ----------------------------
++
++    def post_leverage(self, symbol: str, leverage: int) -> Any:
++        return self._request("POST", "/fapi/v1/leverage", params={"symbol": symbol, "leverage": leverage}, signed=True)
++
++    def post_margin_type(self, symbol: str, margin_type: str) -> Any:
++        return self._request("POST", "/fapi/v1/marginType", params={"symbol": symbol, "marginType": margin_type}, signed=True)
++
++    def post_order(self, params: Dict[str, Any]) -> Any:
++        return self._request("POST", "/fapi/v1/order", params=params, signed=True)
++
++    def get_order(self, symbol: str, *, order_id: Optional[int] = None, client_order_id: Optional[str] = None) -> Any:
++        p: Dict[str, Any] = {"symbol": symbol}
++        if order_id is not None:
++            p["orderId"] = int(order_id)
++        if client_order_id is not None:
++            p["origClientOrderId"] = client_order_id
++        return self._request("GET", "/fapi/v1/order", params=p, signed=True)
++
++    def delete_order(self, symbol: str, *, order_id: Optional[int] = None, client_order_id: Optional[str] = None) -> Any:
++        p: Dict[str, Any] = {"symbol": symbol}
++        if order_id is not None:
++            p["orderId"] = int(order_id)
++        if client_order_id is not None:
++            p["origClientOrderId"] = client_order_id
++        return self._request("DELETE", "/fapi/v1/order", params=p, signed=True)
+diff --git a/services/binance_iceberg_detector.py b/services/binance_iceberg_detector.py
+index e66f3a2..bdac806 100644
+--- a/services/binance_iceberg_detector.py
++++ b/services/binance_iceberg_detector.py
+@@ -182,7 +182,8 @@ MAX_DIST_REL = float(os.getenv("ICEBERG_MAX_DIST_REL", "0.0025"))
+ METRIC_SIG = os.getenv("ICEBERG_METRIC_SIGNAL", "metrics:iceberg_signals_total")
+ METRIC_GAP = os.getenv("ICEBERG_METRIC_GAP", "metrics:iceberg_gaps_total")
+ METRIC_BLOCKED_TREND = os.getenv("ICEBERG_METRIC_BLOCKED", "metrics:iceberg_blocked_by_trend")
+-ORDERS_QUEUE = os.getenv("ORDERS_QUEUE", "orders:queue")
++# Binance signals must go to a dedicated queue (separate from MT5).
++ORDERS_QUEUE = os.getenv("ORDERS_QUEUE_BINANCE") or os.getenv("ORDERS_QUEUE") or "orders:queue:binance"
+ RAW_SIGNAL_STREAM = os.getenv("ICEBERG_RAW_STREAM", "signals:crypto:raw")
+ NOTIFY_STREAM = os.getenv("ICEBERG_NOTIFY_STREAM", "notify:telegram")
+ 
+diff --git a/services/crypto_orderflow_service.py b/services/crypto_orderflow_service.py
+index 8ea111d..407e537 100644
+--- a/services/crypto_orderflow_service.py
++++ b/services/crypto_orderflow_service.py
+@@ -265,7 +265,8 @@ class CryptoOrderflowService:
+ 
+         self.notify_stream = os.getenv("CRYPTO_NOTIFY_STREAM", "notify:telegram")
+         self.raw_signal_stream = os.getenv("CRYPTO_RAW_STREAM", "signals:crypto:raw")
+-        self.orders_queue = os.getenv("ORDERS_QUEUE", "orders:queue")
++        # Default routing: MT5 queue. (Binance uses a separate `orders:queue:binance`.)
++        self.orders_queue = os.getenv("ORDERS_QUEUE_MT5") or os.getenv("ORDERS_QUEUE") or "orders:queue:mt5"
+         # 🎯 Stream для structured signals (для periodic_reporter и других downstream сервисов)
+         # Tickers & Streams
+         self.cryptoorderflow_signal_stream_template = os.getenv("CRYPTO_ORDERFLOW_SIGNAL_STREAM", "signals:cryptoorderflow:{symbol}")
+diff --git a/services/execution_gate_service.py b/services/execution_gate_service.py
+index ea7d57b..c46ad8d 100644
+--- a/services/execution_gate_service.py
++++ b/services/execution_gate_service.py
+@@ -62,7 +62,9 @@ class ExecutionGateService:
+         # Streams
+         self.stream_raw = os.getenv("CRYPTO_RAW_STREAM", "signals:crypto:raw")
+         self.stream_confirm = os.getenv("OF_CONFIRM_STREAM", "signals:of:confirm")
+-        self.queue_out = os.getenv("ORDERS_QUEUE", "orders:queue")
++        # This gate produces MT5-compatible payloads by default.
++        # Use ORDERS_QUEUE_MT5 to explicitly route, or ORDERS_QUEUE for legacy.
++        self.queue_out = os.getenv("ORDERS_QUEUE_MT5") or os.getenv("ORDERS_QUEUE") or "orders:queue:mt5"
+         self.notify_stream = os.getenv("CRYPTO_NOTIFY_STREAM", "notify:telegram")
+         
+         # Config
+diff --git a/services/notify_bridge.py b/services/notify_bridge.py
+index 67813e7..8e050f4 100644
+--- a/services/notify_bridge.py
++++ b/services/notify_bridge.py
+@@ -10,8 +10,8 @@ Endpoints:
+     GET /healthz - Health check
+ 
+ Environment:
+-    BOT_TOKEN - Telegram bot token (required)
+-    CHAT_ID - Telegram chat ID (required)
++    TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID - preferred
++    BOT_TOKEN / CHAT_ID - backward compatible
+     TITLE_PREFIX - Message title prefix (optional, default: "[XAUUSD]")
+     OBI_HOST - OBI service URL (default: http://127.0.0.1:8090)
+     NOTIFY_BRIDGE_PORT - Service port (default: 8089)
+@@ -33,8 +33,10 @@ import datetime as dt
+ from typing import Optional
+ 
+ # Configuration
+-BOT_TOKEN = os.environ["BOT_TOKEN"]
+-CHAT_ID = os.environ["CHAT_ID"]
++BOT_TOKEN = (os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_TOKEN") or "").strip()
++CHAT_ID = (os.getenv("TELEGRAM_CHAT_ID") or os.getenv("CHAT_ID") or "").strip()
++if not BOT_TOKEN or not CHAT_ID:
++    raise RuntimeError("Telegram is not configured: set TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID (or BOT_TOKEN/CHAT_ID)")
+ TITLE = os.getenv("TITLE_PREFIX", "[XAUUSD]")
+ OBI_HOST = os.getenv("OBI_HOST", "http://127.0.0.1:8090")
+ PORT = int(os.getenv("NOTIFY_BRIDGE_PORT", "8089"))
+diff --git a/services/orders_http_bridge.py b/services/orders_http_bridge.py
+index 2163b27..e7f9f19 100644
+--- a/services/orders_http_bridge.py
++++ b/services/orders_http_bridge.py
+@@ -26,7 +26,11 @@ from pydantic import BaseModel
+ 
+ # Configuration
+ REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
+-ORDERS_QUEUE = os.getenv("ORDERS_QUEUE", "orders:queue")
++# MT5 bridge should default to the MT5 queue.
++# Backward compatible:
++#  - ORDERS_QUEUE remains supported
++#  - ORDERS_QUEUE_MT5 overrides for explicit routing
++ORDERS_QUEUE = os.getenv("ORDERS_QUEUE_MT5") or os.getenv("ORDERS_QUEUE") or "orders:queue:mt5"
+ EXEC_STREAM = os.getenv("EXEC_STREAM", "orders:exec")
+ 
+ # Connect to Redis
+diff --git a/services/orders_router.py b/services/orders_router.py
+index 5bf3c19..aae9275 100644
+--- a/services/orders_router.py
++++ b/services/orders_router.py
+@@ -24,7 +24,8 @@ from symbol_specs_store import SymbolSpecsStore, SymbolSpecs
+ # Configuration
+ REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
+ CALLBACKS_STREAM = os.getenv("CALLBACKS_STREAM", "bot:callbacks")
+-ORDERS_QUEUE = os.getenv("ORDERS_QUEUE", "orders:queue")
++# Router is used for MT5 by default.
++ORDERS_QUEUE = os.getenv("ORDERS_QUEUE_MT5") or os.getenv("ORDERS_QUEUE") or "orders:queue:mt5"
+ SNAP_PREFIX = os.getenv("SNAP_PREFIX", "signal:snap:")
+ GROUP = os.getenv("ORDERS_ROUTER_GROUP", "orders-router-group")
+ CONSUMER = os.getenv("ORDERS_ROUTER_CONSUMER", "orders-router-1")
+diff --git a/services/telegram/telegram_client.py b/services/telegram/telegram_client.py
+index fdb7a99..941a840 100644
+--- a/services/telegram/telegram_client.py
++++ b/services/telegram/telegram_client.py
+@@ -22,8 +22,12 @@ class TelegramClient:
+ 
+     @staticmethod
+     def from_env() -> Optional["TelegramClient"]:
+-        tok = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+-        cid = os.getenv("TELEGRAM_CHAT_ID", "").strip()
++        # Preferred env names:
++        #   TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID
++        # Backward-compatible fallbacks used across the repo:
++        #   BOT_TOKEN / CHAT_ID
++        tok = (os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_TOKEN") or "").strip()
++        cid = (os.getenv("TELEGRAM_CHAT_ID") or os.getenv("CHAT_ID") or "").strip()
+         if not tok or not cid:
+             return None
+         return TelegramClient(token=tok, chat_id=cid)
+@@ -36,7 +40,7 @@ class TelegramClient:
+             data = {
+                 "chat_id": self.chat_id,
+                 "text": text,
+-                "parse_mode": "HTML",
++                "parse_mode": (os.getenv("TELEGRAM_PARSE_MODE") or "HTML").strip() or "HTML",
+                 "disable_web_page_preview": True,
+             }
+             body = urllib.parse.urlencode(data).encode("utf-8")
+diff --git a/services/telegram_notifier_worker_v2.py b/services/telegram_notifier_worker_v2.py
+index dde023b..1a62fa1 100644
+--- a/services/telegram_notifier_worker_v2.py
++++ b/services/telegram_notifier_worker_v2.py
+@@ -19,11 +19,13 @@ logger = logging.getLogger("TelegramNotifierWorkerV2")
+ 
+ # Configuration
+ REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
++TELEGRAM_BOT_TOKEN = (os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_TOKEN") or "").strip()
++TELEGRAM_CHAT_ID = (os.getenv("TELEGRAM_CHAT_ID") or os.getenv("CHAT_ID") or "").strip()
+ NOTIFY_TELEGRAM_CHAT_ID_CRIT = os.getenv("NOTIFY_TELEGRAM_CHAT_ID_CRIT", TELEGRAM_CHAT_ID)
+ NOTIFY_TELEGRAM_CHAT_ID_PAGE = os.getenv("NOTIFY_TELEGRAM_CHAT_ID_PAGE", TELEGRAM_CHAT_ID)
+ 
++TELEGRAM_PARSE_MODE = (os.getenv("TELEGRAM_PARSE_MODE") or "HTML").strip() or "HTML"
++
+ NOTIFY_RECEIPT_KEY_PREFIX = os.getenv("NOTIFY_RECEIPT_KEY_PREFIX", "notify:receipt:")
+ NOTIFY_RECEIPT_TTL_SEC = int(os.getenv("NOTIFY_RECEIPT_TTL_SEC", "3600"))
+ 
+@@ -71,13 +73,13 @@ def send_telegram_message(latched_chat_id, text):
+     Returns (success, response_or_error, status_code).
+     """
+     if not TELEGRAM_BOT_TOKEN or not latched_chat_id:
+-        return False, "Missing TELEGRAM_BOT_TOKEN or chat_id", 0
++        return False, "Missing TELEGRAM_BOT_TOKEN (or BOT_TOKEN) or chat_id", 0
+ 
+     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+     payload = {
+         "chat_id": latched_chat_id,
+         "text": text,
+-        "parse_mode": "HTML" 
++        "parse_mode": TELEGRAM_PARSE_MODE,
+     }
+     
+     data = json.dumps(payload).encode("utf-8")
+diff --git a/services/tests/test_binance_trailing_unit_v1.py b/services/tests/test_binance_trailing_unit_v1.py
+new file mode 100644
+index 0000000..938febb
+--- /dev/null
++++ b/services/tests/test_binance_trailing_unit_v1.py
+@@ -0,0 +1,72 @@
++import math
++
++from services.binance_executor import compute_trailing_callback_rate_pct, _truthy
++
++
++def test_truthy_basic():
++    assert _truthy(True) is True
++    assert _truthy(False) is False
++    assert _truthy(1) is True
++    assert _truthy(0) is False
++    assert _truthy("true") is True
++    assert _truthy("yes") is True
++    assert _truthy("on") is True
++    assert _truthy("0") is False
++    assert _truthy(None) is False
++
++
++def test_trailing_callback_explicit_pct_rounding():
++    payload = {"trail_callback_rate": 0.27}
++    v = compute_trailing_callback_rate_pct(
++        payload,
++        entry_price=100.0,
++        atr=1.0,
++        min_pct=0.1,
++        max_pct=5.0,
++        default_pct=0.3,
++        atr_mult_default=1.0,
++    )
++    assert math.isclose(v, 0.3)
++
++
++def test_trailing_callback_bps_to_pct():
++    payload = {"trail_callback_bps": 35}
++    v = compute_trailing_callback_rate_pct(
++        payload,
++        entry_price=100.0,
++        atr=1.0,
++        min_pct=0.1,
++        max_pct=5.0,
++        default_pct=0.3,
++        atr_mult_default=1.0,
++    )
++    assert math.isclose(v, 0.4)
++
++
++def test_trailing_callback_from_atr():
++    payload = {}
++    v = compute_trailing_callback_rate_pct(
++        payload,
++        entry_price=100.0,
++        atr=0.42,
++        min_pct=0.1,
++        max_pct=5.0,
++        default_pct=0.3,
++        atr_mult_default=1.0,
++    )
++    # 0.42/100*100 = 0.42% -> rounds to 0.4
++    assert math.isclose(v, 0.4)
++
++
++def test_trailing_callback_clamp_max():
++    payload = {}
++    v = compute_trailing_callback_rate_pct(
++        payload,
++        entry_price=100.0,
++        atr=50.0,  # 50%
++        min_pct=0.1,
++        max_pct=5.0,
++        default_pct=0.3,
++        atr_mult_default=1.0,
++    )
++    assert math.isclose(v, 5.0)
+diff --git a/tick_flow_full/services/binance_account_reporter.py b/tick_flow_full/services/binance_account_reporter.py
+new file mode 100644
+index 0000000..d5cd0df
+--- /dev/null
++++ b/tick_flow_full/services/binance_account_reporter.py
+@@ -0,0 +1,242 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Binance USDT-M account reporter → Telegram (hourly).
++
++Primary job (P0):
++  - once per hour, fetch factual account state from Binance Futures
++  - send a compact report to Telegram
++
++This service is intentionally standalone and fail-open:
++  - if Binance is temporarily unavailable, it logs and retries next interval
++  - if Telegram is unavailable, it drops the message (no crash)
++
++Env (required):
++  BINANCE_API_KEY
++  BINANCE_API_SECRET
++  TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID   (or legacy BOT_TOKEN/CHAT_ID)
++
++Env (optional):
++  BINANCE_FUTURES_BASE_URL (default https://fapi.binance.com)
++  BINANCE_TIME_SYNC=1      (sync server time offset for signatures)
++
++  REPORT_INTERVAL_SEC=3600
++  REPORT_ALIGN_TO_HOUR=1      (align to UTC hour boundaries)
++  REPORT_TOPN_POSITIONS=5
++  REPORT_INCLUDE_OPEN_ORDERS=1
++
++  REDIS_URL=redis://redis-worker-1:6379/0
++  ACCOUNT_SNAPSHOT_KEY=account:snapshot:binance_usdtm
++  ACCOUNT_SNAPSHOT_TTL_SEC=7200
++"""
++
++import json
++import os
++import time
++from typing import Any, Dict, List, Optional, Tuple
++
++import redis
++
++from services.binance_futures_client import BinanceFuturesClient
++from services.telegram.telegram_client import TelegramClient
++
++
++def _f(x: Any, default: float = 0.0) -> float:
++    try:
++        if x is None:
++            return default
++        return float(x)
++    except Exception:
++        return default
++
++
++def _i(x: Any, default: int = 0) -> int:
++    try:
++        if x is None:
++            return default
++        return int(float(x))
++    except Exception:
++        return default
++
++
++def _bool_env(name: str, default: bool = False) -> bool:
++    v = (os.getenv(name) or "").strip().lower()
++    if not v:
++        return default
++    return v in {"1", "true", "yes", "on"}
++
++
++def _fmt_money(x: float) -> str:
++    return f"{x:,.2f}"
++
++
++def _align_sleep(interval_s: int) -> None:
++    # Align to UTC hour boundary to make reports easier to reason about.
++    now = int(time.time())
++    next_tick = ((now // interval_s) + 1) * interval_s
++    sleep_s = max(1, next_tick - now)
++    time.sleep(sleep_s)
++
++
++def build_snapshot(client: BinanceFuturesClient, *, top_n: int, include_open_orders: bool) -> Dict[str, Any]:
++    acc = client.get_account()
++    risks = client.get_position_risk()
++    orders: List[Dict[str, Any]] = []
++    if include_open_orders:
++        try:
++            orders = client.get_open_orders() or []
++        except Exception:
++            orders = []
++
++    wallet = _f(acc.get("totalWalletBalance"))
++    margin = _f(acc.get("totalMarginBalance"))
++    available = _f(acc.get("availableBalance"))
++    upnl = _f(acc.get("totalUnrealizedProfit"))
++    im = _f(acc.get("totalInitialMargin"))
++    mm = _f(acc.get("totalMaintMargin"))
++
++    open_positions: List[Dict[str, Any]] = []
++    notional_sum = 0.0
++
++    for p in risks or []:
++        amt = _f(p.get("positionAmt"))
++        if abs(amt) <= 0.0:
++            continue
++        notional = abs(_f(p.get("notional")))
++        notional_sum += notional
++        sym = str(p.get("symbol") or "")
++        side = "LONG" if amt > 0 else "SHORT"
++        open_positions.append(
++            {
++                "symbol": sym,
++                "side": side,
++                "amt": amt,
++                "notional": notional,
++                "entry": _f(p.get("entryPrice")),
++                "mark": _f(p.get("markPrice")),
++                "upnl": _f(p.get("unRealizedProfit")),
++                "liq": _f(p.get("liquidationPrice")),
++                "leverage": _i(p.get("leverage"), 0),
++            }
++        )
++
++    open_positions_sorted = sorted(open_positions, key=lambda x: abs(float(x.get("notional") or 0.0)), reverse=True)
++    top_positions = open_positions_sorted[: max(0, int(top_n))]
++
++    snap = {
++        "ts_ms": int(time.time() * 1000),
++        "wallet_balance_usdt": wallet,
++        "margin_balance_usdt": margin,
++        "available_balance_usdt": available,
++        "unrealized_pnl_usdt": upnl,
++        "initial_margin_usdt": im,
++        "maint_margin_usdt": mm,
++        "open_positions_n": len(open_positions_sorted),
++        "open_notional_abs_usdt": notional_sum,
++        "open_orders_n": len(orders) if orders else 0,
++        "top_positions": top_positions,
++    }
++    return snap
++
++
++def format_report(snap: Dict[str, Any]) -> str:
++    ts_ms = _i(snap.get("ts_ms"), int(time.time() * 1000))
++    dt = time.gmtime(ts_ms / 1000.0)
++    ts = time.strftime("%Y-%m-%d %H:%M:%S UTC", dt)
++
++    wallet = _f(snap.get("wallet_balance_usdt"))
++    margin = _f(snap.get("margin_balance_usdt"))
++    available = _f(snap.get("available_balance_usdt"))
++    upnl = _f(snap.get("unrealized_pnl_usdt"))
++    im = _f(snap.get("initial_margin_usdt"))
++    mm = _f(snap.get("maint_margin_usdt"))
++    pos_n = _i(snap.get("open_positions_n"))
++    notional = _f(snap.get("open_notional_abs_usdt"))
++    ord_n = _i(snap.get("open_orders_n"))
++
++    # Conservative, Telegram-safe HTML (no links, no markdown)
++    lines: List[str] = []
++    lines.append("<b>Binance Futures Account</b>")
++    lines.append(f"<i>{ts}</i>")
++    lines.append("")
++    lines.append(f"Wallet: <b>{_fmt_money(wallet)}</b> USDT")
++    lines.append(f"Margin: <b>{_fmt_money(margin)}</b> USDT")
++    lines.append(f"Available: <b>{_fmt_money(available)}</b> USDT")
++    lines.append(f"uPnL: <b>{_fmt_money(upnl)}</b> USDT")
++    lines.append(f"IM/MM: <b>{_fmt_money(im)}</b> / <b>{_fmt_money(mm)}</b> USDT")
++    lines.append("")
++    lines.append(f"Open positions: <b>{pos_n}</b> | Notional(abs): <b>{_fmt_money(notional)}</b> USDT")
++    lines.append(f"Open orders: <b>{ord_n}</b>")
++
++    top = snap.get("top_positions") or []
++    if top:
++        lines.append("")
++        lines.append("<b>Top positions</b>")
++        for p in top[:10]:
++            sym = str(p.get("symbol") or "")
++            side = str(p.get("side") or "")
++            notional_p = _f(p.get("notional"))
++            upnl_p = _f(p.get("upnl"))
++            lev = _i(p.get("leverage"), 0)
++            lines.append(f"• {sym} {side} | notional { _fmt_money(notional_p) } | uPnL { _fmt_money(upnl_p) } | lev {lev}")
++
++    # Telegram has 4096 limit. Truncate defensively.
++    text = "\n".join(lines)
++    return text[:3900]
++
++
++def maybe_store_snapshot(r: Optional[redis.Redis], key: str, ttl_sec: int, snap: Dict[str, Any]) -> None:
++    if not r or not key:
++        return
++    try:
++        r.set(key, json.dumps(snap, ensure_ascii=False), ex=int(ttl_sec) if ttl_sec > 0 else None)
++    except Exception:
++        return
++
++
++def main() -> None:
++    interval_sec = int(os.getenv("REPORT_INTERVAL_SEC", "3600"))
++    align = _bool_env("REPORT_ALIGN_TO_HOUR", True)
++    top_n = int(os.getenv("REPORT_TOPN_POSITIONS", "5"))
++    include_orders = _bool_env("REPORT_INCLUDE_OPEN_ORDERS", True)
++
++    snapshot_key = (os.getenv("ACCOUNT_SNAPSHOT_KEY") or "").strip()
++    snapshot_ttl = int(os.getenv("ACCOUNT_SNAPSHOT_TTL_SEC", "7200"))
++
++    redis_url = (os.getenv("REDIS_URL") or "").strip()
++    r: Optional[redis.Redis] = None
++    if redis_url:
++        try:
++            r = redis.from_url(redis_url, decode_responses=True)
++        except Exception:
++            r = None
++
++    tg = TelegramClient.from_env()
++    if tg is None:
++        raise RuntimeError("Telegram is not configured (TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID or BOT_TOKEN/CHAT_ID)")
++
++    client = BinanceFuturesClient.from_env()
++
++    print("📣 Binance account reporter starting")
++    print(f"   interval_sec={interval_sec} align_to_hour={align}")
++    print(f"   top_n={top_n} include_open_orders={include_orders}")
++    print(f"   snapshot_key={snapshot_key or '(disabled)'}")
++
++    while True:
++        try:
++            snap = build_snapshot(client, top_n=top_n, include_open_orders=include_orders)
++            maybe_store_snapshot(r, snapshot_key, snapshot_ttl, snap)
++            text = format_report(snap)
++            _ = tg.send_text(text)
++        except Exception as e:
++            # Fail-open: do not crash the service.
++            print(f"❌ reporter error: {e}")
++
++        if align:
++            _align_sleep(interval_sec)
++        else:
++            time.sleep(max(1, int(interval_sec)))
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/tick_flow_full/services/binance_executor.py b/tick_flow_full/services/binance_executor.py
+new file mode 100644
+index 0000000..91b8cb2
+--- /dev/null
++++ b/tick_flow_full/services/binance_executor.py
+@@ -0,0 +1,1024 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Binance USDT-M Futures executor (reads Redis queue → places orders → writes exec facts).
++
++Queue contract (already in your project):
++  action: open | modify | cancel | resize
++  sid, symbol, timestamp are required.
++
++Binance specifics:
++  - Entry is an order (MARKET or LIMIT)
++  - SL/TP must be separate reduceOnly orders
++  - For production we need ack/retry/DLQ, and factual `orders:exec` events.
++
++This implementation focuses on correctness and safety:
++  - BRPOPLPUSH queue → processing list (at-least-once)
++  - errors are classified into transient vs fatal
++  - fatal → DLQ (so queue doesn't grow forever)
++  - writes `orders:exec` events for both success and failures
++
++Env:
++  REDIS_URL=redis://redis-worker-1:6379/0
++  ORDERS_QUEUE_BINANCE=orders:queue:binance
++  ORDERS_QUEUE_BINANCE_PROCESSING=orders:queue:binance:processing
++  ORDERS_QUEUE_BINANCE_DLQ=orders:queue:binance:dlq
++  EXEC_STREAM=orders:exec
++
++  BINANCE_API_KEY, BINANCE_API_SECRET
++  BINANCE_POSITION_MODE=oneway|hedge (default oneway)
++  BINANCE_SYMBOL_ALLOWLIST=BTCUSDT,ETHUSDT,... (optional)
++
++  BINANCE_INIT_SYMBOL_SETTINGS=1
++  BINANCE_MARGIN_TYPE=ISOLATED|CROSSED (default ISOLATED)
++  BINANCE_DEFAULT_LEVERAGE=20
++
++  BINANCE_ASSUME_LOT_IS_QTY=0  (default: require qty/quantity)
++  BINANCE_MAX_RETRY=3
++  BINANCE_FILL_TIMEOUT_S=8.0
++  BINANCE_FILL_POLL_S=0.25
++
++Telegram (optional, for errors):
++  TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (or legacy BOT_TOKEN/CHAT_ID)
++"""
++
++import hashlib
++import json
++import math
++import os
++import threading
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional, Tuple
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++from services.binance_futures_client import BinanceAPIError, BinanceFuturesClient
++from services.telegram.telegram_client import TelegramClient
++
++
++def _bool_env(name: str, default: bool = False) -> bool:
++    v = (os.getenv(name) or "").strip().lower()
++    if not v:
++        return default
++    return v in {"1", "true", "yes", "on"}
++
++
++def _ms_now() -> int:
++    return int(time.time() * 1000)
++
++
++def _f(x: Any, default: float = 0.0) -> float:
++    try:
++        if x is None:
++            return default
++        return float(x)
++    except Exception:
++        return default
++
++
++def _i(x: Any, default: int = 0) -> int:
++    try:
++        if x is None:
++            return default
++        return int(float(x))
++    except Exception:
++        return default
++
++
++def _sha1_8(s: str) -> str:
++    return hashlib.sha1(s.encode("utf-8")).hexdigest()[:8]
++
++
++def _make_cid(sid: str, tag: str) -> str:
++    # Futures newClientOrderId max is 36 chars (keep safe).
++    token = _sha1_8(sid)
++    base = sid.replace(" ", "").replace(":", "-")
++    base = base[: max(6, 36 - (len(tag) + len(token) + 2))]
++    cid = f"{base}-{token}-{tag}"
++    return cid[:36]
++
++
++def _round_down(x: float, step: float) -> float:
++    if step <= 0:
++        return x
++    return math.floor(x / step) * step
++
++
++def _truthy(v: Any) -> bool:
++    if v is None:
++        return False
++    if isinstance(v, bool):
++        return v
++    if isinstance(v, (int, float)):
++        return float(v) != 0.0
++    s = str(v).strip().lower()
++    return s in {"1", "true", "yes", "on"}
++
++
++def _clamp(x: float, lo: float, hi: float) -> float:
++    return max(lo, min(hi, x))
++
++
++def _round_half_up(x: float, decimals: int = 1) -> float:
++    """Round halves up (unlike Python's bankers rounding).
++
++    Binance trailing callbackRate uses 0.1% steps. With floats, `round(0.35, 1)`
++    can yield 0.3 due to binary representation; this helper keeps it stable.
++    """
++    p = 10 ** int(decimals)
++    return math.floor(x * p + 0.5) / p
++
++
++def compute_trailing_callback_rate_pct(
++    payload: Dict[str, Any],
++    *,
++    entry_price: Optional[float],
++    atr: Optional[float],
++    min_pct: float,
++    max_pct: float,
++    default_pct: float,
++    atr_mult_default: float,
++) -> float:
++    """Compute Binance callbackRate (percent) for TRAILING_STOP_MARKET.
++
++    Supported payload overrides:
++      - trail_callback_rate / trail_callback_pct / trail_callback_percent : percent (0.1..5)
++      - trail_callback_bps : bps (10 bps = 0.10%)
++      - trail_atr_mult : multiplier used when deriving from ATR
++
++    Fallback: derive from ATR as: (atr * mult / entry_price) * 100.
++    """
++
++    # Explicit percent.
++    for k in ("trail_callback_rate", "trail_callback_pct", "trail_callback_percent"):
++        if payload.get(k) is not None:
++            try:
++                v = float(payload.get(k))
++                v = _clamp(v, min_pct, max_pct)
++                return _round_half_up(v, 1)  # Binance uses 0.1% step
++            except Exception:
++                pass
++
++    # Explicit bps.
++    if payload.get("trail_callback_bps") is not None:
++        try:
++            bps = float(payload.get("trail_callback_bps"))
++            v = bps / 100.0
++            v = _clamp(v, min_pct, max_pct)
++            return _round_half_up(v, 1)
++        except Exception:
++            pass
++
++    # Derive from ATR.
++    try:
++        if atr is not None and entry_price is not None and entry_price > 0 and atr > 0:
++            mult = atr_mult_default
++            if payload.get("trail_atr_mult") is not None:
++                try:
++                    mult = float(payload.get("trail_atr_mult"))
++                except Exception:
++                    mult = atr_mult_default
++            v = (float(atr) * float(mult) / float(entry_price)) * 100.0
++            v = _clamp(v, min_pct, max_pct)
++            return _round_half_up(v, 1)
++    except Exception:
++        pass
++
++    v = _clamp(float(default_pct), min_pct, max_pct)
++    return _round_half_up(v, 1)
++
++
++@dataclass
++class SymbolFilters:
++    tick_size: float
++    step_size: float
++    min_qty: float
++    min_notional: float
++
++
++class FiltersCache:
++    def __init__(self, client: BinanceFuturesClient):
++        self.client = client
++        self._cache: Dict[str, SymbolFilters] = {}
++
++    def get(self, symbol: str) -> SymbolFilters:
++        s = symbol.upper()
++        if s in self._cache:
++            return self._cache[s]
++
++        info = self.client.get_exchange_info()
++        sym_list = info.get("symbols") or []
++        by_symbol = {str(x.get("symbol")).upper(): x for x in sym_list if x.get("symbol")}
++        if s not in by_symbol:
++            raise RuntimeError(f"Unknown Binance symbol: {s}")
++
++        filters = by_symbol[s].get("filters") or []
++        tick = 0.0
++        step = 0.0
++        min_qty = 0.0
++        min_notional = 0.0
++        for f in filters:
++            t = str(f.get("filterType") or "")
++            if t == "PRICE_FILTER":
++                tick = _f(f.get("tickSize"), tick)
++            elif t == "LOT_SIZE":
++                step = _f(f.get("stepSize"), step)
++                min_qty = _f(f.get("minQty"), min_qty)
++            elif t == "MIN_NOTIONAL":
++                min_notional = _f(f.get("notional"), min_notional)
++
++        sf = SymbolFilters(tick_size=tick or 0.0, step_size=step or 0.0, min_qty=min_qty or 0.0, min_notional=min_notional or 0.0)
++        self._cache[s] = sf
++        return sf
++
++
++def _normalize_side(payload: Dict[str, Any]) -> Tuple[str, str]:
++    # returns (binance_side, logical_side)
++    side = str(payload.get("side") or payload.get("direction") or "").upper().strip()
++    if side in {"BUY", "SELL"}:
++        return side, "LONG" if side == "BUY" else "SHORT"
++    if side in {"LONG", "SHORT"}:
++        return ("BUY" if side == "LONG" else "SELL"), side
++    raise ValueError(f"bad side: {payload.get('side')}")
++
++
++def _normalize_qty(payload: Dict[str, Any], assume_lot_is_qty: bool) -> float:
++    if payload.get("qty") is not None:
++        return _f(payload.get("qty"))
++    if payload.get("quantity") is not None:
++        return _f(payload.get("quantity"))
++    if assume_lot_is_qty and payload.get("lot") is not None:
++        return _f(payload.get("lot"))
++    raise ValueError("missing qty (provide qty/quantity; lot is MT5-specific)")
++
++
++def _classify_error(e: Exception) -> str:
++    """Return 'transient' or 'fatal'."""
++    if isinstance(e, BinanceAPIError):
++        payload = e.payload if isinstance(e.payload, dict) else {}
++        code = payload.get("code")
++        # transient-ish
++        if code in (-1021, -1003, -1001, -1007, -1100):
++            return "transient"
++        # insufficient margin, reduceOnly violations, invalid params are fatal
++        return "fatal"
++    # network-ish
++    msg = str(e).lower()
++    if "timed out" in msg or "temporary" in msg or "connection" in msg:
++        return "transient"
++    return "fatal"
++
++
++def _position_side_for_mode(position_mode: str, logical_side: str) -> Optional[str]:
++    # Binance hedge mode requires positionSide LONG/SHORT. One-way doesn't.
++    if position_mode != "hedge":
++        return None
++    return "LONG" if logical_side == "LONG" else "SHORT"
++
++
++class BinanceExecutor:
++    def __init__(self):
++        if redis is None:
++            raise RuntimeError("redis-py is required (pip install redis)")
++        self.redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++
++        # Default queue: keep compatibility with the existing project contract (orders:queue).
++        self.queue = os.getenv("ORDERS_QUEUE_BINANCE") or os.getenv("ORDERS_QUEUE") or "orders:queue"
++        self.queue_processing = os.getenv("ORDERS_QUEUE_BINANCE_PROCESSING") or f"{self.queue}:processing"
++        self.queue_dlq = os.getenv("ORDERS_QUEUE_BINANCE_DLQ") or f"{self.queue}:dlq"
++        self.exec_stream = os.getenv("EXEC_STREAM", "orders:exec")
++
++        allow = (os.getenv("BINANCE_SYMBOL_ALLOWLIST") or "").strip()
++        self.allowlist = {s.strip().upper() for s in allow.split(",") if s.strip()} if allow else set()
++
++        self.position_mode = (os.getenv("BINANCE_POSITION_MODE") or "oneway").strip().lower()
++        if self.position_mode not in {"oneway", "hedge"}:
++            self.position_mode = "oneway"
++
++        self.assume_lot_is_qty = _bool_env("BINANCE_ASSUME_LOT_IS_QTY", False)
++        self.max_retry = int(os.getenv("BINANCE_MAX_RETRY", "3"))
++        self.fill_timeout_s = float(os.getenv("BINANCE_FILL_TIMEOUT_S", "8.0"))
++        self.fill_poll_s = float(os.getenv("BINANCE_FILL_POLL_S", "0.25"))
++
++        self.init_symbol_settings = _bool_env("BINANCE_INIT_SYMBOL_SETTINGS", False)
++        self.margin_type = (os.getenv("BINANCE_MARGIN_TYPE") or "ISOLATED").strip().upper()
++        self.default_leverage = int(os.getenv("BINANCE_DEFAULT_LEVERAGE", "20"))
++
++        self.tg = TelegramClient.from_env()
++        self.client = BinanceFuturesClient.from_env()
++        self.filters = FiltersCache(self.client)
++
++        # Trailing stop settings (Binance futures TRAILING_STOP_MARKET).
++        # Your upstream pipeline sets `trail_after_tp1` flag; executor will only use trailing when the flag is true.
++        self.trail_cb_min = float(os.getenv("BINANCE_TRAIL_CALLBACK_MIN", "0.1"))
++        self.trail_cb_max = float(os.getenv("BINANCE_TRAIL_CALLBACK_MAX", "5.0"))
++        self.trail_cb_default = float(os.getenv("BINANCE_TRAIL_CALLBACK_DEFAULT", "0.3"))
++        self.trail_atr_mult_default = float(os.getenv("BINANCE_TRAIL_ATR_MULT", "1.0"))
++        self.trail_arm_poll_s = float(os.getenv("BINANCE_TRAIL_ARM_POLL_S", "1.0"))
++        self.trail_arm_timeout_s = float(os.getenv("BINANCE_TRAIL_ARM_TIMEOUT_S", "7200"))
++        self.trail_notify = _bool_env("BINANCE_TRAIL_NOTIFY", True)
++
++        self.r = redis.from_url(self.redis_url, decode_responses=True)
++
++    def _exec_event(self, fields: Dict[str, Any]) -> None:
++        # Ensure minimal fields
++        fields = dict(fields)
++        fields.setdefault("ts_ms", str(_ms_now()))
++        fields.setdefault("venue", "binance")
++        try:
++            self.r.xadd(self.exec_stream, {k: str(v) for k, v in fields.items() if v is not None})
++        except Exception:
++            # fail-open
++            return
++
++    def _dlq(self, raw: str, reason: str) -> None:
++        try:
++            self.r.lpush(self.queue_dlq, json.dumps({"reason": reason, "raw": raw, "ts_ms": _ms_now()}))
++        except Exception:
++            pass
++
++    def _ack_processing(self, raw: str) -> None:
++        # remove one occurrence
++        try:
++            self.r.lrem(self.queue_processing, 1, raw)
++        except Exception:
++            pass
++
++    def _requeue(self, payload: Dict[str, Any], raw: str, reason: str) -> None:
++        retry_n = int(payload.get("retry_n") or 0)
++        payload["retry_n"] = retry_n + 1
++        payload["retry_reason"] = reason
++        new_raw = json.dumps(payload, ensure_ascii=False, default=str)
++        try:
++            self.r.rpush(self.queue, new_raw)
++        except Exception:
++            # if we cannot requeue, DLQ the original
++            self._dlq(raw, f"requeue_failed:{reason}")
++
++    def _ensure_symbol_settings(self, symbol: str) -> None:
++        if not self.init_symbol_settings:
++            return
++        try:
++            _ = self.client.post_margin_type(symbol, self.margin_type)
++        except Exception:
++            # marginType is idempotent-ish: Binance returns error if unchanged; ignore
++            pass
++        try:
++            _ = self.client.post_leverage(symbol, self.default_leverage)
++        except Exception:
++            pass
++
++    def _quantize(self, symbol: str, qty: float, price: Optional[float]) -> Tuple[float, Optional[float]]:
++        f = self.filters.get(symbol)
++        q = qty
++        if f.step_size and f.step_size > 0:
++            q = _round_down(qty, f.step_size)
++        if f.min_qty and q < f.min_qty:
++            raise ValueError(f"qty below minQty: {q} < {f.min_qty}")
++        p = price
++        if price is not None and f.tick_size and f.tick_size > 0:
++            p = _round_down(price, f.tick_size)
++        return q, p
++
++    def _wait_fill(self, symbol: str, order_id: int, *, timeout_s: float) -> Dict[str, Any]:
++        deadline = time.time() + timeout_s
++        last = None
++        while time.time() < deadline:
++            j = self.client.get_order(symbol, order_id=order_id)
++            last = j
++            st = str(j.get("status") or "").upper()
++            if st == "FILLED":
++                return j
++            if st in {"CANCELED", "REJECTED", "EXPIRED"}:
++                return j
++            time.sleep(max(0.05, self.fill_poll_s))
++        return last or {}
++
++    def _split_tp_qtys(self, symbol: str, total_qty: float, n: int) -> List[float]:
++        if n <= 0:
++            return []
++        f = self.filters.get(symbol)
++        step = f.step_size or 0.0
++        if n == 1:
++            return [total_qty]
++
++        base = total_qty / float(n)
++        parts = []
++        remaining = total_qty
++        for i in range(n):
++            if i == n - 1:
++                q = remaining
++            else:
++                q = base
++                if step > 0:
++                    q = _round_down(q, step)
++                remaining -= q
++            if q <= 0:
++                continue
++            parts.append(q)
++        # ensure sum <= total_qty (rounding can leave dust)
++        s = sum(parts)
++        if s > total_qty and step > 0:
++            parts[-1] = _round_down(parts[-1] - (s - total_qty), step)
++        return [q for q in parts if q > 0]
++
++    def _place_protective(self, *, sid: str, symbol: str, logical_side: str, qty: float, sl: Optional[float], tps: List[float]) -> Dict[str, Any]:
++        # place SL/TP reduceOnly orders opposite to entry side
++        out: Dict[str, Any] = {}
++        exit_side = "SELL" if logical_side == "LONG" else "BUY"
++        pos_side = _position_side_for_mode(self.position_mode, logical_side)
++        reduce_only_allowed = self.position_mode == "oneway"
++
++        if sl is not None and sl > 0:
++            q_sl, sl_q = self._quantize(symbol, qty, sl)
++            p: Dict[str, Any] = {
++                "symbol": symbol,
++                "side": exit_side,
++                "type": "STOP_MARKET",
++                "stopPrice": sl_q,
++                "newClientOrderId": _make_cid(sid, "sl"),
++            }
++            # In one-way mode, prefer closePosition SL (it always closes the remaining position,
++            # even after partial TP fills).
++            if reduce_only_allowed:
++                p["closePosition"] = True
++            else:
++                # Hedge mode: reduceOnly is forbidden by Binance, so we specify quantity + positionSide.
++                p["quantity"] = q_sl
++                if pos_side:
++                    p["positionSide"] = pos_side
++            j = self.client.post_order(p)
++            out["sl_order_id"] = j.get("orderId")
++            out["sl_client_id"] = p["newClientOrderId"]
++
++        if tps:
++            parts = self._split_tp_qtys(symbol, qty, len(tps))
++            for idx, (tp, q_tp) in enumerate(zip(tps, parts), start=1):
++                q_tp2, tp_q = self._quantize(symbol, q_tp, tp)
++                p = {
++                    "symbol": symbol,
++                    "side": exit_side,
++                    "type": "TAKE_PROFIT_MARKET",
++                    "stopPrice": tp_q,
++                    "quantity": q_tp2,
++                    "newClientOrderId": _make_cid(sid, f"tp{idx}"),
++                }
++                if reduce_only_allowed:
++                    p["reduceOnly"] = True
++                elif pos_side:
++                    p["positionSide"] = pos_side
++                j = self.client.post_order(p)
++                out[f"tp{idx}_order_id"] = j.get("orderId")
++                out[f"tp{idx}_client_id"] = p["newClientOrderId"]
++        return out
++
++    def _cancel_by_token(self, symbol: str, sid: str) -> int:
++        token = _sha1_8(sid)
++        canceled = 0
++        orders = self.client.get_open_orders(symbol) or []
++        for o in orders:
++            cid = str(o.get("clientOrderId") or "")
++            if token and token not in cid:
++                continue
++            try:
++                oid = _i(o.get("orderId"), 0)
++                if oid:
++                    _ = self.client.delete_order(symbol, order_id=oid)
++                    canceled += 1
++            except Exception:
++                continue
++        return canceled
++
++    def _get_position_qty(self, symbol: str, logical_side: Optional[str] = None) -> float:
++        risks = self.client.get_position_risk() or []
++        for p in risks:
++            if str(p.get("symbol") or "").upper() != symbol.upper():
++                continue
++            amt = _f(p.get("positionAmt"))
++            if self.position_mode == "oneway":
++                return abs(amt)
++            # hedge: prefer the matching positionSide if present
++            ps = str(p.get("positionSide") or "").upper().strip()
++            if logical_side and ps and ps in {"LONG", "SHORT"}:
++                if logical_side.upper() == ps and abs(amt) > 0:
++                    return abs(amt)
++                continue
++            # fallback to abs net
++            return abs(amt)
++        return 0.0
++
++    def _place_trailing_stop(
++        self,
++        *,
++        sid: str,
++        symbol: str,
++        logical_side: str,
++        qty: float,
++        callback_rate_pct: float,
++    ) -> Dict[str, Any]:
++        """Place TRAILING_STOP_MARKET for the current position (reduce-only in one-way).
++
++        Important: In hedge mode Binance forbids reduceOnly param. We rely on positionSide to ensure it reduces.
++        """
++        exit_side = "SELL" if logical_side == "LONG" else "BUY"
++        pos_side = _position_side_for_mode(self.position_mode, logical_side)
++        q, _ = self._quantize(symbol, qty, None)
++        if q <= 0:
++            raise ValueError("trail qty <= 0")
++
++        p: Dict[str, Any] = {
++            "symbol": symbol,
++            "side": exit_side,
++            "type": "TRAILING_STOP_MARKET",
++            "quantity": q,
++            "callbackRate": float(callback_rate_pct),
++            "newClientOrderId": _make_cid(sid, "trail"),
++        }
++        if self.position_mode == "oneway":
++            p["reduceOnly"] = True
++        if pos_side:
++            p["positionSide"] = pos_side
++
++        j = self.client.post_order(p)
++        return {
++            "trail_order_id": j.get("orderId"),
++            "trail_client_id": p["newClientOrderId"],
++        }
++
++    def _arm_trailing_after_tp1_thread(
++        self,
++        *,
++        sid: str,
++        symbol: str,
++        logical_side: str,
++        tp1: float,
++        callback_rate_pct: float,
++        sl_order_id: Optional[int],
++    ) -> None:
++        """Background worker: when TP1 touched → replace SL with trailing stop.
++
++        Rationale:
++          - upstream strategy uses `trail_after_tp1`
++          - we keep the hard SL until TP1 is reached
++          - after TP1, trailing stop manages the remainder
++        """
++        try:
++            deadline = time.time() + float(self.trail_arm_timeout_s)
++            poll_s = max(0.2, float(self.trail_arm_poll_s))
++            touched = False
++
++            while time.time() < deadline:
++                # mark price is less noisy than last trade
++                mp = float(self.client.get_mark_price(symbol) or 0.0)
++                if mp <= 0:
++                    time.sleep(poll_s)
++                    continue
++
++                if logical_side == "LONG":
++                    touched = mp >= float(tp1)
++                else:
++                    touched = mp <= float(tp1)
++
++                if touched:
++                    break
++                time.sleep(poll_s)
++
++            if not touched:
++                self._exec_event({
++                    "sid": sid,
++                    "symbol": symbol,
++                    "action": "trail_arm",
++                    "status": "timeout",
++                    "trail_tp1": tp1,
++                    "trail_callback_rate_pct": callback_rate_pct,
++                })
++                return
++
++            # Ensure position is still open.
++            qty = self._get_position_qty(symbol, logical_side=logical_side)
++            if qty <= 0:
++                self._exec_event({
++                    "sid": sid,
++                    "symbol": symbol,
++                    "action": "trail_arm",
++                    "status": "no_position",
++                })
++                return
++
++            # Best effort: cancel the previous SL (avoid double-stops).
++            if sl_order_id:
++                try:
++                    _ = self.client.delete_order(symbol, order_id=int(sl_order_id))
++                except Exception:
++                    pass
++
++            trail = self._place_trailing_stop(
++                sid=sid,
++                symbol=symbol,
++                logical_side=logical_side,
++                qty=qty,
++                callback_rate_pct=callback_rate_pct,
++            )
++
++            ev = {
++                "sid": sid,
++                "symbol": symbol,
++                "action": "trail_arm",
++                "status": "armed",
++                "side": logical_side,
++                "qty": qty,
++                "trail_tp1": tp1,
++                "trail_callback_rate_pct": callback_rate_pct,
++                **trail,
++            }
++            self._exec_event(ev)
++
++            if self.tg is not None and self.trail_notify:
++                self.tg.send_text(
++                    f"🧷 BINANCE trailing armed\n"
++                    f"symbol={symbol} side={logical_side}\n"
++                    f"sid={sid[:24]}...\n"
++                    f"tp1={tp1} cb={callback_rate_pct:.1f}%"
++                )
++        except Exception as e:
++            self._exec_event({
++                "sid": sid,
++                "symbol": symbol,
++                "action": "trail_arm",
++                "status": "error",
++                "msg": str(e)[:900],
++            })
++
++    def _maybe_start_trailing_after_tp1(
++        self,
++        *,
++        payload: Dict[str, Any],
++        sid: str,
++        symbol: str,
++        logical_side: str,
++        entry_price: Optional[float],
++        sl_order_id: Optional[int],
++        tp_levels: List[float],
++    ) -> Dict[str, Any]:
++        """Start background trailing arming if upstream requests it."""
++        if not _truthy(payload.get("trail_after_tp1")):
++            return {}
++        if not tp_levels:
++            return {"trail_after_tp1": True, "trail_status": "no_tp_levels"}
++
++        atr = None
++        if payload.get("atr") is not None:
++            try:
++                atr = float(payload.get("atr"))
++            except Exception:
++                atr = None
++
++        cb = compute_trailing_callback_rate_pct(
++            payload,
++            entry_price=entry_price,
++            atr=atr,
++            min_pct=float(self.trail_cb_min),
++            max_pct=float(self.trail_cb_max),
++            default_pct=float(self.trail_cb_default),
++            atr_mult_default=float(self.trail_atr_mult_default),
++        )
++        tp1 = float(tp_levels[0])
++
++        t = threading.Thread(
++            target=self._arm_trailing_after_tp1_thread,
++            kwargs={
++                "sid": sid,
++                "symbol": symbol,
++                "logical_side": logical_side,
++                "tp1": tp1,
++                "callback_rate_pct": cb,
++                "sl_order_id": int(sl_order_id) if sl_order_id else None,
++            },
++            daemon=True,
++        )
++        t.start()
++
++        return {
++            "trail_after_tp1": True,
++            "trail_tp1": tp1,
++            "trail_callback_rate_pct": cb,
++            "trail_status": "arming",
++        }
++
++    def handle_open(self, payload: Dict[str, Any]) -> Dict[str, Any]:
++        sid = str(payload.get("sid") or "").strip()
++        symbol = str(payload.get("symbol") or "").strip().upper()
++        if not sid or not symbol:
++            raise ValueError("sid/symbol required")
++        if self.allowlist and symbol not in self.allowlist:
++            raise ValueError(f"symbol not in allowlist: {symbol}")
++
++        self._ensure_symbol_settings(symbol)
++
++        side, logical = _normalize_side(payload)
++        qty = _normalize_qty(payload, self.assume_lot_is_qty)
++        entry = payload.get("entry")
++        price = None
++        if entry not in (None, 0, "", "0"):
++            price = _f(entry)
++
++        order_type = str(payload.get("type") or ("limit" if price else "market")).upper()
++        order_type = "MARKET" if order_type in {"MARKET", "MKT"} else "LIMIT"
++
++        q, p = self._quantize(symbol, qty, price)
++        if q <= 0:
++            raise ValueError("qty <= 0")
++
++        params: Dict[str, Any] = {
++            "symbol": symbol,
++            "side": side,
++            "type": order_type,
++            "quantity": q,
++            "newClientOrderId": _make_cid(sid, "entry"),
++        }
++
++        pos_side = _position_side_for_mode(self.position_mode, logical)
++        if pos_side:
++            params["positionSide"] = pos_side
++
++        if order_type == "LIMIT":
++            if p is None or p <= 0:
++                raise ValueError("limit order requires entry price")
++            params["price"] = p
++            params["timeInForce"] = "GTC"
++
++        j_entry = self.client.post_order(params)
++        order_id = _i(j_entry.get("orderId"), 0)
++        if not order_id:
++            raise RuntimeError(f"no orderId in response: {j_entry}")
++
++        j_final = self._wait_fill(symbol, order_id, timeout_s=self.fill_timeout_s)
++        status = str(j_final.get("status") or "").upper()
++        filled_qty = _f(j_final.get("executedQty"), 0.0)
++        avg_price = _f(j_final.get("avgPrice"), 0.0)
++        if status not in {"FILLED", "PARTIALLY_FILLED"}:
++            raise RuntimeError(f"entry not filled: status={status} order={j_final}")
++        if filled_qty <= 0:
++            raise RuntimeError(f"filled_qty=0: order={j_final}")
++
++        sl = _f(payload.get("sl"), 0.0) if payload.get("sl") is not None else None
++        sl = sl if sl and sl > 0 else None
++        tps_raw = payload.get("tp_levels") or []
++        tps = [float(x) for x in tps_raw if x not in (None, "")]
++        tps = [tp for tp in tps if tp > 0]
++
++        prot = self._place_protective(sid=sid, symbol=symbol, logical_side=logical, qty=filled_qty, sl=sl, tps=tps)
++
++        trail = self._maybe_start_trailing_after_tp1(
++            payload=payload,
++            sid=sid,
++            symbol=symbol,
++            logical_side=logical,
++            entry_price=avg_price if avg_price > 0 else (p or None),
++            sl_order_id=_i(prot.get("sl_order_id"), 0) or None,
++            tp_levels=tps,
++        )
++
++        return {
++            "sid": sid,
++            "symbol": symbol,
++            "action": "open",
++            "status": status.lower(),
++            "side": logical,
++            "qty": filled_qty,
++            "exec_price": avg_price,
++            "binance_order_id": order_id,
++            **prot,
++            **trail,
++            "json": json.dumps({"entry": j_final, "protective": prot, "trailing": trail}, ensure_ascii=False, default=str),
++        }
++
++    def handle_modify(self, payload: Dict[str, Any]) -> Dict[str, Any]:
++        sid = str(payload.get("sid") or "").strip()
++        symbol = str(payload.get("symbol") or "").strip().upper()
++        if not sid or not symbol:
++            raise ValueError("sid/symbol required")
++        if self.allowlist and symbol not in self.allowlist:
++            raise ValueError(f"symbol not in allowlist: {symbol}")
++
++        canceled = self._cancel_by_token(symbol, sid)
++
++        # determine current position side/qty
++        risks = self.client.get_position_risk() or []
++        amt = 0.0
++        for p in risks:
++            if str(p.get("symbol") or "").upper() != symbol:
++                continue
++            amt = _f(p.get("positionAmt"), 0.0)
++            break
++
++        if amt == 0.0:
++            return {
++                "sid": sid,
++                "symbol": symbol,
++                "action": "modify",
++                "status": "no_position",
++                "canceled_orders": canceled,
++            }
++
++        logical = "LONG" if amt > 0 else "SHORT"
++        qty = abs(amt)
++
++        sl = _f(payload.get("sl"), 0.0) if payload.get("sl") is not None else None
++        sl = sl if sl and sl > 0 else None
++        tps_raw = payload.get("tp_levels") or []
++        tps = [float(x) for x in tps_raw if x not in (None, "")]
++        tps = [tp for tp in tps if tp > 0]
++
++        prot = self._place_protective(sid=sid, symbol=symbol, logical_side=logical, qty=qty, sl=sl, tps=tps)
++
++        entry_price = None
++        if payload.get("entry") not in (None, 0, "", "0"):
++            try:
++                entry_price = float(payload.get("entry"))
++            except Exception:
++                entry_price = None
++        if entry_price is None:
++            try:
++                mp = float(self.client.get_mark_price(symbol) or 0.0)
++                entry_price = mp if mp > 0 else None
++            except Exception:
++                entry_price = None
++
++        trail = self._maybe_start_trailing_after_tp1(
++            payload=payload,
++            sid=sid,
++            symbol=symbol,
++            logical_side=logical,
++            entry_price=entry_price,
++            sl_order_id=_i(prot.get("sl_order_id"), 0) or None,
++            tp_levels=tps,
++        )
++        return {
++            "sid": sid,
++            "symbol": symbol,
++            "action": "modify",
++            "status": "ok",
++            "side": logical,
++            "qty": qty,
++            "canceled_orders": canceled,
++            **prot,
++            **trail,
++            "json": json.dumps({"canceled": canceled, "protective": prot, "trailing": trail}, ensure_ascii=False, default=str),
++        }
++
++    def handle_cancel(self, payload: Dict[str, Any]) -> Dict[str, Any]:
++        sid = str(payload.get("sid") or "").strip()
++        symbol = str(payload.get("symbol") or "").strip().upper()
++        if not sid or not symbol:
++            raise ValueError("sid/symbol required")
++        if self.allowlist and symbol not in self.allowlist:
++            raise ValueError(f"symbol not in allowlist: {symbol}")
++
++        canceled = self._cancel_by_token(symbol, sid)
++
++        # close position if exists
++        risks = self.client.get_position_risk() or []
++        amt = 0.0
++        for p in risks:
++            if str(p.get("symbol") or "").upper() != symbol:
++                continue
++            amt = _f(p.get("positionAmt"), 0.0)
++            break
++
++        closed = False
++        close_order_id = None
++        logical = None
++        qty = 0.0
++        if amt != 0.0:
++            logical = "LONG" if amt > 0 else "SHORT"
++            qty = abs(amt)
++            exit_side = "SELL" if amt > 0 else "BUY"
++            pos_side = _position_side_for_mode(self.position_mode, logical)
++            q, _ = self._quantize(symbol, qty, None)
++            p = {
++                "symbol": symbol,
++                "side": exit_side,
++                "type": "MARKET",
++                "quantity": q,
++                "newClientOrderId": _make_cid(sid, "close"),
++            }
++            if self.position_mode == "oneway":
++                p["reduceOnly"] = True
++            if pos_side:
++                p["positionSide"] = pos_side
++            j = self.client.post_order(p)
++            close_order_id = _i(j.get("orderId"), 0)
++            closed = True
++
++        return {
++            "sid": sid,
++            "symbol": symbol,
++            "action": "cancel",
++            "status": "ok",
++            "side": logical or "",
++            "qty": qty,
++            "canceled_orders": canceled,
++            "close_order_id": close_order_id or "",
++            "closed": str(closed).lower(),
++        }
++
++    def handle_resize(self, payload: Dict[str, Any]) -> Dict[str, Any]:
++        # TODO: implement as: compute target qty, then market order delta.
++        sid = str(payload.get("sid") or "").strip()
++        symbol = str(payload.get("symbol") or "").strip().upper()
++        raise RuntimeError(f"resize not implemented yet (sid={sid} symbol={symbol})")
++
++    def process_one(self, raw: str) -> None:
++        try:
++            payload = json.loads(raw)
++        except Exception:
++            self._dlq(raw, "bad_json")
++            self._ack_processing(raw)
++            return
++
++        action = str(payload.get("action") or "").strip().lower()
++        sid = str(payload.get("sid") or "").strip()
++        symbol = str(payload.get("symbol") or "").strip().upper()
++
++        if not action or not sid or not symbol:
++            self._dlq(raw, "missing_required_fields")
++            self._exec_event({"sid": sid or "", "symbol": symbol or "", "action": action or "", "severity": "error", "msg": "missing_required_fields"})
++            self._ack_processing(raw)
++            return
++
++        try:
++            if action == "open":
++                out = self.handle_open(payload)
++            elif action == "modify":
++                out = self.handle_modify(payload)
++            elif action == "cancel":
++                out = self.handle_cancel(payload)
++            elif action == "resize":
++                out = self.handle_resize(payload)
++            else:
++                raise ValueError(f"unknown action: {action}")
++
++            self._exec_event(out)
++            self._ack_processing(raw)
++        except Exception as e:
++            cls = _classify_error(e)
++            msg = str(e)
++            self._exec_event({"sid": sid, "symbol": symbol, "action": action, "severity": "error", "msg": msg, "error_class": cls})
++            if self.tg is not None:
++                # keep it very short
++                self.tg.send_text(f"❌ BINANCE EXEC error\naction={action} symbol={symbol}\nsid={sid[:24]}...\n{msg[:500]}")
++
++            if isinstance(e, BinanceAPIError):
++                # timestamp drift: attempt time sync once and retry
++                payload_e = e.payload if isinstance(e.payload, dict) else {}
++                if payload_e.get("code") == -1021:
++                    try:
++                        self.client.sync_time()
++                        cls = "transient"
++                    except Exception:
++                        pass
++
++            if cls == "transient":
++                retry_n = int(payload.get("retry_n") or 0)
++                if retry_n < self.max_retry:
++                    self._requeue(payload, raw, msg)
++                    self._ack_processing(raw)
++                    time.sleep(0.25)
++                    return
++            # fatal OR exceeded retries
++            self._dlq(raw, f"{cls}:{msg}")
++            self._ack_processing(raw)
++
++    def run_forever(self) -> None:
++        print("🚀 BinanceExecutor starting")
++        print(f"   queue={self.queue}")
++        print(f"   processing={self.queue_processing}")
++        print(f"   dlq={self.queue_dlq}")
++        print(f"   exec_stream={self.exec_stream}")
++        print(f"   position_mode={self.position_mode}")
++        if self.allowlist:
++            print(f"   allowlist={sorted(self.allowlist)}")
++
++        while True:
++            try:
++                raw = self.r.brpoplpush(self.queue, self.queue_processing, timeout=5)
++                if not raw:
++                    continue
++                self.process_one(raw)
++            except Exception as e:
++                # Global fail-open loop protection
++                print(f"❌ executor loop error: {e}")
++                time.sleep(1.0)
++
++
++def main() -> None:
++    BinanceExecutor().run_forever()
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/tick_flow_full/services/binance_futures_client.py b/tick_flow_full/services/binance_futures_client.py
+new file mode 100644
+index 0000000..4e07f45
+--- /dev/null
++++ b/tick_flow_full/services/binance_futures_client.py
+@@ -0,0 +1,218 @@
++from __future__ import annotations
++
++"""Binance USDT-M Futures REST client (stdlib-only).
++
++Goal: provide a minimal, production-safe building block for:
++  - account reporting (P0)
++  - execution (P1)
++
++Design goals:
++  - Deterministic signing (HMAC SHA256)
++  - Conservative timeouts
++  - Clear error surfaces (raise with response payload)
++  - No external deps (requests/httpx)
++
++Notes:
++  - Binance requires `timestamp` in ms and `signature`.
++  - If server time skew exists, enable time sync (BINANCE_TIME_SYNC=1).
++"""
++
++import hashlib
++import hmac
++import json
++import os
++import time
++import urllib.parse
++import urllib.request
++from dataclasses import dataclass
++from typing import Any, Dict, Optional, Tuple
++
++
++class BinanceAPIError(RuntimeError):
++    def __init__(self, status: int, payload: Any, message: str = ""):
++        super().__init__(message or f"Binance API error status={status} payload={payload}")
++        self.status = status
++        self.payload = payload
++
++
++def _ms_now() -> int:
++    return int(time.time() * 1000)
++
++
++def _safe_json_loads(raw: bytes) -> Any:
++    try:
++        return json.loads(raw.decode("utf-8"))
++    except Exception:
++        # preserve raw for debugging
++        return {"_raw": raw[:4096].decode("utf-8", errors="replace")}
++
++
++def _hmac_sha256(secret: str, msg: str) -> str:
++    return hmac.new(secret.encode("utf-8"), msg.encode("utf-8"), hashlib.sha256).hexdigest()
++
++
++def _encode_params(params: Dict[str, Any]) -> str:
++    # Binance expects standard querystring; keep a stable encoding.
++    items = []
++    for k in sorted(params.keys()):
++        v = params[k]
++        if v is None:
++            continue
++        if isinstance(v, bool):
++            v = "true" if v else "false"
++        items.append((k, str(v)))
++    return urllib.parse.urlencode(items)
++
++
++@dataclass
++class BinanceFuturesClient:
++    api_key: str
++    api_secret: str
++    base_url: str = "https://fapi.binance.com"
++    timeout_s: float = 8.0
++    recv_window: int = 5000
++    timestamp_offset_ms: int = 0
++
++    @staticmethod
++    def from_env() -> "BinanceFuturesClient":
++        key = (os.getenv("BINANCE_API_KEY") or "").strip()
++        sec = (os.getenv("BINANCE_API_SECRET") or "").strip()
++        if not key or not sec:
++            raise RuntimeError("BINANCE_API_KEY/BINANCE_API_SECRET are required")
++
++        base = (os.getenv("BINANCE_FUTURES_BASE_URL") or "https://fapi.binance.com").strip()
++        timeout_s = float(os.getenv("BINANCE_HTTP_TIMEOUT_S", "8.0"))
++        recv_window = int(os.getenv("BINANCE_RECV_WINDOW", "5000"))
++        c = BinanceFuturesClient(api_key=key, api_secret=sec, base_url=base, timeout_s=timeout_s, recv_window=recv_window)
++
++        if (os.getenv("BINANCE_TIME_SYNC") or "").strip().lower() in {"1", "true", "yes", "on"}:
++            c.sync_time()
++        return c
++
++    # ---------------------------- core HTTP ----------------------------
++
++    def _request(self, method: str, path: str, *, params: Optional[Dict[str, Any]] = None, signed: bool = False) -> Any:
++        method = method.upper()
++        params = dict(params or {})
++        headers = {
++            "X-MBX-APIKEY": self.api_key,
++            "User-Agent": "scanner_infra/binance_client_v1",
++        }
++
++        qs = ""
++        body: Optional[bytes] = None
++
++        if signed:
++            params.setdefault("timestamp", _ms_now() + int(self.timestamp_offset_ms))
++            params.setdefault("recvWindow", int(self.recv_window))
++            qs = _encode_params(params)
++            sig = _hmac_sha256(self.api_secret, qs)
++            qs = qs + "&signature=" + sig
++        else:
++            qs = _encode_params(params) if params else ""
++
++        url = self.base_url.rstrip("/") + path
++        if method in {"GET", "DELETE"}:
++            if qs:
++                url = url + ("?" if "?" not in url else "&") + qs
++        else:
++            # POST: send as application/x-www-form-urlencoded (Binance accepts both)
++            body = qs.encode("utf-8") if qs else b""
++
++        req = urllib.request.Request(url, data=body, method=method)
++        for k, v in headers.items():
++            req.add_header(k, v)
++        if method in {"POST", "PUT"}:
++            req.add_header("Content-Type", "application/x-www-form-urlencoded")
++
++        try:
++            with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
++                raw = resp.read()
++                if 200 <= resp.status < 300:
++                    return _safe_json_loads(raw)
++                raise BinanceAPIError(resp.status, _safe_json_loads(raw))
++        except urllib.error.HTTPError as e:
++            raw = e.read() if hasattr(e, "read") else b""
++            payload = _safe_json_loads(raw) if raw else {"_error": str(e)}
++            raise BinanceAPIError(getattr(e, "code", 0) or 0, payload)
++
++    # ---------------------------- public endpoints ----------------------------
++
++    def ping(self) -> Any:
++        return self._request("GET", "/fapi/v1/ping")
++
++    def get_server_time(self) -> int:
++        j = self._request("GET", "/fapi/v1/time")
++        return int(j.get("serverTime"))
++
++    def sync_time(self) -> None:
++        """Compute local->server offset to reduce signature rejections due to time drift."""
++        try:
++            t0 = _ms_now()
++            st = self.get_server_time()
++            t1 = _ms_now()
++            # Assume serverTime corresponds to mid-point of local request.
++            mid = (t0 + t1) // 2
++            self.timestamp_offset_ms = int(st - mid)
++        except Exception:
++            # fail-open: offset remains 0
++            self.timestamp_offset_ms = 0
++
++    def get_exchange_info(self) -> Any:
++        return self._request("GET", "/fapi/v1/exchangeInfo")
++
++    def get_premium_index(self, symbol: str) -> Any:
++        """Return premium index payload, including markPrice.
++
++        Endpoint: GET /fapi/v1/premiumIndex (public).
++        This is a convenient and cheap way to fetch mark price for trailing arming.
++        """
++        return self._request("GET", "/fapi/v1/premiumIndex", params={"symbol": str(symbol).upper()})
++
++    def get_mark_price(self, symbol: str) -> float:
++        j = self.get_premium_index(symbol)
++        try:
++            return float(j.get("markPrice"))
++        except Exception:
++            return 0.0
++
++    # ---------------------------- signed/account endpoints ----------------------------
++
++    def get_account(self) -> Any:
++        return self._request("GET", "/fapi/v2/account", signed=True)
++
++    def get_position_risk(self) -> Any:
++        return self._request("GET", "/fapi/v2/positionRisk", signed=True)
++
++    def get_open_orders(self, symbol: Optional[str] = None) -> Any:
++        params: Dict[str, Any] = {}
++        if symbol:
++            params["symbol"] = symbol
++        return self._request("GET", "/fapi/v1/openOrders", params=params, signed=True)
++
++    # ---------------------------- signed/trading endpoints ----------------------------
++
++    def post_leverage(self, symbol: str, leverage: int) -> Any:
++        return self._request("POST", "/fapi/v1/leverage", params={"symbol": symbol, "leverage": leverage}, signed=True)
++
++    def post_margin_type(self, symbol: str, margin_type: str) -> Any:
++        return self._request("POST", "/fapi/v1/marginType", params={"symbol": symbol, "marginType": margin_type}, signed=True)
++
++    def post_order(self, params: Dict[str, Any]) -> Any:
++        return self._request("POST", "/fapi/v1/order", params=params, signed=True)
++
++    def get_order(self, symbol: str, *, order_id: Optional[int] = None, client_order_id: Optional[str] = None) -> Any:
++        p: Dict[str, Any] = {"symbol": symbol}
++        if order_id is not None:
++            p["orderId"] = int(order_id)
++        if client_order_id is not None:
++            p["origClientOrderId"] = client_order_id
++        return self._request("GET", "/fapi/v1/order", params=p, signed=True)
++
++    def delete_order(self, symbol: str, *, order_id: Optional[int] = None, client_order_id: Optional[str] = None) -> Any:
++        p: Dict[str, Any] = {"symbol": symbol}
++        if order_id is not None:
++            p["orderId"] = int(order_id)
++        if client_order_id is not None:
++            p["origClientOrderId"] = client_order_id
++        return self._request("DELETE", "/fapi/v1/order", params=p, signed=True)
+diff --git a/tick_flow_full/services/binance_iceberg_detector.py b/tick_flow_full/services/binance_iceberg_detector.py
+index e66f3a2..e32a281 100644
+--- a/tick_flow_full/services/binance_iceberg_detector.py
++++ b/tick_flow_full/services/binance_iceberg_detector.py
+@@ -182,7 +182,7 @@ MAX_DIST_REL = float(os.getenv("ICEBERG_MAX_DIST_REL", "0.0025"))
+ METRIC_SIG = os.getenv("ICEBERG_METRIC_SIGNAL", "metrics:iceberg_signals_total")
+ METRIC_GAP = os.getenv("ICEBERG_METRIC_GAP", "metrics:iceberg_gaps_total")
+ METRIC_BLOCKED_TREND = os.getenv("ICEBERG_METRIC_BLOCKED", "metrics:iceberg_blocked_by_trend")
+-ORDERS_QUEUE = os.getenv("ORDERS_QUEUE", "orders:queue")
++ORDERS_QUEUE = os.getenv("ORDERS_QUEUE_BINANCE") or os.getenv("ORDERS_QUEUE") or "orders:queue:binance"
+ RAW_SIGNAL_STREAM = os.getenv("ICEBERG_RAW_STREAM", "signals:crypto:raw")
+ NOTIFY_STREAM = os.getenv("ICEBERG_NOTIFY_STREAM", "notify:telegram")
+ 
+diff --git a/tick_flow_full/services/crypto_orderflow_service.py b/tick_flow_full/services/crypto_orderflow_service.py
+index 1c5468a..5f7d097 100644
+--- a/tick_flow_full/services/crypto_orderflow_service.py
++++ b/tick_flow_full/services/crypto_orderflow_service.py
+@@ -261,7 +261,7 @@ class CryptoOrderflowService:
+ 
+         self.notify_stream = os.getenv("CRYPTO_NOTIFY_STREAM", "notify:telegram")
+         self.raw_signal_stream = os.getenv("CRYPTO_RAW_STREAM", "signals:crypto:raw")
+-        self.orders_queue = os.getenv("ORDERS_QUEUE", "orders:queue")
++        self.orders_queue = os.getenv("ORDERS_QUEUE_MT5") or os.getenv("ORDERS_QUEUE") or "orders:queue:mt5"
+         # 🎯 Stream для structured signals (для periodic_reporter и других downstream сервисов)
+         # Tickers & Streams
+         self.cryptoorderflow_signal_stream_template = os.getenv("CRYPTO_ORDERFLOW_SIGNAL_STREAM", "signals:cryptoorderflow:{symbol}")
+diff --git a/tick_flow_full/services/execution_gate_service.py b/tick_flow_full/services/execution_gate_service.py
+index 3b43e5d..8059aa5 100644
+--- a/tick_flow_full/services/execution_gate_service.py
++++ b/tick_flow_full/services/execution_gate_service.py
+@@ -62,7 +62,7 @@ class ExecutionGateService:
+         # Streams
+         self.stream_raw = os.getenv("CRYPTO_RAW_STREAM", "signals:crypto:raw")
+         self.stream_confirm = os.getenv("OF_CONFIRM_STREAM", "signals:of:confirm")
+-        self.queue_out = os.getenv("ORDERS_QUEUE", "orders:queue")
++        self.queue_out = os.getenv("ORDERS_QUEUE_MT5") or os.getenv("ORDERS_QUEUE") or "orders:queue:mt5"
+         self.notify_stream = os.getenv("CRYPTO_NOTIFY_STREAM", "notify:telegram")
+         
+         # Config
+diff --git a/tick_flow_full/services/notify_bridge.py b/tick_flow_full/services/notify_bridge.py
+index 67813e7..8e050f4 100644
+--- a/tick_flow_full/services/notify_bridge.py
++++ b/tick_flow_full/services/notify_bridge.py
+@@ -10,8 +10,8 @@ Endpoints:
+     GET /healthz - Health check
+ 
+ Environment:
+-    BOT_TOKEN - Telegram bot token (required)
+-    CHAT_ID - Telegram chat ID (required)
++    TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID - preferred
++    BOT_TOKEN / CHAT_ID - backward compatible
+     TITLE_PREFIX - Message title prefix (optional, default: "[XAUUSD]")
+     OBI_HOST - OBI service URL (default: http://127.0.0.1:8090)
+     NOTIFY_BRIDGE_PORT - Service port (default: 8089)
+@@ -33,8 +33,10 @@ import datetime as dt
+ from typing import Optional
+ 
+ # Configuration
+-BOT_TOKEN = os.environ["BOT_TOKEN"]
+-CHAT_ID = os.environ["CHAT_ID"]
++BOT_TOKEN = (os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_TOKEN") or "").strip()
++CHAT_ID = (os.getenv("TELEGRAM_CHAT_ID") or os.getenv("CHAT_ID") or "").strip()
++if not BOT_TOKEN or not CHAT_ID:
++    raise RuntimeError("Telegram is not configured: set TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID (or BOT_TOKEN/CHAT_ID)")
+ TITLE = os.getenv("TITLE_PREFIX", "[XAUUSD]")
+ OBI_HOST = os.getenv("OBI_HOST", "http://127.0.0.1:8090")
+ PORT = int(os.getenv("NOTIFY_BRIDGE_PORT", "8089"))
+diff --git a/tick_flow_full/services/orders_http_bridge.py b/tick_flow_full/services/orders_http_bridge.py
+index 2163b27..292cd6c 100644
+--- a/tick_flow_full/services/orders_http_bridge.py
++++ b/tick_flow_full/services/orders_http_bridge.py
+@@ -26,7 +26,7 @@ from pydantic import BaseModel
+ 
+ # Configuration
+ REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
+-ORDERS_QUEUE = os.getenv("ORDERS_QUEUE", "orders:queue")
++ORDERS_QUEUE = os.getenv("ORDERS_QUEUE_MT5") or os.getenv("ORDERS_QUEUE") or "orders:queue:mt5"
+ EXEC_STREAM = os.getenv("EXEC_STREAM", "orders:exec")
+ 
+ # Connect to Redis
+diff --git a/tick_flow_full/services/orders_router.py b/tick_flow_full/services/orders_router.py
+index 5bf3c19..7437b6b 100644
+--- a/tick_flow_full/services/orders_router.py
++++ b/tick_flow_full/services/orders_router.py
+@@ -24,7 +24,7 @@ from symbol_specs_store import SymbolSpecsStore, SymbolSpecs
+ # Configuration
+ REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
+ CALLBACKS_STREAM = os.getenv("CALLBACKS_STREAM", "bot:callbacks")
+-ORDERS_QUEUE = os.getenv("ORDERS_QUEUE", "orders:queue")
++ORDERS_QUEUE = os.getenv("ORDERS_QUEUE_MT5") or os.getenv("ORDERS_QUEUE") or "orders:queue:mt5"
+ SNAP_PREFIX = os.getenv("SNAP_PREFIX", "signal:snap:")
+ GROUP = os.getenv("ORDERS_ROUTER_GROUP", "orders-router-group")
+ CONSUMER = os.getenv("ORDERS_ROUTER_CONSUMER", "orders-router-1")
+diff --git a/tick_flow_full/services/telegram/telegram_client.py b/tick_flow_full/services/telegram/telegram_client.py
+index fdb7a99..c061e64 100644
+--- a/tick_flow_full/services/telegram/telegram_client.py
++++ b/tick_flow_full/services/telegram/telegram_client.py
+@@ -22,8 +22,8 @@ class TelegramClient:
+ 
+     @staticmethod
+     def from_env() -> Optional["TelegramClient"]:
+-        tok = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+-        cid = os.getenv("TELEGRAM_CHAT_ID", "").strip()
++        tok = (os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_TOKEN") or "").strip()
++        cid = (os.getenv("TELEGRAM_CHAT_ID") or os.getenv("CHAT_ID") or "").strip()
+         if not tok or not cid:
+             return None
+         return TelegramClient(token=tok, chat_id=cid)
+@@ -36,7 +36,7 @@ class TelegramClient:
+             data = {
+                 "chat_id": self.chat_id,
+                 "text": text,
+-                "parse_mode": "HTML",
++                "parse_mode": (os.getenv("TELEGRAM_PARSE_MODE") or "HTML").strip() or "HTML",
+                 "disable_web_page_preview": True,
+             }
+             body = urllib.parse.urlencode(data).encode("utf-8")
+diff --git a/tick_flow_full/services/telegram_notifier_worker_v2.py b/tick_flow_full/services/telegram_notifier_worker_v2.py
+index dde023b..1a62fa1 100644
+--- a/tick_flow_full/services/telegram_notifier_worker_v2.py
++++ b/tick_flow_full/services/telegram_notifier_worker_v2.py
+@@ -19,11 +19,13 @@ logger = logging.getLogger("TelegramNotifierWorkerV2")
+ 
+ # Configuration
+ REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
++TELEGRAM_BOT_TOKEN = (os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_TOKEN") or "").strip()
++TELEGRAM_CHAT_ID = (os.getenv("TELEGRAM_CHAT_ID") or os.getenv("CHAT_ID") or "").strip()
+ NOTIFY_TELEGRAM_CHAT_ID_CRIT = os.getenv("NOTIFY_TELEGRAM_CHAT_ID_CRIT", TELEGRAM_CHAT_ID)
+ NOTIFY_TELEGRAM_CHAT_ID_PAGE = os.getenv("NOTIFY_TELEGRAM_CHAT_ID_PAGE", TELEGRAM_CHAT_ID)
+ 
++TELEGRAM_PARSE_MODE = (os.getenv("TELEGRAM_PARSE_MODE") or "HTML").strip() or "HTML"
++
+ NOTIFY_RECEIPT_KEY_PREFIX = os.getenv("NOTIFY_RECEIPT_KEY_PREFIX", "notify:receipt:")
+ NOTIFY_RECEIPT_TTL_SEC = int(os.getenv("NOTIFY_RECEIPT_TTL_SEC", "3600"))
+ 
+@@ -71,13 +73,13 @@ def send_telegram_message(latched_chat_id, text):
+     Returns (success, response_or_error, status_code).
+     """
+     if not TELEGRAM_BOT_TOKEN or not latched_chat_id:
+-        return False, "Missing TELEGRAM_BOT_TOKEN or chat_id", 0
++        return False, "Missing TELEGRAM_BOT_TOKEN (or BOT_TOKEN) or chat_id", 0
+ 
+     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+     payload = {
+         "chat_id": latched_chat_id,
+         "text": text,
+-        "parse_mode": "HTML" 
++        "parse_mode": TELEGRAM_PARSE_MODE,
+     }
+     
+     data = json.dumps(payload).encode("utf-8")

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/expected_slippage_decomp_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.5, 1.0, 8.0, 250.0, 10000.0]

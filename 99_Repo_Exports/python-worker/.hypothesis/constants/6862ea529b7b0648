@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/errors/__init__.py
+# hypothesis_version: 6.148.10
+
+['AbstractMethodError', 'CSSWarning', 'ClosedFileError', 'DataError', 'DatabaseError', 'DtypeWarning', 'DuplicateLabelError', 'EmptyDataError', 'IndexingError', 'IntCastingNaNError', 'InvalidColumnName', 'InvalidComparison', 'InvalidIndexError', 'InvalidVersion', 'LossySetitemError', 'MergeError', 'NoBufferPresent', 'NullFrequencyError', 'NumbaUtilError', 'OptionError', 'OutOfBoundsDatetime', 'OutOfBoundsTimedelta', 'ParserError', 'ParserWarning', 'PerformanceWarning', 'PyperclipException', 'SettingWithCopyError', 'SpecificationError', 'UnsortedIndexError', 'classmethod', 'method', 'property', 'staticmethod']

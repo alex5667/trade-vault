@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/sparse/_construct.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.01, 1.0, 'A is not square', 'B is not square', 'block_diag', 'blocks must be 2-D', 'bmat', 'bsr', 'coo', 'csc', 'csr', 'd', 'diags', 'eye', 'hstack', 'identity', 'int32', 'kron', 'kronsum', 'object', 'rand', 'random', 'restructuredtext en', 'spdiags', 'vstack']

@@ -1,0 +1,706 @@
+diff --git a/orderflow_services/operator_routing_incident_rca_experiment_router_v2_13.py b/orderflow_services/operator_routing_incident_rca_experiment_router_v2_13.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/operator_routing_incident_rca_experiment_router_v2_13.py
+@@ -0,0 +1,322 @@
++from __future__ import annotations
++
++import hashlib
++import json
++import os
++import time
++from typing import Any, Dict, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++
++APP_NAME = "operator_routing_incident_rca_experiment_router_v2_13"
++INPUT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_INPUT_STREAM",
++    "stream:ml:operator_rca_routing_rca_requests_routed",
++)
++OUTPUT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_OUTPUT_STREAM",
++    "stream:ml:operator_routing_incident_rca_requests_experimented",
++)
++EXPOSURES_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPOSURES_STREAM",
++    "stream:ml:operator_routing_incident_rca_exposures",
++)
++AUDIT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_AUDIT_STREAM",
++    "stream:ml:operator_routing_incident_rca_experiment_audit",
++)
++GROUP = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_GROUP", APP_NAME)
++CONSUMER = os.getenv("HOSTNAME", APP_NAME)
++PORT = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_PORT", "9891"))
++MAXLEN = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_MAXLEN", "20000"))
++
++EXPERIMENT_ENABLE = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_ENABLE", "1"))
++EXPERIMENT_ID = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_ID", "routing_incident_rca_ab_v1")
++CONTROL_SHARE = float(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_CONTROL_SHARE", "0.5"))
++
++CONTROL_PROVIDER = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_CONTROL_PROVIDER", "vertex")
++CONTROL_MODEL = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_CONTROL_MODEL", "gemini-2.5-flash-lite")
++CONTROL_PROMPT_VERSION = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_CONTROL_PROMPT_VERSION", "routing_incident_rca_v1")
++CONTROL_POLICY_VERSION = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_CONTROL_POLICY_VERSION", "policy_v1")
++
++CHALLENGER_PROVIDER = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_CHALLENGER_PROVIDER", "vertex")
++CHALLENGER_MODEL = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_CHALLENGER_MODEL", "gemini-2.5-flash")
++CHALLENGER_PROMPT_VERSION = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_CHALLENGER_PROMPT_VERSION", "routing_incident_rca_v2")
++CHALLENGER_POLICY_VERSION = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_CHALLENGER_POLICY_VERSION", "policy_v1")
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter(
++    "ml_operator_routing_incident_rca_experiment_runs_total",
++    "Routing-incident RCA experiment router runs",
++    ("status", "arm"),
++)
++LAT = _hist(
++    "ml_operator_routing_incident_rca_experiment_latency_seconds",
++    "Routing-incident RCA experiment router latency seconds",
++)
++UP = _gauge(
++    "ml_operator_routing_incident_rca_experiment_up",
++    "Routing-incident RCA experiment router up",
++)
++LAST_RUN_TS = _gauge(
++    "ml_operator_routing_incident_rca_experiment_last_run_ts_seconds",
++    "Routing-incident RCA experiment router last run timestamp",
++)
++EXPOSURES = _counter(
++    "ml_operator_routing_incident_rca_exposures_total",
++    "Routing-incident RCA experiment exposures",
++    ("experiment_id", "arm"),
++)
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        if isinstance(v, (bytes, bytearray)):
++            try:
++                out[kk] = v.decode()
++            except Exception:
++                out[kk] = v.hex()
++        else:
++            out[kk] = v
++    return out
++
++
++def stable_json(obj: Any) -> str:
++    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++def _hash01(s: str) -> float:
++    h = hashlib.sha256(s.encode("utf-8")).digest()
++    x = int.from_bytes(h[:8], "big", signed=False)
++    return (x % 10_000_000) / 10_000_000.0
++
++
++def choose_arm(route_change_id: str, experiment_id: str, control_share: float) -> str:
++    if control_share <= 0.0:
++        return "challenger"
++    if control_share >= 1.0:
++        return "control"
++    return "control" if _hash01(f"{experiment_id}:{route_change_id}") < control_share else "challenger"
++
++
++def route_for_arm(arm: str) -> Dict[str, str]:
++    if arm == "challenger":
++        return {
++            "provider": CHALLENGER_PROVIDER,
++            "model_name": CHALLENGER_MODEL,
++            "prompt_version": CHALLENGER_PROMPT_VERSION,
++            "policy_version": CHALLENGER_POLICY_VERSION,
++        }
++    return {
++        "provider": CONTROL_PROVIDER,
++        "model_name": CONTROL_MODEL,
++        "prompt_version": CONTROL_PROMPT_VERSION,
++        "policy_version": CONTROL_POLICY_VERSION,
++    }
++
++
++async def ensure_group(client: Any, stream_key: str, group: str) -> None:
++    try:
++        await client.xgroup_create(stream_key, group, id="$", mkstream=True)
++    except Exception:
++        return
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    await ensure_group(r, INPUT_STREAM, GROUP)
++    while True:
++        rows = await r.xreadgroup(GROUP, CONSUMER, {INPUT_STREAM: ">"}, count=32, block=5000)
++        if not rows:
++            continue
++        for _stream, messages in rows:
++            for msg_id, payload in messages:
++                started = time.perf_counter()
++                status = "ok"
++                arm = "control"
++                try:
++                    row = as_dict(payload)
++                    route_change_id = row.get("route_change_id", "") or row.get("request_id", "")
++                    if not route_change_id:
++                        raise ValueError("missing route_change_id")
++                    if EXPERIMENT_ENABLE != 1:
++                        arm = "control"
++                    else:
++                        arm = choose_arm(route_change_id, EXPERIMENT_ID, CONTROL_SHARE)
++                    chosen = route_for_arm(arm)
++                    routed = {
++                        "schema_version": 1,
++                        "route_change_id": route_change_id,
++                        "task_type": row.get("task_type", ""),
++                        "payload_json": row.get("payload_json", "{}"),
++                        "compact_hash": row.get("compact_hash", ""),
++                        "severity": row.get("severity", "info"),
++                        "experiment_id": EXPERIMENT_ID,
++                        "experiment_arm": arm,
++                        "provider": chosen["provider"],
++                        "model_name": chosen["model_name"],
++                        "prompt_version": chosen["prompt_version"],
++                        "policy_version": chosen["policy_version"],
++                        "ts_ms": str(now_ms()),
++                    }
++                    await r.xadd(OUTPUT_STREAM, routed, maxlen=MAXLEN, approximate=True)
++                    await r.xadd(
++                        EXPOSURES_STREAM,
++                        {
++                            "schema_version": 1,
++                            "route_change_id": route_change_id,
++                            "experiment_id": EXPERIMENT_ID,
++                            "experiment_arm": arm,
++                            "provider": chosen["provider"],
++                            "model_name": chosen["model_name"],
++                            "prompt_version": chosen["prompt_version"],
++                            "policy_version": chosen["policy_version"],
++                            "ts_ms": str(now_ms()),
++                        },
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.xadd(
++                        AUDIT_STREAM,
++                        {
++                            "event_type": "ROUTING_INCIDENT_RCA_EXPERIMENT_ROUTED",
++                            "route_change_id": route_change_id,
++                            "experiment_id": EXPERIMENT_ID,
++                            "experiment_arm": arm,
++                            "provider": chosen["provider"],
++                            "model_name": chosen["model_name"],
++                            "prompt_version": chosen["prompt_version"],
++                            "policy_version": chosen["policy_version"],
++                            "ts_ms": str(now_ms()),
++                        },
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                    if LAST_RUN_TS:
++                        LAST_RUN_TS.set(time.time())
++                    if EXPOSURES:
++                        EXPOSURES.labels(experiment_id=EXPERIMENT_ID, arm=arm).inc()
++                except Exception as exc:
++                    status = "error"
++                    await r.xadd(
++                        AUDIT_STREAM,
++                        {
++                            "event_type": "ROUTING_INCIDENT_RCA_EXPERIMENT_ROUTER_FAILED",
++                            "error": str(exc),
++                            "ts_ms": str(now_ms()),
++                        },
++                        maxlen=MAXLEN,
++                        approximate=True,
++                    )
++                    await r.xack(INPUT_STREAM, GROUP, msg_id)
++                finally:
++                    if RUNS:
++                        RUNS.labels(status=status, arm=arm).inc()
++                    if LAT:
++                        LAT.observe(max(time.perf_counter() - started, 0.0))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    import asyncio
++    asyncio.run(main())
+diff --git a/orderflow_services/operator_routing_incident_rca_experiment_winner_selector_v2_13.py b/orderflow_services/operator_routing_incident_rca_experiment_winner_selector_v2_13.py
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/orderflow_services/operator_routing_incident_rca_experiment_winner_selector_v2_13.py
+@@ -0,0 +1,350 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from collections import defaultdict
++from typing import Any, Dict, List, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    import psycopg
++except Exception:  # pragma: no cover
++    psycopg = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++
++APP_NAME = "operator_routing_incident_rca_experiment_winner_selector_v2_13"
++EXPOSURES_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPOSURES_STREAM",
++    "stream:ml:operator_routing_incident_rca_exposures",
++)
++RESULTS_STREAM = os.getenv(
++    "ML_OPERATOR_RCA_ROUTING_RCA_RESULTS_STREAM",
++    "stream:ml:operator_rca_routing_rca_results",
++)
++FEEDBACK_STREAM = os.getenv(
++    "ML_OPERATOR_RCA_ROUTING_RCA_FEEDBACK_SUMMARY_STREAM",
++    "stream:ml:operator_rca_routing_rca_feedback_summary",
++)
++WINNER_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_WINNER_DECISIONS_STREAM",
++    "stream:ml:operator_routing_incident_rca_experiment_winner_decisions",
++)
++AUDIT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_AUDIT_STREAM",
++    "stream:ml:operator_routing_incident_rca_experiment_audit",
++)
++STATE_PREFIX = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_WINNER_STATE_PREFIX",
++    "cfg:ml:operator_routing_incident_rca_experiment:winner:",
++)
++PORT = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_WINNER_SELECTOR_PORT", "9892"))
++WINDOW_MIN = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_WINDOW_MIN", "1440"))
++MIN_SAMPLE = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_MIN_SAMPLE", "8"))
++MAXLEN = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_WINNER_SELECTOR_MAXLEN", "20000"))
++EXPERIMENT_ID = os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_ID", "routing_incident_rca_ab_v1")
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter(
++    "ml_operator_routing_incident_rca_experiment_winner_runs_total",
++    "Routing-incident RCA experiment winner runs",
++    ("decision",),
++)
++LAT = _hist(
++    "ml_operator_routing_incident_rca_experiment_winner_latency_seconds",
++    "Routing-incident RCA experiment winner latency seconds",
++)
++UP = _gauge(
++    "ml_operator_routing_incident_rca_experiment_winner_up",
++    "Routing-incident RCA experiment winner selector up",
++)
++LAST_RUN_TS = _gauge(
++    "ml_operator_routing_incident_rca_experiment_winner_last_run_ts_seconds",
++    "Routing-incident RCA experiment winner selector last run timestamp",
++)
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
++    out: Dict[str, Any] = {}
++    for k, v in fields.items():
++        kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
++        if isinstance(v, (bytes, bytearray)):
++            try:
++                out[kk] = v.decode()
++            except Exception:
++                out[kk] = v.hex()
++        else:
++            out[kk] = v
++    return out
++
++
++async def xr_recent(client: Any, stream_key: str, limit: int) -> List[Dict[str, Any]]:
++    try:
++        rows = await client.xrevrange(stream_key, count=limit)
++    except Exception:
++        return []
++    out: List[Dict[str, Any]] = []
++    for entry_id, payload in rows:
++        row = as_dict(payload)
++        row["_stream_id"] = entry_id.decode() if isinstance(entry_id, (bytes, bytearray)) else str(entry_id)
++        out.append(row)
++    return out
++
++
++def stable_json(obj: Any) -> str:
++    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++def arm_score(quality_avg: float, usefulness_avg: float) -> float:
++    return round(0.4 * quality_avg + 0.6 * usefulness_avg, 6)
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    lookback = max(MIN_SAMPLE * 50, 200)
++
++    while True:
++        started = time.perf_counter()
++        decision = "HOLD"
++        try:
++            exposures = await xr_recent(r, EXPOSURES_STREAM, lookback)
++            results = await xr_recent(r, RESULTS_STREAM, lookback)
++            feedback = await xr_recent(r, FEEDBACK_STREAM, lookback)
++
++            exposure_by_route: Dict[str, Dict[str, Any]] = {}
++            for row in exposures:
++                if row.get("experiment_id") != EXPERIMENT_ID:
++                    continue
++                route_change_id = row.get("route_change_id", "")
++                if not route_change_id:
++                    continue
++                exposure_by_route[route_change_id] = row
++
++            arm_quality = defaultdict(list)
++            for row in results:
++                route_change_id = row.get("route_change_id", "")
++                exp = exposure_by_route.get(route_change_id)
++                if not exp:
++                    continue
++                arm = exp.get("experiment_arm", "")
++                # routing-incident RCA Phase 2.10 may populate quality_score later; fall back to 0.5
++                try:
++                    payload = json.loads(row.get("result_json", "{}"))
++                    findings = payload.get("findings", []) or []
++                    recos = payload.get("recommendations", []) or []
++                    summary = 1.0 if str(payload.get("summary", "")).strip() else 0.0
++                    quality = min(1.0, 0.2 * summary + 0.15 * len(findings) + 0.1 * len(recos))
++                except Exception:
++                    quality = 0.5
++                arm_quality[arm].append(float(quality))
++
++            arm_usefulness = defaultdict(list)
++            for row in feedback:
++                route_change_id = row.get("route_change_id", "")
++                exp = exposure_by_route.get(route_change_id)
++                if not exp:
++                    continue
++                arm = exp.get("experiment_arm", "")
++                try:
++                    usefulness = float(row.get("usefulness_score", "0.5"))
++                except Exception:
++                    usefulness = 0.5
++                arm_usefulness[arm].append(usefulness)
++
++            def summarize_arm(arm: str) -> Dict[str, Any]:
++                q = arm_quality.get(arm, [])
++                u = arm_usefulness.get(arm, [])
++                sample_n = min(len(q) if q else 0, len(u) if u else 0) if q and u else max(len(q), len(u))
++                quality_avg = sum(q) / len(q) if q else 0.0
++                usefulness_avg = sum(u) / len(u) if u else 0.0
++                return {
++                    "sample_n": sample_n,
++                    "quality_avg": round(quality_avg, 6),
++                    "usefulness_avg": round(usefulness_avg, 6),
++                    "score": arm_score(quality_avg, usefulness_avg),
++                }
++
++            control = summarize_arm("control")
++            challenger = summarize_arm("challenger")
++
++            if control["sample_n"] < MIN_SAMPLE or challenger["sample_n"] < MIN_SAMPLE:
++                decision = "HOLD"
++                winner = "none"
++                uplift = 0.0
++            else:
++                uplift = round(challenger["score"] - control["score"], 6)
++                if uplift > 0.0:
++                    decision = "PROMOTE_CHALLENGER"
++                    winner = "challenger"
++                elif uplift < 0.0:
++                    decision = "KEEP_CONTROL"
++                    winner = "control"
++                else:
++                    decision = "HOLD"
++                    winner = "none"
++
++            payload = {
++                "schema_version": 1,
++                "experiment_id": EXPERIMENT_ID,
++                "decision": decision,
++                "winner": winner,
++                "control_json": stable_json(control),
++                "challenger_json": stable_json(challenger),
++                "uplift": str(uplift),
++                "ts_ms": str(now_ms()),
++            }
++            await r.xadd(WINNER_STREAM, payload, maxlen=MAXLEN, approximate=True)
++            await r.xadd(
++                AUDIT_STREAM,
++                {
++                    "event_type": "ROUTING_INCIDENT_RCA_EXPERIMENT_WINNER_DECIDED",
++                    "experiment_id": EXPERIMENT_ID,
++                    "decision": decision,
++                    "winner": winner,
++                    "uplift": str(uplift),
++                    "ts_ms": str(now_ms()),
++                },
++                maxlen=MAXLEN,
++                approximate=True,
++            )
++            await r.hset(
++                f"{STATE_PREFIX}{EXPERIMENT_ID}",
++                mapping={
++                    "decision": decision,
++                    "winner": winner,
++                    "uplift": str(uplift),
++                    "control_json": stable_json(control),
++                    "challenger_json": stable_json(challenger),
++                    "ts_ms": str(now_ms()),
++                },
++            )
++
++            if LAST_RUN_TS:
++                LAST_RUN_TS.set(time.time())
++        except Exception as exc:
++            decision = "ERROR"
++            await r.xadd(
++                AUDIT_STREAM,
++                {
++                    "event_type": "ROUTING_INCIDENT_RCA_EXPERIMENT_WINNER_FAILED",
++                    "experiment_id": EXPERIMENT_ID,
++                    "error": str(exc),
++                    "ts_ms": str(now_ms()),
++                },
++                maxlen=MAXLEN,
++                approximate=True,
++            )
++        finally:
++            if RUNS:
++                RUNS.labels(decision=decision).inc()
++            if LAT:
++                LAT.observe(max(time.perf_counter() - started, 0.0))
++            time.sleep(max(WINDOW_MIN, 5) * 60)
++
++
++if __name__ == "__main__":  # pragma: no cover
++    main()
+diff --git a/orderflow_services/sql/ml_phase2_13_v1.sql b/orderflow_services/sql/ml_phase2_13_v1.sql
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/orderflow_services/sql/ml_phase2_13_v1.sql
+@@ -0,0 +1,37 @@
++BEGIN;
++
++CREATE TABLE IF NOT EXISTS llm_operator_routing_incident_rca_exposure_logs (
++    id                bigserial PRIMARY KEY,
++    route_change_id   text NOT NULL,
++    experiment_id     text NOT NULL,
++    experiment_arm    text NOT NULL,
++    provider          text NOT NULL,
++    model_name        text NOT NULL,
++    prompt_version    text NOT NULL,
++    policy_version    text NOT NULL,
++    ts_ms             bigint NOT NULL
++);
++
++CREATE INDEX IF NOT EXISTS idx_llm_operator_routing_incident_rca_exposure_logs_exp_ts
++    ON llm_operator_routing_incident_rca_exposure_logs(experiment_id, ts_ms DESC);
++
++CREATE TABLE IF NOT EXISTS llm_operator_routing_incident_rca_experiment_winner_decisions (
++    id                bigserial PRIMARY KEY,
++    experiment_id     text NOT NULL,
++    ts_ms             bigint NOT NULL,
++    decision          text NOT NULL,
++    winner            text NOT NULL,
++    uplift            double precision NOT NULL,
++    control_json      jsonb NOT NULL,
++    challenger_json   jsonb NOT NULL
++);
++
++CREATE INDEX IF NOT EXISTS idx_llm_operator_routing_incident_rca_experiment_winner_decisions_exp_ts
++    ON llm_operator_routing_incident_rca_experiment_winner_decisions(experiment_id, ts_ms DESC);
++
++COMMIT;
+diff --git a/orderflow_services/docker_compose_fragment_ml_phase2_13_v1.yml b/orderflow_services/docker_compose_fragment_ml_phase2_13_v1.yml
+new file mode 100644
+index 0000000..4444444
+--- /dev/null
++++ b/orderflow_services/docker_compose_fragment_ml_phase2_13_v1.yml
+@@ -0,0 +1,50 @@
++services:
++  scanner-operator-routing-incident-rca-experiment-router-v2-13:
++    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
++    command: ["python", "-m", "orderflow_services.operator_routing_incident_rca_experiment_router_v2_13"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_PORT:-9891}
++      ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_ENABLE: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_ENABLE:-1}
++      ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_ID: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_ID:-routing_incident_rca_ab_v1}
++    ports: ["${ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_PORT:-9891}:9891"]
++    depends_on: [redis-worker-1]
++
++  scanner-operator-routing-incident-rca-experiment-winner-selector-v2-13:
++    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
++    command: ["python", "-m", "orderflow_services.operator_routing_incident_rca_experiment_winner_selector_v2_13"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      ML_OPERATOR_ROUTING_INCIDENT_RCA_WINNER_SELECTOR_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_WINNER_SELECTOR_PORT:-9892}
++      ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_ID: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_ID:-routing_incident_rca_ab_v1}
++      ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_WINDOW_MIN: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_WINDOW_MIN:-1440}
++      ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_MIN_SAMPLE: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_MIN_SAMPLE:-8}
++    ports: ["${ML_OPERATOR_ROUTING_INCIDENT_RCA_WINNER_SELECTOR_PORT:-9892}:9892"]
++    depends_on: [redis-worker-1]
+diff --git a/orderflow_services/prometheus_alerts_ml_phase2_13_v1.yml b/orderflow_services/prometheus_alerts_ml_phase2_13_v1.yml
+new file mode 100644
+index 0000000..5555555
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_ml_phase2_13_v1.yml
+@@ -0,0 +1,31 @@
++groups:
++  - name: ml_phase2_13_operator_routing_incident_rca_experiment_v1
++    rules:
++      - alert: MLOperatorRoutingIncidentRCAExperimentRouterStale
++        expr: time() - ml_operator_routing_incident_rca_experiment_last_run_ts_seconds > 1800
++        for: 10m
++        labels: { severity: warning }
++        annotations:
++          summary: "routing incident RCA experiment router is stale"
++
++      - alert: MLOperatorRoutingIncidentRCAExperimentWinnerStale
++        expr: time() - ml_operator_routing_incident_rca_experiment_winner_last_run_ts_seconds > 7200
++        for: 15m
++        labels: { severity: warning }
++        annotations:
++          summary: "routing incident RCA experiment winner selector is stale"
+diff --git a/orderflow_services/runbook_ml_phase2_13_v1.md b/orderflow_services/runbook_ml_phase2_13_v1.md
+new file mode 100644
+index 0000000..6666666
+--- /dev/null
++++ b/orderflow_services/runbook_ml_phase2_13_v1.md
+@@ -0,0 +1,45 @@
++# Phase 2.13 — Routing Incident RCA Experiment Harness
++
++## Цель
++Добавить A/B routing buckets, exposure logging и winner selection для нового routing-incident RCA routing контура.
++
++## Потоки
++- input: `stream:ml:operator_rca_routing_rca_requests_routed`
++- experimented: `stream:ml:operator_routing_incident_rca_requests_experimented`
++- exposures: `stream:ml:operator_routing_incident_rca_exposures`
++- winner decisions: `stream:ml:operator_routing_incident_rca_experiment_winner_decisions`
++- audit: `stream:ml:operator_routing_incident_rca_experiment_audit`
++
++## Safe start
++```bash
++export ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_ENABLE=1
++export ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_ID=routing_incident_rca_ab_v1
++export ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_MIN_SAMPLE=8
++export ML_OPERATOR_ROUTING_INCIDENT_RCA_EXPERIMENT_WINDOW_MIN=1440
++```
++
++## Smoke checks
++```bash
++redis-cli XREVRANGE stream:ml:operator_routing_incident_rca_requests_experimented + - COUNT 5
++redis-cli XREVRANGE stream:ml:operator_routing_incident_rca_exposures + - COUNT 5
++redis-cli XREVRANGE stream:ml:operator_routing_incident_rca_experiment_winner_decisions + - COUNT 5
++redis-cli XREVRANGE stream:ml:operator_routing_incident_rca_experiment_audit + - COUNT 10
++curl -s localhost:9891/metrics | grep '^ml_operator_routing_incident_rca_experiment_'
++curl -s localhost:9892/metrics | grep '^ml_operator_routing_incident_rca_experiment_'
++```
++
++## Notes
++- scope только `scanner_infra`
++- hot path не затронут
++- winner decision пока advisory-only
+diff --git a/orderflow_services/tests/test_operator_routing_incident_rca_experiment_harness_v2_13.py b/orderflow_services/tests/test_operator_routing_incident_rca_experiment_harness_v2_13.py
+new file mode 100644
+index 0000000..7777777
+--- /dev/null
++++ b/orderflow_services/tests/test_operator_routing_incident_rca_experiment_harness_v2_13.py
+@@ -0,0 +1,39 @@
++from orderflow_services.operator_routing_incident_rca_experiment_router_v2_13 import (
++    choose_arm,
++)
++from orderflow_services.operator_routing_incident_rca_experiment_winner_selector_v2_13 import (
++    arm_score,
++)
++
++
++def test_choose_arm_is_deterministic():
++    a = choose_arm("rc-123", "exp-a", 0.5)
++    b = choose_arm("rc-123", "exp-a", 0.5)
++    assert a == b
++    assert a in {"control", "challenger"}
++
++
++def test_choose_arm_respects_extreme_shares():
++    assert choose_arm("rc-1", "exp-a", 1.0) == "control"
++    assert choose_arm("rc-1", "exp-a", 0.0) == "challenger"
++
++
++def test_arm_score_weights_usefulness_higher():
++    score = arm_score(quality_avg=0.5, usefulness_avg=1.0)
++    assert round(score, 6) == round(0.4 * 0.5 + 0.6 * 1.0, 6)

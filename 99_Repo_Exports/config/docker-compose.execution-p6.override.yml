@@ -1,0 +1,67 @@
+version: '3.9'
+
+# P6 override: runbook server, alertmanager config injection, optional backfill service.
+# Usage: docker compose -f docker-compose-timers.yml -f config/docker-compose.execution-p6.override.yml up -d
+
+services:
+
+  # Inject P6 alertmanager routing config + templates into the existing alertmanager container
+  alertmanager:
+    volumes:
+      - ./monitoring/alertmanager/trade_execution_alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./monitoring/alertmanager/templates:/etc/alertmanager/templates:ro
+
+  # Mount runbooks into grafana so they are browsable via Grafana file links
+  grafana:
+    volumes:
+      - ./python-worker/runbooks:/srv/runbooks:ro
+      - ./var/runbook-reports:/var/lib/trade-runbook/reports:ro
+
+  # Static runbook HTTP server (port 18080)
+  # Serves /runbooks/<rel>.md, /reports/<name>.json, /api/health/latest, /healthz
+  trade-runbook-server:
+    image: python:3.11-slim
+    container_name: trade-runbook-server
+    restart: unless-stopped
+    working_dir: /srv
+    command: ["python", "/srv/runbooks/server/runbook_server.py"]
+    environment:
+      - RUNBOOK_ROOT=/srv/runbooks
+      - RUNBOOK_REPORT_DIR=/var/lib/trade-runbook/reports
+      - RUNBOOK_SERVER_PORT=${RUNBOOK_SERVER_PORT:-18080}
+      - RUNBOOK_SERVER_BIND=0.0.0.0
+    ports:
+      - "${RUNBOOK_SERVER_PORT:-18080}:18080"
+    volumes:
+      - ./python-worker/runbooks:/srv/runbooks:ro
+      - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
+    networks:
+      - scanner-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:18080/healthz').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # Optional one-shot backfill service (profile: ops).
+  # Operators usually run backfill via the systemd timer on the host,
+  # but this compose service is handy for manual runs in ephemeral envs:
+  #   docker compose -f ... --profile ops run --rm trade-execution-backfill
+  trade-execution-backfill:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile
+    image: scanner-python-worker:latest
+    profiles: ["ops"]
+    working_dir: /app
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
+      - EXEC_STREAM=${EXEC_STREAM:-orders:exec}
+      - EXECUTION_JOURNAL_DSN=${EXECUTION_JOURNAL_DSN:-}
+      - PYTHONPATH=/app
+    volumes:
+      - ./python-worker:/app
+    command: ["python", "/app/scripts/backfill_execution_journal_from_orders_exec.py", "--stream", "${EXEC_STREAM:-orders:exec}"]
+    networks:
+      - scanner-network

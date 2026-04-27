@@ -1,0 +1,15 @@
+groups:
+  - name: promote-freeze
+    rules:
+      - alert: EdgeStackPromoteFreezeActive
+        expr: edge_stack_promote_freeze_active{job="edge_stack_train_p59"} == 1
+        for: 10m
+        labels:
+          severity: warning
+          team: trade
+          component: edge_stack
+        annotations:
+          summary: "Edge Stack promotions are FROZEN"
+          description: "Safety freeze is active (usually due to monitoring smoke failure). Promotions (auto/guarded) are blocked until the freeze expires."
+          runbook_path: "/promote_freeze.md"
+          dashboard_path: "/d/edge_stack_overview/edge-stack-overview?orgId=1"

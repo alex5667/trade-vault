@@ -1,0 +1,31 @@
+{
+  auto_https off
+}
+localhost {
+  tls internal
+  handle_path /grafana/* {
+    reverse_proxy 192.168.0.121:3000
+  }
+  handle_path /runbooks/* {
+    reverse_proxy trade-runbooks-web:8082
+  }
+  handle_path /alertmanager/* {
+    reverse_proxy 192.168.0.121:9093
+  }
+  handle_path /prometheus/* {
+    reverse_proxy trade-prometheus:9090
+  }
+  handle_path /metrics/edge_stack_train/* {
+    reverse_proxy edge-stack-train-exporter-p59:9813
+  }
+  handle_path /metrics/edge_stack_shadow/* {
+    reverse_proxy edge-stack-shadow-exporter-p60:8012
+  }
+  handle_path /metrics/blackbox/* {
+    reverse_proxy trade-blackbox-exporter:9115
+  }
+  handle / {
+    respond "ok
+"
+  }
+}

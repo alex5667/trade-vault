@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/matplotlib/artist.py
+# hypothesis_version: 6.148.10
+
+[16.0, 128.0, '\n *', '    %s = %s', ' or %s', '%s%s: %s', '(?m)^ *\\*?{} : (.+)', ', ', '.. table::', '...', '3d_properties', ':meth:`%s <%s>`%s', '<UNSET>', '=', 'Alias for ', 'Axes', 'Description', 'Properties:\n', 'Property', '[', '[]', '[{:-#.{}g}]', ']', '_XYPair', '_as_mpl_transform', '_axes.Axes', '_base._AxesBase', '`({}.*)`', 'axes', 'cannot remove artist', 'docstring.hardcopy', 'figure', 'for_layout_only', 'get_', 'ignore', 'navigate_mode', 'path.effects', 'path.sketch', 'path.snap', 'pchanged', 'pick_event', 'self', 'set', 'set_', 'set_%s', 'shape', 'stale_callback', 'unknown', 'x y', '{:0.3g}']

@@ -1,0 +1,1 @@
+{"k": "ETHUSDT|1769997900713|SHORT|1s", "symbol": "ETHUSDT", "tick_ts_ms": 1769997900713, "tf": "1s", "direction": "SHORT", "scenario_v4": "none", "ok": 0, "have": 0, "need": 0, "score": 0.12, "gate_bits": 0, "reason": "no_sweep_and_no_trend", "exec_risk_norm": 1.0, "ok_soft": 0, "meta_veto": 0, "latency_us": 14285, "err": ""}

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/replay/ctx_export.py
+# hypothesis_version: 6.148.10
+
+[256, '256', '_', '__dict__', 'all', 'ask', 'atr', 'atr_14_bps', 'atr_q_14', 'atr_quantile', 'bid', 'compact', 'cum_delta_slope', 'current_delta', 'daily_open', 'daily_open_dist_bps', 'data_quality_flags', 'delta_bucket', 'family', 'full', 'htf_level_dist_bps', 'is_trending', 'last_price', 'market_regime', 'market_regime_score', 'obi', 'obi_20', 'obi_5', 'obi_50', 'obi_avg', 'obi_sustained', 'price', 'regime', 'regime_range_score', 'regime_trend_score', 'spread_bps', 'symbol', 'timeframe', 'ts', 'ts_utc', 'venue', 'vwap', 'weak_progress', 'weak_progress_ratio', 'weak_progress_raw', 'z_delta']

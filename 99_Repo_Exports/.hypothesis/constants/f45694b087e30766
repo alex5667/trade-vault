@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/metrics_stage.py
+# hypothesis_version: 6.148.10
+
+['_metrics', '_obs', 'add', 'c', 'count', 'counter', 'gauge', 'get_counter', 'get_hist', 'h', 'hist', 'histogram', 'inc', 'incr', 'kind', 'metrics', 'obs', 'observe', 'pipeline_stage_ms', 'pipeline_veto_total', 'record', 'symbol', 'timing']

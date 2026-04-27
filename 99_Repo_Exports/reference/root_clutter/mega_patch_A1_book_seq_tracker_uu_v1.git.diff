@@ -1,0 +1,749 @@
+diff --git a/core/book_seq_tracker_uu.py b/core/book_seq_tracker_uu.py
+new file mode 100644
+index 0000000..8ceb779
+--- /dev/null
++++ b/core/book_seq_tracker_uu.py
+@@ -0,0 +1,86 @@
++from __future__ import annotations
++
++from dataclasses import dataclass
++
++
++@dataclass(frozen=True)
++class BookSeqDecision:
++    """Decision for one depthUpdate message.
++
++    Fields:
++      has_seq_fields: whether both U and u are available and usable
++      reason: init/ok/overlap/gap/dup/reorder/no_seq_fields
++      gap: number of missing updateIds (only for reason == "gap")
++      missing_event: 1.0 on "gap", else 0.0
++      next_last_u: monotone candidate for last_u
++    """
++
++    has_seq_fields: bool
++    reason: str
++    gap: int
++    missing_event: float
++    next_last_u: int
++
++
++def ema_update_clamped(prev: float, x: float, alpha: float) -> float:
++    """EMA update with alpha clamped into [0, 1]."""
++
++    try:
++        a = float(alpha)
++    except Exception:
++        a = 0.1
++
++    if a <= 0.0:
++        return float(prev)
++    if a >= 1.0:
++        return float(x)
++    return (1.0 - a) * float(prev) + a * float(x)
++
++
++def decide_book_seq_uu(*, prev_u: int, cur_U: int, cur_u: int) -> BookSeqDecision:
++    """Strict continuity decision for Binance depthUpdate (U/u).
++
++    Correct continuity check:
++        GAP if prev_u + 1 != cur_U (equivalently: cur_U > prev_u + 1)
++        gap_size = cur_U - prev_u - 1
++
++    Binance typically sends overlapping ranges (normal):
++        U <= prev_u+1 <= u
++
++    We treat only GAP as missing_event=1. Duplicates/old messages do NOT count.
++    """
++
++    p = int(prev_u or 0)
++    U = int(cur_U or 0)
++    u = int(cur_u or 0)
++
++    # Without both U and u, strict continuity is impossible.
++    if U <= 0 or u <= 0:
++        return BookSeqDecision(False, "no_seq_fields", 0, 0.0, p)
++
++    # First seen update id.
++    if p <= 0:
++        return BookSeqDecision(True, "init", 0, 0.0, u)
++
++    expected_U = p + 1
++
++    # DUP/OLD: event is entirely behind our last_u.
++    if u <= p:
++        return BookSeqDecision(True, "dup", 0, 0.0, p)
++
++    # GAP: missing one or more book updates.
++    if U > expected_U:
++        gap = U - p - 1
++        if gap < 0:
++            gap = 0
++        return BookSeqDecision(True, "gap", int(gap), 1.0, u)
++
++    # OK / OVERLAP / REORDER
++    if U < expected_U and u >= expected_U:
++        return BookSeqDecision(True, "overlap", 0, 0.0, u)
++
++    if U < expected_U and u < expected_U:
++        # Old/reordered chunk that does not cover the expected id.
++        return BookSeqDecision(True, "reorder", 0, 0.0, u)
++
++    return BookSeqDecision(True, "ok", 0, 0.0, u)
+diff --git a/services/orderflow/components/book_processor.py b/services/orderflow/components/book_processor.py
+index a027258..0843c04 100644
+--- a/services/orderflow/components/book_processor.py
++++ b/services/orderflow/components/book_processor.py
+@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
+ from services.orderflow.runtime import SymbolRuntime, BookSnapshot, BookState
+ from services.orderflow.configuration import _safe_int, _safe_float
+ from services.orderflow.metrics import (
+-    log_silent_error, book_rate_ema_gauge, book_rate_z_gauge,
++    log_silent_error, book_missing_seq_events_total, book_missing_seq_ema_gauge, book_rate_ema_gauge, book_rate_z_gauge,
+     of_lob_queue_imbalance_gauge, of_lob_queue_imbalance_mean_gauge,
+     of_lob_queue_imbalance_max_abs_gauge, of_lob_queue_imbalance_slope_gauge,
+     of_lob_micro_mid_div_bps_gauge, of_lob_micro_shift_bps_gauge,
+@@ -60,6 +60,13 @@ class BookProcessor:
+             if not book_raw:
+                 return False
+ 
++            # Strict book-seq continuity (Binance depthUpdate U/u).
++            # Fail-open: sequence tracking must never break book processing.
++            try:
++                self._update_book_missing_seq(runtime=runtime, book_raw=book_raw)
++            except Exception:
++                pass
++
+             # 2. Build Typed Snapshot
+             prev_snap = getattr(runtime, "last_book", None)
+             prev_ts_ms = _safe_int(getattr(runtime, "last_book_ts_ms", 0) or 0)
+@@ -552,3 +559,99 @@ class BookProcessor:
+                     runtime.dynamic_cfg["strong_need_continuation"] = max(_safe_int(runtime.dynamic_cfg.get("strong_need_continuation", 0)), 3)
+             except Exception:
+                 pass
++
++
++    @staticmethod
++    def _ema_update(prev: float, x: float, alpha: float) -> float:
++        """Numerically-stable EMA update with clamped alpha."""
++        try:
++            a = float(alpha)
++        except Exception:
++            a = 0.1
++        if a <= 0.0:
++            return float(prev)
++        if a >= 1.0:
++            return float(x)
++        return (1.0 - a) * float(prev) + a * float(x)
++
++    def _update_book_missing_seq(self, *, runtime: SymbolRuntime, book_raw: dict) -> None:
++        """Update strict book missing-seq EMA using Binance depthUpdate U/u.
++
++        Binance depthUpdate payload contains:
++          - U: firstUpdateId
++          - u: lastUpdateId
++
++        Correct continuity check (prev_u is last processed u):
++          GAP if prev_u + 1 != current_U  (equivalently: current_U > prev_u + 1)
++          gap_size = current_U - prev_u - 1
++
++        Notes:
++          - Overlaps are normal on Binance: U may be <= prev_u+1 while u >= prev_u+1.
++          - Duplicates/old events (u <= prev_u) are NOT treated as missing.
++          - If U/u are absent (partial book snapshots), we do not compute missing-seq.
++        """
++        prev_u = int(getattr(runtime, "book_seq_last_u", 0) or 0)
++        prev_ema = float(getattr(runtime, "book_missing_seq_ema", 0.0) or 0.0)
++        alpha = float(getattr(runtime, "config", {}).get("book_missing_seq_ema_alpha", 0.10) or 0.10)
++
++        cur_U = _safe_int(book_raw.get("U") or book_raw.get("firstUpdateId") or 0)
++        cur_u = _safe_int(book_raw.get("u") or book_raw.get("lastUpdateId") or 0)
++
++        # Default per-event diagnostic.
++        runtime.book_missing_seq_last_gap = 0
++
++        # Without both U and u, strict continuity is impossible.
++        if cur_U <= 0 or cur_u <= 0:
++            runtime.book_seq_last_reason = "no_seq_fields"
++            return
++
++        # First seen update id.
++        if prev_u <= 0:
++            runtime.book_seq_last_u = int(cur_u)
++            runtime.book_seq_last_reason = "init"
++            return
++
++        expected_U = prev_u + 1
++        missing_event = 0.0
++        reason = "ok"
++
++        # DUP/OLD: event is entirely behind our last_u (common after reconnect).
++        if cur_u <= prev_u:
++            reason = "dup"
++            missing_event = 0.0
++        else:
++            if cur_U > expected_U:
++                # GAP: missing one or more book updates.
++                gap = int(cur_U - prev_u - 1)
++                if gap < 0:
++                    gap = 0
++                runtime.book_missing_seq_last_gap = int(gap)
++                reason = "gap"
++                missing_event = 1.0
++                try:
++                    book_missing_seq_events_total.labels(symbol=str(runtime.symbol)).inc(1)
++                except Exception:
++                    pass
++            else:
++                # OK / OVERLAP: expected_U is covered by the update range.
++                if cur_U < expected_U and cur_u >= expected_U:
++                    reason = "overlap"
++                elif cur_U < expected_U and cur_u < expected_U:
++                    reason = "reorder"
++                else:
++                    reason = "ok"
++                missing_event = 0.0
++
++        # EMA update (except init/no_seq_fields).
++        runtime.book_missing_seq_ema = float(self._ema_update(prev_ema, missing_event, alpha))
++        runtime.book_seq_last_reason = str(reason)
++
++        # Monotone last_u: do NOT regress on overlap/dup.
++        if cur_u > prev_u:
++            runtime.book_seq_last_u = int(cur_u)
++
++        # Export gauge ASAP (book path may run even when no ticks arrive).
++        try:
++            book_missing_seq_ema_gauge.labels(symbol=str(runtime.symbol)).set(float(runtime.book_missing_seq_ema))
++        except Exception:
++            pass
+diff --git a/services/orderflow/components/parsing.py b/services/orderflow/components/parsing.py
+index 621031b..1d6821d 100644
+--- a/services/orderflow/components/parsing.py
++++ b/services/orderflow/components/parsing.py
+@@ -1,24 +1,56 @@
+ from typing import Any, Dict, Optional
++
+ from services.orderflow.utils import _parse_tick_payload as _utils_parse_tick_payload
+ from services.orderflow.utils import _parse_book_payload as _utils_parse_book_payload
+ 
++
+ class OrderFlowParsing:
++    """Parsing helpers used by tick/book processors.
++
++    Important:
++    - `utils._parse_book_payload()` REQUIRES a `symbol` argument.
++    - Older call sites sometimes passed only a single `raw_data` argument.
++
++    To keep the hot path robust, `parse_book_payload()` accepts an optional
++    `symbol` parameter and will try to infer it from the payload if missing.
+     """
+-    Component responsible for parsing raw Redis messages into typed payloads.
+-    Extracted from OrderFlowStrategy to improve separation of concerns.
+-    """
+-    
++
+     @staticmethod
+     def parse_tick_payload(raw_data: Any) -> Optional[Dict[str, Any]]:
+-        """
+-        Wrapper around utils._parse_tick_payload to maintain strategy interface if needed,
+-        or we can use the utils one directly. keeping this for compatibility/extension.
+-        """
++        """Wrapper around utils._parse_tick_payload."""
+         return _utils_parse_tick_payload(raw_data)
+ 
+     @staticmethod
+-    def parse_book_payload(raw_data: Any) -> Optional[Dict[str, Any]]:
+-        """
+-        Wrapper around utils._parse_book_payload.
++    def parse_book_payload(raw_data: Any, symbol: Optional[str] = None) -> Optional[Dict[str, Any]]:
++        """Wrapper around utils._parse_book_payload.
++
++        Args:
++            raw_data: decoded Redis fields (usually `dict` after `_fields_to_dict`).
++            symbol: optional explicit symbol.
++
++        Returns:
++            Parsed dict with normalized fields including:
++              - symbol
++              - ts_ms
++              - U (firstUpdateId, if present)
++              - u (lastUpdateId, if present)
++              - bids/asks
++
++        Fail-open: returns None on malformed payload.
+         """
+-        return _utils_parse_book_payload(raw_data)
++        if raw_data is None:
++            return None
++
++        try:
++            payload: Dict[str, Any] = raw_data if isinstance(raw_data, dict) else dict(raw_data)
++        except Exception:
++            return None
++
++        sym = (symbol or payload.get("symbol") or payload.get("s") or payload.get("S") or "").strip()
++        if not sym:
++            sym = "UNKNOWN"
++
++        try:
++            return _utils_parse_book_payload(payload, sym)
++        except Exception:
++            return None
+diff --git a/services/orderflow/components/tick_processor.py b/services/orderflow/components/tick_processor.py
+index f0e98bb..6b45896 100644
+--- a/services/orderflow/components/tick_processor.py
++++ b/services/orderflow/components/tick_processor.py
+@@ -454,6 +454,8 @@ class TickProcessor:
+             indicators["tick_gap_n"] = int(getattr(runtime, "tick_gap_n", 0) or 0)
+             indicators["tick_missing_seq_ema"] = float(getattr(runtime, "tick_missing_seq_ema", 0.0) or 0.0)
+             indicators["book_missing_seq_ema"] = float(getattr(runtime, "book_missing_seq_ema", 0.0) or 0.0)
++            indicators["book_seq_last_reason"] = str(getattr(runtime, "book_seq_last_reason", "") or "")
++            indicators["book_missing_seq_last_gap"] = int(getattr(runtime, "book_missing_seq_last_gap", 0) or 0)
+ 
+             # book_missing_seq is primarily updated in orderbook path; still surface gauge for visibility.
+             try:
+diff --git a/services/orderflow/configuration.py b/services/orderflow/configuration.py
+index 1aff024..4fb4338 100644
+--- a/services/orderflow/configuration.py
++++ b/services/orderflow/configuration.py
+@@ -102,6 +102,13 @@ DEFAULT_CONFIG: Dict[str, Any] = {
+     "dq_pen_max": _safe_float(os.getenv("DQ_PEN_MAX", "0.10"), 0.10),
+     "dq_tick_gap_min_samples": _safe_int(os.getenv("DQ_TICK_GAP_MIN_SAMPLES", "50"), 50),
+ 
++    # EMA alpha for book missing-seq tracker (Binance depthUpdate U/u).
++    # Typical values by stream frequency:
++    #   @depth@100ms (~10Hz): 0.05..0.10
++    #   @depth@250ms (~4Hz):  0.20
++    #   @depth@500ms (~2Hz):  0.30
++    "book_missing_seq_ema_alpha": _safe_float(os.getenv("BOOK_MISSING_SEQ_EMA_ALPHA", "0.10"), 0.10),
++
+     # Policy v2 thresholds (optional overrides). If None/empty, dq_gate_v1
+     # will apply defaults based on dq_mode (safe/strict).
+     "dq_tick_gap_p95_ms_soft": _safe_float(os.getenv("DQ_TICK_GAP_P95_MS_SOFT", "0"), 0.0) or None,
+diff --git a/services/orderflow/runtime.py b/services/orderflow/runtime.py
+index f6fa329..fa27ebc 100644
+--- a/services/orderflow/runtime.py
++++ b/services/orderflow/runtime.py
+@@ -374,6 +374,19 @@ class SymbolRuntime:
+     last_book_health: str = "OK"
+     last_book_age_ms: int = 0
+ 
++    # Book missing-seq continuity (Binance depthUpdate: U/u)
++    # Updated by BookProcessor.process_book().
++    #
++    # Fields:
++    #   book_seq_last_u: last processed lastUpdateId (u)
++    #   book_seq_last_reason: init/ok/overlap/gap/dup/reorder/no_seq_fields
++    #   book_missing_seq_ema: EMA( missing_event ), where missing_event=1 on GAP else 0
++    #   book_missing_seq_last_gap: last observed gap size (number of missing updates)
++    book_seq_last_u: int = 0
++    book_seq_last_reason: str = "init"
++    book_missing_seq_ema: float = 0.0
++    book_missing_seq_last_gap: int = 0
++
+     # OFInputs V3 circuit breaker cache (P100)
+     of_inputs_v3_disabled_until_ms: int = 0
+     of_inputs_v3_disabled_hard_until_ms: int = 0
+diff --git a/services/orderflow/tests/test_book_seq_tracker_uu_v1.py b/services/orderflow/tests/test_book_seq_tracker_uu_v1.py
+new file mode 100644
+index 0000000..68e4374
+--- /dev/null
++++ b/services/orderflow/tests/test_book_seq_tracker_uu_v1.py
+@@ -0,0 +1,42 @@
++from __future__ import annotations
++
++from core.book_seq_tracker_uu import decide_book_seq_uu, ema_update_clamped
++
++
++def test_decide_book_seq_init_ok_overlap_gap_dup():
++    # no seq fields
++    d = decide_book_seq_uu(prev_u=10, cur_U=0, cur_u=0)
++    assert d.has_seq_fields is False
++    assert d.reason == "no_seq_fields"
++
++    # init
++    d = decide_book_seq_uu(prev_u=0, cur_U=157, cur_u=160)
++    assert d.has_seq_fields is True
++    assert d.reason == "init"
++    assert d.next_last_u == 160
++
++    # ok
++    d = decide_book_seq_uu(prev_u=160, cur_U=161, cur_u=165)
++    assert d.reason == "ok"
++    assert d.gap == 0
++
++    # overlap: U < prev_u+1 <= u
++    d = decide_book_seq_uu(prev_u=165, cur_U=164, cur_u=170)
++    assert d.reason == "overlap"
++
++    # gap
++    d = decide_book_seq_uu(prev_u=170, cur_U=175, cur_u=180)
++    assert d.reason == "gap"
++    assert d.gap == 4
++    assert d.missing_event == 1.0
++
++    # dup
++    d = decide_book_seq_uu(prev_u=180, cur_U=170, cur_u=175)
++    assert d.reason == "dup"
++
++
++def test_ema_update_clamped():
++    assert ema_update_clamped(0.0, 1.0, 0.1) == 0.1
++    assert ema_update_clamped(0.2, 0.0, 0.5) == 0.1
++    assert ema_update_clamped(0.2, 0.0, 0.0) == 0.2
++    assert ema_update_clamped(0.2, 0.0, 1.0) == 0.0
+diff --git a/services/orderflow/utils.py b/services/orderflow/utils.py
+index 0b9d4d0..e40623d 100644
+--- a/services/orderflow/utils.py
++++ b/services/orderflow/utils.py
+@@ -489,7 +489,12 @@ def _parse_book_payload(payload: Dict[str, Any], symbol: str) -> Dict[str, Any]:
+     return {
+         "symbol": symbol,
+         "ts_ms": ts_ms,
+-        "u": _safe_int(merged.get("u") or merged.get("lastUpdateId")), # Binance specific
++        # Binance: depthUpdate has both firstUpdateId ("U") and lastUpdateId ("u").
++        # Spot depthUpdate: {"U": firstUpdateId, "u": lastUpdateId, ...}
++        # Futures depthUpdate: same keys.
++        # Partial depth snapshots (@depth5/@depth10/@depth20) typically do NOT have U/u.
++        "U": _safe_int(merged.get("U") or merged.get("firstUpdateId")),
++        "u": _safe_int(merged.get("u") or merged.get("lastUpdateId")),
+         "bids": bids,
+         "asks": asks,
+         "written_at": _safe_int(merged.get("written_at")),
+diff --git a/tick_flow_full/core/book_seq_tracker_uu.py b/tick_flow_full/core/book_seq_tracker_uu.py
+new file mode 100644
+index 0000000..0de1712
+--- /dev/null
++++ b/tick_flow_full/core/book_seq_tracker_uu.py
+@@ -0,0 +1,9 @@
++from __future__ import annotations
++
++# Re-export from the shared `core` module.
++
++from core.book_seq_tracker_uu import (  # noqa: F401
++    BookSeqDecision,
++    ema_update_clamped,
++    decide_book_seq_uu,
++)
+diff --git a/tick_flow_full/services/orderflow/components/book_processor.py b/tick_flow_full/services/orderflow/components/book_processor.py
+index a027258..0843c04 100644
+--- a/tick_flow_full/services/orderflow/components/book_processor.py
++++ b/tick_flow_full/services/orderflow/components/book_processor.py
+@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
+ from services.orderflow.runtime import SymbolRuntime, BookSnapshot, BookState
+ from services.orderflow.configuration import _safe_int, _safe_float
+ from services.orderflow.metrics import (
+-    log_silent_error, book_rate_ema_gauge, book_rate_z_gauge,
++    log_silent_error, book_missing_seq_events_total, book_missing_seq_ema_gauge, book_rate_ema_gauge, book_rate_z_gauge,
+     of_lob_queue_imbalance_gauge, of_lob_queue_imbalance_mean_gauge,
+     of_lob_queue_imbalance_max_abs_gauge, of_lob_queue_imbalance_slope_gauge,
+     of_lob_micro_mid_div_bps_gauge, of_lob_micro_shift_bps_gauge,
+@@ -60,6 +60,13 @@ class BookProcessor:
+             if not book_raw:
+                 return False
+ 
++            # Strict book-seq continuity (Binance depthUpdate U/u).
++            # Fail-open: sequence tracking must never break book processing.
++            try:
++                self._update_book_missing_seq(runtime=runtime, book_raw=book_raw)
++            except Exception:
++                pass
++
+             # 2. Build Typed Snapshot
+             prev_snap = getattr(runtime, "last_book", None)
+             prev_ts_ms = _safe_int(getattr(runtime, "last_book_ts_ms", 0) or 0)
+@@ -552,3 +559,99 @@ class BookProcessor:
+                     runtime.dynamic_cfg["strong_need_continuation"] = max(_safe_int(runtime.dynamic_cfg.get("strong_need_continuation", 0)), 3)
+             except Exception:
+                 pass
++
++
++    @staticmethod
++    def _ema_update(prev: float, x: float, alpha: float) -> float:
++        """Numerically-stable EMA update with clamped alpha."""
++        try:
++            a = float(alpha)
++        except Exception:
++            a = 0.1
++        if a <= 0.0:
++            return float(prev)
++        if a >= 1.0:
++            return float(x)
++        return (1.0 - a) * float(prev) + a * float(x)
++
++    def _update_book_missing_seq(self, *, runtime: SymbolRuntime, book_raw: dict) -> None:
++        """Update strict book missing-seq EMA using Binance depthUpdate U/u.
++
++        Binance depthUpdate payload contains:
++          - U: firstUpdateId
++          - u: lastUpdateId
++
++        Correct continuity check (prev_u is last processed u):
++          GAP if prev_u + 1 != current_U  (equivalently: current_U > prev_u + 1)
++          gap_size = current_U - prev_u - 1
++
++        Notes:
++          - Overlaps are normal on Binance: U may be <= prev_u+1 while u >= prev_u+1.
++          - Duplicates/old events (u <= prev_u) are NOT treated as missing.
++          - If U/u are absent (partial book snapshots), we do not compute missing-seq.
++        """
++        prev_u = int(getattr(runtime, "book_seq_last_u", 0) or 0)
++        prev_ema = float(getattr(runtime, "book_missing_seq_ema", 0.0) or 0.0)
++        alpha = float(getattr(runtime, "config", {}).get("book_missing_seq_ema_alpha", 0.10) or 0.10)
++
++        cur_U = _safe_int(book_raw.get("U") or book_raw.get("firstUpdateId") or 0)
++        cur_u = _safe_int(book_raw.get("u") or book_raw.get("lastUpdateId") or 0)
++
++        # Default per-event diagnostic.
++        runtime.book_missing_seq_last_gap = 0
++
++        # Without both U and u, strict continuity is impossible.
++        if cur_U <= 0 or cur_u <= 0:
++            runtime.book_seq_last_reason = "no_seq_fields"
++            return
++
++        # First seen update id.
++        if prev_u <= 0:
++            runtime.book_seq_last_u = int(cur_u)
++            runtime.book_seq_last_reason = "init"
++            return
++
++        expected_U = prev_u + 1
++        missing_event = 0.0
++        reason = "ok"
++
++        # DUP/OLD: event is entirely behind our last_u (common after reconnect).
++        if cur_u <= prev_u:
++            reason = "dup"
++            missing_event = 0.0
++        else:
++            if cur_U > expected_U:
++                # GAP: missing one or more book updates.
++                gap = int(cur_U - prev_u - 1)
++                if gap < 0:
++                    gap = 0
++                runtime.book_missing_seq_last_gap = int(gap)
++                reason = "gap"
++                missing_event = 1.0
++                try:
++                    book_missing_seq_events_total.labels(symbol=str(runtime.symbol)).inc(1)
++                except Exception:
++                    pass
++            else:
++                # OK / OVERLAP: expected_U is covered by the update range.
++                if cur_U < expected_U and cur_u >= expected_U:
++                    reason = "overlap"
++                elif cur_U < expected_U and cur_u < expected_U:
++                    reason = "reorder"
++                else:
++                    reason = "ok"
++                missing_event = 0.0
++
++        # EMA update (except init/no_seq_fields).
++        runtime.book_missing_seq_ema = float(self._ema_update(prev_ema, missing_event, alpha))
++        runtime.book_seq_last_reason = str(reason)
++
++        # Monotone last_u: do NOT regress on overlap/dup.
++        if cur_u > prev_u:
++            runtime.book_seq_last_u = int(cur_u)
++
++        # Export gauge ASAP (book path may run even when no ticks arrive).
++        try:
++            book_missing_seq_ema_gauge.labels(symbol=str(runtime.symbol)).set(float(runtime.book_missing_seq_ema))
++        except Exception:
++            pass
+diff --git a/tick_flow_full/services/orderflow/components/parsing.py b/tick_flow_full/services/orderflow/components/parsing.py
+index 621031b..1d6821d 100644
+--- a/tick_flow_full/services/orderflow/components/parsing.py
++++ b/tick_flow_full/services/orderflow/components/parsing.py
+@@ -1,24 +1,56 @@
+ from typing import Any, Dict, Optional
++
+ from services.orderflow.utils import _parse_tick_payload as _utils_parse_tick_payload
+ from services.orderflow.utils import _parse_book_payload as _utils_parse_book_payload
+ 
++
+ class OrderFlowParsing:
++    """Parsing helpers used by tick/book processors.
++
++    Important:
++    - `utils._parse_book_payload()` REQUIRES a `symbol` argument.
++    - Older call sites sometimes passed only a single `raw_data` argument.
++
++    To keep the hot path robust, `parse_book_payload()` accepts an optional
++    `symbol` parameter and will try to infer it from the payload if missing.
+     """
+-    Component responsible for parsing raw Redis messages into typed payloads.
+-    Extracted from OrderFlowStrategy to improve separation of concerns.
+-    """
+-    
++
+     @staticmethod
+     def parse_tick_payload(raw_data: Any) -> Optional[Dict[str, Any]]:
+-        """
+-        Wrapper around utils._parse_tick_payload to maintain strategy interface if needed,
+-        or we can use the utils one directly. keeping this for compatibility/extension.
+-        """
++        """Wrapper around utils._parse_tick_payload."""
+         return _utils_parse_tick_payload(raw_data)
+ 
+     @staticmethod
+-    def parse_book_payload(raw_data: Any) -> Optional[Dict[str, Any]]:
+-        """
+-        Wrapper around utils._parse_book_payload.
++    def parse_book_payload(raw_data: Any, symbol: Optional[str] = None) -> Optional[Dict[str, Any]]:
++        """Wrapper around utils._parse_book_payload.
++
++        Args:
++            raw_data: decoded Redis fields (usually `dict` after `_fields_to_dict`).
++            symbol: optional explicit symbol.
++
++        Returns:
++            Parsed dict with normalized fields including:
++              - symbol
++              - ts_ms
++              - U (firstUpdateId, if present)
++              - u (lastUpdateId, if present)
++              - bids/asks
++
++        Fail-open: returns None on malformed payload.
+         """
+-        return _utils_parse_book_payload(raw_data)
++        if raw_data is None:
++            return None
++
++        try:
++            payload: Dict[str, Any] = raw_data if isinstance(raw_data, dict) else dict(raw_data)
++        except Exception:
++            return None
++
++        sym = (symbol or payload.get("symbol") or payload.get("s") or payload.get("S") or "").strip()
++        if not sym:
++            sym = "UNKNOWN"
++
++        try:
++            return _utils_parse_book_payload(payload, sym)
++        except Exception:
++            return None
+diff --git a/tick_flow_full/services/orderflow/components/tick_processor.py b/tick_flow_full/services/orderflow/components/tick_processor.py
+index e7d2d0c..4143905 100644
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -429,6 +429,8 @@ class TickProcessor:
+             indicators["tick_gap_n"] = int(getattr(runtime, "tick_gap_n", 0) or 0)
+             indicators["tick_missing_seq_ema"] = float(getattr(runtime, "tick_missing_seq_ema", 0.0) or 0.0)
+             indicators["book_missing_seq_ema"] = float(getattr(runtime, "book_missing_seq_ema", 0.0) or 0.0)
++            indicators["book_seq_last_reason"] = str(getattr(runtime, "book_seq_last_reason", "") or "")
++            indicators["book_missing_seq_last_gap"] = int(getattr(runtime, "book_missing_seq_last_gap", 0) or 0)
+ 
+             # book_missing_seq is primarily updated in orderbook path; still surface gauge for visibility.
+             try:
+diff --git a/tick_flow_full/services/orderflow/configuration.py b/tick_flow_full/services/orderflow/configuration.py
+index 1aff024..4fb4338 100644
+--- a/tick_flow_full/services/orderflow/configuration.py
++++ b/tick_flow_full/services/orderflow/configuration.py
+@@ -102,6 +102,13 @@ DEFAULT_CONFIG: Dict[str, Any] = {
+     "dq_pen_max": _safe_float(os.getenv("DQ_PEN_MAX", "0.10"), 0.10),
+     "dq_tick_gap_min_samples": _safe_int(os.getenv("DQ_TICK_GAP_MIN_SAMPLES", "50"), 50),
+ 
++    # EMA alpha for book missing-seq tracker (Binance depthUpdate U/u).
++    # Typical values by stream frequency:
++    #   @depth@100ms (~10Hz): 0.05..0.10
++    #   @depth@250ms (~4Hz):  0.20
++    #   @depth@500ms (~2Hz):  0.30
++    "book_missing_seq_ema_alpha": _safe_float(os.getenv("BOOK_MISSING_SEQ_EMA_ALPHA", "0.10"), 0.10),
++
+     # Policy v2 thresholds (optional overrides). If None/empty, dq_gate_v1
+     # will apply defaults based on dq_mode (safe/strict).
+     "dq_tick_gap_p95_ms_soft": _safe_float(os.getenv("DQ_TICK_GAP_P95_MS_SOFT", "0"), 0.0) or None,
+diff --git a/tick_flow_full/services/orderflow/runtime.py b/tick_flow_full/services/orderflow/runtime.py
+index f6fa329..fa27ebc 100644
+--- a/tick_flow_full/services/orderflow/runtime.py
++++ b/tick_flow_full/services/orderflow/runtime.py
+@@ -374,6 +374,19 @@ class SymbolRuntime:
+     last_book_health: str = "OK"
+     last_book_age_ms: int = 0
+ 
++    # Book missing-seq continuity (Binance depthUpdate: U/u)
++    # Updated by BookProcessor.process_book().
++    #
++    # Fields:
++    #   book_seq_last_u: last processed lastUpdateId (u)
++    #   book_seq_last_reason: init/ok/overlap/gap/dup/reorder/no_seq_fields
++    #   book_missing_seq_ema: EMA( missing_event ), where missing_event=1 on GAP else 0
++    #   book_missing_seq_last_gap: last observed gap size (number of missing updates)
++    book_seq_last_u: int = 0
++    book_seq_last_reason: str = "init"
++    book_missing_seq_ema: float = 0.0
++    book_missing_seq_last_gap: int = 0
++
+     # OFInputs V3 circuit breaker cache (P100)
+     of_inputs_v3_disabled_until_ms: int = 0
+     of_inputs_v3_disabled_hard_until_ms: int = 0
+diff --git a/tick_flow_full/services/orderflow/tests/test_book_seq_tracker_uu_v1.py b/tick_flow_full/services/orderflow/tests/test_book_seq_tracker_uu_v1.py
+new file mode 100644
+index 0000000..68e4374
+--- /dev/null
++++ b/tick_flow_full/services/orderflow/tests/test_book_seq_tracker_uu_v1.py
+@@ -0,0 +1,42 @@
++from __future__ import annotations
++
++from core.book_seq_tracker_uu import decide_book_seq_uu, ema_update_clamped
++
++
++def test_decide_book_seq_init_ok_overlap_gap_dup():
++    # no seq fields
++    d = decide_book_seq_uu(prev_u=10, cur_U=0, cur_u=0)
++    assert d.has_seq_fields is False
++    assert d.reason == "no_seq_fields"
++
++    # init
++    d = decide_book_seq_uu(prev_u=0, cur_U=157, cur_u=160)
++    assert d.has_seq_fields is True
++    assert d.reason == "init"
++    assert d.next_last_u == 160
++
++    # ok
++    d = decide_book_seq_uu(prev_u=160, cur_U=161, cur_u=165)
++    assert d.reason == "ok"
++    assert d.gap == 0
++
++    # overlap: U < prev_u+1 <= u
++    d = decide_book_seq_uu(prev_u=165, cur_U=164, cur_u=170)
++    assert d.reason == "overlap"
++
++    # gap
++    d = decide_book_seq_uu(prev_u=170, cur_U=175, cur_u=180)
++    assert d.reason == "gap"
++    assert d.gap == 4
++    assert d.missing_event == 1.0
++
++    # dup
++    d = decide_book_seq_uu(prev_u=180, cur_U=170, cur_u=175)
++    assert d.reason == "dup"
++
++
++def test_ema_update_clamped():
++    assert ema_update_clamped(0.0, 1.0, 0.1) == 0.1
++    assert ema_update_clamped(0.2, 0.0, 0.5) == 0.1
++    assert ema_update_clamped(0.2, 0.0, 0.0) == 0.2
++    assert ema_update_clamped(0.2, 0.0, 1.0) == 0.0
+diff --git a/tick_flow_full/services/orderflow/utils.py b/tick_flow_full/services/orderflow/utils.py
+index dd9ff3d..cf5b0f8 100644
+--- a/tick_flow_full/services/orderflow/utils.py
++++ b/tick_flow_full/services/orderflow/utils.py
+@@ -557,7 +557,12 @@ def _parse_book_payload(payload: Dict[str, Any], symbol: str) -> Dict[str, Any]:
+         "symbol": symbol,
+         "ts_ms": ts_ms,
+         "event_ts_ms": ts_ms,
+-        "u": _safe_int(merged.get("u") or merged.get("lastUpdateId")), # Binance specific
++        # Binance: depthUpdate has both firstUpdateId ("U") and lastUpdateId ("u").
++        # Spot depthUpdate: {"U": firstUpdateId, "u": lastUpdateId, ...}
++        # Futures depthUpdate: same keys.
++        # Partial depth snapshots (@depth5/@depth10/@depth20) typically do NOT have U/u.
++        "U": _safe_int(merged.get("U") or merged.get("firstUpdateId")),
++        "u": _safe_int(merged.get("u") or merged.get("lastUpdateId")),  # Binance specific
+         "bids": bids,
+         "asks": asks,
+         "written_at": _safe_int(merged.get("written_at")),

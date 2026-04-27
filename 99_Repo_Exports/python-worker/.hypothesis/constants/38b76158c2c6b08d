@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/mixins/crypto_orderflow_generate.py
+# hypothesis_version: 6.148.10
+
+[-1.0, 0.0, 1.0, '0', '1', 'KEEP_REASON_STR', 'PACK_RC16', 'RC_KEEP_STR', 'RC_PACK_U16', '_emitter', '_sigm', '_veto_reporter', 'absorp', 'candidate', 'candidate_reasons', 'conf_factor', 'conf_factor01', 'conf_factor_hist', 'confidence', 'confidence_pct_hist', 'decision_code', 'decision_u16', 'emit', 'error', 'false', 'final_score', 'final_score_hist', 'geometry_score', 'kind', 'l2', 'l2_ok', 'l2_parts', 'l2_reason', 'l2_snapshot', 'last_price', 'level_key', 'level_price', 'logger', 'market_regime', 'no', 'parts', 'payload', 'price', 'quality_codes', 'raw_score', 'reason_code', 'reason_u16', 'reasons', 'regime', 'side', 'signal_id', 'spread_bps', 'stale_l2', 'symbol', 'taker_rate_ema', 'true', 'ts', 'value', 'veto', 'veto_reason', 'yes']

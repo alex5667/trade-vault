@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/metrics_batcher.py
+# hypothesis_version: 6.148.10
+
+[0.05, 0.1, 0.5, 1.0, 100, 10000, 50000, 'amount', 'approximate', 'ex', 'expire', 'hincrby', 'incr', 'incrby', 'maxlen', 'metrics_batcher', 'orderflow', 'sadd', 'seconds', 'set', 'xadd']

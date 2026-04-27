@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/slippage_model_by_fact.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.5, 2.0, 10000.0, '0', '1', '30', 'SLIPPAGE_EMA_ENABLED', 'a', 'ask', 'b', 'best_ask', 'best_bid', 'bid', 'ema', 'ema_bps', 'hget', 'l1_ask', 'l1_bid', 'n', 'na', 'on', 'samples', 'slipema', 'spread_bps', 'symbol', 'true', 'yes']

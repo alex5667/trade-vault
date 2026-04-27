@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/horizon_profile_bootstrap_service.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.05, 0.33, 0.5, 0.75, 1.0, 150, 1000, 5000, 10000, 15000, 86400, 180000, 300000, 720000, 2700000, 14400000, '*', ',', ':', 'ANALYTICS_DB_DSN', 'CryptoOrderFlow', 'HZ_HISTORY_PROFILE', 'REDIS_URL', 'TRADES_DB_DSN', '__main__', 'alpha_half_life_ms', 'contract_ver', 'cutoff_ms', 'default', 'history', 'hold_ms', 'hold_p50_ms', 'hold_p75_ms', 'hold_target_ms', 'keys_written', 'level', 'limit', 'long', 'max_hold_ms', 'max_signal_age_ms', 'medium', 'micro', 'min_hold_ms', 'na', 'profile_conf', 'profile_source', 'reason_code', 'regime', 'risk_horizon_bucket', 'sample_n', 'scenario', 'short', 'source', 'symbol', 'time_to_mfe_ms', 'time_to_mfe_p50_ms', 'unknown', 'updated_at_ms']

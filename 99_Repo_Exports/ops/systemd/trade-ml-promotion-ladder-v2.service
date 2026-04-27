@@ -1,0 +1,11 @@
+[Unit]
+Description=Trade ML promotion ladder v2 (bucket-aware, dual-window)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/trade/of_reports.env
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+ExecStart=/usr/bin/python3 -m tools.ml_promotion_ladder_v2
+

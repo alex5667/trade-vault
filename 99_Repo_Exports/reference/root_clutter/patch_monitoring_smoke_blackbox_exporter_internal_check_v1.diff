@@ -1,0 +1,125 @@
+diff --git a/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py b/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py
+index 8d90b56..15d75c3 100644
+--- a/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py
++++ b/ml_analysis/tools/nightly_monitoring_smoke_tests_v1.py
+@@ -145,6 +145,8 @@ def main() -> int:
+         f"{public_base}/runbooks/healthz",
+         f"{public_base}/alertmanager/-/ready",
+         f"{public_base}/alertmanager/api/v2/status",
+         f"{public_base}/prometheus/-/ready",
+         f"{public_base}/prometheus/api/v1/status/runtimeinfo",
+     ]
+     runbook_urls, dash_urls = _smoke_contract_targets(public_base)
+
+@@ -158,6 +160,12 @@ def main() -> int:
+     # 1) Public proxy health checks
+     for u in health_urls:
+         ok, reason, dt_ms = _http_check(u, verify_tls=verify_tls)
+         checks.append({"kind": "health", "url": u, "ok": "1" if ok else "0", "reason": reason, "latency_ms": f"{dt_ms:.1f}"})
+         ok_all = ok_all and ok
+@@ -166,6 +174,21 @@ def main() -> int:
+         if u.endswith("/prometheus/api/v1/status/runtimeinfo"):
+             checks.append({"kind": "prom_api", "url": u, "ok": "1" if ok else "0", "reason": reason, "latency_ms": f"{dt_ms:.1f}"})
+
++    # 1b) Internal blackbox-exporter health (independent from Prometheus scrape):
++    # - run inside the same docker network, not via public-proxy
++    blackbox_url = _env("BLACKBOX_EXPORTER_HEALTH_URL", "http://trade-blackbox-exporter:9115/-/healthy")
++    ok_bb, reason_bb, dt_bb = _http_check(blackbox_url, verify_tls=False)
++    checks.append({"kind": "blackbox_exporter", "url": blackbox_url, "ok": "1" if ok_bb else "0", "reason": reason_bb, "latency_ms": f"{dt_bb:.1f}"})
++    ok_all = ok_all and ok_bb
++
+     # 2) Monitoring contract checks: runbooks + dashboards exist and route under public-proxy.
+     runbooks_ok = True
+     dashboards_ok = True
+@@ -207,6 +230,8 @@ def main() -> int:
+     failed_checks = [c for c in checks if c.get("ok") != "1"]
+     failed_health = [c for c in failed_checks if c.get("kind") == "health"]
+     failed_contract = [c for c in failed_checks if c.get("kind") in ("runbook", "dashboard")]
+     am_api_ok = all(c.get("ok") == "1" for c in checks if c.get("kind") == "am_api") if any(c.get("kind") == "am_api" for c in checks) else False
+     prom_api_ok = all(c.get("ok") == "1" for c in checks if c.get("kind") == "prom_api") if any(c.get("kind") == "prom_api" for c in checks) else False
++    blackbox_exporter_ok = all(c.get("ok") == "1" for c in checks if c.get("kind") == "blackbox_exporter") if any(c.get("kind") == "blackbox_exporter" for c in checks) else False
+     fields = {
+         "success": "1" if ok_all else "0",
+         "runbooks_ok": "1" if runbooks_ok else "0",
+         "dashboards_ok": "1" if dashboards_ok else "0",
+         "alertmanager_api_ok": "1" if am_api_ok else "0",
+         "prometheus_api_ok": "1" if prom_api_ok else "0",
++        "blackbox_exporter_ok": "1" if blackbox_exporter_ok else "0",
+         "updated_ts_ms": str(ts_ms),
+         "reason": "ok" if ok_all else "failed",
+         "public_base_url": public_base,
+         "failed_total": str(len(failed_checks)),
+         "failed_health": json.dumps(failed_health, ensure_ascii=False)[:1200],
+         "failed_contract": json.dumps(failed_contract, ensure_ascii=False)[:1200],
+     }
+diff --git a/ml_analysis/tools/monitoring_smoke_exporter_v1.py b/ml_analysis/tools/monitoring_smoke_exporter_v1.py
+index 2f1b7f9..7ea3bd7 100644
+--- a/ml_analysis/tools/monitoring_smoke_exporter_v1.py
++++ b/ml_analysis/tools/monitoring_smoke_exporter_v1.py
+@@ -59,6 +59,7 @@ def metrics() -> PlainTextResponse:
+     failed_total = 0.0
+     alertmanager_api_ok = 0.0
+     prometheus_api_ok = 0.0
++    blackbox_exporter_ok = 0.0
+     if d:
+@@ -95,6 +96,12 @@ def metrics() -> PlainTextResponse:
+         except Exception:
+             prometheus_api_ok = 0.0
+
++        try:
++            blackbox_exporter_ok = 1.0 if float(d.get("blackbox_exporter_ok", "0")) > 0 else 0.0
++        except Exception:
++            blackbox_exporter_ok = 0.0
++
+     age_s = 0.0
+     if updated_ts > 0:
+         age_s = max(0.0, (time.time() * 1000.0 - updated_ts) / 1000.0)
+@@ -135,6 +142,11 @@ def metrics() -> PlainTextResponse:
+     lines.append("# TYPE monitoring_smoke_prometheus_api_ok gauge")
+     lines.append(f"monitoring_smoke_prometheus_api_ok {prometheus_api_ok}")
+
++    lines.append("# HELP monitoring_smoke_blackbox_exporter_ok 1 if blackbox-exporter /-/healthy is OK (internal)")
++    lines.append("# TYPE monitoring_smoke_blackbox_exporter_ok gauge")
++    lines.append(f"monitoring_smoke_blackbox_exporter_ok {blackbox_exporter_ok}")
++
+     return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
+diff --git a/ok_rate_logic/prometheus_alerts_monitoring_smoke_blackbox_v1.yml b/ok_rate_logic/prometheus_alerts_monitoring_smoke_blackbox_v1.yml
+new file mode 100644
+index 0000000..d0a0b57
+--- /dev/null
++++ b/ok_rate_logic/prometheus_alerts_monitoring_smoke_blackbox_v1.yml
+@@ -0,0 +1,23 @@
++groups:
++  - name: monitoring-smoke-blackbox
++    rules:
++      - alert: MonitoringSmokeBlackboxExporterBroken
++        expr: monitoring_smoke_blackbox_exporter_ok == 0
++        for: 20m
++        labels:
++          severity: warning
++          team: trade
++          component: monitoring
++        annotations:
++          summary: "Monitoring smoke: blackbox-exporter unhealthy"
++          description: "Nightly monitoring smoke detected blackbox-exporter /-/healthy is not OK (internal). Uptime probes may become unreliable."
++          runbook_path: "/web_uptime.md"
++          dashboard_path: "/d/monitoring_smoke/monitoring-smoke-nightly-contract?orgId=1"
+diff --git a/monitoring/README_smoke_tests.md b/monitoring/README_smoke_tests.md
+index e0b6c03..b5c64f7 100644
+--- a/monitoring/README_smoke_tests.md
++++ b/monitoring/README_smoke_tests.md
+@@ -12,6 +12,9 @@
+ - `/prometheus/-/ready`
+ - `/prometheus/api/v1/status/runtimeinfo`
+
++1b) Internal service health (docker network):
++- blackbox exporter `http://trade-blackbox-exporter:9115/-/healthy`
++
+ 2) Monitoring contract (public-proxy routing must serve links we send in alerts):
+ - runbooks markdown:
+   - `/runbooks/web_uptime.md`
+@@ -66,4 +69,5 @@
+ - `monitoring_smoke_failed_checks_total`
+ - `monitoring_smoke_alertmanager_api_ok`
+ - `monitoring_smoke_prometheus_api_ok`
++- `monitoring_smoke_blackbox_exporter_ok`

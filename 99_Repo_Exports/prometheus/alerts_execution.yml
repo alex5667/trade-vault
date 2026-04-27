@@ -1,0 +1,96 @@
+groups:
+  - name: execution_alerts
+    rules:
+      - alert: PositionUnprotectedTooLong
+        expr: execution_position_unprotected_seconds > 5
+        for: 0m
+        labels:
+          severity: page
+        annotations:
+          summary: "Позиция без protection слишком долго (более 5s)"
+          description: "Позиция не защищена TP/SL: {{ $labels.instance }} ({{ $labels.symbol }}) / секунд: {{ $value }}"
+
+      - alert: BinanceOrderQueueBacklog
+        expr: redis_stream_length{stream="orders:queue:binance"} > 200
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Очередь ордеров Binance переполнена"
+          description: "Backlog в orders:queue:binance превысил 200: {{ $value }}"
+
+      - alert: BinanceDLQGrowth
+        expr: rate(redis_stream_length{stream="orders:queue:binance:dlq"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "Рост DLQ Binance ордеров"
+          description: "Обнаружены новые события в DLQ: {{ $value }}/сек"
+
+      - alert: ExecutionFSMStuck
+        expr: execution_fsm_stuck_states_total > 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "Execution FSM имеет застрявшие стейты"
+          description: "FSM завис в переходе: {{ $labels.instance }}, кол-во: {{ $value }}"
+
+      - alert: LatencyToFillExceedsBudget
+        expr: histogram_quantile(0.95, rate(execution_latency_to_fill_seconds_bucket[5m])) > 1.0
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 Latency до fill превышает 1 секунду"
+          description: "Медленное исполнение: {{ $value }}s для {{ $labels.instance }}"
+
+      - alert: OrphanPositionsDetected
+        expr: execution_orphan_positions_total > 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "Обнаружены сиротские позиции"
+          description: "Найдено {{ $value }} позиций без привязанных ордеров (опасность маржин кола) на {{ $labels.instance }}"
+
+      - alert: OrderQueueBinanceBacklog
+        expr: redis_stream_group_messages_pending{stream="orders:queue:binance"} > 5000
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis Stream {{ $labels.stream }} backlog too large"
+          description: "Очередь ордеров превысила 5000: текущее значение {{ $value }}"
+
+      - alert: OrderQueueDLQGrowing
+        expr: increase(redis_stream_length{stream="orders:queue:binance:dlq"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DLQ queue growing for {{ $labels.stream }}"
+          description: "Растет очередь DLQ для ордеров, ордера не могут быть исполнены."
+
+      # P0-5: Kill-switch protection arming timeout — operational blind-spot guard
+      # Fires when executor entered PROTECTION_ARMING but protection was never confirmed
+      # within the grace window. Indicates a naked position that may not have been paged.
+      # kill_switch_armed_timestamp == 0 means "armed state cleared" (protected or flattened).
+      - alert: KillSwitchTimeoutExceeded
+        expr: >
+          kill_switch_armed_timestamp > 0
+          and
+          (time() - kill_switch_armed_timestamp) > 30
+        for: 0m
+        labels:
+          severity: page
+        annotations:
+          summary: "Kill-switch PROTECTION_ARMING не подтверждён за 30s ({{ $labels.symbol }})"
+          description: >
+            Executor перешёл в PROTECTION_ARMING для символа {{ $labels.symbol }},
+            но protection (SL/TP) не была подтверждена в течение {{ $value | humanizeDuration }}.
+            Позиция может оставаться незащищённой.
+            Проверить: FSM state в Redis (orders:state:{sid}),
+            execution event stream, и наличие ордеров на бирже.
+            PROTECTION_ARM_TIMEOUT_MS={{ $labels.instance }}.

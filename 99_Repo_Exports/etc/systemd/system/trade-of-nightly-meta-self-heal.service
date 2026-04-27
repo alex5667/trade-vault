@@ -1,0 +1,13 @@
+[Unit]
+Description=Trade OF nightly meta cells self-heal (stage unfreeze + auto-refreeze)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/trade/of_reports.env
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+ExecStart=/usr/bin/python3 -m tools.nightly_meta_cells_self_heal
+StandardOutput=journal
+StandardError=journal
+

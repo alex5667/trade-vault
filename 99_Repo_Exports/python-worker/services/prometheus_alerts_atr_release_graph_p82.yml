@@ -1,0 +1,118 @@
+groups:
+  - name: atr_release_graph_p82
+    interval: 60s
+    rules:
+
+      # ── Decision mismatch (critical page) ───────────────────────────────────
+      - alert: AtrReleaseGraphDecisionMismatch
+        expr: |
+          increase(atr_release_graph_decision_mismatch_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: page
+          component: release_gate
+          phase: "8.2"
+        annotations:
+          summary: "Critical release decision mismatch between legacy and graph"
+          description: >
+            At least one release decision mismatch detected between the legacy release gate
+            and the graph-backed release gate in the last 15 minutes.
+            Check v_governance_release_drift_board for open critical drifts.
+
+      # ── Missing replay cert edge on live target (critical page) ─────────────
+      - alert: AtrReleaseGraphMissingReplayCertEdgeLive
+        expr: |
+          atr_release_graph_missing_cert_edge_total{target_stage="live_100"} > 0
+        for: 5m
+        labels:
+          severity: page
+          component: release_gate
+          phase: "8.2"
+        annotations:
+          summary: "Graph release gate: missing replay cert edge on live_100 target"
+          description: >
+            The graph-backed release gate detected a missing replay certification edge
+            for a scope targeting live_100. This is a critical release blocker.
+
+      # ── Graph cert failed on bounded scope (critical page) ──────────────────
+      - alert: AtrReleaseEquivalenceCertFailed
+        expr: |
+          increase(atr_release_graph_equivalence_total{status="failed"}[1h]) > 0
+        for: 0m
+        labels:
+          severity: page
+          component: release_gate
+          phase: "8.2"
+        annotations:
+          summary: "ATR Release Equivalence Cert failed on bounded scope"
+          description: >
+            The release_equivalence_cert failed (E1-E6 checks). Check
+            atr_release_equivalence_checks for failed rows and
+            atr_release_drifts for open critical drifts.
+
+      # ── Gate marked ready while critical drift open (critical page) ─────────
+      - alert: AtrReleaseGraphReadyWithOpenCriticalDrift
+        expr: |
+          atr_release_graph_cutover_readiness_total{status="ready_for_enforce"} > 0
+          and
+          atr_release_graph_drift_total{severity="critical", status="open"} > 0
+        for: 1m
+        labels:
+          severity: page
+          component: release_gate
+          phase: "8.2"
+        annotations:
+          summary: "Release gate cutover marked ready_for_enforce but critical drift is open"
+          description: >
+            A critical release drift is still open while the cutover readiness
+            status is ready_for_enforce. This is a governance violation.
+
+      # ── Repeated warning drifts on same scope (warn) ─────────────────────────
+      - alert: AtrReleaseGraphRepeatedWarningDrifts
+        expr: |
+          increase(atr_release_graph_drift_total{severity="warn"}[6h]) > 5
+        for: 0m
+        labels:
+          severity: warning
+          component: release_gate
+          phase: "8.2"
+        annotations:
+          summary: "Repeated warning-level release drifts on same scope"
+          description: >
+            More than 5 warning-level release drifts in 6 hours. Review
+            v_governance_release_drift_board for scope details.
+
+      # ── Cutover readiness stuck in not_ready (warn) ──────────────────────────
+      - alert: AtrReleaseGraphCutoverStuckNotReady
+        expr: |
+          (
+            atr_release_graph_cutover_readiness_total{status="not_ready"}
+            unless atr_release_graph_cutover_readiness_total{status=~"shadow_healthy|ready_for_read|ready_for_enforce"}
+          ) > 0
+        for: 72h
+        labels:
+          severity: warning
+          component: release_gate
+          phase: "8.2"
+        annotations:
+          summary: "Release gate graph cutover stuck in not_ready for >72h"
+          description: >
+            The graph-backed release gate has been in not_ready for more than 72 hours.
+            Check atr_release_cutover_readiness table and open critical drifts.
+
+      # ── Graph release lag growing (warn) ────────────────────────────────────
+      - alert: AtrReleaseGraphLagGrowing
+        expr: |
+          rate(atr_release_graph_equivalence_total[30m]) == 0
+          and on() atr_release_graph_decision_mismatch_total > 0
+        for: 30m
+        labels:
+          severity: warning
+          component: release_gate
+          phase: "8.2"
+        annotations:
+          summary: "Graph release gate: no new equivalence checks while mismatches exist"
+          description: >
+            No equivalence checks have been recorded in 30 minutes but decision
+            mismatches are present. The graph-backed release gate may have stopped
+            processing. Check ATR_GRAPH_RELEASE_GATE_ENABLE and service logs.

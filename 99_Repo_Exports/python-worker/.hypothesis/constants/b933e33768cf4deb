@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/bench_of_gate_latency.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.5, 0.7, 0.9, 0.95, 0.99, 1.0, 1000.0, 2000, 60000, 400000, '+', '-', '--out', '--redis-url', '--stream', '--window-min', '.', '0.70', '60', 'OF_BENCH_DH_BAD_TH', 'OF_BENCH_OUT', 'OF_BENCH_WINDOW_MIN', 'REDIS_URL', '__main__', '_ts_ms', 'book_bad_rate', 'book_health_ok', 'build_latency_us', 'data_health', 'data_health_bad_rate', 'exec_risk_norm', 'latency_us', 'meta_veto', 'meta_veto_rate', 'metrics:of_gate', 'ml_check_latency_us', 'ml_latency_us', 'n', 'ok', 'ok_rate', 'ok_soft', 'p50', 'p90', 'p95', 'p99', 'qps', 'soft_rate', 'timestamp', 'ts', 'ts_ms', 'utf-8', 'w', 'window_min']

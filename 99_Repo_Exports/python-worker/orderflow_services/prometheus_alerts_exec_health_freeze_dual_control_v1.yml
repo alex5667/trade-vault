@@ -1,0 +1,24 @@
+groups:
+  - name: exec-health-freeze-dual-control-v1
+    rules:
+      - alert: OF_ExecHealth_FreezeDualControl_SameOperator_Crit
+        expr: exec_health_freeze_dual_control_same_operator_violation > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: ExecHealth freeze thaw dual-control violated by same operator
+      - alert: OF_ExecHealth_FreezeDualControl_CommitMissing_Warn
+        expr: exec_health_freeze_dual_control_status{status="approved"} > 0 and exec_health_freeze_dual_control_valid_commit_event_present == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: ExecHealth thaw request approved but final signed commit missing
+      - alert: OF_ExecHealth_FreezeDualControl_InvalidCommit_Crit
+        expr: exec_health_freeze_dual_control_violation{kind=~"invalid_commit_signature|invalid_control_commit_signature|commit_without_approval|commit_without_prepare"} > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: ExecHealth thaw dual-control integrity violation detected

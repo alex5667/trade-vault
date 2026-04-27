@@ -1,0 +1,37 @@
+groups:
+  - name: ml_phase3_56_apply_flow_experiment_incident_rca_apply_verification_rollback_v1
+    rules:
+      - alert: MLApplyFlowExperimentIncidentRCAApplyVerificationStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_verification_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "incident RCA bridge-mode apply verifier is stale"
+
+      - alert: MLApplyFlowExperimentIncidentRCAApplyRollbackStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_rollback_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "incident RCA bridge-mode rollback controller is stale"
+
+      - alert: MLApplyFlowExperimentIncidentRCAApplyVerificationErrors
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_verification_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "incident RCA bridge-mode apply verifier has errors"
+
+      - alert: MLApplyFlowExperimentIncidentRCAApplyRollbackPlanned
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_rollbacks_total{applied="0"}[30m]) > 0
+        for: 5m
+        labels: { severity: info }
+        annotations:
+          summary: "incident RCA bridge-mode rollback plan was produced"
+
+      - alert: MLApplyFlowExperimentIncidentRCAApplyObservedVertexLow
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_verification_observed_vertex_usefulness < 0.60
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "incident RCA bridge-mode observed vertex usefulness is low after apply"

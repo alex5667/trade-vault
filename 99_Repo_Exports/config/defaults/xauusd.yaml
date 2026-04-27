@@ -1,0 +1,70 @@
+# XAUUSD Order Flow - Default Configuration (YAML)
+# Complementary to defaults_gold.env
+
+symbol: XAUUSD
+timeframes: [M1, M5, M15, H1]
+
+# Delta & Z-score
+delta:
+  lookback_z: 50
+  z_strong: 2.0
+  z_moderate: 1.5
+
+# Progress detection
+progress:
+  atr_len: 14
+  weak_threshold: 0.3 # range/ATR <= 0.3 = weak progress
+
+# Order Book Imbalance
+obi:
+  window_levels: 5
+  threshold: 0.25 # |OBI| >= 0.25 = significant
+
+# Risk management
+risk:
+  r_multiple_tp: [0.5, 1.0, 1.5] # TP targets in R multiples
+  max_leverage: 1000
+  risk_per_trade: 0.5% # of account
+
+# MT5 Executor
+executor:
+  tp_mode: AUTO # AUTO | HEDGING_SPLIT | NET_PARTIAL
+  tp_split_perc: '50,30,20' # TP distribution
+
+  breakeven:
+    enabled: true
+    structural: true # Use swing levels
+    swing_lookback: 5
+
+  trail:
+    mode: ATR # ATR | POINTS | OFF
+    atr_mult: 0.8
+    points: 2.0
+
+  fill_policy: IOC # IOC | FOK | RETURN
+  retcode_notify: true
+
+# Calibration (auto-updated by calibrate scripts)
+calibration:
+  thresholds:
+    deltaSpikeZ: 2.0
+    obi_signed: 0.25
+    weakProgress: 0.3
+
+  aucs:
+    delta_z: 0.0 # Updated after calibration
+    obi_signed: 0.0
+    weakProgress_inv: 0.0
+
+  last_calibration: null
+  samples: 0
+
+# Analytics
+analytics:
+  export:
+    features_path: data/features/xauusd_m1.parquet
+    labels_path: data/labels/joined_pnl.parquet
+
+  reports:
+    daily_path: /var/log/scanner_infra/exec_{date}.parquet
+    retention_days: 30

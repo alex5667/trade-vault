@@ -1,0 +1,15 @@
+{
+  "window_hours": 24,
+  "total_decisions": 2683,
+  "allow_count": 2683,
+  "deny_count": 0,
+  "clamp_count": 2683,
+  "confidence_denials": 0,
+  "clamp_rate": 1.0,
+  "deny_rate": 0.0,
+  "confidence_denial_rate": 0.0,
+  "decision_latency_avg_ms": 0.11635077062115508,
+  "avg_clamp_ratio": 0.07203876257920218,
+  "score": 75.0,
+  "bucket": "yellow"
+}

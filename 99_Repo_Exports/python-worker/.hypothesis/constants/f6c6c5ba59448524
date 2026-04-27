@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/array_algos/putmask.py
+# hypothesis_version: 6.148.10
+
+['mM', 'ndim']

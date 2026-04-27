@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/signal_payload.py
+# hypothesis_version: 6.148.10
+
+['a', 'b', 'c', 'confidence_parts', 'confirmations', 'gate', 'gate_bits', 'have', 'indicators', 'legs', 'need', 'ok', 'reason', 'rejection_reason', 'scenario', 'signal_id', 'symbol', 'ts_ms']

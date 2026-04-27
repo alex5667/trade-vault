@@ -1,0 +1,171 @@
+groups:
+- name: slippage_alerts
+  rules:
+      # 1) Veto rate (anti-spike based on taker flow)
+  - record: of_gate:veto_rate10m:taker_flow
+    expr: >
+      sum(rate(trade_gate_veto_total{gate="taker_flow"}[10m])) by (sym,bucket,mode)
+      /  sum(rate(trade_gate_eligible_total{gate="taker_flow"}[10m])) by (sym,bucket,mode)
+
+  - record: of_gate:veto_rate1h:taker_flow
+    expr: >
+      sum(rate(trade_gate_veto_total{gate="taker_flow"}[1h])) by (sym,bucket,mode)
+      /  sum(rate(trade_gate_eligible_total{gate="taker_flow"}[1h])) by (sym,bucket,mode)
+
+  - alert: OF_Gate_VetoRateSpike_Warning
+    expr: >
+      of_gate:veto_rate10m:taker_flow > 2 * of_gate:veto_rate1h:taker_flow
+      and of_gate:veto_rate10m:taker_flow > 0.10
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: 'High spike in veto rate for {{ $labels.sym }} bucket={{ $labels.bucket
+        }} mode={{ $labels.mode }}'
+      description: 'Veto rate over 10m is >10% and >2x the 1h rate.'
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: OF_Gate_VetoRateSpike_Critical
+    expr: >
+      of_gate:veto_rate10m:taker_flow > 3 * of_gate:veto_rate1h:taker_flow
+      and of_gate:veto_rate10m:taker_flow > 0.20
+    for: 10m
+    labels:
+      severity: critical
+    annotations:
+      summary: 'Critical spike in veto rate for {{ $labels.sym }} bucket={{ $labels.bucket
+        }} mode={{ $labels.mode }}'
+      description: 'Veto rate over 10m is >20% and >3x the 1h rate.'
+
+      # 2) P99 expected_slippage_bps
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - record: of_gate:expected_slippage_p99:10m
+    expr: >
+      histogram_quantile(
+        0.99,
+        sum(rate(trade_expected_slippage_bps_bucket{model="final"}[10m])) by (le,sym,bucket)
+      )
+
+  - alert: OF_Gate_ExpectedSlippage_Warning
+    expr: >
+      of_gate:expected_slippage_p99:10m > 0.9 * trade_max_expected_slippage_bps_eff
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: 'P99 expected slippage close to max eff limit for {{ $labels.sym }}
+        bucket={{ $labels.bucket }}'
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: OF_Gate_ExpectedSlippage_Critical
+    expr: >
+      of_gate:expected_slippage_p99:10m > 1.0 * trade_max_expected_slippage_bps_eff
+    for: 10m
+    labels:
+      severity: critical
+    annotations:
+      summary: 'P99 expected slippage EXCEEDS max eff limit for {{ $labels.sym }}
+        bucket={{ $labels.bucket }}'
+
+      # 3) Ratio exceedances limit
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: OF_Gate_ExpectedSlippageRatio_Warning
+    expr: >
+      histogram_quantile(
+        0.99,
+        sum(rate(trade_expected_slippage_ratio_bucket[10m])) by (le,sym,bucket)
+      ) > 0.9
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: 'P99 slippage ratio > 0.9 for {{ $labels.sym }} bucket={{ $labels.bucket
+        }}'
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: OF_Gate_ExpectedSlippageRatio_Critical
+    expr: >
+      histogram_quantile(
+        0.99,
+        sum(rate(trade_expected_slippage_ratio_bucket[10m])) by (le,sym,bucket)
+      ) > 1.0
+    for: 10m
+    labels:
+      severity: critical
+    annotations:
+      summary: 'P99 slippage ratio > 1.0 for {{ $labels.sym }} bucket={{ $labels.bucket
+        }}'
+
+      # 4) Drift residual
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - record: of_gate:slippage_residual_p95:30m
+    expr: >
+      histogram_quantile(
+        0.95,
+        sum(rate(trade_slippage_residual_bps_bucket[30m])) by (le,sym,bucket)
+      )
+
+  - alert: OF_Gate_SlippageDrift_Warning
+    expr: of_gate:slippage_residual_p95:30m > 2.0
+    for: 60m
+    labels:
+      severity: warning
+    annotations:
+      summary: 'Slippage residual drift for {{ $labels.sym }} bucket={{ $labels.bucket
+        }}'
+      description: 'P95 slippage residual is > +2 bps over the last hour. Slippage
+        models might be under-estimating impact.'
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: OF_Gate_SlippageDrift_Critical
+    expr: of_gate:slippage_residual_p95:30m > 5.0
+    for: 30m
+    labels:
+      severity: critical
+    annotations:
+      summary: 'Critical slippage residual drift for {{ $labels.sym }} bucket={{ $labels.bucket
+        }}'
+      description: 'P95 slippage residual is > +5 bps over the last 30 minutes. Execution
+        model severely under-estimating.'
+
+      # 5) Edge Safety (negative margin)
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - record: of_gate:edge_negative_share:30m
+    expr: >
+      sum(rate(trade_edge_negative_total[30m])) by (sym,bucket) /
+      (sum(rate(trade_edge_negative_total[30m])) by (sym,bucket) + sum(rate(trade_gate_eligible_total{gate="taker_flow"}[30m]))
+      by (sym,bucket))
+
+  - alert: OF_Gate_EdgeSafety_Warning
+    expr: of_gate:edge_negative_share:30m > 0.20
+    for: 60m
+    labels:
+      severity: warning
+    annotations:
+      summary: 'Edge margin >20% negative for {{ $labels.sym }} bucket={{ $labels.bucket
+        }}'
+      description: 'Over 20% of signals have a negative edge margin relative to their
+        expected slippage.'
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: OF_Gate_EdgeSafety_Critical
+    expr: of_gate:edge_negative_share:30m > 0.35
+    for: 30m
+    labels:
+      severity: critical
+    annotations:
+      summary: 'Critical edge margin safety for {{ $labels.sym }} bucket={{ $labels.bucket
+        }}'
+      description: 'Over 35% of signals have a negative edge margin relative to expected
+        slippage.'
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd

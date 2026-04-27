@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/atr_horizon_live_surface.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.5, 2.0, '1.5', '2.0', 'BUY', 'LIVE_SURFACE_OK', 'LONG', 'SELL', 'SHORT', 'atr_pct', 'atr_profile', 'atr_tf_ms', 'atr_value', 'entry', 'entry_price', 'horizon', 'max_signal_age_ms', 'meta', 'price', 'side', 'sl_atr_mult', 'tp1_atr_mult']

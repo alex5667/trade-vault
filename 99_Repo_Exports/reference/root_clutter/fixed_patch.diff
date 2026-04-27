@@ -1,0 +1,509 @@
+diff --git a/monitoring/chatops/telegram_freeze_bot/bot.py b/monitoring/chatops/telegram_freeze_bot/bot.py
+index d46a01d..61ab1c9 100644
+--- a/monitoring/chatops/telegram_freeze_bot/bot.py
++++ b/monitoring/chatops/telegram_freeze_bot/bot.py
+@@ -35,6 +35,7 @@ CFG_ADMINS_SET_KEY = _env("CHATOPS_CFG_ADMINS_SET_KEY", "cfg:chatops:admins")
+ CFG_TWO_PERSON_CLEAR_KEY = _env("CHATOPS_CFG_TWO_PERSON_CLEAR_KEY", "cfg:chatops:two_person_clear")
+ CFG_TWO_PERSON_WINDOW_S_KEY = _env("CHATOPS_CFG_TWO_PERSON_WINDOW_S_KEY", "cfg:chatops:two_person_window_s")
++CFG_RATE_LIMIT_PER_MIN_KEY = _env("CHATOPS_CFG_RATE_LIMIT_PER_MIN_KEY", "cfg:chatops:rate_limit_per_min")
+ 
+ # Bot state
+ OFFSET_KEY = _env("TELEGRAM_BOT_OFFSET_KEY", "ops:telegram_freeze_bot:offset")
+@@ -52,6 +53,16 @@ CFG_CACHE_TTL_S = float(_env("CHATOPS_CFG_CACHE_TTL_S", "10.0"))
+ _cfg_cache: Dict[str, Any] = {"ts": 0.0}
+ 
+ 
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _now_s() -> float:
++    return time.time()
++
++
+ def _redis() -> redis.Redis:
+     return redis.Redis.from_url(REDIS_URL, decode_responses=True)
+@@ -86,6 +97,41 @@ def _write_ops_event(event: Dict[str, Any]) -> None:
+         pass
+ 
+ 
++def _metrics_incr(r: redis.Redis, key: str, amount: int = 1) -> None:
++    try:
++        r.incrby(key, int(amount))
++    except Exception:
++        pass
++
++
++def _metrics_set(r: redis.Redis, key: str, value: str) -> None:
++    try:
++        r.set(key, value)
++    except Exception:
++        pass
++
++
++def _metrics_cmd_incr(r: redis.Redis, cmd: str) -> None:
++    _metrics_incr(r, f"metrics:chatops:cmd_total:{cmd}", 1)
++
++
++def _metrics_unauthorized(r: redis.Redis) -> None:
++    _metrics_incr(r, "metrics:chatops:unauthorized_total", 1)
++    _metrics_set(r, "metrics:chatops:last_unauthorized_ts_ms", str(_now_ms()))
++
++
++def _metrics_rate_limited(r: redis.Redis) -> None:
++    _metrics_incr(r, "metrics:chatops:rate_limited_total", 1)
++    _metrics_set(r, "metrics:chatops:last_rate_limited_ts_ms", str(_now_ms()))
++
++
++def _rate_limit_allow(r: redis.Redis, *, chat_id: str, user_id: str, per_min: int) -> bool:
++    # Token bucket per minute via INCR+EXPIRE (fail-closed on redis errors)
++    if per_min <= 0:
++        return True
++    bucket = int(_now_s() // 60)
++    key = f"ops:chatops:rl:{chat_id}:{user_id}:{bucket}"
++    try:
++        n = int(r.incr(key))
++        if n == 1:
++            r.expire(key, 70)
++        return n <= per_min
++    except Exception:
++        return False
++
++
+ def _load_cfg(r: redis.Redis) -> Dict[str, Any]:
+     now = time.time()
+@@ -137,6 +183,19 @@ def _load_cfg(r: redis.Redis) -> Dict[str, Any]:
+     except Exception:
+         cfg["two_person_window_s"] = 300
+ 
++    # rate limit per admin (commands/min). Default 10/min.
++    rl = ""
++    try:
++        rl = str(r.get(CFG_RATE_LIMIT_PER_MIN_KEY) or "").strip()
++    except Exception:
++        rl = ""
++    if not rl:
++        rl = _env("CHATOPS_RATE_LIMIT_PER_MIN", "10")
++    try:
++        cfg["rate_limit_per_min"] = max(1, int(rl))
++    except Exception:
++        cfg["rate_limit_per_min"] = 10
++
+     _cfg_cache["ts"] = now
+     _cfg_cache["cfg"] = dict(cfg)
+     return cfg
+@@ -169,9 +228,9 @@ Commands:
+   /freeze status
+   /freeze set <duration_s> <reason...>
+-  /freeze clear
++  /freeze clear <reason...>
+@@ -181,6 +240,12 @@ Security:
+ Two-person rule (recommended):
+   - /freeze clear requires 2 different admin confirmations within a time window.
++  - reason is required on the first /freeze clear (to start the pending request)
++
++Rate limit:
++  - per admin: rate_limit_per_min (default 10/min)
+@@ -212,7 +277,7 @@ def _format_status() -> str:
+-    now_ms = int(time.time() * 1000)
++    now_ms = _now_ms()
+@@ -235,7 +300,7 @@ def _pending_clear_start(r: redis.Redis, *, window_s: int, initiator: Dict[str, Any], reason: str = "") -> None:
+-    now_ms = int(time.time() * 1000)
++    now_ms = _now_ms()
+@@ -270,12 +335,15 @@ def _handle_cmd(cmd: str, args: List[str], actor: Dict[str, Any], cfg: Dict[str, Any], r: redis.Redis) -> Tuple[bool, str]:
+     if cmd in ("help", "h", "?"):
+         return True, HELP
+     if cmd == "status":
++        _metrics_cmd_incr(r, "status")
+         return True, _format_status()
+     if cmd == "clear":
++        _metrics_cmd_incr(r, "clear")
+         # Two-person rule: require 2 different admins within window.
+         if bool(cfg.get("two_person_clear", True)):
+             window_s = int(cfg.get("two_person_window_s", 300))
+             pend = _pending_clear_get(r)
+-            now_ms = int(time.time() * 1000)
++            now_ms = _now_ms()
+             if not pend:
++                if not args:
++                    return False, "Usage: /freeze clear <reason...>  (two-person rule enabled)"
++                reason = " ".join(args).strip()[:MAX_REASON_LEN]
+                 _pending_clear_start(r, window_s=window_s, initiator=actor)
++                try:
++                    r.hset(PENDING_CLEAR_KEY, mapping={"reason": reason})
++                except Exception:
++                    pass
+                 _write_ops_event({"type": "chatops_clear_pending_started", "window_s": window_s, **actor})
++                _metrics_incr(r, "metrics:chatops:clear_pending_started_total", 1)
+                 return True, f"Clear pending started. Need 2nd admin confirm within {window_s}s: send /freeze clear"
+             try:
+                 exp_ms = int(float(pend.get("expires_ts_ms", "0") or 0))
+             except Exception:
+                 exp_ms = 0
+             if exp_ms and exp_ms < now_ms:
+                 _pending_clear_reset(r)
++                if not args:
++                    return False, "Pending expired. Usage: /freeze clear <reason...>"
++                reason = " ".join(args).strip()[:MAX_REASON_LEN]
+                 _pending_clear_start(r, window_s=window_s, initiator=actor)
++                try:
++                    r.hset(PENDING_CLEAR_KEY, mapping={"reason": reason})
++                except Exception:
++                    pass
+                 _write_ops_event({"type": "chatops_clear_pending_restarted", "window_s": window_s, **actor})
++                _metrics_incr(r, "metrics:chatops:clear_pending_started_total", 1)
+                 return True, f"Previous pending expired. Restarted. Need 2nd admin within {window_s}s: send /freeze clear"
+@@ -301,9 +369,10 @@ def _handle_cmd(cmd: str, args: List[str], actor: Dict[str, Any], cfg: Dict[str, Any], r: redis.Redis) -> Tuple[bool, str]:
+             approvers = []
+             try:
+                 approvers = sorted([str(x) for x in (r.smembers(PENDING_CLEAR_APPROVERS_KEY) or []) if str(x)])
+             except Exception:
+                 approvers = [actor_id]
++            reason = str(pend.get("reason", "") or "")
+             _pending_clear_reset(r)
+-            _write_ops_event({"type": "promote_freeze_clear", "ok": ok, "approvers": approvers, **actor})
+-            return ok, json.dumps({"ok": ok, "approvers": approvers}, ensure_ascii=False)
++            _write_ops_event({"type": "promote_freeze_clear", "ok": ok, "approvers": approvers, "reason": reason, **actor})
++            return ok, json.dumps({"ok": ok, "approvers": approvers, "reason": reason}, ensure_ascii=False)
+ 
+         # one-person mode
+         ok = clear_freeze(REDIS_URL)
+@@ -311,6 +380,7 @@ def _handle_cmd(cmd: str, args: List[str], actor: Dict[str, Any], cfg: Dict[str, Any], r: redis.Redis) -> Tuple[bool, str]:
+         return ok, json.dumps({"ok": ok}, ensure_ascii=False)
+     if cmd == "set":
++        _metrics_cmd_incr(r, "set")
+         if len(args) < 2:
+             return False, "Usage: /freeze set <duration_s> <reason...>"
+@@ -349,6 +419,8 @@ def main() -> int:
+                 cfg = _load_cfg(r)
+                 # scope + auth
+                 if not _chat_allowed(chat_id, cfg):
+                     continue
++                per_min = int(cfg.get("rate_limit_per_min", 10))
+ 
+                 if not _is_admin(user_id, cfg):
+                     # minimal response to unauthorized attempts
++                    _metrics_unauthorized(r)
+                     try:
+                         _tg_send(str(chat_id), "Unauthorized", reply_to=msg_id)
+                     except Exception:
+                         pass
+@@ -370,6 +442,16 @@ def main() -> int:
+                     "username": str(from_.get("username") or ""),
+                     "name": f"{from_.get('first_name','')}".strip(),
+                 }
++                if not _rate_limit_allow(r, chat_id=str(chat_id), user_id=str(user_id), per_min=per_min):
++                    _metrics_rate_limited(r)
++                    _write_ops_event({"type": "chatops_rate_limited", "per_min": per_min, **actor})
++                    try:
++                        _tg_send(str(chat_id), f"Rate limited ({per_min}/min). Try later.", reply_to=msg_id)
++                    except Exception:
++                        pass
++                    continue
+                 ok, resp = _handle_cmd(subcmd, args, actor, cfg, r)
+                 try:
+                     _tg_send(str(chat_id), resp, reply_to=msg_id)
+                 except Exception as e:
+                     _write_ops_event({"type": "chatops_send_failed", "err": str(e)[:200], **actor})
+                 else:
+                     _write_ops_event({"type": "chatops_freeze_cmd", "cmd": subcmd, "ok": ok, "args": args[:10], **actor})
+diff --git a/monitoring/chatops/chatops_metrics_exporter/Dockerfile b/monitoring/chatops/chatops_metrics_exporter/Dockerfile
+ new file mode 100644
+index 0000000..61315d4
+--- /dev/null
++++ b/monitoring/chatops/chatops_metrics_exporter/Dockerfile
+@@ -0,0 +1,20 @@
++FROM python:3.11-slim
++
++WORKDIR /app
++
++COPY requirements.txt /app/requirements.txt
++RUN pip install --no-cache-dir -r /app/requirements.txt
++
++COPY exporter.py /app/exporter.py
++
++ENV PYTHONUNBUFFERED=1
++ENV CHATOPS_METRICS_EXPORTER_PORT=9815
++
++CMD ["python", "/app/exporter.py"]
+diff --git a/monitoring/chatops/chatops_metrics_exporter/requirements.txt b/monitoring/chatops/chatops_metrics_exporter/requirements.txt
+ new file mode 100644
+index 0000000..77df9c2
+--- /dev/null
++++ b/monitoring/chatops/chatops_metrics_exporter/requirements.txt
+@@ -0,0 +1 @@
++redis==5.0.8
+diff --git a/monitoring/chatops/chatops_metrics_exporter/exporter.py b/monitoring/chatops/chatops_metrics_exporter/exporter.py
+ new file mode 100644
+index 0000000..d0c2b87
+--- /dev/null
++++ b/monitoring/chatops/chatops_metrics_exporter/exporter.py
+@@ -0,0 +1,168 @@
++from __future__ import annotations
++
++import os
++from http.server import BaseHTTPRequestHandler, HTTPServer
++from typing import List, Tuple
++
++import redis
++
++
++def _env(name: str, default: str = "") -> str:
++    return (os.getenv(name) or default).strip()
++
++
++REDIS_URL = _env("REDIS_URL", "redis://redis-worker-1:6379/0")
++PORT = int(_env("CHATOPS_METRICS_EXPORTER_PORT", "9815"))
++
++
++def _r() -> redis.Redis:
++    return redis.Redis.from_url(REDIS_URL, decode_responses=True)
++
++
++def _get_int(r: redis.Redis, key: str) -> int:
++    try:
++        v = r.get(key)
++        return int(float(v)) if v else 0
++    except Exception:
++        return 0
++
++
++def _scan_cmd_keys(r: redis.Redis) -> List[Tuple[str, int]]:
++    out: List[Tuple[str, int]] = []
++    cur = 0
++    pat = "metrics:chatops:cmd_total:*"
++    try:
++        while True:
++            cur, keys = r.scan(cur, match=pat, count=100)
++            for k in keys:
++                cmd = k.split(":")[-1]
++                out.append((cmd, _get_int(r, k)))
++            if cur == 0:
++                break
++    except Exception:
++        return []
++    return sorted(out, key=lambda x: x[0])
++
++
++def render_metrics() -> str:
++    r = _r()
++    unauth = _get_int(r, "metrics:chatops:unauthorized_total")
++    rl = _get_int(r, "metrics:chatops:rate_limited_total")
++    pending = _get_int(r, "metrics:chatops:clear_pending_started_total")
++    last_unauth = _get_int(r, "metrics:chatops:last_unauthorized_ts_ms")
++    last_rl = _get_int(r, "metrics:chatops:last_rate_limited_ts_ms")
++    cmd_counts = _scan_cmd_keys(r)
++
++    lines = []
++    lines.append("# HELP chatops_unauthorized_total Unauthorized attempts in allowed chat")
++    lines.append("# TYPE chatops_unauthorized_total counter")
++    lines.append(f"chatops_unauthorized_total {unauth}")
++
++    lines.append("# HELP chatops_rate_limited_total Rate-limited admin commands")
++    lines.append("# TYPE chatops_rate_limited_total counter")
++    lines.append(f"chatops_rate_limited_total {rl}")
++
++    lines.append("# HELP chatops_clear_pending_started_total Two-person clear pending started total")
++    lines.append("# TYPE chatops_clear_pending_started_total counter")
++    lines.append(f"chatops_clear_pending_started_total {pending}")
++
++    lines.append("# HELP chatops_last_unauthorized_ts_ms Last unauthorized attempt timestamp (ms)")
++    lines.append("# TYPE chatops_last_unauthorized_ts_ms gauge")
++    lines.append(f"chatops_last_unauthorized_ts_ms {last_unauth}")
++
++    lines.append("# HELP chatops_last_rate_limited_ts_ms Last rate-limited timestamp (ms)")
++    lines.append("# TYPE chatops_last_rate_limited_ts_ms gauge")
++    lines.append(f"chatops_last_rate_limited_ts_ms {last_rl}")
++
++    lines.append("# HELP chatops_cmd_total Total chatops commands by cmd")
++    lines.append("# TYPE chatops_cmd_total counter")
++    for cmd, v in cmd_counts:
++        cmd2 = cmd.replace('"', "").replace("\\", "")
++        lines.append(f'chatops_cmd_total{{cmd="{cmd2}"}} {v}')
++
++    return "\n".join(lines) + "\n"
++
++
++class Handler(BaseHTTPRequestHandler):
++    def do_GET(self) -> None:
++        if self.path in ("/healthz", "/health"):
++            self.send_response(200)
++            self.end_headers()
++            self.wfile.write(b"ok\n")
++            return
++        if self.path != "/metrics":
++            self.send_response(404)
++            self.end_headers()
++            return
++        body = render_metrics().encode("utf-8")
++        self.send_response(200)
++        self.send_header("Content-Type", "text/plain; version=0.0.4")
++        self.send_header("Content-Length", str(len(body)))
++        self.end_headers()
++        self.wfile.write(body)
++
++    def log_message(self, format: str, *args) -> None:
++        return
++
++
++def main() -> None:
++    srv = HTTPServer(("0.0.0.0", PORT), Handler)
++    srv.serve_forever()
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/ok_rate_logic/docker-compose-crypto-orderflow.yml b/ok_rate_logic/docker-compose-crypto-orderflow.yml
+index 8a6d8ad..c8d1f6b 100644
+--- a/ok_rate_logic/docker-compose-crypto-orderflow.yml
++++ b/ok_rate_logic/docker-compose-crypto-orderflow.yml
+@@ -1052,6 +1052,20 @@ services:
+     networks:
+       - trade-network
+ 
++  chatops-metrics-exporter:
++    build:
++      context: .
++      dockerfile: monitoring/chatops/chatops_metrics_exporter/Dockerfile
++    container_name: chatops-metrics-exporter
++    restart: unless-stopped
++    environment:
++      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
++      - CHATOPS_METRICS_EXPORTER_PORT=${CHATOPS_METRICS_EXPORTER_PORT:-9815}
++    ports:
++      - "${CHATOPS_METRICS_EXPORTER_PORT:-9815}:9815"
++    networks:
++      - trade-network
++
+   grafana:
+     image: grafana/grafana:11.1.0
+     container_name: trade-grafana
+diff --git a/monitoring/prometheus/prometheus.yml.tmpl b/monitoring/prometheus/prometheus.yml.tmpl
+index 1d64e7a..9f8142d 100644
+--- a/monitoring/prometheus/prometheus.yml.tmpl
++++ b/monitoring/prometheus/prometheus.yml.tmpl
+@@ -74,6 +74,12 @@ scrape_configs:
+       - targets:
+           - edge-stack-shadow-exporter-p60:8012
+ 
++  - job_name: chatops_metrics
++    scrape_interval: 15s
++    static_configs:
++      - targets:
++          - chatops-metrics-exporter:9815
++
+   - job_name: monitoring_smoke
+     scrape_interval: 30s
+     static_configs:
+       - targets:
+           - monitoring-smoke-exporter:9814
+diff --git a/ok_rate_logic/prometheus_alerts_chatops_security_v1.yml b/ok_rate_logic/prometheus_alerts_chatops_security_v1.yml
+ new file mode 100644
+index 0000000..3bfe5cb
+--- /dev/null
++++ b/ok_rate_logic/prometheus_alerts_chatops_security_v1.yml
+@@ -0,0 +1,40 @@
++groups:
++  - name: chatops-security
++    rules:
++      - alert: ChatOpsUnauthorizedSpike
++        expr: increase(chatops_unauthorized_total[10m]) > 5
++        for: 5m
++        labels:
++          severity: warning
++          team: trade
++          component: monitoring
++        annotations:
++          summary: "ChatOps unauthorized attempts spike"
++          description: "Unauthorized attempts in allowed chat exceeded threshold in 10m. Check group membership and admin allowlist."
++          runbook_path: "/chatops_security.md"
++          dashboard_path: "/d/edge_stack_overview/edge-stack-overview?orgId=1"
++
++      - alert: ChatOpsRateLimitedSpike
++        expr: increase(chatops_rate_limited_total[10m]) > 10
++        for: 10m
++        labels:
++          severity: warning
++          team: trade
++          component: monitoring
++        annotations:
++          summary: "ChatOps rate-limited spike"
++          description: "Rate-limited commands exceeded threshold in 10m. Possible abuse or too low rate_limit_per_min."
++          runbook_path: "/chatops_security.md"
++          dashboard_path: "/d/edge_stack_overview/edge-stack-overview?orgId=1"
+diff --git a/monitoring/runbooks/chatops_security.md b/monitoring/runbooks/chatops_security.md
+ new file mode 100644
+index 0000000..4b5a0cf
+--- /dev/null
++++ b/monitoring/runbooks/chatops_security.md
+@@ -0,0 +1,83 @@
++# Runbook: ChatOps security (Telegram)
++
++## Owner
++- team: **trade**
++- component: **monitoring**
++
++## Alerts
++- `ChatOpsUnauthorizedSpike`
++- `ChatOpsRateLimitedSpike`
++
++## Unauthorized spike
++1) Confirm allowed chat id:
++   - `GET cfg:chatops:allowed_chat_id`
++2) Confirm admins allowlist:
++   - `SMEMBERS cfg:chatops:admins`
++3) Review audit:
++   - `XREAD COUNT 50 STREAMS ops:eventlog 0-0`
++4) If needed: rotate group membership / kick suspicious users.
++
++## Rate-limited spike
++1) Check config:
++   - `GET cfg:chatops:rate_limit_per_min`
++2) If too low for operations, increase, e.g.:
++   - `SET cfg:chatops:rate_limit_per_min 20`
++3) Investigate abuse:
++   - check `ops:eventlog` for repeated user id.
++
++## Notes
++- The bot applies per-user per-minute rate limit in allowed chat.
++- Clear requires 2-person approval and the first /freeze clear must include a reason.
++
++## Links
++- ChatOps runbook: `/chatops_freeze.md`
++- Promote freeze runbook: `/promote_freeze.md`
+diff --git a/monitoring/runbooks/chatops_freeze.md b/monitoring/runbooks/chatops_freeze.md
+index 19b9784..24f6d9c 100644
+--- a/monitoring/runbooks/chatops_freeze.md
++++ b/monitoring/runbooks/chatops_freeze.md
+@@ -30,13 +30,15 @@ docker logs -n 200 chatops-telegram-freeze-bot
+ ## Commands
+ ```text
+ /freeze status
+ /freeze set 3600 manual investigation
+-/freeze clear
++/freeze clear <reason...>
+ Two-person rule for clear (recommended)
+ \/freeze clear`requires **2 different admin confirmations** withincfg:chatops:two_person_window_s`.
++Reason is required on the first clear to start the pending request.
+diff --git a/monitoring/README_chatops_config.md b/monitoring/README_chatops_config.md
+index c39f53e..b62ee1b 100644
+--- a/monitoring/README_chatops_config.md
++++ b/monitoring/README_chatops_config.md
+@@ -14,6 +14,9 @@ Two-person rule:
+ 
+ cfg:chatops:two_person_clear = 1/0
+ 
+ cfg:chatops:two_person_window_s = seconds (min 60)
+ 
++Rate limit:
++- cfg:chatops:rate_limit_per_min = commands per minute per admin
++
+ 
+ Examples
+ Всегда показывать подробности
+ 
+ redis-cli SET cfg:chatops:allowed_chat_id "-1001234567890"
+ redis-cli SADD cfg:chatops:admins "11111111" "22222222"
+ redis-cli SET cfg:chatops:two_person_clear "1"
+ redis-cli SET cfg:chatops:two_person_window_s "300"
++redis-cli SET cfg:chatops:rate_limit_per_min "10"

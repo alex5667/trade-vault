@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/observability/alerts_worker.py
+# hypothesis_version: 6.148.10
+
+[1024.0, '0', '0.20', '0.30', '1', '200000', '6', '60', '6500', '80000', '900', 'ALERTS_COOLDOWN_SEC', 'ALERTS_ENABLE', 'ALERTS_PERIOD_SEC', 'ALERT_ATR_BAD_PCT', 'REDIS_URL', 'REPORTS_REDIS_URL', '__main__', 'cfg:atr_bad:symbols', 'used_memory', 'utf-8', '🚨 SRE Alerts']

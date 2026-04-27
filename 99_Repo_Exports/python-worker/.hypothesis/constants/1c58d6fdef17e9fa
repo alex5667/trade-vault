@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/enricher_singleton.py
+# hypothesis_version: 6.148.10
+
+['0', '1', 'False', 'NEWS_ENRICHER_ENABLE', 'NO', 'false', 'no']

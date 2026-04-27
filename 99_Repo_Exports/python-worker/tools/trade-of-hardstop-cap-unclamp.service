@@ -1,0 +1,13 @@
+[Unit]
+Description=Trade OF hard-stop unclamp v6 (triple-gate range: health_global + health_range_segment + outcome, selective cells, AUTO default)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/trade/of_reports.env
+WorkingDirectory=/home/alex/front/trade/scanner_infra/python-worker
+ExecStart=/usr/bin/python3 -m tools.of_gate_hardstop_cap_unclamp_v6
+StandardOutput=journal
+StandardError=journal
+

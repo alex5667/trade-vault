@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/recs_store.py
+# hypothesis_version: 6.148.10
+
+[',', ':', 'MISSING', 'PENDING', 'recs:audit:', 'recs:bundle:', 'recs:status:', 'replace', 'utf-8']

@@ -1,0 +1,26 @@
+groups:
+  - name: ml_phase3_29_route_incident_rca_mirror_rca_winner_apply_apply_vertex_feedback_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyVertexRCAStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_vertex_rca_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyVertexGovernanceStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_vertex_governance_last_run_ts_seconds > 3600
+        for: 10m
+        labels: { severity: warning }
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyVertexGovernanceLowUsefulness
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_vertex_governance_avg_usefulness < 0.60
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "Winner Apply Governance Vertex RCA usefulness dropped below 60%"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyVertexGovernanceLowQuality
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_vertex_governance_avg_quality < 0.55
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "Winner Apply Governance Vertex RCA quality dropped below 55%"

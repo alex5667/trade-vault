@@ -1,0 +1,61 @@
+redis==5.2.0
+# Performance: fast JSON (2-10x vs stdlib) + fast event loop (libuv, 2-4x I/O)
+orjson>=3.9.0
+uvloop>=0.19.0;sys_platform!="win32"
+requests==2.32.4  # CVE-2024-47081 fix
+pytz==2024.2
+schedule==1.2.1
+psycopg2-binary==2.9.10
+psycopg[binary]==3.2.4
+asyncpg==0.29.0
+
+# XAUUSD Order Flow - Tick/Book Ingest Server + MT5 Event Executor
+fastapi==0.135.1  # starlette CVE-2025-54121 + CVE-2025-62727 fix (pulls starlette>=0.46.0)
+uvicorn[standard]==0.32.0
+pydantic==2.9.2
+websocket-client==1.8.0
+
+# v4: Feature export, calibration, validation
+pandas==2.2.3
+numpy==1.26.4
+pyarrow==17.0.0  # For Parquet export (PYSEC-2024-161 fix)
+
+# v5: Reports and ML validation
+matplotlib==3.9.2  # For plots
+scikit-learn==1.5.2  # For ROC curves
+imbalanced-learn>=0.12.0  # SMOTE and undersampling (v4.1)
+joblib==1.4.2
+
+# Testing
+pytest==8.3.3
+fakeredis==2.23.3
+
+# Prometheus metrics (optional)
+prometheus-client==0.21.0
+
+# v7.1: Dashboard & Extended Analytics
+plotly==5.24.1
+pyyaml==6.0.2
+aiohttp==3.13.3  # CVE-2024-52304 (HTTP smuggling, High), CVE-2025-53643 + 8 more CVEs fix
+httpx==0.27.2
+aiogram==3.26.0  # upgraded from 3.13.1: drops aiohttp<3.11 constraint → compatible with aiohttp>=3.13.3
+aiofiles==23.2.1
+
+# XAUUSD Order Flow (опционально, только для MT5 tick streamer на Windows)
+# MetaTrader5>=5.0.45  # Только если используете прямой доступ к MT5 (не рекомендуется для Linux)
+
+# GPU Acceleration (CUDA) — requires CUDA driver 12.x (RTX 3060+)
+# cupy-cuda12x enables: GPURingBuffer backend="gpu", pinned-memory H→D ~5µs
+# Without cupy: automatic CPU numpy fallback (no errors, lower perf at N<500)
+cupy-cuda12x
+feedparser==6.0.10
+
+# GPU-accelerated ML training (Tier-3 nightly train speedup: 10-100x over sklearn)
+# xgboost auto-detects CUDA via device='cuda'; CPU fallback if no GPU
+xgboost>=2.0.0
+# LightGBM for ML Scorer V2 (train_ml_scorer.py) — CPU-only, GBDT regressor
+lightgbm>=4.0.0
+# cuML (RAPIDS) for GPU Ridge/Scaler — install separately via conda/pip for CUDA env:
+# pip install cuml-cu12 --extra-index-url=https://pypi.anaconda.org/rapidsai-nightly/simple
+
+google-genai>=0.1.2

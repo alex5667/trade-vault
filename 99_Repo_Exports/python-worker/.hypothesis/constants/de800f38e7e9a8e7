@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/matplotlib/legend.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.35, 0.7, 2.5, 3.0, 4.0, 8.0, '3.6', 'Legend', 'Patch', 'Text', '_', '_nolegend_', 'axes.edgecolor', 'axes.facecolor', 'baseline', 'bbox', 'best', 'center', 'expand', 'fixed', 'get_color', 'get_edgecolor', 'get_facecolor', 'get_markeredgecolor', 'get_markerfacecolor', 'handler_map', 'inherit', 'left', 'legend', 'legend.borderaxespad', 'legend.borderpad', 'legend.columnspacing', 'legend.edgecolor', 'legend.facecolor', 'legend.fancybox', 'legend.fontsize', 'legend.framealpha', 'legend.frameon', 'legend.handleheight', 'legend.handlelength', 'legend.handletextpad', 'legend.labelcolor', 'legend.labelspacing', 'legend.loc', 'legend.markerscale', 'legend.numpoints', 'legend.scatterpoints', 'legend.shadow', 'linecolor', 'loc', 'markeredgecolor', 'markerfacecolor', 'mec', 'mfc', 'none', 'parasites', 'right', 'size', 'square,pad=0', 'text.color', 'upper right']

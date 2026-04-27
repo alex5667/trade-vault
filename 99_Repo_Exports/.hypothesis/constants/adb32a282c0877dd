@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/numpy/core/function_base.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1.0, 10.0, 'geomspace', 'linspace', 'logspace', 'numpy']

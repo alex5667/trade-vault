@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/signal_processing_service.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1000, 86400000, 1000000000, 100000000000, 946684800000, 'BarSample', 'HealthMetrics', '__self__', 'bar', 'bucket', 'close', 'confidence', 'dedup', 'kind', 'level_key', 'msg_id', 'none', 'price', 'process', 'sent', 'side', 'source', 'strategy', 'symbol', 'ts', 'ts_ms', 'unified', 'unknown', 'volume']

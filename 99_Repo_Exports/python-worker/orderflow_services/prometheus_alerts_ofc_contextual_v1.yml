@@ -1,0 +1,54 @@
+groups:
+  - name: ofc_contextual_v1
+    rules:
+      - alert: OFC_Contextual_Writer_Stale
+        expr: (time() * 1000 - ofc_contextual_writer_last_run_ts_ms) / 1000 > 900
+        for: 10m
+        labels:
+          severity: critical
+          component: ofc_contextual
+          p_ref: PatchC
+        annotations:
+          summary: "OFC contextual decision writer stale (>15m)"
+          description: >-
+            OFC contextual decision writer has not updated for more than 15 minutes.
+            Check Redis consumer group health, DB connectivity and writer logs.
+
+      - alert: OFC_Contextual_Writer_Pending_Backlog
+        expr: ofc_contextual_writer_pending_count > 1000
+        for: 10m
+        labels:
+          severity: warning
+          component: ofc_contextual
+          p_ref: PatchC
+        annotations:
+          summary: "OFC contextual decision writer pending backlog high"
+          description: >-
+            Pending entries in the OFC contextual writer consumer group exceed 1000.
+            The writer may be lagging behind decisions:final throughput.
+
+      - alert: OFC_Contextual_Ops_Bundle_Stale
+        expr: ofc_contextual_ops_staleness_sec > 129600
+        for: 30m
+        labels:
+          severity: warning
+          component: ofc_contextual
+          p_ref: PatchC
+        annotations:
+          summary: "OFC contextual ops bundle stale (>36h)"
+          description: >-
+            Nightly OFC contextual bundle workflow has not run successfully within 36 hours.
+            Active bundle may be stale relative to current market regime.
+
+      - alert: OFC_Contextual_Ops_Last_Run_Failed
+        expr: ofc_contextual_ops_last_ok == 0 and ofc_contextual_ops_last_run_ts_ms > 0
+        for: 30m
+        labels:
+          severity: critical
+          component: ofc_contextual
+          p_ref: PatchC
+        annotations:
+          summary: "OFC contextual ops bundle last run failed"
+          description: >-
+            The last OFC contextual bundle build/train/promote workflow exited with failure.
+            Inspect bundle runner logs and verify dataset/train/build scripts from Patch B.

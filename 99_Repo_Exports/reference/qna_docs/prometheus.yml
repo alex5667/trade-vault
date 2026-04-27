@@ -1,0 +1,192 @@
+# Prometheus configuration for trade-network stack (crypto-orderflow + Edge Stack exporters)
+#
+# Used by the 'prometheus' service in docker-compose-crypto-orderflow.yml.
+# alert rule_files are loaded from the mounted ok_rate_logic rules directory mount,
+# adapted here to load from the project structure via /etc/prometheus/rules mount.
+#
+# Relation to existing monitoring:
+#   - docker-compose-monitoring.yml runs scanner-prometheus (port 19090) on scanner-network
+#   - THIS prometheus (trade-prometheus, port 9090) runs on trade-network for orderflow services
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # Bybit DQ alerts
+  - /etc/prometheus/rules/bybit_dq/*.yml
+  # P59 edge stack train alerts
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_edge_stack_train_p59.yml
+  # P60 edge stack shadow alerts
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_edge_stack_shadow_p60.yml
+  # OF Gate ok_rate alerts
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_of_gate_ok_rate_v1.yml
+  # P78 archiver monitoring
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_conf_cal_live_exporter_v1.yml
+  # SLO tradeoff alerts
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_slo_tradeoff_p66.yml
+  # Contract v4 alerts
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_contract_v4.yml
+  # Signal quality
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_signal_quality_v1.yml
+  # P82 OF Gate DLQ exporter
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_of_gate_dlq_exporter_p82.yml
+  # Bucket ENFORCE rollback controller
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_enforce_bucket_promoter_rollback_v1.yml
+  # World-Practice Trackers v1
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_world_practice_trackers_v1.yml
+  # Monitoring Smoke Targets Stale
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_monitoring_smoke_targets_stale_v1.yml
+  # P66 Decision Coverage KPI alerts (tradeoff: coverage vs quality)
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_tradeoff_p66_v1.yml
+  # P77 Slippage calibrator health (staleness of nightly calibrator run)
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_slippage_calibrator_health_v1.yml
+  # P71 Policy effectiveness report metrics and alerts
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_policy_effectiveness_p71.yml
+  # P99 OFInputs DLQ DB rollup alerts (DB exporter: of_inputs_dlq_db_* gauges)
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_of_inputs_dlq_db_p99.yml
+  # P2/F Strict DQ stream health v1 (latency & continuity)
+  - /etc/prometheus/rules/orderflow_services/prometheus_alerts_strict_dq_stream_health_v1.yml
+
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            # Alertmanager companion service (notifications optional)
+            - trade-alertmanager:9093
+
+scrape_configs:
+  # Prometheus itself
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - localhost:9090
+
+  - job_name: blackbox_http
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://trade-grafana:3000/api/health
+          - http://trade-runbooks-web:8082/healthz
+          - http://trade-alertmanager:9093/-/ready
+          - http://trade-prometheus:9090/-/ready
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: trade-blackbox-exporter:9115
+
+  - job_name: blackbox_public
+    metrics_path: /probe
+    params:
+      module: [http_2xx_insecure]
+    static_configs:
+      - targets:
+          - https://localhost/grafana/api/health
+          - https://localhost/runbooks/healthz
+          - https://localhost/alertmanager/-/ready
+          - https://localhost/prometheus/-/ready
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: trade-blackbox-exporter:9115
+
+  # -----------------------------
+  # Edge Stack exporters (P59/P60)
+  # -----------------------------
+
+  # P59 — Edge Stack v1 nightly train metrics exporter
+  # Container: edge-stack-train-exporter-p59 (port 9813)
+  # Alert rules: orderflow_services/prometheus_alerts_edge_stack_train_p59.yml
+  - job_name: edge_stack_train_p59
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - scanner-edge-stack-train-exporter-p59:9813
+
+  # P60 — Edge Stack v1 shadow eval status exporter
+  # Container: scanner-edge-stack-shadow-exporter-p60 (port 8012)
+  # Alert rules: orderflow_services/prometheus_alerts_edge_stack_shadow_p60.yml
+  - job_name: edge_stack_shadow_p60
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          - scanner-edge-stack-shadow-exporter-p60:8012
+
+  # NOTE:
+  # Add other orderflow exporters (conf_cal_live, proof_controller, smoke-check, etc.)
+  # here so they land on the same alerting plane as P59/P60.
+  # Example:
+  #   - job_name: of_gate_contract_smoke
+  #     static_configs:
+  #       - targets: [of-gate-contract-smoke-exporter:9148]
+
+  # P82 — OF Gate DLQ exporter
+  # Container: of-gate-dlq-exporter (port 9154)
+  # Alert rules: orderflow_services/prometheus_alerts_of_gate_dlq_exporter_p82.yml
+  - job_name: of_gate_dlq_exporter_p82
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - of-gate-dlq-exporter:9154
+
+  # P66 — Decision Coverage KPI exporter
+  # Container: decision-coverage-exporter (port 9816)
+  # Alert rules: orderflow_services/prometheus_alerts_tradeoff_p66_v1.yml
+  - job_name: decision_coverage_p66
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - decision-coverage-exporter:9816
+
+  # -----------------------------
+  # Signal quality by regime exporter (P66)
+  # Container: signal-quality-regime-exporter-p66 (port 9819)
+  # Alert rules: orderflow_services/prometheus_alerts_tradeoff_p66_v1.yml
+  # -----------------------------
+  - job_name: signal_quality_regime_p66
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - signal-quality-regime-exporter-p66:9819
+
+  # P66 — Policy mode enforcement KPI exporter
+  # Container: policy-mode-exporter-p66 (port 9818)
+  # Alert rules: orderflow_services/prometheus_alerts_tradeoff_p66_v1.yml
+  - job_name: policy_mode_p66
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - policy-mode-exporter-p66:9818
+
+  # P71/P72 — Signal Quality exporter v3 (policy effectiveness metrics)
+  # Container: signal-quality-exporter-v3 (port 9140)
+  # Metrics: policy_effectiveness_last_age_seconds, policy_effectiveness_share_24h{mode}, ...
+  # Alert rules: orderflow_services/prometheus_alerts_policy_effectiveness_p71.yml
+  - job_name: signal_quality_exporter_v3
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - scanner-signal-quality-exporter-v3:9140
+
+  # P99 — OFInputs DLQ DB rollup exporter
+  # Container: scanner-of-inputs-dlq-db-exporter (port 9157)
+  # Metrics: of_inputs_dlq_db_events_lookback_total{kind,reason},
+  #          of_inputs_dlq_db_last_event_ts_ms{kind},
+  #          of_inputs_dlq_db_last_event_age_sec{kind}
+  # Alert rules: orderflow_services/prometheus_alerts_of_inputs_dlq_db_p99.yml
+  # Dashboard: orderflow_services/grafana/of_inputs_dlq_db_p99.json
+  # NOTE: requires SQL views applied (services/archivers/sql/20260225_of_inputs_dlq_events_rollups_p99.sql)
+  - job_name: of_inputs_dlq_db_p99
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          - scanner-of-inputs-dlq-db-exporter:9157

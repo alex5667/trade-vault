@@ -1,0 +1,38 @@
+groups:
+  - name: strategy_research_guard_p51
+    rules:
+      - alert: TradeStrategyResearchGuardBlockerActiveCrit
+        expr: strategy_research_guard_blocker_active > 0
+        for: 10m
+        labels:
+          severity: crit
+          component: strategy_research_guard
+        annotations:
+          summary: "Strategy research guard blocker is active"
+          description: >-
+            Promotion/apply blocker is active according to cfg:research_guard:blocker:v1.
+            Inspect the latest research report and blocker reason before promoting a new bundle.
+
+      - alert: TradeStrategyResearchGuardReportStaleWarn
+        expr: (strategy_research_guard_summary_present > 0) and (strategy_research_guard_report_age_seconds > 30 * 3600)
+        for: 30m
+        labels:
+          severity: warn
+          component: strategy_research_guard
+        annotations:
+          summary: "Strategy research guard report is stale"
+          description: >-
+            The nightly/weekly research report has not refreshed within the expected budget.
+            Check the strategy research guard timer job and Redis key metrics:strategy_research_guard:last.
+
+      - alert: TradeStrategyResearchGuardPBOHighWarn
+        expr: strategy_research_guard_pbo > 0.20
+        for: 15m
+        labels:
+          severity: warn
+          component: strategy_research_guard
+        annotations:
+          summary: "Strategy research guard PBO is high"
+          description: >-
+            Probability of Backtest Overfitting is above the default 0.20 threshold.
+            Review CSCV folds, recent feature/gate changes, and avoid champion promotion until resolved.

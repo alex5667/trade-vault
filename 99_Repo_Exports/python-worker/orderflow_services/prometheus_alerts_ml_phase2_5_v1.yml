@@ -1,0 +1,20 @@
+groups:
+  - name: ml_phase2_5_operator_rca_routing_apply
+    rules:
+      - alert: MLOperatorRCARoutingApplyStale
+        expr: time() - ml_operator_rca_winner_routing_apply_last_run_ts_seconds > 900
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "operator_rca winner routing apply controller stale"
+          description: "No recent Phase 2.5 routing-apply activity observed."
+
+      - alert: MLOperatorRCARoutingApplyCooldownStuck
+        expr: ml_operator_rca_winner_routing_apply_cooldown_left_seconds > 86400
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "operator_rca routing apply cooldown looks stuck"
+          description: "Cooldown remaining is unexpectedly high for a prolonged period."

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/exec_health_rollups.py
+# hypothesis_version: 6.148.10
+
+[-999.0, -900.0, 0.0, 1e-09, 1.0, 5.0, 8.0, ',', '-999', '0', '1', '1,5', '1.0', '8.0', 'BUY', 'EXEC_', 'EXEC_HEALTH_MODE', 'EXEC_HEALTH_MONITOR', 'EXEC_HEALTH_TIGHTEN', 'ExecHealthThresholds', 'GATE_PROFILE', 'LONG', 'NA', 'SELL', 'SHORT', 'VETO_EXEC_HEALTH', 'adverse_realized', 'all', 'auto', 'default', 'edge', 'entry_policy', 'false', 'hard', 'is_p95_bps', 'is_p95_high', 'monitor', 'na', 'nan', 'no', 'off', 'on', 'perm_impact_p95_bps', 'perm_impact_p95_high', 'pipeline', 'strict', 'tighten', 'true', 'veto', 'yes']

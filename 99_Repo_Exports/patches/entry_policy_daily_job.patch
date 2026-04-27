@@ -1,0 +1,412 @@
+diff --git a/python-worker/tools/entry_policy_daily_job.py b/python-worker/tools/entry_policy_daily_job.py
+new file mode 100644
+index 0000000..dj000002
+--- /dev/null
++++ b/python-worker/tools/entry_policy_daily_job.py
+@@ -0,0 +1,347 @@
++from __future__ import annotations
++
++import asyncio
++import json
++import os
++import time
++from collections import Counter, defaultdict
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any, Dict, List, Tuple
++
++import redis.asyncio as aioredis
++
++from services.entry_policy_core import EntryPolicyCfg, evaluate_entry_policy
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _day_utc() -> str:
++    return time.strftime("%Y-%m-%d", time.gmtime())
++
++
++def _sha1(s: str) -> str:
++    import hashlib
++    return hashlib.sha1(s.encode("utf-8", errors="ignore")).hexdigest()
++
++
++def _i(x: Any, d: int = 0) -> int:
++    try:
++        return int(x)
++    except Exception:
++        return d
++
++
++def _f(x: Any, d: float = 0.0) -> float:
++    try:
++        return float(x)
++    except Exception:
++        return d
++
++
++def _s(x: Any, d: str = "") -> str:
++    try:
++        return str(x) if x is not None else d
++    except Exception:
++        return d
++
++
++@dataclass
++class AlertCfg:
++    # capture
++    duration_sec: int = 900             # 15 min default
++    stream: str = "stream:trade:entry_candidate"
++    snap_prefix: str = "smt:snap:"
++    bundle_prefix: str = "smt:bundle:v1:"
++    start_id: str = "$"
++    block_ms: int = 1000
++    count: int = 200
++
++    # report
++    out_dir: str = "/var/log/trade"
++    keep_days: int = 14
++
++    # alert thresholds
++    min_total: int = 5
++    min_allow_rate: float = 0.3        # %
++    max_allow_rate: float = 50.0       # %
++    max_delta_allow_pp: float = 7.0    # percentage points vs yesterday
++
++    # publish alerts
++    alerts_stream: str = "stream:trade:alerts"
++
++    @staticmethod
++    def from_env() -> "AlertCfg":
++        return AlertCfg(
++            duration_sec=int(os.getenv("EP_CAPTURE_DURATION_SEC", "900")),
++            stream=os.getenv("SMT_ENTRY_STREAM", "stream:trade:entry_candidate"),
++            snap_prefix=os.getenv("SMT_SNAP_PREFIX", "smt:snap:"),
++            bundle_prefix=os.getenv("SMT_BUNDLE_PREFIX", "smt:bundle:v1:"),
++            start_id=os.getenv("EP_CAPTURE_START_ID", "$"),
++            block_ms=int(os.getenv("EP_CAPTURE_BLOCK_MS", "1000")),
++            count=int(os.getenv("EP_CAPTURE_COUNT", "200")),
++            out_dir=os.getenv("EP_REPORT_DIR", "/var/log/trade"),
++            keep_days=int(os.getenv("EP_REPORT_KEEP_DAYS", "14")),
++            min_total=int(os.getenv("EP_ALERT_MIN_TOTAL", "5")),
++            min_allow_rate=float(os.getenv("EP_ALERT_MIN_ALLOW_RATE", "0.3")),
++            max_allow_rate=float(os.getenv("EP_ALERT_MAX_ALLOW_RATE", "50.0")),
++            max_delta_allow_pp=float(os.getenv("EP_ALERT_MAX_DELTA_ALLOW_PP", "7.0")),
++            alerts_stream=os.getenv("EP_ALERTS_STREAM", "stream:trade:alerts"),
++        )
++
++
++def _core_cfg_from_env() -> EntryPolicyCfg:
++    return EntryPolicyCfg(
++        coh_thr=float(os.getenv("SMT_COH_THRESHOLD", "0.65")),
++        leader_conf_min=float(os.getenv("SMT_LEADER_CONF_MIN_SCORE", "0.65")),
++        min_of_score=float(os.getenv("SMT_ENTRY_MIN_OF_SCORE", "1.0")),
++        max_zone_bp=float(os.getenv("SMT_ENTRY_MAX_ZONE_BP", "15")),
++        max_zone_bp_thin=float(os.getenv("SMT_ENTRY_MAX_ZONE_BP_THIN", "10")),
++        obi_min_sec=float(os.getenv("SMT_ENTRY_OBI_MIN_SEC", "1.5")),
++        dedup_ms=int(os.getenv("SMT_ENTRY_DEDUP_MS", "60000")),
++        allow_zone_id_change_if_near=bool(int(os.getenv("ENTRY_POLICY_ALLOW_ZONE_CHANGE_IF_NEAR", "0"))),
++    )
++
++
++def compute_summary(recs: List[Dict[str, Any]]) -> Dict[str, Any]:
++    total = len(recs)
++    allow = sum(1 for r in recs if int(r.get("ok", 0)) == 1)
++    deny = total - allow
++    allow_rate = (allow / max(total, 1)) * 100.0
++
++    by_reason = Counter()
++    by_regime = Counter()
++    by_symbol = Counter()
++    by_zone_src = Counter()
++
++    for r in recs:
++        by_reason[str(r.get("reason_code", "na"))] += 1
++        by_regime[str(r.get("regime", "na"))] += 1
++        by_symbol[str(r.get("symbol", ""))] += 1
++        by_zone_src[str(r.get("zone_src", "na"))] += 1
++
++    top_reason = by_reason.most_common(10)
++    top_regime = by_regime.most_common(10)
++    top_symbol = by_symbol.most_common(10)
++    top_zone_src = by_zone_src.most_common(10)
++
++    return {
++        "total": total,
++        "allow": allow,
++        "deny": deny,
++        "allow_rate": allow_rate,
++        "top_reason": top_reason,
++        "top_regime": top_regime,
++        "top_symbol": top_symbol,
++        "top_zone_src": top_zone_src,
++    }
++
++
++def should_alert(today: Dict[str, Any], prev: Dict[str, Any], cfg: AlertCfg) -> Tuple[bool, str]:
++    t = int(today.get("total", 0) or 0)
++    if t < int(cfg.min_total):
++        return True, f"NO_DATA total={t}<min_total={cfg.min_total}"
++
++    ar = float(today.get("allow_rate", 0.0) or 0.0)
++    if ar < float(cfg.min_allow_rate):
++        return True, f"ALLOW_RATE_LOW {ar:.2f}%<min {cfg.min_allow_rate:.2f}%"
++    if ar > float(cfg.max_allow_rate):
++        return True, f"ALLOW_RATE_HIGH {ar:.2f}%>max {cfg.max_allow_rate:.2f}%"
++
++    if prev and int(prev.get("total", 0) or 0) >= int(cfg.min_total):
++        prev_ar = float(prev.get("allow_rate", 0.0) or 0.0)
++        dpp = abs(ar - prev_ar)
++        if dpp > float(cfg.max_delta_allow_pp):
++            return True, f"ALLOW_RATE_DRIFT {ar:.2f}% vs {prev_ar:.2f}% (Δ={dpp:.2f}pp) > {cfg.max_delta_allow_pp:.2f}pp"
++
++    return False, "OK"
++
++
++def render_markdown(day: str, summary: Dict[str, Any], prev: Dict[str, Any], alert: Tuple[bool, str]) -> str:
++    total = int(summary.get("total", 0) or 0)
++    allow = int(summary.get("allow", 0) or 0)
++    deny = int(summary.get("deny", 0) or 0)
++    ar = float(summary.get("allow_rate", 0.0) or 0.0)
++    prev_ar = float(prev.get("allow_rate", 0.0) or 0.0) if prev else None
++
++    lines = []
++    lines.append(f"# Entry Policy Daily Report — {day}")
++    lines.append("")
++    lines.append(f"- total: **{total}**")
++    lines.append(f"- allow: **{allow}**")
++    lines.append(f"- deny: **{deny}**")
++    if prev_ar is not None:
++        lines.append(f"- allow_rate: **{ar:.2f}%** (yesterday {prev_ar:.2f}%)")
++    else:
++        lines.append(f"- allow_rate: **{ar:.2f}%**")
++    lines.append(f"- alert: **{int(alert[0])}** — {alert[1]}")
++    lines.append("")
++
++    def _tbl(title: str, items: List[Tuple[str, int]]) -> None:
++        lines.append(f"## {title}")
++        lines.append("| key | count |")
++        lines.append("|---|---:|")
++        for k, c in items:
++            lines.append(f"| {k} | {c} |")
++        lines.append("")
++
++    _tbl("Top reason_code", list(summary.get("top_reason", [])))
++    _tbl("Top regimes", list(summary.get("top_regime", [])))
++    _tbl("Top symbols", list(summary.get("top_symbol", [])))
++    _tbl("Top zone_src", list(summary.get("top_zone_src", [])))
++
++    return "\n".join(lines)
++
++
++async def capture_and_replay(*, r: aioredis.Redis, cfg: AlertCfg, core_cfg: EntryPolicyCfg) -> List[Dict[str, Any]]:
++    """
++    Capture for duration_sec and run deterministic policy evaluation on captured snapshots.
++    Output list items are compact per-candidate decisions (for report).
++    """
++    t_end = _now_ms() + int(cfg.duration_sec) * 1000
++    cur = str(cfg.start_id)
++    dedup_state: Dict[str, int] = {}
++    out: List[Dict[str, Any]] = []
++
++    while _now_ms() < t_end:
++        try:
++            msgs = await r.xread({cfg.stream: cur}, count=int(cfg.count), block=int(cfg.block_ms))
++        except Exception:
++            await asyncio.sleep(0.2)
++            continue
++        if not msgs:
++            continue
++        for _stream, entries in msgs:
++            for msg_id, fields in entries:
++                cur = msg_id
++                try:
++                    if str(fields.get("type", "")) != "entry_candidate":
++                        continue
++                    sym = str(fields.get("symbol", "") or "").upper()
++                    bundle_id = str(fields.get("bundle", "") or "")
++                    if not sym or not bundle_id:
++                        continue
++
++                    snap_raw = await r.get(f"{cfg.snap_prefix}{sym}")
++                    snap = json.loads(snap_raw) if snap_raw else {}
++                    bundle = await r.hgetall(f"{cfg.bundle_prefix}{bundle_id}")
++
++                    now_ms = int(fields.get("ts_ms") or 0)
++                    if now_ms <= 0:
++                        continue
++
++                    dec = evaluate_entry_policy(
++                        now_ms=now_ms,  # deterministic
++                        cand=fields,
++                        snap=snap,
++                        bundle=bundle,
++                        cfg=core_cfg,
++                        dedup_state=dedup_state,
++                    )
++
++                    out.append(
++                        {
++                            "msg_id": msg_id,
++                            "ts_ms": now_ms,
++                            "symbol": sym,
++                            "bundle": bundle_id,
++                            "ok": 1 if dec.ok else 0,
++                            "reason_code": dec.reason_code,
++                            "notes": dec.notes,
++                            "regime": str(snap.get("regime", "na") or "na"),
++                            "zone_id": str(snap.get("zone_id", "") or ""),
++                            "zone_src": str(snap.get("zone_src", "na") or "na"),
++                            "zone_side": str(snap.get("zone_side", "NA") or "NA"),
++                        }
++                    )
++                except Exception:
++                    continue
++
++    return out
++
++
++def _load_prev_summary(path: Path) -> Dict[str, Any]:
++    try:
++        if not path.exists():
++            return {}
++        return json.loads(path.read_text(encoding="utf-8"))
++    except Exception:
++        return {}
++
++
++def _prune_reports(dirp: Path, keep_days: int) -> None:
++    try:
++        files = sorted([p for p in dirp.glob("entry_policy_summary_*.json") if p.is_file()])
++        if len(files) <= keep_days:
++            return
++        for p in files[: max(0, len(files) - keep_days)]:
++            try:
++                p.unlink()
++            except Exception:
++                pass
++    except Exception:
++        return
++
++
++async def publish_alert(*, r: aioredis.Redis, cfg: AlertCfg, day: str, summary: Dict[str, Any], reason: str) -> None:
++    payload = {
++        "day": day,
++        "reason": reason,
++        "summary": summary,
++    }
++    msg = {
++        "type": "entry_policy_regression",
++        "ts_ms": str(_now_ms()),
++        "day": str(day),
++        "reason": str(reason),
++        "payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
++        "hash": _sha1(json.dumps({"day": day, "reason": reason}, separators=(",", ":"))),
++    }
++    try:
++        await r.xadd(cfg.alerts_stream, msg, maxlen=20000, approximate=True)
++    except Exception:
++        pass
++
++
++async def main() -> int:
++    redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++    r: aioredis.Redis = aioredis.from_url(redis_url, decode_responses=True)
++    acfg = AlertCfg.from_env()
++    core_cfg = _core_cfg_from_env()
++
++    day = _day_utc()
++    out_dir = Path(acfg.out_dir)
++    out_dir.mkdir(parents=True, exist_ok=True)
++
++    prev_path = out_dir / "entry_policy_summary_prev.json"
++    prev = _load_prev_summary(prev_path)
++
++    recs = await capture_and_replay(r=r, cfg=acfg, core_cfg=core_cfg)
++    summary = compute_summary(recs)
++
++    alert = should_alert(summary, prev, acfg)
++
++    # write artifacts
++    summary_path = out_dir / "entry_policy_summary.json"
++    hist_path = out_dir / f"entry_policy_summary_{day}.json"
++    md_path = out_dir / f"entry_policy_report_{day}.md"
++    nd_path = out_dir / f"entry_policy_replay_{day}.ndjson"
++
++    try:
++        # compact decisions ndjson
++        with open(nd_path, "w", encoding="utf-8") as f:
++            for r0 in recs:
++                f.write(json.dumps(r0, ensure_ascii=False, separators=(",", ":")) + "\n")
++    except Exception:
++        pass
++
++    try:
++        summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
++        hist_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
++        prev_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
++        md_path.write_text(render_markdown(day, summary, prev, alert), encoding="utf-8")
++    except Exception:
++        pass
++
++    _prune_reports(out_dir, int(acfg.keep_days))
++
++    if alert[0]:
++        await publish_alert(r=r, cfg=acfg, day=day, summary=summary, reason=alert[1])
++        # exit non-zero for systemd monitoring
++        return 2
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(asyncio.run(main()))
++
++diff --git a/python-worker/tests/test_entry_policy_daily_job.py b/python-worker/tests/test_entry_policy_daily_job.py
++new file mode 100644
++index 0000000..dj000003
++--- /dev/null
+++++ b/python-worker/tests/test_entry_policy_daily_job.py
++@@ -0,0 +1,58 @@
+++from __future__ import annotations
+++
+++from tools.entry_policy_daily_job import compute_summary, should_alert, AlertCfg
+++
+++
+++def test_should_alert_no_data():
+++    cfg = AlertCfg(min_total=5)
+++    today = {"total": 0, "allow_rate": 0.0}
+++    ok, reason = should_alert(today, {}, cfg)
+++    assert ok is True
+++    assert "NO_DATA" in reason
+++
+++
+++def test_should_alert_allow_rate_low():
+++    cfg = AlertCfg(min_total=5, min_allow_rate=1.0)
+++    today = {"total": 10, "allow_rate": 0.5}
+++    ok, reason = should_alert(today, {"total": 10, "allow_rate": 0.6}, cfg)
+++    assert ok is True
+++    assert "ALLOW_RATE_LOW" in reason
+++
+++
+++def test_should_alert_drift_vs_prev():
+++    cfg = AlertCfg(min_total=5, max_delta_allow_pp=2.0)
+++    today = {"total": 10, "allow_rate": 10.0}
+++    prev = {"total": 10, "allow_rate": 5.0}
+++    ok, reason = should_alert(today, prev, cfg)
+++    assert ok is True
+++    assert "ALLOW_RATE_DRIFT" in reason
+++
+++
+++def test_compute_summary_basic():
+++    recs = [
+++        {"ok": 1, "reason_code": "ALLOW", "symbol": "ETH", "regime": "range", "zone_src": "weekly"},
+++        {"ok": 0, "reason_code": "ZONE_FAIL", "symbol": "ETH", "regime": "range", "zone_src": "weekly"},
+++        {"ok": 0, "reason_code": "OF_FAIL", "symbol": "BTC", "regime": "thin", "zone_src": "daily"},
+++    ]
+++    s = compute_summary(recs)
+++    assert s["total"] == 3
+++    assert s["allow"] == 1
+++    assert s["deny"] == 2
+++    assert s["allow_rate"] > 0.0

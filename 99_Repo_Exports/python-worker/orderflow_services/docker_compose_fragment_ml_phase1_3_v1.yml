@@ -1,0 +1,43 @@
+services:
+  scanner-ml-recommendation-review-bus-v1:
+    build:
+      context: ../../
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-ml-recommendation-review-bus-v1
+    command: ["python", "-m", "orderflow_services.ml_recommendation_review_bus_v1"]
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      - ML_RECOMMENDATION_MIN_APPROVALS=${ML_RECOMMENDATION_MIN_APPROVALS:-1}
+      - ML_RECOMMENDATION_ALLOW_HIGH_RISK=${ML_RECOMMENDATION_ALLOW_HIGH_RISK:-0}
+      - ML_RECOMMENDATION_REVIEW_METRICS_PORT=9865
+      - PROMETHEUS_MULTIPROC_DIR=/tmp
+    ports:
+      - "9865:9865"
+    networks:
+      - scanner-network
+    restart: unless-stopped
+
+  scanner-ml-recommendation-apply-gate-v1:
+    build:
+      context: ../../
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-ml-recommendation-apply-gate-v1
+    command: ["python", "-m", "orderflow_services.ml_recommendation_apply_gate_v1"]
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      - ML_RECOMMENDATION_APPLY_MODE=${ML_RECOMMENDATION_APPLY_MODE:-REVIEW_ONLY}
+      - ML_RECOMMENDATION_APPLY_DRY_RUN=${ML_RECOMMENDATION_APPLY_DRY_RUN:-1}
+      - ML_RECOMMENDATION_MIN_APPROVALS=${ML_RECOMMENDATION_MIN_APPROVALS:-1}
+      - ML_RECOMMENDATION_ALLOW_HIGH_RISK=${ML_RECOMMENDATION_ALLOW_HIGH_RISK:-0}
+      - ML_RECOMMENDATION_APPLY_METRICS_PORT=9868
+      - PROMETHEUS_MULTIPROC_DIR=/tmp
+    ports:
+      - "9868:9868"
+    networks:
+      - scanner-network
+    restart: unless-stopped
+
+
+networks:
+  scanner-network:
+    external: true

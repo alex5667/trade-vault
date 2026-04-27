@@ -1,0 +1,19 @@
+[Unit]
+Description=Scanner GR capture exporter (P112)
+After=network.target
+
+[Service]
+Type=simple
+User=scanner
+Group=scanner
+WorkingDirectory=/opt/scanner-infra
+Environment=OFC_CAPTURE_DIR=/var/lib/scanner/ofc_capture
+Environment=GOLDEN_REPLAY_OUTDIR=/var/lib/scanner/golden_replay
+Environment=GR_CAPTURE_EXPORTER_PORT=9206
+Environment=GR_CAPTURE_EXPORTER_SCRAPE_SEC=5
+ExecStart=/usr/bin/python3 -u orderflow_services/golden_replay_capture_exporter_p112.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

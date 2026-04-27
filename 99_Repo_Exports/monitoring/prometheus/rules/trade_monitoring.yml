@@ -1,0 +1,10 @@
+groups:
+  - name: LiveSurfaceAB
+    rules:
+      - alert: HorizonATRPostTradeABPromotable
+        expr: horizon_atr_live_canary_pnl_bps_diff > 0 and horizon_atr_live_canary_tp1_rate_diff >= -0.01
+        for: 1d
+        labels:
+          severity: info
+        annotations:
+          summary: "Live Surface Canary is outperforming Baseline"

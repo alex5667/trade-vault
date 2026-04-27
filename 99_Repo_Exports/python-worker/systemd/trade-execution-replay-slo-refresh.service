@@ -1,0 +1,9 @@
+[Unit]
+Description=Refresh trade execution replay SLO materialized summary
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/trade
+EnvironmentFile=-/etc/default/trade-execution-p33-autonomy
+ExecStart=/usr/bin/python3 /opt/trade/scripts/refresh_execution_replay_slo_summary.py

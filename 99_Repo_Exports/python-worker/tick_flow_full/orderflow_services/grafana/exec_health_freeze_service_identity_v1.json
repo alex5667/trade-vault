@@ -1,0 +1,34 @@
+{
+  "title": "ExecHealth Freeze Service Identity (v1)",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Identity violations",
+      "targets": [
+        {
+          "expr": "exec_health_freeze_service_identity_violation"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Identity field match",
+      "targets": [
+        {
+          "expr": "exec_health_freeze_service_identity_match"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Active service connections",
+      "targets": [
+        {
+          "expr": "exec_health_freeze_service_identity_active_connections"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}

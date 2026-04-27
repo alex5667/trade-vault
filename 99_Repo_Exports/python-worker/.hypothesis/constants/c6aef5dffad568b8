@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/domain/timebucket_snapshots.py
+# hypothesis_version: 6.148.10
+
+[0.0, 60000, ',', '0', '1', 'buy', 'direction', 'entry_price', 'entry_time', 'entry_ts_ms', 'is_long', 'long', 'lot', 'mae_pnl', 'mae_pnl_t', 'max_price_seen', 'mfe_pnl', 'mfe_pnl_t', 'min_price_seen', 'on', 'symbol', 'true', 'yes']

@@ -1,0 +1,30 @@
+groups:
+  - name: ml_phase3_37_route_incident_rca_mirror_rca_winner_apply_apply_governance_vertex_feedback_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceVertexRCAStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_vertex_rca_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance vertex RCA consumer is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceVertexGovernanceStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_vertex_governance_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance vertex governance is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceVertexGovernanceLowUsefulness
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_vertex_governance_avg_usefulness < 0.60
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance vertex usefulness is low"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceVertexGovernanceLowQuality
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_vertex_governance_avg_quality < 0.55
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance vertex quality is low"

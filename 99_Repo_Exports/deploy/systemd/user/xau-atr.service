@@ -1,0 +1,35 @@
+[Unit]
+Description=XAUUSD ATR(14) from candles:data -> Redis
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# %h = home directory, adjust path if needed
+WorkingDirectory=%h/front/trade/scanner_infra/python-worker
+ExecStart=/usr/bin/python3 %h/front/trade/scanner_infra/python-worker/services/atr_from_candles.py
+
+Restart=always
+RestartSec=3
+
+# Redis connection
+Environment=REDIS_URL=redis://scanner-redis:6379/0
+
+# Candles stream
+Environment=CANDLES_STREAM=candles:data
+
+# Consumer group settings
+Environment=ATR_GROUP=atr-worker-group
+Environment=ATR_CONSUMER=atr-worker-1
+
+# ATR configuration
+Environment=ATR_PERIOD=14
+Environment=ATR_SYMBOLS=XAUUSD
+Environment=ATR_TFS=1m,5m,15m,1d
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
+

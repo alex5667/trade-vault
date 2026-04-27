@@ -1,0 +1,49 @@
+services:
+  scanner-ml-commit-policy-controller-v1:
+    build:
+      context: ../../
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-ml-commit-policy-controller-v1
+    command: ["python", "-m", "orderflow_services.ml_commit_policy_controller_v1"]
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      - ML_COMMIT_POLICY_METRICS_PORT=9870
+      - ML_COMMIT_POLICY_MIN_APPROVALS=${ML_COMMIT_POLICY_MIN_APPROVALS:-1}
+      - ML_COMMIT_POLICY_INPUT_STREAM=${ML_COMMIT_POLICY_INPUT_STREAM:-stream:ml:recommendation_apply_requests}
+      - ML_COMMIT_POLICY_COMMIT_STREAM=${ML_COMMIT_POLICY_COMMIT_STREAM:-stream:ml:recommendation_commit_requests}
+      - ML_COMMIT_POLICY_RESULTS_STREAM=${ML_COMMIT_POLICY_RESULTS_STREAM:-stream:ml:commit_policy_results}
+      - ML_COMMIT_POLICY_AUDIT_STREAM=${ML_COMMIT_POLICY_AUDIT_STREAM:-stream:ml:recommendation_audit}
+      - ML_COMMIT_POLICY_GLOBAL_KEY=${ML_COMMIT_POLICY_GLOBAL_KEY:-cfg:ml:commit_policy:global}
+      - ML_COMMIT_POLICY_ACTION_PREFIX=${ML_COMMIT_POLICY_ACTION_PREFIX:-cfg:ml:commit_policy:action:}
+      - ML_COMMIT_POLICY_STATE_PREFIX=${ML_COMMIT_POLICY_STATE_PREFIX:-state:ml:commit_policy:}
+      - PROMETHEUS_MULTIPROC_DIR=/tmp
+    ports:
+      - "9870:9870"
+    networks:
+      - scanner-network
+    restart: unless-stopped
+
+  scanner-ml-recommendation-commit-executor-v1:
+    build:
+      context: ../../
+      dockerfile: python-worker/Dockerfile
+    container_name: scanner-ml-recommendation-commit-executor-v1
+    command: ["python", "-m", "orderflow_services.ml_recommendation_commit_executor_v1"]
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://go_gateway:fdb98a081579737da0d6a5b25746a3c9d63abdad70e7d47f0d24159726146130@redis-worker-1:6379/0}
+      - ML_RECOMMENDATION_COMMIT_EXECUTOR_METRICS_PORT=9871
+      - ML_RECOMMENDATION_COMMIT_EXECUTOR_INPUT_STREAM=${ML_RECOMMENDATION_COMMIT_EXECUTOR_INPUT_STREAM:-stream:ml:recommendation_commit_requests}
+      - ML_RECOMMENDATION_COMMIT_EXECUTOR_RESULT_STREAM=${ML_RECOMMENDATION_COMMIT_EXECUTOR_RESULT_STREAM:-stream:ml:recommendation_apply_results}
+      - ML_RECOMMENDATION_COMMIT_EXECUTOR_ROLLBACK_INPUT_STREAM=${ML_RECOMMENDATION_COMMIT_EXECUTOR_ROLLBACK_INPUT_STREAM:-stream:ml:recommendation_rollback_requests}
+      - ML_RECOMMENDATION_COMMIT_EXECUTOR_ROLLBACK_STREAM=${ML_RECOMMENDATION_COMMIT_EXECUTOR_ROLLBACK_STREAM:-stream:ml:recommendation_rollback_journal}
+      - ML_RECOMMENDATION_COMMIT_EXECUTOR_AUDIT_STREAM=${ML_RECOMMENDATION_COMMIT_EXECUTOR_AUDIT_STREAM:-stream:ml:recommendation_audit}
+      - PROMETHEUS_MULTIPROC_DIR=/tmp
+    ports:
+      - "9871:9871"
+    networks:
+      - scanner-network
+    restart: unless-stopped
+
+networks:
+  scanner-network:
+    external: true

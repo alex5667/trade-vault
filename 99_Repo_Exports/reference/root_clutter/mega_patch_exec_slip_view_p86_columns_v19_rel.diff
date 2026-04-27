@@ -1,0 +1,276 @@
+diff --git a/ok_rate_logic/sql/20260224_exec_slippage_eval_stats_mv_1h.sql b/ok_rate_logic/sql/20260224_exec_slippage_eval_stats_mv_1h.sql
+index 725a597..ca867c8 100644
+--- a/ok_rate_logic/sql/20260224_exec_slippage_eval_stats_mv_1h.sql
++++ b/ok_rate_logic/sql/20260224_exec_slippage_eval_stats_mv_1h.sql
+@@ -5,7 +5,7 @@
+ -- v_exec_slippage_eval exposes:
+ --   - realized_slip_worse_bps
+ --   - expected_slip_decomp_bps
+---   - edge_minus_expected_slip_decomp_bps
++--   - edge_minus_expected_bps
+ --
+ -- Requires timescaledb extension for time_bucket.
+ create materialized view if not exists mv_exec_slippage_eval_1h_stats as
+@@ -15,10 +15,10 @@ select
+   exec_regime_bucket,
+   count(*)::bigint as n,
+   -- V8 fix: residual = difference between realized and model-expected slippage (correct column names)
+-  percentile_cont(0.95) within group (order by (realized_slip_worse_bps - expected_slip_decomp_bps)) as resid_p95_bps,
+-  percentile_cont(0.99) within group (order by (realized_slip_worse_bps - expected_slip_decomp_bps)) as resid_p99_bps,
+-  -- V8 fix: use edge_minus_expected_slip_decomp_bps (not legacy edge_minus_expected_bps)
+-  avg(case when edge_minus_expected_slip_decomp_bps < 0 then 1 else 0 end) as edge_neg_share
++  percentile_cont(0.95) within group (order by slippage_residual_bps) as resid_p95_bps,
++  percentile_cont(0.99) within group (order by slippage_residual_bps) as resid_p99_bps,
++  -- V8 fix: use edge_minus_expected_bps (not legacy edge_minus_expected_bps)
++  avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share
+ from v_exec_slippage_eval
+ group by 1,2,3
+ with no data;
+diff --git a/orderflow_services/runbook_slippage_qa_p77.md b/orderflow_services/runbook_slippage_qa_p77.md
+index 5174307..bde83a0 100644
+--- a/orderflow_services/runbook_slippage_qa_p77.md
++++ b/orderflow_services/runbook_slippage_qa_p77.md
+@@ -50,6 +50,21 @@ group by 1
+ order by n desc;
+ ```
+ 
++### Residual stats per bucket (uses view columns `slippage_residual_bps`, `edge_minus_expected_bps`)
++```sql
++select
++  exec_regime_bucket,
++  count(*)::bigint as n,
++  percentile_cont(0.95) within group (order by slippage_residual_bps) as resid_p95_bps,
++  percentile_cont(0.99) within group (order by slippage_residual_bps) as resid_p99_bps,
++  avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share
++from v_exec_slippage_eval
++where sym = 'BTCUSDT' and ts >= now() - interval '24 hours'
++group by 1
++order by n desc;
++```
++
++
+ 3) Calibrator state keys (Redis):
+ 
+ ```bash
+diff --git a/orderflow_services/tests/test_exec_slippage_eval_view_contract_p86.py b/orderflow_services/tests/test_exec_slippage_eval_view_contract_p86.py
+new file mode 100644
+index 0000000..7b7bbfa
+--- /dev/null
++++ b/orderflow_services/tests/test_exec_slippage_eval_view_contract_p86.py
+@@ -0,0 +1,31 @@
++# -*- coding: utf-8 -*-
++"""P86: Contract test for v_exec_slippage_eval SQL view.
++
++Several P80/P86 tools query v_exec_slippage_eval with columns:
++  - slippage_residual_bps
++  - edge_minus_expected_bps
++
++This test ensures the SQL source files in both trees include these columns.
++"""
++
++from __future__ import annotations
++
++from pathlib import Path
++
++
++def _read(p: Path) -> str:
++    return p.read_text(encoding="utf-8", errors="replace")
++
++
++def test_exec_slippage_eval_view_sql_contains_p86_columns() -> None:
++    repo = Path(__file__).resolve().parents[2]  # repo root (python-worker/)
++    paths = [
++        repo / "services" / "archivers" / "sql" / "20260223_exec_slippage_eval_view.sql",
++        repo / "tick_flow_full" / "services" / "archivers" / "sql" / "20260223_exec_slippage_eval_view.sql",
++    ]
++    for p in paths:
++        assert p.exists(), f"missing SQL file: {p}"
++        s = _read(p)
++        assert "CREATE OR REPLACE VIEW v_exec_slippage_eval" in s, f"view DDL missing in {p}"
++        assert "slippage_residual_bps" in s, f"slippage_residual_bps missing in {p}"
++        assert "edge_minus_expected_bps" in s, f"edge_minus_expected_bps missing in {p}"
+diff --git a/services/archivers/sql/20260223_exec_slippage_eval_view.sql b/services/archivers/sql/20260223_exec_slippage_eval_view.sql
+index 20f9cc8..a347261 100644
+--- a/services/archivers/sql/20260223_exec_slippage_eval_view.sql
++++ b/services/archivers/sql/20260223_exec_slippage_eval_view.sql
+@@ -12,16 +12,18 @@
+ --   mid_px_submit           – mid price at decision time
+ --   size_usd                – order size in USD (for size scaling)
+ --   realized_slip_worse_bps – realized slippage unfavorable vs mid_px_submit (bps)
++--   slippage_residual_bps     – realized_slip_worse_bps - expected_slip_decomp_bps
+ --                             FIX: uses fill_px (not entry_price) and correct sign per direction
+ --   expected_slip_model_bps – model (slippage_model.py) expected slippage
+ --   expected_slip_decomp_bps – decomp model expected slippage
+ --   slip_decomp_coeff_bps   – k coefficient that was used at decision time
+ --   edge_bps                – edge proxy (if present in features_json)
+ --   edge_minus_expected_slip_decomp_bps – edge - decomp expected slip (calibrator residual)
++--   edge_minus_expected_bps  – alias for edge_minus_expected_slip_decomp_bps (used by exporter)
+ --
+ -- Returns last 60 days; calibrator passes its own lookback WHERE clause.
+ --
+--- FIX (2026-02-24): Rewrote with WITH base AS (...) CTE so:
++-- FIX (2026-02-24): Rewrote with WITH base AS (...), calc AS (...) CTEs so:
+ --   1. fill_px uses features_json→fill_px first (true fill), then t.entry_price as fallback.
+ --   2. realized_slip_worse_bps correctly computes sign per direction (fill vs mid at submit).
+ --   3. No column name collisions in outer SELECT (cleaner, avoids expression repetition).
+@@ -92,6 +94,23 @@ WITH base AS (
+   JOIN trades_closed t
+     ON t.order_id = p0.order_id
+   WHERE p0.exit_ts > now() - interval '60 days'
++),
++calc AS (
++  SELECT
++    base.*,
++  realized_slip_worse_bps,
++
++  -- Residual (realized - expected decomp) used by DB-based validation/exporter (P86)
++  (realized_slip_worse_bps - expected_slip_decomp_bps) AS slippage_residual_bps,
++
++
++    -- Edge - expected (decomp) bps; NULL when edge_bps missing.
++    CASE
++      WHEN base.edge_bps IS NULL THEN NULL
++      ELSE base.edge_bps - base.expected_slip_decomp_bps
++    END AS edge_minus_expected_bps
++
++  FROM base
+ )
+ SELECT
+   ts,
+@@ -117,15 +136,12 @@ SELECT
+     WHEN dir = 'SHORT' THEN GREATEST(0.0, (mid_px_submit - fill_px) / mid_px_submit * 10000.0)
+     ELSE 0.0
+   END AS realized_slip_worse_bps,
+-
+-  -- Edge - expected slippage (if edge_bps exists); used by calibrator as residual target
+-  CASE
+-    WHEN edge_bps IS NULL THEN NULL
+-    ELSE edge_bps - expected_slip_decomp_bps
+-  END AS edge_minus_expected_slip_decomp_bps,
++  -- Edge - expected (decomp) bps (alias kept for backwards compatibility)
++  edge_minus_expected_bps AS edge_minus_expected_slip_decomp_bps,
++  edge_minus_expected_bps,
+ 
+   taker_flow_imb_z,
+   liq_regime_label,
+   vol_regime_label,
+   features_json
+-FROM base;
++FROM calc;
+diff --git a/services/archivers/sql/20260224_exec_slippage_eval_stats_mv_1h.sql b/services/archivers/sql/20260224_exec_slippage_eval_stats_mv_1h.sql
+index 2ac0eca..49fdb7a 100644
+--- a/services/archivers/sql/20260224_exec_slippage_eval_stats_mv_1h.sql
++++ b/services/archivers/sql/20260224_exec_slippage_eval_stats_mv_1h.sql
+@@ -11,9 +11,9 @@ select
+   sym,
+   exec_regime_bucket,
+   count(*)::bigint as n,
+-  percentile_cont(0.95) within group (order by (realized_slip_worse_bps - expected_slip_decomp_bps)) as resid_p95_bps,
+-  percentile_cont(0.99) within group (order by (realized_slip_worse_bps - expected_slip_decomp_bps)) as resid_p99_bps,
+-  avg(case when edge_minus_expected_slip_decomp_bps < 0 then 1 else 0 end) as edge_neg_share
++  percentile_cont(0.95) within group (order by slippage_residual_bps) as resid_p95_bps,
++  percentile_cont(0.99) within group (order by slippage_residual_bps) as resid_p99_bps,
++  avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share
+ from v_exec_slippage_eval
+ group by 1,2,3
+ with no data;
+diff --git a/tick_flow_full/orderflow_services/runbook_slippage_qa_p77.md b/tick_flow_full/orderflow_services/runbook_slippage_qa_p77.md
+index cbc2af1..b590ba3 100644
+--- a/tick_flow_full/orderflow_services/runbook_slippage_qa_p77.md
++++ b/tick_flow_full/orderflow_services/runbook_slippage_qa_p77.md
+@@ -50,6 +50,21 @@ group by 1
+ order by n desc;
+ ```
+ 
++### Residual stats per bucket (uses view columns `slippage_residual_bps`, `edge_minus_expected_bps`)
++```sql
++select
++  exec_regime_bucket,
++  count(*)::bigint as n,
++  percentile_cont(0.95) within group (order by slippage_residual_bps) as resid_p95_bps,
++  percentile_cont(0.99) within group (order by slippage_residual_bps) as resid_p99_bps,
++  avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share
++from v_exec_slippage_eval
++where sym = 'BTCUSDT' and ts >= now() - interval '24 hours'
++group by 1
++order by n desc;
++```
++
++
+ 3) Calibrator state keys (Redis):
+ 
+ ```bash
+diff --git a/tick_flow_full/services/archivers/sql/20260223_exec_slippage_eval_view.sql b/tick_flow_full/services/archivers/sql/20260223_exec_slippage_eval_view.sql
+index 8fba454..e4568d7 100644
+--- a/tick_flow_full/services/archivers/sql/20260223_exec_slippage_eval_view.sql
++++ b/tick_flow_full/services/archivers/sql/20260223_exec_slippage_eval_view.sql
+@@ -3,7 +3,7 @@
+ -- Purpose: validate (edge - expected_slippage_decomp_bps) distribution by regime bucket;
+ --          provide input dataset for nightly slippage calibrator.
+ --
+--- FIX (2026-02-24): Rewrote with WITH base AS (...) CTE so:
++-- FIX (2026-02-24): Rewrote with WITH base AS (...), calc AS (...) CTEs so:
+ --   1. fill_px uses features_json→fill_px first (true fill), then t.entry_price as fallback.
+ --   2. realized_slip_worse_bps correctly computes sign per direction (fill vs mid at submit).
+ --   3. No column name collisions in outer SELECT (cleaner, avoids expression repetition).
+@@ -74,6 +74,23 @@ WITH base AS (
+   JOIN trades_closed t
+     ON t.order_id = p0.order_id
+   WHERE p0.exit_ts > now() - interval '60 days'
++),
++calc AS (
++  SELECT
++    base.*,
++  realized_slip_worse_bps,
++
++  -- Residual (realized - expected decomp) used by DB-based validation/exporter (P86)
++  (realized_slip_worse_bps - expected_slip_decomp_bps) AS slippage_residual_bps,
++
++
++    -- Edge - expected (decomp) bps; NULL when edge_bps missing.
++    CASE
++      WHEN base.edge_bps IS NULL THEN NULL
++      ELSE base.edge_bps - base.expected_slip_decomp_bps
++    END AS edge_minus_expected_bps
++
++  FROM base
+ )
+ SELECT
+   ts,
+@@ -99,15 +116,12 @@ SELECT
+     WHEN dir = 'SHORT' THEN GREATEST(0.0, (mid_px_submit - fill_px) / mid_px_submit * 10000.0)
+     ELSE 0.0
+   END AS realized_slip_worse_bps,
+-
+-  -- Edge - expected slippage (if edge_bps exists); used by calibrator as residual target
+-  CASE
+-    WHEN edge_bps IS NULL THEN NULL
+-    ELSE edge_bps - expected_slip_decomp_bps
+-  END AS edge_minus_expected_slip_decomp_bps,
++  -- Edge - expected (decomp) bps (alias kept for backwards compatibility)
++  edge_minus_expected_bps AS edge_minus_expected_slip_decomp_bps,
++  edge_minus_expected_bps,
+ 
+   taker_flow_imb_z,
+   liq_regime_label,
+   vol_regime_label,
+   features_json
+-FROM base;
++FROM calc;
+diff --git a/tick_flow_full/services/archivers/sql/20260224_exec_slippage_eval_stats_mv_1h.sql b/tick_flow_full/services/archivers/sql/20260224_exec_slippage_eval_stats_mv_1h.sql
+index 2ac0eca..49fdb7a 100644
+--- a/tick_flow_full/services/archivers/sql/20260224_exec_slippage_eval_stats_mv_1h.sql
++++ b/tick_flow_full/services/archivers/sql/20260224_exec_slippage_eval_stats_mv_1h.sql
+@@ -11,9 +11,9 @@ select
+   sym,
+   exec_regime_bucket,
+   count(*)::bigint as n,
+-  percentile_cont(0.95) within group (order by (realized_slip_worse_bps - expected_slip_decomp_bps)) as resid_p95_bps,
+-  percentile_cont(0.99) within group (order by (realized_slip_worse_bps - expected_slip_decomp_bps)) as resid_p99_bps,
+-  avg(case when edge_minus_expected_slip_decomp_bps < 0 then 1 else 0 end) as edge_neg_share
++  percentile_cont(0.95) within group (order by slippage_residual_bps) as resid_p95_bps,
++  percentile_cont(0.99) within group (order by slippage_residual_bps) as resid_p99_bps,
++  avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share
+ from v_exec_slippage_eval
+ group by 1,2,3
+ with no data;

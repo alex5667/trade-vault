@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/slq_store.py
+# hypothesis_version: 6.148.10
+
+[0.0, 'n', 'post_sl_tp1_hit_rate', 'sl_buffer_atr_q90', 'ts_ms']

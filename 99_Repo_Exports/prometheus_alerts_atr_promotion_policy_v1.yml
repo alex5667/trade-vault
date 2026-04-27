@@ -1,0 +1,38 @@
+groups:
+- name: atr_promotion_policy_alerts
+  rules:
+  - alert: ATRPolicyPromotionNotGenerating
+    expr: rate(atr_promotion_policy_suggest_total[1h]) == 0
+    for: 25h
+    labels:
+      severity: warning
+      service: python-worker
+      team: trade
+      layer: governance
+    annotations:
+      summary: "ATR Promotion Policy is not generating suggestions"
+      description: "The atr_promotion_policy_service has not produced any suggestions in the last 25 hours. Check of_timers_worker and policy suggestion logic."
+
+  - alert: ATRPolicyRuntimeApplyFailing
+    expr: rate(atr_policy_runtime_apply_total[5m]) == 0 and sum(atr_promotion_policy_active_total) > 0
+    for: 15m
+    labels:
+      severity: critical
+      service: python-worker
+      team: trade
+      layer: hot-path
+    annotations:
+      summary: "ATR Policy Runtime Application is failing to record applies"
+      description: "There are active policies, but no runtime applies are being registered by signal_preprocess or trade_monitor. The resolver might be failing or the fallback chain is broken."
+
+  - alert: ATRPolicyResolverLowHitRate
+    expr: sum(rate(atr_policy_resolver_hit_total{result=~"hit_.*"}[5m])) / sum(rate(atr_policy_resolver_hit_total[5m])) < 0.5 and sum(atr_promotion_policy_active_total) > 0
+    for: 30m
+    labels:
+      severity: warning
+      service: python-worker
+      team: trade
+      layer: governance
+    annotations:
+      summary: "ATR Policy Resolver is experiencing a low hit rate"
+      description: "The promotion policy resolver is falling back to default values more than 50% of the time despite having active policies. Check cohort matching logic (symbol, scenario, regime, bucket)."

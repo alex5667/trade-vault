@@ -1,0 +1,53 @@
+# Systemd unit для Tick Ingest Server (FastAPI)
+# Установка:
+#   sudo cp deploy/systemd/uvicorn-tick-ingest.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable uvicorn-tick-ingest.service
+#   sudo systemctl start uvicorn-tick-ingest.service
+#
+# Проверка:
+#   sudo systemctl status uvicorn-tick-ingest.service
+#   journalctl -u uvicorn-tick-ingest.service -f
+
+[Unit]
+Description=Tick Ingest FastAPI Server (XAUUSD)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=%h/front/trade/scanner_infra/python-worker
+Environment=PYTHONUNBUFFERED=1
+Environment=REDIS_URL=redis://scanner-redis:6379/0
+Environment=XAU_TICK_STREAM=stream:tick_XAUUSD
+Environment=ALLOW_SYMBOLS=XAUUSD
+Environment=TICK_INGEST_HOST=0.0.0.0
+Environment=TICK_INGEST_PORT=8088
+
+# Используем uvicorn для запуска
+ExecStart=/usr/bin/python3 -m uvicorn services.tick_ingest_server:app --host 0.0.0.0 --port 8088 --log-level info
+
+# Автоматический перезапуск при падении
+Restart=always
+RestartSec=3
+StartLimitInterval=300
+StartLimitBurst=10
+
+# Логирование
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tick-ingest
+
+# Ресурсы
+MemoryLimit=512M
+CPUQuota=50%
+
+# Безопасность
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+

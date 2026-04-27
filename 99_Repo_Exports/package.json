@@ -1,0 +1,33 @@
+{
+  "name": "redis-optimized-client",
+  "version": "1.0.0",
+  "description": "Оптимизированный Redis клиент для высоких нагрузок",
+  "main": "redis-client-optimized.js",
+  "scripts": {
+    "start": "node --max-old-space-size=4096 --max-listeners=20 app.js",
+    "dev": "node --max-old-space-size=4096 --max-listeners=20 --trace-warnings app.js",
+    "test": "node --max-old-space-size=2048 --max-listeners=20 test.js",
+    "example": "node redis-usage-example.js"
+  },
+  "dependencies": {
+    "ioredis": "^5.3.2",
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2",
+    "bull": "^4.11.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "keywords": [
+    "redis",
+    "connection-pool",
+    "optimization",
+    "high-load",
+    "stability"
+  ],
+  "author": "Scanner Infrastructure Team",
+  "license": "MIT"
+}

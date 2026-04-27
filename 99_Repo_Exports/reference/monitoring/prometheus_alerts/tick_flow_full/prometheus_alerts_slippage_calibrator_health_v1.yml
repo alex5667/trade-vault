@@ -1,0 +1,40 @@
+# Alerts for nightly slippage decomp calibrator (impact coeff k) and its freshness.
+# V8: prometheus_alerts_slippage_calibrator_health_v1.yml
+#
+# Requires exporter gauges from enforce_bucket_state_exporter_v1:
+#  - of_slippage_calib_last_ok_age_sec
+#  - of_slippage_calib_last_updated_groups
+#  - of_slippage_decomp_impact_coeff_age_sec{sym,bucket}
+#
+# All gauges are written from state:slippage_calib:* Redis keys
+# published by tick_flow_full.tools.nightly_slippage_calibrator_v1.
+
+groups:
+  - name: of_slippage_calib_v1
+    rules:
+      - alert: SlippageCalibStale
+        expr: of_slippage_calib_last_ok_age_sec > 172800
+        for: 30m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Nightly slippage calibrator is stale (>48h)"
+          description: "No successful slippage calibrator run recently. Check tick_flow_full.tools.nightly_slippage_calibrator_v1 and DB view v_exec_slippage_eval."
+
+      - alert: SlippageCalibNoUpdates
+        expr: (of_slippage_calib_last_ok_age_sec < 14400) and (of_slippage_calib_last_updated_groups == 0)
+        for: 2h
+        labels:
+          severity: warn
+        annotations:
+          summary: "Slippage calibrator ran but updated 0 groups"
+          description: "Likely insufficient samples (CALIB_MIN_SAMPLES) or view/data issues. Check v_exec_slippage_eval row counts by sym/bucket."
+
+      - alert: SlippageDecompCoeffStaleHVLL
+        expr: max by (sym) (of_slippage_decomp_impact_coeff_age_sec{bucket="HIGH_VOL_LOW_LIQ"}) > 172800
+        for: 30m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Impact coeff for HVLL bucket is stale (>48h)"
+          description: "Coeff timestamp key cfg:slippage_decomp_impact_coeff_bps_ts_ms:* is stale. Calibrator or Redis write path is broken."

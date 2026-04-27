@@ -1,0 +1,627 @@
+diff --git a/orderflow_services/operator_routing_incident_rca_usefulness_governor_v2_11.py b/orderflow_services/operator_routing_incident_rca_usefulness_governor_v2_11.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/operator_routing_incident_rca_usefulness_governor_v2_11.py
+@@ -0,0 +1,482 @@
++from __future__ import annotations
++
++import json
++import os
++import time
++from collections import defaultdict
++from dataclasses import dataclass
++from typing import Any, DefaultDict, Dict, Iterable, List, Optional, Tuple
++
++try:  # pragma: no cover
++    import redis.asyncio as redis
++except Exception:  # pragma: no cover
++    redis = None
++
++try:  # pragma: no cover
++    import psycopg
++except Exception:  # pragma: no cover
++    psycopg = None
++
++try:  # pragma: no cover
++    from prometheus_client import Counter, Gauge, Histogram, start_http_server
++except Exception:  # pragma: no cover
++    Counter = Gauge = Histogram = None
++    def start_http_server(*args: Any, **kwargs: Any) -> None:
++        return None
++
++
++APP_NAME = "operator_routing_incident_rca_usefulness_governor_v2_11"
++PORT = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_PORT", "9889"))
++RUN_EVERY_SEC = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_RUN_EVERY_SEC", "300"))
++WINDOW_MIN = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_WINDOW_MIN", "1440"))
++MIN_SAMPLE = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_MIN_SAMPLE", "8"))
++SUPPRESS_SCORE_MAX = float(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_SUPPRESS_SCORE_MAX", "0.45"))
++PROMOTE_SCORE_MIN = float(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_PROMOTE_SCORE_MIN", "0.72"))
++ADVISORY_ONLY = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_ADVISORY_ONLY", "1"))
++MAXLEN = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_MAXLEN", "20000"))
++RESULTS_HASH = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_RESULTS_HASH",
++    "metrics:ml:operator_routing_incident_rca_governor:last",
++)
++DECISIONS_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_DECISIONS_STREAM",
++    "stream:ml:operator_routing_incident_rca_governor_decisions",
++)
++AUDIT_STREAM = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_AUDIT_STREAM",
++    "stream:ml:operator_routing_incident_rca_governor_audit",
++)
++ACTION_POLICY_PREFIX = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_ACTION_POLICY_PREFIX",
++    "cfg:ml:operator_routing_incident_rca_governor:action:",
++)
++PROVIDER_POLICY_PREFIX = os.getenv(
++    "ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_PROVIDER_POLICY_PREFIX",
++    "cfg:ml:operator_routing_incident_rca_governor:provider:",
++)
++
++
++def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Counter(name, doc, labels) if Counter else None
++
++
++def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Gauge(name, doc, labels) if Gauge else None
++
++
++def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
++    return Histogram(name, doc, labels) if Histogram else None
++
++
++RUNS = _counter(
++    "ml_operator_routing_incident_rca_governor_runs_total",
++    "Routing incident RCA governor runs",
++    ("status",),
++)
++LAT = _hist(
++    "ml_operator_routing_incident_rca_governor_latency_seconds",
++    "Routing incident RCA governor latency seconds",
++)
++UP = _gauge(
++    "ml_operator_routing_incident_rca_governor_up",
++    "Routing incident RCA governor up",
++)
++LAST_RUN_TS = _gauge(
++    "ml_operator_routing_incident_rca_governor_last_run_ts_seconds",
++    "Routing incident RCA governor last run timestamp",
++)
++DECISION_GAUGE = _gauge(
++    "ml_operator_routing_incident_rca_governor_score",
++    "Routing incident RCA governor score",
++    ("scope_type", "decision"),
++)
++
++
++def now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def stable_json(obj: Any) -> str:
++    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++def maybe_json(value: Any, default: Any = None) -> Any:
++    if value is None:
++        return default
++    if isinstance(value, (dict, list)):
++        return value
++    try:
++        return json.loads(value)
++    except Exception:
++        return default
++
++
++def safe_float(value: Any, default: float = 0.0) -> float:
++    try:
++        if value is None or value == "":
++            return default
++        return float(value)
++    except Exception:
++        return default
++
++
++def safe_int(value: Any, default: int = 0) -> int:
++    try:
++        if value is None or value == "":
++            return default
++        return int(float(value))
++    except Exception:
++        return default
++
++
++@dataclass
++class RCAResultRow:
++    route_change_id: str
++    ts_ms: int
++    provider: str
++    model_name: str
++    prompt_version: str
++    policy_version: str
++    quality_score: float
++    usefulness_score: float
++    result_json: Dict[str, Any]
++
++
++@dataclass
++class Aggregate:
++    sample_n: int = 0
++    quality_sum: float = 0.0
++    usefulness_sum: float = 0.0
++    recommendation_n: int = 0
++
++    def add(self, quality: float, usefulness: float, recommendation_n: int) -> None:
++        self.sample_n += 1
++        self.quality_sum += quality
++        self.usefulness_sum += usefulness
++        self.recommendation_n += recommendation_n
++
++    @property
++    def quality_avg(self) -> float:
++        return self.quality_sum / max(self.sample_n, 1)
++
++    @property
++    def usefulness_avg(self) -> float:
++        return self.usefulness_sum / max(self.sample_n, 1)
++
++    @property
++    def weighted_score(self) -> float:
++        # usefulness is more important than formal output quality for operator governance.
++        return round((0.4 * self.quality_avg) + (0.6 * self.usefulness_avg), 4)
++
++
++def action_scope_key(action: str, prompt_version: str, policy_version: str) -> str:
++    return f"{action}:{prompt_version}:{policy_version}"
++
++
++def provider_scope_key(provider: str, model_name: str, prompt_version: str) -> str:
++    return f"{provider}:{model_name}:{prompt_version}"
++
++
++def decision_for_score(score: float, sample_n: int) -> str:
++    if sample_n < MIN_SAMPLE:
++        return "HOLD"
++    if score <= SUPPRESS_SCORE_MAX:
++        return "SUPPRESS"
++    if score >= PROMOTE_SCORE_MIN:
++        return "PROMOTE"
++    return "HOLD"
++
++
++def parse_rows(rows: Iterable[Tuple[Any, ...]]) -> List[RCAResultRow]:
++    out: List[RCAResultRow] = []
++    for row in rows:
++        (
++            route_change_id,
++            ts_ms,
++            provider,
++            model_name,
++            prompt_version,
++            policy_version,
++            quality_score,
++            usefulness_score,
++            result_json,
++        ) = row
++        out.append(
++            RCAResultRow(
++                route_change_id=str(route_change_id or ""),
++                ts_ms=safe_int(ts_ms, 0),
++                provider=str(provider or ""),
++                model_name=str(model_name or ""),
++                prompt_version=str(prompt_version or ""),
++                policy_version=str(policy_version or ""),
++                quality_score=safe_float(quality_score, 0.0),
++                usefulness_score=safe_float(usefulness_score, 0.5),
++                result_json=maybe_json(result_json, {}) or {},
++            )
++        )
++    return out
++
++
++def aggregate_action_patterns(rows: List[RCAResultRow]) -> Dict[str, Aggregate]:
++    agg: DefaultDict[str, Aggregate] = defaultdict(Aggregate)
++    for row in rows:
++        recos = row.result_json.get("recommendations", []) or []
++        if not isinstance(recos, list):
++            recos = []
++        for reco in recos:
++            action = str((reco or {}).get("action", "") or "")
++            if not action:
++                continue
++            key = action_scope_key(action, row.prompt_version, row.policy_version)
++            agg[key].add(row.quality_score, row.usefulness_score, len(recos))
++    return dict(agg)
++
++
++def aggregate_provider_prompts(rows: List[RCAResultRow]) -> Dict[str, Aggregate]:
++    agg: DefaultDict[str, Aggregate] = defaultdict(Aggregate)
++    for row in rows:
++        key = provider_scope_key(row.provider, row.model_name, row.prompt_version)
++        recos = row.result_json.get("recommendations", []) or []
++        if not isinstance(recos, list):
++            recos = []
++        agg[key].add(row.quality_score, row.usefulness_score, len(recos))
++    return dict(agg)
++
++
++def build_decision_payload(scope_type: str, scope_key: str, aggregate: Aggregate) -> Dict[str, Any]:
++    score = aggregate.weighted_score
++    decision = decision_for_score(score, aggregate.sample_n)
++    return {
++        "schema_version": 1,
++        "scope_type": scope_type,
++        "scope_key": scope_key,
++        "decision": decision,
++        "sample_n": aggregate.sample_n,
++        "quality_avg": round(aggregate.quality_avg, 4),
++        "usefulness_avg": round(aggregate.usefulness_avg, 4),
++        "weighted_score": score,
++        "recommendation_n": aggregate.recommendation_n,
++        "advisory_only": ADVISORY_ONLY,
++        "window_min": WINDOW_MIN,
++        "min_sample": MIN_SAMPLE,
++        "suppress_score_max": SUPPRESS_SCORE_MAX,
++        "promote_score_min": PROMOTE_SCORE_MIN,
++        "ts_ms": now_ms(),
++    }
++
++
++def split_action_scope(scope_key: str) -> Tuple[str, str, str]:
++    parts = scope_key.split(":", 2)
++    if len(parts) != 3:
++        return scope_key, "", ""
++    return parts[0], parts[1], parts[2]
++
++
++def split_provider_scope(scope_key: str) -> Tuple[str, str, str]:
++    parts = scope_key.split(":", 2)
++    if len(parts) != 3:
++        return scope_key, "", ""
++    return parts[0], parts[1], parts[2]
++
++
++async def fetch_rows(db_url: str, window_min: int) -> List[RCAResultRow]:
++    if not db_url or psycopg is None:
++        return []
++    since_ms = now_ms() - (window_min * 60 * 1000)
++    with psycopg.connect(db_url) as conn:  # pragma: no cover
++        with conn.cursor() as cur:
++            cur.execute(
++                """
++                SELECT
++                    route_change_id,
++                    ts_ms,
++                    provider,
++                    model_name,
++                    prompt_version,
++                    policy_version,
++                    quality_score,
++                    usefulness_score,
++                    result_json
++                FROM llm_operator_routing_incident_rca_results
++                WHERE ts_ms >= %(since_ms)s
++                """,
++                {"since_ms": since_ms},
++            )
++            rows = cur.fetchall()
++    return parse_rows(rows)
++
++
++async def publish_and_store_decisions(r: Any, action_aggs: Dict[str, Aggregate], provider_aggs: Dict[str, Aggregate]) -> int:
++    decisions_written = 0
++    for scope_key, agg in action_aggs.items():
++        payload = build_decision_payload("action_pattern", scope_key, agg)
++        action, prompt_version, policy_version = split_action_scope(scope_key)
++        await r.xadd(DECISIONS_STREAM, payload, maxlen=MAXLEN, approximate=True)
++        await r.xadd(AUDIT_STREAM, payload, maxlen=MAXLEN, approximate=True)
++        await r.hset(
++            f"{ACTION_POLICY_PREFIX}{action}:{prompt_version}:{policy_version}",
++            mapping={k: stable_json(v) if isinstance(v, (dict, list)) else str(v) for k, v in payload.items()},
++        )
++        decisions_written += 1
++        if DECISION_GAUGE:
++            DECISION_GAUGE.labels(scope_type="action_pattern", decision=payload["decision"]).set(payload["weighted_score"])
++
++    for scope_key, agg in provider_aggs.items():
++        payload = build_decision_payload("provider_prompt", scope_key, agg)
++        provider, model_name, prompt_version = split_provider_scope(scope_key)
++        await r.xadd(DECISIONS_STREAM, payload, maxlen=MAXLEN, approximate=True)
++        await r.xadd(AUDIT_STREAM, payload, maxlen=MAXLEN, approximate=True)
++        await r.hset(
++            f"{PROVIDER_POLICY_PREFIX}{provider}:{model_name}:{prompt_version}",
++            mapping={k: stable_json(v) if isinstance(v, (dict, list)) else str(v) for k, v in payload.items()},
++        )
++        decisions_written += 1
++        if DECISION_GAUGE:
++            DECISION_GAUGE.labels(scope_type="provider_prompt", decision=payload["decision"]).set(payload["weighted_score"])
++
++    await r.hset(
++        RESULTS_HASH,
++        mapping={
++            "decisions_written": str(decisions_written),
++            "action_patterns_n": str(len(action_aggs)),
++            "provider_prompts_n": str(len(provider_aggs)),
++            "window_min": str(WINDOW_MIN),
++            "ts_ms": str(now_ms()),
++        },
++    )
++    return decisions_written
++
++
++async def persist_decisions_if_configured(db_url: str, action_aggs: Dict[str, Aggregate], provider_aggs: Dict[str, Aggregate]) -> None:
++    if not db_url or psycopg is None:
++        return
++    rows: List[Dict[str, Any]] = []
++    for scope_type, collection in (("action_pattern", action_aggs), ("provider_prompt", provider_aggs)):
++        for scope_key, agg in collection.items():
++            payload = build_decision_payload(scope_type, scope_key, agg)
++            rows.append(payload)
++    if not rows:
++        return
++    with psycopg.connect(db_url) as conn:  # pragma: no cover
++        with conn.cursor() as cur:
++            for row in rows:
++                cur.execute(
++                    """
++                    INSERT INTO llm_operator_routing_incident_rca_governor_decisions (
++                        ts_ms,
++                        scope_type,
++                        scope_key,
++                        decision,
++                        sample_n,
++                        quality_avg,
++                        usefulness_avg,
++                        weighted_score,
++                        recommendation_n,
++                        advisory_only,
++                        decision_json
++                    ) VALUES (
++                        %(ts_ms)s,
++                        %(scope_type)s,
++                        %(scope_key)s,
++                        %(decision)s,
++                        %(sample_n)s,
++                        %(quality_avg)s,
++                        %(usefulness_avg)s,
++                        %(weighted_score)s,
++                        %(recommendation_n)s,
++                        %(advisory_only)s,
++                        %(decision_json)s
++                    )
++                    """,
++                    {
++                        **row,
++                        "decision_json": json.dumps(row),
++                    },
++                )
++            conn.commit()
++
++
++async def main() -> None:  # pragma: no cover
++    if redis is None:
++        raise RuntimeError("redis.asyncio is required")
++    start_http_server(PORT)
++    if UP:
++        UP.set(1)
++    r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
++    db_url = os.getenv("DATABASE_URL", "")
++    while True:
++        started = time.perf_counter()
++        status = "ok"
++        try:
++            rows = await fetch_rows(db_url, WINDOW_MIN)
++            action_aggs = aggregate_action_patterns(rows)
++            provider_aggs = aggregate_provider_prompts(rows)
++            await publish_and_store_decisions(r, action_aggs, provider_aggs)
++            await persist_decisions_if_configured(db_url, action_aggs, provider_aggs)
++            if LAST_RUN_TS:
++                LAST_RUN_TS.set(time.time())
++        except Exception:
++            status = "error"
++        finally:
++            if RUNS:
++                RUNS.labels(status=status).inc()
++            if LAT:
++                LAT.observe(max(time.perf_counter() - started, 0.0))
++        time.sleep(RUN_EVERY_SEC)
++
++
++if __name__ == "__main__":  # pragma: no cover
++    import asyncio
++    asyncio.run(main())
+diff --git a/orderflow_services/sql/ml_phase2_11_v1.sql b/orderflow_services/sql/ml_phase2_11_v1.sql
+new file mode 100644
+index 0000000..4444444
+--- /dev/null
++++ b/orderflow_services/sql/ml_phase2_11_v1.sql
+@@ -0,0 +1,35 @@
++BEGIN;
++
++CREATE TABLE IF NOT EXISTS llm_operator_routing_incident_rca_governor_decisions (
++    id                  bigserial PRIMARY KEY,
++    ts_ms               bigint NOT NULL,
++    scope_type          text NOT NULL,
++    scope_key           text NOT NULL,
++    decision            text NOT NULL,
++    sample_n            integer NOT NULL,
++    quality_avg         double precision NOT NULL,
++    usefulness_avg      double precision NOT NULL,
++    weighted_score      double precision NOT NULL,
++    recommendation_n    integer NOT NULL,
++    advisory_only       integer NOT NULL,
++    decision_json       jsonb NOT NULL
++);
++
++CREATE INDEX IF NOT EXISTS idx_llm_operator_routing_incident_rca_governor_decisions_ts_ms
++    ON llm_operator_routing_incident_rca_governor_decisions(ts_ms DESC);
++
++CREATE INDEX IF NOT EXISTS idx_llm_operator_routing_incident_rca_governor_decisions_scope
++    ON llm_operator_routing_incident_rca_governor_decisions(scope_type, scope_key);
++
++CREATE TABLE IF NOT EXISTS llm_operator_routing_incident_rca_governor_policy_versions (
++    id               bigserial PRIMARY KEY,
++    ts_ms            bigint NOT NULL,
++    scope_type       text NOT NULL,
++    scope_key        text NOT NULL,
++    decision         text NOT NULL,
++    weighted_score   double precision NOT NULL,
++    sample_n         integer NOT NULL,
++    policy_json      jsonb NOT NULL
++);
++
++COMMIT;
+diff --git a/orderflow_services/docker_compose_fragment_ml_phase2_11_v1.yml b/orderflow_services/docker_compose_fragment_ml_phase2_11_v1.yml
+new file mode 100644
+index 0000000..5555555
+--- /dev/null
++++ b/orderflow_services/docker_compose_fragment_ml_phase2_11_v1.yml
+@@ -0,0 +1,19 @@
++services:
++  scanner-operator-routing-incident-rca-usefulness-governor-v2-11:
++    build: { context: ., dockerfile: python-worker/Dockerfile.gpu }
++    command: ["python", "-m", "orderflow_services.operator_routing_incident_rca_usefulness_governor_v2_11"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      DATABASE_URL: ${DATABASE_URL:-}
++      ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_PORT: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_PORT:-9889}
++      ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_ADVISORY_ONLY: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_ADVISORY_ONLY:-1}
++      ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_WINDOW_MIN: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_WINDOW_MIN:-1440}
++      ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_MIN_SAMPLE: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_MIN_SAMPLE:-8}
++      ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_SUPPRESS_SCORE_MAX: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_SUPPRESS_SCORE_MAX:-0.45}
++      ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_PROMOTE_SCORE_MIN: ${ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_PROMOTE_SCORE_MIN:-0.72}
++    ports: ["${ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_PORT:-9889}:9889"]
++    depends_on: [redis-worker-1]
+diff --git a/orderflow_services/prometheus_alerts_ml_phase2_11_v1.yml b/orderflow_services/prometheus_alerts_ml_phase2_11_v1.yml
+new file mode 100644
+index 0000000..6666666
+--- /dev/null
++++ b/orderflow_services/prometheus_alerts_ml_phase2_11_v1.yml
+@@ -0,0 +1,17 @@
++groups:
++  - name: ml_phase2_11_operator_routing_incident_rca_governor_v1
++    rules:
++      - alert: MLOperatorRoutingIncidentRCAUsefulnessGovernorStale
++        expr: time() - ml_operator_routing_incident_rca_governor_last_run_ts_seconds > 1800
++        for: 10m
++        labels: { severity: warning }
++        annotations:
++          summary: "operator routing incident RCA usefulness governor is stale"
++
++      - alert: MLOperatorRoutingIncidentRCAUsefulnessGovernorDown
++        expr: ml_operator_routing_incident_rca_governor_up == 0
++        for: 5m
++        labels: { severity: warning }
++        annotations:
++          summary: "operator routing incident RCA usefulness governor is down"
+diff --git a/orderflow_services/runbook_ml_phase2_11_v1.md b/orderflow_services/runbook_ml_phase2_11_v1.md
+new file mode 100644
+index 0000000..7777777
+--- /dev/null
++++ b/orderflow_services/runbook_ml_phase2_11_v1.md
+@@ -0,0 +1,37 @@
++# Phase 2.11 — Routing Incident RCA Usefulness Governor
++
++## Цель
++Построить отдельный usefulness governor именно для `routing incident RCA`, независимо от обычного `operator_rca`.
++
++## Что делает
++- агрегирует `quality_score + usefulness_score`
++- строит decisions по двум скоупам:
++  - `action_pattern = action + prompt_version + policy_version`
++  - `provider_prompt = provider + model_name + prompt_version`
++- выдаёт `SUPPRESS / PROMOTE / HOLD`
++- пишет Redis policy hashes:
++  - `cfg:ml:operator_routing_incident_rca_governor:action:*`
++  - `cfg:ml:operator_routing_incident_rca_governor:provider:*`
++
++## Smoke checks
++```bash
++redis-cli XREVRANGE stream:ml:operator_routing_incident_rca_governor_decisions + - COUNT 5
++redis-cli XREVRANGE stream:ml:operator_routing_incident_rca_governor_audit + - COUNT 5
++redis-cli HGETALL cfg:ml:operator_routing_incident_rca_governor:action:open_incident:routing_incident_rca_v1:policy_v1
++redis-cli HGETALL cfg:ml:operator_routing_incident_rca_governor:provider:vertex:gemini-2.5-flash-lite:routing_incident_rca_v1
++curl -s localhost:9889/metrics | grep '^ml_operator_routing_incident_rca_governor_'
++```
++
++## Notes
++- scope только `scanner_infra`
++- advisory-only по умолчанию
++- hot path не затронут
+diff --git a/orderflow_services/tests/test_operator_routing_incident_rca_usefulness_governor_v2_11.py b/orderflow_services/tests/test_operator_routing_incident_rca_usefulness_governor_v2_11.py
+new file mode 100644
+index 0000000..8888888
+--- /dev/null
++++ b/orderflow_services/tests/test_operator_routing_incident_rca_usefulness_governor_v2_11.py
+@@ -0,0 +1,79 @@
++from orderflow_services.operator_routing_incident_rca_usefulness_governor_v2_11 import (
++    Aggregate,
++    action_scope_key,
++    aggregate_action_patterns,
++    aggregate_provider_prompts,
++    decision_for_score,
++    provider_scope_key,
++)
++
++
++class DummyRow:
++    def __init__(self, provider, model_name, prompt_version, policy_version, quality_score, usefulness_score, result_json):
++        self.provider = provider
++        self.model_name = model_name
++        self.prompt_version = prompt_version
++        self.policy_version = policy_version
++        self.quality_score = quality_score
++        self.usefulness_score = usefulness_score
++        self.result_json = result_json
++
++
++def test_aggregate_weighted_score_prefers_usefulness():
++    agg = Aggregate()
++    agg.add(quality=0.90, usefulness=0.10, recommendation_n=1)
++    score = agg.weighted_score
++    assert round(score, 4) == round((0.4 * 0.90) + (0.6 * 0.10), 4)
++
++
++def test_decision_for_score_respects_min_sample():
++    assert decision_for_score(0.8, 3) == "HOLD"
++
++
++def test_scope_key_helpers():
++    assert action_scope_key("open_incident", "routing_incident_rca_v1", "policy_v1") == \
++        "open_incident:routing_incident_rca_v1:policy_v1"
++    assert provider_scope_key("vertex", "gemini-2.5-flash-lite", "routing_incident_rca_v1") == \
++        "vertex:gemini-2.5-flash-lite:routing_incident_rca_v1"
++
++
++def test_aggregate_action_patterns_and_provider_prompts():
++    rows = [
++        DummyRow(
++            provider="vertex",
++            model_name="gemini-2.5-flash-lite",
++            prompt_version="routing_incident_rca_v1",
++            policy_version="policy_v1",
++            quality_score=0.80,
++            usefulness_score=0.75,
++            result_json={"recommendations": [{"action": "open_incident"}, {"action": "draft_postmortem"}]},
++        ),
++        DummyRow(
++            provider="vertex",
++            model_name="gemini-2.5-flash-lite",
++            prompt_version="routing_incident_rca_v1",
++            policy_version="policy_v1",
++            quality_score=0.70,
++            usefulness_score=1.00,
++            result_json={"recommendations": [{"action": "open_incident"}]},
++        ),
++    ]
++    action_aggs = aggregate_action_patterns(rows)
++    provider_aggs = aggregate_provider_prompts(rows)
++    assert "open_incident:routing_incident_rca_v1:policy_v1" in action_aggs
++    assert "vertex:gemini-2.5-flash-lite:routing_incident_rca_v1" in provider_aggs
++    assert action_aggs["open_incident:routing_incident_rca_v1:policy_v1"].sample_n == 2
++

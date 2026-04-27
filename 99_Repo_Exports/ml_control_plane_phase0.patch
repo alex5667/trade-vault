@@ -1,0 +1,1383 @@
+diff -ruN /tmp/tradezip_orig/orderflow_services/docker_compose_fragment_ml_control_plane_phase0_v1.yml /tmp/tradezip/orderflow_services/docker_compose_fragment_ml_control_plane_phase0_v1.yml
+--- /tmp/tradezip_orig/orderflow_services/docker_compose_fragment_ml_control_plane_phase0_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/tradezip/orderflow_services/docker_compose_fragment_ml_control_plane_phase0_v1.yml	2026-04-05 10:11:59.105000526 +0000
+@@ -0,0 +1,45 @@
++version: '3.9'
++
++services:
++  scanner-ml-inventory-exporter-v1:
++    container_name: scanner-ml-inventory-exporter-v1
++    working_dir: /app
++    command: ["python", "-m", "orderflow_services.ml_inventory_exporter_v1"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      TRADES_DB_DSN: ${TRADES_DB_DSN:-postgresql://postgres:postgres@postgres:5432/scanner_analytics}
++      ML_INVENTORY_DB_ENABLE: ${ML_INVENTORY_DB_ENABLE:-1}
++      ML_INVENTORY_STREAM: ${ML_INVENTORY_STREAM:-stream:ml:model_inventory}
++      ML_INVENTORY_SUMMARY_KEY: ${ML_INVENTORY_SUMMARY_KEY:-metrics:ml:model_inventory:last}
++      ML_INVENTORY_EXPORTER_PORT: ${ML_INVENTORY_EXPORTER_PORT:-9842}
++      ML_INVENTORY_EXPORTER_INTERVAL_S: ${ML_INVENTORY_EXPORTER_INTERVAL_S:-60}
++      ML_CFG_CHAMPION_KEY: ${ML_CFG_CHAMPION_KEY:-cfg:ml_confirm:champion}
++      ML_CFG_CHALLENGER_KEY: ${ML_CFG_CHALLENGER_KEY:-cfg:ml_confirm:challenger}
++      ML_CFG_HASH_KEY: ${ML_CFG_HASH_KEY:-cfg:ml_confirm}
++      ML_CONFIRM_MODE: ${ML_CONFIRM_MODE:-OFF}
++      ML_CONFIRM_FAIL_POLICY: ${ML_CONFIRM_FAIL_POLICY:-OPEN}
++    ports:
++      - "9842:9842"
++
++  scanner-ml-health-rollup-v1:
++    container_name: scanner-ml-health-rollup-v1
++    working_dir: /app
++    command: ["python", "-m", "orderflow_services.ml_health_rollup_worker_v1"]
++    restart: unless-stopped
++    environment:
++      REDIS_URL: ${REDIS_URL:-redis://redis-worker-1:6379/0}
++      TRADES_DB_DSN: ${TRADES_DB_DSN:-postgresql://postgres:postgres@postgres:5432/scanner_analytics}
++      ML_HEALTH_DB_ENABLE: ${ML_HEALTH_DB_ENABLE:-1}
++      ML_CONFIRM_METRICS_STREAM: ${ML_CONFIRM_METRICS_STREAM:-metrics:ml_confirm}
++      ML_HEALTH_OUT_STREAM: ${ML_HEALTH_OUT_STREAM:-stream:ml:health_snapshot}
++      ML_HEALTH_OUT_SUMMARY_KEY: ${ML_HEALTH_OUT_SUMMARY_KEY:-metrics:ml:health_snapshot:last}
++      ML_HEALTH_GROUP: ${ML_HEALTH_GROUP:-cg:ml_health_rollup_v1}
++      ML_HEALTH_CONSUMER: ${ML_HEALTH_CONSUMER:-scanner-ml-health-rollup-v1}
++      ML_HEALTH_EXPORTER_PORT: ${ML_HEALTH_EXPORTER_PORT:-9843}
++      ML_HEALTH_BLOCK_MS: ${ML_HEALTH_BLOCK_MS:-5000}
++      ML_HEALTH_READ_COUNT: ${ML_HEALTH_READ_COUNT:-500}
++      ML_HEALTH_FINALIZE_LAG_MIN: ${ML_HEALTH_FINALIZE_LAG_MIN:-1}
++      ML_HEALTH_BUCKET_TTL_S: ${ML_HEALTH_BUCKET_TTL_S:-259200}
++    ports:
++      - "9843:9843"
+diff -ruN /tmp/tradezip_orig/orderflow_services/ml_health_rollup_worker_v1.py /tmp/tradezip/orderflow_services/ml_health_rollup_worker_v1.py
+--- /tmp/tradezip_orig/orderflow_services/ml_health_rollup_worker_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/tradezip/orderflow_services/ml_health_rollup_worker_v1.py	2026-04-05 10:11:59.084974288 +0000
+@@ -0,0 +1,552 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Phase-0 ML runtime telemetry rollup worker.
++
++Consumes `metrics:ml_confirm` and produces low-cardinality per-minute rollups to:
++  1) Redis stream  `stream:ml:health_snapshot`
++  2) Redis hash    `metrics:ml:health_snapshot:last`
++  3) Timescale     `ml_model_runtime_1m` (optional, fail-open)
++  4) Prometheus    exporter metrics
++
++Implementation notes
++--------------------
++- Uses Redis consumer groups for durable progress.
++- Quantiles are estimated from fixed latency histogram buckets (deterministic).
++- ECE/Brier are left nullable in Phase-0 unless source metrics are supplied by
++  external nightly jobs; this worker focuses on runtime telemetry.
++- No writes into hot-path keys; only separate control-plane keys/streams.
++"""
++
++import json
++import math
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
++
++from prometheus_client import Counter, Gauge, Histogram, start_http_server
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++try:
++    import psycopg2  # type: ignore
++    from psycopg2.extras import execute_values, Json  # type: ignore
++except Exception:  # pragma: no cover
++    psycopg2 = None  # type: ignore
++    execute_values = None  # type: ignore
++    Json = None  # type: ignore
++
++
++LATENCY_BOUNDS_MS: List[float] = [0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 250.0, 500.0, 1000.0]
++
++STREAM = os.getenv("ML_CONFIRM_METRICS_STREAM", "metrics:ml_confirm")
++GROUP = os.getenv("ML_HEALTH_GROUP", "cg:ml_health_rollup_v1")
++CONSUMER = os.getenv("ML_HEALTH_CONSUMER", os.getenv("HOSTNAME", "ml-health-rollup-v1"))
++OUT_STREAM = os.getenv("ML_HEALTH_OUT_STREAM", "stream:ml:health_snapshot")
++OUT_SUMMARY_KEY = os.getenv("ML_HEALTH_OUT_SUMMARY_KEY", "metrics:ml:health_snapshot:last")
++BUCKET_PREFIX = os.getenv("ML_HEALTH_BUCKET_PREFIX", "metrics:ml:bucket:")
++STATE_KEY = os.getenv("ML_HEALTH_STATE_KEY", "metrics:ml:health_rollup:state")
++REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++DB_DSN = os.getenv("TRADES_DB_DSN", "")
++DB_ENABLE = os.getenv("ML_HEALTH_DB_ENABLE", "1") == "1"
++PORT = int(os.getenv("ML_HEALTH_EXPORTER_PORT", "9843"))
++BLOCK_MS = int(os.getenv("ML_HEALTH_BLOCK_MS", "5000"))
++COUNT = int(os.getenv("ML_HEALTH_READ_COUNT", "500"))
++FINALIZE_LAG_MIN = int(os.getenv("ML_HEALTH_FINALIZE_LAG_MIN", "1"))
++STATS_TTL_S = int(os.getenv("ML_HEALTH_BUCKET_TTL_S", str(3 * 24 * 3600)))
++LOOP_SLEEP_S = float(os.getenv("ML_HEALTH_LOOP_SLEEP_S", "1"))
++
++
++UP = Gauge("ml_health_rollup_up", "1 if worker loop is healthy")
++LAST_RUN_TS = Gauge("ml_health_rollup_last_run_ts_seconds", "Last successful loop timestamp")
++LAST_FINALIZED_MINUTE = Gauge("ml_health_rollup_last_finalized_minute", "Last finalized minute")
++QUEUE_LAG_MS = Gauge("ml_health_rollup_queue_lag_ms", "Approx queue lag in ms")
++SNAPSHOTS_WRITTEN = Counter("ml_health_snapshots_written_total", "Snapshots written", ["family"])
++SNAPSHOT_ROWS = Gauge("ml_health_snapshot_rows", "Last finalized rows", ["family"])
++EVENTS = Counter("ml_health_events_total", "Consumed ml_confirm metrics events", ["kind", "status"])
++LOOP_LAT = Histogram("ml_health_rollup_loop_seconds", "Loop duration seconds")
++LAT_P95 = Gauge("ml_health_runtime_latency_p95_ms", "Finalized p95 latency", ["model_id", "symbol"])
++ALLOW_RATE = Gauge("ml_health_runtime_allow_rate", "Finalized allow rate", ["model_id", "symbol"])
++ERR_RATE = Gauge("ml_health_runtime_error_rate", "Finalized error rate", ["model_id", "symbol"])
++
++
++@dataclass
++class Cfg:
++    redis_url: str
++    stream: str
++    group: str
++    consumer: str
++    out_stream: str
++    out_summary_key: str
++    bucket_prefix: str
++    state_key: str
++    block_ms: int
++    count: int
++    finalize_lag_min: int
++    bucket_ttl_s: int
++    db_dsn: str
++    db_enable: bool
++
++
++@dataclass
++class SnapshotRow:
++    ts_ms: int
++    model_id: str
++    symbol: str
++    mode: str
++    latency_p50_ms: Optional[float]
++    latency_p95_ms: Optional[float]
++    latency_p99_ms: Optional[float]
++    allow_rate: Optional[float]
++    block_rate: Optional[float]
++    abstain_rate: Optional[float]
++    shadow_rate: Optional[float]
++    error_rate: Optional[float]
++    ece: Optional[float]
++    brier: Optional[float]
++    psi_top_json: List[str]
++    ks_top_json: List[str]
++    missing_critical_rate: Optional[float]
++    artifact_age_sec: Optional[float]
++
++    def stream_payload(self) -> Dict[str, Any]:
++        return {
++            "schema_version": 1,
++            "event": "ml_health_snapshot_1m",
++            "ts_ms": self.ts_ms,
++            "model_id": self.model_id,
++            "symbol": self.symbol,
++            "mode": self.mode,
++            "latency_p50_ms": "" if self.latency_p50_ms is None else f"{self.latency_p50_ms:.6f}",
++            "latency_p95_ms": "" if self.latency_p95_ms is None else f"{self.latency_p95_ms:.6f}",
++            "latency_p99_ms": "" if self.latency_p99_ms is None else f"{self.latency_p99_ms:.6f}",
++            "allow_rate": "" if self.allow_rate is None else f"{self.allow_rate:.6f}",
++            "block_rate": "" if self.block_rate is None else f"{self.block_rate:.6f}",
++            "abstain_rate": "" if self.abstain_rate is None else f"{self.abstain_rate:.6f}",
++            "shadow_rate": "" if self.shadow_rate is None else f"{self.shadow_rate:.6f}",
++            "error_rate": "" if self.error_rate is None else f"{self.error_rate:.6f}",
++            "ece": "" if self.ece is None else f"{self.ece:.6f}",
++            "brier": "" if self.brier is None else f"{self.brier:.6f}",
++            "psi_top_json": json.dumps(self.psi_top_json, separators=(",", ":")),
++            "ks_top_json": json.dumps(self.ks_top_json, separators=(",", ":")),
++            "missing_critical_rate": "" if self.missing_critical_rate is None else f"{self.missing_critical_rate:.6f}",
++            "artifact_age_sec": "" if self.artifact_age_sec is None else f"{self.artifact_age_sec:.6f}",
++        }
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _as_str(v: Any, d: str = "") -> str:
++    try:
++        if v is None:
++            return d
++        if isinstance(v, (bytes, bytearray)):
++            return bytes(v).decode("utf-8", errors="ignore")
++        return str(v)
++    except Exception:
++        return d
++
++
++def _as_int(v: Any, d: int = 0) -> int:
++    try:
++        if v is None or isinstance(v, bool):
++            return d
++        return int(float(v))
++    except Exception:
++        return d
++
++
++def _as_float(v: Any, d: float = 0.0) -> float:
++    try:
++        if v is None or isinstance(v, bool):
++            return d
++        x = float(v)
++        return x if math.isfinite(x) else d
++    except Exception:
++        return d
++
++
++def _minute(ts_ms: int) -> int:
++    return int(ts_ms // 60000)
++
++
++def _lat_field(v: Any) -> float:
++    return _as_float(v, 0.0)
++
++
++def _bucket_key(cfg: Cfg, minute: int, model_id: str, symbol: str) -> str:
++    return f"{cfg.bucket_prefix}{minute}:{model_id}:{symbol}"
++
++
++def _model_id(fields: Mapping[str, Any]) -> str:
++    kind = _as_str(fields.get("kind") or "unknown")
++    run_id = _as_str(fields.get("model_run_id") or "na")
++    return f"{kind}:{run_id}"
++
++
++def _status(fields: Mapping[str, Any]) -> str:
++    return _as_str(fields.get("status") or "") or ("ALLOW" if _as_int(fields.get("allow"), 0) == 1 else "DENY")
++
++
++def _symbol(fields: Mapping[str, Any]) -> str:
++    return _as_str(fields.get("symbol") or "*")
++
++
++def _mode(fields: Mapping[str, Any]) -> str:
++    return _as_str(fields.get("mode") or "UNKNOWN")
++
++
++def _latency_bucket_index(lat_ms: float) -> int:
++    for i, bound in enumerate(LATENCY_BOUNDS_MS):
++        if lat_ms <= bound:
++            return i
++    return len(LATENCY_BOUNDS_MS)
++
++
++def _hist_quantile(counts: Sequence[int], q: float) -> Optional[float]:
++    total = sum(int(x) for x in counts)
++    if total <= 0:
++        return None
++    target = max(1, int(math.ceil(total * q)))
++    acc = 0
++    for i, c in enumerate(counts):
++        acc += int(c)
++        if acc >= target:
++            if i < len(LATENCY_BOUNDS_MS):
++                return float(LATENCY_BOUNDS_MS[i])
++            return float(LATENCY_BOUNDS_MS[-1])
++    return float(LATENCY_BOUNDS_MS[-1])
++
++
++def load_cfg() -> Cfg:
++    return Cfg(
++        redis_url=REDIS_URL,
++        stream=STREAM,
++        group=GROUP,
++        consumer=CONSUMER,
++        out_stream=OUT_STREAM,
++        out_summary_key=OUT_SUMMARY_KEY,
++        bucket_prefix=BUCKET_PREFIX,
++        state_key=STATE_KEY,
++        block_ms=BLOCK_MS,
++        count=COUNT,
++        finalize_lag_min=FINALIZE_LAG_MIN,
++        bucket_ttl_s=STATS_TTL_S,
++        db_dsn=DB_DSN,
++        db_enable=DB_ENABLE,
++    )
++
++
++def _connect_redis(url: str):
++    if redis is None:
++        raise RuntimeError("redis-py is required")
++    return redis.Redis.from_url(url, decode_responses=True)
++
++
++def ensure_group(r: Any, cfg: Cfg) -> None:
++    try:
++        r.xgroup_create(cfg.stream, cfg.group, id="0", mkstream=True)
++    except Exception:
++        pass
++
++
++def _ingest_one(pipe: Any, cfg: Cfg, fields: Mapping[str, Any], stream_id: str) -> None:
++    ts_ms = _as_int(fields.get("ts_ms"), 0)
++    if ts_ms <= 0:
++        ts_ms = _as_int(stream_id.split("-", 1)[0], 0)
++    minute = _minute(ts_ms)
++    model_id = _model_id(fields)
++    symbol = _symbol(fields)
++    key = _bucket_key(cfg, minute, model_id, symbol)
++    status = _status(fields)
++    lat_ms = _lat_field(fields.get("lat_ms") or fields.get("latency_ms") or 0.0)
++    mode = _mode(fields)
++    missing_n = _as_int(fields.get("missing_n"), 0)
++
++    mapping: Dict[str, float] = {
++        "n": 1.0,
++        "lat_sum_ms": float(lat_ms),
++        "missing_sum": float(max(0, missing_n)),
++    }
++    if status == "ALLOW":
++        mapping["allow_n"] = 1.0
++    elif status == "SHADOW":
++        mapping["shadow_n"] = 1.0
++    elif status.startswith("ABSTAIN") or _as_int(fields.get("abstain"), 0) == 1:
++        mapping["abstain_n"] = 1.0
++    elif status.startswith("ERR") or _as_str(fields.get("err")):
++        mapping["err_n"] = 1.0
++    else:
++        mapping["deny_n"] = 1.0
++
++    idx = _latency_bucket_index(lat_ms)
++    mapping[f"lat_b_{idx}"] = 1.0
++
++    pipe.hsetnx(key, "minute", minute)
++    pipe.hsetnx(key, "model_id", model_id)
++    pipe.hsetnx(key, "symbol", symbol)
++    pipe.hsetnx(key, "mode", mode)
++    for k, v in mapping.items():
++        pipe.hincrbyfloat(key, k, float(v))
++    pipe.expire(key, cfg.bucket_ttl_s)
++
++
++def _finalizable_minutes(r: Any, cfg: Cfg, now_minute: int) -> List[int]:
++    patt = f"{cfg.bucket_prefix}*"
++    mins: set[int] = set()
++    cursor = 0
++    try:
++        while True:
++            cursor, keys = r.scan(cursor=cursor, match=patt, count=500)
++            for key in keys:
++                s = _as_str(key)
++                try:
++                    suffix = s[len(cfg.bucket_prefix):]
++                    minute_str = suffix.split(":", 1)[0]
++                    m = int(minute_str)
++                    if m <= now_minute - cfg.finalize_lag_min:
++                        mins.add(m)
++                except Exception:
++                    continue
++            if int(cursor) == 0:
++                break
++    except Exception:
++        return []
++    return sorted(mins)
++
++
++def _load_external_health(r: Any, model_id: str) -> Tuple[Optional[float], Optional[float], List[str], List[str], Optional[float], Optional[float]]:
++    """Best-effort enrichment from existing control-plane sources.
++
++    Returns: (ece, brier, psi_top_json, ks_top_json, missing_critical_rate, artifact_age_sec)
++    """
++    ece = None
++    brier = None
++    psi_top: List[str] = []
++    ks_top: List[str] = []
++    missing_rate = None
++    artifact_age = None
++
++    # Feature drift batch summary is currently global, not per-model.
++    try:
++        h = r.hgetall("metrics:feature_drift_batch:last") or {}
++        worst_psi = _as_float(h.get("worst_psi"), 0.0)
++        worst_ks = _as_float(h.get("worst_ks_stat"), 0.0)
++        if worst_psi > 0:
++            psi_top = [f"worst_psi={worst_psi:.4f}"]
++        if worst_ks > 0:
++            ks_top = [f"worst_ks={worst_ks:.4f}"]
++    except Exception:
++        pass
++
++    # Inventory summary can be used for artifact age only if we already exported model rows.
++    return ece, brier, psi_top, ks_top, missing_rate, artifact_age
++
++
++def _build_snapshot_from_hash(r: Any, h: Mapping[str, Any], minute: int) -> SnapshotRow:
++    model_id = _as_str(h.get("model_id"), "unknown:na")
++    symbol = _as_str(h.get("symbol"), "*")
++    mode = _as_str(h.get("mode"), "UNKNOWN")
++    n = max(0, _as_int(h.get("n"), 0))
++    counts = [_as_int(h.get(f"lat_b_{i}"), 0) for i in range(len(LATENCY_BOUNDS_MS) + 1)]
++    p50 = _hist_quantile(counts, 0.50)
++    p95 = _hist_quantile(counts, 0.95)
++    p99 = _hist_quantile(counts, 0.99)
++
++    allow_n = _as_int(h.get("allow_n"), 0)
++    shadow_n = _as_int(h.get("shadow_n"), 0)
++    abstain_n = _as_int(h.get("abstain_n"), 0)
++    err_n = _as_int(h.get("err_n"), 0)
++    deny_n = _as_int(h.get("deny_n"), 0)
++    denom = float(n) if n > 0 else 0.0
++    allow_rate = (allow_n / denom) if denom else None
++    block_rate = (deny_n / denom) if denom else None
++    abstain_rate = (abstain_n / denom) if denom else None
++    shadow_rate = (shadow_n / denom) if denom else None
++    error_rate = (err_n / denom) if denom else None
++    missing_rate = (_as_float(h.get("missing_sum"), 0.0) / denom) if denom else None
++
++    ece, brier, psi_top, ks_top, external_missing_rate, artifact_age_sec = _load_external_health(r, model_id)
++    if external_missing_rate is not None:
++        missing_rate = external_missing_rate
++
++    return SnapshotRow(
++        ts_ms=minute * 60000,
++        model_id=model_id,
++        symbol=symbol,
++        mode=mode,
++        latency_p50_ms=p50,
++        latency_p95_ms=p95,
++        latency_p99_ms=p99,
++        allow_rate=allow_rate,
++        block_rate=block_rate,
++        abstain_rate=abstain_rate,
++        shadow_rate=shadow_rate,
++        error_rate=error_rate,
++        ece=ece,
++        brier=brier,
++        psi_top_json=psi_top,
++        ks_top_json=ks_top,
++        missing_critical_rate=missing_rate,
++        artifact_age_sec=artifact_age_sec,
++    )
++
++
++def _write_snapshots(r: Any, cfg: Cfg, rows: Sequence[SnapshotRow]) -> None:
++    if not rows:
++        return
++    try:
++        pipe = r.pipeline()
++        ts_ms = _now_ms()
++        for row in rows:
++            pipe.xadd(cfg.out_stream, row.stream_payload(), maxlen=50000, approximate=True)
++        pipe.hset(cfg.out_summary_key, mapping={
++            "updated_ts_ms": ts_ms,
++            "rows": len(rows),
++            "last_minute": max(row.ts_ms for row in rows) // 60000,
++        })
++        pipe.execute()
++    except Exception:
++        pass
++
++
++def _write_db(cfg: Cfg, rows: Sequence[SnapshotRow]) -> None:
++    if not cfg.db_enable or not cfg.db_dsn or psycopg2 is None or execute_values is None or Json is None or not rows:
++        return
++    sql = """
++    INSERT INTO ml_model_runtime_1m (
++      ts_ms, model_id, symbol, mode,
++      latency_p50_ms, latency_p95_ms, latency_p99_ms,
++      allow_rate, block_rate, abstain_rate, shadow_rate, error_rate,
++      ece, brier, psi_top_json, ks_top_json, missing_critical_rate, artifact_age_sec
++    ) VALUES %s
++    ON CONFLICT (ts_ms, model_id, symbol) DO UPDATE SET
++      mode = EXCLUDED.mode,
++      latency_p50_ms = EXCLUDED.latency_p50_ms,
++      latency_p95_ms = EXCLUDED.latency_p95_ms,
++      latency_p99_ms = EXCLUDED.latency_p99_ms,
++      allow_rate = EXCLUDED.allow_rate,
++      block_rate = EXCLUDED.block_rate,
++      abstain_rate = EXCLUDED.abstain_rate,
++      shadow_rate = EXCLUDED.shadow_rate,
++      error_rate = EXCLUDED.error_rate,
++      ece = EXCLUDED.ece,
++      brier = EXCLUDED.brier,
++      psi_top_json = EXCLUDED.psi_top_json,
++      ks_top_json = EXCLUDED.ks_top_json,
++      missing_critical_rate = EXCLUDED.missing_critical_rate,
++      artifact_age_sec = EXCLUDED.artifact_age_sec;
++    """
++    values = [(
++        row.ts_ms, row.model_id, row.symbol, row.mode,
++        row.latency_p50_ms, row.latency_p95_ms, row.latency_p99_ms,
++        row.allow_rate, row.block_rate, row.abstain_rate, row.shadow_rate, row.error_rate,
++        row.ece, row.brier, Json(row.psi_top_json), Json(row.ks_top_json), row.missing_critical_rate, row.artifact_age_sec,
++    ) for row in rows]
++    try:
++        with psycopg2.connect(cfg.db_dsn) as conn:
++            with conn.cursor() as cur:
++                execute_values(cur, sql, values)
++            conn.commit()
++    except Exception:
++        pass
++
++
++def _finalize_minute(r: Any, cfg: Cfg, minute: int) -> List[SnapshotRow]:
++    patt = f"{cfg.bucket_prefix}{minute}:*"
++    cursor = 0
++    rows: List[SnapshotRow] = []
++    keys: List[str] = []
++    while True:
++        cursor, batch = r.scan(cursor=cursor, match=patt, count=500)
++        keys.extend(_as_str(k) for k in batch)
++        if int(cursor) == 0:
++            break
++    if not keys:
++        return []
++    pipe = r.pipeline()
++    for key in keys:
++        pipe.hgetall(key)
++    hashes = pipe.execute() or []
++    for h in hashes:
++        if not isinstance(h, dict):
++            continue
++        rows.append(_build_snapshot_from_hash(r, h, minute))
++    # cleanup after successful materialization
++    try:
++        if keys:
++            r.delete(*keys)
++    except Exception:
++        pass
++    return rows
++
++
++def _update_gauges(rows: Sequence[SnapshotRow], last_minute: int) -> None:
++    LAST_FINALIZED_MINUTE.set(float(last_minute))
++    by_family: Dict[str, int] = {}
++    for row in rows:
++        family = row.model_id.split(":", 1)[0]
++        by_family[family] = by_family.get(family, 0) + 1
++        if row.latency_p95_ms is not None:
++            LAT_P95.labels(row.model_id, row.symbol).set(float(row.latency_p95_ms))
++        if row.allow_rate is not None:
++            ALLOW_RATE.labels(row.model_id, row.symbol).set(float(row.allow_rate))
++        if row.error_rate is not None:
++            ERR_RATE.labels(row.model_id, row.symbol).set(float(row.error_rate))
++    for family, n in by_family.items():
++        SNAPSHOT_ROWS.labels(family).set(float(n))
++        SNAPSHOTS_WRITTEN.labels(family).inc(float(n))
++
++
++def main() -> int:
++    cfg = load_cfg()
++    start_http_server(PORT)
++    r = _connect_redis(cfg.redis_url)
++    ensure_group(r, cfg)
++    while True:
++        t0 = time.perf_counter()
++        try:
++            rows = r.xreadgroup(cfg.group, cfg.consumer, {cfg.stream: ">"}, count=cfg.count, block=cfg.block_ms) or []
++            pipe = r.pipeline()
++            consumed = 0
++            max_ts_ms = 0
++            for _stream, msgs in rows:
++                for msg_id, fields in msgs:
++                    consumed += 1
++                    f = fields or {}
++                    ts_ms = _as_int(f.get("ts_ms"), _as_int(msg_id.split("-", 1)[0], 0))
++                    max_ts_ms = max(max_ts_ms, ts_ms)
++                    EVENTS.labels(kind=_as_str(f.get("kind") or "unknown"), status=_status(f)).inc()
++                    _ingest_one(pipe, cfg, f, msg_id)
++                    pipe.xack(cfg.stream, cfg.group, msg_id)
++            if consumed > 0:
++                pipe.execute()
++                if max_ts_ms > 0:
++                    QUEUE_LAG_MS.set(float(max(0, _now_ms() - max_ts_ms)))
++
++            now_min = _minute(_now_ms())
++            all_rows: List[SnapshotRow] = []
++            mins = _finalizable_minutes(r, cfg, now_min)
++            for minute in mins:
++                finalized = _finalize_minute(r, cfg, minute)
++                if finalized:
++                    _write_snapshots(r, cfg, finalized)
++                    _write_db(cfg, finalized)
++                    _update_gauges(finalized, minute)
++                    all_rows.extend(finalized)
++            LAST_RUN_TS.set(time.time())
++            UP.set(1.0)
++        except Exception:
++            UP.set(0.0)
++        LOOP_LAT.observe(time.perf_counter() - t0)
++        time.sleep(LOOP_SLEEP_S)
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff -ruN /tmp/tradezip_orig/orderflow_services/ml_inventory_exporter_v1.py /tmp/tradezip/orderflow_services/ml_inventory_exporter_v1.py
+--- /tmp/tradezip_orig/orderflow_services/ml_inventory_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/tradezip/orderflow_services/ml_inventory_exporter_v1.py	2026-04-05 10:11:59.078132295 +0000
+@@ -0,0 +1,459 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Phase-0 ML inventory exporter.
++
++Purpose
++-------
++Builds a low-cardinality inventory of all ML/runtime model families known to the
++trade stack and publishes it to:
++  1) Redis stream  : stream:ml:model_inventory
++  2) Redis hash    : metrics:ml:model_inventory:last
++  3) Postgres/Timescale table `ml_model_registry` (optional, fail-open)
++  4) Prometheus    : inventory health + model gauges
++
++Design constraints
++------------------
++- advisory / control-plane only; never blocks trading runtime
++- deterministic and low-cardinality payloads
++- reads only already existing sources: Redis cfg keys, env, filesystem artifacts
++- fail-open on Redis/DB/filesystem errors
++"""
++
++import hashlib
++import json
++import os
++import time
++from dataclasses import dataclass, asdict
++from pathlib import Path
++from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
++
++from prometheus_client import Gauge, start_http_server
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++try:
++    import psycopg2  # type: ignore
++    from psycopg2.extras import execute_values  # type: ignore
++except Exception:  # pragma: no cover
++    psycopg2 = None  # type: ignore
++    execute_values = None  # type: ignore
++
++
++DEFAULT_REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
++DEFAULT_DB_DSN = os.getenv("TRADES_DB_DSN", "")
++
++STREAM = os.getenv("ML_INVENTORY_STREAM", "stream:ml:model_inventory")
++SUMMARY_KEY = os.getenv("ML_INVENTORY_SUMMARY_KEY", "metrics:ml:model_inventory:last")
++EXPORTER_PORT = int(os.getenv("ML_INVENTORY_EXPORTER_PORT", "9842"))
++INTERVAL_S = float(os.getenv("ML_INVENTORY_EXPORTER_INTERVAL_S", "60"))
++STREAM_MAXLEN = int(os.getenv("ML_INVENTORY_STREAM_MAXLEN", "20000"))
++DB_ENABLE = os.getenv("ML_INVENTORY_DB_ENABLE", "1") == "1"
++HOSTNAME = os.getenv("HOSTNAME", "ml-inventory-exporter")
++
++
++UP = Gauge("ml_inventory_exporter_up", "1 if last inventory scan succeeded")
++LAST_RUN_TS = Gauge("ml_inventory_last_run_ts_seconds", "Last successful inventory scan timestamp")
++LAST_DURATION = Gauge("ml_inventory_last_duration_seconds", "Duration of last inventory scan")
++MODELS_TOTAL = Gauge("ml_inventory_models_total", "Number of discovered models", ["family", "promotion_state"])
++MODEL_PRESENT = Gauge("ml_inventory_model_present", "1 if a model record is present", ["family", "kind", "promotion_state", "champion_flag"])
++MODEL_ARTIFACT_AGE = Gauge("ml_inventory_model_artifact_age_seconds", "Artifact age in seconds", ["family", "kind", "promotion_state"])
++MODEL_ARTIFACT_EXISTS = Gauge("ml_inventory_model_artifact_exists", "1 if artifact exists", ["family", "kind", "promotion_state"])
++
++
++@dataclass
++class Cfg:
++    redis_url: str
++    db_dsn: str
++    stream: str
++    summary_key: str
++    interval_s: float
++    stream_maxlen: int
++    db_enable: bool
++    port: int
++    owner_service: str
++
++
++@dataclass
++class ModelRecord:
++    model_id: str
++    family: str
++    kind: str
++    artifact_uri: str
++    schema_ver: str
++    schema_hash: str
++    promotion_state: str
++    champion_flag: bool
++    owner_service: str
++    created_at_ms: int
++    promoted_at_ms: int
++    mode: str
++    fail_policy: str
++    cfg_source: str
++    model_run_id: str
++    artifact_exists: int
++    artifact_age_sec: float
++
++    def stream_payload(self, ts_ms: int) -> Dict[str, Any]:
++        return {
++            "schema_version": 1,
++            "event": "ml_model_inventory",
++            "event_time_ms": ts_ms,
++            "producer": HOSTNAME,
++            **asdict(self),
++        }
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _as_str(v: Any, d: str = "") -> str:
++    try:
++        if v is None:
++            return d
++        if isinstance(v, (bytes, bytearray)):
++            return bytes(v).decode("utf-8", errors="ignore")
++        return str(v)
++    except Exception:
++        return d
++
++
++def _as_int(v: Any, d: int = 0) -> int:
++    try:
++        if v is None or isinstance(v, bool):
++            return d
++        return int(float(v))
++    except Exception:
++        return d
++
++
++def _load_json(s: Any) -> Dict[str, Any]:
++    try:
++        if s is None:
++            return {}
++        if isinstance(s, dict):
++            return s
++        obj = json.loads(_as_str(s))
++        return obj if isinstance(obj, dict) else {}
++    except Exception:
++        return {}
++
++
++def _sha16(parts: Sequence[str]) -> str:
++    h = hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
++    return h[:16]
++
++
++def _mtime_age(path: str) -> Tuple[int, float]:
++    p = Path(path)
++    if not path:
++        return 0, 0.0
++    try:
++        st = p.stat()
++        age = max(0.0, time.time() - st.st_mtime)
++        return 1, float(age)
++    except Exception:
++        return 0, 0.0
++
++
++def load_cfg() -> Cfg:
++    return Cfg(
++        redis_url=DEFAULT_REDIS_URL,
++        db_dsn=DEFAULT_DB_DSN,
++        stream=STREAM,
++        summary_key=SUMMARY_KEY,
++        interval_s=INTERVAL_S,
++        stream_maxlen=STREAM_MAXLEN,
++        db_enable=DB_ENABLE,
++        port=EXPORTER_PORT,
++        owner_service=os.getenv("ML_INVENTORY_OWNER_SERVICE", "ml_control_plane_phase0"),
++    )
++
++
++def _connect_redis(url: str):
++    if redis is None:
++        return None
++    try:
++        return redis.Redis.from_url(url, decode_responses=True)
++    except Exception:
++        return None
++
++
++def _hgetall(r: Any, key: str) -> Dict[str, Any]:
++    if r is None:
++        return {}
++    try:
++        return r.hgetall(key) or {}
++    except Exception:
++        return {}
++
++
++def _get(r: Any, key: str) -> str:
++    if r is None:
++        return ""
++    try:
++        v = r.get(key)
++        return _as_str(v)
++    except Exception:
++        return ""
++
++
++def _discover_ml_confirm_records(r: Any, owner_service: str) -> List[ModelRecord]:
++    out: List[ModelRecord] = []
++    ts_ms = _now_ms()
++
++    json_keys: List[Tuple[str, str]] = [
++        (os.getenv("ML_CFG_CHAMPION_KEY", "cfg:ml_confirm:champion"), "champion"),
++        (os.getenv("ML_CFG_CHALLENGER_KEY", "cfg:ml_confirm:challenger"), "challenger"),
++        ("cfg:ml_confirm:edge_stack_v1:champion", "champion"),
++        ("cfg:ml_confirm:edge_stack_v1:challenger", "challenger"),
++        ("cfg:ml_confirm:edge_stack_v1:candidate", "candidate"),
++        ("cfg:ml_confirm:edge_stack_v1:candidate_v13", "candidate"),
++    ]
++    seen: set[str] = set()
++
++    for key, state in json_keys:
++        cfg = _load_json(_get(r, key))
++        if not cfg:
++            continue
++        kind = _as_str(cfg.get("kind") or cfg.get("model_kind") or "unknown")
++        model_path = _as_str(cfg.get("model_path") or cfg.get("path") or "")
++        model_ver = _as_str(cfg.get("model_ver") or cfg.get("run_id") or "")
++        schema_ver = _as_str(cfg.get("feature_schema_ver") or cfg.get("schema_ver") or cfg.get("feature_set") or "")
++        schema_hash = _as_str(cfg.get("feature_cols_hash") or cfg.get("schema_hash") or "")
++        mode = _as_str(cfg.get("mode") or os.getenv("ML_CONFIRM_MODE", "OFF"))
++        fail_policy = _as_str(cfg.get("fail_policy") or os.getenv("ML_CONFIRM_FAIL_POLICY", "OPEN"))
++        champion_flag = state == "champion"
++        model_id = f"ml_confirm:{kind}:{model_ver or _sha16([key, model_path, state])}"
++        if model_id in seen:
++            continue
++        seen.add(model_id)
++        exists, age = _mtime_age(model_path)
++        out.append(ModelRecord(
++            model_id=model_id,
++            family="ml_confirm",
++            kind=kind,
++            artifact_uri=model_path,
++            schema_ver=schema_ver,
++            schema_hash=schema_hash,
++            promotion_state=state,
++            champion_flag=champion_flag,
++            owner_service=owner_service,
++            created_at_ms=ts_ms,
++            promoted_at_ms=ts_ms if champion_flag else 0,
++            mode=mode,
++            fail_policy=fail_policy,
++            cfg_source=key,
++            model_run_id=model_ver,
++            artifact_exists=exists,
++            artifact_age_sec=age,
++        ))
++
++    # Legacy hash fallback
++    h = _hgetall(r, os.getenv("ML_CFG_HASH_KEY", "cfg:ml_confirm"))
++    if h:
++        kind = _as_str(h.get("kind") or h.get("model_kind") or "unknown")
++        model_path = _as_str(h.get("model_path") or "")
++        model_ver = _as_str(h.get("model_ver") or "")
++        state = "legacy"
++        model_id = f"ml_confirm:{kind}:{model_ver or _sha16([state, model_path])}"
++        if model_id not in seen:
++            exists, age = _mtime_age(model_path)
++            out.append(ModelRecord(
++                model_id=model_id,
++                family="ml_confirm",
++                kind=kind,
++                artifact_uri=model_path,
++                schema_ver=_as_str(h.get("feature_schema_ver") or h.get("schema_ver") or ""),
++                schema_hash=_as_str(h.get("feature_cols_hash") or h.get("schema_hash") or ""),
++                promotion_state=state,
++                champion_flag=False,
++                owner_service=owner_service,
++                created_at_ms=ts_ms,
++                promoted_at_ms=0,
++                mode=_as_str(h.get("mode") or os.getenv("ML_CONFIRM_MODE", "OFF")),
++                fail_policy=_as_str(h.get("fail_policy") or os.getenv("ML_CONFIRM_FAIL_POLICY", "OPEN")),
++                cfg_source=os.getenv("ML_CFG_HASH_KEY", "cfg:ml_confirm"),
++                model_run_id=model_ver,
++                artifact_exists=exists,
++                artifact_age_sec=age,
++            ))
++    return out
++
++
++def _discover_meta_lr_records(owner_service: str) -> List[ModelRecord]:
++    ts_ms = _now_ms()
++    paths: List[Tuple[str, str, bool]] = [
++        (os.getenv("META_MODEL_CHAMPION_PATH", os.getenv("META_MODEL_PATH", "/var/lib/trade/models/meta_model_v7_champion.json")), "champion", True),
++        (os.getenv("META_MODEL_CHALLENGER_PATH", "/var/lib/trade/models/meta_model_v7_challenger.json"), "challenger", False),
++    ]
++    out: List[ModelRecord] = []
++    for path, state, is_champion in paths:
++        if not path:
++            continue
++        exists, age = _mtime_age(path)
++        model_id = f"meta_lr:{state}:{_sha16([path, state])}"
++        out.append(ModelRecord(
++            model_id=model_id,
++            family="meta_lr",
++            kind="meta_lr",
++            artifact_uri=path,
++            schema_ver=os.getenv("META_FEATURE_SCHEMA_VER", ""),
++            schema_hash="",
++            promotion_state=state,
++            champion_flag=is_champion,
++            owner_service=owner_service,
++            created_at_ms=ts_ms,
++            promoted_at_ms=ts_ms if is_champion else 0,
++            mode=os.getenv("ML_CONFIRM_MODE", "OFF"),
++            fail_policy=os.getenv("ML_CONFIRM_FAIL_POLICY", "OPEN"),
++            cfg_source="env:META_MODEL_*",
++            model_run_id="",
++            artifact_exists=exists,
++            artifact_age_sec=age,
++        ))
++    return out
++
++
++def _discover_ml_scorer_records(owner_service: str) -> List[ModelRecord]:
++    ts_ms = _now_ms()
++    candidates = [
++        (os.getenv("ML_SCORER_V2_MODEL_PATH", "/var/lib/trade/ml_models/scorer_v2/scorer_v2.joblib"), "ml_scorer_v2", "champion", True),
++        (os.getenv("ML_SCORER_V3_MODEL_PATH", "/var/lib/trade/ml_models/scorer_v3/scorer_v3.joblib"), "ml_scorer_v3", "challenger", False),
++    ]
++    out: List[ModelRecord] = []
++    for path, kind, state, is_champion in candidates:
++        if not path:
++            continue
++        exists, age = _mtime_age(path)
++        out.append(ModelRecord(
++            model_id=f"{kind}:{_sha16([path, state])}",
++            family="ml_scorer",
++            kind=kind,
++            artifact_uri=path,
++            schema_ver="23f_core",
++            schema_hash="",
++            promotion_state=state,
++            champion_flag=is_champion,
++            owner_service=owner_service,
++            created_at_ms=ts_ms,
++            promoted_at_ms=ts_ms if is_champion else 0,
++            mode="OPTIONAL",
++            fail_policy="OPEN",
++            cfg_source=f"env:{kind.upper()}_MODEL_PATH",
++            model_run_id="",
++            artifact_exists=exists,
++            artifact_age_sec=age,
++        ))
++    return out
++
++
++def discover_inventory(cfg: Cfg) -> List[ModelRecord]:
++    r = _connect_redis(cfg.redis_url)
++    out: List[ModelRecord] = []
++    out.extend(_discover_ml_confirm_records(r, cfg.owner_service))
++    out.extend(_discover_meta_lr_records(cfg.owner_service))
++    out.extend(_discover_ml_scorer_records(cfg.owner_service))
++    # deterministic ordering for testing / replayability
++    out.sort(key=lambda x: (x.family, x.kind, x.promotion_state, x.artifact_uri))
++    return out
++
++
++def _publish_inventory(r: Any, cfg: Cfg, rows: Sequence[ModelRecord], ts_ms: int) -> None:
++    if r is None:
++        return
++    try:
++        pipe = r.pipeline()
++        family_counts: Dict[Tuple[str, str], int] = {}
++        for row in rows:
++            pipe.xadd(cfg.stream, row.stream_payload(ts_ms), maxlen=cfg.stream_maxlen, approximate=True)
++            k = (row.family, row.promotion_state)
++            family_counts[k] = family_counts.get(k, 0) + 1
++        summary = {
++            "updated_ts_ms": ts_ms,
++            "models_total": len(rows),
++            "families_json": json.dumps({f"{fam}:{state}": n for (fam, state), n in sorted(family_counts.items())}, separators=(",", ":")),
++            "owner_service": cfg.owner_service,
++        }
++        pipe.hset(cfg.summary_key, mapping=summary)
++        pipe.execute()
++    except Exception:
++        pass
++
++
++def _write_db(cfg: Cfg, rows: Sequence[ModelRecord]) -> None:
++    if not cfg.db_enable or not cfg.db_dsn or psycopg2 is None or execute_values is None or not rows:
++        return
++    sql = """
++    INSERT INTO ml_model_registry (
++      model_id, family, kind, artifact_uri, schema_ver, schema_hash,
++      promotion_state, champion_flag, owner_service, created_at_ms, promoted_at_ms
++    ) VALUES %s
++    ON CONFLICT (model_id) DO UPDATE SET
++      family = EXCLUDED.family,
++      kind = EXCLUDED.kind,
++      artifact_uri = EXCLUDED.artifact_uri,
++      schema_ver = EXCLUDED.schema_ver,
++      schema_hash = EXCLUDED.schema_hash,
++      promotion_state = EXCLUDED.promotion_state,
++      champion_flag = EXCLUDED.champion_flag,
++      owner_service = EXCLUDED.owner_service,
++      promoted_at_ms = GREATEST(ml_model_registry.promoted_at_ms, EXCLUDED.promoted_at_ms);
++    """
++    values = [(
++        r.model_id, r.family, r.kind, r.artifact_uri, r.schema_ver, r.schema_hash,
++        r.promotion_state, r.champion_flag, r.owner_service, r.created_at_ms, r.promoted_at_ms,
++    ) for r in rows]
++    try:
++        with psycopg2.connect(cfg.db_dsn) as conn:
++            with conn.cursor() as cur:
++                execute_values(cur, sql, values)
++            conn.commit()
++    except Exception:
++        pass
++
++
++def _update_metrics(rows: Sequence[ModelRecord], ts_s: float, duration_s: float) -> None:
++    LAST_RUN_TS.set(ts_s)
++    LAST_DURATION.set(duration_s)
++
++    # reset gauges by setting current rows; unlabeled old series are tolerated for phase-0
++    counts: Dict[Tuple[str, str], int] = {}
++    for row in rows:
++        counts[(row.family, row.promotion_state)] = counts.get((row.family, row.promotion_state), 0) + 1
++        MODEL_PRESENT.labels(
++            family=row.family,
++            kind=row.kind,
++            promotion_state=row.promotion_state,
++            champion_flag="1" if row.champion_flag else "0",
++        ).set(1.0)
++        MODEL_ARTIFACT_EXISTS.labels(row.family, row.kind, row.promotion_state).set(float(row.artifact_exists))
++        MODEL_ARTIFACT_AGE.labels(row.family, row.kind, row.promotion_state).set(float(row.artifact_age_sec))
++    for (family, state), n in counts.items():
++        MODELS_TOTAL.labels(family=family, promotion_state=state).set(float(n))
++
++
++def main() -> int:
++    cfg = load_cfg()
++    start_http_server(cfg.port)
++    while True:
++        t0 = time.time()
++        try:
++            rows = discover_inventory(cfg)
++            ts_ms = _now_ms()
++            r = _connect_redis(cfg.redis_url)
++            _publish_inventory(r, cfg, rows, ts_ms)
++            _write_db(cfg, rows)
++            _update_metrics(rows, ts_ms / 1000.0, time.time() - t0)
++            UP.set(1.0)
++        except Exception:
++            UP.set(0.0)
++        time.sleep(cfg.interval_s)
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff -ruN /tmp/tradezip_orig/orderflow_services/prometheus_alerts_ml_control_plane_phase0_v1.yml /tmp/tradezip/orderflow_services/prometheus_alerts_ml_control_plane_phase0_v1.yml
+--- /tmp/tradezip_orig/orderflow_services/prometheus_alerts_ml_control_plane_phase0_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/tradezip/orderflow_services/prometheus_alerts_ml_control_plane_phase0_v1.yml	2026-04-05 10:11:59.097615153 +0000
+@@ -0,0 +1,48 @@
++groups:
++  - name: ml_control_plane_phase0_v1
++    interval: 30s
++    rules:
++      - alert: MLInventoryExporterDown
++        expr: ml_inventory_exporter_up == 0
++        for: 10m
++        labels:
++          severity: ticket
++        annotations:
++          summary: "ML inventory exporter down"
++          description: "Phase-0 inventory exporter has not completed successfully for >10m. Model control-plane inventory may be stale."
++
++      - alert: MLInventoryExporterStale
++        expr: time() - ml_inventory_last_run_ts_seconds > 900
++        for: 10m
++        labels:
++          severity: ticket
++        annotations:
++          summary: "ML inventory stale (>15m)"
++          description: "No fresh model inventory snapshot has been produced in >15 minutes."
++
++      - alert: MLHealthRollupDown
++        expr: ml_health_rollup_up == 0
++        for: 10m
++        labels:
++          severity: page
++        annotations:
++          summary: "ML health rollup worker down"
++          description: "Phase-0 ml health rollup worker is unhealthy. Runtime telemetry snapshots may be missing."
++
++      - alert: MLHealthRollupStale
++        expr: time() - ml_health_rollup_last_run_ts_seconds > 300
++        for: 10m
++        labels:
++          severity: page
++        annotations:
++          summary: "ML health rollup stale (>5m)"
++          description: "No recent successful ml health rollup loop. Check Redis consumer group lag and worker logs."
++
++      - alert: MLHealthRollupQueueLagHigh
++        expr: ml_health_rollup_queue_lag_ms > 300000
++        for: 15m
++        labels:
++          severity: ticket
++        annotations:
++          summary: "ML health rollup queue lag high"
++          description: "metrics:ml_confirm backlog is >5 minutes. Control-plane telemetry may drift from runtime."
+diff -ruN /tmp/tradezip_orig/orderflow_services/runbook_ml_control_plane_phase0_v1.md /tmp/tradezip/orderflow_services/runbook_ml_control_plane_phase0_v1.md
+--- /tmp/tradezip_orig/orderflow_services/runbook_ml_control_plane_phase0_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/tradezip/orderflow_services/runbook_ml_control_plane_phase0_v1.md	2026-04-05 10:11:59.110936086 +0000
+@@ -0,0 +1,81 @@
++# Runbook — ML Control Plane Phase-0
++
++## Scope
++
++Phase-0 adds **inventory + runtime telemetry** only. No LLM providers, no recommendation apply path.
++
++Components:
++- `orderflow_services.ml_inventory_exporter_v1`
++- `orderflow_services.ml_health_rollup_worker_v1`
++- SQL schema: `orderflow_services/sql/ml_control_plane_phase0_v1.sql`
++- Alerts: `orderflow_services/prometheus_alerts_ml_control_plane_phase0_v1.yml`
++
++## What it collects
++
++### Inventory
++- ML Confirm champion/challenger/candidate configs from Redis
++- Meta LR model paths from env
++- ML Scorer V2/V3 model paths from env
++- artifact path, schema version/hash, promotion state, champion flag, fail policy
++
++### Runtime telemetry
++- source: `metrics:ml_confirm`
++- per-minute rollups:
++  - latency p50/p95/p99 (fixed histogram quantiles)
++  - allow/block/abstain/shadow/error rates
++  - missing_critical_rate proxy from `missing_n`
++- sink:
++  - `stream:ml:health_snapshot`
++  - `ml_model_runtime_1m`
++
++## Deployment
++
++1. Apply SQL:
++```sql
++\i orderflow_services/sql/ml_control_plane_phase0_v1.sql
++```
++
++2. Add compose fragment:
++```bash
++cat orderflow_services/docker_compose_fragment_ml_control_plane_phase0_v1.yml
++```
++
++3. Load Prometheus rule file:
++```bash
++cat orderflow_services/prometheus_alerts_ml_control_plane_phase0_v1.yml
++```
++
++## Verification
++
++### Inventory stream
++```bash
++redis-cli XREVRANGE stream:ml:model_inventory + - COUNT 5
++redis-cli HGETALL metrics:ml:model_inventory:last
++curl -s localhost:9842/metrics | grep '^ml_inventory_'
++```
++
++### Health snapshot stream
++```bash
++redis-cli XREVRANGE stream:ml:health_snapshot + - COUNT 5
++redis-cli HGETALL metrics:ml:health_snapshot:last
++curl -s localhost:9843/metrics | grep '^ml_health_'
++```
++
++### DB rows
++```sql
++SELECT * FROM ml_model_registry ORDER BY created_at_ms DESC LIMIT 20;
++SELECT * FROM ml_model_runtime_1m ORDER BY ts_ms DESC LIMIT 20;
++```
++
++## Rollback
++
++Phase-0 is control-plane only. Safe rollback order:
++1. stop `scanner-ml-health-rollup-v1`
++2. stop `scanner-ml-inventory-exporter-v1`
++3. keep tables/streams; do **not** drop data during initial rollback
++
++## Notes
++
++- `ece` / `brier` are placeholders in Phase-0 unless later enriched from dedicated calibration jobs.
++- this worker is fail-open and never writes into hot-path keys.
++- inventory/export telemetry should be deployed before any LLM analysis phase.
+diff -ruN /tmp/tradezip_orig/orderflow_services/sql/ml_control_plane_phase0_v1.sql /tmp/tradezip/orderflow_services/sql/ml_control_plane_phase0_v1.sql
+--- /tmp/tradezip_orig/orderflow_services/sql/ml_control_plane_phase0_v1.sql	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/tradezip/orderflow_services/sql/ml_control_plane_phase0_v1.sql	2026-04-05 10:11:59.091286610 +0000
+@@ -0,0 +1,84 @@
++-- Phase-0 ML Control Plane schema.
++-- Safe to apply multiple times.
++
++CREATE TABLE IF NOT EXISTS ml_model_registry (
++  model_id                text PRIMARY KEY,
++  family                  text NOT NULL,
++  kind                    text NOT NULL,
++  artifact_uri            text NOT NULL,
++  schema_ver              text,
++  schema_hash             text,
++  promotion_state         text NOT NULL,
++  champion_flag           boolean NOT NULL DEFAULT false,
++  owner_service           text NOT NULL,
++  created_at_ms           bigint NOT NULL,
++  promoted_at_ms          bigint
++);
++
++CREATE TABLE IF NOT EXISTS ml_training_runs (
++  training_run_id         text PRIMARY KEY,
++  ts_ms                   bigint NOT NULL,
++  family                  text NOT NULL,
++  kind                    text NOT NULL,
++  model_id                text,
++  status                  text NOT NULL,
++  metrics_json            jsonb,
++  artifact_uri            text,
++  notes_json              jsonb
++);
++
++CREATE TABLE IF NOT EXISTS ml_model_runtime_1m (
++  ts_ms                   bigint NOT NULL,
++  model_id                text NOT NULL,
++  symbol                  text NOT NULL DEFAULT '*',
++  mode                    text NOT NULL,
++  latency_p50_ms          double precision,
++  latency_p95_ms          double precision,
++  latency_p99_ms          double precision,
++  allow_rate              double precision,
++  block_rate              double precision,
++  abstain_rate            double precision,
++  shadow_rate             double precision,
++  error_rate              double precision,
++  ece                     double precision,
++  brier                   double precision,
++  psi_top_json            jsonb,
++  ks_top_json             jsonb,
++  missing_critical_rate   double precision,
++  artifact_age_sec        double precision,
++  PRIMARY KEY (ts_ms, model_id, symbol)
++);
++
++CREATE TABLE IF NOT EXISTS llm_analysis_runs (
++  analysis_run_id         text PRIMARY KEY,
++  ts_ms                   bigint NOT NULL,
++  provider                text NOT NULL,
++  model_name              text NOT NULL,
++  task_type               text NOT NULL,
++  scope_json              jsonb NOT NULL,
++  input_refs_json         jsonb NOT NULL,
++  output_json             jsonb,
++  status                  text NOT NULL,
++  latency_ms              bigint,
++  cost_usd                double precision
++);
++
++CREATE TABLE IF NOT EXISTS llm_recommendations (
++  recommendation_id       text PRIMARY KEY,
++  analysis_run_id         text NOT NULL,
++  ts_ms                   bigint NOT NULL,
++  action_type             text NOT NULL,
++  target_kind             text NOT NULL,
++  target_ref              text NOT NULL,
++  risk_level              text NOT NULL,
++  recommendation_json     jsonb NOT NULL,
++  apply_status            text NOT NULL DEFAULT 'PENDING'
++);
++
++DO $$
++BEGIN
++  PERFORM create_hypertable('ml_model_runtime_1m', 'ts_ms', if_not_exists => TRUE);
++EXCEPTION WHEN undefined_function THEN
++  -- TimescaleDB extension missing; keep plain Postgres table.
++  NULL;
++END$$;
+diff -ruN /tmp/tradezip_orig/orderflow_services/tests/test_ml_health_rollup_worker_v1.py /tmp/tradezip/orderflow_services/tests/test_ml_health_rollup_worker_v1.py
+--- /tmp/tradezip_orig/orderflow_services/tests/test_ml_health_rollup_worker_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/tradezip/orderflow_services/tests/test_ml_health_rollup_worker_v1.py	2026-04-05 10:11:59.122613341 +0000
+@@ -0,0 +1,32 @@
++from __future__ import annotations
++
++from orderflow_services.ml_health_rollup_worker_v1 import (
++    _hist_quantile,
++    _latency_bucket_index,
++    _model_id,
++    _status,
++)
++
++
++def test_model_id_uses_kind_and_run_id():
++    fields = {"kind": "edge_stack_v1", "model_run_id": "run42"}
++    assert _model_id(fields) == "edge_stack_v1:run42"
++
++
++def test_status_prefers_status_field():
++    assert _status({"status": "SHADOW", "allow": "1"}) == "SHADOW"
++    assert _status({"allow": "1"}) == "ALLOW"
++    assert _status({"allow": "0"}) == "DENY"
++
++
++def test_latency_bucket_index_monotonic():
++    assert _latency_bucket_index(0.1) <= _latency_bucket_index(1.0)
++    assert _latency_bucket_index(1.0) <= _latency_bucket_index(100.0)
++
++
++def test_hist_quantile_approximation():
++    counts = [0] * 13
++    counts[2] = 10  # <=1ms
++    counts[4] = 10  # <=5ms
++    assert _hist_quantile(counts, 0.50) in (1.0, 2.0)
++    assert _hist_quantile(counts, 0.95) >= 5.0
+diff -ruN /tmp/tradezip_orig/orderflow_services/tests/test_ml_inventory_exporter_v1.py /tmp/tradezip/orderflow_services/tests/test_ml_inventory_exporter_v1.py
+--- /tmp/tradezip_orig/orderflow_services/tests/test_ml_inventory_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/tradezip/orderflow_services/tests/test_ml_inventory_exporter_v1.py	2026-04-05 10:11:59.116637922 +0000
+@@ -0,0 +1,50 @@
++from __future__ import annotations
++
++from orderflow_services.ml_inventory_exporter_v1 import (
++    Cfg,
++    _discover_ml_confirm_records,
++    _discover_ml_scorer_records,
++    _discover_meta_lr_records,
++)
++
++
++class DummyRedis:
++    def __init__(self, strings=None, hashes=None):
++        self._strings = strings or {}
++        self._hashes = hashes or {}
++
++    def get(self, key):
++        return self._strings.get(key)
++
++    def hgetall(self, key):
++        return self._hashes.get(key, {})
++
++
++def test_discover_ml_confirm_records_from_json_keys(tmp_path, monkeypatch):
++    model = tmp_path / "edge.joblib"
++    model.write_text("x")
++    r = DummyRedis(strings={
++        "cfg:ml_confirm:champion": '{"kind":"edge_stack_v1","model_path":"%s","model_ver":"run123","feature_schema_ver":"v12_of","feature_cols_hash":"abc"}' % model,
++    })
++    rows = _discover_ml_confirm_records(r, "svc")
++    assert len(rows) == 1
++    row = rows[0]
++    assert row.family == "ml_confirm"
++    assert row.kind == "edge_stack_v1"
++    assert row.promotion_state == "champion"
++    assert row.artifact_exists == 1
++    assert row.schema_ver == "v12_of"
++    assert row.schema_hash == "abc"
++
++
++def test_discover_local_model_records_from_env(tmp_path, monkeypatch):
++    scorer = tmp_path / "scorer.joblib"
++    scorer.write_text("x")
++    meta = tmp_path / "meta.json"
++    meta.write_text("{}")
++    monkeypatch.setenv("ML_SCORER_V2_MODEL_PATH", str(scorer))
++    monkeypatch.setenv("META_MODEL_CHAMPION_PATH", str(meta))
++    srows = _discover_ml_scorer_records("svc")
++    mrows = _discover_meta_lr_records("svc")
++    assert any(r.kind == "ml_scorer_v2" and r.artifact_exists == 1 for r in srows)
++    assert any(r.kind == "meta_lr" and r.artifact_exists == 1 for r in mrows)

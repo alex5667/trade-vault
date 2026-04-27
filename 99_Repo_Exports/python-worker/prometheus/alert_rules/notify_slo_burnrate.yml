@@ -1,0 +1,63 @@
+groups:
+  - name: notify_slo_burnrate
+    rules:
+      # SLO Target: 99.9%
+      # Burn Rate Multi-Window Alerting
+      
+      # Page (Critical): Burn rate > 14.4 (consume 2% budget in 1h)
+      - alert: NotifyDeliveryBurnRateFast
+        expr: |
+          (
+            rate(notify_send_total{status="err"}[5m]) 
+            / 
+            rate(notify_send_total[5m])
+          ) > (14.4 * (1 - 0.999))
+          AND
+          (
+            rate(notify_send_total{status="err"}[1h]) 
+            / 
+            rate(notify_send_total[1h])
+          ) > (14.4 * (1 - 0.999))
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "High burn rate on notification delivery (Fast)"
+          description: "Notification error budget burning at >14.4x rate (Fast 5m and Slow 1h windows)."
+
+      # Ticket (Warning): Burn rate > 6.0
+      - alert: NotifyDeliveryBurnRateSlow
+        expr: |
+          (
+            rate(notify_send_total{status="err"}[30m]) 
+            / 
+            rate(notify_send_total[30m])
+          ) > (6.0 * (1 - 0.999))
+          AND
+          (
+            rate(notify_send_total{status="err"}[6h]) 
+            / 
+            rate(notify_send_total[6h])
+          ) > (6.0 * (1 - 0.999))
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Elevated burn rate on notification delivery (Slow)"
+          description: "Notification error budget burning at >6x rate (Fast 30m and Slow 6h windows)."
+
+      - alert: NotifyDeliveryStale
+        expr: (time() - notify_last_ok_ts_seconds) > 300
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No successful notifications for 5 minutes"
+
+      - alert: NotifyQueueLagHigh
+        expr: notify_queue_lag_ms > 600000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Notification queue lag > 10m"

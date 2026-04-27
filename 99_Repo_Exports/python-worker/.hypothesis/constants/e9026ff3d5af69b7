@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/sparse/linalg/_interface.py
+# hypothesis_version: 6.148.10
+
+[1.0, '<%dx%d %s with %s>', 'LinearOperator', 'aslinearoperator', 'dimension mismatch', 'dtype', 'dtype=', 'matvec', 'rmatmat', 'rmatvec', 'shape', 'type not understood', 'unspecified dtype']

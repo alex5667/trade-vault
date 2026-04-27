@@ -1,0 +1,499 @@
+diff --git a/core/dq_gate_v1.py b/core/dq_gate_v1.py
+--- a/core/dq_gate_v1.py
++++ b/core/dq_gate_v1.py
+@@ -1,25 +1,42 @@
+ import math
+-from typing import Dict, Any, Optional
++import os
++from typing import Dict, Any, Optional, List
++
+ from core_snapshot.runtime_clock import snapshot as runtime_snapshot
+ from core_snapshot.dq_observe_only import apply_observe_only_book_veto
++
+ 
+ def eval_dq_gate(indicators: Dict[str, Any], cfg2: Dict[str, Any]) -> Dict[str, Any]:
+     """
+     P14 DQ / time-determinism gate.
+-    Returns {dq_pen, dq_veto, dq_reason, dq_reason_bucket, dq_health_score, dq_components}.
++
++    Design goals:
++      - dq_level is always computed (0/1/2) for observability and decision records.
++      - dq_veto for book-seq hard cases is controlled by observe-only warmup:
++            dq_book_veto_enabled AND uptime_sec >= dq_observe_only_sec
++        while dq_level/reasons remain visible during warmup.
++
++    Returns:
++        {
++          dq_pen, dq_veto, dq_level, dq_reason, dq_reason_bucket,
++          dq_reasons, dq_health_score, dq_components,
++          uptime_sec, runtime_start_ts_ms?, dq_veto_suppressed?, dq_veto_suppressed_reason?
++        }
+     """
+     enable = int(cfg2.get("dq_gate_enable", 0))
+     if not enable:
+         return {
+             "dq_pen": 0.0,
+             "dq_veto": 0,
++            "dq_level": 0,
+             "dq_reason": "disabled",
+             "dq_reason_bucket": "ok",
++            "dq_reasons": [],
+             "dq_health_score": 1.0,
+-            "dq_components": {}
++            "dq_components": {},
+         }
+ 
+-    # Extract indicators with default fail-open values (NaN/Inf -> fail open)
++    # Extract indicators with default fail-open values (NaN/Inf -> fail-open).
+     def _get(k: str, default: float = 0.0, aliases: Optional[list] = None) -> float:
+         val = indicators.get(k)
+         if val is None and aliases:
+@@ -27,7 +44,7 @@
+                 val = indicators.get(al)
+                 if val is not None:
+                     break
+-        
++
+         if val is None:
+             return default
+         try:
+@@ -38,78 +55,105 @@
+         except (ValueError, TypeError):
+             return default
+ 
+-    # DQ features (v5 meta)
++    # DQ features (baseline)
+     data_health = _get("data_health", 1.0)
+     book_health_ok = _get("book_health_ok", 1.0)
+     tick_time_age_ms = _get("tick_time_age_ms", 0.0)
+-    
++
++    # Book sequence/gap signal (EMA). This may be added by a separate book processor.
++    # We fail-open to 0.0 when absent, but surface it in dq_components for visibility.
++    book_missing_seq_ema = _get("book_missing_seq_ema", 0.0, aliases=["book_missing_seq_ema_ms", "book_missing_seq"])
++
+     # Skew/Desync EMAs (higher is worse)
+     tick_ts_source_now_ema = _get("tick_ts_source_now_ema", 0.0)
+     tick_ts_source_stream_id_ema = _get("tick_ts_source_stream_id_ema", 0.0)
+     tick_event_age_abs_ema_ms = _get("tick_event_age_abs_ema_ms", 0.0)
+     tick_event_stream_skew_abs_ema_ms = _get("tick_event_stream_skew_abs_ema_ms", 0.0)
+-    
++
+     # Other quality flags
+     tick_unknown_side_ema = _get("tick_unknown_side_ema", 0.0)
+ 
+     # Thresholds from cfg2
+     mode = str(cfg2.get("dq_gate_mode", "penalty")).lower()
+     pen_max = float(cfg2.get("dq_pen_max", 0.10))
+-    
+-    # 1. Basic Health Check
++
++    # Book hard threshold (EMA) – name is aligned with broader codebase conventions.
++    # Accepted keys: book_hard, dq_book_hard_ema, dq_book_hard.
++    book_hard = float(cfg2.get("book_hard", cfg2.get("dq_book_hard_ema", cfg2.get("dq_book_hard", 0.25))))
++
++    # 1) Basic Health Check
+     health_score = 1.0
+-    reason = "ok"
+-    
++    primary_reason = "ok"
++    reasons: List[str] = []
++
+     # Penalize low data health
+     if data_health < float(cfg2.get("dq_data_health_min", 0.85)):
+         health_score *= max(0.0, data_health)
+-        reason = "low_data_health"
+-        
+-    # Penalize stale book
++        primary_reason = "low_data_health"
++
++    # Penalize stale book (transport/refresh health, not sequence)
+     if book_health_ok < 0.5:
+         health_score *= 0.5
+-        reason = "book_stale"
+-
+-    # 2. Latency/Skew Veto/Penalty
+-    latency_pen = 0.0
++        primary_reason = "book_stale"
++
++    # 2) Latency/Skew (penalty path)
+     age_limit = float(cfg2.get("dq_tick_age_ms_max", 5000))
+     if tick_time_age_ms > age_limit:
+         health_score *= 0.1
+-        reason = "latency_spike"
+-
+-    # Skew penalties
++        primary_reason = "latency_spike"
++
+     skew_max = float(cfg2.get("dq_skew_ema_ms_max", 1000))
+     if tick_ts_source_now_ema > skew_max:
+         health_score *= 0.7
+-        reason = "clock_skew_now"
+-    
++        primary_reason = "clock_skew_now"
++
+     if tick_ts_source_stream_id_ema > skew_max:
+         health_score *= 0.8
+-        reason = "stream_id_skew"
+-
+-    # 3. Calculate final penalty
+-    # Formula: dq_pen = (1.0 - health_score) * pen_max
++        primary_reason = "stream_id_skew"
++
++    # 3) Final penalty
+     dq_pen = (1.0 - health_score) * pen_max
+     dq_pen = max(0.0, min(pen_max, dq_pen))
+ 
+-    # 4. Veto Logic
++    # 4) Hard level conditions (level=2) – computed regardless of `mode`
++    # Book sequence hard signal: book_missing_seq_ema >= book_hard
++    book_seq_hard = (book_missing_seq_ema >= book_hard) if (book_hard > 0.0) else False
++    if book_seq_hard:
++        # For observability, make the book reason primary; keep previous reason in list if needed.
++        primary_reason = "book_seq_hard"
++
++    if primary_reason != "ok":
++        reasons.append(primary_reason)
++
++    # If you want to keep more granular multi-reason context, add it here.
++    # We keep it minimal to avoid noisy decision records.
++
++    # 5) Base veto logic (non-book) – only in enforce/both/veto modes
+     dq_veto = 0
+     if mode in ("enforce", "both", "veto"):
+         hard_min = float(cfg2.get("dq_data_health_hard_min", 0.70))
+         if health_score < hard_min:
+             dq_veto = 1
+ 
+-    # Simulate dq_level since this version of the gate might not explicitly compute it
++    # 6) dq_level is always computed (0/1/2)
+     dq_level = 2 if dq_veto == 1 else (1 if dq_pen > 0 else 0)
+-    dq_reasons = [reason] if reason != "ok" else []
+-
+-    # Apply observe-only veto
++    if book_seq_hard:
++        dq_level = 2  # force level=2 visibility even when mode=penalty
++
++    # 7) Book veto candidate: if level=2 and book hard -> veto candidate becomes 1
++    if book_seq_hard:
++        dq_veto = 1  # will be suppressed by observe-only until warmup / enabled
++
++    dq_bucket = _reason_bucket(primary_reason)
++
++    # 8) Observe-only gating for book hard veto
++    # event_ts_ms: prefer deterministic tick time; fall back to event_ts_ms if present.
+     clock = runtime_snapshot(event_ts_ms=indicators.get("tick_ts_source_now") or indicators.get("event_ts_ms"))
+     out = apply_observe_only_book_veto(
+         dq_level=dq_level,
+         dq_veto=dq_veto,
+-        dq_reason_bucket=_reason_bucket(reason),
+-        dq_reasons=dq_reasons,
++        dq_reason_bucket=dq_bucket,
++        dq_reasons=reasons,
+         uptime_sec=clock.uptime_sec,
+         cfg=cfg2,
+     )
+@@ -118,28 +162,40 @@
+     res = {
+         "dq_pen": float(dq_pen),
+         "dq_veto": int(dq_veto),
+-        "dq_reason": str(reason),
+-        "dq_reason_bucket": _reason_bucket(reason),
++        "dq_level": int(dq_level),
++        "dq_reason": str(primary_reason),
++        "dq_reason_bucket": str(dq_bucket),
++        "dq_reasons": list(reasons),
+         "dq_health_score": float(health_score),
+         "dq_components": {
+             "data_health": data_health,
+             "book_health_ok": book_health_ok,
+             "tick_time_age_ms": tick_time_age_ms,
+             "skew_now": tick_ts_source_now_ema,
+-            "skew_stream": tick_ts_source_stream_id_ema
++            "skew_stream": tick_ts_source_stream_id_ema,
++            "book_missing_seq_ema": book_missing_seq_ema,
++            "book_hard": book_hard,
+         },
+-        "uptime_sec": clock.uptime_sec
++        "uptime_sec": float(clock.uptime_sec),
+     }
+     if clock.runtime_start_ts_ms is not None:
+-        res["runtime_start_ts_ms"] = clock.runtime_start_ts_ms
++        res["runtime_start_ts_ms"] = int(clock.runtime_start_ts_ms)
+     if out.suppressed:
+         res["dq_veto_suppressed"] = 1
+         res["dq_veto_suppressed_reason"] = out.suppress_reason
+     return res
+ 
++
+ def _reason_bucket(reason: str) -> str:
+-    if reason == "ok": return "ok"
+-    if "latency" in reason or "skew" in reason: return "latency"
+-    if "health" in reason: return "data_health"
+-    if "book" in reason: return "stale"
++    # Buckets are used for coarse routing/telemetry; keep stable.
++    if reason == "ok":
++        return "ok"
++    if reason.startswith("book_seq") or "book_missing_seq" in reason or "book_hard" in reason:
++        return "book_seq"
++    if "latency" in reason or "skew" in reason:
++        return "latency"
++    if "health" in reason:
++        return "data_health"
++    if "book" in reason:
++        return "stale"
+     return "other"
+
+diff --git a/core/of_confirm_engine.py b/core/of_confirm_engine.py
+--- a/core/of_confirm_engine.py
++++ b/core/of_confirm_engine.py
+@@ -1308,6 +1308,22 @@
+         indicators["dq_reason"] = dq_reason
+         indicators["dq_health_score"] = dq_health
+         indicators["dq_reason_bucket"] = dq_bucket
++
++        # ---------------------------------------------------------------------
++        # B1 Observe-only warmup surfacing (24–48h):
++        # - dq_level is always computed (0/1/2) even when veto is suppressed.
++        # - uptime_sec/runtime_start_ts_ms are derived from process-monotonic time
++        #   (NTP-safe) and can be used for dashboards and rollout verification.
++        # ---------------------------------------------------------------------
++        indicators["dq_level"] = int(dq_meta.get("dq_level", 0) or 0)
++        indicators["dq_reasons"] = dq_meta.get("dq_reasons", []) or []
++        indicators["dq_uptime_sec"] = float(dq_meta.get("uptime_sec", 0.0) or 0.0)
++        if "runtime_start_ts_ms" in dq_meta and dq_meta.get("runtime_start_ts_ms") is not None:
++            indicators["runtime_start_ts_ms"] = int(dq_meta.get("runtime_start_ts_ms") or 0)
++        if int(dq_meta.get("dq_veto_suppressed", 0) or 0) == 1:
++            indicators["dq_veto_suppressed"] = 1
++            indicators["dq_veto_suppressed_reason"] = str(dq_meta.get("dq_veto_suppressed_reason", "unknown"))
++
+         indicators["of_base_score"] = float(base_score)
+         indicators["of_score_final_raw"] = float(final_score_raw)
+         indicators["of_score_final"] = float(score)
+
+diff --git a/core_snapshot/__init__.py b/core_snapshot/__init__.py
+new file mode 100644
+--- /dev/null
++++ b/core_snapshot/__init__.py
+@@ -0,0 +1,1 @@
++# Package marker for observe-only runtime helpers.
+
+diff --git a/core_snapshot/runtime_clock.py b/core_snapshot/runtime_clock.py
+new file mode 100644
+--- /dev/null
++++ b/core_snapshot/runtime_clock.py
+@@ -0,0 +1,52 @@
++"""Runtime clock helpers.
++
++Why: observe-only warmup must be based on process-monotonic time (NTP-safe),
++but we also want a deterministic `runtime_start_ts_ms` to attach to decision records.
++
++We compute:
++  - uptime_sec: seconds since process start (time.monotonic based)
++  - runtime_start_ts_ms: derived as (event_ts_ms - uptime_ms) when event_ts_ms is provided
++
++The derived `runtime_start_ts_ms` is deterministic relative to the stream time and
++is stable even if wall clock changes.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Optional, Any
++import time
++
++
++_PROCESS_START_MONO = time.monotonic()
++
++
++@dataclass(frozen=True)
++class RuntimeClockSnapshot:
++    uptime_sec: float
++    runtime_start_ts_ms: Optional[int]
++
++
++def snapshot(event_ts_ms: Optional[Any] = None) -> RuntimeClockSnapshot:
++    """Return monotonic uptime + derived runtime_start_ts_ms.
++
++    Args:
++        event_ts_ms: epoch milliseconds of current event/tick (optional).
++            If present and parseable to int, runtime_start_ts_ms is derived
++            deterministically as event_ts_ms - uptime_ms.
++
++    Returns:
++        RuntimeClockSnapshot
++    """
++    now_mono = time.monotonic()
++    uptime_sec = max(0.0, float(now_mono - _PROCESS_START_MONO))
++
++    start_ts_ms: Optional[int] = None
++    if event_ts_ms is not None:
++        try:
++            ev_ms = int(float(event_ts_ms))
++            start_ts_ms = max(0, int(ev_ms - int(uptime_sec * 1000.0)))
++        except Exception:
++            start_ts_ms = None
++
++    return RuntimeClockSnapshot(uptime_sec=uptime_sec, runtime_start_ts_ms=start_ts_ms)
+
+diff --git a/core_snapshot/dq_observe_only.py b/core_snapshot/dq_observe_only.py
+new file mode 100644
+--- /dev/null
++++ b/core_snapshot/dq_observe_only.py
+@@ -0,0 +1,107 @@
++"""Observe-only warmup controller for DQ hard veto (book-seq).
++
++Spec (B1):
++  - dq_level is always computed (0/1/2)
++  - dq_veto should only become 1 for book-seq hard cases when:
++        dq_book_veto_enabled == True
++    AND uptime_sec >= dq_observe_only_sec
++  - During warmup or when disabled, dq_level/reasons stay visible; only dq_veto is suppressed.
++
++This module is pure and unit-testable: it does not compute dq_level, it only gates veto.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Any, Dict, List, Optional
++import os
++
++
++@dataclass(frozen=True)
++class ObserveOnlyResult:
++    dq_veto: int
++    suppressed: bool
++    suppress_reason: Optional[str]
++
++
++def _as_bool(v: Any, default: bool = False) -> bool:
++    if v is None:
++        return default
++    if isinstance(v, bool):
++        return v
++    if isinstance(v, (int, float)):
++        return bool(int(v))
++    if isinstance(v, str):
++        s = v.strip().lower()
++        if s in ("1", "true", "yes", "y", "on"):
++            return True
++        if s in ("0", "false", "no", "n", "off", ""):
++            return False
++    return default
++
++
++def _as_int(v: Any, default: int) -> int:
++    if v is None:
++        return default
++    try:
++        return int(float(v))
++    except Exception:
++        return default
++
++
++def _cfg_bool(cfg: Dict[str, Any], key: str, env_key: str, default: bool) -> bool:
++    if key in cfg and cfg.get(key) is not None:
++        return _as_bool(cfg.get(key), default=default)
++    return _as_bool(os.getenv(env_key), default=default)
++
++
++def _cfg_int(cfg: Dict[str, Any], key: str, env_key: str, default: int) -> int:
++    if key in cfg and cfg.get(key) is not None:
++        return _as_int(cfg.get(key), default=default)
++    return _as_int(os.getenv(env_key), default=default)
++
++
++def _is_book_case(dq_reason_bucket: str, dq_reasons: List[str]) -> bool:
++    if dq_reason_bucket == "book_seq":
++        return True
++    for r in dq_reasons:
++        rr = (r or "").lower()
++        if "book_seq" in rr or "book_hard" in rr or "book_missing_seq" in rr:
++            return True
++    return False
++
++
++def apply_observe_only_book_veto(
++    *,
++    dq_level: int,
++    dq_veto: int,
++    dq_reason_bucket: str,
++    dq_reasons: List[str],
++    uptime_sec: float,
++    cfg: Dict[str, Any],
++) -> ObserveOnlyResult:
++    """Gate book-seq hard veto according to observe-only warmup window."""
++    dq_level_i = int(dq_level or 0)
++    dq_veto_i = int(dq_veto or 0)
++
++    # Only applies to L2 book-seq hard cases.
++    if dq_level_i != 2 or not _is_book_case(str(dq_reason_bucket or ""), dq_reasons or []):
++        return ObserveOnlyResult(dq_veto=dq_veto_i, suppressed=False, suppress_reason=None)
++
++    enabled = _cfg_bool(cfg, "dq_book_veto_enabled", "DQ_BOOK_VETO_ENABLED", default=False)
++
++    # Primary key per spec; keep backward-compat with older warmup var name.
++    warmup = _cfg_int(cfg, "dq_observe_only_sec", "DQ_OBSERVE_ONLY_SEC", default=86400)
++    if "dq_observe_only_sec" not in cfg and os.getenv("DQ_OBSERVE_ONLY_SEC") is None:
++        warmup = _cfg_int(cfg, "dq_book_veto_warmup_s", "DQ_BOOK_VETO_WARMUP_S", default=warmup)
++
++    up = float(uptime_sec or 0.0)
++
++    if not enabled:
++        # Suppress only book-veto path.
++        return ObserveOnlyResult(dq_veto=0, suppressed=True, suppress_reason="disabled")
++
++    if up < float(max(0, warmup)):
++        return ObserveOnlyResult(dq_veto=0, suppressed=True, suppress_reason="warmup")
++
++    return ObserveOnlyResult(dq_veto=dq_veto_i, suppressed=False, suppress_reason=None)
+
+diff --git a/tests/test_b1_observe_only_book_veto_v1.py b/tests/test_b1_observe_only_book_veto_v1.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_b1_observe_only_book_veto_v1.py
+@@ -0,0 +1,43 @@
++from core_snapshot.dq_observe_only import apply_observe_only_book_veto
++
++
++def test_b1_observe_only_blocks_book_veto_during_warmup():
++    out = apply_observe_only_book_veto(
++        dq_level=2,
++        dq_veto=1,
++        dq_reason_bucket="book_seq",
++        dq_reasons=["book_seq_hard"],
++        uptime_sec=10.0,
++        cfg={"dq_book_veto_enabled": True, "dq_observe_only_sec": 86400},
++    )
++    assert out.dq_veto == 0
++    assert out.suppressed is True
++    assert out.suppress_reason == "warmup"
++
++
++def test_b1_observe_only_allows_book_veto_after_warmup():
++    out = apply_observe_only_book_veto(
++        dq_level=2,
++        dq_veto=1,
++        dq_reason_bucket="book_seq",
++        dq_reasons=["book_seq_hard"],
++        uptime_sec=90000.0,
++        cfg={"dq_book_veto_enabled": True, "dq_observe_only_sec": 86400},
++    )
++    assert out.dq_veto == 1
++    assert out.suppressed is False
++    assert out.suppress_reason is None
++
++
++def test_b1_observe_only_disables_book_veto_when_flag_off():
++    out = apply_observe_only_book_veto(
++        dq_level=2,
++        dq_veto=1,
++        dq_reason_bucket="book_seq",
++        dq_reasons=["book_seq_hard"],
++        uptime_sec=999999.0,
++        cfg={"dq_book_veto_enabled": False, "dq_observe_only_sec": 86400},
++    )
++    assert out.dq_veto == 0
++    assert out.suppressed is True
++    assert out.suppress_reason == "disabled"

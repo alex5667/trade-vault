@@ -1,0 +1,689 @@
+diff -ruN /tmp/p46tree/.pytest_cache/.gitignore /tmp/p47tree/.pytest_cache/.gitignore
+--- /tmp/p46tree/.pytest_cache/.gitignore	2026-03-07 07:24:43.000000000 +0000
++++ /tmp/p47tree/.pytest_cache/.gitignore	1970-01-01 00:00:00.000000000 +0000
+@@ -1,2 +0,0 @@
+-# Created by pytest automatically.
+-*
+diff -ruN /tmp/p46tree/.pytest_cache/CACHEDIR.TAG /tmp/p47tree/.pytest_cache/CACHEDIR.TAG
+--- /tmp/p46tree/.pytest_cache/CACHEDIR.TAG	2026-03-07 07:24:43.000000000 +0000
++++ /tmp/p47tree/.pytest_cache/CACHEDIR.TAG	1970-01-01 00:00:00.000000000 +0000
+@@ -1,4 +0,0 @@
+-Signature: 8a477f597d28d172789f06886806bc55
+-# This file is a cache directory tag created by pytest.
+-# For information about cache directory tags, see:
+-#	https://bford.info/cachedir/spec.html
+diff -ruN /tmp/p46tree/.pytest_cache/README.md /tmp/p47tree/.pytest_cache/README.md
+--- /tmp/p46tree/.pytest_cache/README.md	2026-03-07 07:24:43.000000000 +0000
++++ /tmp/p47tree/.pytest_cache/README.md	1970-01-01 00:00:00.000000000 +0000
+@@ -1,8 +0,0 @@
+-# pytest cache directory #
+-
+-This directory contains data from the pytest's cache plugin,
+-which provides the `--lf` and `--ff` options, as well as the `cache` fixture.
+-
+-**Do not** commit this to version control.
+-
+-See [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.
+diff -ruN /tmp/p46tree/.pytest_cache/v/cache/lastfailed /tmp/p47tree/.pytest_cache/v/cache/lastfailed
+--- /tmp/p46tree/.pytest_cache/v/cache/lastfailed	2026-03-07 07:25:09.000000000 +0000
++++ /tmp/p47tree/.pytest_cache/v/cache/lastfailed	1970-01-01 00:00:00.000000000 +0000
+@@ -1 +0,0 @@
+-{}
+\ No newline at end of file
+diff -ruN /tmp/p46tree/.pytest_cache/v/cache/nodeids /tmp/p47tree/.pytest_cache/v/cache/nodeids
+--- /tmp/p46tree/.pytest_cache/v/cache/nodeids	2026-03-07 07:25:09.000000000 +0000
++++ /tmp/p47tree/.pytest_cache/v/cache/nodeids	1970-01-01 00:00:00.000000000 +0000
+@@ -1,7 +0,0 @@
+-[
+-  "audit_code/risk/test_risk_summary_assets_v1.py::test_summary_sql_assets_exist",
+-  "binance_execution/test_alertmanager_risk_deeplinks_v1.py::test_alertmanager_template_has_risk_links",
+-  "binance_execution/test_grafana_risk_annotations_v1.py::test_risk_dashboard_has_annotations",
+-  "binance_execution/test_runbook_server_risk_summary_v1.py::test_runbook_server_has_risk_summary_endpoints",
+-  "scripts/test_refresh_risk_decision_summary_v1.py::test_refresh_summary_script_exists"
+-]
+\ No newline at end of file
+Binary files /tmp/p46tree/audit_code/risk/__pycache__/test_risk_summary_assets_v1.cpython-313-pytest-9.0.2.pyc and /tmp/p47tree/audit_code/risk/__pycache__/test_risk_summary_assets_v1.cpython-313-pytest-9.0.2.pyc differ
+diff -ruN /tmp/p46tree/audit_code/risk/test_p47_risk_retention_assets_v1.py /tmp/p47tree/audit_code/risk/test_p47_risk_retention_assets_v1.py
+--- /tmp/p46tree/audit_code/risk/test_p47_risk_retention_assets_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p47tree/audit_code/risk/test_p47_risk_retention_assets_v1.py	2026-03-07 08:00:54.398369537 +0000
+@@ -0,0 +1,8 @@
++from pathlib import Path
++
++
++def test_risk_retention_assets_exist():
++    root = Path(__file__).resolve().parents[2]
++    assert (root / 'db' / 'migrations' / '20260306_13_risk_audit_retention_partitioning.sql').exists()
++    assert (root / 'db' / 'migrations' / '20260306_14_risk_audit_retention_partitioning_indexes.sql').exists()
++    assert (root / 'scripts' / 'purge_risk_audit_hot_tables.py').exists()
+Binary files /tmp/p46tree/binance_execution/__pycache__/test_alertmanager_risk_deeplinks_v1.cpython-313-pytest-9.0.2.pyc and /tmp/p47tree/binance_execution/__pycache__/test_alertmanager_risk_deeplinks_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files /tmp/p46tree/binance_execution/__pycache__/test_grafana_risk_annotations_v1.cpython-313-pytest-9.0.2.pyc and /tmp/p47tree/binance_execution/__pycache__/test_grafana_risk_annotations_v1.cpython-313-pytest-9.0.2.pyc differ
+Binary files /tmp/p46tree/binance_execution/__pycache__/test_runbook_server_risk_summary_v1.cpython-313-pytest-9.0.2.pyc and /tmp/p47tree/binance_execution/__pycache__/test_runbook_server_risk_summary_v1.cpython-313-pytest-9.0.2.pyc differ
+diff -ruN /tmp/p46tree/binance_execution/test_grafana_risk_drift_assets_v1.py /tmp/p47tree/binance_execution/test_grafana_risk_drift_assets_v1.py
+--- /tmp/p46tree/binance_execution/test_grafana_risk_drift_assets_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p47tree/binance_execution/test_grafana_risk_drift_assets_v1.py	2026-03-07 08:00:54.488351472 +0000
+@@ -0,0 +1,11 @@
++from pathlib import Path
++import json
++
++
++def test_p47_grafana_dashboard_exists_and_mentions_mismatch():
++    p = Path(__file__).resolve().parents[1] / 'monitoring' / 'grafana' / 'dashboards' / 'trade_execution_p47_risk_drift.json'
++    doc = json.loads(p.read_text(encoding='utf-8'))
++    assert doc['title'].startswith('Trade Risk Drift')
++    dumped = json.dumps(doc)
++    assert 'Mismatch Rate' in dumped
++    assert 'repeated_risk_consistency_mismatch' in dumped
+diff -ruN /tmp/p46tree/binance_execution/test_runbook_server_operator_score_v1.py /tmp/p47tree/binance_execution/test_runbook_server_operator_score_v1.py
+--- /tmp/p46tree/binance_execution/test_runbook_server_operator_score_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p47tree/binance_execution/test_runbook_server_operator_score_v1.py	2026-03-07 08:00:54.466426739 +0000
+@@ -0,0 +1,6 @@
++from pathlib import Path
++
++
++def test_runbook_server_has_operator_score_endpoint():
++    src = (Path(__file__).resolve().parents[1] / 'runbooks' / 'server' / 'runbook_server.py').read_text(encoding='utf-8')
++    assert '/api/operator-score/latest' in src
+diff -ruN /tmp/p46tree/config/docker-compose.execution-p47-risk-retention.override.yml /tmp/p47tree/config/docker-compose.execution-p47-risk-retention.override.yml
+--- /tmp/p46tree/config/docker-compose.execution-p47-risk-retention.override.yml	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p47tree/config/docker-compose.execution-p47-risk-retention.override.yml	2026-03-07 08:00:54.271645568 +0000
+@@ -0,0 +1,11 @@
++services:
++  trade-runbook-server:
++    environment:
++      RUNBOOK_REPORT_DIR: /var/lib/trade-runbook/reports
++    volumes:
++      - ./var/runbook-reports:/var/lib/trade-runbook/reports
++  trade-risk-exporters:
++    image: alpine:3.20
++    command: ["sh", "-lc", "sleep infinity"]
++    volumes:
++      - ./var/node-exporter:/var/lib/node_exporter/textfile_collector
+diff -ruN /tmp/p46tree/config/env.execution-p47-risk-retention.example /tmp/p47tree/config/env.execution-p47-risk-retention.example
+--- /tmp/p46tree/config/env.execution-p47-risk-retention.example	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p47tree/config/env.execution-p47-risk-retention.example	2026-03-07 08:00:54.258982009 +0000
+@@ -0,0 +1,6 @@
++RISK_AUDIT_RETENTION_DAYS=21
++RISK_CONSISTENCY_REPEAT_THRESHOLD=3
++RISK_CONSISTENCY_QUARANTINE_ON_REPEATED=1
++RISK_CONSISTENCY_REPORT_PATH=/var/lib/trade-runbook/reports/latest_risk_signal_consistency.json
++RISK_SUMMARY_TEXTFILE_PATH=/var/lib/node_exporter/textfile_collector/trade_risk_summary.prom
++OPERATOR_SCORE_REPORT_PATH=/var/lib/trade-runbook/reports/latest_operator_score.json
+diff -ruN /tmp/p46tree/db/migrations/20260306_13_risk_audit_retention_partitioning.sql /tmp/p47tree/db/migrations/20260306_13_risk_audit_retention_partitioning.sql
+--- /tmp/p46tree/db/migrations/20260306_13_risk_audit_retention_partitioning.sql	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p47tree/db/migrations/20260306_13_risk_audit_retention_partitioning.sql	2026-03-07 07:59:24.896849912 +0000
+@@ -0,0 +1,48 @@
++-- P4.7: retention + partitioning for risk decision audit hot tables.
++
++create table if not exists risk_decision_audit_archive (
++  like risk_decision_audit including all
++) partition by range (created_ts_ms);
++
++create table if not exists risk_snapshot_archive (
++  like risk_snapshot including all
++) partition by range (updated_ts_ms);
++
++create or replace function ensure_monthly_range_partition_risk(parent_table text, partition_prefix text, ts_ms bigint)
++returns void language plpgsql as $$
++declare
++  start_ts timestamptz;
++  end_ts timestamptz;
++  part_name text;
++  from_ms bigint;
++  to_ms bigint;
++begin
++  start_ts := date_trunc('month', to_timestamp(ts_ms / 1000.0) at time zone 'utc');
++  end_ts := start_ts + interval '1 month';
++  part_name := partition_prefix || to_char(start_ts, 'YYYYMM');
++  from_ms := (extract(epoch from start_ts) * 1000)::bigint;
++  to_ms := (extract(epoch from end_ts) * 1000)::bigint;
++  execute format('create table if not exists %I partition of %I for values from (%s) to (%s)', part_name, parent_table, from_ms, to_ms);
++end$$;
++
++create or replace function purge_risk_audit_hot_tables(cutoff_ts_ms bigint)
++returns table(purged_decisions bigint, purged_snapshots bigint) language plpgsql as $$
++declare
++  d_count bigint := 0;
++  s_count bigint := 0;
++begin
++  perform ensure_monthly_range_partition_risk('risk_decision_audit_archive', 'risk_decision_audit_archive_', cutoff_ts_ms);
++  perform ensure_monthly_range_partition_risk('risk_snapshot_archive', 'risk_snapshot_archive_', cutoff_ts_ms);
++
++  insert into risk_decision_audit_archive
++  select * from risk_decision_audit where created_ts_ms < cutoff_ts_ms;
++  get diagnostics d_count = row_count;
++  delete from risk_decision_audit where created_ts_ms < cutoff_ts_ms;
++
++  insert into risk_snapshot_archive
++  select * from risk_snapshot where updated_ts_ms < cutoff_ts_ms;
++  get diagnostics s_count = row_count;
++  delete from risk_snapshot where updated_ts_ms < cutoff_ts_ms;
++
++  return query select d_count, s_count;
++end$$;
+diff -ruN /tmp/p46tree/db/migrations/20260306_14_risk_audit_retention_partitioning_indexes.sql /tmp/p47tree/db/migrations/20260306_14_risk_audit_retention_partitioning_indexes.sql
+--- /tmp/p46tree/db/migrations/20260306_14_risk_audit_retention_partitioning_indexes.sql	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p47tree/db/migrations/20260306_14_risk_audit_retention_partitioning_indexes.sql	2026-03-07 07:59:24.944999087 +0000
+@@ -0,0 +1,4 @@
++create index if not exists risk_decision_audit_archive_symbol_ts_idx on risk_decision_audit_archive (symbol, created_ts_ms desc);
++create index if not exists risk_decision_audit_archive_tier_level_ts_idx on risk_decision_audit_archive (tier, level, created_ts_ms desc);
++create index if not exists risk_snapshot_archive_symbol_ts_idx on risk_snapshot_archive (symbol, updated_ts_ms desc);
++create index if not exists risk_snapshot_archive_tier_level_ts_idx on risk_snapshot_archive (tier, level, updated_ts_ms desc);
+diff -ruN /tmp/p46tree/deploy/systemd/trade-operator-score-report.service /tmp/p47tree/deploy/systemd/trade-operator-score-report.service
+--- /tmp/p46tree/deploy/systemd/trade-operator-score-report.service	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p47tree/deploy/systemd/trade-operator-score-report.service	2026-03-07 08:00:54.369395995 +0000
+@@ -0,0 +1,9 @@
++[Unit]
++Description=Build unified operator score report
++After=network-online.target
++
++[Service]
++Type=oneshot
++WorkingDirectory=/opt/trade
++EnvironmentFile=-/etc/default/trade-risk-p47
++ExecStart=/usr/bin/python3 /opt/trade/scripts/build_operator_score_report.py
+diff -ruN /tmp/p46tree/deploy/systemd/trade-operator-score-report.timer /tmp/p47tree/deploy/systemd/trade-operator-score-report.timer
+--- /tmp/p46tree/deploy/systemd/trade-operator-score-report.timer	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p47tree/deploy/systemd/trade-operator-score-report.timer	2026-03-07 08:00:54.378733913 +0000
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Periodic unified operator score report
++
++[Timer]
++OnBootSec=8m
++OnUnitActiveSec=15m
++Unit=trade-operator-score-report.service
++
++[Install]
++WantedBy=timers.target
+diff -ruN /tmp/p46tree/deploy/systemd/trade-risk-audit-retention.service /tmp/p47tree/deploy/systemd/trade-risk-audit-retention.service
+--- /tmp/p46tree/deploy/systemd/trade-risk-audit-retention.service	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p47tree/deploy/systemd/trade-risk-audit-retention.service	2026-03-07 08:00:54.345136969 +0000
+@@ -0,0 +1,9 @@
++[Unit]
++Description=Trade risk audit retention purge
++After=network-online.target
++
++[Service]
++Type=oneshot
++WorkingDirectory=/opt/trade
++EnvironmentFile=-/etc/default/trade-risk-p47
++ExecStart=/usr/bin/python3 /opt/trade/scripts/purge_risk_audit_hot_tables.py
+diff -ruN /tmp/p46tree/deploy/systemd/trade-risk-audit-retention.timer /tmp/p47tree/deploy/systemd/trade-risk-audit-retention.timer
+--- /tmp/p46tree/deploy/systemd/trade-risk-audit-retention.timer	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p47tree/deploy/systemd/trade-risk-audit-retention.timer	2026-03-07 08:00:54.359163057 +0000
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Nightly trade risk audit retention purge
++
++[Timer]
++OnCalendar=*-*-* 03:40:00
++Persistent=true
++Unit=trade-risk-audit-retention.service
++
++[Install]
++WantedBy=timers.target
+diff -ruN /tmp/p46tree/deploy/systemd/trade-risk-signal-consistency.service /tmp/p47tree/deploy/systemd/trade-risk-signal-consistency.service
+--- /tmp/p46tree/deploy/systemd/trade-risk-signal-consistency.service	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p47tree/deploy/systemd/trade-risk-signal-consistency.service	2026-03-07 08:00:54.282855117 +0000
+@@ -0,0 +1,9 @@
++[Unit]
++Description=Trade risk signal/snapshot consistency check
++After=network-online.target
++
++[Service]
++Type=oneshot
++WorkingDirectory=/opt/trade
++EnvironmentFile=-/etc/default/trade-risk-p47
++ExecStart=/usr/bin/python3 /opt/trade/scripts/check_risk_signal_snapshot_consistency.py --quarantine-on-repeated
+diff -ruN /tmp/p46tree/deploy/systemd/trade-risk-signal-consistency.timer /tmp/p47tree/deploy/systemd/trade-risk-signal-consistency.timer
+--- /tmp/p46tree/deploy/systemd/trade-risk-signal-consistency.timer	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p47tree/deploy/systemd/trade-risk-signal-consistency.timer	2026-03-07 08:00:54.298025390 +0000
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Periodic trade risk signal consistency check
++
++[Timer]
++OnBootSec=6m
++OnUnitActiveSec=20m
++Unit=trade-risk-signal-consistency.service
++
++[Install]
++WantedBy=timers.target
+diff -ruN /tmp/p46tree/monitoring/grafana/dashboards/trade_execution_p47_risk_drift.json /tmp/p47tree/monitoring/grafana/dashboards/trade_execution_p47_risk_drift.json
+--- /tmp/p46tree/monitoring/grafana/dashboards/trade_execution_p47_risk_drift.json	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p47tree/monitoring/grafana/dashboards/trade_execution_p47_risk_drift.json	2026-03-07 08:00:54.246540913 +0000
+@@ -0,0 +1,55 @@
++{
++  "title": "Trade Risk Drift / Mismatch P4.7",
++  "schemaVersion": 38,
++  "version": 1,
++  "panels": [
++    {
++      "type": "stat",
++      "title": "Risk Summary Freshness (s)",
++      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
++      "targets": [{"expr": "trade_risk_summary_freshness_seconds"}]
++    },
++    {
++      "type": "stat",
++      "title": "Risk Summary Stale",
++      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
++      "targets": [{"expr": "trade_risk_summary_stale"}]
++    },
++    {
++      "type": "stat",
++      "title": "Mismatch Rate (24h)",
++      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
++      "targets": [{"rawSql": "with base as (select count(*) as total from risk_decision_audit where created_ts_ms > (extract(epoch from now() - interval '24 hours')*1000)), mm as (select count(*) as mismatch from risk_decision_audit a join risk_snapshot s using(decision_id) where a.created_ts_ms > (extract(epoch from now() - interval '24 hours')*1000) and (coalesce(a.effective_execution_policy,'') <> coalesce(s.effective_execution_policy,'') or abs(coalesce(a.adjusted_notional_usd,0)-coalesce(s.adjusted_notional_usd,0)) > 0.000001 or abs(coalesce(a.leverage_cap,0)-coalesce(s.leverage_cap,0)) > 0.000001 or abs(coalesce(a.clamp_ratio,0)-coalesce(s.clamp_ratio,0)) > 0.000001)) select now() as time, case when base.total > 0 then (mm.mismatch::double precision / base.total::double precision) else 0 end as value from base, mm"}]
++    },
++    {
++      "type": "stat",
++      "title": "Repeated Mismatch SID (24h)",
++      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
++      "targets": [{"rawSql": "with mism as (select a.sid from risk_decision_audit a join risk_snapshot s using(decision_id) where a.sid is not null and a.created_ts_ms > (extract(epoch from now() - interval '24 hours')*1000) and (coalesce(a.effective_execution_policy,'') <> coalesce(s.effective_execution_policy,'') or abs(coalesce(a.adjusted_notional_usd,0)-coalesce(s.adjusted_notional_usd,0)) > 0.000001 or abs(coalesce(a.leverage_cap,0)-coalesce(s.leverage_cap,0)) > 0.000001 or abs(coalesce(a.clamp_ratio,0)-coalesce(s.clamp_ratio,0)) > 0.000001)), agg as (select sid, count(*) as c from mism group by sid) select now() as time, count(*)::double precision as value from agg where c >= 3"}]
++    },
++    {
++      "type": "timeseries",
++      "title": "Deny/Clamp by Tier (24h summary)",
++      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
++      "targets": [{"rawSql": "select now() as time, tier || '_deny' as metric, sum(deny_count)::double precision as value from risk_decision_summary_mv where window_name='24h' group by tier union all select now() as time, tier || '_clamp' as metric, sum(clamp_count)::double precision as value from risk_decision_summary_mv where window_name='24h' group by tier"}]
++    },
++    {
++      "type": "timeseries",
++      "title": "Risk Decision Latency p95 by Tier (24h summary)",
++      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
++      "targets": [{"rawSql": "select now() as time, tier as metric, max(decision_latency_p95_ms)::double precision as value from risk_decision_summary_mv where window_name='24h' group by tier"}]
++    }
++  ],
++  "annotations": {
++    "list": [
++      {
++        "name": "Risk mismatch / quarantine annotations",
++        "datasource": "${DS_RISK_AUDIT_SQL}",
++        "enable": true,
++        "iconColor": "rgba(255, 96, 96, 1)",
++        "rawSql": "select to_timestamp(created_at_ms/1000.0) as time, sid || ' ' || action as text, severity as tags from execution_quarantine_ledger where reason in ('repeated_risk_consistency_mismatch','risk_consistency_mismatch') and created_at_ms > (extract(epoch from now() - interval '24 hours')*1000) order by created_at_ms desc limit 500",
++        "type": "dashboard"
++      }
++    ]
++  }
++}
+diff -ruN /tmp/p46tree/runbooks/P47_RISK_RETENTION_AND_OPERATOR_SCORE.md /tmp/p47tree/runbooks/P47_RISK_RETENTION_AND_OPERATOR_SCORE.md
+--- /tmp/p46tree/runbooks/P47_RISK_RETENTION_AND_OPERATOR_SCORE.md	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p47tree/runbooks/P47_RISK_RETENTION_AND_OPERATOR_SCORE.md	2026-03-07 08:00:54.388413790 +0000
+@@ -0,0 +1,7 @@
++# P4.7: Risk retention, mismatch quarantine and operator score
++
++1. Refresh `risk_decision_summary_mv` and verify `latest_risk_decision_summary.json` plus the Prometheus textfile freshness metric.
++2. Run `check_risk_signal_snapshot_consistency.py` and inspect `latest_risk_signal_consistency.json` for repeated mismatch SID values.
++3. If repeated mismatches exceed threshold, allow the quarantine policy to add the SID to the quarantine set and investigate signal/risk contract drift.
++4. Run `purge_risk_audit_hot_tables.py --dry-run` before enabling nightly retention purge.
++5. Verify `/api/operator-score/latest` in the runbook server and use the merged score for canary/prod operator readiness.
+Binary files /tmp/p46tree/runbooks/server/__pycache__/runbook_server.cpython-313.pyc and /tmp/p47tree/runbooks/server/__pycache__/runbook_server.cpython-313.pyc differ
+diff -ruN /tmp/p46tree/runbooks/server/runbook_server.py /tmp/p47tree/runbooks/server/runbook_server.py
+--- /tmp/p46tree/runbooks/server/runbook_server.py	2026-03-07 07:25:02.000000000 +0000
++++ /tmp/p47tree/runbooks/server/runbook_server.py	2026-03-07 08:00:14.747677411 +0000
+@@ -43,7 +43,7 @@
+ <style>body{{font-family:sans-serif;margin:2rem;max-width:1100px}}code{{background:#f4f4f4;padding:.1rem .3rem}}.badge{{padding:.15rem .5rem;border-radius:4px;background:#eee}}.ok{{background:#d1fae5}}.warning{{background:#fef3c7}}.critical{{background:#fee2e2}}</style>
+ </head><body>
+ <h1>Trade Execution Runbooks</h1>
+-<p>Latest health: <span class="badge {badge}">{html.escape(badge)}</span> — <a href="/api/health/latest">Health JSON</a> | <a href="/api/rebuild/latest">Rebuild JSON</a> | <a href="/api/autonomy/latest">Autonomy JSON</a> | <a href="/api/replay-slo/latest">Replay SLO JSON</a> | <a href="/api/risk-canary/latest">Risk Canary JSON</a></p>
++<p>Latest health: <span class="badge {badge}">{html.escape(badge)}</span> — <a href="/api/health/latest">Health JSON</a> | <a href="/api/rebuild/latest">Rebuild JSON</a> | <a href="/api/autonomy/latest">Autonomy JSON</a> | <a href="/api/replay-slo/latest">Replay SLO JSON</a> | <a href="/api/risk-canary/latest">Risk Canary JSON</a> | <a href="/api/risk-summary/latest">Risk Summary JSON</a> | <a href="/api/operator-score/latest">Operator Score JSON</a></p>
+ <h2>Runbooks</h2><ul>{''.join(items) or '<li>no runbooks found</li>'}</ul>
+ <h2>Reports</h2><ul>{''.join(report_items) or '<li>no reports found</li>'}</ul>
+ <p><code>/healthz</code> returns 200 if the server process is alive.</p>
+@@ -112,6 +112,18 @@
+                 return
+             self.send_error(404, 'risk canary report not found')
+             return
++        if parsed.path == '/api/operator-score/latest':
++            latest = self.report_root / 'latest_operator_score.json'
++            if latest.exists():
++                body = latest.read_bytes()
++                self.send_response(200)
++                self.send_header('Content-Type', 'application/json; charset=utf-8')
++                self.send_header('Content-Length', str(len(body)))
++                self.end_headers()
++                self.wfile.write(body)
++                return
++            self.send_error(404, 'operator score report not found')
++            return
+         if parsed.path == '/api/risk-summary/latest':
+             latest = self.report_root / 'latest_risk_decision_summary.json'
+             if latest.exists():
+Binary files /tmp/p46tree/scripts/__pycache__/check_risk_signal_snapshot_consistency.cpython-313.pyc and /tmp/p47tree/scripts/__pycache__/check_risk_signal_snapshot_consistency.cpython-313.pyc differ
+Binary files /tmp/p46tree/scripts/__pycache__/refresh_risk_decision_summary.cpython-313.pyc and /tmp/p47tree/scripts/__pycache__/refresh_risk_decision_summary.cpython-313.pyc differ
+Binary files /tmp/p46tree/scripts/__pycache__/test_refresh_risk_decision_summary_v1.cpython-313-pytest-9.0.2.pyc and /tmp/p47tree/scripts/__pycache__/test_refresh_risk_decision_summary_v1.cpython-313-pytest-9.0.2.pyc differ
+diff -ruN /tmp/p46tree/scripts/build_operator_score_report.py /tmp/p47tree/scripts/build_operator_score_report.py
+--- /tmp/p46tree/scripts/build_operator_score_report.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p47tree/scripts/build_operator_score_report.py	2026-03-07 08:00:03.758029397 +0000
+@@ -0,0 +1,88 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++from pathlib import Path
++from typing import Any, Dict
++
++
++def _load_json(path: Path) -> Dict[str, Any]:
++    if not path.exists():
++        return {}
++    try:
++        return json.loads(path.read_text(encoding='utf-8'))
++    except Exception:
++        return {}
++
++
++def _bucket(score: float) -> str:
++    if score >= 90:
++        return 'green'
++    if score >= 75:
++        return 'yellow'
++    return 'red'
++
++
++def _replay_score(doc: Dict[str, Any]) -> float:
++    items = list(doc.get('items') or [])
++    target = next((x for x in items if str(x.get('window_name')) == '24h'), items[0] if items else {})
++    if not target:
++        return 50.0
++    total = float(target.get('rehydrate_total') or 0.0)
++    truncated = float(target.get('replay_truncated_total') or 0.0)
++    retention = float(target.get('retention_guard_total') or 0.0)
++    p95 = float(target.get('replay_latency_p95_ms') or 0.0)
++    score = 100.0
++    if total > 0:
++        score -= min((truncated / total) * 100.0, 30.0)
++        score -= min((retention / total) * 150.0, 35.0)
++    score -= min(max(0.0, p95 - 50.0) * 0.2, 20.0)
++    return max(0.0, score)
++
++
++def build_report(report_dir: Path) -> Dict[str, Any]:
++    execution = _load_json(report_dir / 'latest_canary_scoring.json')
++    replay = _load_json(report_dir / 'latest_replay_slo_summary.json')
++    risk = _load_json(report_dir / 'latest_risk_engine_canary.json')
++    health = _load_json(report_dir / 'latest_execution_health.json')
++    risk_consistency = _load_json(report_dir / 'latest_risk_signal_consistency.json')
++    execution_score = float(execution.get('score') or 50.0)
++    replay_score = _replay_score(replay)
++    risk_score = float(risk.get('score') or 50.0)
++    mismatch_rate = float(risk_consistency.get('mismatch_rate') or 0.0)
++    score = execution_score * 0.40 + replay_score * 0.30 + risk_score * 0.30
++    score -= min(mismatch_rate * 100.0, 10.0)
++    status = str(health.get('overall_status') or 'ok')
++    if status == 'warning':
++        score -= 5.0
++    elif status == 'critical':
++        score -= 15.0
++    score = max(0.0, min(100.0, score))
++    return {
++        'execution_score': round(execution_score, 2),
++        'replay_score': round(replay_score, 2),
++        'risk_score': round(risk_score, 2),
++        'risk_mismatch_rate': mismatch_rate,
++        'health_status': status,
++        'score': round(score, 2),
++        'bucket': _bucket(score),
++    }
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description='Build merged operator score from execution + replay + risk-engine reports.')
++    parser.add_argument('--report-dir', default=os.getenv('RUNBOOK_REPORT_DIR', '/var/lib/trade-runbook/reports'))
++    parser.add_argument('--out', default=os.getenv('OPERATOR_SCORE_REPORT_PATH', '/var/lib/trade-runbook/reports/latest_operator_score.json'))
++    args = parser.parse_args()
++    report = build_report(Path(args.report_dir))
++    out = Path(args.out)
++    out.parent.mkdir(parents=True, exist_ok=True)
++    out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
++    print(json.dumps(report, ensure_ascii=False, indent=2))
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+diff -ruN /tmp/p46tree/scripts/check_risk_signal_snapshot_consistency.py /tmp/p47tree/scripts/check_risk_signal_snapshot_consistency.py
+--- /tmp/p46tree/scripts/check_risk_signal_snapshot_consistency.py	2026-03-07 07:24:22.000000000 +0000
++++ /tmp/p47tree/scripts/check_risk_signal_snapshot_consistency.py	2026-03-07 08:00:03.730238534 +0000
+@@ -4,12 +4,18 @@
+ import argparse
+ import json
+ import os
++from pathlib import Path
+ 
+ try:
+     import psycopg  # type: ignore
+ except Exception:  # pragma: no cover
+     psycopg = None  # type: ignore
+ 
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
+ 
+ def _eq_num(a, b, tol: float = 1e-6) -> bool:
+     try:
+@@ -18,10 +24,31 @@
+         return a == b
+ 
+ 
++def _write_atomic(path: Path, payload: str) -> None:
++    path.parent.mkdir(parents=True, exist_ok=True)
++    tmp = path.with_suffix(path.suffix + '.tmp')
++    tmp.write_text(payload, encoding='utf-8')
++    tmp.replace(path)
++
++
++def _quarantine_sid(redis_client, sid: str, *, prefix: str, reason: str, payload: dict) -> dict:
++    qprefix = prefix.rstrip(':') + ':'
++    qkey = f'{qprefix}{sid}'
++    redis_client.set(qkey, json.dumps(payload, ensure_ascii=False, sort_keys=True))
++    redis_client.sadd(f'{qprefix}sids', sid)
++    redis_client.xadd(f'{qprefix}events', {'sid': sid, 'reason': reason, 'source': 'risk_consistency_checker'}, maxlen=10000, approximate=True)
++    return {'sid': sid, 'quarantine_key': qkey, 'reason': reason}
++
++
+ def main() -> int:
+     parser = argparse.ArgumentParser(description='Check consistency between signal payload persisted in risk_decision_audit and SQL risk_snapshot.')
+     parser.add_argument('--dsn', default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')))
+     parser.add_argument('--limit', type=int, default=int(os.getenv('RISK_CONSISTENCY_LIMIT', '250')))
++    parser.add_argument('--out', default=os.getenv('RISK_CONSISTENCY_REPORT_PATH', '/var/lib/trade-runbook/reports/latest_risk_signal_consistency.json'))
++    parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
++    parser.add_argument('--quarantine-prefix', default=os.getenv('ORDERS_QUARANTINE_PREFIX', 'orders:quarantine:state:'))
++    parser.add_argument('--repeat-threshold', type=int, default=int(os.getenv('RISK_CONSISTENCY_REPEAT_THRESHOLD', '3')))
++    parser.add_argument('--quarantine-on-repeated', action='store_true', default=os.getenv('RISK_CONSISTENCY_QUARANTINE_ON_REPEATED', '0') not in {'0', 'false', 'False'})
+     args = parser.parse_args()
+     if not args.dsn or psycopg is None:
+         raise RuntimeError('psycopg + DSN required')
+@@ -67,7 +94,34 @@
+                         'level': level,
+                         'mismatches': reasons,
+                     })
+-    out = {'checked': checked, 'mismatch_count': len(mismatches), 'mismatches': mismatches}
++    repeated_by_sid = {}
++    for item in mismatches:
++        sid = str(item.get('sid') or '')
++        if not sid:
++            continue
++        repeated_by_sid[sid] = repeated_by_sid.get(sid, 0) + 1
++    repeated = [{'sid': sid, 'count': count} for sid, count in sorted(repeated_by_sid.items()) if count >= int(args.repeat_threshold)]
++    quarantine_results = []
++    if args.quarantine_on_repeated and repeated and redis is not None:
++        r = redis.from_url(args.redis_url, decode_responses=True)
++        for item in repeated:
++            quarantine_results.append(_quarantine_sid(
++                r,
++                item['sid'],
++                prefix=args.quarantine_prefix,
++                reason='repeated_risk_consistency_mismatch',
++                payload={'sid': item['sid'], 'mismatch_count': item['count'], 'reason': 'repeated_risk_consistency_mismatch'},
++            ))
++    mismatch_rate = (float(len(mismatches)) / float(checked)) if checked else 0.0
++    out = {
++        'checked': checked,
++        'mismatch_count': len(mismatches),
++        'mismatch_rate': mismatch_rate,
++        'mismatches': mismatches,
++        'repeated_sid': repeated,
++        'quarantine_results': quarantine_results,
++    }
++    _write_atomic(Path(args.out), json.dumps(out, ensure_ascii=False, indent=2) + '\n')
+     print(json.dumps(out, ensure_ascii=False, indent=2))
+     return 0
+ 
+diff -ruN /tmp/p46tree/scripts/purge_risk_audit_hot_tables.py /tmp/p47tree/scripts/purge_risk_audit_hot_tables.py
+--- /tmp/p46tree/scripts/purge_risk_audit_hot_tables.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p47tree/scripts/purge_risk_audit_hot_tables.py	2026-03-07 07:59:24.958715255 +0000
+@@ -0,0 +1,45 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import time
++
++try:
++    import psycopg  # type: ignore
++except Exception:  # pragma: no cover
++    psycopg = None  # type: ignore
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description='Archive and purge hot risk audit/snapshot rows older than retention window.')
++    parser.add_argument('--dsn', default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')))
++    parser.add_argument('--retention-days', type=int, default=int(os.getenv('RISK_AUDIT_RETENTION_DAYS', '21')))
++    parser.add_argument('--dry-run', action='store_true')
++    args = parser.parse_args()
++    if not args.dsn or psycopg is None:
++        raise RuntimeError('psycopg + RISK_AUDIT_SQL_DSN required')
++
++    cutoff_ms = int((time.time() - args.retention_days * 86400) * 1000)
++    out = {'cutoff_ts_ms': cutoff_ms, 'dry_run': bool(args.dry_run)}
++    with psycopg.connect(args.dsn) as conn:
++        with conn.cursor() as cur:
++            if args.dry_run:
++                cur.execute('select count(*) from risk_decision_audit where created_ts_ms < %s', (cutoff_ms,))
++                out['decision_rows_to_purge'] = int(cur.fetchone()[0])
++                cur.execute('select count(*) from risk_snapshot where updated_ts_ms < %s', (cutoff_ms,))
++                out['snapshot_rows_to_purge'] = int(cur.fetchone()[0])
++            else:
++                cur.execute('select * from purge_risk_audit_hot_tables(%s)', (cutoff_ms,))
++                row = cur.fetchone() or (0, 0)
++                out['purged_decisions'] = int(row[0])
++                out['purged_snapshots'] = int(row[1])
++        if not args.dry_run:
++            conn.commit()
++    print(json.dumps(out, ensure_ascii=False, indent=2))
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+diff -ruN /tmp/p46tree/scripts/refresh_risk_decision_summary.py /tmp/p47tree/scripts/refresh_risk_decision_summary.py
+--- /tmp/p46tree/scripts/refresh_risk_decision_summary.py	2026-03-07 07:24:22.000000000 +0000
++++ /tmp/p47tree/scripts/refresh_risk_decision_summary.py	2026-03-07 08:00:03.745958529 +0000
+@@ -4,6 +4,7 @@
+ import argparse
+ import json
+ import os
++import time
+ from pathlib import Path
+ 
+ try:
+@@ -12,15 +13,43 @@
+     psycopg = None  # type: ignore
+ 
+ 
++def _write_atomic(path: Path, payload: str) -> None:
++    path.parent.mkdir(parents=True, exist_ok=True)
++    tmp = path.with_suffix(path.suffix + '.tmp')
++    tmp.write_text(payload, encoding='utf-8')
++    tmp.replace(path)
++
++
++def render_prometheus_textfile(report: dict) -> str:
++    now_ms = int(time.time() * 1000)
++    latest_refreshed_ts_ms = int(report.get('latest_refreshed_ts_ms') or 0)
++    freshness_ms = max(0, now_ms - latest_refreshed_ts_ms) if latest_refreshed_ts_ms else 10**12
++    freshness_sec = freshness_ms / 1000.0
++    stale = 1 if freshness_sec > float(os.getenv('RISK_SUMMARY_FRESHNESS_MAX_SEC', '900')) else 0
++    lines = [
++        '# HELP trade_risk_summary_freshness_seconds Age of the latest risk summary refresh in seconds.',
++        '# TYPE trade_risk_summary_freshness_seconds gauge',
++        f'trade_risk_summary_freshness_seconds {freshness_sec}',
++        '# HELP trade_risk_summary_stale Whether the risk summary is stale.',
++        '# TYPE trade_risk_summary_stale gauge',
++        f'trade_risk_summary_stale {stale}',
++        '# HELP trade_risk_summary_row_count Number of rows in the latest summary.',
++        '# TYPE trade_risk_summary_row_count gauge',
++        f'trade_risk_summary_row_count {int(report.get("row_count") or 0)}',
++    ]
++    return '\n'.join(lines) + '\n'
++
++
+ def main() -> int:
+     parser = argparse.ArgumentParser(description='Refresh materialized risk decision summary and emit JSON report.')
+     parser.add_argument('--dsn', default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')))
+     parser.add_argument('--out', default=os.getenv('RISK_DECISION_SUMMARY_REPORT_PATH', '/var/lib/trade-runbook/reports/latest_risk_decision_summary.json'))
++    parser.add_argument('--textfile-output', default=os.getenv('RISK_SUMMARY_TEXTFILE_PATH', ''))
+     args = parser.parse_args()
+     if not args.dsn or psycopg is None:
+         raise RuntimeError('psycopg + DSN required')
+ 
+-    report = {'rows': []}
++    report = {'rows': [], 'generated_at_ms': int(time.time() * 1000)}
+     with psycopg.connect(args.dsn) as conn:
+         with conn.cursor() as cur:
+             cur.execute('refresh materialized view risk_decision_summary_mv')
+@@ -35,10 +64,13 @@
+             for row in cur.fetchall():
+                 report['rows'].append({k: row[i] for i, k in enumerate(cols)})
+         conn.commit()
++    report['row_count'] = len(report['rows'])
++    report['latest_refreshed_ts_ms'] = max((int(row.get('refreshed_ts_ms') or 0) for row in report['rows']), default=0)
+     out = Path(args.out)
+-    out.parent.mkdir(parents=True, exist_ok=True)
+-    out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+-    print(json.dumps({'rows': len(report['rows']), 'out': str(out)}, ensure_ascii=False))
++    _write_atomic(out, json.dumps(report, ensure_ascii=False, indent=2) + '\n')
++    if args.textfile_output:
++        _write_atomic(Path(args.textfile_output), render_prometheus_textfile(report))
++    print(json.dumps({'rows': len(report['rows']), 'out': str(out), 'latest_refreshed_ts_ms': report['latest_refreshed_ts_ms']}, ensure_ascii=False))
+     return 0
+ 
+ 
+diff -ruN /tmp/p46tree/scripts/test_build_operator_score_report_v1.py /tmp/p47tree/scripts/test_build_operator_score_report_v1.py
+--- /tmp/p46tree/scripts/test_build_operator_score_report_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p47tree/scripts/test_build_operator_score_report_v1.py	2026-03-07 08:00:54.456022806 +0000
+@@ -0,0 +1,13 @@
++from pathlib import Path
++import importlib.util
++import sys
++
++
++def test_build_operator_score_report_contract():
++    script = Path(__file__).resolve().parent / 'build_operator_score_report.py'
++    spec = importlib.util.spec_from_file_location('build_operator_score_report', script)
++    mod = importlib.util.module_from_spec(spec)
++    sys.modules[spec.name] = mod
++    spec.loader.exec_module(mod)
++    rep = mod.build_report(Path('/does/not/exist'))
++    assert 'score' in rep and 'bucket' in rep
+diff -ruN /tmp/p46tree/scripts/test_check_risk_signal_snapshot_consistency_p47_v1.py /tmp/p47tree/scripts/test_check_risk_signal_snapshot_consistency_p47_v1.py
+--- /tmp/p46tree/scripts/test_check_risk_signal_snapshot_consistency_p47_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/p47tree/scripts/test_check_risk_signal_snapshot_consistency_p47_v1.py	2026-03-07 08:00:54.445707884 +0000
+@@ -0,0 +1,8 @@
++from pathlib import Path
++
++
++def test_risk_consistency_checker_supports_repeated_quarantine_and_out_report():
++    src = (Path(__file__).resolve().parent / 'check_risk_signal_snapshot_consistency.py').read_text(encoding='utf-8')
++    assert '--quarantine-on-repeated' in src
++    assert 'latest_risk_signal_consistency.json' in src
++    assert 'repeated_risk_consistency_mismatch' in src

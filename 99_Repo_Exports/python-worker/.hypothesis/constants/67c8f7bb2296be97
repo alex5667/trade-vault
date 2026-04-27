@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/stats/_qmvnt.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-15, 1e-10, 0.001, 0.8, 1.0, 1000, 10000, 'cbc', 'ignore']

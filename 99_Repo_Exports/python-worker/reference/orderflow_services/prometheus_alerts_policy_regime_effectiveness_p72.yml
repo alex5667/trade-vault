@@ -1,0 +1,56 @@
+groups:
+- name: policy-regime-effectiveness-p72
+  rules:
+  - alert: PolicyRegimeEffectivenessReportStale
+    expr: policy_regime_effectiveness_staleness_sec > 7200
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "P72 policy-regime effectiveness report is stale"
+      description: "No fresh policy-regime effectiveness snapshot for >2h. Check SRE
+        monitor ENABLE_POLICY_REGIME_EFFECTIVENESS_REPORT and trades:closed ingestion."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: PolicyRegimeEffectivenessWorstWarnTooBad
+    expr: policy_regime_effectiveness_cells_ok_baseline >= 3 and 
+      policy_regime_effectiveness_worst_warn_expectancy_r_delta < -0.50
+    for: 30m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Warn mode is worst-case very negative within dq/drift cells"
+      description: "Within at least 3 dq/drift cells where ok baseline exists, the
+        worst warn expectancy delta vs ok is < -0.50R. Use runbook_policy_regime_effectiveness_p72.md
+        to inspect the report and calibrate thresholds/hysteresis."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: PolicyRegimeEffectivenessWorstWarnEceHigh
+    expr: policy_regime_effectiveness_cells_ok_baseline >= 3 and 
+      policy_regime_effectiveness_worst_warn_ece_delta > 0.12
+    for: 30m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Warn mode calibration worsens within dq/drift cells"
+      description: "Worst warn ECE delta vs ok within dq/drift cell exceeds 0.12 with
+        enough baseline cells. Investigate: score calibration, drift features, regime
+        labeling."
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: PolicyRegimeEffectivenessWorstBlockEceHigh
+    expr: policy_regime_effectiveness_cells_ok_baseline >= 3 and 
+      policy_regime_effectiveness_worst_block_ece_delta > 0.12
+    for: 30m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Block mode calibration worsens within dq/drift cells"
+      description: "Worst block ECE delta vs ok within dq/drift cell exceeds 0.12
+        with enough baseline cells. Confirm block gating is doing what you expect;
+        review policy thresholds."
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd

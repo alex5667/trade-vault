@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/pandas/core/reshape/encoding.py
+# hypothesis_version: 6.148.10
+
+[0.0, '_', 'boolean', 'category', 'object', 'prefix', 'prefix_sep', 'string']

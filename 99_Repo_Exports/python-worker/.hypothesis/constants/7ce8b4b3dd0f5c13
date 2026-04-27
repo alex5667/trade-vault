@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/data_extraction_service.py
+# hypothesis_version: 6.148.10
+
+[-1.0, 0.0, 0.1, 1.0, 200, 'ASKS', 'BIDS', 'a', 'ask', 'b', 'bid', 'bids', 'current_obi', 'flags', 'is_buyer_maker', 'obi20_avg', 'obi20_sustained', 'obi5_avg', 'obi5_sustained', 'p', 'price', 'q', 'qty', 'sample_count_obi20', 'sample_count_obi5', 'size', 'volume']

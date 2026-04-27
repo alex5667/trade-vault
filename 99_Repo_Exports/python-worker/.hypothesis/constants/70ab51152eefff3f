@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/position_sizing.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-12, 1e-09, 0.001, 5.0, 100.0, 1000.0, 'ACCOUNT_DEPOSIT_USD', 'RISK_MAX_QTY', 'RISK_PERCENT', 'RISK_USD_PER_TRADE', 'RR', 'TP_MODE', 'deposit_usd', 'entry_price', 'invalid_prices', 'lot_step', 'max_lot', 'min_lot', 'min_notional', 'ok', 'qty', 'redis', 'risk_usd', 'risk_usd_target', 'sizing_exception', 'sizing_no_levels', 'sizing_ok', 'sl_dist', 'specs', 'stop_dist']

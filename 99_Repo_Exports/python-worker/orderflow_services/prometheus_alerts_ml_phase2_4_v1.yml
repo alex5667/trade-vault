@@ -1,0 +1,18 @@
+groups:
+  - name: ml_phase2_4_operator_rca_experiments
+    rules:
+      - alert: MLOperatorRCAExperimentRouterStale
+        expr: time() - ml_operator_rca_experiment_router_last_run_ts_seconds > 900
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "operator_rca experiment router stale"
+
+      - alert: MLOperatorRCAExperimentWinnerStale
+        expr: time() - ml_operator_rca_experiment_winner_last_run_ts_seconds > 1800
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "operator_rca experiment winner selector stale"

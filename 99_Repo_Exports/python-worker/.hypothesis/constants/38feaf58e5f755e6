@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/__config__.py
+# hypothesis_version: 6.148.10
+
+['/usr/bin/python3.12', '/usr/include', '0.15.0', '0.29.37', '13.2.0', '2.11.1', '3.12', '3.12.0', 'Build Dependencies', 'Compilers', 'False', 'Machine Information', 'Python Information', 'True', 'blas', 'build', 'c', 'c++', 'cc', 'commands', 'cpu', 'cross-compiled', 'cython', 'cython3', 'detection method', 'dicts', 'endian', 'false', 'family', 'fortran', 'found', 'gcc', 'gfortran', 'host', 'include directory', 'lapack', 'ld.bfd', 'lib directory', 'linker', 'linux', 'little', 'name', 'path', 'pc file directory', 'pkgconfig', 'pybind11', 'pythran', 'show', 'stdout', 'system', 'unknown', 'version', 'x86_64']

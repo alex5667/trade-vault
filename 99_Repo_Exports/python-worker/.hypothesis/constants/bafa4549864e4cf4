@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/optimize/_differentiable_functions.py
+# hypothesis_version: 6.148.10
+
+['2-point', '3-point', 'abs_step', 'as_linear_operator', 'bounds', 'cs', 'csr', 'hess', 'method', 'rel_step', 'sparsity']

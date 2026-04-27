@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/stream_integrity.py
+# hypothesis_version: 6.148.10
+
+[0.0, 120, 500, 1000, 5000, 10000, 60000, ',', 'ema', 'ignore', 'utf-8']

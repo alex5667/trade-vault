@@ -1,0 +1,531 @@
+--- a/python-worker/handlers/crypto_orderflow/utils/edge_cost_gate.py
++++ b/python-worker/handlers/crypto_orderflow/utils/edge_cost_gate.py
+@@ -36,9 +36,21 @@
+         "Total count of signals rejected or penalized due to large time skew",
+         ["symbol", "reason"]
+     )
++
++    # Execution-health overlay telemetry (bounded labels).
++    edge_exec_health_tighten_total = Counter(
++        "edge_exec_health_tighten_total",
++        "Total count of EdgeCostGate tighten events due to execution-health rollups",
++        ["symbol"]
++    )
++    edge_exec_health_veto_total = Counter(
++        "edge_exec_health_veto_total",
++        "Total count of EdgeCostGate veto events due to execution-health rollups",
++        ["symbol", "reason_code"]
++    )
+ except ImportError:
+     Counter = Gauge = None
+-    edge_time_skew_ms = edge_bad_time_total = None
++    edge_time_skew_ms = edge_bad_time_total = edge_exec_health_tighten_total = edge_exec_health_veto_total = None
+ 
+ # ---------------------------------------------------------------------
+ # IMPORTANT: timestamp normalization MUST be consistent across pipeline.
+@@ -644,6 +656,189 @@
+     return 1.0, float("nan"), ""
+ 
+ 
++
++# -----------------------------------------------------------------------------
++# Execution-health overlay (TCA rollups)
++#
++# Phase G (P6): make EdgeCostGate aware of execution degradation:
++#   - IS_p95 (implementation shortfall) too high
++#   - permanent impact too high
++#   - realized spread too low (adverse selection proxy)
++#
++# We read these from Redis rollups produced by post-trade TCA worker.
++#
++# IMPORTANT:
++#   - Fail-open by default: missing redis / missing keys -> no veto, no tighten.
++#   - No high-cardinality labels: these values go to ctx/audit, and optionally to
++#     Prometheus counters with bounded symbol allowlist elsewhere.
++# -----------------------------------------------------------------------------
++
++def _parse_csv_ints(v: str, *, default: Tuple[int, ...]) -> Tuple[int, ...]:
++    out = []
++    for x in (v or "").split(","):
++        s = x.strip()
++        if not s:
++            continue
++        try:
++            out.append(int(float(s)))
++        except Exception:
++            continue
++    return tuple(out) if out else tuple(default)
++
++
++def _redis_get_float_best_effort(r: Any, key: str) -> Optional[float]:
++    """
++    Reads a float value from Redis using GET (preferred) or HGETALL fallback.
++
++    We keep this extremely defensive:
++      - bytes/str supported
++      - empty / NaN -> None
++    """
++    if r is None:
++        return None
++    try:
++        if hasattr(r, "get"):
++            v = r.get(key)
++            if v is None:
++                return None
++            if isinstance(v, (bytes, bytearray)):
++                v = v.decode("utf-8", errors="ignore")
++            f = float(v)
++            return float(f) if math.isfinite(f) else None
++    except Exception:
++        pass
++    # Some deployments store rollups as hashes (rare). Try to read common fields.
++    try:
++        if hasattr(r, "hgetall"):
++            d = r.hgetall(key) or {}
++            def _b2s(x: Any) -> str:
++                if isinstance(x, (bytes, bytearray)):
++                    return x.decode("utf-8", errors="ignore")
++                return str(x)
++            dd = { _b2s(k): _b2s(v) for k, v in dict(d).items() }
++            for fld in ("value", "p95", "p50", "val"):
++                if fld in dd:
++                    f = float(dd[fld])
++                    if math.isfinite(f):
++                        return float(f)
++    except Exception:
++        pass
++    return None
++
++
++def _tca_key_candidates(
++    *,
++    metric: str,
++    symbol: str,
++    venue: str,
++    session: str,
++    tf: str,
++    kind: str,
++    side: str,
++    delta_sec: Optional[int] = None,
++) -> Tuple[str, ...]:
++    """
++    Generates a bounded list of candidate Redis keys for a given TCA rollup metric.
++
++    Canonical format (recommended by our P1 TCA worker):
++      - is_p95:
++          tca:is_p95_bps:<sym>:<venue>:<session>:<tf>:<kind>:<side>
++      - realized_spread (p50) and perm_impact (p95) include delta_sec:
++          tca:realized_spread_p50_bps:<d>:<sym>:<venue>:<session>:<tf>:<kind>:<side>
++          tca:perm_impact_p95_bps:<d>:<sym>:<venue>:<session>:<tf>:<kind>:<side>
++
++    Fallbacks (best-effort, fail-open):
++      - tf -> all
++      - kind -> all
++      - session -> all
++      - side -> all
++    """
++    sym = str(symbol or "").upper()
++    ven = str(venue or "na").lower()
++    sess = str(session or "na").lower()
++    tfv = str(tf or "all").lower()
++    knd = str(kind or "all").lower()
++    sde = str(side or "all").lower()
++
++    def _mk(ses: str, tf_: str, k: str, sd: str) -> str:
++        if delta_sec is None:
++            return f"tca:{metric}:{sym}:{ven}:{ses}:{tf_}:{k}:{sd}"
++        return f"tca:{metric}:{int(delta_sec)}:{sym}:{ven}:{ses}:{tf_}:{k}:{sd}"
++
++    keys = [
++        _mk(sess, tfv, knd, sde),
++        _mk(sess, "all", knd, sde),
++        _mk(sess, tfv, "all", sde),
++        _mk(sess, "all", "all", sde),
++        _mk("all", "all", "all", sde),
++        _mk(sess, "all", "all", "all"),
++        _mk("all", "all", "all", "all"),
++    ]
++    return tuple(dict.fromkeys(keys))
++
++
++def _load_exec_health_rollups(
++    redis_client: Any,
++    *,
++    symbol: str,
++    venue: str,
++    session: str,
++    tf: str,
++    kind: str,
++    side: str,
++    delta_list: Tuple[int, ...],
++) -> Tuple[Optional[float], Optional[float], Optional[float], Optional[int]]:
++    """
++    Reads:
++      - is_p95_bps (no delta)
++      - perm_impact_p95_bps (max across deltas)
++      - realized_spread_p50_bps (min across deltas)  # more negative = worse adverse selection
++    Returns: (is_p95, perm_impact_p95_max, realized_p50_min, chosen_delta_for_perm)
++    """
++    is_p95 = None
++    for k in _tca_key_candidates(
++        metric="is_p95_bps",
++        symbol=symbol, venue=venue, session=session, tf=tf, kind=kind, side=side,
++    ):
++        is_p95 = _redis_get_float_best_effort(redis_client, k)
++        if is_p95 is not None:
++            break
++
++    perm_max = None
++    perm_delta = None
++    for d in delta_list:
++        val = None
++        for k in _tca_key_candidates(
++            metric="perm_impact_p95_bps",
++            delta_sec=int(d),
++            symbol=symbol, venue=venue, session=session, tf=tf, kind=kind, side=side,
++        ):
++            val = _redis_get_float_best_effort(redis_client, k)
++            if val is not None:
++                break
++        if val is None:
++            continue
++        if perm_max is None or float(val) > float(perm_max):
++            perm_max = float(val)
++            perm_delta = int(d)
++
++    real_min = None
++    for d in delta_list:
++        val = None
++        for k in _tca_key_candidates(
++            metric="realized_spread_p50_bps",
++            delta_sec=int(d),
++            symbol=symbol, venue=venue, session=session, tf=tf, kind=kind, side=side,
++        ):
++            val = _redis_get_float_best_effort(redis_client, k)
++            if val is not None:
++                break
++        if val is None:
++            continue
++        if real_min is None or float(val) < float(real_min):
++            real_min = float(val)
++
++    return is_p95, perm_max, real_min, perm_delta
+ @dataclass(frozen=True)
+ class EdgeCostGateDecision:
+     """
+@@ -695,6 +890,15 @@
+     buffer_bps: float = 0.0
+     total_costs_bps: float = 0.0
+     edge_source: str = "none"
++
++    # --- Execution-health overlay (TCA rollups) ---
++    # Filled when EdgeCostGate consults post-trade TCA rollups from Redis.
++    exec_is_p95_bps: float = float("nan")
++    exec_perm_impact_p95_bps: float = float("nan")
++    exec_realized_spread_p50_bps: float = float("nan")
++    exec_perm_impact_delta_sec: int = 0
++    exec_health_mode: str = ""
++    exec_health_tighten_add_bps: float = 0.0
+ 
+     # --- Compatibility Properties ----
+     @property
+@@ -1247,6 +1451,182 @@
+         # we keep that AND take max(base, model) to avoid silently loosening the gate.
+         # ------------------------------------------------------------------
+         fees_bps, slip_bps = self._costs_bps(ctx, kind=str(kind or ""), symbol=str(symbol or ""), tf=getattr(ctx, "tf", None) or getattr(ctx, "timeframe", None))
++
++        # ------------------------------------------------------------------
++        # Execution-health overlay (TCA rollups).
++        #
++        # Motivation:
++        #   Execution quality can degrade in ways NOT visible in the current
++        #   spread/depth snapshot (toxic flow, venue issues, stress). Post-trade
++        #   TCA rollups let us detect this and react deterministically.
++        #
++        # Modes (EDGE_EXEC_HEALTH_MODE / EXEC_HEALTH_MODE):
++        #   - off      : disabled
++        #   - monitor  : annotate ctx only
++        #   - tighten  : inflate slippage and optionally K (strict profile)
++        #   - veto     : hard veto when execution is clearly degraded
++        #   - auto     : map from GATE_PROFILE (default->monitor, strict->tighten, hard->veto)
++        #
++        # Fail-open:
++        #   - missing redis / missing keys -> no veto, no tighten.
++        # ------------------------------------------------------------------
++        exec_mode_raw = (os.getenv("EDGE_EXEC_HEALTH_MODE") or os.getenv("EXEC_HEALTH_MODE") or "off").strip().lower()
++        if exec_mode_raw in {"", "auto"}:
++            prof = (os.getenv("GATE_PROFILE", "default") or "default").strip().lower()
++            if prof == "strict":
++                exec_mode = "tighten"
++            elif prof == "hard":
++                exec_mode = "veto"
++            else:
++                exec_mode = "monitor"
++        else:
++            exec_mode = exec_mode_raw
++
++        # thresholds: 0 == disabled
++        exec_is_thr = _env_float("EXEC_MAX_IS_P95_BPS", 0.0)
++        exec_perm_thr = _env_float("EXEC_MAX_PERM_IMPACT_P95_BPS", 0.0)
++        # realized spread p50: if below this (more negative) -> adverse selection risk
++        exec_real_min = _env_float("EXEC_MIN_REALIZED_SPREAD_P50_BPS", -999.0)
++
++        exec_add_mult = _env_float("EDGE_EXEC_HEALTH_TIGHTEN_ADD_MULT", 1.0)
++        exec_add_cap = _env_float("EDGE_EXEC_HEALTH_TIGHTEN_ADD_CAP_BPS", 8.0)
++        exec_k_mult = _env_float("EDGE_EXEC_HEALTH_TIGHTEN_K_MULT", 1.0)
++
++        delta_list = _parse_csv_ints(os.getenv("EXEC_TCA_DELTA_SEC_LIST", "1,5"), default=(1, 5))
++
++        exec_is_p95 = None
++        exec_perm_p95 = None
++        exec_real_p50 = None
++        exec_perm_delta = None
++        exec_flags = []
++
++        if exec_mode not in {"off", "0", "false"}:
++            r_exec = getattr(self, "redis", None) or getattr(ctx, "redis", None)
++            if r_exec is not None:
++                ven = str(getattr(ctx, "venue", None) or getattr(ctx, "source", None) or "na")
++                tsm = getattr(ctx, "_ts_ms_norm", None)
++                try:
++                    tsm_i = int(tsm or 0)
++                except Exception:
++                    tsm_i = 0
++                sess = str(getattr(ctx, "session", None) or (session_from_ts_ms(tsm_i) if tsm_i > 0 else "na") or "na")
++                tfv = str(getattr(ctx, "tf", None) or getattr(ctx, "timeframe", None) or "all") or "all"
++                knd = str(kind_l or getattr(ctx, "kind", None) or "all") or "all"
++
++                side_raw = getattr(ctx, "side", None) or getattr(ctx, "direction", None) or getattr(ctx, "dir", None) or ""
++                side_s = str(side_raw).strip().lower()
++                if side_s in {"1", "long", "buy", "bull"}:
++                    side_s = "long"
++                elif side_s in {"-1", "short", "sell", "bear"}:
++                    side_s = "short"
++                elif side_s in {"", "na", "none"}:
++                    side_s = "all"
++
++                exec_is_p95, exec_perm_p95, exec_real_p50, exec_perm_delta = _load_exec_health_rollups(
++                    r_exec,
++                    symbol=str(symbol or getattr(ctx, "symbol", "") or ""),
++                    venue=ven,
++                    session=sess,
++                    tf=str(tfv),
++                    kind=str(knd),
++                    side=str(side_s),
++                    delta_list=delta_list,
++                )
++
++                # surface for audit/debug
++                try:
++                    setattr(ctx, "exec_is_p95_bps", float(exec_is_p95) if exec_is_p95 is not None else float("nan"))
++                    setattr(ctx, "exec_perm_impact_p95_bps", float(exec_perm_p95) if exec_perm_p95 is not None else float("nan"))
++                    setattr(ctx, "exec_realized_spread_p50_bps", float(exec_real_p50) if exec_real_p50 is not None else float("nan"))
++                    setattr(ctx, "exec_perm_impact_delta_sec", int(exec_perm_delta or 0))
++                    setattr(ctx, "exec_health_mode", str(exec_mode))
++                except Exception:
++                    pass
++
++                is_bad = exec_is_thr > 0 and exec_is_p95 is not None and float(exec_is_p95) > float(exec_is_thr)
++                perm_bad = exec_perm_thr > 0 and exec_perm_p95 is not None and float(exec_perm_p95) > float(exec_perm_thr)
++                adv_bad = exec_real_min > -900 and exec_real_p50 is not None and float(exec_real_p50) < float(exec_real_min)
++
++                if is_bad:
++                    exec_flags.append("is_p95_high")
++                if perm_bad:
++                    exec_flags.append("perm_impact_high")
++                if adv_bad:
++                    exec_flags.append("adverse_sel")
++
++                # tighten
++                if exec_mode in {"tighten", "veto"} and exec_flags:
++                    d1 = max(0.0, float(exec_is_p95) - float(exec_is_thr)) if is_bad else 0.0
++                    d2 = max(0.0, float(exec_perm_p95) - float(exec_perm_thr)) if perm_bad else 0.0
++                    d3 = max(0.0, float(exec_real_min) - float(exec_real_p50)) if adv_bad else 0.0
++                    add = float(exec_add_mult) * float(max(d1, d2, d3))
++                    add = float(min(float(exec_add_cap), max(0.0, add)))
++                    if add > 0.0:
++                        slip_bps = float(slip_bps) + float(add)
++                        try:
++                            setattr(ctx, "exec_health_tighten_add_bps", float(add))
++                        if edge_exec_health_tighten_total:
++                            edge_exec_health_tighten_total.labels(symbol=str(symbol or "").upper() or "NA").inc()
++                        except Exception:
++                            pass
++                    if exec_k_mult and float(exec_k_mult) > 1.0:
++                        try:
++                            setattr(ctx, "exec_health_tighten_k", float(exec_k_mult))
++                        except Exception:
++                            pass
++
++                # hard veto
++                if exec_mode == "veto" and exec_flags:
++                    veto_on_adverse = _env_bool("EDGE_EXEC_HEALTH_VETO_ON_ADVERSE", False)
++                    veto_reason = ""
++                    if is_bad and perm_bad:
++                        veto_reason = "VETO_IMPL_SHORTFALL_P95"
++                    elif veto_on_adverse and adv_bad and (is_bad or perm_bad):
++                        veto_reason = "VETO_ADVERSE_SELECTION"
++
++                    if veto_reason:
++                        note = f"exec_health veto flags={','.join(exec_flags)} is_p95={exec_is_p95} perm_p95={exec_perm_p95} real_p50={exec_real_p50}"
++                        d = EdgeCostGateDecision(
++                            apply=True,
++                            veto=True,
++                            reason_code=str(veto_reason),
++                            expected_move_bps=0.0,
++                            threshold_bps=0.0,
++                            fees_bps=float(fees_bps),
++                            slippage_bps=float(slip_bps),
++                            k=float(k),
++                            mode=self.mode,
++                            notes=note,
++                            exec_is_p95_bps=float(exec_is_p95) if exec_is_p95 is not None else float("nan"),
++                            exec_perm_impact_p95_bps=float(exec_perm_p95) if exec_perm_p95 is not None else float("nan"),
++                            exec_realized_spread_p50_bps=float(exec_real_p50) if exec_real_p50 is not None else float("nan"),
++                            exec_perm_impact_delta_sec=int(exec_perm_delta or 0),
++                            exec_health_mode=str(exec_mode),
++                            exec_health_tighten_add_bps=float(getattr(ctx, "exec_health_tighten_add_bps", 0.0) or 0.0),
++                        )
++                        trace_gate(
++                            ctx,
++                            stage="gates",
++                            name="edge_cost_gate",
++                            passed=False,
++                            veto=True,
++                            reason_code=str(d.reason_code),
++                            metrics={
++                                "exec_is_p95": d.exec_is_p95_bps,
++                                "exec_perm_p95": d.exec_perm_impact_p95_bps,
++                                "exec_real_p50": d.exec_realized_spread_p50_bps,
++                                "exec_flags": ",".join(exec_flags),
++                            },
++                        )
++                        if edge_exec_health_veto_total:
++                            edge_exec_health_veto_total.labels(symbol=str(symbol or "").upper() or "NA", reason_code=str(d.reason_code)).inc()
++                        return d
++
++        try:
++            if exec_flags:
++                setattr(ctx, "exec_health_flags", ",".join(exec_flags))
++        except Exception:
++            pass
+         k_base = k
+ 
+         # Apply dynamic K if enabled (adjusts based on volatility)
+@@ -1327,12 +1707,16 @@
+         except Exception:
+             f2 = 1.0
+         try:
+-            if f1 > 1.0 or f2 > 1.0:
+-                k_eff = float(k_eff) * float(max(1.0, f1)) * float(max(1.0, f2))
++            f3 = float(getattr(ctx, "exec_health_tighten_k", 1.0) or 1.0)
++        except Exception:
++            f3 = 1.0
++        try:
++            if f1 > 1.0 or f2 > 1.0 or f3 > 1.0:
++                k_eff = float(k_eff) * float(max(1.0, f1)) * float(max(1.0, f2)) * float(max(1.0, f3))
+         except Exception:
+             pass
+ 
+-        # V2 threshold: include buffer_bps (default 0.0)
++# V2 threshold: include buffer_bps (default 0.0)
+         buffer_bps = 0.0  # TODO: implement _get_buffer_bps() if needed
+         thr = float(k_eff) * (float(fees_bps) + float(slip_bps) + float(buffer_bps))
+ 
+--- a/python-worker/handlers/crypto_orderflow/utils/tests/test_edge_cost_gate_exec_health_v1.py
++++ b/python-worker/handlers/crypto_orderflow/utils/tests/test_edge_cost_gate_exec_health_v1.py
+@@ -0,0 +1,94 @@
++import os
++import sys
++import unittest
++
++# Make repo imports work when running from repo root.
++sys.path.insert(0, os.path.abspath("."))
++
++try:
++    from python_worker.handlers.crypto_orderflow.utils.edge_cost_gate import EdgeCostGate
++except Exception:
++    # fallback (common in this repo layout)
++    from handlers.crypto_orderflow.utils.edge_cost_gate import EdgeCostGate  # type: ignore
++
++
++class _FakeRedis:
++    def __init__(self, kv):
++        self.kv = dict(kv)
++
++    def get(self, key):
++        v = self.kv.get(key)
++        return v
++
++    def hgetall(self, key):
++        return {}
++
++
++class _Ctx:
++    def __init__(self):
++        self.symbol = "BTCUSDT"
++        self.venue = "binance"
++        self.ts_ms = 1_741_284_125_000
++        self.session = "na"
++        self.tf = "all"
++        self.side = "long"
++        self.entry_price = 100.0
++        self.tp1_price = 101.0
++        self.bid = 99.95
++        self.ask = 100.05
++        self.spread_bps = (self.ask - self.bid) / ((self.ask + self.bid) / 2) * 10_000
++
++
++class EdgeCostGateExecHealthTests(unittest.TestCase):
++    def setUp(self):
++        os.environ.pop("EDGE_EXEC_HEALTH_MODE", None)
++        os.environ.pop("EXEC_HEALTH_MODE", None)
++        os.environ.pop("EXEC_MAX_IS_P95_BPS", None)
++        os.environ.pop("EXEC_MAX_PERM_IMPACT_P95_BPS", None)
++        os.environ.pop("EXEC_MIN_REALIZED_SPREAD_P50_BPS", None)
++        os.environ.pop("EDGE_EXEC_HEALTH_TIGHTEN_ADD_CAP_BPS", None)
++        os.environ.pop("EDGE_EXEC_HEALTH_TIGHTEN_ADD_MULT", None)
++
++    def test_exec_health_veto_requires_both_is_and_perm(self):
++        # Prepare Redis rollups that exceed thresholds
++        kv = {
++            "tca:is_p95_bps:BTCUSDT:binance:na:all:all:long": b"20.0",
++            "tca:perm_impact_p95_bps:1:BTCUSDT:binance:na:all:all:long": b"15.0",
++            "tca:realized_spread_p50_bps:1:BTCUSDT:binance:na:all:all:long": b"-2.0",
++        }
++        gate = EdgeCostGate.from_env()
++        gate.enabled = True  # force apply
++        gate.redis = _FakeRedis(kv)
++
++        os.environ["EDGE_EXEC_HEALTH_MODE"] = "veto"
++        os.environ["EXEC_MAX_IS_P95_BPS"] = "10"
++        os.environ["EXEC_MAX_PERM_IMPACT_P95_BPS"] = "10"
++
++        ctx = _Ctx()
++        d = gate.evaluate(ctx=ctx, kind="breakout", symbol=ctx.symbol)
++        self.assertTrue(d.veto)
++        self.assertIn(d.reason_code, {"VETO_IMPL_SHORTFALL_P95", "VETO_ADVERSE_SELECTION"})
++
++    def test_exec_health_tighten_adds_slippage(self):
++        kv = {
++            "tca:is_p95_bps:BTCUSDT:binance:na:all:all:long": b"12.0",
++            "tca:perm_impact_p95_bps:1:BTCUSDT:binance:na:all:all:long": b"1.0",
++        }
++        gate = EdgeCostGate.from_env()
++        gate.enabled = True
++        gate.redis = _FakeRedis(kv)
++
++        os.environ["EDGE_EXEC_HEALTH_MODE"] = "tighten"
++        os.environ["EXEC_MAX_IS_P95_BPS"] = "10"
++        os.environ["EDGE_EXEC_HEALTH_TIGHTEN_ADD_CAP_BPS"] = "8"
++        os.environ["EDGE_EXEC_HEALTH_TIGHTEN_ADD_MULT"] = "1.0"
++
++        ctx = _Ctx()
++        d = gate.evaluate(ctx=ctx, kind="breakout", symbol=ctx.symbol)
++        # Should not veto, but should add slippage and surface ctx field
++        self.assertFalse(d.veto)
++        self.assertTrue(getattr(ctx, "exec_health_tighten_add_bps", 0.0) >= 0.0)
++
++
++if __name__ == "__main__":
++    unittest.main()

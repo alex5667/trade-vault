@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/common/sanitize_ctx.py
+# hypothesis_version: 6.148.10
+
+['ask', 'atr', 'atr_14_bps', 'atr_quantile', 'bid', 'data_quality_flags', 'geometry_score', 'htf_level_dist_bps', 'last_price', 'market_regime_score', 'nan_inf:', 'obi', 'obi_20', 'obi_5', 'obi_50', 'obi_avg', 'price', 'regime_range_score', 'regime_trend_score', 'spread_bps', 'taker_rate_ema', 'weak_progress', 'weak_progress_ratio', 'weak_progress_raw']

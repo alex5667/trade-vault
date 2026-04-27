@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/dispatcher/lua_scripts.py
+# hypothesis_version: 6.148.10
+
+['NOSCRIPT', 'dlq_and_ack', 'extend_lease', 'mark_and_notify', 'mark_and_setex', 'mark_and_xadd', 'notify_gate', 'reenqueue_and_ack', 'release_lease', 'setex_and_mark', 'setex_then_mark', 'xadd_and_mark', 'zpop_due']

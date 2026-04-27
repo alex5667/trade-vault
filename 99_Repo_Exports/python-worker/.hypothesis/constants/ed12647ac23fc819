@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/delta_volume_fallback.py
+# hypothesis_version: 6.148.10
+
+[-20.0, 0.0, 1e-12, 0.5, 0.6745, 20.0, 200, '_vol_delta_z_state', 'amount', 'ask', 'b', 'bid', 'buy', 'is_buyer_maker', 'm', 'q', 'qty', 's', 'sell', 'side', 'size', 'taker_side', 'volume']

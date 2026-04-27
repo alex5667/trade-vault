@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic refresh of trade risk decision summary
+
+[Timer]
+OnBootSec=6m
+OnUnitActiveSec=30m
+Unit=trade-risk-decision-summary-refresh.service
+
+[Install]
+WantedBy=timers.target

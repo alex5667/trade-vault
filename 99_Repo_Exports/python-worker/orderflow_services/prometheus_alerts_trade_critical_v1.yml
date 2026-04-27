@@ -1,0 +1,112 @@
+groups:
+- name: trade-critical-metrics
+  rules:
+  - alert: OrderPushErrorsSpike
+    expr: rate(order_push_errors_total[5m]) > 0
+    for: 1m
+    labels:
+      severity: page
+      service: orderflow
+    annotations:
+      summary: "Cannot push orders to gateway"
+      description: "order_push_errors_total rate > 0. Check order_push_dispatcher."
+
+  - alert: OrderPushDlqDepthHigh
+    expr: order_push_dlq_depth > 10
+    for: 1m
+    labels:
+      severity: page
+      service: orderflow
+    annotations:
+      summary: "High depth on orders:dlq stream"
+      description: "orders:dlq depth > 10. Manual intervention required to drain DLQ or fix gateway."
+
+  - alert: GatesErrorSpike
+    expr: rate(gates_error_total[5m]) > 5
+    for: 1m
+    labels:
+      severity: ticket
+      service: orderflow
+    annotations:
+      summary: "High rate of gate evaluation errors"
+      description: "gates_error_total > 5/5m. Check gates logic."
+
+  - alert: PositionFsmInvalidTransition
+    expr: rate(position_fsm_invalid_transition_total[5m]) > 0
+    for: 1m
+    labels:
+      severity: ticket
+      service: trade_monitor
+    annotations:
+      summary: "Invalid FSM transitions detected"
+      description: "FSM invalid transition rate > 0. Check trade monitor state machine."
+
+  - alert: PayloadBuildFailed
+    expr: rate(signal_dq_flag_total{flag="payload_build_failed"}[5m]) > 0
+    for: 1m
+    labels:
+      severity: ticket
+      service: orchestrator
+    annotations:
+      summary: "Payload build failures detected"
+      description: "rate of payload_build_failed > 0. Check Orchestrator logic."
+
+  - alert: PromotionV2RollbackSpike
+    expr: sum by (policy_ver)(atr_policy_promotion_v2_action_state == -1) > 5
+    for: 5m
+    labels:
+      severity: warn
+      service: orderflow
+    annotations:
+      summary: "Many ROLLBACK candidates on same policy_ver"
+      description: "> 5 ROLLBACK candidates on the same policy version."
+
+  - alert: PromotionV2PassedCertNegative
+    expr: atr_policy_promotion_v2_score{cert_status="passed"} < 0
+    for: 10m
+    labels:
+      severity: warn
+      service: orderflow
+    annotations:
+      summary: "Passed cert cohorts scoring negatively"
+      description: "Cohorts with passed certs still have negative promotion score."
+
+  - alert: PromotionV2LowSampleTooLong
+    expr: atr_policy_promotion_v2_n_trades < 20 and atr_policy_promotion_v2_action_state == 1
+    for: 2h
+    labels:
+      severity: warn
+      service: orderflow
+    annotations:
+      summary: "Promoted policy remains low-sample too long"
+      description: "The cohort is promoted but has very low trades."
+
+  - alert: PromotionV2FreshPolicyRollback
+    expr: atr_policy_promotion_v2_score{cert_status="passed"} < -20
+    for: 5m
+    labels:
+      severity: page
+      service: orderflow
+    annotations:
+      summary: "Fresh promoted policy rapidly becomes rollback candidate"
+      description: "Cert passed but score is deeply negative."
+
+  - alert: PromotionV2AttributionMissing
+    expr: absent(atr_policy_promotion_v2_n_trades)
+    for: 2h
+    labels:
+      severity: page
+      service: orderflow
+    annotations:
+      summary: "Post-trade attribution missing"
+      description: "No n_trades reported by promotion V2 service. Promotion loop blind."
+
+  - alert: PromotionV2Stopped
+    expr: rate(atr_policy_promotion_v2_loop_runs_total[10m]) == 0
+    for: 15m
+    labels:
+      severity: page
+      service: orderflow
+    annotations:
+      summary: "Promotion service stopped updating suggestions"
+      description: "Loop runs counter not increasing for 15 minutes."

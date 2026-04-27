@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/meta_features_v5.py
+# hypothesis_version: 6.148.10
+
+[0.0, ',', 'book_health_ok', 'data_health', 'indicators', 'meta_feat_v5', 'tick_time_age_ms', 'utf-8', 'v5']

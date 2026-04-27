@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/meta_model_lr.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.5, 1.0, 1000, ',', ':', 'MetaModelLR', 'center', 'coef', 'created_ms', 'feature_cols_hash', 'feature_schema', 'features', 'intercept', 'legacy', 'model_signature', 'params', 'r', 'robust_scaler', 'scale', 'schema_cols_hash', 'schema_hash', 'schema_name', 'schema_version', 'threshold', 'transforms', 'utf-8', 'w']

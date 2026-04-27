@@ -1,0 +1,64 @@
+groups:
+- name: atr_disaster_recovery
+  rules:
+  # Metrics recording
+  - record: atr:dr:active_events
+    expr: sum(rate(atr_dr_events_total{status="opened"}[5m]))
+
+  # Warnings
+  - alert: ATRRestoreStepPacingDelay
+    expr: rate(atr_restore_steps_total{status="passed"}[15m]) == 0 and sum(atr_dr_events_total{status="opened"}) > sum(atr_dr_events_total{status="completed"})
+    for: 30m
+    labels:
+      severity: warning
+      service: atr_policy_control_plane
+      tier: t2
+    annotations:
+      summary: "ATR DR Restore Step pacing delay"
+      description: "A DR event is active, but no restore steps have advanced in the last 30 minutes. Operator intervention or investigation into step failure is needed."
+
+  - alert: ATRObservationOverdue
+    # In a full promQL we'd use a custom metric tracking time spent in OBSERVING_AFTER_RESTORE or sum dr ladder states. 
+    expr: sum(atr_restore_safe_mode{state="NO_NEW_RISK"}) > 0
+    for: 12h
+    labels:
+      severity: warning
+      service: atr_policy_control_plane
+      tier: t2
+    annotations:
+      summary: "ATR DR Event Stalled in Safe Mode"
+      description: "The system has been restricted in NO_NEW_RISK safe mode for over 12 hours following a DR event."
+
+  # Critical / Page
+  - alert: ATRFullColdStartTriggered
+    expr: increase(atr_dr_events_total{dr_class="FULL_STACK_COLD_START",status="opened"}[5m]) > 0
+    for: 1m
+    labels:
+      severity: critical
+      service: atr_policy_control_plane
+      tier: t1
+    annotations:
+      summary: "ATR Full Stack Cold Start Triggered"
+      description: "A complete recovery DR event has been triggered. System is currently locked down."
+
+  - alert: ATRRestoreCertFailed
+    expr: increase(atr_restore_cert_total{status="failed"}[5m]) > 0
+    for: 1m
+    labels:
+      severity: critical
+      service: atr_policy_control_plane
+      tier: t1
+    annotations:
+      summary: "ATR Restore Certification Failed"
+      description: "A critical certification in the restore ladder has failed. Ladder progression halted."
+
+  - alert: ATRBlockedReleaseAttemptDuringDR
+    expr: increase(atr_restore_blocked_release_total[5m]) > 0
+    for: 1m
+    labels:
+      severity: critical
+      service: atr_policy_control_plane
+      tier: t1
+    annotations:
+      summary: "ATR Attempted Release During DR"
+      description: "A release window operation was attempted but blocked due to an active disaster recovery event. Check CI/CD overrides."

@@ -1,0 +1,1014 @@
+diff --git a/services/ml_confirm_gate.py b/services/ml_confirm_gate.py
+index f6626af..6f6d2d5 100644
+--- a/services/ml_confirm_gate.py
++++ b/services/ml_confirm_gate.py
+@@ -1341,6 +1341,8 @@ class MLConfirmGate:
+                 val = col[len("scenario_v4_"):].lower()
+                 row.append(1.0 if val == s else 0.0)
+             elif col.startswith("session_"):
++                # NOTE: session one-hots are derived from ts_ms, not from indicators,
++                # to keep train==serve deterministic even if upstream did not export them.
+                 val = col[len("session_"):].lower()
+                 row.append(1.0 if val == str(session_label) else 0.0)
+             elif col.startswith("spread_bucket_"):
+diff --git a/services/orderflow/components/tick_processor.py b/services/orderflow/components/tick_processor.py
+index e345141..e93bcea 100644
+--- a/services/orderflow/components/tick_processor.py
++++ b/services/orderflow/components/tick_processor.py
+@@ -1,7 +1,25 @@
+ from __future__ import annotations
+ 
++# -----------------------------------------------------------------------------
++# MIRROR SYNC POLICY (A0)
++#
++# Source-of-Truth (SoT):
++#   tick_flow_full/services/orderflow/components/tick_processor.py
++# Mirror (MUST be kept 1:1 for any functional change):
++#   services/orderflow/components/tick_processor.py
++#
++# Why: this project intentionally ships duplicated trees to support different
++# deployment footprints. Any functional drift between SoT and mirror can cause:
++#   - train==serve mismatch (feature keys/order, gating semantics)
++#   - replay drift (golden replay ≠ prod)
++#   - observability drift (metrics/alerts no longer comparable)
++#
++# Before committing functional edits, read: MIRROR_SYNC_POLICY.md
++# -----------------------------------------------------------------------------
++
+ import os
+ import time
++import math
+ import json
+ from common.time_utils import normalize_epoch_ms as normalize_epoch_ms_v2
+ from common.of_gate_metrics_contract import enrich_schema_fields, validate_of_gate_row, why_label
+@@ -99,12 +117,14 @@ from core.of_evidence import compute_sweep_recent, compute_reclaim_recent, compu
+ from core.footprint_policy import fp_confirmations_from_microbar, is_soft_confirmation
+ from core.data_health import compute_data_health, apply_book_evidence_policy, apply_shadow_only_policy
+ from core.book_microstructure_v4 import compute_microstructure_v4
++from core.book_derivatives_v1 import compute_book_imbalance_rate_10
+ from core.confirmations_schema_v1 import parse_confirmations_v1
+ from core.slippage_model import expected_slippage_bps
+ from core.expected_slippage_decomp_v1 import expected_slippage_decomp_bps
+ from core.bucket_allowlist_v1 import bucket_allowed
+ # Commit 3: book microstructure features (top-N snapshot for v4 schema)
+ from core.book_microstructure_v4 import compute_microstructure_v4
++from core.book_derivatives_v1 import compute_book_imbalance_rate_10
+ # Commit 2 / Commit 1: materialize confirmations as first-class ML features (train==serve parity)
+ from core.confirmations_schema_v1 import apply_confirmations_to_indicators
+ from core.of_inputs_contract import OFInputsV1, OFInputsV2
+@@ -145,6 +165,8 @@ def _sample_uid_symbol_ts(symbol: str, ts_ms: int) -> int:
+     h = hashlib.sha1(b).digest()
+     return int.from_bytes(h[:8], byteorder="big", signed=False)
+ 
++
++
+ class TickProcessor:
+     """
+     Handles individual tick processing:
+@@ -709,6 +731,81 @@ class TickProcessor:
+         except Exception:
+             pass
+ 
++        
++
++        # ------------------------------------------------------------
++        # A5: baselines for flags (cheap O(10), runs even when delta_event is absent)
++        # - trade_qty_ema: time-decayed EMA of trade sizes (baseline for flag_large_trade)
++        # - depth_total10_ema: time-decayed EMA of depth_total_10 on book updates
++        # Determinism: EMA is updated by ts_ms deltas (dt), not by tick count.
++        # ------------------------------------------------------------
++        try:
++            cfg = getattr(runtime, "config", None) or {}
++
++            # trade qty EMA (only when qty is present/positive)
++            q = float(qty) if qty is not None else 0.0
++            if q > 0:
++                prev_ema = float(getattr(runtime, "_a5_trade_qty_ema", 0.0) or 0.0)
++                prev_ts = int(getattr(runtime, "_a5_trade_qty_ts_ms", 0) or 0)
++                tau_ms = int(cfg.get("a5_large_trade_tau_ms", 60_000) or 60_000)
++                new_ema, new_ts, bad_time = update_time_ema(
++                    prev_ema=prev_ema,
++                    x=q,
++                    prev_ts_ms=prev_ts,
++                    ts_ms=int(tick_ts),
++                    tau_ms=tau_ms,
++                )
++                setattr(runtime, "_a5_trade_qty_ema", float(new_ema))
++                setattr(runtime, "_a5_trade_qty_ts_ms", int(new_ts))
++                if bad_time:
++                    setattr(runtime, "_a5_bad_time_total", int(getattr(runtime, "_a5_bad_time_total", 0) or 0) + 1)
++
++            # depth_total_10 EMA: update on new book snapshots (book_state.ts_ms)
++            bs = getattr(runtime, "book_state", None)
++            if bs is not None:
++                book_ts = int(getattr(bs, "ts_ms", 0) or 0)
++                prev_book_ts = int(getattr(runtime, "_a5_depth_book_ts_ms", 0) or 0)
++                if book_ts > 0 and book_ts != prev_book_ts:
++                    raw = getattr(bs, "raw", None) or {}
++                    bids = raw.get("bids") or raw.get("bid") or raw.get("b") or []
++                    asks = raw.get("asks") or raw.get("ask") or raw.get("a") or []
++
++                    def _sum_top10(levels) -> float:
++                        s = 0.0
++                        if not isinstance(levels, list):
++                            return 0.0
++                        for lvl in levels[:10]:
++                            try:
++                                if isinstance(lvl, (list, tuple)) and len(lvl) >= 2:
++                                    s += float(lvl[1])
++                                elif isinstance(lvl, dict):
++                                    s += float(lvl.get("qty") or lvl.get("q") or lvl.get("size") or 0.0)
++                            except Exception:
++                                continue
++                        return float(s)
++
++                    depth10 = _sum_top10(bids) + _sum_top10(asks)
++                    setattr(runtime, "_a5_depth_total10_last", float(depth10))
++
++                    prev_ema = float(getattr(runtime, "_a5_depth_total10_ema", 0.0) or 0.0)
++                    prev_ts = int(getattr(runtime, "_a5_depth_ts_ms", 0) or 0)
++                    tau_ms = int(cfg.get("a5_low_liq_tau_ms", 300_000) or 300_000)
++                    new_ema, new_ts, bad_time = update_time_ema(
++                        prev_ema=prev_ema,
++                        x=float(depth10),
++                        prev_ts_ms=prev_ts,
++                        ts_ms=int(book_ts),
++                        tau_ms=tau_ms,
++                    )
++                    setattr(runtime, "_a5_depth_total10_ema", float(new_ema))
++                    setattr(runtime, "_a5_depth_ts_ms", int(new_ts))
++                    setattr(runtime, "_a5_depth_book_ts_ms", int(book_ts))
++                    if bad_time:
++                        setattr(runtime, "_a5_bad_time_total", int(getattr(runtime, "_a5_bad_time_total", 0) or 0) + 1)
++        except Exception:
++            # Never break tick path due to A5 bookkeeping.
++            pass
++
+         if not delta_event:
+             # Usually means no significant delta spike
+             # We return None early unless we are in a mode that processes every tick for continuous metrics
+@@ -1024,6 +1121,47 @@ class TickProcessor:
+                     if cache_ts != book_ts:
+                         prev_raw = getattr(runtime, "_ms_v4_prev_raw", None)
+                         ms = compute_microstructure_v4(bs.raw, prev_raw)
++                        # v4.2 extras: top-10 depth aggregates + depth-Gini + absolute micro_price (train==serve parity)
++                        #   depth_total_10, depth_imbalance_10, gini_depth_10, micro_price, micro_price_diff_bps
++                        # --- A2: book derivative feature (rate of depth_imbalance_10) ---
++                        # book_imbalance_rate_10 = Δdepth_imbalance_10 / Δt_sec
++                        # Guard: if Δt_ms <= 0 (out-of-order book snapshots) -> rate=0 and increment bad_time.
++                        try:
++                            cur_imb10 = float(ms.get("depth_imbalance_10", 0.0) or 0.0)
++                            prev_imb10 = getattr(runtime, "_ms_v4_prev_depth_imbalance_10", None)
++                            prev_book_ts_ms = getattr(runtime, "_ms_v4_prev_book_ts_ms", None)
++
++                            rate10, bad_dt = compute_book_imbalance_rate_10(
++                                prev_imb10=prev_imb10,
++                                prev_ts_ms=prev_book_ts_ms,
++                                cur_imb=cur_imb10,
++                                cur_ts_ms=book_ts,
++                            )
++                            ms["book_imbalance_rate_10"] = float(rate10)
++
++                            if prev_book_ts_ms is None:
++                                # First observation: initialize derivative state.
++                                setattr(runtime, "_ms_v4_prev_book_ts_ms", int(book_ts))
++                                setattr(runtime, "_ms_v4_prev_depth_imbalance_10", float(cur_imb10))
++                            else:
++                                if bad_dt:
++                                    # Out-of-order/non-monotonic book_ts_ms: do NOT advance prev state.
++                                    # Count it for later SRE export (A8), but keep runtime deterministic.
++                                    setattr(
++                                        runtime,
++                                        "_ms_v4_book_deriv_bad_time_total",
++                                        int(getattr(runtime, "_ms_v4_book_deriv_bad_time_total", 0) or 0) + 1,
++                                    )
++                                else:
++                                    # Happy path: advance prev state.
++                                    setattr(runtime, "_ms_v4_prev_book_ts_ms", int(book_ts))
++                                    setattr(runtime, "_ms_v4_prev_depth_imbalance_10", float(cur_imb10))
++                        except Exception:
++                            # Fail-open: keep feature present and bounded even on unexpected raw shapes.
++                            try:
++                                ms.setdefault("book_imbalance_rate_10", 0.0)
++                            except Exception:
++                                pass
+                         setattr(runtime, "_ms_v4_cache_book_ts", book_ts)
+                         setattr(runtime, "_ms_v4_prev_raw", bs.raw)
+                         setattr(runtime, "_ms_v4_cache", ms)
+@@ -1372,6 +1510,69 @@ class TickProcessor:
+         except Exception:
+             pass
+ 
++        
++
++        # ------------------------------------------------------------
++        # A5: flags + sessions (bool -> 0/1) + session one-hot
++        # - flags are part of v7_of (v6_of + A5)
++        # - session one-hot is derived from ts_ms (train==serve); still exported in indicators for observability
++        # ------------------------------------------------------------
++        # ensure keys exist even on exceptions
++        for _k in (
++            "flag_high_vol",
++            "flag_low_liquidity",
++            "flag_large_trade",
++            "flag_mean_reversion_mode",
++            "flag_session_open",
++            "flag_session_close",
++            "flag_macro_event",
++            "session_asia",
++            "session_eu",
++            "session_us",
++            "session_off",
++        ):
++            indicators.setdefault(_k, 0)
++
++        try:
++            cfg = getattr(runtime, "config", None) or {}
++            q = float(qty) if qty is not None else 0.0
++            trade_qty_ema = float(getattr(runtime, "_a5_trade_qty_ema", 0.0) or 0.0)
++            depth10 = float(indicators.get("depth_total_10", getattr(runtime, "_a5_depth_total10_last", 0.0) or 0.0) or 0.0)
++            depth10_ema = float(getattr(runtime, "_a5_depth_total10_ema", 0.0) or 0.0)
++
++            indicators.update(
++                compute_a5_flags(
++                    ts_ms=int(tick_ts),
++                    qty=q,
++                    indicators=indicators,
++                    trade_qty_ema=trade_qty_ema,
++                    depth_total10=depth10,
++                    depth_total10_ema=depth10_ema,
++                    cfg=cfg,
++                )
++            )
++            indicators.update(session_onehot(int(tick_ts), cfg=cfg))
++        except Exception:
++            # Flags should never break the main tick path.
++            pass
++# A3: Rolling trackers (VWAP diff, momentum, realized vol)
++        # Updated on microbar close by BarProcessor and stored in runtime.dynamic_cfg.
++        try:
++            indicators["roll_vwap_px"] = float(cfg.get("roll_vwap_px", 0.0) or 0.0)
++            indicators["vwap_roll_diff_bps"] = float(cfg.get("vwap_roll_diff_bps", 0.0) or 0.0)
++            indicators["vwap_roll_no_data"] = int(cfg.get("vwap_roll_no_data", 1) or 0)
++
++            indicators["price_momentum_bps"] = float(cfg.get("price_momentum_bps", 0.0) or 0.0)
++            indicators["price_momentum_no_data"] = int(cfg.get("price_momentum_no_data", 1) or 0)
++
++            indicators["spread_momentum_bps_per_s"] = float(cfg.get("spread_momentum_bps_per_s", 0.0) or 0.0)
++            indicators["spread_momentum_no_data"] = int(cfg.get("spread_momentum_no_data", 1) or 0)
++
++            indicators["realized_vol_bps"] = float(cfg.get("realized_vol_bps", 0.0) or 0.0)
++            indicators["realized_vol_no_data"] = int(cfg.get("realized_vol_no_data", 1) or 0)
++        except Exception:
++            pass
++
+         # Attach resilience snapshot to indicators
+         try:
+             if getattr(runtime, "resilience", None) is not None:
+diff --git a/tick_flow_full/core/feature_registry.py b/tick_flow_full/core/feature_registry.py
+index ba4e3b8..671c5e6 100644
+--- a/tick_flow_full/core/feature_registry.py
++++ b/tick_flow_full/core/feature_registry.py
+@@ -321,6 +321,20 @@ def _get_v6_of_stable_keys():
+     return num_f, bool_f
+ 
+ 
++
++def _get_v7_of_keys() -> tuple[list[str], list[str]]:
++    from core.ml_feature_schema_v7_of import MLFeatureSchemaV7OF
++    s = MLFeatureSchemaV7OF()
++    return list(s.num_keys), list(s.bool_keys)
++
++
++def _get_v7_of_stable_keys() -> tuple[list[str], list[str]]:
++    num_keys, bool_keys = _get_v7_of_keys()
++    deny = _denylist_features()
++    num_keys = [k for k in num_keys if k not in deny]
++    bool_keys = [k for k in bool_keys if k not in deny]
++    return num_keys, bool_keys
++
+ # ---------------------------------------------------------------------------
+ # v5_of_stable schema — v5_of minus denylist (feature_denylist_v1.json)
+ # ---------------------------------------------------------------------------
+@@ -392,7 +406,7 @@ def get_schema_info(ver: str) -> FeatureSchemaInfo:
+     """Возвращает FeatureSchemaInfo для заданной версии схемы.
+ 
+     Args:
+-        ver: одно из "v2", "v3", "v4_of", "v5_of", "v5_of_stable", "v6_of", "v6_of_stable"
++        ver: одно из "v2", "v3", "v4_of", "v5_of", "v5_of_stable", "v6_of", "v6_of_stable", "v7_of", "v7_of_stable"
+ 
+     Returns:
+         FeatureSchemaInfo — неизменяемый дескриптор схемы.
+@@ -420,6 +434,14 @@ def get_schema_info(ver: str) -> FeatureSchemaInfo:
+         num_keys, bool_keys = _get_v5_of_stable_keys()
+         names = _build_feature_names(num_keys, bool_keys)
+         v = "v5_of_stable"
++    elif v in ("v7_of", "v7"):
++        num_keys, bool_keys = _get_v7_of_keys()
++        names = _build_feature_names(num_keys, bool_keys)
++        v = "v7_of"
++    elif v in ("v7_of_stable", "v7_stable", "v7stable"):
++        num_keys, bool_keys = _get_v7_of_stable_keys()
++        names = _build_feature_names(num_keys, bool_keys)
++        v = "v7_of_stable"
+     elif v in ("v6_of", "v6"):
+         num_keys, bool_keys = _get_v6_of_keys()
+         names = _build_feature_names(num_keys, bool_keys)
+@@ -431,7 +453,7 @@ def get_schema_info(ver: str) -> FeatureSchemaInfo:
+     else:
+         raise ValueError(
+             f"Unsupported feature schema version: {ver!r}. "
+-            f"Supported: 'v2', 'v3', 'v4_of', 'v5_of', 'v5_of_stable', 'v6_of', 'v6_of_stable'."
++            f"Supported: 'v2', 'v3', 'v4_of', 'v5_of', 'v5_of_stable', 'v6_of', 'v6_of_stable', 'v7_of', 'v7_of_stable'."
+         )
+ 
+     info = _make_schema_info(v, names)
+@@ -449,8 +471,9 @@ def get_edge_stack_feature_spec(
+     max_numeric: int = 128,
+     strict_feature_cols: bool = False,
+     forbid_scenario_v4_onehot: bool = False,
++    include_session_onehot: Optional[bool] = None,
+ ) -> EdgeStackFeatureSpec:
+-    """Детерминированный edge-stack feature_cols из MLFeatureSchema (v2/v3/v4/v4_of).
++    """Детерминированный edge-stack feature_cols из MLFeatureSchema (v2/v3/v4_of/v5_of/v6_of/v7_of).
+ 
+     Заменяет sample-зависимый infer_feature_cols() версионным allowlist-ом —
+     training не может дрейфовать по составу колонок.
+@@ -481,16 +504,20 @@ def get_edge_stack_feature_spec(
+         ver = "v6_of"
+     if ver in ("v6_of_stable", "v6stable", "v6_stable"):
+         ver = "v6_of_stable"
++    if ver == "v7of":
++        ver = "v7_of"
++    if ver in ("v7_of_stable", "v7stable", "v7_stable"):
++        ver = "v7_of_stable"
+ 
+-    # расширенный allowlist: v2/v3/v4/v4_of/v5_of/v5_of_stable/v6_of/v6_of_stable
+-    if ver not in ("v2", "v3", "v4", "v4_of", "v5", "v5_of", "v5_of_stable", "v6", "v6_of", "v6_of_stable"):
++    # расширенный allowlist: v2/v3/v4/v4_of/v5_of/v5_of_stable/v6_of/v6_of_stable/v7_of/v7_of_stable
++    if ver not in ("v2", "v3", "v4", "v4_of", "v5", "v5_of", "v5_of_stable", "v6", "v6_of", "v6_of_stable", "v7", "v7_of", "v7_of_stable"):
+         raise ValueError(
+-            f"edge-stack registry supports v2/v3/v4/v4_of/v5_of/v5_of_stable/v6_of/v6_of_stable only, got {schema_ver!r}"
++            f"edge-stack registry supports v2/v3/v4/v4_of/v5_of/v5_of_stable/v6_of/v6_of_stable/v7_of/v7_of_stable only, got {schema_ver!r}"
+         )
+ 
+     # Числовой номер версии для умолчаний (v4_of → 4)
+     try:
+-        ver_num = 6 if ver in ("v6_of", "v6_of_stable") else (5 if ver in ("v5_of", "v5_of_stable") else (4 if ver == "v4_of" else int(ver.lstrip("v"))))
++        ver_num = 7 if ver in ("v7_of", "v7_of_stable") else (6 if ver in ("v6_of", "v6_of_stable") else (5 if ver in ("v5_of", "v5_of_stable") else (4 if ver == "v4_of" else int(ver.lstrip("v")))))
+     except Exception:
+         ver_num = 0
+ 
+@@ -502,8 +529,14 @@ def get_edge_stack_feature_spec(
+     elif ver in ("v4", "v4_of"):
+         num_keys, bool_keys = _get_v4_of_keys()
+         ver = "v4_of"  # канонизируем v4 → v4_of для кэша
+-    else:  # v5/v6 allowlist
+-        if ver in ("v6_of", "v6"):
++    else:  # v5/v6/v7 allowlist
++        if ver in ("v7_of", "v7"):
++            num_keys, bool_keys = _get_v7_of_keys()
++            ver = "v7_of"
++        elif ver == "v7_of_stable":
++            num_keys, bool_keys = _get_v7_of_stable_keys()
++            ver = "v7_of_stable"
++        elif ver in ("v6_of", "v6"):
+             num_keys, bool_keys = _get_v6_of_keys()
+             ver = "v6_of"
+         elif ver == "v6_of_stable":
+@@ -589,9 +622,22 @@ def get_edge_stack_feature_spec(
+         cols += [f"hour:{h}" for h in range(24)]
+         cols += [f"dow:{d}" for d in range(7)]
+ 
++    # session one-hots: default = v7+ (ver_num >= 7)
++    if include_session_onehot is None:
++        include_session_onehot = ver_num >= 7
++    if include_session_onehot:
++        cols += ["session_asia", "session_eu", "session_us", "session_off"]
++
++
+     spec = _make_edge_stack_spec(ver, cols)
+     # кэшируем только простой вызов (без доп. параметров) — с параметрами создаём свежий объект
+-    if max_numeric == 128 and not strict_feature_cols and not forbid_scenario_v4_onehot and include_time_onehot is not False:
++    if (
++        max_numeric == 128
++        and not strict_feature_cols
++        and not forbid_scenario_v4_onehot
++        and include_time_onehot is not False
++        and include_session_onehot is not False
++    ):
+         _EDGE_CACHE.setdefault(ver, spec)
+     return spec
+ 
+diff --git a/tick_flow_full/core/flags_sessions_v1.py b/tick_flow_full/core/flags_sessions_v1.py
+new file mode 100644
+index 0000000..4da43a5
+--- /dev/null
++++ b/tick_flow_full/core/flags_sessions_v1.py
+@@ -0,0 +1,182 @@
++"""A5: flags + sessions helpers.
++
++Design goals:
++- deterministic by timestamps (ts_ms), not by tick count
++- bounded outputs for ML (bool flags as 0/1)
++- minimal dependencies: can run without rolling trackers (A3)
++
++This module is used by tick_processor to:
++- maintain time-decayed EMA baselines (trade qty, depth_total_10)
++- compute A5 flags and session one-hot
++"""
++
++from __future__ import annotations
++
++import math
++from dataclasses import dataclass
++from typing import Any, Dict, Optional, Tuple
++
++from core.feature_engineering import derive_session_label
++
++
++def _alpha_time_decay(dt_ms: int, tau_ms: int) -> float:
++    """Time-decayed EMA alpha.
++
++    alpha = 1 - exp(-dt/tau)
++    - dt_ms <= 0 -> 0
++    - tau_ms <= 0 -> 0
++    """
++
++    if dt_ms <= 0 or tau_ms <= 0:
++        return 0.0
++    x = -float(dt_ms) / float(tau_ms)
++    # avoid underflow / exp(-large)
++    if x < -50.0:
++        return 1.0
++    return 1.0 - math.exp(x)
++
++
++def update_time_ema(
++    *,
++    prev_ema: float,
++    x: float,
++    prev_ts_ms: int,
++    ts_ms: int,
++    tau_ms: int,
++) -> Tuple[float, int, bool]:
++    """Update EMA using timestamps.
++
++    Returns: (new_ema, new_ts_ms, bad_time)
++
++    bad_time=True if ts_ms <= prev_ts_ms when prev_ts_ms>0.
++    """
++
++    if ts_ms <= 0:
++        return prev_ema, prev_ts_ms, False
++
++    if prev_ts_ms <= 0:
++        return float(x), int(ts_ms), False
++
++    dt_ms = int(ts_ms) - int(prev_ts_ms)
++    if dt_ms <= 0:
++        # out-of-order or duplicate; keep previous EMA and timestamp
++        return prev_ema, prev_ts_ms, True
++
++    a = _alpha_time_decay(dt_ms, tau_ms)
++    if prev_ema <= 0.0:
++        return float(x), int(ts_ms), False
++
++    new_ema = (1.0 - a) * float(prev_ema) + a * float(x)
++    return float(new_ema), int(ts_ms), False
++
++
++def session_onehot(ts_ms: int, cfg: Optional[Dict[str, Any]] = None) -> Dict[str, int]:
++    """Return session one-hot: session_asia/eu/us/off (sum==1)."""
++
++    label = derive_session_label(ts_ms, cfg=cfg)
++    if label not in ("asia", "eu", "us", "off"):
++        label = "off"
++    return {
++        "session_asia": 1 if label == "asia" else 0,
++        "session_eu": 1 if label == "eu" else 0,
++        "session_us": 1 if label == "us" else 0,
++        "session_off": 1 if label == "off" else 0,
++    }
++
++
++def session_open_close_flags(
++    ts_ms: int,
++    *,
++    edge_window_ms: int = 300_000,
++    cfg: Optional[Dict[str, Any]] = None,
++) -> Dict[str, int]:
++    """Flags for session edges.
++
++    Uses the same session boundaries as derive_session_label (UTC):
++    - asia: [00:00, 07:00)
++    - eu:   [07:00, 13:00)
++    - us:   [13:00, 21:00)
++    - off:  [21:00, 24:00)
++
++    flag_session_open: within +/- edge_window_ms of any session start.
++    flag_session_close: within +/- edge_window_ms of any session end.
++
++    Note: on exact boundary, open and close can both be 1 (acceptable).
++    """
++
++    if ts_ms <= 0:
++        return {"flag_session_open": 0, "flag_session_close": 0}
++
++    win_s = max(int(edge_window_ms) // 1000, 0)
++    sec_of_day = (int(ts_ms) // 1000) % 86_400
++
++    def _near(target_s: int) -> bool:
++        d = abs(sec_of_day - target_s)
++        d = min(d, 86_400 - d)
++        return d <= win_s
++
++    # boundaries consistent with derive_session_label defaults
++    start_bounds = [0, 7 * 3600, 13 * 3600, 21 * 3600]
++    end_bounds = [7 * 3600, 13 * 3600, 21 * 3600, 0]  # 24:00 -> 0
++
++    open_flag = 1 if any(_near(t) for t in start_bounds) else 0
++    close_flag = 1 if any(_near(t) for t in end_bounds) else 0
++    return {"flag_session_open": open_flag, "flag_session_close": close_flag}
++
++
++def compute_a5_flags(
++    *,
++    ts_ms: int,
++    qty: float,
++    indicators: Dict[str, Any],
++    trade_qty_ema: float,
++    depth_total10: float,
++    depth_total10_ema: float,
++    cfg: Optional[Dict[str, Any]] = None,
++) -> Dict[str, int]:
++    """Compute A5 flags as 0/1.
++
++    Inputs:
++    - indicators: must include vol_ratio_z (preferred) for high-vol and microbar_* for mean-reversion MVP.
++
++    Returns dict of flags (0/1), plus reserved flag_macro_event=0.
++    """
++
++    cfg = cfg or {}
++    out: Dict[str, int] = {}
++
++    # high volatility
++    high_vol_z_th = float(cfg.get("a5_high_vol_z_th", 2.0) or 2.0)
++    try:
++        vol_z = float(indicators.get("vol_ratio_z", float("nan")))
++    except Exception:
++        vol_z = float("nan")
++    out["flag_high_vol"] = 1 if (vol_z == vol_z and vol_z >= high_vol_z_th) else 0
++
++    # low liquidity: compare current depth_total_10 vs EMA baseline
++    low_liq_ratio_th = float(cfg.get("a5_low_liq_ratio_th", 0.35) or 0.35)
++    eps = 1e-12
++    ratio = float(depth_total10) / max(float(depth_total10_ema), eps) if depth_total10_ema > 0 else 1.0
++    out["flag_low_liquidity"] = 1 if (depth_total10_ema > 0 and ratio <= low_liq_ratio_th) else 0
++
++    # large trade: qty >= mult * EMA(qty)
++    large_trade_mult = float(cfg.get("a5_large_trade_mult", 6.0) or 6.0)
++    out["flag_large_trade"] = 1 if (trade_qty_ema > 0 and qty > 0 and qty >= large_trade_mult * trade_qty_ema) else 0
++
++    # mean reversion MVP: small body vs range (wicky bar) + non-trivial range
++    mr_body_ratio_th = float(cfg.get("a5_mr_body_ratio_th", 0.35) or 0.35)
++    mr_range_th_bps = float(cfg.get("a5_mr_range_th_bps", 5.0) or 5.0)
++    try:
++        rng = abs(float(indicators.get("microbar_range_bps", 0.0) or 0.0))
++        body = abs(float(indicators.get("microbar_body_bps", 0.0) or 0.0))
++    except Exception:
++        rng, body = 0.0, 0.0
++    out["flag_mean_reversion_mode"] = 1 if (rng >= mr_range_th_bps and rng > 0 and (body / rng) <= mr_body_ratio_th) else 0
++
++    # session edges
++    edge_window_ms = int(cfg.get("a5_session_edge_window_ms", 300_000) or 300_000)
++    out.update(session_open_close_flags(ts_ms, edge_window_ms=edge_window_ms, cfg=cfg))
++
++    # reserved for future wiring
++    out["flag_macro_event"] = 0
++    return out
+diff --git a/tick_flow_full/core/ml_feature_schema_v7_of.py b/tick_flow_full/core/ml_feature_schema_v7_of.py
+new file mode 100644
+index 0000000..5e80c04
+--- /dev/null
++++ b/tick_flow_full/core/ml_feature_schema_v7_of.py
+@@ -0,0 +1,41 @@
++"""MLFeatureSchemaV7OF
++
++v7_of = v6_of + A5 flags (bool -> 0/1) + session one-hot in edge-stack spec.
++
++Важно:
++- В сам schema добавлены только A5 flags (bool_keys).
++- Session one-hot (session_asia/eu/us/off) не является частью schema-ключей, потому что
++  эти колонки генерируются gate-слоем детерминированно из ts_ms (train==serve).
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++
++from core.ml_feature_schema_v6_of import MLFeatureSchemaV6OF
++
++
++_A5_BOOL_KEYS = [
++    # A5: runtime flags (encoded as 0/1)
++    "flag_high_vol",
++    "flag_low_liquidity",
++    "flag_large_trade",
++    "flag_mean_reversion_mode",
++    "flag_session_open",
++    "flag_session_close",
++    "flag_macro_event",
++]
++
++
++@dataclass
++class MLFeatureSchemaV7OF(MLFeatureSchemaV6OF):
++    """v7_of = v6_of + A5 flags."""
++
++    def __post_init__(self) -> None:
++        super().__post_init__()
++        # keep order stable and de-dup
++        bk = list(self.bool_keys or [])
++        for k in _A5_BOOL_KEYS:
++            if k not in bk:
++                bk.append(k)
++        self.bool_keys = bk
+diff --git a/tick_flow_full/services/ml_confirm_gate.py b/tick_flow_full/services/ml_confirm_gate.py
+index 344062f..7b77ea6 100644
+--- a/tick_flow_full/services/ml_confirm_gate.py
++++ b/tick_flow_full/services/ml_confirm_gate.py
+@@ -1394,6 +1394,8 @@ class MLConfirmGate:
+                     dd = -1
+                 row.append(1.0 if dd == int(utc_dow) else 0.0)
+             elif col.startswith("session_"):
++                # NOTE: session one-hots are derived from ts_ms, not from indicators,
++                # to keep train==serve deterministic even if upstream did not export them.
+                 val = col[len("session_"):].lower()
+                 row.append(1.0 if val == str(session_label) else 0.0)
+             elif col.startswith("spread_bucket_"):
+diff --git a/tick_flow_full/services/orderflow/components/tick_processor.py b/tick_flow_full/services/orderflow/components/tick_processor.py
+index d7d325c..5b2caa9 100644
+--- a/tick_flow_full/services/orderflow/components/tick_processor.py
++++ b/tick_flow_full/services/orderflow/components/tick_processor.py
+@@ -1,7 +1,25 @@
+ from __future__ import annotations
+ 
++# -----------------------------------------------------------------------------
++# MIRROR SYNC POLICY (A0)
++#
++# Source-of-Truth (SoT):
++#   tick_flow_full/services/orderflow/components/tick_processor.py
++# Mirror (MUST be kept 1:1 for any functional change):
++#   services/orderflow/components/tick_processor.py
++#
++# Why: this project intentionally ships duplicated trees to support different
++# deployment footprints. Any functional drift between SoT and mirror can cause:
++#   - train==serve mismatch (feature keys/order, gating semantics)
++#   - replay drift (golden replay ≠ prod)
++#   - observability drift (metrics/alerts no longer comparable)
++#
++# Before committing functional edits, read: MIRROR_SYNC_POLICY.md
++# -----------------------------------------------------------------------------
++
+ import os
+ import time
++import math
+ import json
+ from common.time_utils import normalize_epoch_ms as normalize_epoch_ms_v2
+ from common.of_gate_metrics_contract import enrich_schema_fields, validate_of_gate_row, why_label
+@@ -89,6 +107,7 @@ from core.of_evidence import compute_sweep_recent, compute_reclaim_recent, compu
+ from core.footprint_policy import fp_confirmations_from_microbar, is_soft_confirmation
+ from core.data_health import compute_data_health, apply_book_evidence_policy, apply_shadow_only_policy
+ from core.book_microstructure_v4 import compute_microstructure_v4
++from core.book_derivatives_v1 import compute_book_imbalance_rate_10
+ from core.confirmations_schema_v1 import parse_confirmations_v1
+ from core.slippage_model import expected_slippage_bps
+ from core.bucket_allowlist_v1 import bucket_allowed
+@@ -130,6 +149,8 @@ def _sample_uid_symbol_ts(symbol: str, ts_ms: int) -> int:
+     h = hashlib.sha1(b).digest()
+     return int.from_bytes(h[:8], byteorder="big", signed=False)
+ 
++
++
+ class TickProcessor:
+     """
+     Handles individual tick processing:
+@@ -725,6 +746,81 @@ class TickProcessor:
+         except Exception:
+             pass
+ 
++        
++
++        # ------------------------------------------------------------
++        # A5: baselines for flags (cheap O(10), runs even when delta_event is absent)
++        # - trade_qty_ema: time-decayed EMA of trade sizes (baseline for flag_large_trade)
++        # - depth_total10_ema: time-decayed EMA of depth_total_10 on book updates
++        # Determinism: EMA is updated by ts_ms deltas (dt), not by tick count.
++        # ------------------------------------------------------------
++        try:
++            cfg = getattr(runtime, "config", None) or {}
++
++            # trade qty EMA (only when qty is present/positive)
++            q = float(qty) if qty is not None else 0.0
++            if q > 0:
++                prev_ema = float(getattr(runtime, "_a5_trade_qty_ema", 0.0) or 0.0)
++                prev_ts = int(getattr(runtime, "_a5_trade_qty_ts_ms", 0) or 0)
++                tau_ms = int(cfg.get("a5_large_trade_tau_ms", 60_000) or 60_000)
++                new_ema, new_ts, bad_time = update_time_ema(
++                    prev_ema=prev_ema,
++                    x=q,
++                    prev_ts_ms=prev_ts,
++                    ts_ms=int(tick_ts),
++                    tau_ms=tau_ms,
++                )
++                setattr(runtime, "_a5_trade_qty_ema", float(new_ema))
++                setattr(runtime, "_a5_trade_qty_ts_ms", int(new_ts))
++                if bad_time:
++                    setattr(runtime, "_a5_bad_time_total", int(getattr(runtime, "_a5_bad_time_total", 0) or 0) + 1)
++
++            # depth_total_10 EMA: update on new book snapshots (book_state.ts_ms)
++            bs = getattr(runtime, "book_state", None)
++            if bs is not None:
++                book_ts = int(getattr(bs, "ts_ms", 0) or 0)
++                prev_book_ts = int(getattr(runtime, "_a5_depth_book_ts_ms", 0) or 0)
++                if book_ts > 0 and book_ts != prev_book_ts:
++                    raw = getattr(bs, "raw", None) or {}
++                    bids = raw.get("bids") or raw.get("bid") or raw.get("b") or []
++                    asks = raw.get("asks") or raw.get("ask") or raw.get("a") or []
++
++                    def _sum_top10(levels) -> float:
++                        s = 0.0
++                        if not isinstance(levels, list):
++                            return 0.0
++                        for lvl in levels[:10]:
++                            try:
++                                if isinstance(lvl, (list, tuple)) and len(lvl) >= 2:
++                                    s += float(lvl[1])
++                                elif isinstance(lvl, dict):
++                                    s += float(lvl.get("qty") or lvl.get("q") or lvl.get("size") or 0.0)
++                            except Exception:
++                                continue
++                        return float(s)
++
++                    depth10 = _sum_top10(bids) + _sum_top10(asks)
++                    setattr(runtime, "_a5_depth_total10_last", float(depth10))
++
++                    prev_ema = float(getattr(runtime, "_a5_depth_total10_ema", 0.0) or 0.0)
++                    prev_ts = int(getattr(runtime, "_a5_depth_ts_ms", 0) or 0)
++                    tau_ms = int(cfg.get("a5_low_liq_tau_ms", 300_000) or 300_000)
++                    new_ema, new_ts, bad_time = update_time_ema(
++                        prev_ema=prev_ema,
++                        x=float(depth10),
++                        prev_ts_ms=prev_ts,
++                        ts_ms=int(book_ts),
++                        tau_ms=tau_ms,
++                    )
++                    setattr(runtime, "_a5_depth_total10_ema", float(new_ema))
++                    setattr(runtime, "_a5_depth_ts_ms", int(new_ts))
++                    setattr(runtime, "_a5_depth_book_ts_ms", int(book_ts))
++                    if bad_time:
++                        setattr(runtime, "_a5_bad_time_total", int(getattr(runtime, "_a5_bad_time_total", 0) or 0) + 1)
++        except Exception:
++            # Never break tick path due to A5 bookkeeping.
++            pass
++
+         if not delta_event:
+             # Usually means no significant delta spike
+             # We return None early unless we are in a mode that processes every tick for continuous metrics
+@@ -1069,6 +1165,47 @@ class TickProcessor:
+                     if cache_ts != book_ts:
+                         prev_raw = getattr(runtime, "_ms_v4_prev_raw", None)
+                         ms = compute_microstructure_v4(bs.raw, prev_raw)
++                        # v4.2 extras: top-10 depth aggregates + depth-Gini + absolute micro_price (train==serve parity)
++                        #   depth_total_10, depth_imbalance_10, gini_depth_10, micro_price, micro_price_diff_bps
++                        # --- A2: book derivative feature (rate of depth_imbalance_10) ---
++                        # book_imbalance_rate_10 = Δdepth_imbalance_10 / Δt_sec
++                        # Guard: if Δt_ms <= 0 (out-of-order book snapshots) -> rate=0 and increment bad_time.
++                        try:
++                            cur_imb10 = float(ms.get("depth_imbalance_10", 0.0) or 0.0)
++                            prev_imb10 = getattr(runtime, "_ms_v4_prev_depth_imbalance_10", None)
++                            prev_book_ts_ms = getattr(runtime, "_ms_v4_prev_book_ts_ms", None)
++
++                            rate10, bad_dt = compute_book_imbalance_rate_10(
++                                prev_imb10=prev_imb10,
++                                prev_ts_ms=prev_book_ts_ms,
++                                cur_imb=cur_imb10,
++                                cur_ts_ms=book_ts,
++                            )
++                            ms["book_imbalance_rate_10"] = float(rate10)
++
++                            if prev_book_ts_ms is None:
++                                # First observation: initialize derivative state.
++                                setattr(runtime, "_ms_v4_prev_book_ts_ms", int(book_ts))
++                                setattr(runtime, "_ms_v4_prev_depth_imbalance_10", float(cur_imb10))
++                            else:
++                                if bad_dt:
++                                    # Out-of-order/non-monotonic book_ts_ms: do NOT advance prev state.
++                                    # Count it for later SRE export (A8), but keep runtime deterministic.
++                                    setattr(
++                                        runtime,
++                                        "_ms_v4_book_deriv_bad_time_total",
++                                        int(getattr(runtime, "_ms_v4_book_deriv_bad_time_total", 0) or 0) + 1,
++                                    )
++                                else:
++                                    # Happy path: advance prev state.
++                                    setattr(runtime, "_ms_v4_prev_book_ts_ms", int(book_ts))
++                                    setattr(runtime, "_ms_v4_prev_depth_imbalance_10", float(cur_imb10))
++                        except Exception:
++                            # Fail-open: keep feature present and bounded even on unexpected raw shapes.
++                            try:
++                                ms.setdefault("book_imbalance_rate_10", 0.0)
++                            except Exception:
++                                pass
+                         setattr(runtime, "_ms_v4_cache_book_ts", book_ts)
+                         setattr(runtime, "_ms_v4_prev_raw", bs.raw)
+                         setattr(runtime, "_ms_v4_cache", ms)
+@@ -1483,6 +1620,71 @@ class TickProcessor:
+         except Exception:
+             pass
+ 
++        
++
++        # ------------------------------------------------------------
++        # A5: flags + sessions (bool -> 0/1) + session one-hot
++        # - flags are part of v7_of (v6_of + A5)
++        # - session one-hot is derived from ts_ms (train==serve); still exported in indicators for observability
++        # ------------------------------------------------------------
++        # ensure keys exist even on exceptions
++        for _k in (
++            "flag_high_vol",
++            "flag_low_liquidity",
++            "flag_large_trade",
++            "flag_mean_reversion_mode",
++            "flag_session_open",
++            "flag_session_close",
++            "flag_macro_event",
++            "session_asia",
++            "session_eu",
++            "session_us",
++            "session_off",
++        ):
++            indicators.setdefault(_k, 0)
++
++        try:
++            cfg = getattr(runtime, "config", None) or {}
++            q = float(qty) if qty is not None else 0.0
++            trade_qty_ema = float(getattr(runtime, "_a5_trade_qty_ema", 0.0) or 0.0)
++            depth10 = float(indicators.get("depth_total_10", getattr(runtime, "_a5_depth_total10_last", 0.0) or 0.0) or 0.0)
++            depth10_ema = float(getattr(runtime, "_a5_depth_total10_ema", 0.0) or 0.0)
++
++            indicators.update(
++                compute_a5_flags(
++                    ts_ms=int(tick_ts),
++                    qty=q,
++                    indicators=indicators,
++                    trade_qty_ema=trade_qty_ema,
++                    depth_total10=depth10,
++                    depth_total10_ema=depth10_ema,
++                    cfg=cfg,
++                )
++            )
++            indicators.update(session_onehot(int(tick_ts), cfg=cfg))
++        except Exception:
++            # Flags should never break the main tick path.
++            pass
++# A3: Rolling trackers (VWAP diff, momentum, realized vol)
++        # These are updated on microbar close by BarProcessor and stored in
++        # runtime.dynamic_cfg (merged into cfg earlier). We keep a strict
++        # no-NaN contract here because JSON payloads may be configured strict.
++        try:
++            indicators["roll_vwap_px"] = float(cfg.get("roll_vwap_px", 0.0) or 0.0)
++            indicators["vwap_roll_diff_bps"] = float(cfg.get("vwap_roll_diff_bps", 0.0) or 0.0)
++            indicators["vwap_roll_no_data"] = int(cfg.get("vwap_roll_no_data", 1) or 0)
++
++            indicators["price_momentum_bps"] = float(cfg.get("price_momentum_bps", 0.0) or 0.0)
++            indicators["price_momentum_no_data"] = int(cfg.get("price_momentum_no_data", 1) or 0)
++
++            indicators["spread_momentum_bps_per_s"] = float(cfg.get("spread_momentum_bps_per_s", 0.0) or 0.0)
++            indicators["spread_momentum_no_data"] = int(cfg.get("spread_momentum_no_data", 1) or 0)
++
++            indicators["realized_vol_bps"] = float(cfg.get("realized_vol_bps", 0.0) or 0.0)
++            indicators["realized_vol_no_data"] = int(cfg.get("realized_vol_no_data", 1) or 0)
++        except Exception:
++            pass
++
+         # Attach resilience snapshot to indicators
+         try:
+             if getattr(runtime, "resilience", None) is not None:
+diff --git a/tick_flow_full/services/orderflow/tests/test_a5_flags_sessions_v1.py b/tick_flow_full/services/orderflow/tests/test_a5_flags_sessions_v1.py
+new file mode 100644
+index 0000000..3b00c80
+--- /dev/null
++++ b/tick_flow_full/services/orderflow/tests/test_a5_flags_sessions_v1.py
+@@ -0,0 +1,108 @@
++from __future__ import annotations
++
++# Allow running tests from repo root without PYTHONPATH tweaks.
++import sys
++from pathlib import Path
++sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # .../tick_flow_full
++
++import math
++
++from core.flags_sessions_v1 import (
++    compute_a5_flags,
++    session_onehot,
++    session_open_close_flags,
++    update_time_ema,
++)
++from core.feature_registry import get_edge_stack_feature_spec
++
++
++def _ts(hour: int, minute: int = 0, second: int = 0) -> int:
++    # 2026-01-01 00:00:00 UTC in ms (arbitrary fixed day)
++    base = 1767225600  # 2026-01-01 00:00:00
++    return int((base + hour * 3600 + minute * 60 + second) * 1000)
++
++
++def test_session_onehot_boundaries() -> None:
++    assert session_onehot(_ts(0))["session_asia"] == 1
++    assert session_onehot(_ts(6, 59))["session_asia"] == 1
++
++    assert session_onehot(_ts(7))["session_eu"] == 1
++    assert session_onehot(_ts(12, 59))["session_eu"] == 1
++
++    assert session_onehot(_ts(13))["session_us"] == 1
++    assert session_onehot(_ts(20, 59))["session_us"] == 1
++
++    assert session_onehot(_ts(21))["session_off"] == 1
++    assert session_onehot(_ts(23, 59))["session_off"] == 1
++
++
++def test_session_open_close_flags_window() -> None:
++    # default window=5m: boundary at 07:00 should trigger both open (EU starts) and close (ASIA ends)
++    flags = session_open_close_flags(_ts(7, 0, 0), edge_window_ms=300_000)
++    assert flags["flag_session_open"] == 1
++    assert flags["flag_session_close"] == 1
++
++    flags2 = session_open_close_flags(_ts(7, 10, 0), edge_window_ms=300_000)
++    assert flags2["flag_session_open"] == 0
++    assert flags2["flag_session_close"] == 0
++
++
++def test_update_time_ema_dt() -> None:
++    # first observation sets EMA
++    ema, ts, bad = update_time_ema(prev_ema=0.0, x=10.0, prev_ts_ms=0, ts_ms=1000, tau_ms=60_000)
++    assert ema == 10.0
++    assert ts == 1000
++    assert bad is False
++
++    # out-of-order timestamp -> bad_time
++    ema2, ts2, bad2 = update_time_ema(prev_ema=ema, x=20.0, prev_ts_ms=ts, ts_ms=900, tau_ms=60_000)
++    assert ema2 == ema
++    assert ts2 == ts
++    assert bad2 is True
++
++    # forward update
++    ema3, ts3, bad3 = update_time_ema(prev_ema=ema, x=20.0, prev_ts_ms=ts, ts_ms=ts + 60_000, tau_ms=60_000)
++    assert ts3 == ts + 60_000
++    assert bad3 is False
++    # alpha for dt=tau is 1-exp(-1) ~= 0.632
++    assert abs(ema3 - ((1.0 - (1.0 - math.exp(-1.0))) * 10.0 + (1.0 - math.exp(-1.0)) * 20.0)) < 1e-6
++
++
++def test_compute_a5_flags_basic() -> None:
++    ts_ms = _ts(10)
++    indicators = {
++        "vol_ratio_z": 2.1,
++        "microbar_range_bps": 12.0,
++        "microbar_body_bps": 2.0,
++    }
++
++    out = compute_a5_flags(
++        ts_ms=ts_ms,
++        qty=10.0,
++        indicators=indicators,
++        trade_qty_ema=1.5,
++        depth_total10=100.0,
++        depth_total10_ema=400.0,
++        cfg={
++            "a5_high_vol_z_th": 2.0,
++            "a5_low_liq_ratio_th": 0.35,
++            "a5_large_trade_mult": 6.0,
++            "a5_mr_body_ratio_th": 0.35,
++            "a5_mr_range_th_bps": 5.0,
++            "a5_session_edge_window_ms": 300_000,
++        },
++    )
++
++    assert out["flag_high_vol"] == 1
++    assert out["flag_low_liquidity"] == 1
++    assert out["flag_large_trade"] == 1
++    assert out["flag_mean_reversion_mode"] == 1
++    assert out["flag_macro_event"] == 0
++
++
++def test_feature_registry_v7_includes_session_onehot() -> None:
++    spec = get_edge_stack_feature_spec("v7_of")
++    assert "session_asia" in spec.feature_cols
++    assert "session_eu" in spec.feature_cols
++    assert "session_us" in spec.feature_cols
++    assert "session_off" in spec.feature_cols
+\ No newline at end of file

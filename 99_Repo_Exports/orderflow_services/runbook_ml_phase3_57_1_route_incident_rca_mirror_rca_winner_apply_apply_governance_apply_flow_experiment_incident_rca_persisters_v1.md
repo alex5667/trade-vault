@@ -1,0 +1,37 @@
+# Phase 3.57.1 persisters
+
+## Purpose
+
+Persist new Phase 3.57 streams into Timescale:
+
+- apply_slo_rollups
+- apply_retry_results
+- apply_escalations
+
+## Safe rollout
+
+1. Apply SQL indexes.
+2. Start three persisters.
+3. Verify metrics.
+4. Verify row counts in Timescale.
+5. Check DLQ streams remain empty.
+
+## Commands
+
+```bash
+\i orderflow_services/sql/ml_phase3_57_1_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_persisters_v1.sql
+
+docker compose -f orderflow_services/docker_compose_fragment_ml_phase3_57_1_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_persisters_v1.yml up -d
+
+curl -s localhost:9995/metrics | grep '^ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_slo_rollups_persister_v3_57_1_'
+curl -s localhost:9996/metrics | grep '^ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_retry_results_persister_v3_57_1_'
+curl -s localhost:9997/metrics | grep '^ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_escalations_persister_v3_57_1_'
+
+redis-cli XPENDING stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_slo_rollups cg:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_slo_rollups_persister_v3_57_1
+redis-cli XPENDING stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_retry_results cg:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_retry_results_persister_v3_57_1
+redis-cli XPENDING stream:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_escalations cg:ml:route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_escalations_persister_v3_57_1
+```
+
+## Rollback
+
+Stop only persisters. Do not stop 3.57 producers.

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/bench_tick_ingest_latency_ab.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.1, 0.5, 0.95, 0.99, 5.0, 30.0, '"', '#', '*', '+Inf', ',', '--interval', '--json', '--symbol', '--url', '=', 'User-Agent', '__main__', 'avg_ms', 'count', 'e2e', 'inf', 'interval_s', 'le', 'p50_ms', 'p95_ms', 'p99_ms', 'process', 'replace', 'store_true', 'symbol', 'utf-8', '{', '}']

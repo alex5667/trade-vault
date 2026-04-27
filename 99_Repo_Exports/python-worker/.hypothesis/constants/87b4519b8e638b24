@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/signal_quality/estimator.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.2, 0.3, 0.7, 50.0, 'QualityResult', 'R_main', 'buy', 'expectancy_r', 'expectancy_r_recent', 'feature_bucket', 'high_quality_score', 'low_quality_score', 'medium_quality_score', 'no_quality_data', 'ok', 'quality_score', 'quality_score_online', 'quality_too_low', 'regime', 'session', 'side', 'signal_type', 'status', 'symbol', 'unknown']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/news_pipeline/calendar_store_service.py
+# hypothesis_version: 6.148.10
+
+[1000, 5000, '+inf', 'cal-fs-1', 'calendar:keys', 'currency', 'event_grade_id', 'event_id', 'event_ref', 'event_tminus_sec', 'grade_id', 'next_ts_ms', 'payload', 'region', 'symbols', 'title', 'ts_ms', 'updated_ts_ms']

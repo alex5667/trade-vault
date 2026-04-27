@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/trailing_size_recommender.py
+# hypothesis_version: 6.148.10
+
+[0.0, 1e-09, 0.03, 0.05, 0.25, 0.5, 0.6, 0.7, 0.9, 1.0, 1.3, 1.5, 2.0, 3.0, 'ClosedTradeSnapshot', 'close_reason', 'close_reason_detail', 'close_reason_raw', 'entry_tag', 'exit_ts_ms', 'giveback', 'mae_pnl', 'mfe_pnl', 'missed_profit', 'one_r_money', 'pnl_if_fixed_exit', 'pnl_net', 'source', 'strategy', 'symbol', 'trailing_active', 'trailing_started']

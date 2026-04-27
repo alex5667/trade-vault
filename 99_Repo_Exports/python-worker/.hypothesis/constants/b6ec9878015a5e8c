@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/tools/ml_confirm_cfg_watchdog.py
+# hypothesis_version: 6.148.10
+
+[5.0, 120, 300, 200000, '0', '1', '300', '?', 'ML_CFG_CHAMPION_KEY', 'ML_CONFIRM_MODE', 'ML_WATCHDOG_DRY_RUN', 'OFF', 'REDIS_URL', 'SHADOW', '__main__', 'kind', 'model_path', 'notify:telegram', 'report', 'text', 'ts', 'type', '{}']

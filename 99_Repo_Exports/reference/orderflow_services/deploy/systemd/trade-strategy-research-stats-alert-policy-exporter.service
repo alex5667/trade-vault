@@ -1,0 +1,15 @@
+[Unit]
+Description=Trade strategy research stats alert policy exporter
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%E{TRADE_REPO_ROOT}
+EnvironmentFile=%E{TRADE_ENV_FILE}
+ExecStart=/usr/bin/env bash %E{TRADE_REPO_ROOT}/orderflow_services/deploy/systemd/run_trade_strategy_research_stats_alert_policy_exporter_v1.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

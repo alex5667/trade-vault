@@ -1,0 +1,421 @@
+--- services/binance_executor.py
++++ services/binance_executor.py
+@@ -175,6 +175,19 @@
+     ["symbol"],
+ )
+ 
++EXECUTION_OPEN_BLOCKED_ACTIVE_SYMBOL_TOTAL = _metric(Counter,
++    "execution_open_blocked_active_symbol_total",
++    "Number of open requests blocked because the symbol already has an active execution.",
++    ["symbol", "blocked_state"],
++)
++
++
++class OpenBlockedByActiveSymbolError(RuntimeError):
++    def __init__(self, details: Dict[str, Any]):
++        super().__init__(str((details or {}).get("reason") or "single_active_position_per_symbol"))
++        self.details = dict(details or {})
++
++
+ 
+ # ---------------------------------------------------------------------------
+ # Helpers
+@@ -738,6 +751,10 @@
+         self.exec_bootstrap_require_ready = _bool_env("EXEC_BOOTSTRAP_REQUIRE_READY", False)
+         self.exec_bootstrap_timeout_ms = int(os.getenv("EXEC_BOOTSTRAP_TIMEOUT_MS", "0"))
+         self.exec_bootstrap_poll_ms = int(os.getenv("EXEC_BOOTSTRAP_POLL_MS", "500"))
++        self.exec_single_active_position_per_symbol = _bool_env("EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL", False)
++        self.exec_single_active_position_release_on_terminal = _bool_env("EXEC_SINGLE_ACTIVE_POSITION_RELEASE_ON_TERMINAL", True)
++        self.exec_single_active_position_stale_timeout_ms = int(os.getenv("EXEC_SINGLE_ACTIVE_POSITION_STALE_TIMEOUT_MS", "900000"))
++        self.active_symbol_key_prefix = (os.getenv("ORDERS_ACTIVE_SYMBOL_KEY_PREFIX") or "orders:active_symbol_sid:").rstrip(":") + ":"
+         self.partial_fill_policy = str(os.getenv("PARTIAL_FILL_POLICY") or PARTIAL_FILL_CANCEL_REMAINDER_AND_PROTECT_FILLED).strip().upper()
+         if self.partial_fill_policy not in VALID_PARTIAL_FILL_POLICIES:
+             self.partial_fill_policy = PARTIAL_FILL_CANCEL_REMAINDER_AND_PROTECT_FILLED
+@@ -960,6 +977,81 @@
+             # Can't requeue: DLQ the original
+             self._dlq(raw, f"requeue_failed:{reason}")
+ 
++    def _active_symbol_state_key(self, symbol: str) -> str:
++        return f"{self.active_symbol_key_prefix}{str(symbol or '').strip().upper()}"
++
++    def _state_is_terminalish(self, state: Optional[Dict[str, Any]]) -> bool:
++        doc = dict(state or {})
++        fsm_state = str(doc.get("fsm_state") or "").strip().upper()
++        if fsm_state in TERMINAL_FSM_STATES:
++            return True
++        status = str(doc.get("status") or "").strip().lower()
++        if status in {"closed", "cancelled", "canceled", "failed", "exited", "exit_filled", "emergency_flattened"}:
++            return True
++        if bool(doc.get("closed")):
++            return True
++        return False
++
++    def _load_active_symbol_guard(self, symbol: str) -> Dict[str, Any]:
++        try:
++            raw = self.r.get(self._active_symbol_state_key(symbol))
++            if raw:
++                doc = json.loads(raw)
++                if isinstance(doc, dict):
++                    return doc
++        except Exception:
++            pass
++        return {}
++
++    def _clear_active_symbol_guard(self, symbol: str, *, expected_sid: str = "") -> None:
++        try:
++            key = self._active_symbol_state_key(symbol)
++            raw = self.r.get(key)
++            if not raw:
++                return
++            doc = json.loads(raw)
++            if not isinstance(doc, dict):
++                return
++            if expected_sid and str(doc.get("sid") or "").strip() != str(expected_sid or "").strip():
++                return
++            self.r.delete(key)
++        except Exception:
++            return
++
++    def _guard_single_active_symbol_open(self, *, sid: str, symbol: str) -> None:
++        if not self.exec_single_active_position_per_symbol:
++            return
++        guard = self._load_active_symbol_guard(symbol)
++        blocked_by_sid = str(guard.get("sid") or "").strip()
++        if not blocked_by_sid or blocked_by_sid == sid:
++            return
++        blocked_state = str(guard.get("fsm_state") or guard.get("state") or guard.get("status") or "").strip().upper()
++        updated_at_ms = _i(guard.get("updated_at_ms") or guard.get("ts_state_commit_ms") or guard.get("ts_event_ms"), 0)
++        age_ms = max(0, _ms_now() - int(updated_at_ms or 0)) if updated_at_ms else 0
++        blocked_state_doc = self._load_order_state(blocked_by_sid) if blocked_by_sid else {}
++        if self.exec_single_active_position_release_on_terminal and self._state_is_terminalish(blocked_state_doc):
++            self._clear_active_symbol_guard(symbol, expected_sid=blocked_by_sid)
++            return
++        if self.exec_single_active_position_stale_timeout_ms > 0 and age_ms > int(self.exec_single_active_position_stale_timeout_ms) and not blocked_state_doc:
++            self._clear_active_symbol_guard(symbol, expected_sid=blocked_by_sid)
++            return
++        final_state = blocked_state or str((blocked_state_doc or {}).get("fsm_state") or "") or "unknown"
++        details = {
++            "sid": sid,
++            "symbol": symbol,
++            "action": "open",
++            "event_type": "open_blocked_by_active_symbol_position",
++            "status": "blocked",
++            "severity": "warning",
++            "reason": "single_active_position_per_symbol",
++            "blocked_by_sid": blocked_by_sid,
++            "blocked_by_state": final_state,
++            "active_symbol_guard_age_ms": age_ms,
++        }
++        if EXECUTION_OPEN_BLOCKED_ACTIVE_SYMBOL_TOTAL:
++            EXECUTION_OPEN_BLOCKED_ACTIVE_SYMBOL_TOTAL.labels(symbol=symbol, blocked_state=final_state).inc()
++        raise OpenBlockedByActiveSymbolError(details)
++
+     def _load_materialized_state_cache(self, sid: str) -> Dict[str, Any]:
+         """Return the raw orders:state cache document without replay side effects."""
+         try:
+@@ -2782,6 +2874,7 @@
+         if self.allowlist and symbol not in self.allowlist:
+             raise ValueError(f"symbol not in allowlist: {symbol}")
+         self._guard_user_stream_live(sid=sid, symbol=symbol, action='open')
++        self._guard_single_active_symbol_open(sid=sid, symbol=symbol)
+ 
+         self._ensure_symbol_settings(symbol, client=client)
+ 
+@@ -3327,6 +3420,10 @@
+             self._exec_event(out)
+             self._ack_processing(raw)
+ 
++        except OpenBlockedByActiveSymbolError as e:
++            self._exec_event(e.details)
++            self._ack_processing(raw)
++            return
+         except Exception as e:
+             cls = _classify_error(e)
+             msg = str(e)
+--- services/execution_projection_worker.py
++++ services/execution_projection_worker.py
+@@ -183,6 +183,7 @@
+         *,
+         exec_stream: str = 'orders:exec',
+         state_key_prefix: str = 'orders:state:',
++        active_symbol_key_prefix: str = 'orders:active_symbol_sid:',
+         state_ttl_sec: int = 86400,
+         cursor_key: str = 'orders:exec:projection:cursor',
+         batch_size: int = 500,
+@@ -198,6 +199,7 @@
+         self.r = redis_client
+         self.exec_stream = str(exec_stream or 'orders:exec')
+         self.state_key_prefix = str(state_key_prefix or 'orders:state:').rstrip(':') + ':'
++        self.active_symbol_key_prefix = str(active_symbol_key_prefix or 'orders:active_symbol_sid:').rstrip(':') + ':'
+         self.state_ttl_sec = int(state_ttl_sec)
+         self.cursor_key = str(cursor_key or 'orders:exec:projection:cursor')
+         self.batch_size = max(int(batch_size or 500), 1)
+@@ -248,6 +250,55 @@
+             pass
+         return {}
+ 
++    def _active_symbol_key(self, symbol: str) -> str:
++        return f"{self.active_symbol_key_prefix}{str(symbol or '').strip().upper()}"
++
++    def _state_is_terminalish(self, doc: Mapping[str, Any]) -> bool:
++        state = dict(doc or {})
++        fsm_state = str(state.get('fsm_state') or '').strip().upper()
++        if fsm_state in {'EXIT_FILLED', 'EMERGENCY_FLATTENED', 'FAILED'}:
++            return True
++        status = str(state.get('status') or '').strip().lower()
++        if status in {'closed', 'cancelled', 'canceled', 'failed', 'exited', 'exit_filled', 'emergency_flattened'}:
++            return True
++        if bool(state.get('closed')):
++            return True
++        return False
++
++    def _persist_active_symbol_state(self, state_doc: Mapping[str, Any]) -> None:
++        doc = dict(state_doc or {})
++        symbol = _s(doc.get('symbol'))
++        sid = _s(doc.get('sid'))
++        if not symbol or not sid:
++            return
++        key = self._active_symbol_key(symbol)
++        if self._state_is_terminalish(doc):
++            try:
++                raw = self.r.get(key)
++                if raw:
++                    current = json.loads(raw)
++                    if not isinstance(current, dict) or _s(current.get('sid')) == sid:
++                        self.r.delete(key)
++            except Exception:
++                pass
++            return
++        payload = json.dumps({
++            'symbol': symbol,
++            'sid': sid,
++            'fsm_state': str(doc.get('fsm_state') or doc.get('status') or ''),
++            'state': str(doc.get('fsm_state') or doc.get('status') or ''),
++            'side': str(doc.get('side') or ''),
++            'updated_at_ms': int(doc.get('updated_at_ms') or doc.get('ts_state_commit_ms') or _ms_now()),
++            'ts_state_commit_ms': int(doc.get('ts_state_commit_ms') or _ms_now()),
++        }, ensure_ascii=False, default=str)
++        try:
++            if self.state_ttl_sec > 0:
++                self.r.set(key, payload, ex=self.state_ttl_sec)
++            else:
++                self.r.set(key, payload)
++        except Exception:
++            pass
++
+     def _persist_state(self, sid: str, state_doc: Mapping[str, Any], *, fencing_token: int = 0) -> Dict[str, Any]:
+         doc = build_materialized_state_view(dict(state_doc or {}))
+         doc['updated_at_ms'] = int(doc.get('updated_at_ms') or _ms_now())
+@@ -270,6 +321,7 @@
+                 self.execution_journal.upsert_protection_refs(doc)
+         except Exception:
+             pass
++        self._persist_active_symbol_state(doc)
+         return doc
+ 
+     def _rows_page_after(self, after_stream_id: str = '') -> List[Tuple[Any, Mapping[str, Any]]]:
+@@ -641,6 +693,7 @@
+         redis_client,
+         exec_stream=os.getenv('EXEC_STREAM', 'orders:exec'),
+         state_key_prefix=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'),
++        active_symbol_key_prefix=os.getenv('ORDERS_ACTIVE_SYMBOL_KEY_PREFIX', 'orders:active_symbol_sid:'),
+         state_ttl_sec=int(os.getenv('ORDERS_STATE_TTL_SEC', '86400')),
+         cursor_key=os.getenv('EXEC_PROJECTION_CURSOR_KEY', 'orders:exec:projection:cursor'),
+         batch_size=int(os.getenv('EXEC_PROJECTION_BATCH_SIZE', '500')),
+--- confidence_calculation/docker-compose-crypto-orderflow.yml
++++ confidence_calculation/docker-compose-crypto-orderflow.yml
+@@ -1216,6 +1216,10 @@
+       - EXEC_POLICY_DEFAULT=SAFETY_FIRST
+       - EXEC_POLICY_MAKER_ALLOWED_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT
+       - EXEC_REQUIRE_USER_STREAM_LIVE=1
++      - EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL=1
++      - EXEC_SINGLE_ACTIVE_POSITION_RELEASE_ON_TERMINAL=1
++      - EXEC_SINGLE_ACTIVE_POSITION_STALE_TIMEOUT_MS=900000
++      - ORDERS_ACTIVE_SYMBOL_KEY_PREFIX=orders:active_symbol_sid:
+       - PARTIAL_FILL_POLICY=CANCEL_REMAINDER_AND_PROTECT_FILLED
+       - PROTECTION_ARM_TIMEOUT_MS=2500
+       - TRAIL_WORKING_TYPE=MARK_PRICE
+@@ -1955,6 +1959,10 @@
+       - EXEC_PROJECTION_HEALTH_MAX_CURSOR_AGE_MS=60000
+       - USER_STREAM_STATUS_KEY=orders:user_stream:status
+       - USER_STREAM_MAX_STALE_MS=45000
++      - EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL=1
++      - EXEC_SINGLE_ACTIVE_POSITION_RELEASE_ON_TERMINAL=1
++      - EXEC_SINGLE_ACTIVE_POSITION_STALE_TIMEOUT_MS=900000
++      - ORDERS_ACTIVE_SYMBOL_KEY_PREFIX=orders:active_symbol_sid:
+       - EXEC_BOOTSTRAP_REQUIRE_PROJECTION_READY=1
+       - EXEC_BOOTSTRAP_REQUIRE_USER_STREAM_READY=1
+       - EXEC_BOOTSTRAP_USER_STREAM_GRACE_MS=45000
+--- deploy/execution_safe_defaults_p104.env.example
++++ deploy/execution_safe_defaults_p104.env.example
+@@ -1,6 +1,10 @@
+ EXEC_POLICY_DEFAULT=SAFETY_FIRST
+ EXEC_POLICY_MAKER_ALLOWED_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT
+ EXEC_REQUIRE_USER_STREAM_LIVE=1
++EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL=1
++EXEC_SINGLE_ACTIVE_POSITION_RELEASE_ON_TERMINAL=1
++EXEC_SINGLE_ACTIVE_POSITION_STALE_TIMEOUT_MS=900000
++ORDERS_ACTIVE_SYMBOL_KEY_PREFIX=orders:active_symbol_sid:
+ PARTIAL_FILL_POLICY=CANCEL_REMAINDER_AND_PROTECT_FILLED
+ PROTECTION_ARM_TIMEOUT_MS=2500
+ SL_WORKING_TYPE=MARK_PRICE
+--- /dev/null
++++ services/tests/test_single_active_symbol_guard_v1.py
+@@ -0,0 +1,137 @@
++from pathlib import Path
++import importlib.util
++import json
++import sys
++
++exec_mod_path = Path(__file__).parent.parent / 'binance_executor.py'
++exec_spec = importlib.util.spec_from_file_location('binance_executor_single_active', exec_mod_path)
++exec_mod = importlib.util.module_from_spec(exec_spec)
++sys.modules[exec_spec.name] = exec_mod
++assert exec_spec.loader is not None
++exec_spec.loader.exec_module(exec_mod)
++
++worker_mod_path = Path(__file__).parent.parent / 'execution_projection_worker.py'
++worker_spec = importlib.util.spec_from_file_location('execution_projection_worker_single_active', worker_mod_path)
++worker_mod = importlib.util.module_from_spec(worker_spec)
++sys.modules[worker_spec.name] = worker_mod
++assert worker_spec.loader is not None
++worker_spec.loader.exec_module(worker_mod)
++
++
++class FakeRedis:
++    def __init__(self):
++        self.kv = {}
++        self.streams = {}
++        self._seq = 0
++
++    def get(self, key):
++        return self.kv.get(key)
++
++    def set(self, key, value, ex=None):
++        self.kv[key] = value
++
++    def delete(self, key):
++        self.kv.pop(key, None)
++
++    def xadd(self, key, fields, maxlen=None, approximate=None):
++        self._seq += 1
++        sid = f"{1700000000000 + self._seq}-0"
++        self.streams.setdefault(key, []).append((sid, dict(fields)))
++        return sid
++
++    def xrange(self, key, start='-', end='+', count=None):
++        rows = list(self.streams.get(key, []))
++        if start not in ('', '-'):
++            rows = [row for row in rows if row[0] >= start]
++        if count is not None:
++            rows = rows[: int(count)]
++        return rows
++
++    def scan_iter(self, match=None):
++        prefix = str(match or '').rstrip('*')
++        for key in list(self.kv.keys()):
++            if not prefix or str(key).startswith(prefix):
++                yield key
++
++
++def _mk_exec(redis_obj):
++    ex = exec_mod.BinanceExecutor.__new__(exec_mod.BinanceExecutor)
++    ex.r = redis_obj
++    ex.exec_single_active_position_per_symbol = True
++    ex.exec_single_active_position_release_on_terminal = True
++    ex.exec_single_active_position_stale_timeout_ms = 900000
++    ex.active_symbol_key_prefix = 'orders:active_symbol_sid:'
++    ex.exec_journal_primary = True
++    ex.exec_state_derived_view = True
++    ex.exec_inline_state_projection = False
++    ex.state_key_prefix = 'orders:state:'
++    ex.state_ttl = 86400
++    return ex
++
++
++def test_projection_worker_sets_and_clears_active_symbol_key_from_journal():
++    r = FakeRedis()
++    worker = worker_mod.ExecutionProjectionWorker(
++        r,
++        exec_stream='orders:exec',
++        state_key_prefix='orders:state:',
++        active_symbol_key_prefix='orders:active_symbol_sid:',
++        cursor_key='orders:exec:projection:cursor',
++    )
++    r.xadd('orders:exec', {
++        'sid': 'sid-1',
++        'symbol': 'BTCUSDT',
++        'action': 'open',
++        'event_type': 'state_transition',
++        'status': 'ok',
++        'fsm_state': 'PROTECTED',
++        'ts_event_ms': '1700000000001',
++    })
++    worker.run_until_idle()
++    active = json.loads(r.get('orders:active_symbol_sid:BTCUSDT'))
++    assert active['sid'] == 'sid-1'
++    assert active['fsm_state'] == 'PROTECTED'
++
++    r.xadd('orders:exec', {
++        'sid': 'sid-1',
++        'symbol': 'BTCUSDT',
++        'action': 'cancel',
++        'event_type': 'state_transition',
++        'status': 'closed',
++        'fsm_state': 'EXIT_FILLED',
++        'ts_event_ms': '1700000000002',
++    })
++    worker.run_until_idle()
++    assert r.get('orders:active_symbol_sid:BTCUSDT') in (None, '')
++
++
++def test_executor_blocks_new_open_when_symbol_has_active_sid():
++    r = FakeRedis()
++    r.set('orders:active_symbol_sid:ETHUSDT', json.dumps({
++        'symbol': 'ETHUSDT',
++        'sid': 'sid-existing',
++        'fsm_state': 'PROTECTED',
++        'updated_at_ms': 1700000000000,
++    }))
++    ex = _mk_exec(r)
++    ex._load_order_state = lambda sid: {'sid': sid, 'fsm_state': 'PROTECTED'}
++    try:
++        ex._guard_single_active_symbol_open(sid='sid-new', symbol='ETHUSDT')
++        assert False, 'expected OpenBlockedByActiveSymbolError'
++    except exec_mod.OpenBlockedByActiveSymbolError as e:
++        assert e.details['blocked_by_sid'] == 'sid-existing'
++        assert e.details['blocked_by_state'] == 'PROTECTED'
++
++
++def test_executor_releases_terminal_active_symbol_guard_before_new_open():
++    r = FakeRedis()
++    r.set('orders:active_symbol_sid:SOLUSDT', json.dumps({
++        'symbol': 'SOLUSDT',
++        'sid': 'sid-old',
++        'fsm_state': 'PROTECTED',
++        'updated_at_ms': 1700000000000,
++    }))
++    ex = _mk_exec(r)
++    ex._load_order_state = lambda sid: {'sid': sid, 'fsm_state': 'EXIT_FILLED', 'status': 'closed', 'closed': True}
++    ex._guard_single_active_symbol_open(sid='sid-new', symbol='SOLUSDT')
++    assert r.get('orders:active_symbol_sid:SOLUSDT') in (None, '')
+--- /dev/null
++++ services/tests/test_single_active_symbol_guard_assets_v1.py
+@@ -0,0 +1,17 @@
++from pathlib import Path
++
++
++def test_env_example_contains_single_active_symbol_guard_flags():
++    text = Path('deploy/execution_safe_defaults_p104.env.example').read_text()
++    assert 'EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL=1' in text
++    assert 'EXEC_SINGLE_ACTIVE_POSITION_RELEASE_ON_TERMINAL=1' in text
++    assert 'EXEC_SINGLE_ACTIVE_POSITION_STALE_TIMEOUT_MS=900000' in text
++    assert 'ORDERS_ACTIVE_SYMBOL_KEY_PREFIX=orders:active_symbol_sid:' in text
++
++
++def test_compose_contains_single_active_symbol_guard_flags_for_executor():
++    text = Path('confidence_calculation/docker-compose-crypto-orderflow.yml').read_text()
++    assert 'EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL=1' in text
++    assert 'EXEC_SINGLE_ACTIVE_POSITION_RELEASE_ON_TERMINAL=1' in text
++    assert 'EXEC_SINGLE_ACTIVE_POSITION_STALE_TIMEOUT_MS=900000' in text
++    assert 'ORDERS_ACTIVE_SYMBOL_KEY_PREFIX=orders:active_symbol_sid:' in text

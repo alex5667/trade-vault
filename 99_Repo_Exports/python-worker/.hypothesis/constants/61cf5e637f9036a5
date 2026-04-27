@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/components/liquidity.py
+# hypothesis_version: 6.148.10
+
+[-1000000000.0, -1.0, 0.0, 1e-09, 1e-06, 1.5, 2.0, 15.0, 10000.0, '+1', ',', '-1', '1', ':', 'BUY', 'LONG', 'SELL', 'SHORT', '_cache_ensure_levels', '_trade_levels_key', 'ask', 'best_ask_px', 'best_ask_qty', 'best_bid_px', 'best_bid_qty', 'bid', 'cfg:err', 'depth_5_ask_vol', 'depth_5_bid_vol', 'ensure_levels_failed', 'ignore', 'name', 'notional', 'price', 'side', 'size', 'spread_bps', 'top5_asks', 'top5_bids', 'utf-8', 'value']

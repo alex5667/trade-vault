@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/scipy/ndimage/measurements.py
+# hypothesis_version: 6.148.10
+
+['center_of_mass', 'extrema', 'find_objects', 'histogram', 'label', 'maximum', 'maximum_position', 'mean', 'median', 'minimum', 'minimum_position', 'standard_deviation', 'sum', 'sum_labels', 'variance', 'watershed_ift']

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/core/adverse_gate_calibrator.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.08, 0.15, 0.3, 0.35, 0.5, 0.55, 0.7, 1.0, 'continuation', 'disable', 'disabled', 'enable', 'enforce', 'hold', 'min_n_reversals', 'min_n_total', 'min_rev_veto_lift', 'reversal', 'rollback_precision', 'shadow']

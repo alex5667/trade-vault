@@ -1,0 +1,51 @@
+groups:
+- name: close_wait_drainer_p54
+  rules:
+  - alert: CloseWaitDrainerStale
+    expr: close_wait_staleness_sec > 900
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: close-wait drainer not running (stale)
+      description: No updates from close_wait_drainer for >15 minutes. Check 
+        drainer process and Redis connectivity.
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: CloseWaitBacklogGrowing
+    expr: close_wait_pending_count > 1000
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: close-wait backlog is large
+      description: Pending close_wait messages > 1000 for 15 minutes. Increase 
+        drainer throughput or investigate missing decisions.
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: CloseWaitDecisionMissingRateHigh
+    expr: (rate(close_wait_missing_decision_total[10m]) / 
+      clamp_min(rate(close_wait_seen_total[10m]), 1)) > 0.2
+    for: 20m
+    labels:
+      severity: warning
+    annotations:
+      summary: close_wait missing decision rate high
+      description: More than 20% of close_wait messages have no decision:{sid}. 
+        Check decision writer (P45) health and TTL.
+
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd
+  - alert: CloseWaitDeadLettering
+    expr: rate(close_wait_dead_letter_total[10m]) > 0
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: close_wait dead-lettering detected
+      description: Some close_wait events were dead-lettered. Inspect 
+        trades:close_dead stream.
+      runbook_path: /runbooks/tbd.md
+      dashboard_path: /d/tbd

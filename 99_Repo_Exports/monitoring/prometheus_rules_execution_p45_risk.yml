@@ -1,0 +1,54 @@
+groups:
+  - name: trade-risk-engine-p45
+    rules:
+      # p95 decision latency > 50ms for 10m → risk engine is slow (investigate)
+      - alert: TradeRiskDecisionLatencyP95High
+        expr: |
+          histogram_quantile(0.95, sum(rate(trade_risk_decision_latency_ms_bucket[10m])) by (le)) > 50
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Risk engine p95 decision latency is high"
+          description: "p95 risk-engine decision latency exceeded 50ms for 10 minutes."
+          runbook: "P4 risk engine quality"
+
+      # Clamp rate > 35% for 15m → risk engine consistently shrinking notional
+      - alert: TradeRiskClampRateHigh
+        expr: |
+          (
+            sum(rate(trade_risk_clamp_total[15m]))
+            /
+            clamp_min(sum(rate(trade_risk_decision_total[15m])), 1)
+          ) > 0.35
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Risk engine clamp rate is high"
+          description: "More than 35% of risk decisions clamped notional for 15 minutes."
+          runbook: "P4 risk engine quality"
+
+      # Confidence denial rate > 5/s for 15m → many signals below confidence floor
+      - alert: TradeRiskConfidenceDenialSpike
+        expr: |
+          sum(rate(trade_risk_confidence_deny_total[15m])) > 0.05
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Confidence floor denials are spiking"
+          description: "Risk engine confidence-floor denials exceed 0.05/s for 15 minutes."
+          runbook: "P4 risk engine quality"
+
+      # Any SQL audit write failures for 10m → investigate DB connectivity / schema
+      - alert: TradeRiskAuditWriteFailures
+        expr: |
+          sum(rate(trade_risk_audit_write_fail_total[15m])) > 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Risk SQL audit writes are failing"
+          description: "trade_risk_audit_write_fail_total is non-zero — risk decisions may not be audited."
+          runbook: "P4 risk engine quality"

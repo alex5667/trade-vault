@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/geometry/htf_levels.py
+# hypothesis_version: 6.148.10
+
+[0.5, 0.6, 0.7, 0.8, 0.9, 100, 1000, 10000, 'HTFLevelsService', 'asia', 'asia_open', 'end_hour', 'europe', 'europe_open', 'high', 'last_update', 'level_validity_days', 'low', 'open', 'pdh', 'pdl', 'session_definitions', 'start_hour', 'start_ts', 'symbol', 'ts_event_ms', 'unknown', 'us', 'week_hi', 'week_lo']

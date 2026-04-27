@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/regime/guard.py
+# hypothesis_version: 6.148.10
+
+[0.0, 0.05, 1.0, 1.5, 100, 180, 'active', 'dd_r_window', 'degraded', 'disable_until', 'disabled', 'exp_r_window', 'expectancy_R', 'hit_rate', 'regime_guard', 'status', 'threshold_mult', 'trades_window', 'wr_window']

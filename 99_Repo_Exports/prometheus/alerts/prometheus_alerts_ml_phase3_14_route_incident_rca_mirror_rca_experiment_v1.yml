@@ -1,0 +1,23 @@
+groups:
+  - name: ml_phase3_14_route_incident_rca_mirror_rca_experiment_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAExperimentStale
+        expr: time() - ml_route_incident_rca_mirror_rca_experiment_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror RCA experiment harness is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAExperimentErrors
+        expr: rate(ml_route_incident_rca_mirror_rca_experiment_runs_total{status="error"}[5m]) > 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "route incident RCA mirror RCA experiment harness has errors"
+
+      - alert: MLRouteIncidentRCAMirrorRCAExperimentLocalExposure
+        expr: increase(ml_route_incident_rca_mirror_rca_exposures_total{arm="local_fallback_candidate"}[15m]) > 0
+        for: 1m
+        labels: { severity: info }
+        annotations:
+          summary: "route incident RCA mirror RCA experiment arm local_fallback_candidate got exposure"

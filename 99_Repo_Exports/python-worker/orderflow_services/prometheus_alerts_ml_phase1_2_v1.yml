@@ -1,0 +1,34 @@
+groups:
+  - name: ml-phase1-2-v1
+    rules:
+      - alert: MLBatchReviewSchedulerStale
+        expr: time() - ml_batch_review_scheduler_last_run_ts_seconds > 7200
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ML batch review scheduler stale"
+
+      - alert: MLContextCacheManagerStale
+        expr: time() - ml_context_cache_manager_last_run_ts_seconds > 1800
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ML context cache manager stale"
+
+      - alert: MLVertexBatchReviewStale
+        expr: time() - ml_vertex_batch_review_last_run_ts_seconds > 7200
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ML Vertex batch review orchestrator stale"
+
+      - alert: MLRecommendationFeedbackStale
+        expr: time() - ml_recommendation_feedback_last_run_ts_seconds > 21600
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: "ML recommendation feedback loop has not processed new events recently"

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/orderflow_services/of_gate_metrics_contract_check_v1.py
+# hypothesis_version: 6.148.10
+
+[0.0, 2000, 5000, '+', ', ', '-', '--bad-max', '--limit', '--notify', '--notify-stream', '--out-stream', '--redis-url', '--schema-missing-max', '--stream', '0.001', '0.25', '2000', 'REDIS_URL', '__main__', 'bad_max', 'bad_share', 'bad_total', 'limit', 'metrics:of_gate', 'n_total', 'none', 'notify:telegram', 'reason_code', 'schema_missing_max', 'schema_missing_share', 'schema_missing_total', 'schema_name', 'schema_version', 'schema_version_mode', 'source', 'store_true', 'stream', 'text', 'top_dq_json', 'top_reason_code_json', 'ts_ms', 'unknown']

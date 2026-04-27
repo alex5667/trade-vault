@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/observability/alerts_worker_v2.py
+# hypothesis_version: 6.148.10
+
+[2.0, 20.0, 30.0, 100.0, 500, 2000, ', ', '0', '1', '10', '2.0', '200', '30', '500', '60', '600', 'ALERTS_COOLDOWN_SEC', 'ALERTS_ENABLE', 'ALERTS_ENABLE=0', 'ALERTS_INTERVAL_SEC', 'ALERT_ATR_BAD_PCT', 'ALERT_CVD_JUMP_COUNT', 'ALERT_CVD_QUAR_PCT', 'METRICS_MAX_SYMBOLS', 'METRICS_REDIS_URL', 'MICROBAR_SYMBOLS_SET', 'REDIS_URL', 'REPORTS_REDIS_URL', 'REPORT_MAX_SYMBOLS', '__main__', 'cfg:atr_bad:symbols', 'ignore', 'jump', 'metrics:lcb:keys', 'reason', 'stale', 'tf=([a-z0-9]+)', 'true', 'unknown', 'utf-8', 'yes', '{', '{sym}']

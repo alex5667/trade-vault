@@ -1,0 +1,1129 @@
+diff --git a/orderflow_services/ofc_contextual_rollout_controller_v1.py b/orderflow_services/ofc_contextual_rollout_controller_v1.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/ofc_contextual_rollout_controller_v1.py
+@@ -0,0 +1,366 @@
++from __future__ import annotations
++
++"""Conservative rollout controller for OFC contextual gate.
++
++Purpose
++-------
++- Manage stage progression: shadow -> tighten_only -> replace_score_veto.
++- Keep rollout limited to a canary symbol allowlist.
++- Trigger rollback-to-shadow/off when health breaches occur.
++- Write a tiny env overlay file that deployment wrappers may include.
++
++Inputs
++------
++Reads compact Redis hashes produced by Patch C jobs/exporters:
++- OFC_CTX_EXPORTER_SUMMARY_KEY
++- OFC_CTX_WRITER_SUMMARY_KEY
++- OFC_CTX_NIGHTLY_SUMMARY_KEY
++- OFC_CTX_ROLLOUT_STATE_KEY
++
++Outputs
++-------
++- Optional Redis hash update for rollout state.
++- Optional env overlay file.
++- Optional rollback flag file touch/remove.
++- Compact rollout summary hash for exporter/dashboarding.
++"""
++
++import argparse
++import json
++import os
++import time
++from dataclasses import dataclass
++from typing import Any, Dict, Iterable, List, Optional
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None  # type: ignore
++
++
++MODES = ("off", "shadow", "tighten_only", "replace_score_veto")
++
++
++def _env(name: str, default: str = "") -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _now_ms() -> int:
++    return int(time.time() * 1000)
++
++
++def _to_float(v: Any, default: float = 0.0) -> float:
++    try:
++        return float(v)
++    except Exception:
++        return float(default)
++
++
++def _to_int(v: Any, default: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return int(default)
++
++
++def _parse_symbols(raw: str) -> List[str]:
++    out: List[str] = []
++    for part in str(raw or "").replace(";", ",").split(","):
++        s = part.strip().upper()
++        if s and s not in out:
++            out.append(s)
++    return out
++
++
++def _redis_client(redis_url: str):
++    if redis is None:
++        return None
++    try:
++        return redis.Redis.from_url(redis_url, decode_responses=True)
++    except Exception:
++        return None
++
++
++def _read_hash(client: Any, key: str) -> Dict[str, str]:
++    if client is None or not key:
++        return {}
++    try:
++        data = client.hgetall(key)
++        return data if isinstance(data, dict) else {}
++    except Exception:
++        return {}
++
++
++def _write_hash(client: Any, key: str, mapping: Dict[str, Any]) -> None:
++    if client is None or not key:
++        return
++    payload: Dict[str, str] = {}
++    for k, v in mapping.items():
++        if isinstance(v, (dict, list)):
++            payload[str(k)] = json.dumps(v, ensure_ascii=False, separators=(",", ":"))
++        else:
++            payload[str(k)] = str(v)
++    if payload:
++        client.hset(key, mapping=payload)
++
++
++@dataclass(frozen=True)
++class RolloutInputs:
++    observations: int
++    shadow_disagree_rate: float
++    fail_open_rate: float
++    fallback_rate: float
++    bundle_age_seconds: float
++    writer_lag_seconds: float
++    nightly_success: int
++    rollback_requested: bool
++
++
++@dataclass(frozen=True)
++class RolloutDecision:
++    current_mode: str
++    desired_mode: str
++    blocked: bool
++    blocked_reason: str
++    should_write_overlay: bool
++    should_set_rollback_flag: bool
++    should_clear_rollback_flag: bool
++
++
++@dataclass(frozen=True)
++class Thresholds:
++    min_observations: int
++    max_shadow_disagree_rate: float
++    max_fail_open_rate: float
++    max_fallback_rate: float
++    max_bundle_age_seconds: float
++    max_writer_lag_seconds: float
++    min_hold_sec: int
++
++
++def _sanitize_mode(raw: str, default: str = "shadow") -> str:
++    s = str(raw or "").strip().lower()
++    return s if s in MODES else default
++
++
++def _healthy(inp: RolloutInputs, th: Thresholds) -> tuple[bool, str]:
++    if inp.rollback_requested:
++        return False, "rollback_requested"
++    if inp.nightly_success <= 0:
++        return False, "nightly_failed"
++    if inp.observations < th.min_observations:
++        return False, "insufficient_observations"
++    if inp.shadow_disagree_rate > th.max_shadow_disagree_rate:
++        return False, "shadow_disagree_rate"
++    if inp.fail_open_rate > th.max_fail_open_rate:
++        return False, "fail_open_rate"
++    if inp.fallback_rate > th.max_fallback_rate:
++        return False, "fallback_rate"
++    if inp.bundle_age_seconds > th.max_bundle_age_seconds:
++        return False, "bundle_age"
++    if inp.writer_lag_seconds > th.max_writer_lag_seconds:
++        return False, "writer_lag"
++    return True, "ok"
++
++
++def compute_rollout_decision(
++    *,
++    current_mode: str,
++    last_change_ms: int,
++    inputs: RolloutInputs,
++    thresholds: Thresholds,
++    force_mode: str = "",
++    now_ms: Optional[int] = None,
++) -> RolloutDecision:
++    now_ms = int(now_ms if now_ms is not None else _now_ms())
++    current = _sanitize_mode(current_mode, default="shadow")
++    force = _sanitize_mode(force_mode, default="") if force_mode else ""
++    healthy, reason = _healthy(inputs, thresholds)
++
++    if force:
++        desired = force
++        blocked = False
++        blocked_reason = "forced"
++    elif not healthy:
++        desired = "off" if current == "off" else "shadow"
++        blocked = True
++        blocked_reason = reason
++    else:
++        desired = current
++        if current == "off":
++            desired = "shadow"
++        elif current == "shadow":
++            desired = "tighten_only"
++        elif current == "tighten_only":
++            desired = "replace_score_veto"
++        blocked = False
++        blocked_reason = "ok"
++
++    if desired != current and not force:
++        age_ms = max(0, now_ms - int(last_change_ms or 0))
++        if age_ms < int(thresholds.min_hold_sec) * 1000:
++            desired = current
++            blocked = True
++            blocked_reason = "min_hold"
++
++    set_rb = bool(desired in ("off", "shadow") and blocked_reason not in ("ok", "forced"))
++    clr_rb = bool(not set_rb and desired in ("shadow", "tighten_only", "replace_score_veto"))
++    return RolloutDecision(
++        current_mode=current,
++        desired_mode=desired,
++        blocked=blocked,
++        blocked_reason=blocked_reason,
++        should_write_overlay=(desired != current) or set_rb or clr_rb,
++        should_set_rollback_flag=set_rb,
++        should_clear_rollback_flag=clr_rb,
++    )
++
++
++def _write_overlay(path: str, mode: str, canary_symbols: Iterable[str], rollback_flag_path: str) -> None:
++    if not path:
++        return
++    os.makedirs(os.path.dirname(path), exist_ok=True)
++    tmp = path + ".tmp"
++    symbols = ",".join(_parse_symbols(",".join(canary_symbols)))
++    lines = [
++        f"OFC_CTX_ENABLE={'0' if mode == 'off' else '1'}",
++        f"OFC_CTX_MODE={mode}",
++        f"OFC_CTX_CANARY_SYMBOLS={symbols}",
++        f"OFC_CTX_ROLLBACK_FLAG_PATH={rollback_flag_path}",
++        "OFC_CTX_RUNTIME_SOURCE=ofc_contextual_rollout_controller_v1",
++    ]
++    with open(tmp, "w", encoding="utf-8") as fh:
++        fh.write("\n".join(lines) + "\n")
++    os.replace(tmp, path)
++
++
++def _touch(path: str) -> None:
++    if not path:
++        return
++    os.makedirs(os.path.dirname(path), exist_ok=True)
++    with open(path, "a", encoding="utf-8"):
++        os.utime(path, None)
++
++
++def _rm(path: str) -> None:
++    if path and os.path.exists(path):
++        os.remove(path)
++
++
++def _load_inputs(client: Any, args: argparse.Namespace) -> RolloutInputs:
++    exporter = _read_hash(client, args.exporter_summary_key)
++    writer = _read_hash(client, args.writer_summary_key)
++    nightly = _read_hash(client, args.nightly_summary_key)
++
++    observations = max(
++        _to_int(exporter.get("observations", 0), 0),
++        _to_int(writer.get("rows_written", 0), 0),
++    )
++    rollback_requested = bool(_to_int(exporter.get("rollback_requested", "0"), 0) > 0)
++    if args.rollback_flag_path and os.path.exists(args.rollback_flag_path):
++        rollback_requested = True
++
++    return RolloutInputs(
++        observations=observations,
++        shadow_disagree_rate=_to_float(exporter.get("shadow_disagree_rate", 0.0), 0.0),
++        fail_open_rate=_to_float(exporter.get("fail_open_rate", 0.0), 0.0),
++        fallback_rate=_to_float(exporter.get("fallback_rate", 0.0), 0.0),
++        bundle_age_seconds=_to_float(exporter.get("bundle_age_seconds", 0.0), 0.0),
++        writer_lag_seconds=_to_float(writer.get("lag_seconds", 0.0), 0.0),
++        nightly_success=_to_int(nightly.get("success", 0), 0),
++        rollback_requested=rollback_requested,
++    )
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--redis-url", default=_env("REDIS_URL", "redis://redis-worker-1:6379/0"))
++    ap.add_argument("--apply", type=int, default=int(_env("OFC_CTX_ROLLOUT_APPLY", "0") or 0))
++    ap.add_argument("--current-mode", default=_env("OFC_CTX_CURRENT_MODE", "shadow"))
++    ap.add_argument("--force-mode", default=_env("OFC_CTX_FORCE_MODE", ""))
++    ap.add_argument("--exporter-summary-key", default=_env("OFC_CTX_EXPORTER_SUMMARY_KEY", "metrics:ofc_contextual_exporter:last"))
++    ap.add_argument("--writer-summary-key", default=_env("OFC_CTX_WRITER_SUMMARY_KEY", "metrics:ofc_contextual_writer:last"))
++    ap.add_argument("--nightly-summary-key", default=_env("OFC_CTX_NIGHTLY_SUMMARY_KEY", "metrics:ofc_contextual_nightly:last"))
++    ap.add_argument("--rollout-state-key", default=_env("OFC_CTX_ROLLOUT_STATE_KEY", "cfg:ofc_contextual:rollout:v1"))
++    ap.add_argument("--rollout-summary-key", default=_env("OFC_CTX_ROLLOUT_SUMMARY_KEY", "metrics:ofc_contextual_rollout:last"))
++    ap.add_argument("--overlay-env-path", default=_env("OFC_CTX_OVERLAY_ENV_PATH", "/var/lib/trade/ofc_contextual_runtime_overlay.env"))
++    ap.add_argument("--rollback-flag-path", default=_env("OFC_CTX_ROLLBACK_FLAG_PATH", "/var/lib/trade/ofc_contextual.rollback.flag"))
++    ap.add_argument("--canary-symbols", default=_env("OFC_CTX_CANARY_SYMBOLS", "BTCUSDT,ETHUSDT,SOLUSDT"))
++    ap.add_argument("--min-observations", type=int, default=int(_env("OFC_CTX_ROLLOUT_MIN_OBSERVATIONS", "300") or 300))
++    ap.add_argument("--max-shadow-disagree-rate", type=float, default=float(_env("OFC_CTX_MAX_SHADOW_DISAGREE_RATE", "0.15") or 0.15))
++    ap.add_argument("--max-fail-open-rate", type=float, default=float(_env("OFC_CTX_MAX_FAIL_OPEN_RATE", "0.02") or 0.02))
++    ap.add_argument("--max-fallback-rate", type=float, default=float(_env("OFC_CTX_MAX_FALLBACK_RATE", "0.25") or 0.25))
++    ap.add_argument("--max-bundle-age-sec", type=float, default=float(_env("OFC_CTX_MAX_BUNDLE_AGE_SEC", "21600") or 21600))
++    ap.add_argument("--max-writer-lag-sec", type=float, default=float(_env("OFC_CTX_MAX_WRITER_LAG_SEC", "120") or 120))
++    ap.add_argument("--min-hold-sec", type=int, default=int(_env("OFC_CTX_ROLLOUT_MIN_HOLD_SEC", "1800") or 1800))
++    args = ap.parse_args()
++
++    client = _redis_client(args.redis_url)
++    state = _read_hash(client, args.rollout_state_key)
++    current_mode = _sanitize_mode(args.current_mode or state.get("current_mode", "shadow"), default="shadow")
++    last_change_ms = _to_int(state.get("last_change_ms", 0), 0)
++
++    thresholds = Thresholds(
++        min_observations=int(args.min_observations),
++        max_shadow_disagree_rate=float(args.max_shadow_disagree_rate),
++        max_fail_open_rate=float(args.max_fail_open_rate),
++        max_fallback_rate=float(args.max_fallback_rate),
++        max_bundle_age_seconds=float(args.max_bundle_age_sec),
++        max_writer_lag_seconds=float(args.max_writer_lag_sec),
++        min_hold_sec=int(args.min_hold_sec),
++    )
++    inputs = _load_inputs(client, args)
++    decision = compute_rollout_decision(
++        current_mode=current_mode,
++        last_change_ms=last_change_ms,
++        inputs=inputs,
++        thresholds=thresholds,
++        force_mode=args.force_mode,
++    )
++
++    canary_symbols = _parse_symbols(args.canary_symbols)
++    summary = {
++        "ts_ms": _now_ms(),
++        "apply": int(args.apply),
++        "current_mode": decision.current_mode,
++        "desired_mode": decision.desired_mode,
++        "blocked": int(decision.blocked),
++        "blocked_reason": decision.blocked_reason,
++        "observations": int(inputs.observations),
++        "shadow_disagree_rate": float(inputs.shadow_disagree_rate),
++        "fail_open_rate": float(inputs.fail_open_rate),
++        "fallback_rate": float(inputs.fallback_rate),
++        "bundle_age_seconds": float(inputs.bundle_age_seconds),
++        "writer_lag_seconds": float(inputs.writer_lag_seconds),
++        "nightly_success": int(inputs.nightly_success),
++        "rollback_requested": int(inputs.rollback_requested),
++        "canary_symbols_count": len(canary_symbols),
++    }
++
++    if int(args.apply) == 1:
++        _write_overlay(args.overlay_env_path, decision.desired_mode, canary_symbols, args.rollback_flag_path)
++        if decision.should_set_rollback_flag:
++            _touch(args.rollback_flag_path)
++        elif decision.should_clear_rollback_flag:
++            _rm(args.rollback_flag_path)
++        _write_hash(
++            client,
++            args.rollout_state_key,
++            {
++                "current_mode": decision.desired_mode,
++                "last_change_ms": _now_ms() if decision.desired_mode != decision.current_mode else int(last_change_ms or 0),
++                "blocked": int(decision.blocked),
++                "blocked_reason": decision.blocked_reason,
++                "overlay_env_path": args.overlay_env_path,
++                "rollback_flag_path": args.rollback_flag_path,
++                "canary_symbols": ",".join(canary_symbols),
++                "last_summary": summary,
++            },
++        )
++    _write_hash(client, args.rollout_summary_key, summary)
++    print(json.dumps(summary, ensure_ascii=False, separators=(",", ":")))
++    return 0
++
++
++if __name__ == "__main__":  # pragma: no cover
++    raise SystemExit(main())
+
+diff --git a/orderflow_services/ofc_contextual_rollout_exporter_v1.py b/orderflow_services/ofc_contextual_rollout_exporter_v1.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/ofc_contextual_rollout_exporter_v1.py
+@@ -0,0 +1,105 @@
++from __future__ import annotations
++
++import os
++import time
++from prometheus_client import Gauge, start_http_server
++
++try:
++    import redis  # type: ignore
++except Exception:  # pragma: no cover
++    redis = None
++
++
++def _env(name: str, default: str = "") -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _to_float(v, default: float = 0.0) -> float:
++    try:
++        return float(v)
++    except Exception:
++        return float(default)
++
++
++def _to_int(v, default: int = 0) -> int:
++    try:
++        return int(float(v))
++    except Exception:
++        return int(default)
++
++
++def _redis_client():
++    if redis is None:
++        return None
++    try:
++        return redis.Redis.from_url(_env("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True)
++    except Exception:
++        return None
++
++
++def _read_hash(client, key: str):
++    if client is None or not key:
++        return {}
++    try:
++        data = client.hgetall(key)
++        return data if isinstance(data, dict) else {}
++    except Exception:
++        return {}
++
++
++UP = Gauge("ofc_ctx_rollout_exporter_up", "1 if rollout exporter loop is alive")
++REDIS_OK = Gauge("ofc_ctx_rollout_exporter_redis_ok", "1 if rollout exporter could read Redis")
++CURRENT_MODE = Gauge("ofc_ctx_rollout_current_mode", "Current rollout mode one-hot", ["mode"])
++DESIRED_MODE = Gauge("ofc_ctx_rollout_desired_mode", "Desired rollout mode one-hot", ["mode"])
++BLOCKED = Gauge("ofc_ctx_rollout_blocked", "1 if rollout change is blocked")
++LAST_TS = Gauge("ofc_ctx_rollout_last_ts_ms", "Latest rollout summary timestamp")
++OBS = Gauge("ofc_ctx_rollout_observations", "Observation count used by rollout controller")
++SHADOW_DISAGREE = Gauge("ofc_ctx_rollout_shadow_disagree_rate", "Shadow disagreement rate")
++FAIL_OPEN = Gauge("ofc_ctx_rollout_fail_open_rate", "Fail-open rate")
++FALLBACK_RATE = Gauge("ofc_ctx_rollout_fallback_rate", "Fallback rate")
++BUNDLE_AGE = Gauge("ofc_ctx_rollout_bundle_age_seconds", "Bundle age seconds")
++WRITER_LAG = Gauge("ofc_ctx_rollout_writer_lag_seconds", "Writer lag seconds")
++ROLLBACK_REQ = Gauge("ofc_ctx_rollout_rollback_requested", "1 if rollback requested")
++CANARY_COUNT = Gauge("ofc_ctx_rollout_canary_symbols_count", "Canary symbol count")
++
++
++MODES = ("off", "shadow", "tighten_only", "replace_score_veto")
++
++
++def _publish_mode(gauge, selected: str) -> None:
++    selected = str(selected or "").strip().lower()
++    for m in MODES:
++        gauge.labels(mode=m).set(1.0 if m == selected else 0.0)
++
++
++def main() -> None:  # pragma: no cover
++    port = int(_env("OFC_CTX_ROLLOUT_EXPORTER_PORT", "9848") or 9848)
++    interval_s = float(_env("OFC_CTX_ROLLOUT_EXPORTER_INTERVAL_S", "15") or 15)
++    key = _env("OFC_CTX_ROLLOUT_SUMMARY_KEY", "metrics:ofc_contextual_rollout:last")
++    start_http_server(port)
++    while True:
++        UP.set(1.0)
++        client = _redis_client()
++        if client is None:
++            REDIS_OK.set(0.0)
++            time.sleep(interval_s)
++            continue
++        summary = _read_hash(client, key)
++        REDIS_OK.set(1.0 if summary else 0.0)
++        _publish_mode(CURRENT_MODE, summary.get("current_mode", "shadow"))
++        _publish_mode(DESIRED_MODE, summary.get("desired_mode", "shadow"))
++        BLOCKED.set(_to_int(summary.get("blocked", 0), 0))
++        LAST_TS.set(_to_float(summary.get("ts_ms", 0.0), 0.0))
++        OBS.set(_to_float(summary.get("observations", 0.0), 0.0))
++        SHADOW_DISAGREE.set(_to_float(summary.get("shadow_disagree_rate", 0.0), 0.0))
++        FAIL_OPEN.set(_to_float(summary.get("fail_open_rate", 0.0), 0.0))
++        FALLBACK_RATE.set(_to_float(summary.get("fallback_rate", 0.0), 0.0))
++        BUNDLE_AGE.set(_to_float(summary.get("bundle_age_seconds", 0.0), 0.0))
++        WRITER_LAG.set(_to_float(summary.get("writer_lag_seconds", 0.0), 0.0))
++        ROLLBACK_REQ.set(_to_int(summary.get("rollback_requested", 0), 0))
++        CANARY_COUNT.set(_to_float(summary.get("canary_symbols_count", 0.0), 0.0))
++        time.sleep(interval_s)
++
++
++if __name__ == "__main__":  # pragma: no cover
++    main()
+
+diff --git a/orderflow_services/ofc_contextual_bundle_rollback_v1.py b/orderflow_services/ofc_contextual_bundle_rollback_v1.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/ofc_contextual_bundle_rollback_v1.py
+@@ -0,0 +1,31 @@
++from __future__ import annotations
++
++import argparse
++import os
++
++from orderflow_services.ofc_contextual_rollout_controller_v1 import _parse_symbols, _rm, _touch, _write_overlay
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--mode", default=os.getenv("OFC_CTX_FORCE_MODE", "shadow"))
++    ap.add_argument("--overlay-env-path", default=os.getenv("OFC_CTX_OVERLAY_ENV_PATH", "/var/lib/trade/ofc_contextual_runtime_overlay.env"))
++    ap.add_argument("--rollback-flag-path", default=os.getenv("OFC_CTX_ROLLBACK_FLAG_PATH", "/var/lib/trade/ofc_contextual.rollback.flag"))
++    ap.add_argument("--canary-symbols", default=os.getenv("OFC_CTX_CANARY_SYMBOLS", "BTCUSDT,ETHUSDT,SOLUSDT"))
++    ap.add_argument("--clear-rollback-flag", type=int, default=0)
++    args = ap.parse_args()
++
++    mode = str(args.mode or "shadow").strip().lower()
++    if mode not in ("off", "shadow", "tighten_only", "replace_score_veto"):
++        raise SystemExit(f"unsupported mode: {mode}")
++    _write_overlay(args.overlay_env_path, mode, _parse_symbols(args.canary_symbols), args.rollback_flag_path)
++    if int(args.clear_rollback_flag) == 1:
++        _rm(args.rollback_flag_path)
++    else:
++        _touch(args.rollback_flag_path)
++    print(f"rollback overlay written: mode={mode} overlay={args.overlay_env_path}")
++    return 0
++
++
++if __name__ == "__main__":  # pragma: no cover
++    raise SystemExit(main())
+
+diff --git a/orderflow_services/deploy/compose/docker-compose.ofc-contextual-exporter-v1.yml b/orderflow_services/deploy/compose/docker-compose.ofc-contextual-exporter-v1.yml
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/deploy/compose/docker-compose.ofc-contextual-exporter-v1.yml
+@@ -0,0 +1,20 @@
++services:
++  ofc-contextual-exporter:
++    image: ${TRADE_ORDERFLOW_IMAGE:?}
++    working_dir: /app
++    environment:
++      PYTHONPATH: /app
++      REDIS_URL: ${REDIS_URL:?}
++      OFC_CTX_EXPORTER_PORT: ${OFC_CTX_EXPORTER_PORT:-9846}
++      OFC_CTX_EXPORTER_INTERVAL_S: ${OFC_CTX_EXPORTER_INTERVAL_S:-15}
++      OFC_CTX_EXPORTER_SUMMARY_KEY: ${OFC_CTX_EXPORTER_SUMMARY_KEY:-metrics:ofc_contextual_exporter:last}
++      OFC_CTX_WRITER_SUMMARY_KEY: ${OFC_CTX_WRITER_SUMMARY_KEY:-metrics:ofc_contextual_writer:last}
++      OFC_CTX_NIGHTLY_SUMMARY_KEY: ${OFC_CTX_NIGHTLY_SUMMARY_KEY:-metrics:ofc_contextual_nightly:last}
++    volumes:
++      - ${TRADE_REPO_ROOT:?}:/app:ro
++    expose:
++      - "${OFC_CTX_EXPORTER_PORT:-9846}"
++    command:
++      - python3
++      - -m
++      - orderflow_services.ofc_contextual_exporter_v1
+
+diff --git a/orderflow_services/deploy/compose/docker-compose.ofc-contextual-nightly-bundle-v1.yml b/orderflow_services/deploy/compose/docker-compose.ofc-contextual-nightly-bundle-v1.yml
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/deploy/compose/docker-compose.ofc-contextual-nightly-bundle-v1.yml
+@@ -0,0 +1,22 @@
++services:
++  ofc-contextual-nightly-bundle:
++    image: ${TRADE_ORDERFLOW_IMAGE:?}
++    working_dir: /app
++    environment:
++      PYTHONPATH: /app
++      REDIS_URL: ${REDIS_URL:?}
++      OFC_CTX_NIGHTLY_SUMMARY_KEY: ${OFC_CTX_NIGHTLY_SUMMARY_KEY:-metrics:ofc_contextual_nightly:last}
++      OFC_CTX_EXPORTER_SUMMARY_KEY: ${OFC_CTX_EXPORTER_SUMMARY_KEY:-metrics:ofc_contextual_exporter:last}
++      OFC_CTX_WRITER_SUMMARY_KEY: ${OFC_CTX_WRITER_SUMMARY_KEY:-metrics:ofc_contextual_writer:last}
++      OFC_CTX_BUNDLE_DIR: ${OFC_CTX_BUNDLE_DIR:?}
++      OFC_CTX_OUTPUT_DIR: ${OFC_CTX_OUTPUT_DIR:-/var/lib/trade/ofc_ctx}
++      LATENCY_CONTRACT_PREFLIGHT_PURPOSE: ofc_contextual_nightly_bundle
++      ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT: ${ENABLE_LATENCY_CONTRACT_DEPLOY_LINT_PREFLIGHT:-1}
++    volumes:
++      - ${TRADE_REPO_ROOT:?}:/app:ro
++      - /var/lib/trade:/var/lib/trade
++    command:
++      - bash
++      - -lc
++      - >-
++        python3 -m orderflow_services.nightly_ofc_contextual_ops_bundle_v1
+
+diff --git a/orderflow_services/deploy/compose/docker-compose.ofc-contextual-rollout-controller-v1.yml b/orderflow_services/deploy/compose/docker-compose.ofc-contextual-rollout-controller-v1.yml
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/deploy/compose/docker-compose.ofc-contextual-rollout-controller-v1.yml
+@@ -0,0 +1,33 @@
++services:
++  ofc-contextual-rollout-controller:
++    image: ${TRADE_ORDERFLOW_IMAGE:?}
++    working_dir: /app
++    environment:
++      PYTHONPATH: /app
++      REDIS_URL: ${REDIS_URL:?}
++      OFC_CTX_EXPORTER_SUMMARY_KEY: ${OFC_CTX_EXPORTER_SUMMARY_KEY:-metrics:ofc_contextual_exporter:last}
++      OFC_CTX_WRITER_SUMMARY_KEY: ${OFC_CTX_WRITER_SUMMARY_KEY:-metrics:ofc_contextual_writer:last}
++      OFC_CTX_NIGHTLY_SUMMARY_KEY: ${OFC_CTX_NIGHTLY_SUMMARY_KEY:-metrics:ofc_contextual_nightly:last}
++      OFC_CTX_ROLLOUT_STATE_KEY: ${OFC_CTX_ROLLOUT_STATE_KEY:-cfg:ofc_contextual:rollout:v1}
++      OFC_CTX_ROLLOUT_SUMMARY_KEY: ${OFC_CTX_ROLLOUT_SUMMARY_KEY:-metrics:ofc_contextual_rollout:last}
++      OFC_CTX_OVERLAY_ENV_PATH: ${OFC_CTX_OVERLAY_ENV_PATH:-/var/lib/trade/ofc_contextual_runtime_overlay.env}
++      OFC_CTX_ROLLBACK_FLAG_PATH: ${OFC_CTX_ROLLBACK_FLAG_PATH:-/var/lib/trade/ofc_contextual.rollback.flag}
++      OFC_CTX_CANARY_SYMBOLS: ${OFC_CTX_CANARY_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT}
++      OFC_CTX_ROLLOUT_APPLY: ${OFC_CTX_ROLLOUT_APPLY:-1}
++      OFC_CTX_CURRENT_MODE: ${OFC_CTX_CURRENT_MODE:-shadow}
++      OFC_CTX_ROLLOUT_MIN_OBSERVATIONS: ${OFC_CTX_ROLLOUT_MIN_OBSERVATIONS:-300}
++      OFC_CTX_MAX_SHADOW_DISAGREE_RATE: ${OFC_CTX_MAX_SHADOW_DISAGREE_RATE:-0.15}
++      OFC_CTX_MAX_FAIL_OPEN_RATE: ${OFC_CTX_MAX_FAIL_OPEN_RATE:-0.02}
++      OFC_CTX_MAX_FALLBACK_RATE: ${OFC_CTX_MAX_FALLBACK_RATE:-0.25}
++      OFC_CTX_MAX_BUNDLE_AGE_SEC: ${OFC_CTX_MAX_BUNDLE_AGE_SEC:-21600}
++      OFC_CTX_MAX_WRITER_LAG_SEC: ${OFC_CTX_MAX_WRITER_LAG_SEC:-120}
++      OFC_CTX_ROLLOUT_MIN_HOLD_SEC: ${OFC_CTX_ROLLOUT_MIN_HOLD_SEC:-1800}
++    volumes:
++      - ${TRADE_REPO_ROOT:?}:/app:ro
++      - /var/lib/trade:/var/lib/trade
++    command:
++      - python3
++      - -m
++      - orderflow_services.ofc_contextual_rollout_controller_v1
++      - --apply
++      - "${OFC_CTX_ROLLOUT_APPLY:-1}"
+
+diff --git a/orderflow_services/deploy/compose/docker-compose.ofc-contextual-rollout-exporter-v1.yml b/orderflow_services/deploy/compose/docker-compose.ofc-contextual-rollout-exporter-v1.yml
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/deploy/compose/docker-compose.ofc-contextual-rollout-exporter-v1.yml
+@@ -0,0 +1,18 @@
++services:
++  ofc-contextual-rollout-exporter:
++    image: ${TRADE_ORDERFLOW_IMAGE:?}
++    working_dir: /app
++    environment:
++      PYTHONPATH: /app
++      REDIS_URL: ${REDIS_URL:?}
++      OFC_CTX_ROLLOUT_SUMMARY_KEY: ${OFC_CTX_ROLLOUT_SUMMARY_KEY:-metrics:ofc_contextual_rollout:last}
++      OFC_CTX_ROLLOUT_EXPORTER_PORT: ${OFC_CTX_ROLLOUT_EXPORTER_PORT:-9848}
++      OFC_CTX_ROLLOUT_EXPORTER_INTERVAL_S: ${OFC_CTX_ROLLOUT_EXPORTER_INTERVAL_S:-15}
++    volumes:
++      - ${TRADE_REPO_ROOT:?}:/app:ro
++    expose:
++      - "${OFC_CTX_ROLLOUT_EXPORTER_PORT:-9848}"
++    command:
++      - python3
++      - -m
++      - orderflow_services.ofc_contextual_rollout_exporter_v1
+
+diff --git a/orderflow_services/deploy/systemd/run_trade_ofc_contextual_exporter_v1.sh b/orderflow_services/deploy/systemd/run_trade_ofc_contextual_exporter_v1.sh
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/deploy/systemd/run_trade_ofc_contextual_exporter_v1.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++set -euo pipefail
++REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
++export LATENCY_CONTRACT_DEPLOY_WRAPPER_FILE="$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/run_trade_ofc_contextual_exporter_v1.sh"
++exec docker compose \
++  --env-file "${LATENCY_CONTRACT_ENV_FILE:-/etc/default/trade-latency-sensitive-jobs-staging}" \
++  -f "$REPO_ROOT/python-worker/orderflow_services/deploy/compose/docker-compose.ofc-contextual-exporter-v1.yml" \
++  up --remove-orphans ofc-contextual-exporter
+
+diff --git a/orderflow_services/deploy/systemd/trade-ofc-contextual-exporter.service b/orderflow_services/deploy/systemd/trade-ofc-contextual-exporter.service
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/deploy/systemd/trade-ofc-contextual-exporter.service
+@@ -0,0 +1,16 @@
++[Unit]
++Description=Trade OFC contextual exporter
++After=network-online.target docker.service
++Wants=network-online.target
++Requires=docker.service
++
++[Service]
++Type=simple
++EnvironmentFile=/etc/default/trade-latency-sensitive-jobs-staging
++Environment=PYTHONUNBUFFERED=1
++ExecStart=/bin/bash -lc 'cd "${TRADE_REPO_ROOT:?}" && ./python-worker/orderflow_services/deploy/systemd/run_trade_ofc_contextual_exporter_v1.sh'
++Restart=always
++RestartSec=5
++
++[Install]
++WantedBy=multi-user.target
+
+diff --git a/orderflow_services/deploy/systemd/run_trade_ofc_contextual_nightly_bundle_v1.sh b/orderflow_services/deploy/systemd/run_trade_ofc_contextual_nightly_bundle_v1.sh
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/deploy/systemd/run_trade_ofc_contextual_nightly_bundle_v1.sh
+@@ -0,0 +1,10 @@
++#!/usr/bin/env bash
++set -euo pipefail
++REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
++export LATENCY_CONTRACT_DEPLOY_WRAPPER_FILE="$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/run_trade_ofc_contextual_nightly_bundle_v1.sh"
++export LATENCY_CONTRACT_DEPLOY_UNIT_FILE="$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/trade-ofc-contextual-nightly-bundle.service"
++exec "$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh" \
++  "$REPO_ROOT/python-worker/orderflow_services/deploy/compose/docker-compose.ofc-contextual-nightly-bundle-v1.yml" \
++  "ofc-contextual-nightly-bundle" \
++  "ofc_contextual_nightly_bundle" \
++  "$@"
+
+diff --git a/orderflow_services/deploy/systemd/trade-ofc-contextual-nightly-bundle.service b/orderflow_services/deploy/systemd/trade-ofc-contextual-nightly-bundle.service
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/deploy/systemd/trade-ofc-contextual-nightly-bundle.service
+@@ -0,0 +1,16 @@
++[Unit]
++Description=Trade OFC contextual nightly bundle (latency-contract gated)
++After=network-online.target docker.service
++Wants=network-online.target
++Requires=docker.service
++
++[Service]
++Type=oneshot
++EnvironmentFile=/etc/default/trade-latency-sensitive-jobs-staging
++Environment=LATENCY_CONTRACT_ENV_FILE=/etc/default/trade-latency-sensitive-jobs-staging
++Environment=LATENCY_CONTRACT_DEPLOY_LINT_REPORT_PATH=/var/lib/trade/reports/latency_contract_deploy_lint.json
++ExecStart=/bin/bash -lc 'cd "${TRADE_REPO_ROOT:?}" && ./python-worker/orderflow_services/deploy/systemd/run_trade_ofc_contextual_nightly_bundle_v1.sh'
++RemainAfterExit=no
++
++[Install]
++WantedBy=multi-user.target
+
+diff --git a/orderflow_services/deploy/systemd/trade-ofc-contextual-nightly-bundle.timer b/orderflow_services/deploy/systemd/trade-ofc-contextual-nightly-bundle.timer
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/deploy/systemd/trade-ofc-contextual-nightly-bundle.timer
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Run trade OFC contextual nightly bundle every day at 03:11 UTC
++
++[Timer]
++OnCalendar=*-*-* 03:11:00
++Persistent=true
++Unit=trade-ofc-contextual-nightly-bundle.service
++
++[Install]
++WantedBy=timers.target
+
+diff --git a/orderflow_services/deploy/systemd/run_trade_ofc_contextual_rollout_controller_v1.sh b/orderflow_services/deploy/systemd/run_trade_ofc_contextual_rollout_controller_v1.sh
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/deploy/systemd/run_trade_ofc_contextual_rollout_controller_v1.sh
+@@ -0,0 +1,10 @@
++#!/usr/bin/env bash
++set -euo pipefail
++REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
++export LATENCY_CONTRACT_DEPLOY_WRAPPER_FILE="$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/run_trade_ofc_contextual_rollout_controller_v1.sh"
++export LATENCY_CONTRACT_DEPLOY_UNIT_FILE="$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/trade-ofc-contextual-rollout-controller.service"
++exec "$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/run_trade_latency_gated_compose_job_v1.sh" \
++  "$REPO_ROOT/python-worker/orderflow_services/deploy/compose/docker-compose.ofc-contextual-rollout-controller-v1.yml" \
++  "ofc-contextual-rollout-controller" \
++  "ofc_contextual_rollout_controller" \
++  "$@"
+
+diff --git a/orderflow_services/deploy/systemd/trade-ofc-contextual-rollout-controller.service b/orderflow_services/deploy/systemd/trade-ofc-contextual-rollout-controller.service
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/deploy/systemd/trade-ofc-contextual-rollout-controller.service
+@@ -0,0 +1,16 @@
++[Unit]
++Description=Trade OFC contextual rollout controller (latency-contract gated)
++After=network-online.target docker.service
++Wants=network-online.target
++Requires=docker.service
++
++[Service]
++Type=oneshot
++EnvironmentFile=/etc/default/trade-latency-sensitive-jobs-staging
++Environment=LATENCY_CONTRACT_ENV_FILE=/etc/default/trade-latency-sensitive-jobs-staging
++Environment=LATENCY_CONTRACT_DEPLOY_LINT_REPORT_PATH=/var/lib/trade/reports/latency_contract_deploy_lint.json
++ExecStart=/bin/bash -lc 'cd "${TRADE_REPO_ROOT:?}" && ./python-worker/orderflow_services/deploy/systemd/run_trade_ofc_contextual_rollout_controller_v1.sh'
++RemainAfterExit=no
++
++[Install]
++WantedBy=multi-user.target
+
+diff --git a/orderflow_services/deploy/systemd/trade-ofc-contextual-rollout-controller.timer b/orderflow_services/deploy/systemd/trade-ofc-contextual-rollout-controller.timer
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/deploy/systemd/trade-ofc-contextual-rollout-controller.timer
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Run trade OFC contextual rollout controller every 10 minutes
++
++[Timer]
++OnCalendar=*:0/10
++Persistent=true
++Unit=trade-ofc-contextual-rollout-controller.service
++
++[Install]
++WantedBy=timers.target
+
+diff --git a/orderflow_services/deploy/systemd/run_trade_ofc_contextual_rollout_exporter_v1.sh b/orderflow_services/deploy/systemd/run_trade_ofc_contextual_rollout_exporter_v1.sh
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/deploy/systemd/run_trade_ofc_contextual_rollout_exporter_v1.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++set -euo pipefail
++REPO_ROOT="${TRADE_REPO_ROOT:?TRADE_REPO_ROOT is required}"
++export LATENCY_CONTRACT_DEPLOY_WRAPPER_FILE="$REPO_ROOT/python-worker/orderflow_services/deploy/systemd/run_trade_ofc_contextual_rollout_exporter_v1.sh"
++exec docker compose \
++  --env-file "${LATENCY_CONTRACT_ENV_FILE:-/etc/default/trade-latency-sensitive-jobs-staging}" \
++  -f "$REPO_ROOT/python-worker/orderflow_services/deploy/compose/docker-compose.ofc-contextual-rollout-exporter-v1.yml" \
++  up --remove-orphans ofc-contextual-rollout-exporter
+
+diff --git a/orderflow_services/deploy/systemd/trade-ofc-contextual-rollout-exporter.service b/orderflow_services/deploy/systemd/trade-ofc-contextual-rollout-exporter.service
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/deploy/systemd/trade-ofc-contextual-rollout-exporter.service
+@@ -0,0 +1,16 @@
++[Unit]
++Description=Trade OFC contextual rollout exporter
++After=network-online.target docker.service
++Wants=network-online.target
++Requires=docker.service
++
++[Service]
++Type=simple
++EnvironmentFile=/etc/default/trade-latency-sensitive-jobs-staging
++Environment=PYTHONUNBUFFERED=1
++ExecStart=/bin/bash -lc 'cd "${TRADE_REPO_ROOT:?}" && ./python-worker/orderflow_services/deploy/systemd/run_trade_ofc_contextual_rollout_exporter_v1.sh'
++Restart=always
++RestartSec=5
++
++[Install]
++WantedBy=multi-user.target
+
+diff --git a/orderflow_services/deploy/env/ofc-contextual-rollout-v1.env.example b/orderflow_services/deploy/env/ofc-contextual-rollout-v1.env.example
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/deploy/env/ofc-contextual-rollout-v1.env.example
+@@ -0,0 +1,32 @@
++# Patch D — OFC contextual rollout / canary / rollback controls
++REDIS_URL=redis://redis-worker-1:6379/0
++TRADE_ORDERFLOW_IMAGE=trade-orderflow:latest
++TRADE_REPO_ROOT=/opt/scanner_infra
++
++# Patch C keys
++OFC_CTX_EXPORTER_SUMMARY_KEY=metrics:ofc_contextual_exporter:last
++OFC_CTX_WRITER_SUMMARY_KEY=metrics:ofc_contextual_writer:last
++OFC_CTX_NIGHTLY_SUMMARY_KEY=metrics:ofc_contextual_nightly:last
++
++# Rollout controller state
++OFC_CTX_ROLLOUT_STATE_KEY=cfg:ofc_contextual:rollout:v1
++OFC_CTX_ROLLOUT_SUMMARY_KEY=metrics:ofc_contextual_rollout:last
++OFC_CTX_OVERLAY_ENV_PATH=/var/lib/trade/ofc_contextual_runtime_overlay.env
++OFC_CTX_ROLLBACK_FLAG_PATH=/var/lib/trade/ofc_contextual.rollback.flag
++
++# Canary rollout policy
++OFC_CTX_CURRENT_MODE=shadow
++OFC_CTX_CANARY_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT
++OFC_CTX_ROLLOUT_APPLY=1
++OFC_CTX_ROLLOUT_MIN_OBSERVATIONS=300
++OFC_CTX_MAX_SHADOW_DISAGREE_RATE=0.15
++OFC_CTX_MAX_FAIL_OPEN_RATE=0.02
++OFC_CTX_MAX_FALLBACK_RATE=0.25
++OFC_CTX_MAX_BUNDLE_AGE_SEC=21600
++OFC_CTX_MAX_WRITER_LAG_SEC=120
++OFC_CTX_ROLLOUT_MIN_HOLD_SEC=1800
++
++# Exporters
++OFC_CTX_EXPORTER_PORT=9846
++OFC_CTX_ROLLOUT_EXPORTER_PORT=9848
++OFC_CTX_ROLLOUT_EXPORTER_INTERVAL_S=15
+
+diff --git a/orderflow_services/grafana/ofc_contextual_rollout_v1.json b/orderflow_services/grafana/ofc_contextual_rollout_v1.json
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/grafana/ofc_contextual_rollout_v1.json
+@@ -0,0 +1,101 @@
++{
++  "annotations": {
++    "list": [
++      {
++        "builtIn": 1,
++        "datasource": {"type": "grafana", "uid": "-- Grafana --"},
++        "enable": true,
++        "hide": true,
++        "iconColor": "rgba(0, 211, 255, 1)",
++        "name": "Annotations & Alerts",
++        "type": "dashboard"
++      }
++    ]
++  },
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "id": null,
++  "links": [],
++  "liveNow": false,
++  "panels": [
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
++      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
++      "id": 1,
++      "options": {"reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""}, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "none", "justifyMode": "auto"},
++      "targets": [
++        {"expr": "sum(ofc_ctx_rollout_current_mode{mode=~\"$mode\"})", "legendFormat": "current_mode", "refId": "A"},
++        {"expr": "sum(ofc_ctx_rollout_desired_mode{mode=~\"$mode\"})", "legendFormat": "desired_mode", "refId": "B"}
++      ],
++      "title": "Current / desired rollout mode",
++      "type": "stat"
++    },
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {"unit": "percentunit"}, "overrides": []},
++      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
++      "id": 2,
++      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
++      "targets": [
++        {"expr": "ofc_ctx_rollout_shadow_disagree_rate", "legendFormat": "shadow_disagree_rate", "refId": "A"},
++        {"expr": "ofc_ctx_rollout_fail_open_rate", "legendFormat": "fail_open_rate", "refId": "B"},
++        {"expr": "ofc_ctx_rollout_fallback_rate", "legendFormat": "fallback_rate", "refId": "C"}
++      ],
++      "title": "Safety rates",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
++      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
++      "id": 3,
++      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
++      "targets": [
++        {"expr": "ofc_ctx_rollout_bundle_age_seconds", "legendFormat": "bundle_age_seconds", "refId": "A"},
++        {"expr": "ofc_ctx_rollout_writer_lag_seconds", "legendFormat": "writer_lag_seconds", "refId": "B"}
++      ],
++      "title": "Bundle freshness / writer lag",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
++      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
++      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
++      "id": 4,
++      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
++      "targets": [
++        {"expr": "ofc_ctx_rollout_observations", "legendFormat": "observations", "refId": "A"},
++        {"expr": "ofc_ctx_rollout_canary_symbols_count", "legendFormat": "canary_symbols_count", "refId": "B"},
++        {"expr": "ofc_ctx_rollout_rollback_requested", "legendFormat": "rollback_requested", "refId": "C"}
++      ],
++      "title": "Rollout population / rollback",
++      "type": "timeseries"
++    }
++  ],
++  "refresh": "30s",
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": ["trade", "ofc", "contextual", "rollout"],
++  "templating": {
++    "list": [
++      {
++        "current": {"selected": true, "text": [".*"], "value": [".*"]},
++        "hide": 0,
++        "includeAll": true,
++        "label": "mode",
++        "multi": true,
++        "name": "mode",
++        "options": [],
++        "query": "shadow,tighten_only,replace_score_veto,off",
++        "type": "custom"
++      }
++    ]
++  },
++  "time": {"from": "now-24h", "to": "now"},
++  "timezone": "utc",
++  "title": "OFC Contextual Rollout (v1)",
++  "version": 1,
++  "weekStart": ""
++}
+
+diff --git a/orderflow_services/tests/test_ofc_contextual_rollout_controller_v1.py b/orderflow_services/tests/test_ofc_contextual_rollout_controller_v1.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/tests/test_ofc_contextual_rollout_controller_v1.py
+@@ -0,0 +1,84 @@
++from orderflow_services.ofc_contextual_rollout_controller_v1 import (
++    RolloutInputs,
++    Thresholds,
++    compute_rollout_decision,
++)
++
++
++def _th() -> Thresholds:
++    return Thresholds(
++        min_observations=300,
++        max_shadow_disagree_rate=0.15,
++        max_fail_open_rate=0.02,
++        max_fallback_rate=0.25,
++        max_bundle_age_seconds=21600.0,
++        max_writer_lag_seconds=120.0,
++        min_hold_sec=1800,
++    )
++
++
++def test_rollout_advances_shadow_to_tighten_only_when_healthy_and_hold_elapsed():
++    inp = RolloutInputs(
++        observations=500,
++        shadow_disagree_rate=0.05,
++        fail_open_rate=0.0,
++        fallback_rate=0.10,
++        bundle_age_seconds=100.0,
++        writer_lag_seconds=5.0,
++        nightly_success=1,
++        rollback_requested=False,
++    )
++    d = compute_rollout_decision(
++        current_mode="shadow",
++        last_change_ms=0,
++        inputs=inp,
++        thresholds=_th(),
++        now_ms=3_600_000,
++    )
++    assert d.desired_mode == "tighten_only"
++    assert d.blocked is False
++
++
++def test_rollout_reverts_to_shadow_on_health_breach():
++    inp = RolloutInputs(
++        observations=500,
++        shadow_disagree_rate=0.30,
++        fail_open_rate=0.0,
++        fallback_rate=0.10,
++        bundle_age_seconds=100.0,
++        writer_lag_seconds=5.0,
++        nightly_success=1,
++        rollback_requested=False,
++    )
++    d = compute_rollout_decision(
++        current_mode="replace_score_veto",
++        last_change_ms=0,
++        inputs=inp,
++        thresholds=_th(),
++        now_ms=3_600_000,
++    )
++    assert d.desired_mode == "shadow"
++    assert d.should_set_rollback_flag is True
++    assert d.blocked is True
++
++
++def test_rollout_min_hold_blocks_promotion():
++    inp = RolloutInputs(
++        observations=500,
++        shadow_disagree_rate=0.01,
++        fail_open_rate=0.0,
++        fallback_rate=0.01,
++        bundle_age_seconds=100.0,
++        writer_lag_seconds=5.0,
++        nightly_success=1,
++        rollback_requested=False,
++    )
++    d = compute_rollout_decision(
++        current_mode="shadow",
++        last_change_ms=1000,
++        inputs=inp,
++        thresholds=_th(),
++        now_ms=1000 + 60_000,
++    )
++    assert d.desired_mode == "shadow"
++    assert d.blocked_reason == "min_hold"
+
+diff --git a/orderflow_services/tests/test_ofc_contextual_deploy_files_v1.py b/orderflow_services/tests/test_ofc_contextual_deploy_files_v1.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/tests/test_ofc_contextual_deploy_files_v1.py
+@@ -0,0 +1,19 @@
++from pathlib import Path
++
++
++def test_rollout_systemd_and_compose_files_present():
++    svc = Path("orderflow_services/deploy/systemd/trade-ofc-contextual-rollout-controller.service").read_text()
++    timer = Path("orderflow_services/deploy/systemd/trade-ofc-contextual-rollout-controller.timer").read_text()
++    wrapper = Path("orderflow_services/deploy/systemd/run_trade_ofc_contextual_rollout_controller_v1.sh").read_text()
++    compose = Path("orderflow_services/deploy/compose/docker-compose.ofc-contextual-rollout-controller-v1.yml").read_text()
++    assert "run_trade_latency_gated_compose_job_v1.sh" in wrapper
++    assert "ExecStart=/bin/bash -lc 'cd \"${TRADE_REPO_ROOT:?}\" && ./python-worker/orderflow_services/deploy/systemd/run_trade_ofc_contextual_rollout_controller_v1.sh'" in svc
++    assert "OnCalendar=*:0/10" in timer
++    assert "orderflow_services.ofc_contextual_rollout_controller_v1" in compose
++
++
++def test_exporter_systemd_files_present():
++    svc = Path("orderflow_services/deploy/systemd/trade-ofc-contextual-exporter.service").read_text()
++    wrapper = Path("orderflow_services/deploy/systemd/run_trade_ofc_contextual_exporter_v1.sh").read_text()
++    assert "docker-compose.ofc-contextual-exporter-v1.yml" in wrapper
++    assert "Restart=always" in svc
+
+diff --git a/orderflow_services/tests/test_ofc_contextual_dashboard_v1.py b/orderflow_services/tests/test_ofc_contextual_dashboard_v1.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/orderflow_services/tests/test_ofc_contextual_dashboard_v1.py
+@@ -0,0 +1,24 @@
++import json
++from pathlib import Path
++
++
++def test_ofc_contextual_rollout_dashboard_parses_and_has_expected_title():
++    path = Path("orderflow_services/grafana/ofc_contextual_rollout_v1.json")
++    doc = json.loads(path.read_text())
++    assert doc.get("title") == "OFC Contextual Rollout (v1)"
++    assert len(doc.get("panels", [])) >= 4
++
++
++def test_ofc_contextual_rollout_dashboard_queries_cover_key_metrics():
++    path = Path("orderflow_services/grafana/ofc_contextual_rollout_v1.json")
++    doc = json.loads(path.read_text())
++    exprs = []
++    for panel in doc.get("panels", []):
++        for target in panel.get("targets", []) or []:
++            expr = target.get("expr") if isinstance(target, dict) else None
++            if expr:
++                exprs.append(expr)
++    joined = "\n".join(exprs)
++    assert "ofc_ctx_rollout_shadow_disagree_rate" in joined
++    assert "ofc_ctx_rollout_bundle_age_seconds" in joined
++    assert "ofc_ctx_rollout_current_mode" in joined
+

@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/services/orderflow/metrics_bookseq_dq_p112.py
+# hypothesis_version: 6.148.10
+
+['Collector', 'TCollector', '__name__', '_names_to_collectors', 'book', 'book_gap', 'book_seq', 'book_seq_hard', 'bucket', 'data_health', 'dq_health', 'dq_level_gauge', 'dq_veto_total', 'gap', 'gap_p95', 'health', 'other', 'symbol', 'tick', 'tick_gap', 'tick_gap_p95', 'tick_seq', 'tick_seq_hard']

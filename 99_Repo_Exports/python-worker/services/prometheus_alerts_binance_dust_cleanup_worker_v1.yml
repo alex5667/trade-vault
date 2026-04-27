@@ -1,0 +1,55 @@
+groups:
+  - name: binance-dust-cleanup-worker
+    rules:
+      # Alert when the periodic dust sweep worker stops updating its heartbeat.
+      # Indicates a crashed container or a hung loop.
+      - alert: BinanceDustCleanupWorkerSweepStalled
+        expr: time() - execution_dust_sweep_last_run_ts > 120
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Binance dust cleanup worker sweep is stale"
+          description: >
+            The periodic dust cleanup worker has not updated its last-run timestamp
+            for more than 120 seconds. Check the binance-dust-cleanup-worker container logs.
+
+      # Alert when dust/tail positions persist after cleanup attempts.
+      # Indicates the worker is running but unable to flatten residuals.
+      - alert: BinanceDustCleanupResidualsPersist
+        expr: increase(execution_dust_cleanup_total{result=~"dust_remaining|residual_position"}[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Residual Binance dust positions remain after cleanup"
+          description: |
+            The worker attempted to flatten residual positions but some tails still
+            remain after the verify loop. Review orders:exec stream for dust_cleanup_worker
+            events with status=dust_remaining|residual_position.
+
+      # Alert when the same symbols are repeatedly rate-limited by cooldown.
+      # Indicates a sticky residual tail the worker cannot fully close.
+      - alert: BinanceDustCleanupCooldownHotSymbols
+        expr: increase(execution_dust_sweep_skip_total{reason="cooldown"}[15m]) >= 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dust cleanup worker is repeatedly rate-limited by cooldown"
+          description: |
+            The same symbols are repeatedly being skipped by cooldown, which usually
+            means the worker is chasing a sticky residual tail.
+
+      # Informational alert when denylisted symbols still appear as dust candidates.
+      # Operator should periodically review whether denylist entries are still intentional.
+      - alert: BinanceDustCleanupDenylistedResidualsPresent
+        expr: increase(execution_dust_sweep_skip_total{reason="denylist"}[30m]) > 0
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: "Denylisted symbols still have dust residuals"
+          description: |
+            A symbol on the dust cleanup denylist still appears as a dust candidate.
+            Review whether the denylist entry is still intentional.

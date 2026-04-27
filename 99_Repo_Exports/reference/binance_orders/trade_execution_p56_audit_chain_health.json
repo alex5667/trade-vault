@@ -1,0 +1,59 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "graphTooltip": 0,
+  "links": [
+    {
+      "title": "Runbook API",
+      "type": "link",
+      "url": "/api/audit-chain/latest"
+    }
+  ],
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Broken chain total",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [{"expr": "trade_execution_audit_chain_total_broken", "refId": "A"}]
+    },
+    {
+      "type": "stat",
+      "title": "Report freshness (s)",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "targets": [{"expr": "trade_execution_audit_chain_report_freshness_seconds", "refId": "A"}]
+    },
+    {
+      "type": "stat",
+      "title": "Signal / plan broken",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "targets": [{"expr": "sum(trade_execution_audit_chain_broken_total{kind=~\"broken_signal_link|broken_signal_plan|broken_entry_policy_link\"})", "refId": "A"}]
+    },
+    {
+      "type": "stat",
+      "title": "Trade / analytics broken",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "targets": [{"expr": "sum(trade_execution_audit_chain_broken_total{kind=~\"broken_trade_link|broken_position_event_link|broken_analytics_link\"})", "refId": "A"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Broken by kind",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [{"expr": "trade_execution_audit_chain_broken_total", "legendFormat": "{{kind}}", "refId": "A"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Report stale flag",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [{"expr": "trade_execution_audit_chain_report_stale", "refId": "A"}]
+    }
+  ],
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["execution", "audit", "p56"],
+  "templating": {"list": []},
+  "time": {"from": "now-24h", "to": "now"},
+  "timezone": "browser",
+  "title": "Trade Execution P5.6 Audit Chain Health",
+  "uid": "trade-exec-audit-p56",
+  "version": 1
+}

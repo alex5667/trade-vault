@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/analytics/repository.py
+# hypothesis_version: 6.148.10
+
+[0.0, 100.0, 1000.0, 1000, 10000, 'INFO', 'LONG', 'Repository', 'SHORT', 'UNKNOWN', 'XAUUSD', 'atr', 'atr_1m', 'close_reason', 'closed_time', 'confidence', 'direction', 'entry_price', 'entry_time', 'entry_ts_ms', 'events:trades', 'exit_price', 'exit_ts_ms', 'final_score', 'hash', 'id', 'lot', 'order_id', 'orderflow', 'pnl', 'pnl_net', 'pnl_pct', 'price', 'price_at_signal', 'result', 'score', 'setup_type', 'sid', 'side', 'sl', 'sl_price', 'source', 'strategy', 'symbol', 'tf', 'timestamp', 'tp1', 'tp1_hit', 'tp2', 'tp2_hit', 'tp3', 'tp3_hit', 'tp_before_sl', 'trades:closed', 'ts_signal', 'unknown']

@@ -1,0 +1,43 @@
+version: '3.9'
+
+# P9 rollout overlay — auto-unquarantine, resume guard, retention, canary, alertmanager deeplinks.
+# Apply on top of the project's existing compose files, for example:
+#   docker compose \
+#     -f docker-compose-binance.yml \
+#     -f config/docker-compose.execution-p5.override.yml \
+#     -f config/docker-compose.execution-p9.override.yml up -d
+
+services:
+  binance-executor:
+    environment:
+      # --- P9: Quarantine resume guard ---
+      # Блокирует handle_open / handle_modify / handle_resize для карантинных SID.
+      # Поставьте 0 чтобы отключить без пересборки образа.
+      - EXEC_QUARANTINE_RESUME_GUARD_ENABLE=${EXEC_QUARANTINE_RESUME_GUARD_ENABLE:-1}
+      - ORDERS_QUARANTINE_SIDS_KEY=${ORDERS_QUARANTINE_SIDS_KEY:-orders:quarantine:state:sids}
+
+      # --- P9: Retention ---
+      # Сколько дней хранить горячие строки (execution_order_events / quarantine_ledger).
+      - EXECUTION_RETENTION_DAYS=${EXECUTION_RETENTION_DAYS:-14}
+
+      # --- P9: Canary scoring ---
+      # Куда скрипт build_canary_scoring_report.py пишет JSON-отчёт.
+      - CANARY_REPORT_PATH=${CANARY_REPORT_PATH:-/var/lib/trade-runbook/reports/latest_canary_scoring.json}
+
+      # --- P9: Alertmanager deeplinks ---
+      # URL Alertmanager-инстанса для генерации silence-ссылок в уведомлениях.
+      - ALERTMANAGER_EXTERNAL_URL=${ALERTMANAGER_EXTERNAL_URL:-http://alertmanager:9093}
+
+  # --------------------------------------------------------------------------
+  # Runbook / report server  (добавляет /api/canary/latest)
+  # --------------------------------------------------------------------------
+  trade-runbook-server:
+    environment:
+      - RUNBOOK_REPORT_DIR=${RUNBOOK_REPORT_DIR:-/var/lib/trade-runbook/reports}
+    volumes:
+      - ./monitoring/grafana/dashboards:/opt/trade/monitoring/grafana/dashboards:ro
+      - ./python-worker/runbooks:/opt/trade/runbooks:ro
+      - trade-runbook-reports:/var/lib/trade-runbook/reports
+
+volumes:
+  trade-runbook-reports:

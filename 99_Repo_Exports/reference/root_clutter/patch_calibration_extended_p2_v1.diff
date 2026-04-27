@@ -1,0 +1,1516 @@
+diff -ruN '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=__pycache__' repo_orig/ml_analysis/calibration_extended.py repo_mod/ml_analysis/calibration_extended.py
+--- repo_orig/ml_analysis/calibration_extended.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_mod/ml_analysis/calibration_extended.py	2026-03-08 06:30:26.047591479 +0000
+@@ -0,0 +1,176 @@
++"""Extended calibration diagnostics for confidence models.
++
++Complements classic ECE/Brier with:
++- MCE (worst calibration pocket)
++- calibration slope/intercept via logistic regression on logit(p)
++- sharpness mean / entropy
++- probability mass near 0.5
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Any, Dict, Tuple
++
++import numpy as np
++
++_EPS = 1e-6
++
++
++def _as_arrays(y: Any, p: Any) -> Tuple[np.ndarray, np.ndarray]:
++    yy = np.asarray(y, dtype=np.float64).reshape(-1)
++    pp = np.asarray(p, dtype=np.float64).reshape(-1)
++    n = min(len(yy), len(pp))
++    yy = yy[:n]
++    pp = pp[:n]
++    m = np.isfinite(yy) & np.isfinite(pp)
++    yy = np.clip(yy[m], 0.0, 1.0)
++    pp = np.clip(pp[m], _EPS, 1.0 - _EPS)
++    return yy, pp
++
++
++def binary_entropy(p: Any, *, base2: bool = True) -> np.ndarray:
++    pp = np.asarray(p, dtype=np.float64)
++    pp = np.clip(pp, _EPS, 1.0 - _EPS)
++    h = -(pp * np.log(pp) + (1.0 - pp) * np.log(1.0 - pp))
++    if base2:
++        h = h / np.log(2.0)
++    return h
++
++
++def ece(y: Any, p: Any, *, bins: int = 20) -> float:
++    yy, pp = _as_arrays(y, p)
++    if len(yy) == 0:
++        return float("nan")
++    edges = np.linspace(0.0, 1.0, int(max(2, bins)) + 1)
++    out = 0.0
++    for i in range(len(edges) - 1):
++        lo, hi = float(edges[i]), float(edges[i + 1])
++        m = (pp >= lo) & (pp < hi) if i < len(edges) - 2 else (pp >= lo) & (pp <= hi)
++        if not np.any(m):
++            continue
++        out += float(np.mean(m)) * abs(float(np.mean(yy[m])) - float(np.mean(pp[m])))
++    return float(out)
++
++
++def mce(y: Any, p: Any, *, bins: int = 20) -> float:
++    yy, pp = _as_arrays(y, p)
++    if len(yy) == 0:
++        return float("nan")
++    edges = np.linspace(0.0, 1.0, int(max(2, bins)) + 1)
++    worst = 0.0
++    for i in range(len(edges) - 1):
++        lo, hi = float(edges[i]), float(edges[i + 1])
++        m = (pp >= lo) & (pp < hi) if i < len(edges) - 2 else (pp >= lo) & (pp <= hi)
++        if not np.any(m):
++            continue
++        worst = max(worst, abs(float(np.mean(yy[m])) - float(np.mean(pp[m]))))
++    return float(worst)
++
++
++def brier(y: Any, p: Any) -> float:
++    yy, pp = _as_arrays(y, p)
++    if len(yy) == 0:
++        return float("nan")
++    return float(np.mean((pp - yy) ** 2))
++
++
++def sharpness_mean(p: Any) -> float:
++    pp = np.asarray(p, dtype=np.float64)
++    pp = pp[np.isfinite(pp)]
++    if len(pp) == 0:
++        return float("nan")
++    return float(np.mean(np.abs(np.clip(pp, 0.0, 1.0) - 0.5)) * 2.0)
++
++
++def sharpness_entropy(p: Any) -> float:
++    pp = np.asarray(p, dtype=np.float64)
++    pp = pp[np.isfinite(pp)]
++    if len(pp) == 0:
++        return float("nan")
++    return float(np.mean(binary_entropy(pp, base2=True)))
++
++
++def prob_mass_near_half(p: Any, *, half_width: float = 0.05) -> float:
++    pp = np.asarray(p, dtype=np.float64)
++    pp = pp[np.isfinite(pp)]
++    if len(pp) == 0:
++        return float("nan")
++    hw = max(0.0, min(0.49, float(half_width)))
++    lo, hi = 0.5 - hw, 0.5 + hw
++    return float(np.mean((pp >= lo) & (pp <= hi)))
++
++
++def _sigmoid(z: np.ndarray) -> np.ndarray:
++    return 1.0 / (1.0 + np.exp(-np.clip(z, -60.0, 60.0)))
++
++
++def calibration_regression(
++    y: Any,
++    p: Any,
++    *,
++    ridge: float = 1e-6,
++    max_iter: int = 50,
++    tol: float = 1e-8,
++) -> Dict[str, float]:
++    yy, pp = _as_arrays(y, p)
++    if len(yy) < 3:
++        return {"calibration_slope": float("nan"), "calibration_intercept": float("nan")}
++    y_mean = float(np.mean(yy))
++    if y_mean <= _EPS or y_mean >= 1.0 - _EPS:
++        return {"calibration_slope": float("nan"), "calibration_intercept": float("nan")}
++    x = np.log(pp / (1.0 - pp))
++    X = np.column_stack([np.ones_like(x), x])
++    beta = np.zeros(2, dtype=np.float64)
++    eye = np.eye(2, dtype=np.float64)
++    eye[0, 0] = 0.0
++    for _ in range(int(max_iter)):
++        eta = X @ beta
++        mu = _sigmoid(eta)
++        w = np.clip(mu * (1.0 - mu), 1e-6, None)
++        z = eta + (yy - mu) / w
++        XtW = X.T * w
++        lhs = XtW @ X + float(ridge) * eye
++        rhs = XtW @ z
++        try:
++            beta_new = np.linalg.solve(lhs, rhs)
++        except np.linalg.LinAlgError:
++            return {"calibration_slope": float("nan"), "calibration_intercept": float("nan")}
++        if float(np.max(np.abs(beta_new - beta))) <= float(tol):
++            beta = beta_new
++            break
++        beta = beta_new
++    return {"calibration_intercept": float(beta[0]), "calibration_slope": float(beta[1])}
++
++
++@dataclass(frozen=True)
++class CalibrationExtendedConfig:
++    bins: int = 20
++    near_half_width: float = 0.05
++
++
++def report(y: Any, p: Any, *, bins: int = 20, near_half_width: float = 0.05) -> Dict[str, float]:
++    yy, pp = _as_arrays(y, p)
++    if len(yy) == 0:
++        return {
++            "n": 0,
++            "ece": float("nan"),
++            "mce": float("nan"),
++            "brier": float("nan"),
++            "calibration_slope": float("nan"),
++            "calibration_intercept": float("nan"),
++            "sharpness_mean": float("nan"),
++            "sharpness_entropy": float("nan"),
++            "prob_mass_near_half": float("nan"),
++        }
++    reg = calibration_regression(yy, pp)
++    return {
++        "n": int(len(yy)),
++        "ece": ece(yy, pp, bins=bins),
++        "mce": mce(yy, pp, bins=bins),
++        "brier": brier(yy, pp),
++        "calibration_slope": float(reg.get("calibration_slope", float("nan"))),
++        "calibration_intercept": float(reg.get("calibration_intercept", float("nan"))),
++        "sharpness_mean": sharpness_mean(pp),
++        "sharpness_entropy": sharpness_entropy(pp),
++        "prob_mass_near_half": prob_mass_near_half(pp, half_width=near_half_width),
++    }
+diff -ruN '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=__pycache__' repo_orig/ml_analysis/tests/test_calibration_extended.py repo_mod/ml_analysis/tests/test_calibration_extended.py
+--- repo_orig/ml_analysis/tests/test_calibration_extended.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_mod/ml_analysis/tests/test_calibration_extended.py	2026-03-08 06:36:45.988576489 +0000
+@@ -0,0 +1,55 @@
++from __future__ import annotations
++
++import numpy as np
++
++from ml_analysis.calibration_extended import report, calibration_regression
++
++
++def _gen_probs(seed: int = 7, n: int = 4000):
++    rng = np.random.default_rng(seed)
++    p = rng.beta(2.5, 2.5, size=n)
++    y = rng.binomial(1, p, size=n)
++    return y, p
++
++
++def test_perfect_calibration_has_low_errors_and_reasonable_regression():
++    y, p = _gen_probs()
++    rep = report(y, p, bins=20)
++    assert rep["ece"] < 0.05
++    assert rep["mce"] < 0.12
++    assert 0.7 < rep["calibration_slope"] < 1.3
++    assert abs(rep["calibration_intercept"]) < 0.2
++
++
++def test_overconfident_model_has_worse_mce_than_base():
++    y, p = _gen_probs()
++    p_over = np.clip(np.where(p >= 0.5, p + 0.18, p - 0.18), 0.001, 0.999)
++    rep_base = report(y, p, bins=20)
++    rep_over = report(y, p_over, bins=20)
++    assert rep_over["mce"] > rep_base["mce"]
++    assert rep_over["ece"] > rep_base["ece"]
++
++
++def test_underconfident_model_has_low_slope_and_more_mass_near_half():
++    y, p = _gen_probs()
++    p_under = 0.5 + 0.35 * (p - 0.5)
++    rep = report(y, p_under, bins=20)
++    assert rep["calibration_slope"] > 1.0
++    assert rep["prob_mass_near_half"] > 0.2
++
++
++def test_flat_probability_model_has_low_sharpness_and_high_entropy():
++    y, _ = _gen_probs()
++    p_flat = np.full_like(y, 0.5, dtype=float)
++    rep = report(y, p_flat, bins=20)
++    assert rep["sharpness_mean"] < 1e-6
++    assert rep["sharpness_entropy"] > 0.95
++    assert rep["prob_mass_near_half"] > 0.95
++
++
++def test_calibration_regression_handles_degenerate_labels():
++    y = np.zeros(20)
++    p = np.full(20, 0.2)
++    reg = calibration_regression(y, p)
++    assert np.isnan(reg["calibration_slope"])
++    assert np.isnan(reg["calibration_intercept"])
+diff -ruN '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=__pycache__' repo_orig/ml_analysis/tests/test_calibration_extended_integration_v1.py repo_mod/ml_analysis/tests/test_calibration_extended_integration_v1.py
+--- repo_orig/ml_analysis/tests/test_calibration_extended_integration_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_mod/ml_analysis/tests/test_calibration_extended_integration_v1.py	2026-03-08 06:35:48.157490459 +0000
+@@ -0,0 +1,48 @@
++from __future__ import annotations
++
++import importlib.util
++import json
++from pathlib import Path
++
++
++def _load_module(rel_path: str, name: str):
++    root = Path(__file__).resolve().parents[1]
++    p = root / 'tools' / rel_path
++    spec = importlib.util.spec_from_file_location(name, p)
++    mod = importlib.util.module_from_spec(spec)
++    assert spec and spec.loader
++    spec.loader.exec_module(mod)
++    return mod
++
++
++def test_calibration_report_writes_extended_metrics(tmp_path: Path):
++    mod = _load_module('calibration_report.py', 'calibration_report')
++    rows = [
++        {"y": 1, "r_mult": 1.2, "indicators": {"confidence_v1": 0.8, "confidence_cal_v1": 0.75}},
++        {"y": 0, "r_mult": -0.8, "indicators": {"confidence_v1": 0.2, "confidence_cal_v1": 0.25}},
++    ] * 300
++    in_jsonl = tmp_path / 'joined.jsonl'
++    with open(in_jsonl, 'w', encoding='utf-8') as f:
++        for row in rows:
++            f.write(json.dumps(row) + '\n')
++    out_json = tmp_path / 'report.json'
++    import sys
++    old = sys.argv
++    sys.argv = ['calibration_report.py', '--in_jsonl', str(in_jsonl), '--out_json', str(out_json), '--min_rows', '10']
++    try:
++        mod.main()
++    finally:
++        sys.argv = old
++    obj = json.loads(out_json.read_text(encoding='utf-8'))
++    assert 'mce' in obj['raw_v1']
++    assert 'sharpness_mean' in obj['cal_v1']
++
++
++def test_promotion_manager_compute_metrics_includes_extended_fields():
++    mod = _load_module('conf_cal_promotion_manager_v1.py', 'conf_cal_promotion_manager_v1')
++    y = [1, 0, 1, 0, 1, 0, 1, 0]
++    p = [0.8, 0.2, 0.7, 0.3, 0.9, 0.1, 0.6, 0.4]
++    rep = mod.compute_metrics(y, p)
++    assert 'mce' in rep
++    assert 'calibration_slope' in rep
++    assert 'prob_mass_near_half' in rep
+diff -ruN '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=__pycache__' repo_orig/ml_analysis/tools/calibration_report.py repo_mod/ml_analysis/tools/calibration_report.py
+--- repo_orig/ml_analysis/tools/calibration_report.py	2026-03-08 06:29:38.695432140 +0000
++++ repo_mod/ml_analysis/tools/calibration_report.py	2026-03-08 06:30:53.852719467 +0000
+@@ -1,17 +1,14 @@
+ """Calibration report for raw vs calibrated confidences.
+ 
+ Computes:
+-  - ECE
++  - ECE / MCE
+   - Brier
++  - Calibration slope / intercept
+   - Precision@Top5%
+   - Expectancy R @Top5%
+-
+-Requires joined JSONL with:
+-  - y (0/1)
+-  - r_mult (float) optional for expectancy
+-  - indicators.confidence_v1 / confidence_v2 and/or confidence_cal_v1 / confidence_cal_v2
++  - Sharpness mean / entropy
++  - Probability mass near 0.5
+ """
+-
+ from __future__ import annotations
+ 
+ import argparse
+@@ -20,6 +17,8 @@
+ 
+ import numpy as np
+ 
++from ml_analysis.calibration_extended import report as extended_report
++
+ 
+ def _get(ind: Dict[str, Any], keys: List[str]) -> float | None:
+     for k in keys:
+@@ -52,7 +51,6 @@
+             pv2 = _get(ind, ["confidence_v2"])
+             cv1 = _get(ind, ["confidence_cal_v1"])
+             cv2 = _get(ind, ["confidence_cal_v2"])
+-
+             if pv1 is None:
+                 continue
+             y.append(yy); r.append(rr)
+@@ -71,27 +69,10 @@
+     }
+ 
+ 
+-def ece(y: np.ndarray, p: np.ndarray, bins: int = 20) -> float:
+-    p = np.clip(p, 1e-6, 1.0 - 1e-6)
+-    edges = np.linspace(0.0, 1.0, bins + 1)
+-    out = 0.0
+-    for i in range(bins):
+-        lo, hi = edges[i], edges[i + 1]
+-        m = (p >= lo) & (p < hi) if i < bins - 1 else (p >= lo) & (p <= hi)
+-        if not np.any(m):
+-            continue
+-        acc = float(y[m].mean())
+-        conf = float(p[m].mean())
+-        out += float(m.mean()) * abs(acc - conf)
+-    return float(out)
+-
+-
+-def brier(y: np.ndarray, p: np.ndarray) -> float:
+-    return float(np.mean((p - y) ** 2))
+-
+-
+ def precision_topk(y: np.ndarray, p: np.ndarray, frac: float = 0.05) -> float:
+     n = int(len(y))
++    if n <= 0:
++        return float("nan")
+     k = max(1, int(n * frac))
+     idx = np.argsort(-p)[:k]
+     return float(y[idx].mean())
+@@ -99,28 +80,33 @@
+ 
+ def expectancy_topk(r: np.ndarray, p: np.ndarray, frac: float = 0.05) -> float:
+     n = int(len(p))
++    if n <= 0:
++        return float("nan")
+     k = max(1, int(n * frac))
+     idx = np.argsort(-p)[:k]
+     rr = r[idx]
+     rr = rr[np.isfinite(rr)]
+     if len(rr) == 0:
+-        return float('nan')
++        return float("nan")
+     return float(rr.mean())
+ 
+ 
+-def report(y: np.ndarray, r: np.ndarray, p: np.ndarray) -> Dict[str, float]:
+-    return {
+-        "ece": ece(y, p),
+-        "brier": brier(y, p),
++def report(y: np.ndarray, r: np.ndarray, p: np.ndarray, *, bins: int = 20, near_half_width: float = 0.05) -> Dict[str, float]:
++    ext = extended_report(y, p, bins=bins, near_half_width=near_half_width)
++    ext.update({
+         "precision_top5pct": precision_topk(y, p, 0.05),
+         "expectancy_r_top5pct": expectancy_topk(r, p, 0.05),
+-    }
++    })
++    return ext
+ 
+ 
+ def main() -> None:
+     ap = argparse.ArgumentParser()
+     ap.add_argument("--in_jsonl", required=True)
++    ap.add_argument("--out_json", default="")
+     ap.add_argument("--min_rows", type=int, default=500)
++    ap.add_argument("--bins", type=int, default=20)
++    ap.add_argument("--near_half_width", type=float, default=0.05)
+     args = ap.parse_args()
+ 
+     d = load(args.in_jsonl)
+@@ -128,21 +114,22 @@
+     if len(y) < args.min_rows:
+         raise SystemExit(f"Not enough rows: {len(y)} < {args.min_rows}")
+ 
+-    out = {}
+-    out["raw_v1"] = report(y, r, d["p_v1"])
++    out: Dict[str, Any] = {}
++    out["raw_v1"] = report(y, r, d["p_v1"], bins=args.bins, near_half_width=args.near_half_width)
+ 
+     m2 = np.isfinite(d["p_v2"])
+     if int(m2.sum()) >= args.min_rows:
+-        out["raw_v2"] = report(y[m2], r[m2], d["p_v2"][m2])
+-
++        out["raw_v2"] = report(y[m2], r[m2], d["p_v2"][m2], bins=args.bins, near_half_width=args.near_half_width)
+     m1c = np.isfinite(d["c_v1"])
+     if int(m1c.sum()) >= args.min_rows:
+-        out["cal_v1"] = report(y[m1c], r[m1c], d["c_v1"][m1c])
+-
++        out["cal_v1"] = report(y[m1c], r[m1c], d["c_v1"][m1c], bins=args.bins, near_half_width=args.near_half_width)
+     m2c = np.isfinite(d["c_v2"])
+     if int(m2c.sum()) >= args.min_rows:
+-        out["cal_v2"] = report(y[m2c], r[m2c], d["c_v2"][m2c])
++        out["cal_v2"] = report(y[m2c], r[m2c], d["c_v2"][m2c], bins=args.bins, near_half_width=args.near_half_width)
+ 
++    if args.out_json:
++        with open(args.out_json, "w", encoding="utf-8") as f:
++            json.dump(out, f, ensure_ascii=False, indent=2, sort_keys=True)
+     print(json.dumps(out, ensure_ascii=False, indent=2, sort_keys=True))
+ 
+ 
+diff -ruN '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=__pycache__' repo_orig/ml_analysis/tools/conf_cal_promotion_manager_v1.py repo_mod/ml_analysis/tools/conf_cal_promotion_manager_v1.py
+--- repo_orig/ml_analysis/tools/conf_cal_promotion_manager_v1.py	2026-03-08 06:29:38.713753127 +0000
++++ repo_mod/ml_analysis/tools/conf_cal_promotion_manager_v1.py	2026-03-08 06:36:45.989034577 +0000
+@@ -29,8 +29,14 @@
+ from datetime import datetime, timedelta, timezone
+ from typing import Dict, Any, List, Optional, Tuple
+ 
+-import psycopg2
+-from psycopg2.extras import RealDictCursor
++try:
++    import psycopg2
++    from psycopg2.extras import RealDictCursor
++except Exception:  # pragma: no cover - optional in unit tests
++    psycopg2 = None  # type: ignore
++    RealDictCursor = None  # type: ignore
++
++from ml_analysis.calibration_extended import report as extended_calibration_report
+ 
+ # Setup Logging
+ logging.basicConfig(
+@@ -70,6 +76,10 @@
+     
+     signals_data = []
+     
++    if psycopg2 is None:
++        logger.error("psycopg2 is not installed")
++        return []
++
+     try:
+         with psycopg2.connect(dsn) as conn:
+             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+@@ -205,47 +215,38 @@
+ # ---------------------------------------------------------------------------
+ def compute_metrics(y_true: List[int], y_prob: List[float]) -> Dict[str, float]:
+     if not y_true:
+-        return {"ece": 1.0, "brier": 1.0, "precision_top5p": 0.0, "n": 0}
++        return {
++            "ece": 1.0,
++            "mce": 1.0,
++            "brier": 1.0,
++            "calibration_slope": float("nan"),
++            "calibration_intercept": float("nan"),
++            "sharpness_mean": 0.0,
++            "sharpness_entropy": 1.0,
++            "prob_mass_near_half": 1.0,
++            "precision_top5p": 0.0,
++            "n": 0,
++        }
+ 
++    ext = extended_calibration_report(y_true, y_prob, bins=20, near_half_width=0.05)
+     n = len(y_true)
+-    
+-    # Brier Score: mean((prob - outcome)^2)
+-    brier = sum((p - y)**2 for p, y in zip(y_prob, y_true)) / n
+-    
+-    # ECE (Equal Mass, 10 bins)
+-    # Simple implementation
+-    indices = sorted(range(n), key=lambda i: y_prob[i])
+-    y_true_sorted = [y_true[i] for i in indices]
+-    y_prob_sorted = [y_prob[i] for i in indices]
+-    
+-    bin_size = max(1, n // 10)
+-    ece_sum = 0.0
+-    for i in range(0, n, bin_size):
+-        end = min(i + bin_size, n)
+-        chunk_y = y_true_sorted[i:end]
+-        chunk_p = y_prob_sorted[i:end]
+-        if not chunk_y: continue
+-        
+-        avg_p = sum(chunk_p) / len(chunk_p)
+-        avg_y = sum(chunk_y) / len(chunk_y)
+-        ece_sum += len(chunk_y) * abs(avg_p - avg_y)
+-        
+-    ece = ece_sum / n
+-    
+-    # Precision Top 5%
+-    # Sort descending by prob
+     desc_indices = sorted(range(n), key=lambda i: y_prob[i], reverse=True)
+     top_n = max(1, int(n * 0.05))
+     top_indices = desc_indices[:top_n]
+-    
+     hits = sum(y_true[i] for i in top_indices)
+     prec_top5p = hits / top_n
+-    
++
+     return {
+-        "ece": ece,
+-        "brier": brier,
++        "ece": float(ext.get("ece", float("nan"))),
++        "mce": float(ext.get("mce", float("nan"))),
++        "brier": float(ext.get("brier", float("nan"))),
++        "calibration_slope": float(ext.get("calibration_slope", float("nan"))),
++        "calibration_intercept": float(ext.get("calibration_intercept", float("nan"))),
++        "sharpness_mean": float(ext.get("sharpness_mean", float("nan"))),
++        "sharpness_entropy": float(ext.get("sharpness_entropy", float("nan"))),
++        "prob_mass_near_half": float(ext.get("prob_mass_near_half", float("nan"))),
+         "precision_top5p": prec_top5p,
+-        "n": n
++        "n": n,
+     }
+ 
+ def _as_str(x: Any) -> str:
+@@ -416,16 +417,25 @@
+         champ_probs = [champ_rt.predict(d["raw_conf"], d["context"]) for d in data]
+         champ_metrics = compute_metrics(labels, champ_probs)
+     else:
+-        # Fake terrible metrics to ensure promotion
+-        champ_metrics = {"ece": 1.0, "brier": 1.0, "precision_top5p": 0.0, "n": len(data)}
++        # Fake terrible metrics to ensure promotion. Keep champion probs aligned
++        # to candidate samples so cohort/arm bookkeeping remains deterministic.
++        champ_probs = list(cand_probs)
++        champ_metrics = {"ece": 1.0, "mce": 1.0, "brier": 1.0, "calibration_slope": float("nan"), "calibration_intercept": float("nan"), "sharpness_mean": 0.0, "sharpness_entropy": 1.0, "prob_mass_near_half": 1.0, "precision_top5p": 0.0, "n": len(data)}
+ 
+     # 5. Check Thresholds
+     thresholds = {
+         "min_n": float(os.getenv("CONF_CAL_PROOF_MIN_N_24H", DEFAULT_MIN_N_24H)),
+         "max_ece": float(os.getenv("CONF_CAL_PROOF_MAX_ECE_24H", DEFAULT_MAX_ECE)),
++        "max_mce": float(os.getenv("CONF_CAL_PROOF_MAX_MCE_24H", "0.12")),
+         "max_brier": float(os.getenv("CONF_CAL_PROOF_MAX_BRIER_24H", DEFAULT_MAX_BRIER)),
+         "min_prec": float(os.getenv("CONF_CAL_PROOF_MIN_PREC_TOP5P_24H", DEFAULT_MIN_PREC_TOP5P)),
++        "min_cal_slope": float(os.getenv("CONF_CAL_PROOF_MIN_CAL_SLOPE_24H", "0.70")),
++        "max_abs_cal_intercept": float(os.getenv("CONF_CAL_PROOF_MAX_ABS_CAL_INTERCEPT_24H", "0.20")),
++        "min_sharpness_mean": float(os.getenv("CONF_CAL_PROOF_MIN_SHARPNESS_MEAN_24H", "0.02")),
++        "max_prob_mass_near_half": float(os.getenv("CONF_CAL_PROOF_MAX_PROB_MASS_NEAR_HALF_24H", "0.60")),
+         "min_delta_ece": float(os.getenv("CONF_CAL_PROMO_MIN_DELTA_ECE", DEFAULT_MIN_DELTA_ECE)),
++        "max_mce_regression": float(os.getenv("CONF_CAL_PROMO_MAX_MCE_REGRESSION", "0.002")),
++        "max_sharpness_drop": float(os.getenv("CONF_CAL_PROMO_MAX_SHARPNESS_DROP", "0.05")),
+     }
+ 
+     # Validation (Proof) of Candidate
+@@ -438,12 +448,30 @@
+     if cand_metrics["ece"] > thresholds["max_ece"]:
+         is_valid = False
+         reasons.append(f"ece={cand_metrics['ece']:.4f} > {thresholds['max_ece']}")
++    if cand_metrics["mce"] > thresholds["max_mce"]:
++        is_valid = False
++        reasons.append(f"mce={cand_metrics['mce']:.4f} > {thresholds['max_mce']}")
+     if cand_metrics["brier"] > thresholds["max_brier"]:
+         is_valid = False
+         reasons.append(f"brier={cand_metrics['brier']:.4f} > {thresholds['max_brier']}")
+     if cand_metrics["precision_top5p"] < thresholds["min_prec"]:
+         is_valid = False
+         reasons.append(f"prec={cand_metrics['precision_top5p']:.4f} < {thresholds['min_prec']}")
++    if math.isfinite(float(cand_metrics.get("calibration_slope", float("nan")))) and cand_metrics["calibration_slope"] < thresholds["min_cal_slope"]:
++        is_valid = False
++        reasons.append(f"calibration_slope={cand_metrics['calibration_slope']:.4f} < {thresholds['min_cal_slope']}")
++    if math.isfinite(float(cand_metrics.get("calibration_intercept", float("nan")))) and abs(cand_metrics["calibration_intercept"]) > thresholds["max_abs_cal_intercept"]:
++        is_valid = False
++        reasons.append(f"abs(calibration_intercept)={abs(cand_metrics['calibration_intercept']):.4f} > {thresholds['max_abs_cal_intercept']}")
++    if math.isfinite(float(cand_metrics.get("sharpness_mean", float("nan")))) and cand_metrics["sharpness_mean"] < thresholds["min_sharpness_mean"]:
++        is_valid = False
++        reasons.append(f"sharpness_mean={cand_metrics['sharpness_mean']:.4f} < {thresholds['min_sharpness_mean']}")
++    if math.isfinite(float(cand_metrics.get("prob_mass_near_half", float("nan")))) and cand_metrics["prob_mass_near_half"] > thresholds["max_prob_mass_near_half"]:
++        is_valid = False
++        reasons.append(f"prob_mass_near_half={cand_metrics['prob_mass_near_half']:.4f} > {thresholds['max_prob_mass_near_half']}")
++
++    degrade_review = False
++    degrade_review_reasons: List[str] = []
+ 
+     # Promotion Decision
+     should_promote = False
+@@ -456,12 +484,23 @@
+         should_promote = False
+         promo_reason = f"Candidate invalid: {', '.join(reasons)}"
+     else:
+-        # Check against champion
+         ece_imp = champ_metrics["ece"] - cand_metrics["ece"]
+-        if ece_imp > thresholds["min_delta_ece"]:
++        mce_reg = cand_metrics["mce"] - champ_metrics["mce"]
++        sharp_drop = champ_metrics.get("sharpness_mean", float("nan")) - cand_metrics.get("sharpness_mean", float("nan"))
++        if math.isfinite(mce_reg) and mce_reg > thresholds["max_mce_regression"]:
++            should_promote = False
++            degrade_review = True
++            degrade_review_reasons.append(f"mce_regression={mce_reg:.4f}")
++            promo_reason = f"MCE regression {mce_reg:.4f} > {thresholds['max_mce_regression']}"
++        elif math.isfinite(sharp_drop) and sharp_drop > thresholds["max_sharpness_drop"]:
++            should_promote = False
++            degrade_review = True
++            degrade_review_reasons.append(f"sharpness_drop={sharp_drop:.4f}")
++            promo_reason = f"Sharpness drop {sharp_drop:.4f} > {thresholds['max_sharpness_drop']}"
++        elif ece_imp > thresholds["min_delta_ece"]:
+             should_promote = True
+             promo_reason = f"Improvement ECE {ece_imp:.4f} > {thresholds['min_delta_ece']}"
+-        elif champ_metrics["n"] < 10: # No valid champion
++        elif champ_metrics["n"] < 10:
+             should_promote = True
+             promo_reason = "First valid champion"
+         else:
+@@ -508,65 +547,91 @@
+ 
+     arm_delta = {
+         "ece_cal": float(cand_metrics["ece"]) - float(champ_metrics["ece"]),
++        "mce_cal": float(cand_metrics["mce"]) - float(champ_metrics["mce"]),
+         "brier_cal": float(cand_metrics["brier"]) - float(champ_metrics["brier"]),
+         "precision_top5p": float(cand_metrics["precision_top5p"]) - float(champ_metrics["precision_top5p"]),
++        "sharpness_mean": float(cand_metrics.get("sharpness_mean", float("nan"))) - float(champ_metrics.get("sharpness_mean", float("nan"))),
++        "prob_mass_near_half": float(cand_metrics.get("prob_mass_near_half", float("nan"))) - float(champ_metrics.get("prob_mass_near_half", float("nan"))),
+         "n": int(min(cand_metrics["n"], champ_metrics["n"])),
+     }
+ 
+     now_ms = int(time.time() * 1000)
+-    active_metrics = cand_metrics if promoted else (champ_metrics if champ_metrics else cand_metrics)
++    active_metrics = cand_metrics if (promoted or not champ_bundle) else champ_metrics
+     proof_valid = is_valid
+     proof_reasons = reasons
+ 
++    active_version = cand_bundle.get("version") if (promoted or not champ_bundle) else (champ_bundle.get("version") if champ_bundle else "none")
++    active_arm = {
++        "ece_cal": float(active_metrics["ece"]),
++        "mce_cal": float(active_metrics.get("mce", float("nan"))),
++        "brier_cal": float(active_metrics["brier"]),
++        "precision_top5p": float(active_metrics["precision_top5p"]),
++        "calibration_slope": float(active_metrics.get("calibration_slope", float("nan"))),
++        "calibration_intercept": float(active_metrics.get("calibration_intercept", float("nan"))),
++        "sharpness_mean": float(active_metrics.get("sharpness_mean", float("nan"))),
++        "sharpness_entropy": float(active_metrics.get("sharpness_entropy", float("nan"))),
++        "prob_mass_near_half": float(active_metrics.get("prob_mass_near_half", float("nan"))),
++        "n": int(active_metrics["n"]),
++    }
++    champion_arm = {
++        "ece_cal": float(champ_metrics["ece"]),
++        "mce_cal": float(champ_metrics.get("mce", float("nan"))),
++        "brier_cal": float(champ_metrics["brier"]),
++        "precision_top5p": float(champ_metrics["precision_top5p"]),
++        "calibration_slope": float(champ_metrics.get("calibration_slope", float("nan"))),
++        "calibration_intercept": float(champ_metrics.get("calibration_intercept", float("nan"))),
++        "sharpness_mean": float(champ_metrics.get("sharpness_mean", float("nan"))),
++        "sharpness_entropy": float(champ_metrics.get("sharpness_entropy", float("nan"))),
++        "prob_mass_near_half": float(champ_metrics.get("prob_mass_near_half", float("nan"))),
++        "n": int(champ_metrics["n"]),
++    }
++    challenger_arm = {
++        "ece_cal": float(cand_metrics["ece"]),
++        "mce_cal": float(cand_metrics.get("mce", float("nan"))),
++        "brier_cal": float(cand_metrics["brier"]),
++        "precision_top5p": float(cand_metrics["precision_top5p"]),
++        "calibration_slope": float(cand_metrics.get("calibration_slope", float("nan"))),
++        "calibration_intercept": float(cand_metrics.get("calibration_intercept", float("nan"))),
++        "sharpness_mean": float(cand_metrics.get("sharpness_mean", float("nan"))),
++        "sharpness_entropy": float(cand_metrics.get("sharpness_entropy", float("nan"))),
++        "prob_mass_near_half": float(cand_metrics.get("prob_mass_near_half", float("nan"))),
++        "n": int(cand_metrics["n"]),
++    }
++
+     proof_data = {
+         "ts_ms": now_ms,
+         "generated_at": datetime.now(timezone.utc).isoformat(),
+         "degrade": 0 if proof_valid else 1,
++        "degrade_review": bool(degrade_review),
++        "degrade_review_reasons": list(degrade_review_reasons),
+         "status": {
+             "degrade": 0 if proof_valid else 1,
+             "valid": bool(proof_valid),
+             "reasons": proof_reasons if not proof_valid else [],
+             "promoted_just_now": bool(promoted),
+             "promotion_reason": promo_reason,
++            "degrade_review": bool(degrade_review),
++            "degrade_review_reasons": list(degrade_review_reasons),
+         },
+-        "ece_cal": float(active_metrics["ece"]),
+-        "brier_cal": float(active_metrics["brier"]),
+-        "precision_top5p": float(active_metrics["precision_top5p"]),
+-        "n": int(active_metrics["n"]),
+-        "bundle_version": cand_bundle.get("version") if promoted else (champ_bundle.get("version") if champ_bundle else "none"),
++        **active_arm,
++        "bundle_version": active_version,
+         "champion_version": champ_bundle.get("version") if champ_bundle else "none",
+         "candidate_version": cand_bundle.get("version") if cand_bundle else "none",
+         "GLOBAL": {
+             "ts_ms": now_ms,
+-            "n": int(active_metrics["n"]),
+-            "ece_cal": float(active_metrics["ece"]),
+-            "brier_cal": float(active_metrics["brier"]),
+-            "precision_top5p": float(active_metrics["precision_top5p"]),
+-            "champion": {
+-                "ece_cal": float(champ_metrics["ece"]),
+-                "brier_cal": float(champ_metrics["brier"]),
+-                "precision_top5p": float(champ_metrics["precision_top5p"]),
+-                "n": int(champ_metrics["n"]),
+-            },
+-            "challenger": {
+-                "ece_cal": float(cand_metrics["ece"]),
+-                "brier_cal": float(cand_metrics["brier"]),
+-                "precision_top5p": float(cand_metrics["precision_top5p"]),
+-                "n": int(cand_metrics["n"]),
+-            },
++            **active_arm,
++            "champion": champion_arm,
++            "challenger": challenger_arm,
+             "delta": arm_delta,
+             "cohorts": {"agg": cohort_report.get("agg") or {}, "worst": cohort_report.get("worst") or {}},
+         },
+-        "arms": {"champion": proof_data_champion_placeholder, "challenger": proof_data_challenger_placeholder, "delta": arm_delta},
++        "arms": {"active": active_arm, "champion": champion_arm, "challenger": challenger_arm, "delta": arm_delta},
+         "cohorts": cohort_report,
+-        "metrics": active_metrics,  # legacy
++        "metrics": active_metrics,
+         "valid": bool(proof_valid),
++        "thresholds": thresholds,
+     }
+ 
+-    # Fix the arms referencing itself
+-    proof_data["arms"]["champion"] = proof_data.get("GLOBAL", {}).get("champion")
+-    proof_data["arms"]["challenger"] = proof_data.get("GLOBAL", {}).get("challenger")
+-
+     try:
+         with open(proof_path + ".tmp", "w") as f:
+             json.dump(proof_data, f)
+@@ -580,8 +645,12 @@
+         "last_run": int(time.time()),
+         "promoted": promoted,
+         "reason": promo_reason,
++        "degrade_review": bool(degrade_review),
++        "degrade_review_reasons": list(degrade_review_reasons),
+         "candidate_metrics": cand_metrics,
+-        "champion_metrics": champ_metrics
++        "champion_metrics": champ_metrics,
++        "delta": arm_delta,
++        "thresholds": thresholds,
+     }
+     try:
+         with open(status_path, "w") as f:
+diff -ruN '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=__pycache__' repo_orig/ml_analysis/tools/confidence_cal_live_health_loop_v1.py repo_mod/ml_analysis/tools/confidence_cal_live_health_loop_v1.py
+--- repo_orig/ml_analysis/tools/confidence_cal_live_health_loop_v1.py	2026-03-08 06:29:38.695693237 +0000
++++ repo_mod/ml_analysis/tools/confidence_cal_live_health_loop_v1.py	2026-03-08 06:32:20.930861652 +0000
+@@ -49,6 +49,8 @@
+ import time
+ from typing import Any, Dict, List, Optional, Tuple
+ 
++from ml_analysis.calibration_extended import report as extended_calibration_report
++
+ import redis
+ 
+ # Works when executed as either:
+@@ -160,13 +162,13 @@
+ 
+ 
+ def _report(y: List[int], r: List[float], p: List[float]) -> Dict[str, float]:
+-    return {
++    rep = extended_calibration_report(y, p, bins=20, near_half_width=0.05)
++    rep.update({
+         "rows": float(len(y)),
+-        "ece": _ece(y, p),
+-        "brier": _brier(y, p),
+         "precision_top5pct": _precision_topk(y, p, 0.05),
+         "expectancy_r_top5pct": _expectancy_topk(r, p, 0.05),
+-    }
++    })
++    return rep
+ 
+ 
+ def _get_indicator(ind: Dict[str, Any], keys: List[str]) -> Optional[float]:
+@@ -292,6 +294,8 @@
+     ap.add_argument("--min_rows", type=int, default=int(os.environ.get("CONF_CAL_LIVE_MIN_ROWS", "800")))
+     ap.add_argument("--bad_streak", type=int, default=int(os.environ.get("CONF_CAL_LIVE_BAD_STREAK", "3")))
+     ap.add_argument("--ece_worse_abs", type=float, default=float(os.environ.get("CONF_CAL_LIVE_ECE_WORSE_ABS", "0.01")))
++    ap.add_argument("--mce_worse_abs", type=float, default=float(os.environ.get("CONF_CAL_LIVE_MCE_WORSE_ABS", "inf")))
++    ap.add_argument("--sharpness_drop_abs", type=float, default=float(os.environ.get("CONF_CAL_LIVE_SHARPNESS_DROP_ABS", "inf")))
+     ap.add_argument(
+         "--brier_worse_abs",
+         type=float,
+@@ -422,8 +426,12 @@
+ 
+     raw_ece = float(raw_rep.get("ece", 0.0))
+     raw_brier = float(raw_rep.get("brier", 0.0))
++    raw_mce = float(raw_rep.get("mce", float("nan")))
++    raw_sharp = float(raw_rep.get("sharpness_mean", float("nan")))
+     cal_ece = float(cal_rep.get("ece", 0.0))
+     cal_brier = float(cal_rep.get("brier", 0.0))
++    cal_mce = float(cal_rep.get("mce", float("nan")))
++    cal_sharp = float(cal_rep.get("sharpness_mean", float("nan")))
+ 
+     guard_fail = False
+     reasons: List[str] = []
+@@ -433,14 +441,26 @@
+     if math.isfinite(raw_brier) and math.isfinite(cal_brier) and cal_brier > raw_brier + float(args.brier_worse_abs):
+         guard_fail = True
+         reasons.append("brier_worse")
++    if math.isfinite(float(args.mce_worse_abs)) and math.isfinite(raw_mce) and math.isfinite(cal_mce) and cal_mce > raw_mce + float(args.mce_worse_abs):
++        guard_fail = True
++        reasons.append("mce_worse")
++    if math.isfinite(float(args.sharpness_drop_abs)) and math.isfinite(raw_sharp) and math.isfinite(cal_sharp) and cal_sharp < raw_sharp - float(args.sharpness_drop_abs):
++        guard_fail = True
++        reasons.append("sharpness_drop")
+ 
+     status["guard"] = {
+         "ece_worse_abs": float(args.ece_worse_abs),
+         "brier_worse_abs": float(args.brier_worse_abs),
++        "mce_worse_abs": float(args.mce_worse_abs) if math.isfinite(float(args.mce_worse_abs)) else None,
++        "sharpness_drop_abs": float(args.sharpness_drop_abs) if math.isfinite(float(args.sharpness_drop_abs)) else None,
+         "raw_ece": raw_ece,
+         "raw_brier": raw_brier,
++        "raw_mce": raw_mce,
++        "raw_sharpness_mean": raw_sharp,
+         "cal_ece": cal_ece,
+         "cal_brier": cal_brier,
++        "cal_mce": cal_mce,
++        "cal_sharpness_mean": cal_sharp,
+         "fail": bool(guard_fail),
+         "reasons": reasons,
+     }
+diff -ruN '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=__pycache__' repo_orig/ml_analysis/tools/nightly_confidence_calibrator_v1.py repo_mod/ml_analysis/tools/nightly_confidence_calibrator_v1.py
+--- repo_orig/ml_analysis/tools/nightly_confidence_calibrator_v1.py	2026-03-08 06:29:38.698300626 +0000
++++ repo_mod/ml_analysis/tools/nightly_confidence_calibrator_v1.py	2026-03-08 06:32:20.930463119 +0000
+@@ -65,7 +65,15 @@
+         return None
+ 
+ 
+-def _guard_ok(rep: Dict[str, Any], *, min_ece_abs: float, min_brier_abs: float) -> Tuple[bool, Dict[str, Any]]:
++def _guard_ok(
++    rep: Dict[str, Any],
++    *,
++    min_ece_abs: float,
++    min_brier_abs: float,
++    max_cal_mce: float = float("inf"),
++    min_cal_sharpness_mean: float = -1.0,
++    max_cal_prob_mass_near_half: float = float("inf"),
++) -> Tuple[bool, Dict[str, Any]]:
+     raw = rep.get("raw") or {}
+     cal = rep.get("cal") or {}
+     try:
+@@ -73,14 +81,35 @@
+         raw_brier = float(raw.get("brier", 0.0) or 0.0)
+         cal_ece = float(cal.get("ece", 0.0) or 0.0)
+         cal_brier = float(cal.get("brier", 0.0) or 0.0)
+-        ok = (cal_ece <= (raw_ece - float(min_ece_abs))) and (cal_brier <= (raw_brier - float(min_brier_abs)))
++        cal_mce = float(cal.get("mce", float("nan")))
++        cal_sharp = float(cal.get("sharpness_mean", float("nan")))
++        cal_half = float(cal.get("prob_mass_near_half", float("nan")))
++        reasons = []
++        if not (cal_ece <= (raw_ece - float(min_ece_abs))):
++            reasons.append("ece_guard_fail")
++        if not (cal_brier <= (raw_brier - float(min_brier_abs))):
++            reasons.append("brier_guard_fail")
++        if math.isfinite(max_cal_mce) and math.isfinite(cal_mce) and cal_mce > float(max_cal_mce):
++            reasons.append("mce_too_high")
++        if float(min_cal_sharpness_mean) >= 0.0 and math.isfinite(cal_sharp) and cal_sharp < float(min_cal_sharpness_mean):
++            reasons.append("sharpness_too_low")
++        if math.isfinite(max_cal_prob_mass_near_half) and math.isfinite(cal_half) and cal_half > float(max_cal_prob_mass_near_half):
++            reasons.append("prob_mass_near_half_too_high")
++        ok = len(reasons) == 0
+         return ok, {
+             "raw_ece": raw_ece,
+             "raw_brier": raw_brier,
+             "cal_ece": cal_ece,
+             "cal_brier": cal_brier,
++            "cal_mce": cal_mce,
++            "cal_sharpness_mean": cal_sharp,
++            "cal_prob_mass_near_half": cal_half,
+             "min_ece_abs": float(min_ece_abs),
+             "min_brier_abs": float(min_brier_abs),
++            "max_cal_mce": float(max_cal_mce) if math.isfinite(max_cal_mce) else None,
++            "min_cal_sharpness_mean": float(min_cal_sharpness_mean),
++            "max_cal_prob_mass_near_half": float(max_cal_prob_mass_near_half) if math.isfinite(max_cal_prob_mass_near_half) else None,
++            "reasons": reasons,
+             "passed": bool(ok),
+         }
+     except Exception:
+@@ -98,6 +127,9 @@
+     ap.add_argument("--min_rows", type=int, default=int(os.environ.get("CONF_CAL_MIN_ROWS", "5000")))
+     ap.add_argument("--guard_min_ece_abs", type=float, default=float(os.environ.get("CONF_CAL_GUARD_MIN_ECE_ABS", "0.001")))
+     ap.add_argument("--guard_min_brier_abs", type=float, default=float(os.environ.get("CONF_CAL_GUARD_MIN_BRIER_ABS", "0.0005")))
++    ap.add_argument("--guard_max_cal_mce", type=float, default=float(os.environ.get("CONF_CAL_GUARD_MAX_CAL_MCE", "inf")))
++    ap.add_argument("--guard_min_cal_sharpness_mean", type=float, default=float(os.environ.get("CONF_CAL_GUARD_MIN_CAL_SHARPNESS_MEAN", "-1")))
++    ap.add_argument("--guard_max_cal_prob_mass_near_half", type=float, default=float(os.environ.get("CONF_CAL_GUARD_MAX_CAL_PROB_MASS_NEAR_HALF", "inf")))
+     ap.add_argument("--y_min_r", type=float, default=float(os.environ.get("Y_MIN_R", "0.10")))
+     ap.add_argument("--signals_count", type=int, default=int(os.environ.get("SIGNALS_COUNT", "200000")))
+     ap.add_argument("--closes_count", type=int, default=int(os.environ.get("CLOSES_COUNT", "200000")))
+@@ -205,7 +237,7 @@
+         status["report_error"] = err[-2000:]
+ 
+     # 4) Guard + deploy
+-    g_ok, g = _guard_ok(rep, min_ece_abs=float(args.guard_min_ece_abs), min_brier_abs=float(args.guard_min_brier_abs))
++    g_ok, g = _guard_ok(rep, min_ece_abs=float(args.guard_min_ece_abs), min_brier_abs=float(args.guard_min_brier_abs), max_cal_mce=float(args.guard_max_cal_mce), min_cal_sharpness_mean=float(args.guard_min_cal_sharpness_mean), max_cal_prob_mass_near_half=float(args.guard_max_cal_prob_mass_near_half))
+     status["guard"] = g
+ 
+     if g_ok:
+diff -ruN '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=__pycache__' repo_orig/ml_analysis/tools/train_confidence_calibrator_v2.py repo_mod/ml_analysis/tools/train_confidence_calibrator_v2.py
+--- repo_orig/ml_analysis/tools/train_confidence_calibrator_v2.py	2026-03-08 06:29:38.700041741 +0000
++++ repo_mod/ml_analysis/tools/train_confidence_calibrator_v2.py	2026-03-08 06:31:24.290055554 +0000
+@@ -28,6 +28,8 @@
+ 
+ import numpy as np
+ 
++from ml_analysis.calibration_extended import report as extended_calibration_report
++
+ # Configure Logging
+ logging.basicConfig(
+     level=logging.INFO,
+@@ -171,31 +173,11 @@
+ # -------------------------------------------------------------------------
+ 
+ def calc_ece(y: np.ndarray, p: np.ndarray, bins: int = 15) -> float:
+-    if len(y) == 0: return 0.0
+-    # Uniform binning
+-    try:
+-        # Use simple fixed bins
+-        bin_edges = np.linspace(0.0, 1.0, bins + 1)
+-        bin_idxs = np.digitize(p, bin_edges, right=True) - 1
+-        # fix edges
+-        bin_idxs = np.clip(bin_idxs, 0, bins - 1)
+-        
+-        ece = 0.0
+-        N = len(y)
+-        for b in range(bins):
+-            mask = (bin_idxs == b)
+-            if not np.any(mask): continue
+-            n_b = np.sum(mask)
+-            acc = np.mean(y[mask])
+-            conf = np.mean(p[mask])
+-            ece += (n_b / N) * abs(acc - conf)
+-        return float(ece)
+-    except:
+-        return 0.0
++    return float(extended_calibration_report(y, p, bins=bins).get("ece", 0.0) or 0.0)
++
+ 
+ def calc_brier(y: np.ndarray, p: np.ndarray) -> float:
+-    if len(y) == 0: return 0.0
+-    return float(np.mean((p - y) ** 2))
++    return float(extended_calibration_report(y, p).get("brier", 0.0) or 0.0)
+ 
+ # -------------------------------------------------------------------------
+ # Data Loading & Hierarchy
+@@ -342,10 +324,20 @@
+         eval_y, eval_p = (y_val, p_val) if len(y_val) > 0 else (y_train, p_train)
+         
+         cal_p = apply_calibration(eval_p, m, params)
+-        ece = calc_ece(eval_y, cal_p)
+-        brier = calc_brier(eval_y, cal_p)
+-        
+-        results[m] = {"ece": ece, "brier": brier}
++        rep_eval = extended_calibration_report(eval_y, cal_p, bins=15)
++        ece = float(rep_eval.get("ece", 0.0) or 0.0)
++        brier = float(rep_eval.get("brier", 0.0) or 0.0)
++
++        results[m] = {
++            "ece": ece,
++            "mce": float(rep_eval.get("mce", 0.0) or 0.0),
++            "brier": brier,
++            "calibration_slope": float(rep_eval.get("calibration_slope", float("nan"))),
++            "calibration_intercept": float(rep_eval.get("calibration_intercept", float("nan"))),
++            "sharpness_mean": float(rep_eval.get("sharpness_mean", float("nan"))),
++            "sharpness_entropy": float(rep_eval.get("sharpness_entropy", float("nan"))),
++            "prob_mass_near_half": float(rep_eval.get("prob_mass_near_half", float("nan"))),
++        }
+         
+         # Selection Logic
+         # Prefer lower ECE. Tie-break Brier.
+@@ -372,10 +364,12 @@
+     
+     cal_val_p = apply_calibration(val_p_final, best_method, final_params)
+     
+-    raw_ece = calc_ece(val_y_final, val_p_final)
+-    raw_brier = calc_brier(val_y_final, val_p_final)
+-    final_ece = calc_ece(val_y_final, cal_val_p)
+-    final_brier = calc_brier(val_y_final, cal_val_p)
++    raw_ext = extended_calibration_report(val_y_final, val_p_final, bins=15)
++    cal_ext = extended_calibration_report(val_y_final, cal_val_p, bins=15)
++    raw_ece = float(raw_ext.get("ece", 0.0) or 0.0)
++    raw_brier = float(raw_ext.get("brier", 0.0) or 0.0)
++    final_ece = float(cal_ext.get("ece", 0.0) or 0.0)
++    final_brier = float(cal_ext.get("brier", 0.0) or 0.0)
+ 
+     report = {
+         "n": n,
+@@ -384,12 +378,14 @@
+         "method_selected": best_method,
+         "candidates": results,
+         "raw": {
++            **raw_ext,
+             "ece": raw_ece,
+             "brier": raw_brier,
+             "mean_conf": float(np.mean(val_p_final)),
+             "accuracy": float(np.mean(val_y_final))
+         },
+         "cal": {
++            **cal_ext,
+             "ece": final_ece,
+             "brier": final_brier
+         }
+diff -ruN '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=__pycache__' repo_orig/orderflow_services/calibration_extended_exporter_v1.py repo_mod/orderflow_services/calibration_extended_exporter_v1.py
+--- repo_orig/orderflow_services/calibration_extended_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_mod/orderflow_services/calibration_extended_exporter_v1.py	2026-03-08 06:34:43.835473068 +0000
+@@ -0,0 +1,131 @@
++#!/usr/bin/env python3
++"""Prometheus exporter for extended confidence-calibration diagnostics."""
++from __future__ import annotations
++
++import json
++import os
++import signal
++import time
++from typing import Any, Dict, Optional
++
++from prometheus_client import Counter, Gauge, start_http_server  # type: ignore
++
++
++def _load_json(path: str) -> Optional[Dict[str, Any]]:
++    try:
++        with open(path, "r", encoding="utf-8") as f:
++            obj = json.load(f)
++        return obj if isinstance(obj, dict) else None
++    except Exception:
++        return None
++
++
++def _age_sec(path: str) -> float:
++    try:
++        return max(0.0, time.time() - os.path.getmtime(path))
++    except Exception:
++        return float("nan")
++
++
++def _metric_value(obj: Dict[str, Any], arm: str, metric: str) -> float:
++    arms = obj.get("arms") or {}
++    if not isinstance(arms, dict):
++        return float("nan")
++    arm_obj = arms.get(arm) or {}
++    if not isinstance(arm_obj, dict):
++        return float("nan")
++    try:
++        return float(arm_obj.get(metric, float("nan")))
++    except Exception:
++        return float("nan")
++
++
++def _delta_value(obj: Dict[str, Any], metric: str) -> float:
++    arms = obj.get("arms") or {}
++    delta = arms.get("delta") if isinstance(arms, dict) else {}
++    if not isinstance(delta, dict):
++        return float("nan")
++    try:
++        return float(delta.get(metric, float("nan")))
++    except Exception:
++        return float("nan")
++
++
++g_up = Gauge("conf_cal_extended_exporter_up", "extended calibration exporter loop up")
++g_read_ok = Gauge("conf_cal_extended_read_ok", "proof/status read ok (1/0)")
++g_proof_age = Gauge("conf_cal_extended_proof_age_sec", "proof json age in seconds")
++g_status_age = Gauge("conf_cal_extended_status_age_sec", "status json age in seconds")
++g_degrade_review = Gauge("conf_cal_extended_degrade_review", "degrade-review requested by promotion manager")
++g_promoted = Gauge("conf_cal_extended_promoted_last_run", "promotion manager promoted on last run")
++g_metric = Gauge("conf_cal_extended_metric", "extended calibration metric by arm", ["arm", "metric"])
++g_delta = Gauge("conf_cal_extended_delta", "challenger - champion delta for extended calibration metrics", ["metric"])
++read_errors_total = Counter("conf_cal_extended_read_errors_total", "proof/status read errors")
++parse_errors_total = Counter("conf_cal_extended_parse_errors_total", "proof/status parse/shape errors")
++
++
++class Exporter:
++    def __init__(self) -> None:
++        self.proof_path = os.getenv("CONF_CAL_PROOF_STATE_PATH", "/tmp/conf_cal_proof_state.json")
++        self.status_path = os.getenv("CONF_CAL_PROMOTION_STATUS_PATH", "/tmp/conf_cal_promo_status.json")
++        self.refresh_sec = max(1.0, float(os.getenv("CALIBRATION_EXT_EXPORTER_REFRESH_SEC", "10")))
++        self.running = True
++        signal.signal(signal.SIGINT, self._stop)
++        signal.signal(signal.SIGTERM, self._stop)
++
++    def _stop(self, signum, frame) -> None:
++        self.running = False
++
++    def step(self) -> None:
++        proof = _load_json(self.proof_path)
++        status = _load_json(self.status_path)
++        if proof is None or status is None:
++            g_read_ok.set(0.0)
++            read_errors_total.inc()
++            return
++        if not isinstance(proof.get("arms"), dict):
++            g_read_ok.set(0.0)
++            parse_errors_total.inc()
++            return
++
++        g_read_ok.set(1.0)
++        g_proof_age.set(_age_sec(self.proof_path))
++        g_status_age.set(_age_sec(self.status_path))
++        g_degrade_review.set(1.0 if bool(status.get("degrade_review") or proof.get("degrade_review")) else 0.0)
++        g_promoted.set(1.0 if bool(status.get("promoted")) else 0.0)
++
++        metric_names = [
++            "ece_cal",
++            "mce_cal",
++            "brier_cal",
++            "calibration_slope",
++            "calibration_intercept",
++            "sharpness_mean",
++            "sharpness_entropy",
++            "prob_mass_near_half",
++            "precision_top5p",
++        ]
++        for arm in ("active", "champion", "challenger"):
++            for metric in metric_names:
++                g_metric.labels(arm=arm, metric=metric).set(_metric_value(proof, arm, metric))
++        for metric in ("ece_cal", "mce_cal", "brier_cal", "precision_top5p", "sharpness_mean", "prob_mass_near_half"):
++            g_delta.labels(metric=metric).set(_delta_value(proof, metric))
++
++    def run(self) -> None:
++        port = int(os.getenv("CALIBRATION_EXT_EXPORTER_PORT", "9138"))
++        start_http_server(port)
++        while self.running:
++            g_up.set(1.0)
++            try:
++                self.step()
++            except Exception:
++                g_read_ok.set(0.0)
++                read_errors_total.inc()
++            time.sleep(self.refresh_sec)
++
++
++def main() -> None:
++    Exporter().run()
++
++
++if __name__ == "__main__":
++    main()
+diff -ruN '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=__pycache__' repo_orig/orderflow_services/grafana/calibration_extended_v1.json repo_mod/orderflow_services/grafana/calibration_extended_v1.json
+--- repo_orig/orderflow_services/grafana/calibration_extended_v1.json	1970-01-01 00:00:00.000000000 +0000
++++ repo_mod/orderflow_services/grafana/calibration_extended_v1.json	2026-03-08 06:34:43.904159148 +0000
+@@ -0,0 +1,10 @@
++{
++  "title": "Calibration Extended (v1)",
++  "templating": {"list": [{"name": "instance", "type": "query", "datasource": "Prometheus", "query": "label_values(conf_cal_extended_exporter_up, instance)"}]},
++  "panels": [
++    {"title": "Active MCE / ECE", "type": "timeseries", "targets": [{"expr": "conf_cal_extended_metric{arm=\"active\",metric=\"mce_cal\",instance=~\"$instance\"}"}, {"expr": "conf_cal_extended_metric{arm=\"active\",metric=\"ece_cal\",instance=~\"$instance\"}"}]},
++    {"title": "Active Slope / Intercept", "type": "timeseries", "targets": [{"expr": "conf_cal_extended_metric{arm=\"active\",metric=\"calibration_slope\",instance=~\"$instance\"}"}, {"expr": "conf_cal_extended_metric{arm=\"active\",metric=\"calibration_intercept\",instance=~\"$instance\"}"}]},
++    {"title": "Active Sharpness", "type": "timeseries", "targets": [{"expr": "conf_cal_extended_metric{arm=\"active\",metric=\"sharpness_mean\",instance=~\"$instance\"}"}, {"expr": "conf_cal_extended_metric{arm=\"active\",metric=\"prob_mass_near_half\",instance=~\"$instance\"}"}]},
++    {"title": "Champion vs Challenger Deltas", "type": "timeseries", "targets": [{"expr": "conf_cal_extended_delta{metric=\"mce_cal\",instance=~\"$instance\"}"}, {"expr": "conf_cal_extended_delta{metric=\"sharpness_mean\",instance=~\"$instance\"}"}]}
++  ]
++}
+diff -ruN '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=__pycache__' repo_orig/orderflow_services/prometheus_alerts_calibration_extended_v1.yml repo_mod/orderflow_services/prometheus_alerts_calibration_extended_v1.yml
+--- repo_orig/orderflow_services/prometheus_alerts_calibration_extended_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ repo_mod/orderflow_services/prometheus_alerts_calibration_extended_v1.yml	2026-03-08 06:34:43.885162610 +0000
+@@ -0,0 +1,35 @@
++groups:
++  - name: calibration_extended_v1
++    rules:
++      - alert: OF_CalibrationExtended_ExporterStale_Warn
++        expr: conf_cal_extended_proof_age_sec > 10800
++        for: 15m
++        labels:
++          severity: warning
++        annotations:
++          summary: "extended calibration proof is stale"
++          description: "conf_cal_extended exporter sees stale proof JSON; nightly calibration analysis may be broken."
++      - alert: OF_CalibrationExtended_MCEHigh_Crit
++        expr: conf_cal_extended_metric{arm="active",metric="mce_cal"} > 0.12
++        for: 30m
++        labels:
++          severity: critical
++        annotations:
++          summary: "active calibration MCE is high"
++          description: "Worst-bin calibration error is elevated even if aggregate ECE still looks acceptable."
++      - alert: OF_CalibrationExtended_SlopeLow_Warn
++        expr: conf_cal_extended_metric{arm="active",metric="calibration_slope"} < 0.70
++        for: 30m
++        labels:
++          severity: warning
++        annotations:
++          summary: "active calibration slope is low"
++          description: "Probability scale is compressed/overconfident; investigate challenger and recent drift."
++      - alert: OF_CalibrationExtended_SharpnessGrey_Warn
++        expr: conf_cal_extended_metric{arm="active",metric="sharpness_mean"} < 0.02 or conf_cal_extended_metric{arm="active",metric="prob_mass_near_half"} > 0.60
++        for: 30m
++        labels:
++          severity: warning
++        annotations:
++          summary: "active calibration became too grey"
++          description: "Probability mass is collapsing toward 0.5; model may be degraded or over-regularized."
+diff -ruN '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=__pycache__' repo_orig/orderflow_services/runbook_calibration_extended_v1.md repo_mod/orderflow_services/runbook_calibration_extended_v1.md
+--- repo_orig/orderflow_services/runbook_calibration_extended_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ repo_mod/orderflow_services/runbook_calibration_extended_v1.md	2026-03-08 06:34:43.922679509 +0000
+@@ -0,0 +1,12 @@
++# Calibration Extended (v1)
++
++Key metrics:
++- `conf_cal_extended_metric{arm="active",metric="mce_cal"}`
++- `conf_cal_extended_metric{arm="active",metric="calibration_slope"}`
++- `conf_cal_extended_metric{arm="active",metric="sharpness_mean"}`
++- `conf_cal_extended_metric{arm="active",metric="prob_mass_near_half"}`
++
++Interpretation:
++- high `mce_cal` means one or more calibration bins are badly wrong even if global ECE is acceptable
++- low `calibration_slope` means over/under-confidence or compressed probabilities
++- low `sharpness_mean` / high `prob_mass_near_half` means probabilities are collapsing toward 0.5
+diff -ruN '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=__pycache__' repo_orig/orderflow_services/tests/test_calibration_extended_alerts_yaml_v1.py repo_mod/orderflow_services/tests/test_calibration_extended_alerts_yaml_v1.py
+--- repo_orig/orderflow_services/tests/test_calibration_extended_alerts_yaml_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_mod/orderflow_services/tests/test_calibration_extended_alerts_yaml_v1.py	2026-03-08 06:35:29.287903157 +0000
+@@ -0,0 +1,21 @@
++from __future__ import annotations
++
++import os
++import yaml
++import pytest
++
++
++def _path(tick_flow_full: bool = False) -> str:
++    base = os.path.dirname(__file__)
++    if tick_flow_full:
++        return os.path.abspath(os.path.join(base, '..', '..', 'tick_flow_full', 'orderflow_services', 'prometheus_alerts_calibration_extended_v1.yml'))
++    return os.path.abspath(os.path.join(base, '..', 'prometheus_alerts_calibration_extended_v1.yml'))
++
++
++@pytest.mark.parametrize('tick_flow_full', [False, True])
++def test_alerts_yaml_parses(tick_flow_full: bool):
++    with open(_path(tick_flow_full)) as fh:
++        doc = yaml.safe_load(fh)
++    names = {r.get('alert') for r in doc['groups'][0]['rules']}
++    assert 'OF_CalibrationExtended_MCEHigh_Crit' in names
++    assert 'OF_CalibrationExtended_SharpnessGrey_Warn' in names
+diff -ruN '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=__pycache__' repo_orig/orderflow_services/tests/test_calibration_extended_dashboard_json_v1.py repo_mod/orderflow_services/tests/test_calibration_extended_dashboard_json_v1.py
+--- repo_orig/orderflow_services/tests/test_calibration_extended_dashboard_json_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_mod/orderflow_services/tests/test_calibration_extended_dashboard_json_v1.py	2026-03-08 06:35:29.296712002 +0000
+@@ -0,0 +1,23 @@
++from __future__ import annotations
++
++import json
++import os
++import pytest
++
++
++def _path(tick_flow_full: bool = False) -> str:
++    base = os.path.dirname(__file__)
++    if tick_flow_full:
++        return os.path.abspath(os.path.join(base, '..', '..', 'tick_flow_full', 'orderflow_services', 'grafana', 'calibration_extended_v1.json'))
++    return os.path.abspath(os.path.join(base, '..', 'grafana', 'calibration_extended_v1.json'))
++
++
++@pytest.mark.parametrize('tick_flow_full', [False, True])
++def test_dashboard_json_has_expected_queries(tick_flow_full: bool):
++    with open(_path(tick_flow_full)) as fh:
++        doc = json.load(fh)
++    assert doc['title'] == 'Calibration Extended (v1)'
++    joined = '\n'.join(t['expr'] for p in doc.get('panels', []) for t in p.get('targets', []))
++    assert 'conf_cal_extended_metric' in joined
++    assert 'mce_cal' in joined
++    assert 'sharpness_mean' in joined
+diff -ruN '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=__pycache__' repo_orig/orderflow_services/tests/test_calibration_extended_exporter_v1.py repo_mod/orderflow_services/tests/test_calibration_extended_exporter_v1.py
+--- repo_orig/orderflow_services/tests/test_calibration_extended_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_mod/orderflow_services/tests/test_calibration_extended_exporter_v1.py	2026-03-08 06:35:29.278975754 +0000
+@@ -0,0 +1,38 @@
++from __future__ import annotations
++
++import json
++from pathlib import Path
++
++from orderflow_services.calibration_extended_exporter_v1 import Exporter, _metric_value, _delta_value
++
++
++def test_metric_extractors_read_expected_fields():
++    obj = {
++        "arms": {
++            "active": {"mce_cal": 0.11, "sharpness_mean": 0.09},
++            "delta": {"mce_cal": 0.02, "sharpness_mean": -0.03},
++        }
++    }
++    assert _metric_value(obj, "active", "mce_cal") == 0.11
++    assert _delta_value(obj, "mce_cal") == 0.02
++
++
++def test_exporter_step_reads_proof_and_status(tmp_path: Path, monkeypatch):
++    proof = {
++        "degrade_review": True,
++        "arms": {
++            "active": {"mce_cal": 0.11, "ece_cal": 0.04, "brier_cal": 0.20, "calibration_slope": 0.8, "calibration_intercept": 0.05, "sharpness_mean": 0.08, "sharpness_entropy": 0.92, "prob_mass_near_half": 0.55, "precision_top5p": 0.6},
++            "champion": {"mce_cal": 0.08, "ece_cal": 0.03, "brier_cal": 0.19, "calibration_slope": 0.9, "calibration_intercept": 0.03, "sharpness_mean": 0.10, "sharpness_entropy": 0.88, "prob_mass_near_half": 0.50, "precision_top5p": 0.61},
++            "challenger": {"mce_cal": 0.11, "ece_cal": 0.04, "brier_cal": 0.20, "calibration_slope": 0.8, "calibration_intercept": 0.05, "sharpness_mean": 0.08, "sharpness_entropy": 0.92, "prob_mass_near_half": 0.55, "precision_top5p": 0.6},
++            "delta": {"mce_cal": 0.03, "sharpness_mean": -0.02, "ece_cal": 0.01, "brier_cal": 0.01, "precision_top5p": -0.01, "prob_mass_near_half": 0.05},
++        },
++    }
++    status = {"promoted": False, "degrade_review": True}
++    proof_path = tmp_path / "proof.json"
++    status_path = tmp_path / "status.json"
++    proof_path.write_text(json.dumps(proof), encoding="utf-8")
++    status_path.write_text(json.dumps(status), encoding="utf-8")
++    monkeypatch.setenv("CONF_CAL_PROOF_STATE_PATH", str(proof_path))
++    monkeypatch.setenv("CONF_CAL_PROMOTION_STATUS_PATH", str(status_path))
++    exp = Exporter()
++    exp.step()  # no exception
+diff -ruN '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=__pycache__' repo_orig/tick_flow_full/orderflow_services/calibration_extended_exporter_v1.py repo_mod/tick_flow_full/orderflow_services/calibration_extended_exporter_v1.py
+--- repo_orig/tick_flow_full/orderflow_services/calibration_extended_exporter_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ repo_mod/tick_flow_full/orderflow_services/calibration_extended_exporter_v1.py	2026-03-08 06:36:06.706655457 +0000
+@@ -0,0 +1,131 @@
++#!/usr/bin/env python3
++"""Prometheus exporter for extended confidence-calibration diagnostics."""
++from __future__ import annotations
++
++import json
++import os
++import signal
++import time
++from typing import Any, Dict, Optional
++
++from prometheus_client import Counter, Gauge, start_http_server  # type: ignore
++
++
++def _load_json(path: str) -> Optional[Dict[str, Any]]:
++    try:
++        with open(path, "r", encoding="utf-8") as f:
++            obj = json.load(f)
++        return obj if isinstance(obj, dict) else None
++    except Exception:
++        return None
++
++
++def _age_sec(path: str) -> float:
++    try:
++        return max(0.0, time.time() - os.path.getmtime(path))
++    except Exception:
++        return float("nan")
++
++
++def _metric_value(obj: Dict[str, Any], arm: str, metric: str) -> float:
++    arms = obj.get("arms") or {}
++    if not isinstance(arms, dict):
++        return float("nan")
++    arm_obj = arms.get(arm) or {}
++    if not isinstance(arm_obj, dict):
++        return float("nan")
++    try:
++        return float(arm_obj.get(metric, float("nan")))
++    except Exception:
++        return float("nan")
++
++
++def _delta_value(obj: Dict[str, Any], metric: str) -> float:
++    arms = obj.get("arms") or {}
++    delta = arms.get("delta") if isinstance(arms, dict) else {}
++    if not isinstance(delta, dict):
++        return float("nan")
++    try:
++        return float(delta.get(metric, float("nan")))
++    except Exception:
++        return float("nan")
++
++
++g_up = Gauge("conf_cal_extended_exporter_up", "extended calibration exporter loop up")
++g_read_ok = Gauge("conf_cal_extended_read_ok", "proof/status read ok (1/0)")
++g_proof_age = Gauge("conf_cal_extended_proof_age_sec", "proof json age in seconds")
++g_status_age = Gauge("conf_cal_extended_status_age_sec", "status json age in seconds")
++g_degrade_review = Gauge("conf_cal_extended_degrade_review", "degrade-review requested by promotion manager")
++g_promoted = Gauge("conf_cal_extended_promoted_last_run", "promotion manager promoted on last run")
++g_metric = Gauge("conf_cal_extended_metric", "extended calibration metric by arm", ["arm", "metric"])
++g_delta = Gauge("conf_cal_extended_delta", "challenger - champion delta for extended calibration metrics", ["metric"])
++read_errors_total = Counter("conf_cal_extended_read_errors_total", "proof/status read errors")
++parse_errors_total = Counter("conf_cal_extended_parse_errors_total", "proof/status parse/shape errors")
++
++
++class Exporter:
++    def __init__(self) -> None:
++        self.proof_path = os.getenv("CONF_CAL_PROOF_STATE_PATH", "/tmp/conf_cal_proof_state.json")
++        self.status_path = os.getenv("CONF_CAL_PROMOTION_STATUS_PATH", "/tmp/conf_cal_promo_status.json")
++        self.refresh_sec = max(1.0, float(os.getenv("CALIBRATION_EXT_EXPORTER_REFRESH_SEC", "10")))
++        self.running = True
++        signal.signal(signal.SIGINT, self._stop)
++        signal.signal(signal.SIGTERM, self._stop)
++
++    def _stop(self, signum, frame) -> None:
++        self.running = False
++
++    def step(self) -> None:
++        proof = _load_json(self.proof_path)
++        status = _load_json(self.status_path)
++        if proof is None or status is None:
++            g_read_ok.set(0.0)
++            read_errors_total.inc()
++            return
++        if not isinstance(proof.get("arms"), dict):
++            g_read_ok.set(0.0)
++            parse_errors_total.inc()
++            return
++
++        g_read_ok.set(1.0)
++        g_proof_age.set(_age_sec(self.proof_path))
++        g_status_age.set(_age_sec(self.status_path))
++        g_degrade_review.set(1.0 if bool(status.get("degrade_review") or proof.get("degrade_review")) else 0.0)
++        g_promoted.set(1.0 if bool(status.get("promoted")) else 0.0)
++
++        metric_names = [
++            "ece_cal",
++            "mce_cal",
++            "brier_cal",
++            "calibration_slope",
++            "calibration_intercept",
++            "sharpness_mean",
++            "sharpness_entropy",
++            "prob_mass_near_half",
++            "precision_top5p",
++        ]
++        for arm in ("active", "champion", "challenger"):
++            for metric in metric_names:
++                g_metric.labels(arm=arm, metric=metric).set(_metric_value(proof, arm, metric))
++        for metric in ("ece_cal", "mce_cal", "brier_cal", "precision_top5p", "sharpness_mean", "prob_mass_near_half"):
++            g_delta.labels(metric=metric).set(_delta_value(proof, metric))
++
++    def run(self) -> None:
++        port = int(os.getenv("CALIBRATION_EXT_EXPORTER_PORT", "9138"))
++        start_http_server(port)
++        while self.running:
++            g_up.set(1.0)
++            try:
++                self.step()
++            except Exception:
++                g_read_ok.set(0.0)
++                read_errors_total.inc()
++            time.sleep(self.refresh_sec)
++
++
++def main() -> None:
++    Exporter().run()
++
++
++if __name__ == "__main__":
++    main()
+diff -ruN '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=__pycache__' repo_orig/tick_flow_full/orderflow_services/grafana/calibration_extended_v1.json repo_mod/tick_flow_full/orderflow_services/grafana/calibration_extended_v1.json
+--- repo_orig/tick_flow_full/orderflow_services/grafana/calibration_extended_v1.json	1970-01-01 00:00:00.000000000 +0000
++++ repo_mod/tick_flow_full/orderflow_services/grafana/calibration_extended_v1.json	2026-03-08 06:34:43.913520070 +0000
+@@ -0,0 +1,10 @@
++{
++  "title": "Calibration Extended (v1)",
++  "templating": {"list": [{"name": "instance", "type": "query", "datasource": "Prometheus", "query": "label_values(conf_cal_extended_exporter_up, instance)"}]},
++  "panels": [
++    {"title": "Active MCE / ECE", "type": "timeseries", "targets": [{"expr": "conf_cal_extended_metric{arm=\"active\",metric=\"mce_cal\",instance=~\"$instance\"}"}, {"expr": "conf_cal_extended_metric{arm=\"active\",metric=\"ece_cal\",instance=~\"$instance\"}"}]},
++    {"title": "Active Slope / Intercept", "type": "timeseries", "targets": [{"expr": "conf_cal_extended_metric{arm=\"active\",metric=\"calibration_slope\",instance=~\"$instance\"}"}, {"expr": "conf_cal_extended_metric{arm=\"active\",metric=\"calibration_intercept\",instance=~\"$instance\"}"}]},
++    {"title": "Active Sharpness", "type": "timeseries", "targets": [{"expr": "conf_cal_extended_metric{arm=\"active\",metric=\"sharpness_mean\",instance=~\"$instance\"}"}, {"expr": "conf_cal_extended_metric{arm=\"active\",metric=\"prob_mass_near_half\",instance=~\"$instance\"}"}]},
++    {"title": "Champion vs Challenger Deltas", "type": "timeseries", "targets": [{"expr": "conf_cal_extended_delta{metric=\"mce_cal\",instance=~\"$instance\"}"}, {"expr": "conf_cal_extended_delta{metric=\"sharpness_mean\",instance=~\"$instance\"}"}]}
++  ]
++}
+diff -ruN '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=__pycache__' repo_orig/tick_flow_full/orderflow_services/prometheus_alerts_calibration_extended_v1.yml repo_mod/tick_flow_full/orderflow_services/prometheus_alerts_calibration_extended_v1.yml
+--- repo_orig/tick_flow_full/orderflow_services/prometheus_alerts_calibration_extended_v1.yml	1970-01-01 00:00:00.000000000 +0000
++++ repo_mod/tick_flow_full/orderflow_services/prometheus_alerts_calibration_extended_v1.yml	2026-03-08 06:34:43.895237284 +0000
+@@ -0,0 +1,35 @@
++groups:
++  - name: calibration_extended_v1
++    rules:
++      - alert: OF_CalibrationExtended_ExporterStale_Warn
++        expr: conf_cal_extended_proof_age_sec > 10800
++        for: 15m
++        labels:
++          severity: warning
++        annotations:
++          summary: "extended calibration proof is stale"
++          description: "conf_cal_extended exporter sees stale proof JSON; nightly calibration analysis may be broken."
++      - alert: OF_CalibrationExtended_MCEHigh_Crit
++        expr: conf_cal_extended_metric{arm="active",metric="mce_cal"} > 0.12
++        for: 30m
++        labels:
++          severity: critical
++        annotations:
++          summary: "active calibration MCE is high"
++          description: "Worst-bin calibration error is elevated even if aggregate ECE still looks acceptable."
++      - alert: OF_CalibrationExtended_SlopeLow_Warn
++        expr: conf_cal_extended_metric{arm="active",metric="calibration_slope"} < 0.70
++        for: 30m
++        labels:
++          severity: warning
++        annotations:
++          summary: "active calibration slope is low"
++          description: "Probability scale is compressed/overconfident; investigate challenger and recent drift."
++      - alert: OF_CalibrationExtended_SharpnessGrey_Warn
++        expr: conf_cal_extended_metric{arm="active",metric="sharpness_mean"} < 0.02 or conf_cal_extended_metric{arm="active",metric="prob_mass_near_half"} > 0.60
++        for: 30m
++        labels:
++          severity: warning
++        annotations:
++          summary: "active calibration became too grey"
++          description: "Probability mass is collapsing toward 0.5; model may be degraded or over-regularized."
+diff -ruN '--exclude=*.pyc' '--exclude=.pytest_cache' '--exclude=__pycache__' repo_orig/tick_flow_full/orderflow_services/runbook_calibration_extended_v1.md repo_mod/tick_flow_full/orderflow_services/runbook_calibration_extended_v1.md
+--- repo_orig/tick_flow_full/orderflow_services/runbook_calibration_extended_v1.md	1970-01-01 00:00:00.000000000 +0000
++++ repo_mod/tick_flow_full/orderflow_services/runbook_calibration_extended_v1.md	2026-03-08 06:34:43.931298575 +0000
+@@ -0,0 +1,12 @@
++# Calibration Extended (v1)
++
++Key metrics:
++- `conf_cal_extended_metric{arm="active",metric="mce_cal"}`
++- `conf_cal_extended_metric{arm="active",metric="calibration_slope"}`
++- `conf_cal_extended_metric{arm="active",metric="sharpness_mean"}`
++- `conf_cal_extended_metric{arm="active",metric="prob_mass_near_half"}`
++
++Interpretation:
++- high `mce_cal` means one or more calibration bins are badly wrong even if global ECE is acceptable
++- low `calibration_slope` means over/under-confidence or compressed probabilities
++- low `sharpness_mean` / high `prob_mass_near_half` means probabilities are collapsing toward 0.5

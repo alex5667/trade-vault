@@ -1,0 +1,70 @@
+services:
+  tb-labeler-worker-v10-2:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    container_name: scanner-tb-labeler-worker-v10-2
+    restart: unless-stopped
+    environment:
+    - NVIDIA_VISIBLE_DEVICES=all
+    - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    - REDIS_URL=${REDIS_URL:-${REDIS_URL}}
+    - TICKS_REDIS_URL=${TICKS_REDIS_URL:-redis://redis-ticks:6379/0}
+    - OF_INPUTS_STREAM=${OF_INPUTS_STREAM:-signals:of:inputs}
+    - OF_INPUTS_FIELD=${OF_INPUTS_FIELD:-payload}
+    - OF_INPUTS_GROUP=${OF_INPUTS_GROUP:-tb_labeler_v2}
+    - OF_INPUTS_CONSUMER=${OF_INPUTS_CONSUMER:-tb_labeler_01}
+    - OF_INPUTS_BLOCK_MS=2000
+    - OF_INPUTS_COUNT=200
+    - OF_INPUTS_CLAIM_ENABLE=1
+    - OF_INPUTS_CLAIM_IDLE_MS=60000
+    - OF_INPUTS_CLAIM_COUNT=200
+    - OF_INPUTS_CLAIM_INTERVAL_SEC=10
+    - OF_INPUTS_SID_INDEX_MODE=hash_day
+    - 'OF_INPUTS_SID_INDEX_DAY_PREFIX=idx:of_inputs:sid_day:'
+    - OF_INPUTS_SID_INDEX_TTL_SEC=172800
+    - TB_LABELS_STREAM=${TB_LABELS_STREAM:-labels:tb}
+    - TB_TICK_STREAM_PREFIX=${TB_TICK_STREAM_PREFIX:-stream:tick_}
+    - TB_HORIZONS_MS=${TB_HORIZONS_MS:-60000,180000,300000}
+    - TB_PRIMARY_H_MS=${TB_PRIMARY_H_MS:-180000}
+    - TB_SLACK_MS=${TB_SLACK_MS:-15000}
+    - TB_TP_K_ATR=${TB_TP_K_ATR:-1.0}
+    - TB_SL_K_ATR=${TB_SL_K_ATR:-1.0}
+    - TB_FALLBACK_TP_BPS=${TB_FALLBACK_TP_BPS:-30}
+    - TB_FALLBACK_SL_BPS=${TB_FALLBACK_SL_BPS:-30}
+    - TB_ADV_MAX=${TB_ADV_MAX:-1.2}
+    - TB_STORE_TICKS=${TB_STORE_TICKS:-1}
+    - TB_TICKS_SAMPLE_EVERY=${TB_TICKS_SAMPLE_EVERY:-10}
+    - TB_TICKS_MAX=${TB_TICKS_MAX:-2000}
+    - TB_METRICS_ENABLE=${TB_METRICS_ENABLE:-1}
+    - TB_METRICS_PORT=9116
+    - PYTHONPATH=.:/app
+    - PYTHONUNBUFFERED=1
+    - TZ=UTC
+    working_dir: /app
+    ports:
+    - 9116:9116
+    volumes:
+    - ./python-worker:/app
+    command:
+    - python
+    - -m
+    - services.tb_labeler_worker_v10_2
+    networks:
+    - scanner-core
+    - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          devices:
+          - driver: nvidia
+            count: all
+            capabilities:
+            - gpu
+networks:
+  scanner-core:
+    external: true
+  scanner-infra:
+    external: true

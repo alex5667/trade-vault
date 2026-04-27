@@ -1,0 +1,30 @@
+groups:
+  - name: ml_phase3_41_route_incident_rca_mirror_rca_winner_apply_apply_governance_verification_v1
+    rules:
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceVerificationStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_verification_last_run_ts_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance verification loop is stale"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceVerificationErrors
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_verification_runs_total{status="error"}[30m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance verification loop has errors"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernanceRollbackTriggered
+        expr: increase(ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_rollbacks_total[30m]) > 0
+        for: 5m
+        labels: { severity: info }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance verification triggered rollback"
+
+      - alert: MLRouteIncidentRCAMirrorRCAWinnerApplyApplyGovernancePrimaryMismatch
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_primary_match_rate < 0.80
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "route incident RCA mirror winner-apply apply governance primary match rate is low"

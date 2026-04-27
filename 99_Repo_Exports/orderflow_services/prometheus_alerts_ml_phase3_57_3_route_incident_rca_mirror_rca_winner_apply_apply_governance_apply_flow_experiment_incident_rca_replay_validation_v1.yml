@@ -1,0 +1,20 @@
+groups:
+  - name: ml_phase3_57_3_incident_rca_apply_replay_validation
+    rules:
+      - alert: MLIncidentRCAApplyReplayValidatorStale
+        expr: time() - ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_replay_validator_v3_57_3_last_run_ts_seconds > 7200
+        for: 30m
+        labels: { severity: warning }
+        annotations: { summary: "Incident RCA apply replay validator stale" }
+
+      - alert: MLIncidentRCAApplyReplayValidatorKeyGap
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_replay_validator_v3_57_3_key_coverage_ratio < 1
+        for: 15m
+        labels: { severity: critical }
+        annotations: { summary: "Incident RCA apply replay validator key coverage < 1" }
+
+      - alert: MLIncidentRCAApplyReplayValidatorHashMismatch
+        expr: ml_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_rca_apply_replay_validator_v3_57_3_hash_match == 0
+        for: 15m
+        labels: { severity: critical }
+        annotations: { summary: "Incident RCA apply replay validator hash mismatch" }

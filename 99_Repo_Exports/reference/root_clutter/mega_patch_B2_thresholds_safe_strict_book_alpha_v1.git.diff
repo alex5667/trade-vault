@@ -1,0 +1,324 @@
+diff --git a/core/dq_gate_v1.py b/core/dq_gate_v1.py
+index 9b6f828..4dd1613 100644
+--- a/core/dq_gate_v1.py
++++ b/core/dq_gate_v1.py
+@@ -1,12 +1,24 @@
+ import math
+-from typing import Dict, Any, Optional
++from typing import Dict, Any, Optional, List, Tuple
++
+ from core_snapshot.runtime_clock import snapshot as runtime_snapshot
+ from core_snapshot.dq_observe_only import apply_observe_only_book_veto
++from core_snapshot.dq_thresholds import resolve_dq_thresholds
+ 
+ def eval_dq_gate(indicators: Dict[str, Any], cfg2: Dict[str, Any]) -> Dict[str, Any]:
+     """
+     P14 DQ / time-determinism gate.
+-    Returns {dq_pen, dq_veto, dq_reason, dq_reason_bucket, dq_health_score, dq_components}.
++    Returns at minimum:
++      {dq_pen, dq_veto, dq_reason, dq_reason_bucket, dq_health_score, dq_components}
++
++    Policy v2 additions (required by plan):
++      dq_level: 0/1/2
++      dq_reasons: list[str]  (bucketed reasons, deterministic order)
++
++    Notes on modes
++    --------------
++    - DQ_MODE: safe|strict controls *thresholds* (matrix).
++    - dq_gate_mode: penalty|enforce|both|veto controls whether HARD -> dq_veto.
+     """
+     enable = int(cfg2.get("dq_gate_enable", 0))
+     if not enable:
+@@ -38,10 +50,16 @@ def eval_dq_gate(indicators: Dict[str, Any], cfg2: Dict[str, Any]) -> Dict[str,
+         except (ValueError, TypeError):
+             return default
+ 
+-    # DQ features (v5 meta)
++    # DQ features used by policy v2
+     data_health = _get("data_health", 1.0)
+     book_health_ok = _get("book_health_ok", 1.0)
+     tick_time_age_ms = _get("tick_time_age_ms", 0.0)
++
++    # Strict DQ trackers (online)
++    tick_gap_p95_ms = _get("tick_gap_p95_ms", 0.0, aliases=["tick_gap_p95", "tick_gap_p95_ms_ema"])
++    tick_gap_n = int(_get("tick_gap_n", 0.0, aliases=["tick_gap_samples", "tick_gap_count"]))
++    tick_missing_seq_ema = _get("tick_missing_seq_ema", 0.0, aliases=["tick_missing_seq", "tick_missing_seq_ema_v1"])
++    book_missing_seq_ema = _get("book_missing_seq_ema", 0.0, aliases=["book_missing_seq", "book_missing_seq_ema_v1"])
+     
+     # Skew/Desync EMAs (higher is worse)
+     tick_ts_source_now_ema = _get("tick_ts_source_now_ema", 0.0)
+@@ -52,63 +70,122 @@ def eval_dq_gate(indicators: Dict[str, Any], cfg2: Dict[str, Any]) -> Dict[str,
+     # Other quality flags
+     tick_unknown_side_ema = _get("tick_unknown_side_ema", 0.0)
+ 
+-    # Thresholds from cfg2
+-    mode = str(cfg2.get("dq_gate_mode", "penalty")).lower()
++    # Thresholds from SAFE/STRICT matrix (+ per-interval book tuning).
++    th = resolve_dq_thresholds(cfg2)
++
++    gate_mode = str(cfg2.get("dq_gate_mode", "penalty")).lower()
+     pen_max = float(cfg2.get("dq_pen_max", 0.10))
+     
+-    # 1. Basic Health Check
++    # --- Policy v2: determine dq_level (0/1/2) and reasons ---
++    # We keep a deterministic ordering by collecting (severity, bucket, code).
++    # severity: 2 (HARD) first, then 1 (SOFT), then 0.
++    reasons: List[Tuple[int, str, str]] = []
++
++    def _add(sev: int, bucket: str, code: str) -> None:
++        reasons.append((int(sev), str(bucket), str(code)))
++
++    # 1) Basic health (still useful, but bucket must be data_health)
+     health_score = 1.0
+-    reason = "ok"
+-    
+-    # Penalize low data health
+     if data_health < float(cfg2.get("dq_data_health_min", 0.85)):
+         health_score *= max(0.0, data_health)
+-        reason = "low_data_health"
+-        
+-    # Penalize stale book
++        _add(1, "data_health", "low_data_health")
++
+     if book_health_ok < 0.5:
+         health_score *= 0.5
+-        reason = "book_stale"
+-
+-    # 2. Latency/Skew Veto/Penalty
+-    latency_pen = 0.0
++        _add(1, "data_health", "book_stale")
++    
++    # 2) Latency / clock-skew health signals
+     age_limit = float(cfg2.get("dq_tick_age_ms_max", 5000))
+     if tick_time_age_ms > age_limit:
+         health_score *= 0.1
+-        reason = "latency_spike"
++        _add(1, "data_health", "latency_spike")
+ 
+-    # Skew penalties
+     skew_max = float(cfg2.get("dq_skew_ema_ms_max", 1000))
+     if tick_ts_source_now_ema > skew_max:
+         health_score *= 0.7
+-        reason = "clock_skew_now"
+-    
++        _add(1, "data_health", "clock_skew_now")
++
+     if tick_ts_source_stream_id_ema > skew_max:
+         health_score *= 0.8
+-        reason = "stream_id_skew"
++        _add(1, "data_health", "stream_id_skew")
++
++    # 3) SOFT/HARD branches from the plan
++    # SOFT (dq_level=1) if any:
++    if tick_missing_seq_ema >= th.tick_soft:
++        _add(1, "tick_seq", "tick_missing_seq_soft")
++    if book_missing_seq_ema >= th.book_soft:
++        _add(1, "book_seq", "book_missing_seq_soft")
++    if tick_gap_n >= th.min_samples and tick_gap_p95_ms >= th.gap_soft_ms:
++        _add(1, "gap_p95", "tick_gap_p95_soft")
++
++    # HARD (dq_level=2, veto-capable) if any:
++    if book_missing_seq_ema >= th.book_hard:
++        _add(2, "book_seq", "book_missing_seq_hard")
++    if tick_missing_seq_ema >= th.tick_hard:
++        _add(2, "tick_seq", "tick_missing_seq_hard")
++
++    if tick_gap_n >= th.min_samples:
++        if tick_gap_p95_ms >= th.gap_extreme_ms:
++            _add(2, "gap_p95", "tick_gap_p95_extreme")
++        elif tick_gap_p95_ms >= th.gap_hard_ms:
++            # Avoid false veto from a single jitter burst:
++            # only promote to HARD if there is additional evidence of degradation.
++            has_degrade = (
++                (tick_missing_seq_ema >= th.tick_soft)
++                or (book_missing_seq_ema >= th.book_soft)
++                or (data_health < float(cfg2.get("dq_data_health_min", 0.85)))
++            )
++            if has_degrade:
++                _add(2, "gap_p95", "tick_gap_p95_hard")
++
++    # 4) Compute dq_level and choose primary reason/bucket deterministically.
++    dq_level = 0
++    if reasons:
++        dq_level = max(sev for sev, _, _ in reasons)
++
++    # Stable ordering: HARD first, then bucket, then code.
++    reasons_sorted = sorted(reasons, key=lambda x: (-x[0], x[1], x[2]))
++    dq_reasons: List[str] = [f"{b}:{c}" for _, b, c in reasons_sorted]
++
++    if not reasons_sorted:
++        dq_reason = "ok"
++        dq_bucket = "ok"
++    else:
++        sev0, bucket0, code0 = reasons_sorted[0]
++        dq_bucket = bucket0
++        dq_reason = code0
+ 
+-    # 3. Calculate final penalty
+-    # Formula: dq_pen = (1.0 - health_score) * pen_max
+-    dq_pen = (1.0 - health_score) * pen_max
+-    dq_pen = max(0.0, min(pen_max, dq_pen))
++    # 5) Penalty
++    # Keep health_score penalty, but ensure SOFT always contributes some penalty.
++    dq_pen = (1.0 - float(max(0.0, min(1.0, health_score)))) * float(pen_max)
++    if dq_level == 1:
++        dq_pen = max(dq_pen, 0.5 * float(pen_max))
++    elif dq_level == 2:
++        dq_pen = max(dq_pen, float(pen_max))
++    dq_pen = float(max(0.0, min(float(pen_max), dq_pen)))
+ 
+-    # 4. Veto Logic
++    # 6) Veto logic
+     dq_veto = 0
+-    if mode in ("enforce", "both", "veto"):
+-        hard_min = float(cfg2.get("dq_data_health_hard_min", 0.70))
+-        if health_score < hard_min:
+-            dq_veto = 1
++    if gate_mode in ("enforce", "both", "veto") and dq_level == 2:
++        dq_veto = 1
+ 
+-    # Simulate dq_level since this version of the gate might not explicitly compute it
+-    dq_level = 2 if dq_veto == 1 else (1 if dq_pen > 0 else 0)
+-    dq_reasons = [reason] if reason != "ok" else []
++    # Health-score hard veto (data_health bucket), independent from SOFT/HARD matrix.
++    hard_min = float(cfg2.get("dq_data_health_hard_min", 0.70))
++    if gate_mode in ("enforce", "both", "veto") and health_score < hard_min:
++        dq_level = 2
++        dq_veto = 1
++        if dq_bucket != "data_health":
++            # Ensure primary reason reflects the most dangerous condition.
++            dq_bucket = "data_health"
++            dq_reason = "data_health_hard"
++            dq_reasons = ["data_health:data_health_hard"] + dq_reasons
+ 
+     # Apply observe-only veto
+     clock = runtime_snapshot(event_ts_ms=indicators.get("tick_ts_source_now") or indicators.get("event_ts_ms"))
+     out = apply_observe_only_book_veto(
+         dq_level=dq_level,
+         dq_veto=dq_veto,
+-        dq_reason_bucket=_reason_bucket(reason),
++        dq_reason_bucket=str(dq_bucket),
+         dq_reasons=dq_reasons,
+         uptime_sec=clock.uptime_sec,
+         cfg=cfg2,
+@@ -118,17 +195,37 @@ def eval_dq_gate(indicators: Dict[str, Any], cfg2: Dict[str, Any]) -> Dict[str,
+     res = {
+         "dq_pen": float(dq_pen),
+         "dq_veto": int(dq_veto),
+-        "dq_reason": str(reason),
+-        "dq_reason_bucket": _reason_bucket(reason),
++        "dq_level": int(dq_level),
++        "dq_reasons": list(dq_reasons),
++        "dq_reason": str(dq_reason),
++        "dq_reason_bucket": str(dq_bucket),
+         "dq_health_score": float(health_score),
+         "dq_components": {
+-            "data_health": data_health,
+-            "book_health_ok": book_health_ok,
+-            "tick_time_age_ms": tick_time_age_ms,
+-            "skew_now": tick_ts_source_now_ema,
+-            "skew_stream": tick_ts_source_stream_id_ema
++            # raw inputs
++            "data_health": float(data_health),
++            "book_health_ok": float(book_health_ok),
++            "tick_time_age_ms": float(tick_time_age_ms),
++            "tick_gap_p95_ms": float(tick_gap_p95_ms),
++            "tick_gap_n": int(tick_gap_n),
++            "tick_missing_seq_ema": float(tick_missing_seq_ema),
++            "book_missing_seq_ema": float(book_missing_seq_ema),
++            # effective policy knobs (for evidence/debug)
++            "dq_mode": str(th.mode),
++            "gap_soft_ms": float(th.gap_soft_ms),
++            "gap_hard_ms": float(th.gap_hard_ms),
++            "gap_extreme_ms": float(th.gap_extreme_ms),
++            "min_samples": int(th.min_samples),
++            "tick_soft": float(th.tick_soft),
++            "tick_hard": float(th.tick_hard),
++            "book_soft": float(th.book_soft),
++            "book_hard": float(th.book_hard),
++            "book_stream_interval_ms": int(th.book_stream_interval_ms),
++            "dq_book_seq_ema_alpha": float(th.book_seq_ema_alpha),
++            # legacy skew inputs
++            "skew_now": float(tick_ts_source_now_ema),
++            "skew_stream": float(tick_ts_source_stream_id_ema),
+         },
+-        "uptime_sec": clock.uptime_sec
++        "uptime_sec": clock.uptime_sec,
+     }
+     if clock.runtime_start_ts_ms is not None:
+         res["runtime_start_ts_ms"] = clock.runtime_start_ts_ms
+@@ -138,8 +235,15 @@ def eval_dq_gate(indicators: Dict[str, Any], cfg2: Dict[str, Any]) -> Dict[str,
+     return res
+ 
+ def _reason_bucket(reason: str) -> str:
+-    if reason == "ok": return "ok"
+-    if "latency" in reason or "skew" in reason: return "latency"
+-    if "health" in reason: return "data_health"
+-    if "book" in reason: return "stale"
++    # Legacy mapping kept for compatibility with old callers.
++    if reason == "ok":
++        return "ok"
++    if "gap" in reason:
++        return "gap_p95"
++    if "tick_missing_seq" in reason:
++        return "tick_seq"
++    if "book_missing_seq" in reason:
++        return "book_seq"
++    if "latency" in reason or "skew" in reason or "health" in reason:
++        return "data_health"
+     return "other"
+diff --git a/core/of_confirm_engine.py b/core/of_confirm_engine.py
+index 9df1f8e..de1f731 100644
+--- a/core/of_confirm_engine.py
++++ b/core/of_confirm_engine.py
+@@ -1270,6 +1270,10 @@ class OFConfirmEngine:
+         dq_reason = str(dq_meta.get("dq_reason", "ok"))
+         dq_health = float(dq_meta.get("dq_health_score", 1.0))
+         dq_bucket = str(dq_meta.get("dq_reason_bucket", "ok"))
++        dq_level = int(dq_meta.get("dq_level", 0))
++        dq_reasons = dq_meta.get("dq_reasons", [])
++        if not isinstance(dq_reasons, list):
++            dq_reasons = []
+         
+         # 5. Apply to Score
+         # User spec: "final_score_raw = base - exec_pen - burst_pen + liq_boost - liq_pen"
+@@ -1305,9 +1309,39 @@ class OFConfirmEngine:
+         indicators["score_breakdown"] = score_breakdown
+         indicators["dq_pen"] = dq_pen
+         indicators["dq_veto"] = dq_veto
++        indicators["dq_level"] = dq_level
+         indicators["dq_reason"] = dq_reason
+         indicators["dq_health_score"] = dq_health
+         indicators["dq_reason_bucket"] = dq_bucket
++        indicators["dq_reasons"] = dq_reasons
++
++        # Optional rollout/debug fields (if gate provides them)
++        if int(dq_meta.get("dq_veto_suppressed", 0) or 0) == 1:
++            indicators["dq_veto_suppressed"] = 1
++            indicators["dq_veto_suppressed_reason"] = str(dq_meta.get("dq_veto_suppressed_reason", ""))
++        if dq_meta.get("uptime_sec") is not None:
++            try:
++                indicators["dq_uptime_sec"] = float(dq_meta.get("uptime_sec"))
++            except Exception:
++                pass
++        if dq_meta.get("runtime_start_ts_ms") is not None:
++            try:
++                indicators["runtime_start_ts_ms"] = int(float(dq_meta.get("runtime_start_ts_ms")))
++            except Exception:
++                pass
++
++        # Surface effective policy knobs (useful for offline analysis / evidence)
++        comps = dq_meta.get("dq_components")
++        if isinstance(comps, dict):
++            for k in (
++                "dq_mode",
++                "gap_soft_ms", "gap_hard_ms", "gap_extreme_ms", "min_samples",
++                "tick_soft", "tick_hard",
++                "book_soft", "book_hard",
++                "book_stream_interval_ms", "dq_book_seq_ema_alpha",
++            ):
++                if k in comps:
++                    indicators[f"dq_policy_{k}"] = comps.get(k)
+         indicators["of_base_score"] = float(base_score)
+         indicators["of_score_final_raw"] = float(final_score_raw)
+         indicators["of_score_final"] = float(score)

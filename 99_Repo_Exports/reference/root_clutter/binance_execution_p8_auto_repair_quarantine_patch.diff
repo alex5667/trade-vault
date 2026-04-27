@@ -1,0 +1,1125 @@
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p7/audit_code/crypto_orderflow_service.py p8/audit_code/crypto_orderflow_service.py
+--- p7/audit_code/crypto_orderflow_service.py	2026-03-06 19:54:40.000000000 +0000
++++ p8/audit_code/crypto_orderflow_service.py	2026-03-06 21:04:16.977785494 +0000
+@@ -102,6 +102,14 @@
+         RISK_DENY_SOFT = "DENY_SOFT"
+         RISK_FORCE_FLATTEN = "FORCE_FLATTEN"
+ 
++try:
++    from services.quarantine_denylist import check_signal_against_quarantine_cache
++except Exception:
++    try:
++        from quarantine_denylist import check_signal_against_quarantine_cache
++    except Exception:  # pragma: no cover
++        check_signal_against_quarantine_cache = None  # type: ignore
++
+ 
+ # ──────────────────────────────────────────────────────────────────────────────
+ # Настройки по умолчанию /default_settings.py
+@@ -271,6 +279,11 @@
+         self.redis_dq_thresholds = RedisDQThresholds.from_env() if (RedisDQThresholds and self.trade_dq_hard_veto_enable) else None
+         self.portfolio_risk_limits = PortfolioRiskLimits.from_env() if (PortfolioRiskLimits and self.trade_risk_engine_v2_enable) else None
+         self.portfolio_risk_hard_veto = str(os.getenv("PORTFOLIO_RISK_HARD_VETO", "1")).strip().lower() in {"1", "true", "yes", "on"}
++        self.exec_quarantine_denylist_enable = str(os.getenv("EXEC_QUARANTINE_DENYLIST_ENABLE", "1")).strip().lower() in {"1", "true", "yes", "on"}
++        self.orders_quarantine_sids_key = str(os.getenv("ORDERS_QUARANTINE_SIDS_KEY", "orders:quarantine:state:sids")).strip() or "orders:quarantine:state:sids"
++        self.quarantine_denylist_cache_ms = int(os.getenv("QUARANTINE_DENYLIST_CACHE_MS", "1000") or 1000)
++        self._quarantine_sid_cache: Set[str] = set()
++        self._quarantine_sid_cache_ts_ms: int = 0
+ 
+         # --- Local caches for snapshot publisher (avoid Redis GET per tick) ---
+         # regime:q:{symbol}:1m is slow-changing -> cache 60s
+@@ -983,7 +996,7 @@
+                 except Exception:
+                     pass
+ 
+-                if self.strategy and self._pre_publish_allows_signal(runtime, out):
++                if self.strategy and await self._pre_publish_allows_signal(runtime, out):
+                     await self.strategy.publish_signal(runtime, out)
+                     if signals_published_total:
+                         signals_published_total.labels(symbol=runtime.symbol).inc()
+@@ -1052,8 +1065,33 @@
+             high_vol=bool(signal.get("high_vol") or signal.get("regime_high_vol")),
+         )
+ 
+-    def _pre_publish_allows_signal(self, runtime: Any, signal: Dict[str, Any]) -> bool:
++
++    async def _refresh_quarantine_sid_cache(self, *, now_ms: int) -> None:
++        if not self.exec_quarantine_denylist_enable or not self.orders_quarantine_sids_key:
++            return
++        if (now_ms - int(self._quarantine_sid_cache_ts_ms or 0)) < int(self.quarantine_denylist_cache_ms or 0):
++            return
++        try:
++            values = await self.main.smembers(self.orders_quarantine_sids_key)
++            self._quarantine_sid_cache = {str(v) for v in (values or set()) if str(v)}
++            self._quarantine_sid_cache_ts_ms = int(now_ms)
++        except Exception:
++            return
++
++    async def _pre_publish_allows_signal(self, runtime: Any, signal: Dict[str, Any]) -> bool:
+         now_ms = _utc_epoch_ms()
++        if self.exec_quarantine_denylist_enable and check_signal_against_quarantine_cache is not None:
++            await self._refresh_quarantine_sid_cache(now_ms=now_ms)
++            deny_decision = check_signal_against_quarantine_cache(signal, self._quarantine_sid_cache)
++            signal['quarantine_snapshot'] = deny_decision.to_dict()
++            if not deny_decision.allowed:
++                signal['quarantine_denylist_hit'] = True
++                signal['quarantine_sid'] = str(deny_decision.matched_sid)
++                logger.warning(
++                    "🚫 (%s) Quarantine denylist veto before publish: sid=%s candidates=%s",
++                    getattr(runtime, 'symbol', '?'), deny_decision.matched_sid, deny_decision.candidates,
++                )
++                return False
+         dq_decision = None
+         if self.trade_dq_hard_veto_enable and self.redis_dq_thresholds and evaluate_redis_dq is not None:
+             snap = self._build_redis_dq_snapshot(runtime, now_ms=now_ms)
+@@ -1562,7 +1600,7 @@
+                                 )
+                             except Exception:
+                                 pass
+-                            if self.strategy and self._pre_publish_allows_signal(runtime, signal):
++                            if self.strategy and await self._pre_publish_allows_signal(runtime, signal):
+                                 await self.strategy.publish_signal(runtime, signal)
+                                 signals_published_total.labels(symbol=symbol).inc()
+                         processed_ok = True
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p7/audit_code/quarantine_denylist.py p8/audit_code/quarantine_denylist.py
+--- p7/audit_code/quarantine_denylist.py	1970-01-01 00:00:00.000000000 +0000
++++ p8/audit_code/quarantine_denylist.py	2026-03-06 21:01:29.710959200 +0000
+@@ -0,0 +1,39 @@
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set
++
++
++@dataclass
++class QuarantineDenylistDecision:
++    allowed: bool
++    matched_sid: str = ''
++    candidates: Optional[List[str]] = None
++
++    def to_dict(self) -> Dict[str, Any]:
++        return {
++            'allowed': bool(self.allowed),
++            'matched_sid': str(self.matched_sid or ''),
++            'candidates': list(self.candidates or []),
++        }
++
++
++def extract_sid_candidates(signal: Mapping[str, Any]) -> List[str]:
++    out: List[str] = []
++    for key in ('sid', 'execution_sid', 'parent_sid', 'source_sid', 'signal_sid'):
++        value = signal.get(key)
++        if value is None:
++            continue
++        text = str(value).strip()
++        if text and text not in out:
++            out.append(text)
++    return out
++
++
++def check_signal_against_quarantine_cache(signal: Mapping[str, Any], denylist: Iterable[str]) -> QuarantineDenylistDecision:
++    candidates = extract_sid_candidates(signal)
++    deny = set(str(x) for x in denylist)
++    for sid in candidates:
++        if sid in deny:
++            return QuarantineDenylistDecision(False, matched_sid=sid, candidates=candidates)
++    return QuarantineDenylistDecision(True, matched_sid='', candidates=candidates)
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p7/audit_code/test_quarantine_denylist_v1.py p8/audit_code/test_quarantine_denylist_v1.py
+--- p7/audit_code/test_quarantine_denylist_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p8/audit_code/test_quarantine_denylist_v1.py	2026-03-06 21:05:58.326737234 +0000
+@@ -0,0 +1,22 @@
++from __future__ import annotations
++
++import importlib.util
++import sys
++from pathlib import Path
++
++SCRIPT = Path(__file__).resolve().parent / 'quarantine_denylist.py'
++SPEC = importlib.util.spec_from_file_location('quarantine_denylist', SCRIPT)
++mod = importlib.util.module_from_spec(SPEC)
++assert SPEC and SPEC.loader
++sys.modules[SPEC.name] = mod
++SPEC.loader.exec_module(mod)
++
++
++def test_extract_sid_candidates_dedupes_known_fields():
++    assert mod.extract_sid_candidates({'sid': 'a', 'execution_sid': 'a', 'parent_sid': 'b'}) == ['a', 'b']
++
++
++def test_check_signal_against_quarantine_cache_blocks_match():
++    decision = mod.check_signal_against_quarantine_cache({'sid': 'sid-1'}, {'sid-1', 'sid-2'})
++    assert decision.allowed is False
++    assert decision.matched_sid == 'sid-1'
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p7/binance_execution/quarantine_ledger.py p8/binance_execution/quarantine_ledger.py
+--- p7/binance_execution/quarantine_ledger.py	1970-01-01 00:00:00.000000000 +0000
++++ p8/binance_execution/quarantine_ledger.py	2026-03-06 21:01:29.710616304 +0000
+@@ -0,0 +1,137 @@
++from __future__ import annotations
++
++"""Best-effort SQL sink for quarantine/repair audit trail.
++
++The sink is intentionally fail-open: runtime execution and publish gates must not
++block just because the audit mirror is unavailable.
++"""
++
++from dataclasses import dataclass
++from typing import Any, Dict
++import json
++import os
++import time
++
++try:
++    from prometheus_client import Counter, REGISTRY
++except Exception:  # pragma: no cover
++    Counter = None  # type: ignore
++    REGISTRY = None  # type: ignore
++
++
++def _metric(factory, name: str, *args, **kwargs):
++    if factory is None:
++        return None
++    try:
++        return factory(name, *args, **kwargs)
++    except ValueError:
++        return getattr(REGISTRY, '_names_to_collectors', {}).get(name) if REGISTRY is not None else None
++
++
++EXECUTION_QUARANTINE_EVENTS_TOTAL = _metric(
++    Counter,
++    'execution_quarantine_events_total',
++    'Number of quarantine/repair ledger events mirrored to SQL.',
++    ['action'],
++)
++TRADE_QUARANTINE_LEDGER_WRITE_FAIL_TOTAL = _metric(
++    Counter,
++    'trade_quarantine_ledger_write_fail_total',
++    'Number of quarantine ledger write failures.',
++    ['kind'],
++)
++
++try:  # pragma: no cover
++    import psycopg  # type: ignore
++except Exception:  # pragma: no cover
++    psycopg = None
++    try:
++        import psycopg2 as psycopg  # type: ignore
++    except Exception:  # pragma: no cover
++        psycopg = None
++
++
++@dataclass
++class QuarantineLedgerSink:
++    dsn: str = ''
++    connect_factory: Any = None
++
++    def __post_init__(self) -> None:
++        self.dsn = self.dsn or os.getenv('EXECUTION_QUARANTINE_LEDGER_DSN', '') or os.getenv('EXECUTION_JOURNAL_DSN', '')
++        if self.connect_factory is None and self.dsn and psycopg is not None:
++            self.connect_factory = psycopg.connect
++
++    @property
++    def enabled(self) -> bool:
++        return bool(self.dsn and self.connect_factory)
++
++    def _connect(self):
++        if not self.enabled:
++            return None
++        return self.connect_factory(self.dsn)
++
++    def record_quarantine_event(self, payload: Dict[str, Any]) -> bool:
++        if not self.enabled:
++            return False
++        doc = dict(payload or {})
++        now_ms = int(doc.get('event_ts_ms') or int(time.time() * 1000))
++        sql = (
++            'INSERT INTO execution_quarantine_ledger '
++            '(sid, symbol, action, severity, reason, source, quarantine_key, applied, state_jsonb, event_ts_ms, created_at_ms) '
++            'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s)'
++        )
++        try:
++            conn = self._connect()
++            with conn:
++                with conn.cursor() as cur:
++                    cur.execute(sql, (
++                        str(doc.get('sid') or ''),
++                        str(doc.get('symbol') or ''),
++                        str(doc.get('action') or 'QUARANTINED'),
++                        str(doc.get('severity') or ''),
++                        str(doc.get('reason') or ''),
++                        str(doc.get('source') or ''),
++                        str(doc.get('quarantine_key') or ''),
++                        bool(doc.get('applied', True)),
++                        json.dumps(doc.get('state') or doc, ensure_ascii=False, default=str),
++                        now_ms,
++                        int(doc.get('created_at_ms') or now_ms),
++                    ))
++            if EXECUTION_QUARANTINE_EVENTS_TOTAL:
++                EXECUTION_QUARANTINE_EVENTS_TOTAL.labels(action=str(doc.get('action') or 'QUARANTINED')).inc()
++            return True
++        except Exception:
++            if TRADE_QUARANTINE_LEDGER_WRITE_FAIL_TOTAL:
++                TRADE_QUARANTINE_LEDGER_WRITE_FAIL_TOTAL.labels(kind='quarantine_event').inc()
++            return False
++
++    def record_repair_run(self, payload: Dict[str, Any]) -> bool:
++        if not self.enabled:
++            return False
++        doc = dict(payload or {})
++        started_at_ms = int(doc.get('started_at_ms') or int(time.time() * 1000))
++        finished_at_ms = int(doc.get('finished_at_ms') or started_at_ms)
++        sql = (
++            'INSERT INTO execution_repair_runs '
++            '(run_kind, source, status, summary_jsonb, started_at_ms, finished_at_ms) '
++            'VALUES (%s,%s,%s,%s::jsonb,%s,%s)'
++        )
++        try:
++            conn = self._connect()
++            with conn:
++                with conn.cursor() as cur:
++                    cur.execute(sql, (
++                        str(doc.get('run_kind') or 'automated_repair'),
++                        str(doc.get('source') or ''),
++                        str(doc.get('status') or ''),
++                        json.dumps(doc.get('summary') or doc, ensure_ascii=False, default=str),
++                        started_at_ms,
++                        finished_at_ms,
++                    ))
++            if EXECUTION_QUARANTINE_EVENTS_TOTAL:
++                EXECUTION_QUARANTINE_EVENTS_TOTAL.labels(action='REPAIR_RUN').inc()
++            return True
++        except Exception:
++            if TRADE_QUARANTINE_LEDGER_WRITE_FAIL_TOTAL:
++                TRADE_QUARANTINE_LEDGER_WRITE_FAIL_TOTAL.labels(kind='repair_run').inc()
++            return False
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p7/binance_execution/test_automated_execution_repair_policy_v1.py p8/binance_execution/test_automated_execution_repair_policy_v1.py
+--- p7/binance_execution/test_automated_execution_repair_policy_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p8/binance_execution/test_automated_execution_repair_policy_v1.py	2026-03-06 21:05:58.327116160 +0000
+@@ -0,0 +1,31 @@
++from __future__ import annotations
++
++import importlib.util
++import sys
++from pathlib import Path
++
++SCRIPT = Path(__file__).resolve().parent.parent / 'scripts' / 'automated_execution_repair_policy.py'
++SPEC = importlib.util.spec_from_file_location('automated_execution_repair_policy', SCRIPT)
++mod = importlib.util.module_from_spec(SPEC)
++assert SPEC and SPEC.loader
++sys.modules[SPEC.name] = mod
++SPEC.loader.exec_module(mod)
++
++
++class _Summary:
++    def __init__(self, critical: int, mismatches=None):
++        self.critical_mismatches = critical
++        self.mismatches = mismatches or []
++    def to_dict(self):
++        return {'critical_mismatches': self.critical_mismatches, 'mismatches': self.mismatches}
++
++
++def test_run_policy_repairs_when_under_threshold(monkeypatch):
++    calls = {'repair': 0, 'quarantine': 0}
++    seq = [_Summary(1, []), _Summary(0, [])]
++    monkeypatch.setattr(mod.consistency, 'run_check', lambda **kwargs: seq.pop(0))
++    monkeypatch.setattr(mod.repair_mod, 'run_repair', lambda **kwargs: calls.__setitem__('repair', calls['repair'] + 1) or {'applied': True})
++    monkeypatch.setattr(mod.quarantine_mod, 'build_quarantine_targets', lambda *args, **kwargs: [])
++    result = mod.run_policy(redis_url='redis://', journal_dsn='dsn', state_prefix='orders:state:', exec_stream='orders:exec', stream_count=10, max_auto_repair_critical=2, quarantine_min_severity='critical', dry_run=True, ledger_dsn='')
++    assert calls['repair'] == 1
++    assert result['repaired']['applied'] is True
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p7/binance_execution/test_grafana_p8_annotations_v1.py p8/binance_execution/test_grafana_p8_annotations_v1.py
+--- p7/binance_execution/test_grafana_p8_annotations_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p8/binance_execution/test_grafana_p8_annotations_v1.py	2026-03-06 21:05:58.327196847 +0000
+@@ -0,0 +1,12 @@
++from __future__ import annotations
++
++import json
++from pathlib import Path
++
++
++def test_grafana_p8_dashboard_has_alert_annotations():
++    path = Path(__file__).resolve().parent.parent / 'monitoring' / 'grafana' / 'dashboards' / 'trade_execution_p8_annotations.json'
++    data = json.loads(path.read_text())
++    names = [item.get('name') for item in data.get('annotations', {}).get('list', [])]
++    assert 'Trade alert annotations' in names
++    assert 'Quarantine / repair events' in names
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p7/binance_execution/test_quarantine_ledger_v1.py p8/binance_execution/test_quarantine_ledger_v1.py
+--- p7/binance_execution/test_quarantine_ledger_v1.py	1970-01-01 00:00:00.000000000 +0000
++++ p8/binance_execution/test_quarantine_ledger_v1.py	2026-03-06 21:05:58.327002942 +0000
+@@ -0,0 +1,40 @@
++from __future__ import annotations
++
++import importlib.util
++import sys
++from pathlib import Path
++
++SCRIPT = Path(__file__).resolve().parent / 'quarantine_ledger.py'
++SPEC = importlib.util.spec_from_file_location('quarantine_ledger', SCRIPT)
++mod = importlib.util.module_from_spec(SPEC)
++assert SPEC and SPEC.loader
++sys.modules[SPEC.name] = mod
++SPEC.loader.exec_module(mod)
++
++
++class _FakeCursor:
++    def __init__(self, sink):
++        self.sink = sink
++    def __enter__(self):
++        return self
++    def __exit__(self, exc_type, exc, tb):
++        return False
++    def execute(self, sql, params):
++        self.sink.append((sql, params))
++
++
++class _FakeConn:
++    def __init__(self):
++        self.statements = []
++    def __enter__(self):
++        return self
++    def __exit__(self, exc_type, exc, tb):
++        return False
++    def cursor(self):
++        return _FakeCursor(self.statements)
++
++
++def test_quarantine_ledger_records_event_and_run():
++    sink = mod.QuarantineLedgerSink(dsn='postgresql://unused', connect_factory=lambda dsn: _FakeConn())
++    assert sink.record_quarantine_event({'sid': 'sid-1', 'action': 'QUARANTINED', 'state': {'sid': 'sid-1'}}) is True
++    assert sink.record_repair_run({'run_kind': 'automated_repair_policy', 'summary': {'ok': 1}}) is True
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p7/config/docker-compose.execution-p8.override.yml p8/config/docker-compose.execution-p8.override.yml
+--- p7/config/docker-compose.execution-p8.override.yml	1970-01-01 00:00:00.000000000 +0000
++++ p8/config/docker-compose.execution-p8.override.yml	2026-03-06 21:05:12.460454231 +0000
+@@ -0,0 +1,22 @@
++version: '3.9'
++
++services:
++  grafana:
++    volumes:
++      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards-json:ro
++
++  trade-execution-auto-repair:
++    build:
++      context: .
++      dockerfile: python-worker/Dockerfile
++    image: scanner-python-worker:latest
++    profiles: ["ops"]
++    working_dir: /app
++    environment:
++      - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
++      - EXEC_STREAM=${EXEC_STREAM:-orders:exec}
++      - EXECUTION_JOURNAL_DSN=${EXECUTION_JOURNAL_DSN:-}
++      - EXECUTION_QUARANTINE_LEDGER_DSN=${EXECUTION_QUARANTINE_LEDGER_DSN:-${EXECUTION_JOURNAL_DSN:-}}
++      - EXEC_AUTO_REPAIR_MAX_CRITICAL=${EXEC_AUTO_REPAIR_MAX_CRITICAL:-25}
++      - EXEC_QUARANTINE_MIN_SEVERITY=${EXEC_QUARANTINE_MIN_SEVERITY:-critical}
++    command: ["python", "/app/scripts/automated_execution_repair_policy.py", "--dry-run"]
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p7/config/env.execution-p8.example p8/config/env.execution-p8.example
+--- p7/config/env.execution-p8.example	1970-01-01 00:00:00.000000000 +0000
++++ p8/config/env.execution-p8.example	2026-03-06 21:05:12.460627965 +0000
+@@ -0,0 +1,7 @@
++# P8 automated repair / quarantine denylist
++EXECUTION_QUARANTINE_LEDGER_DSN=postgresql://trade:change-me@postgres:5432/trade
++EXEC_AUTO_REPAIR_MAX_CRITICAL=25
++EXEC_QUARANTINE_MIN_SEVERITY=critical
++EXEC_QUARANTINE_DENYLIST_ENABLE=1
++ORDERS_QUARANTINE_SIDS_KEY=orders:quarantine:state:sids
++QUARANTINE_DENYLIST_CACHE_MS=1000
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p7/db/migrations/20260306_03_quarantine_ledger.sql p8/db/migrations/20260306_03_quarantine_ledger.sql
+--- p7/db/migrations/20260306_03_quarantine_ledger.sql	1970-01-01 00:00:00.000000000 +0000
++++ p8/db/migrations/20260306_03_quarantine_ledger.sql	2026-03-06 21:05:12.460191929 +0000
+@@ -0,0 +1,26 @@
++-- P8: quarantine / automated repair ledger
++
++CREATE TABLE IF NOT EXISTS execution_quarantine_ledger (
++  id BIGSERIAL PRIMARY KEY,
++  sid TEXT NOT NULL,
++  symbol TEXT NOT NULL DEFAULT '',
++  action TEXT NOT NULL,
++  severity TEXT NOT NULL DEFAULT '',
++  reason TEXT NOT NULL DEFAULT '',
++  source TEXT NOT NULL DEFAULT '',
++  quarantine_key TEXT NOT NULL DEFAULT '',
++  applied BOOLEAN NOT NULL DEFAULT TRUE,
++  state_jsonb JSONB NOT NULL DEFAULT '{}'::jsonb,
++  event_ts_ms BIGINT NOT NULL,
++  created_at_ms BIGINT NOT NULL
++);
++
++CREATE TABLE IF NOT EXISTS execution_repair_runs (
++  id BIGSERIAL PRIMARY KEY,
++  run_kind TEXT NOT NULL,
++  source TEXT NOT NULL DEFAULT '',
++  status TEXT NOT NULL DEFAULT '',
++  summary_jsonb JSONB NOT NULL DEFAULT '{}'::jsonb,
++  started_at_ms BIGINT NOT NULL,
++  finished_at_ms BIGINT NOT NULL
++);
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p7/db/migrations/20260306_04_quarantine_ledger_indexes.sql p8/db/migrations/20260306_04_quarantine_ledger_indexes.sql
+--- p7/db/migrations/20260306_04_quarantine_ledger_indexes.sql	1970-01-01 00:00:00.000000000 +0000
++++ p8/db/migrations/20260306_04_quarantine_ledger_indexes.sql	2026-03-06 21:05:12.460377786 +0000
+@@ -0,0 +1,16 @@
++-- P8: indexes for quarantine / repair ledger
++
++CREATE INDEX IF NOT EXISTS idx_execution_quarantine_ledger_sid_created
++  ON execution_quarantine_ledger (sid, created_at_ms DESC);
++
++CREATE INDEX IF NOT EXISTS idx_execution_quarantine_ledger_action_created
++  ON execution_quarantine_ledger (action, created_at_ms DESC);
++
++CREATE INDEX IF NOT EXISTS idx_execution_quarantine_ledger_state_jsonb_gin
++  ON execution_quarantine_ledger USING GIN (state_jsonb);
++
++CREATE INDEX IF NOT EXISTS idx_execution_repair_runs_kind_finished
++  ON execution_repair_runs (run_kind, finished_at_ms DESC);
++
++CREATE INDEX IF NOT EXISTS idx_execution_repair_runs_summary_jsonb_gin
++  ON execution_repair_runs USING GIN (summary_jsonb);
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p7/deploy/systemd/trade-execution-auto-repair.service p8/deploy/systemd/trade-execution-auto-repair.service
+--- p7/deploy/systemd/trade-execution-auto-repair.service	1970-01-01 00:00:00.000000000 +0000
++++ p8/deploy/systemd/trade-execution-auto-repair.service	2026-03-06 21:05:12.460783297 +0000
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Trade execution automated repair / quarantine policy
++After=network-online.target
++Wants=network-online.target
++
++[Service]
++Type=oneshot
++WorkingDirectory=/opt/trade
++EnvironmentFile=/opt/trade/.env
++ExecStart=/usr/bin/python3 /opt/trade/scripts/automated_execution_repair_policy.py
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p7/deploy/systemd/trade-execution-auto-repair.timer p8/deploy/systemd/trade-execution-auto-repair.timer
+--- p7/deploy/systemd/trade-execution-auto-repair.timer	1970-01-01 00:00:00.000000000 +0000
++++ p8/deploy/systemd/trade-execution-auto-repair.timer	2026-03-06 21:05:12.460892451 +0000
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Run trade execution automated repair policy periodically
++
++[Timer]
++OnCalendar=*:0/15
++Persistent=true
++Unit=trade-execution-auto-repair.service
++
++[Install]
++WantedBy=timers.target
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p7/monitoring/grafana/dashboards/trade_execution_p8_annotations.json p8/monitoring/grafana/dashboards/trade_execution_p8_annotations.json
+--- p7/monitoring/grafana/dashboards/trade_execution_p8_annotations.json	1970-01-01 00:00:00.000000000 +0000
++++ p8/monitoring/grafana/dashboards/trade_execution_p8_annotations.json	2026-03-06 21:05:12.461331181 +0000
+@@ -0,0 +1,320 @@
++{
++  "annotations": {
++    "list": [
++      {
++        "builtIn": 1,
++        "datasource": {
++          "type": "grafana",
++          "uid": "-- Grafana --"
++        },
++        "enable": true,
++        "hide": true,
++        "iconColor": "rgba(0, 211, 255, 1)",
++        "name": "Annotations & Alerts",
++        "type": "dashboard"
++      },
++      {
++        "datasource": {
++          "type": "prometheus",
++          "uid": "${DS_PROMETHEUS}"
++        },
++        "enable": true,
++        "expr": "ALERTS{alertstate=\"firing\",alertname=~\"Trade.*|Execution.*\"}",
++        "iconColor": "rgba(255, 96, 96, 1)",
++        "name": "Trade alert annotations",
++        "textFormat": "{{alertname}} {{severity}}",
++        "titleFormat": "{{alertname}}"
++      },
++      {
++        "datasource": {
++          "type": "prometheus",
++          "uid": "${DS_PROMETHEUS}"
++        },
++        "enable": true,
++        "expr": "increase(execution_quarantine_events_total[5m]) > 0",
++        "iconColor": "rgba(255, 191, 0, 1)",
++        "name": "Quarantine / repair events",
++        "textFormat": "quarantine or repair activity",
++        "titleFormat": "quarantine/repair"
++      }
++    ]
++  },
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "links": [],
++  "liveNow": false,
++  "panels": [
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "none"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 6,
++        "w": 6,
++        "x": 0,
++        "y": 0
++      },
++      "id": 1,
++      "options": {
++        "colorMode": "value",
++        "graphMode": "area",
++        "justifyMode": "auto",
++        "orientation": "auto",
++        "reduceOptions": {
++          "calcs": [
++            "lastNotNull"
++          ],
++          "fields": "",
++          "values": false
++        },
++        "textMode": "auto"
++      },
++      "targets": [
++        {
++          "expr": "trade_execution_health_status_code",
++          "refId": "A"
++        }
++      ],
++      "title": "Execution health status code",
++      "type": "stat"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "none"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 6,
++        "w": 6,
++        "x": 6,
++        "y": 0
++      },
++      "id": 2,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom"
++        },
++        "tooltip": {
++          "mode": "single"
++        }
++      },
++      "targets": [
++        {
++          "expr": "trade_execution_consistency_critical_mismatches",
++          "legendFormat": "critical",
++          "refId": "A"
++        },
++        {
++          "expr": "trade_execution_consistency_warning_mismatches",
++          "legendFormat": "warning",
++          "refId": "B"
++        }
++      ],
++      "title": "Consistency mismatches",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "ms"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 6,
++        "w": 6,
++        "x": 12,
++        "y": 0
++      },
++      "id": 3,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom"
++        },
++        "tooltip": {
++          "mode": "single"
++        }
++      },
++      "targets": [
++        {
++          "expr": "trade_execution_user_stream_age_ms",
++          "refId": "A"
++        }
++      ],
++      "title": "User stream age",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "none"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 6,
++        "w": 6,
++        "x": 18,
++        "y": 0
++      },
++      "id": 4,
++      "options": {
++        "legend": {
++          "displayMode": "list",
++          "placement": "bottom"
++        },
++        "tooltip": {
++          "mode": "single"
++        }
++      },
++      "targets": [
++        {
++          "expr": "trade_dq_hard_veto_total",
++          "legendFormat": "hard veto",
++          "refId": "A"
++        },
++        {
++          "expr": "trade_risk_force_flatten_total",
++          "legendFormat": "force flatten",
++          "refId": "B"
++        }
++      ],
++      "title": "DQ / risk incident counters",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "none"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 7,
++        "w": 12,
++        "x": 0,
++        "y": 6
++      },
++      "id": 5,
++      "options": {
++        "legend": {
++          "displayMode": "table",
++          "placement": "right"
++        },
++        "tooltip": {
++          "mode": "multi"
++        }
++      },
++      "targets": [
++        {
++          "expr": "trade_execution_journal_write_fail_total",
++          "legendFormat": "journal write fail",
++          "refId": "A"
++        },
++        {
++          "expr": "execution_emergency_flatten_total",
++          "legendFormat": "emergency flatten",
++          "refId": "B"
++        },
++        {
++          "expr": "execution_reconcile_pending_total",
++          "legendFormat": "reconcile pending",
++          "refId": "C"
++        }
++      ],
++      "title": "Execution incidents",
++      "type": "timeseries"
++    },
++    {
++      "datasource": {
++        "type": "prometheus",
++        "uid": "${DS_PROMETHEUS}"
++      },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "percentunit"
++        },
++        "overrides": []
++      },
++      "gridPos": {
++        "h": 7,
++        "w": 12,
++        "x": 12,
++        "y": 6
++      },
++      "id": 6,
++      "options": {
++        "legend": {
++          "displayMode": "table",
++          "placement": "right"
++        },
++        "tooltip": {
++          "mode": "multi"
++        }
++      },
++      "targets": [
++        {
++          "expr": "trade_portfolio_total_exposure_ratio",
++          "legendFormat": "total exposure",
++          "refId": "A"
++        },
++        {
++          "expr": "trade_portfolio_cluster_exposure_ratio",
++          "legendFormat": "cluster exposure",
++          "refId": "B"
++        }
++      ],
++      "title": "Portfolio exposure ratios",
++      "type": "timeseries"
++    }
++  ],
++  "refresh": "30s",
++  "schemaVersion": 39,
++  "style": "dark",
++  "tags": [
++    "trade",
++    "execution",
++    "p8"
++  ],
++  "templating": {
++    "list": []
++  },
++  "time": {
++    "from": "now-6h",
++    "to": "now"
++  },
++  "timepicker": {},
++  "timezone": "utc",
++  "title": "Trade Execution P8 Annotations",
++  "uid": "trade-exec-p8",
++  "version": 1,
++  "weekStart": ""
++}
+\ No newline at end of file
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p7/runbooks/P8_AUTOMATED_REPAIR_POLICY.md p8/runbooks/P8_AUTOMATED_REPAIR_POLICY.md
+--- p7/runbooks/P8_AUTOMATED_REPAIR_POLICY.md	1970-01-01 00:00:00.000000000 +0000
++++ p8/runbooks/P8_AUTOMATED_REPAIR_POLICY.md	2026-03-06 21:05:12.460964580 +0000
+@@ -0,0 +1,20 @@
++# P8 Automated Repair Policy
++
++## Purpose
++Run consistency check -> SQL mirror repair -> re-check -> quarantine remaining critical `sid` values.
++
++## Dry-run
++```bash
++python scripts/automated_execution_repair_policy.py --dry-run
++```
++
++## Apply
++```bash
++python scripts/automated_execution_repair_policy.py
++```
++
++## Safety rules
++- Never changes live Binance positions.
++- Repairs only SQL mirrors.
++- Quarantine blocks future publish/execution for matching `sid` values through denylist integration.
++- All runs should be mirrored to `execution_repair_runs` and `execution_quarantine_ledger` when DSN is configured.
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p7/scripts/automated_execution_repair_policy.py p8/scripts/automated_execution_repair_policy.py
+--- p7/scripts/automated_execution_repair_policy.py	1970-01-01 00:00:00.000000000 +0000
++++ p8/scripts/automated_execution_repair_policy.py	2026-03-06 21:02:45.124161950 +0000
+@@ -0,0 +1,122 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++"""Automated repair/quarantine policy for execution mirrors.
++
++Flow
++----
++1. Run consistency check.
++2. If critical mismatches are within the configured budget, repair SQL mirror.
++3. Re-run consistency check.
++4. Quarantine remaining critical sid values.
++5. Mirror run summary into SQL quarantine ledger.
++"""
++
++import argparse
++import json
++import os
++import sys
++import time
++from pathlib import Path
++from typing import Any, Dict, List, Optional
++
++SCRIPT_DIR = Path(__file__).resolve().parent
++if str(SCRIPT_DIR) not in sys.path:
++    sys.path.insert(0, str(SCRIPT_DIR))
++
++import check_execution_consistency as consistency
++import quarantine_inconsistent_sid as quarantine_mod
++import repair_execution_inconsistencies as repair_mod
++
++try:
++    from binance_execution.quarantine_ledger import QuarantineLedgerSink
++except Exception:
++    try:
++        from quarantine_ledger import QuarantineLedgerSink  # type: ignore
++    except Exception:  # pragma: no cover
++        QuarantineLedgerSink = None  # type: ignore
++
++
++def run_policy(*, redis_url: str, journal_dsn: str, state_prefix: str, exec_stream: str, stream_count: int, max_auto_repair_critical: int, quarantine_min_severity: str, dry_run: bool = False, ledger_dsn: str = '') -> Dict[str, Any]:
++    started_at_ms = int(time.time() * 1000)
++    before = consistency.run_check(redis_url=redis_url, journal_dsn=journal_dsn, state_prefix=state_prefix, exec_stream=exec_stream, stream_count=stream_count)
++    repaired = None
++    if before.critical_mismatches <= int(max_auto_repair_critical):
++        repaired = repair_mod.run_repair(
++            redis_url=redis_url,
++            journal_dsn=journal_dsn,
++            state_prefix=state_prefix,
++            exec_stream=exec_stream,
++            stream_count=stream_count,
++            dry_run=dry_run,
++            ledger_dsn=ledger_dsn,
++        )
++    after = consistency.run_check(redis_url=redis_url, journal_dsn=journal_dsn, state_prefix=state_prefix, exec_stream=exec_stream, stream_count=stream_count)
++    mismatches = [consistency.ConsistencyMismatch(**m) for m in after.mismatches]
++    targets = quarantine_mod.build_quarantine_targets(mismatches, severity=quarantine_min_severity)
++    quarantine_results: List[Dict[str, Any]] = []
++    if targets:
++        import redis  # type: ignore
++        r = redis.from_url(redis_url, decode_responses=True)
++        ledger = QuarantineLedgerSink(dsn=ledger_dsn) if QuarantineLedgerSink and ledger_dsn else None
++        for item in targets:
++            quarantine_results.append(quarantine_mod.quarantine_sid(
++                r,
++                item['sid'],
++                state_prefix=state_prefix,
++                quarantine_prefix=os.getenv('ORDERS_QUARANTINE_PREFIX', 'orders:quarantine:state:'),
++                reason=item['reason'],
++                severity=str(item.get('severity') or quarantine_min_severity),
++                dry_run=dry_run,
++                ledger=ledger,
++                source='automated_repair_policy',
++            ))
++    summary = {
++        'before': before.to_dict(),
++        'repaired': repaired,
++        'after': after.to_dict(),
++        'quarantine_results': quarantine_results,
++    }
++    finished_at_ms = int(time.time() * 1000)
++    if ledger_dsn and QuarantineLedgerSink is not None:
++        QuarantineLedgerSink(dsn=ledger_dsn).record_repair_run({
++            'run_kind': 'automated_repair_policy',
++            'source': 'automated_execution_repair_policy',
++            'status': 'dry_run' if dry_run else 'applied',
++            'summary': summary,
++            'started_at_ms': started_at_ms,
++            'finished_at_ms': finished_at_ms,
++        })
++    return summary
++
++
++def main(argv: Optional[List[str]] = None) -> int:
++    parser = argparse.ArgumentParser(description='Run automated repair/quarantine policy for execution mirrors.')
++    parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
++    parser.add_argument('--journal-dsn', default=os.getenv('EXECUTION_JOURNAL_DSN', ''))
++    parser.add_argument('--ledger-dsn', default=os.getenv('EXECUTION_QUARANTINE_LEDGER_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')))
++    parser.add_argument('--state-prefix', default=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'))
++    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', 'orders:exec'))
++    parser.add_argument('--stream-count', type=int, default=int(os.getenv('EXEC_CONSISTENCY_STREAM_COUNT', '20000')))
++    parser.add_argument('--max-auto-repair-critical', type=int, default=int(os.getenv('EXEC_AUTO_REPAIR_MAX_CRITICAL', '25')))
++    parser.add_argument('--quarantine-min-severity', default=os.getenv('EXEC_QUARANTINE_MIN_SEVERITY', 'critical'))
++    parser.add_argument('--dry-run', action='store_true')
++    args = parser.parse_args(argv)
++    if not args.journal_dsn:
++        raise SystemExit('EXECUTION_JOURNAL_DSN/--journal-dsn is required')
++    print(json.dumps(run_policy(
++        redis_url=args.redis_url,
++        journal_dsn=args.journal_dsn,
++        state_prefix=args.state_prefix,
++        exec_stream=args.exec_stream,
++        stream_count=args.stream_count,
++        max_auto_repair_critical=args.max_auto_repair_critical,
++        quarantine_min_severity=args.quarantine_min_severity,
++        dry_run=args.dry_run,
++        ledger_dsn=args.ledger_dsn,
++    ), ensure_ascii=False, indent=2, sort_keys=True))
++    return 0
++
++
++if __name__ == '__main__':  # pragma: no cover
++    raise SystemExit(main())
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p7/scripts/quarantine_inconsistent_sid.py p8/scripts/quarantine_inconsistent_sid.py
+--- p7/scripts/quarantine_inconsistent_sid.py	2026-03-06 20:42:51.000000000 +0000
++++ p8/scripts/quarantine_inconsistent_sid.py	2026-03-06 21:02:45.123333194 +0000
+@@ -22,6 +22,15 @@
+ 
+ import check_execution_consistency as consistency
+ 
++try:
++    from binance_execution.quarantine_ledger import QuarantineLedgerSink
++except Exception:
++    try:
++        from quarantine_ledger import QuarantineLedgerSink  # type: ignore
++    except Exception:  # pragma: no cover
++        QuarantineLedgerSink = None  # type: ignore
++
++
+ 
+ def _s(v: Any) -> str:
+     return '' if v is None else str(v)
+@@ -44,7 +53,7 @@
+     return out
+ 
+ 
+-def quarantine_sid(redis_client: Any, sid: str, *, state_prefix: str, quarantine_prefix: str, reason: str, source: str = 'consistency_checker', dry_run: bool = False) -> Dict[str, Any]:
++def quarantine_sid(redis_client: Any, sid: str, *, state_prefix: str, quarantine_prefix: str, reason: str, severity: str = 'critical', source: str = 'consistency_checker', dry_run: bool = False, ledger: Any = None) -> Dict[str, Any]:
+     now_ms = int(time.time() * 1000)
+     state_key = f'{state_prefix}{sid}'
+     quarantine_key = f'{quarantine_prefix}{sid}'
+@@ -62,9 +71,11 @@
+     state_doc['quarantine_source'] = source
+     result = {
+         'sid': sid,
++        'symbol': _s(state_doc.get('symbol')),
+         'state_key': state_key,
+         'quarantine_key': quarantine_key,
+         'reason': reason,
++        'severity': severity,
+         'applied': not dry_run,
+     }
+     if dry_run:
+@@ -75,6 +86,20 @@
+     pipe.sadd(f'{quarantine_prefix}sids', sid)
+     pipe.xadd(f'{quarantine_prefix}events', {'sid': sid, 'reason': reason, 'ts_ms': now_ms, 'source': source}, maxlen=10000, approximate=True)
+     pipe.execute()
++    if ledger is not None:
++        ledger.record_quarantine_event({
++            'sid': sid,
++            'symbol': _s(state_doc.get('symbol')),
++            'action': 'QUARANTINED',
++            'severity': severity,
++            'reason': reason,
++            'source': source,
++            'quarantine_key': quarantine_key,
++            'applied': True,
++            'state': state_doc,
++            'event_ts_ms': now_ms,
++            'created_at_ms': now_ms,
++        })
+     return result
+ 
+ 
+@@ -87,6 +112,7 @@
+     parser.add_argument('--stream-count', type=int, default=int(os.getenv('EXEC_CONSISTENCY_STREAM_COUNT', '20000')))
+     parser.add_argument('--quarantine-prefix', default=os.getenv('ORDERS_QUARANTINE_PREFIX', 'orders:quarantine:state:'))
+     parser.add_argument('--severity', default=os.getenv('EXEC_QUARANTINE_MIN_SEVERITY', 'critical'))
++    parser.add_argument('--ledger-dsn', default=os.getenv('EXECUTION_QUARANTINE_LEDGER_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')))
+     parser.add_argument('--dry-run', action='store_true')
+     args = parser.parse_args(argv)
+ 
+@@ -105,6 +131,7 @@
+ 
+     import redis  # type: ignore
+     redis_client = redis.from_url(args.redis_url, decode_responses=True)
++    ledger = QuarantineLedgerSink(dsn=args.ledger_dsn) if QuarantineLedgerSink and args.ledger_dsn else None
+     results = [
+         quarantine_sid(
+             redis_client,
+@@ -112,7 +139,9 @@
+             state_prefix=args.state_prefix,
+             quarantine_prefix=args.quarantine_prefix,
+             reason=item['reason'],
++            severity=str(item.get('severity') or args.severity),
+             dry_run=args.dry_run,
++            ledger=ledger,
+         )
+         for item in targets
+     ]
+diff -ruN '--exclude=__pycache__' '--exclude=.pytest_cache' p7/scripts/repair_execution_inconsistencies.py p8/scripts/repair_execution_inconsistencies.py
+--- p7/scripts/repair_execution_inconsistencies.py	2026-03-06 20:42:07.000000000 +0000
++++ p8/scripts/repair_execution_inconsistencies.py	2026-03-06 21:03:55.029129951 +0000
+@@ -31,6 +31,14 @@
+ 
+ import check_execution_consistency as consistency
+ 
++try:
++    from binance_execution.quarantine_ledger import QuarantineLedgerSink
++except Exception:
++    try:
++        from quarantine_ledger import QuarantineLedgerSink  # type: ignore
++    except Exception:  # pragma: no cover
++        QuarantineLedgerSink = None  # type: ignore
++
+ 
+ PROTECTION_FIELDS = (
+     'sl_algo_id',
+@@ -203,7 +211,7 @@
+         return counters
+ 
+ 
+-def run_repair(*, redis_url: str, journal_dsn: str, state_prefix: str, exec_stream: str, stream_count: int, dry_run: bool = False) -> Dict[str, Any]:
++def run_repair(*, redis_url: str, journal_dsn: str, state_prefix: str, exec_stream: str, stream_count: int, dry_run: bool = False, ledger_dsn: str = '') -> Dict[str, Any]:
+     redis_client = consistency._connect_redis() if redis_url == os.getenv('REDIS_URL', 'redis://localhost:6379/0') else __import__('redis').from_url(redis_url, decode_responses=True)
+     reader = consistency.RedisExecutionReader(redis_client, state_prefix, exec_stream)
+     redis_state = {sid: doc for sid, doc in reader.iter_state()}
+@@ -228,6 +236,16 @@
+         writer = SQLRepairWriter(sql_conn)
+         result['counters'] = writer.apply(plan)
+         result['applied'] = True
++    if ledger_dsn and QuarantineLedgerSink is not None:
++        now_ms = int(time.time() * 1000)
++        QuarantineLedgerSink(dsn=ledger_dsn).record_repair_run({
++            'run_kind': 'manual_repair',
++            'source': 'repair_execution_inconsistencies',
++            'status': 'dry_run' if dry_run else 'applied',
++            'summary': result,
++            'started_at_ms': int(result.get('checked_at_ms') or now_ms),
++            'finished_at_ms': now_ms,
++        })
+     return result
+ 
+ 
+@@ -239,6 +257,7 @@
+     parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', 'orders:exec'))
+     parser.add_argument('--stream-count', type=int, default=int(os.getenv('EXEC_CONSISTENCY_STREAM_COUNT', '20000')))
+     parser.add_argument('--dry-run', action='store_true')
++    parser.add_argument('--ledger-dsn', default=os.getenv('EXECUTION_QUARANTINE_LEDGER_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')))
+     args = parser.parse_args(argv)
+ 
+     if not args.journal_dsn:
+@@ -251,6 +270,7 @@
+         exec_stream=args.exec_stream,
+         stream_count=args.stream_count,
+         dry_run=args.dry_run,
++        ledger_dsn=args.ledger_dsn,
+     )
+     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+     return 0

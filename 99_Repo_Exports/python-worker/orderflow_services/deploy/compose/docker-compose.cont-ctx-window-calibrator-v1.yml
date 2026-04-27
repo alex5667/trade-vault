@@ -1,0 +1,48 @@
+services:
+  cont-ctx-window-calibrator-v1:
+    image: ${TRADE_ORDERFLOW_IMAGE:?}
+    working_dir: /app
+    env_file:
+      - ${TRADE_REPO_ROOT:?}/config/crypto-of-common.env
+    environment:
+      PYTHONPATH: /app
+      REDIS_URL: ${REDIS_URL:?}
+      CONT_CTX_CALIB_MODE: ${CONT_CTX_CALIB_MODE:-RECOMMEND}
+      CONT_CTX_CALIB_CAPTURE_STREAM: ${CONT_CTX_CALIB_CAPTURE_STREAM:-stream:ofc:cont_ctx_capture}
+      CONT_CTX_CALIB_SHADOW_STREAM: ${CONT_CTX_CALIB_SHADOW_STREAM:-stream:ofc:cont_ctx_shadow_signals}
+      TRADES_CLOSED_STREAM: ${TRADES_CLOSED_STREAM:-trades:closed}
+      CONT_CTX_CALIB_BASELINE_MS: ${CONT_CTX_CALIB_BASELINE_MS:-120000}
+      CONT_CTX_CALIB_WINDOWS_MS: ${CONT_CTX_CALIB_WINDOWS_MS:-120000,150000,180000,210000,240000}
+      CONT_CTX_CALIB_MIN_MS: ${CONT_CTX_CALIB_MIN_MS:-90000}
+      CONT_CTX_CALIB_MAX_MS: ${CONT_CTX_CALIB_MAX_MS:-240000}
+      CONT_CTX_CALIB_MAX_STEP_MS: ${CONT_CTX_CALIB_MAX_STEP_MS:-30000}
+      CONT_CTX_CALIB_LOOKBACK_HOURS: ${CONT_CTX_CALIB_LOOKBACK_HOURS:-72}
+      CONT_CTX_CALIB_MIN_SAMPLE: ${CONT_CTX_CALIB_MIN_SAMPLE:-40}
+      CONT_CTX_CALIB_MIN_RESCUED: ${CONT_CTX_CALIB_MIN_RESCUED:-20}
+      CONT_CTX_CALIB_CONFIDENCE_MIN: ${CONT_CTX_CALIB_CONFIDENCE_MIN:-0.80}
+      CONT_CTX_CALIB_EXPECTANCY_MIN_R: ${CONT_CTX_CALIB_EXPECTANCY_MIN_R:-0.02}
+      CONT_CTX_CALIB_FALSE_BREAKOUT_MAX: ${CONT_CTX_CALIB_FALSE_BREAKOUT_MAX:-0.22}
+      CONT_CTX_CALIB_EXEC_P95_NORM_MAX: ${CONT_CTX_CALIB_EXEC_P95_NORM_MAX:-0.75}
+      CONT_CTX_CALIB_EXEC_P95_DELTA_MAX: ${CONT_CTX_CALIB_EXEC_P95_DELTA_MAX:-0.05}
+      CONT_CTX_CALIB_COOLDOWN_SEC: ${CONT_CTX_CALIB_COOLDOWN_SEC:-21600}
+      CONT_CTX_CALIB_SHADOW_ENABLE: ${CONT_CTX_CALIB_SHADOW_ENABLE:-1}
+      CONT_CTX_CALIB_METRICS_PORT: ${CONT_CTX_CALIB_METRICS_PORT:-9137}
+    volumes:
+      - ${TRADE_REPO_ROOT:?}/python-worker:/app:ro
+    networks:
+      - scanner-core
+      - scanner-infra
+      - scanner-network
+    restart: unless-stopped
+    command:
+      - python3
+      - -m
+      - orderflow_services.cont_ctx_window_calibrator_v1
+
+networks:
+  scanner-core:
+    external: true
+  scanner-infra:
+    external: true
+  scanner-network:
+    external: true

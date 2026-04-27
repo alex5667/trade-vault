@@ -1,0 +1,186 @@
+# Makefile для TP1 Trailing System
+# Быстрые команды для работы с системой трейлинга
+
+.PHONY: help start stop logs status test-create test-tp1 test-tp2 test-sl stats health profiles clean
+
+# Цвета для красивого вывода
+GREEN := \033[0;32m
+YELLOW := \033[0;33m
+NC := \033[0m # No Color
+
+help: ## Показать это меню помощи
+	@echo "$(GREEN)TP1 Trailing System - Available Commands:$(NC)"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(YELLOW)%-20s$(NC) %s\n", $$1, $$2}'
+
+start: ## Запустить TP Event Listener
+	@echo "$(GREEN)Starting TP Event Listener...$(NC)"
+	docker-compose -f docker-compose.yml -f docker-compose.tp-trailing.yml up -d tp-event-listener
+	@echo "$(GREEN)✅ Service started$(NC)"
+	@make status
+
+stop: ## Остановить TP Event Listener
+	@echo "$(YELLOW)Stopping TP Event Listener...$(NC)"
+	docker-compose -f docker-compose.yml -f docker-compose.tp-trailing.yml stop tp-event-listener
+	@echo "$(GREEN)✅ Service stopped$(NC)"
+
+restart: ## Перезапустить сервис
+	@make stop
+	@sleep 2
+	@make start
+
+logs: ## Показать логи сервиса
+	docker logs -f scanner-tp-event-listener
+
+logs-tail: ## Показать последние 100 строк логов
+	docker logs --tail 100 scanner-tp-event-listener
+
+status: ## Проверить статус сервиса
+	@echo "$(GREEN)Service Status:$(NC)"
+	@docker ps | grep tp-event-listener || echo "$(YELLOW)⚠️  Service not running$(NC)"
+
+health: ## Проверить health check
+	@echo "$(GREEN)Health Check:$(NC)"
+	@docker exec scanner-tp-event-listener python -c "\
+from services.tp_event_listener import TPEventListener; \
+import json; \
+listener = TPEventListener(); \
+health = listener.health_check(); \
+print(json.dumps(health, indent=2))" || echo "$(YELLOW)⚠️  Service not responding$(NC)"
+
+stats: ## Показать статистику
+	@echo "$(GREEN)Listener Statistics:$(NC)"
+	@docker exec scanner-tp-event-listener python -c "\
+from services.tp_event_listener import TPEventListener; \
+listener = TPEventListener(); \
+listener._log_stats()"
+
+profiles: ## Показать доступные профили трейлинга
+	@echo "$(GREEN)Available Trailing Profiles:$(NC)"
+	@docker exec scanner-tp-event-listener python -c "\
+from services.trailing_profiles import TrailingProfilesRegistry; \
+registry = TrailingProfilesRegistry(); \
+for name in registry.list_names(): \
+    profile = registry.get(name); \
+    print(f'{name:20} mode={profile.mode:6} atr_mult={profile.atr_mult:.2f} - {profile.comment}')"
+
+test-create: ## Создать тестовый сигнал
+	@echo "$(GREEN)Creating test signal...$(NC)"
+	@python3 -c "\
+import redis, json, time; \
+r = redis.from_url('redis://localhost:6379/0', decode_responses=True); \
+signal = { \
+    'sid': 'test-signal-$(shell date +%s)', \
+    'symbol': 'XAUUSD', \
+    'side': 'LONG', \
+    'entry': 2765.5, \
+    'sl': 2758.7, \
+    'tp_levels': [2769.9, 2773.1, 2776.3], \
+    'lot': 0.03, \
+    'trail_after_tp1': True, \
+    'trail_profile': 'rocket_v1', \
+    'source': 'test', \
+    'ts': int(time.time() * 1000) \
+}; \
+r.set(f'signals:{signal[\"sid\"]}', json.dumps(signal), ex=3600); \
+print(f'✅ Test signal created: {signal[\"sid\"]}'); \
+print(f'   Use: make test-tp1 SID={signal[\"sid\"]}')"
+
+test-tp1: ## Эмитировать TP1 событие (требует SID=...)
+	@echo "$(GREEN)Emitting TP1_HIT event for $(SID)...$(NC)"
+	@python3 -m python-worker.services.tp_event_emulator --sid $(SID) --scenario tp1_only
+	@sleep 2
+	@make logs-tail
+
+test-tp2: ## Эмитировать TP1→TP2 сценарий (требует SID=...)
+	@echo "$(GREEN)Emitting TP1→TP2 scenario for $(SID)...$(NC)"
+	@python3 -m python-worker.services.tp_event_emulator --sid $(SID) --scenario tp1_then_tp2
+	@sleep 2
+	@make logs-tail
+
+test-sl: ## Эмитировать TP1→SL сценарий (требует SID=...)
+	@echo "$(YELLOW)Emitting TP1→SL scenario for $(SID)...$(NC)"
+	@python3 -m python-worker.services.tp_event_emulator --sid $(SID) --scenario tp1_then_sl
+	@sleep 2
+	@make logs-tail
+
+redis-stream: ## Показать события в Redis stream
+	@echo "$(GREEN)Events Stream (events:trades):$(NC)"
+	@redis-cli XLEN events:trades
+	@redis-cli XREAD COUNT 10 STREAMS events:trades 0
+
+redis-groups: ## Показать consumer groups
+	@echo "$(GREEN)Consumer Groups:$(NC)"
+	@redis-cli XINFO GROUPS events:trades
+
+redis-pending: ## Показать pending messages
+	@echo "$(GREEN)Pending Messages:$(NC)"
+	@redis-cli XPENDING events:trades tp1-trailing-group
+
+redis-profiles: ## Показать профили из Redis
+	@echo "$(GREEN)Profiles in Redis:$(NC)"
+	@redis-cli GET trailing:profiles | jq .
+
+clean-stream: ## Очистить events stream (⚠️  ОСТОРОЖНО!)
+	@echo "$(YELLOW)⚠️  This will delete all events in events:trades stream!$(NC)"
+	@read -p "Are you sure? [y/N] " -n 1 -r; \
+	echo; \
+	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
+		redis-cli DEL events:trades; \
+		echo "$(GREEN)✅ Stream cleaned$(NC)"; \
+	else \
+		echo "$(YELLOW)Cancelled$(NC)"; \
+	fi
+
+clean-pending: ## Удалить pending messages из consumer group
+	@echo "$(GREEN)Claiming pending messages...$(NC)"
+	@docker exec scanner-tp-event-listener python -c "\
+import redis; \
+r = redis.from_url('redis://scanner-redis:6379/0', decode_responses=True); \
+pending = r.xpending('events:trades', 'tp1-trailing-group', count=100); \
+for msg in pending: \
+    r.xack('events:trades', 'tp1-trailing-group', msg['message_id']); \
+print('✅ Pending messages cleared')"
+
+build: ## Пересобрать Docker образ
+	@echo "$(GREEN)Rebuilding Docker image...$(NC)"
+	docker-compose -f docker-compose.yml -f docker-compose.tp-trailing.yml build tp-event-listener
+
+rebuild: build start ## Пересобрать и запустить
+
+shell: ## Открыть shell в контейнере
+	docker exec -it scanner-tp-event-listener bash
+
+python-shell: ## Открыть Python REPL в контейнере
+	docker exec -it scanner-tp-event-listener python
+
+config: ## Показать конфигурацию
+	@echo "$(GREEN)Configuration:$(NC)"
+	@cat python-worker/config/trailing_config.json | jq .
+
+docs: ## Открыть документацию
+	@echo "$(GREEN)Documentation:$(NC)"
+	@echo "  📖 Quick Start: TP1_TRAILING_QUICKSTART.md"
+	@echo "  📖 Full Docs:   documentation/ticks/TP1_TRAILING_SYSTEM.md"
+	@echo "  📖 Config:      python-worker/config/trailing_config.json"
+
+integration-test: ## Полный интеграционный тест
+	@echo "$(GREEN)Running integration test...$(NC)"
+	@echo "1. Creating test signal..."
+	@$(MAKE) test-create
+	@sleep 2
+	@echo "2. Getting last signal ID..."
+	@SID=$$(redis-cli --raw KEYS 'signals:test-signal-*' | tail -1 | cut -d: -f2-); \
+	echo "   Signal ID: $$SID"; \
+	echo "3. Emitting TP1 event..."; \
+	$(MAKE) test-tp1 SID=$$SID; \
+	sleep 3; \
+	echo "4. Checking stats..."; \
+	$(MAKE) stats; \
+	echo "$(GREEN)✅ Integration test complete$(NC)"
+
+# Алиасы для удобства
+up: start
+down: stop
+log: logs
+st: status
+

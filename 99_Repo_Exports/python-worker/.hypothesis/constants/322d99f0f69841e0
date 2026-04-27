@@ -1,0 +1,4 @@
+# file: /home/alex/front/trade/scanner_infra/python-worker/handlers/crypto_orderflow/utils/cost_edge_compat.py
+# hypothesis_version: 6.148.10
+
+[256, '0', '1', 'VETO_EDGE_COST', 'VETO_EDGE_THIN_COST', 'apply', 'ev_bps', 'expected_move_bps', 'fees_bps', 'k', 'notes', 'on', 'p_hit_tp1', 'p_min', 'reason_code', 'slippage_bps', 'stop_bps', 'threshold_bps', 'tp1_bps', 'true', 'veto', 'veto_notes', 'veto_reason', 'veto_reason_code', 'yes']
